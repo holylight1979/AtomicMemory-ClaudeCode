@@ -1171,9 +1171,12 @@ def _kfile(proj, name):
 def test_untreed_knowledge_write_hints_once_per_turn_and_is_adopted_by_new_tree(env):
     proj = env["proj"]
     assert ng.stamp_edit(SID, _kfile(proj, "a.py"), "", 2, {}) is None     # 程式檔沒樹：不記（改之前 edit_gate 已擋）
-    (proj / "src").mkdir()
-    assert ng.stamp_edit(SID, str(proj / "src"), "", 2, {}) is None        # 目錄（git mv 的來源或目的）分不出：不算
-    assert ng.stamp_edit(SID, str(proj / "gone.md"), "", 2, {}) is None    # 寫完不在（搬走、刪掉）：不算
+    _kfile(proj, "pkg/b.py")
+    assert ng.stamp_edit(SID, str(proj / "pkg"), "", 2, {}) is None        # 搬過去的目錄裡有程式（git mv src pkg）：不算
+    assert ng.stamp_edit(SID, str(proj / "src"), "", 2, {}) is None        # 搬走的目錄（沒副檔名又不在）分不出：不算
+    assert ng.stamp_edit(SID, str(proj / "gone.py"), "", 2, {}) is None    # 刪掉的程式檔：不算
+    (proj / "_AIDocs").mkdir()                                             # 專案根標記：執行期資料目錄相對專案根判
+    assert ng.stamp_edit(SID, _kfile(proj, "Logs/run.jsonl"), "", 2, {}) is None   # 執行期資料（RUNTIME_DATA_NO_OVERVIEW）
     assert not ng.goal_path(SID).exists()
     line = ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 2, {})
     assert line and "notes.md" in line and "need_goal(action=set" in line and "不擋寫檔" in line
@@ -1189,6 +1192,28 @@ def test_untreed_knowledge_write_hints_once_per_turn_and_is_adopted_by_new_tree(
     assert ng.stamp_edit(SID, _kfile(proj, "more.md"), "", 3, {}) is None  # 有樹：照常記進樹、不再送
 
 
+def test_untreed_counts_deleted_docs_and_moved_doc_dirs(env):
+    """沒樹時刪掉文件、搬文件目錄也是知識類的工作（Codex BLOCK 2）：已不在但副檔名不是程式的檔、裡面沒有程式的目錄都算。"""
+    proj = env["proj"]
+    assert ng.stamp_edit(SID, str(proj / "old.md"), "", 2, {})              # rm old.md 之後
+    _kfile(proj, "old-docs/a.md")
+    assert ng.stamp_edit(SID, str(proj / "old-docs"), "", 2, {}) is None    # mv docs old-docs（同回合不重送）
+    assert [Path(e["path"]).name for e in _doc()["untreed"]] == ["old.md", "old-docs"]
+
+
+def test_untreed_overflow_drops_oldest_with_signal(env, monkeypatch):
+    """超過上限丟最舊的要留訊號（Codex BLOCK 3）：計數進目標檔、守門紀錄有一筆、session 結束的帳把丟的也算進去。"""
+    import wg_need_goal_points as ngp
+    monkeypatch.setattr(ng, "UNTREED_MAX", 2)
+    proj = env["proj"]
+    for name in ("a.md", "b.md", "c.md"):
+        ng.stamp_edit(SID, _kfile(proj, name), "", 2, {})
+    d = _doc()
+    assert [Path(e["path"]).name for e in d["untreed"]] == ["b.md", "c.md"] and d["untreed_dropped"] == 1
+    assert any(p.get("event") == "untreed_dropped" for g, p in env["guard"] if g == "need_goal")
+    assert ngp.silent_unreconciled(SID, 3)[-1]["files"] == 3
+
+
 def test_import_adopts_untreed_knowledge_writes(env):
     proj = _code_tree(env)
     block = ng.handoff_block(SID)
@@ -1196,6 +1221,38 @@ def test_import_adopts_untreed_knowledge_writes(env):
     ng.import_handoff("sess-k", block, str(proj / "next-phase-k.md"), 1)
     t = ng.active_tree(ng.load("sess-k"))
     assert [Path(e["path"]).name for e in t["edits"]] == ["notes.md"] and "untreed" not in ng.load("sess-k")
+
+
+def test_multi_tree_import_adopts_untreed_into_the_continued_tree(env):
+    """續接單有兩棵、接續的是第二棵：沒樹時改的檔掛到接續的那一棵，不看匯入順序（Codex BLOCK 1）。"""
+    proj = env["proj"]
+    _op("set", goal="A")
+    _op("set", goal="B", new_task=True, turn=2)
+    block = ng.handoff_block(SID)
+    assert ng.stamp_edit("sess-m", _kfile(proj, "notes.md"), "", 1, {})
+    res = ng.import_handoff("sess-m", block, str(proj / "next-phase-m.md"), 1)
+    d = ng.load("sess-m")
+    active = d["trees"][d["active"]]
+    assert res["map"]["T2"] == d["active"] and [Path(e["path"]).name for e in active["edits"]] == ["notes.md"]
+    assert all(not t["edits"] for tid, t in d["trees"].items() if tid != d["active"])
+
+
+def test_knowledge_edit_after_closed_reconcile_reopens_and_old_tree_still_owes(env):
+    """知識類樹全部達成（結束）之後又改文件 → 退回進行中；換題開新樹後，舊樹對照後的改動交付時照樣要對照、session 結束照樣記帳
+    （Codex BLOCK 4）。"""
+    import wg_need_goal_points as ngp
+    proj = env["proj"]
+    _op("set", goal="整併說明", turn=2)
+    ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 2, {})
+    assert _op("reconcile", turn=2, cwd=str(proj), items=[
+        {"id": "T1", "status": "done", "evidence": [{"kind": "file", "ref": "notes.md", "level": "read"}]}])["ok"]
+    assert _tree()["status"] == "closed"
+    ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})
+    assert _tree()["status"] == "doing"
+    _op("set", goal="別的事", new_task=True, turn=3)
+    r = ng.knowledge_gate_reason(SID, True, {}, 3, 3)
+    assert r and "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in r and "T1" in r and "notes.md" in r
+    assert "T1" in [x["tree"] for x in ngp.silent_unreconciled(SID, 3)]
 
 
 def test_knowledge_gate_f4_light_tree_and_reconcile_at_delivery(env):
@@ -1253,6 +1310,21 @@ def test_stop_f4_blocks_twice_then_releases_with_overflow_not_asking(env, monkey
     assert all("(f4)" in o and "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" in o for o in outs[:2])
     assert "(f4)" not in outs[2] and state["reconcile_overflow"][SID]["kind"] == "report"   # 第 3 次放行並記帳
     assert pending_of(state, SID, "reconcile") is None                      # 不走擋滿問使用者
+
+
+def test_stop_report_budget_not_eaten_by_code_rule_counts(env, monkeypatch, capsys):
+    """同一使用者回合寫碼規則 (f1) 先擋過兩次，之後只剩收尾報告那一份 (f4) → 照擋，不因 (f1) 的次數直接放行
+    （Codex WARN：BLOCK_BUDGET_PER_RULE 每條規則各自計次）。"""
+    ng.stamp_edit(SID, _kfile(env["proj"], "notes.md"), "", 3, {})
+    state = {"turn_seq": 3, "turn_prompts_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": [],
+             "reconcile_gate_turn": {SID: {"turn": 3, "counts": {"f1": 2}, "count": 2}}}
+    _stop_env(env, monkeypatch, state)
+    try:
+        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+    except SystemExit:
+        pass
+    out = capsys.readouterr().out
+    assert "(f4)" in out and not state.get("reconcile_overflow")
 
 
 def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):

@@ -1391,15 +1391,16 @@ def knowledge_light_tree_verdict(untreed: Sequence[str]) -> Verdict:
     return Verdict(rule, True, f"本回合改了 {len(untreed)} 個記憶知識類的檔，但還沒有需求目標樹", tuple(untreed[:5]))
 
 
-def knowledge_reconcile_verdict(kind: Optional[str], edited: Sequence[str]) -> Verdict:
-    """KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：kind＝目前的樹類別（沒有樹 None）；edited＝最後一次對得上目標版本的完整對照之後
-    改過的檔（沒對照過或對照已作廢＝這棵樹全部改檔）。只在交付邊界問。"""
+def knowledge_reconcile_verdict(kind: Optional[str], edited: Sequence[str], tree_id: str = "") -> Verdict:
+    """KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：kind＝這棵樹的類別（沒有樹 None）；edited＝最後一次對得上目標版本的完整對照之後
+    改過的檔（沒對照過或對照已作廢＝這棵樹全部改檔）；tree_id 只用來寫進訊息。只在交付邊界問。"""
     rule = "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"
+    name = f"記憶知識類的樹{(' ' + tree_id) if tree_id else ''}"
     if kind != "knowledge":
-        return Verdict(rule, False, "目前的樹是寫碼類，交付前的完整對照歸 (f2)" if kind else "沒有目標樹")
+        return Verdict(rule, False, "這棵樹是寫碼類，交付前的完整對照歸 (f2)" if kind else "沒有目標樹")
     if not edited:
-        return Verdict(rule, False, "記憶知識類的樹在最後一次完整對照之後沒有改檔")
-    return Verdict(rule, True, f"記憶知識類的樹在最後一次完整對照之後改了 {len(edited)} 個檔，還沒交收尾對照", tuple(edited[:5]))
+        return Verdict(rule, False, f"{name}在最後一次完整對照之後沒有改檔")
+    return Verdict(rule, True, f"{name}在最後一次完整對照之後改了 {len(edited)} 個檔，還沒交收尾對照", tuple(edited[:5]))
 
 
 _CJK ="㐀-鿿豈-﫿"

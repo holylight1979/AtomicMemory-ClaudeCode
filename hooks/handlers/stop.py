@@ -1231,7 +1231,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _code = None
         if _code or _report:
             # 規則 BLOCK_BUDGET_PER_RULE：預算每條規則（擋訊息的字母）各自計次，同一條擋滿 max 才算擋滿；
-            # 舊格式紀錄（整場一個 count）不承接。_count＝本回合各條的最大值（(e) overflow 與 log 沿用）
+            # 舊格式紀錄（整場一個 count）不承接。_count＝本回合各條的最大值（log 沿用）
             _budget = state.setdefault("reconcile_gate_turn", {})
             _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
             _letters = parse_hits(_code or "") or (["*"] if _code else [])
@@ -1266,8 +1266,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 })
                 print(f"[Guardian:ReconcileGate] 使用者放行這一回合（{_how}），記 user_release", file=sys.stderr)
                 _code = None
-            if not _code and _report and _count >= _max:
-                # 只剩 (e)：照 97128e5 的行為，第 3 次放行並記 reconcile_overflow（健檢 red）
+            # 收尾報告那一份（(e)、(f4)，記憶與報告類）只數自己的「e」：寫碼規則先擋過幾次不吃掉它的次數（BLOCK_BUDGET_PER_RULE）
+            _report_full = bool(budget_exhausted(_rec, _uturn, _max, ["e"]))
+            if not _code and _report and _report_full:
+                # 只剩收尾報告那一份：照 97128e5 的行為，第 3 次放行並記 reconcile_overflow（健檢 red）
                 state.setdefault("reconcile_overflow", {})[session_id] = {
                     "turn": turn_seq, "at": _now_iso(), "kind": "report", "reason": _report[:300],
                 }
@@ -1275,10 +1277,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                     "session_id": session_id, "turn_seq": turn_seq, "kind": "report", "count": _count,
                     "reason": _report[:300],
                 })
-                print(f"[Guardian:ReconcileGate] 本回合已擋 {_count} 次（收尾報告欄），這次放行但記 reconcile_overflow（健檢列 red）",
+                print(f"[Guardian:ReconcileGate] 收尾報告那一份本回合已擋滿 {_max} 次，這次放行但記 reconcile_overflow（健檢列 red）",
                       file=sys.stderr)
                 write_state(session_id, state)
-            elif not _code and not (_report and _count < _max):
+            elif not _code and not (_report and not _report_full):
                 write_state(session_id, state)
             else:
                 _budget[session_id] = budget_tick(_rec, _uturn, _letters or (["e"] if _report else []))

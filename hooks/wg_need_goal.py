@@ -98,7 +98,7 @@ KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 s
                        "用 need_goal(action=set, goal=…) 寫下這次真正要達成什麼（一句、用使用者的話、只寫目標不寫手段；一個節點就夠，"
                        "不要求定位行），沒樹時改的檔會自動掛進樹；做完用 need_goal(action=reconcile) 對照（例如該保留的內容都還在嗎）。"
                        "這一步不擋寫檔；收尾時還沒寫樹或沒對照會被要求補交（記憶知識類，不問使用者）。")
-UNTREED_MAX = 20             # 沒樹時改的記憶知識類檔最多記幾個（同一檔只記一筆）
+UNTREED_MAX = 200            # 沒樹時改的記憶知識類檔最多記幾個（同一檔只記一筆；超過丟最舊的並記 untreed_dropped）
 
 
 class NeedGoalLockTimeout(RuntimeError):
@@ -1288,14 +1288,14 @@ def _hub_part_of(path: str, config: Optional[Dict[str, Any]]) -> Optional[Tuple[
 
 def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[Dict[str, Any]]) -> Optional[str]:
     """改檔蓋號：掛到部位連到的節點（沒有就樹根）；程式檔記待對照、記改到的部位（parts_edited，收尾 (f3) 查它掛了目標沒）、
-    樹升寫碼類、已對照或結束的樹退回進行中。沒有樹：程式檔不記（改之前 edit_gate 已擋）；寫完還在、不是程式的檔案才算
-    記憶知識類寫入（目錄、搬走或刪掉的路徑分不出是不是程式，不算），記進 untreed（寫樹時掛進新樹），這個回合第一筆回
-    KNOWLEDGE_TREE_LINE 給呼叫端送回 AI。其餘回 None。"""
+    樹升寫碼類、已對照或結束的樹退回進行中（記憶知識類的樹改了知識類檔也退回）。沒有樹：程式檔不記（改之前 edit_gate 已擋）；
+    算記憶知識類寫入的（_knowledge_write）記進 untreed（寫樹時掛進新樹），這個回合第一筆回 KNOWLEDGE_TREE_LINE 給呼叫端送回 AI。
+    其餘回 None。"""
     if not sid or not path or not cfg_of(config, _root_of(path))["enabled"]:
         return None
     code = is_code_path(path, config)
     if active_tree(load(sid)) is None:
-        return None if code or not os.path.isfile(path) else _note_untreed(sid, path, turn)
+        return _note_untreed(sid, path, turn) if not code and _knowledge_write(path, config) else None
     hub_key = _hub_key_of(path)
     part = _hub_part_of(path, config) if code else None
 
@@ -1326,10 +1326,26 @@ def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[D
         if code:
             tree.setdefault("node_last_edit", {})[node] = {"seq": seq, "path": str(path)}
             tree["kind"] = "code"
-            if tree.get("status") in ("reconciled", "closed"):
-                tree["status"] = "doing"
+        if (code or tree.get("kind") != "code") and tree.get("status") in ("reconciled", "closed"):
+            tree["status"] = "doing"             # 對照之後又改了：回到進行中，交付前要再對照（知識類由 (f4) 要）
     update_locked(sid, fn)
     return None
+
+
+def _knowledge_write(path: str, config: Optional[Dict[str, Any]]) -> bool:
+    """沒樹時這筆寫入算不算記憶知識類（都是查得到的事實）：還在的檔不是程式；還在的目錄裡沒有程式檔（搬過去的目的地，
+    往下找的上限同 _has_code）；已經不在的路徑有副檔名、而且副檔名不是程式（刪掉或搬走的文件）。沒副檔名又不在的
+    （搬走或刪掉的目錄、無副檔名腳本）分不出，不算；執行期資料（Logs、workflow/state*、快取目錄，規則 RUNTIME_DATA_NO_OVERVIEW，
+    這裡不查 .gitignore、不叫 git）不算。"""
+    p = str(path)
+    root = _root_of(p)
+    if not rr.runtime_data_verdict(p, str(root) if root else None, None).owed:
+        return False
+    if os.path.isdir(p):
+        return not _has_code(p, config)
+    if os.path.isfile(p):
+        return not is_code_path(p, config)
+    return bool(Path(p).suffix) and not is_code_path(p, config)
 
 
 def _note_untreed(sid: Any, path: str, turn: int) -> Optional[str]:
@@ -1345,7 +1361,11 @@ def _note_untreed(sid: Any, path: str, turn: int) -> Optional[str]:
             hit.update(seq=seq, turn=turn)
         else:
             log.append({"seq": seq, "turn": turn, "path": str(path)})
+        dropped = [str(e.get("path")) for e in log[:-UNTREED_MAX]]
+        if dropped:                              # 超過上限丟最舊的，丟的要留訊號（守門紀錄＋計數），不靜默
             del log[:-UNTREED_MAX]
+            doc["untreed_dropped"] = int(doc.get("untreed_dropped") or 0) + len(dropped)
+            _guard("untreed_dropped", sid, dropped=dropped[:5], total=doc["untreed_dropped"], turn_seq=turn)
         if doc.get("untreed_hint_turn") == turn:
             return None
         doc["untreed_hint_turn"] = turn
@@ -1560,7 +1580,8 @@ def knowledge_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, 
                           since: Optional[int] = None) -> Optional[str]:
     """回合結束的記憶知識類輕樹 (f4)：屬記憶與報告類，呼叫端併進收尾報告那一份（擋滿第 3 次放行並記 reconcile_overflow，
     不問使用者）。KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE 不看措辭：本使用者回合（since～turn_seq）沒樹時改了記憶知識類的檔；
-    KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY 只在交付邊界（triggered）：目前的知識類樹最後一次完整對照之後還有改檔。只給主 session 用。"""
+    KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY 只在交付邊界（triggered）：每棵沒結束的知識類樹（換題後的舊樹也算）最後一次完整對照之後
+    還有改檔。只給主 session 用。"""
     if not sid:
         return None
     doc = load(sid)
@@ -1574,11 +1595,15 @@ def knowledge_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, 
     if v.owed:
         hits.append(rr.format_hit("f4", v) + "\n    → need_goal(action=set, goal=…) 寫一棵輕樹（一個節點即可，用使用者的話、"
                     "只寫目標），剛改的檔會自動掛進去；交付前再 reconcile。")
-    v = rr.knowledge_reconcile_verdict(tree.get("kind") if tree else None, _edited_since_reconcile(tree) if tree else [])
-    if triggered and v.owed:
-        hits.append(rr.format_hit("f4", v) + "\n    → need_goal(action=reconcile, items=[每個還活著的節點：{id, status, evidence?, "
-                    "followup?, note?}])：記憶知識類的「達成」不要求案例或收據，可指到改過的檔（kind=file、level=read）；"
-                    "推論最多標部分。是另一件新需求就 need_goal(action=set, new_task=true) 開新樹。")
+    for tid in _tree_ids(doc) if triggered else []:
+        t = doc["trees"][tid]
+        if t.get("status") == "closed":
+            continue
+        v = rr.knowledge_reconcile_verdict(t.get("kind"), _edited_since_reconcile(t), tid)
+        if v.owed:
+            hits.append(rr.format_hit("f4", v) + f"\n    → need_goal(action=reconcile, items=[{tid} 每個還活著的節點：{{id, status, "
+                        "evidence?, followup?, note?}])：記憶知識類的「達成」不要求案例或收據，可指到改過的檔（kind=file、"
+                        "level=read）；推論最多標部分。這些改動屬另一件新需求，就先 need_goal(action=set, new_task=true) 開新樹。")
     if not hits:
         return None
     _guard("gate_f4", sid, tree=doc.get("active"), turn_seq=turn_seq, hits=len(hits))
@@ -1724,7 +1749,6 @@ def _import_tree(doc: Dict[str, Any], t: Dict[str, Any], src_session: Any, path:
                           "map": {k: _remap(k, old, new) for k in (t.get("nodes") or {})}},
         "checkpoints": [], "nodes": nodes,
     }
-    _adopt_untreed(doc, doc["trees"][new])
     return new
 
 
@@ -1758,6 +1782,7 @@ def import_handoff(sid: Any, text: str, path: str, turn: int) -> Dict[str, Any]:
             return {"imported": [], "map": {}, "skipped": "續接單裡沒有未結束的樹"}
         new_ids = list(mapping.values())
         doc["active"] = mapping.get(str(data.get("active") or ""), new_ids[-1])
+        _adopt_untreed(doc, doc["trees"][doc["active"]])     # 沒樹時改的知識類檔掛進接續的那一棵（不看匯入順序）
         doc.setdefault("imports", []).append({"path": norm, "sha": sha, "at": wg_core._now_iso(), "trees": new_ids})
         return {"imported": new_ids, "map": mapping, "skipped": None, "text": render(active_tree(doc), "full", doc=doc)}
 

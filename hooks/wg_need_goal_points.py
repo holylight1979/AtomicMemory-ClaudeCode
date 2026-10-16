@@ -802,7 +802,7 @@ def silent_unreconciled(sid: Any, turn: Optional[int] = None) -> List[Dict[str, 
         out.append(rec)
     untreed = [e for e in (doc or {}).get("untreed") or [] if isinstance(e, dict)]
     if untreed:
-        rec = {"tree": None, "kind": "knowledge", "files": len(untreed),
+        rec = {"tree": None, "kind": "knowledge", "files": len(untreed) + int((doc or {}).get("untreed_dropped") or 0),
                "paths": [str(e.get("path")) for e in untreed[:5]], "why": "沒樹改了記憶知識類的檔"}
         _guard("silent_unreconciled", sid, turn, **rec)
         out.append(rec)
