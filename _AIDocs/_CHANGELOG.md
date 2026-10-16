@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-16 HUD 改版第 2 階段：卡片白話三段、報告不進聊天、紅燈精準、刪 (c) 欄
+- 原設計者要求 HUD「精準確實不雞肋、不丟人看不懂的技術鬼話」、報告任何理由都不進聊天。HUD 卡片改成燈號＋一句話（✅ 可以關了／🟡 有事要你決定／🔴 疑似偷懶（待核對））→ 要你處理 → 這輪做了什麼 → 記住了／之後要追，欄位字母收進「細節」；HUD 開不起來時 Stop 不再把報告貼回聊天、只印一行報告檔位置；MCP 回條一行，推後判定只留 Python 一份。紅燈精準：退避軟偵測加 context 豁免（規則 EVASION_CONTEXT_EXEMPT，四件都有證據才豁免、判不出照標），詞表不再把「範圍外的測試」「新 session 才會載入」當退避。刪 (c) Token 警示欄（與 85% 預警重複）；(d) 可寫「見收割報告」但要本回合真的交過核對過的收割報告。彈窗時機使用者選維持現況。
+- **同類修正**：報告檔存的是 j_evidence_path／k_followups，HUD 一直讀 j／k，證據路徑與追蹤項從沒顯示過；兩種名字都認。案例 `hooks/verify/verify_hud_stage2.py`。
+
 ## 2026-10-16 HUD 改版第 1b 階段：收尾時 AI 先自己清掉用完的東西、全機殘留一頁清、開場快照補抓
 - 原設計者指出：要提醒 AI 才會刪用完的工作分支，還得另開 session 大清理。Stop 加收尾自清閘（規則 LEFTOVER_NEEDS_CLEANUP，判定在 `hooks/wg_release_rules.py`）：宣告完成時本 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 每回合擋一次，列刪除指令；要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；別的開著的 session 正在用的不列。HUD 加「全機殘留」分頁（`tools/session-artifacts.py list --all`、每組「清掉不用再確認的」走 `act --all-safe`）；SessionStart 記 git 開場快照，Stop 比對補抓 python 腳本裡開的工作樹與分支（標來源不明、不進自清閘）。
 - **同類修正**：帳本路徑鍵改用 realpath——系統暫存區是 8.3 短檔名、AI 常用長檔名寫，abspath 比不上，真帳本約 63 項暫存檔被當成「專案外」。實測真帳本 54 個 session 1003 樣還在（暫存區 991 樣，不會隨 session 關閉被清）。案例 `hooks/verify/verify_session_artifacts.py`、`verify_release_rules.py`。
