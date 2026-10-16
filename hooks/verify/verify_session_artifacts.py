@@ -359,6 +359,44 @@ def test_status_facts_and_cleanup_candidates(wdir):
     assert got == {("worktree", "wt"), ("branch", "feat"), ("branch", "idle"), ("repo", "scratch-repo"), ("dir", "probe_dir")}
 
 
+def test_cleanup_facts_only_query_git_for_possible_candidates(wdir, monkeypatch):
+    """帳越長收尾越慢（同伴 session 回報）：收尾自清閘只為可能成為候選的那幾筆查 git——暫存區檔、專案裡的檔
+    （未進版控、已提交、gitignore）、遠端分支一律不跑 ls-files／check-ignore；選出來的候選和完整查法（list_alive）一樣。"""
+    repo = make_repo(wdir / "r")
+    (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    tmp = wdir / "systemp"; tmp.mkdir()
+    for i in range(6):
+        for f in (repo / f"new{i}.py", repo / f"run{i}.log", tmp / f"s{i}.txt", repo / f"done{i}.py"):
+            f.write_text("x", encoding="utf-8")
+            L.record_tool_artifacts(_SID, "Write", {"file_path": str(f)}, str(repo))
+    git(repo, "add", "."); git(repo, "commit", "-q", "-m", "done")   # done*.py、new*.py 進了版控＝正式產出
+    (repo / "fresh.py").write_text("x", encoding="utf-8")
+    L.record_tool_artifacts(_SID, "Write", {"file_path": str(repo / "fresh.py")}, str(repo))
+    out = wdir / "outside" / "probe_dir"; out.mkdir(parents=True)
+    L.ledger_append(_SID, [{"kind": "dir", "path": str(out), "source": "bash", "cwd": str(wdir)}])
+    git(repo, "branch", "merged1")
+    L.record_tool_artifacts(_SID, "Bash", {"command": "git branch merged1"}, str(repo))
+    L.ledger_append(_SID, [{"kind": "remote_branch", "path": str(repo), "repo": str(repo), "remote": "origin",
+                            "name": "merged1", "source": "bash"}])
+
+    cmds: list = []
+    real_run = subprocess.run
+
+    def counting_run(cmd, *a, **k):
+        cmds.append(" ".join(map(str, cmd)))
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(L.subprocess, "run", counting_run)
+    full = rr.leftover_candidates(L.list_alive(_SID))
+    assert sum(("ls-files" in c or "check-ignore" in c) for c in cmds) >= 6, "前置：完整查法確實逐筆跑 git"
+    cmds.clear()
+    facts = L.cleanup_facts(_SID)
+    assert not [c for c in cmds if "ls-files" in c or "check-ignore" in c], cmds
+    assert len(cmds) <= 5, cmds
+    assert {c["key"] for c in rr.leftover_candidates(facts)} == {c["key"] for c in full}
+    assert {_tail(c["title"]) for c in full} == {"probe_dir", "merged1"}
+
+
 def test_declared_keep_reasons_take_items_out_of_cleanup(wdir):
     """AI 在 (i) 寫理由＝說要留：路徑照寫、分支寫 `branch:<名> — 理由`；帳上沒有的分支拒收並說原因；使用者按保留也算。"""
     repo = make_repo(wdir / "r")

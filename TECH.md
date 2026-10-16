@@ -230,7 +230,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->441 atoms：core 205 + feedback 74 + 失敗模式 2 + local 160〔Tools19/MemDev130/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->442 atoms：core 205 + feedback 75 + 失敗模式 2 + local 160〔Tools19/MemDev130/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -301,7 +301,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->441<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->442<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -524,7 +524,7 @@ sequenceDiagram
 | Evasion 偵測／DeferralGate | 退避詞命中（軟糾正）；主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
 | KnowledgeHarvest | 宣告完成 ∧ 有實質活動 ∧ 冷卻已過（§6.3 階段收割；`wg_harvest.harvest_gate_reason`） | 要求先 `atom_write`／`atom_retire` 再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）；**不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`） |
 | Harvest-Pending | 本 session 收割回報有 item 對不上 receipt（`knowledge_harvest[sid].pending` 非空） | 每 turn 擋一次：真做完或改 `action=skip` 附 reason 再重報 |
-| Cleanup（收尾自清） | 宣告完成，本 session 帳上有建立紀錄、還在、沒說要留的工作樹／已合併分支（被列出的工作樹用著的也算）／能刪的臨時 repo／專案外檔案資料夾（規則 LEFTOVER_NEEDS_CLEANUP；事實 `aec_ledger.list_alive` 現場查）。不列：沒合併的分支、暫存區、專案裡未進版控的新檔、gitignore 的、遠端分支、別的開著的 session 正在用的、開場快照比對出來（來源不明）的；「說要留」＝HUD 按過保留或 (i) 寫過理由 | 列每一項與刪除指令（`session-artifacts.py act --sid … --key …`，結果寫回帳本），要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；**不增 `stop_blocked_count`**、每 turn 一次（`cleanup_gate_turn[sid]`） |
+| Cleanup（收尾自清） | 宣告完成，本 session 帳上有建立紀錄、還在、沒說要留的工作樹／已合併分支（被列出的工作樹用著的也算）／能刪的臨時 repo／專案外檔案資料夾（規則 LEFTOVER_NEEDS_CLEANUP；事實 `aec_ledger.cleanup_facts` 現場查，只為可能成為候選的幾筆跑 git，帳再長收尾也不變慢）。不列：沒合併的分支、暫存區、專案裡未進版控的新檔、gitignore 的、遠端分支、別的開著的 session 正在用的、開場快照比對出來（來源不明）的；「說要留」＝HUD 按過保留或 (i) 寫過理由 | 列每一項與刪除指令（`session-artifacts.py act --sid … --key …`，結果寫回帳本），要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；**不增 `stop_blocked_count`**、每 turn 一次（`cleanup_gate_turn[sid]`） |
 | ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交十一欄收尾檢核 (a)–(k) |
 | AEC-Pending | 本回合 emit 的報告 (d) 有「尚未寫／見下一動」或 (h)「下一動＝寫 atom」；本 turn 已 validated 收割時 (d) 不再判 | 每 turn 擋一次：先 atom_write 再重新 emit（記憶寫入不得留給下一回合） |
 | HUD fallback | HUD 不可達且本回合 emit 為 notable/real-evasion | 不 block；收尾檢核改回 chat 呈現（可觀測性鐵律） |
@@ -693,7 +693,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | CASE_DECL_WELL_FORMED | 案例宣告收件 | `case_for` 掛在點得到案例檔的項目、列的每個路徑是程式檔而且存在或本 session 改過（搬走的舊路徑也還欠著，要能宣告）；`no_case` 每筆同樣的路徑加非空理由；同一個檔沒有兩邊都列 | 掛在資料夾、整體驗證或產品檔那一項，列了不存在又沒改過、或不是程式的檔，同檔兩邊都列 → 整份退回 |
 | SCOPE_ITEM_RECEIPT_AFTER_EDIT | 範圍內每一項有沒有跑過 | 有一筆收據跑了這一項、綠、晚於每個要宣告改檔的最後一次修改、同一棵樹、指令可信；或背景跑的自寫收據改完才開始、全綠、環境沒縮範圍、涵蓋這一項 | 沒跑、跑在改動之前、跑紅、只跑一部分、換目錄、環境縮範圍、白名單外語法、寫了哨兵字樣、別棵樹；擋訊息說最近那筆為什麼不算 |
 | RELOAD_ADVICE_ALREADY_LOADED | 收尾叫使用者 Reload Window（每回合擋一次） | 收尾文字沒叫重載；AI 寫明「重載原因：…」（程式更新以外的理由，例如改了 MCP 啟動設定）；列不出正在跑的服務程序、讀不到磁碟版本；有在跑的服務沒有啟動紀錄（加這功能前啟動的舊版、別的視窗還沒重載）或心跳過期（睡眠後、寫不了紀錄）；有任何一個服務還在跑舊程式 | 這個 session 的每個工具服務程序（沿程序樹找到收尾閘所屬的 claude 程序，取它底下跑 workflow-guardian-mcp/server.js 的 node 程序；每個 session 各有自己的服務，找不到所屬 claude 程序才看全機）都有啟動紀錄、心跳 3 分鐘內、載入的程式版本都不舊於磁碟上的版本 → 擋一次，說明不必叫使用者重載、別的理由就寫「重載原因：…」。紀錄是每個 MCP 服務啟動時寫的 `workflow/mcp-boot/<pid>.json`（載入版本＝server.js 與 lib/*.js 最新修改時間，每分鐘更新心跳、正常結束時刪檔）；程序已不在的紀錄不算。不靠 session 名稱（Claude Code 沒寫進文件的命名行為）。列程序約 1 秒，只在收尾文字提到重載時做 |
-| LEFTOVER_NEEDS_CLEANUP | 收尾自清（每回合擋一次） | 沒宣告完成；帳上的東西是沒合併的分支、主工作樹用著的分支、暫存區檔、專案裡未進版控的新檔、gitignore 的、遠端分支、別的開著的 session 正在用的、HUD 按過保留的、(i)（舊格式 (d)）寫過理由的、開場快照比對出來的 | 宣告完成且帳上還有本 session 建的工作樹、已合併分支（能刪，或被列出的工作樹用著）、能刪的臨時 repo、專案外能刪的檔案資料夾 → 擋一次，列每一項與 `session-artifacts.py act` 刪除指令、教 (i) 的 `branch:<名> — 理由` 寫法。事實（where／merged／used_by／busy）由 `aec_ledger.list_alive` 現場查，只在宣告完成時查 |
+| LEFTOVER_NEEDS_CLEANUP | 收尾自清（每回合擋一次） | 沒宣告完成；帳上的東西是沒合併的分支、主工作樹用著的分支、暫存區檔、專案裡未進版控的新檔、gitignore 的、遠端分支、別的開著的 session 正在用的、HUD 按過保留的、(i)（舊格式 (d)）寫過理由的、開場快照比對出來的 | 宣告完成且帳上還有本 session 建的工作樹、已合併分支（能刪，或被列出的工作樹用著）、能刪的臨時 repo、專案外能刪的檔案資料夾 → 擋一次，列每一項與 `session-artifacts.py act` 刪除指令、教 (i) 的 `branch:<名> — 理由` 寫法。事實（where／merged／used_by／busy）由 `aec_ledger.cleanup_facts` 現場查，只在宣告完成時查、只查可能成為候選的幾筆（暫存區與版控根底下的檔案資料夾、遠端分支不跑 git） |
 | SCOPE_LEAK_OUTSIDE_SCOPE | 範圍漏判（只記錄） | 紅的測試在範圍內（退化不是漏判）；它從沒綠過；那次宣告不是在它上次綠之後、這次紅之前結案；它是看到紅的 session 在它上次綠之後新寫或改過、還沒結案的案例（比上次綠那時的 git 版本：沒有這個案例或定義不同；算它進行中的工作，告訴它、紅照樣進紅測清單；只改同檔別的案例、判不出照記） | 以上都不成立 → 記一筆疑似漏判，連回那次宣告。看到紅的 session 自己還有沒結案的改動也照記，但標出來，檢討時先查明是不是它自己造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化） |
 | SCOPE_LEAK_REVIEW_BEFORE_DECLARE | 先檢討再宣告 | 該 repo 沒有待檢討的漏判；或宣告附的 reviews 逐筆交了：missed 有 root_cause 與 next_time、unrelated 有 reason | 有一筆沒交、missed 沒寫根因或下次怎麼改、unrelated 沒寫理由、verdict 不是兩種之一 → 整份宣告退回 |
 

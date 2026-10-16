@@ -1742,7 +1742,7 @@ def case_for_change_verdict(name: str, checks: Sequence[Tuple[str, str]], no_cas
                     "真的不需要新案例就加 no_case: [{path, reason}]，再照【收尾放行確認】問使用者",))
 
 
-# ─── 收尾自清：本 session 建的東西用完要清（事實由 handlers/aec_ledger.list_alive 現場查，閘在 handlers/stop.py） ───
+# ─── 收尾自清：本 session 建的東西用完要清（事實由 handlers/aec_ledger.cleanup_facts 現場查，閘在 handlers/stop.py） ───
 RULES.update({
     "LEFTOVER_NEEDS_CLEANUP": "宣告完成時，本 session 帳上有建立紀錄的（開場快照比對出來、來源不明的不算）、還在、沒說要留的這些東西 → "
                               "每個使用者回合擋一次，列每一項與刪除指令：刪掉，或在收尾檢核 (i) 寫一行理由（路徑照寫，分支寫 "
@@ -1755,7 +1755,7 @@ RULES.update({
 
 
 def leftover_candidates(items: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """LEFTOVER_NEEDS_CLEANUP：帳上還在的東西（aec_ledger.list_alive 的列）→ 該由 AI 收尾清掉或寫理由的那些，順序照原列。
+    """LEFTOVER_NEEDS_CLEANUP：帳上還在的東西（aec_ledger.cleanup_facts／list_alive 的列）→ 該由 AI 收尾清掉或寫理由的那些，順序照原列。
     吃結構化事實：kind、where（檔案資料夾在哪：temp／ignored／untracked／outside）、merged、used_by（用著這個分支的工作樹）、
     busy（別的開著的 session 正在用）、can_delete、decision、note、source。"""
     def kept(it: Dict[str, Any]) -> bool:

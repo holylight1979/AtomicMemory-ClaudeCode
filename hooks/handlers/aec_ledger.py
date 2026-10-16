@@ -15,7 +15,8 @@ remote_branch（推上遠端的分支）、repo（git init／clone 出來的臨�
 帳本只記「進過帳」的東西；「還在不在、能不能刪」不記——由 artifact_status 當下查檔案系統與 git
 （權威在那裡，不信模型自報）。檔案進了版控＝正式產出，自動掉出清單。不做 TTL：帳上有、還在 → HUD 一直列到被處置。
 刪除由 delete_artifact 當場執行（HUD 按鈕 → Node → tools/session-artifacts.py），不經模型、不等下一則訊息。
-收尾自清：Stop 的 LEFTOVER_NEEDS_CLEANUP 閘（判定在 wg_release_rules）吃 list_alive 的結構化事實，擋訊息由 cleanup_block_message 組。
+收尾自清：Stop 的 LEFTOVER_NEEDS_CLEANUP 閘（判定在 wg_release_rules）吃 cleanup_facts 的結構化事實（只為可能成為候選的
+幾筆查 git，帳再長收尾也不變慢），擋訊息由 cleanup_block_message 組。
 全機殘留：list_all 掃全部帳本、依 session 分組、附 session 還開著沒有（state 檔最近更新時間）；別的開著的 session 正在用的
 資料夾（工作目錄在裡面、改過或讀過裡面的檔）標正在用、刪除要再確認。
 fail-open：記帳路徑上任何 I/O 例外都吞掉，不阻斷 hook。
@@ -815,10 +816,32 @@ ORIGIN_SNAPSHOT = "來源不明（開場之後才出現、這個 session 沒有�
 def list_alive(session_id: str, cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """HUD 與收尾自清閘用：這個 session 帳上還在的東西（含現場狀態、結構化事實、上次的保留／刪除結果），依類別排序。
     cache 可跨 session 共用（list_all：git 查詢依 repo 快取）；cache["sid"] 會設成這個 session。"""
+    return _alive_items(session_id, ledger_read(session_id), cache)
+
+
+def _may_be_leftover(rec: Dict[str, Any]) -> bool:
+    """可能成為收尾自清候選嗎（不跑 git 的粗篩；與 wg_release_rules.leftover_candidates 同步：檔案資料夾只收「專案外」、
+    遠端分支不收）。暫存區與任何版控根底下的檔案資料夾一律不是候選，判它們只需看資料夾、不必問 git。"""
+    kind = str(rec.get("kind") or "")
+    if kind in ("worktree", "branch", "repo"):
+        return True
+    if kind in _REF_KINDS:
+        return False
+    path = str(rec.get("path", "") or "")
+    return bool(path) and os.path.exists(path) and not is_under_tempdir(path) and not _vcs_root_kind(path)
+
+
+def cleanup_facts(session_id: str) -> List[Dict[str, Any]]:
+    """收尾自清閘的事實：只為可能成為候選的那幾筆查現場狀態（帳再長，收尾也只為工作樹、分支、臨時 repo、專案外檔案資料夾
+    跑 git），列的格式同 list_alive。"""
+    return _alive_items(session_id, [r for r in ledger_read(session_id) if _may_be_leftover(r)], None)
+
+
+def _alive_items(session_id: str, recs: List[Dict[str, Any]], cache: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     cache = {} if cache is None else cache
     cache["sid"] = session_id
     items: List[Dict[str, Any]] = []
-    for rec in ledger_read(session_id):
+    for rec in recs:
         st = artifact_status(rec, cache)
         if not st["alive"]:
             continue

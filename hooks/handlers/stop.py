@@ -1229,13 +1229,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _cleanup_memo: List[Any] = []
 
     def _cleanup_facts() -> List[Dict[str, Any]]:
-        """收尾自清閘的事實：宣告完成時才查帳上還在的東西（要問 git），一次 Stop 只查一次。查失敗照放行並浮 stderr。"""
+        """收尾自清閘的事實：宣告完成時才查，只查可能成為候選的那幾筆（要問 git），一次 Stop 只查一次。查失敗照放行並浮 stderr。"""
         if not _cleanup_memo:
             items: List[Dict[str, Any]] = []
             if last_text and claims_completion(last_text):
                 try:
                     if aec_ledger.ledger_path(session_id).exists():
-                        items = aec_ledger.list_alive(session_id)
+                        items = aec_ledger.cleanup_facts(session_id)
                 except Exception as e:  # noqa: BLE001
                     print(f"[Guardian:Cleanup] 查帳上的東西失敗，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
             _cleanup_memo.append(items)
@@ -1509,7 +1509,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── Cleanup Gate（收尾自清：規則 LEFTOVER_NEEDS_CLEANUP）─────────────
     # 宣告完成時，這個 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 擋一次，列刪除指令，
-    # 讓 AI 自己清（使用者原話：要提醒 LLM 才會刪用完的工作分支）。事實由 aec_ledger.list_alive 現場查、判定在
+    # 讓 AI 自己清（使用者原話：要提醒 LLM 才會刪用完的工作分支）。事實由 aec_ledger.cleanup_facts 現場查（只查可能成為候選的）、判定在
     # wg_release_rules；排在收尾檢核之前，AI 寫留的理由才進得了同一份 (i)。不吃 stop_gate_max_blocks、每個使用者回合最多擋一次
     # （cleanup_gate_turn[sid] 記 _uturn）。
     if (state.get("cleanup_gate_turn") or {}).get(session_id) != _uturn:
