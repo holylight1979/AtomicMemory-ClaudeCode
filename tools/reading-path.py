@@ -2164,11 +2164,24 @@ def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool, bro
     return {"entry": entry, "landing": landing, "status": status, "certain": certain, "before": b, "after": a}
 
 
+def rebase_spec(spec: str, root: Path) -> str:
+    """比較模式兩側的根是別的目錄：寫在 --root 底下的絕對路徑入口先換成相對 --root，兩側才都認得；--root 外的原樣留給下游報錯。"""
+    file_part, sep, qual = spec.replace("\\", "/").partition("::")
+    if not Path(file_part).is_absolute():
+        return spec
+    try:
+        return Path(file_part).resolve().relative_to(root.resolve()).as_posix() + sep + qual
+    except ValueError:
+        return spec
+
+
 def run_compare(root: Path, before: str, after: str | None, entry, to: str | None,
                 scope: str = "git", layers: dict | None = None) -> dict:
     """git rev 解出來的目錄就是那個版本的追蹤清單（git archive），再套與 git 清單相同的目錄排除，政策記 git；
     目錄或 --root 照 --scope。兩側政策不同（例如 --root 不在 git 裡退回 tree）→ 比較整份不可判定。
     兩側用同一個層次軸（檔的層號照真的 --root 換算）。entry_misses＝兩版都找不到的入口寫法（只有一版有的是新增／消失）。"""
+    entry = [rebase_spec(s, root) for s in entry_specs(entry)] or None
+    to = rebase_spec(to, root) if to else to
     with tempfile.TemporaryDirectory(prefix="reading-path-") as tmp:
         b_root = materialize(before, root, Path(tmp), "before")
         a_root = materialize(after, root, Path(tmp), "after") if after else root

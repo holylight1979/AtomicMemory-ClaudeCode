@@ -8,6 +8,8 @@
 - Created-at: 2026-10-12
 - Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-1beaf91fa2bd46b0405ba54af998ca0f" from-name="claude-b6" from-mode="bypass"> track-e 收到：停著、不動 worktree，等 011。 </cross-session-message>」
 
+- Related: 從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑
+
 ## 知識
 
 - [臨] 用 glob（fnmatch、`**/*test*`）判斷「這個檔是不是測試檔／某類檔」時，先把路徑轉成相對專案根的路徑再比。拿絕對路徑比，寬鬆樣式會比到專案根以外的上層目錄名（`C:\latest\…`、`D:\tests-env\…`），專案裡每個檔都被判成同一類。
