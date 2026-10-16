@@ -7,6 +7,7 @@
 - Created-at: 2026-10-15
 - Related: feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單
 - Source: session:8d787d66 2026-10-15
+- Quote: 「GO」
 
 ## 知識
 
