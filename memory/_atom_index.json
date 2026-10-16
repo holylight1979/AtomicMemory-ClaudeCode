@@ -7312,6 +7312,35 @@
         "漏判率"
       ],
       "scope": "global"
+    },
+    {
+      "name": "git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用",
+      "path": "_AIDocs/_atoms/MemDev/git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用.md",
+      "triggers": [
+        "git_cassette",
+        "錄製重播",
+        "--git-record",
+        "測試建 repo 太慢",
+        "git 子程序測試",
+        "CassetteMismatch",
+        "WG_GIT_CASSETTE",
+        "cassettes"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "驗證範圍要的收據用明列檔名的單一pytest前景指令-for迴圈加變數或printf前綴與背景跑都不算",
+      "path": "_AIDocs/_atoms/MemDev/驗證範圍要的收據用明列檔名的單一pytest前景指令-for迴圈加變數或printf前綴與背景跑都不算.md",
+      "triggers": [
+        "驗證範圍收據",
+        "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
+        "無哨兵",
+        "收據不算",
+        "背景跑 pytest",
+        "for 迴圈跑測試",
+        "改完要重跑"
+      ],
+      "scope": "global"
     }
   ]
 }
