@@ -442,3 +442,4 @@
 | 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 | _AIDocs/_atoms/MemDev/工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑.md | verify_scope, 驗證範圍, SCOPE_ITEM_RECEIPT_AFTER_EDIT, 工作樹, worktree, _staging, 收據不算, 指令換目錄, 別棵樹 | global |  |
 | 共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存 | memory/版控/Git/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md | ff-only, 讓路, git apply --3way, 暫存區, 共用工作樹, 同伴合併, patch 收回, 未提交改動擋住合併 | global |  |
 | feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 | memory/Failures/驗證與實證/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md | 驗證閘設計, 反覆重跑, 測試檔納入驗證, 鬼打牆, 收尾空轉, 量具, 驗證範圍作廢 | global |  |
+| verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項 | _AIDocs/_atoms/MemDev/verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項.md | verify_scope, 驗證範圍宣告, 宣告沒存, 宣告沒回應, CASE_DECLARED_FOR_CHANGE, 還沒宣告由哪個案例驗, PostToolUse 逾時, need_goal 沒回應 | global |  |

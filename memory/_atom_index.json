@@ -7453,6 +7453,21 @@
         "驗證範圍作廢"
       ],
       "scope": "global"
+    },
+    {
+      "name": "verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項",
+      "path": "_AIDocs/_atoms/MemDev/verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項.md",
+      "triggers": [
+        "verify_scope",
+        "驗證範圍宣告",
+        "宣告沒存",
+        "宣告沒回應",
+        "CASE_DECLARED_FOR_CHANGE",
+        "還沒宣告由哪個案例驗",
+        "PostToolUse 逾時",
+        "need_goal 沒回應"
+      ],
+      "scope": "global"
     }
   ]
 }
