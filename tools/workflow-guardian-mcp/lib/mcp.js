@@ -290,7 +290,7 @@ const TOOL_DEFINITIONS = [
     name: "anti_evasion_report",
     description:
       "結構化提交收尾檢核 (a)–(k)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
-      "動 core 檔並宣告完成時由 Stop 閘要求。十一參都 required；未發生填「無」（(k) 不接受空字串）。" +
+      "動 core 檔並宣告完成時由 Stop 閘要求。十參都 required（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
       "順序：先把值得留的知識 atom_write 寫完、再呼叫本 tool——報告是收尾檢核不是待辦清單，" +
       "(d)「尚未寫／見下一動」或 (h)「下一動＝寫 atom」會被 Stop 擋回、要求補寫後重新提交。" +
       "本 tool 只回 chip、不寫 state（one-writer：state/持久化由 Python PostToolUse 獨佔）。",
@@ -299,8 +299,7 @@ const TOOL_DEFINITIONS = [
       properties: {
         a: { type: "string", description: "缺失發現與修補清單（`- 檔:行 — 改了什麼`）；無則「無」。必寫" },
         b: { type: "string", description: "AI 逃避通報（忽略/偷埋現象）；僅發生時填、否則「無」" },
-        c: { type: "string", description: "Token 累積警示（Auto-Handoff 預警則附接續 prompt）；僅發生時填、否則「無」" },
-        d: { type: "string", description: "記憶收錄帳：填之前先掃五個來源——①使用者指正/退回/重申的話（→ feedback）②重試≥2 次或查了才懂的機制/踩坑 ③外查來的事實（帶日期）④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的。逐項 `- <項目> → 已寫入 atom <名>`（atom_write 已完成）或 `- <項目> → 不寫（一句理由）`；判定不寫也要留痕。⛔ 不接受「尚未寫／待補／見下一動」——那是把記憶推給下一回合，會被拒收並擋 Stop；值得寫就在呼叫本 tool 之前寫完。無則「無」。必寫" },
+        d: { type: "string", description: "記憶收錄帳：填之前先掃五個來源——①使用者指正/退回/重申的話（→ feedback）②重試≥2 次或查了才懂的機制/踩坑 ③外查來的事實（帶日期）④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的。逐項 `- <項目> → 已寫入 atom <名>`（atom_write 已完成）或 `- <項目> → 不寫（一句理由）`；判定不寫也要留痕。⛔ 不接受「尚未寫／待補／見下一動」——那是把記憶推給下一回合，會被拒收並擋 Stop；值得寫就在呼叫本 tool 之前寫完。本回合已交過收割報告（knowledge_harvest_report）可只填「見收割報告」。無則「無」。必寫" },
         e: { type: "string", description: "未告知決策＋未驗證假設：擅自的取捨（默默選了方案、跳過步驟、動了請求之外的檔）與做事時依賴但未驗證的假設；使用者沒看執行過程就不會知道的事都算。無則「無」" },
         f: { type: "string", description: "靜默狀態改變：對話輸出沒交代的環境副作用——安裝套件、改 config、重啟服務、建排程/cron、仍在跑的背景程序或 agent。無則「無」" },
         g: { type: "string", description: "版控收尾：本 session 改動哪些已 commit（hash 一句）、哪些未上及理由（併發 session 進度／待拍板／隱私）。無改動則「無」" },
@@ -309,7 +308,7 @@ const TOOL_DEFINITIONS = [
         j_evidence_path: { type: "string", description: "證據持久路徑：本回合驗證收據的持久位置，一行一路徑（絕對路徑）。本 session 跑過哨兵驗證（Bash／PowerShell 輸出 `<NAME>_CHECK PASS|FAIL|DONE`）時填「無」或留空即可：系統自動帶入本 session 收據帳本的絕對路徑（帳本在資料根，不必自己找）；要另附驗證輸出檔／報告檔才填它們，填了就用你填的，Stop 對帳閘會查 exists()，不存在會擋。沒有收據填「無」。必寫" },
         k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端寫進 workflow/tracking/<slug>.jsonl；有部位的同時寫進該部位病灶文件）。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
       },
-      required: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"],
+      required: ["a", "b", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"],
     },
   },
   {

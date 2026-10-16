@@ -65,6 +65,12 @@ _FALLBACK_DEFERRAL_USER_OK_PATTERNS = [
     r"(?:下|新|另開|另一個)\s*(?:個|一個)?\s*session\s*(?:再|才|做|處理|弄)",
     r"留(?:到|給)\s*(?:下|新|之後)",
 ]
+_FALLBACK_CONTEXT_EXEMPT_PATTERNS = [
+    r"下\s*(?:個|一個|一)?\s*session",
+    r"(?:新|另開|另一個|後續|之後的?)\s*session",
+    r"(?:下次|下回|下一次|之後)\s*再",
+    r"next\s+session",
+]
 _FALLBACK_DISMISS_PATTERNS = [
     r"先這樣", r"留著", r"不用管", r"不要管", r"跳過", r"先跳過",
     r"known\s+regression", r"confirmed\s+regression",
@@ -157,6 +163,7 @@ def _extract_phrases(data: Dict[str, Any]) -> Dict[str, List[str]]:
                 if cat.get("id") == "deferral-attribution":
                     deferral.append(p)
     deferral_user_ok = list(data.get("deferral_user_ok", {}).get("patterns", []) or [])
+    context_exempt = list(data.get("context_exempt_deferral", {}).get("patterns", []) or [])
     dismiss = list(data.get("dismiss_keywords", {}).get("patterns", []) or [])
     scan_report = list(data.get("scan_report_markers", {}).get("patterns", []) or [])
     completion_claim = data.get("completion_claim", {}) or {}
@@ -172,6 +179,7 @@ def _extract_phrases(data: Dict[str, Any]) -> Dict[str, List[str]]:
         "completion_exclude": completion_exclude or _FALLBACK_COMPLETION_EXCLUDE,
         "deferral": deferral or _FALLBACK_DEFERRAL_PATTERNS,
         "deferral_user_ok": deferral_user_ok or _FALLBACK_DEFERRAL_USER_OK_PATTERNS,
+        "context_exempt": context_exempt or _FALLBACK_CONTEXT_EXEMPT_PATTERNS,
     }
     for kind, section, fb_pos, fb_neg in _CLAIM_KINDS:
         sec = data.get(section) or {}
@@ -210,6 +218,14 @@ _DEFERRAL_RE = _compile_union(
 _DEFERRAL_USER_OK_RE = _compile_union(
     _phrases.get("deferral_user_ok") or _FALLBACK_DEFERRAL_USER_OK_PATTERNS, re.IGNORECASE
 )
+_CONTEXT_EXEMPT_RE = _compile_union(
+    _phrases.get("context_exempt") or _FALLBACK_CONTEXT_EXEMPT_PATTERNS, re.IGNORECASE
+)
+
+
+def is_context_exempt_phrase(phrase: str) -> bool:
+    """命中的退避詞是不是可以靠 context 豁免的延後語（延後到下個／新 session、之後／下次再；規則 EVASION_CONTEXT_EXEMPT）。"""
+    return bool(phrase) and bool(_CONTEXT_EXEMPT_RE.search(phrase))
 
 
 def _claim_regexes(ph: Dict[str, List[str]]) -> Dict[str, Pattern]:
@@ -535,8 +551,8 @@ def crosscheck_aec_severity(
 
 
 # ─── AEC (d)/(h) pending 判定：把「記憶寫入」推到之後 ────────────────────────
-# MIRROR: tools/workflow-guardian-mcp/lib/anti-evasion.js AEC_PENDING_RE / AEC_DONE_RE /
-# AEC_H_ATOM_RE / aecPendingItems — keep in sync（parity test 在 verify_aec_emission_gate）。
+# 只有 Python 這一份：post_tool_use 落 report["d_pending"]、用 additionalContext 回告模型，Stop 的 AEC-Pending 閘讀它，
+# HUD 讀報告檔標紅；Node 的回條不再自己判。
 _AEC_PENDING_RE = re.compile(
     r"(?:尚未|還沒|還未|沒有|未)\s*(?:寫|記|落|建|補)"
     r"|待\s*(?:寫|補|記|落|建)"

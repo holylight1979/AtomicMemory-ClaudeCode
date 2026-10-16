@@ -136,6 +136,9 @@ function check(cond, label, detail) {
   // (d) 由哪個案例驗：case_for（項目）、no_case（頂層）只驗形狀
   check(ngDef && ngDef.inputSchema.properties.no_case && ngDef.inputSchema.properties.items.items.properties.case_for,
         "need_goal schema has case_for and no_case");
+  check(ngDef && ngDef.inputSchema.properties.items.items.properties.depends, "need_goal schema has depends");
+  const ngDep = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", depends: "b.py" }] });
+  check(ngDep.result.isError === true && /depends/.test(textOf(ngDep)), "need_goal verify_scope bad depends rejected", textOf(ngDep));
   const ng9b = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", case_for: [] }],
     no_case: [{ path: "b.py" }] });
   check(ng9b.result.isError === true && /case_for/.test(textOf(ng9b)) && /no_case\[0\]/.test(textOf(ng9b)),

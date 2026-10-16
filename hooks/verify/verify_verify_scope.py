@@ -407,6 +407,96 @@ def test_shared_case_edit_still_voids_every_item(proj, lookup, shared):
     assert reason and "的「hooks/verify/verify_y.py」" in reason, (shared, reason)
 
 
+# ─── 項目宣告依賴（SCOPE_EDIT_IN_DECLARED_DEPENDS）、一支紅不拖累同指令其他項目（SCOPE_RED_ONLY_ITS_CASES） ───
+
+_XY_RUN = "python -m pytest -q hooks/verify/verify_x.py hooks/verify/verify_y.py"
+
+
+def test_declared_depends_ignores_code_edits_outside_them(proj, lookup):
+    """verify_y 宣告 depends=[tools/t.py]：之後改 hooks/x.py 不作廢它；沒宣告的 verify_x 照舊被作廢、擋訊息提示可以宣告 depends。
+    配對：改 tools/t.py（依賴裡）照作廢 verify_y。舊碼不認 depends → verify_y 也被 x.py 作廢。"""
+    state = _state()
+    text = _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測 x.py"},
+                                  {"target": "hooks/verify/verify_y.py", "why": "只用 tools/t.py", "depends": ["tools/t.py"]}])
+    assert "收下" in text, text
+    runs = [_rcpt(proj, _X_RUN, T1, 3), _rcpt(proj, _Y_ONLY, T1, 4)]
+    mods = [_mf(proj / "hooks" / "x.py", T2, 5)]
+    reason, _ = _gates(state, mods, runs)
+    assert reason and "的「hooks/verify/verify_x.py」" in reason and "沒宣告 depends" in reason, reason   # 前置：真的有擋
+    assert "的「hooks/verify/verify_y.py」" not in reason, reason
+    reason, _ = _gates(state, mods + [_mf(proj / "tools" / "t.py", T2, 6)], runs)
+    assert reason and "的「hooks/verify/verify_y.py」" in reason, reason
+
+
+def test_declare_reply_lists_code_edits_outside_every_items_depends(proj, lookup):
+    """宣告回應：沒有任何一項的依賴涵蓋的程式改動，另列一行叫 AI 補進 depends；不跟「文件／資料不算進任何一項」混在一起。"""
+    state = _state()
+    state["modified_files"] = [_mf(proj / "hooks" / "x.py", T0, 1), _mf(proj / "_AIDocs" / "doc.md", T0, 2)]
+    text = _declare(state, proj, [{"target": "hooks/verify/verify_y.py", "why": "只用 tools/t.py", "depends": ["tools/t.py"]}])
+    code_line = next((ln for ln in text.splitlines() if "不在任何一項宣告的依賴裡" in ln), "")
+    assert "x.py" in code_line and "doc.md" not in code_line, text
+    assert not any("文件／資料" in ln and "x.py" in ln for ln in text.splitlines()), text
+
+
+def test_declared_depends_still_counts_conftest_and_must_exist(proj, lookup):
+    """宣告了 depends，conftest（共用測試設施）照作廢；依賴的路徑不存在、也不是本 session 改過的 → 整份退回。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_y.py", "why": "w", "depends": ["tools/t.py"]}])
+    conf = proj / "hooks" / "verify" / "conftest.py"
+    conf.write_text("import pytest\n", encoding="utf-8")
+    reason, _ = _gates(state, [_mf(conf, T2, 5)], [_rcpt(proj, _Y_ONLY, T1, 4)])
+    assert reason and "的「hooks/verify/verify_y.py」" in reason, reason
+    text = _declare(_state(), proj, [{"target": "hooks/verify/verify_y.py", "why": "w", "depends": ["tools/nope.py"]}])
+    assert "拒收" in text and "depends" in text, text
+
+
+def _red_rcpt(proj, cmd, at, seq, cases, known=True):
+    r = _rcpt(proj, cmd, at, seq, verdict="FAIL", exit_code=1)
+    r.update(red_cases=list(cases), red_known=known)
+    return r
+
+
+def test_red_case_only_reddens_its_own_item(proj, lookup):
+    """同一條指令跑 verify_x 與 verify_y，只有 verify_x::test_a 紅、紅案清單完整 → verify_y 那一項照算綠，verify_x 照擋。
+    配對：清單不完整（輸出被截）→ 兩項都算紅。舊碼整條算紅。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "w"}, {"target": "hooks/verify/verify_y.py", "why": "w"}])
+    mods = [_mf(proj / "hooks" / "x.py", T0, 1)]
+    reason, _ = _gates(state, mods, [_red_rcpt(proj, _XY_RUN, T1, 3, ["hooks/verify/verify_x.py::test_a"])])
+    assert reason and "的「hooks/verify/verify_x.py」" in reason, reason
+    assert "的「hooks/verify/verify_y.py」" not in reason, reason
+    reason, _ = _gates(state, mods, [_red_rcpt(proj, _XY_RUN, T1, 3, ["hooks/verify/verify_x.py::test_a"], known=False)])
+    assert "的「hooks/verify/verify_y.py」" in reason, reason
+
+
+def test_red_case_attribution_for_nodes_and_unresolvable_names(proj, lookup):
+    """測試節點項目：紅的是同檔另一個節點 → 這個節點照算綠；紅的就是它（或整檔收集錯誤）→ 紅。紅案對不到存在的檔
+    （pytest 的根不是執行目錄）→ 歸不了，照算紅。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py::test_b", "why": "w"}])
+    item = state["verify_scope"][_SID][-1]["items"][0]
+    mods = [_mf(proj / "hooks" / "x.py", T0, 1)]
+    ok = lambda cases: vl.scope_item_status(item, [_red_rcpt(proj, _X_RUN, T1, 3, cases)], mods)[0]
+    assert ok(["hooks/verify/verify_x.py::test_a"])
+    assert not ok(["hooks/verify/verify_x.py::test_b"])
+    assert not ok(["hooks/verify/verify_x.py"])
+    assert not ok(["verify/verify_x.py::test_a"])                                           # 對不到存在的檔
+
+
+def test_background_self_run_with_complete_failed_cases_counts_for_other_items(proj, lookup):
+    """背景自寫收據 failed_cases 筆數等於 failed、exit 1 → 紅案不在底下的項目照算；在底下的、筆數對不上的照算紅。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "w"}, {"target": "hooks/verify/verify_y.py", "why": "w"}])
+    x_item, y_item = state["verify_scope"][_SID][-1]["items"]
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+    run = {"source": "run_verify_self", "argv": ["python", "run_verify.py"], "cmd": "python run_verify.py", "exit_code": 1,
+           "cases": 10, "failed": 1, "failed_cases": ["hooks/verify/verify_x.py::test_a"], "project_root": str(proj),
+           "cwd": str(proj), "started_at": _LATER_Z, "at": _LATER_Z, "env": {}}
+    assert vl.scope_item_status(y_item, [], mods, [run])[0]
+    assert not vl.scope_item_status(x_item, [], mods, [run])[0]
+    assert not vl.scope_item_status(y_item, [], mods, [dict(run, failed=2)])[0]
+
+
 # ─── 量尺和其他驗證串在同一行跑：兩項都認（量尺的完成字樣由程式自己印，不再靠 echo） ─────────────────────
 
 _DOC_CHAIN = "python -X utf8 tools/sync_doc_counts.py --check && python -X utf8 tools/skill-index.py --check"

@@ -210,7 +210,8 @@ def driven(monkeypatch):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": ""}, {})
-        return capsys.readouterr().out, state, logged
+        cap = capsys.readouterr()
+        return cap.out + cap.err, state, logged   # HUD 開不起來的提示印在 stderr
 
     return drive
 
@@ -224,10 +225,10 @@ def test_stop_recheck_alive_suppresses_fallback(driven, capsys):
 
 
 def test_stop_recheck_dead_prints_reason(driven, capsys):
-    """Stop 再查仍死 → 印 fallback，訊息帶判死原因（不再只寫「心跳逾時」）。"""
+    """Stop 再查仍死 → 只印一行（帶判死原因與報告檔位置），不擋、不把報告內容貼回聊天（原設計者裁定）。"""
     out, state, logged = driven((False, {"reason": "URLError: refused", "age_s": None}), capsys)
-    assert "[Guardian:AEC] HUD 不可達（URLError: refused）" in out
-    assert "缺失修補" in out
+    assert "[Guardian:AEC] HUD 視窗開不起來（URLError: refused）" in out and "aec-report" in out
+    assert "缺失修補" not in out and '"decision": "block"' not in out
     assert any(g == "aec_hud" and p["where"] == "stop" and p["alive"] is False for g, p in logged)
 
 

@@ -7,7 +7,7 @@
       "label": "範圍推諉",
       "patterns": [
         "不在本[^，。\\s]{0,6}範圍",
-        "範圍外",
+        "範圍外(?!的?(?:測試|案例|項目|改檔|改動|文件|檔案))",
         "非本次",
         "非本次改動"
       ],
@@ -80,7 +80,7 @@
       "_doc": "Stop DeferralGate 專用（wg_evasion.detect_deferral）：主任務已完工且 context 用量 ≤ deferral_gate.max_context_ratio 時，收尾訊息把『帶受詞、可做的事』推給下個 session／歸為獨立議題／歸咎非我 → 擋回三選一。同時併入 evasion 聯集（軟標記）。",
       "patterns": [
         "下\\s*(?:個|一個|一)?\\s*session",
-        "(?:新|另開|另一個|後續|之後的?)\\s*session\\s*(?:才|再|做|處理|補|修)",
+        "(?:新|另開|另一個|後續|之後的?)\\s*session\\s*(?:才(?!(?:會|能)?\\s*(?:載入|生效|看得到|上線|換新|讀到))|再|做|處理|補|修)",
         "留(?:給|到)\\s*(?:下\\s*(?:個|一個|一)?\\s*session|新\\s*session|後續|之後|下(?:個|一個|次))",
         "待下\\s*(?:個|一個|次)?\\s*session",
         "不(?:是|在|屬於?)本\\s*(?:次|輪|案|回合|階段|計畫|任務|session)",
@@ -174,6 +174,15 @@
         "(?:中途|進行中)"
       ]
     }
+  },
+  "context_exempt_deferral": {
+    "_doc": "退避軟偵測的 context 豁免只認這一小組延後語（規則 EVASION_CONTEXT_EXEMPT，hooks/wg_release_rules.py）：延後到下個／新 session、之後／下次再。範圍推諉、前已存在、能力推諉等其他類命中一律不豁免。",
+    "patterns": [
+      "下\\s*(?:個|一個|一)?\\s*session",
+      "(?:新|另開|另一個|後續|之後的?)\\s*session",
+      "(?:下次|下回|下一次|之後)\\s*再",
+      "next\\s+session"
+    ]
   },
   "deferral_user_ok": {
     "_doc": "使用者近 3 則 prompt 含這些 → 視為使用者明示延後，DeferralGate 不擋（獨立於 dismiss_keywords；只認命令式延後語，避免使用者『質問為何要新開 session』被誤當放行）",

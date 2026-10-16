@@ -2421,6 +2421,35 @@ def _scope_green(receipt: Dict[str, Any]) -> bool:
     return not _temp_receipt(receipt) and ("PASS" in v or "DONE" in v) and not receipt_is_red(receipt)
 
 
+def _red_case_under(item: Dict[str, Any], case: str, base: str) -> bool:
+    """紅案（pytest 節點 id，相對 base）落在這一項底下嗎：檔案／資料夾項目看路徑包含；測試節點項目要同一檔，而且紅案就是那個節點、
+    在它底下（參數化、類別裡的方法），或紅案只寫到檔（整檔收集錯誤）。紅案對不到存在的檔（pytest 的根不是 base）→ 歸不了，當落在底下。"""
+    cf, _, cn = str(case).partition("::")
+    red_file = os.path.join(base, cf) if base and not os.path.isabs(cf) else cf
+    if not os.path.exists(red_file):
+        return True
+    tf, _, tn = str(item.get("abs") or "").partition("::")
+    if not tn:
+        return _under(red_file, tf)
+    if _norm_path(red_file) != _norm_path(tf):
+        return False
+    return not cn or cn == tn or cn.startswith(tn + "::") or cn.startswith(tn + "[")
+
+
+def _green_for_item(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
+    """規則 SCOPE_RED_ONLY_ITS_CASES：這筆收據對這一項算不算綠。整條綠就是綠；有紅時，紅案清單完整（red_known）、不是指令項目、
+    不是暫存目錄的收據、exit 是 0／1／沒記，而且沒有紅案落在這一項底下 → 對這一項照算綠。"""
+    if _scope_green(receipt):
+        return True
+    if (item.get("kind") == "cmd" or _temp_receipt(receipt) or not receipt.get("red_known")
+            or receipt.get("exit_code") not in (None, 0, 1)):
+        return False
+    t = run_targets(receipt)
+    if t is None:
+        return False
+    return not any(_red_case_under(item, c, t["base"]) for c in receipt.get("red_cases") or [])
+
+
 def _exec_dir(receipt: Dict[str, Any]) -> str:
     """收據實際從哪個目錄跑（開頭 `cd <絕對路徑> &&` 換過的算換過之後）。"""
     return _cwd_of(_trusted(receipt) or receipt)
@@ -2475,9 +2504,16 @@ def self_run_targets(run: Dict[str, Any]) -> List[str]:
 
 def _self_run_item_ok(item: Dict[str, Any], run: Dict[str, Any], mods: List[Dict[str, Any]]) -> bool:
     """背景跑的自寫收據算不算這一項：全綠（exit 0、failed=0）、記了環境且沒縮範圍、改完之後才開始跑、同一棵樹，
-    而且跑的是這一項（指令項目 argv 照原字串比；路徑項目在它點名的路徑之下，沒點名＝整棵樹）。不綁 session。"""
-    if not isinstance(run, dict) or run.get("exit_code") != 0 or str(run.get("failed")) != "0":
+    而且跑的是這一項（指令項目 argv 照原字串比；路徑項目在它點名的路徑之下，沒點名＝整棵樹）。不綁 session。
+    有紅時照 SCOPE_RED_ONLY_ITS_CASES：failed_cases 筆數等於 failed（清單完整）、exit 1、不是指令項目、沒有紅案落在這一項底下 → 照算。"""
+    if not isinstance(run, dict):
         return False
+    if run.get("exit_code") != 0 or str(run.get("failed")) != "0":
+        reds = [str(x) for x in run.get("failed_cases") or []]
+        complete = run.get("exit_code") == 1 and bool(reds) and str(run.get("failed")) == str(len(reds))
+        base = str(run.get("project_root") or run.get("cwd") or "")
+        if not complete or item.get("kind") == "cmd" or any(_red_case_under(item, c, base) for c in reds):
+            return False
     if not isinstance(run.get("env"), dict) or _self_receipt.scope_env(run["env"].items()):
         return False
     if not all(_receipt_after({"at": run.get("started_at") or ""}, (m.get("last_at") or m.get("at")) or None, None,
@@ -2526,7 +2562,7 @@ def scope_item_status(item: Dict[str, Any], receipts: Iterable[Dict[str, Any]],
     receipts = [r for r in receipts or [] if isinstance(r, dict)]
     hits = [r for r in receipts if _item_ran(item, r)]
     for r in hits:
-        if _scope_green(r) and all(_scope_after(r, m) for m in mods):
+        if _green_for_item(item, r) and all(_scope_after(r, m) for m in mods):
             return True, ""
     self_runs = [run for run in self_runs or [] if isinstance(run, dict)]
     if any(_self_run_item_ok(item, run, mods) for run in self_runs):
@@ -2551,9 +2587,11 @@ def scope_item_status(item: Dict[str, Any], receipts: Iterable[Dict[str, Any]],
         return False, ("沒有跑這一項的收據（只跑一部分如 -k、指令換目錄、環境縮範圍、白名單外語法、在別棵樹跑的都不算；"
                        "背景跑的要等它寫完自寫收據）" + (f"。{note}" if note else "") + env_note)
     last = hits[-1]
-    if not _scope_green(last):
+    if not _green_for_item(item, last):
         return False, f"最近一次跑紅（exit={last.get('exit_code')}，結論 {'、'.join(_verdicts(last)) or '無哨兵'}）" + env_note
     stale = next((m for m in mods if not _scope_after(last, m)), None)
     name = Path(str((stale or {}).get("path") or "")).name or "改檔"
-    return False, f"最近一次跑在最後一次改動（{name}）之前：改完要重跑" + env_note
+    hint = ("（這一項沒宣告 depends：任何程式改動都作廢它；宣告它用到的程式檔或資料夾，改到別的就不作廢）"
+            if "depends" not in item else "")
+    return False, f"最近一次跑在最後一次改動（{name}）之前：改完要重跑{hint}" + env_note
 

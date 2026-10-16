@@ -1685,3 +1685,9 @@ def test_leftover_needs_cleanup():
     rest = [it for it in items if it["title"] in ("topic", "onmain", "s.txt", "new.py", "busywt", "kept", "noted", "snap")]
     assert not rr.leftover_cleanup_verdict(True, rest).owed, "只剩不該列的 → 不擋"
     assert not rr.leftover_cleanup_verdict(True, []).owed
+
+
+def test_evasion_context_exempt_boundary():
+    """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
+    assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
+    assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed

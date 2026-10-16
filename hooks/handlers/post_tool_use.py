@@ -1168,7 +1168,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # session_id 用原始 input_data["session_id"]（與 modified_files 的 session_id 戳
         # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
         # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
-        _AEC_KEYS = ("a", "b", "c", "d", "e", "f", "g", "h", "i")
+        _AEC_KEYS = ("a", "b", "d", "e", "f", "g", "h", "i")   # (c) Token 警示欄已刪（與 85% 預警重複）；舊客戶端送來照收不存
         vals = {k: str(tool_input.get(k, "") or "") for k in _AEC_KEYS}
         # (j)(k)：鍵不存在＝舊格式呼叫（MCP 還沒載到新 schema），不寫進報告、Stop 也不拿它擋；明給空字串才擋
         for _k in ("j_evidence_path", "k_followups"):
@@ -1214,6 +1214,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 本 turn 已有 validated 收割 → (d) 的記憶收錄帳已由收割核對過，不再判 d_pending；(h) 照舊。
         hv_done = validated_this_turn(state, session_id, turn_seq)
         pending = aec_pending_items("" if hv_done else vals["d"], vals["h"])
+        # (d) 只寫「見收割報告」：本使用者回合要真的交過核對過的收割報告，否則這份記憶收錄帳等於沒寫
+        if not hv_done and re.match(r"^\s*見收割報告", vals["d"]):
+            pending.insert(0, "(d) 寫「見收割報告」，但本回合沒有核對過的收割報告（先呼叫 knowledge_harvest_report）")
         if pending:
             report["d_pending"] = pending
             aec_reject_msgs.append(

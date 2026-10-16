@@ -17,7 +17,7 @@ function render() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Anti-Evasion HUD</title>
+<title>收尾檢核</title>
 <style>
   :root {
     --plane: #0d1117; --surface-1: #161b22; --surface-2: #1c222b;
@@ -76,6 +76,12 @@ function render() {
   .tab.active { background: var(--surface-1); border-color: var(--border); color: var(--ink); }
   .grp { border-top: 1px solid var(--border); padding: 9px 0; }
   .grp:first-child { border-top: none; }
+  .lamp { font-weight: 700; font-size: .98em; }
+  .lamp.ok { color: #3fb950; } .lamp.todo { color: var(--sev-notable); } .lamp.real { color: #ff9a9a; }
+  .item { margin: 5px 0 7px; }
+  .item-h { font-size: .76em; color: var(--muted); margin-bottom: 2px; }
+  .detail { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
+  .detail summary { font-size: .76em; color: var(--muted); cursor: pointer; }
   .grp-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .8em; color: var(--ink); }
   .grp-head .k { color: var(--muted); }
   .grp details { margin-top: 4px; }
@@ -86,8 +92,8 @@ function render() {
 <body>
   <div class="top">
     <div>
-      <h1>Anti-Evasion HUD</h1>
-      <div class="sub">收尾檢核 (a)–(i) · severity-gated · 唯讀歷史</div>
+      <h1>收尾檢核</h1>
+      <div class="sub">每輪收尾的白話報告；底下格子是最近幾輪，點一下看那一輪</div>
     </div>
     <div class="poll"><span class="dot"></span><span id="poll-txt">輪詢中…</span></div>
   </div>
@@ -100,17 +106,17 @@ function render() {
   <div id="tab-report">
   <div id="banner" class="banner"></div>
   <div id="card-slot">
-    <div class="card"><div class="empty">尚無收尾檢核報告。動 core 檔並宣告完成、呼叫 anti_evasion_report 後出現。</div></div>
+    <div class="card"><div class="empty">還沒有收尾報告。AI 改了核心檔案或多個檔、宣告完成時會交一份，交了就會出現在這裡。</div></div>
   </div>
   <div id="temp-slot"></div>
 
   <div class="grid-wrap">
     <div class="grid-h">
-      <span>近 ${64} 回合</span>
+      <span>最近 ${64} 輪</span>
       <span class="legend">
-        <span><i style="background:var(--sev-routine)"></i>routine</span>
-        <span><i style="background:var(--sev-notable)"></i>notable</span>
-        <span><i style="background:var(--sev-real)"></i>real-evasion</span>
+        <span><i style="background:var(--sev-routine)"></i>例行</span>
+        <span><i style="background:var(--sev-notable)"></i>有修補</span>
+        <span><i style="background:var(--sev-real)"></i>疑似偷懶（待核對）</span>
       </span>
     </div>
     <div id="grid" class="grid"></div>
@@ -128,9 +134,9 @@ function render() {
 // 瀏覽器端（勿 hoist；字串串接、不用 template literal）。
 var POLL_MS = 1500, BEAT_MS = 10000, GRID_N = 64;
 var SEV = {
-  "routine":      { cls: "routine", label: "routine" },
-  "notable":      { cls: "notable", label: "notable" },
-  "real-evasion": { cls: "real",    label: "real-evasion" }
+  "routine":      { cls: "routine", label: "例行" },
+  "notable":      { cls: "notable", label: "有修補" },
+  "real-evasion": { cls: "real",    label: "疑似偷懶（待核對）" }
 };
 var activeKey = null;   // 使用者點選的歷史格（null=跟隨最新）
 var reports = [];       // 新→舊
@@ -215,22 +221,73 @@ function pollTemp(sid) {
     .catch(function () {});
 }
 
+// 卡片：燈號＋一句話 → 要你處理 → 這輪做了什麼 → 記住了／之後要追；欄位字母與原始內容收進「細節」。
+function nextStep(h) {
+  var m = String(h == null ? "" : h).trim().match(/^下一動\\s*[=＝:：]\\s*([\\s\\S]*)$/);
+  return m ? m[1].trim() : "";
+}
+function todoItems(r) {
+  var out = [], ns = nextStep(r.h);
+  if (ns) { out.push(["下一步要你做", ns]); }
+  if (!isBlank(r.e) && r.e != null) { out.push(["AI 自己做的決定、沒驗證的假設（看一下對不對）", r.e]); }
+  if (r.d_pending && r.d_pending.length) { out.push(["記憶寫入被推到之後（AI 會被擋回去補寫）", r.d_pending.join("\\n")]); }
+  if (r.j_missing) { out.push(["驗證證據的路徑缺了或不存在", jOf(r) || "（空）"]); }
+  if (r.k_missing) { out.push(["追蹤項是空的", "AI 要一行一項補上，或寫「無」"]); }
+  return out;
+}
+function lampOf(r) {
+  if (sevOf(r).cls === "real") { return { cls: "real", text: "🔴 疑似偷懶（待核對）" }; }
+  if (todoItems(r).length) { return { cls: "todo", text: "🟡 有事要你決定" }; }
+  return { cls: "ok", text: "✅ 可以關了" };
+}
+function itemsHtml(items, empty) {
+  if (!items.length) { return '<div class="sec-body blank">' + empty + "</div>"; }
+  return items.map(function (x) {
+    return '<div class="item"><div class="item-h">' + esc(x[0]) + '</div><div class="sec-body">' + esc(x[1]) + "</div></div>";
+  }).join("");
+}
+function partHtml(title, items, empty) {
+  return '<div class="sec"><div class="sec-h">' + title + "</div>" + itemsHtml(items, empty) + "</div>";
+}
+function picked(pairs) {
+  return pairs.filter(function (x) { return !isBlank(x[1]) && x[1] != null; });
+}
+function cardHtml(r) {
+  var lamp = lampOf(r);
+  var cls = "card" + (lamp.cls === "todo" ? " sev-notable" : lamp.cls === "real" ? " sev-real" : "");
+  var when = String(r.at || "").slice(5, 16).replace("T", " ");
+  var html = '<div class="' + cls + '"><div class="card-head"><span class="lamp ' + lamp.cls + '">' + lamp.text + "</span>" +
+    '<span class="meta">' + esc(when) + " · 第 " + esc(r.turn_seq) + " 輪</span></div>";
+  if (lamp.cls === "real") {
+    html += partHtml("疑似偷懶的地方（hook 只比對字面，可能是誤判，看一下）", picked([["", r.b]]), "");
+  }
+  html += partHtml("要你處理", todoItems(r), "沒有要你處理的事") +
+    partHtml("這輪做了什麼", picked([["修了什麼", r.a], ["版控", r.g], ["環境有變動", r.f]]), "這輪沒有修補，也沒有改到環境") +
+    (r.e == null ? "" : partHtml("記住了／之後要追", picked([["記住了", r.d], ["之後要追", kOf(r)]]), "沒有新記住的事，也沒有要追的"));
+  return html + '<details class="detail"><summary>細節（原始欄位，給要查的時候看）</summary>' + detailHtml(r) + "</details></div>";
+}
+// 每 1.5 秒輪詢一次：內容沒變就不重畫（重畫會讓畫面跳、把點開的「細節」收回去）；「細節」開合照使用者上次的選擇
+var cardKey = "", detailOpen = false;
 function renderCard(r) {
-  var slot = document.getElementById("card-slot");
   if (!r) { return; }
-  var s = sevOf(r);
+  var key = JSON.stringify(r);
+  if (key === cardKey) { return; }
+  cardKey = key;
+  var slot = document.getElementById("card-slot");
+  slot.innerHTML = cardHtml(r);
+  var det = slot.querySelector("details.detail");
+  if (det) {
+    det.open = detailOpen;
+    det.addEventListener("toggle", function (e) { detailOpen = e.currentTarget.open; });
+  }
+}
+function detailHtml(r) {
   var sid = String(r.session_id || "?").slice(0, 8);
-  var cls = "card" + (s.cls === "notable" ? " sev-notable" : s.cls === "real" ? " sev-real" : "");
-  var badgeCls = s.cls === "real" ? "real" : s.cls;
-  var html = '<div class="' + cls + '">' +
-    '<div class="card-head">' +
-      '<span class="badge ' + badgeCls + '">' + s.label + "</span>" +
-      '<span class="meta">session ' + esc(sid) + " · turn " + esc(r.turn_seq) +
-        " · " + esc(r.at || "") + "</span>" +
-    "</div>" +
+  var html = '<div class="sec"><div class="sec-body">session ' + esc(sid) + " · 第 " + esc(r.turn_seq) + " 輪 · " +
+    esc(r.at || "") + " · 嚴重度 " + esc(r.severity || "") + "</div></div>" +
     sectionHtml("a", "缺失發現與修補清單", r.a) +
     sectionHtml("b", "AI 逃避通報", r.b) +
-    sectionHtml("c", "Token 累積警示", r.c) +
+    (r.c == null ? "" : sectionHtml("c", "Token 累積警示（舊欄位）", r.c)) +
     // 舊報告（2026-09 前）只有 a–d 且 d=衍生暫存：無 e 欄視為舊格式，d 以舊標籤渲染。
     (r.e == null
       ? sectionHtml("d", "衍生暫存清單（舊格式；實際尚存者見下方殘檔面板）", r.d)
@@ -242,13 +299,15 @@ function renderCard(r) {
         sectionHtml("g", "版控收尾", r.g) +
         sectionHtml("h", "收尾判定", r.h) +
         sectionHtml("i", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.i) +
-        (r.j == null ? "" :
-          sectionHtml("j", "證據持久路徑" + (r.j_missing ? ' <span class="badge real">缺或不存在</span>' : ""), r.j) +
-          sectionHtml("k", "追蹤項" + (r.k_missing ? ' <span class="badge real">空字串</span>' : ""), r.k))) +
-    (r.need_goal ? renderGoal(r.need_goal) : "") +
-  "</div>";
-  slot.innerHTML = html;
+        (jOf(r) == null ? "" :
+          sectionHtml("j", "證據持久路徑" + (r.j_missing ? ' <span class="badge real">缺或不存在</span>' : ""), jOf(r)) +
+          sectionHtml("k", "追蹤項" + (r.k_missing ? ' <span class="badge real">空字串</span>' : ""), kOf(r)))) +
+    (r.need_goal ? renderGoal(r.need_goal) : "");
+  return html;
 }
+// 報告檔存的是 j_evidence_path／k_followups（tool 參數原名）；早期測試資料用 j／k，兩種都認
+function jOf(r) { return r.j != null ? r.j : r.j_evidence_path; }
+function kOf(r) { return r.k != null ? r.k : r.k_followups; }
 
 // 目標對照（Python 收尾檢核分支附的 need_goal：原話摘要＋目標樹＋完整對照結果）；只有寫碼類樹才有這一塊
 var GOAL_STATUS = { todo: "未開始", doing: "進行中", done: "達成", partial: "部分", none: "沒有", dropped: "放棄" };
@@ -271,18 +330,21 @@ function renderGoal(g) {
          "<br><br>目標樹（AI 的解讀）：<br>" + nodes + (probs ? "<br><br>" + probs : "") + "</div></div>";
 }
 
+var gridHtml = "";
 function renderGrid() {
   var grid = document.getElementById("grid");
   var cells = reports.slice(0, GRID_N).slice().reverse();   // 舊→新，最新在右
-  if (!cells.length) { grid.innerHTML = ""; return; }
+  if (!cells.length) { grid.innerHTML = ""; gridHtml = ""; return; }
   var out = "";
   for (var i = 0; i < cells.length; i++) {
     var r = cells[i], s = sevOf(r), k = keyOf(r);
     var active = (k === activeKey) ? " active" : "";
-    var tip = "t" + r.turn_seq + " · " + s.label + " · " + (r.at || "");
+    var tip = "第 " + r.turn_seq + " 輪 · " + s.label + " · " + String(r.at || "").slice(5, 16).replace("T", " ");
     out += '<div class="cell ' + s.cls + active + '" title="' + esc(tip) +
            '" data-key="' + esc(k) + '">' + (s.cls === "real" ? "!" : "") + "</div>";
   }
+  if (out === gridHtml) { return; }   // 格子沒變就不重畫（滑鼠停著看提示時不會被打斷）
+  gridHtml = out;
   grid.innerHTML = out;
   var nodes = grid.querySelectorAll(".cell");
   for (var j = 0; j < nodes.length; j++) {
@@ -435,7 +497,7 @@ function updateBanner() {
   var banner = document.getElementById("banner");
   var latest = reports[0];
   if (latest && sevOf(latest).cls === "real") {
-    banner.textContent = "⚠ real-evasion：最新回合偵測到 (b) AI 逃避通報。請檢視卡片。";
+    banner.textContent = "🔴 最新一輪疑似偷懶（待核對）：看卡片裡抓到的說法，hook 只比對字面，可能是誤判。";
     banner.className = "banner show";
   } else {
     banner.className = "banner";
@@ -445,7 +507,7 @@ function updateBanner() {
 function applyReports(data) {
   reports = (data && data.reports) || [];
   document.getElementById("poll-txt").textContent =
-    reports.length ? (reports.length + " 筆 · 最新 t" + reports[0].turn_seq) : "尚無報告";
+    reports.length ? (reports.length + " 份報告 · 最新第 " + reports[0].turn_seq + " 輪") : "還沒有報告";
   if (activeKey === null && reports.length) { renderCard(reports[0]); }
   renderGrid();
   updateBanner();

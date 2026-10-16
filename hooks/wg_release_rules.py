@@ -1792,3 +1792,35 @@ def leftover_cleanup_verdict(claims_done: bool, items: Sequence[Dict[str, Any]])
         return Verdict(rule, False, "帳上沒有該清的東西")
     return Verdict(rule, True, f"宣告完成，但這個 session 建的 {len(cands)} 樣東西還在、也沒說要留",
                    tuple(f"{c.get('title')}（{c.get('label')}）" for c in cands))
+
+
+# ─── 紅燈精準：退避軟偵測的 context 豁免（事實由 handlers/stop.py 收，詞表在 memory/_meta/forbidden-phrases.json） ───
+RULES.update({
+    "EVASION_CONTEXT_EXEMPT": "退避軟偵測（Stop detect_evasion → evasion_flag → 下輪注入舉證、收尾檢核升紅）在下列四件事都有證據時豁免："
+                              "context 用量大於 deferral_gate.max_context_ratio（剛好等於門檻和 DeferralGate 一樣算還夠；量不出不豁免）；"
+                              "命中的是延後到下個／新 session、之後／下次再這一類（詞表 context_exempt_deferral）；被推的事有落地："
+                              "本使用者回合交過 (k) 有內容（不是「無」）的收尾檢核，或寫了 memory/_staging/next-phase-*.md；本回合使用者"
+                              "原話在（turn_prompts 存在、非空、屬於目前回合）而且沒叫現在做（現在／馬上／立刻／這回合／直接做／這邊做）。"
+                              "任一判不出就照舊標記。豁免照記錄（guard log），不注入、不升紅。owed＝照舊標記。",
+})
+
+_DO_IT_NOW_RE = re.compile(r"現在|馬上|立刻|這回合|直接做|這邊做|這裡做")
+
+
+def evasion_context_exempt_verdict(exempt_phrase: bool, ratio: float, max_ratio: float, landed: bool,
+                                   prompts: Optional[Sequence[str]], prompts_current: bool) -> Verdict:
+    """EVASION_CONTEXT_EXEMPT：owed＝照舊標記（不豁免）。exempt_phrase＝命中詞屬可豁免的延後語（wg_evasion 判）；ratio＝context
+    用量（0.0＝量不出）；landed＝本回合 (k) 有內容或寫了交接檔；prompts＝本回合使用者原話（None＝沒有這個欄位）；
+    prompts_current＝那份原話屬於目前的使用者回合。"""
+    rule = "EVASION_CONTEXT_EXEMPT"
+    if not exempt_phrase:
+        return Verdict(rule, True, "命中的不是可豁免的延後語")
+    if not ratio or ratio <= max_ratio:
+        return Verdict(rule, True, f"context 用量 {ratio:.2f} 沒超過門檻 {max_ratio:.2f}（或量不出）")
+    if not landed:
+        return Verdict(rule, True, "被推的事沒落地：本回合沒有內容不是「無」的 (k)，也沒寫交接檔")
+    if not prompts or not prompts_current:
+        return Verdict(rule, True, "判不出使用者本回合有沒有叫現在做（本回合原話缺、空、或不是這一回合的）")
+    if any(_DO_IT_NOW_RE.search(str(p or "")) for p in prompts):
+        return Verdict(rule, True, "使用者本回合叫現在做")
+    return Verdict(rule, False, f"context 用量 {ratio:.2f} 超過門檻、延後的事已落地、使用者沒叫現在做 → 豁免")

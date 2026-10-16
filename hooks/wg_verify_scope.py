@@ -296,7 +296,8 @@ def _standalone_case(path: str, cfg: Dict[str, Any]) -> bool:
 def _item_mods(item: Dict[str, Any], mods: Iterable[Dict[str, Any]], cfg: Dict[str, Any], lookup: Lookup
                ) -> List[Dict[str, Any]]:
     """這一項的收據要晚於哪些改檔（規則 SCOPE_EDIT_RELATED_TO_ITEM）：程式檔都算，但獨立的測試案例檔只算點名它的項目
-    （SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；文件與記憶只有跟這一項有關才算（同部位、在它點名的路徑或它宣告的 inputs 底下、
+    （SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；這一項宣告了 depends 就只算依賴裡、它點名的路徑底下、case_for 列的與共用測試設施
+    （SCOPE_EDIT_IN_DECLARED_DEPENDS）；文件與記憶只有跟這一項有關才算（同部位、在它點名的路徑或它宣告的 inputs 底下、
     它就是那部位量尺、整體驗證或看不出跑了什麼）。cfg＝寫碼查核設定（code_exts、verify_case_globs）。"""
     exts = cfg.get("code_exts") or []
     paths = [p for p in _item_paths(item) if p]
@@ -304,16 +305,21 @@ def _item_mods(item: Dict[str, Any], mods: Iterable[Dict[str, Any]], cfg: Dict[s
     whole = item.get("kind") == "cmd" and (not paths or "*" in (item.get("covers") or []))
     target = " ".join(str(item.get("target") or "").split())
     reads = paths + [str(x) for x in item.get("inputs") or []]
+    declares = isinstance(item.get("depends"), list)
+    deps = [str(x) for x in item.get("depends") or []] + [str(x) for x in item.get("case_for") or []]
     out: List[Dict[str, Any]] = []
     for m in mods:
         p = str(m.get("path") or "")
         ruler = _ruler_of(p, lookup)
         is_code = vl.is_code_file(p, exts)
+        standalone = is_code and _standalone_case(p, cfg)
         v = rr.scope_edit_related_verdict(
             Path(p).name, is_code, same_part=bool(parts) and _part_key(p, lookup) in parts,
             under_item=any(vl._under(p, x) for x in reads),
             runs_part_ruler=item.get("kind") == "cmd" and bool(ruler) and " ".join(ruler.split()) == target,
-            whole_or_unknown=whole, standalone_case=is_code and _standalone_case(p, cfg))
+            whole_or_unknown=whole, standalone_case=standalone, declares_deps=declares,
+            in_deps=declares and any(vl._under(p, x) for x in deps),
+            shared_case=declares and not standalone and vl.is_case_file(p, cfg, vl.file_root_of(p)))
         if v.owed:
             out.append(m)
     return out
@@ -425,6 +431,18 @@ def declare(state: Dict[str, Any], key: str, tool_input: Dict[str, Any], cwd: st
                 problem = f"inputs 裡的 {raw} 不存在（{p}）"
                 break
             inputs.append(rr.canon_path(p))
+        depends: Optional[List[str]] = None                  # 這一項用到的程式檔或資料夾（規則 SCOPE_EDIT_IN_DECLARED_DEPENDS）
+        if rec and not problem and it.get("depends") is not None:
+            if not isinstance(it.get("depends"), list):
+                problem = "depends 必須是陣列（這一項用到的程式檔或資料夾）"
+            else:
+                depends = []
+                for raw in it["depends"]:
+                    p = _resolve(raw, cwd)
+                    if not p.exists() and rr.canon_path(p) not in changed:
+                        problem = f"depends 裡的 {raw} 不存在（{p}），也不是本 session 改過的檔"
+                        break
+                    depends.append(rr.canon_path(p))
         v = rr.scope_item_form_verdict(target, why, problem)
         if v.owed:
             bad.append(rr.format_hit("s", v))
@@ -432,6 +450,8 @@ def declare(state: Dict[str, Any], key: str, tool_input: Dict[str, Any], cwd: st
         rec["why"] = why
         if inputs:
             rec["inputs"] = inputs
+        if depends is not None:
+            rec["depends"] = depends
         if it.get("case_for") is not None:
             rec["case_for"] = _case_for(target, it.get("case_for"), rec, cwd, rg, case_probs, changed)
         norm.append(rec)
@@ -620,10 +640,16 @@ def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: 
         check = case_check(state, key, _key_mods(state, key), receipts, rg, lookup)
         lines.append("由哪個案例驗（寫碼查核 (d)；每個改過的程式檔要有一項 case_for 列到它，或在 no_case 附理由）：")
         lines += [f"  - {check(p).why}" for p in code[:8]]
-    loose = [Path(str(m.get("path"))).name for m in mods if str(m.get("path")) not in counted]
-    if loose:
-        lines.append(f"這些文件／資料的改動不算進任何一項（規則 SCOPE_EDIT_RELATED_TO_ITEM）：{'、'.join(loose[:8])}"
-                     f"{'…' if len(loose) > 8 else ''}。有測試會讀它們，就在那一項加 inputs（它讀的檔或資料夾）再宣告一次。")
+    exts = rg.get("code_exts") or []
+    loose = [str(m.get("path")) for m in mods if str(m.get("path")) not in counted]
+    loose_code = [Path(p).name for p in loose if vl.is_code_file(p, exts)]
+    loose_docs = [Path(p).name for p in loose if not vl.is_code_file(p, exts)]
+    if loose_docs:
+        lines.append(f"這些文件／資料的改動不算進任何一項（規則 SCOPE_EDIT_RELATED_TO_ITEM）：{'、'.join(loose_docs[:8])}"
+                     f"{'…' if len(loose_docs) > 8 else ''}。有測試會讀它們，就在那一項加 inputs（它讀的檔或資料夾）再宣告一次。")
+    if loose_code:
+        lines.append(f"這些程式改動不在任何一項宣告的依賴裡（規則 SCOPE_EDIT_IN_DECLARED_DEPENDS）：{'、'.join(loose_code[:8])}"
+                     f"{'…' if len(loose_code) > 8 else ''}。有項目其實用到它們，就把它們加進那一項的 depends（漏列就漏驗）。")
     rulers = _rulers(mods, lookup)
     if rulers:
         # 全量改增量待補：原本句尾叫人「整把在發版前全量跑」，全量已從流程拔掉

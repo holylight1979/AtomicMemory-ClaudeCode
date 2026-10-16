@@ -17,6 +17,7 @@ AskUserQuestion 問使用者（wg_release）；使用者在最後一次擋之後
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -32,6 +33,7 @@ from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
     get_current_turn_text, read_transcript_tail, get_current_turn_visible_text,
+    is_context_exempt_phrase, _aec_blank,
 )
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
@@ -42,7 +44,7 @@ from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _sc
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
-    leftover_candidates, leftover_cleanup_verdict,
+    leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -1109,6 +1111,30 @@ def _mcp_load_facts(boot_dir: Optional[Path] = None, code_dir: Optional[Path] = 
     return records, disk
 
 
+def _evasion_exempt_verdict(state: Dict[str, Any], session_id: str, ev: Dict[str, Any], transcript: Any,
+                            transcript_text: str, config: Dict[str, Any], own_mod_files: List[Dict[str, Any]]) -> Any:
+    """規則 EVASION_CONTEXT_EXEMPT 的事實收集：context 用量（和 DeferralGate 同一個量法）、延後的事有沒有落地（本使用者回合
+    交過內容不是「無」的 (k)，或寫了 memory/_staging/next-phase-*.md）、本回合使用者原話。判定在 wg_release_rules。"""
+    turn_seq = int(state.get("turn_seq", 0))
+    since = _user_turn(state, turn_seq)
+    ah = config.get("auto_handoff", {}) or {}
+    ratio = estimate_context_usage(transcript, ah.get("context_window_tokens", 1_000_000),
+                                   ah.get("context_base_overhead_tokens", 15000), text=transcript_text)
+    max_ratio = float(((config.get("deferral_gate") or {}).get("max_context_ratio", 0.75)))
+    aec = state.get("anti_evasion_report") or {}
+    k_landed = (aec.get("session_id") == session_id and bool(turn_seq) and in_turn(aec.get("turn_seq"), turn_seq, since)
+                and not _aec_blank(aec.get("k_followups")))
+    handoff_landed = any(
+        re.search(r"[\\/]memory[\\/]_staging[\\/]next-phase-[^\\/]*\.md$", str((m or {}).get("path", "")), re.IGNORECASE)
+        and in_turn((m or {}).get("last_turn_seq", (m or {}).get("turn_seq")), turn_seq, since)
+        for m in own_mod_files)
+    prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else None
+    tp_seq = state.get("turn_prompts_seq")
+    current = isinstance(tp_seq, int) and not isinstance(tp_seq, bool) and 0 < tp_seq <= turn_seq
+    return evasion_context_exempt_verdict(is_context_exempt_phrase(str(ev.get("phrase", ""))), float(ratio or 0.0),
+                                          max_ratio, k_landed or handoff_landed, prompts, current)
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1413,6 +1439,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         recent_prompts = state.get("recent_user_prompts", []) or []
         ev = detect_evasion(last_text, recent_prompts)
         if ev:
+            # 規則 EVASION_CONTEXT_EXEMPT：context 快滿、延後的事已落地、使用者沒叫現在做 → 這筆延後語不標紅不注入（照記錄）
+            try:
+                _ex = _evasion_exempt_verdict(state, session_id, ev, transcript, transcript_text, config, own_mod_files)
+            except Exception as e:  # noqa: BLE001
+                _ex = None
+                print(f"[Guardian:Evasion] context 豁免判不出，照舊標記：{type(e).__name__}: {e}", file=sys.stderr)
+            if _ex is not None and not _ex.owed:
+                append_guard_log("evasion_exempt", {"session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)),
+                                                    "phrase": ev.get("phrase", ""), "why": _ex.why})
+                ev = None
+        if ev:
             ev["at"] = _now_iso()
             state["evasion_flag"] = ev
             # 證據暫存（evasion_flag 會被下輪 UPS 注入後清空；事件列表留存供
@@ -1540,7 +1577,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "chat 只留折疊 chip：\n"
                 "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則填「無」。**必寫**\n"
                 "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象；**僅發生時填**，否則「無」\n"
-                "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 預警則判斷失真並附接續 prompt；**僅發生時填**，否則「無」\n"
                 "  (d) 記憶收錄帳：先掃五個來源——①使用者指正/退回/重申的話 ②重試≥2 次或查了才懂的機制/踩坑 "
                 "③外查來的事實（帶日期） ④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的——逐項 "
                 "`- <項目> → 已寫入 atom <名>` 或 `→ 不寫（一句理由）`；值得寫的在呼叫 tool **之前** atom_write 完，"
@@ -1553,7 +1589,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (j) 證據持久路徑：本回合驗證收據的持久位置（通常是 `workflow/verify-ledger/<sid>.jsonl`，或驗證輸出檔）；"
                 "本 session 跑過哨兵驗證就**必填真存在的路徑**（Stop 對帳閘會查 exists），沒有收據才填「無」\n"
                 "  (k) 追蹤項：還沒做完、要追的事一行一項（會進 workflow/tracking 帳本）；沒有寫「無」，**不接受空字串**\n"
-                "十一參都 required、未發生填「無」。不得用 prose「不在範圍 / 留給未來」籠統帶過。"
+                "十參都 required、未發生填「無」（(c) 已刪，不必送）；本回合已交收割報告的話 (d) 可只寫「見收割報告」。"
+                "不得用 prose「不在範圍 / 留給未來」籠統帶過。"
             )
             write_state(session_id, state)
             output_block(reason)
@@ -1584,12 +1621,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         ))
         return
 
-    # HUD 不可達且本回合 emit 為 notable/real-evasion → 大聲 fallback 回 chat（可觀測性鐵律：
-    # push 不到窗不得 fail-silent）。post_tool_use 標旗，此處消費一次（新 emit 再標則再補，
-    # 不永久靜音 real-evasion）。消費前**再查一次**：emit 當下不可達可能是暫時的（Node 剛換手、
-    # HUD 頁重連中），現在窗活著就不吵 chat；兩次判定都落 guard-aec_hud.jsonl 可稽核。
-    # Node tool chip 是 emit 當下的主要 UX 面；本 fallback 是 Python 端獨立的觀測保證，
-    # 不倚賴窗是否渲染。emit 閘本身已放行（見上），此處不再擋 emit。
+    # HUD 不可達且本回合 emit 為 notable/real-evasion → 印一行告知報告檔在哪（可觀測性鐵律：push 不到窗不得 fail-silent），
+    # 不擋、不把報告內容貼回聊天（原設計者裁定：報告任何理由都不進聊天）。post_tool_use 標旗，此處消費一次。
+    # 消費前**再查一次**：emit 當下不可達可能是暫時的（Node 剛換手、HUD 頁重連中），現在窗活著就不印；
+    # 兩次判定都落 guard-aec_hud.jsonl 可稽核。
     if state.get("aec_hud_fallback"):
         state["aec_hud_fallback"] = False  # 消費，避免重播
         sev = aec.get("severity", "notable")
@@ -1600,28 +1635,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         append_guard_log("aec_hud", {
             "where": "stop", "session_id": session_id, "severity": sev, "alive": alive, **info,
         })
-        if alive:
-            write_state(session_id, state)
-        else:
-            state["stop_blocked_count"] = stop_count + 1
-            _why = info.get("reason") or f"age_s={info.get('age_s')} clients={info.get('clients')}"
-            fb = [
-                f"[Guardian:AEC] HUD 不可達（{_why}），{sev} 收尾檢核改回 chat 呈現（不 fail-silent）："
-            ]
-            for _k, _label in (("a", "(a) 缺失修補"), ("b", "(b) 逃避通報")):
-                _v = (aec.get(_k) or "").strip()
-                if _v and _v != "無":
-                    fb.append(f"  {_label}：{_v}")
-            # cross-check 升級：模型自評 (b)=無但 hook 實測退避 → 附 hook 證據（不信自評）
-            if aec.get("severity_upgraded_by"):
-                fb.append("  ⚠ severity 由 hook cross-check 升級——(b) 自評「無」與 hook 實測不符：")
-                for _e in (aec.get("hook_evidence") or [])[:3]:
-                    fb.append(
-                        f"    - turn {_e.get('turn_seq', '?')}: 退避語『{_e.get('phrase', '')}』"
-                    )
-            write_state(session_id, state)
-            output_block(_piggyback("\n".join(fb)))
-            return
+        if not alive:
+            _why = info.get("reason") or f"心跳 {info.get('age_s')} 秒前、連線 {info.get('clients')} 條"
+            _file = WORKFLOW_DIR / "aec-report" / f"{session_id}-t{aec.get('turn_seq', turn_seq)}.json"
+            print(f"[Guardian:AEC] HUD 視窗開不起來（{_why}），這輪的收尾報告在 {_file}，開 "
+                  f"http://127.0.0.1:{int(config.get('dashboard_port', 3848))}/aec/hud 就看得到", file=sys.stderr)
+        write_state(session_id, state)
 
     # ── Reload Advice Gate（規則 RELOAD_ADVICE_ALREADY_LOADED）──────────────
     # 收尾叫使用者 Reload Window 前，查每個活著的工具服務是不是已載入磁碟上最新的程式；都是最新就擋一次。每個使用者回合一次。

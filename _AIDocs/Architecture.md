@@ -103,7 +103,7 @@ statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／g
 
 ### 反退避：Evasion Guard／Test-Fail Gate／ScanReport（`wg_evasion.py`）
 
-程式碼強固 LLM「錯誤的迴避」行為——不依賴模型自律。Stop 閘序、禁語單一來源（含三類宣稱）、十一欄報告 (a)–(k)、one-writer cross-check、產出物帳本受保護路徑與當場刪除、AEC-Pending、遙測：TECH §7.1、§7.2。以下為 TECH 未收的判定細節（本段為唯一來源）：
+程式碼強固 LLM「錯誤的迴避」行為——不依賴模型自律。Stop 閘序、禁語單一來源（含三類宣稱）、十欄報告 (a)(b)(d)–(k)、one-writer cross-check、產出物帳本受保護路徑與當場刪除、AEC-Pending、遙測：TECH §7.1、§7.2。以下為 TECH 未收的判定細節（本段為唯一來源）：
 
 - **Test-Fail Gate 資料流**：PostToolUse(Bash) 解析測試指令（pytest／tsc／node --check／jest／go test／cargo test）stdout+stderr → 失敗尾 20 行寫 `state["failing_tests"][]`；同 cmd 重跑成功即清舊紀錄。Stop 見 `failing_tests` 非空 + last assistant text 命中完成宣告 → block，要求 (a)修復 (b)標為 regression (c)降級任務。使用者放行詞（先這樣／跳過／known regression）清 `failing_tests`；近 3 則 user prompt 有放行詞 → 不掛 evasion flag。
 - **退避偵測時點**：Stop 對 last assistant text 跑 `detect_evasion`（禁語表 `memory/_meta/forbidden-phrases.json`）→ `evasion_flag` + `evasion_events` 證據暫存（不受 UPS 清旗影響，供 AEC (b) cross-check）→ 下輪 UPS 注入 `[Guardian:Evasion]` 舉證要求後清旗。

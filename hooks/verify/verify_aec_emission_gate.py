@@ -59,7 +59,9 @@ def driven(monkeypatch):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": ""}, {})
-        return capsys.readouterr().out
+        cap = capsys.readouterr()
+        drive.err = cap.err   # stderr 另存（HUD 開不起來的一行提示印在這裡），回傳值照舊只有 stdout
+        return cap.out
 
     return drive
 
@@ -137,14 +139,15 @@ def test_coordinator_docs_only_not_triggered(driven, capsys):
 # ─── HUD 不可達 fallback（可觀測性鐵律：push 不到窗不得 fail-silent）──────
 
 def test_hud_fallback_surfaces_notable(driven, capsys):
-    """emit 為 notable + HUD 不可達（aec_hud_fallback）→ Stop 大聲補 (a) 回 chat。"""
+    """emit 為 notable + HUD 不可達（aec_hud_fallback）→ Stop 印一行告知報告檔在哪（不 fail-silent），
+    但不擋、不把報告內容貼回聊天（原設計者裁定：報告任何理由都不進聊天）。"""
     out = driven(
         [_mf(_CORE)], capsys, turn_seq=5,
         anti_evasion_report=_emit(5, severity="notable", a="- x.py:10 — 修了 y"),
         aec_hud_fallback=True,
     )
-    assert "[Guardian:AEC]" in out
-    assert "缺失修補" in out
+    assert "[Guardian:AEC]" in driven.err and "aec-report" in driven.err
+    assert "修了 y" not in out + driven.err and "[Guardian:AEC]" not in out
 
 
 # ─── severity 模型（Python/Node single source of truth）──────────
@@ -296,27 +299,6 @@ def test_aec_pending_items(d, h, n, why):
     assert len(aec_pending_items(d, h)) == n, why
 
 
-@pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not available")
-def test_aec_pending_py_js_parity():
-    """MIRROR 守法：Node aecPendingItems 對同一組 fixture 的結果與 Python 逐項相同。"""
-    import subprocess
-    root = HOOKS_DIR.parent
-    js = root / "tools" / "workflow-guardian-mcp" / "lib" / "anti-evasion.js"
-    cases = [[c[0], c[1]] for c in _PENDING_CASES]
-    script = (
-        "const ae=require(process.argv[1]);const cases=JSON.parse(process.argv[2]);"
-        "console.log(JSON.stringify(cases.map(([d,h])=>ae.aecPendingItems(d,h))));"
-    )
-    res = subprocess.run(
-        ["node", "-e", script, str(js), json.dumps(cases, ensure_ascii=False)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    assert res.returncode == 0, res.stderr
-    got = json.loads(res.stdout)
-    want = [aec_pending_items(d, h) for d, h in cases]
-    assert got == want
-
-
 def test_ptu_emit_pending_marks_report(monkeypatch, tmp_path):
     """emit 帶「尚未寫」→ report/state 落 d_pending（HUD 標紅、Stop 閘讀）。"""
     state = _drive_ptu(
@@ -453,7 +435,7 @@ def test_b5_node_chip_does_not_print_j(tmp_path):
     assert res.returncode == 0, res.stderr
     fills, chip = [json.loads(l) for l in res.stdout.strip().splitlines()]
     assert fills == [aec_evidence_autofill(j, r, l) for j, r, l in cases]
-    assert "(j)" not in chip and "routine" in chip
+    assert "(j)" not in chip and "例行" in chip   # 回條一行白話（不再印英文嚴重度）
 
 
 def test_ptu_legacy_emit_without_jk_keys_is_exempt(monkeypatch, tmp_path, driven, capsys):
@@ -472,7 +454,7 @@ def test_ptu_legacy_emit_without_jk_keys_is_exempt(monkeypatch, tmp_path, driven
 
 def test_scan_report_message_lists_j_and_k(driven, capsys):
     out = driven([_mf(_CORE)], capsys, turn_seq=5)
-    assert "(j) 證據持久路徑" in out and "(k) 追蹤項" in out and "十一參" in out
+    assert "(j) 證據持久路徑" in out and "(k) 追蹤項" in out and "十參" in out and "(c) Token" not in out
 
 
 def test_ptu_k_followups_tracking_hook(monkeypatch, tmp_path):
@@ -520,7 +502,7 @@ def test_mcp_schema_requires_j_k():
     res = subprocess.run(["node", "-e", script, str(js)], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0, res.stderr
     req = json.loads(res.stdout)
-    assert req[-2:] == ["j_evidence_path", "k_followups"] and len(req) == 11
+    assert req[-2:] == ["j_evidence_path", "k_followups"] and len(req) == 10 and "c" not in req   # (c) Token 警示欄已刪
 
 
 def test_stop_pending_sibling_not_blocked(driven, capsys):

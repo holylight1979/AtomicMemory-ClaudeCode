@@ -2542,6 +2542,20 @@ def test_035_2_pytest_error_is_fail_through_post_tool_use_and_stop(driven, capsy
     assert [s["verdict"] for s in green["sentinels"]] == ["PASS", "DONE"]
 
 
+def test_receipt_keeps_red_cases_and_whether_the_list_is_complete(monkeypatch, tmp_path):
+    """規則 SCOPE_RED_ONLY_ITS_CASES：PostToolUse 落的收據記下紅掉的案例與清單完不完整（紅案數對得上結算行）；綠的不加欄位。
+    輸出被 tail 截掉結算行 → red_known=False（Stop 照整條算紅）。"""
+    cmd = "python -X utf8 -m pytest -q hooks/verify/verify_a.py hooks/verify/verify_b.py"
+    out = "F.\nFAILED hooks/verify/verify_a.py::test_x - assert 0\n1 failed, 1 passed in 0.10s\n"
+    rec = _post(monkeypatch, tmp_path, cmd, out, resp={"stdout": out, "stderr": "", "exit_code": 1})["verify_receipts"][_SID][0]
+    assert rec["red_cases"] == ["hooks/verify/verify_a.py::test_x"] and rec["red_known"] is True, rec
+    cut = "FAILED hooks/verify/verify_a.py::test_x - assert 0\n"
+    rec = _post(monkeypatch, tmp_path, cmd, cut, resp={"stdout": cut, "stderr": "", "exit_code": 1})["verify_receipts"][_SID][0]
+    assert rec["red_known"] is False, rec
+    green = _post(monkeypatch, tmp_path, cmd, "2 passed in 0.10s\n")["verify_receipts"][_SID][0]
+    assert "red_cases" not in green and "red_known" not in green
+
+
 def test_035_3_unreadable_map_blocks_as_judge_error_not_silent_skip(driven, capsys, monkeypatch, tmp_path):
     """035 ③：部位表存在但讀不到（PermissionError）→ _lookup 拋 MapReadError，Stop 走判定錯誤路徑一律擋＋stderr＋guard_log，
     不是「沒有量尺」靜默跳過；配對：表讀得到時驗證範圍閘正常擋「改了沒宣告範圍」。"""

@@ -40,32 +40,6 @@ function aecSeverity(a, b) {
   return "routine";
 }
 
-// ─── (d)/(h) pending：把「記憶寫入」推到之後（純函式；MIRROR hooks/wg_evasion.py
-// _AEC_PENDING_RE / _AEC_DONE_RE / _AEC_H_ATOM_RE / aec_pending_items — keep in sync）──
-const AEC_PENDING_RE = /(?:尚未|還沒|還未|沒有|未)\s*(?:寫|記|落|建|補)|待\s*(?:寫|補|記|落|建)|(?:稍後|之後|回頭|等會|等一下|晚點|下輪|下回|下個\s*session|下一動)\s*(?:再)?\s*(?:寫|補|記|落|建)|見下一動|TODO|pending/iu;
-const AEC_DONE_RE = /已\s*(?:寫|append|更新|replace|併|補|落|記|建)|不寫|不記|不落/iu;
-const AEC_H_ATOM_RE = /(?:寫|補|建|落|記)[^，,；;。]{0,12}?(?:atom|記憶|知識)|atom_write/iu;
-
-function aecVerdict(line) {
-  // `- <項目> → <結論>` 取最後一個箭頭後的結論段；無箭頭取整行。
-  for (const arrow of ["→", "->"]) {
-    const i = line.lastIndexOf(arrow);
-    if (i >= 0) line = line.slice(i + arrow.length);
-  }
-  return line.trim();
-}
-function aecPendingItems(d, h) {
-  const out = [];
-  for (const line of String(d == null ? "" : d).split("\n")) {
-    const verdict = aecVerdict(line);
-    if (!verdict || AEC_DONE_RE.test(verdict)) continue;
-    if (AEC_PENDING_RE.test(verdict)) out.push(line.trim().slice(0, 120));
-  }
-  const hs = String(h == null ? "" : h).trim();
-  if (hs.includes("下一動") && AEC_H_ATOM_RE.test(hs)) out.push("(h) " + hs.slice(0, 120));
-  return out;
-}
-
 // ─── (j) 證據持久路徑／(k) 追蹤項（純函式；MIRROR hooks/wg_verify_ledger.py aec_evidence_missing /
 // aec_evidence_autofill / aec_followups_missing；keep in sync）。Node 端不知道本 session 有沒有驗證收據、
 // 也不知道 session id（state 與帳本路徑是 Python 的），tool handler 不印 (j)：帶入帳本路徑與缺漏回告由
@@ -93,42 +67,18 @@ function aecFollowupsMissing(k) {
   return String(k == null ? "" : k).trim() === "";
 }
 
-// 摘取欄位前 n 個非空行（notable/real chip 短展開用）。
-function firstLines(v, n) {
-  const lines = String(v || "").split("\n").map((s) => s.trim()).filter(Boolean);
-  const head = lines.slice(0, n).join(" / ");
-  return lines.length > n ? head + " …" : head;
+// ─── MCP tool handler（結構化 emit 表面；不碰 state）────────────────────────────
+// 回條一行（原設計者裁定：報告任何理由都不進聊天）。要模型補的事（(k) 空字串、(d)/(h) 把記憶寫入推到之後）
+// 由 Python PostToolUse 用 additionalContext 回告、Stop 擋，判定只留 Python 一份。
+const SEV_WORD = { routine: "例行", notable: "有修補", "real-evasion": "疑似偷懶，待核對" };
+function aecChipText(args) {
+  const sev = aecSeverity(args && args.a, args && args.b);
+  return `收尾檢核已提交（${SEV_WORD[sev] || sev}）— 內容在 HUD`;
 }
 
-// ─── MCP tool handler（結構化 emit 表面；不碰 state）────────────────────────────
 async function toolAntiEvasionReport(id, args) {
   const { sendToolResult } = require("./mcp");
-  const a = String(args && args.a != null ? args.a : "");
-  const b = String(args && args.b != null ? args.b : "");
-  const sev = aecSeverity(a, b);
-  const pending = aecPendingItems(args && args.d, args && args.h);
-
-  let text;
-  if (sev === "routine") {
-    // routine → 折疊 chip 單行，不攤 prose。
-    text = "anti_evasion_report ✓（routine）— 收尾檢核 (a)–(i) 已提交，內容走 HUD。";
-  } else {
-    // notable / real-evasion → chat 頂層一次（短展開摘要；完整內容走 HUD）。
-    const lines = [`anti_evasion_report ⚠（${sev}）— 收尾檢核已提交（HUD 有完整 (a)–(i)）：`];
-    if (!aecBlank(a)) lines.push("  (a) 缺失修補：" + firstLines(a, 3));
-    if (!aecBlank(b)) lines.push("  (b) 逃避通報：" + firstLines(b, 3));
-    text = lines.join("\n");
-  }
-  if (aecFollowupsMissing(args && args.k_followups)) {
-    text += "\n⛔ (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。";
-  }
-  if (pending.length) {
-    // 報告是收尾檢核不是待辦清單：記憶寫入推到之後 → 當下回告（Python Stop 另擋一次）。
-    text += "\n⛔ (d)/(h) 有 " + pending.length + " 項把記憶寫入推到之後：\n" +
-      pending.map((x) => "  ✗ " + x).join("\n") +
-      "\n現在 atom_write 寫完，再重新呼叫 anti_evasion_report 改成「→ 已寫入 atom <名>」；否則 Stop 會擋。";
-  }
-  return sendToolResult(id, text);
+  return sendToolResult(id, aecChipText(args));
 }
 
 // ─── HUD 唯讀 API ─────────────────────────────────────────────────────────────
@@ -310,8 +260,8 @@ function apiAecDecisionPost(req, res) {
 }
 
 module.exports = {
-  aecBlank, aecSeverity, aecPendingItems, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
-  toolAntiEvasionReport,
+  aecBlank, aecSeverity, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
+  aecChipText, toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, apiAecTempfilesAll,
   apiAecDecisionPost,
