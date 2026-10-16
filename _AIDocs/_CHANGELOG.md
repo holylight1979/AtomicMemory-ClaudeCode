@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-16 閱讀路徑量尺的前後比較吃得下絕對路徑入口
+- 收尾 hook 自動量與它附的手動指令都把 `--entry` 寫成絕對路徑，比較模式兩側根是暫存目錄 → 「不在 --root 底下」FAIL。`tools/reading-path.py` `run_compare` 進場先把 --root 底下的絕對入口（含 `--to`）換成相對路徑，--root 外照舊報錯；案例 `verify_reading_path::test_compare_accepts_absolute_entry_under_root`。
+
 ## 2026-10-16 第二意見不再被材料裡的網址擋下
 - 實遇：工作樹 diff 含 `curl -s http://127.0.0.1:3849/...`，`tools/replay-guard.py` 的絕對路徑正則把 `http://` 的「p:/」當成 P 槽路徑 → pre FAIL、Codex 起不來。正則加「磁碟代號前不得接字母」（`file:///C:/x` 照抓）；案例 `tools/verify/verify_replay_guard.py`。
 
