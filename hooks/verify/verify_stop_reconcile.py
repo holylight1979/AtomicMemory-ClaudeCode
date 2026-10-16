@@ -4010,8 +4010,14 @@ _RP_APP = {"app.py": "from x import a\nfrom y import b\n\n\ndef main():\n    n =
            "x.py": _RP_BODY.format("a"), "y.py": _RP_BODY.format("b"), "notes.md": "# n\n", "todo.md": "# t\n"}
 
 
-def _rp_repo(repo: Path, monkeypatch, budget: float = 120.0) -> Path:
-    monkeypatch.setattr(rph, "BUDGET_S", budget)
+def _rp_repo(repo: Path, monkeypatch, jobs: Path, worker_run=subprocess.run) -> Path:
+    """真 git 夾具；背景量測換成同行程直接跑完（照寫結果檔），工作檔放受測目錄外（git 錄製重播只比對受測目錄）。"""
+    def spawn(path):
+        job = json.loads(Path(path).read_text(encoding="utf-8"))
+        rph.write_result(Path(job["out"]), rph.run_job(job, run=worker_run))
+
+    monkeypatch.setattr(rph, "JOB_DIR", jobs)
+    monkeypatch.setattr(rph, "_spawn_worker", spawn)
     repo.mkdir(parents=True)
     for rel, text in _RP_APP.items():
         (repo / rel).write_text(text, encoding="utf-8", newline="\n")
@@ -4021,23 +4027,30 @@ def _rp_repo(repo: Path, monkeypatch, budget: float = 120.0) -> Path:
     return repo
 
 
-def test_g12w_code_turn_appends_reading_path_to_the_block_without_spending_budget(driven, capsys, tmp_path, monkeypatch):
-    """改碼回合：真 Stop 入口在這次擋的訊息後附「這次對閱讀路徑的影響」：比較尾行、可評級與否、變差／新增最差一條；
-    附段落本身不擋、不吃 stop_blocked_count；量過的輸入記在 state["reading_path"][sid]。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch)
+def test_g12w_code_turn_hands_off_then_the_next_stop_appends_reading_path(driven, capsys, tmp_path, tmp_path_factory,
+                                                                         monkeypatch):
+    """改碼回合：真 Stop 入口只把量測交給背景、這次擋的訊息不附；背景量完，下一次收尾在擋的訊息後附「改動對閱讀路徑的影響」：
+    比較尾行、可評級與否、變差／新增最差一條。附段落本身不擋、不吃 stop_blocked_count；量過的輸入記在 state["reading_path"][sid]。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"))
     (repo / "y.py").write_text("from z import c\n\n\ndef b(n):\n    return c(n)\n", encoding="utf-8", newline="\n")
     (repo / "z.py").write_text(_RP_BODY.format("c"), encoding="utf-8", newline="\n")
     _git(repo, "add", "z.py")
-    out, state, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "y.py"), 5), _mf(str(repo / "z.py"), 5)])
+    mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "z.py"), 5)]
+    out, state, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "ReadingPath" not in json.loads(out)["reason"] and state["reading_path"][_SID]["job"], "交給背景量的那次不附"
+    out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
     reason = json.loads(out)["reason"]
-    assert "[Guardian:ReadingPath] 這次對閱讀路徑的影響" in reason, reason[-800:]
+    assert "[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完" in reason, reason[-800:]
     assert "READING_PATH DONE mode=compare" in reason and "可評級：" in reason and "[新增]" in reason and "z.py::c" in reason
-    assert state["stop_blocked_count"] == 0 and state["reading_path"][_SID]["key"]
+    assert state["stop_blocked_count"] == 0 and state["reading_path"][_SID]["key"] and "job" not in state["reading_path"][_SID]
 
 
-def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path, monkeypatch):
-    """沒改程式碼的回合不附：這回合只改 .md（照樣被一般收尾擋），或程式檔是前幾回合改的。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch)
+def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
+    """沒改程式碼的回合不附：這回合只改 .md（照樣被一般收尾擋），或程式檔是前幾回合改的。
+    前置：兩個 .md 真的改了、還沒 commit（已同步的檔照 SYNC_BLOCK_SKIPS_SYNCED 不擋，就驗不到「照樣被擋卻不附」）。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"))
+    for name in ("notes.md", "todo.md"):
+        (repo / name).write_text("# 改了\n", encoding="utf-8", newline="\n")
     docs = [_mf(str(repo / "notes.md"), 5), _mf(str(repo / "todo.md"), 5)]
     out, state, _ = driven("接著看下一段。", capsys, modified_files=docs)
     assert "Workflow Guardian" in out and "ReadingPath" not in out and "reading_path" not in state
@@ -4045,19 +4058,22 @@ def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path,
     assert out and "ReadingPath" not in out
 
 
-def test_g12w_timeout_appends_the_reason(driven, capsys, tmp_path, monkeypatch):
-    """量尺在預算內跑不完：附「逾時」與手動指令，照樣不擋（擋的是原本的閘）。預算放到 8 秒讓忙碌機器上的 git 先跑完，
-    卡住的是假量尺。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch, budget=8.0)
-    slow = tmp_path / "slowtool" / "reading-path.py"
-    slow.parent.mkdir()
-    slow.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
-    monkeypatch.setattr(rph, "TOOL", slow)
+def test_g12w_timeout_appends_the_reason_without_a_manual_command(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
+    """量尺在背景預算內量不完：下一次收尾只附原因、不附手動指令（模型會接單去跑），照樣不擋（擋的是原本的閘）。
+    逾時用假的 run 丟 TimeoutExpired，不真的等。"""
+    def tool_times_out(args, **kw):
+        if str(rph.TOOL) in args:
+            raise subprocess.TimeoutExpired(args, kw.get("timeout"))
+        return subprocess.run(args, **kw)
+
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"), worker_run=tool_times_out)
     (repo / "y.py").write_text(_RP_BODY.format("b") + "\n", encoding="utf-8", newline="\n")
-    out, state, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)])
+    mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)]
+    _, state, _ = driven("全部完成了。", capsys, modified_files=mods)
+    out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
     reason = json.loads(out)["reason"]
-    assert "[Guardian:ReadingPath]" in reason and "逾時（8 秒內量不完" in reason and "手動：python" in reason, reason[-600:]
-    assert state["stop_blocked_count"] == 0
+    assert "[Guardian:ReadingPath]" in reason and f"背景 {rph.WORKER_BUDGET_S:g} 秒內量不完" in reason, reason[-600:]
+    assert "手動" not in reason and "--before" not in reason and state["stop_blocked_count"] == 0
 
 
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的端到端案（真 git repo） ═══════════════════════════════

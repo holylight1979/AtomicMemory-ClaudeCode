@@ -8,6 +8,11 @@
 - 原設計者指出：要提醒 AI 才會刪用完的工作分支，還得另開 session 大清理。Stop 加收尾自清閘（規則 LEFTOVER_NEEDS_CLEANUP，判定在 `hooks/wg_release_rules.py`）：宣告完成時本 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 每回合擋一次，列刪除指令；要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；別的開著的 session 正在用的不列。HUD 加「全機殘留」分頁（`tools/session-artifacts.py list --all`、每組「清掉不用再確認的」走 `act --all-safe`）；SessionStart 記 git 開場快照，Stop 比對補抓 python 腳本裡開的工作樹與分支（標來源不明、不進自清閘）。
 - **同類修正**：帳本路徑鍵改用 realpath——系統暫存區是 8.3 短檔名、AI 常用長檔名寫，abspath 比不上，真帳本約 63 項暫存檔被當成「專案外」。實測真帳本 54 個 session 1003 樣還在（暫存區 991 樣，不會隨 session 關閉被清）。案例 `hooks/verify/verify_session_artifacts.py`、`verify_release_rules.py`。
 
+## 2026-10-16 收尾少空轉第二波：閱讀路徑量尺改背景量、量不完不再附手動指令、慢測試與跨案殘留
+- 實遇：根層 repo 量一次閱讀路徑實測 56 秒，收尾只給 3 秒，兩天 47 次附段落 39 次逾時；逾時訊息附「手動：python …」，一場 session 照著手動跑了 5 次。`hooks/wg_reading_path.py` 改成收尾只寫工作檔、起背景行程（本檔 `--job`，最多 300 秒）就走，量完的結果之後的收尾附一次；一個 session 同時一個背景量測，量測中又改的碼量完再量；背景只寫自己的結果檔、不碰 state。量不完、背景中斷、起不來都只寫原因，不附任何指令。`hooks/verify/conftest.py` 每案把背景行程換成不起，測試不留還在跑的行程。
+- **測試**：逾時案改用假的 run 丟 TimeoutExpired，不再真的睡到 8 秒；`verify_reading_path_hook` 18 案、`verify_stop_reconcile` g12w 三案重錄。g12w「沒改程式碼不附」原本靠錄製重播核對失敗被 `_drop_synced` 的 fail-open 吞掉才過，前置改成 .md 真的改了。
+- **全庫最慢清單**（5040 案 1334 秒）：真的睡到逾時的只有上面兩支（8 秒×2）。最慢的 `verify_tools_data_root` 主控台追蹤兩案各 40 秒，是 `tools/console-window-trace.ps1` 開場每個主控台視窗各查一次行程（68 窗×0.55 秒）→ 改成一次查全部（快照後才開的照單查），40 秒→3 秒。產出物帳本在同一次 pytest 裡跨案共用（session id 相同），前面案例的暫存 repo 留在帳上、後面每次收尾都去查 git，錄製檔還錄進別案路徑、單跑就對不上 → `hooks/verify/conftest.py` 每案給帳本自己的資料夾，`verify_stop_reconcile` 59 秒跑完、不再錄出依順序的錄製檔。`verify_scorecard_report` 用真實日期算視窗、樣本日期過期而紅 → 案例把「現在」釘在樣本日期。
+
 ## 2026-10-16 HUD 改版第 1a 階段：產出物帳本收整個 session 的額外產出，保留／刪除鈕當場生效
 - 原設計者指出：帳本幾乎只收 session 關閉就會被清掉的暫存檔，git 工作樹、工作分支、臨時 repo、測試資料夾全漏（30 天 worktree add 42、git init/clone 23、帳本 98.6% 是暫存區檔），得另開 session 大清理、還要提醒 AI 才刪分支。`handlers/aec_ledger.py` 改成依工具呼叫進帳（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支），狀態由 git 與檔案系統現場查；HUD 按鈕經 Node 轉呼叫新工具 `tools/session-artifacts.py` 當場刪並回報（沒合併的分支、有改動的工作樹、遠端分支、整個 repo 要再確認一次），舊的「決策紙條＋下一輪 AI 執行」流程移除。案例 `hooks/verify/verify_session_artifacts.py`。
 

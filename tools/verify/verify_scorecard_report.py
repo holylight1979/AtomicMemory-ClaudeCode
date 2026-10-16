@@ -94,8 +94,16 @@ def test_below_baseline_and_candidates(dirs):
     assert SR.next_card_candidates(rows, 1) == top[:1]
 
 
-def test_outputs_shape_and_sentinel(dirs, capsys):
+class _FrozenNow(datetime):
+    """main() 用 datetime.now() 算視窗；樣本以 NOW 為準，這裡把「現在」釘在 NOW，案例不隨真實日期過期。"""
+    @classmethod
+    def now(cls, tz=None):
+        return NOW
+
+
+def test_outputs_shape_and_sentinel(dirs, capsys, monkeypatch):
     sd, rd = dirs
+    monkeypatch.setattr(SR, "datetime", _FrozenNow)
     _write(sd, _sample())
     assert SR.main(["--weeks", "4", "--top-n", "5"]) == 0
     out = capsys.readouterr().out

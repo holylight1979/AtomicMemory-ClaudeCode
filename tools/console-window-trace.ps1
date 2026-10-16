@@ -66,12 +66,15 @@ function Write-Log([string]$msg){
 }
 
 Write-Log "==================== TRACE START (dur=${DurationSec}s poll=${PollMs}ms pidSelf=$PID) ===================="
-# baseline：記下起始所有 console 視窗（含隱藏），之後對照
+# baseline：記下起始所有 console 視窗（含隱藏），之後對照；擁有者一次查全部行程（每窗各查一次要 0.5 秒）
 $state = @{}
+$owners = @{}
+foreach($p in Get-CimInstance Win32_Process -ErrorAction SilentlyContinue){ $owners[[uint32]$p.ProcessId] = $p }
 foreach($w in [CWT]::Go()){
   $state[$w.hwnd] = $w.vis
   $vtag = if($w.vis){'VISIBLE'}else{'hidden '}
-  $pr = Get-CimInstance Win32_Process -Filter "ProcessId=$($w.pid)" -ErrorAction SilentlyContinue
+  $pr = $owners[[uint32]$w.pid]
+  if(-not $pr){ $pr = Get-CimInstance Win32_Process -Filter "ProcessId=$($w.pid)" -ErrorAction SilentlyContinue }   # 快照之後才開的
   Write-Log ("  baseline {0} cls={1,-20} pid={2,-6} owner={3} :: {4}" -f $vtag,$w.cls,$w.pid,$pr.Name,$w.title)
 }
 Write-Log "-------------------- watching for NEW / hidden->VISIBLE transitions --------------------"

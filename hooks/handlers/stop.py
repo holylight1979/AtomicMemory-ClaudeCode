@@ -1158,13 +1158,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
-    # 閱讀路徑影響（G12）：改碼回合量一次，附在這次擋的訊息與 stderr；只量不擋、不計預算（wg_reading_path）
+    # 閱讀路徑影響（G12）：改碼回合交給背景量、這次不等；量完的結果之後的收尾附一次在擋的訊息與 stderr。只量不擋、不計預算（wg_reading_path）
     try:
-        _reading_path = reading_path_note(state, session_id, config)
+        _reading_path, _rp_changed = reading_path_note(state, session_id, config)
     except Exception as e:  # noqa: BLE001
-        _reading_path = f"[Guardian:ReadingPath] 這次對閱讀路徑的影響量不出來：hook 內部錯誤 {type(e).__name__}: {e}"
+        _reading_path, _rp_changed = f"[Guardian:ReadingPath] 閱讀路徑量測出錯：hook 內部錯誤 {type(e).__name__}: {e}", False
     if _reading_path:
         print(_reading_path, file=sys.stderr)
+    if _reading_path or _rp_changed:
         write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
