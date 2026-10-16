@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: PreToolUse, hook 子行程, CLAUDE_DIR, Path.home, HOME 覆寫, pythonw, stdout None, 5 秒, hook timeout, 探針, GIT_CONFIG_GLOBAL, 隔離測試, run_verify 並行, 假紅, 背景量測, 手動指令, 閱讀路徑量尺
 - Created-at: 2026-09-03
-- Related: repo-全面-lf-決策與守衛鏈, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出, 真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile
+- Related: repo-全面-lf-決策與守衛鏈, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出, 真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile, 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序
 - Quote: 「<pasted_content id="b168"> 接續「收尾少空轉」第二波（上一波已推 main：ebd44e6c、a9e9f862）。目標：收尾流程不再讓模型為了同一件事反覆重跑測試、反覆多花回合。這波做三件： 1. 閱讀路徑量尺移出收尾當下：根層 repo 3 秒內永遠量不完（兩天 11/11 逾時），量不完時還把「手動指令」塞進擋下訊息，模型會接單去跑。改成背景量、結果留到下次收尾附上…」
 
 ## 知識
