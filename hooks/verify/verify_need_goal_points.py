@@ -1197,6 +1197,23 @@ def test_silent_unreconciled_logs_unreconciled_trees_only(world):
     assert [e["event"] for e in g] == ["silent_unreconciled"] and g[0]["turn_seq"] == 9
 
 
+def test_silent_unreconciled_logs_knowledge_edits_after_reconcile_and_untreed(world):
+    t1 = make_tree("knowledge")
+
+    def fn(doc):
+        t = doc["trees"][t1]
+        t["last_reconcile"] = {"seq": 1, "turn": 1, "goal_rev": t.get("goal_rev", 1)}
+        t.setdefault("edits", []).append({"seq": ng.next_seq(doc), "turn": 2, "path": "c:/p/notes.md", "node": t1,
+                                          "code": False, "owed": False})          # 對照之後又改了文件
+    ng.update_locked(SID, fn)
+    recs = ngp.silent_unreconciled(SID, 9)
+    assert [r["tree"] for r in recs] == [t1] and recs[0]["why"] == "有樹沒對照"
+    ng.update_locked("sess-untreed", lambda d: d.setdefault("untreed", []).append(
+        {"seq": 1, "turn": 1, "path": "c:/p/a.md"}))                              # 沒樹時改了知識類
+    recs = ngp.silent_unreconciled("sess-untreed", 9)
+    assert recs == [{"tree": None, "kind": "knowledge", "files": 1, "paths": ["c:/p/a.md"], "why": "沒樹改了記憶知識類的檔"}]
+
+
 # ─── 呼叫點接線（hook 檔真的呼叫到） ─────────────────────────────────────
 
 def _calls(path, name):

@@ -194,6 +194,11 @@ def pytest_runtest_makereport(item, call):
         item._git_cassette_passed = rep.passed          # git_cassette 收尾要知道本體過了沒（沒過不寫錄製檔）
 
 
+# hook 在測試沒導走資料根時寫的守門紀錄與需求目標檔（wg_core.logs_dir、wg_need_goal.goal_dir 的暫存去處，暫存目錄已改到
+# tmp_path/_tmp）：內容帶時間戳與這次的暫存路徑、每次都不同，git 也從不讀它們 → 錄製重播不比對
+RUNTIME_EXCLUDE = ("_tmp/wg-test-logs", "_tmp/wg-test-need-goal")
+
+
 @pytest.fixture
 def git_cassette(request, tmp_path, monkeypatch):
     """git／svn 子程序錄製重播（lib/git_cassette.py）。回 use(exclude=(), code=())：在受測目錄準備好之後呼叫，
@@ -223,6 +228,7 @@ def git_cassette(request, tmp_path, monkeypatch):
         monkeypatch.setattr(tempfile, "_get_candidate_names", lambda: names)
         seq = itertools.count(1)
         monkeypatch.setattr(uuid, "uuid4", lambda: uuid.UUID(int=next(seq)))
+        exclude = tuple(exclude) + RUNTIME_EXCLUDE
         holder["c"] = gc.Cassette(path, tmp_path, mode, exclude, hashes,
                                   extra_paths={"<CODE>": TREE, "<PY>": Path(sys.executable), "<TEMP>": session_temp})
         holder["c"].install(monkeypatch)

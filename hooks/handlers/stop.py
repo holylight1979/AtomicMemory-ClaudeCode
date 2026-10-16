@@ -762,7 +762,8 @@ def _verify_gates(
 ) -> tuple:
     """對帳閘＋驗證範圍閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／scope／"",
     提醒或 None：背景全量新記的範圍漏判)。寫碼查核＝對帳 (a)～(d)＋驗證範圍；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
-    goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)，併進寫碼查核；子代理與裁判不跑目標對照。
+    goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)(f3)，併進寫碼查核；記憶知識類的輕樹 (f4) 併進 (e) 那一份；
+    子代理與裁判不跑目標對照。
     (a)(b)(c) 對 last_text 與 claims（pending 承接的先前宣稱）；(d) 與驗證範圍不看措辭，有改碼紀錄就判（last_text 空也判）。
     自寫收據（_runs/）驗證範圍（入帳找漏判）與 (a) 共用，只讀一次。寫碼查核整個過了 → 這份驗證範圍記成結案。
     判定本身出錯 → 寫碼查核擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，擋滿後改問使用者）＋stderr＋guard_log。"""
@@ -873,9 +874,10 @@ def _verify_gates(
         # 需求目標（4.5）：(f1) 改了程式還沒回頭對照不看措辭、每次都判；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界
         # （宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）判。併進寫碼查核：同一個擋滿問使用者、同一個 pending；
         # (f3) 擋訊息帶規則行，擋次預算單獨計次。state 與 transcript 交給 (f3) 從對話補掛補交的定位四行
+        boundary = bool(claims_completion(last_text) or claims or aec_emitted)
         try:
             from wg_need_goal import goal_gate_reason
-            g_reason = goal_gate_reason(session_id, bool(claims_completion(last_text) or claims or aec_emitted), goal_cfg,
+            g_reason = goal_gate_reason(session_id, boundary, goal_cfg,
                                         state=state, transcript_path=str(transcript) if transcript else "")
         except Exception as e:  # noqa: BLE001
             g_reason = (f"[Guardian:ReconcileGate] 需求目標對照判定錯誤，一律擋：{type(e).__name__}: {e}。"
@@ -885,6 +887,18 @@ def _verify_gates(
         if g_reason:
             reason = f"{reason}\n{g_reason}" if reason else g_reason
             kind = "reconcile"
+        # 記憶知識類的輕樹 (f4)：屬記憶與報告類，併進收尾報告那一份（擋滿第 3 次放行並記 reconcile_overflow，不走放行詢問）；
+        # 判不了不擋（stderr＋guard_log），寫碼類那邊照舊一律擋
+        try:
+            from wg_need_goal import knowledge_gate_reason
+            k_reason = knowledge_gate_reason(session_id, boundary, goal_cfg, turn_seq, _user_turn(state, turn_seq))
+        except Exception as e:  # noqa: BLE001
+            k_reason = None
+            print(f"[Guardian:NeedGoal] 記憶知識類輕樹判定錯誤（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+            append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "knowledge_goal_error": repr(e)[:200]})
+        if k_reason:
+            report = f"{report}\n{k_reason}" if report else k_reason
+            kind = kind or "reconcile"
     if closable and not reason:
         # 寫碼查核整個過了：這份驗證範圍記成結案（之後範圍外的測試紅了，才找得到要連回哪一次宣告）
         try:

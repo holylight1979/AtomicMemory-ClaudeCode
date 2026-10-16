@@ -42,6 +42,8 @@
 | `user_msgs` | int | 這個 session 收過幾則使用者本人打的訊息 |
 | `said_log` | list | 最近 5 則使用者原話 `{seq, turn, text, attached}`；`attached=false` 是還沒歸進任何樹的（開新樹時搬進去） |
 | `hint_sent` | dict | 4.1 提醒送過的紀錄 `{"first": bool, "after": [樹編號…]}` |
+| `untreed` | list | 沒有目標樹時改的記憶知識類檔 `{seq, turn, path}`（寫完還在、不是程式的檔案；同一檔一筆、最多 20 筆）；寫樹或匯入時掛進新樹的 `edits`（樹根、`code=false`）並刪掉這個鍵；收尾 (f4) 與 session 結束記帳讀它 |
+| `untreed_hint_turn` | int | 「知識類也要一棵輕樹」最近一次送出的回合（一回合一次） |
 | `trees` | dict | 樹編號 → 樹（2.2） |
 | `receipts` | list | 收據蓋號 `{seq, receipt_seq, key, turn, at, cmd, cases, verdicts, exit}`，最多 300 筆，`seq` 就是 AI 引用的 `R<seq>`；`cmd` 只存前 200 字；`cases`＝蓋號時用完整指令與它的 cwd 解出的案例檔絕對路徑（指令裡換目錄或沒記 cwd → 空），給先紅後綠比對用 |
 | `imports` | list | 匯入過的續接單 `{path, sha, at, trees}`（同一份同內容不重複匯入） |

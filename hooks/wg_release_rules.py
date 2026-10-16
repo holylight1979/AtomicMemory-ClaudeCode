@@ -1371,7 +1371,38 @@ def ask_audit_note(kind: Optional[str], linked: Optional[str]) -> Optional[str]:
     return f"提問未掛目標（{'寫碼類' if kind == 'code' else '知識類'}）"
 
 
-_CJK = "㐀-鿿豈-﫿"
+# ─── 記憶知識類的輕樹（(f4)；wg_need_goal.knowledge_gate_reason 收事實、這裡判）────────────────────────
+
+RULES.update({
+    "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE": "本使用者回合在還沒有任何需求目標樹時改了記憶知識類的檔（不是程式檔、不是暫存檔；寫入當下已送過一次"
+                                       "「寫一棵輕樹」）→ 回合結束要補一棵輕樹（一個節點即可，之前改的檔寫樹時自動掛進去）。不看措辭；"
+                                       "屬記憶與報告類：併進收尾報告那一份擋，本回合第 3 次放行並記 reconcile_overflow，不問使用者。",
+    "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY": "交付邊界（宣告完成、本回合交了收尾檢核、擋滿待查的原宣稱）時，目前的樹是記憶知識類，而且最後一次"
+                                            "對得上目標版本的完整對照之後還有改檔（沒對照過＝全部改檔）→ 要交 need_goal reconcile；達成不要求"
+                                            "案例或收據，推論最多標部分。樹上沒有改檔（純問答）不要求；寫碼類樹歸 (f2)。同屬記憶與報告類。",
+})
+
+
+def knowledge_light_tree_verdict(untreed: Sequence[str]) -> Verdict:
+    """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE：untreed＝本使用者回合、還沒有目標樹時改的記憶知識類檔（寫樹時會清空並掛進樹）。"""
+    rule = "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE"
+    if not untreed:
+        return Verdict(rule, False, "本回合沒有在沒樹時改記憶知識類的檔")
+    return Verdict(rule, True, f"本回合改了 {len(untreed)} 個記憶知識類的檔，但還沒有需求目標樹", tuple(untreed[:5]))
+
+
+def knowledge_reconcile_verdict(kind: Optional[str], edited: Sequence[str]) -> Verdict:
+    """KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：kind＝目前的樹類別（沒有樹 None）；edited＝最後一次對得上目標版本的完整對照之後
+    改過的檔（沒對照過或對照已作廢＝這棵樹全部改檔）。只在交付邊界問。"""
+    rule = "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"
+    if kind != "knowledge":
+        return Verdict(rule, False, "目前的樹是寫碼類，交付前的完整對照歸 (f2)" if kind else "沒有目標樹")
+    if not edited:
+        return Verdict(rule, False, "記憶知識類的樹在最後一次完整對照之後沒有改檔")
+    return Verdict(rule, True, f"記憶知識類的樹在最後一次完整對照之後改了 {len(edited)} 個檔，還沒交收尾對照", tuple(edited[:5]))
+
+
+_CJK ="㐀-鿿豈-﫿"
 _SEG = rf"[A-Za-z0-9_.\-{_CJK}]+"                                     # 中間段：可含中文
 _SEG_ASCII = r"[A-Za-z0-9_.\-]+"
 _LAST = rf"(?:[A-Za-z0-9_.\-{_CJK}]*?\.[A-Za-z][A-Za-z0-9]{{0,5}}(?![A-Za-z0-9_])|{_SEG_ASCII})"   # 最後一段：含中文要有副檔名

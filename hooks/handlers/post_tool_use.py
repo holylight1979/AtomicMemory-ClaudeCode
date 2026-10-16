@@ -822,9 +822,13 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         else:
             targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
         agent_id = str(input_data.get("agent_id") or "")
+        lines: List[str] = []
         for p in targets or []:
             if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
-                ng.stamp_edit(session_id, p, agent_id, turn, config)
+                line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 沒樹時改了知識類：要寫輕樹（一回合一次）
+                if line:
+                    lines.append(line)
+        hint = None
         if tool_name in ("Bash", "PowerShell"):
             ng.stamp_receipts(session_id, state, turn)
         elif targets:
@@ -832,7 +836,9 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
             from wg_need_goal_points import handout_edit_line
             hint = handout_edit_line(state, session_id, str(targets[0]), turn)
             if hint:
-                return hint, True
+                lines.append(hint)
+        if lines:
+            return "\n".join(lines), bool(hint)
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] PostToolUse 蓋號／套用失敗（{tool_name}）：{type(e).__name__}: {e}", file=sys.stderr)
         ng._guard("stamp_error", session_id, tool=tool_name, error=f"{type(e).__name__}: {e}")
@@ -1251,9 +1257,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             import wg_need_goal as _ng
             _ng_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "") or ""
-            _ng_snap = _ng.snapshot_for_report(session_id) if _ng.cfg_for_cwd(config, _ng_cwd)["enabled"] else None
+            _ng_on = _ng.cfg_for_cwd(config, _ng_cwd)["enabled"]
+            _ng_snap = _ng.snapshot_for_report(session_id) if _ng_on else None
             if _ng_snap:
                 report["need_goal"] = _ng_snap
+            if _ng_on:
+                # 收尾檢核之後就是收尾報告（常帶下一步、開工句）：交出前一問在這裡也送一次
+                aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.HANDOUT_CHECK}")
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report

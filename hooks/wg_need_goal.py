@@ -82,8 +82,8 @@ _RETRY_S = 0.02
 _RETRIES = 10
 STALE_DAYS = 30
 
-HINT_LINE = ("[NeedGoal] 若這是要動手的需求，先用 need_goal(action=set, goal=…) 寫下它真正要達成什麼"
-             "（一句、用使用者的話、不寫手段）；純問答可以不寫。")
+HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先用 need_goal(action=set, goal=…) "
+             "寫下它真正要達成什麼（一句、用使用者的話、不寫手段）；純問答可以不寫。")
 GOAL_LINE_TEMPLATE = "定位｜目標：<節點編號>（這一塊在目標裡的角色）"
 # 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；
 # 定位第五行的提示與「用目標視角重看」的兩問共用；只送題，適不適用由 LLM 判斷
@@ -93,6 +93,12 @@ CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷�
 # 交出計畫、開工句、清單之前的一問（判斷入口盤點第四節；完整對照收下、改計畫類文件、提問被擋或提醒時送）：只送題、不評內容
 HANDOUT_CHECK = ("交出計畫、開工句、清單給使用者前再對一次：還對得上最新的計畫嗎？剛改的東西影響哪些已經給出去的內容"
                  "（之前給的開工句、清單、計畫）？有就一起改。")
+# 沒有目標樹時改了記憶知識類的檔（寫入當下，一回合一次）：知識類也要一棵輕樹；不擋寫檔，收尾還沒補由 (f4) 要
+KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 session 還沒有需求目標樹：文件、記憶、設定這類任務也要一棵輕樹——"
+                       "用 need_goal(action=set, goal=…) 寫下這次真正要達成什麼（一句、用使用者的話、只寫目標不寫手段；一個節點就夠，"
+                       "不要求定位行），沒樹時改的檔會自動掛進樹；做完用 need_goal(action=reconcile) 對照（例如該保留的內容都還在嗎）。"
+                       "這一步不擋寫檔；收尾時還沒寫樹或沒對照會被要求補交（記憶知識類，不問使用者）。")
+UNTREED_MAX = 20             # 沒樹時改的記憶知識類檔最多記幾個（同一檔只記一筆）
 
 
 class NeedGoalLockTimeout(RuntimeError):
@@ -384,9 +390,17 @@ def _new_tree(doc: Dict[str, Any], goal: str, turn: int, why: str) -> Dict[str, 
         if not s.get("attached") or int(s.get("turn", -1)) == int(turn):
             _add_said(tree, {k: s[k] for k in ("seq", "turn", "text") if k in s})
             s["attached"] = True
+    _adopt_untreed(doc, tree)
     doc["trees"][tid] = tree
     doc["active"] = tid
     return tree
+
+
+def _adopt_untreed(doc: Dict[str, Any], tree: Dict[str, Any]) -> None:
+    """沒樹時改的記憶知識類檔（doc["untreed"]）掛進剛建立的樹的樹根：改檔照樣記進樹，收尾對照看得到；掛完清掉。"""
+    for e in doc.pop("untreed", None) or []:
+        tree["edits"].append({"seq": e.get("seq"), "turn": e.get("turn"), "path": e.get("path"), "node": tree["id"],
+                              "agent_id": "", "code": False, "owed": False})
 
 
 def _goal_changed(doc: Dict[str, Any], tree: Dict[str, Any], turn: int) -> None:
@@ -1133,7 +1147,8 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 sent["first"] = True
                 return HINT_LINE, True
             return None, False
-        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}；這則若換題，用 need_goal(action=set, new_task=true)。"]
+        # 交出前一問每則都帶：純問答回合直接在回覆裡交開工句、清單時，回覆之前只有這個點（只送題、適不適用由 AI 判斷）
+        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}；這則若換題，用 need_goal(action=set, new_task=true)。{HANDOUT_CHECK}"]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1271,14 +1286,16 @@ def _hub_part_of(path: str, config: Optional[Dict[str, Any]]) -> Optional[Tuple[
         return None
 
 
-def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[Dict[str, Any]]) -> None:
+def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[Dict[str, Any]]) -> Optional[str]:
     """改檔蓋號：掛到部位連到的節點（沒有就樹根）；程式檔記待對照、記改到的部位（parts_edited，收尾 (f3) 查它掛了目標沒）、
-    樹升寫碼類、已對照或結束的樹退回進行中。沒有樹不記。"""
+    樹升寫碼類、已對照或結束的樹退回進行中。沒有樹：程式檔不記（改之前 edit_gate 已擋）；寫完還在、不是程式的檔案才算
+    記憶知識類寫入（目錄、搬走或刪掉的路徑分不出是不是程式，不算），記進 untreed（寫樹時掛進新樹），這個回合第一筆回
+    KNOWLEDGE_TREE_LINE 給呼叫端送回 AI。其餘回 None。"""
     if not sid or not path or not cfg_of(config, _root_of(path))["enabled"]:
-        return
-    if active_tree(load(sid)) is None:
-        return
+        return None
     code = is_code_path(path, config)
+    if active_tree(load(sid)) is None:
+        return None if code or not os.path.isfile(path) else _note_untreed(sid, path, turn)
     hub_key = _hub_key_of(path)
     part = _hub_part_of(path, config) if code else None
 
@@ -1312,6 +1329,32 @@ def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[D
             if tree.get("status") in ("reconciled", "closed"):
                 tree["status"] = "doing"
     update_locked(sid, fn)
+    return None
+
+
+def _note_untreed(sid: Any, path: str, turn: int) -> Optional[str]:
+    """沒有目標樹時改了記憶知識類的檔：記進 doc["untreed"]（同一檔一筆、更新回合；收尾 (f4) 與寫樹掛進樹都讀它），
+    這個回合第一筆回 KNOWLEDGE_TREE_LINE。上鎖後發現樹已經在了就不記（並行的 set 先到）。"""
+    def fn(doc: Dict[str, Any]) -> Optional[str]:
+        if active_tree(doc) is not None:
+            return None
+        log = doc.setdefault("untreed", [])
+        seq = next_seq(doc)
+        hit = next((e for e in log if rr.same_file(str(e.get("path") or ""), str(path))), None)
+        if hit:
+            hit.update(seq=seq, turn=turn)
+        else:
+            log.append({"seq": seq, "turn": turn, "path": str(path)})
+            del log[:-UNTREED_MAX]
+        if doc.get("untreed_hint_turn") == turn:
+            return None
+        doc["untreed_hint_turn"] = turn
+        return KNOWLEDGE_TREE_LINE.format(name=Path(str(path)).name)
+
+    line = update_locked(sid, fn)
+    if line:
+        _guard("knowledge_no_tree", sid, path=str(path), turn_seq=turn)
+    return line
 
 
 def _receipt_ident(key: str, receipt_seq: Any, at: Any) -> str:
@@ -1505,6 +1548,44 @@ def commit_gate(sid: Any, config: Optional[Dict[str, Any]], state: Optional[Dict
     return "[NeedGoal] commit 前的目標對照沒過，先補再 commit：\n" + "\n".join(parts) + "\n" + NO_TOOL_HINT
 
 
+def _edited_since_reconcile(tree: Dict[str, Any]) -> List[str]:
+    """最後一次對得上目標版本的完整對照之後改過的檔（沒對照過、或對照後目標改過＝這棵樹全部改檔），去重保序。"""
+    lr = tree.get("last_reconcile") or {}
+    after = int(lr.get("seq") or 0) if lr and lr.get("goal_rev") == tree.get("goal_rev") else -1
+    return list(dict.fromkeys(str(e["path"]) for e in tree.get("edits") or []
+                              if isinstance(e, dict) and e.get("path") and int(e.get("seq") or 0) > after))
+
+
+def knowledge_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]], turn_seq: int,
+                          since: Optional[int] = None) -> Optional[str]:
+    """回合結束的記憶知識類輕樹 (f4)：屬記憶與報告類，呼叫端併進收尾報告那一份（擋滿第 3 次放行並記 reconcile_overflow，
+    不問使用者）。KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE 不看措辭：本使用者回合（since～turn_seq）沒樹時改了記憶知識類的檔；
+    KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY 只在交付邊界（triggered）：目前的知識類樹最後一次完整對照之後還有改檔。只給主 session 用。"""
+    if not sid:
+        return None
+    doc = load(sid)
+    if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:
+        return None
+    tree = active_tree(doc)
+    untreed = [] if tree else [str(e.get("path")) for e in doc.get("untreed") or []
+                               if isinstance(e, dict) and rr.in_turn(e.get("turn"), turn_seq, since)]
+    hits: List[str] = []
+    v = rr.knowledge_light_tree_verdict(untreed)
+    if v.owed:
+        hits.append(rr.format_hit("f4", v) + "\n    → need_goal(action=set, goal=…) 寫一棵輕樹（一個節點即可，用使用者的話、"
+                    "只寫目標），剛改的檔會自動掛進去；交付前再 reconcile。")
+    v = rr.knowledge_reconcile_verdict(tree.get("kind") if tree else None, _edited_since_reconcile(tree) if tree else [])
+    if triggered and v.owed:
+        hits.append(rr.format_hit("f4", v) + "\n    → need_goal(action=reconcile, items=[每個還活著的節點：{id, status, evidence?, "
+                    "followup?, note?}])：記憶知識類的「達成」不要求案例或收據，可指到改過的檔（kind=file、level=read）；"
+                    "推論最多標部分。是另一件新需求就 need_goal(action=set, new_task=true) 開新樹。")
+    if not hits:
+        return None
+    _guard("gate_f4", sid, tree=doc.get("active"), turn_seq=turn_seq, hits=len(hits))
+    return ("[Guardian:NeedGoal] (f4) 記憶知識類的輕樹（AI 自己補，不問使用者；本回合擋滿第 3 次放行並記帳）：\n"
+            + "\n".join("  " + h for h in hits))
+
+
 # ─── 報告、審查材料、續接單、壓縮重送 ─────────────────────────────────────────
 
 def _said_summary(tree: Dict[str, Any], first_cap: int, cap: int, last: int) -> List[Dict[str, Any]]:
@@ -1643,6 +1724,7 @@ def _import_tree(doc: Dict[str, Any], t: Dict[str, Any], src_session: Any, path:
                           "map": {k: _remap(k, old, new) for k in (t.get("nodes") or {})}},
         "checkpoints": [], "nodes": nodes,
     }
+    _adopt_untreed(doc, doc["trees"][new])
     return new
 
 

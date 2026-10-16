@@ -1306,6 +1306,19 @@ def test_c_g16_ask_linked_to_goal_by_id_or_fragment():
     assert rr.ask_audit_note("code", "T1") is None
 
 
+def test_knowledge_light_tree_and_reconcile_rules():
+    """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE／KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：各一個會紅的案例＋反例。"""
+    v = rr.knowledge_light_tree_verdict(["C:/p/notes.md", "C:/p/plan.md"])
+    assert v.owed and v.rule == "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" and "2 個" in v.why and "C:/p/notes.md" in v.evidence
+    assert not rr.knowledge_light_tree_verdict([]).owed
+    v = rr.knowledge_reconcile_verdict("knowledge", ["C:/p/notes.md"])
+    assert v.owed and v.rule == "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" and rr.parse_hits(rr.format_hit("f4", v)) == ["f4"]
+    assert not rr.knowledge_reconcile_verdict("knowledge", []).owed                     # 純問答樹
+    assert not rr.knowledge_reconcile_verdict("code", ["C:/p/a.py"]).owed               # 寫碼類歸 (f2)
+    assert not rr.knowledge_reconcile_verdict(None, ["C:/p/notes.md"]).owed
+    assert {"KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"} <= set(rr.RULES)
+
+
 def test_c_g16_ask_linked_to_goal_units_per_question_without_header():
     """codex BLOCK 1／WARN：每一題各自一個單位（題目＋選項 label 與描述，不含 header）；待放行時放行題不算單位。"""
     ti = {"questions": [{"question": "要哪種格式？", "header": "T1", "options": [{"label": "CSV", "description": "掛 T1.1"}]},
