@@ -15,6 +15,7 @@
 - [臨] 重播對不上的五種來源（實遇）：受測程式的 mkstemp／mkdtemp 隨機檔名與 uuid4（fixture 已改序號、暫存目錄搬進 tmp_path/_tmp）；路徑短檔名／長檔名、正反斜線混用（逐種寫法各自還原，否則 check-ignore --stdin 回聲的路徑對不上）；受測程式寫的 .log／.jsonl 帶時間（不比）；commit 訊息帶當天日期（正規化）；有時間預算的程式在負載下錄製會多重試幾次、呼叫數不同（單獨重錄那支）。
 - [臨] 不適用：git 在受測程式開的子程序裡跑（攔不到，子程序的非決定性效果會讓下一筆對不上）、repo 建在每案 tmp_path 之外（例 verify_install 的模組共用目錄）。被 git 叫起來的本專案程式（合併驅動）重播時不會跑，要列進 code 讓它改了自動重錄。
 - [臨] 錄製工具自己的輔助動作（問 git／svn 版本）不能借用 fixture 換上的暫存名序號或受測目錄：曾用 TemporaryDirectory 吃掉一個號，單獨錄的檔整檔重播就差一位（claude-0b 回報）。tool_version 現在自己用 pid＋時間命名、建在 session 暫存根，單獨跑一支錄也對得上；之後給錄製工具加輔助動作照同一條。
+- [臨] 錄製重播會比對受測暫存目錄（tmp_path，含 fixture 改過去的 tmp_path/_tmp）裡每個檔的內容；hook 在測試沒導走資料根時把守門紀錄與需求目標檔寫到 `_tmp/wg-test-logs`、`_tmp/wg-test-need-goal`，內容帶時間戳與這次的暫存路徑，錄製與重播永遠對不上（症狀：重錄後立刻重播仍報『只用了 N 筆』）。根 conftest 的 `RUNTIME_EXCLUDE` 預設排除這兩個；hooks 新增別的暫存去處時要加進清單，`lib/verify/verify_git_cassette.py::test_conftest_excludes_every_hook_runtime_fallback_dir` 會紅提醒。查不一致時解開 .json.gz 比對新舊錄製的 argv 與 pre 欄位（pre＝呼叫前受測目錄每檔的雜湊）最快。
 
 ## 行動
 

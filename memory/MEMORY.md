@@ -11,10 +11,10 @@
 | dotnet | 15 | `memory/dotnet/_INDEX.md` |
 | OS-Windows | 14 | `memory/OS-Windows/_INDEX.md` |
 | 文字與格式 | 9 | `memory/文字與格式/_INDEX.md` |
-| 設計通則 | 19 | `memory/設計通則/_INDEX.md` |
+| 設計通則 | 20 | `memory/設計通則/_INDEX.md` |
 | 行為契約 | 5 | `memory/行為契約/_INDEX.md` |
 | CC與原子記憶契約 | 25 | `memory/CC與原子記憶契約/_INDEX.md` |
-| Failures | 74 | `memory/Failures/_INDEX.md` |
+| Failures | 75 | `memory/Failures/_INDEX.md` |
 
 > 本地範疇（僅 ~/.claude 注入）Lv1 根索引見 `_local_catalog.md`，深層 drill 各層 `_INDEX.md`。
 

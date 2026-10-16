@@ -58,7 +58,7 @@
 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 | _AIDocs/_atoms/MemDev/原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證.md | 記憶系統審查, atom audit, 誠實化, 修剪, 拔死碼, 死碼, 實證先行, always-load, fail-open, 可觀測性, vector 靜默死, 誤刀, 復活基座, 過度工程, 跨模型他評, codex, 併發執P, MCP 重啟 | global |  |
 | 巨檔純機械拆分-carve腳本與驗證盲點 | _AIDocs/_atoms/MemDev/巨檔純機械拆分-carve腳本與驗證盲點.md | 拆檔, server.js 拆分, 純機械拆分, carve, 模組拆分, split module, depgraph, 循環相依, live MCP 測試汙染, byte-identical 搬移 | global |  |
 | git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉 | memory/版控/Git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md | git commit, git push, amend, git amend, force push, force-with-lease, rebase, dual push url, 雙push, gitlab, github, pre-receive hook declined, non-fast-forward, 遠端分叉, 分叉, commit message, heredoc, 多行 commit message, 上GIT, main 保護, force 保護, publish-remotes, Fork graph, 單一條線 | global |  |
-| anti-evasion-hud-設計脊柱與強化前必讀 | _AIDocs/_atoms/MemDev/anti-evasion-hud-設計脊柱與強化前必讀.md | anti-evasion, AEC, AEC HUD, 收尾檢核 HUD, anti_evasion_report, one-writer, sibling 隔離, aec_severity, autospawn, 彈窗, 強化 AEC, 改 AEC HUD, 記憶系統開發, d_pending, AEC-Pending, 尚未寫, 見下一動 | global |  |
+| anti-evasion-hud-設計脊柱與強化前必讀 | _AIDocs/_atoms/MemDev/anti-evasion-hud-設計脊柱與強化前必讀.md | anti-evasion, AEC, AEC HUD, 收尾檢核 HUD, anti_evasion_report, one-writer, sibling 隔離, aec_severity, autospawn, 彈窗, 強化 AEC, 改 AEC HUD, 記憶系統開發, d_pending, AEC-Pending, 尚未寫, 見下一動, 殘留物帳本, 工作樹殘留, 分支殘留, 暫存刪除鈕, HUD 改版 | global |  |
 | 模型行為移植-fable行為契約必載檔 | _AIDocs/_atoms/MemDev/模型行為移植-fable行為契約必載檔.md | 模型切換, Opus, Fable, 行為契約, 自動推進, 抓重點, IDENTITY 擴充, 行為移植, model behavior | global |  |
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | _AIDocs/_atoms/MemDev/啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立.md | user-init, IDENTITY.md 被覆寫, 啟動鏈, SessionStart 覆寫, 雙檔 pipeline, 檔案自動覆蓋, stub 覆寫, 契約檔損毀 | global |  |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | _AIDocs/_atoms/MemDev/otel-遙測評估結論-不實作-兩目標指標皆測不到.md | OTEL, OpenTelemetry, 遙測, telemetry, hook 延遲量測, token 稅量測, CLAUDE_CODE_ENABLE_TELEMETRY | global |  |
@@ -437,3 +437,5 @@
 | 用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀 | memory/思考與決策/用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀.md | 假設支援, Unknown scope, 回傳格式不一致, tool_response, 成功失敗兩種形狀, 介面假設, 假設錯誤 | global |  |
 | 讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用 | memory/思考與決策/讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用.md | 讀到副本, 資料來源, 權威源頭, 續接單, 派工單, 舊版本, 假設錯誤 | global |  |
 | 從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑 | memory/驗證與實證/從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑.md | 絕對路徑正則, 磁碟代號, [A-Za-z]:[/\\], 網址被當路徑, http:// 誤判, 沙箱外路徑, 路徑出界檢查, lookbehind, replay-guard | global |  |
+| 分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判 | memory/設計通則/分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判.md | 分類判定, 補集, 不是程式就是知識類, 誤判, 搬目錄, 刪檔, 分不出, 三格判定, 負面定義, is_code_path | global |  |
+| feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照 | memory/Failures/工作流/feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照.md | checklist, 核心推進文件, 接續單, 現況表, 更新文件, 收尾更新, 過時快照, 你有更新嗎 | global |  |
