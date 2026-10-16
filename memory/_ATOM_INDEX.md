@@ -436,3 +436,4 @@
 | git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 | _AIDocs/_atoms/MemDev/git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用.md | git_cassette, 錄製重播, --git-record, 測試建 repo 太慢, git 子程序測試, CassetteMismatch, WG_GIT_CASSETTE, cassettes | global |  |
 | 用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀 | memory/思考與決策/用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀.md | 假設支援, Unknown scope, 回傳格式不一致, tool_response, 成功失敗兩種形狀, 介面假設, 假設錯誤 | global |  |
 | 讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用 | memory/思考與決策/讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用.md | 讀到副本, 資料來源, 權威源頭, 續接單, 派工單, 舊版本, 假設錯誤 | global |  |
+| 從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑 | memory/驗證與實證/從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑.md | 絕對路徑正則, 磁碟代號, [A-Za-z]:[/\\], 網址被當路徑, http:// 誤判, 沙箱外路徑, 路徑出界檢查, lookbehind, replay-guard | global |  |
