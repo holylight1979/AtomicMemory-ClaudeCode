@@ -812,7 +812,7 @@ def test_045_move_code_dir_needs_scan_and_sample_detects_only_code_dirs(tmp_path
 
 
 def test_045_move_code_dir_needs_scan_and_sample_glob_copy_is_not_a_move(tmp_path):
-    """實遇：`cp hooks/*.py <暫存>/hooks/` 是複製，來源字面路徑 `hooks/*.py` 不存在卻被當成搬目錄、收尾要補兩張掃描收據。
+    """`cp hooks/*.py <暫存>/hooks/` 是複製：來源寫成萬用字元時字面路徑不存在，不能因此當成搬目錄。
     萬用字元來源展開後還有符合的檔＝複製：記錄端不記，收尾端已記下的也剔除。真的 mv 掉（展開後沒有符合）照記。"""
     from handlers import post_tool_use as ptu
     from handlers import stop as stp
