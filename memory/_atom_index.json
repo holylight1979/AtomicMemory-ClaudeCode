@@ -983,26 +983,10 @@
       "path": "_AIDocs/_atoms/MemDev/anti-evasion-hud-設計脊柱與強化前必讀.md",
       "triggers": [
         "anti-evasion",
-        "AEC",
         "AEC HUD",
         "收尾檢核 HUD",
         "anti_evasion_report",
         "one-writer",
-        "sibling 隔離",
-        "aec_severity",
-        "autospawn",
-        "彈窗",
-        "強化 AEC",
-        "改 AEC HUD",
-        "記憶系統開發",
-        "d_pending",
-        "AEC-Pending",
-        "尚未寫",
-        "見下一動",
-        "殘留物帳本",
-        "工作樹殘留",
-        "分支殘留",
-        "暫存刪除鈕",
         "HUD 改版"
       ],
       "scope": "global"
@@ -7522,6 +7506,21 @@
         "產出物帳本",
         "跨案殘留",
         "untracked 錄製檔"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆",
+      "path": "memory/Failures/工作流/feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆.md",
+      "triggers": [
+        "轉告",
+        "SendMessage",
+        "ListAgents",
+        "同伴 session",
+        "跨 session 訊息",
+        "哪個 session",
+        "session id 對不上",
+        "請使用者轉告"
       ],
       "scope": "global"
     }
