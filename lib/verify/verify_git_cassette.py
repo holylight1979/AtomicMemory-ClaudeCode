@@ -217,10 +217,50 @@ def test_no_vcs_call_writes_no_file(tmp_path, monkeypatch):
     assert not cas.exists()
 
 
+def test_record_writes_tool_versions(tmp_path, monkeypatch):
+    """錄製時記下用到的工具與版本（用錄製時那支執行檔問；假 git 對 --version 回 ok）。"""
+    monkeypatch.setattr(gc, "_VERSIONS", {})
+    cas, _ = _record(tmp_path, monkeypatch, basic)
+    data = gc.load(cas)
+    assert data["versions"] == {"git": "ok"} and data["exe"] == {"git": "git"}
+
+
+def test_tool_version_query_leaves_no_trace_in_test_home(tmp_path, monkeypatch):
+    """問版本不能在測試的家目錄留檔（svn 一啟動就建設定目錄）：舊碼沿用測試環境，受測目錄憑空多出 AppData/Subversion。"""
+    home = tmp_path / "_home"
+    home.mkdir()
+    for k in ("HOME", "USERPROFILE", "APPDATA", "XDG_CONFIG_HOME"):
+        monkeypatch.setenv(k, str(home))
+    monkeypatch.setattr(gc, "_VERSIONS", {})
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(cwd=kw.get("cwd"), home=kw.get("env", {}).get("APPDATA"))
+        Path(kw["env"]["APPDATA"], "Subversion").mkdir()          # 模擬 svn 啟動時建設定目錄
+        return subprocess.CompletedProcess(cmd, 0, "1.14.5\n", "")
+    assert gc.tool_version("svn", run=fake_run) == "1.14.5"
+    assert seen["home"] != str(home) and seen["cwd"] == seen["home"]
+    assert list(home.iterdir()) == []
+
+
+def test_tool_version_change_triggers_rerecord(tmp_path, monkeypatch):
+    """git 換版（或同事機器版本不同）→ 自動重錄，理由寫出兩個版本；版本相同才重播；舊錄製檔沒記版本 → 重錄。"""
+    p = tmp_path / "v.json.gz"
+    gc.save(p, {"format": gc.FORMAT, "code": {}, "versions": {"git": "git version 2.50.1"}, "exe": {"git": "git"},
+                "start": {}, "calls": []})
+    monkeypatch.setattr(gc, "_VERSIONS", {"git": "git version 2.51.0"})
+    mode, why = gc.choose_mode(p, "auto", {})
+    assert mode == "record" and "2.50.1" in why and "2.51.0" in why, why
+    monkeypatch.setattr(gc, "_VERSIONS", {"git": "git version 2.50.1"})
+    assert gc.choose_mode(p, "auto", {}) == ("replay", "重播")
+    gc.save(p, {"format": gc.FORMAT, "code": {}, "start": {}, "calls": []})
+    assert gc.choose_mode(p, "auto", {}) == ("record", "錄製檔沒記 git／svn 版本")
+
+
 def test_choose_mode(tmp_path):
     p = tmp_path / "x.json.gz"
     assert gc.choose_mode(p, "auto", {}) == ("record", "沒有錄製檔")
-    gc.save(p, {"format": gc.FORMAT, "code": {"tools/a.py": "h1"}, "start": {}, "calls": []})
+    gc.save(p, {"format": gc.FORMAT, "code": {"tools/a.py": "h1"}, "versions": {}, "start": {}, "calls": []})
     assert gc.choose_mode(p, "auto", {"tools/a.py": "h1"}) == ("replay", "重播")
     mode, why = gc.choose_mode(p, "auto", {"tools/a.py": "h2"})
     assert mode == "record" and "tools/a.py" in why                     # 被 git 叫起來的程式改了 → 自動重錄

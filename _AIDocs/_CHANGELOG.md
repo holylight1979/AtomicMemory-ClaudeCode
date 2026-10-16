@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-16 錄製重播記下 git／svn 版本，換版自動重錄
+- 方案原寫「錄製檔記下 git 版本」，實作漏了：git 升版或同事機器版本不同時，重播照用舊版回答、測不出新版行為。`lib/git_cassette.py` 錄製時用同一支執行檔問版本寫進表頭，`choose_mode` 比對這台機器現在的版本，不同就自動改跑真 git 重錄（每個測試行程每種工具只問一次）。既有 601 個錄製檔補上本機版本（git 2.50.1.windows.1、svn 1.14.5）。新案兩支。
+
 ## 2026-10-15 git／svn 測試改成錄製重播，不再每案開 git 建 repo
 - 新增 `lib/git_cassette.py`＋根 conftest 的 `git_cassette` fixture：測試照舊用真 repo 寫情境，git／svn 呼叫錄一次真實執行（指令、輸出、對受測目錄造成的檔案變化），之後重播並逐筆核對指令、目錄與呼叫前目錄內容，不對就失敗要求 `pytest --git-record` 重錄；會被 git 叫起來的本專案程式（合併驅動）改了自動重錄。套到 git 呼叫量最大的 11 支（單獨跑，錄製 → 重播）：`verify_vcs_sync_worker` 483→49 秒、`verify_stop_reconcile` 281→114 秒、`verify_reading_path` 149→20 秒、`verify_merge_atom_index` 98→28 秒、`verify_merge_driver_gate` 41→12 秒、`verify_overview_hub` 19→8 秒，其餘 5 支各剩 1～20 秒；`verify_install` 不適用（repo 在模組共用目錄、git 在子程序）。突變驗證（提交清單順序倒過來）重播當場擋下。共用 fixture 把暫存目錄搬進受測目錄、暫存檔名與 uuid 用序號；路徑每種寫法各自還原；.log／.jsonl 與 git index 不比。`.gitattributes` 加 `*.gz binary`。順手修範圍漏判帳：整支新寫的測試檔第一次跑紅，舊碼因讀不到舊版本而記成別的 session 的漏判，現在判成自己進行中的工作（`wg_verify_scope._case_changed_since`）。
 

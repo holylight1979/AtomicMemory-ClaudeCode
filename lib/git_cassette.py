@@ -7,7 +7,8 @@
 - 重播（replay）：不開 git／svn。每次呼叫先核對三件事和錄製的那一筆一樣：指令（含參數）、執行目錄、呼叫前受測目錄的
   內容；一樣才交回當時的輸出、把當時的檔案變化原樣寫回。任何一項不同就讓測試失敗並說哪裡不同、要重錄。
   所以一次重播等於那次真實執行的完整複本：受測程式的判斷照常跑，git 看到的輸入一點不差，回答也一字不差。
-- 錄製檔記下「會被 git 叫起來的本專案程式」（例：合併驅動）的雜湊：那些程式改了 → 錄製檔作廢、自動重錄（跑真 git）。
+- 錄製檔記下「會被 git 叫起來的本專案程式」（例：合併驅動）的雜湊，以及錄製時用的 git／svn 版本：程式改了、或這台
+  機器現在的 git／svn 版本和錄製時不同 → 錄製檔作廢、自動重錄（跑真 git）。版本每個測試行程每種工具只問一次。
 正規化：受測目錄的絕對路徑在指令、輸出、檔案內容裡都換成 <TMP>（程式碼樹 <CODE>、直譯器 <PY> 同理，換台機器也對得上），
   重播時換回這一次的實際路徑；指令裡的日期換成 <DATE>（commit 訊息帶當天日期）；比對檔案內容時日期也不算差異。
 不比對的檔：git 的 index、svn 的 wc.db 內含檔案時間戳，受測程式的 .log／.jsonl 帶時間，重播與錄製不會一樣，照樣寫回但不拿來比對。
@@ -28,6 +29,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -46,6 +48,29 @@ def is_vcs_call(cmd: Any) -> bool:
         return False
     name = Path(str(cmd[0])).name.lower()
     return (name[:-4] if name.endswith(".exe") else name) in VCS_EXES
+
+
+_VERSIONS: Dict[str, str] = {}
+_VERSION_ARGS = {"git": ["--version"], "svn": ["--version", "--quiet"], "svnadmin": ["--version", "--quiet"]}
+
+
+def tool_version(exe: str, path: str = "", run=None) -> str:
+    """git／svn 的版本字串：同一個行程每種工具只問一次；錄製時那支執行檔還在就問它，否則問 PATH 上的。問不到回空字串。
+    在一次性暫存目錄裡問、家目錄類變數都指過去：svn 一啟動就會在家目錄建設定檔，不能落進測試的受測目錄。"""
+    if exe in _VERSIONS:
+        return _VERSIONS[exe]
+    target = path if path and (Path(path).exists() or shutil.which(path)) else exe
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
+            env = {**os.environ, "HOME": scratch, "USERPROFILE": scratch, "APPDATA": scratch, "XDG_CONFIG_HOME": scratch}
+            r = (run or subprocess.run)([target, *_VERSION_ARGS.get(exe, ["--version"])], capture_output=True,
+                                        text=True, timeout=10, cwd=scratch, env=env)
+        out = (r.stdout or "").strip()
+        version = out.splitlines()[0] if r.returncode == 0 and out else ""
+    except (OSError, subprocess.SubprocessError):
+        version = ""
+    _VERSIONS[exe] = version
+    return version
 
 
 def code_hashes(tree: Path, rels: Iterable[str]) -> Dict[str, str]:
@@ -214,6 +239,8 @@ class Cassette:
         self.tree = _Tree(root, exclude, self.paths)
         self.code = code or {}
         self.calls: List[Dict[str, Any]] = []
+        self.versions: Dict[str, str] = {}          # 錄製時用到的工具 → 版本字串
+        self.exe_paths: Dict[str, str] = {}         # 錄製時用到的工具 → 執行檔（重播前問版本用）
         self.pos = 0
         self._orig = subprocess.run
         self.state = self.tree.scan()
@@ -258,8 +285,12 @@ class Cassette:
     def _record(self, cmd, *args, **kw):
         if not is_vcs_call(cmd):
             return self._orig(cmd, *args, **kw)
+        key = self._key(cmd, kw)
+        if key["exe"] not in self.versions:
+            self.exe_paths[key["exe"]] = str(cmd[0])
+            self.versions[key["exe"]] = tool_version(key["exe"], str(cmd[0]), self._orig)
         pre = self.tree.scan()
-        entry: Dict[str, Any] = {**self._key(cmd, kw), "pre": _delta(self.state, pre)}
+        entry: Dict[str, Any] = {**key, "pre": _delta(self.state, pre)}
         check = kw.pop("check", False)              # 先錄下非零結束碼，再照 check 丟例外（重播同一條路）
         try:
             res = self._orig(cmd, *args, **kw)
@@ -340,7 +371,8 @@ class Cassette:
         """錄製：測試通過才寫檔。重播：通過的測試要把錄製的呼叫用完（少呼叫也是行為改了）。"""
         if self.mode == "record":
             if passed and self.calls:                 # 沒叫 git 的案不留檔：下次照樣直接跑，本來就不開 git
-                save(self.path, {"format": FORMAT, "code": self.code, "start": self.start, "calls": self.calls})
+                save(self.path, {"format": FORMAT, "code": self.code, "versions": self.versions, "exe": self.exe_paths,
+                                 "start": self.start, "calls": self.calls})
             return
         if passed and self.pos != len(self.calls):
             raise CassetteMismatch(f"[git_cassette] 錄製有 {len(self.calls)} 筆 git／svn 呼叫，這次只用了 {self.pos} 筆；"
@@ -377,4 +409,10 @@ def choose_mode(path: Path, requested: str, code: Dict[str, str]) -> Tuple[str, 
     if data.get("code") != code:
         stale = sorted(k for k in set(code) | set(data.get("code") or {}) if code.get(k) != (data.get("code") or {}).get(k))
         return "record", f"被 git 叫起來的程式改了（{'、'.join(stale)}）"
+    if "versions" not in data:
+        return "record", "錄製檔沒記 git／svn 版本"
+    for name, recorded in sorted(data["versions"].items()):
+        now = tool_version(name, (data.get("exe") or {}).get(name, ""))
+        if now != recorded:
+            return "record", f"{name} 版本不同（錄製時 {recorded or '問不到'}，現在 {now or '問不到'}）"
     return "replay", "重播"
