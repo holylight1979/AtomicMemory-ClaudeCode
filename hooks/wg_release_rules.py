@@ -851,6 +851,23 @@ def red_case_names(summary: str) -> List[str]:
     return out
 
 
+_PYTEST_TALLY_RE = re.compile(r"^=*\s*\d+ (?:passed|failed|errors?|skipped|deselected|xfailed|xpassed|warnings?)\b.*$",
+                              re.MULTILINE)
+RED_CASES_CAP = 200     # 收據最多記這麼多支紅案；超過就當清單不完整
+
+
+def red_case_facts(output: str) -> Tuple[List[str], bool]:
+    """SCOPE_RED_ONLY_ITS_CASES 的事實：pytest 輸出裡紅掉的案例（red_case_names）與這份清單完不完整：最後一行 pytest 結算
+    （「N failed, M passed … in Xs」）的 failed＋error 數要等於列出的紅案數。沒有結算行（輸出被截、不是 pytest）、數不合、
+    超過 RED_CASES_CAP → 不完整。"""
+    names = red_case_names(output)
+    tallies = _PYTEST_TALLY_RE.findall(str(output or ""))
+    if not names or not tallies or len(names) > RED_CASES_CAP:
+        return names[:RED_CASES_CAP], False
+    count = sum(int(n) for n in re.findall(r"(\d+) (?:failed|errors?)\b", tallies[-1]))
+    return names, count == len(names)
+
+
 def same_test_run(prev_cmd: str, cmd: str, prev_cwd: Optional[str] = None, cwd: Optional[str] = None) -> bool:
     """RETRY_COUNTS_RERUN_CYCLES：這次是不是重跑同一組測試。兩邊點名的程式檔集合完全相同（共用的設定檔不會讓不同案例檔
     算同一組；兩邊都給 cwd 就比絕對路徑），或兩邊都沒點名檔而指令前 40 字相同。"""
@@ -1497,6 +1514,13 @@ RULES.update({
                                   "這四個條件都是查得到的事實（部位表同一列、路徑包含、量尺逐字相同、指令涵蓋），不是替 LLM 判斷關聯；"
                                   "「測試讀了哪份資料」是判斷，只認 LLM 在項目宣告的 inputs，沒有別的對應表、不看檔名規則。"
                                   "改 _staging 的計畫文件不作廢程式測試的收據；宣告回應列出不算進任何一項的文件改動，讓 LLM 判斷要不要加 inputs。",
+    "SCOPE_EDIT_IN_DECLARED_DEPENDS": "項目宣告了 depends（這一項用到的程式檔或資料夾，LLM 判斷）→ 程式檔改動只作廢依賴裡的、它點名的路徑底下的、"
+                                      "它 case_for 列的，以及共用的測試設施（conftest／__init__／被同資料夾 import 的案例檔）；"
+                                      "依賴以外的程式改動不作廢它。沒宣告 depends 的項目照 SCOPE_EDIT_RELATED_TO_ITEM（程式檔一律算）。"
+                                      "宣告漏列就漏驗：之後那支測試紅了由 SCOPE_LEAK_OUTSIDE_SCOPE 記下。",
+    "SCOPE_RED_ONLY_ITS_CASES": "一條指令跑了好幾項、其中有紅：收據記下紅掉的案例（FAILED／ERROR 那幾行），紅案數和 pytest 結尾的 "
+                                "「N failed、M error」對得上（清單完整）時，檔案／資料夾／測試節點項目只看紅案有沒有落在它底下，沒有就照算綠；"
+                                "清單不完整（輸出被截、不是 pytest）、指令項目、exit 不是 0／1 → 整條照算紅。背景自寫收據的 failed_cases 同一個判法。",
     "SCOPE_ITEM_RECEIPT_AFTER_EDIT": "最新那份宣告的每一項都要有一筆收據：晚於跟這一項有關的改檔（SCOPE_EDIT_RELATED_TO_ITEM）最後一次修改、綠（有 PASS／DONE、沒有 FAIL、"
                                      "exit 0 或未知、failed=0）、同一棵樹、指令完整可信（白名單語法、沒有換目錄、環境沒縮範圍）。"
                                      "檔案／資料夾項目：pytest 點名該檔或它所在的資料夾、直接執行的腳本就是它、或整體驗證；pytest 選項走白名單"
@@ -1584,9 +1608,12 @@ def scope_item_form_verdict(target: str, why: str, problem: str = "") -> Verdict
 
 def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False, under_item: bool = False,
                                runs_part_ruler: bool = False, whole_or_unknown: bool = False,
-                               standalone_case: bool = False) -> Verdict:
+                               standalone_case: bool = False, declares_deps: bool = False, in_deps: bool = False,
+                               shared_case: bool = False) -> Verdict:
     """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。
-    standalone_case＝它是測試案例檔、不是 conftest／__init__、同資料夾沒有別的程式 import 它：只作廢點名它的項目（規則 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）。"""
+    standalone_case＝它是測試案例檔、不是 conftest／__init__、同資料夾沒有別的程式 import 它：只作廢點名它的項目（規則 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）。
+    declares_deps＝這一項宣告了 depends；in_deps＝改檔在依賴裡或它的 case_for 列了它；shared_case＝改檔是共用的測試設施
+    （conftest／__init__／被 import 的案例檔）：宣告了 depends 的項目，程式改動只算這三種與它點名的路徑底下（規則 SCOPE_EDIT_IN_DECLARED_DEPENDS）。"""
     rule = "SCOPE_EDIT_RELATED_TO_ITEM"
     if is_code and standalone_case:
         rule = "SCOPE_CASE_EDIT_ONLY_ITS_ITEM"
@@ -1595,8 +1622,15 @@ def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False
         if why:
             return Verdict(rule, True, f"{name} 是測試案例檔，{why}")
         return Verdict(rule, False, f"{name} 是測試案例檔、沒有別的程式 import 它，這一項沒點名它：改它不作廢這一項的收據")
+    if is_code and declares_deps:
+        rule = "SCOPE_EDIT_IN_DECLARED_DEPENDS"
+        why = ("在這一項宣告的依賴裡" if in_deps else "就在這一項點名的路徑底下" if under_item
+               else "是共用的測試設施（conftest／__init__／被 import 的案例檔）" if shared_case else "")
+        if why:
+            return Verdict(rule, True, f"{name} 是程式檔，{why}")
+        return Verdict(rule, False, f"{name} 是程式檔，但不在這一項宣告的依賴裡：改它不作廢這一項的收據")
     if is_code:
-        return Verdict(rule, True, f"{name} 是程式檔：每一項的收據都要晚於它")
+        return Verdict(rule, True, f"{name} 是程式檔：每一項的收據都要晚於它（這一項沒宣告 depends）")
     why = ("和這一項點名的檔同一個部位" if same_part else "就在這一項點名的路徑底下" if under_item
            else "這一項就是它所在部位的量尺指令" if runs_part_ruler else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
     if why:

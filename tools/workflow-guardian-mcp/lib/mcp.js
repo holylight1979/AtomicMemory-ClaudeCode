@@ -490,8 +490,9 @@ const TOOL_DEFINITIONS = [
       "達成可附 same_class：同類別處還有沒有）；" +
       "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
       "verify_scope＝宣告這次的驗證範圍：改了程式之後由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
-      "items=[{target, why, inputs?}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關；" +
-      "inputs 是這一項還讀的非程式檔或資料夾，改了它們這一項要重跑）；每次宣告是完整範圍，" +
+      "items=[{target, why, inputs?, depends?}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關；" +
+      "inputs 是這一項還讀的非程式檔或資料夾，改了它們這一項要重跑；depends 是這一項用到的程式檔或資料夾，" +
+      "宣告了就只有改到它們（或這一項自己、case_for 列的、conftest）才要重跑，沒宣告則任何程式改動都要重跑）；每次宣告是完整範圍，" +
       "收尾前範圍內每一項都要在最後一次改動之後跑綠（部位表整把量尺只當參考）；有待檢討的範圍漏判時附 reviews 逐筆檢討。" +
       "每個改過的程式檔要由你宣告由哪個案例驗：驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for 列它；" +
       "真的不需要新案例就寫進 no_case=[{path, reason}]，收尾時照【收尾放行確認】問使用者、題目帶理由。" +
@@ -509,7 +510,7 @@ const TOOL_DEFINITIONS = [
         items: {
           type: "array",
           description: "add：[{text, clarity?, origin?}]；update：[{id, text?, status?, clarity?, why}]；" +
-            "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, case_for?}]",
+            "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, depends?, case_for?}]",
           items: {
             type: "object",
             properties: {
@@ -540,6 +541,9 @@ const TOOL_DEFINITIONS = [
               same_class: { type: "string", description: "reconcile：達成的節點可附——同類別處還有沒有：找到的位置，或為什麼沒有（只記錄、不擋）" },
               inputs: { type: "array", items: { type: "string" },
                 description: "verify_scope（選填）：這一項還讀哪些不是程式的檔或資料夾（資料、文件、索引）；改了它們，這一項要重跑" },
+              depends: { type: "array", items: { type: "string" },
+                description: "verify_scope（選填）：這一項用到的程式檔或資料夾（它 import 的、它用子行程跑的）。宣告了，改到依賴以外的程式" +
+                  "不作廢這一項的收據（這一項自己、case_for 列的、conftest 照算）；沒宣告就任何程式改動都要重跑。漏列就漏驗，拿不準就多列或不填" },
               case_for: { type: "array", items: { type: "string" },
                 description: "verify_scope（選填，只掛在測試檔或測試節點那一項）：這支案例驗的是哪些改過的程式檔（寫碼查核 (d) 認這裡的宣告，" +
                   "改了別支測試不會替它清帳）" },

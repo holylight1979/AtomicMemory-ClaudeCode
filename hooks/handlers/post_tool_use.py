@@ -40,7 +40,7 @@ from wg_verify_ledger import (
     small_content_sha,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
-                              red_case_names, retry_round_verdict, same_test_run)
+                              red_case_facts, red_case_names, retry_round_verdict, same_test_run)
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -747,6 +747,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         project_root = ""
     exit_code = exit_code_of(tr)
     env = env_snapshot()          # 指令啟動當下繼承的縮限變數（hook 與工具子 shell 同一個父行程）：採認時與指令內的指定合併
+    red_cases, red_known = red_case_facts(response_text(tr))     # 紅了哪幾支、清單完不完整（SCOPE_RED_ONLY_ITS_CASES 逐項判紅綠）
     record = {
         "at": _now_iso(),
         "session_id": session_id,
@@ -774,6 +775,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
         "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
         "root_uncertain": record["root_uncertain"],
+        **({"red_cases": red_cases, "red_known": red_known} if red_cases else {}),
     })
     ms = int((time.monotonic() - t0) * 1000)
     append_guard_log("verify_ledger", {

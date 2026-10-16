@@ -183,6 +183,28 @@ def test_exemption_peers_code_only_keeps_code_and_cases():
     assert got == ["a/x.py", "t/test_x.py"]
 
 
+def test_scope_red_only_its_cases_needs_a_complete_red_list():
+    """SCOPE_RED_ONLY_ITS_CASES 的事實（red_case_facts）：紅案數等於最後結算行的 failed＋error 才算清單完整；
+    輸出被截（沒有結算行）、數不合、不是 pytest → 不完整。端到端案例見 verify_verify_scope 的 SCOPE_RED_ONLY_ITS_CASES 段。"""
+    full = "F.\nFAILED a/test_x.py::t1 - assert 0\nERROR a/test_y.py::t2\n1 failed, 3 passed, 1 error in 0.5s\n"
+    assert rr.red_case_facts(full) == (["a/test_x.py::t1", "a/test_y.py::t2"], True)
+    assert rr.red_case_facts("FAILED a/test_x.py::t1 - x\n=== 2 failed, 1 passed in 0.1s ===\n")[1] is False   # 少列一支
+    assert rr.red_case_facts("FAILED a/test_x.py::t1 - x\n")[1] is False                                       # 結算行被截掉
+    assert rr.red_case_facts("3 passed in 0.1s\n") == ([], False)                                              # 綠：沒有紅案
+
+
+def test_scope_edit_in_declared_depends_verdict():
+    """SCOPE_EDIT_IN_DECLARED_DEPENDS：宣告了 depends 的項目，程式改動只算依賴裡、點名路徑底下、共用測試設施；
+    沒宣告照 SCOPE_EDIT_RELATED_TO_ITEM 一律算。"""
+    v = rr.scope_edit_related_verdict
+    assert v("x.py", True).owed and "沒宣告 depends" in v("x.py", True).why
+    assert not v("x.py", True, declares_deps=True).owed
+    assert v("x.py", True, declares_deps=True, in_deps=True).rule == "SCOPE_EDIT_IN_DECLARED_DEPENDS"
+    assert v("x.py", True, declares_deps=True, in_deps=True).owed
+    assert v("conftest.py", True, declares_deps=True, shared_case=True).owed
+    assert v("test_y.py", True, declares_deps=True, under_item=True).owed
+
+
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的案例 ═══
 
 # ─── 擋訊息格式（契約） ───────────────────────────────────────────────────────
