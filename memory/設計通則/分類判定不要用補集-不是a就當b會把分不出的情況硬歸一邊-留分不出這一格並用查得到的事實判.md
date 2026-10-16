@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 分類判定, 補集, 不是程式就是知識類, 誤判, 搬目錄, 刪檔, 分不出, 三格判定, 負面定義, is_code_path
 - Created-at: 2026-10-16
+- Quote: 「你是 v6.0 推進 session，讀 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md，照「推進的依據與方式」開工。」
 
 ## 知識
 
