@@ -260,13 +260,31 @@ function apiAecTempfiles(req, res, sid) {
   entry.pending.then((data) => _json(res, 200, data));
 }
 
+// GET /api/aec/tempfiles-all — 全機殘留：全部帳本裡還在的東西，依 session 分組（附 session 還開著沒有）。
+// 掃全部帳本要查 git，比單一 session 慢：快取 30 秒、同時只跑一支；按了任何保留／刪除就作廢。
+const ALL_TTL_MS = 30000;
+const _allCache = { at: 0, data: null, pending: null };
+function apiAecTempfilesAll(req, res) {
+  if (_allCache.data && Date.now() - _allCache.at < ALL_TTL_MS) return _json(res, 200, _allCache.data);
+  if (!_allCache.pending) {
+    _allCache.pending = _runArtifacts(["list", "--all"], 120000).then((data) => {
+      const ok = data && Array.isArray(data.sessions);
+      if (ok) Object.assign(_allCache, { data, at: Date.now() });
+      _allCache.pending = null;
+      return ok ? data : { sessions: [], total: 0, error: (data && data.message) || "清單工具沒有回應" };
+    });
+  }
+  _allCache.pending.then((data) => _json(res, 200, data));
+}
+
 function _readBody(req, cb) {
   let body = "";
   req.on("data", (ch) => (body += ch));
   req.on("end", () => { try { cb(body ? JSON.parse(body) : {}); } catch { cb(null); } });
 }
 
-// POST /api/aec/decision — HUD 的保留／刪除鈕：body {sid, key, action:"keep"|"delete", force?}。
+// POST /api/aec/decision — HUD 的保留／刪除鈕：body {sid, key, action:"keep"|"delete", force?}；
+// 全機殘留的「整組清」：body {sid, all_safe:true, action:"delete"}（只刪不用再確認的，Python 現場判）。
 // 當場交給 Python 執行並回 {ok, message, needs_confirm}；needs_confirm 有值＝要使用者再確認一次（HUD 帶 force 重送）。
 // key 只能指名帳上那一項（Python 端比對帳本），不能拿來刪任意路徑。loopback 信任模型：無 auth，僅 127.0.0.1。
 function apiAecDecisionPost(req, res) {
@@ -275,13 +293,17 @@ function apiAecDecisionPost(req, res) {
     const sid = String(body.sid == null ? "" : body.sid);
     const key = String(body.key == null ? "" : body.key);
     const action = String(body.action == null ? "" : body.action);
-    if (!SID_RE.test(sid) || !key || key.length > 2000 || /[\r\n]/.test(key)) {
+    const allSafe = body.all_safe === true;
+    if (!SID_RE.test(sid) || (!allSafe && (!key || key.length > 2000 || /[\r\n]/.test(key)))) {
       return _json(res, 404, { error: "bad params" });
     }
     if (action !== "keep" && action !== "delete") return _json(res, 400, { error: "bad action" });
-    const args = ["act", "--sid", sid, "--key", key, "--action", action, ...(body.force ? ["--force"] : [])];
-    _runArtifacts(args, 90000).then((r) => {
+    if (allSafe && (action !== "delete" || body.force)) return _json(res, 400, { error: "all_safe 只配 delete、不帶 force" });
+    const args = allSafe ? ["act", "--sid", sid, "--all-safe", "--action", "delete"]
+      : ["act", "--sid", sid, "--key", key, "--action", action, ...(body.force ? ["--force"] : [])];
+    _runArtifacts(args, allSafe ? 300000 : 90000).then((r) => {
       _listCache.delete(sid);
+      Object.assign(_allCache, { data: null, at: 0 });
       _json(res, 200, r);
     });
   });
@@ -291,6 +313,6 @@ module.exports = {
   aecBlank, aecSeverity, aecPendingItems, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
   toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
-  apiAecTempfiles,
+  apiAecTempfiles, apiAecTempfilesAll,
   apiAecDecisionPost,
 };

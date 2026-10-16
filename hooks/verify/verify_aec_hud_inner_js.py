@@ -108,3 +108,45 @@ def test_hud_temp_panel_wiring():
     assert 'id="temp-slot"' in src
     assert "isDeletable" not in src and "sectionHtmlD" not in src
     assert 'sectionHtml("d",' in src
+
+
+_ALL_TAB_CHECK = r"""
+const h = require(process.argv[1]);
+const s = h.render().match(/<script>([\s\S]*?)<\/script>/)[1];
+function grab(name) {
+  const i = s.indexOf("function " + name + "(");
+  if (i < 0) { console.error(name + " not found in inner script"); process.exit(2); }
+  return s.slice(i, s.indexOf("\n}", i) + 2);
+}
+const one = (re) => s.match(re)[0];
+eval(one(/var KIND = \{[\s\S]*?\};/) + "\n" + one(/var KIND_SHORT = \{[\s\S]*?\};/) + "\nvar rowMsg = {};\n" +
+     one(/function esc\(s\) \{[\s\S]*?\n\}/) + "\n" + one(/function escAttr\(s\).*/) + "\n" +
+     grab("tempRow") + "\n" + grab("safeCount") + "\n" + grab("kindSummary"));
+const it = (o) => Object.assign({ key: "k", kind: "file", title: "t", path: "p", label: "暫存區", can_delete: true, confirm: null,
+                                  note: "", decision: null, decision_message: "", source: "write", origin: "" }, o);
+// 整組清的數量＝不用再確認、沒按過保留、不是來源不明的（和 Python act_all_safe 同一條）
+const items = [it({}), it({ confirm: "沒合併，確定？" }), it({ decision: "keep" }), it({ source: "snapshot" }), it({ can_delete: false }),
+               it({ kind: "branch" })];
+if (safeCount(items) !== 2) { console.error("safeCount " + safeCount(items)); process.exit(1); }
+if (kindSummary(items) !== "分支 1、檔案 5") { console.error("kindSummary " + kindSummary(items)); process.exit(1); }
+// 全機分頁的列：按完重抓全機清單（data-scope=all）；來源不明要顯示
+const row = tempRow("sid-1", it({ origin: "來源不明（可能是別的 session 建的）" }), "all");
+if (!/data-scope="all"/.test(row) || !/來源不明/.test(row)) { console.error("all-tab row wrong:\n" + row); process.exit(1); }
+if (!/data-scope="one"/.test(tempRow("sid-1", it({})))) { console.error("default scope must be one"); process.exit(1); }
+console.log("ok");
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not available")
+def test_hud_all_machine_tab():
+    """全機殘留分頁：整組清的數量只算不用再確認的（與 Python act_all_safe 同規則）、每組摘要依類別計數、
+    分頁裡按完重抓全機清單、來源不明要顯示。"""
+    res = subprocess.run(["node", "-e", _ALL_TAB_CHECK, str(HUD)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    assert res.returncode == 0, f"all-machine tab mismatch:\n{res.stdout}\n{res.stderr}"
+
+
+def test_hud_all_machine_tab_wiring():
+    """兩個分頁；全機分頁讀 /api/aec/tempfiles-all，整組清走 /api/aec/decision 帶 all_safe（Node 轉 act --all-safe）。"""
+    src = HUD.read_text(encoding="utf-8")
+    assert 'data-tab="report"' in src and 'data-tab="all"' in src and 'id="tab-all"' in src
+    assert '"/api/aec/tempfiles-all"' in src and "all_safe: true" in src

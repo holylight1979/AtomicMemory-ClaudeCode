@@ -71,6 +71,16 @@ function render() {
   .aec-dec-btn.danger { color: #ff9a9a; border-color: #d03b3b66; }
   .aec-dec-btn.danger:hover { background: #d03b3b26; border-color: #d03b3b; }
   .dec-status { font-size: .74em; color: var(--muted); }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .tab { font-size: .82em; padding: 6px 14px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; background: none; color: var(--muted); cursor: pointer; margin-bottom: -1px; }
+  .tab.active { background: var(--surface-1); border-color: var(--border); color: var(--ink); }
+  .grp { border-top: 1px solid var(--border); padding: 9px 0; }
+  .grp:first-child { border-top: none; }
+  .grp-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .8em; color: var(--ink); }
+  .grp-head .k { color: var(--muted); }
+  .grp details { margin-top: 4px; }
+  .grp summary { font-size: .74em; color: var(--muted); cursor: pointer; }
+  .all-sum { font-size: .78em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -82,6 +92,12 @@ function render() {
     <div class="poll"><span class="dot"></span><span id="poll-txt">輪詢中…</span></div>
   </div>
 
+  <div class="tabs">
+    <button class="tab active" data-tab="report">收尾檢核</button>
+    <button class="tab" data-tab="all">全機殘留</button>
+  </div>
+
+  <div id="tab-report">
   <div id="banner" class="banner"></div>
   <div id="card-slot">
     <div class="card"><div class="empty">尚無收尾檢核報告。動 core 檔並宣告完成、呼叫 anti_evasion_report 後出現。</div></div>
@@ -98,6 +114,14 @@ function render() {
       </span>
     </div>
     <div id="grid" class="grid"></div>
+  </div>
+  </div>
+
+  <div id="tab-all" style="display:none">
+    <div class="card">
+      <div class="all-sum"><span id="all-sum">還沒讀取</span><button id="all-refresh" class="aec-dec-btn">重新整理</button></div>
+      <div id="all-body"></div>
+    </div>
   </div>
 
 <script>
@@ -141,16 +165,18 @@ var KIND = {
   repo: "📦 臨時 repo", dir: "📁 資料夾", file: "📄 檔案"
 };
 var rowMsg = {};   // key → 上次按鈕的結果（當場顯示，下次重抓清單仍保留）
-function tempRow(sid, it) {
+// scope："one"＝這個 session 的面板（按完重抓那個 session）；"all"＝全機殘留分頁（按完重抓全機清單）
+function tempRow(sid, it, scope) {
   var msg = rowMsg[it.key] || (it.decision === "keep" ? "你選了保留" : (it.decision_message || ""));
   var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-key="' + escAttr(String(it.key)) +
-              '" data-title="' + escAttr(String(it.title)) + '" data-confirm="' + escAttr(String(it.confirm || "")) + '"';
+              '" data-title="' + escAttr(String(it.title)) + '" data-confirm="' + escAttr(String(it.confirm || "")) +
+              '" data-scope="' + (scope || "one") + '"';
   var del = it.can_delete
     ? '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>'
     : '<button class="aec-dec-btn" disabled title="' + escAttr(String(it.label)) + '">不能刪</button>';
   var btns = (msg ? '<span class="dec-status">' + esc(msg) + "</span>" : "") +
     '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>' + del;
-  var meta = esc(it.label) + (it.note ? " · AI 說：" + esc(it.note) : "");
+  var meta = esc(it.label) + (it.origin ? " · " + esc(it.origin) : "") + (it.note ? " · AI 說：" + esc(it.note) : "");
   return '<div class="dec-row' + (it.decision === "keep" ? " dec-done" : "") + '">' +
          '<span class="dec-item" title="' + escAttr(String(it.path)) + '">' + (KIND[it.kind] || esc(it.kind)) + "　" +
            esc(it.title) + '<span class="k"> — ' + meta + "</span></span>" +
@@ -163,7 +189,7 @@ function renderTemp(sid, items) {
   var head = '<div class="card"><div class="sec"><div class="sec-h">這個 session 留下的東西（' + items.length + "）" +
              '<span class="k">　滑鼠停在名稱上看完整路徑</span></div>';
   var rows = "", alive = {};
-  for (var i = 0; i < items.length; i++) { rows += tempRow(sid, items[i]); alive[items[i].key] = true; }
+  for (var i = 0; i < items.length; i++) { rows += tempRow(sid, items[i], "one"); alive[items[i].key] = true; }
   var done = "";   // 已經從清單消失的（刪掉了）：結果留一行，不讓按完就什麼都看不到
   for (var k in rowMsg) {
     if (!alive[k] && rowMsg[k].charAt(0) === "✔") { done += '<div class="dec-row dec-done"><span class="dec-item">' + esc(rowMsg[k]) + "</span></div>"; }
@@ -292,22 +318,118 @@ function onDecClick(e) {
       force = true;
     }
   }
-  postDecision(el.getAttribute("data-sid"), el.getAttribute("data-key"), action, force);
+  postDecision(el.getAttribute("data-sid"), el.getAttribute("data-key"), action, force, el.getAttribute("data-scope"));
+}
+
+function refreshAfter(scope, sid) {
+  if (scope === "all") { loadAll(); } else { lastTempKey = ""; pollTemp(sid); }
 }
 
 // POST → Node 轉給 Python 當場執行（刪除或記下保留），回 {ok, message}；結果寫在該列，再重抓清單。
-function postDecision(sid, key, action, force) {
+function postDecision(sid, key, action, force, scope) {
   rowMsg[key] = action === "delete" ? "刪除中…" : "記下中…";
-  lastTempKey = ""; pollTemp(sid);
+  refreshAfter(scope, sid);
   fetch("/api/aec/decision", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sid: sid, key: key, action: action, force: force })
   })
     .then(function (res) { return res.ok ? res.json() : { ok: false, message: "HUD 伺服器回應錯誤" }; })
-    .then(function (j) { rowMsg[key] = (j.ok ? "✔ " : "✖ ") + (j.message || ""); lastTempKey = ""; pollTemp(sid); })
-    .catch(function () { rowMsg[key] = "✖ 連不到 HUD 伺服器"; lastTempKey = ""; pollTemp(sid); });
+    .then(function (j) { rowMsg[key] = (j.ok ? "✔ " : "✖ ") + (j.message || ""); refreshAfter(scope, sid); })
+    .catch(function () { rowMsg[key] = "✖ 連不到 HUD 伺服器"; refreshAfter(scope, sid); });
 }
+
+// ── 全機殘留分頁：/api/aec/tempfiles-all（Python 掃全部帳本、依 session 分組、附 session 還開著沒有）──
+// 每組一行摘要＋「清掉不用再確認的」（Python 現場判哪些不用再確認：暫存檔、專案外檔案資料夾、乾淨工作樹、已合併分支…；
+// 要再確認的、按過保留的、來源不明的不動）；展開看每一項，逐項保留／刪除跟單一 session 面板同一套。
+var KIND_SHORT = { worktree: "工作樹", branch: "分支", remote_branch: "遠端分支", repo: "臨時 repo", dir: "資料夾", file: "檔案" };
+var allOpen = {};     // sid → 使用者展開／收起過的狀態（重繪時保留）
+var lastBulk = "";    // 上次整組清的結果（那組刪光消失了也看得到）
+function safeCount(items) {
+  var n = 0;
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (it.can_delete && !it.confirm && it.decision !== "keep" && it.source !== "snapshot") { n++; }
+  }
+  return n;
+}
+function kindSummary(items) {
+  var c = {}, order = ["worktree", "branch", "remote_branch", "repo", "dir", "file"], out = [];
+  for (var i = 0; i < items.length; i++) { c[items[i].kind] = (c[items[i].kind] || 0) + 1; }
+  for (var j = 0; j < order.length; j++) { if (c[order[j]]) { out.push(KIND_SHORT[order[j]] + " " + c[order[j]]); } }
+  return out.join("、");
+}
+function hasGit(items) {
+  for (var i = 0; i < items.length; i++) { if (items[i].kind !== "file" && items[i].kind !== "dir") { return true; } }
+  return false;
+}
+function loadAll() {
+  document.getElementById("all-sum").textContent = "讀取中…（要查 git，可能要幾秒）";
+  fetch("/api/aec/tempfiles-all")
+    .then(function (res) { return res.ok ? res.json() : { sessions: [], total: 0, error: "HUD 伺服器回應錯誤" }; })
+    .then(renderAll)
+    .catch(function () { renderAll({ sessions: [], total: 0, error: "連不到 HUD 伺服器" }); });
+}
+function renderAll(j) {
+  var ss = (j && j.sessions) || [];
+  var sum = j && j.error ? "✖ " + j.error
+    : (j.total ? "全機還有 " + j.total + " 樣東西，分屬 " + ss.length + " 個 session（只列還在的）" : "全機沒有留下東西");
+  document.getElementById("all-sum").textContent = sum + (lastBulk ? "　｜　" + lastBulk : "");
+  var html = "";
+  for (var i = 0; i < ss.length; i++) {
+    var s = ss[i], items = s.items || [], n = safeCount(items);
+    var open = allOpen[s.sid] != null ? allOpen[s.sid] : (hasGit(items) || items.length <= 5);
+    var rows = "";
+    for (var k = 0; k < items.length; k++) { rows += tempRow(s.sid, items[k], "all"); }
+    var bulk = n ? '<button class="aec-dec-btn danger aec-bulk" data-sid="' + escAttr(s.sid) + '" data-n="' + n +
+                   '" data-state="' + escAttr(s.state) + '">清掉不用再確認的（' + n + "）</button>" : "";
+    html += '<div class="grp"><div class="grp-head"><span>session ' + esc(String(s.sid).slice(0, 8)) +
+            ' <span class="k">· ' + esc(s.label) + " · " + esc(kindSummary(items)) + " · 最後 " +
+            esc(String(s.latest || "").slice(5, 16).replace("T", " ")) + "</span></span>" + bulk + "</div>" +
+            '<details data-sid="' + escAttr(s.sid) + '"' + (open ? " open" : "") + "><summary>列出 " + items.length + " 樣</summary>" +
+            '<div class="sec-body dec-list">' + rows + "</div></details></div>";
+  }
+  var body = document.getElementById("all-body");
+  body.innerHTML = html || '<div class="sec-body blank">沒有留下東西</div>';
+  var btns = body.querySelectorAll(".aec-dec-btn[data-action]");
+  for (var b = 0; b < btns.length; b++) { btns[b].addEventListener("click", onDecClick); }
+  var bulks = body.querySelectorAll(".aec-bulk");
+  for (var u = 0; u < bulks.length; u++) { bulks[u].addEventListener("click", onBulkClick); }
+  var dets = body.querySelectorAll("details");
+  for (var d = 0; d < dets.length; d++) {
+    dets[d].addEventListener("toggle", function (e) { allOpen[e.currentTarget.getAttribute("data-sid")] = e.currentTarget.open; });
+  }
+}
+function onBulkClick(e) {
+  var el = e.currentTarget, sid = el.getAttribute("data-sid"), n = el.getAttribute("data-n");
+  var warn = el.getAttribute("data-state") === "open" ? "\\n注意：這個 session 還開著，它可能還在用這些東西。" : "";
+  if (!window.confirm("要刪掉 session " + sid.slice(0, 8) + " 留下、不用再確認的 " + n + " 樣東西" +
+                      "（暫存檔、專案外檔案資料夾、乾淨的工作樹、已合併分支…）。要再確認的、按過保留的、來源不明的不會動。" +
+                      warn + "\\n確定嗎？")) { return; }
+  el.disabled = true; el.textContent = "刪除中…";
+  fetch("/api/aec/decision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sid: sid, all_safe: true, action: "delete" })
+  })
+    .then(function (res) { return res.ok ? res.json() : { ok: false, message: "HUD 伺服器回應錯誤" }; })
+    .then(function (j) { lastBulk = "session " + sid.slice(0, 8) + "：" + (j.ok ? "✔ " : "✖ ") + (j.message || ""); loadAll(); })
+    .catch(function () { lastBulk = "session " + sid.slice(0, 8) + "：✖ 連不到 HUD 伺服器"; loadAll(); });
+}
+function showTab(t) {
+  document.getElementById("tab-report").style.display = t === "report" ? "" : "none";
+  document.getElementById("tab-all").style.display = t === "all" ? "" : "none";
+  var tabs = document.querySelectorAll(".tab");
+  for (var i = 0; i < tabs.length; i++) { tabs[i].className = "tab" + (tabs[i].getAttribute("data-tab") === t ? " active" : ""); }
+  if (t === "all") { loadAll(); }
+}
+(function () {
+  var tabs = document.querySelectorAll(".tab");
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].addEventListener("click", function (e) { showTab(e.currentTarget.getAttribute("data-tab")); });
+  }
+  document.getElementById("all-refresh").addEventListener("click", loadAll);
+})();
 
 function updateBanner() {
   var banner = document.getElementById("banner");

@@ -1635,3 +1635,45 @@ def test_044_stop_flow_rules_point_to_stop_handler():
     """SYNC_BLOCK_SKIPS_SYNCED、BLOCK_LISTS_LATER_GATES：判法在 handlers/stop.py（端到端案例見 verify_stop_reconcile 的 046 段）。"""
     for name in ("SYNC_BLOCK_SKIPS_SYNCED", "BLOCK_LISTS_LATER_GATES"):
         assert "handlers/stop.py" in rr.RULES[name], name
+
+
+# ─── LEFTOVER_NEEDS_CLEANUP（收尾自清；事實由 aec_ledger.list_alive 現場查，真 git 的案例在 verify_session_artifacts） ───
+
+def _art(kind, title, **kw):
+    base = {"kind": kind, "title": title, "path": "C:/x/" + title, "label": "", "can_delete": True,
+            "source": "bash", "note": "", "decision": None, "busy": ""}
+    return {**base, **kw}
+
+
+def test_leftover_needs_cleanup():
+    """使用者原話：「要提醒 LLM，他才會去把已經用完的工作用分支從 git 上刪掉」。宣告完成時，本 session 建的工作樹、
+    已合併分支（被候選工作樹用著的也算，刪完工作樹就刪得掉）、臨時 repo、專案外檔案資料夾還在又沒說要留 → 擋。
+    不列：沒合併的分支、主工作樹用著的分支、暫存區、專案裡還沒進版控的新檔、gitignore 的檔、遠端分支、
+    別的開著的 session 正在用的、使用者按過保留的、AI 在 (i) 寫過理由的、開場快照比對出來（來源不明）的。"""
+    items = [
+        _art("worktree", "wt", path="C:/x/wt"),
+        _art("branch", "feat", merged=True, can_delete=False, used_by="C:/x/wt"),
+        _art("branch", "idle", merged=True),
+        _art("branch", "topic", merged=False, confirm="沒合併"),
+        _art("branch", "onmain", merged=True, can_delete=False, used_by="C:/x/main"),
+        _art("repo", "scratch"),
+        _art("repo", "cwdrepo", can_delete=False),
+        _art("dir", "probe", where="outside"),
+        _art("file", "s.txt", where="temp"),
+        _art("file", "new.py", where="untracked"),
+        _art("file", "ign.log", where="ignored"),
+        _art("remote_branch", "origin/feat"),
+        _art("worktree", "busywt", busy="另一個開著的 session 正在用"),
+        _art("worktree", "kept", decision="keep"),
+        _art("dir", "noted", where="outside", note="使用者要的產出", source="aec-i"),
+        _art("file", "olddecl.txt", where="outside", note="舊格式 (d) 宣告過", source="aec-d"),
+        _art("branch", "snap", merged=True, source="snapshot"),
+    ]
+    v = rr.leftover_cleanup_verdict(True, items)
+    assert v.rule == "LEFTOVER_NEEDS_CLEANUP" and v.owed and "5 樣" in v.why
+    assert [c["title"] for c in rr.leftover_candidates(items)] == ["wt", "feat", "idle", "scratch", "probe"]
+    assert len(v.evidence) == 5 and v.evidence[0].startswith("wt")
+    assert not rr.leftover_cleanup_verdict(False, items).owed, "沒宣告完成不擋"
+    rest = [it for it in items if it["title"] in ("topic", "onmain", "s.txt", "new.py", "busywt", "kept", "noted", "snap")]
+    assert not rr.leftover_cleanup_verdict(True, rest).owed, "只剩不該列的 → 不擋"
+    assert not rr.leftover_cleanup_verdict(True, []).owed

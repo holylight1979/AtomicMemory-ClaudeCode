@@ -90,7 +90,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|PowerShell\|Read\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub 與 OverviewHub 摘要；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom 與每部位綜觀（atom 先、綜觀後） |
-| Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Reconcile／Measure（寫碼查核）、Deferral、KnowledgeHarvest／Harvest-Pending、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
+| Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Reconcile／Measure（寫碼查核）、Deferral、KnowledgeHarvest／Harvest-Pending、Cleanup（收尾自清）、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
 | SubagentStop | — | guardian(10) | 子代理收尾只跑寫碼查核（對帳 (a)～(d)＋驗證範圍，用該 agent 自己的改檔與收據帳；自己沒宣告就沿用主 session 的範圍）；沒人能放行，有原因就擋到底、不計預算（§7.1） |
 | SessionEnd | — | guardian(30)、codex(5) | spawn 萃取 worker、episodic 生成、decay、晉升 sweep、recall-miss、log GC；最後 spawn 一次 vcs-sync worker（`reason=promotion|session_end`，§6.3 階段收割） |
 
@@ -230,7 +230,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->438 atoms：core 203 + feedback 74 + 失敗模式 2 + local 159〔Tools19/MemDev129/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->439 atoms：core 204 + feedback 74 + 失敗模式 2 + local 159〔Tools19/MemDev129/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -301,7 +301,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->438<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->439<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -524,6 +524,7 @@ sequenceDiagram
 | Evasion 偵測／DeferralGate | 退避詞命中（軟糾正）；主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
 | KnowledgeHarvest | 宣告完成 ∧ 有實質活動 ∧ 冷卻已過（§6.3 階段收割；`wg_harvest.harvest_gate_reason`） | 要求先 `atom_write`／`atom_retire` 再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）；**不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`） |
 | Harvest-Pending | 本 session 收割回報有 item 對不上 receipt（`knowledge_harvest[sid].pending` 非空） | 每 turn 擋一次：真做完或改 `action=skip` 附 reason 再重報 |
+| Cleanup（收尾自清） | 宣告完成，本 session 帳上有建立紀錄、還在、沒說要留的工作樹／已合併分支（被列出的工作樹用著的也算）／能刪的臨時 repo／專案外檔案資料夾（規則 LEFTOVER_NEEDS_CLEANUP；事實 `aec_ledger.list_alive` 現場查）。不列：沒合併的分支、暫存區、專案裡未進版控的新檔、gitignore 的、遠端分支、別的開著的 session 正在用的、開場快照比對出來（來源不明）的；「說要留」＝HUD 按過保留或 (i) 寫過理由 | 列每一項與刪除指令（`session-artifacts.py act --sid … --key …`，結果寫回帳本），要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；**不增 `stop_blocked_count`**、每 turn 一次（`cleanup_gate_turn[sid]`） |
 | ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交十一欄收尾檢核 (a)–(k) |
 | AEC-Pending | 本回合 emit 的報告 (d) 有「尚未寫／見下一動」或 (h)「下一動＝寫 atom」；本 turn 已 validated 收割時 (d) 不再判 | 每 turn 擋一次：先 atom_write 再重新 emit（記憶寫入不得留給下一回合） |
 | HUD fallback | HUD 不可達且本回合 emit 為 notable/real-evasion | 不 block；收尾檢核改回 chat 呈現（可觀測性鐵律） |
@@ -548,9 +549,10 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 禁語清單 | `memory/_meta/forbidden-phrases.json`（single source；IDENTITY.md 與 `wg_evasion.py` 都讀它） | 六類：scope-evasion / time-deferral / precedent-drift / capability-evasion / scope-impact-dismiss / deferral-attribution；＋三類宣稱（fixed_claim／measured_claim／tried_claim，對帳閘用） |
 | 偵測 | Stop `wg_evasion.detect_evasion`（對本輪最後一段 assistant 文字）；引號「」『』與反引號 span 先換等長空白（引用 hook 判定原文不誤觸） | 命中 → `evasion_flag`，下輪 UPS 注入舉證要求 (a)/(b)；PostToolUse 只讀旗標做 AEC cross-check |
 | 收尾報告 | MCP `anti_evasion_report` 十一欄 (a)–(k)：a 缺失修補 / b 逃避通報 / c Token警示 / d 記憶收錄帳 / e 未告知決策＋假設 / f 靜默狀態改變 / g 版控收尾 / h 收尾判定 / i 衍生暫存清單 / j 證據持久路徑（有驗證收據時須存在；留空或「無」由 Python PostToolUse 帶入本 session 帳本絕對路徑 `<資料根>/workflow/verify-ledger/<sid>.jsonl`，填了別的就用填的） / k 追蹤項（「無」或逐行；≠無 寫 `workflow/tracking/<slug>.jsonl`）；severity 仍只看 a/b，其餘資訊性；Node chip 純內容判定 | Python one-writer cross-check：hook 實測退避而模型自評「無」→ 升 real-evasion 並把證據寫進 (b) |
-| HUD | `http://127.0.0.1:3848/aec/hud` | 顯示報告、「這個 session 留下的東西」面板（保留／刪除鈕） |
-| 產出物帳本 | `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一寫者） | PostToolUse 依工具呼叫進帳：Write 寫的檔、Bash 寫入目標（mkdir、轉向、cp…）、git 建的工作樹／分支／臨時 repo（init、clone）／推上遠端的分支；另收 (i) 宣告與 scratchpad 掃描。還在不在、能不能刪現場查（檔案系統與 git）：進了版控的檔掉出清單；主分支、工作樹正在用的分支、session 工作目錄與它的上層不能刪；受保護路徑（memory/_AIDocs/_INDEX/_CHANGELOG/CLAUDE/…/vcs tracked）拒收 |
-| 保留／刪除 | HUD → Node `POST /api/aec/decision` → `tools/session-artifacts.py act` | 當場執行、結果寫回帳本並顯示在該列；沒合併的分支、有改動的工作樹、遠端分支、整個 repo 要使用者在 HUD 再確認一次才帶 force；只能指名帳上那一項。列表 `GET /api/aec/tempfiles/<sid>` → `session-artifacts.py list`（Node 快取 10 秒） |
+| HUD | `http://127.0.0.1:3848/aec/hud` | 「收尾檢核」分頁：報告、「這個 session 留下的東西」面板（保留／刪除鈕）；「全機殘留」分頁：全部帳本還在的東西依 session 分組 |
+| 產出物帳本 | `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一寫者） | PostToolUse 依工具呼叫進帳：Write 寫的檔、Bash 寫入目標（mkdir、轉向、cp…）、git 建的工作樹／分支／臨時 repo（init、clone）／推上遠端的分支；另收 (i) 宣告（路徑，或 `branch:<名> — 理由`）與 scratchpad 掃描；Stop 拿 SessionStart 記的開場快照（cwd 所在 repo 的工作樹與本地分支，`state.git_snapshot`）比對，多出來又沒建立紀錄的進帳標 `source=snapshot`（HUD 顯示來源不明，補 python 腳本裡開工作樹這類指令解析看不到的）。還在不在、能不能刪現場查（檔案系統與 git）：進了版控的檔掉出清單；主分支、工作樹正在用的分支、session 工作目錄與它的上層不能刪；別的開著的 session（state 檔 30 分鐘內有更新）工作目錄在裡面或改過讀過裡面的檔 → 標正在用、刪除要再確認；路徑比對用 realpath（系統暫存區的 8.3 短檔名與長檔名同一處）；受保護路徑（memory/_AIDocs/_INDEX/_CHANGELOG/CLAUDE/…/vcs tracked）拒收 |
+| 保留／刪除 | HUD → Node `POST /api/aec/decision` → `tools/session-artifacts.py act` | 當場執行、結果寫回帳本並顯示在該列；沒合併的分支、有改動的工作樹、遠端分支、整個 repo、別人在用的要使用者在 HUD 再確認一次才帶 force；只能指名帳上那一項。列表 `GET /api/aec/tempfiles/<sid>` → `session-artifacts.py list`（Node 快取 10 秒） |
+| 全機殘留 | HUD「全機殘留」分頁 → Node `GET /api/aec/tempfiles-all` → `session-artifacts.py list --all`（快取 30 秒，按任何鈕作廢） | 掃全部帳本只列還在的，依 session 分組並附 session 狀態（開著／多半已關／已關）；同一樣東西由有建立紀錄的 session 認領。每組「清掉不用再確認的」→ `act --all-safe`：要再確認的、按過保留的、來源不明的不動，其餘逐項照 act 的保護規則刪 |
 | 遙測 | `Logs/guard-evasion.jsonl`、`workflow/outcome_stats.jsonl`（unknown 比率連續 3 session >0.7 → advisory） | 誤攔率可量測；完成語 regex 失配不會靜默拖垮晉升軌 |
 
 ### 7.3 PAN 動手前預告閘門（已拆除）
@@ -684,12 +686,13 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | SCOPE_EDIT_RELATED_TO_ITEM | 驗證範圍一項的收據要晚於哪些改檔 | 程式檔一律算（測試案例檔例外，見下一列）；不是程式檔的只有跟這一項有關才算（同部位、在它點名的路徑或宣告的 `inputs` 底下、它就是那部位量尺、整體驗證或看不出跑了什麼） | 不是程式檔、也跟這一項無關的改檔不作廢它的收據（改 `_staging` 的計畫文件不必重跑程式測試） |
 | SCOPE_CASE_EDIT_ONLY_ITS_ITEM | 改了測試案例檔要重跑哪幾項 | 案例檔是量具不是受測物：符合 `verify_case_globs`、不是 conftest／`__init__`、同資料夾沒有別的程式 import 它（`wg_verify_scope._standalone_case`）→ 只作廢點名它（在它點名的路徑底下）、它所在部位的量尺、整體驗證或看不出跑了什麼的項目 | 被同資料夾 import 的案例檔（共用 Sandbox、fixture）與 conftest 照程式檔算，每一項都要重跑；跨資料夾 import 案例檔不偵測 |
 | SYNC_BLOCK_SKIPS_SYNCED | Stop 底部一般 sync block 數哪些檔 | 先剔除已同步的改檔：在 git／svn 工作區、status 乾淨、所在 git 根沒有已 commit 未 push 的（WORKTREE_NO_PUSH 的也算已同步；`handlers/stop.py` `_synced_paths`） | 查不了版控的照算未同步；待記知識照擋 |
-| BLOCK_LISTS_LATER_GATES | 擋下時附哪些「後面還會擋」 | 任一道閘經 `_piggyback` 擋下時，照目前狀態預覽知識收割、收尾檢核、同步三道還欠不欠，欠的附在 `[Guardian:AlsoOwed]` 一段，讓模型一回合補齊；當下這道本身不重複列 | 只讀不寫、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準；預覽出錯只寫 stderr |
+| BLOCK_LISTS_LATER_GATES | 擋下時附哪些「後面還會擋」 | 任一道閘經 `_piggyback` 擋下時，照目前狀態預覽知識收割、收尾自清、收尾檢核、同步四道還欠不欠，欠的附在 `[Guardian:AlsoOwed]` 一段，讓模型一回合補齊；當下這道本身不重複列 | 只讀不寫、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準；預覽出錯只寫 stderr |
 | SCOPE_DECLARED_FOR_CHANGE | 要不要宣告驗證範圍（規則；驗哪些交 LLM） | 沒有要宣告的改檔（只改沒量尺的知識素材、改過又還原）；或最新那份宣告在每個有改動的 repo 都有項目（判不出 repo 的改檔不要求） | 改了程式檔或有量尺部位的檔卻沒宣告；某個有改動的 repo 沒有項目。擋訊息列改到的檔、叫 LLM 判斷哪些有關聯會受影響、附參考量尺 |
 | SCOPE_ITEM_WELL_FORMED | 宣告收件 | 每項目標與理由都非空；路徑樣子的目標存在、節點查得到 def；不是路徑就當指令且解析得了 | 一項不合格整份退回 |
 | CASE_DECL_WELL_FORMED | 案例宣告收件 | `case_for` 掛在點得到案例檔的項目、列的每個路徑是程式檔而且存在或本 session 改過（搬走的舊路徑也還欠著，要能宣告）；`no_case` 每筆同樣的路徑加非空理由；同一個檔沒有兩邊都列 | 掛在資料夾、整體驗證或產品檔那一項，列了不存在又沒改過、或不是程式的檔，同檔兩邊都列 → 整份退回 |
 | SCOPE_ITEM_RECEIPT_AFTER_EDIT | 範圍內每一項有沒有跑過 | 有一筆收據跑了這一項、綠、晚於每個要宣告改檔的最後一次修改、同一棵樹、指令可信；或背景跑的自寫收據改完才開始、全綠、環境沒縮範圍、涵蓋這一項 | 沒跑、跑在改動之前、跑紅、只跑一部分、換目錄、環境縮範圍、白名單外語法、寫了哨兵字樣、別棵樹；擋訊息說最近那筆為什麼不算 |
 | RELOAD_ADVICE_ALREADY_LOADED | 收尾叫使用者 Reload Window（每回合擋一次） | 收尾文字沒叫重載；AI 寫明「重載原因：…」（程式更新以外的理由，例如改了 MCP 啟動設定）；列不出正在跑的服務程序、讀不到磁碟版本；有在跑的服務沒有啟動紀錄（加這功能前啟動的舊版、別的視窗還沒重載）或心跳過期（睡眠後、寫不了紀錄）；有任何一個服務還在跑舊程式 | 這個 session 的每個工具服務程序（沿程序樹找到收尾閘所屬的 claude 程序，取它底下跑 workflow-guardian-mcp/server.js 的 node 程序；每個 session 各有自己的服務，找不到所屬 claude 程序才看全機）都有啟動紀錄、心跳 3 分鐘內、載入的程式版本都不舊於磁碟上的版本 → 擋一次，說明不必叫使用者重載、別的理由就寫「重載原因：…」。紀錄是每個 MCP 服務啟動時寫的 `workflow/mcp-boot/<pid>.json`（載入版本＝server.js 與 lib/*.js 最新修改時間，每分鐘更新心跳、正常結束時刪檔）；程序已不在的紀錄不算。不靠 session 名稱（Claude Code 沒寫進文件的命名行為）。列程序約 1 秒，只在收尾文字提到重載時做 |
+| LEFTOVER_NEEDS_CLEANUP | 收尾自清（每回合擋一次） | 沒宣告完成；帳上的東西是沒合併的分支、主工作樹用著的分支、暫存區檔、專案裡未進版控的新檔、gitignore 的、遠端分支、別的開著的 session 正在用的、HUD 按過保留的、(i)（舊格式 (d)）寫過理由的、開場快照比對出來的 | 宣告完成且帳上還有本 session 建的工作樹、已合併分支（能刪，或被列出的工作樹用著）、能刪的臨時 repo、專案外能刪的檔案資料夾 → 擋一次，列每一項與 `session-artifacts.py act` 刪除指令、教 (i) 的 `branch:<名> — 理由` 寫法。事實（where／merged／used_by／busy）由 `aec_ledger.list_alive` 現場查，只在宣告完成時查 |
 | SCOPE_LEAK_OUTSIDE_SCOPE | 範圍漏判（只記錄） | 紅的測試在範圍內（退化不是漏判）；它從沒綠過；那次宣告不是在它上次綠之後、這次紅之前結案；它是看到紅的 session 在它上次綠之後新寫或改過、還沒結案的案例（比上次綠那時的 git 版本：沒有這個案例或定義不同；算它進行中的工作，告訴它、紅照樣進紅測清單；只改同檔別的案例、判不出照記） | 以上都不成立 → 記一筆疑似漏判，連回那次宣告。看到紅的 session 自己還有沒結案的改動也照記，但標出來，檢討時先查明是不是它自己造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化） |
 | SCOPE_LEAK_REVIEW_BEFORE_DECLARE | 先檢討再宣告 | 該 repo 沒有待檢討的漏判；或宣告附的 reviews 逐筆交了：missed 有 root_cause 與 next_time、unrelated 有 reason | 有一筆沒交、missed 沒寫根因或下次怎麼改、unrelated 沒寫理由、verdict 不是兩種之一 → 整份宣告退回 |
 
@@ -745,7 +748,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 |------|-----------|------|--------|
 | MCP server | `tools/workflow-guardian-mcp/server.js`（stdio；Node 18+，零 npm deps） | 12 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report`（這兩者只回 chip，state 由 Python PostToolUse 寫）/ `memory_search` / `atom_source`（後兩者唯讀，§5.8）/ `second_opinion_start` / `second_opinion_result`（第二意見 job：start 同步 prepare 回 job_id，execute 分離子程序，result 純讀檔；`tools/second-opinion/README.md`）/ `project_smells`（候選池：報告／指令／內建三來源；`tools/project-smells.py --help`） | hooks 照常；atom 可經 `python lib/atom_io_cli.py` 寫 |
 | Dashboard | `http://127.0.0.1:3848/`（同一 server.js；port 取 `WG_DASHBOARD_PORT` → config `dashboard_port` → 3848） | session 狀態、記憶自癒（`tools/atom-heal.py`）、API | — |
-| AEC HUD | `http://127.0.0.1:3848/aec/hud` | 反退避收尾報告、這個 session 留下的東西（保留／刪除） | — |
+| AEC HUD | `http://127.0.0.1:3848/aec/hud` | 反退避收尾報告、這個 session 留下的東西（保留／刪除）、全機殘留（依 session 分組、整組清） | — |
 | 腦內世界 | `tools/workflow-guardian-mcp/world.html`——**靜態檔，用瀏覽器直接開檔**；頁面自己輪詢 `http://127.0.0.1:3848/api/*` | 記憶可視化 | — |
 | Vector Service | `http://127.0.0.1:3849`（`tools/memory-vector-service/service.py`；LanceDB `memory/_vectordb/`） | 專案層 ranked-search、episodic search、去重／衝突偵測、`/index/incremental` | §5.5 降級 |
 | Ollama | 本地 `http://127.0.0.1:11434`；遠端 `rdchat-direct`（config `vector_search.ollama_backends`） | embedding、萃取、分類 | 萃取類跳過 |

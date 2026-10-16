@@ -278,6 +278,9 @@ const httpServer = http.createServer((req, res) => {
   if (pathname === "/api/aec/reports" && req.method === "GET") {
     return antiEvasion.apiAecReports(req, res, url.searchParams.get("since"));
   }
+  if (pathname === "/api/aec/tempfiles-all" && req.method === "GET") {
+    return antiEvasion.apiAecTempfilesAll(req, res);   // 全機殘留（全部帳本、依 session 分組）
+  }
   const aecTempMatch = pathname.match(/^\/api\/aec\/tempfiles\/([^/]+)$/);
   if (aecTempMatch && req.method === "GET") {
     return antiEvasion.apiAecTempfiles(req, res, aecTempMatch[1]);

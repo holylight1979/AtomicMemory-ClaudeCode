@@ -5,6 +5,9 @@
   - 「還在不在、能不能刪」現場查（git 與檔案系統）；進了版控的檔掉出清單；使用中的分支、主分支、session 工作目錄不能刪。
   - 刪除當場執行：要確認的東西（沒合併的分支、有改動的工作樹、遠端分支、整個 repo）沒帶 force 不動手；帳上沒有的 key 不碰。
   - tools/session-artifacts.py 與 Node 端點（anti-evasion.js）照同一份帳本工作。
+  - 收尾自清（Stop 的 LEFTOVER_NEEDS_CLEANUP 閘）：宣告完成時列出本 session 建的、還在、能刪、沒說要留的東西，每個使用者回合擋一次。
+  - (i) 可宣告分支留著（`branch:<名> — 理由`）；別的開著的 session 正在用的不列；開場快照比對出來的標來源不明、不進閘。
+  - 全機殘留：list --all 掃全部帳本、依 session 分組、附 session 還開著沒有；整組清只刪不用再確認的。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_session_artifacts.py
 """
 from __future__ import annotations
@@ -25,6 +28,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 
 from handlers import aec_ledger as L  # noqa: E402
 from handlers import _shared  # noqa: E402
+import wg_release_rules as rr  # noqa: E402
 
 _SID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 _GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main"]
@@ -312,3 +316,290 @@ def test_node_endpoints_call_python_tool(wdir):
     out = {line.split(" ", 1)[0]: json.loads(line.split(" ", 1)[1]) for line in r.stdout.splitlines() if line[:4] in ("LIST", "ACT ")}
     assert [i["title"] for i in out["LIST"]["items"]] == ["outside/n.txt"], r.stderr
     assert out["ACT"]["ok"] is True and not f.exists(), r.stderr
+
+
+# ─── 收尾自清（Stop 的 LEFTOVER_NEEDS_CLEANUP 閘）：事實端與閘 ─────────────────────
+
+
+def _tail(title: str) -> str:
+    return title.rsplit("/", 1)[-1]
+
+
+def _state_file(wdir: Path, sid: str, data: dict, age_s: float = 0) -> Path:
+    p = wdir / "workflow" / f"state-{sid}.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data), encoding="utf-8")
+    if age_s:
+        t = time.time() - age_s
+        os.utime(p, (t, t))
+    return p
+
+
+def test_status_facts_and_cleanup_candidates(wdir):
+    """判定吃結構化事實（where／merged／used_by），不讀白話 label。候選＝工作樹、它用著的已合併分支、已合併分支、
+    臨時 repo、專案外資料夾；沒合併的分支、暫存區檔、專案裡還沒進版控的新檔不列。"""
+    repo = make_repo(wdir / "r")
+    run_and_record(f"git worktree add -b feat {wdir / 'wt'}", repo)
+    run_and_record("git branch topic && git branch idle", repo)
+    git(repo, "checkout", "-q", "topic")
+    (repo / "t.txt").write_text("t", encoding="utf-8")
+    git(repo, "add", "t.txt"); git(repo, "commit", "-q", "-m", "t"); git(repo, "checkout", "-q", "main")
+    run_and_record("git init -q scratch-repo", wdir)
+    out = wdir / "outside" / "probe_dir"; out.mkdir(parents=True)
+    L.record_tool_artifacts(_SID, "Bash", {"command": f"mkdir -p {out.as_posix()}"}, str(wdir))
+    tmp = wdir / "systemp"; tmp.mkdir(); (tmp / "s.txt").write_text("x", encoding="utf-8")
+    L.record_tool_artifacts(_SID, "Write", {"file_path": str(tmp / "s.txt")}, str(wdir))
+    (repo / "probe.py").write_text("x", encoding="utf-8")
+    L.record_tool_artifacts(_SID, "Write", {"file_path": str(repo / "probe.py")}, str(repo))
+    by = {_tail(it["title"]): it for it in L.list_alive(_SID)}
+    assert by["feat"]["merged"] is True and L._key(by["feat"]["used_by"]) == L._key(str(wdir / "wt"))
+    assert by["topic"]["merged"] is False and by["idle"]["merged"] is True and by["idle"]["used_by"] == ""
+    assert (by["probe_dir"]["where"], by["s.txt"]["where"], by["probe.py"]["where"]) == ("outside", "temp", "untracked")
+    got = {(c["kind"], _tail(c["title"])) for c in rr.leftover_candidates(list(by.values()))}
+    assert got == {("worktree", "wt"), ("branch", "feat"), ("branch", "idle"), ("repo", "scratch-repo"), ("dir", "probe_dir")}
+
+
+def test_declared_keep_reasons_take_items_out_of_cleanup(wdir):
+    """AI 在 (i) 寫理由＝說要留：路徑照寫、分支寫 `branch:<名> — 理由`；帳上沒有的分支拒收並說原因；使用者按保留也算。"""
+    repo = make_repo(wdir / "r")
+    wt = wdir / "wt"
+    run_and_record(f"git worktree add -b feat {wt}", repo)
+    run_and_record("git branch done1 && git branch done2", repo)
+    assert len(rr.leftover_candidates(L.list_alive(_SID))) == 4, "前置：工作樹、feat、done1、done2 都是候選"
+    rejected: list = []
+    L.collect_at_completion(_SID, str(repo), f"{wt} — 下一階段還要用\nbranch:done1 — 等使用者看過再刪\nbranch:nope — 打錯名",
+                            7, rejected=rejected)
+    by = {_tail(it["title"]): it for it in L.list_alive(_SID)}
+    assert by["wt"]["note"] == "下一階段還要用" and by["done1"]["note"] == "等使用者看過再刪" and by["done1"]["source"] == "aec-i"
+    assert [r["path"] for r in rejected] == ["branch:nope"] and "帳上沒有" in rejected[0]["reason"]
+    assert {c["title"] for c in rr.leftover_candidates(list(by.values()))} == {"done2"}, "feat 被留著的工作樹用著 → 不列"
+    L.act(_SID, by["done2"]["key"], "keep")
+    assert rr.leftover_candidates(L.list_alive(_SID)) == []
+
+
+def test_worktree_in_use_by_another_open_session_is_left_alone(wdir):
+    """總控台建的工作樹交給工作 session 用：別的開著的 session（30 分鐘內有動靜）改過或讀過裡面的檔、或工作目錄在裡面
+    → 標正在用、刪除要再確認、不進自清閘；自己的工作目錄在裡面不算；那個 session 沒動靜了才回到候選。"""
+    repo = make_repo(wdir / "r")
+    wt = wdir / "wt"
+    run_and_record(f"git worktree add -b feat {wt}", repo)
+    other = _state_file(wdir, "other-sid", {"session": {"id": "other-sid", "cwd": str(repo)},
+                                             "modified_files": [{"path": str(wt / "x.py")}]})
+    _state_file(wdir, _SID, {"session": {"id": _SID, "cwd": str(wt)}})
+    item = next(it for it in L.list_alive(_SID) if it["kind"] == "worktree")
+    assert item["busy"] and "另一個開著的 session" in item["label"] and item["confirm"]
+    assert rr.leftover_candidates(L.list_alive(_SID)) == []
+    os.utime(other, (time.time() - 2 * 3600,) * 2)
+    item = next(it for it in L.list_alive(_SID) if it["kind"] == "worktree")
+    assert not item["busy"] and item["confirm"] is None
+    assert {c["kind"] for c in rr.leftover_candidates(L.list_alive(_SID))} == {"worktree", "branch"}
+
+
+def test_snapshot_catches_what_command_parsing_cannot(wdir):
+    """python 腳本裡開的工作樹與分支，指令解析看不到：開場快照比對補進帳、標來源不明、不進自清閘；
+    本 session 有建立指令的照舊；開場就有的不收；每次 Stop 都比但不重複進帳。"""
+    repo = make_repo(wdir / "r")
+    git(repo, "branch", "pre")
+    snap = L.git_snapshot(str(repo))
+    assert snap and L._key(snap["repo"]) == L._key(str(repo)) and "pre" in snap["branches"] and len(snap["worktrees"]) == 1
+    git(repo, "worktree", "add", "-q", "-b", "byscript", str(wdir / "wt-script"))
+    git(repo, "branch", "made")
+    run_and_record("git branch mine", repo)
+    L.collect_at_completion(_SID, str(repo), None, 3, snapshot=snap)
+    L.collect_at_completion(_SID, str(repo), None, 4, snapshot=snap)
+    assert len(L.ledger_path(_SID).read_text(encoding="utf-8").splitlines()) == 4
+    by = {_tail(it["title"]): it for it in L.list_alive(_SID)}
+    assert {k for k, v in by.items() if v["source"] == "snapshot"} == {"wt-script", "byscript", "made"}
+    assert "來源不明" in by["made"]["origin"] and by["mine"]["origin"] == "" and "pre" not in by
+    assert {c["title"] for c in rr.leftover_candidates(list(by.values()))} == {"mine"}
+
+
+def test_list_all_groups_sessions_with_liveness(wdir):
+    """全機殘留：掃全部帳本、只列還在的、依 session 分組；同一樣東西由有建立紀錄的 session 認領（快照比對的讓出）；
+    session 狀態看 state 檔：30 分鐘內有動靜＝開著、更久＝多半已關、收過 SessionEnd 或檔不在＝已關。"""
+    repo = make_repo(wdir / "r")
+    sid_a, sid_b, sid_c = "aaaa-1", "bbbb-2", "cccc-3"
+    git(repo, "branch", "a1")
+    L.record_tool_artifacts(sid_a, "Bash", {"command": "git branch a1"}, str(repo))
+    L.ledger_append(sid_b, [{"kind": "branch", "path": str(repo), "repo": str(repo), "name": "a1", "source": "snapshot"}])
+    outside = wdir / "outside"; outside.mkdir()
+    for sid, name in ((sid_b, "b.txt"), (sid_c, "c.txt"), (sid_c, "gone.txt")):
+        (outside / name).write_text("x", encoding="utf-8")
+        L.ledger_append(sid, [{"kind": "file", "path": str(outside / name), "source": "bash"}])
+    (outside / "gone.txt").unlink()
+    _state_file(wdir, sid_a, {"session": {"id": sid_a}})
+    _state_file(wdir, sid_b, {"session": {"id": sid_b}}, age_s=2 * 3600)
+    res = L.list_all()
+    groups = {s["sid"]: s for s in res["sessions"]}
+    assert [it["title"] for it in groups[sid_a]["items"]] == ["a1"]
+    assert [it["title"] for it in groups[sid_b]["items"]] == ["outside/b.txt"]
+    assert [it["title"] for it in groups[sid_c]["items"]] == ["outside/c.txt"]
+    assert (groups[sid_a]["state"], groups[sid_b]["state"], groups[sid_c]["state"]) == ("open", "idle", "closed")
+    assert res["total"] == 3 and all(s["label"] for s in res["sessions"])
+    _state_file(wdir, sid_a, {"session": {"id": sid_a}, "ended_at": L._now_iso()})
+    assert L.session_liveness(sid_a)["state"] == "closed"
+
+
+def test_act_all_safe_only_deletes_items_needing_no_confirmation(wdir):
+    """整組清：只刪不用再確認的（暫存檔、專案外資料夾、已合併分支…）；沒合併的分支、按過保留的、來源不明的不動。"""
+    repo = make_repo(wdir / "r")
+    tmp = wdir / "systemp"; tmp.mkdir()
+    t, k = tmp / "s.txt", tmp / "keep.txt"
+    for f in (t, k):
+        f.write_text("x", encoding="utf-8")
+        L.record_tool_artifacts(_SID, "Write", {"file_path": str(f)}, str(wdir))
+    L.act(_SID, L.entry_key({"path": str(k)}), "keep")
+    out = wdir / "outside" / "d"; out.mkdir(parents=True)
+    L.ledger_append(_SID, [{"kind": "dir", "path": str(out), "source": "bash"}])
+    run_and_record("git checkout -q -b topic && echo b> b.txt && git add b.txt && git commit -q -m b && git checkout -q main", repo)
+    git(repo, "branch", "merged1")
+    L.record_tool_artifacts(_SID, "Bash", {"command": "git branch merged1"}, str(repo))
+    git(repo, "branch", "snapb")
+    L.ledger_append(_SID, [{"kind": "branch", "path": str(repo), "repo": str(repo), "name": "snapb", "source": "snapshot"}])
+    res = L.act_all_safe(_SID)
+    assert res["ok"] is True and res["deleted"] == 3, res
+    assert not t.exists() and not out.exists() and k.exists()
+    has = lambda b: git(repo, "show-ref", "--verify", f"refs/heads/{b}", check=False).returncode == 0
+    assert not has("merged1") and has("topic") and has("snapb")
+
+
+def test_cli_list_all_and_all_safe(wdir):
+    f = wdir / "outside" / "leftover.txt"; f.parent.mkdir(); f.write_text("x", encoding="utf-8")
+    env = _data_root(wdir, _SID, [{"path": str(f), "kind": "file", "source": "bash"}])
+    cli = [sys.executable, "-X", "utf8", str(TREE / "tools" / "session-artifacts.py")]
+    r = subprocess.run([*cli, "list", "--all", "--json"], capture_output=True, text=True, encoding="utf-8", env=env)
+    lines = r.stdout.strip().splitlines()
+    data = json.loads(lines[0])
+    assert [s["sid"] for s in data["sessions"]] == [_SID], r.stderr
+    assert data["sessions"][0]["items"][0]["title"] == "outside/leftover.txt" and lines[-1].startswith("SESSION_ARTIFACTS DONE cmd=list")
+    r = subprocess.run([*cli, "act", "--sid", _SID, "--all-safe", "--action", "delete", "--json"],
+                       capture_output=True, text=True, encoding="utf-8", env=env)
+    assert json.loads(r.stdout.splitlines()[0])["deleted"] == 1 and not f.exists(), r.stderr
+
+
+_NODE_ALL = r"""
+const ae = require(process.argv[1]);
+const sid = process.argv[2];
+function fakeRes(tag, next) { return { writeHead() {}, setHeader() {}, end(b) { console.log(tag + " " + b); if (next) next(); } }; }
+function fakeReq(body) {
+  const h = {}; return { on(ev, cb) { h[ev] = cb; if (ev === "end") { h.data && h.data(body); cb(); } } };
+}
+ae.apiAecTempfilesAll({}, fakeRes("ALL", () =>
+  ae.apiAecDecisionPost(fakeReq(JSON.stringify({ sid, all_safe: true, action: "delete" })), fakeRes("BULK"))));
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not available")
+def test_node_all_endpoint_and_bulk_decision(wdir):
+    f = wdir / "outside" / "m.txt"; f.parent.mkdir(); f.write_text("x", encoding="utf-8")
+    env = _data_root(wdir, _SID, [{"path": str(f), "kind": "file", "source": "bash"}])
+    r = subprocess.run(["node", "-e", _NODE_ALL, str(TREE / "tools" / "workflow-guardian-mcp" / "lib" / "anti-evasion.js"), _SID],
+                       capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+    out = {line.split(" ", 1)[0]: json.loads(line.split(" ", 1)[1]) for line in r.stdout.splitlines() if line[:4] in ("ALL ", "BULK")}
+    assert [s["sid"] for s in out["ALL"]["sessions"]] == [_SID], r.stderr
+    assert out["BULK"]["deleted"] == 1 and not f.exists(), r.stderr
+
+
+@pytest.fixture
+def stop_driven(wdir, monkeypatch):
+    """驅動 handle_stop（比照 verify_knowledge_harvest_gate 的 driven：只留閘的控制流）；帳本走 wdir。"""
+    from handlers import stop as st
+    for name, val in (("_find_session_transcript", lambda *a, **k: None), ("token_warn_payload", lambda *a, **k: ""),
+                      ("detect_evasion", lambda *a, **k: None), ("write_state", lambda *a, **k: None),
+                      ("append_guard_log", lambda *a, **k: None), ("_attribute_usefulness", lambda *a, **k: None),
+                      ("_detect_uncommitted_files", lambda mf: []), ("_git_unpushed_roots", lambda mf: []),
+                      ("_should_deep_postmortem", lambda *a, **k: False),
+                      ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {}))):
+        monkeypatch.setattr(st, name, val)
+
+    def drive(capsys, state, last_text="全部完成了"):
+        monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: last_text)
+        monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
+        with pytest.raises(SystemExit):
+            st.handle_stop({"session_id": _SID, "cwd": ""}, {})
+        return capsys.readouterr().out
+
+    return drive
+
+
+def test_stop_cleanup_gate_blocks_once_per_user_turn(stop_driven, wdir, capsys):
+    """收尾自清閘：宣告完成、帳上有該清的 → 擋一次，列每一項與刪除指令（走 session-artifacts.py，結果記回帳本）、
+    教怎麼寫留的理由；不吃 stop_blocked_count、同一個使用者回合不再擋；沒宣告完成不擋；清乾淨就不擋。"""
+    repo = make_repo(wdir / "r")
+    run_and_record(f"git worktree add -b feat {wdir / 'wt'}", repo)
+    state = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": [],
+             "stop_blocked_count": 0, "turn_seq": 5}
+    assert "[Guardian:Cleanup]" not in stop_driven(capsys, state, last_text="我先查一下工作樹的狀態，查完再回報給你看看。")
+    out = stop_driven(capsys, state)
+    assert "[Guardian:Cleanup]" in out and "LEFTOVER_NEEDS_CLEANUP" in out
+    assert "session-artifacts.py" in out and f"--sid {_SID}" in out and "branch:<名>" in out
+    assert state["stop_blocked_count"] == 0 and state["cleanup_gate_turn"][_SID] == 5
+    assert "[Guardian:Cleanup]" not in stop_driven(capsys, state), "同一個使用者回合只擋一次"
+    state["turn_seq"] = 6
+    for it in L.list_alive(_SID):
+        assert L.act(_SID, it["key"], "delete")["ok"] is True, it
+    assert "[Guardian:Cleanup]" not in stop_driven(capsys, state)
+
+
+def test_server_routes_all_machine_endpoint():
+    """server.js 把 GET /api/aec/tempfiles-all 交給 apiAecTempfilesAll（Node 端點的行為案例在 test_node_all_endpoint_and_bulk_decision）。"""
+    src = (TREE / "tools" / "workflow-guardian-mcp" / "server.js").read_text(encoding="utf-8")
+    i = src.index('pathname === "/api/aec/tempfiles-all"')
+    assert "antiEvasion.apiAecTempfilesAll(req, res)" in src[i:i + 200]
+
+
+def test_post_tool_use_reports_unmatched_branch_declaration(wdir, monkeypatch, capsys):
+    """收尾檢核 (i) 寫了帳上沒有的分支 → PostToolUse 回告「沒收下」與原因；不是受保護路徑就不附受保護的說明。"""
+    from handlers import post_tool_use as pt
+    repo = make_repo(wdir / "r")
+    git(repo, "branch", "real")
+    L.record_tool_artifacts(_SID, "Bash", {"command": "git branch real"}, str(repo))
+    state = {"turn_seq": 4, "session": {"cwd": str(repo)}}
+    for name, val in (("_ensure_state", lambda *a, **k: state), ("write_state", lambda *a, **k: None),
+                      ("append_guard_log", lambda *a, **k: None), ("_check_output_quality", lambda *a, **k: None),
+                      ("_write_aec_report_file", lambda *a, **k: None), ("_maybe_spawn_hud", lambda *a, **k: None)):
+        monkeypatch.setattr(pt, name, val)
+    tool_input = {k: "無" for k in ("a", "b", "c", "d", "e", "f", "g", "h", "j_evidence_path", "k_followups")}
+    tool_input["i"] = "branch:real — 等使用者看過\nbranch:nope — 打錯名"
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"session_id": _SID, "tool_name": "mcp__workflow-guardian__anti_evasion_report",
+                                 "tool_input": tool_input, "tool_response": {"content": [{"type": "text", "text": "ok"}]},
+                                 "cwd": str(repo)}, {"docdrift": {"enabled": False}, "aec": {}})
+    out = capsys.readouterr().out
+    assert "沒收下" in out and "branch:nope" in out and "帳上沒有" in out and "受保護路徑" not in out
+    assert next(r for r in L.ledger_read(_SID) if r.get("name") == "real")["note"] == "等使用者看過"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="8.3 短檔名只在 Windows")
+def test_short_and_long_names_are_the_same_place(wdir, monkeypatch):
+    """系統暫存區常是 8.3 短檔名（C:\\Users\\ABCDEF~1\\…），AI 用長檔名寫進去的檔仍要認成暫存區（不然會被當專案外、
+    進收尾自清閘）；同一個地方兩種寫法是同一筆帳。"""
+    import ctypes
+    longdir = wdir / "systemp-with-a-long-name"
+    longdir.mkdir()
+    buf = ctypes.create_unicode_buffer(1024)
+    n = ctypes.windll.kernel32.GetShortPathNameW(str(longdir), buf, 1024)
+    if not n or buf.value.lower() == str(longdir).lower():
+        pytest.skip("這個磁碟沒有 8.3 短檔名")
+    monkeypatch.setattr(L, "_tempdir", lambda: buf.value)
+    f = longdir / "s.txt"; f.write_text("x", encoding="utf-8")
+    assert L.is_under_tempdir(str(f)) and L._key(str(Path(buf.value) / "s.txt")) == L._key(str(f))
+    L.record_tool_artifacts(_SID, "Write", {"file_path": str(f)}, str(wdir))
+    assert [it["where"] for it in L.list_alive(_SID)] == ["temp"]
+
+
+def test_session_start_snapshot_taken_once(wdir):
+    """SessionStart 記下 cwd 所在 repo 的工作樹與本地分支；compact／resume 沿用開場那份；不是 repo 就不記。"""
+    from handlers import session_start as ss
+    repo = make_repo(wdir / "r")
+    state: dict = {}
+    ss._take_git_snapshot(state, str(repo))
+    first = state["git_snapshot"]
+    assert first["branches"] == ["main"] and len(first["worktrees"]) == 1
+    git(repo, "branch", "later")
+    ss._take_git_snapshot(state, str(repo))
+    assert state["git_snapshot"] is first
+    empty: dict = {}
+    (wdir / "plain").mkdir()
+    ss._take_git_snapshot(empty, str(wdir / "plain"))
+    assert "git_snapshot" not in empty

@@ -42,6 +42,7 @@ from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _sc
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
+    leftover_candidates, leftover_cleanup_verdict,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -1139,11 +1140,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     state["turn_open"] = False
     if _harvest_accessed_files(state, transcript_text) or turn_was_open:
         write_state(session_id, state)
-    # 殘檔帳本：每次 Stop 掃一次 session scratchpad 進帳（模型沒 emit 報告也不漏）。fail-open。
+    # 殘檔帳本：每次 Stop 掃一次 session scratchpad、比一次開場快照（SessionStart 記的工作樹與分支）進帳
+    # （模型沒 emit 報告也不漏；python 腳本裡開的工作樹指令解析看不到，靠快照補）。fail-open。
     try:
-        aec_ledger.collect_at_completion(session_id, cwd, None, int(state.get("turn_seq", 0)))
-    except Exception:
-        pass
+        aec_ledger.collect_at_completion(session_id, cwd, None, int(state.get("turn_seq", 0)),
+                                         snapshot=state.get("git_snapshot"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Cleanup] 帳本收尾進帳失敗（這次少收）：{type(e).__name__}: {e}", file=sys.stderr)
 
     # ── Layer 1: token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
     # 早段算一次預警句（純函式、無副作用）；於下方各 gate 將 output_block(reason)
@@ -1221,13 +1224,34 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and aec.get("session_id") == session_id
     )
 
+    _cleanup_memo: List[Any] = []
+
+    def _cleanup_facts() -> List[Dict[str, Any]]:
+        """收尾自清閘的事實：宣告完成時才查帳上還在的東西（要問 git），一次 Stop 只查一次。查失敗照放行並浮 stderr。"""
+        if not _cleanup_memo:
+            items: List[Dict[str, Any]] = []
+            if last_text and claims_completion(last_text):
+                try:
+                    if aec_ledger.ledger_path(session_id).exists():
+                        items = aec_ledger.list_alive(session_id)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[Guardian:Cleanup] 查帳上的東西失敗，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
+            _cleanup_memo.append(items)
+        return _cleanup_memo[0]
+
     def _later_gates(reason: str) -> str:
-        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態預覽後面還會擋的閘（知識收割、收尾檢核、同步），讓模型一回合補齊，
-        不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。"""
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合
+        補齊，不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。"""
         later: List[str] = []
         if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
                 state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq)):
             later.append("知識收割：值得留的先 atom_write，再呼叫 knowledge_harvest_report")
+        if ("[Guardian:Cleanup]" not in reason
+                and (state.get("cleanup_gate_turn") or {}).get(session_id) != _user_turn(state, turn_seq)):
+            _cv = leftover_cleanup_verdict(True, _cleanup_facts())
+            if _cv.owed:
+                later.append(f"收尾自清：這個 session 建的 {len(_cv.evidence)} 樣東西還在（工作樹、分支、臨時 repo、專案外資料夾），"
+                             "用完的刪掉、要留的在 (i) 寫理由")
         if ("[Guardian:ScanReport]" not in reason and own_mod_files and not state.get("scan_report_warned")
                 and not committed_this_turn
                 and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
@@ -1480,6 +1504,21 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         write_state(session_id, state)
         output_block(_piggyback(hp_reason))
         return
+
+    # ── Cleanup Gate（收尾自清：規則 LEFTOVER_NEEDS_CLEANUP）─────────────
+    # 宣告完成時，這個 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 擋一次，列刪除指令，
+    # 讓 AI 自己清（使用者原話：要提醒 LLM 才會刪用完的工作分支）。事實由 aec_ledger.list_alive 現場查、判定在
+    # wg_release_rules；排在收尾檢核之前，AI 寫留的理由才進得了同一份 (i)。不吃 stop_gate_max_blocks、每個使用者回合最多擋一次
+    # （cleanup_gate_turn[sid] 記 _uturn）。
+    if (state.get("cleanup_gate_turn") or {}).get(session_id) != _uturn:
+        cv = leftover_cleanup_verdict(bool(last_text and claims_completion(last_text)), _cleanup_facts())
+        if cv.owed:
+            state.setdefault("cleanup_gate_turn", {})[session_id] = _uturn
+            append_guard_log("cleanup", {"session_id": session_id, "turn_seq": turn_seq, "items": list(cv.evidence[:8])})
+            write_state(session_id, state)
+            output_block(_piggyback(aec_ledger.cleanup_block_message(
+                session_id, leftover_candidates(_cleanup_facts()), cv.why)))
+            return
 
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；

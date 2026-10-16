@@ -61,7 +61,7 @@ RULES: Dict[str, str] = {
     "SYNC_BLOCK_SKIPS_SYNCED": "Stop 底部的一般 sync block 先剔除已同步的改檔再判門檻：在 git／svn 工作區、status 乾淨、所在 git 根"
                                "沒有已 commit 未 push 的（WORKTREE_NO_PUSH 不要求 push 的也算）。查不了版控的照算未同步。"
                                "判法在 handlers/stop.py 的 _synced_paths。",
-    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾檢核、同步），讓模型一回合補齊。"
+    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",
     "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
@@ -1737,3 +1737,55 @@ def case_for_change_verdict(name: str, checks: Sequence[Tuple[str, str]], no_cas
     return Verdict(rule, True, f"{name} 改過，還沒宣告由哪個案例驗",
                    ("在 verify_scope 宣告驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for: [\"<程式檔>\"]；"
                     "真的不需要新案例就加 no_case: [{path, reason}]，再照【收尾放行確認】問使用者",))
+
+
+# ─── 收尾自清：本 session 建的東西用完要清（事實由 handlers/aec_ledger.list_alive 現場查，閘在 handlers/stop.py） ───
+RULES.update({
+    "LEFTOVER_NEEDS_CLEANUP": "宣告完成時，本 session 帳上有建立紀錄的（開場快照比對出來、來源不明的不算）、還在、沒說要留的這些東西 → "
+                              "每個使用者回合擋一次，列每一項與刪除指令：刪掉，或在收尾檢核 (i) 寫一行理由（路徑照寫，分支寫 "
+                              "`branch:<名> — 理由`）。列的：工作樹、已合併的分支（被列出的工作樹用著的也算，刪完工作樹就刪得掉）、"
+                              "能刪的臨時 repo、專案外能刪的檔案資料夾。不列：沒合併的分支（可能是還要的工作）、暫存區（使用者在 HUD "
+                              "清）、專案裡還沒進版控的新檔（多半是待 commit 的正式產出）、被 .gitignore 排除的、推上遠端的分支（刪了"
+                              "別人也看不到，要使用者決定）、別的開著的 session 正在用的。「說要留」＝使用者在 HUD 按過保留，或 AI 在 "
+                              "(i)（舊格式 (d)）寫過理由。不吃 stop_gate_max_blocks。",
+})
+
+
+def leftover_candidates(items: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """LEFTOVER_NEEDS_CLEANUP：帳上還在的東西（aec_ledger.list_alive 的列）→ 該由 AI 收尾清掉或寫理由的那些，順序照原列。
+    吃結構化事實：kind、where（檔案資料夾在哪：temp／ignored／untracked／outside）、merged、used_by（用著這個分支的工作樹）、
+    busy（別的開著的 session 正在用）、can_delete、decision、note、source。"""
+    def kept(it: Dict[str, Any]) -> bool:
+        return it.get("decision") == "keep" or (it.get("source") in ("aec-i", "aec-d") and bool(str(it.get("note") or "").strip()))
+
+    base = [it for it in items if it.get("source") != "snapshot" and not it.get("busy") and not kept(it)]
+    worktrees = {canon_path(it.get("path") or "") for it in base if it.get("kind") == "worktree"}
+    out: List[Dict[str, Any]] = []
+    for it in base:
+        kind = it.get("kind")
+        if kind == "worktree":
+            ok = True
+        elif kind == "branch":
+            ok = it.get("merged") is True and (bool(it.get("can_delete")) or (bool(it.get("used_by"))
+                                                                           and canon_path(it["used_by"]) in worktrees))
+        elif kind == "repo":
+            ok = bool(it.get("can_delete"))
+        elif kind in ("file", "dir"):
+            ok = it.get("where") == "outside" and bool(it.get("can_delete"))
+        else:
+            ok = False
+        if ok:
+            out.append(it)
+    return out
+
+
+def leftover_cleanup_verdict(claims_done: bool, items: Sequence[Dict[str, Any]]) -> Verdict:
+    """LEFTOVER_NEEDS_CLEANUP：owed＝宣告完成而帳上還有該清的東西；evidence 一行一項（名稱與白話狀態）。"""
+    rule = "LEFTOVER_NEEDS_CLEANUP"
+    if not claims_done:
+        return Verdict(rule, False, "沒有宣告完成")
+    cands = leftover_candidates(items)
+    if not cands:
+        return Verdict(rule, False, "帳上沒有該清的東西")
+    return Verdict(rule, True, f"宣告完成，但這個 session 建的 {len(cands)} 樣東西還在、也沒說要留",
+                   tuple(f"{c.get('title')}（{c.get('label')}）" for c in cands))

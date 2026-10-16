@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-16 HUD 改版第 1b 階段：收尾時 AI 先自己清掉用完的東西、全機殘留一頁清、開場快照補抓
+- 原設計者指出：要提醒 AI 才會刪用完的工作分支，還得另開 session 大清理。Stop 加收尾自清閘（規則 LEFTOVER_NEEDS_CLEANUP，判定在 `hooks/wg_release_rules.py`）：宣告完成時本 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 每回合擋一次，列刪除指令；要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；別的開著的 session 正在用的不列。HUD 加「全機殘留」分頁（`tools/session-artifacts.py list --all`、每組「清掉不用再確認的」走 `act --all-safe`）；SessionStart 記 git 開場快照，Stop 比對補抓 python 腳本裡開的工作樹與分支（標來源不明、不進自清閘）。
+- **同類修正**：帳本路徑鍵改用 realpath——系統暫存區是 8.3 短檔名、AI 常用長檔名寫，abspath 比不上，真帳本約 63 項暫存檔被當成「專案外」。實測真帳本 54 個 session 1003 樣還在（暫存區 991 樣，不會隨 session 關閉被清）。案例 `hooks/verify/verify_session_artifacts.py`、`verify_release_rules.py`。
+
 ## 2026-10-16 HUD 改版第 1a 階段：產出物帳本收整個 session 的額外產出，保留／刪除鈕當場生效
 - 原設計者指出：帳本幾乎只收 session 關閉就會被清掉的暫存檔，git 工作樹、工作分支、臨時 repo、測試資料夾全漏（30 天 worktree add 42、git init/clone 23、帳本 98.6% 是暫存區檔），得另開 session 大清理、還要提醒 AI 才刪分支。`handlers/aec_ledger.py` 改成依工具呼叫進帳（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支），狀態由 git 與檔案系統現場查；HUD 按鈕經 Node 轉呼叫新工具 `tools/session-artifacts.py` 當場刪並回報（沒合併的分支、有改動的工作樹、遠端分支、整個 repo 要再確認一次），舊的「決策紙條＋下一輪 AI 執行」流程移除。案例 `hooks/verify/verify_session_artifacts.py`。
 

@@ -1279,11 +1279,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _rejected: List[Dict[str, str]] = []
             aec_ledger.collect_at_completion(session_id, _cwd, i_paths, turn_seq, rejected=_rejected)
             if _rejected:
+                _protected = any(not r["path"].startswith("branch:") for r in _rejected)
                 aec_reject_msgs.append(
-                    "[Guardian:AEC-Ledger] (i) 衍生暫存清單拒收受保護路徑（正式產出不是暫存，"
-                    "不得進 HUD 刪除候選）：\n"
+                    "[Guardian:AEC-Ledger] (i) 衍生暫存清單有幾行沒收下：\n"
                     + "\n".join(f"  ✗ {r['path']} — {r['reason']}" for r in _rejected)
-                    + "\n未 commit 的正式檔請改列於 (a)/(b)/(g)；(i) 只放你自己產生的暫存／中間產物。"
+                    + ("\n受保護路徑是正式產出、不是暫存，不得進 HUD 刪除候選：未 commit 的正式檔請改列於 (a)/(b)/(g)；"
+                       "(i) 只放你自己產生的暫存／中間產物。" if _protected else "")
                 )
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_collect", e)
