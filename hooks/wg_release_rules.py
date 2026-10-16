@@ -58,6 +58,12 @@ RULES: Dict[str, str] = {
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
     "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
+    "SYNC_BLOCK_SKIPS_SYNCED": "Stop 底部的一般 sync block 先剔除已同步的改檔再判門檻：在 git／svn 工作區、status 乾淨、所在 git 根"
+                               "沒有已 commit 未 push 的（WORKTREE_NO_PUSH 不要求 push 的也算）。查不了版控的照算未同步。"
+                               "判法在 handlers/stop.py 的 _synced_paths。",
+    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾檢核、同步），讓模型一回合補齊。"
+                               "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
+                               "判法在 handlers/stop.py 的 _later_gates。",
     "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
                                 "或路徑含快取目錄（__pycache__、.pytest_cache、.mypy_cache、.ruff_cache；沒有 .gitignore 也算）"
                                 "→ 不要求先讀同目錄的檔。",
@@ -1477,7 +1483,12 @@ RULES.update({
                                  "部位表的整把量尺只在宣告回應與擋訊息當參考。子代理沒有自己的宣告時沿用主 session 的。",
     "SCOPE_ITEM_WELL_FORMED": "宣告收件：每項的目標與理由都不能空；看起來是路徑的目標要存在，測試節點（檔::名）要查得到那個 def；"
                               "不是路徑的目標當指令。有一項不合格整份退回。",
-    "SCOPE_EDIT_RELATED_TO_ITEM": "宣告的一項要晚於哪些改檔的最後一次修改：程式檔一律算；不是程式檔的（文件、記憶，落在有量尺的部位才要宣告）"
+    "SCOPE_CASE_EDIT_ONLY_ITS_ITEM": "測試案例檔是量具不是受測物：改了它（符合 verify_case_globs 的程式檔、不是 conftest／__init__、同資料夾"
+                                     "沒有別的程式 import 它）只作廢點名它（就在這一項點名的路徑底下）、它所在部位的量尺指令、整體驗證或看不出"
+                                     "跑了什麼的項目，範圍裡其他測試不必重跑。被同資料夾別的程式 import 的案例檔（共用的 Sandbox、fixture）"
+                                     "與 conftest 照程式檔算。判法在 wg_verify_scope._standalone_case。",
+    "SCOPE_EDIT_RELATED_TO_ITEM": "宣告的一項要晚於哪些改檔的最後一次修改：程式檔一律算（測試案例檔例外，見 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；"
+                                  "不是程式檔的（文件、記憶，落在有量尺的部位才要宣告）"
                                   "只有跟這一項有關才算：和這一項點名的檔同一個部位、就在它點名的路徑或它宣告的 inputs（這一項還讀的檔或"
                                   "資料夾，跨部位的資料由 LLM 宣告）底下、這一項就是那個部位的量尺指令，或這一項是整體驗證／看不出跑了什麼（照算）。"
                                   "這四個條件都是查得到的事實（部位表同一列、路徑包含、量尺逐字相同、指令涵蓋），不是替 LLM 判斷關聯；"
@@ -1569,9 +1580,18 @@ def scope_item_form_verdict(target: str, why: str, problem: str = "") -> Verdict
 
 
 def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False, under_item: bool = False,
-                               runs_part_ruler: bool = False, whole_or_unknown: bool = False) -> Verdict:
-    """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。"""
+                               runs_part_ruler: bool = False, whole_or_unknown: bool = False,
+                               standalone_case: bool = False) -> Verdict:
+    """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。
+    standalone_case＝它是測試案例檔、不是 conftest／__init__、同資料夾沒有別的程式 import 它：只作廢點名它的項目（規則 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）。"""
     rule = "SCOPE_EDIT_RELATED_TO_ITEM"
+    if is_code and standalone_case:
+        rule = "SCOPE_CASE_EDIT_ONLY_ITS_ITEM"
+        why = ("就在這一項點名的路徑底下" if under_item else "這一項就是它所在部位的量尺指令" if runs_part_ruler
+               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
+        if why:
+            return Verdict(rule, True, f"{name} 是測試案例檔，{why}")
+        return Verdict(rule, False, f"{name} 是測試案例檔、沒有別的程式 import 它，這一項沒點名它：改它不作廢這一項的收據")
     if is_code:
         return Verdict(rule, True, f"{name} 是程式檔：每一項的收據都要晚於它")
     why = ("和這一項點名的檔同一個部位" if same_part else "就在這一項點名的路徑底下" if under_item

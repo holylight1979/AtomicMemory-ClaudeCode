@@ -249,13 +249,18 @@ _ROOT_ROWS = {r["part_short"]: r for r in _overview_hub.parse_map((ROOT / ".clau
 
 @pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
 def test_013_3_compound_rulers_from_root_table(part):
-    """013 BLOCK 3：根層部位表 memory/、_AIDocs/ 兩列的量尺（`… && echo X DONE` 串接式）原樣執行 → 對上；
-    後面接 `; echo X DONE`、`&& echo …`、`| sed …` → 不對；`| tail -5` → 對。直接讀表上字串當輸入。"""
+    """013 BLOCK 3：根層部位表 memory/、_AIDocs/ 兩列的量尺由程式自己印完成字樣、不接 echo（文件層是兩支程式 && 串）；原樣執行 → 對上；
+    前面用 && 接跑程式的指令 → 對上；後面接 `; echo X DONE`、`&& echo …`、`| sed …`、只跑前一段 → 不對；`| tail -5` 只有單段量尺對
+    （多段量尺後接過濾會蓋掉最後一段的 exit）。直接讀表上字串當輸入。"""
     m = _ROOT_ROWS[part]["measure"]["cmd"]
-    assert "&&" in m
-    assert sr.cmd_matches(m, m) and sr.cmd_matches(m, f"WG=1 {m} 2>&1 | tail -5")
-    for bad in (f"{m}; echo X_CHECK DONE", f"{m} && echo X_CHECK DONE", f"{m} | sed s/a/b/", m.split(" && ")[0]):
-        assert not sr.cmd_matches(m, bad), bad
+    single = "&&" not in m
+    assert "echo" not in m
+    assert sr.cmd_matches(m, m) and sr.cmd_matches(m, f"python -X utf8 -m pytest -q x.py && {m}")
+    assert sr.cmd_matches(m, f"WG=1 {m} 2>&1 | tail -5") is single
+    bad = [f"{m}; echo X_CHECK DONE", f"{m} && echo X_CHECK DONE", f"{m} | sed s/a/b/",
+           f"python -X utf8 -m pytest -q x.py && {m} 2>&1 | tail -5"]
+    for b in bad + ([] if single else [m.split(" && ")[0]]):
+        assert not sr.cmd_matches(m, b), b
 
 
 def test_013_2_quotes_echo_and_subsets_do_not_count():
@@ -586,14 +591,14 @@ def test_017_leading_cd_root_only_for_single_absolute_cd():
 
 def test_017_all_root_table_rulers_parse_and_match_themselves():
     """G6 (b)：根層部位表 10 列（4 把尺；hook 兩層與 skill 層的全量 run_verify 已拔掉，全量改增量待補）原字串在兩種 shell
-    都可解析、原樣跑對得上，尾接 `2>&1 | tail -5` 也對得上。"""
+    都可解析、原樣跑對得上；單段量尺尾接 `2>&1 | tail -5` 也對得上（多段量尺後接過濾會蓋掉最後一段的 exit，不算）。"""
     rows = [r for r in _ROOT_ROWS.values() if (r.get("measure") or {}).get("cmd")]
     assert len(_ROOT_ROWS) == 10 and len(rows) == 4
     for r in rows:
         m = r["measure"]["cmd"]
         for shell in ("bash", "powershell"):
             assert sr.unsupported_syntax(m, shell) is None and sr.cmd_matches(m, m, shell), (m, shell)
-            assert sr.cmd_matches(m, f"{m} 2>&1 | tail -5", shell), (m, shell)
+            assert sr.cmd_matches(m, f"{m} 2>&1 | tail -5", shell) is ("&&" not in m), (m, shell)
 
 
 def test_029b_env_case_fold_follows_platform():

@@ -683,7 +683,8 @@ def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -
 
 _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1`、`export X=1`、`$env:X=\"1\";`、`$x = '字面值';`；"
                "set、unset、pushd、帶 $ 的值、PS4 這類讓 shell 自己印字的變數都不算），"
-               "後面只准 `| tail` 或 `| Select-Object -Last N`；請照表上原字串單獨跑。")
+               "後面只准 `| tail` 或 `| Select-Object -Last N`（多段量尺不准，管線會蓋掉最後一段的 exit）；要和別的測試串在一起，就用 && 把跑程式的指令接在量尺前面、"
+               "量尺放最後、後面不接過濾（例：`python -m pytest -q x.py && 量尺`）；否則請照表上原字串單獨跑。")
 
 
 _TOOL_HINT = ("專案自製的測試工具請寫進部位表的量尺欄，寫 PATH 上的程式名（例：`Unity.exe -batchmode -runTests …`）並把那支程式"

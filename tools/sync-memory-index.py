@@ -947,4 +947,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    rc = main()
+    if "--check" in sys.argv[1:]:   # 哨兵由程式自己印：部位表量尺不必接 echo，和別的驗證串在同一行也算數
+        print(f"MEMORY_INDEX_CHECK {'PASS' if rc == 0 else 'FAIL'}")
+    sys.exit(rc)

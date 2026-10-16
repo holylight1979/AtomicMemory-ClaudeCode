@@ -1590,3 +1590,29 @@ def test_case_decl_well_formed_lists_every_problem():
     v = rr.case_decl_form_verdict(["「a」不是測試檔", "no_case 的 b.py 不存在"])
     assert v.owed and v.evidence == ("「a」不是測試檔", "no_case 的 b.py 不存在")
     assert not rr.case_decl_form_verdict([]).owed
+
+
+# ─── 收尾少空轉：測試案例檔只作廢自己那一項、已同步的檔不再提醒、擋一次就列出後面還欠的閘 ───
+
+@pytest.mark.parametrize("kw, owed", [
+    (dict(is_code=True, standalone_case=True), False),                          # 獨立案例檔、這一項沒點名它 → 不作廢
+    (dict(is_code=True, standalone_case=True, same_part=True), False),          # 同部位也不算：同資料夾別支測試不受影響
+    (dict(is_code=True, standalone_case=True, under_item=True), True),          # 這一項點名的就是它
+    (dict(is_code=True, standalone_case=True, runs_part_ruler=True), True),     # 部位量尺會跑到它
+    (dict(is_code=True, standalone_case=True, whole_or_unknown=True), True),    # 整體驗證、或看不出跑了什麼
+])
+def test_044_scope_case_edit_only_its_item(kw, owed):
+    v = rr.scope_edit_related_verdict("verify_a.py", **kw)
+    assert v.rule == "SCOPE_CASE_EDIT_ONLY_ITS_ITEM" and v.owed is owed, v
+
+
+def test_044_shared_case_is_still_code():
+    """被同資料夾 import 的案例檔、conftest（standalone_case=False）照程式檔算：每一項都要晚於它。"""
+    v = rr.scope_edit_related_verdict("probe_release_rules.py", True, standalone_case=False)
+    assert v.rule == "SCOPE_EDIT_RELATED_TO_ITEM" and v.owed
+
+
+def test_044_stop_flow_rules_point_to_stop_handler():
+    """SYNC_BLOCK_SKIPS_SYNCED、BLOCK_LISTS_LATER_GATES：判法在 handlers/stop.py（端到端案例見 verify_stop_reconcile 的 046 段）。"""
+    for name in ("SYNC_BLOCK_SKIPS_SYNCED", "BLOCK_LISTS_LATER_GATES"):
+        assert "handlers/stop.py" in rr.RULES[name], name

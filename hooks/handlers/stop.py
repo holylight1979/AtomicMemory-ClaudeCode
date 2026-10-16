@@ -21,7 +21,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
@@ -213,6 +213,41 @@ def _git_unpushed_roots(modified_files: List[Dict[str, Any]]) -> List[str]:
         if n > 0:
             unpushed.append(f"{root}（領先 {n} commit）")
     return unpushed
+
+
+def _synced_paths(paths: Iterable[str]) -> set:
+    """已同步的檔（規則 SYNC_BLOCK_SKIPS_SYNCED）：在 git／svn 工作區、status 乾淨、所在 git 根沒有已 commit 未 push 的
+    （worktree 或沒 upstream 照 WORKTREE_NO_PUSH 不要求 push，也算）。已刪除的檔照查：status 乾淨＝刪除已提交。
+    查不了（不在工作區、git／svn 失敗或逾時）一律不算已同步。"""
+    groups: Dict[tuple, List[str]] = {}
+    for p in dict.fromkeys(str(x) for x in paths if x):
+        found = _find_vcs_root(Path(p).parent)
+        if found:
+            groups.setdefault(found, []).append(p)
+    synced: set = set()
+    for (kind, root), ps in groups.items():
+        dirty = _git_dirty_set(root, ps) if kind == "git" else _svn_dirty_set(root, ps)
+        if dirty is None:
+            continue
+        if kind == "git" and _git_unpushed_roots([{"path": str(root / ".git")}]):
+            continue
+        synced.update(p for p in ps if _norm_for_match(p) not in dirty)
+    return synced
+
+
+def _drop_synced(mod_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """從改檔清單剔除已同步的檔（_synced_paths）；判斷失敗照原清單（stderr 告知）。"""
+    if not mod_files:
+        return mod_files
+    try:
+        synced = _synced_paths((m or {}).get("path") for m in mod_files)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Workflow Guardian] 判斷哪些檔已同步失敗，照算未同步：{type(e).__name__}: {e}", file=sys.stderr)
+        return mod_files
+    if synced:
+        print(f"[Workflow Guardian] 規則 SYNC_BLOCK_SKIPS_SYNCED：{len(synced)} 個改過的檔已 commit 並 push，不再要求同步",
+              file=sys.stderr)
+    return [m for m in mod_files if (m or {}).get("path") not in synced]
 
 
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
@@ -1130,11 +1165,21 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     _tpath = str(transcript) if transcript else None
 
+    _later: List[Any] = []   # 後面還會擋的閘的預覽（規則 BLOCK_LISTS_LATER_GATES）；各閘共用變數算好後才掛上
+
     def _piggyback(reason: str, gate: Optional[str] = None) -> str:
-        """附 token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；那條路是先 write_state
-        再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
+        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；
+        那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
         if gate:
             mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
+        if _later:
+            try:
+                note = _later[0](reason)
+            except Exception as e:  # noqa: BLE001
+                note = ""
+                print(f"[Guardian:AlsoOwed] 預覽後面的閘失敗，略過：{type(e).__name__}: {e}", file=sys.stderr)
+            if note:
+                reason = f"{reason}\n{note}"
         if _token_warn:
             state["token_warn_emitted"] = True
             reason = reason + _token_warn
@@ -1174,6 +1219,32 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and in_turn(aec.get("turn_seq"), turn_seq, _since)
         and aec.get("session_id") == session_id
     )
+
+    def _later_gates(reason: str) -> str:
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態預覽後面還會擋的閘（知識收割、收尾檢核、同步），讓模型一回合補齊，
+        不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。"""
+        later: List[str] = []
+        if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
+                state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq)):
+            later.append("知識收割：值得留的先 atom_write，再呼叫 knowledge_harvest_report")
+        if ("[Guardian:ScanReport]" not in reason and own_mod_files and not state.get("scan_report_warned")
+                and not committed_this_turn
+                and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
+                                                int(config.get("min_files_to_block", 2)), emitted_this_turn)):
+            later.append("收尾檢核：最後呼叫 anti_evasion_report")
+        if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
+                and not state.get("muted") and phase not in ("done", "syncing")):
+            sr = config.get("sync_reminder", {}) or {}
+            unsynced = {(m or {}).get("path") for m in _drop_synced(own_mod_files)} - {None, ""}
+            reminder_left = sr.get("enabled", True) and int(state.get("sync_reminder_count", 0)) < int(sr.get("max_reminders", 1))
+            if (unsynced and reminder_left) or len(unsynced) >= int(config.get("min_files_to_block", 2)) \
+                    or state.get("knowledge_queue"):
+                later.append(f"同步：{len(unsynced)} 個改過的檔還沒 commit 或還沒 push（照口令規則處理）")
+        if not later:
+            return ""
+        return ("[Guardian:AlsoOwed] 這道過了之後，照目前狀態還會擋：" + "；".join(later)
+                + "。可以這一回合一起補完再收尾（收尾檢核放最後）。")
+    _later.append(_later_gates)
 
     if failing and claims_completion(code_text):
         state["stop_blocked_count"] = stop_count + 1
@@ -1641,6 +1712,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
+
+    # 規則 SYNC_BLOCK_SKIPS_SYNCED：已 commit 並 push 的檔不再進一般 sync block（查不了 git 的照算）
+    own_mod_files = _drop_synced(own_mod_files)
 
     # session-filter：底部一般 block 亦只數本 session 自己改的檔（own_mod_files）——
     # 協調 session（own 為空）不因共用樹上他 session 的檔而誤觸發。kq_count 不過濾：

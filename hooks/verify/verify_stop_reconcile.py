@@ -1491,11 +1491,11 @@ def _root_row(part):
 
 @pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
 def test_013_3_compound_ruler_from_root_table_is_satisfiable(part):
-    """013 BLOCK 3（最優先）：根層部位表這兩列的量尺是 `… && echo X DONE` 串接式；表上字串原樣跑出的 DONE 收據要認得到，
-    後面再接 `; echo 假的 DONE` 就不算。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
+    """013 BLOCK 3（最優先）：根層部位表這兩列的量尺由程式自己印完成字樣、不再接 echo（文件層是兩支程式 && 串）；表上字串原樣跑出的
+    收據要認得到，後面再接 `; echo 假的 DONE` 就不算。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
     row = _root_row(part)
     cmd = row["measure"]["cmd"]
-    assert "&&" in cmd and "echo" in cmd                                                   # 直接讀表上字串當輸入
+    assert "echo" not in cmd                                                               # 直接讀表上字串當輸入
     mod = _mf(r"c:\proj\x.md", 5, last_at=_T1, last_seq=3)
     assert _gate(cmd, row=row, mod=mod) is None
     assert _gate(cmd + "; echo FAKE_CHECK DONE", row=row, mod=mod) is not None
@@ -1669,9 +1669,10 @@ def test_017_root_table_rulers_still_runnable_as_declared_commands():
     assert len(_ROOT_ROWS) == 10 and len(rows) == 4
     assert not [r["part_short"] for r in rows if "run_verify.py" in r["measure"]["cmd"]]   # 表上不再有全量當量尺
     for row in rows:
+        single = "&&" not in row["measure"]["cmd"]          # 多段量尺後接過濾會蓋掉最後一段的 exit，只有單段量尺准接
         for tool in ("Bash", "PowerShell"):
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)
-            assert _gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None, (row["part_short"], tool)
+            assert (_gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None) is single, (row["part_short"], tool)
             assert _gate("python -h " + row["measure"]["cmd"][len("python "):], tool, row) is not None   # 規則 7
 
 
@@ -4236,3 +4237,85 @@ def _cassette(git_cassette):
     """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
     pytest --git-record 重錄。"""
     git_cassette()
+
+
+# ─── 046 收尾少空轉：已同步的檔不再提醒（SYNC_BLOCK_SKIPS_SYNCED）、擋一次就列出後面還欠的閘（BLOCK_LISTS_LATER_GATES） ───
+
+def _git_out(repo: Path, *args: str) -> str:
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _synced_repo(tmp_path: Path, names=("a.md", "b.md", "c.md")):
+    """真 git repo，names 都已 commit、分支沒有 upstream。回 (repo, 檔案路徑清單)。"""
+    repo = tmp_path / "syncrepo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    files = [repo / n for n in names]
+    for f in files:
+        f.write_text("v1\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "init")
+    return repo, files
+
+
+def test_046_sync_block_skips_committed_files(driven, capsys, tmp_path):
+    """規則 SYNC_BLOCK_SKIPS_SYNCED：改過的三個檔都已 commit（分支沒 upstream → 不要求 push）→ 底部 sync block 不擋。
+    先斷言前置：git status 乾淨。再改其中兩個 → 照擋，而且只數沒同步的那兩個。舊碼只數 state 的改檔 → 已 commit 也擋（紅）。"""
+    repo, (a, b, c) = _synced_repo(tmp_path)
+    assert _git_out(repo, "status", "--porcelain") == ""
+    mf = [_mf(str(p), 5) for p in (a, b, c)]
+    out, state, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out and state["phase"] == "done", out
+    b.write_text("v2\n", encoding="utf-8", newline="\n")
+    c.write_text("v2\n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian] 2 file(s) modified" in out and "a.md" not in out, out
+
+
+def test_046_sync_block_still_owes_unpushed_commits(driven, capsys, tmp_path):
+    """反例：有 upstream 時，已 push → 不擋；再 commit 兩個檔但沒 push → 照擋（commit 不等於同步）。"""
+    repo, (a, b, _c) = _synced_repo(tmp_path)
+    remote = tmp_path / "remote.git"
+    _git(repo, "init", "-q", "--bare", str(remote))
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "-u", "origin", "HEAD")
+    mf = [_mf(str(p), 5) for p in (a, b)]
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out, out
+    a.write_text("v2\n", encoding="utf-8", newline="\n")
+    b.write_text("v2\n", encoding="utf-8", newline="\n")
+    _git(repo, "commit", "-qam", "local only")
+    assert _git_out(repo, "rev-list", "--count", "@{u}..HEAD") == "1"
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Guardian:SyncReminder]" in out and "尚未 push" in out, out                   # 上面那道先提醒一次
+    out, _, _ = driven("好了。", capsys, modified_files=mf, sync_reminder_count=1)
+    assert "[Workflow Guardian] 2 file(s) modified" in out, out                           # 提醒用完，底部照擋
+
+
+def test_046_block_lists_later_gates(driven, capsys, monkeypatch):
+    """規則 BLOCK_LISTS_LATER_GATES：退縮閘擋下時，照目前狀態後面還欠知識收割、收尾檢核、同步 → 同一則訊息列出來，一回合補齊。
+    當下這道就是知識收割時，預覽不重複列它。舊碼每次只回第一道（紅）。"""
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
+    monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 先收割")
+    monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: True)
+    mf = [_mf(r"c:\proj\docs\a.md", 5), _mf(r"c:\proj\docs\b.md", 5)]          # 不在版控：照算未同步
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "DeferralGate" in out and "[Guardian:AlsoOwed]" in out, out
+    later = out.split("[Guardian:AlsoOwed]", 1)[1]
+    assert "knowledge_harvest_report" in later and "anti_evasion_report" in later and "同步：2 個" in later, later
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: None)
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Guardian:KnowledgeHarvest] 先收割" in out and "[Guardian:AlsoOwed]" in out, out
+    later = out.split("[Guardian:AlsoOwed]", 1)[1]
+    assert "knowledge_harvest_report" not in later and "anti_evasion_report" in later, later
+
+
+def test_046_block_lists_nothing_when_nothing_else_owed(driven, capsys, monkeypatch):
+    """期望不發生要先斷言前置：退縮閘真的擋了；後面三道都不欠 → 不附預覽段。"""
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
+    monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: False)
+    out, _, _ = driven("好了。", capsys, modified_files=[])
+    assert "DeferralGate" in out and "[Guardian:AlsoOwed]" not in out, out
