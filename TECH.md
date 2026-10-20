@@ -691,6 +691,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | SCOPE_EDIT_IN_DECLARED_DEPENDS | 宣告了 `depends` 的項目，改了程式要不要重跑 | 項目宣告 `depends`（這一項用到的程式檔或資料夾，LLM 判斷）→ 只有改到依賴裡的、它點名的路徑底下的、它 `case_for` 列的，或共用測試設施（conftest／`__init__`／被 import 的案例檔）才作廢 | 依賴以外的程式改動不作廢它；沒宣告 `depends` 照上上一列一律算（「改完要重跑」的訊息會提示可以宣告）。漏列就漏驗，之後紅了由範圍漏判記下 |
 | SCOPE_RED_ONLY_ITS_CASES | 一條指令跑好幾項、其中有紅 | 收據記下紅案（FAILED／ERROR 那幾行）與清單完不完整（紅案數等於最後結算行的 failed＋error，`wg_release_rules.red_case_facts`）；完整時檔案／資料夾／測試節點項目只看紅案有沒有落在它底下，沒有就照算綠；背景自寫收據的 `failed_cases` 同判法 | 清單不完整（輸出被截、不是 pytest）、指令項目、exit 不是 0／1、紅案對不到存在的檔（pytest 的根不是執行目錄）→ 整條照算紅 |
 | SYNC_BLOCK_SKIPS_SYNCED | Stop 底部一般 sync block 數哪些檔 | 先剔除已同步的改檔：在 git／svn 工作區、status 乾淨、所在 git 根沒有已 commit 未 push 的（WORKTREE_NO_PUSH 的也算已同步；`handlers/stop.py` `_synced_paths`） | 查不了版控的照算未同步；待記知識照擋 |
+| SYNC_SKIPS_VANISHED_OUTSIDE_VCS | 同上，改過的檔已不在 | 檔已不在、往上也找不到版控根（整個移除的 git worktree、刪掉的暫存目錄）→ 沒有東西可同步，剔除並寫 stderr（`_synced_paths`） | 檔還在而查不了版控的照 SYNC_BLOCK_SKIPS_SYNCED 算未同步；磁碟或網路分享根連不到、往上找版控根出錯（斷線看起來也像不在）照算未同步 |
 | BLOCK_LISTS_LATER_GATES | 擋下時附哪些「後面還會擋」 | 任一道閘經 `_piggyback` 擋下時，照目前狀態預覽知識收割、收尾自清、收尾檢核、同步四道還欠不欠，欠的附在 `[Guardian:AlsoOwed]` 一段，讓模型一回合補齊；當下這道本身不重複列 | 只讀不寫、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準；預覽出錯只寫 stderr |
 | SCOPE_DECLARED_FOR_CHANGE | 要不要宣告驗證範圍（規則；驗哪些交 LLM） | 沒有要宣告的改檔（只改沒量尺的知識素材、改過又還原）；或最新那份宣告在每個有改動的 repo 都有項目（判不出 repo 的改檔不要求） | 改了程式檔或有量尺部位的檔卻沒宣告；某個有改動的 repo 沒有項目。擋訊息列改到的檔、叫 LLM 判斷哪些有關聯會受影響、附參考量尺 |
 | SCOPE_ITEM_WELL_FORMED | 宣告收件 | 每項目標與理由都非空；路徑樣子的目標存在、節點查得到 def；不是路徑就當指令且解析得了 | 一項不合格整份退回 |

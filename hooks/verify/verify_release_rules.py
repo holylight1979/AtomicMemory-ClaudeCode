@@ -1682,7 +1682,7 @@ def test_044_shared_case_is_still_code():
 
 def test_044_stop_flow_rules_point_to_stop_handler():
     """SYNC_BLOCK_SKIPS_SYNCED、BLOCK_LISTS_LATER_GATES：判法在 handlers/stop.py（端到端案例見 verify_stop_reconcile 的 046 段）。"""
-    for name in ("SYNC_BLOCK_SKIPS_SYNCED", "BLOCK_LISTS_LATER_GATES"):
+    for name in ("SYNC_BLOCK_SKIPS_SYNCED", "SYNC_SKIPS_VANISHED_OUTSIDE_VCS", "BLOCK_LISTS_LATER_GATES"):
         assert "handlers/stop.py" in rr.RULES[name], name
 
 

@@ -64,6 +64,10 @@ RULES: Dict[str, str] = {
     "SYNC_BLOCK_SKIPS_SYNCED": "Stop 底部的一般 sync block 先剔除已同步的改檔再判門檻：在 git／svn 工作區、status 乾淨、所在 git 根"
                                "沒有已 commit 未 push 的（WORKTREE_NO_PUSH 不要求 push 的也算）。查不了版控的照算未同步。"
                                "判法在 handlers/stop.py 的 _synced_paths。",
+    "SYNC_SKIPS_VANISHED_OUTSIDE_VCS": "Stop 底部的一般 sync block：改過的檔已不在、往上也找不到版控根（整個移除的 git worktree、刪掉的暫存目錄）"
+                                       "→ 沒有任何東西可同步，不算未同步（stderr 列出）。檔還在而查不了版控的照 SYNC_BLOCK_SKIPS_SYNCED 算未同步；"
+                                       "磁碟或網路分享根連不到、往上找版控根時出錯（斷線看起來也像不在）也照算未同步。"
+                                       "判法在 handlers/stop.py 的 _synced_paths。",
     "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",
