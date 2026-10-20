@@ -5,7 +5,7 @@
 
 ---
 ## 2026-10-20 T2.17：AI 改舊測試要先宣告，沒宣告就擋
-- **交給 AI 寫程式時會看到的**：AI 用 Edit／Write 把既有測試改名、刪掉、改斷言或加 skip，卻沒先寫一行「改舊測試｜<哪支>：<理由>」，寫入前就被擋（`✗ (ot) OLD_TEST_CHANGE_NEEDS_DECLARATION`，列出每支測試與哪一種動作）；寫了就放行並留帳（`Logs/guard-old_test.jsonl`）。只加新測試、改 fixture、本 session 自己新加的測試不受影響。細節見 TECH §7.5 OldTestDeclare。
+- **交給 AI 寫程式時會看到的**：AI 用 Edit／Write 把既有測試改名、刪掉、改斷言、加 skip 或改它的說明，卻沒先寫一行「改舊測試｜<哪支>：<理由>」，寫入前就被擋（`✗ (ot) OLD_TEST_CHANGE_NEEDS_DECLARATION`，列出每支測試與哪一種動作）；用 Bash（sed -i、重導）、PowerShell（Set-Content）或 NotebookEdit 改的，寫完那一刻比對，沒宣告就擋下一個動作直到補宣告或撤回。寫了就放行並留帳（`Logs/guard-old_test.jsonl`）。只加新測試、改 fixture、本 session 自己新加的測試不受影響。細節見 TECH §7.5 OldTestDeclare。
 - **依據與驗證**：第一波驗收題 C 的 AI 在第一句之前就改名、改語意舊相容測試，又對它標 skip（原設計者裁 C4 不過）；這三筆原始 Edit／Write 當案例，舊碼放行、新碼擋（`hooks/verify/verify_old_test_declare.py`）。
 
 ## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒

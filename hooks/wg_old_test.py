@@ -1,18 +1,25 @@
 """wg_old_test.py — 改舊測試要先宣告（規則 OLD_TEST_CHANGE_NEEDS_DECLARATION）：收事實、留帳、組擋訊息。
 
-PreToolUse 的 Edit／MultiEdit／Write 寫到測試檔時，比對改前（磁碟現檔）與改後（套用 old_string→new_string，或 Write 的新內容），
-抓四種「動既有測試」：消失、改名、同名測試的斷言被刪或改、新加跳過標記；再到 transcript 三管道（回覆文字／工具參數／thinking，
-與定位三行同一套 assistant_text_after）找宣告行「改舊測試｜<函式名>：<理由>」。判定在 wg_release_rules.old_test_change_verdict。
+抓五種「動既有測試」：消失、改名、同名測試的斷言被刪或改、新加跳過標記、說明（docstring）被改或刪；再到 transcript 三管道
+（回覆文字／工具參數／thinking，與定位三行同一套 assistant_text_after）加上這次工具呼叫的參數找宣告行「改舊測試｜<函式名>：<理由>」。
+判定在 wg_release_rules.old_test_change_verdict。兩條路：
+- Edit／MultiEdit／Write：PreToolUse 比對改前（磁碟現檔）與改後（套用 old_string→new_string，或 Write 的新內容），沒宣告當場擋。
+- Bash／PowerShell／NotebookEdit：寫之前看不到改後內容，PreToolUse 把寫入目標裡的測試檔拍快照（workflow/old-test-snap/），
+  PostToolUse 拿快照比磁碟（after_tool），沒宣告的記 state `old_test_undeclared`，下一個任何工具呼叫在 PreToolUse 擋到補宣告為止；
+  只讀或只寫這幾個欠帳檔（撤回）的呼叫不擋，撤回後的 PostToolUse 把已恢復的那筆清掉。
 
-切本體：Python 照縮排（含單行 `def test_x(): assert …`），斷言以邏輯行比（括號沒合上、行尾反斜線就併下一行）；
-JS／TS（it／test，describe 只看跳過）、C#（[Test]／[Fact]／[TestMethod]／[Theory]）、Java（@Test）從這支的開頭行到下一支開頭都算它的
-（尾端 helper 的斷言會算給最後一支，只會多問一次宣告），斷言一行一筆、點開頭的續行併回上一行。比之前都去註解、空白壓成一個。
-NotebookEdit、Bash 的 sed -i／重導改測試檔不經過這裡。
+切本體：Python 照縮排（含單行 `def test_x(): assert …`；notebook 取所有程式格接起來），斷言以邏輯行比（括號或三引號沒合上、
+行尾反斜線就併下一行），本體第一行是字串就是說明；JS／TS（it／test，describe 只看跳過；描述文字就是名字，改了算改名）、
+C#（[Test]／[Fact]／[TestMethod]／[Theory]）、Java（@Test）從這支的開頭行到下一支開頭都算它的（尾端 helper 的斷言會算給最後一支，
+只會多問一次宣告），斷言一行一筆、點開頭的續行併回上一行。比之前都去註解、空白壓成一個。
+Bash 寫入目標靠 wg_core.write_paths_from_tool；python 腳本裡自己開檔寫的解析不到、抓不到。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_old_test_declare.py
 """
 from __future__ import annotations
 
 import fnmatch
+import hashlib
+import json
 import os
 import re
 from collections import Counter
@@ -23,8 +30,13 @@ GUARD = "old_test"
 # 共用的案例檔判式（wg_verify_ledger.is_case_file）沒涵蓋的 C#／Java 測試檔名慣例
 EXTRA_CASE_NAMES = ("*tests.cs", "*test.cs", "*tests.java", "*test.java")
 _PY_EXTS = (".py",)
+_NB_EXTS = (".ipynb",)
 _JS_EXTS = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx")
 _ANNOT_EXTS = (".cs", ".java")
+_ALL_EXTS = _PY_EXTS + _NB_EXTS + _JS_EXTS + _ANNOT_EXTS
+EDIT_TOOLS = ("Edit", "MultiEdit", "Write")
+AFTER_TOOLS = ("Bash", "PowerShell", "NotebookEdit")   # 寫之前看不到改後內容，事後比對
+PENDING_KEY = "old_test_undeclared"
 
 _PY_DEF_RE = re.compile(r"^(\s*)(?:async\s+)?def\s+(test\w*)\s*\(")
 _PY_INLINE_BODY_RE = re.compile(r"\)\s*(?:->[^:]+)?:\s*(\S.*)$")
@@ -39,6 +51,7 @@ _ANNOT_LINE_RE = re.compile(r"^\s*(?:\[.*\]|@\w[\w.]*(?:\(.*\))?)\s*$")
 _TEST_ANNOT_RE = re.compile(r"[\[,]\s*(?:Test|TestMethod|Fact|Theory|TestCase)\b|@(?:Test|ParameterizedTest|RepeatedTest)\b")
 _SKIP_ANNOT_RE = re.compile(r"[\[,]\s*Ignore\b|\bSkip\s*=|@Disabled\b|@Ignore\b")
 _METHOD_RE = re.compile(r"\b(\w+)\s*\(")
+_PY_DOC_RE = re.compile(r"^[rRuUbB]?['\"]")
 _WS_RE = re.compile(r"\s+")
 RENAME_MIN_SIMILARITY = 0.6
 
@@ -59,9 +72,13 @@ def _root(file_path: str, cwd: str) -> Optional[str]:
 
 
 def is_test_file(file_path: str, config: Dict[str, Any], root: Optional[str]) -> bool:
-    """重用寫碼查核的案例檔判式（reconcile_gate 的 verify_case_globs＋code_exts），再補 C#／Java 的 FooTests.cs／FooTest.java。"""
+    """重用寫碼查核的案例檔判式（reconcile_gate 的 verify_case_globs＋code_exts），再補 C#／Java 的 FooTests.cs／FooTest.java；
+    notebook 不算程式檔，只看 verify_case_globs。"""
     import wg_verify_ledger as vl
-    if vl.is_case_file(file_path, vl.reconcile_cfg(config), root):
+    cfg = vl.reconcile_cfg(config)
+    if str(file_path).lower().endswith(_NB_EXTS):
+        return vl.is_verify_case(file_path, cfg.get("verify_case_globs") or [], root)
+    if vl.is_case_file(file_path, cfg, root):
         return True
     name = os.path.basename(str(file_path)).lower()
     return any(fnmatch.fnmatch(name, pat) for pat in EXTRA_CASE_NAMES)
@@ -132,7 +149,7 @@ def _logical(lines: List[str], marker: str) -> List[str]:
             continue
         buf = f"{buf} {code}" if buf else code
         depth += d
-        if depth > 0 or buf.endswith("\\"):
+        if depth > 0 or buf.endswith("\\") or buf.count('"""') % 2 or buf.count("'''") % 2:
             continue
         out.append(_WS_RE.sub(" ", buf).strip())
         buf, depth = "", 0
@@ -196,9 +213,24 @@ def _py_tests(src: str) -> Dict[str, Dict[str, Any]]:
         body = _logical(raw_body, "#")
         deco = "\n".join(_py_decorators(lines, i, ind))
         skip = module_skip or any(cs for _, _, cs in classes) or bool(_PY_SKIP_RE.search(deco + "\n" + "\n".join(body)))
+        doc = body[0] if body and _PY_DOC_RE.match(body[0]) else ""
         _uniq(out, ".".join([n for _, n, _ in classes] + [m.group(2)]),
-              {"body": body, "asserts": [b for b in body if _PY_ASSERT_RE.match(b)], "skip": skip, "suite": False})
+              {"body": body, "asserts": [b for b in body if _PY_ASSERT_RE.match(b)], "skip": skip, "suite": False, "doc": doc})
     return out
+
+
+def _notebook_code(src: str) -> str:
+    """notebook 的所有程式格接成一份 Python（格與格之間空兩行）。JSON 壞掉回空字串。"""
+    try:
+        cells = json.loads(src or "{}").get("cells") or []
+    except (ValueError, AttributeError):
+        return ""
+    out = []
+    for c in cells:
+        if isinstance(c, dict) and c.get("cell_type") == "code":
+            s = c.get("source", "")
+            out.append("".join(s) if isinstance(s, list) else str(s))
+    return "\n\n\n".join(out)
 
 
 def _chained(lines: List[str], marker: str) -> List[str]:
@@ -222,7 +254,8 @@ def _span_tests(lines: List[str], heads: List[Tuple[int, str, bool, bool]], mark
     for n, (at, name, skip, suite) in enumerate(heads):
         end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
         body = _chained(lines[at:end], marker)
-        _uniq(out, name, {"body": body, "asserts": [b for b in body if _OTHER_ASSERT_RE.search(b)], "skip": skip, "suite": suite})
+        _uniq(out, name, {"body": body, "asserts": [b for b in body if _OTHER_ASSERT_RE.search(b)], "skip": skip, "suite": suite,
+                          "doc": ""})
     return out
 
 
@@ -260,6 +293,8 @@ def extract_tests(src: str, path: str) -> Dict[str, Dict[str, Any]]:
     ext = os.path.splitext(str(path))[1].lower()
     if ext in _PY_EXTS:
         return _py_tests(src)
+    if ext in _NB_EXTS:
+        return _py_tests(_notebook_code(src))
     if ext in _JS_EXTS:
         return _js_tests(src)
     if ext in _ANNOT_EXTS:
@@ -275,7 +310,8 @@ def body_similarity(a: List[str], b: List[str]) -> float:
 
 
 def diff_tests(old_src: str, new_src: str, path: str) -> Tuple[List[Dict[str, str]], List[str]]:
-    """回 (動到的既有測試 [{key, kind, detail, new_key?}], 這次新加的測試 key)。kind ∈ gone／renamed／assert／skip。
+    """回 (動到的既有測試 [{key, kind, detail, new_key?}], 這次新加的測試 key)。kind ∈ gone／renamed／assert／skip／doc
+    （doc＝原本有說明、說明被改或刪；原本沒說明、新加的不算）。
     改名＝舊的一支消失、新出現的一支本體相似度 ≥ RENAME_MIN_SIMILARITY；配不上的照消失。describe 這類分組只看加跳過。"""
     old_t, new_t = extract_tests(old_src, path), extract_tests(new_src, path)
     added = [k for k in new_t if k not in old_t and not new_t[k]["suite"]]
@@ -299,12 +335,27 @@ def diff_tests(old_src: str, new_src: str, path: str) -> Tuple[List[Dict[str, st
             changes.append({"key": k, "kind": "assert", "detail": lost[0][:80]})
         if n["skip"] and not o["skip"]:
             changes.append({"key": k, "kind": "skip", "detail": ""})
+        if o["doc"] and n["doc"] != o["doc"]:
+            changes.append({"key": k, "kind": "doc", "detail": o["doc"][:80]})
     return changes, added
 
 
-def _declaration_text(transcript_path: str) -> str:
+def _strings(obj: Any) -> List[str]:
+    if isinstance(obj, str):
+        return [obj]
+    if isinstance(obj, dict):
+        return [s for v in obj.values() for s in _strings(v)]
+    if isinstance(obj, list):
+        return [s for v in obj for s in _strings(v)]
+    return []
+
+
+def _decl_text(input_data: Dict[str, Any]) -> str:
+    """找宣告行的範圍：transcript 三管道（從頭）＋這次工具呼叫自己的參數（Bash 開頭的 `#` 註解不必等下一則訊息）。"""
     from overview_hub import LOCATE_CHANNELS, assistant_text_after
-    return "\n".join(assistant_text_after(transcript_path, 0, ch) for ch in LOCATE_CHANNELS)
+    tp = input_data.get("transcript_path", "") or ""
+    parts = [assistant_text_after(tp, 0, ch) for ch in LOCATE_CHANNELS]
+    return "\n".join(parts + _strings(input_data.get("tool_input") or {}))
 
 
 def _log(event: str, sid: str, path: str, **kw: Any) -> None:
@@ -318,23 +369,10 @@ def hint(first: str) -> str:
             "只加新測試不用宣告。")
 
 
-def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any],
-         cwd: str) -> Optional[str]:
-    """PreToolUse：動到既有測試又找不到宣告行 → 回擋訊息；其餘回 None。宣告過與本 session 自己新加的測試記 state，之後不再擋。"""
-    if tool_name not in ("Edit", "MultiEdit", "Write") or not _cfg(config).get("enabled", True):
-        return None
-    fp = str(tool_input.get("file_path", "") or "")
-    # 認得的語言才往下（每次 Edit／Write 都會經過這裡，先用副檔名擋掉，不載入判式）
-    if not fp.lower().endswith(_PY_EXTS + _JS_EXTS + _ANNOT_EXTS) or not is_test_file(fp, config, _root(fp, cwd)):
-        return None
-    ba = before_after(tool_name, tool_input)
-    if ba is None:
-        return None
-    changes, added = diff_tests(ba[0], ba[1], fp)
-    sid = input_data.get("session_id", "") or ""
+def _changes(state: Optional[Dict[str, Any]], sid: str, fp: str, before: str, after: str) -> Tuple[List[Dict[str, str]], List[str]]:
+    """(要看宣告的動作, 這次新加的測試)：本 session 自己新加的、宣告過的那支記 exempt 放過。"""
     import wg_release_rules as rr
-    from wg_core import read_state, write_state
-    state = read_state(sid) if sid else None
+    changes, added = diff_tests(before, after, fp)
     cp = rr.canon_path(fp)
     seen_added = set((state or {}).get("old_test_added") or [])
     seen_decl = set((state or {}).get("old_test_declared") or [])
@@ -342,23 +380,199 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     for c in changes:
         k = f"{cp}|{c['key']}"
         if k in seen_added or k in seen_decl:
-            _log("exempt", sid, fp, test=c["key"], kind=c["kind"],
-                 why="session_added" if k in seen_added else "declared_before")
+            _log("exempt", sid, fp, test=c["key"], kind=c["kind"], why="session_added" if k in seen_added else "declared_before")
             continue
         live.append(c)
-    decls = rr.parse_old_test_declarations(_declaration_text(input_data.get("transcript_path", "") or "")) if live else []
+    return live, added
+
+
+def _record(state: Optional[Dict[str, Any]], sid: str, fp: str, done: List[Dict[str, str]], added: List[str],
+            decls: List[Dict[str, Any]], event: str = "declared") -> bool:
+    """宣告對上的那幾支留帳並記進 old_test_declared（連同改名後的新名），新加的測試記進 old_test_added；就地改 state，回有沒有改。"""
+    import wg_release_rules as rr
+    cp = rr.canon_path(fp)
+    for c in done:
+        d = rr.old_test_declaration_for(c, decls, fp) or {}
+        _log(event, sid, fp, test=c["key"], kind=c["kind"], new_key=c.get("new_key", ""), tool=c.get("tool", ""),
+             reason=d.get("reason", "")[:200], line=d.get("line", ""))
+    if state is None or not (done or added):
+        return False
+    decl = set(state.get("old_test_declared") or [])
+    decl.update(f"{cp}|{x}" for c in done for x in (c["key"], c.get("new_key")) if x)
+    state["old_test_declared"] = sorted(decl)
+    state["old_test_added"] = sorted(set(state.get("old_test_added") or []) | {f"{cp}|{a}" for a in added})
+    return True
+
+
+def _test_targets(tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any], cwd: str) -> List[str]:
+    """這次工具呼叫寫到的測試檔。Bash／PowerShell 的寫入目標由 wg_core.write_paths_from_tool 解析（目標不明的 UNKNOWN 略過，
+    OverviewHub 會擋那種指令）。"""
+    if tool_name == "NotebookEdit":
+        paths = [str(tool_input.get("notebook_path", "") or "")]
+    elif tool_name in EDIT_TOOLS:
+        paths = [str(tool_input.get("file_path", "") or "")]
+    else:
+        from wg_core import write_paths_from_tool
+        paths = [p for p in (write_paths_from_tool(tool_name, tool_input, cwd) or []) if p and not p.startswith("UNKNOWN:")]
+    # 認得的語言才往下（每次寫檔都會經過這裡，先用副檔名擋掉，不載入判式）
+    return [p for p in paths if p.lower().endswith(_ALL_EXTS) and is_test_file(p, config, _root(p, cwd))]
+
+
+def _snap_file(sid: str, tool_name: str, tool_input: Dict[str, Any]) -> Path:
+    """改前快照的檔：PreToolUse 與 PostToolUse 拿到的 tool_input 相同，用它的雜湊對上同一次呼叫。"""
+    import wg_core
+    key = hashlib.sha1(json.dumps([tool_name, tool_input], sort_keys=True, ensure_ascii=False, default=str).encode("utf-8"))
+    return Path(wg_core.WORKFLOW_DIR) / "old-test-snap" / f"{sid or 'nosid'}-{key.hexdigest()[:16]}.json"
+
+
+def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str) -> None:
+    """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照；檔還不存在記 None。讀不到讓例外往上丟（擋）。"""
+    targets = _test_targets(tool_name, tool_input, config, cwd)
+    if not targets:
+        return
+    f = _snap_file(input_data.get("session_id", "") or "", tool_name, tool_input)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({p: _read(p) for p in targets}, ensure_ascii=False), encoding="utf-8")
+
+
+def _restored(e: Dict[str, Any]) -> bool:
+    """欠帳的那一筆已經撤回：那支測試回來了，且被動的那一處（斷言、跳過、說明）回到原樣。"""
+    cur = extract_tests(_read(e["file"]) or "", e["file"]).get(e["key"])
+    if cur is None:
+        return False
+    kind = e["kind"]
+    if kind == "assert":
+        return not (Counter(e.get("old_asserts") or []) - Counter(cur["asserts"]))
+    if kind == "skip":
+        return not cur["skip"]
+    if kind == "doc":
+        return cur["doc"] == e.get("old_doc", "")
+    return True   # gone／renamed：舊名字回來了
+
+
+def after_tool(state: Optional[Dict[str, Any]], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """PostToolUse：Bash／PowerShell／NotebookEdit 拿改前快照比磁碟，動到既有測試又沒宣告的記進 state[PENDING_KEY]（下一個工具呼叫擋）；
+    這次碰到的檔上還欠著的、已經撤回的清掉。state＝post_tool_use 那一份（就地改，由它尾端寫回）；回有沒有改。"""
+    if state is None or not _cfg(config).get("enabled", True):
+        return False
+    import wg_release_rules as rr
+    tool_name, tool_input = input_data.get("tool_name", ""), input_data.get("tool_input") or {}
+    sid = input_data.get("session_id", "") or ""
+    pending = list(state.get(PENDING_KEY) or [])
+    before_n, changed, touched = len(pending), False, set()
+    if tool_name in AFTER_TOOLS:
+        f = _snap_file(sid, tool_name, tool_input)
+        snap = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        f.unlink(missing_ok=True)
+        text = None
+        for path, before in snap.items():
+            touched.add(rr.canon_path(path))
+            live, added = _changes(state, sid, path, before or "", _read(path) or "")
+            if live and text is None:
+                text = _decl_text(input_data)
+            decls = rr.parse_old_test_declarations(text) if live else []
+            old_t = extract_tests(before or "", path) if live else {}
+            done = []
+            for c in live:
+                if rr.old_test_declaration_for(c, decls, path):
+                    done.append({**c, "tool": tool_name})
+                    continue
+                o = old_t.get(c["key"]) or {}
+                entry = {**c, "file": path, "tool": tool_name, "old_asserts": o.get("asserts", []), "old_doc": o.get("doc", "")}
+                if not any(rr.same_file(e["file"], path) and e["key"] == c["key"] and e["kind"] == c["kind"] for e in pending):
+                    pending.append(entry)
+                    _log("undeclared", sid, path, tool=tool_name, test=c["key"], kind=c["kind"])
+            changed = _record(state, sid, path, done, added, decls) or changed
+    elif tool_name in EDIT_TOOLS and tool_input.get("file_path"):
+        touched.add(rr.canon_path(tool_input["file_path"]))
+    keep = []
+    for e in pending:
+        if rr.canon_path(e["file"]) in touched and _restored(e):
+            _log("reverted", sid, e["file"], test=e["key"], kind=e["kind"], tool=tool_name)
+            continue
+        keep.append(e)
+    if len(keep) != before_n or changed:
+        state[PENDING_KEY] = keep
+        return True
+    return False
+
+
+def _only_touches(tool_name: str, tool_input: Dict[str, Any], cwd: str, files: set) -> bool:
+    """這次呼叫只讀或只寫欠帳的那幾個檔（撤回用）。"""
+    import wg_release_rules as rr
+    if tool_name == "Read" or tool_name in EDIT_TOOLS or tool_name == "NotebookEdit":
+        p = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+        return bool(p) and rr.canon_path(p) in files
+    if tool_name in ("Bash", "PowerShell"):
+        from wg_core import write_paths_from_tool
+        ts = write_paths_from_tool(tool_name, tool_input, cwd) or []
+        return bool(ts) and all(not t.startswith("UNKNOWN:") and rr.canon_path(t) in files for t in ts)
+    return False
+
+
+def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], cwd: str) -> Optional[str]:
+    """上一個 Bash／PowerShell／NotebookEdit 動了既有測試沒宣告：這次（任何工具）先找宣告，補了的清掉、留帳 declared_late；
+    還欠著就擋，除非這次只讀或只寫那幾個檔（撤回）。"""
+    sid = input_data.get("session_id", "") or ""
+    if not sid:
+        return None
+    from wg_core import read_state, write_state
+    state = read_state(sid)
+    pending = list((state or {}).get(PENDING_KEY) or [])
+    if not pending:
+        return None
+    import wg_release_rules as rr
+    decls = rr.parse_old_test_declarations(_decl_text(input_data))
+    left, done = [], {}
+    for e in pending:
+        (done.setdefault(e["file"], []) if rr.old_test_declaration_for(e, decls, e["file"]) else left).append(e)
+    if done:
+        for fp, es in done.items():
+            _record(state, sid, fp, es, [], decls, "declared_late")
+        state[PENDING_KEY] = left
+        write_state(sid, state)
+    if not left or _only_touches(tool_name, tool_input, cwd, {rr.canon_path(e["file"]) for e in left}):
+        return None
+    by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for e in left:
+        by_file.setdefault(e["file"], []).append(e)
+    _log("denied_late", sid, left[0]["file"], tool=tool_name, pending=[{k: e[k] for k in ("file", "key", "kind")} for e in left])
+    tools = "／".join(sorted({e.get("tool", "") for e in left}))
+    return ("\n".join(rr.format_hit("ot", rr.old_test_change_verdict(fp, es, decls)) for fp, es in by_file.items())
+            + f"\n這是 {tools} 改的（已經寫進檔），請補宣告再繼續；要撤回就只讀、只改這幾個檔。\n" + hint(left[0]["key"]))
+
+
+def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any],
+         cwd: str) -> Optional[str]:
+    """PreToolUse：①上一個 Bash 類呼叫還欠宣告 → 擋（任何工具）；②Bash／PowerShell／NotebookEdit → 拍快照放行，事後由 after_tool 比；
+    ③Edit／MultiEdit／Write 動到既有測試又找不到宣告行 → 擋。宣告過與本 session 自己新加的測試記 state，之後不再擋。"""
+    if not _cfg(config).get("enabled", True):
+        return None
+    late = _pending_deny(tool_name, tool_input, input_data, cwd)
+    if late:
+        return late
+    if tool_name in AFTER_TOOLS:
+        snapshot(tool_name, tool_input, input_data, config, cwd)
+        return None
+    if tool_name not in EDIT_TOOLS or not _test_targets(tool_name, tool_input, config, cwd):
+        return None
+    fp = str(tool_input.get("file_path", "") or "")
+    ba = before_after(tool_name, tool_input)
+    if ba is None:
+        return None
+    sid = input_data.get("session_id", "") or ""
+    import wg_release_rules as rr
+    from wg_core import read_state, write_state
+    state = read_state(sid) if sid else None
+    live, added = _changes(state, sid, fp, ba[0], ba[1])
+    # 已經欠著宣告的那幾支（上一個 Bash 改的）這次再動不另算：多半是撤回，撤回成不成由 after_tool 判、清帳
+    owing = {(rr.canon_path(e["file"]), e["key"]) for e in (state or {}).get(PENDING_KEY) or []}
+    live = [c for c in live if (rr.canon_path(fp), c["key"]) not in owing]
+    decls = rr.parse_old_test_declarations(_decl_text(input_data)) if live else []
     v = rr.old_test_change_verdict(fp, live, decls)
     if v.owed:
         _log("denied", sid, fp, tool=tool_name, changes=live)
         return rr.format_hit("ot", v) + "\n" + hint(next(c["key"] for c in live if rr.old_test_declaration_for(c, decls, fp) is None))
-    for c in live:
-        d = rr.old_test_declaration_for(c, decls, fp) or {}
-        _log("declared", sid, fp, test=c["key"], kind=c["kind"], new_key=c.get("new_key", ""),
-             reason=d.get("reason", "")[:200], line=d.get("line", ""))
-        seen_decl.update(f"{cp}|{x}" for x in (c["key"], c.get("new_key")) if x)
-    seen_added.update(f"{cp}|{a}" for a in added)
-    if state is not None and (live or added):
-        state["old_test_declared"] = sorted(seen_decl)
-        state["old_test_added"] = sorted(seen_added)
+    if _record(state, sid, fp, live, added, decls):
         write_state(sid, state)
     return None

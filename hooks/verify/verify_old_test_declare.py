@@ -23,6 +23,7 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
 import wg_overview as wo  # noqa: E402
+from handlers import post_tool_use as pt  # noqa: E402
 from handlers import pre_tool_use as ptu  # noqa: E402
 
 SID = "sess-oldtest-0001"
@@ -127,6 +128,11 @@ def world(tmp_path, monkeypatch):
         raise SystemExit(0)
     monkeypatch.setattr(ptu, "output_json", _out)
     monkeypatch.setattr(ptu, "output_nothing", _nothing)
+    # PostToolUse 用同一份 state 檔（PreToolUse 讀得到它記的欠帳）；其餘副作用關掉
+    monkeypatch.setattr(pt, "_ensure_state", lambda sid, *a, **k: wg_core.read_state(sid))
+    monkeypatch.setattr(pt, "write_state", lambda sid, st: wg_core.write_state(sid, st))
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", wf)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
     return {"proj": proj, "tmp": tmp_path, "logs": logs, "outputs": outputs}
 
 
@@ -394,6 +400,109 @@ def test_comment_only_change_with_quote_not_triggered(world):
     fp = _put(world, "tests/test_v.py", src)
     _assert_is_test_file_with_tests(fp, src)
     assert _pass(_run(world, "Write", {"file_path": fp, "content": src.replace("expectation", "requirement")}))
+
+
+# ─── Bash／PowerShell／NotebookEdit 事後比對（派工 002）與「說明變了」 ───
+
+def _post(w, tool, tool_input, tp=None):
+    """跑一次 PostToolUse（工具已經寫完磁碟）。"""
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(w["proj"]),
+                                 "transcript_path": tp or _transcript(w, "做完了"), "tool_response": {"stdout": "", "stderr": ""}},
+                                {"docdrift": {"enabled": False}})
+
+
+def _pending():
+    return (wg_core.read_state(SID) or {}).get("old_test_undeclared") or []
+
+
+def _bash_round(w, tool, cmd, fp, new_text, tp=None):
+    """PreToolUse（拍快照）→ 模擬指令寫進磁碟 → PostToolUse（比對）。"""
+    ti = {"command": cmd}
+    assert _pass(_run(w, tool, ti, tp)), "寫的這一次本閘不擋（看不到改後內容）"
+    Path(fp).write_text(new_text, encoding="utf-8")
+    _post(w, tool, ti, tp)
+
+
+def test_bash_sed_assert_change_blocks_next_call_until_declared(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"sed -i 's/\"USD\"/\"TWD\"/' '{fwd}'", fp, LEGACY.replace('"USD"', '"TWD"'))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+    r = _run(world, "Bash", {"command": "echo next"})
+    assert _ot(r) and "test_legacy_report_keeps_columns（斷言變了" in r and "這是 Bash 改的" in r
+    other = _put(world, "src/a.py", "x = 1\n")
+    assert _ot(_run(world, "Edit", {"file_path": other, "old_string": "x = 1", "new_string": "x = 2"})), "任何寫入工具都擋"
+    r = _run(world, "Bash", {"command": "echo next"}, _transcript(world, DECL))
+    assert _pass(r) and not _pending()
+    assert any(e["event"] == "declared_late" and e["test"] == "test_legacy_report_keeps_columns" for e in _events(world))
+
+
+def test_bash_declared_in_same_command_comment_not_pending(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"# {DECL}\nsed -i 's/\"USD\"/\"TWD\"/' '{fwd}'", fp, LEGACY.replace('"USD"', '"TWD"'))
+    assert not _pending() and any(e["event"] == "declared" for e in _events(world))
+
+
+def test_powershell_set_content_dropping_test_blocks_next_call(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    dropped = LEGACY.replace("\n\ndef test_legacy_report_totals():\n    assert adjust.total() == 10\n", "")
+    _bash_round(world, "PowerShell", f"Set-Content -Path '{fp}' -Value 'x' -Encoding utf8", fp, dropped)
+    r = _run(world, "PowerShell", {"command": "Write-Output next"})
+    assert _ot(r) and "test_legacy_report_totals（消失）" in r and "這是 PowerShell 改的" in r
+
+
+def test_bash_only_appending_new_test_not_pending(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"echo 'def test_new(): pass' >> '{fwd}'", fp, LEGACY + "\n\ndef test_new(): pass\n")
+    assert not _pending()
+    assert any(k.endswith("|test_new") for k in wg_core.read_state(SID).get("old_test_added", [])), "前置：快照有拍到、比對有跑"
+
+
+def test_revert_after_bash_clears_pending(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"sed -i 's/\"USD\"/\"TWD\"/' '{fwd}'", fp, LEGACY.replace('"USD"', '"TWD"'))
+    assert _pending()
+    ti = {"file_path": fp, "old_string": '"TWD"', "new_string": '"USD"'}
+    assert _pass(_run(world, "Edit", ti)), "只改欠帳那個檔（撤回）不擋"
+    _apply(fp, ti)
+    _post(world, "Edit", ti)
+    assert not _pending() and any(e["event"] == "reverted" for e in _events(world))
+    assert _pass(_run(world, "Bash", {"command": "echo next"}))
+
+
+LEGACY_DOC = LEGACY.replace("def test_legacy_report_totals():\n", "def test_legacy_report_totals():\n    \"\"\"總數是 10。\"\"\"\n")
+
+
+def test_docstring_changed_denied_but_added_not(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY_DOC)
+    r = _run(world, "Edit", {"file_path": fp, "old_string": "總數是 10。", "new_string": "總數是 0。"})
+    assert _ot(r) and "test_legacy_report_totals（說明變了" in r
+    r = _run(world, "Edit", {"file_path": fp, "old_string": "    \"\"\"總數是 10。\"\"\"\n", "new_string": ""})
+    assert _ot(r) and "說明變了" in r, "刪掉說明也算"
+    multi = LEGACY.replace("def test_legacy_report_totals():\n", "def test_legacy_report_totals():\n    \"\"\"總數。\n\n    舊報表要 10。\n    \"\"\"\n")
+    fp2 = _put(world, "tests/test_multi.py", multi)
+    assert _ot(_run(world, "Edit", {"file_path": fp2, "old_string": "舊報表要 10。", "new_string": "舊報表要 0。"})), "多行說明的後幾行"
+    _assert_is_test_file_with_tests(fp, LEGACY)
+    fp3 = _put(world, "tests/test_plain.py", LEGACY)
+    r = _run(world, "Edit", {"file_path": fp3, "old_string": "def test_legacy_report_totals():\n",
+                             "new_string": "def test_legacy_report_totals():\n    \"\"\"總數是 10。\"\"\"\n"})
+    assert _pass(r), "只加新說明不算"
+
+
+def test_notebook_edit_on_existing_test_blocks_next_call(world):
+    nb = {"cells": [{"cell_type": "code", "id": "c1", "source": ["def test_a():\n", "    assert f() == 1\n"]}], "nbformat": 4}
+    fp = _put(world, "tests/test_nb.ipynb", json.dumps(nb))
+    ti = {"notebook_path": fp, "cell_id": "c1", "new_source": "def test_a():\n    assert f() == 2\n"}
+    assert _pass(_run(world, "NotebookEdit", ti))
+    nb["cells"][0]["source"] = ["def test_a():\n", "    assert f() == 2\n"]
+    Path(fp).write_text(json.dumps(nb), encoding="utf-8")
+    _post(world, "NotebookEdit", ti)
+    r = _run(world, "Bash", {"command": "echo next"})
+    assert _ot(r) and "test_a（斷言變了" in r and "這是 NotebookEdit 改的" in r
 
 
 # ─── 真實輸入：第一波驗收題 C-1 ───

@@ -2111,16 +2111,19 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
 # ─── T2.17 改舊測試 ───
 RULES.update({
     "OLD_TEST_CHANGE_NEEDS_DECLARATION": "Edit／MultiEdit／Write 動到測試檔裡既有的測試函式（消失、改名、同名測試的斷言行被刪或改，只加新斷言不算；"
-                                         "新加跳過標記 skip／skipif／xfail／.skip(／[Ignore]／@Disabled），要先有宣告行"
+                                         "新加跳過標記 skip／skipif／xfail／.skip(／[Ignore]／@Disabled；原本有的說明 docstring 被改或刪，"
+                                         "只加新說明不算），要先有宣告行"
                                          "「改舊測試｜<函式名或 檔:函式名>：<理由>」（回覆文字／工具參數／thinking 三管道都認；多支以「、」分隔）："
                                          "名字要點到這次抓到的那一支既有測試（改名寫舊的名字；寫了檔名或類別就要對得上那個檔、那個類別），"
                                          "理由要有文字內容、不是擋訊息的角括號佔位；沒有 → 擋（字母 ot）。宣告過的那支與本 session 自己新加的"
                                          "測試記 state，同 session 再動不擋。只加新測試、只改 fixture／helper、只改註解不觸發。改名與消失怎麼標"
-                                         "（本體行相似度）只影響證據寫法，放不放行都要宣告點名舊的那支。事實由 wg_old_test 收，"
-                                         "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt）。",
+                                         "（本體行相似度）只影響證據寫法，放不放行都要宣告點名舊的那支。Bash／PowerShell／NotebookEdit "
+                                         "寫之前看不到改後內容：PreToolUse 拍改前快照、PostToolUse 比對，沒宣告的記 state，下一個工具呼叫擋到"
+                                         "補宣告（declared_late）或撤回（reverted）為止；只讀、只寫那幾個欠帳檔的呼叫不擋。事實由 wg_old_test 收，"
+                                         "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt／undeclared／denied_late／declared_late／reverted）。",
 })
 
-OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip"}
+OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip", "doc": "說明變了"}
 _OLD_TEST_FILE_RE = re.compile(r"\.[a-z]{1,5}$")
 _OLD_TEST_DECL_RE = re.compile(r"改舊測試\s*[｜|]\s*(.+)")
 _OLD_TEST_ASCII_SEP_RE = re.compile(r":(?![A-Za-z0-9_\\/:])")
