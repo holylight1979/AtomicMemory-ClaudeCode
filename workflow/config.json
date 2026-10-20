@@ -610,6 +610,10 @@
       "enabled": true,
       "preview_timeout_s": 2
     },
+    "equivalence": {
+      "_doc": "G7 等值與熱路徑收尾閘（handlers/stop.py Equivalence Gate；規則 REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE 在 wg_release_rules G7 段）：使用者原話意圖是 refactor／perf 且本回合改過程式檔時，宣告完成要有三類等值證法收據（PRESERVE_CHECK PASS，--mutation order／side_effect／boundary）或一行「等值證法｜不適用｜<理由>」，並答「熱路徑｜是／否｜…」；答是要量測收據或「量測｜不做｜<理由>」。留帳 Logs/guard-equivalence.jsonl。enabled=false 整道閘關。",
+      "enabled": true
+    },
     "_doc": "OverviewHub 變量（預計畫附錄 D）。合併順序 根層預設 < 本段 < <公司根>/.claude/overview-hub.json < <專案根>/.claude/overview-hub.json，巢狀物件深合併、陣列整取。未知鍵報錯（Edit 一律擋；OverviewHub 自己的設定檔與部位表除外，放行附警告）；dry_run／deny_parts 已退役，明寫也不放行。閘：改部位檔前三項證據缺一即擋（導讀卡已注入且 min_overview_evidence.card 不可關、注入後讀過該部位檔 ≥part_files、交了定位三行；depends_files＝讀過卡片裡指到的檔數）；transcript 讀不到視為環境異常也擋；readonly_paths（相對該層根的 glob，**/ 也配零層）命中一律擋不注入；沒有部位表或表上沒列的檔只要求同頂層目錄讀過 ≥part_files 個檔；部位表有「層」欄時根因層行必須指明其中一層；部位表「類別」欄標 knowledge 的部位（錨在專案根的最長前綴命中；沒欄、沒標＝code）三項只要導讀卡已注入，不要求讀部位檔與定位三行。Bash／PowerShell 的 >、>>、tee、sed -i、cp、mv、Set-Content、Out-File、Add-Content 目標也走閘。goal_weights：意圖（debug／feature／refactor／perf／new_project／build／design／recall／handoff／general）→ 先送導讀卡哪幾片（what／authority／ask／defects／verify）、視角、先問哪題；空陣列＝整卡原序；卡切不出任何選中片退整卡。verify_chains：{部位: {runtime_gate, pre, run, collect, cleanup}} 給量尺閘；path_bases 每項要是存在目錄且彼此不包含；eol_policy ∈ lf／crlf／per-file-head；編碼鍵要過 codecs.lookup。候選填空：root_cause_triggers（以該專案合併後設定判詞）命中 → 本 session 已注入過的部位各送一次候選前 candidate_top_n；一個部位都還沒注入時，以 cwd 的專案表送一次全專案候選（key `<root>|(all)`）。來源 smells_report（相對專案根或絕對；json／jsonl／md 表；generated_at 優先於 mtime 判過期，超過 smells_max_age_days 附一行仍送；解析失敗附一行再退病灶段）→ 導讀卡「已知病灶」段 → 都沒有明說無候選；每列截 min(200, max_card_chars // N)、整塊截 max_card_chars；附根因卡與兩問；改檔路徑沒內容時只送一行（報告不存在／解析失敗的附註接同一行），不附根因卡與兩問。放行的同檔第 2 次 Edit 也附候選，但以部位為 key 與觸發詞共用 candidates_sent：一部位一 session 只送一次，一行版也記帳；候選產生失敗只附一行，不改變閘判定。idle_triggers：general 意圖命中 → 一 session 一行主動掃視。post_compact_chars：壓縮後每部位綜觀 blob 字數上限。authority_map：{檔名樣式(fnmatch): 地圖路徑}，讀到文件檔命中且非空 → 一 session 注入一次。Depends 召回：讀到的檔若是某卡索引 depends 的 path: 目標（或其目錄之下）→ 一行一卡指標，同卡一 session 一次。加新鍵要同時加進 hooks/wg_overview.py 的 _DEFAULT。",
     "enabled": true,
     "max_card_chars": 6000,
