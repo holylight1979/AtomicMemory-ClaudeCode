@@ -41,7 +41,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 
 材料固定檔名：`card.md`（部位卡，從 `<root>/.claude/overview-map.md` 找）、`defects.md`（病灶文件前 N 節，預設 5）、`diff.patch`（`git diff HEAD` → `main...HEAD` → `svn diff`）、`ledger.jsonl`（`<root>/.claude/verify/_ledger.jsonl` 尾 20 行）、`goal.md`（需求目標樹，一律放）、`draft.md`（只有 review）。
 
-`goal.md`：照 `session_id` 找這個 session 的需求目標樹（`hooks/wg_need_goal`），第一行「樹根（T<n>）：<樹根全文>」，接 `review_material`（使用者原話、同伴轉述、節點與狀態）；磁碟絕對路徑遮成「…/<最後一段>」（replay-guard pre 會擋提示詞裡的沙箱外路徑）。沒帶 session_id、沒有樹、讀不到 → 只有一行「無目標樹」，照樣進 manifest 與 hash，notes 說原因。MCP 進程沒有 session 身份：`session_id` 由 PreToolUse hook 從 hook 輸入補進 `second_opinion_start` 的參數（`updatedInput`；settings.json 的 PreToolUse matcher 要掛 `mcp__workflow-guardian__second_opinion_start`）。
+`goal.md`：照 `session_id` 找這個 session 的需求目標樹（`hooks/wg_need_goal`），第一行「樹根（T<n>）：<樹根全文>」，接 `review_material`（使用者原話、同伴轉述、節點與狀態）；磁碟絕對路徑遮成「…/<最後一段>」（replay-guard pre 會擋提示詞裡的沙箱外路徑）。沒帶 session_id、沒有樹、讀不到 → 只有一行「無目標樹」，照樣進 manifest 與 hash，notes 說原因（開頭固定「材料沒有需求目標樹」：session 有樹時，Stop 的 SecondOpinion 閘不把這次 run 算成跑過）。MCP 進程沒有 session 身份：`session_id` 由 PreToolUse hook 從 hook 輸入補進 `second_opinion_start` 的參數（`updatedInput`；settings.json 的 PreToolUse matcher 要掛 `mcp__workflow-guardian__second_opinion_start`）。
 有目標樹時 `question` 要含樹根那句（NFKC、空白正規化後子字串比對）：沒含 → prepare 回 `blocked`，reason 以「question 沒含需求目標樹的樹根那句」開頭並附那句；Stop 的 SecondOpinion 閘不把這種 blocked 算成跑過（TECH §7.1、§7.8 SECOND_OPINION_REQUIRED）。
 雜湊：每檔內容統一 LF 後 sha256；files 依相對路徑排序；總雜湊 = sha256(逐檔 `rel\nsha\n`)。所以 CRLF／LF、餵入順序都不影響 hash；`mode`、`model`、`built_at` 不進雜湊（同材料兩種視角同 hash）。manifest 只記相對路徑。
 

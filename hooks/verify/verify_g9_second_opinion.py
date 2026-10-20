@@ -6,7 +6,8 @@ risky、改 40 行 → 不擋（200 行 → 擋）；「不需第二意見｜只
 result failed＋四行 → 放行；result running → 擋（說等 result）；子代理、headless → 不觸發；pack 有目標樹時 manifest 多 goal.md、
 hash 和沒樹時不同；question 不含樹根那句 → prepare 回 blocked 附原因；收尾缺「裁決與理由」行 → 擋並點名。
 另守：部位表類別 gate、擋滿改問使用者與放行、滿足後沒再改程式不再要求、question 被擋那次不算跑過、PreToolUse 補 session_id、
-週健檢列 declined、前面的閘擋下時預覽列出第二意見、本回合窗口之前的 start／result 不算。
+週健檢列 declined、前面的閘擋下時預覽列出第二意見、本回合窗口之前的 start／result 不算；codex 審查後補的：只認 result 回的狀態
+（沒開出 job 的 failed 不算）、session 有樹而材料沒帶到樹不算、散文或程式碼區塊裡的宣告行與四行不算、判定出錯不擋但留帳。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_g9_second_opinion.py
 """
 from __future__ import annotations
@@ -75,10 +76,11 @@ class Tx:
                                                            "content": [{"type": "text", "text": result_text}]}]},
                   **(extra or {})})
 
-    def opinion(self, status="done", job=JOB, mode="independent", kind="stage-review", start_status="started", reason=""):
+    def opinion(self, status="done", job=JOB, mode="independent", kind="stage-review", start_status="started", reason="",
+                notes=()):
         tail = f"\nreason: {reason}" if reason else ""
         self.call(START, {"mode": mode, "kind": kind, "part": "p", "cwd": "c", "question": "q"},
-                  f"job_id: {job}\nhash: h\nstatus: {start_status}{tail}")
+                  f"job_id: {job}\nhash: h\nstatus: {start_status}{tail}" + "".join(f"\nnote: {n}" for n in notes))
         if status:
             self.call(RESULT, {"job_id": job}, f"status: {status}\njob_id: {job}{tail}")
 
@@ -264,6 +266,32 @@ def test_question_root_blocked_run_does_not_count(drive, capsys, tmp_path):
     assert "[Guardian:SecondOpinion]" in reason and "照 reason 把那句抄進 question 重跑" in reason
 
 
+def test_material_without_goal_tree_does_not_count(drive, capsys, tmp_path, monkeypatch):
+    """session 有需求目標樹，但那次 start 的材料沒帶到（note 以 SO_NO_GOAL_NOTE 開頭）→ 不算跑過；材料帶到樹（沒有那條 note）→ 放行。"""
+    monkeypatch.setattr(so, "has_goal_tree", lambda sid: True)
+    drive.tx.opinion("done", notes=[f"{rr.SO_NO_GOAL_NOTE}：沒帶 session_id，找不到這個 session 的樹"])
+    reason, _, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" in reason and "材料沒有需求目標樹" in reason
+    drive.tx.opinion("done", job="20261020-120500-sidg9xxx-stage-review")
+    reason, state, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason and state["second_opinion_ok"][SID] == 5
+
+
+def test_decline_quoted_in_prose_does_not_bypass(drive, capsys, tmp_path):
+    """散文裡引用的範例（不在行首）、程式碼區塊裡的宣告行都不算 AI 宣告不需。"""
+    text = "說明：AI 可以寫 `不需第二意見｜只重錄 cassettes` 來免跑。\n```\n不需第二意見｜只重錄 cassettes\n```\n全部完成。"
+    reason, _, logs = drive(text, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" in reason and "SECOND_OPINION_REQUIRED" in reason and not _so_logs(logs, "declined")
+
+
+def test_check_error_does_not_block_but_logs(drive, capsys, tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("壞了")
+    monkeypatch.setattr(st, "_so_facts", boom)
+    reason, _, logs = drive(DONE, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason and [p["event"] for p in _so_logs(logs)] == ["error"]
+
+
 def test_exhausted_asks_user_then_release(drive, capsys, tmp_path):
     files = _files(tmp_path, 5)
     _, state, _ = drive(DONE, capsys, files=files)
@@ -319,10 +347,15 @@ def test_runs_status_mapping():
               {"mode": "independent", "kind": "evaluate", "job_id": "-", "status": "failed", "reason": "models_cache 沒有"},
               {"mode": "independent", "kind": "evaluate", "job_id": "-", "status": "", "reason": ""},
               {"mode": "independent", "kind": "diagnose", "job_id": "j5", "status": "started"},
-              {"mode": "independent", "kind": "evaluate", "job_id": "j6", "status": "started"}]
-    results = [{"job_id": "j1", "status": "running"}, {"job_id": "j1", "status": "blocked", "reason": "replay-guard pre FAIL"}]
-    assert rr.second_opinion_runs(starts, results) == [
-        ("j1", "blocked"), ("j2", "off-mode"), ("-", "failed"), ("-", "invalid"), ("j5", "off-mode"), ("j6", "started")]
+              {"mode": "independent", "kind": "evaluate", "job_id": "j6", "status": "blocked"},
+              {"mode": "independent", "kind": "evaluate", "job_id": "j7", "status": "started",
+               "notes": [f"{rr.SO_NO_GOAL_NOTE}：沒帶 session_id"]}]
+    results = [{"job_id": "j1", "status": "running"}, {"job_id": "j1", "status": "blocked", "reason": "replay-guard pre FAIL"},
+               {"job_id": "j7", "status": "done"}]
+    assert rr.second_opinion_runs(starts, results, has_tree=True) == [
+        ("j1", "blocked"), ("j2", "off-mode"), ("-", "invalid"), ("-", "invalid"), ("j5", "off-mode"), ("j6", "started"),
+        ("j7", "no-goal")], "只認 result 回的狀態：沒開出 job 的 failed、start 自己回的 blocked 都不算跑過"
+    assert rr.second_opinion_runs(starts[-1:], results, has_tree=False) == [("j7", "done")], "session 沒有樹 → 不要求材料帶樹"
 
 
 def test_changed_lines_counts_untracked_new_file(tmp_path):
@@ -350,9 +383,14 @@ def test_triggers_and_decline_units():
     assert rr.second_opinion_decline("前文\n不需第二意見｜只改訊息字串\n") == "只改訊息字串"
     assert rr.second_opinion_decline("沒有宣告") is None
     assert rr.second_opinion_decline_ok("只重錄 cassettes") and not rr.second_opinion_decline_ok("不需要")
+    assert rr.second_opinion_decline("- **不需第二意見**｜只改訊息字串") == "只改訊息字串"
+    assert rr.second_opinion_decline("可以寫 `不需第二意見｜只改訊息字串` 免跑") is None, "散文裡引用不算"
+    assert rr.second_opinion_decline("> 不需第二意見｜只改訊息字串") is None, "引用區塊不算"
+    assert rr.second_opinion_decline("```\n不需第二意見｜只改訊息字串\n```") is None, "程式碼區塊不算"
     assert rr.second_opinion_section_missing(FOUR) == []
     assert rr.second_opinion_section_missing("Codex 結論：\n") == [
         "段標題「第二意見與分歧裁決」", "「Codex 結論：」行", "「我方結論：」行", "「分歧點：」行", "「裁決與理由：」行"]
+    assert len(rr.second_opinion_section_missing(f"```\n{FOUR}\n```")) == 5, "整段放在程式碼區塊（範本）不算"
 
 
 # ─── 材料：goal.md 與 question 樹根 ──────────────────────────────────────────
@@ -379,7 +417,7 @@ def test_pack_goal_md_in_manifest_and_hash(so_run, tmp_path):
     goal = dict(with_tree)["goal.md"]
     assert goal.startswith("樹根（T1）：讓 …/proj 的大任務交付自動要第二意見") and "C:\\Users" not in goal
     assert "【使用者原話（權威）】" in goal and dict(no_tree)["goal.md"] == "無目標樹\n"
-    assert any("沒有需求目標樹" in n for n in notes2) and not any("目標樹" in n for n in notes)
+    assert any(n.startswith(rr.SO_NO_GOAL_NOTE) for n in notes2) and not any("目標樹" in n for n in notes)
     m1 = pack.pack_materials(tmp_path / "a", with_tree, "independent", "m")
     m2 = pack.pack_materials(tmp_path / "b", no_tree, "independent", "m")
     assert "goal.md" in [f["rel"] for f in m1["files"]] and "goal.md" in [f["rel"] for f in m2["files"]]

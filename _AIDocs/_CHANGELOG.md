@@ -7,7 +7,8 @@
 ## 2026-10-20 G9 自動第二意見：大任務或改到閘本體宣告完成，要真的跑過 Codex 並寫分歧裁決
 - **使用者看到的**：改了 ≥4 個程式檔、對 HEAD 改 ≥150 行、或改到閘本體（stop.py、pre_tool_use.py、wg_release_rules.py、wg_overview.py、MCP 服務、部位表類別 gate）時宣告完成，會被擋一次，要 AI 本回合跑 `second_opinion_start`→`second_opinion_result`，收尾寫「第二意見與分歧裁決」四行；AI 也可以寫「不需第二意見｜理由」，週健檢列出來給人對帳。只送提醒、AI 沒跑，過不了。
 - **改了什麼**：`hooks/wg_release_rules.py` 檔尾 G9 段（規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED 與純判定）；新 `hooks/wg_second_opinion.py` 收事實；`handlers/stop.py` 在 Deferral 之前插 SecondOpinion 段（吃寫碼查核的預算與放行詢問）；`handlers/pre_tool_use.py` 給 `second_opinion_start` 補 session_id；`tools/second-opinion/pack.py` 加 `goal.md`（需求目標樹、遮絕對路徑）與 question 樹根核對，`run.py` 核對不過回 blocked；`tools/health-weekly.py` 列 declined。
-- **驗證**：`hooks/verify/verify_g9_second_opinion.py` 26 案（Stop 驅動 17、事實與純判定 5、材料 2、入口與對帳 2），換回舊的 stop／pre_tool_use／pack／run／health-weekly 時 21 案紅（純判定 5 案本來就綠）、新碼全綠；`verify_release_rules`、`verify_second_opinion`、`verify_stop_reconcile` 前景跑綠。
+- **驗證**：`hooks/verify/verify_g9_second_opinion.py` 29 案，換回舊的 stop／pre_tool_use／pack／run／health-weekly 時 21 案紅（純判定本來就綠）、新碼全綠；`verify_release_rules`、`verify_second_opinion`、`verify_stop_reconcile` 前景跑綠。
+- **codex 一輪**（本軌自己就觸發這道閘，照做一次）：修 4 處——只認 result 回的狀態（沒開出 job 的 failed 不算跑過）、session 有樹而材料沒帶到樹不算、宣告行與四行只認行首且略過程式碼區塊（散文裡引用範例會被當宣告）、判定出錯留帳；這幾案在修前的 commit 上紅。另 3 條與派工單定案衝突（failed／blocked 算跑過、AI 可宣告不需、不綁定審後版本）照定案留著，交總控台裁。
 - **待合併時做**：live `workflow/config.json` 加 `second_opinion.auto` 段、settings.json PreToolUse matcher 掛 `mcp__workflow-guardian__second_opinion_start`（沒掛時 goal.md 一律「無目標樹」）。
 
 ## 2026-10-20 G6 階段 4：宣稱詞表降成提示、退避例外的入口接上（判斷入口盤點 P6＋P7）

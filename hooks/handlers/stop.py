@@ -1365,8 +1365,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 try:
                     v, facts = _so_facts(state, session_id, own_mod_files, code_text, transcript_text, config, cfg,
                                          claims_completion(code_text))
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001  判不出不擋，但浮 stderr 並留帳（健檢可查）
                     print(f"[Guardian:SecondOpinion] 判不出，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
+                    append_guard_log(_SO_GATE, {"event": "error", "session_id": session_id, "turn_seq": turn_seq,
+                                                "error": f"{type(e).__name__}: {e}"[:300]})
             _so_memo.append((v, facts, cfg))
         return _so_memo[0][0], {**_so_memo[0][1], "cfg": _so_memo[0][2]}
 

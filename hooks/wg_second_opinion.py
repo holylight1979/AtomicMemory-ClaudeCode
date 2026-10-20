@@ -5,6 +5,7 @@
   turn_events    transcript 尾段裡本回合（最後一則使用者打字或派工訊息之後）的 second_opinion_start／result 呼叫與回傳。
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
+  has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
   check          上面的事實交給 wg_release_rules.second_opinion_verdict，回 (Verdict, 事實)；事實的 satisfied＝這次滿足了
                  （跑過或宣告不需），Stop 據此記 second_opinion_ok[sid]，之後沒再改程式不再要求。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_g9_second_opinion.py
@@ -72,9 +73,13 @@ def _field(text: str, key: str) -> str:
     return ""
 
 
+def _notes(text: str) -> List[str]:
+    return [ln.strip()[len("note:"):].strip() for ln in text.splitlines() if ln.strip().startswith("note:")]
+
+
 def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """本回合（規則 TURN_SINCE_USER_PROMPT：最後一則使用者打字或派工訊息之後；尾段切掉起點就整段算）的
-    (starts, results)：starts＝[{mode, kind, job_id, status, reason}]、results＝[{job_id, status, reason}]，依出現順序。"""
+    (starts, results)：starts＝[{mode, kind, job_id, status, reason, notes}]、results＝[{job_id, status, reason}]，依出現順序。"""
     from wg_evasion import _is_real_user_prompt
     recs: List[Dict[str, Any]] = []
     for raw in str(transcript_text or "").splitlines():
@@ -105,7 +110,7 @@ def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[s
             ev = {"status": _field(text, "status"), "reason": _field(text, "reason")}
             if call[0].endswith(START_SUFFIX):
                 starts.append({"mode": call[1].get("mode"), "kind": call[1].get("kind"),
-                               "job_id": _field(text, "job_id") or "-", **ev})
+                               "job_id": _field(text, "job_id") or "-", "notes": _notes(text), **ev})
             else:
                 results.append({"job_id": str(call[1].get("job_id") or "").strip(), **ev})
     return starts, results
@@ -242,6 +247,16 @@ def _mod_turn(m: Dict[str, Any]) -> int:
     return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
 
 
+def has_goal_tree(session_id: str) -> bool:
+    """這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的 run 不算跑過）。目標檔讀不到或壞了 → 當有（fail-closed）並浮 stderr。"""
+    try:
+        import wg_need_goal as ng
+        return ng.active_tree(ng.load(session_id)) is not None
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:SecondOpinion] 讀不到需求目標樹，當成有樹（材料要帶到樹才算跑過）：{type(e).__name__}: {e}", file=sys.stderr)
+        return True
+
+
 def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[str, Any]], text: str,
           transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], claims_done: bool
           ) -> Tuple[rr.Verdict, Dict[str, Any]]:
@@ -261,7 +276,8 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)
     triggers = rr.second_opinion_triggers(len(paths), lines, risky, min_files, min_lines)
-    runs = rr.second_opinion_runs(*turn_events(transcript_text)) if (triggers and fresh) else []
+    runs = rr.second_opinion_runs(*turn_events(transcript_text), has_tree=has_goal_tree(session_id)) \
+        if (triggers and fresh) else []
     v = rr.second_opinion_verdict(claims_done, triggers, fresh, runs, text)
     facts.update(triggers=triggers, fresh=fresh, runs=runs, changed_lines=lines,
                  satisfied=bool(triggers and fresh and not v.owed),

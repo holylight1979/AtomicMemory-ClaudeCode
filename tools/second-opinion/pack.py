@@ -195,19 +195,21 @@ def _one_line(s: Any) -> str:
 def goal_material(session_id: str) -> Tuple[str, Optional[str]]:
     """goal.md 內容＝需求目標樹精簡渲染：第一行「樹根（T<n>）：<樹根全文>」＋ wg_need_goal.review_material（使用者原話、
     同伴轉述、節點與狀態），絕對路徑遮掉。沒帶 session_id、沒有樹、讀不到 → 只有一行「無目標樹」（照樣進 manifest 與 hash），
-    第二個回傳值說原因（給 notes，不靜默）。"""
+    第二個回傳值說原因（給 notes，不靜默；開頭固定 wg_release_rules.SO_NO_GOAL_NOTE，Stop 的 SecondOpinion 閘據此在 session
+    有樹時不把這次 run 算成跑過）。"""
+    _hooks_on_path()
+    from wg_release_rules import SO_NO_GOAL_NOTE
     sid = str(session_id or "")
     if not sid:
-        return NO_GOAL + "\n", "沒帶 session_id，找不到這個 session 的需求目標樹"
+        return NO_GOAL + "\n", f"{SO_NO_GOAL_NOTE}：沒帶 session_id，找不到這個 session 的樹"
     try:
-        _hooks_on_path()
         import wg_need_goal as ng
         tree = ng.active_tree(ng.load(sid))
         body = ng.review_material(sid) if tree else ""
     except Exception as e:  # noqa: BLE001  目標樹讀不到不擋第二意見，但要說
-        return NO_GOAL + "\n", f"讀不到需求目標樹（session_id={sid}）：{type(e).__name__}: {e}"
+        return NO_GOAL + "\n", f"{SO_NO_GOAL_NOTE}：讀不到（session_id={sid}）：{type(e).__name__}: {e}"
     if not tree:
-        return NO_GOAL + "\n", f"這個 session 沒有需求目標樹（session_id={sid}）"
+        return NO_GOAL + "\n", f"{SO_NO_GOAL_NOTE}：這個 session 沒有樹（session_id={sid}）"
     root = (tree.get("nodes") or {}).get(tree["id"]) or {}
     head = f"樹根（{tree['id']}）：{mask_abs_paths(_one_line(root.get('text')))}"
     return f"{head}\n\n{mask_abs_paths(body)}\n", None

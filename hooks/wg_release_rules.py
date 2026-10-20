@@ -2116,9 +2116,9 @@ RULES.update({
                                "或對 HEAD 的程式改動行數 ≥ min_changed_lines：git diff --numstat HEAD，未追蹤的新檔算整檔行數，查不到 git "
                                "只看檔數）或路徑命中高風險部位（risky_prefixes，或部位表該列類別是 gate），而且上次滿足（跑過、宣告不需、"
                                "使用者放行）之後又改過程式 → 本回合（TURN_SINCE_USER_PROMPT）要真的跑過第二意見：second_opinion_start"
-                               "（mode=independent，kind=stage-review 或 evaluate）的結果是 done／failed／blocked（second_opinion_result 回的，"
-                               "或 start 自己就回終態；running、只 start 沒取結果不算；question 沒含樹根被擋的 blocked 不算），而且收尾最後一則有"
-                               "「第二意見與分歧裁決」段與四行（Codex 結論／我方結論／分歧點／裁決與理由，標籤後要有字）。門檻是事實核對；"
+                               "（mode=independent，kind=stage-review 或 evaluate）由 second_opinion_result 回 done／failed／blocked（running、"
+                               "只 start 沒取結果、start 沒開出 job、question 沒含樹根被擋、session 有樹而材料沒帶到樹都不算），而且收尾最後一則"
+                               "有「第二意見與分歧裁決」段與四行（行首、程式碼區塊外；Codex 結論／我方結論／分歧點／裁決與理由，標籤後要有字）。門檻是事實核對；"
                                "程式只核對有沒有跑、標籤在不在，不評內容。擋 max_blocks_per_turn 次（預設 1）後擋滿，不自行放行、改問使用者"
                                "（wg_release）；子代理、裁判 session、headless 不觸發；前面的閘擋下時列進 BLOCK_LISTS_LATER_GATES 預覽。",
     "SECOND_OPINION_DECLINED": "收尾寫一行「不需第二意見｜<理由>」→ 不擋、留帳 Logs/guard-second_opinion.jsonl（event=declined、理由、"
@@ -2130,15 +2130,31 @@ SO_LABELS: Tuple[str, ...] = ("Codex 結論", "我方結論", "分歧點", "裁�
 SO_KINDS: Tuple[str, ...] = ("stage-review", "evaluate")
 SO_RAN: Tuple[str, ...] = ("done", "failed", "blocked")
 SO_QUESTION_ROOT_MISSING = "question 沒含需求目標樹的樹根那句"
-_SO_DECLINE_RE = re.compile(r"不需第二意見\s*[｜|]\s*(.*)$")
+SO_NO_GOAL_NOTE = "材料沒有需求目標樹"      # pack 的 note 開頭（start 回傳的 `note:` 行）；session 有樹時這種 run 不算跑過
+# 宣告行與四行只認行首（可帶空白、清單符號、粗體）、不在程式碼區塊裡：散文裡引用的範例、引用區塊（>）不算
+_SO_DECLINE_RE = re.compile(r"^[\s*\-]*不需第二意見(?:\*\*)?\s*[｜|]\s*(.*)$")
+_SO_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
 _SO_EMPTY_REASONS = frozenset({"不需要", "不需", "不用", "沒必要", "不必", "無", "略", "沒有", "na", "none"})
 
 
 def _so_label_re(label: str) -> "re.Pattern[str]":
-    return re.compile(rf"^[\s>*\-#]*(?:\*\*)?{re.escape(label)}(?:\*\*)?\s*[：:｜|]\s*(.*)$")
+    return re.compile(rf"^[\s*\-#]*(?:\*\*)?{re.escape(label)}(?:\*\*)?\s*[：:｜|]\s*(.*)$")
 
 
 _SO_LABEL_RES = tuple((lb, _so_label_re(lb)) for lb in SO_LABELS)
+
+
+def _so_lines(text: str) -> List[str]:
+    """收尾文字裡不在程式碼區塊（``` 或 ~~~ 圍起來）的行。"""
+    out: List[str] = []
+    fenced = False
+    for ln in str(text or "").splitlines():
+        if _SO_FENCE_RE.match(ln):
+            fenced = not fenced
+            continue
+        if not fenced:
+            out.append(ln)
+    return out
 
 
 def second_opinion_hint() -> str:
@@ -2150,10 +2166,10 @@ def second_opinion_hint() -> str:
 
 
 def second_opinion_decline(text: str) -> Optional[str]:
-    """收尾文字裡最後一行「不需第二意見｜<理由>」的理由（可能是空字串）；沒有這行回 None。"""
+    """收尾文字裡最後一行「不需第二意見｜<理由>」的理由（可能是空字串）；沒有這行回 None。只認行首、程式碼區塊外。"""
     found: Optional[str] = None
-    for line in str(text or "").splitlines():
-        m = _SO_DECLINE_RE.search(line)
+    for line in _so_lines(text):
+        m = _SO_DECLINE_RE.match(line)
         if m:
             found = m.group(1).strip()
     return found
@@ -2166,9 +2182,9 @@ def second_opinion_decline_ok(reason: str) -> bool:
 
 
 def second_opinion_section_missing(text: str) -> List[str]:
-    """收尾缺的項目：段標題、四行標籤（標籤後要有至少 2 個中文或英數字）。全在回 []。"""
-    lines = str(text or "").splitlines()
-    missing = [] if SO_SECTION in str(text or "") else [f"段標題「{SO_SECTION}」"]
+    """收尾缺的項目：段標題、四行標籤（行首、標籤後要有至少 2 個中文或英數字）。全在回 []。程式碼區塊裡的不算。"""
+    lines = _so_lines(text)
+    missing = [] if any(SO_SECTION in ln for ln in lines) else [f"段標題「{SO_SECTION}」"]
     for label, rx in _SO_LABEL_RES:
         filled = [m for m in (rx.match(ln) for ln in lines) if m and has_text(m.group(1))]
         if not filled:
@@ -2189,28 +2205,35 @@ def second_opinion_triggers(n_code: int, changed_lines: Optional[int], risky: Se
     return out
 
 
-def second_opinion_runs(starts: Sequence[Dict[str, Any]], results: Sequence[Dict[str, Any]]) -> List[Tuple[str, str]]:
-    """本回合每次 start 的最終狀態 [(job_id, 狀態)]。starts／results＝transcript 依序收的 {mode, kind, job_id, status, reason}／
-    {job_id, status, reason}。狀態：done／failed／blocked（算跑過）、running、started（只 start 沒取結果）、
-    rejected（question 沒含樹根被擋）、invalid（start 被拒收、沒有 job）、off-mode（不是 independent 或 kind 不對）。"""
+def second_opinion_runs(starts: Sequence[Dict[str, Any]], results: Sequence[Dict[str, Any]],
+                        has_tree: bool = False) -> List[Tuple[str, str]]:
+    """本回合每次 start 的最終狀態 [(job_id, 狀態)]。starts／results＝transcript 依序收的 {mode, kind, job_id, status, reason, notes}／
+    {job_id, status, reason}；has_tree＝這個 session 有需求目標樹。只認 second_opinion_result 回的狀態（派工單定死：result 回
+    done／failed／blocked 才算跑過）。狀態：done／failed／blocked（算跑過）、running、started（start 了沒取結果）、
+    rejected（question 沒含樹根被擋）、no-goal（session 有樹但材料沒帶到：start 的 note 以 SO_NO_GOAL_NOTE 開頭）、
+    invalid（start 沒開出 job：被拒收或 prepare 失敗，job_id 是 -）、off-mode（不是 independent 或 kind 不對）。"""
     last: Dict[str, Dict[str, Any]] = {}
     for r in results:
         last[str(r.get("job_id") or "")] = r
     out: List[Tuple[str, str]] = []
     for s in starts:
         jid = str(s.get("job_id") or "-")
+        no_goal = has_tree and any(str(n).startswith(SO_NO_GOAL_NOTE) for n in s.get("notes") or ())
         if s.get("mode") != "independent" or s.get("kind") not in SO_KINDS:
             out.append((jid, "off-mode"))
             continue
-        fin = last.get(jid) if jid != "-" else None
-        st, why = (str(fin.get("status") or ""), str(fin.get("reason") or "")) if fin else \
-            (str(s.get("status") or ""), str(s.get("reason") or ""))
-        if st == "blocked" and SO_QUESTION_ROOT_MISSING in why:
+        if jid == "-" or no_goal:
+            out.append((jid, "invalid" if jid == "-" else "no-goal"))
+            continue
+        fin = last.get(jid) or {}
+        st = str(fin.get("status") or "")
+        why = str(fin.get("reason") or s.get("reason") or "")
+        if SO_QUESTION_ROOT_MISSING in why:
             out.append((jid, "rejected"))
         elif st in SO_RAN or st == "running":
             out.append((jid, st))
         else:
-            out.append((jid, "started" if jid != "-" else "invalid"))
+            out.append((jid, "started"))
     return out
 
 
@@ -2218,7 +2241,9 @@ _SO_WAIT = {
     "running": "第二意見還在跑（result=running），等 second_opinion_result 回 done／failed／blocked 再收尾",
     "started": "start 了但本回合沒取結果，呼叫 second_opinion_result({job_id}) 拿到 done／failed／blocked",
     "rejected": f"start 被擋：{SO_QUESTION_ROOT_MISSING}，照 reason 把那句抄進 question 重跑",
-    "invalid": "start 被拒收（參數不合、沒有開出 job），照錯誤訊息修正後重跑",
+    "no-goal": f"這次的材料沒有需求目標樹（start 的 note：{SO_NO_GOAL_NOTE}…），不算跑過：確認 start 帶到 session_id"
+               "（PreToolUse 補）後重跑",
+    "invalid": "start 沒開出 job（被拒收或 prepare 失敗，job_id 是 -），照 reason 修正後重跑；修不好就宣告不需並寫明原因，或問使用者",
     "off-mode": "本回合跑的不是 mode=independent＋kind=stage-review／evaluate，不算",
 }
 
@@ -2248,6 +2273,6 @@ def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_si
         return Verdict(rule, True, "跑過第二意見，但收尾缺：" + "、".join(missing),
                        tuple(triggers) + tuple(f"{j} {s}" for j, s in ran[-3:]))
     seen = [s for _j, s in runs]
-    wait = next((_SO_WAIT[k] for k in ("running", "started", "rejected", "invalid", "off-mode") if k in seen), "")
+    wait = next((_SO_WAIT[k] for k in ("running", "started", "rejected", "no-goal", "invalid", "off-mode") if k in seen), "")
     return Verdict(rule, True, wait or "大任務或高風險部位宣告完成，本回合沒有跑第二意見",
                    tuple(triggers) + tuple(f"{j} {s}" for j, s in runs[-3:]))
