@@ -482,7 +482,7 @@ def handout_check_text(sid: Any) -> str:
 def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> str:
     ref = str(ev.get("ref", ""))
     extra = ""
-    if ev.get("kind") == "receipt" and doc is not None:
+    if ev.get("kind") == "receipt" and doc is not None and not ev.get("prior"):   # 匯入的收據號是前一個 session 的，對本 session 帳本會對到別條
         r = _receipt_by_ref(doc, ref)
         if r:
             extra = f" `{_clip(r.get('cmd'), 60)}`"

@@ -210,6 +210,26 @@ def test_t13_correction_after_closed_tree_kept_when_old_tree_reopened(env):
     assert said.count("D 要先做") == 1 and said.count("不對，C 還要包含 D") == 1, said
 
 
+def test_t13_imported_receipt_evidence_not_resolved_against_this_sessions_receipts(env):
+    """匯入的收據證據（prior）編號是前一個 session 的：顯示時不能拿本 session 同號收據的指令去配（本 session 實遇：樹根的
+    「R157（前一個 session）」顯示成本 session 剛跑的另一條指令）。本 session 自己的收據證據照舊附指令。"""
+    _op("set", goal="匯出變快")
+    ng.update_locked(SID, lambda d: d["trees"]["T1"]["nodes"]["T1"]["evidence"].append(
+        {"kind": "receipt", "ref": "R1", "level": "measured", "covers": ["T1"], "seq": 1}))
+    block = ng.handoff_block(SID)
+    ng.import_handoff("sess-next", block, str(env["proj"] / "next-phase-x.md"), 1)
+    ng.update_locked("sess-next", lambda d: d.setdefault("receipts", []).append(
+        {"seq": 1, "turn": 1, "cmd": "python other_session_cmd.py", "verdicts": [], "exit": 0}))
+    d = ng.load("sess-next")
+    nodes_part = ng.render(ng.active_tree(d), "full", doc=d).split("最近收據", 1)[0]      # 收據清單本身照列，只看節點的證據
+    assert "R1" in nodes_part and "（前一個 session）" in nodes_part, nodes_part         # 前置：舊證據有印出來
+    assert "other_session_cmd" not in nodes_part, nodes_part
+    ng.update_locked("sess-next", lambda d: d["trees"][d["active"]]["nodes"][d["active"]]["evidence"].append(
+        {"kind": "receipt", "ref": "R1", "level": "measured", "covers": [d["active"]], "seq": 2}))
+    d = ng.load("sess-next")
+    assert "other_session_cmd" in ng.render(ng.active_tree(d), "full", doc=d).split("最近收據", 1)[0]   # 本 session 的收據照舊附指令
+
+
 def test_t13_import_attaches_this_sessions_words_before_import(env):
     """換 session 接續：開工句（本 session 第一則）在匯入前送到、當時沒有樹，匯入後要接在前一個 session 的原話後面；
     不接的話接手 session 的樹只有舊原話，交出前一問對不到這一輪的要求（本 session 開頭實測 said_log 第 1 回合 attached=False）。"""
