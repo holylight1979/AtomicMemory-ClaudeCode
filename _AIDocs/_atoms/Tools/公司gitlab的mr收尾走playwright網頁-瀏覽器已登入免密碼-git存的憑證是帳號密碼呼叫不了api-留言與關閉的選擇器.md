@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: gitlab 留言, 關閉 MR, merge request 留言, gitlab api 401, PRIVATE-TOKEN, playwright gitlab, comment-field, close-reopen-button, gitlab.uj.com.tw, MR 自動標 merged
 - Created-at: 2026-10-20
+- Quote: 「跑"什麼"要14分鐘? 該死的不相干全量測試?」
 
 ## 知識
 

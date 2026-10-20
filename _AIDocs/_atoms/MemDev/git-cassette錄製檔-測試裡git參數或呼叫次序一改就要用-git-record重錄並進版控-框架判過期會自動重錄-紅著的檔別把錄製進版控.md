@@ -7,6 +7,7 @@
 - Trigger: git_cassette, CassetteMismatch, --git-record, cassette, 錄製檔, 重錄, 第 N 筆呼叫和錄製不同, 錄製檔過期, verify_stop_reconcile 大量 ERROR, 行為改了 → 用 --git-record 重錄
 - Created-at: 2026-10-20
 - Depends: path:C:/Users/holylight/.claude/lib/git_cassette.py
+- Quote: 「跑"什麼"要14分鐘? 該死的不相干全量測試?」
 
 ## 知識
 

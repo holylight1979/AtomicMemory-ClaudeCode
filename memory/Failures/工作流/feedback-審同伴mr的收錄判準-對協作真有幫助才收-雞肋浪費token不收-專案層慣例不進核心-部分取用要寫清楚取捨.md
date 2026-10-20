@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: merge request, MR 審查, 審 MR, 同伴 MR, GitLab MR, 合併請求, 要不要合併, 部分取用, 雞肋, 專案層還是核心, pull request 審查
 - Created-at: 2026-10-20
+- Quote: 「跑"什麼"要14分鐘? 該死的不相干全量測試?」
 
 ## 知識
 
