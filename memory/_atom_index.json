@@ -7956,6 +7956,25 @@
       "related": [
         "同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾"
       ]
+    },
+    {
+      "name": "閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現",
+      "path": "_AIDocs/_atoms/MemDev/閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現.md",
+      "triggers": [
+        "無頭驗收",
+        "claude -p",
+        "真實任務實跑",
+        "根治驗收",
+        "合併後驗收",
+        "wave1-kit",
+        "run_headless",
+        "受測根",
+        "guard log 證據",
+        "--resume",
+        "閘沒被逼出來",
+        "pathspec 排除"
+      ],
+      "scope": "global"
     }
   ]
 }
