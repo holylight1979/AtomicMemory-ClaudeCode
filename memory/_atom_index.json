@@ -6507,7 +6507,10 @@
         "檔名含 git 被擋",
         "Python 啟動器",
         "worktree Bash 守門",
-        "隔離守門 git"
+        "隔離守門 git",
+        "PowerShell 跑 pytest",
+        "收據對不上",
+        "push HEAD:main"
       ],
       "scope": "global"
     },
@@ -7858,6 +7861,27 @@
         "工作軌交付"
       ],
       "scope": "global"
+    },
+    {
+      "name": "commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath",
+      "path": "_AIDocs/_atoms/MemDev/commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath.md",
+      "triggers": [
+        "_vcs_segments",
+        "_scan_segments",
+        "commit 指令拆解",
+        "here-string",
+        "pathspec 被切掉",
+        "SmellGate 無聲放行",
+        "多行 -m",
+        "跳脫引號",
+        "2>&1",
+        "_commit_shape_problem",
+        "git -C 累加"
+      ],
+      "scope": "global",
+      "related": [
+        "worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑"
+      ]
     }
   ]
 }
