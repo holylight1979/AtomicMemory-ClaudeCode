@@ -48,12 +48,31 @@ def test_detect_deferral_no_hit(text):
     assert detect_deferral(text, []) is None
 
 
-def test_detect_deferral_user_explicit_defer_is_escape_hatch():
+# ─── G6 階段 4（P7）：使用者延後要 AI 引用原句對到事項；AI 自己的不做行要附理由（NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）──
+
+def test_p7_user_defer_needs_citation_to_the_item():
     text = "完工。realm atom 瘦身留到下個 session 做。"
-    assert detect_deferral(text, ["這顆 atom 下個 session 再做就好"]) is None
-    assert detect_deferral(text, ["先這樣，其他不用管"]) is None            # 一般 dismiss 也放行
-    # 使用者只是「質問」為何要新開 session → 不算放行
-    assert detect_deferral(text, ["為什麼你會判斷還需要新開 session？"]) is not None
+    # 使用者說過，但 AI 沒引用對到事項 → 照標（舊的整段 escape hatch 不再成立）
+    assert detect_deferral(text, ["這顆 atom 下個 session 再做就好"]) is not None
+    assert detect_deferral(text, ["先這樣，其他不用管"]) is not None
+    cited = text + "\n不做｜realm atom 瘦身：使用者說「下個 session 再做就好」"
+    audit = []
+    assert detect_deferral(cited, ["這顆 atom 下個 session 再做就好"], audit=audit) is None
+    assert audit and audit[0]["rule"] == "USER_WAIVER_NEEDS_CITATION" and "realm atom 瘦身" in audit[0]["why"]
+    # 引用的句子不在近 3 則使用者原話（使用者只是質問）→ 照標
+    assert detect_deferral(cited, ["為什麼你會判斷還需要新開 session？"]) is not None
+
+
+def test_p7_not_doing_with_reason_passes_gate_and_audits():
+    text = "完工。\n不做｜realm atom 瘦身：留到下個 session，因為要重算全庫索引（約 20 分鐘）、會飄移主任務。"
+    audit = []
+    assert deferral_gate_reason(text, [], turn_seq=5, gated_turn=None, committed_this_turn=False, context_ratio=0.3,
+                                config=_CFG, audit=audit) is None
+    assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED"
+    # 理由只有佔位 → 照擋，擋訊息教寫不做行
+    bad = "完工。\n不做｜realm atom 瘦身：留到下個 session，<理由>"
+    reason = deferral_gate_reason(bad, [], turn_seq=5, gated_turn=None, committed_this_turn=False, context_ratio=0.3, config=_CFG)
+    assert reason and "不做｜" in reason and "USER_WAIVER_NEEDS_CITATION" in reason
 
 
 def test_min_object_chars_respected():
@@ -158,6 +177,17 @@ def test_stop_blocks_on_deferral(driven, capsys):
     assert "[Guardian:DeferralGate]" in out
     assert state["deferral_gate_turn"] == 7
     assert state["stop_blocked_count"] == 1
+
+
+def test_p7_stop_passes_with_not_doing_line_and_logs(driven, capsys, monkeypatch):
+    """整合：收尾有「不做｜…：<理由>」→ DeferralGate 不擋，guard-deferral_declared.jsonl 留一筆（規則、原行）。"""
+    logs = []
+    monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
+    text = "完工，工作樹乾淨。\n不做｜realm atom 瘦身：留到下個 session，因為要重算全庫索引、會飄移主任務。"
+    out, state = driven(text, capsys)
+    assert "[Guardian:DeferralGate]" not in out and "deferral_gate_turn" not in state
+    hit = [p for g, p in logs if g == "deferral_declared"]
+    assert hit and hit[0]["rule"] == "NOT_DOING_DECLARED" and hit[0]["line"].startswith("不做｜realm atom 瘦身")
 
 
 def test_stop_does_not_reblock_same_turn(driven, capsys):

@@ -1728,6 +1728,65 @@ def test_leftover_needs_cleanup():
     assert not rr.leftover_cleanup_verdict(True, []).owed
 
 
+# ─── G6 階段 4（判斷入口盤點 P6／P7）：宣稱行、不做行、使用者引用 ─────────────────────────────
+
+def test_p6_parse_claim_dispositions():
+    text = ("修好了。\n宣稱｜修好：非本回合宣稱，因為那句在說明 CC 收尾會自己跑的行為\n"
+            "宣稱｜試過：收據 verify_x.py\n宣稱｜量了：隨便寫")
+    d = rr.parse_claim_dispositions(text)
+    assert d["fixed"][0]["mode"] == "disclaim" and d["fixed"][0]["reason"].startswith("那句在說明")
+    assert d["tried"][0]["mode"] == "receipt" and d["tried"][0]["ref"] == "verify_x.py"
+    assert d["measured"][0]["mode"] == "unknown"
+    assert rr.parse_claim_dispositions("沒有宣稱行") == {}
+
+
+def test_p6_claim_disposition_verdict():
+    found = {"verify_x.py": "python -m pytest verify_x.py（turn 5）"}
+    find = lambda ref: found.get(ref)  # noqa: E731
+    v = rr.claim_disposition_verdict("fixed", {}, find)
+    assert v.owed and v.rule == "CLAIM_WORDS_ARE_HINTS" and "宣稱｜修好" in v.evidence[0]
+    ok = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為那句講的是 CC 的行為")
+    assert not rr.claim_disposition_verdict("fixed", ok, find).owed
+    bad = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 <理由>")
+    v = rr.claim_disposition_verdict("fixed", bad, find)
+    assert v.owed and v.rule == "CLAIM_DISCLAIM_NEEDS_REASON"
+    ref = rr.parse_claim_dispositions("宣稱｜修好：收據 verify_x.py")
+    v = rr.claim_disposition_verdict("fixed", ref, find)
+    assert not v.owed and v.rule == "CLAIM_RECEIPT_REF_MATCH" and "turn 5" in v.why
+    miss = rr.parse_claim_dispositions("宣稱｜修好：收據 nothing.py")
+    v = rr.claim_disposition_verdict("fixed", miss, find)
+    assert v.owed and v.rule == "CLAIM_RECEIPT_REF_MATCH"
+    v = rr.claim_disposition_verdict("tried", rr.parse_claim_dispositions("宣稱｜跑了：收據 verify_x.py"), find)
+    assert not v.owed, "跑了／試過都對到 tried"
+
+
+def test_p7_not_doing_verdict():
+    decls = rr.parse_not_doing("不做｜A 清理：風險是 state 並行競寫會毀檔\n不做｜B 瘦身：使用者說「B 先這樣」\n不做｜C 整理：<理由>")
+    assert [d["item"] for d in decls] == ["A 清理", "B 瘦身", "C 整理"] and decls[1]["quote"] == "B 先這樣"
+    assert not rr.not_doing_verdict("A 清理留給未來處理", decls, []).owed
+    v = rr.not_doing_verdict("B 瘦身先跳過", decls, ["B 先這樣吧"])
+    assert not v.owed and v.rule == "USER_WAIVER_NEEDS_CITATION"
+    v = rr.not_doing_verdict("B 瘦身先跳過", decls, ["做 B"])
+    assert v.owed and v.rule == "USER_WAIVER_NEEDS_CITATION"
+    v = rr.not_doing_verdict("C 整理之後再處理", decls, [])
+    assert v.owed and v.rule == "NOT_DOING_DECLARED" and "佔位" in v.why
+    v = rr.not_doing_verdict("D 之後再處理", decls, [], "除非附「檢測時點 + 不修的實際風險」")
+    assert v.owed and "不做｜<哪一件>：<理由：檢測時點" in v.evidence[1]
+    assert not rr.not_doing_verdict("不做｜A 清理：風險是 state 並行競寫會毀檔", decls, []).owed, "命中行本身就是不做行"
+
+
+def test_p7_waived_failures_only_cited_and_matching():
+    failing = [{"cmd": "python -m pytest hooks/verify/verify_a.py", "summary": "1 failed", "turn_seq": 5},
+               {"cmd": "python -m pytest hooks/verify/verify_b.py", "summary": "1 failed", "turn_seq": 5}]
+    decls = rr.parse_not_doing("不做｜verify_a.py：使用者說「verify_a 先這樣」")
+    kept, waived = rr.waived_failures(failing, decls, ["verify_a 先這樣，b 要修"])
+    assert [f["cmd"] for f in kept] == [failing[1]["cmd"]] and waived[0][1]["item"] == "verify_a.py"
+    kept, waived = rr.waived_failures(failing, decls, ["b 要修"])
+    assert len(kept) == 2 and not waived, "引用找不到 → 不豁免"
+    kept, _ = rr.waived_failures(failing, rr.parse_not_doing("不做｜verify_a.py：太難了，風險高"), ["verify_a 先這樣"])
+    assert len(kept) == 2, "AI 自己的理由不能豁免紅測，只有使用者引用能"
+
+
 def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed

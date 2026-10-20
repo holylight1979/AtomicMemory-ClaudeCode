@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "_doc": "single source of truth for 反退避契約 forbidden phrases. Read by hooks/wg_evasion.py (regex assembly) and surfaced in IDENTITY.md (human-readable list).",
+  "_doc": "single source of truth for 反退避契約 forbidden phrases. Read by hooks/wg_evasion.py (regex assembly) and surfaced in IDENTITY.md (human-readable list). 各類的 exception 欄由程式接上（規則 NOT_DOING_DECLARED）：退避語所在那一行對到一條「不做｜<哪一件>：<理由>」就不標、留帳，exception 文字附在提示裡告訴 AI 理由要寫什麼（風險、為什麼超出）。",
   "categories": [
     {
       "id": "scope-evasion",
@@ -107,7 +107,7 @@
     }
   ],
   "dismiss_keywords": {
-    "_doc": "user 近 3 則 prompt 含這些 → 視為使用者放行，不標記 evasion（escape hatch）",
+    "_doc": "使用者近 3 則 prompt 含這些 → 只剩收割閘（wg_harvest）與舊 prose 收尾檢核路徑當放行。退避偵測、退縮歸屬、紅測清單不再整段關掉：要 AI 寫「不做｜<哪一件>：使用者說「<原句片段>」」對到具體事項（規則 USER_WAIVER_NEEDS_CITATION）。",
     "patterns": [
       "先這樣",
       "留著",
@@ -184,17 +184,8 @@
       "next\\s+session"
     ]
   },
-  "deferral_user_ok": {
-    "_doc": "使用者近 3 則 prompt 含這些 → 視為使用者明示延後，DeferralGate 不擋（獨立於 dismiss_keywords；只認命令式延後語，避免使用者『質問為何要新開 session』被誤當放行）",
-    "patterns": [
-      "(?:下|新|另開|另一個)\\s*(?:個|一個)?\\s*session\\s*(?:再|才|做|處理|弄)",
-      "留(?:到|給)\\s*(?:下|新|之後)",
-      "不用(?:這次|本次|現在|今天)(?:做|處理|弄)",
-      "(?:之後|以後|改天)\\s*再\\s*(?:做|處理|弄|說)"
-    ]
-  },
   "fixed_claim": {
-    "_doc": "說「修好」→ Stop 對帳閘要本回合對得上改檔的 PASS 收據（exit 0 或無 exit）。exclude：否定／疑問／未來式／英文否定。",
+    "_doc": "說「修好」→ Stop 對帳閘要本回合對得上改檔的 PASS 收據（exit 0 或無 exit）。exclude：否定／疑問／未來式／英文否定。詞表只是提示（規則 CLAIM_WORDS_ARE_HINTS，hooks/wg_release_rules.py）：命中且沒證據時要 AI 回一行「宣稱｜修好：收據 <ref>」或「宣稱｜修好：非本回合宣稱，因為 …」，程式只核對收據對不對得上、有沒有理由，並留帳。",
     "patterns": [
       "修好",
       "已修復",

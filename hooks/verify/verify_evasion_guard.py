@@ -196,21 +196,58 @@ def test_evasion_flags_deferral_keywords(text):
     assert r is not None, f"未抓到退避語：{text!r}"
 
 
-def test_evasion_escape_hatch_dismiss_recent():
-    # 使用者近期說過「先這樣」→ 不再標記
+# ─── G6 階段 4（P7）：退避例外的入口接上——不做行＋理由、使用者引用對到事項（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）────
+
+def test_p7_dismiss_word_alone_no_longer_waives():
+    """使用者近 3 則有「先這樣」不再整段關掉偵測（舊 escape hatch）：要 AI 引用原句對到事項才算。"""
     t = "既有的問題，非本次範圍。"
-    r = detect_evasion(t, ["先這樣，留著吧"])
-    assert r is None
+    assert detect_evasion(t, ["先這樣，留著吧"]) is not None
+    assert detect_evasion(t, ["a", "先這樣", "b"]) is not None
 
 
-def test_evasion_escape_hatch_last_3_only():
-    # 豁免詞在第 4 則（視窗外）→ 仍標記
-    t = "既有的 drift，留給未來。"
-    r = detect_evasion(t, ["先這樣", "a", "b", "c"])
-    assert r is not None  # 最後 3 則是 a/b/c，豁免詞被切掉 → 仍標記
-    # 視窗內：最後 3 則含放行詞 → 豁免
-    r2 = detect_evasion(t, ["a", "先這樣", "b"])
-    assert r2 is None
+def test_p7_not_doing_line_with_reason_not_flagged_and_audited():
+    """退避語就在不做行裡、附了理由 → 不標，audit 記一筆（stop 落 guard-evasion_declared.jsonl）。"""
+    t = "完成。\n不做｜registry 污染：既有的問題，修要動 wg_core 的 state 寫入，風險是並行競寫毀 state，這輪不碰。"
+    audit = []
+    assert detect_evasion(t, [], audit=audit) is None
+    assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED" and audit[0]["phrase"] == "既有的問題"
+    assert "registry 污染" in audit[0]["why"]
+
+
+def test_p7_not_doing_line_with_placeholder_reason_still_flagged():
+    t = "完成。\n不做｜registry 污染：既有的問題，<不修的實際風險>"
+    r = detect_evasion(t, [])
+    assert r is not None and r["phrase"] == "既有的問題"
+
+
+def test_p7_item_named_in_not_doing_line_covers_sentence_elsewhere():
+    t = "registry 污染留給未來處理。\n不做｜registry 污染：要動 state 寫入，並行競寫風險，這輪不碰。"
+    assert detect_evasion(t, []) is None
+
+
+def test_p7_user_citation_waives_only_the_cited_item():
+    t = "A 清理先跳過。\nB 瘦身也先跳過。\n不做｜A 清理：使用者說「A 先這樣」"
+    prompts = ["A 先這樣，B 要做"]
+    audit = []
+    r = detect_evasion(t, prompts, audit=audit)
+    assert r is not None and "B 瘦身" in r["context_excerpt"]
+    assert audit and audit[0]["rule"] == "USER_WAIVER_NEEDS_CITATION" and "A 清理" in audit[0]["why"]
+    # 引用的原句不在近 3 則使用者原話裡 → A 也照標
+    assert detect_evasion("A 清理先跳過。\n不做｜A 清理：使用者說「A 先這樣」", ["做 A", "x", "y"]) is not None
+
+
+def test_p7_flag_carries_category_and_hint():
+    r = detect_evasion("這是 pre-existing 的問題。", [])
+    assert r and r["category"] == "precedent-drift"
+    assert "不做｜" in r["hint"] and "檢測時點" in r["hint"] and "使用者說" in r["hint"]
+
+
+def test_p7_ups_dismiss_no_longer_clears_failing_tests(monkeypatch):
+    """ups_gates：使用者說「先這樣」不再清掉整份紅測清單（豁免改在 Stop 由不做行引用對到那一筆）。"""
+    from handlers import ups_gates as ug
+    state = {"failing_tests": [{"cmd": "pytest verify_a.py", "session_id": "s"}], "recent_user_prompts": []}
+    ug.run_pre_gates("s", state, {}, "先這樣", "先這樣", [])
+    assert state["failing_tests"]
 
 
 def test_045_peer_message_is_not_a_turn_boundary_unless_dispatch():

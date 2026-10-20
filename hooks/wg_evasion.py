@@ -61,10 +61,6 @@ _FALLBACK_DEFERRAL_PATTERNS = [
     r"非我(?:造成|所改|之過|引起)", r"獨立議題", r"另案(?:處理)?", r"遺留(?:議題|項目|事項)",
     r"next\s+session",
 ]
-_FALLBACK_DEFERRAL_USER_OK_PATTERNS = [
-    r"(?:下|新|另開|另一個)\s*(?:個|一個)?\s*session\s*(?:再|才|做|處理|弄)",
-    r"留(?:到|給)\s*(?:下|新|之後)",
-]
 _FALLBACK_CONTEXT_EXEMPT_PATTERNS = [
     r"下\s*(?:個|一個|一)?\s*session",
     r"(?:新|另開|另一個|後續|之後的?)\s*session",
@@ -153,16 +149,19 @@ def _load_phrases(path: Optional[Path] = None) -> Dict[str, List[str]]:
     return _extract_phrases(data)
 
 
-def _extract_phrases(data: Dict[str, Any]) -> Dict[str, List[str]]:
+def _extract_phrases(data: Dict[str, Any]) -> Dict[str, Any]:
     evasion: List[str] = []
     deferral: List[str] = []
+    cats: List[Dict[str, Any]] = []          # 每類 {id, label, exception, patterns}：exception 文字給不做行的提示用（規則 NOT_DOING_DECLARED）
     for cat in data.get("categories", []) or []:
-        for p in cat.get("patterns", []) or []:
-            if p:
-                evasion.append(p)
-                if cat.get("id") == "deferral-attribution":
-                    deferral.append(p)
-    deferral_user_ok = list(data.get("deferral_user_ok", {}).get("patterns", []) or [])
+        pats = [p for p in (cat.get("patterns", []) or []) if p]
+        if not pats:
+            continue
+        evasion += pats
+        if cat.get("id") == "deferral-attribution":
+            deferral += pats
+        cats.append({"id": str(cat.get("id") or ""), "label": str(cat.get("label") or ""),
+                     "exception": str(cat.get("exception") or ""), "patterns": pats})
     context_exempt = list(data.get("context_exempt_deferral", {}).get("patterns", []) or [])
     dismiss = list(data.get("dismiss_keywords", {}).get("patterns", []) or [])
     scan_report = list(data.get("scan_report_markers", {}).get("patterns", []) or [])
@@ -178,8 +177,8 @@ def _extract_phrases(data: Dict[str, Any]) -> Dict[str, List[str]]:
         "completion": completion or _FALLBACK_COMPLETION_PATTERNS,
         "completion_exclude": completion_exclude or _FALLBACK_COMPLETION_EXCLUDE,
         "deferral": deferral or _FALLBACK_DEFERRAL_PATTERNS,
-        "deferral_user_ok": deferral_user_ok or _FALLBACK_DEFERRAL_USER_OK_PATTERNS,
         "context_exempt": context_exempt or _FALLBACK_CONTEXT_EXEMPT_PATTERNS,
+        "categories": cats,
     }
     for kind, section, fb_pos, fb_neg in _CLAIM_KINDS:
         sec = data.get(section) or {}
@@ -215,12 +214,21 @@ _COMPLETION_EXCLUDE_RE = _compile_union(
 _DEFERRAL_RE = _compile_union(
     _phrases.get("deferral") or _FALLBACK_DEFERRAL_PATTERNS, re.IGNORECASE
 )
-_DEFERRAL_USER_OK_RE = _compile_union(
-    _phrases.get("deferral_user_ok") or _FALLBACK_DEFERRAL_USER_OK_PATTERNS, re.IGNORECASE
-)
 _CONTEXT_EXEMPT_RE = _compile_union(
     _phrases.get("context_exempt") or _FALLBACK_CONTEXT_EXEMPT_PATTERNS, re.IGNORECASE
 )
+# 每類退避語各自的 regex（找命中詞屬哪一類，拿它的 exception 文字給不做行提示）；json 讀不到 → 空清單，提示用通用字句
+_EVASION_CATS: List[Tuple[Dict[str, Any], Pattern]] = [
+    (c, _compile_union(c["patterns"])) for c in (_phrases.get("categories") or [])
+]
+
+
+def evasion_category(phrase: str) -> Dict[str, str]:
+    """命中的退避詞屬 forbidden-phrases.json 哪一類：{id, label, exception}；判不出回空欄。"""
+    for cat, rx in _EVASION_CATS:
+        if phrase and rx.search(phrase):
+            return {"id": cat["id"], "label": cat["label"], "exception": cat["exception"]}
+    return {"id": "", "label": "", "exception": ""}
 
 
 def is_context_exempt_phrase(phrase: str) -> bool:
@@ -296,24 +304,38 @@ def strip_quoted_spans(text: str) -> str:
     return _QUOTED_SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
-def detect_evasion(text: str, recent_user_prompts: List[str]) -> Optional[Dict[str, str]]:
-    """Return {phrase, context_excerpt} or None.
+def _line_at(text: str, idx: int) -> str:
+    """idx 所在的那一行（不做行的對應以行為單位：事項與理由常被句號切開）。"""
+    s = text.rfind("\n", 0, idx) + 1
+    e = text.find("\n", idx)
+    return text[s: e if e >= 0 else len(text)]
 
-    Escape hatch: 若近 3 則 user prompt 有明確豁免關鍵字 → 不標記。
+
+def detect_evasion(text: str, recent_user_prompts: List[str],
+                   audit: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    """Return {phrase, context_excerpt, category, hint} or None.
+
+    LLM 介入的入口（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）：命中的那一行若對到一條有理由的「不做｜<哪一件>：<理由>」，
+    或帶使用者引用且引用真的在近 3 則使用者原話裡 → 這一處不標（audit 給了就記一筆），繼續看別處；全部都對到 → None。
+    使用者近 3 則有「先這樣／跳過」不再整段關掉偵測（舊 escape hatch），要對到事項才算。
     引號內轉述不算（strip_quoted_spans）；excerpt 取自原文（等長替換索引不位移）。
     """
     if not text:
         return None
-    m = _EVASION_RE.search(strip_quoted_spans(text))
-    if not m:
-        return None
-    for p in user_typed_prompts(recent_user_prompts)[-3:]:
-        if _DISMISS_RE.search(p or ""):
-            return None
-    phrase = m.group(0)
-    idx = m.start()
-    excerpt = text[max(0, idx - 80): idx + len(phrase) + 80]
-    return {"phrase": phrase, "context_excerpt": excerpt}
+    from wg_release_rules import not_doing_hint, not_doing_verdict, parse_not_doing
+    decls = parse_not_doing(text)
+    prompts = user_typed_prompts(recent_user_prompts)[-3:]
+    for m in _EVASION_RE.finditer(strip_quoted_spans(text)):
+        phrase, idx = m.group(0), m.start()
+        cat = evasion_category(phrase)
+        v = not_doing_verdict(_line_at(text, idx), decls, prompts, cat["exception"])
+        if not v.owed:
+            if audit is not None:
+                audit.append({"phrase": phrase, "rule": v.rule, "why": v.why, "line": v.evidence[0] if v.evidence else ""})
+            continue
+        excerpt = text[max(0, idx - 80): idx + len(phrase) + 80]
+        return {"phrase": phrase, "context_excerpt": excerpt, "category": cat["id"], "hint": not_doing_hint(cat["exception"])}
+    return None
 
 
 _SENTENCE_SPLIT_RE = re.compile(r"[。！？\n；;]")
@@ -336,25 +358,29 @@ def detect_deferral(
     text: str,
     recent_user_prompts: List[str],
     min_object_chars: int = 6,
+    audit: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, str]]:
     """退縮歸屬偵測：收尾文字把「帶受詞、可做的事」推給下個 session／歸為獨立議題／
     歸咎非我。回 {phrase, sentence} 或 None。
 
     受詞判定＝命中句去掉退縮語與標點後仍 ≥ min_object_chars 字（純「下個 session。」
-    這種無受詞的句子不算）。逃生門：近 3 則 user prompt 含命令式延後語
-    （deferral_user_ok）或一般豁免語（dismiss_keywords）→ 使用者明示延後，不標。
+    這種無受詞的句子不算）。LLM 介入的入口（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）：命中句所在的那一行
+    對到一條有理由的不做行、或帶使用者引用且引用在近 3 則使用者原話裡 → 這一句不算（audit 給了就記一筆），看下一句。
+    使用者說「先這樣／下個 session 再做」不再整段關掉偵測，要 LLM 引用原句對到事項。
     ``` 程式區塊與 markdown 表格列先剔掉（strip_markdown_blocks）：列舉的字串不是退縮句。
     詞表單一來源 forbidden-phrases.json categories[id=deferral-attribution]。
     """
     if not text:
         return None
-    for p in user_typed_prompts(recent_user_prompts)[-3:]:
-        if _DEFERRAL_USER_OK_RE.search(p or "") or _DISMISS_RE.search(p or ""):
-            return None
-    for orig_sent in _SENTENCE_SPLIT_RE.split(strip_markdown_blocks(text)):
-        sent = strip_quoted_spans(orig_sent)  # 引號內轉述不觸發（同 detect_evasion）
-        m = _DEFERRAL_RE.search(sent)
-        if m:
+    from wg_release_rules import not_doing_verdict, parse_not_doing
+    decls = parse_not_doing(text)
+    prompts = user_typed_prompts(recent_user_prompts)[-3:]
+    for line in strip_markdown_blocks(text).split("\n"):
+        for orig_sent in _SENTENCE_SPLIT_RE.split(line):
+            sent = strip_quoted_spans(orig_sent)  # 引號內轉述不觸發（同 detect_evasion）
+            m = _DEFERRAL_RE.search(sent)
+            if not m:
+                continue
             rest = sent
             for _ in range(4):  # 同句多個退縮語（「留給下」+「個 session」）全部剝掉再數受詞
                 nxt = _DEFERRAL_RE.sub("", rest)
@@ -362,8 +388,14 @@ def detect_deferral(
                     break
                 rest = nxt
             residual = _OBJECT_STRIP_RE.sub("", rest)
-            if len(residual) >= max(int(min_object_chars), 1):
-                return {"phrase": m.group(0), "sentence": orig_sent.strip()[:200]}
+            if len(residual) < max(int(min_object_chars), 1):
+                continue
+            v = not_doing_verdict(line, decls, prompts)
+            if not v.owed:
+                if audit is not None:
+                    audit.append({"phrase": m.group(0), "rule": v.rule, "why": v.why, "line": v.evidence[0] if v.evidence else ""})
+                continue
+            return {"phrase": m.group(0), "sentence": orig_sent.strip()[:200]}
     return None
 
 
@@ -376,14 +408,14 @@ def deferral_gate_reason(
     committed_this_turn: bool,
     context_ratio: float,
     config: Dict[str, Any],
+    audit: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[str]:
     """DeferralGate 純決策（無副作用）：回 block 文字或 None。
 
     全部成立才擋：config.deferral_gate.enabled（預設 True）／本 turn 尚未擋過
-    （gated_turn != turn_seq）／detect_deferral 命中／主任務已完工（claims_completion
-    或本 turn 已 commit）／context 用量 ≤ max_context_ratio（預設 0.75；0.0＝無法量測，
-    視為充裕仍擋——新 session 本就小）。「處理後是否飄移主任務」無法程式化，交模型在
-    (b) 一句話說明。
+    （gated_turn != turn_seq）／detect_deferral 命中（對到有理由的不做行或使用者引用的不算，記進 audit）／
+    主任務已完工（claims_completion 或本 turn 已 commit）／context 用量 ≤ max_context_ratio（預設 0.75；0.0＝無法量測，
+    視為充裕仍擋——新 session 本就小）。「處理後是否飄移主任務」無法程式化，交模型在不做行寫理由。
     """
     cfg = (config or {}).get("deferral_gate", {}) or {}
     if not cfg.get("enabled", True):
@@ -391,7 +423,7 @@ def deferral_gate_reason(
     if turn_seq and gated_turn == turn_seq:
         return None
     det = detect_deferral(
-        last_text, recent_user_prompts, int(cfg.get("min_object_chars", 6))
+        last_text, recent_user_prompts, int(cfg.get("min_object_chars", 6)), audit=audit
     )
     if not det:
         return None
@@ -407,9 +439,10 @@ def deferral_gate_reason(
         f"  「{det['sentence']}」（退縮語：{det['phrase']}）\n"
         "違反 IDENTITY 反退避契約「退縮歸屬」。三選一，不得籠統帶過：\n"
         "  (a) 現在做掉（可逆、屬原請求自然延伸的維護／修補／小問題／自己的過失）再收尾\n"
-        "  (b) 一句話說明本 session 真的不能做的理由——不可逆／需使用者拍板業務取捨／"
-        "會飄移主任務認知——並在收尾明寫\n"
-        "  (c) 使用者已明示延後——引用其原話"
+        "  (b) 真的不能做：寫一行「不做｜<哪一件>：<理由：不可逆／需使用者拍板業務取捨／會飄移主任務>」"
+        "（規則 NOT_DOING_DECLARED，程式只查有沒有理由、留帳不擋）\n"
+        "  (c) 使用者已明示延後：寫一行「不做｜<哪一件>：使用者說「<原句片段>」」"
+        "（規則 USER_WAIVER_NEEDS_CITATION，片段要真的在近 3 則使用者原話裡）"
     )
 
 

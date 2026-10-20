@@ -476,7 +476,7 @@
     }
   },
   "deferral_gate": {
-    "_doc": "Stop DeferralGate（退縮歸屬）：主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ max_context_ratio（讀 transcript 真實 usage，同 auto_handoff 量測）時，收尾訊息把帶受詞的可做之事推給下個 session／獨立議題／非我造成 → 擋回三選一。min_object_chars＝命中句去掉退縮語後至少幾字才算有受詞。詞表在 memory/_meta/forbidden-phrases.json categories[deferral-attribution] + deferral_user_ok。",
+    "_doc": "Stop DeferralGate（退縮歸屬）：主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ max_context_ratio（讀 transcript 真實 usage，同 auto_handoff 量測）時，收尾訊息把帶受詞的可做之事推給下個 session／獨立議題／非我造成 → 擋回三選一。min_object_chars＝命中句去掉退縮語後至少幾字才算有受詞。詞表在 memory/_meta/forbidden-phrases.json categories[deferral-attribution]；退縮句對到有理由的「不做｜…」行或使用者引用就不擋、留帳（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION，hooks/wg_release_rules.py）。",
     "enabled": true,
     "max_context_ratio": 0.75,
     "min_object_chars": 6

@@ -3974,6 +3974,69 @@ def test_044_5_quoted_fixed_modifier_is_not_own_claim(driven, capsys):
     assert _A_HIT in out
 
 
+# ─── G6 階段 4（判斷入口盤點 P6）：詞表只是提示，宣稱行是 LLM 介入的入口（規則 CLAIM_WORDS_ARE_HINTS 等三條） ─────────────────
+
+def test_p6_explanation_plus_real_claim_blocks_and_teaches_claim_line(driven, capsys):
+    """10-15 實案形狀：說明句「CC 會自己跑完測試」＋真宣稱「修好了」沒收據 → 照擋（真宣稱沒證據照擋），
+    但擋訊息要教 AI 回宣稱行（舊碼只說補 PASS → 紅）。"""
+    out, _, _ = driven("CC 會自己跑完測試再收尾。閘修好了，完成。", capsys)
+    assert _A_HIT in out and "宣稱｜修好：非本回合宣稱" in out and "宣稱｜修好：收據" in out and "CLAIM_WORDS_ARE_HINTS" in out
+
+
+def test_p6_disclaim_with_reason_passes_and_logs(driven, capsys):
+    """AI 回「宣稱｜修好：非本回合宣稱，因為…」→ (a) 放行、guard-reconcile.jsonl 記 claim_disclaimed（哪一條、原行）。"""
+    text = ("CC 會自己跑完測試再收尾。閘修好了，完成。\n"
+            "宣稱｜修好：非本回合宣稱，因為「修好了」講的是上一回合驗過的狀態，本回合只改了文件")
+    out, _, logs = driven(text, capsys)
+    assert "ReconcileGate" not in out
+    hit = [p for g, p in logs if g == "reconcile" and p.get("event") == "claim_disclaimed"]
+    assert hit and hit[0]["letter"] == "a" and hit[0]["line"].startswith("宣稱｜修好：非本回合宣稱")
+
+
+def test_p6_disclaim_without_reason_still_blocks(driven, capsys):
+    out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：非本回合宣稱，因為 <理由>", capsys)
+    assert "(a) CLAIM_DISCLAIM_NEEDS_REASON" in out
+
+
+def test_p6_receipt_ref_matching_green_receipt_passes(driven, capsys):
+    """對帳程式用檔名對不上的綠收據（run_other.py），AI 指出「收據 run_other.py」→ 對上就放、留帳；指錯或紅的照擋。"""
+    rc = {_SID: [_rcpt(5, cmd="python run_other.py")]}
+    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts=rc)
+    assert _A_HIT in out, "前置：程式自己對不上這張收據"
+    out, _, logs = driven("閘修好了，完成。\n宣稱｜修好：收據 run_other.py", capsys, verify_receipts=rc)
+    assert "ReconcileGate" not in out
+    assert any(g == "reconcile" and p.get("event") == "claim_receipt_ref" and "run_other.py" in p.get("why", "") for g, p in logs)
+    out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：收據 nothing.py", capsys, verify_receipts=rc)
+    assert "(a) CLAIM_RECEIPT_REF_MATCH" in out
+    out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：收據 run_other.py", capsys,
+                       verify_receipts={_SID: [_rcpt(5, "FAIL", cmd="python run_other.py")]})
+    assert "(a) CLAIM_RECEIPT_REF_MATCH" in out, "指到紅收據不算"
+
+
+def test_p6_tried_claim_disclaimed_passes(driven, capsys):
+    out, _, _ = driven("CC 收尾會自己跑了測試。完成。\n宣稱｜試過：非本回合宣稱，因為那句是在說明 CC 收尾的行為", capsys)
+    assert _C_HIT not in out
+
+
+# ─── G6 階段 4（P7）：紅測清單的使用者豁免要對到具體哪一筆（規則 USER_WAIVER_NEEDS_CITATION） ─────────────────────
+
+def test_p7_testfail_waives_only_the_cited_test_and_logs(driven, capsys):
+    red = [{"cmd": "python -m pytest verify_a.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True},
+           {"cmd": "python -m pytest verify_b.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}]
+    prompts = ["verify_a 先這樣，b 要修"]
+    out, _, _ = driven("全部完成了。", capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out and "2 項失敗" in out, "使用者只說了「先這樣」、AI 沒引用對到哪一支 → 兩支照擋"
+    text = "全部完成了。\n不做｜verify_a.py：使用者說「verify_a 先這樣」"
+    out, _, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out and "1 項失敗" in out and "verify_b.py" in out
+    hit = [p for g, p in logs if g == "testfail_waived"]
+    assert hit and hit[0]["failing_cmd"].endswith("verify_a.py") and hit[0]["user_said"] == "verify_a 先這樣" and hit[0]["turn_seq"] == 5
+    both = text + "\n不做｜verify_b.py：使用者說「b 要修」"
+    out, _, _ = driven(both, capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)],
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "TestFailGate" not in out
+
+
 @pytest.fixture()
 def plain_dir():
     """不含 test 字樣的暫存目錄（pytest 的 tmp 路徑含 test，拿不到專案根時會被 `**/*test*` 當成案例檔，案子就驗不到東西）。"""

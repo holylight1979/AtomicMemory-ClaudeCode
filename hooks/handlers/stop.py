@@ -45,7 +45,9 @@ from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
+    parse_not_doing, waived_failures,
 )
+from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
     non_interactive_reason, non_interactive_message, pending_of, set_pending, clear_pending,
@@ -818,6 +820,7 @@ def _verify_gates(
     kind = ""
     advice: Optional[str] = None
     _runs: List[List[Dict[str, Any]]] = []
+    _claim_audit: List[Dict[str, Any]] = []
     # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit、同根本 session 改過的程式檔全都乾淨）不算改碼：補案例與驗證範圍都不欠；
     # 判不出來照算改了。同根乾淨看 session 全部改過的程式檔（主 session＋所有子代理；文件等不算，EXEMPTION_PEERS_CODE_ONLY），
     # 剔除只套在這次受查的 own_mod_files
@@ -884,8 +887,16 @@ def _verify_gates(
                 # (d) 補案例：由哪個案例驗看 LLM 在驗證範圍的宣告（case_for／no_case）；驗證範圍閘關掉才退回時序判法
                 case_check=_scope_case_check(state, session_id, own_mod_files, receipts, rg_cfg, _lk, _self_runs())
                 if _lk and sg_cfg.get("enabled", True) else None,
+                audit=_claim_audit,
             )
             kind = "reconcile" if reason or report else ""
+            # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 被宣稱行解掉的留帳（guard-reconcile.jsonl event=claim_disclaimed／claim_receipt_ref），健檢抽查
+            for _ca in _claim_audit:
+                append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq,
+                                               "event": "claim_receipt_ref" if _ca.get("rule") == "CLAIM_RECEIPT_REF_MATCH" else "claim_disclaimed",
+                                               "letter": _ca.get("letter"), "kind": _ca.get("kind"), "why": str(_ca.get("why", ""))[:200],
+                                               "line": str(_ca.get("line", ""))[:200]})
+                print(f"[Guardian:ReconcileGate] ({_ca.get('letter')}) 宣稱行解掉：{_ca.get('why')}（已留帳）", file=sys.stderr)
         except Exception as e:
             reason = (f"[Guardian:ReconcileGate] 判定錯誤，一律擋：{type(e).__name__}: {e}。"
                       "修好設定或回報；先別宣告完成")
@@ -1321,6 +1332,18 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 + "。可以這一回合一起補完再收尾（收尾檢核放最後）。")
     _later.append(_later_gates)
 
+    # 規則 USER_WAIVER_NEEDS_CITATION：使用者說「先這樣／跳過」不再整段清掉紅測；LLM 寫「不做｜<哪一支>：使用者說「<原句>」」、
+    # 原句真的在近 3 則使用者原話、事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的）
+    if failing:
+        failing, _waived = waived_failures(failing, parse_not_doing(code_text),
+                                           _user_typed_prompts(state.get("recent_user_prompts") or [])[-3:])
+        for _f, _d in _waived:
+            append_guard_log("testfail_waived", {"session_id": session_id, "turn_seq": turn_seq,
+                                                 "failing_cmd": str(_f.get("cmd", ""))[:120], "failing_turn": _f.get("turn_seq"),
+                                                 "item": _d.get("item", "")[:80], "user_said": _d.get("quote", "")[:120],
+                                                 "line": _d.get("line", "")[:200]})
+            print(f"[Guardian:TestFailGate] 使用者原話「{_d.get('quote', '')[:40]}」豁免紅測 {str(_f.get('cmd', ''))[:50]}（已留帳）",
+                  file=sys.stderr)
     if failing and claims_completion(code_text):
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(
@@ -1459,7 +1482,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     if not state.get("evasion_flag"):
         recent_prompts = state.get("recent_user_prompts", []) or []
-        ev = detect_evasion(last_text, recent_prompts)
+        _nd_audit: List[Dict[str, Any]] = []
+        ev = detect_evasion(last_text, recent_prompts, audit=_nd_audit)
+        # 規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：退避語對到有理由的不做行或使用者引用 → 不標、留帳
+        for _a in _nd_audit:
+            append_guard_log("evasion_declared", {"session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)),
+                                                  "phrase": _a.get("phrase", ""), "rule": _a.get("rule", ""),
+                                                  "why": str(_a.get("why", ""))[:200], "line": str(_a.get("line", ""))[:200]})
         if ev:
             # 規則 EVASION_CONTEXT_EXEMPT：context 快滿、延後的事已落地、使用者沒叫現在做 → 這筆延後語不標紅不注入（照記錄）
             try:
@@ -1509,6 +1538,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             )
         except Exception:
             _dg_ratio = 0.0
+        _dg_audit: List[Dict[str, Any]] = []
         try:
             dg = deferral_gate_reason(
                 last_text,
@@ -1518,10 +1548,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 committed_this_turn=committed_this_turn,
                 context_ratio=_dg_ratio,
                 config=config,
+                audit=_dg_audit,
             )
         except Exception as e:
             dg = None
             print(f"[Guardian:DeferralGate] error (fail-open): {e}", file=sys.stderr)
+        for _a in _dg_audit:   # 規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：退縮句對到不做行 → 不擋、留帳
+            append_guard_log("deferral_declared", {"session_id": session_id, "turn_seq": turn_seq,
+                                                   "phrase": _a.get("phrase", ""), "rule": _a.get("rule", ""),
+                                                   "why": str(_a.get("why", ""))[:200], "line": str(_a.get("line", ""))[:200]})
         if dg:
             state["deferral_gate_turn"] = _uturn
             state["stop_blocked_count"] = stop_count + 1

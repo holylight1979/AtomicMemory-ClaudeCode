@@ -16,7 +16,6 @@ from typing import Any, Dict, List
 
 from wg_core import _now_iso, _atom_debug_log, _atom_debug_error, user_typed_text
 from wg_extraction import detect_signal
-from wg_evasion import is_dismiss_prompt
 from wg_release_rules import is_dispatch_message
 from harness_text import peer_message_bodies   # lib/（wg_core 已把它放進 sys.path）
 
@@ -99,9 +98,8 @@ def run_pre_gates(
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
     track_turn_prompts(state, clean_prompt)
-
-    if typed and state.get("failing_tests") and is_dismiss_prompt(typed):
-        state["failing_tests"] = []
+    # 使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，
+    # Stop 的 TestFailGate 只豁免對得上的那幾筆（規則 USER_WAIVER_NEEDS_CITATION，wg_release_rules.waived_failures）。
 
     # ─── User Decision Detector gate ────────────────────────────
     ue_config = config.get("userExtraction", {})

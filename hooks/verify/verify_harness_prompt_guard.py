@@ -52,12 +52,13 @@ def test_peer_message_is_not_a_correction_nor_a_dismiss():
     from wg_evasion import detect_evasion
     from wg_harvest import _dismissed
     assert detect_correction(PEER, {}) == []                                        # 反例：舊碼算成使用者糾正
-    t = "既有的問題，非本次範圍。"
+    # G6 P7：豁免要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」，引用只認使用者打的字——同伴說「先這樣」對不到引用，使用者說的對得到
+    t = "既有的問題，非本次範圍。\n不做｜既有的問題：使用者說「先這樣」"
     assert detect_evasion(t, ["幫我修好", PEER]) is not None                        # 同伴說「先這樣」不替使用者豁免
     assert detect_evasion(t, ["先這樣", PEER]) is None                              # 使用者說的照樣豁免
     assert _dismissed(["幫我修好", PEER]) is False and _dismissed(["先這樣"]) is True
     from wg_evasion import detect_deferral, detect_missing_aec_emission
-    later = "完工。realm atom 瘦身留到下個 session 做。"
+    later = "完工。realm atom 瘦身留到下個 session 做。\n不做｜realm atom 瘦身：使用者說「先這樣」"
     assert detect_deferral(later, ["幫我修好", PEER]) is not None and detect_deferral(later, ["先這樣"]) is None
     core = [{"path": r"c:\a\.claude\hooks\x.py", "tool": "Edit"}]
     assert detect_missing_aec_emission("全部完成了", core, ["幫我修好", PEER], 2, False) is True
@@ -85,7 +86,8 @@ def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     assert disabled == []                                                           # 同伴「停用」不停後端
     st, lines = fresh(), []
     g.run_pre_gates("sid", st, cfg, said, said.lower(), lines)                      # 對照：使用者自己打同一段話
-    assert st["failing_tests"] == [] and st.get("pending_user_extract") and disabled == ["ollama"]
+    assert st["failing_tests"] == ["t::x"], "G6 P7：使用者的「先這樣」也不再在入口清掉整份紅測，豁免改在 Stop 對到具體那一筆"
+    assert st.get("pending_user_extract") and disabled == ["ollama"]
     assert not any("已記為 atom" in ln for ln in lines)
 
 
@@ -132,22 +134,26 @@ def _peer(body: str) -> str:
 
 
 def _seven(prompt: str, monkeypatch) -> dict:
-    """經入口跑一則 prompt，回七項「使用者說了算」是否生效：口令、糾正、豁免、清失敗紀錄、使用者決策、不要記、停用。"""
+    """經入口跑一則 prompt，回七項「使用者說了算」是否生效：口令、糾正、豁免、紅測豁免、使用者決策、不要記、停用。
+    豁免與紅測豁免（G6 P7）要 AI 寫「不做｜<哪一件>：使用者說「先這樣」」，引用只認使用者打的字（recent_user_prompts 存清理後的文字）。"""
     from handlers import ups_gates as g
     from handlers.pre_tool_use import check_git_commit_order
     from wg_evasion import detect_evasion
+    from wg_release_rules import parse_not_doing, waived_failures
     disabled = []
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
-    st = {"failing_tests": ["t::x"], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
+    st = {"failing_tests": [{"cmd": "pytest t_x.py"}], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
     lines = []
     g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, prompt, prompt.lower(), lines)
+    cited = "既有的問題，非本次範圍。\n不做｜既有的問題：使用者說「先這樣」"
+    kept, _ = waived_failures(st["failing_tests"], parse_not_doing("不做｜t_x.py：使用者說「先這樣」"), st["recent_user_prompts"][-3:])
     return {
         "order": check_git_commit_order("Bash", {"command": "git commit -m x"}, {}, st) is None,
         "correction": bool(detect_correction(prompt, {})),
-        "dismiss": detect_evasion("既有的問題，非本次範圍。", st["recent_user_prompts"]) is None,
-        "failing": st["failing_tests"] == [],
+        "dismiss": detect_evasion(cited, st["recent_user_prompts"]) is None,
+        "failing": kept == [],
         "decision": bool(st.get("pending_user_extract")),
         "veto": not any("已記為 atom" in ln for ln in lines),
         "disable": disabled == ["ollama"],

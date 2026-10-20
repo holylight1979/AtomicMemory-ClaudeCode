@@ -207,7 +207,8 @@ def handle_user_prompt_submit(
             f"  context: …{ev.get('context_excerpt', '')[:200]}…\n"
             "feedback-rigor-standards 規則：1-3 行能修就當場修。請說明：\n"
             "  (a) 實際修補成本（列出要改的檔/行數）\n"
-            "  (b) 若仍選擇不修，為何這不是 feedback atom 所禁的退避說法？"
+            "  (b) 若仍選擇不修，為何這不是 feedback atom 所禁的退避說法？\n"
+            f"  {ev.get('hint') or ''}"
         )
         state["evasion_flag"] = None
 

@@ -39,7 +39,8 @@ from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, go
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
-                              MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking)
+                              MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking,
+                              parse_claim_dispositions, claim_disposition_verdict)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -2044,8 +2045,11 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          move_receipts: Optional[List[Dict[str, Any]]] = None,
                          scope_fix: Optional[Callable[[], Optional[Tuple[bool, List[str]]]]] = None,
                          case_check: Optional[Callable[[str], Verdict]] = None,
+                         audit: Optional[List[Dict[str, Any]]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
+    audit＝(a)(b)(c) 命中但被 last_text 裡的宣稱行解掉的那幾筆（規則 CLAIM_WORDS_ARE_HINTS：「非本回合宣稱，因為…」或
+    「收據 <ref>」對上），caller 落 guard log 留帳；None＝不收。
     scope_fix＝驗證範圍宣告給 (a) 的證據（wg_verify_scope.fix_evidence；stop 傳入，避免反向 import）：回 None＝沒宣告，
     退回下面的檔名對應；回 (有沒有, 說明行)＝有宣告，(a) 只認它。
     case_check＝(d)「由哪個案例驗」的判定（wg_verify_scope.case_check；驗證範圍閘開著時 stop 傳入）：給了就照 LLM 的案例宣告判，
@@ -2095,32 +2099,66 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         return f"（{n}）" if n else ""
 
     hits: List[str] = []          # 每條都是 format_hit 的一行：`✗ (<字母>) <規則名>：<一句現象>｜證據：…`
+    # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 命中且沒證據時，先看 last_text 有沒有宣稱行解掉它（「非本回合宣稱，因為…」放行留帳；
+    # 「收據 <ref>」要對得上本 session 一筆合格收據：CLAIM_RECEIPT_REF_MATCH）；沒有才擋，擋訊息附寫法
+    dispositions = parse_claim_dispositions(last_text)
+
+    def find_receipt(kind: str, ref: str) -> Optional[str]:
+        """宣稱行指的收據：指令含那段字或哨兵名相同（至少 3 字）；修好要合格 PASS 且晚於相關改檔；量了要 DONE；試過任一筆。"""
+        key = re.sub(r"\s+", "", str(ref or "")).lower()
+        if len(key) < 3:
+            return None
+        for r in receipts:
+            if not isinstance(r, dict):
+                continue
+            named = (key in re.sub(r"\s+", "", str(r.get("cmd") or "")).lower()
+                     or any(re.sub(r"\s+", "", str(s.get("name") or "")).lower() == key
+                            for s in (r.get("sentinels") or []) if isinstance(s, dict)))
+            if not named:
+                continue
+            if kind == "fixed" and not (pass_receipts([r]) and all(_after_last_edit(r, mod_records.get(p)) for p in relate_paths)):
+                continue
+            if kind == "measured" and "DONE" not in _verdicts(r):
+                continue
+            return f"{str(r.get('cmd') or '')[:60]}（turn {r.get('turn_seq')}）"
+        return None
+
+    def settle(letter: str, kind: str, v: Verdict) -> None:
+        dv = claim_disposition_verdict(kind, dispositions, lambda ref, _k=kind: find_receipt(_k, ref))
+        if dv.owed:
+            hits.append(format_hit(letter, Verdict(v.rule if dv.rule == "CLAIM_WORDS_ARE_HINTS" else dv.rule, True,
+                                                   v.why if dv.rule == "CLAIM_WORDS_ARE_HINTS" else f"{v.why}；{dv.why}",
+                                                   (*v.evidence, *dv.evidence))))
+        elif audit is not None:
+            audit.append({"letter": letter, "kind": kind, "rule": dv.rule, "why": dv.why,
+                          "line": dv.evidence[0] if dv.evidence else ""})
+
     fixed = any(claims_fixed(t, phrases) for t in texts)
     scope = scope_fix() if fixed and scope_fix else None
     if scope is not None and not scope[0]:
-        hits.append(format_hit("a", Verdict(
+        settle("a", "fixed", Verdict(
             "CLAIM_FIXED_NEEDS_PASS", True, "說「修好」但驗證範圍宣告裡沒有一項在跟它有關的最後一次改動之後跑綠",
             (*scope[1][:4], "修好的證據認你宣告的驗證範圍：範圍內任一項改完之後跑綠就算（不看回合、不比檔名）；"
-                            "範圍不對就重新宣告（need_goal verify_scope）" + note("PASS")))))
+                            "範圍不對就重新宣告（need_goal verify_scope）" + note("PASS"))))
     elif scope is None and fixed and not related and not covered():
-        hits.append(format_hit("a", Verdict(
+        settle("a", "fixed", Verdict(
             "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}",
             (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆" + turn_rule,
              "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
              # 全量改增量待補：原本括號寫「背景全量」，全量已從流程拔掉，不再當成修好的建議做法
-             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景跑的整組 pytest）" + note("PASS")))))
+             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景跑的整組 pytest）" + note("PASS"))))
     measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
                    for r in this_turn)
     if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():
-        hits.append(format_hit("b", Verdict(
+        settle("b", "measured", Verdict(
             "CLAIM_MEASURED_NEEDS_DONE", True, "說「量了」但本回合沒有 `<NAME> DONE k=v` 收據，也沒有改完之後跑的部位量尺自寫收據",
-            (("補跑量尺讓它印 DONE 尾行" if pending else "量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量") + note("DONE") + turn_rule,))))
+            (("補跑量尺讓它印 DONE 尾行" if pending else "量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量") + note("DONE") + turn_rule,)))
     if not exec_this_turn and any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases)
                                   for t in texts):
-        hits.append(format_hit("c", Verdict(
+        settle("c", "tried", Verdict(
             "CLAIM_TRIED_NEEDS_EXEC", True, "說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行",
             (f"本回合工具呼叫：{'、'.join(sorted(set(str(n) for n in turn_tool_names))[:6]) or '（無）'}" + turn_rule,
-             "現在跑出收據" if pending else "沒跑就寫沒跑，或現在跑"))))
+             "現在跑出收據" if pending else "沒跑就寫沒跑，或現在跑")))
     exts = cfg.get("code_exts") or []
     absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p) and not is_excluded(p, cfg, root_of(p))]
     why: Dict[str, Verdict] = {}
