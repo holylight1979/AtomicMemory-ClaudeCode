@@ -1820,3 +1820,15 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── T2.18 origin 核對 ───
+def test_origin_user_needs_quote():
+    """ORIGIN_USER_NEEDS_QUOTE：完整案例在 verify_origin_user_check.py；這裡守判式——字面子串對得到才算、同伴說的不算。"""
+    said = [{"seq": 3, "turn": 1, "text": "把 audit 寫進 log 檔"}]
+    origin, v, m = rr.origin_user_verdict("audit 要寫進 log 檔", "audit 寫進 log 檔", said)
+    assert origin == "user" and not v.owed and m["said"]["seq"] == 3
+    origin, v, m = rr.origin_user_verdict("舊報表不被弄壞", None, said)
+    assert origin == "inferred" and v.owed and v.rule == "ORIGIN_USER_NEEDS_QUOTE" and m is None
+    _, v, _ = rr.origin_user_verdict("x", "報表格式不能變", said, [{"from": "claude-aa", "text": "報表格式不能變喔"}])
+    assert v.owed and "同伴 claude-aa" in v.why

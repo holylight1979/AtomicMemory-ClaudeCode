@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 目標樹標「使用者說的」要對得到原話（T2.18 根治自作主張③）
+- **交給 AI 寫程式時會看到的**：AI 把子目標標成「使用者說的」時要引用你說過的原句（quote）；引不到、或那句其實是同伴 session 說的，節點會被自動改成「推出來的」，AI 當下和你下一則訊息時各被提醒一次；之後改寫這類節點的文字也重核。樹根不核，從續接單匯入的節點匯入當下不核。開關 `guard.origin_user_check.enabled`。細節 TECH §7.7。
+- **依據與驗證**：驗收題 C 第二段新 session 把自己從 git diff 推論的需求標成使用者說的。`hooks/verify/verify_origin_user_check.py` 11 案（含該題真實輸入），舊碼 7 案紅；Codex 審查抓到「只改文字不重核」已補；該題「舊報表不被弄壞」實際寫在樹根，本軌不核樹根，列待決。
+
 ## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒
 - **交給 AI 寫程式時會看到的**：commit 時，新寫進的「一整段邏輯塞進匿名回呼（超過 20 行）」「`x = lambda`」「函式巢狀 4 層以上」「巢狀三元」「Unity 空的 Update 之類」「Update 裡每幀 Find／AddComponent／反射」也會被擋並點名哪個檔第幾行（巢狀附幾層、回呼附幾行）；10～20 行的匿名回呼、字串註解剝不乾淨的檔只提醒不擋；舊函式本來就深、這次沒變深的不擋。測試框架的 describe／it 回呼、promise 回呼用到外層變數的不算套層。門檻在 `workflow/config.json` 的 `guard.smell_gate` 可調。
 - **依據與驗證**：派工 002 提案（linter 原始碼與文獻＋實測，`workflow/inbox/from-track-g2/002-smell-shapes-proposal.md`）、派工 003 核可。`hooks/verify/verify_smell_gate.py` 新 23 案，每條病形一個先紅後綠＋至少一個誤判反例；在本 repo 與一個 3704 檔的 C# 伺服器專案上校準，抓到並修掉兩類誤擋（伺服器模組的 `Update()` 被當成 Unity 訊息、C# 運算式主體屬性被當成 lambda）。本機沒有 Unity 專案，Unity 兩條只有案例驗過、沒有在真實 Unity 專案上校準。改完閘本身也被自己擋了一次（新寫的函式巢狀 4 層），已改平。

@@ -2106,3 +2106,47 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
         hit = next((d for d in cited if names_item(hay, d["item"])), None)
         (waived.append((f, hit)) if hit else kept.append(f))
     return kept, waived
+
+
+# ─── T2.18 origin 核對 ───
+# 目標樹子節點標「使用者說的」要對得到原話（wg_need_goal 的 add／update 收事實、這裡判）。只核字面在不在、是誰說的；
+# 要不要標、引哪一句由 AI 判（引一句不相干的原話硬掛，程式看不出來：quote 與節點文字並列留帳給人抽查）
+RULES.update({
+    "ORIGIN_USER_NEEDS_QUOTE": "目標樹子節點標 origin=user（使用者說的）：quote 或節點文字本身（去頭尾空白、至少 6 字、不正規化標點）"
+                               "要是樹上某則使用者原話（user_said，含匯入的前一個 session 原話）的字面子串；對不到、或只出現在同伴轉述"
+                               "（peer_said）裡 → 強制改 inferred（推出來的）並提醒。樹根與匯入的節點不核。",
+})
+ORIGIN_QUOTE_MIN = 6
+
+
+def _said_with(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
+    return next((e for e in entries or () if isinstance(e, dict) and s in str(e.get("text") or "")), None)
+
+
+def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
+                        peer_said: Sequence[Any] = ()) -> Tuple[str, Verdict, Optional[Dict[str, Any]]]:
+    """ORIGIN_USER_NEEDS_QUOTE：回 (origin, Verdict, 對上的 {"quote": 對上的字串, "said": 那則原話})；對不到第三項是 None、
+    owed＝要降級成 inferred。先核 quote、再核節點文字；兩個都對不到時，原因以 quote（有給的話）為準。"""
+    rule = "ORIGIN_USER_NEEDS_QUOTE"
+    q = quote.strip() if isinstance(quote, str) else ""
+    t = text.strip() if isinstance(text, str) else ""
+    for s, how in ((q, "quote"), (t, "節點文字")):
+        if len(s) < ORIGIN_QUOTE_MIN:
+            continue
+        hit = _said_with(s, user_said)
+        if hit is not None:
+            return ("user", Verdict(rule, False, f"{how}對得到第 {hit.get('turn', '?')} 回合的使用者原話", (f"引用：{s[:120]}",)),
+                    {"quote": s, "said": hit})
+    s = q or t
+    peer = _said_with(s, peer_said) if len(s) >= ORIGIN_QUOTE_MIN else None
+    if peer is not None:
+        why = f"這句是同伴 {peer.get('from') or '?'} 說的，不是使用者"
+    elif q and len(q) < ORIGIN_QUOTE_MIN:
+        why = f"quote 只有 {len(q)} 字，至少要 {ORIGIN_QUOTE_MIN} 字"
+    elif q:
+        why = "quote 不在任何一則使用者原話裡"
+    elif len(t) < ORIGIN_QUOTE_MIN:
+        why = f"沒給 quote，節點文字只有 {len(t)} 字（不到 {ORIGIN_QUOTE_MIN} 字不拿來比）"
+    else:
+        why = "沒給 quote，節點文字也不是使用者原話的字面子句"
+    return "inferred", Verdict(rule, True, why, (f"節點文字：{t[:120]}", f"quote：{q[:120] or '（沒給）'}")), None
