@@ -7,6 +7,7 @@
 - Trigger: _vcs_segments, _scan_segments, commit 指令拆解, here-string, pathspec 被切掉, SmellGate 無聲放行, 多行 -m, 跳脫引號, 2>&1, _commit_shape_problem, git -C 累加
 - Created-at: 2026-10-20
 - Related: worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑
+- Quote: 「track-g2-pathspec-fix：你是工作軌 track-g2-pathspec-fix，總控台是 claude-12 [08791c]（送信一律帶這個識別碼，另有一個同名 session 不是總控台）。第一步用 EnterWorktree 切進 C:\Users\holylight\.claude-wt\g2-pathspec-fix（分支 g2-pathspec-fix，已存在，不…」
 
 ## 知識
 

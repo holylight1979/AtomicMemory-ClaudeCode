@@ -123,6 +123,12 @@ function check(cond, label, detail) {
         "need_goal reconcile bad evidence enums rejected", textOf(ng5));
   const ng6 = await callTool("need_goal", { action: "explode" });
   check(ng6.result.isError === true && /action/.test(textOf(ng6)), "need_goal unknown action rejected", textOf(ng6));
+  // T2.18：標 origin=user 要引用原話（quote）；update 也能只改 origin
+  check(ngDef && ngDef.inputSchema.properties.items.items.properties.quote, "need_goal schema has items.quote");
+  const ngq = await callTool("need_goal", { action: "update", items: [{ id: "T1.1", origin: "user", quote: "把 audit 寫進 log 檔", why: "引用原話" }] });
+  check(!ngq.result.isError && /update 已收到/.test(textOf(ngq)), "need_goal update origin-only with quote accepted", textOf(ngq));
+  const ngq2 = await callTool("need_goal", { action: "add", items: [{ text: "x", origin: "user", quote: 3 }] });
+  check(ngq2.result.isError === true && /quote/.test(textOf(ngq2)), "need_goal add non-string quote rejected", textOf(ngq2));
   // verify_scope：驗證範圍的宣告（該測哪些由 LLM 判斷）；js 只驗形狀
   check(ngDef && ngDef.inputSchema.properties.action.enum.includes("verify_scope") && ngDef.inputSchema.properties.reviews,
         "need_goal schema has verify_scope and reviews");
