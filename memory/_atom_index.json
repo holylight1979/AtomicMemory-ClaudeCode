@@ -7882,6 +7882,38 @@
       "related": [
         "worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑"
       ]
+    },
+    {
+      "name": "feedback-原子記憶不內建預設會有下一個session的行為-接續單只是全ai執行升級的特例不是標竿",
+      "path": "memory/Failures/CC與原子記憶契約/feedback-原子記憶不內建預設會有下一個session的行為-接續單只是全ai執行升級的特例不是標竿.md",
+      "triggers": [
+        "下一個 session",
+        "自動匯出接續單",
+        "next-phase-auto",
+        "目標樹跨 session",
+        "收尾自動匯出",
+        "預設有下個 session",
+        "不內建",
+        "原設計者否決"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量",
+      "path": "memory/Failures/行為契約/feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量.md",
+      "triggers": [
+        "總控台回報",
+        "等你的",
+        "等機器的",
+        "我在等",
+        "閒置分頁",
+        "MR 審查分頁",
+        "待你裁",
+        "分歧五條",
+        "不需你動作",
+        "推卸責任"
+      ],
+      "scope": "global"
     }
   ]
 }
