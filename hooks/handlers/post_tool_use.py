@@ -1006,8 +1006,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
 
-    # 本 session Write 新建的檔（呼叫前不存在）→ state created_files：動資料檔閘的事實 (c)，暫存檔也記
+    # 本 session 新建的檔（呼叫前不存在）→ state created_files：動資料檔閘的事實 (c)，暫存檔也記。
+    # Write 看結果 type=create；Bash／PowerShell 看 PreToolUse 記下的呼叫前不存在的目標
     if wg_data_file.note_created(state, tool_name, file_path, input_data.get("tool_response")):
+        dirty = True
+    if wg_data_file.confirm_shell_created(state, str(input_data.get("tool_use_id") or "")):
         dirty = True
 
     if (

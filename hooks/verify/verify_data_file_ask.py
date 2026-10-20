@@ -263,6 +263,74 @@ def test_tool_input_channel_needs_hash_comment(world):
     assert _df_deny(_run(world))
 
 
+# ─── Bash／PowerShell 寫入目標（write_paths_from_tool）走同一支判定 ───
+
+def _shell(w, command, tool="Bash", tuid="tu-1"):
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": tool, "tool_input": {"command": command}, "session_id": SID, "tool_use_id": tuid,
+                                 "cwd": str(w["proj"]), "transcript_path": w["tp"]}, {})
+    return w["outputs"][-1]
+
+
+@pytest.mark.parametrize("tool,cmd", [("Bash", "sed -i 's/,}/}/' settings.json"),
+                                      ("PowerShell", "Set-Content -Path settings.json -Value '{}'")])
+def test_shell_write_to_existing_data_file_is_denied(world, tool, cmd):
+    from wg_core import write_paths_from_tool
+    assert write_paths_from_tool(tool, {"command": cmd}, str(world["proj"])) == [str(world["proj"] / "settings.json")]  # 前置：目標算得出
+    out = _shell(world, cmd, tool)
+    assert _df_deny(out) and f"✗ (df) {RULE}：" in _reason(out)
+
+
+@pytest.mark.parametrize("tool,cmd", [("Bash", "sed -i 's/,}/}/' settings.json"),
+                                      ("PowerShell", "Set-Content -Path settings.json -Value '{}'")])
+def test_shell_write_with_declaration_in_same_command_allows(world, tool, cmd):
+    """宣告寫在同一條指令開頭的 # 註解：PreToolUse 當下這則工具呼叫不一定已寫進 transcript，指令本身也要認。"""
+    out = _shell(world, f"# {DECL}\n{cmd}", tool)
+    assert not _df_deny(out), out
+    assert _log(world)[-1]["event"] == "declared" and _log(world)[-1]["via"] == "tool_input"
+
+
+def test_shell_creating_new_file_is_not_asked_and_later_edit_is_exempt(world, monkeypatch):
+    """`echo x > new.json` 新建 → (b) 不成立；PostToolUse 確認檔真的出現 → created_files；之後 Edit 它 → (c) 不成立。"""
+    from handlers import post_tool_use as post
+    monkeypatch.setattr(post, "_emit_post_tool_output", lambda *a, **k: None)
+    new = world["proj"] / "new.json"
+    assert not new.exists()
+    assert not _df_deny(_shell(world, "echo x > new.json", tuid="tu-new"))
+    assert _log(world)[-1]["why"].startswith("(b) 不成立")
+    new.write_text("x\n", encoding="utf-8")
+    post.handle_post_tool_use({"session_id": SID, "cwd": str(world["proj"]), "tool_name": "Bash", "tool_use_id": "tu-new",
+                               "tool_input": {"command": "echo x > new.json"}, "tool_response": {"stdout": "", "stderr": ""},
+                               "transcript_path": world["tp"]}, {})
+    assert df._rr.canon_path(str(new)) in wg_core.read_state(SID).get("created_files", [])
+    assert not _df_deny(_run(world, path=new))
+    assert _log(world)[-1]["why"].startswith("(c) 不成立")
+
+
+def test_shell_existing_file_overwrite_is_not_recorded_as_created(world):
+    """覆寫既有檔（`>` 寫到已存在的 settings.json）不能被記成本 session 建，否則之後改它就不問了。"""
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", DECL)])
+    assert not _df_deny(_shell(world, "echo {} > settings.json", tuid="tu-ow"))
+    st = wg_core.read_state(SID)
+    assert "tu-ow" not in (st.get("data_file_pending_new") or {})
+    assert df.confirm_shell_created(st, "tu-ow") is False
+    assert df._rr.canon_path(str(world["proj"] / "settings.json")) not in st.get("created_files", [])
+
+
+def test_shell_two_data_files_one_declared_names_the_other(world):
+    (world["proj"] / "rates.csv").write_text("a,1\n", encoding="utf-8")
+    out = _shell(world, "# " + DECL + "\nsed -i 's/,}/}/' settings.json && sed -i 's/1/2/' rates.csv")
+    assert _df_deny(out)
+    r = _reason(out)
+    assert "要改的是 rates.csv" in r and r.count("✗ (df)") == 1, "只擋沒宣告的 rates.csv，settings.json 對上了"
+    assert "入口行範例：動資料檔｜rates.csv：" in r and "入口行範例：動資料檔｜settings.json" not in r
+
+
+def test_shell_without_data_file_targets_is_untouched(world):
+    assert not _df_deny(_shell(world, "sed -i 's/1/2/' app.py && cat settings.json"))
+    assert not _log(world)
+
+
 def test_broken_state_blocks(world):
     wg_core.state_file_path(SID).write_text("{broken", encoding="utf-8")
     out = _run(world)
