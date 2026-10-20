@@ -2114,8 +2114,8 @@ RULES.update({
                                         "(a) 不是程式檔（wg_need_goal.writes_code 為 False）且副檔名在 guard.data_file_ask.extensions，"
                                         "清單只決定程式要不要把它當資料檔問，該不該改仍是 AI 判；(b) 呼叫前檔已存在；(c) 不是本 session Write 新建的"
                                         "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
-                                        "成立而且回覆文字／工具呼叫參數（Bash 開頭 # 註解）／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
-                                        "（路徑檔名對得上這次要改的檔、冒號後有文字內容、不是角括號佔位）→ 擋。宣告過記 state data_file_declared，"
+                                        "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
+                                        "（路徑檔名對得上這次要改的檔、冒號後至少一個字母或數字、整段不是角括號佔位）→ 擋。宣告過記 state data_file_declared，"
                                         "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。",
 })
 
@@ -2142,18 +2142,44 @@ def decl_names_file(decl_path: str, target: str) -> bool:
     return t == d or t.endswith("/" + d) or (os.path.isabs(d) and canon_path(d) == t)
 
 
+_CJK_CHAR_RE = re.compile(r"[一-鿿㐀-䶿぀-ヿ가-힯]")
+_QUOTED_NAME_RE = re.compile(r"[「『\"“`]([^「」『』\"“”`\n]+)[」』\"”`]")
+
+
+def _quoted_other_name(text: str, start: int, end: int, base: str) -> bool:
+    """命中處在引號／反引號裡，而引號裡是另一個更長的檔名（「備份設定.json」裡的 設定.json）。"""
+    for q in _QUOTED_NAME_RE.finditer(text):
+        if q.start(1) <= start and end <= q.end(1):
+            name = q.group(1).strip().replace("\\", "/").lower()
+            return name != base.lower() and not name.endswith("/" + base.lower())
+    return False
+
+
 def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
-    """事實 (d)：使用者原話有沒有點名這個檔，檔名含副檔名完整比對（前後不接檔名字元，前面可接路徑分隔），不分大小寫。
-    回點名那則原話的片段，沒有回 None。"""
+    """事實 (d)：使用者原話有沒有點名這個檔，檔名含副檔名完整比對，不分大小寫：前後不接檔名字元（前面可接路徑分隔）；
+    引號裡是更長的檔名不算；檔名以中日韓字開頭時前一個字也是中日韓字不算（「備份設定.json」分不出是不是別的檔，寧可多問）。
+    英文檔名前接中文動詞照算（「把settings.json的逗號修掉」）。回點名那則原話的片段，沒有回 None。"""
     base = Path(str(target)).name
     if not base:
         return None
     rx = re.compile(r"(?<![A-Za-z0-9_.\-])" + re.escape(base) + r"(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", re.IGNORECASE)
+    cjk_head = bool(_CJK_CHAR_RE.match(base))
     for p in prompts or ():
-        m = rx.search(str(p or ""))
-        if m:
-            return str(p)[max(0, m.start() - 30):m.end() + 30]
+        text = str(p or "")
+        for m in rx.finditer(text):
+            if _quoted_other_name(text, m.start(), m.end(), base):
+                continue
+            if cjk_head and m.start() > 0 and _CJK_CHAR_RE.match(text[m.start() - 1]):
+                continue
+            return text[max(0, m.start() - 30):m.end() + 30]
     return None
+
+
+def decl_reason_ok(why: str) -> bool:
+    """宣告行冒號後有理由：至少一個字母或數字（任何語言）、整段不是角括號佔位。只查有沒有，不評內容；
+    理由裡引用標籤（「修正 <幣別> 標籤」）照算。"""
+    s = str(why or "").strip()
+    return any(ch.isalnum() for ch in s) and not re.fullmatch(r"<[^<>\n]*>", s)
 
 
 def data_file_hint(rel: str) -> str:
@@ -2182,7 +2208,7 @@ def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Seque
           f"(d) 需求沒點名：本 session 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
     hit = [d for d in decls if decl_names_file(d[0], target)]
     for _path, why, line in hit:
-        if reason_present(why):
+        if decl_reason_ok(why):
             return Verdict(rule, False, f"AI 宣告動資料檔 {rel}：{why[:120]}", (line,))
     if hit:
         return Verdict(rule, True, f"宣告行冒號後沒有理由（空白、只有標點或角括號佔位）：{rel}", tuple(ev + [hit[-1][2]]))

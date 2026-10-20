@@ -1839,3 +1839,8 @@ def test_t216_user_data_file_needs_declaration():
     assert rr.parse_data_file_decls("動資料檔｜C:\\a\\b.json：理由")[0][:2] == ("C:\\a\\b.json", "理由")
     assert rr.prompt_names_file(["把settings.json的逗號修掉"], t) and rr.prompt_names_file(["改 Config/Settings.JSON"], t)
     assert not rr.prompt_names_file(["改 settings.json.bak", "看 mysettings.json", "設定檔"], t)
+    zh = "C:\\p\\設定.json"
+    assert not rr.prompt_names_file(["請修改「備份設定.json」", "請修改備份設定.json"], zh), "更長的中文檔名不算點名"
+    assert rr.prompt_names_file(["請修改「設定.json」", "改 設定.json 的值"], zh)
+    assert rr.decl_reason_ok("修正 <幣別> 標籤") and rr.decl_reason_ok("通貨を直す") and rr.decl_reason_ok("x")
+    assert not any(rr.decl_reason_ok(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))

@@ -23,7 +23,6 @@ GUARD = "data_file"
 TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 DEFAULT_EXTENSIONS = [".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env", ".csv", ".tsv", ".xml",
                       ".properties", ".plist"]
-CREATED_CAP = 200
 
 
 def cfg_of(config: Optional[Dict[str, Any]]) -> Tuple[bool, List[str]]:
@@ -43,7 +42,8 @@ def _ext_of(path: str) -> str:
 
 def note_created(state: Dict[str, Any], tool_name: str, file_path: str, tool_response: Any) -> bool:
     """PostToolUse：Write 成功且呼叫前檔不存在（Claude Code 的 Write 結果 type="create"）→ state created_files 加 canon_path。
-    結果沒有 type（判不出是不是新建）不記：之後改它會被問一次，寧可多問。回有沒有改 state。"""
+    整個 session 都留著不淘汰：淘汰掉就會把 AI 自己建的檔當成使用者既有。結果沒有 type（判不出是不是新建）不記：
+    之後改它會被問一次，寧可多問。回有沒有改 state。"""
     if tool_name != "Write" or not file_path or not isinstance(tool_response, dict) or tool_response.get("type") != "create":
         return False
     key = _rr.canon_path(file_path)
@@ -51,7 +51,6 @@ def note_created(state: Dict[str, Any], tool_name: str, file_path: str, tool_res
     if key in lst:
         return False
     lst.append(key)
-    del lst[:-CREATED_CAP]
     return True
 
 
@@ -89,11 +88,15 @@ def session_prompts(state: Dict[str, Any], transcript_path: str) -> List[str]:
 
 
 def declarations(transcript_path: str) -> List[Tuple[str, str, str, str]]:
-    """三管道（回覆文字／工具呼叫參數／thinking）整個 session 的宣告行 → [(路徑, 為什麼, 那一行, 管道)]。"""
+    """三管道（回覆文字／工具呼叫參數／thinking）整個 session 的宣告行 → [(路徑, 為什麼, 那一行, 管道)]。
+    工具呼叫參數只認 `#` 開頭的註解行（Bash／PowerShell 開頭的註解）；寫進檔案內容、替換文字裡的字樣不算宣告。"""
     from overview_hub import LOCATE_CHANNELS, assistant_text_after
     out: List[Tuple[str, str, str, str]] = []
     for ch in LOCATE_CHANNELS:
-        out.extend(d + (ch,) for d in _rr.parse_data_file_decls(assistant_text_after(transcript_path, 0, ch)))
+        text = assistant_text_after(transcript_path, 0, ch)
+        if ch == "tool_input":
+            text = "\n".join(ln for ln in text.splitlines() if ln.lstrip().startswith("#"))
+        out.extend(d + (ch,) for d in _rr.parse_data_file_decls(text))
     return out
 
 

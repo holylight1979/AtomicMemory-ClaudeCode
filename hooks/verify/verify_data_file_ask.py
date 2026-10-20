@@ -230,6 +230,38 @@ def test_extensions_list_from_config_replaces_default(world):
     assert not _df_deny(_run(world, config=cfg))
 
 
+@pytest.mark.parametrize("asked", ["請修改「備份設定.json」", "請修改備份設定.json"])
+def test_longer_unicode_name_is_not_naming(world, asked):
+    """codex BLOCK 1：原話點的是「備份設定.json」，要改的是 設定.json → 不算點名，照擋。"""
+    target = world["proj"] / "設定.json"
+    target.write_text("{}", encoding="utf-8")
+    st = wg_core.read_state(SID)
+    st["recent_user_prompts"] = [asked]
+    wg_core.write_state(SID, st)
+    assert _df_deny(_run(world, path=target))
+
+
+def test_created_files_are_never_evicted():
+    """codex BLOCK 2：本 session 新建過的檔不能因為清單上限被擠掉，否則 AI 自己建的檔會被當成使用者既有。"""
+    st = {}
+    for i in range(260):
+        df.note_created(st, "Write", f"C:/p/f{i}.json", {"type": "create"})
+    assert "c:/p/f0.json" in st["created_files"]
+
+
+@pytest.mark.parametrize("why", ["修正 <幣別> 標籤，讓報表能正確讀取", "通貨の設定を直す"])
+def test_reason_with_tag_or_other_language_is_a_reason(world, why):
+    """codex BLOCK 3＋另問：理由裡引用 XML 標籤、用別的語言寫，都是有理由；只有整段是佔位或只有標點才不算。"""
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", f"動資料檔｜settings.json：{why}")])
+    assert not _df_deny(_run(world))
+
+
+def test_tool_input_channel_needs_hash_comment(world):
+    """管道二只認工具參數裡 # 開頭的註解行；寫進檔案內容的字樣不算宣告。"""
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("tool_use", f"echo '{DECL}'")])
+    assert _df_deny(_run(world))
+
+
 def test_broken_state_blocks(world):
     wg_core.state_file_path(SID).write_text("{broken", encoding="utf-8")
     out = _run(world)
