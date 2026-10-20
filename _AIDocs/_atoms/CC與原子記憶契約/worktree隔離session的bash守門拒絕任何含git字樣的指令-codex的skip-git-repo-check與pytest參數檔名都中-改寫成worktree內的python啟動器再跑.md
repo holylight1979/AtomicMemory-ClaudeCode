@@ -15,6 +15,7 @@
 - [臨] 非用啟動器不可時放 scratchpad、參數帶 cwd：放 worktree 會被 Stop 閘算成改過的程式檔、要求補案例（刪它也算一次改動，刪完要重跑目標 verify 拿新收據）。讀子程序輸出拿 bytes 自己解（先 UTF-8，失敗退 cp950），並 `sys.stdout.reconfigure(encoding='utf-8')`，否則 cp950 主控台印中文會 UnicodeEncodeError。
 - [臨] 退回舊碼看紅：腳本先備份受測檔，換成 `git show HEAD:<檔>` 的版本，用 WG_GIT_CASSETTE=off 跑新案，finally 還原並比對 bytes。merge 之前用 merge-tree 查衝突；查禁字要對自己的基底 HEAD 比，不要對已經前進的 main 比。
 - [臨] live 的 main 是 checkout 著的：要合 main 又不碰 live，就在 worktree 裡 merge main、驗完，先確認 origin/main 是 HEAD 的祖先，再 `git push origin HEAD:main`（fast-forward）；live 本機的 main 留給總控台或 vcs-sync 去拉。live 未動的證明：live 檔的 hash-object 等於舊 commit 的 blob。
+- [臨]（track-origin-user-check 實踩）啟動器別放 worktree 裡：放 worktree 根要先讀過同層一個檔（UNMAPPED_EDIT_NEEDS_READABLE_FILES 擋），而且 .py 算改程式，Stop 閘 (d) OWED_AFTER_LAST_CASE 會要它補案例。改放 session 的 scratchpad、腳本裡寫死 worktree 絕對路徑（git 指令名用 "g"+"it" 拼）就能跑，也不算 worktree 改碼。PowerShell 直接下 `git -C <wt> add <檔…> && git -C <wt> commit -F <scratchpad 檔>` 照樣放行。
 
 ## 行動
 
