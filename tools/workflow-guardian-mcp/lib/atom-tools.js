@@ -66,6 +66,9 @@ function gateLines(g) {
   if (Array.isArray(g.missing_sections) && g.missing_sections.length) lines.push(`missing_sections: ${g.missing_sections.join("、")}`);
   if (g.depends_missing) lines.push("depends_missing: true");
   if (g.how) lines.push(g.how);
+  const d = g.dedupe_declared;
+  if (d) lines.push(`dedupe_declared: ${d.verdict} of=${d.of} score=${d.score}`);
+  if (g.dedupe_note) lines.push(g.dedupe_note);
   return lines.join("\n");
 }
 
@@ -74,31 +77,45 @@ function gateRejectText(g) {
   return `Write-gate rejected: ${g.reason}` + (gateLines(g) ? `\n${gateLines(g)}` : "");
 }
 
+/** dedupe 宣告 same 的 append 用哪個 scope：候選只來自這次去重比過的層（realm.dedupLayersFor）。
+ *  global／本地 atom 層 → global（realm 閘照跑）；shared 層 → shared（公司層寫入仍是 org）；role／personal 層＝寫入者原 scope。 */
+function appendScopeForLayer(layer, scope) {
+  if (layer === "global" || layer === "extra:local-atoms") return "global";
+  if (String(layer).startsWith("shared:")) return scope === "org" ? "org" : "shared";
+  return scope;
+}
+
 async function toolAtomWrite(id, args) {
+  // dedupe 宣告 same 由 create 轉成 append 重進本函式時，每則回覆（含閘拒寫）開頭先講改併入哪張卡
+  const routeNote = typeof args._dedupe_route === "string" ? `${args._dedupe_route}\n` : "";
+  const reply = (text, isError) => sendToolResult(id, routeNote + text, isError);
   let {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
-    supersedes, provenance, depends, quote, kind_hint,
+    supersedes, provenance, depends, quote, kind_hint, dedupe,
   } = args;
   dry_run = !!dry_run;
+  if (dedupe !== undefined && (dedupe === null || typeof dedupe !== "object" || Array.isArray(dedupe))) {
+    return reply('dedupe must be an object {"verdict": "same"|"supersedes"|"different", "of": "<候選卡名>", "why": "<一句理由>"}', true);
+  }
   if (supersedes !== undefined && !Array.isArray(supersedes)) {
-    return sendToolResult(id, "supersedes must be an array of atom names (omit to keep, [] to clear)", true);
+    return reply("supersedes must be an array of atom names (omit to keep, [] to clear)", true);
   }
   if (depends !== undefined && !Array.isArray(depends)) {
-    return sendToolResult(id, "depends must be an array of strings like path:<abs path> (omit to keep, [] to clear)", true);
+    return reply("depends must be an array of strings like path:<abs path> (omit to keep, [] to clear)", true);
   }
   if (provenance !== undefined && typeof provenance !== "string") {
-    return sendToolResult(id, "provenance must be a string (source path / URL / commit)", true);
+    return reply("provenance must be a string (source path / URL / commit)", true);
   }
   if (quote !== undefined && typeof quote !== "string") {
-    return sendToolResult(id, "quote must be a string (single-line user quote, ≤200 chars)", true);
+    return reply("quote must be a string (single-line user quote, ≤200 chars)", true);
   }
 
   // Validate core required fields (scope now optional, defaults to shared)
   if (!title || !confidence || !triggers || !knowledge || !mode) {
-    return sendToolResult(id, "Missing required parameters (title, confidence, triggers, knowledge, mode)", true);
+    return reply("Missing required parameters (title, confidence, triggers, knowledge, mode)", true);
   }
 
   // trigger 長度寫入當下即驗（create/replace 會回寫索引 triggers；append 不動）。
@@ -106,7 +123,7 @@ async function toolAtomWrite(id, args) {
   if ((mode === "create" || mode === "replace") && Array.isArray(triggers)) {
     const tooLong = triggers.filter((t) => [...String(t)].length > TRIGGER_MAX_LEN);
     if (tooLong.length) {
-      return sendToolResult(id,
+      return reply(
         `trigger too long (>${TRIGGER_MAX_LEN} chars): ${tooLong.map(t => `"${t}"`).join(", ")}\n` +
         `Shorten the trigger — an over-limit trigger poisons every later validate_index run (atom_move exit 2).`,
         true);
@@ -124,7 +141,7 @@ async function toolAtomWrite(id, args) {
   if (isOrg) {
     const orgRoot = orgMemoryRoot();
     if (!orgRoot) {
-      return sendToolResult(id,
+      return reply(
         "atom_write: scope=org 但這台機器尚未接上公司層記憶（org_memory）；" +
         "接上：python ~/.claude/tools/org-memory.py --join [<本機路徑>]", true);
     }
@@ -133,7 +150,7 @@ async function toolAtomWrite(id, args) {
     const rgo = await spawnAtomCli("realm_check", {
       scope: "org", project_cwd: project_cwd || process.cwd(), title, triggers, knowledge, actions, domain,
     });
-    if (!rgo.ok) return sendToolResult(id, `atom_write: ${rgo.error}`, true);
+    if (!rgo.ok) return reply(`atom_write: ${rgo.error}`, true);
     scope = "shared";
     project_cwd = orgRoot;
   }
@@ -150,7 +167,7 @@ async function toolAtomWrite(id, args) {
     const rg = await spawnAtomCli("realm_check", {
       project_cwd: gateCwd, title, triggers, knowledge, actions, domain,
     });
-    if (!rg.ok) return sendToolResult(id, `atom_write: ${rg.error}`, true);
+    if (!rg.ok) return reply(`atom_write: ${rg.error}`, true);
   }
 
   // 落點／定位／路由一律問 py 一次（lib/atom_io.locate_atom 單一裁決者）：cwd-scope 防護、
@@ -162,7 +179,7 @@ async function toolAtomWrite(id, args) {
     subdir, mode, allow_new_category: !!allow_new_category, enforce_cwd_scope: true,
     cross_project: !!cross_project,
   });
-  if (!lr0.ok) return sendToolResult(id, `atom_write: ${lr0.error}`, true);
+  if (!lr0.ok) return reply(`atom_write: ${lr0.error}`, true);
   const loc = lr0.extra || {};
   const slug = loc.slug;
   const baseDir = loc.base_dir, indexDir = loc.index_dir, indexRoot = loc.index_root;
@@ -180,7 +197,7 @@ async function toolAtomWrite(id, args) {
 
   // Supersedes 自指在 js 先擋（slug 已知）；目標存在／循環／核心保護由 py build 單源裁決。
   if (Array.isArray(supersedes) && supersedes.includes(slug)) {
-    return sendToolResult(id, `supersedes rejected: atom "${slug}" cannot supersede itself`, true);
+    return reply(`supersedes rejected: atom "${slug}" cannot supersede itself`, true);
   }
 
   // memDir/filePath/relPath 可能在 conflict-detector reroute 後重算
@@ -195,14 +212,14 @@ async function toolAtomWrite(id, args) {
   if (mode === "create") {
     // 既有檔（含子夾／local／失敗家族）與分隔符變體撞名皆由 py locate 判定
     if (existingPath || fs.existsSync(filePath)) {
-      return sendToolResult(id,
+      return reply(
         `Atom already exists: ${existingPath || filePath} — use mode=append or mode=replace`, true);
     }
     fs.mkdirSync(memDir, { recursive: true });
 
     // 原子記憶語意契約：新 atom 必須 [臨]
     if (confidence !== "[臨]") {
-      return sendToolResult(id,
+      return reply(
         `New atom must start at [臨] (confidence=${confidence} rejected).\n` +
         `Reason: [觀]/[固] reflect cross-session stability; first-write cannot assert that.\n` +
         `Knowledge items inside should also use [臨] prefix.\n` +
@@ -219,15 +236,30 @@ async function toolAtomWrite(id, args) {
       // 自己的 shared／role／personal。不限層會撞到別的專案、別人 personal 的 atom。
       const gateLayers = dedupLayersFor(isOrg ? "org" : scope, baseDir, { role, user, personalGlobal: !!loc.personal_global });
       const gateResult = await execWriteGate(knowledge.join("\n"), confidence, gateLayers, title,
-        { mode: "create", actions, depends, kind_hint, skip_gate: !!skip_gate });   // title：指標卡去重門檻提高
-      if (gateResult.action === "skip") {
-        return sendToolResult(id, gateRejectText(gateResult), true);
-      }
-      if (gateResult.action === "update" && gateResult.dedup_match) {
-        // 轉述 py reason（similar to <atom> (score=…), suggest update）；js 只補搜尋層與欄位 echo
-        return sendToolResult(id,
+        { mode: "create", actions, depends, kind_hint, skip_gate: !!skip_gate, dedupe });   // title：指標卡去重門檻提高
+      if (gateResult.need_declaration || (gateResult.action === "update" && gateResult.dedup_match)) {
+        // 轉述 py reason（相似要宣告：候選卡＋三種寫法／舊行為 suggest update）；js 只補搜尋層與欄位 echo。
+        // need_declaration 時 py 的 action 是 skip（讓還沒 Reload 的舊 js 照樣拒寫），所以要排在 skip 之前判
+        return reply(
           `Write-gate: ${gateResult.reason} (searched layers: ${gateLayers.join(", ")})` +
           (gateLines(gateResult) ? `\n${gateLines(gateResult)}` : ""), true);
+      }
+      if (gateResult.action === "skip") {
+        return reply(gateRejectText(gateResult), true);
+      }
+      const declared = gateResult.dedupe_declared;
+      if (gateResult.action === "append" && declared && gateResult.append_to) {
+        // 宣告 same：改走既有 append 路徑併入候選卡（重進本函式，該路徑的 realm／定位／預算閘全照跑）
+        const appendScope = appendScopeForLayer(gateResult.append_to.layer, args.scope);
+        return toolAtomWrite(id, {
+          ...args, mode: "append", title: declared.of, scope: appendScope,
+          ...(appendScope === "global" && { project_cwd: undefined }),
+          dedupe: undefined, _dedupe_route: `${gateResult.reason}（理由：${declared.why}）`,
+        });
+      }
+      if (declared && declared.verdict === "supersedes") {
+        // 宣告取代：候選卡併進 Supersedes（目標存在／循環／核心保護照舊由 py build 裁決）
+        supersedes = [...new Set([...(Array.isArray(supersedes) ? supersedes : []), declared.of])];
       }
       // 樣式軟警（逐筆表格/路徑清單）：不擋，附在成功訊息尾端轉述給寫入者
       if (Array.isArray(gateResult.warnings) && gateResult.warnings.length) {
@@ -263,7 +295,7 @@ async function toolAtomWrite(id, args) {
         fs.renameSync(reportPath + ".tmp", reportPath);
         appendMergeHistory(baseDir, "pending-create", slug, scopeLabel, author,
           `contradict vs ${(cr.matches[0] || {}).atom_name || "?"} sim=${((cr.matches[0] || {}).similarity || 0).toFixed(3)}`);
-        return sendToolResult(id,
+        return reply(
           `BLOCKED by conflict detector — CONTRADICT (double-confirmed) vs "${(cr.matches[0] || {}).atom_name || "?"}".\n` +
           `Report written: ${reportPath}\n` +
           `Atom NOT written to shared/. 待審出路：/conflict pending 檢視 → approve/reject\n` +
@@ -309,10 +341,10 @@ async function toolAtomWrite(id, args) {
       dry_run,
     });
     if (!cr.ok) {
-      return sendToolResult(id, `atom_create funnel failed: ${cr.error}`, true);
+      return reply(`atom_create funnel failed: ${cr.error}`, true);
     }
     if (dry_run) {
-      return sendToolResult(id,
+      return reply(
         `DRY-RUN (nothing written): would create atom ${slug}.md (${confidence}, scope=${scopeLabel})\n` +
         `Path: ${filePath}\n` +
         (category ? `Category: ${category}\n` : "") +
@@ -332,7 +364,7 @@ async function toolAtomWrite(id, args) {
     else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
 
     const crx = cr.extra || {};
-    return sendToolResult(id,
+    return reply(
       `Created atom: ${slug}.md (${confidence}, scope=${scopeLabel})\n` +
       `Path: ${filePath}\n` +
       (category ? `Category: ${category}\n` : "") +
@@ -354,17 +386,17 @@ async function toolAtomWrite(id, args) {
   if (mode === "append") {
     // 既有檔定位（扁平舊址／子夾／local／失敗家族）已由 py locate 一次做完
     if (!existingPath || !fs.existsSync(filePath)) {
-      return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
+      return reply(`Atom not found: ${slug}.md — use mode=create first`, true);
     }
     // 預算與分型（py 端 mode=append：跳 dedup／quality，算既有 knowledge 區＋新增；超了不截斷、回該去哪）
     const ga = await execWriteGate(knowledge.join("\n"), confidence, null, title,
       { mode: "append", existing_path: filePath, actions, depends, kind_hint });
     if (ga.action === "skip") {
-      return sendToolResult(id, gateRejectText(ga), true);
+      return reply(gateRejectText(ga), true);
     }
     const gaInfo = gateLines(ga);
     if (dry_run) {
-      return sendToolResult(id,
+      return reply(
         `DRY-RUN (nothing written): would append ${knowledge.length} knowledge line(s) to ${filePath}` +
         (gaInfo ? `\n${gaInfo}` : ""));
     }
@@ -374,7 +406,7 @@ async function toolAtomWrite(id, args) {
     // Last-used 不在 .md，append 後改寫 access.json（下方 spawnAtomAccess）。
     const wr = await spawnAtomCli("append", { file_path: filePath, knowledge, source: "mcp" });
     if (!wr.ok) {
-      return sendToolResult(id, `funnel append failed: ${wr.error}`, true);
+      return reply(`funnel append failed: ${wr.error}`, true);
     }
 
     // 同步刷 access.json last_used
@@ -384,7 +416,7 @@ async function toolAtomWrite(id, args) {
     triggerVectorReindex();
 
     // append 不動索引 → index_ok 恆 true；supersedes 對 append 無意義，收據固定 []。
-    return sendToolResult(id,
+    return reply(
       `Appended ${knowledge.length} knowledge lines to ${slug}.md\n` +
       `Last-used updated.\n` +
       (gaInfo ? `${gaInfo}\n` : "") +
@@ -399,7 +431,7 @@ async function toolAtomWrite(id, args) {
     // 定位（含分隔符變體提示）由 py locate 回。
     if (!existingPath || !fs.existsSync(filePath)) {
       const variant = loc.separator_variant || null;
-      return sendToolResult(id,
+      return reply(
         `Atom not found: ${slug}.md — mode=replace requires an existing atom.\n` +
         (variant
           ? `(A separator-variant "${variant}" exists — rename it to "${slug}.md" first, or append to it.)\n`
@@ -439,7 +471,7 @@ async function toolAtomWrite(id, args) {
     const gr = await execWriteGate(knowledge.join("\n"), confidence, null, title,
       { mode: "replace", existing_path: filePath, actions, depends: dependsFinal, kind_hint });
     if (gr.action === "skip") {
-      return sendToolResult(id, gateRejectText(gr), true);
+      return reply(gateRejectText(gr), true);
     }
     const grInfo = gateLines(gr);
     // 呼叫者明給新清單才重驗（自指／循環／核心保護／可解析，py 單源）；保留原行的不重驗，
@@ -448,7 +480,7 @@ async function toolAtomWrite(id, args) {
       const sc = await spawnAtomCli("check_supersedes", {
         targets: supersedes, self_slug: slug, index_dir: indexDir, index_root: indexRoot,
       });
-      if (!sc.ok) return sendToolResult(id, `supersedes rejected: ${sc.error}`, true);
+      if (!sc.ok) return reply(`supersedes rejected: ${sc.error}`, true);
     }
 
     // 同 create，內容構造 spawn py funnel "build"（含 validate）。supersedes 只在有值
@@ -466,7 +498,7 @@ async function toolAtomWrite(id, args) {
       ...(dependsFinal !== null && { depends: dependsFinal }),
     });
     if (!br.ok) {
-      return sendToolResult(id, `Validation failed: ${br.error}`, true);
+      return reply(`Validation failed: ${br.error}`, true);
     }
     const content = (br.extra || {}).content;
     // 落檔用的是 py 正規化後的 slug 清單（build 回傳），receipt 與 dry-run 文字都用它，
@@ -474,7 +506,7 @@ async function toolAtomWrite(id, args) {
     const canonSup = (br.extra || {}).supersedes;
     const supersedesOut = Array.isArray(canonSup) ? canonSup : supersedesFinal;
     if (dry_run) {
-      return sendToolResult(id,
+      return reply(
         `DRY-RUN (nothing written): would replace ${filePath} (build+validate passed; ` +
         `author=${prevAuthor}, created-at=${hadCreatedAt ? prevCreatedAt : "none (old card has no Created-at; not added)"} preserved` +
         (Array.isArray(supersedes) ? `, supersedes=[${supersedesOut.join(", ")}]`
@@ -485,7 +517,7 @@ async function toolAtomWrite(id, args) {
     // 走 lib.atom_io.write_raw funnel
     const wr = await funnelWriteRaw(filePath, content, "mcp", "atom_replace");
     if (!wr.ok) {
-      return sendToolResult(id, `funnel write_raw failed: ${wr.error}`, true);
+      return reply(`funnel write_raw failed: ${wr.error}`, true);
     }
 
     // 刷 access.json last_used（access 計數自動保留）
@@ -504,7 +536,7 @@ async function toolAtomWrite(id, args) {
 
     // 讀 access 給訊息顯示保留的計數
     const accAfter = readAtomAccess(filePath);
-    return sendToolResult(id,
+    return reply(
       `Replaced atom: ${slug}.md (${confidence}, preserved conf=${accAfter.confirmations || 0} rh=${accAfter.readhits || 0}, author=${prevAuthor})\n` +
       `MEMORY.md index updated.\n` +
       (grInfo ? `${grInfo}\n` : "") +
@@ -512,7 +544,7 @@ async function toolAtomWrite(id, args) {
     );
   }
 
-  return sendToolResult(id, `Unknown mode: ${mode}. Use create/append/replace.`, true);
+  return reply(`Unknown mode: ${mode}. Use create/append/replace.`, true);
 }
 
 // ─── Atom Promote Handler ──────────────────────────────────────────────────

@@ -6507,7 +6507,10 @@
         "檔名含 git 被擋",
         "Python 啟動器",
         "worktree Bash 守門",
-        "隔離守門 git"
+        "隔離守門 git",
+        "PowerShell 跑 pytest",
+        "收據對不上",
+        "push HEAD:main"
       ],
       "scope": "global"
     },
@@ -7707,6 +7710,359 @@
         "15 failed",
         "錄製檔關掉",
         "多檔合跑"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法",
+      "path": "memory/驗證與實證/靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法.md",
+      "triggers": [
+        "病形規則",
+        "lint 規則",
+        "靜態分析",
+        "誤擋",
+        "校準",
+        "大括號近似",
+        "Allman"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的",
+      "path": "memory/CC與原子記憶契約/部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的.md",
+      "triggers": [
+        "overview-map.md",
+        "部位表",
+        "路徑前綴",
+        "反引號",
+        "parse_map",
+        "病灶清單",
+        "defects_doc",
+        "對不到部位",
+        "新專案部位表",
+        "表被當空的"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響",
+      "path": "memory/CC與原子記憶契約/回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響.md",
+      "triggers": [
+        "turn_intent",
+        "classify_intent",
+        "clean_prompt",
+        "意圖分類",
+        "同伴訊息",
+        "重構意圖",
+        "refactor 誤判",
+        "user_typed_text",
+        "goal_weights",
+        "意圖來源"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "程式核對ai宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答",
+      "path": "memory/CC與原子記憶契約/程式核對ai宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答.md",
+      "triggers": [
+        "宣告行",
+        "拐彎判斷｜",
+        "不做｜",
+        "宣稱｜",
+        "順手看到最該修",
+        "對象欄比對",
+        "子字串",
+        "引言",
+        "圖欄",
+        "AI 回答行解析",
+        "程式查結構 AI 寫理由"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹",
+      "path": "_AIDocs/_atoms/MemDev/mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹.md",
+      "triggers": [
+        "second_opinion_start",
+        "session_id 未給",
+        "updatedInput",
+        "MCP 沒有 session",
+        "材料沒有需求目標樹",
+        "goal.md 無目標樹",
+        "PreToolUse 補參數",
+        "settings.json matcher"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔",
+      "path": "_AIDocs/_atoms/MemDev/多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔.md",
+      "triggers": [
+        "test_044_every_rule_has_a_case",
+        "verify_release_rules",
+        "共用測試檔",
+        "多軌並行",
+        "檔尾分段",
+        "RULES 新規則",
+        "共用檔約定",
+        "wg_release_rules 檔尾"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣",
+      "path": "_AIDocs/_atoms/MemDev/量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣.md",
+      "triggers": [
+        "PYTEST_MEASURE",
+        "sentinel_regex",
+        "量測收據",
+        "DONE k=v",
+        "熱路徑量測",
+        "反例案例",
+        "斷言回傳值",
+        "擋空訊息",
+        "[null, null]",
+        "閘壞成恒擋"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收",
+      "path": "memory/CC與原子記憶契約/claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收.md",
+      "triggers": [
+        "claude --bg",
+        "claude agents",
+        "claude attach",
+        "claude stop",
+        "背景 session",
+        "自動開 session",
+        "G16",
+        "Workspace not trusted",
+        "信任鍵",
+        "Rewind",
+        "native-binary claude.exe",
+        "2.1.304"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合",
+      "path": "memory/工作流/閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合.md",
+      "triggers": [
+        "聯合驗收",
+        "案例綠",
+        "真實任務",
+        "無頭 claude -p",
+        "合併前",
+        "dogfood",
+        "閘本體",
+        "時程不確定",
+        "驗收翻盤",
+        "工作軌交付"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath",
+      "path": "_AIDocs/_atoms/MemDev/commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath.md",
+      "triggers": [
+        "_vcs_segments",
+        "_scan_segments",
+        "commit 指令拆解",
+        "here-string",
+        "pathspec 被切掉",
+        "SmellGate 無聲放行",
+        "多行 -m",
+        "跳脫引號",
+        "2>&1",
+        "_commit_shape_problem",
+        "git -C 累加"
+      ],
+      "scope": "global",
+      "related": [
+        "worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑"
+      ]
+    },
+    {
+      "name": "feedback-原子記憶不內建預設會有下一個session的行為-接續單只是全ai執行升級的特例不是標竿",
+      "path": "memory/Failures/CC與原子記憶契約/feedback-原子記憶不內建預設會有下一個session的行為-接續單只是全ai執行升級的特例不是標竿.md",
+      "triggers": [
+        "下一個 session",
+        "自動匯出接續單",
+        "next-phase-auto",
+        "目標樹跨 session",
+        "收尾自動匯出",
+        "預設有下個 session",
+        "不內建",
+        "原設計者否決"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量",
+      "path": "memory/Failures/行為契約/feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量.md",
+      "triggers": [
+        "總控台回報",
+        "等你的",
+        "等機器的",
+        "我在等",
+        "閒置分頁",
+        "MR 審查分頁",
+        "待你裁",
+        "分歧五條",
+        "不需你動作",
+        "推卸責任"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-審查或交付時挖出的問題-飄移就不做-相關且真有問題就在這軌立即修-不准推給下一個寫碼session",
+      "path": "memory/Failures/行為契約/feedback-審查或交付時挖出的問題-飄移就不做-相關且真有問題就在這軌立即修-不准推給下一個寫碼session.md",
+      "triggers": [
+        "該誰解",
+        "下一個寫碼 session",
+        "最該修",
+        "順手看到",
+        "修正計畫",
+        "追蹤項",
+        "codex 挖出",
+        "審查發現",
+        "飄移",
+        "交付信",
+        "總控台裁定",
+        "之後再修"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被 codex或自檢工具牽著走",
+        "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
+      ]
+    },
+    {
+      "name": "子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔",
+      "path": "_AIDocs/_atoms/MemDev/子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔.md",
+      "triggers": [
+        "子代理 transcript",
+        "subagents/agent-",
+        "agent_id",
+        "agent_transcript_path",
+        "transcript_path",
+        "子代理宣告",
+        "PreToolUse 子代理",
+        "讀 transcript 的閘",
+        "使用者原話來源"
+      ],
+      "scope": "global",
+      "related": [
+        "同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾"
+      ]
+    },
+    {
+      "name": "閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現",
+      "path": "_AIDocs/_atoms/MemDev/閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現.md",
+      "triggers": [
+        "無頭驗收",
+        "claude -p",
+        "真實任務實跑",
+        "根治驗收",
+        "合併後驗收",
+        "wave1-kit",
+        "run_headless",
+        "受測根",
+        "guard log 證據",
+        "--resume",
+        "閘沒被逼出來",
+        "pathspec 排除"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹",
+      "path": "_AIDocs/_atoms/MemDev/純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹.md",
+      "triggers": [
+        "git show 舊版",
+        "載成模組",
+        "舊碼對照",
+        "不動工作樹"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "fail-open閘裡的留帳寫入例外不能冒出主流程-mkdir與寫檔都收進try並印stderr-否則閘沒輸出上游當放行直接落檔",
+      "path": "memory/設計通則/fail-open閘裡的留帳寫入例外不能冒出主流程-mkdir與寫檔都收進try並印stderr-否則閘沒輸出上游當放行直接落檔.md",
+      "triggers": [
+        "fail-open",
+        "留帳失敗",
+        "audit log 寫不進去",
+        "mkdir 例外",
+        "閘沒輸出",
+        "write-gate unavailable",
+        "輔助寫入",
+        "except OSError pass",
+        "靜默吞錯"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn",
+      "path": "memory/OS-Windows/windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn.md",
+      "triggers": [
+        "process.chdir",
+        "fs.rmSync",
+        "殘目錄",
+        "暫存夾刪不掉",
+        "EBUSY",
+        "node 測試 收尾",
+        "空 catch",
+        "%TEMP% 殘留"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex",
+      "path": "_AIDocs/_atoms/MemDev/在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex.md",
+      "triggers": [
+        "smoke_mcp_stdio",
+        "WG_CLAUDE_DIR 暫存",
+        "mcp-boot 寫進 live",
+        "js 測試落檔",
+        "require atom-tools",
+        "sendToolResult",
+        "syncMemoryIndex",
+        "MCP js 測試 隔離"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進",
+      "path": "_AIDocs/_atoms/MemDev/已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進.md",
+      "triggers": [
+        "EnterWorktree",
+        "ExitWorktree",
+        "換工作樹",
+        "新 worktree",
+        "worktree 被刪",
+        "not a managed worktree"
+      ],
+      "scope": "global",
+      "related": [
+        "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
+      ]
+    },
+    {
+      "name": "一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過",
+      "path": "_AIDocs/_atoms/MemDev/一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過.md",
+      "triggers": [
+        "MOVED_NEW_CODE_SEEN",
+        "啟動器刪掉",
+        "搬走的程式",
+        "副本候選",
+        "vanished_code_paths",
+        "moved_copy_candidates",
+        "small_content_sha",
+        "從沒進 git",
+        "gone_verdict",
+        "一次性檔"
       ],
       "scope": "global"
     }

@@ -53,7 +53,9 @@ RULES: Dict[str, str] = {
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同，"
                            "同根其他程式檔也等於 HEAD 或只差註解 → 不算改碼；非 Python、解析不了、基準拿不到 → 照算。",
     "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於另一方已提交的版本（MERGE_HEAD、main／master；指到 HEAD 或本 session 自己提交的 commit 不算）"
-                                "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。",
+                                "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。"
+                                "例外：HEAD 是別人接在本 session 最後一次提交之上做的提交（總控台把 main 合進工作分支，本 session 的 commit 快照"
+                                "拍在那之前）、而且同根本 session 改過的程式檔（含案例）全等於 HEAD → HEAD 也算已提交版本（退回看紅再還原不欠）。",
     "INLINE_PY_READONLY": "python -c 的內嵌碼用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval → 不算寫入，放行；"
                           "node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路（寫成腳本檔、python -m json.tool）。",
     "GIT_READONLY_SUBCMD": "跨層閘：指令裡每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file、"
@@ -410,15 +412,22 @@ def blob_sha(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
-def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True) -> List[str]:
+def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True,
+                   head_after_own: bool = False) -> List[str]:
     """哪些 ref 可以當「已提交版本」：MERGE_HEAD／main／master（指到本 session 自己提交的 commit 除外）。
-    HEAD 永遠不算：「等於 HEAD」只能走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨，程式與案例一起退回舊版、
-    只還原程式時案例還是舊的，照欠；verify_stop_reconcile 035 ⑤）。ref_commits＝ref → 它指到的 commit sha。"""
+    HEAD 平常不算：「等於 HEAD」走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨，程式與案例一起退回舊版、
+    只還原程式時案例還是舊的，照欠；verify_stop_reconcile 035 ⑤）。例外 head_after_own：HEAD 是別人接在本 session 最後一次提交
+    之上做的提交（總控台把 main 合進工作分支）→ 本 session 的 commit 快照拍在那之前、對不上，HEAD 才是已提交版本，算；
+    呼叫端要另外確認同根本 session 改過的檔全等於 HEAD（擋同一個反例）。ref_commits＝ref → 它指到的 commit sha。"""
     own = {str(s) for s in own_commit_shas or ()}
     head = str((ref_commits or {}).get("HEAD") or "")
     out: List[str] = []
     for ref, sha in (ref_commits or {}).items():
-        if not sha or str(sha) in own or ref == "HEAD" or str(sha) == head:
+        if not sha or str(sha) in own:
+            continue
+        if ref == "HEAD" or str(sha) == head:
+            if head_after_own and ref == "HEAD":
+                out.append(ref)
             continue
         out.append(ref)
     return out
@@ -1636,7 +1645,8 @@ def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False
     if is_code and standalone_case:
         rule = "SCOPE_CASE_EDIT_ONLY_ITS_ITEM"
         why = ("就在這一項點名的路徑底下" if under_item else "這一項就是它所在部位的量尺指令" if runs_part_ruler
-               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
+               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown
+               else "在這一項宣告的依賴裡" if in_deps else "")   # 檔名像案例（wg_old_test.py）的模組，宣告了依賴就要算
         if why:
             return Verdict(rule, True, f"{name} 是測試案例檔，{why}")
         return Verdict(rule, False, f"{name} 是測試案例檔、沒有別的程式 import 它，這一項沒點名它：改它不作廢這一項的收據")
@@ -1885,8 +1895,8 @@ RULES.update({
                              "沒這行 → 照原規則擋並附寫法；「非本回合宣稱」附理由 → 放行、留帳（guard-reconcile.jsonl event=claim_disclaimed，"
                              "健檢抽查）；「收據」→ 走 CLAIM_RECEIPT_REF_MATCH。結構化的達成＋證據（need_goal 完整對照）仍是寫碼類的正式宣告，"
                              "宣稱行只處理散文裡的詞。",
-    "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：有文字內容（至少 2 個中文或英數字，純標點不算）、不是擋訊息範例的"
-                                   "角括號佔位；沒理由不算回。程式不評理由充不充分。",
+    "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：拿掉角括號片段後還有任一字母或數字（任何語言），而且沒留著擋訊息的"
+                                   "理由範本佔位（<理由…>、<為什麼…>）；純標點不算，理由裡引用 <標籤> 照算；沒理由不算回。程式不評理由充不充分。",
     "CLAIM_RECEIPT_REF_MATCH": "宣稱行指的收據要能辨識出是哪一張：引用的字要是那條指令的一個完整 token（整個 token、檔名、路徑尾段、"
                                "測試節點尾段），或帶空白的逐字片段，或哨兵名相同；python／pytest／py／-m 這類通用字、旗標、純副檔名不算指名。"
                                "對上的那張還要過原本的收據資格（指令完整、記了環境、白名單語法、沒寫哨兵字樣、同一棵樹）："
@@ -1931,9 +1941,23 @@ def has_text(s: Any, min_chars: int = 2) -> bool:
     return len(_WORD_CHAR_RE.findall(str(s or ""))) >= min_chars
 
 
-def reason_present(reason: str) -> bool:
-    """理由有填：有文字內容、沒有擋訊息範例的角括號佔位。只查有沒有，不評內容充不充分。"""
-    return has_text(reason) and not _EXAMPLE_PLACEHOLDER_RE.search(str(reason or ""))
+_ANGLE_SEGMENT_RE = re.compile(r"<[^<>\n]*>")
+# 擋訊息教 AI 填理由的範本佔位：<理由>、<理由：…>、<一句理由>、<為什麼…>（各閘的 hint 都這樣開頭）
+_REASON_PLACEHOLDER_RE = re.compile(r"<\s*(?:一句)?(?:理由|為什麼)[^<>\n]*>")
+
+
+def reason_present(reason: str, hint_texts: Sequence[str] = ()) -> bool:
+    """理由有填：拿掉角括號片段之後還有任一字母或數字（任何語言），而且沒留著擋訊息的範本佔位：<理由…>、<為什麼…>，
+    或角括號裡的字出現在呼叫端印給 AI 的範本說明 hint_texts 裡（半抄範本「留到下個 session，<理由>」不算）。
+    理由裡引用標籤（「修正 <幣別> 標籤」）照算。只查有沒有，不評內容充不充分。"""
+    text = str(reason or "")
+    if _REASON_PLACEHOLDER_RE.search(text):
+        return False
+    for seg in _ANGLE_SEGMENT_RE.findall(text):
+        inner = seg[1:-1].strip()
+        if inner and any(inner in h for h in hint_texts if h):
+            return False
+    return any(ch.isalnum() for ch in _ANGLE_SEGMENT_RE.sub("", text))
 
 
 def is_generic_name(name: str) -> bool:
@@ -2068,20 +2092,27 @@ def quote_in_prompts(quote: str, prompts: Sequence[str]) -> bool:
     return any(qn in _nows(p) for p in prompts or ())
 
 
+def not_doing_reason_hint(exception: str = "") -> str:
+    """不做行範本裡「<理由：…>」那段說明：詞表那一類的 exception（去掉「除非附」），沒有就用通用的四種理由。"""
+    return re.sub(r"^除非附\s*", "", str(exception or "")).strip().strip("「」") or "風險／為什麼超出／不可逆／要使用者拍板"
+
+
 def not_doing_hint(exception: str = "") -> str:
-    why = re.sub(r"^除非附\s*", "", str(exception or "")).strip().strip("「」") or "風險／為什麼超出／不可逆／要使用者拍板"
+    why = not_doing_reason_hint(exception)
     return (f"真的不做 → 寫一行「不做｜<哪一件>：<理由：{why}>」（規則 NOT_DOING_DECLARED，會留帳）；"
             "使用者叫你跳過 → 「不做｜<哪一件>：使用者說「<原句片段>」」（規則 USER_WAIVER_NEEDS_CITATION）；"
             "這句只是在描述、沒推任何事 → 「不是退避｜<命中的詞>：因為 <理由>」（留帳抽查）")
 
 
 def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Sequence[str], exception: str = "") -> Verdict:
-    """NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：owed＝照舊標記或擋。line＝命中退避語的那一行；prompts＝近 3 則使用者原話。"""
+    """NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：owed＝照舊標記或擋。line＝命中退避語的那一行；prompts＝近 3 則使用者原話。
+    理由裡的角括號片段若是這個範本印給 AI 的說明（<不修的實際風險>）＝沒換掉的佔位，不算理由。"""
+    hint_why = (not_doing_reason_hint(exception),)
     d = not_doing_covering(line, decls)
     if d is None:
         return Verdict("NOT_DOING_DECLARED", True, "退避語沒有對應的不做行", (str(line or "").strip()[:120], not_doing_hint(exception)))
     if d.get("mode") == "disclaim":
-        if reason_present(d["reason"]):
+        if reason_present(d["reason"], hint_why):
             return Verdict("NOT_DOING_DECLARED", False, f"AI 說明「{d['item'][:60]}」不是退避，因為 {d['reason'][:120]}", (d["line"],))
         return Verdict("NOT_DOING_DECLARED", True, "不是退避行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
     if d["quote"]:
@@ -2089,7 +2120,7 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
             return Verdict("USER_WAIVER_NEEDS_CITATION", False, f"使用者原話「{d['quote'][:60]}」豁免：{d['item'][:60]}", (d["line"],))
         return Verdict("USER_WAIVER_NEEDS_CITATION", True,
                        f"不做行引用的使用者原話「{d['quote'][:60]}」在近 3 則使用者訊息裡找不到", (d["line"], not_doing_hint(exception)))
-    if reason_present(d["reason"]):
+    if reason_present(d["reason"], hint_why):
         return Verdict("NOT_DOING_DECLARED", False, f"AI 宣告不做「{d['item'][:60]}」，因為 {d['reason'][:120]}", (d["line"],))
     return Verdict("NOT_DOING_DECLARED", True, "不做行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
 
@@ -2108,6 +2139,367 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
     return kept, waived
 
 
+# ─── T2.16 動資料檔 ───
+RULES.update({
+    "USER_DATA_FILE_NEEDS_DECLARATION": "Edit／Write／NotebookEdit 動到使用者既有的資料檔或設定檔要先問或先宣告。四件事實全成立才管："
+                                        "(a) 不是程式檔（wg_need_goal.writes_code 為 False）且副檔名在 guard.data_file_ask.extensions，"
+                                        "清單只決定程式要不要把它當資料檔問，該不該改仍是 AI 判；(b) 呼叫前檔已存在；(c) 不是本 session Write 新建的"
+                                        "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
+                                        "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
+                                        "（路徑檔名對得上這次要改的檔、冒號後的理由過 reason_present）→ 擋。宣告過記 state data_file_declared，"
+                                        "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。",
+})
+
+_DATA_FILE_DECL_RE = re.compile(r"動資料檔\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)")
+_DECL_PATH_TRIM = "`'\"「」『』<>（）() "
+
+
+def parse_data_file_decls(text: str) -> List[Tuple[str, str, str]]:
+    """文字裡每一行宣告「動資料檔｜<路徑>：<為什麼>」→ [(路徑, 為什麼, 那一行)]。路徑可帶磁碟代號（C:\\…）。"""
+    return [(m.group(1).strip().strip(_DECL_PATH_TRIM), m.group(2).strip(), m.group(0).strip()[:200])
+            for m in _DATA_FILE_DECL_RE.finditer(str(text or ""))]
+
+
+def decl_names_file(decl_path: str, target: str) -> bool:
+    """SAME_FILE 的宣告版：宣告的路徑就是要改的檔，或是它的路徑尾段（`settings.json`、`config/settings.json` 對得到
+    `C:\\proj\\config\\settings.json`；`other.json`、`ettings.json` 對不到）。"""
+    d = str(decl_path or "").strip().strip(_DECL_PATH_TRIM).replace("\\", "/")
+    while d.startswith("./"):
+        d = d[2:]
+    d = d.rstrip("/").lower()
+    if not d:
+        return False
+    t = canon_path(target)
+    return t == d or t.endswith("/" + d) or (os.path.isabs(d) and canon_path(d) == t)
+
+
+_CJK_CHAR_RE = re.compile(r"[一-鿿㐀-䶿぀-ヿ가-힯]")
+_QUOTED_NAME_RE = re.compile(r"[「『\"“`]([^「」『』\"“”`\n]+)[」』\"”`]")
+
+
+def _quoted_other_name(text: str, start: int, end: int, base: str) -> bool:
+    """命中處在引號／反引號裡，而引號裡是另一個更長的檔名（「備份設定.json」裡的 設定.json）。"""
+    for q in _QUOTED_NAME_RE.finditer(text):
+        if q.start(1) <= start and end <= q.end(1):
+            name = q.group(1).strip().replace("\\", "/").lower()
+            return name != base.lower() and not name.endswith("/" + base.lower())
+    return False
+
+
+def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
+    """事實 (d)：使用者原話有沒有點名這個檔，檔名含副檔名完整比對，不分大小寫：前後不接檔名字元（前面可接路徑分隔）；
+    引號裡是更長的檔名不算；檔名以中日韓字開頭時前一個字也是中日韓字不算（「備份設定.json」分不出是不是別的檔，寧可多問）。
+    英文檔名前接中文動詞照算（「把settings.json的逗號修掉」）。回點名那則原話的片段，沒有回 None。"""
+    base = Path(str(target)).name
+    if not base:
+        return None
+    rx = re.compile(r"(?<![A-Za-z0-9_.\-])" + re.escape(base) + r"(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", re.IGNORECASE)
+    cjk_head = bool(_CJK_CHAR_RE.match(base))
+    for p in prompts or ():
+        text = str(p or "")
+        for m in rx.finditer(text):
+            if _quoted_other_name(text, m.start(), m.end(), base):
+                continue
+            if cjk_head and m.start() > 0 and _CJK_CHAR_RE.match(text[m.start() - 1]):
+                continue
+            return text[max(0, m.start() - 30):m.end() + 30]
+    return None
+
+
+def data_file_hint(rel: str) -> str:
+    return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
+            "放回覆文字或下一個 Bash 開頭 `#` 註解；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+
+
+def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
+    """USER_DATA_FILE_NEEDS_DECLARATION：owed＝擋。facts＝{code, ext, ext_listed, existed, created, named, prompts}
+    （named＝prompt_names_file 的結果，prompts＝原話則數）；decls＝三管道收到的宣告（parse_data_file_decls）。
+    不管的情況回 owed=False，why 寫哪一件事實不成立（留帳 exempt 用）。"""
+    rule = "USER_DATA_FILE_NEEDS_DECLARATION"
+    ext = facts.get("ext") or "（無副檔名）"
+    if facts.get("code") or not facts.get("ext_listed"):
+        return Verdict(rule, False, "(a) 不成立：" + ("是程式檔" if facts.get("code") else f"副檔名 {ext} 不在資料／設定清單"))
+    if not facts.get("existed"):
+        return Verdict(rule, False, "(b) 不成立：呼叫前檔不存在（新建）")
+    if facts.get("created"):
+        return Verdict(rule, False, "(c) 不成立：本 session 新建的檔")
+    if facts.get("named"):
+        return Verdict(rule, False, f"(d) 不成立：使用者原話點名了：「{str(facts['named']).strip()[:80]}」")
+    base = Path(str(target)).name
+    ev = [f"(a) 不是程式檔：副檔名 {ext} 在資料／設定清單",
+          "(b) 使用者既有：呼叫前檔已存在",
+          "(c) 非本 session 建：本 session 沒新建過它",
+          f"(d) 需求沒點名：本 session 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
+    hit = [d for d in decls if decl_names_file(d[0], target)]
+    for _path, why, line in hit:
+        if reason_present(why):
+            return Verdict(rule, False, f"AI 宣告動資料檔 {rel}：{why[:120]}", (line,))
+    if hit:
+        return Verdict(rule, True, f"宣告行冒號後沒有理由（空白、只有標點或角括號佔位）：{rel}", tuple(ev + [hit[-1][2]]))
+    if decls:
+        named = "、".join(dict.fromkeys(d[0] for d in decls))[:120]
+        return Verdict(rule, True, f"宣告行的路徑對不上這次要改的檔：宣告的是 {named}，要改的是 {rel}", tuple(ev))
+    return Verdict(rule, True, f"要改使用者既有的資料檔 {rel}，沒先問也沒宣告", tuple(ev))
+# ─── T2.18 origin 核對 ───
+# 目標樹子節點標「使用者說的」要對得到原話（wg_need_goal 的 add／update 收事實、這裡判）。只核字面在不在、是誰說的；
+# 要不要標、引哪一句由 AI 判（引一句不相干的原話硬掛，程式看不出來：quote 與節點文字並列留帳給人抽查）
+RULES.update({
+    "ORIGIN_USER_NEEDS_QUOTE": "目標樹子節點標 origin=user（使用者說的）：quote 或節點文字本身（去頭尾空白、至少 6 字、不正規化標點）"
+                               "要是樹上某則使用者原話（user_said，含匯入的前一個 session 原話）的字面子串；對不到、或只出現在同伴轉述"
+                               "（peer_said）裡 → 強制改 inferred（推出來的）並提醒。樹根與匯入的節點不核。",
+})
+ORIGIN_QUOTE_MIN = 6
+
+
+def _said_with(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
+    return next((e for e in entries or () if isinstance(e, dict) and s in str(e.get("text") or "")), None)
+
+
+def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
+                        peer_said: Sequence[Any] = ()) -> Tuple[str, Verdict, Optional[Dict[str, Any]]]:
+    """ORIGIN_USER_NEEDS_QUOTE：回 (origin, Verdict, 對上的 {"quote": 對上的字串, "said": 那則原話})；對不到第三項是 None、
+    owed＝要降級成 inferred。先核 quote、再核節點文字；兩個都對不到時，原因以 quote（有給的話）為準。"""
+    rule = "ORIGIN_USER_NEEDS_QUOTE"
+    q = quote.strip() if isinstance(quote, str) else ""
+    t = text.strip() if isinstance(text, str) else ""
+    for s, how in ((q, "quote"), (t, "節點文字")):
+        if len(s) < ORIGIN_QUOTE_MIN:
+            continue
+        hit = _said_with(s, user_said)
+        if hit is not None:
+            return ("user", Verdict(rule, False, f"{how}對得到第 {hit.get('turn', '?')} 回合的使用者原話", (f"引用：{s[:120]}",)),
+                    {"quote": s, "said": hit})
+    s = q or t
+    peer = _said_with(s, peer_said) if len(s) >= ORIGIN_QUOTE_MIN else None
+    if peer is not None:
+        why = f"這句是同伴 {peer.get('from') or '?'} 說的，不是使用者"
+    elif q and len(q) < ORIGIN_QUOTE_MIN:
+        why = f"quote 只有 {len(q)} 字，至少要 {ORIGIN_QUOTE_MIN} 字"
+    elif q:
+        why = "quote 不在任何一則使用者原話裡"
+    elif len(t) < ORIGIN_QUOTE_MIN:
+        why = f"沒給 quote，節點文字只有 {len(t)} 字（不到 {ORIGIN_QUOTE_MIN} 字不拿來比）"
+    else:
+        why = "沒給 quote，節點文字也不是使用者原話的字面子句"
+    return "inferred", Verdict(rule, True, why, (f"節點文字：{t[:120]}", f"quote：{q[:120] or '（沒給）'}")), None
+
+
+_ROOT_SPLIT_RE = re.compile("[。；，、]|" + chr(0x2014) * 2)   # 第二支是雙破折號（本檔不准出現破折號字面）
+
+
+def root_unquoted_sentences(text: Any, user_said: Sequence[Any]) -> List[str]:
+    """ORIGIN_USER_NEEDS_QUOTE 的樹根版：樹根依契約是 AI 對原話的解讀（不改 origin）。切句（。；，、雙破折號）後至少 6 字的句子，
+    逐句看是不是某則使用者原話的字面子串；回對不到的句子（保序、去重），給提醒列出「這幾句原話裡沒有」。"""
+    out: List[str] = []
+    for s in _ROOT_SPLIT_RE.split(text if isinstance(text, str) else ""):
+        s = s.strip()
+        if len(s) >= ORIGIN_QUOTE_MIN and s not in out and _said_with(s, user_said) is None:
+            out.append(s)
+    return out
+# ─── T2.17 改舊測試 ───
+RULES.update({
+    "OLD_TEST_CHANGE_NEEDS_DECLARATION": "Edit／MultiEdit／Write 動到測試檔裡既有的測試函式（消失、改名、同名測試的斷言行被刪或改，只加新斷言不算；"
+                                         "新加跳過標記 skip／skipif／xfail／.skip(／[Ignore]／@Disabled；原本有的說明 docstring 被改或刪，"
+                                         "只加新說明不算），要先有宣告行"
+                                         "「改舊測試｜<函式名或 檔:函式名>：<理由>」（回覆文字／工具參數／thinking 三管道都認；多支以「、」分隔）："
+                                         "名字要點到這次抓到的那一支既有測試（改名寫舊的名字；寫了檔名或類別就要對得上那個檔、那個類別），"
+                                         "理由要有文字內容、不是擋訊息的角括號佔位；沒有 → 擋（字母 ot）。宣告過的那支與本 session 自己新加的"
+                                         "測試記 state，同 session 再動不擋。只加新測試、只改 fixture／helper、只改註解不觸發。改名與消失怎麼標"
+                                         "（本體行相似度）只影響證據寫法，放不放行都要宣告點名舊的那支。Bash／PowerShell／NotebookEdit "
+                                         "寫之前看不到改後內容：PreToolUse 拍改前快照、PostToolUse 比對，沒宣告的記 state，下一個工具呼叫擋到"
+                                         "補宣告（declared_late）或撤回（reverted）為止；只讀、只寫那幾個欠帳檔的呼叫不擋。事實由 wg_oldtest 收，"
+                                         "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt／undeclared／denied_late／declared_late／reverted）。",
+})
+
+OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip", "doc": "說明變了"}
+_OLD_TEST_FILE_RE = re.compile(r"\.[a-z]{1,5}$")
+_OLD_TEST_DECL_RE = re.compile(r"改舊測試\s*[｜|]\s*(.+)")
+_OLD_TEST_ASCII_SEP_RE = re.compile(r":(?![A-Za-z0-9_\\/:])")
+_OLD_TEST_NAME_SPLIT_RE = re.compile(r"\s*[、，,]\s*")
+
+
+def parse_old_test_declarations(text: str) -> List[Dict[str, Any]]:
+    """宣告行 → [{names, reason, line}]。名字與理由用第一個「：」分；沒有全形冒號才找後面不接識別字的「:」
+    （`tests/test_a.py:test_x: 理由` 的第一個冒號屬於名字）。names 是去反引號後的整段與「、，,」切開的每一段。"""
+    out: List[Dict[str, Any]] = []
+    for raw in str(text or "").splitlines():
+        m = _OLD_TEST_DECL_RE.search(raw)
+        if not m:
+            continue
+        rest = m.group(1)
+        if "：" in rest:
+            names, reason = rest.split("：", 1)
+        else:
+            sep = _OLD_TEST_ASCII_SEP_RE.search(rest)
+            names, reason = (rest[:sep.start()], rest[sep.end():]) if sep else (rest, "")
+        names = names.strip().strip("`")
+        parts = [p.strip("` ") for p in _OLD_TEST_NAME_SPLIT_RE.split(names) if p.strip("` ")]
+        out.append({"names": [names, *parts], "reason": reason.strip(), "line": raw.strip()[:240]})
+    return out
+
+
+def _old_test_name_hits(name: str, key: str, path: str = "") -> bool:
+    """宣告的名字點到這支測試（key＝wg_oldtest 的 key：`類別.函式`、`函式`、`describe:<名>`，尾巴 `#2` 拿掉）：
+    整個相等；或拆成「檔」與「函式」（`檔:函式`、`檔::類別::函式`，檔＝結尾有副檔名的那段）：寫了檔就要是 path 本身或它的路徑尾段，
+    函式寫了類別（`類別.函式`）就要整段對上，只寫函式名比最後一段。不分大小寫。"""
+    n = str(name or "").strip().replace("\\", "/").lower()
+    k = re.sub(r"#\d+$", "", str(key or "").strip().lower())
+    if not n or not k:
+        return False
+    if n == k or (k.startswith(("describe:", "context:")) and n == k.split(":", 1)[1]):
+        return True
+    file_part, func = "", n.replace("::", ".")
+    if "::" in n and _OLD_TEST_FILE_RE.search(n.split("::", 1)[0]):
+        file_part, func = n.split("::", 1)[0], n.split("::", 1)[1].replace("::", ".")
+    elif "::" not in n and ":" in n and _OLD_TEST_FILE_RE.search(n.rsplit(":", 1)[0]):
+        file_part, func = n.rsplit(":", 1)
+    if file_part:
+        p, f = canon_path(path) if path else "", file_part.lstrip("./")
+        if not p or not (p == f or p.endswith("/" + f)):
+            return False
+    if "." in func:
+        return k == func or k.endswith("." + func)
+    return func == k.rsplit(".", 1)[-1]
+
+
+def old_test_declaration_for(change: Dict[str, str], decls: Sequence[Dict[str, Any]], path: str = "") -> Optional[Dict[str, Any]]:
+    """這一筆動作有沒有合格的宣告行：名字點到那支既有測試（改名看舊名；新名不能替舊的那支宣告），理由有文字內容、不是佔位。"""
+    for d in decls:
+        if reason_present(d.get("reason", "")) and any(_old_test_name_hits(n, change.get("key", ""), path) for n in d["names"]):
+            return d
+    return None
+
+
+def old_test_change_verdict(path: str, changes: Sequence[Dict[str, str]], decls: Sequence[Dict[str, Any]]) -> Verdict:
+    """OLD_TEST_CHANGE_NEEDS_DECLARATION：owed＝有動到既有測試、而那一支沒有合格的宣告行。changes 來自 wg_oldtest.diff_tests；
+    decls 來自 parse_old_test_declarations。"""
+    rule = "OLD_TEST_CHANGE_NEEDS_DECLARATION"
+    owed = [c for c in changes if old_test_declaration_for(c, decls, path) is None]
+    if not owed:
+        return Verdict(rule, False, "動到的每一支既有測試都有宣告行" if changes else "沒動到既有測試")
+    name = _base_name(path)
+    ev = []
+    for c in owed:
+        label = OLD_TEST_KIND_LABELS.get(c["kind"], c["kind"])
+        tail = f" → {c['new_key']}" if c.get("new_key") else (f"：{c['detail']}" if c.get("detail") else "")
+        ev.append(f"{name}：{c['key']}（{label}{tail}）")
+    ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls if not reason_present(d.get("reason", ""))][:2]
+    n = len({c["key"] for c in owed})
+    return Verdict(rule, True, f"動到 {n} 支既有測試，沒先宣告「改舊測試｜哪支：理由」", tuple(ev))
+# ─── T2.19 繞閘嫌疑 ───
+RULES.update({
+    "GATE_BYPASS_NEEDS_DECLARATION": "被病形閘擋過之後（state smell_deny_last；同一個 repo 根、還沒成功 commit），這條指令把被點名的檔"
+                                     "移出暫存（git restore --staged／reset／rm --cached／stash、svn revert／changelist）、commit 的提交範圍"
+                                     "排除了它、或 commit 帶 --no-verify／core.hooksPath，而它重掃仍帶同一條病 → 要有一行「不是繞閘｜<理由>」"
+                                     "（這條指令裡、或擋下之後的回覆文字／工具參數／thinking）；沒有就擋，有就放行並留帳"
+                                     "（guard-gate_bypass.jsonl declared，含理由全文）、同一組被點名的檔不再問。重掃無病＝病修掉了，清帳不問。"
+                                     "是不是繞閘 AI 判，程式只核對序列事實與宣告行在不在；事實由 hooks/wg_gate_bypass.py 收。",
+    "ATOM_BYPASS_HOWTO_REFUSED": "atom 內容同時 ① 提到 Guardian 的閘（[Guardian: 標籤、SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder／"
+                                 "NeedGoal、本表規則名）② 含改暫存區或改提交範圍的做法字樣（guard.gate_bypass.staging_words）→ 拒寫："
+                                 "閘誤擋要修判定（加規則＋紅案例），不寫繞法。只命中一個不拒（記閘的機制、記 git 指令用法照寫）。"
+                                 "AI 判斷這張卡不是在教繞法（寫的是禁止怎麼繞、在分析誤擋）→ 知識段第一行寫「不是教繞閘｜<理由>」，"
+                                 "理由有文字內容、不是佔位就寫入並留帳（guard-gate_bypass.jsonl atom_declared）；程式不評理由。"
+                                 "入口 tools/memory-write-gate.py 與 lib/atom_io.write_atom；事實由 hooks/wg_gate_bypass.py 收。",
+})
+
+
+def gate_bypass_verdict(denied: str, facts: Sequence[str], reason: str = "") -> Verdict:
+    """GATE_BYPASS_NEEDS_DECLARATION：denied＝上次擋的檔與病一行；facts＝這條指令動到／排除了哪些檔（空＝不是嫌疑）；
+    reason＝宣告行「不是繞閘｜」後面的理由（沒有＝空字串）。"""
+    if not facts:
+        return Verdict("GATE_BYPASS_NEEDS_DECLARATION", False, "這條指令沒有動到上次被擋的檔", ())
+    if reason_present(reason):
+        return Verdict("GATE_BYPASS_NEEDS_DECLARATION", False, f"AI 宣告不是繞閘：{reason[:160]}", (denied, *facts))
+    return Verdict("GATE_BYPASS_NEEDS_DECLARATION", True, "被病形閘擋過之後，這條指令可能讓同一批內容繞過閘，沒有宣告",
+                   (f"上次擋：{denied}", "這條指令：" + "；".join(facts)))
+
+
+def atom_bypass_verdict(gates: Sequence[str], words: Sequence[str], reason: str = "") -> Verdict:
+    """ATOM_BYPASS_HOWTO_REFUSED：gates＝內容提到的 Guardian 閘、words＝命中的做法字樣；兩個都有才拒。
+    reason＝知識段第一行「不是教繞閘｜」後面的理由：有文字內容、不是佔位 → 放行（AI 判過不是在教繞法）。"""
+    if gates and words and reason_present(reason):
+        return Verdict("ATOM_BYPASS_HOWTO_REFUSED", False, f"AI 宣告不是教繞閘：{reason[:160]}",
+                       (f"提到的閘：{'、'.join(gates)}", f"做法字樣：{'、'.join(words)}"))
+    if gates and words:
+        return Verdict("ATOM_BYPASS_HOWTO_REFUSED", True, f"這張卡在教怎麼繞 {'、'.join(gates[:4])}",
+                       (f"提到的閘：{'、'.join(gates)}", f"做法字樣：{'、'.join(words)}"))
+    return Verdict("ATOM_BYPASS_HOWTO_REFUSED", False, "只命中一個訊號（或都沒有），照寫",
+                   (f"提到的閘：{'、'.join(gates) or '無'}", f"做法字樣：{'、'.join(words) or '無'}"))
+# ─── G14 最小地圖 ───
+# 沒有部位表的專案第一次改程式檔前要 AI 先寫出跟需求相關的最小地圖（wg_overview._unmapped_edit 收事實、這裡判）
+RULES.update({
+    "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP": "往上找不到任何部位表的專案，本 session 第一次改某頂層目錄的程式檔前（state 鍵 <根>|(unmapped)<頂層目錄>"
+                                         " 為單位），要交最小地圖三行「地圖｜讀了：<檔清單>」「地圖｜上游：…」「地圖｜下游：…」"
+                                         "（回覆文字、工具參數、thinking 三管道都認，取最後一組三行齊的）：讀了至少列 1 個檔、每個都是"
+                                         "本 session 讀過的（與 part_files_read 同源）；上下游非空，真的沒有寫「無，因為…」；留著範例角括號"
+                                         "佔位當沒填。只看有沒有、讀過沒，不評內容；交過同鍵不再擋，同根下一個頂層目錄只認之後交的地圖。"
+                                         "執行期資料、知識類、非程式檔、有部位表的專案不查；min_map.enabled=false 整條不觸發。",
+})
+
+MIN_MAP_KEYS = ("讀了", "上游", "下游")
+MIN_MAP_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；值可空（空的要點名擋）
+    r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?地圖[ \t]*[｜|][ \t]*(讀了|上游|下游)[ \t]*[:：][ \t]*(.*?)[ \t]*[\"']?,?$", re.MULTILINE
+)
+_MAP_NOTE_RE = re.compile(r"[（(][^（）()\n]*[）)]")        # 檔名後的括號附註（入口、主程式）不當檔名
+_MAP_SPLIT_RE = re.compile(r"[、，,；;\s]+")
+_MAP_TOKEN_TRIM = "`'\"「」『』"
+_MAP_UNREAD_SHOWN = 5
+
+
+def min_map_group(text: str) -> Optional[Dict[str, str]]:
+    """text 裡的最小地圖：每遇「讀了」行開一組；回最後一組三行齊的（被擋後補交的那組才是現行），都不齊回最後一組，沒有地圖行回 None。"""
+    groups: List[Dict[str, str]] = []
+    for m in MIN_MAP_RE.finditer(text or ""):
+        if m.group(1) == "讀了" or not groups:
+            groups.append({})
+        groups[-1][m.group(1)] = m.group(2).strip()
+    complete = [g for g in groups if all(k in g for k in MIN_MAP_KEYS)]
+    if complete:
+        return complete[-1]
+    return groups[-1] if groups else None
+
+
+def min_map_files(value: str) -> List[str]:
+    """「讀了」那行的檔清單：先去掉括號附註，再以「、，,；;」與空白切開，剝反引號與引號。"""
+    out: List[str] = []
+    for tok in _MAP_SPLIT_RE.split(_MAP_NOTE_RE.sub(" ", value or "")):
+        tok = tok.strip(_MAP_TOKEN_TRIM)
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _map_line_problem(key: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return f"缺「地圖｜{key}」那行"
+    if not value.strip():
+        return f"「地圖｜{key}」是空的" + ("" if key == "讀了" else "（真的沒有就寫「無，因為…」）")
+    if _EXAMPLE_PLACEHOLDER_RE.search(value):
+        return f"「地圖｜{key}」還留著範例的角括號佔位（<…>）"
+    if key != "讀了" and _SAME_NONE_RE.match(value) and not _REASON_RE.search(value):
+        return f"「地圖｜{key}」寫了無但沒附理由（寫「無，因為…」）"
+    return None
+
+
+def min_map_verdict(group: Optional[Dict[str, str]], root: str, read: Iterable[str], transcript_problem: str = "") -> Verdict:
+    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：group＝min_map_group 的結果；root＝專案根（「讀了」的相對路徑以它為基準）；
+    read＝本 session 讀過的檔（canon_path 或原樣皆可）；transcript_problem＝transcript 讀不到時的原因（放進證據）。"""
+    rule = "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP"
+    if group is None:
+        ev = transcript_problem or "回覆文字、工具參數、thinking 都找不到「地圖｜讀了：」那行"
+        return Verdict(rule, True, "還沒交最小地圖三行（讀了／上游／下游）", (ev,))
+    problems = [p for p in (_map_line_problem(k, group.get(k)) for k in MIN_MAP_KEYS) if p]
+    files = [] if _map_line_problem("讀了", group.get("讀了")) else min_map_files(group["讀了"])
+    if not files and not _map_line_problem("讀了", group.get("讀了")):
+        problems.append("「地圖｜讀了」沒列任何檔")
+    seen = {canon_path(p) for p in read}
+    unread = [f for f in files if canon_path(os.path.join(root, f)) not in seen]
+    if unread:
+        shown = "、".join(unread[:_MAP_UNREAD_SHOWN]) + (f" 等 {len(unread)} 個" if len(unread) > _MAP_UNREAD_SHOWN else "")
+        problems.append(f"「地圖｜讀了」列的 {shown} 本 session 沒讀過（先讀再列，或從清單拿掉）")
+    if problems:
+        return Verdict(rule, True, "最小地圖不完整", tuple(problems))
+    return Verdict(rule, False, f"最小地圖三行齊，讀了列的 {len(files)} 個檔本 session 都讀過", tuple(files))
 # ─── G11 拐彎判斷（程式只算側面數據、只核對五欄齊；這一層有沒有作用、會不會讓人拐超過三個彎由 AI 判並寫理由。事實由 wg_reading_path 收，這裡判結構） ───
 RULES.update({
     "TURN_JUDGMENT_REQUIRED": "收尾附的側面數據（入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈層數與空層）到了"

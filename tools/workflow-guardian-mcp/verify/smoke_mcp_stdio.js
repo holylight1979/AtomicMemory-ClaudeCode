@@ -1,7 +1,7 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
 //   tools/list 含 13 個 tool；need_goal 參數拒收與 chip（不寫檔）；atom_source 缺 atom 拒（不 spawn py）；
 //   second_opinion_start independent 帶 draft 拒、second_opinion_result 缺 job_id 拒、project_smells 缺 part 拒（都不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
-//   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒；
+//   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_write schema 有 dedupe{verdict,of,why}（去重宣告；路由見 verify_atom_write_dedupe.js）；atom_retire 缺 reason 拒；
 //   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js（尾行 MCP_SMOKE_CHECK PASS|FAIL）
 // 隔離埠 WG_DASHBOARD_PORT=38499（不撞 3848 的 live guardian）；dry_run 不落檔、不動索引。
@@ -96,6 +96,9 @@ function check(cond, label, detail) {
   const aw = (list.result.tools || []).find((t) => t.name === "atom_write");
   check(aw && aw.inputSchema.properties.supersedes && aw.inputSchema.properties.supersedes.type === "array",
         "atom_write schema has supersedes:array");
+  const dd = aw && aw.inputSchema.properties.dedupe;
+  check(dd && dd.type === "object" && ["same", "supersedes", "different"].every((v) => dd.properties.verdict.enum.includes(v))
+        && dd.properties.of && dd.properties.why, "atom_write schema has dedupe{verdict,of,why}");
   const ar = (list.result.tools || []).find((t) => t.name === "atom_retire");
   check(ar && ar.inputSchema.required.includes("reason"), "atom_retire schema requires reason");
 
@@ -123,6 +126,12 @@ function check(cond, label, detail) {
         "need_goal reconcile bad evidence enums rejected", textOf(ng5));
   const ng6 = await callTool("need_goal", { action: "explode" });
   check(ng6.result.isError === true && /action/.test(textOf(ng6)), "need_goal unknown action rejected", textOf(ng6));
+  // T2.18：標 origin=user 要引用原話（quote）；update 也能只改 origin
+  check(ngDef && ngDef.inputSchema.properties.items.items.properties.quote, "need_goal schema has items.quote");
+  const ngq = await callTool("need_goal", { action: "update", items: [{ id: "T1.1", origin: "user", quote: "把 audit 寫進 log 檔", why: "引用原話" }] });
+  check(!ngq.result.isError && /update 已收到/.test(textOf(ngq)), "need_goal update origin-only with quote accepted", textOf(ngq));
+  const ngq2 = await callTool("need_goal", { action: "add", items: [{ text: "x", origin: "user", quote: 3 }] });
+  check(ngq2.result.isError === true && /quote/.test(textOf(ngq2)), "need_goal add non-string quote rejected", textOf(ngq2));
   // verify_scope：驗證範圍的宣告（該測哪些由 LLM 判斷）；js 只驗形狀
   check(ngDef && ngDef.inputSchema.properties.action.enum.includes("verify_scope") && ngDef.inputSchema.properties.reviews,
         "need_goal schema has verify_scope and reviews");
