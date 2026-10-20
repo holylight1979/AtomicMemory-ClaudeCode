@@ -1158,27 +1158,36 @@ _SVN_VALUE_FLAGS = {"-m", "--message", "-F", "--file", "--with-revprop", "--enco
 _SVN_SCOPE_FLAGS = {"--depth", "--changelist", "--cl"}    # 照原樣帶進 svn status，查的範圍才跟提交範圍一樣
 
 
-def svn_commit_files(run_cwd: str, commit_tokens: List[str], config: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """這次 svn commit 會提交的程式檔：`svn status` 的修改、新增、取代（BASE 當舊版）；刪除的只當舊版比對來源。
-    提交範圍選項（--depth、--changelist、--targets 清單檔）照樣套到 status。不是工作副本 → None。"""
+def svn_commit_args(commit_tokens: List[str]) -> Tuple[List[str], List[str], List[str]]:
+    """`svn commit …` 的 tokens（tokens[0]＝commit）→ (路徑, 照樣帶進 svn status 的範圍選項, --targets 清單檔)。"""
     paths: List[str] = []
     scope: List[str] = []
+    targets: List[str] = []
     it = _not_args(commit_tokens[1:])
     for t in it:
         name, eq, val = t.partition("=")
         if name in _SVN_SCOPE_FLAGS:
             scope += [name, val if eq else next(it, "")]
         elif name == "--targets":
-            target_file = Path(run_cwd) / (val if eq else next(it, ""))
-            try:
-                paths += [ln.strip() for ln in target_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
-            except OSError as e:
-                raise SmellsError(f"svn commit --targets 的清單檔讀不到（{e}），病形檢查判不了") from e
+            targets.append(val if eq else next(it, ""))
         elif name in _SVN_VALUE_FLAGS:
             if not eq:
                 next(it, None)
         elif not t.startswith("-"):
             paths.append(t)
+    return paths, scope, targets
+
+
+def svn_commit_files(run_cwd: str, commit_tokens: List[str], config: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """這次 svn commit 會提交的程式檔：`svn status` 的修改、新增、取代（BASE 當舊版）；刪除的只當舊版比對來源。
+    提交範圍選項（--depth、--changelist、--targets 清單檔）照樣套到 status。不是工作副本 → None。"""
+    paths, scope, targets = svn_commit_args(commit_tokens)
+    for name in targets:
+        try:
+            text = (Path(run_cwd) / name).read_text(encoding="utf-8")
+        except OSError as e:
+            raise SmellsError(f"svn commit --targets 的清單檔讀不到（{e}），病形檢查判不了") from e
+        paths += [ln.strip() for ln in text.splitlines() if ln.strip()]
     r = _vcs(["svn", "--non-interactive", "status", "--xml", "-q", *scope, *(paths or ["."])], run_cwd)
     if r.returncode != 0:
         return None

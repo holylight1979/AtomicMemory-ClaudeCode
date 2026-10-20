@@ -72,8 +72,8 @@ def _write(repo: Path, rel: str, text: str) -> None:
     p.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _gate(repo: Path, command: str):
-    return check_smell_gate("Bash", {"command": command}, str(repo), {})
+def _gate(repo: Path, command: str, tool: str = "Bash"):
+    return check_smell_gate(tool, {"command": command}, str(repo), {})
 
 
 CLEAN_PY = "def f(a):\n    return sorted(a, key=lambda p: p[0])\n"
@@ -380,6 +380,130 @@ def test_wrapped_commit_cannot_be_judged_is_blocked(tmp_path):
     repo = _repo(tmp_path, {"src/a.py": "x = 1\n"})
     deny, _advice = _gate(repo, 'bash -c "git commit -m x"')
     assert deny and "判不了" in deny
+
+
+# ─── commit 指令的寫法（驗收題 A：多行訊息／here-string 把 `-- <路徑>` 切到另一段，整條無聲放行）──────
+# 每種寫法：帶 pathspec（病碼只在工作樹、沒暫存，只有 pathspec 會把它帶進提交）與不帶 pathspec（病碼在暫存區）都要點名那一行。
+
+MESSAGE_FORMS = [
+    ("Bash", "多行雙引號", 'git commit -m "notify: add webhook\n\nCo-Authored-By: X <x@y>"'),
+    ("PowerShell", "多行雙引號", 'git commit -m "notify: add webhook\n\nCo-Authored-By: X <x@y>"'),
+    ("PowerShell", "here-string 單引號", "git commit -m @'\nit's \"quoted\"; -- not/a/path.py\n'@"),
+    ("PowerShell", "here-string 雙引號", 'git commit -m @"\nsay "hi" && -- not/a/path.py\n"@'),
+    ("Bash", "-F 檔", "git commit -F msg.txt"),
+    ("PowerShell", "-F 檔", "git commit -F msg.txt"),
+    ("Bash", "多個 -m", 'git commit -m "a" -m "b; -- not/a/path.py"'),
+    ("PowerShell", "多個 -m", 'git commit -m "a" -m "b; -- not/a/path.py"'),
+]
+_FORM_IDS = [f"{tool}-{name}" for tool, name, _cmd in MESSAGE_FORMS]
+
+
+@pytest.mark.parametrize("tool,_name,commit", MESSAGE_FORMS, ids=_FORM_IDS)
+def test_message_forms_with_pathspec_check_those_paths(tmp_path, tool, _name, commit):
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY, "src/b.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + STACKED)
+    assert _git(repo, "diff", "--cached", "--name-only").stdout == ""      # 前置：暫存區是空的
+    deny, _advice = _gate(repo, commit + " -- src/b.py src/a.py && git log --oneline -1", tool)
+    assert deny and "src/a.py 第 3 行" in deny
+
+
+@pytest.mark.parametrize("tool,_name,commit", MESSAGE_FORMS, ids=_FORM_IDS)
+def test_message_forms_without_pathspec_check_staged(tmp_path, tool, _name, commit):
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + STACKED)
+    _git(repo, "add", "src/a.py")
+    deny, _advice = _gate(repo, commit, tool)
+    assert deny and "src/a.py 第 3 行" in deny
+
+
+def test_acceptance_a_verbatim_command_is_blocked(tmp_path):
+    """驗收 transcript 裡 AI 實際下的指令原樣（授權註解＋雙引號多行訊息＋pathspec＋&& git log）。"""
+    files = {"notify/channels.py": "x = 1\n", "notify/dispatch.py": CLEAN_PY, "tests/test_dispatch.py": "y = 1\n"}
+    repo = _repo(tmp_path, files)
+    _write(repo, "notify/dispatch.py", CLEAN_PY + STACKED)
+    command = ('# 授權原句：「寫完測試，然後把這次的改動 commit。」\n'
+               'git commit -m "notify: add webhook channel (urllib POST text to url)\n\n'
+               'Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>" -- notify/channels.py notify/dispatch.py '
+               'tests/test_dispatch.py && git log --oneline -2')
+    deny, _advice = _gate(repo, command)
+    assert deny and "notify/dispatch.py 第 3 行" in deny
+
+
+def test_herestring_pathspec_without_new_smell_passes_and_lists_old(tmp_path):
+    repo = _repo(tmp_path, {"src/a.py": STACKED + "y = 1\n"})
+    _write(repo, "src/a.py", STACKED + "y = 2\n")
+    deny, advice = _gate(repo, "git commit -m @'\nfix y\n'@ -- src/a.py", "PowerShell")
+    assert deny is None
+    assert advice and "舊碼原本就有" in advice and "src/a.py 第 1 行" in advice
+
+
+JUDGEABLE_FORMS = [      # 看起來有展開、其實拆得準的寫法：要照常查（點名那一行），不能當成拆不出
+    ("Bash", "git commit -m \"$(cat <<'EOF'\nit's \"x\" -- not/a/path.py\nEOF\n)\" -- src/a.py"),
+    ("Bash", "git commit -F - -- src/a.py <<'EOF'\nmsg\nEOF"),
+    ("Bash", "git commit -m $'line1\\nline2' -- src/a.py"),
+    ("PowerShell", "$msg = @'\nfix\n'@; git commit -m $msg -- src/a.py"),
+    ("PowerShell", 'git commit -m "x" -- src/a.py 2>$null'),
+    ("PowerShell", 'git commit -m "$(Get-Date)" -- src/a.py'),
+    ("Bash", "git commit 2>&1 -m x -- src/a.py"),                       # 重導向裡的 & 不是分隔（Codex BLOCK 1）
+    ("Bash", "git add 2>&1 src/a.py && git commit -m x"),
+    ("Bash", 'git commit -m "fix \\"a; b\\"" -- src/a.py'),            # 跳脫的引號：分號在訊息裡（Codex BLOCK 2）
+    ("PowerShell", 'git commit -m "fix `"a; b`"" -- src/a.py'),
+]
+
+
+@pytest.mark.parametrize("tool,command", JUDGEABLE_FORMS)
+def test_judgeable_expansions_are_checked_not_refused(tmp_path, tool, command):
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + STACKED)
+    deny, _advice = _gate(repo, command, tool)
+    assert deny and "src/a.py 第 3 行" in deny
+
+
+UNPARSEABLE_FORMS = [    # 拆不出要提交什麼：一律擋並說為什麼，不能無聲放行
+    ("Bash", "git commit -m $(cat msg.txt) -- src/a.py", "引號外有展開"),
+    ("Bash", 'git commit $(printf -- "-m x") -- src/a.py', "引號外有展開"),
+    ("PowerShell", "git commit -m $(Get-Content msg.txt) -- src/a.py", "引號外有展開"),
+    ("Bash", 'git commit -m "unclosed -- src/a.py', "引號沒有閉合"),
+    ("PowerShell", "git commit -m @'\nno closing line\n -- src/a.py", "沒有行首的結束行"),
+    ("Bash", 'git commit -m "x" -- "$f"', "是變數或命令替換"),
+    ("PowerShell", 'git commit -m "x" -- $files', "是變數或命令替換"),
+    ("Bash", 'git add "$f" && git commit -m "x"', "是變數或命令替換"),
+    ("Bash", 'cd "$REPO" && git commit -m "x" -- src/a.py', "落點"),
+    ("Bash", "git commit -m x -- src/{1..3}.py", "引號外有展開"),       # 序列展開（Codex BLOCK 3）
+]
+
+
+@pytest.mark.parametrize("tool,command,why", UNPARSEABLE_FORMS)
+def test_unparseable_commit_shape_is_blocked_with_reason(tmp_path, tool, command, why):
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + "z = 1\n")       # 改動本身沒病：擋的理由只能是寫法拆不出
+    deny, _advice = _gate(repo, command, tool)
+    assert deny and "判不了" in deny and why in deny
+
+
+@pytest.mark.parametrize("tool", ["Bash", "PowerShell"])
+def test_literal_dollar_in_quoted_file_name_is_checked_not_refused(tmp_path, tool):
+    """單引號裡的 `$` 是字面檔名（Remix 路由 `users.$id.tsx` 這類）：照查，不能當成變數擋掉（Codex BLOCK 5）。"""
+    repo = _repo(tmp_path, {"src/$name.py": CLEAN_PY})
+    _write(repo, "src/$name.py", CLEAN_PY + STACKED)
+    deny, _advice = _gate(repo, "git commit -m x -- 'src/$name.py'", tool)
+    assert deny and "src/$name.py 第 3 行" in deny
+
+
+def test_relative_cd_and_dash_c_accumulate_to_the_real_repo(tmp_path):
+    """連續 cd、cd 之後的 git -C、多個 -C 都相對前一個落點：查真正落到的 repo，不是把最後一段接在 tool cwd 後面。"""
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + STACKED)
+    (tmp_path / "src").mkdir()                    # 接錯的話落在這個不是 repo 的目錄，看成沒東西要提交
+    for command in ('cd proj && cd src && git commit -m "x" -- a.py', 'cd proj && git -C src commit -m "x" -- a.py',
+                    'git -C proj -C src commit -m "x" -- a.py'):
+        deny, _advice = check_smell_gate("Bash", {"command": command}, str(tmp_path), {})
+        assert deny and "src/a.py 第 3 行" in deny, command
+
+
+def test_svn_multiline_message_keeps_paths_in_the_commit_segment():
+    from handlers.pre_tool_use import _svn_segments
+    assert _svn_segments('svn commit -m "a\n\nb; c" x.py', {"commit"}) == [("", ["commit", "-m", "a\n\nb; c", "x.py"])]
 
 
 def test_non_commit_commands_not_triggered(tmp_path):
