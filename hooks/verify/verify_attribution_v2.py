@@ -77,7 +77,11 @@ def test_lexical_requires_enough_clean_shared_tokens():
 
 
 def test_path_noise_tokens_are_dropped():
-    toks = wg_atoms._attr_clean_tokens({"holylight", "users", "server.js", "~/.claude", "a/b/c", "skip-git-repo-check", "unelevated"})
+    # 家目錄那一段是當前使用者的帳號，隨機器而異 → 測試不得寫死某個人的帳號
+    from wg_roles import get_current_user
+    me = get_current_user().lower()
+    toks = wg_atoms._attr_clean_tokens(
+        {me, "users", "server.js", "~/.claude", "a/b/c", "skip-git-repo-check", "unelevated"})
     assert toks == {"skip-git-repo-check", "unelevated"}
 
 

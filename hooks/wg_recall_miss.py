@@ -87,8 +87,9 @@ def collect_problem_texts(state: Dict[str, Any]) -> List[Tuple[str, str]]:
 
     # failure_kw：episodic 生成同源的既有萃取物（不重跑 LLM）
     for kq in (state.get("knowledge_queue") or []):
+        # queue 裡可能混有純字串（非 dict）；跳過而不是讓整段 SessionEnd 炸掉
         if not isinstance(kq, dict):
-            continue  # 舊格式 queue 混有純字串；不是 dict 就跳過，不炸整段 SessionEnd
+            continue
         if kq.get("type") == "pitfall" or kq.get("source") == "failure":
             c = str(kq.get("content", "")).strip()
             if c:

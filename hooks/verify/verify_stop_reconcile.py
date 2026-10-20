@@ -4023,6 +4023,28 @@ def test_044_6_aec_emitted_before_peer_message_satisfies_scan_report(driven, cap
     assert "[Guardian:ScanReport]" not in out
 
 
+def test_044_7_aec_after_last_edit_satisfies_scan_report_in_later_turn(driven, capsys, monkeypatch):
+    """stop.py aec_up_to_date：turn 3 改兩個檔並交收尾檢核 → 使用者 turn 5 另問一句（純問答）→ 回覆帶完成詞：
+    上一份檢核之後沒再改檔，沒有新東西可報，ScanReport 不擋。舊碼只認「本回合」有 emit，純問答回合被逼重交整份十一欄
+    （TSLG d242fbd8 第 6 回合實踩）。"""
+    docs = [_mf(r"c:\proj\docs\a.md", 3, last_at=_T1, last_seq=1), _mf(r"c:\proj\docs\b.md", 3, last_at=_T1, last_seq=2)]
+    state = _user_then_peers(monkeypatch, peers=0, modified_files=docs, anti_evasion_report=_aec(3, j="無", k="無"))
+    out, _, _ = driven("結論不變，全部完成了。", capsys, **state)
+    assert "[Guardian:ScanReport]" not in out
+
+
+def test_044_7_edit_after_last_aec_still_requires_scan_report(driven, capsys, monkeypatch):
+    """配對：turn 3 交過檢核，但 turn 4 又改了一個檔 → turn 5 說完成：有新改動沒交代，ScanReport 照擋。
+    隔壁 session 在 turn 4 之後交的檢核（session_id 不符）也不算。"""
+    docs = [_mf(r"c:\proj\docs\a.md", 3, last_at=_T1, last_seq=1), _mf(r"c:\proj\docs\b.md", 4, last_at=_T1, last_seq=2)]
+    state = _user_then_peers(monkeypatch, peers=0, modified_files=docs, anti_evasion_report=_aec(3, j="無", k="無"))
+    out, _, _ = driven("全部完成了。", capsys, **copy.deepcopy(state))
+    assert "[Guardian:ScanReport]" in out
+    state["anti_evasion_report"] = _aec(4, j="無", k="無", session_id="sibling")
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert "[Guardian:ScanReport]" in out
+
+
 def test_044_6_commit_before_peer_message_exempts_scan_report(driven, capsys, monkeypatch):
     """stop.py committed_this_turn：turn 5 已 commit、動了兩個檔 → 通知（turn 6）→ 說完成：本回合 commit 了，ScanReport 豁免。
     舊碼要求 last_commit_turn_seq==6，擋。"""

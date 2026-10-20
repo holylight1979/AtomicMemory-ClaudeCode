@@ -89,6 +89,8 @@
 ## 2026-10-15 判斷入口盤點第二階段：定位要寫批判、關鍵點加兩問、(a) 認宣告範圍、文件不作廢程式收據
 - 依原設計者核准的盤點（`memory/_staging/v6-C-判斷入口盤點.md` 第四節、P5、類 2）與原話輯 G1 10-15 條。**批判**：有目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判」（合理／不合理＋理由、更好的做法、同類還可能在哪），規則 LOCATE_LINES_NEED_CRITIQUE 只查結構、與四行同一支判定；讀入範圍變大、外部主張、目標改了重看三個提示多問「合不合理、同類別處」，並附三個具體情況題（選替身、換測試環境、期望不發生的案例；原設計者補充）（只送題）；交出計畫、開工句、清單前的一問送在完整對照回應、改 `_staging`／`plans` 的 .md 之後、提問被擋時；完整對照的達成節點可附 `same_class`（MCP schema 同步，要 Reload Window）。**P5**：(a)「說修好」有驗證範圍宣告就只認範圍內任一項改完之後跑綠的收據（不看回合、不比檔名），沒宣告才退回檔名對應。**類 2**：驗證範圍每一項只被程式檔與跟它有關的文件作廢（規則 SCOPE_EDIT_RELATED_TO_ITEM），改 `_staging` 不必重跑程式測試；測試讀別的部位的資料由 LLM 在那一項宣告 `inputs`，宣告回應列出不算進任何一項的文件改動。codex 一輪 4 BLOCK 已修（跨部位資料改走 inputs、理由裡的「同類」不切斷、「無鎖佇列」不當「沒有同類」、照抄範例佔位不算交，後者同時套到定位四行，規則 LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER）。新案先紅後綠，細節 TECH §7.1、§7.7、§7.8。
 
+## 2026-10-15 收尾查核：上一份收尾檢核之後沒再改檔的回合，ScanReport 不再逼重交整份
+- ScanReport 閘原本只認「本回合」有沒有 emit `anti_evasion_report`；程式改完、檢核交完之後，使用者接著純問答，回覆一帶完成詞就被擋一整輪、要求重交十一欄（TSLG session d242fbd8 第 6 回合實踩，內容與上一份完全相同）。`handlers/stop.py` 新增 `aec_up_to_date`：本 session 最後一份檢核的回合不早於每個自己改檔的 `last_turn_seq`（同 session_id），就視同已交；同回合的後續改動仍由 `emitted_this_turn` 判、隔壁 session 的檢核照舊不算。驗證：`verify_stop_reconcile` 新二案（044_7）舊碼第一案紅、新碼全綠，配對案（之後又改檔／隔壁 session 交的）照擋；`verify_aec_emission_gate` 全綠。
 ## 2026-10-15 判斷入口盤點第一階段：範圍漏判歸因、提示只看使用者的字、commit 口令不認一般字
 - 依原設計者核准的盤點清單（`memory/_staging/v6-C-判斷入口盤點.md` P1～P3）。**P1**：紅的案例是看到紅的 session 在它上次綠之後新寫或改過、還沒結案的（比上次綠那時的 git 版本：沒有這個案例或定義不同）→ 算它進行中的工作，不記已關 session 的範圍漏判，改成告訴它；只改同檔別的案例、改別的檔、判不出照記（既有設計：不憑 session 狀態丟掉別人留下的退化）。清單提的「待檢討只擋負責的 session」沒做：負責的 session 通常已關，只擋它等於漏判沒人檢討。**P3**：Atom-Write Guard、研究 fan-out、並行建議改吃 `user_typed_text`，背景通知與同伴訊息不觸發；情境分類不再注入「先 EnterPlanMode」（只記 approach 給反思統計）。**P2**：「commit／push／提交」不再是口令；一般說法授權由 LLM 在指令附 `# 授權原句：「…」`，程式核對原句在本回合使用者原話裡、含提交類動作字、至少一個動作字沒被否定；口令或動作字被否定或延後（左邊有否定字或「等我…」，跨頓號列舉；右邊只剩不帶對象的否定）不算，「上GIT 別碰 X」照算。codex 一輪 BLOCK 3（同檔別的案例被丟、頓號切斷否定與「不可以」、否定不分對象）都修了。驗證：`verify_verify_scope`、`verify_harness_prompt_guard`、`verify_git_commit_order_gate` 新案舊碼紅新碼綠。
 
@@ -516,6 +518,23 @@
 - **vcs-sync worker**（`hooks/wg_vcs_sync.py` + `hooks/vcs-sync-worker.py`，detached）：目標集根層 `memory`+`_AIDocs/_atoms`、專案 `.claude/memory`，各以記憶目錄找最近 VCS root；OS 互斥鎖（msvcrt.locking／flock）＋`.req/<uuid>.json` 請求檔由持鎖者合併消費；git 真 index pathspec add+commit、push 守門（待推歷史含非記憶 commit → 不 push 留 `.unpushed` 標記）；svn `--xml` 逐檔 add 套 exclude、retire old_path 才 delete、commit；失敗落 `Logs/vcs-sync.log` + 標記 → SessionStart `_unpushed_advisory` 擴到 `workflow/vcs-sync/roots.json` 全部 root。觸發：收割 validated、SessionEnd（`_auto_commit_promotions` 整段移除，晉升 sweep 一併交 worker）。
 - **Codex 兩輪審查（gpt-6-astra）全數併入**：計畫輪 8 BLOCK／10 WARN（棄暫存 index、push 守門、receipt 核對、retire 定位、Supersedes 循環／三態）；實作輪 9 BLOCK／7 WARN（push 固定 OID、OS 互斥鎖、請求檔交接、svn 精確 targets `--depth empty`、retire 用定位路徑、護欄讀失敗一律拒、向量單層 predicate、(h) pending 保留、items 自驗、`-z` 路徑、exclude 套 commit、roots.lock、advisory 自清）；覆核輪 4 BLOCK／5 WARN（exclude 含目錄的 pattern 只比全路徑、push 守門套 exclude、索引清理帶實體 path 只刪相符條目、cli build/create 統一 canonical supersedes、請求檔 inflight 領取後確認刪、roots.lock 逾時不寫、advisory 解除依查詢成功、Python 自驗補 summary、向量庫在而 lancedb 缺即拒）；最終覆核輪 3 BLOCK／2 WARN（replace receipt 用 canonical、catalog 列不剝 `../`、索引壞 JSON 拒搬、不可讀請求不 ack、marker 在 roots 更新成功後才刪）。vcs_sync.exclude 加 `memory/_meta/**`（設定檔不走記憶自動提交）。
 - **決策**：專案層 `.claude/memory/personal/` 進版控（注入過濾非保密，repo 讀者可讀）；根層 `memory/personal/` 維持 ignore。`tools/init-roles.py --privacy-check` 的 personal 警告方向反轉。config 新 `harvest.*`／`vcs_sync.*`，舊鍵 `self_iteration.auto_commit_promotions/auto_push_promotions` 由 vcs_sync 接管。`run_verify.py` 2047 passed。 | `hooks/wg_harvest.py`, `hooks/wg_vcs_sync.py`, `hooks/vcs-sync-worker.py`, `hooks/handlers/{stop,post_tool_use,session_end,session_start}.py`, `hooks/verify/{verify_knowledge_harvest_gate,verify_vcs_sync_worker}.py`, `lib/{atom_spec,atom_io,atom_io_cli}.py`, `lib/verify/{verify_atom_io_equivalence,verify_atom_retire}.py`, `tools/memory-audit.py`, `tools/verify/verify_memory_audit_sot.py`, `tools/workflow-guardian-mcp/lib/{mcp,atom-tools,atom-render,harvest}.js`, `tools/workflow-guardian-mcp/lib/_MAP.md`, `tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`, `tools/init-roles.py`, `workflow/config.json`, `settings.json`, `.gitignore`, `TECH.md`, `_AIDocs/{Architecture,DocIndex-System,SPEC_ATOM_V5}.md`, `Install-forAI.md`, `README.md`
+
+---
+
+## 2026-09-24 knowledge_queue 混純字串的防護補回歸測試
+- `collect_problem_texts` 在 SessionEnd 路徑上，queue 混進非 dict 會讓整段收尾炸掉。守衛本來就在但沒測試釘住，重構時容易被當成多餘的型別檢查拿掉。順帶把註解改成只陳述可驗證的事（原本「舊格式」與「extract-worker 的 extracted_items」都指向特定生產者，但查不到證據）。 | `hooks/wg_recall_miss.py`, `hooks/verify/verify_recall_miss.py`
+
+---
+
+## 2026-09-24 巢狀 SVN 工作副本會蓋掉真正的專案根；判定收斂成一份
+- `_legacy_nearest` 把裸 `.svn` 與 `.git`／`_AIDocs`／memory index 放同一趟取最近者 → 子目錄自己是工作副本時專案根就停在子目錄，記憶被切成第二棵殘缺的 `.claude` 樹，且無任何錯誤訊號（症狀只是「atom 都讀不到」「pending 佇列是空的」）。拆出 `has_strong_project_marker`（不含裸 `.svn`），`_legacy_nearest` 改兩趟：強標記掃滿整條鏈才輪到 `.svn`；`has_project_marker` 維持原義。
+- `wg_core.find_project_root` 原本在無宣告認領時自己再掃一次＝同一判定兩份實作、無編譯期關聯，改為取 `Resolution.nearest` 委派。**順帶修好 MCP 側**：`atom_write`／`atom_promote` 的落點走 `atom_io.locate_atom → resolve_project_root`，先前與 hook 側不同步，從子目錄呼叫得顯式帶 `project_cwd` 才不會落錯。`verify_project_root_claim` 27→29 條（`test_T` 的 legacy 參照同步改兩趟）。 | `lib/project_root.py`, `hooks/wg_core.py`, `hooks/verify/verify_project_root_claim.py`
+
+---
+
+## 2026-09-23 清掉版控程式裡殘留的作者帳號字面量
+- `get_current_user` 是「CLAUDE_USER → OS 登入帳號 → 中性預設值」一條鏈，但 `user-extract-worker` 的 `ctx.get("user", …)` 與 `handlers/_shared` 的 `user_id.get("user", …)` 拿不到身分時回固定字串、不走這條鏈——同事機器上 personal atom 歸屬與 PersonalSync 目標目錄會靜默指到錯的帳號下。改問 `get_current_user()`。
+- 同類另兩處：`wg_atoms._ATTR_PATH_NOISE` 把作者帳號寫死成路徑噪音詞（判用 v2 要剔除的是「家目錄那一段」，隨機器而異，寫死只對作者那台有效），與其對應測試，都改成取用時問當前使用者。`health-weekly` 的 schtasks 註冊範例註解改用 `%USERPROFILE%`。 | `hooks/user-extract-worker.py`, `hooks/handlers/_shared.py`, `hooks/wg_atoms.py`, `hooks/wg_roles.py`, `hooks/verify/verify_attribution_v2.py`, `tools/health-weekly.py`
 
 ---
 

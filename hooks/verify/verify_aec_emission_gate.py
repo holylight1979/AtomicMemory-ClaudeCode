@@ -111,9 +111,11 @@ def test_sibling_emit_still_blocks(driven, capsys):
 
 
 def test_prior_turn_emit_not_satisfied(driven, capsys):
-    """emit 發生在別 turn（turn_seq 不符）→ 不滿足，照 block（不因歷史 emit 永久放行）。"""
+    """emit 發生在別 turn（turn_seq 不符）→ 不滿足，照 block（不因歷史 emit 永久放行）。
+    改檔紀錄沒有回合號（legacy entry）→ 不知道是不是報告之後改的，aec_up_to_date 不成立。"""
     out = driven([_mf(_CORE)], capsys, turn_seq=5, anti_evasion_report=_emit(4))
     assert "[Guardian:ScanReport]" in out
+
 
 
 def test_turn_seq_zero_guard(driven, capsys):

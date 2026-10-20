@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 import wg_core
 
-_DEFAULT_USER = "unknown"
+_DEFAULT_USER = "unknown"   # env 與 OS 都問不出身分時的中性值，不是任何人的帳號
 _ROLE_LINE_RE = re.compile(r"^-\s*Role\s*:\s*(.*)$", re.IGNORECASE)
 _PROJECT_CODE_RE = re.compile(r"^>\s*Project-Code:\s*(\S+)", re.MULTILINE)
 
@@ -41,7 +41,12 @@ def _warn(msg: str) -> None:
 
 
 def get_current_user() -> str:
-    """env CLAUDE_USER → OS 登入帳號（AD 帳號去網域）→ "unknown"。"""
+    """env CLAUDE_USER → OS 登入帳號（AD 帳號去網域）→ _DEFAULT_USER。
+
+    personal/<user>/ 目錄名＝各機器 OS 帳號（bootstrap 慣例）。共用此核心的同事機器若拿到
+    寫死的帳號，會把別人的 personal 當成自己的（可見性倒置、PersonalSync 指錯目錄），
+    故此處不留任何人的帳號字面量；兩層都問不出身分才回中性的 _DEFAULT_USER。
+    """
     u = os.environ.get("CLAUDE_USER")
     if u:
         return u

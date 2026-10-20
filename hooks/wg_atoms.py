@@ -1408,15 +1408,28 @@ def detect_atom_use(
 # ─── 判用 v2：行動證據優先、路徑噪音剔除、否定線索 ──────────────────────────────
 # 標註集（tools/memory-eval/usage_labels.jsonl，57 筆）實測 v1 詞彙重疊：precision 0.18、
 # 12 組門檻全在 0.17–0.22，rejected／cited 在所有設定下 9/9 判 used——門檻是死路。
-# FP 主因：路標／cold 行的路徑片段（users/holylight/claude/tools…）幾乎每輪工具參數都有；
+# FP 主因：路標／cold 行的路徑片段（users/<帳號>/claude/tools…）幾乎每輪工具參數都有；
 # 全文 atom 則是泛雙字。否定與引用靠共享 token 必中，要獨立規則。
 
-_ATTR_PATH_NOISE = frozenset({
-    "users", "holylight", "claude", "tools", "aidocs", "memory", "hooks", "workflow", "atoms",
-    "memdev", "scratchpad", "appdata", "local", "temp", "python", "utf8", "verify", "handlers",
-    "logs", "json", "jsonl", "config", "state", "session", "prompt", "atom", "read", "write",
-    "edit", "bash", "file", "path", "line", "lines", "test", "tests", "user", "claude.md",
-})
+def _attr_path_noise() -> frozenset:
+    """路徑噪音詞。家目錄那一段是當前使用者的帳號，隨機器而異 → 取用時才問，
+    不寫死在版控程式裡（寫死等於只對作者那台機器有效）。"""
+    base = {
+        "users", "claude", "tools", "aidocs", "memory", "hooks", "workflow", "atoms",
+        "memdev", "scratchpad", "appdata", "local", "temp", "python", "utf8", "verify",
+        "handlers", "logs", "json", "jsonl", "config", "state", "session", "prompt",
+        "atom", "read", "write", "edit", "bash", "file", "path", "line", "lines",
+        "test", "tests", "user", "claude.md",
+    }
+    try:
+        from wg_roles import get_current_user
+        base.add(get_current_user().lower())
+    except Exception:  # noqa: BLE001
+        pass
+    return frozenset(base)
+
+
+_ATTR_PATH_NOISE = _attr_path_noise()
 # 否定要「綁定到這顆 atom」才算拒用，不是附近有否定詞就算（Codex #8 反例：「遵照 X 完成部署，不要用舊指令」
 # 不是拒用 X）。兩種句型：前綴型「不要用／忽略 ＋ ≤15 字 ＋ 錨點」、述語型「錨點 ＋ ≤20 字 ＋ 已過時／被取代／不適用」。
 _ATTR_NEG_PREFIX = r"(?:不要用|不用|別用|不採用|不套用|不照|不依|不需要|不能用|忽略|跳過|don'?t use|do not use|skip (?:it|this|that))"
