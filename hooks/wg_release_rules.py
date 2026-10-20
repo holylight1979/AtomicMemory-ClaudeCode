@@ -70,7 +70,7 @@ RULES: Dict[str, str] = {
                                        "→ 沒有任何東西可同步，不算未同步（stderr 列出）。檔還在而查不了版控的照 SYNC_BLOCK_SKIPS_SYNCED 算未同步；"
                                        "磁碟或網路分享根連不到、往上找版控根時出錯（斷線看起來也像不在）也照算未同步。"
                                        "判法在 handlers/stop.py 的 _synced_paths。",
-    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
+    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、第二意見、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",
     "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"

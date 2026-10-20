@@ -8,6 +8,8 @@
 - **交給 AI 寫程式時會看到的**：收尾同時「說修好沒收據」又「缺拐彎判斷行」，先看到的是寫碼查核（對帳 (a)～(d)、驗證範圍）的紅，訊息尾「後面還會擋」列「拐彎判斷：缺 N 條（名稱）」與一行寫法，可以一回合補齊；對帳過了才輪到拐彎判斷擋，每個使用者回合仍只擋一次，對帳先擋不會吃掉這一次。拐彎判斷擋下時，尾端也照樣預告後面的第二意見等閘。判定規則與五欄格式不變。細節 TECH §7.1、§7.8。
 - **改了什麼**（軌 track-g11-reconcile-move 000）：`handlers/stop.py` ReadingPath 段只留背景量測與 stderr；新 TurnJudgment 段放在 SecondOpinion 正前方（寫碼查核、退避偵測之後），`_later_gates` 第一項掛拐彎判斷預覽；`hooks/wg_reading_path.py` 加只讀查詢 `turn_judgment_missing`；同類順手修：Equivalence 閘改成先 `_piggyback` 再 `write_state`，token 預警與驗收提示「整場附一次」的旗標才寫得進 state（新閘同此順序）。
 - **驗證**：`hooks/verify/verify_g11_turns.py` 新 7 案，退回舊碼 3 案紅（對帳先擋＋預覽、與第二意見同序同預覽、一次性旗標；Equivalence 那半單獨退回也紅），其餘 4 案是搬段沒丟的護欄；舊案例 `test_real_stop_blocks_with_the_data_until_judgment_lines_arrive` 先宣告後加一行 setup 讓寫碼查核全過，斷言未改。
+- **第二意見改過檔也跑得起來**：`tools/second-opinion/pack.py` 以前只遮 goal.md 的絕對路徑，帳本尾段、卡片、diff、附加檔、草稿原樣嵌進提示詞，改過檔的 session（帳本一定有改檔與指令的絕對路徑）跑 `second_opinion_start` 一律被 replay-guard pre 擋成 blocked；現在 `gather_items` 出口統一遮成「…/<最後一段>」，認磁碟代號、Git Bash 的 /c/…（pre 不擋但一樣指到真工作副本，codex 審出來的；至少兩層才算，JS 正規式 /a/g 不誤遮）、UNC 三種寫法；遮罩保留尾端分隔字元（帳本仍是合法 JSON），字串字面值的 `\n` 跳脫不算路徑一段（diff 裡的測試字面值留得住檔名）。案例在 `tools/codex-companion/verify/verify_second_opinion.py`（新 3 案，舊碼紅；其一用真的 replay-guard pre 子行程）。
+- **規則表描述對齊閘序**：`wg_release_rules.py` 的 BLOCK_LISTS_LATER_GATES 說明補列拐彎判斷與第二意見（純描述，判定未動）。
 ## 2026-10-20 T2.19 補件：宣告行不留在卡裡、別人合併後的還原不算改碼、Git Bash 的 cd /c/ 認得出 repo
 - **交給 AI 寫程式時會看到的**：卡片第一行的「不是教繞閘｜理由」只給寫入閘看，寫進卡片時拿掉；總控台把 main 合進工作分支後，工作軌「退回舊版看紅再還原」不再被收尾閘當成改程式欠案例；Bash 下 `cd /c/… && git commit …` 不再被 commit 前各閘當成判不了而擋。細節見 TECH §7.5 與寫碼查核豁免表。
 ## 2026-10-20 G8 程式端真不一致修補：同鍵預設收成一份、資料根改走 CLAUDE_DIR、三個無效開關接回、死鍵清掉

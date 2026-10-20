@@ -1,7 +1,8 @@
 """pack.py：第二意見的材料打包：把要審的東西複製進 job 的 materials/，算可重現的總雜湊。
 
 做什麼：同一份材料不管來源行尾（CRLF／LF）、不管餵進來的順序，打包出來的 manifest.hash 都相同；
-manifest 只記相對路徑，不含沙箱外的絕對路徑（replay-guard 的洩題規則）。
+manifest 只記相對路徑；材料內文指到沙箱外的絕對路徑（磁碟代號、Git Bash 的 /c/…、UNC）一律遮成「…/<最後一段>」
+（replay-guard 的洩題規則：提示詞不得含沙箱外路徑）。
 
 怎麼用（由 run.py prepare 呼叫；單獨跑只為除錯）：
     items = gather_items(request, cfg)                 # 從 cwd／part 蒐材料：卡、病灶前 N、diff、帳本尾 K、需求目標樹、草稿
@@ -39,8 +40,12 @@ NO_GOAL = "無目標樹"
 
 _ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]{1,2})")
 _HEADING_RE = re.compile(r"^#{1,3}\s", re.MULTILINE)
-# 內文裡的磁碟絕對路徑（MIRROR: tools/replay-guard.py ABS_PATH）：goal.md 裡的要遮掉，否則 replay-guard pre 會擋整份提示詞
-_ABS_IN_TEXT_RE = re.compile(r"(?<![A-Za-z])[A-Za-z]:[/\\][^\s\"'`)\]]+")
+# 內文裡指到沙箱外的絕對路徑，每份材料都要遮掉：磁碟代號（MIRROR: tools/replay-guard.py ABS_PATH，沒遮 pre 就擋整份提示詞）、
+# Git Bash 的 /c/…（帳本的 cd 指令常見；pre 不擋，但一樣把真工作副本的位置交給審查者；至少兩層才算，JS 正規式 /a/g 不動）、
+# UNC（含 JSON 跳脫的四個反斜線）
+_ABS_IN_TEXT_RE = re.compile(r"(?<![A-Za-z])[A-Za-z]:[/\\][^\s\"'`)\]]+"
+                             r"|(?<![\w/.~-])/[A-Za-z]/[^\s\"'`)\]/\\]+[/\\][^\s\"'`)\]]*"
+                             r"|(?<![\w:\\/])(?:\\{2,4}|//)[\w.$-]+[\\/][^\s\"'`)\]]+")
 _GOAL_ROOT_RE = re.compile(r"樹根（[^）\n]*）：(.*)")
 
 
@@ -183,9 +188,19 @@ def _hooks_on_path() -> None:
         sys.path.insert(0, hooks)
 
 
+def _mask_one(m: "re.Match[str]") -> str:
+    s = m.group(0)
+    esc = re.search(r"(?<!\\)\\[nrt]$", s)   # 字串字面值的 \n、\t 跳脫不是路徑的一段（JSON 的 \\n 才是名叫 n 的一段）
+    path, tail = (s[:esc.start()], s[esc.start():]) if esc else (s, "")
+    core = path.rstrip("\\/")
+    last = re.split(r"[\\/]", core)[-1]
+    # 尾端的分隔字元照留：JSON 帳本裡 \"C:\\x\" 的那個反斜線是跳脫引號用的，吃掉就不是合法 JSON；只有磁碟代號（C:\）不留代號
+    return "…/" + (last if last != core else "") + path[len(core):] + tail
+
+
 def mask_abs_paths(text: str) -> str:
-    """磁碟絕對路徑換成「…/<最後一段>」：還看得出指哪個檔，但不把沙箱外路徑送進提示詞。"""
-    return _ABS_IN_TEXT_RE.sub(lambda m: "…/" + re.split(r"[\\/]", m.group(0).rstrip("\\/"))[-1], text)
+    """指到沙箱外的絕對路徑（磁碟代號、Git Bash 的 /c/…、UNC）換成「…/<最後一段>」：還看得出指哪個檔，但不把沙箱外路徑送進提示詞。"""
+    return _ABS_IN_TEXT_RE.sub(_mask_one, text)
 
 
 def _one_line(s: Any) -> str:
@@ -330,4 +345,6 @@ def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tup
     if mode == "review":
         items.append((REL_DRAFT, normalize_lf(str(request.get("draft") or ""))))
 
-    return items, notes
+    # 提示詞嵌材料全文：每份材料都遮磁碟絕對路徑（帳本一定有本 session 的改檔與指令、卡片的 Depends、diff 裡的字面路徑），
+    # 否則 replay-guard pre 擋整份（goal.md 在 goal_material 已遮，再遮一次不變）
+    return [(rel, mask_abs_paths(text)) for rel, text in items], notes

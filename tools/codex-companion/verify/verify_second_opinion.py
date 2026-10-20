@@ -230,6 +230,76 @@ def test_ledger_source_order_session_ledger_then_old_then_note(tmp_path, monkeyp
     assert "ledger.jsonl" not in dict(items) and "沒有驗證帳本（session_id=sid-x）" in notes          # 明指就只認它
 
 
+def _abs_path_request(tmp_path, monkeypatch):
+    """改過檔的 session 的真實樣子：session 帳本（JSON 跳脫的雙反斜線、引號包住的路徑）、卡片的 Depends、diff 裡的字面路徑、附加檔，
+    都帶沙箱外的磁碟絕對路徑。回 gather_items 的 materials 與 session_id。"""
+    monkeypatch.setattr(pack, "CLAUDE_DIR", tmp_path / "claude")
+    led = tmp_path / "claude" / "workflow" / "verify-ledger" / "sid-abs.jsonl"
+    led.parent.mkdir(parents=True)
+    rows = [{"cmd": 'cd "C:\\Users\\someone\\proj" && python -m pytest', "project_root": "C:/Users/someone/proj",
+             "modified": ["C:\\Users\\someone\\proj\\TECH.md"]},
+            {"cmd": "WG_CLAUDE_DIR=/c/Users/someone/proj python -m pytest", "cwd": "\\\\fileserver\\share\\proj"}]
+    led.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    card = tmp_path / "card.md"
+    card.write_text("- Depends: path:C:/Users/someone/proj/tool.py\n", encoding="utf-8")
+    extra = tmp_path / "extra.txt"
+    extra.write_text("見 D:\\data\\x.csv\n", encoding="utf-8")
+    return {"card": str(card), "diff": {"text": '+    p = r"c:\\proj\\hooks\\x.py"\n'}, "files": [str(extra)]}, "sid-abs"
+
+
+def test_every_material_masks_absolute_paths_and_ledger_stays_json(tmp_path, monkeypatch):
+    """提示詞嵌材料全文：帳本、卡片、diff、附加檔裡指到沙箱外的絕對路徑（磁碟代號、Git Bash 的 /c/…、UNC）都要遮成「…/<最後一段>」，
+    真的 replay-guard 查每份都乾淨；帳本遮完每行仍是合法 JSON（跳脫引號前的反斜線保留）。舊碼只遮 goal.md → 紅。"""
+    materials, sid = _abs_path_request(tmp_path, monkeypatch)
+    items, _ = pack.gather_items({"cwd": "", "part": "", "mode": "independent", "session_id": sid, "materials": materials}, {})
+    got = dict(items)
+    assert {"card.md", "diff.patch", "ledger.jsonl", "files/extra.txt"} <= set(got), "前置：四份帶路徑的材料都有進來"
+    rg = _load("so_replay_guard", ROOT / "tools" / "replay-guard.py")
+    for rel, text in got.items():
+        assert rg.paths_outside(text, tmp_path / "job") == [], (rel, text)
+    assert "…/TECH.md" in got["ledger.jsonl"] and "…/tool.py" in got["card.md"] and "…/x.py" in got["diff.patch"]
+    assert "…/x.csv" in got["files/extra.txt"]
+    assert "/c/Users" not in got["ledger.jsonl"] and "fileserver" not in got["ledger.jsonl"], "Git Bash 與 UNC 寫法也要遮"
+    rows = [json.loads(ln) for ln in got["ledger.jsonl"].splitlines()]
+    assert [r["cmd"] for r in rows] == ['cd "…/proj" && python -m pytest', "WG_CLAUDE_DIR=…/proj python -m pytest"]
+    assert rows[1]["cwd"] == "…/proj"
+
+
+def test_mask_covers_drive_git_bash_and_unc_paths_but_not_urls_or_relative():
+    """遮罩認三種指到沙箱外的寫法：磁碟代號、Git Bash 的 /c/…（帳本的 cd 指令常見，replay-guard pre 不擋但一樣指到真工作副本）、
+    UNC（含 JSON 跳脫的四個反斜線）；網址、相對路徑、sed 式 s/a/b/、JS 正規式 /a/g、只剩磁碟代號不動；字串字面值的 \\n 跳脫
+    不算路徑的一段（檔名要留得住），JSON 裡的 \\\\n 才是名叫 n 的一段。舊碼漏 /c/… 與 UNC、把 tool.py\\n 遮成 …/n → 紅。"""
+    cases = {
+        r"C:\Users\someone\proj\a.py": "…/a.py",
+        "C:/Users/someone/proj/a.py": "…/a.py",
+        "cd /c/Users/someone/proj && x": "cd …/proj && x",
+        r"\\fileserver\share\secret.txt": "…/secret.txt",
+        "//fileserver/share/secret.txt": "…/secret.txt",
+        '{"p": "\\\\\\\\fileserver\\\\share\\\\secret.txt"}': '{"p": "…/secret.txt"}',
+        '{"p": "C:\\\\Users\\\\x\\\\TECH.md"}': '{"p": "…/TECH.md"}',
+        'card.write_text("path:C:/Users/someone/proj/tool.py\\n")': 'card.write_text("path:…/tool.py\\n")',
+        '{"p": "C:\\\\Users\\\\x\\\\n"}': '{"p": "…/n"}',
+    }
+    for raw, want in cases.items():
+        assert pack.mask_abs_paths(raw) == want, raw
+    keeps = ("https://example.com/a/b", "materials/c/x.md", "a/b/c", "sed 's/a/b/'", "file.py", "C:", "// note/here",
+             "s.replace(/a/g, '')", "cd /c")
+    for keep in keeps:
+        assert pack.mask_abs_paths(keep) == keep, keep
+
+
+def test_prepare_with_session_ledger_paths_passes_real_pre_guard(env, tmp_path, monkeypatch):
+    """改過檔的 session 跑第二意見：帳本取本 session 的 verify-ledger（不明指），真的 replay-guard pre 子行程 → started，不是 blocked
+    （舊碼帳本原樣嵌進提示詞 → blocked「提示詞指到暫存目錄以外的路徑」）。"""
+    monkeypatch.setattr(subprocess, "run", _REAL_RUN)          # 這案要真的 replay-guard pre（prepare 不起 codex）
+    monkeypatch.setattr(subprocess, "Popen", _REAL_POPEN)
+    materials, sid = _abs_path_request(tmp_path, monkeypatch)
+    res = _prepare(env, session_id=sid, materials=materials)
+    assert res["status"] == "started", res.get("reason")
+    prompt = (Path(res["job_dir"]) / "prompt.md").read_text(encoding="utf-8")
+    assert "materials/ledger.jsonl" in prompt and "…/TECH.md" in prompt, "前置：帳本有進提示詞"
+
+
 def test_top_n_sections_and_tail():
     text = (FIX / "defects.md").read_text(encoding="utf-8")
     top = pack.top_n_sections(text, 5)
