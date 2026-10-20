@@ -2621,7 +2621,8 @@ def test_033_2_scratchpad_subdir_long_path_with_short_tempdir_needs_no_case(driv
 
 
 def _git(repo, *args):
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    # 不吃機器的 autocrlf（system config 設 true 時 checkout 會把 LF 寫成 CRLF，雜湊對不上 commit 那刻）
+    subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(repo), *args], check=True, capture_output=True)
 
 
 @pytest.mark.parametrize("commit_turn", [None, 5])
@@ -2658,7 +2659,8 @@ _DEBT_X = "改了程式碼（x.py）"
 
 def _git(repo: Path, *args: str) -> None:
     import subprocess
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    # 不吃機器的 autocrlf（system config 設 true 時 checkout 會把 LF 寫成 CRLF，雜湊對不上 commit 那刻）
+    subprocess.run(["git", "-c", "core.autocrlf=false", "-C", str(repo), *args], check=True, capture_output=True)
 
 
 @pytest.fixture()
@@ -2909,7 +2911,8 @@ def chain(monkeypatch, tmp_path):
 
     def git(*args, agent_id="", judge=False):
         argv = ["git", "-C", str(repo).replace("\\", "/"), *args]
-        subprocess.run(argv, check=True, capture_output=True)
+        # 真跑時不吃機器的 autocrlf；餵給 PostToolUse 的指令字串維持原樣
+        subprocess.run(["git", "-c", "core.autocrlf=false", *argv[1:]], check=True, capture_output=True)
         post("Bash", {"command": " ".join(argv)}, agent_id, judge)
 
     edit.post = post                                  # 複合指令的案例自己先做完動作，再用它送同一條指令的 PostToolUse
