@@ -453,31 +453,37 @@ def _scope_layout_advisory(project_mem_dir) -> list:
 
 
 def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
-    """本專案追蹤帳本（AEC (k) 寫的）裡沒標部位、仍未結案的項目：一個 session 只列一次筆數＋最舊 3 筆
-    （state["tracking_advisory_sent"]，重建 state 時照搬；標了部位的改在第一次碰到該部位時隨導讀卡注入）。
+    """本專案追蹤帳本（AEC (k) 與交付時「順手看到最該修」寫的）：一個 session 只列一次（state["tracking_advisory_sent"]，
+    重建 state 時照搬）。先列附了建議、還沒解的項目（不分部位，最新 3 筆＋要 AI 第一則回覆告訴使用者）；再列沒標部位、
+    沒附建議的未結項筆數＋最舊 3 筆（標了部位的改在第一次碰到該部位時隨導讀卡注入）。
     同專案疑似由舊算法（子目錄 cwd）分裂出的帳本只在 stderr 列，不自動合併。讀不到只 stderr，回 []。"""
     if not cwd or state.get("tracking_advisory_sent"):
         return []
     state["tracking_advisory_sent"] = True
     try:
-        from wg_harvest import open_tracking_items, read_tracking, tracking_slug
+        from wg_harvest import open_tracking_items, proposal_lines, read_tracking, tracking_slug
         slug = tracking_slug(cwd)
         tdir = WORKFLOW_DIR / "tracking"
         split = sorted(p.name for p in tdir.glob(f"{slug}-*.jsonl")) if tdir.is_dir() else []
         if split:
             print(f"[Guardian:Tracking] 疑似同專案分裂的追蹤帳本（舊版用子目錄 cwd 命名，不自動合併）：{', '.join(split)}；"
                   f"本專案帳本＝{slug}.jsonl", file=sys.stderr)
-        items = [e for e in open_tracking_items(read_tracking(slug)) if not str(e.get("part") or "").strip()]
+        open_items = open_tracking_items(read_tracking(slug))
+        proposals = proposal_lines(open_items)
+        items = [e for e in open_items
+                 if not str(e.get("part") or "").strip() and not str(e.get("proposal") or "").strip()]
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:Tracking] 讀追蹤項失敗：{type(e).__name__}: {e}", file=sys.stderr)
         return []
+    out = ["\n".join(proposals)] if proposals else []
     if not items:
-        return []
+        return out
     oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
     lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位，不會隨部位導讀卡注入）；最舊 3 筆："]
     lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
-    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）。")
-    return ["\n".join(lines)]
+    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）；"
+                 "新記的追蹤項可在行尾加「｜建議：<怎麼解>｜該誰解：<誰>」。")
+    return out + ["\n".join(lines)]
 
 
 def _verify_scope_advisory(cwd: str) -> list:

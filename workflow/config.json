@@ -503,6 +503,10 @@
     "min_accessed": 5,
     "min_turns_between": 3
   },
+  "pick_one": {
+    "_doc": "寫碼交付時順手點出最該修的一件（G4／G5／G13）：本 session 改了程式、到交付邊界（宣告完成、本回合交了收尾檢核或 commit）→ Stop 用 additionalContext 送一次「這次看到的鄰近問題裡哪一件最該修、為什麼、為什麼不是數字最高的那個」（只提醒、不擋；同一批改動只問一次），材料依部位分組、數字標參考。AI 回覆裡的「順手看到最該修」段記成追蹤項（另存建議怎麼解、該誰解），下個 session 開場先列。缺本區段或 enabled 不是 true＝整個關。",
+    "enabled": true
+  },
   "provenance": {
     "_doc": "atom 來源回看：PostToolUse 對剛寫入的 atom 自動補 `- Source:`（session 指標）與 `- Quote:`（使用者原話 ≤quote_max_chars 字）；backfill＝SessionStart 見到新 transcript 就 detached 跑 tools/atom-provenance-backfill.py --apply 補舊 atom（A 級補原句、B 級補出處）；anti_rot_days＝週健檢對 session 來源距今超過此天數仍無 Quote 的 atom 搶在 transcript 被清前補原句。缺本區段＝全開。",
     "enabled": true,
