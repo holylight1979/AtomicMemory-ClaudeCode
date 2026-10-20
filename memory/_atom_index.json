@@ -7822,6 +7822,25 @@
         "閘壞成恒擋"
       ],
       "scope": "global"
+    },
+    {
+      "name": "claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收",
+      "path": "memory/CC與原子記憶契約/claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收.md",
+      "triggers": [
+        "claude --bg",
+        "claude agents",
+        "claude attach",
+        "claude stop",
+        "背景 session",
+        "自動開 session",
+        "G16",
+        "Workspace not trusted",
+        "信任鍵",
+        "Rewind",
+        "native-binary claude.exe",
+        "2.1.304"
+      ],
+      "scope": "global"
     }
   ]
 }
