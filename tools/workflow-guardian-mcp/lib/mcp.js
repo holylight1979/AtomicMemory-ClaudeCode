@@ -187,6 +187,15 @@ const TOOL_DEFINITIONS = [
           enum: ["pointer", "complement", "ledger", "hub", "plain"],
           description: "選填。宣告這張卡的型：pointer 指標／complement 互補／ledger 現況帳／hub 導讀卡／plain 一般。py 端仍會自判（hub＝kind_hint=hub 或標題含「導讀」或五段齊、ledger 日期數字對），hint 不能讓缺段卡過",
         },
+        dedupe: {
+          type: "object",
+          properties: {
+            verdict: { type: "string", enum: ["same", "supersedes", "different"] },
+            of: { type: "string" },
+            why: { type: "string" },
+          },
+          description: "去重宣告（create）。寫入閘回「需要宣告」（新內容和既有卡相似，列出候選卡）時才帶著重送：你判斷新內容和其中一張候選卡的關係。same＝同一條，知識段改併入那張卡（走 append；triggers／actions 不併）；supersedes＝取代，寫新卡並以 Supersedes 標那張（舊卡留檔、不再注入）；different＝不同，照常寫新卡。of＝候選卡名原字照抄，why＝一句理由（空白、佔位、純標點會被退回）。沒有命中相似時給了會被忽略並在回覆附 note。",
+        },
         mode: {
           type: "string", enum: ["create", "append", "replace"],
           description: "create=new atom, append=add knowledge lines, replace=overwrite knowledge section",
@@ -510,7 +519,7 @@ const TOOL_DEFINITIONS = [
         parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },
         items: {
           type: "array",
-          description: "add：[{text, clarity?, origin?}]；update：[{id, text?, status?, clarity?, why}]；" +
+          description: "add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why}]；" +
             "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, depends?, case_for?}]",
           items: {
             type: "object",
@@ -521,7 +530,8 @@ const TOOL_DEFINITIONS = [
               status: { type: "string", enum: ["todo", "doing", "done", "partial", "none", "dropped"],
                 description: "update：任一狀態；reconcile：只收終點 done|partial|none|dropped" },
               clarity: { type: "string", enum: ["clear", "open"], description: "明確／待展開" },
-              origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add：使用者說的／推出來的／工作中長出的（預設 grown）" },
+              origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add／update：使用者說的／推出來的／工作中長出的（add 預設 grown）" },
+              quote: { type: "string", description: "add／update：標 origin=user 時引用使用者原話的字面子句（至少 6 字；對不到原話會被改成 inferred）" },
               why: { type: "string", description: "update 必填：這次改動讓它更接近了沒、為什麼；verify_scope 必填：為什麼和這次改動有關、會受什麼影響" },
               evidence: {
                 type: "array",

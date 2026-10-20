@@ -27,6 +27,20 @@ function renderKnowledgeLines(knowledge) {
   return out;
 }
 
+// 繞閘卡片宣告：知識段第一行「不是教繞閘｜<理由>」只給寫入閘看，建卡時剝掉。對拍 lib/atom_spec.py strip_bypass_declaration
+const BYPASS_DECLARATION_RE = /^\s*(?:\[[臨觀固]\]\s*)?不是教繞閘\s*[｜|]\s*(.*?)\s*$/;
+
+function stripBypassDeclaration(knowledge) {
+  const items = [...knowledge];
+  if (!items.length) return items;
+  const s = String(items[0]);
+  const nl = s.indexOf("\n");
+  const first = nl < 0 ? s : s.slice(0, nl);
+  const rest = nl < 0 ? "" : s.slice(nl + 1);
+  if (!BYPASS_DECLARATION_RE.test(first)) return items;
+  return (rest.trim() ? [rest] : []).concat(items.slice(1));
+}
+
 function buildAtomContent({
   title,
   scope,
@@ -85,7 +99,7 @@ function buildAtomContent({
     lines.push(`- Supersedes: ${supersedes.join(", ")}`);
   }
   lines.push("", "## 知識", "");
-  for (const line of renderKnowledgeLines(knowledge)) {
+  for (const line of renderKnowledgeLines(stripBypassDeclaration(knowledge))) {
     lines.push(line);
   }
   lines.push("", "## 行動", "");
@@ -121,4 +135,4 @@ function validateAtomContent(content) {
   return null;
 }
 
-module.exports = { isBlockKnowledge, renderKnowledgeLines, buildAtomContent, validateAtomContent };
+module.exports = { isBlockKnowledge, renderKnowledgeLines, buildAtomContent, validateAtomContent, stripBypassDeclaration };
