@@ -132,6 +132,33 @@ def test_text_update_on_user_node_rechecked(env):
     assert _node("T1.2")["origin"] == "user" and "⚠" not in ok["text"], ok["text"]
 
 
+def test_early_and_long_user_words_still_quotable(env):
+    """005：顯示用的 user_said 只留 20 則、單則截 1000 字；核對要用完整原話，早期與長訊息後段的話照樣引得到。"""
+    _tree_with("先開樹")
+    ng.on_prompt(SID, "記得把稽核結果寫入日誌", 2, {})
+    for i in range(25):
+        ng.on_prompt(SID, f"第 {i} 則閒聊", 3 + i, {})
+    ng.on_prompt(SID, "字" * 1200 + "舊報表的欄位順序不能變", 40, {})
+    shown = [s["text"] for s in ng.active_tree(ng.load(SID))["user_said"]]
+    assert not any("稽核結果寫入日誌" in t for t in shown)               # 前置：早期那則已不在顯示清單
+    assert not any("欄位順序不能變" in t for t in shown)                 # 前置：長訊息後段被截掉
+    r = _op("add", turn=41, items=[{"text": "稽核要進日誌", "origin": "user", "quote": "把稽核結果寫入日誌"},
+                                   {"text": "報表欄位順序不變", "origin": "user", "quote": "舊報表的欄位順序不能變"}])
+    assert [_node("T1.1")["origin"], _node("T1.2")["origin"]] == ["user", "user"], r["text"]
+    assert "said_all" not in ng.handoff_block(SID)                       # 完整原話不進續接單
+
+
+def test_text_matched_node_rewrite_does_not_reuse_old_text(env):
+    """005：靠節點文字本身對上的節點，改寫文字後不能拿舊文字當 quote 重核（舊文字一定對得上）；AI 明確引的 quote 照樣拿來核。"""
+    _tree_with("扣到低於 0 要擋下來並說明，其他照舊")
+    _op("add", items=[{"text": "扣到低於 0 要擋下來並說明", "origin": "user"},
+                      {"text": "負數要擋", "origin": "user", "quote": "扣到低於 0 要擋下來"}])
+    assert _node("T1.1")["quote_by"] == "text" and _node("T1.2")["quote_by"] == "quote"   # 前置：兩種對上方式
+    _op("update", turn=2, items=[{"id": "T1.1", "text": "順便重寫整個庫存模組", "why": "改寫"},
+                                 {"id": "T1.2", "text": "低於 0 擋下並回說明", "why": "改寫"}])
+    assert _node("T1.1")["origin"] == "inferred" and _node("T1.2")["origin"] == "user"
+
+
 def test_imported_user_node_without_quote_kept(env, monkeypatch):
     _tree_with("讓匯出變快")
     env["cfg"]["guard"]["origin_user_check"] = {"enabled": False}
