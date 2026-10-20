@@ -513,6 +513,44 @@ def test_gate_module_is_not_a_case_file():
     assert vl.is_case_file(str(HOOKS_DIR / "wg_old_test.py"), cfg, str(HOOKS_DIR.parent)), "前置：舊檔名確實會被當案例"
 
 
+_CASE_GUARD_SKIP_DIRS = {"verify", "tests", "cassettes", "__pycache__"}
+
+
+def _module_case_hits(repo, tops):
+    """repo 底下 tops 各目錄裡、不在 verify／tests／cassettes 目錄的 .py，用寫碼查核的預設案例樣式（相對 repo 根）判；
+    回 (掃了幾支, 被當成案例檔的相對路徑)。"""
+    import wg_verify_ledger as vl
+    cfg = vl.reconcile_cfg({})
+    scanned, hits = 0, []
+    for top in tops:
+        for p in sorted((repo / top).rglob("*.py")):
+            rel = p.relative_to(repo)
+            if _CASE_GUARD_SKIP_DIRS & set(rel.parts[:-1]):
+                continue
+            scanned += 1
+            if vl.is_case_file(str(p), cfg, str(repo)):
+                hits.append(rel.as_posix())
+    return scanned, hits
+
+
+def test_no_production_module_name_matches_case_globs():
+    """正式模組（hooks／lib／tools 底下、不在測試目錄的 .py）檔名不能命中案例樣式：命中的會被整套寫碼查核當成測試檔，
+    改了不要求補案例、驗證範圍的 depends 也對不上（wg_old_test.py 踩過）。"""
+    scanned, hits = _module_case_hits(HOOKS_DIR.parent, ("hooks", "lib", "tools"))
+    assert scanned > 50, f"前置：要真的掃到檔（只掃到 {scanned} 支）"
+    assert not hits, f"正式模組檔名命中案例樣式（寫碼查核會把它當測試檔），請改名：{hits}"
+
+
+def test_case_name_guard_catches_fake_test_module(tmp_path):
+    """負例：守門真的抓得到 *_test.py，也真的跳過 verify 目錄。"""
+    repo = tmp_path / "repo"
+    (repo / "hooks" / "verify").mkdir(parents=True)
+    (repo / "hooks" / "wg_fake_test.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "hooks" / "wg_fine.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "hooks" / "verify" / "verify_x.py").write_text("", encoding="utf-8")
+    assert _module_case_hits(repo, ("hooks",)) == (2, ["hooks/wg_fake_test.py"])
+
+
 # ─── 真實輸入：第一波驗收題 C-1 ───
 
 def test_c1_59_write_renames_old_compat_test_denied(world):
