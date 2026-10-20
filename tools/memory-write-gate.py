@@ -2,7 +2,7 @@
 """
 memory-write-gate.py — Atomic Memory Write Gate (v2.1)
 
-寫入前品質評估 + 去重檢查。用於 session-end 同步前過濾低品質知識。
+寫入前品質評估 + 去重檢查。呼叫端：MCP atom_write（tools/workflow-guardian-mcp/lib/funnel.js execWriteGate，stdin JSON）。
 
 Usage:
     python memory-write-gate.py --content "知識文字" [--classification "[觀]"] [--trigger-context "..."]
@@ -552,8 +552,7 @@ def check_dedup(
 
 
 def write_audit_log(action: str, content_preview: str, quality: float, **extra: Any) -> None:
-    """Append to audit.log (JSONL)."""
-    AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    """Append to audit.log (JSONL)。寫不進去不擋閘、但必浮出 stderr（去重宣告靠這本帳抽查）。"""
     entry = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "action": action,
@@ -562,14 +561,16 @@ def write_audit_log(action: str, content_preview: str, quality: float, **extra: 
     }
     entry.update(extra)
     try:
+        # mkdir 也在 try 裡：建不起來時若讓例外冒出去，整個閘沒輸出，MCP 端會走 fail-open 直接落檔
+        AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(AUDIT_LOG, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
         # Log rotation: >10MB → rotate
         if AUDIT_LOG.stat().st_size > 10 * 1024 * 1024:
             _rotate_log()
-    except OSError:
-        pass
+    except OSError as e:
+        print(f"[write-gate] audit log write failed ({action}): {e}", file=sys.stderr)
 
 
 def _rotate_log() -> None:

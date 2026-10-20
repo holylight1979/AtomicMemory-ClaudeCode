@@ -221,6 +221,20 @@ def test_vector_service_down_fail_open(monkeypatch, audits, capsys):
     assert "vector service unavailable" in capsys.readouterr().err
 
 
+def test_audit_unwritable_does_not_crash_gate(monkeypatch, old_card, tmp_path, capsys):
+    """留帳寫不進去（資料夾建不起來）：閘照樣回結果（不崩潰→不讓 MCP 走 fail-open 落檔），stderr 浮出訊號。"""
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(WG, "AUDIT_LOG", blocker / "sub" / "audit.log")
+    _vector(monkeypatch, _hits(old_card))
+    r = _eval()
+    assert _needs_declaration(r)
+    r = _eval(dedupe={"verdict": "different", "of": "old-card", "why": "不同的事"})
+    assert r["action"] == "add" and r["dedupe_declared"]["verdict"] == "different"
+    err = capsys.readouterr().err
+    assert "audit log write failed (need_declaration)" in err and "audit log write failed (dedupe_declared)" in err
+
+
 def test_skip_gate_ignores_declaration_with_note(monkeypatch, audits, old_card):
     _vector(monkeypatch, _hits(old_card))
     r = _eval(skip_gate=True, dedupe={"verdict": "same", "of": "old-card", "why": "同一條"})
