@@ -26,6 +26,7 @@ from wg_core import (
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
+import wg_gate_bypass
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -1656,6 +1657,22 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
     deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config)
+    if deny_reason:
+        wg_gate_bypass.note_smell_deny(_co_state, _co_sid, _cwd, deny_reason, tool_name, tool_input, input_data.get("transcript_path", "") or "", config)
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # ── GateBypass（T2.19 繞閘嫌疑）──
+    # 這個 session 被病形閘擋過之後，unstage／改提交範圍／--no-verify 讓同一批內容過關 → 要宣告「不是繞閘｜理由」，沒宣告就擋；
+    # 事實與判定在 hooks/wg_gate_bypass.py
+    deny_reason = wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
+                                       input_data.get("transcript_path", "") or "")
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

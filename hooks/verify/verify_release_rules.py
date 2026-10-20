@@ -1820,3 +1820,19 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── T2.19 繞閘嫌疑 ───
+
+def test_t219_gate_bypass_verdicts():
+    """GATE_BYPASS_NEEDS_DECLARATION／ATOM_BYPASS_HOWTO_REFUSED：完整案例在 verify_gate_bypass.py；這裡守判式——
+    有序列事實沒理由（或只有佔位）擋、有理由放行、沒事實不擋；卡片兩訊號都有才拒。"""
+    facts = ["git restore 把 notify/retry.py 移出暫存區"]
+    assert rr.gate_bypass_verdict("notify/retry.py（匿名函式疊用）", facts).owed
+    assert rr.gate_bypass_verdict("x", facts, "<理由：這批檔是誰的>").owed
+    v = rr.gate_bypass_verdict("x", facts, "retry.py 是別人的改動")
+    assert v.rule == "GATE_BYPASS_NEEDS_DECLARATION" and not v.owed
+    assert not rr.gate_bypass_verdict("x", []).owed
+    assert rr.atom_bypass_verdict(["SmellGate"], ["拆三步"]).owed
+    v = rr.atom_bypass_verdict(["SmellGate"], [])
+    assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed

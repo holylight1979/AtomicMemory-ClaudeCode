@@ -1153,6 +1153,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
         if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
             dirty = True
+            import wg_gate_bypass  # T2.19：commit 跑完、落在上次被病形閘擋的 repo → 清掉 smell_deny_last
+            wg_gate_bypass.note_commit_done(state, session_id, command, tool_name, input_data.get("cwd", "") or "")
 
         if _track_test_result(state, input_data, command, tool_name, config):
             dirty = True
