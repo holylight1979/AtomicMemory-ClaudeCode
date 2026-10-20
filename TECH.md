@@ -452,9 +452,9 @@ sequenceDiagram
 | `non_transient` | +0.10 | 不含 timeout/retry/暫時 等瞬時語意 |
 | `actionable` | +0.15 | 行動式句型 |
 
-總分 ≥0.5 自動寫；0.3–0.5 問使用者；<0.3 skip（audit 記錄）。「陷阱／坑／pitfall」命中 → 直接 [觀]（失敗模式優先保留）。
+總分 ≥`quality_floor` 0.3 寫、<0.3 skip（audit 記錄；沒設 `quality_floor` 的舊 config 沿用 `ask_threshold`）。只分寫／不寫：舊的「0.3–0.5 問」一級 MCP 端從沒接過、一律照寫，已拿掉（線留在實際生效的 0.3）。「陷阱／坑／pitfall」命中 → 直接 [觀]（失敗模式優先保留）。
 
-去重：向量相似度 ≥`dedup_score` 0.8 → 拒並附相似 atom（>0.95 標 duplicate、0.80–0.95 標 similar，皆建議 append 到既有 atom）；**限層**比對——global 只比 `global`+`extra:local-atoms`，shared/roles/personal 再加**當前專案自己**的層，不跨專案比。為什麼限層：曾被別專案某人的 personal atom 以 0.807 擋下，既不能 append 過去也不該被它擋。
+去重：向量相似度 ≥`dedup_score` 0.8（指標卡 `dedup_pointer_score` 0.95）→ 不直接判拒寫，回「要宣告」（`action=skip`＋`need_declaration`；用 skip 是讓還沒 Reload 的舊 MCP 照樣拒）：列最多 3 張候選卡（卡名、分數、層、知識段前 2 行）與三種寫法，要 AI 帶 `dedupe={verdict, of, why}` 重送——`same` 知識段改走 append 併入那張卡（triggers／actions 不併）、`supersedes` 寫新卡並以 Supersedes 標那張、`different` 照常寫。門檻只決定要不要問，不決定准不准寫；程式只核 verdict 三選一、of 是這次列出的候選卡名、why 有字，收下就記 audit `dedupe_declared`（verdict／of／why／score），判得對不對靠抽查這筆帳。沒命中或向量服務沒起照舊直接寫（給了宣告附 note）；`write_gate.dedupe_declaration=false` 退回舊行為（>0.95 skip、0.80–0.95 建議 append）。**限層**比對——global 只比 `global`+`extra:local-atoms`，shared/roles/personal 再加**當前專案自己**的層，不跨專案比。為什麼限層：曾被別專案某人的 personal atom 以 0.807 擋下，既不能 append 過去也不該被它擋。
 
 ### 6.3 自動萃取：在跑 vs 已停產
 
@@ -1043,7 +1043,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `vector_search.search_top_k` / `search_min_score` / `search_timeout_ms` | 5 / 0.65 / 3500 | vector 入場 |
 | `vector_search.fallback_backend` / `fallback_model` | sentence-transformers / BAAI/bge-m3 | 無 Ollama 時的 embedder |
 | `vector_search.ollama_backends.*` | rdchat-direct(1) / local(3) | Dual-Backend |
-| `write_gate.auto_threshold` / `ask_threshold` / `dedup_score` | 0.5 / 0.3 / 0.8 | 寫入品質閘 |
+| `write_gate.quality_floor` / `dedup_score` / `dedupe_declaration` | 0.3 / 0.8 / true | 寫入品質閘（相似達 `dedup_score` 要 AI 宣告；false＝舊的直接拒） |
 | `usefulness.wilson_z` / `promote_lb` / `min_n` / `demote_lb` / `demote_min_n` / `decay_lambda` / `stability_gamma` | 1.28 / 0.6 / 3 / 0.35 / 5 / 0.97 / 0.3 | 效用晉升軌 |
 | `usefulness.distraction_enabled` / `distraction_weight` | true / 0.5 | 分心懲罰 |
 | `injection.redundancy_gate.min_shared_triggers` | 3 | 同題去冗 |

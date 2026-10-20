@@ -4,6 +4,12 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 判斷入口盤點 P8：記憶寫入去重交 AI 判（同一條／取代／不同），不再拿相似度分數直接拒寫
+- **AI 寫卡時會看到的**：`atom_write` 新內容和既有卡相似度達 `dedup_score`（0.8；指標卡 0.95）時不寫檔，回最多 3 張候選卡（卡名、分數、層、知識段前 2 行）與三種寫法；AI 帶 `dedupe={verdict, of, why}` 重送：`same` 知識段改併入那張卡（走既有 append，預算／realm 閘照跑，回覆開頭講改併入哪張）、`supersedes` 寫新卡並以 Supersedes 標那張、`different` 照常寫。程式只核 verdict 三選一、of 是候選卡名（不同層同名寫 `<layer>:<卡名>`）、why 有字；收下記 audit `dedupe_declared`。改名取代舊卡不再被當重複擋死。沒命中、向量服務沒起照舊直接寫；`write_gate.dedupe_declaration=false` 回舊行為。品質分數的「0.3～0.5 問」一級拿掉（MCP 從沒接、一律照寫），只分寫／不寫，線沿用原 `ask_threshold`（新鍵 `quality_floor`）。
+- **改了什麼**：`tools/memory-write-gate.py`（`check_dedup` 回候選、`dedupe_problems`／`declaration_request`、evaluate 去重分支）；MCP `lib/atom-tools.js`（`need_declaration` 轉述、same 重進 append、supersedes 併入）、`funnel.js`（stdin 多傳 `dedupe`）、`mcp.js`（atom_write schema 加 `dedupe`）。要宣告時 py 回 `action=skip`＋`need_declaration`：合併後還沒 Reload Window 的舊 MCP 照樣拒寫（實測），不會把相似內容當放行。
+- **驗證**：新 `tools/verify/verify_memory_write_gate_dedupe.py`（含真卡改名打 live 向量：舊碼 update 拒寫、新碼列候選、宣告 supersedes 後放行，score 0.905）、新 `tools/workflow-guardian-mcp/verify/verify_atom_write_dedupe.js`（隔離資料根真落檔），兩支在舊碼上紅、新碼綠；舊碼 vs 新碼（開關關掉）120 組輸入對拍：102 組全同、18 組只差品質分級那一步、0 組其他差異。codex 一輪 1 BLOCK（自訂 `ask_threshold` 被忽略）已修，另兩處「替 AI 判斷」的固定規則（why 至少 2 字、跨層同名只列一張）一併改掉。
+- **沒做、留著**：衝突偵測 0.85 門檻（`memory-conflict-detector`）、realm 閘用「此專案」字樣判專案專屬，同屬判斷入口盤點，另排。
+
 ## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒
 - **交給 AI 寫程式時會看到的**：commit 時，新寫進的「一整段邏輯塞進匿名回呼（超過 20 行）」「`x = lambda`」「函式巢狀 4 層以上」「巢狀三元」「Unity 空的 Update 之類」「Update 裡每幀 Find／AddComponent／反射」也會被擋並點名哪個檔第幾行（巢狀附幾層、回呼附幾行）；10～20 行的匿名回呼、字串註解剝不乾淨的檔只提醒不擋；舊函式本來就深、這次沒變深的不擋。測試框架的 describe／it 回呼、promise 回呼用到外層變數的不算套層。門檻在 `workflow/config.json` 的 `guard.smell_gate` 可調。
 - **依據與驗證**：派工 002 提案（linter 原始碼與文獻＋實測，`workflow/inbox/from-track-g2/002-smell-shapes-proposal.md`）、派工 003 核可。`hooks/verify/verify_smell_gate.py` 新 23 案，每條病形一個先紅後綠＋至少一個誤判反例；在本 repo 與一個 3704 檔的 C# 伺服器專案上校準，抓到並修掉兩類誤擋（伺服器模組的 `Update()` 被當成 Unity 訊息、C# 運算式主體屬性被當成 lambda）。本機沒有 Unity 專案，Unity 兩條只有案例驗過、沒有在真實 Unity 專案上校準。改完閘本身也被自己擋了一次（新寫的函式巢狀 4 層），已改平。

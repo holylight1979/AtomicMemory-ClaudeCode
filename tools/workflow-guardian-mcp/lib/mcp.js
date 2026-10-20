@@ -187,6 +187,15 @@ const TOOL_DEFINITIONS = [
           enum: ["pointer", "complement", "ledger", "hub", "plain"],
           description: "選填。宣告這張卡的型：pointer 指標／complement 互補／ledger 現況帳／hub 導讀卡／plain 一般。py 端仍會自判（hub＝kind_hint=hub 或標題含「導讀」或五段齊、ledger 日期數字對），hint 不能讓缺段卡過",
         },
+        dedupe: {
+          type: "object",
+          properties: {
+            verdict: { type: "string", enum: ["same", "supersedes", "different"] },
+            of: { type: "string" },
+            why: { type: "string" },
+          },
+          description: "去重宣告（create）。寫入閘回「需要宣告」（新內容和既有卡相似，列出候選卡）時才帶著重送：你判斷新內容和其中一張候選卡的關係。same＝同一條，知識段改併入那張卡（走 append；triggers／actions 不併）；supersedes＝取代，寫新卡並以 Supersedes 標那張（舊卡留檔、不再注入）；different＝不同，照常寫新卡。of＝候選卡名原字照抄，why＝一句理由（空白、佔位、純標點會被退回）。沒有命中相似時給了會被忽略並在回覆附 note。",
+        },
         mode: {
           type: "string", enum: ["create", "append", "replace"],
           description: "create=new atom, append=add knowledge lines, replace=overwrite knowledge section",

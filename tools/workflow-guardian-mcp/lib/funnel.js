@@ -113,7 +113,7 @@ function buildConflictReport({ slug, incomingTitle, incomingContent, matches, de
  *  Payload goes over stdin (script's no-args pipe mode) — no shell, no escaping
  *  surface. Fail-open on any infra error, but crashLog so the degradation is
  *  visible (可觀測性鐵律). */
-const GATE_OPT_KEYS = ["mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate"];
+const GATE_OPT_KEYS = ["mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate", "dedupe"];
 
 /** opts：v6 分型（mode/existing_path/actions/depends/kind_hint/skip_gate）；只送有給的鍵，py stdin 讀同名鍵。 */
 function execWriteGate(content, classification, layers, title, opts) {
