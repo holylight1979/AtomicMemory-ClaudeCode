@@ -2106,3 +2106,83 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
         hit = next((d for d in cited if names_item(hay, d["item"])), None)
         (waived.append((f, hit)) if hit else kept.append(f))
     return kept, waived
+
+
+# ─── G11 拐彎判斷（程式只算側面數據、只核對五欄齊；這一層有沒有作用、會不會讓人拐超過三個彎由 AI 判並寫理由。事實由 wg_reading_path 收，這裡判結構） ───
+RULES.update({
+    "TURN_JUDGMENT_REQUIRED": "收尾附的側面數據（入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈層數與空層）到了"
+                              " reading_path.turn_judgment 的門檻（預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；"
+                              "這是「從第幾個彎起要人看」的事實門檻，不是判臭）的每一條，收尾文字都要有一行"
+                              "「拐彎判斷｜<函式、類別或入口>｜<這一層／這個彎存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」"
+                              "五欄齊（「不會」「這一層沒有作用」都要理由）；缺 → 每個使用者回合擋一次並列缺的那幾條與填好名字的範例行；"
+                              "齊 → 放行、guard-reading_path.jsonl 記 judged。程式不評內容；量不出（不可評級、不支援的語言）只列不問；"
+                              "一批最多問 max_items 條（預設 8，到門檻的優先、其餘報個數不問）；對象欄只認整名或邊界結尾，不認子字串；"
+                              "Markdown 引言與圍欄程式碼裡的行不算回答。",
+})
+
+JUDGMENT_LABEL = "拐彎判斷"
+JUDGMENT_COLUMNS = ("對象（函式、類別或入口）", "這一層／這個彎存在的理由、有沒有真正的作用（不會／會：第 N 個彎在…／這一層沒有作用，因為…）",
+                    "理由", "怎麼改直／合理，因為…")
+JUDGMENT_EXAMPLE = "拐彎判斷｜{name}｜<不會／會：第 N 個彎在…／這一層沒有作用，因為…>｜<理由>｜<怎麼改直／合理，因為…>"
+# 行首（可帶清單記號）才算回答：Markdown 引言（> …）與圍欄程式碼裡引用上一版的行不算（codex 審 G11 BLOCK 2）
+_JUDGMENT_RE = re.compile(r"^\s*(?:[-*•]\s*|\d+[.)]\s*)?拐彎判斷\s*[｜|]\s*(.+)")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_COL_SPLIT_RE = re.compile(r"\s*[｜|]\s*")
+_NAME_BOUNDARY = ("::", ".", "/", "\\", "→")
+
+
+def parse_turn_judgments(text: str) -> List[Dict[str, Any]]:
+    """收尾文字裡的拐彎判斷行 → [{target, verdict, reason, fix, missing: [缺的欄名], line}]。五欄用｜隔開；超過五段的尾段併回最後一欄。
+    只查每欄有沒有填（有文字、不是擋訊息範例的角括號佔位），不評內容。"""
+    out: List[Dict[str, Any]] = []
+    fenced = False
+    for raw in str(text or "").splitlines():
+        if _FENCE_RE.match(raw):
+            fenced = not fenced
+            continue
+        m = None if fenced else _JUDGMENT_RE.match(raw)
+        if not m:
+            continue
+        parts = [p.strip() for p in _COL_SPLIT_RE.split(m.group(1))]
+        if len(parts) > 4:
+            parts = parts[:3] + ["｜".join(parts[3:])]
+        parts += [""] * (4 - len(parts))
+        target, verdict, reason, fix = parts
+        filled = (reason_present(target), reason_present(verdict), reason_present(reason), reason_present(fix))
+        out.append({"target": target, "verdict": verdict, "reason": reason, "fix": fix,
+                    "missing": [col for col, ok in zip(JUDGMENT_COLUMNS, filled) if not ok], "line": raw.strip()[:240]})
+    return out
+
+
+def judgment_names(target: str, keys: Sequence[str]) -> bool:
+    """判斷行的對象欄指得到這一條數據：對象（去空白、不分大小寫）等於某個鍵，或以「<邊界>鍵」結尾（邊界＝::、.、/、\\、→，
+    例：hooks/y.py::b 對 y.py::b、Cls.m 對 m）。不做子字串比對：y.py::load_config 對不到 y.py::load（codex 審 G11 BLOCK 1）。
+    鍵＝函式限定名、檔::名、入口與落點的寫法；同名不同檔的短名會同時對到（程式只核對結構，不猜是哪個）。"""
+    t = _nows(target)
+    if len(t) < 2:
+        return False
+    for k in keys or ():
+        kn = _nows(k)
+        if len(kn) >= 2 and (t == kn or any(t.endswith(b + kn) for b in _NAME_BOUNDARY)):
+            return True
+    return False
+
+
+def turn_judgment_verdict(items: Sequence[Dict[str, Any]], judgments: Sequence[Dict[str, Any]]) -> Verdict:
+    """TURN_JUDGMENT_REQUIRED：items＝到門檻的數據 [{kind, name, keys, nums}]；judgments＝parse_turn_judgments 的結果。
+    owed＝有任一條沒有五欄齊的對應行。evidence：缺的每條「<kind> <name>｜<nums>」；對到但缺欄的行另列缺哪幾欄。"""
+    missing: List[str] = []
+    partial: List[str] = []
+    covered: List[str] = []
+    for it in items:
+        hits = [j for j in judgments if judgment_names(j["target"], it.get("keys") or [it["name"]])]
+        if any(not j["missing"] for j in hits):
+            covered.append(f"{it['kind']} {it['name']}")
+            continue
+        missing.append(f"{it['kind']} {it['name']}｜{it.get('nums', '')}")
+        partial += [f"「{j['line'][:120]}」缺「{'」「'.join(j['missing'])}」欄" for j in hits]
+    if not missing:
+        return Verdict("TURN_JUDGMENT_REQUIRED", False, f"到門檻的 {len(items)} 條都有五欄齊的拐彎判斷行", tuple(covered))
+    return Verdict("TURN_JUDGMENT_REQUIRED", True,
+                   f"側面數據到門檻的 {len(items)} 條裡 {len(missing)} 條沒有五欄齊的「拐彎判斷｜」行（程式只核對五欄，不評內容）",
+                   tuple(missing + partial))

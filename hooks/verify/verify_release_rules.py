@@ -1820,3 +1820,13 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── G11 拐彎判斷 ─────────────────────────────────────────────────────────────
+
+def test_g11_turn_judgment_required_needs_five_columns():
+    """TURN_JUDGMENT_REQUIRED：到門檻的每一條要有五欄齊的拐彎判斷行；完整案例在 verify_g11_turns.py，這裡只守規則名與五欄。"""
+    item = {"kind": "函式", "name": "y.py::b", "keys": ["y.py::b", "b"], "nums": "巢狀 4"}
+    assert rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層｜合理，因為短")).owed is False
+    v = rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層"))
+    assert v.rule == "TURN_JUDGMENT_REQUIRED" and v.owed and "怎麼改直" in "".join(v.evidence)

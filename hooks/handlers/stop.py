@@ -58,7 +58,7 @@ from wg_harvest import (
     harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
     record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt,
 )
-from wg_reading_path import reading_path_note
+from wg_reading_path import reading_path_note, turn_judgment_note
 from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
@@ -1262,9 +1262,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _reading_path, _rp_changed = reading_path_note(state, session_id, config)
     except Exception as e:  # noqa: BLE001
         _reading_path, _rp_changed = f"[Guardian:ReadingPath] 閱讀路徑量測出錯：hook 內部錯誤 {type(e).__name__}: {e}", False
+    # 拐彎判斷（G11）：背景量完附的「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行（規則 TURN_JUDGMENT_REQUIRED）：
+    # 缺 → 每個使用者回合擋一次（不吃 stop_gate_max_blocks；下面 _piggyback 之後 output_block）；齊 → 留帳 judged。程式只核對五欄不評內容。
+    try:
+        _turn_block, _tj_changed = turn_judgment_note(state, session_id, code_text,
+                                                      _user_turn(state, int(state.get("turn_seq", 0))), int(state.get("turn_seq", 0)))
+    except Exception as e:  # noqa: BLE001  判不了不擋，浮 stderr
+        _turn_block, _tj_changed = None, False
+        print(f"[Guardian:ReadingPath] 拐彎判斷核對出錯（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
     if _reading_path:
         print(_reading_path, file=sys.stderr)
-    if _reading_path or _rp_changed:
+    if _reading_path or _rp_changed or _tj_changed:
         write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
@@ -1295,6 +1303,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if gate:
             write_state(session_id, state)
         return reason
+
+    if _turn_block:   # G11：缺拐彎判斷行，這個使用者回合擋一次（背景量完的數據由 _piggyback 一起附上）
+        output_block(_piggyback(_turn_block))
+        return
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
     mod_files_all = state.get("modified_files", []) or []
