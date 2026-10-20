@@ -18,6 +18,7 @@ ide/
 plans/
 plugins/
 skills/synced/
+skills/mailbox/.local/
 projects/
 session-env/
 shell-snapshots/

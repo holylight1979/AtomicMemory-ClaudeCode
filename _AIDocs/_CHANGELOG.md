@@ -4,6 +4,8 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 共用信箱 skill（`/mailbox`）：用網路共用資料夾讓人與 AI 互相寄信收信
+- **使用者看到的**：說「收信」「寄信給 xxx」「寄給專案」「回信」，AI 跑 `skills/mailbox/scripts/mail.py` 在共用資料夾收寄信；讀信＝搬進 `_archive` 領取（兩人同時讀只有一人領到），可解鎖退回、刪信、看總覽、記收件人簡稱。第一次用先在 `skills/mailbox/config.json` 填 `mailbox_root`；專案根下有 `.claude/skills/mailbox/config.json` 時整層改讀那份（同名 skill 個人層蓋過專案層，專案自己的信箱路徑照樣有效）。帳號存 `.local/`、不進版控。驗證 `tools/verify/verify_mailbox.py`。
 ## 2026-10-20 T2.19 補件：宣告行不留在卡裡、別人合併後的還原不算改碼、Git Bash 的 cd /c/ 認得出 repo
 - **交給 AI 寫程式時會看到的**：卡片第一行的「不是教繞閘｜理由」只給寫入閘看，寫進卡片時拿掉；總控台把 main 合進工作分支後，工作軌「退回舊版看紅再還原」不再被收尾閘當成改程式欠案例；Bash 下 `cd /c/… && git commit …` 不再被 commit 前各閘當成判不了而擋。細節見 TECH §7.5 與寫碼查核豁免表。
 ## 2026-10-20 AI 要改你既有的資料檔／設定檔，先問或先宣告一行（T2.16）
