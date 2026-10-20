@@ -8081,6 +8081,48 @@
         "merge-atom-index 改動"
       ],
       "scope": "global"
+    },
+    {
+      "name": "解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile",
+      "path": "memory/版控/Git/解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile.md",
+      "triggers": [
+        "兩側都留",
+        "resolve_both",
+        "合併衝突",
+        "merge conflict",
+        "共用尾行",
+        "return errors 掉了",
+        "import 重複",
+        "檔尾段",
+        "merge main 工作樹",
+        "IndentationError 合併後",
+        "NoneType is not iterable 合併後"
+      ],
+      "scope": "global",
+      "related": [
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合"
+      ]
+    },
+    {
+      "name": "工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件",
+      "path": "memory/工作流/多session協作/工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件.md",
+      "triggers": [
+        "交付信對帳",
+        "文件同步",
+        "TECH 沒更新",
+        "CHANGELOG 漏寫",
+        "工作軌交付",
+        "合併對帳五項",
+        "總控台補文件",
+        "派工單 文件",
+        "規則名 grep TECH"
+      ],
+      "scope": "global",
+      "related": [
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
+        "feedback-審查或交付時挖出的問題只有已修或飄移不做兩種寫法-不准推給下一個session"
+      ]
     }
   ]
 }

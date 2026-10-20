@@ -24,4 +24,5 @@
 | 既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-m-本機覆蓋檔用skip-worktree | 既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-M-本機覆蓋檔用skip-worktree |
 | 殘留stash與完工分支的處置原則-不用就丟-丟前先收割知識-重大發展或決策變更留devhistory | 殘留stash與完工分支的處置原則-不用就丟-丟前先收割知識-重大發展或決策變更留DevHistory |
 | 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
+| 解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile | 解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile |
 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 |
