@@ -322,8 +322,10 @@ def render_text(res: Dict[str, Any]) -> str:
 # 查的是「這次真的會進版的內容」：git 的暫存區、commit -a 的已追蹤改動、commit <路徑>、同一條指令前面 git add 才要加進來的檔；
 # svn commit 的工作副本改動。每個程式檔取舊版（HEAD／BASE）與新版（要提交的那份）逐行比對：病形落在這次改到的行、而且
 # 同一行（去空白後）不在任何一個提交檔的舊版裡 → 新寫進的病（擋）；其餘 → 舊碼原本就有、這次沒碰（只列出）。
-# 病形兩種來源：內建（原設計者點名的匿名函式疊用、回呼套層、過度物件化；寫得保守，寧漏不誤擋）與專案部位表「病灶清單」欄
-# 指的病灶文件（每條 `shape:` 是專案判斷過的病）。那一行寫 `smell-ok: <理由>` → 不擋、列進放行清單（判斷交 AI、理由留在 diff）。
+# 病形兩種來源：內建（原設計者點名的匿名函式疊用與過長、回呼套層、lambda 指派、巢狀過深、巢狀三元、過度物件化、Unity 每幀
+# 浪費；寫得保守，寧漏不誤擋，依據見 workflow/inbox/from-track-g2/002 提案）與專案部位表「病灶清單」欄指的病灶文件（每條 `shape:`
+# 是專案判斷過的病）。形狀判不準（大括號語言的字串、註解剝不乾淨）或還在提醒區間的只列不擋；「判不了一律擋」只用在查不到
+# 這次要提交什麼。那一行寫 `smell-ok: <理由>` → 不擋、列進放行清單（判斷交 AI、理由留在 diff）。
 
 SHAPES: Dict[str, Tuple[str, str, str]] = {   # 規則 → (病名, 為什麼是病, 怎麼改)
     "anon-stack": ("匿名函式疊用", "匿名函式裡再套匿名函式（同一行裡套、或 Python 的 lambda 套 lambda），讀的人要同時在腦中展開好幾層",
@@ -332,9 +334,22 @@ SHAPES: Dict[str, Tuple[str, str, str]] = {   # 規則 → (病名, 為什麼是
                   "每層抽成有名字的函式，或改成直線的 async／await 流程"),
     "one-method-class": ("只有建構子加一個方法的類別", "類別只是把一個函式包起來（過度物件化），多一層建構與 self，沒換到任何狀態管理",
                          "直接寫成函式，建構參數改成函式參數"),
+    "anon-long": ("匿名函式本體過長", "一整段邏輯塞進沒名字的回呼／lambda／匿名類別，讀外層流程時要跳進去讀完才回得來",
+                  "抽成有名字的函式或類別，回呼只留一行呼叫"),
+    "lambda-assign": ("lambda 指派給變數", "把 lambda 存進變數就失去它唯一的好處（嵌在運算式裡），還讓錯誤追蹤看不到函式名（PEP 8）",
+                      "改寫成 def"),
+    "deep-nesting": ("控制結構巢狀太深", "if／for／while／try 一層套一層，讀的人要同時記住每一層的條件",
+                     "先踢掉例外情況提早 return／continue，或把內層抽成有名字的函式"),
+    "nested-ternary": ("巢狀三元", "三元運算裡再套三元，一行裡要同時解好幾個條件分支", "改成 if／elif 或查表"),
+    "unity-empty-message": ("空的 Unity 訊息方法", "空的 Update() 等方法 Unity 每幀照樣呼叫，白耗效能", "刪掉這個空方法"),
+    "unity-hot-lookup": ("每幀方法裡做昂貴查找", "在 Update 這類每幀都跑的方法裡做 Find／AddComponent／反射，每幀都付一次查找或配置的成本",
+                         "移到 Awake／Start 查一次存起來；真的要每幀查就先判 null 只在第一次查"),
 }
+# 門檻預設值（可由 workflow/config.json 的 guard.smell_gate 覆蓋）：匿名本體 >20 行擋、≥10 行提醒取自 Sonar S1188（匿名類別 20 行）
+# 與 S5612／Checkstyle LambdaBodyLength（10 行）；巢狀 ≥4 層取自寫碼規矩「巢狀 ≥4 一律重構」與 Sonar S134（Python 4）
+DEFAULT_LIMITS: Dict[str, int] = {"anon_body_block_lines": 20, "anon_body_list_lines": 10, "nesting_block_depth": 4}
 _PY_EXTS = (".py", ".pyw")
-_ARROW_ANON = r"=>|\bfunction\s*\(|\bdelegate\s*[({]"
+_ARROW_ANON = r"=>|\bfunction\s*\(|\bdelegate\s*(?=[({])"
 _ANON_BY_EXT: Dict[str, str] = {   # 副檔名 → 這個語言的匿名函式寫法；不在表上的語言只查病灶清單
     **dict.fromkeys((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".vue", ".svelte", ".cs", ".dart"), _ARROW_ANON),
     ".java": r"->",
@@ -383,12 +398,18 @@ def _code_lines(text: str, ext: str) -> List[str]:
     return out
 
 
+_MEMBER_ARROW_RE = re.compile(   # C#「型別 名稱 =>」「型別 名稱(參數) =>」是運算式主體的成員，不是 lambda
+    r"^\s*(?:(?:public|private|protected|internal|static|override|virtual|abstract|sealed|new|async|readonly|unsafe|extern)\s+)*"
+    r"[\w.]+(?:<[^=]*>)?(?:\[\])?\??\s+[A-Za-z_]\w*\s*(?:\([^()]*\))?\s*$")
+
+
 def _anon_tokens(line: str, anon_re: "re.Pattern[str]") -> List["re.Match[str]"]:
-    """這行的匿名函式記號；有 switch 的行（C#／Java switch 運算式的 `=>`／`->` 是分支不是函式）只認 function／delegate。"""
+    """這行的匿名函式記號。有 switch 的行（C#／Java switch 運算式的 `=>`／`->` 是分支不是函式）只認 function／delegate；
+    行首就是「型別 名稱 =>」的那個 `=>` 是運算式主體的屬性或方法，不算。"""
     found = list(anon_re.finditer(line))
     if _SWITCH_RE.search(line):
         found = [m for m in found if m.group(0) not in ("=>", "->")]
-    return found
+    return [m for m in found if not (m.group(0) == "=>" and _MEMBER_ARROW_RE.match(line[:m.start()]))]
 
 
 def _nested_on_line(line: str, anon_re: "re.Pattern[str]") -> bool:
@@ -418,40 +439,216 @@ def _nested_on_line(line: str, anon_re: "re.Pattern[str]") -> bool:
     return False
 
 
-def _brace_hits(text: str, ext: str) -> List[Tuple[str, int]]:
-    """大括號語言：同一行匿名函式套匿名函式（anon-stack）、匿名函式本體跨行套到第三層（anon-nest，錨在第三層開頭那行）。"""
+_TEST_CALLBACK_RE = re.compile(r"\b(?:describe|it|test|context|suite|beforeEach|afterEach|beforeAll|afterAll)"
+                               r"(?:\.\w+)?\s*\((?:[^()]|\([^()]*\))*$")
+_PROMISE_CALLBACK_RE = re.compile(r"\.\s*(?:then|catch|finally)\s*\(\s*$")
+_JAVA_ANON_CLASS_RE = re.compile(r"\bnew\s+[A-Za-z_][\w.]*(?:<[^>]*>)?\s*\([^()]*\)\s*$")
+_WORD_RE = re.compile(r"[A-Za-z_]\w*")
+
+
+def _brace_map(lines: List[str]) -> Tuple[Dict[Tuple[int, int], int], bool]:
+    """剝過字串與註解的各行 → ({開大括號 (行, 欄): 對應收大括號的行}, 剝得乾不乾淨)。大括號或小括號對不上 ＝ 有字串、註解、
+    正則字面值沒剝乾淨，大括號類病形判不準。"""
+    ends: Dict[Tuple[int, int], int] = {}
+    stack: List[Tuple[int, int]] = []
+    parens = 0
+    clean = True
+    for no, line in enumerate(lines, 1):
+        for m in re.finditer(r"[{}()]", line):
+            ch = m.group(0)
+            if ch == "{":
+                stack.append((no, m.start()))
+            elif ch == "}" and stack:
+                ends[stack.pop()] = no
+            elif ch == "}":
+                clean = False
+            else:
+                parens += 1 if ch == "(" else -1
+    return ends, clean and not stack and parens == 0
+
+
+def _anon_params(line: str, m: "re.Match[str]") -> set:
+    """匿名函式的參數名（`function (a, b)`、`(a, b) =>`、`a =>`、`delegate (int x)`、Java `(a) ->`）。"""
+    if m.group(0) in ("=>", "->"):
+        before = line[:m.start()].rstrip()
+        got = re.search(r"\(([^()]*)\)$", before) or re.search(r"([A-Za-z_]\w*)$", before)
+    else:
+        got = re.match(r"[^(]*\(([^()]*)\)", line[m.start():])
+    if not got:
+        return set()
+    names = set()
+    for part in got.group(1).split(","):
+        words = _WORD_RE.findall(part.split("=")[0])
+        if words:
+            names.add(words[-1])
+    return names
+
+
+def _span_text(lines: List[str], start: Tuple[int, int], end_line: int) -> str:
+    """從 (行, 欄) 開的大括號到 end_line 那行為止的程式文字。"""
+    no, col = start
+    return "\n".join([lines[no - 1][col:]] + lines[no:end_line])
+
+
+def _anon_frame(line: str, m: "re.Match[str]", no: int) -> Dict[str, Any]:
+    """匿名函式記號 → 它的一層：參數、是不是測試框架的回呼（describe／it…）、是不是 promise 的 then／catch 回呼。
+    箭頭函式的參數寫在記號前面，判它被誰呼叫要先把參數那段剝掉。"""
+    prefix = line[:m.start()]
+    if m.group(0) in ("=>", "->"):
+        prefix = re.sub(r"(?:\([^()]*\)|[A-Za-z_]\w*)\s*$", "", prefix)
+    return {"anon": True, "line": no, "params": _anon_params(line, m),
+            "test_cb": bool(_TEST_CALLBACK_RE.search(prefix)), "then_cb": bool(_PROMISE_CALLBACK_RE.search(prefix))}
+
+
+def _brace_hits(text: str, ext: str, limits: Dict[str, int], is_test: bool) -> Tuple[List[Dict[str, Any]], bool]:
+    """大括號語言 → (命中, 剝得乾不乾淨)。同一行匿名函式套匿名函式（anon-stack）；匿名函式本體跨行套到第三層（anon-nest，錨在
+    第三層開頭那行）；匿名本體行數（anon-long，超過擋的門檻擋、到提醒門檻只列）。測試框架的回呼（describe／it…）不算一層、
+    不量長度；promise 的 then／catch 回呼用到外層回呼的參數也不算一層（eslint-plugin-promise no-nesting 同一判法）。"""
     pattern = _ANON_BY_EXT.get(ext)
     if not pattern:
-        return []
+        return [], True
     anon_re = re.compile(pattern)
     token_re = re.compile(pattern + r"|[{};]")
-    hits: List[Tuple[str, int]] = []
-    stack: List[bool] = []      # 每個還開著的 { 是不是匿名函式的本體
-    pending = False             # 看到匿名函式記號、還在等它的 {
-    for no, line in enumerate(_code_lines(text, ext), 1):
+    lines = _code_lines(text, ext)
+    ends, clean = _brace_map(lines)
+    hits: List[Dict[str, Any]] = []
+    frames: List[Dict[str, Any]] = []      # 每個還開著的 {：是不是匿名本體、算不算一層、參數
+    state: Dict[str, Any] = {"pending": None, "depth": 0}    # 看到匿名記號、還在等它的 {；目前算到第幾層
+
+    def counts(frame: Dict[str, Any], body: str) -> bool:
+        if frame["test_cb"]:
+            return False
+        outer = set().union(*(f["params"] for f in frames if f["anon"]))    # 還在作用域裡的所有外層匿名函式參數
+        return not (frame["then_cb"] and any(re.search(rf"\b{re.escape(p)}\b", body) for p in outer))
+
+    def open_brace(no: int, col: int) -> None:
+        frame = state["pending"] or {"anon": False}
+        if not state["pending"] and ext == ".java" and _JAVA_ANON_CLASS_RE.search(lines[no - 1][:col]):
+            frame = {"anon": True, "line": no, "params": set(), "test_cb": False, "then_cb": False}
+        state["pending"] = None
+        end = ends.get((no, col))
+        frame["counts"] = frame["anon"] and counts(frame, _span_text(lines, (no, col), end or no))
+        frames.append(frame)
+        state["depth"] += frame["counts"]
+        if frame["counts"] and state["depth"] >= NEST_LIMIT:
+            hits.append({"rule": "anon-nest", "line": no})
+        body = (end - no - 1) if end else 0
+        if not frame["anon"] or frame["test_cb"] or is_test or body < limits["anon_body_list_lines"]:
+            return
+        hits.append({"rule": "anon-long", "line": frame["line"], "start": frame["line"], "end": end,
+                     "detail": f"本體 {body} 行（超過 {limits['anon_body_block_lines']} 行擋）",
+                     "list_only": body <= limits["anon_body_block_lines"],
+                     "ckey": ("anon-long", _squash(lines[frame["line"] - 1])), "cval": body,
+                     "legacy_over": limits["anon_body_block_lines"]})
+
+    def anon_token(no: int, line: str, m: "re.Match[str]") -> None:
+        frame = _anon_frame(line, m, no)
+        rest = line[m.end():].lstrip()
+        if m.group(0) not in ("=>", "->") or not rest or rest.startswith("{"):
+            state["pending"] = frame
+            return
+        if counts(frame, rest) and state["depth"] + 1 >= NEST_LIMIT:    # 表達式本體的匿名函式：自己算一層，不開大括號
+            hits.append({"rule": "anon-nest", "line": no})
+
+    for no, line in enumerate(lines, 1):
         if _nested_on_line(line, anon_re):
-            hits.append(("anon-stack", no))
+            hits.append({"rule": "anon-stack", "line": no})
         anon_here = {m.start() for m in _anon_tokens(line, anon_re)}
         for m in token_re.finditer(line):
             t = m.group(0)
             if t == "{":
-                stack.append(pending)
-                if pending and sum(stack) >= NEST_LIMIT:
-                    hits.append(("anon-nest", no))
-                pending = False
-            elif t == "}":
-                if stack:
-                    stack.pop()
-                pending = False
-            elif t == ";":
-                pending = False
+                open_brace(no, m.start())
+            elif t == "}" and frames:
+                state["depth"] -= frames.pop()["counts"]
+                state["pending"] = None
+            elif t in ("}", ";"):
+                state["pending"] = None
             elif m.start() in anon_here:
-                rest = line[m.end():].lstrip()
-                if t in ("=>", "->") and rest and not rest.startswith("{"):
-                    if sum(stack) + 1 >= NEST_LIMIT:    # 表達式本體的匿名函式：自己算一層，不開大括號
-                        hits.append(("anon-nest", no))
-                    continue
-                pending = True
+                anon_token(no, line, m)
+    return hits, clean
+
+
+_UNITY_MESSAGE_RE = re.compile(
+    r"^\s*(?P<mods>(?:(?:public|private|protected|internal|static|override|virtual|abstract|sealed|new|async|unsafe)\s+)*)"
+    r"(?:void|IEnumerator)\s+(?P<name>Awake|Start|Update|FixedUpdate|LateUpdate|OnGUI|OnEnable|OnDisable|OnDestroy|"
+    r"OnApplicationQuit|OnApplicationPause|OnApplicationFocus|Reset|OnValidate|OnDrawGizmos|OnDrawGizmosSelected)\s*\(\s*\)")
+_PER_FRAME = {"Update", "FixedUpdate", "LateUpdate", "OnGUI"}
+_HOT_LOOKUP_RE = re.compile(
+    r"\bGameObject\s*\.\s*Find\w*\s*\(|\bFind(?:Objects?|AnyObject|FirstObject)\w*\s*[<(]|\bAddComponent\s*[<(]|"
+    r"\bSystem\s*\.\s*Reflection\b|\.\s*Get(?:Method|Property|Field)s?\s*\(|\bActivator\s*\.\s*CreateInstance\b")
+_NULL_GUARD_RE = re.compile(r"\?\?=|\bif\s*\(\s*(?:!\s*[\w.]+|[\w.]+\s*==\s*null|null\s*==\s*[\w.]+)\s*\)")
+_DERIVED_CLASS_RE = re.compile(r"\bclass\s+\w+(?:<[^>]*>)?\s*:\s*\w")
+_UNITY_FILE_RE = re.compile(r"\bUnityEngine\b")
+
+
+_EDITOR_FLIP = {"editor": "player", "player": "editor", "other": "other"}
+
+
+def _editor_only_lines(raw_lines: List[str]) -> set:
+    """只在編輯器裡跑的行號：`#if UNITY_EDITOR` 那段、`#if !UNITY_EDITOR` 的 #else 段（巢狀 #if 照層數配對）。
+    其他條件、#elif 一律當不確定（不算編輯器限定，照查）。"""
+    out, stack = set(), []
+    for no, raw in enumerate(raw_lines, 1):
+        s = " ".join(raw.split())
+        if s.startswith("#if "):
+            stack.append({"#if UNITY_EDITOR": "editor", "#if !UNITY_EDITOR": "player"}.get(s, "other"))
+        elif s.startswith("#elif") and stack:
+            stack[-1] = "other"
+        elif s.startswith("#else") and stack:
+            stack[-1] = _EDITOR_FLIP[stack[-1]]
+        elif s.startswith("#endif") and stack:
+            stack.pop()
+        elif "editor" in stack:
+            out.add(no)
+    return out
+
+
+def _brace_header(lines: List[str], open_line: int) -> str:
+    """大括號開頭那行；C# 慣用換行大括號（那行只有 `{`）就往上找到條件那一行。"""
+    at = open_line
+    while at > 1 and lines[at - 1].strip() in ("{", ""):
+        at -= 1
+    return lines[at - 1] + lines[open_line - 1]
+
+
+def _unity_hits(text: str) -> List[Dict[str, Any]]:
+    """C#（Unity）：空的訊息方法（virtual／override／abstract 是留給子類別的，不算；所在檔要有繼承別的類別）、
+    每幀方法（Update 系列）本體裡直接做 Find／AddComponent／反射（先判 null 只在第一次查的寫法、UNITY_EDITOR 區段不算）。
+    檔裡沒用到 UnityEngine 就不是 Unity 腳本（伺服器的模組類別也常有 Update()），整檔不查。"""
+    lines = _code_lines(text, ".cs")
+    if not (_UNITY_FILE_RE.search(text) and _DERIVED_CLASS_RE.search("\n".join(lines))):
+        return []
+    ends, _clean = _brace_map(lines)
+    editor_only = _editor_only_lines(text.splitlines())
+    opens = sorted(ends)
+    hits: List[Dict[str, Any]] = []
+    for no, line in enumerate(lines, 1):
+        msg = _UNITY_MESSAGE_RE.match(line)
+        if not msg:
+            continue
+        body_open = next(((l, c) for l, c in opens if (l, c) > (no, msg.end()) and l <= no + 2), None)
+        if body_open is None:
+            continue
+        close = ends[body_open]
+        body = _span_text(lines, body_open, close)[1:].rsplit("}", 1)[0]
+        if not body.strip() and not re.search(r"\b(?:virtual|override|abstract)\b", msg.group("mods")):
+            hits.append({"rule": "unity-empty-message", "line": no, "start": no, "end": close})
+        if msg.group("name") in _PER_FRAME:
+            hits += _hot_lookups(lines, ends, opens, body_open, editor_only)
+    return hits
+
+
+def _hot_lookups(lines: List[str], ends: Dict[Tuple[int, int], int], opens: List[Tuple[int, int]],
+                 body_open: Tuple[int, int], editor_only: set) -> List[Dict[str, Any]]:
+    """每幀方法本體裡直接做昂貴查找的行；這一行、上一行、或包住它的那個大括號開頭是「先判 null」就是延遲快取，不算。"""
+    hits = []
+    for at in range(body_open[0], ends[body_open] + 1):
+        if at in editor_only or not _HOT_LOOKUP_RE.search(lines[at - 1]):
+            continue
+        inner = max(((l, c) for l, c in opens if (l, c) > body_open and l < at <= ends[(l, c)]), default=None)
+        guards = [lines[at - 1], lines[at - 2] if at >= 2 else "", _brace_header(lines, inner[0]) if inner else ""]
+        if not any(_NULL_GUARD_RE.search(g) for g in guards):
+            hits.append({"rule": "unity-hot-lookup", "line": at})
     return hits
 
 
@@ -465,23 +662,86 @@ def _one_method_class(node: ast.ClassDef) -> bool:
     return not others and len(funcs) == 2 and "__init__" in funcs and not any(f.startswith("__") and f != "__init__" for f in funcs)
 
 
-def _py_hits(text: str, is_test: bool) -> Optional[List[Tuple[str, int, int, int]]]:
-    """Python 用語法樹判（字串、註解裡的字不會算）：lambda 套 lambda（錨在內層、範圍是外層整段）、單方法類別（範圍是整個類別；
-    測試檔不查：替身類別就長這樣）。同一行並列的 lambda（dict 裡一排替身）不算。回 (規則, 錨點行, 範圍起, 範圍迄)；
-    語法錯回 None（判不了，由呼叫端記一筆）。"""
+_NEST_NODES = tuple(getattr(ast, n) for n in ("If", "For", "AsyncFor", "While", "Try", "TryStar", "Match") if hasattr(ast, n))
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def _nest_depth(node: ast.AST, depth: int = 0) -> int:
+    """函式本體裡控制結構最深套幾層；elif 跟 if 同一層，內層函式、類別、lambda 各自另算。"""
+    best = depth
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _SCOPE_NODES):
+            continue
+        is_elif = isinstance(node, ast.If) and isinstance(child, ast.If) and node.orelse == [child]
+        best = max(best, _nest_depth(child, depth + (isinstance(child, _NEST_NODES) and not is_elif)))
+    return best
+
+
+def _functions(node: ast.AST, prefix: str = "") -> List[Tuple[str, ast.AST]]:
+    """所有函式（含類別方法、內層函式）與它的完整名稱（類別.方法）。"""
+    out: List[Tuple[str, ast.AST]] = []
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.append((prefix + child.name, child))
+            out += _functions(child, prefix + child.name + ".")
+        elif isinstance(child, ast.ClassDef):
+            out += _functions(child, prefix + child.name + ".")
+        else:
+            out += _functions(child, prefix)
+    return out
+
+
+def _py_hits(text: str, is_test: bool, limits: Dict[str, int]) -> Optional[List[Dict[str, Any]]]:
+    """Python 用語法樹判（字串、註解裡的字不會算）。同一行並列的 lambda（dict 裡一排替身）不算。語法錯回 None（判不了，由呼叫端記一筆）。
+    - lambda 套 lambda：錨在內層，範圍是外層整段。
+    - 單方法類別、lambda 指派給變數：測試檔不查（替身就長這樣）；except 區塊裡的 lambda 指派是載入失敗時的替身，不算。
+    - 巢狀三元：只報最外層。
+    - 巢狀太深：函式級指標，帶 ckey／cval（同名函式改前改後比深度，沒變深就算舊病）。"""
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError):
         return None
-    hits: List[Tuple[str, int, int, int]] = []
+    in_except = set()
+    for handler in ast.walk(tree):
+        if isinstance(handler, ast.ExceptHandler):
+            in_except.update(id(n) for n in ast.walk(handler))
+    hits: List[Dict[str, Any]] = []
+    inner_ternaries = set()
     for node in ast.walk(tree):
+        span = {"start": node.lineno, "end": node.end_lineno or node.lineno} if hasattr(node, "lineno") else {}
         if isinstance(node, ast.Lambda):
             inner = next((n for n in ast.walk(node.body) if isinstance(n, ast.Lambda)), None)
             if inner is not None:
-                hits.append(("anon-stack", inner.lineno, node.lineno, node.end_lineno or node.lineno))
+                hits.append({"rule": "anon-stack", "line": inner.lineno, **span})
         elif isinstance(node, ast.ClassDef) and not is_test and _one_method_class(node):
-            hits.append(("one-method-class", node.lineno, node.lineno, node.end_lineno or node.lineno))
+            hits.append({"rule": "one-method-class", "line": node.lineno, **span})
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Lambda):
+            if not is_test and id(node) not in in_except:
+                hits.append({"rule": "lambda-assign", "line": node.lineno, **span})
+        elif isinstance(node, ast.IfExp) and id(node) not in inner_ternaries:
+            inner = [n for n in ast.walk(node) if n is not node and isinstance(n, ast.IfExp)]
+            inner_ternaries.update(id(n) for n in inner)
+            if inner:
+                hits.append({"rule": "nested-ternary", "line": node.lineno, **span})
+    limit = limits["nesting_block_depth"]
+    for qualname, func in _functions(tree):
+        depth = _nest_depth(func)
+        if depth >= limit:
+            hits.append({"rule": "deep-nesting", "line": func.lineno, "start": func.lineno, "end": func.end_lineno or func.lineno,
+                         "ckey": ("deep-nesting", qualname), "cval": depth,
+                         "detail": f"{qualname} 巢狀 {depth} 層（{limit} 層以上擋）"})
     return hits
+
+
+def limits_of(config: Optional[Dict[str, Any]]) -> Dict[str, int]:
+    """workflow/config.json 的 guard.smell_gate 覆蓋門檻預設值；不是正整數的設定照預設。"""
+    sec = ((config or {}).get("guard") or {}).get("smell_gate") or {}
+    out = dict(DEFAULT_LIMITS)
+    for key in out:
+        value = sec.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            out[key] = value
+    return out
 
 
 def _is_test_file(abs_path: str) -> bool:
@@ -560,27 +820,39 @@ def _defect_shapes(abs_path: str, cache: Dict[str, Any], notes: List[str]) -> Li
     return cache[dkey]
 
 
-def scan_text(abs_path: str, text: str, cache: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
-    """一個檔的一個版本 → 病形命中 [{rule, name, why, fix, line, start, end, text}]：line 是點名的那一行，
-    start～end 是整個病形的範圍（改到範圍裡任一行，都算這次碰到這個病形）。"""
+def scan_text(abs_path: str, text: str, cache: Dict[str, Any], notes: List[str],
+              limits: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
+    """一個檔的一個版本 → 病形命中 [{rule, name, why, fix, line, start, end, text, detail?, list_only?, ckey?, cval?}]：
+    line 是點名的那一行，start～end 是整個病形的範圍（改到範圍裡任一行，都算這次碰到這個病形）；list_only＝判不準或在提醒區間，
+    只列不擋；ckey／cval＝函式級指標（同名函式改前改後比大小）。大括號語言的字串、註解剝不乾淨時，整檔的內建病形都只列不擋。"""
+    limits = limits or DEFAULT_LIMITS
     ext = Path(abs_path).suffix.lower()
     lines = text.splitlines()
-    found: List[Tuple[str, int, int, int]] = []
+    is_test = _is_test_file(abs_path)
     if ext in _PY_EXTS:
-        py = _py_hits(text, _is_test_file(abs_path))
-        if py is None:
+        found = _py_hits(text, is_test, limits)
+        if found is None:
             notes.append(f"{Path(abs_path).name} 有語法錯，內建病形沒查（語法樹建不起來）")
-        found = py or []
+            found = []
     else:
-        found = [(rule, no, no, no) for rule, no in _brace_hits(text, ext)]
+        found, clean = _brace_hits(text, ext, limits, is_test)
+        if ext == ".cs":
+            found += _unity_hits(text)
+        if not clean and found:
+            notes.append(f"{Path(abs_path).name} 的字串或註解剝不乾淨（正則字面值、跨行字串之類），大括號類病形判不準，這個檔只提醒不擋")
+            for f in found:
+                f["list_only"] = True
     hits = []
     seen = set()
-    for rule, no, start, end in found:
-        if (rule, no) in seen:
+    for f in found:
+        if (f["rule"], f["line"]) in seen:
             continue
-        seen.add((rule, no))
-        name, why, fix = SHAPES[rule]
-        hits.append({"rule": rule, "name": name, "why": why, "fix": fix, "line": no, "start": start, "end": end,
+        seen.add((f["rule"], f["line"]))
+        if "ckey" in f:     # 函式級與長度級指標只跟同一個檔的同一處比（別的檔的同名函式不能抵）
+            f["ckey"] = (abs_path, *f["ckey"])
+        name, why, fix = SHAPES[f["rule"]]
+        no = f["line"]
+        hits.append({"start": no, "end": no, **f, "name": name, "why": why, "fix": fix,
                      "text": lines[no - 1] if 0 < no <= len(lines) else ""})
     for s in _defect_shapes(abs_path, cache, notes):
         pat = re.compile(s["regex"])
@@ -607,34 +879,46 @@ def _squash(line: str) -> str:
     return " ".join(line.split())
 
 
-def classify(files: List[Dict[str, Any]], cache: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def classify(files: List[Dict[str, Any]], cache: Optional[Dict[str, Any]] = None,
+             limits: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """files：[{path（顯示用）, abs, old, new}]；new 為 None＝這次刪掉的檔（只拿舊版當「原本就有」的比對來源）。
-    回 {new, old, allowed, notes}：new＝新寫進的病、old＝舊碼原本就有或原樣搬動、allowed＝寫了 smell-ok 理由放行的。
+    回 {new, listed, old, allowed, notes}：new＝新寫進的病（擋）、listed＝新寫進但判不準或在提醒區間（只列）、
+    old＝舊碼原本就有或原樣搬動、allowed＝寫了 smell-ok 理由放行的。
     新舊對帳一份抵一份：所有提交檔舊版裡每個（規則, 點名那行）各有幾份；範圍沒被碰到的病先各抵掉一份，碰到的再拿剩下的抵，
-    抵得到＝原樣搬動，抵不到＝新寫進的（原行保留又複製一份，多的那份抵不到）。"""
+    抵得到＝原樣搬動，抵不到＝新寫進的（原行保留又複製一份，多的那份抵不到）。函式級指標（巢狀深度）另用同名函式改前改後比：
+    改後沒有比改前大＝舊病。"""
     cache = {} if cache is None else cache
     notes: List[str] = []
     before: Dict[Tuple[str, str], int] = {}
+    before_val: Dict[Any, int] = {}
     for f in files:
-        for h in scan_text(f["abs"], f["old"], cache, []) if f["old"] else []:
+        for h in scan_text(f["abs"], f["old"], cache, [], limits) if f["old"] else []:
+            if "ckey" in h:
+                before_val[h["ckey"]] = max(before_val.get(h["ckey"], 0), h["cval"])
+                continue
             key = (h["rule"], _squash(h["text"]))
             before[key] = before.get(key, 0) + 1
-    res: Dict[str, Any] = {"new": [], "old": [], "allowed": [], "notes": notes}
+    res: Dict[str, Any] = {"new": [], "listed": [], "old": [], "allowed": [], "notes": notes}
     touched_hits = []
     for f in files:
         if f["new"] is None:
             continue
         touched = changed_lines(f["old"] or "", f["new"])
-        for h in scan_text(f["abs"], f["new"], cache, notes):
+        for h in scan_text(f["abs"], f["new"], cache, notes, limits):
             h["path"] = f["path"]
             key = (h["rule"], _squash(h["text"]))
-            if touched.isdisjoint(range(h["start"], h["end"] + 1)):
-                before[key] = max(0, before.get(key, 0) - 1)
-                res["old"].append(h)
-            else:
+            if not touched.isdisjoint(range(h["start"], h["end"] + 1)):
                 touched_hits.append((key, h))
+                continue
+            if "ckey" not in h:
+                before[key] = max(0, before.get(key, 0) - 1)
+            res["old"].append(h)
     for key, h in touched_hits:
-        if before.get(key, 0) > 0:
+        prev = before_val.get(h.get("ckey"))
+        if prev is not None and (h["cval"] <= prev or prev > h.get("legacy_over", float("inf"))):
+            res["old"].append(h)    # 沒變嚴重；或舊版本來就過了擋的門檻（舊病，只列）
+            continue
+        if "ckey" not in h and before.get(key, 0) > 0:
             before[key] -= 1
             res["old"].append(h)
             continue
@@ -643,7 +927,7 @@ def classify(files: List[Dict[str, Any]], cache: Optional[Dict[str, Any]] = None
             h["reason"] = ok.group(1)
             res["allowed"].append(h)
             continue
-        res["new"].append(h)
+        res["listed" if h.get("list_only") else "new"].append(h)
     return res
 
 
@@ -956,7 +1240,7 @@ def check_commit(vcs: str, run_cwd: str, commit_tokens: List[str], adds: List[Tu
              else svn_commit_files(run_cwd, commit_tokens, config))
     if files is None:
         return None
-    res = classify(files)
+    res = classify(files, limits=limits_of(config))
     res["checked"] = [f["path"] for f in files if f["new"] is not None]
     res["old"] += _report_rows(files, res["notes"])
     return res
@@ -971,13 +1255,19 @@ def _where(h: Dict[str, Any]) -> str:
     return f"{h['path']} 第 {h['line']} 行" if h.get("line") else f"{h['path']}（整檔）"
 
 
+def _shown(h: Dict[str, Any], n: int = 120) -> str:
+    """擋訊息裡那一行的樣子：原文，加上量出來的細節（幾層、幾行）。"""
+    return _clip(h["text"], n) + (f"（{h['detail']}）" if h.get("detail") else "")
+
+
 def render_commit_report(results: List[Dict[str, Any]], repo_hint: str = "<repo>") -> Tuple[Optional[str], Optional[str]]:
-    """多個 commit 的結果 → (擋的訊息, 只提醒的訊息)；有新寫進的病就只回擋的訊息（舊病與放行一起列在裡面）。"""
+    """多個 commit 的結果 → (擋的訊息, 只提醒的訊息)；有新寫進的病就只回擋的訊息（只提醒、舊病、放行一起列在裡面）。"""
     new = [h for r in results for h in r["new"]]
+    listed = [h for r in results for h in r.get("listed", [])]
     old = [h for r in results for h in r["old"]]
     allowed = [h for r in results for h in r["allowed"]]
     notes = list(dict.fromkeys(n for r in results for n in r["notes"]))
-    if not (new or old or allowed or notes):
+    if not (new or listed or old or allowed or notes):
         return None, None
     lines: List[str] = []
     if new:
@@ -988,17 +1278,20 @@ def render_commit_report(results: List[Dict[str, Any]], repo_hint: str = "<repo>
             groups.setdefault(h["name"], []).append(h)
         for name, hs in groups.items():
             lines.append(f"  ✗ {name}：{hs[0]['why']}。怎麼改：{hs[0]['fix']}")
-            lines += [f"      {_where(h)}：{_clip(h['text'])}" for h in hs[:8]]
+            lines += [f"      {_where(h)}：{_shown(h)}" for h in hs[:8]]
             if len(hs) > 8:
                 lines.append(f"      …另有 {len(hs) - 8} 處")
     else:
         lines.append("[Guardian:SmellGate] commit 前病形檢查：這次沒有新寫進的病。")
+    if listed:
+        lines.append("這次新寫、只提醒不擋的（形狀判不準，或還在提醒區間沒到擋的門檻）：")
+        lines += [f"  · {h['name']}｜{_where(h)}：{_shown(h, 80)}" for h in listed[:10]]
     if allowed:
         lines.append("寫了 smell-ok 理由放行的（理由跟著 diff 給使用者看）：")
         lines += [f"  · {h['name']}｜{_where(h)}：smell-ok：{h['reason']}" for h in allowed]
     if old:
-        lines.append(f"舊碼原本就有、這次沒碰的（不擋，只列出；共 {len(old)} 處）：")
-        lines += [f"  · {h['name']}｜{_where(h)}：{_clip(h['text'], 80)}" for h in old[:10]]
+        lines.append(f"舊碼原本就有的（這次沒碰、原樣搬動、或碰了但沒變嚴重；不擋，只列出；共 {len(old)} 處）：")
+        lines += [f"  · {h['name']}｜{_where(h)}：{_shown(h, 80)}" for h in old[:10]]
         if len(old) > 10:
             lines.append(f"  …另有 {len(old) - 10} 處")
     if notes:

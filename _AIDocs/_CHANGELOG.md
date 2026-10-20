@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒
+- **交給 AI 寫程式時會看到的**：commit 時，新寫進的「一整段邏輯塞進匿名回呼（超過 20 行）」「`x = lambda`」「函式巢狀 4 層以上」「巢狀三元」「Unity 空的 Update 之類」「Update 裡每幀 Find／AddComponent／反射」也會被擋並點名哪個檔第幾行（巢狀附幾層、回呼附幾行）；10～20 行的匿名回呼、字串註解剝不乾淨的檔只提醒不擋；舊函式本來就深、這次沒變深的不擋。測試框架的 describe／it 回呼、promise 回呼用到外層變數的不算套層。門檻在 `workflow/config.json` 的 `guard.smell_gate` 可調。
+- **依據與驗證**：派工 002 提案（linter 原始碼與文獻＋實測，`workflow/inbox/from-track-g2/002-smell-shapes-proposal.md`）、派工 003 核可。`hooks/verify/verify_smell_gate.py` 新 23 案，每條病形一個先紅後綠＋至少一個誤判反例；在本 repo 與一個 3704 檔的 C# 伺服器專案上校準，抓到並修掉兩類誤擋（伺服器模組的 `Update()` 被當成 Unity 訊息、C# 運算式主體屬性被當成 lambda）。本機沒有 Unity 專案，Unity 兩條只有案例驗過、沒有在真實 Unity 專案上校準。改完閘本身也被自己擋了一次（新寫的函式巢狀 4 層），已改平。
+
 ## 2026-10-20 G6 階段 4：宣稱詞表降成提示、退避例外的入口接上（判斷入口盤點 P6＋P7）
 - **使用者看到的**：收尾不再被「CC 會自己跑完測試」這類說明句擋住——(a)(b)(c) 命中且沒證據時，擋訊息改教 AI 回一行「宣稱｜修好：非本回合宣稱，因為…」（放行、留帳）或「宣稱｜修好：收據 <指令片段或哨兵名>」（引用要指得到那條指令的完整 token 或哨兵名，通用字不算；那張收據要過原本資格：修好要合格 PASS、同根、晚於改檔，量了要 DONE 且指令可信，試過要指令可信）；真宣稱沒證據照擋。AI 寫一行「不做｜<哪一件>：<理由>」會被退避偵測與 DeferralGate 接受並留帳，不再被當成退避；說明句被退避詞誤命中（b 軌實遇「下個 session 開場列出的內容…三段都正常」）寫「不是退避｜<命中的詞>：因為…」同樣放行留帳；使用者說「先這樣／跳過」要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」對到具體哪一件（含紅測清單），不再一句話清掉全部。
 - **改了什麼**：`hooks/wg_release_rules.py` 新 5 條規則（CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH／NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）與純判定（`parse_claim_dispositions`、`claim_disposition_verdict`、`parse_not_doing`、`not_doing_verdict`、`waived_failures`）；`wg_verify_ledger.reconcile_gate_parts` (a)(b)(c) 命中後先看宣稱行、`audit` 回給 stop 落 guard-reconcile（event=claim_disclaimed／claim_receipt_ref）；`wg_evasion.detect_evasion`／`detect_deferral` 逐處對不做行、`audit` 落 guard-evasion_declared／guard-deferral_declared，退避旗標帶 category 與寫法提示（詞表各類 `exception` 欄從此由程式接上）；`handlers/stop.py` 只動宣稱／退避段（TestFailGate 吃 `waived_failures`，落 guard-testfail_waived）；`handlers/ups_gates.py` 拿掉「dismiss 詞清掉全部 failing_tests」；`handlers/user_prompt_submit.py` 舉證提示附不做行寫法；`forbidden-phrases.json` 刪 `deferral_user_ok`（整段豁免已廢）、更新 `_doc`。

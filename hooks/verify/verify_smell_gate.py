@@ -54,7 +54,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _repo(tmp_path: Path, files: dict) -> Path:
     repo = tmp_path / "proj"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     _git(repo, "init", "-q")
     for rel, text in files.items():
         p = repo / rel
@@ -394,6 +394,243 @@ def test_disabled_by_config(tmp_path):
     _git(repo, "add", "src/a.py")
     cfg = {"guard": {"smell_gate": {"enabled": False}}}
     assert check_smell_gate("Bash", {"command": 'git commit -m "x"'}, str(repo), cfg) == (None, None)
+
+
+# ─── 擴充病形（派工 003：提案 002 第 1～7 列核可的部分）────────────
+
+def _stage(tmp_path, rel, old, new):
+    repo = _repo(tmp_path, {rel: old})
+    _write(repo, rel, new)
+    _git(repo, "add", rel)
+    return repo
+
+
+def _body(n: int, indent: str = "    ") -> str:
+    return "".join(f"{indent}step{i}();\n" for i in range(n))
+
+
+def test_long_anonymous_callback_body_is_blocked(tmp_path):
+    repo = _stage(tmp_path, "web/app.js", "var x = 1;\n", "load(function (a) {\n" + _body(22) + "});\n")
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "匿名函式本體過長" in deny and "web/app.js 第 1 行" in deny
+
+
+def test_medium_anonymous_body_is_only_listed(tmp_path):
+    repo = _stage(tmp_path, "web/app.js", "var x = 1;\n", "load((a) => {\n" + _body(12) + "});\n")
+    deny, advice = _gate(repo, 'git commit -m "x"')
+    assert deny is None and advice and "匿名函式本體過長" in advice and "只提醒" in advice
+
+
+def test_long_test_framework_callback_is_not_counted(tmp_path):
+    src = 'describe("cart", () => {\n' + _body(25) + "});\n"
+    repo = _stage(tmp_path, "web/suite.js", "var x = 1;\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_long_java_anonymous_class_is_blocked(tmp_path):
+    src = "class A {\n  void f() {\n    run(new Runnable() {\n      public void run() {\n" + _body(20, "        ") + "      }\n    });\n  }\n}\n"
+    repo = _stage(tmp_path, "src/A.java", "class A {}\n", src)
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "匿名函式本體過長" in deny and "src/A.java 第 3 行" in deny
+
+
+def test_anonymous_body_threshold_is_configurable(tmp_path):
+    repo = _stage(tmp_path, "web/app.js", "var x = 1;\n", "load((a) => {\n" + _body(6) + "});\n")
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+    cfg = {"guard": {"smell_gate": {"anon_body_block_lines": 5, "anon_body_list_lines": 3}}}
+    deny, _advice = check_smell_gate("Bash", {"command": 'git commit -m "x"'}, str(repo), cfg)
+    assert deny and "匿名函式本體過長" in deny
+
+
+def test_python_lambda_assignment_is_blocked(tmp_path):
+    repo = _stage(tmp_path, "src/a.py", "x = 1\n", "square = lambda v: v * v\n")
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "lambda 指派給變數" in deny and "src/a.py 第 1 行" in deny
+
+
+def test_lambda_assignment_inside_except_is_import_fallback(tmp_path):
+    src = "try:\n    from fast import run\nexcept ImportError:\n    run = lambda *a: None\n"
+    repo = _stage(tmp_path, "src/a.py", "x = 1\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_test_framework_callbacks_do_not_count_as_nesting(tmp_path):
+    src = 'describe("a", () => {\n  it("b", () => {\n    run(() => {\n      x();\n    });\n  });\n});\n'
+    repo = _stage(tmp_path, "web/suite.js", "var x = 1;\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_promise_callback_using_outer_variable_does_not_count_as_nesting(tmp_path):
+    src = ("load(function (a) {\n"
+           "  fetchIt(a).then(function (r) {\n"
+           "    r.json().then(function (j) {\n"
+           "      use(r, j);\n"
+           "    });\n"
+           "  });\n"
+           "});\n")
+    repo = _stage(tmp_path, "web/app.js", "var x = 1;\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+    repo2 = _stage(tmp_path / "b", "web/app.js", "var x = 1;\n", src.replace("use(r, j)", "use(j)"))
+    assert _gate(repo2, 'git commit -m "x"')[0]                                    # 內層沒用到外層變數 → 照算三層
+
+
+DEEP4 = ("def f(xs):\n"
+         "    for x in xs:\n"
+         "        if x:\n"
+         "            while x:\n"
+         "                if x > 1:\n"
+         "                    x -= 1\n")
+DEEP3 = DEEP4.replace("                if x > 1:\n                    x -= 1\n", "                x -= 1\n")
+
+
+def test_new_function_nested_four_levels_is_blocked(tmp_path):
+    repo = _stage(tmp_path, "src/a.py", "x = 1\n", DEEP4)
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "控制結構巢狀太深" in deny and "f 巢狀 4 層" in deny
+
+
+def test_deepening_existing_function_to_four_levels_is_blocked(tmp_path):
+    repo = _stage(tmp_path, "src/a.py", DEEP3, DEEP4)
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "控制結構巢狀太深" in deny
+
+
+def test_old_deep_function_touched_without_deepening_is_only_listed(tmp_path):
+    repo = _stage(tmp_path, "src/a.py", DEEP4, DEEP4.replace("x -= 1", "x -= 2"))
+    deny, advice = _gate(repo, 'git commit -m "x"')
+    assert deny is None and advice and "控制結構巢狀太深" in advice
+
+
+def test_elif_chain_does_not_count_as_nesting(tmp_path):
+    src = ("def g(x):\n    if x == 1:\n        return 1\n    elif x == 2:\n        return 2\n"
+           "    elif x == 3:\n        return 3\n    elif x == 4:\n        return 4\n")
+    repo = _stage(tmp_path, "src/a.py", "x = 1\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_python_nested_ternary_is_blocked(tmp_path):
+    repo = _stage(tmp_path, "src/a.py", "x = 1\n", "y = a if b else (c if d else e)\n")
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "巢狀三元" in deny
+    repo2 = _stage(tmp_path / "b", "src/a.py", "x = 1\n", "y = a if b else c\n")
+    assert _gate(repo2, 'git commit -m "x"')[0] is None
+
+
+UNITY = "using UnityEngine;\npublic class Player : MonoBehaviour\n{\n%s}\n"
+
+
+def test_empty_unity_message_is_blocked(tmp_path):
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % "    void Update()\n    {\n    }\n")
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "空的 Unity 訊息方法" in deny and "Game/Player.cs 第 4 行" in deny
+
+
+def test_empty_virtual_unity_message_is_a_hook_for_subclasses(tmp_path):
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % "    protected virtual void Update() { }\n")
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_expensive_lookup_in_update_is_blocked(tmp_path):
+    body = '    void Update()\n    {\n        var e = GameObject.Find("Enemy");\n        e.Hit();\n    }\n'
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % body)
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "每幀方法裡做昂貴查找" in deny and "Game/Player.cs 第 6 行" in deny
+
+
+def test_lazy_cached_lookup_in_update_is_fine(tmp_path):
+    body = ('    GameObject enemy;\n    void Update()\n    {\n        if (enemy == null)\n'
+            '            enemy = GameObject.Find("Enemy");\n        enemy.SendMessage("Hit");\n    }\n')
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % body)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_lookup_in_editor_only_region_or_start_is_fine(tmp_path):
+    body = ('    void Start() { var e = GameObject.Find("Enemy"); }\n'
+            '    void Update()\n    {\n#if UNITY_EDITOR\n        var t = typeof(Player).GetMethod("Hit");\n#endif\n'
+            '        Move();\n    }\n')
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % body)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_non_unity_update_method_is_not_a_unity_message(tmp_path):
+    """校準實例：伺服器程式的模組類別也有 public void Update()，但不是 Unity 訊息；檔裡沒用 UnityEngine 就不查 Unity 規則。"""
+    src = "public class ActivityModule : BaseModule\n{\n    public void Update()\n    {\n    }\n}\n"
+    repo = _stage(tmp_path, "Server/ActivityModule.cs", "class A {}\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_csharp_expression_bodied_member_is_not_a_lambda(tmp_path):
+    """校準實例：`型別 名稱 => 運算式` 是運算式主體的屬性／方法，不是 lambda；裡面再寫一個 lambda 不算匿名套匿名。"""
+    src = "class P {\n    public IEnumerable<uint> Ids => _all.Where(x => x.IsInZone).Select(x => x.Id);\n}\n"
+    repo = _stage(tmp_path, "Server/P.cs", "class P {}\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_allman_braced_lazy_cache_in_update_is_fine(tmp_path):
+    """Codex 003-1：C# 慣用大括號換行，`if (enemy == null)` 與 `{` 分兩行時也是延遲快取。"""
+    body = ('    GameObject enemy;\n    void Update()\n    {\n        if (enemy == null)\n        {\n'
+            '            enemy = GameObject.Find("Enemy");\n        }\n    }\n')
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % body)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_lookup_in_else_branch_of_unity_editor_is_blocked(tmp_path):
+    """Codex 003-2：`#if UNITY_EDITOR … #else …` 的 else 是正式版本跑的；`#if !UNITY_EDITOR` 也是正式版本。"""
+    body = ('    void Update()\n    {\n#if UNITY_EDITOR\n        Debug.Log("editor");\n#else\n'
+            '        var e = GameObject.Find("Enemy");\n#endif\n    }\n')
+    repo = _stage(tmp_path, "Game/Player.cs", UNITY % "", UNITY % body)
+    assert _gate(repo, 'git commit -m "x"')[0]
+    body2 = '    void Update()\n    {\n#if !UNITY_EDITOR\n        var e = GameObject.Find("Enemy");\n#endif\n    }\n'
+    repo2 = _stage(tmp_path / "b", "Game/Player.cs", UNITY % "", UNITY % body2)
+    assert _gate(repo2, 'git commit -m "x"')[0]
+
+
+def test_anonymous_body_growing_past_block_threshold_is_blocked(tmp_path):
+    """Codex 003-3：舊版 12 行（只提醒）長到 22 行（該擋），不能被舊版那份抵掉。"""
+    repo = _stage(tmp_path, "web/app.js", "load(() => {\n" + _body(12) + "});\n", "load(() => {\n" + _body(22) + "});\n")
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "匿名函式本體過長" in deny
+
+
+def test_same_function_name_in_another_file_does_not_offset_new_deep_nesting(tmp_path):
+    """Codex 003-4：a.py 的舊 f 不能替同次提交新增的 b.py 的 f 抵銷。"""
+    repo = _repo(tmp_path, {"src/a.py": DEEP4})
+    _write(repo, "src/a.py", DEEP4.replace("x -= 1", "x -= 2"))
+    _write(repo, "src/b.py", DEEP4)
+    _git(repo, "add", "-A")
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "src/b.py" in deny
+
+
+def test_csharp_parameterless_delegate_body_is_measured(tmp_path):
+    """Codex 003-5：`delegate {` 沒有參數列，本體照樣要量長度。"""
+    src = "class H {\n  void Run() {\n    System.Action f = delegate {\n" + _body(22, "      ") + "    };\n    f();\n  }\n}\n"
+    repo = _stage(tmp_path, "Server/H.cs", "class H {}\n", src)
+    deny, _advice = _gate(repo, 'git commit -m "x"')
+    assert deny and "匿名函式本體過長" in deny
+
+
+def test_promise_callback_using_any_outer_parameter_does_not_count(tmp_path):
+    """Codex 003-6：then 回呼用到的是再外一層的參數（a），也算用到外層變數。"""
+    src = "load(a => {\n  run(b => {\n    fetchIt().then(c => {\n      use(a, c);\n    });\n  });\n});\n"
+    repo = _stage(tmp_path, "web/app.js", "var x = 1;\n", src)
+    assert _gate(repo, 'git commit -m "x"')[0] is None
+
+
+def test_live_config_carries_the_documented_limits():
+    """workflow/config.json 的 guard.smell_gate 門檻要讀得到、等於提案的預設值（改門檻就改這裡與 _doc 的依據）。"""
+    import json
+    cfg = json.loads((TREE / "workflow" / "config.json").read_text(encoding="utf-8"))
+    assert ps.limits_of(cfg) == ps.DEFAULT_LIMITS == {"anon_body_block_lines": 20, "anon_body_list_lines": 10,
+                                                      "nesting_block_depth": 4}
+    assert "S1188" in cfg["guard"]["smell_gate"]["_doc"]
+
+
+def test_unclean_strip_downgrades_brace_rules_to_list(tmp_path):
+    """字串、註解剝不乾淨（例：JS 正則字面值裡的大括號）→ 大括號類規則判不準，只列不擋。"""
+    repo = _stage(tmp_path, "web/app.js", "var x = 1;\n", "var re = /\\{/;\n" + JS_NEST3)
+    deny, advice = _gate(repo, 'git commit -m "x"')
+    assert deny is None and advice and "判不準" in advice and "匿名回呼套三層以上" in advice
 
 
 # ─── svn ──────────────────────────────────────────────────────────
