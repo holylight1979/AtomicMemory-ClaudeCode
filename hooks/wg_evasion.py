@@ -320,6 +320,18 @@ _SENTENCE_SPLIT_RE = re.compile(r"[。！？\n；;]")
 _OBJECT_STRIP_RE = re.compile(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。]")
 
 
+_MD_FENCE_RE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_MD_TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
+
+
+def strip_markdown_blocks(text: str) -> str:
+    """去掉 ``` 程式區塊與 markdown 表格列（| 開頭）。只給 detect_deferral 用：回覆裡列詞表、貼程式碼
+    時「之後再」「下個 session」是被列舉的字串，不是收尾的退縮句。detect_evasion 不套（引用豁免已否決）。"""
+    if not text or ("```" not in text and "|" not in text):
+        return text
+    return _MD_TABLE_ROW_RE.sub("", _MD_FENCE_RE.sub("", text))
+
+
 def detect_deferral(
     text: str,
     recent_user_prompts: List[str],
@@ -331,6 +343,7 @@ def detect_deferral(
     受詞判定＝命中句去掉退縮語與標點後仍 ≥ min_object_chars 字（純「下個 session。」
     這種無受詞的句子不算）。逃生門：近 3 則 user prompt 含命令式延後語
     （deferral_user_ok）或一般豁免語（dismiss_keywords）→ 使用者明示延後，不標。
+    ``` 程式區塊與 markdown 表格列先剔掉（strip_markdown_blocks）：列舉的字串不是退縮句。
     詞表單一來源 forbidden-phrases.json categories[id=deferral-attribution]。
     """
     if not text:
@@ -338,7 +351,7 @@ def detect_deferral(
     for p in user_typed_prompts(recent_user_prompts)[-3:]:
         if _DEFERRAL_USER_OK_RE.search(p or "") or _DISMISS_RE.search(p or ""):
             return None
-    for orig_sent in _SENTENCE_SPLIT_RE.split(text):
+    for orig_sent in _SENTENCE_SPLIT_RE.split(strip_markdown_blocks(text)):
         sent = strip_quoted_spans(orig_sent)  # 引號內轉述不觸發（同 detect_evasion）
         m = _DEFERRAL_RE.search(sent)
         if m:

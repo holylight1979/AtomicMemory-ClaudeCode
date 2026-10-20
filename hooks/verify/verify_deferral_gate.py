@@ -179,3 +179,21 @@ def test_quoted_deferral_phrase_not_flagged():
     assert detect_deferral(quoted, []) is None
     plain = "完工。這個 registry 清理留給下個 session 處理比較好。"
     assert detect_deferral(plain, []) is not None
+
+
+# ─── markdown 表格列與 ``` 程式區塊不觸發（列舉詞表／貼程式碼不是退縮句）────────
+
+def test_markdown_table_row_not_flagged():
+    text = "完工。詞表如下：\n| 詞 | 說明 |\n|---|---|\n| 之後再 | 這個 realm atom 瘦身留給下個 session 處理 |\n"
+    assert detect_deferral(text, []) is None
+
+
+def test_code_fence_not_flagged():
+    text = "完工。範例：\n```python\n# realm atom 瘦身留給下個 session 處理\nx = 1\n```\n"
+    assert detect_deferral(text, []) is None
+
+
+def test_plain_sentence_after_table_still_flagged():
+    text = "| 詞 |\n|---|\n| 之後再 |\n完工。realm atom 瘦身留給下個 session 處理。"
+    det = detect_deferral(text, [])
+    assert det and "realm atom 瘦身" in det["sentence"]
