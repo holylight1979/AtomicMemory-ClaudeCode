@@ -55,6 +55,48 @@
    "last_shown": "2026-09-04",
    "result": "2026-09-04 PASS",
    "done_at": "2026-09-04"
+  },
+  {
+   "id": "closing-gates-trim-2026-10-20",
+   "title": "收尾瘦身（只擋測試沒過說修好、改程式沒測試）上線後，亂擋狂驗有沒有真的消失",
+   "since": "2026-10-20",
+   "due": "2026-10-22",
+   "check": "closing-gates",
+   "criteria": {
+    "since_utc": "2026-10-20T02:43:19",
+    "min_turns": 30,
+    "blocks_per_turn_max": 0.4,
+    "reruns_per_turn_max": 0.5
+   },
+   "context": "2026-10-20 commit 80cfa53d 把收尾關卡瘦身到只擋兩件事；要用真實使用數據確認被擋次數與擋下後重跑測試真的少了。",
+   "on_fail": "照交接的「不過怎麼辦」逐項查，先跑 memory/_staging/收尾少空轉-量測腳本/catch_cases.py 看還在擋的是哪幾道、擋下後有沒有抓到問題",
+   "handoff": {
+    "這是什麼": "~/.claude 原子記憶系統的收尾關卡（Stop hook）會在模型宣告完成時擋下、要求補驗證或填報告。使用者原話：「我們的流程造成反覆重新跑測、這種浪費時間的地方一定要修掉」。2026-10-20 使用者拍板：收尾只留「測試沒過不准說修好」「改了程式要有改過的測試跑過」兩件會擋，其餘（驗證範圍宣告、收尾檢核、卡片表態、需求目標對照、量了／試過措辭）只提示不擋。",
+    "改了什麼（commit）": [
+     "80cfa53d：workflow/config.json reconcile_gate.block_letters=[\"a\",\"d\"]、goal_gate=false、verify_scope.enabled=false、aec.scan_report_gate=false、atom_audit.enabled=false；規則 RECONCILE_BLOCK_LETTERS、CLOSING_RITUAL_SWITCHES（hooks/wg_release_rules.py、TECH.md 規則表）"
+    ],
+    "修前基線": "量尺閘拔掉後到瘦身前（2026-10-14T13:34Z～10-16T05:20Z，根層專案）：97 個使用者回合、收尾被擋 71 次（0.73 次／回合）、擋下後到下一回合之間跑了約 92 次測試（0.95 次／回合）。2026-10-14 13:33Z 以前還有量尺閘，那段的數字不能拿來比。",
+    "怎麼判": [
+     "收尾被擋次數／回合 ≤ 0.40（約為基線一半）",
+     "擋下後重跑測試次數／回合 ≤ 0.50（約為基線一半）；這是代理數字，裡面有一部分是改程式本來就該跑的測試",
+     "回合 <30 → INSUFFICIENT，什麼都不用做，繼續用 CC 累積",
+     "回合＝使用者真的打字（Stop hook feedback、只有系統標籤的不算）；只算資料夾名以 c--users-<帳號>--claude 開頭的根層專案"
+    ],
+    "不過怎麼辦（逐指標）": [
+     "先看檢查結果第三列「還在擋的關卡」：若是 SyncReminder／Workflow Guardian（同步提醒）或 KnowledgeHarvest（知識收割）居多，那不在這次瘦身範圍，向使用者報數字、問要不要也降成提示",
+     "若 ReconcileGate／VerifyScope 還多：確認 workflow/config.json 上述五個開關沒被改回來（git log -p workflow/config.json）",
+     "逐例看擋下後有沒有真的抓到問題：memory/_staging/收尾少空轉-量測腳本/catch_cases.py（把檔內 sm.W0／W1 設成本回訪的 since_utc～現在）",
+     "結果與建議寫回 memory/_staging/next-phase-收尾少空轉.md，新的關卡改動先給使用者拍板"
+    ],
+    "已知": [
+     "改碼前的定位檢查（OverviewHub）曾因記錯對話紀錄位置而死鎖，根因未明，見推進文件第七節",
+     "改程式前要先有目標樹、提問要掛節點、改碼前定位五行這幾道手續不擋收尾、這次沒動，使用者還沒決定"
+    ],
+    "結案": "不論 PASS 或 FAIL，在這個 session 的第一則回覆先用白話向使用者報告：被擋次數／回合、擋下後重跑測試／回合、跟基線比少了多少、還在擋的是哪幾道。PASS 已自動結案；FAIL 照上面處理，處理完 python tools/followup-check.py --done closing-gates-trim-2026-10-20。"
+   },
+   "done": false,
+   "last_shown": "",
+   "result": "2026-10-20 INSUFFICIENT"
   }
  ]
 }

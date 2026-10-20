@@ -145,7 +145,90 @@ def check_injection_budget(item: dict) -> dict:
     return {"status": status, "turns": n, "min_turns": min_turns, "rows": rows}
 
 
-CHECKS = {"injection-budget": check_injection_budget}
+# ─── 檢查：closing-gates ────────────────────────────────────────────────────
+# 收尾被擋幾次、擋下後重跑幾次測試（讀 Claude Code 的對話紀錄 projects/<資料夾>/*.jsonl，只算根層專案的資料夾）
+
+PROJECTS_DIR = CLAUDE_DIR / "projects"
+ROOT_PROJECT_PREFIX = re.sub(r"[:\\/.]", "-", str(CLAUDE_DIR)).lower()   # C:\Users\x\.claude → c--users-x--claude
+_GATE_TAG = re.compile(r"\[(Guardian:[A-Za-z-]+|Workflow Guardian)\]")
+_TEST_CMD = re.compile(r"pytest|run_verify")
+_HARNESS_BLOCK = re.compile(r"<(system-reminder|task-notification|cross-session-message|ide_[a-z_]+)[^>]*>.*?</\1>", re.S)
+
+
+def _user_text(msg: dict) -> str:
+    """真的使用者訊息才回字：不是 tool_result、不是 Stop hook feedback、剝掉系統標籤後還有字。"""
+    c = msg.get("content")
+    if isinstance(c, list):
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c):
+            return ""
+        c = "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+    if not isinstance(c, str) or c.lstrip().startswith("Stop hook feedback"):
+        return ""
+    return _HARNESS_BLOCK.sub("", c).strip()
+
+
+def _closing_counts(since_utc: str) -> dict:
+    """since_utc 之後根層專案的使用者回合數、收尾擋下數（同時間同內容只算一次）、擋下後到下一回合之間跑的測試數、各閘擋下數。"""
+    turns = blocks = reruns = 0
+    gates: dict = {}
+    since_ts = datetime.fromisoformat(since_utc).timestamp()
+    for p in glob.glob(str(PROJECTS_DIR / "*" / "*.jsonl")):
+        if not Path(p).parent.name.lower().startswith(ROOT_PROJECT_PREFIX) or Path(p).stat().st_mtime < since_ts:
+            continue
+        seen: set = set()
+        after_block = False
+        for line in Path(p).read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            ts = str(d.get("timestamp") or "")[:19]
+            if not isinstance(d, dict) or d.get("isSidechain") or ts < since_utc:
+                continue
+            a = d.get("attachment")
+            if d.get("type") == "attachment" and isinstance(a, dict) and a.get("type") == "hook_blocking_error" \
+                    and a.get("hookEvent") == "Stop":
+                be = a.get("blockingError")
+                text = be.get("blockingError", "") if isinstance(be, dict) else str(be)
+                if (ts, text) in seen:
+                    continue
+                seen.add((ts, text))
+                blocks += 1
+                m = _GATE_TAG.search(text)
+                gate = m.group(1) if m else "(無標籤)"
+                gates[gate] = gates.get(gate, 0) + 1
+                after_block = True
+            elif d.get("type") == "user" and isinstance(d.get("message"), dict) and _user_text(d["message"]):
+                turns += 1
+                after_block = False
+            elif d.get("type") == "assistant" and after_block and isinstance(d.get("message"), dict):
+                for b in d["message"].get("content") or []:
+                    if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Bash", "PowerShell") \
+                            and _TEST_CMD.search(str((b.get("input") or {}).get("command", ""))):
+                        reruns += 1
+    return {"turns": turns, "blocks": blocks, "reruns": reruns, "gates": gates}
+
+
+def check_closing_gates(item: dict) -> dict:
+    c = item.get("criteria", {})
+    k = _closing_counts(str(c.get("since_utc") or f"{item['since']}T00:00:00"))
+    n, min_turns = k["turns"], int(c.get("min_turns", 30))
+    out = {"status": "INSUFFICIENT", "turns": n, "min_turns": min_turns, "rows": [],
+           "blocks": k["blocks"], "reruns": k["reruns"]}
+    if n < min_turns:
+        return out
+    rows = out["rows"]
+    for name, value, thr in (("收尾被擋次數／回合", k["blocks"] / n, float(c.get("blocks_per_turn_max", 0.4))),
+                             ("擋下後重跑測試次數／回合", k["reruns"] / n, float(c.get("reruns_per_turn_max", 0.5)))):
+        rows.append({"name": name, "value": f"{value:.2f}", "threshold": f"<= {thr:.2f}", "ok": value <= thr})
+    top = sorted(k["gates"].items(), key=lambda kv: -kv[1])[:4]
+    rows.append({"name": "還在擋的關卡（參考）", "value": "、".join(f"{g} {v}" for g, v in top) or "無",
+                 "threshold": "不判", "ok": True})
+    out["status"] = "PASS" if all(r["ok"] for r in rows) else "FAIL"
+    return out
+
+
+CHECKS = {"injection-budget": check_injection_budget, "closing-gates": check_closing_gates}
 
 
 # ─── 輸出 ──────────────────────────────────────────────────────────────────
@@ -157,7 +240,7 @@ def render(item: dict, res: dict, brief: bool = False, first_show: bool = False)
     head = f"[Guardian:Followup] ⏰ 回訪到期：{item.get('title', item['id'])}（登記 {item.get('since')} → 到期 {item.get('due')}）"
     L.append(head)
     if res["status"] == "INSUFFICIENT":
-        L.append(f"  樣本不足：since 起僅 {res['turns']} 個有注入回合（需 ≥{res['min_turns']}）——多用幾次 CC 後會自動再檢，無需動作。")
+        L.append(f"  樣本不足：since 起僅 {res['turns']} 個回合（需 ≥{res['min_turns']}）——多用幾次 CC 後會自動再檢，無需動作。")
         return "\n".join(L)
     if (first_show or not brief) and item.get("handoff"):
         L.append("  ── 交接（假設接手者對本題零記憶）──")
@@ -175,7 +258,8 @@ def render(item: dict, res: dict, brief: bool = False, first_show: bool = False)
     if res["status"] == "PASS":
         L.append(f"  結論：全過，{'已自動結案' if item.get('done') else '可結案：python tools/followup-check.py --done ' + item['id']}。")
     else:
-        L.append(f"  結論：未全過 → 本 session 先看 `python tools/memory-effect-report.py` 找原因；處理完 `python tools/followup-check.py --done {item['id']}`。")
+        why = item.get("on_fail") or "本 session 先看 `python tools/memory-effect-report.py` 找原因"
+        L.append(f"  結論：未全過 → {why}；處理完 `python tools/followup-check.py --done {item['id']}`。")
     return "\n".join(L)
 
 

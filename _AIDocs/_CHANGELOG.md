@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 收尾瘦身的效果改成到期自動重量：回訪檢查加 closing-gates
+- 使用者記不得「用一兩天後再貼 prompt 重量」。`tools/followup-check.py` 加檢查 `closing-gates`（根層專案對話紀錄裡 since 之後的使用者回合、收尾擋下、擋下後重跑測試；真資料約 3 秒），`workflow/followups.json` 登記 `closing-gates-trim-2026-10-20`（到期 10-22、≥30 回合才判、通過線為基線一半，零記憶交接要接手 session 第一則回覆向使用者白話報告）。登記項可帶 `on_fail`。案例 `tools/verify/verify_followup_check.py` 三支（舊碼全紅）。
+
 ## 2026-10-20 萃取 L1 改走 backend 預設模型：rdchat 可用時不再先等本機 10 秒逾時
 - trace log 實測：L1 寫死 `model="qwen3:1.7b"`，路由只送設定模型名相符的 backend → 跳過 rdchat 先打 local，CPU 冷載入 10008ms 逾時才退 rdchat。`hooks/user-extract-worker.py` `_call_l1` 改成不指定模型單次呼叫：rdchat gemma4:e4b 實測真樣板 0.4–0.5s、判斷正確；rdchat 掛了自動換 local 並換成 qwen3:1.7b。案例 `hooks/verify/verify_user_extract_l1_backend.py`（舊碼兩支皆紅）。
 
