@@ -3,9 +3,9 @@
 
 怎麼跑：set WG_CLAUDE_DIR=<worktree> && python -X utf8 -m pytest -q hooks/verify/verify_g7_equivalence.py
 案例分四段：
-  1. 意圖來源：同伴訊息裡的「重構」會把回合判成 refactor（所以等值那條只提醒不擋）；回合中途只有 UserPromptSubmit 會改 turn_intent。
+  1. 意圖來源：只看使用者本人打的字（同伴訊息裡的「重構」不算），回合中途只有 UserPromptSubmit 會改 turn_intent，所以等值那條可以擋。
   2. 規則純函式：三類收據、不適用宣告、熱路徑三種答法。
-  3. Stop 驅動：提醒走 additionalContext、熱路徑擋與擋滿問使用者、收據資格（自寫哨兵、改檔之前的不算）、留帳 guard-equivalence。
+  3. Stop 驅動：等值與熱路徑擋、擋滿問使用者、使用者放行、收據資格（自寫哨兵、改檔之前的不算）、留帳 guard-equivalence。
   4. 注入：refactor 的 head 含三類、熱路徑、間接層；perf 只有熱路徑；feature 都沒有。
 規則函式在案例裡才取（getattr），退回舊碼時每個案例各自紅，不會整檔匯入失敗。
 """
@@ -42,9 +42,9 @@ def _rule(name):
     return getattr(rr, name)
 
 
-def _r(seq, cmd, name="PRESERVE_CHECK", verdict="PASS", exit_code=0):
+def _r(seq, cmd, name="PRESERVE_CHECK", verdict="PASS", exit_code=0, kv=None, sentinels=None):
     return {"seq": seq, "turn_seq": 5, "tool": "Bash", "cmd": cmd, "cmd_full": True, "env": {},
-            "sentinels": [{"name": name, "verdict": verdict, "kv": {}}], "exit_code": exit_code,
+            "sentinels": sentinels or [{"name": name, "verdict": verdict, "kv": kv or {}}], "exit_code": exit_code,
             "cwd": r"c:\proj", "project_root": r"c:\proj"}
 
 
@@ -58,16 +58,17 @@ def _mf(path=_CODE, turn=5, last_seq=10):
 
 # ─── 1. 意圖來源 ─────────────────────────────────────────────────────────
 
-def test_intent_source_reads_peer_text_so_equivalence_only_reminds():
-    """(a) 不成立：UserPromptSubmit 拿只剔 IDE 區塊的文字判意圖，同伴信裡寫「重構」→ refactor；只看使用者打的字是 general。
-    這條紅了（意圖改成只認使用者原話）就該把 REFACTOR_NEEDS_EQUIVALENCE 升成擋、改這個案例。"""
+def test_intent_source_is_user_typed_text_so_equivalence_blocks():
+    """(a) 成立（派工 002 修）：UserPromptSubmit 只拿使用者本人打的字判意圖，同伴信裡寫「重構」不算；REFACTOR_NEEDS_EQUIVALENCE 因此擋。
+    經入口的先紅後綠案例在 verify_ups_overview_wiring.py（test_g7_*）；這裡守原始碼與規則說明同步。"""
     src = (HOOKS_DIR / "handlers" / "user_prompt_submit.py").read_text(encoding="utf-8")
-    assert "clean_prompt = strip_harness_blocks(prompt, only=IDE_TAG_NAMES).strip()" in src
-    assert "turn_intent = classify_intent(clean_prompt)" in src
+    assert "typed = user_typed_text(prompt)" in src and "classify_intent(typed)" in src
+    assert "classify_intent(clean_prompt)" not in src
     prompt = '<cross-session-message from="claude-12">派工：把 wg_x 的分派重構成查表</cross-session-message>'
-    assert classify_intent(strip_harness_blocks(prompt, only=IDE_TAG_NAMES).strip()) == "refactor"
+    assert classify_intent(strip_harness_blocks(prompt, only=IDE_TAG_NAMES).strip()) == "refactor"   # 舊判法會誤判的那一則
     assert classify_intent(user_typed_text(prompt)) == "general"
-    assert "只提醒不擋" in rr.RULES["REFACTOR_NEEDS_EQUIVALENCE"]
+    rule = rr.RULES["REFACTOR_NEEDS_EQUIVALENCE"]
+    assert "只提醒" not in rule and "擋滿問使用者" in rule and "user_typed_text" in rule
 
 
 def test_user_own_words_set_refactor_intent():
@@ -100,6 +101,19 @@ def test_failed_or_unmarked_receipt_proves_nothing():
     receipts = [(f"{_PC} --mutation order", ["PRESERVE_CHECK:FAIL"], 1), (f"{_PC} --mutation=side_effect", ["PRESERVE_CHECK:PASS"], 1),
                 (_PC, ["PRESERVE_CHECK:PASS"], 0), (f"{_PC} --mutation boundary", ["X_CHECK:PASS"], 0)]
     assert _rule("proved_mutations")(receipts) == []
+
+
+def test_repeated_mutation_args_prove_only_the_last():
+    """codex BLOCK 1：preserve-check.py 的 --mutation 是單值參數，一條指令重複指定只跑最後一個 → 一筆收據只算最後那一類。"""
+    cmd = f"{_PC} --mutation order --mutation side_effect --mutation boundary"
+    assert _rule("proved_mutations")([(cmd, ["PRESERVE_CHECK:PASS"], 0)]) == ["boundary"]
+
+
+def test_measure_needs_numbers():
+    has = _rule("has_measure")
+    assert has([("python bench.py", ["RENDER_BENCH:DONE"], 0, [{"ms": "12"}])])
+    assert not has([("python -m pytest", ["PYTEST:PASS", "PYTEST_MEASURE:DONE"], 0, [{}])])
+    assert not has([("python bench.py", ["RENDER_BENCH:DONE"], 1, [{"ms": "12"}])])
 
 
 def test_only_order_lists_missing_two():
@@ -159,6 +173,9 @@ def drive(monkeypatch, capsys):
     monkeypatch.setattr(st, "_record_pick", lambda *a, **k: None)
     monkeypatch.setattr(st.aec_ledger, "collect_at_completion", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
+    results: list = []                                                  # 閘每次的回傳值：反例直接斷言是 None，不只看輸出字樣
+    real_gate = st._equivalence_gate
+    monkeypatch.setattr(st, "_equivalence_gate", lambda *a, **k: results.append(real_gate(*a, **k)) or results[-1])
 
     def run(text, intent="refactor", mods=None, receipts=None, state=None, config=None):
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: text)
@@ -169,12 +186,14 @@ def drive(monkeypatch, capsys):
                      "verify_receipts": {_SID: list(receipts or [])}}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()
+        results.clear()
         capsys.readouterr()
         cfg = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, **(config or {})}
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": ""}, cfg)
         return capsys.readouterr().out, state, [p for g, p in logs if g == "equivalence"]
 
+    run.results = results
     return run
 
 
@@ -185,63 +204,65 @@ def _json(out):
         return {}
 
 
-def _ctx(out):
-    """Stop 的 additionalContext（提醒）；沒有回空字串。"""
-    return ((_json(out).get("hookSpecificOutput") or {}).get("additionalContext")) or ""
-
-
 def _blocked(out):
     o = _json(out)
     return o.get("reason", "") if o.get("decision") == "block" else ""
 
 
-def test_refactor_without_receipts_reminds_with_missing_three(drive):
+def test_refactor_without_receipts_blocks_with_missing_three(drive):
     out, _, logs = drive(f"{_HOT_NO}\n{_DONE_TEXT}")
-    note = _ctx(out)
-    assert "REFACTOR_NEEDS_EQUIVALENCE" in note and "order、side_effect、boundary" in note
-    assert "preserve-check.py --mutation order|side_effect|boundary" in note and "等值證法｜不適用｜<理由>" in note
-    assert not _blocked(out)
-    assert any(l["event"] == "reminder" for l in logs)
+    reason = _blocked(out)
+    assert "REFACTOR_NEEDS_EQUIVALENCE" in reason and "order、side_effect、boundary" in reason
+    assert "preserve-check.py --mutation order|side_effect|boundary" in reason and "等值證法｜不適用｜<理由>" in reason
+    assert any(l["event"] == "block" and "REFACTOR_NEEDS_EQUIVALENCE" in l["rules"] for l in logs)
 
 
-def test_reminder_once_per_user_turn(drive):
-    out, state, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}")
-    assert _ctx(out)
-    out2, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", state=state)
-    assert "[Guardian:Equivalence]" not in out2
+def test_equivalence_blocks_up_to_budget_then_asks_user_and_release_passes(drive):
+    text = f"{_HOT_NO}\n{_DONE_TEXT}"
+    out, state, _ = drive(text)
+    assert _blocked(out)
+    drive(text, state=state)
+    out3, _, logs = drive(text, state=state)
+    assert RELEASE_TAG in _blocked(out3) and "REFACTOR_NEEDS_EQUIVALENCE" in out3
+    assert any(l["event"] == "exhausted_block" for l in logs)
+    state["turn_prompts"] = ["放行"]                                      # 使用者在最後一次擋之後打「放行」
+    out4, _, logs = drive(text, state=state)
+    assert drive.results == [None] and any(l["event"] == "user_release" for l in logs)
+    drive(text, state=state)
+    assert drive.results == [None]                                      # 放行一次＝這一回合不再擋
 
 
 def test_three_pass_receipts_after_edit_pass(drive):
     out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=_three())
-    assert "[Guardian:Equivalence]" not in out
+    assert "[Guardian:Equivalence]" not in out and drive.results == [None]
 
 
-def test_only_order_receipt_reminds_missing_two(drive):
+def test_only_order_receipt_blocks_missing_two(drive):
     out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=_three()[:1])
-    assert "side_effect、boundary" in _ctx(out)
+    assert "side_effect、boundary" in _blocked(out) and "已證：order" in _blocked(out)
 
 
 def test_receipts_before_last_edit_do_not_count(drive):
     out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=_three(seq=1))
-    assert "order、side_effect、boundary" in _ctx(out)
+    assert "order、side_effect、boundary" in _blocked(out)
 
 
 def test_receipt_that_echoes_sentinel_does_not_count(drive):
     fake = [_r(20 + i, f"echo PRESERVE_CHECK PASS --mutation {m}") for i, m in enumerate(("order", "side_effect", "boundary"))]
     out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=fake)
-    assert "order、side_effect、boundary" in _ctx(out)
+    assert "order、side_effect、boundary" in _blocked(out)
 
 
 def test_not_applicable_with_reason_passes_and_logs(drive):
     out, _, logs = drive(f"等值證法｜不適用｜改的是測試錄製檔\n{_HOT_NO}\n{_DONE_TEXT}")
-    assert "[Guardian:Equivalence]" not in out
+    assert "[Guardian:Equivalence]" not in out and drive.results == [None]
     na = [l for l in logs if l["event"] == "not_applicable"]
     assert len(na) == 1 and "測試錄製檔" in na[0]["line"]
 
 
-def test_not_applicable_without_reason_reminds(drive):
+def test_not_applicable_without_reason_blocks(drive):
     out, _, _ = drive(f"等值證法｜不適用｜\n{_HOT_NO}\n{_DONE_TEXT}")
-    assert "沒附理由" in _ctx(out)
+    assert "沒附理由" in _blocked(out)
 
 
 def test_hot_path_yes_without_measure_blocks_then_done_receipt_passes(drive):
@@ -251,13 +272,21 @@ def test_hot_path_yes_without_measure_blocks_then_done_receipt_passes(drive):
     assert "PERF_HOT_PATH_NEEDS_MEASURE" in reason and "render 迴圈" in reason
     assert "熱路徑｜是｜<哪裡>" in reason and "量測｜不做｜<理由>" in reason and "熱路徑｜否｜<為什麼>" in reason
     assert any(l["event"] == "block" for l in logs)
-    out2, _, _ = drive(text, receipts=[_r(30, "python bench/render_bench.py", name="RENDER_BENCH", verdict="DONE")])
-    assert "[Guardian:Equivalence]" not in out2
+    out2, _, _ = drive(text, receipts=[_r(30, "python bench/render_bench.py", name="RENDER_BENCH", verdict="DONE", kv={"ms": "12"})])
+    assert "[Guardian:Equivalence]" not in out2 and drive.results == [None]
+
+
+def test_plain_pytest_summary_is_not_a_measure(drive):
+    """codex BLOCK 2：設定把 pytest 統計行轉成 PYTEST:PASS＋PYTEST_MEASURE:DONE（沒有 k=v）；跑一般測試不等於量了熱路徑，照擋。"""
+    pytest_rcpt = _r(30, "python -m pytest -q hooks/verify/verify_x.py", sentinels=[
+        {"name": "PYTEST", "verdict": "PASS", "kv": {}}, {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}])
+    out, _, _ = drive(f"熱路徑｜是｜render 迴圈\n{_DONE_TEXT}", intent="perf", receipts=[pytest_rcpt])
+    assert "PERF_HOT_PATH_NEEDS_MEASURE" in _blocked(out)
 
 
 def test_hot_path_no_with_reason_passes_and_logs(drive):
     out, _, logs = drive(f"{_HOT_NO}\n{_DONE_TEXT}", intent="perf")
-    assert "[Guardian:Equivalence]" not in out
+    assert "[Guardian:Equivalence]" not in out and drive.results == [None]
     assert any(l["event"] == "hot_path" for l in logs)
 
 
@@ -265,7 +294,7 @@ def test_hot_path_unanswered_blocks_once_per_turn(drive):
     out, state, _ = drive(_DONE_TEXT, intent="perf")
     assert "沒答" in _blocked(out) and "REFACTOR_NEEDS_EQUIVALENCE" not in out
     out2, _, logs = drive(_DONE_TEXT, state=state)
-    assert "[Guardian:Equivalence]" not in out2
+    assert "[Guardian:Equivalence]" not in out2 and drive.results == [None]
     assert any(l["event"] == "hot_unanswered_passed" for l in logs)
 
 
@@ -279,8 +308,8 @@ def test_hot_path_answered_blocks_up_to_budget_then_asks_user(drive):
     assert any(l["event"] == "exhausted_block" for l in logs)
 
 
-def test_refactor_block_carries_reminder(drive):
-    """熱路徑擋下時，等值提醒併在同一則擋訊息裡（不另佔一次續跑）。"""
+def test_refactor_blocks_both_rules_in_one_message(drive):
+    """等值與熱路徑都缺：一則擋訊息列兩條（不各佔一次 Stop）。"""
     reason = _blocked(drive(_DONE_TEXT)[0])
     assert "PERF_HOT_PATH_NEEDS_MEASURE" in reason and "REFACTOR_NEEDS_EQUIVALENCE" in reason
 
@@ -289,19 +318,19 @@ def test_refactor_block_carries_reminder(drive):
 def test_other_intents_not_gated(drive, intent):
     out, state, logs = drive(_DONE_TEXT, intent=intent)
     assert state["turn_intent"] == intent and state["modified_files"]                 # 前置：有改程式檔、有宣告完成，只差意圖
-    assert "[Guardian:Equivalence]" not in out and not logs
+    assert "[Guardian:Equivalence]" not in out and not logs and drive.results == [None]
 
 
 def test_no_code_change_or_no_completion_not_gated(drive):
     out, _, _ = drive(_DONE_TEXT, mods=[_mf(path=r"c:\proj\docs\x.md")])
-    assert "[Guardian:Equivalence]" not in out
+    assert "[Guardian:Equivalence]" not in out and drive.results == [None]
     out2, _, _ = drive("這段改到一半，接著看下一段。")
-    assert "[Guardian:Equivalence]" not in out2
+    assert "[Guardian:Equivalence]" not in out2 and drive.results == [None]
 
 
 def test_disabled_by_hub_config(drive):
     out, _, _ = drive(_DONE_TEXT, config={"overview_hub": {"equivalence": {"enabled": False}}})
-    assert "[Guardian:Equivalence]" not in out
+    assert "[Guardian:Equivalence]" not in out and drive.results == [None]
 
 
 # ─── 4. 注入 ─────────────────────────────────────────────────────────────

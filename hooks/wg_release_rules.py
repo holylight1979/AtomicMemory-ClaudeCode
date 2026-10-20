@@ -2116,10 +2116,11 @@ RULES.update({
     "REFACTOR_NEEDS_EQUIVALENCE": "意圖 refactor、本回合改過程式檔、宣告完成 → 最後一次改程式檔之後要有三筆 PRESERVE_CHECK PASS 收據"
                                   "（指令各帶 --mutation order／side_effect／boundary，沒紅、指令沒自己寫哨兵字樣），或收尾文字一行"
                                   "「等值證法｜不適用｜<理由>」（理由有文字內容、不是佔位；留帳 guard-equivalence.jsonl）。"
-                                  "意圖來源（state turn_intent）目前連同伴訊息一起判，同伴信裡寫「重構」也會判成 refactor："
-                                  "這條先只提醒不擋，等意圖只認使用者原話再升擋。",
+                                  "缺 → 照寫碼查核的預算擋，擋滿問使用者。意圖（state turn_intent）只由使用者本人打的字判"
+                                  "（user_typed_text；同伴訊息、背景通知沿用上一個意圖），AI 自己說「重構」不會把自己擋住。",
     "PERF_HOT_PATH_NEEDS_MEASURE": "意圖 refactor 或 perf、本回合改過程式檔、宣告完成 → 收尾文字要答「熱路徑｜是｜<哪裡>」或"
-                                   "「熱路徑｜否｜<為什麼>」。答是 → 最後一次改程式檔之後要有量測收據（`<NAME> DONE k=v` 哨兵）或"
+                                   "「熱路徑｜否｜<為什麼>」。答是 → 最後一次改程式檔之後要有量測收據（`<NAME> DONE k=v` 哨兵，要帶 k=v 數字；"
+                                   "pytest 統計行轉成的 PYTEST_MEASURE 沒有數字不算）或"
                                    "「量測｜不做｜<理由>」（留帳）；答否附理由 → 放行（留帳）。沒答 → 每個使用者回合擋一次；"
                                    "答了但缺收據或缺理由 → 照寫碼查核的預算擋，擋滿問使用者。是不是熱路徑、怎麼量由 AI 判。",
 })
@@ -2134,21 +2135,29 @@ _HOT_RE = re.compile(r"熱路徑\s*[｜|]\s*(是|否)\s*(?:[｜|]\s*(.*))?$")
 _MEASURE_SKIP_RE = re.compile(r"量測\s*[｜|]\s*不做\s*(?:[｜|]\s*(.*))?$")
 
 
-def proved_mutations(receipts: Iterable[Tuple[str, Sequence[str], Any]]) -> List[str]:
-    """(指令, 哨兵「名稱:結論」, exit) → 證到的類別（照三類順序）：有 PRESERVE_CHECK:PASS、沒紅、指令帶 --mutation <類>。
+def proved_mutations(receipts: Iterable[Tuple[Any, ...]]) -> List[str]:
+    """(指令, 哨兵「名稱:結論」, exit[, …]) → 證到的類別（照三類順序）：有 PRESERVE_CHECK:PASS、沒紅、指令帶 --mutation <類>。
+    一筆收據只算一類：取指令裡最後一個 --mutation（preserve-check.py 的 argparse 單值參數，重複指定只跑最後一個；
+    三次串成一條指令的，哨兵同一行只記一次，也只算最後一類，三類要分三次跑）。
     收據資格（指令完整、沒自己寫哨兵字樣、在最後一次改檔之後）由呼叫端先篩。"""
     got = set()
-    for cmd, verdicts, exit_code in receipts:
+    for cmd, verdicts, exit_code, *_ in receipts:
         if f"{EQUIVALENCE_SENTINEL}:PASS" not in {str(v).upper() for v in verdicts or ()} or receipt_red(verdicts, exit_code):
             continue
-        got.update(_MUTATION_ARG_RE.findall(str(cmd or "")))
+        found = _MUTATION_ARG_RE.findall(str(cmd or ""))
+        if found:
+            got.add(found[-1])
     return [m for m in EQUIVALENCE_MUTATIONS if m in got]
 
 
-def has_measure(receipts: Iterable[Tuple[str, Sequence[str], Any]]) -> bool:
-    """有一筆量測收據：任一哨兵是 DONE、沒紅。"""
-    return any(any(str(v).upper().endswith(":DONE") for v in verdicts or ()) and not receipt_red(verdicts, exit_code)
-               for _cmd, verdicts, exit_code in receipts)
+def has_measure(receipts: Iterable[Tuple[Any, ...]]) -> bool:
+    """(指令, 哨兵「名稱:結論」, exit, 這筆收據各 DONE 哨兵的 k=v 清單) → 有一筆沒紅、而且至少一個 DONE 帶 k=v（`<NAME> DONE k=v`
+    的量測數字）。只有 DONE 沒有數字的不算：設定把 pytest 統計行轉成的 PYTEST_MEASURE:DONE 沒有 k=v，跑一般測試不等於量了熱路徑。"""
+    for _cmd, verdicts, exit_code, *rest in receipts:
+        kvs = rest[0] if rest else ()
+        if not receipt_red(verdicts, exit_code) and any(kv for kv in kvs or ()):
+            return True
+    return False
 
 
 def parse_equivalence_lines(text: str) -> Dict[str, List[Dict[str, str]]]:

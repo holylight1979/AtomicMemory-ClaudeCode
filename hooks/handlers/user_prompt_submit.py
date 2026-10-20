@@ -27,7 +27,7 @@ from wg_core import (
     output_json, output_nothing,
     _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
 )
-from harness_text import IDE_TAG_NAMES, strip_harness_blocks  # lib/（wg_core 已把它放進 sys.path）
+from harness_text import IDE_TAG_NAMES, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
     classify_intent,
     compute_token_budget,
@@ -144,8 +144,11 @@ def handle_user_prompt_submit(
         budget_total, lines,
     )
 
-    # 意圖前移（A0.1）：注入前就知道這回合要做什麼，OverviewHub 依 goal_weights 選片；十鍵見 wg_atoms.INTENT_PATTERNS
-    turn_intent = classify_intent(clean_prompt)
+    # 意圖前移（A0.1）：注入前就知道這回合要做什麼，OverviewHub 依 goal_weights 選片；十鍵見 wg_atoms.INTENT_PATTERNS。
+    # 意圖是「使用者要做什麼」的權威判斷，只吃使用者本人打的字（user_typed_text：剔掉同伴訊息、背景通知等 harness 區塊）；
+    # 整則沒有使用者的字 → 沿用上一則判的意圖（同伴信、通知正文裡的「重構」不改意圖；G7 等值閘據此擋）
+    typed = user_typed_text(prompt)
+    turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
 
     # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。

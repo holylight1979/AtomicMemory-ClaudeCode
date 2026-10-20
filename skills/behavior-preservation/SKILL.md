@@ -43,7 +43,7 @@ python scripts/preserve-check.py --expected-from <舊源碼或 .json> --actual-f
 
 重構意圖、本回合改過程式檔、宣告完成時，收尾核對兩件（規則 `REFACTOR_NEEDS_EQUIVALENCE`、`PERF_HOT_PATH_NEEDS_MEASURE`，在 `hooks/wg_release_rules.py`）：
 
-- 等值：最後一次改程式檔之後跑三次本腳本（`--mutation order`／`side_effect`／`boundary` 各一次，尾行都 `PRESERVE_CHECK PASS`）；或收尾文字寫一行 `等值證法｜不適用｜<理由>`（例：重構的不是查表／分派、沒有舊產物可枚舉、改的是測試），理由會留帳 `Logs/guard-equivalence.jsonl`。目前只提醒不擋（意圖判定還會吃到同伴訊息）。
+- 等值：最後一次改程式檔之後跑三次本腳本（`--mutation order`／`side_effect`／`boundary` 各一次，尾行都 `PRESERVE_CHECK PASS`）；或收尾文字寫一行 `等值證法｜不適用｜<理由>`（例：重構的不是查表／分派、沒有舊產物可枚舉、改的是測試），理由會留帳 `Logs/guard-equivalence.jsonl`。缺了會擋，擋滿問使用者；「是不是重構」只看使用者本人打的字。
 - 熱路徑：收尾文字答 `熱路徑｜是｜<哪裡>`＋量測收據（自建量法，尾行 `<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`。是不是熱路徑、怎麼量由你判，程式只核對答了沒、收據在不在。
 
 ## 不做的事
