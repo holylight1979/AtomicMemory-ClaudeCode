@@ -2106,3 +2106,105 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
         hit = next((d for d in cited if names_item(hay, d["item"])), None)
         (waived.append((f, hit)) if hit else kept.append(f))
     return kept, waived
+
+
+# ─── G7 等值與熱路徑 ───
+# 重構意圖收尾要有等值證法三類收據（或附理由的不適用宣告），熱路徑答「是」要有量測收據。事實（意圖、改檔、收據、收尾文字）
+# 由 handlers/stop.py 的 Equivalence Gate 收，這裡只判；判斷（適不適用、是不是熱路徑、量法）交 AI 宣告並附理由，程式只核對有沒有答、
+# 收據在不在。
+RULES.update({
+    "REFACTOR_NEEDS_EQUIVALENCE": "意圖 refactor、本回合改過程式檔、宣告完成 → 最後一次改程式檔之後要有三筆 PRESERVE_CHECK PASS 收據"
+                                  "（指令各帶 --mutation order／side_effect／boundary，沒紅、指令沒自己寫哨兵字樣），或收尾文字一行"
+                                  "「等值證法｜不適用｜<理由>」（理由有文字內容、不是佔位；留帳 guard-equivalence.jsonl）。"
+                                  "意圖來源（state turn_intent）目前連同伴訊息一起判，同伴信裡寫「重構」也會判成 refactor："
+                                  "這條先只提醒不擋，等意圖只認使用者原話再升擋。",
+    "PERF_HOT_PATH_NEEDS_MEASURE": "意圖 refactor 或 perf、本回合改過程式檔、宣告完成 → 收尾文字要答「熱路徑｜是｜<哪裡>」或"
+                                   "「熱路徑｜否｜<為什麼>」。答是 → 最後一次改程式檔之後要有量測收據（`<NAME> DONE k=v` 哨兵）或"
+                                   "「量測｜不做｜<理由>」（留帳）；答否附理由 → 放行（留帳）。沒答 → 每個使用者回合擋一次；"
+                                   "答了但缺收據或缺理由 → 照寫碼查核的預算擋，擋滿問使用者。是不是熱路徑、怎麼量由 AI 判。",
+})
+
+EQUIVALENCE_MUTATIONS = ("order", "side_effect", "boundary")
+EQUIVALENCE_SENTINEL = "PRESERVE_CHECK"
+EQUIVALENCE_ENTRY = "跑三類 `preserve-check.py --mutation order|side_effect|boundary`（尾行 PRESERVE_CHECK PASS），或宣告 `等值證法｜不適用｜<理由>`"
+HOT_PATH_ENTRY = "答 `熱路徑｜是｜<哪裡>`＋量測收據（`<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`"
+_MUTATION_ARG_RE = re.compile(r"--mutation(?:\s+|=)[\"']?(order|side_effect|boundary)\b")
+_EQ_NA_RE = re.compile(r"等值證法\s*[｜|]\s*不適用\s*(?:[｜|]\s*(.*))?$")
+_HOT_RE = re.compile(r"熱路徑\s*[｜|]\s*(是|否)\s*(?:[｜|]\s*(.*))?$")
+_MEASURE_SKIP_RE = re.compile(r"量測\s*[｜|]\s*不做\s*(?:[｜|]\s*(.*))?$")
+
+
+def proved_mutations(receipts: Iterable[Tuple[str, Sequence[str], Any]]) -> List[str]:
+    """(指令, 哨兵「名稱:結論」, exit) → 證到的類別（照三類順序）：有 PRESERVE_CHECK:PASS、沒紅、指令帶 --mutation <類>。
+    收據資格（指令完整、沒自己寫哨兵字樣、在最後一次改檔之後）由呼叫端先篩。"""
+    got = set()
+    for cmd, verdicts, exit_code in receipts:
+        if f"{EQUIVALENCE_SENTINEL}:PASS" not in {str(v).upper() for v in verdicts or ()} or receipt_red(verdicts, exit_code):
+            continue
+        got.update(_MUTATION_ARG_RE.findall(str(cmd or "")))
+    return [m for m in EQUIVALENCE_MUTATIONS if m in got]
+
+
+def has_measure(receipts: Iterable[Tuple[str, Sequence[str], Any]]) -> bool:
+    """有一筆量測收據：任一哨兵是 DONE、沒紅。"""
+    return any(any(str(v).upper().endswith(":DONE") for v in verdicts or ()) and not receipt_red(verdicts, exit_code)
+               for _cmd, verdicts, exit_code in receipts)
+
+
+def parse_equivalence_lines(text: str) -> Dict[str, List[Dict[str, str]]]:
+    """收尾文字裡的三種入口行 → {"na": [{reason, line}], "hot": [{answer, why, line}], "skip": [{reason, line}]}，一行一條。
+    行首的 markdown 記號（`、*、-、>）與行尾的 `、* 先剝掉（行尾的 > 留著：它可能是角括號佔位的一半）。
+    熱路徑行後面還留著擋訊息的角括號佔位（照抄入口寫法）不算回答。"""
+    out: Dict[str, List[Dict[str, str]]] = {"na": [], "hot": [], "skip": []}
+    for raw in str(text or "").splitlines():
+        ln = raw.strip().lstrip("`*->").strip().rstrip("`*").strip()
+        m = _EQ_NA_RE.search(ln)
+        if m:
+            out["na"].append({"reason": (m.group(1) or "").strip().strip("`"), "line": ln[:200]})
+            continue
+        m = _HOT_RE.search(ln)
+        if m and not _EXAMPLE_PLACEHOLDER_RE.search(m.group(2) or ""):
+            out["hot"].append({"answer": m.group(1), "why": (m.group(2) or "").strip().strip("`"), "line": ln[:200]})
+            continue
+        m = _MEASURE_SKIP_RE.search(ln)
+        if m:
+            out["skip"].append({"reason": (m.group(1) or "").strip().strip("`"), "line": ln[:200]})
+    return out
+
+
+def equivalence_verdict(proved: Sequence[str], na: Sequence[Dict[str, str]]) -> Verdict:
+    """REFACTOR_NEEDS_EQUIVALENCE：owed＝三類沒證齊、也沒有附理由的不適用宣告。"""
+    ok = next((d for d in na if reason_present(d.get("reason", ""))), None)
+    if ok:
+        return Verdict("REFACTOR_NEEDS_EQUIVALENCE", False, f"AI 宣告等值證法不適用：{ok['reason'][:120]}", (ok["line"],))
+    missing = [m for m in EQUIVALENCE_MUTATIONS if m not in proved]
+    if not missing:
+        return Verdict("REFACTOR_NEEDS_EQUIVALENCE", False, "三類 PRESERVE_CHECK PASS 都在")
+    why = (f"宣告了「等值證法｜不適用」但沒附理由（或只有佔位），三類缺 {'、'.join(missing)}" if na
+           else f"重構宣告完成，等值證法三類缺 {'、'.join(missing)}")
+    have = f"已證：{'、'.join(proved)}" if proved else "已證：無"
+    return Verdict("REFACTOR_NEEDS_EQUIVALENCE", True, why, (have, *(d["line"] for d in na[:2]), f"入口：{EQUIVALENCE_ENTRY}"))
+
+
+def hot_path_verdict(hot: Sequence[Dict[str, str]], skip: Sequence[Dict[str, str]], measured: bool) -> Verdict:
+    """PERF_HOT_PATH_NEEDS_MEASURE：owed＝沒答、答是但沒量測收據也沒附理由的不做、答否沒附理由。有一行答是就照是判（嚴的那邊）。"""
+    entry = f"入口：{HOT_PATH_ENTRY}"
+    yes = [h for h in hot if h["answer"] == "是"]
+    if yes:
+        where = yes[0]["why"][:80] or "（沒寫哪裡）"
+        if measured:
+            return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", False, f"熱路徑是（{where}），量測收據在", (yes[0]["line"],))
+        ok = next((d for d in skip if reason_present(d.get("reason", ""))), None)
+        if ok:
+            return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", False, f"熱路徑是（{where}），AI 宣告不量：{ok['reason'][:120]}",
+                           (yes[0]["line"], ok["line"]))
+        why = (f"答了熱路徑是（{where}），「量測｜不做」沒附理由" if skip
+               else f"答了熱路徑是（{where}），最後一次改檔之後沒有量測收據（DONE 哨兵）")
+        return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, why, (yes[0]["line"], *(d["line"] for d in skip[:1]), entry))
+    no = [h for h in hot if h["answer"] == "否"]
+    ok = next((h for h in no if reason_present(h["why"])), None)
+    if ok:
+        return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", False, f"AI 答熱路徑否：{ok['why'][:120]}", (ok["line"],))
+    if no:
+        return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, "答了熱路徑否但沒附為什麼（或只有佔位）", (no[0]["line"], entry))
+    return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, "沒答「這次改動碰到熱路徑或大量配置嗎」", (entry,))

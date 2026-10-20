@@ -1820,3 +1820,17 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── G7 等值與熱路徑 ───
+
+def test_g7_equivalence_and_hot_path_rules():
+    """REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE：完整案例（Stop 驅動、注入、意圖來源）在 verify_g7_equivalence.py；
+    這裡守規則名與最小判式。"""
+    eq = rr.equivalence_verdict(["order"], [])
+    assert eq.rule == "REFACTOR_NEEDS_EQUIVALENCE" and eq.owed and "side_effect、boundary" in eq.why
+    assert not rr.equivalence_verdict(["order", "side_effect", "boundary"], []).owed
+    hot = rr.parse_equivalence_lines("熱路徑｜是｜render 迴圈")
+    v = rr.hot_path_verdict(hot["hot"], hot["skip"], False)
+    assert v.rule == "PERF_HOT_PATH_NEEDS_MEASURE" and v.owed
+    assert not rr.hot_path_verdict(hot["hot"], hot["skip"], True).owed

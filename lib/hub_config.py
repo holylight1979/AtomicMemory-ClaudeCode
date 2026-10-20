@@ -21,7 +21,7 @@ HUB_REL = Path(".claude") / "overview-hub.json"
 
 # 十個 intent 鍵固定（介面凍結，與 wg_atoms.INTENT_PATTERNS＋general 對拍；verify_intent_goal_weights 驗）
 INTENT_KEYS = ("debug", "feature", "refactor", "perf", "new_project", "build", "design", "recall", "handoff", "general")
-_GOAL_WEIGHT_KEYS = ("slices", "lens", "ask_first")
+_GOAL_WEIGHT_KEYS = ("slices", "lens", "ask_first", "extra")
 _EVIDENCE_KEYS = ("card", "part_files", "depends_files")
 _NEED_GOAL_KEYS = ("enabled", "scope_growth_dirs", "render_chars")
 
@@ -57,13 +57,19 @@ HUB_DEFAULTS: Dict[str, Any] = {
     # 權威地圖（A3.5）：{"<檔名樣式（fnmatch，對檔名或相對專案根路徑）>": "<地圖路徑（相對專案根或絕對）>"}；
     # 讀到文件／計畫檔命中樣式且非空 → 一 session 注入一次該地圖
     "authority_map": {},
-    # 目的加權（預計畫第二節）：意圖 → 先送哪幾片、用哪個視角、先問哪題；空 slices＝整卡原序
+    # 目的加權（預計畫第二節）：意圖 → 先送哪幾片、用哪個視角、先問哪題；空 slices＝整卡原序；extra＝接在視角／先問之後的一段話
     "goal_weights": {
         "debug": {"slices": ["defects", "verify", "authority"], "lens": "目標視角", "ask_first": "幾份存法、有無訊號"},
         "new_project": {"slices": ["authority", "what", "ask"], "lens": "目標視角", "ask_first": "資料到底存哪"},
         "feature": {"slices": ["what", "authority", "verify"], "lens": "理解視角", "ask_first": "上游誰餵下游誰吃"},
-        "refactor": {"slices": ["what", "verify", "defects"], "lens": "數彎視角", "ask_first": "這條路拐幾個彎"},
-        "perf": {"slices": ["verify", "defects", "what"], "lens": "目標視角", "ask_first": "量尺在哪門檻多少"},
+        "refactor": {"slices": ["what", "verify", "defects"], "lens": "數彎視角", "ask_first": "這條路拐幾個彎",
+                     "extra": "等值證法三類各要證（順序／副作用／邊界）：預期值來自舊碼或舊產物、實際值來自新產物、兩邊來源必不同；"
+                              "跑 `skills/behavior-preservation/scripts/preserve-check.py`，尾行 `PRESERVE_CHECK PASS`。"
+                              "另答一題：這次改動碰到熱路徑或大量配置嗎？是→自建量法、量；否→一句為什麼。"
+                              "再看一眼：這次要動的這塊，有沒有只是抄舊架構長出來、每一層沒有真正作用的間接層"
+                              "（繼承一層沒加東西、包裝只轉手）？有就在重構裡一併收掉並在等值證法裡證。"},
+        "perf": {"slices": ["verify", "defects", "what"], "lens": "目標視角", "ask_first": "量尺在哪門檻多少",
+                 "extra": "答一題：這次改動碰到熱路徑或大量配置嗎？是→自建量法、量；否→一句為什麼。"},
         "build": {"slices": ["authority", "verify"], "lens": "目標視角", "ask_first": ""},
         "design": {"slices": ["authority", "what"], "lens": "理解視角", "ask_first": ""},
         "recall": {"slices": [], "lens": "", "ask_first": ""},
@@ -75,6 +81,8 @@ HUB_DEFAULTS: Dict[str, Any] = {
     # 需求目標流程（hooks/wg_need_goal）：enabled 整個流程的開關；scope_growth_dirs 讀入範圍變大的頂層目錄門檻；
     # render_chars 精簡版目標樹的字數上限
     "need_goal": {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200},
+    # 等值與熱路徑收尾閘（hooks/handlers/stop.py Equivalence Gate）：enabled 整道閘的開關
+    "equivalence": {"enabled": True},
 }
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
 RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
@@ -181,7 +189,7 @@ def validate_goal_weights(gw: Any) -> List[str]:
         else:
             errors.extend(f"goal_weights.{intent}.slices 有未知的片「{s}」（可用：{'／'.join(SLICE_NAMES)}）"
                           for s in slices if s not in SLICE_NAMES)
-        for k in ("lens", "ask_first"):
+        for k in ("lens", "ask_first", "extra"):
             if not isinstance(spec.get(k, ""), str):
                 errors.append(f"goal_weights.{intent}.{k} 必須是字串")
     return errors
@@ -228,6 +236,16 @@ def validate_need_goal(ng: Any) -> List[str]:
     return errors
 
 
+def validate_equivalence(eq: Any) -> List[str]:
+    """equivalence：只有 enabled 一鍵，是 true／false。"""
+    if not isinstance(eq, dict):
+        return ["equivalence 必須是物件"]
+    errors = [f"equivalence 有未知鍵「{k}」" for k in sorted(eq) if k != "enabled" and not k.startswith("_")]
+    if not isinstance(eq.get("enabled"), bool):
+        errors.append("equivalence.enabled 必須是 true／false")
+    return errors
+
+
 def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str], List[str]]:
     """合併後設定 → (錯誤清單, 出現的退役鍵)。未知鍵報錯；退役鍵不報錯只回報；底線開頭的鍵（_doc、_errors）不檢查。"""
     errors: List[str] = []
@@ -269,6 +287,7 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
     errors.extend(validate_evidence(c.get("min_overview_evidence")))
     errors.extend(validate_smells(c))
     errors.extend(validate_need_goal(c.get("need_goal")))
+    errors.extend(validate_equivalence(c.get("equivalence")))
     return errors, retired
 
 

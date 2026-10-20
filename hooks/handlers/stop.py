@@ -1206,6 +1206,103 @@ def _evasion_exempt_verdict(state: Dict[str, Any], session_id: str, ev: Dict[str
                                           max_ratio, k_landed or handoff_landed, prompts, current)
 
 
+# ─── 等值與熱路徑（G7）：重構／效能意圖的收尾核對（規則 REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE） ───
+EQ_GATE = "Equivalence"
+
+
+def _equivalence_on(config: Dict[str, Any], cwd: str) -> bool:
+    """OverviewHub 四層合併後的 equivalence.enabled（專案層覆蓋檔也算）；讀設定失敗照開著判並浮一行。"""
+    try:
+        from wg_overview import _cfg as _hub_cfg, _project_root_of
+        sec = _hub_cfg(config or {}, _project_root_of(cwd) if cwd else None).get("equivalence")
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:{EQ_GATE}] 讀 equivalence 設定失敗，照開著判：{type(e).__name__}: {e}", file=sys.stderr)
+        return True
+    return not (isinstance(sec, dict) and sec.get("enabled") is False)
+
+
+def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, Any], input_data: Dict[str, Any],
+                      code_text: str, own_mod_files: List[Dict[str, Any]], turn_seq: int, since: int,
+                      tpath: Optional[str], cwd: str) -> Tuple[Optional[str], Optional[str]]:
+    """事實收集＋預算＋留帳，判定在 wg_release_rules。回 (擋訊息, 提醒)；兩個都 None＝不關事或放行。改了 state（預算、擋的位置、
+    已留帳的行），由呼叫端 write_state。
+    事實：意圖（state turn_intent）、本回合改過的程式檔、它們最後一次修改之後的收據（指令完整、記了環境、指令沒自己寫哨兵字樣）、
+    收尾文字的入口行。等值那條只提醒（規則說明寫了為什麼）；熱路徑沒答每個使用者回合擋一次，答了缺東西照寫碼查核預算擋、擋滿問使用者。"""
+    import wg_verify_ledger as _vl
+    from wg_overview import _intent_of
+    from wg_release_rules import (equivalence_verdict, format_hit, has_measure, hot_path_verdict, parse_equivalence_lines,
+                                  proved_mutations)
+    intent = _intent_of(state)
+    if intent not in ("refactor", "perf") or not claims_completion(code_text):
+        return None, None
+    exts = reconcile_cfg(config).get("code_exts") or []
+    code_mods = [m for m in own_mod_files
+                 if in_turn((m or {}).get("last_turn_seq", (m or {}).get("turn_seq")), turn_seq, since)
+                 and _vl.is_code_file(str((m or {}).get("path") or ""), exts)]
+    if not code_mods or not _equivalence_on(config, cwd):
+        return None, None
+    last_seq = max(int(m.get("last_seq") or 0) for m in code_mods)
+    receipts = [(str(r.get("cmd") or ""), [f"{s.get('name')}:{s.get('verdict')}" for s in r.get("sentinels") or [] if isinstance(s, dict)],
+                 r.get("exit_code"))
+                for r in receipts_of(state, session_id)
+                if int(r.get("seq") or 0) > last_seq and _vl._usable(r)
+                and not _vl._prints_sentinel(str(r.get("cmd") or ""), _vl._shell_of(r))]
+    lines = parse_equivalence_lines(code_text)
+    eq = equivalence_verdict(proved_mutations(receipts), lines["na"]) if intent == "refactor" else None
+    hot = hot_path_verdict(lines["hot"], lines["skip"], has_measure(receipts))
+
+    sec = state.setdefault("equivalence_gate", {})
+    rec = sec.get(session_id) if isinstance(sec.get(session_id), dict) and sec[session_id].get("turn") == since else {"turn": since}
+    sec[session_id] = rec
+    logged = rec.setdefault("logged", [])
+
+    def _log(event: str, line: str = "", **kw: Any) -> None:
+        if line and f"{event}|{line}" in logged:
+            return
+        if line:
+            logged.append(f"{event}|{line}")
+        append_guard_log("equivalence", {"event": event, "session_id": session_id, "turn_seq": turn_seq, "intent": intent,
+                                         **({"line": line[:200]} if line else {}), **kw})
+
+    if eq is not None and not eq.owed and lines["na"]:
+        _log("not_applicable", eq.evidence[0] if eq.evidence else "", why=eq.why[:200])
+    if not hot.owed:
+        _log("hot_path", hot.evidence[0] if hot.evidence else "", why=hot.why[:200])
+
+    note = None
+    if eq is not None and eq.owed and rec.get("noted") != since:
+        rec["noted"] = since
+        note = (f"[Guardian:{EQ_GATE}] 提醒（只提醒不擋：意圖由這回合的訊息關鍵字判，同伴訊息也算，可能判錯）：\n{format_hit('eq', eq)}")
+        _log("reminder", why=eq.why[:200])
+
+    block = None
+    answered = bool(lines["hot"] or lines["skip"])
+    if hot.owed and not released_this_turn(state, session_id, "equivalence", since):
+        how = user_released(state, session_id, "equivalence", tpath) if answered else None
+        budget = rec.get("budget")
+        hit = format_hit("hot" if answered else "hot0", hot)
+        if how:
+            record_release(state, session_id, "equivalence", since)
+            _log("user_release", via=how, why=hot.why[:200])
+        elif not answered and budget_exhausted(budget, since, 1, ["hot0"]):
+            _log("hot_unanswered_passed", why="沒答熱路徑，本回合已擋過一次，放行")
+        elif answered and budget_exhausted(budget, since, int(reconcile_cfg(config).get("max_blocks_per_turn", 2)), ["hot"]):
+            why = non_interactive_reason(input_data, tpath)
+            head = (non_interactive_message(EQ_GATE, None, exhausted_summary(hit), why) if why
+                    else exhausted_message(EQ_GATE, None, exhausted_summary(hit)))
+            block = f"{head}\n原擋訊息：\n{hit}" + ("" if why else f"\n{ASK_HINT}")
+            _log("exhausted_block", why=hot.why[:200])
+        else:
+            rec["budget"] = budget_tick(budget, since, ["hot" if answered else "hot0"])
+            block = f"[Guardian:{EQ_GATE}] 收尾核對沒過：\n{hit}"
+            _log("block", why=hot.why[:200])
+        if block:
+            mark_block(state, session_id, "equivalence", tpath, turn_seq)
+    if block and note:
+        return f"{block}\n{note}", None
+    return block, note
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1568,6 +1665,26 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "excerpt": (ev.get("context_excerpt", "") or "")[:120],
             })
             write_state(session_id, state)
+
+    # ── Equivalence Gate（G7）──
+    # 重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問的收尾核對（_equivalence_gate；規則在 wg_release_rules）。
+    # 等值只提醒：提醒走 additionalContext（對話續跑一回合、不算擋），每個使用者回合一次；熱路徑擋走自己的預算（不吃 stop_gate_max_blocks）。
+    # 判不出（hook 內部錯）→ 不擋，浮 stderr 並留帳。
+    try:
+        _eq_block, _eq_note = _equivalence_gate(state, session_id, config, input_data, code_text, own_mod_files,
+                                                turn_seq, _since, _tpath, cwd)
+    except Exception as e:  # noqa: BLE001
+        _eq_block, _eq_note = None, None
+        print(f"[Guardian:{EQ_GATE}] 收尾核對出錯，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
+        append_guard_log("equivalence", {"event": "error", "session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
+    if _eq_block:
+        write_state(session_id, state)
+        output_block(_piggyback(_eq_block))
+        return
+    if _eq_note:
+        write_state(session_id, state)
+        output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _eq_note}})
+        return
 
     # ── Deferral Gate（退縮歸屬）────────────────────────────────
     # 主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ deferral_gate.

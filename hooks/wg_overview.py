@@ -473,7 +473,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
-                                    knowledge=kind == _oh.KIND_KNOWLEDGE)
+                                    knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""))
     if miss:
         text += "".join(f"\n表上的卡在 {p}，不在預設目錄；請更新表或搬卡" for p in miss["found"])
         if miss["missing"]:

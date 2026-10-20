@@ -569,11 +569,11 @@ def _card_body_for(parsed: Dict[str, Any], used: List[str], cp: Path) -> str:
 def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
                        locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
                        slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "",
-                       knowledge: bool = False) -> Tuple[str, List[str]]:
+                       knowledge: bool = False, extra: str = "") -> Tuple[str, List[str]]:
     """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
 
     slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
-    lens／ask_first：視角與先問的那一題，加在 head。max_chars 只截**每張卡的正文**（選片後或整卡），
+    lens／ask_first：視角與先問的那一題，加在 head；extra：意圖帶的一段話（goal_weights.<意圖>.extra），接在它們之後。max_chars 只截**每張卡的正文**（選片後或整卡），
     head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
     knowledge：知識類部位（part_kind）：head 不要求定位三行，卡照注。
     """
@@ -593,7 +593,7 @@ def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: st
             f"定位｜前例：{t[2]}"
             + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
         )
-    head += (f"\n視角：{lens}" if lens else "") + (f"\n先問：{ask_first}" if ask_first else "")
+    head += (f"\n視角：{lens}" if lens else "") + (f"\n先問：{ask_first}" if ask_first else "") + (f"\n{extra}" if extra else "")
     if not card_paths:
         why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
         return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----", []
