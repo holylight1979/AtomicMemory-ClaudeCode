@@ -7986,6 +7986,52 @@
         "不動工作樹"
       ],
       "scope": "global"
+    },
+    {
+      "name": "fail-open閘裡的留帳寫入例外不能冒出主流程-mkdir與寫檔都收進try並印stderr-否則閘沒輸出上游當放行直接落檔",
+      "path": "memory/設計通則/fail-open閘裡的留帳寫入例外不能冒出主流程-mkdir與寫檔都收進try並印stderr-否則閘沒輸出上游當放行直接落檔.md",
+      "triggers": [
+        "fail-open",
+        "留帳失敗",
+        "audit log 寫不進去",
+        "mkdir 例外",
+        "閘沒輸出",
+        "write-gate unavailable",
+        "輔助寫入",
+        "except OSError pass",
+        "靜默吞錯"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn",
+      "path": "memory/OS-Windows/windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn.md",
+      "triggers": [
+        "process.chdir",
+        "fs.rmSync",
+        "殘目錄",
+        "暫存夾刪不掉",
+        "EBUSY",
+        "node 測試 收尾",
+        "空 catch",
+        "%TEMP% 殘留"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex",
+      "path": "_AIDocs/_atoms/MemDev/在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex.md",
+      "triggers": [
+        "smoke_mcp_stdio",
+        "WG_CLAUDE_DIR 暫存",
+        "mcp-boot 寫進 live",
+        "js 測試落檔",
+        "require atom-tools",
+        "sendToolResult",
+        "syncMemoryIndex",
+        "MCP js 測試 隔離"
+      ],
+      "scope": "global"
     }
   ]
 }
