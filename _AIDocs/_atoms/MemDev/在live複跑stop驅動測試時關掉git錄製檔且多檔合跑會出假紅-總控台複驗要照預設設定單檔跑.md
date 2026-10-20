@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: WG_GIT_CASSETTE, 假紅, 總控台複驗, verify_stop_reconcile, 收件驗收, live 跑測試, 15 failed, 錄製檔關掉, 多檔合跑
 - Created-at: 2026-10-20
+- Quote: 「你說的是 "G2需要判斷的條件可能不夠用" 這樣的意思嗎?? 是的話，請該session開agent上網蒐、提給你做核可呀。」
 
 ## 知識
 

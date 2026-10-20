@@ -457,3 +457,4 @@
 | 檔名集中定義的取捨-對人好的做法對llm只收名字集中一層-位置拼裝與全面字面守衛是llm讀碼負擔 | memory/設計通則/檔名集中定義的取捨-對人好的做法對llm只收名字集中一層-位置拼裝與全面字面守衛是llm讀碼負擔.md | 檔名集中, 常數集中, 單一來源, single source, memory_names, 拼路徑, join_rel, 字面守衛, 寫字面就紅, 對人 vs 對 LLM, LLM 讀碼成本, 路徑常數, 名稱總表, hover, 跳定義 | global |  |
 | 宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳 | memory/CC與原子記憶契約/宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳.md | 宣稱行, 不做行, 不是退避, CLAIM_WORDS_ARE_HINTS, NOT_DOING_DECLARED, USER_WAIVER_NEEDS_CITATION, 說明句誤擋, 非本回合宣稱, 對應哪張收據, 退避例外入口, 先這樣 跳過 豁免, claim_disclaimed, testfail_waived, G6 階段 4, 判斷入口盤點 P6, P7 | global |  |
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | _AIDocs/_atoms/MemDev/在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑.md | WG_GIT_CASSETTE, 假紅, 總控台複驗, verify_stop_reconcile, 收件驗收, live 跑測試, 15 failed, 錄製檔關掉, 多檔合跑 | global |  |
+| 靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法 | memory/驗證與實證/靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法.md | 病形規則, lint 規則, 靜態分析, 誤擋, 校準, 大括號近似, Allman | global |  |
