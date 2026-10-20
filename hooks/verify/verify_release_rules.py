@@ -1808,6 +1808,8 @@ def test_p7_waived_failures_only_cited_and_matching():
 def test_p7_reason_and_quote_need_text_not_length():
     """codex WARN／BLOCK：理由看有沒有文字內容不看字數（「風險高」算、「....」不算）；引用純標點不算、英文整詞比對。"""
     assert rr.reason_present("風險高") and rr.reason_present("不需要") and not rr.reason_present("....") and not rr.reason_present("<理由>")
+    assert not rr.reason_present("<理由：風險／為什麼超出>") and not rr.reason_present("  <為什麼>  ")
+    assert not rr.reason_present("留到下個 session，<理由>"), "半抄範本、留著理由佔位不算"
     assert not rr.quote_in_prompts("!!", ["請修好!!"]) and not rr.quote_in_prompts("ok", ["broken"])
     assert rr.quote_in_prompts("ok", ["ok, skip it"]) and rr.quote_in_prompts("skip it", ["ok,  skip   it"])
     assert rr.quote_in_prompts("先這樣", ["好，先 這樣吧"])
@@ -1842,8 +1844,20 @@ def test_t216_user_data_file_needs_declaration():
     zh = "C:\\p\\設定.json"
     assert not rr.prompt_names_file(["請修改「備份設定.json」", "請修改備份設定.json"], zh), "更長的中文檔名不算點名"
     assert rr.prompt_names_file(["請修改「設定.json」", "改 設定.json 的值"], zh)
-    assert rr.decl_reason_ok("修正 <幣別> 標籤") and rr.decl_reason_ok("通貨を直す") and rr.decl_reason_ok("x")
-    assert not any(rr.decl_reason_ok(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
+    assert rr.reason_present("修正 <幣別> 標籤") and rr.reason_present("通貨を直す") and rr.reason_present("x")
+    assert not any(rr.reason_present(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
+
+
+def test_reason_quoting_a_tag_is_still_a_reason_on_claim_and_not_doing_lines():
+    """CLAIM_DISCLAIM_NEEDS_REASON／NOT_DOING_DECLARED：理由裡引用 <中文> 標籤（XML、範本名）是有理由；整段是角括號佔位才不算。"""
+    disp = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 修好的是同伴改的 <幣別> 標籤，不是我")
+    assert not rr.claim_disposition_verdict("fixed", disp, lambda ref: None).owed
+    disp = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 <理由>")
+    assert rr.claim_disposition_verdict("fixed", disp, lambda ref: None).owed
+    line = "不做｜改 <幣別> 欄位：要使用者拍板幣別預設值"
+    assert not rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
+    line = "不做｜幣別欄位：<理由：風險／為什麼超出>"
+    assert rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
 # ─── T2.18 origin 核對 ───
 def test_origin_user_needs_quote():
     """ORIGIN_USER_NEEDS_QUOTE：完整案例在 verify_origin_user_check.py；這裡守判式——字面子串對得到才算、同伴說的不算。"""
