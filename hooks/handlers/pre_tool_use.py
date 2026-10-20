@@ -26,6 +26,7 @@ from wg_core import (
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
+import wg_data_file  # T2.16 動使用者資料檔要先宣告
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -1588,6 +1589,19 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         or check_cross_realm_bash(tool_name, tool_input, _cwd, config)
         or check_cross_realm_mcp_cmd(tool_name, tool_input, _cwd, config)
     )
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # ── DataFileAsk（T2.16 動使用者資料檔要先宣告）──
+    # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
+    deny_reason = wg_data_file.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

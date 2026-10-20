@@ -1822,6 +1822,28 @@ def test_evasion_context_exempt_boundary():
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
 
 
+# ─── T2.16 動資料檔 ───
+
+def test_t216_user_data_file_needs_declaration():
+    """USER_DATA_FILE_NEEDS_DECLARATION：四件事實全成立又沒宣告才擋；宣告路徑檔名完整比對；原話點名要整個檔名。完整案例在 verify_data_file_ask.py。"""
+    t = "C:\\w1\\qb-report\\config\\settings.json"
+    facts = {"code": False, "ext": ".json", "ext_listed": True, "existed": True, "created": False, "named": None, "prompts": 1}
+    assert rr.data_file_verdict(t, "config/settings.json", facts, []).owed
+    assert not rr.data_file_verdict(t, "config/settings.json", {**facts, "created": True}, []).owed
+    decl = rr.parse_data_file_decls("動資料檔｜`config/settings.json`：修多逗號，幣別會變 TWD")
+    assert not rr.data_file_verdict(t, "config/settings.json", facts, decl).owed
+    for p in ("settings.json", "config/settings.json", "C:\\w1\\qb-report\\config\\settings.json", "./config/settings.json"):
+        assert rr.decl_names_file(p, t), p
+    for p in ("ettings.json", "other.json", "x/settings.json", ""):
+        assert not rr.decl_names_file(p, t), p
+    assert rr.parse_data_file_decls("動資料檔｜C:\\a\\b.json：理由")[0][:2] == ("C:\\a\\b.json", "理由")
+    assert rr.prompt_names_file(["把settings.json的逗號修掉"], t) and rr.prompt_names_file(["改 Config/Settings.JSON"], t)
+    assert not rr.prompt_names_file(["改 settings.json.bak", "看 mysettings.json", "設定檔"], t)
+    zh = "C:\\p\\設定.json"
+    assert not rr.prompt_names_file(["請修改「備份設定.json」", "請修改備份設定.json"], zh), "更長的中文檔名不算點名"
+    assert rr.prompt_names_file(["請修改「設定.json」", "改 設定.json 的值"], zh)
+    assert rr.decl_reason_ok("修正 <幣別> 標籤") and rr.decl_reason_ok("通貨を直す") and rr.decl_reason_ok("x")
+    assert not any(rr.decl_reason_ok(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
 # ─── T2.18 origin 核對 ───
 def test_origin_user_needs_quote():
     """ORIGIN_USER_NEEDS_QUOTE：完整案例在 verify_origin_user_check.py；這裡守判式——字面子串對得到才算、同伴說的不算。"""
