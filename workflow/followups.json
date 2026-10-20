@@ -92,7 +92,7 @@
      "改碼前的定位檢查（OverviewHub）曾因記錯對話紀錄位置而死鎖，根因未明，見推進文件第七節",
      "改程式前要先有目標樹、提問要掛節點、改碼前定位五行這幾道手續不擋收尾、這次沒動，使用者還沒決定"
     ],
-    "結案": "不論 PASS 或 FAIL，在這個 session 的第一則回覆先用白話向使用者報告：被擋次數／回合、擋下後重跑測試／回合、跟基線比少了多少、還在擋的是哪幾道。PASS 已自動結案；FAIL 照上面處理，處理完 python tools/followup-check.py --done closing-gates-trim-2026-10-20。"
+    "結案": "不論 PASS 或 FAIL，在這個 session 的第一則回覆先用白話向使用者報告：被擋次數／回合、擋下後重跑測試／回合、跟基線比少了多少、還在擋的是哪幾道。PASS 已自動結案；FAIL 照上面處理，處理完 python tools/followup-check.py --done closing-gates-trim-2026-10-20。結案後同一個 session 收拾：刪掉 memory/_staging/收尾少空轉-量測腳本/ 整個資料夾；推進文件 memory/_staging/next-phase-收尾少空轉.md 第七節還沒解的事（定位閘死鎖、未拍板的手續）先轉成追蹤項（收尾檢核 k 欄一行一項），重量結果補一條到 _AIDocs/_CHANGELOG.md，然後刪掉推進文件；收完向使用者一句話說刪了哪些。這筆登記本身留著當紀錄（done 的項目不會再跑）。"
    },
    "done": false,
    "last_shown": "",
