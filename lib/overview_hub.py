@@ -289,6 +289,40 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
     return rows
 
 
+def unread_rows(text: str) -> List[str]:
+    """表格裡看起來是資料列、卻因路徑前綴沒用反引號包（或沒有 / 的根目錄單檔）被 parse_map 整列略過的列。
+    判法：表頭之後、不是分隔線、第一格有字（不是「無」）、整列沒有一個 parse_map 認得的路徑 token。"""
+    out: List[str] = []
+    seen_header = False
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if not cells or all(set(c) <= set("-: ") for c in cells):
+            continue
+        if any(_is_path_token(t) for c in cells for t in _BACKTICK_RE.findall(c)):
+            seen_header = True
+            continue
+        if not seen_header:
+            seen_header = True      # 第一個沒路徑的表列＝表頭
+            continue
+        if cells[0] and cells[0] != "無":
+            out.append(line.strip())
+    return out
+
+
+def unread_rows_note(map_path: Path) -> Optional[str]:
+    """部位表有被整列略過的資料列 → 一句提醒（病形閘與綜觀閘共用）；沒有或讀不到檔回 None。"""
+    try:
+        rows = unread_rows(Path(map_path).read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+    if not rows:
+        return None
+    return (f"部位表 {map_path} 有 {len(rows)} 列的路徑前綴沒用反引號包（或是沒有 / 的根目錄單檔），整列沒被讀到，"
+            f"那幾個部位的病灶清單、導讀卡、類別都不生效：{rows[0][:80]}；前綴寫成 `notify/` 這樣才認得")
+
+
 def layer_number(row: Optional[Dict[str, Any]]) -> Optional[int]:
     """「層」欄恰好一個「第 N 層」→ N（閱讀路徑層次軸的層號）；沒有（例：單層）或不只一個 → None（沒宣告）。"""
     found = LAYER_AXIS_RE.findall((row or {}).get("layer") or "")

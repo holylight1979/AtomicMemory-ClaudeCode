@@ -5,15 +5,17 @@
 哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關）、讀過部位檔 ≥N、交了定位三行
 （三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、派工信箱）只要第一項。
 readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
-沒有部位表的專案（或表上沒列的檔）改前只要求本 session 讀過同頂層目錄 ≥N 個檔。設定四層深合併（_cfg）、
+沒有部位表的專案（或表上沒列的檔）改前要求本 session 讀過同頂層目錄 ≥N 個檔；往上找不到任何部位表的專案，第一次改
+某頂層目錄的程式檔前另要最小地圖三行（地圖｜讀了／上游／下游），擋訊息附掃表預覽。設定四層深合併（_cfg）、
 設定錯誤時 Edit 一律擋。每個事件各落一行 jsonl 到 workflow/_overview-hub.log 當量測資料。
 
 state["overview_hub"] = {
-  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "intent", "slices", "card_paths",
+  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "transcript_offsets": {檔: byte}, "intent", "slices", "card_paths",
                      "reads_after": [...], "part_files_read": [...], "depends_files_read": [...],
                      "located": bool, "located_via", "located_quality", "edits": n, "locate_template"},
-  "<root>|(unmapped)<top_dir>": {"part_files_read": [...], "edits": n}
+  "<root>|(unmapped)<top_dir>": {"part_files_read": [...], "edits": n, "min_map_done": bool, "min_map_via"}
 }
+state["min_map"] = {"<root>": {"preview", "preview_ok", "preview_ms", "offset"}}   # 掃表預覽快取、上次交地圖放行時的 transcript 位置
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    org_memory_root, resolve_project_root,
+    assistant_texts_since, org_memory_root, resolve_project_root, transcript_sizes,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -43,7 +45,7 @@ import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LAYER_AXIS_RE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
     build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
-    split_card_sections, top_dir, transcript_readable, transcript_size,
+    split_card_sections, top_dir, transcript_readable, transcript_size, unread_rows_note,
 )
 
 import wg_release_rules as _rr  # noqa: E402  放行／欠帳判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、RUNTIME_DATA_NO_OVERVIEW、TEMP_COPY_NOT_PROJECT）
@@ -411,6 +413,12 @@ def _goal_line_problem(tree: Dict[str, Any], value: Optional[str]) -> str:
             f"{CRITIQUE_LINE_HINT}），節點從目前的樹選：\n{_ng.render(tree, 'compact')}")
 
 
+def _texts_after(rec: Dict[str, Any], transcript_path: str, agent_id: str, channel: str) -> str:
+    """這個部位起點（注入或目標改的那刻）之後、主檔與子代理檔裡 AI 寫的內容（wg_core.assistant_texts_since）。"""
+    return assistant_texts_since(transcript_path, agent_id, channel, rec.get("transcript_offsets"),
+                                 int(rec.get("transcript_offset", 0)))
+
+
 def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, config: Dict[str, Any],
                  parts: Dict[str, Dict[str, Any]]) -> List[str]:
     """收尾對照（規則 EDITED_PART_NEEDS_GOAL_NODE）前蒐集事實：沒掛目標的部位（parts＝{部位 key: {"files": […]}}），
@@ -432,8 +440,7 @@ def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_pa
         template = rec.get("locate_template") or _locate_template(_cfg(config or {}, root))
         longer = _longer_parts(root, row)
         for ch in LOCATE_CHANNELS:
-            vals = locate_values(assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch),
-                                 row["part_short"], template, longer)
+            vals = locate_values(_texts_after(rec, transcript_path, "", ch), row["part_short"], template, longer)
             if not vals or _layer_mismatch(row, vals):
                 continue
             node, problem = _goal_line_check(tree, vals)
@@ -449,6 +456,7 @@ def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_pa
 def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> int:
     """目標改了（開新樹、改寫樹根、增減節點、改節點文字）：已交過定位的部位全部要重交，只認這之後交的那一組。回清了幾個部位。"""
     size = transcript_size(transcript_path)
+    sizes = transcript_sizes(transcript_path)
     n = 0
     for rec in (state.get("overview_hub") or {}).values():
         if not isinstance(rec, dict) or "located" not in rec:
@@ -457,6 +465,7 @@ def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> i
         rec.pop("goal_node", None)
         rec.pop("goal_tree", None)
         rec["transcript_offset"] = size
+        rec["transcript_offsets"] = dict(sizes)
         rec["goal_reset_turn"] = int(turn)
         n += 1
     return n
@@ -490,6 +499,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "injected_turn": int(state.get("turn_seq", 0)),
         "injected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "transcript_offset": transcript_size(transcript_path),
+        "transcript_offsets": transcript_sizes(transcript_path),
         "intent": intent,
         "slices": used,
         "card_paths": [str(cp) for cp in card_paths],
@@ -1118,10 +1128,100 @@ def _readable_existing(root: Path, top: str, need: int) -> int:
     return need if count < need and len(files) >= _READABLE_SCAN_CAP else min(count, need)
 
 
-def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str,
-                   cfg: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], bool]:
+# ─── G14 最小地圖（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP；判定在 wg_release_rules，這裡收事實與組擋訊息） ───
+MIN_MAP_ENTRY = (
+    "  地圖｜讀了：<檔清單，相對專案根，用「、」分隔，至少 1 個本 session 讀過的檔>",
+    "  地圖｜上游：<誰餵這一塊（檔或模組）／無，因為…>",
+    "  地圖｜下游：<誰吃這一塊／無，因為…>",
+    "放在回覆文字或下一個 Bash 開頭 `#` 註解（要比這次改檔早一則訊息送出；角括號換成你的判斷；可和定位行同一則訊息交）。",
+)
+# 掃表預覽跑在子程序（逾時砍得掉）：lib/overview_scaffold.preview_lines，參數＝程式碼根、專案根、overview_scaffold 段、refix_churn 段
+_PREVIEW_CODE = ("import json, sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
+                 "from lib import overview_scaffold as sc; "
+                 "print(chr(10).join(sc.preview_lines(Path(sys.argv[2]), json.loads(sys.argv[3]), json.loads(sys.argv[4]))))")
+_PREVIEW_MAX_LINES = 15
+
+
+def _min_map_due(rec: Optional[Dict[str, Any]], file_path: str, cfg: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP 的適用範圍：開關開著、同鍵還沒交過地圖、往上找不到任何部位表（有表專案的表外檔
+    與根層不查）、這次寫入算改程式（wg_need_goal.writes_code，與需求目標閘同一判式）。"""
+    if not cfg["min_map"]["enabled"] or (rec or {}).get("min_map_done") or find_map(file_path):
+        return False
+    import wg_need_goal as _ng
+    return _ng.writes_code(file_path, config)
+
+
+def _session_reads(state: Dict[str, Any]) -> set:
+    """本 session 讀過的檔（canon_path）：所有部位紀錄的 part_files_read 與 reads_after（on_read 記的，與讀檔證據同源）。"""
+    out: set = set()
+    for rec in (state.get("overview_hub") or {}).values():
+        if not isinstance(rec, dict):
+            continue
+        for p in list(rec.get("part_files_read") or []) + list(rec.get("reads_after") or []):
+            out.add(_rr.canon_path(p))
+    return out
+
+
+def _min_map_check(state: Dict[str, Any], root: Path, transcript_path: str) -> Tuple[_rr.Verdict, Optional[str]]:
+    """三管道（LOCATE_CHANNELS，與定位三行同一套）各取最後一組地圖三行，任一管道那組通過就算交；回 (判定, 通過的管道)。
+    同根已有頂層目錄交過地圖 → 只認那次放行之後的 transcript（state["min_map"][<根>]["offset"]）。"""
+    offset = int(((state.get("min_map") or {}).get(_root_key(root)) or {}).get("offset", 0))
+    ok, why = transcript_readable(transcript_path)
+    problem = "" if ok else f"transcript 讀不到（{why}：{transcript_path or '欄位為空'}），閘驗不了地圖三行"
+    read = _session_reads(state)
+    first_bad: Optional[_rr.Verdict] = None
+    for ch in LOCATE_CHANNELS:
+        group = _rr.min_map_group(assistant_text_after(transcript_path, offset, ch))
+        if group is None:
+            continue
+        v = _rr.min_map_verdict(group, str(root), read)
+        if not v.owed:
+            return v, ch
+        first_bad = first_bad or v
+    return first_bad or _rr.min_map_verdict(None, str(root), read, problem), None
+
+
+def _min_map_preview(state: Dict[str, Any], root: Path, config: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[str, bool]:
+    """擋訊息附的掃表預覽（子程序跑 preview_lines，上限 min_map.preview_timeout_s 秒）；每個專案根只跑一次，結果（含失敗）
+    快取在 state["min_map"][<根>]，同根之後的擋訊息直接用。失敗或逾時 → 「掃表預覽失敗：<原因>」（照擋、stderr 說一聲）。
+    回 (文字, 這次有沒有跑)。"""
+    slot = state.setdefault("min_map", {}).setdefault(_root_key(root), {})
+    if "preview" in slot:
+        return slot["preview"], False
+    timeout = float(cfg["min_map"]["preview_timeout_s"])
+    args = [sys.executable, "-X", "utf8", "-c", _PREVIEW_CODE, str(Path(__file__).resolve().parents[1]), str(root),
+            json.dumps(config.get("overview_scaffold") or {}), json.dumps(config.get("refix_churn") or {})]
+    t0 = time.monotonic()
+    out, fail = "", None
+    try:
+        r = subprocess.run(args, capture_output=True, timeout=timeout, creationflags=_NO_WINDOW)
+        out = r.stdout.decode("utf-8", errors="replace").strip()
+        if r.returncode != 0 or not out:
+            last = (r.stderr.decode("utf-8", errors="replace").strip().splitlines() or ["沒有輸出"])[-1]
+            fail = f"exit {r.returncode}：{last[:200]}"
+    except subprocess.TimeoutExpired:
+        fail = f"逾時（超過 {timeout:g} 秒）"
+    except OSError as e:
+        fail = f"{type(e).__name__}: {e}"
+    text = f"掃表預覽失敗：{fail}" if fail else "\n".join(out.splitlines()[:_PREVIEW_MAX_LINES])
+    slot.update({"preview": text, "preview_ok": fail is None, "preview_ms": int((time.monotonic() - t0) * 1000)})
+    if fail:
+        sys.stderr.write(f"[Guardian:OverviewHub] {text}（{root}；同根不再重跑）\n")
+    return text, True
+
+
+def _min_map_lines(top: str, v: _rr.Verdict, preview: str) -> List[str]:
+    return [f"最小地圖：這是本 session 第一次改「{top}」的程式檔，先寫出跟這次需求相關的最小地圖（讀了哪些檔、上游誰餵、"
+            f"下游誰吃；地圖有缺塊隨時補讀）。程式只核對三行在不在、列的檔讀過沒，內容由你判斷。",
+            _rr.format_hit("o", v), preview, "入口（照這個格式交三行）：", *MIN_MAP_ENTRY]
+
+
+def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str, cfg: Dict[str, Any],
+                   config: Optional[Dict[str, Any]] = None, transcript_path: str = "") -> Tuple[Optional[str], Optional[str], bool]:
     """沒有部位表的專案、或表上沒列的檔：要求本 session 讀過同頂層目錄的檔，數量照規則 UNMAPPED_EDIT_NEEDS_READABLE_FILES
-    （設定的 N 與該目錄可讀既有檔數取小）。執行期資料（gitignored、workflow/state*、Logs、快取目錄…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。"""
+    （設定的 N 與該目錄可讀既有檔數取小）。執行期資料（gitignored、workflow/state*、Logs、快取目錄…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。
+    往上找不到任何部位表的專案，第一次改某頂層目錄的程式檔前另要最小地圖三行（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP），
+    擋訊息附掃表預覽；兩條都欠就同一則訊息列。"""
     key = _unmapped_key(root, file_path)
     top = top_dir(file_path, root)
     v = _rr.runtime_data_verdict(file_path, str(root), _gitignored(root, file_path))
@@ -1133,22 +1233,43 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     have = len(rec["part_files_read"]) if rec else 0
     readable = _readable_existing(root, top, need) if have < need else need    # 讀夠了就不必數
     v = _rr.unmapped_edit_verdict(need, readable, have)
-    if v.owed:
-        msg = (f"[Guardian:OverviewHub] 改 {file_path} 前：這個專案（{root}）沒有部位表列到這個檔，"
-               f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。\n" + _rr.format_hit("o", v))
-        _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
-             need=need, readable=readable, rule=v.rule, deny_reason="part_files", layer=cfg.get("_layer"))
-        return (msg, msg, False)
+    unread = unread_rows_note(root / MAP_REL)       # 表在、卻有資料列因寫法整列沒讀到：說出來，不靜默當成沒列
+    mm, via = _min_map_check(state, root, transcript_path) if _min_map_due(rec, file_path, cfg, config or {}) else (None, None)
+    mm_owed = mm is not None and mm.owed
+    preview, ran = _min_map_preview(state, root, config or {}, cfg) if mm_owed else ("", False)
+    log_kw = dict(path=file_path, root=str(root), top=top, part_files_read=have, need=need, readable=readable,
+                  layer=cfg.get("_layer"), min_map=None if mm is None else mm.owed, min_map_via=via, preview_ran=ran)
+    if v.owed or mm_owed:
+        if v.owed:
+            lines = [f"[Guardian:OverviewHub] 改 {file_path} 前：這個專案（{root}）沒有部位表列到這個檔，"
+                     f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。", _rr.format_hit("o", v)]
+        else:
+            lines = [f"[Guardian:OverviewHub] 改 {file_path} 前：這個專案（{root}）沒有部位表。"]
+        if unread:
+            lines.append(f"注意：{unread}")
+        msg = "\n".join(lines + (_min_map_lines(top, mm, preview) if mm_owed else []))
+        _log("edit_unmapped", session_id, rule=v.rule if v.owed else mm.rule,
+             deny_reason="part_files" if v.owed else "min_map", **log_kw)
+        return (msg, msg, ran)
     rec = state.setdefault("overview_hub", {}).setdefault(key, {"part_files_read": [], "edits": 0})
     rec["edits"] = int(rec.get("edits", 0)) + 1
-    _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
-         need=need, readable=readable, rule=v.rule, edits=rec["edits"], deny_reason=None, layer=cfg.get("_layer"))
-    return (None, None, True)
+    warn: Optional[str] = None
+    if mm is not None:
+        rec["min_map_done"], rec["min_map_via"] = True, via
+        state.setdefault("min_map", {}).setdefault(_root_key(root), {})["offset"] = transcript_size(transcript_path)
+        if via == "thinking":
+            warn = ("[Guardian:OverviewHub] 最小地圖三行只在 thinking 裡，模型下回合與人都看不到；這次放行，"
+                    "請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
+    if unread:
+        warn = (warn + "\n" if warn else "") + f"[Guardian:OverviewHub] 注意：{unread}"
+    _log("edit_unmapped", session_id, rule=v.rule, edits=rec["edits"], deny_reason=None, **log_kw)
+    return (warn, None, True)
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
-            config: Dict[str, Any], cwd: str = "") -> Tuple[Optional[str], Optional[str], bool]:
+            config: Dict[str, Any], cwd: str = "", agent_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
     """PreToolUse（Write／Edit／NotebookEdit／Bash／PowerShell 的每個寫入目標）：回 (警告文字, deny 理由, state 有沒有變)。
+    agent_id＝子代理的工具呼叫：定位三行連子代理自己的 transcript 一起找（wg_core.transcripts_of）。
 
     deny 理由帶整張卡（模型只看得到 permissionDecisionReason）。三項證據缺一即 deny；transcript 讀不到 deny；
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
@@ -1206,7 +1327,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
              deny_reason="readonly", layer=cfg.get("_layer"))
         return (msg, msg, False)
     if row is None:
-        return _unmapped_edit(state, session_id, root, file_path, cfg)
+        return _unmapped_edit(state, session_id, root, file_path, cfg, config, transcript_path)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
     knowledge = _oh.path_kind(file_path, root) == _oh.KIND_KNOWLEDGE
@@ -1280,7 +1401,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         found_ch, bad_layer, bad_goal, bad_content, text, node = None, None, None, None, "", None
         longer = _longer_parts(root, row)
         for ch in LOCATE_CHANNELS:
-            text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch)
+            text = _texts_after(rec, transcript_path, agent_id, ch)
             vals = locate_values(text, row["part_short"], rec.get("locate_template"), longer)
             if not vals:
                 continue

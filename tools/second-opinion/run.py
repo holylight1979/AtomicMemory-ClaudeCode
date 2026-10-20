@@ -13,7 +13,7 @@ job 目錄 `<~/.claude>/workflow/second-opinion/<yyyymmdd-HHMMSS>-<sid8>-<kind>/
 status.json 的 status：started（prepare 過閘，等 execute）→ running → done | failed | blocked。
 封存答案關鍵字（sealed）寫在 `<job_root>/_sealed/<job_id>.txt`，不放 job 目錄裡（codex 的工作目錄）。
 
-閘的立場：replay-guard pre 非 PASS → blocked、不 spawn；探針逾時／沙箱失敗 → failed、不退 claude；
+閘的立場：有需求目標樹而 question 沒含樹根那句 → blocked；replay-guard pre 非 PASS → blocked、不 spawn；探針逾時／沙箱失敗 → failed、不退 claude；
 post FAIL → failed；回覆缺任一段 → failed。沒有預覽模式、沒有延期補做。
 """
 from __future__ import annotations
@@ -275,6 +275,10 @@ def prepare(req: Dict[str, Any], so_cfg: Dict[str, Any], job_root: Path) -> Dict
         reason = "manifest 含沙箱外絕對路徑：" + "、".join(outside[:3])
         write_status(job_dir, "failed", job_id=job_id, hash=manifest["hash"], reason=reason, notes=notes)
         return {"job_id": job_id, "hash": manifest["hash"], "status": "failed", "reason": reason, "notes": notes, "job_dir": str(job_dir)}
+    unrooted = pack.question_root_missing(str(req["question"]), items)   # 有目標樹時 question 要含樹根那句，Codex 才答同一題
+    if unrooted:
+        write_status(job_dir, "blocked", job_id=job_id, hash=manifest["hash"], reason=unrooted, notes=notes)
+        return {"job_id": job_id, "hash": manifest["hash"], "status": "blocked", "reason": unrooted, "notes": notes, "job_dir": str(job_dir)}
 
     sealed_words = [s.strip() for s in (req.get("sealed") or []) if s.strip()]
     sealed_path: Optional[Path] = None

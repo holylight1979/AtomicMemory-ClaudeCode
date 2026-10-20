@@ -50,10 +50,19 @@ LABEL = {
     "ekind": {"receipt": "收據", "case": "驗證案例", "file": "檔案", "atom": "卡片"},
 }
 
+ROOT_LABEL = "AI 的解讀"
+
 DEFAULTS: Dict[str, Any] = {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200}
 # 擋下訊息共用的指路句（改檔閘、commit 閘、提問閘）：MCP 是視窗層級共用的 node 程序，改了要 Reload 才載到新工具，
 # 叫不到 need_goal 的人照「先用 need_goal」走不下去
 NO_TOOL_HINT = "本 session 若叫不到 need_goal 工具（MCP 是舊的），先 Reload Window 或開新 session 再做。"
+
+# G11 思考的彎：reconcile 的 turns（這次拐了幾個彎）缺就提醒一句、不擋；≥ TURNS_RETHINK（超過三個）要有「重找最短路：<結果>」才收
+# （原話：第二個彎提高注意、第三個警戒極限、第四個幾乎可以確定臭掉；繼續推進只會越跑越偏）。程式只核對有沒有寫，不評結果。
+TURNS_RETHINK = 4
+_RETHINK_RE = re.compile(r"重找最短路\s*[：:]\s*\S")
+TURNS_HINT = ("這次拐了幾個彎沒填（reconcile 的 turns）：下次附上；第二個彎起提高注意，≥4 要在 note 寫「重找最短路：<結果>」"
+              "（只提醒、不擋）")
 
 NODE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])T\d+(?:\.\d+)*")
 NODE_ID_FULL_RE = re.compile(r"^T\d+(?:\.\d+)*$")
@@ -70,6 +79,7 @@ HANDOFF_NAME_RE = re.compile(r"[\\/]_staging[\\/]next-phase[^\\/]*\.md$", re.IGN
 USER_FIRST_CAP = 4000
 USER_CAP = 1000
 SAID_MAX = 20
+SAID_ALL_MAX = 200           # origin 核對用的原話（said_all）最多幾則；超過丟第二則起最舊的
 PEER_CAP = 1000
 SAID_LOG_MAX = 5
 EDITS_MAX = 300
@@ -386,6 +396,16 @@ def _add_said(tree: Dict[str, Any], entry: Dict[str, Any]) -> None:
     said.append({**entry, "text": str(entry.get("text", ""))[:cap]})
     if len(said) > SAID_MAX:
         del said[1:len(said) - SAID_MAX + 1]
+    # 核對 origin=user 用的原話另存一份（顯示用的 user_said 會丟中間、截長，早期或很長的原話就引不到）；不進續接單
+    full = tree.setdefault("said_all", [])
+    full.append({**entry, "text": str(entry.get("text", ""))[:USER_FIRST_CAP]})
+    if len(full) > SAID_ALL_MAX:
+        del full[1:len(full) - SAID_ALL_MAX + 1]
+
+
+def _said_for_check(tree: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """origin 核對的原話來源：本 session 完整的 said_all，加上 user_said（匯入的前一個 session 原話、沒有 said_all 的舊樹）。"""
+    return [*(tree.get("said_all") or []), *(tree.get("user_said") or [])]
 
 
 def _new_tree(doc: Dict[str, Any], goal: str, turn: int, why: str) -> Dict[str, Any]:
@@ -494,7 +514,9 @@ def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> 
 def _node_line(nid: str, node: Dict[str, Any], full: bool, doc: Optional[Dict[str, Any]] = None) -> str:
     st = LABEL["status"].get(node.get("status"), "?")
     if full:
-        tag = f"{st}｜{LABEL['clarity'].get(node.get('clarity'), '?')}｜{LABEL['origin'].get(node.get('origin'), '?')}"
+        # 樹根依契約是 AI 對原話的解讀，origin 欄位不動、顯示一律「AI 的解讀」（規則 ORIGIN_USER_NEEDS_QUOTE 樹根版）
+        origin = ROOT_LABEL if node.get("parent") is None else LABEL["origin"].get(node.get("origin"), "?")
+        tag = f"{st}｜{LABEL['clarity'].get(node.get('clarity'), '?')}｜{origin}"
     else:
         tag = st + ("｜待展開" if node.get("clarity") == "open" else "")
     line = f"{'  ' * _depth(nid)}- {nid} [{tag}] {_clip(node.get('text'), 160 if full else 90)}"
@@ -612,14 +634,20 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
                 errs.append(f"{tag}.clarity 無效（{it.get('clarity')}），允許：{'|'.join(CLARITY)}")
             if it.get("origin") is not None and it.get("origin") not in ORIGIN:
                 errs.append(f"{tag}.origin 無效（{it.get('origin')}），允許：{'|'.join(ORIGIN)}")
+            if it.get("quote") is not None and not isinstance(it.get("quote"), str):
+                errs.append(f"{tag}.quote 必須是字串（標 origin=user 時引用使用者原話的字面子句）")
             continue
         if not NODE_ID_FULL_RE.match(_s(it.get("id"))):
             errs.append(f"{tag}.id 必填，格式 T<數字>(.<數字>)*")
         if action == "update":
             if not _s(it.get("why")):
                 errs.append(f"{tag}.why 必填（這次改動讓它更接近了沒、為什麼）")
-            if not any(it.get(k) is not None for k in ("text", "status", "clarity")):
-                errs.append(f"{tag} 至少要改 text／status／clarity 其中一項")
+            if not any(it.get(k) is not None for k in ("text", "status", "clarity", "origin")):
+                errs.append(f"{tag} 至少要改 text／status／clarity／origin 其中一項")
+            if it.get("origin") is not None and it.get("origin") not in ORIGIN:
+                errs.append(f"{tag}.origin 無效（{it.get('origin')}），允許：{'|'.join(ORIGIN)}")
+            if it.get("quote") is not None and not isinstance(it.get("quote"), str):
+                errs.append(f"{tag}.quote 必須是字串（標 origin=user 時引用使用者原話的字面子句）")
             if it.get("text") is not None and not _s(it.get("text")):
                 errs.append(f"{tag}.text 不能是空的")
             if it.get("status") is not None and it.get("status") not in NODE_STATUS:
@@ -719,6 +747,10 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
     t = inp.get("turns")
     if action == "reconcile" and t is not None and (not isinstance(t, int) or isinstance(t, bool) or t < 0):
         errs.append("turns 必須是 ≥0 的整數")
+    elif action == "reconcile" and isinstance(t, int) and t >= TURNS_RETHINK \
+            and not any(_RETHINK_RE.search(_s(it.get("note"))) for it in items if isinstance(it, dict)):
+        errs.append(f"turns={t} 超過三個彎（G11：第四個彎幾乎可以確定臭掉）：某一項的 note 要寫「重找最短路：<結果>」"
+                    "（找到的更短做法，或為什麼沒有更短的）")
     return errs
 
 
@@ -930,12 +962,14 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
                 f"是糾正或補充就改 {old['id']}（update 改節點、作廢的標放棄；add 長子目標；set 不帶 new_task 改寫樹根附 why）"]}
         tree = _new_tree(doc, goal, turn, why)
         add_checkpoint(doc, tree, turn, "set", tree["id"])
-        note = f"開了新樹 {tree['id']}。{SUBGOAL_LINE}"
+        events: List[Tuple[str, Dict[str, Any]]] = []
+        root_line = _check_root(doc, tree, turn, events)
+        note = f"開了新樹 {tree['id']}。{SUBGOAL_LINE}" + (f"\n{root_line}" if root_line else "")
         left = [n for n, v in (old or {}).get("nodes", {}).items() if v.get("status") in ("todo", "doing")]
         if left:
             note += (f"\n舊樹 {old['id']} 還有 {len(left)} 個沒結束的節點（{'、'.join(sorted(left, key=_sort_key)[:6])}）："
                      "被新樹取代的用 update 標放棄並寫為什麼，還要做的留著。")
-        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": note}
+        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": note, "origin_events": events}
     root = tree["nodes"][tree["id"]]
     if goal == root.get("text"):
         return {"ok": True, "tree": tree["id"], "goal_changed": False, "note": "樹根沒變"}
@@ -946,8 +980,72 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
     _goal_changed(doc, tree, turn)
     root["history"].append({"seq": tree["goal_changed"]["seq"], "turn": turn, "what": "text", "why": why})
     add_checkpoint(doc, tree, turn, "set", tree["id"])
-    return {"ok": True, "tree": tree["id"], "goal_changed": True,
-            "note": f"{tree['id']} 樹根改寫，目標版本 {tree['goal_rev']}"}
+    events = []
+    root_line = _check_root(doc, tree, turn, events)
+    return {"ok": True, "tree": tree["id"], "goal_changed": True, "origin_events": events,
+            "note": f"{tree['id']} 樹根改寫，目標版本 {tree['goal_rev']}" + (f"\n{root_line}" if root_line else "")}
+
+
+ORIGIN_DOWNGRADED_MAX = 20
+
+
+def origin_check_on() -> bool:
+    """規則 ORIGIN_USER_NEEDS_QUOTE 的開關 guard.origin_user_check.enabled（workflow/config.json；沒設＝開）。"""
+    return ((wg_core.load_config().get("guard") or {}).get("origin_user_check") or {}).get("enabled", True) is not False
+
+
+def _check_origin(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, node: Dict[str, Any], quote: Any, turn: int,
+                  events: List[Tuple[str, Dict[str, Any]]]) -> Optional[str]:
+    """子節點要標 origin=user：quote／節點文字對得到樹上的使用者原話 → origin=user、存 quote 與 said_seq、history 記引用；
+    對不到 → 強制 inferred、history 記原因、doc.origin_downgraded 記一筆（下一則訊息提醒一次就清）。
+    events 收守門紀錄（鎖外由 apply_op 寫）；回要附在回傳 note 的一句，對上回 None。"""
+    _, v, match = rr.origin_user_verdict(node.get("text"), quote, _said_for_check(tree), tree.get("peer_said") or [])
+    seq, q = next_seq(doc), _s(quote)
+    if match is not None:
+        said = match["said"]
+        prior = "（前一個 session）" if said.get("prior") else ""
+        # quote_by：AI 引的（quote）或節點文字本身對上（text）；文字對上的，之後改寫文字不能拿舊文字當引用重核
+        node.update({"origin": "user", "quote": match["quote"], "said_seq": said.get("seq"),
+                     "quote_by": "quote" if q and match["quote"] == q else "text"})
+        node["history"].append({"seq": seq, "turn": turn, "what": "origin",
+                                "why": f"引用第 {said.get('turn', '?')} 回合{prior}：{_clip(match['quote'], 200)}"})
+        events.append(("origin_quoted", {"node": nid, "text": _clip(node.get("text"), 200), "quote": _clip(match["quote"], 200),
+                                         "said_seq": said.get("seq"), "said_turn": said.get("turn")}))
+        return None
+    node["origin"] = "inferred"
+    node["history"].append({"seq": seq, "turn": turn, "what": "origin",
+                            "why": f"標使用者說的但對不到原話（{v.why}），改成推出來的"})
+    line = (f"{nid}「{_clip(node.get('text'), 60)}」標使用者說的但對不到原話（{v.why}），已改成推出來的；"
+            "要標使用者說的請用 quote 引用原句")
+    pend = doc.setdefault("origin_downgraded", [])
+    pend.append({"node": nid, "turn": turn, "line": line})
+    del pend[:-ORIGIN_DOWNGRADED_MAX]
+    events.append(("origin_downgraded", {"node": nid, "text": _clip(node.get("text"), 200), "quote": _clip(q, 200), "why": v.why}))
+    return line
+
+
+def _check_root(doc: Dict[str, Any], tree: Dict[str, Any], turn: int,
+                events: List[Tuple[str, Dict[str, Any]]]) -> Optional[str]:
+    """set 開樹、改寫樹根、匯入時：樹根切句後原話裡沒有的句子列一行提醒（當下回傳與下一則訊息各一次），origin 不動。
+    沒有這種句子或開關關掉回 None。"""
+    if not origin_check_on():
+        return None
+    miss = rr.root_unquoted_sentences(tree["nodes"][tree["id"]].get("text"), _said_for_check(tree))
+    if not miss:
+        return None
+    line = ("[NeedGoal] 樹根這幾句原話裡沒有：" + "".join(f"「{_clip(s, 80)}」" for s in miss[:6])
+            + "——這些是 AI 的解讀，不是使用者說的")
+    pend = doc.setdefault("origin_downgraded", [])
+    pend.append({"node": tree["id"], "turn": turn, "line": line, "root": True})
+    del pend[:-ORIGIN_DOWNGRADED_MAX]
+    events.append(("root_unquoted", {"node": tree["id"], "sentences": [_clip(s, 200) for s in miss[:20]]}))
+    return line
+
+
+def _origin_reminder(doc: Dict[str, Any]) -> List[str]:
+    """上次寫入被降級的節點、樹根原話裡沒有的句子：下一則訊息的樹提示帶一次，帶完就清。"""
+    return [p["line"] if p.get("root") else f"[NeedGoal] 提醒：{p['line']}" for p in doc.pop("origin_downgraded", None) or []
+            if isinstance(p, dict) and p.get("line")]
 
 
 def _op_add(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, Any]:
@@ -960,15 +1058,22 @@ def _op_add(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
         return {"ok": False, "tree": tree["id"], "rejected": [f"parent {parent} 不是 {tree['id']} 的節點"]}
     _goal_changed(doc, tree, turn)
     added = []
+    check = origin_check_on()
+    events: List[Tuple[str, Dict[str, Any]]] = []
+    downs: List[str] = []
     for it in inp["items"]:
         nid = _child_id(tree, parent)
         tree["nodes"][nid] = {"parent": parent, "text": _s(it.get("text")), "origin": it.get("origin") or "grown",
                               "clarity": it.get("clarity") or "clear", "status": "todo",
                               "history": [{"seq": next_seq(doc), "turn": turn, "what": "create", "why": ""}],
                               "evidence": [], "followup": "", "note": ""}
+        if check and tree["nodes"][nid]["origin"] == "user":
+            line = _check_origin(doc, tree, nid, tree["nodes"][nid], it.get("quote"), turn, events)
+            downs += [line] if line else []
         added.append(nid)
         add_checkpoint(doc, tree, turn, "add", nid)
-    return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": f"加了 {'、'.join(added)}"}
+    return {"ok": True, "tree": tree["id"], "goal_changed": True, "origin_events": events,
+            "note": f"加了 {'、'.join(added)}" + "".join(f"\n  ⚠ {ln}" for ln in downs)}
 
 
 def _unknown_nodes(doc: Dict[str, Any], ids: List[str]) -> List[str]:
@@ -985,11 +1090,15 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
     bumped: Dict[str, Dict[str, Any]] = {}
     reopened: Dict[str, Dict[str, Any]] = {}
     cleared = 0
+    check = origin_check_on()
+    events: List[Tuple[str, Dict[str, Any]]] = []
+    downs: List[str] = []
     for it in inp["items"]:
         nid, why = it["id"], _s(it.get("why"))
         tree = tree_of(doc, nid)
         node = tree["nodes"][nid]
         changed = False
+        old_text = node.get("text")
         for field in ("text", "clarity", "status"):
             if it.get(field) is None:
                 continue
@@ -1003,6 +1112,19 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
                 bumped[tree["id"]] = tree
             elif val not in TERMINAL:
                 reopened[tree["id"]] = tree
+        want = it.get("origin")
+        # 標成使用者說的、或改了使用者說的節點文字（含匯入的）都要重核：新文字是這次寫的，沒新 quote 就拿節點存的 quote 核
+        # （存的是舊節點文字對上的就不拿：舊文字核必過）
+        recheck = want is None and node.get("origin") == "user" and node.get("text") != old_text
+        kept = node.get("quote") if node.get("quote_by") != "text" else None
+        if (want == "user" or recheck) and check and node.get("parent") is not None:   # 樹根是 AI 對原話的解讀，不核
+            line = _check_origin(doc, tree, nid, node, it.get("quote") or kept, turn, events)
+            downs += [line] if line else []
+            changed = True
+        elif want is not None and node.get("origin") != want:
+            node["origin"] = want
+            node["history"].append({"seq": next_seq(doc), "turn": turn, "what": "origin", "why": why})
+            changed = True
         if not changed:
             node["history"].append({"seq": next_seq(doc), "turn": turn, "what": "status", "why": why})
         seq = next_seq(doc)
@@ -1022,8 +1144,9 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
         elif tid in reopened:
             _reopen(doc, tree)
     first = tree_of(doc, inp["items"][0]["id"])["id"]
-    return {"ok": True, "tree": first, "goal_changed": bool(bumped),
-            "note": f"收下 {len(inp['items'])} 項" + (f"，清掉 {cleared} 筆待對照" if cleared else "")}
+    return {"ok": True, "tree": first, "goal_changed": bool(bumped), "origin_events": events,
+            "note": f"收下 {len(inp['items'])} 項" + (f"，清掉 {cleared} 筆待對照" if cleared else "")
+            + "".join(f"\n  ⚠ {ln}" for ln in downs)}
 
 
 def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str) -> Dict[str, Any]:
@@ -1078,9 +1201,10 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
     bare = [nid for nid, v in view.items() if v["status"] == "done" and not v["same_class"]]
     same = (f"\n  - 達成的 {'、'.join(bare[:6])} 可附 same_class（同類別處還有沒有：找到的位置，或為什麼沒有；只提醒、不擋）"
             if bare else "")
+    turns = "" if inp.get("turns") is not None else f"\n  - {TURNS_HINT}"
     return {"ok": True, "tree": tree["id"], "goal_changed": False, "followups": followups,
             "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}" + "".join(f"\n  - {ln}" for ln in rtg)
-            + same + f"\n{HANDOUT_CHECK}"}
+            + same + turns + f"\n{HANDOUT_CHECK}"}
 
 
 def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> Dict[str, Any]:
@@ -1114,7 +1238,8 @@ def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> 
         res = import_handoff(sid, text, path, turn)
         ok = bool(res["imported"])
         out = {"ok": ok, "tree": (res["imported"] or [None])[-1], "goal_changed": ok,
-               "rejected": [] if ok else [res.get("skipped") or "沒有可匯入的樹"], "note": "匯入續接單的樹"}
+               "rejected": [] if ok else [res.get("skipped") or "沒有可匯入的樹"],
+               "note": "匯入續接單的樹" + "".join(f"\n{ln}" for ln in res.get("root_lines") or [])}
         return _result(sid, action, out, load(sid))
 
     def fn(doc: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -1133,6 +1258,8 @@ def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> 
         return r, copy.deepcopy(doc)
 
     res, snap = update_locked(sid, fn)
+    for event, kw in res.pop("origin_events", None) or []:
+        _guard(event, sid, **kw)
     if res.get("followups"):
         _append_tracking(sid, turn, res["followups"], cwd or str(snap.get("cwd") or ""))
     return _result(sid, action, res, snap)
@@ -1192,7 +1319,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 ps = live.setdefault("peer_said", [])
                 ps.append({"seq": seq, "turn": turn, "from": peer[0], "text": peer[1][:PEER_CAP]})
                 del ps[:-SAID_MAX]
-            return (f"[NeedGoal] 目前需求目標 {_header(tree)}" if tree else None), False
+            return ("\n".join([f"[NeedGoal] 目前需求目標 {_header(tree)}", *_origin_reminder(doc)]) if tree else None), False
         doc["user_msgs"] = int(doc.get("user_msgs", 0)) + 1
         entry = {"seq": seq, "turn": turn, "text": typed}
         log = doc.setdefault("said_log", [])
@@ -1207,7 +1334,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 return HINT_LINE, True
             return None, False
         # 交出前一問每則都帶：純問答回合直接在回覆裡交開工句、清單時，回覆之前只有這個點（只送題、適不適用由 AI 判斷）
-        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}。{TREE_PATHS}{HANDOUT_CHECK}"]
+        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}。{TREE_PATHS}{HANDOUT_CHECK}", *_origin_reminder(doc)]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1730,7 +1857,8 @@ def review_material(sid: Any) -> str:
 
 
 def _export_tree(tree: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: copy.deepcopy(v) for k, v in tree.items() if k not in ("edits", "links", "checkpoints", "parts_edited")}
+    return {k: copy.deepcopy(v) for k, v in tree.items()
+            if k not in ("edits", "links", "checkpoints", "parts_edited", "said_all")}   # said_all 最多 200 則×4000 字，續接單只帶 user_said
 
 
 def handoff_block(sid: Any) -> str:
@@ -1844,14 +1972,20 @@ def import_handoff(sid: Any, text: str, path: str, turn: int) -> Dict[str, Any]:
         _attach_said(doc, doc["trees"][doc["active"]], turn)  # 本 session 匯入前的原話（常是開工句）接在前一個 session 的原話後面
         _adopt_untreed(doc, doc["trees"][doc["active"]])     # 沒樹時改的知識類檔掛進接續的那一棵（不看匯入順序）
         doc.setdefault("imports", []).append({"path": norm, "sha": sha, "at": wg_core._now_iso(), "trees": new_ids})
-        return {"imported": new_ids, "map": mapping, "skipped": None, "text": render(active_tree(doc), "full", doc=doc)}
+        events: List[Tuple[str, Dict[str, Any]]] = []
+        roots = [ln for ln in (_check_root(doc, doc["trees"][t], turn, events) for t in new_ids) if ln]
+        return {"imported": new_ids, "map": mapping, "skipped": None, "origin_events": events, "root_lines": roots,
+                "text": render(active_tree(doc), "full", doc=doc)}
 
     res = update_locked(sid, fn)
+    for event, kw in res.pop("origin_events", None) or []:
+        _guard(event, sid, **kw)
     if res["imported"]:
         _guard("import", sid, trees=res["imported"], path=str(path))
         head = "、".join(f"{o}→{n}" for o, n in res["map"].items())
         res["text"] = (f"[NeedGoal] 從續接單匯入需求目標樹（{head}；前一個 session 的證據只供閱讀，之後改到的節點要交新證據）。"
-                       "先用自己的話覆述目標與現況、確認樹還對，再接著做。\n" + res.get("text", ""))
+                       "先用自己的話覆述目標與現況、確認樹還對，再接著做。\n"
+                       + "".join(f"{ln}\n" for ln in res.get("root_lines") or []) + res.get("text", ""))
     else:
         res.setdefault("text", "")
     return res

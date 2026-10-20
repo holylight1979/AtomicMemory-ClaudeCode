@@ -23,6 +23,7 @@
 | cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook | cc實測-PreToolUse對AskUserQuestion與ExitPlanMode會觸發且tool_input完整-deny時PostToolUse不觸發PostToolBatch會-中途到的同伴訊息是queued_command不經任何hook |
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 |
 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 |
+| commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath | commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-Cpath |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
 | conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離 | conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離 |
 | cross-encoder-rerank實測不進注入鏈-bge-base只抬r1三點r3反降每句加1秒-13題池外rerank碰不到-讀取端可選 | cross-encoder-rerank實測不進注入鏈-bge-base只抬R1三點R3反降每句加1秒-13題池外rerank碰不到-讀取端可選 |
@@ -45,6 +46,7 @@
 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec_hud-stop再查一次 |
 | knowledge-harvest-階段收割與vcs-sync機制指標與踩坑 | knowledge-harvest-階段收割與vcs-sync機制指標與踩坑 |
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
+| mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹 | MCP工具呼叫沒有session身份-要session_id的工具靠PreToolUse用updatedInput補-否則材料打包找不到驗證帳本與目標樹 |
 | mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效 | MCP的node端程式改了要開新session才載到-同機其他session的MCP程序仍跑舊碼-python端每次spawn立即生效 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
 | need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred | need_goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred |
@@ -71,6 +73,7 @@
 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 |
 | worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒 | worktree隔離session改部位檔被OverviewHub閘連擋-證據只認Read事件與Bash註解三行-git-C-live與python-heredoc與變數路徑一律被拒 |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
+| 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 | 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊None被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 |
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 |
 | 使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接 | 使用者放行的判定要防偽造-只認tool_use_id對到AskUserQuestion的答案-打字放行要整句嚴格比對-跨回合要承接 |
@@ -83,9 +86,12 @@
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 |
 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 |
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | 在live複跑Stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 |
+| 在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex | 在worktree跑mcp的js測試要設WG-CLAUDE-DIR指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendToolResult與syncMemoryIndex |
 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
+| 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 |
 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 |
+| 子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔 | 子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔 |
 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 |
 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 |
 | 專案工作驗收裁判的分級啟動與殺閘設計 | 專案工作驗收裁判的分級啟動與殺閘設計 |
@@ -94,6 +100,7 @@
 | 工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex | 工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex |
 | 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 | 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 |
 | 巨檔純機械拆分-carve腳本與驗證盲點 | 巨檔純機械拆分-carve腳本與驗證盲點 |
+| 已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進 | 已在worktree裡的session不能直接EnterWorktree到外部路徑-先ExitWorktree-keep回啟動目錄再進 |
 | 從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭 | 從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成./開頭 |
 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write-raw-tool-migrate-寫後補向量增量索引 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write_raw-tool-migrate-寫後補向量增量索引 |
 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 |
@@ -117,6 +124,7 @@
 | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail |
 | 範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠 | 範圍漏判歸因測試換真git後-前一session改檔與HEAD相同被判原樣還原-範圍不結案-期望不記的案空轉綠 |
 | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進UPS-引用的糾正詞誤觸DeepPostMortem |
+| 純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹 | 純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹 |
 | 總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行 | 總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行 |
 | 總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據 | 總控台合別人驗過的分支也走need_goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據 |
 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 |
@@ -125,14 +133,17 @@
 | 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音 | 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-SyncReminder被local-commit靜音 |
 | 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點 | 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點 |
 | 調度總控台合併候選驗證sop-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree | 調度總控台合併候選驗證SOP-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree |
+| 讀取點從家目錄改走資料根時寫死家目錄的舊測試會一起紅-conftest把wg-claude-dir隔離成暫存根-改merge-atom-index會重錄git錄製檔 | 讀取點從家目錄改走資料根時寫死家目錄的舊測試會一起紅-conftest把WG_CLAUDE_DIR隔離成暫存根-改merge-atom-index會重錄git錄製檔 |
 | 跨session協調-衝突預警機制與cc原生現況 | 跨session協調-衝突預警機制與CC原生現況 |
 | 跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失 | 跨層Bash閘與SessionStart逾時-fd複製非寫檔-開場提醒無聲消失 |
 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 |
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 |
 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 |
 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 |
+| 量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 | 量測收據要認DONE帶k=v-sentinel_regex會把普通pytest統計行也轉成PYTEST_MEASURE-DONE-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 |
 | 量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況 | 量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況 |
 | 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序 | 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序 |
+| 閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現 | 閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-AI一開始就用pathspec會讓病形閘情境不出現 |
 | 附在stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳 | 附在Stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳 |
 | 需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份 | 需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份 |
 | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase |

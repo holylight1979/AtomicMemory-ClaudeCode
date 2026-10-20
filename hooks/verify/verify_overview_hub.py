@@ -959,6 +959,11 @@ def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(pr
     assert deny and "要 ≥3 個，目前 1 個" in deny                                   # 專案可調數字
 
 
+# 讀檔數規則（UNMAPPED_EDIT_NEEDS_READABLE_FILES）與 Bash 讀檔辨識的案，改的是無表專案的程式檔：最小地圖（G14，
+# UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）另在 verify_g14_min_map.py 驗，這幾支關掉它以免兩條規則混判
+_NO_MIN_MAP = {"overview_hub": {"min_map": {"enabled": False}}}
+
+
 def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = tmp_path / "bare"
@@ -968,13 +973,13 @@ def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch)
     (root / "src" / "b.py").write_text("x", encoding="utf-8")                     # src 有可讀的既有檔，閘才要求讀（B5：沒檔可讀不要求）
     f1 = str(root / "src" / "a.py")
     state = {}
-    warn, deny, changed = wo.on_edit(state, "s", f1, "", {})
+    warn, deny, changed = wo.on_edit(state, "s", f1, "", _NO_MIN_MAP)
     assert deny and "沒有部位表" in deny and "「src」至少 1 個檔（目前 0 個）" in deny and not changed
     wo.on_read(state, "s", "Read", {"file_path": str(root / "docs" / "x.md")}, str(root), "", {})   # 別的頂層目錄不算
-    warn, deny, _ = wo.on_edit(state, "s", f1, "", {})
+    warn, deny, _ = wo.on_edit(state, "s", f1, "", _NO_MIN_MAP)
     assert deny and "目前 0 個" in deny
     wo.on_read(state, "s", "Read", {"file_path": str(root / "src" / "b.py")}, str(root), "", {})
-    assert wo.on_edit(state, "s", f1, "", {}) == (None, None, True)
+    assert wo.on_edit(state, "s", f1, "", _NO_MIN_MAP) == (None, None, True)
     key = next(k for k in state["overview_hub"] if "(unmapped)src" in k)
     assert state["overview_hub"][key]["edits"] == 1
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
@@ -992,10 +997,10 @@ def test_unmapped_deep_file_falls_back_to_vcs_root(tmp_path, monkeypatch):
     deep = str(root / "src" / "a" / "b" / "c" / "widget.py")
     assert wo._project_root_of(deep) is None                                       # 前提：舊規則最多 4 層找不到
     state = {}
-    warn, deny, changed = wo.on_edit(state, "s", deep, "", {})
+    warn, deny, changed = wo.on_edit(state, "s", deep, "", _NO_MIN_MAP)
     assert deny and "沒有部位表" in deny and str(root) in deny and "「src」至少 1 個檔（目前 0 個）" in deny
     wo.on_read(state, "s", "PowerShell", {"command": "Get-Content src/other.py"}, str(root), "", {})
-    assert wo.on_edit(state, "s", deep, "", {}) == (None, None, True)
+    assert wo.on_edit(state, "s", deep, "", _NO_MIN_MAP) == (None, None, True)
 
 
 def test_unmapped_vcs_fallback_never_takes_home_or_drive_root(tmp_path, monkeypatch):
@@ -1848,7 +1853,7 @@ def test_b5_bash_multi_file_cat_counts_every_file(tmp_path, monkeypatch):
     root = _b5_repo(tmp_path)
     state = {}
     _bash_read(state, root, "cat bookings/render.py tests/test_render.py && head -c 1500 ops/README.md")
-    assert wo.on_edit(state, "s", str(root / "tests" / "test_render.py"), "", {}) == (None, None, True)
+    assert wo.on_edit(state, "s", str(root / "tests" / "test_render.py"), "", _NO_MIN_MAP) == (None, None, True)
     assert wo.on_edit(state, "s", str(root / "ops" / "new.md"), "", {}) == (None, None, True)
 
 
@@ -1882,10 +1887,10 @@ def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
     assert deny
     _bash_read(state, root, 'grep -n "tests/test_render.py" ops/README.md')       # 樣式長得像路徑也不算
     assert wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {}) == (None, None, True)
-    warn, deny, _ = wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", {})
+    warn, deny, _ = wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", _NO_MIN_MAP)
     assert deny
     _bash_read(state, root, "more tests/test_render.py")
-    assert wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", {}) == (None, None, True)
+    assert wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", _NO_MIN_MAP) == (None, None, True)
 
 
 @pytest.fixture(autouse=True)
