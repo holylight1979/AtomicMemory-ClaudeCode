@@ -33,6 +33,31 @@
 - **codex 一輪**（本軌自己就觸發這道閘，照做一次）：修 4 處——只認 result 回的狀態（沒開出 job 的 failed 不算跑過）、session 有樹而材料沒帶到樹不算、宣告行與四行只認行首且略過程式碼區塊（散文裡引用範例會被當宣告）、判定出錯留帳；這幾案在修前的 commit 上紅。另 3 條與派工單定案衝突，總控台裁定維持定案：failed／blocked 算跑過（真的跑過了，收尾四行要寫明狀態）；AI 可宣告不需（G6 的判斷入口，留帳、週健檢對帳）；不綁定審後版本（審 → 依意見改 → 交付是正常流程，綁最終版本會每修一次就重審、無限循環）。
 - **待合併時做**：live `workflow/config.json` 加 `second_opinion.auto` 段、settings.json PreToolUse matcher 掛 `mcp__workflow-guardian__second_opinion_start`（沒掛時 goal.md 一律「無目標樹」）。
 
+## 2026-10-20 G16 總控台自己開工作 session：不用人貼開工句
+- **使用者看到的**：總控台說「/console 開工 <軌名> <派工單>」就能自己把工作軌的 session 開起來（`claude --bg` 送開工句），等到那軌回「<軌名> 收到開工」才算開成；90 秒沒回就印開工句 code block 退回人貼，session 不殺。並行上限 5、`workflow/console-spawn.STOP` 存在就一律不開。
+- **改了什麼**：新 `tools/console-spawn.py`（前置檢查：開工句檔、worktree 登記在 live 的 `.git/worktrees/`、非 live 根、kill switch、並行上限 → worktree 沒信任紀錄時沿用 live 根信任補一筆正斜線鍵 → subprocess 不經 shell 跑 `claude --bg` → 輪詢 `claude agents --json` 與 transcript 等「收到開工」；尾行 `CONSOLE_SPAWN_CHECK PASS|FAIL`）；`skills/console/SKILL.md` 用法表加「/console 開工」、人貼改為退路；`references/kickoff.md` 第 6 節「由腳本送出」；`.gitignore` 排掉 `claude --bg` 落在 repo 根的 daemon.lock／daemon.log／daemon.status.json／daemon/／jobs/；live `workflow/config.json` 加 `console.spawn`（max_parallel 5、timeout_sec 90、poll_sec 3）。
+- **驗證**：`tools/verify/verify_console_spawn.py` 16 案（subprocess 全假：指令形狀、斜線開工句、信任鍵、kill switch、並行上限、逾時退人貼、gui 退路、live 根拒起）；實測 claude.exe 2.1.304 `--bg` 起 session 3.7 秒返回、ListAgents／SendMessage 雙向通。
+- **沒做**：總控台還沒用它真派過一軌（下次開新軌時用）。
+
+## 2026-10-20 G14 無表專案第一次改程式前要最小地圖
+- **使用者看到的**：交給 AI 一個還沒有部位表的專案，它第一次要改某個頂層目錄的程式檔時會被擋一次，要先寫三行「地圖｜讀了：<檔清單>」「地圖｜上游：…」「地圖｜下游：…」（讀了的檔要真的讀過；上下游真的沒有寫「無，因為…」），擋訊息附掃表預覽與落表格式，引導它順手落一張部位表。同一個頂層目錄交過一次不再擋；有部位表的專案、執行期資料、知識類、非程式檔不查。
+- **改了什麼**：`hooks/wg_release_rules.py` 檔尾 G14 段（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP、`min_map_group`／`min_map_files`／`min_map_verdict`）；`hooks/wg_overview._unmapped_edit`（往上找不到部位表且 writes_code 時查三行，回覆文字／工具參數／thinking 三管道，同鍵交過不再擋，同根換頂層目錄只認上次放行之後交的）；擋訊息附 `lib/overview_scaffold.preview_lines` 掃表預覽（子程序、上限 `min_map.preview_timeout_s`、每根一次快取在 state）；`lib/hub_config.py` HUB_DEFAULTS 加 `min_map {enabled, preview_timeout_s}` 與驗證；live `workflow/config.json` 加 `overview_hub.min_map`。
+- **驗證**：新 `hooks/verify/verify_g14_min_map.py`；`verify_release_rules` 檔尾 G14 小案例；`verify_overview_hub` 四支讀檔數案關掉 min_map 隔離。
+
+## 2026-10-20 G11 拐彎判斷：程式算側面數據與每層加了什麼，收尾要 AI 逐條判並寫理由
+- **使用者看到的**：改完 Python 程式宣告完成時，收尾多一段側面數據——入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈每層新增／覆寫了什麼與空層；到門檻（拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層）的每一條，AI 要寫一行「拐彎判斷｜<對象>｜<這一層存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」，缺就擋一次。門檻是「從第幾個彎起要人看」，不是判臭；這一層有沒有真正作用、會不會讓人拐超過三個彎由 AI 判並寫理由（原設計者 10-20 晚定：拐彎的本體是沒有真正作用的間接層）。
+- **改了什麼**：新 `lib/turn_metrics.py`（純 ast；diff 命中才列；非 Python 標不支援）；`hooks/wg_reading_path.py` 同一背景 job 多算函式級數據，`turn_judgment_note` 核對五欄行、齊了留帳 judged；`hooks/wg_release_rules.py` 檔尾 G11 段（TURN_JUDGMENT_REQUIRED、`parse_turn_judgments`／`judgment_names`／`turn_judgment_verdict`，對象只認整名或邊界結尾、引言與圍欄不算）；`handlers/stop.py` 只動 ReadingPath 段，缺判斷行 output_block 一次；`hooks/wg_need_goal.py` reconcile 沒給 turns 提醒一句、turns ≥4 要 note 寫「重找最短路：」；live `workflow/config.json` 加 `reading_path.turn_judgment`（五個門檻與 max_items 8）。
+- **驗證**：新 `lib/verify/verify_turn_metrics.py`、`hooks/verify/verify_g11_turns.py`；`verify_release_rules` 檔尾一案；閱讀路徑 hook 與 g12w 錄製檔重錄（git 互動多了 diff、ls-files）。
+- **codex**：reading-path 026（BLOCK）整份比較的可評級改只看一個判斷 `compare_ratable`。
+- **待派**：G11 002——擋點搬到 Reconcile 之後（現在在 ReadingPath 段）。
+
+## 2026-10-20 G7 等值與熱路徑：重構宣告完成要證明結果不變，碰到熱路徑要自己量
+- **使用者看到的**：你打的字被判成「重構」或「效能」意圖時，導讀卡多一段：等值證法三類（順序／副作用／邊界）怎麼證、問一句「這次碰到熱路徑或大量配置嗎」、再看一眼有沒有只是抄舊架構長出來的間接層。改完程式宣告完成，收尾核對：重構要有三筆 `PRESERVE_CHECK PASS` 收據（`preserve-check.py --mutation order／side_effect／boundary` 各跑一次）或一行「等值證法｜不適用｜理由」；熱路徑要答「熱路徑｜是｜哪裡」＋量測收據（`<NAME> DONE k=v`）或「量測｜不做｜理由」，或「熱路徑｜否｜為什麼」。缺了擋一次、擋滿問你。是不是重構只看你本人打的字，同伴信、背景通知裡的「重構」不算，AI 自己說重構不會把自己擋住。
+- **改了什麼**：`hooks/wg_release_rules.py` 檔尾 G7 段（REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE、`proved_mutations`、`has_measure`、`parse_equivalence_lines`、兩個 verdict）；`handlers/stop.py` 在 SecondOpinion 之後、Deferral 之前插 Equivalence Gate（`_equivalence_gate`，留帳 `Logs/guard-equivalence.jsonl`）；`handlers/user_prompt_submit.py` 意圖改吃 `harness_text.user_typed_text`（整則沒有使用者的字沿用上一個意圖）；`lib/hub_config.py` `goal_weights.refactor／perf` 加 `extra` 欄、加 `equivalence.enabled`；`lib/overview_hub.build_injection_ex`／`hooks/wg_overview._inject` 把 extra 接在視角／先問之後；`skills/behavior-preservation/SKILL.md` 補「收尾怎麼交」與 .json 預期表格式。
+- **驗證**：新 `hooks/verify/verify_g7_equivalence.py`（反例斷言閘回 None）、`verify_release_rules` 檔尾 G7 段、`verify_ups_overview_wiring` 加意圖入口四案先紅後綠、`verify_intent_goal_weights` 容許 extra；合併後與 G9／G11／G14／根治四閘一起跑 1213 案綠。
+- **codex 一輪**：一筆收據只算最後一個 `--mutation`（argparse 單值，三次串一條只跑最後一個）；量測收據要 `DONE` 帶 k=v（pytest 統計行轉成的 PYTEST_MEASURE 不算量了熱路徑）。
+- **合併時發現並修掉**：hub_config 衝突「兩側都留」把共用尾行 `return errors` 只留給 `validate_equivalence`，`validate_min_map` 回 None 讓 OverviewHub 整個判不出（130 案紅）→ 補回一行；live `workflow/config.json` 加 `overview_hub.equivalence` 段（enabled 一鍵）。
+
 ## 2026-10-20 G6 階段 4：宣稱詞表降成提示、退避例外的入口接上（判斷入口盤點 P6＋P7）
 - **使用者看到的**：收尾不再被「CC 會自己跑完測試」這類說明句擋住——(a)(b)(c) 命中且沒證據時，擋訊息改教 AI 回一行「宣稱｜修好：非本回合宣稱，因為…」（放行、留帳）或「宣稱｜修好：收據 <指令片段或哨兵名>」（引用要指得到那條指令的完整 token 或哨兵名，通用字不算；那張收據要過原本資格：修好要合格 PASS、同根、晚於改檔，量了要 DONE 且指令可信，試過要指令可信）；真宣稱沒證據照擋。AI 寫一行「不做｜<哪一件>：<理由>」會被退避偵測與 DeferralGate 接受並留帳，不再被當成退避；說明句被退避詞誤命中（b 軌實遇「下個 session 開場列出的內容…三段都正常」）寫「不是退避｜<命中的詞>：因為…」同樣放行留帳；使用者說「先這樣／跳過」要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」對到具體哪一件（含紅測清單），不再一句話清掉全部。
 - **改了什麼**：`hooks/wg_release_rules.py` 新 5 條規則（CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH／NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）與純判定（`parse_claim_dispositions`、`claim_disposition_verdict`、`parse_not_doing`、`not_doing_verdict`、`waived_failures`）；`wg_verify_ledger.reconcile_gate_parts` (a)(b)(c) 命中後先看宣稱行、`audit` 回給 stop 落 guard-reconcile（event=claim_disclaimed／claim_receipt_ref）；`wg_evasion.detect_evasion`／`detect_deferral` 逐處對不做行、`audit` 落 guard-evasion_declared／guard-deferral_declared，退避旗標帶 category 與寫法提示（詞表各類 `exception` 欄從此由程式接上）；`handlers/stop.py` 只動宣稱／退避段（TestFailGate 吃 `waived_failures`，落 guard-testfail_waived）；`handlers/ups_gates.py` 拿掉「dismiss 詞清掉全部 failing_tests」；`handlers/user_prompt_submit.py` 舉證提示附不做行寫法；`forbidden-phrases.json` 刪 `deferral_user_ok`（整段豁免已廢）、更新 `_doc`。
