@@ -68,7 +68,7 @@ from handlers import aec_ledger
 
 
 # walk-up 定 VCS 根（零 subprocess）；與 pre_tool_use／session_start／tools 共用同一支
-from wg_core import find_vcs_root as _find_vcs_root  # noqa: E402
+from wg_core import find_vcs_root as _find_vcs_root, find_vcs_root_ex as _find_vcs_root_ex  # noqa: E402
 
 
 def _norm_for_match(p: str) -> str:
@@ -221,13 +221,19 @@ def _git_unpushed_roots(modified_files: List[Dict[str, Any]]) -> List[str]:
 def _synced_paths(paths: Iterable[str]) -> set:
     """已同步的檔（規則 SYNC_BLOCK_SKIPS_SYNCED）：在 git／svn 工作區、status 乾淨、所在 git 根沒有已 commit 未 push 的
     （worktree 或沒 upstream 照 WORKTREE_NO_PUSH 不要求 push，也算）。已刪除的檔照查：status 乾淨＝刪除已提交。
-    查不了（不在工作區、git／svn 失敗或逾時）一律不算已同步。"""
+    查不了（不在工作區、git／svn 失敗或逾時）一律不算已同步；但檔已不在、往上也找不到版控根（整個移除的工作樹、刪掉的
+    暫存目錄）沒有東西可同步，算進來（規則 SYNC_SKIPS_VANISHED_OUTSIDE_VCS）。磁碟或網路分享根連不到、往上找時出錯的
+    （斷線看起來也像不在）照算未同步。"""
     groups: Dict[tuple, List[str]] = {}
+    synced: set = set()
     for p in dict.fromkeys(str(x) for x in paths if x):
-        found = _find_vcs_root(Path(p).parent)
+        found, err = _find_vcs_root_ex(Path(p).parent)
         if found:
             groups.setdefault(found, []).append(p)
-    synced: set = set()
+        elif not err and os.path.isdir(Path(p).anchor or os.sep) and not os.path.lexists(p):
+            synced.add(p)
+            print(f"[Workflow Guardian] 規則 SYNC_SKIPS_VANISHED_OUTSIDE_VCS：{p} 與所在版控根都已不在，沒有東西可同步",
+                  file=sys.stderr)
     for (kind, root), ps in groups.items():
         dirty = _git_dirty_set(root, ps) if kind == "git" else _svn_dirty_set(root, ps)
         if dirty is None:

@@ -93,17 +93,18 @@
 
 | 事件 | 樹 | 節點 | 誰觸發 |
 |---|---|---|---|
-| `set`（沒有目前的樹，或 `new_task=true`） | 新樹 `doing`，成為 `active`；舊樹不動 | 樹根 `doing` | LLM |
+| `set`（沒有目前的樹，或 `new_task=true`） | 新樹 `doing`，成為 `active`；舊樹不動（目前的樹是 `doing` 時要附 why，沒附拒收；收下時列舊樹沒結束的節點） | 樹根 `doing`，history 記 why | LLM |
 | `set`（有目前的樹、不是換題）＝改寫樹根 | `doing`；`goal_rev+1` | 樹根文字換掉，history 記 why | LLM |
 | `add` | `doing`；`goal_rev+1` | 新節點 `todo` | LLM |
 | `update` 改 text 或 clarity | `doing`；`goal_rev+1` | 照改 | LLM |
 | `update` 只改 status | 樹根改成 `dropped` → `closed`；樹是 `reconciled`／`closed` 而節點改成非終點 → `doing`；其他不動 | 照改 | LLM |
+| （規則）樹從 `reconciled`／`closed` 回到 `doing`（上面各列與改檔） | 還沒進任何樹的使用者原話（樹結束期間收的，例如對它的糾正）掛進這棵 `user_said`；同一則不重複 | — | — |
 | `update`（任何一項被收下） | — | 清掉待對照（5.3） | LLM |
 | （規則）`add` 帶 parent、`update`、`reconcile` 依節點編號找它所屬的樹 | 不限目前的樹、不切換 `active`；換題後舊樹欠的對照照樣交得進去；一次 `reconcile` 只對一棵樹 | — | — |
 | `reconcile` 被收下 | 全部節點是 `done`／`dropped` → `closed`，否則 `reconciled`；記 `last_reconcile` | 照交的終點狀態；證據、followup、note 寫進節點；整棵樹的待對照全清 | LLM |
 | 改了程式檔（`stamp_edit`，`code=true`） | `kind=code`；`reconciled`／`closed` → `doing` | 那筆改動 `owed=true` | 程式 |
 | 改了非程式檔 | 不動 | 記進 edits，`owed=false` | 程式 |
-| 從續接單匯入 | 新樹號，狀態沿用，`goal_rev=1`，`last_reconcile=null` | 狀態沿用；證據標 `prior=true` | 程式（自動）或 LLM（`set import_from`） |
+| 從續接單匯入 | 新樹號，狀態沿用，`goal_rev=1`，`last_reconcile=null`；本 session 還沒進樹的使用者原話與這一回合的原話接在 `user_said` 後面（不標 `prior`） | 狀態沿用；證據標 `prior=true` | 程式（自動）或 LLM（`set import_from`） |
 
 「目標改變」＝開新樹、改寫樹根、`add`、`update` 改 text／clarity、匯入；發生時記 `goal_changed`，`apply_op` 回 `goal_changed=true`，post_tool_use 呼叫 `wg_overview.on_goal_changed` 清掉各部位的「已定位」（第九節）。
 
@@ -161,8 +162,8 @@
 |---|---|---|---|
 | `action` | enum `set｜add｜update｜reconcile｜read｜verify_scope` | 全部 | 必填；`verify_scope` 是驗證範圍的宣告，不進目標檔（見下） |
 | `goal` | str | set | 一句、使用者的語言、只寫目標不寫手段；`import_from` 沒給時必填 |
-| `new_task` | bool | set | 換題開新樹 |
-| `why` | str | set | 改寫樹根時必填（js 只驗型別，Python 驗必填） |
+| `new_task` | bool | set | 換成另一件事，開新樹 |
+| `why` | str | set | 改寫樹根時必填；目前的樹是 `doing` 時帶 `new_task=true` 也必填（js 只驗型別，Python 驗必填） |
 | `import_from` | str | set | 續接單路徑 |
 | `parent` | str | add | 掛在哪個節點，省略＝樹根 |
 | `items` | array | add／update／reconcile | add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why 必填}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?}], followup?, note?}` |

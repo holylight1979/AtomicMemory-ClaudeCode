@@ -363,7 +363,8 @@ def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Opti
     _update(sid, fn, "on_correction", turn)
     _guard("correction", sid, turn, tree=tree["id"], kw=list(hits)[:3])
     return (f"[NeedGoal] 使用者糾正了（命中：{'、'.join(list(hits)[:3])}）：目標樹哪一條要改？做法還對準嗎？"
-            "有改就用 need_goal（update 改節點、set 改樹根）記下並寫為什麼。\n" + ng.render(tree, "compact"))
+            f"糾正是對 {tree['id']} 的修正，改這棵樹、不開新樹（update 改節點、作廢的標放棄並寫為什麼；"
+            "set 不帶 new_task 改寫樹根附 why；糾正裡多出的要求用 add 長成子目標）。\n" + ng.render(tree, "compact"))
 
 
 # ─── 4.4 問使用者之前 ─────────────────────────────────────────────────────
@@ -721,7 +722,7 @@ def handout_edit_line(state: Dict[str, Any], sid: Any, path: str, turn: int) -> 
         return None
     state["need_goal_handout_turn"] = turn
     _guard("handout_check", sid, turn, path=Path(str(path)).name)
-    return f"[NeedGoal] 改了 {Path(str(path)).name}（計畫、清單類文件）。{ng.HANDOUT_CHECK}"
+    return f"[NeedGoal] 改了 {Path(str(path)).name}（計畫、清單類文件）。{ng.handout_check_text(sid)}"
 
 
 # ─── 4.3 目標改變後導讀卡改用目標視角 ─────────────────────────────────────

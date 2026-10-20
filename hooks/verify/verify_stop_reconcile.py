@@ -942,10 +942,15 @@ def test_new_prompts_alignment_over_sliding_window():
     assert rl.new_prompts([], ["x"]) == ["x"]
 
 
-def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatch):
-    """003 裁決：共用預算 stop_gate_max_blocks 的閘照舊：一般 sync block 第 3 次強制放行（phase=done），不問使用者。"""
+def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatch, tmp_path):
+    """003 裁決：共用預算 stop_gate_max_blocks 的閘照舊：一般 sync block 第 3 次強制放行（phase=done），不問使用者。
+    改檔用真的、不在版控的檔（不存在的假路徑會被 SYNC_SKIPS_VANISHED_OUTSIDE_VCS 剔掉，就測不到擋）。"""
     monkeypatch.setattr(st, "_git_unpushed_roots", lambda mf: [])
-    mf = [_mf(r"c:\proj\docs\a.md", 5), _mf(r"c:\proj\docs\b.md", 5)]
+    docs = tmp_path / "proj" / "docs"
+    docs.mkdir(parents=True)
+    for n in ("a.md", "b.md"):
+        (docs / n).write_text("x\n", encoding="utf-8", newline="\n")
+    mf = [_mf(str(docs / "a.md"), 5), _mf(str(docs / "b.md"), 5)]
     out, state, _ = driven("好了。", capsys, modified_files=mf, stop_blocked_count=0)
     assert "[Workflow Guardian] 2 file(s) modified" in out and state["stop_blocked_count"] == 1     # 沒擋滿：照擋
     out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2)
@@ -4406,13 +4411,60 @@ def test_046_sync_block_still_owes_unpushed_commits(driven, capsys, tmp_path):
     assert "[Workflow Guardian] 2 file(s) modified" in out, out                           # 提醒用完，底部照擋
 
 
-def test_046_block_lists_later_gates(driven, capsys, monkeypatch):
+def test_046_sync_block_skips_files_whose_vcs_root_vanished(driven, capsys, tmp_path):
+    """規則 SYNC_SKIPS_VANISHED_OUTSIDE_VCS，照接續單的工作樹流程走真 git：在 worktree 改兩個檔 → 在 worktree 提交 → 合回 main →
+    `git worktree remove`。移除後檔與所在版控根都不在，沒有東西可同步，底部 sync block 不擋。前置逐步斷言：tmp 不在任何版控根之下、
+    改完還沒提交時照擋。舊碼移除後也擋（紅，2026-10-20 v6 推進 session 刪工作樹後連擋兩次）。"""
+    assert st._find_vcs_root(tmp_path) is None                                             # 前置：往上找不到版控根
+    repo, _files = _synced_repo(tmp_path, names=("a.md", "b.md"))
+    wt = tmp_path / "wt"
+    _git(repo, "worktree", "add", "-q", "-b", "feat", str(wt))
+    a, b = wt / "a.md", wt / "b.md"
+    a.write_text("v2\n", encoding="utf-8", newline="\n")
+    b.write_text("v2\n", encoding="utf-8", newline="\n")
+    mf = [_mf(str(p), 5) for p in (a, b)]
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian] 2 file(s) modified" in out, out                            # 前置：還沒提交 → 照擋
+    _git(wt, "commit", "-qam", "feat")
+    _git(repo, "merge", "-q", "--ff-only", "feat")
+    _git(repo, "worktree", "remove", str(wt))
+    assert not wt.exists() and (repo / "a.md").read_text(encoding="utf-8") == "v2\n"
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out, out
+
+
+def test_046_sync_block_vanished_counter_cases_still_owe(driven, capsys, tmp_path):
+    """反例（期望照擋，先斷言前置）：①檔還在但不在任何版控裡 → 照算未同步；②路徑所在的磁碟根連不到（斷線的網路磁碟看起來也像
+    檔不在、版控根也找不到）→ 不能當成已刪除，照算未同步（Codex BLOCK）。"""
+    import os
+    import string
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    kept = [loose / "n1.md", loose / "n2.md"]
+    for f in kept:
+        f.write_text("x\n", encoding="utf-8", newline="\n")
+    assert st._find_vcs_root(loose) is None and all(f.exists() for f in kept)
+    out, _, _ = driven("好了。", capsys, modified_files=[_mf(str(p), 5) for p in kept])
+    assert "[Workflow Guardian] 2 file(s) modified" in out, out
+    drive = next(f"{c}:\\" for c in reversed(string.ascii_uppercase) if not os.path.isdir(f"{c}:\\"))
+    gone = [_mf(drive + r"proj\a.md", 5), _mf(drive + r"proj\b.md", 5)]
+    assert not os.path.lexists(gone[0]["path"])                                            # 前置：連不到，看起來就是不在
+    out, _, _ = driven("好了。", capsys, modified_files=gone)
+    assert "[Workflow Guardian] 2 file(s) modified" in out, out
+
+
+def test_046_block_lists_later_gates(driven, capsys, monkeypatch, tmp_path):
     """規則 BLOCK_LISTS_LATER_GATES：退縮閘擋下時，照目前狀態後面還欠知識收割、收尾檢核、同步 → 同一則訊息列出來，一回合補齊。
     當下這道就是知識收割時，預覽不重複列它。舊碼每次只回第一道（紅）。"""
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 先收割")
     monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: True)
-    mf = [_mf(r"c:\proj\docs\a.md", 5), _mf(r"c:\proj\docs\b.md", 5)]          # 不在版控：照算未同步
+    docs = tmp_path / "proj" / "docs"
+    docs.mkdir(parents=True)
+    for n in ("a.md", "b.md"):
+        (docs / n).write_text("x\n", encoding="utf-8", newline="\n")
+    assert st._find_vcs_root(docs) is None
+    mf = [_mf(str(docs / "a.md"), 5), _mf(str(docs / "b.md"), 5)]   # 還在、不在版控：照算未同步（不存在的假路徑會被 SYNC_SKIPS_VANISHED_OUTSIDE_VCS 剔掉）
     out, _, _ = driven("好了。", capsys, modified_files=mf)
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" in out, out
     later = out.split("[Guardian:AlsoOwed]", 1)[1]
