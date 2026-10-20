@@ -8065,6 +8065,22 @@
         "一次性檔"
       ],
       "scope": "global"
+    },
+    {
+      "name": "讀取點從家目錄改走資料根時寫死家目錄的舊測試會一起紅-conftest把wg-claude-dir隔離成暫存根-改merge-atom-index會重錄git錄製檔",
+      "path": "_AIDocs/_atoms/MemDev/讀取點從家目錄改走資料根時寫死家目錄的舊測試會一起紅-conftest把wg-claude-dir隔離成暫存根-改merge-atom-index會重錄git錄製檔.md",
+      "triggers": [
+        "claude_data_dir",
+        "Path.home() / .claude",
+        "資料根改寫",
+        "CLAUDE_DIR",
+        "WG_CLAUDE_DIR 隔離",
+        "舊測試寫死家目錄",
+        "git 錄製檔重錄",
+        "cassette 重錄",
+        "merge-atom-index 改動"
+      ],
+      "scope": "global"
     }
   ]
 }
