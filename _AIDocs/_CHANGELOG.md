@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 導讀卡候選不再暗中按分數排：照報告原順序、分數標參考、各部位輪流取（G5 剩的一處）
+- 改同檔第二次、問根因時附的候選原本照分數重排、只取前 N、又不顯示分數：低分的真問題被截掉，AI 也不知道順序來自分數。`hooks/wg_overview.py` `_smells_lines` 改照報告原順序、每列附「分數 X（參考）」、全專案時各部位輪流取再依部位分組（`_parts_in_turn`），根因那一問加「挑的不是分數最高的就說為什麼」。案例 `verify_candidates_trigger.py::test_candidates_keep_report_order_show_score_as_reference_and_take_parts_in_turn`（舊碼紅）；候選、PickOne、追蹤讀回、部位表四支測試檔 203 通過。
+
 ## 2026-10-20 寫碼交付時順手點出最該修的一件，記成附建議的追蹤項、下個 session 開場先列（G4＋G5＋G13）
 - **使用者看到的**：交 AI 寫程式，交付末尾多一段「順手看到最該修：…／為什麼是它／為什麼不是數字最高的那個／建議怎麼解／該誰解」；這段自動記成追蹤項；下個 session 開頭先列還沒解的這些項目與建議。只提醒、不擋。
 - **改法**：Stop 在所有閘之後、到交付邊界且本 session 在上次問過之後又改了程式 → 用 `additionalContext` 送一次那一問（對話續跑、不是 block；同一批改動只問一次），材料依部位分組、壞味道分數與行數標「只當參考」（`hooks/wg_harvest.py` pick_*、`hooks/handlers/stop.py` `_pick_one_prompt`）；每次 Stop 開頭把最後一句裡照格式寫的那段記進追蹤帳本，另存 why／not_top／proposal／owner（`record_pick`）；(k) 行尾「｜建議：…｜該誰解：…」也進同兩欄；開場 `_tracking_advisory` 先列附了建議的未結項（不分部位）。開關 `workflow/config.json` `pick_one.enabled`（缺區段＝關）。
