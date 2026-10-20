@@ -1279,6 +1279,8 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
       （檔名相同、或內容等於它最後一次寫入時的雜湊 last_sha[canon_path]，修改紀錄的 sha 欄）。有副本 → MOVED_NEW_CODE_SEEN（照欠）；
       沒有 → 刪除、不欠。搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中一處以新路徑、
       原內容出現；不追搬檔寫法，只看結果。git 失敗或逾時、預算用完 → GONE_UNVERIFIABLE（照欠）。
+      提交紀錄裡的新程式檔現在已經不在磁碟上（之後又改名、刪掉）就不當副本候選：它自己也不在了，不會是這支搬去的地方
+      （否則內容雜湊算不出來＝判不出，任何刪掉的檔都會被它拖成「可能搬走」）。
     每個檔的判定 stderr 印一行（規則名＋證據）；verdicts 給了就把每個檔的 Verdict 填進去，擋訊息照印。"""
     run = _run or subprocess.run
     exts = cfg.get("code_exts") or []
@@ -1319,6 +1321,7 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
                             appeared.append(f[3:])
                     i += 1
                 new_code = list(dict.fromkeys(new_code + [n for n in appeared if is_code_file(n, exts)]))
+        new_code = [n for n in new_code if (Path(root) / n).exists()]   # 自己也不在了的新檔不會是它搬去的地方
         shas: Dict[str, Optional[str]] = {}
         for p in ps:
             sha = (last_sha or {}).get(canon_path(p))

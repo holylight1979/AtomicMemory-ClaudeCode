@@ -43,7 +43,7 @@ import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LAYER_AXIS_RE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
     build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
-    split_card_sections, top_dir, transcript_readable, transcript_size,
+    split_card_sections, top_dir, transcript_readable, transcript_size, unread_rows_note,
 )
 
 import wg_release_rules as _rr  # noqa: E402  放行／欠帳判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、RUNTIME_DATA_NO_OVERVIEW、TEMP_COPY_NOT_PROJECT）
@@ -1133,9 +1133,11 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     have = len(rec["part_files_read"]) if rec else 0
     readable = _readable_existing(root, top, need) if have < need else need    # 讀夠了就不必數
     v = _rr.unmapped_edit_verdict(need, readable, have)
+    unread = unread_rows_note(root / MAP_REL)       # 表在、卻有資料列因寫法整列沒讀到：說出來，不靜默當成沒列
     if v.owed:
         msg = (f"[Guardian:OverviewHub] 改 {file_path} 前：這個專案（{root}）沒有部位表列到這個檔，"
-               f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。\n" + _rr.format_hit("o", v))
+               f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。\n" + _rr.format_hit("o", v)
+               + (f"\n注意：{unread}" if unread else ""))
         _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
              need=need, readable=readable, rule=v.rule, deny_reason="part_files", layer=cfg.get("_layer"))
         return (msg, msg, False)
@@ -1143,7 +1145,7 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     rec["edits"] = int(rec.get("edits", 0)) + 1
     _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
          need=need, readable=readable, rule=v.rule, edits=rec["edits"], deny_reason=None, layer=cfg.get("_layer"))
-    return (None, None, True)
+    return (f"[Guardian:OverviewHub] 注意：{unread}" if unread else None, None, True)
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,

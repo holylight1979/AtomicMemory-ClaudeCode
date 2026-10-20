@@ -357,6 +357,69 @@ def test_defects_doc_shape_names_the_symptom(tmp_path):
     assert deny and "吞掉例外" in deny and "第 4 行" in deny
 
 
+# 009：第二波無頭題 A 的 notify/retry.py 原文（C:\w2\qa-repro，AI 用 git commit --amend 提交進去、閘沒擋）
+QA_RETRY = ('from notify import dispatch\n\nRETRY = {\n'
+            '    "once": lambda k, p: dispatch.dispatch(k, p) or dispatch.dispatch(k, p),\n'
+            '    "twice": lambda k, p: dispatch.dispatch(k, p) or dispatch.dispatch(k, p) or dispatch.dispatch(k, p),\n'
+            '}\n\n\ndef retry(policy, kind, payload):\n    try:\n        return RETRY[policy](kind, payload)\n'
+            '    except:\n        return False\n')
+# 第一波受測專案 C:\w1\qa-notify 的部位表與病灶清單（前綴有反引號、病灶欄指檔案）
+QA_DEFECTS = ("| 位置 | 症狀 | 根因 | 修法 | 狀態 | 規格 | 形狀 |\n|---|---|---|---|---|---|---|\n"
+              "| `notify/dispatch.py` | 回呼用 lambda 塞進 dict 分派，讀的人要跳回去查每個 lambda 包了誰 | 早期想省幾行 | "
+              "改成有名字的函式直接放 dict，或 register() 單一入口 | 未修 | `待規格：管道註冊方式沒人拍板` | `shape: :\\s*lambda\\b` |\n")
+
+
+def _qa_map(repo: Path, backticked: bool) -> None:
+    """backticked＝第一波（w1）寫法；False＝第二波 kit 的寫法（前綴沒反引號、病灶欄寫散文）。"""
+    row = ("| `notify/` | 通知分派 | 無 | 部分 | notify/defects.md |" if backticked else
+           "| notify/ | 通知分派 | 無 | 部分 | 回呼用 lambda 塞進 dict 分派，讀的人要跳回去查每個 lambda 包了誰 |")
+    _write(repo, ".claude/overview-map.md", "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 病灶清單 |\n|---|---|---|---|---|\n" + row + "\n")
+    if backticked:
+        _write(repo, "notify/defects.md", QA_DEFECTS)
+
+
+def test_qa_retry_dict_lambda_blocked_when_part_table_is_readable(tmp_path):
+    """部位表照第一波寫法（前綴有反引號、病灶清單指 defects.md）：第二波 AI 寫的 retry.py 一樣擋，點名第 4 行與症狀。"""
+    repo = _repo(tmp_path, {"notify/__init__.py": "", "notify/dispatch.py": "def dispatch(k, p):\n    return True\n"})
+    _qa_map(repo, backticked=True)
+    _write(repo, "notify/retry.py", QA_RETRY)
+    _git(repo, "add", "notify/retry.py")
+    deny, _advice = _gate(repo, 'git commit -m "add retry"')
+    assert deny and "回呼用 lambda 塞進 dict 分派" in deny and "notify/retry.py 第 4 行" in deny
+
+
+def test_part_table_rows_without_backticks_are_reported_not_silently_dropped(tmp_path):
+    """第二波 kit 的部位表前綴沒反引號，parse_map 整列略過、病灶清單不套：以前什麼都不說（「都沒有病形」），現在要說出來。"""
+    repo = _repo(tmp_path, {"notify/__init__.py": "", "notify/dispatch.py": "def dispatch(k, p):\n    return True\n"})
+    _qa_map(repo, backticked=False)
+    _write(repo, "notify/retry.py", QA_RETRY)
+    _git(repo, "add", "notify/retry.py")
+    deny, advice = _gate(repo, 'git commit -m "add retry"')
+    assert not deny, "前置：表沒讀到時內建病形不中這份 retry.py（沒有套層 lambda）"
+    assert advice and "沒用反引號包" in advice and "| notify/ | 通知分派" in advice
+
+
+@pytest.mark.parametrize("how", ["staged_then_amend", "sick_already_in_head"])
+def test_commit_amend_checks_against_head_parent(tmp_path, how):
+    """git commit --amend：比對基準是 HEAD^。staged 的病檔要擋；病已經在被 amend 的那個提交裡、這次只改訊息也要擋（amend 等於重提交它）。"""
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/b.py", "y = 1\n")
+    _git(repo, "add", "src/b.py")
+    _git(repo, "commit", "-q", "-m", "add b")
+    _write(repo, "src/b.py", "y = 1\n" + STACKED)
+    if how == "sick_already_in_head":
+        _git(repo, "add", "src/b.py")
+        _git(repo, "commit", "-q", "-m", "sick b")
+        _git(repo, "reset", "-q", "--soft", "HEAD~1")
+        _git(repo, "commit", "-q", "--amend", "-m", "add b (sick)")
+        command = 'git commit --amend -m "reword"'
+    else:
+        _git(repo, "add", "src/b.py")
+        command = "git commit --amend --no-edit"
+    deny, _advice = _gate(repo, command)
+    assert deny and "匿名函式疊用" in deny and "src/b.py 第 2 行" in deny, how
+
+
 # ─── 介入入口 ─────────────────────────────────────────────────────
 
 def test_smell_ok_with_reason_passes_and_is_listed(tmp_path):

@@ -3691,6 +3691,37 @@ def test_0a_session_new_untracked_code_moved_still_owes(driven, capsys, chain, m
     assert "改了程式碼（new.py）" in out
 
 
+@pytest.mark.parametrize("how, owed", [("deleted", False), ("renamed_copy", True)])
+def test_009_launcher_gone_is_not_copied_into_a_committed_file_that_is_gone_too(driven, capsys, chain, monkeypatch, how, owed):
+    """009（工作軌收尾實遇：一次性啟動器 _commit_branch.py 跑完刪掉，被當成搬進同 session 提交、之後又 git mv 改名掉的 wg_old_test.py）：
+    本 session 提交新模組 tools/mod_old.py → git mv 成 tools/mod_new.py（還沒提交）→ 根目錄 Write 一支啟動器、跑完刪掉。
+    舊碼：提交紀錄裡的 tools/mod_old.py 磁碟上已不在、內容雜湊算不出 → 當成啟動器「可能搬過去的副本」，MOVED_NEW_CODE_SEEN 照欠。
+    新碼：自己也不在了的新檔不當候選 → 刪除、不欠。配對：啟動器改名成 _launch2.py（內容相同、還在）→ 照欠。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, _, _ = chain
+    mod = repo / "tools" / "mod_old.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text("def mod():\n    return 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(mod)})
+    git("add", "tools/mod_old.py")
+    git("commit", "-qm", "add mod")
+    assert "tools/mod_old.py" in str(state.get("committed_new_code")), "前置：提交紀錄記到這支新模組"
+    git("mv", "tools/mod_old.py", "tools/mod_new.py")
+    launcher = repo / "_launch.py"
+    launcher.write_text("print('run once')\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(launcher)})
+    if how == "deleted":
+        launcher.unlink()
+    else:
+        launcher.rename(repo / "_launch2.py")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    reason = json.loads(out.strip().splitlines()[-1])["reason"]     # mod_old.py 那幾支自己也欠，只看啟動器這一支
+    if owed:
+        assert "_launch.py 已不存在、同根出現可能是它的副本（_launch2.py）" in reason, how
+    else:
+        assert "_launch.py" not in reason, how
+
+
 def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
     """排除區只認相對專案根、錨在根的路徑：拿不到根、檔不在根底下、根所在目錄的名字、根底下別處同名目錄都不排除（照算程式）。"""
     cfg = vl.RECONCILE_DEFAULTS
