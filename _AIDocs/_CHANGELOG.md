@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 萃取 L1 改走 backend 預設模型：rdchat 可用時不再先等本機 10 秒逾時
+- trace log 實測：L1 寫死 `model="qwen3:1.7b"`，路由只送設定模型名相符的 backend → 跳過 rdchat 先打 local，CPU 冷載入 10008ms 逾時才退 rdchat。`hooks/user-extract-worker.py` `_call_l1` 改成不指定模型單次呼叫：rdchat gemma4:e4b 實測真樣板 0.4–0.5s、判斷正確；rdchat 掛了自動換 local 並換成 qwen3:1.7b。案例 `hooks/verify/verify_user_extract_l1_backend.py`（舊碼兩支皆紅）。
+
 ## 2026-10-20 Ollama 呼叫追蹤 log：想確認 rdchat-direct 有沒有真的被用到時手動開
 - 使用者要能證明輔助 LLM 確實被用；原本 `tools/ollama_client.py` 只記失敗，成功打到哪台、因模型名不符被跳過都沒紀錄。加旗標檔 `workflow/.ollama_trace`（預設不存在＝關，gitignore），存在時每次請求寫一行 `ok|fail|skip:<原因> backend= model= endpoint= 耗時 caller=` 到 `Logs/ollama-backend.log`；每請求查檔，常駐向量服務免重啟。開關：`python tools/ollama_client.py --trace on|off|status`。案例 `tools/verify/verify_ollama_trace.py`（5 支，含旗標關時不產生檔的反例）。
 

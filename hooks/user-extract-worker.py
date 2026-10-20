@@ -13,7 +13,7 @@ Flow:
   → mixed-sentence filter
   → emotional-commitment filter
   → session budget tracker
-  → L1 qwen3:1.7b binary yes/no
+  → L1 backend 預設模型 binary yes/no（rdchat gemma4:e4b；local 備援 qwen3:1.7b）
   → L2 gemma4:e4b structured extraction
   → conf-based routing (≥0.92 confirm / 0.70-0.92 pending / <0.70 skip)
   → ack-then-clear
@@ -216,23 +216,12 @@ def _parse_l1_response(raw: str) -> Optional[bool]:
 
 
 def _call_l1(prompt_text: str) -> Optional[bool]:
-    """L1: binary yes/no. Prefer qwen3:1.7b for speed, fall back to backend default."""
+    """L1: binary yes/no，用 backend 預設模型（rdchat gemma4:e4b 優先，掛了自動換 local qwen3:1.7b）。
+
+    不指定 model：指定了就只送設定模型名相符的 backend，會跳過 rdchat 先等 local CPU 冷載入逾時。
+    """
     try:
         client = get_client()
-        # Preferred fast path: qwen3:1.7b (local backend).
-        raw = client.generate(
-            prompt_text,
-            model="qwen3:1.7b",
-            timeout=10,
-            think=False,
-            temperature=0,
-            num_predict=30,
-        )
-        result = _parse_l1_response(raw)
-        if result is not None:
-            return result
-        # Fallback: backend default model (gemma4:e4b on rdchat backends).
-        # Robust when qwen3:1.7b is unreachable (local ollama down / absent).
         raw = client.generate(
             prompt_text,
             timeout=15,

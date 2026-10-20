@@ -461,7 +461,7 @@ sequenceDiagram
 | 失敗關鍵字萃取 | **在跑** | UPS 偵測 strong/weak 失敗詞（cooldown 180s、max 2 items） | `wg_extraction._check_failure_patterns` → detached worker | `Failures/<主題>/`，永不拒寫（`failure_type_fallback`） |
 | SessionEnd 全量萃取 | **未啟動**（`response_capture.session_end_flush.enabled=false`，`session_end.py` 不 spawn；連帶 `cross_session` 觀察也是死路） | SessionEnd | 啟用時：`hooks/run-hidden.py` spawn `extract-worker.py`（gemma4:e4b；transcript ≤20000 chars、max 5 items、[臨]）；失敗骨架 atom 知識段留 `<!-- src: sid8#uuid8 -->`（AI 片段、無使用者原話，不寫 Quote；注入時 `wg_atoms._extract_named_section` 剝掉 HTML 註解） | 停產原因見 §14.2 |
 | episodic 摘要 | **在跑** | SessionEnd（≥1 改檔、≥120s） | worker 內 `wg_episodic` | 有專案記憶的 cwd → `{專案}/.claude/memory/episodic/`，其餘 → `memory/episodic/`（`wg_core.resolve_episodic_dir`），TTL 24d；SessionStart 覆轍／振盪提示只讀本 session 自己的池（`wg_evasion._session_episodic_pool`，cwd 沒有專案記憶就不提示），振盪狀態 `workflow/oscillation_state.json` 依池分格存讀 |
-| 使用者決策萃取 | **在跑** | UPS L0 規則偵測 score ≥0.4 → SessionEnd spawn | `user-extract-worker.py`：L1 qwen3 yes/no → L2 gemma4 結構化；budget 240 tok/session（>220 切 L1-only） | conf ≥0.92 直寫／0.70–0.92 `_pending.candidates.md`／<0.70 丟；候選帶使用者原文 `prompt` 進 confirmed，`write_atom(provenance="session:<sid8> <日期>", quote=原話)` |
+| 使用者決策萃取 | **在跑** | UPS L0 規則偵測 score ≥0.4 → SessionEnd spawn | `user-extract-worker.py`：L1 backend 預設模型 yes/no（rdchat gemma4:e4b，掛了換 local qwen3:1.7b）→ L2 gemma4 結構化；budget 240 tok/session（>220 切 L1-only） | conf ≥0.92 直寫／0.70–0.92 `_pending.candidates.md`／<0.70 丟；候選帶使用者原文 `prompt` 進 confirmed，`write_atom(provenance="session:<sid8> <日期>", quote=原話)` |
 | per-turn 逐輪萃取 | 已停產 | — | `response_capture.per_turn.enabled=false` | — |
 | SessionEnd 草稿 flush | 已停產 | — | `session_end_flush.enabled=false` | — |
 | quick-extract 快篩 | 已除役 | — | 腳本已刪 | — |
@@ -798,7 +798,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | Git | Stop 同步閘、未 push advisory、記憶庫背景上版控（§8 vcs-sync）；`hooks/post-git-pull.sh` 是 pull 後稽核的 post-merge 樣板，手動裝到**專案** repo，根層不裝（worker 已負責拉） | SVN 工作區同樣被同步閘辨識（`.svn`），vcs-sync 對 svn 走 `--xml` 逐檔 | `stop.py _detect_uncommitted_files` 對非 git/svn 目錄回 `None`＝整個同步閘跳過（不提醒也不阻斷）；git 執行檔不存在時 `FileNotFoundError` → 同樣跳過。其餘閘門不受影響 |
 | Ollama（本地 daemon） | 向量嵌入與所有 LLM 萃取；**全域層檢索不用它** | ① 遠端 backend（§9.1）② 嵌入改走本地 `sentence-transformers` + `BAAI/bge-m3`（config 已預設 `fallback_backend`；冷啟動可到分鐘級） | `indexer.create_embedder` 拋 `RuntimeError`，向量服務起不來（連續 3 session 未就緒 SessionStart 出 `[Guardian:Vector⚠]`）；專案層檢索只剩 trigger/BM25；萃取器跳過並落 atom-debug log / audit。顯式 `atom_write` 不受影響（§5.5） |
 | 模型 `qwen3-embedding` | 向量嵌入 | bge-m3 fallback | 向量層跳過 |
-| 模型 `qwen3:1.7b` | 本地快篩 LLM（使用者決策萃取 L1、失敗分類） | 該 backend 進退避、改試其他 backend | 該類萃取跳過 |
+| 模型 `qwen3:1.7b` | 本地快篩 LLM（rdchat 不可用時的使用者決策萃取 L1、失敗分類） | 該 backend 進退避、改試其他 backend | 該類萃取跳過 |
 | 模型 `gemma4:e4b` | 主萃取 LLM（決策萃取 L2、SessionEnd 全量萃取） | 同上 | 只剩 Claude 顯式寫入與失敗關鍵字偵測 |
 | `lancedb`（需 CPU AVX2） | 向量 DB `memory/_vectordb/` | 無（`fallback_backend` 只管 embedder） | `service.py` 起不來 → `Logs/vector-service.log`、statusline `vec✗`、SessionStart advisory；trigger/BM25 照常 |
 | `sentence-transformers` | 無 Ollama 時的本地嵌入 | Ollama | 同 Ollama 列 |
