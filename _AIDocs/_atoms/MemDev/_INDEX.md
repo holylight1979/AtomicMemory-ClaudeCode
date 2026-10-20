@@ -85,6 +85,7 @@
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 |
 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 |
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | 在live複跑Stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 |
+| 在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex | 在worktree跑mcp的js測試要設WG-CLAUDE-DIR指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendToolResult與syncMemoryIndex |
 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 |
