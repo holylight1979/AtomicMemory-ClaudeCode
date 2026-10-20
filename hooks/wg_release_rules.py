@@ -1636,7 +1636,8 @@ def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False
     if is_code and standalone_case:
         rule = "SCOPE_CASE_EDIT_ONLY_ITS_ITEM"
         why = ("就在這一項點名的路徑底下" if under_item else "這一項就是它所在部位的量尺指令" if runs_part_ruler
-               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
+               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown
+               else "在這一項宣告的依賴裡" if in_deps else "")   # 檔名像案例（wg_old_test.py）的模組，宣告了依賴就要算
         if why:
             return Verdict(rule, True, f"{name} 是測試案例檔，{why}")
         return Verdict(rule, False, f"{name} 是測試案例檔、沒有別的程式 import 它，這一項沒點名它：改它不作廢這一項的收據")
@@ -2150,3 +2151,17 @@ def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
     else:
         why = "沒給 quote，節點文字也不是使用者原話的字面子句"
     return "inferred", Verdict(rule, True, why, (f"節點文字：{t[:120]}", f"quote：{q[:120] or '（沒給）'}")), None
+
+
+_ROOT_SPLIT_RE = re.compile("[。；，、]|" + chr(0x2014) * 2)   # 第二支是雙破折號（本檔不准出現破折號字面）
+
+
+def root_unquoted_sentences(text: Any, user_said: Sequence[Any]) -> List[str]:
+    """ORIGIN_USER_NEEDS_QUOTE 的樹根版：樹根依契約是 AI 對原話的解讀（不改 origin）。切句（。；，、雙破折號）後至少 6 字的句子，
+    逐句看是不是某則使用者原話的字面子串；回對不到的句子（保序、去重），給提醒列出「這幾句原話裡沒有」。"""
+    out: List[str] = []
+    for s in _ROOT_SPLIT_RE.split(text if isinstance(text, str) else ""):
+        s = s.strip()
+        if len(s) >= ORIGIN_QUOTE_MIN and s not in out and _said_with(s, user_said) is None:
+            out.append(s)
+    return out

@@ -50,6 +50,8 @@ LABEL = {
     "ekind": {"receipt": "收據", "case": "驗證案例", "file": "檔案", "atom": "卡片"},
 }
 
+ROOT_LABEL = "AI 的解讀"
+
 DEFAULTS: Dict[str, Any] = {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200}
 # 擋下訊息共用的指路句（改檔閘、commit 閘、提問閘）：MCP 是視窗層級共用的 node 程序，改了要 Reload 才載到新工具，
 # 叫不到 need_goal 的人照「先用 need_goal」走不下去
@@ -494,7 +496,9 @@ def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> 
 def _node_line(nid: str, node: Dict[str, Any], full: bool, doc: Optional[Dict[str, Any]] = None) -> str:
     st = LABEL["status"].get(node.get("status"), "?")
     if full:
-        tag = f"{st}｜{LABEL['clarity'].get(node.get('clarity'), '?')}｜{LABEL['origin'].get(node.get('origin'), '?')}"
+        # 樹根依契約是 AI 對原話的解讀，origin 欄位不動、顯示一律「AI 的解讀」（規則 ORIGIN_USER_NEEDS_QUOTE 樹根版）
+        origin = ROOT_LABEL if node.get("parent") is None else LABEL["origin"].get(node.get("origin"), "?")
+        tag = f"{st}｜{LABEL['clarity'].get(node.get('clarity'), '?')}｜{origin}"
     else:
         tag = st + ("｜待展開" if node.get("clarity") == "open" else "")
     line = f"{'  ' * _depth(nid)}- {nid} [{tag}] {_clip(node.get('text'), 160 if full else 90)}"
@@ -936,12 +940,14 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
                 f"是糾正或補充就改 {old['id']}（update 改節點、作廢的標放棄；add 長子目標；set 不帶 new_task 改寫樹根附 why）"]}
         tree = _new_tree(doc, goal, turn, why)
         add_checkpoint(doc, tree, turn, "set", tree["id"])
-        note = f"開了新樹 {tree['id']}。{SUBGOAL_LINE}"
+        events: List[Tuple[str, Dict[str, Any]]] = []
+        root_line = _check_root(doc, tree, turn, events)
+        note = f"開了新樹 {tree['id']}。{SUBGOAL_LINE}" + (f"\n{root_line}" if root_line else "")
         left = [n for n, v in (old or {}).get("nodes", {}).items() if v.get("status") in ("todo", "doing")]
         if left:
             note += (f"\n舊樹 {old['id']} 還有 {len(left)} 個沒結束的節點（{'、'.join(sorted(left, key=_sort_key)[:6])}）："
                      "被新樹取代的用 update 標放棄並寫為什麼，還要做的留著。")
-        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": note}
+        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": note, "origin_events": events}
     root = tree["nodes"][tree["id"]]
     if goal == root.get("text"):
         return {"ok": True, "tree": tree["id"], "goal_changed": False, "note": "樹根沒變"}
@@ -952,8 +958,10 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
     _goal_changed(doc, tree, turn)
     root["history"].append({"seq": tree["goal_changed"]["seq"], "turn": turn, "what": "text", "why": why})
     add_checkpoint(doc, tree, turn, "set", tree["id"])
-    return {"ok": True, "tree": tree["id"], "goal_changed": True,
-            "note": f"{tree['id']} 樹根改寫，目標版本 {tree['goal_rev']}"}
+    events = []
+    root_line = _check_root(doc, tree, turn, events)
+    return {"ok": True, "tree": tree["id"], "goal_changed": True, "origin_events": events,
+            "note": f"{tree['id']} 樹根改寫，目標版本 {tree['goal_rev']}" + (f"\n{root_line}" if root_line else "")}
 
 
 ORIGIN_DOWNGRADED_MAX = 20
@@ -992,9 +1000,27 @@ def _check_origin(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, node: Dic
     return line
 
 
+def _check_root(doc: Dict[str, Any], tree: Dict[str, Any], turn: int,
+                events: List[Tuple[str, Dict[str, Any]]]) -> Optional[str]:
+    """set 開樹、改寫樹根、匯入時：樹根切句後原話裡沒有的句子列一行提醒（當下回傳與下一則訊息各一次），origin 不動。
+    沒有這種句子或開關關掉回 None。"""
+    if not origin_check_on():
+        return None
+    miss = rr.root_unquoted_sentences(tree["nodes"][tree["id"]].get("text"), tree.get("user_said") or [])
+    if not miss:
+        return None
+    line = ("[NeedGoal] 樹根這幾句原話裡沒有：" + "".join(f"「{_clip(s, 80)}」" for s in miss[:6])
+            + "——這些是 AI 的解讀，不是使用者說的")
+    pend = doc.setdefault("origin_downgraded", [])
+    pend.append({"node": tree["id"], "turn": turn, "line": line, "root": True})
+    del pend[:-ORIGIN_DOWNGRADED_MAX]
+    events.append(("root_unquoted", {"node": tree["id"], "sentences": [_clip(s, 200) for s in miss[:20]]}))
+    return line
+
+
 def _origin_reminder(doc: Dict[str, Any]) -> List[str]:
-    """上次寫入被降級的節點：下一則訊息的樹提示帶一次，帶完就清。"""
-    return [f"[NeedGoal] 提醒：{p['line']}" for p in doc.pop("origin_downgraded", None) or []
+    """上次寫入被降級的節點、樹根原話裡沒有的句子：下一則訊息的樹提示帶一次，帶完就清。"""
+    return [p["line"] if p.get("root") else f"[NeedGoal] 提醒：{p['line']}" for p in doc.pop("origin_downgraded", None) or []
             if isinstance(p, dict) and p.get("line")]
 
 
@@ -1185,7 +1211,8 @@ def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> 
         res = import_handoff(sid, text, path, turn)
         ok = bool(res["imported"])
         out = {"ok": ok, "tree": (res["imported"] or [None])[-1], "goal_changed": ok,
-               "rejected": [] if ok else [res.get("skipped") or "沒有可匯入的樹"], "note": "匯入續接單的樹"}
+               "rejected": [] if ok else [res.get("skipped") or "沒有可匯入的樹"],
+               "note": "匯入續接單的樹" + "".join(f"\n{ln}" for ln in res.get("root_lines") or [])}
         return _result(sid, action, out, load(sid))
 
     def fn(doc: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -1917,14 +1944,20 @@ def import_handoff(sid: Any, text: str, path: str, turn: int) -> Dict[str, Any]:
         _attach_said(doc, doc["trees"][doc["active"]], turn)  # 本 session 匯入前的原話（常是開工句）接在前一個 session 的原話後面
         _adopt_untreed(doc, doc["trees"][doc["active"]])     # 沒樹時改的知識類檔掛進接續的那一棵（不看匯入順序）
         doc.setdefault("imports", []).append({"path": norm, "sha": sha, "at": wg_core._now_iso(), "trees": new_ids})
-        return {"imported": new_ids, "map": mapping, "skipped": None, "text": render(active_tree(doc), "full", doc=doc)}
+        events: List[Tuple[str, Dict[str, Any]]] = []
+        roots = [ln for ln in (_check_root(doc, doc["trees"][t], turn, events) for t in new_ids) if ln]
+        return {"imported": new_ids, "map": mapping, "skipped": None, "origin_events": events, "root_lines": roots,
+                "text": render(active_tree(doc), "full", doc=doc)}
 
     res = update_locked(sid, fn)
+    for event, kw in res.pop("origin_events", None) or []:
+        _guard(event, sid, **kw)
     if res["imported"]:
         _guard("import", sid, trees=res["imported"], path=str(path))
         head = "、".join(f"{o}→{n}" for o, n in res["map"].items())
         res["text"] = (f"[NeedGoal] 從續接單匯入需求目標樹（{head}；前一個 session 的證據只供閱讀，之後改到的節點要交新證據）。"
-                       "先用自己的話覆述目標與現況、確認樹還對，再接著做。\n" + res.get("text", ""))
+                       "先用自己的話覆述目標與現況、確認樹還對，再接著做。\n"
+                       + "".join(f"{ln}\n" for ln in res.get("root_lines") or []) + res.get("text", ""))
     else:
         res.setdefault("text", "")
     return res

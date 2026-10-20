@@ -2,7 +2,8 @@
 
 覆蓋：add／update 標 origin=user 時 quote 或節點文字是原話字面子串 → 保持 user（history 記引用回合、存 quote 與 said_seq）；
 對不到、quote 太短、只出現在同伴轉述 → 強制 inferred、回傳 note 提醒、下一則訊息的樹提示帶一次就清、守門紀錄留帳；
-樹根與匯入的節點不核；guard.origin_user_check.enabled=false 不核；驗收題 C 第二段的真實輸入。
+樹根 origin 不動、顯示一律「AI 的解讀」，set／改寫樹根／匯入時切句列出原話裡沒有的句子提醒一次；
+匯入的子節點不核；guard.origin_user_check.enabled=false 不核；驗收題 C 第二段的真實輸入。
 不碰 live：目標檔、守門紀錄、OverviewHub log 全落 tmp；設定用 monkeypatch 給。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_origin_user_check.py
 """
@@ -143,9 +144,47 @@ def test_imported_user_node_without_quote_kept(env, monkeypatch):
     assert _node("T1.1", sid="sess-origin-next")["origin"] == "user"
 
 
-def test_set_root_stays_user(env):
-    _tree_with("接手 qc-stock 的退貨調整需求", goal="退貨要能正確扣庫存，而且舊報表不被這次改動弄壞")
-    assert _node("T1")["origin"] == "user" and not ng.load(SID).get("origin_downgraded")
+def test_set_root_origin_unchanged_label_is_ai_reading_and_lists_missing_sentence(env):
+    """002 ①：樹根兩句、一句在原話一句不在 → 只列不在的那句；origin 欄位仍 user、顯示一律「AI 的解讀」；提醒當下＋下一則各一次。"""
+    ng.on_prompt(SID, "adjust_stock 要支援負數退貨，其他照舊", 1, {})
+    r = _op("set", goal="adjust_stock 要支援負數退貨；舊報表不被這次改動弄壞")
+    root = _node("T1")
+    assert root["origin"] == "user" and "history" in root
+    assert "[進行中｜明確｜AI 的解讀]" in r["text"] and "｜使用者說的]" not in r["text"]
+    line = next(ln for ln in r["text"].splitlines() if ln.startswith("[NeedGoal] 樹根這幾句原話裡沒有"))
+    assert "「舊報表不被這次改動弄壞」" in line and "adjust_stock 要支援負數退貨" not in line, line
+    assert _events(env, "root_unquoted")[0]["sentences"] == ["舊報表不被這次改動弄壞"]
+    assert "樹根這幾句原話裡沒有" in ng.on_prompt(SID, "繼續", 2, {})
+    assert "樹根這幾句原話裡沒有" not in ng.on_prompt(SID, "再繼續", 3, {})
+    assert "AI 的解讀" in ng.handoff_block(SID)   # 續接單用同一個 render
+
+
+def test_set_root_all_in_user_words_no_reminder(env):
+    """002 ②：樹根每句都是原話子串 → 不提醒、不留帳。"""
+    ng.on_prompt(SID, "adjust_stock 要支援負數退貨，扣到低於 0 要擋下來", 1, {})
+    r = _op("set", goal="adjust_stock 要支援負數退貨，扣到低於 0 要擋下來")
+    assert "樹根這幾句原話裡沒有" not in r["text"] and not _events(env, "root_unquoted")
+    assert not ng.load(SID).get("origin_downgraded")
+
+
+def test_set_root_rewrite_rechecked(env):
+    """002：set 改寫樹根（why 那條路）同樣重核。"""
+    ng.on_prompt(SID, "adjust_stock 要支援負數退貨", 1, {})
+    assert "樹根這幾句" not in _op("set", goal="adjust_stock 要支援負數退貨")["text"]
+    r = _op("set", turn=2, goal="adjust_stock 要支援負數退貨，順便重寫整個報表模組", why="AI 自己擴範圍")
+    assert "「順便重寫整個報表模組」" in r["text"], r["text"]
+
+
+def test_import_root_checked(env):
+    """002 ④：從續接單匯入的樹根同樣切句核對（對前一個 session 的原話）。"""
+    ng.on_prompt(SID, "讓匯出變快，其他不動", 1, {})
+    env["cfg"]["guard"]["origin_user_check"] = {"enabled": False}
+    _op("set", goal="讓匯出變快；而且順便換掉資料庫")
+    block = ng.handoff_block(SID)
+    env["cfg"]["guard"]["origin_user_check"] = {"enabled": True}
+    res = ng.import_handoff("sess-origin-next", block, str(env["tmp"] / "next-phase-x.md"), 1)
+    assert res["imported"] and "「而且順便換掉資料庫」" in res["text"] and "讓匯出變快」" not in res["text"], res["text"]
+    assert ng.tree_of(ng.load("sess-origin-next"), res["imported"][0])["nodes"][res["imported"][0]]["origin"] == "user"
 
 
 def test_switch_off_keeps_old_behavior(env):
@@ -174,5 +213,13 @@ def test_c2_real_input_inferred_nodes_downgraded(env):
     assert [_node(f"T1.{i}")["origin"] for i in range(1, 5)] == ["inferred"] * 4, r["text"]
     assert sum("⚠" in ln and "對不到原話" in ln for ln in r["text"].splitlines()) == 3, r["text"]
     assert {e["node"] for e in _events(env, "origin_downgraded")} == {"T1.1", "T1.2", "T1.3"}
-    # 已知限制（交付信待決）：「舊報表不被這次改動弄壞」實際寫在樹根，本軌不核樹根
+    # 「舊報表不被這次改動弄壞」實際寫在樹根：origin 不動（樹根列句見下一案）
     assert _node("T1")["origin"] == "user"
+
+
+def test_c2_real_root_listed_at_set(env):
+    """002 ③：C-2 真實樹根在 set 當下就被列出（舊碼什麼都不說）。"""
+    ng.on_prompt(SID, C2_SAID, 1, {})
+    r = _op("set", goal=C2_GOAL)
+    line = next(ln for ln in r["text"].splitlines() if ln.startswith("[NeedGoal] 樹根這幾句原話裡沒有"))
+    assert "舊報表不被這次改動弄壞」" in line and "｜AI 的解讀]" in r["text"], r["text"]   # 切出來的句子帶「而且」

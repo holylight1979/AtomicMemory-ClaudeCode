@@ -1832,3 +1832,6 @@ def test_origin_user_needs_quote():
     assert origin == "inferred" and v.owed and v.rule == "ORIGIN_USER_NEEDS_QUOTE" and m is None
     _, v, _ = rr.origin_user_verdict("x", "報表格式不能變", said, [{"from": "claude-aa", "text": "報表格式不能變喔"}])
     assert v.owed and "同伴 claude-aa" in v.why
+    # 樹根版：切句後 ≥6 字、原話裡沒有的句子
+    assert rr.root_unquoted_sentences("把 audit 寫進 log 檔；舊報表不被弄壞，ok", said) == ["舊報表不被弄壞"]
+    assert rr.root_unquoted_sentences("把 audit 寫進 log 檔——舊報表不被弄壞", said) == ["舊報表不被弄壞"]   # 雙破折號也切
