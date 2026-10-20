@@ -890,19 +890,20 @@ def _verify_gates(
                 audit=_claim_audit,
             )
             kind = "reconcile" if reason or report else ""
-            # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 被宣稱行解掉的留帳（guard-reconcile.jsonl event=claim_disclaimed／claim_receipt_ref），健檢抽查
-            for _ca in _claim_audit:
-                append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq,
-                                               "event": "claim_receipt_ref" if _ca.get("rule") == "CLAIM_RECEIPT_REF_MATCH" else "claim_disclaimed",
-                                               "letter": _ca.get("letter"), "kind": _ca.get("kind"), "why": str(_ca.get("why", ""))[:200],
-                                               "line": str(_ca.get("line", ""))[:200]})
-                print(f"[Guardian:ReconcileGate] ({_ca.get('letter')}) 宣稱行解掉：{_ca.get('why')}（已留帳）", file=sys.stderr)
         except Exception as e:
             reason = (f"[Guardian:ReconcileGate] 判定錯誤，一律擋：{type(e).__name__}: {e}。"
                       "修好設定或回報；先別宣告完成")
             kind = "reconcile"
             print(reason, file=sys.stderr)
             append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
+        # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 被宣稱行解掉的留帳（guard-reconcile.jsonl event=claim_disclaimed／claim_receipt_ref），健檢抽查；
+        # 判定後段出例外也照記（解掉那一筆已發生）
+        for _ca in _claim_audit:
+            append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq,
+                                           "event": "claim_receipt_ref" if _ca.get("rule") == "CLAIM_RECEIPT_REF_MATCH" else "claim_disclaimed",
+                                           "letter": _ca.get("letter"), "kind": _ca.get("kind"), "why": str(_ca.get("why", ""))[:200],
+                                           "line": str(_ca.get("line", ""))[:200]})
+            print(f"[Guardian:ReconcileGate] ({_ca.get('letter')}) 宣稱行解掉：{_ca.get('why')}（已留帳）", file=sys.stderr)
     closable = None
     if sg_cfg.get("enabled", True):
         # 驗證範圍：該測哪些由 LLM 宣告（need_goal verify_scope），這裡只查有沒有宣告、範圍內每項有沒有改完之後跑綠的收據；

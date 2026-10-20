@@ -304,6 +304,16 @@ def strip_quoted_spans(text: str) -> str:
     return _QUOTED_SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
+def _audit_once(audit: Optional[List[Dict[str, Any]]], phrase: str, v: Any) -> None:
+    """同一條不做行解掉幾個退避詞只留一筆（抽查帳以事項為單位，不以詞為單位）。"""
+    if audit is None:
+        return
+    line = v.evidence[0] if v.evidence else ""
+    if any(a.get("line") == line and a.get("rule") == v.rule for a in audit):
+        return
+    audit.append({"phrase": phrase, "rule": v.rule, "why": v.why, "line": line})
+
+
 def _line_at(text: str, idx: int) -> str:
     """idx 所在的那一行（不做行的對應以行為單位：事項與理由常被句號切開）。"""
     s = text.rfind("\n", 0, idx) + 1
@@ -322,16 +332,18 @@ def detect_evasion(text: str, recent_user_prompts: List[str],
     """
     if not text:
         return None
-    from wg_release_rules import not_doing_hint, not_doing_verdict, parse_not_doing
+    from wg_release_rules import is_claim_line, not_doing_hint, not_doing_verdict, parse_not_doing
     decls = parse_not_doing(text)
     prompts = user_typed_prompts(recent_user_prompts)[-3:]
     for m in _EVASION_RE.finditer(strip_quoted_spans(text)):
         phrase, idx = m.group(0), m.start()
+        line = _line_at(text, idx)
+        if is_claim_line(line):          # 宣稱行是對閘的回答（「非本回合宣稱」），不是退避句
+            continue
         cat = evasion_category(phrase)
-        v = not_doing_verdict(_line_at(text, idx), decls, prompts, cat["exception"])
+        v = not_doing_verdict(line, decls, prompts, cat["exception"])
         if not v.owed:
-            if audit is not None:
-                audit.append({"phrase": phrase, "rule": v.rule, "why": v.why, "line": v.evidence[0] if v.evidence else ""})
+            _audit_once(audit, phrase, v)
             continue
         excerpt = text[max(0, idx - 80): idx + len(phrase) + 80]
         return {"phrase": phrase, "context_excerpt": excerpt, "category": cat["id"], "hint": not_doing_hint(cat["exception"])}
@@ -372,10 +384,12 @@ def detect_deferral(
     """
     if not text:
         return None
-    from wg_release_rules import not_doing_verdict, parse_not_doing
+    from wg_release_rules import is_claim_line, not_doing_verdict, parse_not_doing
     decls = parse_not_doing(text)
     prompts = user_typed_prompts(recent_user_prompts)[-3:]
     for line in strip_markdown_blocks(text).split("\n"):
+        if is_claim_line(line):          # 宣稱行是對閘的回答（「非本回合宣稱」），不是退縮句
+            continue
         for orig_sent in _SENTENCE_SPLIT_RE.split(line):
             sent = strip_quoted_spans(orig_sent)  # 引號內轉述不觸發（同 detect_evasion）
             m = _DEFERRAL_RE.search(sent)
@@ -392,8 +406,7 @@ def detect_deferral(
                 continue
             v = not_doing_verdict(line, decls, prompts)
             if not v.owed:
-                if audit is not None:
-                    audit.append({"phrase": m.group(0), "rule": v.rule, "why": v.why, "line": v.evidence[0] if v.evidence else ""})
+                _audit_once(audit, m.group(0), v)
                 continue
             return {"phrase": m.group(0), "sentence": orig_sent.strip()[:200]}
     return None
@@ -442,7 +455,9 @@ def deferral_gate_reason(
         "  (b) 真的不能做：寫一行「不做｜<哪一件>：<理由：不可逆／需使用者拍板業務取捨／會飄移主任務>」"
         "（規則 NOT_DOING_DECLARED，程式只查有沒有理由、留帳不擋）\n"
         "  (c) 使用者已明示延後：寫一行「不做｜<哪一件>：使用者說「<原句片段>」」"
-        "（規則 USER_WAIVER_NEEDS_CITATION，片段要真的在近 3 則使用者原話裡）"
+        "（規則 USER_WAIVER_NEEDS_CITATION，片段要真的在近 3 則使用者原話裡）\n"
+        "  (d) 這句只是在描述、沒推任何事（例：「下個 session 開場會列出…」在講已驗過的行為）：寫一行"
+        "「不是退避｜<命中的詞>：因為 <理由>」（留帳抽查）"
     )
 
 

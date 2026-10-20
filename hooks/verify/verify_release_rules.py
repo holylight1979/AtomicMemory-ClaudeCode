@@ -1742,6 +1742,7 @@ def test_p6_parse_claim_dispositions():
 
 def test_p6_claim_disposition_verdict():
     found = {"verify_x.py": "python -m pytest verify_x.py（turn 5）"}
+    assert not rr.reason_present("....")
     find = lambda ref: found.get(ref)  # noqa: E731
     v = rr.claim_disposition_verdict("fixed", {}, find)
     assert v.owed and v.rule == "CLAIM_WORDS_ARE_HINTS" and "宣稱｜修好" in v.evidence[0]
@@ -1773,6 +1774,14 @@ def test_p7_not_doing_verdict():
     v = rr.not_doing_verdict("D 之後再處理", decls, [], "除非附「檢測時點 + 不修的實際風險」")
     assert v.owed and "不做｜<哪一件>：<理由：檢測時點" in v.evidence[1]
     assert not rr.not_doing_verdict("不做｜A 清理：風險是 state 並行競寫會毀檔", decls, []).owed, "命中行本身就是不做行"
+    dis = rr.parse_not_doing("不是退避｜既有的問題：因為那句在說明舊碼原本就有的行為，本輪已修")
+    assert dis[0]["mode"] == "disclaim" and dis[0]["item"] == "既有的問題" and not dis[0]["quote"]
+    v = rr.not_doing_verdict("這是既有的問題，本輪已修。", dis, [])
+    assert not v.owed and "不是退避" in v.why
+    assert rr.not_doing_verdict("這是既有的問題，本輪已修。", rr.parse_not_doing("不是退避｜既有的問題：..."), []).owed
+    _, w = rr.waived_failures([{"cmd": "pytest verify_a.py", "summary": ""}],
+                              rr.parse_not_doing("不是退避｜verify_a.py：使用者說「先這樣」"), ["先這樣"])
+    assert not w, "不是退避行不能豁免紅測"
 
 
 def test_p7_waived_failures_only_cited_and_matching():
@@ -1785,6 +1794,26 @@ def test_p7_waived_failures_only_cited_and_matching():
     assert len(kept) == 2 and not waived, "引用找不到 → 不豁免"
     kept, _ = rr.waived_failures(failing, rr.parse_not_doing("不做｜verify_a.py：太難了，風險高"), ["verify_a 先這樣"])
     assert len(kept) == 2, "AI 自己的理由不能豁免紅測，只有使用者引用能"
+    # codex BLOCK：事項要指得到那一筆（完整 token），通用字或檔名的一截不行
+    for item in ("py", "pytest", "verify", "old_verify_a.py", "verify_ab.py", "hooks"):
+        kept, _ = rr.waived_failures(failing, rr.parse_not_doing(f"不做｜{item}：使用者說「先這樣」"), ["先這樣"])
+        assert len(kept) == 2, item
+    kept, _ = rr.waived_failures(failing, rr.parse_not_doing("不做｜hooks/verify/verify_a.py：使用者說「先這樣」"), ["先這樣"])
+    assert len(kept) == 1, "完整路徑指得到"
+    node = [{"cmd": "python -m pytest hooks/verify/verify_a.py::test_x", "summary": "1 failed"}]
+    kept, _ = rr.waived_failures(node, rr.parse_not_doing("不做｜verify_a.py::test_x：使用者說「先這樣」"), ["先這樣"])
+    assert not kept, "測試節點指得到"
+
+
+def test_p7_reason_and_quote_need_text_not_length():
+    """codex WARN／BLOCK：理由看有沒有文字內容不看字數（「風險高」算、「....」不算）；引用純標點不算、英文整詞比對。"""
+    assert rr.reason_present("風險高") and rr.reason_present("不需要") and not rr.reason_present("....") and not rr.reason_present("<理由>")
+    assert not rr.quote_in_prompts("!!", ["請修好!!"]) and not rr.quote_in_prompts("ok", ["broken"])
+    assert rr.quote_in_prompts("ok", ["ok, skip it"]) and rr.quote_in_prompts("skip it", ["ok,  skip   it"])
+    assert rr.quote_in_prompts("先這樣", ["好，先 這樣吧"])
+    assert rr.names_item("python -m pytest hooks/verify/verify_a.py", "verify_a.py")
+    assert not rr.names_item("python -m pytest hooks/verify/verify_a.py", "python")
+    assert rr.names_item("python -m pytest hooks/verify/verify_a.py -q", "pytest hooks/verify/verify_a.py"), "帶空白的逐字片段"
 
 
 def test_evasion_context_exempt_boundary():

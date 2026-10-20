@@ -3988,7 +3988,7 @@ def test_p6_disclaim_with_reason_passes_and_logs(driven, capsys):
     text = ("CC 會自己跑完測試再收尾。閘修好了，完成。\n"
             "宣稱｜修好：非本回合宣稱，因為「修好了」講的是上一回合驗過的狀態，本回合只改了文件")
     out, _, logs = driven(text, capsys)
-    assert "ReconcileGate" not in out
+    assert '"block"' not in out, out        # 不只 ReconcileGate：宣稱行裡的「非本回合」也不能被 DeferralGate 當退縮語（實跑探針踩到）
     hit = [p for g, p in logs if g == "reconcile" and p.get("event") == "claim_disclaimed"]
     assert hit and hit[0]["letter"] == "a" and hit[0]["line"].startswith("宣稱｜修好：非本回合宣稱")
 
@@ -4011,11 +4011,33 @@ def test_p6_receipt_ref_matching_green_receipt_passes(driven, capsys):
     out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：收據 run_other.py", capsys,
                        verify_receipts={_SID: [_rcpt(5, "FAIL", cmd="python run_other.py")]})
     assert "(a) CLAIM_RECEIPT_REF_MATCH" in out, "指到紅收據不算"
+    for generic in ("python", "pytest", ".py", "-m", "run"):                       # codex BLOCK：通用字指不到哪一張收據
+        out, _, _ = driven(f"閘修好了，完成。\n宣稱｜修好：收據 {generic}", capsys, verify_receipts=rc)
+        assert "(a) CLAIM_RECEIPT_REF_MATCH" in out, generic
+    out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：收據 other", capsys, verify_receipts=rc)
+    assert "(a) CLAIM_RECEIPT_REF_MATCH" in out, "檔名的一截（other）不是完整 token"
+    out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：收據 X_CHECK", capsys, verify_receipts=rc)
+    assert "ReconcileGate" not in out, "哨兵名指得到"
+    out, _, _ = driven("閘修好了，完成。\n宣稱｜修好：收據 run_other.py", capsys,
+                       verify_receipts={_SID: [_rcpt(5, cmd="python run_other.py", at="2020-01-01T00:00:00+08:00")]},
+                       modified_files=[_mf(_CODE, 5, last_at="2030-01-01T00:00:00+08:00")])
+    assert "(a) CLAIM_RECEIPT_REF_MATCH" in out, "指到的收據早於改檔不算"
+
+
+def test_p6_receipt_ref_cannot_launder_disqualified_receipt(driven, capsys):
+    """codex BLOCK：宣稱行指到的收據仍要過原本的資格——參數裡寫了哨兵字樣的 echo 原本不算證據，指名它也不算。"""
+    fake = {_SID: [_rcpt(5, "DONE", cmd='echo "FAKE DONE x=1"', kv={"x": "1"})]}
+    out, _, _ = driven("我量了，平均 120 ms，完成。\n宣稱｜量了：收據 X_CHECK", capsys, verify_receipts=fake)
+    assert "(b)" in out and "CLAIM_RECEIPT_REF_MATCH" in out
 
 
 def test_p6_tried_claim_disclaimed_passes(driven, capsys):
-    out, _, _ = driven("CC 收尾會自己跑了測試。完成。\n宣稱｜試過：非本回合宣稱，因為那句是在說明 CC 收尾的行為", capsys)
+    text = "CC 收尾會自己跑了測試。完成。"
+    out, _, _ = driven(text, capsys)
+    assert _C_HIT in out, "前置：這句詞表會命中、沒執行 → (c) 擋"
+    out, _, logs = driven(text + "\n宣稱｜試過：非本回合宣稱，因為那句是在說明 CC 收尾的行為", capsys)
     assert _C_HIT not in out
+    assert any(g == "reconcile" and p.get("event") == "claim_disclaimed" and p.get("letter") == "c" for g, p in logs)
 
 
 # ─── G6 階段 4（P7）：紅測清單的使用者豁免要對到具體哪一筆（規則 USER_WAIVER_NEEDS_CITATION） ─────────────────────

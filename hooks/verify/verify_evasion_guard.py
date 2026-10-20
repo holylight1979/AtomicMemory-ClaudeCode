@@ -221,8 +221,18 @@ def test_p7_not_doing_line_with_placeholder_reason_still_flagged():
 
 
 def test_p7_item_named_in_not_doing_line_covers_sentence_elsewhere():
-    t = "registry 污染留給未來處理。\n不做｜registry 污染：要動 state 寫入，並行競寫風險，這輪不碰。"
-    assert detect_evasion(t, []) is None
+    plain = "registry 污染留給未來處理。"
+    assert detect_evasion(plain, []) is not None, "前置：沒有不做行時這句會標"
+    audit = []
+    assert detect_evasion(plain + "\n不做｜registry 污染：要動 state 寫入，並行競寫風險，這輪不碰。", [], audit=audit) is None
+    assert len(audit) == 1 and audit[0]["rule"] == "NOT_DOING_DECLARED"
+
+
+def test_p7_audit_one_entry_per_not_doing_line():
+    """同一條不做行裡有兩個退避詞（既有的問題＋另行處理）→ 留帳一筆，不是兩筆（codex WARN）。"""
+    audit = []
+    assert detect_evasion("完成。\n不做｜registry 污染：既有的問題，另行處理，因為要動 state 寫入有並行競寫風險。", [], audit=audit) is None
+    assert len(audit) == 1
 
 
 def test_p7_user_citation_waives_only_the_cited_item():

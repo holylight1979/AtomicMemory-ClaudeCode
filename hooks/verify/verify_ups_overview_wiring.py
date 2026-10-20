@@ -68,6 +68,18 @@ def test_on_prompt_exception_does_not_break_handler(wired, monkeypatch):
     assert state["turn_seq"] == 1 and len(outputs) == 1              # 走到尾、turn_seq 推進、有輸出
 
 
+def test_p7_evasion_injection_carries_not_doing_hint(wired, monkeypatch):
+    """G6 P7：上輪退避旗標注入舉證要求時，附上 Stop 給的不做行寫法（hint），AI 才知道「真的不做」要怎麼回；旗標注入後清空。"""
+    state, debug_calls, outputs = wired
+    state["evasion_flag"] = {"phrase": "既有的問題", "context_excerpt": "x", "category": "precedent-drift",
+                             "hint": "真的不做 → 寫一行「不做｜<哪一件>：<理由：檢測時點 + 不修的實際風險>」"}
+    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
+    ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
+    assert debug_calls == []
+    text = outputs[0]["hookSpecificOutput"]["additionalContext"]
+    assert "[Guardian:Evasion]" in text and "不做｜<哪一件>" in text and state["evasion_flag"] is None
+
+
 def test_on_prompt_text_reaches_additional_context(wired, monkeypatch):
     state, debug_calls, outputs = wired
     monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "[Guardian:OverviewHub] HUB-TEXT")

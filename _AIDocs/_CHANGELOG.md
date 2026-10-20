@@ -5,10 +5,11 @@
 
 ---
 ## 2026-10-20 G6 階段 4：宣稱詞表降成提示、退避例外的入口接上（判斷入口盤點 P6＋P7）
-- **使用者看到的**：收尾不再被「CC 會自己跑完測試」這類說明句擋住——(a)(b)(c) 命中且沒證據時，擋訊息改教 AI 回一行「宣稱｜修好：非本回合宣稱，因為…」（放行、留帳）或「宣稱｜修好：收據 <指令片段或哨兵名>」（程式核對那張收據合格且晚於改檔）；真宣稱沒證據照擋。AI 寫一行「不做｜<哪一件>：<理由>」會被退避偵測與 DeferralGate 接受並留帳，不再被當成退避；使用者說「先這樣／跳過」要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」對到具體哪一件（含紅測清單），不再一句話清掉全部。
+- **使用者看到的**：收尾不再被「CC 會自己跑完測試」這類說明句擋住——(a)(b)(c) 命中且沒證據時，擋訊息改教 AI 回一行「宣稱｜修好：非本回合宣稱，因為…」（放行、留帳）或「宣稱｜修好：收據 <指令片段或哨兵名>」（引用要指得到那條指令的完整 token 或哨兵名，通用字不算；那張收據要過原本資格：修好要合格 PASS、同根、晚於改檔，量了要 DONE 且指令可信，試過要指令可信）；真宣稱沒證據照擋。AI 寫一行「不做｜<哪一件>：<理由>」會被退避偵測與 DeferralGate 接受並留帳，不再被當成退避；說明句被退避詞誤命中（b 軌實遇「下個 session 開場列出的內容…三段都正常」）寫「不是退避｜<命中的詞>：因為…」同樣放行留帳；使用者說「先這樣／跳過」要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」對到具體哪一件（含紅測清單），不再一句話清掉全部。
 - **改了什麼**：`hooks/wg_release_rules.py` 新 5 條規則（CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH／NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）與純判定（`parse_claim_dispositions`、`claim_disposition_verdict`、`parse_not_doing`、`not_doing_verdict`、`waived_failures`）；`wg_verify_ledger.reconcile_gate_parts` (a)(b)(c) 命中後先看宣稱行、`audit` 回給 stop 落 guard-reconcile（event=claim_disclaimed／claim_receipt_ref）；`wg_evasion.detect_evasion`／`detect_deferral` 逐處對不做行、`audit` 落 guard-evasion_declared／guard-deferral_declared，退避旗標帶 category 與寫法提示（詞表各類 `exception` 欄從此由程式接上）；`handlers/stop.py` 只動宣稱／退避段（TestFailGate 吃 `waived_failures`，落 guard-testfail_waived）；`handlers/ups_gates.py` 拿掉「dismiss 詞清掉全部 failing_tests」；`handlers/user_prompt_submit.py` 舉證提示附不做行寫法；`forbidden-phrases.json` 刪 `deferral_user_ok`（整段豁免已廢）、更新 `_doc`。
 - **驗證**：新案例 19 個（13 個純函式與偵測、6 個 Stop 驅動）在 main 舊碼上先紅、新碼全綠；相關測試檔前景跑綠（數字見驗證範圍宣告）。
-- **沒做、留著**：盤點第二節類 1 同類（wg_friction 糾正詞、ups_gates「否」字否決、wg_harvest dismiss）排階段 5；宣稱行與不做行只認收尾文字的行，need_goal 完整對照的結構化證據照舊是正式宣告。
+- **codex 一輪**：4 BLOCK 都修——收據引用改成完整 token（通用字、檔名一截不算）、指到的收據仍要過原本資格（參數寫哨兵字樣的 echo 不能靠指名洗白）、使用者引用純標點不算且英文整詞比對、紅測事項改完整 token 比對（`verify_a.py` 對不到 `old_verify_a.py`）；WARN 順手修：理由改看有沒有文字內容不看字數、同一不做行多個退避詞只留帳一筆、audit 留帳移到判定例外之外。
+- **沒做、留著**：盤點第二節類 1 同類（wg_friction 糾正詞、ups_gates「否」字否決、wg_harvest dismiss）排階段 5；紅測豁免不存裁定（下次收尾沒再附不做行或原句退出近 3 則會再擋）、recent_user_prompts 只存每則前 500 字，列追蹤項；宣稱行與不做行只認收尾文字的行，need_goal 完整對照的結構化證據照舊是正式宣告。
 
 ## 2026-10-20 收 !11 作者查到的三個「跳過資料夾清單」漏項，MR 本體仍不照原樣合
 - 作者回答動機：不是踩到事故，是收斂時查到三處清單不同步——atom 掃描沒跳 `_archived/`（封存舊卡被當 atom）、定位沒跳 `_rejected/`（退回的卡會被 append／replace 找到）、補來源沒跳 `templates/`（範本被寫進假 Source）；他自己的結論是「出事的都是清單，單一字面沒有」。三處各補一項、收他附的案例 `lib/verify/verify_skip_dirs_behavior.py`（對舊碼三支全紅）。MR 本體（129 檔集中檔名）仍等作者改輕量版，見 `DevHistory/同伴MR審查-2026-10-20.md`。

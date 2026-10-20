@@ -1885,15 +1885,21 @@ RULES.update({
                              "沒這行 → 照原規則擋並附寫法；「非本回合宣稱」附理由 → 放行、留帳（guard-reconcile.jsonl event=claim_disclaimed，"
                              "健檢抽查）；「收據」→ 走 CLAIM_RECEIPT_REF_MATCH。結構化的達成＋證據（need_goal 完整對照）仍是寫碼類的正式宣告，"
                              "宣稱行只處理散文裡的詞。",
-    "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：非空、至少 4 字、不是擋訊息範例的角括號佔位；沒理由不算回。",
-    "CLAIM_RECEIPT_REF_MATCH": "宣稱行指的收據要對得上本 session 一筆收據（指令含那段字、或哨兵名相同；至少 3 字）：說修好 → 合格 PASS 且晚於"
-                               "相關改檔最後一次修改；說量了 → 有 DONE；說試過 → 任一筆執行收據。對不上照擋。",
+    "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：有文字內容（至少 2 個中文或英數字，純標點不算）、不是擋訊息範例的"
+                                   "角括號佔位；沒理由不算回。程式不評理由充不充分。",
+    "CLAIM_RECEIPT_REF_MATCH": "宣稱行指的收據要能辨識出是哪一張：引用的字要是那條指令的一個完整 token（整個 token、檔名、路徑尾段、"
+                               "測試節點尾段），或帶空白的逐字片段，或哨兵名相同；python／pytest／py／-m 這類通用字、旗標、純副檔名不算指名。"
+                               "對上的那張還要過原本的收據資格（指令完整、記了環境、白名單語法、沒寫哨兵字樣、同一棵樹）："
+                               "說修好 → 合格 PASS、同根、晚於相關改檔最後一次修改；說量了 → DONE 且指令可信或跑了部位量尺；"
+                               "說試過 → 指令可信的任一筆。對不上照擋。",
     "NOT_DOING_DECLARED": "退避語（軟偵測與 DeferralGate）命中的那一行若本身就是「不做｜<哪一件>：<理由>」，或同一段文字有不做行而它的事項"
-                          "出現在命中那一行 → 不標、不擋、留帳（guard log evasion_declared／deferral_declared）；理由非空、至少 4 字、不是佔位。"
-                          "詞表各類的 exception 文字（風險、為什麼超出）附在提示裡給 LLM 寫理由用，程式不評理由內容。",
+                          "出現在命中那一行 → 不標、不擋、留帳（guard log evasion_declared／deferral_declared）；理由要有文字內容、不是佔位。"
+                          "說明句被詞表誤命中（「下個 session 開場會列出…」是在描述已驗過的事）→ 寫「不是退避｜<命中的詞或句>：因為 <理由>」"
+                          "同樣只查有沒有理由、留帳。詞表各類的 exception 文字（風險、為什麼超出）附在提示裡給 LLM 寫理由用，程式不評理由內容。",
     "USER_WAIVER_NEEDS_CITATION": "使用者豁免不再整段清掉：近 3 則使用者原話含「先這樣／跳過／留著」不直接關掉退避偵測、退縮歸屬、紅測清單。"
-                                  "LLM 要寫「不做｜<哪一件>：使用者說「<原句片段>」」且片段（去空白，至少 2 字）真的出現在近 3 則使用者原話裡"
-                                  "→ 只豁免那一件；紅測清單同樣只豁免事項對得上（出現在失敗指令或摘要）的那幾筆。沒引用、引用找不到 → 照判。",
+                                  "LLM 要寫「不做｜<哪一件>：使用者說「<原句片段>」」且片段（至少 2 個中文或英數字，純標點不算；英文片段整詞比對）"
+                                  "真的出現在近 3 則使用者原話裡 → 只豁免那一件；紅測清單只豁免事項指得到那一筆的（事項是失敗指令或摘要的一個"
+                                  "完整 token：整個 token、檔名、路徑或節點尾段；通用字不算）。沒引用、引用找不到 → 照判。",
 })
 
 CLAIM_LABELS: Dict[str, str] = {"fixed": "修好", "measured": "量了", "tried": "試過"}
@@ -1903,19 +1909,60 @@ _CLAIM_DISP_RE = re.compile(r"宣稱\s*[｜|]\s*(修好|修復|量了|量過|試
 _DISCLAIM_RE = re.compile(r"^(?:非|不是|並非)\s*本回合\s*(?:自己的?)?\s*宣稱\s*[，,：:、]?\s*(?:因為|理由[：:]?|原因[：:]?)?\s*(.*)$")
 _RECEIPT_REF_RE = re.compile(r"^收據\s*[：:]?\s*(.+)$")
 _NOT_DOING_RE = re.compile(r"不做\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
+# 說明句被退避詞表誤命中（「下個 session 開場會列出…」是在描述已驗過的事）→ AI 說明這不是退避，程式只查有沒有理由、留帳
+_NOT_EVASION_RE = re.compile(r"不是退避\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(?:因為|理由[：:]?)?\s*(.+)")
 _USER_SAID_RE = re.compile(r"使用者\s*(?:說|原話|的話|說的)\s*[：:]?\s*[「『\"“]([^「」『』\"”\n]{1,160})[」』\"”]")
 _WS_RE = re.compile(r"\s+")
 _ITEM_STRIP_RE = re.compile(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。；;]")
+_WORD_CHAR_RE = re.compile(r"[A-Za-z0-9一-鿿]")
+_LATIN_ONLY_RE = re.compile(r"^[A-Za-z0-9 _.\-]+$")
+_TOKEN_TRIM = "\"'`「」『』（）()[]{}<>,，;；。:："
+# 指不到特定收據／測試的通用字：直譯器、跑測工具、旗標、純副檔名（規則 CLAIM_RECEIPT_REF_MATCH／USER_WAIVER_NEEDS_CITATION）
+GENERIC_NAMES = frozenset({"python", "python3", "py", "pytest", "test", "tests", "verify", "run", "node", "npm", "npx", "bash", "sh",
+                           "pwsh", "powershell", "cd", "cmd", "exe", "md", "json", "txt", "m", "q", "x", "utf8"})
 
 
 def _nows(s: Any) -> str:
     return _WS_RE.sub("", str(s or "")).lower()
 
 
-def reason_present(reason: str, min_chars: int = 4) -> bool:
-    """理由有填：去空白後至少 min_chars 字、沒有擋訊息範例的角括號佔位。只查有沒有，不評內容。"""
-    r = _nows(reason)
-    return len(r) >= min_chars and not _EXAMPLE_PLACEHOLDER_RE.search(str(reason or ""))
+def has_text(s: Any, min_chars: int = 2) -> bool:
+    """有文字內容：至少 min_chars 個中文或英數字（純標點、「....」不算）。"""
+    return len(_WORD_CHAR_RE.findall(str(s or ""))) >= min_chars
+
+
+def reason_present(reason: str) -> bool:
+    """理由有填：有文字內容、沒有擋訊息範例的角括號佔位。只查有沒有，不評內容充不充分。"""
+    return has_text(reason) and not _EXAMPLE_PLACEHOLDER_RE.search(str(reason or ""))
+
+
+def is_generic_name(name: str) -> bool:
+    """指不到特定東西的字：通用字表、旗標（- 開頭）、純副檔名（. 開頭）、沒有文字內容。"""
+    n = str(name or "").strip().lower()
+    return (not has_text(n) or n in GENERIC_NAMES or n.startswith("-") or n.startswith(".")
+            or n.lstrip(".") in GENERIC_NAMES)
+
+
+def names_item(text: str, item: str) -> bool:
+    """item 指得到 text（指令或摘要）裡的一個完整 token：整個 token 相等、token 的檔名相等、token 以 /item 或 \\item 結尾（路徑尾段）、
+    或 item 含 :: 時 token 以它結尾（測試節點尾段）；item 含空白時改成逐字片段比對（去多餘空白，不分大小寫）。通用字一律不算。
+    `verify_a.py` 對得到 `hooks/verify/verify_a.py` 與 `verify_a.py::test_x`，對不到 `old_verify_a.py`、`verify_ab.py`。"""
+    it = _WS_RE.sub(" ", str(item or "")).strip().lower()
+    if not it or is_generic_name(it):
+        return False
+    hay = _WS_RE.sub(" ", str(text or "")).lower()
+    if " " in it:
+        return it in hay
+    for raw in hay.split(" "):
+        tok = raw.strip(_TOKEN_TRIM)
+        if not tok:
+            continue
+        if tok == it or tok.endswith("/" + it) or tok.endswith("\\" + it):
+            return True
+        base = tok.replace("\\", "/").rsplit("/", 1)[-1]
+        if base == it or base.startswith(it + "::") or ("::" in it and (tok.endswith(it) or base.endswith(it))):
+            return True
+    return False
 
 
 def parse_claim_dispositions(text: str) -> Dict[str, List[Dict[str, str]]]:
@@ -1936,6 +1983,12 @@ def parse_claim_dispositions(text: str) -> Dict[str, List[Dict[str, str]]]:
             continue
         out.setdefault(kind, []).append({"mode": "unknown", "raw": val, "line": line})
     return out
+
+
+def is_claim_line(line: str) -> bool:
+    """這一行是宣稱行（「宣稱｜修好：非本回合宣稱，因為…」）：它本身是對閘的回答，裡面的「非本回合」不是退避語（實跑探針踩到：
+    回了宣稱行反被 DeferralGate 當「非本回合」擋）。"""
+    return bool(_CLAIM_DISP_RE.search(str(line or "")))
 
 
 def claim_hint(kind: str) -> str:
@@ -1970,16 +2023,22 @@ def claim_disposition_verdict(kind: str, dispositions: Dict[str, List[Dict[str, 
 
 
 def parse_not_doing(text: str) -> List[Dict[str, str]]:
-    """收尾文字裡的不做行 → [{item, reason, quote, line}]；quote＝「使用者說「…」」引用的片段（沒有＝空字串）。"""
+    """收尾文字裡的不做行與不是退避行 → [{mode, item, reason, quote, line}]：mode＝not_doing（「不做｜<哪一件>：<理由>」）或
+    disclaim（「不是退避｜<命中的詞或句>：因為 <理由>」，說明句被詞表誤命中時用）；quote＝「使用者說「…」」引用的片段（沒有＝空字串，
+    不是退避行一律空）。"""
     out: List[Dict[str, str]] = []
     for raw in str(text or "").splitlines():
         m = _NOT_DOING_RE.search(raw)
-        if not m:
+        if m:
+            reason = m.group(2).strip()
+            q = _USER_SAID_RE.search(reason)
+            out.append({"mode": "not_doing", "item": m.group(1).strip(), "reason": reason,
+                        "quote": q.group(1).strip() if q else "", "line": raw.strip()[:240]})
             continue
-        reason = m.group(2).strip()
-        q = _USER_SAID_RE.search(reason)
-        out.append({"item": m.group(1).strip(), "reason": reason, "quote": q.group(1).strip() if q else "",
-                    "line": raw.strip()[:240]})
+        m = _NOT_EVASION_RE.search(raw)
+        if m:
+            out.append({"mode": "disclaim", "item": m.group(1).strip(), "reason": m.group(2).strip(), "quote": "",
+                        "line": raw.strip()[:240]})
     return out
 
 
@@ -1996,16 +2055,24 @@ def not_doing_covering(line: str, decls: Sequence[Dict[str, str]]) -> Optional[D
     return None
 
 
-def quote_in_prompts(quote: str, prompts: Sequence[str], min_chars: int = 2) -> bool:
-    """引用的片段（去空白）至少 min_chars 字、出現在任一則使用者原話裡。"""
-    q = _nows(quote)
-    return len(q) >= min_chars and any(q in _nows(p) for p in prompts or ())
+def quote_in_prompts(quote: str, prompts: Sequence[str]) -> bool:
+    """引用的片段有文字內容（至少 2 個中文或英數字，純標點不算）且出現在任一則使用者原話裡：中文片段去空白子字串比對；
+    純英數片段整詞比對（「ok」對不到「broken」）。"""
+    if not has_text(quote):
+        return False
+    q = _WS_RE.sub(" ", str(quote or "")).strip()
+    if _LATIN_ONLY_RE.match(q):
+        rx = re.compile(r"(?<![A-Za-z0-9])" + re.escape(q).replace(r"\ ", r"\s*") + r"(?![A-Za-z0-9])", re.IGNORECASE)
+        return any(rx.search(_WS_RE.sub(" ", str(p or ""))) for p in prompts or ())
+    qn = _nows(q)
+    return any(qn in _nows(p) for p in prompts or ())
 
 
 def not_doing_hint(exception: str = "") -> str:
     why = re.sub(r"^除非附\s*", "", str(exception or "")).strip().strip("「」") or "風險／為什麼超出／不可逆／要使用者拍板"
     return (f"真的不做 → 寫一行「不做｜<哪一件>：<理由：{why}>」（規則 NOT_DOING_DECLARED，會留帳）；"
-            "使用者叫你跳過 → 「不做｜<哪一件>：使用者說「<原句片段>」」（規則 USER_WAIVER_NEEDS_CITATION）")
+            "使用者叫你跳過 → 「不做｜<哪一件>：使用者說「<原句片段>」」（規則 USER_WAIVER_NEEDS_CITATION）；"
+            "這句只是在描述、沒推任何事 → 「不是退避｜<命中的詞>：因為 <理由>」（留帳抽查）")
 
 
 def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Sequence[str], exception: str = "") -> Verdict:
@@ -2013,6 +2080,10 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
     d = not_doing_covering(line, decls)
     if d is None:
         return Verdict("NOT_DOING_DECLARED", True, "退避語沒有對應的不做行", (str(line or "").strip()[:120], not_doing_hint(exception)))
+    if d.get("mode") == "disclaim":
+        if reason_present(d["reason"]):
+            return Verdict("NOT_DOING_DECLARED", False, f"AI 說明「{d['item'][:60]}」不是退避，因為 {d['reason'][:120]}", (d["line"],))
+        return Verdict("NOT_DOING_DECLARED", True, "不是退避行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
     if d["quote"]:
         if quote_in_prompts(d["quote"], prompts):
             return Verdict("USER_WAIVER_NEEDS_CITATION", False, f"使用者原話「{d['quote'][:60]}」豁免：{d['item'][:60]}", (d["line"],))
@@ -2026,13 +2097,12 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
 def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]],
                     prompts: Sequence[str]) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], Dict[str, str]]]]:
     """USER_WAIVER_NEEDS_CITATION 套在紅測清單：回 (還算紅的, [(被豁免的那筆, 對上的不做行)])。
-    豁免條件：不做行帶使用者引用、引用在原話裡、事項（去標點）出現在那筆失敗的指令或摘要。"""
-    cited = [d for d in decls if d["quote"] and quote_in_prompts(d["quote"], prompts)]
+    豁免條件：不做行帶使用者引用、引用在原話裡、事項指得到那筆失敗的指令或摘要裡的一個完整 token（names_item；通用字不算）。"""
+    cited = [d for d in decls if d.get("mode", "not_doing") == "not_doing" and d["quote"] and quote_in_prompts(d["quote"], prompts)]
     kept: List[Dict[str, Any]] = []
     waived: List[Tuple[Dict[str, Any], Dict[str, str]]] = []
     for f in failing:
-        hay = _ITEM_STRIP_RE.sub("", f"{(f or {}).get('cmd', '')} {(f or {}).get('summary', '')}").lower()
-        item_of = lambda d: _ITEM_STRIP_RE.sub("", d["item"]).lower()  # noqa: E731
-        hit = next((d for d in cited if len(item_of(d)) >= 2 and item_of(d) in hay), None)
+        hay = f"{(f or {}).get('cmd', '')} {(f or {}).get('summary', '')}"
+        hit = next((d for d in cited if names_item(hay, d["item"])), None)
         (waived.append((f, hit)) if hit else kept.append(f))
     return kept, waived

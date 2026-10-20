@@ -40,7 +40,7 @@ from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, go
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
                               MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking,
-                              parse_claim_dispositions, claim_disposition_verdict)
+                              parse_claim_dispositions, claim_disposition_verdict, names_item, is_generic_name)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -2104,21 +2104,28 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     dispositions = parse_claim_dispositions(last_text)
 
     def find_receipt(kind: str, ref: str) -> Optional[str]:
-        """宣稱行指的收據：指令含那段字或哨兵名相同（至少 3 字）；修好要合格 PASS 且晚於相關改檔；量了要 DONE；試過任一筆。"""
-        key = re.sub(r"\s+", "", str(ref or "")).lower()
-        if len(key) < 3:
+        """宣稱行指的收據（規則 CLAIM_RECEIPT_REF_MATCH）：ref 要指得到那條指令的一個完整 token（names_item：整個 token、檔名、
+        路徑或節點尾段、帶空白的逐字片段；python／pytest 這類通用字不算）或哨兵名相同。對上的那張還要過原本的收據資格（_clean：
+        指令完整、記了環境、白名單語法、沒寫哨兵字樣、同一棵樹）：修好 → 合格 PASS、同根、晚於相關改檔；量了 → DONE 且指令可信
+        或跑了部位量尺；試過 → 指令可信的任一筆。"""
+        key = str(ref or "").strip()
+        if not key or is_generic_name(key):
             return None
         for r in receipts:
             if not isinstance(r, dict):
                 continue
-            named = (key in re.sub(r"\s+", "", str(r.get("cmd") or "")).lower()
-                     or any(re.sub(r"\s+", "", str(s.get("name") or "")).lower() == key
+            named = (names_item(str(r.get("cmd") or ""), key)
+                     or any(str(s.get("name") or "").strip().lower() == key.lower()
                             for s in (r.get("sentinels") or []) if isinstance(s, dict)))
             if not named:
                 continue
-            if kind == "fixed" and not (pass_receipts([r]) and all(_after_last_edit(r, mod_records.get(p)) for p in relate_paths)):
+            if kind == "measured":
+                if not ("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))):
+                    continue
+            elif not _clean(r):
                 continue
-            if kind == "measured" and "DONE" not in _verdicts(r):
+            if kind == "fixed" and not (pass_receipts([r]) and all(_after_last_edit(r, mod_records.get(p)) for p in relate_paths)
+                                        and all(_root_ok(r, root_of(p)) for p in relate_paths)):
                 continue
             return f"{str(r.get('cmd') or '')[:60]}（turn {r.get('turn_seq')}）"
         return None

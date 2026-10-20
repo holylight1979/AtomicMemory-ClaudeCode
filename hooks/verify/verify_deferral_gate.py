@@ -63,6 +63,26 @@ def test_p7_user_defer_needs_citation_to_the_item():
     assert detect_deferral(cited, ["為什麼你會判斷還需要新開 session？"]) is not None
 
 
+def test_p6_claim_line_is_not_a_deferral_sentence():
+    """宣稱行「宣稱｜修好：非本回合宣稱，因為…」是對閘的回答，裡面的「非本回合」不是退縮語（實跑探針：回了宣稱行反被擋）。"""
+    text = "閘修好了，完成。\n宣稱｜修好：非本回合宣稱，因為那句講的是上一回合驗過的狀態，本回合只改了文件"
+    assert detect_deferral(text, []) is None
+    from wg_evasion import detect_evasion
+    assert detect_evasion(text, []) is None
+
+
+def test_p7_descriptive_sentence_needs_disclaim_line():
+    """b 軌 10-20 實遇：「下個 session 開場列出的內容…三段都正常」在描述已驗過的事、沒推任何事，卻被「下個 session」擋。
+    詞表只是提示：AI 寫「不是退避｜<命中的詞>：因為 <理由>」→ 不擋、留帳；沒寫照擋（真退縮沒理由照擋）。"""
+    text = "完工。在假專案上真跑了一遍：交付時送出的提醒、記進帳本的那一筆、下個 session 開場列出的內容，三段都正常。"
+    assert detect_deferral(text, []) is not None, "前置：這句詞表會命中"
+    audit = []
+    assert detect_deferral(text + "\n不是退避｜下個 session：因為那句在描述新功能開場會列出什麼，是已跑過的驗證結果", [],
+                           audit=audit) is None
+    assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED" and "不是退避" in audit[0]["why"]
+    assert detect_deferral(text + "\n不是退避｜下個 session：<理由>", []) is not None, "只有佔位不算"
+
+
 def test_p7_not_doing_with_reason_passes_gate_and_audits():
     text = "完工。\n不做｜realm atom 瘦身：留到下個 session，因為要重算全庫索引（約 20 分鐘）、會飄移主任務。"
     audit = []
