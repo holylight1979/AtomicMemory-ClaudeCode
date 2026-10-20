@@ -215,10 +215,11 @@ def test_missing_verdict_line_blocks_and_names_it(drive, capsys, tmp_path):
     assert "「Codex 結論：」行" not in reason, "只點名缺的那一行"
 
 
-def test_one_file_in_risky_prefix_blocks(drive, capsys, tmp_path):
-    root = _repo(tmp_path, {"hooks/wg_release_rules.py": _lines(3)})
-    reason, _, _ = drive(DONE, capsys, files=[root / "hooks" / "wg_release_rules.py"])
-    assert "[Guardian:SecondOpinion]" in reason and "改到高風險部位：wg_release_rules.py" in reason
+@pytest.mark.parametrize("rel", ["hooks/wg_release_rules.py", "hooks/wg_second_opinion.py"])
+def test_one_file_in_risky_prefix_blocks(drive, capsys, tmp_path, rel):
+    root = _repo(tmp_path, {rel: _lines(3)})
+    reason, _, _ = drive(DONE, capsys, files=[root / rel])
+    assert "[Guardian:SecondOpinion]" in reason and f"改到高風險部位：{rel.rsplit('/', 1)[-1]}" in reason
 
 
 def test_two_files_40_lines_not_risky_passes_but_200_lines_blocks(drive, capsys, tmp_path):

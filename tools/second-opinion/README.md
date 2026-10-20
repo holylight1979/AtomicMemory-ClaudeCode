@@ -62,7 +62,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 }
 ```
 收尾自動要求第二意見（Stop 的 SecondOpinion 閘）讀同一段的 `auto` 子段，沒寫就用預設（`hooks/wg_second_opinion.DEFAULTS`）：
-`{"enabled": true, "min_code_files": 4, "min_changed_lines": 150, "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py", "hooks/wg_overview.py", "tools/workflow-guardian-mcp/"], "max_blocks_per_turn": 1}`。
+`{"enabled": true, "min_code_files": 4, "min_changed_lines": 150, "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py", "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/"], "max_blocks_per_turn": 1}`。
 `allow_claude_fallback` 固定 false，config 寫了也不理。codex 執行檔與 `codex_extra_args` 沿用 `codex_companion` 段。
 唯讀沙箱旗標（`-s read-only`，Windows 另加 `-c windows.sandbox="unelevated"`）寫在 `run.py` 的 `_sandbox_args`，不放共用的 `codex_extra_args`：沒帶 unelevated 時 codex 在沙箱裡每個指令都 `CreateProcessWithLogonW failed: 1385`，只能看提示裡內嵌、超過 `material_max_chars` 會截斷的材料；裁判（`codex-companion/assessor.py`）不傳 `-s`，不受影響。
 

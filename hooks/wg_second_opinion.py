@@ -30,7 +30,7 @@ DEFAULTS: Dict[str, Any] = {
     "min_code_files": 4,
     "min_changed_lines": 150,
     "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py",
-                       "hooks/wg_overview.py", "tools/workflow-guardian-mcp/"],
+                       "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/"],
     "max_blocks_per_turn": 1,
 }
 GATE_KIND = "gate"                  # 部位表「類別」欄的原字（overview_hub.parse_map 只分 knowledge／code，這裡讀原字）
