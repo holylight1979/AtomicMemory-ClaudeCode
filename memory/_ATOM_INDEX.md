@@ -454,3 +454,4 @@
 | feedback-審同伴mr的收錄判準-對協作真有幫助才收-雞肋浪費token不收-專案層慣例不進核心-部分取用要寫清楚取捨 | memory/Failures/工作流/feedback-審同伴mr的收錄判準-對協作真有幫助才收-雞肋浪費token不收-專案層慣例不進核心-部分取用要寫清楚取捨.md | merge request, MR 審查, 審 MR, 同伴 MR, GitLab MR, 合併請求, 要不要合併, 部分取用, 雞肋, 專案層還是核心, pull request 審查 | global |  |
 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 | memory/版控/Git/commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取.md | commit 前檢查, PreToolUse git commit, git add && git commit, 暫存區, diff --cached, core.quotePath, name-status -z, 隱私閘漏過, 病形閘, pre-commit 閘 | global |  |
 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 | _AIDocs/_atoms/MemDev/部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過.md | 部位表, overview-map, 路徑前綴, _is_path_token, parse_map, 病灶清單欄, 部位表列被略過, 根目錄檔案當部位 | global |  |
+| 檔名集中定義的取捨-對人好的做法對llm只收名字集中一層-位置拼裝與全面字面守衛是llm讀碼負擔 | memory/設計通則/檔名集中定義的取捨-對人好的做法對llm只收名字集中一層-位置拼裝與全面字面守衛是llm讀碼負擔.md | 檔名集中, 常數集中, 單一來源, single source, memory_names, 拼路徑, join_rel, 字面守衛, 寫字面就紅, 對人 vs 對 LLM, LLM 讀碼成本, 路徑常數, 名稱總表, hover, 跳定義 | global |  |
