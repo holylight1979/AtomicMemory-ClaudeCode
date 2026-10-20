@@ -1321,6 +1321,17 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _need_goal_ask(tool_name, input_data, config)
         return
 
+    # G9：MCP 進程沒有 session 身份，second_opinion_start 由這裡補上 hook 輸入的 session_id（updatedInput），pack 才找得到
+    # 這個 session 的需求目標樹（goal.md）與驗證帳本。settings.json PreToolUse matcher 要掛這個工具才會走到這裡。
+    if tool_name.endswith("__second_opinion_start"):
+        sid = str(input_data.get("session_id") or "")
+        if sid and isinstance(tool_input, dict) and tool_input.get("session_id") != sid:
+            output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                "updatedInput": {**tool_input, "session_id": sid}}})
+            return
+        output_nothing()
+        return
+
     # ─── Sub-agent 記憶注入 ────────────────────────────────────
     # sub-agent（Agent/Task）開全新 context、不觸發 UserPromptSubmit，吃不到 atom。
     # 唯一 parent→child 通道是工具 prompt 字串 → 經 PreToolUse updatedInput prepend

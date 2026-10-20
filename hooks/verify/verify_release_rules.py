@@ -1820,3 +1820,14 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── G9 第二意見 ───
+
+def test_g9_second_opinion_rules_registered():
+    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED：規則名登記、四行少一行就擋、空話理由照擋（完整案例在 verify_g9_second_opinion.py）。"""
+    four = "## 第二意見與分歧裁決\nCodex 結論：同意\n我方結論：同意\n分歧點：無分歧\n"
+    v = rr.second_opinion_verdict(True, ["程式檔 5 個 ≥ 4"], True, [("j1", "done")], four)
+    assert v.rule == "SECOND_OPINION_REQUIRED" and v.owed and "裁決與理由" in v.why
+    v = rr.second_opinion_verdict(True, ["程式檔 5 個 ≥ 4"], True, [], "不需第二意見｜不需要")
+    assert v.rule == "SECOND_OPINION_DECLINED" and v.owed

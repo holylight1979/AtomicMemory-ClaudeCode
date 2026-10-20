@@ -4,6 +4,12 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 G9 自動第二意見：大任務或改到閘本體宣告完成，要真的跑過 Codex 並寫分歧裁決
+- **使用者看到的**：改了 ≥4 個程式檔、對 HEAD 改 ≥150 行、或改到閘本體（stop.py、pre_tool_use.py、wg_release_rules.py、wg_overview.py、MCP 服務、部位表類別 gate）時宣告完成，會被擋一次，要 AI 本回合跑 `second_opinion_start`→`second_opinion_result`，收尾寫「第二意見與分歧裁決」四行；AI 也可以寫「不需第二意見｜理由」，週健檢列出來給人對帳。只送提醒、AI 沒跑，過不了。
+- **改了什麼**：`hooks/wg_release_rules.py` 檔尾 G9 段（規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED 與純判定）；新 `hooks/wg_second_opinion.py` 收事實；`handlers/stop.py` 在 Deferral 之前插 SecondOpinion 段（吃寫碼查核的預算與放行詢問）；`handlers/pre_tool_use.py` 給 `second_opinion_start` 補 session_id；`tools/second-opinion/pack.py` 加 `goal.md`（需求目標樹、遮絕對路徑）與 question 樹根核對，`run.py` 核對不過回 blocked；`tools/health-weekly.py` 列 declined。
+- **驗證**：`hooks/verify/verify_g9_second_opinion.py` 26 案（Stop 驅動 17、事實與純判定 5、材料 2、入口與對帳 2），換回舊的 stop／pre_tool_use／pack／run／health-weekly 時 21 案紅（純判定 5 案本來就綠）、新碼全綠；`verify_release_rules`、`verify_second_opinion`、`verify_stop_reconcile` 前景跑綠。
+- **待合併時做**：live `workflow/config.json` 加 `second_opinion.auto` 段、settings.json PreToolUse matcher 掛 `mcp__workflow-guardian__second_opinion_start`（沒掛時 goal.md 一律「無目標樹」）。
+
 ## 2026-10-20 G6 階段 4：宣稱詞表降成提示、退避例外的入口接上（判斷入口盤點 P6＋P7）
 - **使用者看到的**：收尾不再被「CC 會自己跑完測試」這類說明句擋住——(a)(b)(c) 命中且沒證據時，擋訊息改教 AI 回一行「宣稱｜修好：非本回合宣稱，因為…」（放行、留帳）或「宣稱｜修好：收據 <指令片段或哨兵名>」（引用要指得到那條指令的完整 token 或哨兵名，通用字不算；那張收據要過原本資格：修好要合格 PASS、同根、晚於改檔，量了要 DONE 且指令可信，試過要指令可信）；真宣稱沒證據照擋。AI 寫一行「不做｜<哪一件>：<理由>」會被退避偵測與 DeferralGate 接受並留帳，不再被當成退避；說明句被退避詞誤命中（b 軌實遇「下個 session 開場列出的內容…三段都正常」）寫「不是退避｜<命中的詞>：因為…」同樣放行留帳；使用者說「先這樣／跳過」要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」對到具體哪一件（含紅測清單），不再一句話清掉全部。
 - **改了什麼**：`hooks/wg_release_rules.py` 新 5 條規則（CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH／NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）與純判定（`parse_claim_dispositions`、`claim_disposition_verdict`、`parse_not_doing`、`not_doing_verdict`、`waived_failures`）；`wg_verify_ledger.reconcile_gate_parts` (a)(b)(c) 命中後先看宣稱行、`audit` 回給 stop 落 guard-reconcile（event=claim_disclaimed／claim_receipt_ref）；`wg_evasion.detect_evasion`／`detect_deferral` 逐處對不做行、`audit` 落 guard-evasion_declared／guard-deferral_declared，退避旗標帶 category 與寫法提示（詞表各類 `exception` 欄從此由程式接上）；`handlers/stop.py` 只動宣稱／退避段（TestFailGate 吃 `waived_failures`，落 guard-testfail_waived）；`handlers/ups_gates.py` 拿掉「dismiss 詞清掉全部 failing_tests」；`handlers/user_prompt_submit.py` 舉證提示附不做行寫法；`forbidden-phrases.json` 刪 `deferral_user_ok`（整段豁免已廢）、更新 `_doc`。
