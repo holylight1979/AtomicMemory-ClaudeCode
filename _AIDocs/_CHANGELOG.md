@@ -11,6 +11,11 @@
 - **codex 一輪**：4 BLOCK 都修——收據引用改成完整 token（通用字、檔名一截不算）、指到的收據仍要過原本資格（參數寫哨兵字樣的 echo 不能靠指名洗白）、使用者引用純標點不算且英文整詞比對、紅測事項改完整 token 比對（`verify_a.py` 對不到 `old_verify_a.py`）；WARN 順手修：理由改看有沒有文字內容不看字數、同一不做行多個退避詞只留帳一筆、audit 留帳移到判定例外之外。
 - **沒做、留著**：盤點第二節類 1 同類（wg_friction 糾正詞、ups_gates「否」字否決、wg_harvest dismiss）排階段 5；紅測豁免不存裁定（下次收尾沒再附不做行或原句退出近 3 則會再擋）、recent_user_prompts 只存每則前 500 字，列追蹤項；宣稱行與不做行只認收尾文字的行，need_goal 完整對照的結構化證據照舊是正式宣告。
 
+## 2026-10-20 G2：commit 前擋新寫進的病形
+- **交給 AI 寫程式時會看到的**：AI 下 git／svn commit 時，這次要提交的程式（暫存區、`commit -a`、同一條指令前面 `git add` 的檔，不限本 session 改的）若新寫進匿名函式套匿名函式、匿名回呼套三層、只包一個方法的類別，或專案病灶清單列的形狀 → commit 被擋，訊息點名病名、為什麼、怎麼改、哪個檔第幾行；舊碼原本就有、這次沒碰的只列出；判斷過要保留就在那行寫 `smell-ok: <理由>`。
+- **做法與驗證**：`hooks/handlers/pre_tool_use.py check_smell_gate` 拆指令、`tools/project-smells.py`「commit 前病形檢查」段取新舊兩版比對（TECH §7.5 SmellGate）。新案例 `hooks/verify/verify_smell_gate.py` 36 案（舊碼匯入即紅、新碼全綠）；全 repo 校準內建病形命中 66→9（並列 lambda、樣板字串、測試替身三類誤命中收掉，剩下都是真的套層）。Codex 一輪 9 條 BLOCK 收 8 條（病形範圍內任一行被改就算碰到、舊版病形一份抵一份、程式檔太多改擋不放、`-z` 拿中文真檔名、`--pathspec-from-file` 與 `--git-dir`／`GIT_DIR` 判不了就擋、`git add` 會把暫存區改回工作樹、svn `--depth`／`--changelist`／`--targets` 照套），各有先紅後綠案例；不收的 1 條：跨行的表達式箭頭函式（`x =>⏎ y =>⏎ z => z`）不算套層，寫法少見、要真語法樹才判得準，列已知限制。
+- **順手修的同類漏洞**：隱私閘原本只看暫存區，`git add .env && git commit` 在 commit 前檢查時 add 還沒跑、會漏過；改成跟病形閘共用「這次會提交哪些檔」（`commit_entries`），案例 `verify_git_privacy_gate::test_git_add_in_same_command_is_checked` 先紅後綠。重錄兩筆 merge driver 測試錄製檔（一筆因隱私閘查 git 的方式改了，一筆在 main 上本來就對不上、真 git 跑是綠的）。
+
 ## 2026-10-20 導讀卡候選不再暗中按分數排：照報告原順序、分數標參考、各部位輪流取（G5 剩的一處）
 - 改同檔第二次、問根因時附的候選原本照分數重排、只取前 N、又不顯示分數：低分的真問題被截掉，AI 也不知道順序來自分數。`hooks/wg_overview.py` `_smells_lines` 改照報告原順序、每列附「分數 X（參考）」、全專案時各部位輪流取再依部位分組（`_parts_in_turn`），根因那一問加「挑的不是分數最高的就說為什麼」。案例 `verify_candidates_trigger.py::test_candidates_keep_report_order_show_score_as_reference_and_take_parts_in_turn`（舊碼紅）；候選、PickOne、追蹤讀回、部位表四支測試檔 203 通過。
 
