@@ -314,7 +314,22 @@
     "timeout_s": 300,
     "defects_top_n": 5,
     "ledger_tail": 20,
-    "material_max_chars": 40000
+    "material_max_chars": 40000,
+    "auto": {
+      "_doc": "G9 自動第二意見（hooks/wg_second_opinion.py 收事實、wg_release_rules G9 段判定、handlers/stop.py SecondOpinion 段擋）：宣告完成時本 session 改過的程式檔 ≥min_code_files 或對 HEAD 改動 ≥min_changed_lines 行、或改到 risky_prefixes（相對版控根）／部位表類別 gate 的檔，要本回合真跑過 second_opinion_start→result 並寫「第二意見與分歧裁決」四行，或宣告一行「不需第二意見｜<理由>」留帳；每使用者回合擋 max_blocks_per_turn 次後擋滿照 ReconcileGate 問人。子代理／裁判／headless 不觸發。enabled:false 整段關。",
+      "enabled": true,
+      "min_code_files": 4,
+      "min_changed_lines": 150,
+      "risky_prefixes": [
+        "hooks/wg_release_rules.py",
+        "hooks/handlers/stop.py",
+        "hooks/handlers/pre_tool_use.py",
+        "hooks/wg_overview.py",
+        "hooks/wg_second_opinion.py",
+        "tools/workflow-guardian-mcp/"
+      ],
+      "max_blocks_per_turn": 1
+    }
   },
   "lang_guard": {
     "_doc": "P8b 英文回應漂移攔截（hooks/lang_guard.py，standalone Stop hook）。量測 assistant 終版訊息英文語言字元佔比（先剝 code fence/inline/URL/link 目標，政策B只管 user-facing 對話輸出），超門檻→hookSpecificOutput.additionalContext 回饋模型（Stop 事件支援：回合結尾注入、對話續跑一回合用繁中重答；stop_hook_active 回合不再觸發防迴圈）。不用 systemMessage：那只顯示給使用者、模型讀不到。stateless、無 flag。一鍵關=enabled:false；english_ratio_threshold=英文佔比門檻(0~1，英文字母/(英文字母+CJK))；min_lang_chars=低於此語言字元數不判(濾短訊如 Done.)。",
@@ -453,6 +468,25 @@
     "_doc": "迴歸累積提示（handlers/stop.py::_acceptance_regression_hint）：本 session 驗收裁判有 fail/high（enforce 級）判定 → 收尾 block 訊息搭車建議 (a) 補測試案例 (b) 模式類落 atom。純 piggyback 不獨立打斷、每 session 一次、不建佇列。一鍵關=enabled:false。",
     "enabled": true
   },
+  "reading_path": {
+    "turn_judgment": {
+      "_doc": "G11 拐彎判斷：收尾背景算函式級側面數據（拐彎數、巢狀、條件塊、轉手鏈、繼承深度與每層加了什麼），達門檻的逐條問 AI「這一層存在的理由、有沒有真正作用、會不會讓人拐超過三個彎」，收尾要有「拐彎判斷｜…」五欄行（規則 TURN_JUDGMENT_REQUIRED）。門檻是「從第幾個彎起要人看」的事實門檻，不是判臭；max_items＝一次最多問幾條（hooks/wg_reading_path.py TURN_JUDGMENT_DEFAULTS）。",
+      "turns": 2,
+      "nesting": 3,
+      "bumpy": 2,
+      "handoff_chain": 2,
+      "inherit_depth": 3,
+      "max_items": 8
+    }
+  },
+  "console": {
+    "spawn": {
+      "_doc": "G16 總控台自己開工作軌 session（tools/console-spawn.py --method bg）：max_parallel＝由本腳本起且還活著的 session 上限；timeout_sec＝等「<軌名> 收到開工」的秒數；poll_sec＝輪詢間隔。kill switch：workflow/console-spawn.STOP。",
+      "max_parallel": 5,
+      "timeout_sec": 90,
+      "poll_sec": 3
+    }
+  },
   "guard": {
     "data_file_ask": {
       "_doc": "T2.16 AI 改使用者既有的資料檔／設定檔（非程式、非本 session 建、原話沒點名）要先宣告「動資料檔｜路徑：為什麼」或先問；Edit／Write／NotebookEdit 與 Bash／PowerShell 寫入目標都管（hooks/wg_data_file.py；規則 USER_DATA_FILE_NEEDS_DECLARATION）。extensions 給了就整份取代預設 .json .jsonc .yaml .yml .toml .ini .cfg .conf .env .csv .tsv .xml .properties .plist。enabled=false 整條不擋。",
@@ -571,6 +605,11 @@
     }
   },
   "overview_hub": {
+    "min_map": {
+      "_doc": "G14 無部位表的專案第一次改程式檔前要 AI 先交最小地圖三行（地圖｜讀了／上游／下游；規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）；擋訊息附掃表預覽，preview_timeout_s 秒內跑完、每個專案根只跑一次。enabled=false 整條不觸發。",
+      "enabled": true,
+      "preview_timeout_s": 2
+    },
     "_doc": "OverviewHub 變量（預計畫附錄 D）。合併順序 根層預設 < 本段 < <公司根>/.claude/overview-hub.json < <專案根>/.claude/overview-hub.json，巢狀物件深合併、陣列整取。未知鍵報錯（Edit 一律擋；OverviewHub 自己的設定檔與部位表除外，放行附警告）；dry_run／deny_parts 已退役，明寫也不放行。閘：改部位檔前三項證據缺一即擋（導讀卡已注入且 min_overview_evidence.card 不可關、注入後讀過該部位檔 ≥part_files、交了定位三行；depends_files＝讀過卡片裡指到的檔數）；transcript 讀不到視為環境異常也擋；readonly_paths（相對該層根的 glob，**/ 也配零層）命中一律擋不注入；沒有部位表或表上沒列的檔只要求同頂層目錄讀過 ≥part_files 個檔；部位表有「層」欄時根因層行必須指明其中一層；部位表「類別」欄標 knowledge 的部位（錨在專案根的最長前綴命中；沒欄、沒標＝code）三項只要導讀卡已注入，不要求讀部位檔與定位三行。Bash／PowerShell 的 >、>>、tee、sed -i、cp、mv、Set-Content、Out-File、Add-Content 目標也走閘。goal_weights：意圖（debug／feature／refactor／perf／new_project／build／design／recall／handoff／general）→ 先送導讀卡哪幾片（what／authority／ask／defects／verify）、視角、先問哪題；空陣列＝整卡原序；卡切不出任何選中片退整卡。verify_chains：{部位: {runtime_gate, pre, run, collect, cleanup}} 給量尺閘；path_bases 每項要是存在目錄且彼此不包含；eol_policy ∈ lf／crlf／per-file-head；編碼鍵要過 codecs.lookup。候選填空：root_cause_triggers（以該專案合併後設定判詞）命中 → 本 session 已注入過的部位各送一次候選前 candidate_top_n；一個部位都還沒注入時，以 cwd 的專案表送一次全專案候選（key `<root>|(all)`）。來源 smells_report（相對專案根或絕對；json／jsonl／md 表；generated_at 優先於 mtime 判過期，超過 smells_max_age_days 附一行仍送；解析失敗附一行再退病灶段）→ 導讀卡「已知病灶」段 → 都沒有明說無候選；每列截 min(200, max_card_chars // N)、整塊截 max_card_chars；附根因卡與兩問；改檔路徑沒內容時只送一行（報告不存在／解析失敗的附註接同一行），不附根因卡與兩問。放行的同檔第 2 次 Edit 也附候選，但以部位為 key 與觸發詞共用 candidates_sent：一部位一 session 只送一次，一行版也記帳；候選產生失敗只附一行，不改變閘判定。idle_triggers：general 意圖命中 → 一 session 一行主動掃視。post_compact_chars：壓縮後每部位綜觀 blob 字數上限。authority_map：{檔名樣式(fnmatch): 地圖路徑}，讀到文件檔命中且非空 → 一 session 注入一次。Depends 召回：讀到的檔若是某卡索引 depends 的 path: 目標（或其目錄之下）→ 一行一卡指標，同卡一 session 一次。加新鍵要同時加進 hooks/wg_overview.py 的 _DEFAULT。",
     "enabled": true,
     "max_card_chars": 6000,

@@ -108,7 +108,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task|AskUserQuestion|ExitPlanMode",
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task|AskUserQuestion|ExitPlanMode|mcp__workflow-guardian__second_opinion_start",
         "hooks": [
           {
             "type": "command",
@@ -232,6 +232,9 @@
   "effortLevel": "high",
   "modelSettings": {
     "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-fable-5-1": {
       "effortLevel": "high"
     }
   },
