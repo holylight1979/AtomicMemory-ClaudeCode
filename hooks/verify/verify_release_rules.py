@@ -1820,3 +1820,22 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── T2.16 動資料檔 ───
+
+def test_t216_user_data_file_needs_declaration():
+    """USER_DATA_FILE_NEEDS_DECLARATION：四件事實全成立又沒宣告才擋；宣告路徑檔名完整比對；原話點名要整個檔名。完整案例在 verify_data_file_ask.py。"""
+    t = "C:\\w1\\qb-report\\config\\settings.json"
+    facts = {"code": False, "ext": ".json", "ext_listed": True, "existed": True, "created": False, "named": None, "prompts": 1}
+    assert rr.data_file_verdict(t, "config/settings.json", facts, []).owed
+    assert not rr.data_file_verdict(t, "config/settings.json", {**facts, "created": True}, []).owed
+    decl = rr.parse_data_file_decls("動資料檔｜`config/settings.json`：修多逗號，幣別會變 TWD")
+    assert not rr.data_file_verdict(t, "config/settings.json", facts, decl).owed
+    for p in ("settings.json", "config/settings.json", "C:\\w1\\qb-report\\config\\settings.json", "./config/settings.json"):
+        assert rr.decl_names_file(p, t), p
+    for p in ("ettings.json", "other.json", "x/settings.json", ""):
+        assert not rr.decl_names_file(p, t), p
+    assert rr.parse_data_file_decls("動資料檔｜C:\\a\\b.json：理由")[0][:2] == ("C:\\a\\b.json", "理由")
+    assert rr.prompt_names_file(["把settings.json的逗號修掉"], t) and rr.prompt_names_file(["改 Config/Settings.JSON"], t)
+    assert not rr.prompt_names_file(["改 settings.json.bak", "看 mysettings.json", "設定檔"], t)

@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 AI 要改你既有的資料檔／設定檔，先問或先宣告一行（T2.16）
+- **使用者看到的**：AI 改你的 `settings.json`、`.yaml`、`.csv` 這類資料或設定檔（不是程式、不是它這次自己建的、你沒點名要改它）之前，會先問你，或先在回覆寫一行「動資料檔｜settings.json：為什麼要動、動了你會看到什麼」；沒寫就被擋下（驗收題 B 那次「順手修多逗號、幣別從 USD 變 TWD」不會再悶聲發生）。你在需求裡講到檔名就不用宣告；同一場對話同一個檔宣告一次就好。該不該改仍由 AI 判斷，程式只查四件事實與那一行在不在；每次擋下、宣告、豁免都記在 `Logs/guard-data_file.jsonl`。哪些副檔名算資料檔、整條開關在 `workflow/config.json` 的 `guard.data_file_ask`。案例 `hooks/verify/verify_data_file_ask.py`（舊碼 14 紅）；Bash 重導寫檔（`>`、`Set-Content`）還不管。細節見 TECH §7.5 DataFileAsk。
+
 ## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒
 - **交給 AI 寫程式時會看到的**：commit 時，新寫進的「一整段邏輯塞進匿名回呼（超過 20 行）」「`x = lambda`」「函式巢狀 4 層以上」「巢狀三元」「Unity 空的 Update 之類」「Update 裡每幀 Find／AddComponent／反射」也會被擋並點名哪個檔第幾行（巢狀附幾層、回呼附幾行）；10～20 行的匿名回呼、字串註解剝不乾淨的檔只提醒不擋；舊函式本來就深、這次沒變深的不擋。測試框架的 describe／it 回呼、promise 回呼用到外層變數的不算套層。門檻在 `workflow/config.json` 的 `guard.smell_gate` 可調。
 - **依據與驗證**：派工 002 提案（linter 原始碼與文獻＋實測，`workflow/inbox/from-track-g2/002-smell-shapes-proposal.md`）、派工 003 核可。`hooks/verify/verify_smell_gate.py` 新 23 案，每條病形一個先紅後綠＋至少一個誤判反例；在本 repo 與一個 3704 檔的 C# 伺服器專案上校準，抓到並修掉兩類誤擋（伺服器模組的 `Update()` 被當成 Unity 訊息、C# 運算式主體屬性被當成 lambda）。本機沒有 Unity 專案，Unity 兩條只有案例驗過、沒有在真實 Unity 專案上校準。改完閘本身也被自己擋了一次（新寫的函式巢狀 4 層），已改平。
