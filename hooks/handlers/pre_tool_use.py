@@ -5,6 +5,7 @@ handlers/pre_tool_use.py — PreToolUse hook handler
 """
 
 import fnmatch
+import importlib.util
 import json
 import os
 import re
@@ -804,23 +805,25 @@ def check_git_privacy(
     if "git" not in low or "commit" not in low:
         return None   # 快篩，省 regex/子行程
     try:
-        for repo_cd, commit_tokens in _git_commit_segments(command):
+        # 這次會提交哪些檔跟病形閘同一份判法（tools/project-smells.py commit_entries）：暫存區、commit -a、commit <路徑>，
+        # 加上同一條指令前面 git add 要加進來的檔（PreToolUse 時 add 還沒跑，只看暫存區會讓 `git add .env && git commit` 漏過）
+        tool = _smells_tool()
+        adds: List[Tuple[str, List[str]]] = []
+        for repo_cd, tokens in _git_segments(_strip_heredoc_bodies(command), {"add", "commit"}):
             run_cwd = _resolve_run_cwd(repo_cd, cwd)
-            files = _git_lines(
-                ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], run_cwd
-            )
-            if files is None:
+            if tokens[0].lower() == "add":
+                adds.append((run_cwd, tokens))
+                continue
+            try:
+                found = tool.commit_entries(run_cwd, tokens, list(adds))
+            except tool.SmellsError:
                 continue   # fail-open
-            if any(
-                re.fullmatch(r"-[a-zA-Z]*a[a-zA-Z]*", t) or t == "--all"
-                for t in commit_tokens
-            ):
-                extra = _git_lines(["diff", "--name-only", "--diff-filter=ACMR"], run_cwd)
-                files += extra or []
+            if not found:
+                continue
+            repo_root, _base, _has_head, entries = found
+            files = [rel for rel, (src, _old) in entries.items() if src != "gone"]
             if not files:
                 continue
-            root_lines = _git_lines(["rev-parse", "--show-toplevel"], run_cwd)
-            repo_root = root_lines[0] if root_lines else ""
             globs = _privacy_globs(config, repo_root)
             hits = []
             for f in dict.fromkeys(files):
@@ -844,6 +847,73 @@ def check_git_privacy(
         except OSError:
             pass
     return None
+
+
+# ─── commit 前病形閘（G2：帶病的改動上不了版）──────────────────────────────
+# 查的是這次真的會進版的內容（暫存區、commit -a、commit <路徑>、同一條指令前面 git add 才要加進來的檔、svn commit 的
+# 工作副本改動），不是本 session 改了哪些檔。新寫進的病 → deny 並點名病名、檔、行；舊碼原本就有、這次沒碰的 → 只列出。
+# 怎麼判（病形、新舊之分、smell-ok 放行）全在 tools/project-smells.py「commit 前病形檢查」段；這裡只拆指令、交給它、出訊息。
+# 判不了（拆不出 commit 落點、git 查詢失敗、檢查出錯）一律擋；guard.smell_gate.enabled=false 停用。
+_SMELLS_TOOL = Path(__file__).resolve().parents[2] / "tools" / "project-smells.py"
+_SMELL_REPO_OVERRIDE_RE = re.compile(r"--git-dir\b|--work-tree\b|\bGIT_(?:DIR|WORK_TREE|INDEX_FILE)\s*=", re.I)
+
+
+def _smells_tool():
+    mod = sys.modules.get("project_smells")
+    if mod is None or not hasattr(mod, "check_commit"):
+        spec = importlib.util.spec_from_file_location("project_smells", _SMELLS_TOOL)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["project_smells"] = mod
+        spec.loader.exec_module(mod)
+    return mod
+
+
+def check_smell_gate(
+    tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Bash/PowerShell 的 git／svn commit → (deny 訊息, 只提醒的訊息)；都沒有回 (None, None)。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None, None
+    if not ((config.get("guard") or {}).get("smell_gate") or {}).get("enabled", True):
+        return None, None
+    command = tool_input.get("command", "") or ""
+    low = command.lower()
+    if "commit" not in low and "svn" not in low:
+        return None, None
+    stripped, _segments, has_git_commit = _git_commits_to_run(command)
+    svn_segs = _svn_segments(_strip_heredoc_bodies(command), {"commit", "ci"}) if "svn" in low else []
+    if not has_git_commit and not svn_segs:
+        return None, None
+    git_segs = _git_segments(stripped, {"add", "commit"}) if has_git_commit else []
+    if has_git_commit and not any(t[0].lower() == "commit" for _cd, t in git_segs):
+        return ("[Guardian:SmellGate] 這條指令裡有 git commit，但包在 bash -c／powershell -Command／$() 之類的包裝裡，"
+                "拆不出它落在哪個 repo、要提交哪些檔，病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
+    if has_git_commit and _SMELL_REPO_OVERRIDE_RE.search(stripped):
+        return ("[Guardian:SmellGate] 這條 git commit 用 --git-dir／--work-tree 或 GIT_DIR／GIT_WORK_TREE／GIT_INDEX_FILE "
+                "指定 repo，病形檢查重現不了它實際提交哪個 repo、哪份暫存區，判不了，一律擋。改用 `git -C <repo> commit` 或先 cd 進 repo。"), None
+    try:
+        tool = _smells_tool()
+        results, adds, repos = [], [], []
+        for repo_cd, tokens in git_segs:
+            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            if tokens[0].lower() == "add":
+                adds.append((run_cwd, tokens))
+                continue
+            res = tool.check_commit("git", run_cwd, tokens, list(adds), config)
+            if res is not None:
+                results.append(res)
+                repos.append(run_cwd)
+        for repo_cd, tokens in svn_segs:
+            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            res = tool.check_commit("svn", run_cwd, tokens, [], config)
+            if res is not None:
+                results.append(res)
+                repos.append(run_cwd)
+        return tool.render_commit_report(results, repos[0] if repos else cwd)
+    except Exception as e:
+        return (f"[Guardian:SmellGate] commit 前病形檢查出錯，判不了一律擋：{type(e).__name__}: {e}\n"
+                f"手動重查：python ~/.claude/tools/project-smells.py --commit-check --cwd <repo>；"
+                "確定是檢查本身壞了，照實告訴使用者（workflow/config.json 的 guard.smell_gate.enabled=false 可暫停本閘）。"), None
 
 
 # ─── 索引三檔合併驅動閘（advisory-only，永不 deny）─────────────────────────
@@ -1438,6 +1508,18 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
+    deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config)
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
     # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
     # 缺了就擋；判不了一律擋。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
     if tool_name in ("Bash", "PowerShell"):
@@ -1531,7 +1613,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
-    warn_msgs = [m for m in (coord_warn, merge_warn, svn_enc_warn, hub_warn) if m]
+    warn_msgs = [m for m in (coord_warn, merge_warn, svn_enc_warn, smell_warn, hub_warn) if m]
     if warn_msgs:
         if coord_warn and coord_warn_fp:
             try:

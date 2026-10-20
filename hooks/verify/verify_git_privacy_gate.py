@@ -2,7 +2,7 @@
 
 驗證 handlers/pre_tool_use.check_git_privacy：
   - staged 隱私檔（deny globs 命中）→ deny 訊息；一般檔 → 放行
-  - commit -a 連 tracked modified 一起判
+  - commit -a 連 tracked modified 一起判；同一條指令前面 git add 要加進來的檔也判（add 還沒跑）
   - `git -C <path> commit` 的 repo 定位；非 commit 子指令（log --grep commit）不觸發
   - config privacy.enabled=false / deny_globs 追加
   - ~/.claude repo 專屬 globs 只在 git root == ~/.claude 掛上
@@ -80,6 +80,16 @@ def test_commit_a_catches_tracked_modified(repo):
     assert _check(repo, "git commit -m 'x'") is None          # 未 staged、無 -a → 不在本次 commit
     msg = _check(repo, "git commit -am 'x'")
     assert msg and "creds.pem" in msg                          # -a 會帶進去 → 擋
+
+
+def test_git_add_in_same_command_is_checked(repo):
+    """`git add .env && git commit`：PreToolUse 時 add 還沒跑、暫存區是空的，照樣要擋（10-20 G2 順手修的同類漏洞）。"""
+    (repo / ".env").write_text("SECRET=1", encoding="utf-8")
+    assert _check(repo, "git commit -m 'x'") is None                  # 前置：暫存區是空的，光 commit 沒東西進版
+    msg = _check(repo, f'cd "{repo}" && git add .env && git commit -m "x"')
+    assert msg is not None and ".env" in msg
+    msg_all = _check(repo, "git add -A && git commit -m 'x'")
+    assert msg_all is not None and ".env" in msg_all
 
 
 def test_git_dash_c_repo_targeting(repo, tmp_path):
