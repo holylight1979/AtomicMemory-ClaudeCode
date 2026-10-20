@@ -31,6 +31,7 @@
 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-windows路徑或引述值一律用函式替換 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-Windows路徑或引述值一律用函式替換 |
 | episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格 | episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格 |
 | feedback-memory-system-doc-sync | feedback-memory-system-doc-sync |
+| git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控 | git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用--git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控 |
 | git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 | git測試慢用錄製重播git_cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | guardian-警告訊息辨識度-emoji-前綴分流 | guardian 警告訊息辨識度-emoji 前綴分流 |

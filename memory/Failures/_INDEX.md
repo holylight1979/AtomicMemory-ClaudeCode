@@ -7,7 +7,7 @@
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
 | CC與原子記憶契約 | 3 | `memory/Failures/CC與原子記憶契約/_INDEX.md` |
-| 工作流 | 13 | `memory/Failures/工作流/_INDEX.md` |
+| 工作流 | 14 | `memory/Failures/工作流/_INDEX.md` |
 | 思考與決策 | 12 | `memory/Failures/思考與決策/_INDEX.md` |
 | 文字與格式 | 6 | `memory/Failures/文字與格式/_INDEX.md` |
 | 版控 | 3 | `memory/Failures/版控/_INDEX.md` |

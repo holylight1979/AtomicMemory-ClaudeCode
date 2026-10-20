@@ -7554,6 +7554,61 @@
         "收尾空轉量測"
       ],
       "scope": "global"
+    },
+    {
+      "name": "git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控",
+      "path": "_AIDocs/_atoms/MemDev/git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控.md",
+      "triggers": [
+        "git_cassette",
+        "CassetteMismatch",
+        "--git-record",
+        "cassette",
+        "錄製檔",
+        "重錄",
+        "第 N 筆呼叫和錄製不同",
+        "錄製檔過期",
+        "verify_stop_reconcile 大量 ERROR",
+        "行為改了 → 用 --git-record 重錄"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/lib/git_cassette.py"
+      ]
+    },
+    {
+      "name": "公司gitlab的mr收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器",
+      "path": "_AIDocs/_atoms/Tools/公司gitlab的mr收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器.md",
+      "triggers": [
+        "gitlab 留言",
+        "關閉 MR",
+        "merge request 留言",
+        "gitlab api 401",
+        "PRIVATE-TOKEN",
+        "playwright gitlab",
+        "comment-field",
+        "close-reopen-button",
+        "gitlab.uj.com.tw",
+        "MR 自動標 merged"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-審同伴mr的收錄判準-對協作真有幫助才收-雞肋浪費token不收-專案層慣例不進核心-部分取用要寫清楚取捨",
+      "path": "memory/Failures/工作流/feedback-審同伴mr的收錄判準-對協作真有幫助才收-雞肋浪費token不收-專案層慣例不進核心-部分取用要寫清楚取捨.md",
+      "triggers": [
+        "merge request",
+        "MR 審查",
+        "審 MR",
+        "同伴 MR",
+        "GitLab MR",
+        "合併請求",
+        "要不要合併",
+        "部分取用",
+        "雞肋",
+        "專案層還是核心",
+        "pull request 審查"
+      ],
+      "scope": "global"
     }
   ]
 }
