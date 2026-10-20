@@ -60,8 +60,8 @@
 
 ### Hook 輸出能力差異（additionalContext 可用性）
 - [固] PostToolUse 的 additionalContext 是**即時生效**的（同一 turn 內 Claude 可見，不需等下一輪）
-- [固] Async hook 完成後 systemMessage 自動注入下一輪（additionalContext 同理，但 Stop 不適用）
-- [固] Stop hook 不支援 additionalContext，只有 block + reason + systemMessage
+- [固] Async hook 完成後 systemMessage 自動注入下一輪（additionalContext 同理，但 async 的 Stop 不適用）
+- [固] 同步 Stop hook 支援 `hookSpecificOutput.additionalContext`（官方 hooks 文件 Stop decision control）：對話續跑一回合讓 Claude 處理，transcript 標「Stop hook feedback」、不顯示 hook 錯誤，與 `decision:block` 走同一套防迴圈（`stop_hook_active`、連續續跑上限 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`）；`decision:block`＋reason 則以 hook error 呈現。只提醒不擋的續跑用前者（`hooks/lang_guard.py`、`handlers/stop.py` PickOne）
 - [固] **2026-06-01 實測：支援 `hookSpecificOutput.additionalContext` 注入的事件**（Zod schema 實證）：`UserPromptSubmit`(required) / `PostToolUse` / **`PostToolBatch`** / `SessionStart` / `SubagentStart` / `PostToolUseFailure` / `UserPromptExpansion` / `Notification` / `Setup`。
 - [固] **⚠ `PostCompact` 不支援 additionalContext（無法注入）**——只收 `trigger`+`compact_summary`。故「壓縮後重注入記憶」**不能靠 PostCompact**，須改用 `SessionStart(compact)` 或 **`PostToolBatch`**。本核心選配 #4 採「PostCompact stash → 下個 PostToolBatch 一次性注入」閉合 mid-turn auto-compact 失憶缺口（`plans/deep-wobbling-bentley.md`、`hooks/handlers/post_compact.py`+`post_tool_batch.py`）。
 - [固] **2026-06-01 Phase-0 實測結論（`/compact` 探針，事後已移除）**：full 手動 `/compact` 觸發序 = `PreCompact` →（壓縮約 2 min）→ **`SessionStart(source=compact)`** → `PostCompact`，即 `SessionStart(compact)` **確實觸發**（早於 PostCompact），故 [session_start.py:230-249](../../hooks/handlers/session_start.py#L230-L249) 的 compact 分支**非死碼，保留**。⚠ 但 `SessionStart(compact)` **不保證觸發**：另觀察到一次近瞬時（1 s）manual compact 僅 `PreCompact`+`PostCompact`、無 SessionStart（疑 no-op / auto-compact 路徑），故壓縮後**內文**復原**不可依賴 SessionStart(compact)**。

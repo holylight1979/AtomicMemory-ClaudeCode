@@ -11,6 +11,14 @@
 - **codex 一輪**：4 BLOCK 都修——收據引用改成完整 token（通用字、檔名一截不算）、指到的收據仍要過原本資格（參數寫哨兵字樣的 echo 不能靠指名洗白）、使用者引用純標點不算且英文整詞比對、紅測事項改完整 token 比對（`verify_a.py` 對不到 `old_verify_a.py`）；WARN 順手修：理由改看有沒有文字內容不看字數、同一不做行多個退避詞只留帳一筆、audit 留帳移到判定例外之外。
 - **沒做、留著**：盤點第二節類 1 同類（wg_friction 糾正詞、ups_gates「否」字否決、wg_harvest dismiss）排階段 5；紅測豁免不存裁定（下次收尾沒再附不做行或原句退出近 3 則會再擋）、recent_user_prompts 只存每則前 500 字，列追蹤項；宣稱行與不做行只認收尾文字的行，need_goal 完整對照的結構化證據照舊是正式宣告。
 
+## 2026-10-20 導讀卡候選不再暗中按分數排：照報告原順序、分數標參考、各部位輪流取（G5 剩的一處）
+- 改同檔第二次、問根因時附的候選原本照分數重排、只取前 N、又不顯示分數：低分的真問題被截掉，AI 也不知道順序來自分數。`hooks/wg_overview.py` `_smells_lines` 改照報告原順序、每列附「分數 X（參考）」、全專案時各部位輪流取再依部位分組（`_parts_in_turn`），根因那一問加「挑的不是分數最高的就說為什麼」。案例 `verify_candidates_trigger.py::test_candidates_keep_report_order_show_score_as_reference_and_take_parts_in_turn`（舊碼紅）；候選、PickOne、追蹤讀回、部位表四支測試檔 203 通過。
+
+## 2026-10-20 寫碼交付時順手點出最該修的一件，記成附建議的追蹤項、下個 session 開場先列（G4＋G5＋G13）
+- **使用者看到的**：交 AI 寫程式，交付末尾多一段「順手看到最該修：…／為什麼是它／為什麼不是數字最高的那個／建議怎麼解／該誰解」；這段自動記成追蹤項；下個 session 開頭先列還沒解的這些項目與建議。只提醒、不擋。
+- **改法**：Stop 在所有閘之後、到交付邊界且本 session 在上次問過之後又改了程式 → 用 `additionalContext` 送一次那一問（對話續跑、不是 block；同一批改動只問一次），材料依部位分組、壞味道分數與行數標「只當參考」（`hooks/wg_harvest.py` pick_*、`hooks/handlers/stop.py` `_pick_one_prompt`）；每次 Stop 開頭把最後一句裡照格式寫的那段記進追蹤帳本，另存 why／not_top／proposal／owner（`record_pick`）；(k) 行尾「｜建議：…｜該誰解：…」也進同兩欄；開場 `_tracking_advisory` 先列附了建議的未結項（不分部位）。開關 `workflow/config.json` `pick_one.enabled`（缺區段＝關）。
+- **驗證**：`hooks/verify/verify_pick_one.py` 20 支，舊碼上紅（3 支「不該送」反例舊碼本來就不送）、新碼全綠；相關 10 支測試檔 769 通過。Codex 一輪 4 條 BLOCK 收 3：引言（`>`）裡的格式範例不入帳、帳本寫不進去不算答過（下次照問照記）、去重改看帳本上有沒有同一件未結項（下一批又答同一句照樣算答過）；不收 1：問過之後同一回合裡的改動（順手修掉點出的那件、回應別道閘）算同一次交付，不再問。
+
 ## 2026-10-20 收 !11 作者查到的三個「跳過資料夾清單」漏項，MR 本體仍不照原樣合
 - 作者回答動機：不是踩到事故，是收斂時查到三處清單不同步——atom 掃描沒跳 `_archived/`（封存舊卡被當 atom）、定位沒跳 `_rejected/`（退回的卡會被 append／replace 找到）、補來源沒跳 `templates/`（範本被寫進假 Source）；他自己的結論是「出事的都是清單，單一字面沒有」。三處各補一項、收他附的案例 `lib/verify/verify_skip_dirs_behavior.py`（對舊碼三支全紅）。MR 本體（129 檔集中檔名）仍等作者改輕量版，見 `DevHistory/同伴MR審查-2026-10-20.md`。
 

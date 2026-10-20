@@ -86,7 +86,7 @@ def _log_events(tmp_path):
 
 # ─── Q5 四案 ────────────────────────────────────────────────────────
 
-def test_trigger_with_table_sends_once_top_n_filtered_and_sorted(proj, tmp_path):
+def test_trigger_with_table_sends_once_top_n_filtered_in_report_order(proj, tmp_path):
     _with_report(proj)
     state, tp = {}, _transcript(tmp_path, ["x"])
     _inject(proj, state, tp)
@@ -399,3 +399,24 @@ def test_precedent_fill_in_template_and_copy_does_not_count(proj, tmp_path):
     state2 = {}
     _, txt2 = _inject(proj, state2, tp)
     assert "定位｜前例：對得上規格哪一節" in txt2
+
+
+# ─── G5：分數只當參考，不暗中按分數重排、不讓一個部位佔滿 ─────────────────────
+
+def test_candidates_keep_report_order_show_score_as_reference_and_take_parts_in_turn(proj):
+    """候選照報告原順序（不按分數重排）、每列照列分數並標「參考」、來源說明不是優先順序；全專案時各部位輪流取、依部位分組列。
+    舊碼：按分數重排（低分的真問題排到後面、被截掉）、不顯示分數、全專案被分數高的部位佔滿。"""
+    rows = [{"path": "Game/Battle/Fix.cs", "category": "hotspot", "reason": "同一處修了三次", "score": 2, "part": "戰鬥"}]
+    rows += [{"path": f"Game/UI/Big{i}.cs", "category": "size", "reason": "大但清楚", "score": 90 - i, "part": "介面"}
+             for i in range(6)]
+    rows.append({"path": "Game/Battle/Two.cs", "category": "coupling", "reason": "分數高但不是真問題", "score": 50, "part": "戰鬥"})
+    rp = proj / ".claude" / "smells.json"
+    rp.write_text(json.dumps({"rows": rows}, ensure_ascii=False), encoding="utf-8")
+    cfg = wo._cfg({"overview_hub": {"smells_report": str(rp)}}, proj)
+    lines, _, source = wo._smells_lines(proj, cfg, None, 4, 200)
+    assert [l.split("｜")[0] for l in lines] == ["- Game/Battle/Fix.cs", "- Game/Battle/Two.cs",   # 依部位分組、各部位輪流取
+                                                  "- Game/UI/Big0.cs", "- Game/UI/Big1.cs"]
+    assert lines[0].endswith("｜分數 2（參考）") and "不是優先順序" in source and "分數只當參考" in source
+    one, _, _ = wo._smells_lines(proj, cfg, ("戰鬥",), 1, 200)
+    assert [l.split("｜")[0] for l in one] == ["- Game/Battle/Fix.cs"]                      # 單部位只取 1 筆：照報告順序，不是分數高的 Two.cs
+    assert any("分數最高" in q for q in wo._CANDIDATE_QUESTIONS)                           # 根因那一問要說為什麼不是分數最高的

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from wg_core import (
-    _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
+    _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block, output_json,
     append_guard_log, WORKFLOW_DIR, _atom_debug_error,
 )
 from wg_release_rules import in_turn, turn_start, user_turn as _user_turn
@@ -54,7 +54,10 @@ from wg_release import (
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
-from wg_harvest import harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active
+from wg_harvest import (
+    harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
+    record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt,
+)
 from wg_reading_path import reading_path_note
 from handlers._shared import (
     _hud_alive,
@@ -1134,6 +1137,51 @@ def _mcp_load_facts(boot_dir: Optional[Path] = None, code_dir: Optional[Path] = 
     return records, disk
 
 
+# ─── 交付時順手點出最該修的一件（v6 G4／G5／G13）：只提醒、不擋 ─────────────────────
+# 判斷交 AI、程式只管時點與記帳（wg_harvest）。缺 config pick_one 區段或 enabled 不是 true＝整個關。
+
+def _pick_on(config: Dict[str, Any]) -> bool:
+    return (config.get("pick_one") or {}).get("enabled") is True
+
+
+def _record_pick(state: Dict[str, Any], session_id: str, text: str, cwd: str, config: Dict[str, Any]) -> None:
+    """交付回覆裡的「順手看到最該修」段 → 本專案追蹤帳本（附建議怎麼解、該誰解）；帳上已有同一件不重記。排在所有閘之前，
+    後面的閘這次擋不擋都不漏記。記失敗只 stderr（不算答過，下次照問）。"""
+    if not _pick_on(config):
+        return
+    turn_seq = int(state.get("turn_seq", 0))
+    try:
+        res = record_pick(state, session_id, turn_seq, text, cwd)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:PickOne] 「順手看到最該修」記進追蹤帳本失敗（這次沒記）：{type(e).__name__}: {e}", file=sys.stderr)
+        return
+    if res is not None:
+        event, pick = res
+        write_state(session_id, state)
+        append_guard_log("pick_one", {"session_id": session_id, "turn_seq": turn_seq, "event": event, "text": pick["text"][:120]})
+
+
+def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List[Dict[str, Any]], boundary: bool,
+                     config: Dict[str, Any]) -> Optional[str]:
+    """到了交付邊界、本 session 在上次問過或記過之後又改了程式 → 回要送的那一問（並記下問過）；不到時候回 None。
+    程式檔照 wg_need_goal.is_code_path（寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。判斷出錯只 stderr、不送。"""
+    if not _pick_on(config) or state.get("muted"):
+        return None
+    turn_seq = int(state.get("turn_seq", 0))
+    try:
+        from wg_need_goal import is_code_path
+        code = [m for m in own_mod_files if (m or {}).get("path") and is_code_path(m["path"], config)]
+        if not pick_due(state, session_id, code, boundary):
+            return None
+        text = pick_prompt(pick_material(list(dict.fromkeys(m["path"] for m in code)), config))
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:PickOne] 交付時「最該修」那一問判斷出錯（這次不送）：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    mark_pick_asked(state, session_id, turn_seq)
+    append_guard_log("pick_one", {"session_id": session_id, "turn_seq": turn_seq, "event": "asked", "files": len(code)})
+    return text
+
+
 def _evasion_exempt_verdict(state: Dict[str, Any], session_id: str, ev: Dict[str, Any], transcript: Any,
                             transcript_text: str, config: Dict[str, Any], own_mod_files: List[Dict[str, Any]]) -> Any:
     """規則 EVASION_CONTEXT_EXEMPT 的事實收集：context 用量（和 DeferralGate 同一個量法）、延後的事有沒有落地（本使用者回合
@@ -1197,6 +1245,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                          snapshot=state.get("git_snapshot"))
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:Cleanup] 帳本收尾進帳失敗（這次少收）：{type(e).__name__}: {e}", file=sys.stderr)
+    _record_pick(state, session_id, code_text, cwd, config)   # 交付回覆裡的「順手看到最該修」→ 追蹤項（G13）
 
     # ── Layer 1: token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
     # 早段算一次預警句（純函式、無副作用）；於下方各 gate 將 output_block(reason)
@@ -1818,6 +1867,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         state, config, session_id, transcript, last_text, transcript_text
     )
     write_state(session_id, state)
+
+    # ── 交付時順手點出最該修的一件（G4／G5）：排在所有閘之後；Stop 的 additionalContext＝對話續跑一回合、不算擋 ──
+    _pick = _pick_one_prompt(state, session_id, own_mod_files, claims_done or claims_completion(code_text)
+                             or emitted_this_turn or committed_this_turn, config)
+    if _pick:
+        write_state(session_id, state)
+        output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _pick}})
+        return
 
     # ── Anti-loop guard ─────────────────────────────────────────
     if stop_count >= max_blocks:
