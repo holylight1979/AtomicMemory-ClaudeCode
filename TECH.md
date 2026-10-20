@@ -166,7 +166,8 @@ sequenceDiagram
 | `Author` | 否 | 提出者帳號 | `wg_roles.get_current_user()`（AD 帳號；§13.1） |
 | `Source` | 否 | 標準格式三態：`session:<sid8>#<uuid8> <YYYY-MM-DD>`（uuid 可缺；寫入時自動填）／B 級 `commit:<hash7> <日期>（原對話已逾保留期）` 或 `unknown <日期>（原對話已逾保留期）`（回填補）／自由值（檔案路徑、URL、會議逐字稿路徑） | 來源可追溯；`atom_write(provenance=)`，渲染在 Author 後；`lib/provenance.parse_source` 解析 |
 | `Quote` | 否 | 觸發這張卡片的使用者原話：單行 ≤200 字（`provenance.quote_max_chars`），消毒後以「」包住；只放使用者原話，AI 自動萃取的顆只補 Source、不寫 Quote | transcript 被清掉後仍留得住原句；`atom_write(quote=)`、PostToolUse 自動填（§8）、回填 worker 補舊顆；渲染在 Source 後、Confidence 前；不注入（`_FRONTMATTER_KEEP_RE` 不含 Source／Quote，每回合 token 增量 0） |
-| `Related` | 否 | 其他 atom 名 | related spread（depth 1）與 broken_refs 健檢 |
+| `Related` | 否 | 其他 atom 名 | related spread（depth 1）與 broken_refs 健檢。**只寫自己連出去的**；反向由索引在注入時反轉（`wg_atoms.load_link_graph`），不寫進被連的那顆檔 |
+| `Aka` | 否 | 這顆用過的舊檔名 | 連結以檔名為鍵，改名時在**自己這顆**加一行，連進來的舊連結照樣解析（`build_alias_map`）；不得與現存 atom 同名 |
 | `Supersedes` | 否 | 被取代的 atom 名 | 規則式過濾舊版，不交 LLM 判 |
 | `Depends` | 否 | `path:<路徑>` 或自由文字 | **壞滅緣**：path 型可機器驗存在性，指向消失 → 標 stale；`atom_write(depends=)`，渲染在 Created-at 後、Related 前 |
 | `Evidence` | 否 | `實證` / `引述` / `推測` | 衝突裁決權重 3/2/1（未標 0） |
@@ -174,6 +175,8 @@ sequenceDiagram
 | access sidecar | 自動 | `<atom>.access.json` | read_hits（純曝光）、useful/used_fail（α/β）、Wilson 下界、decay、last_decay_date |
 
 **Source／Quote／Depends 的 replace 三態**（與 Supersedes 同）：未給＝保留原行、`""`／`[]`＝清除、非空＝替換；append 不動檔頭，卡沒有 `## 行動` 段（導讀卡、索引卡、手寫舊卡）就先在檔尾補最低要求的行動段當拼接錨點（`lib/atom_io._build_append_content`，py `write_atom` 與 MCP append 共用）。**replace 只換呼叫者給的部分**（`lib/atom_io.carry_replace_header`，py `write_atom` 與 MCP js 經 `atom_io_cli build existing_path` 共用）：舊格式卡（標題 slug≠檔名，例：標題中文、檔名英文）沿用舊標題，新格式照舊用 title 參數；舊卡沒有 Created-at 就不補；Related／Status／Audience 沒給、以及 build 不認得的舊鍵（Confirmations、Last-used、Tags、Type…）原行帶回（同鍵多行全帶）。渲染順序與 py↔js byte parity 的單一來源：`lib/atom_spec.build_atom_content` ↔ `atom-render.js buildAtomContent`（`verify_atom_io_equivalence.py` test_31–33）。
+
+**為什麼反向連結不落檔**：A → B 就代表兩顆相連，把它也寫進 B 的檔等於每新增一顆連到 hub 的 atom 就要改 hub 那個檔——那是別人的檔，多人共用同一個版控庫時必衝突。索引（`related` 欄）只存正向，注入端讀進來反轉；索引沒有 `related` 欄的舊版本退回讀檔解析，行為不變。
 
 **為什麼 Depends 與 Evidence 都是 optional**：向後相容鐵則——既有 atom 缺欄靜默通過。**為什麼 access 是 sidecar 不是 frontmatter**：計數每回合都在變，寫回 atom 本體會讓 git diff 全是噪音、也會和人手編輯互撞。
 
@@ -227,6 +230,7 @@ sequenceDiagram
 - 每筆：`name` / `path` / `triggers` / `scope`（+ realm 由 path 推導）。
 - 多機合併：索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）是「一列一 atom」的集合，兩機各自新增後 git 逐行三方必衝突 → 三層防線：全 repo LF、`tools/merge-atom-index.py` 當 git merge driver 做語意三方（PreToolUse 在合併類 git 指令前自動 `--install`）、git 仍停住時 `--resolve` 在 `rebase --continue` 等指令前自動套在三檔 stage 上；SVN 工作副本同一支 `--resolve` 在 `svn commit / resolve` 前自動解（拿 svn 留下的 `.mine`／`.r舊`／`.r新` 當三方輸入，`svn resolve --accept working`；`svn update` 本身不自動）。
   細節（stage 方向矩陣、CLI 契約、失敗模式 SOP、不在保證範圍）→ `_AIDocs/MultiMachineMemorySync.md`。
+- 專案記憶庫的衍生檔不入版控（`lib/vcs_ignore.py`）：`_atom_index.json`／`_ATOM_INDEX.md`／`_staging`／`episodic`／`vector-db` 在 SessionStart 偵測到 `{proj}/.claude/memory`、或索引首次落檔時自動進 `svn:ignore`（併入既有值）／`{mem}/.gitignore`。ignore 對已版控檔無效，所以另偵測「已被版控」→ `[Guardian:VcsIgnore]` 一次性告警（marker `workflow/vcs-ignore.json`）附 `svn rm --keep-local --force`／`git rm --cached` 指令與隊友端 resolve 說明，不自動執行。SessionStart 索引不在即從磁碟重建（`_ATOM_INDEX.md` 缺檔亦重生），舊版手動 `sync-atom-index.py --rebuild --memory-dir <mem>`；SVN 的 IndexConflict 自動合併只是暫時處置，訊息先指退出版控。根層 `~/.claude/memory` 不在此範圍（根層 repo 仍版控索引、靠合併驅動）。
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。

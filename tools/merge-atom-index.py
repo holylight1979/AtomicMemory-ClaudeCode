@@ -29,7 +29,9 @@ git 呼叫（--install 寫進 global git config）：
                                PreToolUse hook 在第一次合併類 git 指令前會自動跑，通常不必手動。
   --is-installed [--cwd <dir>] exit 0＝完整有效（driver 設定＋直譯器與腳本存在＋attributes 標記＋該 repo check-attr）。
   --status [--cwd <dir>]       人讀狀態；exit 1＝未裝/失效。
-  --resolve [--cwd <dir>] [--quiet]
+  --resolve [--vcs git|svn] [--cwd <dir>] [--quiet]
+      --vcs 只處理那一側（PreToolUse 依觸發指令帶入）；不給＝git 與 svn 兩側都看——兩者各自找根，
+      git 疊在 svn 上的同層雙版控目錄兩側都會處理，沒有衝突的一側不動。
       備案：git 已停在衝突時（驅動沒裝、或 Fork 等 CC 以外的 pull），把同一套語意合併套在 index 的三個 stage
       （:1 base／:2 HEAD／:3 對方）上，寫回工作樹並 git add。只碰 check-attr merge=atomindex 且位於 memory/
       或 .claude/memory/ 的三檔；只在工作樹仍等於 git 原始衝突輸出（或驅動上一輪輸出）時覆蓋，人解到一半不碰；
@@ -38,7 +40,7 @@ git 呼叫（--install 寫進 global git config）：
       {"resolved":[],"staged_user_version":[],"skipped":[{"path","reason"}],"remaining":[],"installed":bool,"error":null}
       exit 0＝三檔已無 unmerged stage。順手 --install。
       stage 方向：merge 時 :2＝自己、:3＝對方；rebase／cherry-pick 時 :2＝upstream、:3＝正在重放的自己的 commit。
-      SVN 工作副本（cwd 最近的 VCS 根是 .svn）：update 停在索引三檔衝突後，拿 svn 留下的 X.mine（ours）／
+      SVN 工作副本（cwd 往上找得到 .svn）：update 停在索引三檔衝突後，拿 svn 留下的 X.mine（ours）／
       X.r舊（base）／X.r新（theirs；路徑取自 svn info --xml）跑同一套驅動，寫回並 svn resolve --accept working；
       仍含 <<<<<<< 標記就當未動過；只掃 memory dir 候選不掃整個 WC；JSON 契約同 git。PreToolUse 在
       svn commit／resolve 前自動跑。
@@ -937,18 +939,30 @@ def _resolve_svn(root: Path, start: Path, rep: Dict[str, Any]) -> None:
     rep["installed"] = installed_f.result()  # svn 無驅動可裝；只回報 git 端現況
 
 
-def resolve(cwd: Path, quiet: bool = False) -> Tuple[Dict[str, Any], int]:
+def resolve(cwd: Path, quiet: bool = False, only: Optional[str] = None) -> Tuple[Dict[str, Any], int]:
+    """only＝"git"|"svn" 只處理那一側（hook 依觸發它的指令指定）；None＝兩側都看。
+
+    svn 與 git 分開找根：git 疊在 svn 上（同一層兩個都有）時 find_vcs_root 只回 git，
+    只靠它會讓 svn 衝突整個被略過、卻回報成功。沒有衝突的那一側不會有任何動作。
+    """
     rep: Dict[str, Any] = {"resolved": [], "staged_user_version": [], "skipped": [], "remaining": [],
                            "installed": False, "error": None}
     try:
-        vcs = _wg_core().find_vcs_root(cwd)  # 最近的 VCS 根：svn WC 住在 git repo 裡時要走 svn
-        if vcs is None:
-            rep["error"] = "不在 git repo 或 svn 工作副本內"
+        core = _wg_core()
+        vcs = core.find_vcs_root(cwd)
+        git_root = vcs[1] if vcs and vcs[0] == "git" else None
+        svn_root = core.find_svn_root(cwd)
+        if only == "git":
+            svn_root = None
+        elif only == "svn":
+            git_root = None
+        if git_root is None and svn_root is None:
+            rep["error"] = f"不在{'git repo' if only == 'git' else 'svn 工作副本' if only == 'svn' else ' git repo 或 svn 工作副本'}內"
             return rep, 1
-        if vcs[0] == "svn":
-            _resolve_svn(vcs[1], cwd, rep)
-        else:
-            _resolve_git(vcs[1], rep)  # find_vcs_root 找到的 .git 所在層＝rev-parse --show-toplevel，省一個子行程
+        if svn_root is not None:
+            _resolve_svn(svn_root, cwd, rep)
+        if git_root is not None:
+            _resolve_git(git_root, rep)  # find_vcs_root 找到的 .git 所在層＝rev-parse --show-toplevel，省一個子行程
     except subprocess.TimeoutExpired as e:
         rep["error"] = f"git/svn 逾時：{e}"
     except Exception as e:  # noqa: BLE001
@@ -988,7 +1002,11 @@ def main(argv: List[str]) -> int:
     if "--status" in argv:
         return status(cwd or Path.cwd())
     if "--resolve" in argv:
-        rep, rc = resolve(cwd or Path.cwd(), quiet=quiet)
+        only = None
+        if "--vcs" in argv:
+            i = argv.index("--vcs")
+            only = argv[i + 1] if i + 1 < len(argv) and argv[i + 1] in ("git", "svn") else None
+        rep, rc = resolve(cwd or Path.cwd(), quiet=quiet, only=only)
         _out(json.dumps(rep, ensure_ascii=False))
         return rc
     pos = [a for a in argv if not a.startswith("--")]

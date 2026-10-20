@@ -33,6 +33,18 @@
 
 `is_installed(repo_cwd)` 四項全成立才算已裝：driver command 存在；command 引號內的直譯器與腳本路徑都存在；attributes 檔含 marker 行；目標 repo 對三檔 `git check-attr merge` 回 `atomindex`。任一不成立即重裝（`install()` 先寫 attributes 再寫 config，原子替換、保留既有內容；`pythonw.exe` 換成同目錄 `python.exe`）。
 
+## 專案層第 0 層：衍生檔不進版控（`lib/vcs_ignore.py`）
+
+三層防線都是「進了版控之後怎麼合」；專案記憶庫（`{proj}/.claude/memory`）的 `_atom_index.json`／`_ATOM_INDEX.md` 根本不必進去——每筆全來自 atom 檔頭，SessionStart 缺檔即從 .md 重建（`_ATOM_INDEX.md` 缺檔亦重生）。`_staging`／`episodic`／`vector-db` 是本機暫存，同樣排除。
+
+| 動作 | 何時 | 做什麼 | 怎麼驗 |
+|---|---|---|---|
+| 設 ignore | SessionStart 偵測到專案記憶庫；索引首次落檔（`atom_index_json.save_atom_index_json`） | svn 工作副本：`svn propset svn:ignore`，併入既有值不覆蓋（屬性是本機修改，隨下次 commit 走）；git：`{mem}/.gitignore` 只補缺的行。記憶庫目錄還沒 `svn add` → 跳過、下次再試；無 VCS 零子行程 | `svn propget svn:ignore {mem}`；`git check-ignore -q {mem}/_atom_index.json` |
+| 已版控告警 | 同上，每個記憶庫每種 VCS 一次（marker `workflow/vcs-ignore.json`） | `svn status --depth empty --xml`／`git ls-files` 看五項是否仍在版控 → `[Guardian:VcsIgnore] ⚠` 附確切 `svn rm --keep-local --force "<檔>"`（排程加入未提交者 `svn revert`）／`git rm -r --cached "<檔>"`、隊友端「local edit, incoming delete」→ `svn resolve --accept working` 說明、舊版手動 `--rebuild` 救法。**絕不自動執行** | `python -m lib.vcs_ignore {mem}`（唯讀報告）；`hooks/verify/verify_vcs_ignore_derived.py`（含 svnadmin 真工作副本） |
+| IndexConflict 措辭 | SessionStart 看到 `.mine`、PreToolUse 自動解完 | 衍生索引衝突先指「正解是退出版控」＋同一套指令，自動合併列為暫時處置；只有 `MEMORY.md` 衝突維持原句 | 同上測試 §9 |
+
+根層 `~/.claude/memory` 不在範圍：根層 repo 仍版控索引三檔、靠合併驅動（上表三層）。相容：atom 格式、索引 schema、`MEMORY.md` 不動；2026-09-23 前的舊版沒有缺檔重建，救法就是告警裡那句 `sync-atom-index.py --rebuild --memory-dir <mem>`。
+
 ## config
 
 `workflow/config.json` 頂層：
@@ -180,6 +192,7 @@ svn（`svn_update_targets`，取代舊 out-of-date 重試）：先把 validated 
 - **SVN 只掃 memory dir 候選**（walk-up `.claude/memory`、WC 根的 `memory/`、登記專案）：記憶樹放在候選之外的位置不會被看到（手動 `--resolve --cwd <該 memory dir>` 可解）。
 - **SVN 沒有 stage 可重建原始衝突輸出**：工作檔仍含 `<<<<<<<` 就視為未動過並覆蓋——人解到一半又留著標記的版本會被驅動結果蓋掉（git 分支會辨識、svn 不會）。解到一半請先把標記清乾淨再下 `svn commit`。
 - **SVN tree／property conflict** 不處理（只認 `<conflict type="text">`）。
+- **`svn:ignore`／`.gitignore` 對已版控檔無效**：第 0 層只告警、不自動 `svn rm`／`git rm`；退出版控是人的動作，告警每個記憶庫只出一次（marker），之後靠 IndexConflict 訊息提醒。
 - **TortoiseSVN 留下的衝突檔命名未實測**（CLI 為 `.mine/.rN`）；實作路徑取自 `svn info --xml`，不依賴檔名，理論上同樣可解。
 - **`svn:eol-style` 只設在已版控檔上**：剛寫入、尚未 `svn add` 的 atom 在下一次記憶寫入時補上（樹內轉 LF 不受此限）。
 - 專案樹 LF 自動化只在**專案模式 `--write` 走到**時發生：第一次啟用本版後要有一次 atom 寫入（或手動 `--auto`）才會落 `.gitattributes`／屬性。

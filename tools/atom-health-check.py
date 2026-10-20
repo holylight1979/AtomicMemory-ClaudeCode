@@ -3,7 +3,7 @@
 
 Usage:
   python atom-health-check.py --validate-refs   檢查 Related 完整性
-  python atom-health-check.py --fix-refs        自動修復缺失的反向參照
+  python atom-health-check.py --fix-refs        （已無動作，反向連結由索引計算）
   python atom-health-check.py --stale-check     列出 Last-used > 60 天的 atoms
   python atom-health-check.py --deps-check      壞滅緣檢查（path 型 Depends 存在性）
   python atom-health-check.py --report          生成完整健康報告
@@ -31,6 +31,7 @@ sys.path.insert(0, str(CODE_DIR))
 from lib.project_root import claude_data_dir  # noqa: E402
 from lib.atom_spec import (  # noqa: E402
     is_atom_file, REQUIRED_METADATA, parse_depends, resolve_depends_path,
+    find_related_line, split_related, has_conflict_markers,
 )
 from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
@@ -139,27 +140,24 @@ def parse_frontmatter(path: Path) -> dict:
         fm["_format"] = "claude-native"
         return fm
 
-    # Detect atom-style frontmatter (- Key: Value lines at top)
+    # Detect atom-style frontmatter (- Key: Value lines at top)。只讀第一個 `## ` 之前；
+    # 同名欄位取第一個——與 find_related_line 的寫入定位一致，去重才擋得住重複追加。
     for line in text.splitlines():
         line = line.strip()
+        if line.startswith("## "):
+            break
         if not line or line.startswith("#"):
             continue
-        m = re.match(r"^-\s+(.+?):\s+(.+)$", line)
-        if m:
+        m = re.match(r"^-\s+(.+?):[ \t]*(.*)$", line)
+        if m and m.group(1) not in fm:
             fm[m.group(1)] = m.group(2)
-        elif line.startswith("##"):
-            break
     fm["_format"] = "atom"
     return fm
 
 
 def parse_related(fm: dict) -> list[str]:
     """Extract Related atom names from frontmatter (handles both 'Related' and 'related')."""
-    raw = fm.get("Related", "") or fm.get("related", "")
-    if not raw or raw.strip() == "(none)":
-        return []
-    names = [n.strip().removesuffix(".md") for n in raw.split(",")]
-    return [n for n in names if n]
+    return split_related(fm.get("Related", "") or fm.get("related", ""))
 
 
 def resolve_ref(ref: str, atoms: dict[str, Path], aliases: dict[str, str]) -> str | None:
@@ -217,16 +215,18 @@ def auto_fix_broken_refs(broken: list[dict]) -> list[dict]:
         if not path.exists():
             continue
         text = path.read_text(encoding="utf-8")
-        m = re.search(r"^- Related:\s*(.+)$", text, re.MULTILINE)
+        if has_conflict_markers(text):
+            continue
+        m = find_related_line(text)
         if not m:
             continue
-        items = [i.strip() for i in m.group(1).split(",") if i.strip()]
+        items = split_related(m.group(1))
         missing = b["missing_ref"]
         new_items = [i for i in items if i != missing]
         if len(new_items) == len(items):
             continue
         new_line = f"- Related: {', '.join(new_items) if new_items else '(none)'}"
-        # 走 funnel：write_text_lf（一律 LF）+ audit（仿 fix_reverse_refs 既有先例）
+        # 走 funnel：write_text_lf（一律 LF）+ audit
         write_raw(path, text.replace(m.group(0), new_line, 1),
                   source="tool:atom-health-check", op="broken-ref-remove")
         fixes.append({"atom": b["atom"], "removed_ref": missing, "file": str(path)})
@@ -234,112 +234,15 @@ def auto_fix_broken_refs(broken: list[dict]) -> list[dict]:
 
 
 def check_reverse_refs(atoms: dict[str, Path], aliases: dict[str, str] | None = None) -> list[dict]:
-    """Check bidirectional Related consistency."""
-    aliases = aliases or {}
-    # Build adjacency with resolved names
-    adj: dict[str, list[str]] = {}
-    for name, path in atoms.items():
-        fm = parse_frontmatter(path)
-        raw_refs = parse_related(fm)
-        resolved = []
-        for ref in raw_refs:
-            r = resolve_ref(ref, atoms, aliases)
-            resolved.append(r if r else ref)
-        adj[name] = resolved
+    """恆回空清單：A → B 就代表兩顆相連，B 的檔裡不必也寫一次。
 
-    issues = []
-    for name, refs in adj.items():
-        for ref in refs:
-            if ref in CENTRAL_HUBS:
-                continue
-            # Also check aliases of ref in CENTRAL_HUBS
-            if ref in aliases and aliases[ref] in CENTRAL_HUBS:
-                continue
-            if ref in adj and name not in adj[ref]:
-                # Check if name is reachable via alias
-                name_aliases = [a for a, s in aliases.items() if s == name]
-                if not any(a in adj.get(ref, []) for a in name_aliases):
-                    issues.append({
-                        "atom_a": name,
-                        "atom_b": ref,
-                        "direction": f"{name} → {ref} exists, but {ref} → {name} missing",
-                    })
-    return issues
+    反向連結由 `sync-atom-index` 收進索引、注入時在記憶體反轉（`wg_atoms.load_link_graph`）。
+    把它存成 B 檔裡的一行，等於每新增一顆連到 hub 的 atom 就要去改 hub 那個檔——
+    那是別人的檔，多人共用同一個版控庫時必衝突。
 
-
-def fix_reverse_refs(atoms: dict[str, Path], aliases: dict[str, str] | None = None) -> list[dict]:
-    """Auto-fix missing reverse references. Returns list of fixes applied."""
-    aliases = aliases or {}
-    issues = check_reverse_refs(atoms, aliases)
-    if not issues:
-        return []
-
-    fixes = []
-    for issue in issues:
-        atom_a = issue["atom_a"]  # A → B exists
-        atom_b = issue["atom_b"]  # B → A missing, need to add A to B's Related
-
-        if atom_b not in atoms:
-            continue
-
-        path_b = atoms[atom_b]
-        text = path_b.read_text(encoding="utf-8")
-        fm = parse_frontmatter(path_b)
-        fmt = fm.get("_format", "atom")
-
-        # Determine canonical name to add (use alias if B references A via alias)
-        add_name = atom_a
-        # Check if atom_a has an alias that atom_b might prefer
-        for alias, stem in aliases.items():
-            if stem == atom_a:
-                add_name = alias
-                break
-
-        # Re-read file (may have been modified by earlier fix in this loop)
-        text = path_b.read_text(encoding="utf-8")
-        fm = parse_frontmatter(path_b)
-        fmt = fm.get("_format", "atom")
-
-        # Dedup check: skip if back-ref already present in current file
-        existing_refs = parse_related(fm)
-        existing_resolved = {r for ref in existing_refs for r in [resolve_ref(ref, atoms, aliases) or ref]}
-        if atom_a in existing_resolved or add_name in existing_refs:
-            continue
-
-        if fmt == "claude-native":
-            # YAML frontmatter: add or append 'related:' field
-            existing_related = fm.get("related", "")
-            if existing_related:
-                new_related = f"{existing_related}, {add_name}"
-                text = text.replace(f"related: {existing_related}", f"related: {new_related}", 1)
-            else:
-                # Insert before closing ---
-                text = re.sub(r"\n---", f"\nrelated: {add_name}\n---", text, count=1)
-        else:
-            # Atom-style: add or append '- Related:' field
-            related_match = re.search(r"^- Related:\s*(.+)$", text, re.MULTILINE)
-            if related_match:
-                old_line = related_match.group(0)
-                new_line = f"{old_line}, {add_name}"
-                text = text.replace(old_line, new_line, 1)
-            else:
-                # Insert Related line before first ## section
-                section_match = re.search(r"^## ", text, re.MULTILINE)
-                if section_match:
-                    insert_pos = section_match.start()
-                    text = text[:insert_pos] + f"- Related: {add_name}\n\n" + text[insert_pos:]
-                else:
-                    text += f"\n- Related: {add_name}\n"
-
-        # 走 funnel：write_text_lf（一律 LF）+ audit log
-        write_raw(path_b, text, source="tool:atom-health-check", op="reverse-ref-add")
-        fixes.append({
-            "target": atom_b,
-            "added_ref": add_name,
-            "file": str(path_b),
-        })
-
-    return fixes
+    保留函式與回傳形狀，舊呼叫端（health-weekly / heal-review / atom-heal）照跑不必改。
+    """
+    return []
 
 
 def stale_check(atoms: dict[str, Path], days: int = 60) -> list[dict]:
@@ -761,7 +664,7 @@ def print_text_report(report: dict):
 def main():
     parser = argparse.ArgumentParser(description="Atom Health Check")
     parser.add_argument("--validate-refs", action="store_true", help="Check Related references exist")
-    parser.add_argument("--fix-refs", action="store_true", help="Auto-fix missing reverse references")
+    parser.add_argument("--fix-refs", action="store_true", help="（已無動作）反向連結由索引計算，不寫進被連的檔")
     parser.add_argument("--auto-fix-broken", action="store_true", help="Auto-remove broken Related refs from source atoms (unresolvable targets)")
     parser.add_argument("--stale-check", action="store_true", help="List atoms with Last-used > 60 days")
     parser.add_argument("--deps-check", action="store_true",
@@ -845,15 +748,9 @@ def main():
         sys.exit(0)
 
     if args.fix_refs:
-        fixes = fix_reverse_refs(atoms, aliases)
-        if args.json:
-            print(json.dumps({"fixes": fixes, "count": len(fixes)}, indent=2, ensure_ascii=False))
-        elif fixes:
-            for f in fixes:
-                print(f"✅ {f['target']} ← added back-ref to {f['added_ref']}")
-            print(f"\nFixed {len(fixes)} missing reverse reference(s).")
-        else:
-            print("✅ No missing reverse references to fix.")
+        msg = "反向連結改由索引計算（sync-atom-index → wg_atoms.load_link_graph），不再寫進被連的檔。"
+        print(json.dumps({"fixes": [], "count": 0, "not_applied": [], "note": msg},
+                         indent=2, ensure_ascii=False) if args.json else f"✅ {msg}")
         sys.exit(0)
 
     if args.auto_fix_broken:

@@ -22,7 +22,7 @@ from wg_core import (
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
     read_state, read_state_status,
     _atom_debug_log,
-    find_vcs_root, memory_dir_candidates,
+    find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
 
@@ -948,16 +948,32 @@ def _is_svn_resolve_trigger(tokens: List[str]) -> bool:
     return True
 
 
+def _svn_derived_exit_hint(run_cwd: str, rels: List[str]) -> str:
+    """svn 索引自動合併只是暫時處置：_atom_index.json／_ATOM_INDEX.md 是衍生檔，正解是退出版控。
+    把確切指令附在同一行（措辭與 lib/vcs_ignore 同源；SessionStart 的 [Guardian:VcsIgnore] 也會提）。
+    rels＝相對 WC 根的路徑；沒有衍生檔或 lib 不在 → 空字串。"""
+    try:
+        from vcs_ignore import DERIVED_FILES, derived_exit_hint
+    except ImportError:
+        return ""
+    root = find_svn_root(Path(run_cwd))
+    if root is None:
+        return ""
+    paths = [root / rel for rel in rels if Path(rel).name in DERIVED_FILES]
+    if not paths:
+        return ""
+    return "自動合併只是暫時處置——" + derived_exit_hint("svn", paths)
+
+
 def _svn_unmerged_index_files(run_cwd: str, timeout: float) -> Optional[List[str]]:
     """svn 工作副本裡 update 後仍衝突的索引三檔（相對 WC 根）。
     純檔案系統先找 .svn（不是 svn WC → None、零子行程），再只對 memory dir 候選跑 `svn status --xml`
     （整個 WC 的 status 要 3～6 秒，超出預算）。None＝查不到；[]＝沒有。"""
     if not run_cwd or not os.path.isdir(run_cwd):
         return None
-    vcs = find_vcs_root(Path(run_cwd))
-    if not vcs or vcs[0] != "svn":
+    root = find_svn_root(Path(run_cwd))  # git 疊在 svn 上時 find_vcs_root 回 git，svn 側要另找
+    if root is None:
         return None
-    root = vcs[1]
     dirs = memory_dir_candidates(Path(run_cwd), root)
     if not dirs:
         return []
@@ -1059,7 +1075,7 @@ def check_merge_driver(
                     continue
                 try:
                     r = _run_capture(
-                        [interp, str(_MERGE_TOOL), "--resolve", "--cwd", run_cwd, "--quiet"],
+                        [interp, str(_MERGE_TOOL), "--resolve", "--vcs", kind, "--cwd", run_cwd, "--quiet"],
                         run_cwd, _left(_MERGE_GATE_BUDGET_S),
                     )
                 except subprocess.TimeoutExpired:
@@ -1085,6 +1101,10 @@ def check_merge_driver(
                     parts.append(f"已{'stage' if is_git else '標記 resolved'} 你解好的版本：{', '.join(staged)}")
                 if not parts:
                     parts.append("索引三檔已無未合併項")
+                if not is_git:
+                    hint = _svn_derived_exit_hint(run_cwd, resolved + staged)
+                    if hint:
+                        parts.append(hint)
                 return "[Guardian:IndexConflict] " + "；".join(parts)
 
         # (A) 合併類 git 指令 → 本機未裝驅動就自動 --install（只對第一個命中段做一次；svn 無驅動可裝）

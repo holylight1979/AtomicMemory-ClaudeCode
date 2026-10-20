@@ -56,6 +56,8 @@ OPTIONAL_METADATA = frozenset({
     "Expires-at", "Tags", "Related", "Supersedes", "Quality",
     "Audience", "Author", "Pending-review-by", "Merge-strategy", "Created-at",
     "Decided-by",  # conflict-review 核可 shared atom 時寫入（核可者）
+    "Aka",  # 這顆 atom 用過的舊檔名（逗號分隔）；索引把它登錄成指向同一顆的鍵，
+            # 改名後舊 Related 仍解析得到，不必去改所有連進來的檔（那些是別人的檔）
     "Depends", "Evidence",  # 壞滅緣（validity conditions）/ 證據等級（了義裁決）
     "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
     "Quote",  # 觸發這張卡片的使用者原話引述（單行 ≤200 字）；PostToolUse 自動填、回填腳本補
@@ -93,6 +95,13 @@ PROJECT_INDEX_MAX_LINES = 150  # 專案層 MEMORY.md 上限：專案層不生成
 # 單顆 byte 硬門檻可直接反推，取 3KB 為硬拒線：低於截斷點的 3 倍餘裕內仍容
 # 得下正常結論型 atom；超過即代表在堆個案敘事而非結論。
 KNOWLEDGE_BUDGET_BYTES = 3072
+
+# 達預算此比例即預警：撞牆才發現要重整時，選項只剩「刪既有內容」
+KNOWLEDGE_BUDGET_WARN_RATIO = 0.8
+
+# 清單型內容的硬拒門檻（待辦標記數）。清單會一直長大，放 atom 必然撞預算，
+# 且知識段注入上限 200 tok 會先把它截掉——第一次寫入就擋，不等它長到上限。
+TASK_LIST_MIN_ITEMS = 3
 
 # 內容樣式軟警門檻（逐筆表格列數 / 含路徑行數）
 STYLE_TABLE_MIN_ROWS = 6
@@ -158,7 +167,7 @@ def is_personal_atom_rel_parts(rel_parts) -> bool:
     return parts[-1] != "role.md"
 
 
-_META_LINE_RE = re.compile(r"^-\s+([\w-]+):\s*(.+)$")
+_META_LINE_RE = re.compile(r"^-\s+([\w-]+):[ \t]*(.*)$")
 
 
 def parse_frontmatter(content: str) -> Dict[str, str]:
@@ -166,6 +175,7 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
 
     從 # 標題後的 `- Key: Value` 區塊抽 metadata；空行不結束區塊（conflict-review 核可會在
     標題下插 `- Decided-by:` 再接空行），第一個非空、非 `- Key:` 的行（通常 `## 知識`）才結束。
+    值為空的欄位（如 `- Related:`）仍屬區塊、但不放進 dict，呼叫端的 `.get(k, 預設)` 照常生效。
     支援 BOM。回傳 dict（無 `_format` key — atom_spec 不關心 Claude-native YAML）。
     """
     if content.startswith("﻿"):
@@ -177,11 +187,72 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
             continue
         m = _META_LINE_RE.match(line) if line.startswith("- ") else None
         if m:
-            fm[m.group(1)] = m.group(2).strip()
+            value = m.group(2).strip()
+            if value:
+                fm[m.group(1)] = value
             in_meta = True
         elif in_meta:
             break
     return fm
+
+
+# `- Related:` 行。冒號後只吃同行空白：`\s*` 會跨過換行，值為空時把下一行（通常 `## 知識`）
+# 當成值——讀的一方會拿標題當連結名，寫的一方會把連結接到標題後面。
+RELATED_LINE_RE = re.compile(r"^- Related:[ \t]*(.*)$", re.MULTILINE)
+AKA_LINE_RE = re.compile(r"^- Aka:[ \t]*(.*)$", re.MULTILINE)
+_SECTION_START_RE = re.compile(r"^## ", re.MULTILINE)
+
+
+def _find_meta_line(text: str, pattern: "re.Pattern[str]") -> Optional["re.Match[str]"]:
+    """metadata 區塊內第一個符合的行（第一個 `## ` 標題之前）；沒有回 None。"""
+    section = _SECTION_START_RE.search(text)
+    return pattern.search(text, 0, section.start() if section else len(text))
+
+
+def find_related_line(text: str) -> Optional["re.Match[str]"]:
+    """metadata 區塊的 `- Related:` 行。
+
+    讀寫都以這一行為準。檔內留有版控衝突區段時會同時存在多行 Related，
+    只要讀與寫定位到不同行，去重判斷就擋不住重複追加。
+    """
+    return _find_meta_line(text, RELATED_LINE_RE)
+
+
+def find_aka_line(text: str) -> Optional["re.Match[str]"]:
+    """metadata 區塊的 `- Aka:` 行（改名前用過的檔名）。"""
+    return _find_meta_line(text, AKA_LINE_RE)
+
+
+def split_related(value: str) -> List[str]:
+    """逗號分隔的名稱欄（Related / Aka）→ 名稱清單；空值與 `(none)` 都是零項。"""
+    if not value or value.strip() == "(none)":
+        return []
+    return [n.strip().removesuffix(".md") for n in value.split(",") if n.strip()]
+
+
+_CONFLICT_OPEN_RE = re.compile(r"^<{7}(?: |$)")
+_CONFLICT_CLOSE_RE = re.compile(r"^>{7}(?: |$)")
+
+
+def has_conflict_markers(text: str) -> bool:
+    """內容含未解的版控衝突區段：先有 `<<<<<<<` 起頭行、後有 `>>>>>>>` 收尾行。
+
+    git merge-file / diff3 / svn 產生的標記同形。``` 區塊內的不算——談衝突處理的 atom
+    會在範例裡放標記，那是內容不是衝突。
+    """
+    in_fence = False
+    opened = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if _CONFLICT_OPEN_RE.match(line):
+            opened = True
+        elif opened and _CONFLICT_CLOSE_RE.match(line):
+            return True
+    return False
 
 
 def parse_depends(raw: Optional[str]) -> List[Dict[str, str]]:
@@ -365,7 +436,51 @@ def knowledge_budget_error(nbytes: int, budget: int = KNOWLEDGE_BUDGET_BYTES) ->
     return (
         f"knowledge 區 {nbytes} bytes 超過預算 {budget} bytes——"
         "個案事實移文件；atom 只留結論/判斷/教訓/現況/檔案錨點"
-        "（大段逐筆內容改為文件路徑一行）"
+        "（大段逐筆內容改為文件路徑一行）。"
+        "注入端知識段上限約 200 tok，放寬本預算也不會讓內容送達"
+    )
+
+
+def knowledge_budget_warning(nbytes: int, budget: int = KNOWLEDGE_BUDGET_BYTES,
+                             ratio: float = KNOWLEDGE_BUDGET_WARN_RATIO) -> Optional[str]:
+    """已達預算 ratio 但未超額 → 預警訊息；否則 None。budget<=0 停用。"""
+    if budget <= 0 or nbytes > budget or nbytes < int(budget * ratio):
+        return None
+    return (
+        f"knowledge 區 {nbytes} bytes 已達預算 {budget} bytes 的 {int(ratio * 100)}%——"
+        "接近上限；先分辨這是結論還是清單："
+        "清單型改為正本進 memory/_staging/、atom 留指標，別等撞牆才刪既有內容"
+    )
+
+
+# 清單型的訊號＝待辦標記。不能用「條列多」當判準——atom 本來就通篇條列
+_TASK_ITEM_RE = re.compile(r"^[ \t]*[-*][ \t]+\[[ xX]\]", re.MULTILINE)
+
+
+def knowledge_task_list_error(content: str,
+                              min_items: int = TASK_LIST_MIN_ITEMS) -> Optional[str]:
+    """knowledge 區是待辦清單（待辦標記 >= min_items）→ 錯誤訊息；否則 None。min_items<=0 停用。
+
+    清單會持續長大，而 atom 每次 trigger 整顆注入：越完整越貴，且知識段注入上限約
+    200 tok 會先把它截斷——長清單放 atom 根本到不了模型眼前。故於第一次寫入即擋。
+    """
+    if min_items <= 0:
+        return None
+    items = 0
+    for sec in KNOWLEDGE_SECTIONS:
+        m = re.search(
+            r"^##[ \t]+" + re.escape(sec) + r"[ \t]*\n([\s\S]*?)(?=^## |\Z)",
+            content, re.MULTILINE,
+        )
+        if m:
+            items += len(_TASK_ITEM_RE.findall(m.group(1)))
+    if items < min_items:
+        return None
+    return (
+        f"knowledge 區有 {items} 個待辦標記（`- [ ]`／`- [x]`）＝清單型內容——"
+        "清單正本請寫 memory/_staging/<主題>.md，atom 只留指標"
+        "（正本在哪／怎麼改／什麼不寫這裡）。"
+        "理由：atom 隨 trigger 整顆注入、知識段上限約 200 tok，長清單會被截斷"
     )
 
 

@@ -106,7 +106,7 @@ description: 原子記憶系統綜合工具 — health/review/score 三主力 + 
 
    **可選快路徑**（僅當 dashboard :3848 已開且確認跑新碼）：`POST http://127.0.0.1:3848/api/heal-all` 一次背景批修全部 broken_refs（走 server `healRunner` 併發、回 202 `{started,count,pending}`）。⚠️ live :3848 可能是**孤兒舊碼**（`/api/heal-all` 路由非新增、舊碼不會 404 而是靜默跑舊行為）→ 用前先確認新碼上線（見 atom [[guardian-dashboard-孤兒佔埠與新碼重啟]]）；不確定就用上面 CLI。
 
-   L1 反向連結**不在此處理** — SessionEnd `atom-health-check --fix-refs` 已全庫機械補齊，此處只治 L2 死連結，別重覆跑。
+   單向連結**不必補** — 反向由索引在注入時反轉（`wg_atoms.load_link_graph`），不寫進被連的那顆檔；此處只治 L2 死連結。
 
 ### peek → 自動萃取檢視（僅歷史殘留）
 

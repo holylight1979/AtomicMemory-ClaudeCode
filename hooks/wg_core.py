@@ -729,6 +729,24 @@ def find_vcs_root(start: Path) -> Optional[Tuple[str, Path]]:
     return find_vcs_root_ex(start)[0]
 
 
+def find_svn_root(start: Path) -> Optional[Path]:
+    """從 start 往上找最近的 .svn 目錄所在層（svn 工作副本根）；不在 svn 工作副本內回 None。
+
+    find_vcs_root 在同一層同時有 .git 與 .svn（git 疊在 svn 上）時回 git，
+    處理 svn 狀態（衝突、resolve）的呼叫端要改用這支，否則 svn 那一側永遠看不到。零 subprocess。
+    """
+    cur = Path(start)
+    while True:
+        try:
+            if (cur / ".svn").is_dir():
+                return cur
+        except OSError:
+            return None
+        if cur.parent == cur:
+            return None
+        cur = cur.parent
+
+
 def memory_dir_candidates(start: Path, root: Path) -> List[Path]:
     """VCS 根 root 之下可能的記憶樹——不掃整個工作區（大 SVN WC 的 svn status 要 3～6 秒，hook 預算只有 2.5 秒）。
 

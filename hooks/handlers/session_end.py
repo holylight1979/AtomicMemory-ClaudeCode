@@ -314,27 +314,6 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     except Exception as e:
         print(f"Conflict detection error: {e}", file=sys.stderr)
 
-    # atom-health-check 修參照：fire-and-forget（不 wait）——SessionEnd 30s 窗擁擠，
-    # 兩個子行程各可吃 10s；其輸出本就丟棄、結果不影響收尾流程，detach 即可。
-    try:
-        import subprocess as _sp
-        _hc_script = str(CODE_DIR / "tools" / "atom-health-check.py")
-        _hc_kwargs: Dict[str, Any] = {
-            "stdin": _sp.DEVNULL, "stdout": _sp.DEVNULL, "stderr": _sp.DEVNULL,
-        }
-        if sys.platform == "win32":
-            _hc_kwargs["creationflags"] = _sp.CREATE_NO_WINDOW
-        else:
-            _hc_kwargs["start_new_session"] = True
-        _sp.Popen([sys.executable, _hc_script, "--fix-refs"], **_hc_kwargs)
-        _proj_mem = get_project_memory_dir(state.get("session", {}).get("cwd", ""))
-        if _proj_mem:
-            _sp.Popen(
-                [sys.executable, _hc_script, "--fix-refs", "--memory-root", str(_proj_mem)],
-                **_hc_kwargs,
-            )
-    except Exception as e:
-        print(f"fix-refs error: {e}", file=sys.stderr)
 
     episodic_generated = state.get("episodic_checkpoint_done", False)
     if not episodic_generated and config.get("episodic", {}).get("auto_generate", True):

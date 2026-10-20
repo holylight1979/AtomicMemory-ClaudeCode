@@ -77,6 +77,9 @@
 ## 2026-10-15 同伴 session 的閒置／送達通知不再被當成使用者打的字
 - 實遇：同伴 session 閒置時 harness 送來的 `[Cross-session idle notice] …`（純文字、沒有標籤包住）被 `lib/harness_text.user_typed_text` 當成使用者的話，記進需求目標樹的「使用者原話（權威）」；口令、糾正、豁免、萃取、Quote 吃的是同一支，也都會誤認。修法：行首 `[Cross-session idle notice]`／`[Cross-session delivery notice]` 和 `[SYSTEM NOTIFICATION - NOT USER INPUT]` 同一條規則，那行起到訊息尾都算 harness；字樣不在行首（只是提到）照留。驗證：`verify_harness_prompt_guard` 新案舊碼 4 紅、新碼綠；宣告範圍 6 支 259 passed。
 
+## 2026-10-15 專案記憶索引過期自動重建——隊友經 svn／git 更新進來的卡不再被舊索引擋在注入之外
+- 專案記憶索引退出版控後，SessionStart 只在索引檔不存在時重建；本機舊索引還在時，更新拉進的新卡、被刪的卡都不會反映到索引，舊平鋪佈局專案的新卡就不會被注入（v4 分層佈局直接掃磁碟，不受影響）。`session_start._rebuild_index_if_missing` 加過期檢查：有記憶卡比索引新、或索引登記的卡已不在 → 從磁碟重建並說出原因；`~/.claude` 自己的記憶索引在版控裡、不做這項檢查；重建後碰一下索引時間，避免同內容的卡每次開 session 都重建。暫存資料夾清單改引用 `lib/vcs_ignore.DERIVED_DIRS`，不另寫一份。測試 `verify_vcs_ignore_derived` 加 6 案。
+
 ## 2026-10-15 判斷入口盤點第三階段：寫碼查核 (d)「由哪個案例驗」改由 AI 宣告、程式只核對
 - 依原設計者核准的盤點 P4（`memory/_staging/v6-C-判斷入口盤點.md`）與原話輯 G3、G6。**舊病**：(d) 用時序猜「案例對不對應改動」：改碼之後改了任何一支測試並跑綠就清掉全部帳（放錯）；只改字串、不需要新案例的改動只能找人放行（擋錯）。**新做法**（驗證範圍閘開著時）：`need_goal verify_scope` 的項目帶 `case_for` 列它驗的程式檔，頂層 `no_case=[{path, reason}]` 宣告不需要新案例；程式只核對事實——那一項點得到案例檔（測試檔、測試節點、只跑特定測試檔的指令）、案例仍存在、本 session 新寫或改過、那一項改完之後跑綠（`wg_verify_ledger.scope_item_status`，和驗證範圍閘同一個判斷，順手清掉盤點階段 2 留下的「(d) 自己判收據」同類）。no_case 照擋，擋訊息帶理由與【收尾放行確認】的問法（擋滿不准自行放行的裁定不變）；使用者放行那一刻把 no_case 的檔記成已裁定（綁在它當時的最後一次修改），之後沒再改就不每回合重問，再改要重裁。搬走的舊路徑（已不存在但本 session 改過）也能宣告。commit 快照的「當時不欠案例」用同一份宣告。驗證範圍閘關掉時退回舊判法。新規則 `CASE_DECLARED_FOR_CHANGE`、`NO_CASE_NEEDS_USER`、`CASE_DECL_WELL_FORMED`（`hooks/wg_release_rules.py`），判定函式 `wg_verify_scope.case_check`，宣告回應逐檔列由哪個案例驗；MCP schema 與 js／Python 形狀檢查同步（已開的 session 要重載才看得到新欄位說明）。
 - **同類一起修**：案例檔 glob `**/*test*` 把 `backtest_acceptance.py` 這類產品檔當案例（改了不欠），改成測試目錄與檔名慣例（`test_*`、`*_test.*`、`*.spec.*`、`tests/`、`__tests__/`、`*.Tests/` 等，預設與 `workflow/config.json` 同步）；檔名樣式只比檔名（codex BLOCK：fnmatch 的 `*` 跨 `/`，`src/test_runner/engine.py` 會被當案例）。背景自寫收據的目標解析保留 `檔::節點`、不存在的路徑參數不當「沒點名＝全部」（codex WARN：只跑別的節點被當成整棵樹跑過）。/console 派工單加「判斷入口」一欄、codex 審查提示加一問、交付信加「判斷寫成固定規則」一行（盤點階段 2 留下的計畫與審查範本）。MCP 煙霧測試 `smoke_mcp_stdio.js` 沒有哨兵尾行（驗證腳本該有），js 改動拿不到收據、也就宣告不了由它驗；補 `MCP_SMOKE_CHECK PASS|FAIL`。
@@ -537,6 +540,31 @@
 ## 2026-09-23 清掉版控程式裡殘留的作者帳號字面量
 - `get_current_user` 是「CLAUDE_USER → OS 登入帳號 → 中性預設值」一條鏈，但 `user-extract-worker` 的 `ctx.get("user", …)` 與 `handlers/_shared` 的 `user_id.get("user", …)` 拿不到身分時回固定字串、不走這條鏈——同事機器上 personal atom 歸屬與 PersonalSync 目標目錄會靜默指到錯的帳號下。改問 `get_current_user()`。
 - 同類另兩處：`wg_atoms._ATTR_PATH_NOISE` 把作者帳號寫死成路徑噪音詞（判用 v2 要剔除的是「家目錄那一段」，隨機器而異，寫死只對作者那台有效），與其對應測試，都改成取用時問當前使用者。`health-weekly` 的 schtasks 註冊範例註解改用 `%USERPROFILE%`。 | `hooks/user-extract-worker.py`, `hooks/handlers/_shared.py`, `hooks/wg_atoms.py`, `hooks/wg_roles.py`, `hooks/verify/verify_attribution_v2.py`, `tools/health-weekly.py`
+## 2026-10-01 專案記憶庫衍生檔退出版控（第 1 步，純加法）——init 即設 ignore、已版控只告警、缺檔重建含 mirror
+- 多人 SVN 共享的專案記憶庫裡，`_atom_index.json`／`_ATOM_INDEX.md` 是純衍生索引（每筆全來自 atom 檔頭、缺檔可重建），入版控只會每次 update 都衝（SVN 沒有 client merge driver）；而 `svn:ignore`／`.gitignore` 對「已經在版控裡」的檔無效。新增 `lib/vcs_ignore.py`：SessionStart 偵測到專案記憶庫、或索引首次落檔（`save_atom_index_json`）時，svn 工作副本 `svn propset svn:ignore`（併入既有值）、git 補 `{mem}/.gitignore`，五項＝索引兩檔＋`_staging`／`episodic`／`vector-db`；偵測到衍生檔已被版控 → `[Guardian:VcsIgnore]` 告警一次（marker `workflow/vcs-ignore.json`）附確切 `svn rm --keep-local --force`／`git rm --cached` 指令、隊友端 resolve 說明與舊版手動 `--rebuild` 救法，絕不自動執行。記憶庫目錄尚未 svn add → 跳過、下次再試；無 VCS 零子行程；根層 `~/.claude/memory` 不在範圍。
+- `_rebuild_index_if_missing`：`_ATOM_INDEX.md` 缺檔也重生（JSON 在就就地重生、不起子行程），重建失敗訊息附後果與手動指令。SVN `[Guardian:IndexConflict]`（SessionStart 與 PreToolUse 自動解）改成先指出衍生檔正解是退出版控、自動合併列為暫時處置。atom 格式、索引 schema、MEMORY.md 不動；MEMORY.md 衍生表瘦身與 changelog 改制留第 2、3 步。`verify_vcs_ignore_derived.py` 15 案（含 svnadmin 真工作副本）。 | `lib/vcs_ignore.py`, `lib/atom_index_json.py`, `hooks/handlers/{session_start,pre_tool_use}.py`, `hooks/verify/verify_vcs_ignore_derived.py`
+## 2026-09-23 v4 佈局的掃描根漏了 failures/，那層 atom 永遠不會被注入
+- `_collect_v4_role_atoms` 的 scan_targets 只有 `shared/`／`roles/<職務>/`／`personal/<本人>/`；而 v4 分支（memory 下有這三者任一即成立）會把索引讀來的 `project_atoms` 整份丟棄、只用掃描結果 → `failures/` 底下的 atom 整層從候選池消失。索引裡有它、檔案也在，只是永遠不被帶出來。實測某專案兩顆中招，其中一顆是「SVN 上傳必經明確授權」——本該擋不可逆動作的安全契約，實際上是暗的。`verify_scope_visibility` 檔頭 SPEC 本就寫「候選池 = global + P/shared(+failures) + …」，屬實作漏掉。 | `hooks/wg_atoms.py`, `hooks/verify/verify_scope_visibility.py`
+
+---
+
+## 2026-09-23 清單型內容寫入閘 + 預算預警與注入端事實
+- 待辦／backlog 這類會一直長大的清單本來就不該進 atom：知識段注入上限約 200 tok，長清單會被截斷，等於記了卻送不到模型眼前，放寬寫入預算解不了。新增 `knowledge_task_list_error`：knowledge 區待辦標記（`- [ ]`／`- [x]`）達 3 個即硬拒，訊息指向正解（正本寫 `memory/_staging/<主題>.md`、atom 只留指標）；create/replace 與 append 兩個寫入端都擋，且排在大小預算之前。判準用待辦標記而非「條列多」——atom 本來就通篇條列。
+- `knowledge_budget_error` 訊息補注入端事實；新增 `knowledge_budget_warning`（append 後達 80% 即回預警，讓呼叫端還有餘裕換形狀）；`rules/core.md` 補兩條規範。`verify_knowledge_shape.py` 11 案含「一般條列 atom 不得被誤判」防線。 | `lib/atom_io.py`, `lib/atom_io_cli.py`, `lib/atom_spec.py`, `lib/verify/verify_knowledge_shape.py`, `rules/core.md`
+
+---
+
+
+---
+
+## 2026-09-23 git 疊 svn 的同層雙版控：svn 側衝突不再被略過
+- `find_vcs_root` 在同一層同時有 `.git` 與 `.svn` 時回 git，所有只靠它找根的 svn 處理（SessionStart 的索引衝突 advisory、PreToolUse 在 `svn commit`／`resolve` 前的自動解、`merge-atom-index --resolve`）在這種目錄下永遠看不到 svn 那一側，卻回報成功。新增零子行程的 `wg_core.find_svn_root`，svn 側一律用它獨立找根；`--resolve` 改兩側都看（`--vcs git|svn` 只處理一側，PreToolUse 依觸發指令帶入），沒有衝突的一側不動。SessionStart 把 svn 的 atom 衝突與索引三檔分開報：索引三檔 hook 會自動解，atom 衝突要人判斷。 | `hooks/wg_core.py`, `hooks/handlers/{session_start,pre_tool_use}.py`, `tools/merge-atom-index.py`, `hooks/verify/verify_dual_vcs_conflict_detection.py`
+
+---
+
+## 2026-09-23 反向連結不落檔、索引可從磁碟重建——治本多人共用記憶庫的版控衝突
+- 衝突的來源不是兩個人改同一份知識，是兩類設計：把可推導的關係實體化成「要寫進別人檔案的欄位」，以及把衍生檔當成原始檔入版控。**反向連結**：索引加 `related` 欄（作者自己寫的正向連結），注入端 `load_link_graph` 讀進來在記憶體反轉，不再把反向寫進被連的那顆檔；`--fix-refs` 改無動作、SessionEnd 不再背景跑、atom-heal 的 L1 整級移除。**改名**：atom 加 `- Aka:`，索引把舊名登錄成同一顆的鍵，改名者只動自己那一顆。**索引可重建**：`--rebuild` 整份從磁碟重生、只刪「掃描根底下且檔案真的不存在」者、不改既有 scope、原樣帶過 `layout` 等未知頂層鍵，且維持既有條目順序、新條目接尾端（索引是入版控的共用檔，無條件排序會讓整檔變成一次重寫）；SessionStart 索引不在即自動重建並報條目數。
+- 同批修掉：`Related` 行讀寫定位到同一行、寫入 funnel 拒寫含衝突標記的內容、空值 `Related` 不再接到下一行標題、MCP 子行程以 utf-8 收 stdout。相容舊版：schema 維持 1.0 只加欄位；舊版可讀新格式，但舊版 `--fix-refs` 仍會把反向連結寫回被連的檔——要全隊更新才根治。 | `hooks/wg_atoms.py`, `hooks/handlers/{session_start,session_end}.py`, `lib/{atom_index_json,atom_io,atom_spec}.py`, `tools/{sync-atom-index,atom-move,atom-heal,atom-health-check}.py`, `tools/workflow-guardian-mcp/lib/{atom-tools,funnel}.js`
 
 ---
 

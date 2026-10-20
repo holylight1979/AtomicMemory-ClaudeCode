@@ -31,7 +31,7 @@ from wg_core import (
     _is_under_claude_dir,
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
-    find_vcs_root, memory_dir_candidates,
+    find_vcs_root, find_svn_root, memory_dir_candidates,
     resolve_project_root, org_memory_root, load_config, load_org_local,
 )
 from wg_atoms import (
@@ -55,6 +55,24 @@ from handlers._shared import (
 _TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
+
+try:
+    from vcs_ignore import (  # lib/：衍生檔退出版控（wg_core 已把 CODE_DIR/lib 放上 sys.path）
+        DERIVED_DIRS as _DERIVED_DIR_NAMES,
+        DERIVED_FILES as _DERIVED_INDEX_NAMES,
+        REBUILD_HINT as _REBUILD_MANUAL,
+        advisory_lines as _vcs_ignore_lines,
+        derived_exit_hint as _derived_exit_hint,
+        under_claude_dir as _under_claude_dir,
+    )
+except ImportError as _e:  # lib 不在（hooks 升了、lib 沒升）：缺檔重建與衝突提示照舊，只少「退出版控」那段；留痕不無聲
+    _atom_debug_error("session_start:vcs_ignore_import", _e)
+    _DERIVED_INDEX_NAMES = ("_atom_index.json", "_ATOM_INDEX.md")
+    _DERIVED_DIR_NAMES = ("_staging", "episodic", "vector-db")
+    _REBUILD_MANUAL = 'python ~/.claude/tools/sync-atom-index.py --rebuild --memory-dir "{mem}"'
+    _vcs_ignore_lines = None
+    _derived_exit_hint = None
+    _under_claude_dir = lambda _p: True  # noqa: E731  分不出是不是根層記憶 → 不做過期檢查，只保留缺檔重建
 try:
     from ollama_client import check_long_die_status
 except ImportError:
@@ -140,6 +158,104 @@ def wg_core_workflow_dir() -> Path:
     """取 wg_core.WORKFLOW_DIR 的即時值（測試 monkeypatch wg_core 後仍生效）。"""
     import wg_core
     return wg_core.WORKFLOW_DIR
+
+
+def _index_stale_reason(memory_dir: Path, json_path: Path) -> str:
+    """索引在，但磁碟上的記憶卡已經變了 → 回一句原因；沒變回空字串。
+
+    索引不入版控之後，隊友的卡經 svn／git 更新進來，本機那份舊索引不會跟著動，
+    新卡就不會被注入。這裡只看兩件事：有沒有記憶卡比索引新、索引登記的檔還在不在。
+    索引讀不到就當沒變——判斷失敗不該變成每次都重建。
+    """
+    try:
+        index_mtime = json_path.stat().st_mtime
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    for p in memory_dir.rglob("*.md"):
+        rel = p.relative_to(memory_dir)
+        if rel.parts[0] in _DERIVED_DIR_NAMES or p.name.startswith("_") or p.name == "MEMORY.md":
+            continue
+        try:
+            if p.stat().st_mtime > index_mtime:
+                return f"{rel.as_posix()} 比索引新"
+        except OSError:
+            continue
+    for a in data.get("atoms") or []:
+        path = a.get("path") or ""
+        if path and not (memory_dir.parent / path).exists():
+            return f"索引登記的 {path} 已不在"
+    return ""
+
+
+def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
+    """索引檔不在（沒入版控／被清掉／新 clone）、或專案記憶卡比索引新 → 就地從磁碟重建。
+
+    索引是衍生檔，本來就該能從 atom 重生；能重生才敢不入版控，
+    不入版控才不會「兩個人各加一顆 atom ＝ 同一區塊各插一列 ＝ 衝突」。
+    專案記憶的索引不入版控，所以隊友更新進來的卡要靠這裡的過期檢查才進得了索引；
+    ~/.claude 自己的記憶索引在版控裡、隨 pull 更新，不做過期檢查。
+    _ATOM_INDEX.md（mirror）缺檔同理：JSON 在就直接重生、不起子行程。
+    回傳要顯示的一行（沒事做回空字串）。重建失敗要大聲並附手動指令——
+    否則 trigger 注入靜默變空，沒人知道。
+    """
+    if not memory_dir or not memory_dir.is_dir():
+        return ""
+    json_path = memory_dir / "_atom_index.json"
+    md_path = memory_dir / "_ATOM_INDEX.md"
+    manual = _REBUILD_MANUAL.format(mem=memory_dir)
+    stale = ""
+    if json_path.exists() and md_path.exists():
+        if _under_claude_dir(memory_dir):
+            return ""
+        stale = _index_stale_reason(memory_dir, json_path)
+        if not stale:
+            return ""
+    elif json_path.exists():
+        try:
+            from atom_index_json import regenerate_atom_index_md
+            regenerate_atom_index_md(memory_dir)
+        except Exception as e:  # noqa: BLE001
+            _atom_debug_error("session_start:regenerate_mirror", e)
+            return f"[Guardian:Index] ⚠ _ATOM_INDEX.md 不在且重生失敗（{e}）→ 手動 {manual}"
+        if not md_path.exists():
+            return f"[Guardian:Index] ⚠ _ATOM_INDEX.md 不在且重生沒產出檔案 → 手動 {manual}"
+        return f"[Guardian:Index] _ATOM_INDEX.md 不在 → 已從 _atom_index.json 重生（{memory_dir}）。"
+    elif not any(memory_dir.rglob("*.md")):
+        return ""
+    what = f"索引過期（{stale}）" if stale else "索引不在"
+    harm = "新進的記憶卡這輪不會被注入" if stale else "trigger 注入這輪會是空的"
+    import subprocess as _sp
+    cmd = [sys.executable, str(CODE_DIR / "tools" / "sync-atom-index.py"),
+           "--memory-dir", str(memory_dir), "--rebuild"]
+    try:
+        r = _sp.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                    creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
+    except (OSError, _sp.SubprocessError) as e:
+        return f"[Guardian:Index] ⚠ {what}且重建失敗（{e}）——{harm} → 手動 {manual}"
+    if not json_path.exists():
+        return (f"[Guardian:Index] ⚠ 索引不在且重建沒產出檔案：{(r.stderr or '').strip()[:200]}"
+                f"——trigger 注入這輪會是空的 → 手動 {manual}")
+    if stale:
+        if r.returncode != 0:
+            return (f"[Guardian:Index] ⚠ {what}且重建失敗：{(r.stderr or '').strip()[:200]}"
+                    f"——{harm} → 手動 {manual}")
+        # 內容沒變時重建工具可能不改寫檔案：碰一下時間，否則同一張卡每次開 session 都判過期
+        try:
+            os.utime(json_path)
+        except OSError:
+            pass
+    # 帶上條目數：從零重建只收「磁碟掃得到的 atom」，舊索引若登記過非 atom 檔
+    #（_reference/ 下的參考文、沒有元資料的敘事文），重建後條目會變少。
+    # 不報數字的話那個落差是隱形的。
+    try:
+        import json as _json
+        n = len(_json.loads(json_path.read_text(encoding="utf-8")).get("atoms") or [])
+        count = f"，共 {n} 筆"
+    except (OSError, ValueError):
+        count = ""
+    mirror = "" if md_path.exists() else f"；⚠ _ATOM_INDEX.md 仍不在 → 手動 {manual}"
+    return f"[Guardian:Index] {what} → 已從磁碟重建（{memory_dir}）{count}{mirror}。"
 
 
 def _regenerate_role_filtered_memory_index(
@@ -580,60 +696,87 @@ def _index_conflict_advisory(cwd: str) -> list:
     唯讀 git；非 repo／git 不在／任何失敗 → []。PreToolUse 的 check_merge_driver 會在下一個
     `rebase --continue`／`commit` 前自動 --resolve，這行只是讓人先知道現況。
     """
+    lines: list = []
     try:
         if not cwd or not Path(cwd).is_dir():
             return []
-        vcs = find_vcs_root(Path(cwd))  # 零子行程：非工作區直接零行；svn WC（含住在 git repo 裡的）走 svn 分支
-        if vcs is None:
-            return []
-        if vcs[0] == "svn":
-            return _svn_index_conflict_advisory(cwd, vcs[1])
+        # svn 側獨立找：git 疊在 svn 上（同層兩個都有）時 find_vcs_root 回 git，svn 衝突會被略過
+        svn_root = find_svn_root(Path(cwd))
+        if svn_root is not None:
+            lines += _svn_index_conflict_advisory(cwd, svn_root)
+        vcs = find_vcs_root(Path(cwd))  # 零子行程：非工作區直接零行
+        if vcs is None or vcs[0] != "git":
+            return lines
         r = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
-            return []
+            return lines
         gitdir = Path((r.stdout or "").strip())
         if not gitdir.is_absolute():
             gitdir = Path(cwd) / gitdir
         if not any((gitdir / n).exists()
                    for n in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply")):
-            return []
+            return lines
         r = subprocess.run(
             ["git", "ls-files", "-u", "-z"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
-            return []
+            return lines
         index_names = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json", "_INDEX.md", "_local_catalog.md"}
         names = sorted({
             entry.split("\t", 1)[1].rsplit("/", 1)[-1]
             for entry in (r.stdout or "").split("\0") if "\t" in entry
         } & index_names)
-        if not names:
-            return []
-        return [
-            f"[Guardian:IndexConflict] ⚠ 索引三檔尚未合併（{', '.join(names)}）"
-            "→ python ~/.claude/tools/merge-atom-index.py --resolve 後 git rebase --continue"
-        ]
+        if names:
+            lines.append(
+                f"[Guardian:IndexConflict] ⚠ 索引三檔尚未合併（{', '.join(names)}）"
+                "→ python ~/.claude/tools/merge-atom-index.py --resolve 後 git rebase --continue")
+        return lines
     except Exception as e:
         _atom_debug_error("session_start:index_conflict_advisory", e)
-        return []
+        return lines
+
+
+_SVN_INDEX_NAMES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 
 
 def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
-    """SVN 工作副本：update 停在索引三檔衝突會留下 <檔>.mine；memory dir 候選裡有就提示一行（零子行程）。"""
-    names = sorted({
-        n for d in memory_dir_candidates(Path(cwd), root)
-        for n in ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json") if (d / f"{n}.mine").exists()
-    })
-    if not names:
-        return []
-    return [
-        f"[Guardian:IndexConflict] ⚠ SVN 索引三檔尚未解（{', '.join(names)}）"
-        "→ 在 CC 下 svn commit 前 hook 會自動解，或手動 python ~/.claude/tools/merge-atom-index.py --resolve"
-    ]
+    """SVN 工作副本：update 衝突會在原檔旁留下 <檔>.mine。memory dir 候選裡有就提示（零子行程）。
+
+    索引三檔與 atom 分開講。索引裡的 _atom_index.json／_ATOM_INDEX.md 是衍生檔，衝突的正解是退出版控
+    （指令與 [Guardian:VcsIgnore] 同源），hook 的自動合併只是暫時處置；atom 衝突要人判斷，
+    而且在解完之前 SessionEnd 的反向連結修補會跳過它們——放著不解，連結就一直補不上。
+    """
+    index_names: set = set()
+    derived_paths: list = []
+    atoms: list = []
+    for d in memory_dir_candidates(Path(cwd), root):
+        for mine in d.rglob("*.mine"):
+            original = mine.name[:-len(".mine")]
+            if original in _SVN_INDEX_NAMES:
+                index_names.add(original)
+                if original in _DERIVED_INDEX_NAMES:
+                    derived_paths.append(mine.with_name(original))
+            elif original.endswith(".md"):
+                atoms.append(original[:-3])
+    out = []
+    if index_names:
+        msg = f"[Guardian:IndexConflict] ⚠ SVN 索引三檔尚未解（{', '.join(sorted(index_names))}）"
+        if derived_paths and _derived_exit_hint is not None:
+            msg += f"。{_derived_exit_hint('svn', derived_paths)}；暫時處置："
+        else:
+            msg += "→ "
+        msg += "在 CC 下 svn commit 前 hook 會自動解，或手動 python ~/.claude/tools/merge-atom-index.py --resolve"
+        out.append(msg)
+    if atoms:
+        shown = "、".join(sorted(atoms)[:3]) + ("…" if len(atoms) > 3 else "")
+        out.append(
+            f"[Guardian:IndexConflict] ⚠ SVN 有 {len(atoms)} 顆 atom 衝突未解（{shown}）"
+            "→ 先解衝突再收工；未解期間自動修補會跳過這些檔")
+    return out
 
 
 def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
@@ -668,6 +811,20 @@ def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
     if not (Path(pool["org_base"]) / "memory" / "_atom_index.json").is_file():
         return [f"[Org] 公司層索引缺檔：{root}/.claude/memory/_atom_index.json（請在該 repo 跑 sync-atom-index）"]
     return [f"[Org] 公司層 {len(pool.get('org') or [])} 顆（{root}）"]
+def _vcs_ignore_advisory(project_mem_dir) -> list:
+    """專案記憶庫的衍生檔退出版控：設 svn:ignore／.gitignore＋「已被版控」告警一次（lib/vcs_ignore）。
+
+    每個記憶庫每種 VCS 只處理一次（marker：workflow/vcs-ignore.json），之後零子行程；
+    記憶庫目錄尚未版控時不記、下次再試。無 VCS／~/.claude 自己的記憶 → []。
+    """
+    try:
+        if not project_mem_dir or _vcs_ignore_lines is None:
+            return []
+        return _vcs_ignore_lines(Path(project_mem_dir), WORKFLOW_DIR / "vcs-ignore.json", timeout=4.0)
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:vcs_ignore_advisory", e)
+        return ["[Guardian:VcsIgnore] ⚠ 衍生檔版控檢查失敗（見 atom-debug log）"
+                "——手動 python -m lib.vcs_ignore <memory-dir> 檢視"]
 
 
 def _personal_sync_advisory(project_mem_dir, user: str) -> list:
@@ -953,6 +1110,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             sys.exit(0)
 
     existing = read_state(session_id)
+    _index_rebuild_notes: List[str] = []   # resume 分支不重建，仍要有值供收尾組訊息
     root_rebuilt = False
     if existing and source in ("compact", "resume") and not _root_fingerprint_matches(existing, root_res):
         # 專案根指紋變了（cwd 換了、宣告檔改了、或舊 state 還沒有指紋）→ 走下方重建分支重算
@@ -1012,8 +1170,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 趕不趕得上本次候選池隨緣——拉入的 atom 下一個 session 才一定進候選池，advisory 只報同步事實。
         _spawn_pull_sync(session_id, cwd, config)
 
+        _index_rebuild_notes.append(_rebuild_index_if_missing(MEMORY_DIR))
         global_atoms = parse_memory_index(MEMORY_DIR)
         project_mem_dir = get_project_memory_dir(cwd)
+        _index_rebuild_notes.append(_rebuild_index_if_missing(project_mem_dir))
         project_root = find_project_root(cwd)
 
         register_project(cwd)
@@ -1086,6 +1246,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "[Workflow Guardian] Active." if not root_rebuilt
             else f"[Workflow Guardian] Session resumed ({source}); 專案根變更，atom index 已重建.",
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
+            *[n for n in _index_rebuild_notes if n],
             *root_lines,
         ]
 
@@ -1195,6 +1356,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_tracking_advisory(cwd, state))
         lines.extend(_verify_scope_advisory(cwd))
         lines.extend(_scope_layout_advisory(project_mem_dir))
+        lines.extend(_vcs_ignore_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
         lines.extend(_org_advisory(org_root, pool))
         _maybe_spawn_provenance_backfill(config)

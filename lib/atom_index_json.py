@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -100,10 +101,33 @@ def load_atom_index_json(mem_dir: Path) -> Dict[str, Any]:
 
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
     p = mem_dir / ATOM_INDEX_JSON
+    born = not p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
     _write_text_lf(
         p, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
     )
+    if born:
+        _on_index_born(mem_dir)
+
+
+def _on_index_born(mem_dir: Path) -> None:
+    """索引首次落檔＝衍生檔誕生的那一刻：順手把它排除在專案版控外（svn:ignore／.gitignore）。
+
+    只對專案記憶庫（~/.claude 自己的記憶由根層 repo 規則管）；無 VCS 零子行程；fail-open，失敗只 stderr。
+    「已被版控」的告警交 SessionStart（lib/vcs_ignore.advisory_lines）。
+    """
+    try:
+        try:
+            from .vcs_ignore import ensure_ignore, under_claude_dir
+        except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+            from vcs_ignore import ensure_ignore, under_claude_dir
+        if under_claude_dir(mem_dir):
+            return
+        for rep in ensure_ignore(mem_dir):
+            if rep.get("error") and rep.get("skipped") != "no-cli":
+                print(f"[atom_index_json] {rep['vcs']} ignore 未設：{rep['error']}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"[atom_index_json] vcs ignore skipped: {e}", file=sys.stderr)
 
 
 def dedup_triggers(triggers, *, lower: bool = False) -> List[str]:
@@ -150,11 +174,20 @@ def upsert_atom(
     scope: str = "global",
     last_used: Optional[str] = None,
     depends: Optional[List[str]] = None,
+    related: Optional[List[str]] = None,
+    aka: Optional[List[str]] = None,
 ) -> bool:
     """Insert or update an atom entry. Returns True if changed.
 
     depends（optional，`path:<檔>` 或自由文字）：None＝未傳 → 沿用既有條目的 depends（4 參數的舊呼叫者不丟欄）；
     `[]` → 清空（移除鍵）；非空清單 → 取代。型別不對直接 ValueError。
+
+    `related` ＝該 atom 自己寫的**正向**連結。反向連結不存檔：注入端讀本索引後在記憶體反轉
+    （`wg_atoms.load_link_graph`）。存兩份的話，新增一顆連到 hub 的 atom 就得去改 hub 那個檔——
+    那是別人的檔，多人共用時必衝突。
+
+    `aka` ＝這顆用過的舊檔名，來自 atom 的 `- Aka:` 行。連結以檔名為鍵，改名時靠它讓舊連結
+    續存，改名者只動自己這一顆。兩者都是加法欄位：舊版工具讀不到就當沒有，故 schema 不升版。
     """
     data = load_atom_index_json(mem_dir)
     atoms = data["atoms"]
@@ -166,6 +199,13 @@ def upsert_atom(
         "triggers": triggers,
         "scope": scope,
     }
+    existing = next((a for a in atoms if a.get("name") == name), None)
+    keep = related if related is not None else (existing or {}).get("related")
+    if keep:
+        new_entry["related"] = list(dict.fromkeys(keep))
+    keep_aka = aka if aka is not None else (existing or {}).get("aka")
+    if keep_aka:
+        new_entry["aka"] = list(dict.fromkeys(keep_aka))
     if last_used:
         new_entry["last_used"] = last_used
 
@@ -190,6 +230,22 @@ def upsert_atom(
     save_atom_index_json(mem_dir, data)
     regenerate_atom_index_md(mem_dir)
     return True
+
+
+def build_alias_map(data: Dict[str, Any]) -> Dict[str, str]:
+    """{舊名: 現名}。現存的 name 不會被別名蓋掉（同名時以真實 atom 為準）。"""
+    names = {a.get("name") for a in data.get("atoms", [])}
+    alias: Dict[str, str] = {}
+    for a in data.get("atoms", []):
+        for old in a.get("aka", []) or []:
+            if old and old not in names:
+                alias.setdefault(old, a.get("name", ""))
+    return alias
+
+
+def resolve_name(name: str, alias: Dict[str, str]) -> str:
+    """把連結裡寫的名字解析成現名；不是別名就原樣回傳。"""
+    return alias.get(name, name)
 
 
 def _norm_index_path(p: object) -> str:
@@ -334,6 +390,7 @@ def validate_index(mem_dir: Path) -> List[str]:
         errors.append("atoms is not a list")
         return errors
 
+    all_names = {a.get("name") for a in atoms if isinstance(a, dict)}
     seen_names = set()
     seen_paths = set()
     for i, a in enumerate(atoms):
@@ -351,6 +408,9 @@ def validate_index(mem_dir: Path) -> List[str]:
         if path in seen_paths:
             errors.append(f"duplicate path: {path}")
         seen_paths.add(path)
+        for old in a.get("aka", []) or []:
+            if old in all_names:
+                errors.append(f"aka collides with an existing atom name: {name}: {old!r}")
         if not isinstance(a.get("triggers"), list):
             errors.append(f"atoms[{i}] triggers not list")
         else:

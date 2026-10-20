@@ -26,17 +26,22 @@ function execConflictDetector(content, scope, projectCwd, subdir) {
     if (subdir) {
       args.push("--subdir", subdir);
     }
+    // 輸出含 atom 名（中文）：不指定編碼時 Windows 子行程以 cp950 寫出，這裡再以 UTF-8 解讀就成亂碼；
+    // 收齊 Buffer 再一次解碼，避免多位元組字元被 chunk 邊界切開。
     const cp = require("child_process").spawn(PYTHON_EXE, [scriptPath, ...args], {
       windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
     });
-    let out = "", err = "";
+    const outChunks = [], errChunks = [];
     const timer = setTimeout(() => {
       try { cp.kill(); } catch {}
     }, 60000);  // 60s — vector + 3 LLM calls
-    cp.stdout.on("data", d => { out += d.toString(); });
-    cp.stderr.on("data", d => { err += d.toString(); });
+    cp.stdout.on("data", d => { outChunks.push(d); });
+    cp.stderr.on("data", d => { errChunks.push(d); });
     cp.on("close", () => {
       clearTimeout(timer);
+      const out = Buffer.concat(outChunks).toString("utf-8");
+      const err = Buffer.concat(errChunks).toString("utf-8");
       try {
         const parsed = JSON.parse(out.trim().split("\n").pop());
         resolve(parsed);
