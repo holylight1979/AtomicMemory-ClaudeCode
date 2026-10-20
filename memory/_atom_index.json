@@ -7975,6 +7975,17 @@
         "pathspec 排除"
       ],
       "scope": "global"
+    },
+    {
+      "name": "純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹",
+      "path": "_AIDocs/_atoms/MemDev/純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹.md",
+      "triggers": [
+        "git show 舊版",
+        "載成模組",
+        "舊碼對照",
+        "不動工作樹"
+      ],
+      "scope": "global"
     }
   ]
 }
