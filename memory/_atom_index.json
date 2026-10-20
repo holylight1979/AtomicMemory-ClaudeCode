@@ -7757,6 +7757,39 @@
         "意圖來源"
       ],
       "scope": "global"
+    },
+    {
+      "name": "程式核對ai宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答",
+      "path": "memory/CC與原子記憶契約/程式核對ai宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答.md",
+      "triggers": [
+        "宣告行",
+        "拐彎判斷｜",
+        "不做｜",
+        "宣稱｜",
+        "順手看到最該修",
+        "對象欄比對",
+        "子字串",
+        "引言",
+        "圖欄",
+        "AI 回答行解析",
+        "程式查結構 AI 寫理由"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹",
+      "path": "_AIDocs/_atoms/MemDev/mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹.md",
+      "triggers": [
+        "second_opinion_start",
+        "session_id 未給",
+        "updatedInput",
+        "MCP 沒有 session",
+        "材料沒有需求目標樹",
+        "goal.md 無目標樹",
+        "PreToolUse 補參數",
+        "settings.json matcher"
+      ],
+      "scope": "global"
     }
   ]
 }
