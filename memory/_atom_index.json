@@ -7790,6 +7790,38 @@
         "settings.json matcher"
       ],
       "scope": "global"
+    },
+    {
+      "name": "多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔",
+      "path": "_AIDocs/_atoms/MemDev/多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔.md",
+      "triggers": [
+        "test_044_every_rule_has_a_case",
+        "verify_release_rules",
+        "共用測試檔",
+        "多軌並行",
+        "檔尾分段",
+        "RULES 新規則",
+        "共用檔約定",
+        "wg_release_rules 檔尾"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣",
+      "path": "_AIDocs/_atoms/MemDev/量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣.md",
+      "triggers": [
+        "PYTEST_MEASURE",
+        "sentinel_regex",
+        "量測收據",
+        "DONE k=v",
+        "熱路徑量測",
+        "反例案例",
+        "斷言回傳值",
+        "擋空訊息",
+        "[null, null]",
+        "閘壞成恒擋"
+      ],
+      "scope": "global"
     }
   ]
 }
