@@ -1123,7 +1123,7 @@ RECONCILE_DEFAULTS: Dict[str, Any] = {
     "exec_tools": ["Bash", "PowerShell"],
     "code_exts": [".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".cs", ".lua", ".c", ".h", ".cc",
                   ".cpp", ".cxx", ".hpp", ".hh", ".java", ".kt", ".kts", ".go", ".rs", ".rb", ".php", ".swift", ".m",
-                  ".mm", ".scala", ".dart", ".vue", ".svelte", ".ps1", ".psm1", ".sh", ".bash", ".sql", ".gd",
+                  ".mm", ".scala", ".dart", ".vue", ".svelte", ".ps1", ".psm1", ".bat", ".cmd", ".sh", ".bash", ".sql", ".gd",
                   ".shader", ".hlsl", ".glsl"],
     # 案例檔的定義：測試目錄或測試檔名慣例（不用 `**/*test*`：它把 backtest_acceptance.py、latest_build.py 這類產品檔也當案例，改了不欠補案例）
     "verify_case_globs": ["**/verify/**", "**/tests/**", "**/test/**", "**/__tests__/**", "**/*.tests/**",

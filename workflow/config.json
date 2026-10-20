@@ -756,7 +756,7 @@
       ".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".cs", ".lua",
       ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".java", ".kt", ".kts",
       ".go", ".rs", ".rb", ".php", ".swift", ".m", ".mm", ".scala", ".dart", ".vue",
-      ".svelte", ".ps1", ".psm1", ".sh", ".bash", ".sql", ".gd", ".shader", ".hlsl", ".glsl"
+      ".svelte", ".ps1", ".psm1", ".bat", ".cmd", ".sh", ".bash", ".sql", ".gd", ".shader", ".hlsl", ".glsl"
     ],
     "verify_case_globs": [
       "**/verify/**", "**/tests/**", "**/test/**", "**/__tests__/**", "**/*.tests/**",

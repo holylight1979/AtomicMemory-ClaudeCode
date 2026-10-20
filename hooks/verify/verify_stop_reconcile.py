@@ -1256,6 +1256,15 @@ def test_006_9_case_must_be_code_file(driven, capsys):
     assert "ReconcileGate" not in out
 
 
+def test_windows_batch_files_count_as_code(driven, capsys):
+    """原設計者 10-20 定：Windows 批次檔（.bat／.cmd）算程式——改了要補測試，和 .ps1、.sh 同樣判。反例：同目錄的文件不算。"""
+    exts = vl.reconcile_cfg({})["code_exts"]
+    assert vl.is_code_file(r"c:\proj\tools\build.bat", exts) and vl.is_code_file(r"c:\proj\tools\deploy.CMD", exts)
+    assert not vl.is_code_file(r"c:\proj\tools\README.md", exts)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(r"c:\proj\tools\build.bat", 5)])
+    assert "ReconcileGate" in out and "改了程式碼（build.bat）" in out, out          # 改批次檔沒補案例照欠
+
+
 def test_006_10_case_debt_carries_over_turns(driven, capsys):
     w = _mf(r"c:\proj\src\widget.py", 5, last_at="2026-10-12T10:00:00+08:00", last_seq=3)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w])
