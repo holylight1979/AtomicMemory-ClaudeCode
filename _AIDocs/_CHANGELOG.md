@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 G8 根基：設定鍵一致性量測工具（只量不改）
+- **新工具** `tools/config-consistency.py`：掃一次「每個設定鍵在每個執行端是否一致生效」——程式讀了卻沒定義、config.json 定義了沒人讀、同鍵各處預設不同、不經 `claude_data_dir` 自己算資料根，四類列成報告（`--out`／`--json`），鍵名是變數或整段被傳走的列「判不了」不猜；尾行 `CONFIG_CONSISTENCY DONE keys=… read_not_defined=… defined_not_read=… default_mismatch=… path_self_computed=…`（量尺，不印 PASS）。案例 `tools/verify/verify_config_consistency.py`（假樹四類各一筆＋動態鍵＋測試檔不算讀取端）。本樹首跑報告交總控台落 `memory/_staging/g8-config-consistency-report.md`；修不一致是後續軌的事。
+
 ## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒
 - **交給 AI 寫程式時會看到的**：commit 時，新寫進的「一整段邏輯塞進匿名回呼（超過 20 行）」「`x = lambda`」「函式巢狀 4 層以上」「巢狀三元」「Unity 空的 Update 之類」「Update 裡每幀 Find／AddComponent／反射」也會被擋並點名哪個檔第幾行（巢狀附幾層、回呼附幾行）；10～20 行的匿名回呼、字串註解剝不乾淨的檔只提醒不擋；舊函式本來就深、這次沒變深的不擋。測試框架的 describe／it 回呼、promise 回呼用到外層變數的不算套層。門檻在 `workflow/config.json` 的 `guard.smell_gate` 可調。
 - **依據與驗證**：派工 002 提案（linter 原始碼與文獻＋實測，`workflow/inbox/from-track-g2/002-smell-shapes-proposal.md`）、派工 003 核可。`hooks/verify/verify_smell_gate.py` 新 23 案，每條病形一個先紅後綠＋至少一個誤判反例；在本 repo 與一個 3704 檔的 C# 伺服器專案上校準，抓到並修掉兩類誤擋（伺服器模組的 `Update()` 被當成 Unity 訊息、C# 運算式主體屬性被當成 lambda）。本機沒有 Unity 專案，Unity 兩條只有案例驗過、沒有在真實 Unity 專案上校準。改完閘本身也被自己擋了一次（新寫的函式巢狀 4 層），已改平。
