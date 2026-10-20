@@ -13,6 +13,7 @@
     沒有 → 擋（規則 GATE_BYPASS_NEEDS_DECLARATION）。成功 commit（post_tool_use）→ note_commit_done 清掉 smell_deny_last。
     --git-dir／GIT_DIR 的 commit 病形閘本身已擋（判不了），走不到這裡。state 是 session 級：上個 session 被擋、這個 session 繞不算。
 (b) atom_refusal：卡片內容同時提到 Guardian 的閘、又含改暫存區／改提交範圍的做法字樣 → 拒寫（規則 ATOM_BYPASS_HOWTO_REFUSED）；
+    AI 判斷不是在教繞法（寫的是禁止怎麼繞、在分析誤擋）→ 知識段第一行寫「不是教繞閘｜<理由>」就寫入、留帳 atom_declared；
     入口在 tools/memory-write-gate.py（MCP atom_write 的 create／append／replace 都經過）與 lib/atom_io.write_atom（程式寫手）。
 是不是繞閘由 AI 判並寫理由；程式只核對序列事實與宣告行在不在，留帳 Logs/guard-gate_bypass.jsonl 給人抽查
 （事件 suspect／declared／denied／atom_refused／cleared）。開關 guard.gate_bypass.enabled（預設 True），做法字樣
@@ -533,9 +534,23 @@ def bypass_signals(text: str, config: Optional[Dict[str, Any]] = None) -> Tuple[
     return list(dict.fromkeys(gates)), [w for w in words if w and w.lower() in low]
 
 
+ATOM_DECLARE_EXAMPLE = "不是教繞閘｜<理由：這張卡在教什麼>"
+# 宣告放在知識段第一行（可帶 [臨] 這類信心前綴）：MCP atom_write 不用加欄位、js 零改動；宣告行會跟著寫進卡裡
+_ATOM_DECLARE_RE = re.compile(r"^\s*(?:\[[臨觀固]\]\s*)?不是教繞閘\s*[｜|]\s*(.+?)\s*$")
+
+
+def atom_declaration(knowledge: Sequence[str]) -> str:
+    """知識段第一行的「不是教繞閘｜<理由>」→ 理由；沒有回空字串（有沒有填、是不是佔位交 wg_release_rules 判）。"""
+    first = str((list(knowledge or []) or [""])[0]).splitlines()
+    m = _ATOM_DECLARE_RE.match(first[0]) if first else None
+    return m.group(1) if m else ""
+
+
 def atom_refusal(title: str, knowledge: Sequence[str], actions: Optional[Sequence[str]] = None,
                  config: Optional[Dict[str, Any]] = None, source: str = "") -> Optional[str]:
-    """寫卡前呼叫：兩訊號同時命中 → 拒寫訊息（並留帳 atom_refused）；否則 None。config 沒給讀 workflow/config.json。"""
+    """寫卡前呼叫：兩訊號同時命中、知識段第一行沒有「不是教繞閘｜理由」→ 拒寫訊息（留帳 atom_refused，訊息末尾印宣告入口）；
+    有宣告 → 寫入、留帳 atom_declared（理由全文＋卡名）；其餘 None。是不是真的在教繞法由 AI 判並寫理由，程式只核對有沒有寫。
+    config 沒給讀 workflow/config.json。"""
     if config is None:
         config = wg_core.load_config()
     if not enabled(config):
@@ -543,9 +558,14 @@ def atom_refusal(title: str, knowledge: Sequence[str], actions: Optional[Sequenc
     import wg_release_rules as rr
     text = "\n".join([str(title or "")] + [str(k) for k in knowledge or []] + [str(a) for a in actions or []])
     gates, words = bypass_signals(text, config)
-    v = rr.atom_bypass_verdict(gates, words)
+    reason = atom_declaration(knowledge)
+    v = rr.atom_bypass_verdict(gates, words, reason)
     if not v.owed:
+        if gates and words:
+            _log("atom_declared", "", title=str(title)[:120], reason=reason, gates=gates, words=words, source=source)
         return None
-    _log("atom_refused", "", title=str(title)[:120], gates=gates, words=words, source=source)
+    _log("atom_refused", "", title=str(title)[:120], gates=gates, words=words, declared=reason, source=source)
     return (f"這張卡在教怎麼繞 {'、'.join(gates)}。閘誤擋要修判定（加規則＋紅案例），不寫繞法；確定誤擋就寫追蹤項。"
-            "要記的是「為什麼那批檔不該進這筆」就改寫成那句再寫。\n" + rr.format_hit("gb", v))
+            "要記的是「為什麼那批檔不該進這筆」就改寫成那句再寫。\n" + rr.format_hit("gb", v) + "\n"
+            "確定這張卡不是在教繞法（例如寫的是「禁止怎麼繞」、或在分析一次誤擋）→ 知識段第一行寫"
+            f"「{ATOM_DECLARE_EXAMPLE}」再寫一次，會寫入並留帳給人抽查。")

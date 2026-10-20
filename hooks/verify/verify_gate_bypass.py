@@ -407,6 +407,39 @@ def test_single_signal_is_written(quiet, text):
     assert not quiet.exists()
 
 
+ANTI_BYPASS = ["[臨] SmellGate 擋下後，禁止用 git reset 把被點名的檔移出暫存規避；病還在就修病"]
+
+
+def test_anti_bypass_card_without_declaration_is_refused_with_entry(quiet):
+    """防繞指引卡兩訊號都命中：沒宣告照拒，訊息末尾有宣告入口行。"""
+    r = _mwg("病形閘擋下後禁止移出暫存", ANTI_BYPASS)
+    assert r["action"] == "skip" and "ATOM_BYPASS_HOWTO_REFUSED" in r["reason"]
+    assert "知識段第一行寫「不是教繞閘｜<理由：這張卡在教什麼>」" in r["reason"]
+
+
+def test_declared_anti_bypass_card_is_written_and_logged(quiet):
+    reason = "這張卡寫的是禁止移出暫存規避，不是教怎麼繞"
+    knowledge = [f"[臨] 不是教繞閘｜{reason}"] + ANTI_BYPASS
+    assert "ATOM_BYPASS_HOWTO_REFUSED" not in str(_mwg("病形閘擋下後禁止移出暫存", knowledge).get("reason"))
+    from lib import atom_io
+    assert atom_io.gate_bypass_refusal("病形閘擋下後禁止移出暫存", knowledge, None) is None
+    rows = [json.loads(ln) for ln in quiet.read_text(encoding="utf-8").splitlines()]
+    assert [r["event"] for r in rows] == ["atom_declared"] * 2
+    assert rows[0]["reason"] == reason and rows[0]["title"] == "病形閘擋下後禁止移出暫存"
+
+
+@pytest.mark.parametrize("decl", ["不是教繞閘｜<理由：這張卡在教什麼>", "不是教繞閘｜", "不是教繞閘｜。。"])
+def test_placeholder_or_empty_atom_declaration_is_refused(quiet, decl):
+    r = _mwg("病形閘擋下後禁止移出暫存", [decl] + ANTI_BYPASS)
+    assert r["action"] == "skip" and "ATOM_BYPASS_HOWTO_REFUSED" in r["reason"]
+
+
+def test_atom_declaration_must_be_first_line(quiet):
+    """宣告只認知識段第一行：夾在後面的不算（避免引用的範例拿到豁免）。"""
+    knowledge = ANTI_BYPASS + ["[臨] 不是教繞閘｜這張卡寫的是禁止規避"]
+    assert "ATOM_BYPASS_HOWTO_REFUSED" in _mwg("病形閘擋下後禁止移出暫存", knowledge)["reason"]
+
+
 def test_rule_name_counts_as_gate_and_config_words_override(quiet):
     text = ["[臨] 被 GATE_BYPASS_NEEDS_DECLARATION 擋就先移出暫存"]
     assert gb.atom_refusal("x", text, config={}) is not None

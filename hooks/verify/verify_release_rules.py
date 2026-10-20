@@ -1836,3 +1836,5 @@ def test_t219_gate_bypass_verdicts():
     assert rr.atom_bypass_verdict(["SmellGate"], ["拆三步"]).owed
     v = rr.atom_bypass_verdict(["SmellGate"], [])
     assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed
+    assert not rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "這張卡寫的是禁止規避").owed     # 宣告了不是教繞閘
+    assert rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "<理由：這張卡在教什麼>").owed      # 佔位照拒
