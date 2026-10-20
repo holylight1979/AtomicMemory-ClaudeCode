@@ -442,7 +442,7 @@ def project_subdir_target(base: Path, subdir: str) -> tuple:
 _LOCATE_SKIP_DIRS = frozenset({
     "_meta", "_reference", "_staging", "_vectordb", "_distant",
     "episodic", "templates", "personal", "roles", "wisdom", "_pending_review",
-    "_drafts",
+    "_drafts", "_rejected",   # _rejected：被退回的卡，append／replace 不得找到它
 })
 
 

@@ -34,10 +34,11 @@ except ImportError:  # 頂層模組載入（含單獨按檔案載入、lib/ 不�
 # - _pending_review/: shared 敏感原子待裁決區，非活躍 atom
 # - _rejected/: memory-undo 撤銷歸檔區，非活躍 atom
 # - _drafts/: auto-capture 草稿隔離區（extract-worker），不入索引不注入
+# - _archived/: 封存區（例 personal/_archived/），封存的舊卡不再當活躍 atom
 SKIP_DIRS = frozenset({
     "_meta", "_reference", "_staging", "_vectordb", "_distant",
     "episodic", "templates", "personal", "wisdom", "_pending_review",
-    "_rejected", "_drafts",
+    "_rejected", "_drafts", "_archived",
 })
 
 # 系統檔前綴（檔名等級跳過）
