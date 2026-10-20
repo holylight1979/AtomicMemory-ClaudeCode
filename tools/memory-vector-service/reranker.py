@@ -67,14 +67,16 @@ def enhanced_search(
 ) -> List[Dict[str, Any]]:
     """LLM-enhanced search: rewrite query → vector search."""
     from searcher import search
+    from config import DEFAULTS
 
     rewritten = rewrite_query(query, config)
-    # Rewritten queries match with lower scores (more expanded/divergent), so lower threshold
+    # Rewritten queries match with lower scores (more expanded/divergent), so lower threshold：
+    # 讀同一個 search_min_score（缺鍵用 config.py 預設），再刻意壓到 0.4 以下
     results = search(
         query=rewritten,
         config=config,
         top_k=top_k,
-        min_score=min(config.get("search_min_score", 0.5), 0.4),
+        min_score=min(config.get("search_min_score", DEFAULTS["search_min_score"]), 0.4),
         embedder=embedder,
     )
 

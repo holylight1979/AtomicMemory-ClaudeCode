@@ -299,7 +299,7 @@ def _git_lines(args: List[str], cwd: str) -> Optional[List[str]]:
 def _privacy_globs(config: Dict[str, Any], repo_root: str) -> List[str]:
     globs = list(_PRIVACY_DEFAULT_DENY_GLOBS)
     try:
-        if repo_root and Path(repo_root).resolve() == (Path.home() / ".claude").resolve():
+        if repo_root and Path(repo_root).resolve() == Path(CLAUDE_DIR).resolve():
             globs += _PRIVACY_CLAUDE_ROOT_GLOBS
     except Exception:
         pass

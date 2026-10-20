@@ -625,6 +625,17 @@ def evaluate(
             "reason": "導讀卡不合格；" + "；".join(parts) + "；補齊再寫（不截斷、不代填）",
         })
 
+    # write_gate.enabled=false：品質／去重評分整段關（同 skip_gate）；上面的繞閘拒寫、現況帳、預算、導讀卡檢查照做
+    if not config.get("enabled", True):
+        print("[write-gate] write_gate.enabled=false：不跑品質與去重評分，直接放行（預算、分型、繞閘拒寫照做）",
+              file=sys.stderr)
+        write_audit_log("add", content, 1.0, reason="gate_disabled", kind=kind)
+        return _kinded({
+            "action": "add",
+            "quality_score": 1.0,
+            "reason": f"write_gate disabled: budget {total}/{limit} ok, kind={kind}",
+        })
+
     # mode≠create／skip_gate：只做預算與分型，不跑 dedup／quality
     if mode != "create" or skip_gate:
         write_audit_log("add", content, 1.0, reason=f"{mode}_budget_only", kind=kind)

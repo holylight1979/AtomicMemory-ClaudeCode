@@ -124,6 +124,36 @@ def test_markdown_out_and_notes(tree, tmp_path):
     assert DONE_RE.match(r.stdout.rstrip().splitlines()[-1])
 
 
+# ─── 本樹重跑：派工 002 修過的鍵與檔不再出現 ─────────────────────────────
+
+FIXED_B = {"cross_session.enabled", "write_gate.enabled", "provenance.quote_max_chars"}
+FIXED_C = {"usefulness.wilson_z", "vcs_sync.exclude", "session_context.search_timeout_ms", "sync_keywords",
+           "vector_search.fallback_backend",
+           "vector_search.fallback_model", "vector_search.search_min_score", "vector_search.search_timeout_ms"}
+FIXED_D = {"hooks/handlers/pre_tool_use.py", "hooks/wg_core.py", "lib/vcs_ignore.py", "tools/merge-atom-index.py"}
+
+
+@pytest.fixture(scope="module")
+def repo_result():
+    r = _run(ROOT, "--json")   # _run 的 --config 是 <樹>/workflow/config.json：本樹受版控那份，結果不受 live 變動影響
+    assert r.returncode == 0, r.stderr[-800:]
+    res = json.loads(r.stdout.rstrip().rsplit("\n", 1)[0])
+    assert res["sources"]["py_files"] > 100                  # 前置：真的掃了本樹
+    return res
+
+
+def test_repo_fixed_switches_are_read(repo_result):
+    assert not FIXED_B & {row["key"] for row in repo_result["b"]}
+
+
+def test_repo_fixed_keys_have_one_default(repo_result):
+    assert not FIXED_C & {row["key"] for row in repo_result["c"]}
+
+
+def test_repo_fixed_files_use_data_root(repo_result):
+    assert not FIXED_D & {row["file"] for row in repo_result["d"]}
+
+
 def test_missing_config_exit_2(tree, tmp_path):
     r = subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "--root", str(tree), "--config", str(tmp_path / "nope.json")],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)

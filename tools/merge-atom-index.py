@@ -59,6 +59,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 SCRIPT = Path(__file__).resolve()
+if str(SCRIPT.parent.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent.parent))   # 程式碼根：lib.* 從本樹載
+from lib.project_root import claude_data_dir  # noqa: E402  設定是資料：讀資料根的 workflow/config.json
 DRIVER_NAME = "atomindex"
 INDEX_FILES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 ATTR_MARK = "# AtomicMemory index merge driver"
@@ -614,7 +617,7 @@ def install(quiet: bool = False, attr_info: Optional[Tuple[Path, bool]] = None) 
 
 def _load_toggles() -> Dict[str, Any]:
     try:
-        cfg = json.loads((SCRIPT.parent.parent / "workflow" / "config.json").read_text(encoding="utf-8-sig"))
+        cfg = json.loads((claude_data_dir() / "workflow" / "config.json").read_text(encoding="utf-8-sig"))
         return cfg.get("merge_driver") or {}
     except Exception:
         return {}

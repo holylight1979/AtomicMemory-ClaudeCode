@@ -26,6 +26,7 @@ from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
     _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
+    DEFAULTS as CORE_DEFAULTS,  # config 缺鍵時的預設只認 wg_core 那一份
 )
 from harness_text import IDE_TAG_NAMES, strip_harness_blocks  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
@@ -256,7 +257,7 @@ def handle_user_prompt_submit(
     # Sync reminders
     mod_count = len(state.get("modified_files", []))
     kq_count = len(state.get("knowledge_queue", []))
-    sync_kw = config.get("sync_keywords", [])
+    sync_kw = config.get("sync_keywords", CORE_DEFAULTS["sync_keywords"])
     prompt_has_sync = any(kw in prompt for kw in sync_kw)
 
     if prompt_has_sync and (mod_count > 0 or kq_count > 0):

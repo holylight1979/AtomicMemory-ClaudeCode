@@ -76,7 +76,7 @@ DEFAULTS: Dict[str, Any] = {
     # 根層非記憶但隨 atom 寫入連動的檔（sync_doc_counts 的計數標記）：只進 pathspec、不進 mem_dirs
     "root_extra_pathspecs": ["TECH.md", "_AIDocs/_INDEX.md", "_AIDocs/DocIndex-System.md"],
     "org_extra_pathspecs": ["usage-snapshots"],
-    "exclude": ["**/*.access.json"],
+    "exclude": ["**/*.access.json", "memory/_meta/**"],
     "timeout_s": 60,
     "pull": {"enabled": True, "fetch_timeout_s": 20, "cooldown_s": 600},
 }
@@ -1034,7 +1034,7 @@ def _git_pull(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: Logge
     """拉段（見檔頭）。回 {"status": up-to-date|pulled|behind|no-upstream, "pulled_commits", "reason"}；
     自己吞掉所有失敗（記 log／`.behind`／pull_error），永不讓 commit+push 段跟著死。"""
     root = t.root
-    exclude = vs.get("exclude", [])
+    exclude = vs.get("exclude", DEFAULTS["exclude"])
     pull_cfg = vs.get("pull") or {}
     fetch_to = float(pull_cfg.get("fetch_timeout_s", 20))
     res: Dict[str, Any] = {"status": "behind", "pulled_commits": 0, "reason": None, "recover_pending": False}
@@ -1301,7 +1301,7 @@ def _git_sync_body(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: 
                    branch: str, timeout: float, env: Dict[str, str], config: Dict[str, Any],
                    reasons: Sequence[str] = ()) -> Dict[str, Any]:
     root = t.root
-    exclude = vs.get("exclude", [])
+    exclude = vs.get("exclude", DEFAULTS["exclude"])
     # ── add + commit：同一份允許路徑集合（`:(literal)` 防路徑被當 glob）──
     entries = _git_changed_files(git, t, exclude)
     files = [path for _, path in entries]
@@ -1607,7 +1607,7 @@ def _svn_sync(t: SyncTarget, vs: Dict[str, Any], env: Dict[str, str], log: Logge
               retired: Sequence[str], reasons: Sequence[str] = ()) -> Dict[str, Any]:
     root = t.root
     svn = _Svn(t, vs, env)
-    exclude = vs.get("exclude", [])
+    exclude = vs.get("exclude", DEFAULTS["exclude"])
 
     retired_rel = {rel for rel in (_rel_to(root, p) for p in retired) if rel}
     if svn.has_conflict(t.pathspecs):

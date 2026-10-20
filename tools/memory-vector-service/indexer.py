@@ -502,14 +502,15 @@ def create_embedder(config: Dict[str, Any]) -> Any:
         print("[indexer] Ollama unavailable, checking fallback...", file=sys.stderr)
 
     # Respect fallback_backend: "none" — do NOT try sentence-transformers
-    fb_backend = config.get("fallback_backend", "sentence-transformers")
+    from config import DEFAULTS   # 缺鍵時的預設只認 config.py 那一份（load_config 合併用的同一張表）
+    fb_backend = config.get("fallback_backend", DEFAULTS["fallback_backend"])
     if fb_backend in ("none", "None", "", None):
         raise RuntimeError(
             "No embedding backend available. Ollama is unreachable and "
             "fallback_backend is set to 'none'."
         )
 
-    fb_model = config.get("fallback_model", "BAAI/bge-m3")
+    fb_model = config.get("fallback_model", DEFAULTS["fallback_model"])
     if fb_model in ("none", "None", "", None):
         raise RuntimeError(
             "No embedding backend available. Ollama is unreachable and "

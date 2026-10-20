@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import (
     CLAUDE_DIR, CODE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
+    DEFAULTS as CORE_DEFAULTS,  # config 缺鍵時的預設（load_config 整段補上的那份）：讀取端同鍵預設只認這一份
     CONTEXT_BUDGET_DEFAULT, TURN_BUDGET_LIMIT,
     compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
     _estimate_tokens,  # CJK-aware 估算器（單一口徑，中文 ~1.5 tok/字）
@@ -665,8 +666,8 @@ def _decay_exponent(access: Dict[str, Any], config: Optional[Dict[str, Any]]) ->
     if gamma <= 0:
         return _DECAY_D_MAX
     try:
-        from lib.atom_access import usefulness_stats
-        st = usefulness_stats(access, z=float(u.get("wilson_z", 1.28)))
+        from lib.atom_access import usefulness_stats, WILSON_Z_DEFAULT
+        st = usefulness_stats(access, z=float(u.get("wilson_z", WILSON_Z_DEFAULT)))
         if st.get("n", 0) <= 0:
             return _DECAY_D_MAX
         return min(_DECAY_D_MAX, max(_DECAY_D_MIN, _DECAY_D_MAX - gamma * st["lower_bound"]))
@@ -732,12 +733,12 @@ def compute_injection_rank(
     except Exception:
         pass
     try:
-        from lib.atom_access import usefulness_stats
+        from lib.atom_access import usefulness_stats, WILSON_Z_DEFAULT
         acc = load_access_cached(atom_dir / f"{atom_name}.md", access_cache)
         read_hits = int(acc.get("read_hits") or 0)
         if read_hits <= 0:
             return activation
-        st = usefulness_stats(acc, z=float(u.get("wilson_z", 1.96)))
+        st = usefulness_stats(acc, z=float(u.get("wilson_z", WILSON_Z_DEFAULT)))
         if st.get("n", 0) < int(u.get("min_n", 3)):
             return activation  # 樣本不足不罰（保守，防壓新 atom）
         penalty = weight * math.log10(read_hits + 1) * (1.0 - st.get("lower_bound", 0.0))
@@ -2336,9 +2337,10 @@ def _search_episodic_context(
         return []
 
     port = vs_config.get("service_port", 3849)
-    top_k = sc_config.get("max_episodic", 3)
-    min_score = sc_config.get("min_score", 0.35)
-    timeout_s = sc_config.get("search_timeout_ms", 8000) / 1000.0
+    sc_default = CORE_DEFAULTS["session_context"]
+    top_k = sc_config.get("max_episodic", sc_default["max_episodic"])
+    min_score = sc_config.get("min_score", sc_default["min_score"])
+    timeout_s = sc_config.get("search_timeout_ms", sc_default["search_timeout_ms"]) / 1000.0
 
     try:
         params = urllib.parse.urlencode({
@@ -3087,7 +3089,11 @@ def _self_iterate_atoms(
     min_n = int(u_config.get("min_n", 3))
     # demote 側門檻較嚴（n≥5）：67-75% 成功率的 atom 不因小樣本波動列降級候選
     demote_min_n = int(u_config.get("demote_min_n", 5))
-    wilson_z = float(u_config.get("wilson_z", 1.28))
+    try:
+        from lib.atom_access import WILSON_Z_DEFAULT
+        wilson_z: Optional[float] = float(u_config.get("wilson_z", WILSON_Z_DEFAULT))
+    except ImportError:
+        wilson_z = None   # lib 載不到：下面每顆的效用統計也會停用（usefulness_stats=None），用不到 z
 
     results = {"promoted": [], "archive_candidates": [],
                "demote_candidates": [], "scanned": 0}

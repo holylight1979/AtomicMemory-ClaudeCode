@@ -1558,10 +1558,10 @@ _MCP_SCOPE_PROJECT_LOCAL_RE = re.compile(
 
 
 def _is_core_session(cwd: str) -> Optional[bool]:
-    """cwd 是否落在 ~/.claude 下。None＝無法判定（caller fail-open）。"""
+    """cwd 是否落在資料根（CLAUDE_DIR，一般安裝就是 ~/.claude）下。None＝無法判定（caller fail-open）。"""
     if not cwd:
         return None
-    home_claude = (Path.home() / ".claude").resolve()
+    home_claude = CLAUDE_DIR.resolve()
     try:
         cwd_p = Path(cwd).resolve()
     except (OSError, ValueError):
@@ -1591,7 +1591,7 @@ def check_cross_realm_write(
     fp_str = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
     if not fp_str or not cwd:
         return None
-    home_claude = (Path.home() / ".claude").resolve()
+    home_claude = CLAUDE_DIR.resolve()
     try:
         fp = Path(fp_str).resolve()
         rel = fp.relative_to(home_claude)

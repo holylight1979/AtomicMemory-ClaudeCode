@@ -127,14 +127,14 @@ def _filter_related_by_relevance(
     if not ig.get("enabled", True) or not related_entries:
         return related_entries, []
     try:
-        from lib.atom_access import usefulness_demote_candidate
+        from lib.atom_access import usefulness_demote_candidate, WILSON_Z_DEFAULT
     except Exception:
         return related_entries, []  # fail-open
     skip_demoted = ig.get("skip_demoted", True)
     max_related = int(ig.get("max_related", 6))
     u = (config or {}).get("usefulness") or {}
     demote_min_n = int(u.get("demote_min_n", 5))
-    z = float(u.get("wilson_z", 1.28))
+    z = float(u.get("wilson_z", WILSON_Z_DEFAULT))
     demote_lb = float(u.get("demote_lb", 0.35))
 
     skipped: List[Tuple[str, str]] = []

@@ -30,7 +30,7 @@ DEFAULTS: Dict[str, Any] = {
     "ollama_llm_model": "qwen3:1.7b",
     "search_top_k": 5,
     "search_min_score": 0.65,
-    "search_timeout_ms": 2000,
+    "search_timeout_ms": 8000,              # hook 端（wg_atoms）等搜尋回應的上限；服務本身不讀，兩邊預設同一個
     "auto_start_service": True,
     "auto_index_on_change": True,
     "index_distant": False,                 # 是否索引 _distant/ 遙遠記憶

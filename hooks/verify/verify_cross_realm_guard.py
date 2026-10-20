@@ -19,9 +19,9 @@ from pathlib import Path
 HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 
-from wg_core import check_cross_realm_write, check_cross_realm_mcp_cmd  # noqa: E402
+from wg_core import CLAUDE_DIR, check_cross_realm_write, check_cross_realm_mcp_cmd  # noqa: E402
 
-HOME_CLAUDE = Path.home() / ".claude"
+HOME_CLAUDE = CLAUDE_DIR   # 核心根＝資料根（一般安裝就是 ~/.claude；測試隔離下是暫存根）
 PROJ = "C:/FakeProj/game-x" if sys.platform == "win32" else "/tmp/fakeproj/game-x"
 CFG_ON = {"guard": {"cross_realm_write": {"enabled": True, "allowlist": []}}}
 

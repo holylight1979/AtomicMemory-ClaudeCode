@@ -343,6 +343,8 @@ def _cross_session_search(
     items: List[dict], session_id: str, config: Dict[str, Any]
 ) -> List[dict]:
     """Vector search each item for cross-session patterns."""
+    if not (config.get("cross_session") or {}).get("enabled", True):
+        return []   # config cross_session.enabled=false：整個跨 session 去重關掉（TECH §12.1 的一鍵關）
     vs_config = config.get("vector_search", {})
     if not vs_config.get("enabled", True):
         return []

@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from collections import deque
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
@@ -40,9 +42,31 @@ _SRC_COMMENT_RE = re.compile(r"<!--\s*src:\s*([0-9a-fA-F]{8})#([0-9a-fA-F]{8})\s
 
 # ─── 寫入端共用：Quote / Source 格式 ────────────────────────────────────────────
 
-def sanitize_quote(text: str, max_chars: int = 200) -> str:
+QUOTE_MAX_DEFAULT = 200
+
+
+@lru_cache(maxsize=1)
+def quote_max_chars() -> int:
+    """Quote 上限字數＝config.json `provenance.quote_max_chars`（0＝不截）；沒檔、沒鍵、不是 0 以上整數 → 200。
+    行程內只讀一次（測試換設定要 cache_clear）；config 壞檔在 stderr 說一聲再用預設。"""
+    path = claude_data_dir() / "workflow" / "config.json"
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return QUOTE_MAX_DEFAULT
+    except (OSError, ValueError) as e:
+        print(f"[provenance] {path} 讀不出來，Quote 上限用預設 {QUOTE_MAX_DEFAULT}：{e}", file=sys.stderr)
+        return QUOTE_MAX_DEFAULT
+    value = (cfg.get("provenance") or {}).get("quote_max_chars", QUOTE_MAX_DEFAULT) if isinstance(cfg, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else QUOTE_MAX_DEFAULT
+
+
+def sanitize_quote(text: str, max_chars: Optional[int] = None) -> str:
     """原句清成可落檔的單行：先取 user_typed_text（只留使用者本人打的字；harness 區塊、系統通知、[WG:…] 等殘渣行剔掉，
-    殘留標籤字樣整則不認），再空白折一格、去頭尾配對引號、超長截 `…`。回空字串＝沒有可寫的原句。"""
+    殘留標籤字樣整則不認），再空白折一格、去頭尾配對引號、超長截 `…`。回空字串＝沒有可寫的原句。
+    max_chars 不給＝config 的 provenance.quote_max_chars（quote_max_chars()）；給 0＝不截。"""
+    if max_chars is None:
+        max_chars = quote_max_chars()
     s = re.sub(r"\s+", " ", user_typed_text(text or "", keep_lines=True)).strip()
     while len(s) >= 2 and _QUOTE_PAIRS.get(s[0]) == s[-1]:
         s = s[1:-1].strip()

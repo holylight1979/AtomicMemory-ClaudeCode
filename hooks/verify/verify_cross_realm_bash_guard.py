@@ -23,7 +23,7 @@ from pathlib import Path
 HOOKS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
-from wg_core import check_cross_realm_bash  # noqa: E402
+from wg_core import CLAUDE_DIR, check_cross_realm_bash  # noqa: E402
 
 HOME_CLAUDE = (Path.home() / ".claude").as_posix()
 PROJ = "C:/FakeProj/game-x" if sys.platform == "win32" else "/tmp/fakeproj/game-x"
@@ -114,7 +114,7 @@ def test_project_own_layer_and_memory_allowed():
 
 def test_core_session_and_config_escape():
     cmd = "cd ~/.claude && python - <<'EOF'\nprint(1)\nEOF"
-    assert not _denied(cmd, cwd=HOME_CLAUDE + "/hooks")
+    assert not _denied(cmd, cwd=CLAUDE_DIR.as_posix() + "/hooks")   # 核心 session＝cwd 在資料根底下
     assert not _denied(cmd, cfg={"guard": {"cross_realm_bash": {"enabled": False}}})
     assert not _denied(cmd, cfg={"guard": {"cross_realm_bash": {"enabled": True, "allowlist": ["print(1)"]}}})
     assert not _denied(cmd, cwd="")

@@ -34,7 +34,12 @@ DERIVED_ENTRIES = DERIVED_FILES + DERIVED_DIRS
 REBUILD_HINT = 'python ~/.claude/tools/sync-atom-index.py --rebuild --memory-dir "{mem}"'
 _OLD_VERSION_HINT = ("舊版（2026-09-23 前）無缺檔自動重建，索引不見時手動：" + REBUILD_HINT)
 
-_CLAUDE_DIR = Path.home() / ".claude"
+try:
+    from .project_root import claude_data_dir
+except ImportError:  # 頂層模組載入（hooks 把 lib/ 放上 sys.path）
+    from project_root import claude_data_dir
+
+_CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 _NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 # svn status item 值裡「仍在版控中」的那些；deleted（已排程刪除）、unversioned、ignored、external、none 不算
 _SVN_TRACKED_ITEMS = frozenset({

@@ -148,7 +148,8 @@ def test_segments_skip_non_commit():
 
 
 def test_claude_root_globs_only_at_claude_root(tmp_path):
-    claude_root = str(Path.home() / ".claude")
+    from wg_core import CLAUDE_DIR
+    claude_root = str(CLAUDE_DIR)   # 根層 globs 只掛在資料根 repo（一般安裝就是 ~/.claude）
     at_root = _privacy_globs({}, claude_root)
     elsewhere = _privacy_globs({}, str(tmp_path))
     assert "projects/*" in at_root and "history.jsonl" in at_root
