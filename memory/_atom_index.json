@@ -7914,6 +7914,48 @@
         "推卸責任"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-審查或交付時挖出的問題-飄移就不做-相關且真有問題就在這軌立即修-不准推給下一個寫碼session",
+      "path": "memory/Failures/行為契約/feedback-審查或交付時挖出的問題-飄移就不做-相關且真有問題就在這軌立即修-不准推給下一個寫碼session.md",
+      "triggers": [
+        "該誰解",
+        "下一個寫碼 session",
+        "最該修",
+        "順手看到",
+        "修正計畫",
+        "追蹤項",
+        "codex 挖出",
+        "審查發現",
+        "飄移",
+        "交付信",
+        "總控台裁定",
+        "之後再修"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被 codex或自檢工具牽著走",
+        "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
+      ]
+    },
+    {
+      "name": "子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔",
+      "path": "_AIDocs/_atoms/MemDev/子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔.md",
+      "triggers": [
+        "子代理 transcript",
+        "subagents/agent-",
+        "agent_id",
+        "agent_transcript_path",
+        "transcript_path",
+        "子代理宣告",
+        "PreToolUse 子代理",
+        "讀 transcript 的閘",
+        "使用者原話來源"
+      ],
+      "scope": "global",
+      "related": [
+        "同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾"
+      ]
     }
   ]
 }

@@ -1857,3 +1857,34 @@ def test_origin_user_needs_quote():
     # 樹根版：切句後 ≥6 字、原話裡沒有的句子
     assert rr.root_unquoted_sentences("把 audit 寫進 log 檔；舊報表不被弄壞，ok", said) == ["舊報表不被弄壞"]
     assert rr.root_unquoted_sentences("把 audit 寫進 log 檔——舊報表不被弄壞", said) == ["舊報表不被弄壞"]   # 雙破折號也切
+# ─── T2.17 改舊測試 ───
+
+def test_old_test_change_needs_declaration_names_and_reason():
+    """OLD_TEST_CHANGE_NEEDS_DECLARATION：完整案例在 verify_old_test_declare.py；這裡守宣告行的名字與理由對法。"""
+    ch = [{"key": "TestR.test_a", "kind": "assert", "detail": "assertx==1"}, {"key": "test_b", "kind": "renamed", "detail": "", "new_key": "test_b2"}]
+    v = rr.old_test_change_verdict("tests/test_r.py", ch, [])
+    assert v.owed and v.rule == "OLD_TEST_CHANGE_NEEDS_DECLARATION" and "test_r.py：test_b（改名 → test_b2）" in v.evidence
+    ok = rr.parse_old_test_declarations("改舊測試｜tests/test_r.py:TestR.test_a、test_b: 使用者說欄位改了")
+    assert ok[0]["reason"] == "使用者說欄位改了" and not rr.old_test_change_verdict("tests/test_r.py", ch, ok).owed
+    assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a、test_b2：欄位改了")).owed, \
+        "改名只認舊名：新名不能替舊的那支宣告"
+    for other in ("改舊測試｜tests/test_x.py:test_a、test_b：別的檔", "改舊測試｜TestOther.test_a、test_b：別的類別"):
+        assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations(other)).owed, other
+    v = rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a：<理由>"))
+    assert v.owed and any("佔位" in e for e in v.evidence) and len(v.evidence) == 3
+# ─── T2.19 繞閘嫌疑 ───
+
+def test_t219_gate_bypass_verdicts():
+    """GATE_BYPASS_NEEDS_DECLARATION／ATOM_BYPASS_HOWTO_REFUSED：完整案例在 verify_gate_bypass.py；這裡守判式——
+    有序列事實沒理由（或只有佔位）擋、有理由放行、沒事實不擋；卡片兩訊號都有才拒。"""
+    facts = ["git restore 把 notify/retry.py 移出暫存區"]
+    assert rr.gate_bypass_verdict("notify/retry.py（匿名函式疊用）", facts).owed
+    assert rr.gate_bypass_verdict("x", facts, "<理由：這批檔是誰的>").owed
+    v = rr.gate_bypass_verdict("x", facts, "retry.py 是別人的改動")
+    assert v.rule == "GATE_BYPASS_NEEDS_DECLARATION" and not v.owed
+    assert not rr.gate_bypass_verdict("x", []).owed
+    assert rr.atom_bypass_verdict(["SmellGate"], ["拆三步"]).owed
+    v = rr.atom_bypass_verdict(["SmellGate"], [])
+    assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed
+    assert not rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "這張卡寫的是禁止規避").owed     # 宣告了不是教繞閘
+    assert rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "<理由：這張卡在教什麼>").owed      # 佔位照拒

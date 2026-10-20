@@ -27,6 +27,8 @@ from wg_core import (
     user_typed_prompts,
 )
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
+import wg_oldtest
+import wg_gate_bypass
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -1623,6 +1625,23 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
+    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
+    try:
+        deny_reason = wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd)
+    except Exception as e:
+        deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
+                       f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
     # 索引三檔合併驅動閘（advisory-only）——必須在隱私閘之前：resolver 會 git add 索引檔，
     # 隱私檢查要看到它 stage 完的 index。之後 privacy 仍可能 deny；已 stage 的索引檔
     # 是冪等的無害合併結果（下次同指令直接放行），不需回滾。訊息同步落 stderr：
@@ -1670,6 +1689,22 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
     deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config)
+    if deny_reason:
+        wg_gate_bypass.note_smell_deny(_co_state, _co_sid, _cwd, deny_reason, tool_name, tool_input, input_data.get("transcript_path", "") or "", config)
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # ── GateBypass（T2.19 繞閘嫌疑）──
+    # 這個 session 被病形閘擋過之後，unstage／改提交範圍／--no-verify 讓同一批內容過關 → 要宣告「不是繞閘｜理由」，沒宣告就擋；
+    # 事實與判定在 hooks/wg_gate_bypass.py
+    deny_reason = wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
+                                       input_data.get("transcript_path", "") or "")
     if deny_reason:
         output_json({
             "hookSpecificOutput": {
