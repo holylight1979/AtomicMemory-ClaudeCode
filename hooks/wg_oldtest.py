@@ -12,7 +12,8 @@
 行尾反斜線就併下一行），本體第一行是字串就是說明；JS／TS（it／test，describe 只看跳過；描述文字就是名字，改了算改名）、
 C#（[Test]／[Fact]／[TestMethod]／[Theory]）、Java（@Test）從這支的開頭行到下一支開頭都算它的（尾端 helper 的斷言會算給最後一支，
 只會多問一次宣告），斷言一行一筆、點開頭的續行併回上一行。比之前都去註解、空白壓成一個。
-Bash 寫入目標靠 wg_core.write_paths_from_tool；python 腳本裡自己開檔寫的解析不到、抓不到。
+Bash 寫入目標靠 wg_core.write_paths_from_tool；python 腳本自己開檔寫的解析不到，改看 git：執行 python 前記下 repo 裡已經有改動的
+測試檔與內容，執行後新出現改動的取 HEAD 當改前（執行前乾淨＝磁碟與 HEAD 相同）。node 等其他直譯器自己寫檔、不在 git repo 裡的抓不到。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_old_test_declare.py
 """
 from __future__ import annotations
@@ -22,6 +23,8 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -37,6 +40,8 @@ _ALL_EXTS = _PY_EXTS + _NB_EXTS + _JS_EXTS + _ANNOT_EXTS
 EDIT_TOOLS = ("Edit", "MultiEdit", "Write")
 AFTER_TOOLS = ("Bash", "PowerShell", "NotebookEdit")   # 寫之前看不到改後內容，事後比對
 PENDING_KEY = "old_test_undeclared"
+# 指令會執行 python（python／python3.12／py／pythonw，可帶路徑與 .exe）：腳本自己開檔寫的目標 write_paths_from_tool 解析不到
+_PY_RUN_RE = re.compile(r"(?:^|[\s;&|(`'\"\\/])(?:python[\d.]*|pythonw|py)(?:\.exe)?(?=\s|$|[;&|)`'\"])", re.IGNORECASE | re.MULTILINE)
 
 _PY_DEF_RE = re.compile(r"^(\s*)(?:async\s+)?def\s+(test\w*)\s*\(")
 _PY_INLINE_BODY_RE = re.compile(r"\)\s*(?:->[^:]+)?:\s*(\S.*)$")
@@ -425,14 +430,87 @@ def _snap_file(sid: str, tool_name: str, tool_input: Dict[str, Any]) -> Path:
     return Path(wg_core.WORKFLOW_DIR) / "old-test-snap" / f"{sid or 'nosid'}-{key.hexdigest()[:16]}.json"
 
 
+def _git(root: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, timeout=10,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def _dirty_tests(root: str, config: Dict[str, Any]) -> List[str]:
+    """git repo 裡有改動（含未追蹤、刪除）的測試檔絕對路徑。查不到丟例外。"""
+    r = _git(root, "status", "--porcelain", "-z", "--untracked-files=all")
+    if r.returncode:
+        raise RuntimeError(f"git status 失敗：{r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    entries = r.stdout.decode("utf-8", "replace").split("\0")
+    out: List[str] = []
+    i = 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        if e[0] in "RC":
+            i += 1   # -z 的改名／複製後面多一筆原路徑
+        p = str(Path(root) / e[3:])
+        if p.lower().endswith(_ALL_EXTS) and is_test_file(p, config, root):
+            out.append(p)
+    return out
+
+
+def _head_text(root: str, path: str) -> str:
+    """HEAD 裡這個檔的內容；HEAD 沒有（新檔）回空字串。"""
+    r = _git(root, "show", f"HEAD:{Path(path).relative_to(root).as_posix()}")
+    return r.stdout.decode("utf-8", "replace").replace("\r\n", "\n") if r.returncode == 0 else ""
+
+
+def _py_baseline(tool_input: Dict[str, Any], config: Dict[str, Any], cwd: str, sid: str) -> Optional[Dict[str, Any]]:
+    """指令會執行 python（腳本自己開檔寫的目標解析不到）：記下 repo 裡這時已經有改動的測試檔與內容。不是 git repo 回 None；
+    git 查不到只能 stderr＋留帳（不擋所有 python 指令）。"""
+    if not _PY_RUN_RE.search(str(tool_input.get("command", "") or "")):
+        return None
+    from wg_core import find_vcs_root
+    hit = find_vcs_root(Path(cwd or "."))
+    if not hit or hit[0] != "git":
+        return None
+    root = str(hit[1])
+    try:
+        return {"root": root, "dirty": {p: _read(p) for p in _dirty_tests(root, config)}}
+    except Exception as e:
+        print(f"[Guardian:OldTestDeclare] 執行 python 前查不到 git 狀態（這次 python 改測試檔沒核對到）：{e}", file=sys.stderr)
+        _log("py_baseline_error", sid, root, error=f"{type(e).__name__}: {e}")
+        return None
+
+
 def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str) -> None:
-    """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照；檔還不存在記 None。讀不到讓例外往上丟（擋）。"""
-    targets = _test_targets(tool_name, tool_input, config, cwd)
-    if not targets:
+    """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照（檔還不存在記 None；讀不到讓例外往上丟＝擋）；
+    指令會執行 python 再加記 repo 裡已經有改動的測試檔（_py_baseline）。"""
+    sid = input_data.get("session_id", "") or ""
+    files = {p: _read(p) for p in _test_targets(tool_name, tool_input, config, cwd)}
+    py = _py_baseline(tool_input, config, cwd, sid) if tool_name in ("Bash", "PowerShell") else None
+    if not files and py is None:
         return
-    f = _snap_file(input_data.get("session_id", "") or "", tool_name, tool_input)
+    f = _snap_file(sid, tool_name, tool_input)
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps({p: _read(p) for p in targets}, ensure_ascii=False), encoding="utf-8")
+    f.write_text(json.dumps({"files": files, "py": py}, ensure_ascii=False), encoding="utf-8")
+
+
+def _snap_pairs(snap: Dict[str, Any], config: Dict[str, Any], sid: str) -> Dict[str, Optional[str]]:
+    """要比對的 {測試檔: 改前內容}：寫入目標的快照，加上執行 python 後才出現改動的測試檔——執行前是乾淨的取 HEAD
+    （乾淨＝磁碟與 HEAD 相同），執行前就有改動的取當時記下的內容。"""
+    pairs = dict(snap.get("files") or {})
+    py = snap.get("py")
+    if not py:
+        return pairs
+    try:
+        now = _dirty_tests(py["root"], config)
+    except Exception as e:
+        print(f"[Guardian:OldTestDeclare] 執行 python 後查不到 git 狀態（這次 python 改測試檔沒核對到）：{e}", file=sys.stderr)
+        _log("py_after_error", sid, py["root"], error=f"{type(e).__name__}: {e}")
+        return pairs
+    dirty = py.get("dirty") or {}
+    for p in now:
+        if p not in pairs:
+            pairs[p] = dirty[p] if p in dirty else _head_text(py["root"], p)
+    return pairs
 
 
 def _restored(e: Dict[str, Any]) -> bool:
@@ -465,7 +543,7 @@ def after_tool(state: Optional[Dict[str, Any]], input_data: Dict[str, Any], conf
         snap = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
         f.unlink(missing_ok=True)
         text = None
-        for path, before in snap.items():
+        for path, before in _snap_pairs(snap, config, sid).items():
             touched.add(rr.canon_path(path))
             live, added = _changes(state, sid, path, before or "", _read(path) or "")
             if live and text is None:

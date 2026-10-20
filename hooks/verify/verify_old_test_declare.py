@@ -474,6 +474,41 @@ def test_revert_after_bash_clears_pending(world):
     assert _pass(_run(world, "Bash", {"command": "echo next"}))
 
 
+def _git_repo(proj):
+    """把假專案變成有一個基底 commit 的 git repo（python 腳本那條路靠 git status／HEAD 判改前）。"""
+    import subprocess
+    for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["config", "core.autocrlf", "false"],
+                 ["add", "-A"], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(proj), *args], check=True, capture_output=True)
+
+
+def test_python_script_changing_committed_test_blocks_next_call(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    _bash_round(world, "Bash", "python fix_report.py", fp, LEGACY.replace('"USD"', '"TWD"'))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+    r = _run(world, "Bash", {"command": "echo next"})
+    assert _ot(r) and "test_legacy_report_keeps_columns（斷言變了" in r and "這是 Bash 改的" in r
+
+
+def test_python_script_does_not_count_changes_that_were_already_uncommitted(world):
+    """執行 python 前就有的改動（使用者自己沒 commit 的）不算這次的：只點名 python 跑完才變的那支。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    before = LEGACY.replace("== 10", "== 11")
+    Path(fp).write_text(before, encoding="utf-8")
+    _bash_round(world, "PowerShell", "python -X utf8 fix_report.py", fp, before.replace('"USD"', '"TWD"'))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+
+
+def test_non_python_command_takes_no_git_snapshot(world):
+    _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    assert _pass(_run(world, "Bash", {"command": "echo hi"}))
+    snap_dir = world["tmp"] / "wf" / "old-test-snap"
+    assert not snap_dir.exists() or not list(snap_dir.iterdir()), "不執行 python、沒寫測試檔的指令不拍快照、不跑 git"
+
+
 LEGACY_DOC = LEGACY.replace("def test_legacy_report_totals():\n", "def test_legacy_report_totals():\n    \"\"\"總數是 10。\"\"\"\n")
 
 
