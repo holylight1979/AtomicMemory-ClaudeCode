@@ -1753,12 +1753,30 @@ def _comment_only_vs_head(root: Path, rel: str, path: str, deadline: float, _run
     return comment_only_change(head_src, cur_src, path)
 
 
+def _head_after_own(root: Path, own: List[str], facts: Dict[str, Any], rel_list: List[str], deadline: float,
+                    _run: Optional[Callable[..., Any]]) -> bool:
+    """CONTENT_EQUALS_COMMITTED 的 HEAD 例外的事實：HEAD 不是本 session 的提交、本 session 最後一次提交是它的祖先（別人接著做的，
+    例如總控台把 main 合進工作分支），而且同根本 session 改過的每個檔現在都等於 HEAD（不在版控也不在 HEAD 的兩邊都沒有也算）。
+    判不了（沒有自己的提交、預算到、git 失敗）→ False，照原規則不算 HEAD。"""
+    head = str(facts["commits"].get("HEAD") or "")
+    if not own or not head or head in {str(s) for s in own}:
+        return False
+    head_blobs = facts["blobs"].get("HEAD") or {}
+    if any(facts["current"].get(r) != head_blobs.get(r) for r in rel_list):
+        return False
+    left = deadline - time.monotonic()
+    if left < _GIT_MIN_S:
+        return False
+    return _run_git(root, ["merge-base", "--is-ancestor", str(own[-1]), head], left, _run) is not None
+
+
 def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_commit_turn: Any = None,
                           own_commit_shas: Optional[Dict[str, Any]] = None, budget_s: Optional[float] = None,
                           _run: Optional[Callable[..., Any]] = None,
                           session_paths: Optional[Iterable[str]] = None, deadline: Optional[float] = None) -> Dict[str, Verdict]:
     """改過的程式檔裡「不是本 session 改碼」的，回 {path: Verdict}：
-    - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算）。
+    - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算；
+      HEAD 是別人接在本 session 提交之上做的、同根改檔全等於 HEAD 時 HEAD 也算，見 _head_after_own）。
     - COMMENT_ONLY_CHANGE：與 HEAD 只差註解／docstring／空白，且本 session 沒 commit 過它；同根本 session（主 session＋子代理，
       session_paths）改過的其他程式檔（案例檔也算，文件等不算：exemption_peers）也都要等於 HEAD 或只差註解。程式與案例一起
       退回舊版、只還原程式時案例還是舊的，照欠
@@ -1799,8 +1817,8 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
         if not facts["commits"]:
             continue
         own = ((own_commit_shas or {}).get(key) or {}).get("shas") or []
-        refs = committed_refs(own, facts["commits"])
         head_blobs = facts["blobs"].get("HEAD") or {}
+        refs = committed_refs(own, facts["commits"], head_after_own=_head_after_own(root, own, facts, rel_list, deadline, _run))
         root_clean: Optional[bool] = None        # 同根其他改檔都等於 HEAD 或只差註解（只在需要時算一次）
 
         def _root_head_clean(skip: str) -> bool:
@@ -1966,7 +1984,7 @@ def _tool_cwd(receipt: Dict[str, Any]) -> str:
     from handlers.pre_tool_use import _resolve_run_cwd, _vcs_segments
     cwd = _cwd_of(receipt)
     segs = _vcs_segments(str(receipt.get("cmd") or ""), None, (MOVE_TOOL,), set())
-    return _resolve_run_cwd(segs[0][0], cwd) if segs and segs[0][0] else cwd
+    return _resolve_run_cwd(segs[0][0], cwd, _shell_of(receipt)) if segs and segs[0][0] else cwd
 
 
 def _move_args(receipt: Dict[str, Any], key: str) -> List[str]:

@@ -271,11 +271,13 @@ def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
     return _git_segments(command, {"commit"})
 
 
-def _resolve_run_cwd(repo_cd: str, cwd: str) -> str:
-    """把 `-C`／`cd` 抓到的路徑解成子行程 cwd：展開 ~；相對路徑以 tool cwd 為基準。"""
+def _resolve_run_cwd(repo_cd: str, cwd: str, shell: str = "") -> str:
+    """把 `-C`／`cd` 抓到的路徑解成子行程 cwd：展開 ~；相對路徑以 tool cwd 為基準。
+    shell="bash"（Bash 工具）時 Git Bash 的磁碟機路徑 `/c/…` 先轉成 `C:/…`（_drive_path）；不轉的話 git 拿它當 cwd 會
+    WinError 267、各 commit 前閘只能判不了。PowerShell 的 `/c/…` 原生就是 `C:\\c\\…`，不轉。"""
     if not repo_cd:
         return cwd
-    p = os.path.expanduser(repo_cd)
+    p = os.path.expanduser(_drive_path(repo_cd) if shell == "bash" else repo_cd)
     if not os.path.isabs(p) and cwd:
         p = os.path.join(cwd, p)
     return p
@@ -868,7 +870,7 @@ def check_git_privacy(
         tool = _smells_tool()
         adds: List[Tuple[str, List[str]]] = []
         for repo_cd, tokens in _git_segments(_strip_heredoc_bodies(command), {"add", "commit"}, _tool_shell(tool_name)):
-            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
             if tokens[0].lower() == "add":
                 adds.append((run_cwd, tokens))
                 continue
@@ -1044,7 +1046,7 @@ def check_smell_gate(
                     "（檔名本身有 `$` 就用單引號包起來），再下一次。"), None
         results, adds, repos = [], [], []
         for repo_cd, tokens in git_segs:
-            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            run_cwd = _resolve_run_cwd(repo_cd, cwd, shell)
             if tokens[0].lower() == "add":
                 adds.append((run_cwd, tokens))
                 continue
@@ -1053,7 +1055,7 @@ def check_smell_gate(
                 results.append(res)
                 repos.append(run_cwd)
         for repo_cd, tokens in svn_segs:
-            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            run_cwd = _resolve_run_cwd(repo_cd, cwd, shell)
             res = tool.check_commit("svn", run_cwd, tokens, [], config)
             if res is not None:
                 results.append(res)
@@ -1283,7 +1285,7 @@ def check_merge_driver(
                 is_git = kind == "git"
                 if not (_is_resolve_trigger(tokens) if is_git else _is_svn_resolve_trigger(tokens)):
                     continue
-                run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
                 finder = _unmerged_index_files if is_git else _svn_unmerged_index_files
                 try:
                     unmerged = finder(run_cwd, _left(1.0))
@@ -1331,7 +1333,7 @@ def check_merge_driver(
             for repo_cd, tokens in git_segs:
                 if not _is_install_trigger(tokens):
                     continue
-                run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
                 try:
                     chk = _run_capture(
                         [interp, str(_MERGE_TOOL), "--is-installed", "--cwd", run_cwd],
