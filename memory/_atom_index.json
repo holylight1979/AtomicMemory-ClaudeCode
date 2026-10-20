@@ -7693,6 +7693,22 @@
         "P7"
       ],
       "scope": "global"
+    },
+    {
+      "name": "在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑",
+      "path": "_AIDocs/_atoms/MemDev/在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑.md",
+      "triggers": [
+        "WG_GIT_CASSETTE",
+        "假紅",
+        "總控台複驗",
+        "verify_stop_reconcile",
+        "收件驗收",
+        "live 跑測試",
+        "15 failed",
+        "錄製檔關掉",
+        "多檔合跑"
+      ],
+      "scope": "global"
     }
   ]
 }
