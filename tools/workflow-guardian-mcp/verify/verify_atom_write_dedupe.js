@@ -169,7 +169,8 @@ function check(cond, label, detail) {
   check(!r9.isError && fs.existsSync(atomPath("dedupe-vector-down")), "vector service down → fail-open write", r9.text);
 
   vector.close();
-  try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {}
+  process.chdir(os.tmpdir());   // Windows 刪不掉當前工作目錄：先離開暫存根再刪
+  try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch (e) { console.log(`  warn cleanup failed: ${ROOT} (${e.message})`); }
   if (failures.length) {
     console.log(`\nFAILED (${failures.length}): ${failures.join(" | ")}`);
     console.log("ATOM_WRITE_DEDUPE_CHECK FAIL");
