@@ -132,13 +132,13 @@ def _commit_runs(command: str, tool_name: str, cwd: str) -> List[Tuple[str, str,
     out = []
     adds: List[Tuple[str, List[str]]] = []
     for repo_cd, tokens in p._git_segments(body, {"add", "commit"}, shell):
-        run_cwd = p._resolve_run_cwd(repo_cd, cwd)
+        run_cwd = p._resolve_run_cwd(repo_cd, cwd, shell)
         if tokens[0].lower() == "add":
             adds.append((run_cwd, tokens))
             continue
         out.append(("git", run_cwd, tokens, list(adds)))
     for repo_cd, tokens in p._svn_segments(body, {"commit", "ci"}, shell):
-        out.append(("svn", p._resolve_run_cwd(repo_cd, cwd), tokens, []))
+        out.append(("svn", p._resolve_run_cwd(repo_cd, cwd, shell), tokens, []))
     return out
 
 
@@ -305,14 +305,14 @@ def sequence_facts(command: str, tool_name: str, cwd: str, last: Dict[str, Any],
     facts: List[str] = []
     if vcs == "git":
         for repo_cd, tokens in p._git_segments(body, set(_VALUE_OPTS), shell):
-            run_cwd = p._resolve_run_cwd(repo_cd, cwd)
+            run_cwd = p._resolve_run_cwd(repo_cd, cwd, shell)
             specs = unstage_paths(tokens, run_cwd)
             hits = _hit_files(specs, run_cwd, root, files) if specs is not None and _same_repo(run_cwd, last) else []
             if hits:
                 facts.append(f"git {tokens[0]} 把 {'、'.join(hits)} 移出暫存區")
     else:
         for repo_cd, tokens in p._svn_segments(body, {"revert", "changelist", "cl"}, shell):
-            run_cwd = p._resolve_run_cwd(repo_cd, cwd)
+            run_cwd = p._resolve_run_cwd(repo_cd, cwd, shell)
             paths = [t for t in tokens[1:] if not t.startswith("-")]
             hits = _hit_files(paths or ["."], run_cwd, root, files) if _same_repo(run_cwd, last) else []
             if hits:
@@ -553,14 +553,18 @@ def bypass_signals(text: str, config: Optional[Dict[str, Any]] = None) -> Tuple[
 
 
 ATOM_DECLARE_EXAMPLE = "不是教繞閘｜<理由：這張卡在教什麼>"
-# 宣告放在知識段第一行（可帶 [臨] 這類信心前綴）：MCP atom_write 不用加欄位、js 零改動；宣告行會跟著寫進卡裡
-_ATOM_DECLARE_RE = re.compile(r"^\s*(?:\[[臨觀固]\]\s*)?不是教繞閘\s*[｜|]\s*(.+?)\s*$")
 
 
 def atom_declaration(knowledge: Sequence[str]) -> str:
-    """知識段第一行的「不是教繞閘｜<理由>」→ 理由；沒有回空字串（有沒有填、是不是佔位交 wg_release_rules 判）。"""
+    """知識段第一行的「不是教繞閘｜<理由>」→ 理由；沒有回空字串（有沒有填、是不是佔位交 wg_release_rules 判）。
+    宣告放第一行（可帶 [臨] 這類信心前綴）：MCP atom_write 不用加欄位、js 零改動；宣告的樣子與落檔前的剝除共用
+    lib/atom_spec.BYPASS_DECLARATION_RE，宣告行不會留在卡裡。"""
+    lib = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from atom_spec import BYPASS_DECLARATION_RE
     first = str((list(knowledge or []) or [""])[0]).splitlines()
-    m = _ATOM_DECLARE_RE.match(first[0]) if first else None
+    m = BYPASS_DECLARATION_RE.match(first[0]) if first else None
     return m.group(1) if m else ""
 
 

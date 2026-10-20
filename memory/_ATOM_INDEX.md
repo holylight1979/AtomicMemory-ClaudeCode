@@ -472,3 +472,4 @@
 | feedback-審查或交付時挖出的問題-飄移就不做-相關且真有問題就在這軌立即修-不准推給下一個寫碼session | memory/Failures/行為契約/feedback-審查或交付時挖出的問題-飄移就不做-相關且真有問題就在這軌立即修-不准推給下一個寫碼session.md | 該誰解, 下一個寫碼 session, 最該修, 順手看到, 修正計畫, 追蹤項, codex 挖出, 審查發現, 飄移, 交付信, 總控台裁定, 之後再修 | global |  |
 | 子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔 | _AIDocs/_atoms/MemDev/子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔.md | 子代理 transcript, subagents/agent-, agent_id, agent_transcript_path, transcript_path, 子代理宣告, PreToolUse 子代理, 讀 transcript 的閘, 使用者原話來源 | global |  |
 | 閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現 | _AIDocs/_atoms/MemDev/閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現.md | 無頭驗收, claude -p, 真實任務實跑, 根治驗收, 合併後驗收, wave1-kit, run_headless, 受測根, guard log 證據, --resume, 閘沒被逼出來, pathspec 排除 | global |  |
+| 純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹 | _AIDocs/_atoms/MemDev/純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹.md | git show 舊版, 載成模組, 舊碼對照, 不動工作樹 | global |  |
