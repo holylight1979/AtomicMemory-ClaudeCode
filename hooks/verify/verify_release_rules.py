@@ -1820,3 +1820,16 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── G14 最小地圖 ───
+# 完整案例（閘、掃表預覽、快取、開關）在 hooks/verify/verify_g14_min_map.py；這裡只守 test_044「每條規則有案例」與判定骨架
+
+def test_g14_unmapped_first_edit_needs_min_map():
+    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：三行齊、讀了的檔都讀過才不欠；沒交、上游空、列了沒讀的檔 → 欠。"""
+    g = rr.min_map_group("地圖｜讀了：src/a.py\n地圖｜上游：無，因為是入口\n地圖｜下游：lib/b.py")
+    assert rr.min_map_verdict(g, "C:/p", ["C:/p/src/a.py"]).owed is False
+    v = rr.min_map_verdict(g, "C:/p", [])
+    assert v.rule == "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP" and v.owed and "src/a.py" in "；".join(v.evidence)
+    assert rr.min_map_verdict(None, "C:/p", ["C:/p/src/a.py"]).owed
+    assert rr.min_map_verdict({**g, "上游": ""}, "C:/p", ["C:/p/src/a.py"]).owed

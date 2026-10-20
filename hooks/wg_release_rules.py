@@ -2106,3 +2106,80 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
         hit = next((d for d in cited if names_item(hay, d["item"])), None)
         (waived.append((f, hit)) if hit else kept.append(f))
     return kept, waived
+
+
+# ─── G14 最小地圖 ───
+# 沒有部位表的專案第一次改程式檔前要 AI 先寫出跟需求相關的最小地圖（wg_overview._unmapped_edit 收事實、這裡判）
+RULES.update({
+    "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP": "往上找不到任何部位表的專案，本 session 第一次改某頂層目錄的程式檔前（state 鍵 <根>|(unmapped)<頂層目錄>"
+                                         " 為單位），要交最小地圖三行「地圖｜讀了：<檔清單>」「地圖｜上游：…」「地圖｜下游：…」"
+                                         "（回覆文字、工具參數、thinking 三管道都認，取最後一組三行齊的）：讀了至少列 1 個檔、每個都是"
+                                         "本 session 讀過的（與 part_files_read 同源）；上下游非空，真的沒有寫「無，因為…」；留著範例角括號"
+                                         "佔位當沒填。只看有沒有、讀過沒，不評內容；交過同鍵不再擋，同根下一個頂層目錄只認之後交的地圖。"
+                                         "執行期資料、知識類、非程式檔、有部位表的專案不查；min_map.enabled=false 整條不觸發。",
+})
+
+MIN_MAP_KEYS = ("讀了", "上游", "下游")
+MIN_MAP_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；值可空（空的要點名擋）
+    r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?地圖[ \t]*[｜|][ \t]*(讀了|上游|下游)[ \t]*[:：][ \t]*(.*?)[ \t]*[\"']?,?$", re.MULTILINE
+)
+_MAP_NOTE_RE = re.compile(r"[（(][^（）()\n]*[）)]")        # 檔名後的括號附註（入口、主程式）不當檔名
+_MAP_SPLIT_RE = re.compile(r"[、，,；;\s]+")
+_MAP_TOKEN_TRIM = "`'\"「」『』"
+_MAP_UNREAD_SHOWN = 5
+
+
+def min_map_group(text: str) -> Optional[Dict[str, str]]:
+    """text 裡的最小地圖：每遇「讀了」行開一組；回最後一組三行齊的（被擋後補交的那組才是現行），都不齊回最後一組，沒有地圖行回 None。"""
+    groups: List[Dict[str, str]] = []
+    for m in MIN_MAP_RE.finditer(text or ""):
+        if m.group(1) == "讀了" or not groups:
+            groups.append({})
+        groups[-1][m.group(1)] = m.group(2).strip()
+    complete = [g for g in groups if all(k in g for k in MIN_MAP_KEYS)]
+    if complete:
+        return complete[-1]
+    return groups[-1] if groups else None
+
+
+def min_map_files(value: str) -> List[str]:
+    """「讀了」那行的檔清單：先去掉括號附註，再以「、，,；;」與空白切開，剝反引號與引號。"""
+    out: List[str] = []
+    for tok in _MAP_SPLIT_RE.split(_MAP_NOTE_RE.sub(" ", value or "")):
+        tok = tok.strip(_MAP_TOKEN_TRIM)
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _map_line_problem(key: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return f"缺「地圖｜{key}」那行"
+    if not value.strip():
+        return f"「地圖｜{key}」是空的" + ("" if key == "讀了" else "（真的沒有就寫「無，因為…」）")
+    if _EXAMPLE_PLACEHOLDER_RE.search(value):
+        return f"「地圖｜{key}」還留著範例的角括號佔位（<…>）"
+    if key != "讀了" and _SAME_NONE_RE.match(value) and not _REASON_RE.search(value):
+        return f"「地圖｜{key}」寫了無但沒附理由（寫「無，因為…」）"
+    return None
+
+
+def min_map_verdict(group: Optional[Dict[str, str]], root: str, read: Iterable[str], transcript_problem: str = "") -> Verdict:
+    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：group＝min_map_group 的結果；root＝專案根（「讀了」的相對路徑以它為基準）；
+    read＝本 session 讀過的檔（canon_path 或原樣皆可）；transcript_problem＝transcript 讀不到時的原因（放進證據）。"""
+    rule = "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP"
+    if group is None:
+        ev = transcript_problem or "回覆文字、工具參數、thinking 都找不到「地圖｜讀了：」那行"
+        return Verdict(rule, True, "還沒交最小地圖三行（讀了／上游／下游）", (ev,))
+    problems = [p for p in (_map_line_problem(k, group.get(k)) for k in MIN_MAP_KEYS) if p]
+    files = [] if _map_line_problem("讀了", group.get("讀了")) else min_map_files(group["讀了"])
+    if not files and not _map_line_problem("讀了", group.get("讀了")):
+        problems.append("「地圖｜讀了」沒列任何檔")
+    seen = {canon_path(p) for p in read}
+    unread = [f for f in files if canon_path(os.path.join(root, f)) not in seen]
+    if unread:
+        shown = "、".join(unread[:_MAP_UNREAD_SHOWN]) + (f" 等 {len(unread)} 個" if len(unread) > _MAP_UNREAD_SHOWN else "")
+        problems.append(f"「地圖｜讀了」列的 {shown} 本 session 沒讀過（先讀再列，或從清單拿掉）")
+    if problems:
+        return Verdict(rule, True, "最小地圖不完整", tuple(problems))
+    return Verdict(rule, False, f"最小地圖三行齊，讀了列的 {len(files)} 個檔本 session 都讀過", tuple(files))
