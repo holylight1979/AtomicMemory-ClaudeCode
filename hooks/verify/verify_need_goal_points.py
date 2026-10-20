@@ -352,6 +352,7 @@ def test_correction_with_tree_sends_tree_and_logs(world):
     make_tree()
     line = ngp.on_correction(SID, ["不對", "重來"], 7)
     assert line and "使用者糾正了" in line and "不對" in line and "T1.1" in line
+    assert "改這棵樹、不開新樹" in line and "標放棄" in line, line         # B5 q3：糾正後開新樹、舊樹不收
     cp = tree_now()["checkpoints"][-1]
     assert cp["point"] == "correction" and cp["turn"] == 7
     g = guard(world)[-1]
@@ -679,6 +680,14 @@ def test_cg1_handout_check_after_editing_plan_docs_once_per_turn(world):
     assert ngp.handout_edit_line({"turn_seq": 6}, SID, "C:/u/.claude/hooks/a.py", 6) is None  # 程式檔不送
     assert ngp.handout_edit_line({"turn_seq": 6}, SID, "C:/u/.claude/_AIDocs/x.md", 6) is None  # 長期文件不算計畫類
     assert guard(world)[-1]["event"] == "handout_check"
+
+
+def test_t110_handout_after_plan_edit_carries_tree_top_line(world):
+    """T1.10：改計畫類文件時眼前沒有樹，叫 AI 先對原話就要把樹最上面那句附上；收尾檢核收下那句同一支函式。"""
+    make_tree()
+    line = ngp.handout_edit_line({"turn_seq": 4}, SID, "C:/u/.claude/memory/_staging/next-phase-x.md", 4)
+    assert line and ng.HANDOUT_CHECK in line and "目標樹最上面那句（T1，AI 照原話寫的解讀）：「把目標送回眼前」" in line, line
+    assert "使用者原話（第 1 回合）：「使用者原話」" in line
 
 
 def test_cg1_post_tool_use_edit_of_plan_doc_returns_handout_check(world, tmp_path):

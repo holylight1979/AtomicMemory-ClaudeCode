@@ -125,8 +125,105 @@ def test_set_rewrite_needs_why_new_task_opens_new_tree(env):
     assert not r["ok"] and "why" in r["rejected"][0]
     r = _op("set", goal="B", why="使用者改口要 B")
     assert r["ok"] and _tree()["nodes"]["T1"]["text"] == "B" and _tree()["goal_rev"] == 2
-    r = _op("set", goal="C", new_task=True, turn=3)
+    r = _op("set", goal="C", new_task=True, why="使用者換成另一件事 C", turn=3)
     assert r["tree"] == "T2" and _doc()["active"] == "T2" and _doc()["trees"]["T1"]["status"] == "doing"
+
+
+def test_t13_new_task_while_doing_needs_why_like_rewrite(env):
+    """B5 q3：被糾正時 AI 挑了成本低的「開新樹」、舊樹沒收。目前的樹還在進行中時，開新樹與改寫樹根一樣要附 why；
+    收下時列出舊樹沒結束的節點，叫它把被取代的標放棄。對照完（已對照／結束）的樹之後換題照舊不用 why。"""
+    _op("set", goal="A")
+    _op("add", items=[{"text": "a1"}, {"text": "a2"}])
+    r = _op("set", goal="B", new_task=True, turn=2)
+    assert not r["ok"] and "why" in r["rejected"][0] and "糾正" in r["rejected"][0], r["rejected"]
+    assert _doc()["active"] == "T1" and set(_doc()["trees"]) == {"T1"}       # 拒收不開樹
+    r = _op("set", goal="B", new_task=True, why="使用者改做另一件事 B", turn=2)
+    assert r["ok"] and r["tree"] == "T2" and "舊樹 T1 還有 3 個沒結束的節點" in r["text"] and "T1.1" in r["text"], r["text"]
+    assert _doc()["trees"]["T2"]["nodes"]["T2"]["history"][0]["why"] == "使用者改做另一件事 B"
+    assert not _op("set", goal="B2", turn=2)["ok"]                         # 改寫樹根照舊要 why
+    assert "也要附 why" in _op("set", goal="B2", turn=2)["rejected"][0]      # 拒收訊息不再把開新樹當成免 why 的捷徑
+    _op("reconcile", turn=3, items=[{"id": "T2", "status": "none", "followup": "下次做"}])
+    assert _tree()["status"] == "reconciled"
+    r = _op("set", goal="C", new_task=True, turn=4)                         # 對照完再換題：不用 why
+    assert r["ok"] and r["tree"] == "T3" and "舊樹" not in r["text"]
+
+
+def test_t13_new_tree_note_asks_for_subgoals_and_whole_need(env):
+    """B5 缺口①：AI 懂了子目標，樹上卻只有樹根；q5：一句話兩件事只寫進「這回合先做的」那件。開樹收下時送一次：樹根寫整個需求、
+    看得出的子目標現在就 add。第一則提示也寫明寫整個需求。"""
+    r = _op("set", goal="登入要能用")
+    assert r["ok"] and ng.SUBGOAL_LINE in r["text"] and "不只這回合先做的那段" in ng.SUBGOAL_LINE
+    assert "不只這回合先做的那段" in ng.HINT_LINE
+    assert ng.SUBGOAL_LINE not in _op("set", goal="登入與註冊都要能用", why="使用者補充註冊")["text"]   # 改寫樹根不重送
+
+
+def test_t13_on_prompt_offers_amend_and_correct_paths_not_only_new_task(env):
+    """每則訊息附的樹根那一行：原本只寫「這則若換題用 new_task」，等於只指開新樹那條路。改成補充 → add、糾正 → 改這棵樹不開新樹、
+    換成另一件事才 new_task 附 why，三條路並列。"""
+    _op("set", goal="登入要能用", turn=1)
+    line = ng.on_prompt(SID, "不對，是要記住登入狀態", 2, {})
+    assert ng.TREE_PATHS in line and "不開新樹" in line and "add" in line and "new_task=true" in line, line
+
+
+def test_t110_handout_check_user_words_before_plan(env):
+    """T1.10（原設計者 10-20）：交出前一問只對最新計畫，計畫偏了會跟著一起偏。改成先對使用者原話（樹最上面那句）、再對計畫，
+    對不上以原話為準並說出落差；眼前沒有樹的兩處（改計畫類文件、收尾檢核收下）把樹最上面那句附上。"""
+    hc = ng.HANDOUT_CHECK
+    assert "先對使用者原話" in hc and hc.index("原話") < hc.index("最新的計畫") and "以原話為準" in hc and "落差" in hc
+    assert ng.handout_check_text(SID) == hc                                  # 沒有樹：只有那一問
+    ng.on_prompt(SID, "設定改了要馬上生效，順便把舊設定檔相容", 1, {})
+    _op("set", goal="設定改完不用重開就生效")                                # 樹根（AI 解讀）漏了「舊設定檔相容」
+    ng.on_prompt(SID, "記得舊檔", 2, {})
+    text = ng.handout_check_text(SID)
+    assert text.startswith(hc) and "目標樹最上面那句（T1，AI 照原話寫的解讀）：「設定改完不用重開就生效」" in text, text
+    assert "使用者原話（第 1 回合）：「設定改了要馬上生效，順便把舊設定檔相容」" in text            # 原話與解讀分開附，落差看得到
+    assert "使用者原話（第 2 回合）：「記得舊檔」" in text
+
+
+def test_t110_handout_check_text_survives_broken_tree(env, capsys):
+    """目標檔是合法 JSON 但樹結構壞了（缺 id）：照送那一問、寫 stderr，不丟例外讓 PostToolUse 漏送（Codex WARN）。"""
+    _op("set", goal="G")
+    ng.update_locked(SID, lambda d: d["trees"]["T1"].pop("id"))
+    assert ng.handout_check_text(SID) == ng.HANDOUT_CHECK
+    assert "交出前一問附不了原話" in capsys.readouterr().err
+
+
+def test_t13_correction_after_closed_tree_kept_when_old_tree_reopened(env):
+    """Codex BLOCK：樹已結束後使用者糾正 → 那句沒進任何樹（目前的樹已結束）；照新提示改舊樹（set 改寫樹根、或 update 退回非終點）
+    → 樹重新打開時要把那句掛回來，續接單才帶得走；同一則不重複掛。"""
+    proj = env["proj"]
+    (proj / "c.md").write_text("C\n", encoding="utf-8")
+    _op("set", goal="C", cwd=str(proj))
+    assert _op("reconcile", turn=1, cwd=str(proj), items=[
+        {"id": "T1", "status": "done", "evidence": [{"kind": "file", "ref": "c.md", "level": "read"}]}])["ok"]
+    assert _tree()["status"] == "closed"
+    ng.on_prompt(SID, "不對，C 還要包含 D", 2, {})
+    assert "不對，C 還要包含 D" not in [s["text"] for s in _tree()["user_said"]]      # 前置：結束的樹不收
+    assert _op("set", goal="C 和 D", why="使用者糾正：還要包含 D", turn=2)["ok"]
+    said = [s["text"] for s in _tree()["user_said"]]
+    assert _tree()["status"] == "doing" and said.count("不對，C 還要包含 D") == 1, said
+    assert "不對，C 還要包含 D" in ng.handoff_block(SID)
+    ng.update_locked(SID, lambda d: d["trees"]["T1"].update(status="closed"))         # 再結束、再糾正，改走 update 退回
+    ng.on_prompt(SID, "D 要先做", 3, {})
+    assert _op("update", items=[{"id": "T1", "status": "doing", "why": "使用者要 D 先做"}], turn=3)["ok"]
+    said = [s["text"] for s in _tree()["user_said"]]
+    assert said.count("D 要先做") == 1 and said.count("不對，C 還要包含 D") == 1, said
+
+
+def test_t13_import_attaches_this_sessions_words_before_import(env):
+    """換 session 接續：開工句（本 session 第一則）在匯入前送到、當時沒有樹，匯入後要接在前一個 session 的原話後面；
+    不接的話接手 session 的樹只有舊原話，交出前一問對不到這一輪的要求（本 session 開頭實測 said_log 第 1 回合 attached=False）。"""
+    ng.on_prompt(SID, "讓匯出變快", 1, {})
+    _op("set", goal="匯出變快")
+    block = ng.handoff_block(SID)
+    assert ng.on_prompt("sess-next", "你是推進 session，這輪做匯出快取", 1, {}) == ng.HINT_LINE
+    assert ng.load("sess-next")["said_log"][0]["attached"] is False
+    res = ng.import_handoff("sess-next", block, str(env["proj"] / "next-phase-x.md"), 1)
+    d = ng.load("sess-next")
+    said = d["trees"][d["active"]]["user_said"]
+    assert res["imported"] and [s["text"] for s in said] == ["讓匯出變快", "你是推進 session，這輪做匯出快取"], said
+    assert said[0].get("prior") and not said[1].get("prior")
+    assert d["said_log"][0]["attached"] is True
 
 
 def test_update_status_text_and_close_on_root_dropped(env):
@@ -468,7 +565,7 @@ def test_old_tree_owed_after_topic_switch_can_still_be_cleared(env):
     _op("set", goal="A", cwd=str(proj))
     _op("add", items=[{"text": "a1"}])
     ng.stamp_edit(SID, str(proj / "a.py"), "", 2, {})
-    _op("set", goal="B", new_task=True, turn=3)                             # 換題：T2 成為目前的樹
+    _op("set", goal="B", new_task=True, why="換題", turn=3)                 # 換題：T2 成為目前的樹
     assert "(f1)" in ng.goal_gate_reason(SID, False, {})                    # T1 欠的照樣要交
     r = _op("update", items=[{"id": "T1", "status": "doing", "why": "a.py 的改動讓 A 更接近"}], turn=3)
     assert r["ok"] and r["tree"] == "T1" and ng.goal_gate_reason(SID, False, {}) is None
@@ -655,8 +752,9 @@ def test_on_prompt_hint_after_reconcile_once(env):
     _op("set", goal="G")
     _op("reconcile", items=[{"id": "T1", "status": "none", "followup": "f"}], turn=2)
     first = ng.on_prompt(SID, "下一件事", 3, {})
-    assert "開新樹" in first
-    assert "開新樹" not in ng.on_prompt(SID, "再一件", 4, {})
+    after = "若這則是新的要動手的需求"                                     # 對照完那句；每則都帶的三條路也提開新樹，不能拿「開新樹」當判別字
+    assert after in first
+    assert after not in ng.on_prompt(SID, "再一件", 4, {})
 
 
 def test_user_said_caps(env):
@@ -1227,7 +1325,7 @@ def test_multi_tree_import_adopts_untreed_into_the_continued_tree(env):
     """續接單有兩棵、接續的是第二棵：沒樹時改的檔掛到接續的那一棵，不看匯入順序（Codex BLOCK 1）。"""
     proj = env["proj"]
     _op("set", goal="A")
-    _op("set", goal="B", new_task=True, turn=2)
+    _op("set", goal="B", new_task=True, why="換題", turn=2)
     block = ng.handoff_block(SID)
     assert ng.stamp_edit("sess-m", _kfile(proj, "notes.md"), "", 1, {})
     res = ng.import_handoff("sess-m", block, str(proj / "next-phase-m.md"), 1)
@@ -1249,7 +1347,7 @@ def test_knowledge_edit_after_closed_reconcile_reopens_and_old_tree_still_owes(e
     assert _tree()["status"] == "closed"
     ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})
     assert _tree()["status"] == "doing"
-    _op("set", goal="別的事", new_task=True, turn=3)
+    _op("set", goal="別的事", new_task=True, why="換題", turn=3)
     r = ng.knowledge_gate_reason(SID, True, {}, 3, 3)
     assert r and "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in r and "T1" in r and "notes.md" in r
     assert "T1" in [x["tree"] for x in ngp.silent_unreconciled(SID, 3)]
@@ -1447,7 +1545,7 @@ def test_post_tool_read_handoff_imports_or_hints(env):
 def test_recovery_blob_independent_of_overview(env):
     ng.on_prompt(SID, "讓匯出變快", 1, {})
     _op("set", goal="匯出變快")
-    _op("set", goal="另一件", new_task=True, turn=2)
+    _op("set", goal="另一件", new_task=True, why="換題", turn=2)
     blob = ng.recovery_blob(SID, 600)
     assert blob.startswith("【需求目標樹】") and "另一件" in blob and "其他未結束的樹" in blob and len(blob) <= 600
     assert ng.recovery_blob("nobody", 600) == ""

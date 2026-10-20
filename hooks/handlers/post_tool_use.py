@@ -1271,7 +1271,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 report["need_goal"] = _ng_snap
             if _ng_on:
                 # 收尾檢核之後就是收尾報告（常帶下一步、開工句）：交出前一問在這裡也送一次
-                aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.HANDOUT_CHECK}")
+                aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.handout_check_text(session_id)}")
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report

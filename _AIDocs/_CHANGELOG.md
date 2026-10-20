@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 需求目標樹跨 session 不縮（T1.3）＋交出前一問先對原話（T1.10）
+- B5 缺口①②與本 session 實測：子目標長不成節點、被糾正時開新樹不收舊樹（開新樹免 why、每則訊息只提換題那條路）、匯入續接單時本 session 的開工句沒進樹。改法只動樹與提示、不加收尾閘：開新樹收下時送一次「樹根寫整個需求、看得出的子目標現在就 add」；每則訊息附補充／糾正／換題三條路；糾正提醒寫明改這棵樹、不開新樹；目前的樹進行中時 `new_task=true` 要附 why（與改寫樹根同成本），收下時列舊樹沒結束的節點；匯入時把本 session 還沒進樹的原話接上；結束的樹重新打開時把結束期間的原話（例如糾正）掛回（Codex BLOCK）。交出前一問（`HANDOUT_CHECK`）改成先對使用者原話、再對最新計畫，對不上以原話為準並說出落差；收尾檢核收下、改計畫類文件兩處附上使用者原話（首則與最新一則）與樹最上面那句（`handout_check_text`，樹壞了照送那一問）。MCP 的 need_goal 說明同步（已開著的分頁要 Reload 才看到新說明，Python 端立即生效）。案例 `verify_need_goal.py` 7 支、`verify_need_goal_points.py` 2 支（舊碼 9 支全紅）；Codex 一輪 1 BLOCK＋2 WARN 全修。
+
 ## 2026-10-20 萃取 L1 改走 backend 預設模型：rdchat 可用時不再先等本機 10 秒逾時
 - trace log 實測：L1 寫死 `model="qwen3:1.7b"`，路由只送設定模型名相符的 backend → 跳過 rdchat 先打 local，CPU 冷載入 10008ms 逾時才退 rdchat。`hooks/user-extract-worker.py` `_call_l1` 改成不指定模型單次呼叫：rdchat gemma4:e4b 實測真樣板 0.4–0.5s、判斷正確；rdchat 掛了自動換 local 並換成 qwen3:1.7b。案例 `hooks/verify/verify_user_extract_l1_backend.py`（舊碼兩支皆紅）。
 

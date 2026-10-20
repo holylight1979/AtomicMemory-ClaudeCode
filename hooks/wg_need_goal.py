@@ -83,15 +83,24 @@ _RETRIES = 10
 STALE_DAYS = 30
 
 HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先用 need_goal(action=set, goal=…) "
-             "寫下它真正要達成什麼（一句、用使用者的話、不寫手段）；純問答可以不寫。")
+             "寫下它真正要達成什麼（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段）；純問答可以不寫。")
+# 開新樹收下時附的一句（B5 缺口①：AI 懂了子目標，樹上卻永遠只有樹根）：只送題，有沒有子目標由 AI 判斷
+SUBGOAL_LINE = ("樹根寫的是整個需求（使用者這次要的全部，不只這回合先做的那段）；已經看得出的子目標（使用者同一句話裡的其他要求、"
+                "要先達成的前提）現在就用 need_goal(action=add) 長成節點，說不清的 clarity=open；看不出就不用加。")
+# 使用者又說話時樹怎麼長（B5 缺口②：只提換題那條路，AI 被糾正也開新樹、舊樹不收）；每則訊息與糾正提醒共用
+TREE_PATHS = ("這則若是補充（多要一件事、新的條件）→ need_goal add 長成子目標；若是糾正 → 改這棵樹（update 改節點、"
+              "作廢的標放棄並寫為什麼，set 改寫樹根附 why），不開新樹；換成另一件事才 set new_task=true 並附 why。")
 GOAL_LINE_TEMPLATE = "定位｜目標：<節點編號>（這一塊在目標裡的角色）"
 # 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；
 # 定位第五行的提示與「用目標視角重看」的兩問共用；只送題，適不適用由 LLM 判斷
 CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷（選替身）→ 替身和真正要判的事之間有沒有落差、同類情況會不會被誤判？"
                   "換了測試環境或前提 → 舊的前置步驟在新環境還成立嗎？寫「期望不發生」的案例 → 它通過是因為規則對，"
                   "還是因為什麼都沒發生（先斷言前置狀態成立）？")
-# 交出計畫、開工句、清單之前的一問（判斷入口盤點第四節；完整對照收下、改計畫類文件、提問被擋或提醒時送）：只送題、不評內容
-HANDOUT_CHECK = ("交出計畫、開工句、清單給使用者前再對一次：還對得上最新的計畫嗎？剛改的東西影響哪些已經給出去的內容"
+# 交出計畫、開工句、清單之前的一問（判斷入口盤點第四節；每則訊息、完整對照收下、改計畫類文件、提問被擋或提醒、收尾檢核收下時送）：
+# 只送題、不評內容。先對原話再對計畫：只對計畫，計畫偏了會跟著一起偏（原設計者 2026-10-20）
+HANDOUT_CHECK = ("交出計畫、開工句、清單給使用者前再對一次：先對使用者原話（樹上記的使用者原話，與照它寫的樹根；"
+                 "樹根是 AI 的解讀，和原話不一致以原話為準），再對最新的計畫；兩邊對不上以原話為準，並把落差說出來。"
+                 "剛改的東西影響哪些已經給出去的內容"
                  "（之前給的開工句、清單、計畫）？有就一起改。")
 # 沒有目標樹時改了記憶知識類的檔（寫入當下，一回合一次）：知識類也要一棵輕樹；不擋寫檔，收尾還沒補由 (f4) 要
 KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 session 還沒有需求目標樹：文件、記憶、設定這類任務也要一棵輕樹——"
@@ -391,14 +400,31 @@ def _new_tree(doc: Dict[str, Any], goal: str, turn: int, why: str) -> Dict[str, 
                         "history": [{"seq": seq, "turn": turn, "what": "create", "why": why}],
                         "evidence": [], "followup": "", "note": ""}},
     }
-    for s in doc.get("said_log") or []:
-        if not s.get("attached") or int(s.get("turn", -1)) == int(turn):
-            _add_said(tree, {k: s[k] for k in ("seq", "turn", "text") if k in s})
-            s["attached"] = True
+    _attach_said(doc, tree, turn)
     _adopt_untreed(doc, tree)
     doc["trees"][tid] = tree
     doc["active"] = tid
     return tree
+
+
+def _attach_said(doc: Dict[str, Any], tree: Dict[str, Any], turn: Optional[int] = None) -> None:
+    """還沒進任何樹的使用者原話（沒樹時、或目前的樹已結束時收的），搬進剛開的、剛從續接單接上的、或剛重新打開的樹；
+    給 turn 時這一回合的原話也搬（開樹與匯入那一則常是原始需求或開工句）。樹上已有同一則（本 session 的同 seq）不重複；
+    匯入的原話（prior）的 seq 是前一個 session 的編號，不拿來比。"""
+    have = {s.get("seq") for s in tree.get("user_said") or [] if not s.get("prior")}
+    for s in doc.get("said_log") or []:
+        if s.get("seq") in have:
+            continue
+        if not s.get("attached") or (turn is not None and int(s.get("turn", -1)) == int(turn)):
+            _add_said(tree, {k: s[k] for k in ("seq", "turn", "text") if k in s})
+            s["attached"] = True
+
+
+def _reopen(doc: Dict[str, Any], tree: Dict[str, Any]) -> None:
+    """已對照或結束的樹回到進行中：結束期間收的使用者原話（例如對它的糾正）沒進任何樹，跟著掛回來。"""
+    if tree.get("status") in ("reconciled", "closed"):
+        tree["status"] = "doing"
+        _attach_said(doc, tree)
 
 
 def _adopt_untreed(doc: Dict[str, Any], tree: Dict[str, Any]) -> None:
@@ -411,8 +437,7 @@ def _adopt_untreed(doc: Dict[str, Any], tree: Dict[str, Any]) -> None:
 def _goal_changed(doc: Dict[str, Any], tree: Dict[str, Any], turn: int) -> None:
     tree["goal_rev"] = int(tree.get("goal_rev", 1)) + 1
     tree["goal_changed"] = {"seq": next_seq(doc), "turn": turn}
-    if tree.get("status") in ("reconciled", "closed"):
-        tree["status"] = "doing"
+    _reopen(doc, tree)
 
 
 # ─── 顯示 ────────────────────────────────────────────────────────────────
@@ -434,6 +459,24 @@ def _header(tree: Dict[str, Any]) -> str:
     root = (tree.get("nodes") or {}).get(tree["id"]) or {}
     return (f"{tree['id']}：{_clip(root.get('text'), 80)}（{LABEL['tree'].get(tree.get('status'), '?')}｜"
             f"{LABEL['kind'].get(tree.get('kind'), '?')}｜子目標 {sub}、待展開 {opened}、待對照的改動 {owed}）")
+
+
+def handout_check_text(sid: Any) -> str:
+    """交出前一問＋使用者原話（第一則與最新一則）＋目前的樹最上面那句（改計畫類文件、收尾檢核收下時送；這兩處眼前沒有樹，
+    要先對原話就把原話附上）。沒有沒結束的樹 → 只有交出前一問；目標檔讀不到或結構壞了 → 只有交出前一問並寫 stderr。"""
+    try:
+        tree = active_tree(load(sid))
+        if not tree or tree.get("status") == "closed":
+            return HANDOUT_CHECK
+        said = [s for s in tree.get("user_said") or [] if isinstance(s, dict)]
+        lines = [f"使用者原話（第 {s.get('turn', '?')} 回合）：「{_clip(s.get('text'), 300)}」"
+                 for s in (said[:1] + said[1:][-1:])]
+        root = (tree.get("nodes") or {}).get(tree["id"]) or {}
+        lines.append(f"目標樹最上面那句（{tree['id']}，AI 照原話寫的解讀）：「{_clip(root.get('text'), 300)}」")
+    except Exception as e:  # noqa: BLE001  — 只是提醒：目標檔壞了照送那一問，不讓呼叫端的 hook 失敗
+        print(f"[NeedGoal] 交出前一問附不了原話（目標檔讀不到或結構壞了）：{type(e).__name__}: {e}", file=sys.stderr)
+        return HANDOUT_CHECK
+    return HANDOUT_CHECK + "\n" + "\n".join(lines)
 
 
 def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> str:
@@ -879,15 +922,26 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
     goal, why = _s(inp.get("goal")), _s(inp.get("why"))
     tree = active_tree(doc)
     if tree is None or inp.get("new_task") is True:
+        old = tree if tree is not None and tree.get("status") == "doing" else None
+        if old is not None and not why:
+            # 換題與改寫樹根一樣要附 why：兩條路成本相同，被糾正時才不會挑便宜的開新樹（B5 q3）
+            return {"ok": False, "tree": old["id"], "rejected": [
+                f"{old['id']} 還在進行中，開新樹要附 why：為什麼是另一件事、不是對 {old['id']} 的糾正或補充。"
+                f"是糾正或補充就改 {old['id']}（update 改節點、作廢的標放棄；add 長子目標；set 不帶 new_task 改寫樹根附 why）"]}
         tree = _new_tree(doc, goal, turn, why)
         add_checkpoint(doc, tree, turn, "set", tree["id"])
-        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": f"開了新樹 {tree['id']}"}
+        note = f"開了新樹 {tree['id']}。{SUBGOAL_LINE}"
+        left = [n for n, v in (old or {}).get("nodes", {}).items() if v.get("status") in ("todo", "doing")]
+        if left:
+            note += (f"\n舊樹 {old['id']} 還有 {len(left)} 個沒結束的節點（{'、'.join(sorted(left, key=_sort_key)[:6])}）："
+                     "被新樹取代的用 update 標放棄並寫為什麼，還要做的留著。")
+        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": note}
     root = tree["nodes"][tree["id"]]
     if goal == root.get("text"):
         return {"ok": True, "tree": tree["id"], "goal_changed": False, "note": "樹根沒變"}
     if not why:
         return {"ok": False, "tree": tree["id"], "rejected": [
-            f"改寫 {tree['id']} 的樹根要附 why（為什麼改）；若是換題，帶 new_task=true 開新樹"]}
+            f"改寫 {tree['id']} 的樹根要附 why（為什麼改）；真的換成另一件事才帶 new_task=true 開新樹（也要附 why）"]}
     root["text"] = goal
     _goal_changed(doc, tree, turn)
     root["history"].append({"seq": tree["goal_changed"]["seq"], "turn": turn, "what": "text", "why": why})
@@ -965,8 +1019,8 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
         tree = doc["trees"][tid]
         if tree["nodes"][tid].get("status") == "dropped":
             tree["status"] = "closed"
-        elif tid in reopened and tree.get("status") in ("reconciled", "closed"):
-            tree["status"] = "doing"
+        elif tid in reopened:
+            _reopen(doc, tree)
     first = tree_of(doc, inp["items"][0]["id"])["id"]
     return {"ok": True, "tree": first, "goal_changed": bool(bumped),
             "note": f"收下 {len(inp['items'])} 項" + (f"，清掉 {cleared} 筆待對照" if cleared else "")}
@@ -1153,7 +1207,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 return HINT_LINE, True
             return None, False
         # 交出前一問每則都帶：純問答回合直接在回覆裡交開工句、清單時，回覆之前只有這個點（只送題、適不適用由 AI 判斷）
-        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}；這則若換題，用 need_goal(action=set, new_task=true)。{HANDOUT_CHECK}"]
+        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}。{TREE_PATHS}{HANDOUT_CHECK}"]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1331,8 +1385,8 @@ def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[D
         if code:
             tree.setdefault("node_last_edit", {})[node] = {"seq": seq, "path": str(path)}
             tree["kind"] = "code"
-        if (code or tree.get("kind") != "code") and tree.get("status") in ("reconciled", "closed"):
-            tree["status"] = "doing"             # 對照之後又改了：回到進行中，交付前要再對照（知識類由 (f4) 要）
+        if code or tree.get("kind") != "code":
+            _reopen(doc, tree)                   # 對照之後又改了：回到進行中，交付前要再對照（知識類由 (f4) 要）
     update_locked(sid, fn)
     return None
 
@@ -1787,6 +1841,7 @@ def import_handoff(sid: Any, text: str, path: str, turn: int) -> Dict[str, Any]:
             return {"imported": [], "map": {}, "skipped": "續接單裡沒有未結束的樹"}
         new_ids = list(mapping.values())
         doc["active"] = mapping.get(str(data.get("active") or ""), new_ids[-1])
+        _attach_said(doc, doc["trees"][doc["active"]], turn)  # 本 session 匯入前的原話（常是開工句）接在前一個 session 的原話後面
         _adopt_untreed(doc, doc["trees"][doc["active"]])     # 沒樹時改的知識類檔掛進接續的那一棵（不看匯入順序）
         doc.setdefault("imports", []).append({"path": norm, "sha": sha, "at": wg_core._now_iso(), "trees": new_ids})
         return {"imported": new_ids, "map": mapping, "skipped": None, "text": render(active_tree(doc), "full", doc=doc)}
