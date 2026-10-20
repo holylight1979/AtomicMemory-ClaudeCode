@@ -4405,3 +4405,48 @@ def test_046_block_lists_nothing_when_nothing_else_owed(driven, capsys, monkeypa
     monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: False)
     out, _, _ = driven("好了。", capsys, modified_files=[])
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" not in out, out
+
+
+# ─── 收尾瘦身：只有 reconcile_gate.block_letters 列的條目會擋（規則 RECONCILE_BLOCK_LETTERS） ─────────────────
+# 使用者拍板：寫碼查核只留「測試沒過不准說修好」(a) 與「改了程式要有測試」(d)；說量了 (b)、說試過 (c)、搬目錄收據 (v)、
+# 收尾報告欄 (e) 只提示不擋。程式預設照舊全擋，live 設定只列 a、d。
+
+_TRIM = {"reconcile_gate": {"block_letters": ["a", "d"]}}
+
+
+def test_trim_unlisted_letters_do_not_block(driven, capsys):
+    """(b) 說量了沒 DONE、(c) 說跑了卻沒執行：預設照擋（前置），block_letters 只列 a、d 時不擋。舊碼不認這個鍵 → 紅。"""
+    for text, letter, kw in (("我量了，平均 120 ms，完成。", "(b)", {"verify_receipts": {_SID: [_rcpt(5, "PASS")]}}),
+                             ("我跑了測試，完成。", "(c)", {"tool_names": ["Read", "Edit"]})):
+        out, _, _ = driven(text, capsys, **kw)
+        assert "ReconcileGate" in out and letter in out, out           # 前置：預設設定照擋
+        out, _, _ = driven(text, capsys, config=_TRIM, **kw)
+        assert "ReconcileGate" not in out, out
+
+
+def test_trim_kept_letters_still_block(driven, capsys):
+    """留著的兩件照擋：說修好卻沒有任何 PASS (a)；改了程式之後沒有案例 (d)。"""
+    out, _, _ = driven("閘修好了，完成。", capsys, config=_TRIM)
+    assert "[Guardian:ReconcileGate]" in out and "(a)" in out, out
+    w = _mf(r"c:\proj\src\widget.py", 5, last_at=_T1, last_seq=3)
+    out, _, _ = driven("全部完成了。", capsys, config=_TRIM, modified_files=[w])
+    assert "(d)" in out and "改了程式碼（widget.py）" in out, out
+
+
+def test_trim_report_letter_e_unlisted_does_not_block(driven, capsys):
+    """收尾報告欄 (e)（k 空字串）：預設照擋（前置），沒列在 block_letters 就不擋。"""
+    rec = _aec(5, j="無", k=_q13("aec_empty_k.json", "")["k_followups"])
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5)], anti_evasion_report=rec)
+    assert "(k)" in out and "空字串" in out, out
+    out, _, _ = driven("全部完成了。", capsys, config=_TRIM, modified_files=[_mf(_CASE, 5)], anti_evasion_report=rec)
+    assert "空字串" not in out, out
+
+
+def test_trim_live_config_blocks_only_two_things():
+    """live 設定照使用者拍板：寫碼查核只擋 a、d；需求目標對照、驗證範圍宣告、收尾檢核、卡片表態都不擋收尾。"""
+    cfg = json.loads((HOOKS_DIR.parent / "workflow" / "config.json").read_text(encoding="utf-8"))
+    assert cfg["reconcile_gate"]["block_letters"] == ["a", "d"]
+    assert cfg["reconcile_gate"]["goal_gate"] is False
+    assert cfg["verify_scope"]["enabled"] is False
+    assert cfg["aec"]["scan_report_gate"] is False
+    assert cfg["atom_audit"]["enabled"] is False

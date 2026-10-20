@@ -952,6 +952,11 @@ def _verify_gates(
 ASK_HINT = "要問使用者問題請用 AskUserQuestion，不要用文字結束回合。"     # 寫碼查核每次 Stop 都判，用文字發問也會被擋
 
 
+def _scan_report_gate_on(config: Dict[str, Any]) -> bool:
+    """規則 CLOSING_RITUAL_SWITCHES：aec.scan_report_gate=false → 沒交收尾檢核不擋收尾。沒設＝照擋。"""
+    return (config.get("aec") or {}).get("scan_report_gate", True) is not False
+
+
 LEGACY_PENDING = ("[Guardian:ReconcileGate] 先前擋滿的查核紀錄是舊格式，沒有原宣稱可以重查：補證據解不了，"
                   "只能照【收尾放行確認】問使用者放行。")
 
@@ -1281,7 +1286,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 later.append(f"收尾自清：這個 session 建的 {len(_cv.evidence)} 樣東西還在（工作樹、分支、臨時 repo、專案外資料夾），"
                              "用完的刪掉、要留的在 (i) 寫理由")
         if ("[Guardian:ScanReport]" not in reason and own_mod_files and not state.get("scan_report_warned")
-                and not committed_this_turn
+                and not committed_this_turn and _scan_report_gate_on(config)
                 and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
                                                 int(config.get("min_files_to_block", 2)), emitted_this_turn)):
             later.append("收尾檢核：最後呼叫 anti_evasion_report")
@@ -1561,8 +1566,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
-    # 純單檔/文件小改不觸發（避免過度觸發成儀式性負擔，非防退避）。
-    if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn:
+    # 純單檔/文件小改不觸發（避免過度觸發成儀式性負擔，非防退避）。aec.scan_report_gate=false 整道不擋（規則 CLOSING_RITUAL_SWITCHES）。
+    if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn and _scan_report_gate_on(config):
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
         if detect_missing_aec_emission(

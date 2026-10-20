@@ -1521,3 +1521,14 @@ def test_render_compact_respects_limit(env):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_goal_gate_switch_off_skips_delivery_and_commit_checks(env):
+    """收尾瘦身：reconcile_gate.goal_gate=false → 收尾的需求目標對照 (f1)(f2)(f3)、知識類輕樹 (f4)、commit 前的目標對照都不擋；
+    目標樹照記，改檔前要有樹、提問要掛節點不歸這個開關。前置：同一棵樹預設照擋。舊碼不認這個鍵 → 紅。"""
+    _code_tree(env)
+    assert "(f1)" in ng.commit_gate(SID, {}) and ng.goal_gate_reason(SID, True, {})     # 前置：預設照擋
+    off = {"reconcile_gate": {"goal_gate": False}}
+    assert ng.commit_gate(SID, off) is None
+    assert ng.goal_gate_reason(SID, True, off) is None
+    assert ng.knowledge_gate_reason(SID, True, off, 5) is None

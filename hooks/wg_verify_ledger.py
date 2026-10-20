@@ -39,7 +39,7 @@ from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, go
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
-                              MOVE_TOOL, move_dir_verdict, collapse_move_chain)
+                              MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -2178,6 +2178,11 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         if aec_followups_missing(aec.get("k_followups")):
             report.append(format_hit("e", Verdict(
                 "AEC_FOLLOWUPS_EMPTY", True, "收尾檢核 (k) 追蹤項是空字串", ("有就一行一項，沒有就寫「無」",))))
+    # 規則 RECONCILE_BLOCK_LETTERS：沒列在 block_letters 的條目照判、只提示不擋
+    hits, quiet = split_blocking(hits, cfg.get("block_letters"))
+    report, quiet_report = split_blocking(report, cfg.get("block_letters"))
+    for h in quiet + quiet_report:
+        print(f"[Guardian:ReconcileGate] 規則 RECONCILE_BLOCK_LETTERS：只提示不擋｜{h[:200]}", file=sys.stderr)
     note = ""
     if any(r.get("exit_unknown") for r in related) or any(r.get("exit_unknown") for r in unrelated):
         note = "\n註：有 PASS 收據的 exit 未知（exit 未知＝dict 回應沒有 exit 欄），只憑哨兵認定。"

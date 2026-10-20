@@ -101,6 +101,11 @@ RULES: Dict[str, str] = {
     "CLAIM_TRIED_NEEDS_EXEC": "(c) 說「試過／跑了」要有本回合的 Bash／PowerShell 執行。",
     "AEC_EVIDENCE_PATH": "(e) 收尾檢核 (j) 證據路徑缺或不存在，但本 session 有驗證收據。",
     "AEC_FOLLOWUPS_EMPTY": "(e) 收尾檢核 (k) 追蹤項是空字串（「無」才放）。",
+    "RECONCILE_BLOCK_LETTERS": "寫碼查核只擋 reconcile_gate.block_letters 列出的條目字母（沒設＝全擋）；沒列的條目照判、改印 stderr "
+                               "只提示不擋。live 設定只列 a（測試沒過不准說修好）與 d（改了程式要有測試），使用者拍板。",
+    "CLOSING_RITUAL_SWITCHES": "收尾儀式各有開關，關掉就不擋收尾：reconcile_gate.goal_gate=false → 需求目標對照 (f1)～(f4) 與 commit 前的"
+                               "目標對照不擋（目標樹照記）；aec.scan_report_gate=false → 沒交收尾檢核不擋；atom_audit.enabled=false → "
+                               "卡片表態不擋。沒設＝照擋。",
     # 需求目標樹的完整對照（wg_need_goal 收事實、這裡判）
     "GOAL_DONE_NEEDS_CASE_OR_RECEIPT": "寫碼類目標樹標「達成」的節點，至少一筆證據是沒紅的收據（實測）或讀碼級的驗證案例；"
                                        "只有檔案、卡片、推論級案例或紅收據 → 擋，擋訊息列節點與現有每一筆證據。記憶知識類的樹不擋。",
@@ -267,6 +272,15 @@ def format_hit(letter: str, v: Verdict) -> str:
     """`✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。沒有證據就印 why 當唯一一行證據。"""
     ev = list(v.evidence) or [v.why]
     return f"{HIT_PREFIX}({letter}) {v.rule}：{v.why}｜證據：" + "；".join(ev)
+
+
+def split_blocking(hits: List[str], block_letters: Any) -> Tuple[List[str], List[str]]:
+    """規則 RECONCILE_BLOCK_LETTERS：format_hit 條目分成（會擋, 只提示）。block_letters 不是清單＝全擋。"""
+    if not isinstance(block_letters, list):
+        return list(hits), []
+    keep = {str(x) for x in block_letters}
+    block = [h for h in hits if (parse_hits(h) or [""])[0] in keep]
+    return block, [h for h in hits if h not in block]
 
 
 def parse_hits(text: str) -> List[str]:

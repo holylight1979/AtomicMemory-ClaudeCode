@@ -7,6 +7,11 @@
 ## 2026-10-20 萃取 L1 改走 backend 預設模型：rdchat 可用時不再先等本機 10 秒逾時
 - trace log 實測：L1 寫死 `model="qwen3:1.7b"`，路由只送設定模型名相符的 backend → 跳過 rdchat 先打 local，CPU 冷載入 10008ms 逾時才退 rdchat。`hooks/user-extract-worker.py` `_call_l1` 改成不指定模型單次呼叫：rdchat gemma4:e4b 實測真樣板 0.4–0.5s、判斷正確；rdchat 掛了自動換 local 並換成 qwen3:1.7b。案例 `hooks/verify/verify_user_extract_l1_backend.py`（舊碼兩支皆紅）。
 
+## 2026-10-20 收尾瘦身：寫碼查核只擋「測試沒過說修好」與「改程式沒測試」，其餘手續不再擋
+- 實測（10-14 13:34Z 量尺閘拔掉後～10-16）：97 回合被擋 71 次，擋下後重跑的測試大多來自驗證範圍宣告與「改完要重跑」（SCOPE_ITEM_RECEIPT_AFTER_EDIT 21、CASE_DECLARED_FOR_CHANGE 11、SCOPE_DECLARED_FOR_CHANGE 6）；逐筆確認 19 例擋下後真的抓到問題的只有 (a)(d) 兩類。使用者拍板只留這兩件。
+- **改法**：`reconcile_gate.block_letters=["a","d"]`（RECONCILE_BLOCK_LETTERS，其餘條目只印 stderr）；`verify_scope.enabled=false`（(d) 退回「改碼後要有改過的案例檔跑綠」）；`reconcile_gate.goal_gate`、`aec.scan_report_gate`、`atom_audit.enabled` 設 false（CLOSING_RITUAL_SWITCHES）。程式預設照舊全擋，政策只在 live 設定。
+- **驗證**：新案 5 支在舊碼上全紅、新碼全綠；另附「留著的兩件照擋」反例。
+
 ## 2026-10-20 Ollama 呼叫追蹤 log：想確認 rdchat-direct 有沒有真的被用到時手動開
 - 使用者要能證明輔助 LLM 確實被用；原本 `tools/ollama_client.py` 只記失敗，成功打到哪台、因模型名不符被跳過都沒紀錄。加旗標檔 `workflow/.ollama_trace`（預設不存在＝關，gitignore），存在時每次請求寫一行 `ok|fail|skip:<原因> backend= model= endpoint= 耗時 caller=` 到 `Logs/ollama-backend.log`；每請求查檔，常駐向量服務免重啟。開關：`python tools/ollama_client.py --trace on|off|status`。案例 `tools/verify/verify_ollama_trace.py`（5 支，含旗標關時不產生檔的反例）。
 

@@ -47,7 +47,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "_hud_alive", lambda *a, **k: (False, {"reason": "test"}))  # Stop 再查：仍死
     monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
 
-    def drive(modified_files, capsys, **extra):
+    def drive(modified_files, capsys, config=None, **extra):
         state = {
             "phase": "working",
             "modified_files": modified_files,
@@ -58,7 +58,7 @@ def driven(monkeypatch):
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": ""}, {})
+            st.handle_stop({"session_id": _SID, "cwd": ""}, config or {})
         cap = capsys.readouterr()
         drive.err = cap.err   # stderr 另存（HUD 開不起來的一行提示印在這裡），回傳值照舊只有 stdout
         return cap.out
@@ -87,6 +87,12 @@ def test_own_core_no_emit_blocks(driven, capsys):
     out = driven([_mf(_CORE)], capsys, turn_seq=5)
     assert "[Guardian:ScanReport]" in out
     assert "anti_evasion_report" in out
+
+
+def test_scan_report_gate_switch_off_does_not_block(driven, capsys):
+    """收尾瘦身：aec.scan_report_gate=false → 沒交收尾檢核也不擋收尾。前置：同一情境預設照擋。舊碼不認這個鍵 → 紅。"""
+    assert "[Guardian:ScanReport]" in driven([_mf(_CORE)], capsys, turn_seq=5)
+    assert "ScanReport" not in driven([_mf(_CORE)], capsys, turn_seq=5, config={"aec": {"scan_report_gate": False}})
 
 
 def test_emit_this_turn_passes(driven, capsys):

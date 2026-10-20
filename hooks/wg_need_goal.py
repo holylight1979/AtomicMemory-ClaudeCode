@@ -324,6 +324,11 @@ def cfg_for_cwd(config: Optional[Dict[str, Any]], cwd: str) -> Dict[str, Any]:
     return cfg_of(config, _root_of(cwd) if cwd else None)
 
 
+def goal_gate_on(config: Optional[Dict[str, Any]]) -> bool:
+    """規則 CLOSING_RITUAL_SWITCHES：reconcile_gate.goal_gate=false → 收尾與 commit 前的目標對照不擋（目標樹照記）。沒設＝照擋。"""
+    return ((config or {}).get("reconcile_gate") or {}).get("goal_gate", True) is not False
+
+
 def hook_cwd(input_data: Optional[Dict[str, Any]], state: Optional[Dict[str, Any]] = None) -> str:
     """hook 入口這次事件的 cwd：hook 輸入的 cwd，沒有就 state 記的 session cwd；都沒有回空（cfg_for_cwd 就用根層）。
     入口取 need_goal 設定一律 cfg_for_cwd(config, hook_cwd(…))，專案層的開關才算數。"""
@@ -1529,7 +1534,7 @@ def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]]
                      state: Optional[Dict[str, Any]] = None, transcript_path: str = "") -> Optional[str]:
     """回合結束：(f1) 待對照每次都判（不看措辭）；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界（triggered）判。
     只給主 session 用。開關看目標檔記的 cwd 所在專案（專案層關掉就不擋）。state／transcript_path 給 (f3) 補掛用。"""
-    if not sid:
+    if not sid or not goal_gate_on(config):
         return None
     doc = load(sid)
     if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:
@@ -1553,7 +1558,7 @@ def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]]
 def commit_gate(sid: Any, config: Optional[Dict[str, Any]], state: Optional[Dict[str, Any]] = None,
                 transcript_path: str = "") -> Optional[str]:
     """commit 指令執行前：(f1)＋目前的寫碼類樹的 (f2)(f3)。缺了回 deny 理由。開關看目標檔記的 cwd 所在專案。"""
-    if not sid:
+    if not sid or not goal_gate_on(config):
         return None
     try:
         doc = load(sid)
@@ -1582,7 +1587,7 @@ def knowledge_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, 
     不問使用者）。KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE 不看措辭：本使用者回合（since～turn_seq）沒樹時改了記憶知識類的檔；
     KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY 只在交付邊界（triggered）：每棵沒結束的知識類樹（換題後的舊樹也算）最後一次完整對照之後
     還有改檔。只給主 session 用。"""
-    if not sid:
+    if not sid or not goal_gate_on(config):
         return None
     doc = load(sid)
     if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:

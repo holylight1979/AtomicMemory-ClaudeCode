@@ -28,6 +28,25 @@ def test_044_every_rule_has_a_case():
     assert not missing, missing
 
 
+# ─── RECONCILE_BLOCK_LETTERS／CLOSING_RITUAL_SWITCHES（收尾瘦身） ─────────────────────────────
+
+def test_reconcile_block_letters_splits_by_letter():
+    """RECONCILE_BLOCK_LETTERS：只有列出的字母會擋，其餘歸只提示；沒設（不是清單）＝全擋。"""
+    a = rr.format_hit("a", rr.Verdict("CLAIM_FIXED_NEEDS_PASS", True, "說修好沒 PASS", ()))
+    b = rr.format_hit("b", rr.Verdict("CLAIM_MEASURED_NEEDS_DONE", True, "說量了沒 DONE", ()))
+    e = rr.format_hit("e", rr.Verdict("AEC_FOLLOWUPS_EMPTY", True, "k 空字串", ()))
+    assert rr.split_blocking([a, b, e], ["a", "d"]) == ([a], [b, e])
+    assert rr.split_blocking([a, b, e], None) == ([a, b, e], [])          # 配對：沒設照舊全擋
+    assert rr.split_blocking([b], []) == ([], [b])
+
+
+def test_closing_ritual_switches_default_on():
+    """CLOSING_RITUAL_SWITCHES：目標對照開關沒設＝照擋，設 false 才關（端到端案在 verify_need_goal、verify_aec_emission_gate）。"""
+    import wg_need_goal as ng
+    assert ng.goal_gate_on({}) and ng.goal_gate_on({"reconcile_gate": {}})
+    assert not ng.goal_gate_on({"reconcile_gate": {"goal_gate": False}})
+
+
 # ─── SAME_FILE ──────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("a, b", [

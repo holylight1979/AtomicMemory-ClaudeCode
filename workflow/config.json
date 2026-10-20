@@ -420,7 +420,13 @@
   "aec": {
     "_doc": "Anti-Evasion HUD：hud_autospawn=true → notable/real-evasion 報告且窗死時自動 spawn Edge --app HUD 窗（否則 fallback 回 chat）。窗活著＝HUD 頁對 Node 的 SSE 常駐連線在（beat-status.clients ≥ 1；頁被瀏覽器凍結時連線仍在、視窗關了才斷），或心跳 age_s < hud_stale_s（退路：舊版 Node 無 clients 欄）。判死原因落 Logs/guard-aec_hud.jsonl；Stop 消費旗標前再查一次。",
     "hud_stale_s": 75,
-    "hud_autospawn": true
+    "hud_autospawn": true,
+    "_doc_scan_report_gate": "false＝沒交收尾檢核（anti_evasion_report）不擋收尾；報告照收、HUD 照開。使用者拍板：逐筆確認 8 次擋下 0 次抓到問題（規則 CLOSING_RITUAL_SWITCHES）。",
+    "scan_report_gate": false
+  },
+  "atom_audit": {
+    "_doc": "卡片表態閘（stop.py AtomAudit：只以一行路標注入、全程沒讀的卡要求表態）。false＝不擋收尾。使用者拍板：逐筆確認 9 次擋下只抓到一句註解寫法（規則 CLOSING_RITUAL_SWITCHES）。",
+    "enabled": false
   },
   "coordination": {
     "_doc": "跨 session 協調衝突預警（hooks/wg_coordination.py）。PreToolUse 掃其他活 session state 的 modified_files：Write/Edit/NotebookEdit 同檔 → warn-only（additionalContext 隨工具結果下一輪可見 + systemMessage）；Bash git add -A/reset --hard 且同 cwd 有他人未收改動 → 同型警告；PostToolUse 補 60s late-collision。全程 fail-open，log 落 Logs/session-coordination/<sid>.jsonl。enabled 一鍵關；warn_suppress_min=同檔重警抑制分鐘；scan_mtime_window_s=peer state 活躍窗；max_scan_files=單次 parse 上限。日落：log 連續 4 週 conflict_warn 零命中 → 提降級評估。",
@@ -737,6 +743,10 @@
   "reconcile_gate": {
     "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；每次 Stop 都判，主 session、SubagentStop、裁判 Stop 共用 _verify_gates；判定出例外一律擋）：收尾宣稱 vs 驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令），宣稱看最後一句（優先 hook 輸入的 last_assistant_message）以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本回合對得上改檔的 PASS：收據要晚於每個對上的改檔、同一棵樹（收據根與改檔根互為上下層都算）、指令能當一般證據（只有執行程式的指令：直譯器、測試與建置工具、腳本檔；多段只准 && 串、輸出不導走；指令任何地方寫了哨兵字樣或夾了讀檔、印字就不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（執行根自己那支 run_verify.py／無檔名 pytest／部位量尺指令，只涵蓋執行根之下的改檔）、或修改檔所在 verify 目錄；改檔所在部位有合格的 run_verify 自寫收據（workflow/verify-ledger/_runs/，argv 對上量尺、改完才開始跑、同一棵樹、全綠）也算。(b) 說量了要能當證據的 DONE 或合格自寫收據 (c) 說試過要本回合有 exec_tools 呼叫 (d) 改了 code_exts 檔要有成立的「由哪個案例驗」宣告（need_goal verify_scope 項目的 case_for：案例檔本 session 新寫或改過、那一項改完之後跑綠；不需要新案例就宣告 no_case 附理由，照擋、照【收尾放行確認】問使用者；改了別支測試不替它清帳；PASS 不能代替；跨回合、不看措辭）；驗證範圍閘關掉時退回舊判法：改碼之後同根沒有仍存在的案例檔被新增或修改就擋。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比；測試目錄或 test_／_test／.test／.spec 這類檔名，檔名裡剛好含 test 的產品檔不算；測試檔不在這些慣例裡的專案自己加樣式）；改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；判不出來照算改了）不算改碼；部位表類別 knowledge 的部位（文件、記憶、派工信箱）下的檔兩邊都不算（不欠案例、不能替寫碼部位清帳；判法看路徑屬哪一列不看副檔名，沒有部位表照舊）。(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。預算：(a)～(d)＋量尺閘共用獨立預算 max_blocks_per_turn（不吃 stop_gate_max_blocks），擋滿不放行：記 pending 跨回合承接，要用 AskUserQuestion 照【收尾放行確認】問使用者；使用者在最後一次擋之後選放行或整句打「放行」才放這一回合，並記 user_release（Logs/guard-<閘>.jsonl event=user_release，週健檢列 red）；子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬記憶與報告類，照舊第 3 次放行並寫 Logs/guard-reconcile_overflow.jsonl（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
     "enabled": true,
+    "_doc_block_letters": "只有列出的條目字母會擋收尾，其餘照判、只印 stderr（規則 RECONCILE_BLOCK_LETTERS）；沒設＝全擋。使用者拍板只留 a（測試沒過不准說修好）與 d（改了程式要有測試）。",
+    "block_letters": ["a", "d"],
+    "_doc_goal_gate": "false＝需求目標對照 (f1)～(f4) 與 commit 前的目標對照不擋（目標樹照記；改檔前要有樹、提問掛節點不歸這裡）（規則 CLOSING_RITUAL_SWITCHES）。",
+    "goal_gate": false,
     "max_blocks_per_turn": 2,
     "exec_tools": [
       "Bash",
@@ -756,7 +766,8 @@
   },
   "verify_scope": {
     "_doc": "驗證範圍閘（緊接對帳閘，共用其預算與放行規則；hooks/wg_verify_scope.py，規則在 wg_release_rules 的 SCOPE_*）：該測哪些由 LLM 判斷並負責，程式只管流程。改了程式檔、或改到部位表上有量尺的部位，不看收尾措辭、每次 Stop 都判：要有 need_goal(action=verify_scope, items=[{target, why}]) 的宣告（每個有改動的 repo 至少一項），宣告的每一項（測試檔、測試節點 檔::名、資料夾、指令）都要有最後一次改動之後、跑綠、同一棵樹、指令可信（白名單語法、沒換目錄、環境沒縮範圍、沒有 -k 這類只跑一部分）的收據；指令項目照宣告原字串比。部位表的整把量尺只在宣告回應與擋訊息當參考（全量 run_verify 已從流程拔掉，發版前也不跑；全量改增量待補）。還欠收據時改到的部位有 verify_chains[部位].runtime_gate 就探一次（runtime_gate_timeout_s 秒），量不了說原因。寫碼查核整個過了 → 宣告記成結案；之後範圍外的測試紅了（前景收據看 pytest 的 FAILED 行、背景跑的整組驗證看自寫收據的 failed_cases），在它上次綠之後、這次紅之前結案、範圍沒涵蓋它的宣告各記一筆疑似範圍漏判（看到紅的 session 自己還有沒結案的改動照記但標出來，檢討時先查明是不是它造成的），當下送回、SessionStart 列出、下次宣告要逐筆檢討（missed 寫根因與下次怎麼判、unrelated 寫理由）才收；開場與宣告回應印累計數字。帳本 workflow/verify-scope/（scope.jsonl、runs.jsonl、self-observed.json）。一鍵關＝enabled:false。",
-    "enabled": true,
+    "_doc_enabled": "false（使用者拍板）：不再要求宣告驗證範圍、範圍每項改完重跑；(a) 退回檔名對應的 PASS、(d) 退回「改碼之後要有改過的案例檔跑綠」（OWED_AFTER_LAST_CASE／CASE_GREEN_AFTER_EDIT）。need_goal verify_scope 照收、不擋。",
+    "enabled": false,
     "runtime_gate_timeout_s": 2
   },
   "tool_selftests": [],
