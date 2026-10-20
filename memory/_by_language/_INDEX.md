@@ -7,7 +7,7 @@
 |------|---------|
 | Python | 19 |
 | C#／.NET | 20 |
-| JavaScript／Node | 1 |
+| JavaScript／Node | 2 |
 | PowerShell | 6 |
 | Bash／Shell | 12 |
 
@@ -64,6 +64,7 @@
 
 | JavaScript／Node | 說明 |
 |------|------|
+| `memory/OS-Windows/windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn.md` | windows上node測試chdir進暫存夾後rmSync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn |
 | `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
 
 ## PowerShell

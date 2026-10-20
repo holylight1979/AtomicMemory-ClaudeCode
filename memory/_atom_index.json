@@ -8032,6 +8032,22 @@
         "MCP js 測試 隔離"
       ],
       "scope": "global"
+    },
+    {
+      "name": "已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進",
+      "path": "_AIDocs/_atoms/MemDev/已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進.md",
+      "triggers": [
+        "EnterWorktree",
+        "ExitWorktree",
+        "換工作樹",
+        "新 worktree",
+        "worktree 被刪",
+        "not a managed worktree"
+      ],
+      "scope": "global",
+      "related": [
+        "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
+      ]
     }
   ]
 }
