@@ -507,6 +507,23 @@ def _is_block_knowledge(item: str) -> bool:
     return s.startswith("|") or s.startswith("```")
 
 
+# 繞閘卡片宣告（規則 ATOM_BYPASS_HOWTO_REFUSED）：知識段第一行「不是教繞閘｜<理由>」只給寫入閘看（hooks/wg_gate_bypass 讀同一個樣子），
+# 理由留在 guard-gate_bypass.jsonl；建卡落檔前剝掉，不讓它每次注入都佔知識段預算。可帶 [臨] 這類信心前綴。
+BYPASS_DECLARATION_RE = re.compile(r"^\s*(?:\[[臨觀固]\]\s*)?不是教繞閘\s*[｜|]\s*(.*?)\s*$")
+
+
+def strip_bypass_declaration(knowledge: Iterable[str]) -> List[str]:
+    """knowledge 第一個元素的第一行是「不是教繞閘｜…」宣告 → 拿掉那一行（同一元素其餘行保留）；其他行一律不動。
+    對拍 tools/workflow-guardian-mcp/lib/atom-render.js stripBypassDeclaration。"""
+    items = list(knowledge)
+    if not items:
+        return items
+    first, _, rest = str(items[0]).partition("\n")
+    if not BYPASS_DECLARATION_RE.match(first):
+        return items
+    return ([rest] if rest.strip() else []) + items[1:]
+
+
 def render_knowledge_lines(knowledge: Iterable[str]) -> List[str]:
     """渲染 knowledge 為 ## 知識 區行清單（block-aware）。
 
@@ -563,7 +580,7 @@ def build_atom_content(
     """
     today = today or date.today().isoformat()
     triggers_list = list(triggers)
-    knowledge_list = list(knowledge)
+    knowledge_list = strip_bypass_declaration(knowledge)
     actions_list = list(actions) if actions else []
     related_list = list(related) if related else []
     supersedes_list = list(supersedes) if supersedes else []

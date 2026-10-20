@@ -8,4 +8,5 @@
 |------|------|
 | feedback-atom-write-initial-confidence | feedback-atom-write-initial-confidence |
 | feedback-tooling-reliability | feedback-tooling-reliability |
+| feedback-原子記憶不內建預設會有下一個session的行為-接續單只是全ai執行升級的特例不是標竿 | feedback-原子記憶不內建預設會有下一個session的行為-接續單只是全AI執行升級的特例不是標竿 |
 | feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費 | feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費 |

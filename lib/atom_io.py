@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
-    build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
+    build_atom_content, slugify, validate_atom_content, render_knowledge_lines, strip_bypass_declaration,
     knowledge_sections_bytes, knowledge_budget_error, knowledge_budget_warning,
     knowledge_task_list_error, has_conflict_markers,
 )
@@ -623,7 +623,7 @@ def _build_append_content(existing: str, knowledge: List[str]) -> str:
     if "## 行動" not in existing:
         existing = existing.rstrip() + "\n\n" + _ACTION_STUB
     action_idx = existing.find("## 行動")
-    rendered = "\n".join(render_knowledge_lines(knowledge))
+    rendered = "\n".join(render_knowledge_lines(strip_bypass_declaration(knowledge)))
     before = existing[:action_idx].rstrip()
     after = existing[action_idx:]
     # 表格/fence 開頭需與既有知識間隔一空行才正確渲染（block-aware append）
@@ -1103,6 +1103,20 @@ def carry_replace_header(old: str, built: str, given: Iterable[str] = ()) -> str
     return "\n".join(new_lines[:nh1] + [h1] + head + new_lines[nend:])
 
 
+def gate_bypass_refusal(title: str, knowledge: List[str], actions: Optional[List[str]]) -> Optional[str]:
+    """規則 ATOM_BYPASS_HOWTO_REFUSED（T2.19）：卡片在教怎麼繞 Guardian 的閘 → 拒寫訊息；判式在 hooks/wg_gate_bypass.atom_refusal
+    （MCP 那條路在 tools/memory-write-gate.py 呼叫同一支）。判式載不起來 → stderr 說一聲、照寫（不因依賴缺失擋住所有寫入）。"""
+    hooks = str(Path(__file__).resolve().parents[1] / "hooks")
+    if hooks not in sys.path:
+        sys.path.insert(0, hooks)
+    try:
+        import wg_gate_bypass
+    except Exception as e:  # noqa: BLE001
+        print(f"[atom_io] 繞閘卡片檢查載不起來（這次不判）：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    return wg_gate_bypass.atom_refusal(title, knowledge, actions, source="atom_io")
+
+
 def write_atom(
     *,
     title: str,
@@ -1186,6 +1200,11 @@ def write_atom(
                       + ", ".join(repr(t) for t in too_long)
                       + " — shorten the trigger; it would poison every later "
                         "validate_index run (atom_move exit 2).")
+
+    # ── 繞閘做法拒寫（T2.19 ATOM_BYPASS_HOWTO_REFUSED；所有 mode；skip_gate 跳不過）──
+    bypass_err = gate_bypass_refusal(title, knowledge, actions)
+    if bypass_err:
+        return WriteResult(ok=False, audit_id=audit_id, error=bypass_err)
 
     # ── Realm gate：專案專屬內容不得落 global（所有 mode；skip_gate 跳不過）──
     # 裁決在 lib/realm_gate.py 單源；cwd 缺（純程式寫手無 session 脈絡）或 cwd∈~/.claude

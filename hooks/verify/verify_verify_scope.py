@@ -1015,3 +1015,17 @@ def test_commit_snapshot_settles_by_the_same_declaration(proj, lookup, monkeypat
             _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測", "case_for": ["hooks/x.py"]}])
         assert ptu._note_commit(state, "git commit -m x", {}, _SID)
         assert (x_key in state["commit_snapshot"]["settled"]) is declared, declared
+
+
+def test_depends_counts_module_named_like_case(proj, lookup):
+    """SCOPE_CASE_EDIT_ONLY_ITS_ITEM＋SCOPE_EDIT_IN_DECLARED_DEPENDS（old-test-declare 軌回報）：新建的 hooks/wg_old_test.py
+    檔名符合 `**/*_test.*` 被當成獨立案例檔；depends 列了它，這一項就要算它的改動（舊碼不看 depends → 回「不在任何一項的依賴裡」）。"""
+    vs = _vs()
+    mod = proj / "hooks" / "wg_old_test.py"
+    mod.write_text("def f():\n    return 1\n", encoding="utf-8")
+    cfg = vl.reconcile_cfg({})
+    assert vs._standalone_case(str(mod), cfg)                       # 前置：它真的被當成獨立案例檔
+    case = proj / "hooks" / "verify" / "verify_x.py"
+    item = {"kind": "file", "target": "hooks/verify/verify_x.py", "abs": str(case), "depends": [vl.canon_path(mod)]}
+    assert vs._item_mods(item, [_mf(mod, T1, 3)], cfg, lookup), "depends 列了 wg_old_test.py，改它要算進這一項"
+    assert not vs._item_mods({**item, "depends": [vl.canon_path(proj / "hooks" / "x.py")]}, [_mf(mod, T1, 3)], cfg, lookup)

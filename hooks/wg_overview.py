@@ -9,7 +9,7 @@ readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異
 設定錯誤時 Edit 一律擋。每個事件各落一行 jsonl 到 workflow/_overview-hub.log 當量測資料。
 
 state["overview_hub"] = {
-  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "intent", "slices", "card_paths",
+  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "transcript_offsets": {檔: byte}, "intent", "slices", "card_paths",
                      "reads_after": [...], "part_files_read": [...], "depends_files_read": [...],
                      "located": bool, "located_via", "located_quality", "edits": n, "locate_template"},
   "<root>|(unmapped)<top_dir>": {"part_files_read": [...], "edits": n}
@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    org_memory_root, resolve_project_root,
+    assistant_texts_since, org_memory_root, resolve_project_root, transcript_sizes,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -43,7 +43,7 @@ import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LAYER_AXIS_RE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
     build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
-    split_card_sections, top_dir, transcript_readable, transcript_size,
+    split_card_sections, top_dir, transcript_readable, transcript_size, unread_rows_note,
 )
 
 import wg_release_rules as _rr  # noqa: E402  放行／欠帳判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、RUNTIME_DATA_NO_OVERVIEW、TEMP_COPY_NOT_PROJECT）
@@ -411,6 +411,12 @@ def _goal_line_problem(tree: Dict[str, Any], value: Optional[str]) -> str:
             f"{CRITIQUE_LINE_HINT}），節點從目前的樹選：\n{_ng.render(tree, 'compact')}")
 
 
+def _texts_after(rec: Dict[str, Any], transcript_path: str, agent_id: str, channel: str) -> str:
+    """這個部位起點（注入或目標改的那刻）之後、主檔與子代理檔裡 AI 寫的內容（wg_core.assistant_texts_since）。"""
+    return assistant_texts_since(transcript_path, agent_id, channel, rec.get("transcript_offsets"),
+                                 int(rec.get("transcript_offset", 0)))
+
+
 def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, config: Dict[str, Any],
                  parts: Dict[str, Dict[str, Any]]) -> List[str]:
     """收尾對照（規則 EDITED_PART_NEEDS_GOAL_NODE）前蒐集事實：沒掛目標的部位（parts＝{部位 key: {"files": […]}}），
@@ -432,8 +438,7 @@ def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_pa
         template = rec.get("locate_template") or _locate_template(_cfg(config or {}, root))
         longer = _longer_parts(root, row)
         for ch in LOCATE_CHANNELS:
-            vals = locate_values(assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch),
-                                 row["part_short"], template, longer)
+            vals = locate_values(_texts_after(rec, transcript_path, "", ch), row["part_short"], template, longer)
             if not vals or _layer_mismatch(row, vals):
                 continue
             node, problem = _goal_line_check(tree, vals)
@@ -449,6 +454,7 @@ def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_pa
 def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> int:
     """目標改了（開新樹、改寫樹根、增減節點、改節點文字）：已交過定位的部位全部要重交，只認這之後交的那一組。回清了幾個部位。"""
     size = transcript_size(transcript_path)
+    sizes = transcript_sizes(transcript_path)
     n = 0
     for rec in (state.get("overview_hub") or {}).values():
         if not isinstance(rec, dict) or "located" not in rec:
@@ -457,6 +463,7 @@ def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> i
         rec.pop("goal_node", None)
         rec.pop("goal_tree", None)
         rec["transcript_offset"] = size
+        rec["transcript_offsets"] = dict(sizes)
         rec["goal_reset_turn"] = int(turn)
         n += 1
     return n
@@ -490,6 +497,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "injected_turn": int(state.get("turn_seq", 0)),
         "injected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "transcript_offset": transcript_size(transcript_path),
+        "transcript_offsets": transcript_sizes(transcript_path),
         "intent": intent,
         "slices": used,
         "card_paths": [str(cp) for cp in card_paths],
@@ -1133,9 +1141,11 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     have = len(rec["part_files_read"]) if rec else 0
     readable = _readable_existing(root, top, need) if have < need else need    # 讀夠了就不必數
     v = _rr.unmapped_edit_verdict(need, readable, have)
+    unread = unread_rows_note(root / MAP_REL)       # 表在、卻有資料列因寫法整列沒讀到：說出來，不靜默當成沒列
     if v.owed:
         msg = (f"[Guardian:OverviewHub] 改 {file_path} 前：這個專案（{root}）沒有部位表列到這個檔，"
-               f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。\n" + _rr.format_hit("o", v))
+               f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。\n" + _rr.format_hit("o", v)
+               + (f"\n注意：{unread}" if unread else ""))
         _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
              need=need, readable=readable, rule=v.rule, deny_reason="part_files", layer=cfg.get("_layer"))
         return (msg, msg, False)
@@ -1143,12 +1153,13 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     rec["edits"] = int(rec.get("edits", 0)) + 1
     _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
          need=need, readable=readable, rule=v.rule, edits=rec["edits"], deny_reason=None, layer=cfg.get("_layer"))
-    return (None, None, True)
+    return (f"[Guardian:OverviewHub] 注意：{unread}" if unread else None, None, True)
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
-            config: Dict[str, Any], cwd: str = "") -> Tuple[Optional[str], Optional[str], bool]:
+            config: Dict[str, Any], cwd: str = "", agent_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
     """PreToolUse（Write／Edit／NotebookEdit／Bash／PowerShell 的每個寫入目標）：回 (警告文字, deny 理由, state 有沒有變)。
+    agent_id＝子代理的工具呼叫：定位三行連子代理自己的 transcript 一起找（wg_core.transcripts_of）。
 
     deny 理由帶整張卡（模型只看得到 permissionDecisionReason）。三項證據缺一即 deny；transcript 讀不到 deny；
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
@@ -1280,7 +1291,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         found_ch, bad_layer, bad_goal, bad_content, text, node = None, None, None, None, "", None
         longer = _longer_parts(root, row)
         for ch in LOCATE_CHANNELS:
-            text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch)
+            text = _texts_after(rec, transcript_path, agent_id, ch)
             vals = locate_values(text, row["part_short"], rec.get("locate_template"), longer)
             if not vals:
                 continue

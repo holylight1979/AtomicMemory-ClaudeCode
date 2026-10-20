@@ -2,7 +2,7 @@
 """
 memory-write-gate.py — Atomic Memory Write Gate (v2.1)
 
-寫入前品質評估 + 去重檢查。用於 session-end 同步前過濾低品質知識。
+寫入前品質評估 + 去重檢查。呼叫端：MCP atom_write（tools/workflow-guardian-mcp/lib/funnel.js execWriteGate，stdin JSON）。
 
 Usage:
     python memory-write-gate.py --content "知識文字" [--classification "[觀]"] [--trigger-context "..."]
@@ -11,6 +11,8 @@ Usage:
 
 Output: JSON {action, quality_score, reason, dedup_match?, kind, route_to, budget, missing_sections, depends_missing, how}
 stdin JSON 另收 mode/existing_path/actions/depends/kind_hint/skip_gate（v6 分型；舊呼叫端不給＝create 全檢）
+與 dedupe（去重宣告 {verdict, of, why}：相似度達門檻時不再直接拒寫，回要宣告（need_declaration）＋候選卡，
+等 AI 宣告同一條／取代／不同；config write_gate.dedupe_declaration=false 退回舊行為）
 
 Requirements: Python 3.8+. Vector dedup needs Memory Vector Service @ port 3849.
 """
@@ -20,6 +22,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -33,6 +36,13 @@ from typing import Any, Dict, List, Optional, Tuple
 _SELF_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_SELF_ROOT))
 from lib.project_root import claude_data_dir  # noqa: E402
+try:
+    from lib.atom_io import gate_bypass_refusal  # noqa: E402
+except Exception as _e:  # pragma: no cover
+    print(f"[write-gate] 繞閘卡片檢查載不起來（這次不判）：{_e}", file=sys.stderr)
+
+    def gate_bypass_refusal(title, knowledge, actions):
+        return None
 
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
@@ -286,9 +296,10 @@ def load_config() -> Dict[str, Any]:
     """Load write_gate config from workflow config."""
     defaults = {
         "enabled": True,
-        "auto_threshold": 0.5,
-        "ask_threshold": 0.3,
+        # 品質分數只分寫／不寫：舊的 ask 級（0.3～0.5）呼叫端從沒接過、一律照寫，故拿掉，線留在原 ask 線
+        "quality_floor": 0.3,
         "dedup_score": 0.80,
+        "dedupe_declaration": True,   # 相似度達門檻 → 要 AI 宣告（false＝舊行為：>0.95 skip、其餘 suggest update）
         "skip_on_explicit_user": True,
         "knowledge_budget_bytes": _BUDGET_DEFAULT,  # <=0 停用大小硬拒
     }
@@ -391,6 +402,101 @@ def dedup_threshold_for(config: Dict[str, Any], title: str = "") -> float:
     return float(config.get("dedup_score", 0.80))
 
 
+# ─── 去重宣告（相似 → AI 判同一條／取代／不同；程式只核形狀、照宣告路由、留帳）──────────
+# 判斷交 AI：程式不判「像到什麼程度算同一條」，門檻只決定要不要問。
+# 核對只看三件事：verdict 三選一、of 是這次列出的候選卡名（原字）、why 有字（不是空白／佔位／純標點）。
+
+DEDUPE_VERDICTS = ("same", "supersedes", "different")
+DEDUPE_FORMS = (
+    ("same", "同一條（知識段改併入那張卡；triggers／actions 不併）"),
+    ("supersedes", "取代（寫新卡，Supersedes 標那張；舊卡留檔、不再注入）"),
+    ("different", "不同（照常寫新卡）"),
+)
+DEDUPE_CANDIDATES_MAX = 3   # 候選張數＝向量查詢 top_k：要逐張對照，3 張已涵蓋同主題的改名／拆卡，再多只是雜訊
+DEDUPE_EXCERPT_LINES = 2    # 每張節錄知識段前 2 行：認得出那張卡在講什麼就夠判；要細看 AI 自己開檔
+_DEDUPE_WHY_TEMPLATE = "一句理由"   # 寫法範本裡的佔位字，照抄回來不算理由
+_KNOWLEDGE_BODY_RE = re.compile(r"^##[ \t]+(?:知識|印象)[ \t]*\n([\s\S]*?)(?=^## |\Z)", re.MULTILINE)
+_BULLET_RE = re.compile(r"^[-*]\s+")
+
+
+def _knowledge_excerpt(file_path: str, fallback_text: str) -> List[str]:
+    """候選卡知識段前 DEDUPE_EXCERPT_LINES 行（去 bullet、每行 ≤120 字）；檔讀不到就退用向量命中的那段文字。"""
+    body = ""
+    if file_path:
+        try:
+            m = _KNOWLEDGE_BODY_RE.search(Path(file_path).read_text(encoding="utf-8-sig"))
+            body = m.group(1) if m else ""
+        except (OSError, ValueError):
+            body = ""
+    lines = (_BULLET_RE.sub("", ln.strip()) for ln in (body or fallback_text or "").splitlines())
+    return [ln[:120] for ln in lines if ln][:DEDUPE_EXCERPT_LINES]
+
+
+def _dedupe_candidates(results: List[Dict[str, Any]], threshold: float) -> List[Dict[str, Any]]:
+    """門檻以上的命中，依分數排、取前 DEDUPE_CANDIDATES_MAX 張（同層同名只留一次）。
+    ref＝of 要照抄的名字：卡名在候選裡唯一就是卡名；不同層有同名卡就寫成 <layer>:<卡名>，兩張都列、交 AI 選。"""
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for r in sorted(results, key=lambda r: r.get("score", 0), reverse=True):
+        name, layer = r.get("atom_name", ""), r.get("layer", "")
+        if not name or (layer, name) in seen or r.get("score", 0) < threshold:
+            continue
+        seen.add((layer, name))
+        out.append({
+            "atom_name": name,
+            "score": round(r.get("score", 0), 3),
+            "layer": layer,
+            "excerpt": _knowledge_excerpt(r.get("file_path", ""), r.get("text", "")),
+        })
+    out = out[:DEDUPE_CANDIDATES_MAX]
+    names = [c["atom_name"] for c in out]
+    for c in out:
+        c["ref"] = c["atom_name"] if names.count(c["atom_name"]) == 1 else f"{c['layer']}:{c['atom_name']}"
+    return out
+
+
+def _why_has_content(why: Any) -> bool:
+    """why 去掉標點／符號／空白／控制字元後還有字，且不是範本佔位字照抄。"""
+    core = "".join(ch for ch in str(why or "") if unicodedata.category(ch)[0] not in "PSZC")
+    return bool(core) and core != _DEDUPE_WHY_TEMPLATE
+
+
+def dedupe_problems(dedupe: Any, candidates: List[Dict[str, Any]]) -> List[str]:
+    """核對 AI 的去重宣告形狀，回問題清單（空＝收）。不判宣告內容對不對——那是 AI 的判斷，抽查靠 audit。"""
+    if not isinstance(dedupe, dict):
+        return ["dedupe 要是物件 {verdict, of, why}"]
+    problems = []
+    verdict = dedupe.get("verdict")
+    if verdict not in DEDUPE_VERDICTS:
+        problems.append(f"verdict 要是 same／supersedes／different 其中一個（收到 {verdict!r}）")
+    of = str(dedupe.get("of") or "").strip()
+    refs = [c["ref"] for c in candidates]
+    if of not in refs:
+        same_name = [r for r, c in zip(refs, candidates) if c["atom_name"] == of]
+        problems.append(f"of「{of}」在不同層各有一張，寫成 {' 或 '.join(same_name)}" if same_name
+                        else f"of「{of}」不在這次列出的候選卡裡（卡名原字照抄）")
+    if not _why_has_content(dedupe.get("why")):
+        problems.append("why 要寫一句理由（收到空白、佔位或純標點）")
+    return problems
+
+
+def declaration_request(candidates: List[Dict[str, Any]], threshold: float, problems: List[str]) -> str:
+    """要宣告（need_declaration）的 reason：（宣告不收的原因）＋候選卡（名、分數、層、知識段節錄）＋三種寫法。js 原文轉述。"""
+    lines = [f"宣告不收：{'；'.join(problems)}。"] if problems else []
+    lines.append(f"需要宣告（這次不寫檔）：新內容和既有卡相似度達 {threshold:.2f}，"
+                 "請判斷是同一條、取代、還是不同，帶 dedupe 欄位重送。")
+    lines.append("候選卡：")
+    for i, c in enumerate(candidates, 1):
+        layer = f"，layer={c['layer']}" if c.get("layer") else ""
+        lines.append(f"{i}. {c['ref']}（score={c['score']}{layer}）")
+        lines.extend(f"   ｜{ln}" for ln in c["excerpt"])
+    lines.append("三種寫法（of 照抄上面一張卡名）：")
+    for verdict, meaning in DEDUPE_FORMS:
+        lines.append(f'- {meaning}：dedupe={{"verdict":"{verdict}","of":"<卡名>","why":"<{_DEDUPE_WHY_TEMPLATE}>"}}')
+    lines.append("（atom_write 沒有 dedupe 欄位＝這個 session 的 MCP 還是舊碼：Reload Window 後重送）")
+    return "\n".join(lines)
+
+
 def check_dedup(
     content: str,
     config: Dict[str, Any],
@@ -417,7 +523,7 @@ def check_dedup(
     dedup_threshold = dedup_threshold_for(config, title)
 
     try:
-        query: Dict[str, Any] = {"q": content, "top_k": 3, "min_score": dedup_threshold}
+        query: Dict[str, Any] = {"q": content, "top_k": DEDUPE_CANDIDATES_MAX, "min_score": dedup_threshold}
         if layers:
             query["layers"] = ",".join(layers)
         params = urllib.parse.urlencode(query)
@@ -439,6 +545,7 @@ def check_dedup(
             "score": round(score, 3),
             "text_preview": top.get("text", "")[:80],
             "verdict": "duplicate" if score > 0.95 else "similar",
+            "candidates": _dedupe_candidates(results, dedup_threshold),
         }
     except Exception as e:
         # Vector service unavailable — fail-open skip dedup，但必留訊號（可觀測性鐵律）
@@ -452,8 +559,7 @@ def check_dedup(
 
 
 def write_audit_log(action: str, content_preview: str, quality: float, **extra: Any) -> None:
-    """Append to audit.log (JSONL)."""
-    AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    """Append to audit.log (JSONL)。寫不進去不擋閘、但必浮出 stderr（去重宣告靠這本帳抽查）。"""
     entry = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "action": action,
@@ -462,14 +568,16 @@ def write_audit_log(action: str, content_preview: str, quality: float, **extra: 
     }
     entry.update(extra)
     try:
+        # mkdir 也在 try 裡：建不起來時若讓例外冒出去，整個閘沒輸出，MCP 端會走 fail-open 直接落檔
+        AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(AUDIT_LOG, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
         # Log rotation: >10MB → rotate
         if AUDIT_LOG.stat().st_size > 10 * 1024 * 1024:
             _rotate_log()
-    except OSError:
-        pass
+    except OSError as e:
+        print(f"[write-gate] audit log write failed ({action}): {e}", file=sys.stderr)
 
 
 def _rotate_log() -> None:
@@ -511,6 +619,7 @@ def evaluate(
     depends: Optional[List[str]] = None,
     kind_hint: Optional[str] = None,
     skip_gate: bool = False,
+    dedupe: Any = None,
 ) -> Dict[str, Any]:
     """Main Write Gate evaluation. Returns decision dict.
 
@@ -519,6 +628,9 @@ def evaluate(
     missing_sections[]（hub 缺段白話名）、depends_missing（hub 無 Depends）、how（一句怎麼做）。
     layers：去重只比這幾層（見 check_dedup）。title：指標卡去重門檻提高。
     mode≠create 或 skip_gate：跳 dedup／quality，只做預算與分型（append 預算＝既有 knowledge 區＋新增）。
+    dedupe：去重宣告（見 dedupe_problems）。相似度達門檻時：沒宣告或宣告不收 → 拒寫要宣告（action=skip＋
+    need_declaration=true、candidates[]、reason 列候選與三種寫法）；收 → audit dedupe_declared，same 回 action=append＋append_to{atom_name,layer}，
+    supersedes／different 照常往下判，結果帶 dedupe_declared{verdict,of,why,score}。沒命中仍給 → dedupe_note。
     """
     if config is None:
         config = load_config()
@@ -561,6 +673,12 @@ def evaluate(
             "how": HOW_BY_KIND[kind],
         })
         return result
+
+    # 繞閘做法拒寫（T2.19 ATOM_BYPASS_HOWTO_REFUSED）：MCP atom_write 三種 mode 都經過這裡；判式與 lib/atom_io.write_atom 同一支
+    bypass_err = gate_bypass_refusal(title, content.splitlines(), actions)
+    if bypass_err:
+        write_audit_log("skip", content, 0, reason="gate_bypass_howto")
+        return _kinded({"action": "skip", "quality_score": 0, "reason": bypass_err})
 
     # 現況帳：不進 atom，路由到文件（不看預算、不看 explicit_user）
     if kind == "ledger":
@@ -615,11 +733,14 @@ def evaluate(
     # mode≠create／skip_gate：只做預算與分型，不跑 dedup／quality
     if mode != "create" or skip_gate:
         write_audit_log("add", content, 1.0, reason=f"{mode}_budget_only", kind=kind)
-        return _kinded({
+        result = {
             "action": "add",
             "quality_score": 1.0,
             "reason": f"{mode}: budget {total}/{limit} ok, kind={kind}",
-        })
+        }
+        if dedupe is not None:
+            result["dedupe_note"] = f"dedupe 宣告已忽略：{'skip_gate' if skip_gate else 'mode=' + mode} 不跑去重"
+        return _kinded(result)
 
     # 內容樣式軟警 + 可再生內容判準（都不擋、不進分數，附掛在放行結果上；caller 端轉述給寫入者）
     style_warns = list(_style_warnings(content))
@@ -628,11 +749,18 @@ def evaluate(
         [f"可再生內容疑似（{', '.join(regen)}）：{REGENERABLE_HINT}"] if regen else []
     )
 
+    declared: Optional[Dict[str, Any]] = None   # 收下的去重宣告（supersedes／different 往下判時帶出去）
+    dedupe_note: Optional[str] = None
+
     def _with_warnings(result: Dict[str, Any]) -> Dict[str, Any]:
-        if soft_warns and result.get("action") in ("add", "ask"):
+        if soft_warns and result.get("action") == "add":
             result["warnings"] = soft_warns
         if regen:
             result["regenerable_signals"] = regen
+        if declared:
+            result["dedupe_declared"] = declared
+        if dedupe_note:
+            result["dedupe_note"] = dedupe_note
         return _kinded(result)
 
     # Fast path: explicit user trigger → always add
@@ -646,26 +774,57 @@ def evaluate(
         })
 
     # Dedup check（先於 pitfall 捷徑：pitfall 只豁免品質評分，不豁免去重——
-    # 重複的坑知識 >0.95 仍 skip、相似仍建議 update）
+    # 相似的坑知識照樣要宣告；舊行為 >0.95 skip、相似建議 update）
     dedup = check_dedup(content, config, layers, title)
-    if dedup:
+    dedup_match = {k: v for k, v in (dedup or {}).items() if k != "candidates"}   # 舊鍵形狀不變
+    if dedup and not config.get("dedupe_declaration", True):
         if dedup["verdict"] == "duplicate":
             write_audit_log("skip", content, 0, reason="duplicate", dedup_match=dedup["atom_name"])
             return _kinded({
                 "action": "skip",
                 "quality_score": 0,
                 "reason": f"duplicate of {dedup['atom_name']} (score={dedup['score']})",
-                "dedup_match": dedup,
+                "dedup_match": dedup_match,
             })
-        else:
-            # Similar but not identical → suggest update
-            write_audit_log("update", content, 0.6, dedup_match=dedup["atom_name"])
+        # Similar but not identical → suggest update
+        write_audit_log("update", content, 0.6, dedup_match=dedup["atom_name"])
+        return _kinded({
+            "action": "update",
+            "quality_score": 0.6,
+            "reason": f"similar to {dedup['atom_name']} (score={dedup['score']}), suggest update",
+            "dedup_match": dedup_match,
+        })
+    candidates = (dedup or {}).get("candidates") or []   # 命中卻沒卡名＝無從宣告，當沒命中
+    if candidates:
+        problems = [] if dedupe is None else dedupe_problems(dedupe, candidates)
+        if dedupe is None or problems:
+            write_audit_log("need_declaration", content, 0,
+                            candidates=[c["ref"] for c in candidates], problems=problems)
+            # action 用 skip（不用新動作名）：合併後 py 立即生效、各 session 的 MCP js 要 Reload 才換新碼，
+            # 舊 js 只認 skip／update 為拒寫，新動作名會被它當放行直接落檔；新 js 認 need_declaration 轉述
             return _kinded({
-                "action": "update",
-                "quality_score": 0.6,
-                "reason": f"similar to {dedup['atom_name']} (score={dedup['score']}), suggest update",
-                "dedup_match": dedup,
+                "action": "skip",
+                "need_declaration": True,
+                "quality_score": 0,
+                "reason": declaration_request(candidates, dedup_threshold_for(config, title), problems),
+                "dedup_match": dedup_match,
+                "candidates": candidates,
             })
+        target = next(c for c in candidates if c["ref"] == str(dedupe["of"]).strip())
+        declared = {"verdict": dedupe["verdict"], "of": target["atom_name"],
+                    "why": str(dedupe["why"]).strip(), "score": target["score"]}
+        write_audit_log("dedupe_declared", content, 0, **declared)
+        if declared["verdict"] == "same":
+            return _kinded({
+                "action": "append",
+                "quality_score": 1.0,
+                "reason": (f"dedupe 宣告 same：知識段改併入既有卡 {target['atom_name']}"
+                           f"（score={target['score']}；triggers／actions 不併）"),
+                "append_to": {"atom_name": target["atom_name"], "layer": target["layer"]},
+                "dedupe_declared": declared,
+            })
+    elif dedupe is not None:
+        dedupe_note = "dedupe 宣告已忽略：這次沒有候選卡（相似度未達門檻，或向量服務沒回應）"
 
     # Pitfall/trap detection → add with [觀]（僅豁免品質評分；dedup 已在上方跑過）
     pitfall_keywords = ["陷阱", "坑", "pitfall", "gotcha", "注意", "caution", "bug", "重入"]
@@ -678,25 +837,18 @@ def evaluate(
             "reason": "pitfall/trap detected, auto-add as [觀]",
         })
 
-    # Quality score
+    # Quality score：只分寫／不寫（寫的人就是要寫的 AI，沒有「再問一次」的中間級）
     quality, reasons = compute_quality_score(content, explicit_user, trigger_context)
-
-    auto_threshold = config.get("auto_threshold", 0.5)
-    ask_threshold = config.get("ask_threshold", 0.3)
-
-    if quality >= auto_threshold:
-        action = "add"
-    elif quality >= ask_threshold:
-        action = "ask"
-    else:
-        action = "skip"
+    # 沒設 quality_floor 的舊 config：實際生效的寫入線一直是 ask_threshold（ask 級照寫），沿用它
+    quality_floor = config.get("quality_floor", config.get("ask_threshold", 0.3))
+    action = "add" if quality >= quality_floor else "skip"
 
     write_audit_log(action, content, quality, classification=classification, reasons=reasons)
 
     return _with_warnings({
         "action": action,
         "quality_score": round(quality, 2),
-        "reason": f"quality={quality:.2f} ({'>=auto' if action == 'add' else 'ask' if action == 'ask' else '<skip'} threshold), factors: {', '.join(reasons)}",
+        "reason": f"quality={quality:.2f} ({'>=' if action == 'add' else '<'}floor {quality_floor}), factors: {', '.join(reasons)}",
     })
 
 
@@ -709,7 +861,7 @@ def _existing_depends(existing: str) -> bool:
     return bool(m and m.group(1).strip())
 
 
-_GATE_OPT_KEYS = ("mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate")
+_GATE_OPT_KEYS = ("mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate", "dedupe")
 
 
 def _gate_opts(item: Dict[str, Any]) -> Dict[str, Any]:
