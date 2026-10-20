@@ -36,6 +36,13 @@ from typing import Any, Dict, List, Optional, Tuple
 _SELF_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_SELF_ROOT))
 from lib.project_root import claude_data_dir  # noqa: E402
+try:
+    from lib.atom_io import gate_bypass_refusal  # noqa: E402
+except Exception as _e:  # pragma: no cover
+    print(f"[write-gate] 繞閘卡片檢查載不起來（這次不判）：{_e}", file=sys.stderr)
+
+    def gate_bypass_refusal(title, knowledge, actions):
+        return None
 
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
@@ -666,6 +673,12 @@ def evaluate(
             "how": HOW_BY_KIND[kind],
         })
         return result
+
+    # 繞閘做法拒寫（T2.19 ATOM_BYPASS_HOWTO_REFUSED）：MCP atom_write 三種 mode 都經過這裡；判式與 lib/atom_io.write_atom 同一支
+    bypass_err = gate_bypass_refusal(title, content.splitlines(), actions)
+    if bypass_err:
+        write_audit_log("skip", content, 0, reason="gate_bypass_howto")
+        return _kinded({"action": "skip", "quality_score": 0, "reason": bypass_err})
 
     # 現況帳：不進 atom，路由到文件（不看預算、不看 explicit_user）
     if kind == "ledger":

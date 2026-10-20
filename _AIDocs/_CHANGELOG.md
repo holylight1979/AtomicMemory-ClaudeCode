@@ -4,6 +4,19 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 T2.19 補件：宣告行不留在卡裡、別人合併後的還原不算改碼、Git Bash 的 cd /c/ 認得出 repo
+- **交給 AI 寫程式時會看到的**：卡片第一行的「不是教繞閘｜理由」只給寫入閘看，寫進卡片時拿掉；總控台把 main 合進工作分支後，工作軌「退回舊版看紅再還原」不再被收尾閘當成改程式欠案例；Bash 下 `cd /c/… && git commit …` 不再被 commit 前各閘當成判不了而擋。細節見 TECH §7.5 與寫碼查核豁免表。
+## 2026-10-20 AI 要改你既有的資料檔／設定檔，先問或先宣告一行（T2.16）
+- **使用者看到的**：AI 改你的 `settings.json`、`.yaml`、`.csv` 這類資料或設定檔（不是程式、不是它這次自己建的、你沒點名要改它）之前，會先問你，或先在回覆寫一行「動資料檔｜settings.json：為什麼要動、動了你會看到什麼」；沒寫就被擋下（驗收題 B 那次「順手修多逗號、幣別從 USD 變 TWD」不會再悶聲發生）。你在需求裡講到檔名就不用宣告；同一場對話同一個檔宣告一次就好。該不該改仍由 AI 判斷，程式只查四件事實與那一行在不在；每次擋下、宣告、豁免都記在 `Logs/guard-data_file.jsonl`。哪些副檔名算資料檔、整條開關在 `workflow/config.json` 的 `guard.data_file_ask`。用 Bash／PowerShell 改（`sed -i`、`Set-Content`、`>`）也一樣要先宣告，一條指令改好幾個資料檔就每個都要說；AI 用 `>` 自己新建的檔之後再改不用問；子代理寫在自己回覆裡的宣告也認得到，派給子代理的工作說明不會被當成你的話。收尾的宣稱行、不做行理由裡引用 `<幣別>` 這類標籤不再被當成沒寫理由，照抄範本留著 `<理由>` 仍照擋。案例 `hooks/verify/verify_data_file_ask.py`（舊碼 14 紅、Bash 段在只管 Edit 的版本上 7 紅）。細節見 TECH §7.5 DataFileAsk。
+## 2026-10-20 目標樹標「使用者說的」要對得到原話（T2.18 根治自作主張③）
+- **交給 AI 寫程式時會看到的**：AI 把子目標標成「使用者說的」時要引用你說過的原句（quote）；引不到、或那句其實是同伴 session 說的，節點會被自動改成「推出來的」，AI 當下和你下一則訊息時各被提醒一次；之後改寫這類節點的文字也重核；很早或很長訊息裡的原話也引得到。樹根不再標「使用者說的」，一律顯示「AI 的解讀」，而且開樹、改寫、匯入時會列出樹根裡你原話沒有的句子提醒一次。從續接單匯入的子節點匯入當下不核。開關 `guard.origin_user_check.enabled`。細節 TECH §7.7。
+- **依據與驗證**：驗收題 C 第二段新 session 把自己從 git diff 推論的需求標成使用者說的。`hooks/verify/verify_origin_user_check.py` 15 案（含該題真實輸入），舊碼紅；Codex 審查抓到「只改文字不重核」已補；該題「舊報表不被這次改動弄壞」實際寫在樹根，所以樹根改顯示「AI 的解讀」並列句提醒。
+## 2026-10-20 T2.17：AI 改舊測試要先宣告，沒宣告就擋
+- **交給 AI 寫程式時會看到的**：AI 用 Edit／Write 把既有測試改名、刪掉、改斷言、加 skip 或改它的說明，卻沒先寫一行「改舊測試｜<哪支>：<理由>」，寫入前就被擋（`✗ (ot) OLD_TEST_CHANGE_NEEDS_DECLARATION`，列出每支測試與哪一種動作）；用 Bash（sed -i、重導）、PowerShell（Set-Content）或 NotebookEdit 改的，寫完那一刻比對，沒宣告就擋下一個動作直到補宣告或撤回。寫了就放行並留帳（`Logs/guard-old_test.jsonl`）。只加新測試、改 fixture、本 session 自己新加的測試不受影響。細節見 TECH §7.5 OldTestDeclare。
+- **依據與驗證**：第一波驗收題 C 的 AI 在第一句之前就改名、改語意舊相容測試，又對它標 skip（原設計者裁 C4 不過）；這三筆原始 Edit／Write 當案例，舊碼放行、新碼擋（`hooks/verify/verify_old_test_declare.py`）。
+## 2026-10-20 T2.19：被病形閘擋過之後不能悄悄換提交範圍過關，繞閘知識卡拒寫
+- **交給 AI 寫程式時會看到的**：commit 被病形閘擋下後，AI 若把被點名的檔移出暫存、改用 pathspec 只提交別的檔、或加 `--no-verify`，而那個檔的病還在，會被擋並要求寫一行「不是繞閘｜<這批檔是誰的、為什麼不該進這筆、病要誰修>」；寫了就放行並留帳給人抽查，同一組檔不再問；病修掉就不問。卡片內容同時提到 Guardian 的閘又在教怎麼改暫存區／改提交範圍（例：「繞法要拆三步」）會被拒寫，要改寫成「為什麼那批檔不該進這筆」。細節見 TECH §7.5 GateBypass。
+- **依據與驗證**：第一波驗收題 A-1 的擋訊息、AI 之後真的下過的三條指令與它寫的那張卡原文當案例（`hooks/verify/verify_gate_bypass.py`），舊碼全放行、新碼擋與拒寫。
 ## 2026-10-20 判斷入口盤點 P8：記憶寫入去重交 AI 判（同一條／取代／不同），不再拿相似度分數直接拒寫
 - **AI 寫卡時會看到的**：`atom_write` 新內容和既有卡相似度達 `dedup_score`（0.8；指標卡 0.95）時不寫檔，回最多 3 張候選卡（卡名、分數、層、知識段前 2 行）與三種寫法；AI 帶 `dedupe={verdict, of, why}` 重送：`same` 知識段改併入那張卡（走既有 append，預算／realm 閘照跑，回覆開頭講改併入哪張）、`supersedes` 寫新卡並以 Supersedes 標那張、`different` 照常寫。程式只核 verdict 三選一、of 是候選卡名（不同層同名寫 `<layer>:<卡名>`）、why 有字；收下記 audit `dedupe_declared`。改名取代舊卡不再被當重複擋死。沒命中、向量服務沒起照舊直接寫；`write_gate.dedupe_declaration=false` 回舊行為。品質分數的「0.3～0.5 問」一級拿掉（MCP 從沒接、一律照寫），只分寫／不寫，線沿用原 `ask_threshold`（新鍵 `quality_floor`）。
 - **改了什麼**：`tools/memory-write-gate.py`（`check_dedup` 回候選、`dedupe_problems`／`declaration_request`、evaluate 去重分支）；MCP `lib/atom-tools.js`（`need_declaration` 轉述、same 重進 append、supersedes 併入）、`funnel.js`（stdin 多傳 `dedupe`）、`mcp.js`（atom_write schema 加 `dedupe`）。要宣告時 py 回 `action=skip`＋`need_declaration`：合併後還沒 Reload Window 的舊 MCP 照樣拒寫（實測），不會把相似內容當放行。

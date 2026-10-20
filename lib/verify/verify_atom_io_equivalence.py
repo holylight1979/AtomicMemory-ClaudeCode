@@ -1392,3 +1392,17 @@ def test_b5_write_atom_append_to_card_without_action_section(isolated_claude):
                    knowledge=["新事實丙"], mode="append", source="test", skip_gate=True, today=FIXED_TODAY)
     assert r.ok, r.error
     _assert_one_action_after(fp, "新事實丙")
+
+
+@pytest.mark.parametrize("tag,py_k,js_k", [
+    ("decl_first", ["[臨] 不是教繞閘｜這張卡寫的是禁止規避", "k1"], "['[臨] 不是教繞閘｜這張卡寫的是禁止規避','k1']"),
+    ("decl_later", ["k1", "不是教繞閘｜第二行照留"], "['k1','不是教繞閘｜第二行照留']"),
+])
+def test_38_bypass_declaration_stripped_py_js_byte_parity(tmp_path, tag, py_k, js_k):
+    """繞閘卡片宣告（ATOM_BYPASS_HOWTO_REFUSED）：知識段第一行「不是教繞閘｜…」建卡時剝掉、其他行照留；py↔js byte-identical。"""
+    base = dict(_SUP_BASE_PY, knowledge=py_k)
+    py_out = build_atom_content(**base)
+    js_out = _js_build(tmp_path, _SUP_BASE_JS.replace("knowledge:['k1']", "knowledge:" + js_k), tag)
+    assert js_out == py_out, f"DRIFT[{tag}]\nPY:\n{py_out!r}\nJS:\n{js_out!r}"
+    assert ("禁止規避" not in py_out) if tag == "decl_first" else ("- 不是教繞閘｜第二行照留" in py_out)
+    assert "- k1" in py_out

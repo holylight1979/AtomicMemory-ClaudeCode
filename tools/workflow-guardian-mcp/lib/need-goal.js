@@ -30,12 +30,15 @@ function validateItems(action, items) {
       if (!str(it.text)) errs.push(`${tag}.text 必填`);
       if (given(it.clarity) && !CLARITY.includes(it.clarity)) errs.push(`${tag}.clarity 無效（${it.clarity}），允許：${CLARITY.join("|")}`);
       if (given(it.origin) && !ORIGIN.includes(it.origin)) errs.push(`${tag}.origin 無效（${it.origin}），允許：${ORIGIN.join("|")}`);
+      if (given(it.quote) && typeof it.quote !== "string") errs.push(`${tag}.quote 必須是字串（標 origin=user 時引用使用者原話的字面子句）`);
       return;
     }
     if (!NODE_ID_RE.test(str(it.id))) errs.push(`${tag}.id 必填，格式 T<數字>(.<數字>)*`);
     if (action === "update") {
       if (!str(it.why)) errs.push(`${tag}.why 必填（這次改動讓它更接近了沒、為什麼）`);
-      if (!["text", "status", "clarity"].some((k) => given(it[k]))) errs.push(`${tag} 至少要改 text／status／clarity 其中一項`);
+      if (!["text", "status", "clarity", "origin"].some((k) => given(it[k]))) errs.push(`${tag} 至少要改 text／status／clarity／origin 其中一項`);
+      if (given(it.origin) && !ORIGIN.includes(it.origin)) errs.push(`${tag}.origin 無效（${it.origin}），允許：${ORIGIN.join("|")}`);
+      if (given(it.quote) && typeof it.quote !== "string") errs.push(`${tag}.quote 必須是字串（標 origin=user 時引用使用者原話的字面子句）`);
       if (given(it.text) && !str(it.text)) errs.push(`${tag}.text 不能是空的`);
       if (given(it.status) && !NODE_STATUS.includes(it.status)) errs.push(`${tag}.status 無效（${it.status}），允許：${NODE_STATUS.join("|")}`);
       if (given(it.clarity) && !CLARITY.includes(it.clarity)) errs.push(`${tag}.clarity 無效（${it.clarity}），允許：${CLARITY.join("|")}`);
