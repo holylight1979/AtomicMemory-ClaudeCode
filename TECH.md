@@ -784,7 +784,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 }
 ```
 
-連通自檢 `curl -s <base_url>/api/tags`。認證型 backend（OAuth / LDAP / bearer）的 `auth` 區塊私下取得範本，憑證走 gitignored 路徑。沒 GPU 也能跑本地 Ollama（CPU 下 embedding 約 200–500 ms、qwen3:1.7b 約 1–3 s），有遠端 GPU backend 較佳。
+連通自檢 `curl -s <base_url>/api/tags`。確認實際打到哪台：`python tools/ollama_client.py --trace on`（旗標檔 `workflow/.ollama_trace`，預設關）→ 每次請求一行 `ok|fail|skip:<原因> backend= model= endpoint= 耗時 caller=` 寫進 `Logs/ollama-backend.log`；`--trace status` 看尾巴、`--trace off` 關。每請求查旗標，常駐的向量服務不用重啟。認證型 backend（OAuth / LDAP / bearer）的 `auth` 區塊私下取得範本，憑證走 gitignored 路徑。沒 GPU 也能跑本地 Ollama（CPU 下 embedding 約 200–500 ms、qwen3:1.7b 約 1–3 s），有遠端 GPU backend 較佳。
 
 ### 9.2 外部依賴：用途、替代、缺了會怎樣
 

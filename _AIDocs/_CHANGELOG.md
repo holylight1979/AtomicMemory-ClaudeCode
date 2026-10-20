@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 Ollama 呼叫追蹤 log：想確認 rdchat-direct 有沒有真的被用到時手動開
+- 使用者要能證明輔助 LLM 確實被用；原本 `tools/ollama_client.py` 只記失敗，成功打到哪台、因模型名不符被跳過都沒紀錄。加旗標檔 `workflow/.ollama_trace`（預設不存在＝關，gitignore），存在時每次請求寫一行 `ok|fail|skip:<原因> backend= model= endpoint= 耗時 caller=` 到 `Logs/ollama-backend.log`；每請求查檔，常駐向量服務免重啟。開關：`python tools/ollama_client.py --trace on|off|status`。案例 `tools/verify/verify_ollama_trace.py`（5 支，含旗標關時不產生檔的反例）。
+
 ## 2026-10-16 HUD 改版第 2 階段：卡片白話三段、報告不進聊天、紅燈精準、刪 (c) 欄
 - 原設計者要求 HUD「精準確實不雞肋、不丟人看不懂的技術鬼話」、報告任何理由都不進聊天。HUD 卡片改成燈號＋一句話（✅ 可以關了／🟡 有事要你決定／🔴 疑似偷懶（待核對））→ 要你處理 → 這輪做了什麼 → 記住了／之後要追，欄位字母收進「細節」；HUD 開不起來時 Stop 不再把報告貼回聊天、只印一行報告檔位置；MCP 回條一行，推後判定只留 Python 一份。紅燈精準：退避軟偵測加 context 豁免（規則 EVASION_CONTEXT_EXEMPT，四件都有證據才豁免、判不出照標），詞表不再把「範圍外的測試」「新 session 才會載入」當退避。刪 (c) Token 警示欄（與 85% 預警重複）；(d) 可寫「見收割報告」但要本回合真的交過核對過的收割報告。彈窗時機使用者選維持現況。
 - **同類修正**：報告檔存的是 j_evidence_path／k_followups，HUD 一直讀 j／k，證據路徑與追蹤項從沒顯示過；兩種名字都認。案例 `hooks/verify/verify_hud_stage2.py`。

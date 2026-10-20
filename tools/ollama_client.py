@@ -5,6 +5,12 @@ ollama_client.py — Multi-Backend Ollama Client
 三階段退避：正常 → 短DIE (60s) → 長DIE (等到下一個 6h 時間段)。
 
 純 stdlib，不引入新依賴。
+
+怎麼跑（完整參數見 --help）：
+    python tools/ollama_client.py                 # 自測：選哪個 backend、生成與嵌入各打一次
+    python tools/ollama_client.py --trace on      # 開呼叫追蹤：每次請求打到哪個 backend 寫進 Logs/ollama-backend.log
+    python tools/ollama_client.py --trace off     # 關（預設關）
+    python tools/ollama_client.py --trace status  # 看開關與 log 最後幾行
 """
 
 import json
@@ -41,6 +47,26 @@ LONG_DIE_WINDOW = 600  # 10 minutes
 
 # 時間段邊界（每天 4 個）
 TIME_BOUNDARIES = [0, 6, 12, 18]
+
+# 呼叫追蹤：旗標檔存在才寫 log。每次請求都看一次檔案，常駐程序（向量服務）不用重啟就生效
+TRACE_FLAG = CLAUDE_DIR / "workflow" / ".ollama_trace"
+TRACE_LOG = CLAUDE_DIR / "Logs" / "ollama-backend.log"
+
+
+def _trace(backend_name: str, endpoint: str, model: str, result: str, t0: float = None):
+    """result: ok / fail / skip:<原因>。旗標關時零輸出；寫檔失敗不影響請求。"""
+    if not TRACE_FLAG.exists():
+        return
+    ms = f" {int((time.time() - t0) * 1000)}ms" if t0 else ""
+    caller = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "?"
+    line = (f"{datetime.now().isoformat(timespec='seconds')} {result} backend={backend_name} "
+            f"model={model} endpoint={endpoint}{ms} caller={caller}\n")
+    try:
+        TRACE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(TRACE_LOG, "a", encoding="utf-8", newline="\n") as f:
+            f.write(line)
+    except OSError as e:
+        logger.warning("trace log 寫入失敗：%s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +231,7 @@ class OllamaClient:
         token = self._ensure_auth(backend)
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        t0 = time.time()
         try:
             ctx = None
             if url.startswith("https"):
@@ -214,9 +241,11 @@ class OllamaClient:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
                 data = json.loads(resp.read())
+                _trace(backend.name, "/api/v1/embeddings", model, "ok", t0)
                 return [item["embedding"] for item in data.get("data", [])
                         if "embedding" in item]
         except Exception as e:
+            _trace(backend.name, "/api/v1/embeddings", model, "fail", t0)
             logger.warning("[%s] OWU embed failed: %s", backend.name, e)
             return None
 
@@ -252,6 +281,8 @@ class OllamaClient:
             if explicit_model:
                 backend_model = getattr(backend, model_attr, None)
                 if backend_model and backend_model != explicit_model:
+                    _trace(backend.name, endpoint, explicit_model,
+                           f"skip:config_model={backend_model}")
                     continue
             actual_payload = payload
             needs_copy = False
@@ -272,10 +303,14 @@ class OllamaClient:
                 opts = dict(actual_payload.get("options", {}))
                 opts["num_predict"] = backend.llm_num_predict
                 actual_payload["options"] = opts
+            t0 = time.time()
             result = self._do_request(backend, endpoint, actual_payload, timeout)
+            model_sent = actual_payload.get("model", "")
             if result is not None:
+                _trace(backend.name, endpoint, model_sent, "ok", t0)
                 self._record_success(backend)
                 return result
+            _trace(backend.name, endpoint, model_sent, "fail", t0)
             self._record_failure(backend)
 
     def _do_request(self, backend: OllamaBackend, endpoint: str,
@@ -779,7 +814,35 @@ def reset_client():
 # Self-test
 # ---------------------------------------------------------------------------
 
+def _trace_cli(action: str) -> None:
+    if action == "on":
+        TRACE_FLAG.parent.mkdir(parents=True, exist_ok=True)
+        TRACE_FLAG.write_text("on\n", encoding="utf-8", newline="\n")
+    elif action == "off":
+        TRACE_FLAG.unlink(missing_ok=True)
+    print(f"trace: {'ON' if TRACE_FLAG.exists() else 'OFF'}（旗標 {TRACE_FLAG}）")
+    print(f"log: {TRACE_LOG}")
+    if action == "status" and TRACE_LOG.exists():
+        lines = TRACE_LOG.read_text(encoding="utf-8").splitlines()
+        print(f"最後 {min(10, len(lines))} 行（共 {len(lines)} 行）：")
+        for ln in lines[-10:]:
+            print("  " + ln)
+
+
 if __name__ == "__main__":
+    import argparse
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+    ap =argparse.ArgumentParser(description="Ollama 多 backend client：不帶參數＝自測；--trace 開關呼叫追蹤 log")
+    ap.add_argument("--trace", choices=["on", "off", "status"],
+                    help="on/off 開關追蹤（預設關，旗標檔 workflow/.ollama_trace）；status 看開關與 log 尾巴")
+    args = ap.parse_args()
+    if args.trace:
+        _trace_cli(args.trace)
+        sys.exit(0)
+
     logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
     client = get_client()
     print(f"Backends: {[b.name for b in client._backends]}")

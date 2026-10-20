@@ -52,6 +52,7 @@ workflow/vector_ready.flag
 workflow/vector_rekick.marker
 workflow/vector_starting.lock
 workflow/.backend_long_die.json
+workflow/.ollama_trace
 workflow/_merge_history.log
 workflow/last_review_marker.json
 workflow/realm_automove_pending.json
