@@ -2,7 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const { TOOLS_DIR, CLAUDE_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
+const { TOOLS_DIR, CLAUDE_DIR, CODE_DIR, PYTHON_EXE, loadConfig } = require("./paths");
 const { crashLog } = require("./log");
 
 /** Run conflict-detector --mode=write-check.
@@ -183,7 +183,9 @@ async function appendToIndex(memDir, atomName, relPath, triggers) {
  *  (no body — handler just kicks a background incremental build). */
 function triggerVectorReindex() {
   try {
-    const url = "http://127.0.0.1:3849/index/incremental";
+    // 埠與 py 端（memory-write-gate.check_dedup）、http-api 同讀 config：換資料根（WG_CLAUDE_DIR）就打那份設定的服務
+    const port = (loadConfig().vector_search || {}).service_port || 3849;
+    const url = `http://127.0.0.1:${port}/index/incremental`;
     const req = http.request(url, { method: "POST", timeout: 3000 }, (res) => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         crashLog("vector reindex", `HTTP ${res.statusCode} from POST /index/incremental`);

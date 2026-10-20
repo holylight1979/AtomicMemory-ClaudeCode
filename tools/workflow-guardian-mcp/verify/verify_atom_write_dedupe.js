@@ -4,7 +4,8 @@
 //   same → 改 append 到候選卡、沒有新檔、回覆開頭講改併入哪張；different → 照常寫；沒命中給宣告 → 照寫附 note；
 //   分數沒到門檻 → 照寫；向量服務沒起 → 照寫；write_gate.dedupe_declaration=false → 舊行為（similar → suggest update）。
 // 隔離：WG_CLAUDE_DIR 指 os.tmpdir() 下的暫存資料根（require 任何 lib 之前設）；process.chdir 到該根（realm 閘視為核心層）；
-//   向量重索引（寫死打 live 3849）與目錄重產兩個背景副作用在 require atom-tools 前換成空函式；sendToolResult 改成收進記憶體。
+//   寫入後的向量重索引照 config 的 service_port 打到假服務（順驗它不再寫死 live 3849）；目錄重產在 require atom-tools 前
+//   換成空函式；sendToolResult 改成收進記憶體。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/verify_atom_write_dedupe.js（尾行 ATOM_WRITE_DEDUPE_CHECK PASS|FAIL）
 const fs = require("fs");
 const os = require("os");
@@ -21,8 +22,10 @@ for (const f of ["taxonomy.json", "realm-lexicon.json"]) {   // 範疇閘／核�
 }
 
 let hits = [];   // 假向量服務這一刻要回的命中（照真服務先濾 min_score 再截 top_k）
+let reindexCalls = 0;   // 寫入後的重索引要打到 config 指的這個服務（不是寫死的 live 3849）
 const vector = http.createServer((req, res) => {
   const u = new URL(req.url, "http://x");
+  if (u.pathname === "/index/incremental") { reindexCalls++; res.writeHead(200); res.end("{}"); return; }
   const minScore = parseFloat(u.searchParams.get("min_score") || "0");
   const topK = parseInt(u.searchParams.get("top_k") || "5", 10);
   const rows = hits.filter((h) => h.score >= minScore).sort((a, b) => b.score - a.score).slice(0, topK);
@@ -37,7 +40,6 @@ function writeConfig(port, writeGate) {
 }
 
 const funnel = require("../lib/funnel");
-funnel.triggerVectorReindex = () => {};
 funnel.syncMemoryIndex = () => {};
 const mcp = require("../lib/mcp");
 const replies = new Map();
@@ -78,6 +80,8 @@ function check(cond, label, detail) {
   const w0 = await write({ title: OLD, skip_gate: true,
     knowledge: ["[臨] 舊卡第一行：hook 的 PreToolUse 在 payload 生成後才觸發", "[臨] 舊卡第二行：寫前提醒放 PostToolUse", "[臨] 第三行不節錄"] });
   check(!w0.isError && fs.existsSync(atomPath(OLD)), "setup: old card created", w0.text);
+  await new Promise((r) => setTimeout(r, 300));   // 重索引是 fire-and-forget
+  check(reindexCalls >= 1, `reindex hits the configured vector port, not live 3849 (calls=${reindexCalls})`);
   hits = [{ atom_name: OLD, score: 0.91, text: "chunk", file_path: atomPath(OLD), layer: "extra:local-atoms" }];
   const NEWK = ["[臨] hook 的 PreToolUse 拿到的是已生成的 Edit payload → 寫前提醒改放 PostToolUse，路徑 ~/.claude/hooks/x.py"];
 
