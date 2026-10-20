@@ -1279,6 +1279,8 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
       （檔名相同、或內容等於它最後一次寫入時的雜湊 last_sha[canon_path]，修改紀錄的 sha 欄）。有副本 → MOVED_NEW_CODE_SEEN（照欠）；
       沒有 → 刪除、不欠。搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中一處以新路徑、
       原內容出現；不追搬檔寫法，只看結果。git 失敗或逾時、預算用完 → GONE_UNVERIFIABLE（照欠）。
+      提交紀錄裡的新程式檔現在已經不在磁碟上（之後又改名、刪掉）就不當副本候選：它自己也不在了，不會是這支搬去的地方
+      （否則內容雜湊算不出來＝判不出，任何刪掉的檔都會被它拖成「可能搬走」）。
     每個檔的判定 stderr 印一行（規則名＋證據）；verdicts 給了就把每個檔的 Verdict 填進去，擋訊息照印。"""
     run = _run or subprocess.run
     exts = cfg.get("code_exts") or []
@@ -1319,6 +1321,7 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
                             appeared.append(f[3:])
                     i += 1
                 new_code = list(dict.fromkeys(new_code + [n for n in appeared if is_code_file(n, exts)]))
+        new_code = [n for n in new_code if (Path(root) / n).exists()]   # 自己也不在了的新檔不會是它搬去的地方
         shas: Dict[str, Optional[str]] = {}
         for p in ps:
             sha = (last_sha or {}).get(canon_path(p))
@@ -1753,12 +1756,30 @@ def _comment_only_vs_head(root: Path, rel: str, path: str, deadline: float, _run
     return comment_only_change(head_src, cur_src, path)
 
 
+def _head_after_own(root: Path, own: List[str], facts: Dict[str, Any], rel_list: List[str], deadline: float,
+                    _run: Optional[Callable[..., Any]]) -> bool:
+    """CONTENT_EQUALS_COMMITTED 的 HEAD 例外的事實：HEAD 不是本 session 的提交、本 session 最後一次提交是它的祖先（別人接著做的，
+    例如總控台把 main 合進工作分支），而且同根本 session 改過的每個檔現在都等於 HEAD（不在版控也不在 HEAD 的兩邊都沒有也算）。
+    判不了（沒有自己的提交、預算到、git 失敗）→ False，照原規則不算 HEAD。"""
+    head = str(facts["commits"].get("HEAD") or "")
+    if not own or not head or head in {str(s) for s in own}:
+        return False
+    head_blobs = facts["blobs"].get("HEAD") or {}
+    if any(facts["current"].get(r) != head_blobs.get(r) for r in rel_list):
+        return False
+    left = deadline - time.monotonic()
+    if left < _GIT_MIN_S:
+        return False
+    return _run_git(root, ["merge-base", "--is-ancestor", str(own[-1]), head], left, _run) is not None
+
+
 def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_commit_turn: Any = None,
                           own_commit_shas: Optional[Dict[str, Any]] = None, budget_s: Optional[float] = None,
                           _run: Optional[Callable[..., Any]] = None,
                           session_paths: Optional[Iterable[str]] = None, deadline: Optional[float] = None) -> Dict[str, Verdict]:
     """改過的程式檔裡「不是本 session 改碼」的，回 {path: Verdict}：
-    - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算）。
+    - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算；
+      HEAD 是別人接在本 session 提交之上做的、同根改檔全等於 HEAD 時 HEAD 也算，見 _head_after_own）。
     - COMMENT_ONLY_CHANGE：與 HEAD 只差註解／docstring／空白，且本 session 沒 commit 過它；同根本 session（主 session＋子代理，
       session_paths）改過的其他程式檔（案例檔也算，文件等不算：exemption_peers）也都要等於 HEAD 或只差註解。程式與案例一起
       退回舊版、只還原程式時案例還是舊的，照欠
@@ -1799,8 +1820,8 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
         if not facts["commits"]:
             continue
         own = ((own_commit_shas or {}).get(key) or {}).get("shas") or []
-        refs = committed_refs(own, facts["commits"])
         head_blobs = facts["blobs"].get("HEAD") or {}
+        refs = committed_refs(own, facts["commits"], head_after_own=_head_after_own(root, own, facts, rel_list, deadline, _run))
         root_clean: Optional[bool] = None        # 同根其他改檔都等於 HEAD 或只差註解（只在需要時算一次）
 
         def _root_head_clean(skip: str) -> bool:
@@ -1966,7 +1987,7 @@ def _tool_cwd(receipt: Dict[str, Any]) -> str:
     from handlers.pre_tool_use import _resolve_run_cwd, _vcs_segments
     cwd = _cwd_of(receipt)
     segs = _vcs_segments(str(receipt.get("cmd") or ""), None, (MOVE_TOOL,), set())
-    return _resolve_run_cwd(segs[0][0], cwd) if segs and segs[0][0] else cwd
+    return _resolve_run_cwd(segs[0][0], cwd, _shell_of(receipt)) if segs and segs[0][0] else cwd
 
 
 def _move_args(receipt: Dict[str, Any], key: str) -> List[str]:

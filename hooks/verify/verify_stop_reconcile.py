@@ -2956,6 +2956,50 @@ def test_037_git_restoring_everything_back_is_not_code_debt(driven, capsys, chai
     assert "ReconcileGate" not in out and "VerifyScope" not in out
 
 
+def _others_merge(repo, code, case, v):
+    """別人（總控台）在本 session 的提交之上再做一筆提交（把 main 合進工作分支）：不經本 session 的 PostToolUse。"""
+    code.write_text(_CODE_V.format(v), encoding="utf-8", newline="\n")
+    case.write_text(_CASE_V.format(v), encoding="utf-8", newline="\n")
+    _git(repo, "commit", "-qam", f"others v{v}")
+
+
+def test_b13_revert_red_then_restore_after_others_commit_not_owed(driven, capsys, chain):
+    """B13 真實序列（track-gate-bypass 派工 004）：改程式＋補案例 → commit（快照）→ 退回舊版看紅、再還原成 HEAD →
+    總控台把 main 合進工作分支（HEAD 變成別人的提交、同根檔內容跟快照不同）→ Stop 不該欠案例：檔內容等於 HEAD，
+    HEAD 是別人在本 session 提交之上做的，同根本 session 改過的檔全等於 HEAD。舊碼 HEAD 一律不算、快照又對不上 → 照欠。"""
+    state, edit, git, repo, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    git("restore", "--source=HEAD~1", "--worktree", "--", "src/a.py")
+    git("restore", "--source=HEAD", "--worktree", "--", "src/a.py")
+    _others_merge(repo, code, case, 4)
+    assert "commit_snapshot" in state and state.get("committed_new_code")                       # 前置：本 session 有提交、有快照
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "改了程式碼（a.py）" not in out, out
+
+
+def test_b13_others_commit_but_case_left_old_still_owes(driven, capsys, chain):
+    """配對（037 的反例在別人提交之後）：程式與案例都退回舊版、只把程式還原成 HEAD → 案例還留舊版，同根不全等於 HEAD → 照欠。"""
+    state, edit, git, repo, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    _others_merge(repo, code, case, 4)
+    git("checkout", "HEAD~2", "--", "src/a.py", "tests/test_a.py")
+    git("checkout", "HEAD", "--", "src/a.py")
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert _DEBT_A in out
+
+
+def test_b13_head_is_own_commit_still_not_a_ref():
+    """HEAD 是本 session 自己的提交、或不在本 session 提交之上（不是別人接著做的）→ 不算已提交版本（原規則不變）。"""
+    refs = {"HEAD": "h2", "main": "m1"}
+    assert rr.committed_refs(["h2"], refs, head_after_own=True) == ["main"]
+    assert rr.committed_refs(["h1"], refs) == ["main"]
+    assert rr.committed_refs(["h1"], refs, head_after_own=True) == ["HEAD", "main"]
+
+
 def test_037_edit_reverting_both_then_restoring_only_code_still_owes(driven, capsys, chain):
     """037 整根不剔除（Edit 版，036 test_035_5 的情境走整條鏈）：Edit 把程式與案例改回舊版、再只把程式 Edit 回 HEAD 的內容 →
     程式與 HEAD 相同但案例不同 → 這個根一個都不剔除 → (d) 擋。舊碼只看程式自己乾淨就剔除，案例反而清了帳。"""
@@ -3689,6 +3733,37 @@ def test_0a_session_new_untracked_code_moved_still_owes(driven, capsys, chain, m
     new.rename(repo / "src" / "renamed.py")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert "改了程式碼（new.py）" in out
+
+
+@pytest.mark.parametrize("how, owed", [("deleted", False), ("renamed_copy", True)])
+def test_009_launcher_gone_is_not_copied_into_a_committed_file_that_is_gone_too(driven, capsys, chain, monkeypatch, how, owed):
+    """009（工作軌收尾實遇：一次性啟動器 _commit_branch.py 跑完刪掉，被當成搬進同 session 提交、之後又 git mv 改名掉的 wg_old_test.py）：
+    本 session 提交新模組 tools/mod_old.py → git mv 成 tools/mod_new.py（還沒提交）→ 根目錄 Write 一支啟動器、跑完刪掉。
+    舊碼：提交紀錄裡的 tools/mod_old.py 磁碟上已不在、內容雜湊算不出 → 當成啟動器「可能搬過去的副本」，MOVED_NEW_CODE_SEEN 照欠。
+    新碼：自己也不在了的新檔不當候選 → 刪除、不欠。配對：啟動器改名成 _launch2.py（內容相同、還在）→ 照欠。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, _, _ = chain
+    mod = repo / "tools" / "mod_old.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text("def mod():\n    return 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(mod)})
+    git("add", "tools/mod_old.py")
+    git("commit", "-qm", "add mod")
+    assert "tools/mod_old.py" in str(state.get("committed_new_code")), "前置：提交紀錄記到這支新模組"
+    git("mv", "tools/mod_old.py", "tools/mod_new.py")
+    launcher = repo / "_launch.py"
+    launcher.write_text("print('run once')\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(launcher)})
+    if how == "deleted":
+        launcher.unlink()
+    else:
+        launcher.rename(repo / "_launch2.py")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    reason = json.loads(out.strip().splitlines()[-1])["reason"]     # mod_old.py 那幾支自己也欠，只看啟動器這一支
+    if owed:
+        assert "_launch.py 已不存在、同根出現可能是它的副本（_launch2.py）" in reason, how
+    else:
+        assert "_launch.py" not in reason, how
 
 
 def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):

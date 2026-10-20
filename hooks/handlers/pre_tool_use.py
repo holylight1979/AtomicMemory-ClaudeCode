@@ -26,6 +26,9 @@ from wg_core import (
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
+import wg_data_file  # T2.16 動使用者資料檔要先宣告
+import wg_oldtest
+import wg_gate_bypass
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -189,26 +192,27 @@ def _shell_tokens(seg: str) -> List[str]:
 _CD_HEADS = {"cd", "chdir", "pushd", "set-location", "sl"}
 
 
-def _vcs_segments(command: str, subcommands: Optional[set], exe_names: Tuple[str, ...],
-                  value_flags: set) -> List[Tuple[str, List[str]]]:
-    """拆 shell 指令為片段，回傳其中 <exe> subcommand ∈ subcommands 的 (repo_cd, tokens)；subcommands=None 回全部
-    <exe> 段（沒接 subcommand 的 tokens 為 [""]）。
-    exe_names 如 ("git", "git.exe")；也認路徑尾綴（`C:/x/git.exe`）與大小寫。
-    tokens 從 subcommand 起算（tokens[0] 即 subcommand）。repo_cd 依序取：
-    `git -C <path>` 的 path → 同一條命令裡前面 `cd <path>` 段的 path → ""（caller 用 tool cwd）。
-    支援：`&& || ; | 換行` 切段、引號路徑、`cd X && git …`／`cd X; git …`、
-    PowerShell `Set-Location`。保守解析：認不出就當非目標（寧漏勿誤擋）。"""
+def _join_cd(base: str, nxt: str) -> str:
+    """換目錄累加：相對路徑接在前一個落點後面（連續 cd、cd 之後的 `git -C`、多個 `-C` 都是這個語意），
+    絕對路徑或 `~` 開頭的蓋掉前一個。"""
+    if not base or os.path.isabs(os.path.expanduser(nxt)):
+        return nxt
+    return os.path.join(base, nxt)
+
+
+def _vcs_segment_pairs(command: str, subcommands: Optional[set], exe_names: Tuple[str, ...], value_flags: set,
+                       problems: Optional[List[str]] = None,
+                       shell: str = "") -> List[Tuple[str, List[Tuple[str, str]]]]:
+    """_vcs_segments 的本體，token 帶原文：(repo_cd, [(raw, value), …])。problems、shell 照 _scan_segments。"""
     suffixes = tuple(f"{sep}{n}" for n in exe_names for sep in ("/", "\\"))
-    out: List[Tuple[str, List[str]]] = []
+    out: List[Tuple[str, List[Tuple[str, str]]]] = []
     last_cd = ""
-    for seg in re.split(r"&&|\|\||;|\||\n", command or ""):
-        tokens = _shell_tokens(seg)
-        if not tokens:
-            continue
+    for seg in _scan_segments(command, problems, shell):
+        tokens = [v for _, v in seg]
         if tokens[0].lower() in _CD_HEADS:
             args = [t for t in tokens[1:] if not t.startswith("-") and t.lower() != "/d"]
             if args:
-                last_cd = args[0]
+                last_cd = _join_cd(last_cd, args[0])
             continue
         exe_idx = next(
             (idx for idx, t in enumerate(tokens)
@@ -222,9 +226,9 @@ def _vcs_segments(command: str, subcommands: Optional[set], exe_names: Tuple[str
         sub = ""
         while j < len(tokens):
             t = tokens[j]
+            if t == "-C" and t in value_flags and j + 1 < len(tokens):
+                repo_cd = _join_cd(repo_cd, tokens[j + 1])
             if t in value_flags:
-                if t == "-C" and j + 1 < len(tokens):
-                    repo_cd = tokens[j + 1]
                 j += 2
                 continue
             if t.startswith("-"):
@@ -233,19 +237,33 @@ def _vcs_segments(command: str, subcommands: Optional[set], exe_names: Tuple[str
             sub = t
             break
         if subcommands is None or sub.lower() in subcommands:
-            out.append((repo_cd or last_cd, tokens[j:] or [""]))
+            out.append((_join_cd(last_cd, repo_cd) if repo_cd else last_cd, seg[j:] or [("", "")]))
     return out
 
 
-def _git_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]:
-    return _vcs_segments(command, subcommands, ("git", "git.exe"), _GIT_VALUE_FLAGS)
+def _vcs_segments(command: str, subcommands: Optional[set], exe_names: Tuple[str, ...],
+                  value_flags: set, shell: str = "") -> List[Tuple[str, List[str]]]:
+    """拆 shell 指令為片段，回傳其中 <exe> subcommand ∈ subcommands 的 (repo_cd, tokens)；subcommands=None 回全部
+    <exe> 段（沒接 subcommand 的 tokens 為 [""]）。
+    exe_names 如 ("git", "git.exe")；也認路徑尾綴（`C:/x/git.exe`）與大小寫。
+    tokens 從 subcommand 起算（tokens[0] 即 subcommand）。repo_cd＝同一條命令裡前面的 `cd <path>` 與 `git -C <path>`
+    依序累加（相對的接在前一個後面，見 _join_cd）；都沒有 → ""（caller 用 tool cwd）。
+    切段與斷詞走 _scan_segments：只在引號外切（`&& || ; | & 換行`），多行 `-m "…"`、PowerShell here-string 是一個 token，
+    後面的 `-- <路徑>` 留在同一段；續行接回、註解略過；shell 給了就照那個 shell 解跳脫。支援引號路徑、`cd X && git …`／
+    `cd X; git …`、PowerShell `Set-Location`。認不出就當非目標；拆得準不準要擋的另看 _commit_shape_problem。"""
+    return [(cd, [v for _, v in pairs])
+            for cd, pairs in _vcs_segment_pairs(command, subcommands, exe_names, value_flags, shell=shell)]
+
+
+def _git_segments(command: str, subcommands: set, shell: str = "") -> List[Tuple[str, List[str]]]:
+    return _vcs_segments(command, subcommands, ("git", "git.exe"), _GIT_VALUE_FLAGS, shell)
 
 
 _SVN_VALUE_FLAGS = {"--config-dir", "--config-option", "--username", "--password"}
 
 
-def _svn_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]:
-    return _vcs_segments(command, subcommands, ("svn", "svn.exe"), _SVN_VALUE_FLAGS)
+def _svn_segments(command: str, subcommands: set, shell: str = "") -> List[Tuple[str, List[str]]]:
+    return _vcs_segments(command, subcommands, ("svn", "svn.exe"), _SVN_VALUE_FLAGS, shell)
 
 
 def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
@@ -253,11 +271,13 @@ def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
     return _git_segments(command, {"commit"})
 
 
-def _resolve_run_cwd(repo_cd: str, cwd: str) -> str:
-    """把 `-C`／`cd` 抓到的路徑解成子行程 cwd：展開 ~；相對路徑以 tool cwd 為基準。"""
+def _resolve_run_cwd(repo_cd: str, cwd: str, shell: str = "") -> str:
+    """把 `-C`／`cd` 抓到的路徑解成子行程 cwd：展開 ~；相對路徑以 tool cwd 為基準。
+    shell="bash"（Bash 工具）時 Git Bash 的磁碟機路徑 `/c/…` 先轉成 `C:/…`（_drive_path）；不轉的話 git 拿它當 cwd 會
+    WinError 267、各 commit 前閘只能判不了。PowerShell 的 `/c/…` 原生就是 `C:\\c\\…`，不轉。"""
     if not repo_cd:
         return cwd
-    p = os.path.expanduser(repo_cd)
+    p = os.path.expanduser(_drive_path(repo_cd) if shell == "bash" else repo_cd)
     if not os.path.isabs(p) and cwd:
         p = os.path.join(cwd, p)
     return p
@@ -428,15 +448,34 @@ def _wrap_flag(exe: str):
 
 
 _SEPARATORS = ("&&", "||", "\n", ";", "|", "&")
+_HERESTRING_OPEN_RE = re.compile(r"@(['\"])[ \t]*\r?\n")
 
 
-def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
+def _escaped(s: str, i: int, quote: str, shell: str) -> bool:
+    """s[i] 是不是跳脫字元（下一個字照字面）：Bash 引號外的 `\\`、雙引號裡 `\\` 接 `" \\ $ ``；PowerShell 引號外與雙引號裡
+    的反引號。單引號裡沒有跳脫；shell 不明（""）不解跳脫。"""
+    if not s[i + 1:i + 2] or quote == "'":
+        return False
+    if shell == "bash":
+        return s[i] == "\\" and (not quote or s[i + 1] in '"\\$`')
+    return shell == "powershell" and s[i] == "`"
+
+
+def _scan_segments(command: str, problems: Optional[List[str]] = None,
+                   shell: str = "") -> List[List[Tuple[str, str]]]:
     """保留引號狀態的切段＋斷詞 → 每段一串 (raw, value)：raw 是 token 的原文（含引號、已去掉續行），value 剝一層引號。
-    只在引號外切段（&& || ; | & 換行）。續行接回、不切段：Bash 的 `\\`＋換行（引號外與雙引號裡）、cmd 的 `^`＋換行、
-    PowerShell 的反引號＋換行（都只在引號外）；三種都認，判定只會因此多擋不會少擋。raw 不留續行字元，所以拿 raw 重組
-    再判（`git\\⏎commit`）和展開檢查（`$\\⏎(`）看到的都是接回後的命令。
+    只在引號外切段（&& || ; | & 換行；重導向 `2>&1`、`&>` 裡的 & 不算）。續行接回、不切段：Bash 的 `\\`＋換行（引號外與
+    雙引號裡）、cmd 的 `^`＋換行、PowerShell 的反引號＋換行（都只在引號外）；三種都認，判定只會因此多擋不會少擋。raw 不留
+    續行字元，所以拿 raw 重組再判（`git\\⏎commit`）和展開檢查（`$\\⏎(`）看到的都是接回後的命令。
     註解：引號外、位在 token 起頭的 `#` 到行尾略過（Bash 與 PowerShell 同語意），換行照切段；引號裡與 token 中間的 `#`
-    是字面（`git commit -m "fix #12"`、`a#b`）。不解其他跳脫。"""
+    是字面（`git commit -m "fix #12"`、`a#b`）。
+    跳脫：shell 給 "bash"／"powershell" 就照那個 shell 解（_escaped；`"fix \\"a; b\\""` 裡的分號不切段），raw 留跳脫字元、
+    value 只留被跳脫的字；不給不解。
+    PowerShell here-string（shell 不是 bash）：token 起頭的 `@'`／`@"` 接換行，到行首的 `'@`／`"@` 為止整段是一個 token
+    （內文的引號不算數）；value 是內文，raw 換成等價的一般引號寫法（`'內文'`／`"內文"`，內文裡同種引號拿掉），展開檢查
+    照引號語意走。找不到結束行就不當 here-string，照一般引號拆。
+    problems：給了就記下拆不準的原因（引號沒閉合、here-string 沒有結束行）——這時後面的分隔符號與路徑都可能被吞進
+    同一個 token，要拆提交範圍的呼叫端不能信這次的結果。"""
     s = command or ""
     segs: List[List[Tuple[str, str]]] = []
     toks: List[Tuple[str, str]] = []
@@ -455,6 +494,11 @@ def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
         if s[i + 1:i + 2] == "\n" and (ch == "\\" and quote in ("", '"') or ch in "^`" and not quote):
             i += 2
             continue
+        if _escaped(s, i, quote, shell):
+            raw.append(s[i:i + 2])
+            val.append(s[i + 1])
+            in_token, i = True, i + 2
+            continue
         if quote:
             quote = "" if ch == quote else quote
             raw.append(ch)
@@ -462,11 +506,25 @@ def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
                 val.append(ch)
             i += 1
             continue
+        here = _HERESTRING_OPEN_RE.match(s, i) if ch == "@" and not in_token and shell != "bash" else None
+        if here:
+            q = here.group(1)
+            end = s.find("\n" + q + "@", here.end() - 1)
+            if end >= 0:
+                body = s[here.end():end]
+                raw.append(q + body.replace(q, "") + q)
+                val.append(body)
+                in_token, i = True, end + 3
+                continue
+            if problems is not None:
+                problems.append("PowerShell here-string（@'…'@／@\"…\"@）沒有行首的結束行")
         if ch == "#" and not in_token:
             nl = s.find("\n", i)
             i = len(s) if nl < 0 else nl
             continue
         sep = next((p for p in _SEPARATORS if s.startswith(p, i)), "")
+        if sep == "&" and (raw and raw[-1][-1:] in ("<", ">") or s.startswith(">", i + 1)):
+            sep = ""                                       # 重導向 `2>&1`、`<&3`、`&>檔` 的 & 不是分隔
         if sep or ch.isspace():
             end_token()
             if sep and toks:
@@ -484,6 +542,8 @@ def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
     end_token()
     if toks:
         segs.append(toks)
+    if quote and problems is not None:
+        problems.append("引號沒有閉合")
     return segs
 
 
@@ -809,8 +869,8 @@ def check_git_privacy(
         # 加上同一條指令前面 git add 要加進來的檔（PreToolUse 時 add 還沒跑，只看暫存區會讓 `git add .env && git commit` 漏過）
         tool = _smells_tool()
         adds: List[Tuple[str, List[str]]] = []
-        for repo_cd, tokens in _git_segments(_strip_heredoc_bodies(command), {"add", "commit"}):
-            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+        for repo_cd, tokens in _git_segments(_strip_heredoc_bodies(command), {"add", "commit"}, _tool_shell(tool_name)):
+            run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
             if tokens[0].lower() == "add":
                 adds.append((run_cwd, tokens))
                 continue
@@ -853,7 +913,8 @@ def check_git_privacy(
 # 查的是這次真的會進版的內容（暫存區、commit -a、commit <路徑>、同一條指令前面 git add 才要加進來的檔、svn commit 的
 # 工作副本改動），不是本 session 改了哪些檔。新寫進的病 → deny 並點名病名、檔、行；舊碼原本就有、這次沒碰的 → 只列出。
 # 怎麼判（病形、新舊之分、smell-ok 放行）全在 tools/project-smells.py「commit 前病形檢查」段；這裡只拆指令、交給它、出訊息。
-# 判不了（拆不出 commit 落點、git 查詢失敗、檢查出錯）一律擋；guard.smell_gate.enabled=false 停用。
+# 判不了（拆不出 commit 落點、寫法拆不準要提交什麼（_commit_shape_problem）、git 查詢失敗、檢查出錯）一律擋；
+# guard.smell_gate.enabled=false 停用。
 _SMELLS_TOOL = Path(__file__).resolve().parents[2] / "tools" / "project-smells.py"
 _SMELL_REPO_OVERRIDE_RE = re.compile(r"--git-dir\b|--work-tree\b|\bGIT_(?:DIR|WORK_TREE|INDEX_FILE)\s*=", re.I)
 
@@ -868,6 +929,89 @@ def _smells_tool():
     return mod
 
 
+def _tool_shell(tool_name: str) -> str:
+    """工具名 → _scan_segments 的 shell（決定跳脫規則）。"""
+    return "powershell" if tool_name == "PowerShell" else "bash"
+
+
+def _quote_split(raw: str, shell: str) -> Tuple[str, str]:
+    """一個 token 的原文 → (引號外的字, 雙引號裡的字)：跳脫過的字與單引號裡的字（shell 照字面）都不算，規則同 _scan_segments。"""
+    bare: List[str] = []
+    dq: List[str] = []
+    quote, i = "", 0
+    while i < len(raw):
+        ch = raw[i]
+        if _escaped(raw, i, quote, shell):
+            i += 2
+            continue
+        if ch == quote:
+            quote = ""
+        elif quote == '"':
+            dq.append(ch)
+        elif not quote and ch in "\"'":
+            quote = ch
+        elif not quote:
+            bare.append(ch)
+        i += 1
+    return "".join(bare), "".join(dq)
+
+
+# 引號外會被 shell 換成看不到的字、或拆成好幾個參數的寫法。Bash：`$x`、`$(…)`、`${…}`、反引號、`{a,b}`／`{1..3}`；
+# PowerShell 的單純變數 `$x` 是一個參數（字串不拆），`$(…)`／`@(…)`／`@x` 可能攤成好幾個、`{…}` 是程式區塊。開頭 `~` 兩邊都算。
+_BASH_EXPANSION_RE = re.compile(r"\$[\w({@*#?!$]|`|\{[^}]*(?:,|\.\.)[^}]*\}")
+_PS_EXPANSION_RE = re.compile(r"[$@]\(|@\w|\{")
+
+
+def _dynamic_path(vcs: str, pairs: List[Tuple[str, str]], shell: str, tool) -> str:
+    """commit／add 段裡當路徑用、而且會被 shell 展開（引號外或雙引號裡有沒跳脫的 `$`、反引號）的 token 原文；沒有回 ""。
+    字面拿去查會查不到、看成沒東西要提交；單引號裡的 `$`（`'routes/$id.tsx'`）是字面檔名，照查。
+    哪個 token 是路徑交給 project-smells 的同一份文法（add_specs／commit_options／svn_commit_args）：把會展開的 token
+    換成記號再拆，記號落在路徑裡就是它。選項（`-` 開頭，含 `--message="$x"`）與重導向（`2>$null`）不換。"""
+    live = set()
+    for k, (raw, value) in enumerate(pairs[1:], 1):
+        if value.startswith("-") or tool._REDIRECT_RE.match(value):
+            continue
+        if re.search(r"[$`]", "".join(_quote_split(raw, shell))):
+            live.add(k)
+    if not live:
+        return ""
+    marked = [f"\0{k}" if k in live else value for k, (_raw, value) in enumerate(pairs)]
+    if marked[0].lower() == "add":
+        paths = tool.add_specs(marked)[0]
+    elif vcs == "git":
+        paths = tool.commit_options(marked)["paths"]
+    else:
+        paths = tool.svn_commit_args(marked)[0]
+    hit = next((p for p in paths if p.startswith("\0")), "")
+    return pairs[int(hit[1:])][0] if hit else ""
+
+
+def _commit_shape_problem(command: str, shell: str, tool) -> str:
+    """git／svn commit 段拆不準要提交什麼的原因；拆得準回 ""。拆不準＝引號或 here-string 沒閉合（後面的分隔符號與路徑
+    都可能被吞進訊息裡）、commit 落點（cd／-C）是變數、commit 段（與同一條指令裡會改變提交範圍的 git add 段）有引號外的
+    展開（-m 的邊界與路徑都不準）、或路徑本身是變數（_dynamic_path）。重導向（`2>$null`）不是參數，用 project-smells 的
+    _not_args 跳過。tool＝project-smells 模組。"""
+    problems: List[str] = []
+    segs = ([("git", cd, p) for cd, p in _vcs_segment_pairs(command, {"add", "commit"}, ("git", "git.exe"),
+                                                           _GIT_VALUE_FLAGS, problems, shell)]
+            + [("svn", cd, p) for cd, p in _vcs_segment_pairs(command, {"commit", "ci"}, ("svn", "svn.exe"),
+                                                             _SVN_VALUE_FLAGS, shell=shell)])
+    if problems:
+        return problems[0]
+    expansion = _PS_EXPANSION_RE if shell == "powershell" else _BASH_EXPANSION_RE
+    for vcs, repo_cd, pairs in segs:
+        if "$" in repo_cd or "`" in repo_cd:
+            return f"commit 落點 `{repo_cd}` 是變數"
+        for raw in tool._not_args([r for r, _ in pairs[1:]]):
+            bare = _quote_split(raw, shell)[0]
+            if bare.startswith("~") or expansion.search(bare):
+                return f"`{raw[:60]}` 在引號外有展開，shell 會把它換成看不到的字或拆成好幾個參數"
+        path = _dynamic_path(vcs, pairs, shell, tool)
+        if path:
+            return f"路徑 `{path[:60]}` 是變數或命令替換，字面拿去查會查不到"
+    return ""
+
+
 def check_smell_gate(
     tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -880,22 +1024,29 @@ def check_smell_gate(
     low = command.lower()
     if "commit" not in low and "svn" not in low:
         return None, None
-    stripped, _segments, has_git_commit = _git_commits_to_run(command)
-    svn_segs = _svn_segments(_strip_heredoc_bodies(command), {"commit", "ci"}) if "svn" in low else []
+    shell = _tool_shell(tool_name)
+    body = _strip_heredoc_bodies(command)
+    has_git_commit = _git_commits_to_run(command)[2]
+    svn_segs = _svn_segments(body, {"commit", "ci"}, shell) if "svn" in low else []
     if not has_git_commit and not svn_segs:
         return None, None
-    git_segs = _git_segments(stripped, {"add", "commit"}) if has_git_commit else []
+    git_segs = _git_segments(body, {"add", "commit"}, shell) if has_git_commit else []
     if has_git_commit and not any(t[0].lower() == "commit" for _cd, t in git_segs):
         return ("[Guardian:SmellGate] 這條指令裡有 git commit，但包在 bash -c／powershell -Command／$() 之類的包裝裡，"
                 "拆不出它落在哪個 repo、要提交哪些檔，病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
-    if has_git_commit and _SMELL_REPO_OVERRIDE_RE.search(stripped):
+    if has_git_commit and _SMELL_REPO_OVERRIDE_RE.search(body):
         return ("[Guardian:SmellGate] 這條 git commit 用 --git-dir／--work-tree 或 GIT_DIR／GIT_WORK_TREE／GIT_INDEX_FILE "
                 "指定 repo，病形檢查重現不了它實際提交哪個 repo、哪份暫存區，判不了，一律擋。改用 `git -C <repo> commit` 或先 cd 進 repo。"), None
     try:
         tool = _smells_tool()
+        problem = _commit_shape_problem(body, shell, tool)
+        if problem:
+            return (f"[Guardian:SmellGate] 這條 commit 指令的寫法拆不出要提交什麼（{problem}），病形檢查判不了，一律擋。"
+                    "請改成單行 `-m \"…\"`（要分段就給多個 -m，或把訊息寫進檔案用 `-F <檔>`），路徑與 repo 位置直接寫字面值"
+                    "（檔名本身有 `$` 就用單引號包起來），再下一次。"), None
         results, adds, repos = [], [], []
         for repo_cd, tokens in git_segs:
-            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            run_cwd = _resolve_run_cwd(repo_cd, cwd, shell)
             if tokens[0].lower() == "add":
                 adds.append((run_cwd, tokens))
                 continue
@@ -904,7 +1055,7 @@ def check_smell_gate(
                 results.append(res)
                 repos.append(run_cwd)
         for repo_cd, tokens in svn_segs:
-            run_cwd = _resolve_run_cwd(repo_cd, cwd)
+            run_cwd = _resolve_run_cwd(repo_cd, cwd, shell)
             res = tool.check_commit("svn", run_cwd, tokens, [], config)
             if res is not None:
                 results.append(res)
@@ -1134,7 +1285,7 @@ def check_merge_driver(
                 is_git = kind == "git"
                 if not (_is_resolve_trigger(tokens) if is_git else _is_svn_resolve_trigger(tokens)):
                     continue
-                run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
                 finder = _unmerged_index_files if is_git else _svn_unmerged_index_files
                 try:
                     unmerged = finder(run_cwd, _left(1.0))
@@ -1182,7 +1333,7 @@ def check_merge_driver(
             for repo_cd, tokens in git_segs:
                 if not _is_install_trigger(tokens):
                     continue
-                run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
                 try:
                     chk = _run_capture(
                         [interp, str(_MERGE_TOOL), "--is-installed", "--cwd", run_cwd],
@@ -1463,7 +1614,37 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # ── DataFileAsk（T2.16 動使用者資料檔要先宣告）──
+    # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
+    deny_reason = wg_data_file.gate(tool_name, tool_input, input_data, config)
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
     deny_reason = check_svn_test_block(tool_name, tool_input) or check_verify_ledger_write(tool_name, tool_input, _cwd)
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
+    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
+    try:
+        deny_reason = wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd)
+    except Exception as e:
+        deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
+                       f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")
     if deny_reason:
         output_json({
             "hookSpecificOutput": {
@@ -1521,6 +1702,23 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
     deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config)
+    if deny_reason:
+        wg_gate_bypass.note_smell_deny(_co_state, _co_sid, _cwd, deny_reason, tool_name, tool_input, input_data.get("transcript_path", "") or "", config)
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # ── GateBypass（T2.19 繞閘嫌疑）──
+    # 這個 session 被病形閘擋過之後，unstage／改提交範圍／--no-verify 讓同一批內容過關 → 要宣告「不是繞閘｜理由」，沒宣告就擋；
+    # 事實與判定在 hooks/wg_gate_bypass.py
+    deny_reason = wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
+                                       input_data.get("transcript_path", "") or "",
+                                       agent_id=str(input_data.get("agent_id") or ""))
     if deny_reason:
         output_json({
             "hookSpecificOutput": {
@@ -1584,6 +1782,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         break
                     _w, _d, _c = _hub_on_edit(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
+                        agent_id=str(input_data.get("agent_id") or ""),
                     )
                     hub_changed = hub_changed or _c
                     if _w:

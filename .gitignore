@@ -29,6 +29,12 @@ todos/
 # ─── Runtime cache files ─────────────────────────────────
 stats-cache.json
 .last-cleanup
+# claude --bg 背景服務（tools/console-spawn.py 會用）在 ~/.claude 落的執行期檔
+daemon.lock
+daemon.log
+daemon.status.json
+daemon/
+jobs/
 
 # ─── Workflow Guardian runtime state ─────────────────────
 # config.json IS tracked; state files are not

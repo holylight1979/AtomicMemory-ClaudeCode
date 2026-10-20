@@ -579,3 +579,31 @@ def first_session_hint(root: Path, mem_dir: Optional[Path] = None) -> str:
             where = "" if hits else "（卡檔不存在）"
             lines.append(f"- {r['part']}：`{card}`{where} 空段：{'、'.join(empties) if empties else '無'}")
     return "\n".join(lines)
+
+
+# ─── 擋訊息用的掃表預覽（只讀不落檔） ────────────────────────────────
+
+PREVIEW_TOP_N = 8
+PREVIEW_FORMAT_LINE = ("落表格式：路徑前綴用反引號包（`src/`；根目錄單檔寫 `./檔名`），沒包整列被 parse_map 略過、hook 讀到空表；"
+                       "病灶清單欄填病灶文件路徑（沒有就寫「無」）")
+
+
+def preview_lines(root: Path, cfg: Optional[Dict[str, Any]] = None, refix_cfg: Optional[Dict[str, Any]] = None,
+                  top_n: int = PREVIEW_TOP_N) -> List[str]:
+    """無表專案改檔閘（UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）擋訊息附的掃表摘要（≤ 13 行）：頂層目錄＋檔數＋fix 熱度，熱點前 top_n。
+    與 `overview-map-scaffold.py --cwd <根> --dry-run --top-n <N>` 同一套掃法（scan_top_dirs、fix_hotspots_by_dir、draft_rows），
+    但不定卡名、不預驗寫卡、不落檔；前綴照 render_row 用反引號包。cfg／refix_cfg＝config.json 的 overview_scaffold／refix_churn 段。"""
+    root = Path(root)
+    c = merge_cfg(cfg)
+    dirs = scan_top_dirs(root, c["scaffold_ignore"])
+    hot, warn = fix_hotspots_by_dir(root, [d["name"] for d in dirs], refix_cfg)
+    rows = draft_rows(dirs, hot, c["layers"], top_n)
+    out = [f"掃表預覽（{root}；頂層目錄 {len(dirs)} 個，列熱點前 {len(rows)} 個；只讀不落檔）："]
+    out += [f"  `{r['prefix']}` 檔 {r['files']}｜fix 熱度 {r['hot']}" for r in rows]
+    if not rows:
+        out.append("  （沒有頂層目錄：檔都在根目錄）")
+    if warn:
+        out.append(f"  熱點降級：{warn}")
+    out.append(PREVIEW_FORMAT_LINE)
+    out.append(f"要落表：python ~/.claude/tools/overview-map-scaffold.py --cwd {root}（預覽）→ 確認後加 --write")
+    return out

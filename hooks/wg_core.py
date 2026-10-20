@@ -532,6 +532,51 @@ def get_transcript_path(session_id: str, cwd: str) -> Optional[Path]:
     return candidate if candidate.exists() else None
 
 
+def transcripts_of(transcript_path: str, agent_id: str) -> Tuple[str, List[str]]:
+    """(主 session 的 transcript, 要找 AI 宣告／定位行的 transcript 清單)。子代理的對話在 <sid>/subagents/agent-<agent_id>.jsonl、
+    主 session 是同層的 <sid>.jsonl：hook 給哪一份都一樣——AI 寫的行兩份都讀（子代理寫在自己回覆裡的也算），
+    使用者原話只認主檔（子代理檔裡的 user 訊息是 AI 寫的派工 prompt）。"""
+    if not transcript_path:
+        return "", []
+    p = Path(transcript_path)
+    if p.parent.name == "subagents":
+        main = str(p.parent.parent) + ".jsonl"
+        return main, [main, str(p)]
+    agent = p.with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl" if agent_id else None
+    return str(p), [str(p)] + ([str(agent)] if agent is not None and agent.exists() else [])
+
+
+def transcript_sizes(transcript_path: str) -> Dict[str, int]:
+    """主 session transcript 與它底下現在每一份子代理 transcript 的大小（byte），鍵是正斜線小寫路徑。
+    記「從這一刻起才算」的起點用：之後才出現的子代理檔不在裡面，整份都算這一刻之後。"""
+    main, _ = transcripts_of(transcript_path, "")
+    if not main:
+        return {}
+    files = [Path(main)] + sorted((Path(main).with_suffix("") / "subagents").glob("agent-*.jsonl"))
+    out: Dict[str, int] = {}
+    for f in files:
+        try:
+            out[str(f).replace("\\", "/").lower()] = f.stat().st_size
+        except OSError:
+            continue
+    return out
+
+
+def assistant_texts_since(transcript_path: str, agent_id: str, channel: str, offsets: Any = None, legacy_offset: int = 0) -> str:
+    """要找 AI 宣告／定位行的那幾份 transcript（transcripts_of：主檔＋子代理檔）在起點之後的 assistant 內容，主檔在前。
+    起點各檔各算：offsets（transcript_sizes 記下的）有記的照記；沒記的檔＝記的時候還不存在，整份都在起點之後。
+    offsets 不是 dict（只有舊紀錄的單一 byte offset）時，legacy_offset 只套在 hook 給的那一份、其他檔從頭。"""
+    from overview_hub import assistant_text_after
+    parts: List[str] = []
+    for f in transcripts_of(transcript_path, agent_id)[1]:
+        if isinstance(offsets, dict):
+            off = int(offsets.get(f.replace("\\", "/").lower(), 0))
+        else:
+            off = int(legacy_offset) if f == transcript_path else 0
+        parts.append(assistant_text_after(f, off, channel))
+    return "\n".join(p for p in parts if p)
+
+
 def resolve_episodic_dir(cwd: str) -> Tuple[Path, str]:
     mem = get_project_memory_dir(cwd)
     if mem:

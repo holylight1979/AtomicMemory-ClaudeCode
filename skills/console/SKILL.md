@@ -1,6 +1,6 @@
 ---
 name: console
-description: 多 session 協作總控台：一個入口三種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工句 <軌名>」產生工作軌第一句。要多開 session 並行開工、開總控台、派工、寫開工句、Reload 後重新點名、判斷分頁可不可關時都該觸發。
+description: 多 session 協作總控台：一個入口四種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工 <軌名> <派工單路徑>」總控台自己開工作 session 送開工句、「/console 開工句 <軌名>」只產生第一句給人貼。要多開 session 並行開工、開總控台、派工、寫開工句、Reload 後重新點名、判斷分頁可不可關時都該觸發。
 user-invocable: true
 triggers: 總控台, 對人總控台, 調度總控台, 雙總控台, 開工句, 派工, 工作軌, 多開 session, 並行開工, 收割後關, console
 pattern: pipeline
@@ -18,7 +18,8 @@ pattern: pipeline
 |---|---|---|
 | `/console 對人` | 人開的第一個分頁 | 當對人總控台：回人、裁定、把人的命令轉給調度 |
 | `/console 調度` | 第二個分頁 | 當調度總控台：派工、對帳、合併、推送、收材料 |
-| `/console 開工句 <軌名> [派工單路徑]` | 任一總控台 | 產生工作軌第一句，給人貼進新分頁 |
+| `/console 開工 <軌名> <派工單路徑>` | 調度總控台 | 自己開工作 session 並送開工句，全程不用人貼（開不成才退回用法三） |
+| `/console 開工句 <軌名> [派工單路徑]` | 任一總控台 | 只產生工作軌第一句，給人貼進新分頁（用法四的退路） |
 
 名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`，第一段「現任」行寫兩個總控台現在的名字。
 
@@ -91,12 +92,17 @@ pattern: pipeline
 - 推完同回合刪樹刪分支：`git worktree remove <路徑>` → `git branch -d <分支>`。〔G〕
 - **完成判定**：`console-status.py` 顯示 `unpushed=0`、worktree 清單沒有該軌。
 
-## 用法三：開工句 <軌名>
+## 用法三：開工句 <軌名>（人貼；用法四失敗時的退路）
 
-- **動作**：ListAgents 找調度名字 → 照 [kickoff.md](references/kickoff.md) §3 填軌名、worktree、分支、派工單路徑、調度名 → 包成 code block 給人。
-- 第一句一定以軌名開頭（「<軌名>：你是工作軌…」），分頁標題才認得出。〔B〕
-- 告訴人：開新分頁、貼上、點送出鈕；之後用分頁標題跟總控台核對。
+- **動作**：ListAgents 找調度名字 → 照 [kickoff.md](references/kickoff.md) §3 填軌名、worktree、分支、派工單路徑、調度名 → 包成 code block 給人：開新分頁、貼上、點送出鈕；第一句以軌名開頭，分頁標題才認得出。〔B〕
 - **完成判定**：該軌 SendMessage 調度「<軌名> 收到開工」。
+
+## 用法四：開工 <軌名> <派工單路徑>（總控台自己開 session，原話 G16）
+
+- **動作**：建 worktree 與分支（用法二 Step 2）→ 照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/tools/console-spawn.py --track <軌名> --worktree <路徑> --branch <分支> --prompt-file <那個檔> --permission-mode <自己的模式>`（模式明帶，不假設繼承）→ 尾行 PASS 就把它印的 ListAgents 名字寫回接續單「軌對應」行。
+- 腳本自己等「<軌名> 收到開工」（讀該 session 的 transcript）；逾時（預設 90 秒）或任一前置不過 → 尾行 FAIL、stdout 已印開工句 code block → 原樣轉給人貼（用法三），訊息要讓人一眼知道停在哪一步；不重試超過 1 次。
+- 只有要動人的畫面（剪貼簿貼進空分頁）才問一次「現在可以動你的畫面嗎」；方法由實測決定，不問人選。〔原話〕
+- **完成判定**：腳本尾行 `CONSOLE_SPAWN_CHECK PASS` 且接續單有該軌名字；人要看那個 session：`claude attach <短 id>`（腳本有印）。
 
 ## 工作軌守則（開工句已帶）
 
