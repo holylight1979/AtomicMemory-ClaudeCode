@@ -7,6 +7,7 @@
 - Trigger: EnterWorktree, ExitWorktree, 換工作樹, 新 worktree, worktree 被刪, not a managed worktree
 - Created-at: 2026-10-20
 - Related: 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上
+- Quote: 「track-data-file-ask：你是工作軌 track-data-file-ask，總控台是 claude-e3（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\Users\holylight\.claude-wt\data-file-ask（分支 data-file-ask，已存在，不要新建；不存在就 SendMessage 總控台要…」
 
 ## 知識
 

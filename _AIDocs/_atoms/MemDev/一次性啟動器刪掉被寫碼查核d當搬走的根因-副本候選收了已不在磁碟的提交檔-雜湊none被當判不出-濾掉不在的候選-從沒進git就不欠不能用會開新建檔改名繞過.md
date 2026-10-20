@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: MOVED_NEW_CODE_SEEN, 啟動器刪掉, 搬走的程式, 副本候選, vanished_code_paths, moved_copy_candidates, small_content_sha, 從沒進 git, gone_verdict, 一次性檔
 - Created-at: 2026-10-20
+- Quote: 「"下個寫碼session" !? 他們有空就讓他們修完不是嗎..? 這也是我說 "我從未答應把這種東西另外放進修正計畫" 的狀況... 倘若是 Codex 或審查時挖出來的、但LLM判斷後 其實屬於"飄移"的，直接不做，但倘若有關且確實有問題，就應該要立即修正」
 
 ## 知識
 

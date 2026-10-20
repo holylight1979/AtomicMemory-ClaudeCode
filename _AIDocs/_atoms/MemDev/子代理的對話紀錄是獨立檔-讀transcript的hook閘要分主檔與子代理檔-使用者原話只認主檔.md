@@ -7,6 +7,7 @@
 - Trigger: 子代理 transcript, subagents/agent-, agent_id, agent_transcript_path, transcript_path, 子代理宣告, PreToolUse 子代理, 讀 transcript 的閘, 使用者原話來源
 - Created-at: 2026-10-20
 - Related: 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾
+- Quote: 「track-data-file-ask：你是工作軌 track-data-file-ask，總控台是 claude-e3（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\Users\holylight\.claude-wt\data-file-ask（分支 data-file-ask，已存在，不要新建；不存在就 SendMessage 總控台要…」
 
 ## 知識
 

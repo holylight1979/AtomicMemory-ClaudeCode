@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: process.chdir, fs.rmSync, 殘目錄, 暫存夾刪不掉, EBUSY, node 測試 收尾, 空 catch, %TEMP% 殘留
 - Created-at: 2026-10-20
+- Quote: 「"下個寫碼session" !? 他們有空就讓他們修完不是嗎..? 這也是我說 "我從未答應把這種東西另外放進修正計畫" 的狀況... 倘若是 Codex 或審查時挖出來的、但LLM判斷後 其實屬於"飄移"的，直接不做，但倘若有關且確實有問題，就應該要立即修正」
 
 ## 知識
 
