@@ -75,8 +75,9 @@ def _user(text):
 
 
 def _assistant(kind, payload):
-    block = ({"type": "text", "text": payload} if kind == "text" else {"type": "thinking", "thinking": payload}
-             if kind == "thinking" else {"type": "tool_use", "name": "Bash", "input": {"command": payload}})
+    block = {"text": {"type": "text", "text": payload},
+             "thinking": {"type": "thinking", "thinking": payload},
+             "tool_use": {"type": "tool_use", "name": "Bash", "input": {"command": payload}}}[kind]
     return {"type": "assistant", "message": {"content": [block]}}
 
 
