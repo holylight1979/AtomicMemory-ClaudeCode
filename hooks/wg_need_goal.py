@@ -72,6 +72,7 @@ HANDOFF_NAME_RE = re.compile(r"[\\/]_staging[\\/]next-phase[^\\/]*\.md$", re.IGN
 USER_FIRST_CAP = 4000
 USER_CAP = 1000
 SAID_MAX = 20
+SAID_ALL_MAX = 200           # origin 核對用的原話（said_all）最多幾則；超過丟第二則起最舊的
 PEER_CAP = 1000
 SAID_LOG_MAX = 5
 EDITS_MAX = 300
@@ -388,6 +389,16 @@ def _add_said(tree: Dict[str, Any], entry: Dict[str, Any]) -> None:
     said.append({**entry, "text": str(entry.get("text", ""))[:cap]})
     if len(said) > SAID_MAX:
         del said[1:len(said) - SAID_MAX + 1]
+    # 核對 origin=user 用的原話另存一份（顯示用的 user_said 會丟中間、截長，早期或很長的原話就引不到）；不進續接單
+    full = tree.setdefault("said_all", [])
+    full.append({**entry, "text": str(entry.get("text", ""))[:USER_FIRST_CAP]})
+    if len(full) > SAID_ALL_MAX:
+        del full[1:len(full) - SAID_ALL_MAX + 1]
+
+
+def _said_for_check(tree: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """origin 核對的原話來源：本 session 完整的 said_all，加上 user_said（匯入的前一個 session 原話、沒有 said_all 的舊樹）。"""
+    return [*(tree.get("said_all") or []), *(tree.get("user_said") or [])]
 
 
 def _new_tree(doc: Dict[str, Any], goal: str, turn: int, why: str) -> Dict[str, Any]:
@@ -977,12 +988,14 @@ def _check_origin(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, node: Dic
     """子節點要標 origin=user：quote／節點文字對得到樹上的使用者原話 → origin=user、存 quote 與 said_seq、history 記引用；
     對不到 → 強制 inferred、history 記原因、doc.origin_downgraded 記一筆（下一則訊息提醒一次就清）。
     events 收守門紀錄（鎖外由 apply_op 寫）；回要附在回傳 note 的一句，對上回 None。"""
-    _, v, match = rr.origin_user_verdict(node.get("text"), quote, tree.get("user_said") or [], tree.get("peer_said") or [])
+    _, v, match = rr.origin_user_verdict(node.get("text"), quote, _said_for_check(tree), tree.get("peer_said") or [])
     seq, q = next_seq(doc), _s(quote)
     if match is not None:
         said = match["said"]
         prior = "（前一個 session）" if said.get("prior") else ""
-        node.update({"origin": "user", "quote": match["quote"], "said_seq": said.get("seq")})
+        # quote_by：AI 引的（quote）或節點文字本身對上（text）；文字對上的，之後改寫文字不能拿舊文字當引用重核
+        node.update({"origin": "user", "quote": match["quote"], "said_seq": said.get("seq"),
+                     "quote_by": "quote" if q and match["quote"] == q else "text"})
         node["history"].append({"seq": seq, "turn": turn, "what": "origin",
                                 "why": f"引用第 {said.get('turn', '?')} 回合{prior}：{_clip(match['quote'], 200)}"})
         events.append(("origin_quoted", {"node": nid, "text": _clip(node.get("text"), 200), "quote": _clip(match["quote"], 200),
@@ -1006,7 +1019,7 @@ def _check_root(doc: Dict[str, Any], tree: Dict[str, Any], turn: int,
     沒有這種句子或開關關掉回 None。"""
     if not origin_check_on():
         return None
-    miss = rr.root_unquoted_sentences(tree["nodes"][tree["id"]].get("text"), tree.get("user_said") or [])
+    miss = rr.root_unquoted_sentences(tree["nodes"][tree["id"]].get("text"), _said_for_check(tree))
     if not miss:
         return None
     line = ("[NeedGoal] 樹根這幾句原話裡沒有：" + "".join(f"「{_clip(s, 80)}」" for s in miss[:6])
@@ -1090,9 +1103,11 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
                 reopened[tree["id"]] = tree
         want = it.get("origin")
         # 標成使用者說的、或改了使用者說的節點文字（含匯入的）都要重核：新文字是這次寫的，沒新 quote 就拿節點存的 quote 核
+        # （存的是舊節點文字對上的就不拿：舊文字核必過）
         recheck = want is None and node.get("origin") == "user" and node.get("text") != old_text
+        kept = node.get("quote") if node.get("quote_by") != "text" else None
         if (want == "user" or recheck) and check and node.get("parent") is not None:   # 樹根是 AI 對原話的解讀，不核
-            line = _check_origin(doc, tree, nid, node, it.get("quote") or node.get("quote"), turn, events)
+            line = _check_origin(doc, tree, nid, node, it.get("quote") or kept, turn, events)
             downs += [line] if line else []
             changed = True
         elif want is not None and node.get("origin") != want:
@@ -1830,7 +1845,8 @@ def review_material(sid: Any) -> str:
 
 
 def _export_tree(tree: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: copy.deepcopy(v) for k, v in tree.items() if k not in ("edits", "links", "checkpoints", "parts_edited")}
+    return {k: copy.deepcopy(v) for k, v in tree.items()
+            if k not in ("edits", "links", "checkpoints", "parts_edited", "said_all")}   # said_all 最多 200 則×4000 字，續接單只帶 user_said
 
 
 def handoff_block(sid: Any) -> str:
