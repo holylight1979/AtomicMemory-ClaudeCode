@@ -86,9 +86,10 @@
   },
   "write_gate": {
     "enabled": true,
-    "auto_threshold": 0.5,
-    "ask_threshold": 0.3,
+    "quality_floor": 0.3,
     "dedup_score": 0.8,
+    "dedupe_declaration": true,
+    "_doc_dedupe": "P8 去重交 AI 判：相似度達 dedup_score 不再直接拒寫，回候選卡要 AI 帶 dedupe={verdict: same|supersedes|different, of, why} 重送；same 走 append、supersedes 併進 Supersedes、different 照常，留帳 dedupe_declared。品質分數只分寫／不寫（quality_floor，舊 ask 級已拿掉）。dedupe_declaration=false 回舊行為（tools/memory-write-gate.py）。",
     "skip_on_explicit_user": true,
     "hub_card_budget": 4096,
     "_doc_hub_card_budget": "導讀卡（kind_hint=hub、標題含「導讀」或五段齊）knowledge 區預算 bytes；根層固定 4096，值住 lib/hub_card.py HUB_CARD_BUDGET，改這裡不生效，改 py。一般卡仍用 knowledge_budget_bytes（預設 3072）。"
@@ -453,6 +454,22 @@
     "enabled": true
   },
   "guard": {
+    "data_file_ask": {
+      "_doc": "T2.16 AI 改使用者既有的資料檔／設定檔（非程式、非本 session 建、原話沒點名）要先宣告「動資料檔｜路徑：為什麼」或先問；Edit／Write／NotebookEdit 與 Bash／PowerShell 寫入目標都管（hooks/wg_data_file.py；規則 USER_DATA_FILE_NEEDS_DECLARATION）。extensions 給了就整份取代預設 .json .jsonc .yaml .yml .toml .ini .cfg .conf .env .csv .tsv .xml .properties .plist。enabled=false 整條不擋。",
+      "enabled": true
+    },
+    "old_test_declare": {
+      "_doc": "T2.17 改舊測試要先宣告「改舊測試｜哪支：理由」（hooks/wg_oldtest.py；規則 OLD_TEST_CHANGE_NEEDS_DECLARATION）：刪、改名、改斷言、加 skip、改說明五種動作；Edit／Write 當場擋，Bash／PowerShell／NotebookEdit 事後比對、擋下一個工具呼叫。false＝整條不擋。",
+      "enabled": true
+    },
+    "origin_user_check": {
+      "_doc": "T2.18 目標樹子節點標 origin=user 要用 quote 引用使用者原話字面子句，對不到強制改 inferred 並提醒一次；樹根一律顯示「AI 的解讀」並列出原話裡沒有的句子（hooks/wg_need_goal._check_origin／_check_root；規則 ORIGIN_USER_NEEDS_QUOTE）。false＝不核。",
+      "enabled": true
+    },
+    "gate_bypass": {
+      "_doc": "T2.19 繞閘嫌疑：病形閘擋過之後，把被點名的檔移出暫存、改提交範圍、--no-verify 而病還在 → 要「不是繞閘｜理由」否則擋（hooks/wg_gate_bypass.py；規則 GATE_BYPASS_NEEDS_DECLARATION）；atom 內容同時提到 Guardian 閘與改暫存區做法 → 拒寫，知識段第一行寫「不是教繞閘｜理由」才寫入（ATOM_BYPASS_HOWTO_REFUSED）。staging_words 不設＝程式預設。false＝整條不擋。",
+      "enabled": true
+    },
     "smell_gate": {
       "_doc": "git／svn commit 前病形閘（tools/project-smells.py「commit 前病形檢查」段）：這次要提交的程式新寫進病形就擋。門檻依據：匿名函式本體 >20 行擋、≥10 行只提醒（Sonar S1188 匿名類別 20 行、S5612／Checkstyle LambdaBodyLength 10 行）；Python 函式控制結構巢狀 ≥4 層擋（寫碼規矩「巢狀 ≥4 一律重構」、Sonar S134 Python 4），舊函式沒變深不擋。enabled=false 停用。",
       "enabled": true,

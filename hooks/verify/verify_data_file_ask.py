@@ -331,6 +331,53 @@ def test_shell_without_data_file_targets_is_untouched(world):
     assert not _log(world)
 
 
+# ─── 子代理：對話紀錄在 <sid>/subagents/agent-<agent_id>.jsonl，主 session 是同層的 <sid>.jsonl ───
+
+AGENT = "ae3c716a6fc9ec36b"
+
+
+def _agent_world(w):
+    """把 fixture 的 transcript 擺成 Claude Code 的真實佈局：主檔 <sid>.jsonl、子代理檔 <sid>/subagents/agent-<id>.jsonl。"""
+    main = Path(w["tp"]).with_name(f"{SID}.jsonl")
+    agent = main.with_suffix("") / "subagents" / f"agent-{AGENT}.jsonl"
+    agent.parent.mkdir(parents=True)
+    return main, agent
+
+
+def _agent_run(w, tp):
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": "Edit", "session_id": SID, "agent_id": AGENT, "cwd": str(w["proj"]),
+                                 "transcript_path": str(tp), "tool_input": {"file_path": str(w["proj"] / "settings.json"),
+                                                                            "old_string": B1_OLD, "new_string": B1_NEW}}, {})
+    return w["outputs"][-1]
+
+
+def test_subagent_declaration_in_its_own_transcript_is_seen(world):
+    """hook 給主檔時：子代理寫在自己回覆裡的宣告也要認得到（子代理不能問使用者，看不到就擋到底）。"""
+    main, agent = _agent_world(world)
+    _transcript(main, [_user(B1_PROMPT), _assistant("text", "派子代理去改報表")])
+    _transcript(agent, [_user("改 report，必要時修資料檔"), _assistant("text", DECL)])
+    assert not _df_deny(_agent_run(world, main))
+    assert _log(world)[-1]["event"] == "declared"
+
+
+def test_subagent_dispatch_prompt_is_not_user_words(world):
+    """hook 給子代理檔時：子代理檔裡的 user 訊息是 AI 寫的派工 prompt，點名檔名也不算使用者原話；原話從主檔與 state 取。"""
+    main, agent = _agent_world(world)
+    _transcript(main, [_user(B1_PROMPT), _assistant("text", "派子代理")])
+    _transcript(agent, [_user("把 settings.json 的多逗號修掉"), _assistant("text", "好")])
+    out = _agent_run(world, agent)
+    assert _df_deny(out), out
+    assert "(d) 需求沒點名" in _reason(out)
+
+
+def test_subagent_declaration_seen_when_hook_gives_agent_transcript(world):
+    main, agent = _agent_world(world)
+    _transcript(main, [_user(B1_PROMPT)])
+    _transcript(agent, [_user("改 report"), _assistant("text", DECL)])
+    assert not _df_deny(_agent_run(world, agent))
+
+
 def test_broken_state_blocks(world):
     wg_core.state_file_path(SID).write_text("{broken", encoding="utf-8")
     out = _run(world)

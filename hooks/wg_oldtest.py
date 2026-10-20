@@ -356,10 +356,13 @@ def _strings(obj: Any) -> List[str]:
 
 
 def _decl_text(input_data: Dict[str, Any]) -> str:
-    """找宣告行的範圍：transcript 三管道（從頭）＋這次工具呼叫自己的參數（Bash 開頭的 `#` 註解不必等下一則訊息）。"""
-    from overview_hub import LOCATE_CHANNELS, assistant_text_after
+    """找宣告行的範圍：transcript 三管道（主檔與子代理檔都從頭，wg_core.assistant_texts_since）＋這次工具呼叫自己的參數
+    （Bash 開頭的 `#` 註解不必等下一則訊息）。"""
+    from overview_hub import LOCATE_CHANNELS
+    from wg_core import assistant_texts_since
     tp = input_data.get("transcript_path", "") or ""
-    parts = [assistant_text_after(tp, 0, ch) for ch in LOCATE_CHANNELS]
+    agent_id = str(input_data.get("agent_id") or "")
+    parts = [assistant_texts_since(tp, agent_id, ch) for ch in LOCATE_CHANNELS]
     return "\n".join(parts + _strings(input_data.get("tool_input") or {}))
 
 

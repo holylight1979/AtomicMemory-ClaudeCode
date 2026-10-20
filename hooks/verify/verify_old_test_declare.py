@@ -208,6 +208,25 @@ def test_rename_without_declaration_denied(world):
     assert [e["event"] for e in _events(world)] == ["denied"]
 
 
+@pytest.mark.parametrize("hook_gives", ["main", "agent"])
+def test_subagent_declaration_in_its_own_transcript_counts(world, hook_gives):
+    """子代理改舊測試、宣告寫在自己的回覆：對話在 <sid>/subagents/agent-<id>.jsonl，hook 給主檔或子代理檔都要認得到。"""
+    agent_id = "ae3c716a6fc9ec36b"
+    main = Path(_transcript(world, "主 session：派子代理改報表測試", name=f"{SID}.jsonl"))
+    agent = main.with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": DECL}]}},
+                                ensure_ascii=False) + "\n", encoding="utf-8")
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": "Edit", "session_id": SID, "agent_id": agent_id, "cwd": str(world["proj"]),
+                                 "transcript_path": str(main if hook_gives == "main" else agent),
+                                 "tool_input": {"file_path": fp, "old_string": RENAME_EDIT_OLD, "new_string": RENAME_EDIT_NEW}}, {})
+    r = (world["outputs"][-1] or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "") or ""
+    assert _pass(r), r
+    assert _events(world)[-1]["event"] == "declared"
+
+
 def test_rename_with_declaration_allowed_logged_and_same_test_not_blocked_again(world):
     fp = _put(world, "tests/test_legacy_report.py", LEGACY)
     ti = {"file_path": fp, "old_string": RENAME_EDIT_OLD, "new_string": RENAME_EDIT_NEW}

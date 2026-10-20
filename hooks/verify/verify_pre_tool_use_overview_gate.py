@@ -261,3 +261,78 @@ def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(worl
     assert _rec(_state())["edits"] == 1 and _rec(_state())["located"] is True
     assert not _deny(_run("Bash", {"command": f'echo y >> "{f1}"'}, proj, tp, outputs))   # Bash 同目標也放行
     assert _rec(_state())["edits"] == 2                                        # 累加不丟
+
+
+# ─── 子代理：對話在 <sid>/subagents/agent-<agent_id>.jsonl，主 session 是同層的 <sid>.jsonl ───
+
+AGENT = "ae3c716a6fc9ec36b"
+LOCATE = "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"
+
+
+def _line(text):
+    return json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}, ensure_ascii=False) + "\n"
+
+
+def _agent_layout(tmp_path):
+    """Claude Code 的真實佈局：主檔比子代理檔長（主 session 已經聊了很多），子代理檔才剛開始。"""
+    main = tmp_path / f"{SID}.jsonl"
+    main.write_text("".join(_line(f"主 session 第 {i} 段說明，派子代理去改戰鬥") for i in range(40)), encoding="utf-8")
+    agent = tmp_path / SID / "subagents" / f"agent-{AGENT}.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(json.dumps({"type": "user", "message": {"content": "改 A.cs"}}, ensure_ascii=False) + "\n", encoding="utf-8")
+    return main, agent
+
+
+def _agent_edit(proj, outputs, f1, tp):
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": "Edit", "tool_input": {"file_path": f1}, "session_id": SID, "agent_id": AGENT,
+                                 "cwd": str(proj), "transcript_path": str(tp)}, {})
+    return outputs[-1]
+
+
+@pytest.mark.parametrize("hook_gives", ["main", "agent"])
+def test_subagent_locate_lines_in_its_own_transcript_allow_edit(world, tmp_path, hook_gives):
+    """子代理讀過部位檔、在自己的回覆寫了定位三行 → 放行；hook 給主檔或給子代理檔都要認得到。"""
+    proj, outputs, _ = world
+    main, agent = _agent_layout(tmp_path)
+    tp = main if hook_gives == "main" else agent
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    assert _deny(_agent_edit(proj, outputs, f1, tp))                             # 第一次：注入卡＋擋
+    state = _state()
+    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(tp), {})     # 子代理的 Read 事件
+    wg_core.write_state(SID, state)
+    with open(agent, "a", encoding="utf-8") as f:
+        f.write(_line(LOCATE))
+    out = _agent_edit(proj, outputs, f1, tp)
+    assert not _deny(out), (out or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "")[:400]
+    assert _rec(_state())["located"] is True
+
+
+@pytest.mark.parametrize("hook_gives", ["main", "agent"])
+def test_subagent_without_locate_lines_anywhere_is_denied(world, tmp_path, hook_gives):
+    proj, outputs, _ = world
+    main, agent = _agent_layout(tmp_path)
+    tp = main if hook_gives == "main" else agent
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    assert _deny(_agent_edit(proj, outputs, f1, tp))
+    state = _state()
+    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(tp), {})
+    wg_core.write_state(SID, state)
+    with open(agent, "a", encoding="utf-8") as f:
+        f.write(_line("先看 A.cs 的邏輯"))
+    assert _deny(_agent_edit(proj, outputs, f1, tp))
+    assert _rec(_state())["located"] is False
+
+
+def test_locate_lines_written_before_injection_in_subagent_file_do_not_count(world, tmp_path):
+    """各檔各記注入當下的大小：子代理在讀卡之前就寫的定位行不算（跟主檔的 offset 規則一致）。"""
+    proj, outputs, _ = world
+    main, agent = _agent_layout(tmp_path)
+    with open(agent, "a", encoding="utf-8") as f:
+        f.write(_line(LOCATE))                                                   # 注入前就寫
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    assert _deny(_agent_edit(proj, outputs, f1, main))
+    state = _state()
+    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(main), {})
+    wg_core.write_state(SID, state)
+    assert _deny(_agent_edit(proj, outputs, f1, main))

@@ -133,6 +133,30 @@ def test_commit_all_flag_includes_tracked_unstaged(tmp_path):
     assert deny and "src/a.py" in deny
 
 
+def _msys(p: Path) -> str:
+    """Windows 路徑 → Git Bash 的 MSYS 寫法（`C:\\x\\y` → `/c/x/y`）。"""
+    s = str(p).replace("\\", "/")
+    return f"/{s[0].lower()}{s[2:]}" if len(s) > 1 and s[1] == ":" else s
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="MSYS 磁碟機路徑只在 Windows 的 Git Bash 有意義")
+def test_msys_cd_path_is_resolved_not_unjudgeable(tmp_path):
+    """無頭 A 題型實跑（派工 006）：Bash 下 `cd /c/w2/qa-notify && git commit -m "$(cat <<'EOF' … EOF)" -- <路徑>` →
+    舊碼把 /c/… 當 Windows 路徑跑 git（WinError 267 目錄名稱無效）→「判不了一律擋」；新碼轉成 C:\\… 照常檢查：
+    這批檔沒病放行，pathspec 含抄病形的檔照擋並點名。PowerShell 的 /c/… 不轉（原生就是 C:\\c\\…）。"""
+    repo = _repo(tmp_path, {"notify/channels.py": CLEAN_PY, "notify/dispatch.py": CLEAN_PY, "tests/test_dispatch.py": CLEAN_PY})
+    _write(repo, "notify/channels.py", CLEAN_PY + "y = 2\n")
+    _write(repo, "notify/dispatch.py", CLEAN_PY + STACKED)
+    msg = ('"$(cat <<\'EOF\'\nnotify: add webhook channel (urllib POST text to url)\n\n'
+           'Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nEOF\n)"')
+    cmd = f"cd {_msys(repo)} && git commit -m {msg} -- notify/channels.py tests/test_dispatch.py"
+    deny, _advice = check_smell_gate("Bash", {"command": cmd}, str(tmp_path), {})
+    assert deny is None, deny
+    deny, _advice = check_smell_gate("Bash", {"command": cmd.replace("tests/test_dispatch.py", "notify/dispatch.py")},
+                                     str(tmp_path), {})
+    assert deny and "判不了" not in deny and "notify/dispatch.py" in deny and "匿名函式疊用" in deny
+
+
 def test_commit_with_pathspec_checks_those_paths(tmp_path):
     repo = _repo(tmp_path, {"src/a.py": CLEAN_PY, "src/b.py": CLEAN_PY})
     _write(repo, "src/a.py", CLEAN_PY + STACKED)
