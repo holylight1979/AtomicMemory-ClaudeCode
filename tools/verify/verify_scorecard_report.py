@@ -26,12 +26,20 @@ _spec.loader.exec_module(SR)
 NOW = datetime(2026, 10, 8, 9, 0, 0)
 
 
+class _FrozenNow(datetime):
+    """工具裡的 datetime.now() 固定回 NOW：樣本資料以 NOW 往回算，看真實時鐘的話四週視窗會隨日期漂移。"""
+    @classmethod
+    def now(cls, tz=None):
+        return NOW
+
+
 @pytest.fixture
 def dirs(tmp_path, monkeypatch):
     sd, rd = tmp_path / "scorecard", tmp_path / "health-reports"
     monkeypatch.setattr(SR, "SCORECARD_DIR", sd)
     monkeypatch.setattr(SR, "REPORT_DIR", rd)
     monkeypatch.setattr(SR, "CONFIG_PATH", tmp_path / "nope.json")
+    monkeypatch.setattr(SR, "datetime", _FrozenNow)
     return sd, rd
 
 
