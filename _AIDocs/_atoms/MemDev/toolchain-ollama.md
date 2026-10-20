@@ -37,6 +37,9 @@
 ### 硬體限制
 
 - [固] Local fallback（GTX 1050 Ti 4GB）同時只能跑一個模型，embedding 和推論需輪替；rdchat（RTX 3090）無此限制
+- [臨]（實測，trace log）generate/chat/embed 帶 `model=` 時，路由只認 backend 在 config 的 `llm_model`／`embedding_model` 字串相等才送，不看伺服器上實際有哪些模型：`model="qwen3:1.7b"` 會 skip rdchat-direct（設定是 gemma4:e4b）直接打 local。所以「把模型 pull 到 rdchat」不會讓它被用到，除非同時改 config 或改路由。
+- [臨]（實測）user-extract-worker L1 先指定 qwen3:1.7b → local CPU 冷載入超過 10s 逾時（10008ms fail），再退預設 rdchat gemma4:e4b 只要約 300ms；local 失敗後 60s 內健康快取標壞，第二次直接跳過。
+- [臨] 確認實際打到哪台：`python tools/ollama_client.py --trace on|off|status`（旗標檔 workflow/.ollama_trace 預設關，log 在 Logs/ollama-backend.log，行含 ok/fail/skip、backend、model、耗時、caller）。
 
 ## 行動
 
