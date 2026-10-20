@@ -1820,3 +1820,71 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── T2.16 動資料檔 ───
+
+def test_t216_user_data_file_needs_declaration():
+    """USER_DATA_FILE_NEEDS_DECLARATION：四件事實全成立又沒宣告才擋；宣告路徑檔名完整比對；原話點名要整個檔名。完整案例在 verify_data_file_ask.py。"""
+    t = "C:\\w1\\qb-report\\config\\settings.json"
+    facts = {"code": False, "ext": ".json", "ext_listed": True, "existed": True, "created": False, "named": None, "prompts": 1}
+    assert rr.data_file_verdict(t, "config/settings.json", facts, []).owed
+    assert not rr.data_file_verdict(t, "config/settings.json", {**facts, "created": True}, []).owed
+    decl = rr.parse_data_file_decls("動資料檔｜`config/settings.json`：修多逗號，幣別會變 TWD")
+    assert not rr.data_file_verdict(t, "config/settings.json", facts, decl).owed
+    for p in ("settings.json", "config/settings.json", "C:\\w1\\qb-report\\config\\settings.json", "./config/settings.json"):
+        assert rr.decl_names_file(p, t), p
+    for p in ("ettings.json", "other.json", "x/settings.json", ""):
+        assert not rr.decl_names_file(p, t), p
+    assert rr.parse_data_file_decls("動資料檔｜C:\\a\\b.json：理由")[0][:2] == ("C:\\a\\b.json", "理由")
+    assert rr.prompt_names_file(["把settings.json的逗號修掉"], t) and rr.prompt_names_file(["改 Config/Settings.JSON"], t)
+    assert not rr.prompt_names_file(["改 settings.json.bak", "看 mysettings.json", "設定檔"], t)
+    zh = "C:\\p\\設定.json"
+    assert not rr.prompt_names_file(["請修改「備份設定.json」", "請修改備份設定.json"], zh), "更長的中文檔名不算點名"
+    assert rr.prompt_names_file(["請修改「設定.json」", "改 設定.json 的值"], zh)
+    assert rr.decl_reason_ok("修正 <幣別> 標籤") and rr.decl_reason_ok("通貨を直す") and rr.decl_reason_ok("x")
+    assert not any(rr.decl_reason_ok(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
+# ─── T2.18 origin 核對 ───
+def test_origin_user_needs_quote():
+    """ORIGIN_USER_NEEDS_QUOTE：完整案例在 verify_origin_user_check.py；這裡守判式——字面子串對得到才算、同伴說的不算。"""
+    said = [{"seq": 3, "turn": 1, "text": "把 audit 寫進 log 檔"}]
+    origin, v, m = rr.origin_user_verdict("audit 要寫進 log 檔", "audit 寫進 log 檔", said)
+    assert origin == "user" and not v.owed and m["said"]["seq"] == 3
+    origin, v, m = rr.origin_user_verdict("舊報表不被弄壞", None, said)
+    assert origin == "inferred" and v.owed and v.rule == "ORIGIN_USER_NEEDS_QUOTE" and m is None
+    _, v, _ = rr.origin_user_verdict("x", "報表格式不能變", said, [{"from": "claude-aa", "text": "報表格式不能變喔"}])
+    assert v.owed and "同伴 claude-aa" in v.why
+    # 樹根版：切句後 ≥6 字、原話裡沒有的句子
+    assert rr.root_unquoted_sentences("把 audit 寫進 log 檔；舊報表不被弄壞，ok", said) == ["舊報表不被弄壞"]
+    assert rr.root_unquoted_sentences("把 audit 寫進 log 檔——舊報表不被弄壞", said) == ["舊報表不被弄壞"]   # 雙破折號也切
+# ─── T2.17 改舊測試 ───
+
+def test_old_test_change_needs_declaration_names_and_reason():
+    """OLD_TEST_CHANGE_NEEDS_DECLARATION：完整案例在 verify_old_test_declare.py；這裡守宣告行的名字與理由對法。"""
+    ch = [{"key": "TestR.test_a", "kind": "assert", "detail": "assertx==1"}, {"key": "test_b", "kind": "renamed", "detail": "", "new_key": "test_b2"}]
+    v = rr.old_test_change_verdict("tests/test_r.py", ch, [])
+    assert v.owed and v.rule == "OLD_TEST_CHANGE_NEEDS_DECLARATION" and "test_r.py：test_b（改名 → test_b2）" in v.evidence
+    ok = rr.parse_old_test_declarations("改舊測試｜tests/test_r.py:TestR.test_a、test_b: 使用者說欄位改了")
+    assert ok[0]["reason"] == "使用者說欄位改了" and not rr.old_test_change_verdict("tests/test_r.py", ch, ok).owed
+    assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a、test_b2：欄位改了")).owed, \
+        "改名只認舊名：新名不能替舊的那支宣告"
+    for other in ("改舊測試｜tests/test_x.py:test_a、test_b：別的檔", "改舊測試｜TestOther.test_a、test_b：別的類別"):
+        assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations(other)).owed, other
+    v = rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a：<理由>"))
+    assert v.owed and any("佔位" in e for e in v.evidence) and len(v.evidence) == 3
+# ─── T2.19 繞閘嫌疑 ───
+
+def test_t219_gate_bypass_verdicts():
+    """GATE_BYPASS_NEEDS_DECLARATION／ATOM_BYPASS_HOWTO_REFUSED：完整案例在 verify_gate_bypass.py；這裡守判式——
+    有序列事實沒理由（或只有佔位）擋、有理由放行、沒事實不擋；卡片兩訊號都有才拒。"""
+    facts = ["git restore 把 notify/retry.py 移出暫存區"]
+    assert rr.gate_bypass_verdict("notify/retry.py（匿名函式疊用）", facts).owed
+    assert rr.gate_bypass_verdict("x", facts, "<理由：這批檔是誰的>").owed
+    v = rr.gate_bypass_verdict("x", facts, "retry.py 是別人的改動")
+    assert v.rule == "GATE_BYPASS_NEEDS_DECLARATION" and not v.owed
+    assert not rr.gate_bypass_verdict("x", []).owed
+    assert rr.atom_bypass_verdict(["SmellGate"], ["拆三步"]).owed
+    v = rr.atom_bypass_verdict(["SmellGate"], [])
+    assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed
+    assert not rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "這張卡寫的是禁止規避").owed     # 宣告了不是教繞閘
+    assert rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "<理由：這張卡在教什麼>").owed      # 佔位照拒

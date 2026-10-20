@@ -180,6 +180,10 @@ def test_editing_own_hub_config_is_allowed_with_warning(world):
     proj, outputs, tp = world
     hub = proj / ".claude" / "overview-hub.json"
     hub.write_text('{"bogus": 1}', encoding="utf-8")
+    # 既有設定檔、原話沒點名：動資料檔閘（wg_data_file）要先宣告；這裡只守 OverviewHub 自家設定檔的豁免
+    Path(tp).write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "動資料檔｜.claude/overview-hub.json：修掉 bogus 鍵讓閘讀得到設定"}]}}, ensure_ascii=False) + "\n",
+        encoding="utf-8")
     out = _run("Edit", {"file_path": str(hub)}, proj, tp, outputs)
     assert not _deny(out) and "放行以便修復" in out["hookSpecificOutput"]["additionalContext"]
 
