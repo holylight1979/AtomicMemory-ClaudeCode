@@ -7740,6 +7740,23 @@
         "表被當空的"
       ],
       "scope": "global"
+    },
+    {
+      "name": "回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響",
+      "path": "memory/CC與原子記憶契約/回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響.md",
+      "triggers": [
+        "turn_intent",
+        "classify_intent",
+        "clean_prompt",
+        "意圖分類",
+        "同伴訊息",
+        "重構意圖",
+        "refactor 誤判",
+        "user_typed_text",
+        "goal_weights",
+        "意圖來源"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -459,3 +459,4 @@
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | _AIDocs/_atoms/MemDev/在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑.md | WG_GIT_CASSETTE, 假紅, 總控台複驗, verify_stop_reconcile, 收件驗收, live 跑測試, 15 failed, 錄製檔關掉, 多檔合跑 | global |  |
 | 靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法 | memory/驗證與實證/靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法.md | 病形規則, lint 規則, 靜態分析, 誤擋, 校準, 大括號近似, Allman | global |  |
 | 部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的 | memory/CC與原子記憶契約/部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的.md | overview-map.md, 部位表, 路徑前綴, 反引號, parse_map, 病灶清單, defects_doc, 對不到部位, 新專案部位表, 表被當空的 | global |  |
+| 回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響 | memory/CC與原子記憶契約/回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響.md | turn_intent, classify_intent, clean_prompt, 意圖分類, 同伴訊息, 重構意圖, refactor 誤判, user_typed_text, goal_weights, 意圖來源 | global |  |
