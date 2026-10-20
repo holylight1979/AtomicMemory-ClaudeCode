@@ -138,6 +138,22 @@ def test_memory_dir_and_gitattributes_idempotent(tmp_path):
     assert "merge: atomindex" in attrs and "eol: lf" in attrs
 
 
+def test_gitattributes_skipped_when_memory_tree_is_gitignored(tmp_path):
+    """記憶樹被 .gitignore 排除（例：本系統 repo 忽略整個 .claude/）→ 規則寫了也沒作用，不寫、回報 skipped，
+    .gitattributes 維持原樣；auto 路徑同樣不算錯誤。"""
+    repo = _repo(tmp_path)
+    (repo / ".gitignore").write_bytes(b".claude/\n")
+    (repo / ".gitattributes").write_bytes(b"*.cs text eol=crlf\n")
+    mem = repo / ".claude" / "memory"
+    _mem_tree(mem)
+    rc, rep, _ = _run("--memory-dir", str(mem), "--write-gitattributes")
+    assert rc == 0 and rep["gitattributes"]["ok"] and "skipped" in rep["gitattributes"], rep
+    assert (repo / ".gitattributes").read_bytes() == b"*.cs text eol=crlf\n"
+    auto = ne.auto_project_eol(mem)
+    assert auto["error"] is None and "skipped" in auto["attrs"], auto
+    assert (mem / "shared" / "a.md").read_bytes() == b"# a\nx\n", "樹內轉 LF 照做"
+
+
 # ─── auto_project_eol：專案樹 LF 自動化（sync-memory-index 專案模式 --write 的漏斗尾端）───────
 
 SVN_OK = shutil.which("svn") is not None and shutil.which("svnadmin") is not None
