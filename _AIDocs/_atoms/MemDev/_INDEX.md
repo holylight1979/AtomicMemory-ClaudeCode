@@ -45,6 +45,7 @@
 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec_hud-stop再查一次 |
 | knowledge-harvest-階段收割與vcs-sync機制指標與踩坑 | knowledge-harvest-階段收割與vcs-sync機制指標與踩坑 |
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
+| mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹 | MCP工具呼叫沒有session身份-要session_id的工具靠PreToolUse用updatedInput補-否則材料打包找不到驗證帳本與目標樹 |
 | mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效 | MCP的node端程式改了要開新session才載到-同機其他session的MCP程序仍跑舊碼-python端每次spawn立即生效 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
 | need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred | need_goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred |
@@ -85,6 +86,7 @@
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | 在live複跑Stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 |
 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
+| 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 |
 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 |
 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 |
 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 |
@@ -131,6 +133,7 @@
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 |
 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 |
 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 |
+| 量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 | 量測收據要認DONE帶k=v-sentinel_regex會把普通pytest統計行也轉成PYTEST_MEASURE-DONE-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 |
 | 量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況 | 量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況 |
 | 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序 | 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序 |
 | 附在stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳 | 附在Stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳 |
