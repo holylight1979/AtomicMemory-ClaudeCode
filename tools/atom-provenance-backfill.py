@@ -60,7 +60,8 @@ MARKER_PATH = CLAUDE_DIR / "workflow" / "provenance-backfill-last.json"
 SOURCE = "tool:provenance-backfill"
 EXPIRED = "（原對話已逾保留期）"
 _SKIP_NAME_RE = re.compile(r"_INDEX|^MEMORY\.md$|_ATOM_INDEX|_local_catalog", re.I)
-_SKIP_DIR_PARTS = {"_meta", "_distant", "_vectordb", "_staging", "episodic", "wisdom", "_reference"}
+_SKIP_DIR_PARTS = {"_meta", "_distant", "_vectordb", "_staging", "episodic", "wisdom", "_reference",
+                   "templates"}   # templates/ 是範本，長得像 atom，不跳會被寫進假 Source
 _PATH_RE = re.compile(r"Path:\s*(\S.*?\.md)\s*$", re.M)
 _RECEIPT_PATH_RE = re.compile(r'"path"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _QUOTE_LINE_RE = re.compile(r"^- Quote:\s*\S", re.M)

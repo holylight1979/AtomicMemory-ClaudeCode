@@ -9,6 +9,17 @@
 - **做法與驗證**：`hooks/handlers/pre_tool_use.py check_smell_gate` 拆指令、`tools/project-smells.py`「commit 前病形檢查」段取新舊兩版比對（TECH §7.5 SmellGate）。新案例 `hooks/verify/verify_smell_gate.py` 36 案（舊碼匯入即紅、新碼全綠）；全 repo 校準內建病形命中 66→9（並列 lambda、樣板字串、測試替身三類誤命中收掉，剩下都是真的套層）。Codex 一輪 9 條 BLOCK 收 8 條（病形範圍內任一行被改就算碰到、舊版病形一份抵一份、程式檔太多改擋不放、`-z` 拿中文真檔名、`--pathspec-from-file` 與 `--git-dir`／`GIT_DIR` 判不了就擋、`git add` 會把暫存區改回工作樹、svn `--depth`／`--changelist`／`--targets` 照套），各有先紅後綠案例；不收的 1 條：跨行的表達式箭頭函式（`x =>⏎ y =>⏎ z => z`）不算套層，寫法少見、要真語法樹才判得準，列已知限制。
 - **順手修的同類漏洞**：隱私閘原本只看暫存區，`git add .env && git commit` 在 commit 前檢查時 add 還沒跑、會漏過；改成跟病形閘共用「這次會提交哪些檔」（`commit_entries`），案例 `verify_git_privacy_gate::test_git_add_in_same_command_is_checked` 先紅後綠。重錄兩筆 merge driver 測試錄製檔（一筆因隱私閘查 git 的方式改了，一筆在 main 上本來就對不上、真 git 跑是綠的）。
 
+## 2026-10-20 導讀卡候選不再暗中按分數排：照報告原順序、分數標參考、各部位輪流取（G5 剩的一處）
+- 改同檔第二次、問根因時附的候選原本照分數重排、只取前 N、又不顯示分數：低分的真問題被截掉，AI 也不知道順序來自分數。`hooks/wg_overview.py` `_smells_lines` 改照報告原順序、每列附「分數 X（參考）」、全專案時各部位輪流取再依部位分組（`_parts_in_turn`），根因那一問加「挑的不是分數最高的就說為什麼」。案例 `verify_candidates_trigger.py::test_candidates_keep_report_order_show_score_as_reference_and_take_parts_in_turn`（舊碼紅）；候選、PickOne、追蹤讀回、部位表四支測試檔 203 通過。
+
+## 2026-10-20 寫碼交付時順手點出最該修的一件，記成附建議的追蹤項、下個 session 開場先列（G4＋G5＋G13）
+- **使用者看到的**：交 AI 寫程式，交付末尾多一段「順手看到最該修：…／為什麼是它／為什麼不是數字最高的那個／建議怎麼解／該誰解」；這段自動記成追蹤項；下個 session 開頭先列還沒解的這些項目與建議。只提醒、不擋。
+- **改法**：Stop 在所有閘之後、到交付邊界且本 session 在上次問過之後又改了程式 → 用 `additionalContext` 送一次那一問（對話續跑、不是 block；同一批改動只問一次），材料依部位分組、壞味道分數與行數標「只當參考」（`hooks/wg_harvest.py` pick_*、`hooks/handlers/stop.py` `_pick_one_prompt`）；每次 Stop 開頭把最後一句裡照格式寫的那段記進追蹤帳本，另存 why／not_top／proposal／owner（`record_pick`）；(k) 行尾「｜建議：…｜該誰解：…」也進同兩欄；開場 `_tracking_advisory` 先列附了建議的未結項（不分部位）。開關 `workflow/config.json` `pick_one.enabled`（缺區段＝關）。
+- **驗證**：`hooks/verify/verify_pick_one.py` 20 支，舊碼上紅（3 支「不該送」反例舊碼本來就不送）、新碼全綠；相關 10 支測試檔 769 通過。Codex 一輪 4 條 BLOCK 收 3：引言（`>`）裡的格式範例不入帳、帳本寫不進去不算答過（下次照問照記）、去重改看帳本上有沒有同一件未結項（下一批又答同一句照樣算答過）；不收 1：問過之後同一回合裡的改動（順手修掉點出的那件、回應別道閘）算同一次交付，不再問。
+
+## 2026-10-20 收 !11 作者查到的三個「跳過資料夾清單」漏項，MR 本體仍不照原樣合
+- 作者回答動機：不是踩到事故，是收斂時查到三處清單不同步——atom 掃描沒跳 `_archived/`（封存舊卡被當 atom）、定位沒跳 `_rejected/`（退回的卡會被 append／replace 找到）、補來源沒跳 `templates/`（範本被寫進假 Source）；他自己的結論是「出事的都是清單，單一字面沒有」。三處各補一項、收他附的案例 `lib/verify/verify_skip_dirs_behavior.py`（對舊碼三支全紅）。MR 本體（129 檔集中檔名）仍等作者改輕量版，見 `DevHistory/同伴MR審查-2026-10-20.md`。
+
 ## 2026-10-20 v6.0 發版（寫程式碼的進化）
 - **交給 AI 寫程式時現在會做到的**：改程式前先讀那一塊的導讀卡、寫出這塊在目標裡的角色、兩個根因候選與「現在這樣寫合不合理」（G0、G1）；每個需求有一棵目標樹，跨 session 接續、被糾正時改舊樹（G0）；交出計畫前先對使用者原話再對計畫（G1）；改了程式沒補測試、測試沒過卻說修好，收尾會擋（G3、G10）；擋滿不准自己放行、要問使用者，該測哪些由 AI 宣告並負責（G6）；閱讀路徑跳層會被量（G12，只 Python）；問題記成追蹤項跨 session 追到結案（G13）；問使用者時一定附推薦、掛目標（G16）；寫文件與整理記憶也要先寫目標、做完對照。
 - **照實說明**：10-20 收尾瘦身（原設計者拍板）後，收尾只擋「測試沒過說修好」「改程式沒補測試」兩件；目標對照、證據級、驗證範圍宣告、收尾檢核、卡片表態改成只提醒。原定的發版前置「重測目標樹」由原設計者 10-20 拿掉。

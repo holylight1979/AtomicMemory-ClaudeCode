@@ -81,7 +81,7 @@ if PRECEDENT_TEMPLATE not in _oh._TEMPLATE_PHRASES:
     _oh._TEMPLATE_PHRASES = tuple(_oh._TEMPLATE_PHRASES) + (PRECEDENT_TEMPLATE,)
 IDLE_SCAN_LINE = ("[Guardian:OverviewHub] 沒有指定任務 → 主動掃視：跑 `project_smells(part)` 看候選前 N、看部位表還是「骨架」的列、"
                   "看健檢紅燈；挑一個說出來（部位＋為什麼）再動手。")
-_CANDIDATE_QUESTIONS = ("① 這些候選裡哪一個是你這次要修的問題的根因所在？為什麼不是另一個？",
+_CANDIDATE_QUESTIONS = ("① 這些候選裡哪一個是你這次要修的問題的根因所在？為什麼不是另一個（挑的不是分數最高的，就說為什麼不是它）？",
                         f"② {ROOT_CAUSE_SENTENCE}")
 
 # 設定的預設、四層合併與驗證全在 lib/hub_config.py（導讀卡、量尺閘、project-smells 共用同一份）；這裡只留別名給既有呼叫端
@@ -630,11 +630,14 @@ def _smells_lines(root: Path, cfg: Dict[str, Any], parts: Optional[Tuple[str, ..
     rows, err, gen_ts = _smells_rows(rp)
     notes = [f"（報告 {rp} 解析失敗：{err}）"] if err else []
     if parts is not None:
-        rows = [r for r in rows if not r.get("part") or r["part"] in parts]
-    rows.sort(key=lambda r: -float(r["score"]) if isinstance(r.get("score"), (int, float)) else 0)
+        rows = [r for r in rows if not r.get("part") or r["part"] in parts][:n]
+    else:
+        rows = _parts_in_turn(rows, n)
+    # 不按分數重排（數字只當參考、不替 AI 排優先）：照報告原順序；分數照列並標參考
     lines = [_clip(f"- {r['path']}｜{r.get('category') or r.get('kind') or '?'}｜"
-                   f"{(('【' + r['part'] + '】') if parts is None and r.get('part') else '')}{r.get('reason') or '（沒寫理由）'}",
-                   line_cap) for r in rows[:n]]
+                   f"{(('【' + r['part'] + '】') if parts is None and r.get('part') else '')}{r.get('reason') or '（沒寫理由）'}"
+                   + (f"｜分數 {r['score']}（參考）" if isinstance(r.get("score"), (int, float)) else ""),
+                   line_cap) for r in rows]
     if not lines:
         return [], notes, ""
     try:
@@ -645,7 +648,23 @@ def _smells_lines(root: Path, cfg: Dict[str, Any], parts: Optional[Tuple[str, ..
     max_age = int(cfg.get("smells_max_age_days") or 0)
     if age > max_age:
         notes.append(f"（報告已 {age} 天沒更新，超過 smells_max_age_days={max_age}；仍送，先重跑 smells_cmd 再信它）")
-    return lines, notes, f"smells 報告 {rp}"
+    return lines, notes, f"smells 報告 {rp}；照報告原順序、不是優先順序，分數只當參考"
+
+
+def _parts_in_turn(rows: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
+    """全專案候選：各部位輪流取（每輪每個部位取下一筆，部位照報告裡第一次出現的順序），取滿 n 筆後依部位分組列出，
+    避免一個部位（例如分數普遍高的）佔滿。"""
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault(r.get("part") or "", []).append(r)
+    picked: List[int] = []
+    for i in range(max((len(g) for g in groups.values()), default=0)):
+        picked += [id(g[i]) for g in groups.values() if i < len(g)]
+    keep = set(picked[:n])
+    out: List[Dict[str, Any]] = []
+    for g in groups.values():
+        out += [r for r in g if id(r) in keep]
+    return out
 
 
 def _candidates_block(root: Path, rows: List[Dict[str, Any]], cfg: Dict[str, Any], max_chars: Optional[int] = None,

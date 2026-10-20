@@ -1,17 +1,20 @@
-"""wg_harvest.py — 階段完工知識收割（KnowledgeHarvest）的純函式。
+"""wg_harvest.py — 階段完工知識收割（KnowledgeHarvest）、追蹤項帳本、交付時「順手看到最該修」的純函式。
 
 誰用：
   - handlers/stop.py：harvest_gate_reason（該不該擋、擋什麼話）、pending_gate_reason、
-    vcs_sync_lock_active（SyncReminder 遇 worker 活鎖跳過該 root）。
+    vcs_sync_lock_active（SyncReminder 遇 worker 活鎖跳過該 root）；record_pick／pick_due／mark_pick_asked／
+    pick_material／pick_prompt（交付時那一問與記帳）。
   - handlers/post_tool_use.py（one-writer）：parse_receipt / record_atom_op（atom 工具收據入帳）、
-    validate_items（收割回報逐項核對）、append_ledger。
+    validate_items（收割回報逐項核對）、append_ledger；tracking_entries／append_tracking（AEC (k) 追蹤項）。
+  - handlers/session_start.py：open_tracking_items／proposal_lines（開場列未結項與建議）。
 
 state 分區（全部按 session_id 分區，防共用工作樹的隔壁 session 誤放行）：
   state["atom_ops"][sid]            = [{seq, turn_seq, op, atom, path, index_ok, ok, supersedes, old_path, new_path}]
   state["knowledge_harvest"][sid]   = {turn_seq, items, pending, validated, retired_paths, at, last_valid_harvest_turn, last_valid_op_seq}
   state["harvest_gate_turn"][sid]   = 本 session 已擋過 KnowledgeHarvest 的回合（使用者打字開的回合，stop._user_turn）
   state["harvest_pending_gate_turn"][sid] = 本 session 已擋過 Harvest-Pending 的回合（同上）
-本模組只讀寫傳入的 state dict，不落盤；write_state 由 handler 做。
+  state["pick_one"][sid]            = {asked_turn, covered_turn}（交付時那一問：上次問、上次答過的回合）
+state 只讀寫傳入的 dict，write_state 由 handler 做；帳本檔（workflow/tracking、workflow/harvest-ledger）由本模組直接追加。
 """
 from __future__ import annotations
 
@@ -356,6 +359,17 @@ _TRACK_PART_RE = re.compile(r"^(?:\[(?P<p1>[^\]]+)\]|(?P<p2>[^｜|：:]{1,20})[�
 
 _TRACK_CLOSE_RE = re.compile(r"^結案\s*[：:]\s*(?P<prefix>.+)$")
 TRACK_CLOSE_MIN_CHARS = 8
+# 追蹤項行尾的提議欄（G13：記問題也記怎麼解、該誰解）：「…｜建議：<做法>｜該誰解：<誰>」，順序不拘、可只寫一欄
+_TRACK_FIELD_SPLIT_RE = re.compile(r"\s*[｜|]\s*(建議怎麼解|建議|該誰解|誰解)\s*[：:]\s*")
+
+
+def _split_track_fields(line: str) -> Tuple[str, str, str]:
+    """追蹤項一行 → (本文, 建議, 該誰解)；沒寫的欄回空字串。要在認部位之前切：不然「問題｜建議：…」的問題會被當成部位。"""
+    parts = _TRACK_FIELD_SPLIT_RE.split(line)
+    fields: Dict[str, str] = {}
+    for label, value in zip(parts[1::2], parts[2::2]):
+        fields["owner" if "誰" in label else "proposal"] = value.strip()
+    return parts[0].strip(), fields.get("proposal", ""), fields.get("owner", "")
 
 
 def _sha16(raw: str) -> str:
@@ -370,7 +384,8 @@ def tracking_entry_id(entry: Dict[str, Any]) -> str:
 
 
 def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[str] = None) -> List[Dict[str, Any]]:
-    """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {id, session_id, turn_seq, at, part, text, status}。
+    """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {id, session_id, turn_seq, at, part, text, status}（行尾寫了
+    「｜建議：…｜該誰解：…」另帶 proposal／owner）。
     「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串。id 含行序，同批同文字的兩筆也不同。
     一般行 status＝open；`[部位] 結案：<原項目開頭>` → status＝closed、text＝前綴（closes 由 append_tracking 對帳本補上）。"""
     text = str(k_text or "").strip()
@@ -379,7 +394,7 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
     out: List[Dict[str, Any]] = []
     stamp = at or _now_iso()
     for idx, raw in enumerate(text.splitlines()):
-        line = raw.strip().lstrip("-•*").strip()
+        line, proposal, owner = _split_track_fields(raw.strip().lstrip("-•*").strip())
         if not line or line in ("無",):
             continue
         part, body = "", line
@@ -390,8 +405,9 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
         close = _TRACK_CLOSE_RE.match(body)
         row = {"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp, "part": part,
                "text": close.group("prefix").strip() if close else body, "status": "closed" if close else "open"}
+        extra = {k: v for k, v in (("proposal", proposal), ("owner", owner)) if v and not close}
         out.append({"id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + f"|{idx}"),
-                    **row})
+                    **row, **extra})
     return out
 
 
@@ -562,7 +578,7 @@ def tracking_block(items: List[Dict[str, Any]], budget: int) -> str:
     for e in items[:TRACK_INJECT_MAX_ITEMS]:
         t = str(e.get("text") or "")
         t = t if len(t) <= TRACK_INJECT_ITEM_CHARS else t[:TRACK_INJECT_ITEM_CHARS - 1] + "…"
-        line = f"- {t}（{str(e.get('at') or '')[:10]}）"
+        line = f"- {t}（{str(e.get('at') or '')[:10]}）" + _proposal_tail(e)
         if len("\n".join(lines + [line])) > budget:
             break
         lines.append(line)
@@ -571,6 +587,233 @@ def tracking_block(items: List[Dict[str, Any]], budget: int) -> str:
     if rest > 0:
         lines.append(f"- 另有 {rest} 筆")
     return "\n".join(lines)
+
+
+def _clip(s: Any, n: int) -> str:
+    s = str(s or "").strip()
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def _proposal_tail(e: Dict[str, Any]) -> str:
+    """追蹤項的提議欄接在行尾：「｜建議：…｜該誰解：…」；兩欄都沒寫回空字串。"""
+    tail = f"｜建議：{_clip(e.get('proposal'), 120)}" if str(e.get("proposal") or "").strip() else ""
+    return tail + (f"｜該誰解：{_clip(e.get('owner'), 40)}" if str(e.get("owner") or "").strip() else "")
+
+
+def proposal_lines(items: List[Dict[str, Any]], limit: int = 3) -> List[str]:
+    """SessionStart 開頭：仍未結、附了建議的追蹤項（交付時點出的最該修，或 (k) 行尾寫了「｜建議：」的），不分有沒有部位，
+    最新 limit 筆＋要 AI 在第一則回覆告訴使用者；沒有回 []。"""
+    picks = [e for e in items if str(e.get("proposal") or "").strip()]
+    if not picks:
+        return []
+    newest = sorted(picks, key=lambda e: str(e.get("at") or ""), reverse=True)[:limit]
+    lines = [f"[Guardian:Tracking] 之前交付時點出、還沒解的問題 {len(picks)} 件（附建議怎麼解；列最新 {len(newest)} 件）："]
+    for e in newest:
+        part = f"[{e['part']}] " if str(e.get("part") or "").strip() else ""
+        lines.append(f"- {part}{_clip(e.get('text'), 160)}（{str(e.get('at') or '')[:10]}）")
+        lines.append(f"  建議：{_clip(e.get('proposal'), 160)}"
+                     + (f"｜該誰解：{_clip(e.get('owner'), 40)}" if str(e.get("owner") or "").strip() else ""))
+    lines.append("第一則回覆開頭用一兩句白話告訴使用者這幾件還沒解、建議怎麼解（跟這次任務碰到同一塊的先說）；"
+                 "解掉的在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字>」（沒標部位就不帶部位）。")
+    return lines
+
+
+# ─── 交付時順手點出最該修的一件（v6 G4／G5／G13）────────────────────────────
+# 程式只管時點與記帳，判斷交 AI：寫碼交付時 Stop 送一次「這次看到的鄰近問題裡哪一件最該修」（只提醒、不擋），材料依部位分組、
+# 數字標參考；AI 回覆裡的「順手看到最該修」段記成追蹤項（附為什麼、為什麼不是數字最高的、建議怎麼解、該誰解），開場列出。
+# state["pick_one"][sid] = {asked_turn：上次問的回合, covered_turn：上次答過（記進帳本、帳上已有、或答「無」）的回合}
+# 「一批改動」以回合號分：問過之後同一回合裡的改動（順手修掉剛點出的那件、回應別道閘的修補）算同一次交付，不再問。
+
+PICK_HEAD = "順手看到最該修"
+_PICK_LABELS = (("why", "為什麼是它"), ("not_top", "為什麼不是數字最高"), ("proposal", "建議怎麼解"), ("owner", "該誰解"))
+_PICK_LINE_RE = re.compile(r"^[\s#*\-•]*(?:\d+[.、)]\s*)?(?P<label>[^：:\n]{2,24}?)\**\s*[：:]\s*(?P<value>.*?)\s*$")
+_PICK_NONE_RE = re.compile(r"^無(?:$|[\s，,。；;（(：:、])")
+PICK_MATERIAL_MAX_PARTS = 4
+
+
+def parse_pick(text: str) -> Optional[Dict[str, Any]]:
+    """回覆裡最後一段「順手看到最該修：…」＋其後的 為什麼是它／為什麼不是數字最高的那個／建議怎麼解／該誰解 → dict
+    {none, part, text, why, not_top, proposal, owner}（none＝寫了「無，因為…」）。標頭要在行首（前面可有清單符號、粗體），
+    引言（> 開頭）與 code block 裡的、句中順帶提到的都不算（解釋格式、引用舊回答不入帳）；照抄範本（含「哪一件」）不算；
+    不是「無」的要至少有「為什麼是它」或「建議怎麼解」。沒有回 None。"""
+    blocks: List[Dict[str, str]] = []
+    cur: Optional[Dict[str, str]] = None
+    fenced = False
+    for raw in (text or "").splitlines():
+        if raw.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        m = None if fenced or raw.lstrip().startswith(">") else _PICK_LINE_RE.match(raw)
+        if not m:
+            continue
+        label = m.group("label").strip().strip("*").strip()
+        value = m.group("value").strip().strip("*").strip()
+        if label.startswith(PICK_HEAD):
+            cur = {"head": value}
+            blocks.append(cur)
+            continue
+        key = next((k for k, lb in _PICK_LABELS if label.startswith(lb)), None) if cur is not None else None
+        if key and key not in cur:
+            cur[key] = value
+    for b in reversed(blocks):
+        head = b.get("head", "")
+        none = bool(_PICK_NONE_RE.match(head))
+        if not head or "哪一件" in head or not (none or b.get("why") or b.get("proposal")):
+            continue
+        part, body = "", head
+        pm = None if none else _TRACK_PART_RE.match(head)
+        if pm:
+            part, body = (pm.group("p1") or pm.group("p2") or "").strip(), pm.group("rest").strip()
+        return {"none": none, "part": part, "text": body,
+                **{k: b.get(k, "") for k, _ in _PICK_LABELS}}
+    return None
+
+
+def _pick_sec(state: Dict[str, Any], sid: str) -> Dict[str, Any]:
+    root = state.setdefault("pick_one", {})
+    return root.setdefault(sid, {}) if isinstance(root, dict) else {}
+
+
+def record_pick(state: Dict[str, Any], sid: str, turn_seq: int, text: str, cwd: str,
+                at: Optional[str] = None) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """text（交付的最後一則回覆）裡的「順手看到最該修」段 → (事件, parse_pick 的結果)；沒有那段回 None。事件：
+    recorded＝寫進本專案追蹤帳本一筆 open（source＝pick，帶 why／not_top／proposal／owner）；repeat＝帳上已有同部位同文字的未結項，
+    不重記（同一則回覆被看兩次、或下一批又點出同一件）；none＝答「無，因為…」，不進帳本；write_failed＝帳本寫不進去。
+    write_failed 以外都記下這批改動答過了（covered_turn）；寫失敗不算答過，下次照問、照記。"""
+    pick = parse_pick(text)
+    if pick is None:
+        return None
+    event = "none"
+    if not pick["none"]:
+        slug = tracking_slug(cwd)
+        if any(_part_eq(o.get("part"), pick["part"]) and str(o.get("text") or "").strip() == pick["text"]
+               for o in open_tracking_items(read_tracking(slug))):
+            event = "repeat"
+        else:
+            row = {"session_id": sid, "turn_seq": int(turn_seq or 0), "at": at or _now_iso(), "part": pick["part"],
+                   "text": pick["text"], "status": "open", "source": "pick"}
+            extra = {k: pick[k] for k, _ in _PICK_LABELS if pick.get(k)}
+            written = append_tracking(slug, [{
+                "id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + "|pick"),
+                **row, **extra}])
+            event = "recorded" if written else "write_failed"
+    if event != "write_failed":
+        _pick_sec(state, sid)["covered_turn"] = int(turn_seq or 0)
+    return event, pick
+
+
+def _mod_turn(m: Dict[str, Any]) -> int:
+    return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
+
+
+def pick_due(state: Dict[str, Any], sid: str, code_mods: List[Dict[str, Any]], boundary: bool) -> bool:
+    """該不該送「順手看到最該修」那一問：到了交付邊界（boundary），且本 session 在上次問過或記過之後又改了程式
+    （code_mods＝本 session 改過的程式檔紀錄）。同一批改動只問一次；AI 自己先寫了那段（covered_turn）也不再問。
+    改檔紀錄沒有回合號的不算新改動。"""
+    if not boundary or not code_mods:
+        return False
+    sec = (state.get("pick_one") or {}).get(sid) or {}
+    mark = max(int(sec.get("asked_turn") or 0), int(sec.get("covered_turn") or 0))
+    return any(_mod_turn(m) > mark for m in code_mods)
+
+
+def mark_pick_asked(state: Dict[str, Any], sid: str, turn_seq: int) -> None:
+    _pick_sec(state, sid)["asked_turn"] = int(turn_seq or 0)
+
+
+def _pick_smells(wo: Any, root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[str]:
+    """部位的壞味道報告（overview-hub 設了 smells_report 才有）前 2 名，附分數。"""
+    report = str(cfg.get("smells_report") or "").strip()
+    if not report:
+        return []
+    rp = Path(report) if Path(report).is_absolute() else root / report
+    if not rp.is_file():
+        return []
+    rows, _, _ = wo._smells_rows(rp)
+    mine = [r for r in rows if not r.get("part") or r["part"] in (row.get("part"), row.get("part_short"))]
+    mine.sort(key=lambda r: -float(r["score"]) if isinstance(r.get("score"), (int, float)) else 0)
+    return [f"{Path(r['path']).name}｜{r.get('category') or r.get('kind') or '?'}"
+            + (f"｜分數 {r['score']}" if isinstance(r.get("score"), (int, float)) else "") for r in mine[:2]]
+
+
+_LINE_COUNT_MAX_BYTES = 4 << 20
+
+
+def _line_counts(paths: List[str]) -> str:
+    """改到的檔各幾行（讀不到或超過 4MB 的略過），最多 3 個：「stop.py 1900 行、…」。"""
+    out = []
+    for p in paths[:3]:
+        try:
+            fp = Path(p)
+            if fp.stat().st_size <= _LINE_COUNT_MAX_BYTES:
+                n = fp.read_bytes().count(b"\n") + 1
+                out.append(f"{fp.name} {n} 行")
+        except OSError:
+            continue
+    return "、".join(out)
+
+
+def _pick_part_line(wo: Any, root: Path, row: Dict[str, Any], paths: List[str], config: Dict[str, Any]) -> str:
+    cfg = wo._cfg(config, root)
+    defects = [d.lstrip("- ").strip() for d in wo.defects_top_n(wo._cards_for(root, row, cfg), 2)]
+    items = tracking_items_for_part(tracking_slug(str(root)), [row.get("part"), row.get("part_short")])
+    smells = _pick_smells(wo, root, row, cfg)
+    sizes = _line_counts(paths)
+    bits = [f"影響到：{row.get('downstream') or '表上沒寫'}",
+            "已知病灶：" + ("；".join(_clip(d, 80) for d in defects) if defects else "導讀卡沒寫")]
+    if smells:
+        bits.append("壞味道報告前 2 名（分數只當參考）：" + "；".join(smells))
+    if sizes:
+        bits.append(f"這次改到的檔（行數只當參考）：{sizes}")
+    bits.append(f"未結追蹤項 {len(items)} 筆" + (f"，最新一筆：{_clip(items[-1].get('text'), 60)}" if items else ""))
+    return _clip(f"- 【{row['part_short']}】" + "；".join(bits), 400)
+
+
+def pick_material(code_paths: List[str], config: Dict[str, Any]) -> List[str]:
+    """改過的程式檔 → 依部位分組的材料，一部位一行：影響到誰（表上「下游」）、導讀卡已知病灶前 2 條、壞味道報告前 2 名附分數、
+    這次改到的檔行數、未結追蹤項筆數（數字都標參考）。不排名：部位照改檔先後；最多 PICK_MATERIAL_MAX_PARTS 個部位。
+    部位表查不到的檔列一行檔名。某部位的材料讀失敗就寫一句原因，不中斷其他部位。"""
+    try:
+        import wg_overview as wo
+    except ImportError as e:
+        return [f"- （讀不到部位表模組：{e}）"]
+    groups: Dict[Tuple[str, str], Tuple[Path, Dict[str, Any], List[str]]] = {}
+    loose: List[str] = []
+    for p in code_paths:
+        hit = wo._lookup_quiet(p)
+        if hit:
+            groups.setdefault((str(hit[0]), hit[1]["part_short"]), (hit[0], hit[1], []))[2].append(p)
+        else:
+            loose.append(Path(p).name)
+    lines: List[str] = []
+    for (_, short), (root, row, paths) in list(groups.items())[:PICK_MATERIAL_MAX_PARTS]:
+        try:
+            lines.append(_pick_part_line(wo, root, row, paths, config))
+        except Exception as e:  # noqa: BLE001
+            lines.append(f"- 【{short}】（材料讀不到：{type(e).__name__}: {e}）")
+    if len(groups) > PICK_MATERIAL_MAX_PARTS:
+        lines.append(f"- 另有 {len(groups) - PICK_MATERIAL_MAX_PARTS} 個部位沒列")
+    if loose:
+        lines.append("- 部位表查不到的檔：" + _clip("、".join(dict.fromkeys(loose)), 200))
+    return lines
+
+
+def pick_prompt(material: List[str]) -> str:
+    """交付時那一問的全文（Stop additionalContext）：材料＋要 AI 在回覆最後照格式寫的那一段。"""
+    return "\n".join([
+        "[Guardian:PickOne] 這次交付改了程式。收尾前順手掃一眼（只提醒、不擋；這批改動只問這一次）："
+        "這次讀到、改到的程式附近，哪一件最該修？",
+        "材料依部位分組（只是材料、不是排名；裡面的數字只當參考，不是挑選理由）：",
+        *(material or ["- （沒有材料：照你這次讀過、改過的程式判斷）"]),
+        "在給使用者的回覆最後加這一段（白話、照這幾行開頭寫、不要放進引言或 code block；系統會照這段記成追蹤項，"
+        "下次開 session 開頭會列出來）：",
+        f"{PICK_HEAD}：[部位] <哪一件、在哪個檔哪一段>",
+        "為什麼是它：<它影響誰、資料怎麼流、會不會反覆出事——用責任與影響說>",
+        "為什麼不是數字最高的那個：<材料或你看過的數字（行數、分數、筆數）裡最高的是哪個、為什麼不是它；沒看過任何數字就寫「沒有數字可比」>",
+        "建議怎麼解：<具體做法>",
+        "該誰解：<這個 session／下一個寫碼 session／使用者決定／根層記憶系統／其他專案>",
+        "跟這次同根、小、在範圍內的，直接修掉再交付，不用寫進來；真的沒看到值得修的，寫「順手看到最該修：無，因為…」。",
+    ])
 
 
 def append_ledger(sid: str, record: Dict[str, Any], base_dir: Optional[Path] = None) -> None:
