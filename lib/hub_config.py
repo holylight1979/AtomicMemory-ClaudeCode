@@ -251,6 +251,9 @@ def validate_min_map(mm: Any) -> List[str]:
     t = mm.get("preview_timeout_s")
     if isinstance(t, bool) or not isinstance(t, (int, float)) or not 0 < t <= _HOOK_BUDGET_S:
         errors.append(f"min_map.preview_timeout_s 必須是大於 0、不超過 {_HOOK_BUDGET_S} 的秒數（hook 整體預算）")
+    return errors
+
+
 def validate_equivalence(eq: Any) -> List[str]:
     """equivalence：只有 enabled 一鍵，是 true／false。"""
     if not isinstance(eq, dict):
