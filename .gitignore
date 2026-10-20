@@ -197,6 +197,7 @@ _AIDocs/**/attachments/**/obj/
 
 # 執行期：總控台信箱與根層自己的部位表
 workflow/inbox/
+workflow/old-test-snap/
 workflow/second-opinion/
 workflow/verify-ledger/
 workflow/verify-scope/

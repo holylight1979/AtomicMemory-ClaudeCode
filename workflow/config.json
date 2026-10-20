@@ -90,9 +90,7 @@
     "dedup_score": 0.8,
     "dedupe_declaration": true,
     "_doc_dedupe": "P8 去重交 AI 判：相似度達 dedup_score 不再直接拒寫，回候選卡要 AI 帶 dedupe={verdict: same|supersedes|different, of, why} 重送；same 走 append、supersedes 併進 Supersedes、different 照常，留帳 dedupe_declared。品質分數只分寫／不寫（quality_floor，舊 ask 級已拿掉）。dedupe_declaration=false 回舊行為（tools/memory-write-gate.py）。",
-    "skip_on_explicit_user": true,
-    "hub_card_budget": 4096,
-    "_doc_hub_card_budget": "導讀卡（kind_hint=hub、標題含「導讀」或五段齊）knowledge 區預算 bytes；根層固定 4096，值住 lib/hub_card.py HUB_CARD_BUDGET，改這裡不生效，改 py。一般卡仍用 knowledge_budget_bytes（預設 3072）。"
+    "_doc_hub_card_budget": "導讀卡（kind_hint=hub、標題含「導讀」或五段齊）knowledge 區預算固定 4096 bytes，值住 lib/hub_card.py HUB_CARD_BUDGET、不開放設定（G8 掃出死鍵 hub_card_budget／skip_on_explicit_user 已刪）；一般卡用 knowledge_budget_bytes（預設 3072）。"
   },
   "episodic": {
     "auto_generate": true,
@@ -103,14 +101,11 @@
   "cross_session": {
     "enabled": true,
     "min_score": 0.75,
-    "promote_threshold": 2,
-    "suggest_threshold": 4,
     "timeout_seconds": 5
   },
   "self_iteration": {
     "decay_half_life_days": 30,
     "promote_confirmations_threshold": 4,
-    "promote_min_confirmations": 20,
     "archive_score_threshold": 0.3,
     "_doc_auto_commit": "舊鍵 auto_commit_promotions / auto_push_promotions 已由 vcs_sync.enabled / vcs_sync.push 接管（晉升 sweep 後改 spawn vcs-sync worker）；鍵保留供相容讀取，實際開關以 vcs_sync 為準。",
     "auto_commit_promotions": true,
@@ -184,8 +179,6 @@
     "enabled": true,
     "session_end_max_chars": 20000,
     "session_end_max_items": 5,
-    "session_end_timeout_seconds": 10,
-    "classification_default": "[臨]",
     "per_turn": {
       "_disabled_2026_07_01": "調整式拔除：auto-capture 草稿為 write-only 死路（0 下游消費；DedupStage 實跑 0/16）。停產。失敗萃取(failure_extraction)與 episodic 生成保留。回滾：改回 true。",
       "enabled": false,
@@ -239,7 +232,6 @@
   },
   "userExtraction": {
     "enabled": true,
-    "mode": "production",
     "tokenBudget": 240
   },
   "parallel_agents": {
@@ -400,7 +392,6 @@
     "auto_migrate": true,
     "llm_fallback": {
       "enabled": false,
-      "backend": "ollama",
       "max_per_session": 5,
       "min_confidence": 0.7,
       "_comment": "SessionEnd sweep 對詞庫 miss 的 unknown-core atom 喚本地 LLM 判 realm+階層 domain。基礎設施失敗→defer 留原地(不誤降級)；unsure/低信心→Else；local≥min_confidence→搬+學詞。protected 永不喚 LLM。enabled=false 則只跑 deterministic 詞庫(含 learned)。"
@@ -808,8 +799,7 @@
         "pytest_summary": true
       }
     ],
-    "vcs_budget_s": 1.5,
-    "ledger_sources": []
+    "vcs_budget_s": 1.5
   },
   "reconcile_gate": {
     "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；每次 Stop 都判，主 session、SubagentStop、裁判 Stop 共用 _verify_gates；判定出例外一律擋）：收尾宣稱 vs 驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令），宣稱看最後一句（優先 hook 輸入的 last_assistant_message）以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本回合對得上改檔的 PASS：收據要晚於每個對上的改檔、同一棵樹（收據根與改檔根互為上下層都算）、指令能當一般證據（只有執行程式的指令：直譯器、測試與建置工具、腳本檔；多段只准 && 串、輸出不導走；指令任何地方寫了哨兵字樣或夾了讀檔、印字就不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（執行根自己那支 run_verify.py／無檔名 pytest／部位量尺指令，只涵蓋執行根之下的改檔）、或修改檔所在 verify 目錄；改檔所在部位有合格的 run_verify 自寫收據（workflow/verify-ledger/_runs/，argv 對上量尺、改完才開始跑、同一棵樹、全綠）也算。(b) 說量了要能當證據的 DONE 或合格自寫收據 (c) 說試過要本回合有 exec_tools 呼叫 (d) 改了 code_exts 檔要有成立的「由哪個案例驗」宣告（need_goal verify_scope 項目的 case_for：案例檔本 session 新寫或改過、那一項改完之後跑綠；不需要新案例就宣告 no_case 附理由，照擋、照【收尾放行確認】問使用者；改了別支測試不替它清帳；PASS 不能代替；跨回合、不看措辭）；驗證範圍閘關掉時退回舊判法：改碼之後同根沒有仍存在的案例檔被新增或修改就擋。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比；測試目錄或 test_／_test／.test／.spec 這類檔名，檔名裡剛好含 test 的產品檔不算；測試檔不在這些慣例裡的專案自己加樣式）；改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；判不出來照算改了）不算改碼；部位表類別 knowledge 的部位（文件、記憶、派工信箱）下的檔兩邊都不算（不欠案例、不能替寫碼部位清帳；判法看路徑屬哪一列不看副檔名，沒有部位表照舊）。(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。預算：(a)～(d)＋量尺閘共用獨立預算 max_blocks_per_turn（不吃 stop_gate_max_blocks），擋滿不放行：記 pending 跨回合承接，要用 AskUserQuestion 照【收尾放行確認】問使用者；使用者在最後一次擋之後選放行或整句打「放行」才放這一回合，並記 user_release（Logs/guard-<閘>.jsonl event=user_release，週健檢列 red）；子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬記憶與報告類，照舊第 3 次放行並寫 Logs/guard-reconcile_overflow.jsonl（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
@@ -841,7 +831,15 @@
     "enabled": false,
     "runtime_gate_timeout_s": 2
   },
-  "tool_selftests": [],
+  "tool_selftests": [
+    {
+      "name": "config-consistency",
+      "cmd": "python -X utf8 tools/config-consistency.py --notes workflow/config-consistency-notes.json --out memory/_staging/g8-config-consistency-report.md",
+      "expected": "DONE",
+      "sentinel": "CONFIG_CONSISTENCY",
+      "timeout_s": 120
+    }
+  ],
   "_doc_tool_selftests": "週健檢（tools/health-weekly.py）逐筆跑的工具自測：每項 {name, cmd, expected: PASS|FAIL|DONE, sentinel?: 哨兵名, runtime_gate?: 指令, timeout_s?}。只認輸出的最後非空行哨兵；exit 非零時 expected PASS／DONE 一律紅、expected=FAIL 才綠；runtime_gate 非 0 → 跳過不紅。cmd 用 shlex 切、反斜線先換正斜線。例：{\"name\": \"replay-guard\", \"cmd\": \"python -X utf8 tools/replay-guard.py pre --prompt hooks/verify/fixtures/v6/q7/selftest_pass.py --sandbox workflow\", \"expected\": \"PASS\", \"timeout_s\": 30}",
   "depends_coverage_min": 0,
   "_doc_depends_coverage_min": "週健檢 Depends 覆蓋率門檻（有 path 型 Depends 的 atom 數／總數）；低於門檻黃燈。0＝只進報表不判。"

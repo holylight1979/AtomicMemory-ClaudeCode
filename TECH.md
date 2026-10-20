@@ -1065,9 +1065,9 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `injection.redundancy_gate.min_shared_triggers` | 3 | 同題去冗 |
 | `injection.related_gate.max_related` / `skip_demoted` | 6 / true | related spread |
 | `injection.truncated_pointer_max` | 3 | 總額裁切犧牲者指標行數 |
-| `response_capture.session_end_max_chars` / `session_end_max_items` / `session_end_timeout_seconds` | 20000 / 5 / 10 | SessionEnd 全量萃取 |
+| `response_capture.session_end_max_chars` / `session_end_max_items` | 20000 / 5 | SessionEnd 全量萃取（萃取是脫離主程序的 worker，沒有逾時鍵；舊鍵 `session_end_timeout_seconds` 無讀取端，G8 刪） |
 | `response_capture.failure_extraction.cooldown_seconds` / `max_items` | 180 / 2 | 失敗萃取 |
-| `response_capture.per_turn.enabled` / `session_end_flush.enabled` | false / false | 已停產（改 true 回滾） |
+| `response_capture.per_turn.enabled` / `session_end_flush.enabled` | false / false | 已停產；程式已無讀取端，改 true 不會回滾（要回滾得 revert 程式），鍵只是紀錄 |
 | `userExtraction.tokenBudget` | 240 | 使用者決策萃取每 session 預算 |
 | `episodic.auto_generate` / `min_files` / `min_duration_seconds` | true / 1 / 120 | episodic 生成 |
 | `harvest.enabled` / `min_turns` / `min_accessed` / `min_turns_between` | true / 3 / 5 / 3 | 階段收割 Stop 閘（§6.3）：活動門檻與冷卻；缺整段＝機制關 |
@@ -1109,7 +1109,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `vector_search.auto_start_service` | SessionStart 不再自動起向量服務 |
 | `response_capture.enabled` | 全部自動萃取（SessionEnd 全量、失敗萃取） |
 | `response_capture.failure_extraction.enabled` | 只關失敗關鍵字萃取 |
-| `response_capture.per_turn.enabled` / `response_capture.session_end_flush.enabled` | 預設 false，已停產，值保留供回滾（§14.2） |
+| `response_capture.per_turn.enabled` / `response_capture.session_end_flush.enabled` | 預設 false，已停產；無讀取端，改 true 不會回滾（§14.2） |
 | `userExtraction.enabled` | 使用者決策萃取（L0→L1→L2）；只想降負擔改 `userExtraction.tokenBudget` |
 | `deep_postmortem.enabled` | 高 effort 失敗時要求 Claude 深寫 post-mortem 的 Stop 閘 |
 | `cross_session.enabled` | 跨 session 去重／衝突偵測 |
@@ -1173,7 +1173,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 
 | 機制 | 停產原因 | 回滾開關 | 細節 |
 |------|---------|---------|------|
-| per-turn 逐輪萃取（Stop） | auto-capture 草稿 write-only 死路：0 下游消費、DedupStage 實跑 0/16 | `response_capture.per_turn.enabled=true` | `_AIDocs/DevHistory/auto-memory-writeback.md` |
+| per-turn 逐輪萃取（Stop） | auto-capture 草稿 write-only 死路：0 下游消費、DedupStage 實跑 0/16 | 程式已無讀取端，`per_turn.enabled` 改 true 無效；要回滾得 revert 拔除那次 commit | `_AIDocs/DevHistory/auto-memory-writeback.md` |
 | SessionEnd 草稿 flush | 同上 | `response_capture.session_end_flush.enabled=true` | 同上 |
 | quick-extract.py 快篩 + Hot Cache | Stop hook 撤除後成孤兒，腳本已刪；hooks 已無 hot cache 讀寫路徑（只剩關鍵字清單殘留），`workflow/hot_cache.json` 不再產生 | 無（需從 git 歷史還原） | `_AIDocs/DevHistory/memory-pipeline.md` |
 | 跨 session Confirmations 晉升軌 | 資料源（per-turn 萃取）停產，全庫 confirmation_events=0 | `cross_session.*` 值保留（唯一消費端在未啟動的全量 worker 內，開關無行為差異） | §6.4 |
