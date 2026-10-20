@@ -7523,6 +7523,37 @@
         "請使用者轉告"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai",
+      "path": "memory/Failures/工作流/feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai.md",
+      "triggers": [
+        "接續單",
+        "next-phase",
+        "checklist",
+        "給使用者看",
+        "待決",
+        "編號對照",
+        "交接文件",
+        "人讀"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況",
+      "path": "_AIDocs/_atoms/MemDev/量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況.md",
+      "triggers": [
+        "量測被擋次數",
+        "閘的成效",
+        "擋下次數",
+        "時間窗",
+        "基準窗",
+        "MeasureGate",
+        "拔掉哪道閘",
+        "stop_measure",
+        "收尾空轉量測"
+      ],
+      "scope": "global"
     }
   ]
 }
