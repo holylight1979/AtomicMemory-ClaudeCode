@@ -8048,6 +8048,23 @@
       "related": [
         "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
       ]
+    },
+    {
+      "name": "一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過",
+      "path": "_AIDocs/_atoms/MemDev/一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過.md",
+      "triggers": [
+        "MOVED_NEW_CODE_SEEN",
+        "啟動器刪掉",
+        "搬走的程式",
+        "副本候選",
+        "vanished_code_paths",
+        "moved_copy_candidates",
+        "small_content_sha",
+        "從沒進 git",
+        "gone_verdict",
+        "一次性檔"
+      ],
+      "scope": "global"
     }
   ]
 }

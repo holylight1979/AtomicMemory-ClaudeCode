@@ -73,6 +73,7 @@
 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 |
 | worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒 | worktree隔離session改部位檔被OverviewHub閘連擋-證據只認Read事件與Bash註解三行-git-C-live與python-heredoc與變數路徑一律被拒 |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
+| 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 | 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊None被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 |
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 |
 | 使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接 | 使用者放行的判定要防偽造-只認tool_use_id對到AskUserQuestion的答案-打字放行要整句嚴格比對-跨回合要承接 |
