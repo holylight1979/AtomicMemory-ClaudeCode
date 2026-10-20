@@ -1704,7 +1704,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 這個 session 被病形閘擋過之後，unstage／改提交範圍／--no-verify 讓同一批內容過關 → 要宣告「不是繞閘｜理由」，沒宣告就擋；
     # 事實與判定在 hooks/wg_gate_bypass.py
     deny_reason = wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
-                                       input_data.get("transcript_path", "") or "")
+                                       input_data.get("transcript_path", "") or "",
+                                       agent_id=str(input_data.get("agent_id") or ""))
     if deny_reason:
         output_json({
             "hookSpecificOutput": {
@@ -1768,6 +1769,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         break
                     _w, _d, _c = _hub_on_edit(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
+                        agent_id=str(input_data.get("agent_id") or ""),
                     )
                     hub_changed = hub_changed or _c
                     if _w:

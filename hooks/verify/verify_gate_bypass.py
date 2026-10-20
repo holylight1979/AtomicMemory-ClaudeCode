@@ -204,6 +204,31 @@ def test_declaration_in_command_comment_counts(env, tmp_path):
     assert [e["via"] for e in env.events() if e["event"] == "declared"] == ["command"]
 
 
+@pytest.mark.parametrize("hook_gives", ["main", "agent"])
+def test_subagent_declaration_in_its_own_transcript_counts(env, tmp_path, hook_gives):
+    """子代理被病形閘擋、在自己的回覆寫「不是繞閘｜…」：對話在 <sid>/subagents/agent-<id>.jsonl，hook 給主檔或子代理檔都要認得到。"""
+    agent_id = "ae3c716a6fc9ec36b"
+    main = tmp_path / f"{SID}.jsonl"
+    main.write_text("".join(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": f"主 session 第 {i} 段"}]}},
+                                       ensure_ascii=False) + "\n" for i in range(40)), encoding="utf-8")
+    agent = tmp_path / SID / "subagents" / f"agent-{agent_id}.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(json.dumps({"type": "user", "message": {"content": "提交通知模組"}}, ensure_ascii=False) + "\n", encoding="utf-8")
+    env.transcript = main if hook_gives == "main" else agent
+    repo = _qa_notify(tmp_path)
+    _blocked(env, repo)
+    with open(agent, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
+                "text": "不是繞閘｜retry.py 是建環境時別人放的，不屬本次需求，病交原作者修"}]}}, ensure_ascii=False) + "\n")
+    env.out.clear()
+    ptu.handle_pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "git restore --staged notify/retry.py"}, "cwd": str(repo),
+                             "session_id": SID, "agent_id": agent_id, "transcript_path": str(env.transcript)}, env.config)
+    denies = [((o or {}).get("hookSpecificOutput") or {}).get("permissionDecisionReason") for o in env.out
+              if ((o or {}).get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"]
+    assert not denies, denies
+    assert [e["via"] for e in env.events() if e["event"] == "declared"] == ["text"]
+
+
 def test_placeholder_declaration_does_not_count(env, tmp_path):
     repo = _qa_notify(tmp_path)
     _blocked(env, repo)

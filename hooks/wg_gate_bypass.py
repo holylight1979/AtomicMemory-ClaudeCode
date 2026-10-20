@@ -168,6 +168,7 @@ def note_smell_deny(state: Optional[Dict[str, Any]], session_id: str, cwd: str, 
             "at": time.strftime("%Y-%m-%d %H:%M:%S"), "vcs": vcs, "root": root, "files": files,
             "committing": committing[:200], "command": (tool_input.get("command", "") or "")[:300],
             "transcript_offset": _transcript_size(transcript_path),
+            "transcript_offsets": wg_core.transcript_sizes(transcript_path),     # 主檔＋各子代理檔各記一個起點
         }
         _persist(session_id, state)
     except Exception as e:  # noqa: BLE001
@@ -388,17 +389,20 @@ _DECLARE_COMMENT_RE = re.compile(r"^[ \t]*#[ \t]*不是繞閘[ \t]*[｜|][ \t]*(
 _DECLARE_LINE_RE = re.compile(r"^[ \t]*(?:[-*][ \t]+|#[ \t]*)?不是繞閘[ \t]*[｜|][ \t]*(.+)$", re.MULTILINE)
 
 
-def find_declaration(command: str, transcript_path: str, offset: int) -> Optional[Tuple[str, str]]:
-    """宣告行「不是繞閘｜<理由>」→ (理由, 管道)：先看這條指令本身，再看擋下之後（offset 起）transcript 的三管道；
+def find_declaration(command: str, transcript_path: str, offset: int, agent_id: str = "",
+                     offsets: Optional[Dict[str, int]] = None) -> Optional[Tuple[str, str]]:
+    """宣告行「不是繞閘｜<理由>」→ (理由, 管道)：先看這條指令本身，再看擋下之後 transcript 的三管道——主檔與子代理檔都看
+    （wg_core.assistant_texts_since；起點 offsets 各檔各記，沒有就用舊的單一 offset）；
     理由要有文字內容、不是擋訊息範例的角括號佔位（wg_release_rules.reason_present）。沒有回 None。
     理由合不合理、是不是在否定語境裡引用，程式不判：宣告與理由全文留帳 declared 給人抽查。"""
     import wg_release_rules as rr
     lib = str(Path(__file__).resolve().parents[1] / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
-    from overview_hub import LOCATE_CHANNELS, assistant_text_after
+    from overview_hub import LOCATE_CHANNELS
     sources = [("command", command, _DECLARE_COMMENT_RE)] + [
-        (ch, assistant_text_after(transcript_path, offset, ch), _DECLARE_COMMENT_RE if ch == "tool_input" else _DECLARE_LINE_RE)
+        (ch, wg_core.assistant_texts_since(transcript_path, agent_id, ch, offsets, offset),
+         _DECLARE_COMMENT_RE if ch == "tool_input" else _DECLARE_LINE_RE)
         for ch in LOCATE_CHANNELS]
     for via, text, rx in sources:
         for m in reversed(list(rx.finditer(text or ""))):
@@ -437,8 +441,20 @@ def _deny_text(v, last: Dict[str, Any]) -> str:
     ))
 
 
+def _merged_offsets(records: Sequence[Any]) -> Optional[Dict[str, int]]:
+    """擋下那筆與之後各次宣告記的各檔起點，每個檔取最晚的；都沒有各檔起點（舊紀錄）回 None。"""
+    dicts = [r for r in records if isinstance(r, dict)]
+    if not dicts:
+        return None
+    out: Dict[str, int] = {}
+    for d in dicts:
+        for k, v in d.items():
+            out[k] = max(out.get(k, 0), int(v or 0))
+    return out
+
+
 def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any],
-          state: Optional[Dict[str, Any]], session_id: str, transcript_path: str) -> Optional[str]:
+          state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, agent_id: str = "") -> Optional[str]:
     """PreToolUse GateBypass 段：嫌疑序列沒宣告 → 擋訊息；其餘 None。state 有改（清帳、記宣告）就寫回 state 檔。
     重掃判不了當病還在；其他非預期錯誤 stderr 後放行（本閘守的是繞法，帶病的提交病形閘本身照擋）。"""
     if tool_name not in ("Bash", "PowerShell") or not enabled(config) or not state:
@@ -474,11 +490,13 @@ def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str
         _log("suspect", session_id, root=last.get("root"), files=sick, facts=facts, command=command[:300])
         # 同一組檔宣告過、內容又變了（另一批內容）：只認上一次宣告之後新寫的宣告行
         offset = max([int(last.get("transcript_offset") or 0)] + [int(d.get("offset") or 0) for d in prior])
-        decl = find_declaration(command, transcript_path, offset)
+        offsets = _merged_offsets([last.get("transcript_offsets")] + [d.get("offsets") for d in prior])
+        decl = find_declaration(command, transcript_path, offset, agent_id, offsets)
         v = rr.gate_bypass_verdict(denied, facts, decl[0] if decl else "")
         if not v.owed:
             state.setdefault(DECLARED_KEY, []).append({"key": key, "group": group, "reason": decl[0], "via": decl[1],
                                                         "offset": _transcript_size(transcript_path),
+                                                        "offsets": wg_core.transcript_sizes(transcript_path),
                                                         "at": time.strftime("%Y-%m-%d %H:%M:%S")})
             _log("declared", session_id, root=last.get("root"), files=sick, facts=facts, reason=decl[0], via=decl[1])
             _persist(session_id, state)

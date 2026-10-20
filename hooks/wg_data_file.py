@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import append_guard_log, read_state_status, user_typed_prompts, user_typed_text, write_state
+from wg_core import append_guard_log, read_state_status, transcripts_of, user_typed_prompts, user_typed_text, write_state
 import wg_release_rules as _rr
 
 GUARD = "data_file"
@@ -82,20 +82,6 @@ def _transcript_user_texts(transcript_path: str) -> List[str]:
         if typed:
             out.append(typed)
     return out
-
-
-def transcripts_of(transcript_path: str, agent_id: str) -> Tuple[str, List[str]]:
-    """(主 session 的 transcript, 要找宣告的 transcript 清單)。子代理的對話在 <sid>/subagents/agent-<agent_id>.jsonl、
-    主 session 是同層的 <sid>.jsonl：hook 給哪一份都一樣——宣告兩份都讀（子代理寫在自己回覆裡的也算），
-    使用者原話只認主檔（子代理檔裡的 user 訊息是 AI 寫的派工 prompt）。"""
-    if not transcript_path:
-        return "", []
-    p = Path(transcript_path)
-    if p.parent.name == "subagents":
-        main = str(p.parent.parent) + ".jsonl"
-        return main, [main, str(p)]
-    agent = p.with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl" if agent_id else None
-    return str(p), [str(p)] + ([str(agent)] if agent is not None and agent.exists() else [])
 
 
 def session_prompts(state: Dict[str, Any], transcript_path: str) -> List[str]:
