@@ -4,11 +4,13 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 T2.19 補件：宣告行不留在卡裡、別人合併後的還原不算改碼、Git Bash 的 cd /c/ 認得出 repo
+- **交給 AI 寫程式時會看到的**：卡片第一行的「不是教繞閘｜理由」只給寫入閘看，寫進卡片時拿掉；總控台把 main 合進工作分支後，工作軌「退回舊版看紅再還原」不再被收尾閘當成改程式欠案例；Bash 下 `cd /c/… && git commit …` 不再被 commit 前各閘當成判不了而擋。細節見 TECH §7.5 與寫碼查核豁免表。
 ## 2026-10-20 G8 根基：設定鍵一致性量測工具（只量不改）
 - **新工具** `tools/config-consistency.py`：掃一次「每個設定鍵在每個執行端是否一致生效」——程式讀了卻沒定義、config.json 定義了沒人讀、同鍵各處預設不同、不經 `claude_data_dir` 自己算資料根，四類列成報告（`--out`／`--json`），鍵名是變數或整段被傳走的列「判不了」不猜；尾行 `CONFIG_CONSISTENCY DONE keys=… read_not_defined=… defined_not_read=… default_mismatch=… path_self_computed=…`（量尺，不印 PASS）。案例 `tools/verify/verify_config_consistency.py`（假樹四類各一筆＋動態鍵＋測試檔不算讀取端）。本樹首跑報告交總控台落 `memory/_staging/g8-config-consistency-report.md`；修不一致是後續軌的事。
 
 ## 2026-10-20 AI 要改你既有的資料檔／設定檔，先問或先宣告一行（T2.16）
-- **使用者看到的**：AI 改你的 `settings.json`、`.yaml`、`.csv` 這類資料或設定檔（不是程式、不是它這次自己建的、你沒點名要改它）之前，會先問你，或先在回覆寫一行「動資料檔｜settings.json：為什麼要動、動了你會看到什麼」；沒寫就被擋下（驗收題 B 那次「順手修多逗號、幣別從 USD 變 TWD」不會再悶聲發生）。你在需求裡講到檔名就不用宣告；同一場對話同一個檔宣告一次就好。該不該改仍由 AI 判斷，程式只查四件事實與那一行在不在；每次擋下、宣告、豁免都記在 `Logs/guard-data_file.jsonl`。哪些副檔名算資料檔、整條開關在 `workflow/config.json` 的 `guard.data_file_ask`。用 Bash／PowerShell 改（`sed -i`、`Set-Content`、`>`）也一樣要先宣告，一條指令改好幾個資料檔就每個都要說；AI 用 `>` 自己新建的檔之後再改不用問。案例 `hooks/verify/verify_data_file_ask.py`（舊碼 14 紅、Bash 段在只管 Edit 的版本上 7 紅）。細節見 TECH §7.5 DataFileAsk。
+- **使用者看到的**：AI 改你的 `settings.json`、`.yaml`、`.csv` 這類資料或設定檔（不是程式、不是它這次自己建的、你沒點名要改它）之前，會先問你，或先在回覆寫一行「動資料檔｜settings.json：為什麼要動、動了你會看到什麼」；沒寫就被擋下（驗收題 B 那次「順手修多逗號、幣別從 USD 變 TWD」不會再悶聲發生）。你在需求裡講到檔名就不用宣告；同一場對話同一個檔宣告一次就好。該不該改仍由 AI 判斷，程式只查四件事實與那一行在不在；每次擋下、宣告、豁免都記在 `Logs/guard-data_file.jsonl`。哪些副檔名算資料檔、整條開關在 `workflow/config.json` 的 `guard.data_file_ask`。用 Bash／PowerShell 改（`sed -i`、`Set-Content`、`>`）也一樣要先宣告，一條指令改好幾個資料檔就每個都要說；AI 用 `>` 自己新建的檔之後再改不用問；子代理寫在自己回覆裡的宣告也認得到，派給子代理的工作說明不會被當成你的話。收尾的宣稱行、不做行理由裡引用 `<幣別>` 這類標籤不再被當成沒寫理由，照抄範本留著 `<理由>` 仍照擋。案例 `hooks/verify/verify_data_file_ask.py`（舊碼 14 紅、Bash 段在只管 Edit 的版本上 7 紅）。細節見 TECH §7.5 DataFileAsk。
 ## 2026-10-20 目標樹標「使用者說的」要對得到原話（T2.18 根治自作主張③）
 - **交給 AI 寫程式時會看到的**：AI 把子目標標成「使用者說的」時要引用你說過的原句（quote）；引不到、或那句其實是同伴 session 說的，節點會被自動改成「推出來的」，AI 當下和你下一則訊息時各被提醒一次；之後改寫這類節點的文字也重核；很早或很長訊息裡的原話也引得到。樹根不再標「使用者說的」，一律顯示「AI 的解讀」，而且開樹、改寫、匯入時會列出樹根裡你原話沒有的句子提醒一次。從續接單匯入的子節點匯入當下不核。開關 `guard.origin_user_check.enabled`。細節 TECH §7.7。
 - **依據與驗證**：驗收題 C 第二段新 session 把自己從 git diff 推論的需求標成使用者說的。`hooks/verify/verify_origin_user_check.py` 15 案（含該題真實輸入），舊碼紅；Codex 審查抓到「只改文字不重核」已補；該題「舊報表不被這次改動弄壞」實際寫在樹根，所以樹根改顯示「AI 的解讀」並列句提醒。
@@ -18,10 +20,21 @@
 ## 2026-10-20 T2.19：被病形閘擋過之後不能悄悄換提交範圍過關，繞閘知識卡拒寫
 - **交給 AI 寫程式時會看到的**：commit 被病形閘擋下後，AI 若把被點名的檔移出暫存、改用 pathspec 只提交別的檔、或加 `--no-verify`，而那個檔的病還在，會被擋並要求寫一行「不是繞閘｜<這批檔是誰的、為什麼不該進這筆、病要誰修>」；寫了就放行並留帳給人抽查，同一組檔不再問；病修掉就不問。卡片內容同時提到 Guardian 的閘又在教怎麼改暫存區／改提交範圍（例：「繞法要拆三步」）會被拒寫，要改寫成「為什麼那批檔不該進這筆」。細節見 TECH §7.5 GateBypass。
 - **依據與驗證**：第一波驗收題 A-1 的擋訊息、AI 之後真的下過的三條指令與它寫的那張卡原文當案例（`hooks/verify/verify_gate_bypass.py`），舊碼全放行、新碼擋與拒寫。
+## 2026-10-20 判斷入口盤點 P8：記憶寫入去重交 AI 判（同一條／取代／不同），不再拿相似度分數直接拒寫
+- **AI 寫卡時會看到的**：`atom_write` 新內容和既有卡相似度達 `dedup_score`（0.8；指標卡 0.95）時不寫檔，回最多 3 張候選卡（卡名、分數、層、知識段前 2 行）與三種寫法；AI 帶 `dedupe={verdict, of, why}` 重送：`same` 知識段改併入那張卡（走既有 append，預算／realm 閘照跑，回覆開頭講改併入哪張）、`supersedes` 寫新卡並以 Supersedes 標那張、`different` 照常寫。程式只核 verdict 三選一、of 是候選卡名（不同層同名寫 `<layer>:<卡名>`）、why 有字；收下記 audit `dedupe_declared`。改名取代舊卡不再被當重複擋死。沒命中、向量服務沒起照舊直接寫；`write_gate.dedupe_declaration=false` 回舊行為。品質分數的「0.3～0.5 問」一級拿掉（MCP 從沒接、一律照寫），只分寫／不寫，線沿用原 `ask_threshold`（新鍵 `quality_floor`）。
+- **改了什麼**：`tools/memory-write-gate.py`（`check_dedup` 回候選、`dedupe_problems`／`declaration_request`、evaluate 去重分支）；MCP `lib/atom-tools.js`（`need_declaration` 轉述、same 重進 append、supersedes 併入）、`funnel.js`（stdin 多傳 `dedupe`）、`mcp.js`（atom_write schema 加 `dedupe`）。要宣告時 py 回 `action=skip`＋`need_declaration`：合併後還沒 Reload Window 的舊 MCP 照樣拒寫（實測），不會把相似內容當放行。
+- **驗證**：新 `tools/verify/verify_memory_write_gate_dedupe.py`（含真卡改名打 live 向量：舊碼 update 拒寫、新碼列候選、宣告 supersedes 後放行，score 0.905）、新 `tools/workflow-guardian-mcp/verify/verify_atom_write_dedupe.js`（隔離資料根真落檔），兩支在舊碼上紅、新碼綠；舊碼 vs 新碼（開關關掉）120 組輸入對拍：102 組全同、18 組只差品質分級那一步、0 組其他差異。codex 一輪 1 BLOCK（自訂 `ask_threshold` 被忽略）已修，另兩處「替 AI 判斷」的固定規則（why 至少 2 字、跨層同名只列一張）一併改掉。
+- **沒做、留著**：衝突偵測 0.85 門檻（`memory-conflict-detector`）、realm 閘用「此專案」字樣判專案專屬，同屬判斷入口盤點，另排。
 
 ## 2026-10-20 G2 擴充：commit 前多擋六種病形，判不準的只提醒
 - **交給 AI 寫程式時會看到的**：commit 時，新寫進的「一整段邏輯塞進匿名回呼（超過 20 行）」「`x = lambda`」「函式巢狀 4 層以上」「巢狀三元」「Unity 空的 Update 之類」「Update 裡每幀 Find／AddComponent／反射」也會被擋並點名哪個檔第幾行（巢狀附幾層、回呼附幾行）；10～20 行的匿名回呼、字串註解剝不乾淨的檔只提醒不擋；舊函式本來就深、這次沒變深的不擋。測試框架的 describe／it 回呼、promise 回呼用到外層變數的不算套層。門檻在 `workflow/config.json` 的 `guard.smell_gate` 可調。
 - **依據與驗證**：派工 002 提案（linter 原始碼與文獻＋實測，`workflow/inbox/from-track-g2/002-smell-shapes-proposal.md`）、派工 003 核可。`hooks/verify/verify_smell_gate.py` 新 23 案，每條病形一個先紅後綠＋至少一個誤判反例；在本 repo 與一個 3704 檔的 C# 伺服器專案上校準，抓到並修掉兩類誤擋（伺服器模組的 `Update()` 被當成 Unity 訊息、C# 運算式主體屬性被當成 lambda）。本機沒有 Unity 專案，Unity 兩條只有案例驗過、沒有在真實 Unity 專案上校準。改完閘本身也被自己擋了一次（新寫的函式巢狀 4 層），已改平。
+## 2026-10-20 G9 自動第二意見：大任務或改到閘本體宣告完成，要真的跑過 Codex 並寫分歧裁決
+- **使用者看到的**：改了 ≥4 個程式檔、對 HEAD 改 ≥150 行、或改到閘本體（stop.py、pre_tool_use.py、wg_release_rules.py、wg_overview.py、wg_second_opinion.py、MCP 服務、部位表類別 gate）時宣告完成，會被擋一次，要 AI 本回合跑 `second_opinion_start`→`second_opinion_result`，收尾寫「第二意見與分歧裁決」四行；AI 也可以寫「不需第二意見｜理由」，週健檢列出來給人對帳。只送提醒、AI 沒跑，過不了。
+- **改了什麼**：`hooks/wg_release_rules.py` 檔尾 G9 段（規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED 與純判定）；新 `hooks/wg_second_opinion.py` 收事實；`handlers/stop.py` 在 Deferral 之前插 SecondOpinion 段（吃寫碼查核的預算與放行詢問）；`handlers/pre_tool_use.py` 給 `second_opinion_start` 補 session_id；`tools/second-opinion/pack.py` 加 `goal.md`（需求目標樹、遮絕對路徑）與 question 樹根核對，`run.py` 核對不過回 blocked；`tools/health-weekly.py` 列 declined。
+- **驗證**：`hooks/verify/verify_g9_second_opinion.py` 29 案，換回舊的 stop／pre_tool_use／pack／run／health-weekly 時 21 案紅（純判定本來就綠）、新碼全綠；`verify_release_rules`、`verify_second_opinion`、`verify_stop_reconcile` 前景跑綠。
+- **codex 一輪**（本軌自己就觸發這道閘，照做一次）：修 4 處——只認 result 回的狀態（沒開出 job 的 failed 不算跑過）、session 有樹而材料沒帶到樹不算、宣告行與四行只認行首且略過程式碼區塊（散文裡引用範例會被當宣告）、判定出錯留帳；這幾案在修前的 commit 上紅。另 3 條與派工單定案衝突，總控台裁定維持定案：failed／blocked 算跑過（真的跑過了，收尾四行要寫明狀態）；AI 可宣告不需（G6 的判斷入口，留帳、週健檢對帳）；不綁定審後版本（審 → 依意見改 → 交付是正常流程，綁最終版本會每修一次就重審、無限循環）。
+- **待合併時做**：live `workflow/config.json` 加 `second_opinion.auto` 段、settings.json PreToolUse matcher 掛 `mcp__workflow-guardian__second_opinion_start`（沒掛時 goal.md 一律「無目標樹」）。
 
 ## 2026-10-20 G6 階段 4：宣稱詞表降成提示、退避例外的入口接上（判斷入口盤點 P6＋P7）
 - **使用者看到的**：收尾不再被「CC 會自己跑完測試」這類說明句擋住——(a)(b)(c) 命中且沒證據時，擋訊息改教 AI 回一行「宣稱｜修好：非本回合宣稱，因為…」（放行、留帳）或「宣稱｜修好：收據 <指令片段或哨兵名>」（引用要指得到那條指令的完整 token 或哨兵名，通用字不算；那張收據要過原本資格：修好要合格 PASS、同根、晚於改檔，量了要 DONE 且指令可信，試過要指令可信）；真宣稱沒證據照擋。AI 寫一行「不做｜<哪一件>：<理由>」會被退避偵測與 DeferralGate 接受並留帳，不再被當成退避；說明句被退避詞誤命中（b 軌實遇「下個 session 開場列出的內容…三段都正常」）寫「不是退避｜<命中的詞>：因為…」同樣放行留帳；使用者說「先這樣／跳過」要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」對到具體哪一件（含紅測清單），不再一句話清掉全部。

@@ -1808,6 +1808,8 @@ def test_p7_waived_failures_only_cited_and_matching():
 def test_p7_reason_and_quote_need_text_not_length():
     """codex WARN／BLOCK：理由看有沒有文字內容不看字數（「風險高」算、「....」不算）；引用純標點不算、英文整詞比對。"""
     assert rr.reason_present("風險高") and rr.reason_present("不需要") and not rr.reason_present("....") and not rr.reason_present("<理由>")
+    assert not rr.reason_present("<理由：風險／為什麼超出>") and not rr.reason_present("  <為什麼>  ")
+    assert not rr.reason_present("留到下個 session，<理由>"), "半抄範本、留著理由佔位不算"
     assert not rr.quote_in_prompts("!!", ["請修好!!"]) and not rr.quote_in_prompts("ok", ["broken"])
     assert rr.quote_in_prompts("ok", ["ok, skip it"]) and rr.quote_in_prompts("skip it", ["ok,  skip   it"])
     assert rr.quote_in_prompts("先這樣", ["好，先 這樣吧"])
@@ -1842,8 +1844,20 @@ def test_t216_user_data_file_needs_declaration():
     zh = "C:\\p\\設定.json"
     assert not rr.prompt_names_file(["請修改「備份設定.json」", "請修改備份設定.json"], zh), "更長的中文檔名不算點名"
     assert rr.prompt_names_file(["請修改「設定.json」", "改 設定.json 的值"], zh)
-    assert rr.decl_reason_ok("修正 <幣別> 標籤") and rr.decl_reason_ok("通貨を直す") and rr.decl_reason_ok("x")
-    assert not any(rr.decl_reason_ok(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
+    assert rr.reason_present("修正 <幣別> 標籤") and rr.reason_present("通貨を直す") and rr.reason_present("x")
+    assert not any(rr.reason_present(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
+
+
+def test_reason_quoting_a_tag_is_still_a_reason_on_claim_and_not_doing_lines():
+    """CLAIM_DISCLAIM_NEEDS_REASON／NOT_DOING_DECLARED：理由裡引用 <中文> 標籤（XML、範本名）是有理由；整段是角括號佔位才不算。"""
+    disp = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 修好的是同伴改的 <幣別> 標籤，不是我")
+    assert not rr.claim_disposition_verdict("fixed", disp, lambda ref: None).owed
+    disp = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 <理由>")
+    assert rr.claim_disposition_verdict("fixed", disp, lambda ref: None).owed
+    line = "不做｜改 <幣別> 欄位：要使用者拍板幣別預設值"
+    assert not rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
+    line = "不做｜幣別欄位：<理由：風險／為什麼超出>"
+    assert rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
 # ─── T2.18 origin 核對 ───
 def test_origin_user_needs_quote():
     """ORIGIN_USER_NEEDS_QUOTE：完整案例在 verify_origin_user_check.py；這裡守判式——字面子串對得到才算、同伴說的不算。"""
@@ -1888,3 +1902,45 @@ def test_t219_gate_bypass_verdicts():
     assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed
     assert not rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "這張卡寫的是禁止規避").owed     # 宣告了不是教繞閘
     assert rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "<理由：這張卡在教什麼>").owed      # 佔位照拒
+# ─── G14 最小地圖 ───
+# 完整案例（閘、掃表預覽、快取、開關）在 hooks/verify/verify_g14_min_map.py；這裡只守 test_044「每條規則有案例」與判定骨架
+
+def test_g14_unmapped_first_edit_needs_min_map():
+    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：三行齊、讀了的檔都讀過才不欠；沒交、上游空、列了沒讀的檔 → 欠。"""
+    g = rr.min_map_group("地圖｜讀了：src/a.py\n地圖｜上游：無，因為是入口\n地圖｜下游：lib/b.py")
+    assert rr.min_map_verdict(g, "C:/p", ["C:/p/src/a.py"]).owed is False
+    v = rr.min_map_verdict(g, "C:/p", [])
+    assert v.rule == "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP" and v.owed and "src/a.py" in "；".join(v.evidence)
+    assert rr.min_map_verdict(None, "C:/p", ["C:/p/src/a.py"]).owed
+    assert rr.min_map_verdict({**g, "上游": ""}, "C:/p", ["C:/p/src/a.py"]).owed
+# ─── G11 拐彎判斷 ─────────────────────────────────────────────────────────────
+
+def test_g11_turn_judgment_required_needs_five_columns():
+    """TURN_JUDGMENT_REQUIRED：到門檻的每一條要有五欄齊的拐彎判斷行；完整案例在 verify_g11_turns.py，這裡只守規則名與五欄。"""
+    item = {"kind": "函式", "name": "y.py::b", "keys": ["y.py::b", "b"], "nums": "巢狀 4"}
+    assert rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層｜合理，因為短")).owed is False
+    v = rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層"))
+    assert v.rule == "TURN_JUDGMENT_REQUIRED" and v.owed and "怎麼改直" in "".join(v.evidence)
+# ─── G9 第二意見 ───
+
+def test_g9_second_opinion_rules_registered():
+    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED：規則名登記、四行少一行就擋、空話理由照擋（完整案例在 verify_g9_second_opinion.py）。"""
+    four = "## 第二意見與分歧裁決\nCodex 結論：同意\n我方結論：同意\n分歧點：無分歧\n"
+    v = rr.second_opinion_verdict(True, ["程式檔 5 個 ≥ 4"], True, [("j1", "done")], four)
+    assert v.rule == "SECOND_OPINION_REQUIRED" and v.owed and "裁決與理由" in v.why
+    v = rr.second_opinion_verdict(True, ["程式檔 5 個 ≥ 4"], True, [], "不需第二意見｜不需要")
+    assert v.rule == "SECOND_OPINION_DECLINED" and v.owed
+
+
+# ─── G7 等值與熱路徑 ───
+
+def test_g7_equivalence_and_hot_path_rules():
+    """REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE：完整案例（Stop 驅動、注入、意圖來源）在 verify_g7_equivalence.py；
+    這裡守規則名與最小判式。"""
+    eq = rr.equivalence_verdict(["order"], [])
+    assert eq.rule == "REFACTOR_NEEDS_EQUIVALENCE" and eq.owed and "side_effect、boundary" in eq.why
+    assert not rr.equivalence_verdict(["order", "side_effect", "boundary"], []).owed
+    hot = rr.parse_equivalence_lines("熱路徑｜是｜render 迴圈")
+    v = rr.hot_path_verdict(hot["hot"], hot["skip"], False)
+    assert v.rule == "PERF_HOT_PATH_NEEDS_MEASURE" and v.owed
+    assert not rr.hot_path_verdict(hot["hot"], hot["skip"], True).owed

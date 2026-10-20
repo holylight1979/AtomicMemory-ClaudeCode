@@ -204,6 +204,31 @@ def test_declaration_in_command_comment_counts(env, tmp_path):
     assert [e["via"] for e in env.events() if e["event"] == "declared"] == ["command"]
 
 
+@pytest.mark.parametrize("hook_gives", ["main", "agent"])
+def test_subagent_declaration_in_its_own_transcript_counts(env, tmp_path, hook_gives):
+    """子代理被病形閘擋、在自己的回覆寫「不是繞閘｜…」：對話在 <sid>/subagents/agent-<id>.jsonl，hook 給主檔或子代理檔都要認得到。"""
+    agent_id = "ae3c716a6fc9ec36b"
+    main = tmp_path / f"{SID}.jsonl"
+    main.write_text("".join(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": f"主 session 第 {i} 段"}]}},
+                                       ensure_ascii=False) + "\n" for i in range(40)), encoding="utf-8")
+    agent = tmp_path / SID / "subagents" / f"agent-{agent_id}.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(json.dumps({"type": "user", "message": {"content": "提交通知模組"}}, ensure_ascii=False) + "\n", encoding="utf-8")
+    env.transcript = main if hook_gives == "main" else agent
+    repo = _qa_notify(tmp_path)
+    _blocked(env, repo)
+    with open(agent, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
+                "text": "不是繞閘｜retry.py 是建環境時別人放的，不屬本次需求，病交原作者修"}]}}, ensure_ascii=False) + "\n")
+    env.out.clear()
+    ptu.handle_pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "git restore --staged notify/retry.py"}, "cwd": str(repo),
+                             "session_id": SID, "agent_id": agent_id, "transcript_path": str(env.transcript)}, env.config)
+    denies = [((o or {}).get("hookSpecificOutput") or {}).get("permissionDecisionReason") for o in env.out
+              if ((o or {}).get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"]
+    assert not denies, denies
+    assert [e["via"] for e in env.events() if e["event"] == "declared"] == ["text"]
+
+
 def test_placeholder_declaration_does_not_count(env, tmp_path):
     repo = _qa_notify(tmp_path)
     _blocked(env, repo)
@@ -285,6 +310,17 @@ def test_other_unstage_spellings_are_denied(env, tmp_path, command):
     repo = _qa_notify(tmp_path)
     _blocked(env, repo)
     assert "GATE_BYPASS_NEEDS_DECLARATION" in (env.run(repo, command) or "")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="MSYS 磁碟機路徑只在 Windows 的 Git Bash 有意義")
+def test_msys_cd_path_is_same_repo(env, tmp_path):
+    """Git Bash 寫法 `cd /c/…/qa-notify && git restore --staged …`（派工 006 同類）：/c/… 轉成 C:\\… 才認得是同一個 repo → 照擋。"""
+    repo = _qa_notify(tmp_path)
+    _blocked(env, repo)
+    s = str(repo).replace("\\", "/")
+    msys = f"/{s[0].lower()}{s[2:]}"
+    deny = env.run(tmp_path, f"cd {msys} && git restore --staged notify/retry.py")
+    assert deny and "GATE_BYPASS_NEEDS_DECLARATION" in deny
 
 
 def test_nested_repo_is_another_repo(env, tmp_path):
@@ -426,6 +462,31 @@ def test_declared_anti_bypass_card_is_written_and_logged(quiet):
     rows = [json.loads(ln) for ln in quiet.read_text(encoding="utf-8").splitlines()]
     assert [r["event"] for r in rows] == ["atom_declared"] * 2
     assert rows[0]["reason"] == reason and rows[0]["title"] == "病形閘擋下後禁止移出暫存"
+
+
+def test_declaration_line_is_not_written_into_card(quiet):
+    """帶宣告寫入時，落檔的卡片內容沒有宣告行、知識段其餘行原樣（宣告只給閘看，理由留在帳上）：
+    MCP 路建卡（atom_io_cli build／create_atom 用的 build_atom_content）與 write_atom 路都是。"""
+    knowledge = ["[臨] 不是教繞閘｜這張卡寫的是禁止移出暫存規避，不是教怎麼繞"] + ANTI_BYPASS
+    from lib import atom_io
+    from lib.atom_spec import build_atom_content
+    built = build_atom_content(title="病形閘擋下後禁止移出暫存", scope="global", confidence="[臨]", triggers=["SmellGate"],
+                               knowledge=knowledge, today="2026-01-01")
+    assert "不是教繞閘" not in built and f"- {ANTI_BYPASS[0]}" in built
+    w = atom_io.write_atom(title="病形閘擋下後禁止移出暫存", scope="global", confidence="[臨]", triggers=["SmellGate"],
+                           knowledge=knowledge, mode="create", source="mcp", dry_run=True, realm="local", domain="Tools")
+    assert w.ok, w.error
+    assert "不是教繞閘" not in w.extra["content"] and f"- {ANTI_BYPASS[0]}" in w.extra["content"]
+
+
+def test_declaration_is_stripped_on_append_and_other_lines_untouched():
+    """append 路（MCP append 走 atom_io.append_atom_file → _build_append_content）：只剝第一行宣告，後面同樣字樣的行原樣。"""
+    from lib import atom_io
+    existing = "# x\n\n- Scope: global\n- Confidence: [臨]\n- Trigger: a\n\n## 知識\n\n- [臨] 舊知識\n\n## 行動\n\n- 做\n"
+    later = "[臨] 不是教繞閘｜這行在第二行，照留"
+    out = atom_io._build_append_content(existing, ["[臨] 不是教繞閘｜這是防繞指引", ANTI_BYPASS[0], later])
+    assert "這是防繞指引" not in out and f"- {ANTI_BYPASS[0]}" in out and f"- {later}" in out
+    assert "- [臨] 舊知識" in out
 
 
 @pytest.mark.parametrize("decl", ["不是教繞閘｜<理由：這張卡在教什麼>", "不是教繞閘｜", "不是教繞閘｜。。"])

@@ -57,6 +57,13 @@ DEFAULTS: Dict[str, Any] = {"enabled": True, "scope_growth_dirs": 3, "render_cha
 # 叫不到 need_goal 的人照「先用 need_goal」走不下去
 NO_TOOL_HINT = "本 session 若叫不到 need_goal 工具（MCP 是舊的），先 Reload Window 或開新 session 再做。"
 
+# G11 思考的彎：reconcile 的 turns（這次拐了幾個彎）缺就提醒一句、不擋；≥ TURNS_RETHINK（超過三個）要有「重找最短路：<結果>」才收
+# （原話：第二個彎提高注意、第三個警戒極限、第四個幾乎可以確定臭掉；繼續推進只會越跑越偏）。程式只核對有沒有寫，不評結果。
+TURNS_RETHINK = 4
+_RETHINK_RE = re.compile(r"重找最短路\s*[：:]\s*\S")
+TURNS_HINT = ("這次拐了幾個彎沒填（reconcile 的 turns）：下次附上；第二個彎起提高注意，≥4 要在 note 寫「重找最短路：<結果>」"
+              "（只提醒、不擋）")
+
 NODE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])T\d+(?:\.\d+)*")
 NODE_ID_FULL_RE = re.compile(r"^T\d+(?:\.\d+)*$")
 _RECEIPT_REF_RE = re.compile(r"^[Rr]?(\d+)$")
@@ -740,6 +747,10 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
     t = inp.get("turns")
     if action == "reconcile" and t is not None and (not isinstance(t, int) or isinstance(t, bool) or t < 0):
         errs.append("turns 必須是 ≥0 的整數")
+    elif action == "reconcile" and isinstance(t, int) and t >= TURNS_RETHINK \
+            and not any(_RETHINK_RE.search(_s(it.get("note"))) for it in items if isinstance(it, dict)):
+        errs.append(f"turns={t} 超過三個彎（G11：第四個彎幾乎可以確定臭掉）：某一項的 note 要寫「重找最短路：<結果>」"
+                    "（找到的更短做法，或為什麼沒有更短的）")
     return errs
 
 
@@ -1190,9 +1201,10 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
     bare = [nid for nid, v in view.items() if v["status"] == "done" and not v["same_class"]]
     same = (f"\n  - 達成的 {'、'.join(bare[:6])} 可附 same_class（同類別處還有沒有：找到的位置，或為什麼沒有；只提醒、不擋）"
             if bare else "")
+    turns = "" if inp.get("turns") is not None else f"\n  - {TURNS_HINT}"
     return {"ok": True, "tree": tree["id"], "goal_changed": False, "followups": followups,
             "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}" + "".join(f"\n  - {ln}" for ln in rtg)
-            + same + f"\n{HANDOUT_CHECK}"}
+            + same + turns + f"\n{HANDOUT_CHECK}"}
 
 
 def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> Dict[str, Any]:

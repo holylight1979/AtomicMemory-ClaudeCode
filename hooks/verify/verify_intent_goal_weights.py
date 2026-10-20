@@ -45,7 +45,7 @@ def test_ten_keys_frozen_and_three_way_aligned():
     assert set(wo._DEFAULT["goal_weights"]) == set(wo.INTENT_KEYS)
     assert next(iter(INTENT_PATTERNS)) == "debug"                              # debug 最前：平手取先鍵
     for intent, spec in wo._DEFAULT["goal_weights"].items():
-        assert set(spec) == {"slices", "lens", "ask_first"}, intent
+        assert {"slices", "lens", "ask_first"} <= set(spec) <= {"slices", "lens", "ask_first", "extra"}, intent   # extra 選填（G7）
         assert set(spec["slices"]) <= set(oh.SLICE_NAMES), intent
     assert wo._DEFAULT["goal_weights"]["debug"]["slices"][0] == "defects"
     assert wo._DEFAULT["goal_weights"]["new_project"]["slices"][0] == "authority"

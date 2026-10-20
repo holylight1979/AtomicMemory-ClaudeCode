@@ -208,6 +208,25 @@ def test_rename_without_declaration_denied(world):
     assert [e["event"] for e in _events(world)] == ["denied"]
 
 
+@pytest.mark.parametrize("hook_gives", ["main", "agent"])
+def test_subagent_declaration_in_its_own_transcript_counts(world, hook_gives):
+    """子代理改舊測試、宣告寫在自己的回覆：對話在 <sid>/subagents/agent-<id>.jsonl，hook 給主檔或子代理檔都要認得到。"""
+    agent_id = "ae3c716a6fc9ec36b"
+    main = Path(_transcript(world, "主 session：派子代理改報表測試", name=f"{SID}.jsonl"))
+    agent = main.with_suffix("") / "subagents" / f"agent-{agent_id}.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": DECL}]}},
+                                ensure_ascii=False) + "\n", encoding="utf-8")
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": "Edit", "session_id": SID, "agent_id": agent_id, "cwd": str(world["proj"]),
+                                 "transcript_path": str(main if hook_gives == "main" else agent),
+                                 "tool_input": {"file_path": fp, "old_string": RENAME_EDIT_OLD, "new_string": RENAME_EDIT_NEW}}, {})
+    r = (world["outputs"][-1] or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "") or ""
+    assert _pass(r), r
+    assert _events(world)[-1]["event"] == "declared"
+
+
 def test_rename_with_declaration_allowed_logged_and_same_test_not_blocked_again(world):
     fp = _put(world, "tests/test_legacy_report.py", LEGACY)
     ti = {"file_path": fp, "old_string": RENAME_EDIT_OLD, "new_string": RENAME_EDIT_NEW}
@@ -472,6 +491,41 @@ def test_revert_after_bash_clears_pending(world):
     _post(world, "Edit", ti)
     assert not _pending() and any(e["event"] == "reverted" for e in _events(world))
     assert _pass(_run(world, "Bash", {"command": "echo next"}))
+
+
+def _git_repo(proj):
+    """把假專案變成有一個基底 commit 的 git repo（python 腳本那條路靠 git status／HEAD 判改前）。"""
+    import subprocess
+    for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["config", "core.autocrlf", "false"],
+                 ["add", "-A"], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(proj), *args], check=True, capture_output=True)
+
+
+def test_python_script_changing_committed_test_blocks_next_call(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    _bash_round(world, "Bash", "python fix_report.py", fp, LEGACY.replace('"USD"', '"TWD"'))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+    r = _run(world, "Bash", {"command": "echo next"})
+    assert _ot(r) and "test_legacy_report_keeps_columns（斷言變了" in r and "這是 Bash 改的" in r
+
+
+def test_python_script_does_not_count_changes_that_were_already_uncommitted(world):
+    """執行 python 前就有的改動（使用者自己沒 commit 的）不算這次的：只點名 python 跑完才變的那支。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    before = LEGACY.replace("== 10", "== 11")
+    Path(fp).write_text(before, encoding="utf-8")
+    _bash_round(world, "PowerShell", "python -X utf8 fix_report.py", fp, before.replace('"USD"', '"TWD"'))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+
+
+def test_non_python_command_takes_no_git_snapshot(world):
+    _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    assert _pass(_run(world, "Bash", {"command": "echo hi"}))
+    snap_dir = world["tmp"] / "wf" / "old-test-snap"
+    assert not snap_dir.exists() or not list(snap_dir.iterdir()), "不執行 python、沒寫測試檔的指令不拍快照、不跑 git"
 
 
 LEGACY_DOC = LEGACY.replace("def test_legacy_report_totals():\n", "def test_legacy_report_totals():\n    \"\"\"總數是 10。\"\"\"\n")

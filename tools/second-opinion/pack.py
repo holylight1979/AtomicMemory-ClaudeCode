@@ -4,8 +4,9 @@
 manifest 只記相對路徑，不含沙箱外的絕對路徑（replay-guard 的洩題規則）。
 
 怎麼用（由 run.py prepare 呼叫；單獨跑只為除錯）：
-    items = gather_items(request, cfg)                 # 從 cwd／part 蒐材料：卡、病灶前 N、diff、帳本尾 K、草稿
+    items = gather_items(request, cfg)                 # 從 cwd／part 蒐材料：卡、病灶前 N、diff、帳本尾 K、需求目標樹、草稿
     manifest = pack_materials(job_dir, items, mode, model)
+    why = question_root_missing(question, items)       # 有目標樹而 question 沒含樹根那句 → prepare 回 blocked
 雜湊規則：每檔內容統一 LF → sha256；files 依 rel 排序；總雜湊 = sha256("rel\\nsha\\n" 逐檔串接)。
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,9 +34,14 @@ REL_DEFECTS = "defects.md"
 REL_DIFF = "diff.patch"
 REL_LEDGER = "ledger.jsonl"
 REL_DRAFT = "draft.md"
+REL_GOAL = "goal.md"
+NO_GOAL = "無目標樹"
 
 _ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]{1,2})")
 _HEADING_RE = re.compile(r"^#{1,3}\s", re.MULTILINE)
+# 內文裡的磁碟絕對路徑（MIRROR: tools/replay-guard.py ABS_PATH）：goal.md 裡的要遮掉，否則 replay-guard pre 會擋整份提示詞
+_ABS_IN_TEXT_RE = re.compile(r"(?<![A-Za-z])[A-Za-z]:[/\\][^\s\"'`)\]]+")
+_GOAL_ROOT_RE = re.compile(r"樹根（[^）\n]*）：(.*)")
 
 
 class PackError(Exception):
@@ -170,6 +177,61 @@ def collect_diff(cwd: str, timeout_s: int = 20) -> str:
     return ""
 
 
+def _hooks_on_path() -> None:
+    hooks = str(CODE_DIR / "hooks")
+    if hooks not in sys.path:
+        sys.path.insert(0, hooks)
+
+
+def mask_abs_paths(text: str) -> str:
+    """磁碟絕對路徑換成「…/<最後一段>」：還看得出指哪個檔，但不把沙箱外路徑送進提示詞。"""
+    return _ABS_IN_TEXT_RE.sub(lambda m: "…/" + re.split(r"[\\/]", m.group(0).rstrip("\\/"))[-1], text)
+
+
+def _one_line(s: Any) -> str:
+    return " ".join(str(s or "").split())
+
+
+def goal_material(session_id: str) -> Tuple[str, Optional[str]]:
+    """goal.md 內容＝需求目標樹精簡渲染：第一行「樹根（T<n>）：<樹根全文>」＋ wg_need_goal.review_material（使用者原話、
+    同伴轉述、節點與狀態），絕對路徑遮掉。沒帶 session_id、沒有樹、讀不到 → 只有一行「無目標樹」（照樣進 manifest 與 hash），
+    第二個回傳值說原因（給 notes，不靜默；開頭固定 wg_release_rules.SO_NO_GOAL_NOTE，Stop 的 SecondOpinion 閘據此在 session
+    有樹時不把這次 run 算成跑過）。"""
+    _hooks_on_path()
+    from wg_release_rules import SO_NO_GOAL_NOTE
+    sid = str(session_id or "")
+    if not sid:
+        return NO_GOAL + "\n", f"{SO_NO_GOAL_NOTE}：沒帶 session_id，找不到這個 session 的樹"
+    try:
+        import wg_need_goal as ng
+        tree = ng.active_tree(ng.load(sid))
+        body = ng.review_material(sid) if tree else ""
+    except Exception as e:  # noqa: BLE001  目標樹讀不到不擋第二意見，但要說
+        return NO_GOAL + "\n", f"{SO_NO_GOAL_NOTE}：讀不到（session_id={sid}）：{type(e).__name__}: {e}"
+    if not tree:
+        return NO_GOAL + "\n", f"{SO_NO_GOAL_NOTE}：這個 session 沒有樹（session_id={sid}）"
+    root = (tree.get("nodes") or {}).get(tree["id"]) or {}
+    head = f"樹根（{tree['id']}）：{mask_abs_paths(_one_line(root.get('text')))}"
+    return f"{head}\n\n{mask_abs_paths(body)}\n", None
+
+
+def _norm_q(s: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", str(s or "")).split())
+
+
+def question_root_missing(question: str, items: List[Tuple[str, str]]) -> Optional[str]:
+    """材料有目標樹（goal.md 第一行是樹根）而 question 沒含樹根那句（NFKC、空白正規化後子字串比對）→ 回 blocked 原因；
+    沒有樹或含了 → None。原因開頭固定 wg_release_rules.SO_QUESTION_ROOT_MISSING：Stop 的 SecondOpinion 閘據此不把這次 blocked
+    算成跑過。"""
+    m = _GOAL_ROOT_RE.match(dict(items).get(REL_GOAL, ""))
+    root = m.group(1).strip() if m else ""
+    if not root or _norm_q(root) in _norm_q(question):
+        return None
+    _hooks_on_path()
+    from wg_release_rules import SO_QUESTION_ROOT_MISSING
+    return f"{SO_QUESTION_ROOT_MISSING}：「{root}」（整句照抄進 question 再重跑）"
+
+
 def find_part_row(cwd: str, part: str) -> Tuple[Optional[Path], Optional[Dict[str, Any]]]:
     """用 lib.overview_hub 找 `<root>/.claude/overview-map.md` 裡該部位的列；沒表或沒命中回 (root|None, None)。"""
     try:
@@ -192,8 +254,8 @@ def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tup
     """request{cwd, part, mode, session_id?, draft?, materials?{card,defects,diff,ledger,files[]}} → (items, notes)。
 
     materials 顯式指定的路徑優先（CLI／測試用）；否則從 overview-map 找卡與病灶文件、git/svn 取 diff、
-    帳本取 `<CLAUDE_DIR>/workflow/verify-ledger/<session_id>.jsonl`（沒有再找舊位置 `<root>/.claude/verify/_ledger.jsonl`）尾 K。
-    缺哪樣就在 notes 說，不靜默。
+    帳本取 `<CLAUDE_DIR>/workflow/verify-ledger/<session_id>.jsonl`（沒有再找舊位置 `<root>/.claude/verify/_ledger.jsonl`）尾 K；
+    需求目標樹照 session_id 找（goal_material，一律放 goal.md）。缺哪樣就在 notes 說，不靜默。
     """
     cwd = str(request.get("cwd") or "")
     part = str(request.get("part") or "")
@@ -259,6 +321,11 @@ def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tup
             items.append((f"files/{p.name}", _read(p)))
         else:
             notes.append(f"附加材料不存在：{extra}")
+
+    goal_text, goal_note = goal_material(sid)       # 需求目標樹：沒有也放一行「無目標樹」（進 hash）
+    items.append((REL_GOAL, goal_text))
+    if goal_note:
+        notes.append(goal_note)
 
     if mode == "review":
         items.append((REL_DRAFT, normalize_lf(str(request.get("draft") or ""))))

@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
-    build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
+    build_atom_content, slugify, validate_atom_content, render_knowledge_lines, strip_bypass_declaration,
     knowledge_sections_bytes, knowledge_budget_error, knowledge_budget_warning,
     knowledge_task_list_error, has_conflict_markers,
 )
@@ -623,7 +623,7 @@ def _build_append_content(existing: str, knowledge: List[str]) -> str:
     if "## 行動" not in existing:
         existing = existing.rstrip() + "\n\n" + _ACTION_STUB
     action_idx = existing.find("## 行動")
-    rendered = "\n".join(render_knowledge_lines(knowledge))
+    rendered = "\n".join(render_knowledge_lines(strip_bypass_declaration(knowledge)))
     before = existing[:action_idx].rstrip()
     after = existing[action_idx:]
     # 表格/fence 開頭需與既有知識間隔一空行才正確渲染（block-aware append）

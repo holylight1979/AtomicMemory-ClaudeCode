@@ -37,6 +37,14 @@ python scripts/preserve-check.py --expected-from <舊源碼或 .json> --actual-f
 - 預期來源換法：Python 舊碼走 ast，只接受「一條頂層 if/elif 鏈、條件 `名稱 == 常數`、分支只有副作用呼叫與 `return 常數`、else 或鏈後 `return 常數` 當預設」；巢狀 if、`in`、`and/or`、迴圈任一出現就拒收 exit 2 並印行號，不會略過一部分還說全枚舉；docstring 與註解不影響判定。非 Python 舊碼（C#、Lua…）本腳本不猜，先用專案工具（roslyn、regex）解析成 `.json`（格式見腳本檔頭；零 case 也拒收）再餵。
 - 執行器換法：`--actual-cmd "<指令> {key}"` 用外部程式當執行器（例如 dotnet 小程式反射跑 dll）；它看不到副作用，`side_effect` 會明說不支援並 FAIL，該類要另寫執行器。
 - 證不到的要明寫：時序、執行緒、live 狀態不在此證法內。
+- `.json` 預期表格式（非 Python 舊碼用專案工具產出）：`{"values": {key: value}, "default": value, "effects": {key: [args]}, "order": [...]}`；key 一律字串，比對時用 `str()` 對齊。
+
+## 收尾怎麼交（Stop 的 Equivalence Gate 核對）
+
+重構意圖、本回合改過程式檔、宣告完成時，收尾核對兩件（規則 `REFACTOR_NEEDS_EQUIVALENCE`、`PERF_HOT_PATH_NEEDS_MEASURE`，在 `hooks/wg_release_rules.py`）：
+
+- 等值：最後一次改程式檔之後跑三次本腳本（`--mutation order`／`side_effect`／`boundary` 各一次，尾行都 `PRESERVE_CHECK PASS`）；或收尾文字寫一行 `等值證法｜不適用｜<理由>`（例：重構的不是查表／分派、沒有舊產物可枚舉、改的是測試），理由會留帳 `Logs/guard-equivalence.jsonl`。缺了會擋，擋滿問使用者；「是不是重構」只看使用者本人打的字。
+- 熱路徑：收尾文字答 `熱路徑｜是｜<哪裡>`＋量測收據（自建量法，尾行 `<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`。是不是熱路徑、怎麼量由你判，程式只核對答了沒、收據在不在。
 
 ## 不做的事
 

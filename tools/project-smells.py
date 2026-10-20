@@ -795,7 +795,7 @@ def _defect_shapes(abs_path: str, cache: Dict[str, Any], notes: List[str]) -> Li
     lib = str(_CLAUDE_DIR / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
-    from overview_hub import find_map, match_row, parse_map
+    from overview_hub import find_map, match_row, parse_map, unread_rows_note
     found = find_map(abs_path)
     if not found:
         return []
@@ -804,6 +804,10 @@ def _defect_shapes(abs_path: str, cache: Dict[str, Any], notes: List[str]) -> Li
     if key not in cache:
         cache[key] = parse_map(map_path.read_text(encoding="utf-8", errors="replace"))
     row = match_row(abs_path, root, cache[key], anchored=True)
+    if row is None:                 # 對不到部位：可能是表的寫法讓整列沒讀到，不能靜默當成沒有病灶清單
+        note = unread_rows_note(map_path)
+        if note:
+            notes.append(note)
     doc = (row or {}).get("defects_doc") or ""
     if not doc or doc == "無":
         return []

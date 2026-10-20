@@ -53,7 +53,9 @@ RULES: Dict[str, str] = {
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同，"
                            "同根其他程式檔也等於 HEAD 或只差註解 → 不算改碼；非 Python、解析不了、基準拿不到 → 照算。",
     "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於另一方已提交的版本（MERGE_HEAD、main／master；指到 HEAD 或本 session 自己提交的 commit 不算）"
-                                "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。",
+                                "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。"
+                                "例外：HEAD 是別人接在本 session 最後一次提交之上做的提交（總控台把 main 合進工作分支，本 session 的 commit 快照"
+                                "拍在那之前）、而且同根本 session 改過的程式檔（含案例）全等於 HEAD → HEAD 也算已提交版本（退回看紅再還原不欠）。",
     "INLINE_PY_READONLY": "python -c 的內嵌碼用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval → 不算寫入，放行；"
                           "node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路（寫成腳本檔、python -m json.tool）。",
     "GIT_READONLY_SUBCMD": "跨層閘：指令裡每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file、"
@@ -410,15 +412,22 @@ def blob_sha(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
-def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True) -> List[str]:
+def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True,
+                   head_after_own: bool = False) -> List[str]:
     """哪些 ref 可以當「已提交版本」：MERGE_HEAD／main／master（指到本 session 自己提交的 commit 除外）。
-    HEAD 永遠不算：「等於 HEAD」只能走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨，程式與案例一起退回舊版、
-    只還原程式時案例還是舊的，照欠；verify_stop_reconcile 035 ⑤）。ref_commits＝ref → 它指到的 commit sha。"""
+    HEAD 平常不算：「等於 HEAD」走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨，程式與案例一起退回舊版、
+    只還原程式時案例還是舊的，照欠；verify_stop_reconcile 035 ⑤）。例外 head_after_own：HEAD 是別人接在本 session 最後一次提交
+    之上做的提交（總控台把 main 合進工作分支）→ 本 session 的 commit 快照拍在那之前、對不上，HEAD 才是已提交版本，算；
+    呼叫端要另外確認同根本 session 改過的檔全等於 HEAD（擋同一個反例）。ref_commits＝ref → 它指到的 commit sha。"""
     own = {str(s) for s in own_commit_shas or ()}
     head = str((ref_commits or {}).get("HEAD") or "")
     out: List[str] = []
     for ref, sha in (ref_commits or {}).items():
-        if not sha or str(sha) in own or ref == "HEAD" or str(sha) == head:
+        if not sha or str(sha) in own:
+            continue
+        if ref == "HEAD" or str(sha) == head:
+            if head_after_own and ref == "HEAD":
+                out.append(ref)
             continue
         out.append(ref)
     return out
@@ -1886,8 +1895,8 @@ RULES.update({
                              "沒這行 → 照原規則擋並附寫法；「非本回合宣稱」附理由 → 放行、留帳（guard-reconcile.jsonl event=claim_disclaimed，"
                              "健檢抽查）；「收據」→ 走 CLAIM_RECEIPT_REF_MATCH。結構化的達成＋證據（need_goal 完整對照）仍是寫碼類的正式宣告，"
                              "宣稱行只處理散文裡的詞。",
-    "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：有文字內容（至少 2 個中文或英數字，純標點不算）、不是擋訊息範例的"
-                                   "角括號佔位；沒理由不算回。程式不評理由充不充分。",
+    "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：拿掉角括號片段後還有任一字母或數字（任何語言），而且沒留著擋訊息的"
+                                   "理由範本佔位（<理由…>、<為什麼…>）；純標點不算，理由裡引用 <標籤> 照算；沒理由不算回。程式不評理由充不充分。",
     "CLAIM_RECEIPT_REF_MATCH": "宣稱行指的收據要能辨識出是哪一張：引用的字要是那條指令的一個完整 token（整個 token、檔名、路徑尾段、"
                                "測試節點尾段），或帶空白的逐字片段，或哨兵名相同；python／pytest／py／-m 這類通用字、旗標、純副檔名不算指名。"
                                "對上的那張還要過原本的收據資格（指令完整、記了環境、白名單語法、沒寫哨兵字樣、同一棵樹）："
@@ -1932,9 +1941,23 @@ def has_text(s: Any, min_chars: int = 2) -> bool:
     return len(_WORD_CHAR_RE.findall(str(s or ""))) >= min_chars
 
 
-def reason_present(reason: str) -> bool:
-    """理由有填：有文字內容、沒有擋訊息範例的角括號佔位。只查有沒有，不評內容充不充分。"""
-    return has_text(reason) and not _EXAMPLE_PLACEHOLDER_RE.search(str(reason or ""))
+_ANGLE_SEGMENT_RE = re.compile(r"<[^<>\n]*>")
+# 擋訊息教 AI 填理由的範本佔位：<理由>、<理由：…>、<一句理由>、<為什麼…>（各閘的 hint 都這樣開頭）
+_REASON_PLACEHOLDER_RE = re.compile(r"<\s*(?:一句)?(?:理由|為什麼)[^<>\n]*>")
+
+
+def reason_present(reason: str, hint_texts: Sequence[str] = ()) -> bool:
+    """理由有填：拿掉角括號片段之後還有任一字母或數字（任何語言），而且沒留著擋訊息的範本佔位：<理由…>、<為什麼…>，
+    或角括號裡的字出現在呼叫端印給 AI 的範本說明 hint_texts 裡（半抄範本「留到下個 session，<理由>」不算）。
+    理由裡引用標籤（「修正 <幣別> 標籤」）照算。只查有沒有，不評內容充不充分。"""
+    text = str(reason or "")
+    if _REASON_PLACEHOLDER_RE.search(text):
+        return False
+    for seg in _ANGLE_SEGMENT_RE.findall(text):
+        inner = seg[1:-1].strip()
+        if inner and any(inner in h for h in hint_texts if h):
+            return False
+    return any(ch.isalnum() for ch in _ANGLE_SEGMENT_RE.sub("", text))
 
 
 def is_generic_name(name: str) -> bool:
@@ -2069,20 +2092,27 @@ def quote_in_prompts(quote: str, prompts: Sequence[str]) -> bool:
     return any(qn in _nows(p) for p in prompts or ())
 
 
+def not_doing_reason_hint(exception: str = "") -> str:
+    """不做行範本裡「<理由：…>」那段說明：詞表那一類的 exception（去掉「除非附」），沒有就用通用的四種理由。"""
+    return re.sub(r"^除非附\s*", "", str(exception or "")).strip().strip("「」") or "風險／為什麼超出／不可逆／要使用者拍板"
+
+
 def not_doing_hint(exception: str = "") -> str:
-    why = re.sub(r"^除非附\s*", "", str(exception or "")).strip().strip("「」") or "風險／為什麼超出／不可逆／要使用者拍板"
+    why = not_doing_reason_hint(exception)
     return (f"真的不做 → 寫一行「不做｜<哪一件>：<理由：{why}>」（規則 NOT_DOING_DECLARED，會留帳）；"
             "使用者叫你跳過 → 「不做｜<哪一件>：使用者說「<原句片段>」」（規則 USER_WAIVER_NEEDS_CITATION）；"
             "這句只是在描述、沒推任何事 → 「不是退避｜<命中的詞>：因為 <理由>」（留帳抽查）")
 
 
 def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Sequence[str], exception: str = "") -> Verdict:
-    """NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：owed＝照舊標記或擋。line＝命中退避語的那一行；prompts＝近 3 則使用者原話。"""
+    """NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：owed＝照舊標記或擋。line＝命中退避語的那一行；prompts＝近 3 則使用者原話。
+    理由裡的角括號片段若是這個範本印給 AI 的說明（<不修的實際風險>）＝沒換掉的佔位，不算理由。"""
+    hint_why = (not_doing_reason_hint(exception),)
     d = not_doing_covering(line, decls)
     if d is None:
         return Verdict("NOT_DOING_DECLARED", True, "退避語沒有對應的不做行", (str(line or "").strip()[:120], not_doing_hint(exception)))
     if d.get("mode") == "disclaim":
-        if reason_present(d["reason"]):
+        if reason_present(d["reason"], hint_why):
             return Verdict("NOT_DOING_DECLARED", False, f"AI 說明「{d['item'][:60]}」不是退避，因為 {d['reason'][:120]}", (d["line"],))
         return Verdict("NOT_DOING_DECLARED", True, "不是退避行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
     if d["quote"]:
@@ -2090,7 +2120,7 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
             return Verdict("USER_WAIVER_NEEDS_CITATION", False, f"使用者原話「{d['quote'][:60]}」豁免：{d['item'][:60]}", (d["line"],))
         return Verdict("USER_WAIVER_NEEDS_CITATION", True,
                        f"不做行引用的使用者原話「{d['quote'][:60]}」在近 3 則使用者訊息裡找不到", (d["line"], not_doing_hint(exception)))
-    if reason_present(d["reason"]):
+    if reason_present(d["reason"], hint_why):
         return Verdict("NOT_DOING_DECLARED", False, f"AI 宣告不做「{d['item'][:60]}」，因為 {d['reason'][:120]}", (d["line"],))
     return Verdict("NOT_DOING_DECLARED", True, "不做行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
 
@@ -2116,7 +2146,7 @@ RULES.update({
                                         "清單只決定程式要不要把它當資料檔問，該不該改仍是 AI 判；(b) 呼叫前檔已存在；(c) 不是本 session Write 新建的"
                                         "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
                                         "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
-                                        "（路徑檔名對得上這次要改的檔、冒號後至少一個字母或數字、整段不是角括號佔位）→ 擋。宣告過記 state data_file_declared，"
+                                        "（路徑檔名對得上這次要改的檔、冒號後的理由過 reason_present）→ 擋。宣告過記 state data_file_declared，"
                                         "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。",
 })
 
@@ -2176,13 +2206,6 @@ def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
     return None
 
 
-def decl_reason_ok(why: str) -> bool:
-    """宣告行冒號後有理由：至少一個字母或數字（任何語言）、整段不是角括號佔位。只查有沒有，不評內容；
-    理由裡引用標籤（「修正 <幣別> 標籤」）照算。"""
-    s = str(why or "").strip()
-    return any(ch.isalnum() for ch in s) and not re.fullmatch(r"<[^<>\n]*>", s)
-
-
 def data_file_hint(rel: str) -> str:
     return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
             "放回覆文字或下一個 Bash 開頭 `#` 註解；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
@@ -2199,17 +2222,17 @@ def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Seque
     if not facts.get("existed"):
         return Verdict(rule, False, "(b) 不成立：呼叫前檔不存在（新建）")
     if facts.get("created"):
-        return Verdict(rule, False, "(c) 不成立：本 session Write 新建的檔")
+        return Verdict(rule, False, "(c) 不成立：本 session 新建的檔")
     if facts.get("named"):
         return Verdict(rule, False, f"(d) 不成立：使用者原話點名了：「{str(facts['named']).strip()[:80]}」")
     base = Path(str(target)).name
     ev = [f"(a) 不是程式檔：副檔名 {ext} 在資料／設定清單",
           "(b) 使用者既有：呼叫前檔已存在",
-          "(c) 非本 session 建：本 session 沒 Write 新建過它",
+          "(c) 非本 session 建：本 session 沒新建過它",
           f"(d) 需求沒點名：本 session 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
     hit = [d for d in decls if decl_names_file(d[0], target)]
     for _path, why, line in hit:
-        if decl_reason_ok(why):
+        if reason_present(why):
             return Verdict(rule, False, f"AI 宣告動資料檔 {rel}：{why[:120]}", (line,))
     if hit:
         return Verdict(rule, True, f"宣告行冒號後沒有理由（空白、只有標點或角括號佔位）：{rel}", tuple(ev + [hit[-1][2]]))
@@ -2402,3 +2425,435 @@ def atom_bypass_verdict(gates: Sequence[str], words: Sequence[str], reason: str 
                        (f"提到的閘：{'、'.join(gates)}", f"做法字樣：{'、'.join(words)}"))
     return Verdict("ATOM_BYPASS_HOWTO_REFUSED", False, "只命中一個訊號（或都沒有），照寫",
                    (f"提到的閘：{'、'.join(gates) or '無'}", f"做法字樣：{'、'.join(words) or '無'}"))
+# ─── G14 最小地圖 ───
+# 沒有部位表的專案第一次改程式檔前要 AI 先寫出跟需求相關的最小地圖（wg_overview._unmapped_edit 收事實、這裡判）
+RULES.update({
+    "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP": "往上找不到任何部位表的專案，本 session 第一次改某頂層目錄的程式檔前（state 鍵 <根>|(unmapped)<頂層目錄>"
+                                         " 為單位），要交最小地圖三行「地圖｜讀了：<檔清單>」「地圖｜上游：…」「地圖｜下游：…」"
+                                         "（回覆文字、工具參數、thinking 三管道都認，取最後一組三行齊的）：讀了至少列 1 個檔、每個都是"
+                                         "本 session 讀過的（與 part_files_read 同源）；上下游非空，真的沒有寫「無，因為…」；留著範例角括號"
+                                         "佔位當沒填。只看有沒有、讀過沒，不評內容；交過同鍵不再擋，同根下一個頂層目錄只認之後交的地圖。"
+                                         "執行期資料、知識類、非程式檔、有部位表的專案不查；min_map.enabled=false 整條不觸發。",
+})
+
+MIN_MAP_KEYS = ("讀了", "上游", "下游")
+MIN_MAP_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；值可空（空的要點名擋）
+    r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?地圖[ \t]*[｜|][ \t]*(讀了|上游|下游)[ \t]*[:：][ \t]*(.*?)[ \t]*[\"']?,?$", re.MULTILINE
+)
+_MAP_NOTE_RE = re.compile(r"[（(][^（）()\n]*[）)]")        # 檔名後的括號附註（入口、主程式）不當檔名
+_MAP_SPLIT_RE = re.compile(r"[、，,；;\s]+")
+_MAP_TOKEN_TRIM = "`'\"「」『』"
+_MAP_UNREAD_SHOWN = 5
+
+
+def min_map_group(text: str) -> Optional[Dict[str, str]]:
+    """text 裡的最小地圖：每遇「讀了」行開一組；回最後一組三行齊的（被擋後補交的那組才是現行），都不齊回最後一組，沒有地圖行回 None。"""
+    groups: List[Dict[str, str]] = []
+    for m in MIN_MAP_RE.finditer(text or ""):
+        if m.group(1) == "讀了" or not groups:
+            groups.append({})
+        groups[-1][m.group(1)] = m.group(2).strip()
+    complete = [g for g in groups if all(k in g for k in MIN_MAP_KEYS)]
+    if complete:
+        return complete[-1]
+    return groups[-1] if groups else None
+
+
+def min_map_files(value: str) -> List[str]:
+    """「讀了」那行的檔清單：先去掉括號附註，再以「、，,；;」與空白切開，剝反引號與引號。"""
+    out: List[str] = []
+    for tok in _MAP_SPLIT_RE.split(_MAP_NOTE_RE.sub(" ", value or "")):
+        tok = tok.strip(_MAP_TOKEN_TRIM)
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _map_line_problem(key: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return f"缺「地圖｜{key}」那行"
+    if not value.strip():
+        return f"「地圖｜{key}」是空的" + ("" if key == "讀了" else "（真的沒有就寫「無，因為…」）")
+    if _EXAMPLE_PLACEHOLDER_RE.search(value):
+        return f"「地圖｜{key}」還留著範例的角括號佔位（<…>）"
+    if key != "讀了" and _SAME_NONE_RE.match(value) and not _REASON_RE.search(value):
+        return f"「地圖｜{key}」寫了無但沒附理由（寫「無，因為…」）"
+    return None
+
+
+def min_map_verdict(group: Optional[Dict[str, str]], root: str, read: Iterable[str], transcript_problem: str = "") -> Verdict:
+    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：group＝min_map_group 的結果；root＝專案根（「讀了」的相對路徑以它為基準）；
+    read＝本 session 讀過的檔（canon_path 或原樣皆可）；transcript_problem＝transcript 讀不到時的原因（放進證據）。"""
+    rule = "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP"
+    if group is None:
+        ev = transcript_problem or "回覆文字、工具參數、thinking 都找不到「地圖｜讀了：」那行"
+        return Verdict(rule, True, "還沒交最小地圖三行（讀了／上游／下游）", (ev,))
+    problems = [p for p in (_map_line_problem(k, group.get(k)) for k in MIN_MAP_KEYS) if p]
+    files = [] if _map_line_problem("讀了", group.get("讀了")) else min_map_files(group["讀了"])
+    if not files and not _map_line_problem("讀了", group.get("讀了")):
+        problems.append("「地圖｜讀了」沒列任何檔")
+    seen = {canon_path(p) for p in read}
+    unread = [f for f in files if canon_path(os.path.join(root, f)) not in seen]
+    if unread:
+        shown = "、".join(unread[:_MAP_UNREAD_SHOWN]) + (f" 等 {len(unread)} 個" if len(unread) > _MAP_UNREAD_SHOWN else "")
+        problems.append(f"「地圖｜讀了」列的 {shown} 本 session 沒讀過（先讀再列，或從清單拿掉）")
+    if problems:
+        return Verdict(rule, True, "最小地圖不完整", tuple(problems))
+    return Verdict(rule, False, f"最小地圖三行齊，讀了列的 {len(files)} 個檔本 session 都讀過", tuple(files))
+# ─── G11 拐彎判斷（程式只算側面數據、只核對五欄齊；這一層有沒有作用、會不會讓人拐超過三個彎由 AI 判並寫理由。事實由 wg_reading_path 收，這裡判結構） ───
+RULES.update({
+    "TURN_JUDGMENT_REQUIRED": "收尾附的側面數據（入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈層數與空層）到了"
+                              " reading_path.turn_judgment 的門檻（預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；"
+                              "這是「從第幾個彎起要人看」的事實門檻，不是判臭）的每一條，收尾文字都要有一行"
+                              "「拐彎判斷｜<函式、類別或入口>｜<這一層／這個彎存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」"
+                              "五欄齊（「不會」「這一層沒有作用」都要理由）；缺 → 每個使用者回合擋一次並列缺的那幾條與填好名字的範例行；"
+                              "齊 → 放行、guard-reading_path.jsonl 記 judged。程式不評內容；量不出（不可評級、不支援的語言）只列不問；"
+                              "一批最多問 max_items 條（預設 8，到門檻的優先、其餘報個數不問）；對象欄只認整名或邊界結尾，不認子字串；"
+                              "Markdown 引言與圍欄程式碼裡的行不算回答。",
+})
+
+JUDGMENT_LABEL = "拐彎判斷"
+JUDGMENT_COLUMNS = ("對象（函式、類別或入口）", "這一層／這個彎存在的理由、有沒有真正的作用（不會／會：第 N 個彎在…／這一層沒有作用，因為…）",
+                    "理由", "怎麼改直／合理，因為…")
+JUDGMENT_EXAMPLE = "拐彎判斷｜{name}｜<不會／會：第 N 個彎在…／這一層沒有作用，因為…>｜<理由>｜<怎麼改直／合理，因為…>"
+# 行首（可帶清單記號）才算回答：Markdown 引言（> …）與圍欄程式碼裡引用上一版的行不算（codex 審 G11 BLOCK 2）
+_JUDGMENT_RE = re.compile(r"^\s*(?:[-*•]\s*|\d+[.)]\s*)?拐彎判斷\s*[｜|]\s*(.+)")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_COL_SPLIT_RE = re.compile(r"\s*[｜|]\s*")
+_NAME_BOUNDARY = ("::", ".", "/", "\\", "→")
+
+
+def parse_turn_judgments(text: str) -> List[Dict[str, Any]]:
+    """收尾文字裡的拐彎判斷行 → [{target, verdict, reason, fix, missing: [缺的欄名], line}]。五欄用｜隔開；超過五段的尾段併回最後一欄。
+    只查每欄有沒有填（有文字、不是擋訊息範例的角括號佔位），不評內容。"""
+    out: List[Dict[str, Any]] = []
+    fenced = False
+    for raw in str(text or "").splitlines():
+        if _FENCE_RE.match(raw):
+            fenced = not fenced
+            continue
+        m = None if fenced else _JUDGMENT_RE.match(raw)
+        if not m:
+            continue
+        parts = [p.strip() for p in _COL_SPLIT_RE.split(m.group(1))]
+        if len(parts) > 4:
+            parts = parts[:3] + ["｜".join(parts[3:])]
+        parts += [""] * (4 - len(parts))
+        target, verdict, reason, fix = parts
+        filled = (reason_present(target), reason_present(verdict), reason_present(reason), reason_present(fix))
+        out.append({"target": target, "verdict": verdict, "reason": reason, "fix": fix,
+                    "missing": [col for col, ok in zip(JUDGMENT_COLUMNS, filled) if not ok], "line": raw.strip()[:240]})
+    return out
+
+
+def judgment_names(target: str, keys: Sequence[str]) -> bool:
+    """判斷行的對象欄指得到這一條數據：對象（去空白、不分大小寫）等於某個鍵，或以「<邊界>鍵」結尾（邊界＝::、.、/、\\、→，
+    例：hooks/y.py::b 對 y.py::b、Cls.m 對 m）。不做子字串比對：y.py::load_config 對不到 y.py::load（codex 審 G11 BLOCK 1）。
+    鍵＝函式限定名、檔::名、入口與落點的寫法；同名不同檔的短名會同時對到（程式只核對結構，不猜是哪個）。"""
+    t = _nows(target)
+    if len(t) < 2:
+        return False
+    for k in keys or ():
+        kn = _nows(k)
+        if len(kn) >= 2 and (t == kn or any(t.endswith(b + kn) for b in _NAME_BOUNDARY)):
+            return True
+    return False
+
+
+def turn_judgment_verdict(items: Sequence[Dict[str, Any]], judgments: Sequence[Dict[str, Any]]) -> Verdict:
+    """TURN_JUDGMENT_REQUIRED：items＝到門檻的數據 [{kind, name, keys, nums}]；judgments＝parse_turn_judgments 的結果。
+    owed＝有任一條沒有五欄齊的對應行。evidence：缺的每條「<kind> <name>｜<nums>」；對到但缺欄的行另列缺哪幾欄。"""
+    missing: List[str] = []
+    partial: List[str] = []
+    covered: List[str] = []
+    for it in items:
+        hits = [j for j in judgments if judgment_names(j["target"], it.get("keys") or [it["name"]])]
+        if any(not j["missing"] for j in hits):
+            covered.append(f"{it['kind']} {it['name']}")
+            continue
+        missing.append(f"{it['kind']} {it['name']}｜{it.get('nums', '')}")
+        partial += [f"「{j['line'][:120]}」缺「{'」「'.join(j['missing'])}」欄" for j in hits]
+    if not missing:
+        return Verdict("TURN_JUDGMENT_REQUIRED", False, f"到門檻的 {len(items)} 條都有五欄齊的拐彎判斷行", tuple(covered))
+    return Verdict("TURN_JUDGMENT_REQUIRED", True,
+                   f"側面數據到門檻的 {len(items)} 條裡 {len(missing)} 條沒有五欄齊的「拐彎判斷｜」行（程式只核對五欄，不評內容）",
+                   tuple(missing + partial))
+# ─── G9 第二意見 ───
+# 事實由 hooks/wg_second_opinion.py 收（本回合 transcript 的 start／result、git numstat、高風險部位），閘在 handlers/stop.py 的
+# SecondOpinion 段；material 端（tools/second-opinion/pack.py）引用 SO_QUESTION_ROOT_MISSING 當 blocked 原因的開頭。
+RULES.update({
+    "SECOND_OPINION_REQUIRED": "宣告完成時，本 session 改過的程式檔（寫碼類判準）達大任務門檻（檔數 ≥ second_opinion.auto.min_code_files，"
+                               "或對 HEAD 的程式改動行數 ≥ min_changed_lines：git diff --numstat HEAD，未追蹤的新檔算整檔行數，查不到 git "
+                               "只看檔數）或路徑命中高風險部位（risky_prefixes，或部位表該列類別是 gate），而且上次滿足（跑過、宣告不需、"
+                               "使用者放行）之後又改過程式 → 本回合（TURN_SINCE_USER_PROMPT）要真的跑過第二意見：second_opinion_start"
+                               "（mode=independent，kind=stage-review 或 evaluate）由 second_opinion_result 回 done／failed／blocked（running、"
+                               "只 start 沒取結果、start 沒開出 job、question 沒含樹根被擋、session 有樹而材料沒帶到樹都不算），而且收尾最後一則"
+                               "有「第二意見與分歧裁決」段與四行（行首、程式碼區塊外；Codex 結論／我方結論／分歧點／裁決與理由，標籤後要有字）。門檻是事實核對；"
+                               "程式只核對有沒有跑、標籤在不在，不評內容。擋 max_blocks_per_turn 次（預設 1）後擋滿，不自行放行、改問使用者"
+                               "（wg_release）；子代理、裁判 session、headless 不觸發；前面的閘擋下時列進 BLOCK_LISTS_LATER_GATES 預覽。",
+    "SECOND_OPINION_DECLINED": "收尾寫一行「不需第二意見｜<理由>」→ 不擋、留帳 Logs/guard-second_opinion.jsonl（event=declined、理由、"
+                               "程式檔數），週健檢列筆數與理由（只列不判）；理由空、只有佔位、或只寫「不需要」這類空話 → 照擋。",
+})
+
+SO_SECTION = "第二意見與分歧裁決"
+SO_LABELS: Tuple[str, ...] = ("Codex 結論", "我方結論", "分歧點", "裁決與理由")
+SO_KINDS: Tuple[str, ...] = ("stage-review", "evaluate")
+SO_RAN: Tuple[str, ...] = ("done", "failed", "blocked")
+SO_QUESTION_ROOT_MISSING = "question 沒含需求目標樹的樹根那句"
+SO_NO_GOAL_NOTE = "材料沒有需求目標樹"      # pack 的 note 開頭（start 回傳的 `note:` 行）；session 有樹時這種 run 不算跑過
+# 宣告行與四行只認行首（可帶空白、清單符號、粗體）、不在程式碼區塊裡：散文裡引用的範例、引用區塊（>）不算
+_SO_DECLINE_RE = re.compile(r"^[\s*\-]*不需第二意見(?:\*\*)?\s*[｜|]\s*(.*)$")
+_SO_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+_SO_EMPTY_REASONS = frozenset({"不需要", "不需", "不用", "沒必要", "不必", "無", "略", "沒有", "na", "none"})
+
+
+def _so_label_re(label: str) -> "re.Pattern[str]":
+    return re.compile(rf"^[\s*\-#]*(?:\*\*)?{re.escape(label)}(?:\*\*)?\s*[：:｜|]\s*(.*)$")
+
+
+_SO_LABEL_RES = tuple((lb, _so_label_re(lb)) for lb in SO_LABELS)
+
+
+def _so_lines(text: str) -> List[str]:
+    """收尾文字裡不在程式碼區塊（``` 或 ~~~ 圍起來）的行。"""
+    out: List[str] = []
+    fenced = False
+    for ln in str(text or "").splitlines():
+        if _SO_FENCE_RE.match(ln):
+            fenced = not fenced
+            continue
+        if not fenced:
+            out.append(ln)
+    return out
+
+
+def second_opinion_hint() -> str:
+    """擋訊息末尾的入口（G6 樣式：擋的同時告訴 AI 入口在哪）。"""
+    return (f"跑完在收尾最後一則寫「{SO_SECTION}」段，四行：" + "／".join(f"{lb}：…" for lb in SO_LABELS)
+            + "（failed／blocked 也要寫明狀態與自己的結論）。\n"
+            "要跑：second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result；"
+            "或宣告 `不需第二意見｜<理由>`")
+
+
+def second_opinion_decline(text: str) -> Optional[str]:
+    """收尾文字裡最後一行「不需第二意見｜<理由>」的理由（可能是空字串）；沒有這行回 None。只認行首、程式碼區塊外。"""
+    found: Optional[str] = None
+    for line in _so_lines(text):
+        m = _SO_DECLINE_RE.match(line)
+        if m:
+            found = m.group(1).strip()
+    return found
+
+
+def second_opinion_decline_ok(reason: str) -> bool:
+    """SECOND_OPINION_DECLINED：理由有文字內容、不是佔位、不是「不需要」這類空話。不評理由充不充分。"""
+    core = _ITEM_STRIP_RE.sub("", str(reason or "")).lower()
+    return reason_present(reason) and core not in _SO_EMPTY_REASONS
+
+
+def second_opinion_section_missing(text: str) -> List[str]:
+    """收尾缺的項目：段標題、四行標籤（行首、標籤後要有至少 2 個中文或英數字）。全在回 []。程式碼區塊裡的不算。"""
+    lines = _so_lines(text)
+    missing = [] if any(SO_SECTION in ln for ln in lines) else [f"段標題「{SO_SECTION}」"]
+    for label, rx in _SO_LABEL_RES:
+        filled = [m for m in (rx.match(ln) for ln in lines) if m and has_text(m.group(1))]
+        if not filled:
+            missing.append(f"「{label}：」行")
+    return missing
+
+
+def second_opinion_triggers(n_code: int, changed_lines: Optional[int], risky: Sequence[str],
+                            min_files: int, min_lines: int) -> List[str]:
+    """SECOND_OPINION_REQUIRED 的門檻事實 → 命中的觸發原因（空＝沒過門檻）。changed_lines=None＝查不到 git，只看檔數。"""
+    out: List[str] = []
+    if n_code >= min_files:
+        out.append(f"程式檔 {n_code} 個 ≥ {min_files}")
+    if changed_lines is not None and changed_lines >= min_lines:
+        out.append(f"對 HEAD 的程式改動 {changed_lines} 行 ≥ {min_lines}")
+    if risky:
+        out.append("改到高風險部位：" + "、".join(_base_name(p) for p in list(risky)[:5]))
+    return out
+
+
+def second_opinion_runs(starts: Sequence[Dict[str, Any]], results: Sequence[Dict[str, Any]],
+                        has_tree: bool = False) -> List[Tuple[str, str]]:
+    """本回合每次 start 的最終狀態 [(job_id, 狀態)]。starts／results＝transcript 依序收的 {mode, kind, job_id, status, reason, notes}／
+    {job_id, status, reason}；has_tree＝這個 session 有需求目標樹。只認 second_opinion_result 回的狀態（派工單定死：result 回
+    done／failed／blocked 才算跑過）。狀態：done／failed／blocked（算跑過）、running、started（start 了沒取結果）、
+    rejected（question 沒含樹根被擋）、no-goal（session 有樹但材料沒帶到：start 的 note 以 SO_NO_GOAL_NOTE 開頭）、
+    invalid（start 沒開出 job：被拒收或 prepare 失敗，job_id 是 -）、off-mode（不是 independent 或 kind 不對）。"""
+    last: Dict[str, Dict[str, Any]] = {}
+    for r in results:
+        last[str(r.get("job_id") or "")] = r
+    out: List[Tuple[str, str]] = []
+    for s in starts:
+        jid = str(s.get("job_id") or "-")
+        no_goal = has_tree and any(str(n).startswith(SO_NO_GOAL_NOTE) for n in s.get("notes") or ())
+        if s.get("mode") != "independent" or s.get("kind") not in SO_KINDS:
+            out.append((jid, "off-mode"))
+            continue
+        if jid == "-" or no_goal:
+            out.append((jid, "invalid" if jid == "-" else "no-goal"))
+            continue
+        fin = last.get(jid) or {}
+        st = str(fin.get("status") or "")
+        why = str(fin.get("reason") or s.get("reason") or "")
+        if SO_QUESTION_ROOT_MISSING in why:
+            out.append((jid, "rejected"))
+        elif st in SO_RAN or st == "running":
+            out.append((jid, st))
+        else:
+            out.append((jid, "started"))
+    return out
+
+
+_SO_WAIT = {
+    "running": "第二意見還在跑（result=running），等 second_opinion_result 回 done／failed／blocked 再收尾",
+    "started": "start 了但本回合沒取結果，呼叫 second_opinion_result({job_id}) 拿到 done／failed／blocked",
+    "rejected": f"start 被擋：{SO_QUESTION_ROOT_MISSING}，照 reason 把那句抄進 question 重跑",
+    "no-goal": f"這次的材料沒有需求目標樹（start 的 note：{SO_NO_GOAL_NOTE}…），不算跑過：確認 start 帶到 session_id"
+               "（PreToolUse 補）後重跑",
+    "invalid": "start 沒開出 job（被拒收或 prepare 失敗，job_id 是 -），照 reason 修正後重跑；修不好就宣告不需並寫明原因，或問使用者",
+    "off-mode": "本回合跑的不是 mode=independent＋kind=stage-review／evaluate，不算",
+}
+
+
+def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_since_ok: bool,
+                           runs: Sequence[Tuple[str, str]], text: str) -> Verdict:
+    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED：owed＝要擋。triggers＝second_opinion_triggers 的結果；edited_since_ok＝
+    上次滿足之後又改過程式；runs＝second_opinion_runs 的結果；text＝收尾最後一則。"""
+    rule = "SECOND_OPINION_REQUIRED"
+    if not claims_done:
+        return Verdict(rule, False, "沒有宣告完成")
+    if not triggers:
+        return Verdict(rule, False, "改動沒過大任務門檻、也沒改到高風險部位")
+    if not edited_since_ok:
+        return Verdict(rule, False, "上次滿足第二意見之後沒有再改程式")
+    ran = [(j, s) for j, s in runs if s in SO_RAN]
+    missing = second_opinion_section_missing(text)
+    if ran and not missing:
+        return Verdict(rule, False, f"本回合跑過第二意見（{ran[-1][0]} {ran[-1][1]}），收尾有分歧裁決四行")
+    reason = second_opinion_decline(text)
+    if reason is not None:
+        if second_opinion_decline_ok(reason):
+            return Verdict("SECOND_OPINION_DECLINED", False, f"AI 宣告不需第二意見：{reason[:120]}")
+        return Verdict("SECOND_OPINION_DECLINED", True, "宣告「不需第二意見」但理由空、只有佔位或只寫不需要",
+                       tuple(triggers) + (f"理由：「{reason[:60]}」",))
+    if ran:
+        return Verdict(rule, True, "跑過第二意見，但收尾缺：" + "、".join(missing),
+                       tuple(triggers) + tuple(f"{j} {s}" for j, s in ran[-3:]))
+    seen = [s for _j, s in runs]
+    wait = next((_SO_WAIT[k] for k in ("running", "started", "rejected", "no-goal", "invalid", "off-mode") if k in seen), "")
+    return Verdict(rule, True, wait or "大任務或高風險部位宣告完成，本回合沒有跑第二意見",
+                   tuple(triggers) + tuple(f"{j} {s}" for j, s in runs[-3:]))
+
+
+# ─── G7 等值與熱路徑 ───
+# 重構意圖收尾要有等值證法三類收據（或附理由的不適用宣告），熱路徑答「是」要有量測收據。事實（意圖、改檔、收據、收尾文字）
+# 由 handlers/stop.py 的 Equivalence Gate 收，這裡只判；判斷（適不適用、是不是熱路徑、量法）交 AI 宣告並附理由，程式只核對有沒有答、
+# 收據在不在。
+RULES.update({
+    "REFACTOR_NEEDS_EQUIVALENCE": "意圖 refactor、本回合改過程式檔、宣告完成 → 最後一次改程式檔之後要有三筆 PRESERVE_CHECK PASS 收據"
+                                  "（指令各帶 --mutation order／side_effect／boundary，沒紅、指令沒自己寫哨兵字樣），或收尾文字一行"
+                                  "「等值證法｜不適用｜<理由>」（理由有文字內容、不是佔位；留帳 guard-equivalence.jsonl）。"
+                                  "缺 → 照寫碼查核的預算擋，擋滿問使用者。意圖（state turn_intent）只由使用者本人打的字判"
+                                  "（user_typed_text；同伴訊息、背景通知沿用上一個意圖），AI 自己說「重構」不會把自己擋住。",
+    "PERF_HOT_PATH_NEEDS_MEASURE": "意圖 refactor 或 perf、本回合改過程式檔、宣告完成 → 收尾文字要答「熱路徑｜是｜<哪裡>」或"
+                                   "「熱路徑｜否｜<為什麼>」。答是 → 最後一次改程式檔之後要有量測收據（`<NAME> DONE k=v` 哨兵，要帶 k=v 數字；"
+                                   "pytest 統計行轉成的 PYTEST_MEASURE 沒有數字不算）或"
+                                   "「量測｜不做｜<理由>」（留帳）；答否附理由 → 放行（留帳）。沒答 → 每個使用者回合擋一次；"
+                                   "答了但缺收據或缺理由 → 照寫碼查核的預算擋，擋滿問使用者。是不是熱路徑、怎麼量由 AI 判。",
+})
+
+EQUIVALENCE_MUTATIONS = ("order", "side_effect", "boundary")
+EQUIVALENCE_SENTINEL = "PRESERVE_CHECK"
+EQUIVALENCE_ENTRY = "跑三類 `preserve-check.py --mutation order|side_effect|boundary`（尾行 PRESERVE_CHECK PASS），或宣告 `等值證法｜不適用｜<理由>`"
+HOT_PATH_ENTRY = "答 `熱路徑｜是｜<哪裡>`＋量測收據（`<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`"
+_MUTATION_ARG_RE = re.compile(r"--mutation(?:\s+|=)[\"']?(order|side_effect|boundary)\b")
+_EQ_NA_RE = re.compile(r"等值證法\s*[｜|]\s*不適用\s*(?:[｜|]\s*(.*))?$")
+_HOT_RE = re.compile(r"熱路徑\s*[｜|]\s*(是|否)\s*(?:[｜|]\s*(.*))?$")
+_MEASURE_SKIP_RE = re.compile(r"量測\s*[｜|]\s*不做\s*(?:[｜|]\s*(.*))?$")
+
+
+def proved_mutations(receipts: Iterable[Tuple[Any, ...]]) -> List[str]:
+    """(指令, 哨兵「名稱:結論」, exit[, …]) → 證到的類別（照三類順序）：有 PRESERVE_CHECK:PASS、沒紅、指令帶 --mutation <類>。
+    一筆收據只算一類：取指令裡最後一個 --mutation（preserve-check.py 的 argparse 單值參數，重複指定只跑最後一個；
+    三次串成一條指令的，哨兵同一行只記一次，也只算最後一類，三類要分三次跑）。
+    收據資格（指令完整、沒自己寫哨兵字樣、在最後一次改檔之後）由呼叫端先篩。"""
+    got = set()
+    for cmd, verdicts, exit_code, *_ in receipts:
+        if f"{EQUIVALENCE_SENTINEL}:PASS" not in {str(v).upper() for v in verdicts or ()} or receipt_red(verdicts, exit_code):
+            continue
+        found = _MUTATION_ARG_RE.findall(str(cmd or ""))
+        if found:
+            got.add(found[-1])
+    return [m for m in EQUIVALENCE_MUTATIONS if m in got]
+
+
+def has_measure(receipts: Iterable[Tuple[Any, ...]]) -> bool:
+    """(指令, 哨兵「名稱:結論」, exit, 這筆收據各 DONE 哨兵的 k=v 清單) → 有一筆沒紅、而且至少一個 DONE 帶 k=v（`<NAME> DONE k=v`
+    的量測數字）。只有 DONE 沒有數字的不算：設定把 pytest 統計行轉成的 PYTEST_MEASURE:DONE 沒有 k=v，跑一般測試不等於量了熱路徑。"""
+    for _cmd, verdicts, exit_code, *rest in receipts:
+        kvs = rest[0] if rest else ()
+        if not receipt_red(verdicts, exit_code) and any(kv for kv in kvs or ()):
+            return True
+    return False
+
+
+def parse_equivalence_lines(text: str) -> Dict[str, List[Dict[str, str]]]:
+    """收尾文字裡的三種入口行 → {"na": [{reason, line}], "hot": [{answer, why, line}], "skip": [{reason, line}]}，一行一條。
+    行首的 markdown 記號（`、*、-、>）與行尾的 `、* 先剝掉（行尾的 > 留著：它可能是角括號佔位的一半）。
+    熱路徑行後面還留著擋訊息的角括號佔位（照抄入口寫法）不算回答。"""
+    out: Dict[str, List[Dict[str, str]]] = {"na": [], "hot": [], "skip": []}
+    for raw in str(text or "").splitlines():
+        ln = raw.strip().lstrip("`*->").strip().rstrip("`*").strip()
+        m = _EQ_NA_RE.search(ln)
+        if m:
+            out["na"].append({"reason": (m.group(1) or "").strip().strip("`"), "line": ln[:200]})
+            continue
+        m = _HOT_RE.search(ln)
+        if m and not _EXAMPLE_PLACEHOLDER_RE.search(m.group(2) or ""):
+            out["hot"].append({"answer": m.group(1), "why": (m.group(2) or "").strip().strip("`"), "line": ln[:200]})
+            continue
+        m = _MEASURE_SKIP_RE.search(ln)
+        if m:
+            out["skip"].append({"reason": (m.group(1) or "").strip().strip("`"), "line": ln[:200]})
+    return out
+
+
+def equivalence_verdict(proved: Sequence[str], na: Sequence[Dict[str, str]]) -> Verdict:
+    """REFACTOR_NEEDS_EQUIVALENCE：owed＝三類沒證齊、也沒有附理由的不適用宣告。"""
+    ok = next((d for d in na if reason_present(d.get("reason", ""))), None)
+    if ok:
+        return Verdict("REFACTOR_NEEDS_EQUIVALENCE", False, f"AI 宣告等值證法不適用：{ok['reason'][:120]}", (ok["line"],))
+    missing = [m for m in EQUIVALENCE_MUTATIONS if m not in proved]
+    if not missing:
+        return Verdict("REFACTOR_NEEDS_EQUIVALENCE", False, "三類 PRESERVE_CHECK PASS 都在")
+    why = (f"宣告了「等值證法｜不適用」但沒附理由（或只有佔位），三類缺 {'、'.join(missing)}" if na
+           else f"重構宣告完成，等值證法三類缺 {'、'.join(missing)}")
+    have = f"已證：{'、'.join(proved)}" if proved else "已證：無"
+    return Verdict("REFACTOR_NEEDS_EQUIVALENCE", True, why, (have, *(d["line"] for d in na[:2]), f"入口：{EQUIVALENCE_ENTRY}"))
+
+
+def hot_path_verdict(hot: Sequence[Dict[str, str]], skip: Sequence[Dict[str, str]], measured: bool) -> Verdict:
+    """PERF_HOT_PATH_NEEDS_MEASURE：owed＝沒答、答是但沒量測收據也沒附理由的不做、答否沒附理由。有一行答是就照是判（嚴的那邊）。"""
+    entry = f"入口：{HOT_PATH_ENTRY}"
+    yes = [h for h in hot if h["answer"] == "是"]
+    if yes:
+        where = yes[0]["why"][:80] or "（沒寫哪裡）"
+        if measured:
+            return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", False, f"熱路徑是（{where}），量測收據在", (yes[0]["line"],))
+        ok = next((d for d in skip if reason_present(d.get("reason", ""))), None)
+        if ok:
+            return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", False, f"熱路徑是（{where}），AI 宣告不量：{ok['reason'][:120]}",
+                           (yes[0]["line"], ok["line"]))
+        why = (f"答了熱路徑是（{where}），「量測｜不做」沒附理由" if skip
+               else f"答了熱路徑是（{where}），最後一次改檔之後沒有量測收據（DONE 哨兵）")
+        return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, why, (yes[0]["line"], *(d["line"] for d in skip[:1]), entry))
+    no = [h for h in hot if h["answer"] == "否"]
+    ok = next((h for h in no if reason_present(h["why"])), None)
+    if ok:
+        return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", False, f"AI 答熱路徑否：{ok['why'][:120]}", (ok["line"],))
+    if no:
+        return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, "答了熱路徑否但沒附為什麼（或只有佔位）", (no[0]["line"], entry))
+    return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, "沒答「這次改動碰到熱路徑或大量配置嗎」", (entry,))

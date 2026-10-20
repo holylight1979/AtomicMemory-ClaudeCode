@@ -9,9 +9,9 @@
 | 思考與決策 | 8 | `memory/思考與決策/_INDEX.md` |
 | 驗證與實證 | 36 | `memory/驗證與實證/_INDEX.md` |
 | dotnet | 15 | `memory/dotnet/_INDEX.md` |
-| OS-Windows | 15 | `memory/OS-Windows/_INDEX.md` |
+| OS-Windows | 16 | `memory/OS-Windows/_INDEX.md` |
 | 文字與格式 | 9 | `memory/文字與格式/_INDEX.md` |
-| 設計通則 | 21 | `memory/設計通則/_INDEX.md` |
+| 設計通則 | 22 | `memory/設計通則/_INDEX.md` |
 | 行為契約 | 5 | `memory/行為契約/_INDEX.md` |
 | CC與原子記憶契約 | 30 | `memory/CC與原子記憶契約/_INDEX.md` |
 | Failures | 82 | `memory/Failures/_INDEX.md` |

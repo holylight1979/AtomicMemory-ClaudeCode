@@ -9,6 +9,7 @@
 3. 工作軌
 4. 待命 session
 5. 總控台之間的固定訊息
+6. 由腳本送出（/console 開工）
 
 ---
 
@@ -54,3 +55,15 @@
 | 派工 | 調度 → 工作軌 | `派工 NNN：to-track-<軌>/<檔>.md`（第一行固定這樣寫，程式只看第一行判斷是不是派工） |
 | 收割後關 | 調度 → 工作軌 | `收割後關：收割（寫不了的卡列代寫清單給調度）、樹乾淨、無未結、scratchpad 要留的複製到持久路徑，四項做完回報` |
 | 寫交接備忘 | 總控台 → 快滿的分頁 | `寫交接備忘：停手、不 commit，照 handoff-memo 範本回 20 行內備忘` |
+
+## 6. 由腳本送出（`/console 開工 <軌名> <派工單路徑>`）
+
+§3 的開工句本文不變，只是改由程式送進新 session、不用人貼：
+
+1. 總控台照 §3 填好，整段存成 `<專案根>/workflow/inbox/_console/kickoff-<軌名>.txt`（信箱不進版控）。
+2. 跑 `python ~/.claude/tools/console-spawn.py --track <軌名> --worktree <worktree 絕對路徑> --branch <分支> --prompt-file <上面那個檔> --permission-mode <總控台自己的模式>`。
+   腳本用 `claude --bg` 在 worktree 起 session（cwd 只准是登記過的 worktree）、把整檔當第一句送出、輪詢到那個 session 說出「<軌名> 收到開工」。
+3. 尾行 `CONSOLE_SPAWN_CHECK PASS`：它印的「ListAgents 名字」就是該軌的 claude 名字，寫回接續單「軌對應」行；人要看那個 session 的畫面或答它的問題：`claude attach <短 id>`、`claude logs <短 id>`。
+4. 尾行 `FAIL`：stdout 已印「退回人貼：停在「<哪一步>」」與開工句 code block，原樣轉給人照 §3 的老辦法貼；不重試超過一次。
+
+填法：開工句第一個詞仍是軌名（腳本靠「<軌名> 收到開工」認報到）；`--permission-mode` 一律明帶，腳本不猜、不假設新 session 繼承總控台的模式。

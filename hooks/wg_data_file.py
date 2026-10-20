@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import append_guard_log, read_state_status, user_typed_prompts, user_typed_text, write_state
+from wg_core import append_guard_log, read_state_status, transcripts_of, user_typed_prompts, user_typed_text, write_state
 import wg_release_rules as _rr
 
 GUARD = "data_file"
@@ -174,12 +174,12 @@ def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any]
     if key in (state.get("data_file_declared") or {}):
         return _rr.Verdict("USER_DATA_FILE_NEEDS_DECLARATION", False, f"本 session 宣告過 {rel}"), "state"
     if "prompts" not in ctx:
-        ctx["prompts"] = session_prompts(state, ctx["tp"])
+        ctx["prompts"] = session_prompts(state, ctx["main_tp"])
     facts.update(named=_rr.prompt_names_file(ctx["prompts"], path), prompts=len(ctx["prompts"]))
     if facts["named"]:
         return _rr.data_file_verdict(path, rel, facts, []), ""
     if "decls" not in ctx:
-        ctx["decls"] = declarations(ctx["tp"]) + _command_decls(ctx["cmd"])
+        ctx["decls"] = [d for tp in ctx["decl_tps"] for d in declarations(tp)] + _command_decls(ctx["cmd"])
     v = _rr.data_file_verdict(path, rel, facts, [d[:3] for d in ctx["decls"]])
     via = next((d[3] for d in ctx["decls"] if v.evidence and not v.owed and d[2] == v.evidence[0]), "")
     return v, via
@@ -191,7 +191,8 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     if status == "error":
         raise RuntimeError(f"state 檔讀不到（workflow/state-{sid[:8]}….json），判不了是不是本 session 建的")
     state = state or {}
-    ctx: Dict[str, Any] = {"tp": str(input_data.get("transcript_path") or ""),
+    main_tp, decl_tps = transcripts_of(str(input_data.get("transcript_path") or ""), str(input_data.get("agent_id") or ""))
+    ctx: Dict[str, Any] = {"main_tp": main_tp, "decl_tps": decl_tps,
                            "cmd": str((input_data.get("tool_input") or {}).get("command") or "") if tool_name in SHELL_TOOLS else ""}
     owed: List[Tuple[str, _rr.Verdict]] = []
     pending: List[str] = []

@@ -86,3 +86,40 @@ def test_on_prompt_text_reaches_additional_context(wired, monkeypatch):
     ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
     assert debug_calls == []
     assert "HUB-TEXT" in outputs[0]["hookSpecificOutput"]["additionalContext"]
+
+
+# ─── G7 意圖只認使用者原話：同伴訊息、背景通知不改 turn_intent（REFACTOR_NEEDS_EQUIVALENCE 據此擋） ───
+
+_PEER_REFACTOR = '<cross-session-message from="claude-12">派工：把 wg_x 的分派重構成查表</cross-session-message>'
+
+
+def _intent_after(wired, monkeypatch, prompt, prev=None):
+    state, debug_calls, _ = wired
+    if prev is not None:
+        state["turn_intent"] = prev
+    seen = {}
+    monkeypatch.setattr(wg_overview, "on_prompt", lambda st, sid, p, tp, cfg, intent=None: seen.update(intent=intent) or "")
+    ups.handle_user_prompt_submit({**INPUT, "prompt": prompt}, {"sync_keywords": []})
+    assert debug_calls == []
+    assert seen["intent"] == state["turn_intent"]                     # OverviewHub 拿到的就是 state 存的那一個
+    return state["turn_intent"]
+
+
+def test_g7_peer_message_does_not_set_refactor_intent(wired, monkeypatch):
+    assert _intent_after(wired, monkeypatch, _PEER_REFACTOR) == "general"
+
+
+def test_g7_user_typed_refactor_sets_intent(wired, monkeypatch):
+    assert _intent_after(wired, monkeypatch, "派工：把 wg_x 的分派重構成查表") == "refactor"
+
+
+def test_g7_user_words_win_over_peer_block_in_same_prompt(wired, monkeypatch):
+    """同伴區塊命中 refactor 兩個詞、使用者自己打的只命中 perf 一個詞 → 照使用者的（舊碼兩邊加總會判成 refactor）。"""
+    peer = '<cross-session-message from="claude-12">重構並整理 wg_x</cross-session-message>'
+    assert _intent_after(wired, monkeypatch, f"{peer}\n這頁太慢了") == "perf"
+
+
+@pytest.mark.parametrize("prompt", [_PEER_REFACTOR, "<task-notification>背景 agent 回報：重構完成</task-notification>"])
+def test_g7_message_without_user_text_keeps_previous_intent(wired, monkeypatch, prompt):
+    """整則沒有使用者打的字（同伴訊息、背景通知）→ 沿用上一則使用者訊息判的意圖，不改成 general 也不被正文改成 refactor。"""
+    assert _intent_after(wired, monkeypatch, prompt, prev="perf") == "perf"

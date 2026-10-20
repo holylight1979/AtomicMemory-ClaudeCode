@@ -73,6 +73,7 @@
 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 |
 | worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒 | worktree隔離session改部位檔被OverviewHub閘連擋-證據只認Read事件與Bash註解三行-git-C-live與python-heredoc與變數路徑一律被拒 |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
+| 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 | 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊None被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 |
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 |
 | 使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接 | 使用者放行的判定要防偽造-只認tool_use_id對到AskUserQuestion的答案-打字放行要整句嚴格比對-跨回合要承接 |
@@ -85,6 +86,7 @@
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 |
 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 |
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | 在live複跑Stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 |
+| 在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex | 在worktree跑mcp的js測試要設WG-CLAUDE-DIR指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendToolResult與syncMemoryIndex |
 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 |
@@ -98,6 +100,7 @@
 | 工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex | 工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex |
 | 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 | 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 |
 | 巨檔純機械拆分-carve腳本與驗證盲點 | 巨檔純機械拆分-carve腳本與驗證盲點 |
+| 已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進 | 已在worktree裡的session不能直接EnterWorktree到外部路徑-先ExitWorktree-keep回啟動目錄再進 |
 | 從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭 | 從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成./開頭 |
 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write-raw-tool-migrate-寫後補向量增量索引 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write_raw-tool-migrate-寫後補向量增量索引 |
 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 |
@@ -121,6 +124,7 @@
 | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail |
 | 範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠 | 範圍漏判歸因測試換真git後-前一session改檔與HEAD相同被判原樣還原-範圍不結案-期望不記的案空轉綠 |
 | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進UPS-引用的糾正詞誤觸DeepPostMortem |
+| 純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹 | 純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹 |
 | 總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行 | 總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行 |
 | 總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據 | 總控台合別人驗過的分支也走need_goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據 |
 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 |
@@ -129,6 +133,7 @@
 | 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音 | 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-SyncReminder被local-commit靜音 |
 | 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點 | 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點 |
 | 調度總控台合併候選驗證sop-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree | 調度總控台合併候選驗證SOP-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree |
+| 讀取點從家目錄改走資料根時寫死家目錄的舊測試會一起紅-conftest把wg-claude-dir隔離成暫存根-改merge-atom-index會重錄git錄製檔 | 讀取點從家目錄改走資料根時寫死家目錄的舊測試會一起紅-conftest把WG_CLAUDE_DIR隔離成暫存根-改merge-atom-index會重錄git錄製檔 |
 | 跨session協調-衝突預警機制與cc原生現況 | 跨session協調-衝突預警機制與CC原生現況 |
 | 跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失 | 跨層Bash閘與SessionStart逾時-fd複製非寫檔-開場提醒無聲消失 |
 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 |
