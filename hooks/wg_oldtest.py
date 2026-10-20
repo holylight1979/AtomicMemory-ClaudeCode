@@ -1,4 +1,4 @@
-"""wg_old_test.py — 改舊測試要先宣告（規則 OLD_TEST_CHANGE_NEEDS_DECLARATION）：收事實、留帳、組擋訊息。
+"""wg_oldtest.py — 改舊測試要先宣告（規則 OLD_TEST_CHANGE_NEEDS_DECLARATION）：收事實、留帳、組擋訊息。
 
 抓五種「動既有測試」：消失、改名、同名測試的斷言被刪或改、新加跳過標記、說明（docstring）被改或刪；再到 transcript 三管道
 （回覆文字／工具參數／thinking，與定位三行同一套 assistant_text_after）加上這次工具呼叫的參數找宣告行「改舊測試｜<函式名>：<理由>」。

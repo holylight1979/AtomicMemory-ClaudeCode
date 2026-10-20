@@ -2119,7 +2119,7 @@ RULES.update({
                                          "測試記 state，同 session 再動不擋。只加新測試、只改 fixture／helper、只改註解不觸發。改名與消失怎麼標"
                                          "（本體行相似度）只影響證據寫法，放不放行都要宣告點名舊的那支。Bash／PowerShell／NotebookEdit "
                                          "寫之前看不到改後內容：PreToolUse 拍改前快照、PostToolUse 比對，沒宣告的記 state，下一個工具呼叫擋到"
-                                         "補宣告（declared_late）或撤回（reverted）為止；只讀、只寫那幾個欠帳檔的呼叫不擋。事實由 wg_old_test 收，"
+                                         "補宣告（declared_late）或撤回（reverted）為止；只讀、只寫那幾個欠帳檔的呼叫不擋。事實由 wg_oldtest 收，"
                                          "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt／undeclared／denied_late／declared_late／reverted）。",
 })
 
@@ -2151,7 +2151,7 @@ def parse_old_test_declarations(text: str) -> List[Dict[str, Any]]:
 
 
 def _old_test_name_hits(name: str, key: str, path: str = "") -> bool:
-    """宣告的名字點到這支測試（key＝wg_old_test 的 key：`類別.函式`、`函式`、`describe:<名>`，尾巴 `#2` 拿掉）：
+    """宣告的名字點到這支測試（key＝wg_oldtest 的 key：`類別.函式`、`函式`、`describe:<名>`，尾巴 `#2` 拿掉）：
     整個相等；或拆成「檔」與「函式」（`檔:函式`、`檔::類別::函式`，檔＝結尾有副檔名的那段）：寫了檔就要是 path 本身或它的路徑尾段，
     函式寫了類別（`類別.函式`）就要整段對上，只寫函式名比最後一段。不分大小寫。"""
     n = str(name or "").strip().replace("\\", "/").lower()
@@ -2183,7 +2183,7 @@ def old_test_declaration_for(change: Dict[str, str], decls: Sequence[Dict[str, A
 
 
 def old_test_change_verdict(path: str, changes: Sequence[Dict[str, str]], decls: Sequence[Dict[str, Any]]) -> Verdict:
-    """OLD_TEST_CHANGE_NEEDS_DECLARATION：owed＝有動到既有測試、而那一支沒有合格的宣告行。changes 來自 wg_old_test.diff_tests；
+    """OLD_TEST_CHANGE_NEEDS_DECLARATION：owed＝有動到既有測試、而那一支沒有合格的宣告行。changes 來自 wg_oldtest.diff_tests；
     decls 來自 parse_old_test_declarations。"""
     rule = "OLD_TEST_CHANGE_NEEDS_DECLARATION"
     owed = [c for c in changes if old_test_declaration_for(c, decls, path) is None]

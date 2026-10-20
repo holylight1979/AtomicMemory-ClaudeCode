@@ -26,7 +26,7 @@ from wg_core import (
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
-import wg_old_test
+import wg_oldtest
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -1613,7 +1613,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
     # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
     try:
-        deny_reason = wg_old_test.gate(tool_name, tool_input, input_data, config, _cwd)
+        deny_reason = wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd)
     except Exception as e:
         deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
                        f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")

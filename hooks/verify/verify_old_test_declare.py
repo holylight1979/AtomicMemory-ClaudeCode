@@ -189,7 +189,7 @@ def _apply(path, ti):
 
 
 def _assert_is_test_file_with_tests(path, src):
-    import wg_old_test as ot
+    import wg_oldtest as ot
     assert ot.is_test_file(path, {}, None), "前置：這是測試檔"
     assert ot.extract_tests(src, path), "前置：抽得到測試函式"
 
@@ -291,7 +291,7 @@ def test_fixture_or_helper_change_not_triggered(world):
 
 def test_non_test_file_not_triggered(world):
     fp = _put(world, "src/x.py", LEGACY)
-    import wg_old_test as ot
+    import wg_oldtest as ot
     assert not ot.is_test_file(fp, {}, str(world["proj"])) and ot.extract_tests(LEGACY, fp), "前置：有測試函式但不是測試檔"
     r = _run(world, "Edit", {"file_path": fp, "old_string": 'assert rows[0] == "USD"', "new_string": 'assert rows[0] == "TWD"'})
     assert _pass(r)
@@ -503,6 +503,14 @@ def test_notebook_edit_on_existing_test_blocks_next_call(world):
     _post(world, "NotebookEdit", ti)
     r = _run(world, "Bash", {"command": "echo next"})
     assert _ot(r) and "test_a（斷言變了" in r and "這是 NotebookEdit 改的" in r
+
+
+def test_gate_module_is_not_a_case_file():
+    """模組檔名不能命中案例樣式（**/*_test.* 等），否則寫碼查核把它當測試檔、改了不要求補案例。"""
+    import wg_verify_ledger as vl
+    cfg = vl.reconcile_cfg({})
+    assert not vl.is_case_file(str(HOOKS_DIR / "wg_oldtest.py"), cfg, str(HOOKS_DIR.parent))
+    assert vl.is_case_file(str(HOOKS_DIR / "wg_old_test.py"), cfg, str(HOOKS_DIR.parent)), "前置：舊檔名確實會被當案例"
 
 
 # ─── 真實輸入：第一波驗收題 C-1 ───

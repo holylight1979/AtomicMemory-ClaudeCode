@@ -57,7 +57,7 @@ from handlers._shared import (
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
 )
-import wg_old_test
+import wg_oldtest
 
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
@@ -1010,7 +1010,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # 下一個工具呼叫在 PreToolUse 擋；Edit／Write 撤回了欠帳的那一筆就清掉。比對失敗只能 stderr＋留帳（事後擋不了這一次）。
     if tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"):
         try:
-            if wg_old_test.after_tool(state, input_data, config):
+            if wg_oldtest.after_tool(state, input_data, config):
                 dirty = True
         except Exception as e:
             print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
