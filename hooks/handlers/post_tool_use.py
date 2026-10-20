@@ -51,6 +51,7 @@ try:
 except ImportError:
     spawn_vcs_sync = None
 from handlers import aec_ledger
+import wg_data_file  # T2.16 動使用者資料檔要先宣告：記本 session 新建的檔
 from handlers._shared import (
     _hud_alive,
     _is_ephemeral_path,
@@ -1006,6 +1007,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
 
+    # 本 session 新建的檔（呼叫前不存在）→ state created_files：動資料檔閘的事實 (c)，暫存檔也記。
+    # Write 看結果 type=create；Bash／PowerShell 看 PreToolUse 記下的呼叫前不存在的目標
+    if wg_data_file.note_created(state, tool_name, file_path, input_data.get("tool_response")):
+        dirty = True
+    if wg_data_file.confirm_shell_created(state, str(input_data.get("tool_use_id") or "")):
+        dirty = True
     # ── OldTestDeclare（T2.17）：Bash／PowerShell／NotebookEdit 改了既有測試 → 拿 PreToolUse 拍的改前快照比，沒宣告的記 state，
     # 下一個工具呼叫在 PreToolUse 擋；Edit／Write 撤回了欠帳的那一筆就清掉。比對失敗只能 stderr＋留帳（事後擋不了這一次）。
     if tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"):
