@@ -2106,3 +2106,92 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
         hit = next((d for d in cited if names_item(hay, d["item"])), None)
         (waived.append((f, hit)) if hit else kept.append(f))
     return kept, waived
+
+
+# ─── T2.17 改舊測試 ───
+RULES.update({
+    "OLD_TEST_CHANGE_NEEDS_DECLARATION": "Edit／MultiEdit／Write 動到測試檔裡既有的測試函式（消失、改名、同名測試的斷言行被刪或改，只加新斷言不算；"
+                                         "新加跳過標記 skip／skipif／xfail／.skip(／[Ignore]／@Disabled），要先有宣告行"
+                                         "「改舊測試｜<函式名或 檔:函式名>：<理由>」（回覆文字／工具參數／thinking 三管道都認；多支以「、」分隔）："
+                                         "名字要點到這次抓到的那一支既有測試（改名寫舊的名字；寫了檔名或類別就要對得上那個檔、那個類別），"
+                                         "理由要有文字內容、不是擋訊息的角括號佔位；沒有 → 擋（字母 ot）。宣告過的那支與本 session 自己新加的"
+                                         "測試記 state，同 session 再動不擋。只加新測試、只改 fixture／helper、只改註解不觸發。改名與消失怎麼標"
+                                         "（本體行相似度）只影響證據寫法，放不放行都要宣告點名舊的那支。事實由 wg_old_test 收，"
+                                         "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt）。",
+})
+
+OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip"}
+_OLD_TEST_FILE_RE = re.compile(r"\.[a-z]{1,5}$")
+_OLD_TEST_DECL_RE = re.compile(r"改舊測試\s*[｜|]\s*(.+)")
+_OLD_TEST_ASCII_SEP_RE = re.compile(r":(?![A-Za-z0-9_\\/:])")
+_OLD_TEST_NAME_SPLIT_RE = re.compile(r"\s*[、，,]\s*")
+
+
+def parse_old_test_declarations(text: str) -> List[Dict[str, Any]]:
+    """宣告行 → [{names, reason, line}]。名字與理由用第一個「：」分；沒有全形冒號才找後面不接識別字的「:」
+    （`tests/test_a.py:test_x: 理由` 的第一個冒號屬於名字）。names 是去反引號後的整段與「、，,」切開的每一段。"""
+    out: List[Dict[str, Any]] = []
+    for raw in str(text or "").splitlines():
+        m = _OLD_TEST_DECL_RE.search(raw)
+        if not m:
+            continue
+        rest = m.group(1)
+        if "：" in rest:
+            names, reason = rest.split("：", 1)
+        else:
+            sep = _OLD_TEST_ASCII_SEP_RE.search(rest)
+            names, reason = (rest[:sep.start()], rest[sep.end():]) if sep else (rest, "")
+        names = names.strip().strip("`")
+        parts = [p.strip("` ") for p in _OLD_TEST_NAME_SPLIT_RE.split(names) if p.strip("` ")]
+        out.append({"names": [names, *parts], "reason": reason.strip(), "line": raw.strip()[:240]})
+    return out
+
+
+def _old_test_name_hits(name: str, key: str, path: str = "") -> bool:
+    """宣告的名字點到這支測試（key＝wg_old_test 的 key：`類別.函式`、`函式`、`describe:<名>`，尾巴 `#2` 拿掉）：
+    整個相等；或拆成「檔」與「函式」（`檔:函式`、`檔::類別::函式`，檔＝結尾有副檔名的那段）：寫了檔就要是 path 本身或它的路徑尾段，
+    函式寫了類別（`類別.函式`）就要整段對上，只寫函式名比最後一段。不分大小寫。"""
+    n = str(name or "").strip().replace("\\", "/").lower()
+    k = re.sub(r"#\d+$", "", str(key or "").strip().lower())
+    if not n or not k:
+        return False
+    if n == k or (k.startswith(("describe:", "context:")) and n == k.split(":", 1)[1]):
+        return True
+    file_part, func = "", n.replace("::", ".")
+    if "::" in n and _OLD_TEST_FILE_RE.search(n.split("::", 1)[0]):
+        file_part, func = n.split("::", 1)[0], n.split("::", 1)[1].replace("::", ".")
+    elif "::" not in n and ":" in n and _OLD_TEST_FILE_RE.search(n.rsplit(":", 1)[0]):
+        file_part, func = n.rsplit(":", 1)
+    if file_part:
+        p, f = canon_path(path) if path else "", file_part.lstrip("./")
+        if not p or not (p == f or p.endswith("/" + f)):
+            return False
+    if "." in func:
+        return k == func or k.endswith("." + func)
+    return func == k.rsplit(".", 1)[-1]
+
+
+def old_test_declaration_for(change: Dict[str, str], decls: Sequence[Dict[str, Any]], path: str = "") -> Optional[Dict[str, Any]]:
+    """這一筆動作有沒有合格的宣告行：名字點到那支既有測試（改名看舊名；新名不能替舊的那支宣告），理由有文字內容、不是佔位。"""
+    for d in decls:
+        if reason_present(d.get("reason", "")) and any(_old_test_name_hits(n, change.get("key", ""), path) for n in d["names"]):
+            return d
+    return None
+
+
+def old_test_change_verdict(path: str, changes: Sequence[Dict[str, str]], decls: Sequence[Dict[str, Any]]) -> Verdict:
+    """OLD_TEST_CHANGE_NEEDS_DECLARATION：owed＝有動到既有測試、而那一支沒有合格的宣告行。changes 來自 wg_old_test.diff_tests；
+    decls 來自 parse_old_test_declarations。"""
+    rule = "OLD_TEST_CHANGE_NEEDS_DECLARATION"
+    owed = [c for c in changes if old_test_declaration_for(c, decls, path) is None]
+    if not owed:
+        return Verdict(rule, False, "動到的每一支既有測試都有宣告行" if changes else "沒動到既有測試")
+    name = _base_name(path)
+    ev = []
+    for c in owed:
+        label = OLD_TEST_KIND_LABELS.get(c["kind"], c["kind"])
+        tail = f" → {c['new_key']}" if c.get("new_key") else (f"：{c['detail']}" if c.get("detail") else "")
+        ev.append(f"{name}：{c['key']}（{label}{tail}）")
+    ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls if not reason_present(d.get("reason", ""))][:2]
+    n = len({c["key"] for c in owed})
+    return Verdict(rule, True, f"動到 {n} 支既有測試，沒先宣告「改舊測試｜哪支：理由」", tuple(ev))

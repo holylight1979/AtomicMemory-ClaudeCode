@@ -1820,3 +1820,20 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
+
+
+# ─── T2.17 改舊測試 ───
+
+def test_old_test_change_needs_declaration_names_and_reason():
+    """OLD_TEST_CHANGE_NEEDS_DECLARATION：完整案例在 verify_old_test_declare.py；這裡守宣告行的名字與理由對法。"""
+    ch = [{"key": "TestR.test_a", "kind": "assert", "detail": "assertx==1"}, {"key": "test_b", "kind": "renamed", "detail": "", "new_key": "test_b2"}]
+    v = rr.old_test_change_verdict("tests/test_r.py", ch, [])
+    assert v.owed and v.rule == "OLD_TEST_CHANGE_NEEDS_DECLARATION" and "test_r.py：test_b（改名 → test_b2）" in v.evidence
+    ok = rr.parse_old_test_declarations("改舊測試｜tests/test_r.py:TestR.test_a、test_b: 使用者說欄位改了")
+    assert ok[0]["reason"] == "使用者說欄位改了" and not rr.old_test_change_verdict("tests/test_r.py", ch, ok).owed
+    assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a、test_b2：欄位改了")).owed, \
+        "改名只認舊名：新名不能替舊的那支宣告"
+    for other in ("改舊測試｜tests/test_x.py:test_a、test_b：別的檔", "改舊測試｜TestOther.test_a、test_b：別的類別"):
+        assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations(other)).owed, other
+    v = rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a：<理由>"))
+    assert v.owed and any("佔位" in e for e in v.evidence) and len(v.evidence) == 3
