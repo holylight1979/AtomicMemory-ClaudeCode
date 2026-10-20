@@ -4,12 +4,15 @@
       填好函式名的範例行；收尾文字沒有拐彎判斷行 → 擋一次（規則 TURN_JUDGMENT_REQUIRED，訊息列缺的那幾條與範例行），同一個
       使用者回合不再擋，下一回合再擋；寫了四欄 → 擋並點名缺哪欄；五欄齊 → 放行、guard log reading_path 記 judged；
       入口拐彎到門檻的變差／新增路徑也是一條；繼承鏈有空層、連續轉手鏈 ≥2 也是一條；真 Stop 入口擋到補齊為止。
+擋點：排在寫碼查核（對帳）之後、SecondOpinion 之前——對帳先擋時尾段「後面還會擋」列拐彎判斷缺幾條（預覽只讀、不吃這回合
+      那一次）；拐彎判斷擋時尾段預告第二意見；同回合第二次收尾不再擋；子代理 Stop 入口不觸發。
 反例：數據全低於門檻 → 不問、不擋；非 Python 檔標不支援、不問；還沒 git add 的新檔不列函式級數據（只報個數）。
 思考的彎：reconcile turns ≥4 沒寫「重找最短路：」→ 拒收；turns=2 收下；沒給 turns → 收下並提醒一句。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_g11_turns.py
 """
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -295,6 +298,8 @@ def driven(monkeypatch):
 def test_real_stop_blocks_with_the_data_until_judgment_lines_arrive(driven, capsys, tmp_path, monkeypatch):
     """改碼回合交給背景量；量完那次收尾缺拐彎判斷行 → 擋（規則名、數據、那一題、範例行都在訊息裡）；補五欄行 → 不再擋、留帳 judged。"""
     monkeypatch.setattr(ev, "get_last_assistant_text", lambda *a, **k: "", raising=False)
+    # 拐彎判斷排在寫碼查核之後：這案真的改了 y.py，(d) 會先擋；本案只看拐彎判斷這條路，寫碼查核換成全過
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, "", None))
     root = _repo(tmp_path / "rp")
     _write(root, {"y.py": NESTED_B})
     mods = [_mf(str(root / "y.py"), 5)]
@@ -309,6 +314,122 @@ def test_real_stop_blocks_with_the_data_until_judgment_lines_arrive(driven, caps
     out, state, logs = driven(f"全部完成了。\n{FIVE}", capsys, modified_files=mods, reading_path=state["reading_path"])
     assert "TURN_JUDGMENT_REQUIRED" not in out and "owed" not in state["reading_path"][_SID]
     assert any(g == "reading_path" and p.get("event") == "judged" for g, p in logs)
+
+
+# ─── 擋點在寫碼查核（對帳）之後、與 G9／G7 同序同預覽 ─────────────────────────────────────
+
+_ITEM_B = {"kind": "函式", "name": "y.py::b", "keys": ["y.py::b", "b"], "nums": "巢狀 4｜條件塊 2"}
+
+
+def _owed():
+    """背景量完、y.py::b 一條到門檻還沒判：直接放進 state（不改檔、不起背景量測，對帳不會因為改碼而擋）。"""
+    return {_SID: {"owed": {"turn": 5, "items": [dict(_ITEM_B)]}}}
+
+
+def _reason(out: str) -> str:
+    return json.loads(out)["reason"] if out.strip() else ""
+
+
+def _also(reason: str) -> str:
+    return next((ln for ln in reason.splitlines() if ln.startswith("[Guardian:AlsoOwed]")), "")
+
+
+def test_reconcile_blocks_first_and_its_preview_lists_turn_judgment(driven, capsys):
+    """同一回合「宣稱修好沒收據」＋「缺拐彎判斷行」→ 擋的是對帳 (a)，尾段「後面還會擋」列拐彎判斷缺 1 條；預覽只讀，
+    這回合拐彎判斷的那一次還在：下一次收尾對帳過了才輪到它擋。舊碼先被拐彎判斷擋、訊息裡沒有 (a)。"""
+    out, state, logs = driven("閘修好了，完成。", capsys, reading_path=_owed())
+    reason = _reason(out)
+    assert "[Guardian:ReconcileGate]" in reason and "(a)" in reason and "TURN_JUDGMENT_REQUIRED" not in reason, reason[:800]
+    assert "拐彎判斷：缺 1 條（函式 y.py::b）" in _also(reason), reason[-800:]
+    assert "blocked_turn" not in state["reading_path"][_SID]["owed"] and not [g for g, _ in logs if g == "reading_path"], \
+        "預覽不記擋、不留帳"
+    out, _, logs = driven("全部完成了。", capsys, reading_path=state["reading_path"])
+    assert "✗ (t) TURN_JUDGMENT_REQUIRED" in _reason(out) and "[Guardian:ReconcileGate]" not in _reason(out)
+    assert [p["event"] for g, p in logs if g == "reading_path"] == ["judgment_block"]
+
+
+def test_reconcile_clear_missing_judgment_blocks_with_items_and_named_example(driven, capsys):
+    """對帳全過、缺拐彎判斷行 → 擋的是拐彎判斷：列缺的條目與填好名字的範例行（同 001），不吃 stop_gate_max_blocks。"""
+    out, state, logs = driven("全部完成了。", capsys, reading_path=_owed())
+    reason = _reason(out)
+    assert reason.startswith("[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED："), reason[:400]
+    assert "- 函式 y.py::b｜巢狀 4｜條件塊 2" in reason and EXAMPLE_B in reason and rph.JUDGMENT_QUESTION in reason
+    assert "blocked_turn" in state["reading_path"][_SID]["owed"] and state["stop_blocked_count"] == 0
+    assert [p["event"] for g, p in logs if g == "reading_path"] == ["judgment_block"]
+
+
+def test_reconcile_clear_five_columns_pass_and_log_judged(driven, capsys):
+    """對帳全過、五欄行齊 → 不擋拐彎判斷、清掉條目、guard log 記 judged（確認搬段沒丟留帳）。"""
+    state0 = _owed()
+    assert state0[_SID]["owed"]["items"], "前置：有到門檻的條目"
+    out, state, logs = driven(f"全部完成了。\n{FIVE}", capsys, reading_path=state0)
+    assert "TURN_JUDGMENT_REQUIRED" not in out and "owed" not in state["reading_path"][_SID]
+    assert [p for g, p in logs if g == "reading_path"] == [
+        {"event": "judged", "session_id": _SID, "turn_seq": 5, "job_turn": 5, "items": ["y.py::b"], "lines": [FIVE]}]
+
+
+def test_second_stop_in_same_user_turn_still_missing_is_not_blocked_again(driven, capsys):
+    """每個使用者回合擋一次：同回合第二次收尾仍缺 → 不再擋（預算沒因搬段變兩次）；使用者開了下一回合還缺 → 再擋一次。"""
+    out, state, _ = driven("全部完成了。", capsys, reading_path=_owed())
+    assert "TURN_JUDGMENT_REQUIRED" in _reason(out), "前置：第一次有擋"
+    out, state, logs = driven("全部完成了。", capsys, reading_path=state["reading_path"])
+    assert "TURN_JUDGMENT_REQUIRED" not in out and state["reading_path"][_SID].get("owed"), "還缺，但這回合不再擋"
+    assert not [g for g, _ in logs if g == "reading_path"]
+    out, _, _ = driven("全部完成了。", capsys, reading_path=state["reading_path"], turn_seq=7, turn_prompts_seq=7)
+    assert "TURN_JUDGMENT_REQUIRED" in _reason(out), "下一個使用者回合還缺 → 再擋一次"
+
+
+def test_turn_judgment_sits_before_second_opinion_and_shares_its_preview(driven, capsys, monkeypatch):
+    """與 G9 同一序列：對帳過、缺判斷行、也還欠第二意見 → 先擋拐彎判斷，尾段預告第二意見（舊碼這裡還沒掛預覽）；
+    同回合再收尾 → 拐彎判斷這回合不會再擋，輪到第二意見擋，它的預覽不再列拐彎判斷。"""
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
+    so = rr.Verdict("SECOND_OPINION_REQUIRED", True, "本回合沒有跑第二意見", ("程式檔 5 個",))
+    monkeypatch.setattr(st, "_so_facts", lambda *a, **k: (so, {"code_files": 5}))
+    out, state, _ = driven("全部完成了。", capsys, reading_path=_owed())
+    reason = _reason(out)
+    assert reason.startswith("[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED") and "[Guardian:SecondOpinion]" not in reason
+    assert "第二意見：" in _also(reason) and "拐彎判斷" not in _also(reason), reason[-800:]
+    out, state, _ = driven("全部完成了。", capsys, reading_path=state["reading_path"])
+    reason = _reason(out)
+    assert reason.startswith("[Guardian:SecondOpinion]") and "TURN_JUDGMENT_REQUIRED" not in reason, reason[:400]
+    assert "拐彎判斷" not in _also(reason)
+
+
+def test_one_time_piggyback_flags_are_written_with_the_block(driven, capsys, monkeypatch):
+    """_piggyback 標的一次性旗標（token 預警整個 session 附一次）要跟擋一起寫進 state：拐彎判斷閘照 TestFail 的順序（先 _piggyback
+    再 write_state）；同類的等值閘（G7）原本先寫 state 再 _piggyback，旗標沒落地、下次擋又附一次 → 一起改順序。"""
+    writes: list = []
+    monkeypatch.setattr(st, "write_state", lambda sid, s: writes.append(copy.deepcopy(s)))
+    monkeypatch.setattr(st, "token_warn_payload", lambda *a, **k: "\n[token 預警]")
+    out, _, _ = driven("全部完成了。", capsys, reading_path=_owed())
+    assert "TURN_JUDGMENT_REQUIRED" in _reason(out) and "[token 預警]" in _reason(out), "前置：拐彎判斷擋、附了預警"
+    assert writes and writes[-1].get("token_warn_emitted") is True, "拐彎判斷閘：旗標隨擋寫進 state"
+    monkeypatch.setattr(st, "_equivalence_gate", lambda *a, **k: "[Guardian:Equivalence] 收尾核對沒過：（測試）")
+    writes.clear()
+    out, _, _ = driven("全部完成了。", capsys)
+    assert _reason(out).startswith("[Guardian:Equivalence]") and "[token 預警]" in _reason(out), "前置：等值閘擋、附了預警"
+    assert writes and writes[-1].get("token_warn_emitted") is True, "等值閘：旗標隨擋寫進 state"
+
+
+def test_subagent_stop_entry_does_not_check_turn_judgment(capsys, monkeypatch):
+    """子代理 Stop 只跑寫碼查核（同 001）：主 session 欠著拐彎判斷，子代理收尾照判自己的對帳、不碰拐彎判斷。"""
+    logs: list = []
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
+    monkeypatch.setattr(rph, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
+    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
+    state = {"turn_seq": 5, "modified_files": [], "verify_receipts": {}, "reading_path": _owed(),
+             "agent_modified_files": {"ag1": [_mf(r"c:\proj\hooks\x.py")]}}
+    monkeypatch.setattr(st, "read_state", lambda sid: state)
+    with pytest.raises(SystemExit):
+        st.handle_subagent_stop({"session_id": _SID, "agent_id": "ag1", "hook_event_name": "SubagentStop",
+                                 "last_assistant_message": "全部完成了。"}, {"verify_scope": {"enabled": False}})
+    out = capsys.readouterr().out
+    assert "[Guardian:ReconcileGate]" in out, "前置：子代理收尾的寫碼查核有跑到"
+    assert "TURN_JUDGMENT_REQUIRED" not in out and "拐彎判斷" not in out
+    assert "blocked_turn" not in state["reading_path"][_SID]["owed"] and not [g for g, _ in logs if g == "reading_path"]
 
 
 # ─── 思考的彎：reconcile 的 turns ───────────────────────────────────────────────

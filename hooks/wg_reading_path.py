@@ -395,6 +395,18 @@ def turn_judgment_note(state: Dict[str, Any], session_id: str, code_text: str, u
     return "\n".join(lines), True
 
 
+def turn_judgment_missing(state: Dict[str, Any], session_id: str, code_text: str, uturn: int) -> List[str]:
+    """「後面還會擋」的預覽用（規則 BLOCK_LISTS_LATER_GATES）：照目前狀態 turn_judgment_note 這次會擋 → 缺的條目「<kind> <name>」；
+    不會擋（沒有條目、都齊了、這個使用者回合已擋過）→ 空。只讀：不動 state、不留帳、不印 stderr。"""
+    owed = (((state.get("reading_path") or {}).get(session_id) or {}).get("owed")) or {}
+    items = owed.get("items") or []
+    if not items or owed.get("blocked_turn") == uturn:
+        return []
+    v = turn_judgment_verdict(items, parse_turn_judgments(code_text))
+    names = {f"{it['kind']} {it['name']}" for it in items}
+    return [k for k in (e.split("｜", 1)[0] for e in v.evidence) if k in names] if v.owed else []
+
+
 def _fingerprint(files: List[str]) -> List[Any]:
     out = []
     for f in files:

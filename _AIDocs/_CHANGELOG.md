@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-20 G11 002：拐彎判斷改在對帳之後才擋，前面的閘擋下時預告還缺幾條
+- **交給 AI 寫程式時會看到的**：收尾同時「說修好沒收據」又「缺拐彎判斷行」，先看到的是寫碼查核（對帳 (a)～(d)、驗證範圍）的紅，訊息尾「後面還會擋」列「拐彎判斷：缺 N 條（名稱）」與一行寫法，可以一回合補齊；對帳過了才輪到拐彎判斷擋，每個使用者回合仍只擋一次，對帳先擋不會吃掉這一次。拐彎判斷擋下時，尾端也照樣預告後面的第二意見等閘。判定規則與五欄格式不變。細節 TECH §7.1、§7.8。
+- **改了什麼**（軌 track-g11-reconcile-move 000）：`handlers/stop.py` ReadingPath 段只留背景量測與 stderr；新 TurnJudgment 段放在 SecondOpinion 正前方（寫碼查核、退避偵測之後），`_later_gates` 第一項掛拐彎判斷預覽；`hooks/wg_reading_path.py` 加只讀查詢 `turn_judgment_missing`；同類順手修：Equivalence 閘改成先 `_piggyback` 再 `write_state`，token 預警與驗收提示「整場附一次」的旗標才寫得進 state（新閘同此順序）。
+- **驗證**：`hooks/verify/verify_g11_turns.py` 新 7 案，退回舊碼 3 案紅（對帳先擋＋預覽、與第二意見同序同預覽、一次性旗標；Equivalence 那半單獨退回也紅），其餘 4 案是搬段沒丟的護欄；舊案例 `test_real_stop_blocks_with_the_data_until_judgment_lines_arrive` 先宣告後加一行 setup 讓寫碼查核全過，斷言未改。
 ## 2026-10-20 T2.19 補件：宣告行不留在卡裡、別人合併後的還原不算改碼、Git Bash 的 cd /c/ 認得出 repo
 - **交給 AI 寫程式時會看到的**：卡片第一行的「不是教繞閘｜理由」只給寫入閘看，寫進卡片時拿掉；總控台把 main 合進工作分支後，工作軌「退回舊版看紅再還原」不再被收尾閘當成改程式欠案例；Bash 下 `cd /c/… && git commit …` 不再被 commit 前各閘當成判不了而擋。細節見 TECH §7.5 與寫碼查核豁免表。
 ## 2026-10-20 G8 程式端真不一致修補：同鍵預設收成一份、資料根改走 CLAUDE_DIR、三個無效開關接回、死鍵清掉
@@ -58,7 +62,7 @@
 - **改了什麼**：新 `lib/turn_metrics.py`（純 ast；diff 命中才列；非 Python 標不支援）；`hooks/wg_reading_path.py` 同一背景 job 多算函式級數據，`turn_judgment_note` 核對五欄行、齊了留帳 judged；`hooks/wg_release_rules.py` 檔尾 G11 段（TURN_JUDGMENT_REQUIRED、`parse_turn_judgments`／`judgment_names`／`turn_judgment_verdict`，對象只認整名或邊界結尾、引言與圍欄不算）；`handlers/stop.py` 只動 ReadingPath 段，缺判斷行 output_block 一次；`hooks/wg_need_goal.py` reconcile 沒給 turns 提醒一句、turns ≥4 要 note 寫「重找最短路：」；live `workflow/config.json` 加 `reading_path.turn_judgment`（五個門檻與 max_items 8）。
 - **驗證**：新 `lib/verify/verify_turn_metrics.py`、`hooks/verify/verify_g11_turns.py`；`verify_release_rules` 檔尾一案；閱讀路徑 hook 與 g12w 錄製檔重錄（git 互動多了 diff、ls-files）。
 - **codex**：reading-path 026（BLOCK）整份比較的可評級改只看一個判斷 `compare_ratable`。
-- **待派**：G11 002——擋點搬到 Reconcile 之後（現在在 ReadingPath 段）。
+- **後續**：G11 002 已把擋點搬到寫碼查核之後（見上方同日條目）。
 
 ## 2026-10-20 G7 等值與熱路徑：重構宣告完成要證明結果不變，碰到熱路徑要自己量
 - **使用者看到的**：你打的字被判成「重構」或「效能」意圖時，導讀卡多一段：等值證法三類（順序／副作用／邊界）怎麼證、問一句「這次碰到熱路徑或大量配置嗎」、再看一眼有沒有只是抄舊架構長出來的間接層。改完程式宣告完成，收尾核對：重構要有三筆 `PRESERVE_CHECK PASS` 收據（`preserve-check.py --mutation order／side_effect／boundary` 各跑一次）或一行「等值證法｜不適用｜理由」；熱路徑要答「熱路徑｜是｜哪裡」＋量測收據（`<NAME> DONE k=v`）或「量測｜不做｜理由」，或「熱路徑｜否｜為什麼」。缺了擋一次、擋滿問你。是不是重構只看你本人打的字，同伴信、背景通知裡的「重構」不算，AI 自己說重構不會把自己擋住。

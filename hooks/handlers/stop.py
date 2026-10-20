@@ -5,7 +5,9 @@ handlers/stop.py — Stop hook handler
 1. Test-Fail Gate（測試未綠 + 宣告完成 → 硬阻）
 1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）
     ＋ 驗證範圍閘（改了程式要有 LLM 宣告的驗證範圍、範圍內每項改完之後跑綠；wg_verify_scope）；獨立預算 reconcile_gate.max_blocks_per_turn
-1c. SecondOpinion Gate（G9：大任務或改到高風險部位宣告完成 → 本回合真的跑過第二意見、收尾有分歧裁決四行；擋一次後問使用者）
+1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；每個使用者回合擋一次；前面的閘擋下時列進預覽）
+1d. SecondOpinion Gate（G9：大任務或改到高風險部位宣告完成 → 本回合真的跑過第二意見、收尾有分歧裁決四行；擋一次後問使用者）
+1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
 3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
 4. Scan-Report Gate（宣告完成但缺 anti_evasion_report emit → 硬阻）
@@ -29,7 +31,7 @@ from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block, output_json,
     append_guard_log, WORKFLOW_DIR, _atom_debug_error,
 )
-from wg_release_rules import in_turn, turn_start, user_turn as _user_turn
+from wg_release_rules import JUDGMENT_EXAMPLE, in_turn, turn_start, user_turn as _user_turn
 from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
@@ -59,7 +61,7 @@ from wg_harvest import (
     harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
     record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt,
 )
-from wg_reading_path import reading_path_note, turn_judgment_note
+from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
 from wg_release_rules import format_hit, second_opinion_hint
 from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE
 from handlers._shared import (
@@ -1364,17 +1366,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _reading_path, _rp_changed = reading_path_note(state, session_id, config)
     except Exception as e:  # noqa: BLE001
         _reading_path, _rp_changed = f"[Guardian:ReadingPath] 閱讀路徑量測出錯：hook 內部錯誤 {type(e).__name__}: {e}", False
-    # 拐彎判斷（G11）：背景量完附的「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行（規則 TURN_JUDGMENT_REQUIRED）：
-    # 缺 → 每個使用者回合擋一次（不吃 stop_gate_max_blocks；下面 _piggyback 之後 output_block）；齊 → 留帳 judged。程式只核對五欄不評內容。
-    try:
-        _turn_block, _tj_changed = turn_judgment_note(state, session_id, code_text,
-                                                      _user_turn(state, int(state.get("turn_seq", 0))), int(state.get("turn_seq", 0)))
-    except Exception as e:  # noqa: BLE001  判不了不擋，浮 stderr
-        _turn_block, _tj_changed = None, False
-        print(f"[Guardian:ReadingPath] 拐彎判斷核對出錯（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
     if _reading_path:
         print(_reading_path, file=sys.stderr)
-    if _reading_path or _rp_changed or _tj_changed:
+    if _reading_path or _rp_changed:
         write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
@@ -1405,10 +1399,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if gate:
             write_state(session_id, state)
         return reason
-
-    if _turn_block:   # G11：缺拐彎判斷行，這個使用者回合擋一次（背景量完的數據由 _piggyback 一起附上）
-        output_block(_piggyback(_turn_block))
-        return
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
     mod_files_all = state.get("modified_files", []) or []
@@ -1484,9 +1474,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return _so_memo[0][0], {**_so_memo[0][1], "cfg": _so_memo[0][2]}
 
     def _later_gates(reason: str) -> str:
-        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（拐彎判斷、第二意見、知識收割、收尾自清、
+        收尾檢核、同步），讓模型一回合
         補齊，不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。"""
         later: List[str] = []
+        _tj_missing = turn_judgment_missing(state, session_id, code_text, _user_turn(state, turn_seq)) \
+            if "TURN_JUDGMENT_REQUIRED" not in reason else []
+        if _tj_missing:
+            later.append(f"拐彎判斷：缺 {len(_tj_missing)} 條（{'、'.join(_tj_missing[:3])}{'…' if len(_tj_missing) > 3 else ''}），"
+                         f"收尾每條寫一行「{JUDGMENT_EXAMPLE.format(name='<名稱>')}」")
         _so_v = _so_check()[0] if "[Guardian:SecondOpinion]" not in reason else None
         if _so_v is not None and _so_v.owed and not released_this_turn(state, session_id, _SO_GATE, _user_turn(state, turn_seq)):
             later.append("第二意見：跑 second_opinion_start→second_opinion_result 並在收尾寫分歧裁決四行，或宣告「不需第二意見｜理由」")
@@ -1705,6 +1701,24 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             })
             write_state(session_id, state)
 
+    # ── TurnJudgment Gate（G11）──────────────────────────────────
+    # 規則 TURN_JUDGMENT_REQUIRED（判定在 wg_release_rules 的 G11 段，核對與留帳在 wg_reading_path.turn_judgment_note）：背景量完附的
+    # 「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行。拐彎判斷是收尾的輔助視角，排在寫碼查核（對帳）之後、與 G9／G7 同序；
+    # 前面的閘擋下時由 _later_gates 預告還缺幾條。缺 → 每個使用者回合擋一次（不吃 stop_gate_max_blocks）；齊 → 留帳 judged。
+    # 程式只核對五欄不評內容；判不了不擋，浮 stderr。
+    try:
+        _turn_block, _tj_changed = turn_judgment_note(state, session_id, code_text, _since, turn_seq)
+    except Exception as e:  # noqa: BLE001
+        _turn_block, _tj_changed = None, False
+        print(f"[Guardian:ReadingPath] 拐彎判斷核對出錯（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+    if _turn_block:
+        reason = _piggyback(_turn_block)
+        write_state(session_id, state)          # 記擋的回合（blocked_turn）與 _piggyback 標的一次性旗標
+        output_block(reason)
+        return
+    if _tj_changed:
+        write_state(session_id, state)
+
     # ── SecondOpinion Gate（G9）──────────────────────────────────
     # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
     # 改到高風險部位宣告完成 → 本回合要真的跑過第二意見、收尾有分歧裁決四行，或宣告「不需第二意見｜理由」（留帳 guard-second_opinion.jsonl）。
@@ -1765,8 +1779,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         print(f"[Guardian:{EQ_GATE}] 收尾核對出錯，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
         append_guard_log("equivalence", {"event": "error", "session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
     if _eq_block:
-        write_state(session_id, state)
-        output_block(_piggyback(_eq_block))
+        reason = _piggyback(_eq_block)
+        write_state(session_id, state)          # 連同 _piggyback 標的一次性旗標一起寫
+        output_block(reason)
         return
 
     # ── Deferral Gate（退縮歸屬）────────────────────────────────
