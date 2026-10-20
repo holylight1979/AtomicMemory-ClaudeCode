@@ -17,6 +17,8 @@
 
 ## 2026-10-20 Ollama 呼叫追蹤 log：想確認 rdchat-direct 有沒有真的被用到時手動開
 - 使用者要能證明輔助 LLM 確實被用；原本 `tools/ollama_client.py` 只記失敗，成功打到哪台、因模型名不符被跳過都沒紀錄。加旗標檔 `workflow/.ollama_trace`（預設不存在＝關，gitignore），存在時每次請求寫一行 `ok|fail|skip:<原因> backend= model= endpoint= 耗時 caller=` 到 `Logs/ollama-backend.log`；每請求查檔，常駐向量服務免重啟。開關：`python tools/ollama_client.py --trace on|off|status`。案例 `tools/verify/verify_ollama_trace.py`（5 支，含旗標關時不產生檔的反例）。
+## 2026-10-16 /upgrade 先分流：歷史相通直接 git merge，不相通才逐維度比對
+- 同一個 repo 的兩個節點升級時，git 三方合併比逐檔比對準也快（實測 8.5 秒試算出 5 檔衝突；逐檔比對工具同一份結論要約 6 分鐘）。Step 2 開頭先用 `merge-base` 判斷相通、用 `log --cherry-mark` 的 `=` 判斷有沒有兩機各自重做的重複 commit；相通且無重複 → fetch／merge-tree 試算／merge／解衝突／重建索引／跑受影響測試，附三個實遇卡點（skip-worktree 檔擋 merge、hook 檔衝突連帶閘失效、來源刪掉的測試檔別列進範圍）。 | `skills/upgrade/SKILL.md`
 
 ## 2026-10-16 HUD 改版第 2 階段：卡片白話三段、報告不進聊天、紅燈精準、刪 (c) 欄
 - 原設計者要求 HUD「精準確實不雞肋、不丟人看不懂的技術鬼話」、報告任何理由都不進聊天。HUD 卡片改成燈號＋一句話（✅ 可以關了／🟡 有事要你決定／🔴 疑似偷懶（待核對））→ 要你處理 → 這輪做了什麼 → 記住了／之後要追，欄位字母收進「細節」；HUD 開不起來時 Stop 不再把報告貼回聊天、只印一行報告檔位置；MCP 回條一行，推後判定只留 Python 一份。紅燈精準：退避軟偵測加 context 豁免（規則 EVASION_CONTEXT_EXEMPT，四件都有證據才豁免、判不出照標），詞表不再把「範圍外的測試」「新 session 才會載入」當退避。刪 (c) Token 警示欄（與 85% 預警重複）；(d) 可寫「見收割報告」但要本回合真的交過核對過的收割報告。彈窗時機使用者選維持現況。
