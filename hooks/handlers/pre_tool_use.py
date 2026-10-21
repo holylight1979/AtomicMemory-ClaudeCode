@@ -619,7 +619,8 @@ def _scan_segments(command: str, problems: Optional[List[str]] = None,
     註解：引號外、位在 token 起頭的 `#` 到行尾略過（Bash 與 PowerShell 同語意），換行照切段；引號裡與 token 中間的 `#`
     是字面（`git commit -m "fix #12"`、`a#b`）。
     跳脫：shell 給 "bash"／"powershell" 就照那個 shell 解（_escaped；`"fix \\"a; b\\""` 裡的分號不切段），raw 留跳脫字元、
-    value 只留被跳脫的字；不給不解。Bash 引號外的 `$'…'`（ANSI-C 引號）整段照 _ansi_c_quoted 解，raw 原樣保留。
+    value 只留被跳脫的字；不給不解。Bash 引號外的 `$'…'`（ANSI-C 引號）整段照 _ansi_c_quoted 解、`$"…"` 照雙引號解，
+    raw 原樣保留。
     PowerShell here-string（shell 不是 bash）：token 起頭的 `@'`／`@"` 接換行，到行首的 `'@`／`"@` 為止整段是一個 token
     （內文的引號不算數）；value 是內文，raw 換成等價的一般引號寫法（`'內文'`／`"內文"`，內文裡同種引號拿掉），展開檢查
     照引號語意走。找不到結束行就不當 here-string，照一般引號拆。
@@ -660,6 +661,10 @@ def _scan_segments(command: str, problems: Optional[List[str]] = None,
             raw.append(s[i:ansi[1]])
             val.append(ansi[0])
             in_token, i = True, ansi[1]
+            continue
+        if shell == "bash" and s.startswith('$"', i):   # $"…"（locale 翻譯引號）的值同雙引號，$ 只留在 raw
+            raw.append("$")
+            in_token, i = True, i + 1
             continue
         here = _HERESTRING_OPEN_RE.match(s, i) if ch == "@" and not in_token and shell != "bash" else None
         if here:

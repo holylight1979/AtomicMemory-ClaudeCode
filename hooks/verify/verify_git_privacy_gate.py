@@ -134,6 +134,7 @@ ESCAPE_FORMS = [
     ("Bash", "git commit -m x -- \\.env"),                      # 引號外的 \ 跳脫路徑
     ("Bash", "git add $'.env' && git commit -m x"),             # $'…' 包路徑
     ("Bash", "git add $'.e\\x6ev' && git commit -m x"),         # $'…' 裡的 \xHH
+    ("Bash", 'git add $".env" && git commit -m x'),             # $"…"（locale 翻譯引號，值同雙引號）
     ("PowerShell", 'git commit -m "say `"hi`"" -- .env'),       # PowerShell 反引號
     ("PowerShell", "git commit -m 'it''s' -- .env"),            # PowerShell 單引號雙寫
 ]
