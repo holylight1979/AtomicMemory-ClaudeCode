@@ -3,7 +3,7 @@
 
 做什麼：
   讀規格（規格是資料：代號、適用、讀者、讀者目的、通過線、檢核項表、判例表；程式不寫死任何條目）
-  → 去掉 code 區塊與網址 → 每條檢核項各問裁判一次；判法欄寫了「程式切出…」「抓候選詞」的先由程式切範圍
+  → 去掉開頭 --- 檔頭、code 區塊與網址 → 每條檢核項各問裁判一次；判法欄寫了「程式切出…」「抓候選詞」的先由程式切範圍
   → 裁判回 {quote, reason, verdict}；程式校驗引用逐字在送去的那段原文裡，對不到、判否沒附引用、輸入被截斷 → 該條作廢
   → 分數由程式算（是＋不適用＝過），印評分表與一行摘要 `評分 N/M｜沒過：…`，留帳 Logs/guard-text_score.jsonl。
 裁判：照 tools/ollama_client 的 backend 優先序（內網 rdchat → 本地 ollama），每台都用同一個裁判模型
@@ -12,8 +12,9 @@
 怎麼跑：
   python tools/text-score.py <檔> --spec reader-designer
   python tools/text-score.py - --json < 回覆.txt                 # 讀 stdin；--json 印一行 JSON（再接尾行）
-  python tools/text-score.py <檔> --auto-kind final_reply        # 自動評的入口：enabled／auto_targets／min_chars 不符就印「不評」
-尾行：`TEXT_SCORE DONE spec=<代號> pass=<n> fail=<n> na=<n> void=<n> unscored=<n> secs=<秒> logged=<0|1>`（數字是尺不是判決；
+  python tools/text-score.py <檔> --auto-kind docs               # 自動評的入口：enabled／auto_targets（種類與路徑樣式）／min_chars 不符就印「不評」
+  python tools/text-score.py - --tail-line --auto-kind final_reply < 回覆.txt   # stdout 只有摘要一行（每則尾巴取用）；不評時什麼都不印
+尾行（--tail-line 不印）：`TEXT_SCORE DONE spec=<代號> pass=<n> fail=<n> na=<n> void=<n> unscored=<n> secs=<秒> logged=<0|1>`（數字是尺不是判決；
   logged=0＝留帳沒寫進去，原因在 stderr）。
 exit：0 完成（含裁判不在、不評）；2 規格或原文讀不到、規格格式錯、原文是空的。完整參數以 --help 為準；規格寫法見 text-specs/README.md。
 """
@@ -47,11 +48,14 @@ SPEC_DIR = CODE_DIR / "text-specs"
 DEFAULTS: Dict[str, Any] = {
     "enabled": True,                  # 只管 --auto-kind（自動評）；手動指令照跑
     "default_spec": "reader-designer",
-    "judge_model": "gemma4:e4b",
+    "judge_model": "qwen3:4b-instruct-2507-q4_K_M",
     "timeout_sec": 120,               # 每次問裁判的逾時
     "num_ctx": 8192,                  # 每次明帶；Ollama 預設 4096 會從前面靜默截掉
-    "min_chars": 300,                 # 自動評的最短字數（去掉 code 與網址、不算空白）
-    "auto_targets": ["final_reply", "docs"],
+    "min_chars": 300,                 # 自動評的最短字數（去掉檔頭、code 與網址，不算空白）
+    "auto_targets": {                 # 自動評的種類 → 來源路徑樣式；空清單＝不比路徑
+        "final_reply": [],
+        "docs": ["memory/_staging/*checklist*.md", "_AIDocs/DevHistory/**/*提案*.md"],
+    },
 }
 
 NUM_PREDICT = 512        # 一條的回答（引用＋一句理由）用不到這麼多；防裁判停不下來
@@ -86,7 +90,7 @@ PROMPT = """你是文字評審，照一條檢核項判斷「原文」，只回�
 作答規則：
 1. quote：從原文區塊逐字抄出支撐判定的那一句（不改字、不加字、繁體不改成簡體；太長可用「…」省略中間）。只能抄原文區塊，不能抄檢核項或例子。判「否」一定要引用沒做到的那一句；判「不適用」留空字串。
 2. reason：一句話說為什麼。
-3. verdict：只能是「是」「否」「不適用」其中之一。檢核項寫「找得到…就答「否」」的，找到那種句子才答「否」，找不到答「是」。
+3. verdict：只能是「是」「否」「不適用」其中之一。
 格式：{{"quote": "…", "reason": "…", "verdict": "是"}}
 
 =====原文開始=====
@@ -274,6 +278,8 @@ def load_spec(name: str) -> Spec:
 
 # ─── 原文：清理、切句、候選詞 ─────────────────────────────────────────────────
 
+FRONTMATTER_RE = re.compile(   # 第一行是「鍵: 值」（冒號後接空白或行尾，https:// 不算）才算檔頭
+    r"\A---[ \t]*\r?\n(?=[\w-]+[ \t]*:(?:[ \t]|\r?$)).*?^---[ \t]*\r?$\n?", re.M | re.S)
 FENCE_RE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?^[ \t]*\1[^\n]*$", re.M | re.S)
 URL_RE = re.compile(r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+")   # 只吃網址字元：中文句子裡網址後面常直接接「。」
 LINE_PREFIX_RE = re.compile(r"^\s*(?:>\s*)*(?:#+\s+|[-*+]\s+|\d+[.)]\s+)?")   # 行首的引用、標題、清單符號
@@ -287,8 +293,9 @@ CODE_TOKEN_RE = re.compile(   # 像代號的字：旗標、帶 . / : _ - 的名�
 
 
 def clean_text(text: str) -> str:
-    """去掉 code 區塊與網址（裁判不評程式碼）；inline code 留著，R3 這類條目要看它。"""
-    return URL_RE.sub(" ", FENCE_RE.sub(" ", text))
+    """去掉開頭的 --- 檔頭（交付信的 to:／seq: 不是給讀者的話）、code 區塊與網址（裁判不評程式碼）；
+    inline code 留著，R3 這類條目要看它。"""
+    return URL_RE.sub(" ", FENCE_RE.sub(" ", FRONTMATTER_RE.sub("", text)))
 
 
 def sentences(text: str) -> List[str]:
@@ -602,12 +609,33 @@ def load_config() -> Dict[str, Any]:
     return config if isinstance(config, dict) else {}
 
 
-def auto_skip_reason(kind: str, text: str, section: Dict[str, Any]) -> str:
-    """自動評（之後由收尾背景呼叫）要不要評這段：回空字串＝要評。"""
+def path_matches(path: str, patterns: List[str]) -> bool:
+    """路徑樣式從任何一層資料夾起算都可以（樣式寫相對路徑，不管資料根或專案在哪）；
+    `*`、`?` 不跨資料夾，`**/` 是零或多層資料夾，其他字元照字面；不分大小寫（樣式判的是命名慣例）。"""
+    posix = path.replace("\\", "/")
+    for pat in patterns:
+        rx = (re.escape(pat.replace("\\", "/")).replace(r"\*\*/", "\0").replace(r"\*", "[^/]*")
+              .replace(r"\?", "[^/]").replace("\0", "(?:.*/)?"))
+        if re.search(rf"(?:^|/){rx}$", posix, re.I):
+            return True
+    return False
+
+
+def auto_skip_reason(kind: str, text: str, section: Dict[str, Any], path: Optional[str]) -> str:
+    """自動評（之後由收尾背景呼叫）要不要評這段：回空字串＝要評。path＝來源檔路徑，stdin 是 None。
+    auto_targets 是 {種類: 路徑樣式清單}，清單空的種類不比路徑（例 final_reply 從 stdin 進來）；
+    寫成種類清單的舊設定照舊只比種類。"""
     if not section.get("enabled", DEFAULTS["enabled"]):
         return "text_score.enabled=false"
-    if kind not in section.get("auto_targets", DEFAULTS["auto_targets"]):
+    targets = section.get("auto_targets", DEFAULTS["auto_targets"])
+    if kind not in targets:
         return f"{kind} 不在 text_score.auto_targets"
+    patterns = targets[kind] if isinstance(targets, dict) else []
+    rule = f"text_score.auto_targets.{kind} 的路徑樣式（{'、'.join(patterns)}）"
+    if patterns and path is None:
+        return f"來源是 stdin、沒有路徑，不符 {rule}"
+    if patterns and not path_matches(path, patterns):
+        return f"來源 {path} 不符 {rule}"
     n = len(re.sub(r"\s", "", clean_text(text)))
     floor = int(section.get("min_chars", DEFAULTS["min_chars"]))
     return f"文字 {n} 字，少於 text_score.min_chars={floor}" if n < floor else ""
@@ -630,7 +658,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--model", help="裁判模型（只走 Ollama）；預設 text_score.judge_model")
     ap.add_argument("--json", action="store_true", help="改印一行 JSON（留帳同一筆），再接尾行")
     ap.add_argument("--session", help="留帳記的 session id（有的話）")
-    ap.add_argument("--auto-kind", help="自動評的文字種類（final_reply／docs）：照 enabled、auto_targets、min_chars 決定評不評")
+    ap.add_argument("--auto-kind", help="自動評的文字種類（final_reply／docs）：照 enabled、auto_targets（種類與路徑樣式）、"
+                                        "min_chars 決定評不評")
+    ap.add_argument("--tail-line", action="store_true",
+                    help="stdout 只印一行摘要（評分 N/M｜沒過：…，或「全過」），給每則回覆的尾巴取用；照樣留帳；"
+                         "不評時 stdout 什麼都不印、原因寫 stderr")
     args = ap.parse_args(argv)
 
     config = load_config()
@@ -645,7 +677,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("text-score：原文是空的（去掉 code 與網址之後）", file=sys.stderr)
         return 2
     if args.auto_kind:
-        why = auto_skip_reason(args.auto_kind, text, section)
+        why = auto_skip_reason(args.auto_kind, text, section, None if args.source == "-" else source)
+        if why and args.tail_line:
+            print(f"不評：{why}", file=sys.stderr)
+            return 0
         if why:
             print(f"不評：{why}")
             print(done_line(spec.code, None))
@@ -655,6 +690,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     rec = score(spec, text, config=config, section=section, model=model, source=source,
                 session=args.session, kind=args.auto_kind or "manual")
     logged = write_log(rec)
+    if args.tail_line:   # 尾巴就這一行，不接評分表與尾行
+        print(rec["summary"])
+        return 0
     if args.json:
         print(json.dumps(rec, ensure_ascii=False))
     elif rec["overall"] == "未評":
