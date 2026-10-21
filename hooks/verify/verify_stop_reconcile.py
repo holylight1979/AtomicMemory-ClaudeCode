@@ -4230,6 +4230,21 @@ def test_004_waiver_ledger_books_the_test_and_yields_to_later_words(driven, caps
     assert "TestFailGate" in out
 
 
+def test_004_voided_waiver_is_dropped_from_state_so_it_cannot_revive(driven, capsys):
+    """使用者記帳後又提到那一支：那次收尾（就算沒有紅測）就把帳從 state 拿掉並留帳 testfail_waiver_voided；之後那則原話擠出近 5 則，
+    舊的不做行照擋，帳不會活回來。"""
+    led = [{"item": "test_erp_contract", "quote": "先不用管它、跳過", "said": _ERP_SAID, "units": [_ERP],
+            "cmd": "python -m pytest tests -q"}]
+    _, state, logs = driven("改好了。", capsys, failing_tests=[], recent_user_prompts=[_ERP_SAID, "test_erp_contract 還是要修好"],
+                            testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
+    assert state.get("testfail_waivers") == [] and any(g == "testfail_waiver_voided" for g, _p in logs)
+    red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 9, "session_id": _SID, "pytest": True}]
+    out, _, _ = driven("全部完成了。\n不做｜test_erp_contract：使用者說「先不用管它、跳過」", capsys, failing_tests=red,
+                       recent_user_prompts=["好", "繼續", "再跑", "看一下", "嗯"], testfail_waivers=state["testfail_waivers"],
+                       modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out
+
+
 @pytest.fixture()
 def plain_dir():
     """不含 test 字樣的暫存目錄（pytest 的 tmp 路徑含 test，拿不到專案根時會被 `**/*test*` 當成案例檔，案子就驗不到東西）。"""

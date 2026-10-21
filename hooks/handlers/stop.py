@@ -48,7 +48,7 @@ from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
-    parse_not_doing, quote_in_prompts, waived_failures,
+    parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1566,9 +1566,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # 規則 USER_WAIVER_NEEDS_CITATION：使用者說「先這樣／跳過」不再整段清掉紅測；LLM 寫「不做｜<哪一支>：使用者說「<原句>」」、
     # 原句真的在近 3 則使用者原話、事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的）。
-    # 豁免一成立就記進 state testfail_waivers（事項、原句、那一則原話），之後同 session 同一支看帳、不看近 3 則窗口
+    # 豁免一成立就記進 state testfail_waivers（事項、原句、那一則原話），之後同 session 同一支看帳、不看近 3 則窗口；
+    # 使用者在記帳之後又提到那一支 → 那筆帳每次收尾都拿掉（原話只留近 5 則，不拿掉的話那則擠出去後帳又活回來）
+    _history = _user_typed_prompts(state.get("recent_user_prompts") or [])
+    _voided = [e for e in state.get("testfail_waivers") or [] if waiver_mentioned_since(e, _history)]
+    if _voided:
+        state["testfail_waivers"] = [e for e in state["testfail_waivers"] if e not in _voided]
+        write_state(session_id, state)
+        for _e in _voided:
+            append_guard_log("testfail_waiver_voided", {"session_id": session_id, "turn_seq": turn_seq,
+                                                        "item": str(_e.get("item", ""))[:80], "said": str(_e.get("said", ""))[:120]})
     if failing:
-        _history = _user_typed_prompts(state.get("recent_user_prompts") or [])
         _recent = _history[-3:]
         _ledger = state.get("testfail_waivers") or []
         failing, _waived = waived_failures(failing, parse_not_doing(code_text), _recent, _ledger, _history)

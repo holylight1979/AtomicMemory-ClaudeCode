@@ -2211,7 +2211,7 @@ def failed_units(summary: Any) -> List[str]:
     return list(dict.fromkeys(m.group(1).replace("\\", "/").lower() for m in _FAILED_UNIT_RE.finditer(str(summary or ""))))
 
 
-def _mentioned_since(entry: Dict[str, Any], history: Sequence[str]) -> bool:
+def waiver_mentioned_since(entry: Dict[str, Any], history: Sequence[str]) -> bool:
     """帳記下之後使用者又提到這一支：history（近幾則原話，舊到新）裡記帳那則原話之後（那則不在了就整段）出現事項、或帳上那幾支的
     檔名／不帶副檔名的檔名／函式名（使用者不一定用同一個名字叫它；中文句子不靠空白斷詞，只要前後不是英數字）。通用字不算。"""
     names = [str(entry.get("item") or "")]
@@ -2254,12 +2254,13 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
     豁免條件：不做行的事項指得到那支失敗（names_failed_test；通用字不算），而且引用在近 3 則原話裡（via＝quote）；或本 session
     帳上（ledger＝state testfail_waivers，豁免成立時記的）有同一支的豁免（via＝ledger：引用看帳、不看窗口）。
     摘要逐支列出失敗（failed_units）時每一支各自要有豁免，有一支沒有整筆照算紅；沒列出就整筆（指令＋摘要）當一支。
-    帳只認記帳那時的同一支（_booked_for），而且使用者在那之後沒再提到這支（history＝近幾則原話，預設 prompts；提到了就以新的話
-    為準，回到引用窗口判）；帳不自動放：收尾仍要有對到那一支的不做行。"""
+    帳只認記帳那時的同一支（_booked_for），而且使用者在那之後沒再提到這支（waiver_mentioned_since；history＝近幾則原話，預設
+    prompts；提到了就以新的話為準，回到引用窗口判；stop 每次收尾也把這種帳從 state 拿掉，免得那則原話擠出近 5 則後帳又活回來）；
+    帳不自動放：收尾仍要有對到那一支的不做行。"""
     lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
     cited = [d for d in lines if d["quote"] and quote_in_prompts(d["quote"], prompts)]
     hist = list(history or prompts)
-    live = [e for e in ledger or () if not _mentioned_since(e, hist)]
+    live = [e for e in ledger or () if not waiver_mentioned_since(e, hist)]
     kept: List[Dict[str, Any]] = []
     waived: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     for f in failing:
