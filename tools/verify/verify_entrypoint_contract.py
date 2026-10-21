@@ -230,6 +230,24 @@ def test_edit_metadata_entry_updates_file_and_index(mem):
     assert "E20" not in f.read_text(encoding="utf-8")
 
 
+def test_004_edit_metadata_clear_entry_drops_the_line(mem):
+    """004：entry=[] 刪掉整行 Entry（舊碼留一行空的「- Entry: 」，11 張規格卡現況就是）；本來沒有 Entry 行就不插。"""
+    f = _atom_file(mem, "card-c", "- Entry: E04, E08\n")
+    assert atom_io.write_index(mem, "card-c", "memory/cat/card-c.md", ["alpha", "beta"], "test").ok
+    before = f.read_text(encoding="utf-8")
+    assert atom_io.edit_metadata(f, entry=[], source="test").ok
+    after = f.read_text(encoding="utf-8")
+    assert "- Entry:" not in after and after == before.replace("- Entry: E04, E08\n", "")       # 只少那一行
+    assert "entry" not in _row(mem, "card-c")
+    assert atom_io.edit_metadata(f, entry=[], source="test").ok and f.read_text(encoding="utf-8") == after   # 冪等、不插空行
+    from lib.atom_spec import ENTRY_LINE_RE
+    m = ENTRY_LINE_RE.search("# x\n\n- Entry: \n- Trigger: a\n\n## 知識\n")                    # 解析器對空 Entry 行不炸、不跨行
+    assert m and m.group(1).strip() == ""
+    empty = _atom_file(mem, "card-d", "- Entry: \n")
+    assert atom_io.write_index(mem, "card-d", "memory/cat/card-d.md", ["alpha", "beta"], "test").ok
+    assert "entry" not in _row(mem, "card-d")
+
+
 def test_replace_carries_or_clears_entry():
     old = build_atom_content(**_BUILD, entry=["E04"])
     built = build_atom_content(**{**_BUILD, "knowledge": ["新內容"]})
@@ -277,7 +295,7 @@ def test_judgment_cards_note_and_empty(tmp_path):
     none = ep.judgment_cards(PICK_ONE_TEXT, "stop_piggyback", registry=reg, pool=[], config={})
     assert none["entries"] == ["E04"] and none["note"] == "" and none["cards"] == []
     miss = ep.judgment_cards("別的訊息", "stop_piggyback", registry=reg, pool=[bound], config={})
-    assert miss == {"entries": [], "cards": [], "truncated": False, "note": ""}
+    assert miss == {"entries": [], "cards": [], "truncated": False, "truncated_entries": [], "note": ""}
 
 
 def test_judgment_cards_budget_truncates(tmp_path):
@@ -295,18 +313,65 @@ def test_judgment_cards_budget_truncates(tmp_path):
 
 
 def test_bound_cards_beat_earlier_rows_keyword_cards(tmp_path):
-    """同一問句認出 A、B 兩列：A 只有關鍵字退路卡、B 有 Entry 綁定卡，預算只夠一張 → 送 B 的綁定卡。"""
+    """同一問句認出 A、B 兩列：A 只有關鍵字退路卡、B 有 Entry 綁定卡。每列各一份預算 → 兩張都送；
+    總上限只夠一張 → 先送 B 的綁定卡（前一列的退路卡不擠掉後一列的專卡）。"""
     reg = _reg({"id": "A1", "rules": [], "markers": ["【甲】"], "paths": ["stop_piggyback"]},
                {"id": "B1", "rules": [], "markers": ["【乙】"], "paths": ["stop_piggyback"]})
     body = [f"- [臨] 判準第 {i} 條，數字只是參考，先看實害。" for i in range(6)]
     kw = _card(tmp_path, "kw-a", triggers=["【甲】"], knowledge=body)
     bound = _card(tmp_path, "bound-b", triggers=["無關"], entry=["B1"], knowledge=body)
     one = ep._estimate_tokens("\n".join(body)) + 5
+    both = ep.judgment_cards("【甲】……【乙】", "stop_piggyback", registry=reg, pool=[kw, bound],
+                             config={"entrypoint": {"inject_budget_tokens": one}})
+    assert both["entries"] == ["A1", "B1"] and both["truncated"] is False
+    assert [c["name"] for c in both["cards"]] == ["bound-b", "kw-a"]          # 綁定卡先送
     out = ep.judgment_cards("【甲】……【乙】", "stop_piggyback", registry=reg, pool=[kw, bound],
-                            config={"entrypoint": {"inject_budget_tokens": one}})
-    assert out["entries"] == ["A1", "B1"]
-    assert [c["name"] for c in out["cards"]] == ["bound-b"] and out["cards"][0]["via"] == "entry"
-    assert out["truncated"] is True and "kw-a" not in out["note"]
+                            config={"entrypoint": {"inject_budget_tokens": one, "inject_budget_total": one}})
+    # 總上限只夠一張：兩列平分，B 的綁定卡先送、A 的退路卡吃不到 B 的那一半
+    assert [c["name"] for c in out["cards"]] == ["bound-b", "kw-a"] and out["cards"][0]["via"] == "entry"
+    assert out["truncated_entries"] == ["B1", "A1"] and out["note"].count("已截斷") == 2
+
+
+# ─── 004：預算每個切入點各一份＋總上限；每個切入點內綁定卡在前、短的先送 ───────────────────────
+# 第二波題 A′：一句認出好幾個切入點時，第一個切入點把整句共用的 400 用光，後面切入點的專卡送不到（帳 18 筆全 truncated）
+
+def _rows3():
+    return _reg(*[{"id": i, "rules": [], "markers": [f"【{i}】"], "paths": ["stop_piggyback"]} for i in ("P1", "P2", "P3")])
+
+
+def test_004_each_entry_gets_its_own_budget(tmp_path):
+    body = [f"- [臨] 判準第 {i} 條，先看實害、誰會痛、多快會痛。" for i in range(8)]
+    pool = [_card(tmp_path, f"card-{i}", triggers=["無關"], entry=[i], knowledge=body) for i in ("P1", "P2", "P3")]
+    one = ep._estimate_tokens("\n".join(body)) + 5
+    out = ep.judgment_cards("【P1】【P2】【P3】", "stop_piggyback", registry=_rows3(), pool=pool,
+                            config={"entrypoint": {"inject_budget_tokens": one, "inject_budget_total": one * 3}})
+    assert [c["name"] for c in out["cards"]] == ["card-P1", "card-P2", "card-P3"], out["cards"]   # 舊碼：只送 card-P1
+    assert out["truncated"] is False and out["truncated_entries"] == []
+    capped = ep.judgment_cards("【P1】【P2】【P3】", "stop_piggyback", registry=_rows3(), pool=pool,
+                               config={"entrypoint": {"inject_budget_tokens": one, "inject_budget_total": int(one * 1.5)}})
+    # 超總上限：平分給三個切入點，每個都送到半張（codex 審：不讓排後面的永遠落空），三個都記截斷
+    assert [c["name"] for c in capped["cards"]] == ["card-P1", "card-P2", "card-P3"]
+    assert capped["truncated_entries"] == ["P1", "P2", "P3"] and capped["note"].count("已截斷") == 3
+    assert sum(ep._estimate_tokens(b.split("\n", 1)[1]) for b in capped["note"].split("\n\n判準卡")) <= int(one * 1.5) + 30
+    tight = ep.judgment_cards("【P1】【P2】【P3】", "stop_piggyback", registry=_rows3(), pool=pool,
+                              config={"entrypoint": {"inject_budget_tokens": one, "inject_budget_total": 60}})
+    assert tight["cards"] == [] and tight["truncated_entries"] == ["P1", "P2", "P3"]        # 有卡被擠掉也留帳
+    assert ep.inject_budget({}, "inject_budget_total") == 1200
+    assert ep.inject_budget({"entrypoint": {"inject_budget_total": "x"}}, "inject_budget_total") == 1200
+
+
+def test_004_bound_cards_short_first_keyword_by_hits_then_short(tmp_path):
+    reg = _reg({"id": "P1", "rules": [], "markers": ["【P1】", "甲字", "乙字"], "paths": ["stop_piggyback"]})
+    long = [f"- [臨] 長卡第 {i} 條判準，寫得很長很長很長。" for i in range(10)]
+    short = ["- [臨] 短卡判準一條。"]
+    pool = [_card(tmp_path, "bound-long", triggers=["無關"], entry=["P1"], knowledge=long),
+            _card(tmp_path, "bound-short", triggers=["無關"], entry=["P1"], knowledge=short),
+            _card(tmp_path, "kw-one-short", triggers=["甲字"], knowledge=short),
+            _card(tmp_path, "kw-two-long", triggers=["甲字", "乙字"], knowledge=long),
+            _card(tmp_path, "kw-one-long", triggers=["乙字"], knowledge=long)]
+    got = [(c["name"], via) for c, via in ep.cards_for_entry(reg["entrypoints"][0], pool)]
+    assert got == [("bound-short", "entry"), ("bound-long", "entry"),            # 綁定卡：短的先
+                   ("kw-two-long", "keyword"), ("kw-one-short", "keyword"), ("kw-one-long", "keyword")]   # 退路：命中多先、同分短先
 
 
 def test_real_registry_markers_not_too_generic():
@@ -359,10 +424,11 @@ def test_real_cards_bound_and_picked(monkeypatch):
     for name, entries in codes.items():
         for eid in entries:
             row = reg[eid]
-            bound = [c["name"] for c in pool if eid in c["entry"]]
+            bound = [c for c in pool if eid in c["entry"]]
+            shortest = min(bound, key=lambda c: (ep._estimate_tokens(ep._knowledge(c)), c["name"]))["name"]   # ③ 綁定卡短的先
             got = ep.judgment_cards(row["markers"][0], row["paths"][0], pool=pool, config=wide)
             assert eid in got["entries"], (eid, got["entries"])
-            assert got["cards"][0]["name"] == bound[0] and got["cards"][0]["via"] == "entry", (eid, got["cards"][:2])
+            assert got["cards"][0]["name"] == shortest and got["cards"][0]["via"] == "entry", (eid, got["cards"][:2])
             assert name in [c["name"] for c in got["cards"] if c["via"] == "entry"], (eid, name)
 
 

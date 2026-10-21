@@ -1218,7 +1218,8 @@ def test_006_3_pending_cleared_when_check_passes(driven, capsys):
 
 def test_006_6_judge_stop_blocks_to_the_end(capsys, monkeypatch):
     import dispatcher
-    assert set(dispatcher.JUDGE_HANDLERS) == {"PreToolUse", "PostToolUse", "Stop"}         # UPS 等照舊早退；PreToolUse 只擋判不出的寫入
+    # UPS 等照舊早退；PreToolUse 只擋判不出的寫入；PostToolUseFailure 補記失敗指令寫下的檔（同 PostToolUse 的最小記帳）
+    assert set(dispatcher.JUDGE_HANDLERS) == {"PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"}
     assert dispatcher.JUDGE_HANDLERS["Stop"] == ("handlers.stop", "handle_judge_stop")
     state = {"turn_seq": 0, "modified_files": [_mf(_CODE, 0)]}
     monkeypatch.setattr(st, "read_state", lambda sid: state)

@@ -115,15 +115,22 @@ def card_pool(state: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
 
 
 def cards_for_entry(row: Dict[str, Any], pool: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], str]]:
-    """一個切入點的判準卡：[(卡, "entry"|"keyword")]。先取 Entry 欄寫了這個代號的卡（照池的順序），
-    再拿這列的規則名＋識別字樣當查詢，比卡的 trigger（與 UPS 同一支比對），命中數多的在前。"""
+    """一個切入點的判準卡：[(卡, "entry"|"keyword")]。先放 Entry 欄寫了這個代號的卡，知識段短的在前（短卡先送、預算才夠多送幾張）；
+    再拿這列的規則名＋識別字樣當查詢，比卡的 trigger（與 UPS 同一支比對），命中數多的在前、同分時知識段短的在前。"""
     from wg_atoms import count_trigger_hits
     eid = str(row.get("id"))
-    bound = [c for c in pool if eid in c["entry"]]
+    size: Dict[str, int] = {}
+
+    def _size(c: Dict[str, Any]) -> int:
+        if c["name"] not in size:
+            size[c["name"]] = _estimate_tokens(_knowledge(c))
+        return size[c["name"]]
+
+    bound = sorted((c for c in pool if eid in c["entry"]), key=lambda c: (_size(c), c["name"]))
     query = " ".join(_keys(row)).lower()
     names = {c["name"] for c in bound}
-    hits = [(count_trigger_hits(c["triggers"], query), c) for c in pool if c["name"] not in names]
-    keyword = [c for n, c in sorted(hits, key=lambda x: (-x[0], x[1]["name"])) if n > 0]
+    hits = [(n, c) for n, c in ((count_trigger_hits(c["triggers"], query), c) for c in pool if c["name"] not in names) if n > 0]
+    keyword = [c for n, c in sorted(hits, key=lambda x: (-x[0], _size(x[1]), x[1]["name"]))]
     return [(c, "entry") for c in bound] + [(c, "keyword") for c in keyword]
 
 
@@ -138,10 +145,11 @@ def _knowledge(card: Dict[str, Any], max_tokens: Optional[int] = None) -> str:
     return sec.split("\n", 1)[1].strip() if sec and "\n" in sec else ""
 
 
-def inject_budget(config: Optional[Dict[str, Any]] = None) -> int:
-    default = CORE_DEFAULTS["entrypoint"]["inject_budget_tokens"]
+def inject_budget(config: Optional[Dict[str, Any]] = None, key: str = "inject_budget_tokens") -> int:
+    """entrypoint.<key>：inject_budget_tokens＝每個切入點各一份；inject_budget_total＝同一則問句的總上限。壞值退預設。"""
+    default = CORE_DEFAULTS["entrypoint"][key]
     try:
-        return int(((config or {}).get("entrypoint") or {}).get("inject_budget_tokens", default))
+        return int(((config or {}).get("entrypoint") or {}).get(key, default))
     except (TypeError, ValueError):
         return default
 
@@ -149,45 +157,69 @@ def inject_budget(config: Optional[Dict[str, Any]] = None) -> int:
 def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = None,
                    config: Optional[Dict[str, Any]] = None, registry: Optional[Dict[str, Any]] = None,
                    pool: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """問句 → {"entries": [代號], "cards": [{"name", "entries", "via"}], "truncated": bool, "note": "<要接在問句後面的文字>"}。
-    沒認出切入點 → entries 空；認出但沒卡 → note 空字串（不接、不印「無」）。
-    一張卡同時是幾個切入點的判準卡只送一次，標題列出全部代號。整個問句先送 Entry 綁定的卡、再送關鍵字退路的卡
-    （同時認出好幾個切入點時，前一列的退路卡不會擠掉後一列綁定的卡）。總預算 entrypoint.inject_budget_tokens，
-    超過就截斷最後一張（尾端標「已截斷」）、後面的不送，truncated=True。"""
+    """問句 → {"entries": [代號], "cards": [{"name", "entries", "via"}], "truncated": bool, "truncated_entries": [代號],
+    "note": "<要接在問句後面的文字>"}。沒認出切入點 → entries 空；認出但沒卡 → note 空字串（不接、不印「無」）。
+    預算每個切入點各一份＝min(entrypoint.inject_budget_tokens, inject_budget_total ÷ 認出的切入點數)，整則加起來不超過總上限，
+    切入點多時每個都分得到。先送每個切入點的綁定卡、再送各自的退路卡（_send_order），超過這個切入點的預算就截斷最後一張
+    （尾端標「已截斷」）、它後面的卡不送；有卡卻沒送完的切入點都記進 truncated_entries。
+    一張卡同時是幾個切入點的判準卡只送一次（算在第一個送它的切入點），標題列出它在這句裡服務的全部代號；
+    綁定的那一列算綁定（via=entry）。truncated＝有任何截斷，truncated_entries＝哪幾個切入點被截。"""
     rows = match_entries(text, path, registry)
-    out: Dict[str, Any] = {"entries": [str(r["id"]) for r in rows], "cards": [], "truncated": False, "note": ""}
+    out: Dict[str, Any] = {"entries": [str(r["id"]) for r in rows], "cards": [], "truncated": False,
+                           "truncated_entries": [], "note": ""}
     if not rows:
         return out
     pool = pool if pool is not None else card_pool(state)
-    picked: Dict[str, Dict[str, Any]] = {}
-    for row in rows:
-        for card, via in cards_for_entry(row, pool):
-            got = picked.setdefault(card["name"], {"card": card, "entries": [], "via": via})
+    per_row = [(str(row["id"]), cards_for_entry(row, pool)) for row in rows]
+    serves: Dict[str, List[str]] = {}
+    bound_somewhere = set()
+    for eid, cards in per_row:
+        for card, via in cards:
+            serves.setdefault(card["name"], [])
+            if eid not in serves[card["name"]]:
+                serves[card["name"]].append(eid)
             if via == "entry":
-                got["via"] = "entry"      # 別列只靠關鍵字命中、這列綁定 → 算綁定
-            if str(row["id"]) not in got["entries"]:
-                got["entries"].append(str(row["id"]))
-    ordered = sorted(picked.items(), key=lambda kv: kv[1]["via"] != "entry")     # 穩定排序：綁定在前、各自保持原序
-    budget, used, blocks = inject_budget(config), 0, []
-    for name, got in ordered:
-        body = _knowledge(got["card"])
+                bound_somewhere.add(card["name"])
+    left_total, blocks, sent = inject_budget(config, "inject_budget_total"), [], set()
+    each = min(inject_budget(config), left_total // len(per_row))      # 總上限平分給認出的切入點，不讓排後面的永遠落空
+    used = {eid: 0 for eid, _ in per_row}
+    for eid, card in _send_order(per_row):
+        name = card["name"]
+        if left_total < _TRUNCATE_MIN_TOKENS:
+            break
+        if name in sent or eid in out["truncated_entries"]:
+            continue
+        body = _knowledge(card)
         if not body:
             continue
-        cost = _estimate_tokens(body)
-        if used + cost > budget:
+        cost, room = _estimate_tokens(body), min(each - used[eid], left_total)
+        if cost > room:
+            body = _knowledge(card, max_tokens=room) if room >= _TRUNCATE_MIN_TOKENS else ""
+            cost = room
             out["truncated"] = True
-            left = budget - used
-            body = _knowledge(got["card"], max_tokens=left) if left >= _TRUNCATE_MIN_TOKENS else ""
-            if not body:
-                break
-            cost = left
-        blocks.append(f"判準卡（{'、'.join(got['entries'])}）：{name}\n{body}")
-        out["cards"].append({"name": name, "entries": got["entries"], "via": got["via"]})
-        used += cost
-        if out["truncated"]:
-            break
+            out["truncated_entries"].append(eid)        # 這個切入點的預算用完：它後面的卡不送，別的切入點照送
+        if body:
+            blocks.append(f"判準卡（{'、'.join(serves[name])}）：{name}\n{body}")
+            out["cards"].append({"name": name, "entries": serves[name], "via": "entry" if name in bound_somewhere else "keyword"})
+            sent.add(name)
+            used[eid] += cost
+            left_total -= cost
+    for eid, cards in per_row:        # 有卡卻一張都沒送到的切入點也記截斷（帳上分得出「沒卡」和「被擠掉」）
+        if eid not in out["truncated_entries"] and any(c["name"] not in sent and _knowledge(c) for c, _ in cards):
+            out["truncated"] = True
+            out["truncated_entries"].append(eid)
     out["note"] = "\n\n".join(blocks)
     return out
+
+
+def _send_order(per_row: List[Tuple[str, List[Tuple[Dict[str, Any], str]]]]) -> List[Tuple[str, Dict[str, Any]]]:
+    """送卡順序：先送每個切入點的綁定卡（照登錄表順序），再送每個切入點的關鍵字退路卡——總上限很緊時，
+    前一個切入點的退路卡不會擠掉後一個切入點的專卡。"""
+    order: List[Tuple[str, Dict[str, Any]]] = []
+    for phase in ("entry", "keyword"):
+        for eid, cards in per_row:
+            order += [(eid, card) for card, via in cards if via == phase]
+    return order
 
 
 LEDGER = "entry"          # Logs/guard-entry.jsonl
@@ -215,7 +247,7 @@ def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Di
         for eid in res["entries"]:
             append_guard_log(LEDGER, {"event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
                                       "cards": [c["name"] for c in res["cards"] if eid in c["entries"]],
-                                      "truncated": res["truncated"],
+                                      "truncated": eid in res["truncated_entries"],
                                       "with": [e for e in res["entries"] if e != eid], "response": "none"})
         return res["note"]
     except Exception as e:  # noqa: BLE001

@@ -89,6 +89,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | 跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、git／svn commit 前病形閘（§7.5 SmellGate）、`svn add` 中文路徑 SvnEncoding advisory（§7.5）、subagent 記憶注入 |
 | PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|PowerShell\|Read\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
+| PostToolUseFailure（**settings.json 還沒掛**，由原設計者加；handler 與 dispatcher 已接好，掛上前不會被呼叫） | `Bash\|PowerShell` | guardian(5) | 工具失敗時 Claude Code 不送 PostToolUse、改送這個（`error` 欄＝「Exit code N」＋stderr＋stdout 換行串起，查 2.1.304 執行檔）：指令非零結束時前段已寫下去的檔照樣記進 `modified_files` 與目標樹待對照改動（同一支 `write_paths_from_tool`；只記現在存在、而且在這次工具呼叫開始之後才改過的檔（開始時間取 transcript 那筆 tool_use 的時間，找不到就只看存在並印 stderr），目標不明的不記；閱讀路徑量尺與寫碼查核都讀它）；測試指令紅了記紅測（`failing_tests`）與驗證收據，跟成功路徑同一套函式；`error` 讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。只記帳不擋；裁判子 session 只記改檔與收據 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub 與 OverviewHub 摘要；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom 與每部位綜觀（atom 先、綜觀後） |
 | Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Reconcile／Measure（寫碼查核）、Deferral、KnowledgeHarvest／Harvest-Pending、Cleanup（收尾自清）、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
 | SubagentStop | — | guardian(10) | 子代理收尾只跑寫碼查核（對帳 (a)～(d)＋驗證範圍，用該 agent 自己的改檔與收據帳；自己沒宣告就沿用主 session 的範圍）；沒人能放行，有原因就擋到底、不計預算（§7.1） |
@@ -545,6 +546,8 @@ sequenceDiagram
 
 SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑寫碼查核，有原因就擋到底，不計預算、不問使用者；寫入目標判不出的指令在 PreToolUse 就 deny。
 
+超時降級（`hooks/wg_hook_timing.py`）：Stop 與 PostToolUse 從行程建立起計時，上表每道閘之間打一個點；累計超過這個事件 hook 上限（settings.json 裡 workflow-guardian 那支的 timeout，讀不到用 `hook_timing.fallback_limit_s`）的 80%，就把 state 寫回、放行，後面的閘這次不跑，並寫 `Logs/guard-hook_timing.jsonl` 一筆 kind=degraded（跑到哪一段、各段耗時）＋stderr 一行。不降級的話 Claude Code 時間到直接取消 hook：state 寫不回、什麼訊號都沒有。PostToolUse 降級後只跳過提示類段落（導讀卡、depends 召回、跨 session 碰撞、同伴檢查、MCP 切入點註記），改檔記帳、目標樹蓋號、寫 state 照做。打點只在段落之間，單一段落一路跑過上限打不到點，所以起表時另排背景鬧鐘：到上限 95% 還沒結束就先寫一筆 kind=overrun（卡在哪一段之後）＋stderr。每次 hook 結束另寫一筆 kind=run；`python tools/hook-timing.py` 看各段中位數。
+
 寫碼查核的每一條擋訊息都是一條有名字的規則（`hooks/wg_release_rules.py`，規則表 §7.8），格式 `✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。擋次預算每條規則（字母）各自計次：同一條在同一個使用者回合擋滿 `max_blocks_per_turn` 才算擋滿，擋滿訊息列出全部命中條目。「回合」＝使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開的回合；一般同伴訊息、背景通知不開回合。
 
 定死規則（寫碼查核相關，改法不得放寬）：
@@ -749,8 +752,8 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 |------|------|--------|
 | 登錄表 | `workflow/entrypoints.json`（程式碼根，版控資料） | 每個切入點一列：代號（沿用 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md` 的 E 號）、名稱、對應 RULES 規則名、擋訊息裡穩定的識別字樣、哪條路問（`path_values`：stop_piggyback／pretool_deny／pretool_hint／mcp_reply／subagent_prompt 是本契約接的路，user_prompt／session_start／post_tool_hint／local_llm 只登記不接）、餵什麼、問什麼、期望判什麼。`not_entrypoints` 列 RULES 裡確定不是問 LLM 的規則與一句理由。加切入點只改這份檔；程式不寫死任何代號，沒登錄的切入點沒有卡也沒有帳 |
 | 查表 | `hooks/wg_entrypoint.match_entries` | 問句裡出現某列的規則名或識別字樣、而且那列登記了這條路 → 算這個切入點（可同時多列）。登錄表讀不到或格式壞了 → 空表＋stderr，問句照原樣送 |
-| 卡綁切入點 | 卡片 `- Entry:` 欄（§4.1）＋索引 `entry` 欄 | `cards_for_entry`：先取 Entry 寫了這個代號的卡，再拿那列的規則名＋識別字樣當查詢比卡的 trigger（與 UPS 同一支比對）當退路，命中數多的在前。候選池：全域索引＋state 記的專案層／公司層索引，scope 可見性與被取代的卡照 SessionStart 同一套（沒有 state 時沒有身份，personal／role 卡不給） |
-| 預算 | `entrypoint.inject_budget_tokens`（預設 400，`wg_core.DEFAULTS`） | `judgment_cards` 只取知識段，標「判準卡（E04）：<卡名>」；一張卡同時是幾個切入點的判準卡只送一次、標題列全部代號；總量超過預算就截斷最後一張（尾端「已截斷」）、後面的不送、記 truncated。沒卡就什麼都不接、不印「無」 |
+| 卡綁切入點 | 卡片 `- Entry:` 欄（§4.1）＋索引 `entry` 欄 | `cards_for_entry`：先取 Entry 寫了這個代號的卡（知識段短的在前），再拿那列的規則名＋識別字樣當查詢比卡的 trigger（與 UPS 同一支比對）當退路，命中數多的在前、同分短的在前。給裁判用的規格卡不綁 Entry（不另加白名單）。候選池：全域索引＋state 記的專案層／公司層索引，scope 可見性與被取代的卡照 SessionStart 同一套（沒有 state 時沒有身份，personal／role 卡不給） |
+| 預算 | `entrypoint.inject_budget_tokens`（每個切入點各一份，預設 400）＋`entrypoint.inject_budget_total`（同一則問句總上限，預設 1200；`wg_core.DEFAULTS`） | `judgment_cards` 只取知識段，標「判準卡（E04）：<卡名>」；每個切入點實際可用＝min(各自預算, 總上限÷認出的切入點數)，切入點多時每個都分得到、整則不超過總上限；先送每個切入點的綁定卡、再送每個切入點的退路卡；一張卡同時是幾個切入點的判準卡只送一次（算在第一個送它的切入點）、標題列全部代號；某個切入點超過它自己的額度就截斷最後一張（尾端「已截斷」）、它後面的卡不送；有卡卻沒送完的切入點帳上都記 truncated。標題列不計入預算。沒卡就什麼都不接、不印「無」 |
 | 健檢 | `wg_entrypoint.health_block` → `tools/health-weekly.py` 2f 段（只進 info） | 列 RULES 裡既沒登錄也不在 `not_entrypoints` 的規則名、登錄表寫了但 RULES 沒有的規則名、卡片 Entry 寫了但登錄表沒有的代號、重複代號。只列不擋 |
 | 問的那一刻注入 | 單一入口 `wg_entrypoint.entry_note(問句, 路)`；`handlers/_shared` 保護匯入（模組壞了退成不接卡＋stderr，不拖垮 handler） | stop_piggyback：Stop 的 `_piggyback`（只拿這道閘自己的擋訊息認切入點，卡接在後面所有預覽與提示之後）、子代理收尾 `_code_gate_to_the_end` 的擋訊息（裁判子 session 走同一支但不接）、PickOne 續跑提醒。pretool_deny：PreToolUse 的 deny 全走 `_deny()`（裁判子 session 的 JudgeWrite 除外：裁判不注入）。pretool_hint：提問前提醒與一般警告段的 additionalContext（systemMessage 給使用者看的那份不接）。三者共用 `_with_cards()`，只在真的要送訊息時才匯入與讀登錄表；什麼都不送的放行路徑零成本，派子代理時每次多讀一次登錄表。mcp_reply：PostToolUse 對 `mcp__` 工具的單一出口，拿工具本體回覆＋同一次補的提醒認切入點，卡多接一段 additionalContext。subagent_prompt：派子代理時，卡接在記憶 blob 之後、原 prompt 之前。原訊息逐字不變，卡一律接在最後 |
 | 留帳 | `Logs/guard-entry.jsonl`（`append_guard_log("entry")`） | 每個認出的切入點一筆：at、session_id、turn_seq（沒有 state 記 null）、entry、path、cards（這個切入點送了哪幾張）、truncated、with（同一問句還認出哪些代號，調識別字樣用）、response（問的當下記 none）。沒認出的問句不記 |
@@ -806,9 +809,10 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 收割帳本 | `workflow/harvest-ledger/<sid>.jsonl`（gitignore；PostToolUse 唯一寫者） | 每次 `knowledge_harvest_report` 核對結果一筆（items／pending／validated）；worker 讀其中 `action=retired` 的 path 決定 svn delete 清單 | `Logs/guard-knowledge_harvest.jsonl`／`guard-harvest_pending.jsonl`（閘觸發） |
 | 來源自動填 | `hooks/wg_provenance.py autofill_from_receipt`（PostToolUse，`atom_write` receipt 入帳後） | op∈{create,replace} 且 ok、檔內無 Quote 才填：Quote＝`state.turn_prompts[-1]` 經 `lib/provenance.usable_quote`（`sanitize_quote` 清完短於 `QUOTE_MIN_CHARS`＝6 字不填，記 `quote_skipped=too_short`；「A」「好」這種回覆說不出卡從哪來）；呼叫者明傳 `quote=""` 是要清空，不填（`caller_cleared`）；開工句不填（`kickoff`，`lib/harness_text.is_kickoff_prompt`：角色句認「你是工作 session｜工作軌 <名>」、開頭可帶「<名>：」，後面要有一個派工子句）；Source＝hook input 的 session_id + transcript 尾端最後一則真人訊息 uuid（`session:<sid8>#<uuid8> <日期>`）；呼叫者已給 Source 只補 Quote；`provenance.enabled=false` 全停 | 失敗落 `Logs/guard-provenance.jsonl`，不阻斷寫入 |
 | 來源回填 worker | `tools/atom-provenance-backfill.py`（預設 dry-run；`--apply` / `--json` / `--layer root\|aidocs\|project\|org\|all` / `--only <glob>` / `--quiet`）；SessionStart `_maybe_spawn_provenance_backfill` 見有比 marker 更新的 transcript 才 detached 跑 `--apply --quiet`（`wg_vcs_sync._gui_python`＋CREATE_NO_WINDOW）；週健檢 `_provenance_anti_rot` 對 Source 為 session、距今 ≥`provenance.anti_rot_days`、無 Quote、transcript 仍在的顆再跑一次 `backfill(apply=True, only=[…])` | 一趟掃 `projects/*/*.jsonl` 建索引（atom_write tool_use ↔ 成功 tool_result 的 path；沿 parentUuid 回溯最近真人訊息；sidechain 退同 session 主線）；每顆：有 Quote → skip；title／檔名 stem 命中且 basename 相同 → A（既有 Source 非空只補 Quote；找到的原話是開工句、清完太短、或寫這張卡的哪一次 atom_write 明傳 `quote=""` → A_noquote 只補 Source）；同 basename 多層且無精確路徑命中 → ambiguous 不寫；`<!-- src -->` 自動萃取顆 → A_ai（只補 Source，不寫 Quote）；無命中 → B（日期序：Created-at → `memory/_meta/atom_io_audit.jsonl` → git 首 commit → mtime）；不做同日最近訊息弱匹配；改動由既有 vcs-sync 背景 commit／push | `Logs/provenance-backfill.log`；鎖 `Logs/provenance-backfill.lock`（>1h 視殘留）；marker `workflow/provenance-backfill-last.json`（記最新 transcript mtime）；週健檢 info |
-| Quote 清理 | `tools/quote-cleanup.py`（預設 dry-run；`--apply`／`--value`（預設 A）／`--memory-dir`（可重複）／`--only-given`／`--json`） | 掃資料根 `memory/` 與 `_AIDocs/_atoms/`（加 `--memory-dir` 給的層），中繼資料區 `- Quote: 「<值>」` 的值整個等於 `--value` 的卡列出；`--apply` 只刪那一行（BOM 照留、知識段同字樣不動），走 `lib/atom_io.write_raw`（`source=tool:quote-cleanup`）。索引與 MEMORY.md 不存 Quote，不必重建 | 稽核帳 `memory/_meta/atom_io_audit.jsonl`；尾行 `QUOTE_CLEANUP DONE matched= changed= failed= dry_run=`，有寫失敗 exit 1 |
+| Quote 清理 | `tools/quote-cleanup.py`（預設 dry-run；`--apply`／`--value`（預設 A）／`--empty-entry`（改清空的 `- Entry:` 行）／`--memory-dir`（可重複）／`--only-given`／`--json`） | 掃資料根 `memory/` 與 `_AIDocs/_atoms/`（加 `--memory-dir` 給的層），中繼資料區 `- Quote: 「<值>」` 的值整個等於 `--value` 的卡列出；`--apply` 只刪那一行（BOM 照留、知識段同字樣不動），走 `lib/atom_io.write_raw`（`source=tool:quote-cleanup`）。索引與 MEMORY.md 不存 Quote，不必重建 | 稽核帳 `memory/_meta/atom_io_audit.jsonl`；尾行 `QUOTE_CLEANUP DONE matched= changed= failed= dry_run=`，有寫失敗 exit 1 |
 | 回訪機制 | `tools/followup-check.py` + `workflow/followups.json` | 「改了東西、一週後看數據」程式化：到期日、檢查名、通過線、**零記憶交接**；SessionStart 到期自動跑，INSUFFICIENT 只說明、FAIL 每日一次附交接、PASS 自動結案；檢查名 `injection-budget`（注入預算）、`closing-gates`（收尾被擋次數／回合、擋下後重跑測試／回合，讀根層專案的對話紀錄）；登記項可帶 `on_fail` 一句改寫未過時的處理指引 | SessionStart advisory；CLI `--list/--run/--done/--add` |
 | 注入回合日誌 | `hooks/handlers/ups_inject.py` | 每回合 ok/fallback/skip/cold/redundant 計數與 token | `Logs/injection-turns.jsonl` |
+| hook 分段計時 | `hooks/wg_hook_timing.py`（dispatcher 開頭起表、結尾落帳；Stop 每道閘之間、PostToolUse 主要段落之間打點）＋唯讀量尺 `tools/hook-timing.py`（`--days`、`--event`、`--logs`、`--json`） | 起點是行程建立時間（Windows `GetProcessTimes`；pythonw 啟動器殼本身的時間算不到，所以比 Claude Code 的計時略少）；累計過上限 80% 降級（§7.1 表下）；到上限 95% 還沒結束的背景鬧鐘另記 kind=overrun（卡在哪一段之後）；量尺印每個事件跑幾次、降級幾次、快逾時幾次、總耗時與各段中位數／最長，沒帳印「沒有計時帳」不印 0；尾行 `HOOK_TIMING DONE events= runs= degraded= overrun=` | `Logs/guard-hook_timing.jsonl`（kind=run／degraded／overrun）；降級與快逾時時 stderr `[Guardian:HookTiming]` |
 | atom-debug | `Logs/atom-debug-*.log` | 檢索過程、盲點（無命中）、錯誤 | config `atom_debug` |
 | guard JSONL | `Logs/guard-{evasion,docdrift,lang,pre-action-notice,friction,tool-result-size,tool-result-stats,knowledge_harvest,harvest_pending,worker-runs,provenance}.jsonl` | 每個護欄觸發一筆 | 誤攔率可量測 |
 | log rotation | `wg_core.rotate_log_if_oversized`（預設 10MB 保 3 份；extract-worker.log 5MB 保 2） | guardian-crash.log 曾爆 114GB | — |
@@ -969,6 +973,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── wg_evasion.py                        ← 退避偵測 + DeferralGate 判定 + AEC cross-check
 │   ├── wg_docdrift.py / wg_handoff.py / wg_rescue.py / wg_recall_miss.py
 │   ├── wg_friction.py                       ← 工具結果體積（浪費）+ 使用者糾正訊號 → DPM
+│   ├── wg_hook_timing.py                    ← hook 分段計時：過上限 80% 降級（後面的段落只記不問）＋計時帳（§7.1、§8）
 │   ├── wg_harvest.py                        ← 階段收割：閘判定 / receipt 入帳 / items 核對 / ledger（純函式，不落盤）
 │   ├── wg_provenance.py                     ← 來源自動填：atom_write receipt → 補 Source（session 指標）/ Quote（使用者原話）
 │   ├── wg_vcs_sync.py                       ← 記憶庫上版控：目標集 / OS 互斥鎖 / .req 請求檔 / .unpushed・.behind 標記 / 拉段（ref+pathspec restore、ff-only、隔離 worktree rebase、svn update）/ roots.json / spawn
@@ -1000,6 +1005,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── atom-move.py / atom-categorize.py / atom-set-realm.py / atom-heal.py / atom-health-check.py
 │   ├── atom-source.py / atom-provenance-backfill.py   ← 命令列回看卡片來源（§5.8）/ 舊 atom 補 Source・Quote 的回填 worker（§8）
 │   ├── quote-cleanup.py         ← 刪掉被回填成一兩個字回覆（預設「A」）的 Quote 行；預設 dry-run，--apply 走 atom_io.write_raw（§8）
+│   ├── hook-timing.py           ← hook 分段耗時量尺（唯讀）：各事件跑幾次、降級幾次、各段中位數（§8）
 │   ├── memory-search.py / org-memory.py     ← 命令列查記憶 / 公司層 org：接上（--join）、對帳（--status）、初始化（--init）、工具卡掃描（--scan-tools）；使用者入口 /org skill
 │   ├── conflict-review.py / init-roles.py / heal-review.py   ← 待審裁決 / 職能覆寫與對帳（--me / --status）/ 自癒退件
 │   ├── realm_llm_classify.py / skill-index.py / changelog-roll.py / journal-aggregate.py
@@ -1103,7 +1109,9 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `org_memory.repo_url` / `default_root` | — / `~/CompanyAtomsMem` | 公司層記憶 repo（§4.4）全公司相同的值：`repo_url` 供 `--join` 在本機沒 checkout 時 clone，`default_root` 是 `--join` 沒給路徑時的落點 |
 | `org_memory.enabled` / `roots` | false / `[]` | 共用 config 內保持預設；實際值在本機 `workflow/org-memory.local.json`（不進版控，同名鍵蓋過，`tools/org-memory.py --join`／`--init <root>` 填寫）。只讀 `roots[0].root`，>1 停用並 stderr；本機檔另有 `declined`（使用者答過先不接，啟動不再問；舊鍵 `advised` 已不讀） |
 | `taxonomy.gate_enabled` | true | create 缺 domain 拒寫 |
-| `entrypoint.inject_budget_tokens` | 400 | 切入點契約（§7.10）一次問句接的判準卡知識段總預算 |
+| `entrypoint.inject_budget_tokens` | 400 | 切入點契約（§7.10）每個認出的切入點各自的判準卡知識段預算 |
+| `entrypoint.inject_budget_total` | 1200 | 同一則問句所有切入點加起來的上限 |
+| `hook_timing.enabled` / `degrade_ratio` / `fallback_limit_s` | true / 0.8 / `{"Stop": 10, "PostToolUse": 5}` | hook 分段計時（§7.1 表下、§8）；累計過上限的這個比例就降級；settings.json 讀不到 timeout 時的上限，也決定哪些事件計時（只在 `wg_core.DEFAULTS`，config.json 沒寫） |
 | `taxonomy.llm_fallback.enabled` / `realm.llm_fallback.enabled` | false / false | 分類只跑決定性詞庫 |
 | `vector_search.enabled` / `service_port` | true / 3849 | 向量服務 |
 | `vector_search.global_layer` / `fusion` | bm25 / rrf | 全域層演算法／融合策略（legacy 回退） |
