@@ -11192,6 +11192,22 @@
         "工人模型 Opus"
       ],
       "scope": "global"
+    },
+    {
+      "name": "切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣",
+      "path": "memory/CC與原子記憶契約/切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣.md",
+      "triggers": [
+        "切入點識別字樣",
+        "關鍵字退路",
+        "trigger 子字串",
+        "誤中無關卡",
+        "登錄表新列",
+        "entry_note",
+        "SELFSCORE_ASK",
+        "CLAUDE_CODE_SESSION_ID",
+        "guard log 秒級配對"
+      ],
+      "scope": "global"
     }
   ]
 }
