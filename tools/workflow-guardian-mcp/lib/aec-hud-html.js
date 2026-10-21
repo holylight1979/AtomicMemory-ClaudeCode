@@ -40,6 +40,8 @@ function render() {
   .badge.notable { background: #fab21926; color: var(--sev-notable); border: 1px solid #fab21966; }
   .badge.real { background: #d03b3b26; color: #ff9a9a; border: 1px solid #d03b3b88; }
   .meta { font-size: .76em; color: var(--muted); font-family: ui-monospace, monospace; }
+  .who { font-size: .82em; color: var(--ink); font-weight: 600; font-family: ui-monospace, monospace; }
+  .badge.aud { background: #388bfd26; color: #79c0ff; border: 1px solid #388bfd66; }
   .banner { display: none; background: #d03b3b1f; border: 1px solid #d03b3b88; color: #ffb4b4; padding: 8px 12px; border-radius: 8px; font-size: .82em; margin-bottom: 14px; }
   .banner.show { display: block; }
   .sec { border-top: 1px solid var(--border); padding: 9px 0; }
@@ -149,6 +151,12 @@ function esc(s) {
 function isBlank(v) { var s = String(v == null ? "" : v).trim(); return s === "" || s === "無"; }
 function sevOf(r) { return SEV[r && r.severity] || SEV.routine; }
 function keyOf(r) { return (r.session_id || "?") + "|" + (r.turn_seq != null ? r.turn_seq : "?"); }
+// 這則是哪一軌寫的（API 由對話紀錄推的 track；推不出退回 session 前 8 碼）、寫給誰看（audience：首行寫了給總控台）
+function whoOf(r) { return r.track ? String(r.track) : "session " + String(r.session_id || "?").slice(0, 8); }
+function tipOf(r) {
+  return whoOf(r) + (r.audience ? "（" + r.audience + "）" : "") + " · 第 " + r.turn_seq + " 輪 · " +
+    sevOf(r).label + " · " + String(r.at || "").slice(5, 16).replace("T", " ");
+}
 
 function sectionHtml(letter, name, val) {
   var blank = isBlank(val);
@@ -257,6 +265,8 @@ function cardHtml(r) {
   var cls = "card" + (lamp.cls === "todo" ? " sev-notable" : lamp.cls === "real" ? " sev-real" : "");
   var when = String(r.at || "").slice(5, 16).replace("T", " ");
   var html = '<div class="' + cls + '"><div class="card-head"><span class="lamp ' + lamp.cls + '">' + lamp.text + "</span>" +
+    '<span class="who">' + esc(whoOf(r)) + "</span>" +
+    (r.audience ? '<span class="badge aud">' + esc(r.audience) + "</span>" : "") +
     '<span class="meta">' + esc(when) + " · 第 " + esc(r.turn_seq) + " 輪</span></div>";
   if (lamp.cls === "real") {
     html += partHtml("疑似偷懶的地方（hook 只比對字面，可能是誤判，看一下）", picked([["", r.b]]), "");
@@ -339,7 +349,7 @@ function renderGrid() {
   for (var i = 0; i < cells.length; i++) {
     var r = cells[i], s = sevOf(r), k = keyOf(r);
     var active = (k === activeKey) ? " active" : "";
-    var tip = "第 " + r.turn_seq + " 輪 · " + s.label + " · " + String(r.at || "").slice(5, 16).replace("T", " ");
+    var tip = tipOf(r);
     out += '<div class="cell ' + s.cls + active + '" title="' + esc(tip) +
            '" data-key="' + esc(k) + '">' + (s.cls === "real" ? "!" : "") + "</div>";
   }

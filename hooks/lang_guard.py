@@ -5,7 +5,8 @@ tool output / 檔名術語），「用繁中回應」的 salience 逐輪衰減 �
 英文。純靠 instruction 不可靠，故程式化攔截。
 
 機制：Stop hook 量測 assistant 終版訊息「英文語言字元佔比」，先剝除 code
-fence / inline code / URL（政策 B：只管 user-facing 對話輸出，不管碼），超門檻
+fence / inline code / URL，與沒包反引號的路徑、檔名、底線識別字、指令旗標
+（政策 B：只管 user-facing 對話輸出，不管碼），超門檻
 → 以 hookSpecificOutput.additionalContext 回饋模型（Stop 事件支援：回合結尾注入、
 對話續跑一回合讓模型用繁中重答）。不用 systemMessage——該欄位只顯示給使用者，
 模型讀不到，等於零效果。stop_hook_active=true（本回合已是 Stop 續跑）→ 不再
@@ -80,17 +81,33 @@ _INLINE_RE = re.compile(r"`[^`\n]*`")
 _LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
 # 裸 URL
 _URL_RE = re.compile(r"https?://\S+")
+# 沒包反引號的碼樣字（只認 ASCII，緊鄰的中文不吃）：路徑（含 / 或 \）、檔名與帶點名稱（rates.py、api.quote）、
+# 底線識別字（need_goal、OLD_TEST_CHANGE_NEEDS_DECLARATION）、指令旗標（--plain、-m；前面緊接字母的連字號詞不算）。
+# 每條都從字的開頭才起算（lookbehind），很長的連續英數字串才不會每個位置重試、變成平方時間。
+# 含斜線的字要「像路徑」才剝（_is_path）：input/output、and/or 這種英文斜線詞照算英文。
+_PATH_RE = re.compile(r"(?<![A-Za-z0-9_.~$:+-])[A-Za-z0-9_.~$:+-]*(?:[/\\][A-Za-z0-9_.~$:+-]+)+[/\\]?")
+_EXT_TAIL_RE = re.compile(r"\.[A-Za-z0-9]{1,8}[/\\]?$")
+_DOTTED_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+")
+_IDENT_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+")
+_FLAG_RE = re.compile(r"(?<![A-Za-z0-9_-])--?[A-Za-z][A-Za-z0-9_-]*")
 
 # 語言字元計數：ASCII 英文字母 vs CJK（統一表意 + 擴充 A + 相容表意）
 _EN_RE = re.compile(r"[A-Za-z]")
 _CJK_RE = re.compile(r"[一-鿿㐀-䶿豈-﫿]")
 
 
+def _is_path(tok: str) -> bool:
+    """含斜線的字像不像路徑：有反斜線或冒號、兩個以上斜線、以 / ~ . 開頭、或尾端是副檔名。"""
+    return ("\\" in tok or ":" in tok or tok.count("/") >= 2 or tok.startswith(("/", "~", "."))
+            or bool(_EXT_TAIL_RE.search(tok)))
+
+
 def strip_noncontent(text: str) -> str:
-    """剝除 code fence / inline code / URL / markdown link 目標。
+    """剝除 code fence / inline code / URL / markdown link 目標，以及沒包反引號的路徑、檔名、識別字、旗標。
 
     政策 (B)：只管 user-facing 對話散文，不管碼/路徑。先剝 fence（含內部
-    inline backtick），再剝 inline code、link 目標、裸 URL。保留 link text。
+    inline backtick），再剝 inline code、link 目標、裸 URL；最後剝碼樣字（路徑先於檔名，
+    路徑裡的點不會被拆開剝）。保留 link text 與一般英文字。
     """
     if not text:
         return ""
@@ -98,6 +115,9 @@ def strip_noncontent(text: str) -> str:
     t = _INLINE_RE.sub(" ", t)
     t = _LINK_TARGET_RE.sub(" ", t)
     t = _URL_RE.sub(" ", t)
+    t = _PATH_RE.sub(lambda m: " " if _is_path(m.group(0)) else m.group(0), t)
+    for code_like in (_DOTTED_RE, _IDENT_RE, _FLAG_RE):
+        t = code_like.sub(" ", t)
     return t
 
 

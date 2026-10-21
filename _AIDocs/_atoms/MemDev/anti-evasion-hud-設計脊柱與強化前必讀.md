@@ -21,6 +21,7 @@
 - [臨] **原設計者裁定：彈窗必留，報告任何理由都不准貼進聊天**（HUD 開不起來時 Stop 只印一行報告檔位置、不擋）；彈窗時機維持看 severity（notable／real-evasion），是使用者選的。HUD 卡片白話三段、欄位字母收進「細節」，紅燈叫「疑似偷懶（待核對）」（字面比對會誤判，不先判有罪）。
 - [臨] **原設計者裁定：暫存的「保留／刪除」鈕要保留**；帳本要收整個 session 的額外產出（專案外或規格外的測試資料夾、git 工作樹、工作分支、臨時 repo），不能只收系統暫存區。
 - [臨] 收尾自清閘別拿掉 busy（總控台的工作樹交給工作 session 用）；邊界見 TECH §7.1 Cleanup。
+- [臨] server.js 啟動時 require 的 lib 模組（anti-evasion、aec-hud-html、dashboard-html）沒有 require.cache 失效：改完 Ctrl+F5 看不到，要重開佔港口的 MCP 行程；交付信寫明，用真報告實看。
 
 ## 行動
 

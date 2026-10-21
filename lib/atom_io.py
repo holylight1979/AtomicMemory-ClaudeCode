@@ -18,10 +18,12 @@ import os
 import re
 import secrets
 import sys
+import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
@@ -45,6 +47,7 @@ from .realm_gate import is_core_root
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 AUDIT_LOG = GLOBAL_MEMORY_DIR / "_meta" / "atom_io_audit.jsonl"
+AUDIT_LOCK_WAIT_S = 5   # 稽核帳鎖最多等幾秒，拿不到就告警照寫（_audit_lock）
 
 # 接受的 source（供 audit 反查；未列舉值 → write_raw 回 WriteResult(ok=False, error="invalid source")、不 raise，呼叫端必檢查 .ok）
 VALID_SOURCES = frozenset({
@@ -73,6 +76,7 @@ VALID_SOURCES = frozenset({
     "tool:scorecard",  # scorecard：每 session 一行過程量、榜單候選卡
     "tool:sync-atom-index",
     "tool:sync-memory-index",
+    "tool:atom-io-audit",  # 稽核帳壞行修復（tools/atom-io-audit.py --repair 改寫的那幾行標這個來源）
     "tool:undo",
     "test",  # 測試用，等價測試 fixture 使用
 })
@@ -118,15 +122,142 @@ def _gen_audit_id() -> str:
 
 
 def _audit_log(entry: Dict[str, Any]) -> None:
-    """Append JSONL entry to atom_io_audit.jsonl（best-effort），>10MB 輪替。"""
+    """Append JSONL entry to atom_io_audit.jsonl（best-effort），>10MB 輪替。
+
+    多個 session 的 hook 同時寫這一個檔。Windows 上 Python 的附加模式（含 os.open O_APPEND）是「先跳到檔尾、再寫」兩步，
+    兩支行程撞上時後寫的蓋掉前一行的尾巴，把中文字切成半個（實測 8 行程×500 行：382 行非 UTF-8、掉約三成）。
+    所以整行先編成位元組，在 _audit_lock 底下一次寫完。孤立代理字元（surrogateescape 解出的路徑）用 backslashreplace
+    寫成 \\udcXX：落在 JSON 字串裡正好是合法跳脫，讀回原字元；嚴格編碼會丟 UnicodeEncodeError，穿過 except OSError 炸呼叫端。
+    """
     try:
         AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(AUDIT_LOG, "a", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        if AUDIT_LOG.stat().st_size > 10 * 1024 * 1024:
-            _rotate_audit_log()
+        data = (json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8", errors="backslashreplace")
+        with _audit_lock(AUDIT_LOG):
+            with open(AUDIT_LOG, "ab") as f:
+                f.write(data)
+            if AUDIT_LOG.stat().st_size > 10 * 1024 * 1024:
+                _rotate_audit_log()
     except OSError:
         pass
+
+
+def _lock_byte(fh, *, unlock: bool = False) -> None:
+    """鎖檔第 0 個位元組：Windows msvcrt（同 atom_locations.append_learned_terms），其他平台 fcntl.flock；不等待，拿不到丟 OSError。"""
+    if sys.platform == "win32":
+        import msvcrt
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK if unlock else msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN if unlock else fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@contextmanager
+def _audit_lock(log: Path):
+    """稽核帳的跨行程鎖（旁檔 <log>.lock）：append、輪替、--repair 改寫共用這一把。鎖檔不刪：刪了別人手上的鎖就分成兩把。
+    每 10ms 試一次（msvcrt.LK_LOCK 撞上就睡滿 1 秒，hook 會跟著卡），最多 5 秒；仍拿不到 → stderr 告警後照做
+    （寧可冒一行被蓋——讀取端略過、--repair 修得回——也不讓稽核整筆消失）。"""
+    fh = None
+    try:
+        fh = open(log.with_name(log.name + ".lock"), "ab")
+        deadline = time.monotonic() + AUDIT_LOCK_WAIT_S
+        while True:
+            try:
+                _lock_byte(fh)
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.01)
+    except OSError as e:
+        print(f"[atom_io] 稽核帳鎖拿不到（{e}），不加鎖照做", file=sys.stderr)
+        if fh is not None:
+            fh.close()
+        fh = None
+    try:
+        yield
+    finally:
+        if fh is not None:
+            try:
+                _lock_byte(fh, unlock=True)
+            except OSError:
+                pass
+            fh.close()
+
+
+def read_audit_log(path: Optional[Path] = None) -> Tuple[List[Dict[str, Any]], List[Tuple[int, bytes]]]:
+    """逐行讀稽核帳 → (合法條目, 壞行 [(行號, 原始位元組)])。壞行＝不是合法 UTF-8、或不是 JSON 物件。
+    檔不在回兩個空清單；讀檔本身失敗（OSError）照丟，由呼叫端決定。"""
+    p = path or AUDIT_LOG
+    good: List[Dict[str, Any]] = []
+    bad: List[Tuple[int, bytes]] = []
+    if not p.is_file():
+        return good, bad
+    with open(p, "rb") as fh:
+        for n, raw in enumerate(fh, 1):
+            body = raw.rstrip(b"\r\n")
+            if not body.strip():
+                continue
+            try:
+                d = json.loads(body.decode("utf-8"))
+            except ValueError:   # UnicodeDecodeError 與 JSONDecodeError 都是 ValueError
+                d = None
+            if isinstance(d, dict):
+                good.append(d)
+            else:
+                bad.append((n, body))
+    return good, bad
+
+
+def iter_audit_entries(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """讀取端用：只回合法條目；有壞行時 stderr 一行（幾行、前幾個行號、修法），不炸。"""
+    p = path or AUDIT_LOG
+    good, bad = read_audit_log(p)
+    if bad:
+        nums = "、".join(str(n) for n, _ in bad[:5]) + ("…" if len(bad) > 5 else "")
+        print(f"[atom_io] {p.name} 有 {len(bad)} 行不是合法 UTF-8 JSON，已略過（第 {nums} 行）；"
+              f"修法：python tools/atom-io-audit.py --repair", file=sys.stderr)
+    return good
+
+
+def repair_audit_log(path: Optional[Path] = None, *, source: str = "tool:atom-io-audit") -> Dict[str, Any]:
+    """壞行就地改寫成合法 JSON 行（op=audit_line_repaired，raw_hex＝該行去掉行尾換行的原始位元組、text＝能讀的部分），
+    好行原樣不動；改寫前原檔整份（含行尾）複製到旁檔 <log>.pre-repair-<UTC 時刻到微秒>（.gitignore 的 atom_io_audit.jsonl.* 已涵蓋）。
+    在寫入端同一把鎖下做：修的同時別的 session 照常 append，不會被這次改寫蓋掉。沒有壞行不動檔。
+    回 {"bad": 壞行數, "backup": 旁檔路徑或 None}。"""
+    from .atom_index_json import retry_busy
+    p = path or AUDIT_LOG
+    with _audit_lock(p):
+        _good, bad = read_audit_log(p)
+        if not bad:
+            return {"bad": 0, "backup": None}
+        raw = p.read_bytes()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")   # 到微秒：同一秒再修一次不蓋掉上一份備份
+        backup = p.with_name(f"{p.name}.pre-repair-{stamp}")
+        backup.write_bytes(raw)
+        fixes = dict(bad)
+        pieces = raw.split(b"\n")   # 與 read_audit_log 的行號同一套切法（只認 \n）
+        if pieces and pieces[-1] == b"":
+            pieces.pop()
+        out: List[bytes] = []
+        for n, line in enumerate(pieces, 1):
+            if n not in fixes:
+                out.append(line + b"\n")
+                continue
+            body = fixes[n]
+            out.append((json.dumps({
+                "audit_id": _gen_audit_id(), "ts": datetime.now(timezone.utc).isoformat(), "op": "audit_line_repaired",
+                "source": source, "line": n, "backup": backup.name, "raw_hex": body.hex(),
+                "text": body.decode("utf-8", errors="replace"),
+            }, ensure_ascii=False) + "\n").encode("utf-8"))
+        tmp = p.with_name(f"{p.name}.repair.{os.getpid()}.tmp")
+        try:
+            tmp.write_bytes(b"".join(out))
+            retry_busy(lambda: os.replace(tmp, p))   # 讀稽核帳的工具開著檔時 Windows 會短暫拒絕換檔
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
+    return {"bad": len(bad), "backup": str(backup)}
 
 
 def _rotate_audit_log() -> None:

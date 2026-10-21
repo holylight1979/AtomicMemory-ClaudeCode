@@ -14,7 +14,13 @@
         "vector service",
         "dispatcher"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions",
+        "toolchain-ollama",
+        "feedback-memory-system-doc-sync",
+        "realm-範疇分區機制-v5"
+      ]
     },
     {
       "name": "decisions",
@@ -229,7 +235,17 @@
         "直上版控",
         "記憶相關不用問"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問",
+        "feedback-rigor-standards",
+        "feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff",
+        "workflow-rules",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "專案等級-mcpskillhookslog-不放全域根層",
+        "a執p-自執驗上p-自動完工協議"
+      ]
     },
     {
       "name": "toolchain-ollama",
@@ -244,7 +260,13 @@
         "thinking",
         "Open WebUI"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain",
+        "decisions-architecture",
+        "decisions",
+        "ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測"
+      ]
     },
     {
       "name": "toolchain",
@@ -263,7 +285,19 @@
         "PowerShell截圖",
         "向量服務"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain-ollama",
+        "decisions",
+        "cc-能力查證反編譯實跑-binary",
+        "codex-log-bloat-analytics",
+        "guardian-dashboard-孤兒佔埠與新碼重啟",
+        "wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除",
+        "bash-呼叫-msbuild-用-dash-參數",
+        "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff",
+        "winget-升不動-powershell-msi-與-msix-通道分裂",
+        "atom-write-global必須省略project-cwd"
+      ]
     },
     {
       "name": "workflow-icld",
@@ -274,7 +308,11 @@
         "閉環",
         "功能拆解"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "goal-driven-verify-loopkarpathy-吸收"
+      ]
     },
     {
       "name": "workflow-rules",
@@ -289,7 +327,26 @@
         "GIT",
         "Phase"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions",
+        "workflow-svn",
+        "workflow-icld",
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-workflow-discipline",
+        "memory-pipeline-silent-failure-2026-05",
+        "workflow-parallel-agents",
+        "atom-table-support",
+        "feedback-memory-system-doc-sync",
+        "atom-usefulness-loop",
+        "a執p-自執驗上p-自動完工協議",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
+        "pan-hermes不移植部件與vscode-text-block不落盤實測",
+        "workflow-research-fanout",
+        "preferences",
+        "多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完"
+      ]
     },
     {
       "name": "workflow-svn",
@@ -299,7 +356,13 @@
         "svn-update",
         "TortoiseSVN"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess"
+      ]
     },
     {
       "name": "memory-pipeline-silent-failure-2026-05",
@@ -314,7 +377,18 @@
         "衰減掃描",
         "覆轍偵測"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions",
+        "decisions-architecture",
+        "workflow-rules",
+        "atom-usefulness-loop",
+        "atom-元資料編輯與晉升閘真相",
+        "confirmations-已退役-phase2-usefulness-接管晉升",
+        "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
+        "向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功",
+        "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞"
+      ]
     },
     {
       "name": "cognitive-patterns",
@@ -393,7 +467,22 @@
         "跨檔比較",
         "parallel agents"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "decisions",
+        "feedback-workflow-discipline",
+        "模型行為移植-fable行為契約必載檔",
+        "workflow-research-fanout",
+        "並行agent產出併入交付物必須標驗證強度分層",
+        "並行llm即時通訊-inbox機制",
+        "grok協作實戰認知-特質與監工分工手感",
+        "feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向",
+        "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
+        "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地",
+        "派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒",
+        "並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次"
+      ]
     },
     {
       "name": "atom-table-support",
@@ -409,7 +498,14 @@
         "block 渲染",
         "dogfood"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "feedback-tooling-reliability",
+        "feedback-memory-system-doc-sync",
+        "memory-index-caption-regen",
+        "atom-usefulness-loop"
+      ]
     },
     {
       "name": "feedback-memory-system-doc-sync",
@@ -434,7 +530,22 @@
         "gitignore",
         "memory path"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "feedback-workflow-discipline",
+        "feedback-rigor-standards",
+        "atom-table-support",
+        "memory-index-caption-regen",
+        "atom-usefulness-loop",
+        "atom-元資料編輯與晉升閘真相",
+        "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags",
+        "atom-move-v5-sot-correct-化與半遷移工具辨識",
+        "anti-evasion-hud-設計脊柱與強化前必讀",
+        "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔",
+        "feedback-tooling-reliability",
+        "decisions-architecture"
+      ]
     },
     {
       "name": "memory-index-caption-regen",
@@ -451,7 +562,14 @@
         "索引描述",
         "MEMORY.md 描述"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "atom-table-support",
+        "feedback-memory-system-doc-sync",
+        "realm-範疇分區機制-v5",
+        "atom-write-global必須省略project-cwd",
+        "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點"
+      ]
     },
     {
       "name": "atom-usefulness-loop",
@@ -470,7 +588,18 @@
         "used_fail",
         "原子記憶開發"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions",
+        "workflow-rules",
+        "feedback-memory-system-doc-sync",
+        "memory-pipeline-silent-failure-2026-05",
+        "atom-table-support",
+        "atom-元資料編輯與晉升閘真相",
+        "confirmations-已退役-phase2-usefulness-接管晉升",
+        "檢索融合與回歸集調參-rrf-min-score-定案",
+        "usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升"
+      ]
     },
     {
       "name": "cc-能力查證反編譯實跑-binary",
@@ -488,7 +617,13 @@
         "PostCompact",
         "PostToolBatch"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain",
+        "feedback-tooling-reliability",
+        "cognitive-patterns",
+        "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags"
+      ]
     },
     {
       "name": "codex-log-bloat-analytics",
@@ -504,7 +639,11 @@
         "codex 卡頓",
         "--analytics-default-enabled"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-tooling-reliability",
+        "toolchain"
+      ]
     },
     {
       "name": "atom-元資料編輯與晉升閘真相",
@@ -523,7 +662,15 @@
         "sidecar",
         "行尾損壞"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-tooling-reliability",
+        "memory-pipeline-silent-failure-2026-05",
+        "atom-usefulness-loop",
+        "feedback-memory-system-doc-sync",
+        "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值",
+        "confirmations-已退役-phase2-usefulness-接管晉升"
+      ]
     },
     {
       "name": "guardian-dashboard-孤兒佔埠與新碼重啟",
@@ -545,7 +692,15 @@
         "隔離埠",
         "lib 改動"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain",
+        "feedback-tooling-reliability",
+        "anti-evasion-hud-設計脊柱與強化前必讀",
+        "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房",
+        "巨檔純機械拆分-carve腳本與驗證盲點",
+        "跨session協調-衝突預警機制與cc原生現況"
+      ]
     },
     {
       "name": "realm-範疇分區機制-v5",
@@ -562,7 +717,28 @@
         "wg_core bootstrap",
         "記憶系統"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions-architecture",
+        "memory-index-caption-regen",
+        "feedback-workflow-discipline",
+        "專案等級-mcpskillhookslog-不放全域根層",
+        "harness原生memory與atom索引marker撞名辨識",
+        "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房",
+        "feedback-complexity-origin-trace",
+        "auto-capture碎片sweep污染詞庫-defer根治",
+        "跨session資訊失真機制與對策",
+        "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層",
+        "atom-edit-meta與atom-heal對專案層atom的缺口與繞法",
+        "路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址",
+        "atom-write-global必須省略project-cwd",
+        "feedback-atom-write-initial-confidence",
+        "向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功",
+        "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點",
+        "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人",
+        "跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失",
+        "子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫"
+      ]
     },
     {
       "name": "wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除",
@@ -587,7 +763,10 @@
         "unregister",
         "Remove-Item hook"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain"
+      ]
     },
     {
       "name": "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags",
@@ -607,7 +786,15 @@
         "git commit 閃窗",
         "subprocess spawn"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口",
+        "cognitive-patterns",
+        "feedback-workflow-discipline",
+        "cc-能力查證反編譯實跑-binary",
+        "feedback-tooling-reliability",
+        "feedback-memory-system-doc-sync"
+      ]
     },
     {
       "name": "a執p-自執驗上p-自動完工協議",
@@ -622,7 +809,13 @@
         "auto-handoff",
         "自動交接"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "feedback-workflow-discipline",
+        "preferences",
+        "handoff-綜觀品質與抗失真寫法"
+      ]
     },
     {
       "name": "dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app",
@@ -646,7 +839,17 @@
         "verify loop",
         "goal-driven"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "workflow-icld",
+        "decisions",
+        "handoff-綜觀品質與抗失真寫法",
+        "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值",
+        "專案工作驗收裁判的分級啟動與殺閘設計",
+        "契約加欄位必查手寫映射點-單元綠不代表wire存活",
+        "feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理"
+      ]
     },
     {
       "name": "confirmations-已退役-phase2-usefulness-接管晉升",
@@ -662,7 +865,12 @@
         "記憶健檢",
         "静默失效誤報"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "memory-pipeline-silent-failure-2026-05",
+        "atom-usefulness-loop",
+        "atom-元資料編輯與晉升閘真相"
+      ]
     },
     {
       "name": "專案等級-mcpskillhookslog-不放全域根層",
@@ -679,7 +887,14 @@
         "skill 放哪",
         "檔案歸屬"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions",
+        "realm-範疇分區機制-v5",
+        "preferences",
+        "auto-capture碎片sweep污染詞庫-defer根治",
+        "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層"
+      ]
     },
     {
       "name": "harness原生memory與atom索引marker撞名辨識",
@@ -696,7 +911,10 @@
         "flat-legacy",
         "誤納"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "realm-範疇分區機制-v5"
+      ]
     },
     {
       "name": "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房",
@@ -713,7 +931,12 @@
         "核心房",
         "看不到專案記憶"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "guardian-dashboard-孤兒佔埠與新碼重啟",
+        "realm-範疇分區機制-v5",
+        "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人"
+      ]
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
@@ -724,7 +947,20 @@
         "該做就做",
         "follow-through"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "feedback-completion-gates",
+        "模型行為移植-fable行為契約必載檔",
+        "feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問",
+        "feedback-模糊裁示不硬化先深問-決策選項含使用到再問",
+        "feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證",
+        "自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者",
+        "feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選",
+        "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session",
+        "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
+        "feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆"
+      ]
     },
     {
       "name": "bash-呼叫-msbuild-用-dash-參數",
@@ -741,7 +977,11 @@
         "bash 編譯",
         "/t:Build"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain",
+        "git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑"
+      ]
     },
     {
       "name": "handoff-綜觀品質與抗失真寫法",
@@ -761,7 +1001,25 @@
         "handoff 品質",
         "新開 session"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "跨session資訊失真機制與對策",
+        "a執p-自執驗上p-自動完工協議",
+        "goal-driven-verify-loopkarpathy-吸收",
+        "feedback-completion-gates",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問",
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-模糊裁示不硬化先深問-決策選項含使用到再問",
+        "並行llm即時通訊-inbox機制",
+        "回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提",
+        "workflow-rules",
+        "feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫",
+        "feedback-建檔或改名後回報一律給絕對路徑-相對連結與中途改名讓使用者找不到報告",
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
+        "讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用"
+      ]
     },
     {
       "name": "跨session資訊失真機制與對策",
@@ -786,7 +1044,20 @@
         "上下文腐化",
         "selective forgetting"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-workflow-discipline",
+        "decisions-architecture",
+        "cognitive-patterns",
+        "decisions",
+        "realm-範疇分區機制-v5",
+        "跨session協調-衝突預警機制與cc原生現況",
+        "feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問",
+        "pan-hermes不移植部件與vscode-text-block不落盤實測",
+        "並行llm即時通訊-inbox機制",
+        "壓縮後根層-claudemd-由磁碟重讀不需自製-constraint-pinning-真正會丟的是對話中的計畫脈絡-用-staging-計畫檔加-sessionstart-resume-指標接續"
+      ]
     },
     {
       "name": "feedback-complexity-origin-trace",
@@ -868,7 +1139,12 @@
         "realm-lexicon-learned",
         "auto_migrate"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "realm-範疇分區機制-v5",
+        "專案等級-mcpskillhookslog-不放全域根層",
+        "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層"
+      ]
     },
     {
       "name": "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
@@ -917,7 +1193,15 @@
         "批次寫入驗收",
         "post-mortem"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "atom-元資料編輯與晉升閘真相",
+        "feedback-tooling-reliability",
+        "atom-move-v5-sot-correct-化與半遷移工具辨識",
+        "goal-driven-verify-loopkarpathy-吸收",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造"
+      ]
     },
     {
       "name": "atom-move-v5-sot-correct-化與半遷移工具辨識",
@@ -931,7 +1215,12 @@
         "半遷移工具",
         "sidecar 搬移"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值",
+        "feedback-memory-system-doc-sync",
+        "decisions-architecture"
+      ]
     },
     {
       "name": "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層",
@@ -958,7 +1247,13 @@
         "memory/projects 分區",
         "trigger 長度"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "auto-capture碎片sweep污染詞庫-defer根治",
+        "realm-範疇分區機制-v5",
+        "專案等級-mcpskillhookslog-不放全域根層",
+        "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人"
+      ]
     },
     {
       "name": "jarvis-企業-ai-平台發想文件指標",
@@ -1028,7 +1323,31 @@
         "disjoint 批次",
         "多 session"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "feedback-completion-gates",
+        "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
+        "跨session協調-衝突預警機制與cc原生現況",
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
+        "sed-i-在-crlf-repo-會整檔改換行",
+        "feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問",
+        "混改檔hunk級選擇性staging",
+        "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
+        "feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證",
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff",
+        "preferences",
+        "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞",
+        "knowledge-harvest-階段收割與vcs-sync機制指標與踩坑",
+        "vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻",
+        "新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控",
+        "feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到",
+        "feedback-共用工作樹push前先看待推範圍-git-push推的是整段待推歷史-含別人等口令的commit就只推自己的或先問",
+        "共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾",
+        "共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index",
+        "共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存"
+      ]
     },
     {
       "name": "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff",
@@ -1050,7 +1369,11 @@
         "read_text universal newline",
         "git diff 整檔"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain",
+        "bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗"
+      ]
     },
     {
       "name": "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
@@ -1075,7 +1398,15 @@
         "併發執P",
         "MCP 重啟"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "memory-pipeline-silent-failure-2026-05",
+        "檢索融合與回歸集調參-rrf-min-score-定案",
+        "codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺",
+        "hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約"
+      ]
     },
     {
       "name": "巨檔純機械拆分-carve腳本與驗證盲點",
@@ -1092,7 +1423,11 @@
         "live MCP 測試汙染",
         "byte-identical 搬移"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "guardian-dashboard-孤兒佔埠與新碼重啟",
+        "feedback-completion-gates"
+      ]
     },
     {
       "name": "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
@@ -1123,7 +1458,15 @@
         "Fork graph",
         "單一條線"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "feedback-tooling-reliability",
+        "workflow-svn",
+        "feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問",
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "feedback-共用工作樹push前先看待推範圍-git-push推的是整段待推歷史-含別人等口令的commit就只推自己的或先問"
+      ]
     },
     {
       "name": "anti-evasion-hud-設計脊柱與強化前必讀",
@@ -1136,7 +1479,12 @@
         "one-writer",
         "HUD 改版"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-memory-system-doc-sync",
+        "guardian-dashboard-孤兒佔埠與新碼重啟",
+        "knowledge-harvest-階段收割與vcs-sync機制指標與踩坑"
+      ]
     },
     {
       "name": "模型行為移植-fable行為契約必載檔",
@@ -1152,7 +1500,13 @@
         "行為移植",
         "model behavior"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "自己flag的維護動作直接做完不要反問",
+        "feedback-workflow-discipline",
+        "workflow-parallel-agents",
+        "啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立"
+      ]
     },
     {
       "name": "啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立",
@@ -1167,7 +1521,10 @@
         "stub 覆寫",
         "契約檔損毀"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "模型行為移植-fable行為契約必載檔"
+      ]
     },
     {
       "name": "otel-遙測評估結論-不實作-兩目標指標皆測不到",
@@ -1222,7 +1579,13 @@
         "Recall@3",
         "檢索品質"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "atom-usefulness-loop",
+        "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
+        "佛法三缺口工程化-失念壞滅緣了義",
+        "act-r-activation-增益乘進-rrf-會壓過相關性-gain-0250-讓-r1-4581-排序權重一律先過對齊評估器"
+      ]
     },
     {
       "name": "佛法三缺口工程化-失念壞滅緣了義",
@@ -1238,7 +1601,10 @@
         "佛法",
         "唯識"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "檢索融合與回歸集調參-rrf-min-score-定案"
+      ]
     },
     {
       "name": "禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱",
@@ -1254,7 +1620,12 @@
         "detect_evasion",
         "forbidden-phrases"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "feedback-rigor-standards",
+        "feedback-動手前預告含查讀回合-第一次工具呼叫前就報-單獨一則再呼叫工具"
+      ]
     },
     {
       "name": "取用端稽核與瘦身規範-atomaudit與3kb預算",
@@ -1271,7 +1642,13 @@
         "budget skip",
         "一行路標"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions-architecture",
+        "atom-edit-meta與atom-heal對專案層atom的缺口與繞法",
+        "feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費",
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產"
+      ]
     },
     {
       "name": "winget-升不動-powershell-msi-與-msix-通道分裂",
@@ -1313,7 +1690,13 @@
         "late-collision",
         "Agent Teams"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "跨session資訊失真機制與對策",
+        "guardian-dashboard-孤兒佔埠與新碼重啟",
+        "guardian-警告訊息辨識度-emoji-前綴分流"
+      ]
     },
     {
       "name": "atom-edit-meta與atom-heal對專案層atom的缺口與繞法",
@@ -1332,7 +1715,11 @@
         "--memory-dir",
         "mirror 重生"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "realm-範疇分區機制-v5",
+        "取用端稽核與瘦身規範-atomaudit與3kb預算"
+      ]
     },
     {
       "name": "feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問",
@@ -1375,7 +1762,11 @@
         "memory health",
         "連跳"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "atom-usefulness-loop",
+        "健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層"
+      ]
     },
     {
       "name": "codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺",
@@ -1391,7 +1782,13 @@
         "頭尾採樣",
         "codex companion 截斷"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
+        "feedback-tooling-reliability",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "專案工作驗收裁判的分級啟動與殺閘設計"
+      ]
     },
     {
       "name": "pan-hermes不移植部件與vscode-text-block不落盤實測",
@@ -1410,7 +1807,12 @@
         "偵測率",
         "PowerShell 納管"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-rules",
+        "跨session資訊失真機制與對策",
+        "guardian-警告訊息辨識度-emoji-前綴分流"
+      ]
     },
     {
       "name": "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
@@ -1458,7 +1860,14 @@
         "regression hint",
         "驗收清單"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "goal-driven-verify-loopkarpathy-吸收",
+        "codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺",
+        "feedback-completion-gates",
+        "驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase",
+        "背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾"
+      ]
     },
     {
       "name": "guardian-警告訊息辨識度-emoji-前綴分流",
@@ -1475,7 +1884,11 @@
         "警告樣式",
         "字體放大"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "pan-hermes不移植部件與vscode-text-block不落盤實測",
+        "跨session協調-衝突預警機制與cc原生現況"
+      ]
     },
     {
       "name": "winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog",
@@ -1523,7 +1936,16 @@
         "誤提交",
         "別的 session 的檔"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "sed-i-在-crlf-repo-會整檔改換行",
+        "vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現",
+        "混改檔hunk級選擇性staging",
+        "grok協作實戰認知-特質與監工分工手感",
+        "驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase",
+        "svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8"
+      ]
     },
     {
       "name": "minimal-hosting-下-configuretestservices-靜默失效",
@@ -1559,7 +1981,12 @@
         "perl -pi",
         "LF 變 CRLF"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
+        "git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
+      ]
     },
     {
       "name": "目標展開與收斂-立體菱形體思考模型",
@@ -1577,7 +2004,14 @@
         "回應形狀",
         "亮線"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "feedback-rigor-standards",
+        "feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向",
+        "自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者"
+      ]
     },
     {
       "name": "mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口",
@@ -1616,7 +2050,14 @@
         "幫我研究",
         "查資料"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents",
+        "workflow-rules",
+        "decisions",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地"
+      ]
     },
     {
       "name": "並行agent產出併入交付物必須標驗證強度分層",
@@ -1633,7 +2074,16 @@
         "文件產出",
         "subagent 回報"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "feedback-completion-gates",
+        "cognitive-patterns",
+        "實驗性改動的復原要驗回快照-送一次指令不算復原",
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
+        "派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒"
+      ]
     },
     {
       "name": "歸因早停-找到合理嫌疑機制就停止驗證",
@@ -1651,7 +2101,21 @@
         "讀原始碼判斷",
         "post-mortem"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "cognitive-patterns",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "feedback-completion-gates",
+        "workflow-research-fanout",
+        "aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token",
+        "契約加欄位必查手寫映射點-單元綠不代表wire存活",
+        "並行llm即時通訊-inbox機制",
+        "grok協作實戰認知-特質與監工分工手感",
+        "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
+        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
+        "路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址"
+      ]
     },
     {
       "name": "aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token",
@@ -1773,7 +2237,13 @@
         "併發 session",
         "exact-stage"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
+        "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感"
+      ]
     },
     {
       "name": "atom-write-global必須省略project-cwd",
@@ -1841,7 +2311,10 @@
         "遷移",
         "settings.json"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值"
+      ]
     },
     {
       "name": "winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用",
@@ -1901,7 +2374,14 @@
         "重啟服務",
         "CoordWarn"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "混改檔hunk級選擇性staging",
+        "輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測",
+        "並行llm即時通訊-inbox機制",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感"
+      ]
     },
     {
       "name": "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
@@ -1919,7 +2399,14 @@
         "沒有關聯",
         "資料不支持"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "cognitive-patterns",
+        "powershell傳null給dotnet-string參數會變空字串-nullstring才是真null",
+        "判有沒有採用不能只靠詞彙重疊-否定與轉述會把拒絕全判成採用-行動證據優先且先建標註集再改判準"
+      ]
     },
     {
       "name": "弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值",
@@ -1938,7 +2425,11 @@
         "推斷寫回",
         "自動學習"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "json設定檔已持久化欄位會蓋過程式碼新預設值",
+        "契約加欄位必查手寫映射點-單元綠不代表wire存活"
+      ]
     },
     {
       "name": "dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段",
@@ -1972,7 +2463,11 @@
         "驗收失敗",
         "實機驗證"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測",
+        "插入到方法結尾的edit要驗錨點所在方法-build綠燈不代表插對地方"
+      ]
     },
     {
       "name": "feedback-使用者已宣告不展開的領域-不要回頭跟他要清單",
@@ -2005,7 +2500,11 @@
         "assert",
         "批改程式碼"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff",
+        "heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑"
+      ]
     },
     {
       "name": "禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗",
@@ -2020,7 +2519,12 @@
         "GUI 驗收",
         "禁 UI 自動化"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用",
+        "designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰",
+        "winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii"
+      ]
     },
     {
       "name": "winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死",
@@ -2100,7 +2604,11 @@
         "空字串",
         "診斷誤報"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測",
+        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對"
+      ]
     },
     {
       "name": "activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數",
@@ -2117,7 +2625,13 @@
         "truncated_pointer_max",
         "budget 750"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
+        "decisions-architecture",
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+        "act-r-activation-增益乘進-rrf-會壓過相關性-gain-0250-讓-r1-4581-排序權重一律先過對齊評估器"
+      ]
     },
     {
       "name": "並行llm即時通訊-inbox機制",
@@ -2135,7 +2649,20 @@
         "monitor喚醒",
         "compat hooks"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents",
+        "handoff-綜觀品質與抗失真寫法",
+        "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
+        "跨session資訊失真機制與對策",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "vscode-reload-對並行ai-session的影響",
+        "grok協作實戰認知-特質與監工分工手感",
+        "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感",
+        "feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整",
+        "根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox"
+      ]
     },
     {
       "name": "vscode-reload-對並行ai-session的影響",
@@ -2148,7 +2675,10 @@
         "並行 session",
         "面板 MCP"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "並行llm即時通訊-inbox機制"
+      ]
     },
     {
       "name": "feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理",
@@ -2187,7 +2717,11 @@
         "長任務",
         "事件驅動監工"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "專案工作驗收裁判的分級啟動與殺閘設計",
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼"
+      ]
     },
     {
       "name": "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
@@ -2247,7 +2781,15 @@
         "派工給 grok",
         "grok 可信度"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "並行llm即時通訊-inbox機制",
+        "workflow-parallel-agents",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感",
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過"
+      ]
     },
     {
       "name": "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
@@ -2264,7 +2806,14 @@
         "prose 猜路徑",
         "exists() 權威"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-completion-gates",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址",
+        "刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕"
+      ]
     },
     {
       "name": "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
@@ -2282,7 +2831,16 @@
         "sub-agent 驗證",
         "並行驗證"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "並行agent產出併入交付物必須標驗證強度分層",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "grok協作實戰認知-特質與監工分工手感",
+        "實驗性改動的復原要驗回快照-送一次指令不算復原",
+        "規格裡未實證的前提要先取樣再實作-不然整包白做",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感",
+        "atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用"
+      ]
     },
     {
       "name": "雙claude協作實戰認知-fable監工opus主力的分工手感",
@@ -2302,7 +2860,16 @@
         "to-fable",
         "雙 session"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "grok協作實戰認知-特質與監工分工手感",
+        "並行llm即時通訊-inbox機制",
+        "混改檔hunk級選擇性staging",
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
+        "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
+        "實驗性改動的復原要驗回快照-送一次指令不算復原",
+        "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地"
+      ]
     },
     {
       "name": "實驗性改動的復原要驗回快照-送一次指令不算復原",
@@ -2321,7 +2888,13 @@
         "逐格對帳",
         "使用者資料"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感",
+        "並行agent產出併入交付物必須標驗證強度分層",
+        "規格裡未實證的前提要先取樣再實作-不然整包白做"
+      ]
     },
     {
       "name": "規格裡未實證的前提要先取樣再實作-不然整包白做",
@@ -2337,7 +2910,13 @@
         "誤判",
         "假讀數"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
+        "實驗性改動的復原要驗回快照-送一次指令不算復原",
+        "用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀"
+      ]
     },
     {
       "name": "自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者",
@@ -2353,7 +2932,13 @@
         "結構性問題",
         "自己指出的問題"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "自己flag的維護動作直接做完不要反問",
+        "目標展開與收斂-立體菱形體思考模型",
+        "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session",
+        "feedback-側觀批判要在交出前自己做完並落到檔與機制-不是等使用者問才在chat批判自己的產出再問要不要改"
+      ]
     },
     {
       "name": "路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址",
@@ -2370,7 +2955,13 @@
         "cwd 在 ~/.claude",
         "FailureDetect"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "realm-範疇分區機制-v5",
+        "子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫"
+      ]
     },
     {
       "name": "feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選",
@@ -2438,7 +3029,12 @@
         "pre-revprop-change",
         "上版訊息"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
+        "msbuild-17x-重導向-stdout-輸出-utf-8-net-framework-用-encodingdefault-讀會亂碼",
+        "pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess"
+      ]
     },
     {
       "name": "msbuild-17x-重導向-stdout-輸出-utf-8-net-framework-用-encodingdefault-讀會亂碼",
@@ -2475,7 +3071,11 @@
         "刪除候選",
         "破壞性候選清單"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長"
+      ]
     },
     {
       "name": "向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功",
@@ -2499,7 +3099,12 @@
         "dedupLayersFor",
         "layers"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "memory-pipeline-silent-failure-2026-05",
+        "realm-範疇分區機制-v5",
+        "pythonw-下-stdout-為-none-排程腳本秒死陷阱"
+      ]
     },
     {
       "name": "feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費",
@@ -2549,7 +3154,16 @@
         "橋接檔",
         "projects slug"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "取用端稽核與瘦身規範-atomaudit與3kb預算",
+        "activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數",
+        "feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費",
+        "回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提",
+        "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點",
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+        "規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音"
+      ]
     },
     {
       "name": "回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提",
@@ -2571,7 +3185,11 @@
         "自動接續",
         "SessionStart advisory"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+        "handoff-綜觀品質與抗失真寫法"
+      ]
     },
     {
       "name": "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點",
@@ -2593,7 +3211,14 @@
         "Related 壞",
         "常數飄移"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+        "realm-範疇分區機制-v5",
+        "memory-index-caption-regen",
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+        "健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層"
+      ]
     },
     {
       "name": "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
@@ -2614,7 +3239,15 @@
         "驗證機制",
         "post-mortem"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點",
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+        "svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出",
+        "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑",
+        "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home",
+        "真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile"
+      ]
     },
     {
       "name": "wrong-assumptions-思考與決策",
@@ -2706,7 +3339,12 @@
         "ExitPlanMode",
         "審查發現"
       ],
-      "scope": "personal:holylight"
+      "scope": "personal:holylight",
+      "related": [
+        "feedback-workflow-discipline",
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼"
+      ]
     },
     {
       "name": "gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰",
@@ -2851,7 +3489,11 @@
         "一律被擋",
         "冷啟動"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "realm-範疇分區機制-v5",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長"
+      ]
     },
     {
       "name": "gh-cli-已裝已登入-pr本地merge-push自動標merged",
@@ -2895,7 +3537,10 @@
         "誤讀指令",
         "承諾流程"
       ],
-      "scope": "personal:holylight"
+      "scope": "personal:holylight",
+      "related": [
+        "feedback-預計畫文件先改到使用者認可才進planmode定執行細節-不是收到校正就馬上進planmode"
+      ]
     },
     {
       "name": "團隊產出上傳前先問人-記憶庫自動做滿",
@@ -2914,7 +3559,11 @@
         "要不要問",
         "收尾"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音",
+        "knowledge-harvest-階段收割與vcs-sync機制指標與踩坑"
+      ]
     },
     {
       "name": "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
@@ -2941,7 +3590,16 @@
         "svn resolve",
         "svn:eol-style"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "repo-全面-lf-決策與守衛鏈",
+        "workflow-svn",
+        "git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal",
+        "svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出",
+        "vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻"
+      ]
     },
     {
       "name": "unity-editor崩潰鑑識三路徑-事件檔1000先看故障模組-edr注入dll可能是真兇",
@@ -2974,7 +3632,13 @@
         "second opinion",
         "大師會議"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-tooling-reliability",
+        "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空",
+        "codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測",
+        "codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑"
+      ]
     },
     {
       "name": "repo-全面-lf-決策與守衛鏈",
@@ -2990,7 +3654,11 @@
         "verify_lf_writes",
         "newline"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定"
+      ]
     },
     {
       "name": "heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑",
@@ -3005,7 +3673,11 @@
         "post-mortem",
         "Write 工具"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗",
+        "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定"
+      ]
     },
     {
       "name": "identity-變動需同步更新-identity-template-且所有文件",
@@ -3040,7 +3712,11 @@
         "stash pop 衝突",
         "MERGE_HEAD"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "sed-i-在-crlf-repo-會整檔改換行"
+      ]
     },
     {
       "name": "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
@@ -3090,7 +3766,14 @@
         "手動指令",
         "閱讀路徑量尺"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "repo-全面-lf-決策與守衛鏈",
+        "heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑",
+        "svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出",
+        "真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile",
+        "錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序"
+      ]
     },
     {
       "name": "svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出",
@@ -3105,7 +3788,12 @@
         "svn fixture",
         "memory_dir_candidates"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定",
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源"
+      ]
     },
     {
       "name": "背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾",
@@ -3120,7 +3808,12 @@
         "run_verify 背景",
         "收尾被擋"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-completion-gates",
+        "專案工作驗收裁判的分級啟動與殺閘設計",
+        "hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟"
+      ]
     },
     {
       "name": "codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄",
@@ -3140,7 +3833,10 @@
         "材料不足",
         "replay-guard pre"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空"
+      ]
     },
     {
       "name": "winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed",
@@ -3229,7 +3925,13 @@
         "USER.md 死連結",
         "為什麼以前會現在不會"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff",
+        "團隊產出上傳前先問人-記憶庫自動做滿",
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+        "hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟"
+      ]
     },
     {
       "name": "hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟",
@@ -3245,7 +3947,11 @@
         "MCP 重啟",
         "reload window"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音",
+        "背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾"
+      ]
     },
     {
       "name": "健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層",
@@ -3263,7 +3969,11 @@
         "health-weekly",
         "為什麼會錯那麼多"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點",
+        "usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升"
+      ]
     },
     {
       "name": "多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完",
@@ -3279,7 +3989,11 @@
         "收尾被擋",
         "plan-mode 驗收"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-completion-gates",
+        "workflow-rules"
+      ]
     },
     {
       "name": "feedback-動手前不要找理由縮小範圍",
@@ -3334,7 +4048,13 @@
         "根層記憶",
         "分叉"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址",
+        "realm-範疇分區機制-v5",
+        "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人",
+        "atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用"
+      ]
     },
     {
       "name": "atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用",
@@ -3351,7 +4071,11 @@
         "svn status 多了資料夾",
         "預覽不落檔"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫",
+        "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過"
+      ]
     },
     {
       "name": "unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫",
@@ -3403,7 +4127,13 @@
         "plan_review 逾時",
         "assessment_timeout"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄",
+        "feedback-tooling-reliability",
+        "codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated",
+        "hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約"
+      ]
     },
     {
       "name": "hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約",
@@ -3423,7 +4153,12 @@
         "港口持有者",
         "連鎖退位"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空",
+        "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
+        "hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次"
+      ]
     },
     {
       "name": "svn反向合併整檔衝突多半是後續修訂換了行尾-以現行檔為底手動拿hunk再位元組比對",
@@ -3477,7 +4212,11 @@
         "驗 GUI",
         "選圖驗版面"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗",
+        "feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證"
+      ]
     },
     {
       "name": "插入到方法結尾的edit要驗錨點所在方法-build綠燈不代表插對地方",
@@ -3494,7 +4233,11 @@
         "插入後驗證",
         "尾端呼叫"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "離線測試過但實機不過-先排除實機跑的不是這份程式碼",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長"
+      ]
     },
     {
       "name": "feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙",
@@ -3540,7 +4283,10 @@
         "等播完",
         "Unity 無播完事件"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理"
+      ]
     },
     {
       "name": "class-finalizer-讓實例多活一輪gc-純計數或清欄位的解構子一律不寫",
@@ -3576,7 +4322,11 @@
         "設計對談",
         "提案格式"
       ],
-      "scope": "personal:holylight"
+      "scope": "personal:holylight",
+      "related": [
+        "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
+        "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字"
+      ]
     },
     {
       "name": "pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess",
@@ -3596,7 +4346,11 @@
         "svn 路徑含 @",
         "subprocess svn"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8",
+        "workflow-svn"
+      ]
     },
     {
       "name": "codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測",
@@ -3614,7 +4368,13 @@
         "MCP 外掛",
         "prompt hook 疊加"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated",
+        "feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費",
+        "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem",
+        "posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位"
+      ]
     },
     {
       "name": "posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位",
@@ -3631,7 +4391,11 @@
         "token 浪費量測",
         "誤報"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測",
+        "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem"
+      ]
     },
     {
       "name": "feedback-動手前預告含查讀回合-第一次工具呼叫前就報-單獨一則再呼叫工具",
@@ -3670,7 +4434,11 @@
         "前景視窗",
         "使用者在線"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次",
+        "自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入"
+      ]
     },
     {
       "name": "hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次",
@@ -3689,7 +4457,11 @@
         "hud_stale_s",
         "窗活性"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約",
+        "在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗"
+      ]
     },
     {
       "name": "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem",
@@ -3707,7 +4479,15 @@
         "sanitize_harness_noise",
         "假糾正"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測",
+        "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
+        "posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位",
+        "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞",
+        "wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報",
+        "cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留"
+      ]
     },
     {
       "name": "自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入",
@@ -3730,7 +4510,10 @@
         "SetSuspendState",
         "powercfg /requests"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗"
+      ]
     },
     {
       "name": "所有決策和報告必須提供清晰的問題-數據佐證-並以易懂的白話形式-指出錯誤-優化點",
@@ -3741,7 +4524,10 @@
         "白話重點說明",
         "CC原子記憶"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼"
+      ]
     },
     {
       "name": "feedback-建檔或改名後回報一律給絕對路徑-相對連結與中途改名讓使用者找不到報告",
@@ -3812,7 +4598,14 @@
         "PermissionError state",
         "read_state_status"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "memory-pipeline-silent-failure-2026-05",
+        "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過",
+        "hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本"
+      ]
     },
     {
       "name": "act-r-activation-增益乘進-rrf-會壓過相關性-gain-0250-讓-r1-4581-排序權重一律先過對齊評估器",
@@ -3831,7 +4624,11 @@
         "bm25 停用詞",
         "related query gate"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "檢索融合與回歸集調參-rrf-min-score-定案",
+        "activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數"
+      ]
     },
     {
       "name": "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地",
@@ -3850,7 +4647,14 @@
         "reply_review",
         "裁決紀錄"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-research-fanout",
+        "workflow-parallel-agents",
+        "雙claude協作實戰認知-fable監工opus主力的分工手感",
+        "feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤",
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件"
+      ]
     },
     {
       "name": "裁判-precision-高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據",
@@ -3887,7 +4691,10 @@
         "P/R",
         "啟發式校準"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對"
+      ]
     },
     {
       "name": "feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼",
@@ -4028,7 +4835,14 @@
         "記憶自動 commit",
         "退役 atom"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "anti-evasion-hud-設計脊柱與強化前必讀",
+        "團隊產出上傳前先問人-記憶庫自動做滿",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻",
+        "改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控"
+      ]
     },
     {
       "name": "派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒",
@@ -4044,7 +4858,11 @@
         "介面契約",
         "共用檔唯一寫者"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents",
+        "並行agent產出併入交付物必須標驗證強度分層"
+      ]
     },
     {
       "name": "hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason",
@@ -4079,7 +4897,12 @@
         "update-ref CAS",
         "restore --source"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "knowledge-harvest-階段收割與vcs-sync機制指標與踩坑",
+        "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
+      ]
     },
     {
       "name": "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑",
@@ -4095,7 +4918,13 @@
         "單跑會過",
         "共用 tmp"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-completion-gates",
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
+        "feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單"
+      ]
     },
     {
       "name": "cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑",
@@ -4295,7 +5124,11 @@
         "repo 永遠髒",
         "誤提交"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去"
+      ]
     },
     {
       "name": "並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次",
@@ -4310,7 +5143,11 @@
         "sub-agent 卡在等驗證",
         "叫停 agent"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents",
+        "feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單"
+      ]
     },
     {
       "name": "feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到",
@@ -4362,7 +5199,10 @@
         "測試打到真家",
         "tmp home"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile"
+      ]
     },
     {
       "name": "sessionstart的提示只有模型看得到-要使用者做決定就寫成叫模型用askuserquestion問的指示-問到有答案為止不要只提示一次",
@@ -4435,7 +5275,11 @@
         "whisper",
         "capabilities"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain-ollama",
+        "會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama"
+      ]
     },
     {
       "name": "verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple",
@@ -4469,6 +5313,9 @@
         "/meeting"
       ],
       "scope": "global",
+      "related": [
+        "ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測"
+      ],
       "depends": [
         "path:C:/Users/holylight/.claude/tools/meeting-transcribe.py",
         "path:C:/Users/holylight/.claude/skills/meeting/SKILL.md"
@@ -4699,7 +5546,11 @@
         "反省機制",
         "second opinion"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住",
+        "機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度"
+      ]
     },
     {
       "name": "範本與規則文字沒有機器定期量就會爛-守門的零件是封定與重量不是範本本身",
@@ -4731,7 +5582,11 @@
         "信箱摩槽",
         "兩個session討論同題"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "並行llm即時通訊-inbox機制",
+        "feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定"
+      ]
     },
     {
       "name": "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
@@ -4816,7 +5671,13 @@
         "Roslyn",
         "規則合規"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "第二視角設計原則-同模型文字規則不夠-獨立context加行為痕跡才算第三人稱-即時層是數字加節流校準行",
+        "cognitive-patterns",
+        "單一構想的完成邏輯拐超過三個彎就是壞味道-腳本如此llm思考也如此-超過三個拐彎極可能跑偏或想錯-繼續推只會更偏",
+        "數量不是臭味-切分有沒有責任軸才是-partial分對外api內部核心遊戲邏輯是好設計-第二問同一欄位被幾片寫入有無單一出入口"
+      ]
     },
     {
       "name": "數量不是臭味-切分有沒有責任軸才是-partial分對外api內部核心遊戲邏輯是好設計-第二問同一欄位被幾片寫入有無單一出入口",
@@ -4835,7 +5696,11 @@
         "狀態所有權",
         "單一出入口"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度",
+        "何謂壞味道總參考文件指標-閱讀樹根加九分支513條-先查症狀路由再讀條目何時不算"
+      ]
     },
     {
       "name": "feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法",
@@ -4899,7 +5764,13 @@
         "自檢",
         "最短路徑"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度",
+        "feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法",
+        "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住",
+        "feedback-驗證不能只涵蓋真bug-也要涵蓋沒bug但人讀要跳超過三層的可讀性壞味道-案例從提交紀錄挑會天然漏掉這類"
+      ]
     },
     {
       "name": "feedback-自己列的還沒證不要等別人-能自己取樣就當場驗-真實diff從自己repo取-穩定度自己重跑",
@@ -4933,7 +5804,11 @@
         "糾正次數",
         "關鍵字天花板"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem",
+        "成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同"
+      ]
     },
     {
       "name": "feedback-整份文件與回應都要更白話-自創名詞與代號不裸用-術語首次出現附一句白話-陌生人五分鐘看懂",
@@ -5073,7 +5948,10 @@
         "掃壞味道",
         "非 bug 缺陷"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "何謂壞味道總參考文件指標-閱讀樹根加九分支513條-先查症狀路由再讀條目何時不算"
+      ]
     },
     {
       "name": "feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤",
@@ -5135,7 +6013,10 @@
         "糾正次數替代",
         "守門有沒有用"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報"
+      ]
     },
     {
       "name": "多session信箱討論時monitor持續重掛-到期就重掛-直到使用者說可以關或要開新session接續",
@@ -5182,7 +6063,10 @@
         "專案綜觀",
         "沒東西可綜觀"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住"
+      ]
     },
     {
       "name": "衝突偵測把互補的兩張卡判成矛盾-同一事實各說一半被擋寫入-一個樣本待查-depends驗過期可行驗矛盾誤報",
@@ -5307,7 +6191,10 @@
         "證據在哪",
         "交叉核對"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格"
+      ]
     },
     {
       "name": "守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格",
@@ -5325,7 +6212,11 @@
         "量得出流程量不出效果",
         "代理指標"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住",
+        "給獨立審查者的材料若只有文件沒有執行紀錄-它只能判寫了沒不能判做了沒-對帳表每格要附證據指標"
+      ]
     },
     {
       "name": "feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定",
@@ -5410,7 +6301,10 @@
         "多 agent 參與",
         "執行細節"
       ],
-      "scope": "personal:holylight"
+      "scope": "personal:holylight",
+      "related": [
+        "feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode"
+      ]
     },
     {
       "name": "何謂壞味道總參考文件指標-閱讀樹根加九分支513條-先查症狀路由再讀條目何時不算",
@@ -5434,7 +6328,11 @@
         "設計壞味道",
         "架構壞味道"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案",
+        "數量不是臭味-切分有沒有責任軸才是-partial分對外api內部核心遊戲邏輯是好設計-第二問同一欄位被幾片寫入有無單一出入口"
+      ]
     },
     {
       "name": "feedback-表格列欄用暫時屬性當標籤會變成假類別-新字當列號傳四版變成新專案層-不做什麼欄一槓格同病-每張表先定分類軸再填",
@@ -5522,7 +6420,14 @@
         "worktree 派工",
         "多軌"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地",
+        "handoff-綜觀品質與抗失真寫法",
+        "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑",
+        "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據",
+        "改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看"
+      ]
     },
     {
       "name": "hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過",
@@ -5542,6 +6447,9 @@
         "repair_state"
       ],
       "scope": "global",
+      "related": [
+        "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞"
+      ],
       "depends": [
         "path:C:/Users/holylight/.claude/hooks/wg_core.py"
       ]
@@ -5670,7 +6578,11 @@
         "收據 root",
         "primary working directory"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名",
+        "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒"
+      ]
     },
     {
       "name": "驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄",
@@ -5688,7 +6600,11 @@
         "白名單語法",
         "照表上原字串"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據",
+        "改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live"
+      ]
     },
     {
       "name": "使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接",
@@ -5708,7 +6624,11 @@
         "transcript_path",
         "turn_prompts_seq"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "收尾閘的驗證收據只認本回合的bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例",
+        "改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看"
+      ]
     },
     {
       "name": "路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試",
@@ -5725,7 +6645,10 @@
         "案例判定",
         "假綠"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑"
+      ]
     },
     {
       "name": "量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試",
@@ -5743,7 +6666,11 @@
         "coverage_drop",
         "反向測試"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror",
+        "自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開"
+      ]
     },
     {
       "name": "cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留",
@@ -5833,7 +6760,10 @@
         "退件反覆",
         "逐條補漏"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "新舊兩版工具量同一份輸入-逐條比確定集合進出-總數不變也可能互相抵銷"
+      ]
     },
     {
       "name": "可由設定擴充的執行程式白名單配拒絕清單列不完-改走逐字比對的既有通道",
@@ -5864,7 +6794,10 @@
         "判定邏輯改動",
         "回歸檢查"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "可信下限的確定判定要由白名單主動證明-單一入口填條號-漏抓只會落成不確定-證據用家族規則封整類"
+      ]
     },
     {
       "name": "windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath",
@@ -5914,7 +6847,10 @@
         "新案退回紅",
         "保護案例"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因"
+      ]
     },
     {
       "name": "bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔",
@@ -5964,7 +6900,10 @@
         "fullmatch",
         "自由欄位"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留"
+      ]
     },
     {
       "name": "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據",
@@ -5984,7 +6923,13 @@
         "shell 斷詞",
         "子集冒充"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄",
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
+        "shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文",
+        "從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令"
+      ]
     },
     {
       "name": "使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行",
@@ -6003,7 +6948,11 @@
         "豁免詞",
         "使用者決策萃取"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留",
+        "commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令"
+      ]
     },
     {
       "name": "回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror",
@@ -6017,7 +6966,10 @@
         "新測試跑舊碼",
         "測試有沒有測到"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試"
+      ]
     },
     {
       "name": "自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開",
@@ -6034,7 +6986,10 @@
         "NUL 位元組",
         "BOM SyntaxError"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試"
+      ]
     },
     {
       "name": "擋滿待放行的紀錄只在重新查核真的通過或使用者放行才清-沒執行查核不等於查核通過-原宣稱只記第一次-舊格式缺欄位照擋",
@@ -6052,7 +7007,10 @@
         "每次 Stop 都判",
         "claims"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
+      ]
     },
     {
       "name": "worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名",
@@ -6070,7 +7028,10 @@
         "code root 守門",
         "資料根別名"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
+      ]
     },
     {
       "name": "改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染",
@@ -6143,7 +7104,12 @@
         "反轉驗證 worktree",
         "live 未動證明"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上",
+        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑",
+        "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效"
+      ]
     },
     {
       "name": "hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本",
@@ -6163,7 +7129,10 @@
         "鎖內重讀",
         "track-b3"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞"
+      ]
     },
     {
       "name": "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home",
@@ -6178,7 +7147,13 @@
         "驗證 session",
         "反證快照"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+        "子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它",
+        "需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份",
+        "改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控"
+      ]
     },
     {
       "name": "從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令",
@@ -6197,7 +7172,11 @@
         "Program Files",
         "& 呼叫運算子"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據",
+        "shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文"
+      ]
     },
     {
       "name": "shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文",
@@ -6217,7 +7196,11 @@
         "斷詞器",
         "口令閘"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令",
+        "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據"
+      ]
     },
     {
       "name": "多軌開發耗時長的根因-對抗審沒封頂每輪收新邊角-三方驗證做在每個增量且全由總控台串行-發版線定太晚-總控台自己改碼開子代理-負載下反覆跑全量",
@@ -6236,7 +7219,10 @@
         "全量 verify 反覆跑",
         "session 發呆"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定"
+      ]
     },
     {
       "name": "字面掃描型守門看不到常數未定義-壓窗守門只查有無creationflags字樣-補錯的常數名也pass-要配一個真的斷言旗標值的案例",
@@ -6253,7 +7239,10 @@
         "靜態掃描不夠",
         "monkeypatch 斷言"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "健康探針要真的用到被依賴的能力-答案只能從那個能力拿到-只回固定字樣的探針探不出沙箱故障"
+      ]
     },
     {
       "name": "feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定",
@@ -6321,7 +7310,10 @@
         "收尾放行確認",
         "測試檔之後改碼"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接"
+      ]
     },
     {
       "name": "健檢判使用者設定停在舊版時-現行值以版控庫設定為真源-工具內鏡像常數要配讀真源斷言靜默的案例-比對口徑跟執行期一致",
@@ -6455,7 +7447,11 @@
         "反證還原",
         "暗存區"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
+        "使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接"
+      ]
     },
     {
       "name": "feedback-核心推進文件只留目標現況下一步-歷程與證據另建紀錄檔留連結-幾十條只寫一點技術的條目就是飄移",
@@ -6493,7 +7489,10 @@
         "附加寫入 log",
         "殘留"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "字面掃描型守門看不到常數未定義-壓窗守門只查有無creationflags字樣-補錯的常數名也pass-要配一個真的斷言旗標值的案例"
+      ]
     },
     {
       "name": "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走",
@@ -6647,7 +7646,10 @@
         "提示詞指到暫存目錄以外的路徑",
         "舊版檔跑新測試"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒"
+      ]
     },
     {
       "name": "真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile",
@@ -6663,7 +7665,12 @@
         "探針污染 live",
         "隔離探針"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+        "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定",
+        "假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home"
+      ]
     },
     {
       "name": "worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變",
@@ -6763,7 +7770,11 @@
         "規則變異",
         "mutant"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "反轉驗證換回舊版會同時改暫存區要restore-staged-新案走舊碼就有的入口才紅在斷言",
+        "需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份"
+      ]
     },
     {
       "name": "feedback-改碼中發現相鄰問題要順手修或白話提出一併修正的確認-不准另外處理之後再說不在範圍帶過",
@@ -6796,7 +7807,10 @@
         "Get-Content -Raw 管線",
         "第二意見提示"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated"
+      ]
     },
     {
       "name": "windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫",
@@ -6841,7 +7855,10 @@
         "子列落回父列",
         "8.3 短名"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭"
+      ]
     },
     {
       "name": "改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live",
@@ -6857,7 +7874,10 @@
         "worktree 既有紅",
         "擋滿不放行"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄"
+      ]
     },
     {
       "name": "原設計者下班後的夜間授權型態-對人總控台主動開工作session貼開工句-可關分頁留早上並附收錄知識提醒-只能定奪的列待原設計者-授權只給該session",
@@ -6976,7 +7996,11 @@
         "建樹閘漏擋",
         "閘被繞過"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home",
+        "pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因"
+      ]
     },
     {
       "name": "conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離",
@@ -7022,7 +8046,10 @@
         "evidence kind case",
         "CASE_NODE_ID_NEEDS_DEF"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算"
+      ]
     },
     {
       "name": "收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算",
@@ -7037,7 +8064,10 @@
         "AskUserQuestion 放行",
         "不跑全量"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號"
+      ]
     },
     {
       "name": "靜態守門從數個數改成逐項驗行為時-抓取面要涵蓋一般寫法且抓不到就紅-否則失去少一項就紅的保護",
@@ -7084,7 +8114,11 @@
         "產物先進版控",
         "未提交的程式"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home",
+        "knowledge-harvest-階段收割與vcs-sync機制指標與踩坑"
+      ]
     },
     {
       "name": "feedback-共用工作樹push前先看待推範圍-git-push推的是整段待推歷史-含別人等口令的commit就只推自己的或先問",
@@ -7171,7 +8205,10 @@
         "root_uncertain",
         "指令點名案例"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯"
+      ]
     },
     {
       "name": "只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯",
@@ -7185,7 +8222,10 @@
         "記錄欄位記錯",
         "record only"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採"
+      ]
     },
     {
       "name": "內容寫入閘與事後掃描共用判式時-輸入要攤成落檔後的逐行-入口要盤點到raw逃生口恢復路徑與自組內容的產生器",
@@ -7244,7 +8284,10 @@
         "走到要問那步停下",
         "AskUserQuestion 停住"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效"
+      ]
     },
     {
       "name": "跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器",
@@ -7275,7 +8318,11 @@
         "案例檔不在磁碟上",
         "A8 實走"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著",
+        "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒"
+      ]
     },
     {
       "name": "claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror",
@@ -7352,7 +8399,10 @@
         "parse_map",
         "read_scope_keys"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列"
+      ]
     },
     {
       "name": "關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名",
@@ -7425,7 +8475,10 @@
         "headless claude",
         "MSYS2_ARG_CONV_EXCL"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "bash-呼叫-msbuild-用-dash-參數"
+      ]
     },
     {
       "name": "跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送",
@@ -7455,7 +8508,10 @@
         "答案不能公開",
         "忽略規則跟著搬"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控"
+      ]
     },
     {
       "name": "need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred",
@@ -7495,7 +8551,10 @@
         "期望不發生",
         "vacuous pass"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠"
+      ]
     },
     {
       "name": "feedback-始末要講原始目標-階段目標-簡略經過-對目標而言的結果-只講經過就是目光狹隘-功能越修腦袋越縮",
@@ -7551,7 +8610,10 @@
         "真 git 測試空轉",
         "結案沒發生"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "測試的前置狀態要先斷言成立-否則期望不發生的案例會空轉通過-真git取代假git時改檔與head相同會被當成沒改"
+      ]
     },
     {
       "name": "need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到",
@@ -7566,7 +8628,10 @@
         "AskUserQuestion 提醒",
         "交出前一問"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "pretooluse的additionalcontext不是寫前攔截-edit-payload已生成-提醒只影響下一次"
+      ]
     },
     {
       "name": "feedback-側觀批判要在交出前自己做完並落到檔與機制-不是等使用者問才在chat批判自己的產出再問要不要改",
@@ -7600,7 +8665,10 @@
         "開場提示雜訊",
         "_detect_rut_patterns"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人"
+      ]
     },
     {
       "name": "skill-description沒加引號遇到空白加井號會被yaml當註解截斷-觸發條件消失且不報錯-一律雙引號",
@@ -7679,7 +8747,11 @@
         "意外合併提交",
         "雙 parent"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存"
+      ]
     },
     {
       "name": "新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔",
@@ -7735,7 +8807,10 @@
         "WG_GIT_CASSETTE",
         "cassettes"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單"
+      ]
     },
     {
       "name": "用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀",
@@ -7749,7 +8824,11 @@
         "介面假設",
         "假設錯誤"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "wrong-assumptions-思考與決策",
+        "規格裡未實證的前提要先取樣再實作-不然整包白做"
+      ]
     },
     {
       "name": "讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用",
@@ -7763,7 +8842,11 @@
         "舊版本",
         "假設錯誤"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "wrong-assumptions-思考與決策",
+        "handoff-綜觀品質與抗失真寫法"
+      ]
     },
     {
       "name": "從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑",
@@ -7779,7 +8862,10 @@
         "lookbehind",
         "replay-guard"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試"
+      ]
     },
     {
       "name": "分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判",
@@ -7842,7 +8928,11 @@
         "patch 收回",
         "未提交改動擋住合併"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
+      ]
     },
     {
       "name": "feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修",
@@ -7905,7 +8995,10 @@
         "共用工作樹 commit",
         "別的 session 也改了同一檔"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
+      ]
     },
     {
       "name": "錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序",
@@ -7924,7 +9017,10 @@
         "跨案殘留",
         "untracked 錄製檔"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定"
+      ]
     },
     {
       "name": "feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆",
@@ -9867,6 +10963,54 @@
         "擋訊息互打",
         "提示矛盾",
         "出路寫法"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完",
+      "path": "memory/OS-Windows/windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完.md",
+      "triggers": [
+        "append 互蓋",
+        "O_APPEND",
+        "多行程寫 jsonl",
+        "非 UTF-8 位元組",
+        "稽核帳壞行",
+        "msvcrt locking",
+        "共用 log 寫入"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "靜態病形規則上線前要在真實外部大專案上跑一次-案例照自己習慣寫會漏掉別人的慣用寫法",
+      "path": "memory/驗證與實證/靜態病形規則上線前要在真實外部大專案上跑一次-案例照自己習慣寫會漏掉別人的慣用寫法.md",
+      "triggers": [
+        "病形規則",
+        "lint 規則",
+        "靜態分析",
+        "誤擋",
+        "校準",
+        "regex 判程式",
+        "大括號近似",
+        "Allman",
+        "commit 閘規則",
+        "誤判反例"
+      ],
+      "scope": "global",
+      "related": [
+        "commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取"
+      ]
+    },
+    {
+      "name": "有外部窗口的合約測試不是你能改的-erp介面等對外契約的斷言紅了先問不改-改了等於單方面改合約",
+      "path": "memory/驗證與實證/有外部窗口的合約測試不是你能改的-erp介面等對外契約的斷言紅了先問不改-改了等於單方面改合約.md",
+      "triggers": [
+        "合約測試",
+        "contract test",
+        "ERP 介面",
+        "對外介面測試",
+        "改舊測試｜",
+        "斷言紅了",
+        "外部系統格式"
       ],
       "scope": "global"
     }

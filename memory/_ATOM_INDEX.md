@@ -556,3 +556,6 @@
 | shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標 | memory/OS-Windows/shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標.md | CREATE_NO_WINDOW, shell=True, no-window-exempt, 子行程輸出不見, 壓窗旗標, verify_no_window_spawn, creationflags, 閃窗 | global |  |
 | 拿舊的llm實測題庫當改前基線前先用同設定重跑改前版本-temperature0換一天判定也會翻-紅案例以程式現在真的送出的形式為準 | memory/驗證與實證/拿舊的llm實測題庫當改前基線前先用同設定重跑改前版本-temperature0換一天判定也會翻-紅案例以程式現在真的送出的形式為準.md | 改前改後實測, LLM 實測, gemma 實測, 紅案例, 改前基線, temperature 0, 重跑結果不同, 題庫重用, 實測翻盤 | global |  |
 | 擋訊息的處置句不寫一律禁令-先分情況再給出路-每條出路問會不會擋到正當情況與同類提示會不會互打 | memory/設計通則/擋訊息的處置句不寫一律禁令-先分情況再給出路-每條出路問會不會擋到正當情況與同類提示會不會互打.md | 擋訊息字句, 處置句, 改問法, 一律禁止, 固定禁令, 擋訊息互打, 提示矛盾, 出路寫法 | global |  |
+| windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完 | memory/OS-Windows/windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完.md | append 互蓋, O_APPEND, 多行程寫 jsonl, 非 UTF-8 位元組, 稽核帳壞行, msvcrt locking, 共用 log 寫入 | global |  |
+| 靜態病形規則上線前要在真實外部大專案上跑一次-案例照自己習慣寫會漏掉別人的慣用寫法 | memory/驗證與實證/靜態病形規則上線前要在真實外部大專案上跑一次-案例照自己習慣寫會漏掉別人的慣用寫法.md | 病形規則, lint 規則, 靜態分析, 誤擋, 校準, regex 判程式, 大括號近似, Allman, commit 閘規則, 誤判反例 | global |  |
+| 有外部窗口的合約測試不是你能改的-erp介面等對外契約的斷言紅了先問不改-改了等於單方面改合約 | memory/驗證與實證/有外部窗口的合約測試不是你能改的-erp介面等對外契約的斷言紅了先問不改-改了等於單方面改合約.md | 合約測試, contract test, ERP 介面, 對外介面測試, 改舊測試｜, 斷言紅了, 外部系統格式 | global |  |

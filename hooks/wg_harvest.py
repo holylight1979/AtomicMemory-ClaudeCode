@@ -670,6 +670,22 @@ def parse_pick(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+_PICK_ASIDE_RE = re.compile(r"（[^（）]*）|\([^()]*\)")
+
+
+def _pick_summary(text: str) -> str:
+    """那一件的摘要：去掉括號旁註、空白與標點，大小寫不分。"""
+    return re.sub(r"[\W_]+", "", _PICK_ASIDE_RE.sub("", text)).casefold()
+
+
+def same_pick_target(a: str, b: str) -> bool:
+    """兩句說的是不是同一件：摘要相同，或較短那句至少 TRACK_CLOSE_MIN_CHARS 字且是另一句的開頭。
+    只看檔名與識別字、或字面相似度都不算：同一個函式的不同問題（「validate 未檢查上限」對「未檢查下限」）字面很像，
+    併錯會把一件真的未結項悄悄關掉，比多記一筆重複更糟。"""
+    short, long_ = sorted((_pick_summary(a), _pick_summary(b)), key=len)
+    return bool(short) and (short == long_ or (len(short) >= TRACK_CLOSE_MIN_CHARS and long_.startswith(short)))
+
+
 def _pick_sec(state: Dict[str, Any], sid: str) -> Dict[str, Any]:
     root = state.setdefault("pick_one", {})
     return root.setdefault(sid, {}) if isinstance(root, dict) else {}
@@ -679,7 +695,11 @@ def record_pick(state: Dict[str, Any], sid: str, turn_seq: int, text: str, cwd: 
                 at: Optional[str] = None) -> Optional[Tuple[str, Dict[str, Any]]]:
     """text（交付的最後一則回覆）裡的「順手看到最該修」段 → (事件, parse_pick 的結果)；沒有那段回 None。事件：
     recorded＝寫進本專案追蹤帳本一筆 open（source＝pick，帶 why／not_top／proposal／owner）；repeat＝帳上已有同部位同文字的未結項，
-    不重記（同一則回覆被看兩次、或下一批又點出同一件）；none＝答「無，因為…」，不進帳本；write_failed＝帳本寫不進去。
+    不重記（同一則回覆被看兩次、或下一批又點出同一件）；updated＝同 session 同回合同部位已記過同一件（same_pick_target：文字略異），
+    改用第二次的內容：同一次追加兩列——先寫新的 open 列（標 supersedes）、再寫結案列關掉第一筆（closes 指它、標 superseded_by）；
+    中途斷掉最多多一筆重複，不會只關掉舊的。帳本只追加、不改寫（多 session 同時追加沒有鎖），清理器照「結案＋開項」成對處理；
+    update_failed＝那兩列寫不進去，第一筆照留、stderr；
+    none＝答「無，因為…」，不進帳本；write_failed＝帳本寫不進去。
     write_failed 以外都記下這批改動答過了（covered_turn）；寫失敗不算答過，下次照問、照記。"""
     pick = parse_pick(text)
     if pick is None:
@@ -687,17 +707,30 @@ def record_pick(state: Dict[str, Any], sid: str, turn_seq: int, text: str, cwd: 
     event = "none"
     if not pick["none"]:
         slug = tracking_slug(cwd)
-        if any(_part_eq(o.get("part"), pick["part"]) and str(o.get("text") or "").strip() == pick["text"]
-               for o in open_tracking_items(read_tracking(slug))):
+        opens = open_tracking_items(read_tracking(slug))
+        same_turn = next((o for o in opens if o.get("source") == "pick" and o.get("session_id") == sid
+                          and int(o.get("turn_seq") or 0) == int(turn_seq or 0) and _part_eq(o.get("part"), pick["part"])
+                          and same_pick_target(str(o.get("text") or ""), pick["text"])), None)
+        if any(_part_eq(o.get("part"), pick["part"]) and str(o.get("text") or "").strip() == pick["text"] for o in opens):
             event = "repeat"
         else:
             row = {"session_id": sid, "turn_seq": int(turn_seq or 0), "at": at or _now_iso(), "part": pick["part"],
                    "text": pick["text"], "status": "open", "source": "pick"}
             extra = {k: pick[k] for k, _ in _PICK_LABELS if pick.get(k)}
-            written = append_tracking(slug, [{
-                "id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + "|pick"),
-                **row, **extra}])
-            event = "recorded" if written else "write_failed"
+            new = {"id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + "|pick"),
+                   **row, **extra}
+            if same_turn is None:
+                event = "recorded" if append_tracking(slug, [new]) else "write_failed"
+            else:
+                old_id = tracking_entry_id(same_turn)
+                close = {"id": _sha16(f"{old_id}|{new['id']}|superseded"), "session_id": sid, "turn_seq": row["turn_seq"],
+                         "at": row["at"], "part": pick["part"], "text": str(same_turn.get("text") or ""), "status": "closed",
+                         "source": "pick", "superseded_by": new["id"],
+                         "closes": {"id": old_id, "at": same_turn.get("at"), "text_prefix": str(same_turn.get("text") or "")}}
+                event = "updated" if append_tracking(slug, [{**new, "supersedes": old_id}, close]) else "update_failed"
+                if event == "update_failed":
+                    print(f"[Guardian:PickOne] 同一回合又點出同一件，追蹤帳本沒換成新的說法（寫不進去），帳上留第一次那筆："
+                          f"{same_turn.get('text')}", file=sys.stderr)
     if event != "write_failed":
         _pick_sec(state, sid)["covered_turn"] = int(turn_seq or 0)
     return event, pick
