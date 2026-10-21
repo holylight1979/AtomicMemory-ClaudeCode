@@ -330,10 +330,14 @@
     "min_lang_chars": 40
   },
   "text_score": {
-    "_doc": "G15 文字規格評分（tools/text-score.py；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序，每台都用 judge_model；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。enabled／min_chars／auto_targets 只管自動評（--auto-kind <種類>：enabled=false、種類不在 auto_targets、來源路徑不符該種類的路徑樣式、去掉檔頭與 code 與網址後不到 min_chars 字，就印「不評」），手動指令照跑。auto_targets＝{種類: 路徑樣式清單}：樣式從任何一層資料夾起算，* 與 ? 不跨資料夾、**/ 是零或多層、不分大小寫；空清單＝不比路徑（final_reply 從 stdin 進來）；stdin 沒有路徑，有樣式的種類就不評；要跟規格檔「適用」欄一起改。judge_model 每台 backend 都要裝同一個（同標籤也要比 digest）。",
+    "_doc": "G15 文字規格評分（tools/text-score.py；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序，每台都用 judge_model；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。enabled／min_chars／auto_targets 只管自動評（--auto-kind <種類>：enabled=false、種類不在 auto_targets、來源路徑不符該種類的路徑樣式、去掉檔頭與 code 與網址後不到 min_chars 字，就印「不評」），手動指令照跑。auto_targets＝{種類: 路徑樣式清單}：樣式從任何一層資料夾起算，* 與 ? 不跨資料夾、**/ 是零或多層、不分大小寫；空清單＝不比路徑（final_reply 從 stdin 進來）；stdin 沒有路徑，有樣式的種類就不評；要跟規格檔「適用」欄一起改。judge_model_by_backend＝{backend 名: 裁判模型}，每台用自己的（正確性為主：內網 e4b 判得較準、本機跑不動 e4b 用 instruct-2507），沒列到的 backend 用 judge_model；--model 給了全部用它；那台沒裝就算不在、不換成它原本的 llm_model；跨機同標籤要比 digest。",
     "enabled": true,
     "default_spec": "reader-designer",
-    "judge_model": "qwen3:4b-instruct-2507-q4_K_M",
+    "judge_model": "gemma4:e4b",
+    "judge_model_by_backend": {
+      "rdchat-direct": "gemma4:e4b",
+      "local": "qwen3:4b-instruct-2507-q4_K_M"
+    },
     "timeout_sec": 120,
     "num_ctx": 8192,
     "min_chars": 300,

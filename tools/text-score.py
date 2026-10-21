@@ -6,8 +6,8 @@
   → 去掉開頭 --- 檔頭、code 區塊與網址 → 每條檢核項各問裁判一次；判法欄寫了「程式切出…」「抓候選詞」的先由程式切範圍
   → 裁判回 {quote, reason, verdict}；程式校驗引用逐字在送去的那段原文裡，對不到、判否沒附引用、輸入被截斷 → 該條作廢
   → 分數由程式算（是＋不適用＝過），印評分表與一行摘要 `評分 N/M｜沒過：…`，留帳 Logs/guard-text_score.jsonl。
-裁判：照 tools/ollama_client 的 backend 優先序（內網 rdchat → 本地 ollama），每台都用同一個裁判模型
-  （text_score.judge_model 或 --model；本機沒裝這個模型就算不在，不換成別的模型，分數才比得起來）。
+裁判：照 tools/ollama_client 的 backend 優先序（內網 rdchat → 本地 ollama），每台用自己的裁判模型
+  （text_score.judge_model_by_backend，沒列到的用 judge_model；--model 給了全部用它；那台沒裝就算不在，不換成別的模型）。
   都不在或逾時 → 印「裁判不在，未評」、記一筆未評，exit 0；不擋、不改用付費模型。
 怎麼跑：
   python tools/text-score.py <檔> --spec reader-designer
@@ -48,7 +48,11 @@ SPEC_DIR = CODE_DIR / "text-specs"
 DEFAULTS: Dict[str, Any] = {
     "enabled": True,                  # 只管 --auto-kind（自動評）；手動指令照跑
     "default_spec": "reader-designer",
-    "judge_model": "qwen3:4b-instruct-2507-q4_K_M",
+    "judge_model": "gemma4:e4b",      # judge_model_by_backend 沒列到的 backend 用它
+    "judge_model_by_backend": {       # 每台 backend 各自的裁判（各台裝得下、判得準的那個）
+        "rdchat-direct": "gemma4:e4b",
+        "local": "qwen3:4b-instruct-2507-q4_K_M",
+    },
     "timeout_sec": 120,               # 每次問裁判的逾時
     "num_ctx": 8192,                  # 每次明帶；Ollama 預設 4096 會從前面靜默截掉
     "min_chars": 300,                 # 自動評的最短字數（去掉檔頭、code 與網址，不算空白）
@@ -278,8 +282,9 @@ def load_spec(name: str) -> Spec:
 
 # ─── 原文：清理、切句、候選詞 ─────────────────────────────────────────────────
 
-FRONTMATTER_RE = re.compile(   # 第一行是「鍵: 值」（冒號後接空白或行尾，https:// 不算）才算檔頭
-    r"\A---[ \t]*\r?\n(?=[\w-]+[ \t]*:(?:[ \t]|\r?$)).*?^---[ \t]*\r?$\n?", re.M | re.S)
+FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$\n?", re.M | re.S)
+KEY_LINE_RE = re.compile(r"[\w-]+[ \t]*:(?:[ \t]|$)")      # 「鍵: 值」：冒號後接空白或行尾（https:// 不算）
+HEAD_LINE_RE = re.compile(r"[ \t]*(?:[\w-]+[ \t]*:(?:[ \t]|$)|-[ \t])")   # （可縮排的）鍵值或清單項；標題、縮排正文都不算
 FENCE_RE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?^[ \t]*\1[^\n]*$", re.M | re.S)
 URL_RE = re.compile(r"https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'*+,;=%]+")   # 只吃網址字元：中文句子裡網址後面常直接接「。」
 LINE_PREFIX_RE = re.compile(r"^\s*(?:>\s*)*(?:#+\s+|[-*+]\s+|\d+[.)]\s+)?")   # 行首的引用、標題、清單符號
@@ -292,10 +297,21 @@ CODE_TOKEN_RE = re.compile(   # 像代號的字：旗標、帶 . / : _ - 的名�
     rf"(?<![{_A}./-])(--?[A-Za-z][{_A}-]*|[A-Za-z][{_A}]*(?:[./:_-][{_A}]+)+|[A-Z][A-Z0-9]+|[A-Za-z]+[0-9][{_A}]*)")
 
 
+def strip_frontmatter(text: str) -> str:
+    """去掉開頭的 --- 檔頭（交付信的 to:／seq: 不是給讀者的話）：第一行是「鍵: 值」、框裡每一行都像檔頭才算；
+    有一行正文就整段留著，寧可多評幾行也不吃掉正文。"""
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return text
+    lines = [ln.rstrip("\r") for ln in m.group(1).splitlines() if ln.strip()]
+    if lines and KEY_LINE_RE.match(lines[0]) and all(HEAD_LINE_RE.match(ln) for ln in lines):
+        return text[m.end():]
+    return text
+
+
 def clean_text(text: str) -> str:
-    """去掉開頭的 --- 檔頭（交付信的 to:／seq: 不是給讀者的話）、code 區塊與網址（裁判不評程式碼）；
-    inline code 留著，R3 這類條目要看它。"""
-    return URL_RE.sub(" ", FENCE_RE.sub(" ", FRONTMATTER_RE.sub("", text)))
+    """去掉開頭的檔頭、code 區塊與網址（裁判不評程式碼）；inline code 留著，R3 這類條目要看它。"""
+    return URL_RE.sub(" ", FENCE_RE.sub(" ", strip_frontmatter(text)))
 
 
 def sentences(text: str) -> List[str]:
@@ -429,26 +445,31 @@ def check_answer(item: Item, resp: Dict[str, Any], sent_text: str, truncated: bo
 
 # ─── 裁判呼叫 ─────────────────────────────────────────────────────────────────
 
-def make_client(config: Dict[str, Any], model: str) -> ollama_client.OllamaClient:
-    """沿用 ollama_client 的 backend 設定與退避，但每台都換成裁判模型：
-    ollama_client 指定模型時會跳過「設定的 llm_model 不同」的 backend，不換的話 --model 與本地退路都會失效。"""
-    backends = [dataclasses.replace(b, llm_model=model)
-                for b in ollama_client._build_backends_from_config(config) if b.llm_model]
-    return ollama_client.OllamaClient(backends)
+def make_client(config: Dict[str, Any], section: Dict[str, Any],
+                override: Optional[str]) -> Tuple[ollama_client.OllamaClient, Dict[str, str]]:
+    """沿用 ollama_client 的 backend 設定與退避，但每台的 llm_model 換成那台的裁判：
+    --model 給了全部用它；否則 judge_model_by_backend 有列的照列，沒列的用 judge_model。
+    ollama_client 不指定模型時會把 model 換成每台自己的 llm_model，退到下一台也用那台的裁判；
+    那台沒裝這個模型就算不在，不換成它原本設定的模型。回 (client, {backend: 裁判})。"""
+    backends = [b for b in ollama_client._build_backends_from_config(config) if b.llm_model]
+    by_backend = section.get("judge_model_by_backend") or {}
+    judges = {b.name: override or by_backend.get(b.name) or section.get("judge_model", DEFAULTS["judge_model"])
+              for b in backends}
+    client = ollama_client.OllamaClient([dataclasses.replace(b, llm_model=judges[b.name]) for b in backends])
+    return client, judges
 
 
-def ask_judge(client: ollama_client.OllamaClient, model: str, prompt: str,
-              timeout: int, num_ctx: int) -> Optional[Dict[str, Any]]:
+def ask_judge(client: ollama_client.OllamaClient, prompt: str, timeout: int, num_ctx: int) -> Optional[Dict[str, Any]]:
     """回完整回應（要 prompt_eval_count／eval_count）；所有 backend 都失敗回 None。"""
     payload = {
-        "model": model,
+        "model": "",                  # ollama_client 送出前換成那台的裁判（make_client）
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "think": False,
         "format": SCHEMA,
         "options": {"temperature": 0, "num_ctx": num_ctx, "num_predict": NUM_PREDICT},
     }
-    resp = client._request_with_failover("llm", "/api/chat", payload, timeout, explicit_model=model)
+    resp = client._request_with_failover("llm", "/api/chat", payload, timeout)
     return resp if isinstance(resp, dict) else None
 
 
@@ -461,13 +482,13 @@ def _count(v: Any) -> int:
     except (TypeError, ValueError):
         return 0
 
-def score(spec: Spec, text: str, *, config: Dict[str, Any], section: Dict[str, Any], model: str,
+def score(spec: Spec, text: str, *, config: Dict[str, Any], section: Dict[str, Any], override: Optional[str],
           source: str, session: Optional[str], kind: str) -> Dict[str, Any]:
     body = clean_text(text)
     sents = sentences(text)
     num_ctx = int(section.get("num_ctx", DEFAULTS["num_ctx"]))
     timeout = int(section.get("timeout_sec", DEFAULTS["timeout_sec"]))
-    client = make_client(config, model)
+    client, judges = make_client(config, section, override)
     results: List[Result] = []
     models_used: List[str] = []
     absent = False
@@ -483,7 +504,7 @@ def score(spec: Spec, text: str, *, config: Dict[str, Any], section: Dict[str, A
         t0 = time.time()
         why = "裁判不在"
         try:
-            resp = ask_judge(client, model, build_prompt(spec, item, sent_text, extras), timeout, num_ctx)
+            resp = ask_judge(client, build_prompt(spec, item, sent_text, extras), timeout, num_ctx)
         except Exception as e:   # ollama_client 自己會吞網路錯誤；這裡接的是沒料到的例外，記未評、不讓整份當掉
             resp, why = None, f"裁判呼叫出錯：{type(e).__name__}: {e}"
             print(f"text-score：{item.id} {why}", file=sys.stderr)
@@ -499,8 +520,8 @@ def score(spec: Spec, text: str, *, config: Dict[str, Any], section: Dict[str, A
             models_used.append(used)
         results.append(res)
     secs = round(time.time() - t_all, 2)
-    return build_record(spec, results, model=model, models_used=models_used, secs=secs, text=text,
-                        source=source, session=session, kind=kind, backends=[b.name for b in client._backends])
+    return build_record(spec, results, judges=judges, models_used=models_used, secs=secs, text=text,
+                        source=source, session=session, kind=kind)
 
 
 def tally(spec: Spec, results: List[Result]) -> Dict[str, Any]:
@@ -540,8 +561,8 @@ def tally(spec: Spec, results: List[Result]) -> Dict[str, Any]:
             "score": passed, "total": len(results), "overall": overall, "summary": summary}
 
 
-def build_record(spec: Spec, results: List[Result], *, model: str, models_used: List[str], secs: float,
-                 text: str, source: str, session: Optional[str], kind: str, backends: List[str]) -> Dict[str, Any]:
+def build_record(spec: Spec, results: List[Result], *, judges: Dict[str, str], models_used: List[str], secs: float,
+                 text: str, source: str, session: Optional[str], kind: str) -> Dict[str, Any]:
     return {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "session": session,
@@ -551,9 +572,10 @@ def build_record(spec: Spec, results: List[Result], *, model: str, models_used: 
         "source": source,
         "text_sha": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
         "chars": len(text),
-        "model": model,
+        "model": "、".join(dict.fromkeys(judges.values())),   # 這次排定的裁判（不重複）；實際回答的看 models_used
+        "judges": judges,
         "models_used": models_used,
-        "backends": backends,
+        "backends": list(judges),
         "secs": secs,
         "prompt_tokens": sum(r.prompt_tokens for r in results),
         "answer_tokens": sum(r.answer_tokens for r in results),
@@ -655,7 +677,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="照文字規格逐條問開源免費的小模型裁判，印評分表並留帳（G15）")
     ap.add_argument("source", help="要評的文字檔；- 讀 stdin")
     ap.add_argument("--spec", help="規格代號（text-specs/<代號>.md）或規格檔路徑；預設 text_score.default_spec")
-    ap.add_argument("--model", help="裁判模型（只走 Ollama）；預設 text_score.judge_model")
+    ap.add_argument("--model", help="裁判模型（只走 Ollama），每台 backend 都用它；"
+                                    "預設每台照 text_score.judge_model_by_backend，沒列到的用 judge_model")
     ap.add_argument("--json", action="store_true", help="改印一行 JSON（留帳同一筆），再接尾行")
     ap.add_argument("--session", help="留帳記的 session id（有的話）")
     ap.add_argument("--auto-kind", help="自動評的文字種類（final_reply／docs）：照 enabled、auto_targets（種類與路徑樣式）、"
@@ -686,8 +709,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(done_line(spec.code, None))
             return 0
 
-    model = args.model or section.get("judge_model", DEFAULTS["judge_model"])
-    rec = score(spec, text, config=config, section=section, model=model, source=source,
+    rec = score(spec, text, config=config, section=section, override=args.model, source=source,
                 session=args.session, kind=args.auto_kind or "manual")
     logged = write_log(rec)
     if args.tail_line:   # 尾巴就這一行，不接評分表與尾行
@@ -696,7 +718,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.json:
         print(json.dumps(rec, ensure_ascii=False))
     elif rec["overall"] == "未評":
-        print(f"裁判不在，未評（裁判模型 {model}；試過 backend：{'、'.join(rec['backends']) or '沒有設定'}）")
+        judges = "、".join(f"{name}={judge}" for name, judge in rec["judges"].items())
+        print(f"裁判不在，未評（試過 backend：{'、'.join(rec['backends']) or '沒有設定'}；各台裁判：{judges or '無'}）")
         print(rec["summary"])
     else:
         print(render_table(rec))

@@ -300,6 +300,10 @@ LETTER = "---\nto: track-x\nseq: 002\n---\n# 交付\n\n做完了，你不需要�
     (LETTER.replace("\n", "\r\n"), "做完了，你不需要動作。"),          # stdin 進來的 CRLF
     ("---\n\n開頭是水平線的正文。\n\n---\n結尾。\n", "開頭是水平線的正文。"),   # 不是「鍵: 值」開頭就不是檔頭
     ("---\nhttps://example.com\n這段正文不能消失。\n---\n結論。\n", "這段正文不能消失。"),   # https: 不算鍵
+    ("---\n注意: 此版本尚未完成\n付款流程仍會失敗。\n---\n請暫緩發布。\n", "注意: 此版本尚未完成"),   # 框裡有一行正文就不是檔頭
+    ("---\n注意: 此版本尚未完成\n# 付款流程仍會失敗\n---\n請暫緩發布。\n", "注意: 此版本尚未完成"),   # 標題不是檔頭
+    ("---\n注意: 此版本尚未完成\n  付款流程仍會失敗。\n---\n請暫緩發布。\n", "注意: 此版本尚未完成"),  # 縮排正文也不是
+    ("---\nto: track-x\nfiles:\n  - a.md\n  - b.md\n---\n做完了。\n", "做完了。"),                      # 巢狀清單照樣是檔頭
 ])
 def test_frontmatter_is_not_reader_text(text, first):
     assert TS.sentences(text)[0] == first
@@ -441,6 +445,33 @@ def test_model_override_and_failover_use_same_judge_model(tmp_path):
         up.close()
 
 
+def test_each_backend_uses_its_own_judge_model(tmp_path):
+    rd, loc, other = Fake(chat_status=404), Fake(chat_status=404), Fake()
+    try:
+        root = data_root(tmp_path, {"rdchat-direct": backend(rd.url, 1), "local": backend(loc.url, 2, "qwen3:1.7b"),
+                                    "other": backend(other.url, 3, "qwen3:1.7b")},
+                         {"judge_model": "fallback:1b",
+                          "judge_model_by_backend": {"rdchat-direct": "gemma4:e4b", "local": "qwen3:4b-instruct-2507-q4_K_M"}})
+        p = run(root, write(tmp_path, "t.md", GOOD))
+        assert p.returncode == 0, p.stderr
+        assert rd.requests and {r["model"] for r in rd.requests} == {"gemma4:e4b"}
+        assert loc.requests and {r["model"] for r in loc.requests} == {"qwen3:4b-instruct-2507-q4_K_M"}
+        assert len(other.requests) == 7 and {r["model"] for r in other.requests} == {"fallback:1b"}   # 沒列到的退到頂層
+        rec = records(root)[0]
+        assert rec["models_used"] == ["fallback:1b"] and rec["judges"] == {
+            "rdchat-direct": "gemma4:e4b", "local": "qwen3:4b-instruct-2507-q4_K_M", "other": "fallback:1b"}
+    finally:
+        for f in (rd, loc, other):
+            f.close()
+
+
+def test_judge_absent_lists_each_backend_judge(tmp_path):
+    root = data_root(tmp_path, {"rdchat-direct": backend(closed_url()), "local": backend(closed_url(), 3, "qwen3:1.7b")})
+    p = run(root, write(tmp_path, "t.md", GOOD))   # 沒有 text_score 段 → 照 DEFAULTS 的對照表
+    assert "各台裁判：rdchat-direct=gemma4:e4b、local=qwen3:4b-instruct-2507-q4_K_M" in p.stdout, p.stdout
+    assert records(root)[0]["judges"] == TS.DEFAULTS["judge_model_by_backend"]
+
+
 def test_payload_settings_and_no_paid_path(tmp_path, fake):
     root = data_root(tmp_path, {"a": backend(fake.url)}, {"num_ctx": 4096, "judge_model": "gemma4:e4b"})
     assert run(root, write(tmp_path, "t.md", GOOD)).returncode == 0
@@ -486,7 +517,7 @@ def test_log_record_fields(tmp_path, fake):
     assert (rec["session"], rec["kind"], rec["spec"]) == ("sess-123", "manual", "reader-designer")
     assert rec["spec_sha"] == hashlib.sha256(SPEC_FILE.read_bytes()).hexdigest()[:16]
     assert rec["source"] == str(src.resolve()) and rec["chars"] == len(GOOD)
-    assert rec["model"] == "qwen3:4b-instruct-2507-q4_K_M" and rec["secs"] >= 0
+    assert rec["model"] == "gemma4:e4b" and rec["judges"] == {"a": "gemma4:e4b"} and rec["secs"] >= 0   # a 不在對照表 → 頂層
     assert (rec["prompt_tokens"], rec["answer_tokens"]) == (7 * 339, 7 * 52)
     assert [i["id"] for i in rec["items"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
     assert all({"status", "verdict", "quote", "reason", "why", "secs", "prompt_tokens"} <= set(i) for i in rec["items"])
