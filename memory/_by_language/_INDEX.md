@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 22 |
+| Python | 23 |
 | C#／.NET | 21 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
@@ -30,6 +30,7 @@
 | `memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md` | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
 | `memory/文字與格式/windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff.md` | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |
 | `memory/版控/SVN/pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess.md` | pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含@位元組觸發peg解析-改用python-subprocess |
+| `memory/版控/判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致.md` | 判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-HEAD怎麼動看logs-HEAD新增段不看reflog-1-cassette錄製重播筆數要一致 |
 | `memory/驗證與實證/pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值.md` | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
 | `memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md` | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
 | `memory/驗證與實證/全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑.md` | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 |

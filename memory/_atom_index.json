@@ -11243,6 +11243,22 @@
         "總控台實跑規矩"
       ],
       "scope": "global"
+    },
+    {
+      "name": "判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致",
+      "path": "memory/版控/判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致.md",
+      "triggers": [
+        "merge-tree --write-tree",
+        "停在衝突",
+        "logs/HEAD",
+        "reflog -1",
+        "REBASE_HEAD",
+        "git_cassette",
+        "錄製重播",
+        "舊測試閘 merge 誤擋",
+        "python 啟動器 cp950"
+      ],
+      "scope": "global"
     }
   ]
 }
