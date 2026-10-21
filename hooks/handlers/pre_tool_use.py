@@ -523,6 +523,25 @@ def _escaped(s: str, i: int, quote: str, shell: str) -> bool:
     return shell == "powershell" and s[i] == "`"
 
 
+_ANSI_C_RE = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|.)|'", re.S)
+_ANSI_C_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v", "e": "\x1b",
+                   "E": "\x1b", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def _ansi_c_quoted(s: str, i: int) -> Optional[Tuple[str, int]]:
+    """Bash 的 ANSI-C 引號：s[i:i+2] 是 `$'`。回 (解開的內容, 收尾引號後的位置)；沒收尾回 None（照一般引號拆、記沒閉合）。
+    解常見跳脫與 `\\xHH`，`\\'` 不收尾；其餘 `\\` 照字面留。"""
+    out, j = [], i + 2
+    for m in _ANSI_C_RE.finditer(s, j):
+        out.append(s[j:m.start()])
+        if m.group() == "'":
+            return "".join(out), m.end()
+        esc = m.group(1)
+        out.append(chr(int(esc[1:], 16)) if len(esc) > 1 else _ANSI_C_ESCAPES.get(esc, "\\" + esc))
+        j = m.end()
+    return None
+
+
 def _scan_segments(command: str, problems: Optional[List[str]] = None,
                    shell: str = "") -> List[List[Tuple[str, str]]]:
     """保留引號狀態的切段＋斷詞 → 每段一串 (raw, value)：raw 是 token 的原文（含引號、已去掉續行），value 剝一層引號。
@@ -532,7 +551,7 @@ def _scan_segments(command: str, problems: Optional[List[str]] = None,
     註解：引號外、位在 token 起頭的 `#` 到行尾略過（Bash 與 PowerShell 同語意），換行照切段；引號裡與 token 中間的 `#`
     是字面（`git commit -m "fix #12"`、`a#b`）。
     跳脫：shell 給 "bash"／"powershell" 就照那個 shell 解（_escaped；`"fix \\"a; b\\""` 裡的分號不切段），raw 留跳脫字元、
-    value 只留被跳脫的字；不給不解。
+    value 只留被跳脫的字；不給不解。Bash 引號外的 `$'…'`（ANSI-C 引號）整段照 _ansi_c_quoted 解，raw 原樣保留。
     PowerShell here-string（shell 不是 bash）：token 起頭的 `@'`／`@"` 接換行，到行首的 `'@`／`"@` 為止整段是一個 token
     （內文的引號不算數）；value 是內文，raw 換成等價的一般引號寫法（`'內文'`／`"內文"`，內文裡同種引號拿掉），展開檢查
     照引號語意走。找不到結束行就不當 here-string，照一般引號拆。
@@ -567,6 +586,12 @@ def _scan_segments(command: str, problems: Optional[List[str]] = None,
             if quote:
                 val.append(ch)
             i += 1
+            continue
+        ansi = _ansi_c_quoted(s, i) if shell == "bash" and s.startswith("$'", i) else None
+        if ansi:
+            raw.append(s[i:ansi[1]])
+            val.append(ansi[0])
+            in_token, i = True, ansi[1]
             continue
         here = _HERESTRING_OPEN_RE.match(s, i) if ch == "@" and not in_token and shell != "bash" else None
         if here:

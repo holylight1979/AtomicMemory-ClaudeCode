@@ -103,6 +103,45 @@ def test_commit_through_git_alias_is_checked(repo):
     assert _git_commits_to_run("git status", str(repo))[2] is False
 
 
+def _commit_base(repo: Path, files: dict) -> None:
+    for rel, text in files.items():
+        (repo / rel).write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+
+
+ESCAPE_FORMS = [
+    ("Bash", 'git commit -m "say \\"hi\\"" -- .env'),          # 雙引號裡的 \"
+    ("Bash", 'git commit -m "C:\\\\dir\\\\" -- .env'),          # 雙引號裡的 \\ 緊接收尾引號
+    ("Bash", "git commit -m $'a\\nb' -- .env"),                 # ANSI-C $'…'
+    ("Bash", "git commit -m 'it'\\''s' -- .env"),               # 單引號裡放單引號的 '\''
+    ("Bash", "git commit -m x -- \\.env"),                      # 引號外的 \ 跳脫路徑
+    ("Bash", "git add $'.env' && git commit -m x"),             # $'…' 包路徑
+    ("Bash", "git add $'.e\\x6ev' && git commit -m x"),         # $'…' 裡的 \xHH
+    ("PowerShell", 'git commit -m "say `"hi`"" -- .env'),       # PowerShell 反引號
+    ("PowerShell", "git commit -m 'it''s' -- .env"),            # PowerShell 單引號雙寫
+]
+
+
+@pytest.mark.parametrize("tool,command", ESCAPE_FORMS)
+def test_escaped_message_or_path_still_finds_the_private_file(repo, tool, command):
+    """G2(b)：訊息或路徑用跳脫字元時，後面的 `-- .env` 不能被吞進訊息、跳脫過的路徑要還原成 .env 再比對。"""
+    _commit_base(repo, {".env": "A=1", "a.txt": "a"})
+    (repo / ".env").write_text("A=2", encoding="utf-8")
+    assert _check(repo, "git commit -m x") is None, "前置：沒暫存、沒 pathspec，光 commit 不會帶進 .env"
+    msg = check_git_privacy(tool, {"command": command}, str(repo), {})
+    assert msg and ".env" in msg, command
+
+
+def test_private_name_inside_escaped_message_is_not_a_path(repo):
+    """G2(b) 反例：.env 只出現在跳脫過的訊息裡、提交的是 a.txt → 不擋。"""
+    _commit_base(repo, {".env": "A=1", "a.txt": "a"})
+    (repo / ".env").write_text("A=2", encoding="utf-8")
+    (repo / "a.txt").write_text("b", encoding="utf-8")
+    assert _check(repo, "git commit -m x -- .env"), "前置：真的提交 .env 會被擋"
+    assert _check(repo, 'git commit -m "mention \\".env\\" -- .env" -- a.txt') is None
+
+
 def test_git_dash_c_repo_targeting(repo, tmp_path):
     _stage(repo, ".env", "SECRET=1")
     other = tmp_path / "not-a-repo"
