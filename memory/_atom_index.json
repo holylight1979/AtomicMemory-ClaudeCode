@@ -9242,6 +9242,25 @@
         "病形閉沒觸發"
       ],
       "scope": "global"
+    },
+    {
+      "name": "切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天",
+      "path": "_AIDocs/_atoms/MemDev/切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天.md",
+      "triggers": [
+        "guard-entry.jsonl",
+        "entry-stats",
+        "切入點帳",
+        "resolve_responses",
+        "回應型",
+        "response none",
+        "判分出處",
+        "--days"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py",
+        "path:C:/Users/holylight/.claude/tools/entry-stats.py"
+      ]
     }
   ]
 }
