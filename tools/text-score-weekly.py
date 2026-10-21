@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """text-score-weekly.py：讀 text-score 的留帳（Logs/guard-text_score.jsonl），出每份規格的週彙總（G15）。
 
-做什麼：最近 N 個 ISO 週（含本週），每份規格列：評了幾則、裁判不在幾則；每一條的每週過率（是 ÷（是＋否），
+做什麼：最近 N 個 ISO 週（含本週），每份規格列：評了幾則、裁判不在幾則、實際回答的裁判各幾則（每台裁判不同，過率要分得出來自誰；
+  舊紀錄沒有這欄記「沒記」）、種類各幾則（final_reply／docs 是收尾自動評，manual 是手動）；每一條的每週過率（是 ÷（是＋否），
   不適用另計）、最近兩週有資料的趨勢（百分點）、期間作廢數。規格雜湊不只一版時標出來（條目可能改過，過率不完全可比）。
   只讀不寫；壞掉的留帳行跳過並計數。
 怎麼跑：
@@ -16,7 +17,7 @@ import argparse
 import importlib.util
 import json
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -73,10 +74,15 @@ def summarize(records: List[Dict[str, Any]], weeks: List[str]) -> Dict[str, Any]
         if wk not in weeks:
             continue
         s = specs.setdefault(rec["spec"], {"records": 0, "unscored": 0, "shas": set(), "order": [],
+                                           "judges": Counter(), "kinds": Counter(),
                                            "items": defaultdict(lambda: defaultdict(lambda: dict.fromkeys(COUNTED, 0)))})
         s["records"] += 1
         s["unscored"] += rec.get("overall") == "未評"
         s["shas"].add(rec.get("spec_sha"))
+        used = rec.get("models_used")
+        s["judges"].update([str(m) for m in used] if isinstance(used, list) and used
+                           else ["沒回答" if isinstance(used, list) else "沒記"])
+        s["kinds"][str(rec.get("kind") or "沒記")] += 1
         for it in rec["items"]:
             key = item_key(it)
             if key in COUNTED:
@@ -92,7 +98,8 @@ def summarize(records: List[Dict[str, Any]], weeks: List[str]) -> Dict[str, Any]
             rows.append({"id": iid, "rates": rates, "trend": _trend(rates),
                          "void": sum(c["作廢"] for c in per_week.values()),
                          "counts": {k: sum(c[k] for c in per_week.values()) for k in COUNTED}})
-        out[code] = {"records": s["records"], "unscored": s["unscored"], "spec_versions": len(s["shas"]), "items": rows}
+        out[code] = {"records": s["records"], "unscored": s["unscored"], "spec_versions": len(s["shas"]),
+                     "judges": dict(s["judges"].most_common()), "kinds": dict(s["kinds"].most_common()), "items": rows}
     return out
 
 
@@ -112,7 +119,9 @@ def render(summary: Dict[str, Any], weeks: List[str]) -> str:
         return f"text-score 週彙總（{weeks[0]}～{weeks[-1]}）：期間沒有評分紀錄"
     lines = [f"# text-score 週彙總（{weeks[0]}～{weeks[-1]}）", "", "過率＝是 ÷（是＋否）；不適用、作廢、未評不進分母。"]
     for code, s in summary.items():
-        lines += ["", f"## {code}（{s['records']} 則，裁判不在 {s['unscored']} 則）"]
+        lines += ["", f"## {code}（{s['records']} 則，裁判不在 {s['unscored']} 則）", "",
+                  "裁判（實際回答）：" + "、".join(f"{k} {v}" for k, v in s["judges"].items())
+                  + "｜種類：" + "、".join(f"{k} {v}" for k, v in s["kinds"].items())]
         if s["spec_versions"] > 1:
             lines.append(f"> 期間規格改過（{s['spec_versions']} 個版本），各週過率不完全可比")
         lines += ["", "| 條目 | " + " | ".join(weeks) + " | 趨勢 | 作廢 | 是／否／不適用／未評 |",

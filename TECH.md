@@ -765,7 +765,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.11 文字規格評分（G15，`tools/text-score.py`）
 
-目的：照一份「規格」對任何文字逐條判是非、產出評分表；裁判只用開源免費模型（Ollama），付費模型 0 token。現在只有手動指令與留帳，收尾自動評（Stop 丟背景）另接；只附不擋。
+目的：照一份「規格」對任何文字逐條判是非、產出評分表；裁判只用開源免費模型（Ollama），付費模型 0 token。手動指令之外，收尾自動評：Stop 把最終回覆與本回合改過的文件丟背景評、留帳，下一則使用者訊息把上一則的評分一行送到眼前請 AI 照抄到回覆尾巴；只附不擋。
 
 | 部件 | 位置 | 做什麼 |
 |------|------|--------|
@@ -775,11 +775,12 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 驗收 | `check_answer` | 附了引用就要逐字落在送去的那段原文（不分判定；R1 只對第一句、R2 只對前三句）：NFKC 統一全半形、每行去掉行首的引用／標題／清單符號、去 `*` 與反引號與空白，「…」分段依序，不做相似度。作廢：引用對不到、判否沒附引用、省略號以外不到 4 字、判定不是是／否／不適用（含 null）、回的不是 JSON、`prompt_eval_count` ≥ `num_ctx`×95%（實測內網 Ollama 超過 num_ctx 時回報整段長度，不一定截到 num_ctx）。回應欄位型別不對不會當掉：token 數當 0、內容不是字串算不是 JSON；呼叫拋出沒料到的例外記未評並 stderr |
 | 算分 | `tally` | 過＝是＋不適用；必過「否」或非必過「否」超過通過線容許數 → 不過；必過作廢或未評 → 未定；全部未評 → 未評。摘要 `評分 N/M｜沒過：…｜作廢：…`。裁判回答裡的分數欄一律不看 |
 | 留帳 | `Logs/guard-text_score.jsonl` | 寫不進去不擋（exit 0），stderr 說原因、尾行 `logged=0`。一則一行：ts、session（`--session`）、kind（manual 或自動評的種類）、spec、spec_sha、source、text_sha、chars、model（排定的裁判，不重複）、judges（backend → 裁判）、models_used（實際回答的）、backends、secs、prompt_tokens、answer_tokens、pass／fail／na／void／unscored、score、total、overall、summary、items（每條 status、verdict、quote、reason、why、secs、token）。不存原文 |
-| 自動評入口 | `--auto-kind <種類>`／`path_matches` | `text_score.enabled=false`、種類不在 `auto_targets`、來源路徑不符該種類的路徑樣式（`auto_targets` 是 `{種類: 樣式清單}`；樣式從任何一層資料夾起算，`*`／`?` 不跨資料夾、`**/` 零或多層、其他字元照字面、不分大小寫；空清單不比路徑；stdin 沒有路徑，有樣式就不評；寫成種類清單的舊設定照舊只比種類）、去掉檔頭與 code 與網址後的非空白字少於 `min_chars` → 印「不評：<理由>」、不問裁判、不留帳。給之後的 Stop 背景接線呼叫 |
-| 尾巴一行 | `--tail-line` | stdout 只印摘要一行（同留帳的 summary：`評分 N/M｜沒過：…`、`評分 N/M｜全過`、有作廢就帶 `｜作廢：…`、裁判不在 `評分 未評｜裁判不在`），不印評分表與尾行；照樣留帳；不評時 stdout 空、原因寫 stderr。給之後的 Stop 接線接在每則回覆尾巴 |
-| 週彙總 | `tools/text-score-weekly.py`（唯讀；`--weeks`、`--log`、`--json`） | 最近 N 個 ISO 週，每份規格：則數、裁判不在數、每條每週過率（是 ÷（是＋否））、最近兩週趨勢（百分點）、作廢數；規格雜湊不只一版時標出；尾行 `TEXT_SCORE_WEEKLY DONE weeks= records= unscored= void= bad=` |
+| 自動評入口 | `--auto-kind <種類>`／`path_matches` | `text_score.enabled=false`、種類不在 `auto_targets`、來源路徑不符該種類的路徑樣式（`auto_targets` 是 `{種類: 樣式清單}`；樣式從任何一層資料夾起算，`*`／`?` 不跨資料夾、`**/` 零或多層、其他字元照字面、不分大小寫；空清單不比路徑；stdin 沒有路徑，有樣式就不評；寫成種類清單的舊設定照舊只比種類）、去掉檔頭與 code 與網址後的非空白字少於 `min_chars` → 印「不評：<理由>」、不問裁判、不留帳。收尾接線（下面「收尾接線」列）用它 |
+| 尾巴一行 | `--tail-line` | stdout 只印摘要一行（同留帳的 summary：`評分 N/M｜沒過：…`、`評分 N/M｜全過`、有作廢就帶 `｜作廢：…`、裁判不在 `評分 未評｜裁判不在`），不印評分表與尾行；照樣留帳；不評時 stdout 空、原因寫 stderr。收尾背景評用它（輸出不讀，回覆尾巴那行取自留帳的 summary） |
+| 收尾接線 | `hooks/wg_text_score.py`（Stop `on_stop`、UserPromptSubmit `tail_note`、背景入口 `--job`） | config 要有 `text_score` 段且 `enabled` 為 true 才做事。Stop（各閘之前，被擋的回合也送）：本回合最後一則回覆去空白後 ≥ `min_chars`（粗篩，精確字數由 `--auto-kind` 判）且跟送過的不同 → `final_reply`；本 session 本回合改過、還在的 `.md` → `docs`（路徑樣式由 `--auto-kind docs` 判，不符不評）；同一則、同一版文件不重送。只寫工作檔 `workflow/text-score/<session>-<亂碼>.json`、起一個沒有視窗、脫離 hook 的背景行程就回；背景在自己的行程裡逐份呼叫 text-score 的 main（final_reply 從 stdin、docs 給路徑，`--session` 帶本 session），一份出錯只記那份，錯誤落 `workflow/text-score/worker.log`，評完刪工作檔、超過一天沒人收的清掉。UserPromptSubmit：上一回合送評那則評完（留帳同 session、同 text_sha、kind=final_reply）→ 注入第一行 `上則評分 N/M｜沒過：…`、第二行請 AI 原樣抄成回覆最後一行（切入點 E37，識別字樣 `TEXT_SCORE_TAIL`，問的那一刻記 guard-entry）；每則只送一次；還沒評完 → 不送、`Logs/guard-text_score_tail.jsonl` 記 pending，之後不補送；docs 不送。下一次 Stop 回覆裡有那一行 → 同檔記 copied（E37 的回應） |
+| 週彙總 | `tools/text-score-weekly.py`（唯讀；`--weeks`、`--log`、`--json`） | 最近 N 個 ISO 週，每份規格：則數、裁判不在數、實際回答的裁判各幾則（models_used；沒有這欄的舊紀錄記「沒記」、裁判都不在記「沒回答」）、種類各幾則（final_reply／docs／manual）、每條每週過率（是 ÷（是＋否））、最近兩週趨勢（百分點）、作廢數；規格雜湊不只一版時標出；尾行 `TEXT_SCORE_WEEKLY DONE weeks= records= unscored= void= bad=` |
 
-案例 `tools/verify/verify_text_score.py`（假 Ollama 伺服器，回應形狀錄自真回應）；真打量尺 `tools/verify/probe_text_score_real.py`（5 份樣本印對答率與秒數，`TEXT_SCORE_REAL DONE …`，不當閘）。已知限制：裁判的判定與理由會自相矛盾，「找得到…就答否」這類反向問法最常見，所以條目一律正面問（通過＝答「是」），程式驗不出矛盾本身；裁判把引用改成簡體字、或改寫數字會被作廢；Ollama 重用快取時 `prompt_eval_count` 只算新算的 token，截斷判定與 token 數會偏低。
+案例 `tools/verify/verify_text_score.py`（假 Ollama 伺服器，回應形狀錄自真回應）、收尾接線 `hooks/verify/verify_text_score_stop.py`；真打量尺 `tools/verify/probe_text_score_real.py`（5 份樣本印對答率與秒數，`TEXT_SCORE_REAL DONE …`，不當閘）。已知限制：裁判的判定與理由會自相矛盾，「找得到…就答否」這類反向問法最常見，所以條目一律正面問（通過＝答「是」），程式驗不出矛盾本身；裁判把引用改成簡體字、或改寫數字會被作廢；Ollama 重用快取時 `prompt_eval_count` 只算新算的 token，截斷判定與 token 數會偏低。
 問法本身也是調校點：擋訊息字句會把 AI 帶到哪裡，跟注入的卡一樣影響判斷。下面幾處的字句照切入點自評的實測改成「先分辨情況再給處置」（擋的條件不變）；改前改後用內網 gemma4:e4b 實測，紀錄在 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/`（`cases_003.json`、`results_003.jsonl`、README 判定表），字句由 `hooks/verify/verify_entry_wording.py` 守：
 
 | 切入點 | 字句在哪 | 現在怎麼問 |
@@ -1146,7 +1147,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `lang_guard.english_ratio_threshold` / `min_lang_chars` | 0.5 / 40 | 英文漂移 |
 | `text_score.judge_model_by_backend` / `judge_model` | {rdchat-direct: gemma4:e4b, local: qwen3:4b-instruct-2507-q4_K_M} / gemma4:e4b | G15 文字規格評分（§7.11）：每台 backend 各自的裁判（正確性為主：內網 e4b、本機跑不動 e4b 用 instruct-2507），沒列到的 backend 用 judge_model；`--model` 全部覆蓋；跨機同標籤要比 digest |
 | `text_score.default_spec` / `timeout_sec` / `num_ctx` | reader-designer / 120 / 8192 | 預設規格、每次問裁判的逾時、每次明帶的 context 長度 |
-| `text_score.enabled` / `min_chars` / `auto_targets` | true / 300 / {final_reply: [], docs: [memory/_staging/\*checklist\*.md, _AIDocs/DevHistory/\*\*/\*提案\*.md]} | 只管自動評入口 `--auto-kind`；auto_targets 是種類 → 來源路徑樣式（空清單不比路徑），要跟規格檔「適用」欄一起改；手動指令照跑 |
+| `text_score.enabled` / `min_chars` / `auto_targets` | true / 300 / {final_reply: [], docs: [memory/_staging/\*checklist\*.md, _AIDocs/DevHistory/\*\*/\*提案\*.md]} | 只管自動評（收尾接線 `hooks/wg_text_score.py` 與 `--auto-kind`；收尾接線要這段存在且 enabled 為 true）；auto_targets 是種類 → 來源路徑樣式（空清單不比路徑），要跟規格檔「適用」欄一起改；手動指令照跑 |
 | `version_guard.mode` | warn | 版本脈絡殘留 |
 | `coordination.enabled` / `warn_suppress_min` / `scan_mtime_window_s` / `max_scan_files` | true / 10 / 1800 / 20 | 跨 session 預警 |
 | `auto_handoff.token_warn_ratio` / `context_window_tokens` | 0.85 / 1000000 | token 預警 |
@@ -1188,7 +1189,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `taxonomy.gate_enabled` | atom 必須帶範疇才能寫入的閘 |
 | `realm.llm_fallback.enabled` | 預設 false；開了會用本地 LLM 判定 unknown atom 的 realm |
 | `lang_guard.enabled` | 回應英文比例過高時的繁中提醒 |
-| `text_score.enabled` | G15 文字規格自動評（`--auto-kind`）；手動 `tools/text-score.py` 照跑 |
+| `text_score.enabled` | G15 文字規格自動評（收尾接線與 `--auto-kind`；收尾接線要這段存在且為 true）；手動 `tools/text-score.py` 照跑 |
 | `version_guard.enabled` | 檔內版本操作脈絡殘留的 warn（`mode` warn / off） |
 | `acceptance_spec.enabled` | 多檔改動要求驗收規格 |
 | `deferral_gate.enabled` | Stop 閘攔「推給下個 session」的退縮歸屬 |

@@ -18,7 +18,7 @@
       "pretool_deny": "PreToolUse 拒絕的 permissionDecisionReason",
       "mcp_reply": "MCP 工具呼叫後 LLM 收到的回覆：工具本體的回覆，加上 PostToolUse 對這個工具補的 additionalContext",
       "subagent_prompt": "派子代理時注入進子代理 prompt 的內容",
-      "user_prompt": "UserPromptSubmit 附在使用者訊息旁的提示（那一刻已依原話注入卡，本契約不另接）",
+      "user_prompt": "UserPromptSubmit 附在使用者訊息旁的提示（那一刻已依原話注入卡，本契約不另接；程式自己組的問句例外，例 E37 上則評分在問的那一刻接卡留帳）",
       "session_start": "SessionStart 開場提示（不注卡；本契約不接）",
       "pretool_hint": "PreToolUse 的 additionalContext 提醒（只提醒、不擋）：提問前提醒與一般警告段",
       "post_tool_hint": "PostToolUse／PostToolBatch 的提醒（非 MCP 工具；本契約不接）",
@@ -397,7 +397,17 @@
      "expects": "照評分尺對證據打分，依據要是查得到的材料，不是印象",
      "code_refs": ["tools/selfscore.py"],
      "notes": "總控台、checklist 軌、驗收判分打分時用。--ask 是問的那一刻（接判準卡、記 guard-entry）；答的一筆記 Logs/guard-selfscore.jsonl（帳本不是卡、不注入）；缺欄位記「沒答」不擋。識別字樣用英數 SELFSCORE_ASK：中文 trigger 是子字串比對，寫「自檢評分」會讓 trigger 含「自檢」的無關卡從關鍵字退路被挑中；這列的判準卡等帳本淬鍊後用 Entry 綁定。",
-     "responses": [{"guard": "selfscore", "event": "score", "type": "judged", "match": ["g"]}]}
+     "responses": [{"guard": "selfscore", "event": "score", "type": "judged", "match": ["g"]}]},
+    {"id": "E37", "name": "上則評分照抄到回覆尾巴",
+     "rules": [],
+     "markers": ["TEXT_SCORE_TAIL"],
+     "paths": ["user_prompt"],
+     "feeds": "上一回合最終回覆的文字規格評分一行（收尾交背景 tools/text-score.py 評完的留帳摘要，例「上則評分 5/7｜沒過：R1、R4」），放在 UserPromptSubmit 注入的第一行",
+     "asks": "把這一行原樣抄成這則回覆的最後一行，不用解釋",
+     "expects": "照抄、不改分數、不辯解；只附不擋",
+     "code_refs": ["hooks/wg_text_score.py", "hooks/handlers/user_prompt_submit.py", "hooks/handlers/stop.py"],
+     "notes": "問的那一刻是 UserPromptSubmit 的 tail_note（接判準卡、記 guard-entry，帶 text_sha）；下一次 Stop 回覆裡有那一行 → Logs/guard-text_score_tail.jsonl 記 copied。上一則還沒評完就不送（記 pending）、不補送更早的。識別字樣用英數，理由同 E36。",
+     "responses": [{"guard": "text_score_tail", "event": "copied", "type": "declared", "match": ["text_sha"]}]}
   ],
   "not_entrypoints": {
     "SAME_FILE": "判法定義：同一個檔的比較方式",

@@ -62,6 +62,7 @@ from wg_harvest import (
     record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt,
 )
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
+from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit, second_opinion_hint
 from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE
 from wg_hook_timing import lap as _hook_lap
@@ -1479,6 +1480,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and aec.get("session_id") == session_id
         and all(0 < _mod_turn(m) <= int(aec.get("turn_seq") or 0) for m in own_mod_files)
     )
+
+    # 文字評分（G15）：最終回覆與本回合改過的 .md 交背景評、不等不擋；上回合送到眼前的評分一行有沒有照抄記帳（wg_text_score）
+    if _text_score_on_stop(state, session_id, code_text, own_mod_files, turn_seq, config):
+        write_state(session_id, state)
+    if _timed_out("文字評分"):
+        return
 
     _cleanup_memo: List[Any] = []
 
