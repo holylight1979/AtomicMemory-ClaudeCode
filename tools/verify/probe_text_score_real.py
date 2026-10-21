@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""probe_text_score_real.py：真打量尺——拿真的裁判（workflow/config.json 的 Ollama backend，預設 gemma4:e4b）對 5 份樣本
+"""probe_text_score_real.py：真打量尺——拿真的裁判（workflow/config.json 的 Ollama backend，預設 text_score.judge_model）對 5 份樣本
 跑一次 tools/text-score.py，印每條判定與對答率、秒數。不當閘：數字是尺不是判決。
 
 樣本：提案（_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/G15-規格評分表-研究與提案.md）4.5 節的原樣本沒進版控
@@ -10,7 +10,7 @@
 答案是依規格標的（是原設計者判斷的替身），拿不準的條目標 None、不計分。
 做法：暫存資料根放一份本樹 workflow/config.json（只用它的 backend 設定），WG_CLAUDE_DIR 指過去跑，留帳落暫存目錄、跑完刪；
   真的資料根不碰。
-怎麼跑：python tools/verify/probe_text_score_real.py [--model gemma4:e4b]
+怎麼跑：python tools/verify/probe_text_score_real.py [--model <模型>]
 尾行：`TEXT_SCORE_REAL DONE samples=<n> ran=<n> keyed=<n> correct=<n> rate=<r> void=<n> unscored=<n> false_pass=<n> false_fail=<n> secs_median=<秒>`
   （keyed＝答案表標了答案的條數，固定；沒跑成或少回的條算沒答對）。exit：5 份都跑成 0，有一份沒跑成 1。
 """
