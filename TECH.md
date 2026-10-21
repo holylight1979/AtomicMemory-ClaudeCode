@@ -957,7 +957,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── ai-client-setup.py                   ← 其他 AI 客戶端輕量安裝：只註冊 MCP、不裝 hooks（§5.8）
 │   ├── meeting-transcribe.py                ← 會議錄音 → 逐字稿 → 摘要 → 決議入專案 shared（§6.6）
 │   ├── console-status.py                    ← /console 現況一眼看（worktree、未推、各軌最新來信、verify log），唯讀
-│   ├── console-spawn.py                     ← G16 總控台替工作軌開 session（claude --bg 送開工句、等「收到開工」、逾時退人貼；config console.spawn、kill switch workflow/console-spawn.STOP）
+│   ├── console-spawn.py                     ← G16 總控台替工作軌開 session（claude --bg 送開工句、等「收到開工」、逾時退人貼；--model＞config console.spawn.default_model＞不帶，報到後讀 transcript 核對實際模型、不符或 API 錯誤即 FAIL 不退人貼；kill switch workflow/console-spawn.STOP）
 │   ├── memory-eval/                         ← 223 條回歸集
 │   ├── memory-vector-service/               ← service.py / starter.py / indexer.py
 │   ├── codex-companion/                     ← assessor / acceptance / judge_backend / audit.py / backtest

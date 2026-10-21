@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 G16 補件：總控台開工作軌時就指定模型，並核對真的起對
+- **總控台看到的**：`console-spawn.py` 多了 `--model <id>`（不給就用 `console.spawn.default_model`，那裡也沒設就吃 Claude Code 預設，不猜）。報到後多印一行「模型＝<id>」，讀的是該 session 的 transcript。指定的模型對不上會 FAIL，印「指定＝…／實際＝…」，session 不殺。模型 id 不存在時，claude 照樣起得來，但第一回合回錯就停著；現在腳本一讀到這則錯誤就 FAIL 並印原文，不再白等 90 秒、也不再叫人貼。這兩種 FAIL 都不印人貼區塊。用法見 `skills/console/references/kickoff.md` §6。
+- **改了什麼**（軌 track-console-spawn-model 000）：`build_cmd` 把 `--model` 接在指令最後，bg 與 print 都接，開工句仍在第 2 格；`load_spawn_config` 讀字串鍵 `default_model`；新增 `model_and_api_error` 函式，取最近一則真回應的 `message.model`，跳過 Claude Code 自己補寫的 `<synthetic>`，同時找 `isApiErrorMessage` 的錯誤文字；`wait_kickoff` 同一輪輪詢就能讀到報到或 API 錯誤；print 方法只帶上 `--model`、不核對，會印一行說明。
+- **驗證**：`tools/verify/verify_console_spawn.py` 新增 9 案，`--help` 案多斷言 `--model`。在舊碼上 10 紅，改後 25 passed。另外真打兩次，都用 claude.exe 2.1.304：`--model claude-opus-5-5` 17 秒 PASS、印「模型＝claude-opus-5-5」；`--model claude-nonexistent-9-9` 17 秒 FAIL、印 claude 回的錯誤原文。
+
 ## 2026-10-20 G11 002：拐彎判斷改在對帳之後才擋，前面的閘擋下時預告還缺幾條
 - **交給 AI 寫程式時會看到的**：收尾同時「說修好沒收據」又「缺拐彎判斷行」，先看到的是寫碼查核（對帳 (a)～(d)、驗證範圍）的紅，訊息尾「後面還會擋」列「拐彎判斷：缺 N 條（名稱）」與一行寫法，可以一回合補齊；對帳過了才輪到拐彎判斷擋，每個使用者回合仍只擋一次，對帳先擋不會吃掉這一次。拐彎判斷擋下時，尾端也照樣預告後面的第二意見等閘。判定規則與五欄格式不變。細節 TECH §7.1、§7.8。
 - **改了什麼**（軌 track-g11-reconcile-move 000）：`handlers/stop.py` ReadingPath 段只留背景量測與 stderr；新 TurnJudgment 段放在 SecondOpinion 正前方（寫碼查核、退避偵測之後），`_later_gates` 第一項掛拐彎判斷預覽；`hooks/wg_reading_path.py` 加只讀查詢 `turn_judgment_missing`；同類順手修：Equivalence 閘改成先 `_piggyback` 再 `write_state`，token 預警與驗收提示「整場附一次」的旗標才寫得進 state（新閘同此順序）。
