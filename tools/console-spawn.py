@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import shutil
@@ -261,8 +262,8 @@ def lock_config(config_path: Path, log: Callable[[str], None]) -> Optional[Path]
 
 
 def unlock_config(lock: Path, held_until: float, log: Callable[[str], None]) -> None:
-    """放鎖；持鎖超過 CONFIG_LOCK_HOLD_SEC 就不刪：可能已被當過期鎖換人拿著，刪了會拆掉別人的鎖
-    （留下的過期鎖，proper-lockfile 下次拿鎖時自己收）。"""
+    """放鎖；過了 held_until 就不刪：~/.claude.json 那把會被 proper-lockfile 當過期鎖換人拿著，刪了會拆掉別人的鎖
+    （留下的過期鎖，proper-lockfile 下次拿鎖時自己收）。state 鎖沒人接管，呼叫端給 inf、一定放掉。"""
     if time.monotonic() > held_until:
         log(f"  ! 持鎖超過 {CONFIG_LOCK_HOLD_SEC:g} 秒，{lock} 可能已換人拿著，不刪")
         return
@@ -339,7 +340,7 @@ def with_state(live_root: Path, change: Optional[Callable[[List[Dict[str, Any]]]
     lock = lock_config(f, warn)
     if lock is None:
         return [], f"拿不到 {f} 的鎖"
-    held_until = time.monotonic() + CONFIG_LOCK_HOLD_SEC
+    held_until = math.inf                         # state 鎖只有本腳本在搶、沒人會當過期接管：持多久都還是自己的
     try:
         rows, bad = load_state(f)
         if bad or change is None:
