@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: origin, 使用者說的, 推出來的, quote, 對不到原話, 標使用者說的但對不到原話, 目標樹, need_goal
 - Created-at: 2026-10-21
-- Quote: 「A」
 - Entry: E23
 
 ## 知識

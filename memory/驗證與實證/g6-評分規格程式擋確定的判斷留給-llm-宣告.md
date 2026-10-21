@@ -3,11 +3,10 @@
 - Scope: global
 - Author: holylight
 - Source: _AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md G6
-- Quote: 「A」
 - Confidence: [臨]
 - Trigger: G6, G6 評分, 不做｜, 跳過, 驗證範圍, 誤判, 規則名, 擋到底
 - Created-at: 2026-10-21
-- Entry: E07, E08
+- Entry: 
 
 ## 知識
 

@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: 啟動器 commit, worktree commit, 含 git 字樣被擋, commit 前閉, --commit-check, 病形閉沒觸發
 - Created-at: 2026-10-21
-- Quote: 「A」
 
 ## 知識
 

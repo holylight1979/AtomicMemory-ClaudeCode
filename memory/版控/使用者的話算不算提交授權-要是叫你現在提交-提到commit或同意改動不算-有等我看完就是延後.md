@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: 授權原句, CommitOrder, 本回合使用者原話沒有版控口令, 已擋下 git commit, 一般說法授權, commit 吧, 等我看完 diff, 上GIT
 - Created-at: 2026-10-21
-- Quote: 「A」
 - Entry: E28
 
 ## 知識

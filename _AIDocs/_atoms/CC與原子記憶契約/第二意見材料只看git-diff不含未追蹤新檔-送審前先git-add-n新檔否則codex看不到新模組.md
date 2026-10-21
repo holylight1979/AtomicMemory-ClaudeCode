@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: second_opinion_start, 第二意見 材料, codex 看不到新檔, git add -N, intent-to-add, 未追蹤新檔
 - Created-at: 2026-10-21
-- Quote: 「A」
 
 ## 知識
 

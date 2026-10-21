@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: LEFTOVER_NEEDS_CLEANUP, [Guardian:Cleanup], 收尾自清, 衍生暫存清單, 追蹤項, k_followups, j_evidence_path, anti_evasion_report
 - Created-at: 2026-10-21
-- Quote: 「A」
 - Entry: E12
 
 ## 知識
