@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 開場、提問、工具呼叫前的 hook 快逾時也先送最重要的、被取消前留得下帳；開場與提問少讀幾百次檔
+- **交給 AI 寫程式時會看到的**：開場的追蹤提示改排在表頭後（「Global: N atoms」下一行），開場 hook 跑太久時先送出已備好的提示（追蹤提示一定在內）並多一行「[Guardian:HookTiming] … 超時降級」說明，不再整包被 Claude Code 取消、什麼都沒送；提問那支跑太久時跳過記憶檢索與導讀卡、照樣記原話與送閘的提示，同樣附一行說明；工具呼叫前那支照舊判定、只多記耗時。
+- **改了什麼**（軌 track-hook-timing-startup 001）：`hooks/wg_hook_timing.py` 計時擴到 SessionStart／UserPromptSubmit／PreToolUse（上限照 settings.json matcher，資料根沒有 settings.json 讀程式碼根那份），背景鬧鐘到 95% 時可代送 handler 登記的輸出並結束行程（`set_fallback`／`claim_output`）；`handlers/session_start.py` 追蹤提示前移、各段打點過 80% 寫回 state 送出收掉；`handlers/user_prompt_submit.py` 降級跳過脈絡／導讀卡／檢索注入；`handlers/pre_tool_use.py` 只加打點；大頭兩件：`wg_atoms.collect_superseded_names` 加磁碟備忘（`workflow/_supersedes-memo.json`，卡沒變不開檔），`wg_atoms.load_link_graph` 入口按目錄去重（原本每則提問把同一份索引解析幾百次）；TECH §7.1 表下、§8、§12。
+- **驗證**：`hooks/verify/verify_hook_timing.py` 26 案（新 16：三事件起表與上限、假時鐘鬧鐘代送／只留帳／寫不出去不算送出、真起行程卡住時鬧鐘在上限內代送一份並結束、UPS 三種降級點、PreToolUse 放行與擋下降級都不改判定、開場端到端兩支且只送一份、備忘與去重）；codex 一輪 6 條採 4 條（代送先寫成才記帳並補 run、檢索後過線不組裝注入、備忘型別與上限、補真退出／deny／單份輸出案例）；B-2 材料重放：開場孤立中位數暖 1.7～2.3 秒、冷 3.5 秒（22.8 秒是同時段整台機器被拖慢，四支開場 hook 與 plan_bash_guard 一起逾時）、開場被取消後第一則提問 3.5→1.3 秒、提問冷啟 5.9→3.8 秒。
 ## 2026-10-21 G15 評分接到收尾：每則夠長的回覆背景評分，下一則的回覆尾巴附「上則評分」一行
 - **原設計者看到的**：AI 回覆超過 300 字，收尾時就丟背景請小模型評分（不等、不擋）；下一則你送訊息時，上一則評完了，AI 回覆最後一行會是 `上則評分 5/7｜沒過：R1、R4`。還沒評完那則就不附，也不補附更早的。本回合改過的 checklist（`memory/_staging/*checklist*.md`）與 DevHistory 提案也自動評，只留帳不附。`text_score.enabled=false` 就整個不評、不留帳。週彙總每份規格多一行：每台裁判各評幾則、自動評與手動評各幾則。細節 TECH §7.11「收尾接線」列。
 - **改了什麼**（軌 track-g15-text-score 003）：新模組 `hooks/wg_text_score.py`：Stop 在各閘之前呼叫 `on_stop`，寫工作檔、起一個背景行程，在自己的行程裡跑 text-score 的 main；UserPromptSubmit 呼叫 `tail_note`，把評分一行插在注入第一行；下一次 Stop 檢查回覆有沒有照抄，有就記 copied。切入點登錄表加 E37（識別字樣 `TEXT_SCORE_TAIL`，路徑 user_prompt，回應型 declared，以 text_sha 配對）；`tools/text-score-weekly.py` 加裁判與種類兩項計數；`.gitignore` 加 `workflow/text-score/`；config 只改 `_doc`。收尾接線要 config 有 `text_score` 段才啟用，所以手寫 config 的測試不會起背景。

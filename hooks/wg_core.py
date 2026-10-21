@@ -167,7 +167,8 @@ DEFAULTS = {
     "hook_timing": {                      # wg_hook_timing：分段計時；累計過上限的 degrade_ratio 就降級（後面的段落不跑）
         "enabled": True,
         "degrade_ratio": 0.8,
-        "fallback_limit_s": {"Stop": 10, "PostToolUse": 5},   # settings.json 讀不到 timeout 時用；只計這裡列到的事件
+        "fallback_limit_s": {"SessionStart": 20, "UserPromptSubmit": 8, "PreToolUse": 5,   # settings.json 讀不到 timeout 時用；
+                             "PostToolUse": 5, "Stop": 10},                                # 只計這裡列到的事件
     },
 }
 

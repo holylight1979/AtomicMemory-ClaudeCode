@@ -40,6 +40,19 @@ from handlers.ups_gates import run_pre_gates
 from handlers.ups_context import build_context
 from handlers.ups_search import collect_matched_atoms
 from handlers.ups_inject import assemble_injection, reconcile_injection_after_trim
+import wg_hook_timing as _hook_timing
+from wg_hook_timing import degraded as _hook_degraded, lap as _hook_lap
+
+
+def _ups_output(lines: List[str]) -> str:
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "\n".join(lines)}},
+                      ensure_ascii=False)
+
+
+def _fallback_output(lines: List[str]) -> str:
+    """背景鬧鐘代送（到上限 95% 還沒送出）：當下已備好的注入＋一行說明；state 這次沒寫回、哨兵留著（下一則會告警）。"""
+    return _ups_output([*lines, "[Guardian:HookTiming] 這則 UserPromptSubmit 快到上限被取消，先送出已備好的部分，"
+                                "記憶檢索與注入可能缺；各段耗時記在 Logs/guard-hook_timing.jsonl。"])
 
 
 # ─── UPS 被 kill 哨兵：偵測上輪注入被 harness timeout 砍掉 ────────────────────
@@ -141,20 +154,27 @@ def handle_user_prompt_submit(
             "DEFAULTS 運行——請修復 JSON（詳 Logs/atom-debug）。"
         )
 
+    # 分段計時（wg_hook_timing）：累計過上限 80% → 降級，脈絡、導讀卡、檢索與注入組裝這次不跑；
+    # 前置閘、記原話（目標樹）、收尾記帳與寫 state 照做。到 95% 還沒送出 → 背景鬧鐘代送已備好的 lines。
+    _hook_timing.set_fallback(lambda: _fallback_output(lines))
+
     # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）
     run_pre_gates(
         session_id, state, config, clean_prompt, prompt_lower, lines
     )
+    _hook_lap("前置閘")
 
     # ─── Context build 段：session context / wisdom / parallel / AIDocs / JIT
     # budget_total 是整包 additionalContext 的上限；build_context 回傳的是扣掉它自己塞進
     # lines 的保留量後的餘額（只供它內部的 JIT 判斷）。最終裁切量的是整包 lines，所以要用
     # 總額——以前拿餘額當上限，episodic/JIT 等於被扣兩次。
     budget_total = compute_token_budget(prompt)
-    build_context(
-        session_id, state, config, prompt, clean_prompt, prompt_lower,
-        budget_total, lines,
-    )
+    if not _hook_degraded():
+        build_context(
+            session_id, state, config, prompt, clean_prompt, prompt_lower,
+            budget_total, lines,
+        )
+        _hook_lap("脈絡")
 
     # 意圖前移（A0.1）：注入前就知道這回合要做什麼，OverviewHub 依 goal_weights 選片；十鍵見 wg_atoms.INTENT_PATTERNS。
     # 意圖是「使用者要做什麼」的權威判斷，只吃使用者本人打的字（user_typed_text：剔掉同伴訊息、背景通知等 harness 區塊）；
@@ -174,36 +194,46 @@ def handle_user_prompt_submit(
     except Exception as e:
         _atom_debug_error("ups:need_goal", e)
         print(f"[NeedGoal] UserPromptSubmit 記原話失敗：{type(e).__name__}: {e}", file=sys.stderr)
+    _hook_lap("目標樹")
 
     # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
-    try:
-        from wg_overview import on_prompt as _hub_on_prompt
-        _hub_txt = _hub_on_prompt(
-            state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
-            intent=turn_intent,
-        )
-        if _hub_txt:
-            lines.append(_hub_txt)
-    except Exception as e:
-        _atom_debug_error("ups:overview_hub", e)
+    if not _hook_degraded():
+        try:
+            from wg_overview import on_prompt as _hub_on_prompt
+            _hub_txt = _hub_on_prompt(
+                state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
+                intent=turn_intent,
+            )
+            if _hub_txt:
+                lines.append(_hub_txt)
+        except Exception as e:
+            _atom_debug_error("ups:overview_hub", e)
+        _hook_lap("導讀卡")
 
     # ─── Search pipeline 段：候選收集（trigger/BM25/vector）+ supersedes + ACT-R 排序
-    already_injected = state.get("injected_atoms", [])
-    (
-        matched_with_dir, atom_source, all_atoms,
-        sem_atoms, section_hints, alias_injected_projects, intent,
-        caches,
-    ) = collect_matched_atoms(
-        session_id, state, config, prompt, prompt_lower, lines
-    )
-
     # ─── Injection assemble 段：hot/cold + budget + related spread + 效用晉升提示
-    newly_injected, atom_source_dirs = assemble_injection(
-        session_id, state, config,
-        matched_with_dir, all_atoms, already_injected,
-        atom_source, section_hints, lines,
-        caches=caches, prompt=clean_prompt,
-    )
+    # 已降級：這則不檢索、不注入（intent 同 collect_matched_atoms 的取法：本則已判的 turn_intent）
+    already_injected = state.get("injected_atoms", [])
+    matched_with_dir: list = []
+    newly_injected: List[str] = []
+    atom_source_dirs: Dict[str, Path] = {}
+    intent = turn_intent
+    if not _hook_degraded():
+        (
+            matched_with_dir, atom_source, all_atoms,
+            sem_atoms, section_hints, alias_injected_projects, intent,
+            caches,
+        ) = collect_matched_atoms(
+            session_id, state, config, prompt, prompt_lower, lines
+        )
+        if not _hook_lap("檢索"):
+            newly_injected, atom_source_dirs = assemble_injection(
+                session_id, state, config,
+                matched_with_dir, all_atoms, already_injected,
+                atom_source, section_hints, lines,
+                caches=caches, prompt=clean_prompt,
+            )
+            _hook_lap("注入組裝")
 
     # Fix Escalation Protocol
     # 規則 RETRY_COUNTS_RERUN_CYCLES：輪數到門檻才提示，訊息帶每輪的重跑指令與紅案
@@ -290,9 +320,12 @@ def handle_user_prompt_submit(
 
     # ─── 最終裁切 → 以「實際送出」結算注入記帳 ───
     # 所有 lines 生產者都在上面；這裡裁切一次，之後不再動 lines。
+    _hook_lap("收尾提示")
     if lines:
         lines = _truncate_context_by_activation(lines, budget_total, atom_source_dirs, config)
     delivered = reconcile_injection_after_trim(session_id, state, config, lines)
+    if _hook_degraded():
+        lines.append(_hook_timing.degrade_note())             # 裁切之後才加：這一行不能被預算裁掉
 
     # per-turn 注入記錄（每 turn 覆寫）：只存「本 turn 實際送出」的 atom + 檔路徑，
     # 供 Stop 做注入→使用→結果 (α,β) 歸因。被最終裁切丟掉的不算注入。
@@ -344,6 +377,7 @@ def handle_user_prompt_submit(
     # 走到這裡＝本輪 UPS 完整跑完 → 拆哨兵（timeout 砍掉時到不了這行，哨兵殘留）
     _ups_sentinel_clear(session_id)
 
+    _hook_timing.claim_output()
     if lines:
         output_json({
             "hookSpecificOutput": {

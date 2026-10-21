@@ -50,6 +50,8 @@ from handlers._shared import (
     _call_project_hook, _cleanup_old_states, prune_workflow_records,
     WISDOM_AVAILABLE, get_reflection_summary,
 )
+import wg_hook_timing as _hook_timing
+from wg_hook_timing import lap as _hook_lap
 
 # Ollama client 在 tools/ 下（dispatcher 已加 sys.path）；用本檔位置推樹根，不用 Path.home()
 _TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
@@ -1069,6 +1071,27 @@ def _take_git_snapshot(state: Dict[str, Any], cwd: str) -> None:
         state["git_snapshot"] = snap
 
 
+def _ss_output(lines: List[str]) -> str:
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}},
+                      ensure_ascii=False)
+
+
+def _fallback_output(lines: List[str]) -> str:
+    """背景鬧鐘代送（到上限 95% 還沒送出）：當下已備好的開場提示（追蹤提示在前段）＋一行說明；state 這次沒寫回。"""
+    return _ss_output([*lines, "[Guardian:HookTiming] 開場 hook 快到上限被取消，先送出已備好的開場提示，其餘這次沒跑、"
+                               "session 狀態這次沒寫回（下一則提問會重建）；各段耗時記在 Logs/guard-hook_timing.jsonl。"])
+
+
+def _degraded_exit(session_id: str, state: Dict[str, Any], lines: List[str]) -> None:
+    """開場超時降級（累計過上限 80%）：state 寫回、已備好的提示照送（追蹤提示在最前段），後面的選配提示與檢查
+    這次跳過（含開場 git 快照、清舊 state、向量服務旗標與啟動）。"""
+    lines.append(_hook_timing.degrade_note())
+    write_state(session_id, state)
+    _hook_timing.claim_output()
+    print(_ss_output(lines))
+    sys.exit(0)
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -1116,6 +1139,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             sys.exit(0)
 
     existing = read_state(session_id)
+    _hook_lap("前置")
     _index_rebuild_notes: List[str] = []   # resume 分支不重建，仍要有值供收尾組訊息
     root_rebuilt = False
     if existing and source in ("compact", "resume") and not _root_fingerprint_matches(existing, root_res):
@@ -1172,6 +1196,12 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if sibling and source == "startup":
             state["_skip_vector_init"] = True
 
+        # 追蹤提示最先算（只要 cwd 與 state）：開場超時降級、或背景鬧鐘代送時，最該到眼前的這段已經備好
+        tracking_lines = _tracking_advisory(cwd, state)
+        lines = ["[Workflow Guardian] Active.", *root_lines, *tracking_lines]
+        _hook_timing.set_fallback(lambda: _fallback_output(lines))
+        _hook_lap("追蹤提示")
+
         # ── 記憶層背景「拉」：在首次讀索引之前 detached 起 vcs-sync worker（秒回、不等）。
         # 趕不趕得上本次候選池隨緣——拉入的 atom 下一個 session 才一定進候選池，advisory 只報同步事實。
         _spawn_pull_sync(session_id, cwd, config)
@@ -1195,6 +1225,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             v4_mgmt = is_management(cwd, v4_user)
         except Exception as e:
             _atom_debug_error("role_bootstrap", e)
+        _hook_lap("索引與職能")
 
         state["user_identity"] = {
             "user": v4_user,
@@ -1254,7 +1285,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
             *[n for n in _index_rebuild_notes if n],
             *root_lines,
+            *tracking_lines,
         ]
+        if _hook_lap("候選池"):
+            _degraded_exit(session_id, state, lines)
 
         # ── 全域 index 解析 fail-loud ──
         # 全域 index 檔存在但解析出 0 atom = 解析失敗（_ATOM_INDEX.md 表內空行/檔
@@ -1347,25 +1381,38 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     )
         except Exception as e:
             _atom_debug_error("session_start:skill_index_validate", e)
+        if _hook_lap("索引校驗"):
+            _degraded_exit(session_id, state, lines)
+
+        # 選配提示：每段跑完打一點，累計過上限 80% 就送出收掉，後面的這次不跑。
 
         # ── 週健檢死人開關 ──────────────────────────────────
         # tools/health-weekly.py（Task Scheduler 每週跑）落 health-last-run.json。
         # 缺檔/逾期 = 排程器本身死了；red>0 = 上次健檢有待處理項。兩者都必須
         # 在 session 內浮出（fail-open 必告知）——「靜默死 27 天」的最後防線。
         lines.extend(_health_advisory(WORKFLOW_DIR / "health-last-run.json"))
+        if _hook_lap("健檢"):
+            _degraded_exit(session_id, state, lines)
 
         # ── 未推送 commit ─────────────────────────────────────
         # SessionEnd 晉升自動提交的 push 走背景、失敗當下無人知 → 這裡補可見性。
         lines.extend(_unpushed_advisory())
         lines.extend(_index_conflict_advisory(cwd))
+        if _hook_lap("未推送與索引衝突"):
+            _degraded_exit(session_id, state, lines)
         lines.extend(_followup_advisory())
-        lines.extend(_tracking_advisory(cwd, state))
+        if _hook_lap("回訪"):
+            _degraded_exit(session_id, state, lines)
         lines.extend(_verify_scope_advisory(cwd))
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_vcs_ignore_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
+        if _hook_lap("範圍、分層與同步"):
+            _degraded_exit(session_id, state, lines)
         lines.extend(_org_advisory(org_root, pool))
         _maybe_spawn_provenance_backfill(config)
+        if _hook_lap("公司層"):
+            _degraded_exit(session_id, state, lines)
 
         if v4_user:
             lines.append(
@@ -1406,6 +1453,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                             lines.append(extra_line)
             except Exception as e:
                 _atom_debug_error("project_hook:session_start", e)
+
+    _hook_timing.set_fallback(lambda: _fallback_output(lines))   # compact／resume 那支也有代送（startup 前面已登記）
+    if _hook_lap("開場主段"):
+        _degraded_exit(session_id, state, lines)
 
     # config.json 解析失敗 → 一行告警（load_config 標旗；fail-open 必浮出）
     if config.get("_config_parse_failed"):
@@ -1487,6 +1538,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 pass
     except Exception as e:
         print(f"Outcome-watch notice error: {e}", file=sys.stderr)
+    if _hook_lap("標記檔提示"):
+        _degraded_exit(session_id, state, lines)
 
     try:
         review_reminder = _check_periodic_review_due(config)
@@ -1516,6 +1569,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             lines.extend(wisdom_lines)
         except Exception as e:
             print(f"Wisdom reflection error: {e}", file=sys.stderr)
+    if _hook_lap("回顧提示"):
+        _degraded_exit(session_id, state, lines)
 
     try:
         long_die = check_long_die_status()
@@ -1556,6 +1611,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 )
     except Exception:
         pass
+    if _hook_lap("服務檢查"):
+        _degraded_exit(session_id, state, lines)
 
     # 可觀測性：IDENTITY.md 完整性哨兵與必載檔硬契約哨兵（登記表驅動；USER.md 已由 user-init.sh 從 USER-{user}.md 拷好）。
     # 兩者都看 Claude Code 設定目錄（實際載入的那幾份），不看資料根：WG_CLAUDE_DIR 指到別處時那裡沒有啟動檔
@@ -1567,8 +1624,12 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(check_always_load_contracts(claude_config_dir()))
     except Exception as e:
         print(f"always-load contract check error: {e}", file=sys.stderr)
+    if _hook_lap("必載檔哨兵"):
+        _degraded_exit(session_id, state, lines)
 
     _take_git_snapshot(state, cwd)
+    if _hook_lap("git 快照"):
+        _degraded_exit(session_id, state, lines)
     write_state(session_id, state)
 
     try:
@@ -1581,17 +1642,15 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _refresh_vector_flag(config)
     except Exception as e:
         _atom_debug_error("SessionStart:vector_flag_refresh", e)
+    _hook_lap("清舊 state 與向量旗標")
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": "\n".join(lines),
-        }
-    }, ensure_ascii=False))
+    _hook_timing.claim_output()
+    print(_ss_output(lines))
 
     # ── Vector service：fire-and-forget 啟動器（自癒/觀測邏輯在 starter.py）──
+    # 已降級就不起：輸出送出後行程還得在上限內結束（Claude Code 取消時不保證採用已印的輸出）
     if (config.get("vector_search", {}).get("auto_start_service", True)
-            and not state.get("_skip_vector_init")):
+            and not state.get("_skip_vector_init") and not _hook_timing.degraded()):
         try:
             starter = CODE_DIR / "tools" / "memory-vector-service" / "starter.py"
             _bg_kwargs: dict = {
