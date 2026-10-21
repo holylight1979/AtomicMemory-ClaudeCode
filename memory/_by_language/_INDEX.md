@@ -6,7 +6,7 @@
 | 語言 | atom 數 |
 |------|---------|
 | Python | 21 |
-| C#／.NET | 20 |
+| C#／.NET | 21 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
 | Bash／Shell | 13 |
@@ -61,6 +61,7 @@
 | `memory/設計通則/搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍.md` | 搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍 |
 | `memory/驗證與實證/winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii.md` | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
 | `memory/驗證與實證/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md` | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
+| `memory/驗證與實證/靜態分析量尺真打後先抽樣每種解析不到的原因-多數是可修的讀錯或標太寬-遮字串要留記號.md` | 靜態分析量尺真打後先抽樣每種解析不到的原因-多數是可修的讀錯或標太寬-遮字串要留記號 |
 
 ## JavaScript／Node
 
