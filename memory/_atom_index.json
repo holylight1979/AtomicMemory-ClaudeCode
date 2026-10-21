@@ -11115,6 +11115,25 @@
         "pool limit"
       ],
       "scope": "global"
+    },
+    {
+      "name": "ollama同名標籤跨機不保證同一個模型檔-比digest-跨機要同一裁判用帶日期與量化的具體標籤",
+      "path": "memory/驗證與實證/LLM裁判/ollama同名標籤跨機不保證同一個模型檔-比digest-跨機要同一裁判用帶日期與量化的具體標籤.md",
+      "triggers": [
+        "Ollama 標籤",
+        "ollama pull",
+        "digest",
+        "模型版本",
+        "gemma4:e4b",
+        "跨機同模型",
+        "裁判模型",
+        "judge_model",
+        "/api/tags"
+      ],
+      "scope": "global",
+      "related": [
+        "小模型當文字規格裁判實測-逐條是非題加程式先切範圍才準-一次全判會拿後文湊答案-裁判偏寬鬆先記帳不擋-引用對不到原文就作廢"
+      ]
     }
   ]
 }
