@@ -9,6 +9,7 @@
 | commit-前必須核對-staged-清單而非只信自己-add-了什麼 | commit 前必須核對 staged 清單而非只信自己 add 了什麼 |
 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 |
 | git-apply-check-過但-git-am-失敗-crlf-檔案的-patch-用-git-apply-index-加-git-am-continue-保留原作者 | git apply --check 過但 git am 失敗-CRLF 檔案的 patch 用 git apply --index 加 git am --continue 保留原作者 |
+| git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 | git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 |
 | git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal | git 合併與換行的實證事實-text-auto 不回頭轉-stage 方向-孤立 CR 是 binary-driver 缺 command 會 fatal |
 | git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉 | git 已push commit 勿改寫 — 雙 push-url + GitLab main force 保護致遠端分叉 |
 | gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-identity-星號md誤傷identity開頭的atom | gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-IDENTITY-星號md誤傷identity開頭的atom |

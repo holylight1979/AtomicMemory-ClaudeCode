@@ -8265,6 +8265,48 @@
       "depends": [
         "path:C:/Users/holylight/.claude/tools/console-spawn.py"
       ]
+    },
+    {
+      "name": "windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對permissionerror稍等重試",
+      "path": "memory/OS-Windows/windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對permissionerror稍等重試.md",
+      "triggers": [
+        "PermissionError",
+        "Errno 13",
+        "WinError 32",
+        "WinError 5",
+        "rename 失敗",
+        "搶檔",
+        "並發讀寫",
+        "共用資料夾",
+        "SMB",
+        "防毒掃描",
+        "flaky",
+        "偶發紅",
+        "os.rename",
+        "retry_on_busy"
+      ],
+      "scope": "global",
+      "related": [
+        "windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫"
+      ]
+    },
+    {
+      "name": "git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測",
+      "path": "memory/版控/Git/git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測.md",
+      "triggers": [
+        "git stash",
+        "stash push --",
+        "stash pop --index",
+        "退回舊碼看紅",
+        "could not write index",
+        "patch does not apply",
+        "單檔退回",
+        "舊碼紅"
+      ],
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
+      ]
     }
   ]
 }
