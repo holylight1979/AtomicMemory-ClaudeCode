@@ -759,6 +759,23 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 刻意不做：不加閘、不放寬既有閘、不加例外清單；擋訊息既有格式與規則名不動。user_prompt、session_start、post_tool_hint、local_llm 這幾條路只登記不接；另一支 Stop hook `hooks/codex_companion.py` 自己的擋訊息沒接。識別字樣是子字串比對，訊息裡當範例出現的字樣也會認到，靠帳上的 with 欄回頭調字樣。
 
+### 7.11 文字規格評分（G15，`tools/text-score.py`）
+
+目的：照一份「規格」對任何文字逐條判是非、產出評分表；裁判只用開源免費模型（Ollama），付費模型 0 token。現在只有手動指令與留帳，收尾自動評（Stop 丟背景）另接；只附不擋。
+
+| 部件 | 位置 | 做什麼 |
+|------|------|--------|
+| 規格 | `text-specs/<代號>.md`（程式碼根，版控資料；寫法 `text-specs/README.md`） | 開頭六鍵（規格代號＝檔名、適用、讀者、讀者目的、通過線、維護）＋檢核項表（代號｜問題｜判法｜必過｜沒過時｜來源）＋選填判例表；最多 8 條、來源必填，格式錯 exit 2。程式不寫死條目；判法只認四種：`模型判`（整份）、`程式切出標題後的第一句 → 模型判`、`程式切出前 N 句 → 模型判`、`程式先抓候選詞 → 模型判…`。不放 `rules/`：Claude Code 會把 rules 底下的 md 每個 session 遞迴載入 |
+| 前處理 | `clean_text`／`sentences`／`candidates` | 去掉 code 區塊與網址（inline code 留著）；標題（含引用裡的標題）、表格分隔線不算句子，去掉引用與清單符號，句號、問號、驚嘆號與換行是句界，英文句點後接空白與大寫字母才算句界；候選詞只收像代號的字（inline code 整段、旗標、帶 `. / : _ -` 的名字、全大寫縮寫、字母夾數字），最多 12 個 |
+| 裁判 | `make_client`／`ask_judge` | 沿用 `ollama_client` 的 backend 設定、優先序與退避（§9.1），但每台都換成裁判模型（`text_score.judge_model` 或 `--model`；本機沒裝那個模型就算不在，不換成本機設定的模型，分數才比得起來）。原生 `/api/chat`，`think:false`、`temperature:0`、明帶 `num_ctx`，`format` 帶 quote → reason → verdict 的 schema。每條各問一次，題目在前、原文在後（每條開頭不同，不會接著上一條的快取算）。都不在 → 剩下的條記未評、exit 0 |
+| 驗收 | `check_answer` | 附了引用就要逐字落在送去的那段原文（不分判定；R1 只對第一句、R2 只對前三句）：NFKC 統一全半形、每行去掉行首的引用／標題／清單符號、去 `*` 與反引號與空白，「…」分段依序，不做相似度。作廢：引用對不到、判否沒附引用、省略號以外不到 4 字、判定不是是／否／不適用（含 null）、回的不是 JSON、`prompt_eval_count` ≥ `num_ctx`×95%（實測內網 Ollama 超過 num_ctx 時回報整段長度，不一定截到 num_ctx）。回應欄位型別不對不會當掉：token 數當 0、內容不是字串算不是 JSON；呼叫拋出沒料到的例外記未評並 stderr |
+| 算分 | `tally` | 過＝是＋不適用；必過「否」或非必過「否」超過通過線容許數 → 不過；必過作廢或未評 → 未定；全部未評 → 未評。摘要 `評分 N/M｜沒過：…｜作廢：…`。裁判回答裡的分數欄一律不看 |
+| 留帳 | `Logs/guard-text_score.jsonl` | 寫不進去不擋（exit 0），stderr 說原因、尾行 `logged=0`。一則一行：ts、session（`--session`）、kind（manual 或自動評的種類）、spec、spec_sha、source、text_sha、chars、model、models_used、backends、secs、prompt_tokens、answer_tokens、pass／fail／na／void／unscored、score、total、overall、summary、items（每條 status、verdict、quote、reason、why、secs、token）。不存原文 |
+| 自動評入口 | `--auto-kind <種類>` | `text_score.enabled=false`、種類不在 `auto_targets`、去掉 code 與網址後的非空白字少於 `min_chars` → 印「不評：<理由>」、不問裁判、不留帳。給之後的 Stop 背景接線呼叫 |
+| 週彙總 | `tools/text-score-weekly.py`（唯讀；`--weeks`、`--log`、`--json`） | 最近 N 個 ISO 週，每份規格：則數、裁判不在數、每條每週過率（是 ÷（是＋否））、最近兩週趨勢（百分點）、作廢數；規格雜湊不只一版時標出；尾行 `TEXT_SCORE_WEEKLY DONE weeks= records= unscored= void= bad=` |
+
+案例 `tools/verify/verify_text_score.py`（假 Ollama 伺服器，回應形狀錄自真回應）；真打量尺 `tools/verify/probe_text_score_real.py`（5 份樣本印對答率與秒數，`TEXT_SCORE_REAL DONE …`，不當閘）。已知限制：裁判的判定與理由會自相矛盾，「找得到…就答否」這類反向問法最常見，程式驗不出；裁判把引用改成簡體字會被作廢；Ollama 重用快取時 `prompt_eval_count` 只算新算的 token，截斷判定與 token 數會偏低。
+
 ## 8. 可觀測與自我維護
 
 原則：給人看的資訊放**常駐可見面**（零 token），不放 chat 注入。
@@ -922,6 +939,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 ├── settings.json                            ← 9 hook 事件 + statusLine
 ├── version.json                             ← 版本標識
 ├── rules/core.md                            ← 治理原則、知識庫、記憶、對話規則（hook 已強制者不重述）
+├── text-specs/                              ← G15 文字評分規格（資料，§7.11；不放 rules/，免得每個 session 都載入）
 │
 ├── hooks/
 │   ├── workflow-guardian.py                 ← 1 行 shim → dispatcher.main()
@@ -1102,6 +1120,8 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `acceptance_spec.min_files_trigger` | 3 | 規格工件建議門檻 |
 | `deferral_gate.max_context_ratio` / `min_object_chars` | 0.75 / 6 | DeferralGate |
 | `lang_guard.english_ratio_threshold` / `min_lang_chars` | 0.5 / 40 | 英文漂移 |
+| `text_score.judge_model` / `default_spec` / `timeout_sec` / `num_ctx` | gemma4:e4b / reader-designer / 120 / 8192 | G15 文字規格評分（§7.11）：裁判模型、預設規格、每次問裁判的逾時、每次明帶的 context 長度 |
+| `text_score.enabled` / `min_chars` / `auto_targets` | true / 300 / [final_reply, docs] | 只管自動評入口 `--auto-kind`；手動指令照跑 |
 | `version_guard.mode` | warn | 版本脈絡殘留 |
 | `coordination.enabled` / `warn_suppress_min` / `scan_mtime_window_s` / `max_scan_files` | true / 10 / 1800 / 20 | 跨 session 預警 |
 | `auto_handoff.token_warn_ratio` / `context_window_tokens` | 0.85 / 1000000 | token 預警 |
@@ -1143,6 +1163,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `taxonomy.gate_enabled` | atom 必須帶範疇才能寫入的閘 |
 | `realm.llm_fallback.enabled` | 預設 false；開了會用本地 LLM 判定 unknown atom 的 realm |
 | `lang_guard.enabled` | 回應英文比例過高時的繁中提醒 |
+| `text_score.enabled` | G15 文字規格自動評（`--auto-kind`）；手動 `tools/text-score.py` 照跑 |
 | `version_guard.enabled` | 檔內版本操作脈絡殘留的 warn（`mode` warn / off） |
 | `acceptance_spec.enabled` | 多檔改動要求驗收規格 |
 | `deferral_gate.enabled` | Stop 閘攔「推給下個 session」的退縮歸屬 |

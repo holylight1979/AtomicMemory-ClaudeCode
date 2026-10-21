@@ -329,6 +329,16 @@
     "english_ratio_threshold": 0.5,
     "min_lang_chars": 40
   },
+  "text_score": {
+    "_doc": "G15 文字規格評分（tools/text-score.py；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序，每台都用 judge_model；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。enabled／min_chars／auto_targets 只管自動評（--auto-kind <種類>：enabled=false 或種類不在 auto_targets 或去掉 code 與網址後不到 min_chars 字就印「不評」），手動指令照跑。",
+    "enabled": true,
+    "default_spec": "reader-designer",
+    "judge_model": "gemma4:e4b",
+    "timeout_sec": 120,
+    "num_ctx": 8192,
+    "min_chars": 300,
+    "auto_targets": ["final_reply", "docs"]
+  },
   "version_guard": {
     "_doc": "版本操作脈絡殘留 warn hook（hooks/version_guard.py，由 guardian PostToolUse 同程序呼叫 run()）。Write/Edit 後掃剛寫入的 ~/.claude 內檔，命中高精度版本 pattern（V5 Pxx/Sprint/Wave/方案代號/[vN]·[phaseN] 前綴/[Fxx] 錨）→ warn-only(systemMessage+stderr)，不阻斷。寧漏報不誤報：模糊 pattern（裸 Phase N/日期/v2.x/變更敘事）刻意不收。正位檔(DevHistory/_CHANGELOG/TECH/Architecture/SPEC/plans/verify/_staging)+功能 token(_migrate_v/SCHEMA_VERSION/protocolVersion)豁免。規則 rules/core.md「版本與文件治理」；pattern single source＝atom feedback-live-…。一鍵關=enabled:false 或 mode:off；min_matches=命中幾項才提醒。",
     "enabled": true,

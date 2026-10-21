@@ -41,6 +41,8 @@ TOOLS = {
     "scorecard-report.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "statusline.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "refix-churn.py": (["CONFIG_PATH"], ["CODE_DIR"]),
+    "text-score.py": (["CLAUDE_DIR", "CONFIG_PATH", "LOG_PATH"], ["CODE_DIR", "SPEC_DIR"]),
+    "text-score-weekly.py": (["LOG_PATH"], ["CODE_DIR"]),
     "overview-map-scaffold.py": (["CONFIG_PATH"], ["CODE_DIR"]),
     "native-memory-bridge.py": (["ATOM_INDEX"], ["CODE_DIR"]),
     "sync-memory-index.py": (["MEMORY_DIR", "_CONFIG_PATH"], []),
