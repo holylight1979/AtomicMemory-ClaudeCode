@@ -6,6 +6,9 @@ worktree 無信任而 live 根有 → 補正斜線鍵並印出；--help 有「�
 反例：--worktree 指 live 根／未登記 → FAIL 不起；--prompt-file 不存在 → FAIL；kill switch → FAIL 且訊息點名檔；
 已 5 個活著 → 拒並列現有；逾時沒收到 → exit 1、stdout 有開工句 code block 與「退回人貼」；live 根也沒信任 → FAIL；
 method=gui → 不起、印退路。
+模型：--model 接在指令尾（bg 與 print 都接）；沒給 --model 也沒 config default_model → 指令不含 --model；--model 優先於
+config；開工後讀 transcript 最近一則真回應的 message.model 印「模型＝…」，指定了卻對不上或讀不到 → FAIL 印「指定＝…／實際＝…」、
+不殺 session；session 第一回合就回 API 錯誤（例：模型 id 不存在）→ 不等逾時、立刻 FAIL 並印 claude 回的錯。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_console_spawn.py
 """
 from __future__ import annotations
@@ -101,14 +104,21 @@ class World:
         base.update(over)
         return [x for k, v in base.items() for x in (k, v) if v is not None]
 
-    def write_transcript(self, session_id: str, blocks: list) -> Path:
+    def write_transcript(self, session_id: str, blocks, model=None, extra=()) -> Path:
+        """blocks=None 就不寫那則 assistant、只寫 extra（例：第一回合只有 API 錯誤訊息的 session）。"""
         d = self.data / "projects" / cs.cwd_slug(self.wt)
         d.mkdir(parents=True, exist_ok=True)
         p = d / f"{session_id}.jsonl"
-        lines = [json.dumps({"type": "user", "message": {"content": PROMPT}}),
-                 json.dumps({"type": "assistant", "message": {"content": blocks}}, ensure_ascii=False)]
+        lines = [json.dumps({"type": "user", "message": {"content": PROMPT}})]
+        if blocks is not None:
+            msg = {"content": blocks, **({"model": model} if model else {})}
+            lines.append(json.dumps({"type": "assistant", "message": msg}, ensure_ascii=False))
+        lines += [json.dumps(r, ensure_ascii=False) for r in extra]
         p.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return p
+
+    def write_spawn_config(self, **spawn) -> None:
+        (self.live / "workflow" / "config.json").write_text(json.dumps({"console": {"spawn": spawn}}), encoding="utf-8")
 
 
 @pytest.fixture
@@ -126,12 +136,12 @@ def sendmessage_block(text: str) -> dict:
     return {"type": "tool_use", "name": "SendMessage", "input": {"to": "claude-xx", "message": text}}
 
 
-def arm_kickoff(world: World, fake: FakeClaude, blocks: list):
+def arm_kickoff(world: World, fake: FakeClaude, blocks, model=None, extra=()):
     """--bg 一跑就讓 agents 清單有它、transcript 寫好指定內容（模擬工作軌開工後的狀態）。"""
     def on_bg():
         fake.agents = [{"id": fake.short_id, "sessionId": fake.session_id, "kind": "background",
                         "name": "track-demo kickoff", "cwd": str(world.wt), "status": "busy"}]
-        world.write_transcript(fake.session_id, blocks)
+        world.write_transcript(fake.session_id, blocks, model, extra)
     fake.on_bg = on_bg
 
 
@@ -186,6 +196,7 @@ def test_help_has_how_to_run():
     r = subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "--help"], capture_output=True, creationflags=NO_WINDOW)
     out = r.stdout.decode("utf-8", "replace")
     assert r.returncode == 0 and "怎麼跑" in out and "--permission-mode" in out and "--method" in out
+    assert "--model" in out
 
 
 # ─── 反例 ───────────────────────────────────────────────────────────────────────
@@ -268,3 +279,92 @@ def test_gui_method_only_prints_fallback(world, capsys):
     fake, clock = FakeClaude(), Clock()
     code, out = run(world, fake, clock, capsys, **{"--method": "gui"})
     assert code == 1 and "退回人貼" in out and PROMPT in out and fake.calls == []
+
+
+# ─── 模型 ───────────────────────────────────────────────────────────────────────
+OPUS, SONNET = "claude-opus-5-5", "claude-sonnet-5-5"
+KICKOFF = [sendmessage_block(f"{TRACK} 收到開工")]
+# Claude Code 自己補寫的訊息 model 欄是 "<synthetic>"；模型 id 不存在時第一回合只會有這一則（實測 2.1.304）
+NO_RESPONSE = {"type": "assistant", "message": {"model": "<synthetic>",
+                                                "content": [{"type": "text", "text": "No response requested."}]}}
+BAD_MODEL_TEXT = ("There's an issue with the selected model (claude-nonexistent-9-9). It may not exist or you may "
+                  "not have access to it. Run /model to pick a different model.")
+BAD_MODEL_ERROR = {"type": "assistant", "isApiErrorMessage": True,
+                   "message": {"model": "<synthetic>", "content": [{"type": "text", "text": BAD_MODEL_TEXT}]}}
+
+
+def test_model_flag_goes_into_bg_cmd(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=OPUS)
+    code, _ = run(world, fake, clock, capsys, **{"--model": OPUS})
+    assert code == 0
+    assert fake.bg_calls()[0]["cmd"] == [str(world.claude_bin), "--bg", PROMPT, "--permission-mode", "bypassPermissions",
+                                         "--model", OPUS]
+
+
+def test_no_model_flag_no_config_adds_nothing_and_reports_actual(world, capsys):
+    assert not (world.live / "workflow" / "config.json").exists()      # 前置：config 沒有 default_model
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=OPUS)
+    code, out = run(world, fake, clock, capsys)
+    assert code == 0 and "--model" not in fake.bg_calls()[0]["cmd"]
+    assert f"模型＝{OPUS}" in out                                       # 前置：真的讀到 transcript 的 model 欄
+
+
+def test_config_default_model_used_without_flag(world, capsys):
+    world.write_spawn_config(default_model=SONNET)
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=SONNET)
+    code, out = run(world, fake, clock, capsys)
+    assert code == 0 and fake.bg_calls()[0]["cmd"][-2:] == ["--model", SONNET] and f"模型＝{SONNET}" in out
+
+
+def test_model_flag_beats_config_default_model(world, capsys):
+    world.write_spawn_config(default_model=SONNET)
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=OPUS)
+    code, _ = run(world, fake, clock, capsys, **{"--model": OPUS})
+    cmd = fake.bg_calls()[0]["cmd"]
+    assert code == 0 and cmd[-2:] == ["--model", OPUS] and SONNET not in cmd
+
+
+def test_model_matches_transcript_passes(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=OPUS, extra=(NO_RESPONSE,))
+    code, out = run(world, fake, clock, capsys, **{"--model": OPUS})
+    assert code == 0 and out.rstrip().endswith("CONSOLE_SPAWN_CHECK PASS")
+    assert f"模型＝{OPUS}" in out and "<synthetic>" not in out          # 後面那則 <synthetic> 不算實際模型
+
+
+def test_model_mismatch_fails_with_both_values_and_keeps_session(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=SONNET)
+    code, out = run(world, fake, clock, capsys, **{"--model": OPUS})
+    assert code == 1 and out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL")
+    assert f"指定＝{OPUS}／實際＝{SONNET}" in out and f"claude stop {fake.short_id}" in out
+    assert not any(c["cmd"][1:2] == ["stop"] for c in fake.calls)       # 不殺 session，交總控台決定
+    assert "退回人貼" not in out                                        # 已開工，不叫人重貼
+
+
+def test_model_specified_but_transcript_has_no_model_fails(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF, model=None)
+    code, out = run(world, fake, clock, capsys, **{"--model": OPUS})
+    assert code == 1 and f"指定＝{OPUS}／實際＝讀不到" in out
+
+
+def test_api_error_fails_at_once_with_claude_message(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, None, extra=(BAD_MODEL_ERROR,))
+    code, out = run(world, fake, clock, capsys, **{"--model": "claude-nonexistent-9-9"})
+    assert code == 1 and out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL")
+    assert BAD_MODEL_TEXT in out and f"claude stop {fake.short_id}" in out
+    assert "退回人貼" not in out                                        # 人貼救不了 API 錯誤，不叫人貼
+    assert clock.t < 90                                                 # 不白等到逾時
+
+
+def test_print_method_also_passes_model(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    code, out = run(world, fake, clock, capsys, **{"--method": "print", "--model": OPUS})
+    (p,) = [c for c in fake.calls if "-p" in c["cmd"]]
+    assert code == 0 and p["cmd"][-2:] == ["--model", OPUS] and "不核對實際模型" in out

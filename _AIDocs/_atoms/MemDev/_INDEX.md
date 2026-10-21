@@ -21,6 +21,7 @@
 | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引api刪舊登新再sync | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引API刪舊登新再sync |
 | auto-capture碎片sweep污染詞庫-defer根治 | auto-capture碎片sweep污染詞庫-defer根治 |
 | cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook | cc實測-PreToolUse對AskUserQuestion與ExitPlanMode會觸發且tool_input完整-deny時PostToolUse不觸發PostToolBatch會-中途到的同伴訊息是queued_command不經任何hook |
+| codex-exec的stderr紀錄在user段整份回聲提示詞-replay-guard的指令行判定與整份掃都會把材料裡的git-diff與禁區路徑當codex動作-守門前先剝回聲與回答只判它自己的輸出 | codex-exec的stderr紀錄在user段整份回聲提示詞-replay-guard的指令行判定與整份掃都會把材料裡的git-diff與禁區路徑當codex動作-守門前先剝回聲與回答只判它自己的輸出 |
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 |
 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 |
 | commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath | commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-Cpath |

@@ -472,10 +472,11 @@
   },
   "console": {
     "spawn": {
-      "_doc": "G16 總控台自己開工作軌 session（tools/console-spawn.py --method bg）：max_parallel＝由本腳本起且還活著的 session 上限；timeout_sec＝等「<軌名> 收到開工」的秒數；poll_sec＝輪詢間隔。kill switch：workflow/console-spawn.STOP。",
+      "_doc": "G16 總控台自己開工作軌 session（tools/console-spawn.py --method bg）：max_parallel＝由本腳本起且還活著的 session 上限；timeout_sec＝等「<軌名> 收到開工」的秒數；poll_sec＝輪詢間隔。kill switch：workflow/console-spawn.STOP。default_model＝起 session 預設帶的模型完整 id（--model 優先；不設或空字串就吃 CC 預設；報到後讀 transcript 核對，不符即 FAIL）。",
       "max_parallel": 5,
       "timeout_sec": 90,
-      "poll_sec": 3
+      "poll_sec": 3,
+      "default_model": "claude-opus-5-5"
     }
   },
   "guard": {
