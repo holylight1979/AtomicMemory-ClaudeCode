@@ -50,12 +50,14 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .atom_io import (
     write_atom, write_index, write_index_full, write_raw,
     append_atom_file, locate_atom, check_supersedes, WriteResult,
     _canonical_supersedes, card_body_lines, narrative_date_error,
+    _audit_log, _gen_audit_id,
 )
 from .atom_access import init_access
 from .atom_spec import (
@@ -247,6 +249,17 @@ def create_atom(payload: dict) -> WriteResult:
 
     # 3. access.json：init 一次帶齊 first_seen + last_used（單寫，去冗餘雙寫）
     init_access(file_path, first_seen=today, last_used=today, source="mcp")
+
+    # 3b. locate 把綁 Entry 的卡留在 core（ENTRY_BOUND_STAYS_CORE）→ 卡真的建成才留帳，帳形同 SessionEnd sweep
+    hold = payload.get("realm_hold")
+    if hold:
+        _audit_log({
+            "audit_id": _gen_audit_id(),
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "op": "realm_hold", "source": "atom_io:create", "rule": hold.get("rule"),
+            "slug": index["slug"], "entry": hold.get("entry"),
+            "path": str(index.get("rel_path") or ""), "would": hold.get("would"),
+        })
 
     # 4. index upsert（非致命，對拍 appendToIndex 的 crashLog-only）
     # scope：js 端 create 傳 scopeLabel（與 frontmatter 一致）；缺省 None → 沿用既有/global

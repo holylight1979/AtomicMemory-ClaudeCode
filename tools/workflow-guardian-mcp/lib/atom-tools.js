@@ -187,6 +187,7 @@ async function toolAtomWrite(id, args) {
     title, scope, project_cwd, role, user, audience, realm, domain, triggers,
     subdir, mode, allow_new_category: !!allow_new_category, enforce_cwd_scope: true,
     cross_project: !!cross_project,
+    ...(Array.isArray(entry) && { entry: entry.map((e) => e.trim()) }),   // 自動 realm 看 Entry（ENTRY_BOUND_STAYS_CORE）
   });
   if (!lr0.ok) return reply(`atom_write: ${lr0.error}`, true);
   const loc = lr0.extra || {};
@@ -200,6 +201,10 @@ async function toolAtomWrite(id, args) {
     domain = loc.domain;
     try { process.stderr.write(
       `[atom_write] auto-realm: ${slug} → local/${domain} (matched: ${loc.auto_realm.join(",")})\n`); } catch {}
+  }
+  if (loc.realm_hold) {
+    try { process.stderr.write(
+      `[atom_write] ${loc.realm_hold.rule}: ${slug} 綁 Entry ${loc.realm_hold.entry.join(",")} → 留 core（詞庫本來判 ${loc.realm_hold.would}）\n`); } catch {}
   }
   let pendingReviewBy = pending_review_by || null;
   if (loc.routed_to_pending && !pendingReviewBy) pendingReviewBy = "management";
@@ -349,6 +354,7 @@ async function toolAtomWrite(id, args) {
                ...(Array.isArray(depends) && { depends }) },
       kind_hint,
       dry_run,
+      ...(loc.realm_hold && { realm_hold: loc.realm_hold }),   // py 落檔成功後寫 realm_hold 帳
     });
     if (!cr.ok) {
       return reply(`atom_create funnel failed: ${cr.error}`, true);
