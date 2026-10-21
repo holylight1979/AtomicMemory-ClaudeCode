@@ -8380,10 +8380,11 @@
         "驗收環境",
         "forbidden-phrases.json",
         "IndexZero",
-        "資料根種卡",
+        "資料根帶卡",
         "試跑資料根",
         "knowledge harvest 自動 commit",
-        "build_env"
+        "build_env",
+        "洩題卡"
       ],
       "scope": "global",
       "related": [
@@ -8460,6 +8461,54 @@
       "entry": [
         "E08"
       ]
+    },
+    {
+      "name": "sync-atom-index對空索引用add-from-frontmatter補不齊且每次張數不同-整份重建要用rebuild",
+      "path": "memory/CC與原子記憶契約/sync-atom-index對空索引用add-from-frontmatter補不齊且每次張數不同-整份重建要用rebuild.md",
+      "triggers": [
+        "sync-atom-index",
+        "add-from-frontmatter",
+        "--rebuild",
+        "重建索引",
+        "索引張數不對",
+        "_atom_index.json",
+        "資料根建索引",
+        "複製卡片進新資料根"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "換資料根的session向量檢索查的是全機共用live向量庫再用資料根可見池過濾-bm25為主時向量只在全沒命中才打-新卡要等向量重建",
+      "path": "memory/CC與原子記憶契約/換資料根的session向量檢索查的是全機共用live向量庫再用資料根可見池過濾-bm25為主時向量只在全沒命中才打-新卡要等向量重建.md",
+      "triggers": [
+        "向量檢索",
+        "vector search",
+        "WG_CLAUDE_DIR",
+        "資料根",
+        "global_layer",
+        "bm25",
+        "語意找卡",
+        "卡沒注入",
+        "_merge_hit",
+        "vector_ready.flag",
+        "向量庫沒有新卡"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔",
+      "path": "_AIDocs/_atoms/CC與原子記憶契約/第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔.md",
+      "triggers": [
+        "second_opinion_start",
+        "第二意見",
+        "codex 判分",
+        "codex exec",
+        "判分材料",
+        "材料太大",
+        "pack.gather_items",
+        "獨立判分"
+      ],
+      "scope": "global"
     }
   ]
 }
