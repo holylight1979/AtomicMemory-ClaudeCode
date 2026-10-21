@@ -6,7 +6,9 @@
       入口拐彎到門檻的變差／新增路徑也是一條；繼承鏈有空層、連續轉手鏈 ≥2 也是一條；真 Stop 入口擋到補齊為止。
 擋點：排在寫碼查核（對帳）之後、SecondOpinion 之前——對帳先擋時尾段「後面還會擋」列拐彎判斷缺幾條（預覽只讀、不吃這回合
       那一次）；拐彎判斷擋時尾段預告第二意見；同回合第二次收尾不再擋；子代理 Stop 入口不觸發。
-反例：數據全低於門檻 → 不問、不擋；非 Python 檔標不支援、不問；還沒 git add 的新檔不列函式級數據（只報個數）。
+C#：改了 .cs → 同一張表列 C# 的數據（巢狀到門檻要人看；只有空覆寫的層寫出擋掉什麼；經過單一實作介面的轉手多算一手並寫出分派；
+      解析不到的地方附在那一筆、檔案層另一行），門檻與那一題共用。
+反例：數據全低於門檻 → 不問、不擋；Python 與 C# 以外的檔標不支援、不問；還沒 git add 的新檔不列函式級數據（只報個數）。
 思考的彎：reconcile turns ≥4 沒寫「重找最短路：」→ 拒收；turns=2 收下；沒給 turns → 收下並提醒一句。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_g11_turns.py
 """
@@ -136,11 +138,78 @@ def test_all_below_threshold_asks_nothing(tmp_path):
     assert rph.turn_judgment_note(state, _SID, "全部完成了。", 1, 6) == (None, False)
 
 
-def test_non_python_file_is_marked_unsupported_and_not_asked(tmp_path):
+def test_other_language_file_is_marked_unsupported_and_not_asked(tmp_path):
+    root = _repo(tmp_path / "r", {**APP, "a.lua": "local x = 1\n"})
+    _write(root, {"a.lua": "local x = 2\n"})
+    note = _note(_state(_mf(root / "a.lua")))
+    assert "a.lua：不支援（只算 Python 與 C#）" in note and rph.JUDGMENT_QUESTION not in note, note
+
+
+CS_TURNS = """public abstract class Unit
+{
+    public virtual void Tick() { }
+}
+
+public class Mid : Unit
+{
+    public override void Tick() { base.Tick(); }
+}
+
+public class Leaf : Mid
+{
+    public int Walk(int[] xs, bool deep)
+    {
+        int n = 0;
+        if (deep)
+        {
+            foreach (var x in xs)
+            {
+                if (x > 0) { n += x; }
+            }
+        }
+        return n;
+    }
+}
+
+public interface IStore { void Save(string key); }
+
+public class FileStore : IStore
+{
+    public void Save(string key) { if (key.Length > 0) { key = key.Trim(); } }
+}
+
+public class Saver
+{
+    private IStore store;
+    public void Save(string key) => store.Save(key);
+}
+"""
+
+
+def test_cs_file_lists_same_table_with_hollow_layer_dispatch_and_asks(tmp_path):
     root = _repo(tmp_path / "r")
-    _write(root, {"a.cs": "class A { int F() { return 2; } }\n"})
+    _write(root, {"a.cs": CS_TURNS})
+    state = _state(_mf(root / "a.cs"))
+    note = _note(state)
+    assert "不支援" not in note and "函式級側面數據" in note, note
+    assert "a.cs::Leaf.Walk｜巢狀 3｜條件塊 1｜認知 6｜長度 12  ← 要人看" in note, note
+    assert "a.cs::Unit｜繼承 1 層（Unit）｜空層 0｜每層加了什麼：Unit +Tick｜實作 2 個：Leaf、Mid\n" in note, "經由 Mid 繼承到的 Leaf 也算實作"
+    assert ("a.cs::Leaf｜繼承 3 層（Leaf → Mid → Unit）｜空層 1：Mid｜每層加了什麼：Leaf +Walk；"
+            "Mid 無（只有空覆寫：~Tick 只呼叫 base 同名方法、引數照傳）；Unit +Tick  ← 要人看") in note, note
+    assert ("a.cs::Saver.Save｜巢狀 0｜條件塊 0｜認知 0｜長度 1｜只轉手 → store.Save（連續 2）"
+            "｜分派 IStore.Save → FileStore.Save（只有一個實作）  ← 要人看") in note, note
+    assert "a.cs::IStore｜繼承 1 層（IStore）｜空層 0｜每層加了什麼：IStore +Save｜實作 1 個：FileStore（只有一個：經過它的呼叫多繞一手）" in note
+    names = [it["name"] for it in state["reading_path"][_SID]["owed"]["items"] if it["kind"] != "入口"]
+    assert names == ["a.cs::Leaf.Walk", "a.cs::Saver.Save", "a.cs::Mid", "a.cs::Leaf"], names
+    assert rph.JUDGMENT_QUESTION in note and rr.JUDGMENT_EXAMPLE.format(name="a.cs::Saver.Save") in note
+
+
+def test_cs_unparsed_parts_are_shown_on_the_row_and_the_file_line(tmp_path):
+    root = _repo(tmp_path / "r")
+    _write(root, {"a.cs": "Console.WriteLine(1);\n\nclass A { int F() { return 2; } }\n"})
     note = _note(_state(_mf(root / "a.cs")))
-    assert "a.cs：不支援" in note and "Roslyn" in note and rph.JUDGMENT_QUESTION not in note, note
+    assert "a.cs：解析不到（第 1 行起有不在任何型別裡的程式（頂層陳述式或沒認出的宣告），沒算）" in note, note
+    assert "a.cs::A.F｜巢狀 0｜條件塊 0｜認知 0｜長度 1｜信心：部分（同檔有解析不到，見該檔那一行）" in note, note
 
 
 def test_untracked_new_file_is_counted_not_listed(tmp_path):
