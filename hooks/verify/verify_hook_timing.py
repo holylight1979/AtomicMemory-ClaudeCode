@@ -280,7 +280,7 @@ def _overdue(event, limit, segments):
 @pytest.mark.parametrize("event,limit,stuck", [("SessionStart", 20.0, "候選池"), ("UserPromptSubmit", 8.0, "檢索")])
 def test_overrun_sends_fallback_and_exits_before_cancel(ledger, exits, capsys, event, limit, stuck):
     """登記過代送、正常輸出還沒送：留一筆 overrun（卡在哪段、各段耗時、fallback=True），stdout 送出代送內容並結束行程——
-    Claude Code 取消 hook 時已印的也不算數，要搶在取消前收掉。"""
+    Claude Code 取消 hook 時不保證採用已印的輸出，要搶在取消前收掉。"""
     timer = _overdue(event, limit, [["啟動", 300], [stuck, int(limit * 900)]])
     ht.set_fallback(lambda: json.dumps({"hookSpecificOutput": {"additionalContext": "追蹤提示：未結 1 件"}}, ensure_ascii=False))
     timer.overrun()

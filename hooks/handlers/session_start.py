@@ -1648,7 +1648,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     print(_ss_output(lines))
 
     # ── Vector service：fire-and-forget 啟動器（自癒/觀測邏輯在 starter.py）──
-    # 已降級就不起：輸出送出後行程還得在上限內結束，Claude Code 取消時已印的輸出也不算數
+    # 已降級就不起：輸出送出後行程還得在上限內結束（Claude Code 取消時不保證採用已印的輸出）
     if (config.get("vector_search", {}).get("auto_start_service", True)
             and not state.get("_skip_vector_init") and not _hook_timing.degraded()):
         try:

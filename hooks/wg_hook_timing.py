@@ -8,7 +8,7 @@ state 寫不回、閘一個也沒擋、記憶系統這邊什麼訊號都沒有�
 打點只在段落之間；單一段落一路跑過上限時打不到點，所以起表時另排一個背景鬧鐘：到上限的 95% 還沒 finish，
 先寫一筆 kind=overrun（卡在哪一段之後、各段耗時）＋stderr，就算接著被取消也留得下訊號。
 handler 登記過代送輸出（set_fallback）而正常輸出還沒送（claim_output）時，鬧鐘接著代送那份 stdout 並結束行程——
-Claude Code 取消 hook 時已印的輸出也不算數，搶在取消前送出、收掉，最重要的提示才到得了（SessionStart 的追蹤提示、
+Claude Code 取消 hook 時不保證採用已印的輸出（未實測），搶在取消前送出、收掉，最重要的提示才到得了（SessionStart 的追蹤提示、
 UserPromptSubmit 已備好的注入）。PreToolUse 不登記：逾時被取消本來就放行，代送放行只是少查。
 
 上限：settings.json 裡這個事件掛 workflow-guardian.py 那支 hook 的 timeout 秒數（有 matcher 的組要對得上工具名）；
