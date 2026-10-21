@@ -469,6 +469,32 @@ def test_wrapped_commit_cannot_be_judged_is_blocked(tmp_path):
     assert deny and "判不了" in deny
 
 
+def test_commit_through_git_alias_is_checked_like_commit(tmp_path):
+    """G2(a)：`git config alias.ci commit` 之後的 `git ci`、別名接別名、行內 `git -c alias.<名>=commit`，都跟直接
+    git commit 一樣查（以前子命令是 ci、命令裡沒有 commit 字樣，入口快篩就放行）；別名指向 log 的不觸發。"""
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + STACKED)
+    _git(repo, "add", "src/a.py")
+    _git(repo, "config", "alias.ci", "commit")
+    _git(repo, "config", "alias.c", "ci -v")
+    _git(repo, "config", "alias.lg", "log --oneline")
+    assert _gate(repo, 'git commit -m "x"')[0], "前置：直接 commit 會被擋"
+    for command in ('git ci -m "x"', 'git c -m "x"', 'git -c alias.save=commit save -m "x"'):
+        deny, _advice = _gate(repo, command)
+        assert deny and "匿名函式疊用" in deny and "src/a.py" in deny, command
+    assert _gate(repo, "git lg -3") == (None, None)
+
+
+def test_shell_alias_with_commit_cannot_be_judged_is_blocked(tmp_path):
+    """G2(a)：`!` 開頭的 shell 別名內容照包裝那套判：裡面有 git commit → 判不了一律擋；只是查詢 → 不觸發。"""
+    repo = _repo(tmp_path, {"src/a.py": "x = 1\n"})
+    _git(repo, "config", "alias.save", "!git add -A && git commit -m wip")
+    _git(repo, "config", "alias.st2", "!git status --short")
+    deny, _advice = _gate(repo, "git save")
+    assert deny and "判不了" in deny and "別名" in deny
+    assert _gate(repo, "git st2") == (None, None)
+
+
 # ─── commit 指令的寫法（驗收題 A：多行訊息／here-string 把 `-- <路徑>` 切到另一段，整條無聲放行）──────
 # 每種寫法：帶 pathspec（病碼只在工作樹、沒暫存，只有 pathspec 會把它帶進提交）與不帶 pathspec（病碼在暫存區）都要點名那一行。
 

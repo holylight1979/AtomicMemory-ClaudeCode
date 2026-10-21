@@ -21,7 +21,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
 from handlers.pre_tool_use import (  # noqa: E402
-    check_git_privacy, _git_commit_segments, _privacy_globs, _privacy_match,
+    check_git_privacy, _git_commit_segments, _git_commits_to_run, _privacy_globs, _privacy_match,
 )
 
 
@@ -90,6 +90,17 @@ def test_git_add_in_same_command_is_checked(repo):
     assert msg is not None and ".env" in msg
     msg_all = _check(repo, "git add -A && git commit -m 'x'")
     assert msg_all is not None and ".env" in msg_all
+
+
+def test_commit_through_git_alias_is_checked(repo):
+    """G2(a)：`git ci`（alias.ci=commit）與直接 git commit 同一套查；口令閘、需求目標閘共用的 _git_commits_to_run 也認得。"""
+    _stage(repo, ".env", "SECRET=1")
+    assert _check(repo, "git commit -m x"), "前置：直接 commit 會被擋"
+    _git(repo, "config", "alias.ci", "commit")
+    msg = _check(repo, "git ci -m x")
+    assert msg and ".env" in msg
+    assert _git_commits_to_run("git ci -m x", str(repo))[2] is True
+    assert _git_commits_to_run("git status", str(repo))[2] is False
 
 
 def test_git_dash_c_repo_targeting(repo, tmp_path):
