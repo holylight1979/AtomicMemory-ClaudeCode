@@ -9856,6 +9856,55 @@
       "related": [
         "切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天"
       ]
+    },
+    {
+      "name": "shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標",
+      "path": "memory/OS-Windows/shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標.md",
+      "triggers": [
+        "CREATE_NO_WINDOW",
+        "shell=True",
+        "no-window-exempt",
+        "子行程輸出不見",
+        "壓窗旗標",
+        "verify_no_window_spawn",
+        "creationflags",
+        "閃窗"
+      ],
+      "scope": "global",
+      "related": [
+        "字面掃描型守門看不到常數未定義-壓窗守門只查有無creationflags字樣-補錯的常數名也pass-要配一個真的斷言旗標值的案例"
+      ]
+    },
+    {
+      "name": "拿舊的llm實測題庫當改前基線前先用同設定重跑改前版本-temperature0換一天判定也會翻-紅案例以程式現在真的送出的形式為準",
+      "path": "memory/驗證與實證/拿舊的llm實測題庫當改前基線前先用同設定重跑改前版本-temperature0換一天判定也會翻-紅案例以程式現在真的送出的形式為準.md",
+      "triggers": [
+        "改前改後實測",
+        "LLM 實測",
+        "gemma 實測",
+        "紅案例",
+        "改前基線",
+        "temperature 0",
+        "重跑結果不同",
+        "題庫重用",
+        "實測翻盤"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "擋訊息的處置句不寫一律禁令-先分情況再給出路-每條出路問會不會擋到正當情況與同類提示會不會互打",
+      "path": "memory/設計通則/擋訊息的處置句不寫一律禁令-先分情況再給出路-每條出路問會不會擋到正當情況與同類提示會不會互打.md",
+      "triggers": [
+        "擋訊息字句",
+        "處置句",
+        "改問法",
+        "一律禁止",
+        "固定禁令",
+        "擋訊息互打",
+        "提示矛盾",
+        "出路寫法"
+      ],
+      "scope": "global"
     }
   ]
 }
