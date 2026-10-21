@@ -22,6 +22,7 @@ from wg_core import (
 )
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
+from wg_hook_timing import lap as _hook_lap
 from wg_evasion import (
     is_test_command, detect_test_failure, tail_lines, aec_severity, crosscheck_aec_severity,
     _aec_blank, aec_pending_items,
@@ -941,6 +942,117 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
     output_nothing()
 
 
+def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """PostToolUseFailure：工具失敗時 Claude Code 不送 PostToolUse、改送這個。Bash／PowerShell 指令非零結束時：
+    - 前段已經寫下去的檔照樣進 modified_files（閱讀路徑量尺、寫碼查核都讀它）與目標樹的待對照改動；例：`cat > a.py <<EOF … && pytest`
+      測試紅了，a.py 已經改了。目標用成功路徑同一支 write_paths_from_tool 算；失敗的指令不一定寫到，只記這次開始後改過的現存檔，目標不明的不記。
+    - 測試指令紅了記紅測（failing_tests）與驗證收據，跟成功路徑同一套函式；失敗事件沒有 tool_response，錯誤全文（"Exit code N\\n輸出…"）
+      在 error 欄，當字串回應餵進去。error 裡讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。
+    只記帳不擋；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測、不送提示。"""
+    tool_name = input_data.get("tool_name", "") or ""
+    session_id = input_data.get("session_id", "") or ""
+    if tool_name not in ("Bash", "PowerShell") or not session_id:
+        output_nothing()
+        return
+    cwd = input_data.get("cwd", "") or ""
+    judge = bool(os.environ.get("CLAUDE_COMPANION_JUDGE"))
+    if judge:
+        from wg_core import read_state as _read_state
+        state = _read_state(session_id) or {"session": {"id": session_id, "cwd": cwd}, "turn_seq": 0, "judge": True}
+    else:
+        state = _ensure_state(session_id, input_data, config)
+    if not state:
+        output_nothing()
+        return
+    aid = str(input_data.get("agent_id") or "")
+    command = str((input_data.get("tool_input") or {}).get("command") or "")
+    noted = _note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None else []
+    dirty = bool(noted)
+    event = {**input_data, "tool_response": str(input_data.get("error") or "")}
+    if exit_code_of(event["tool_response"]) is not None:
+        if not judge and _track_test_result(state, event, command, tool_name, config):
+            dirty = True
+        try:
+            if _track_sentinels(state, event, command, tool_name, config, session_id):
+                dirty = True
+                _observe_scope_run(state, event, session_id, config)
+        except Exception as e:  # noqa: BLE001
+            print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
+            _atom_debug_error("post_tool_use_failure:verify_ledger", e)
+    advisories = [] if judge else _need_goal_stamp_failed(state, session_id, noted, aid, cwd, config)
+    note = state.pop("_verify_scope_advisory", None)                 # 裁判不注入；漏判已入帳，下次宣告時送回
+    if note and not judge:
+        advisories.append(str(note))
+    if dirty:
+        write_state(session_id, state)
+    if advisories:
+        output_json({"hookSpecificOutput": {"hookEventName": "PostToolUseFailure", "additionalContext": "\n".join(advisories)}})
+    else:
+        output_nothing()
+
+
+def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_name: str, session_id: str,
+                        aid: str, cwd: str) -> List[str]:
+    """失敗指令寫到的檔記進 modified_files，回記了哪些。指令開始時間從 transcript 找；找不到就只要存在就記，並浮一行。"""
+    started = _tool_started_at(str(input_data.get("transcript_path") or ""), str(input_data.get("tool_use_id") or ""))
+    if started is None:
+        print("[post_tool_use_failure] 找不到這次工具呼叫的開始時間，失敗指令的目標檔只要存在就記成改過（可能多記沒寫到的檔）",
+              file=sys.stderr)
+    noted: List[str] = []
+    try:
+        for p in _write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, cwd or (state.get("session") or {}).get("cwd") or "") or []:
+            if not p or p.startswith("UNKNOWN:") or _is_ephemeral_path(p) or not os.path.isfile(p):
+                continue
+            if started is not None and os.path.getmtime(p) < started - 2:      # 指令開始前就是這樣：沒寫到（失敗在寫之前）
+                continue
+            _note_modified(state, session_id, p, tool_name, aid)
+            noted.append(p)
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
+    return noted
+
+
+def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[str], aid: str, cwd: str,
+                            config: Dict[str, Any]) -> List[str]:
+    """失敗指令寫到的檔蓋進目標樹的待對照改動、新收據蓋號（成功路徑 _need_goal_after_tool 的 Bash 段，目標換成真的寫到的檔）。
+    回要送回 AI 的提示；出錯只 stderr，不影響記帳。"""
+    import wg_need_goal as ng
+    turn = int(state.get("turn_seq", 0))
+    try:
+        if not ng.cfg_for_cwd(config, cwd or str((state.get("session") or {}).get("cwd") or ""))["enabled"]:
+            return []
+        lines = [ln for ln in (ng.stamp_edit(session_id, p, aid, turn, config) for p in noted) if ln]
+        ng.stamp_receipts(session_id, state, turn)
+        return lines
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] PostToolUseFailure 蓋號失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
+def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
+    """transcript 尾段（最後 512KB）找這次 tool_use 那筆 assistant 紀錄的時間（epoch 秒）；找不到或讀不到回 None。"""
+    from datetime import datetime
+    if not transcript_path or not tool_use_id:
+        return None
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 512 * 1024))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        if tool_use_id not in line:
+            continue
+        try:
+            rec = json.loads(line)
+            if rec.get("type") == "assistant" and rec.get("timestamp"):
+                return datetime.fromisoformat(str(rec["timestamp"]).replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -948,6 +1060,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         sys_msgs, ctx_msgs = _run_companion_hooks(input_data, config)
         _emit_post_tool_output(ctx_msgs, sys_msgs)
         return
+    _hook_lap("讀 state")
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
@@ -1376,6 +1489,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 )
             dirty = True
 
+    # 分段計時（wg_hook_timing）：累計過 hook 上限的 80% → degraded，後面只記不問——提示類段落（導讀卡、depends 召回、
+    # 跨 session 碰撞、同伴檢查、MCP 切入點註記）不跑；docdrift 清帳、讀入範圍、目標樹蓋號、寫 state 照做
+    degraded = _hook_lap("工具記帳")
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:
             if prune_committed_entries(state, config) > 0:
@@ -1386,7 +1502,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
     hub_ctx = None
-    if tool_name in ("Read", "Bash", "PowerShell", "Grep"):      # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
+    if not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep"):      # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
         try:
             from wg_overview import on_read as _hub_on_read
             hub_ctx = _hub_on_read(
@@ -1410,7 +1526,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     dep_ctx = None
-    if tool_name in ("Read", "Bash", "PowerShell"):
+    if not degraded and tool_name in ("Read", "Bash", "PowerShell"):
         try:
             from wg_depends import on_read_depends as _on_read_depends
             dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config)
@@ -1419,8 +1535,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"depends recall error: {e}", file=sys.stderr)
 
+    _hook_lap("綜觀與召回")
     ng_ctx, ng_changed = _need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config)
     dirty = dirty or ng_changed
+    _hook_lap("目標樹")
 
     advisories = list(aec_reject_msgs)
     if ng_ctx:
@@ -1447,11 +1565,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # 函式尾單次寫（dirty-flag 收斂）
     if dirty:
         write_state(session_id, state)
+    degraded = _hook_lap("寫 state")
 
     # ─── 跨 session late-collision（寫後補償；必須在 write_state 之後查——
     # 兩 session 同時首寫時，寫前掃描雙方都看不見對方，落盤後才可見）───
     if (
-        (config.get("coordination") or {}).get("enabled", False)
+        not degraded
+        and (config.get("coordination") or {}).get("enabled", False)
         and tool_name in ("Edit", "Write", "NotebookEdit")
         and file_path
         and not _is_ephemeral_path(file_path)
@@ -1477,10 +1597,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # 併入的兩支輕檢查放在 write_state 之後：acceptance_spec 從磁碟讀 state 數修改檔，
     # 讓本次事件的檔已入帳（原本兩程序並行時先後不定）
-    sys_msgs, ctx_msgs = _run_companion_hooks(input_data, config)
+    degraded = _hook_lap("跨 session 碰撞")
+    sys_msgs, ctx_msgs = ([], []) if degraded else _run_companion_hooks(input_data, config)
     advisories.extend(ctx_msgs)
+    degraded = _hook_lap("同伴檢查")
     # 切入點契約（TECH §7.10）：MCP 工具的回覆（工具本體回的文字＋上面補的提醒）認得出切入點就接判準卡並留帳
-    if tool_name.startswith("mcp__"):
+    if not degraded and tool_name.startswith("mcp__"):
         _mcp_text = "\n".join([response_text(input_data.get("tool_response")), *advisories])
         _note = entry_note(_mcp_text, "mcp_reply", session_id=session_id, state=state, config=config)
         if _note:

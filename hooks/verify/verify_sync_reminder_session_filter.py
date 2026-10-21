@@ -52,6 +52,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_should_deep_postmortem", lambda *a, **k: False)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_drop_synced", lambda mf: mf)   # 假路徑會被「已同步／檔與版控根都不在」規則剔掉；這裡只測 session 過濾
 
     def drive(modified_files, capsys, uncommitted="echo", **extra):
         if uncommitted == "echo":

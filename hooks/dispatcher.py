@@ -20,6 +20,7 @@ from wg_core import (
     WORKFLOW_DIR, load_config,
     _atom_debug_error,
 )
+import wg_hook_timing as hook_timing
 
 # 惰性 import：event → (module, func)，只在該 event 觸發時 importlib 載入
 # 對應 handler module，省下每次 hook（含最高頻 PostToolBatch/PreToolUse）付全量
@@ -30,6 +31,7 @@ HANDLERS = {
     "UserPromptSubmit": ("handlers.user_prompt_submit", "handle_user_prompt_submit"),
     "PreToolUse": ("handlers.pre_tool_use", "handle_pre_tool_use"),
     "PostToolUse": ("handlers.post_tool_use", "handle_post_tool_use"),
+    "PostToolUseFailure": ("handlers.post_tool_use", "handle_post_tool_use_failure"),  # 工具失敗不送 PostToolUse：補記 Bash 寫檔
     "PreCompact": ("handlers.pre_compact", "handle_pre_compact"),
     "PostCompact": ("handlers.post_compact", "handle_post_compact"),        # 選配 #4
     "PostToolBatch": ("handlers.post_tool_batch", "handle_post_tool_batch"),  # 選配 #4
@@ -44,6 +46,7 @@ HANDLERS = {
 JUDGE_HANDLERS = {
     "PreToolUse": ("handlers.pre_tool_use", "handle_judge_pre_tool_use"),
     "PostToolUse": ("handlers.post_tool_use", "handle_judge_post_tool_use"),
+    "PostToolUseFailure": ("handlers.post_tool_use", "handle_post_tool_use_failure"),
     "Stop": ("handlers.stop", "handle_judge_stop"),
 }
 
@@ -71,13 +74,17 @@ def main():
     event = input_data.get("hook_event_name", "")
     spec = (JUDGE_HANDLERS if judge else HANDLERS).get(event)
     if spec:
+        hook_timing.start(event, input_data, config)    # Stop／PostToolUse 分段計時；handler 在段落邊界打點，過上限 80% 降級
         try:
             module = importlib.import_module(spec[0])
+            hook_timing.lap("載入 handler")
             getattr(module, spec[1])(input_data, config)
         except Exception as e:
             print(f"[workflow-guardian] Error in {event}: {e}", file=sys.stderr)
             _atom_debug_error(f"workflow-guardian:{event}", e)
             sys.exit(0)
+        finally:
+            hook_timing.finish()
     else:
         sys.exit(0)
 

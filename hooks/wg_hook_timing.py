@@ -1,0 +1,137 @@
+"""wg_hook_timing.py — hook 分段計時與超時降級。
+
+從這個行程建立起算，handler 每跑完一段就打一次點（lap）；累計耗時超過這個事件 hook 上限的 degrade_ratio（預設 80%）
+→ 降級：寫一筆 guard log（guard-hook_timing.jsonl，kind=degraded：跑到哪一段、各段耗時）＋stderr 一行，lap 回 True，
+呼叫端收到就寫回 state、放行，後面的段落這次不跑（只記不問）。不降級的話，Claude Code 時間一到直接取消 hook：
+state 寫不回、閘一個也沒擋、記憶系統這邊什麼訊號都沒有。
+每次 hook 結束（不論降級）寫一筆 kind=run，給 tools/hook-timing.py 算各段中位數。
+打點只在段落之間；單一段落一路跑過上限時打不到點，所以起表時另排一個背景鬧鐘：到上限的 95% 還沒 finish，
+先寫一筆 kind=overrun（卡在哪一段之後、各段耗時）＋stderr，就算接著被取消也留得下訊號。
+
+上限：settings.json 裡這個事件掛 workflow-guardian.py 那支 hook 的 timeout 秒數；讀不到退 config hook_timing.fallback_limit_s。
+只計 fallback_limit_s 列到的事件（Stop、PostToolUse）。
+起點是這個行程的建立時間（Windows 用 GetProcessTimes）；pythonw 啟動器殼本身的時間算不到，所以實際比 Claude Code 的計時略少。
+用法：dispatcher 開頭 start(event, input_data, config)、結尾 finish()；handler 在段落邊界 `if lap("段名"): <寫 state、放行>`。
+沒 start 過（單元測試直接呼叫 handler）lap 一律回 False、不記帳。
+"""
+
+import json
+import sys
+import threading
+import time
+from typing import Any, Dict, List, Optional
+
+from wg_core import CLAUDE_DIR, append_guard_log
+
+GUARD = "hook_timing"
+ALARM_RATIO = 0.95                                   # 背景鬧鐘：跑到上限的這個比例還沒結束就先留帳
+_CUR: Optional["HookTimer"] = None
+
+
+class HookTimer:
+    def __init__(self, event: str, session_id: str, limit_s: float, limit_src: str, ratio: float, t0: float):
+        self.event, self.session_id = event, session_id
+        self.limit_s, self.limit_src, self.ratio = limit_s, limit_src, ratio
+        self.t0 = self.last = t0
+        self.segments: List[List[Any]] = []          # [段名, 毫秒]
+        self.degraded_at = ""
+        self.alarm: Optional[threading.Timer] = None
+
+    def overrun(self) -> None:
+        """背景鬧鐘：到上限 95% 還沒 finish（某一段一路跑過頭、打不到點）→ 先留一筆 kind=overrun＋stderr。"""
+        done = self.segments[-1][0] if self.segments else "啟動"
+        print(f"[Guardian:HookTiming] hook 快被取消：{self.event} 已跑 {time.time() - self.t0:.1f} 秒"
+              f"（上限 {self.limit_s:g} 秒的 {ALARM_RATIO:.0%}），卡在「{done}」之後那一段；各段耗時：{self.text()}",
+              file=sys.stderr)
+        rec = self.record("overrun")
+        rec["stuck_after"] = done
+        append_guard_log(GUARD, rec)
+
+    def lap(self, name: str) -> bool:
+        now = time.time()
+        self.segments.append([name, int((now - self.last) * 1000)])
+        self.last = now
+        if self.degraded_at:
+            return True
+        if now - self.t0 < self.limit_s * self.ratio:
+            return False
+        self.degraded_at = name
+        print(f"[Guardian:HookTiming] hook 超時降級：{self.event} 跑完「{name}」已 {now - self.t0:.1f} 秒"
+              f"（上限 {self.limit_s:g} 秒的 {self.ratio:.0%}），後面的段落這次不跑（只記不問）；各段耗時：{self.text()}",
+              file=sys.stderr)
+        append_guard_log(GUARD, self.record("degraded"))
+        return True
+
+    def text(self) -> str:
+        return "、".join(f"{n} {ms}ms" for n, ms in self.segments)
+
+    def record(self, kind: str) -> Dict[str, Any]:
+        return {"kind": kind, "event": self.event, "session_id": self.session_id,
+                "total_ms": int((time.time() - self.t0) * 1000), "limit_s": self.limit_s, "limit_src": self.limit_src,
+                "ratio": self.ratio, "degraded_at": self.degraded_at, "segments": list(self.segments)}
+
+
+def _process_started() -> float:
+    """這個行程的建立時間（epoch 秒）；拿不到就用現在（啟動那段記 0）。"""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = wintypes.HANDLE          # 64 位元的 -1 假 handle，型別不設會被截成 32 位元
+            k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+            created, ended, kern, user = (wintypes.FILETIME() for _ in range(4))
+            if k32.GetProcessTimes(k32.GetCurrentProcess(), ctypes.byref(created), ctypes.byref(ended),
+                                   ctypes.byref(kern), ctypes.byref(user)):
+                return ((created.dwHighDateTime << 32) | created.dwLowDateTime) / 1e7 - 11644473600
+        except Exception:  # noqa: BLE001
+            pass
+    return time.time()
+
+
+def settings_limit(event: str) -> Optional[float]:
+    """settings.json 裡這個事件掛 workflow-guardian.py 的 hook timeout（秒）；沒掛、沒寫 timeout 或讀不到回 None。"""
+    try:
+        data = json.loads((CLAUDE_DIR / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for group in ((data.get("hooks") or {}).get(event) or []):
+        for h in (group or {}).get("hooks") or []:
+            if "workflow-guardian.py" in str(h.get("command") or "") and isinstance(h.get("timeout"), (int, float)):
+                return float(h["timeout"])
+    return None
+
+
+def start(event: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> Optional[HookTimer]:
+    """這個事件要計時就起表（第一段「啟動」＝行程建立到現在：直譯器、載入 wg_core、讀 stdin 與 config）。"""
+    global _CUR
+    cfg = config.get("hook_timing") or {}
+    fallback = (cfg.get("fallback_limit_s") or {}).get(event)
+    if not cfg.get("enabled", True) or not fallback:
+        _CUR = None
+        return None
+    limit = settings_limit(event)
+    _CUR = HookTimer(event, str(input_data.get("session_id") or ""), limit or float(fallback),
+                     "settings.json" if limit else "config", float(cfg.get("degrade_ratio", 0.8)), _process_started())
+    _CUR.lap("啟動")
+    _CUR.alarm = threading.Timer(max(0.0, _CUR.limit_s * ALARM_RATIO - (time.time() - _CUR.t0)), _CUR.overrun)
+    _CUR.alarm.daemon = True                     # 不拖住行程結束
+    _CUR.alarm.start()
+    return _CUR
+
+
+def lap(name: str) -> bool:
+    """這一段跑完；回 True＝已過降級門檻，呼叫端寫回 state 後放行，後面的段落不跑。沒起表回 False。"""
+    return _CUR.lap(name) if _CUR else False
+
+
+def finish() -> None:
+    """hook 結束：最後一個點到現在記成「其餘」，寫一筆 kind=run。"""
+    global _CUR
+    timer, _CUR = _CUR, None
+    if not timer:
+        return
+    if timer.alarm:
+        timer.alarm.cancel()
+    timer.segments.append(["其餘", int((time.time() - timer.last) * 1000)])
+    append_guard_log(GUARD, timer.record("run"))

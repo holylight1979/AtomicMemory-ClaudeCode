@@ -115,6 +115,21 @@ def test_value_option_and_only_given(world):
     assert str(world["cards"]["proj"]) in only.stdout
 
 
+def test_004_empty_entry_mode_removes_only_empty_entry_lines(world):
+    """--empty-entry：清 edit_metadata(entry=[]) 以前留下的「- Entry: 」空行；有代號的 Entry 行、Quote 行都不動。"""
+    data = world["data"]
+    blank = _card(data / "memory" / "設計通則" / "卡空Entry.md", "- Entry: \n")
+    bound = _card(data / "memory" / "設計通則" / "卡有Entry.md", "- Entry: E04\n")
+    before_blank, before_bound, before_a = blank.read_bytes(), bound.read_bytes(), world["cards"]["a"].read_bytes()
+    dry = _run(world, "--empty-entry")
+    assert dry.stdout.strip().splitlines()[-1] == "QUOTE_CLEANUP DONE matched=1 changed=0 failed=0 dry_run=1", dry.stdout
+    assert str(blank) in dry.stdout and str(bound) not in dry.stdout and blank.read_bytes() == before_blank
+    p = _run(world, "--empty-entry", "--apply")
+    assert p.stdout.strip().splitlines()[-1] == "QUOTE_CLEANUP DONE matched=1 changed=1 failed=0 dry_run=0", p.stdout
+    assert blank.read_bytes() == before_blank.replace(b"- Entry: \n", b"", 1)
+    assert bound.read_bytes() == before_bound and world["cards"]["a"].read_bytes() == before_a   # Quote 「A」這次不碰
+
+
 def test_source_is_registered_in_atom_io():
     sys.path.insert(0, str(TREE))
     from lib.atom_io import VALID_SOURCES

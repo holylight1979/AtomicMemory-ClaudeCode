@@ -911,7 +911,7 @@ def edit_metadata(
         file_path: atom .md 絕對路徑（global memory 或 _AIDocs/Failures/ 皆可）
         triggers/related/tags/aka/entry: list[str]，None 表不動該欄位
                 （aka＝這顆用過的舊檔名；改名時寫在自己這顆，舊連結靠它續存；
-                entry＝切入點代號，[] 清成空行、索引移除 entry 鍵）
+                entry＝切入點代號，[] 刪掉整行 Entry、索引移除 entry 鍵）
         provenance/quote: str，渲染為 `- Source:`／`- Quote:` 整行；None 表不動；
             空字串表清成空（不刪行）。quote 由呼叫端先 lib.provenance.sanitize_quote
         source: audit source（須在 VALID_SOURCES；預設 "mcp"）
@@ -948,6 +948,10 @@ def edit_metadata(
         # per-label regex 收斂到「該欄位那一行」（就地定義，不依賴 tools/）。
         # 只吃同行空白：`\s*` 遇到空值欄位會跨行，把下一行（通常 `## 知識`）一併替換掉。
         line_re = re.compile(rf"^-[ \t]*{label}:[ \t]*.*$", re.MULTILINE)
+        if field_name == "entry" and not values:
+            # 不綁任何切入點＝這張卡沒有 Entry 行：整行刪掉（含換行），本來就沒有就不插
+            new_text = re.sub(rf"^-[ \t]*{label}:[ \t]*.*(?:\r?\n|\Z)", "", new_text, count=1, flags=re.MULTILINE)
+            continue
         # 以函式回傳替換字串：值含反斜線（Windows 路徑、Quote 原話）時不得被當成 regex 跳脫
         new_text, n = line_re.subn(lambda _m: replacement, new_text, count=1)
         if n == 0:
