@@ -16,6 +16,7 @@ cases：
  10. 剛被別人搬動的檔短暫拒絕存取：開信／改名／寫狀態稍等重試；一直被佔才報錯
  11. mail.py 的文字模式寫檔都帶 newline=（LF 守門同一套規則）
  12. 附件搬不動、信也搬不回原位 → 停下（exit 1）並報出信與附件各在哪、怎麼湊回，不丟 traceback
+ 13. 整檔重寫的暫存檔名每次都不同（信箱跨電腦共用，行程編號會撞），寫完不留暫存檔
 """
 from __future__ import annotations
 
@@ -361,3 +362,25 @@ def test_move_reports_both_places_when_rollback_also_fails(monkeypatch, capsys, 
     assert "信也搬不回原位" in err and "unlock" in err
     assert (inbox / "_archive" / "20261021-100000_M0001_alice_表格.md").is_file()
     assert (inbox / "20261021-100000_M0001_alice_表格").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# 13. 暫存檔名要全域唯一：同一行程連寫兩次就等同兩台電腦行程編號相同
+# ---------------------------------------------------------------------------
+
+def test_atomic_write_uses_a_unique_temp_name_each_time(monkeypatch, tmp_path: Path):
+    mail = load_mail_module()
+    temps = []
+    real_replace = os.replace
+
+    def record_replace(src, dst):
+        temps.append(src)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(mail.os, "replace", record_replace)
+    target = tmp_path / "Overview.md"
+    mail.write_text_atomic(str(target), "第一次\n")
+    mail.write_text_atomic(str(target), "第二次\n")
+    assert len(temps) == 2 and temps[0] != temps[1]
+    assert target.read_text(encoding="utf-8") == "第二次\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["Overview.md"]

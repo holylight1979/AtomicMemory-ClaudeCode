@@ -35,6 +35,7 @@ import re
 import shutil
 import sys
 import time
+import uuid
 
 for _stream in (sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
@@ -250,7 +251,7 @@ def list_boxes():
 
 
 def write_text_atomic(path, text):
-    temp_path = f"{path}.tmp-{os.getpid()}"
+    temp_path = f"{path}.tmp-{uuid.uuid4().hex}"                     # 信箱跨電腦共用，行程編號會撞；暫存檔名要全域唯一
     with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
     os.replace(temp_path, path)
