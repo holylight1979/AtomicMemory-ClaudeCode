@@ -7,6 +7,8 @@
 - Bash／PowerShell／NotebookEdit：寫之前看不到改後內容，PreToolUse 把寫入目標裡的測試檔拍快照（workflow/old-test-snap/），
   PostToolUse 拿快照比磁碟（after_tool），沒宣告的記 state `old_test_undeclared`，下一個任何工具呼叫在 PreToolUse 擋到補宣告為止；
   只讀或只寫這幾個欠帳檔（撤回）的呼叫不擋，撤回後的 PostToolUse 把已恢復的那筆清掉。
+本 session 新加的測試不算舊測試：記在 old_test_added（比對時看到新增），另有基線 old_test_baseline＝第一次拍快照時那個檔有哪些測試；
+指令失敗時 Claude Code 不送 PostToolUse、old_test_added 記不到，基線沒有的那支照樣放過。
 
 切本體：Python 照縮排（含單行 `def test_x(): assert …`；notebook 取所有程式格接起來），斷言以邏輯行比（括號或三引號沒合上、
 行尾反斜線就併下一行），本體第一行是字串就是說明；JS／TS（it／test，describe 只看跳過；描述文字就是名字，改了算改名）、
@@ -40,6 +42,7 @@ _ALL_EXTS = _PY_EXTS + _NB_EXTS + _JS_EXTS + _ANNOT_EXTS
 EDIT_TOOLS = ("Edit", "MultiEdit", "Write")
 AFTER_TOOLS = ("Bash", "PowerShell", "NotebookEdit")   # 寫之前看不到改後內容，事後比對
 PENDING_KEY = "old_test_undeclared"
+BASELINE_KEY = "old_test_baseline"   # {檔: 本 session 第一次碰它時有哪些測試}
 # 指令會執行 python（python／python3.12／py／pythonw，可帶路徑與 .exe）：腳本自己開檔寫的目標 write_paths_from_tool 解析不到
 _PY_RUN_RE = re.compile(r"(?:^|[\s;&|(`'\"\\/])(?:python[\d.]*|pythonw|py)(?:\.exe)?(?=\s|$|[;&|)`'\"])", re.IGNORECASE | re.MULTILINE)
 
@@ -59,6 +62,9 @@ _METHOD_RE = re.compile(r"\b(\w+)\s*\(")
 _PY_DOC_RE = re.compile(r"^[rRuUbB]?['\"]")
 _WS_RE = re.compile(r"\s+")
 RENAME_MIN_SIMILARITY = 0.6
+# git show HEAD:<路徑> 失敗時，這幾種是「HEAD 本來就沒有」（新檔、還沒有 commit），其他才是查詢失敗
+_HEAD_MISSING_RE = re.compile(r"does not exist in|exists on disk, but not in|invalid object name 'HEAD'|"
+                              r"bad revision 'HEAD'|unknown revision", re.IGNORECASE)
 
 
 def _cfg(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -379,18 +385,59 @@ def hint(first: str) -> str:
             "只加新測試不用宣告。")
 
 
+def remember_baseline(state: Optional[Dict[str, Any]], pairs: Dict[str, Optional[str]]) -> bool:
+    """{測試檔: 改前內容} 裡本 session 還沒記過的檔，把當時有哪些測試（磁碟上的加上 git HEAD 裡的）記進 state[BASELINE_KEY]
+    （第一次碰到為準，之後不覆蓋）；就地改 state，回有沒有改。基線沒有的測試＝本 session 新加的：寫它的那次指令失敗時
+    Claude Code 不送 PostToolUse，old_test_added 記不到，靠這份基線照樣認得。"""
+    if state is None:
+        return False
+    import wg_release_rules as rr
+    base = state.setdefault(BASELINE_KEY, {})
+    fresh = {rr.canon_path(p): sorted(set(extract_tests(src or "", p)) | _head_tests(p))
+             for p, src in pairs.items() if rr.canon_path(p) not in base}
+    base.update(fresh)
+    return bool(fresh)
+
+
+def _head_tests(path: str) -> set:
+    """git HEAD 裡這個檔有哪些測試（不在 git repo、HEAD 沒有這個檔 → 空）。基線要併進來：session 開始前就被刪掉（未提交）
+    或被拿掉一支的舊測試，之後還原再改，仍算舊測試。查不到 git 只 stderr＋留帳，基線退回只看磁碟。"""
+    from wg_core import find_vcs_root
+    hit = find_vcs_root(Path(path).parent)
+    if not hit or hit[0] != "git":
+        return set()
+    try:
+        root = str(hit[1])
+        r = _git(root, "show", f"HEAD:{Path(path).relative_to(root).as_posix()}",
+                 env={**os.environ, "LC_ALL": "C", "LANGUAGE": "C"})   # 錯誤訊息固定英文，_HEAD_MISSING_RE 才對得上
+        if r.returncode:
+            err = r.stderr.decode("utf-8", "replace").strip()
+            if _HEAD_MISSING_RE.search(err):
+                return set()   # HEAD 沒有這個檔（本 session 新建）或 repo 還沒有 commit
+            raise RuntimeError(f"git show 失敗：{err[:200]}")
+        return set(extract_tests(r.stdout.decode("utf-8", "replace").replace("\r\n", "\n"), path))
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:OldTestDeclare] 基線查不到 git HEAD（只用磁碟上的測試當基線）：{path}：{e}", file=sys.stderr)
+        _log("baseline_head_error", "", path, error=f"{type(e).__name__}: {e}")
+        return set()
+
+
 def _changes(state: Optional[Dict[str, Any]], sid: str, fp: str, before: str, after: str) -> Tuple[List[Dict[str, str]], List[str]]:
-    """(要看宣告的動作, 這次新加的測試)：本 session 自己新加的、宣告過的那支記 exempt 放過。"""
+    """(要看宣告的動作, 這次新加的測試)：本 session 自己新加的（old_test_added 或基線沒有）、宣告過的那支記 exempt 放過。"""
     import wg_release_rules as rr
     changes, added = diff_tests(before, after, fp)
     cp = rr.canon_path(fp)
     seen_added = set((state or {}).get("old_test_added") or [])
     seen_decl = set((state or {}).get("old_test_declared") or [])
+    base = ((state or {}).get(BASELINE_KEY) or {}).get(cp)
+    base = set(base) if base is not None else None
     live = []
     for c in changes:
         k = f"{cp}|{c['key']}"
-        if k in seen_added or k in seen_decl:
-            _log("exempt", sid, fp, test=c["key"], kind=c["kind"], why="session_added" if k in seen_added else "declared_before")
+        why = ("session_added" if k in seen_added else "declared_before" if k in seen_decl
+               else "not_in_baseline" if base is not None and c["key"] not in base else "")
+        if why:
+            _log("exempt", sid, fp, test=c["key"], kind=c["kind"], why=why)
             continue
         live.append(c)
     return live, added
@@ -405,7 +452,11 @@ def _record(state: Optional[Dict[str, Any]], sid: str, fp: str, done: List[Dict[
         d = rr.old_test_declaration_for(c, decls, fp) or {}
         _log(event, sid, fp, test=c["key"], kind=c["kind"], new_key=c.get("new_key", ""), tool=c.get("tool", ""),
              reason=d.get("reason", "")[:200], line=d.get("line", ""))
-    if state is None or not (done or added):
+    if state is None:
+        return False
+    base = set((state.get(BASELINE_KEY) or {}).get(cp) or [])
+    added = [a for a in added if a not in base]   # 基線就有的（被刪又還原的舊測試）不算新加，之後改它照要宣告
+    if not (done or added):
         return False
     decl = set(state.get("old_test_declared") or [])
     decl.update(f"{cp}|{x}" for c in done for x in (c["key"], c.get("new_key")) if x)
@@ -435,8 +486,8 @@ def _snap_file(sid: str, tool_name: str, tool_input: Dict[str, Any]) -> Path:
     return Path(wg_core.WORKFLOW_DIR) / "old-test-snap" / f"{sid or 'nosid'}-{key.hexdigest()[:16]}.json"
 
 
-def _git(root: str, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", root, *args], capture_output=True, timeout=10,
+def _git(root: str, *args: str, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, timeout=10, env=env,
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
@@ -487,7 +538,8 @@ def _py_baseline(tool_input: Dict[str, Any], config: Dict[str, Any], cwd: str, s
 
 def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str) -> None:
     """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照（檔還不存在記 None；讀不到讓例外往上丟＝擋）；
-    指令會執行 python 再加記 repo 裡已經有改動的測試檔（_py_baseline）。"""
+    指令會執行 python 再加記 repo 裡已經有改動的測試檔（_py_baseline）。快照到的檔順便記基線（remember_baseline）：
+    這一步在 PreToolUse，指令之後失敗、PostToolUse 沒跑也記得到。"""
     sid = input_data.get("session_id", "") or ""
     files = {p: _read(p) for p in _test_targets(tool_name, tool_input, config, cwd)}
     py = _py_baseline(tool_input, config, cwd, sid) if tool_name in ("Bash", "PowerShell") else None
@@ -496,6 +548,11 @@ def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, A
     f = _snap_file(sid, tool_name, tool_input)
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps({"files": files, "py": py}, ensure_ascii=False), encoding="utf-8", newline="\n")
+    if sid:
+        from wg_core import read_state, write_state
+        state = read_state(sid)
+        if remember_baseline(state, {**((py or {}).get("dirty") or {}), **files}):
+            write_state(sid, state)
 
 
 def _snap_pairs(snap: Dict[str, Any], config: Dict[str, Any], sid: str) -> Dict[str, Optional[str]]:
@@ -550,6 +607,7 @@ def after_tool(state: Optional[Dict[str, Any]], input_data: Dict[str, Any], conf
         text = None
         for path, before in _snap_pairs(snap, config, sid).items():
             touched.add(rr.canon_path(path))
+            changed = remember_baseline(state, {path: before}) or changed   # python 腳本改的檔事前不知道是哪個，這裡補記
             live, added = _changes(state, sid, path, before or "", _read(path) or "")
             if live and text is None:
                 text = _decl_text(input_data)
@@ -647,6 +705,7 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     import wg_release_rules as rr
     from wg_core import read_state, write_state
     state = read_state(sid) if sid else None
+    based = remember_baseline(state, {fp: ba[0]})
     live, added = _changes(state, sid, fp, ba[0], ba[1])
     # 已經欠著宣告的那幾支（上一個 Bash 改的）這次再動不另算：多半是撤回，撤回成不成由 after_tool 判、清帳
     owing = {(rr.canon_path(e["file"]), e["key"]) for e in (state or {}).get(PENDING_KEY) or []}
@@ -654,8 +713,10 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     decls = rr.parse_old_test_declarations(_decl_text(input_data)) if live else []
     v = rr.old_test_change_verdict(fp, live, decls)
     if v.owed:
+        if based:
+            write_state(sid, state)
         _log("denied", sid, fp, tool=tool_name, changes=live)
         return rr.format_hit("ot", v) + "\n" + hint(next(c["key"] for c in live if rr.old_test_declaration_for(c, decls, fp) is None))
-    if _record(state, sid, fp, live, added, decls):
+    if _record(state, sid, fp, live, added, decls) or based:
         write_state(sid, state)
     return None

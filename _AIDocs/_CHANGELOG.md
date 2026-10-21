@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 閘小修四件：語言守門不算路徑、新寫的測試不當舊測試、同一件只記一筆、entry-stats 逐筆列問
+- **交給 AI 寫程式時會看到的**：中文報告夾著沒包反引號的路徑、檔名、規則名、旗標，不再被語言守門要求用繁中重答（第二波 A′ 那則從 59% 降到 39%）；本 session 自己新寫的測試，就算寫它的那次指令失敗了，之後改它的期望值也不會被要求「改舊測試｜」；同一回合把「順手看到最該修」那件換個說法再答一次，追蹤帳本只留一筆（第二次的內容蓋上去）；`python tools/entry-stats.py --asks --json` 逐筆列每次問與回應型。
+- **改了什麼**（軌 track-gate-small-fixes）：`hooks/lang_guard.strip_noncontent` 多剝路徑（要像路徑才剝）、帶點名稱、底線識別字、指令旗標，正規式錨在字首（長字串不變平方時間）；`hooks/wg_oldtest` 拍快照時記基線 `old_test_baseline`＝磁碟加 git HEAD 的測試名（根因：指令失敗時 Claude Code 不送 PostToolUse，`old_test_added` 漏記；A-1 transcript:162 `is_error=True`）；`hooks/wg_harvest.record_pick` 同 session 同回合同件（`same_pick_target`：去旁註後相同或一句是另一句開頭）追加「新列＋結案舊列」取代第一筆，帳本只追加；`tools/entry-stats.py` 加 `--asks`，尾行多 `asks_listed=`（沒給時不變）。舊測試一處：`verify_lang_guard` 的 link text 改成非檔名字樣（檔名照新規則剝）。
+- **驗證**：新案例 21 支（語言守門 6、舊測試閘 5、追蹤項 5、entry-stats 3、外加 A-1 實料比對），退回舊碼 8 支紅、codex 修補各案退回修補前紅；目標 verify 全綠。Codex 兩輪 8 條 BLOCK 全核實並修：帳本改寫有競態（改成只追加、新列先寫）、檔＋識別字或字面相似就併會吃掉同函式別的問題（只留去旁註後相同或前綴）、session 前被刪的測試檔基線記成空（併 HEAD）、Write 還原被刪的舊測試被記成新加、英文斜線詞被當路徑剝、entry-stats 文字逐筆缺欄；自查另抓到路徑正規式在長字串變平方時間（2 萬字 10 秒→5 毫秒）。
 ## 2026-10-21 G15 文字規格評分：照規格逐條問開源免費的小模型，對任何文字出評分表並留帳
 - **原設計者看到的**：`python tools/text-score.py <檔> --spec reader-designer` 會印一張評分表（每條是／否／不適用＋原文引用＋理由）和一行摘要 `評分 N/7｜沒過：R1、R4`；分數是程式算的，裁判引用對不到原文的條會標「作廢」。裁判是內網 Ollama 的 gemma4:e4b，內網不在就試本機（同一個模型）；都不在只印「裁判不在，未評」，不擋、不改用付費模型。每次評分記一行 `Logs/guard-text_score.jsonl`；`python tools/text-score-weekly.py` 看每條每週過率、趨勢、作廢數。第一份規格 `text-specs/reader-designer.md`（給你看的文字，七條同一等級、只記帳），寫法見 `text-specs/README.md`。收尾自動評還沒接。細節 TECH §7.11。
 - **改了什麼**（軌 track-g15-text-score 000）：新工具 `tools/text-score.py`、`tools/text-score-weekly.py`；新資料夾 `text-specs/`（規格是資料，程式不寫死條目；不放派工單寫的 `rules/text-specs/`，因為 rules 底下的 md 每個 session 都會載入）；`workflow/config.json` 加 `text_score` 段，與工具 DEFAULTS 同值；`tools/verify/verify_tools_data_root.py` 登錄兩支新工具。

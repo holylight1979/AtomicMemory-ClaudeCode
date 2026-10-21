@@ -490,6 +490,98 @@ def test_bash_only_appending_new_test_not_pending(world):
     assert any(k.endswith("|test_new") for k in wg_core.read_state(SID).get("old_test_added", [])), "前置：快照有拍到、比對有跑"
 
 
+# 第二波 A′ 實跑：transcript:161 用 `cat >> tests/test_cli.py <<'EOF'` 加新測試，同一條指令的 pytest 紅了（exit 1、is_error）→
+# Claude Code 不送 PostToolUse，old_test_added 沒記到；transcript:173 再 sed 改它的期望值，被當成改舊測試擋（guard-old_test:1～3）。
+CLI_TESTS = '''from pricing import cli
+
+
+def test_cli_prints_twd(capsys):
+    assert cli.main(["A100", "3"]) == 0
+    assert capsys.readouterr().out.strip() == "A100 x3 = NT$360"
+'''
+CLI_NEW = '''
+
+def test_cli_plain_prints_two_decimals_no_currency(capsys):
+    assert cli.main(["B200", "1000", "--tier", "silver", "--plain"]) == 0
+    assert capsys.readouterr().out.strip() == "B200 x1000 = 40950.00"
+'''
+
+
+def _failed_bash_append(w):
+    """PreToolUse 放行 → 指令寫進磁碟但失敗收場（不跑 PostToolUse）。回測試檔路徑。"""
+    fp = _put(w, "tests/test_cli.py", CLI_TESTS)
+    fwd = fp.replace("\\", "/")
+    assert _pass(_run(w, "Bash", {"command": f"cat >> '{fwd}' <<'EOF'\n{CLI_NEW}EOF\npython -m pytest tests -q"}))
+    Path(fp).write_text(CLI_TESTS + CLI_NEW, encoding="utf-8")
+    return fp
+
+
+def test_new_test_from_failed_bash_then_assert_fixed_not_pending(world):
+    """基線＝本 session 第一次碰這個檔時的測試名；基線沒有的那支改斷言不算改舊測試。"""
+    fp = _failed_bash_append(world)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"sed -i 's/40950.00/36855.00/' '{fwd}'", fp,
+                CLI_TESTS + CLI_NEW.replace("40950.00", "36855.00"))
+    assert not wg_core.read_state(SID).get("old_test_added"), "前置：新加那支沒記進 old_test_added（重現 A-1）"
+    assert any(e["event"] == "exempt" and e["test"] == "test_cli_plain_prints_two_decimals_no_currency"
+               and e["why"] == "not_in_baseline" for e in _events(world)), "前置：比對有看到斷言變了"
+    assert not _pending()
+    assert _pass(_run(world, "Bash", {"command": "echo next"}))
+
+
+def test_baseline_test_changed_after_failed_bash_still_pending(world):
+    fp = _failed_bash_append(world)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"sed -i 's/NT$360/NT$999/' '{fwd}'", fp, (CLI_TESTS + CLI_NEW).replace("NT$360", "NT$999"))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_cli_prints_twd", "assert")]
+    assert _ot(_run(world, "Bash", {"command": "echo next"}))
+
+
+def test_baseline_includes_head_tests_of_file_deleted_before_session(world):
+    """Codex：session 開始前 tests 檔已是未提交的刪除，跑 python 時快照記成「不存在」；之後使用者還原檔案、AI 再改既有斷言
+    → 仍是舊測試照擋（基線併入 git HEAD 的測試名，不是空）。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    Path(fp).unlink()
+    assert _pass(_run(world, "Bash", {"command": "python tools/report.py"}))
+    _post(world, "Bash", {"command": "python tools/report.py"})
+    import wg_release_rules as rr
+    base = wg_core.read_state(SID).get("old_test_baseline", {}).get(rr.canon_path(fp))
+    assert base is not None and "test_legacy_report_keeps_columns" in base, "前置：刪掉的檔有記到基線、而且帶 HEAD 的測試名"
+    Path(fp).write_text(LEGACY, encoding="utf-8")                                       # 使用者還原
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"sed -i 's/\"USD\"/\"TWD\"/' '{fwd}'", fp, LEGACY.replace('"USD"', '"TWD"'))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+
+
+def test_write_restoring_deleted_old_test_file_is_not_session_added(world):
+    """Codex 複審：session 前被刪（未提交）的舊測試檔用 Write 還原，還原出來的測試不算本 session 新加的；之後改斷言照擋。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    Path(fp).unlink()
+    restore = {"file_path": fp, "content": LEGACY}
+    assert _pass(_run(world, "Write", restore)), "還原本身不擋（沒有動到既有測試）"
+    _apply(fp, restore)
+    assert not any(k.endswith("|test_legacy_report_keeps_columns") for k in wg_core.read_state(SID).get("old_test_added", []))
+    ti = {"file_path": fp, "old_string": '"USD"', "new_string": '"TWD"'}
+    assert _ot(_run(world, "Edit", ti))
+
+
+def test_head_lookup_failure_is_loud_and_falls_back_to_disk(world, monkeypatch, capsys):
+    """HEAD 查詢真的失敗（不是 HEAD 沒有這個檔）→ stderr＋留帳 baseline_head_error，基線退回只看磁碟。"""
+    import subprocess
+    import wg_oldtest as ot
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    monkeypatch.setattr(ot, "_git", lambda *a, **k: subprocess.CompletedProcess(a, 128, b"", b"fatal: unable to read 1a2b3c"))
+    assert ot._head_tests(fp) == set()
+    assert "基線查不到 git HEAD" in capsys.readouterr().err
+    assert any(e["event"] == "baseline_head_error" for e in _events(world))
+    monkeypatch.setattr(ot, "_git", lambda *a, **k: subprocess.CompletedProcess(
+        a, 128, b"", b"fatal: path 'tests/x.py' does not exist in 'HEAD'"))
+    assert ot._head_tests(fp) == set() and "基線查不到" not in capsys.readouterr().err   # HEAD 本來就沒有：安靜回空
+
+
 def test_revert_after_bash_clears_pending(world):
     fp = _put(world, "tests/test_legacy_report.py", LEGACY)
     fwd = fp.replace("\\", "/")

@@ -8,8 +8,11 @@
 怎麼跑：
   python tools/entry-stats.py                 # 近 7 天
   python tools/entry-stats.py --days 30 --json
+  python tools/entry-stats.py --asks --json        # 另列每次問一筆（at、session、turn_seq、entry、path、cards、truncated、
+                                                   # response、response_by、with），回應型就是 resolve_responses 那一支判的
   python tools/entry-stats.py --logs <Logs 目錄>   # 讀別處的帳（測試、別台機器的副本）
-尾行：`ENTRY_STATS DONE entries=<有問過的切入點數> asks=<問幾次> cards=<送卡張數> truncated=<截斷次數>`；exit 0（沒資料也 0）。
+尾行：`ENTRY_STATS DONE entries=<有問過的切入點數> asks=<問幾次> cards=<送卡張數> truncated=<截斷次數>`，給了 --asks 再加
+`asks_listed=<列了幾筆>`；exit 0（沒資料也 0）。
 完整參數以 --help 為準。
 """
 from __future__ import annotations
@@ -77,7 +80,11 @@ def collect(logs: Path, days: int, registry: Dict[str, Any]) -> Dict[str, Any]:
     rows = sorted(per.values(), key=lambda s: order.get(s["id"], len(order)))
     for s in rows:
         s["with"], s["paths"] = dict(s["with"]), dict(s["paths"])
-    return {"days": days, "logs": str(logs), "entries": rows,
+    asks_out = [{"at": a.get("at"), "session": ep._event_session(a), "turn_seq": a.get("turn_seq"), "entry": str(a.get("entry")),
+                 "path": a.get("path", ""), "cards": list(a.get("cards") or []), "truncated": bool(a.get("truncated")),
+                 "response": a["response"], "response_by": a["response_by"], "with": list(a.get("with") or [])}
+                for a in resolved]
+    return {"days": days, "logs": str(logs), "entries": rows, "asks": asks_out,
             "totals": {"entries": len(rows), "asks": sum(s["asks"] for s in rows),
                        "cards": sum(s["cards"] for s in rows), "truncated": sum(s["truncated"] for s in rows)}}
 
@@ -88,9 +95,13 @@ def main(argv: List[str] = None) -> int:
     ap.add_argument("--logs", default=str(CLAUDE_DIR / "Logs"), help="Logs 目錄（預設資料根的 Logs）")
     ap.add_argument("--registry", default=None, help="登錄表路徑（預設程式碼根的 workflow/entrypoints.json）")
     ap.add_argument("--json", action="store_true", help="輸出 JSON（尾行仍是 DONE 行）")
+    ap.add_argument("--asks", action="store_true", help="另列每次問一筆（JSON 多 asks 欄；尾行多 asks_listed=）")
     args = ap.parse_args(argv)
     registry = ep.load_registry(Path(args.registry) if args.registry else None)
     res = collect(Path(args.logs), args.days, registry)
+    asks = res.pop("asks")
+    if args.asks:
+        res["asks"] = asks
     if args.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
     elif not res["entries"]:
@@ -104,8 +115,20 @@ def main(argv: List[str] = None) -> int:
             if s["with"]:
                 line += "｜同一問句也認出：" + "、".join(f"{k}×{v}" for k, v in s["with"].items())
             print(line)
+    if args.asks and not args.json and asks:
+        print("逐筆：")
+        for a in asks:
+            cards = "、".join(a["cards"]) or "無"
+            turn = "?" if a["turn_seq"] is None else a["turn_seq"]
+            by = f"（{a['response_by']}）" if a["response_by"] else ""
+            line = (f"  · {a['at']} session {a['session']} 回合 {turn} {a['entry']} {a['path']}｜卡：{cards}"
+                    f"{'（截斷）' if a['truncated'] else ''}｜回應 {a['response']}{by}")
+            if a["with"]:
+                line += "｜同句也認出 " + "、".join(a["with"])
+            print(line)
     t = res["totals"]
-    print(f"ENTRY_STATS DONE entries={t['entries']} asks={t['asks']} cards={t['cards']} truncated={t['truncated']}")
+    tail = f"ENTRY_STATS DONE entries={t['entries']} asks={t['asks']} cards={t['cards']} truncated={t['truncated']}"
+    print(tail + (f" asks_listed={len(asks)}" if args.asks else ""))
     return 0
 
 
