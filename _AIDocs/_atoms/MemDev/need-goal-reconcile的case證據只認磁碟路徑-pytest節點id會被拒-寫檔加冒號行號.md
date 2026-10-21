@@ -7,7 +7,7 @@
 - Trigger: need_goal reconcile, reconcile 拒收, 不在磁碟上, case 證據, pytest 節點 id, 驗證案例證據, evidence kind case, CASE_NODE_ID_NEEDS_DEF
 - Status: 節點 id 已接受（hooks/wg_need_goal.py _node_id_missing）
 - Created-at: 2026-10-14
-- Related: 先寫紅案例再分多次edit改同一檔會被重試計數當成反覆修正-fixescalation與deeppostmortem誤觸, 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算
+- Related: 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算
 
 ## 知識
 

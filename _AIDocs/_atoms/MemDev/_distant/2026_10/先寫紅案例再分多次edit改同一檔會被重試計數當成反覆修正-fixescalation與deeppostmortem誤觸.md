@@ -21,3 +21,10 @@
 - 紅先行時同一檔的改動盡量併成一次 Edit，或用 Write 整檔，少累計
 - 被 FixEscalation／DeepPostMortem 誤觸：用「紅之後有沒有跑過仍紅」判真假，在收割備註或交付信記誤判
 - 根治候選（待總控台派工）：retry 只數「紅→改→再跑仍紅」的循環數，在 wg_release_rules 加規則與紅案例
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-21 | 退役移入 _distant/：重試計數已改成 RETRY_COUNTS_RERUN_CYCLES（只數「紅→改→再跑仍紅」），卡講的「數 Edit 次數」機制已不存在；行動「同檔改動盡量併成一次 Edit」與「根治候選（待總控台派工）」都過時，且 Trigger 正吃 FixEscalation 擋訊息字樣，會教 LLM 過時應對。判真假的有用部分由新卡「修不好兩輪先比兩輪紅案與錯誤原文-…」承接。出處：LLM切入點自評-2026-10-21.md 建議退役清單 #3（組C E18）。退役前已依閘提示移除 need-goal-reconcile的case證據只認磁碟路徑-… 對它的 Related 引用 | memory-audit --delete |
