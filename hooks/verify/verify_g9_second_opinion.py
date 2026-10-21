@@ -302,6 +302,21 @@ def test_two_files_40_lines_not_risky_passes_but_200_lines_blocks(drive, capsys,
     assert "[Guardian:SecondOpinion]" in reason and "對 HEAD 的程式改動 220 行" in reason
 
 
+def test_session_scratch_scripts_not_counted_but_same_shape_in_repo_is(tmp_path, monkeypatch):
+    """規則 SESSION_SCRATCH_NOT_CODE：背景工作暫存區 jobs/<id>/tmp/ 底下的量測腳本不算改了程式檔（選型軌實遇：12 支量測腳本
+    被算成改碼、要第二意見）；同樣形狀的路徑放在 repo 裡照算、照觸發門檻。"""
+    cc = tmp_path / "cc"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cc))
+    for base, n_code in ((cc, 0), (tmp_path / "proj", 5)):
+        paths = [base / "jobs" / "8bd2fa36" / "tmp" / f"probe_{i}.py" for i in range(5)]
+        for p in paths:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x = 1\n", encoding="utf-8")
+        v, facts = so.check({}, SID, [_mf(p) for p in paths], DONE, "", {}, so.auto_cfg({}), True)
+        assert facts["code_files"] == n_code, (base, facts)
+        assert bool(facts["triggers"]) == bool(n_code) and v.owed == bool(n_code), (base, facts)
+
+
 def test_decline_with_reason_passes_and_logs(drive, capsys, tmp_path):
     reason, state, logs = drive("不需第二意見｜只重錄 cassettes\n全部完成。", capsys, files=_files(tmp_path, 5))
     assert "[Guardian:SecondOpinion]" not in reason and state["second_opinion_ok"][SID] == 5

@@ -529,6 +529,57 @@ def test_045_temp_repo_commit_exempt_and_temp_copy_not_project():
     assert rr.temp_copy_verdict(r"C:\Users\me\.claude-wt\t\tools\x.py", roots).owed is True
 
 
+def test_003_session_scratch_not_code_only_two_shapes():
+    """SESSION_SCRATCH_NOT_CODE：設定目錄下 jobs/<id>/tmp/ 與 Temp/claude/…/scratchpad/ 才算暫存區；repo 裡同名的目錄、
+    jobs/<id> 底下不在 tmp 的、設定目錄本身的程式照算。"""
+    dirs = rr.cc_config_dirs({"CLAUDE_CONFIG_DIR": r"D:\cc"}, home=r"C:\Users\me")
+    assert dirs == [r"D:\cc", r"C:\Users\me\.claude"]
+    assert rr.cc_config_dirs({}, home=r"C:\Users\me") == [r"C:\Users\me\.claude"]
+    roots = rr.temp_roots({"TEMP": r"C:\Users\me\AppData\Local\Temp"}, tempdir=r"C:\Users\me\AppData\Local\Temp")
+
+    def hit(p):
+        return rr.is_session_scratch(p, dirs, roots)
+    assert hit(r"C:\Users\me\.claude\jobs\8bd2fa36\tmp\probe.py")
+    assert hit(r"d:/CC/jobs/abc/tmp/sub/m.py")                                                 # 斜線、大小寫不影響
+    assert hit(r"C:\Users\me\AppData\Local\Temp\claude\C--x\s1\scratchpad\m.py")
+    assert not hit(r"C:\proj\jobs\8bd2fa36\tmp\probe.py")                                     # repo 內同名路徑
+    assert not hit(r"C:\Users\me\.claude-wt\t\jobs\8bd2fa36\tmp\probe.py")                    # worktree 不是設定目錄
+    assert not hit(r"C:\Users\me\.claude\jobs\8bd2fa36\state.py")                             # jobs/<id> 但不在 tmp
+    assert not hit(r"C:\Users\me\.claude\hooks\wg_core.py")
+    assert not hit(r"C:\project\scratchpad\x.py")                                             # 正式 repo 的子目錄叫 scratchpad
+    assert not hit(r"C:\repo\Temp\claude\demo\scratchpad\service.py")                        # Codex：形狀一樣但不在暫存根下
+    assert not hit(r"C:\Users\me\AppData\Local\Temp\pytest-of-me\scratchpad\x.py")           # 暫存根下但不是 claude/…/scratchpad
+    assert not rr.is_session_scratch(r"C:\Users\me\AppData\Local\Temp\claude\x\scratchpad\m.py", dirs, rr.TEMP_DISABLED)
+
+
+def test_003_session_scratch_not_code_scratchpad_under_real_temp_root(monkeypatch):
+    """Codex 複審 NOTE：scratchpad 走實際的系統暫存根（短路徑與長路徑兩種寫法都認），經事實端 session_scratch 與 is_excluded；
+    repo 裡同形狀的照算。"""
+    import os
+    import tempfile
+    from handlers import _shared
+    monkeypatch.delenv("WG_TEMP_RULES", raising=False)
+    cfg = vl.reconcile_cfg({})
+    for tmp in (tempfile.gettempdir(), _shared._long_path(tempfile.gettempdir())):
+        p = os.path.join(tmp, "claude", "C--x", "sid1", "scratchpad", "measure.py")
+        assert vl.session_scratch(p) and vl.is_excluded(p, cfg, None), p
+    assert not vl.session_scratch(r"C:\repo\Temp\claude\demo\scratchpad\service.py")
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+    assert not vl.session_scratch(os.path.join(tempfile.gettempdir(), "claude", "x", "scratchpad", "m.py")), "暫存規則關掉時只認 jobs"
+
+
+def test_003_session_scratch_not_code_excluded_from_case_debt(tmp_path, monkeypatch):
+    """寫碼查核：暫存區的腳本 is_excluded（不欠補案例、不能清帳），不看根；repo 內同形狀的照算。"""
+    cc = tmp_path / "cc"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cc))
+    cfg = vl.reconcile_cfg({})
+    scratch = str(cc / "jobs" / "j1" / "tmp" / "probe.py")
+    assert vl.is_excluded(scratch, cfg, None) and vl.is_excluded(scratch, cfg, str(tmp_path / "proj"))
+    assert not vl.is_excluded(str(tmp_path / "proj" / "jobs" / "j1" / "tmp" / "probe.py"), cfg, str(tmp_path / "proj"))
+    mods = [{"path": scratch, "tool": "Write", "turn_seq": 3, "last_turn_seq": 3, "last_seq": 1}]
+    assert vl.case_debt(mods, 3, cfg, lambda p: None) == []
+
+
 # ─── B10 DPM_WORKTREE_DELIVERY ─────────────────────────────────────────────────
 
 def test_045_dpm_worktree_delivery_text():

@@ -35,7 +35,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, resolve_project_root
-from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn, moved_copy_candidates,
+from wg_release_rules import (canon_path, cc_config_dirs, is_session_scratch,
+                              claim_is_modifier, excluded_region, gone_verdict, in_turn, moved_copy_candidates,
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
@@ -1195,12 +1196,23 @@ def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str], ignored: Op
     """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱），
     或被 .gitignore 忽略／屬執行期資料 → 不是本專案的程式也不是它的案例。事實（路徑屬哪類部位、git 忽略沒）在這裡查，
     規則判排不排除。ignored＝呼叫端一次查好的被忽略路徑集合（gitignored_paths）；沒給就只查這一個。
-    拿不到根、不在根底下、沒有部位表又沒被忽略、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。"""
+    拿不到根、不在根底下、沒有部位表又沒被忽略、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。
+    session 暫存區的一次性腳本（規則 SESSION_SCRATCH_NOT_CODE，session_scratch）不看根，一律排除。"""
+    if session_scratch(path):
+        return True
     if not root:
         return False
     if ignored is None:
         ignored = gitignored_paths(root, [path])
     return excluded_region(path, root, _part_kind(path, root), path in ignored)
+
+
+def session_scratch(path: str) -> bool:
+    """規則 SESSION_SCRATCH_NOT_CODE 的事實端：設定目錄與系統暫存根（temp_roots；WG_TEMP_RULES=off 時只認 jobs）兩側都展開
+    8.3 短路徑（_norm_long）再交給 is_session_scratch。第二意見閘（wg_second_opinion.check）與 is_excluded 共用。"""
+    import tempfile
+    return is_session_scratch(_norm_long(path), [_norm_long(d) for d in cc_config_dirs()],
+                              [_norm_long(r) for r in temp_roots(tempdir=tempfile.gettempdir())])
 
 
 def gitignored_paths(root: str, paths: Iterable[str]) -> set:
