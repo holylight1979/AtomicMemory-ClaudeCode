@@ -8159,6 +8159,25 @@
         "工作樹 Permission denied"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台",
+      "path": "memory/Failures/工作流/feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台.md",
+      "triggers": [
+        "靜默 CLI session",
+        "claude --bg 派工",
+        "console-spawn",
+        "大型計畫派工",
+        "多量條列項目",
+        "總控台派工方法",
+        "背景工作軌模型",
+        "--model 派工",
+        "不佔分頁"
+      ],
+      "scope": "global",
+      "related": [
+        "claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉"
+      ]
     }
   ]
 }
