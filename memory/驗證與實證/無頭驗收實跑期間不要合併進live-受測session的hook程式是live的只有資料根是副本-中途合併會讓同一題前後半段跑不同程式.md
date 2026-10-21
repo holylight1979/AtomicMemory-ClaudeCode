@@ -12,6 +12,7 @@
 
 - [臨] 無頭 claude -p 驗收只把資料根（WG_CLAUDE_DIR）指到副本，hook／lib／MCP 程式每次呼叫都從 live 載入；總控台在題目跑到一半時合進 main，同一題前後半段跑的是不同程式，判分時分不出是機制沒動還是中途被換掉（實例：一題 40 分鐘內合進三個分支，第二意見閉第一次有擋、第二次只提醒）。
 - [臨] 规矩：實跑前記下 live HEAD，跑完前不合不推；非合不可就停掉實跑重來，判分信要寫明受測時的 HEAD。要並行就把程式樹也複製一份（或用 worktree 當程式根）再跑。
+- [臨] 受測 session 的模型吃 settings.json 的 model（設 fable 就是 Fable，大題一次 50 美元）；要換用 `ANTHROPIC_MODEL=claude-opus-5-5` 環境變數前綴跑 claude -p，不改腳本也不動使用者設定；成本約半，代價是不再是使用者真實用的模型。Opus 比 Fable 更常用 heredoc 寫檔。
 
 ## 行動
 

@@ -11054,6 +11054,50 @@
       "related": [
         "接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑"
       ]
+    },
+    {
+      "name": "feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢",
+      "path": "memory/Failures/行為契約/feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢.md",
+      "triggers": [
+        "有點慢",
+        "多開併行",
+        "串行",
+        "等交付",
+        "一天完工",
+        "總控台排程",
+        "背景 session 上限",
+        "無職工"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "失敗的工具呼叫cc只送posttoolusefailure-靠posttooluse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記",
+      "path": "memory/CC與原子記憶契約/失敗的工具呼叫cc只送posttoolusefailure-靠posttooluse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記.md",
+      "triggers": [
+        "PostToolUseFailure",
+        "is_error",
+        "exit 1 寫檔",
+        "modified_files 漏記",
+        "failing_tests 空",
+        "heredoc 沒記到",
+        "PickOne 沒問",
+        "G11 沒量到"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "hook超過settings的timeout會被cc整支取消只在transcript留hook-cancelled-收尾所有守門靜默失效-加段就要量耗時並在超時前降級留帳",
+      "path": "memory/CC與原子記憶契約/hook超過settings的timeout會被cc整支取消只在transcript留hook-cancelled-收尾所有守門靜默失效-加段就要量耗時並在超時前降級留帳.md",
+      "triggers": [
+        "hook_cancelled",
+        "hook timeout",
+        "Stop hook 逾時",
+        "收尾沒反應",
+        "最該修沒問",
+        "settings timeout 10",
+        "hook 變慢"
+      ],
+      "scope": "global"
     }
   ]
 }
