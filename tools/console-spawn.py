@@ -6,17 +6,21 @@
      <live>/workflow/console-spawn.STOP 不存在；由本腳本起、還活著的 session 未達上限（console.spawn.max_parallel，預設 5）。
   2. 信任：worktree 在 ~/.claude.json 沒有信任紀錄時 `claude --bg` 會拒起；live 根已信任就替 worktree 補一筆
      （鍵用正斜線形，跟 Claude Code 自己寫的一樣）並印出來；live 根也沒信任 → FAIL。
-  3. 起 session（--method bg，預設）：`claude.exe --bg "<開工句>" --permission-mode <模式>`，cwd＝worktree，
+  3. 起 session（--method bg，預設）：`claude.exe --bg "<開工句>" --permission-mode <模式> [--model <id>]`，cwd＝worktree，
      subprocess 不經 shell（開工句以 / 開頭也原樣送到）。stdout 的 `backgrounded · <短 id>` 就是 session 短 id。
+     模型：--model 優先，其次 config console.spawn.default_model，都沒有就不帶（吃 Claude Code 預設），不猜。
   4. 等它報到：輪詢 `claude agents --json` 取它在 ListAgents 的名字；讀它的 transcript
      （<資料根>/projects/<cwd-slug>/<sessionId>.jsonl）看有沒有「<軌名> 收到開工」——SendMessage 工具呼叫的正文，
-     或 assistant 的文字都認，印出是哪一種。
+     或 assistant 的文字都認，印出是哪一種。報到後印「模型＝<transcript 最近一則真回應的 message.model>」；
+     指定了模型卻對不上（或讀不到）→ FAIL 印「指定＝…／實際＝…」，session 不殺。
+     transcript 出現 API 錯誤訊息（例：模型 id 不存在，claude 不拒起、第一回合回錯後停著等輸入）→ 不等逾時、立刻 FAIL 印原文。
+     這兩種 FAIL 不退人貼（人貼救不了），只印 stop 指令讓總控台決定。
   5. 逾時（--timeout，預設 90 秒）→ exit 1，印開工句 code block 與「退回人貼」，session 不殺（印 stop 指令讓總控台決定）。
   --method print：同步跑 `claude -p`（阻塞到那個 session 結束），備援用；--method gui：本腳本不動畫面，直接印開工句退回。
 
 怎麼跑：
   python ~/.claude/tools/console-spawn.py --track track-x --worktree C:\\...\\.claude-wt\\x --branch x \\
-      --prompt-file C:\\...\\kickoff.txt --permission-mode bypassPermissions
+      --prompt-file C:\\...\\kickoff.txt --permission-mode bypassPermissions --model claude-opus-5-5
   完整參數以 --help 為準。尾行 `CONSOLE_SPAWN_CHECK PASS` 或 `CONSOLE_SPAWN_CHECK FAIL`；exit 0／1 對應。
 """
 from __future__ import annotations
@@ -30,7 +34,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -47,6 +51,8 @@ STATE_FILE = "state-console-spawn.json"          # workflow/state-*.json 已在 
 DEFAULTS = {"max_parallel": 5, "timeout_sec": 90, "poll_sec": 3}
 BG_ID_RE = re.compile(r"backgrounded\s*[·•:]\s*([0-9a-f]{6,})", re.I)
 KICKOFF_WORD = "收到開工"
+SYNTHETIC_MODEL = "<synthetic>"                  # Claude Code 自己補寫的 assistant（API 錯誤、No response requested）
+NO_MODEL = "讀不到（transcript 沒有 model 欄）"
 
 
 # ─── 純函式：路徑與判定 ───────────────────────────────────────────────────────
@@ -129,11 +135,35 @@ def kickoff_received(transcript: Path, track: str) -> Optional[str]:
     return hit_text
 
 
-def build_cmd(claude_bin: str, method: str, prompt: str, permission_mode: str) -> List[str]:
+def model_and_api_error(transcript: Path) -> Tuple[Optional[str], Optional[str]]:
+    """(最近一則真回應的 message.model, 最近一則 API 錯誤訊息的文字)；model 跳過 "<synthetic>"，沒有就回 None。"""
+    model = err = None
+    with transcript.open(encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("type") != "assistant":
+                continue
+            msg = rec.get("message") or {}
+            if rec.get("isApiErrorMessage") is True:
+                content = msg.get("content") if isinstance(msg.get("content"), list) else []
+                texts = [str(b["text"]) for b in content if isinstance(b, dict) and b.get("text")]
+                err = " ".join(texts) or "（API 錯誤，沒有文字）"
+            m = msg.get("model")
+            if isinstance(m, str) and m and m != SYNTHETIC_MODEL:
+                model = m
+    return model, err
+
+
+def build_cmd(claude_bin: str, method: str, prompt: str, permission_mode: str, model: Optional[str] = None) -> List[str]:
+    """開工句固定在 index 2（印指令時遮掉）；--model 只在有指定時接在最後。"""
+    tail = ["--model", model] if model else []
     if method == "bg":
-        return [claude_bin, "--bg", prompt, "--permission-mode", permission_mode]
+        return [claude_bin, "--bg", prompt, "--permission-mode", permission_mode] + tail
     if method == "print":
-        return [claude_bin, "-p", prompt, "--permission-mode", permission_mode, "--output-format", "json"]
+        return [claude_bin, "-p", prompt, "--permission-mode", permission_mode, "--output-format", "json"] + tail
     raise ValueError(f"method {method} 不由本腳本起 session")
 
 
@@ -158,7 +188,7 @@ def fallback_block(prompt: str, step: str, extra: str = "") -> str:
 
 # ─── 外部狀態：設定、信任、state 檔 ─────────────────────────────────────────────
 def load_spawn_config(live_root: Path) -> Dict[str, Any]:
-    cfg = dict(DEFAULTS)
+    cfg = {**DEFAULTS, "default_model": None}
     f = live_root / "workflow" / "config.json"
     if not f.is_file():
         return cfg
@@ -169,6 +199,9 @@ def load_spawn_config(live_root: Path) -> Dict[str, Any]:
     for k in DEFAULTS:
         if isinstance(section.get(k), (int, float)) and section[k] > 0:
             cfg[k] = section[k]
+    dm = section.get("default_model")
+    if isinstance(dm, str) and dm.strip():
+        cfg["default_model"] = dm.strip()
     return cfg
 
 
@@ -257,20 +290,23 @@ def spawn_bg(worktree: Path, cmd: List[str], run_fn) -> Dict[str, Any]:
 
 
 def wait_kickoff(args, claude_bin: str, short_id: str, run_fn, sleep_fn, now_fn, data_dir: Path) -> Dict[str, Any]:
-    """等到 agents 清單有它且 transcript 出現「<軌名> 收到開工」；回 {ok, how, name, sessionId, elapsed}。"""
+    """等到 agents 清單有它且 transcript 出現「<軌名> 收到開工」或 API 錯誤；
+    回 {ok, how, name, sessionId, elapsed, model, api_error}（api_error 只在沒報到時給）。"""
     t0 = now_fn()
     name, session_id = "未出現", None
     while True:
         for a in list_agents(claude_bin, run_fn):
             if a.get("id") == short_id or str(a.get("sessionId", "")).startswith(short_id):
                 name, session_id = a.get("name") or name, a.get("sessionId") or session_id
-        if session_id:
-            tp = transcript_path(data_dir, args.worktree, session_id)
-            how = kickoff_received(tp, args.track) if tp else None
-            if how:
-                return {"ok": True, "how": how, "name": name, "sessionId": session_id, "elapsed": now_fn() - t0}
+        tp = transcript_path(data_dir, args.worktree, session_id) if session_id else None
+        how = kickoff_received(tp, args.track) if tp else None
+        model, err = model_and_api_error(tp) if tp else (None, None)
+        if how or err:
+            return {"ok": bool(how), "how": how, "name": name, "sessionId": session_id, "elapsed": now_fn() - t0,
+                    "model": model, "api_error": None if how else err}
         if now_fn() - t0 >= args.timeout:
-            return {"ok": False, "how": None, "name": name, "sessionId": session_id, "elapsed": now_fn() - t0}
+            return {"ok": False, "how": None, "name": name, "sessionId": session_id, "elapsed": now_fn() - t0,
+                    "model": model, "api_error": None}
         sleep_fn(args.poll)
 
 
@@ -288,6 +324,9 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     ap.add_argument("--poll", type=float, default=None, help="輪詢間隔秒（預設 config 或 3）")
     ap.add_argument("--max-parallel", type=int, default=None, help="同時活著的本腳本 session 上限（預設 config 或 5）")
     ap.add_argument("--claude-bin", default=None, help="claude 執行檔；不給就找 VS Code 擴充內建最新版，再找 PATH")
+    ap.add_argument("--model", default=None,
+                    help="新 session 的模型，給完整 id（例 claude-opus-5-5；別名對不上 transcript 記的完整 id 會判 FAIL）；"
+                         "不給就用 config console.spawn.default_model，再沒有就不帶（吃 Claude Code 預設）")
     args = ap.parse_args(argv)
 
     def log(s: str) -> None:
@@ -322,6 +361,7 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     args.timeout = args.timeout if args.timeout is not None else cfg["timeout_sec"]
     args.poll = args.poll if args.poll is not None else cfg["poll_sec"]
     max_parallel = args.max_parallel if args.max_parallel is not None else cfg["max_parallel"]
+    model = args.model or cfg["default_model"]
     kill = live_root / "workflow" / KILL_SWITCH
     if kill.exists():
         log(f"  ✗ kill switch 存在：{kill}（刪掉才准起新 session）")
@@ -349,10 +389,12 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
                     f"在 {args.worktree} 跑一次 `claude` 接受信任提示，再重跑本腳本。")
 
     # 3. 起 session
-    cmd = build_cmd(claude_bin, args.method, prompt, args.permission_mode)
+    cmd = build_cmd(claude_bin, args.method, prompt, args.permission_mode, model)
     shown = [c if i != 2 else f"<開工句 {len(prompt)} 字>" for i, c in enumerate(cmd)]
     log(f"  · 指令：{shown}  cwd={args.worktree}")
     if args.method == "print":
+        if model:
+            log(f"  · method=print 只把 --model {model} 帶上，不核對實際模型（不讀 transcript）")
         r = run_fn(cmd, cwd=str(args.worktree), stdin=subprocess.DEVNULL, capture_output=True, text=True,
                    encoding="utf-8", errors="replace", timeout=max(args.timeout, 60) * 20, creationflags=NO_WINDOW)
         log(f"  · claude -p exit={r.returncode}")
@@ -378,11 +420,24 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
         state[-1]["sessionId"] = w["sessionId"]
         save_state(live_root, state)
     log(f"  · session id={w['sessionId'] or '未出現'}  ListAgents 名字={w['name']}  等了 {w['elapsed']:.0f} 秒")
+    if w["api_error"]:
+        # 不退人貼：人貼的新分頁多半撞同一個錯（認證、額度），模型 id 錯則會退回預設模型
+        log(f"  ✗ session 回 API 錯誤、停在等輸入：{w['api_error']}")
+        log(f"  那個 session 還在：`claude stop {short_id}` 收掉；錯誤講的是模型就改 --model（完整 id）重跑本腳本，其他錯誤排除後再重跑。")
+        print("CONSOLE_SPAWN_CHECK FAIL")
+        return 1
     if not w["ok"]:
         log(f"  ✗ {args.timeout:.0f} 秒內沒收到「{args.track} 收到開工」")
         return fail(f"{args.timeout:.0f} 秒內沒收到「{args.track} 收到開工」", prompt,
                     f"那個 session 還在（`claude logs {short_id}` 看它在做什麼；確定不要就 `claude stop {short_id}`）。")
     log(f"  ✓ {args.track} 收到開工（{w['how']}）；人要看它：`claude attach {short_id}`")
+    actual = w["model"] or NO_MODEL
+    if model and w["model"] != model:
+        log(f"  ✗ 模型不符：指定＝{model}／實際＝{actual}")
+        log(f"  session 已開工、沒殺：要換就 `claude stop {short_id}` 後改 --model 重跑；將就用就 `claude attach {short_id}` 接手。")
+        print("CONSOLE_SPAWN_CHECK FAIL")
+        return 1
+    log(f"  · 模型＝{actual}")
     print("CONSOLE_SPAWN_CHECK PASS")
     return 0
 

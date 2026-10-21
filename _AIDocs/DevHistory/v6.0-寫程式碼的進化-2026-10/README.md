@@ -18,6 +18,9 @@
 | `總控台裁定帳與誤判清冊.md` | 兩個總控台的裁定（#1～#43 等）與寫碼查核閘誤判清冊，每筆一行 | 本機信箱 `workflow/v6-inbox/_console/`（已刪） |
 | `B5-需求目標效果驗收-結論.md` | B5 五題驗收結論與三條效果缺口（不含答案） | 本機信箱 `from-track-b5/`（原始材料留在本機 `workflow/inbox/b5-kit/`） |
 | `工作軌總表與暫停狀態.md` | 各軌做了什麼與合進 main 的 commit、暫停狀態、沒進 /console skill 的流程段落、本機留存工具 | 本機信箱（已刪）＋git log |
+| `接續單舊版封存-2026-10-20.md` | 10-20 改依 G 重排之前的接續單（總控台流程、驗收條件、維護軌、歷程） | `memory/_staging/next-phase-v6.0-寫程式碼的進化.md` |
+| `第一波聯合驗收-結論.md` | 第一波三題（G2、G4＋G5＋G13、G6）聯合驗收結論、判分分歧與原設計者裁定 | 總控台 |
+| `checklist已完成項封存-2026-10-21.md` | checklist 改版時搬出的段落（逐條 G 分析、已完成的列、10-20 舊狀態、第四節已定的段），原文照搬並附達成證據 | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |
 

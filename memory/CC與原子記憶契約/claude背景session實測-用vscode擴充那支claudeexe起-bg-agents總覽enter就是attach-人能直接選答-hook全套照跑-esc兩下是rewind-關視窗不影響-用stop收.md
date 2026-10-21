@@ -13,6 +13,7 @@
 - [臨] 能起背景 session 的是 VS Code 擴充內建的 `%USERPROFILE%\.vscode\extensions\anthropic.claude-code-<版>-win32-x64\resources\native-binary\claude.exe`（--bg／agents／attach／logs／stop 都在）；PATH 上 `AppData\Local\Programs\claude-code\...\bin\claude.exe` 是舊版，沒有這些子命令。`claude --bg "<開工句>" --permission-mode <模式>` 以 cwd 為工作樹、subprocess 不經 shell 起，幾秒內印 `backgrounded · <id>` 返回；worktree 沒信任紀錄會立刻拒起，~/.claude.json projects 的信任鍵要用正斜線形。
 - [臨] 背景 session 是完整 session：ListAgents 看得到、SendMessage 雙向通、hook 全套照跑（提問閘會擋它、需求目標提醒都在）；`claude agents --json` 的 status 在它等 AskUserQuestion 時是 waiting／waitingFor="input needed"／程式可以藉此判「它在問人」。人要答它：終端機跑 `claude agents` 進總覽，↑ 選到那列按 Enter 就是 attach，選項直接選得到（原設計者實測成立）。在 attach 畫面連按兩次 Esc 會跳 Rewind 對話框（不是離開）；要離開直接關終端機視窗即可，背景 session 由另一個 supervisor 管不會死；收掉用 `claude stop <id>`。
 - [臨] --bg 的服務會在 ~/.claude 根落 daemon.lock／daemon.log／daemon.status.json／daemon/／jobs/（要進 .gitignore）。
+- [臨] `claude --bg --model <不存在的id>` 不拒起（exit 0、印 backgrounded）；第一回合 transcript 只寫一則 assistant，`message.model="<synthetic>"`、頂層 `isApiErrorMessage=true`，文字「There's an issue with the selected model (…)…」，之後 session 停 idle 等輸入、不會再說話。核實背景 session 實際模型：讀 transcript 每則 assistant 的 `message.model`（thinking 開頭那則也有），跳過 `<synthetic>`（CC 自補的 API 錯誤／No response requested）。實測版本 2.1.304。
 
 ## 行動
 

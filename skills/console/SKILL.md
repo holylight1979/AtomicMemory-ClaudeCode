@@ -99,8 +99,8 @@ pattern: pipeline
 
 ## 用法四：開工 <軌名> <派工單路徑>（總控台自己開 session，原話 G16）
 
-- **動作**：建 worktree 與分支（用法二 Step 2）→ 照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/tools/console-spawn.py --track <軌名> --worktree <路徑> --branch <分支> --prompt-file <那個檔> --permission-mode <自己的模式>`（模式明帶，不假設繼承）→ 尾行 PASS 就把它印的 ListAgents 名字寫回接續單「軌對應」行。
-- 腳本自己等「<軌名> 收到開工」（讀該 session 的 transcript）；逾時（預設 90 秒）或任一前置不過 → 尾行 FAIL、stdout 已印開工句 code block → 原樣轉給人貼（用法三），訊息要讓人一眼知道停在哪一步；不重試超過 1 次。
+- **動作**：建 worktree 與分支（用法二 Step 2）→ 照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/tools/console-spawn.py --track <軌名> --worktree <路徑> --branch <分支> --prompt-file <那個檔> --permission-mode <自己的模式> --model <派工單寫的模型 id>`（模式明帶，不假設繼承；模型給完整 id）→ 尾行 PASS 就把它印的 ListAgents 名字寫回接續單「軌對應」行。
+- 腳本自己等「<軌名> 收到開工」（讀該 session 的 transcript）；逾時（預設 90 秒）或任一前置不過 → 尾行 FAIL、stdout 已印開工句 code block → 原樣轉給人貼（用法三），訊息要讓人一眼知道停在哪一步；不重試超過 1 次。模型不符、API 錯誤兩種 FAIL 不退人貼，照 kickoff §6 第 4 步處理。
 - 只有要動人的畫面（剪貼簿貼進空分頁）才問一次「現在可以動你的畫面嗎」；方法由實測決定，不問人選。〔原話〕
 - **完成判定**：腳本尾行 `CONSOLE_SPAWN_CHECK PASS` 且接續單有該軌名字；人要看那個 session：`claude attach <短 id>`（腳本有印）。
 
