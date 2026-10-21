@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 一建卡就綁 Entry 的卡也不會落到 local
+- **原設計者看到的**：用 atom_write 建卡時就帶 Entry，卡名剛好含詞庫的本地範疇詞（例 codex），卡照樣落在 memory/<範疇>/（要給 core 的 domain），帳上多一行 realm_hold（source=atom_io:create）。MCP 是 js，互動分頁要 Reload 才吃到新版。
+- **改了什麼**（軌 track-realm-entry-pin 002）：`lib/atom_io.locate_atom` 收 `entry`，自動 realm 判 local 前問 `entry_bound_ids`，綁了就不改 realm、回 `extra.realm_hold`；`lib/atom_io_cli.create_atom` 落檔成功後依 `realm_hold` 寫帳；`tools/workflow-guardian-mcp/lib/atom-tools.js` 把 entry 傳進 locate、把 realm_hold 透傳給 create_atom、stderr 一行；TECH.md §4.3、SPEC §2.2 補述。
+- **驗證**：`hooks/verify/verify_realm_sweep.py` 新 2 案（子行程實跑 `python -m lib.atom_io_cli` locate→create_atom：同卡不帶 entry 落 local、帶 entry 落 memory/、dry-run 不留帳、落檔後帳一行；js 透傳靜態檢查），換回基底 e28d6bc1 兩案都紅、其餘 15 支兩邊都綠。
 ## 2026-10-22 綁 Entry 的卡不再被收割的 realm 自動搬移搬去 local
 - **原設計者看到的**：切入點判準卡（有 `- Entry:` 的卡）搬回 memory/ 之後，收割時不會再被自動搬回 `_AIDocs/_atoms/`；被擋下的會在 `memory/_meta/atom_io_audit.jsonl` 留一行 `realm_hold`。手動用 atom-set-realm／atom-categorize 搬這種卡到 local 照搬，但會帶一行警告。
 - **改了什麼**（軌 track-realm-entry-pin 001）：`lib/atom_locations` 新增有名規則 `ENTRY_BOUND_STAYS_CORE` 與判定 `entry_bound_ids`（檔頭為準，讀不到檔才看索引）；`wg_atoms._sweep_realm_auto_migrate` 在本來要照詞庫搬或要喚 LLM 時先問它，綁了就不搬、不喚、留帳；`tools/atom-set-realm.py` 搬到 local 時回傳與 stderr 帶警告，`tools/atom-categorize.py apply` 把警告收進結果 `warnings`；TECH.md §4.3、SPEC §2.2 補一段。

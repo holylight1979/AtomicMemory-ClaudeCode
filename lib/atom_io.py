@@ -36,7 +36,7 @@ from .atom_locations import (
     is_failures_routed_title, failures_write_target, local_write_target,
     atom_search_roots, locate_existing_atom, project_subdir_target,
     core_write_target, failures_topic_target, project_category_target,
-    find_separator_variant, classify_realm,
+    find_separator_variant, classify_realm, ENTRY_BOUND_STAYS_CORE, entry_bound_ids,
 )
 from .atom_taxonomy import gate_enabled as _taxonomy_gate_enabled
 from .narrative_date import narrative_date_error
@@ -1610,6 +1610,7 @@ def locate_atom(
     triggers: Optional[List[str]] = None,
     enforce_cwd_scope: bool = False,
     cross_project: bool = False,
+    entry: Optional[List[str]] = None,
 ) -> WriteResult:
     """atom 落點與定位的**唯一裁決者**（唯讀；只 mkdir 落點）。MCP js 端 create/append/
     replace/promote/edit_meta 一律先問這裡，js 不自算任何路徑。
@@ -1622,31 +1623,41 @@ def locate_atom(
       target_dir, category, base_dir, index_dir, index_root, scope_label, slug,
       rel_path（既有檔）／create_rel_path（新檔相對 index_root），
       routed_to_failures / routed_to_pending / routed_to_local, realm, domain,
-      auto_realm（scope=global、realm 未給時由 classify_realm 判 local 的命中詞）。
+      auto_realm（scope=global、realm 未給時由 classify_realm 判 local 的命中詞），
+      realm_hold（同條件下卡帶 entry → ENTRY_BOUND_STAYS_CORE 留 core：{rule, entry, would}；
+      帳由 create_atom 落檔成功後寫，dry-run 與被擋下的建卡不留帳）。
     """
     audit_id = _gen_audit_id()
     if scope == "project":
         scope = "shared"
     slug = slugify(title)
     auto_realm: Optional[List[str]] = None
+    realm_hold: Optional[Dict[str, Any]] = None
+    rc: Dict[str, Any] = {}
     if scope == "global" and realm is None and not is_failures_routed_title(title):
         # 自動 realm（core 全專案注入／local 只在 ~/.claude）：安全預設 core，核心保護硬擋。
         try:
             rc = classify_realm(slug, triggers or [])
-            if rc.get("realm") == "local" and rc.get("domain") and not rc.get("protected"):
-                realm = "local"
-                if not domain:
-                    domain = rc["domain"]
-                auto_realm = list(rc.get("matched") or [])
         except Exception:  # noqa: BLE001 — 分類器故障 → 維持 core
-            pass
+            rc = {}
+    lex_local = bool(rc.get("realm") == "local" and rc.get("domain") and not rc.get("protected"))
+    entry_ids = entry_bound_ids({"entry": entry}) if lex_local else []
+    if entry_ids:  # ENTRY_BOUND_STAYS_CORE：綁 Entry 的判準卡建卡就留 core，不照詞庫落 local
+        realm_hold = {"rule": ENTRY_BOUND_STAYS_CORE, "entry": entry_ids, "would": f"lex:{rc['domain']}"}
+    elif lex_local:
+        realm = "local"
+        if not domain:
+            domain = rc["domain"]
+        auto_realm = list(rc.get("matched") or [])
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
                                title=title, realm=realm, domain=domain, subdir=subdir,
                                mode=mode, allow_new_category=allow_new_category,
                                enforce_cwd_scope=enforce_cwd_scope,
                                cross_project=cross_project)
     if resolved.get("error"):
-        return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
+        hint = (f"（{ENTRY_BOUND_STAYS_CORE}：綁 Entry 的卡不自動分到 local，"
+                f"詞庫本來判 {realm_hold['would']}；請給 core 的 domain）") if realm_hold else ""
+        return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"] + hint)
 
     index_root = resolved["index_root"]
     file_path = resolved["dir"] / f"{slug}.md"
@@ -1664,7 +1675,7 @@ def locate_atom(
         "routed_to_local": bool(resolved.get("routed_to_local")),
         "personal_global": bool(resolved.get("personal_global")),
         "realm": "local" if resolved.get("routed_to_local") else ("global" if scope == "global" else None),
-        "domain": domain, "auto_realm": auto_realm,
+        "domain": domain, "auto_realm": auto_realm, "realm_hold": realm_hold,
     }
     if not file_path.exists():
         found, loc_err = locate_existing_atom(

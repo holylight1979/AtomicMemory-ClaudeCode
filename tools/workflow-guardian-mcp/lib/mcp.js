@@ -176,7 +176,7 @@ const TOOL_DEFINITIONS = [
         },
         entry: {
           type: "array", items: { type: "string" },
-          description: "這張卡是哪幾個切入點的判準卡，代號查 workflow/entrypoints.json（如 [\"E04\", \"E08\"]）。程式在那個切入點問 LLM 時（擋訊息、deny、MCP 回覆）先把 Entry 命中的卡的知識段接在問句後面。Rendered as `- Entry:`。replace: omit=keep, []=clear；append 忽略。",
+          description: "這張卡是哪幾個切入點的判準卡，代號查 workflow/entrypoints.json（如 [\"E04\", \"E08\"]）。程式在那個切入點問 LLM 時（擋訊息、deny、MCP 回覆）先把 Entry 命中的卡的知識段接在問句後面。Rendered as `- Entry:`。create 帶 entry 的卡不會被自動分到 local realm（ENTRY_BOUND_STAYS_CORE），scope=global 要給 core 的 domain。replace: omit=keep, []=clear；append 忽略。",
         },
         quote: {
           type: "string",

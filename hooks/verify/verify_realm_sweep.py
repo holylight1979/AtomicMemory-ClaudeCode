@@ -299,6 +299,73 @@ def test_categorize_apply_passes_entry_warning_through(tmp_path):
     assert len(out["warnings"]) == 1 and "ENTRY_BOUND_STAYS_CORE" in out["warnings"][0] and "bound-x" in out["warnings"][0]
 
 
+def _atom_cli(env, payload):
+    """MCP 建卡走的那座橋：`python -m lib.atom_io_cli`，stdin JSON → stdout WriteResult。"""
+    r = subprocess.run([sys.executable, "-m", "lib.atom_io_cli"], cwd=str(CLAUDE), input=json.dumps(payload),
+                       capture_output=True, text=True, encoding="utf-8", env=env)
+    return json.loads(r.stdout)
+
+
+def test_create_with_entry_stays_core_and_is_ledgered(tmp_path):
+    """建卡出口：卡名命中詞庫 local 詞（codex→Tools）時，帶 entry 的 create 落 memory/、落檔後留 realm_hold 帳；
+    不帶 entry 照舊落 local；dry-run 不留帳。"""
+    root, env = _tmp_data_root(tmp_path, [])
+    meta = root / "memory" / "_meta"
+    meta.mkdir(parents=True)
+    for name in ("realm-lexicon.json", "taxonomy.json"):  # 詞庫與範疇表照資料根讀，暫存根要有
+        meta.joinpath(name).write_bytes((CLAUDE / "memory" / "_meta" / name).read_bytes())
+    (root / "workflow").mkdir()  # 範疇寫入閘照 live 開著（資料根 workflow/config.json）
+    (root / "workflow" / "config.json").write_text(json.dumps({"taxonomy": {"gate_enabled": True}}), encoding="utf-8")
+    audit = meta / "atom_io_audit.jsonl"
+    base = {"action": "locate", "title": "codex-判準假卡", "scope": "global", "mode": "create",
+            "triggers": ["codex"], "domain": "驗證與實證/第二意見"}
+
+    plain = _atom_cli(env, base)  # 前置：同一張卡不帶 entry → 照詞庫落 local（證明下面留 core 是規則擋的）
+    assert plain["ok"] and plain["extra"]["routed_to_local"] is True and plain["extra"].get("realm_hold") is None
+
+    held = _atom_cli(env, {**base, "entry": ["E16"]})
+    ex = held["extra"]
+    assert held["ok"] and ex["routed_to_local"] is False and not ex["auto_realm"]
+    assert ex["realm_hold"] == {"rule": "ENTRY_BOUND_STAYS_CORE", "entry": ["E16"], "would": "lex:Tools"}
+    assert ex["create_rel_path"] == f"memory/驗證與實證/第二意見/{ex['slug']}.md"
+    no_dom = _atom_cli(env, {**base, "entry": ["E16"], "domain": None})  # 原本靠自動分 local、沒給 domain
+    assert not no_dom["ok"] and "ENTRY_BOUND_STAYS_CORE" in no_dom["error"]  # 擋訊息說得出為什麼要給 core 的 domain
+
+    create = {"action": "create_atom", "today": "2026-10-22", "realm_hold": ex["realm_hold"],
+              "build": {"title": base["title"], "scope": ex["scope_label"], "confidence": "[臨]",
+                        "triggers": ["codex"], "knowledge": ["[臨] 假卡知識行"], "author": "test",
+                        "created_at": "2026-10-22", "entry": ["E16"]},
+              "file_path": str(Path(ex["target_dir"]) / f"{ex['slug']}.md"),
+              "index": {"base_dir": ex["index_dir"], "slug": ex["slug"], "rel_path": ex["create_rel_path"],
+                        "triggers": ["codex"], "scope": ex["scope_label"]}}
+
+    def holds():
+        rows = [json.loads(ln) for ln in audit.read_text(encoding="utf-8").splitlines()] if audit.exists() else []
+        return [(h["source"], h["rule"], h["slug"], h["entry"], h["would"]) for h in rows if h.get("op") == "realm_hold"]
+
+    assert _atom_cli(env, {**create, "dry_run": True})["ok"]
+    assert holds() == []  # dry-run 不留帳
+    flat = f"memory/{ex['slug']}.md"  # locate 判了留 core，落檔前被範疇閘擋（平鋪核心層）→ 沒檔、沒帳
+    rejected = _atom_cli(env, {**create, "file_path": str(root / flat), "index": {**create["index"], "rel_path": flat}})
+    assert not rejected["ok"] and not (root / flat).exists() and holds() == []
+    cr = _atom_cli(env, create)
+    assert cr["ok"], cr
+    assert (root / ex["create_rel_path"]).exists()
+    assert holds() == [("atom_io:create", "ENTRY_BOUND_STAYS_CORE", ex["slug"], ["E16"], "lex:Tools")]
+
+
+def test_mcp_atom_write_hands_entry_and_hold_to_py():
+    """MCP js 只透傳不自判：locate 帶 entry、create_atom 帶 locate 回的 realm_hold。"""
+    js = (CLAUDE / "tools" / "workflow-guardian-mcp" / "lib" / "atom-tools.js").read_text(encoding="utf-8")
+
+    def call_block(action):
+        rest = js[js.index(f'spawnAtomCli("{action}", {{'):]
+        return rest[:rest.index("});")]
+
+    assert "entry" in call_block("locate")
+    assert "realm_hold: loc.realm_hold" in call_block("create_atom")
+
+
 def test_already_local_skipped(monkeypatch, tmp_path):
     moved, fs, fl, _ = _drive(
         monkeypatch, tmp_path,
