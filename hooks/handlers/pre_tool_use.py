@@ -280,12 +280,13 @@ def _svn_segments(command: str, subcommands: set, shell: str = "") -> List[Tuple
     return _vcs_segments(command, subcommands, ("svn", "svn.exe"), _SVN_VALUE_FLAGS, shell)
 
 
-def _git_commit_segments(command: str, cwd: str = "") -> List[Tuple[str, List[str]]]:
+def _git_commit_segments(command: str, cwd: str = "", shell: str = "") -> List[Tuple[str, List[str]]]:
     """薄包裝：只取 git commit 段（別名展開後是 commit 的也算）。"""
-    return _git_segments(command, {"commit"}, cwd=cwd)
+    return _git_segments(command, {"commit"}, shell, cwd)
 
 
-# git 不認與內建子命令同名的別名，遇到內建子命令就不必查設定；這張表只省子行程，漏列的內建子命令只是多查一次
+# 常見內建子命令：遇到就不查別名（git 不認與內建同名的別名）。不在表上的才查設定，查到同名別名時再用 _git_commands
+# 確認它是不是 git 自己的指令，所以這張表只省子行程，漏列不會判錯
 _GIT_BUILTIN_SUBS = frozenset((
     "add am annotate apply archive bisect blame branch bundle cat-file check-attr check-ignore check-mailmap checkout "
     "cherry cherry-pick clean clone commit commit-graph commit-tree config count-objects describe diff diff-files "
@@ -295,30 +296,64 @@ _GIT_BUILTIN_SUBS = frozenset((
     "switch symbolic-ref tag update-index update-ref var version worktree write-tree").split())
 
 
+def _git_config_aliases(run_cwd: str) -> Optional[Dict[str, str]]:
+    """run_cwd 看得到的 git 別名（系統、全域、repo 設定合併後）→ {名: 展開}；git 失敗（目錄不存在、git 跑不起來）回 None。
+    用 `-z` 取：值可以跨行（多行的 `!` 別名），逐行讀會把第二行起丟掉。"""
+    try:
+        r = subprocess.run(["git", "config", "-z", "--get-regexp", r"^alias\."], capture_output=True, timeout=3,
+                           cwd=run_cwd or None,
+                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+    except Exception:
+        return None
+    if r.returncode not in (0, 1):   # 1＝一個別名都沒有
+        return None
+    out: Dict[str, str] = {}
+    for rec in r.stdout.decode("utf-8", "replace").split("\0"):
+        key, _nl, value = rec.partition("\n")
+        if key.lower().startswith("alias."):
+            out[key[len("alias."):].lower()] = value
+    return out
+
+
 @functools.lru_cache(maxsize=None)
 def _git_aliases(run_cwd: str) -> Dict[str, str]:
-    """run_cwd 看得到的 git 別名（系統、全域、repo 設定合併後；`git config --get-regexp ^alias\\.`）→ {名: 展開}。
-    沒有別名、不在 repo、git 失敗都回 {}：認不出別名就照原樣判，與沒有別名時一樣。hook 每個事件一個行程，快取只活一次事件。"""
-    pairs = [ln.split(None, 1) for ln in _git_lines(["config", "--get-regexp", r"^alias\."], run_cwd) or []]
-    return {p[0][len("alias."):].lower(): (p[1] if len(p) > 1 else "") for p in pairs}
+    """別名表（hook 每個事件一個行程，快取只活一次事件）。run_cwd 查不到（`-C` 指到還不存在的目錄等）→ 退回 hook 行程
+    目錄看得到的設定（全域別名照樣認得），並在 stderr 留訊號；兩邊都查不到才當沒有別名。"""
+    found = _git_config_aliases(run_cwd)
+    if found is None and run_cwd:
+        found = _git_config_aliases("")
+        try:
+            sys.stderr.write(f"[Guardian:GitAlias] 查不到 {run_cwd} 的 git 別名，改用 hook 目錄的設定\n")
+        except OSError:
+            pass
+    return found or {}
+
+
+@functools.lru_cache(maxsize=1)
+def _git_commands() -> frozenset:
+    """git 自己的指令名（內建、exec-path 裡的、PATH 上的 git-* 外掛）：跟它們同名的別名 git 不認。查不到回空集合。"""
+    return frozenset(n.lower() for n in _git_lines(["--list-cmds=builtins,main,others"], "") or [])
 
 
 def _expand_git_alias(pairs: List[Tuple[str, str]], inline: Dict[str, str], run_cwd: str) -> List[Tuple[str, str]]:
-    """子命令是 git 別名就換成展開後的子命令與參數（別名接別名最多追 5 層）：行內 `-c alias.<名>=…` 優先，再查設定。
-    `!` 開頭的 shell 別名不展開，換成 [("!", "!"), (內容, 內容)] 兩段，交 _git_shell_alias_commit 照包裝判。"""
-    for _ in range(5):
+    """子命令是 git 別名就換成展開後的子命令與參數：行內 `-c alias.<名>=…` 優先，再查設定；別名接別名一路追，名字重複出現
+    ＝循環（git 自己也會報錯）就停；跟 git 自己的指令同名的別名不認。展開出的字 git 直接當參數、不經 shell，raw 一律寫成
+    單引號字面（`commit -m 'literal $HOME'` 的 $ 不是展開）。`!` 開頭的 shell 別名不展開，換成 [("!", "!"), (內容, 內容)]
+    兩段，交 _git_shell_alias_commit 照包裝判。"""
+    seen: set = set()
+    while True:   # 每圈多記一個名字，別名有限，必停
         sub = pairs[0][1].lower()
-        if not sub or sub in _GIT_BUILTIN_SUBS:
-            break
+        if not sub or sub in _GIT_BUILTIN_SUBS or sub in seen:
+            return pairs
+        seen.add(sub)
         expansion = inline.get(sub)
         if expansion is None:
             expansion = _git_aliases(run_cwd).get(sub)
-        if expansion is None:
-            break
+        if expansion is None or sub in _git_commands():
+            return pairs
         if expansion.startswith("!"):
             return [("!", "!"), (expansion[1:], expansion[1:])]
-        pairs = [(w, w) for w in _shell_tokens(expansion) or [""]] + pairs[1:]
-    return pairs
+        pairs = [("'" + w.replace("'", "") + "'", w) for w in _shell_tokens(expansion) or [""]] + pairs[1:]
 
 
 def _git_shell_alias_commit(command: str, cwd: str = "", shell: str = "") -> bool:
@@ -327,6 +362,18 @@ def _git_shell_alias_commit(command: str, cwd: str = "", shell: str = "") -> boo
     return any(p[0][1] == "!" and len(p) > 1 and _wrapped_commit_verdict(p[1][1], 1, strict=True)
                for _cd, p in _vcs_segment_pairs(command, None, ("git", "git.exe"), _GIT_VALUE_FLAGS, shell=shell,
                                                 alias_cwd=cwd))
+
+
+def _hidden_commit(command: str, cwd: str = "", shell: str = "") -> bool:
+    """直接拆得出的 git commit 段以外，有沒有別處（`!` shell 別名、bash -c 之類的包裝、eval／展開）可能藏 commit。
+    有一段拆得出不代表整條拆得出：`git save && git commit --dry-run`（save 是 `!git commit …`）只看得到後面那段。"""
+    if _git_shell_alias_commit(command, cwd, shell):
+        return True
+    for seg in _scan_segments(command, None, shell):
+        raw = " ".join(r for r, _ in seg)
+        if not _git_commit_segments(raw, cwd, shell) and _wrapped_commit_verdict(raw):
+            return True
+    return False
 
 
 def _resolve_run_cwd(repo_cd: str, cwd: str, shell: str = "") -> str:
@@ -449,19 +496,21 @@ def _strip_heredoc_bodies(command: str) -> str:
     return "\n".join(out)
 
 
-def _git_commits_to_run(command: str, cwd: str = "") -> Tuple[str, List[Tuple[str, List[str]]], bool]:
+def _git_commits_to_run(command: str, cwd: str = "",
+                        shell: str = "") -> Tuple[str, List[Tuple[str, List[str]]], bool]:
     """命令裡真的會執行的 git commit（CommitOrder、病形閘與需求目標 commit_gate 共用這一支）：先剝 heredoc 本文，寫在
     文件裡的 commit 範例不算、heredoc 結束後真的執行的照算。回（剝過的命令、直接拆得出的 commit 段（git 別名展開後是
     commit 的也算）、有沒有 commit：拆得出段，或 `!` shell 別名、包裝／展開裡可能有）。快篩只看 git 字樣（別名的
-    命令裡沒有 commit 字樣），與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。cwd＝tool cwd。"""
+    命令裡沒有 commit 字樣），與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。cwd＝tool cwd，
+    shell＝_tool_shell（跳脫規則與 Git Bash 的 `/c/…` 落點，別名要在落點的 repo 查）。"""
     low = (command or "").lower()
     if "git" not in low:
         return command or "", [], False
     stripped = _strip_heredoc_bodies(command)
-    segments = _git_commit_segments(stripped, cwd)
+    segments = _git_commit_segments(stripped, cwd, shell)
     if segments:
         return stripped, segments, True
-    return stripped, [], (_git_shell_alias_commit(stripped, cwd)
+    return stripped, [], (_git_shell_alias_commit(stripped, cwd, shell)
                           or ("commit" in low and _wrapped_commit_verdict(stripped)))
 
 
@@ -843,7 +892,7 @@ def check_git_commit_order(
         return None
     command = tool_input.get("command", "") or ""
     try:
-        _stripped, segments, has_commit = _git_commits_to_run(command, cwd)
+        _stripped, segments, has_commit = _git_commits_to_run(command, cwd, _tool_shell(tool_name))
         if not has_commit:
             # 包在 shell 包裝／子 shell／eval 裡的 git commit 解析器拆不出來：拆得出內層且確定是查詢才放行，其餘照常檢查口令
             return None
@@ -1114,15 +1163,15 @@ def check_smell_gate(
         return None, None
     shell = _tool_shell(tool_name)
     body = _strip_heredoc_bodies(command)
-    has_git_commit = _git_commits_to_run(command, cwd)[2]
+    has_git_commit = _git_commits_to_run(command, cwd, shell)[2]
     svn_segs = _svn_segments(body, {"commit", "ci"}, shell) if "svn" in low else []
     if not has_git_commit and not svn_segs:
         return None, None
     git_segs = _git_segments(body, {"add", "commit"}, shell, cwd) if has_git_commit else []
-    if has_git_commit and not any(t[0].lower() == "commit" for _cd, t in git_segs):
-        return ("[Guardian:SmellGate] 這條指令裡有 git commit，但包在 bash -c／powershell -Command／$() 或 `!` 開頭的 "
-                "git 別名之類的包裝裡，拆不出它落在哪個 repo、要提交哪些檔，病形檢查判不了，一律擋。"
-                "把 git commit 直接寫在指令裡再下一次。"), None
+    if has_git_commit and (not any(t[0].lower() == "commit" for _cd, t in git_segs) or _hidden_commit(body, cwd, shell)):
+        return ("[Guardian:SmellGate] 這條指令裡有 git commit 包在 bash -c／powershell -Command／$() 或 `!` 開頭的 "
+                "git 別名之類的包裝裡（同一條指令另有直接寫的 commit 也一樣），拆不出它落在哪個 repo、要提交哪些檔，"
+                "病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
     if has_git_commit and _SMELL_REPO_OVERRIDE_RE.search(body):
         return ("[Guardian:SmellGate] 這條 git commit 用 --git-dir／--work-tree 或 GIT_DIR／GIT_WORK_TREE／GIT_INDEX_FILE "
                 "指定 repo，病形檢查重現不了它實際提交哪個 repo、哪份暫存區，判不了，一律擋。改用 `git -C <repo> commit` 或先 cd 進 repo。"), None
@@ -1779,7 +1828,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 缺了就擋；判不了一律擋。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
     if tool_name in ("Bash", "PowerShell"):
         _ng_cmd = tool_input.get("command", "") or ""
-        if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "")[2]
+        if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
                 or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"})):
             try:
                 from wg_need_goal import commit_gate

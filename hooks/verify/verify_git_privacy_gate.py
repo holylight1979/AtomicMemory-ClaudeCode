@@ -21,7 +21,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
 from handlers.pre_tool_use import (  # noqa: E402
-    check_git_privacy, _git_commit_segments, _git_commits_to_run, _privacy_globs, _privacy_match,
+    check_git_privacy, _git_commit_segments, _git_commits_to_run, _git_segments, _privacy_globs, _privacy_match,
 )
 
 
@@ -103,6 +103,14 @@ def test_commit_through_git_alias_is_checked(repo):
     assert _git_commits_to_run("git status", str(repo))[2] is False
 
 
+def test_alias_named_like_a_git_command_is_ignored_like_git_does(repo):
+    """codex 審 G2(a)：跟 git 自己指令同名的別名 git 不認（`check-ref-format` 跑的是內建），閘也不能當 commit；
+    不在常見內建表上的真別名照樣認得。"""
+    assert _git_commits_to_run("git -c alias.zz=commit zz -m x", str(repo))[2] is True, "前置：行內別名認得"
+    assert _git_commits_to_run("git -c alias.check-ref-format=commit check-ref-format refs/heads/x",
+                               str(repo))[2] is False
+
+
 def _commit_base(repo: Path, files: dict) -> None:
     for rel, text in files.items():
         (repo / rel).write_text(text, encoding="utf-8")
@@ -139,7 +147,10 @@ def test_private_name_inside_escaped_message_is_not_a_path(repo):
     (repo / ".env").write_text("A=2", encoding="utf-8")
     (repo / "a.txt").write_text("b", encoding="utf-8")
     assert _check(repo, "git commit -m x -- .env"), "前置：真的提交 .env 會被擋"
-    assert _check(repo, 'git commit -m "mention \\".env\\" -- .env" -- a.txt') is None
+    command = 'git commit -m "mention \\".env\\" -- .env" -- a.txt'
+    segs = _git_segments(command, {"commit"}, "bash", str(repo))
+    assert segs and segs[0][1][-2:] == ["--", "a.txt"] and 'mention ".env" -- .env' in segs[0][1], segs
+    assert _check(repo, command) is None
 
 
 def test_git_dash_c_repo_targeting(repo, tmp_path):

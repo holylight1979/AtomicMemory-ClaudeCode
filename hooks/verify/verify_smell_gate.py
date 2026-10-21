@@ -26,7 +26,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 TREE = HOOKS_DIR.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
-from handlers.pre_tool_use import check_smell_gate  # noqa: E402
+from handlers.pre_tool_use import _GIT_VALUE_FLAGS, _vcs_segments, check_smell_gate  # noqa: E402
 
 
 def _load_smells():
@@ -492,7 +492,36 @@ def test_shell_alias_with_commit_cannot_be_judged_is_blocked(tmp_path):
     _git(repo, "config", "alias.st2", "!git status --short")
     deny, _advice = _gate(repo, "git save")
     assert deny and "判不了" in deny and "別名" in deny
+    assert _vcs_segments("git st2", None, ("git", "git.exe"), _GIT_VALUE_FLAGS, alias_cwd=str(repo)) == [
+        ("", ["!", "git status --short"])], "前置：st2 真的被認成 shell 別名"
     assert _gate(repo, "git st2") == (None, None)
+
+
+def test_review_shell_alias_and_wrapper_beside_a_direct_commit_are_blocked(tmp_path):
+    """codex 審 G2(a)：多行的 `!` 別名（第二行才 commit）、`!` 別名或 bash -c 包裝旁邊另有直接寫的 commit——
+    有一段拆得出不代表整條拆得出，藏起來的那段照樣判不了一律擋（舊版前者只讀到第一行、後兩者只查直接那段就放行）。"""
+    repo = _repo(tmp_path, {"src/a.py": "x = 1\n"})
+    assert _gate(repo, "git commit --dry-run")[0] is None, "前置：只有直接的 commit、沒病 → 放行"
+    _git(repo, "config", "alias.save", "!git status\ngit commit -m x")
+    for command in ("git save", "git -c 'alias.keep=!git commit -m x' keep && git commit --dry-run",
+                    'bash -c "git commit -am x" && git commit --dry-run'):
+        deny, _advice = _gate(repo, command)
+        assert deny and "判不了" in deny, command
+
+
+def test_review_alias_resolution_edge_cases_are_checked_like_commit(tmp_path):
+    """codex 審 G2(a)：Git Bash 的 `-C /c/…` 落點（別名要在那個 repo 查）、六層別名鏈、別名裡單引號包住的字面
+    `$HOME`（git 不經 shell，不是展開）都照一般 commit 查到病（舊版前兩者放行、最後一個誤當展開判不了）。"""
+    repo = _repo(tmp_path, {"src/a.py": CLEAN_PY})
+    _write(repo, "src/a.py", CLEAN_PY + STACKED)
+    _git(repo, "add", "src/a.py")
+    _git(repo, "config", "alias.ci", "commit")
+    _git(repo, "config", "alias.lit", "commit -m 'literal $HOME'")
+    chain = " ".join(f"-c alias.{a}={b}" for a, b in zip("abcde", "bcdef")) + " -c alias.f=commit"
+    cases = [(f'git -C {_msys(repo)} ci -m "x"', tmp_path), (f'git {chain} a -m "x"', repo), ("git lit", repo)]
+    for command, cwd in cases:
+        deny, _advice = check_smell_gate("Bash", {"command": command}, str(cwd), {})
+        assert deny and "匿名函式疊用" in deny and "判不了" not in deny, command
 
 
 # ─── commit 指令的寫法（驗收題 A：多行訊息／here-string 把 `-- <路徑>` 切到另一段，整條無聲放行）──────
