@@ -14,6 +14,7 @@
 | g6-評分規格程式擋確定的判斷留給-llm-宣告 | G6 評分規格：程式擋確定的、判斷留給 LLM 宣告 |
 | g7-評分規格認得壞味道等值簡化效能必要就做 | G7 評分規格：認得壞味道、等值簡化、效能必要就做 |
 | goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
+| hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題 | hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-Logs並重錄-先只退回改動檔證明是錄放帶問題 |
 | pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
 | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
 | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |

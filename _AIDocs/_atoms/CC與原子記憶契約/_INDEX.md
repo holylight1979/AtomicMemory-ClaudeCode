@@ -9,3 +9,4 @@
 | codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated | codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated |
 | worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑 | worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑 |
 | 第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔 | 第二意見工具不適合拿來判大份材料-MCP入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔 |
+| 第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組 | 第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-N新檔否則codex看不到新模組 |

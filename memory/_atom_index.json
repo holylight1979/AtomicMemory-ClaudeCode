@@ -9202,6 +9202,46 @@
         "自動化"
       ],
       "scope": "global"
+    },
+    {
+      "name": "第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組",
+      "path": "_AIDocs/_atoms/CC與原子記憶契約/第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組.md",
+      "triggers": [
+        "second_opinion_start",
+        "第二意見 材料",
+        "codex 看不到新檔",
+        "git add -N",
+        "intent-to-add",
+        "未追蹤新檔"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題",
+      "path": "memory/驗證與實證/hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題.md",
+      "triggers": [
+        "git_cassette",
+        "錄放帶",
+        "--git-record",
+        "受測目錄不同",
+        "verify_gate_bypass 跳過",
+        "guard log 多一筆",
+        "Logs 目錄"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照",
+      "path": "memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照.md",
+      "triggers": [
+        "啟動器 commit",
+        "worktree commit",
+        "含 git 字樣被擋",
+        "commit 前閉",
+        "--commit-check",
+        "病形閉沒觸發"
+      ],
+      "scope": "global"
     }
   ]
 }

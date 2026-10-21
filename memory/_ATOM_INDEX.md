@@ -547,3 +547,6 @@
 | g14-評分規格新專案第一次就有這些行為 | memory/思考與決策/g14-評分規格新專案第一次就有這些行為.md | G14, G14 評分, 新專案, 無表, 零卡, 部位表, 從零掃表, 索引 0 筆 | global |  |
 | g15-評分規格語意命中目的 | memory/驗證與實證/g15-評分規格語意命中目的.md | G15, G15 評分, 語意混雜, 規格, 評分表, 白話, reader-designer, 第一句 | global |  |
 | g16-評分規格能自動就不推給人不逼拍板 | memory/思考與決策/g16-評分規格能自動就不推給人不逼拍板.md | G16, G16 評分, 拍板, 貼 prompt, 要不要我, 你說推我就推, 全貌, 自動化 | global |  |
+| 第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組 | _AIDocs/_atoms/CC與原子記憶契約/第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組.md | second_opinion_start, 第二意見 材料, codex 看不到新檔, git add -N, intent-to-add, 未追蹤新檔 | global |  |
+| hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題 | memory/驗證與實證/hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題.md | git_cassette, 錄放帶, --git-record, 受測目錄不同, verify_gate_bypass 跳過, guard log 多一筆, Logs 目錄 | global |  |
+| 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照 | memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照.md | 啟動器 commit, worktree commit, 含 git 字樣被擋, commit 前閉, --commit-check, 病形閉沒觸發 | global |  |
