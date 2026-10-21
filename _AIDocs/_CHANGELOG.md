@@ -5,7 +5,7 @@
 
 ---
 ## 2026-10-21 G16 補件：總控台開工作軌時就指定模型，並核對真的起對
-- **總控台看到的**：`console-spawn.py` 多了 `--model <id>`（不給就用 `console.spawn.default_model`，那裡也沒設就吃 Claude Code 預設，不猜）。報到後多印一行「模型＝<id>」，讀的是該 session 的 transcript。指定的模型對不上會 FAIL，印「指定＝…／實際＝…」，session 不殺。模型 id 不存在時，claude 照樣起得來，但第一回合回錯就停著；現在腳本一讀到這則錯誤就 FAIL 並印原文，不再白等 90 秒、也不再叫人貼。這兩種 FAIL 都不印人貼區塊。用法見 `skills/console/references/kickoff.md` §6。
+- **總控台看到的**：`console-spawn.py` 多了 `--model <id>`（不給就用 `console.spawn.default_model`，那裡也沒設就吃 Claude Code 預設，不猜）。報到後多印一行「模型＝<id>」，讀的是該 session 的 transcript。指定的模型對不上會 FAIL，印「指定＝…／實際＝…」，session 不殺。模型 id 不存在時，claude 照樣起得來，但第一回合回錯就停著；現在腳本一讀到這則錯誤就 FAIL 並印原文，不再白等 90 秒、也不再叫人貼。這兩種 FAIL 都不印人貼區塊。用法見 `skills/console/references/kickoff.md` §6 與 `skills/console/SKILL.md` 用法四。已知限制：`--method print` 只帶上 `--model`、不核對實際模型。print 是阻塞的備援方法，不讀 transcript；`claude -p` 的輸出 JSON 有沒有 model 欄也沒有實測過。
 - **改了什麼**（軌 track-console-spawn-model 000）：`build_cmd` 把 `--model` 接在指令最後，bg 與 print 都接，開工句仍在第 2 格；`load_spawn_config` 讀字串鍵 `default_model`；新增 `model_and_api_error` 函式，取最近一則真回應的 `message.model`，跳過 Claude Code 自己補寫的 `<synthetic>`，同時找 `isApiErrorMessage` 的錯誤文字；`wait_kickoff` 同一輪輪詢就能讀到報到或 API 錯誤；print 方法只帶上 `--model`、不核對，會印一行說明。
 - **驗證**：`tools/verify/verify_console_spawn.py` 新增 9 案，`--help` 案多斷言 `--model`。在舊碼上 10 紅，改後 25 passed。另外真打兩次，都用 claude.exe 2.1.304：`--model claude-opus-5-5` 17 秒 PASS、印「模型＝claude-opus-5-5」；`--model claude-nonexistent-9-9` 17 秒 FAIL、印 claude 回的錯誤原文。
 
