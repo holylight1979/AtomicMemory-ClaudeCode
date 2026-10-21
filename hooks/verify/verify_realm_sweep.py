@@ -366,6 +366,14 @@ def test_mcp_atom_write_hands_entry_and_hold_to_py():
     assert "realm_hold: loc.realm_hold" in call_block("create_atom")
 
 
+def test_auto_extract_exit_cannot_carry_entry():
+    """同類出口：自動萃取寫手（hooks/user-extract-worker.py）自己判 realm 再呼叫 py write_atom；write_atom 不收 entry，
+    自動萃取建的卡帶不了 Entry，所以那條出口不用擋。哪天 write_atom 收了 entry，ENTRY_BOUND_STAYS_CORE 要在那裡也接上。"""
+    import inspect
+    from lib.atom_io import write_atom
+    assert "entry" not in inspect.signature(write_atom).parameters
+
+
 def test_already_local_skipped(monkeypatch, tmp_path):
     moved, fs, fl, _ = _drive(
         monkeypatch, tmp_path,
