@@ -965,10 +965,10 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── auto-continue/ / gdoc-harvester/ / unity-desktop/ / usage-snapshot/
 │   └── verify/
 │
-├── skills/                                  ← <!-- skill-count -->26<!-- /skill-count --> 個 active
+├── skills/                                  ← <!-- skill-count -->27<!-- /skill-count --> 個 active
 │   ├── atom-debug / atom-source / behavior-preservation / browse-sprites / changelog-debug / codex-companion
 │   ├── conflict / consciousness-stream / console / continue / extract / fix-escalation / generate-episodic
-│   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / meeting / memory / org
+│   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / mailbox / meeting / memory / org
 │   ├── read-project / refile / skill-creator / upgrade / vector
 │   └── _archived/ init-roles / conflict-review（單人環境 dormant）
 │
