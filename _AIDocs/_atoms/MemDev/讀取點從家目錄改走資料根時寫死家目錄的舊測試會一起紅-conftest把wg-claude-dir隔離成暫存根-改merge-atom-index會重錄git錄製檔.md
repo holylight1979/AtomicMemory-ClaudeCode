@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: claude_data_dir, Path.home() / .claude, 資料根改寫, CLAUDE_DIR, WG_CLAUDE_DIR 隔離, 舊測試寫死家目錄, git 錄製檔重錄, cassette 重錄, merge-atom-index 改動
 - Created-at: 2026-10-20
+- Quote: 「track-config-consistency：你是工作軌 track-config-consistency，總控台是 claude-e3（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\Users\holylight\.claude-wt\config-consistency（分支 config-consistency，已存在，不要新建；不…」
 
 ## 知識
 

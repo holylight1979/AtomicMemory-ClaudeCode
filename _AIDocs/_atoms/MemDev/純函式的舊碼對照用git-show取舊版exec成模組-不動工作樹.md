@@ -6,6 +6,7 @@
 - Trigger: git show 舊版, 載成模組, 舊碼對照, 不動工作樹
 - Created-at: 2026-10-20
 - Source: session:a49d53e9 2026-10-20
+- Quote: 「track-gate-bypass：你是工作軌 track-gate-bypass，總控台是 claude-e3（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\Users\holylight\.claude-wt\gate-bypass（分支 gate-bypass，已存在，不要新建；不存在就 SendMessage 總控台要，不要自己建）。…」
 
 ## 知識
 

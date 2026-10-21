@@ -21,6 +21,7 @@
 |------|---------|------|
 | AI工具接入 | 1 | `memory/工作流/AI工具接入/各家ai工具接自訂mcp的現況-本機客戶端接得到內網-雲端聊天只收公網-workspace版gemini不開放自訂.md` |
 | 協作與並行 | 13 | `memory/工作流/協作與並行/_INDEX.md` |
+| 多session協作 | 1 | `memory/工作流/多session協作/工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件.md` |
 | 多軌總控台 | 2 | `memory/工作流/多軌總控台/_INDEX.md` |
 | 節奏與收尾 | 6 | `memory/工作流/節奏與收尾/_INDEX.md` |
 | 重構 | 1 | `memory/工作流/重構/coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證.md` |
