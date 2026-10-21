@@ -194,6 +194,16 @@ def _assert_is_test_file_with_tests(path, src):
     assert ot.extract_tests(src, path), "前置：抽得到測試函式"
 
 
+def test_snapshot_write_has_newline_control():
+    """寫改前快照的 write_text 要帶 newline=（verify_lf_writes 規則：Windows 文字模式會把 \\n 翻成 \\r\\n）。
+    快照是單行 JSON、位元組上看不出差別，所以用同一套 AST 規則只掃 wg_oldtest.py。"""
+    sys.path.insert(0, str(HOOKS_DIR / "verify"))
+    import verify_lf_writes as lf
+    src = (HOOKS_DIR / "wg_oldtest.py").read_text(encoding="utf-8")
+    assert ".write_text(" in src, "前置：wg_oldtest.py 真的有文字模式寫檔"
+    assert lf.check_file(HOOKS_DIR / "wg_oldtest.py") == []
+
+
 RENAME_EDIT_OLD = "def test_legacy_report_keeps_columns():\n    rows = adjust.report()"
 RENAME_EDIT_NEW = "def test_legacy_report_v2():\n    rows = adjust.report()"
 DECL = "改舊測試｜test_legacy_report_keeps_columns：使用者第 3 回合說舊報表欄位改成新格式，舊斷言的欄位順序已不成立"

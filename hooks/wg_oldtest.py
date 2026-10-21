@@ -493,7 +493,7 @@ def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, A
         return
     f = _snap_file(sid, tool_name, tool_input)
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps({"files": files, "py": py}, ensure_ascii=False), encoding="utf-8")
+    f.write_text(json.dumps({"files": files, "py": py}, ensure_ascii=False), encoding="utf-8", newline="\n")
 
 
 def _snap_pairs(snap: Dict[str, Any], config: Dict[str, Any], sid: str) -> Dict[str, Optional[str]]:
