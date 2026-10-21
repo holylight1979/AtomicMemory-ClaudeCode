@@ -52,6 +52,7 @@ workflow/extract-worker.log
 workflow/tool-results/
 workflow/need-goal/
 workflow/reading-path/
+workflow/text-score/
 workflow/cross-project-index-cache.json
 workflow/provenance-backfill-last.json
 workflow/hot_cache.json

@@ -220,6 +220,16 @@ def handle_user_prompt_submit(
         lines.insert(0, evasion_ask(ev))
         state["evasion_flag"] = None
 
+    # 文字評分（G15）：上一則回覆背景評完了 → 評分一行放在這則注入的第一行，請 AI 照抄到回覆尾巴（只附不擋；wg_text_score）
+    try:
+        from wg_text_score import tail_note as _ts_tail_note
+        _ts_txt = _ts_tail_note(state, session_id, config)
+        if _ts_txt:
+            lines.insert(0, _ts_txt)
+    except Exception as e:
+        _atom_debug_error("ups:text_score", e)
+        print(f"[Guardian:TextScore] UserPromptSubmit 送上則評分失敗：{type(e).__name__}: {e}", file=sys.stderr)
+
     # Handoff Protocol
     if intent == "handoff":
         lines.append(
