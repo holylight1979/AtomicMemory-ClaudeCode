@@ -8,6 +8,7 @@
 handlers/post_tool_use.py 呼叫 note_created；Bash／PowerShell 由這裡記下呼叫前不存在的目標、post_tool_use 呼叫
 confirm_shell_created 確認存在後轉進去。
 開關與清單：workflow/config.json 的 guard.data_file_ask（enabled 預設 True；extensions 給了就整份取代預設清單）。
+.md 也算（README、病灶清單這類團隊共有文件）；_AIDocs／memory／.claude 底下的 .md 是系統文件，照舊不問（SYSTEM_DOC_DIRS）。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_data_file_ask.py
 """
 from __future__ import annotations
@@ -25,7 +26,14 @@ GUARD = "data_file"
 TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 SHELL_TOOLS = ("Bash", "PowerShell")
 DEFAULT_EXTENSIONS = [".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env", ".csv", ".tsv", ".xml",
-                      ".properties", ".plist"]
+                      ".properties", ".plist", ".md"]
+# 系統文件目錄（記憶卡片、AI 依規維護的專案文件、部位表）：裡面的 .md 照舊不當資料檔問；同目錄的 json 等設定照問
+SYSTEM_DOC_DIRS = ("_aidocs", "memory", ".claude")
+
+
+def _system_doc_md(path: str) -> bool:
+    parts = [p.lower() for p in Path(str(path)).parts[:-1]]
+    return _ext_of(path) == ".md" and any(d in parts for d in SYSTEM_DOC_DIRS)
 
 
 def cfg_of(config: Optional[Dict[str, Any]]) -> Tuple[bool, List[str]]:
@@ -152,7 +160,8 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     sid = str(input_data.get("session_id") or "")
     paths: List[str] = []
     try:
-        paths = [p for p in dict.fromkeys(_targets(tool_name, tool_input, str(input_data.get("cwd") or ""))) if _ext_of(p) in exts]
+        paths = [p for p in dict.fromkeys(_targets(tool_name, tool_input, str(input_data.get("cwd") or "")))
+                 if _ext_of(p) in exts and not _system_doc_md(p)]
         return _judge(tool_name, paths, sid, input_data, config) if paths else None
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"

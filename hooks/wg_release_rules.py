@@ -2318,18 +2318,32 @@ OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "
 _OLD_TEST_FILE_RE = re.compile(r"\.[a-z]{1,5}$")
 _OLD_TEST_DECL_RE = re.compile(r"改舊測試\s*[｜|]\s*(.+)")
 _OLD_TEST_ASCII_SEP_RE = re.compile(r":(?![A-Za-z0-9_\\/:])")
-_OLD_TEST_NAME_SPLIT_RE = re.compile(r"\s*[、，,]\s*")
+_OLD_TEST_NAME_SPLIT_RE = re.compile(r"\s*[、，,；;]\s*")
+# 一行多支各帶理由（「名1：理由1、名2：理由2」）的每一段開頭：行首或分隔符後面接 ASCII 名字（可帶 檔:、::、/），再接冒號
+_OLD_TEST_NAME_LIKE_RE = re.compile(r"test|::|[._/\\]", re.IGNORECASE)   # 像測試名（不是 ERP、TECH 這種標籤字）
+_OLD_TEST_SEG_RE = re.compile(r"(?:^|[、，,；;])\s*`?(?P<name>[A-Za-z0-9_./\\-]+(?:::?[A-Za-z0-9_.]+)*)`?\s*(?:：|:(?![A-Za-z0-9_\\/:]))")
 
 
 def parse_old_test_declarations(text: str) -> List[Dict[str, Any]]:
     """宣告行 → [{names, reason, line}]。名字與理由用第一個「：」分；沒有全形冒號才找後面不接識別字的「:」
-    （`tests/test_a.py:test_x: 理由` 的第一個冒號屬於名字）。names 是去反引號後的整段與「、，,」切開的每一段。"""
+    （`tests/test_a.py:test_x: 理由` 的第一個冒號屬於名字）。names 是去反引號後的整段與「、，,；;」切開的每一段。
+    一行裡出現兩段以上「名字：理由」（「名1：理由1、名2：理由2；名3：理由3」）→ 每段一筆；第一段之前只列名字的
+    （「名0、名1：理由1、名2：理由2」的名0）併進第一段。"""
     out: List[Dict[str, Any]] = []
     for raw in str(text or "").splitlines():
         m = _OLD_TEST_DECL_RE.search(raw)
         if not m:
             continue
         rest = m.group(1)
+        segs = [s for i, s in enumerate(_OLD_TEST_SEG_RE.finditer(rest))
+                if i == 0 or _OLD_TEST_NAME_LIKE_RE.search(s.group("name"))]   # 理由裡的「ERP：」不是新的一段
+        if len(segs) >= 2:
+            lead = [p.strip("` ") for p in _OLD_TEST_NAME_SPLIT_RE.split(rest[:segs[0].start()]) if p.strip("` ")]
+            for i, sg in enumerate(segs):
+                end = segs[i + 1].start() if i + 1 < len(segs) else len(rest)
+                out.append({"names": (lead if i == 0 else []) + [sg.group("name")],
+                            "reason": rest[sg.end():end].strip(" 、，,；;"), "line": raw.strip()[:240]})
+            continue
         if "：" in rest:
             names, reason = rest.split("：", 1)
         else:
@@ -2633,7 +2647,8 @@ def _so_lines(text: str) -> List[str]:
 def second_opinion_hint() -> str:
     """擋訊息末尾的入口（G6 樣式：擋的同時告訴 AI 入口在哪）。"""
     return (f"跑完在收尾最後一則寫「{SO_SECTION}」段，四行：" + "／".join(f"{lb}：…" for lb in SO_LABELS)
-            + "（failed／blocked 也要寫明狀態與自己的結論）。\n"
+            + "（failed／blocked 也要寫明狀態與自己的結論）；之後被別的閘擋下而補了一則，交付的最後一則也要保留這四行，"
+            "不要寫「見上一則」。\n"
             "要跑：second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result；"
             "或宣告 `不需第二意見｜<理由>`")
 

@@ -213,11 +213,46 @@ def test_post_tool_use_records_created_file(world, monkeypatch):
     assert df._rr.canon_path(str(new)) in wg_core.read_state(SID).get("created_files", [])
 
 
-@pytest.mark.parametrize("name", ["app.py", "README.md"])
+@pytest.mark.parametrize("name", ["app.py"])
 def test_code_and_markdown_are_not_asked(world, name):
     out = _run(world, path=world["proj"] / name)
     assert not _df_deny(out)
     assert not _log(world), "副檔名不在清單：連 exempt 都不記"
+
+
+# ─── .md 文件（原設計者 10-21 裁「納」：題 A′ AI 沒被要求就刪了 defects.md 一列、改了 README，閘沒問）───
+
+def test_existing_readme_md_without_declaration_is_denied(world):
+    out = _run(world, path=world["proj"] / "README.md")
+    assert _df_deny(out), out
+    assert "README.md" in _reason(out) and "(a) 不是程式檔：副檔名 .md 在資料／設定清單" in _reason(out)
+
+
+def test_existing_md_with_declaration_allowed(world):
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", "動資料檔｜README.md：使用者要的 --plain 用法要寫進跑法；可見影響：README 多一行")])
+    assert not _df_deny(_run(world, path=world["proj"] / "README.md"))
+    assert _log(world)[-1]["event"] == "declared"
+
+
+def test_shell_deleting_line_in_existing_defects_md_is_denied(world):
+    (world["proj"] / "defects.md").write_text("| cli.py | 參數手切 |\n| catalog.py | 價格寫死 |\n", encoding="utf-8")
+    out = _shell(world, "sed -i '/cli.py.*參數手切/d' defects.md")
+    assert _df_deny(out) and "defects.md" in _reason(out)
+
+
+def test_session_created_md_and_system_doc_md_not_asked(world):
+    new = world["proj"] / "NOTES.md"
+    assert not _df_deny(_run(world, tool="Write", path=new, content="# n\n"))           # 呼叫前不存在：新建
+    for rel in ("_AIDocs/_CHANGELOG.md", "memory/工作流/x.md", ".claude/overview-map.md"):
+        p = world["proj"] / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("# x\n", encoding="utf-8")
+        assert not _df_deny(_run(world, path=p)), rel                                  # 系統文件目錄的 .md 照既有規則不問
+    assert all(not e["path"].endswith(("_CHANGELOG.md", "x.md", "overview-map.md")) for e in _log(world))
+    j = world["proj"] / "memory" / "_meta" / "phrases.json"
+    j.parent.mkdir(parents=True, exist_ok=True)
+    j.write_text("{}", encoding="utf-8")
+    assert _df_deny(_run(world, path=j))                                                 # 同目錄的 json 照舊要宣告
 
 
 def test_disabled_skips_everything(world):
