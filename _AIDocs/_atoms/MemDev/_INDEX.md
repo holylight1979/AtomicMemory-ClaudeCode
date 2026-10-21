@@ -80,6 +80,7 @@
 | 使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接 | 使用者放行的判定要防偽造-只認tool_use_id對到AskUserQuestion的答案-打字放行要整句嚴格比對-跨回合要承接 |
 | 健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層 | 健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層 |
 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve_responses-entry-stats只給計數且預設只看7天 |
+| 判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 | 判準卡Entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 |
 | 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕 | 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進HUD刪除鈕 |
 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 |
 | 取用端稽核與瘦身規範-atomaudit與3kb預算 | 取用端稽核與瘦身規範-AtomAudit與3KB預算 |

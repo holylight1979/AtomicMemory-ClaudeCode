@@ -7,6 +7,7 @@
 - Trigger: 重載原因, RELOAD_ADVICE_ALREADY_LOADED, Reload Window, 重新載入視窗, ReloadAdvice, 已載入磁碟上最新的程式
 - Created-at: 2026-10-21
 - Quote: 「A」
+- Entry: E17
 
 ## 知識
 

@@ -504,7 +504,7 @@
 | 被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套 | memory/驗證與實證/被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套.md | 非本回合宣稱, 不是退避｜, 宣稱｜試過, CLAIM_TRIED_NEEDS_EXEC, 轉述, 說明句誤擋, 已驗過, 下個 session | global |  |
 | 拐彎判斷先問這一層拿掉後誰會壞-沒人壞就是空層-巢狀三層各守獨立條件就要壓平 | memory/設計通則/拐彎判斷先問這一層拿掉後誰會壞-沒人壞就是空層-巢狀三層各守獨立條件就要壓平.md | 拐彎判斷｜, TURN_JUDGMENT_REQUIRED, 空層, 只轉手, 繼承鏈, 巢狀, 這一層沒有作用, 抄舊架構, 間接層 | global |  |
 | 熱路徑看呼叫頻率乘資料量與時間預算-每事件每筆都跑就是熱-一次性離線工具不是 | memory/驗證與實證/熱路徑看呼叫頻率乘資料量與時間預算-每事件每筆都跑就是熱-一次性離線工具不是.md | 熱路徑｜, PERF_HOT_PATH_NEEDS_MEASURE, 熱路徑, 大量配置, 量測｜不做, DONE k=v, 效能 | global |  |
-| 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 | _AIDocs/_atoms/Tools/第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由.md | 第二意見與分歧裁決, Codex 結論, 裁決與理由, 分歧點, 不需第二意見｜, SECOND_OPINION_REQUIRED, second_opinion_result | global |  |
+| 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 | memory/驗證與實證/第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由.md | 第二意見與分歧裁決, Codex 結論, 裁決與理由, 分歧點, 不需第二意見｜, SECOND_OPINION_REQUIRED, second_opinion_result | global |  |
 | 動使用者資料檔先看改完使用者會看到什麼-行為會變或不在需求裡就先問-修語法也可能改了全部輸出 | memory/行為契約/動使用者資料檔先看改完使用者會看到什麼-行為會變或不在需求裡就先問-修語法也可能改了全部輸出.md | DataFileAsk, 動資料檔, USER_DATA_FILE_NEEDS, 使用者既有的資料檔, 先問使用者, 需求沒點名, 設定檔, settings.json | global |  |
 | 病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修 | memory/版控/病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修.md | SmellGate, 病形閘, GateBypass, 不是繞閘, 繞閘嫌疑, 移出暫存, 暫存區, 別人的改動, 上GIT, commit | global |  |
 | origin標使用者說的要那句原話說出這個動作-只提到同一物件不算-做法與延伸標推出來的 | memory/思考與決策/origin標使用者說的要那句原話說出這個動作-只提到同一物件不算-做法與延伸標推出來的.md | origin, 使用者說的, 推出來的, quote, 對不到原話, 標使用者說的但對不到原話, 目標樹, need_goal | global |  |
@@ -539,7 +539,7 @@
 | g6-評分規格程式擋確定的判斷留給-llm-宣告 | memory/驗證與實證/g6-評分規格程式擋確定的判斷留給-llm-宣告.md | G6, G6 評分, 不做｜, 跳過, 驗證範圍, 誤判, 規則名, 擋到底 | global |  |
 | g7-評分規格認得壞味道等值簡化效能必要就做 | memory/驗證與實證/g7-評分規格認得壞味道等值簡化效能必要就做.md | G7, G7 評分, 壞味道, 過度物件化, 繼承, 重構, 等值, 效能 | global |  |
 | g8-評分規格住進記憶系統切入點有卡 | memory/思考與決策/g8-評分規格住進記憶系統切入點有卡.md | G8, G8 評分, 寫卡, 判準卡, 切入點, 三層變量, Quote, 萃取 | global |  |
-| g9-評分規格兩家模型各自想分歧寫下來 | _AIDocs/_atoms/Tools/g9-評分規格兩家模型各自想分歧寫下來.md | G9, G9 評分, 第二意見, Codex, 分歧, 採納, 各自想 | global |  |
+| g9-評分規格兩家模型各自想分歧寫下來 | memory/思考與決策/g9-評分規格兩家模型各自想分歧寫下來.md | G9, G9 評分, 第二意見, Codex, 分歧, 採納, 各自想 | global |  |
 | g10-評分規格沒試過不算結論 | memory/驗證與實證/g10-評分規格沒試過不算結論.md | G10, G10 評分, 證據級, 試過, 修好了, 收據, 實測, 重跑 | global |  |
 | g11-評分規格拐超過三個彎 | memory/思考與決策/g11-評分規格拐超過三個彎.md | G11, G11 評分, 拐幾個彎, 拐彎, 彎數, 最短路, 只轉手, 間接層 | global |  |
 | g12-評分規格可讀性要被量要被修 | memory/驗證與實證/g12-評分規格可讀性要被量要被修.md | G12, G12 評分, 可讀性, 跳層, 讀幾層, 閱讀路徑, 讀路徑 | global |  |
@@ -552,3 +552,4 @@
 | 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照 | memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照.md | 啟動器 commit, worktree commit, 含 git 字樣被擋, commit 前閉, --commit-check, 病形閉沒觸發 | global |  |
 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天 | _AIDocs/_atoms/MemDev/切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天.md | guard-entry.jsonl, entry-stats, 切入點帳, resolve_responses, 回應型, response none, 判分出處, --days | global | path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py, path:C:/Users/holylight/.claude/tools/entry-stats.py |
 | 收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話 | memory/行為契約/收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話.md | 收尾檢核, anti_evasion_report, 要你處理, 這輪做了什麼, 下一步要你做, HUD 報告, 沒頭沒尾, 背景軌收尾, AEC 白話 | global |  |
+| 判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 | _AIDocs/_atoms/MemDev/判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼.md | Entry 綁定, 判準卡, entry-bind, cards_for_entry, judgment_cards, inject_budget_tokens, 專卡被擠掉, 切入點卡 | global |  |

@@ -7,6 +7,7 @@
 - Trigger: 驗證範圍, verify_scope, 該測哪些, 哪些測試有關聯, 範圍漏判, SCOPE_LEAK_REVIEW, root_cause, 漏判率, case_for, no_case
 - Created-at: 2026-10-21
 - Quote: 「A」
+- Entry: E24
 
 ## 知識
 

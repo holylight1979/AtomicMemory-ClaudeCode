@@ -7,6 +7,7 @@
 - Trigger: smell-ok, SmellGate, 新寫進了舊碼的病, 外部 API 只收這種寫法, 病形閘, 怎麼改, 過度物件化, lambda 指派給變數
 - Created-at: 2026-10-21
 - Quote: 「A」
+- Entry: E29
 
 ## 知識
 

@@ -7,6 +7,7 @@
 - Confidence: [臨]
 - Trigger: G6, G6 評分, 不做｜, 跳過, 驗證範圍, 誤判, 規則名, 擋到底
 - Created-at: 2026-10-21
+- Entry: E07, E08
 
 ## 知識
 

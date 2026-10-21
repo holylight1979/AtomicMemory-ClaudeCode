@@ -7,6 +7,7 @@
 - Trigger: realm, core, local, refile, Else, 範疇歸檔, 詞庫 miss, llm_classify_realm, unsure
 - Created-at: 2026-10-21
 - Quote: 「A」
+- Entry: E31
 
 ## 知識
 
