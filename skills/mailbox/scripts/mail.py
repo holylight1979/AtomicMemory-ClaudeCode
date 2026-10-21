@@ -490,7 +490,7 @@ def cmd_check(args):
         print(f"已建立你的收件資料夾：{own_box}")
     ping_path = os.path.join(own_box, f".ping_{user}.txt")
     try:
-        with open(ping_path, "w", encoding="utf-8") as handle:
+        with open(ping_path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("ping")
         with open(ping_path, encoding="utf-8") as handle:
             readable = handle.read() == "ping"

@@ -14,6 +14,7 @@ cases：
   8. 名單檔被手改成不合規的帳號 → 寄信停下（exit 1），不在信箱外建資料夾
   9. （Windows）附件被開著時 read／delete 停下（exit 1）：信和附件留在原位、不分家
  10. 剛被別人搬動的檔短暫拒絕存取：開信／改名／寫狀態稍等重試；一直被佔才報錯
+ 11. mail.py 的文字模式寫檔都帶 newline=（LF 守門同一套規則）
 """
 from __future__ import annotations
 
@@ -316,3 +317,14 @@ def test_retry_on_busy_waits_out_a_brief_lock_but_reports_a_held_one(monkeypatch
     assert mail.retry_on_busy(busy_twice) == "ok" and len(attempts) == 3
     with pytest.raises(PermissionError):
         mail.retry_on_busy(always_busy)
+
+
+# ---------------------------------------------------------------------------
+# 11. 文字模式寫檔都帶 newline=（repo 只收 LF；check 的探測檔寫 "ping"、位元組看不出差別，所以用 LF 守門同一套規則只掃 mail.py）
+# ---------------------------------------------------------------------------
+
+def test_text_writes_have_newline_control():
+    sys.path.insert(0, str(CLAUDE_DIR / "hooks" / "verify"))
+    import verify_lf_writes as lf
+    assert 'open(ping_path, "w"' in MAIL.read_text(encoding="utf-8"), "前置：check 真的有文字模式寫檔"
+    assert lf.check_file(MAIL) == []
