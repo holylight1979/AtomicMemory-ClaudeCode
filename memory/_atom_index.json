@@ -8229,6 +8229,22 @@
         "path:C:/Users/holylight/.claude/tools/second-opinion/run.py",
         "path:C:/Users/holylight/.claude/tools/replay-guard.py"
       ]
+    },
+    {
+      "name": "feedback-checklist給人綜觀進度要勾選清單-完工項搬走的是長篇分析不是勾選行-達成也留一行打勾-部分達成拆子項分開勾-檔頭放程式數的計數",
+      "path": "memory/Failures/工作流/feedback-checklist給人綜觀進度要勾選清單-完工項搬走的是長篇分析不是勾選行-達成也留一行打勾-部分達成拆子項分開勾-檔頭放程式數的計數.md",
+      "triggers": [
+        "checklist",
+        "進度表",
+        "勾選清單",
+        "- [x]",
+        "綜觀進度",
+        "文件更新進度",
+        "完工項目搬 DevHistory",
+        "狀態欄",
+        "進度計數"
+      ],
+      "scope": "global"
     }
   ]
 }
