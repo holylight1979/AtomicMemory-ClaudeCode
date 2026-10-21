@@ -1,7 +1,7 @@
 """turn_metrics_cs — C# 的函式級與類別級側面數據（純函式，不用 Roslyn）：與 turn_metrics 同一組指標、同欄位名，只算數據、不判臭。
 
 做什麼：給一批 .cs 檔（可附「這次改到的行區間」），回每個方法一筆、每個型別一筆 JSON 數據，交給 AI 判「這一層／這個彎存在的理由是什麼、
-  有沒有真正的作用」（G11）。切詞重用 tools/reading_path_lang.py（遮註解與字串、大括號配對、class／成員切分），方法本體另用小型遞迴
+  有沒有真正的作用」（G11）。切詞重用 tools/reading_path_lang.py（大括號配對、class／成員切分、參數切分），方法本體另用小型遞迴
   解析成 if／迴圈／switch／try／using 與區塊 lambda 的樹，再照 turn_metrics 的算法算。
 函式一筆：nesting、bumpy、cognitive、length、handoff（本體只有一個呼叫時是被呼叫的寫法）、handoff_chain（從它起連續只轉手的個數；
   經過「只有一個實作的介面或抽象類別」那一手也算一個，記在 dispatch）。建構子叫 .ctor（同 Python 的 __init__），屬性的 get／set
@@ -10,7 +10,8 @@
   「override 空本體」「建構子空本體」（記在 hollow），也算空層。另列 type_kind、interfaces（每個介面掃到的實作）、implementations
   （介面與抽象類別掃到的具體實作，經由父類別繼承到的也算；只數得到給的檔）。
 解析不到：每筆多 unparsed（哪裡沒解析到）與 confidence（full／partial）；檔案層的問題（大括號不成對、不在任何型別裡的程式）另出
-  一筆 kind=unparsed。看不到不當成沒有：#if 兩支都算、本體某句解析斷掉就從下一行接著解析。
+  一筆 kind=unparsed，其中大括號不成對會讓成員範圍錯位，同檔每筆信心都降為 partial。看不到不當成沒有：#else／#elif 兩支都算、本體某句解析斷掉就從下一行接著解析、轉手對象的型別卡在掃得到的檔裡
+  就註明鏈可能更長。註解與字串自己遮（插值洞裡的字串、原始字串、@"" 跳脫都認得），不用量尺那支正規式。
 怎麼跑：python lib/turn_metrics_cs.py <檔> … [--root 專案根] [--diff <unified diff 檔>] [--resolve <檔> …]
   → 一行一筆 JSON，尾行 `TURN_METRICS_CS DONE funcs=<n> classes=<n> partial=<n> unparsed_files=<n>`；或 import 後呼叫 metrics_for_files。
 """
@@ -32,7 +33,12 @@ from turn_metrics import Range, _norm, _overlaps, parse_diff_ranges  # noqa: E40
 _TYPE_WORDS = {"class", "struct", "interface", "enum", "record", "delegate"}
 _ATTR_PREV = {"", ";", "{", "}", "]", "(", ","}   # attribute 區段 [X] 前面會是這些（陣列下標前面是識別字）
 _PREPROC = re.compile(r"^[ \t]*#[^\n]*", re.M)
-_PREPROC_BRANCH = re.compile(r"^[ \t]*#\s*(?:if|elif|else)\b", re.M)
+_PREPROC_BRANCH = re.compile(r"^[ \t]*#\s*(?:elif|else)\b", re.M)   # 兩支擇一的才會把兩支併進來；只有 #if 的是多算一段可選的碼
+_STR_START = re.compile(r'(?:\$+@?|@\$*)?"')
+_CHAR_LIT = re.compile(r"'(?:\\.[^'\n]*|[^'\\\n])'")
+_CODE_STOP = re.compile(r"""//|/\*|['"$@]""")
+_HOLE_STOP = re.compile(r"""//|/\*|['"$@(){}\[\]:]""")
+_CTOR_INIT = re.compile(r"\)\s*:\s*(?:base|this)\s*\(.*$", re.S)
 _OPERATOR = re.compile(r"\boperator\s*([^\s(]+)\s*\((?P<params>[^()]*)\)")
 _ACCESSOR = re.compile(r"\b(get|set|init|add|remove)\s*(\{|=>)")
 _LAMBDA_OPEN = re.compile(r"=>\s*\{|\bdelegate\s*(?:\([^()]*\))?\s*\{")
@@ -98,12 +104,104 @@ def _semicolon(src: str, pairs: Dict[int, int], i: int, end: int) -> Optional[in
     return None
 
 
-def _blank_literal(m: re.Match) -> str:
-    """註解換成等長空白；字串與字元常值也換成空白，但開頭留一個引號當記號（插值的 {運算式} 照留）：
-    `return $"{F(x)}.png";` 才不會被看成單純呼叫 F。"""
-    out = lang._blank(m)
-    t = m.group()
-    return out if t.startswith(("//", "/*")) else ("'" if t.startswith("'") else '"') + out[1:]
+def _blank_literals(text: str) -> str:
+    """註解換成等長空白；字串與字元常值也換成空白，但開頭留一個引號當記號：`return $"{F(x)}.png";` 才不會被看成單純呼叫 F。
+    插值的 {運算式} 照留（洞裡的字串照樣遮，: 之後的格式字串遮掉）；認得 "…"、@"…"（"" 跳脫）、$"…"、$@"…"、
+    原始字串 \"\"\"…\"\"\"（可帶 $）、'x'。換行一律留著，行號不跑。"""
+    out = list(text)
+    n = len(text)
+
+    def blank(a: int, b: int) -> None:
+        out[a:b] = ["\n" if ch == "\n" else " " for ch in text[a:b]]
+
+    def code(i: int, hole: bool) -> int:
+        """掃程式碼；hole＝插值的 {運算式}：碰到同層的 } 停在它上面、碰到同層的 : 把格式字串遮到 }。"""
+        depth, stop = 0, _HOLE_STOP if hole else _CODE_STOP
+        while True:
+            m = stop.search(text, i)
+            if m is None:
+                return n
+            i, tok = m.start(), m.group()
+            if tok == "//":
+                j = text.find("\n", i)
+                j = n if j < 0 else j
+            elif tok == "/*":
+                j = text.find("*/", i + 2)
+                j = n if j < 0 else j + 2
+            elif tok == "'" and _CHAR_LIT.match(text, i):
+                j = _CHAR_LIT.match(text, i).end()
+            elif tok in "\"$@" and _STR_START.match(text, i):
+                i = string(i, _STR_START.match(text, i).end() - 1)
+                continue
+            else:
+                if tok in "([{":
+                    depth += 1
+                elif tok in ")]}":
+                    if tok == "}" and depth == 0:
+                        return i
+                    depth -= 1
+                elif tok == ":" and depth == 0 and text[i + 1:i + 2] != ":" and text[i - 1:i] != ":":
+                    j = text.find("}", i)
+                    blank(i, n if j < 0 else j)
+                    return n if j < 0 else j
+                i += 1
+                continue
+            blank(i, j)
+            if tok == "'":
+                out[i] = "'"
+            i = j
+
+    def string(i: int, q: int) -> int:
+        """字串從 i 起（前綴 $／@ 在 i..q，第一個引號在 q）→ 遮掉、回結尾之後的位置。"""
+        pre, run = text[i:q], q
+        while run < n and text[run] == '"':
+            run += 1
+        if run - q >= 3 and "@" not in pre:                 # 原始字串：結尾是同樣多的引號
+            j = text.find('"' * (run - q), run)
+            j = n if j < 0 else j + run - q
+            blank(i, j)
+            out[i] = '"'
+            return j
+        blank(i, q + 1)
+        out[i] = '"'
+        k, verbatim, holes = q + 1, "@" in pre, "$" in pre
+        while k < n:
+            c = text[k]
+            if c == '"' and verbatim and text.startswith('""', k):
+                blank(k, k + 2)
+                k += 2
+            elif c == '"':
+                blank(k, k + 1)
+                return k + 1
+            elif c == "\\" and not verbatim:
+                blank(k, k + 2)
+                k += 2
+            elif c == "\n" and not verbatim:                 # 沒收尾的一般字串：停在行尾
+                return k
+            elif holes and text.startswith(("{{", "}}"), k):
+                blank(k, k + 2)
+                k += 2
+            elif holes and c == "{":
+                blank(k, k + 1)
+                k = code(k + 1, True)
+                blank(k, k + 1)
+                k += 1
+            else:
+                blank(k, k + 1)
+                k += 1
+        return n
+
+    code(0, False)
+    return "".join(out)
+
+
+def _strip_generics(text: str) -> str:
+    """拿掉所有層的 <…>（Dictionary<int, Dictionary<…>> 的逗號才不會被當成分隔）。"""
+    while True:
+        stripped = re.sub(r"<[^<>]*>", "", text)
+        if stripped == text:
+            return text
+        text = stripped
 
 
 def _blank_attributes(src: str) -> str:
@@ -557,12 +655,13 @@ def _body_metrics(p: _Body, b0: int, b1: int, arrow: bool, name: str) -> Dict[st
 
 def _declarators(head: str) -> Tuple[List[str], str]:
     """欄位／屬性／事件標頭 → (名字們, 型別名)：int a = 1, b; → ([a, b], int)。"""
-    parts = lang._split_top(lang._strip_generics(head))
+    parts = lang._split_top(_strip_generics(head))
     words = parts[0].split("=")[0].split() if parts else []
     if len(words) < 2:
         return [], ""
     names = [words[-1]] + [p.split("=")[0].strip() for p in parts[1:]]
-    return [n.split(".")[-1] for n in names if re.fullmatch(r"@?[\w.]+", n)], words[-2].rstrip("?").split(".")[-1]
+    tail = lambda s: s.split("::")[-1].split(".")[-1]   # pb::IMessage.Descriptor → Descriptor
+    return [tail(n) for n in names if re.fullmatch(r"@?[\w.:]+", n)], tail(words[-2].rstrip("?"))
 
 
 def _accessors(src: str, depth: List[int], pairs: Dict[int, int], b0: int, b1: int):
@@ -583,16 +682,14 @@ def _accessors(src: str, depth: List[int], pairs: Dict[int, int], b0: int, b1: i
 
 def _parse(path: str, text: str) -> Dict[str, Any]:
     """一個 .cs 檔 → {classes, funcs, file_notes, last_line}。類別只有自己這層；鏈與實作跨檔用 _Ctx 接。"""
-    src = lang._C_BLANK.sub(_blank_literal, text)
+    src = _blank_literals(text)
     newlines = [m.start() for m in re.finditer("\n", src)]
 
     def line_of(pos: int) -> int:
         return bisect.bisect_right(newlines, pos - 1) + 1
 
-    spots = [(m.start(), f"第 {line_of(m.start())} 行有前置處理 #if／#else：兩支都算進來（數字可能偏大，不會偏小）")
+    spots = [(m.start(), f"第 {line_of(m.start())} 行有 #if 的另一支（#else／#elif）：兩支都算進來（數字可能偏大，不會偏小）")
              for m in _PREPROC_BRANCH.finditer(src)]
-    spots += [(m.start(), f"第 {line_of(m.start())} 行有原始字串常值（\"\"\"）：遮字串可能錯位，大括號與陳述式可能讀錯")
-              for m in list(re.finditer('"""', text))[::2]]
     src = _blank_attributes(_PREPROC.sub(lambda m: " " * len(m.group()), src))
     depth, pairs = lang._braces(src)
     closes = set(pairs.values())
@@ -604,7 +701,7 @@ def _parse(path: str, text: str) -> Dict[str, Any]:
     for m, o, c in found:
         outer = sorted((x for x in found if x[1] < m.start() and x[2] > o), key=lambda x: x[1])
         mods = set(m["mods"].split())
-        bases = [re.sub(r"\(.*", "", b).split(".")[-1] for b in lang._split_top(lang._strip_generics(m["bases"] or ""))]
+        bases = [re.sub(r"\(.*", "", b).split("::")[-1].split(".")[-1] for b in lang._split_top(_strip_generics(m["bases"] or ""))]
         info = {"name": m["name"], "qual": ".".join([x[0]["name"] for x in outer] + [m["name"]]), "file": path,
                 "lineno": line_of(m.start()), "end_lineno": line_of(c), "span": (m.start(), c), "kind": m["kind"],
                 "mods": mods, "bases": [b for b in bases if b], "partial": "partial" in mods, "members": [],
@@ -623,7 +720,8 @@ def _parse(path: str, text: str) -> Dict[str, Any]:
     for pos, note in spots:
         owner = _innermost(funcs, pos) or _innermost(classes, pos)
         (owner["notes"] if owner else file_notes).append(note)
-    return {"classes": classes, "funcs": funcs, "file_notes": file_notes, "last_line": len(newlines) + 1}
+    return {"classes": classes, "funcs": funcs, "file_notes": file_notes, "shaky": bad is not None,
+            "last_line": len(newlines) + 1}
 
 
 def _innermost(items: List[Dict[str, Any]], pos: int) -> Optional[Dict[str, Any]]:
@@ -649,7 +747,7 @@ def _outside_types(src: str, pairs: Dict[int, int], starts: List[int], ends: Lis
         close = pairs.get(m.end() - 1)
         if close is not None:
             blank(close, close + 1)
-    m = re.search(r"[^\s;]", "".join(mask))
+    m = re.search(r"[^\s;{}]", "".join(mask))   # 多出來的大括號另報「不成對」
     return m.start() if m else None
 
 
@@ -658,11 +756,17 @@ def _read_member(info: Dict[str, Any], out: List[Dict[str, Any]], member: tuple,
     """類別本體的一個成員 → 記進 info（成員名、抽象、空覆寫、欄位型別），有本體的另產出函式筆。"""
     raw, start, b0, b1, arrow, declared = member
     head = raw.strip()
-    if not head or head.startswith("="):           # 屬性初始值 `{ get; } = 5;` 的尾巴
+    if not head or head.startswith("=") or start <= info.get("consumed", -1):   # 屬性初始值的尾巴、前一個 => 本體的尾巴
         return
     lead = start + len(raw) - len(raw.lstrip())
+    if not arrow and not declared and "=>" in head and "=" not in head.replace("=>", ""):
+        cut = raw.index("=>")                       # `T F() => new X { … };`：本體裡的初始化子大括號被當成成員本體了
+        end = _semicolon(src, pairs, start + cut + 2, info["span"][1])
+        if end is not None:
+            head, b0, b1, arrow = raw[:cut].strip(), start + cut + 2, end, True
+            info["consumed"] = end
     op = _OPERATOR.search(head)
-    sig = op or lang._CS_SIG.search(head)
+    sig = op or lang._CS_SIG.search(_CTOR_INIT.sub(")", head))   # 建構子串接 `: this(a, (float)b)` 裡的括號先拿掉
     is_method = bool(op) or (bool(sig) and "=" not in head[:sig.start()] and sig["name"] not in lang.CS_KEYWORDS)
     prefix = head[:sig.start()].split() if is_method else head.split()[:-1]
     if _TYPE_WORDS & set(prefix):                 # 巢狀型別：另外一筆
@@ -857,13 +961,35 @@ class _Ctx:
             cls = info["bases"][0] if info["bases"] else None
         return None
 
-    def _recv_type(self, f: Dict[str, Any], recv: List[str]) -> Optional[str]:
-        t = f["params"].get(recv[0]) or self._field(f["cls"], recv[0]) or (recv[0] if recv[0] in self.index else None)
+    def _external_base(self, cls: Optional[str]) -> bool:
+        """繼承鏈上有接不到的基底（UnityEngine.MonoBehaviour 之類）：看不到的成員多半在那裡。"""
+        seen: set = set()
+        while cls and cls not in seen:
+            seen.add(cls)
+            info = self.index.get(cls)
+            if info is None:
+                return True
+            cls = info["bases"][0] if info["bases"] else None
+        return False
+
+    def _recv_type(self, f: Dict[str, Any], recv: List[str]) -> Tuple[Optional[str], bool]:
+        """接收者寫法 → (掃到的檔裡的型別, 卡在掃到的檔裡)。接到外部型別（Debug、transform、List…）是鏈的正常終點，不算卡住。"""
+        t = f["params"].get(recv[0]) or self._field(f["cls"], recv[0])
+        if t is None:
+            if recv[0] in self.index:
+                t = recv[0]
+            elif recv[-1] in self.index:
+                return recv[-1], False
+            else:
+                return None, not (recv[0][:1].isupper() or self._external_base(f["cls"]))
         for seg in recv[1:]:
-            t = self._field(t, seg) if t else None
-        if t is None and recv[-1] in self.index:
-            t = recv[-1]
-        return t if t in self.index else None
+            if t not in self.index:
+                return None, False
+            nxt = self._field(t, seg)
+            if nxt is None:
+                return None, not self._external_base(t)
+            t = nxt
+        return (t, False) if t in self.index else (None, False)
 
     def target(self, f: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, str]], Optional[str]]:
         """只轉手的對象 → (對象函式, 經過單一實作分派的那一手, 看不出對象時的說明)。"""
@@ -877,9 +1003,9 @@ class _Ctx:
         if recv == ["base"]:
             bases = (self.index.get(f["cls"]) or {}).get("bases") or [None]
             return self._pick(self._find(bases[0], member)[0], nargs, f), None, None
-        t = self._recv_type(f, recv)
+        t, stuck = self._recv_type(f, recv)
         if t is None:
-            same = any(member in fs for fs in self.funcs.values())
+            same = stuck and any(member in fs for fs in self.funcs.values())
             return None, None, (f"轉手對象 {'.'.join(recv)} 的型別看不出來，鏈只算到這裡（掃到的檔裡有同名方法 {member}）"
                                 if same else None)
         fs, decl = self._find(t, member)
@@ -890,7 +1016,7 @@ class _Ctx:
         got = self._pick(self._find(impls[0], member)[0], nargs, f) if len(impls) == 1 else None
         return (got, {"via": f"{decl}.{member}", "impl": got["name"]}, None) if got else (None, None, None)
 
-    def func_row(self, fn: Dict[str, Any], file_notes: List[str]) -> Dict[str, Any]:
+    def func_row(self, fn: Dict[str, Any], shaky: bool) -> Dict[str, Any]:
         n, cur, seen, hops, notes = 0, fn, set(), [], list(fn["notes"])
         while cur is not None and cur["handoff"] and id(cur) not in seen:
             seen.add(id(cur))
@@ -905,9 +1031,9 @@ class _Ctx:
         return {"kind": "func", "file": fn["file"], "name": fn["name"], "lineno": fn["lineno"], "end_lineno": fn["end_lineno"],
                 "length": fn["length"], "nesting": fn["nesting"], "bumpy": fn["bumpy"], "cognitive": fn["cognitive"],
                 "handoff": fn["handoff"], "handoff_chain": n, "dispatch": hops, "unparsed": notes,
-                "confidence": "partial" if notes or file_notes else "full"}
+                "confidence": "partial" if notes or shaky else "full"}
 
-    def class_row(self, c: Dict[str, Any], file_notes: List[str]) -> Dict[str, Any]:
+    def class_row(self, c: Dict[str, Any], shaky: bool) -> Dict[str, Any]:
         merged = self.index.get(c["name"])
         start = merged if c["partial"] and merged is not None and merged["partial"] else c
         notes = list(c["notes"])
@@ -921,7 +1047,7 @@ class _Ctx:
                 **_inherit_layers(start, self.index), "type_kind": c["kind"],
                 "interfaces": {b: (self.impls.get(b, []) if b in self.index else None) for b in cands},
                 "implementations": self.impls.get(c["name"], []) if abstract_like else [],
-                "unparsed": notes, "confidence": "partial" if notes or file_notes else "full"}
+                "unparsed": notes, "confidence": "partial" if notes or shaky else "full"}
 
 
 def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Range]]] = None,
@@ -953,8 +1079,8 @@ def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Rang
         def keep(r: Dict[str, Any]) -> bool:
             return ranges is None or bool(hit and _overlaps(r, hit))
 
-        rows += [ctx.func_row(fn, p["file_notes"]) for fn in p["funcs"] if keep(fn)]
-        rows += [ctx.class_row(c, p["file_notes"]) for c in p["classes"] if keep(c)]
+        rows += [ctx.func_row(fn, p["shaky"]) for fn in p["funcs"] if keep(fn)]
+        rows += [ctx.class_row(c, p["shaky"]) for c in p["classes"] if keep(c)]
         whole = {"kind": "unparsed", "file": f, "lineno": 1, "end_lineno": p["last_line"], "unparsed": p["file_notes"],
                  "confidence": "partial"}
         if p["file_notes"] and keep(whole):

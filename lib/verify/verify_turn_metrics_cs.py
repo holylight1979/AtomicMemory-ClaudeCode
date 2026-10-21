@@ -6,8 +6,9 @@
       GetComponent 鏈）；欄位名與 turn_metrics 一致；diff 行區間只挑命中的；CLI 尾行 TURN_METRICS_CS DONE。
 反例（看起來像、但有真正作用）：覆寫裡 base 呼叫改了引數、或 base 之外還做事 → 不算空；介面有兩個實作 → 不標分派；
       本體一句但不是單純呼叫（讀屬性再運算、呼叫後再運算）→ 不算只轉手。
-解析不到：partial（只併得到掃到的分檔）、#if 兩支都算、原始字串常值、大括號不成對、沒認出的頂層程式 → unparsed 有列、confidence=partial，
-      數字不比同一段乾淨寫法小；泛型與帶大括號的 attribute 解析得到 → 不列 unparsed、數字與乾淨寫法相同。
+解析不到：partial（只併得到掃到的分檔）、#else 兩支都算、大括號不成對、沒認出的頂層程式 → unparsed 有列、confidence=partial，
+      數字不比同一段乾淨寫法小；泛型、帶大括號的 attribute、原始字串、插值洞裡的字串、@"" 跳脫、建構子串接、帶別名的介面成員、
+      箭頭本體帶初始化子、只有 #if 沒有 #else → 解析得到，不列 unparsed、數字與乾淨寫法相同。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider lib/verify/verify_turn_metrics_cs.py
 """
 from __future__ import annotations
@@ -256,6 +257,38 @@ RAW_STRING = '''public class Text
 }
 '''
 
+CUT = """public class Cut
+{
+    public void A(int a)
+    {
+#if X
+        if (a > 0) {
+#else
+        if (a > 1) {
+#endif
+            a++;
+        }
+    }
+}
+"""
+
+SHAPES = '''public class Shapes : pb::IMessage
+{
+    private string name;
+    public Shapes(string n, int t) : this(n, (float)t * 1000, null) { }
+    public Shapes(string n, float t, object o) { name = n; }
+    pbr::MessageDescriptor pb::IMessage.Descriptor { get { return null; } }
+    private static Label MiniLabel(string text) =>
+        new Label(text) { style = { color = 1 } };
+    public string Quote(string v) { return $"\\"{v.Replace("\\"", "\\"\\"")}\\""; }
+    public string Path() { return @"""" + name + @""""; }
+#if UNITY_EDITOR
+    public void EditorOnly() { if (name != null) { name = ""; } }
+#endif
+    public void After() { }
+}
+'''
+
 TOP_LEVEL = """using System;
 
 Console.WriteLine("hi");
@@ -419,13 +452,29 @@ def test_preprocessor_branches_both_counted_and_listed(tmp_path):
     assert pick["confidence"] == "partial" and any("#if" in u for u in pick["unparsed"]), pick["unparsed"]
 
 
-def test_raw_string_and_unbalanced_braces_are_listed_not_shrunk(tmp_path):
-    rows = _rows(tmp_path, {"Text.cs": RAW_STRING})
-    show = _by(rows, "func")["Text.Show"]
-    assert show["nesting"] >= 2 and show["cognitive"] >= 3, show
-    assert show["confidence"] == "partial" and any("原始字串" in u for u in show["unparsed"]), show["unparsed"]
+def test_raw_string_parses_and_unbalanced_braces_are_listed_not_shrunk(tmp_path):
+    show = _by(_rows(tmp_path / "raw", {"Text.cs": RAW_STRING}), "func")["Text.Show"]
+    assert (show["nesting"], show["cognitive"], show["confidence"]) == (2, 3, "full"), show
+    rows = _rows(tmp_path / "cut", {"Cut.cs": CUT})
+    a = _by(rows, "func")["Cut.A"]
+    assert a["nesting"] >= 1 and a["confidence"] == "partial" and any("#else" in u for u in a["unparsed"]), a
     files = [r for r in rows if r["kind"] == "unparsed"]
     assert files and any("大括號不成對" in u for u in files[0]["unparsed"]), files
+
+
+def test_real_world_shapes_parse_without_unparsed(tmp_path):
+    """真打 sgi_client 時讀錯的幾種寫法：建構子串接括號裡還有括號、pb:: 別名的介面屬性、箭頭本體帶初始化子、
+    插值洞裡有跳脫引號的字串、@"" 跳脫、只有 #if 沒有 #else。"""
+    rows = _rows(tmp_path, {"Shapes.cs": SHAPES})
+    fn, cls = _by(rows, "func"), _by(rows, "class")
+    assert sorted(fn) == ["Shapes..ctor(string,float,object)", "Shapes..ctor(string,int)", "Shapes.After",
+                          "Shapes.Descriptor.get", "Shapes.EditorOnly", "Shapes.MiniLabel", "Shapes.Path", "Shapes.Quote"], sorted(fn)
+    assert all(r["confidence"] == "full" for r in rows), [(r["name"], r["unparsed"]) for r in rows if r["confidence"] != "full"]
+    assert fn["Shapes.Quote"]["handoff"] is None and fn["Shapes.MiniLabel"]["handoff"] is None
+    assert fn["Shapes.EditorOnly"]["nesting"] == 1
+    sh = cls["Shapes"]
+    assert sh["layers"][0]["added"] == ["name", ".ctor", "Descriptor", "MiniLabel", "Quote", "Path", "EditorOnly", "After"]
+    assert sh["unresolved_base"] == "IMessage"
 
 
 def test_top_level_statements_outside_types_are_listed(tmp_path):
@@ -433,7 +482,7 @@ def test_top_level_statements_outside_types_are_listed(tmp_path):
     files = [r for r in rows if r["kind"] == "unparsed"]
     assert files and any("不在任何型別裡" in u for u in files[0]["unparsed"]), files
     assert any("第 3 行" in u for u in files[0]["unparsed"]), files[0]["unparsed"]
-    assert _by(rows, "func")["Tool.Go"]["confidence"] == "partial", "同檔有沒算到的程式：信心降為部分"
+    assert _by(rows, "func")["Tool.Go"]["confidence"] == "full", "沒算到的程式只標在檔案那一行；Tool.Go 自己完整解析到"
 
 
 # ─── 範圍、非 C#、CLI ─────────────────────────────────────────────────────────

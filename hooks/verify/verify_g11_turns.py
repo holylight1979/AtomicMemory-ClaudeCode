@@ -206,9 +206,9 @@ def test_cs_file_lists_same_table_with_hollow_layer_dispatch_and_asks(tmp_path):
 
 def test_cs_unparsed_parts_are_shown_on_the_row_and_the_file_line(tmp_path):
     root = _repo(tmp_path / "r")
-    _write(root, {"a.cs": "Console.WriteLine(1);\n\nclass A { int F() { return 2; } }\n"})
+    _write(root, {"a.cs": "class A { int F() { return 2; } }\n}\n"})
     note = _note(_state(_mf(root / "a.cs")))
-    assert "a.cs：解析不到（第 1 行起有不在任何型別裡的程式（頂層陳述式或沒認出的宣告），沒算）" in note, note
+    assert "a.cs：解析不到（大括號不成對（第 2 行），之後的成員範圍可能錯位）" in note, note
     assert "a.cs::A.F｜巢狀 0｜條件塊 0｜認知 0｜長度 1｜信心：部分（同檔有解析不到，見該檔那一行）" in note, note
 
 
