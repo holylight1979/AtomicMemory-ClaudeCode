@@ -133,7 +133,7 @@ def ptu_driven(monkeypatch, tmp_path):
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a, **k: companion.append(1) or ([], ["同伴提示"]))
 
-    def run(capsys, degrade_at=None):
+    def run(capsys, degrade_at=None, tool="Edit"):
         laps = []
 
         def fake_lap(seg):
@@ -142,7 +142,7 @@ def ptu_driven(monkeypatch, tmp_path):
         monkeypatch.setattr(pt, "_hook_lap", fake_lap)
         companion.clear()
         wrote.clear()
-        inp = {"session_id": "sid", "tool_name": "Edit", "tool_input": {"file_path": r"c:\proj\src\a.py"},
+        inp = {"session_id": "sid", "tool_name": tool, "tool_input": {"file_path": r"c:\proj\src\a.py"},
                "tool_response": {}, "cwd": r"c:\proj"}
         with pytest.raises(SystemExit):
             pt.handle_post_tool_use(inp, {"docdrift": {"enabled": False}})
@@ -155,7 +155,7 @@ def test_post_tool_use_degraded_skips_prompts_keeps_ledger(ptu_driven, capsys):
     state, run = ptu_driven
     out, laps, wrote, called = run(capsys)
     assert called == 1 and "同伴提示" in out                                  # 前置：不降級時同伴檢查有跑、提示有送
-    assert laps == ["讀 state", "工具記帳", "綜觀與召回", "目標樹", "寫 state", "跨 session 碰撞", "同伴檢查"]
+    assert laps == ["讀 state", "工具記帳", "導讀卡", "綜觀與召回", "目標樹", "寫 state", "跨 session 碰撞", "同伴檢查"]
     state.pop("modified_files", None)
     out, laps, wrote, called = run(capsys, degrade_at="工具記帳")
     assert called == 0 and "同伴提示" not in out                              # 降級：提示類不跑
@@ -164,11 +164,48 @@ def test_post_tool_use_degraded_skips_prompts_keeps_ledger(ptu_driven, capsys):
     assert called == 0 and "同伴提示" not in out                              # 碰撞檢查跑完才過線：同伴檢查照樣不跑
 
 
+def test_post_tool_use_degraded_after_overview_card_skips_depends(ptu_driven, capsys, monkeypatch):
+    """導讀卡那段跑完才過線：depends 召回不跑（codex 第三輪：導讀卡後沒重新判時）。前置：不降級時 Read 會跑 depends。"""
+    import wg_depends
+    import wg_overview
+    calls = []
+    monkeypatch.setattr(wg_overview, "on_read", lambda *a, **k: None)
+    monkeypatch.setattr(wg_depends, "on_read_depends", lambda *a, **k: calls.append(1) or None)
+    _, run = ptu_driven
+    run(capsys, tool="Read")
+    assert calls == [1]
+    calls.clear()
+    _, laps, _, _ = run(capsys, degrade_at="導讀卡", tool="Read")
+    assert calls == [] and "導讀卡" in laps
+
+
+def test_settings_limit_picks_the_group_whose_matcher_fits_the_tool(monkeypatch, tmp_path):
+    """同一事件兩組 matcher 不同上限：照這次的工具名整串比對（Read 20、Bash 5）；沒給工具名取第一組；寫壞的 matcher 當對不上。"""
+    monkeypatch.setattr(ht, "CLAUDE_DIR", tmp_path)
+    g = "x/.claude/hooks/workflow-guardian.py"
+    (tmp_path / "settings.json").write_text(json.dumps({"hooks": {"PostToolUse": [
+        {"matcher": "Read", "hooks": [{"command": g, "timeout": 20}]},
+        {"matcher": "(", "hooks": [{"command": g, "timeout": 99}]},
+        {"matcher": "Bash|PowerShell", "hooks": [{"command": g, "timeout": 5}]}]}}), encoding="utf-8")
+    assert ht.settings_limit("PostToolUse", "Bash") == 5.0 and ht.settings_limit("PostToolUse", "Read") == 20.0
+    assert ht.settings_limit("PostToolUse", "BashX") is None and ht.settings_limit("PostToolUse") == 20.0
+
+
+def test_run_record_says_which_segment_it_ended_after(ledger):
+    """閘擋下就返回、打不到下一點：run 記 ended_after＝最後打到的段名，那道閘的耗時在「其餘」。"""
+    ht._CUR = ht.HookTimer("Stop", "s", 10.0, "config", 0.8, time.time())
+    ht.lap("讀 transcript")
+    ht.lap("紅測閘")
+    ht.finish()
+    run = ledger[-1][1]
+    assert run["kind"] == "run" and run["ended_after"] == "紅測閘" and run["segments"][-1][0] == "其餘"
+
+
 # ─── 背景鬧鐘：單一段落跑過頭、打不到點也留得下訊號 ──────────────────────────
 
 def test_alarm_writes_overrun_when_a_segment_runs_past_95_percent(ledger, monkeypatch, capsys):
     """上限 1 秒、起點 0.9 秒前：0.05 秒後鬧鐘響，沒有任何打點也留一筆 overrun（卡在「啟動」之後）＋stderr。"""
-    monkeypatch.setattr(ht, "settings_limit", lambda event: None)
+    monkeypatch.setattr(ht, "settings_limit", lambda *a: None)
     monkeypatch.setattr(ht, "_process_started", lambda: time.time() - 0.9)
     cfg = {"hook_timing": {"enabled": True, "degrade_ratio": 0.8, "fallback_limit_s": {"Stop": 1}}}
     timer = ht.start("Stop", {"session_id": "s"}, cfg)
@@ -179,7 +216,7 @@ def test_alarm_writes_overrun_when_a_segment_runs_past_95_percent(ledger, monkey
 
 
 def test_alarm_cancelled_when_hook_finishes_in_time(ledger, monkeypatch):
-    monkeypatch.setattr(ht, "settings_limit", lambda event: None)
+    monkeypatch.setattr(ht, "settings_limit", lambda *a: None)
     monkeypatch.setattr(ht, "_process_started", lambda: time.time())
     cfg = {"hook_timing": {"enabled": True, "degrade_ratio": 0.8, "fallback_limit_s": {"Stop": 0.3}}}
     timer = ht.start("Stop", {}, cfg)
