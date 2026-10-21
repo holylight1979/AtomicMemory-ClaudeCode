@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 G9：codex 純推理時，第二意見不再被自己的提示詞回聲判 failed
+- **交給 AI 寫程式時會看到的**：改過檔的 session 跑第二意見，codex 只讀附在提示詞裡的材料、沒跑任何指令時，結果是 done（note 寫「剝掉提示詞回聲後的紀錄無禁區樣式與出界路徑」），不會再因為帳本裡有 `git diff`、`_AIDocs/_atoms` 字樣就 failed；codex 自己的段落真的寫出這類動作仍判 failed。細節 TECH 第二意見列。
+- **改了什麼**（軌 track-g9-post-guard-echo 000）：`tools/second-opinion/run.py` 新增 `strip_prompt_echo`，`scan_log` 先用 prompt.md 全文當精確子字串剝掉 stderr 裡 `user` 段的回聲再掃；scan 子行程協定多一個必填布林 `echo_stripped`，`post_guard` 的 note／reason 寫明掃的是剝掉回聲後的紀錄，還是「提示詞回聲未剝、整份掃」。replay-guard 的指令行判定與禁區表一字未動，材料不遮。
+- **驗證**：`tools/codex-companion/verify/verify_second_opinion.py` 新 3 支 4 案（post 走真的 replay-guard，先斷言「只因找不到指令行而 FAIL」「剝前整份掃真的命中」），舊碼全紅；第一案重現實證 job 20261021-092745 的同一句 failed 理由，其餘是「自己出界仍擋（禁區字樣、出界路徑）」「剝不到照舊整份掃」的護欄；協定案例補 `echo_stripped`（先宣告改舊測試 4 支）。新 `scan` 重判該實證 job → PASS（`echo_stripped: true`）。
+- **還擋得到的兩種**（交總控台裁）：codex 的回答引用材料裡的禁區字樣（例如審查時引述案例裡的 `git log -3`），剝完回聲仍算命中而 failed；材料行含指令樣字樣時，回聲會被 replay-guard 主路徑挑成指令行。
 ## 2026-10-20 G11 002：拐彎判斷改在對帳之後才擋，前面的閘擋下時預告還缺幾條
 - **交給 AI 寫程式時會看到的**：收尾同時「說修好沒收據」又「缺拐彎判斷行」，先看到的是寫碼查核（對帳 (a)～(d)、驗證範圍）的紅，訊息尾「後面還會擋」列「拐彎判斷：缺 N 條（名稱）」與一行寫法，可以一回合補齊；對帳過了才輪到拐彎判斷擋，每個使用者回合仍只擋一次，對帳先擋不會吃掉這一次。拐彎判斷擋下時，尾端也照樣預告後面的第二意見等閘。判定規則與五欄格式不變。細節 TECH §7.1、§7.8。
 - **改了什麼**（軌 track-g11-reconcile-move 000）：`handlers/stop.py` ReadingPath 段只留背景量測與 stderr；新 TurnJudgment 段放在 SecondOpinion 正前方（寫碼查核、退避偵測之後），`_later_gates` 第一項掛拐彎判斷預覽；`hooks/wg_reading_path.py` 加只讀查詢 `turn_judgment_missing`；同類順手修：Equivalence 閘改成先 `_piggyback` 再 `write_state`，token 預警與驗收提示「整場附一次」的旗標才寫得進 state（新閘同此順序）。

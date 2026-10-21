@@ -360,19 +360,30 @@ def _guard_module():
     return mod
 
 
-def scan_log(job_dir: Path) -> Dict[str, List[str]]:
-    """fallback 掃描本體（跑在子行程裡）：stderr＋stdout **整份**文字，用 guard 原本的 FORBIDDEN_IN_LOG 逐條 re.search 全文、
-    paths_outside 判出界。不切塊、不截斷。唯一的加速：先用 guard 同一條 ABS_PATH 把路徑 token 抽出來、**保留完整 token** 去重，
-    再交給 paths_outside（它逐筆 realpath，10 MB 重複路徑不去重要跑 30 s＋）；token 集合相同，結果與直接餵全文等價。"""
+def strip_prompt_echo(log: str, prompt: str) -> Tuple[str, bool]:
+    """codex exec 的 stderr 在 `user` 段把整份提示詞回聲一次；那是我方給的材料（帳本裡的 `git diff` 之類），不是 codex 的動作。
+    以 prompt.md 全文（去頭尾空白）當精確子字串剝掉第一次出現；找不到（格式變了）回原文與 False，呼叫端照舊整份掃。"""
+    anchor = prompt.strip()
+    if not anchor or anchor not in log:
+        return log, False
+    return log.replace(anchor, "", 1), True
+
+
+def scan_log(job_dir: Path) -> Dict[str, Any]:
+    """fallback 掃描本體（跑在子行程裡）：stderr 先剝提示詞回聲（strip_prompt_echo），再與 stdout 合成**整份**文字，
+    用 guard 原本的 FORBIDDEN_IN_LOG 逐條 re.search 全文、paths_outside 判出界。不切塊、不截斷。唯一的加速：先用 guard 同一條
+    ABS_PATH 把路徑 token 抽出來、**保留完整 token** 去重，再交給 paths_outside（它逐筆 realpath，10 MB 重複路徑不去重要跑 30 s＋）；
+    token 集合相同，結果與直接餵全文等價。echo_stripped 告訴 post_guard 掃的是剝掉回聲後的紀錄還是整份。"""
     g = _guard_module()
-    full = _read_all(job_dir / "codex.stderr.log") + "\n" + _read_all(job_dir / "codex.stdout.log")
+    stderr, echo_stripped = strip_prompt_echo(_read_all(job_dir / "codex.stderr.log"), _read_all(job_dir / "prompt.md"))
+    full = stderr + "\n" + _read_all(job_dir / "codex.stdout.log")
     hits = [pat for pat in g.FORBIDDEN_IN_LOG if re.search(pat, full, flags=re.IGNORECASE)]
     toks = sorted(set(m.group(0) for m in g.ABS_PATH.finditer(full)))
     outside = g.paths_outside("\n".join(toks), job_dir) if toks else []
-    return {"hits": hits, "outside": outside}
+    return {"hits": hits, "outside": outside, "echo_stripped": echo_stripped}
 
 
-def run_scan_subprocess(job_dir: Path) -> Tuple[Optional[Dict[str, List[str]]], str]:
+def run_scan_subprocess(job_dir: Path) -> Tuple[Optional[Dict[str, Any]], str]:
     """在子行程跑 `run.py scan --job <dir>`，`subprocess.run(timeout=SCAN_DEADLINE_S)`；逾時 kill → (None, 原因)。
     回 (結果, "") 或 (None, 原因)。子行程非零 exit（非 0／1）或 JSON 解析失敗也算無法判定。"""
     cmd = [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), "scan", "--job", str(job_dir)]
@@ -386,17 +397,17 @@ def run_scan_subprocess(job_dir: Path) -> Tuple[Optional[Dict[str, List[str]]], 
     parsed, why = _parse_scan_output(r.returncode, r.stdout or "")
     if parsed is None:
         return None, f"掃描結果不可信：{why}；exit={r.returncode}；stderr 尾：{(r.stderr or '')[-300:]}"
-    return {"hits": parsed[0], "outside": parsed[1]}, ""
+    return {"hits": parsed[0], "outside": parsed[1], "echo_stripped": parsed[2]}, ""
 
 
 def _str_list(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
 
-def _parse_scan_output(rc: Optional[int], stdout: str) -> Tuple[Optional[Tuple[List[str], List[str]]], str]:
+def _parse_scan_output(rc: Optional[int], stdout: str) -> Tuple[Optional[Tuple[List[str], List[str], bool]], str]:
     """子行程協定核對，任一不符回 (None, 原因)：
-    尾行恰為 `SCAN_CHECK PASS`／`SCAN_CHECK FAIL`；尾行前是單一 JSON 物件，`hits`／`outside` 兩鍵都在且都是字串陣列；
-    一致性：PASS ⇔ rc==0 ⇔ 兩陣列皆空；FAIL ⇔ rc==1 ⇔ 至少一個非空。"""
+    尾行恰為 `SCAN_CHECK PASS`／`SCAN_CHECK FAIL`；尾行前是單一 JSON 物件，`hits`／`outside` 兩鍵都在且都是字串陣列、
+    `echo_stripped` 在且是布林；一致性：PASS ⇔ rc==0 ⇔ 兩陣列皆空；FAIL ⇔ rc==1 ⇔ 至少一個非空。"""
     lines = [l for l in stdout.splitlines() if l.strip()]
     if not lines:
         return None, "stdout 空"
@@ -412,18 +423,21 @@ def _parse_scan_output(rc: Optional[int], stdout: str) -> Tuple[Optional[Tuple[L
     hits, outside = data["hits"], data["outside"]
     if not _str_list(hits) or not _str_list(outside):
         return None, "hits／outside 不是字串陣列"
+    if not isinstance(data.get("echo_stripped"), bool):
+        return None, "缺 echo_stripped 鍵或不是布林"
     is_pass = sentinel.endswith("PASS")
     empty = not hits and not outside
     if is_pass and (rc != 0 or not empty):
         return None, f"PASS 但 rc={rc}、hits={len(hits)}、outside={len(outside)}（應 rc 0 且皆空）"
     if not is_pass and (rc != 1 or empty):
         return None, f"FAIL 但 rc={rc}、hits={len(hits)}、outside={len(outside)}（應 rc 1 且至少一個非空）"
-    return (list(hits), list(outside)), ""
+    return (list(hits), list(outside), data["echo_stripped"]), ""
 
 
 def post_guard(job_dir: Path) -> Tuple[bool, str]:
     """replay-guard post；FAIL → False。唯一例外：FAIL 只因「找不到指令行」（codex 純推理沒跑指令）時，
-    改以 guard 的禁區樣式與出界路徑規則掃**整份** stderr＋stdout；掃不到才算 PASS 並留 note。"""
+    改以 guard 的禁區樣式與出界路徑規則掃 stderr（剝掉提示詞回聲；剝不到就整份）＋stdout；掃不到才算 PASS 並留 note。
+    note／reason 都寫明掃的是剝掉回聲後的紀錄還是整份。"""
     log = job_dir / "codex.stderr.log"
     verdict, reasons, raw = run_guard(["post", "--log", str(log), "--sandbox", str(job_dir)])
     (job_dir / "guard.post.log").write_text(raw, encoding="utf-8", newline="\n")
@@ -438,9 +452,10 @@ def post_guard(job_dir: Path) -> Tuple[bool, str]:
         if scanned is None:
             return False, f"replay-guard post FAIL（無指令行）且{why}"
         hits, outside = scanned["hits"], scanned["outside"]
+        scope = "剝掉提示詞回聲後的紀錄" if scanned["echo_stripped"] else "整份紀錄（提示詞回聲未剝、整份掃）"
         if not hits and not outside:
-            return True, "post：codex 未執行任何指令（純推理），整份紀錄無禁區樣式與出界路徑"
-        return False, "replay-guard post FAIL（無指令行，但整份紀錄命中）：" + "；".join(hits + outside[:5])
+            return True, f"post：codex 未執行任何指令（純推理），{scope}無禁區樣式與出界路徑"
+        return False, f"replay-guard post FAIL（無指令行，但{scope}命中）：" + "；".join(hits + outside[:5])
     return False, f"replay-guard post {verdict}：" + ("；".join(reasons) or "無理由行")
 
 
@@ -549,7 +564,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub.add_parser("probe", help="只探 codex 能不能在唯讀沙箱用 shell 讀檔（讀回 probe.txt 的隨機字樣）")
     s = sub.add_parser("status", help="印 status.json 與 reply.md")
     s.add_argument("--job", required=True)
-    sc = sub.add_parser("scan", help="（post_guard 內部用）整份掃 codex.stderr.log＋codex.stdout.log；印 JSON＋尾行 SCAN_CHECK PASS|FAIL")
+    sc = sub.add_parser("scan", help="（post_guard 內部用）掃 codex.stderr.log（剝提示詞回聲）＋codex.stdout.log；印 JSON＋尾行 SCAN_CHECK PASS|FAIL")
     sc.add_argument("--job", required=True)
     args = ap.parse_args(argv)
 
@@ -557,7 +572,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         job = Path(args.job)
         total = _size(job / "codex.stderr.log") + _size(job / "codex.stdout.log")
         if total > MAX_LOG_BYTES:  # 被當獨立工具用時也不吃光記憶體；協定上以一條 hit 表達，FAIL／rc 1／非空一致
-            res = {"hits": [f"oversize: 紀錄 {total} bytes > {MAX_LOG_BYTES}，無法判定"], "outside": []}
+            res = {"hits": [f"oversize: 紀錄 {total} bytes > {MAX_LOG_BYTES}，無法判定"], "outside": [], "echo_stripped": False}
         else:
             res = scan_log(job)
         print(json.dumps(res, ensure_ascii=False))

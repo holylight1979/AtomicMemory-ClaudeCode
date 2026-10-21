@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -717,6 +718,8 @@ def _scan_returns(monkeypatch, rc: int, stdout: str):
     (0, '{}\nSCAN_CHECK UNKNOWN\n', "未知裁決"),
     (0, '[]\nSCAN_CHECK PASS\n', "JSON 是陣列"),
     (0, '', "stdout 空"),
+    (0, '{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n', "缺 echo_stripped 鍵"),
+    (0, '{"hits":[],"outside":[],"echo_stripped":"yes"}\nSCAN_CHECK PASS\n', "echo_stripped 不是布林"),
 ])
 def test_scan_output_protocol_mismatch_is_failed(env, monkeypatch, rc, stdout, label):
     """退回修正第五輪：子行程 JSON／哨兵／exit 任一不一致 → failed「掃描結果不可信」，不放行。"""
@@ -729,11 +732,13 @@ def test_scan_output_protocol_mismatch_is_failed(env, monkeypatch, rc, stdout, l
 
 
 @pytest.mark.parametrize("rc,stdout,expect_status,needle", [
-    (0, '{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n', "done", "純推理"),
-    (1, '{"hits":["\\\\.claude[/\\\\\\\\]memory"],"outside":[]}\nSCAN_CHECK FAIL\n', "failed", "整份紀錄命中"),
+    (0, '{"hits":[],"outside":[],"echo_stripped":true}\nSCAN_CHECK PASS\n', "done", "剝掉提示詞回聲後"),
+    (0, '{"hits":[],"outside":[],"echo_stripped":false}\nSCAN_CHECK PASS\n', "done", "提示詞回聲未剝"),
+    (1, '{"hits":["\\\\.claude[/\\\\\\\\]memory"],"outside":[],"echo_stripped":false}\nSCAN_CHECK FAIL\n', "failed", "提示詞回聲未剝"),
+    (1, '{"hits":["\\\\.claude[/\\\\\\\\]memory"],"outside":[],"echo_stripped":true}\nSCAN_CHECK FAIL\n', "failed", "剝掉提示詞回聲後"),
 ])
 def test_scan_output_protocol_ok(env, monkeypatch, rc, stdout, expect_status, needle):
-    """正常 PASS → done＋guard_note；正常 FAIL（rc 1、非空）→ failed 且列命中。"""
+    """正常 PASS → done＋guard_note；正常 FAIL（rc 1、非空）→ failed 且列命中；兩者都寫明掃的是剝掉回聲後的紀錄還是整份。"""
     _scan_returns(monkeypatch, rc, stdout)
     _no_cmd_fallback(env, "clean\n")
     res = _prepare(env)
@@ -743,20 +748,23 @@ def test_scan_output_protocol_ok(env, monkeypatch, rc, stdout, expect_status, ne
 
 
 def test_parse_scan_output_consistency_matrix():
-    """_parse_scan_output 的一致性規則直接驗：PASS⇔rc0⇔皆空；FAIL⇔rc1⇔非空；型別錯誤回 None。"""
-    ok = '{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n'
-    assert run._parse_scan_output(0, ok)[0] == ([], [])
+    """_parse_scan_output 的一致性規則直接驗：PASS⇔rc0⇔皆空；FAIL⇔rc1⇔非空；型別錯誤回 None；echo_stripped 必為布林並原樣帶回。"""
+    ok = '{"hits":[],"outside":[],"echo_stripped":false}\nSCAN_CHECK PASS\n'
+    assert run._parse_scan_output(0, ok)[0] == ([], [], False)
+    assert run._parse_scan_output(0, ok.replace("false", "true"))[0] == ([], [], True)
     assert run._parse_scan_output(1, ok)[0] is None, "PASS 但 rc 1"
-    assert run._parse_scan_output(0, '{"hits":["x"],"outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "PASS 但非空"
-    bad = '{"hits":["x"],"outside":[]}\nSCAN_CHECK FAIL\n'
-    assert run._parse_scan_output(1, bad)[0] == (["x"], [])
+    assert run._parse_scan_output(0, '{"hits":["x"],"outside":[],"echo_stripped":false}\nSCAN_CHECK PASS\n')[0] is None, "PASS 但非空"
+    bad = '{"hits":["x"],"outside":[],"echo_stripped":false}\nSCAN_CHECK FAIL\n'
+    assert run._parse_scan_output(1, bad)[0] == (["x"], [], False)
     assert run._parse_scan_output(0, bad)[0] is None, "FAIL 但 rc 0"
     assert run._parse_scan_output(2, bad)[0] is None, "FAIL 但 rc 2"
-    assert run._parse_scan_output(0, '{"hits":"x","outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "hits 不是陣列"
-    assert run._parse_scan_output(1, '{"hits":[1],"outside":[]}\nSCAN_CHECK FAIL\n')[0] is None, "元素不是字串"
-    assert run._parse_scan_output(0, 'warning: x\n{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "JSON 前多雜訊"
-    assert run._parse_scan_output(0, '{"hits":[],"outside":[]}\n SCAN_CHECK PASS \n')[0] == ([], []), "尾行允許前後空白（strip）"
-    assert run._parse_scan_output(0, '{"hits":[],"outside":[]}\nSCAN_CHECK PASSED\n')[0] is None, "尾行要恰為 PASS"
+    assert run._parse_scan_output(0, '{"hits":"x","outside":[],"echo_stripped":false}\nSCAN_CHECK PASS\n')[0] is None, "hits 不是陣列"
+    assert run._parse_scan_output(1, '{"hits":[1],"outside":[],"echo_stripped":false}\nSCAN_CHECK FAIL\n')[0] is None, "元素不是字串"
+    assert run._parse_scan_output(0, '{"hits":[],"outside":[],"echo_stripped":0}\nSCAN_CHECK PASS\n')[0] is None, "echo_stripped 不是布林"
+    assert run._parse_scan_output(0, '{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "缺 echo_stripped 鍵"
+    assert run._parse_scan_output(0, 'warning: x\n' + ok)[0] is None, "JSON 前多雜訊"
+    assert run._parse_scan_output(0, ok.replace("SCAN_CHECK PASS", " SCAN_CHECK PASS "))[0] == ([], [], False), "尾行允許前後空白（strip）"
+    assert run._parse_scan_output(0, ok.replace("PASS", "PASSED"))[0] is None, "尾行要恰為 PASS"
 
 
 def test_scan_subcommand_oversize_is_fail(env, monkeypatch):
@@ -794,7 +802,8 @@ def test_scan_subcommand_real_subprocess(env, monkeypatch):
     r = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60,
                   env={**os.environ, "WG_CLAUDE_DIR": os.environ["WG_CLAUDE_DIR"]})   # 明傳 env（fixture 設的 tmp 資料根）
     lines = r.stdout.strip().splitlines()
-    assert r.returncode == 0 and lines[-1] == "SCAN_CHECK PASS" and json.loads(lines[0]) == {"hits": [], "outside": []}, r.stderr
+    assert r.returncode == 0 and lines[-1] == "SCAN_CHECK PASS", r.stderr
+    assert json.loads(lines[0]) == {"hits": [], "outside": [], "echo_stripped": False}, "stderr 沒有提示詞回聲 → 整份掃、旗標 False"
     (job / "codex.stdout.log").write_text("read C:\\outside\\secret.txt\n", encoding="utf-8", newline="\n")
     r2 = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60,
                    env={**os.environ, "WG_CLAUDE_DIR": os.environ["WG_CLAUDE_DIR"]})
@@ -843,6 +852,101 @@ def test_post_oversize_log_is_failed(env, monkeypatch):
     st = _execute(env, res["job_dir"])
     assert st["status"] == "failed" and "過大" in st["reason"]
     assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+# ─── 退路掃描剝提示詞回聲（實證 job 20261021-092745-cb4c9c8e-stage-review）────────────────
+
+# 本 repo 改過檔的 session 帳本幾乎都有這兩種字樣；它們是我方給 codex 的材料，不是 codex 的動作
+ECHO_LEDGER = ('{"seq": 1, "cmd": "git diff --name-only a..b", "exit": 0}\n'
+               '{"seq": 2, "cmd": "grep -v \\"^ M _AIDocs/_atoms/x.md\\"", "exit": 0}\n')
+GIT_PAT, ATOMS_PAT = r"\bgit\s+(?:log|show|diff|blame)\b", r"_AIDocs[/\\]_atoms"
+
+
+def _real_post_guard(monkeypatch):
+    """replay-guard post 改跑真的 guard（判「找不到指令行」的就是它）；其他指令照 fixture 的假 run。
+    真 run 內部用模組層的 subprocess.Popen，fixture 換成假的了，這一次呼叫暫時換回真的。"""
+    inner = subprocess.run
+
+    def run_(cmd, **kw):
+        if "replay-guard.py" not in " ".join(str(c) for c in cmd) or "post" not in cmd:
+            return inner(cmd, **kw)
+        fake_popen = subprocess.Popen
+        subprocess.Popen = _REAL_POPEN
+        try:
+            return _REAL_RUN(cmd, **kw)
+        finally:
+            subprocess.Popen = fake_popen
+    monkeypatch.setattr(subprocess, "run", run_)
+
+
+def _echo_job(env, codex_part: str, echo=lambda prompt: prompt, sid: str = "abcdef1234"):
+    """照 codex exec 的 stderr 格式造紀錄：header＋`user` 段回聲提示詞（echo 決定回聲長什麼樣）＋`codex` 段（codex_part＋回答）；
+    stdout 是回答。materials 帳本帶 `git diff`、`_AIDocs/_atoms`。回 (prepare 結果, job 目錄, stderr 全文)。"""
+    ledger = env["tmp"] / f"echo-ledger-{sid}.jsonl"
+    ledger.write_text(ECHO_LEDGER, encoding="utf-8", newline="\n")
+    res = _prepare(env, session_id=sid, materials={**_req()["materials"], "ledger": str(ledger)})
+    job = Path(res["job_dir"])
+    prompt = (job / "prompt.md").read_text(encoding="utf-8")
+    assert "git diff --name-only a..b" in prompt and "_AIDocs/_atoms/x.md" in prompt, "前置：帳本的禁區字樣真的進了提示詞"
+    stderr = (f"OpenAI Codex v0.154.0\n--------\nworkdir: {job}\nmodel: gpt-6-astra\nsandbox: read-only\n--------\n"
+              f"user\n{echo(prompt)}\nhook: UserPromptSubmit\ncodex\n{codex_part}{THREE}tokens used\n1234\n")
+    env["plan"]["exec"]["stderr"], env["plan"]["exec"]["stdout"] = stderr, THREE
+    return res, job, stderr
+
+
+def _raw_hits(stderr: str) -> list:
+    g = run._guard_module()
+    return [p for p in g.FORBIDDEN_IN_LOG if re.search(p, stderr + "\n" + THREE, flags=re.IGNORECASE)]
+
+
+def _assert_no_cmd_fallback(job: Path, st: dict) -> None:
+    assert (job / "guard.post.log").is_file(), f"前置：流程要走到 post guard：{st}"
+    post_log = (job / "guard.post.log").read_text(encoding="utf-8")
+    assert "找不到任何指令行" in post_log and post_log.count("  - ") == 1, f"前置：真 guard 只因找不到指令行而 FAIL：{post_log}"
+
+
+def test_post_fallback_strips_prompt_echo(env, monkeypatch):
+    """G9 真洞：codex 純推理沒跑指令 → 退路掃描。stderr 的 `user` 段把整份提示詞回聲一次，帳本裡的 `git diff`、`_AIDocs/_atoms`
+    是我方給的材料 → 剝掉回聲後乾淨 → done，note 寫純推理與剝回聲。舊碼整份掃 → failed「整份紀錄命中」。"""
+    _real_post_guard(monkeypatch)
+    res, job, stderr = _echo_job(env, "")
+    assert GIT_PAT in _raw_hits(stderr) and ATOMS_PAT in _raw_hits(stderr), "前置：剝前整份掃真的命中（命中來自回聲）"
+    st = _execute(env, res["job_dir"])
+    _assert_no_cmd_fallback(job, st)
+    assert st["status"] == "done", st
+    assert "純推理" in st["guard_note"] and "剝掉提示詞回聲後" in st["guard_note"], st
+
+
+@pytest.mark.parametrize("codex_part,needle", [
+    ("先看歷史：git log -3\n", GIT_PAT),
+    ("我讀了 C:\\outside\\secret.txt 的內容\n", "outside"),
+])
+def test_post_fallback_echo_stripped_still_catches_codex_own(env, monkeypatch, codex_part, needle):
+    """剝回聲只剝我方的提示詞：codex 自己的段落（不在 `user` 段）寫了 `git log -3`、或出現沙箱外絕對路徑 → 仍命中 → failed；
+    命中只剩 codex 自己那條（回聲裡的 `_AIDocs/_atoms` 不再列）。"""
+    _real_post_guard(monkeypatch)
+    res, job, _ = _echo_job(env, codex_part)
+    st = _execute(env, res["job_dir"])
+    _assert_no_cmd_fallback(job, st)
+    assert st["status"] == "failed" and st["stage"] == "post-guard", st
+    assert needle in st["reason"] and "剝掉提示詞回聲後" in st["reason"], st
+    assert ATOMS_PAT not in st["reason"], f"回聲裡的材料字樣不該再算 codex 的：{st['reason']}"
+
+
+def test_post_fallback_echo_not_found_scans_whole(env, monkeypatch):
+    """剝不到（stderr 裡沒有 prompt.md 全文，例如回聲每行被縮排、或整段沒回聲）→ 照舊整份掃、理由帶「提示詞回聲未剝」：
+    回聲變形但仍帶禁區字樣 → failed；完全沒回聲且 codex 乾淨 → done＋note。"""
+    _real_post_guard(monkeypatch)
+    indented = lambda prompt: "".join("  " + line for line in prompt.splitlines(True))  # noqa: E731
+    res, job, stderr = _echo_job(env, "", echo=indented)
+    assert (job / "prompt.md").read_text(encoding="utf-8").strip() not in stderr, "前置：stderr 裡真的找不到 prompt.md 全文"
+    st = _execute(env, res["job_dir"])
+    _assert_no_cmd_fallback(job, st)
+    assert st["status"] == "failed" and "提示詞回聲未剝" in st["reason"] and GIT_PAT in st["reason"], st
+    res2, job2, _ = _echo_job(env, "", echo=lambda prompt: "（提示詞省略）\n", sid="noecho11")
+    st2 = _execute(env, res2["job_dir"])
+    _assert_no_cmd_fallback(job2, st2)
+    assert st2["status"] == "done" and "提示詞回聲未剝" in st2["guard_note"], st2
 
 
 # ─── 部位卡解析走 lib.overview_hub.card_mem_dir：根層／根層 worktree／一般專案 ─────────────
