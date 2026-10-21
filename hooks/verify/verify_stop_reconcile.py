@@ -591,8 +591,10 @@ def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven
     # 需求變了、舊斷言不再對是正常情況：指去改舊測試的宣告，不一律禁改斷言（codex 審：跟改舊測試提示矛盾）
     assert "是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」再改斷言" in out
     assert "已知 regression" not in out and "降級任務定義" not in out                 # 反例：舊字句
-    msg = st.testfail_message([{"cmd": f"c{i}", "summary": f"s{i}\n第二行"} for i in range(5)])
-    assert "  - c2: s2" in msg and "  - c4: s4" in msg and "c1" not in msg and "第二行" not in msg   # 最後 3 筆、摘要第一行
+    # 改舊測試｜test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail：派工單件 1 要擋訊息「只認 FAILED／ERROR 開頭的節點行，其他行不得當失敗項」
+    msg = st.testfail_message([{"cmd": f"c{i}", "summary": f"第一行\nFAILED t.py::case{i} - x"} for i in range(5)])
+    assert "  - t.py::case2（指令：c2）" in msg and "  - t.py::case4（指令：c4）" in msg and "case1" not in msg   # 最後 3 筆
+    assert "第一行" not in msg                                     # 失敗項是 FAILED 節點，不是摘要第一行
 
 
 # ─── Q8 驗證範圍：宣告的項目是一條指令（原量尺閘案例） ───────────────────────────────────

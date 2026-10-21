@@ -2060,3 +2060,182 @@ def test_g7_equivalence_and_hot_path_rules():
     v = rr.hot_path_verdict(hot["hot"], hot["skip"], False)
     assert v.rule == "PERF_HOT_PATH_NEEDS_MEASURE" and v.owed
     assert not rr.hot_path_verdict(hot["hot"], hot["skip"], True).owed
+
+
+# ─── 005 第四跑閘接縫：紅測失敗項、綠只清跑到的、原話核對看得到沒掛上的、宣告留帳、候選不靠固定字樣 ───
+
+_C1_ERP = "tests/test_erp_contract.py::test_checkout_fields_match_erp_contract"
+_C1_NOT_DOING = "不做｜test_checkout_fields_match_erp_contract：使用者說「先不用管它、跳過」"
+_C1_SAID = "test_erp_contract 那支是 ERP 對接的舊合約測試，先不用管它、跳過。其他照做。"
+# 第四跑 C-1 第 7 回合那條混了 git 與 pytest 的指令：摘要（最後 20 行）第一行是 git status 的 Untracked files:
+_C1_MIXED_SUMMARY = ("Untracked files:\n  (use \"git add <file>...\" to include in what will be committed)\n"
+                     "\t.gitattributes\n\tconfig/promos.json\n$ git diff --stat\n README.md | 2 +-\n"
+                     " 6 files changed, 20 insertions(+), 8 deletions(-)\n$ python -m pytest tests -q\n"
+                     "=========================== short test summary info ===========================\n"
+                     f"FAILED {_C1_ERP} - ...\n1 failed, 14 passed in 0.16s")
+_C1_MIXED_CMD = ("echo '$ git log --oneline' && git log --oneline && echo && echo '$ git status' && git status && echo "
+                 "&& echo '$ python -m pytest tests -q' && python -m pytest tests -q 2>&1 | tail -3")
+
+
+def test_005_red_items_only_from_failure_lines_label_and_cmd():
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：擋訊息的失敗項是 FAILED 節點、不是摘要第一行（第四跑擋訊息印的是 Untracked files:、
+    Exit code 1、指令第一行的不做註解）；指令只取實際跑的部分。"""
+    entry = {"cmd": _C1_MIXED_CMD, "summary": _C1_MIXED_SUMMARY}
+    assert rr.red_item_label(entry) == _C1_ERP.lower()
+    assert "Untracked" not in rr.red_item_label(entry)
+    assert rr.cmd_run_line(f"# {_C1_NOT_DOING}\ncd /c/w4/qc2-orders && python -m pytest tests -q") == \
+        "cd /c/w4/qc2-orders && python -m pytest tests -q"
+    failed = {"cmd": "python -m pytest tests -q", "summary": "Exit code 1\n......F\n1 failed, 14 passed"}
+    assert "沒列出" in rr.red_item_label(failed), "沒有節點行就明說沒列出，不拿 Exit code 行當失敗項"
+    go = {"cmd": "go test ./...", "summary": "--- FAIL: TestTotal (0.00s)\nFAIL\nok  other 0.1s"}
+    assert rr.red_item_label(go).startswith("--- FAIL: TestTotal")
+
+
+def test_005_unlisted_red_not_waived_by_comment_or_git_output():
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：摘要沒列節點時整筆當一支，比對文字只有指令實際跑的部分與失敗行——AI 寫在指令註解裡的
+    不做行、git status 列出的測試檔都不能讓不做行「對到」（舊碼拿指令全文＋整段摘要比，兩種都會誤放）。"""
+    decls = rr.parse_not_doing("不做｜test_erp_contract.py：使用者說「先不用管它、跳過」")
+    commented = {"cmd": "# 跳過 test_erp_contract.py 照紅\npython -m pytest tests -q 2>&1 | tail -1", "summary": "1 failed, 14 passed"}
+    kept, waived = rr.waived_failures([commented], decls, [_C1_SAID])
+    assert kept and not waived, "輸出沒列是哪一支，指令註解裡寫的檔名不算（要不截斷重跑）"
+    noisy = {"cmd": "python -m pytest -q", "summary": "Untracked files:\n\ttests/test_legacy.py\n1 failed"}
+    kept, waived = rr.waived_failures([noisy], rr.parse_not_doing("不做｜test_legacy.py：使用者說「先不用管它、跳過」"),
+                                      [_C1_SAID])
+    assert kept and not waived, "git status 列出的檔不是失敗項"
+    # 反例：指令實際點名那個案例檔、或失敗行帶名字 → 照對得到
+    named = {"cmd": "python -m pytest tests/test_erp_contract.py -q | tail -1", "summary": "1 failed"}
+    kept, waived = rr.waived_failures([named], rr.parse_not_doing("不做｜test_erp_contract.py：使用者說「先不用管它、跳過」"),
+                                      [_C1_SAID])
+    assert not kept and waived
+    go = {"cmd": "go test ./...", "summary": "--- FAIL: TestErpContract (0.00s)\nFAIL"}
+    kept, waived = rr.waived_failures([go], rr.parse_not_doing("不做｜TestErpContract：使用者說「先不用管它、跳過」"), [_C1_SAID])
+    assert not kept and waived
+
+
+def test_005_waiver_miss_notes_say_why_the_line_did_not_count():
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：不做行對到了那支、引用卻不在近 3 則（帳上也沒有）→ 擋訊息說出這件事；對不到的不說。"""
+    entry = {"cmd": _C1_MIXED_CMD, "summary": _C1_MIXED_SUMMARY}
+    later = ["收尾時順便跟我說一下", "交材料：把這一題的目標樹整理成一則回覆給我"]
+    kept, _ = rr.waived_failures([entry], rr.parse_not_doing(_C1_NOT_DOING), later)
+    notes = rr.waiver_miss_notes(kept, rr.parse_not_doing(_C1_NOT_DOING), later)
+    assert len(notes) == 1 and _C1_ERP.lower() in notes[0] and "不在近 3 則" in notes[0]
+    assert rr.waiver_miss_notes(kept, rr.parse_not_doing("不做｜test_total：使用者說「先不用管它、跳過」"), later) == []
+    # 帳上有這支、收尾沒寫不做行 → 給那一行照抄；帳上是別支 → 不說
+    led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "units": [_C1_ERP.lower()]}]
+    notes = rr.waiver_miss_notes(kept, [], later, led)
+    assert len(notes) == 1 and "帳上有" in notes[0] and f"「{_C1_NOT_DOING}」" in notes[0], notes
+    assert rr.waiver_miss_notes(kept, [], later, [{**led[0], "units": ["tests/test_cart.py::test_total"]}]) == []
+
+
+_C1_THREE = "cd /c/w4/qc2-orders && python -m pytest tests/test_pricing.py tests/test_checkout.py tests/test_cli.py -q"
+
+
+def test_005_green_clears_only_cases_it_ran():
+    """GREEN_CLEARS_ONLY_CASES_IT_RAN：第四跑 C-1 跑另外 3 支測試檔變綠，就把全套那筆 ERP 紅整筆清掉、收尾放行；綠只清它跑到的那幾支。"""
+    red_cmd, red_sum = "python -m pytest tests -q", f"FAILED {_C1_ERP} - ..."
+    v, ran = rr.green_ran_cases_verdict(red_cmd, red_sum, _C1_THREE)
+    assert v.rule == "GREEN_CLEARS_ONLY_CASES_IT_RAN" and v.owed and ran == []
+    mixed = f"FAILED tests/test_pricing.py::test_free_shipping_at_threshold - x\nFAILED {_C1_ERP} - y"
+    v, ran = rr.green_ran_cases_verdict(red_cmd, mixed, _C1_THREE)
+    assert v.owed and ran == ["tests/test_pricing.py::test_free_shipping_at_threshold"], "只跑到一部分：跑到的那支拿掉、其餘照留"
+    v, ran = rr.green_ran_cases_verdict(red_cmd, mixed, _C1_THREE, cleared=ran)
+    assert v.owed and ran == [], "已拿掉的不再算"
+    # 反例：跑到了就清（整檔、節點、整套）
+    assert not rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest tests/test_erp_contract.py -q")[0].owed
+    assert not rr.green_ran_cases_verdict(red_cmd, red_sum, f"python -m pytest {_C1_ERP}")[0].owed
+    assert not rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest -q")[0].owed
+    # 紅沒列案例：紅點名的檔綠都跑了才清
+    assert not rr.green_ran_cases_verdict("pytest tests/test_a.py | tail -1", "1 failed", "pytest tests/test_a.py tests/test_b.py")[0].owed
+    assert rr.green_ran_cases_verdict("pytest tests/test_a.py | tail -1", "1 failed", "pytest tests/test_b.py")[0].owed
+    # 有 -k 篩選照 GREEN_NARROWED_KEEPS_UNCOVERED_RED
+    v, _ = rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest tests -k pricing")
+    assert v.rule == "GREEN_NARROWED_KEEPS_UNCOVERED_RED" and v.owed
+
+
+def test_005_codex_green_dirs_and_narrowed_after_partial_clear():
+    """GREEN_CLEARS_ONLY_CASES_IT_RAN（codex 005）：點名目錄也是範圍（跑 tests/unit 綠不清 tests/ 下別處的紅；基底連同整套一起清）；
+    選項的值不當目錄；之前已清掉的那支不再擋篩選綠（本輪新開的誤擋）。"""
+    red_cmd, red_sum = "python -m pytest tests -q", f"FAILED {_C1_ERP} - ..."
+    assert rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest tests/unit -q")[0].owed
+    assert rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest -n 4 tests/unit")[0].owed
+    assert not rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest -q tests")[0].owed
+    assert not rr.green_ran_cases_verdict(red_cmd, red_sum, "python -m pytest --basetemp /tmp/x -q")[0].owed, "選項的值不是範圍"
+    assert not rr.green_ran_cases_verdict("pytest tests -q | tail -1", "1 failed", "pytest tests -q")[0].owed, "同一組點名重跑"
+    two = "FAILED tests/test_a.py::test_a - x\nFAILED tests/test_b.py::test_b - y"
+    v, ran = rr.green_ran_cases_verdict(red_cmd, two, "python -m pytest tests/test_b.py::test_b -k test_b",
+                                        cleared=["tests/test_a.py::test_a"])
+    assert not v.owed and ran == ["tests/test_b.py::test_b"], v
+
+
+def test_005_codex_unlisted_units_ignore_trailing_comment_echo_and_split_per_failure():
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES（codex 005，基底同樣誤放）：沒列節點時，行尾註解、echo 這類別段的檔名不算；
+    go／unittest 一行一支的失敗各自要有豁免，只豁免一支整筆照紅；結算行（FAIL、FAIL\t<套件>）不是一支。"""
+    decl = rr.parse_not_doing("不做｜test_erp_contract.py：使用者說「先不用管它、跳過」")
+    for cmd in ("python -m pytest tests -q # test_erp_contract.py", "echo test_erp_contract.py && python -m pytest tests -q"):
+        kept, waived = rr.waived_failures([{"cmd": cmd, "summary": "1 failed, 14 passed"}], decl, [_C1_SAID])
+        assert kept and not waived, cmd
+    go = {"cmd": "go test ./...", "summary": "--- FAIL: TestErpContract (0.00s)\n    --- FAIL: TestErpContract/fields (0.00s)\n"
+                                              "--- FAIL: TestPayment (0.00s)\nFAIL\nFAIL\tgithub.com/x/pkg\t0.01s"}
+    assert rr.failure_units(go["summary"]) == ["TestErpContract", "TestPayment"]
+    kept, _ = rr.waived_failures([go], rr.parse_not_doing("不做｜TestErpContract：使用者說「先不用管它、跳過」"), [_C1_SAID])
+    assert kept, "付款那支沒豁免，整筆照紅"
+    both = "不做｜TestErpContract：使用者說「先不用管它、跳過」\n不做｜TestPayment：使用者說「先不用管它、跳過」"
+    kept, waived = rr.waived_failures([go], rr.parse_not_doing(both), [_C1_SAID])
+    assert not kept and sorted(u for _f, h in waived for u in h["units"]) == ["TestErpContract", "TestPayment"]
+    ut = "FAIL: test_contract (tests.test_erp.ErpCase)\n----\nFAILED (failures=1)"
+    assert rr.failure_units(ut) == ["test_contract"]
+
+
+def test_005_codex_miss_notes_skip_tests_already_waived_by_ledger():
+    """codex 005（本輪新開）：ERP 照帳豁免了、整筆還紅是因為付款那支——不再對 ERP 說「帳上也沒有」。"""
+    entry = {"cmd": "python -m pytest tests -q", "summary": f"FAILED {_C1_ERP} - x\nFAILED tests/test_pay.py::test_pay - y"}
+    decls = rr.parse_not_doing(_C1_NOT_DOING)
+    led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "units": [_C1_ERP.lower()]}]
+    kept, _ = rr.waived_failures([entry], decls, ["好"], led, ["好"])
+    assert kept and rr.waiver_miss_notes(kept, decls, ["好"], led) == []
+
+
+def test_005_origin_said_includes_unattached():
+    """ORIGIN_SAID_INCLUDES_UNATTACHED：樹結束時收的原話（said_log attached=false）也是核對來源；已掛上別棵樹的不重複算。"""
+    import wg_need_goal as ng
+    said = "不對，折扣碼不要放 shop.json，改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動。"
+    tree = {"said_all": [{"seq": 1, "turn": 1, "text": "訂單要支援折扣碼"}], "user_said": []}
+    doc = {"said_log": [{"seq": 88, "turn": 5, "text": said, "attached": False},
+                        {"seq": 2, "turn": 2, "text": "別棵樹的話", "attached": True}]}
+    quote = "改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動"
+    assert rr.origin_user_verdict("折扣碼放新檔", quote, ng._said_for_check(tree))[0] == "inferred", "前置：只看樹上的對不到"
+    origin, v, match = rr.origin_user_verdict("折扣碼放新檔", quote, ng._said_for_check(tree, doc))
+    assert origin == "user" and match["said"]["seq"] == 88 and v.rule == "ORIGIN_USER_NEEDS_QUOTE"
+    assert [s["seq"] for s in ng._said_for_check(tree, doc)] == [1, 88]
+
+
+def test_005_second_opinion_declared_always_logged_registered():
+    """SECOND_OPINION_DECLARED_ALWAYS_LOGGED：宣告行的判法（行首、理由過 second_opinion_decline_ok）；Stop 端留帳案例在
+    verify_g9_second_opinion.py 的 005 段。"""
+    assert rr.second_opinion_decline("不需第二意見｜這一輪沒有改任何程式，只做搜尋和實測確認。") == "這一輪沒有改任何程式，只做搜尋和實測確認。"
+    assert rr.second_opinion_decline_ok("這一輪沒有改任何程式，只做搜尋和實測確認。")
+    assert not rr.second_opinion_decline_ok("不需要")
+    assert "SECOND_OPINION_DECLARED_ALWAYS_LOGGED" in rr.RULES
+
+
+# 第四跑 B-1 第一版根因層：兩個跨層候選用 ①② 列，沒寫「候選 A」
+_B1_V1 = ("新功能非修 bug；附帶根因①邏輯層 periods.month_of 以 UTC 切月違反 README 台北時間；②測試層 monthly 期望值照 UTC 算鎖住錯誤；"
+          "資料讀入層 ts 保留 +08:00 沒壞")
+
+
+def test_005_locate_candidates_without_fixed_labels():
+    """LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS：沒寫「候選 A」時，①② 列舉或兩個以上不同的「X 層」也算候選（第四跑 B-1 第一版判成
+    0 個、第三版改成固定字樣才過）；選擇理由照樣要寫。"""
+    assert rr.root_candidates(_B1_V1) == [1, 2]
+    v = rr.locate_lines_verdict(_B1_V1, _B1_GOAL, "T1.1", _CG0_NODE)
+    assert v.owed and "辨識出 2 個候選，但沒寫選擇理由" in v.why, v
+    assert not rr.locate_lines_verdict(_B1_V1 + "；選①因為②只是照①的輸出寫的", _B1_GOAL, "T1.1", _CG0_NODE).owed
+    layers = "month_of 在邏輯層用 UTC 切月；測試層期望值照 UTC 鎖住；先修邏輯層因為測試只是照輸出寫"
+    assert len(rr.root_candidates(layers)) == 2 and not rr.locate_lines_verdict(layers, _B1_GOAL, "T1.1", _CG0_NODE).owed
+    # 反例：只有一層、一個列舉、泛稱、函式呼叫的括號數字 → 照舊 0 個
+    for one in ("根因在邏輯層；這層以外沒問題", "①邏輯層 month_of 用 UTC", "第二層、每層都看過", "f(1) 與 g(2) 都呼叫 month_of",
+                "根因層在邏輯層", "根因在邏輯層；先修邏輯層因為只有這一處寫", "第四層、第五層；先修第四層因為錯誤從這裡開始"):
+        assert rr.root_candidates(one) == [], one
+    # codex 005：名稱尾段相同的兩層（資料讀取／設定讀取）是兩層
+    assert len(rr.root_candidates("資料讀取層解析錯誤；設定讀取層覆蓋錯誤；先修資料讀取層因為設定沿用其輸出")) == 2
+    assert rr.root_candidates("候選 A 邏輯層；候選 B 不存在因為資料層只讀") == [1], "有固定標記就只看標記"

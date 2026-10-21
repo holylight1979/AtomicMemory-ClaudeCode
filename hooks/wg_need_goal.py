@@ -403,9 +403,11 @@ def _add_said(tree: Dict[str, Any], entry: Dict[str, Any]) -> None:
         del full[1:len(full) - SAID_ALL_MAX + 1]
 
 
-def _said_for_check(tree: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """origin 核對的原話來源：本 session 完整的 said_all，加上 user_said（匯入的前一個 session 原話、沒有 said_all 的舊樹）。"""
-    return [*(tree.get("said_all") or []), *(tree.get("user_said") or [])]
+def _said_for_check(tree: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """origin 核對的原話來源：本 session 完整的 said_all，加上 user_said（匯入的前一個 session 原話、沒有 said_all 的舊樹），
+    再加上還沒掛上任何樹的本 session 原話（規則 ORIGIN_SAID_INCLUDES_UNATTACHED：樹結束時收的，要等重開才掛回去）。"""
+    pending = [s for s in (doc or {}).get("said_log") or [] if isinstance(s, dict) and not s.get("attached")]
+    return [*(tree.get("said_all") or []), *(tree.get("user_said") or []), *pending]
 
 
 def _new_tree(doc: Dict[str, Any], goal: str, turn: int, why: str) -> Dict[str, Any]:
@@ -999,7 +1001,7 @@ def _check_origin(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, node: Dic
     """子節點要標 origin=user：quote／節點文字對得到樹上的使用者原話 → origin=user、存 quote 與 said_seq、history 記引用；
     對不到 → 強制 inferred、history 記原因、doc.origin_downgraded 記一筆（下一則訊息提醒一次就清）。
     events 收守門紀錄（鎖外由 apply_op 寫）；回要附在回傳 note 的一句，對上回 None。"""
-    _, v, match = rr.origin_user_verdict(node.get("text"), quote, _said_for_check(tree), tree.get("peer_said") or [])
+    _, v, match = rr.origin_user_verdict(node.get("text"), quote, _said_for_check(tree, doc), tree.get("peer_said") or [])
     seq, q = next_seq(doc), _s(quote)
     if match is not None:
         said = match["said"]
@@ -1030,7 +1032,7 @@ def _check_root(doc: Dict[str, Any], tree: Dict[str, Any], turn: int,
     沒有這種句子或開關關掉回 None。"""
     if not origin_check_on():
         return None
-    miss = rr.root_unquoted_sentences(tree["nodes"][tree["id"]].get("text"), _said_for_check(tree))
+    miss = rr.root_unquoted_sentences(tree["nodes"][tree["id"]].get("text"), _said_for_check(tree, doc))
     if not miss:
         return None
     line = ("[NeedGoal] 樹根這幾句原話裡沒有：" + "".join(f"「{_clip(s, 80)}」" for s in miss[:6])
