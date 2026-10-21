@@ -171,27 +171,29 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
                 "先用 Read 查原因；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 
-def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Tuple[_rr.Verdict, str]:
-    """一個寫入目標的四件事實＋宣告 → (Verdict, 對上宣告的管道；state＝本 session 宣告過；沒對上宣告為空)。
+def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any],
+                 config: Optional[Dict[str, Any]]) -> Tuple[_rr.Verdict, str, str]:
+    """一個寫入目標的四件事實＋宣告 → (Verdict, 對上宣告的管道；state＝本 session 宣告過；沒對上宣告為空, 點名那則原話的片段)。
+    使用者點名先判、本 session 宣告過才判：點名是使用者要的，帳要記成點名豁免，不能被 AI 自己的舊宣告蓋過。
     原話與宣告行整次呼叫只讀一次 transcript（ctx 快取）。"""
     from wg_need_goal import writes_code
     key = _rr.canon_path(path)
     facts = {"code": writes_code(path, config), "ext": _ext_of(path), "ext_listed": True, "existed": os.path.exists(path),
              "created": key in (state.get("created_files") or [])}
     if facts["code"] or not facts["existed"] or facts["created"]:
-        return _rr.data_file_verdict(path, rel, facts, []), ""
-    if key in (state.get("data_file_declared") or {}):
-        return _rr.Verdict("USER_DATA_FILE_NEEDS_DECLARATION", False, f"本 session 宣告過 {rel}"), "state"
+        return _rr.data_file_verdict(path, rel, facts, []), "", ""
     if "prompts" not in ctx:
         ctx["prompts"] = session_prompts(state, ctx["main_tp"])
     facts.update(named=_rr.prompt_names_file(ctx["prompts"], path), prompts=len(ctx["prompts"]))
     if facts["named"]:
-        return _rr.data_file_verdict(path, rel, facts, []), ""
+        return _rr.data_file_verdict(path, rel, facts, []), "", str(facts["named"]).strip()
+    if key in (state.get("data_file_declared") or {}):
+        return _rr.Verdict("USER_DATA_FILE_NEEDS_DECLARATION", False, f"本 session 宣告過 {rel}"), "state", ""
     if "decls" not in ctx:
         ctx["decls"] = [d for tp in ctx["decl_tps"] for d in declarations(tp)] + _command_decls(ctx["cmd"])
     v = _rr.data_file_verdict(path, rel, facts, [d[:3] for d in ctx["decls"]])
     via = next((d[3] for d in ctx["decls"] if v.evidence and not v.owed and d[2] == v.evidence[0]), "")
-    return v, via
+    return v, via, ""
 
 
 def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -208,7 +210,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     changed = False
     for path in paths:
         rel = _rel(path, cwd)
-        v, via = _verdict_for(path, rel, state, ctx, config)
+        v, via, quote = _verdict_for(path, rel, state, ctx, config)
         if v.owed:
             event = "denied"
         elif via:
@@ -216,7 +218,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
         else:
             event = "exempt"
         append_guard_log(GUARD, {"session_id": sid, "tool": tool_name, "path": path, "event": event, "why": v.why,
-                                 **({"via": via} if via else {})})
+                                 **({"via": via} if via else {}), **({"quote": quote} if quote else {})})
         if v.owed:
             owed.append((rel, v))
             continue

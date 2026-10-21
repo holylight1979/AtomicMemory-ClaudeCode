@@ -998,6 +998,23 @@ def test_locate_groups_parse_goal_key():
 
 # ─── C-G0：定位四行要說角色與兩個根因候選；收尾查改到的部位都掛到目標 ─────────────
 
+def test_004_locate_example_is_a_suggestion_and_chained_nodes_pass(hooked):
+    """第三跑 B-1：擋訊息附的範例標成「建議寫法」（內容到了就算、句子順序不限）；第四行「T1.1/T1.2（角色）」、第五行把哪裡不合理
+    寫在前面，端到端放行。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡")
+    _op("add", items=[{"text": "共用字典不再被兩邊改"}, {"text": "存檔不壞"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                  # 第一次碰部位：注入導讀卡
+    _read_part(f1, proj, tp)
+    _say(tp, THREE + "\n定位｜目標：T1.1")
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "建議寫法（只是範例" in deny and "照這個樣子" not in deny, deny
+    _say(tp, THREE2 + "\n定位｜目標：T1.1/T1.2（共用字典的唯一寫入點、順帶顧存檔）"
+         "\n定位｜批判：字典兩邊都寫不合理，更好的做法是只留邏輯層寫；同類還可能在哪：存檔快取也有同樣的雙寫")
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+
+
 def test_cg0_locate_four_lines_need_role_and_two_candidates(hooked):
     """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：第四行沒角色 → 擋；根因層只一個候選 → 擋；擋訊息印規則名、缺哪一項、
     範例四行照抄就過；放行後部位掛到節點。"""

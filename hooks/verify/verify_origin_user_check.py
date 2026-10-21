@@ -110,6 +110,36 @@ def test_short_quote_downgraded(env):
     assert _node("T1.1")["origin"] == "inferred" and "至少要 6 字" in r["text"]
 
 
+@pytest.mark.parametrize("quote, ok", [
+    ("要有測試。", True),        # 第三跑 B-1 T1.3：原話整句（前後都是句號），5 字
+    ("要有測試", True),          # 不帶句末標點也算整句
+    ("有測試。", False),         # 句子中段：左邊是「要」不是句界
+    ("好。", False),             # 整句但只有 1 個字
+])
+def test_short_whole_sentence_quote_counts(env, quote, ok):
+    said = "好。月報改用台北時間歸月，不要動到它。要有測試。"
+    _tree_with(said)
+    assert quote.rstrip("。") in said, "前置：引用的字真的在原話裡"
+    r = _op("add", items=[{"text": "有測試", "origin": "user", "quote": quote}])
+    assert (_node("T1.1")["origin"] == "user") is ok, r["text"]
+
+
+def test_whole_sentence_quote_punctuation_must_match(env):
+    """codex 004：短句引用自帶的句末標點要跟原話一樣：原話是問句「要有測試？」，引成「要有測試。」不是逐字引用；照原標點引、或不帶標點都算。"""
+    _tree_with("要有測試？")
+    _op("add", items=[{"text": "有測試", "origin": "user", "quote": "要有測試。"},
+                      {"text": "有測試二", "origin": "user", "quote": "要有測試？"},
+                      {"text": "有測試三", "origin": "user", "quote": "要有測試"}])
+    assert [_node(f"T1.{i}")["origin"] for i in (1, 2, 3)] == ["inferred", "user", "user"]
+
+
+def test_mcp_quote_description_matches_rule():
+    """MCP need_goal 的 quote 說明是 LLM 讀的契約：要說得出「不到 6 字的整句也算」，不然 AI 不會去引短句（規則 ORIGIN_USER_NEEDS_QUOTE）。"""
+    js = (HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
+    line = next(ln for ln in js.splitlines() if "quote:" in ln and "origin=user" in ln)
+    assert "整句" in line, line
+
+
 def test_update_to_user_checked_both_ways(env):
     _tree_with("把 audit 寫進 log 檔，格式自己定")
     _op("add", items=[{"text": "稽核紀錄落地", "origin": "inferred"}, {"text": "格式要固定", "origin": "inferred"}])

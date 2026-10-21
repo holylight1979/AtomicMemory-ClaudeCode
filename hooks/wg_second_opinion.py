@@ -103,25 +103,30 @@ _COMPLETION_NEG_RE = re.compile(r"(?:還沒|還未|尚未|尚待|未|沒有?)[^�
                                 r"(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)")
 
 
-def turn_claims_completion(transcript_text: str) -> bool:
-    """本回合有沒有宣告完成。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
-    完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就算宣告了。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
+def turn_completion_text(transcript_text: str) -> str:
+    """本回合宣告完成的那一則文字；沒宣告回空字串。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
+    完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就是最後說完成的那一則。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
     只看最後一則會被補件那則蓋掉（第二波 C′ 第二跑：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。"""
     from wg_evasion import _COMPLETION_CLAIM_RE, _COMPLETION_EXCLUDE_RE, claims_completion
     texts = [str(b.get("text") or "") for o in _turn_records(transcript_text) if o.get("type") == "assistant"
              for b in _blocks(o) if b.get("type") == "text"]
     if not texts:
-        return False
+        return ""
     last = texts[-1][-2000:]
     if _COMPLETION_CLAIM_RE.search(last) or _COMPLETION_EXCLUDE_RE.search(last):
-        return claims_completion(texts[-1])
-    claimed = False
+        return texts[-1] if claims_completion(texts[-1]) else ""
+    claimed = ""
     for t in texts[:-1]:
         if _COMPLETION_NEG_RE.search(t[-2000:]):
-            claimed = False
+            claimed = ""
         elif claims_completion(t):
-            claimed = True
+            claimed = t
     return claimed
+
+
+def turn_claims_completion(transcript_text: str) -> bool:
+    """本回合有沒有宣告完成（turn_completion_text 找得到那一則）。"""
+    return bool(turn_completion_text(transcript_text))
 
 
 def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:

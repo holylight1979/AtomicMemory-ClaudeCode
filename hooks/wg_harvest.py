@@ -975,9 +975,10 @@ def _dismissed(recent_prompts: List[str]) -> bool:
 
 def harvest_gate_reason(
     state: Dict[str, Any], sid: str, last_text: str, config: Dict[str, Any],
-    own_mod_files: List[Dict[str, Any]], turn_seq: int, gate_turn: Optional[int] = None,
+    own_mod_files: List[Dict[str, Any]], turn_seq: int, gate_turn: Optional[int] = None, claimed: Optional[bool] = None,
 ) -> Optional[str]:
-    """該擋 KnowledgeHarvest 就回擋訊息，否則 None。純判定，不改 state。
+    """該擋 KnowledgeHarvest 就回擋訊息，否則 None。純判定，不改 state。claimed＝呼叫端判好的「本回合宣告完成」（Stop 看整回合，
+    補件那則不重說也算）；沒給就看 last_text。
 
     觸發＝宣告完成 ∧ 近 3 則 prompt 無 dismiss 詞 ∧ 有實質活動（turn_seq ≥ min_turns ∨ 本 session
     有改檔 ∨ accessed_files ≥ min_accessed）∧ 冷卻已過（距上次 validated 收割 ≥ min_turns_between）
@@ -987,7 +988,7 @@ def harvest_gate_reason(
     cfg = harvest_config(config)
     if not cfg or not turn_seq:
         return None
-    if not last_text or not claims_completion(last_text):
+    if not (bool(last_text) and claims_completion(last_text) if claimed is None else claimed):
         return None
     if _dismissed(state.get("recent_user_prompts", []) or []):
         return None

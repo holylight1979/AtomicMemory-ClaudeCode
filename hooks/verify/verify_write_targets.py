@@ -229,7 +229,7 @@ def test_write_targets_heredoc_body_is_not_scanned():
     got = _n(write_paths_from_tool("Bash", {"command": "cat > n.txt <<'EOT'\nhello > z\nEOT"}, CWD))
     assert got == ["C:/Work/Proj/n.txt"]                                                   # 標記行本身的 > 仍算
     got = write_paths_from_tool("Bash", {"command": "python - <<EOF\nprint(1 > 0)\nEOF"}, CWD)
-    assert got == ["UNKNOWN:python -"]                                                      # R4：直譯器吃 stdin 碼 → UNKNOWN
+    assert got == []                                                                        # 直譯器吃 heredoc 碼：交 ast 判，純讀放行
 
 
 def test_write_targets_tee_to_devnull_has_no_phantom():
@@ -331,8 +331,30 @@ def test_r4_python_inline_code_is_unknown():
     assert _unknown("python -c \"open('x','w').write('1')\"")
     assert _unknown("node -e \"fs.writeFileSync('x','1')\"") and _unknown("node -e \"console.log(1)\"")   # node 判不了照擋
     assert _unknown("pwsh -Command \"Set-Content a b\"")
-    assert _unknown("python - <<'EOF'\nprint(1)\nEOF")                                                      # heredoc 判不了照擋
+    assert _bash("python - <<'EOF'\nprint(1)\nEOF") == []                                                   # heredoc 交 ast 判：純讀放行
+    assert _unknown("python - <<'EOF'\nopen('x','w').write('1')\nEOF")                                     # 寫檔照擋
     assert _bash("python x.py --out a.py") == []                                    # 跑腳本不是內嵌碼
+
+
+def test_004_python_heredoc_and_import_alias_judged_by_ast():
+    """第三跑 B-1／B-2：`python - <<'EOF'` 的內文、`import x as y` 取別名都交 ast 判（規則 INLINE_PY_READONLY）：純讀放行；
+    寫檔照 UNKNOWN 並帶出 ast 判出的原因；shell 會展開的 heredoc（定界符沒引號又含 $）判不準照擋。"""
+    assert _bash("python - <<'EOF'\nimport json\nprint(json.load(open('a.json'))['k'])\nEOF") == []
+    assert _bash("python -c \"import tests.test_report as t\nprint(t.__doc__)\"") == []                     # B-1 第 262 行（多行）
+    assert _bash("python -c \"import inspect, sales.store as s\nprint(inspect.getsource(s.load))\"") == []    # B-2 第 66 行第二段
+    got = write_paths_from_tool("Bash", {"command": "python - <<'EOF'\nimport json\nopen('x','w')\nEOF"}, CWD)
+    assert len(got) == 1 and got[0].startswith("UNKNOWN:python -") and "內嵌碼：open(…, 'w') 會寫檔" in got[0], got
+    assert _unknown("python - <<EOF\nprint('$HOME')\nEOF")
+    assert _unknown("python -c \"import builtins as b\nb.exec('1')\"")                                      # 取別名的動態執行照擋
+    assert _unknown("python -c \"import builtins;builtins.exec('1')\"")
+
+
+def test_004_python_stdin_heredoc_judged_only_when_it_is_the_program():
+    """codex 004：`python -` 的程式是最後一份 heredoc、`<` 也會換掉它；有多份 heredoc 或另有輸入重導向就判不了（照 UNKNOWN），
+    不拿第一份去判（第一份唯讀、第二份寫檔時會漏擋）。只有一份照 ast 判。"""
+    assert _unknown("python - <<'A' <<'B'\nprint(1)\nA\nopen('x.txt','w').write('1')\nB\n")
+    assert _unknown("python - <<'A' < other.py\nprint(1)\nA\n")
+    assert _bash("python - <<'A'\nprint(1)\nA\n") == []
 
 
 def test_045_inline_py_readonly_python_c_pure_read_is_not_a_write():

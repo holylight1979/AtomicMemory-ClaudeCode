@@ -539,7 +539,7 @@ const TOOL_DEFINITIONS = [
                 description: "update：任一狀態；reconcile：只收終點 done|partial|none|dropped" },
               clarity: { type: "string", enum: ["clear", "open"], description: "明確／待展開" },
               origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add／update：使用者說的／推出來的／工作中長出的（add 預設 grown）" },
-              quote: { type: "string", description: "add／update：標 origin=user 時引用使用者原話的字面子句（至少 6 字；對不到原話會被改成 inferred）" },
+              quote: { type: "string", description: "add／update：標 origin=user 時引用使用者原話的字面子句（至少 6 字，或某則原話的整句如「要有測試。」；對不到原話會被改成 inferred）" },
               why: { type: "string", description: "update 必填：這次改動讓它更接近了沒、為什麼；verify_scope 必填：為什麼和這次改動有關、會受什麼影響" },
               evidence: {
                 type: "array",

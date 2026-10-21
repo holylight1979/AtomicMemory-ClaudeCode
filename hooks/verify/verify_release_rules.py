@@ -1301,6 +1301,23 @@ def test_cg0_locate_lines_need_role_and_two_candidates(root, goal, owed, want):
         assert any(e.startswith("定位｜根因層：") for e in v.evidence) and any(e.startswith("定位｜目標：") for e in v.evidence)
 
 
+_B1_GOAL = "T1.1/T1.4（by-product 輸出、用台北時間歸月）、T1.2（不碰 monthly 路徑）、T1.3（測試）"
+_B1_CRIT = ("month_of 用 UTC 不合理，更好的做法是改台北時間，但需財務拍板；同類還可能在哪：month_of 唯一呼叫點是 "
+            "report.monthly_totals（grep 已確認），無其他")
+
+
+def test_004_locate_semantic_role_after_chained_nodes_and_reason_anywhere():
+    """第三跑 B-1（擋 4 次）：第四行「T1.1/T1.4（角色）」幾個節點串在一起也認得角色；第五行把被批判的對象寫在「不合理」前面
+    也算有理由。語意判：有候選、有理由、有節點與角色、有更好的做法與同類就放行，句型只當建議。"""
+    assert rr.goal_role(_B1_GOAL, "T1.1") == "by-product 輸出、用台北時間歸月"
+    assert rr.goal_role("T1.2、T1.3（測試）", "T1.2") == "測試"
+    assert not rr.locate_lines_verdict(_CG0_TWO, _B1_GOAL, "T1.1", _CG0_NODE).owed
+    assert not rr.locate_critique_verdict(_B1_CRIT).owed
+    # 反例：只說「不合理」沒指出哪裡（套話不算），照擋
+    v = rr.locate_critique_verdict("這段寫法不合理，更好的做法是改台北時間；同類還可能在哪：無，因為只有一處")
+    assert v.owed and "沒寫理由" in v.why and "建議寫法" in v.why
+
+
 def test_cg0_locate_lines_both_missing_listed_together():
     """角色與候選都缺 → 一條擋訊息列兩項（不必擋兩輪才知道）。"""
     v = rr.locate_lines_verdict("邏輯層", "T1.1", "T1.1", _CG0_NODE)
@@ -1870,6 +1887,38 @@ def test_p7_waived_failures_only_cited_and_matching():
     node = [{"cmd": "python -m pytest hooks/verify/verify_a.py::test_x", "summary": "1 failed"}]
     kept, _ = rr.waived_failures(node, rr.parse_not_doing("不做｜verify_a.py::test_x：使用者說「先這樣」"), ["先這樣"])
     assert not kept, "測試節點指得到"
+
+
+def test_004_waiver_per_listed_test_ledger_same_test_and_later_mention():
+    """codex 004：摘要逐支列出失敗時每支各自要有豁免（同一筆裡 A 被點名、B 沒有 → 整筆照紅；收集錯誤也算一支）；帳只認記帳那時的
+    同一支（別檔同名函式不借帳）；使用者記帳後又提到這支 → 帳不算，以新的話為準（那則擠出近 3 則也一樣）。"""
+    decl = rr.parse_not_doing("不做｜test_total：使用者說「test_total 先跳過」")
+    two = [{"cmd": "pytest tests", "summary": "FAILED tests/a.py::test_total - x\nFAILED tests/a.py::test_other - y"}]
+    kept, w = rr.waived_failures(two, decl, ["test_total 先跳過"])
+    assert kept == two and not w, "test_other 沒人豁免"
+    both = rr.parse_not_doing("不做｜test_total：使用者說「test_total 先跳過」\n不做｜test_other：使用者說「test_other 也先跳過」")
+    kept, w = rr.waived_failures(two, both, ["test_total 先跳過，test_other 也先跳過"])
+    assert not kept and sorted(u for _, h in w for u in h["units"]) == ["tests/a.py::test_other", "tests/a.py::test_total"]
+    col = [{"cmd": "pytest tests", "summary": "FAILED tests/a.py::test_total - x\nERROR tests/c.py - ImportError"}]
+    kept, _ = rr.waived_failures(col, decl, ["test_total 先跳過"])
+    assert kept == col, "收集錯誤也是一支"
+    a = [{"cmd": "pytest tests", "summary": "FAILED tests/a.py::test_total - x"}]
+    _, w = rr.waived_failures(a, decl, ["test_total 先跳過"])
+    assert w[0][1]["units"] == ["tests/a.py::test_total"]
+    led = [{"item": "test_total", "quote": "test_total 先跳過", "said": "test_total 先跳過", "units": w[0][1]["units"],
+            "cmd": "pytest tests"}]
+    later = ["好", "再跑一次", "繼續"]
+    kept, w = rr.waived_failures(a, decl, later, led)
+    assert not kept and w[0][1]["via"] == "ledger", "同一支看帳"
+    b = [{"cmd": "pytest tests", "summary": "FAILED tests/b.py::test_total - y"}]
+    kept, _ = rr.waived_failures(b, decl, later, led)
+    assert kept == b, "別檔同名函式不借帳"
+    kept, _ = rr.waived_failures(a, decl, ["取消剛才的豁免，test_total 必須修好", "好", "繼續"], led)
+    assert kept == a, "記帳後使用者又提到這支：以新的話為準"
+    kept, _ = rr.waived_failures(a, decl, later, led, history=["test_total 先跳過", "取消剛才的豁免，test_total 必須修好", *later])
+    assert kept == a, "提到的那則已擠出近 3 則也照算"
+    kept, _ = rr.waived_failures(a, decl, later, led, history=["之前的話", "test_total 先跳過", *later])
+    assert not kept, "記帳那則之後沒再提到：照帳"
 
 
 def test_p7_reason_and_quote_need_text_not_length():

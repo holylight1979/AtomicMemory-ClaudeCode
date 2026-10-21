@@ -48,7 +48,7 @@ from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
-    parse_not_doing, waived_failures,
+    parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1235,7 +1235,7 @@ def _equivalence_on(config: Dict[str, Any], cwd: str) -> bool:
 
 def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, Any], input_data: Dict[str, Any],
                       code_text: str, own_mod_files: List[Dict[str, Any]], turn_seq: int, since: int,
-                      tpath: Optional[str], cwd: str) -> Optional[str]:
+                      tpath: Optional[str], cwd: str, claimed: Optional[bool] = None) -> Optional[str]:
     """事實收集＋預算＋留帳，判定在 wg_release_rules。回擋訊息；None＝不關事或放行。改了 state（預算、擋的位置、已留帳的行），
     由呼叫端 write_state。
     事實：意圖（state turn_intent，只由使用者本人打的字判）、本回合改過的程式檔、它們最後一次修改之後的收據（指令完整、記了環境、
@@ -1246,7 +1246,7 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
     from wg_release_rules import (equivalence_verdict, format_hit, has_measure, hot_path_verdict, parse_equivalence_lines,
                                   proved_mutations)
     intent = _intent_of(state)
-    if intent not in ("refactor", "perf") or not claims_completion(code_text):
+    if intent not in ("refactor", "perf") or not (claims_completion(code_text) if claimed is None else claimed):
         return None
     exts = reconcile_cfg(config).get("code_exts") or []
     code_mods = [m for m in own_mod_files
@@ -1364,6 +1364,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     transcript_text = read_transcript_tail(transcript)
     last_text = get_last_assistant_text(transcript, text=transcript_text)          # 退避偵測等：只看 >30 字的段落
     code_text = _code_check_text(input_data, transcript, transcript_text)          # 寫碼查核：真正的最後一句
+    # 收尾閘的「宣告完成」看整回合：被別的閘擋下後補件那則常不重說完成（wg_second_opinion.turn_completion_text 找出本回合宣告完成的
+    # 那一則；最後一則有談到完成與否就照它）。內容檢查（退避詞、宣稱詞）仍看最後一則
+    from wg_second_opinion import turn_completion_text
+    _turn_claim = turn_completion_text(transcript_text)
+
+    def _done(text: str) -> bool:
+        return bool(text and claims_completion(text)) or bool(_turn_claim)
     # accessed_files 回收（取代 per-Read PostToolUse hook）——先寫進 state，
     # 後續任何 gate 的 write_state 也會一併固化；此處立即寫防走到不寫 state 的路徑。
     # 關回合：下一則 UserPromptSubmit 才是新回合的第一句（turn_prompts 重開，見 ups_gates.track_turn_prompts）。
@@ -1493,7 +1500,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         """收尾自清閘的事實：宣告完成時才查，只查可能成為候選的那幾筆（要問 git），一次 Stop 只查一次。查失敗照放行並浮 stderr。"""
         if not _cleanup_memo:
             items: List[Dict[str, Any]] = []
-            if last_text and claims_completion(last_text):
+            if _done(last_text):
                 try:
                     if aec_ledger.ledger_path(session_id).exists():
                         items = aec_ledger.cleanup_facts(session_id)
@@ -1535,7 +1542,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _so_v is not None and _so_v.owed and not released_this_turn(state, session_id, _SO_GATE, _user_turn(state, turn_seq)):
             later.append("第二意見：跑 second_opinion_start→second_opinion_result 並在收尾寫分歧裁決四行，或宣告「不需第二意見｜理由」")
         if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
-                state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq)):
+                state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq),
+                claimed=_done(last_text)):
             later.append("知識收割：值得留的先 atom_write，再呼叫 knowledge_harvest_report")
         if ("[Guardian:Cleanup]" not in reason
                 and (state.get("cleanup_gate_turn") or {}).get(session_id) != _user_turn(state, turn_seq)):
@@ -1546,7 +1554,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if ("[Guardian:ScanReport]" not in reason and own_mod_files and not state.get("scan_report_warned")
                 and not committed_this_turn and _scan_report_gate_on(config)
                 and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
-                                                int(config.get("min_files_to_block", 2)), emitted_this_turn)):
+                                                int(config.get("min_files_to_block", 2)), emitted_this_turn,
+                                                claimed=_done(last_text))):
             later.append("收尾檢核：最後呼叫 anti_evasion_report")
         if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
                 and not state.get("muted") and phase not in ("done", "syncing")):
@@ -1563,18 +1572,43 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _later.append(_later_gates)
 
     # 規則 USER_WAIVER_NEEDS_CITATION：使用者說「先這樣／跳過」不再整段清掉紅測；LLM 寫「不做｜<哪一支>：使用者說「<原句>」」、
-    # 原句真的在近 3 則使用者原話、事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的）
+    # 原句真的在近 3 則使用者原話、事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的）。
+    # 豁免一成立就記進 state testfail_waivers（事項、原句、那一則原話），之後同 session 同一支看帳、不看近 3 則窗口；
+    # 使用者在記帳之後又提到那一支 → 那筆帳每次收尾都拿掉（原話只留近 5 則，不拿掉的話那則擠出去後帳又活回來）
+    _history = _user_typed_prompts(state.get("recent_user_prompts") or [])
+    _voided = [e for e in state.get("testfail_waivers") or [] if waiver_mentioned_since(e, _history)]
+    if _voided:
+        state["testfail_waivers"] = [e for e in state["testfail_waivers"] if e not in _voided]
+        write_state(session_id, state)
+        for _e in _voided:
+            append_guard_log("testfail_waiver_voided", {"session_id": session_id, "turn_seq": turn_seq,
+                                                        "item": str(_e.get("item", ""))[:80], "said": str(_e.get("said", ""))[:120]})
     if failing:
-        failing, _waived = waived_failures(failing, parse_not_doing(code_text),
-                                           _user_typed_prompts(state.get("recent_user_prompts") or [])[-3:])
+        _recent = _history[-3:]
+        _ledger = state.get("testfail_waivers") or []
+        failing, _waived = waived_failures(failing, parse_not_doing(code_text), _recent, _ledger, _history)
         for _f, _d in _waived:
-            append_guard_log("testfail_waived", {"session_id": session_id, "turn_seq": turn_seq,
+            _said = next((p for p in reversed(_recent) if _d["via"] == "quote" and quote_in_prompts(_d["quote"], [p])), "")
+            append_guard_log("testfail_waived", {"session_id": session_id, "turn_seq": turn_seq, "via": _d["via"],
                                                  "failing_cmd": str(_f.get("cmd", ""))[:120], "failing_turn": _f.get("turn_seq"),
+                                                 "failing_summary": str(_f.get("summary", ""))[:200],
                                                  "item": _d.get("item", "")[:80], "user_said": _d.get("quote", "")[:120],
-                                                 "line": _d.get("line", "")[:200]})
+                                                 "said": _said[:200], "line": _d.get("line", "")[:200]})
+            append_guard_log("deferral_declared", {"session_id": session_id, "turn_seq": turn_seq, "phrase": "",
+                                                   "rule": "USER_WAIVER_NEEDS_CITATION",
+                                                   "why": f"使用者原話「{_d.get('quote', '')[:60]}」豁免紅測 {_d.get('item', '')[:60]}",
+                                                   "line": _d.get("line", "")[:200]})
             print(f"[Guardian:TestFailGate] 使用者原話「{_d.get('quote', '')[:40]}」豁免紅測 {str(_f.get('cmd', ''))[:50]}（已留帳）",
                   file=sys.stderr)
-    if failing and claims_completion(code_text):
+            if _said:                   # 同一事項再引用一次就換成新的那則原話（之後提到這支的判斷從新的算起）
+                _old = next((e for e in _ledger if e.get("item") == _d["item"] and e.get("said") == _said[:200]), {})
+                _ledger = [e for e in _ledger if e.get("item") != _d["item"]] + [
+                    {"item": _d["item"][:120], "quote": _d["quote"][:120], "said": _said[:200], "turn_seq": turn_seq,
+                     "units": list(dict.fromkeys([*(_old.get("units") or []), *(_d.get("units") or [])])),
+                     "cmd": str(_f.get("cmd") or "")[:200], "failing": str(_f.get("summary") or _f.get("cmd") or "")[:200]}]
+                state["testfail_waivers"] = _ledger
+                write_state(session_id, state)
+    if failing and _done(code_text):
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(testfail_message(failing))
         write_state(session_id, state)
@@ -1602,6 +1636,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if _rg_cfg.get("enabled", True) or _sg_cfg.get("enabled", True):
         _pend = pending_of(state, session_id, "reconcile")
         _prev_claims = [str(c) for c in (_pend or {}).get("claims") or []]
+        if _turn_claim and not claims_completion(code_text) and _turn_claim not in _prev_claims:
+            _prev_claims.append(_turn_claim)     # 補件那則沒重說完成：(a)(b)(c) 與交付邊界照本回合宣告完成的那一則判
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
             state, session_id, turn_seq, code_text, transcript, transcript_text, own_mod_files,
             _rg_cfg, _sg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
@@ -1679,7 +1715,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 _gate = "VerifyScope" if _vg_kind == "scope" else "ReconcileGate"
                 if _code_full:
                     set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code,
-                                [code_text] if claims_completion(code_text) else [])   # pending 已在就沿用原 claims
+                                [code_text] if claims_completion(code_text)
+                                else ([_turn_claim] if _turn_claim else []))      # pending 已在就沿用原 claims
                     _summary = exhausted_summary(_code)                          # 列全部命中條目，不只第一條
                     _n = _count if _full_rules else None                       # pending 承接自先前回合：不報本回合次數
                     _head = (non_interactive_message(_gate, _n, _summary, _no_ask) if _no_ask
@@ -1823,7 +1860,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問的收尾核對（_equivalence_gate；規則在 wg_release_rules）。
     # 自己的預算（不吃 stop_gate_max_blocks），擋滿問使用者。判不出（hook 內部錯）→ 不擋，浮 stderr 並留帳。
     try:
-        _eq_block = _equivalence_gate(state, session_id, config, input_data, code_text, own_mod_files, turn_seq, _since, _tpath, cwd)
+        _eq_block = _equivalence_gate(state, session_id, config, input_data, code_text, own_mod_files, turn_seq, _since, _tpath, cwd,
+                                      claimed=_done(code_text))
     except Exception as e:  # noqa: BLE001
         _eq_block = None
         print(f"[Guardian:{EQ_GATE}] 收尾核對出錯，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
@@ -1861,6 +1899,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             dg = deferral_gate_reason(
                 last_text,
                 state.get("recent_user_prompts", []) or [],
+                claimed=_done(last_text),
                 turn_seq=_uturn,
                 gated_turn=state.get("deferral_gate_turn"),
                 committed_this_turn=committed_this_turn,
@@ -1896,7 +1935,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # wg_harvest.harvest_gate_reason（活動門檻、冷卻只認 validated、dismiss 詞表重用 wg_evasion）。
     # 不吃 stop_gate_max_blocks 共用預算、每回合最多擋一次（harvest_gate_turn[sid] 記 _user_turn）；
     # state 全按 session_id 分區——隔壁 session 的收割不放行本 session。
-    hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn)
+    hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn,
+                                    claimed=_done(last_text))
     if hv_reason:
         state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
         append_guard_log("knowledge_harvest", {
@@ -1934,7 +1974,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # wg_release_rules；排在收尾檢核之前，AI 寫留的理由才進得了同一份 (i)。不吃 stop_gate_max_blocks、每個使用者回合最多擋一次
     # （cleanup_gate_turn[sid] 記 _uturn）。
     if (state.get("cleanup_gate_turn") or {}).get(session_id) != _uturn:
-        cv = leftover_cleanup_verdict(bool(last_text and claims_completion(last_text)), _cleanup_facts())
+        cv = leftover_cleanup_verdict(_done(last_text), _cleanup_facts())
         if cv.owed:
             state.setdefault("cleanup_gate_turn", {})[session_id] = _uturn
             append_guard_log("cleanup", {"session_id": session_id, "turn_seq": turn_seq, "items": list(cv.evidence[:8])})
@@ -1953,7 +1993,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
         if detect_missing_aec_emission(
-            last_text, own_mod_files, recent_prompts, sr_min_files, emitted_this_turn or aec_up_to_date
+            last_text, own_mod_files, recent_prompts, sr_min_files, emitted_this_turn or aec_up_to_date, claimed=_done(last_text)
         ):
             state["stop_blocked_count"] = stop_count + 1
             state["scan_report_warned"] = True  # 保留 one-shot anti-nag（比照現況）
@@ -2141,7 +2181,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複＝獨立預算 1；
     # 排在 correctness/sync gate 之後（那些優先）但★不共用 stop_gate_max_blocks——
     # 否則 Sync+TestFail 先吃光預算就餓死 DPM（見 _should_deep_postmortem docstring 實證）。
-    claims_done = bool(last_text and claims_completion(last_text))
+    claims_done = _done(last_text)
     if (_should_deep_postmortem(state, config, claims_done)
             and not _dpm_marker(session_id).exists()):
         state["deep_postmortem_done"] = True

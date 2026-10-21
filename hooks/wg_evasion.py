@@ -422,8 +422,10 @@ def deferral_gate_reason(
     context_ratio: float,
     config: Dict[str, Any],
     audit: Optional[List[Dict[str, Any]]] = None,
+    claimed: Optional[bool] = None,
 ) -> Optional[str]:
-    """DeferralGate 純決策（無副作用）：回 block 文字或 None。
+    """DeferralGate 純決策（無副作用）：回 block 文字或 None。claimed＝呼叫端判好的「本回合宣告完成」（Stop 看整回合，
+    補件那則不重說也算）；沒給就看 last_text。
 
     全部成立才擋：config.deferral_gate.enabled（預設 True）／本 turn 尚未擋過
     （gated_turn != turn_seq）／detect_deferral 命中（對到有理由的不做行或使用者引用的不算，記進 audit）／
@@ -440,7 +442,7 @@ def deferral_gate_reason(
     )
     if not det:
         return None
-    if not (claims_completion(last_text) or committed_this_turn):
+    if not ((claims_completion(last_text) if claimed is None else claimed) or committed_this_turn):
         return None
     max_ratio = float(cfg.get("max_context_ratio", 0.75))
     if context_ratio > max_ratio:
@@ -504,8 +506,10 @@ def _completion_gate_applies(
     modified_files: List[Dict[str, Any]],
     recent_user_prompts: List[str],
     min_files: int,
+    claimed: Optional[bool] = None,
 ) -> bool:
-    """收尾閘共用前置：宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 無豁免關鍵字。
+    """收尾閘共用前置：宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 無豁免關鍵字。claimed＝呼叫端判好的「本回合宣告完成」，
+    沒給就看 text。
 
     True＝已達「該交代收尾」門檻（尚未判定用何種方式滿足）。滿足方式（prose 標記
     vs anti_evasion_report emit）由各 caller 疊上。純單檔/文件小改不達門檻。
@@ -515,9 +519,7 @@ def _completion_gate_applies(
       2. modified_files 觸及 core 檔，或 unique 檔數 ≥ min_files
       3. 近 3 則 user prompt 無豁免關鍵字
     """
-    if not text or not modified_files:
-        return False
-    if not claims_completion(text):
+    if not modified_files or not (claims_completion(text or "") if claimed is None else claimed):
         return False
     for p in user_typed_prompts(recent_user_prompts)[-3:]:
         if _DISMISS_RE.search(p or ""):
@@ -552,14 +554,15 @@ def detect_missing_aec_emission(
     recent_user_prompts: List[str],
     min_files: int = 2,
     emitted_this_turn: bool = False,
+    claimed: Optional[bool] = None,
 ) -> bool:
     """鏡像 detect_missing_scan_report，唯滿足方式從 prose 標記換成「本回合是否 emit 過
     anti_evasion_report」（emitted_this_turn 由 caller 以 turn_seq+session_id 雙鍵判定）。
 
     回 True＝達門檻卻未 emit（block、逼補結構化收尾檢核）。門檻與豁免（core/min_files、
-    dismiss 逃生門）與 scan_report 版共用 _completion_gate_applies，不重演。
+    dismiss 逃生門）與 scan_report 版共用 _completion_gate_applies，不重演。claimed 見 _completion_gate_applies。
     """
-    if not _completion_gate_applies(text, modified_files, recent_user_prompts, min_files):
+    if not _completion_gate_applies(text, modified_files, recent_user_prompts, min_files, claimed):
         return False
     return not emitted_this_turn
 
