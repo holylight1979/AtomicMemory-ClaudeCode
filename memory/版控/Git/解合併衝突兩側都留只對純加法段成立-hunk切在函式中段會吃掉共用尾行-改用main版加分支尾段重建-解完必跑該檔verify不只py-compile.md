@@ -7,6 +7,7 @@
 - Trigger: 兩側都留, resolve_both, 合併衝突, merge conflict, 共用尾行, return errors 掉了, import 重複, 檔尾段, merge main 工作樹, IndentationError 合併後, NoneType is not iterable 合併後
 - Created-at: 2026-10-20
 - Related: 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件, 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合
+- Quote: 「"下個寫碼session" !? 他們有空就讓他們修完不是嗎..? 這也是我說 "我從未答應把這種東西另外放進修正計畫" 的狀況... 倘若是 Codex 或審查時挖出來的、但LLM判斷後 其實屬於"飄移"的，直接不做，但倘若有關且確實有問題，就應該要立即修正」
 
 ## 知識
 

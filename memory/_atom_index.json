@@ -8143,6 +8143,22 @@
       "related": [
         "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
       ]
+    },
+    {
+      "name": "claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉",
+      "path": "memory/工作流/多session協作/claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉.md",
+      "triggers": [
+        "claude --bg",
+        "console-spawn",
+        "bg session waiting",
+        "背景工作軌",
+        "claude stop",
+        "claude attach",
+        "ListAgents bg waiting",
+        "收尾放行題沒人答",
+        "工作樹 Permission denied"
+      ],
+      "scope": "global"
     }
   ]
 }
