@@ -5,7 +5,10 @@
   1. 前置：開工句檔存在；worktree 不是 live 根、且登記在 live 的 .git/worktrees/ 名單；kill switch 檔
      <live>/workflow/console-spawn.STOP 不存在；由本腳本起、還活著的 session 未達上限（console.spawn.max_parallel，預設 5）。
   2. 信任：worktree 在 ~/.claude.json 沒有信任紀錄時 `claude --bg` 會拒起；live 根已信任就替 worktree 補一筆
-     （鍵用正斜線形，跟 Claude Code 自己寫的一樣）並印出來；live 根也沒信任 → FAIL。
+     （鍵用正斜線形，跟 Claude Code 自己寫的一樣）並印出來。這個檔其他 session 隨時在寫：補之前拿 Claude Code 存設定
+     用的同一把鎖（<設定檔>.lock 目錄），鎖內重讀、只合併這一鍵，寫同目錄暫存檔再整檔換上（換行與結尾照原檔）。
+     live 根也沒信任、檔不存在或不是合法 JSON、鎖等不到、拿鎖後 5 秒內沒換上（鎖可能被當過期換人）、寫入失敗
+     → FAIL（原檔不動）。
   3. 起 session（--method bg，預設）：`claude.exe --bg "<開工句>" --permission-mode <模式> [--model <id>]`，cwd＝worktree，
      subprocess 不經 shell（開工句以 / 開頭也原樣送到）。stdout 的 `backgrounded · <短 id>` 就是 session 短 id。
      模型：--model 優先，其次 config console.spawn.default_model，都沒有就不帶（吃 Claude Code 預設），不猜。
@@ -28,6 +31,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -53,6 +57,8 @@ BG_ID_RE = re.compile(r"backgrounded\s*[·•:]\s*([0-9a-f]{6,})", re.I)
 KICKOFF_WORD = "收到開工"
 SYNTHETIC_MODEL = "<synthetic>"                  # Claude Code 自己補寫的 assistant（API 錯誤、No response requested）
 NO_MODEL = "讀不到（transcript 沒有 model 欄）"
+CONFIG_LOCK_WAIT_SEC = 10.0                      # Claude Code 存 ~/.claude.json 拿同一把鎖、幾毫秒就放；等這麼久還拿不到就不補
+CONFIG_LOCK_HOLD_SEC = 5.0                       # proper-lockfile 預設 10 秒沒更新就當過期鎖收走；我們不更新鎖，拿鎖後 5 秒內沒換上就放棄
 
 
 # ─── 純函式：路徑與判定 ───────────────────────────────────────────────────────
@@ -205,27 +211,101 @@ def load_spawn_config(live_root: Path) -> Dict[str, Any]:
     return cfg
 
 
-def ensure_trust(config_path: Path, worktree: Path, live_root: Path, log: Callable[[str], None]) -> bool:
-    """worktree 已信任 → True；未信任但 live 根已信任 → 補一筆後 True；都沒有 → False。"""
+def check_trust(config_path: Path, wt_key: str, live_root: Path,
+                log: Callable[[str], None]) -> Tuple[str, Dict[str, Any], str]:
+    """讀 ~/.claude.json 判 worktree 信任：回 (判定, 內容, 原文)；判定＝已信任／該補（live 根有、worktree 沒有）／不補。
+    不補的原因在這裡印；原文留給寫回時照抄換行與結尾。"""
     try:
-        data = json.loads(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
-    except json.JSONDecodeError:
-        log(f"  ! {config_path} 不是合法 JSON，不敢改；當作未信任")
-        return False
-    projects = data.setdefault("projects", {})
-    wt_key = trust_key(worktree)
-    if (projects.get(wt_key) or {}).get("hasTrustDialogAccepted") is True:
-        return True
+        raw = config_path.read_bytes().decode("utf-8")
+        data = json.loads(raw)
+    except FileNotFoundError:
+        log(f"  ! {config_path} 不存在，不補信任紀錄")
+        return "不補", {}, ""
+    except (OSError, ValueError) as e:            # ValueError 含 JSONDecodeError、UnicodeDecodeError
+        log(f"  ! {config_path} 讀不了或不是合法 JSON，不敢改：{e}")
+        return "不補", {}, ""
+    projects = data.get("projects", {}) if isinstance(data, dict) else None
+    if not isinstance(projects, dict) or not all(isinstance(v, dict) for v in projects.values()):
+        log(f"  ! {config_path} 格式不對（最外層、projects 或其中某筆不是物件），不敢改")
+        return "不補", {}, ""
+    if projects.get(wt_key, {}).get("hasTrustDialogAccepted") is True:
+        return "已信任", data, raw
     live_norm = norm(live_root)
-    live_trusted = any(
-        (v or {}).get("hasTrustDialogAccepted") is True and k.replace("\\", "/").rstrip("/").lower() == live_norm
-        for k, v in projects.items()
-    )
-    if not live_trusted:
-        log(f"  ! live 根 {live_root} 在 {config_path} 沒有信任紀錄，不替 worktree 補")
+    if any(v.get("hasTrustDialogAccepted") is True and k.replace("\\", "/").rstrip("/").lower() == live_norm
+           for k, v in projects.items()):
+        return "該補", data, raw
+    log(f"  ! live 根 {live_root} 在 {config_path} 沒有信任紀錄，不替 worktree 補")
+    return "不補", data, raw
+
+
+def lock_config(config_path: Path, log: Callable[[str], None]) -> Optional[Path]:
+    """拿 Claude Code 存 ~/.claude.json 用的同一把鎖（proper-lockfile：建得成 <設定檔>.lock 目錄才算拿到，實讀 2.1.304）。
+    別人拿著就每 0.1 秒再試，CONFIG_LOCK_WAIT_SEC 秒還拿不到 → 印原因回 None；不搶別人的鎖。"""
+    lock = config_path.with_name(config_path.name + ".lock")
+    deadline = time.monotonic() + CONFIG_LOCK_WAIT_SEC
+    while True:
+        try:
+            lock.mkdir()
+            return lock
+        except (FileExistsError, PermissionError):  # Windows 上別人正在刪的目錄再建會回拒絕存取，一樣等
+            if time.monotonic() >= deadline:
+                log(f"  ! 等 {CONFIG_LOCK_WAIT_SEC:g} 秒拿不到 {lock}（Claude Code 正在存設定，或留下沒收的鎖），不補")
+                return None
+            time.sleep(0.1)
+        except OSError as e:
+            log(f"  ! 建不了鎖 {lock}，不補：{e}")
+            return None
+
+
+def unlock_config(lock: Path, held_until: float, log: Callable[[str], None]) -> None:
+    """放鎖；持鎖超過 CONFIG_LOCK_HOLD_SEC 就不刪：可能已被當過期鎖換人拿著，刪了會拆掉別人的鎖
+    （留下的過期鎖，proper-lockfile 下次拿鎖時自己收）。"""
+    if time.monotonic() > held_until:
+        log(f"  ! 持鎖超過 {CONFIG_LOCK_HOLD_SEC:g} 秒，{lock} 可能已換人拿著，不刪")
+        return
+    try:
+        lock.rmdir()
+    except OSError as e:
+        log(f"  ! 放不掉鎖 {lock}：{e}")
+
+
+def write_config_atomic(config_path: Path, data: Dict[str, Any], raw: str, held_until: float) -> None:
+    """寫同目錄暫存檔再 os.replace 換上（中途失敗原檔不動、暫存檔刪掉）；縮排 2、不跳脫非 ASCII（同 Claude Code），
+    換行（LF／CRLF）與結尾有無換行照原檔。換上前已過 held_until → 不換（鎖可能已換人，換上去會蓋掉對方）。"""
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    text = json.dumps(data, ensure_ascii=False, indent=2) + ("\n" if raw.endswith("\n") else "")
+    tmp = config_path.with_name(f"{config_path.name}.console-spawn.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(text.replace("\n", nl).encode("utf-8"))
+        if time.monotonic() > held_until:
+            raise TimeoutError(f"持鎖超過 {CONFIG_LOCK_HOLD_SEC:g} 秒，鎖可能已換人拿著，不換上")
+        os.replace(tmp, config_path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def ensure_trust(config_path: Path, worktree: Path, live_root: Path, log: Callable[[str], None]) -> bool:
+    """worktree 已信任 → True；未信任但 live 根已信任 → 補一筆後 True；都沒有、或設定檔讀寫不了 → 印原因回 False。
+    要補時：拿鎖 → 重讀（拿鎖前別的 session 可能剛寫過）→ 只合併這一鍵 → 原子寫回 → 放鎖。"""
+    wt_key = trust_key(worktree)
+    state, _, _ = check_trust(config_path, wt_key, live_root, log)
+    if state != "該補":
+        return state == "已信任"
+    lock = lock_config(config_path, log)
+    if lock is None:
         return False
-    projects.setdefault(wt_key, {})["hasTrustDialogAccepted"] = True
-    config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    held_until = time.monotonic() + CONFIG_LOCK_HOLD_SEC
+    try:
+        state, data, raw = check_trust(config_path, wt_key, live_root, log)
+        if state != "該補":
+            return state == "已信任"
+        data.setdefault("projects", {}).setdefault(wt_key, {})["hasTrustDialogAccepted"] = True
+        write_config_atomic(config_path, data, raw, held_until)
+    except OSError as e:
+        log(f"  ! 寫 {config_path} 失敗，原檔沒動：{e}")
+        return False
+    finally:
+        unlock_config(lock, held_until, log)
     log(f"  · 已替 worktree 補信任紀錄（沿用 live 根的信任）：projects[{wt_key!r}].hasTrustDialogAccepted=true")
     return True
 
@@ -244,7 +324,7 @@ def load_state(live_root: Path) -> List[Dict[str, Any]]:
 def save_state(live_root: Path, rows: List[Dict[str, Any]]) -> None:
     f = live_root / "workflow" / STATE_FILE
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    f.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
 
 
 def list_agents(claude_bin: str, run_fn: Callable[..., Any]) -> List[Dict[str, Any]]:
@@ -385,8 +465,8 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     # 2. 信任
     cfg_path = config_path or claude_global_config()
     if not ensure_trust(cfg_path, args.worktree, live_root, log):
-        return fail("worktree 未信任且 live 根也沒信任紀錄", prompt,
-                    f"在 {args.worktree} 跑一次 `claude` 接受信任提示，再重跑本腳本。")
+        return fail("worktree 沒有信任紀錄、也補不上（原因見上面 ! 那行）", prompt,
+                    f"live 根沒信任就在 {args.worktree} 跑一次 `claude` 接受信任提示；其他原因排除後再重跑本腳本。")
 
     # 3. 起 session
     cmd = build_cmd(claude_bin, args.method, prompt, args.permission_mode, model)

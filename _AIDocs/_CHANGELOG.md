@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 G16 補件：開工作軌補信任紀錄時，不再蓋掉別的 session 的設定、也不會把 ~/.claude.json 寫壞
+- **總控台看到的**：`console-spawn.py` 替還沒信任的 worktree 補信任紀錄前，會先拿 Claude Code 存設定用的同一把鎖（`~/.claude.json.lock`）。拿到鎖後重讀檔、只加這一個鍵，寫暫存檔再整檔換上；換行與結尾照原檔，不再把整檔翻成 CRLF。鎖等 10 秒拿不到、拿鎖後 5 秒內沒換上（鎖可能已被 Claude Code 當過期鎖換人，這時也不刪鎖）、檔不存在、不是合法 JSON、格式不對、寫入失敗 → FAIL 印原因、退人貼，原檔不動；FAIL 的步驟名改成「worktree 沒有信任紀錄、也補不上（原因見上面 ! 那行）」。
+- **改了什麼**（軌 track-spawn-trust-atomic 000）：`ensure_trust` 拆出三個函式。`check_trust` 負責讀檔加判斷，會用兩次：先判要不要補，拿鎖後重讀再判一次。`lock_config` 建 `<設定檔>.lock` 目錄，這就是 proper-lockfile 的鎖，跟 Claude Code 2.1.304 `saveConfigWithLock` 拿的是同一把；別人拿著時只等、不搶。`write_config_atomic` 寫同目錄的 `.console-spawn.<pid>.tmp` 再 `os.replace`，換上前已超過持鎖時限 `CONFIG_LOCK_HOLD_SEC` 就不換。`unlock_config` 超過時限就不刪鎖。`check_trust` 另外會擋 projects 裡不是物件的那筆，舊碼遇到會直接當掉。另外 `save_state` 補上 `newline="\n"`。
+- **驗證**：`tools/verify/verify_console_spawn.py` 新增 8 個案例函式（展開成 14 案）。舊碼上 13 紅（`{broken` 那案舊碼本來就擋得住），改後 39 passed。codex 審查挑出持鎖逾時會被接管、某筆 project 不是物件、兩案「什麼都沒發生也會過」三處，都已修並補案例。真打兩次：用暫存目錄當 worktree，對真的 `~/.claude.json` 補信任 → 前後差異只有 `projects[<暫存目錄>]` 一個鍵，仍是 LF、結尾沒有換行，`claude mcp get` 讀得到；之後用同一把鎖把該鍵收掉，檔與寫前位元組相同。已知限制：只防例外與行程中斷，沒有 fsync，不保證斷電後的耐久。
+
 ## 2026-10-21 G16 補件：總控台開工作軌時就指定模型，並核對真的起對
 - **總控台看到的**：`console-spawn.py` 多了 `--model <id>`（不給就用 `console.spawn.default_model`，那裡也沒設就吃 Claude Code 預設，不猜）。報到後多印一行「模型＝<id>」，讀的是該 session 的 transcript。指定的模型對不上會 FAIL，印「指定＝…／實際＝…」，session 不殺。模型 id 不存在時，claude 照樣起得來，但第一回合回錯就停著；現在腳本一讀到這則錯誤就 FAIL 並印原文，不再白等 90 秒、也不再叫人貼。這兩種 FAIL 都不印人貼區塊。用法見 `skills/console/references/kickoff.md` §6 與 `skills/console/SKILL.md` 用法四。已知限制：`--method print` 只帶上 `--model`、不核對實際模型。print 是阻塞的備援方法，不讀 transcript；`claude -p` 的輸出 JSON 有沒有 model 欄也沒有實測過。
 - **改了什麼**（軌 track-console-spawn-model 000）：`build_cmd` 把 `--model` 接在指令最後，bg 與 print 都接，開工句仍在第 2 格；`load_spawn_config` 讀字串鍵 `default_model`；新增 `model_and_api_error` 函式，取最近一則真回應的 `message.model`，跳過 Claude Code 自己補寫的 `<synthetic>`，同時找 `isApiErrorMessage` 的錯誤文字；`wait_kickoff` 同一輪輪詢就能讀到報到或 API 錯誤；print 方法只帶上 `--model`、不核對，會印一行說明。

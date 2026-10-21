@@ -9,6 +9,10 @@ method=gui → 不起、印退路。
 模型：--model 接在指令尾（bg 與 print 都接）；沒給 --model 也沒 config default_model → 指令不含 --model；--model 優先於
 config；開工後讀 transcript 最近一則真回應的 message.model 印「模型＝…」，指定了卻對不上或讀不到 → FAIL 印「指定＝…／實際＝…」、
 不殺 session；session 第一回合就回 API 錯誤（例：模型 id 不存在）→ 不等逾時、立刻 FAIL 並印 claude 回的錯。
+信任寫回（~/.claude.json 其他 session 隨時在寫）：讀完到寫之間別人寫進的鍵寫回後仍在；寫暫存檔中途失敗 → 原檔一個位元組
+都沒動、暫存檔與鎖都收掉；換行（LF／CRLF）與結尾有無換行照原檔；寫入在 Claude Code 同一把鎖（<設定檔>.lock 目錄）內、
+寫完放掉；鎖被別人拿著 → 真的等到時限才 FAIL、不寫、不動別人的鎖；拿鎖後超過持鎖時限 → 不換上、不刪鎖（可能已換人）；
+已信任 → 不拿鎖不寫；檔不存在／不是合法 JSON／格式不對（含 projects 某筆不是物件）→ 不寫、FAIL 印原因退人貼。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_console_spawn.py
 """
 from __future__ import annotations
@@ -17,6 +21,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -368,3 +373,133 @@ def test_print_method_also_passes_model(world, capsys):
     code, out = run(world, fake, clock, capsys, **{"--method": "print", "--model": OPUS})
     (p,) = [c for c in fake.calls if "-p" in c["cmd"]]
     assert code == 0 and p["cmd"][-2:] == ["--model", OPUS] and "不核對實際模型" in out
+
+
+# ─── 信任紀錄寫回（~/.claude.json 其他 session 隨時在寫）──────────────────────────────
+def trust(world: World):
+    logs = []
+    ok = cs.ensure_trust(world.config, world.wt, world.live, logs.append)
+    return ok, "\n".join(logs)
+
+
+def config_lock(world: World) -> Path:
+    return world.config.with_name(world.config.name + ".lock")
+
+
+def leftovers(world: World):
+    """設定檔旁邊的暫存檔與鎖（claude.json.*）。"""
+    return sorted(p.name for p in world.config.parent.iterdir() if p.name.startswith(world.config.name + "."))
+
+
+def test_key_written_by_other_session_between_read_and_write_survives(world, monkeypatch):
+    real_loads, fired = json.loads, []
+
+    def loads_then_other_session_writes(s, *a, **kw):
+        data = real_loads(s, *a, **kw)
+        if not fired:                     # 我們第一次讀完、還沒寫：另一個 session 寫進一個鍵
+            fired.append(1)
+            other = real_loads(world.config.read_bytes())
+            other["numStartups"] = 42
+            world.config.write_bytes(json.dumps(other, indent=2).encode("utf-8"))
+        return data
+
+    monkeypatch.setattr(cs.json, "loads", loads_then_other_session_writes)
+    ok, _ = trust(world)
+    monkeypatch.undo()
+    assert fired                                                        # 前置：讀寫之間真的有人寫過
+    data = json.loads(world.config.read_bytes())
+    assert ok is True and data["numStartups"] == 42
+    assert data["projects"][cs.trust_key(world.wt)]["hasTrustDialogAccepted"] is True
+    assert data["projects"][cs.trust_key(world.live)]["hasTrustDialogAccepted"] is True
+
+
+def test_write_failure_leaves_original_intact(world, monkeypatch):
+    before, failed = world.config.read_bytes(), []
+
+    def write_half_then_fail(self, data, *a, **kw):
+        failed.append(self.name)
+        blob = data.encode("utf-8") if isinstance(data, str) else data
+        with open(self, "wb") as fh:
+            fh.write(blob[: len(blob) // 2])
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(cs.Path, "write_text", write_half_then_fail)
+    monkeypatch.setattr(cs.Path, "write_bytes", write_half_then_fail)
+    try:
+        ok, out = trust(world)
+    except OSError:                       # 舊碼不攔：例外直接拋出，下面照樣檢查原檔
+        ok, out = None, ""
+    monkeypatch.undo()
+    assert failed                                                       # 前置：真的寫到一半失敗過
+    assert world.config.read_bytes() == before                          # 原檔一個位元組都沒動
+    json.loads(before)
+    assert ok is False and "原檔沒動" in out
+    assert leftovers(world) == []                                       # 半截暫存檔與鎖都收掉
+
+
+@pytest.mark.parametrize("nl,tail", [("\n", ""), ("\n", "\n"), ("\r\n", "\r\n")])
+def test_newline_style_and_tail_kept(world, nl, tail):
+    body = json.dumps(json.loads(world.config.read_bytes()), indent=2).replace("\n", nl)
+    world.config.write_bytes((body + tail).encode("utf-8"))
+    ok, _ = trust(world)
+    raw = world.config.read_bytes().decode("utf-8")
+    assert ok is True and cs.trust_key(world.wt) in raw and raw.count("\n") > 3     # 前置：真的寫回、是多行
+    assert raw.count("\r\n") == (raw.count("\n") if nl == "\r\n" else 0)
+    assert raw.endswith("}" + tail)
+
+
+def test_write_happens_under_claude_lock_and_releases_it(world, monkeypatch):
+    real_replace, lock_held = cs.os.replace, []
+
+    def replace_and_look(src, dst):
+        lock_held.append(config_lock(world).is_dir())
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(cs.os, "replace", replace_and_look)
+    ok, _ = trust(world)
+    assert ok is True and lock_held == [True] and leftovers(world) == []
+
+
+def test_lock_held_by_other_waits_then_fails_without_writing(world, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_LOCK_WAIT_SEC", 0.3)
+    lock, before = config_lock(world), world.config.read_bytes()
+    lock.mkdir()
+    t0 = time.monotonic()
+    ok, out = trust(world)
+    assert time.monotonic() - t0 >= 0.3                                 # 真的等到時限，不是一看到鎖就放棄
+    assert ok is False and str(lock) in out and world.config.read_bytes() == before
+    assert lock.is_dir()                                                # 別人的鎖不動
+
+
+def test_lock_held_too_long_does_not_replace_or_delete_lock(world, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_LOCK_HOLD_SEC", -1.0)               # 模擬拿鎖後卡住、已超過持鎖時限
+    before = world.config.read_bytes()
+    ok, out = trust(world)
+    assert ok is False and "不換上" in out and world.config.read_bytes() == before
+    assert leftovers(world) == [world.config.name + ".lock"]            # 暫存檔收掉；鎖可能已換人拿著，不刪
+
+
+def test_already_trusted_takes_no_lock_and_writes_nothing(world, monkeypatch):
+    data = json.loads(world.config.read_bytes())
+    data["projects"][cs.trust_key(world.wt)] = {"hasTrustDialogAccepted": True}
+    world.config.write_bytes(json.dumps(data).encode("utf-8"))
+    before, replaced = world.config.read_bytes(), []
+    monkeypatch.setattr(cs, "lock_config", lambda *a: pytest.fail("已信任不該拿鎖"))
+    monkeypatch.setattr(cs.os, "replace", lambda *a: replaced.append(a))
+    ok, _ = trust(world)
+    assert ok is True and replaced == [] and world.config.read_bytes() == before and leftovers(world) == []
+
+
+@pytest.mark.parametrize("content,reason", [
+    ("{broken", "不是合法 JSON"), ("[]", "格式不對"), ('{"projects": []}', "格式不對"),
+    ('{"projects": {"C:/x": "yes"}}', "格式不對"), (None, "不存在")])
+def test_bad_or_missing_config_not_written_and_fails(world, capsys, content, reason):
+    if content is None:
+        world.config.unlink()
+    else:
+        world.config.write_text(content, encoding="utf-8")
+    fake, clock = FakeClaude(), Clock()
+    code, out = run(world, fake, clock, capsys)
+    assert code == 1 and out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL") and "退回人貼" in out
+    assert reason in out and fake.bg_calls() == []
+    assert (world.config.read_text(encoding="utf-8") if world.config.exists() else None) == content
