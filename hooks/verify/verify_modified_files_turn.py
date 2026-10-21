@@ -118,10 +118,16 @@ def failed(monkeypatch, tmp_path):
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda sid, st: wrote.append(sid))
     monkeypatch.setattr(pt, "_is_ephemeral_path", lambda p: False)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")                    # 驗證帳本落 tmp
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    stamped = []                                                               # 目標樹蓋號：只記呼叫，不碰真的目標檔
+    monkeypatch.setattr(pt, "_need_goal_stamp_failed", lambda st, sid, noted, aid, cwd, cfg: stamped.append(list(noted)) or [],
+                        raising=False)                                         # 退回舊碼看紅時沒有這支，案例照跑到斷言
 
-    def run(tool_name, command, transcript=True):
+    def run(tool_name, command, transcript=True, error="Exit code 1\n1 failed, 9 passed"):
         inp = {"session_id": _SID, "hook_event_name": "PostToolUseFailure", "tool_name": tool_name,
-               "tool_input": {"command": command}, "error": "Exit code 1\n1 failed, 9 passed", "cwd": str(proj),
+               "tool_input": {"command": command}, "error": error, "cwd": str(proj),
                "tool_use_id": "tu-fail-1", "transcript_path": str(tr) if transcript else ""}
         try:
             pt.handle_post_tool_use_failure(inp, {})
@@ -129,6 +135,16 @@ def failed(monkeypatch, tmp_path):
             pass
         return state, wrote
 
+    def run_ok(command, stdout):
+        """同一份 state 走成功事件（exit 0）。"""
+        inp = {"session_id": _SID, "tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(proj),
+               "tool_response": {"stdout": stdout, "stderr": "", "exit_code": 0}}
+        with pytest.raises(SystemExit):
+            pt.handle_post_tool_use(inp, {"docdrift": {"enabled": False}})
+        return state
+
+    run.ok = run_ok
+    run.stamped = stamped
     return proj, run
 
 
@@ -159,7 +175,7 @@ def test_004_failed_bash_test_only_stays_test_only_and_nothing_written_writes_no
     state, _ = run("Bash", "sed -i 's/1/2/' tests/test_cli.py && python -m pytest tests -q")
     files = code_files(state["modified_files"], [".py"])
     assert files and all(is_verify_case(f, _case_globs(), str(proj)) for f in files)   # 只改測試檔：照舊沒有產品入口
-    state2, wrote = run("Bash", "python -m pytest tests -q")                     # 沒有寫入目標
+    state2, wrote = run("Bash", "ls missing.txt", error="Exit code 2\nls: missing.txt: No such file")   # 沒有寫入目標、不是測試
     assert len(state2["modified_files"]) == 1 and wrote == [_SID]               # 第二次沒寫 state
 
 
@@ -182,15 +198,93 @@ def test_004_failed_powershell_records_written_file(failed):
     assert m and m["tool"] == "PowerShell", state.get("modified_files")
 
 
-def test_004_failure_event_wired_in_dispatcher_and_settings():
-    import json
+PYTEST = "python -m pytest tests -q"
+RED = "Exit code 1\nFAILED tests/test_cli.py::test_x - assert 1 == 2\n1 failed, 9 passed in 0.2s"
+
+
+def _receipts(state):
+    return (state.get("verify_receipts") or {}).get(_SID) or []
+
+
+def test_004_failed_pytest_enters_failing_tests_and_receipt_green_does_not(failed):
+    """exit 1 的 pytest（失敗事件）進 failing_tests、收據記 exit 1；同一份 state 再跑 exit 0（成功事件）→ 紅測清掉、不再新增。"""
+    _, run = failed
+    state, wrote = run("Bash", PYTEST, error=RED)
+    reds = state.get("failing_tests") or []
+    assert len(reds) == 1 and reds[0]["exit_code"] == 1 and reds[0]["session_id"] == _SID and reds[0]["pytest"], reds
+    assert [r["exit_code"] for r in _receipts(state)] == [1] and wrote == [_SID]
+    state = run.ok(PYTEST, "10 passed in 0.2s")
+    assert not state.get("failing_tests"), state.get("failing_tests")
+    assert [r["exit_code"] for r in _receipts(state)] == [1, 0]
+
+
+def test_004_green_pytest_alone_never_enters_failing_tests(failed):
+    _, run = failed
+    state = run.ok(PYTEST, "10 passed in 0.2s")
+    assert "failing_tests" not in state and [r["exit_code"] for r in _receipts(state)] == [0]
+
+
+def test_004_blocked_or_interrupted_command_is_not_a_test_result(failed):
+    """被 hook 擋下、逾時中斷：error 裡沒有結束碼，指令沒跑完，不記紅測也不落收據。
+    前置：這段文字丟給紅測判讀本來會算紅（不記是因為沒結束碼，不是因為沒字樣）。"""
+    _, run = failed
+    blocked = "PreToolUse:Bash hook error: blocked\nFAILED tests/test_cli.py::test_x"
+    assert pt.detect_test_failure(blocked, "", False)
+    state, wrote = run("Bash", PYTEST, error=blocked)
+    assert "failing_tests" not in state and not _receipts(state) and wrote == []
+
+
+def test_004_failed_bash_writes_stamped_into_goal_tree(failed):
+    """失敗指令真的寫到的檔才交目標樹蓋號（沒寫出來的不交）；沒寫到任何檔也照樣呼叫（收據蓋號）。"""
+    _, run = failed
+    run("Bash", HEREDOC)
+    assert len(run.stamped) == 1 and [p.rsplit("\\", 1)[-1].rsplit("/", 1)[-1] for p in run.stamped[0]] == ["api.py"]
+
+
+def test_004_failed_powershell_pytest_enters_failing_tests(failed):
+    _, run = failed
+    state, _ = run("PowerShell", PYTEST, error=RED)
+    reds = state.get("failing_tests") or []
+    assert len(reds) == 1 and reds[0]["tool"] == "PowerShell" and [r["tool"] for r in _receipts(state)] == ["PowerShell"]
+
+
+def test_004_stamp_wrapper_stamps_each_written_file_and_receipts(monkeypatch, capsys):
+    """_need_goal_stamp_failed 本體（上面的案例替換掉它）：每個寫到的檔各蓋一次、收據蓋一次、提示行收回；目標樹關掉不蓋；蓋號出錯只 stderr 回空。"""
+    import wg_need_goal as ng
+    calls = []
+    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
+    monkeypatch.setattr(ng, "stamp_edit", lambda sid, p, aid, turn, cfg: calls.append(("edit", sid, p, aid, turn))
+                        or ("提示一行" if p.endswith("a.py") else None))
+    monkeypatch.setattr(ng, "stamp_receipts", lambda sid, st, turn: calls.append(("receipts", sid, turn)))
+    state = {"turn_seq": 9, "session": {"cwd": r"c:\proj"}}
+    lines = pt._need_goal_stamp_failed(state, _SID, [_A, _B], "ag1", r"c:\proj", {})
+    assert lines == ["提示一行"]
+    assert calls == [("edit", _SID, _A, "ag1", 9), ("edit", _SID, _B, "ag1", 9), ("receipts", _SID, 9)]
+    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: {"enabled": False})
+    calls.clear()
+    assert pt._need_goal_stamp_failed(state, _SID, [_A], "", r"c:\proj", {}) == [] and calls == []
+    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: (_ for _ in ()).throw(RuntimeError("壞了")))
+    assert pt._need_goal_stamp_failed(state, _SID, [_A], "", r"c:\proj", {}) == []
+    assert "PostToolUseFailure 蓋號失敗" in capsys.readouterr().err
+
+
+def test_004_judge_failure_records_receipt_but_not_failing_tests(failed, monkeypatch):
+    """裁判子 session：失敗事件照記收據（寫碼查核閘要看），不記紅測、不蓋目標樹。"""
+    import wg_core
+    _, run = failed
+    monkeypatch.setenv("CLAUDE_COMPANION_JUDGE", "1")
+    judge_state = {"turn_seq": 2, "session": {"id": _SID, "cwd": ""}}
+    monkeypatch.setattr(wg_core, "read_state", lambda sid: judge_state)
+    run("Bash", PYTEST, error=RED)
+    assert "failing_tests" not in judge_state and [r["exit_code"] for r in _receipts(judge_state)] == [1]
+    assert run.stamped == []
+
+
+def test_004_failure_event_wired_in_dispatcher():
+    """dispatcher 一般與裁判兩張表都接 PostToolUseFailure。settings.json 的註冊由原設計者加（片段見交付信），這裡不驗。"""
     import dispatcher
     assert dispatcher.HANDLERS["PostToolUseFailure"] == ("handlers.post_tool_use", "handle_post_tool_use_failure")
     assert dispatcher.JUDGE_HANDLERS["PostToolUseFailure"] == ("handlers.post_tool_use", "handle_post_tool_use_failure")
-    hooks = json.loads((HOOKS_DIR.parent / "settings.json").read_text(encoding="utf-8"))["hooks"]
-    fail = hooks["PostToolUseFailure"][0]
-    assert {"Bash", "PowerShell"} <= set(fail["matcher"].split("|"))
-    assert fail["hooks"][0]["command"] == hooks["PostToolUse"][0]["hooks"][0]["command"]   # 同一支 workflow-guardian.py
 
 
 def test_legacy_entry_without_turn_fields_not_this_turn_until_next_edit(drive):

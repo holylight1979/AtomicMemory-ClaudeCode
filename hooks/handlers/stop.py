@@ -64,6 +64,7 @@ from wg_harvest import (
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
 from wg_release_rules import format_hit, second_opinion_hint
 from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE
+from wg_hook_timing import lap as _hook_lap
 from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
@@ -1340,6 +1341,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     stop_count = state.get("stop_blocked_count", 0)
     phase = state.get("phase", "working")
 
+    def _timed_out(seg: str) -> bool:
+        """這一段跑完打點（wg_hook_timing）；累計過 hook 上限的 80%（已留帳＋stderr）→ 寫回 state、放行，後面的閘這次不跑。"""
+        if not _hook_lap(seg):
+            return False
+        write_state(session_id, state)
+        output_nothing()
+        return True
+
     # ── Test-Fail Gate ────────────────────────────────────────────
     # 只認本 session 自己的條目（共用／merged state 下隔壁 session 的紅測不擋本 session；沒蓋 sid 的舊條目視為他人）
     failing = _own_failing_tests(state, session_id)
@@ -1361,6 +1370,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     state["turn_open"] = False
     if _harvest_accessed_files(state, transcript_text) or turn_was_open:
         write_state(session_id, state)
+    if _timed_out("讀 transcript"):
+        return
     # 殘檔帳本：每次 Stop 掃一次 session scratchpad、比一次開場快照（SessionStart 記的工作樹與分支）進帳
     # （模型沒 emit 報告也不漏；python 腳本裡開的工作樹指令解析看不到，靠快照補）。fail-open。
     try:
@@ -1368,7 +1379,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                          snapshot=state.get("git_snapshot"))
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:Cleanup] 帳本收尾進帳失敗（這次少收）：{type(e).__name__}: {e}", file=sys.stderr)
+    if _timed_out("殘檔帳本"):
+        return
     _record_pick(state, session_id, code_text, cwd, config)   # 交付回覆裡的「順手看到最該修」→ 追蹤項（G13）
+
+    if _timed_out("最該修記帳"):
+        return
 
     # ── Layer 1: token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
     # 早段算一次預警句（純函式、無副作用）；於下方各 gate 將 output_block(reason)
@@ -1421,6 +1437,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if gate:
             write_state(session_id, state)
         return reason
+
+    if _timed_out("token 預警與閱讀路徑"):
+        return
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
     mod_files_all = state.get("modified_files", []) or []
@@ -1553,6 +1572,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         reason = _piggyback(testfail_message(failing))
         write_state(session_id, state)
         output_block(reason)
+        return
+
+    if _timed_out("紅測閘"):
         return
 
     # ── Reconcile Gate（收尾宣稱 vs 驗證收據）＋ 驗證範圍閘──────────
@@ -1713,6 +1735,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             })
             write_state(session_id, state)
 
+    if _timed_out("寫碼查核"):
+        return
+
     # ── TurnJudgment Gate（G11）──────────────────────────────────
     # 規則 TURN_JUDGMENT_REQUIRED（判定在 wg_release_rules 的 G11 段，核對與留帳在 wg_reading_path.turn_judgment_note）：背景量完附的
     # 「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行。拐彎判斷是收尾的輔助視角，排在寫碼查核（對帳）之後、與 G9／G7 同序；
@@ -1730,6 +1755,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
     if _tj_changed:
         write_state(session_id, state)
+
+    if _timed_out("拐彎判斷"):
+        return
 
     # ── SecondOpinion Gate（G9）──────────────────────────────────
     # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
@@ -1781,6 +1809,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
             output_block(_piggyback(_so_msg, _SO_GATE))
             return
+    if _timed_out("第二意見"):
+        return
+
     # ── Equivalence Gate（G7）──
     # 重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問的收尾核對（_equivalence_gate；規則在 wg_release_rules）。
     # 自己的預算（不吃 stop_gate_max_blocks），擋滿問使用者。判不出（hook 內部錯）→ 不擋，浮 stderr 並留帳。
@@ -1794,6 +1825,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         reason = _piggyback(_eq_block)
         write_state(session_id, state)          # 連同 _piggyback 標的一次性旗標一起寫
         output_block(reason)
+        return
+
+    if _timed_out("等值證法"):
         return
 
     # ── Deferral Gate（退縮歸屬）────────────────────────────────
@@ -1847,6 +1881,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             output_block(_piggyback(dg))
             return
 
+    if _timed_out("退縮歸屬"):
+        return
+
     # ── KnowledgeHarvest Gate（階段完工知識收割）────────────────
     # 宣告完成＝階段完工 → 要求呼叫 knowledge_harvest_report（items=[] 也要）。判定在
     # wg_harvest.harvest_gate_reason（活動門檻、冷卻只認 validated、dismiss 詞表重用 wg_evasion）。
@@ -1864,6 +1901,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         output_block(_piggyback(hv_reason))
         return
 
+    if _timed_out("知識收割"):
+        return
+
     # ── Harvest-Pending Gate：收割回報有 item 對不上 receipt ──────
     # post_tool_use 核對落 knowledge_harvest[sid].pending；此處每回合（_user_turn）擋一次要求真做完再重報。
     # 本則是中途狀態句（仍在等 agent 回報…）→ 不擋，等真收尾再擋（wg_harvest.in_progress_text）。
@@ -1876,6 +1916,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         })
         write_state(session_id, state)
         output_block(_piggyback(hp_reason))
+        return
+
+    if _timed_out("收割對帳"):
         return
 
     # ── Cleanup Gate（收尾自清：規則 LEFTOVER_NEEDS_CLEANUP）─────────────
@@ -1892,6 +1935,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             output_block(_piggyback(aec_ledger.cleanup_block_message(
                 session_id, leftover_candidates(_cleanup_facts()), cv.why)))
             return
+
+    if _timed_out("收尾自清"):
+        return
 
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
@@ -1930,6 +1976,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             output_block(reason)
             return
 
+    if _timed_out("收尾檢核"):
+        return
+
     # ── AEC-Pending Gate：報告把「記憶寫入」推到之後 ─────────────────
     # (d)「尚未寫／見下一動」、(h)「下一動＝寫 atom」= 把知識留給下一回合（使用者要再問一次
     # 才會補）。post_tool_use 判定落 report["d_pending"]；此處每回合（_user_turn）擋一次（共用 max_blocks
@@ -1955,6 +2004,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         ))
         return
 
+    if _timed_out("報告待寫"):
+        return
+
     # HUD 不可達且本回合 emit 為 notable/real-evasion → 印一行告知報告檔在哪（可觀測性鐵律：push 不到窗不得 fail-silent），
     # 不擋、不把報告內容貼回聊天（原設計者裁定：報告任何理由都不進聊天）。post_tool_use 標旗，此處消費一次。
     # 消費前**再查一次**：emit 當下不可達可能是暫時的（Node 剛換手、HUD 頁重連中），現在窗活著就不印；
@@ -1976,6 +2028,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                   f"http://127.0.0.1:{int(config.get('dashboard_port', 3848))}/aec/hud 就看得到", file=sys.stderr)
         write_state(session_id, state)
 
+    if _timed_out("報告視窗"):
+        return
+
     # ── Reload Advice Gate（規則 RELOAD_ADVICE_ALREADY_LOADED）──────────────
     # 收尾叫使用者 Reload Window 前，查每個活著的工具服務是不是已載入磁碟上最新的程式；都是最新就擋一次。每個使用者回合一次。
     _rl_turn = _user_turn(state, int(state.get("turn_seq", 0)))
@@ -1992,6 +2047,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                     "不必叫使用者 Reload Window：拿掉那句再收尾。若是程式更新以外的理由要重開（改了 MCP 啟動設定、settings.json 等），"
                     "保留那句並加一行「重載原因：<哪個設定改了>」。"))
                 return
+
+    if _timed_out("Reload 建議"):
+        return
 
     # ── Sync Reminder Gate ──────────────────────────────────────
     sr_config = config.get("sync_reminder", {}) or {}
@@ -2043,6 +2101,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             output_block(reason)
             return
 
+    if _timed_out("同步提醒"):
+        return
+
     # ── Atom Consumption Audit Gate（取用端閉環稽核）──────────────
     # 排序：correctness / sync 之後（那些優先）、DPM 之前；沿用 stop_gate_max_blocks
     # 全域預算（第 3 次強制放行）。per-atom 一次（atom_audit_prompted）防轟炸。
@@ -2065,6 +2126,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             output_block(_piggyback(aa_reason))
             return
 
+    if _timed_out("取用稽核"):
+        return
+
     # ── Deep Post-Mortem Gate（Stage 3）────────────────────────
     # (effort 訊號) AND (真失敗訊號) + 本 session 未深寫過 → 注入指令，要 Claude 結束前用
     # atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複＝獨立預算 1；
@@ -2086,6 +2150,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         output_block(reason)
         return
 
+    if _timed_out("深度檢討"):
+        return
+
     # ── 注入→使用→結果 閉環歸因（correctness gates 通過後、per-turn 一次性）──
     # 走到這裡代表本 Stop 未被 test-fail/scan-report 等 correctness gate 攔下 →
     # 該 turn 的對錯訊號已落定。turn_seq 守門一次性；write_state 立即固化標記
@@ -2095,6 +2162,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     write_state(session_id, state)
 
+    if _timed_out("閉環歸因"):
+        return
+
     # ── 交付時順手點出最該修的一件（G4／G5）：排在所有閘之後；Stop 的 additionalContext＝對話續跑一回合、不算擋 ──
     _pick = _pick_one_prompt(state, session_id, own_mod_files, claims_done or claims_completion(code_text)
                              or emitted_this_turn or committed_this_turn, config)
@@ -2102,6 +2172,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         write_state(session_id, state)
         _pick = with_note(_pick, entry_note(_pick, "stop_piggyback", session_id=session_id, state=state, config=config))
         output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _pick}})
+        return
+
+    if _timed_out("點出最該修"):
         return
 
     # ── Anti-loop guard ─────────────────────────────────────────

@@ -89,7 +89,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | 跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、git／svn commit 前病形閘（§7.5 SmellGate）、`svn add` 中文路徑 SvnEncoding advisory（§7.5）、subagent 記憶注入 |
 | PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|PowerShell\|Read\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
-| PostToolUseFailure | `Bash\|PowerShell` | guardian(5) | 工具失敗時 Claude Code 不送 PostToolUse、改送這個：指令非零結束時前段已寫下去的檔照樣記進 `modified_files`（同一支 `write_paths_from_tool`；只記現在存在、而且在這次工具呼叫開始之後才改過的檔（開始時間取 transcript 那筆 tool_use 的時間，找不到就只看存在並印 stderr），目標不明的不記；閱讀路徑量尺與寫碼查核都讀它）。只記帳，不注入、不擋 |
+| PostToolUseFailure（**settings.json 還沒掛**，由原設計者加；handler 與 dispatcher 已接好，掛上前不會被呼叫） | `Bash\|PowerShell` | guardian(5) | 工具失敗時 Claude Code 不送 PostToolUse、改送這個（`error` 欄＝「Exit code N」＋stderr＋stdout 換行串起，查 2.1.304 執行檔）：指令非零結束時前段已寫下去的檔照樣記進 `modified_files` 與目標樹待對照改動（同一支 `write_paths_from_tool`；只記現在存在、而且在這次工具呼叫開始之後才改過的檔（開始時間取 transcript 那筆 tool_use 的時間，找不到就只看存在並印 stderr），目標不明的不記；閱讀路徑量尺與寫碼查核都讀它）；測試指令紅了記紅測（`failing_tests`）與驗證收據，跟成功路徑同一套函式；`error` 讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。只記帳不擋；裁判子 session 只記改檔與收據 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub 與 OverviewHub 摘要；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom 與每部位綜觀（atom 先、綜觀後） |
 | Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Reconcile／Measure（寫碼查核）、Deferral、KnowledgeHarvest／Harvest-Pending、Cleanup（收尾自清）、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
 | SubagentStop | — | guardian(10) | 子代理收尾只跑寫碼查核（對帳 (a)～(d)＋驗證範圍，用該 agent 自己的改檔與收據帳；自己沒宣告就沿用主 session 的範圍）；沒人能放行，有原因就擋到底、不計預算（§7.1） |
@@ -546,6 +546,8 @@ sequenceDiagram
 
 SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑寫碼查核，有原因就擋到底，不計預算、不問使用者；寫入目標判不出的指令在 PreToolUse 就 deny。
 
+超時降級（`hooks/wg_hook_timing.py`）：Stop 與 PostToolUse 從行程建立起計時，上表每道閘之間打一個點；累計超過這個事件 hook 上限（settings.json 裡 workflow-guardian 那支的 timeout，讀不到用 `hook_timing.fallback_limit_s`）的 80%，就把 state 寫回、放行，後面的閘這次不跑，並寫 `Logs/guard-hook_timing.jsonl` 一筆 kind=degraded（跑到哪一段、各段耗時）＋stderr 一行。不降級的話 Claude Code 時間到直接取消 hook：state 寫不回、什麼訊號都沒有。PostToolUse 降級後只跳過提示類段落（導讀卡、depends 召回、跨 session 碰撞、同伴檢查、MCP 切入點註記），改檔記帳、目標樹蓋號、寫 state 照做。打點只在段落之間，單一段落一路跑過上限打不到點，所以起表時另排背景鬧鐘：到上限 95% 還沒結束就先寫一筆 kind=overrun（卡在哪一段之後）＋stderr。每次 hook 結束另寫一筆 kind=run；`python tools/hook-timing.py` 看各段中位數。
+
 寫碼查核的每一條擋訊息都是一條有名字的規則（`hooks/wg_release_rules.py`，規則表 §7.8），格式 `✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。擋次預算每條規則（字母）各自計次：同一條在同一個使用者回合擋滿 `max_blocks_per_turn` 才算擋滿，擋滿訊息列出全部命中條目。「回合」＝使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開的回合；一般同伴訊息、背景通知不開回合。
 
 定死規則（寫碼查核相關，改法不得放寬）：
@@ -809,6 +811,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | Quote 清理 | `tools/quote-cleanup.py`（預設 dry-run；`--apply`／`--value`（預設 A）／`--empty-entry`（改清空的 `- Entry:` 行）／`--memory-dir`（可重複）／`--only-given`／`--json`） | 掃資料根 `memory/` 與 `_AIDocs/_atoms/`（加 `--memory-dir` 給的層），中繼資料區 `- Quote: 「<值>」` 的值整個等於 `--value` 的卡列出；`--apply` 只刪那一行（BOM 照留、知識段同字樣不動），走 `lib/atom_io.write_raw`（`source=tool:quote-cleanup`）。索引與 MEMORY.md 不存 Quote，不必重建 | 稽核帳 `memory/_meta/atom_io_audit.jsonl`；尾行 `QUOTE_CLEANUP DONE matched= changed= failed= dry_run=`，有寫失敗 exit 1 |
 | 回訪機制 | `tools/followup-check.py` + `workflow/followups.json` | 「改了東西、一週後看數據」程式化：到期日、檢查名、通過線、**零記憶交接**；SessionStart 到期自動跑，INSUFFICIENT 只說明、FAIL 每日一次附交接、PASS 自動結案；檢查名 `injection-budget`（注入預算）、`closing-gates`（收尾被擋次數／回合、擋下後重跑測試／回合，讀根層專案的對話紀錄）；登記項可帶 `on_fail` 一句改寫未過時的處理指引 | SessionStart advisory；CLI `--list/--run/--done/--add` |
 | 注入回合日誌 | `hooks/handlers/ups_inject.py` | 每回合 ok/fallback/skip/cold/redundant 計數與 token | `Logs/injection-turns.jsonl` |
+| hook 分段計時 | `hooks/wg_hook_timing.py`（dispatcher 開頭起表、結尾落帳；Stop 每道閘之間、PostToolUse 主要段落之間打點）＋唯讀量尺 `tools/hook-timing.py`（`--days`、`--event`、`--logs`、`--json`） | 起點是行程建立時間（Windows `GetProcessTimes`；pythonw 啟動器殼本身的時間算不到，所以比 Claude Code 的計時略少）；累計過上限 80% 降級（§7.1 表下）；到上限 95% 還沒結束的背景鬧鐘另記 kind=overrun（卡在哪一段之後）；量尺印每個事件跑幾次、降級幾次、快逾時幾次、總耗時與各段中位數／最長，沒帳印「沒有計時帳」不印 0；尾行 `HOOK_TIMING DONE events= runs= degraded= overrun=` | `Logs/guard-hook_timing.jsonl`（kind=run／degraded／overrun）；降級與快逾時時 stderr `[Guardian:HookTiming]` |
 | atom-debug | `Logs/atom-debug-*.log` | 檢索過程、盲點（無命中）、錯誤 | config `atom_debug` |
 | guard JSONL | `Logs/guard-{evasion,docdrift,lang,pre-action-notice,friction,tool-result-size,tool-result-stats,knowledge_harvest,harvest_pending,worker-runs,provenance}.jsonl` | 每個護欄觸發一筆 | 誤攔率可量測 |
 | log rotation | `wg_core.rotate_log_if_oversized`（預設 10MB 保 3 份；extract-worker.log 5MB 保 2） | guardian-crash.log 曾爆 114GB | — |
@@ -969,6 +972,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── wg_evasion.py                        ← 退避偵測 + DeferralGate 判定 + AEC cross-check
 │   ├── wg_docdrift.py / wg_handoff.py / wg_rescue.py / wg_recall_miss.py
 │   ├── wg_friction.py                       ← 工具結果體積（浪費）+ 使用者糾正訊號 → DPM
+│   ├── wg_hook_timing.py                    ← hook 分段計時：過上限 80% 降級（後面的段落只記不問）＋計時帳（§7.1、§8）
 │   ├── wg_harvest.py                        ← 階段收割：閘判定 / receipt 入帳 / items 核對 / ledger（純函式，不落盤）
 │   ├── wg_provenance.py                     ← 來源自動填：atom_write receipt → 補 Source（session 指標）/ Quote（使用者原話）
 │   ├── wg_vcs_sync.py                       ← 記憶庫上版控：目標集 / OS 互斥鎖 / .req 請求檔 / .unpushed・.behind 標記 / 拉段（ref+pathspec restore、ff-only、隔離 worktree rebase、svn update）/ roots.json / spawn
@@ -1000,6 +1004,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── atom-move.py / atom-categorize.py / atom-set-realm.py / atom-heal.py / atom-health-check.py
 │   ├── atom-source.py / atom-provenance-backfill.py   ← 命令列回看卡片來源（§5.8）/ 舊 atom 補 Source・Quote 的回填 worker（§8）
 │   ├── quote-cleanup.py         ← 刪掉被回填成一兩個字回覆（預設「A」）的 Quote 行；預設 dry-run，--apply 走 atom_io.write_raw（§8）
+│   ├── hook-timing.py           ← hook 分段耗時量尺（唯讀）：各事件跑幾次、降級幾次、各段中位數（§8）
 │   ├── memory-search.py / org-memory.py     ← 命令列查記憶 / 公司層 org：接上（--join）、對帳（--status）、初始化（--init）、工具卡掃描（--scan-tools）；使用者入口 /org skill
 │   ├── conflict-review.py / init-roles.py / heal-review.py   ← 待審裁決 / 職能覆寫與對帳（--me / --status）/ 自癒退件
 │   ├── realm_llm_classify.py / skill-index.py / changelog-roll.py / journal-aggregate.py
@@ -1105,6 +1110,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `taxonomy.gate_enabled` | true | create 缺 domain 拒寫 |
 | `entrypoint.inject_budget_tokens` | 400 | 切入點契約（§7.10）每個認出的切入點各自的判準卡知識段預算 |
 | `entrypoint.inject_budget_total` | 1200 | 同一則問句所有切入點加起來的上限 |
+| `hook_timing.enabled` / `degrade_ratio` / `fallback_limit_s` | true / 0.8 / `{"Stop": 10, "PostToolUse": 5}` | hook 分段計時（§7.1 表下、§8）；累計過上限的這個比例就降級；settings.json 讀不到 timeout 時的上限，也決定哪些事件計時（只在 `wg_core.DEFAULTS`，config.json 沒寫） |
 | `taxonomy.llm_fallback.enabled` / `realm.llm_fallback.enabled` | false / false | 分類只跑決定性詞庫 |
 | `vector_search.enabled` / `service_port` | true / 3849 | 向量服務 |
 | `vector_search.global_layer` / `fusion` | bm25 / rrf | 全域層演算法／融合策略（legacy 回退） |

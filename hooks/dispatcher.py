@@ -20,6 +20,7 @@ from wg_core import (
     WORKFLOW_DIR, load_config,
     _atom_debug_error,
 )
+import wg_hook_timing as hook_timing
 
 # 惰性 import：event → (module, func)，只在該 event 觸發時 importlib 載入
 # 對應 handler module，省下每次 hook（含最高頻 PostToolBatch/PreToolUse）付全量
@@ -73,13 +74,17 @@ def main():
     event = input_data.get("hook_event_name", "")
     spec = (JUDGE_HANDLERS if judge else HANDLERS).get(event)
     if spec:
+        hook_timing.start(event, input_data, config)    # Stop／PostToolUse 分段計時；handler 在段落邊界打點，過上限 80% 降級
         try:
             module = importlib.import_module(spec[0])
+            hook_timing.lap("載入 handler")
             getattr(module, spec[1])(input_data, config)
         except Exception as e:
             print(f"[workflow-guardian] Error in {event}: {e}", file=sys.stderr)
             _atom_debug_error(f"workflow-guardian:{event}", e)
             sys.exit(0)
+        finally:
+            hook_timing.finish()
     else:
         sys.exit(0)
 

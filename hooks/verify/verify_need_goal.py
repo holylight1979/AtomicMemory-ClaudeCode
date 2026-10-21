@@ -1012,7 +1012,7 @@ def test_cg0_locate_four_lines_need_role_and_two_candidates(hooked):
     _say(tp, THREE + "\n定位｜目標：T1.1（共用字典的唯一寫入點）")
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "只辨識出 0 個" in deny
-    assert "還沒" not in deny                                               # 只擋內容，不是說沒交
+    assert "還沒" not in deny.split("\n判準卡（")[0]                          # 只擋內容，不是說沒交（後面接的判準卡內文不算）
     example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
     assert len(example) == 5 and example[3].startswith("定位｜目標：T1.1（") and example[4].startswith("定位｜批判："), example
     _say(tp, "\n".join(example))                                            # 範例照抄（角括號佔位沒換）不算交（codex BLOCK）

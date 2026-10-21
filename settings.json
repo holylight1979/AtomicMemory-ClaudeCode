@@ -162,18 +162,6 @@
         ]
       }
     ],
-    "PostToolUseFailure": [
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
     "PostToolBatch": [
       {
         "hooks": [
