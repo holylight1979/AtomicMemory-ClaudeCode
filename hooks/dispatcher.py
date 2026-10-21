@@ -30,6 +30,7 @@ HANDLERS = {
     "UserPromptSubmit": ("handlers.user_prompt_submit", "handle_user_prompt_submit"),
     "PreToolUse": ("handlers.pre_tool_use", "handle_pre_tool_use"),
     "PostToolUse": ("handlers.post_tool_use", "handle_post_tool_use"),
+    "PostToolUseFailure": ("handlers.post_tool_use", "handle_post_tool_use_failure"),  # 工具失敗不送 PostToolUse：補記 Bash 寫檔
     "PreCompact": ("handlers.pre_compact", "handle_pre_compact"),
     "PostCompact": ("handlers.post_compact", "handle_post_compact"),        # 選配 #4
     "PostToolBatch": ("handlers.post_tool_batch", "handle_post_tool_batch"),  # 選配 #4
@@ -44,6 +45,7 @@ HANDLERS = {
 JUDGE_HANDLERS = {
     "PreToolUse": ("handlers.pre_tool_use", "handle_judge_pre_tool_use"),
     "PostToolUse": ("handlers.post_tool_use", "handle_judge_post_tool_use"),
+    "PostToolUseFailure": ("handlers.post_tool_use", "handle_post_tool_use_failure"),
     "Stop": ("handlers.stop", "handle_judge_stop"),
 }
 

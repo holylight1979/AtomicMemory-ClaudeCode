@@ -941,6 +941,70 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
     output_nothing()
 
 
+def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """PostToolUseFailure：工具失敗時 Claude Code 不送 PostToolUse、改送這個。Bash／PowerShell 指令非零結束時，
+    前段已經寫下去的檔照樣進 modified_files（閱讀路徑量尺、寫碼查核都讀它）；例：`cat > a.py <<EOF … && pytest` 測試紅了，
+    a.py 已經改了。目標用成功路徑同一支 write_paths_from_tool 算；失敗的指令不一定寫到，只記現在存在的檔，目標不明的不記。
+    只記帳，不注入、不擋；裁判子 session 只讀既有 state（不重建 atom index）。"""
+    tool_name = input_data.get("tool_name", "") or ""
+    session_id = input_data.get("session_id", "") or ""
+    if tool_name not in ("Bash", "PowerShell") or not session_id or _write_paths_from_tool is None:
+        output_nothing()
+        return
+    cwd = input_data.get("cwd", "") or ""
+    if os.environ.get("CLAUDE_COMPANION_JUDGE"):
+        from wg_core import read_state as _read_state
+        state = _read_state(session_id) or {"session": {"id": session_id, "cwd": cwd}, "turn_seq": 0, "judge": True}
+    else:
+        state = _ensure_state(session_id, input_data, config)
+    if not state:
+        output_nothing()
+        return
+    aid = str(input_data.get("agent_id") or "")
+    started = _tool_started_at(str(input_data.get("transcript_path") or ""), str(input_data.get("tool_use_id") or ""))
+    if started is None:
+        print("[post_tool_use_failure] 找不到這次工具呼叫的開始時間，失敗指令的目標檔只要存在就記成改過（可能多記沒寫到的檔）",
+              file=sys.stderr)
+    noted = False
+    try:
+        for p in _write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, cwd or (state.get("session") or {}).get("cwd") or "") or []:
+            if not p or p.startswith("UNKNOWN:") or _is_ephemeral_path(p) or not os.path.isfile(p):
+                continue
+            if started is not None and os.path.getmtime(p) < started - 2:      # 指令開始前就是這樣：沒寫到（失敗在寫之前）
+                continue
+            _note_modified(state, session_id, p, tool_name, aid)
+            noted = True
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
+    if noted:
+        write_state(session_id, state)
+    output_nothing()
+
+
+def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
+    """transcript 尾段（最後 512KB）找這次 tool_use 那筆 assistant 紀錄的時間（epoch 秒）；找不到或讀不到回 None。"""
+    from datetime import datetime
+    if not transcript_path or not tool_use_id:
+        return None
+    try:
+        with open(transcript_path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 512 * 1024))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        if tool_use_id not in line:
+            continue
+        try:
+            rec = json.loads(line)
+            if rec.get("type") == "assistant" and rec.get("timestamp"):
+                return datetime.fromisoformat(str(rec["timestamp"]).replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)

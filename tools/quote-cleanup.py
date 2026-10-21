@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""quote-cleanup.py：找出 `- Quote:` 被自動回填成一兩個字回覆（預設「A」）的卡，刪掉那一行。
+"""quote-cleanup.py：找出 `- Quote:` 被自動回填成一兩個字回覆（預設「A」）的卡，刪掉那一行；--empty-entry 改清空的 `- Entry:` 行。
 
 做什麼：
   掃記憶卡（預設資料根的 memory/ 與 _AIDocs/_atoms/，--memory-dir 可再加專案層、公司層），`- Quote: 「<值>」` 的值
   整個等於 --value（預設 A）的卡列出來；加 --apply 才刪掉那一行（只刪那一行，其餘位元組原樣，BOM 照留）。
+  --empty-entry：改找中繼資料區值是空的 `- Entry: ` 行（拿掉 Entry 的卡留下的），同樣只刪那一行。
   寫入走 lib.atom_io.write_raw（source=tool:quote-cleanup，留稽核帳），不直接改 .md。
-  _atom_index.json 與 MEMORY.md 不存 Quote，刪行不必寫索引。
+  _atom_index.json 與 MEMORY.md 不存 Quote；空的 Entry 行在索引裡本來就沒有 entry 鍵。兩種刪行都不必寫索引。
   起因：PostToolUse 回填拿最近一則使用者訊息當 Quote，那一則是「A」時整批卡都被填成「A」；回填規則已改成太短不填
-  （lib/provenance.usable_quote），這支清已經填進去的。
+  （lib/provenance.usable_quote），這支清已經填進去的。edit_metadata(entry=[]) 以前留下空的 Entry 行，現在整行刪，這支清舊的。
 
 怎麼跑：
   python tools/quote-cleanup.py                          # dry-run：只列，不改
   python tools/quote-cleanup.py --apply                  # 真刪
   python tools/quote-cleanup.py --value 好 --memory-dir <專案>/.claude/memory --json
+  python tools/quote-cleanup.py --empty-entry [--apply]  # 清空的 Entry 行
   完整參數見 --help。尾行：QUOTE_CLEANUP DONE matched=<n> changed=<n> failed=<n> dry_run=<0|1>（有寫失敗 exit 1）
 """
 from __future__ import annotations
@@ -34,6 +36,7 @@ from lib.project_root import claude_data_dir  # noqa: E402
 
 SOURCE = "tool:quote-cleanup"
 _QUOTE_RE = re.compile(r"^-[ \t]*Quote:[ \t]*「(.*)」[ \t]*(?:\r?\n|\Z)", re.MULTILINE)
+_EMPTY_ENTRY_RE = re.compile(r"^-[ \t]*Entry:[ \t]*(?:\r?\n|\Z)", re.MULTILINE)
 _SECTION_RE = re.compile(r"^## ", re.MULTILINE)
 
 
@@ -52,7 +55,14 @@ def strip_quote(text: str, value: str) -> Optional[str]:
     return text[:m.start()] + text[m.end():]
 
 
-def scan(roots: List[Path], value: str, apply: bool) -> Dict[str, List[Dict[str, str]]]:
+def strip_empty_entry(text: str, _value: str = "") -> Optional[str]:
+    """中繼資料區有一行值是空的 `- Entry: ` → 回刪掉那一行的全文；沒有回 None。有代號的 Entry 行不動。"""
+    sec = _SECTION_RE.search(text)
+    m = _EMPTY_ENTRY_RE.search(text, 0, sec.start() if sec else len(text))
+    return text[:m.start()] + text[m.end():] if m else None
+
+
+def scan(roots: List[Path], value: str, apply: bool, strip=strip_quote) -> Dict[str, List[Dict[str, str]]]:
     out: Dict[str, List[Dict[str, str]]] = {"matched": [], "failed": []}
     seen = set()
     for root in roots:
@@ -63,7 +73,7 @@ def scan(roots: List[Path], value: str, apply: bool) -> Dict[str, List[Dict[str,
             seen.add(key)
             raw = path.read_bytes()
             bom = raw.startswith(b"\xef\xbb\xbf")
-            new = strip_quote(raw.decode("utf-8-sig"), value)
+            new = strip(raw.decode("utf-8-sig"), value)
             if new is None:
                 continue
             out["matched"].append({"path": str(path)})
@@ -81,17 +91,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--value", default="A", help="Quote 「」裡的值整個等於它才算（預設 A）")
     ap.add_argument("--memory-dir", action="append", default=[], help="再加一個要掃的記憶目錄（可重複；專案層、公司層）")
     ap.add_argument("--only-given", action="store_true", help="只掃 --memory-dir 給的目錄，不掃資料根預設兩處")
+    ap.add_argument("--empty-entry", action="store_true", help="改清值是空的 `- Entry:` 行（--value 不用）")
     ap.add_argument("--apply", action="store_true", help="真的刪；沒給只列")
     ap.add_argument("--json", action="store_true", help="結果印成 JSON（尾行照印）")
     args = ap.parse_args(argv)
     roots = ([] if args.only_given else default_roots()) + [Path(p) for p in args.memory_dir]
-    res = scan(roots, args.value.strip(), args.apply)
+    res = scan(roots, args.value.strip(), args.apply, strip_empty_entry if args.empty_entry else strip_quote)
     changed = len(res["matched"]) - len(res["failed"]) if args.apply else 0
+    line = "空的 Entry 行" if args.empty_entry else "Quote 行"
     if args.json:
-        print(json.dumps({"value": args.value, "apply": args.apply, "roots": [str(r) for r in roots], **res},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps({"value": args.value, "empty_entry": args.empty_entry, "apply": args.apply,
+                          "roots": [str(r) for r in roots], **res}, ensure_ascii=False, indent=2))
     else:
-        verb = "已刪 Quote 行" if args.apply else "會刪 Quote 行（dry-run，加 --apply 才改）"
+        verb = f"已刪{line}" if args.apply else f"會刪{line}（dry-run，加 --apply 才改）"
         for m in res["matched"]:
             print(f"{verb}：{m['path']}")
     print(f"QUOTE_CLEANUP DONE matched={len(res['matched'])} changed={changed} failed={len(res['failed'])} "

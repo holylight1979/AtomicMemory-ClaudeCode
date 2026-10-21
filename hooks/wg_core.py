@@ -161,7 +161,8 @@ DEFAULTS = {
         },
     },
     "entrypoint": {
-        "inject_budget_tokens": 400,
+        "inject_budget_tokens": 400,      # 每個認出的切入點各一份
+        "inject_budget_total": 1200,      # 同一則問句所有切入點加起來的上限
     },
 }
 

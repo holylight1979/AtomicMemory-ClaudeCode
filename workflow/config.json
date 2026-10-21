@@ -558,8 +558,9 @@
     "enabled": true
   },
   "entrypoint": {
-    "_doc": "切入點契約（hooks/wg_entrypoint.py，登錄表 workflow/entrypoints.json）：程式停下來要 LLM 判斷時，依問句認出切入點，把判準卡的知識段接在問句後面。inject_budget_tokens＝一次問句接的卡知識段總預算（判準卡知識段實測約 300 token：400 夠一張綁定卡完整送、第二張只送開頭；Entry 綁定卡排在關鍵字退路卡前面；超過截斷最後一張並在帳上記 truncated）。缺本區段用 wg_core.DEFAULTS 的值。",
-    "inject_budget_tokens": 400
+    "_doc": "切入點契約（hooks/wg_entrypoint.py，登錄表 workflow/entrypoints.json）：程式停下來要 LLM 判斷時，依問句認出切入點，把判準卡的知識段接在問句後面。inject_budget_tokens＝每個認出的切入點各自的卡知識段預算（判準卡知識段實測約 300 token：400 夠一張綁定卡完整送、第二張只送開頭）；inject_budget_total＝同一則問句所有切入點加起來的上限。每個切入點內 Entry 綁定卡排在關鍵字退路卡前面，同類內知識段短的先送；超過截斷最後一張並在那個切入點的帳上記 truncated。缺本區段用 wg_core.DEFAULTS 的值。",
+    "inject_budget_tokens": 400,
+    "inject_budget_total": 1200
   },
   "provenance": {
     "_doc": "atom 來源回看：PostToolUse 對剛寫入的 atom 自動補 `- Source:`（session 指標）與 `- Quote:`（使用者原話 ≤quote_max_chars 字）；backfill＝SessionStart 見到新 transcript 就 detached 跑 tools/atom-provenance-backfill.py --apply 補舊 atom（A 級補原句、B 級補出處）；anti_rot_days＝週健檢對 session 來源距今超過此天數仍無 Quote 的 atom 搶在 transcript 被清前補原句。缺本區段＝全開。",
