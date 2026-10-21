@@ -44,7 +44,7 @@ from wg_verify_ledger import _git_root_of, is_code_file, is_verify_case, reconci
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置找，不用 CLAUDE_DIR
 from overview_hub import find_map, match_row, parse_map  # noqa: E402
 from turn_metrics import metrics_for_files, parse_diff_ranges  # noqa: E402
-from turn_metrics_cs import metrics_for_files as cs_metrics_for_files  # noqa: E402
+from turn_metrics_cs import metrics_for_files as cs_metrics_for_files, pick_lookup_files  # noqa: E402
 
 WORKER_BUDGET_S = 300.0    # 背景量測整支的時間預算（根層 repo 自動偵測入口量一次約 1 分鐘）
 STOP_GIT_BUDGET_S = 1.0    # 收尾當下查「哪些改檔還沒 git add」的預算
@@ -255,16 +255,30 @@ def _diff_ranges(root: Path, base: str, files: List[str], deadline: float, run: 
     return {str(root / k): v for k, v in raw.items()}
 
 
-def _resolve_pool(root: Path, deadline: float, run: Callable[..., Any], pattern: str = "*.py") -> List[str]:
-    """接繼承鏈與轉手鏈可查的同語言檔（git 追蹤的；太多或查不到就空清單＝只用改到的檔接）。"""
+def _tracked_files(root: Path, deadline: float, run: Callable[..., Any], pattern: str) -> List[str]:
+    """git 追蹤中符合樣式的檔（絕對路徑）；查不到 → 空清單。"""
     try:
         proc = _spawn(["git", "-C", str(root), "ls-files", "-z", "--", pattern], deadline, run)
     except (_Timeout, OSError):
         return []
     if proc.returncode != 0:
         return []
-    names = [n for n in proc.stdout.decode("utf-8", "replace").split("\0") if n]
-    return [str(root / n) for n in names] if len(names) <= RESOLVE_FILES_MAX else []
+    return [str(root / n) for n in proc.stdout.decode("utf-8", "replace").split("\0") if n]
+
+
+def _resolve_pool(root: Path, deadline: float, run: Callable[..., Any]) -> List[str]:
+    """接 Python 繼承鏈與轉手鏈可查的 .py（git 追蹤的；太多或查不到就空清單＝只用改到的檔接）。"""
+    names = _tracked_files(root, deadline, run, "*.py")
+    return names if len(names) <= RESOLVE_FILES_MAX else []
+
+
+def _cs_pool(root: Path, deadline: float, run: Callable[..., Any], changed: List[str]) -> Tuple[List[str], bool]:
+    """接 C# 繼承鏈、轉手鏈、數實作可查的 .cs → (檔, 有沒有截過)。超過 RESOLVE_FILES_MAX 就照關聯挑滿上限（改到的檔、
+    繼承／實作指到的、同目錄、using 指到的，再補其他）；截過的池裡實作數只是下限，turn_metrics_cs 不據此算分派。"""
+    names = _tracked_files(root, deadline, run, "*.cs")
+    if len(names) <= RESOLVE_FILES_MAX:
+        return names, False
+    return pick_lookup_files(changed, names, RESOLVE_FILES_MAX), True
 
 
 def _layer_text(layer: Dict[str, Any]) -> str:
@@ -357,7 +371,9 @@ def _function_section(root: Path, base: str, tracked: List[str], deadline: float
         return [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], []
     failed = []
     try:                                     # C# 另包一層：它失敗不牽連已算好的 Python 數據
-        rows += cs_metrics_for_files(cs, ranges, _resolve_pool(root, deadline, run, "*.cs")) if cs else []
+        if cs:
+            pool, cut = _cs_pool(root, deadline, run, cs)
+            rows += cs_metrics_for_files(cs, ranges, pool, partial_pool=cut)
     except Exception as e:  # noqa: BLE001
         failed = [f"    C# 的 {len(cs)} 個檔量不出來（{type(e).__name__}: {e}）{UNPARSED_TAG}"]
     lines, items = function_rows(rows, root, cfg)
