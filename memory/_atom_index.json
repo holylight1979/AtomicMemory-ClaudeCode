@@ -11278,6 +11278,23 @@
       "related": [
         "claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion"
       ]
+    },
+    {
+      "name": "重放量hook耗時-同時段全部hook一起逾時是整機被拖慢-冷熱開檔差兩倍要同條件ab-複本別放根層底下",
+      "path": "memory/驗證與實證/重放量hook耗時-同時段全部hook一起逾時是整機被拖慢-冷熱開檔差兩倍要同條件ab-複本別放根層底下.md",
+      "triggers": [
+        "hook 逾時",
+        "hook 耗時",
+        "hook_cancelled",
+        "timedOut",
+        "SessionStart 太慢",
+        "重放",
+        "cProfile",
+        "冷啟動",
+        "A/B 量測",
+        "複本路徑"
+      ],
+      "scope": "global"
     }
   ]
 }
