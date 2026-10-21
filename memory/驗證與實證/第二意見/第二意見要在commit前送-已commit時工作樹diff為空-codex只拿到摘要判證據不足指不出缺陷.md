@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: second_opinion_start, diff 為空, 證據不足, commit 後送審, stage-review
 - Created-at: 2026-10-21
+- Entry: E16
 
 ## 知識
 
