@@ -274,6 +274,28 @@ def test_045_peer_message_is_not_a_turn_boundary_unless_dispatch():
     assert _is_real_user_prompt("<task-notification>done</task-notification>") is False
 
 
+def test_zuo_wan_le_counts_as_completion_claim():
+    """第二波 C′ 第二跑（C2 transcript:304）：收尾寫「折扣碼功能做完了：15 個測試全過，已 commit」，詞表只有「全部做完」，
+    判成沒宣告完成，第二意見閘等收尾閘全部沒觸發。"""
+    assert claims_completion("折扣碼功能做完了：15 個測試全過，已 commit（59298ec），沒有 push。") is True
+    assert claims_completion("這樣就做完了嗎？我再確認一次") is False                    # 問句不算
+    assert claims_completion("先把那個檢查做完再動手") is False                           # 沒有「了」：不是完成宣告
+    assert claims_completion("還沒做完了的部分列在下面") is False                          # 否定照排除
+
+
+def test_stop_hook_feedback_is_not_a_turn_boundary():
+    """Claude Code 把 Stop hook 的擋訊息寫成 user 紀錄「Stop hook feedback:…」：不是使用者打字，不是回合起點
+    （第二意見閘與退避預告切點共用這個判定；C-1 被別的閘擋一次，已跑完的第二意見就被切掉）。"""
+    from wg_evasion import is_turn_start
+    fb = "Stop hook feedback:\n[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED：側面數據到門檻"
+    rec = lambda content, meta: {"type": "user", "isMeta": meta, "message": {"role": "user", "content": content}}  # noqa: E731
+    assert is_turn_start(rec(fb, True)) is False
+    assert is_turn_start(rec([{"type": "text", "text": fb}], True)) is False
+    assert is_turn_start(rec(fb + "\n照這個錯誤幫我改", False)) is True                 # 使用者自己貼的（沒有 isMeta）照算新回合（Codex）
+    assert is_turn_start(rec("我看了 Stop hook feedback: 那段，照它改", None)) is True
+    assert is_turn_start({"type": "assistant", "message": {"content": "x"}}) is False
+
+
 def test_evasion_no_phrase_no_flag():
     assert detect_evasion("一切正常，已完成修復", []) is None
 

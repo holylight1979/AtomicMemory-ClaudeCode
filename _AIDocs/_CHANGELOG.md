@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 第二波 B′C′ 閘洞五件：第二意見閘不再誤擋也不再漏擋、改舊測試一行多支全認、heredoc 寫舊測試事前擋、交付末尾要保留結構行、既有 .md 要先宣告
+- **交給 AI 寫程式時會看到的**：被別的閘擋一次後，已跑完的第二意見不會被當成「本回合沒跑」；收尾說「做完了」、或補件那則沒再重說完成，第二意見閘照樣要求一次；「改舊測試｜名1：理由1、名2：理由2」一行多支都算宣告；用 heredoc 把改過斷言的舊測試整檔寫回，寫之前就被擋（不再寫完才補宣告）；PickOne／第二意見的擋訊息多一句「交付的最後一則要保留這幾行，不要寫見上一則」；改使用者既有的 README、病灶清單這類 .md 要先宣告「動資料檔｜…」（`_AIDocs`／`memory`／`.claude` 底下的不用）。
+- **改了什麼**（軌 track-gate-small-fixes 002）：`wg_evasion._is_real_user_prompt` 把「Stop hook feedback:」開頭的 user 紀錄判成延續（第二意見閘、退避預告切點共用）；完成詞表加「做完了」（`memory/_meta/forbidden-phrases.json` 與 fallback）；`wg_second_opinion.turn_claims_completion`；`wg_release_rules.parse_old_test_declarations` 一行多段；`wg_oldtest.heredoc_writes`／`_heredoc_deny`；`second_opinion_hint`、`pick_prompt` 各一句；`wg_data_file` 預設副檔名加 `.md`、`SYSTEM_DOC_DIRS`。舊測試兩處：`verify_data_file_ask::test_code_and_markdown_are_not_asked` 拿掉 README.md 參數、`verify_need_goal::test_three_lines_enough_without_tree_for_non_code` 前置補動資料檔宣告（原設計者裁定 .md 納入）。
+- **驗證**：新案例 22 支、退回舊碼紅；C-1（第二意見被 Stop 回饋切掉）與 C2（「做完了」＋補件那則）實料重播都改判正確；目標 verify 全綠（main 既有紅 `verify_need_goal::test_cg0_…` 除外）。Codex 一輪 7 條 BLOCK 全核實並修：Stop 回饋改成 isMeta＋字首兩個都要（使用者自己貼的照算新回合）、完成判定改成最後一則有狀態詞就照它、沒提才往前看且明說沒完成會取消、heredoc 改逐行解析（別段內文不當指令、一行兩個 heredoc 與會展開的不預測、`<<-` 只去 tab）。
 ## 2026-10-21 拐彎判斷也看得懂 C#：Unity 專案的繼承空層、只轉手、單一實作分派都算得出來
 - **交給 AI 寫程式時會看到的**：改了 `.cs` 的回合，收尾附的函式級側面數據不再是「不支援」，和 Python 同一張表、同一組門檻與那一題；多出的只在有值時附：空殼成員寫出這層擋掉或補了什麼、轉手經過只有一個實作的介面寫「分派 …（只有一個實作）」、介面列實作數、哪裡沒解析到與信心。
 - **改了什麼**（軌 track-csharp-reading-path 000）：新增 `lib/turn_metrics_cs.py`（不用 Roslyn，重用量尺的 C# 切詞＋自寫字串掃描與本體解析）；`hooks/wg_reading_path.py` 依副檔名分流，Python 路徑不變；TECH 第 529 列。

@@ -85,7 +85,7 @@ _FALLBACK_SCAN_REPORT_PATTERNS = [
     r"需另開\s*session", r"列入\s*handoff",
 ]
 _FALLBACK_COMPLETION_PATTERNS = [
-    r"完成", r"已解決", r"全部做完", r"總結", r"收尾",
+    r"完成", r"已解決", r"全部做完", r"做完了(?!嗎)", r"總結", r"收尾",
     r"done", r"finished", r"all\s+set", r"wrapped\s+up",
     r"大功告成", r"搞定",
 ]
@@ -715,12 +715,30 @@ def get_last_assistant_text(
     return last
 
 
+STOP_HOOK_FEEDBACK_PREFIX = "Stop hook feedback:"   # Claude Code 注入 Stop hook 擋訊息時那筆 user 紀錄的開頭
+
+
+def _is_stop_hook_feedback(rec: Dict[str, Any]) -> bool:
+    """Claude Code 把 Stop hook 擋訊息寫成的 user 紀錄：isMeta 且內容以 STOP_HOOK_FEEDBACK_PREFIX 開頭（兩個都要：
+    使用者自己貼一段這樣開頭的錯誤訊息，isMeta 不是 true，照算新回合）。"""
+    c = (rec.get("message") or {}).get("content")
+    text = c if isinstance(c, str) else "\n".join(str(b.get("text") or "") for b in c or [] if isinstance(b, dict))
+    return rec.get("isMeta") is True and text.lstrip().startswith(STOP_HOOK_FEEDBACK_PREFIX)
+
+
+def is_turn_start(rec: Dict[str, Any]) -> bool:
+    """transcript 的一筆紀錄是不是回合起點：type=user、內容是真實 prompt（_is_real_user_prompt），且不是 Stop hook 擋訊息
+    （被別的閘擋一次，本回合已跑完的第二意見、早段寫的預告不能因此被切掉）。"""
+    return (rec.get("type") == "user" and not _is_stop_hook_feedback(rec)
+            and _is_real_user_prompt((rec.get("message") or {}).get("content")))
+
+
 def _is_real_user_prompt(content: Any) -> bool:
     """判斷一則 user 訊息是「真實 prompt」（回合起點）還是延續。
 
     含 tool_result block → 延續；整則都是 harness 文字（同伴訊息、背景通知、系統注入）且不帶派工標記 → 也是延續
     （規則 DISPATCH_OPENS_TURN：退避預告的切點只認使用者打字或派工訊息，否則同伴訊息一進來，早段寫的預告就被切掉）；
-    其餘 str 或含 text block → 真實 prompt。
+    其餘 str 或含 text block → 真實 prompt。transcript 整筆紀錄判回合起點用 is_turn_start（多排除 Stop hook 擋訊息）。
     """
     texts: List[str] = []
     if isinstance(content, str):
@@ -803,7 +821,7 @@ def get_current_turn_text(
     for i, obj in enumerate(records):
         if obj.get("type") != "user":
             continue
-        if _is_real_user_prompt(obj.get("message", {}).get("content")):
+        if is_turn_start(obj):
             last_user_idx = i
 
     parts: List[str] = []
@@ -880,7 +898,7 @@ def get_current_turn_visible_text(
                 continue
             if obj.get("isSidechain") is True:
                 continue
-            if _is_real_user_prompt(obj.get("message", {}).get("content")):
+            if is_turn_start(obj):
                 last_user_idx = i
 
         probe["boundary_lost"] = last_user_idx == -1

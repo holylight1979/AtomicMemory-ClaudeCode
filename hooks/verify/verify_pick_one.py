@@ -285,6 +285,12 @@ def test_material_groups_by_part_with_numbers_marked_reference(world):
     assert "Skill.cs｜長函式｜分數 95｜呼叫點 無法判（.cs 不以 import 檔案互相呼叫）" in battle   # 算不出就說算不出
 
 
+def test_pick_prompt_says_last_reply_keeps_five_lines():
+    """第二波 B′（B1）：被別的閘擋後補的最後一則只寫「見上一則」，五行段沒留在交付末尾（系統讀最後一則記追蹤項）。"""
+    prompt = wh.pick_prompt([])
+    assert "交付的最後一則要保留這五行" in prompt and "不要寫「見上一則」" in prompt
+
+
 # ─── 材料：每條壞味道附呼叫點（003，切入點自評 E04c／E04d）────────────────────────────
 # 真任務原樣：沒人呼叫的 90 行舊函式分數 48、被兩支 import 的吞錯 loader 分數 12；材料沒有呼叫點時 AI 挑分數高的死碼
 

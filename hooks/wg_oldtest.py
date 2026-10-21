@@ -46,6 +46,13 @@ BASELINE_KEY = "old_test_baseline"   # {檔: 本 session 第一次碰它時有�
 # 指令會執行 python（python／python3.12／py／pythonw，可帶路徑與 .exe）：腳本自己開檔寫的目標 write_paths_from_tool 解析不到
 _PY_RUN_RE = re.compile(r"(?:^|[\s;&|(`'\"\\/])(?:python[\d.]*|pythonw|py)(?:\.exe)?(?=\s|$|[;&|)`'\"])", re.IGNORECASE | re.MULTILINE)
 
+# Bash 的 `cat > 檔 <<'TAG'`／`cat >> 檔 <<TAG`／`cat <<TAG > 檔`：heredoc 的內容就是要寫進去的，寫之前就能比對
+_HEREDOC_PATH = r"(?P<{0}>'[^'\n]+'|\"[^\"\n]+\"|[^\s;&|<>'\"]+)"
+_CAT_HEREDOC_RE = re.compile(
+    r"(?:^|[;&|(]\s*)cat\s+(?:"
+    r"(?P<op1>>>?)\s*" + _HEREDOC_PATH.format("p1") + r"\s*<<-?\s*['\"]?\w+"
+    r"|<<-?\s*['\"]?\w+['\"]?\s*(?P<op2>>>?)\s*" + _HEREDOC_PATH.format("p2") + r")")
+_HEREDOC_TAG_RE = re.compile(r"(?<!<)<<(?!<)(-?)\s*(['\"]?)(\w+)\2")
 _PY_DEF_RE = re.compile(r"^(\s*)(?:async\s+)?def\s+(test\w*)\s*\(")
 _PY_INLINE_BODY_RE = re.compile(r"\)\s*(?:->[^:]+)?:\s*(\S.*)$")
 _PY_CLASS_RE = re.compile(r"^(\s*)class\s+(\w+)")
@@ -479,6 +486,50 @@ def _test_targets(tool_name: str, tool_input: Dict[str, Any], config: Dict[str, 
     return [p for p in paths if p.lower().endswith(_ALL_EXTS) and is_test_file(p, config, _root(p, cwd))]
 
 
+def _path_parts(p: str) -> List[str]:
+    return [c.lower() for c in re.split(r"[/\\]+", p) if c not in ("", ".")]
+
+
+def heredoc_writes(command: str, targets: List[str]) -> Dict[str, str]:
+    """Bash 指令裡 heredoc 寫進測試檔的改後內容 {寫入目標: 改後全文}。targets＝_test_targets 解析出的寫入目標
+    （wg_core.write_paths_from_tool，與改資料檔閘同一支）；heredoc 寫的路徑以尾段對上恰好一個目標才算（cd 之後的相對路徑也對得上）。
+    `>` 覆寫＝內容、`>>` 追加＝原檔＋內容，同一檔多段依序套。逐行掃：每段 heredoc 的內文先跳過（內文裡的 `cat > 檔` 字樣不是指令）；
+    `<<-` 的結束行只去掉前導 tab（同 Bash）。算不準的不算：一行掛兩個以上 heredoc、沒加引號的 heredoc 內文有 `$`／反引號（會展開）。
+    同一指令其他寫法（sed、python）的改動不在這裡，照舊由 after_tool 事後比。"""
+    out: Dict[str, str] = {}
+    lines = str(command or "").split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        tags = [] if line.lstrip().startswith("#") else list(_HEREDOC_TAG_RE.finditer(line))
+        bodies: List[Tuple[str, List[str]]] = []
+        for tm in tags:
+            dash, quote, tag = tm.group(1) == "-", tm.group(2), tm.group(3)
+            body: List[str] = []
+            while i < len(lines):
+                raw = lines[i].rstrip("\r")
+                i += 1
+                if (raw.lstrip("\t") if dash else raw) == tag:
+                    break
+                body.append(raw.lstrip("\t") if dash else raw)
+            bodies.append((quote, body))
+        m = _CAT_HEREDOC_RE.search(line) if len(bodies) == 1 else None
+        if not m:
+            continue
+        quote, body = bodies[0]
+        text = "".join(f"{ln}\n" for ln in body)
+        if not quote and re.search(r"[$`]", text):
+            continue
+        tail = _path_parts((m.group("p1") or m.group("p2")).strip("'\""))[-3:]
+        hits = [t for t in targets if tail and _path_parts(t)[-len(tail):] == tail]
+        if len(hits) != 1:
+            continue
+        op = m.group("op1") or m.group("op2")
+        out[hits[0]] = text if op == ">" else out.get(hits[0], _read(hits[0]) or "") + text
+    return out
+
+
 def _snap_file(sid: str, tool_name: str, tool_input: Dict[str, Any]) -> Path:
     """改前快照的檔：PreToolUse 與 PostToolUse 拿到的 tool_input 相同，用它的雜湊對上同一次呼叫。"""
     import wg_core
@@ -683,6 +734,47 @@ def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[s
             + f"\n這是 {tools} 改的（已經寫進檔），請補宣告再繼續；要撤回就只讀、只改這幾個檔。\n" + hint(left[0]["key"]))
 
 
+def _heredoc_deny(tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str) -> Optional[str]:
+    """Bash 用 heredoc 寫測試檔（heredoc_writes 算得出改後內容）→ 寫之前與 Edit／Write 同款判：動到既有測試又找不到宣告就擋；
+    宣告對上的照 Edit 留帳。算不出改後內容的寫法回 None，交給快照＋after_tool 事後比。"""
+    targets = _test_targets("Bash", tool_input, config, cwd)
+    writes = heredoc_writes(str(tool_input.get("command", "") or ""), targets) if targets else {}
+    if not writes:
+        return None
+    import wg_release_rules as rr
+    from wg_core import read_state, write_state
+    sid = input_data.get("session_id", "") or ""
+    state = read_state(sid) if sid else None
+    owing = {(rr.canon_path(e["file"]), e["key"]) for e in (state or {}).get(PENDING_KEY) or []}
+    decls: Optional[List[Dict[str, Any]]] = None
+    hits: List[str] = []
+    ok: List[Tuple[str, List[Dict[str, str]], List[str]]] = []
+    first = ""
+    dirty = False
+    for fp, after in writes.items():
+        before = _read(fp)
+        dirty = remember_baseline(state, {fp: before}) or dirty
+        live, added = _changes(state, sid, fp, before or "", after)
+        live = [c for c in live if (rr.canon_path(fp), c["key"]) not in owing]
+        if live and decls is None:
+            decls = rr.parse_old_test_declarations(_decl_text(input_data))
+        v = rr.old_test_change_verdict(fp, live, decls or [])
+        if v.owed:
+            _log("denied", sid, fp, tool="Bash", via="heredoc", changes=live)
+            hits.append(rr.format_hit("ot", v))
+            first = first or next(c["key"] for c in live if rr.old_test_declaration_for(c, decls or [], fp) is None)
+            continue
+        ok.append((fp, live, added))
+    if not hits:   # 整條指令會執行才記宣告與新加的測試；有一個檔被擋就整條不跑，其他檔也不先記
+        for fp, live, added in ok:
+            dirty = _record(state, sid, fp, live, added, decls or []) or dirty
+    if dirty and state is not None:
+        write_state(sid, state)
+    if not hits:
+        return None
+    return "\n".join(hits) + "\n這是 Bash heredoc 要寫進去的內容（寫之前就比對，還沒寫進檔）。\n" + hint(first)
+
+
 def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any],
          cwd: str) -> Optional[str]:
     """PreToolUse：①上一個 Bash 類呼叫還欠宣告 → 擋（任何工具）；②Bash／PowerShell／NotebookEdit → 拍快照放行，事後由 after_tool 比；
@@ -693,6 +785,9 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     if late:
         return late
     if tool_name in AFTER_TOOLS:
+        pre = _heredoc_deny(tool_input, input_data, config, cwd) if tool_name == "Bash" else None
+        if pre:
+            return pre
         snapshot(tool_name, tool_input, input_data, config, cwd)
         return None
     if tool_name not in EDIT_TOOLS or not _test_targets(tool_name, tool_input, config, cwd):

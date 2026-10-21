@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -77,10 +78,9 @@ def _notes(text: str) -> List[str]:
     return [ln.strip()[len("note:"):].strip() for ln in text.splitlines() if ln.strip().startswith("note:")]
 
 
-def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """本回合（規則 TURN_SINCE_USER_PROMPT：最後一則使用者打字或派工訊息之後；尾段切掉起點就整段算）的
-    (starts, results)：starts＝[{mode, kind, job_id, status, reason, notes}]、results＝[{job_id, status, reason}]，依出現順序。"""
-    from wg_evasion import _is_real_user_prompt
+def _turn_records(transcript_text: str) -> List[Dict[str, Any]]:
+    """本回合的 transcript 紀錄（規則 TURN_SINCE_USER_PROMPT：最後一則使用者打字或派工訊息之後；尾段切掉起點就整段算）。"""
+    from wg_evasion import is_turn_start
     recs: List[Dict[str, Any]] = []
     for raw in str(transcript_text or "").splitlines():
         try:
@@ -91,12 +91,46 @@ def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[s
             recs.append(o)
     begin = 0
     for i, o in enumerate(recs):
-        if o.get("type") == "user" and _is_real_user_prompt((o.get("message") or {}).get("content")):
+        if is_turn_start(o):
             begin = i + 1
+    return recs[begin:]
+
+
+# 明說沒完成（「還沒做完」「完成…尚未」）：同 forbidden-phrases.json completion_claim 排除詞的前兩條。
+# 「進行中」「等待結果」這類只在最後一則才算數（前面的回覆常是在講別人的檔或某一步，不是在講這次交付）
+_COMPLETION_NEG_RE = re.compile(r"(?:還沒|還未|尚未|尚待|未|沒有?)[^，。！？\n]{0,8}(?:完成|做完|解決|收尾|搞定|完工|結案)"
+                                r"|(?:完成|做完|解決|收尾|搞定|完工|結案)[^，。！？\n]{0,6}"
+                                r"(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)")
+
+
+def turn_claims_completion(transcript_text: str) -> bool:
+    """本回合有沒有宣告完成。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
+    完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就算宣告了。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
+    只看最後一則會被補件那則蓋掉（第二波 C′ 第二跑：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。"""
+    from wg_evasion import _COMPLETION_CLAIM_RE, _COMPLETION_EXCLUDE_RE, claims_completion
+    texts = [str(b.get("text") or "") for o in _turn_records(transcript_text) if o.get("type") == "assistant"
+             for b in _blocks(o) if b.get("type") == "text"]
+    if not texts:
+        return False
+    last = texts[-1][-2000:]
+    if _COMPLETION_CLAIM_RE.search(last) or _COMPLETION_EXCLUDE_RE.search(last):
+        return claims_completion(texts[-1])
+    claimed = False
+    for t in texts[:-1]:
+        if _COMPLETION_NEG_RE.search(t[-2000:]):
+            claimed = False
+        elif claims_completion(t):
+            claimed = True
+    return claimed
+
+
+def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """本回合（_turn_records）的 (starts, results)：starts＝[{mode, kind, job_id, status, reason, notes}]、
+    results＝[{job_id, status, reason}]，依出現順序。"""
     calls: Dict[str, Tuple[str, Dict[str, Any]]] = {}
     starts: List[Dict[str, Any]] = []
     results: List[Dict[str, Any]] = []
-    for o in recs[begin:]:
+    for o in _turn_records(transcript_text):
         for b in _blocks(o):
             name = str(b.get("name") or "")
             if b.get("type") == "tool_use" and (name.endswith(START_SUFFIX) or name.endswith(RESULT_SUFFIX)):
@@ -260,8 +294,10 @@ def has_goal_tree(session_id: str) -> bool:
 def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[str, Any]], text: str,
           transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], claims_done: bool
           ) -> Tuple[rr.Verdict, Dict[str, Any]]:
-    """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。"""
+    """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。
+    claims_done＝呼叫端看最後一則的結果；最後一則沒談到完成與否時，改看本回合最後一則談到的（turn_claims_completion）。"""
     from wg_need_goal import writes_code
+    claims_done = bool(claims_done) or turn_claims_completion(transcript_text)
     code = [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)]
     uniq: Dict[str, str] = {}      # 同一個檔不同寫法只算一次（SAME_FILE），保留原寫法給 git pathspec（大小寫敏感）
     for m in code:

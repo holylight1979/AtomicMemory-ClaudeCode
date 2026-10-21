@@ -195,6 +195,71 @@ def test_five_files_done_and_four_lines_passes(drive, capsys, tmp_path):
     assert state["second_opinion_ok"][SID] == 5, "閘有跑到、判定滿足（不是因為沒跑到才沒擋）"
 
 
+STOP_FEEDBACK = ("Stop hook feedback:\n[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED：側面數據到門檻的 1 條裡 1 條"
+                 "沒有五欄齊的「拐彎判斷｜」行（程式只核對五欄，不評內容）")
+
+
+def test_job_done_then_other_gate_stop_feedback_still_counts(drive, capsys, tmp_path):
+    """第二波 C′（C-1 transcript:254～384）：同一則使用者訊息內 job 已 done，之後別的閘擋了一次，Claude Code 把擋訊息寫成一筆
+    user 紀錄「Stop hook feedback:…」（isMeta）；那不是使用者打字，不能當回合起點把 job 切掉（舊碼連擋兩次，AI 只好自放行）。"""
+    drive.tx.opinion("done")
+    drive.tx.add({"type": "user", "isMeta": True, "message": {"role": "user", "content": STOP_FEEDBACK}})
+    reason, state, logs = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason
+    assert state["second_opinion_ok"][SID] == 5, "閘有跑到、判定滿足（不是因為沒跑到才沒擋）"
+
+
+C2_DONE = "折扣碼功能做完了：15 個測試全過，已 commit（59298ec），沒有 push。"
+C2_PATCH = "拐彎判斷｜orders/cli.py::<main> → orders/pricing.py::discount｜不會：只拐兩個彎｜checkout 規定計算順序｜合理"
+
+
+def test_c2_done_then_other_gate_patch_reply_still_blocks_once(drive, capsys, tmp_path):
+    """第二波 C′ 第二跑（C2 transcript:304→315→321）：改了 5 支程式、收尾說「做完了…已 commit」→ ReadingPath 先擋 → 補件那則
+    只補拐彎判斷、不再重說完成。舊碼只看最後一則（又認不得「做完了」），判成沒宣告完成，第二意見閘一次都沒擋。
+    改後：本回合最後一則談到完成與否的回覆說做完了 → 宣告完成且過門檻，必擋一次（不是只算沒 commit 的檔：own_mod_files 不看 commit）。"""
+    drive.tx.say(C2_DONE)
+    drive.tx.add({"type": "user", "isMeta": True, "message": {"role": "user", "content": STOP_FEEDBACK}})
+    reason, _state, logs = drive(C2_PATCH, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and "程式檔 5 個" in reason
+    assert [p["event"] for p in _so_logs(logs)] == ["block"]
+
+
+def test_partial_done_then_final_in_progress_not_required(drive, capsys, tmp_path):
+    """Codex：同回合先說「第一階段完成」、最後一則說「整體仍進行中，等待測試結果」→ 最後一則有狀態詞，照它（不算宣告完成）。"""
+    drive.tx.say("第一階段完成：資料表搬好了。")
+    reason, _state, logs = drive("整體仍進行中，等待測試結果回來再整理。", capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+
+
+def test_done_then_patch_mentioning_solution_still_blocks(drive, capsys, tmp_path):
+    """Codex：說「全部做完了」→ 別的閘擋 → 補件只寫「拐彎判斷｜檢查解決方案的依賴｜合理」；「解決方案」不是完成與否的話，前面的宣告照算。"""
+    drive.tx.say("全部做完了，測試都過。")
+    drive.tx.add({"type": "user", "isMeta": True, "message": {"role": "user", "content": STOP_FEEDBACK}})
+    reason, _state, logs = drive("拐彎判斷｜檢查解決方案的依賴｜不會：兩個彎｜各管一件事｜合理", capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
+
+
+def test_done_then_later_not_done_reply_not_required(drive, capsys, tmp_path):
+    drive.tx.say(C2_DONE)
+    reason, _state, logs = drive("還沒做完：ERP 合約測試照你說的留紅，另有 8 個檔等你說 commit。", capsys,
+                                 files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)            # 最後談到的是「還沒完成」→ 照舊不算宣告
+
+
+def test_block_message_says_last_reply_keeps_four_lines(drive, capsys, tmp_path):
+    """第二波 B′／C′（B1、C3）：被別的閘擋後補的最後一則只寫「見上一則」，四行裁決沒留在交付末尾。擋訊息要講明最後一則要保留。"""
+    reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5))
+    assert "交付的最後一則也要保留這四行" in reason and "不要寫「見上一則」" in reason
+    assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)                 # 入口仍在閘自己訊息的最末
+
+
+def test_job_from_previous_user_prompt_still_blocks(drive, capsys, tmp_path):
+    drive.tx.opinion("done")
+    drive.tx.user("再加一個匯出功能")                                                   # 換了一則使用者訊息：上一則跑的不算
+    reason, _state, _logs = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and "本回合沒有跑第二意見" in reason
+
+
 def test_failed_result_with_four_lines_passes(drive, capsys, tmp_path):
     drive.tx.opinion("failed", reason="探針逾時")
     text = FOUR.replace("閘的判定正確", "failed（探針逾時），沒有結論")

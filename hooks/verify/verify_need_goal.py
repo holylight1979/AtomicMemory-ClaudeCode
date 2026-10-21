@@ -982,6 +982,7 @@ def test_three_lines_enough_without_tree_for_non_code(hooked):
     doc = proj / "Game" / "Battle" / "notes.md"
     doc.write_text("x", encoding="utf-8")
     _op("set", goal="G")
+    _say(tp, "動資料檔｜Game/Battle/notes.md：需求要補戰鬥筆記；可見影響：筆記多一段")   # 既有 .md 先過改資料檔閘，這支只驗 OverviewHub
     _ptu_run("Edit", {"file_path": str(doc)}, proj, tp, outputs)
     _read_part(str(doc), proj, tp)
     _say(tp, THREE)

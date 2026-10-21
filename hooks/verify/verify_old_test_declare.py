@@ -508,10 +508,12 @@ def test_cli_plain_prints_two_decimals_no_currency(capsys):
 
 
 def _failed_bash_append(w):
-    """PreToolUse 放行 → 指令寫進磁碟但失敗收場（不跑 PostToolUse）。回測試檔路徑。"""
+    """PreToolUse 放行 → 指令寫進磁碟但失敗收場（不跑 PostToolUse）。回測試檔路徑。追加用 `cat 檔 >> 目標`（不是 heredoc）：
+    heredoc 的改後內容寫前就算得出、新加的測試在 PreToolUse 就記到；這裡要守的是算不出內容時靠基線認新測試那條路。"""
     fp = _put(w, "tests/test_cli.py", CLI_TESTS)
     fwd = fp.replace("\\", "/")
-    assert _pass(_run(w, "Bash", {"command": f"cat >> '{fwd}' <<'EOF'\n{CLI_NEW}EOF\npython -m pytest tests -q"}))
+    src = (w["tmp"] / "new_test.txt").as_posix()
+    assert _pass(_run(w, "Bash", {"command": f"cat '{src}' >> '{fwd}'\npython -m pytest tests -q"}))
     Path(fp).write_text(CLI_TESTS + CLI_NEW, encoding="utf-8")
     return fp
 
@@ -580,6 +582,113 @@ def test_head_lookup_failure_is_loud_and_falls_back_to_disk(world, monkeypatch, 
     monkeypatch.setattr(ot, "_git", lambda *a, **k: subprocess.CompletedProcess(
         a, 128, b"", b"fatal: path 'tests/x.py' does not exist in 'HEAD'"))
     assert ot._head_tests(fp) == set() and "基線查不到" not in capsys.readouterr().err   # HEAD 本來就沒有：安靜回空
+
+
+THREE = '''from shop import pricing
+
+
+def test_checkout_adds_shipping():
+    assert pricing.total(500) == 560
+
+
+def test_shipping_fee_below_threshold():
+    assert pricing.fee(999) == 60
+
+
+def test_free_shipping_at_threshold():
+    assert pricing.fee(1000) == 0
+'''
+
+
+def test_one_line_declaring_three_tests_each_with_reason_covers_all(world):
+    """第二波 C′（guard-old_test 15:57:59）：擋訊息教「多支用、分隔」，AI 寫成「名1：理由1、名2：理由2；名3：理由3」，
+    舊解析在第一個「：」就切，只認到第一支，另兩支又被擋。"""
+    fp = _put(world, "tests/test_pricing.py", THREE)
+    new = THREE.replace("== 560", "== 554").replace("fee(999)", "fee(1199)").replace("fee(1000)", "fee(1200)")
+    decl = ("改舊測試｜test_checkout_adds_shipping：使用者要「回傳多一個 discount 欄位」，總額改了、"
+            "test_shipping_fee_below_threshold：使用者說「門檻從 1000 調成 1200」；test_free_shipping_at_threshold：同一句，門檻值改 1200")
+    r = _run(world, "Write", {"file_path": fp, "content": new}, _transcript(world, decl))
+    assert _pass(r), r
+    declared = {e["test"] for e in _events(world) if e["event"] == "declared"}
+    assert declared == {"test_checkout_adds_shipping", "test_shipping_fee_below_threshold", "test_free_shipping_at_threshold"}
+
+
+def test_names_then_one_reason_and_mixed_form_parse():
+    import wg_release_rules as rr
+    (d,) = rr.parse_old_test_declarations("改舊測試｜test_a、test_b；test_c：三支都因為門檻改了")
+    assert {"test_a", "test_b", "test_c"} <= set(d["names"]) and d["reason"] == "三支都因為門檻改了"
+    a, c = rr.parse_old_test_declarations("改舊測試｜test_a、tests/test_x.py:test_b：理由一、test_c：理由二")
+    assert {"test_a", "tests/test_x.py:test_b"} <= set(a["names"]) and a["reason"] == "理由一"
+    assert c["names"] == ["test_c"] and c["reason"] == "理由二"
+    (one,) = rr.parse_old_test_declarations("改舊測試｜test_a：理由裡提到 ERP 合約、說明多一點")
+    assert one["names"][0] == "test_a" and one["reason"] == "理由裡提到 ERP 合約、說明多一點"   # 只有一段：照舊整句是理由
+
+
+# 第二波 C′（C5）：AI 用 Bash heredoc 把改過斷言的兩支舊測試整檔寫回，寫進檔後才被要求補宣告（declared_late）。
+# heredoc 的內容就是改後內容 → PreToolUse 先比對，沒宣告就在寫之前擋（與 Edit／Write 同款訊息）。
+
+def test_bash_heredoc_overwriting_old_test_denied_before_write(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    new = LEGACY.replace('"USD"', '"TWD"')
+    cmd = f"cd '{world['proj'].as_posix()}' && cat > tests/test_legacy_report.py <<'EOF'\n{new}EOF\npython -m pytest -q"
+    r = _run(world, "Bash", {"command": cmd})
+    assert _ot(r) and "test_legacy_report_keeps_columns（斷言變了" in r
+    assert Path(fp).read_text(encoding="utf-8") == LEGACY and not _pending()           # 前置：還沒寫、也不是事後欠帳
+
+
+def test_bash_heredoc_with_declaration_in_command_allowed(world):
+    _put(world, "tests/test_legacy_report.py", LEGACY)
+    new = LEGACY.replace('"USD"', '"TWD"')
+    cmd = (f"# {DECL}\ncd '{world['proj'].as_posix()}' && cat > tests/test_legacy_report.py <<'EOF'\n{new}EOF\n")
+    assert _pass(_run(world, "Bash", {"command": cmd}))
+    assert any(e["event"] == "declared" and e["test"] == "test_legacy_report_keeps_columns" for e in _events(world))
+
+
+def test_bash_heredoc_new_test_file_or_append_not_denied(world):
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    proj = world["proj"].as_posix()
+    new_file = f"cat > '{proj}/tests/test_brand_new.py' <<'EOF'\ndef test_new():\n    assert 1 == 1\nEOF\n"
+    assert _pass(_run(world, "Bash", {"command": new_file}))                         # 新測試檔：沒有舊測試可動
+    append = f"cat >> '{proj}/tests/test_legacy_report.py' <<'EOF'\n\n\ndef test_more():\n    assert 2 == 2\nEOF\n"
+    assert _pass(_run(world, "Bash", {"command": append}))                           # 只加新測試（A-1 那種）不擋
+    assert Path(fp).read_text(encoding="utf-8") == LEGACY
+
+
+def test_heredoc_writes_parses_only_what_it_can_predict(tmp_path):
+    """heredoc_writes 單元：算得出的才算（Codex 複審四條＋新路徑真的有跑）。"""
+    import wg_oldtest as ot
+    a = tmp_path / "tests" / "test_a.py"
+    a.parent.mkdir()
+    a.write_text("def test_x():\n    assert 1 == 1\n", encoding="utf-8")
+    t = [str(a)]
+    assert ot.heredoc_writes("cat > tests/test_a.py <<'EOF'\ndef test_x():\n    assert 1 == 2\nEOF\n", t) == \
+        {str(a): "def test_x():\n    assert 1 == 2\n"}                                          # 覆寫＝內容
+    assert ot.heredoc_writes("cat >> tests/test_a.py <<'EOF'\ndef test_y():\n    pass\nEOF\n", t) == \
+        {str(a): "def test_x():\n    assert 1 == 1\ndef test_y():\n    pass\n"}                 # 追加＝原檔＋內容
+    assert ot.heredoc_writes("cat > tests/test_a.py <<A <<B\nx\nA\ny\nB\n", t) == {}             # 一行兩個 heredoc：不預測
+    assert ot.heredoc_writes("cat > tests/test_a.py <<EOF\n$content\nEOF\n", t) == {}            # 沒加引號又會展開：不預測
+    fake = ("cat <<'DOC'\ncat > tests/test_a.py <<'EOF'\nassert 0\nEOF\nDOC\n"
+            "cat >> tests/test_a.py <<'EOF'\n# note\nEOF\n")
+    assert ot.heredoc_writes(fake, t) == {str(a): "def test_x():\n    assert 1 == 1\n# note\n"}   # 別段 heredoc 內文裡的字樣不是指令
+    tabbed = "cat > tests/test_a.py <<-'EOF'\n\tdef test_x():\n  EOF\n\t    assert 1 == 2\n\tEOF\n"
+    assert ot.heredoc_writes(tabbed, t) == {str(a): "def test_x():\n  EOF\n    assert 1 == 2\n"}   # <<- 只去 tab；空白縮排的 EOF 不是結束
+
+
+def test_bash_heredoc_batch_with_one_denied_records_nothing(world):
+    """Codex：同一條指令寫兩個測試檔、一個被擋 → 整條不會執行，另一個的新加測試也不先記。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    other = _put(world, "tests/test_other.py", "def test_o():\n    assert 1\n")
+    proj = world["proj"].as_posix()
+    cmd = (f"cat > '{proj}/tests/test_legacy_report.py' <<'EOF'\n{LEGACY.replace(chr(34) + 'USD' + chr(34), chr(34) + 'TWD' + chr(34))}EOF\n"
+           f"cat >> '{proj}/tests/test_other.py' <<'EOF'\ndef test_more():\n    assert 2\nEOF\n")
+    assert _ot(_run(world, "Bash", {"command": cmd}))
+    assert not wg_core.read_state(SID).get("old_test_added") and Path(other).exists() and Path(fp).exists()
+
+
+def test_reason_with_ascii_label_and_colon_stays_one_declaration():
+    import wg_release_rules as rr
+    (d,) = rr.parse_old_test_declarations("改舊測試｜test_a：使用者要改成含稅；ERP：要等對方確認欄位")
+    assert d["names"][0] == "test_a" and d["reason"] == "使用者要改成含稅；ERP：要等對方確認欄位"   # 理由裡的標籤字不拆成假名字（Codex）
 
 
 def test_revert_after_bash_clears_pending(world):
