@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 拐彎判斷也看得懂 C#：Unity 專案的繼承空層、只轉手、單一實作分派都算得出來
+- **交給 AI 寫程式時會看到的**：改了 `.cs` 的回合，收尾附的函式級側面數據不再是「不支援」，和 Python 同一張表、同一組門檻與那一題；多出的只在有值時附：空殼成員寫出這層擋掉或補了什麼、轉手經過只有一個實作的介面寫「分派 …（只有一個實作）」、介面列實作數、哪裡沒解析到與信心。
+- **改了什麼**（軌 track-csharp-reading-path 000）：新增 `lib/turn_metrics_cs.py`（不用 Roslyn，重用量尺的 C# 切詞＋自寫字串掃描與本體解析）；`hooks/wg_reading_path.py` 依副檔名分流，Python 路徑不變；TECH 第 529 列。
+- **驗證**：`lib/verify/verify_turn_metrics_cs.py` 22 案（含同結構 Python／C# 數字相同）、`hooks/verify/verify_g11_turns.py` 27 案；真打 mapeditor（Unity 126 檔）1.1 秒、函式信心部分 0%，sgi_client 抽 1500 檔 30～40 秒、函式約 5%；codex 一輪的可重現項已修。
 ## 2026-10-21 閘小修四件：語言守門不算路徑、新寫的測試不當舊測試、同一件只記一筆、entry-stats 逐筆列問
 - **交給 AI 寫程式時會看到的**：中文報告夾著沒包反引號的路徑、檔名、規則名、旗標，不再被語言守門要求用繁中重答（第二波 A′ 那則從 59% 降到 39%）；本 session 自己新寫的測試，就算寫它的那次指令失敗了，之後改它的期望值也不會被要求「改舊測試｜」；同一回合把「順手看到最該修」那件換個說法再答一次，追蹤帳本只留一筆（第二次的內容蓋上去）；`python tools/entry-stats.py --asks --json` 逐筆列每次問與回應型。
 - **改了什麼**（軌 track-gate-small-fixes）：`hooks/lang_guard.strip_noncontent` 多剝路徑（要像路徑才剝）、帶點名稱、底線識別字、指令旗標，正規式錨在字首（長字串不變平方時間）；`hooks/wg_oldtest` 拍快照時記基線 `old_test_baseline`＝磁碟加 git HEAD 的測試名（根因：指令失敗時 Claude Code 不送 PostToolUse，`old_test_added` 漏記；A-1 transcript:162 `is_error=True`）；`hooks/wg_harvest.record_pick` 同 session 同回合同件（`same_pick_target`：去旁註後相同或一句是另一句開頭）追加「新列＋結案舊列」取代第一筆，帳本只追加；`tools/entry-stats.py` 加 `--asks`，尾行多 `asks_listed=`（沒給時不變）。舊測試一處：`verify_lang_guard` 的 link text 改成非檔名字樣（檔名照新規則剝）。
