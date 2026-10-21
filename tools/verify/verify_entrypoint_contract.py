@@ -424,10 +424,11 @@ def test_real_cards_bound_and_picked(monkeypatch):
     for name, entries in codes.items():
         for eid in entries:
             row = reg[eid]
-            bound = [c["name"] for c in pool if eid in c["entry"]]
+            bound = [c for c in pool if eid in c["entry"]]
+            shortest = min(bound, key=lambda c: (ep._estimate_tokens(ep._knowledge(c)), c["name"]))["name"]   # ③ 綁定卡短的先
             got = ep.judgment_cards(row["markers"][0], row["paths"][0], pool=pool, config=wide)
             assert eid in got["entries"], (eid, got["entries"])
-            assert got["cards"][0]["name"] == bound[0] and got["cards"][0]["via"] == "entry", (eid, got["cards"][:2])
+            assert got["cards"][0]["name"] == shortest and got["cards"][0]["via"] == "entry", (eid, got["cards"][:2])
             assert name in [c["name"] for c in got["cards"] if c["via"] == "entry"], (eid, name)
 
 
