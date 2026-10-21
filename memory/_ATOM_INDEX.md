@@ -580,3 +580,4 @@
 | bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準 | memory/OS-Windows/bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準.md | heredoc, python -, stdin 重導向, 多份 heredoc, 靜態判寫入目標 | global |  |
 | 靠使用者原話放行的帳要記身分與可被推翻-記節點不只名字-推翻要當次寫回state-原話視窗只留5則帳會在視窗外復活 | memory/設計通則/靠使用者原話放行的帳要記身分與可被推翻-記節點不只名字-推翻要當次寫回state-原話視窗只留5則帳會在視窗外復活.md | 豁免帳, 紅測豁免, 使用者撤回, state 帳復活, 原話視窗 | global |  |
 | git-cat-file-batch-check的missing行帶回原輸入含空白路徑-成功行只有sha-type-size不帶名字-要按輸入順序配對不能靠名字拆欄 | memory/版控/git-cat-file-batch-check的missing行帶回原輸入含空白路徑-成功行只有sha-type-size不帶名字-要按輸入順序配對不能靠名字拆欄.md | cat-file --batch-check, git 批次查詢, missing 行, 按輸入順序配對 | global |  |
+| atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬 | _AIDocs/_atoms/MemDev/atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬.md | atom-set-realm, realm 自動搬移, 搬回 memory, 收割搬卡, E16 退路雜訊 | global |  |

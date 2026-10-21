@@ -12,6 +12,7 @@
 | anti-evasion-hud-設計脊柱與強化前必讀 | anti-evasion-hud-設計脊柱與強化前必讀 |
 | atom-edit-meta與atom-heal對專案層atom的缺口與繞法 | atom-edit-meta與atom-heal對專案層atom的缺口與繞法 |
 | atom-move-v5-sot-correct-化與半遷移工具辨識 | atom-move V5 SoT-correct 化與半遷移工具辨識 |
+| atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬 | atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬 |
 | atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |
 | atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 |

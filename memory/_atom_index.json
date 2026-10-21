@@ -11342,6 +11342,18 @@
         "按輸入順序配對"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬",
+      "path": "_AIDocs/_atoms/MemDev/atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬.md",
+      "triggers": [
+        "atom-set-realm",
+        "realm 自動搬移",
+        "搬回 memory",
+        "收割搬卡",
+        "E16 退路雜訊"
+      ],
+      "scope": "global"
     }
   ]
 }
