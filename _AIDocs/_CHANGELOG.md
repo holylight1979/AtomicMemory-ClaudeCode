@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 拐彎判斷也看得懂 C#：Unity 專案的繼承空層、只轉手、單一實作分派都算得出來
+- **交給 AI 寫程式時會看到的**：改了 `.cs` 的回合，收尾附的函式級側面數據不再是「不支援」，和 Python 同一張表、同一組門檻與那一題；多出的只在有值時附：空殼成員寫出這層擋掉或補了什麼、轉手經過只有一個實作的介面寫「分派 …（只有一個實作）」、介面列實作數、哪裡沒解析到與信心。
+- **改了什麼**（軌 track-csharp-reading-path 000）：新增 `lib/turn_metrics_cs.py`（不用 Roslyn，重用量尺的 C# 切詞＋自寫字串掃描與本體解析）；`hooks/wg_reading_path.py` 依副檔名分流，Python 路徑不變；TECH 第 529 列。
+- **驗證**：`lib/verify/verify_turn_metrics_cs.py` 22 案（含同結構 Python／C# 數字相同）、`hooks/verify/verify_g11_turns.py` 27 案；真打 mapeditor（Unity 126 檔）1.1 秒、函式信心部分 0%，sgi_client 抽 1500 檔 30～40 秒、函式約 5%；codex 一輪的可重現項已修。
 ## 2026-10-21 擋訊息不再把 AI 帶錯、最該修材料附呼叫點、Quote 不再被填成「A」
 - **交給 AI 寫程式時會看到的**：六處擋訊息改成先分辨情況再給處置——紅測先問使用者有沒有叫跳過、沒叫就分程式錯還是需求變了（不再寫「標記為已知 regression」）、改舊測試分「需求變了」與「只說跳過」、卡片版繞閘先問讀者能不能照做過關、提問前先讀部位改成被擋重組時要先讀、退避舉證排在注入最前面且叫你先處理、病形閘先分是不是你改的檔。交付時「順手看到最該修」的壞味道每條多一個呼叫點（誰 import 它、幾處，算不出寫無法判）。使用者最近一則只回「A」這種短句、或呼叫者明傳 `quote=""` 時，卡片不再被自動填 Quote；新工具 `tools/quote-cleanup.py` 清已經填成「A」的（預設只列，`--apply` 才刪）。擋不擋的條件都沒變。
 - **改了什麼**（軌 track-entrypoint-contract 003）：`handlers/stop.testfail_message`、`wg_oldtest.hint`、`wg_gate_bypass.atom_refusal`、`wg_release_rules._ASK_OVERVIEW_HOW`、`handlers/user_prompt_submit.evasion_ask`、`project-smells.render_commit_report` 字句；`wg_harvest._callsites`／`_imports_stem`（Python 用 ast）；`lib/provenance.usable_quote`（`wg_provenance`、`atom-provenance-backfill` 共用；回填工具也認 atom_write 明傳的 `quote=""`）；`atom_io.VALID_SOURCES` 加 `tool:quote-cleanup`；登錄表 7 列說明欄同步。順手：`tools/move-dir-check.py` 抽樣指令那一行補不開視窗豁免註記（帶旗標會讓子行程輸出不見）；`lib/harness_text` 開工句判定認「你是工作軌 <名>」與「<名>：」開頭（總控台現在的開工句認不出，工作軌寫的卡 Quote 被填成開工句）。
