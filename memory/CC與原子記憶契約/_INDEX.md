@@ -24,6 +24,7 @@
 | pretooluse的additionalcontext不是寫前攔截-edit-payload已生成-提醒只影響下一次 | pretooluse的additionalcontext不是寫前攔截-edit-payload已生成-提醒只影響下一次 |
 | sessionstart的提示只有模型看得到-要使用者做決定就寫成叫模型用askuserquestion問的指示-問到有答案為止不要只提示一次 | SessionStart的提示只有模型看得到-要使用者做決定就寫成叫模型用AskUserQuestion問的指示-問到有答案為止不要只提示一次 |
 | skill-description沒加引號遇到空白加井號會被yaml當註解截斷-觸發條件消失且不報錯-一律雙引號 | skill-description沒加引號遇到空白加井號會被yaml當註解截斷-觸發條件消失且不報錯-一律雙引號 |
+| sync-atom-index對空索引用add-from-frontmatter補不齊且每次張數不同-整份重建要用rebuild | sync-atom-index對空索引用add-from-frontmatter補不齊且每次張數不同-整份重建要用rebuild |
 | 原子記憶是llm切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費llm | 原子記憶是LLM切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費LLM |
 | 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾 | 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾 |
 | 回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響 | 回合意圖分類吃到同伴訊息正文-clean_prompt只剔IDE區塊-重構意圖會被派工信觸發-所有吃turn_intent的閘與選片都受影響 |
@@ -31,6 +32,7 @@
 | 外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔 | 外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔 |
 | 宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳 | 宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給LLM介入-程式只查有沒有回證據對不對並留帳 |
 | 專案層tool事件閘要用原生hooks-根層只轉送sessionstart給project-hooks | 專案層tool事件閘要用原生hooks-根層只轉送SessionStart給project_hooks |
+| 換資料根的session向量檢索查的是全機共用live向量庫再用資料根可見池過濾-bm25為主時向量只在全沒命中才打-新卡要等向量重建 | 換資料根的session向量檢索查的是全機共用live向量庫再用資料根可見池過濾-bm25為主時向量只在全沒命中才打-新卡要等向量重建 |
 | 瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill | 瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill |
 | 程式核對ai宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答 | 程式核對AI宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答 |
 | 跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器 | 跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器 |
