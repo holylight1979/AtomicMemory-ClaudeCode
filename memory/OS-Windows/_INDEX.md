@@ -16,6 +16,7 @@
 | windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑 | Windows 新機 PATH 的 WindowsApps python.exe 是 Store 佔位程式-零輸出 exit 9009-子程序裸 spawn python 必用絕對路徑 |
 | windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn | windows上node測試chdir進暫存夾後rmSync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn |
 | windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 | Windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 |
+| windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對permissionerror稍等重試 | Windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對PermissionError稍等重試 |
 | windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath | Windows暫存區路徑是8.3短檔名-abspath不展開-路徑比對要用realpath |
 | windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫 | windows的git把worktree的.git檔設成隱藏-python直接覆寫會PermissionError-要先unlink再寫 |
 | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring |
