@@ -159,7 +159,8 @@ LIMITS = WHITELIST + """
   - 掃描母體：--scope git（預設，git ls-files 與原始碼副檔名的交集；不在 git 裡就退回 tree 並標明）或 --scope tree
     （目錄遞迴，只排 SKIP_DIRS 與點開頭目錄）；報告附範圍政策與檔案清單雜湊，前後比較範圍政策不同時整份標不可判定。
     git 政策只看追蹤清單：未追蹤的檔（含 .gitignore 忽略的目錄、還沒 git add 的新檔）不在母體；已追蹤的檔即使路徑符合
-    .gitignore 也照掃，與比較時 git archive 解出來的那一側一致
+    .gitignore 也照掃，與比較時 git archive 解出來的那一側一致；git 這一層沒追蹤到原始碼而退回 tree 時，照 git 的忽略
+    規則跳過被忽略的檔與目錄（明確給 --scope tree 不跳）
   - 抽象與空實作分開：Python 只有方法本身掛 @abstractmethod、而且類別確定是 ABCMeta（自己或專案內祖先的父類是 abc.ABC，
     或寫了 metaclass=abc.ABCMeta）才是抽象，C# 是 abstract 或分號宣告；只有 pass、...、raise NotImplementedError（或只有
     docstring）、C# 空大括號是空實作：不論所在類別抽不抽象都仍算覆寫（子類空實作擋掉父類方法，第 3 條不成立），只是不當落點
@@ -1817,8 +1818,10 @@ class Graph:
 
 def scan_paths(root: Path, scope: str) -> tuple:
     """掃描母體 → (檔案清單, 實際政策)。git：git ls-files（版本追蹤清單）與原始碼副檔名的交集，marketplace、第三方套件、
-    產物只要沒被追蹤就自然不在；root 不在 git 裡、或 git 在這一層沒追蹤到任何原始碼（暫存目錄、未納管的夾具）→ 退回 tree
-    並在政策上標明。tree：目錄遞迴，只排 SKIP_DIRS 與點開頭目錄。"""
+    產物只要沒被追蹤就自然不在；root 不在 git 裡、或 git 在這一層沒追蹤到任何原始碼（暫存目錄、未納管的夾具、還沒 add
+    的新專案）→ 退回 tree 並在政策上標明；後者仍在 git 裡，照 git 的忽略規則跳過被忽略的檔與目錄（_git_ignored）。
+    tree：目錄遞迴，只排 SKIP_DIRS 與點開頭目錄。"""
+    ignored: set = set()
     if scope == "git":
         proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, creationflags=_NO_WINDOW)
         if proc.returncode == 0:
@@ -1827,14 +1830,32 @@ def scan_paths(root: Path, scope: str) -> tuple:
                            and not _skipped(n))   # 兩種政策共用同一套目錄排除：被追蹤的 marketplaces 也不掃
             if paths:
                 return paths, "git"
-            scope = "tree(git 在這一層沒追蹤到原始碼)"
+            found = _git_ignored(root)
+            ignored = found or set()
+            scope = ("tree(git 在這一層沒追蹤到原始碼，" +
+                     ("跳過 git 忽略的檔)" if found is not None else "git 忽略清單查不到、沒跳過)"))
         else:
             scope = "tree(root 不在 git 裡)"
     paths = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
-        paths += [Path(dirpath) / name for name in sorted(filenames) if Path(name).suffix.lower() in PARSERS]
+        rel = Path(dirpath).relative_to(root).as_posix()
+        pre = "" if rel == "." else rel + "/"
+        dirnames[:] = sorted(d for d in dirnames
+                             if d not in SKIP_DIRS and not d.startswith(".") and f"{pre}{d}/" not in ignored)
+        paths += [Path(dirpath) / name for name in sorted(filenames)
+                  if Path(name).suffix.lower() in PARSERS and pre + name not in ignored]
     return paths, scope
+
+
+def _git_ignored(root: Path) -> set | None:
+    """root 底下被 git 忽略、又沒被追蹤的檔與目錄（相對 root 的 posix 路徑，目錄以 / 結尾），規則照 git 自己的
+    （.gitignore、.git/info/exclude、全域 excludesFile），不自己猜清單；git 失敗回 None。root 本身被忽略時 git 只回 ./，
+    等於不排除（使用者指定的就是這個目錄）。"""
+    proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
+                           "--directory"], capture_output=True, creationflags=_NO_WINDOW)
+    if proc.returncode != 0:
+        return None
+    return {n for n in proc.stdout.decode("utf-8", "replace").split("\0") if n}
 
 
 def _skipped(rel: str) -> bool:
