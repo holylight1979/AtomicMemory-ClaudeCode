@@ -8178,6 +8178,36 @@
       "related": [
         "claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉"
       ]
+    },
+    {
+      "name": "hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep",
+      "path": "memory/工作流/多session協作/hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep.md",
+      "triggers": [
+        "全機殘留",
+        "session-artifacts",
+        "--all-safe",
+        "不用再確認的",
+        "清掉暫存",
+        "HUD 殘留",
+        "收尾自清",
+        "信箱被刪",
+        "派工單被清"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併",
+      "path": "memory/工作流/多session協作/文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併.md",
+      "triggers": [
+        "文件軌",
+        "memory/_staging 工作樹",
+        "worktree 沒有 _staging",
+        "改 checklist 派工",
+        "接續單派工",
+        "gitignore 文件 工作軌",
+        "文件交付複製"
+      ],
+      "scope": "global"
     }
   ]
 }
