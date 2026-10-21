@@ -273,6 +273,33 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
     }
 
 
+# 有名規則：綁了 Entry 的卡（切入點判準卡）不自動搬 realm。Entry 卡要在切入點那一刻送到眼前，
+# local 只在 ~/.claude 注入、受測資料根也只帶 memory/，自動搬過去那個切入點就只剩退路雜訊。
+# 詞庫照樣會命中這種卡（例：卡名含 codex → Tools），所以擋在搬移候選、不改詞庫判法。
+ENTRY_BOUND_STAYS_CORE = "ENTRY_BOUND_STAYS_CORE"
+
+
+def entry_bound_ids(index_entry: Optional[Dict[str, Any]], md_path: Optional[Path] = None) -> List[str]:
+    """這張卡綁的 Entry 代號：讀得到檔就照檔頭 metadata 區的 `- Entry:` 行（真相；索引由它同步），
+    沒給檔或讀不到才退用索引 `entry` 欄；都沒有回 []。
+
+    ENTRY_BOUND_STAYS_CORE 的判定只住這裡：realm 自動搬移（wg_atoms._sweep_realm_auto_migrate）靠它擋，
+    手動搬（tools/atom-set-realm.py）靠它印警告。
+    """
+    try:
+        text = Path(md_path).read_text(encoding="utf-8-sig") if md_path is not None else None
+    except OSError:
+        text = None
+    if text is None:
+        return [str(e).strip() for e in (index_entry or {}).get("entry") or [] if str(e).strip()]
+    try:  # lazy import：同 is_failures_routed_title，雙載入路徑都可用
+        from .atom_spec import find_entry_line, split_related
+    except ImportError:
+        from atom_spec import find_entry_line, split_related
+    m = find_entry_line(text)
+    return split_related(m.group(1)) if m else []
+
+
 # ─── Search / scan（從 atom_spec 搬入，本檔為唯一源） ─────────────────────────
 
 

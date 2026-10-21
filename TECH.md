@@ -207,6 +207,8 @@ sequenceDiagram
 
 判定三問：別的專案會碰到嗎？→ core。只有在改記憶系統本身時才用到？→ local。分不出？→ 先 `dry_run`。
 
+**綁 Entry 的卡不自動搬**（有名規則 `ENTRY_BOUND_STAYS_CORE`，判定只在 `lib/atom_locations.entry_bound_ids`）：檔頭 `- Entry:` 非空（讀不到檔才看索引 `entry` 欄）的卡是切入點判準卡，要在任何專案的那個切入點送到；SessionEnd 的 realm 自動搬移遇到它本來要照詞庫搬、或要喚 LLM 分類時，改成不搬、不喚，留帳一行在 `memory/_meta/atom_io_audit.jsonl`（`op=realm_hold`，含規則名、卡名、Entry 代號、本來會怎麼搬）。手動 `atom-set-realm.py set --domain` 照搬不擋，只在 stderr 印一行警告；`atom-categorize.py apply` 的 `local:` 對映同樣照搬，警告列在結果的 `warnings`。
+
 ### 4.4 四層 scope
 
 | 層 | 可見性 | 用途 | 物理目錄 |

@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 綁 Entry 的卡不再被收割的 realm 自動搬移搬去 local
+- **原設計者看到的**：切入點判準卡（有 `- Entry:` 的卡）搬回 memory/ 之後，收割時不會再被自動搬回 `_AIDocs/_atoms/`；被擋下的會在 `memory/_meta/atom_io_audit.jsonl` 留一行 `realm_hold`。手動用 atom-set-realm／atom-categorize 搬這種卡到 local 照搬，但會帶一行警告。
+- **改了什麼**（軌 track-realm-entry-pin 001）：`lib/atom_locations` 新增有名規則 `ENTRY_BOUND_STAYS_CORE` 與判定 `entry_bound_ids`（檔頭為準，讀不到檔才看索引）；`wg_atoms._sweep_realm_auto_migrate` 在本來要照詞庫搬或要喚 LLM 時先問它，綁了就不搬、不喚、留帳；`tools/atom-set-realm.py` 搬到 local 時回傳與 stderr 帶警告，`tools/atom-categorize.py apply` 把警告收進結果 `warnings`；TECH.md §4.3、SPEC §2.2 補一段。
+- **驗證**：`hooks/verify/verify_realm_sweep.py` 新 5 案（綁 E16 不搬且帳上有規則名、同卡拿掉 Entry 照搬；檔頭是真相；綁 Entry 不喚 LLM、本來不會搬的不留帳；atom-set-realm 與 atom-categorize 手動搬警告照搬），新 3 支 sweep 案換回基底 dd12d1a5 的程式全紅（都卡在「沒搬」斷言），其餘 12 支兩邊都綠。
 ## 2026-10-21 第三跑閘接縫八件：使用者放掉的紅測記帳不再三則後失效、點名與授權照原話放、唯讀內嵌 python 不再被擋、短句原話與定位行改語意判、收尾閘看整回合、對帳 git 改批次
 - **交給 AI 寫程式時會看到的**：使用者說跳過的紅測，不做行照擋訊息寫測試函式名就對得到，成立後記帳，之後使用者再說幾則別的也不會又被同一支紅測擋（收尾仍要有不做行）；放行都留帳。使用者點名資料檔就記點名豁免（帶原話片段），不再記成沿用舊宣告。回「回了我才 commit」的「其他照做」引用照擋訊息寫的規則放行。唯讀的多行 `python -c`、`python - <<'EOF'`、`import x as y` 不再被當成判不出寫入目標；寫檔照擋，擋訊息帶出 ast 判出的原因。原話整句（「要有測試。」）引用就算使用者說的。定位第四行「T1.1/T1.4（角色）」、第五行「X 不合理，更好的做法是…」照語意放行，擋訊息的句型改標建議寫法。被別的閘擋下後補件那則不重說完成，各收尾閘照本回合的宣告判。Stop 的寫碼查核每個 git 根固定 3 支 git。
 - **改了什麼**（軌 track-gate-small-fixes 004）：`wg_release_rules`（`names_failed_test`、`waived_failures` 帳與逐支豁免 `failed_units`／`_booked_for`／`_mentioned_since`、`_said_whole`／`_said_quote`、`goal_role` 串節點、`locate_critique_verdict` 理由位置、`inline_python_verdict` 別名與 builtins 動態執行、`inline_code_hint`）；`handlers/stop.py`（紅測豁免記帳、`_done` 整回合完成判定接到各收尾閘）；`wg_second_opinion.turn_completion_text`；`wg_evasion`／`wg_harvest` 收尾前置加 `claimed`；`wg_data_file` 點名先判；`handlers/pre_tool_use._quote_authorizes`；`wg_core` heredoc 內文交 ast、UNKNOWN 帶原因；`wg_verify_ledger`（`cat-file --batch-check`／`--batch` 取代 show-ref＋每 ref ls-tree＋每檔 git show）；`wg_overview` 定位範例改標建議寫法；MCP need_goal quote 說明。verify_stop_reconcile 錄製檔重錄。

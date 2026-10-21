@@ -17,7 +17,7 @@ import sys
 import time
 from collections import Counter
 from functools import lru_cache
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -61,7 +61,7 @@ try:
     from atom_locations import (
         classify_realm, is_local_realm_path,
         enumerate_local_paths, load_learned_lexicon, append_learned_terms,
-        LOCAL_REALM_DEFAULT_DOMAIN,
+        LOCAL_REALM_DEFAULT_DOMAIN, ENTRY_BOUND_STAYS_CORE, entry_bound_ids,
     )
 except ImportError:
     classify_realm = None
@@ -70,6 +70,8 @@ except ImportError:
     load_learned_lexicon = None
     append_learned_terms = None
     LOCAL_REALM_DEFAULT_DOMAIN = "Else"
+    ENTRY_BOUND_STAYS_CORE = "ENTRY_BOUND_STAYS_CORE"
+    entry_bound_ids = None
 
 
 # ─── Memory Index Parsing ────────────────────────────────────────────────────
@@ -2939,11 +2941,13 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     ② 詞庫 miss 的「unknown core」（非 protected）→ 喚 LLM（計畫 Fail-safe 表）：
       error（基礎設施失敗）→ defer 留原地（**防 Ollama 離線把全部掃進 Else**）；
       core → 留；local≥門檻 → 搬 canon domain + 學詞；unsure/低信心 → Else。
-    安全網：核心保護硬擋（protected）永不喚 LLM、永不搬；set_realm 原子搬（含 .access.json）/
+    安全網：核心保護硬擋（protected）永不喚 LLM、永不搬；ENTRY_BOUND_STAYS_CORE（綁 Entry 的卡）
+      本來要搬或要喚 LLM 時改成不搬、不喚，留帳 atom_io_audit.jsonl op=realm_hold；set_realm 原子搬（含 .access.json）/
       可 undo（--to-core）；max_per_session 限額；搬移寫 marker（含 via + doc-ref）不靜默。
     回 list of {slug, domain, from, to, via}（空 = 無搬移）。
     """
-    if classify_realm is None or is_local_realm_path is None or load_atom_index_json is None:
+    if (classify_realm is None or is_local_realm_path is None or load_atom_index_json is None
+            or entry_bound_ids is None):
         return []
     realm_cfg = config.get("realm", {})
     if not realm_cfg.get("auto_migrate", True):
@@ -2963,6 +2967,7 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         mod = _load_tool_module("atom-set-realm.py", "atom_set_realm")
         if mod is None:
             return []
+        from lib.atom_io import _audit_log, _gen_audit_id  # atom-set-realm 載入時已把程式碼根放進 sys.path
         llm_mod = _load_tool_module("realm_llm_classify.py", "realm_llm_classify") if llm_enabled else None
         existing_paths = list(enumerate_local_paths(MEMORY_DIR)) if enumerate_local_paths else []
 
@@ -2977,14 +2982,27 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             if _is_unconfirmed_autocapture(a):
                 continue  # P2: 未確認 auto-capture 碎片 → defer（不搬、不喚 LLM 學詞，斷詞庫污染源）
             rc = classify_realm(name, a.get("triggers", []), extra_lexicon=learned or None)
+            if rc.get("protected"):
+                continue  # 核心保護硬擋：永不喚 LLM、永不搬
+            lex_local = rc.get("realm") == "local"
+            if not lex_local and (llm_mod is None or llm_calls >= max_llm):
+                continue  # LLM 未啟用 / 額度用罄 → 留 core（defer）
+            entry_ids = entry_bound_ids(a, CLAUDE_DIR / path)
+            if entry_ids:  # ENTRY_BOUND_STAYS_CORE：本來要搬或要喚 LLM，改成不搬、不喚，留帳
+                _audit_log({
+                    "audit_id": _gen_audit_id(),
+                    "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # 同 realm_move 帳用 UTC
+                    "op": "realm_hold", "source": "hook:realm-sweep", "rule": ENTRY_BOUND_STAYS_CORE,
+                    "slug": name, "entry": entry_ids, "path": path,
+                    "would": f"lex:{rc.get('domain')}" if lex_local else "LLM",
+                })
+                continue
 
             target_dom: Optional[str] = None
             via: Optional[str] = None
-            if rc.get("realm") == "local":
+            if lex_local:
                 target_dom, via = rc.get("domain"), "lex"
-            elif rc.get("protected"):
-                continue  # 核心保護硬擋：永不喚 LLM、永不搬
-            elif llm_mod is not None and llm_calls < max_llm:
+            else:
                 llm_calls += 1
                 lr = llm_mod.llm_classify_realm(
                     name, a.get("triggers", []), _read_atom_excerpt(path), existing_paths, config)
@@ -2999,8 +3017,6 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                         existing_paths = sorted(set(existing_paths) | {target_dom})
                 else:  # unsure / 低信心 local → catch-all
                     target_dom, via = default_dom, "Else"
-            else:
-                continue  # LLM 未啟用 / 額度用罄 → 留 core（defer）
 
             if not target_dom:
                 continue
