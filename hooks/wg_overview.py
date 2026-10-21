@@ -1441,7 +1441,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         elif bad_content:
             vs_, node = bad_content
             missing.append("\n  ".join(_rr.format_hit('定位', v) for v in vs_)
-                           + "\n  照這個樣子補交一組（角括號換成你對這一塊的判斷）：\n" + _locate_example(row, goal_tree, node))
+                           + "\n  建議寫法（只是範例：候選、理由、節點與角色、批判與同類寫到了就算，句子順序不限；"
+                             "角括號換成你對這一塊的判斷）：\n" + _locate_example(row, goal_tree, node))
             deny_reason = "locate_content"
             import wg_need_goal as _ng
             _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"],

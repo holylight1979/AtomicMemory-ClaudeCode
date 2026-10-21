@@ -4151,6 +4151,85 @@ def test_p7_testfail_waives_only_the_cited_test_and_logs(driven, capsys):
     assert "TestFailGate" not in out
 
 
+def _turn_transcript(tmp_path, *assistant_texts):
+    """一個使用者回合：使用者一則、之後 AI 各則之間夾 Stop hook 回饋（isMeta，延續同一回合）。"""
+    import json as _json
+    recs = [{"type": "user", "message": {"role": "user", "content": "把報表改好"}}]
+    for k, t in enumerate(assistant_texts):
+        if k:
+            recs.append({"type": "user", "isMeta": True,
+                         "message": {"role": "user", "content": "Stop hook feedback:\n[Guardian:ReadingPath] 拐彎判斷要答"}})
+        recs.append({"type": "assistant", "message": {"content": [{"type": "text", "text": t}]}})
+    tp = tmp_path / "turn.jsonl"
+    tp.write_text("".join(_json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+    return str(tp)
+
+
+def test_004_patch_reply_without_completion_still_counts_the_turn_claim(driven, capsys, tmp_path):
+    """002 留的件：收尾說「全部完成」被別的閘擋下，補件那則只補缺的行、沒重說完成——收尾閘照本回合的宣告判（這裡用紅測閘看）；
+    最後一則明說還沒完成就不算。舊碼只看最後一則，補件那則放過紅測。"""
+    red = [{"cmd": "python -m pytest verify_a.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}]
+    patch = _turn_transcript(tmp_path, "報表改好了，全部完成。",
+                             "拐彎判斷｜report.py::monthly｜不會｜只有一層｜合理，因為直線算完就回")
+    out, _, _ = driven(None, capsys, hook_input={"transcript_path": patch}, failing_tests=red, modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out
+    undone = _turn_transcript(tmp_path, "報表改好了，全部完成。", "verify_a 還是紅的，這件還沒完成，我在查原因。")
+    out, _, _ = driven(None, capsys, hook_input={"transcript_path": undone}, failing_tests=red, modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" not in out
+
+
+_ERP = "tests/test_erp_contract.py::test_checkout_fields_match_erp_contract"
+_ERP_SAID = "test_erp_contract 那支是 ERP 對接的舊合約測試，先不用管它、跳過。其他照做。"
+
+
+@pytest.mark.parametrize("item", ["test_checkout_fields_match_erp_contract", "test_erp_contract"])
+def test_c6_waiver_by_test_name_is_booked_and_survives_the_window(driven, capsys, item):
+    """第三跑 C6：紅測摘要是 pytest 節點，不做行照擋訊息範本寫函式名（或檔名不帶 .py）要對得到；豁免一成立就記帳（state
+    testfail_waivers、testfail_waived、deferral_declared 各一筆），使用者之後又說三則別的、原句擠出近 3 則窗口，同一支照帳放行。"""
+    red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 5, "session_id": _SID, "pytest": True}]
+    text = f"全部完成了。\n不做｜{item}：使用者說「先不用管它、跳過」"
+    out, state, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=[_ERP_SAID], modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" not in out
+    led = state.get("testfail_waivers") or []
+    assert len(led) == 1 and led[0]["item"] == item and led[0]["quote"] == "先不用管它、跳過" and led[0]["said"] == _ERP_SAID
+    assert any(g == "testfail_waived" and p.get("via") == "quote" for g, p in logs)
+    assert any(g == "deferral_declared" and p.get("rule") == "USER_WAIVER_NEEDS_CITATION" for g, p in logs)
+    later = ["好", "再跑一次測試", "README 也順手更新"]
+    out, state2, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=later, testfail_waivers=led,
+                               modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" not in out, "原句不在近 3 則了，照帳放行"
+    assert any(g == "testfail_waived" and p.get("via") == "ledger" for g, p in logs)
+    assert len(state2["testfail_waivers"]) == 1, "同一支不重記"
+
+
+def test_c6_ledger_needs_the_line_and_covers_only_that_test(driven, capsys):
+    """帳只放帳上那一支，而且收尾仍要有對到它的不做行；別支紅測、或沒寫不做行，照擋。"""
+    led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "said": _ERP_SAID, "turn_seq": 5}]
+    erp = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 6, "session_id": _SID, "pytest": True}]
+    other = [{"cmd": "python -m pytest tests -q", "summary": "FAILED tests/test_cart.py::test_total", "turn_seq": 6,
+              "session_id": _SID, "pytest": True}]
+    out, _, _ = driven("全部完成了。", capsys, failing_tests=erp, recent_user_prompts=["好"], testfail_waivers=led,
+                       modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out, "沒寫不做行：帳不自動放"
+    out, _, _ = driven("全部完成了。\n不做｜test_total：使用者說「先不用管它、跳過」", capsys, failing_tests=other,
+                       recent_user_prompts=["好"], testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out, "帳上沒有 test_total"
+
+
+def test_004_waiver_ledger_books_the_test_and_yields_to_later_words(driven, capsys):
+    """codex 004：記帳時記下豁免到的那一支（units）；使用者之後又提到這一支（「取消剛才的豁免…要修好」）→ 帳不算、以新的話為準，
+    舊的不做行照擋。"""
+    red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 5, "session_id": _SID, "pytest": True}]
+    text = "全部完成了。\n不做｜test_erp_contract：使用者說「先不用管它、跳過」"
+    out, state, _ = driven(text, capsys, failing_tests=red, recent_user_prompts=[_ERP_SAID], modified_files=[_mf(_CASE, 5)])
+    led = state.get("testfail_waivers") or []
+    assert "TestFailGate" not in out and led[0]["units"] == [_ERP] and led[0]["cmd"] == red[0]["cmd"], led
+    later = [_ERP_SAID, "取消剛才的豁免，test_erp_contract 要修好", "好", "繼續"]
+    out, _, _ = driven(text, capsys, failing_tests=red, recent_user_prompts=later, testfail_waivers=led,
+                       modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out
+
+
 @pytest.fixture()
 def plain_dir():
     """不含 test 字樣的暫存目錄（pytest 的 tmp 路徑含 test，拿不到專案根時會被 `**/*test*` 當成案例檔，案子就驗不到東西）。"""
@@ -4381,6 +4460,60 @@ def _repo_with_code_and_case(base: Path):
     _git(repo, "add", ".")
     _git(repo, "commit", "-qm", "base")
     return repo, code, case
+
+
+def test_004_committed_equal_paths_git_calls_fixed_per_root(tmp_path):
+    """004 件 8：對帳閘查「內容回到已提交版本／只差註解」每個根固定 3 支 git（cat-file --batch-check、hash-object、
+    cat-file --batch），不隨改檔數與 ref 數長（舊碼：show-ref＋每個 ref 一支 ls-tree＋每個 .py 一支 git show）；判定照舊。"""
+    import subprocess
+    repo, code, _case = _repo_with_code_and_case(tmp_path)
+    extra = [repo / "src" / f"m{i}.py" for i in range(4)]
+    for p in extra:
+        p.write_text("def f():\n    return 1\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "more")
+    _git(repo, "branch", "-f", "main")                                  # 再多一個 ref 指到同一個 commit
+    for p in [code, *extra]:
+        p.write_text("# 只加註解\n" + p.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.run(cmd, **kw)
+    mods = [_mf(str(p), 5, last_at=_T2, last_seq=6) for p in [code, *extra]]
+    got = vl.committed_equal_paths(mods, vl.reconcile_cfg({}), budget_s=20.0, _run=run)
+    assert set(got) == {str(p) for p in [code, *extra]} and {v.rule for v in got.values()} == {"COMMENT_ONLY_CHANGE"}, got
+    assert len(calls) <= 3, [c[5:7] for c in calls]
+
+
+def test_004_batch_git_reads_mixed_missing_spaces_crlf_non_ascii_and_no_refetch(tmp_path):
+    """codex 004 NOTE：批次查詢的解析直接驗：同一支 cat-file --batch-check 裡成功與 missing 混排、路徑含空白與中文；cat-file --batch
+    取 CRLF／中文內容的 blob、混一個不存在的 sha；取內容失敗時同根不再重取（照算改了，呼叫次數不隨檔數長）。"""
+    import subprocess
+    import time
+    repo, _code, _case = _repo_with_code_and_case(tmp_path)
+    sp, zh = repo / "src" / "a b.py", repo / "src" / "中文.py"
+    sp.write_bytes(b"def f():\r\n    return 1\r\n")
+    zh.write_bytes("def g():\n    return '中文'\n".encode("utf-8"))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "more")
+    facts = vl.ref_blob_facts(repo, ["src/a b.py", "src/中文.py", "src/nope.py"], time.monotonic() + 20)
+    head = facts["blobs"]["HEAD"]
+    assert set(head) == {"src/a b.py", "src/中文.py"} and "HEAD" in facts["commits"], facts
+    texts = vl._blob_texts(repo, [head["src/a b.py"], head["src/中文.py"], "0" * 40], time.monotonic() + 20, None)
+    assert texts == {head["src/a b.py"]: "def f():\r\n    return 1\r\n", head["src/中文.py"]: "def g():\n    return '中文'\n"}, texts
+    for p in (sp, zh):
+        p.write_bytes(b"# c\n" + p.read_bytes())
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        if "--batch" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, b"", b"boom")
+        return subprocess.run(cmd, **kw)
+    mods = [_mf(str(p), 5, last_at=_T2, last_seq=6) for p in (sp, zh)]
+    got = vl.committed_equal_paths(mods, vl.reconcile_cfg({}), budget_s=20.0, _run=run)
+    assert got == {} and sum("--batch" in c for c in calls) == 1, [c[5:7] for c in calls]
 
 
 def _green(repo: Path, cmd: str, at: str, seq: int, turn: int = 5):

@@ -168,6 +168,19 @@ def test_prompt_naming_the_file_is_exempt(world):
     assert ev["event"] == "exempt" and ev["why"].startswith("(d) 不成立")
 
 
+def test_naming_after_earlier_declaration_is_exempt_not_state(world):
+    """第三跑 C4：本 session 先宣告動過 settings.json（state 記著），使用者之後在原話點名它——帳記點名豁免（exempt，帶原話片段），
+    不是沿用舊宣告（舊碼先看 state、命中就放，點名那條走不到）。"""
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", DECL)])
+    assert not _df_deny(_run(world)) and _log(world)[-1]["via"] == "text", "前置：舊宣告記進 state"
+    asked = "補一個：小數位放進 settings.json，之後改設定檔就好。"
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", "好"), _user(asked)])
+    assert not _df_deny(_run(world))
+    ev = _log(world)[-1]
+    assert ev["event"] == "exempt" and "via" not in ev and ev["why"].startswith("(d) 不成立")
+    assert "settings.json" in ev["quote"] and ev["quote"] in asked, "點名對得到原話"
+
+
 def test_prompt_naming_only_in_transcript_counts(world):
     """state 只留近 5 則：較早的原話在 transcript 裡點名也算（本 session 所有使用者原話）。"""
     _transcript(world["tp"], [_user("先記住：settings.json 等下要改"), _user(B1_PROMPT), _assistant("text", "好")])

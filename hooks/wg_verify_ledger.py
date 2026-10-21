@@ -1670,28 +1670,30 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
 
 # ─── 045：已提交版本的事實（CONTENT_EQUALS_COMMITTED／COMMENT_ONLY_CHANGE／RED_WHILE_REVERTED 共用）────────
 _REF_CANDIDATES = ("HEAD", "MERGE_HEAD", "main", "master")
-REF_BUDGET_S = 3.5       # 典型 4 次 git（show-ref、ls-tree、hash-object、show）；負載下每次可達 0.7 秒
+REF_BUDGET_S = 3.5       # 每個根典型 3 次 git（cat-file --batch-check、hash-object、cat-file --batch）；負載下每次可達 0.7 秒
 
 
-def _run_git(root: Path, args: List[str], timeout_s: float, _run: Optional[Callable[..., Any]] = None) -> Optional[str]:
-    """跑一次 git，回 stdout（utf-8）；失敗、非零、逾時 → None（stderr 一行）。"""
+def _run_git(root: Path, args: List[str], timeout_s: float, _run: Optional[Callable[..., Any]] = None,
+             stdin: Optional[bytes] = None, raw: bool = False) -> Any:
+    """跑一次 git，回 stdout（utf-8 字串；raw＝原位元組）；失敗、非零、逾時 → None（stderr 一行）。stdin 給 cat-file --batch 這類。"""
     run = _run or subprocess.run
     try:
         r = run(["git", "-c", "core.quotepath=false", "-C", str(root), *args], capture_output=True,
-                timeout=max(0.1, timeout_s), creationflags=_NO_WINDOW)
+                timeout=max(0.1, timeout_s), creationflags=_NO_WINDOW, **({"input": stdin} if stdin is not None else {}))
     except (OSError, subprocess.SubprocessError) as e:
         print(f"[verify_ledger] 在 {root} 跑 git {args[0]} 失敗：{type(e).__name__}: {e}", file=sys.stderr)
         return None
     if r.returncode != 0:
         return None
-    return r.stdout.decode("utf-8", "replace")
+    return r.stdout if raw else r.stdout.decode("utf-8", "replace")
 
 
 def ref_blob_facts(root: Path, rel_paths: List[str], deadline: Optional[float] = None,
                    _run: Optional[Callable[..., Any]] = None) -> Dict[str, Any]:
     """一個 git 根的已提交事實：{"commits": {ref: sha}, "blobs": {ref: {rel: blob}}, "current": {rel: blob}}。
-    ref 只看 HEAD／MERGE_HEAD／main／master（存在的才列）；current 用 `git hash-object`（套 clean filter，CRLF 不影響）。
-    預算到就少查（缺的 ref 當拿不到，呼叫端照算改了）。"""
+    ref 只看 HEAD／MERGE_HEAD／main／master（存在的才列）；ref 與每個 ref:檔 的 blob 一支 `git cat-file --batch-check` 問完
+    （不再每個 ref 一支 ls-tree）；current 用 `git hash-object`（套 clean filter，CRLF 不影響）。預算到就少查（缺的 ref 當拿不到，
+    呼叫端照算改了）。"""
     deadline = deadline if deadline is not None else time.monotonic() + REF_BUDGET_S
     out: Dict[str, Any] = {"commits": {}, "blobs": {}, "current": {}}
     if not rel_paths:
@@ -1699,47 +1701,21 @@ def ref_blob_facts(root: Path, rel_paths: List[str], deadline: Optional[float] =
     left = deadline - time.monotonic()
     if left < _GIT_MIN_S:
         return out
-    text = _run_git(root, ["show-ref", "--head"], left, _run) or ""
-    heads: Dict[str, str] = {}
-    for ln in text.splitlines():
-        parts = ln.split()
-        if len(parts) == 2:
-            heads[parts[1]] = parts[0]
-    for ref in _REF_CANDIDATES:
-        sha = heads.get(ref) or heads.get(f"refs/heads/{ref}")
-        if sha:
-            out["commits"][ref] = sha
-    if "MERGE_HEAD" not in out["commits"]:
-        # MERGE_HEAD 是 git 目錄裡的一行純文字（worktree 的 .git 是檔，指向 gitdir）：直接讀，省一次 git 子行程
-        try:
-            dot = root / ".git"
-            gitdir = dot if dot.is_dir() else Path(dot.read_text(encoding="utf-8", errors="replace").split("gitdir:", 1)[-1].strip())
-            gitdir = gitdir if gitdir.is_absolute() else root / gitdir
-            mh = (gitdir / "MERGE_HEAD").read_text(encoding="utf-8", errors="replace").split()
-            if mh and len(mh[0]) >= 7:
-                out["commits"]["MERGE_HEAD"] = mh[0]
-        except OSError:
-            pass
-    seen_sha: Dict[str, Dict[str, str]] = {}
-    for ref, sha in list(out["commits"].items()):
-        if sha in seen_sha:
-            out["blobs"][ref] = seen_sha[sha]
+    asks = [(ref, None) for ref in _REF_CANDIDATES] + [(ref, rel) for ref in _REF_CANDIDATES for rel in rel_paths]
+    text = _run_git(root, ["cat-file", "--batch-check"], left, _run,
+                    stdin="".join(f"{ref}:{rel}\n" if rel else f"{ref}\n" for ref, rel in asks).encode("utf-8"))
+    if text is None:
+        return out
+    for (ref, rel), line in zip(asks, text.splitlines()):
+        cols = line.split()
+        if len(cols) != 3 or cols[1] == "missing":
             continue
-        left = deadline - time.monotonic()
-        if left < _GIT_MIN_S:
-            break
-        tree = _run_git(root, ["ls-tree", "-z", sha, "--", *rel_paths], left, _run)
-        if tree is None:
-            continue
-        blobs: Dict[str, str] = {}
-        for ent in tree.split("\0"):
-            if not ent or "\t" not in ent:
-                continue
-            meta, rel = ent.split("\t", 1)
-            cols = meta.split()
-            if len(cols) >= 3:
-                blobs[rel.replace("\\", "/")] = cols[2]
-        out["blobs"][ref] = seen_sha[sha] = blobs
+        if rel is None and cols[1] == "commit":
+            out["commits"][ref] = cols[0]
+        elif rel is not None and cols[1] == "blob" and ref in out["commits"]:
+            out["blobs"].setdefault(ref, {})[rel.replace("\\", "/")] = cols[0]
+    for ref in out["commits"]:
+        out["blobs"].setdefault(ref, {})
     existing = [p for p in rel_paths if (root / p).is_file()]
     left = deadline - time.monotonic()
     if existing and left >= _GIT_MIN_S:
@@ -1755,17 +1731,27 @@ def _rel_in_root(path: str, root_key: str) -> Optional[str]:
     return n[len(root_key) + 1:] if n.startswith(root_key + "/") else None
 
 
-def _comment_only_vs_head(root: Path, rel: str, path: str, deadline: float, _run: Optional[Callable[..., Any]]) -> Optional[bool]:
-    """path 與 HEAD:rel 是否只差註解／docstring／空白；拿不到或判不了 → None。"""
+def _blob_texts(root: Path, shas: Iterable[str], deadline: float, _run: Optional[Callable[..., Any]]) -> Dict[str, str]:
+    """一支 `git cat-file --batch` 取多個 blob 的內容 {sha: 文字}（不再每檔一支 git show）；預算不夠、git 失敗 → 空（呼叫端當拿不到）。"""
+    shas = list(dict.fromkeys(s for s in shas if s))
     left = deadline - time.monotonic()
-    if left < _GIT_MIN_S or not str(path).lower().endswith((".py", ".pyw")):
-        return None
-    head_src = _run_git(root, ["show", f"HEAD:{rel}"], left, _run)
-    try:
-        cur_src = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    return comment_only_change(head_src, cur_src, path)
+    if not shas or left < _GIT_MIN_S:
+        return {}
+    data = _run_git(root, ["cat-file", "--batch"], left, _run, stdin="".join(f"{s}\n" for s in shas).encode("ascii"), raw=True)
+    out: Dict[str, str] = {}
+    pos = 0
+    while data and pos < len(data):
+        nl = data.find(b"\n", pos)
+        if nl < 0:
+            break
+        head = data[pos:nl].decode("ascii", "replace").split()
+        pos = nl + 1
+        if len(head) != 3 or not head[2].isdigit():
+            continue                                        # "<sha> missing"
+        size = int(head[2])
+        out[head[0]] = data[pos:pos + size].decode("utf-8", "replace")
+        pos += size + 1
+    return out
 
 
 def _head_after_own(root: Path, own: List[str], facts: Dict[str, Any], rel_list: List[str], deadline: float,
@@ -1835,6 +1821,23 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
         head_blobs = facts["blobs"].get("HEAD") or {}
         refs = committed_refs(own, facts["commits"], head_after_own=_head_after_own(root, own, facts, rel_list, deadline, _run))
         root_clean: Optional[bool] = None        # 同根其他改檔都等於 HEAD 或只差註解（只在需要時算一次）
+        head_src: Optional[Dict[str, str]] = None    # HEAD 版原始碼 {blob: 文字}：同根要比註解的 .py 一次取完，取不到也不再重取
+
+        def _comment_only(rel: str, path: str) -> Optional[bool]:
+            """path 與 HEAD:rel 是否只差註解／docstring／空白；拿不到或判不了 → None。"""
+            nonlocal head_src
+            if not str(path).lower().endswith((".py", ".pyw")) or not head_blobs.get(rel):
+                return None
+            if head_src is None:
+                head_src = _blob_texts(root, [head_blobs.get(r) for r in rel_list if r.lower().endswith((".py", ".pyw"))
+                                              and facts["current"].get(r) != head_blobs.get(r)], deadline, _run)
+            if head_blobs[rel] not in head_src:
+                return None
+            try:
+                cur_src = Path(path).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return None
+            return comment_only_change(head_src[head_blobs[rel]], cur_src, path)
 
         def _root_head_clean(skip: str) -> bool:
             for q, qrel in rels.items():
@@ -1844,7 +1847,7 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
                     return False
                 if facts["current"].get(qrel) and facts["current"].get(qrel) == head_blobs.get(qrel):
                     continue
-                if _comment_only_vs_head(root, qrel, q, deadline, _run) is not True:
+                if _comment_only(qrel, q) is not True:
                     return False
             return True
 
@@ -1866,7 +1869,7 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
                 continue                          # commit 過它：HEAD 就是自己的碼，不拿 HEAD 比
             if facts["current"].get(rel) == head_blobs.get(rel):
                 continue                          # 內容與 HEAD 一模一樣：那是 NET_UNCHANGED 的判定（它還看同根乾淨與預算），這裡不插手
-            if _comment_only_vs_head(root, rel, p, deadline, _run) is not True:
+            if _comment_only(rel, p) is not True:
                 continue
             if root_clean is None:
                 root_clean = _root_head_clean(p)

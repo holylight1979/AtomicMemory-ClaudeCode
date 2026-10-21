@@ -466,6 +466,7 @@ _ORDER_CLAUSE_END_RE = re.compile(r"[，,。！？!?；;\n]")
 _ORDER_NEG_RE = re.compile(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
                            r"|\b(?:don'?t|do\s+not|not|never|no)\b", re.IGNORECASE)
 _ORDER_WAIT_RE = re.compile(r"(?:等我|我看完|我確認|我說|我同意)[^，,。！？!?；;\n]*$")     # 延後到使用者自己確認之後
+_ORDER_WAIT_PHRASE_RE = re.compile(r"等我|我看完|我確認|我先看|晚點|稍後再")             # 整則原話裡有延後
 _ORDER_RIGHT_NEG_RE = re.compile(r"^\s*(?:先不要|不要|先別|別|先不|暫不|不用)\s*(?:了|啦|吧|喔)?\s*$")
 
 
@@ -479,13 +480,24 @@ def _order_negated(text: str, start: int, end: int) -> bool:
     return bool(_ORDER_NEG_RE.search(left) or _ORDER_WAIT_RE.search(left) or _ORDER_RIGHT_NEG_RE.match(right))
 
 
+def _quote_authorizes(p: str, i: int, q: str) -> bool:
+    """原話 p 在位置 i 的引用 q 算不算授權（擋訊息寫的規則：逐字在原話裡、所在子句沒被否定）。q 含提交類動作字 → 至少一個
+    動作字在原話裡沒被否定或延後；q 沒有動作字（「其他照做」這類，LLM 依上下文判斷是在回應提交）→ q 本身與它的子句沒有否定、
+    同一則原話裡沒有被否定或延後的提交動作字，也沒有「等我／我看完／我確認」這類延後。"""
+    words = list(_COMMIT_WORD_RE.finditer(q))
+    if words:
+        return any(not _order_negated(p, i + m.start(), i + m.end()) for m in words)
+    return not (_ORDER_NEG_RE.search(q) or _order_negated(p, i, i + len(q)) or _ORDER_WAIT_PHRASE_RE.search(p)
+                or any(_order_negated(p, m.start(), m.end()) for m in _COMMIT_WORD_RE.finditer(p)))
+
+
 def _quoted_authorization(command: str, turn_prompts: List[str]) -> Optional[str]:
-    """LLM 判斷使用者本回合的話是授權、在指令裡附「授權原句：「…」」：原句逐字出現在本回合使用者原話裡、含提交類動作字，
-    且至少一個動作字在原話裡沒被否定或延後 → 回原句；否則 None（照擋）。"""
+    """LLM 判斷使用者本回合的話是授權、在指令裡附「授權原句：「…」」：原句逐字出現在本回合使用者原話裡、
+    照 _quote_authorizes 沒被否定或延後 → 回原句；否則 None（照擋）。"""
     for q in (x.strip() for x in _AUTH_QUOTE_RE.findall(command or "")):
         for p in turn_prompts:
             i = p.find(q) if q else -1
-            if i >= 0 and any(not _order_negated(p, i + m.start(), i + m.end()) for m in _COMMIT_WORD_RE.finditer(q)):
+            if i >= 0 and _quote_authorizes(p, i, q):
                 return q
     return None
 

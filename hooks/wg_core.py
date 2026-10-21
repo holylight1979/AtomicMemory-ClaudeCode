@@ -1765,7 +1765,8 @@ _HEREDOC_TAG_RE = re.compile(r"^-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 class _Tok:
     """lexer 的一個 token。kind：W（字）／OUT（輸出重導向）／DUP（fd 複製，跳過）／IN（輸入重導向，跳過下一字）／
-    SEP（; && || | & 換行）／LP／RP。W 的 quoted＝任一部分被引號包過；subst＝字裡 $(…) 與反引號的內文。"""
+    SEP（; && || | & 換行）／LP／RP／HD（heredoc 內文，不是指令字；quoted＝定界符加了引號、shell 不展開）。
+    W 的 quoted＝任一部分被引號包過；subst＝字裡 $(…) 與反引號的內文。"""
     __slots__ = ("kind", "text", "quoted", "subst")
 
     def __init__(self, kind: str, text: str = "", quoted: bool = False, subst: Optional[List[str]] = None) -> None:
@@ -1853,9 +1854,11 @@ def _lex_shell(cmd: str) -> List[_Tok]:
             if pending_heredocs:
                 lines = cmd[i + 1:].split("\n")
                 skip = 0
-                for tag in pending_heredocs:
+                for tag, ph in pending_heredocs:
+                    start = skip
                     while skip < len(lines) and lines[skip].strip() != tag:
                         skip += 1
+                    ph.text = "\n".join(lines[start:skip])
                     skip += 1
                 pending_heredocs = []
                 consumed = sum(len(l) + 1 for l in lines[:skip])
@@ -1943,7 +1946,9 @@ def _lex_shell(cmd: str) -> List[_Tok]:
                     m = _HEREDOC_TAG_RE.match(cmd[j:])
                     if m:
                         flush()
-                        pending_heredocs.append(m.group(2))
+                        ph = _Tok("HD", "", quoted=bool(m.group(1)))     # heredoc 內文的位子：換行吞內文時填進來
+                        toks.append(ph)
+                        pending_heredocs.append((m.group(2), ph))
                         i = j + m.end()
                         continue
                 flush()
@@ -1982,12 +1987,13 @@ def _lex_shell(cmd: str) -> List[_Tok]:
 class _Scan:
     """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）、
     sources（cp／mv 家族：目標 → 它的來源絕對路徑）。"""
-    __slots__ = ("targets", "signal", "unknown", "ps", "sources")
+    __slots__ = ("targets", "signal", "unknown", "ps", "sources", "why")
 
     def __init__(self, ps: bool = False) -> None:
         self.targets: List[str] = []
         self.signal = False
         self.unknown: Optional[str] = None
+        self.why = ""                       # 內嵌碼被 ast 判成可能寫檔的原因（擋訊息帶出來，不叫人亂改寫法）
         self.ps = ps                        # PowerShell 工具：寫檔 cmdlet 的別名才生效（Bash 下 sc 是 sc.exe，不是 Set-Content）
         self.sources: Dict[str, List[str]] = {}
 
@@ -2126,7 +2132,21 @@ def _scan_tokens(toks: List[_Tok], cwd: Optional[str], out: _Scan) -> Optional[s
 def _mark_unknown(out: _Scan, seg: List[_Tok]) -> None:
     out.signal = True
     if out.unknown is None:
-        out.unknown = " ".join(t.text for t in seg if t.text)
+        out.unknown = " ".join(t.text for t in seg if t.text and t.kind != "HD")
+
+
+def _inline_python_code(args: List[str], lows: List[str], seg: List[_Tok]) -> str:
+    """python -c 的程式字串；`python -`（從 stdin 讀程式）取同一段 heredoc 的內文——只有一份 heredoc、沒有別的輸入重導向
+    （多份時 stdin 是最後那份、`<` 也會換掉它），而且定界符加了引號或內文沒有 $／反引號（否則 shell 會先展開）才算得準。
+    都不是回空字串（判不了）。"""
+    if "-c" in lows:
+        k = lows.index("-c") + 1
+        return args[k] if k < len(args) else ""
+    hds = [t for t in seg if t.kind == "HD"]
+    if ("-" in lows and len(hds) == 1 and not any(t.kind == "IN" for t in seg)
+            and (hds[0].quoted or not re.search(r"[$`]", hds[0].text))):
+        return hds[0].text
+    return ""
 
 
 def _add(out: _Scan, seg: List[_Tok], resolved: Optional[str]) -> None:
@@ -2286,7 +2306,7 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
         if t.kind == "IN":
             i += 2
             continue
-        if t.kind == "DUP":
+        if t.kind in ("DUP", "HD"):
             i += 1
             continue
         words.append(t)
@@ -2311,13 +2331,15 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     args = [w.text for w in words[k + 1:]]
     lows = [a.lower() for a in args]
     if name in _INTERPRETERS and any(a in _INTERPRETERS[name] for a in lows):
-        # 規則 INLINE_PY_READONLY：python -c 的程式碼用 ast 靜態判只讀 → 沒有寫入訊號；其他直譯器內嵌碼（node -e、python -、
-        # pwsh -Command）判不了照 UNKNOWN
-        if name in ("python", "python3", "py", "pythonw") and "-c" in lows and "-" not in lows:
-            code = args[lows.index("-c") + 1] if lows.index("-c") + 1 < len(args) else ""
+        # 規則 INLINE_PY_READONLY：python -c 的程式碼、`python -` 從 heredoc 讀的程式用 ast 靜態判只讀 → 沒有寫入訊號；
+        # 判出可能寫檔的原因記在 out.why（擋訊息帶出）；其他直譯器內嵌碼（node -e、pwsh -Command）判不了照 UNKNOWN
+        code = _inline_python_code(args, lows, seg) if name in ("python", "python3", "py", "pythonw") else ""
+        if code:
             from wg_release_rules import inline_python_verdict
-            if code and not inline_python_verdict(code).owed:
+            v = inline_python_verdict(code)
+            if not v.owed:
                 return cwd
+            out.why = out.why or v.why
         _mark_unknown(out, seg)
         return cwd
     if name == "eval":
@@ -2423,7 +2445,8 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
     if out is None or not out.signal:
         return []
     if out.unknown is not None:
-        return [f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}"]
+        why = f"｜內嵌碼：{out.why[:60]}" if out.why else ""
+        return [f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}{why}"]
     return out.targets
 
 

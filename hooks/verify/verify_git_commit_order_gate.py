@@ -74,6 +74,11 @@ def test_generic_vcs_word_alone_is_not_an_order(said):
     ("先不要 commit，我還要看 diff", "commit", False),                # 只引動作字也看它在原話裡的位置：左邊有「先不要」→ 擋
     ("先不要 commit，我還要看 diff", "我還要看 diff", False),          # codex WARN：引的片段沒有提交類動作字 → 擋
     ("commit 訊息怎麼寫？", "可以 commit", False),                    # 引用的話不在使用者原話裡 → 擋
+    # 第三跑 C-1 t4：在回 AI「回了我才 commit」，引用沒有動作字但逐字在原話、沒被否定 → 照擋訊息寫的規則放行
+    ("test_erp_contract 那支是 ERP 對接的舊合約測試，先不用管它、跳過。其他照做。", "其他照做", True),
+    ("先不要 commit，其他照做", "其他照做", False),                   # 同一則原話的提交被否定
+    ("其他先別做", "其他先別做", False),                              # 引用本身有否定
+    ("其他照做，等我看完 diff", "其他照做", False),                   # 同一則原話延後到使用者確認
 ])
 def test_quoted_user_sentence_authorizes_commit(said, quoted, allowed):
     cmd = f"# 授權原句：「{quoted}」\n{_CMD}"

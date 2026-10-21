@@ -56,8 +56,10 @@ RULES: Dict[str, str] = {
                                 "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。"
                                 "例外：HEAD 是別人接在本 session 最後一次提交之上做的提交（總控台把 main 合進工作分支，本 session 的 commit 快照"
                                 "拍在那之前）、而且同根本 session 改過的程式檔（含案例）全等於 HEAD → HEAD 也算已提交版本（退回看紅再還原不欠）。",
-    "INLINE_PY_READONLY": "python -c 的內嵌碼用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval → 不算寫入，放行；"
-                          "node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路（寫成腳本檔、python -m json.tool）。",
+    "INLINE_PY_READONLY": "python -c 的內嵌碼（多行也一樣）與 `python -` 從 heredoc 讀的程式（定界符加了引號、或內文沒有 $／反引號）"
+                          "用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval（含 builtins.exec 這類）→ 不算寫入，放行；"
+                          "import … as 取別名照判（看呼叫鏈尾的名字）。判出可能寫檔就照擋並在擋訊息帶出原因；node -e、pwsh -Command 判不了照擋，"
+                          "擋訊息指路（寫成腳本檔、python -m json.tool）。",
     "GIT_READONLY_SUBCMD": "跨層閘：指令裡每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file、"
                            "ls-tree、rev-list、blame、describe、branch 無改名）且沒有寫到根層的目標 → 放行；擋就留 guard-crossrealm.jsonl。",
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
@@ -121,7 +123,8 @@ RULES: Dict[str, str] = {
                            "對不上照收，對照摘要印「案例未見先紅」。只是紀錄，不是閘。",
     # G0 綜觀：動手前說出角色與兩個根因候選、收尾查改到的部位都掛到目標（wg_overview／wg_need_goal 收事實、這裡判）
     "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES": "有需求目標樹時改寫碼部位的定位四行：第四行「定位｜目標：<節點>（<角色>）」括號內要寫"
-                                                 "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄）；第二行「定位｜根因層」要辨識得出"
+                                                 "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄；幾個節點串寫「T1.1/T1.4（…）」也認）；"
+                                                 "第二行「定位｜根因層」要辨識得出"
                                                  "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
                                                  "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。",
     # G1 側觀：定位之後的批判與舉一反三（原話輯 G1 2026-10-15）
@@ -131,7 +134,8 @@ RULES: Dict[str, str] = {
                                     "有任何一個還是舊的 → 放行；AI 寫明「重載原因：…」（程式更新以外的理由）照它的判斷。依據是程序樹與服務自己"
                                     "記的版本，不是 session 名稱（Claude Code 沒寫進文件的命名行為）；「有沒有叫人重載」用字詞找，只當觸發點。",
     "LOCATE_LINES_NEED_CRITIQUE": "有需求目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判：…」：下「合理」或「不合理」的判斷並附理由"
-                                  "（因為／理由／原因／由於），不合理要寫更好的做法（更好／改成／應該／改用／換成），還要寫「同類還可能在哪：…」"
+                                  "（因為／理由／原因／由於，位置不限；「X 不合理」前面寫出哪裡不合理也算，套話不算），"
+                                  "不合理要寫更好的做法（更好／改成／應該／改用／換成），還要寫「同類還可能在哪：…」"
                                   "（或「無，因為…」）。同類欄位認最後一個「同類…：」標籤（理由裡提到同類不切斷）；「無」後面接標點、"
                                   "理由詞或行尾才算沒有同類（「無鎖佇列」是位置）。照抄範本不算交。與定位四行同一支判定、每個部位交一次；"
                                   "只看結構不評對錯，知識類部位不查。",
@@ -498,16 +502,16 @@ def inline_python_verdict(code: str) -> Verdict:
     except (SyntaxError, ValueError, RecursionError) as e:
         return Verdict("INLINE_PY_READONLY", True, f"內嵌碼解析不了（{type(e).__name__}）", (str(code)[:60],))
     call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    # import … as 取別名照判：寫入靠呼叫鏈尾的名字判（o.remove 一樣抓得到），別名只拿來認出 builtins 的動態執行
+    aliases = {a.asname: a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names if a.asname}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names = [a.name.split(".")[0] for a in node.names] if isinstance(node, ast.Import) else [str(node.module or "").split(".")[0]]
             bad = [n for n in names if n in _DENY_MODULES]
             if bad:
                 return Verdict("INLINE_PY_READONLY", True, f"內嵌碼匯入 {bad[0]}（可能寫檔或跑子行程）", (f"import {bad[0]}",))
-            if isinstance(node, ast.Import) and any(a.asname for a in node.names):
-                return Verdict("INLINE_PY_READONLY", True, "內嵌碼用 import … as 取別名，判不了呼叫的是誰", (ast.dump(node)[:60],))
-            if isinstance(node, ast.ImportFrom) and any(a.name == "*" or a.asname for a in node.names):
-                return Verdict("INLINE_PY_READONLY", True, "內嵌碼 from … import 取別名或 *，判不了呼叫的是誰", (ast.dump(node)[:60],))
+            if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
+                return Verdict("INLINE_PY_READONLY", True, "內嵌碼 from … import *，判不了呼叫的是誰", (ast.dump(node)[:60],))
             if isinstance(node, ast.ImportFrom) and any(a.name in _DENY_ATTRS or a.name in _DENY_NAMES for a in node.names):
                 bad = next(a.name for a in node.names if a.name in _DENY_ATTRS or a.name in _DENY_NAMES)
                 return Verdict("INLINE_PY_READONLY", True, f"內嵌碼 from … import {bad}（刪搬寫或動態執行）", (bad,))
@@ -533,6 +537,9 @@ def inline_python_verdict(code: str) -> Verdict:
                 continue
             if chain in _ALLOW_WRITE_CHAINS:
                 continue
+            root = chain.split(".", 1)[0]
+            if "." in chain and aliases.get(root, root) in ("builtins", "__builtins__") and leaf in _DENY_NAMES:
+                return Verdict("INLINE_PY_READONLY", True, f"內嵌碼呼叫 {chain}（動態執行或互動）", (chain,))
             if leaf in _DENY_ATTRS and "." in chain:
                 return Verdict("INLINE_PY_READONLY", True, f"內嵌碼呼叫 {chain}（刪搬寫或子行程）", (chain,))
             if isinstance(node.func, ast.Name) and node.func.id in _DENY_NAMES:
@@ -556,8 +563,9 @@ def inline_code_hint(interp: str) -> str:
         return "node -e 的內嵌碼閘判不了：把程式寫成腳本檔再 `node <檔>`，或改用 Read／Grep 查資料。"
     if low.startswith(("pwsh", "powershell")):
         return "pwsh -Command 的內嵌碼閘判不了：把程式寫成 .ps1 腳本檔再執行，或改用 Read／Grep 查資料。"
-    return ("python - heredoc 閘判不了：只讀的話改 `python -c '<單行>'`（ast 會放行）、`python -m json.tool <檔>`，"
-            "或把程式寫成腳本檔再 `python <檔>`。")
+    return ("python -c／python - heredoc 的內嵌碼由 ast 判：上面「內嵌碼：」後面是被判成可能寫檔或判不了的原因（open 寫入模式、"
+            "刪搬寫或子行程呼叫、exec／eval、定義函式、from … import *；heredoc 定界符沒加引號又含 $ 時 shell 會先展開，也判不了）。"
+            "只讀的話拿掉那個寫法、或改 `python -m json.tool <檔>`；真的要寫檔改用 Edit／Write，或寫成腳本檔再 `python <檔>`。")
 
 
 # ─── B5 GIT_READONLY_SUBCMD ────────────────────────────────────────────────────
@@ -1189,11 +1197,18 @@ def root_candidates(root_line: str) -> List[int]:
     return out
 
 
+_CHAINED_NODES_RE = re.compile(r"^(?:\s*[/／、,，+＋]\s*T\d+(?:\.\d+)*)+")
+# 「不合理」前面寫的若只是這類套話，不算指出哪裡不合理
+_GENERIC_SUBJECT_RE = re.compile(r"這段|這裡|這樣|現在|目前|現行|現|的|寫法|做法|設計|程式|邏輯")
+
+
 def goal_role(goal_line: str, node_id: str) -> str:
-    """第四行節點編號後面括號（全形或半形）裡的角色；沒有括號回空字串（角色要寫在括號裡）。"""
+    """第四行節點編號後面括號（全形或半形）裡的角色；編號後面先接著別的節點編號（T1.1/T1.4、T1.2、T1.3）就跳過去再找括號。
+    沒有括號回空字串（角色要寫在括號裡）。"""
     v = str(goal_line or "")
     i = v.find(node_id) if node_id else -1
-    m = re.match(r"\s*[（(](.*?)[）)]", v[i + len(node_id):] if i >= 0 else v)
+    rest = _CHAINED_NODES_RE.sub("", v[i + len(node_id):] if i >= 0 else v, count=1)
+    m = re.match(r"\s*[（(](.*?)[）)]", rest)
     return m.group(1).strip() if m else ""
 
 
@@ -1270,21 +1285,21 @@ def locate_critique_verdict(line: str) -> Verdict:
     missing: List[str] = []
     bad = _UNREASONABLE_RE.search(head)
     if bad:
-        rest = head[bad.end():]
-        if not _REASON_RE.search(rest):
-            missing.append("判「不合理」沒寫理由（不合理，因為 …）")
-        if not _BETTER_RE.search(rest):
-            missing.append("判「不合理」沒寫更好的做法（更好的做法是 …）")
+        named = _GENERIC_SUBJECT_RE.sub("", _role_core(head[:bad.start()]))     # 「X 不合理」：X 就是哪裡不合理
+        if not (_REASON_RE.search(head) or len(named) >= 2):
+            missing.append("判「不合理」沒寫理由（建議寫法：不合理，因為 …；或把哪裡不合理寫在前面）")
+        if not _BETTER_RE.search(head):
+            missing.append("判「不合理」沒寫更好的做法（建議寫法：更好的做法是 …）")
     elif _REASONABLE_RE.search(head):
         if not _REASON_RE.search(head):
-            missing.append("判「合理」沒寫理由（合理，因為 …）")
+            missing.append("判「合理」沒寫理由（建議寫法：合理，因為 …）")
     else:
-        missing.append("沒下這段寫法合不合理的判斷（合理，因為 …／不合理，因為 …，更好的做法是 …）")
+        missing.append("沒下這段寫法合不合理的判斷（建議寫法：合理，因為 …／不合理，因為 …，更好的做法是 …）")
     if where is not None and _SAME_NONE_RE.match(where):
         if not (_REASON_RE.search(where) and len(_role_core(_REASON_RE.split(where, 1)[-1])) >= 2):
-            missing.append("同類寫「無」要附為什麼沒有（無，因為 …）")
+            missing.append("同類寫「無」要附為什麼沒有（建議寫法：無，因為 …）")
     elif where is None or len(_role_core(where)) < 2:
-        missing.append("沒寫同類還可能在哪（同類還可能在哪：…；沒有就寫「無，因為 …」）")
+        missing.append("沒寫同類還可能在哪（建議寫法：同類還可能在哪：…；沒有就寫「無，因為 …」）")
     if not missing:
         return Verdict(rule, False, "批判那行有判斷、理由與同類別處")
     return Verdict(rule, True, "；".join(missing), (f"定位｜批判：{text}",))
@@ -1947,7 +1962,12 @@ RULES.update({
     "USER_WAIVER_NEEDS_CITATION": "使用者豁免不再整段清掉：近 3 則使用者原話含「先這樣／跳過／留著」不直接關掉退避偵測、退縮歸屬、紅測清單。"
                                   "LLM 要寫「不做｜<哪一件>：使用者說「<原句片段>」」且片段（至少 2 個中文或英數字，純標點不算；英文片段整詞比對）"
                                   "真的出現在近 3 則使用者原話裡 → 只豁免那一件；紅測清單只豁免事項指得到那一筆的（事項是失敗指令或摘要的一個"
-                                  "完整 token：整個 token、檔名、路徑或節點尾段；通用字不算）。沒引用、引用找不到 → 照判。",
+                                  "完整 token：整個 token、檔名、路徑或節點尾段；pytest 節點也認函式名、類別名與不帶副檔名的檔名；通用字不算）；"
+                                  "摘要逐支列出失敗（FAILED／ERROR 行）時每一支各自要有豁免，有一支沒有整筆照算紅。"
+                                  "紅測豁免一成立就記帳（state testfail_waivers：事項、原句、那一則原話、豁免到的那幾支；留帳 testfail_waived 與 "
+                                  "deferral_declared），之後同 session 同一支（記帳那時的同一個節點；摘要沒列節點的比同一條指令）看帳、不看近 3 則窗口，"
+                                  "但收尾仍要有對到它的不做行；使用者在記帳之後又提到這一支 → 帳不算，以新的話為準（回到近 3 則引用判）。"
+                                  "沒引用、引用找不到、帳上沒有 → 照判。",
 })
 
 CLAIM_LABELS: Dict[str, str] = {"fixed": "修好", "measured": "量了", "tried": "試過"}
@@ -2163,17 +2183,99 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
     return Verdict("NOT_DOING_DECLARED", True, "不做行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
 
 
-def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]],
-                    prompts: Sequence[str]) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], Dict[str, str]]]]:
-    """USER_WAIVER_NEEDS_CITATION 套在紅測清單：回 (還算紅的, [(被豁免的那筆, 對上的不做行)])。
-    豁免條件：不做行帶使用者引用、引用在原話裡、事項指得到那筆失敗的指令或摘要裡的一個完整 token（names_item；通用字不算）。"""
-    cited = [d for d in decls if d.get("mode", "not_doing") == "not_doing" and d["quote"] and quote_in_prompts(d["quote"], prompts)]
+def names_failed_test(text: str, item: str) -> bool:
+    """USER_WAIVER_NEEDS_CITATION 的事項比對：names_item 之外，紅測摘要裡的 pytest 節點（檔::類::函式[參數]）也認函式名、類別名與
+    不帶副檔名的檔名：擋訊息範本叫 AI 寫「紅的那支測試名」，照寫的就是這些。通用字、含空白的事項不放寬。"""
+    if names_item(text, item):
+        return True
+    it = str(item or "").strip().strip("`").lower()
+    if not it or " " in it or is_generic_name(it):
+        return False
+    for raw in _WS_RE.sub(" ", str(text or "")).lower().split(" "):
+        tok = raw.strip(_TOKEN_TRIM).replace("\\", "/")
+        if "::" not in tok:
+            continue
+        path, *parts = tok.split("::")
+        name = path.rsplit("/", 1)[-1]
+        if (it in (name, name.rsplit(".", 1)[0]) or ("/" in it and (path == it or path.endswith("/" + it)))
+                or any(it in (p, p.split("[", 1)[0]) for p in parts)):
+            return True
+    return False
+
+
+_FAILED_UNIT_RE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+
+
+def failed_units(summary: Any) -> List[str]:
+    """紅測摘要裡 pytest 逐支列出的失敗（FAILED／ERROR 開頭那幾行的節點或檔，收集錯誤只有檔），小寫正斜線；沒列就空。"""
+    return list(dict.fromkeys(m.group(1).replace("\\", "/").lower() for m in _FAILED_UNIT_RE.finditer(str(summary or ""))))
+
+
+def _mentioned_since(entry: Dict[str, Any], history: Sequence[str]) -> bool:
+    """帳記下之後使用者又提到這一支：history（近幾則原話，舊到新）裡記帳那則原話之後（那則不在了就整段）出現事項、或帳上那幾支的
+    檔名／不帶副檔名的檔名／函式名（使用者不一定用同一個名字叫它；中文句子不靠空白斷詞，只要前後不是英數字）。通用字不算。"""
+    names = [str(entry.get("item") or "")]
+    for u in entry.get("units") or ():
+        path, *parts = str(u).split("::")
+        base = path.rsplit("/", 1)[-1]
+        names += [base, base.rsplit(".", 1)[0], *(p.split("[", 1)[0] for p in parts)]
+    words = {n.strip().lower() for n in names if n.strip() and not is_generic_name(n)}
+    if not words:
+        return False
+    pat = re.compile("|".join(rf"(?<![a-z0-9_]){re.escape(w)}(?![a-z0-9_])" for w in sorted(words)))
+    said = str(entry.get("said") or "")[:200]
+    at = max((i for i, h in enumerate(history) if said and str(h)[:200] == said), default=-1)
+    return any(pat.search(str(h).lower()) for h in history[at + 1:])
+
+
+def _booked_for(entry: Dict[str, Any], unit: str, listed: bool, cmd: str) -> bool:
+    """帳上這筆是不是同一支：摘要逐支列出時比記帳那時的同一個節點（別檔同名函式不算）；沒列出時比同一條指令＋事項。"""
+    if listed:
+        return unit in (entry.get("units") or ())
+    return not entry.get("units") and entry.get("cmd") == cmd[:200] and names_failed_test(unit, str(entry.get("item") or ""))
+
+
+def _unit_waiver(unit: str, listed: bool, cmd: str, cited: Sequence[Dict[str, str]], lines: Sequence[Dict[str, str]],
+                 ledger: Sequence[Dict[str, Any]]) -> Optional[Dict[str, str]]:
+    hit = next(({**d, "via": "quote"} for d in cited if names_failed_test(unit, d["item"])), None)
+    if hit is not None:
+        return hit
+    booked = next((e for e in ledger if _booked_for(e, unit, listed, cmd)), None)
+    if booked is None:
+        return None
+    return next(({**d, "quote": d["quote"] or str(booked.get("quote") or ""), "via": "ledger"}
+                 for d in lines if names_failed_test(unit, d["item"])), None)
+
+
+def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], prompts: Sequence[str],
+                    ledger: Sequence[Dict[str, Any]] = (), history: Sequence[str] = ()
+                    ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], Dict[str, Any]]]]:
+    """USER_WAIVER_NEEDS_CITATION 套在紅測清單：回 (還算紅的, [(被豁免的那筆, 對上的不做行＋via＋units)])。
+    豁免條件：不做行的事項指得到那支失敗（names_failed_test；通用字不算），而且引用在近 3 則原話裡（via＝quote）；或本 session
+    帳上（ledger＝state testfail_waivers，豁免成立時記的）有同一支的豁免（via＝ledger：引用看帳、不看窗口）。
+    摘要逐支列出失敗（failed_units）時每一支各自要有豁免，有一支沒有整筆照算紅；沒列出就整筆（指令＋摘要）當一支。
+    帳只認記帳那時的同一支（_booked_for），而且使用者在那之後沒再提到這支（history＝近幾則原話，預設 prompts；提到了就以新的話
+    為準，回到引用窗口判）；帳不自動放：收尾仍要有對到那一支的不做行。"""
+    lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
+    cited = [d for d in lines if d["quote"] and quote_in_prompts(d["quote"], prompts)]
+    hist = list(history or prompts)
+    live = [e for e in ledger or () if not _mentioned_since(e, hist)]
     kept: List[Dict[str, Any]] = []
-    waived: List[Tuple[Dict[str, Any], Dict[str, str]]] = []
+    waived: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     for f in failing:
-        hay = f"{(f or {}).get('cmd', '')} {(f or {}).get('summary', '')}"
-        hit = next((d for d in cited if names_item(hay, d["item"])), None)
-        (waived.append((f, hit)) if hit else kept.append(f))
+        cmd = str((f or {}).get("cmd", ""))
+        units = failed_units((f or {}).get("summary", ""))
+        hits = [_unit_waiver(u, bool(units), cmd, cited, lines, live)
+                for u in units or [f"{cmd} {(f or {}).get('summary', '')}"]]
+        if not all(hits):
+            kept.append(f)
+            continue
+        merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for u, h in zip(units or [""], hits):
+            got = merged.setdefault((h["line"], h["via"]), {**h, "units": []})
+            if u:
+                got["units"].append(u)
+        waived += [(f, h) for h in merged.values()]
     return kept, waived
 
 
@@ -2282,15 +2384,44 @@ def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Seque
 # 目標樹子節點標「使用者說的」要對得到原話（wg_need_goal 的 add／update 收事實、這裡判）。只核字面在不在、是誰說的；
 # 要不要標、引哪一句由 AI 判（引一句不相干的原話硬掛，程式看不出來：quote 與節點文字並列留帳給人抽查）
 RULES.update({
-    "ORIGIN_USER_NEEDS_QUOTE": "目標樹子節點標 origin=user（使用者說的）：quote 或節點文字本身（去頭尾空白、至少 6 字、不正規化標點）"
-                               "要是樹上某則使用者原話（user_said，含匯入的前一個 session 原話）的字面子串；對不到、或只出現在同伴轉述"
+    "ORIGIN_USER_NEEDS_QUOTE": "目標樹子節點標 origin=user（使用者說的）：quote 或節點文字本身（去頭尾空白、不正規化標點）"
+                               "要是樹上某則使用者原話（user_said，含匯入的前一個 session 原話）的字面子串，至少 6 字；不到 6 字要是某則原話"
+                               "的整句（前後是句首、句末標點或換行，逗號不算句界；去掉句末標點至少 2 個字；引用自帶句末標點時要跟原話"
+                               "那個標點一樣）；對不到、或只出現在同伴轉述"
                                "（peer_said）裡 → 強制改 inferred（推出來的）並提醒。樹根與匯入的節點不核。",
 })
 ORIGIN_QUOTE_MIN = 6
+_SENTENCE_END = "。！？!?；;\n"
+_SENTENCE_TAIL_RE = re.compile(r"[。！？!?；;\s]+$")
 
 
 def _said_with(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
     return next((e for e in entries or () if isinstance(e, dict) and s in str(e.get("text") or "")), None)
+
+
+def _said_whole(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
+    """不到 ORIGIN_QUOTE_MIN 字的引用要是某則原話的整句：去掉尾端句末標點後至少 2 個字，在原話裡左邊是開頭或句末標點、
+    右邊是句末標點或結尾（逗號不算句界：「好，」「有測試」這種片段不算）。"""
+    core = _SENTENCE_TAIL_RE.sub("", s)
+    tail = _WS_RE.sub("", s[len(core):])           # 引用自帶的句末標點要跟原話一樣（「要有測試。」對不到「要有測試？」）
+    if len(re.sub(r"[\W_]", "", core)) < 2:
+        return None
+    for e in entries or ():
+        text = str(e.get("text") or "") if isinstance(e, dict) else ""
+        at = text.find(core)
+        while at >= 0:
+            left, right = text[:at].rstrip(" \t"), text[at + len(core):].lstrip(" \t")
+            if (not left or left[-1] in _SENTENCE_END) and (right.startswith(tail) if tail else (not right or right[0] in _SENTENCE_END)):
+                return e
+            at = text.find(core, at + 1)
+    return None
+
+
+def _said_quote(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
+    """ORIGIN_USER_NEEDS_QUOTE 的比法：至少 6 字比字面子串，不到 6 字比整句。"""
+    if not s:
+        return None
+    return _said_with(s, entries) if len(s) >= ORIGIN_QUOTE_MIN else _said_whole(s, entries)
 
 
 def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
@@ -2301,18 +2432,16 @@ def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
     q = quote.strip() if isinstance(quote, str) else ""
     t = text.strip() if isinstance(text, str) else ""
     for s, how in ((q, "quote"), (t, "節點文字")):
-        if len(s) < ORIGIN_QUOTE_MIN:
-            continue
-        hit = _said_with(s, user_said)
+        hit = _said_quote(s, user_said)
         if hit is not None:
             return ("user", Verdict(rule, False, f"{how}對得到第 {hit.get('turn', '?')} 回合的使用者原話", (f"引用：{s[:120]}",)),
                     {"quote": s, "said": hit})
     s = q or t
-    peer = _said_with(s, peer_said) if len(s) >= ORIGIN_QUOTE_MIN else None
+    peer = _said_quote(s, peer_said)
     if peer is not None:
         why = f"這句是同伴 {peer.get('from') or '?'} 說的，不是使用者"
     elif q and len(q) < ORIGIN_QUOTE_MIN:
-        why = f"quote 只有 {len(q)} 字，至少要 {ORIGIN_QUOTE_MIN} 字"
+        why = f"quote 只有 {len(q)} 字：至少要 {ORIGIN_QUOTE_MIN} 字，或是某則使用者原話的整句"
     elif q:
         why = "quote 不在任何一則使用者原話裡"
     elif len(t) < ORIGIN_QUOTE_MIN:
