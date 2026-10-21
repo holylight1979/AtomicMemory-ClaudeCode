@@ -8245,6 +8245,26 @@
         "進度計數"
       ],
       "scope": "global"
+    },
+    {
+      "name": "外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔",
+      "path": "memory/CC與原子記憶契約/外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔.md",
+      "triggers": [
+        "~/.claude.json",
+        "claude.json 寫入",
+        "hasTrustDialogAccepted",
+        "信任鍵",
+        "proper-lockfile",
+        ".claude.json.lock",
+        "saveConfigWithLock",
+        "原子寫入 config",
+        "整份覆寫設定檔",
+        "console-spawn ensure_trust"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/tools/console-spawn.py"
+      ]
     }
   ]
 }
