@@ -137,9 +137,12 @@ def on_stop(state: Dict[str, Any], session_id: str, reply: str, mods: List[Dict[
 
 
 def _note_copied(mine: Dict[str, Any], session_id: str, reply: str, turn: int) -> bool:
-    """這回合送到眼前的評分一行，回覆裡照抄了 → 記 copied 一次（E37 的回應）。"""
+    """這回合送到眼前的評分一行，照抄成回覆的最後一行（最後一個非空行）→ 記 copied 一次（E37 的回應）；只在中段引用不算。"""
     shown = mine.get("shown") or {}
-    if not shown or shown.get("copied") or shown.get("turn") != turn or shown.get("line", "\0") not in (reply or ""):
+    if not shown or shown.get("copied") or shown.get("turn") != turn:
+        return False
+    lines = [ln.strip() for ln in (reply or "").splitlines() if ln.strip()]
+    if not lines or lines[-1] != shown.get("line"):
         return False
     shown["copied"] = True
     append_guard_log("text_score_tail", {"event": "copied", "session_id": session_id, "turn_seq": turn,
@@ -206,8 +209,21 @@ def _load_tool():
     return mod
 
 
+def _run_task(tool: Any, task: Dict[str, Any], session: str) -> None:
+    """評一份：final_reply 從 stdin 餵、docs 給路徑。出錯（含 argparse 的 SystemExit）只記這份。"""
+    argv = ["--auto-kind", str(task.get("kind")), "--session", session, "--tail-line"]
+    try:
+        if task.get("kind") == "final_reply":
+            sys.stdin = io.TextIOWrapper(io.BytesIO(str(task.get("text") or "").encode("utf-8")), encoding="utf-8")
+            tool.main(["-", *argv])
+        else:
+            tool.main([str(task.get("path")), *argv])
+    except (Exception, SystemExit) as e:  # noqa: BLE001
+        print(f"{TAG} {task.get('kind')} {task.get('path') or ''} 評分出錯：{type(e).__name__}: {e}", file=sys.stderr)
+
+
 def run_job(job_path: Path) -> int:
-    """逐份呼叫 text-score 的 main（同一行程，不再起子行程）。一份出錯（含 argparse 的 SystemExit）只記那份，其餘照評；
+    """逐份呼叫 text-score 的 main（同一行程，不再起子行程），一份出錯不影響其他份；
     不管成敗都刪工作檔（讀不到、載不到評分工具也刪：留著沒人會再跑它）。"""
     if sys.stderr is None:   # pythonw 沒接上 stderr 時，錯誤照樣落 worker.log
         sys.stderr = open(JOB_DIR / "worker.log", "a", encoding="utf-8", newline="\n")
@@ -215,17 +231,7 @@ def run_job(job_path: Path) -> int:
         job = json.loads(job_path.read_text(encoding="utf-8"))
         tool = _load_tool()
         for task in job.get("tasks") or []:
-            argv = ["--auto-kind", str(task.get("kind")), "--session", str(job.get("session") or ""), "--tail-line"]
-            try:
-                if task.get("kind") == "final_reply":
-                    sys.stdin = io.TextIOWrapper(io.BytesIO(str(task.get("text") or "").encode("utf-8")),
-                                                 encoding="utf-8")
-                    tool.main(["-", *argv])
-                else:
-                    tool.main([str(task.get("path")), *argv])
-            except (Exception, SystemExit) as e:  # noqa: BLE001
-                print(f"{TAG} {task.get('kind')} {task.get('path') or ''} 評分出錯：{type(e).__name__}: {e}",
-                      file=sys.stderr)
+            _run_task(tool, task, str(job.get("session") or ""))
         return 0
     except Exception as e:  # noqa: BLE001
         print(f"{TAG} 工作檔 {job_path} 沒評成：{type(e).__name__}: {e}", file=sys.stderr)

@@ -63,6 +63,13 @@ def load_records(path: Path) -> Tuple[List[Dict[str, Any]], int]:
     return records, bad
 
 
+def judges_of(used: Any) -> List[str]:
+    """這則實際回答的裁判；舊紀錄沒有 models_used 記「沒記」，裁判都不在（空清單）記「沒回答」。"""
+    if not isinstance(used, list):
+        return ["沒記"]
+    return [str(m) for m in used] or ["沒回答"]
+
+
 def item_key(it: Dict[str, Any]) -> str:
     return it.get("verdict") if it.get("status") == "判定" else it.get("status", "未評")
 
@@ -79,9 +86,7 @@ def summarize(records: List[Dict[str, Any]], weeks: List[str]) -> Dict[str, Any]
         s["records"] += 1
         s["unscored"] += rec.get("overall") == "未評"
         s["shas"].add(rec.get("spec_sha"))
-        used = rec.get("models_used")
-        s["judges"].update([str(m) for m in used] if isinstance(used, list) and used
-                           else ["沒回答" if isinstance(used, list) else "沒記"])
+        s["judges"].update(judges_of(rec.get("models_used")))
         s["kinds"][str(rec.get("kind") or "沒記")] += 1
         for it in rec["items"]:
             key = item_key(it)

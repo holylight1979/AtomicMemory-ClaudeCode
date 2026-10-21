@@ -233,7 +233,9 @@ def test_tail_note_once_then_copied_resolves_declared(world):
     asks = [r for r in _guard(world, "entry") if r.get("event") == "ask"]
     assert [(a["entry"], a["path"], a["session_id"], a["text_sha"]) for a in asks] == [("E37", "user_prompt", SID, sha)]
     assert wts.on_stop(state, SID, "短回覆，沒照抄。", [], 6, CFG) is False and _guard(world, "text_score_tail") == []
-    assert wts.on_stop(state, SID, f"做完了。\n\n{first}", [], 6, CFG) is True
+    assert wts.on_stop(state, SID, f"引用：\n{first}\n後面還有正文。", [], 6, CFG) is False       # 中段引用不算照抄
+    assert _guard(world, "text_score_tail") == []
+    assert wts.on_stop(state, SID, f"做完了。\n\n{first}\n  \n", [], 6, CFG) is True            # 最後一個非空行才算
     [copied] = _guard(world, "text_score_tail")
     assert (copied["event"], copied["turn_seq"], copied["text_sha"]) == ("copied", 6, sha)
     [got] = ep.resolve_responses(asks, {"text_score_tail": _guard(world, "text_score_tail")})
