@@ -228,11 +228,12 @@ RESPONSE_TYPES = ("declared", "denied", "judged", "released", "none")
 
 def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Dict[str, Any]] = None,
                config: Optional[Dict[str, Any]] = None, registry: Optional[Dict[str, Any]] = None,
-               pool: Optional[List[Dict[str, Any]]] = None) -> str:
+               pool: Optional[List[Dict[str, Any]]] = None, extra: Optional[Dict[str, Any]] = None) -> str:
     """問的那一刻的單一入口：text 是程式這次要送給 LLM 的問句、path 是哪條路問（登錄表 path_values）。
     認出切入點 → 挑判準卡 → 每個認出的切入點記一筆帳 → 回要接在問句後面的文字（沒認出或沒卡回空字串）。
     帳一筆一個切入點：時間、session、回合（state 的 turn_seq，沒有 state 記 null）、代號、路、這個切入點送了哪幾張卡、
     有沒有截斷、同一問句還認出哪些代號、回應型（問的當下還沒有回應，記 none；之後 AI 怎麼回由 resolve_responses 依各閘留帳推）。
+    extra 是這次問的標的（例：自檢評分評哪個 G，{"g": "G8"}），原樣寫進帳；登錄表 responses 的 match 照它配對回應。
     state 沒給且認出了切入點才讀 state（沒認出的問句零成本）。炸了只印 stderr、回空字串：問句照原樣送，閘的結果不受影響。"""
     try:
         reg = registry if registry is not None else load_registry()
@@ -245,7 +246,7 @@ def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Di
         from wg_core import append_guard_log
         turn = (state or {}).get("turn_seq")
         for eid in res["entries"]:
-            append_guard_log(LEDGER, {"event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
+            append_guard_log(LEDGER, {**(extra or {}), "event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
                                       "cards": [c["name"] for c in res["cards"] if eid in c["entries"]],
                                       "truncated": eid in res["truncated_entries"],
                                       "with": [e for e in res["entries"] if e != eid], "response": "none"})
@@ -274,13 +275,17 @@ def _ts(rec: Dict[str, Any]) -> datetime:
 
 
 def _first_response(rules: List[Dict[str, Any]], guard_logs: Dict[str, List[Dict[str, Any]]], sid: str,
-                    at: datetime, until: Optional[datetime]) -> Optional[Tuple[datetime, Dict[str, Any]]]:
-    """窗口 (at, until] 裡、同 session、對得上登錄表 responses 某條的第一筆閘紀錄 → (時間, 那條規則)；沒有回 None。"""
+                    at: datetime, until: Optional[datetime], ask: Dict[str, Any]) -> Optional[Tuple[datetime, Dict[str, Any]]]:
+    """窗口 (at, until] 裡、同 session、對得上登錄表 responses 某條的第一筆閘紀錄 → (時間, 那條規則)；沒有回 None。
+    規則寫了 match（鍵名清單）就還要問的帳與閘紀錄這些鍵的值相同（例：自檢評分問 G8、答 G3 不算回應）。"""
     best: Optional[Tuple[datetime, Dict[str, Any]]] = None
     for rule in rules:
+        keys = [str(k) for k in rule.get("match") or []]
         for rec in guard_logs.get(str(rule.get("guard")), []):
             t = _ts(rec)
             if _event_session(rec) != sid or t <= at or (until is not None and t > until):
+                continue
+            if any(str(ask.get(k)) != str(rec.get(k)) for k in keys):
                 continue
             if rule.get("event") in ("*", rec.get("event")) and (best is None or t < best[0]):
                 best = (t, rule)
@@ -293,7 +298,8 @@ def resolve_responses(asks: List[Dict[str, Any]], guard_logs: Dict[str, List[Dic
     [{guard, event, type}]（event 寫 "*" 表示那個 guard 的任何一筆）。窗口＝這筆問之後、同 session 同代號下一次問之前（含）；
     窗口裡第一筆對得上的閘紀錄 → 它的 type；對不上但同一回合（turn_seq 相同）同代號又被問了一次 → denied（上一個回應沒過）；
     換了回合才又被問、或不知道回合 → none（可能是另一件事，不硬判）。
-    已知限制：時間戳只到秒，與問同一秒寫的閘紀錄不算回應；帳上沒有標的（哪個檔、哪支測試），同 session 同代號別件事的回應會算進來。
+    已知限制：時間戳只到秒，與問同一秒寫的閘紀錄不算回應（閘紀錄自己記到微秒就不受影響：問的帳只到秒、一定不晚於實際問的時間）；
+    帳上沒有標的（哪個檔、哪支測試）的切入點，同 session 同代號別件事的回應會算進來——有標的的列在 responses 寫 match。
     回 asks 的複本，每筆多 response 與 response_by（哪個 guard／event 判的）。"""
     reg = registry if registry is not None else load_registry()
     spec = {str(r["id"]): list(r.get("responses") or []) for r in reg["entrypoints"]}
@@ -302,7 +308,7 @@ def resolve_responses(asks: List[Dict[str, Any]], guard_logs: Dict[str, List[Dic
     for i, ask in enumerate(ordered):
         sid, eid, at = _event_session(ask), str(ask.get("entry")), _ts(ask)
         nxt = next((b for b in ordered[i + 1:] if _event_session(b) == sid and str(b.get("entry")) == eid), None)
-        hit = _first_response(spec.get(eid, []), guard_logs, sid, at, _ts(nxt) if nxt else None)
+        hit = _first_response(spec.get(eid, []), guard_logs, sid, at, _ts(nxt) if nxt else None, ask)
         if hit:
             rule = hit[1]
             resp, by = str(rule.get("type")), f"{rule.get('guard')}:{rule.get('event')}"
