@@ -16,7 +16,7 @@ cases：
  10. 剛被別人搬動的檔短暫拒絕存取：開信／改名／寫狀態稍等重試；一直被佔才報錯
  11. mail.py 的文字模式寫檔都帶 newline=（LF 守門同一套規則）
  12. 附件搬不動、信也搬不回原位 → 停下（exit 1）並報出信與附件各在哪、怎麼湊回，不丟 traceback
- 13. 整檔重寫的暫存檔名每次都不同（信箱跨電腦共用，行程編號會撞），寫完不留暫存檔
+ 13. 整檔重寫的暫存檔名每次都不同（信箱跨電腦共用，行程編號會撞），寫完不留暫存檔；取代失敗時錯誤照丟、也不留暫存檔
 """
 from __future__ import annotations
 
@@ -383,4 +383,20 @@ def test_atomic_write_uses_a_unique_temp_name_each_time(monkeypatch, tmp_path: P
     mail.write_text_atomic(str(target), "第二次\n")
     assert len(temps) == 2 and temps[0] != temps[1]
     assert target.read_text(encoding="utf-8") == "第二次\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["Overview.md"]
+
+
+def test_atomic_write_failure_leaves_no_temp_file(monkeypatch, tmp_path: Path):
+    mail = load_mail_module()
+    target = tmp_path / "Overview.md"
+    target.write_text("原本\n", encoding="utf-8")
+
+    def broken_replace(src, dst):
+        assert os.path.exists(src), "前置：暫存檔真的寫出來了"
+        raise OSError("network share dropped")
+
+    monkeypatch.setattr(mail.os, "replace", broken_replace)
+    with pytest.raises(OSError):
+        mail.write_text_atomic(str(target), "新的\n")
+    assert target.read_text(encoding="utf-8") == "原本\n"
     assert [p.name for p in tmp_path.iterdir()] == ["Overview.md"]

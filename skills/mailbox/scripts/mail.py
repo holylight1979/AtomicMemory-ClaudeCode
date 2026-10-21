@@ -252,9 +252,13 @@ def list_boxes():
 
 def write_text_atomic(path, text):
     temp_path = f"{path}.tmp-{uuid.uuid4().hex}"                     # 信箱跨電腦共用，行程編號會撞；暫存檔名要全域唯一
-    with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text)
-    os.replace(temp_path, path)
+    try:
+        with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)                                     # 只有寫到一半失敗才會留下；檔名不重複，不清會越積越多
 
 
 def retry_on_busy(action, *args):
