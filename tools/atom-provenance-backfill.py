@@ -274,26 +274,21 @@ def collect_atoms(layer: str = "all") -> List[Tuple[str, Path]]:
 # ─── B 級日期來源 ─────────────────────────────────────────────────────────────
 
 def _audit_earliest_by_basename() -> Dict[str, str]:
+    from lib.atom_io import iter_audit_entries   # 逐行容錯：壞行（多 session 互蓋留下的半行）略過並 stderr 一行
     out: Dict[str, str] = {}
-    if not AUDIT_LOG.is_file():
-        return out
     try:
-        with open(AUDIT_LOG, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    d = json.loads(line)
-                except ValueError:
-                    continue
-                if d.get("op") not in ("atom_create", "write", "failure_create"):
-                    continue
-                if d.get("source") == "test" or "pytest-of-" in str(d.get("path", "")):
-                    continue
-                base = _norm(Path(str(d.get("path") or "")).name)
-                ts = str(d.get("ts") or "")[:10]
-                if base and ts and (base not in out or ts < out[base]):
-                    out[base] = ts
+        entries = iter_audit_entries(AUDIT_LOG)
     except OSError:
-        pass
+        return out
+    for d in entries:
+        if d.get("op") not in ("atom_create", "write", "failure_create"):
+            continue
+        if d.get("source") == "test" or "pytest-of-" in str(d.get("path", "")):
+            continue
+        base = _norm(Path(str(d.get("path") or "")).name)
+        ts = str(d.get("ts") or "")[:10]
+        if base and ts and (base not in out or ts < out[base]):
+            out[base] = ts
     return out
 
 

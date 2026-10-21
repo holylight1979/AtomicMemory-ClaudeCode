@@ -174,6 +174,11 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 | `tools/memory-audit.py` | `tool:memory-audit` | demote／compact／log_evolution `write_raw` + `atom_access.write_access_field` |
 | `tools/sync-atom-index`／`sync-memory-index` | `tool:sync-*` | `write_index_full`；`--fix-scope-from-path` 索引 scope 以 path 為準回寫（冪等）；`--all-projects` |
 | `tools/classify-project-scope.py` | `tool:atom-move`（沿用） | 專案記憶 scope 分層整理 `status`／`plan`／`apply`／`mark`；SOP 在 `/memory classify` |
+| `tools/atom-io-audit.py` | `tool:atom-io-audit` | `--check` 列稽核帳壞行；`--repair` → `lib.atom_io.repair_audit_log`（壞行改寫成 `op=audit_line_repaired`，原檔整份留 `.pre-repair-<ts>`） |
+
+**稽核帳寫入與讀取**：多個 session 同時 append 同一檔；`_audit_log` 整行編成位元組、在旁檔 `atom_io_audit.jsonl.lock`（msvcrt）鎖下一次寫完（Windows 的附加模式是先跳檔尾再寫，不鎖會互蓋、切斷中文字）。讀它一律走 `lib.atom_io.iter_audit_entries`（壞行略過、stderr 一行），不要自己 `open(..., encoding="utf-8")` 逐行 `json.loads`。
+
+**索引落檔**：`lib.atom_index_json.save_index_with_mirror` 是 `_atom_index.json`＋`_ATOM_INDEX.md` 的唯一落檔點（JSON 先、鏡像後，鏡像由同一份資料產生）；換檔與讀檔對 PermissionError 稍等重試。整批改索引用 `apply_upsert` 在記憶體改完再落一次，不要逐顆 `upsert_atom`（每顆整檔重寫兩份）。
 
 **反向證明**：`tools/check-bypass.py` 靜態掃 hooks／tools／lib／plugins 內所有 memory 路徑附近的寫檔點，white-list 之外 → 警告（CI exit 1）；守門 `tools/verify/verify_check_bypass.py`。舊 `audit-reconcile.py` 已歸檔 `DevHistory/v5-overhaul-2026-05/tools-archive/`。
 

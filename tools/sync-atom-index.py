@@ -38,11 +38,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import find_aka_line, find_entry_line, find_related_line, split_related  # noqa: E402
 from lib.atom_index_json import (  # noqa: E402
     SCHEMA_VERSION,
+    apply_upsert,
+    atom_index_md_stale,
     dedup_triggers,
     delete_atom,
     load_atom_index_json,
-    regenerate_atom_index_md,
-    save_atom_index_json,
+    save_index_with_mirror,
     upsert_atom,
 )
 from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filter
@@ -317,24 +318,31 @@ def fix_frontmatter_from_index(atoms_by_path: Dict[str, AtomFile],
 def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
                                   index_rows: List[IndexRow],
                                   memory_dir: Path) -> List[str]:
-    """V5: 走 upsert_atom（JSON SoT，自動回寫 MD mirror）。
+    """frontmatter 有、索引缺的 atom 補進索引（與 upsert_atom 同一套語意：apply_upsert）。
 
     順帶把索引的 `related`（正向連結）對齊 atom 檔——反向連結不存檔、由注入端反轉，
     所以索引這份正向連結就是連結圖的唯一來源，必須跟著 atom 檔走。`entry`（切入點代號）同理跟著 atom 檔走。
+
+    整批在記憶體改完、最後只落一次檔（JSON 先、md 鏡像後）。逐顆 upsert 每顆都整檔重寫兩份，N 顆換 2N 次檔，
+    別的行程（每回合讀索引的 hook、索引器）任一次開著檔，Windows 就 WinError 5 整支中斷、補到哪算哪。
+    索引檔在卻讀不到（被別的行程鎖著）就停手不寫：拿空索引寫回會把一份好好的索引抹掉；內容壞掉（衝突標記）照舊
+    從 frontmatter 重生（多機合併三檔全壞的最後手段）。上次 md 鏡像沒換成時，這裡重生它。
     """
+    data = load_atom_index_json(memory_dir, strict=True)
     by_path = {r.path: r for r in index_rows}
     added: List[str] = []
+    changed = False
     for rel_path, atom in atoms_by_path.items():
         row = by_path.get(rel_path)
         if row is not None:
             if row.related == atom.related and row.aka == atom.aka and row.entry == atom.entry:
                 continue
-            upsert_atom(memory_dir, name=atom.name, path=rel_path,
-                        triggers=row.triggers, scope=row.scope,
-                        related=atom.related, aka=atom.aka, entry=atom.entry)
+            changed |= apply_upsert(data, name=atom.name, path=rel_path,
+                                    triggers=row.triggers, scope=row.scope,
+                                    related=atom.related, aka=atom.aka, entry=atom.entry)
             continue
-        ok = upsert_atom(
-            memory_dir,
+        ok = apply_upsert(
+            data,
             name=atom.name,
             path=rel_path,
             triggers=atom.triggers,
@@ -345,7 +353,10 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
             entry=atom.entry,
         )
         if ok:
+            changed = True
             added.append(atom.name)
+    if changed or atom_index_md_stale(memory_dir, data):
+        save_index_with_mirror(memory_dir, data)
     return added
 
 
@@ -434,9 +445,8 @@ def rebuild_index(memory_dir: Path, claude_root: Path,
     # 重生只負責 version 與 atoms。其餘頂層鍵是別的工具寫的狀態（classify-project-scope
     # 的 layout="scope-v2" 判「這個專案的記憶已整理過」），這裡不認得、也不該吃掉——原樣帶過去。
     carried = {k: v for k, v in prev_index.items() if k not in ("version", "atoms")}
-    save_atom_index_json(
+    save_index_with_mirror(
         memory_dir, {"version": SCHEMA_VERSION, "atoms": atoms, **carried})
-    regenerate_atom_index_md(memory_dir)
     return {"scanned": len(atoms_by_path), "kept_outside_scan": len(kept), "total": len(atoms)}
 
 

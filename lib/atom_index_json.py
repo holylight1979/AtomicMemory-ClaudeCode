@@ -15,10 +15,15 @@ entry（optional）：卡片 frontmatter `- Entry:` 的切入點代號（workflo
 程式在那個切入點問 LLM 時先送 entry 命中的卡（hooks/wg_entrypoint.cards_for_entry）。
 
 責任：
-- load_atom_index_json(mem_dir) -> {atoms: [...]}
+- load_atom_index_json(mem_dir, strict=False) -> {atoms: [...]}（strict：檔在卻讀不到 → OSError，整份寫回的呼叫端用）
 - upsert_atom(mem_dir, name, path, triggers, scope, last_used, depends) -> bool（depends 未傳保留、[] 清空）
+- apply_upsert(data, ...) -> bool：同一套語意只改記憶體裡的 data（整批補登用，最後 save_index_with_mirror 一次落檔）
 - delete_atom(mem_dir, name, path=None) -> bool（給 path 時只刪 name+path 都相符的條目）
+- save_index_with_mirror(mem_dir, data)：JSON 先、md 鏡像後，兩份由同一份 data 產生
 - regenerate_atom_index_md(mem_dir) -> 同步重生 _ATOM_INDEX.md 作為人類可讀 deprecated view
+
+換檔與讀檔對 PermissionError 稍等重試（Windows：別的行程正開著索引讀時 os.replace 會 WinError 5，
+剛被換掉的檔讀起來也會短暫拒絕存取）。
 
 舊 _ATOM_INDEX.md 仍由本模組生成（保留人類可讀視圖過渡期），
 但唯一機器源是 JSON；hooks/MCP/lib 統一走本模組。
@@ -32,14 +37,29 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 ATOM_INDEX_JSON = "_atom_index.json"
 ATOM_INDEX_MD = "_ATOM_INDEX.md"
 SCHEMA_VERSION = "1.0"
 TRIGGER_MAX_LEN = 30  # validate_index 與 write funnel 共用（寫入當下即驗，不留到後續操作才爆）
+BUSY_RETRIES = 5      # 索引被別的行程開著時最多試幾次
+BUSY_WAIT_S = 0.2     # 每次之間等多久
+
+
+def retry_busy(op: Callable[[], Any]) -> Any:
+    """PermissionError（WinError 5／Errno 13：別的行程正開著、或檔剛被換掉）稍等重試，試滿仍不行就原樣丟出。
+    FileNotFoundError 等其他錯誤不是「忙」，不重試。"""
+    for attempt in range(BUSY_RETRIES):
+        try:
+            return op()
+        except PermissionError:
+            if attempt == BUSY_RETRIES - 1:
+                raise
+            time.sleep(BUSY_WAIT_S)
 
 
 def find_index_dir(path: Path) -> Optional[Path]:
@@ -74,7 +94,7 @@ def _write_text_lf(path: Path, content: str) -> None:
     try:
         with open(tmp, "w", encoding="utf-8", newline="") as f:
             f.write(body)
-        tmp.replace(path)
+        retry_busy(lambda: tmp.replace(path))
     except OSError:
         try:
             if tmp.exists():
@@ -88,18 +108,28 @@ def _empty_index() -> Dict[str, Any]:
     return {"version": SCHEMA_VERSION, "atoms": []}
 
 
-def load_atom_index_json(mem_dir: Path) -> Dict[str, Any]:
-    """Load _atom_index.json; on missing/corrupt return empty."""
+def load_atom_index_json(mem_dir: Path, *, strict: bool = False) -> Dict[str, Any]:
+    """Load _atom_index.json; missing／JSON 壞／形狀不對 → empty.
+
+    檔在卻讀不到（重試完仍被別的行程鎖著、權限）：預設回空索引（讀取端 fallback）；strict=True 改丟 OSError——
+    要整份寫回的呼叫端拿空索引去寫，等於把一份好好的索引抹掉。內容壞掉（合併衝突標記、手改壞）兩種模式都回空索引：
+    那份本來就讀不回條目，--add-from-frontmatter／--rebuild 從磁碟重生是文件寫明的復原路徑（MultiMachineMemorySync.md）。"""
     p = mem_dir / ATOM_INDEX_JSON
     if not p.exists():
         return _empty_index()
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or not isinstance(data.get("atoms"), list):
-            return _empty_index()
-        return data
-    except (OSError, json.JSONDecodeError):
+        text = retry_busy(lambda: p.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as e:
+        if strict and isinstance(e, OSError):
+            raise OSError(f"{p} 讀不到（{e}）；不拿空索引覆寫，等佔用它的行程放開後重跑") from e
         return _empty_index()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return _empty_index()
+    if not isinstance(data, dict) or not isinstance(data.get("atoms"), list):
+        return _empty_index()
+    return data
 
 
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
@@ -196,6 +226,26 @@ def upsert_atom(
     `entry` ＝這顆是哪幾個切入點的判準卡，來自 atom 的 `- Entry:` 行；同 related：None＝沿用既有、`[]`＝移除鍵。
     """
     data = load_atom_index_json(mem_dir)
+    if not apply_upsert(data, name, path, triggers, scope, last_used=last_used, depends=depends,
+                        related=related, aka=aka, entry=entry):
+        return False
+    save_index_with_mirror(mem_dir, data)
+    return True
+
+
+def apply_upsert(
+    data: Dict[str, Any],
+    name: str,
+    path: str,
+    triggers: List[str],
+    scope: str = "global",
+    last_used: Optional[str] = None,
+    depends: Optional[List[str]] = None,
+    related: Optional[List[str]] = None,
+    aka: Optional[List[str]] = None,
+    entry: Optional[List[str]] = None,
+) -> bool:
+    """upsert_atom 的語意，只改記憶體裡的 data、不落檔；回有沒有改到。整批補登逐顆套完再一次落檔。"""
     atoms = data["atoms"]
     triggers = dedup_triggers(triggers)
     depends_list = validate_depends(depends) if depends is not None else None
@@ -229,15 +279,11 @@ def upsert_atom(
             if a == new_entry:
                 return False
             atoms[i] = new_entry
-            save_atom_index_json(mem_dir, data)
-            regenerate_atom_index_md(mem_dir)
             return True
 
     if depends_list:
         new_entry["depends"] = depends_list
     atoms.append(new_entry)
-    save_atom_index_json(mem_dir, data)
-    regenerate_atom_index_md(mem_dir)
     return True
 
 
@@ -284,14 +330,43 @@ def delete_atom(mem_dir: Path, name: str, path: Optional[str] = None) -> bool:
     data["atoms"] = [a for a in atoms if not _hit(a)]
     if len(data["atoms"]) == before:
         return False
-    save_atom_index_json(mem_dir, data)
-    regenerate_atom_index_md(mem_dir)
+    save_index_with_mirror(mem_dir, data)
     return True
+
+
+def save_index_with_mirror(mem_dir: Path, data: Dict[str, Any]) -> None:
+    """JSON（真相）與 md 鏡像一起落檔；兩份內容在任何換檔之前就由同一份 data 算好。
+
+    順序 JSON 先、md 後：中途失敗時磁碟上要嘛全舊、要嘛「JSON 新、鏡像舊」，鏡像不會跑在真相前面；
+    鏡像每次都由整份 data 重生，下一次任何索引寫入（或 sync-atom-index --add-from-frontmatter 重跑）就補回。
+    不回頭重讀 JSON 產生鏡像：重讀撞上別的行程搶檔會讀成空索引，生出一份空鏡像。"""
+    md_text = render_atom_index_md(data)
+    save_atom_index_json(mem_dir, data)
+    try:
+        _write_text_lf(mem_dir / ATOM_INDEX_MD, md_text)
+    except OSError as e:
+        print(f"[atom_index_json] {ATOM_INDEX_JSON} 已更新，{ATOM_INDEX_MD} 鏡像沒換成（{e}）；"
+              f"下次任何索引寫入或重跑 sync-atom-index --add-from-frontmatter 會重生", file=sys.stderr)
+        raise
+
+
+def atom_index_md_stale(mem_dir: Path, data: Dict[str, Any]) -> bool:
+    """md 鏡像跟 data 不一致（缺檔、上次換到一半）→ True。讀不到也當不一致，交給重寫。"""
+    md = mem_dir / ATOM_INDEX_MD
+    try:
+        cur = retry_busy(lambda: md.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return True
+    return cur.replace("\r\n", "\n") != render_atom_index_md(data)
 
 
 def regenerate_atom_index_md(mem_dir: Path) -> None:
     """Regenerate _ATOM_INDEX.md from JSON (human-readable mirror, deprecated)."""
-    data = load_atom_index_json(mem_dir)
+    _write_text_lf(mem_dir / ATOM_INDEX_MD, render_atom_index_md(load_atom_index_json(mem_dir)))
+
+
+def render_atom_index_md(data: Dict[str, Any]) -> str:
+    """索引 data → _ATOM_INDEX.md 全文（LF）。"""
     # Depends 欄只在索引裡至少一條有 depends 時才出現：沒人用 depends 的索引 mirror byte 不變，
     # 多機不會因為 mirror 格式換版而在合併時各自重生、互相衝突（索引三檔合併必衝突的教訓）。
     has_depends = any(isinstance(a.get("depends"), list) and a["depends"] for a in data["atoms"])
@@ -314,9 +389,7 @@ def regenerate_atom_index_md(mem_dir: Path) -> None:
             row += " " + ", ".join(d for d in (a.get("depends") or []) if isinstance(d, str)) + " |"
         lines.append(row)
     lines.append("")
-
-    md = mem_dir / ATOM_INDEX_MD
-    _write_text_lf(md, "\n".join(lines))
+    return "\n".join(lines)
 
 
 # ─── Migration: parse legacy _ATOM_INDEX.md → JSON ──────────────────────────
