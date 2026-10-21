@@ -315,63 +315,82 @@ def _git_config_aliases(run_cwd: str) -> Optional[Dict[str, str]]:
     return out
 
 
+def _alias_note(text: str) -> None:
+    try:
+        sys.stderr.write(f"[Guardian:GitAlias] {text}\n")
+    except OSError:
+        pass
+
+
 @functools.lru_cache(maxsize=None)
-def _git_aliases(run_cwd: str) -> Dict[str, str]:
-    """別名表（hook 每個事件一個行程，快取只活一次事件）。run_cwd 查不到（`-C` 指到還不存在的目錄等）→ 退回 hook 行程
-    目錄看得到的設定（全域別名照樣認得），並在 stderr 留訊號；兩邊都查不到才當沒有別名。"""
+def _git_aliases(run_cwd: str) -> Optional[Dict[str, str]]:
+    """commit 落點看得到的別名表（hook 每個事件一個行程，快取只活一次事件）。查不到（`-C` 指到還不存在的目錄、git 逾時）
+    回 None 並在 stderr 留訊號：不拿別的目錄的設定頂替（local 別名會套錯 repo），由 _expand_git_alias 當判不了。"""
     found = _git_config_aliases(run_cwd)
-    if found is None and run_cwd:
-        found = _git_config_aliases("")
-        try:
-            sys.stderr.write(f"[Guardian:GitAlias] 查不到 {run_cwd} 的 git 別名，改用 hook 目錄的設定\n")
-        except OSError:
-            pass
-    return found or {}
+    if found is None:
+        _alias_note(f"查 {run_cwd or '目前目錄'} 的 git 別名失敗（git config），不是 git 指令的子命令一律當判不了")
+    return found
 
 
 @functools.lru_cache(maxsize=1)
 def _git_commands() -> frozenset:
-    """git 自己的指令名（內建、exec-path 裡的、PATH 上的 git-* 外掛）：跟它們同名的別名 git 不認。查不到回空集合。"""
-    return frozenset(n.lower() for n in _git_lines(["--list-cmds=builtins,main,others"], "") or [])
+    """git 自己的指令名（內建、exec-path 裡的、PATH 上的 git-* 外掛）：跟它們同名的別名 git 不認。查不到回空集合並在
+    stderr 留訊號——這時同名別名照別名判（可能多擋，不會漏放）。"""
+    names = _git_lines(["--list-cmds=builtins,main,others"], "")
+    if names is None:
+        _alias_note("查不到 git 指令清單（git --list-cmds），跟 git 指令同名的別名照別名判")
+    return frozenset(n.lower() for n in names or [])
 
 
 def _expand_git_alias(pairs: List[Tuple[str, str]], inline: Dict[str, str], run_cwd: str) -> List[Tuple[str, str]]:
     """子命令是 git 別名就換成展開後的子命令與參數：行內 `-c alias.<名>=…` 優先，再查設定；別名接別名一路追，名字重複出現
     ＝循環（git 自己也會報錯）就停；跟 git 自己的指令同名的別名不認。展開出的字 git 直接當參數、不經 shell，raw 一律寫成
     單引號字面（`commit -m 'literal $HOME'` 的 $ 不是展開）。`!` 開頭的 shell 別名不展開，換成 [("!", "!"), (內容, 內容)]
-    兩段，交 _git_shell_alias_commit 照包裝判。"""
+    兩段；落點的別名表查不到、子命令又不是 git 指令 → [("?", "?")]（可能是 local 別名）；兩種都交 _git_opaque_alias_commit。"""
     seen: set = set()
     while True:   # 每圈多記一個名字，別名有限，必停
         sub = pairs[0][1].lower()
         if not sub or sub in _GIT_BUILTIN_SUBS or sub in seen:
             return pairs
         seen.add(sub)
-        expansion = inline.get(sub)
+        table = _git_aliases(run_cwd)
+        expansion = inline.get(sub, (table or {}).get(sub))
         if expansion is None:
-            expansion = _git_aliases(run_cwd).get(sub)
-        if expansion is None or sub in _git_commands():
+            return [("?", "?")] if table is None and sub not in _git_commands() else pairs
+        if sub in _git_commands():
             return pairs
         if expansion.startswith("!"):
             return [("!", "!"), (expansion[1:], expansion[1:])]
         pairs = [("'" + w.replace("'", "") + "'", w) for w in _shell_tokens(expansion) or [""]] + pairs[1:]
 
 
-def _git_shell_alias_commit(command: str, cwd: str = "", shell: str = "") -> bool:
-    """命令叫用了 `!` 開頭的 git shell 別名，而別名內容照包裝那套判（_wrapped_commit_verdict）有或可能有 commit：
-    內容是 shell 指令，拆不出落在哪個 repo、提交哪些檔，呼叫端當「包裝裡可能有 commit」處理。"""
-    return any(p[0][1] == "!" and len(p) > 1 and _wrapped_commit_verdict(p[1][1], 1, strict=True)
+def _git_opaque_alias_commit(command: str, cwd: str = "", shell: str = "") -> bool:
+    """命令叫用了看不進去、可能藏 commit 的 git 別名：`!` 開頭的 shell 別名而內容照包裝那套判（_wrapped_commit_verdict）
+    有或可能有 commit，或落點的別名表查不到（_expand_git_alias 的 "?"）。拆不出落在哪個 repo、提交哪些檔，呼叫端當
+    「包裝裡可能有 commit」處理。"""
+    return any(p[0][1] == "?" or p[0][1] == "!" and len(p) > 1 and _wrapped_commit_verdict(p[1][1], 1, strict=True)
                for _cd, p in _vcs_segment_pairs(command, None, ("git", "git.exe"), _GIT_VALUE_FLAGS, shell=shell,
                                                 alias_cwd=cwd))
 
 
+def _subst_commit(raw: str, shell: str) -> bool:
+    """直接 commit 段裡的命令替換（`$(…)`，Bash 另有反引號；單引號裡是字面）之後又有 git…commit：外層 commit 跑之前
+    先跑了一次看不到範圍的 commit（`git commit --dry-run -m "$(git commit -am x)"`）。heredoc 本文呼叫端已剝掉。"""
+    live = re.sub(r"'[^']*'", "''", raw)
+    m = re.search(r"\$\(" if shell == "powershell" else r"\$\(|`", live)
+    return bool(m and _GIT_COMMIT_WORDS_RE.search(live, m.start()))
+
+
 def _hidden_commit(command: str, cwd: str = "", shell: str = "") -> bool:
-    """直接拆得出的 git commit 段以外，有沒有別處（`!` shell 別名、bash -c 之類的包裝、eval／展開）可能藏 commit。
-    有一段拆得出不代表整條拆得出：`git save && git commit --dry-run`（save 是 `!git commit …`）只看得到後面那段。"""
-    if _git_shell_alias_commit(command, cwd, shell):
+    """直接拆得出的 git commit 段以外，有沒有別處（看不進去的 git 別名、bash -c 之類的包裝、eval／展開、commit 訊息裡的
+    命令替換）可能藏 commit。有一段拆得出不代表整條拆得出：`git save && git commit --dry-run`（save 是 `!git commit …`）
+    只看得到後面那段。"""
+    if _git_opaque_alias_commit(command, cwd, shell):
         return True
     for seg in _scan_segments(command, None, shell):
         raw = " ".join(r for r, _ in seg)
-        if not _git_commit_segments(raw, cwd, shell) and _wrapped_commit_verdict(raw):
+        direct = bool(_git_commit_segments(raw, cwd, shell))
+        if _subst_commit(raw, shell) if direct else _wrapped_commit_verdict(raw):
             return True
     return False
 
@@ -510,7 +529,7 @@ def _git_commits_to_run(command: str, cwd: str = "",
     segments = _git_commit_segments(stripped, cwd, shell)
     if segments:
         return stripped, segments, True
-    return stripped, [], (_git_shell_alias_commit(stripped, cwd, shell)
+    return stripped, [], (_git_opaque_alias_commit(stripped, cwd, shell)
                           or ("commit" in low and _wrapped_commit_verdict(stripped)))
 
 
@@ -1169,9 +1188,9 @@ def check_smell_gate(
         return None, None
     git_segs = _git_segments(body, {"add", "commit"}, shell, cwd) if has_git_commit else []
     if has_git_commit and (not any(t[0].lower() == "commit" for _cd, t in git_segs) or _hidden_commit(body, cwd, shell)):
-        return ("[Guardian:SmellGate] 這條指令裡有 git commit 包在 bash -c／powershell -Command／$() 或 `!` 開頭的 "
-                "git 別名之類的包裝裡（同一條指令另有直接寫的 commit 也一樣），拆不出它落在哪個 repo、要提交哪些檔，"
-                "病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
+        return ("[Guardian:SmellGate] 這條指令裡有 git commit 包在 bash -c／powershell -Command／$()、commit 訊息裡的 "
+                "$(…)、`!` 開頭或查不到的 git 別名之類的包裝裡（同一條指令另有直接寫的 commit 也一樣），拆不出它落在哪個 "
+                "repo、要提交哪些檔，病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
     if has_git_commit and _SMELL_REPO_OVERRIDE_RE.search(body):
         return ("[Guardian:SmellGate] 這條 git commit 用 --git-dir／--work-tree 或 GIT_DIR／GIT_WORK_TREE／GIT_INDEX_FILE "
                 "指定 repo，病形檢查重現不了它實際提交哪個 repo、哪份暫存區，判不了，一律擋。改用 `git -C <repo> commit` 或先 cd 進 repo。"), None

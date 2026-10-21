@@ -509,6 +509,16 @@ def test_review_shell_alias_and_wrapper_beside_a_direct_commit_are_blocked(tmp_p
         assert deny and "判不了" in deny, command
 
 
+def test_review_commit_hidden_in_message_substitution_is_blocked(tmp_path):
+    """codex 審 G2(a) 第二輪：直接 commit 的訊息裡 `$(git commit -am x)` 會先跑一次看不到範圍的 commit → 判不了一律擋；
+    常見的 `"$(cat <<'EOF' … EOF)"` 訊息照常檢查。"""
+    repo = _repo(tmp_path, {"src/a.py": "x = 1\n"})
+    heredoc = "git commit --dry-run -m \"$(cat <<'EOF'\nfix: x\nEOF\n)\""
+    assert _gate(repo, heredoc)[0] is None, "前置：heredoc 訊息照常放行"
+    deny, _advice = _gate(repo, 'git commit --dry-run -m "$(git commit -am x)"')
+    assert deny and "判不了" in deny
+
+
 def test_review_alias_resolution_edge_cases_are_checked_like_commit(tmp_path):
     """codex 審 G2(a)：Git Bash 的 `-C /c/…` 落點（別名要在那個 repo 查）、六層別名鏈、別名裡單引號包住的字面
     `$HOME`（git 不經 shell，不是展開）都照一般 commit 查到病（舊版前兩者放行、最後一個誤當展開判不了）。"""

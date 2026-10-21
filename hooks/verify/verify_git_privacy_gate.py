@@ -111,6 +111,14 @@ def test_alias_named_like_a_git_command_is_ignored_like_git_does(repo):
                                str(repo))[2] is False
 
 
+def test_alias_lookup_failure_at_the_commit_target_is_not_guessed(repo, tmp_path):
+    """codex 審 G2(a) 第二輪：commit 落點的別名表查不到（-C 指到還不存在的目錄）時，不拿別的目錄的設定頂替；子命令不是
+    git 指令 → 當可能有 commit（口令閘、需求目標閘照管）；內建子命令照常不算。"""
+    nope = (tmp_path / "nope").as_posix()
+    assert _git_commits_to_run(f"git -C {nope} status", str(repo))[2] is False, "前置：內建子命令不查別名"
+    assert _git_commits_to_run(f"git -C {nope} zz -m x", str(repo))[2] is True
+
+
 def _commit_base(repo: Path, files: dict) -> None:
     for rel, text in files.items():
         (repo / rel).write_text(text, encoding="utf-8")
