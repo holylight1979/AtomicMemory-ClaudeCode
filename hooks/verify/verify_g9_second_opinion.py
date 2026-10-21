@@ -182,7 +182,8 @@ def test_five_files_no_run_blocks_with_rule_count_and_entry(drive, capsys, tmp_p
     reason, state, logs = drive(DONE, capsys, files=_files(tmp_path, 5))
     assert "[Guardian:SecondOpinion]" in reason and "SECOND_OPINION_REQUIRED" in reason
     assert "程式檔 5 個" in reason and "本回合沒有跑第二意見" in reason
-    assert reason.rstrip().endswith(HINT_TAIL), reason[-200:]
+    own = reason.split("\n判準卡（")[0]          # 切入點契約：判準卡接在擋訊息後面，入口在閘自己訊息的最末
+    assert own.rstrip().endswith(HINT_TAIL), own[-200:]
     assert "second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result" in reason
     assert [p["event"] for p in _so_logs(logs)] == ["block"]
 

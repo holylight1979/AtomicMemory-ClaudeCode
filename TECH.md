@@ -170,6 +170,7 @@ sequenceDiagram
 | `Aka` | 否 | 這顆用過的舊檔名 | 連結以檔名為鍵，改名時在**自己這顆**加一行，連進來的舊連結照樣解析（`build_alias_map`）；不得與現存 atom 同名 |
 | `Supersedes` | 否 | 被取代的 atom 名 | 規則式過濾舊版，不交 LLM 判 |
 | `Depends` | 否 | `path:<路徑>` 或自由文字 | **壞滅緣**：path 型可機器驗存在性，指向消失 → 標 stale；`atom_write(depends=)`，渲染在 Created-at 後、Related 前 |
+| `Entry` | 否 | 切入點代號（`workflow/entrypoints.json`），逗號分隔，如 `E04, E08` | 這顆是哪幾個切入點的判準卡（§7.10）；`atom_write(entry=)`／`atom_edit_meta(entry=)`，渲染在 Depends 後、Related 前；索引 `entry` 欄跟著檔走（`write_index` 讀落檔的行、`sync-atom-index` 重建時帶）。replace 三態同 Depends；append 忽略 |
 | `Evidence` | 否 | `實證` / `引述` / `推測` | 衝突裁決權重 3/2/1（未標 0） |
 | `Expires-at` / `Tags` / `Quality` | 否 | — | 輔助 |
 | access sidecar | 自動 | `<atom>.access.json` | read_hits（純曝光）、useful/used_fail（α/β）、Wilson 下界、decay、last_decay_date |
@@ -740,6 +741,24 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 刻意不做：程式不替 LLM 列該測哪些（不做檔名對應、不搜呼叫方湊清單）；不要求每個改檔都被某一項點名；不追改動進了哪條分支（漏判先記「疑似」，檢討時查明）。一鍵關：`workflow/config.json` 的 `verify_scope.enabled:false`。
 
+### 7.10 切入點契約（程式問 → 卡教 → LLM 判 → 留帳回看）
+
+目的：程式停下來要 LLM 判斷的每個位置（切入點），判得準不準取決於那一刻注入的卡；卡能加、改、退役，判斷力就能持續調。閘與案例守流程，卡守判斷。本契約不加閘、不改任何閘的放行結果，只補「問的那一刻把判準卡送到」與「留帳回看」。
+
+| 部件 | 位置 | 做什麼 |
+|------|------|--------|
+| 登錄表 | `workflow/entrypoints.json`（程式碼根，版控資料） | 每個切入點一列：代號（沿用 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md` 的 E 號）、名稱、對應 RULES 規則名、擋訊息裡穩定的識別字樣、哪條路問（`path_values`：stop_piggyback／pretool_deny／pretool_hint／mcp_reply／subagent_prompt 是本契約接的路，user_prompt／session_start／post_tool_hint／local_llm 只登記不接）、餵什麼、問什麼、期望判什麼。`not_entrypoints` 列 RULES 裡確定不是問 LLM 的規則與一句理由。加切入點只改這份檔；程式不寫死任何代號，沒登錄的切入點沒有卡也沒有帳 |
+| 查表 | `hooks/wg_entrypoint.match_entries` | 問句裡出現某列的規則名或識別字樣、而且那列登記了這條路 → 算這個切入點（可同時多列）。登錄表讀不到或格式壞了 → 空表＋stderr，問句照原樣送 |
+| 卡綁切入點 | 卡片 `- Entry:` 欄（§4.1）＋索引 `entry` 欄 | `cards_for_entry`：先取 Entry 寫了這個代號的卡，再拿那列的規則名＋識別字樣當查詢比卡的 trigger（與 UPS 同一支比對）當退路，命中數多的在前。候選池：全域索引＋state 記的專案層／公司層索引，scope 可見性與被取代的卡照 SessionStart 同一套（沒有 state 時沒有身份，personal／role 卡不給） |
+| 預算 | `entrypoint.inject_budget_tokens`（預設 400，`wg_core.DEFAULTS`） | `judgment_cards` 只取知識段，標「判準卡（E04）：<卡名>」；一張卡同時是幾個切入點的判準卡只送一次、標題列全部代號；總量超過預算就截斷最後一張（尾端「已截斷」）、後面的不送、記 truncated。沒卡就什麼都不接、不印「無」 |
+| 健檢 | `wg_entrypoint.health_block` → `tools/health-weekly.py` 2f 段（只進 info） | 列 RULES 裡既沒登錄也不在 `not_entrypoints` 的規則名、登錄表寫了但 RULES 沒有的規則名、卡片 Entry 寫了但登錄表沒有的代號、重複代號。只列不擋 |
+| 問的那一刻注入 | 單一入口 `wg_entrypoint.entry_note(問句, 路)`；`handlers/_shared` 保護匯入（模組壞了退成不接卡＋stderr，不拖垮 handler） | stop_piggyback：Stop 的 `_piggyback`（只拿這道閘自己的擋訊息認切入點，卡接在後面所有預覽與提示之後）、子代理收尾 `_code_gate_to_the_end` 的擋訊息（裁判子 session 走同一支但不接）、PickOne 續跑提醒。pretool_deny：PreToolUse 的 deny 全走 `_deny()`（裁判子 session 的 JudgeWrite 除外：裁判不注入）。pretool_hint：提問前提醒與一般警告段的 additionalContext（systemMessage 給使用者看的那份不接）。三者共用 `_with_cards()`，只在真的要送訊息時才匯入與讀登錄表；什麼都不送的放行路徑零成本，派子代理時每次多讀一次登錄表。mcp_reply：PostToolUse 對 `mcp__` 工具的單一出口，拿工具本體回覆＋同一次補的提醒認切入點，卡多接一段 additionalContext。subagent_prompt：派子代理時，卡接在記憶 blob 之後、原 prompt 之前。原訊息逐字不變，卡一律接在最後 |
+| 留帳 | `Logs/guard-entry.jsonl`（`append_guard_log("entry")`） | 每個認出的切入點一筆：at、session_id、turn_seq（沒有 state 記 null）、entry、path、cards（這個切入點送了哪幾張）、truncated、with（同一問句還認出哪些代號，調識別字樣用）、response（問的當下記 none）。沒認出的問句不記 |
+| 回應型 | `wg_entrypoint.resolve_responses`；登錄表每列 `responses` [{guard, event, type}] | 照各閘自己的留帳推 AI 被問之後怎麼回：窗口＝這筆問之後到同 session 同代號下一次問（含）；窗口裡第一筆對上的閘紀錄給 declared／denied／judged／released；沒對上但同一回合又被問一次 → denied；換回合才又被問或不知道回合 → none。只列「AI 回應之後」才寫的紀錄；E01／E02／E17／E19／E24（宣告收下）／E28／E29 的閘沒有可用留帳，只能靠「同回合又被問」推 denied。限制：時間戳只到秒，與問同一秒的紀錄不算；帳上沒有標的，同 session 同代號別件事的回應會算進來 |
+| 統計 | `tools/entry-stats.py`（唯讀；`--days`、`--logs`、`--json`） | 每個切入點：問幾次、有卡幾次、送幾張、截斷幾次、各回應型幾筆、同一問句也認出哪些代號；尾行 `ENTRY_STATS DONE entries= asks= cards= truncated=`。第二波判分與 G15 週彙總讀它 |
+
+刻意不做：不加閘、不放寬既有閘、不加例外清單；擋訊息既有格式與規則名不動。user_prompt、session_start、post_tool_hint、local_llm 這幾條路只登記不接；另一支 Stop hook `hooks/codex_companion.py` 自己的擋訊息沒接。識別字樣是子字串比對，訊息裡當範例出現的字樣也會認到，靠帳上的 with 欄回頭調字樣。
+
 ## 8. 可觀測與自我維護
 
 原則：給人看的資訊放**常駐可見面**（零 token），不放 chat 注入。
@@ -1052,6 +1071,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `org_memory.repo_url` / `default_root` | — / `~/CompanyAtomsMem` | 公司層記憶 repo（§4.4）全公司相同的值：`repo_url` 供 `--join` 在本機沒 checkout 時 clone，`default_root` 是 `--join` 沒給路徑時的落點 |
 | `org_memory.enabled` / `roots` | false / `[]` | 共用 config 內保持預設；實際值在本機 `workflow/org-memory.local.json`（不進版控，同名鍵蓋過，`tools/org-memory.py --join`／`--init <root>` 填寫）。只讀 `roots[0].root`，>1 停用並 stderr；本機檔另有 `declined`（使用者答過先不接，啟動不再問；舊鍵 `advised` 已不讀） |
 | `taxonomy.gate_enabled` | true | create 缺 domain 拒寫 |
+| `entrypoint.inject_budget_tokens` | 400 | 切入點契約（§7.10）一次問句接的判準卡知識段總預算 |
 | `taxonomy.llm_fallback.enabled` / `realm.llm_fallback.enabled` | false / false | 分類只跑決定性詞庫 |
 | `vector_search.enabled` / `service_port` | true / 3849 | 向量服務 |
 | `vector_search.global_layer` / `fusion` | bm25 / rrf | 全域層演算法／融合策略（legacy 回退） |

@@ -4,6 +4,7 @@ handlers/_shared.py — module-level state + 跨 handler 共用 helper
 共用：
 - regex 常數（_SUPERSEDES_RE / _V4_TRIGGER_LINE_RE / _MEMORY_MD_AUTO_HEADER）
 - lazy import flag（WISDOM_AVAILABLE / DOCDRIFT_AVAILABLE）
+- entry_note / with_note（切入點契約 hooks/wg_entrypoint；模組壞了退成不接卡，不拖垮閘）
 - _call_project_hook（subprocess invoke project hook）
 - _cleanup_old_states（state 檔 TTL 清理）
 - _is_ephemeral_path（路徑過濾）
@@ -74,6 +75,19 @@ except ImportError:
     resolve_doc_update = None
     build_drift_advisory = None
     prune_committed_entries = None
+
+# 切入點契約（TECH §7.10）：Stop 擋訊息、PreToolUse deny、MCP 回覆、子代理 prompt 在問的那一刻接判準卡並留帳。
+# 這支壞了只能讓問句沒有卡，不能讓 handler 匯入失敗（那會讓整支 handler 的閘一起失效）→ 退成不接卡、浮 stderr。
+try:
+    from wg_entrypoint import entry_note, with_note
+except Exception as _entry_err:  # noqa: BLE001
+    print(f"[Guardian:Entrypoint] 載入失敗，這次不接判準卡：{type(_entry_err).__name__}: {_entry_err}", file=sys.stderr)
+
+    def entry_note(text: str, path: str, **_kw: Any) -> str:
+        return ""
+
+    def with_note(text: str, note: str) -> str:
+        return text
 
 
 # ─── AEC HUD 活性判定（post_tool_use 標旗 / stop 再查一次，兩端共用）─────────────

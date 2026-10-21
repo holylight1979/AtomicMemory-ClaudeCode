@@ -160,6 +160,9 @@ DEFAULTS = {
             "allowlist": [],
         },
     },
+    "entrypoint": {
+        "inject_budget_tokens": 400,
+    },
 }
 
 

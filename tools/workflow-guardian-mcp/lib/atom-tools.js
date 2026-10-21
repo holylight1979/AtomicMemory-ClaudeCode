@@ -57,6 +57,12 @@ function readSupersedesLine(content) {
 
 /** write-gate 分型欄位轉述：只 echo py 回的 kind／bytes／limit／route_to／missing_sections／how，
  *  不另寫句子（js 轉述與 py reason 同字）。閘 fail-open 時 py 沒回這些欄位 → 回空字串。 */
+/** entry（切入點代號清單，workflow/entrypoints.json）格式：字串陣列、每個非空、不含逗號（`- Entry:` 行以逗號分隔）。 */
+function entryInvalid(entry) {
+  return entry !== undefined
+    && (!Array.isArray(entry) || !entry.every((e) => typeof e === "string" && e.trim() && !e.includes(",")));
+}
+
 function gateLines(g) {
   if (!g || !g.kind) return "";
   const b = g.budget || {};
@@ -94,7 +100,7 @@ async function toolAtomWrite(id, args) {
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
-    supersedes, provenance, depends, quote, kind_hint, dedupe,
+    supersedes, provenance, depends, quote, kind_hint, dedupe, entry,
   } = args;
   dry_run = !!dry_run;
   if (dedupe !== undefined && (dedupe === null || typeof dedupe !== "object" || Array.isArray(dedupe))) {
@@ -105,6 +111,9 @@ async function toolAtomWrite(id, args) {
   }
   if (depends !== undefined && !Array.isArray(depends)) {
     return reply("depends must be an array of strings like path:<abs path> (omit to keep, [] to clear)", true);
+  }
+  if (mode !== "append" && entryInvalid(entry)) {   // append 不動檔頭、忽略 entry，不因它拒收
+    return reply('entry must be an array of entrypoint ids like ["E04", "E08"] (workflow/entrypoints.json; omit to keep, [] to clear)', true);
   }
   if (provenance !== undefined && typeof provenance !== "string") {
     return reply("provenance must be a string (source path / URL / commit)", true);
@@ -329,6 +338,7 @@ async function toolAtomWrite(id, args) {
         ...(typeof provenance === "string" && { provenance }),
         ...(typeof quote === "string" && { quote }),
         ...(Array.isArray(depends) && { depends }),
+        ...(Array.isArray(entry) && { entry: entry.map((e) => e.trim()) }),
       },
       file_path: filePath,
       today,
@@ -496,6 +506,8 @@ async function toolAtomWrite(id, args) {
       ...(provenanceFinal !== null && { provenance: provenanceFinal }),
       ...(quoteFinal !== null && { quote: quoteFinal }),
       ...(dependsFinal !== null && { depends: dependsFinal }),
+      // entry 沒給＝py carry_replace_header 把舊卡的 Entry 行帶回；[]＝清掉；非空＝替換（索引由 write_index 讀落檔後的行）
+      ...(Array.isArray(entry) && { entry: entry.map((e) => e.trim()) }),
     });
     if (!br.ok) {
       return reply(`Validation failed: ${br.error}`, true);
@@ -860,6 +872,7 @@ function spawnEditMetadata(filePath, fields) {
     "    triggers=p.get('triggers'),",
     "    related=p.get('related'),",
     "    tags=p.get('tags'),",
+    "    entry=p.get('entry'),",
     "    source='mcp',",
     ")",
     "print(json.dumps(r.to_dict(), ensure_ascii=False))",
@@ -902,10 +915,13 @@ function spawnEditMetadata(filePath, fields) {
 }
 
 async function toolAtomEditMeta(id, args) {
-  const { atom_name, scope, project_cwd, role, user, triggers, related, tags } = args;
+  const { atom_name, scope, project_cwd, role, user, triggers, related, tags, entry } = args;
 
   if (!atom_name || !scope) {
     return sendToolResult(id, "atom_edit_meta: atom_name and scope are required", true);
+  }
+  if (entryInvalid(entry)) {
+    return sendToolResult(id, 'atom_edit_meta: entry must be an array of entrypoint ids like ["E04", "E08"] ([] to clear)', true);
   }
 
   // At least one metadata field must be provided.
@@ -914,9 +930,10 @@ async function toolAtomEditMeta(id, args) {
   if (Array.isArray(triggers)) { fields.triggers = triggers; changed.push("trigger"); }
   if (Array.isArray(related))  { fields.related = related;   changed.push("related"); }
   if (Array.isArray(tags))     { fields.tags = tags;         changed.push("tags"); }
+  if (Array.isArray(entry))    { fields.entry = entry.map((e) => e.trim()); changed.push("entry"); }
   if (changed.length === 0) {
     return sendToolResult(id,
-      "atom_edit_meta: at least one of triggers / related / tags must be provided (array of string).",
+      "atom_edit_meta: at least one of triggers / related / tags / entry must be provided (array of string).",
       true);
   }
 

@@ -59,6 +59,7 @@ function buildAtomContent({
   provenance,
   depends,
   quote,
+  entry,
 }) {
   const _today = today || new Date().toISOString().slice(0, 10);
   const lines = [`# ${title}`, ""];
@@ -90,6 +91,10 @@ function buildAtomContent({
   // Depends：壞滅緣條目（path:<路徑> 或自由文字）逗號清單；未給／空陣列不輸出。
   if (depends && depends.length > 0) {
     lines.push(`- Depends: ${depends.join(", ")}`);
+  }
+  // Entry：這張卡是哪幾個切入點的判準卡（workflow/entrypoints.json 的代號）；未給／空陣列不輸出。
+  if (entry && entry.length > 0) {
+    lines.push(`- Entry: ${entry.join(", ")}`);
   }
   if (related && related.length > 0) {
     lines.push(`- Related: ${related.join(", ")}`);

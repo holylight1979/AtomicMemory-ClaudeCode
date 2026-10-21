@@ -158,7 +158,7 @@ class Env:
 def env(git_cassette, monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "project_smells", ps)
     monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, None))
-    git_cassette()
+    git_cassette(exclude=("Logs",))   # 執行期留帳目錄（Env 的 GUARD_LOG_DIR）不是 git 的受測內容
     return Env(tmp_path, monkeypatch)
 
 
