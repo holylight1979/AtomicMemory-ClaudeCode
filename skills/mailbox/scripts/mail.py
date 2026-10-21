@@ -346,13 +346,21 @@ def append_status(path, text):
 
 
 def move(mail, to_archive):
-    """搬進／搬出 _archive。同一台主機內的改名只會有一個人成功，所以搬檔本身就是領取鎖。"""
+    """搬進／搬出 _archive。同一台主機內的改名只會有一個人成功，所以搬檔本身就是領取鎖。
+    Windows 上檔案（或附件資料夾裡的檔）被其他程式開著時搬不動：附件搬不動就把信搬回原位，不讓信和附件分家。"""
     target_folder = archive_dir(mail.box) if to_archive else box_dir(mail.box)
     os.makedirs(target_folder, exist_ok=True)
     target = os.path.join(target_folder, mail.file_name)
-    os.rename(mail.path, target)
+    try:
+        os.rename(mail.path, target)
+    except PermissionError as error:
+        fail(f"{fmt_id(mail.id)} 正被其他程式開著，稍後再試：{error}")
     if os.path.isdir(mail.attach_dir):
-        os.rename(mail.attach_dir, target[:-3])
+        try:
+            os.rename(mail.attach_dir, target[:-3])
+        except PermissionError as error:
+            os.rename(target, mail.path)
+            fail(f"{fmt_id(mail.id)} 的附件正被其他程式開著（{mail.attach_dir}），關掉後再試：{error}")
     return Mail(mail.box, to_archive, mail.file_name)
 
 
@@ -781,9 +789,12 @@ def cmd_delete(args):
         return 0
     for mail in mails:
         subject = mail.subject
-        os.remove(mail.path)
-        if os.path.isdir(mail.attach_dir):
-            shutil.rmtree(mail.attach_dir)
+        try:
+            if os.path.isdir(mail.attach_dir):
+                shutil.rmtree(mail.attach_dir)                       # 先刪附件：刪不動時信還在，關掉檔案後重跑就能刪乾淨
+            os.remove(mail.path)
+        except PermissionError as error:
+            fail(f"{fmt_id(mail.id)}（{mail.box}）有檔案正被其他程式開著，關掉後重跑：{error}")
         log_action("delete", mail.id, mail.box, subject)
         print(f"[已刪除] {fmt_id(mail.id)}  {mail.box}  {subject}")
     refresh_overview()

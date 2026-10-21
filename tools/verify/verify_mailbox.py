@@ -12,6 +12,7 @@ cases：
   6. 信箱根被刪 → 一般指令提示 init；init 重建骨架
   7. 沒帳號時 delete --yes／roster --add 在動手前就停（exit 4）：不刪到一半、不先寫名單
   8. 名單檔被手改成不合規的帳號 → 寄信停下（exit 1），不在信箱外建資料夾
+  9. （Windows）附件被開著時 read／delete 停下（exit 1）：信和附件留在原位、不分家
 """
 from __future__ import annotations
 
@@ -254,3 +255,37 @@ def test_roster_entry_with_bad_account_is_rejected(proj: Path, tmp_path: Path):
     res = run(proj, "alice", "send", "--to", "Bob", "--body-file", body)
     assert res.returncode == 1 and "../outside" in res.stderr
     assert not (root.parent / "outside").exists()
+
+
+# ---------------------------------------------------------------------------
+# 9. 附件被開著（例如 Excel）：Windows 搬不動、刪不掉，信和附件要留在一起
+# ---------------------------------------------------------------------------
+
+def send_project_mail_with_attachment(proj: Path, tmp_path: Path) -> tuple[Path, str]:
+    root = mailbox_root(proj)
+    for user in ("alice", "bob"):
+        assert run(proj, user, "check").returncode == 0
+    attach = write_body(tmp_path, "table.xlsx", "data\n")
+    body = write_body(tmp_path, "b.md", "# 表格\n請看附件\n")
+    assert run(proj, "alice", "send", "--to", "project", "--body-file", body, "--attach", attach).returncode == 0
+    copy = next(name for name in mail_files(root / "project") if "_M0001_" in name)
+    return root / "project", copy
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="檔案開著就擋 rename／刪除是 Windows 的行為")
+def test_read_with_attachment_open_keeps_mail_and_attachment_together(proj: Path, tmp_path: Path):
+    box, copy = send_project_mail_with_attachment(proj, tmp_path)
+    with open(box / copy[:-3] / "table.xlsx", encoding="utf-8"):
+        res = run(proj, "bob", "read", "M1")
+    assert res.returncode == 1 and "開著" in res.stderr
+    assert copy in mail_files(box) and not mail_files(box / "_archive")
+    assert (box / copy[:-3] / "table.xlsx").is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="檔案開著就擋 rename／刪除是 Windows 的行為")
+def test_delete_with_attachment_open_keeps_the_mail(proj: Path, tmp_path: Path):
+    box, copy = send_project_mail_with_attachment(proj, tmp_path)
+    with open(box / copy[:-3] / "table.xlsx", encoding="utf-8"):
+        res = run(proj, "alice", "delete", "M1", "--yes")
+    assert res.returncode == 1 and "開著" in res.stderr
+    assert copy in mail_files(box)
