@@ -8,7 +8,7 @@
   本體各一筆；沒有本體的宣告（介面、abstract）不列。
 類別一筆：沿第一個基底（類別或介面）往上接，每層 added／overridden、空層 empty；這層的成員若只有「只呼叫 base 同名方法、引數照傳」
   「override 空本體」「建構子空本體」（記在 hollow），也算空層。另列 type_kind、interfaces（每個介面掃到的實作）、implementations
-  （介面與抽象類別掃到的實作；只數得到給的檔）。
+  （介面與抽象類別掃到的具體實作，經由父類別繼承到的也算；只數得到給的檔）。
 解析不到：每筆多 unparsed（哪裡沒解析到）與 confidence（full／partial）；檔案層的問題（大括號不成對、不在任何型別裡的程式）另出
   一筆 kind=unparsed。看不到不當成沒有：#if 兩支都算、本體某句解析斷掉就從下一行接著解析。
 怎麼跑：python lib/turn_metrics_cs.py <檔> … [--root 專案根] [--diff <unified diff 檔>] [--resolve <檔> …]
@@ -781,11 +781,25 @@ class _Ctx:
                 self._add(c)
             for fn in p["funcs"]:
                 self.funcs.setdefault(fn["cls"], {}).setdefault(fn["member"], []).append(fn)
-        for c in self.index.values():
-            for b in c["bases"] if c["kind"] != "interface" else ():
-                self.impls.setdefault(b, []).append(c["name"])
+        for c in self.index.values():   # 實作＝具體型別（非介面、非 abstract），經由父類別或介面繼承到的也算
+            if c["kind"] == "interface" or "abstract" in c["mods"]:
+                continue
+            for a in self._ancestors(c["name"]):
+                self.impls.setdefault(a, []).append(c["name"])
         for names in self.impls.values():
             names.sort()
+
+    def _ancestors(self, name: str) -> set:
+        """所有基底（類別與介面，往上一路接；接不到的名字也收，停在那裡）。"""
+        out: set = set()
+        todo = list((self.index.get(name) or {}).get("bases") or [])
+        while todo:
+            b = todo.pop()
+            if b in out or b == name:
+                continue
+            out.add(b)
+            todo += (self.index.get(b) or {}).get("bases") or []
+        return out
 
     def _add(self, c: Dict[str, Any]) -> None:
         have = self.index.get(c["name"])

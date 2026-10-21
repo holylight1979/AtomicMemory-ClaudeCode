@@ -303,6 +303,8 @@ def test_override_that_does_more_than_base_or_changes_args_is_not_hollow(tmp_pat
     assert not heavy["layers"][0]["empty"] and heavy["layers"][0]["hollow"] == {}, "base.Tick(); hp++; 有真正作用"
     assert heavy["empty_layers"] == 2, "上面 Guard、Soldier 兩層照樣是空層"
     assert not armored["layers"][0]["empty"] and armored["layers"][0]["hollow"] == {}, "base.Hit(damage / 2) 改了引數"
+    assert cls["Unit"]["implementations"] == ["Armored", "Captain", "Guard", "Heavy"], "實作經由父類別也算；abstract 的 Soldier 不算"
+    assert cls["Soldier"]["implementations"] == ["Armored", "Captain", "Guard", "Heavy"]
 
 
 # ─── 只轉手與連續轉手鏈 ─────────────────────────────────────────────────────────
