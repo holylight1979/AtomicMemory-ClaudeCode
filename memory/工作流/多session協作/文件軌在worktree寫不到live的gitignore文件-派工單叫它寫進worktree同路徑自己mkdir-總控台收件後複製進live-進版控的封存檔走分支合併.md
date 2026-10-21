@@ -11,6 +11,7 @@
 ## 知識
 
 - [臨] 要派工作軌改 memory/_staging/ 這類 gitignore 的人讀文件（checklist、接續單）時會卡：工作樹裡沒這個資料夾（不進版控），切進 worktree 的 session 又寫不到 live。解法：派工單叫它在 worktree 裡自己 mkdir 同路徑寫新版，讀現況來源用 live 絕對路徑唯讀；總控台收到交付後把檔從 worktree 目錄複製進 live；要進版控的部分（DevHistory 封存檔）照常 commit 在分支、由總控台合併。
+- [臨] 文件軌被要求試跑會寫帳本的根層工具（例：tools/selfscore.py 會寫 Logs/guard-selfscore.jsonl 與 guard-entry.jsonl）時，跑 live 的工具但帶 WG_TEST_LOGS_DIR=<worktree>/Logs，並用 python -B，帳就落在 worktree（Logs/ 在 gitignore），也不會在 live 產生 pycache；卡與登錄表照讀 live。交付信附帳本路徑，要不要補進 live 帳由總控台決定。WG_CLAUDE_DIR 會連 memory／config 一起換根，不要用它。
 
 ## 行動
 

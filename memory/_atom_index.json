@@ -10161,7 +10161,8 @@
       ],
       "scope": "global",
       "entry": [
-        "E22"
+        "E22",
+        "E29"
       ]
     },
     {
@@ -11014,7 +11015,6 @@
       ],
       "scope": "global",
       "entry": [
-        "E02",
         "E21",
         "E08"
       ]
@@ -11259,6 +11259,25 @@
         "python 啟動器 cp950"
       ],
       "scope": "global"
+    },
+    {
+      "name": "claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計",
+      "path": "memory/CC與原子記憶契約/claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計.md",
+      "triggers": [
+        "claude -p",
+        "output-format json",
+        "task-notification",
+        "背景通知",
+        "permission_denials",
+        "total_cost_usd",
+        "串跑腳本",
+        "result 收錯",
+        "--resume 成本"
+      ],
+      "scope": "global",
+      "related": [
+        "claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion"
+      ]
     }
   ]
 }
