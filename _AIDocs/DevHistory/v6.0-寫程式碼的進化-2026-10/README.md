@@ -15,6 +15,7 @@
 | `工作紀錄.md` | 各工作軌從開工到合併的完整歷程（session、commit、codex 輪次、退件、快照數字） | track-doc 從核心推進文件與接續單搬出 |
 | `v6-B-需求目標核心流程-設計單.md`、`need-goal-契約.md` | 需求目標核心流程（need_goal）設計單與工具契約 | track-goal、track-b2 |
 | `G0-G16目標達成審.md` | G0～G16 目標達成審（Codex＋總控台各自審合併） | 總控台 |
+| `G15-規格評分表-研究與提案.md` | G15 語意命中目的：規格格式＋免費模型評分表的研究（網路搜索、grill-me 拷問、內網／本機 Ollama 實測）與提案，第五節 4 件待原設計者定 | track-g15-spec-research |
 | `總控台裁定帳與誤判清冊.md` | 兩個總控台的裁定（#1～#43 等）與寫碼查核閘誤判清冊，每筆一行 | 本機信箱 `workflow/v6-inbox/_console/`（已刪） |
 | `B5-需求目標效果驗收-結論.md` | B5 五題驗收結論與三條效果缺口（不含答案） | 本機信箱 `from-track-b5/`（原始材料留在本機 `workflow/inbox/b5-kit/`） |
 | `工作軌總表與暫停狀態.md` | 各軌做了什麼與合進 main 的 commit、暫停狀態、沒進 /console skill 的流程段落、本機留存工具 | 本機信箱（已刪）＋git log |
