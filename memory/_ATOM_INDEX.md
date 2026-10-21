@@ -581,3 +581,5 @@
 | 靠使用者原話放行的帳要記身分與可被推翻-記節點不只名字-推翻要當次寫回state-原話視窗只留5則帳會在視窗外復活 | memory/設計通則/靠使用者原話放行的帳要記身分與可被推翻-記節點不只名字-推翻要當次寫回state-原話視窗只留5則帳會在視窗外復活.md | 豁免帳, 紅測豁免, 使用者撤回, state 帳復活, 原話視窗 | global |  |
 | git-cat-file-batch-check的missing行帶回原輸入含空白路徑-成功行只有sha-type-size不帶名字-要按輸入順序配對不能靠名字拆欄 | memory/版控/git-cat-file-batch-check的missing行帶回原輸入含空白路徑-成功行只有sha-type-size不帶名字-要按輸入順序配對不能靠名字拆欄.md | cat-file --batch-check, git 批次查詢, missing 行, 按輸入順序配對 | global |  |
 | atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬 | _AIDocs/_atoms/MemDev/atom-set-realm搬回core的卡會被收割的realm自動搬移再搬回local-要改realm先查自動分類判法否則白搬.md | atom-set-realm, realm 自動搬移, 搬回 memory, 收割搬卡, E16 退路雜訊 | global |  |
+| feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問 | memory/Failures/行為契約/feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問.md | 等原設計者裁, 算不算過, 定義題, 卡等, 判分分歧, 要你決定的, 總控台裁定, 全推進到全完成 | global |  |
+| feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他 | memory/Failures/工作流/feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他.md | 待原設計者裁, 等他裁, 分歧待裁, 算不算過, 定義題, 卡等, 總控台裁定, 全推進 | global |  |

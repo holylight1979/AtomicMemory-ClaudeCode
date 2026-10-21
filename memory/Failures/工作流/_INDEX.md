@@ -20,6 +20,7 @@
 | feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了 | feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了 |
 | feedback-暫時偵錯碼插進被外部程序持續執行的-live-檔案前後必-py-compile-一次語法錯誤讓使用者-statusline-整個失效 | feedback-暫時偵錯碼插進被外部程序持續執行的-live-檔案前後必-py-compile-一次語法錯誤讓使用者-statusline-整個失效 |
 | feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向 | feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向 |
+| feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他 | feedback-總控台對AI判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他 |
 | feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆 | feedback-要轉告別的session就自己SendMessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆 |
 | feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句 | feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用SendMessage直接轉更新-不要叫使用者換開工句 |
 | feedback-高速推進每步跨大-禁越執行越偏細節越耗時 | feedback-高速推進每步跨大-禁越執行越偏細節越耗時 |
