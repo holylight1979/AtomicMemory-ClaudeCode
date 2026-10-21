@@ -8208,6 +8208,27 @@
         "文件交付複製"
       ],
       "scope": "global"
+    },
+    {
+      "name": "codex-exec的stderr紀錄在user段整份回聲提示詞-replay-guard的指令行判定與整份掃都會把材料裡的git-diff與禁區路徑當codex動作-守門前先剝回聲與回答只判它自己的輸出",
+      "path": "_AIDocs/_atoms/MemDev/codex-exec的stderr紀錄在user段整份回聲提示詞-replay-guard的指令行判定與整份掃都會把材料裡的git-diff與禁區路徑當codex動作-守門前先剝回聲與回答只判它自己的輸出.md",
+      "triggers": [
+        "codex exec stderr",
+        "提示詞回聲",
+        "replay-guard post",
+        "command_lines",
+        "無指令行但整份紀錄命中",
+        "第二意見 failed",
+        "second_opinion_result failed",
+        "_AIDocs/_atoms 命中",
+        "git diff 命中",
+        "strip_prompt_echo"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/tools/second-opinion/run.py",
+        "path:C:/Users/holylight/.claude/tools/replay-guard.py"
+      ]
     }
   ]
 }
