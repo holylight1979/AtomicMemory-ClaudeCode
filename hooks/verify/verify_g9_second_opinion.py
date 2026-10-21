@@ -548,3 +548,44 @@ def test_health_weekly_lists_declined(tmp_path, monkeypatch):
     got = hw._second_opinion_declined_block(14)
     assert len(got) == 1 and "1 筆" in got[0] and "只重錄 cassettes" in got[0] and "太舊" not in got[0]
     assert hw._second_opinion_declined_block(14) and not hw._user_release_block(14)
+
+
+# ─── 005 件 4：「不需第二意見」每次宣告都留帳（規則 SECOND_OPINION_DECLARED_ALWAYS_LOGGED） ───
+
+def test_005_decline_logged_when_gate_does_not_need_it(drive, capsys, tmp_path):
+    """第四跑 C-1 第 3、4 回合：沒改程式、沒宣告完成，AI 照樣寫「不需第二意見｜…」→ 閘這回合不要，宣告也記一筆（needed=False）；
+    舊碼只在閘要第二意見而且宣告成立那條路記，第 2～5 回合的宣告全沒帳。"""
+    text = "不需第二意見｜這一輪沒有改任何程式，只是核對已經提交的內容"
+    reason, state, logs = drive(text, capsys, files=_files(tmp_path, 5))
+    declined = _so_logs(logs, "declined")
+    assert "[Guardian:SecondOpinion]" not in reason and "second_opinion_ok" not in state, "前置：閘這回合沒要第二意見"
+    assert len(declined) == 1 and declined[0]["needed"] is False and declined[0]["reason"].startswith("這一輪沒有改任何程式")
+
+
+def test_005_decline_logged_even_when_an_earlier_gate_blocks(drive, capsys, tmp_path):
+    """前面的閘（這裡用紅測閘）先擋下、收尾沒走到第二意見段，宣告照樣記，needed 記閘當下要不要（要：5 個程式檔、宣告完成）。"""
+    red = {"cmd": "python -m pytest verify_a.py", "summary": "FAILED verify_a.py::test_x", "turn_seq": 5, "session_id": SID,
+           "pytest": True}
+    state = {"phase": "working", "modified_files": [_mf(p) for p in _files(tmp_path, 5)], "failing_tests": [red],
+             "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5, "muted": True}
+    reason, _, logs = drive("全部完成。\n不需第二意見｜只重錄 cassettes", capsys, state=state)
+    assert "[Guardian:TestFailGate]" in reason, "前置：紅測閘先擋"
+    declined = _so_logs(logs, "declined")
+    assert len(declined) == 1 and declined[0]["needed"] is True and declined[0]["code_files"] == 5
+
+
+def test_005_same_decline_in_same_turn_logged_once(drive, capsys, tmp_path):
+    """被擋後重寫同一句不重記；同一回合換一句理由再記一筆。"""
+    state = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0,
+             "turn_seq": 5, "turn_prompts_seq": 5, "muted": True}
+    text = "不需第二意見｜這一輪沒有改任何程式，只做搜尋和實測確認。"
+    _, _, first = drive(text, capsys, state=state)
+    _, _, again = drive(text, capsys, state=state)
+    _, _, other = drive("不需第二意見｜只查狀態和整理回報", capsys, state=state)
+    _, _, back = drive(text, capsys, state=state)
+    assert len(_so_logs(first, "declined")) == 1 and not _so_logs(again, "declined") and len(_so_logs(other, "declined")) == 1
+    assert not _so_logs(back, "declined"), "codex 005：A、B、A 第三次不重記（不是只記最後一句）"
+    long_a, long_b = "只重錄 cassettes" + "，" * 200 + "甲", "只重錄 cassettes" + "，" * 200 + "乙"
+    _, _, la = drive(f"不需第二意見｜{long_a}", capsys, state=state)
+    _, _, lb = drive(f"不需第二意見｜{long_b}", capsys, state=state)
+    assert len(_so_logs(la, "declined")) == 1 and len(_so_logs(lb, "declined")) == 1, "前 200 字相同、後面不同是兩句"

@@ -25,7 +25,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block, output_json,
@@ -48,7 +48,8 @@ from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
-    parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since,
+    parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
+    cmd_run_line, second_opinion_decline, second_opinion_decline_ok,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1317,13 +1318,14 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
     return block
 
 
-def testfail_message(failing: List[Dict[str, Any]]) -> str:
+def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -> str:
     """TestFailGate 擋訊息：最後 3 筆紅測＋三條出路。先問使用者有沒有叫跳過（程式只收引原話的不做行豁免），
     再分程式錯還是舊斷言跟不上新需求；不給 skip／xfail 這種讓紅消失的出路——舊句「標記為已知 regression」會把 AI 帶去加 xfail
-    （切入點自評 E08）。"""
+    （切入點自評 E08）。每筆列失敗項（規則 RED_ITEMS_ONLY_FROM_FAILURE_LINES：FAILED／ERROR 節點，不是摘要第一行）與指令實際跑的
+    那行（不含註解）；notes＝不做行對到了卻沒豁免的原因（waiver_miss_notes）。"""
     return (f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），不得宣告完成。\n"
-            + "\n".join(f"  - {f.get('cmd', '')[:60]}: {(f.get('summary', '').splitlines() or [''])[0][:100]}"
-                        for f in failing[-3:])
+            + "\n".join(f"  - {red_item_label(f)}（指令：{cmd_run_line(f.get('cmd', ''))[:80]}）" for f in failing[-3:])
+            + "".join(f"\n  ! {n}" for n in notes)
             + "\n先看使用者有沒有叫你跳過或先不管這支：(a) 有 → 不動測試檔、讓它照紅，收尾寫一行"
             "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」，程式對到這筆紅測就留帳放行 "
             "(b) 沒有 → 修到綠：程式錯就修程式；是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」"
@@ -1571,6 +1573,22 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 + "。可以這一回合一起補完再收尾（收尾檢核放最後）。")
     _later.append(_later_gates)
 
+    # 規則 SECOND_OPINION_DECLARED_ALWAYS_LOGGED：收尾有「不需第二意見｜<理由>」就留帳，排在所有收尾閘前面——第二意見閘這回合不要、
+    # 或前面的閘先擋下，宣告照樣記；needed 記閘當下要不要。同一個使用者回合同一句理由只記一筆（被擋後重寫同一句不重記）。
+    _so_reason = second_opinion_decline(code_text)
+    if _so_reason is not None and second_opinion_decline_ok(_so_reason):
+        _so_seen = state.setdefault("second_opinion_declared", {})
+        _so_mine = _so_seen.get(session_id) if isinstance(_so_seen.get(session_id), dict) else {}
+        _so_said = list(_so_mine.get("reasons") or []) if _so_mine.get("turn") == _since else []
+        if _so_reason not in _so_said:
+            _so_v0, _so_f0 = _so_check()
+            append_guard_log(_SO_GATE, {"event": "declined", "session_id": session_id, "turn_seq": turn_seq,
+                                        "reason": _so_reason[:300], "code_files": _so_f0.get("code_files"),
+                                        "triggers": _so_f0.get("triggers"),
+                                        "needed": None if _so_v0 is None else _so_v0.rule == "SECOND_OPINION_DECLINED"})
+            _so_seen[session_id] = {"turn": _since, "reasons": [*_so_said, _so_reason]}
+            write_state(session_id, state)
+
     # 規則 USER_WAIVER_NEEDS_CITATION：使用者說「先這樣／跳過」不再整段清掉紅測；LLM 寫「不做｜<哪一支>：使用者說「<原句>」」、
     # 原句真的在近 3 則使用者原話、事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的）。
     # 豁免一成立就記進 state testfail_waivers（事項、原句、那一則原話），之後同 session 同一支看帳、不看近 3 則窗口；
@@ -1610,7 +1628,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 write_state(session_id, state)
     if failing and _done(code_text):
         state["stop_blocked_count"] = stop_count + 1
-        reason = _piggyback(testfail_message(failing))
+        reason = _piggyback(testfail_message(failing, waiver_miss_notes(failing, parse_not_doing(code_text), _history[-3:],
+                                                                        state.get("testfail_waivers") or [])))
         write_state(session_id, state)
         output_block(reason)
         return
@@ -1814,11 +1833,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if _sov is not None and _sof.get("satisfied"):
         state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
         clear_pending(state, session_id, _SO_GATE)
-        if _sov.rule == "SECOND_OPINION_DECLINED":
-            append_guard_log(_SO_GATE, {"event": "declined", "session_id": session_id, "turn_seq": turn_seq,
-                                        "reason": str(_sof.get("decline", ""))[:300], "code_files": _sof.get("code_files"),
-                                        "triggers": _sof.get("triggers")})
-        write_state(session_id, state)
+        write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
         print("[Guardian:SecondOpinion] 使用者已放行這一回合，本次不擋", file=sys.stderr)
     elif _sov is not None and _sov.owed:

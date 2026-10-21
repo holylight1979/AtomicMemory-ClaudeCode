@@ -40,7 +40,7 @@ from wg_verify_ledger import (
     commit_snapshot, reconcile_cfg, head_new_code, copied_glob_source, _git_root_of, reverted_code_files, is_code_file, ledger_path,
     small_content_sha,
 )
-from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
+from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_ran_cases_verdict,
                               red_case_facts, red_case_names, retry_round_verdict, same_test_run)
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -511,6 +511,26 @@ def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: st
     del rounds[:-RETRY_ROUNDS_CAP]
 
 
+def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str) -> None:
+    """規則 GREEN_CLEARS_ONLY_CASES_IT_RAN 的紅那一面：這次紅完整列出失敗（red_case_facts：列出的支數等於結算的 failed＋error）→
+    本 session 舊紅裡這次也跑到的那幾支以這次為準（還紅的這次照列）：全跑到的整筆拿掉、跑到一部分的記進 cleared_units。
+    輸出不完整（截斷、沒列）不動舊紅——不然截過的那筆對不到名字、又沒有綠能清，會一直擋。"""
+    if not red_case_facts(failure)[1]:
+        return
+    keep: List[Dict[str, Any]] = []
+    for f in state.get("failing_tests") or []:
+        if not isinstance(f, dict) or f.get("session_id") != sid:
+            keep.append(f)
+            continue
+        v, ran = green_ran_cases_verdict(f.get("cmd", ""), f.get("summary", ""), command, f.get("cleared_units") or ())
+        if not v.owed:
+            continue
+        if ran:
+            f["cleared_units"] = list(dict.fromkeys([*(f.get("cleared_units") or []), *ran]))
+        keep.append(f)
+    state["failing_tests"] = keep
+
+
 def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
                        tool: str = "Bash", config: Optional[Dict[str, Any]] = None) -> bool:
     """Bash／PowerShell 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
@@ -551,6 +571,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             del lst[:-DELIBERATE_REDS_CAP]
             return True
         _note_retry_round(state, sid, command, failure, str(input_data.get("cwd") or ""))
+        _supersede_reds(state, sid, command, failure)
         state.setdefault("failing_tests", []).append({
             "tool": tool,
             "session_id": sid,
@@ -573,6 +594,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     cmd_prefix = command[:80].strip()
     is_pytest_success = "pytest" in command.lower()
     before = state["failing_tests"]
+    shrunk: List[Dict[str, Any]] = []
 
     def _clears(f: Dict[str, Any]) -> bool:
         if f.get("session_id") != sid:          # 只清自己的；沒蓋 sid 的舊條目不是自己的
@@ -584,15 +606,19 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
                                               or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
         if not matched:
             return False
-        # 規則 GREEN_NARROWED_KEEPS_UNCOVERED_RED：單案或 -k 篩選跑綠，沒涵蓋紅掉的案例 → 那筆紅與它的改檔紀錄照留
-        keep = green_covers_red_verdict(f.get("cmd", ""), f.get("summary", ""), command)
+        # 規則 GREEN_CLEARS_ONLY_CASES_IT_RAN（篩選另見 GREEN_NARROWED_KEEPS_UNCOVERED_RED）：綠只清它跑到的紅案；只跑到一部分 →
+        # 跑到的那幾支記進 cleared_units、那筆紅與它的改檔紀錄照留（放行要對那支紅測自己的最後一次執行，不是最後一次任何 pytest）
+        keep, ran = green_ran_cases_verdict(f.get("cmd", ""), f.get("summary", ""), command, f.get("cleared_units") or ())
         if keep.owed:
             print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
+            if ran:
+                f["cleared_units"] = list(dict.fromkeys([*(f.get("cleared_units") or []), *ran]))
+                shrunk.append(f)
         return not keep.owed
 
     after = [f for f in before if not _clears(f)]
     if len(after) == len(before):
-        return False
+        return bool(shrunk)
     state["failing_tests"] = after
     return True
 

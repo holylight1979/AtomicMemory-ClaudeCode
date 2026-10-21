@@ -96,6 +96,13 @@ RULES: Dict[str, str] = {
                                            "與抽樣驗證（sample，MOVE_SAMPLE_CHECK PASS）；收據指令不准自己寫哨兵字樣。",
     "GREEN_NARROWED_KEEPS_UNCOVERED_RED":"綠的範圍有篩選（節點 id、-k、-m、Jest -t）時，紅掉的案例都在綠點名的節點裡才清那筆紅；"
                                           "判不了（-k 運算式、輸出沒列案例）照留，同一個篩選指令重跑除外。沒篩選照既有清帳規則。",
+    "GREEN_CLEARS_ONLY_CASES_IT_RAN": "綠只清它真的跑到的紅案：綠點名了整檔或節點（沒 -k／-m 這類篩選）時，紅測摘要逐支列出的失敗"
+                                      "（FAILED／ERROR 節點行）在綠點名的檔或節點裡才算跑到；全跑到才清整筆，只跑到一部分就把跑到的那幾支"
+                                      "從那筆紅拿掉（cleared_units）、其餘照留；紅的輸出沒列案例時，紅點名的案例檔都在綠點名的檔裡才清。"
+                                      "綠沒點名檔也沒篩選＝跑整套，照既有清帳規則；有篩選照 GREEN_NARROWED_KEEPS_UNCOVERED_RED。"
+                                      "點名的範圍含目錄（選項的值不算）；同一組點名重跑全清。紅那一面：新的一次紅完整列出失敗"
+                                      "（列出的支數等於結算 failed＋error）時，舊紅裡這次也跑到的那幾支以這次為準（還紅的這次照列）；"
+                                      "輸出截斷或沒列的紅不動舊紅。",
     "DISPATCH_OPENS_TURN": "回合起點＝使用者打字，或帶派工標記的跨 session 訊息（正文首行以「派工」開頭、或含 to-track-<軌> 派工檔路徑）；"
                            "一般同伴訊息、背景通知不開回合。擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、"
                            "收割冷卻全吃同一個起點（user_turn／turn_prompts_seq／user_turn_count）。派工訊息不是使用者原話：口令照樣不認。",
@@ -127,6 +134,9 @@ RULES: Dict[str, str] = {
                                                  "第二行「定位｜根因層」要辨識得出"
                                                  "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
                                                  "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。",
+    "LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS": "根因層那行完全沒寫「候選 A／第一根因」這類標記時，兩個以上的列舉（①②、⑴⑵、(1)(2)）、"
+                                              "或寫到兩個以上不同的「<名稱>層」（這層、每層、第二層這類泛稱不算）也算候選；只有一個列舉或一層"
+                                              "照舊算 0 個。有標記就只看標記。固定字樣只是建議寫法，選擇理由照樣要寫。",
     # G1 側觀：定位之後的批判與舉一反三（原話輯 G1 2026-10-15）
     "RELOAD_ADVICE_ALREADY_LOADED": "收尾文字叫使用者 Reload Window（重新載入視窗）→ 查這個 session 的工具服務程序（每個 session 的 claude"
                                     "程序底下各有自己的服務；找不到所屬 claude 程序就看全機）啟動時載入的程式版本：全部有紀錄、心跳 3 分鐘內、"
@@ -1079,6 +1089,73 @@ def green_covers_red_verdict(red_cmd: str, red_summary: str, green_cmd: str) -> 
                    (f"綠 {str(green_cmd)[:120]}", f"沒涵蓋 {'、'.join(missing[:3]) or '（紅的輸出沒列案例，判不了涵蓋）'}"))
 
 
+def _file_covered(red_file: str, files: Sequence[str]) -> bool:
+    """同一個檔：路徑相同或尾段相同（pytest 節點相對它的 rootdir、指令相對 cwd，兩邊只能靠尾段接起來）。"""
+    return any(red_file == f or red_file.endswith("/" + f) or f.endswith("/" + red_file) for f in files)
+
+
+def _dir_covered(red_file: str, dirs: Sequence[str]) -> bool:
+    return any(red_file.startswith(d + "/") or f"/{d}/" in "/" + red_file for d in dirs)
+
+
+# 會吃下一個參數當值的 pytest 選項：它後面那個字不是要跑的路徑
+_VALUE_OPTS = frozenset({"-k", "-m", "-p", "-c", "-o", "-n", "-W", "--tb", "--maxfail", "--basetemp", "--rootdir", "--deselect",
+                         "--ignore", "--ignore-glob", "--junitxml", "--junit-xml", "--cov", "--cov-report", "--durations",
+                         "--log-level", "--confcutdir", "--import-mode", "--lfnf", "--capture"})
+_PATH_ARG_RE = re.compile(r"^[\w./\-]+$")
+
+
+def _runner_dirs(args: str) -> List[str]:
+    """測試子命令之後點名的目錄（不是選項、不是選項的值、沒有副檔名、不是節點）；「.」＝整套不算。小寫正斜線。"""
+    toks = [t.strip("'\"").replace("\\", "/") for t in str(args or "").split()]
+    out: List[str] = []
+    for i, t in enumerate(toks):
+        prev = toks[i - 1] if i else ""
+        if (not t or t.startswith("-") or "::" in t or not _PATH_ARG_RE.match(t) or prev in _VALUE_OPTS
+                or re.search(r"\.[A-Za-z0-9]+$", t)):
+            continue
+        d = t.lower().strip("/").removeprefix("./")
+        if d and d != "." and d not in out:
+            out.append(d)
+    return out
+
+
+def green_ran_cases_verdict(red_cmd: str, red_summary: str, green_cmd: str,
+                            cleared: Sequence[str] = ()) -> Tuple[Verdict, List[str]]:
+    """GREEN_CLEARS_ONLY_CASES_IT_RAN：這次綠跑到這筆紅的哪幾支。回 (Verdict, 跑到的紅案)；owed＝True 表示還有沒跑到的、那筆紅照留
+    （呼叫端把跑到的那幾支記進 cleared_units）。cleared＝之前的綠已經跑到的（不再算）。綠點名的範圍＝節點、整檔、目錄；同一組點名重跑
+    全清；有 -k／-m 這類篩選交給 green_covers_red_verdict（只看還沒清掉的那幾支）；綠什麼都沒點名＝整套，全清。"""
+    rule = "GREEN_CLEARS_ONLY_CASES_IT_RAN"
+    args = _test_runner_args(green_cmd)
+    nodes = [_norm_node(n) for n in _NODE_ID_TOKEN_RE.findall(args)]
+    files = case_files_in_cmd(_NODE_ID_TOKEN_RE.sub(" ", args))
+    dirs = _runner_dirs(args)
+    listed = failed_units(red_summary)
+    red = [u for u in listed if u not in set(cleared or ())]
+    if _NARROW_FLAG_RE.search(args):
+        left = "\n".join(f"FAILED {u}" for u in red) if listed else red_summary
+        v = green_covers_red_verdict(red_cmd, left, green_cmd)
+        return v, ([] if v.owed else red)
+    if not nodes and not files and not dirs:
+        return Verdict(rule, False, "綠沒點名檔、目錄也沒篩選（跑整套）", ()), red
+    if " ".join(_test_runner_args(red_cmd).split()) == " ".join(args.split()):
+        return Verdict(rule, False, "綠是同一組點名重跑", ()), red
+    if not red:
+        red_args = _test_runner_args(red_cmd)
+        red_sel = case_files_in_cmd(red_args) + _runner_dirs(red_args)
+        if red_sel and all(_file_covered(f, files) or _dir_covered(f, dirs) or f in dirs for f in red_sel):
+            return Verdict(rule, False, "紅的輸出沒列案例，紅點名的範圍綠都跑了", tuple(red_sel[:3])), []
+        return Verdict(rule, True, "紅的輸出沒列案例、綠只跑了點名的範圍，判不了有沒有跑到紅的那支，那筆紅照留",
+                       (f"綠 {str(green_cmd)[:120]}", f"紅 {str(red_cmd)[:120]}")), []
+    ran = [u for u in red if _node_covered(u, nodes) or _file_covered(u.split("::", 1)[0], files)
+           or _dir_covered(u.split("::", 1)[0], dirs)]
+    left = [u for u in red if u not in ran]
+    if not left:
+        return Verdict(rule, False, "紅掉的案例綠都跑到了", tuple(ran[:3])), ran
+    return Verdict(rule, True, f"綠只跑到紅的 {len(ran)} 支、還有 {len(left)} 支沒跑，沒跑到的照留",
+                   (f"綠 {str(green_cmd)[:120]}", f"沒跑到 {'、'.join(left[:3])}")), ran
+
+
 _CASE_EXTS = r"(?:py|js|ts|cs|lua|go|rs|rb|java|kt|sh|ps1)"
 _CASE_TOKEN_RE = re.compile(r"[\w./\\:-]+\." + _CASE_EXTS + r"\b", re.IGNORECASE)
 _QUOTED_CASE_RE = re.compile(r"""(["'])([^"'\n]*?\.""" + _CASE_EXTS + r""")(?:::[^"'\n]*)?\1""", re.IGNORECASE)
@@ -1184,17 +1261,58 @@ _ROLE_PLACEHOLDERS = {"", "角色", "這一塊在目標裡的角色", "這一塊
 _ROLE_STRIP_RE = re.compile(r"[\s，。、；;:：,.!！?？「」『』（）()【】\[\]<>《》—－\-~～*_`'\"]+")
 
 
+_ENUM_NO = {**{c: i for i, c in enumerate("①②③④⑤", 1)}, **{c: i for i, c in enumerate("⑴⑵⑶⑷⑸", 1)},
+            **{c: i for i, c in enumerate("12345", 1)}, **{c: i for i, c in enumerate("一二三四五", 1)}}
+# 列舉：①②、⑴⑵、(1)(2)／（一）（二）；括號數字前面接英數字的是函式呼叫，不算
+_ENUM_RE = re.compile(r"([①-⑤⑴-⑸])|(?<![A-Za-z0-9_])[（(]\s*([1-5一二三四五])\s*[)）]")
+_LAYER_RE = re.compile(r"([A-Za-z][A-Za-z0-9_\-]*|[一-鿿]+)\s*層")
+# 「這層、每層、第二層、第四層、跨層」這類泛稱（層前一個字）與「根因層」不是一層的名字
+_LAYER_GENERIC_TAIL = set("這那哪每同各一二兩三四五六七八九十百幾多上下本該底表外內深單雙其此某任跨分0123456789")
+_LAYER_LEAD_RE = re.compile(r"^.*[在是於從到修改看查的為由和與及或往向把將先再都只就也跟]")
+
+
+def _absent_after(text: str, end: int) -> bool:
+    return bool(_ABSENT_RE.match(text, end))
+
+
+def _unlabeled_candidates(text: str) -> List[int]:
+    """LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS：沒寫固定標記時，兩個以上的列舉、或兩個以上不同名稱的「<名稱>層」當候選。"""
+    enums: List[int] = []
+    for m in _ENUM_RE.finditer(text):
+        n = _ENUM_NO[m.group(1) or m.group(2)]
+        if not _absent_after(text, m.end()) and n not in enums:
+            enums.append(n)
+    if len(enums) >= 2:
+        return enums
+    layers: List[str] = []
+    for m in _LAYER_RE.finditer(text):
+        name = m.group(1).lower()
+        if name[-1] in _LAYER_GENERIC_TAIL or name.endswith("根因"):
+            continue
+        # 中文前面常黏著動詞與介詞（「根因在邏輯」「先修邏輯」）：切到最後一個這種字之後；一個名字是另一個的尾段也算同一層，留短的
+        name = _LAYER_LEAD_RE.sub("", name) or name
+        same = next((i for i, k in enumerate(layers) if k.endswith(name) or name.endswith(k)), None)
+        if same is None:
+            layers.append(name)
+        elif len(name) < len(layers[same]):
+            layers[same] = name
+    return list(range(1, len(layers) + 1)) if len(layers) >= 2 else []
+
+
 def root_candidates(root_line: str) -> List[int]:
-    """根因層那行辨識出的候選編號（去重保序）；標記後面緊接「不存在／沒有」的是「第二個不存在」說明，不算候選。"""
+    """根因層那行辨識出的候選編號（去重保序）；標記後面緊接「不存在／沒有」的是「第二個不存在」說明，不算候選。
+    一個標記都沒有時看列舉與跨層（_unlabeled_candidates）。"""
     text = str(root_line or "")
     out: List[int] = []
+    marked = False
     for m in _CANDIDATE_RE.finditer(text):
-        if _ABSENT_RE.match(text, m.end()):
+        marked = True
+        if _absent_after(text, m.end()):
             continue
         n = _LABEL_NO[m.group(1) or m.group(2)]
         if n not in out:
             out.append(n)
-    return out
+    return out if marked else _unlabeled_candidates(text)
 
 
 _CHAINED_NODES_RE = re.compile(r"^(?:\s*[/／、,，+＋]\s*T\d+(?:\.\d+)*)+")
@@ -1968,6 +2086,12 @@ RULES.update({
                                   "deferral_declared），之後同 session 同一支（記帳那時的同一個節點；摘要沒列節點的比同一條指令）看帳、不看近 3 則窗口，"
                                   "但收尾仍要有對到它的不做行；使用者在記帳之後又提到這一支 → 帳不算，以新的話為準（回到近 3 則引用判）。"
                                   "沒引用、引用找不到、帳上沒有 → 照判。",
+    "RED_ITEMS_ONLY_FROM_FAILURE_LINES": "紅測的失敗項只從失敗行取：pytest 摘要 FAILED／ERROR 開頭的節點行（扣掉之後的綠已跑到的 "
+                                         "cleared_units）；沒有節點行時只認行首 FAIL／FAILED／ERROR 的行（unittest、go、jest）"
+                                         "加上指令點名的案例檔。指令裡 # 開頭的註解行（AI 自己寫的不做行）、git 輸出、Exit code 行都不是失敗項，"
+                                         "不拿來對不做行。擋訊息逐筆列失敗項與指令實際跑的那行（不是摘要第一行、不是註解）；沒列出失敗項就說沒列出、"
+                                         "要不截斷重跑；不做行對到了某支、但引用不在近 3 則使用者原話、帳上也沒有 → 擋訊息說出是哪一支、缺什麼；"
+                                         "帳上有那支的豁免、這次收尾卻沒寫對到它的不做行 → 擋訊息給那一行照抄（帳不自動放）。",
 })
 
 CLAIM_LABELS: Dict[str, str] = {"fixed": "修好", "measured": "量了", "tried": "試過"}
@@ -2211,6 +2335,61 @@ def failed_units(summary: Any) -> List[str]:
     return list(dict.fromkeys(m.group(1).replace("\\", "/").lower() for m in _FAILED_UNIT_RE.finditer(str(summary or ""))))
 
 
+_FAILURE_LINE_RE = re.compile(r"^\s*(?:-{2,3}\s*)?(?:FAILED|FAIL|ERROR)\b.*$", re.MULTILINE)
+# 一行一支的失敗（沒有 pytest 節點時）：go「--- FAIL: TestX」、unittest「FAIL: test_x (mod.Cls)」、jest「FAIL src/a.test.js」；
+# 「FAIL」「FAILED (failures=2)」「FAIL\t<套件>」這種結算行不是一支
+_TEST_FAIL_LINE_RE = re.compile(r"^\s*(?:-{2,3}\s*FAIL:\s*([^\s/]+)|(?:FAIL|ERROR):\s*(\S+)\s+\(|FAIL\s+(\S+\.(?:js|jsx|ts|tsx|mjs|cjs|py))\b)",
+                                re.MULTILINE)
+# 註解：行首的 #，或前面是空白的 #（shell 只在字首把 # 當註解開頭）
+_COMMENT_RE = re.compile(r"(?:^|(?<=\s))#.*$", re.MULTILINE)
+
+
+def red_units(entry: Dict[str, Any]) -> List[str]:
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：這筆紅測還算紅的那幾支（failed_units 扣掉之後的綠已跑到的 cleared_units）。"""
+    done = set((entry or {}).get("cleared_units") or ())
+    return [u for u in failed_units((entry or {}).get("summary", "")) if u not in done]
+
+
+def failure_lines(summary: Any) -> List[str]:
+    """沒有 pytest 節點行時的失敗行：行首 FAIL／FAILED／ERROR（可帶 go 的 ---）的那幾行，去頭尾空白；其他行不是失敗項。"""
+    return [m.group(0).strip() for m in _FAILURE_LINE_RE.finditer(str(summary or ""))]
+
+
+def failure_units(summary: Any) -> List[str]:
+    """沒有 pytest 節點行時一行一支的失敗名稱（go 子測試只取上層名），去重保序；結算行不算。"""
+    names = (next(g for g in m.groups() if g) for m in _TEST_FAIL_LINE_RE.finditer(str(summary or "")))
+    return list(dict.fromkeys(n.replace("\\", "/") for n in names))
+
+
+def cmd_run_line(cmd: Any) -> str:
+    """指令實際跑的部分（去掉 # 註解，多行併成一行）：擋訊息與比對用，AI 寫在指令註解裡的不做行不算指令。"""
+    return " ".join(ln.strip() for ln in _COMMENT_RE.sub("", str(cmd or "")).splitlines() if ln.strip())
+
+
+def _unlisted_unit(entry: Dict[str, Any]) -> str:
+    """摘要沒列哪一支時整筆當一支的比對文字：測試子命令那幾段的參數（認不出測試子命令就整條，都去掉註解）＋失敗行；
+    git 輸出、Exit code 行、echo 這類別段、註解都不算。"""
+    return " ".join([_test_runner_args(cmd_run_line(entry.get("cmd", ""))).strip(),
+                     *failure_lines(entry.get("summary", ""))]).strip()
+
+
+def _waiver_units(entry: Dict[str, Any]) -> Tuple[List[str], bool]:
+    """紅測豁免逐支比的單位與「有沒有逐支列出」：pytest 節點（扣掉已清的）→ 一行一支的失敗名稱 → 都沒有就整筆當一支。"""
+    units = red_units(entry) or failure_units(entry.get("summary", ""))
+    return (units, True) if units else ([_unlisted_unit(entry)], False)
+
+
+def red_item_label(entry: Dict[str, Any], shown: int = 3) -> str:
+    """擋訊息裡這筆紅測的失敗項：逐支列節點；沒有就列失敗行；都沒有就明說輸出沒列出是哪一支。"""
+    units = red_units(entry)
+    if units:
+        return "、".join(units[:shown]) + (f" 等 {len(units)} 支" if len(units) > shown else "")
+    lines = failure_lines(entry.get("summary", ""))
+    if lines:
+        return "、".join(ln[:100] for ln in lines[:shown])
+    return "（輸出沒列出 FAILED／ERROR 那幾行，看不出是哪一支：別截斷輸出、單獨重跑一次）"
+
+
 def waiver_mentioned_since(entry: Dict[str, Any], history: Sequence[str]) -> bool:
     """帳記下之後使用者又提到這一支：history（近幾則原話，舊到新）裡記帳那則原話之後（那則不在了就整段）出現事項、或帳上那幾支的
     檔名／不帶副檔名的檔名／函式名（使用者不一定用同一個名字叫它；中文句子不靠空白斷詞，只要前後不是英數字）。通用字不算。"""
@@ -2265,19 +2444,45 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
     waived: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     for f in failing:
         cmd = str((f or {}).get("cmd", ""))
-        units = failed_units((f or {}).get("summary", ""))
-        hits = [_unit_waiver(u, bool(units), cmd, cited, lines, live)
-                for u in units or [f"{cmd} {(f or {}).get('summary', '')}"]]
+        units, listed = _waiver_units(f or {})
+        hits = [_unit_waiver(u, listed, cmd, cited, lines, live) for u in units]
         if not all(hits):
             kept.append(f)
             continue
         merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
-        for u, h in zip(units or [""], hits):
+        for u, h in zip(units, hits):
             got = merged.setdefault((h["line"], h["via"]), {**h, "units": []})
-            if u:
+            if listed:
                 got["units"].append(u)
         waived += [(f, h) for h in merged.values()]
     return kept, waived
+
+
+def waiver_miss_notes(kept: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], prompts: Sequence[str],
+                      ledger: Sequence[Dict[str, Any]] = ()) -> List[str]:
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：還算紅的那幾筆為什麼沒豁免（不說的話 AI 只看到又被擋，會以為是名字沒對上）：
+    不做行對到了某支、引用卻不在近 3 則原話（帳上也沒有）→ 說是哪一支、引了哪句；帳上有這支的豁免、這次收尾卻沒寫對到它的不做行
+    → 給那一行照抄（帳不自動放）。"""
+    out: List[str] = []
+    lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
+    for f in kept:
+        units, listed = _waiver_units(f or {})
+        for u in units:
+            named = [d for d in lines if names_failed_test(u, d["item"])]
+            e = next((e for e in ledger or () if _booked_for(e, u, listed, str(f.get("cmd", "")))), None)
+            if named and e:
+                continue                         # 這支照帳豁免了，整筆還紅是因為別支
+            d = next((d for d in named if d.get("quote") and not quote_in_prompts(d["quote"], prompts)), None)
+            line = ""
+            if d:
+                line = (f"不做行「{d['item'][:60]}」對到了 {u[:100]}，但引用的「{d['quote'][:40]}」不在近 3 則使用者原話裡、帳上也沒有"
+                        "這支的豁免：使用者早先說過的話要他再說一次，或照 (b)(c) 處理")
+            elif not named and e:
+                line = (f"帳上有 {u[:100]} 的豁免（使用者說「{str(e.get('quote') or '')[:40]}」），這次收尾沒寫對到它的不做行："
+                        f"補一行「不做｜{str(e.get('item') or '')[:60]}：使用者說「{str(e.get('quote') or '')[:40]}」」就放行")
+            if line and line not in out:
+                out.append(line)
+    return out
 
 
 # ─── T2.16 動資料檔 ───
@@ -2390,6 +2595,9 @@ RULES.update({
                                "的整句（前後是句首、句末標點或換行，逗號不算句界；去掉句末標點至少 2 個字；引用自帶句末標點時要跟原話"
                                "那個標點一樣）；對不到、或只出現在同伴轉述"
                                "（peer_said）裡 → 強制改 inferred（推出來的）並提醒。樹根與匯入的節點不核。",
+    "ORIGIN_SAID_INCLUDES_UNATTACHED": "origin 核對的原話來源包含本 session 還沒掛上任何樹的使用者原話（樹已結束時收的、doc said_log "
+                                       "attached=false）：樹對照完結束後使用者再糾正，那則原話要等樹重開才掛回去，而重開排在同一次 update "
+                                       "的核對之後；不看它的話逐字引用也會被降成推出來的（第四跑 C-1 T1.7）。",
 })
 ORIGIN_QUOTE_MIN = 6
 _SENTENCE_END = "。！？!?；;\n"
@@ -2775,6 +2983,10 @@ RULES.update({
                                "（wg_release）；子代理、裁判 session、headless 不觸發；前面的閘擋下時列進 BLOCK_LISTS_LATER_GATES 預覽。",
     "SECOND_OPINION_DECLINED": "收尾寫一行「不需第二意見｜<理由>」→ 不擋、留帳 Logs/guard-second_opinion.jsonl（event=declined、理由、"
                                "程式檔數），週健檢列筆數與理由（只列不判）；理由空、只有佔位、或只寫「不需要」這類空話 → 照擋。",
+    "SECOND_OPINION_DECLARED_ALWAYS_LOGGED": "收尾最後一則有「不需第二意見｜<理由>」（行首、程式碼區塊外、理由過 second_opinion_decline_ok）"
+                                             "就留帳 event=declined，不管第二意見閘這回合要不要、前面的閘有沒有先擋下；needed 記閘當下"
+                                             "要不要第二意見（null＝設定關或無法互動沒判）。同一個使用者回合同一句理由只記一筆（被擋後重寫"
+                                             "同一句不重記）。",
 })
 
 SO_SECTION = "第二意見與分歧裁決"

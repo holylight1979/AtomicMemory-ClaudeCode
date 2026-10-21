@@ -280,3 +280,25 @@ def test_c2_real_root_listed_at_set(env):
     r = _op("set", goal=C2_GOAL)
     line = next(ln for ln in r["text"].splitlines() if ln.startswith("[NeedGoal] 樹根這幾句原話裡沒有"))
     assert "舊報表不被這次改動弄壞」" in line and "｜AI 的解讀]" in r["text"], r["text"]   # 切出來的句子帶「而且」
+
+
+def test_005_quote_from_words_said_while_tree_closed(env):
+    """第四跑 C-1 T1.7（規則 ORIGIN_SAID_INCLUDES_UNATTACHED）：第 4 回合完整對照全達成、樹結束；第 5 回合使用者糾正，原話先記進
+    said_log、還沒掛上樹（樹結束了）；同一次 update 把節點改回進行中、逐字引用那則原話 → 要認得。舊碼先核再重開樹，判「不在任何一則
+    使用者原話裡」降成推出來的。"""
+    _tree_with("補一個：折扣碼不要寫死在程式裡，放進 config/shop.json，之後要加新碼改設定檔就好。")
+    assert _op("add", items=[{"text": "折扣碼放 config/shop.json", "origin": "user", "quote": "之後要加新碼改設定檔就好"}])["ok"]
+    ng.update_locked(SID, lambda doc: doc["trees"]["T1"].update(status="closed"))
+    said = "不對，折扣碼不要放 shop.json，改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動。"
+    ng.on_prompt(SID, said, 5, {})
+    doc = ng.load(SID)
+    assert doc["trees"]["T1"]["status"] == "closed" and doc["said_log"][-1]["attached"] is False, "前置：原話還沒掛上樹"
+    r = _op("update", turn=5, items=[{"id": "T1.1", "text": "折扣碼放新檔 config/promos.json，shop.json 只留門檻改動",
+                                      "origin": "user", "quote": "改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動",
+                                      "status": "doing", "why": "使用者糾正"}])
+    n = _node("T1.1")
+    assert r["ok"] and n["origin"] == "user" and "對不到原話" not in r["text"], r["text"]
+    assert n["said_seq"] == doc["said_log"][-1]["seq"] and not _events(env, "origin_downgraded")
+    # 反例：引用不在任何一則原話（含沒掛上的）照降級
+    r = _op("update", turn=5, items=[{"id": "T1.1", "origin": "user", "quote": "另外開一個新檔 config/discount.json", "why": "x"}])
+    assert _node("T1.1")["origin"] == "inferred" and "對不到原話" in r["text"]
