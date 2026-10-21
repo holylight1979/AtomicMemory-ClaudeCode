@@ -26,7 +26,12 @@
         "架構細節",
         "context budget"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions-architecture",
+        "toolchain",
+        "toolchain-ollama"
+      ]
     },
     {
       "name": "electron-uia-automation",
@@ -66,7 +71,37 @@
         "commit message",
         "上 GIT"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-completion-gates",
+        "feedback-tooling-reliability",
+        "feedback-rigor-standards",
+        "workflow-parallel-agents",
+        "feedback-memory-system-doc-sync",
+        "realm-範疇分區機制-v5",
+        "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags",
+        "a執p-自執驗上p-自動完工協議",
+        "goal-driven-verify-loopkarpathy-吸收",
+        "自己flag的維護動作直接做完不要反問",
+        "feedback-complexity-origin-trace",
+        "handoff-綜觀品質與抗失真寫法",
+        "跨session資訊失真機制與對策",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "模型行為移植-fable行為契約必載檔",
+        "preferences",
+        "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字",
+        "禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱",
+        "feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問",
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-模糊裁示不硬化先深問-決策選項含使用到再問",
+        "feedback-使用者已宣告不展開的領域-不要回頭跟他要清單",
+        "feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理",
+        "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
+        "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session",
+        "workflow-rules",
+        "feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫",
+        "feedback-動手前預告含查讀回合-第一次工具呼叫前就報-單獨一則再呼叫工具"
+      ]
     },
     {
       "name": "feedback-completion-gates",
@@ -92,7 +127,24 @@
         "清暫存",
         "收尾檢核"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "feedback-tooling-reliability",
+        "自己flag的維護動作直接做完不要反問",
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "cognitive-patterns",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "巨檔純機械拆分-carve腳本與驗證盲點",
+        "專案工作驗收裁判的分級啟動與殺閘設計",
+        "並行agent產出併入交付物必須標驗證強度分層",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
+        "背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾",
+        "多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完",
+        "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑"
+      ]
     },
     {
       "name": "feedback-tooling-reliability",
@@ -113,7 +165,24 @@
         "probe burst",
         "規則唯一來源"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-completion-gates",
+        "feedback-memory-system-doc-sync",
+        "feedback-workflow-discipline",
+        "atom-table-support",
+        "cc-能力查證反編譯實跑-binary",
+        "codex-log-bloat-analytics",
+        "atom-元資料編輯與晉升閘真相",
+        "guardian-dashboard-孤兒佔埠與新碼重啟",
+        "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags",
+        "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值",
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
+        "codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺",
+        "atom-write-global必須省略project-cwd",
+        "codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated",
+        "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空"
+      ]
     },
     {
       "name": "feedback-rigor-standards",
@@ -131,7 +200,19 @@
         "precedent",
         "既有 drift"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "feedback-memory-system-doc-sync",
+        "cognitive-patterns",
+        "feedback-complexity-origin-trace",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
+        "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔",
+        "preferences",
+        "禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱",
+        "目標展開與收斂-立體菱形體思考模型"
+      ]
     },
     {
       "name": "preferences",
@@ -256,7 +337,24 @@
         "品質判定",
         "excerpt"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "decisions",
+        "feedback-rigor-standards",
+        "cc-能力查證反編譯實跑-binary",
+        "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags",
+        "feedback-complexity-origin-trace",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "跨session資訊失真機制與對策",
+        "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
+        "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔",
+        "feedback-completion-gates",
+        "並行agent產出併入交付物必須標驗證強度分層",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
+        "feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙",
+        "機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度"
+      ]
     },
     {
       "name": "feedback-atom-write-initial-confidence",
@@ -272,7 +370,10 @@
         "knowledge 行",
         "隨手寫 [固]"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "realm-範疇分區機制-v5"
+      ]
     },
     {
       "name": "workflow-parallel-agents",
@@ -702,7 +803,14 @@
         "正交軸綁死",
         "為什麼這麼複雜"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "feedback-rigor-standards",
+        "realm-範疇分區機制-v5",
+        "cognitive-patterns",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長"
+      ]
     },
     {
       "name": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
@@ -721,7 +829,32 @@
         "DB 鍵",
         "計畫 checklist"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "cognitive-patterns",
+        "feedback-workflow-discipline",
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-rigor-standards",
+        "feedback-completion-gates",
+        "feedback-complexity-origin-trace",
+        "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值",
+        "codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺",
+        "winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog",
+        "目標展開與收斂-立體菱形體思考模型",
+        "並行agent產出併入交付物必須標驗證強度分層",
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token",
+        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
+        "feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證",
+        "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
+        "規格裡未實證的前提要先取樣再實作-不然整包白做",
+        "刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕",
+        "跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失",
+        "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
+        "feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙",
+        "插入到方法結尾的edit要驗錨點所在方法-build綠燈不代表插對地方",
+        "feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法"
+      ]
     },
     {
       "name": "auto-capture碎片sweep污染詞庫-defer根治",
@@ -872,7 +1005,13 @@
         "atom 過時 claim",
         "docstring 版本"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-rigor-standards",
+        "cognitive-patterns",
+        "feedback-memory-system-doc-sync",
+        "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字"
+      ]
     },
     {
       "name": "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
@@ -1062,7 +1201,13 @@
         "可讀性",
         "寫code"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔",
+        "feedback-workflow-discipline",
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-動手前先給預期外清單-使用者用一句話重述概念核對落差-順帶發現一起修"
+      ]
     },
     {
       "name": "檢索融合與回歸集調參-rrf-min-score-定案",
@@ -1144,7 +1289,11 @@
         "Package Cache",
         "Windows PowerShell 5.1"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "toolchain",
+        "windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑"
+      ]
     },
     {
       "name": "跨session協調-衝突預警機制與cc原生現況",
@@ -1206,7 +1355,12 @@
         "合併文件",
         "推託"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "handoff-綜觀品質與抗失真寫法",
+        "跨session資訊失真機制與對策"
+      ]
     },
     {
       "name": "usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升",
@@ -1274,7 +1428,21 @@
         "TLDR",
         "報告格式"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字",
+        "目標展開與收斂-立體菱形體思考模型",
+        "feedback-使用者已宣告不展開的領域-不要回頭跟他要清單",
+        "feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選",
+        "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session",
+        "feedback-建檔或改名後回報一律給絕對路徑-相對連結與中途改名讓使用者找不到報告",
+        "feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼",
+        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
+        "feedback-整份文件與回應都要更白話-自創名詞與代號不裸用-術語首次出現附一句白話-陌生人五分鐘看懂",
+        "feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號"
+      ]
     },
     {
       "name": "專案工作驗收裁判的分級啟動與殺閘設計",
@@ -1321,7 +1489,10 @@
         "net8.0-windows",
         "資料夾選擇"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長"
+      ]
     },
     {
       "name": "衝突偵測-block-資格閘-複驗一致-分區感知-待審出路",
@@ -1422,7 +1593,10 @@
         "閃 console",
         "claude mcp add"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags"
+      ]
     },
     {
       "name": "workflow-research-fanout",
@@ -1496,7 +1670,11 @@
         "關閉逾時",
         "in-flight request"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "歸因早停-找到合理嫌疑機制就停止驗證"
+      ]
     },
     {
       "name": "vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現",
@@ -1513,7 +1691,10 @@
         "鎖定檔",
         "建置可重現"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "commit-前必須核對-staged-清單而非只信自己-add-了什麼"
+      ]
     },
     {
       "name": "windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring",
@@ -1551,7 +1732,14 @@
         "全上",
         "git add -A"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "自己flag的維護動作直接做完不要反問",
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
+        "feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff",
+        "preferences"
+      ]
     },
     {
       "name": "feedback-模糊裁示不硬化先深問-決策選項含使用到再問",
@@ -1566,7 +1754,13 @@
         "逐字原話",
         "裁決選項"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "自己flag的維護動作直接做完不要反問",
+        "handoff-綜觀品質與抗失真寫法",
+        "feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙"
+      ]
     },
     {
       "name": "混改檔hunk級選擇性staging",
@@ -1591,7 +1785,13 @@
         "force_global",
         "global 寫入被拒"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-tooling-reliability",
+        "toolchain",
+        "memory-index-caption-regen",
+        "realm-範疇分區機制-v5"
+      ]
     },
     {
       "name": "契約加欄位必查手寫映射點-單元綠不代表wire存活",
@@ -1606,7 +1806,12 @@
         "E2E 探針",
         "逐欄重建"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "歸因早停-找到合理嫌疑機制就停止驗證",
+        "goal-driven-verify-loopkarpathy-吸收",
+        "弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值"
+      ]
     },
     {
       "name": "汰舊刪腳本要-grep-全-repo-實際呼叫點",
@@ -1656,7 +1861,10 @@
         "hit test",
         "捲到某物"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗"
+      ]
     },
     {
       "name": "designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰",
@@ -1674,7 +1882,10 @@
         "事件處理器",
         "初始化順序"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗"
+      ]
     },
     {
       "name": "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
@@ -1776,7 +1987,11 @@
         "問錯問題",
         "範圍"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-workflow-discipline"
+      ]
     },
     {
       "name": "bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗",
@@ -1841,7 +2056,14 @@
         "實機驗證",
         "smoke test"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "自己flag的維護動作直接做完不要反問",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii",
+        "feedback-自己列的還沒證不要等別人-能自己取樣就當場驗-真實diff從自己repo取-穩定度自己重跑"
+      ]
     },
     {
       "name": "輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測",
@@ -1858,7 +2080,12 @@
         "驗證證據",
         "app 執行中"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
+        "離線測試過但實機不過-先排除實機跑的不是這份程式碼",
+        "powershell傳null給dotnet-string參數會變空字串-nullstring才是真null"
+      ]
     },
     {
       "name": "powershell傳null給dotnet-string參數會變空字串-nullstring才是真null",
@@ -1938,7 +2165,12 @@
         "timeout 當主要手段",
         "等一下再送"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-workflow-discipline",
+        "goal-driven-verify-loopkarpathy-吸收",
+        "常駐每幀回呼vs按需短命協程-判準與mec實證"
+      ]
     },
     {
       "name": "驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase",
@@ -1972,7 +2204,13 @@
         "派工粒度",
         "退修門檻"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents",
+        "feedback-workflow-discipline",
+        "並行llm即時通訊-inbox機制",
+        "feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向"
+      ]
     },
     {
       "name": "feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向",
@@ -1989,7 +2227,12 @@
         "監工回合",
         "重新對齊"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
+        "目標展開與收斂-立體菱形體思考模型",
+        "workflow-parallel-agents"
+      ]
     },
     {
       "name": "grok協作實戰認知-特質與監工分工手感",
@@ -2145,7 +2388,11 @@
         "範圍取捨",
         "拍板"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "自己flag的維護動作直接做完不要反問"
+      ]
     },
     {
       "name": "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session",
@@ -2208,7 +2455,10 @@
         "ProcessStartInfo",
         "UTF-8"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8"
+      ]
     },
     {
       "name": "刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕",
@@ -2271,7 +2521,13 @@
         "分門別類",
         "積累"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "取用端稽核與瘦身規範-atomaudit與3kb預算",
+        "decisions",
+        "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+        "codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測"
+      ]
     },
     {
       "name": "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
@@ -2370,7 +2626,11 @@
         "wrong assumption",
         "前提錯"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀",
+        "讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用"
+      ]
     },
     {
       "name": "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人",
@@ -2388,7 +2648,14 @@
         "他專案 atom",
         "scope 過濾"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "realm-範疇分區機制-v5",
+        "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層",
+        "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房",
+        "子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫",
+        "episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格"
+      ]
     },
     {
       "name": "atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在",
@@ -2484,7 +2751,10 @@
         "新機安裝",
         "PATH 順位"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "winget-升不動-powershell-msi-與-msix-通道分裂"
+      ]
     },
     {
       "name": "testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴",
@@ -2789,7 +3059,14 @@
         "二選一",
         "拍板"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "自己flag的維護動作直接做完不要反問",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "feedback-動手前先給預期外清單-使用者用一句話重述概念核對落差-順帶發現一起修",
+        "feedback-全貌未對齊前不要一直要使用者拍板-先弄懂他要的全貌-再讓他看懂我們構思的全貌",
+        "feedback-預計畫文件的三種退避形態-dry-run出廠-登記延後-一槓空格-補什麼要標閘注入工具規矩-怎麼驗要標題組機器數字第二家模型看人看"
+      ]
     },
     {
       "name": "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定",
@@ -2928,7 +3205,13 @@
         "看 diff",
         "進度切點"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問",
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "preferences",
+        "規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音"
+      ]
     },
     {
       "name": "規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音",
@@ -3171,7 +3454,11 @@
         "重下口令",
         "背景事件後 commit"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留",
+        "使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行"
+      ]
     },
     {
       "name": "winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii",
@@ -3225,7 +3512,12 @@
         "類比推論",
         "這也一樣"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "cognitive-patterns",
+        "feedback-模糊裁示不硬化先深問-決策選項含使用到再問",
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長"
+      ]
     },
     {
       "name": "常駐每幀回呼vs按需短命協程-判準與mec實證",
@@ -3355,7 +3647,11 @@
         "落盤時差",
         "text_blocks"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱",
+        "feedback-workflow-discipline"
+      ]
     },
     {
       "name": "在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗",
@@ -3464,7 +3760,11 @@
         "親和",
         "報備路徑"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "handoff-綜觀品質與抗失真寫法"
+      ]
     },
     {
       "name": "時間預算類測試量測時同回合不得並行其他重負載工具呼叫-否則數字被自己污染",
@@ -3606,7 +3906,12 @@
         "報告目的",
         "LLM 寫錯"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "所有決策和報告必須提供清晰的問題-數據佐證-並以易懂的白話形式-指出錯誤-優化點",
+        "feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫"
+      ]
     },
     {
       "name": "壓縮後根層-claudemd-由磁碟重讀不需自製-constraint-pinning-真正會丟的是對話中的計畫脈絡-用-staging-計畫檔加-sessionstart-resume-指標接續",
@@ -3625,7 +3930,10 @@
         "CLAUDE.md 重讀",
         "計畫脈絡遺失"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "跨session資訊失真機制與對策"
+      ]
     },
     {
       "name": "windows-每支-hook-子程序啟動約-150ms-同事件多支-standalone-hook-先量再併-過-100ms-且等價回放全過才合",
@@ -3749,7 +4057,10 @@
         "hook 提醒無效",
         "Stop says"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "sessionstart的提示只有模型看得到-要使用者做決定就寫成叫模型用askuserquestion問的指示-問到有答案為止不要只提示一次"
+      ]
     },
     {
       "name": "vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻",
@@ -4017,7 +4328,10 @@
         "非我造成",
         "指認 session"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
+      ]
     },
     {
       "name": "既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-m-本機覆蓋檔用skip-worktree",
@@ -4066,7 +4380,10 @@
         "onboarding 提示",
         "declined"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason"
+      ]
     },
     {
       "name": "gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-identity-星號md誤傷identity開頭的atom",
@@ -4360,7 +4677,10 @@
         "hook 注入時序",
         "PostToolUse 等效"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到"
+      ]
     },
     {
       "name": "第二視角設計原則-同模型文字規則不夠-獨立context加行為痕跡才算第三人稱-即時層是數字加節流校準行",
@@ -4428,7 +4748,15 @@
         "tri-link",
         "root-link"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-整份文件與回應都要更白話-自創名詞與代號不裸用-術語首次出現附一句白話-陌生人五分鐘看懂",
+        "feedback-全貌未對齊前不要一直要使用者拍板-先弄懂他要的全貌-再讓他看懂我們構思的全貌",
+        "feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整",
+        "feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號",
+        "feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定"
+      ]
     },
     {
       "name": "feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決",
@@ -4461,7 +4789,12 @@
         "信箱",
         "綁要"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
+        "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
+        "feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法"
+      ]
     },
     {
       "name": "機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度",
@@ -4520,7 +4853,14 @@
         "結論",
         "驗法"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+        "feedback-全貌未對齊前不要一直要使用者拍板-先弄懂他要的全貌-再讓他看懂我們構思的全貌",
+        "feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤",
+        "feedback-自己列的還沒證不要等別人-能自己取樣就當場驗-真實diff從自己repo取-穩定度自己重跑",
+        "單一構想的完成邏輯拐超過三個彎就是壞味道-腳本如此llm思考也如此-超過三個拐彎極可能跑偏或想錯-繼續推只會更偏"
+      ]
     },
     {
       "name": "feedback-沒實測的內容不能推到結論-每句標實測讀碼推論假說四級-先列實測清單-信尾固定自檢",
@@ -4574,7 +4914,11 @@
         "沙箱測",
         "自己測"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證",
+        "feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法"
+      ]
     },
     {
       "name": "wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報",
@@ -4606,7 +4950,11 @@
         "全貌文件",
         "給使用者看"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌"
+      ]
     },
     {
       "name": "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住",
@@ -4668,7 +5016,11 @@
         "壞味道測試",
         "拐彎"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "單一構想的完成邏輯拐超過三個彎就是壞味道-腳本如此llm思考也如此-超過三個拐彎極可能跑偏或想錯-繼續推只會更偏",
+        "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住"
+      ]
     },
     {
       "name": "行為保持重構的高速等值證法-舊原始碼解析出預期表-新dll反射實跑全枚舉值比對-副作用守衛文字相等",
@@ -4740,6 +5092,10 @@
         "Codex 記憶"
       ],
       "scope": "global",
+      "related": [
+        "feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法",
+        "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地"
+      ],
       "depends": [
         "path:C:/Users/holylight/.claude/tools/replay-guard.py"
       ]
@@ -4760,7 +5116,11 @@
         "無待答項",
         "彙整"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
+        "並行llm即時通訊-inbox機制"
+      ]
     },
     {
       "name": "成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同",
@@ -4983,7 +5343,11 @@
         "變量吸收",
         "範圍聲明"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
+        "根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox"
+      ]
     },
     {
       "name": "feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號",
@@ -5002,7 +5366,13 @@
         "寫給誰看",
         "文件飄移"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
+        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
+        "feedback-表格列欄用暫時屬性當標籤會變成假類別-新字當列號傳四版變成新專案層-不做什麼欄一槓格同病-每張表先定分類軸再填",
+        "feedback-預計畫文件的三種退避形態-dry-run出廠-登記延後-一槓空格-補什麼要標閘注入工具規矩-怎麼驗要標題組機器數字第二家模型看人看"
+      ]
     },
     {
       "name": "feedback-預計畫文件的三種退避形態-dry-run出廠-登記延後-一槓空格-補什麼要標閘注入工具規矩-怎麼驗要標題組機器數字第二家模型看人看",
@@ -5021,7 +5391,12 @@
         "角色分工判層",
         "系統怎麼知道現在是哪層"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號",
+        "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
+        "feedback-表格列欄用暫時屬性當標籤會變成假類別-新字當列號傳四版變成新專案層-不做什麼欄一槓格同病-每張表先定分類軸再填"
+      ]
     },
     {
       "name": "feedback-預計畫文件先改到使用者認可才進planmode定執行細節-不是收到校正就馬上進planmode",
@@ -5078,7 +5453,11 @@
         "亂寫原因",
         "屬性當實體"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-預計畫文件的三種退避形態-dry-run出廠-登記延後-一槓空格-補什麼要標閘注入工具規矩-怎麼驗要標題組機器數字第二家模型看人看",
+        "feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號"
+      ]
     },
     {
       "name": "feedback-根層不放專案名-非必要就拔只寫要點-指涉用某專案-代稱優於路徑-拔名不得讓事實走樣",
@@ -5382,7 +5761,13 @@
         "標籤注入",
         "system-reminder 引用"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem",
+        "commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令",
+        "程式前置閘要略過llm判斷時只能用正向樣板逐子句整句比對-含訊號就算與關鍵字清單都會誤丟真決策-欄位要收窄",
+        "使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行"
+      ]
     },
     {
       "name": "taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束",
@@ -5495,7 +5880,10 @@
         "路徑包含",
         "HOLYLI~1"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它"
+      ]
     },
     {
       "name": "驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外",
@@ -5715,7 +6103,11 @@
         "TEMP TMP",
         "scratchpad"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath",
+        "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home"
+      ]
     },
     {
       "name": "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行",
@@ -5730,7 +6122,11 @@
         "AskUserQuestion",
         "(d) 補案例"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "擋滿待放行的紀錄只在重新查核真的通過或使用者放行才清-沒執行查核不等於查核通過-原宣稱只記第一次-舊格式缺欄位照擋",
+        "feedback-閘誤判的修法不是加例外清單-把欠帳本回合放行改碼的判定抽成獨立模組-每情境一條有名字的規則加會紅案例-擋訊息印規則名與證據-不准整輪不擋或放寬"
+      ]
     },
     {
       "name": "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒",
@@ -5876,7 +6272,10 @@
         "總控台不改碼",
         "換手規則"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "多軌開發耗時長的根因-對抗審沒封頂每輪收新邊角-三方驗證做在每個增量且全由總控台串行-發版線定太晚-總控台自己改碼開子代理-負載下反覆跑全量"
+      ]
     },
     {
       "name": "codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回",
@@ -6155,7 +6554,10 @@
         "追你才提",
         "自己跳出來"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-側觀批判要在交出前自己做完並落到檔與機制-不是等使用者問才在chat批判自己的產出再問要不要改"
+      ]
     },
     {
       "name": "feedback-骨架先行不是砍範圍-分階段只決定順序不決定總量-後段項目不准改列維護軌或做成縮小版-退避過的縮小版就是跑偏",
@@ -6295,7 +6697,10 @@
         "精準判斷",
         "驗證阻擋"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
+      ]
     },
     {
       "name": "裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前",
@@ -6375,7 +6780,10 @@
         "發現其他問題",
         "交付信"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session"
+      ]
     },
     {
       "name": "codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑",
@@ -6691,7 +7099,11 @@
         "別人的 commit",
         "等口令"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉"
+      ]
     },
     {
       "name": "總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據",
@@ -6845,7 +7257,10 @@
         "被叫回來",
         "ListAgents 收信"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送"
+      ]
     },
     {
       "name": "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效",
@@ -7024,7 +7439,10 @@
         "權限模式不同",
         "開工句補充"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器"
+      ]
     },
     {
       "name": "改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去",
@@ -7163,7 +7581,11 @@
         "視野越做越小",
         "要不要我照這個改"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追",
+        "自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者"
+      ]
     },
     {
       "name": "episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格",
@@ -7292,7 +7714,13 @@
         "全量改增量待補",
         "漏判率"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次",
+        "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑",
+        "feedback-該測哪些是判斷不是規則-驗證範圍由llm依關聯與影響裁決並負責檢討-程式只要求宣告留證據對帳漏判-固定整資料夾量尺違反判",
+        "git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用"
+      ]
     },
     {
       "name": "git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用",
@@ -7511,7 +7939,10 @@
         "session id 對不上",
         "請使用者轉告"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "自己flag的維護動作直接做完不要反問"
+      ]
     },
     {
       "name": "feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai",
