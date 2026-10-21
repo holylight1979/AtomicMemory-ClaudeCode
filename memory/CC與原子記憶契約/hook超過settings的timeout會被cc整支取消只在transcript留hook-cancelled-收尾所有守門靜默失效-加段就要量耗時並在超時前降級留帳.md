@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: hook_cancelled, hook timeout, Stop hook 逾時, 收尾沒反應, 最該修沒問, settings timeout 10, hook 變慢
 - Created-at: 2026-10-21
+- Quote: 「收割此session的知識與經驗」
 
 ## 知識
 

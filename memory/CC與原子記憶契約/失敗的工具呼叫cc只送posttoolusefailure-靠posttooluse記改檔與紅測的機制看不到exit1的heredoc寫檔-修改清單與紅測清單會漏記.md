@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: PostToolUseFailure, is_error, exit 1 寫檔, modified_files 漏記, failing_tests 空, heredoc 沒記到, PickOne 沒問, G11 沒量到
 - Created-at: 2026-10-21
+- Quote: 「收割此session的知識與經驗」
 
 ## 知識
 

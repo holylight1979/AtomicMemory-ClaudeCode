@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 有點慢, 多開併行, 串行, 等交付, 一天完工, 總控台排程, 背景 session 上限, 無職工
 - Created-at: 2026-10-21
+- Quote: 「收割此session的知識與經驗」
 
 ## 知識
 
