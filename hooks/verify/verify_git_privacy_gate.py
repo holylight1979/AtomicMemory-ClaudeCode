@@ -21,7 +21,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
 from handlers.pre_tool_use import (  # noqa: E402
-    check_git_privacy, _git_commit_segments, _privacy_globs, _privacy_match,
+    check_git_privacy, _git_commit_segments, _git_commits_to_run, _git_segments, _privacy_globs, _privacy_match,
 )
 
 
@@ -90,6 +90,76 @@ def test_git_add_in_same_command_is_checked(repo):
     assert msg is not None and ".env" in msg
     msg_all = _check(repo, "git add -A && git commit -m 'x'")
     assert msg_all is not None and ".env" in msg_all
+
+
+def test_commit_through_git_alias_is_checked(repo):
+    """G2(a)：`git ci`（alias.ci=commit）與直接 git commit 同一套查；口令閘、需求目標閘共用的 _git_commits_to_run 也認得。"""
+    _stage(repo, ".env", "SECRET=1")
+    assert _check(repo, "git commit -m x"), "前置：直接 commit 會被擋"
+    _git(repo, "config", "alias.ci", "commit")
+    msg = _check(repo, "git ci -m x")
+    assert msg and ".env" in msg
+    assert _git_commits_to_run("git ci -m x", str(repo))[2] is True
+    assert _git_commits_to_run("git status", str(repo))[2] is False
+
+
+def test_alias_named_like_a_git_command_is_ignored_like_git_does(repo):
+    """codex 審 G2(a)：跟 git 自己指令同名的別名 git 不認（`check-ref-format` 跑的是內建），閘也不能當 commit；
+    不在常見內建表上的真別名照樣認得。"""
+    assert _git_commits_to_run("git -c alias.zz=commit zz -m x", str(repo))[2] is True, "前置：行內別名認得"
+    assert _git_commits_to_run("git -c alias.check-ref-format=commit check-ref-format refs/heads/x",
+                               str(repo))[2] is False
+
+
+def test_alias_lookup_failure_at_the_commit_target_is_not_guessed(repo, tmp_path):
+    """codex 審 G2(a) 第二輪：commit 落點的別名表查不到（-C 指到還不存在的目錄）時，不拿別的目錄的設定頂替；子命令不是
+    git 指令 → 當可能有 commit（口令閘、需求目標閘照管）；內建子命令照常不算。"""
+    nope = (tmp_path / "nope").as_posix()
+    assert _git_commits_to_run(f"git -C {nope} status", str(repo))[2] is False, "前置：內建子命令不查別名"
+    assert _git_commits_to_run(f"git -C {nope} zz -m x", str(repo))[2] is True
+
+
+def _commit_base(repo: Path, files: dict) -> None:
+    for rel, text in files.items():
+        (repo / rel).write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+
+
+ESCAPE_FORMS = [
+    ("Bash", 'git commit -m "say \\"hi\\"" -- .env'),          # 雙引號裡的 \"
+    ("Bash", 'git commit -m "C:\\\\dir\\\\" -- .env'),          # 雙引號裡的 \\ 緊接收尾引號
+    ("Bash", "git commit -m $'a\\nb' -- .env"),                 # ANSI-C $'…'
+    ("Bash", "git commit -m 'it'\\''s' -- .env"),               # 單引號裡放單引號的 '\''
+    ("Bash", "git commit -m x -- \\.env"),                      # 引號外的 \ 跳脫路徑
+    ("Bash", "git add $'.env' && git commit -m x"),             # $'…' 包路徑
+    ("Bash", "git add $'.e\\x6ev' && git commit -m x"),         # $'…' 裡的 \xHH
+    ("Bash", 'git add $".env" && git commit -m x'),             # $"…"（locale 翻譯引號，值同雙引號）
+    ("PowerShell", 'git commit -m "say `"hi`"" -- .env'),       # PowerShell 反引號
+    ("PowerShell", "git commit -m 'it''s' -- .env"),            # PowerShell 單引號雙寫
+]
+
+
+@pytest.mark.parametrize("tool,command", ESCAPE_FORMS)
+def test_escaped_message_or_path_still_finds_the_private_file(repo, tool, command):
+    """G2(b)：訊息或路徑用跳脫字元時，後面的 `-- .env` 不能被吞進訊息、跳脫過的路徑要還原成 .env 再比對。"""
+    _commit_base(repo, {".env": "A=1", "a.txt": "a"})
+    (repo / ".env").write_text("A=2", encoding="utf-8")
+    assert _check(repo, "git commit -m x") is None, "前置：沒暫存、沒 pathspec，光 commit 不會帶進 .env"
+    msg = check_git_privacy(tool, {"command": command}, str(repo), {})
+    assert msg and ".env" in msg, command
+
+
+def test_private_name_inside_escaped_message_is_not_a_path(repo):
+    """G2(b) 反例：.env 只出現在跳脫過的訊息裡、提交的是 a.txt → 不擋。"""
+    _commit_base(repo, {".env": "A=1", "a.txt": "a"})
+    (repo / ".env").write_text("A=2", encoding="utf-8")
+    (repo / "a.txt").write_text("b", encoding="utf-8")
+    assert _check(repo, "git commit -m x -- .env"), "前置：真的提交 .env 會被擋"
+    command = 'git commit -m "mention \\".env\\" -- .env" -- a.txt'
+    segs = _git_segments(command, {"commit"}, "bash", str(repo))
+    assert segs and segs[0][1][-2:] == ["--", "a.txt"] and 'mention ".env" -- .env' in segs[0][1], segs
+    assert _check(repo, command) is None
 
 
 def test_git_dash_c_repo_targeting(repo, tmp_path):

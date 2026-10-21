@@ -2964,6 +2964,24 @@ def test_g12w_git_scope_skips_an_ignored_dir_and_unresolved_stays_the_same(tmp_p
     assert "ignored/extra.py" in forced["file_funcs"] and forced["scope"]["files"] == len(PY_STRAIGHT) + 1
 
 
+def test_cg12_git_scope_fallback_to_tree_still_skips_git_ignored(tmp_path):
+    """C-G12：git 這一層沒追蹤到原始碼（還沒 add 的新專案）退回目錄遞迴時，照 git 的忽略規則跳過被忽略的目錄、
+    巢狀目錄與單檔，政策標明；明確給 --scope tree 仍是原樣遞迴（反證：同一棵樹掃得到那三個）。"""
+    repo = _write(tmp_path / "fresh", {".gitignore": "gen/\npkg/out/\nskip_me.py\n", **PY_STRAIGHT,
+                                       "gen/extra.py": "def extra():\n    return 1\n",
+                                       "pkg/keep.py": "def keep():\n    return 2\n",
+                                       "pkg/out/built.py": "def built():\n    return 3\n",
+                                       "skip_me.py": "def skip():\n    return 4\n"})
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    paths, policy = rp.scan_paths(repo, "git")
+    rels = sorted(p.relative_to(repo).as_posix() for p in paths)
+    assert policy == "tree(git 在這一層沒追蹤到原始碼，跳過 git 忽略的檔)", policy
+    assert rels == ["app.py", "core.py", "pkg/keep.py"], rels
+    raw, raw_policy = rp.scan_paths(repo, "tree")
+    assert raw_policy == "tree" and {"gen/extra.py", "pkg/out/built.py", "skip_me.py"} <= {
+        p.relative_to(repo).as_posix() for p in raw}
+
+
 LAYERED = {
     "entry/app.py": "from svc.service import run\n\n\ndef main():\n    total = 1\n    total += run(total)\n    return total\n",
     "entry/direct.py": "from repo.store import save\n\n\ndef jump():\n    total = 2\n    total += save(total)\n    return total\n",

@@ -16,7 +16,7 @@
 - 反方向（檔案位置接資料）：最左邊是檔案位置根（式子裡直接含 `__file__`，或同檔裡由含 `__file__` 的式子賦值出來的名字，
   例如 CODE_DIR、ROOT），後面任一段是 "workflow"、"Logs"、"memory"、"projects"、"settings.json" → 違規。
   資料根用 lib.project_root.claude_data_dir()（hooks 端是 wg_core.CLAUDE_DIR）。
-允許清單只放判不出或刻意保留的例外，每筆附理由；另有一案檢查允許清單沒有過期。
+允許清單只放判不出或刻意保留的例外，每筆附理由；另有一案檢查允許清單沒有過期。沒有整支跳過的檔（壞味道掃描工具也掃）。
 反例：兩個方向各一段合成原始碼，違規全抓到、合法寫法不誤報。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_code_paths_from_code_root.py
 """
@@ -34,10 +34,6 @@ DATA_ROOT_NAMES = {"CLAUDE_DIR", "_CLAUDE_DIR"}
 MEMORY_DIR_NAMES = {"MEMORY_DIR", "memory_dir", "mem_dir"}   # 記憶目錄＝資料根 / "memory"，它的 .parent 就是資料根
 WRAP_CALLS = {"Path", "str"}
 WRAP_METHODS = {"resolve", "absolute", "expanduser"}
-# 整支檔案不掃：路徑 → 理由
-SKIP_FILES = {
-    "tools/project-smells.py": "track-e 擁有，本輪不准動；是否同類寫在 014 交付信，由總控台合併時處理",
-}
 # (相對路徑, 違規那一行的原始碼片段) → 為什麼保留
 ALLOWLIST: dict = {
     ("tools/install.py", 'init = run([bash, str(TARGET / "hooks" / "user-init.sh")], cwd=TARGET, check=False, env=env, timeout=60)'):
@@ -242,16 +238,27 @@ def violations(source: str, rel: str) -> List[Tuple[str, int, str, str]]:
     return out
 
 
-def _scan() -> List[Tuple[str, int, str, str]]:
-    found: List[Tuple[str, int, str, str]] = []
+def _scan_files() -> List[Tuple[str, Path]]:
+    """要掃的檔：SCAN_DIRS 底下所有 .py，只排 verify/ 與 __pycache__。"""
+    out: List[Tuple[str, Path]] = []
     for d in SCAN_DIRS:
         for p in sorted((TREE / d).rglob("*.py")):
-            rel = p.relative_to(TREE).as_posix()
             parts = set(p.relative_to(TREE).parts)
-            if "verify" in parts or "__pycache__" in parts or rel in SKIP_FILES:
-                continue
-            found += violations(p.read_text(encoding="utf-8"), rel)
+            if "verify" not in parts and "__pycache__" not in parts:
+                out.append((p.relative_to(TREE).as_posix(), p))
+    return out
+
+
+def _scan() -> List[Tuple[str, int, str, str]]:
+    found: List[Tuple[str, int, str, str]] = []
+    for rel, p in _scan_files():
+        found += violations(p.read_text(encoding="utf-8"), rel)
     return found
+
+
+def test_scan_covers_smell_tool():
+    """壞味道掃描工具也在守門範圍內（以前整支跳過）。"""
+    assert "tools/project-smells.py" in {rel for rel, _ in _scan_files()}
 
 
 def test_no_code_path_from_data_root_and_no_data_path_from_file_root():
@@ -370,9 +377,7 @@ def test_guard_flags_file_root_data_paths():
                    (8, "file-root→data"), (9, "file-root→data")], got
 
 
-def test_allowlist_and_skip_entries_still_exist_and_have_reasons():
+def test_allowlist_entries_still_exist_and_have_reasons():
     for (rel, text), reason in ALLOWLIST.items():
         assert str(reason).strip(), (rel, text)
         assert text in (TREE / rel).read_text(encoding="utf-8"), f"允許清單過期：{rel} 已沒有 {text!r}"
-    for rel, reason in SKIP_FILES.items():
-        assert str(reason).strip() and (TREE / rel).is_file(), rel

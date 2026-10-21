@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 git 別名下的 commit 各閘都認得、隱私閘認得 $'…' 路徑、壞味道掃描工具也受資料根守門、閱讀路徑退回目錄遞迴時照 git 忽略
+- **交給 AI 寫程式時會看到的**：用 git 別名 commit（`git ci`、別名接別名、行內 `-c alias.<名>=…`）跟直接寫 `git commit` 一樣被病形閘、隱私閘、口令閘、需求目標閘檢查；`!` 開頭的 shell 別名、`bash -c` 包裝、eval、commit 訊息裡的 `$(…)` 藏 commit，就算同一條指令另有直接寫的 commit 也一律擋（判不了）；commit 落點查不到別名表時，不是 git 指令的子命令也當判不了；Bash 的 `$'…'` 包住的路徑（`git add $'.env'`）隱私閘認得出。新專案還沒 `git add` 時，閱讀路徑量尺不再把 .gitignore 忽略的目錄掃進來。
+- **改了什麼**（軌 track-maint-small-fixes 001）：`hooks/handlers/pre_tool_use.py` 的拆段層 `_vcs_segment_pairs` 加別名展開（`git config -z` 每個 repo 查一次、內建子命令不查、同名 git 指令不認、展開出的字當字面），三閘入口快篩改看 git 字樣；`_scan_segments` 認 ANSI-C 引號；`tools/reading-path.py` 退回目錄遞迴時用 `git ls-files --others --ignored --exclude-standard --directory` 剪枝；資料根守門拿掉整支跳過清單，`tools/project-smells.py` 的程式碼根改名 `_CODE_DIR`。
+- **驗證**：每件先紅後綠（舊碼 `git ci`／`git save`／`git add $'.env'` 全放行、退回路徑掃 6 檔變 3 檔、守門對 project-smells 紅 6 處）；codex 兩輪：第一輪 6 條 BLOCK 全採並補案；第二輪 3 條 BLOCK 採 2 條，`git --list-cmds` 查不到時改當內建放行那條不採（會讓真的別名 commit 無聲放過，維持看得見的擋並留 stderr 訊號）。live 本 repo 閱讀路徑：目錄遞迴 728 檔、git 追蹤清單 569 檔。
 ## 2026-10-21 G15 評分工具：R4／R6 改正面問法、裁判每台各自（內網 e4b、本機 qwen3:4b-instruct-2507）、交付信檔頭不再當句子、自動評照路徑過濾、尾巴一行
 - **原設計者看到的**：R4 問「每句只講一種東西嗎？」、R6 問「只有跟讀者目的相關的內容、沒有執行過程細節嗎？」，通過＝答「是」（你裁定的改法）。裁判每台用自己的：內網 `gemma4:e4b`（判得較準），內網不在時本機用 `qwen3:4b-instruct-2507-q4_K_M` 接手（本機跑不動 e4b）。拿交付信這類開頭有 `---` 檔頭的文字評，R1「第一句」不再切到 `to:` 那行。`--auto-kind docs` 只評符合路徑樣式的檔（`memory/_staging/*checklist*.md`、`_AIDocs/DevHistory/**/*提案*.md`），其他路徑印「不評」。新增 `--tail-line`：只印一行 `評分 N/7｜沒過：R1、R4`（沒過就 `全過`），給之後收尾接在每則回覆尾巴；收尾接線本身還沒做。細節 TECH §7.11。
 - **改了什麼**（軌 track-g15-text-score 002）：`text-specs/reader-designer.md` R4／R6 問題欄；`tools/text-score.py` 的 `strip_frontmatter`（框裡每一行都像檔頭才剝）、`path_matches`、`auto_skip_reason` 收來源路徑、`--tail-line`、`make_client` 照 `judge_model_by_backend` 給每台各自的裁判（留帳加 `judges`）、提示詞拿掉反向問法那句、DEFAULTS；`workflow/config.json` `text_score.judge_model_by_backend`（新）、`judge_model`（沒列到的 backend 用它）與 `auto_targets`（改成 `{種類: 路徑樣式}`）；`text-specs/README.md` 問題欄改建議正面問法。

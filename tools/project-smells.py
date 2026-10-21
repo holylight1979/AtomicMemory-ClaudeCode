@@ -58,7 +58,7 @@ class SmellsError(Exception):
 # ─── 專案根與設定 ─────────────────────────────────────────────────────────────
 
 
-_CLAUDE_DIR = Path(__file__).resolve().parents[1]    # 本工具所在的 repo 根（檔案相對，不吃 HOME）
+_CODE_DIR = Path(__file__).resolve().parents[1]    # 本工具所在的 repo 根（檔案相對，不吃 HOME）
 
 
 def find_root(cwd: str) -> Path:
@@ -66,7 +66,7 @@ def find_root(cwd: str) -> Path:
     （lib/overview_hub.find_map）就是專案根；祖先目錄的 overview-hub.json（公司覆蓋層）不改變專案身分，公司層另由
     merge_hub_cfg 取。沒有部位表的專案照舊：最近的 `.claude/overview-hub.json`，再來 .git／.svn，再沒有就 cwd 本身。"""
     start = Path(cwd).resolve()
-    lib = str(_CLAUDE_DIR / "lib")
+    lib = str(_CODE_DIR / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
     from overview_hub import find_map
@@ -86,7 +86,7 @@ def find_root(cwd: str) -> Path:
 def _hub_inputs() -> Tuple[Dict[str, Any], Optional[Path]]:
     """合併要的兩個外部輸入：workflow/config.json 全文與公司根。讀法與 hooks 同一份（wg_core.load_config／org_memory_root），
     以檔案相對路徑載入；載不到就是環境壞了，照實拋出。"""
-    hooks = str(_CLAUDE_DIR / "hooks")
+    hooks = str(_CODE_DIR / "hooks")
     if hooks not in sys.path:
         sys.path.insert(0, hooks)
     from wg_core import load_config, org_memory_root
@@ -96,7 +96,7 @@ def _hub_inputs() -> Tuple[Dict[str, Any], Optional[Path]]:
 def load_hub_cfg(root: Path) -> Dict[str, Any]:
     """四層合併後的設定（lib/hub_config.merge_hub_cfg：預設 < config.json overview_hub < 公司根 < 專案根 overview-hub.json），
     只取本工具要的鍵（DEFAULT_CFG）。設定有錯（未知鍵、型別錯，與導讀卡端同一套驗證）→ SmellsError，不悄悄用預設。"""
-    lib = str(_CLAUDE_DIR / "lib")
+    lib = str(_CODE_DIR / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
     from hub_config import merge_hub_cfg
@@ -746,7 +746,7 @@ def limits_of(config: Optional[Dict[str, Any]]) -> Dict[str, int]:
 
 def _is_test_file(abs_path: str) -> bool:
     """跟寫碼查核同一份測試檔定義（hooks/wg_verify_ledger 的 verify_case_globs 預設）。"""
-    hooks = str(_CLAUDE_DIR / "hooks")
+    hooks = str(_CODE_DIR / "hooks")
     if hooks not in sys.path:
         sys.path.insert(0, hooks)
     from wg_verify_ledger import RECONCILE_DEFAULTS, is_verify_case
@@ -792,7 +792,7 @@ def parse_defect_shapes(text: str, doc: str) -> Tuple[List[Dict[str, str]], List
 
 def _defect_shapes(abs_path: str, cache: Dict[str, Any], notes: List[str]) -> List[Dict[str, str]]:
     """這個檔所屬部位在部位表「病灶清單」欄指的病灶文件裡的形狀；沒部位表、沒填、填「無」→ 空。"""
-    lib = str(_CLAUDE_DIR / "lib")
+    lib = str(_CODE_DIR / "lib")
     if lib not in sys.path:
         sys.path.insert(0, lib)
     from overview_hub import find_map, match_row, parse_map, unread_rows_note
@@ -1040,7 +1040,7 @@ def add_specs(tokens: List[str]) -> Tuple[List[str], bool]:
 
 def _is_code(abs_path: str, config: Dict[str, Any]) -> bool:
     """跟寫碼查核同一份判法（hooks/wg_need_goal.is_code_path：程式副檔名清單＋知識類部位不算）。"""
-    hooks = str(_CLAUDE_DIR / "hooks")
+    hooks = str(_CODE_DIR / "hooks")
     if hooks not in sys.path:
         sys.path.insert(0, hooks)
     from wg_need_goal import is_code_path
