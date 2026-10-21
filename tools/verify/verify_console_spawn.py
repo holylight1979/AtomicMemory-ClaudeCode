@@ -13,6 +13,9 @@ config；開工後讀 transcript 最近一則真回應的 message.model 印「�
 都沒動、暫存檔與鎖都收掉；換行（LF／CRLF）與結尾有無換行照原檔；寫入在 Claude Code 同一把鎖（<設定檔>.lock 目錄）內、
 寫完放掉；鎖被別人拿著 → 真的等到時限才 FAIL、不寫、不動別人的鎖；拿鎖後超過持鎖時限 → 不換上、不刪鎖（可能已換人）；
 已信任 → 不拿鎖不寫；檔不存在／不是合法 JSON／格式不對（含 projects 某筆不是物件）→ 不寫、FAIL 印原因退人貼。
+state 檔（並行上限靠它數）：A 等報到時 B 起好並記好 → 兩列都在、各自的 sessionId 對得上；兩個程序真的同時改 → 一列不丟；
+壞檔（不是 JSON、不是物件清單）→ 原因印 stderr、不起、FAIL 退人貼、壞檔不蓋；開跑時 state 鎖就被佔 → 不起、不搶鎖；
+起好那刻記不上、等報到時鎖放掉 → 補 sessionId 時整列補記；一直記不上 → 印「沒記進 state 檔」。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_console_spawn.py
 """
 from __future__ import annotations
@@ -137,6 +140,13 @@ def run(world: World, fake: FakeClaude, clock: Clock, capsys, **over):
     return code, capsys.readouterr().out
 
 
+def seed_state(world: World, rows) -> Path:
+    """直接寫 state 檔（模擬之前起過的 session）。"""
+    f = world.live / "workflow" / cs.STATE_FILE
+    f.write_text(json.dumps(rows), encoding="utf-8")
+    return f
+
+
 def sendmessage_block(text: str) -> dict:
     return {"type": "tool_use", "name": "SendMessage", "input": {"to": "claude-xx", "message": text}}
 
@@ -238,7 +248,7 @@ def test_parallel_limit_lists_existing(world, capsys):
     fake, clock = FakeClaude(), Clock()
     rows = [{"id": f"id{i:06d}", "sessionId": f"id{i:06d}-sess", "track": f"track-{i}", "branch": f"b{i}",
              "worktree": f"C:/wt/{i}", "startedAt": "2026-10-20 10:00:00"} for i in range(5)]
-    cs.save_state(world.live, rows)
+    seed_state(world, rows)
     fake.agents = [{"id": r["id"], "sessionId": r["sessionId"], "kind": "background", "name": r["track"]} for r in rows]
     code, out = run(world, fake, clock, capsys)
     assert code == 1 and "上限 5" in out and fake.bg_calls() == []
@@ -248,7 +258,7 @@ def test_parallel_limit_lists_existing(world, capsys):
 def test_dead_sessions_do_not_count_toward_limit(world, capsys):
     fake, clock = FakeClaude(), Clock()
     rows = [{"id": f"id{i:06d}", "sessionId": f"id{i:06d}-sess", "track": f"track-{i}"} for i in range(5)]
-    cs.save_state(world.live, rows)
+    seed_state(world, rows)
     fake.agents = []          # 五個都不在 agents 清單＝都結束了
     arm_kickoff(world, fake, [sendmessage_block(f"{TRACK} 收到開工")])
     code, _ = run(world, fake, clock, capsys)
@@ -503,3 +513,128 @@ def test_bad_or_missing_config_not_written_and_fails(world, capsys, content, rea
     assert code == 1 and out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL") and "退回人貼" in out
     assert reason in out and fake.bg_calls() == []
     assert (world.config.read_text(encoding="utf-8") if world.config.exists() else None) == content
+
+
+# ─── state 檔（本腳本起過的 session；並行上限靠它數活著的）──────────────────────────────
+def state_rows(world: World):
+    return json.loads((world.live / "workflow" / cs.STATE_FILE).read_bytes())
+
+
+def test_session_started_meanwhile_by_other_spawn_is_not_lost(world, capsys):
+    a, b, clock = FakeClaude(), FakeClaude("bbb22222", "bbb22222-0000-4000-8000-000000000000"), Clock()
+    arm_kickoff(world, a, KICKOFF)
+    arm_kickoff(world, b, KICKOFF)
+    b_code = []
+
+    def a_with_b_meanwhile(cmd, **kw):
+        if cmd[1:3] == ["agents", "--json"] and a.bg_calls() and not b_code:   # A 已起、正在等報到：B 這時整個跑完
+            b_code.append(cs.main(world.argv(), run_fn=b, sleep_fn=clock.sleep, now_fn=clock.now,
+                                  config_path=world.config, data_dir=world.data))
+        return a(cmd, **kw)
+
+    code, _ = run(world, a_with_b_meanwhile, clock, capsys)
+    assert b_code == [0] and code == 0                                   # 前置：A 等報到時 B 真的起好、記好了
+    rows = {r["id"]: r["sessionId"] for r in state_rows(world)}
+    assert rows == {a.short_id: a.session_id, b.short_id: b.session_id}
+
+
+STATE_WORKER = """import importlib.util, sys, time
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("cs", sys.argv[1])
+cs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cs)
+live, tag, n, go = Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), Path(sys.argv[5])
+while not go.exists():
+    time.sleep(0.01)
+t0 = time.time()
+for i in range(n):
+    if not cs.update_state(live, lambda rows: rows.append({"id": f"{tag}{i}"}), print):
+        sys.exit(1)
+    time.sleep(0.005)
+print(t0, time.time())
+"""
+
+
+def test_two_processes_updating_state_lose_no_rows(world, tmp_path):
+    worker, go, n = tmp_path / "state_worker.py", tmp_path / "go", 40
+    worker.write_text(STATE_WORKER, encoding="utf-8")
+    procs = [subprocess.Popen([sys.executable, "-X", "utf8", str(worker), str(TOOL), str(world.live), tag, str(n), str(go)],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
+             for tag in ("p", "q")]
+    go.write_text("", encoding="utf-8")
+    outs = [p.communicate(timeout=120)[0].decode("utf-8", "replace") for p in procs]
+    assert [p.returncode for p in procs] == [0, 0], outs
+    spans = [tuple(map(float, out.split()[-2:])) for out in outs]
+    assert max(s[0] for s in spans) < min(s[1] for s in spans)          # 前置：兩個程序真的同時在寫
+    order = [r["id"][0] for r in state_rows(world)]
+    assert sum(a != b for a, b in zip(order, order[1:])) >= 2           # 前置：寫入真的交錯（不是一支寫完另一支才寫）
+    ids = sorted(r["id"] for r in state_rows(world))
+    assert ids == sorted([f"p{i}" for i in range(n)] + [f"q{i}" for i in range(n)])
+
+
+@pytest.mark.parametrize("content,reason", [("{broken", "不是合法 JSON"), ("[1, 2]", "格式不對")])
+def test_bad_state_file_fails_closed_with_reason_on_stderr(world, capsys, content, reason):
+    f = seed_state(world, [])
+    f.write_text(content, encoding="utf-8")
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF)
+    code = cs.main(world.argv(), run_fn=fake, sleep_fn=clock.sleep, now_fn=clock.now,
+                   config_path=world.config, data_dir=world.data)
+    cap = capsys.readouterr()
+    assert code == 1 and cap.out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL") and "退回人貼" in cap.out
+    assert fake.bg_calls() == [] and str(f) in cap.err and reason in cap.err   # 數不出活著的就不起；原因印到 stderr
+    assert f.read_text(encoding="utf-8") == content                     # 壞檔不蓋
+
+
+def test_state_lock_held_before_start_fails_closed(world, capsys, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_LOCK_WAIT_SEC", 0.2)
+    lock = world.live / "workflow" / (cs.STATE_FILE + ".lock")
+    lock.mkdir()                                                         # 例：別支被強制結束、留下沒收的鎖
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF)
+    code = cs.main(world.argv(), run_fn=fake, sleep_fn=clock.sleep, now_fn=clock.now,
+                   config_path=world.config, data_dir=world.data)
+    cap = capsys.readouterr()
+    assert code == 1 and cap.out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL") and fake.bg_calls() == []
+    assert str(lock) in cap.err and lock.is_dir()                        # 不起、印出卡住的鎖、不搶別人的鎖
+
+
+def test_row_missed_at_start_is_recorded_when_session_id_arrives(world, capsys, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_LOCK_WAIT_SEC", 0.2)
+    lock = world.live / "workflow" / (cs.STATE_FILE + ".lock")
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF)
+    armed = fake.on_bg
+
+    def on_bg_then_lock_taken():                                         # 起好那一刻 state 鎖被佔，記不上
+        armed()
+        lock.mkdir()
+
+    def released_while_waiting(cmd, **kw):                               # 等報到時鎖放掉了
+        if cmd[1:3] == ["agents", "--json"] and fake.bg_calls() and lock.is_dir():
+            lock.rmdir()
+        return fake(cmd, **kw)
+
+    fake.on_bg = on_bg_then_lock_taken
+    code, out = run(world, released_while_waiting, clock, capsys)
+    assert code == 0 and "沒記進 state 檔" not in out
+    assert state_rows(world) and {r["id"]: r["sessionId"] for r in state_rows(world)} == {fake.short_id: fake.session_id}
+
+
+def test_state_not_recorded_is_reported_not_silent(world, capsys, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_LOCK_WAIT_SEC", 0.2)
+    lock = world.live / "workflow" / (cs.STATE_FILE + ".lock")
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, KICKOFF)
+    armed = fake.on_bg
+
+    def on_bg_then_lock_taken():                                         # session 起好之後 state 鎖被別人佔著
+        armed()
+        lock.mkdir()
+
+    fake.on_bg = on_bg_then_lock_taken
+    code = cs.main(world.argv(), run_fn=fake, sleep_fn=clock.sleep, now_fn=clock.now,
+                   config_path=world.config, data_dir=world.data)
+    cap = capsys.readouterr()
+    assert code == 0 and lock.is_dir()                                   # 前置：session 起好了、鎖真的被佔著
+    assert "沒記進 state 檔" in cap.out and str(lock) in cap.err

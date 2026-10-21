@@ -4,6 +4,8 @@
 做什麼（照順序，哪一步不過就停在那步、印開工句退回人貼）：
   1. 前置：開工句檔存在；worktree 不是 live 根、且登記在 live 的 .git/worktrees/ 名單；kill switch 檔
      <live>/workflow/console-spawn.STOP 不存在；由本腳本起、還活著的 session 未達上限（console.spawn.max_parallel，預設 5）。
+     「本腳本起過哪些」記在 <live>/workflow/state-console-spawn.json：讀寫都拿 <檔>.lock 鎖，改動是鎖內重讀再套一筆、
+     暫存檔換上，好幾支同時跑也不丟列；檔壞了 → 原因印 stderr、不起（數不出活著的就不放行）；起好後沒記上 → 印出來。
   2. 信任：worktree 在 ~/.claude.json 沒有信任紀錄時 `claude --bg` 會拒起；live 根已信任就替 worktree 補一筆
      （鍵用正斜線形，跟 Claude Code 自己寫的一樣）並印出來。這個檔其他 session 隨時在寫：補之前拿 Claude Code 存設定
      用的同一把鎖（<設定檔>.lock 目錄），鎖內重讀、只合併這一鍵，寫同目錄暫存檔再整檔換上（換行與結尾照原檔）。
@@ -239,8 +241,9 @@ def check_trust(config_path: Path, wt_key: str, live_root: Path,
 
 
 def lock_config(config_path: Path, log: Callable[[str], None]) -> Optional[Path]:
-    """拿 Claude Code 存 ~/.claude.json 用的同一把鎖（proper-lockfile：建得成 <設定檔>.lock 目錄才算拿到，實讀 2.1.304）。
-    別人拿著就每 0.1 秒再試，CONFIG_LOCK_WAIT_SEC 秒還拿不到 → 印原因回 None；不搶別人的鎖。"""
+    """拿 <檔>.lock 目錄鎖（建得成才算拿到）：~/.claude.json 用的是 Claude Code 存設定的同一把（proper-lockfile，
+    實讀 2.1.304），state 檔用的是本腳本之間的同一把。別人拿著就每 0.1 秒再試，CONFIG_LOCK_WAIT_SEC 秒還拿不到
+    → 印原因回 None；不搶別人的鎖。"""
     lock = config_path.with_name(config_path.name + ".lock")
     deadline = time.monotonic() + CONFIG_LOCK_WAIT_SEC
     while True:
@@ -249,11 +252,11 @@ def lock_config(config_path: Path, log: Callable[[str], None]) -> Optional[Path]
             return lock
         except (FileExistsError, PermissionError):  # Windows 上別人正在刪的目錄再建會回拒絕存取，一樣等
             if time.monotonic() >= deadline:
-                log(f"  ! 等 {CONFIG_LOCK_WAIT_SEC:g} 秒拿不到 {lock}（Claude Code 正在存設定，或留下沒收的鎖），不補")
+                log(f"  ! 等 {CONFIG_LOCK_WAIT_SEC:g} 秒拿不到 {lock}（別的程序正在寫，或留下沒收的鎖）")
                 return None
             time.sleep(0.1)
         except OSError as e:
-            log(f"  ! 建不了鎖 {lock}，不補：{e}")
+            log(f"  ! 建不了鎖 {lock}：{e}")
             return None
 
 
@@ -269,7 +272,7 @@ def unlock_config(lock: Path, held_until: float, log: Callable[[str], None]) -> 
         log(f"  ! 放不掉鎖 {lock}：{e}")
 
 
-def write_config_atomic(config_path: Path, data: Dict[str, Any], raw: str, held_until: float) -> None:
+def write_config_atomic(config_path: Path, data: Any, raw: str, held_until: float) -> None:
     """寫同目錄暫存檔再 os.replace 換上（中途失敗原檔不動、暫存檔刪掉）；縮排 2、不跳脫非 ASCII（同 Claude Code），
     換行（LF／CRLF）與結尾有無換行照原檔。換上前已過 held_until → 不換（鎖可能已換人，換上去會蓋掉對方）。"""
     nl = "\r\n" if "\r\n" in raw else "\n"
@@ -310,21 +313,52 @@ def ensure_trust(config_path: Path, worktree: Path, live_root: Path, log: Callab
     return True
 
 
-def load_state(live_root: Path) -> List[Dict[str, Any]]:
-    f = live_root / "workflow" / STATE_FILE
-    if not f.is_file():
-        return []
+def load_state(f: Path) -> Tuple[List[Dict[str, Any]], str]:
+    """讀 state 檔（呼叫端先拿鎖）：(列, 讀不了的原因)；檔不存在＝還沒起過 → ([], "")。
+    壞檔不當空清單：當空清單，上限就從 0 數起、等於放行。"""
     try:
-        rows = json.loads(f.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    return rows if isinstance(rows, list) else []
+        rows = json.loads(f.read_bytes().decode("utf-8"))
+    except FileNotFoundError:
+        return [], ""
+    except (OSError, ValueError) as e:            # ValueError 含 JSONDecodeError、UnicodeDecodeError
+        return [], f"{f} 讀不了或不是合法 JSON：{e}"
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        return [], f"{f} 格式不對（應為物件清單）"
+    return rows, ""
 
 
-def save_state(live_root: Path, rows: List[Dict[str, Any]]) -> None:
+def with_state(live_root: Path, change: Optional[Callable[[List[Dict[str, Any]]], None]],
+               warn: Callable[[str], None]) -> Tuple[List[Dict[str, Any]], str]:
+    """拿 <state>.lock 鎖讀 state；給了 change 就套上它、寫暫存檔再 os.replace（鎖內重讀，別支同時改也不丟列）。
+    讀也拿鎖：Windows 上一邊開著檔讀，另一邊的 os.replace 會被拒（PermissionError，實測）。回 (列, 失敗原因)；失敗時壞檔不蓋。"""
     f = live_root / "workflow" / STATE_FILE
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return [], f"建不了 {f.parent}：{e}"
+    lock = lock_config(f, warn)
+    if lock is None:
+        return [], f"拿不到 {f} 的鎖"
+    held_until = time.monotonic() + CONFIG_LOCK_HOLD_SEC
+    try:
+        rows, bad = load_state(f)
+        if bad or change is None:
+            return rows, bad
+        change(rows)
+        write_config_atomic(f, rows, "", held_until)
+        return rows, ""
+    except OSError as e:
+        return [], f"寫 {f} 失敗：{e}"
+    finally:
+        unlock_config(lock, held_until, warn)
+
+
+def update_state(live_root: Path, change: Callable[[List[Dict[str, Any]]], None], warn: Callable[[str], None]) -> bool:
+    """改 state 檔一筆；記不上 → 原因印到 warn、回 False。"""
+    _, bad = with_state(live_root, change, warn)
+    if bad:
+        warn(f"  ! {bad}")
+    return not bad
 
 
 def list_agents(claude_bin: str, run_fn: Callable[..., Any]) -> List[Dict[str, Any]]:
@@ -412,6 +446,9 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     def log(s: str) -> None:
         print(s)
 
+    def warn(s: str) -> None:
+        print(s, file=sys.stderr)
+
     def fail(step: str, prompt: str = "", extra: str = "") -> int:
         print(fallback_block(prompt, step, extra) if prompt else f"退回人貼：停在「{step}」。")
         print("CONSOLE_SPAWN_CHECK FAIL")
@@ -454,7 +491,12 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
         log("  ✗ 找不到 claude 執行檔（--claude-bin／VS Code 擴充／PATH 都沒有）")
         return fail("找不到 claude 執行檔", prompt)
     log(f"  · claude={claude_bin}")
-    state = load_state(live_root)
+    state, bad = with_state(live_root, None, warn)
+    if bad:
+        warn(f"  ! {bad}")
+        log("  ✗ state 檔讀不了：數不出本腳本起過、還活著的 session，不起新的（原因見 stderr）")
+        return fail("state 檔讀不了，數不出還活著的 session", prompt,
+                    f"修好或刪掉 {live_root / 'workflow' / STATE_FILE}（刪掉＝忘記之前起過哪些，先用 `claude agents` 看還有誰活著）再重跑。")
     alive = alive_spawned(state, list_agents(claude_bin, run_fn))
     if len(alive) >= max_parallel:
         log(f"  ✗ 由本腳本起、還活著的 session 已 {len(alive)} 個（上限 {max_parallel}）：")
@@ -490,15 +532,24 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
         log(f"  ✗ claude --bg exit={res['exit']}；stdout={res['stdout'].strip()[-400:]!r}；stderr={res['stderr'].strip()[-400:]!r}")
         return fail("claude --bg 起不來", prompt)
     log(f"  · 已起 session 短 id={short_id}")
-    state.append({"id": short_id, "sessionId": None, "track": args.track, "branch": args.branch,
-                  "worktree": str(args.worktree), "startedAt": time.strftime("%Y-%m-%d %H:%M:%S")})
-    save_state(live_root, state)
+    row = {"id": short_id, "sessionId": None, "track": args.track, "branch": args.branch,
+           "worktree": str(args.worktree), "startedAt": time.strftime("%Y-%m-%d %H:%M:%S")}
+    recorded = update_state(live_root, lambda rows: rows.append(row), warn)
 
     # 4. 等報到
     w = wait_kickoff(args, claude_bin, short_id, run_fn, sleep_fn, now_fn, data_dir or claude_data_dir())
+
+    def note_session_id(rows: List[Dict[str, Any]]) -> None:
+        mine = [r for r in rows if r.get("id") == short_id]   # 用短 id 認列：別支同時起的會排在後面，最後一列不一定是自己
+        if not mine:                              # 起好時沒記上（鎖被佔、寫入失敗）：這次整列補記
+            rows.append({**row, "sessionId": w["sessionId"]})
+        for r in mine:
+            r["sessionId"] = w["sessionId"]
+
     if w["sessionId"]:
-        state[-1]["sessionId"] = w["sessionId"]
-        save_state(live_root, state)
+        recorded = update_state(live_root, note_session_id, warn)
+    if not recorded:
+        log(f"  ! 這個 session（{short_id}）沒記進 state 檔（原因見 stderr）：並行上限會少算它一個")
     log(f"  · session id={w['sessionId'] or '未出現'}  ListAgents 名字={w['name']}  等了 {w['elapsed']:.0f} 秒")
     if w["api_error"]:
         # 不退人貼：人貼的新分頁多半撞同一個錯（認證、額度），模型 id 錯則會退回預設模型
