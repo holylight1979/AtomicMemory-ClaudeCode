@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ _TOOLS = str(Path(__file__).resolve().parents[1] / "tools")
 if _TOOLS not in sys.path:
     sys.path.append(_TOOLS)   # C# 切詞與閱讀路徑量尺共用一份
 import reading_path_lang as lang  # noqa: E402
-from turn_metrics import Range, _norm, _overlaps, parse_diff_ranges  # noqa: E402
+from turn_metrics import Range, _norm, _overlaps, hollow_text, parse_diff_ranges  # noqa: E402  空殼判準兩語言共用
 
 _TYPE_WORDS = {"class", "struct", "interface", "enum", "record", "delegate"}
 _ATTR_PREV = {"", ";", "{", "}", "]", "(", ","}   # attribute 區段 [X] 前面會是這些（陣列下標前面是識別字）
@@ -58,6 +59,7 @@ _CTOR_PASS = re.compile(r":\s*(?:base|this)\s*\(")
 _MODS = r"(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|unsafe|new|file)\s+)*"
 _ENUM = re.compile(_MODS + r"\benum\s+\w+[^{;]*\{")
 _NS_BLOCK = re.compile(r"\bnamespace\s+[\w.]+\s*\{")
+_USING_NS = re.compile(r"^\s*using\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;", re.M)
 _TOP_DECL = re.compile(r"\b(?:global\s+)?using\s+[^;{}()]*;|\bextern\s+alias\s+\w+\s*;|\bnamespace\s+[\w.]+\s*;|"
                        + _MODS + r"\bdelegate\b[^;{}]*;")
 CTOR, CCTOR = ".ctor", ".cctor"
@@ -227,6 +229,11 @@ def _blank_attributes(src: str) -> str:
             prev = ch
         i += 1
     return "".join(out)
+
+
+def _code_only(src: str) -> str:
+    """遮好字串的原始碼再遮掉前置處理行與 attribute 區段：class 標頭的基底清單裡夾 #if 行（protobuf 產生碼常見）也讀得對。"""
+    return _blank_attributes(_PREPROC.sub(lambda m: " " * len(m.group()), src))
 
 
 def _generic_end(e: str, i: int) -> Optional[int]:
@@ -695,7 +702,7 @@ def _parse(path: str, text: str) -> Dict[str, Any]:
     spots = [(m.start(), f"第 {line_of(m.start())} 行有 #if 的另一支（#else／#elif）：兩支都算進來（數字可能偏大，不會偏小）")
              for m in _PREPROC_BRANCH.finditer(src)]
     spots += [(p, f"第 {line_of(p)} 行有原始插值字串：{{運算式}} 裡的東西沒算進來（數字可能偏小）") for p in raw_holes]
-    src = _blank_attributes(_PREPROC.sub(lambda m: " " * len(m.group()), src))
+    src = _code_only(src)
     depth, pairs = lang._braces(src)
     closes = set(pairs.values())
     bad = next((i for i, ch in enumerate(src) if (ch == "{" and i not in pairs) or (ch == "}" and i not in closes)), None)
@@ -706,7 +713,7 @@ def _parse(path: str, text: str) -> Dict[str, Any]:
     for m, o, c in found:
         outer = sorted((x for x in found if x[1] < m.start() and x[2] > o), key=lambda x: x[1])
         mods = set(m["mods"].split())
-        bases = [re.sub(r"\(.*", "", b).split("::")[-1].split(".")[-1] for b in lang._split_top(_strip_generics(m["bases"] or ""))]
+        bases = _base_list(m["bases"])
         info = {"name": m["name"], "qual": ".".join([x[0]["name"] for x in outer] + [m["name"]]), "file": path,
                 "lineno": line_of(m.start()), "end_lineno": line_of(c), "span": (m.start(), c), "kind": m["kind"],
                 "mods": mods, "bases": [b for b in bases if b], "partial": "partial" in mods, "members": [],
@@ -852,20 +859,6 @@ def _sign_overloads(funcs: List[Dict[str, Any]]) -> None:
 
 # ─── 多檔：型別索引、繼承鏈、轉手鏈與分派 ───────────────────────────────────────────
 
-_HOLLOW_TEXT = {"base": "只呼叫 base 同名方法、引數照傳", "ctor": "建構子空本體", "ctor-base": "建構子空本體，只把參數交給 base／this"}
-
-
-def _hollow_text(kind: str, member: str, above: set, above_abstract: set) -> Tuple[str, bool]:
-    """空殼成員 → (說明, 算不算「這層沒加東西」)。空本體擋掉上層有本體的實作是改了行為（例：子類空覆寫扣血＝無敵），照列、不算沒加。"""
-    if kind != "empty":
-        return _HOLLOW_TEXT[kind], True
-    if member in above_abstract:
-        return "空本體（上層只有抽象宣告，這層補一個什麼都不做的實作）", True
-    if member in above:
-        return "空本體（擋掉上層的實作：改了行為，不算空）", False
-    return "空本體（上層在掃不到的基底，這層把它擋掉：不算空）", False
-
-
 def _overrides(c: Dict[str, Any], m: str, above: set, above_arity: Dict[str, set]) -> bool:
     """m 是覆寫上層的成員嗎：欄位、屬性看名字；方法要有 override、或參數個數對得上（同名不同參數個數是新增的多載）。"""
     if m not in above:
@@ -890,7 +883,8 @@ def _inherit_layers(start: Dict[str, Any], index: Dict[str, Dict[str, Any]]) -> 
     layers, above, above_abstract, above_arity = [], set(), set(), {}
     for c in reversed(chain):          # 從最上層往下算
         mem = c["members"]
-        hollow = {m: _hollow_text(k, m, above, above_abstract) for m, k in c["hollow"].items()}
+        hollow = {m: hollow_text(k, m, above, above_abstract, unresolved is not None) for m, k in c["hollow"].items()}
+        hollow = {m: v for m, v in hollow.items() if v}
         over = [m for m in mem if _overrides(c, m, above, above_arity)]
         layers.append({"name": c["qual"], "file": c["file"], "added": [m for m in mem if m not in over], "overridden": over,
                        "empty": not [m for m in mem if not hollow.get(m, ("", False))[1]],
@@ -907,7 +901,8 @@ def _inherit_layers(start: Dict[str, Any], index: Dict[str, Dict[str, Any]]) -> 
 class _Ctx:
     """跨檔查表：型別索引（partial 併成一個；同名不同 namespace 先到先用）、每個型別的方法、介面與抽象類別的直接實作。"""
 
-    def __init__(self, parsed: Iterable[Dict[str, Any]]):
+    def __init__(self, parsed: Iterable[Dict[str, Any]], partial_pool: bool = False):
+        self.partial_pool = partial_pool   # 查找池截過：實作數只是下限，不據此說「只有一個實作」
         self.index: Dict[str, Dict[str, Any]] = {}
         self.funcs: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
         self.impls: Dict[str, List[str]] = {}
@@ -1039,6 +1034,9 @@ class _Ctx:
         info = self.index[t]
         impls = self.impls.get(t, []) if info["kind"] == "interface" or "abstract" in info["mods"] else []
         got = self._pick(self._find(impls[0], member)[0], nargs, f) if len(impls) == 1 else None
+        if got and not (fs and got in fs) and self.partial_pool:
+            return (self._pick(fs, nargs, f), None,
+                    f"經過 {t}.{member}：查找池超過上限只挑了一部分，實作看不全，沒算分派")
         if got and not (fs and got in fs):      # 經過介面或抽象型別、唯一的具體實作有自己的那一個：多繞一手
             return got, {"via": f"{t}.{member}", "impl": got["name"]}, None
         return self._pick(fs, nargs, f), None, None
@@ -1070,6 +1068,8 @@ class _Ctx:
         first_is_interface = bool(bases) and (self.index.get(bases[0]) or {}).get("kind") == "interface"
         cands = bases[:1] * first_is_interface + bases[1:]
         abstract_like = c["kind"] == "interface" or "abstract" in c["mods"]
+        if self.partial_pool and (abstract_like or cands):
+            notes.append("實作數是查找池裡看得到的下限（池超過上限只挑了一部分）")
         return {"kind": "class", "file": c["file"], "name": c["qual"], "lineno": c["lineno"], "end_lineno": c["end_lineno"],
                 **_inherit_layers(start, self.index), "type_kind": c["kind"],
                 "interfaces": {b: (self.impls.get(b, []) if b in self.index else None) for b in cands},
@@ -1077,10 +1077,69 @@ class _Ctx:
                 "unparsed": notes, "confidence": "partial" if notes or shaky else "full"}
 
 
+def _base_list(text: Optional[str]) -> List[str]:
+    """class 標頭冒號後面那串 → 基底型別名（拿掉泛型、命名空間、別名、record 的建構引數）。"""
+    names = [re.sub(r"\(.*", "", b).split("::")[-1].split(".")[-1] for b in lang._split_top(_strip_generics(text or ""))]
+    return [n for n in names if n]
+
+
+def _refs(path: str) -> Tuple[set, set]:
+    """一個 .cs 檔直接指到的 → (繼承與實作的型別名, using 的命名空間)；讀不了 → 兩個空集合。"""
+    try:
+        src = _code_only(_blank_literals(Path(path).read_text(encoding="utf-8-sig", errors="replace"))[0])
+    except OSError:
+        return set(), set()
+    bases = {b for m in lang._CS_CLASS.finditer(src) for b in _base_list(m["bases"])}
+    return bases, set(_USING_NS.findall(src))
+
+
+def pick_lookup_files(changed: List[str], candidates: List[str], limit: int) -> List[str]:
+    """查找池（接繼承鏈、轉手鏈、數實作用）超過上限時怎麼挑：改到的檔 → 它們繼承／實作直接指到的型別所在的檔（照「檔名＝型別名」找、
+    找到的再往上接；量少又是鏈本身，放最前）→ 同目錄的檔 → using 指到的命名空間所在目錄的檔 → 其他檔照原順序補滿 limit。
+    同目錄放在繼承之後：大目錄（產生碼）的同目錄檔會先把上限吃光，鏈反而接不到。沒超過上限就全給。"""
+    if len(candidates) <= limit:
+        return list(candidates)
+    key = lambda p: os.path.normcase(os.path.abspath(p))
+    picked: Dict[str, str] = {}
+
+    def add(p: str) -> bool:
+        if len(picked) >= limit or key(p) in picked:
+            return False
+        picked[key(p)] = p
+        return True
+
+    for p in changed:
+        add(p)
+    by_type: Dict[str, List[str]] = {}
+    for p in candidates:
+        by_type.setdefault(Path(p).name.split(".")[0], []).append(p)   # Pool.cs、Pool.Fill.cs 都是 Pool
+    own = {key(p): _refs(p) for p in changed}
+    todo, seen = list(changed), set()
+    while todo and len(picked) < limit:
+        p = todo.pop(0)
+        bases = (own.get(key(p)) or _refs(p))[0]
+        for t in sorted(bases - seen):   # 固定順序：上限不夠放時結果可重現
+            seen.add(t)
+            todo += [q for q in by_type.get(t, []) if add(q)]
+    dirs = {key(str(Path(p).parent)) for p in changed}
+    for p in candidates:
+        if key(str(Path(p).parent)) in dirs:
+            add(p)
+    for ns in sorted(set().union(*(names for _, names in own.values()))):
+        tail = "/" + ns.replace(".", "/").lower()
+        for p in candidates:
+            if Path(p).parent.as_posix().lower().endswith(tail):
+                add(p)
+    for p in candidates:
+        add(p)
+    return list(picked.values())
+
+
 def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Range]]] = None,
-                      resolve_files: Optional[Iterable[str]] = None) -> List[Dict[str, Any]]:
+                      resolve_files: Optional[Iterable[str]] = None, partial_pool: bool = False) -> List[Dict[str, Any]]:
     """多檔 → 一筆一 dict（方法 kind=func、型別 kind=class、檔案層解析不到 kind=unparsed、非 .cs kind=unsupported、讀不了 kind=error）。
-    ranges 給了就只列落在區間裡的（鍵是路徑，與 files 用 realpath 對）。resolve_files：接繼承鏈、轉手鏈、數實作時另外可查的檔，不列進結果。"""
+    ranges 給了就只列落在區間裡的（鍵是路徑，與 files 用 realpath 對）。resolve_files：接繼承鏈、轉手鏈、數實作時另外可查的檔，不列進結果。
+    partial_pool：resolve_files 是從更多檔裡挑出來的（pick_lookup_files）→ 實作數標成下限、不算「只有一個實作」的分派。"""
     want = {_norm(k): v for k, v in (ranges or {}).items()}
     listed = [str(f) for f in files]
     rows: List[Dict[str, Any]] = []
@@ -1099,7 +1158,7 @@ def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Rang
     if lost:
         rows.append({"kind": "unparsed", "file": listed[0] if listed else "", "lineno": 1, "end_lineno": 1, "confidence": "partial",
                      "unparsed": [f"查找用的 {len(lost)} 個檔讀不了（{'、'.join(lost[:3])}），實作數與轉手鏈可能少算"]})
-    ctx = _Ctx(parsed.values())
+    ctx = _Ctx(parsed.values(), partial_pool)
     for f in listed:
         if not f.lower().endswith(".cs"):
             rows.append({"kind": "unsupported", "file": f, "lang": "不支援"})

@@ -2,11 +2,12 @@
 
 - Scope: global
 - Author: holylight
-- Source: 第二波驗收題 C′（qc2-orders）判錯 C6；裁決-BC.md
+- Source: 真任務判錯落卡（對外合約測試被單方面改斷言並提交）
 - Confidence: [臨]
 - Trigger: 合約測試, contract test, ERP 介面, 對外介面測試, 改舊測試｜, 斷言紅了, 外部系統格式
 - Created-at: 2026-10-21
-- Quote: 「1. 目前設定的、或預計 跑評分表，是用哪一個免費LLM ? 針對LLM的評價為何? 2. 我也想請你開一軌，讓他研究目前適合放在rdchat-direct(較強顯卡)，以及放在公司個人電腦(一般顯卡)的LLM，目標是讓自評能夠達到最佳表現，最終向你匯報與裁決。 我電腦的 `文件\` 下 有一篇剛才我另外去搜的 `20261021最新與熱門HuggingFace的LLM及需求硬體.txt` 也要…」
+- Quote: 
+- Entry: E02, E21, E08
 
 ## 知識
 

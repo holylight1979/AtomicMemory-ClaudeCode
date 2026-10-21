@@ -15,6 +15,7 @@
 - [臨] tools/entry-stats.py --json 只給每個 E 代號的計數（問幾次、送幾張卡、回應各型幾筆），沒有逐筆結果；要逐筆就自己讀帳、把各閘 guard-<guard>.jsonl 餵給 resolve_responses。
 - [臨] entry-stats 預設 --days 7，讀超過 7 天的材料會靜默變 0 筆（實測 20 天前的 4 筆 → entries=0），讀舊材料要帶大的 --days。
 - [臨] 登錄表 responses 空的列（E01／E02／E03／E26之二／E29／E35）回應型只會是 none 或同回合重問的 denied，放行要看該閘自己的留帳。
+- [臨] 更正：entry-stats 現已有 --asks 逐筆列回應型（內部呼叫 resolve_responses），不必自己推；--days 預設 7 仍在，舊材料要帶大值。
 
 ## 行動
 

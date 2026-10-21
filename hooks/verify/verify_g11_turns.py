@@ -195,7 +195,7 @@ def test_cs_file_lists_same_table_with_hollow_layer_dispatch_and_asks(tmp_path):
     assert "a.cs::Leaf.Walk｜巢狀 3｜條件塊 1｜認知 6｜長度 12  ← 要人看" in note, note
     assert "a.cs::Unit｜繼承 1 層（Unit）｜空層 0｜每層加了什麼：Unit +Tick｜實作 2 個：Leaf、Mid\n" in note, "經由 Mid 繼承到的 Leaf 也算實作"
     assert ("a.cs::Leaf｜繼承 3 層（Leaf → Mid → Unit）｜空層 1：Mid｜每層加了什麼：Leaf +Walk；"
-            "Mid 無（只有空覆寫：~Tick 只呼叫 base 同名方法、引數照傳）；Unit +Tick  ← 要人看") in note, note
+            "Mid 無（只有空覆寫：~Tick 只呼叫上層同名方法、引數照傳）；Unit +Tick  ← 要人看") in note, note
     assert ("a.cs::Saver.Save｜巢狀 0｜條件塊 0｜認知 0｜長度 1｜只轉手 → store.Save（連續 2）"
             "｜分派 IStore.Save → FileStore.Save（只有一個實作）  ← 要人看") in note, note
     assert "a.cs::IStore｜繼承 1 層（IStore）｜空層 0｜每層加了什麼：IStore +Save｜實作 1 個：FileStore（只有一個：經過它的呼叫多繞一手）" in note
@@ -218,6 +218,19 @@ def test_cs_unparsed_line_is_not_cut_by_the_row_cap(tmp_path, monkeypatch):
     _write(root, {"a.cs": "class A { int F() { return 2; } }\n}\n"})
     note = _note(_state(_mf(root / "a.cs")))
     assert "a.cs：解析不到（大括號不成對" in note and "a.cs::A.F｜" not in note and "…另 2 筆低於門檻不列" in note, note
+
+
+def test_big_cs_project_lookup_pool_still_holds_the_base_chain(tmp_path, monkeypatch):
+    """C# 檔超過查找池上限：上限不變，先放改到的檔的繼承鏈指到的檔，基底照樣接得到（原本整個池丟掉、只看改到的檔）。"""
+    monkeypatch.setattr(rph, "RESOLVE_FILES_MAX", 6)
+    files = {"game/Leaf.cs": "public class Leaf : Mid\n{\n    public void Go() { }\n}\n",
+             "core/Mid.cs": "public class Mid : Base\n{\n}\n",
+             "base/Base.cs": "public class Base\n{\n    public virtual void Run() { }\n}\n",
+             **{f"fill/F{i}.cs": f"public class F{i}\n{{\n}}\n" for i in range(10)}}
+    root = _repo(tmp_path / "r", {**APP, **files})
+    _write(root, {"game/Leaf.cs": files["game/Leaf.cs"].replace("Go() { }", "Go() { Run(); }")})
+    note = _note(_state(_mf(root / "game/Leaf.cs")))
+    assert "game/Leaf.cs::Leaf｜繼承 3 層（Leaf → Mid → Base）｜空層 1：Mid" in note, note
 
 
 def test_cs_failure_keeps_python_rows_in_the_same_batch(tmp_path, monkeypatch):
