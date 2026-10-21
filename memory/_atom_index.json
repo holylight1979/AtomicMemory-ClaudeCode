@@ -11495,6 +11495,23 @@
         "驗收完工"
       ],
       "scope": "global"
+    },
+    {
+      "name": "同一切入點綁兩張以上判準卡時知識段短的先送-長的專卡會被擠到後面截斷-綁之前先模擬順序與送到哪幾條",
+      "path": "_AIDocs/_atoms/MemDev/同一切入點綁兩張以上判準卡時知識段短的先送-長的專卡會被擠到後面截斷-綁之前先模擬順序與送到哪幾條.md",
+      "triggers": [
+        "綁 Entry",
+        "判準卡順序",
+        "第二張判準卡",
+        "截斷",
+        "inject_budget_tokens",
+        "cards_for_entry",
+        "專卡被擠"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py"
+      ]
     }
   ]
 }
