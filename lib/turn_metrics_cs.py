@@ -98,6 +98,14 @@ def _semicolon(src: str, pairs: Dict[int, int], i: int, end: int) -> Optional[in
     return None
 
 
+def _blank_literal(m: re.Match) -> str:
+    """註解換成等長空白；字串與字元常值也換成空白，但開頭留一個引號當記號（插值的 {運算式} 照留）：
+    `return $"{F(x)}.png";` 才不會被看成單純呼叫 F。"""
+    out = lang._blank(m)
+    t = m.group()
+    return out if t.startswith(("//", "/*")) else ("'" if t.startswith("'") else '"') + out[1:]
+
+
 def _blank_attributes(src: str) -> str:
     """attribute 區段 [X(…)] 換成等長空白（換行留著）：裡面的大括號不會被當成成員本體，標頭也乾淨。"""
     out = list(src)
@@ -575,7 +583,7 @@ def _accessors(src: str, depth: List[int], pairs: Dict[int, int], b0: int, b1: i
 
 def _parse(path: str, text: str) -> Dict[str, Any]:
     """一個 .cs 檔 → {classes, funcs, file_notes, last_line}。類別只有自己這層；鏈與實作跨檔用 _Ctx 接。"""
-    src = lang._C_BLANK.sub(lang._blank, text)
+    src = lang._C_BLANK.sub(_blank_literal, text)
     newlines = [m.start() for m in re.finditer("\n", src)]
 
     def line_of(pos: int) -> int:

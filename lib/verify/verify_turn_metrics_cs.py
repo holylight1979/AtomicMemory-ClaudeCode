@@ -67,6 +67,9 @@ HANDOFF = """public class Facade
     public void Fire() { Run(1); }
     public int Score(int x) => service.Total + x;
     public int Twice(int x) { return Step(x) * 2; }
+    public string Label(int x) { return $"{Step(x)} pts"; }
+    public void Note() { Log("saved"); }
+    private void Log(string m) { var s = m; }
 }
 
 public class Service
@@ -321,6 +324,8 @@ def test_single_statement_that_is_not_a_bare_call_is_not_handoff(tmp_path):
     fn = _by(_rows(tmp_path, {"Facade.cs": HANDOFF}), "func")
     assert fn["Facade.Score"]["handoff"] is None, "讀屬性再加：有運算"
     assert fn["Facade.Twice"]["handoff"] is None, "呼叫後再乘 2：有運算"
+    assert fn["Facade.Label"]["handoff"] is None, "插值字串 $\"{Step(x)} pts\" 有接字串，不是只轉手"
+    assert fn["Facade.Note"]["handoff"] == "Log" and fn["Facade.Note"]["handoff_chain"] == 1, "字串在引數裡照算轉手"
 
 
 # ─── 介面＋單一實作：分派多繞一手 ──────────────────────────────────────────────────
