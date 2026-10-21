@@ -14,6 +14,7 @@
 - [臨]（實測 Windows、Python 3.14）`subprocess.run(cmd, shell=True)` 不接管 stdout 時，子行程輸出照樣印到呼叫端；同一行加 `creationflags=CREATE_NO_WINDOW` 後輸出整個不見（cmd.exe 沒有主控台，它叫起的程式拿不到繼承的輸出）。明傳 `stdout=sys.stdout, stderr=sys.stderr` 才會回來，但 sys.stdout 被換掉（pytest 擷取）時沒有 fileno 會炸。
 - [臨] 所以壓窗守門（掃 subprocess 有沒有帶旗標）紅了不要一律補旗標：先問這個子行程的輸出是不是要直接給跑工具的人看（例：工具的 --run 抽樣指令、互動 CLI）。是就在那一行上方寫 `# no-window-exempt: <理由>`，不改行為；只有被 hook、排程、MCP 這類沒主控台的行程叫起、輸出又不必給人看的才補旗標。
 - [臨] 補完要有一個真的跑子行程、斷言輸出還在的案例；只靠掃描守門轉綠驗不到輸出不見（同類：字面掃描只看有沒有 creationflags 字樣）。測試自己用壓窗旗標啟動被測工具時，工具底下的 shell 子行程輸出一樣會不見，案例不要帶旗標。
+- [臨]（實測，Bash 工具裡跑）不只 shell=True：worktree 的版控啟動器用 `subprocess.run(["git", ...], creationflags=CREATE_NO_WINDOW)` 直接跑 git.exe、不接 stdout，`status`／`diff` 在工具輸出裡一樣是空的，看起來像沒改動、diff 0 行。啟動器要 `capture_output=True` 再把 stdout／stderr 原樣寫回自己的 sys.stdout.buffer／sys.stderr.buffer，壓窗旗標照帶。
 
 ## 行動
 
