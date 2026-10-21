@@ -6,7 +6,7 @@
 ---
 ## 2026-10-21 共用信箱 skill（`/mailbox`，PR #4 by wellstseng）：用網路共用資料夾讓人與 AI 互相寄信收信
 - **使用者看到的**：說「收信」「寄信給 xxx」「寄給專案」「回信」，AI 跑 `skills/mailbox/scripts/mail.py` 在共用資料夾收寄信；讀信＝搬進 `_archive` 領取（兩人同時讀只有一人領到），可解鎖退回、刪信、看總覽、記收件人簡稱。第一次用先在 `skills/mailbox/config.json` 填 `mailbox_root`；專案根下有 `.claude/skills/mailbox/config.json` 時整層改讀那份（同名 skill 個人層蓋過專案層，專案自己的信箱路徑照樣有效）。帳號存 `.local/`、不進版控。驗證 `tools/verify/verify_mailbox.py`。
-- **整併時補的**：還沒記帳號就 `delete --yes`／`roster --add` 不再刪到一半或先寫了名單才停（會改東西的子命令先確認帳號再動手）；名單檔的帳號照收件者規則檢查，手改壞的帳號不會變成信箱外的路徑；附件開在 Excel 等程式時，讀信／解鎖／刪信停下請你關掉再試，不再讓信和附件分家。DocIndex §5 補 mailbox／meeting／atom-source 三列。
+- **整併時補的**：還沒記帳號就 `delete --yes`／`roster --add` 不再刪到一半或先寫了名單才停（會改東西的子命令先確認帳號再動手）；名單檔的帳號照收件者規則檢查，手改壞的帳號不會變成信箱外的路徑；附件開在 Excel 等程式時，讀信／解鎖／刪信停下請你關掉再試，不再讓信和附件分家；兩人同時讀同一封時，搶輸或搶贏的一方偶爾因 Windows 剛搬動的檔短暫拒絕存取而報錯，現在開信／改名／寫狀態會稍等重試。DocIndex §5 補 mailbox／meeting／atom-source 三列。
 ## 2026-10-21 G16 補件：總控台開工作軌時就指定模型，並核對真的起對
 - **總控台看到的**：`console-spawn.py` 多了 `--model <id>`（不給就用 `console.spawn.default_model`，那裡也沒設就吃 Claude Code 預設，不猜）。報到後多印一行「模型＝<id>」，讀的是該 session 的 transcript。指定的模型對不上會 FAIL，印「指定＝…／實際＝…」，session 不殺。模型 id 不存在時，claude 照樣起得來，但第一回合回錯就停著；現在腳本一讀到這則錯誤就 FAIL 並印原文，不再白等 90 秒、也不再叫人貼。這兩種 FAIL 都不印人貼區塊。用法見 `skills/console/references/kickoff.md` §6 與 `skills/console/SKILL.md` 用法四。已知限制：`--method print` 只帶上 `--model`、不核對實際模型。print 是阻塞的備援方法，不讀 transcript；`claude -p` 的輸出 JSON 有沒有 model 欄也沒有實測過。
 - **改了什麼**（軌 track-console-spawn-model 000）：`build_cmd` 把 `--model` 接在指令最後，bg 與 print 都接，開工句仍在第 2 格；`load_spawn_config` 讀字串鍵 `default_model`；新增 `model_and_api_error` 函式，取最近一則真回應的 `message.model`，跳過 Claude Code 自己補寫的 `<synthetic>`，同時找 `isApiErrorMessage` 的錯誤文字；`wait_kickoff` 同一輪輪詢就能讀到報到或 API 錯誤；print 方法只帶上 `--model`、不核對，會印一行說明。

@@ -13,9 +13,11 @@ cases：
   7. 沒帳號時 delete --yes／roster --add 在動手前就停（exit 4）：不刪到一半、不先寫名單
   8. 名單檔被手改成不合規的帳號 → 寄信停下（exit 1），不在信箱外建資料夾
   9. （Windows）附件被開著時 read／delete 停下（exit 1）：信和附件留在原位、不分家
+ 10. 剛被別人搬動的檔短暫拒絕存取：開信／改名／寫狀態稍等重試；一直被佔才報錯
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -289,3 +291,28 @@ def test_delete_with_attachment_open_keeps_the_mail(proj: Path, tmp_path: Path):
         res = run(proj, "alice", "delete", "M1", "--yes")
     assert res.returncode == 1 and "開著" in res.stderr
     assert copy in mail_files(box)
+
+
+# ---------------------------------------------------------------------------
+# 10. 短暫拒絕存取要等過去；一直被佔才報錯（子行程造不出穩定的短暫鎖，直接載入模組測）
+# ---------------------------------------------------------------------------
+
+def test_retry_on_busy_waits_out_a_brief_lock_but_reports_a_held_one(monkeypatch):
+    spec = importlib.util.spec_from_file_location("mailbox_mail", MAIL)
+    mail = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mail)
+    monkeypatch.setattr(mail, "BUSY_WAIT_SECONDS", 0)
+    attempts = []
+
+    def busy_twice():
+        attempts.append(1)
+        if len(attempts) <= 2:
+            raise PermissionError("busy")
+        return "ok"
+
+    def always_busy():
+        raise PermissionError("held open")
+
+    assert mail.retry_on_busy(busy_twice) == "ok" and len(attempts) == 3
+    with pytest.raises(PermissionError):
+        mail.retry_on_busy(always_busy)

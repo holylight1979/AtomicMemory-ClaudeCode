@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import sys
+import time
 
 for _stream in (sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
@@ -61,6 +62,8 @@ OVERVIEW_FILE = "Overview.md"
 STATUS_TITLE = "## 狀態紀錄"
 SUBJECT_FILENAME_MAX = 40
 ID_ALLOCATE_TRIES = 50
+BUSY_RETRIES = 5
+BUSY_WAIT_SECONDS = 0.2
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 MAIL_FILE_RE = re.compile(r"^(\d{8}-\d{6})_M(\d+)_(.+)\.md$")
@@ -253,6 +256,23 @@ def write_text_atomic(path, text):
     os.replace(temp_path, path)
 
 
+def retry_on_busy(action, *args):
+    """Windows 上剛被別人搬動或寫入的檔，開檔／改名會短暫丟 PermissionError（對方還握著檔、防毒在掃）：稍等重試。
+    重試完仍不行＝真的被其他程式開著，照樣丟出；FileNotFoundError（被別人搬走）不重試、直接丟給呼叫端。"""
+    for attempt in range(BUSY_RETRIES):
+        try:
+            return action(*args)
+        except PermissionError:
+            if attempt == BUSY_RETRIES - 1:
+                raise
+            time.sleep(BUSY_WAIT_SECONDS)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8-sig") as handle:
+        return handle.read()
+
+
 class Mail:
     """一封信＝收件資料夾（或其 _archive）裡的一個 .md；附件在同名資料夾。"""
 
@@ -270,8 +290,7 @@ class Mail:
     def _load(self):
         if self._loaded:
             return
-        with open(self.path, encoding="utf-8-sig") as handle:
-            self._text = handle.read()
+        self._text = retry_on_busy(read_text, self.path)
         lines = self._text.splitlines()
         first = lines[0] if lines else ""
         self._subject = first[2:].strip() if first.startswith("# ") else "（無標題）"
@@ -340,9 +359,13 @@ def find_copies(mail_id, only_box=None):
     return copies
 
 
-def append_status(path, text):
+def append_line(path, line):
     with open(path, "a", encoding="utf-8", newline="\n") as handle:
-        handle.write(f"- {stamp_text(now())} {text}\n")
+        handle.write(line)
+
+
+def append_status(path, text):
+    retry_on_busy(append_line, path, f"- {stamp_text(now())} {text}\n")
 
 
 def move(mail, to_archive):
@@ -352,14 +375,14 @@ def move(mail, to_archive):
     os.makedirs(target_folder, exist_ok=True)
     target = os.path.join(target_folder, mail.file_name)
     try:
-        os.rename(mail.path, target)
+        retry_on_busy(os.rename, mail.path, target)
     except PermissionError as error:
         fail(f"{fmt_id(mail.id)} 正被其他程式開著，稍後再試：{error}")
     if os.path.isdir(mail.attach_dir):
         try:
-            os.rename(mail.attach_dir, target[:-3])
+            retry_on_busy(os.rename, mail.attach_dir, target[:-3])
         except PermissionError as error:
-            os.rename(target, mail.path)
+            retry_on_busy(os.rename, target, mail.path)
             fail(f"{fmt_id(mail.id)} 的附件正被其他程式開著（{mail.attach_dir}），關掉後再試：{error}")
     return Mail(mail.box, to_archive, mail.file_name)
 
@@ -663,8 +686,7 @@ def cmd_read(args):
 def read_body(path):
     if not os.path.isfile(path):
         fail(f"找不到內文檔：{path}")
-    with open(path, encoding="utf-8-sig") as handle:
-        body = handle.read().replace("\r\n", "\n")
+    body = read_text(path).replace("\r\n", "\n")
     lines = body.split("\n")
     if lines and lines[0].startswith("# "):
         return lines[0][2:].strip(), "\n".join(lines[1:]).strip("\n")
