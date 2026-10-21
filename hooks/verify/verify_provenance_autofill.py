@@ -122,8 +122,24 @@ KICKOFF_REAL_2 = ("你是 v6.0 的工作 session track-a6，總控台是 claude-
                   "第一步用 EnterWorktree 切進 worktree C:\\wt\\track-a6。只跑目標 verify、不跑全量。")
 
 
+# 總控台現在的開工句寫法（2026-10-21 實際開過的，路徑換成假路徑）：「<軌名>：你是工作軌 <軌名>（…）」，角色句寫「工作軌」
+KICKOFF_TRACK = ("track-x：你是工作軌 track-x（接續前一個 session：它已交付 001＋002 並合進 main 2756f296，003 做到一半停掉；"
+                 "半成品 commit 252fbf3e 在分支上，交接筆記全文在 `git log -1 252fbf3e` 的訊息裡，先讀它），"
+                 "調度總控台是 claude-17（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\\wt\\track-x"
+                 "（分支 track-x，已存在，不要新建）。派工單在 C:\\inbox\\003-x.md，兩份讀完全文照做。")
+
+
+def test_003_track_kickoff_with_name_prefix_is_kickoff():
+    from lib.harness_text import is_kickoff_prompt
+    assert is_kickoff_prompt(KICKOFF_TRACK)
+    assert is_kickoff_prompt(KICKOFF_TRACK.split("：", 1)[1])                        # 沒有「軌名：」開頭也算
+    for words in ("你是工作軌 track-x 嗎？派工單我還沒寫完", "track-x：請把保留舊標題這項決策記成卡片。",
+                  "你是工作軌 track-x，請把保留舊標題這項決策記成卡片。"):
+        assert not is_kickoff_prompt(words), words                                 # 問句、沒有派工子句：照填
+
+
 @pytest.mark.parametrize("op", ["create", "replace"])
-@pytest.mark.parametrize("kickoff", [KICKOFF_REAL_1, KICKOFF_REAL_2])
+@pytest.mark.parametrize("kickoff", [KICKOFF_REAL_1, KICKOFF_REAL_2, KICKOFF_TRACK])
 def test_003_kickoff_prompt_is_not_used_as_quote(tmp_path, op, kickoff):
     # 003：同伴訊息開的回合沿用前一回合原話，開工句被一路填成後面每張卡的 Quote。開工句不是使用者原話 → 不填 Quote，Source 照補
     atom = _atom(tmp_path)

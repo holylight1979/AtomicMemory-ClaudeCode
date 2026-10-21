@@ -184,7 +184,8 @@ _ROLE_NOTE = r"(?:\s*（(?:" + "|".join(_ROLE_NOTES) + r")）)?"
 _BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
 # 角色開場（不含括號說明）：嚴格樣板的 role 句與 Quote 端的開場判定共用
 _ROLE_OPENERS = (
-    r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
+    # 「你是工作 session x」「你是工作軌 x」，開頭可帶「<軌名>：」（總控台的開工句寫法）
+    r"(?:" + _NAME + r"\s*[：:]\s*)?(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*(?:session|軌)(?:\s*" + _NAME + r")?",
     r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
     r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session",
     r"接手\s*" + _QUOTED_NAME + r"\s*的\s*(?:根層\s*)?(?:總控端|總控台)",
