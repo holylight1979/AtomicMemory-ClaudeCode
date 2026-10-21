@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 無頭實跑, 驗收期間合併, WG_CLAUDE_DIR, 受測資料根, claude -p 驗收, 程式是 live 的, 混淆因素
 - Created-at: 2026-10-21
+- Quote: 「改 Opus」
 
 ## 知識
 
