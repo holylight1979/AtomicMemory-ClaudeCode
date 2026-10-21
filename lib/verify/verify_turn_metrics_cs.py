@@ -460,7 +460,7 @@ def test_inherit_four_layers_two_hollow_layers_are_empty(tmp_path):
     assert me["added"] == ["Shout"] and me["overridden"] == ["Tick"] and not me["empty"], "Tick 有 base 之外的事 → 不算空"
     assert guard["empty"] and guard["overridden"] == ["Hit"] and set(guard["hollow"]) == {"Hit"}
     assert "空本體" in guard["hollow"]["Hit"] and "抽象" in guard["hollow"]["Hit"], guard["hollow"]
-    assert soldier["empty"] and set(soldier["hollow"]) == {"Tick"} and "base" in soldier["hollow"]["Tick"]
+    assert soldier["empty"] and set(soldier["hollow"]) == {"Tick"} and "上層同名" in soldier["hollow"]["Tick"]
     assert unit["added"] == ["hp", "Tick", "Hit"] and not unit["empty"]
 
 
@@ -551,6 +551,16 @@ def test_same_shape_in_python_and_csharp_gives_same_numbers(tmp_path):
     for p, c in (("f", "Eq.F"), ("e", "Eq.E"), ("t", "Eq.T")):
         want = tuple(py[p][k] for k in ("nesting", "bumpy", "cognitive"))
         assert tuple(cs[c][k] for k in ("nesting", "bumpy", "cognitive")) == want, (p, want, cs[c])
+
+
+def test_cut_lookup_pool_does_not_claim_a_single_implementation(tmp_path):
+    """查找池是從更多檔裡挑出來的：池裡只看到一個實作不代表只有一個，不算分派、註明原因，介面的實作數標成下限。"""
+    p = _write(tmp_path, "Store.cs", DISPATCH)
+    rows = tmc.metrics_for_files([p], None, [], partial_pool=True)
+    fn, cls = _by(rows, "func"), _by(rows, "class")
+    save = fn["Saver.Save"]
+    assert save["dispatch"] == [] and save["handoff_chain"] == 1 and any("沒算分派" in u for u in save["unparsed"]), save
+    assert any("下限" in u for u in cls["IStore"]["unparsed"]) and cls["IStore"]["confidence"] == "partial"
 
 
 def test_interface_with_two_impls_is_not_dispatch(tmp_path):
@@ -658,6 +668,35 @@ def test_top_level_statements_outside_types_are_listed(tmp_path):
     assert files and any("不在任何型別裡" in u for u in files[0]["unparsed"]), files
     assert any("第 3 行" in u for u in files[0]["unparsed"]), files[0]["unparsed"]
     assert _by(rows, "func")["Tool.Go"]["confidence"] == "full", "沒算到的程式只標在檔案那一行；Tool.Go 自己完整解析到"
+
+
+# ─── 查找池挑法 ────────────────────────────────────────────────────────────
+
+def test_pick_lookup_files_orders_by_relation_and_keeps_the_limit(tmp_path):
+    files = {"game/Leaf.cs": "using Shared.Util;\npublic class Leaf : Mid\n#if NEW_API\n    , IHit\n#endif\n{ }\n",
+             "game/Near.cs": "class Near { }\n",
+             "core/Mid.cs": "public class Mid : Base { }\n", "base/Base.cs": "public class Base { }\n",
+             "api/IHit.cs": "public interface IHit { }\n", "Shared/Util/Tool.cs": "class Tool { }\n",
+             **{f"fill/F{i}.cs": f"class F{i} {{ }}\n" for i in range(6)}}
+    paths = {}
+    for name, text in files.items():
+        p = tmp_path / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="\n")
+        paths[name] = str(p)
+    every = sorted(paths.values())
+    picked = tmc.pick_lookup_files([paths["game/Leaf.cs"]], every, 7)
+    rel = [Path(p).relative_to(tmp_path).as_posix() for p in picked]
+    assert rel[0] == "game/Leaf.cs" and set(rel[1:4]) == {"core/Mid.cs", "api/IHit.cs", "base/Base.cs"}, \
+        "改到的檔、再來繼承與實作指到的，一路往上接到 Base"
+    assert rel[4:6] == ["game/Near.cs", "Shared/Util/Tool.cs"], "再來同目錄、using 指到的目錄"
+    assert len(rel) == 7 and rel[6].startswith("fill/"), "最後補其他到上限"
+    crowded = [paths["game/Leaf.cs"]] + [str(tmp_path / "game" / f"G{i}.cs") for i in range(20)]
+    for p in crowded[1:]:
+        Path(p).write_text("class G { }\n", encoding="utf-8", newline="\n")
+    picked = tmc.pick_lookup_files([paths["game/Leaf.cs"]], sorted(crowded + every), 5)
+    assert {Path(p).name for p in picked[1:4]} == {"Mid.cs", "IHit.cs", "Base.cs"}, "同目錄檔很多時，鏈照樣先進池"
+    assert tmc.pick_lookup_files([paths["game/Leaf.cs"]], every[:5], 7) == every[:5], "沒超過上限就全給"
 
 
 # ─── 範圍、非 C#、CLI ─────────────────────────────────────────────────────────

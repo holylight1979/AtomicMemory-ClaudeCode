@@ -6,6 +6,8 @@
   函式長度（length，只列）、只轉手（handoff：本體只有一句呼叫時是被呼叫的名字，否則 None）、連續轉手鏈長度
   （handoff_chain：從它起連續幾個只轉手的函式，呼叫對象在給的檔裡才接得下去）。
 類別一筆：繼承鏈每一層新增／覆寫了哪些成員（layers），什麼都沒加的層標 empty（嫌疑：抄舊架構長出來的層）；
+  空殼成員（只呼叫 super() 同名方法且引數照傳、補抽象宣告的空本體）記在 hollow，這層除了它們什麼都沒加也算 empty；
+  空本體擋掉上層有本體的實作照列、不算 empty。這套判準與說明 C#（turn_metrics_cs）共用 hollow_text。
   鏈接到給的檔以外的基底（外部套件、內建）就停，記 unresolved_base。
 非 Python 程式檔 → {"file", "lang": "不支援"}；解析失敗 → {"file", "error"}。
 怎麼跑：python lib/turn_metrics.py <檔> … [--root 專案根] [--diff <unified diff 檔>]（--diff：只列 diff 命中的函式與類別）
@@ -164,6 +166,116 @@ def _handoff(fn: ast.AST) -> Optional[str]:
     return None
 
 
+# ─── 空殼成員：這層有定義、但沒加東西 ──────────────────────────────────────────
+
+def _is_super_call(e: ast.expr, name: str, cls: str) -> bool:
+    """super().name(…) 或 super(自己這個類別, self).name(…)；super(別的類別, self) 會跳過中間那層的實作，不算。"""
+    f = e.func if isinstance(e, ast.Call) else None
+    if not (isinstance(f, ast.Attribute) and f.attr == name and isinstance(f.value, ast.Call)
+            and isinstance(f.value.func, ast.Name) and f.value.func.id == "super"):
+        return False
+    args = f.value.args
+    return not args or (len(args) == 2 and isinstance(args[0], ast.Name) and args[0].id == cls)
+
+
+def _passes_through(call: ast.Call, fn: ast.AST) -> bool:
+    """呼叫的引數就是自己的參數原樣照傳（位置參數照順序、*args、kw=kw、**kw），沒有加工。"""
+    a = fn.args
+    pos = [x.arg for x in a.posonlyargs + a.args][1:]          # 去掉 self／cls
+    want = pos + ([f"*{a.vararg.arg}"] if a.vararg else []) + [k.arg for k in a.kwonlyargs] \
+        + ([f"**{a.kwarg.arg}"] if a.kwarg else [])
+    got_pos: List[str] = []
+    for x in call.args:
+        if isinstance(x, ast.Starred) and isinstance(x.value, ast.Name):
+            got_pos.append(f"*{x.value.id}")
+        elif isinstance(x, ast.Name):
+            got_pos.append(x.id)
+        else:
+            return False
+    got_kw: List[str] = []
+    for k in call.keywords:
+        if not isinstance(k.value, ast.Name) or (k.arg is not None and k.arg != k.value.id):
+            return False
+        got_kw.append(f"**{k.value.id}" if k.arg is None else k.arg)
+    plain = [g for g in got_pos if not g.startswith("*")]
+    return plain == pos[:len(plain)] and sorted(got_pos + got_kw) == sorted(want)   # 位置引數照順序，關鍵字不論順序
+
+
+def _trivial(body: List[ast.stmt]) -> bool:
+    """本體空：pass、...、只有 docstring。"""
+    return all(isinstance(s, ast.Pass) or (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and s.value.value is ...)
+               for s in _body_without_docstring(body))
+
+
+def _is_abstract(fn: ast.AST) -> bool:
+    """只有宣告、沒有實作：@abstractmethod 且本體空，或本體只有 raise NotImplementedError。抽象方法自己有本體（給子類 super() 用）不算。"""
+    body = _body_without_docstring(list(fn.body))
+    exc = body[0].exc if len(body) == 1 and isinstance(body[0], ast.Raise) else None
+    exc = exc.func if isinstance(exc, ast.Call) else exc
+    if isinstance(exc, ast.Name) and exc.id == "NotImplementedError":
+        return True
+    return _trivial(list(fn.body)) and any(
+        (isinstance(d, ast.Name) and d.id == "abstractmethod") or (isinstance(d, ast.Attribute) and d.attr == "abstractmethod")
+        for d in fn.decorator_list)
+
+
+def _hollow_kind(fn: ast.AST, cls: str) -> Optional[str]:
+    """空殼的形狀：本體空 → "empty"；只有一句 return 照傳引數的 super() 同名呼叫 → "base"；同樣的呼叫但沒 return → "base-call"
+    （上層有回傳值時就把回傳值吞掉了，由 _inherit_layers 看上層決定）；async 要 await 才算。否則 None。"""
+    if _trivial(list(fn.body)):
+        return "empty"
+    body = _body_without_docstring(list(fn.body))
+    if len(body) != 1 or not isinstance(body[0], (ast.Return, ast.Expr)):
+        return None
+    e = body[0].value
+    if isinstance(fn, ast.AsyncFunctionDef) != isinstance(e, ast.Await):
+        return None                                     # async 沒 await 只是做出協程沒執行；同步函式不會有 await
+    e = e.value if isinstance(e, ast.Await) else e
+    if not (isinstance(e, ast.Call) and _is_super_call(e, fn.name, cls) and _passes_through(e, fn)):
+        return None
+    return "base" if isinstance(body[0], ast.Return) else "base-call"
+
+
+def _returns_value(fn: ast.AST) -> bool:
+    return any(isinstance(n, ast.Return) and n.value is not None for n in ast.walk(fn))
+
+
+def _class_shape(cls: ast.ClassDef) -> Tuple[Dict[str, str], List[str], List[str]]:
+    """類別自己的方法 → ({空殼成員: 形狀}, [只有宣告的成員], [有回傳值的成員])。同名定義好幾次時照執行時：後面的蓋掉前面的；
+    property 的 getter／setter／deleter 是同一組，要每個都是空殼才算。"""
+    groups: Dict[str, List[Optional[str]]] = {}
+    abstract, returns = [], []
+    for s in cls.body:
+        if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        same_group = any(isinstance(d, ast.Attribute) and d.attr in ("setter", "getter", "deleter")
+                         and isinstance(d.value, ast.Name) and d.value.id == s.name for d in s.decorator_list)
+        declared_only = _is_abstract(s)
+        kinds = groups.get(s.name, []) if same_group else []
+        groups[s.name] = kinds + [None if declared_only else _hollow_kind(s, cls.name)]
+        if declared_only:
+            abstract.append(s.name)
+        if _returns_value(s):
+            returns.append(s.name)
+    hollow = {name: kinds[-1] for name, kinds in groups.items() if all(kinds) and kinds}
+    return hollow, list(dict.fromkeys(abstract)), list(dict.fromkeys(returns))
+
+
+HOLLOW_TEXT = {"base": "只呼叫上層同名方法、引數照傳", "ctor": "建構子空本體", "ctor-base": "建構子空本體，只把參數交給 base／this"}
+
+
+def hollow_text(kind: str, member: str, above: set, above_abstract: set, outside: bool) -> Optional[Tuple[str, bool]]:
+    """空殼成員 → (說明, 算不算「這層沒加東西」)；不算空殼 → None。兩語言共用。
+    空本體擋掉上層有本體的實作是改了行為（例：子類空覆寫扣血＝無敵），照列、不算沒加；上層沒有這個成員、鏈也都接得到 → 是新增的空方法。"""
+    if kind != "empty":
+        return HOLLOW_TEXT[kind], True
+    if member in above_abstract:
+        return "空本體（上層只有抽象宣告，這層補一個什麼都不做的實作）", True
+    if member in above:
+        return "空本體（擋掉上層的實作：改了行為，不算空）", False
+    return ("空本體（上層在掃不到的基底，這層把它擋掉：不算空）", False) if outside else None
+
+
 # ─── 單檔：函式與類別 ───────────────────────────────────────────────────────
 
 def _walk_defs(nodes: Iterable[ast.AST], prefix: str):
@@ -216,8 +328,9 @@ def function_metrics(src: str, path: str) -> Tuple[List[Dict[str, Any]], List[Di
     for qual, node in _walk_defs(tree.body, ""):
         end = getattr(node, "end_lineno", None) or node.lineno
         if isinstance(node, ast.ClassDef):
-            classes.append({"file": path, "name": qual, "lineno": node.lineno, "end_lineno": end,
-                            "members": _class_members(node), "bases": _base_names(node)})
+            hollow, abstract, returns = _class_shape(node)
+            classes.append({"file": path, "name": qual, "lineno": node.lineno, "end_lineno": end, "members": _class_members(node),
+                            "bases": _base_names(node), "hollow": hollow, "abstract": abstract, "returns": returns})
             continue
         body = list(node.body)
         funcs.append({"file": path, "name": qual, "lineno": node.lineno, "end_lineno": end,
@@ -275,7 +388,7 @@ def _resolve_handoffs(funcs: List[Dict[str, Any]]) -> None:
 
 def _inherit_layers(cls: Dict[str, Any], index: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """沿第一個基底往上接：每層 added＝這層定義、上面所有層都沒有的成員；overridden＝上面有、這層又定義的；
-    empty＝這層什麼都沒定義。接不到的基底記 unresolved_base 並停。"""
+    hollow＝空殼成員與說明；empty＝除了「沒加東西」的空殼成員什麼都沒定義。接不到的基底記 unresolved_base 並停。"""
     chain: List[Dict[str, Any]] = []
     seen: set = set()
     cur: Optional[Dict[str, Any]] = cls
@@ -293,11 +406,20 @@ def _inherit_layers(cls: Dict[str, Any], index: Dict[str, Dict[str, Any]]) -> Di
         cur = nxt
     layers: List[Dict[str, Any]] = []
     above: set = set()
+    above_abstract: set = set()
+    above_returns: set = set()
     for c in reversed(chain):        # 從最上層往下算 added／overridden
         mem = list(c.get("members") or [])
+        kinds = {m: ("base" if k == "base-call" else k) for m, k in (c.get("hollow") or {}).items()
+                 if not (k == "base-call" and m in above_returns)}          # 沒 return 卻接上層有回傳值的：回傳值被吞掉，有作用
+        got = {m: hollow_text(k, m, above, above_abstract, unresolved is not None) for m, k in kinds.items()}
+        got = {m: v for m, v in got.items() if v}
         layers.append({"name": c["name"], "file": c["file"], "added": [m for m in mem if m not in above],
-                       "overridden": [m for m in mem if m in above], "empty": not mem})
+                       "overridden": [m for m in mem if m in above], "empty": not [m for m in mem if not got.get(m, ("", False))[1]],
+                       "hollow": {m: text for m, (text, _) in got.items()}})
         above |= set(mem)
+        above_abstract = (above_abstract - set(mem)) | set(c.get("abstract") or [])
+        above_returns = (above_returns - set(mem)) | set(c.get("returns") or [])
     layers.reverse()                  # 回到「自己在前、祖先在後」
     return {"file": cls["file"], "name": cls["name"], "lineno": cls["lineno"], "end_lineno": cls["end_lineno"],
             "depth": len(layers), "empty_layers": sum(1 for l in layers if l["empty"]),
