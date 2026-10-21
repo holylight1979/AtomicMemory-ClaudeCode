@@ -297,8 +297,10 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。
     claims_done＝呼叫端看最後一則的結果；最後一則沒談到完成與否時，改看本回合最後一則談到的（turn_claims_completion）。"""
     from wg_need_goal import writes_code
+    from wg_verify_ledger import session_scratch
     claims_done = bool(claims_done) or turn_claims_completion(transcript_text)
-    code = [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)]
+    code = [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)
+            and not session_scratch(str(m["path"]))]          # 規則 SESSION_SCRATCH_NOT_CODE：暫存區的一次性腳本不數
     uniq: Dict[str, str] = {}      # 同一個檔不同寫法只算一次（SAME_FILE），保留原寫法給 git pathspec（大小寫敏感）
     for m in code:
         uniq.setdefault(rr.canon_path(m["path"]), str(m["path"]))

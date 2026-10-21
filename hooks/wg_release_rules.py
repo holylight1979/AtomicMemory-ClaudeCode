@@ -825,6 +825,41 @@ def temp_copy_verdict(path: str, roots: Iterable[str]) -> Verdict:
     return Verdict("TEMP_COPY_NOT_PROJECT", True, "不在暫存目錄，照專案規則", (str(path)[:60],))
 
 
+RULES.update({
+    "SESSION_SCRATCH_NOT_CODE": "session 暫存區的檔是一次性腳本，不算本 session 改的程式檔：Claude Code 背景工作的 "
+                                "`<CC 設定目錄>/jobs/<id>/tmp/`（設定目錄＝CLAUDE_CONFIG_DIR 與 ~/.claude）與 session scratchpad"
+                                "（`<系統暫存根>/claude/…/scratchpad/`）。第二意見門檻（wg_second_opinion.check）、寫碼查核的補案例與驗證範圍"
+                                "（wg_verify_ledger.is_excluded）都不數、也不能拿來清帳。只認錨在這兩個根底下的形狀：repo 裡自己取名 "
+                                "jobs/<x>/tmp、Temp/claude/…/scratchpad 的目錄照算程式。",
+})
+
+
+def cc_config_dirs(environ: Optional[Dict[str, str]] = None, home: Optional[str] = None) -> List[str]:
+    """SESSION_SCRATCH_NOT_CODE 的事實：Claude Code 設定目錄（CLAUDE_CONFIG_DIR 有設就加上它，~/.claude 一律算），原樣路徑。"""
+    env = environ if environ is not None else os.environ
+    dirs = [env.get("CLAUDE_CONFIG_DIR") or "", os.path.join(home or os.path.expanduser("~"), ".claude")]
+    return [d for d in dict.fromkeys(dirs) if d]
+
+
+def is_session_scratch(path: str, config_dirs: Iterable[str], tmp_roots: Iterable[str]) -> bool:
+    """SESSION_SCRATCH_NOT_CODE：path 在 `<設定目錄>/jobs/<id>/tmp/` 底下，或在 `<暫存根>/claude/…/scratchpad/` 底下
+    （tmp_roots＝temp_roots 的結果；關掉暫存規則時只認 jobs）。兩側都用 norm_temp_path 比、不碰檔案系統（8.3 短路徑由呼叫端先展開）。"""
+    n = norm_temp_path(path) + "/"
+
+    def rest(root: str) -> List[str]:
+        base = norm_temp_path(root)
+        return n[len(base) + 1:].split("/") if base and n.startswith(base + "/") else []
+    for d in config_dirs:
+        parts = rest(d)
+        if len(parts) >= 4 and parts[0] == "jobs" and parts[1] and parts[2] == "tmp":
+            return True
+    for r in tmp_roots:
+        parts = rest(r)
+        if len(parts) >= 3 and parts[0] == "claude" and "scratchpad" in parts[1:-1]:
+            return True
+    return False
+
+
 # ─── B10 DPM_WORKTREE_DELIVERY ─────────────────────────────────────────────────
 _DPM_BODY = (
     "  - 始末：觸發場景 → 錯誤行為 → 最終正確做法\n"
