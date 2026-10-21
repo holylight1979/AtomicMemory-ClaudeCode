@@ -15,7 +15,8 @@ config；開工後讀 transcript 最近一則真回應的 message.model 印「�
 已信任 → 不拿鎖不寫；檔不存在／不是合法 JSON／格式不對（含 projects 某筆不是物件）→ 不寫、FAIL 印原因退人貼。
 state 檔（並行上限靠它數）：A 等報到時 B 起好並記好 → 兩列都在、各自的 sessionId 對得上；兩個程序真的同時改 → 一列不丟；
 壞檔（不是 JSON、不是物件清單）→ 原因印 stderr、不起、FAIL 退人貼、壞檔不蓋；開跑時 state 鎖就被佔 → 不起、不搶鎖；
-起好那刻記不上、等報到時鎖放掉 → 補 sessionId 時整列補記；一直記不上 → 印「沒記進 state 檔」。
+起好那刻記不上、等報到時鎖放掉 → 補 sessionId 時整列補記；一直記不上 → 印「沒記進 state 檔」；
+持 state 鎖很久（沒人會接管）→ 照寫、照放鎖，不留永久殘鎖。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_console_spawn.py
 """
 from __future__ import annotations
@@ -584,6 +585,14 @@ def test_bad_state_file_fails_closed_with_reason_on_stderr(world, capsys, conten
     assert code == 1 and cap.out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL") and "退回人貼" in cap.out
     assert fake.bg_calls() == [] and str(f) in cap.err and reason in cap.err   # 數不出活著的就不起；原因印到 stderr
     assert f.read_text(encoding="utf-8") == content                     # 壞檔不蓋
+
+
+def test_slow_state_update_still_writes_and_releases_its_lock(world, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_LOCK_HOLD_SEC", -1.0)               # 模擬持鎖中卡住很久（系統睡眠之類）
+    lock = world.live / "workflow" / (cs.STATE_FILE + ".lock")
+    ok = cs.update_state(world.live, lambda rows: rows.append({"id": "slow"}), print)
+    assert ok is True and [r["id"] for r in state_rows(world)] == ["slow"]
+    assert not lock.exists()                                             # state 鎖沒人會接管：慢了也是自己的，要放掉
 
 
 def test_state_lock_held_before_start_fails_closed(world, capsys, monkeypatch):
