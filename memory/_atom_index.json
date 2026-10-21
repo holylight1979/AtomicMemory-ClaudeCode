@@ -10161,7 +10161,8 @@
       ],
       "scope": "global",
       "entry": [
-        "E22"
+        "E22",
+        "E29"
       ]
     },
     {
@@ -11014,7 +11015,6 @@
       ],
       "scope": "global",
       "entry": [
-        "E02",
         "E21",
         "E08"
       ]
@@ -11192,6 +11192,92 @@
         "工人模型 Opus"
       ],
       "scope": "global"
+    },
+    {
+      "name": "切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣",
+      "path": "memory/CC與原子記憶契約/切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣.md",
+      "triggers": [
+        "切入點識別字樣",
+        "關鍵字退路",
+        "trigger 子字串",
+        "誤中無關卡",
+        "登錄表新列",
+        "entry_note",
+        "SELFSCORE_ASK",
+        "CLAUDE_CODE_SESSION_ID",
+        "guard log 秒級配對"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出",
+      "path": "memory/版控/Git/攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出.md",
+      "triggers": [
+        "git 別名",
+        "git alias",
+        "alias.ci",
+        "git -c alias",
+        "! shell 別名",
+        "commit 前閘",
+        "攔 git 指令",
+        "子命令判定",
+        "--list-cmds",
+        "config --get-regexp"
+      ],
+      "scope": "global",
+      "related": [
+        "commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取"
+      ]
+    },
+    {
+      "name": "無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載",
+      "path": "memory/驗證與實證/無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載.md",
+      "triggers": [
+        "無頭驗收",
+        "實跑期間",
+        "hook 逾時",
+        "並行負載",
+        "同機跑測試",
+        "凍結合併",
+        "hook_cancelled",
+        "總控台實跑規矩"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致",
+      "path": "memory/版控/判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致.md",
+      "triggers": [
+        "merge-tree --write-tree",
+        "停在衝突",
+        "logs/HEAD",
+        "reflog -1",
+        "REBASE_HEAD",
+        "git_cassette",
+        "錄製重播",
+        "舊測試閘 merge 誤擋",
+        "python 啟動器 cp950"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計",
+      "path": "memory/CC與原子記憶契約/claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計.md",
+      "triggers": [
+        "claude -p",
+        "output-format json",
+        "task-notification",
+        "背景通知",
+        "permission_denials",
+        "total_cost_usd",
+        "串跑腳本",
+        "result 收錯",
+        "--resume 成本"
+      ],
+      "scope": "global",
+      "related": [
+        "claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion"
+      ]
     }
   ]
 }

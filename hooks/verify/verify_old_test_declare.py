@@ -739,6 +739,326 @@ def test_non_python_command_takes_no_git_snapshot(world):
     assert not snap_dir.exists() or not list(snap_dir.iterdir()), "不執行 python、沒寫測試檔的指令不拍快照、不跑 git"
 
 
+# ─── git 指令（merge／pull／rebase／切分支）帶進來的別軌改動不算本 session 改的（派工 003） ───
+
+def _g(proj, *args, check=True):
+    import subprocess
+    r = subprocess.run(["git", "-C", str(proj), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    assert not check or r.returncode == 0, r.stdout + r.stderr
+    return r
+
+
+OTHER = LEGACY.replace('"USD"', '"TWD"') + "\n\ndef test_from_other():\n    assert adjust.total() > 0\n"
+
+
+def _other_track(w, conflict):
+    """base：tests/test_legacy_report.py（LEGACY）＋ TECH.md。分支 other 改了舊測試的斷言、加一支 test_from_other；
+    conflict=True 時這邊也改 TECH.md 同一行 → merge other 停在 TECH.md 衝突、測試檔已自動合好放在暫存區（002 合 main 實遇）；
+    False → merge other 是快轉。"""
+    fp = _put(w, "tests/test_legacy_report.py", LEGACY)
+    _put(w, "TECH.md", "base\n")
+    proj = w["proj"]
+    _git_repo(proj)
+    _g(proj, "checkout", "-qb", "other")
+    Path(fp).write_text(OTHER, encoding="utf-8")
+    _put(w, "TECH.md", "other\n")
+    _g(proj, "commit", "-qam", "other track")
+    _g(proj, "checkout", "-q", "-")
+    if conflict:
+        _put(w, "TECH.md", "mine\n")
+        _g(proj, "commit", "-qam", "this track")
+    return fp
+
+
+def _py_round(w, label, action):
+    """一條經 python 啟動器跑的指令：PreToolUse 拍快照 → action()（這條指令實際做的事）→ PostToolUse 比對。回 action 的結果。"""
+    ti = {"command": f"python _vcs_run.py {label}"}
+    assert _pass(_run(w, "Bash", ti))
+    out = action()
+    _post(w, "Bash", ti)
+    return out
+
+
+def _merge_round(w, extra=None):
+    """經 python 啟動器跑 git merge other（extra＝同一支腳本接著自己做的）。"""
+    def act():
+        r = _g(w["proj"], "merge", "-q", "other", "-m", "merge other", check=False)
+        if extra:
+            extra()
+        return r
+    return _py_round(w, "merge other", act)
+
+
+def test_merge_stopped_on_conflict_does_not_count_incoming_test_changes(world):
+    """merge 停在別的檔衝突，別軌改的測試已合進暫存區、HEAD 沒動：舊碼拿 HEAD 當改前，把別軌的斷言改動當成本 session
+    改舊測試擋。git 合進來的那份（暫存區）才是改前。"""
+    fp = _other_track(world, conflict=True)
+    r = _merge_round(world)
+    assert r.returncode != 0 and "CONFLICT" in r.stdout + r.stderr, "前置：merge 停在 TECH.md 衝突"
+    assert Path(fp).read_text(encoding="utf-8") == OTHER, "前置：別軌的測試改動已合進工作樹"
+    assert not _pending()
+    assert any(e["event"] == "git_op" and any(f.endswith("test_legacy_report.py") for f in e["files"]) for e in _events(world))
+    assert _pass(_run(world, "Bash", {"command": "echo next"}))
+
+
+def test_squash_merge_does_not_count_incoming_test_changes(world):
+    """merge --squash：別軌改動放進暫存區、HEAD 不動、git 目錄只留 SQUASH_MSG（沒有 MERGE_HEAD）→ 以訊息裡的 commit 重算 git 的產出。"""
+    fp = _other_track(world, conflict=False)
+    _py_round(world, "merge --squash other", lambda: _g(world["proj"], "merge", "-q", "--squash", "other"))
+    assert Path(fp).read_text(encoding="utf-8") == OTHER and _g(world["proj"], "diff", "--cached", "--quiet", check=False).returncode, \
+        "前置：別軌的測試改動在暫存區、還沒 commit"
+    assert not _pending()
+
+
+def test_merge_plus_own_edit_of_old_test_still_pending(world):
+    """反例：同一支腳本 merge 完又自己改了舊測試的斷言 → 照算本 session 改的（只有 git 合進來的那份不算）。"""
+    fp = _other_track(world, conflict=True)
+    _merge_round(world, lambda: Path(fp).write_text(OTHER.replace("== 10", "== 11"), encoding="utf-8"))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
+
+
+def test_merge_then_own_edit_and_add_of_old_test_still_pending(world):
+    """Codex BLOCK 1：腳本 merge 停在衝突後改了舊測試、還 git add 了——暫存區與磁碟都是自己改的版本，git 的產出要從 commit
+    重算（merge-tree），不能讀暫存區。"""
+    fp = _other_track(world, conflict=True)
+
+    def edit_and_add():
+        Path(fp).write_text(OTHER.replace("== 10", "== 11"), encoding="utf-8")
+        _g(world["proj"], "add", "tests/test_legacy_report.py")
+    _merge_round(world, edit_and_add)
+    assert _g(world["proj"], "diff", "--quiet", "--", "tests/test_legacy_report.py", check=False).returncode == 0, \
+        "前置：工作樹與暫存區一樣（自己的改動已 add）"
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
+
+
+def test_merge_then_revert_incoming_assert_to_old_value_still_pending(world):
+    """Codex 複審 BLOCK 1：merge 停在衝突後，腳本把別軌改的斷言改回執行前的值＝撤掉別軌對舊測試的改動，照要宣告。"""
+    fp = _other_track(world, conflict=True)
+    _merge_round(world, lambda: Path(fp).write_text(OTHER.replace('"TWD"', '"USD"'), encoding="utf-8"))
+    assert '"USD"' in Path(fp).read_text(encoding="utf-8") and "test_from_other" in Path(fp).read_text(encoding="utf-8"), \
+        "前置：斷言回到執行前的值、別軌其他改動還在"
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+
+
+def test_conflict_in_test_file_then_own_edit_still_pending(world):
+    """Codex BLOCK 1：衝突就在測試檔裡，腳本又改了同檔另一支舊測試的斷言（沒 add）→ 照擋那一支；衝突那支不算。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    proj = world["proj"]
+    _git_repo(proj)
+    _g(proj, "checkout", "-qb", "other")
+    Path(fp).write_text(LEGACY.replace("== 10", "== 20"), encoding="utf-8")
+    _g(proj, "commit", "-qam", "other track")
+    _g(proj, "checkout", "-q", "-")
+    Path(fp).write_text(LEGACY.replace("== 10", "== 30"), encoding="utf-8")
+    _g(proj, "commit", "-qam", "this track")
+    _merge_round(world, lambda: Path(fp).write_text(Path(fp).read_text(encoding="utf-8").replace('"USD"', '"EUR"'),
+                                                    encoding="utf-8"))
+    assert "<<<<<<<" in Path(fp).read_text(encoding="utf-8"), "前置：衝突標記在測試檔裡"
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+
+
+def test_cherry_pick_stopped_on_conflict_does_not_count_incoming_test_changes(world):
+    """cherry-pick 停在別的檔衝突：git 的產出以被挑的 commit 的父代為共同祖先重算（merge-tree --merge-base）。"""
+    fp = _other_track(world, conflict=True)
+    r = _py_round(world, "cherry-pick other", lambda: _g(world["proj"], "cherry-pick", "other", check=False))
+    assert r.returncode != 0 and Path(fp).read_text(encoding="utf-8") == OTHER, "前置：停在 TECH.md 衝突、測試改動已套進來"
+    assert not _pending()
+
+
+def test_rebase_continue_to_next_conflict_is_a_new_git_step(world):
+    """Codex BLOCK 2：rebase --continue 停在下一個衝突，REBASE_HEAD 名稱不變、內容換成下一個 commit——那個 commit 套進來的
+    測試改動是 git 重放的，不是這條指令寫的。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _put(world, "TECH.md", "base\n")
+    proj = world["proj"]
+    _git_repo(proj)
+    _g(proj, "checkout", "-qb", "other")
+    _put(world, "TECH.md", "upstream\n")
+    _g(proj, "commit", "-qam", "upstream")
+    _g(proj, "checkout", "-q", "-")
+    _put(world, "TECH.md", "a1\n")
+    _g(proj, "commit", "-qam", "c1")
+    _put(world, "TECH.md", "a2\n")
+    Path(fp).write_text(LEGACY.replace("== 10", "== 12"), encoding="utf-8")
+    _g(proj, "commit", "-qam", "c2")
+    _py_round(world, "rebase other", lambda: _g(proj, "rebase", "other", check=False))
+    _put(world, "TECH.md", "resolved\n")
+    _g(proj, "add", "TECH.md")
+    r = _py_round(world, "rebase --continue", lambda: _g(proj, "-c", "core.editor=true", "rebase", "--continue", check=False))
+    assert r.returncode != 0 and "== 12" in Path(fp).read_text(encoding="utf-8"), "前置：停在 c2 的衝突、c2 的測試改動已套進來"
+    assert not _pending()
+
+
+def test_revert_of_old_test_change_is_own_change(world):
+    """revert 不算 git 帶進來的：撤掉哪個 commit 是本 session 的決定，停在衝突時撤回來的斷言照算改舊測試。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _put(world, "TECH.md", "base\n")
+    proj = world["proj"]
+    _git_repo(proj)
+    Path(fp).write_text(LEGACY.replace("== 10", "== 15"), encoding="utf-8")
+    _put(world, "TECH.md", "x\n")
+    _g(proj, "commit", "-qam", "x")
+    _put(world, "TECH.md", "y\n")
+    _g(proj, "commit", "-qam", "y")
+    r = _py_round(world, "revert HEAD~1", lambda: _g(proj, "revert", "--no-edit", "HEAD~1", check=False))
+    assert r.returncode != 0 and "== 10" in Path(fp).read_text(encoding="utf-8"), "前置：停在 TECH.md 衝突、斷言已撤回"
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
+
+
+def test_fast_forward_then_commit_in_same_command_marks_incoming_tests_old(world):
+    """Codex BLOCK 2：同一支腳本先快轉合進別軌、再 commit 別的檔——最後一筆 reflog 是 commit，但這段期間的 merge 照算帶進來。"""
+    import wg_release_rules as rr
+    fp = _other_track(world, conflict=False)
+    assert _pass(_run(world, "Edit", {"file_path": fp, "old_string": "def setup_function():",
+                                      "new_string": "def setup_function():  # 先看一眼"}))
+    assert "test_from_other" not in wg_core.read_state(SID)["old_test_baseline"][rr.canon_path(fp)], "前置：基線是合併前的"
+
+    def ff_then_commit():
+        _g(world["proj"], "merge", "-q", "other")
+        _put(world, "TECH.md", "after merge\n")
+        _g(world["proj"], "commit", "-qam", "doc")
+    _py_round(world, "merge other && commit", ff_then_commit)
+    assert _g(world["proj"], "reflog", "-1", "--format=%gs").stdout.startswith("commit"), "前置：最後一筆 reflog 是 commit"
+    r = _run(world, "Edit", {"file_path": fp, "old_string": "assert adjust.total() > 0", "new_string": "assert adjust.total() >= 0"})
+    assert _ot(r) and "test_from_other" in r
+
+
+def test_fast_forward_then_own_test_commit_with_dirty_helper_still_pending(world):
+    """Codex 複審 BLOCK 2：快轉合進別軌後，自己改了舊測試的斷言並 commit，又在同檔留下 helper 的改動沒 commit——git 的產出是
+    快轉的終點，不是最後的 HEAD，自己 commit 進去的斷言改動照算。"""
+    fp = _other_track(world, conflict=False)
+
+    def ff_then_own_commit():
+        _g(world["proj"], "merge", "-q", "other")
+        Path(fp).write_text(OTHER.replace("== 10", "== 99"), encoding="utf-8")
+        _g(world["proj"], "commit", "-qam", "own test change")
+        Path(fp).write_text(OTHER.replace("== 10", "== 99").replace("    adjust.LEVELS.clear()\n",
+                                                                      "    adjust.LEVELS.clear()\n    adjust.RESET = True\n"),
+                            encoding="utf-8")
+    _py_round(world, "merge other && commit", ff_then_own_commit)
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
+
+
+def test_no_reflog_fast_forward_still_marks_incoming_tests_old(world):
+    """Codex 複審 BLOCK 2：讀不到 reflog（logs/HEAD 不在）時 HEAD 動了分不出是誰動的——帶進來的照外來算、併基線（寧可多擋），
+    並留帳說判不出。"""
+    import shutil
+    import wg_release_rules as rr
+    fp = _other_track(world, conflict=False)
+    _g(world["proj"], "config", "core.logAllRefUpdates", "false")
+    shutil.rmtree(world["proj"] / ".git" / "logs")
+    assert _pass(_run(world, "Edit", {"file_path": fp, "old_string": "def setup_function():",
+                                      "new_string": "def setup_function():  # 先看一眼"}))
+    assert "test_from_other" not in wg_core.read_state(SID)["old_test_baseline"][rr.canon_path(fp)], "前置：基線是合併前的"
+    _py_round(world, "merge other", lambda: _g(world["proj"], "merge", "-q", "other"))
+    assert not (world["proj"] / ".git" / "logs" / "HEAD").exists(), "前置：真的沒有 reflog"
+    assert any(e["event"] == "git_op" and "reflog" in e.get("why", "") for e in _events(world))
+    r = _run(world, "Edit", {"file_path": fp, "old_string": "assert adjust.total() > 0", "new_string": "assert adjust.total() >= 0"})
+    assert _ot(r) and "test_from_other" in r
+
+
+def test_cherry_pick_of_merge_commit_is_reported_unverified(world):
+    """Codex 複審 BLOCK 3：cherry-pick 合併提交（-m 選主線）停在衝突，從 commit 看不出主線 → 不重算、留帳判不出，照執行前的內容
+    比（別軌的改動會被算成這次改的：寧可多擋）。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _put(world, "TECH.md", "base\n")
+    proj = world["proj"]
+    _git_repo(proj)
+    _g(proj, "checkout", "-qb", "feat")
+    Path(fp).write_text(LEGACY.replace('"USD"', '"TWD"'), encoding="utf-8")
+    _put(world, "TECH.md", "feat\n")
+    _g(proj, "commit", "-qam", "feat")
+    _g(proj, "checkout", "-q", "-")
+    _g(proj, "checkout", "-qb", "other")
+    _g(proj, "merge", "-q", "--no-ff", "feat", "-m", "merge feat")
+    _g(proj, "checkout", "-q", "-")
+    _put(world, "TECH.md", "mine\n")
+    _g(proj, "commit", "-qam", "this track")
+    r = _py_round(world, "cherry-pick -m 1 other", lambda: _g(proj, "cherry-pick", "-m", "1", "other", check=False))
+    assert r.returncode != 0 and '"TWD"' in Path(fp).read_text(encoding="utf-8"), "前置：停在 TECH.md 衝突、測試改動已套進來"
+    assert any(e["event"] == "git_op" and "合併提交" in e.get("why", "") for e in _events(world))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+
+
+def test_autostash_keeps_own_change_and_incoming_assert_not_pending(world):
+    """Codex BLOCK 2：測試檔原本就有自己沒 commit 的改動（helper），merge --autostash 快轉帶進別軌的斷言改動再把自己的改動
+    放回來 → 別軌那處不算這次改的，自己原本的改動也不重算。"""
+    fp = _other_track(world, conflict=False)
+    mine = LEGACY.replace("    adjust.LEVELS.clear()\n", "    adjust.LEVELS.clear()\n    adjust.RESET = True\n")
+    Path(fp).write_text(mine, encoding="utf-8")
+    _py_round(world, "merge --autostash other", lambda: _g(world["proj"], "merge", "-q", "--autostash", "other"))
+    now = Path(fp).read_text(encoding="utf-8")
+    assert '"TWD"' in now and "adjust.RESET = True" in now, "前置：別軌的斷言改動與自己原本的改動都在"
+    assert not _pending()
+
+
+@pytest.mark.parametrize("conflict", [True, False])
+def test_tests_brought_in_by_merge_are_old_tests(world, conflict):
+    """別軌帶進來的測試是舊測試：本 session 先碰過這個檔（基線只有兩支），merge 之後改 test_from_other 的斷言照要宣告。
+    不併進基線的話它會被當成本 session 新加的放過。"""
+    import wg_release_rules as rr
+    fp = _other_track(world, conflict)
+    assert _pass(_run(world, "Edit", {"file_path": fp, "old_string": "def setup_function():",
+                                      "new_string": "def setup_function():  # 先看一眼"}))     # 只判不寫：記下基線
+    base = wg_core.read_state(SID)["old_test_baseline"][rr.canon_path(fp)]
+    assert "test_legacy_report_totals" in base and "test_from_other" not in base, "前置：基線是 merge 前的兩支"
+    _merge_round(world)
+    assert "test_from_other" in Path(fp).read_text(encoding="utf-8"), "前置：別軌的測試合進來了"
+    assert not _pending()
+    r = _run(world, "Edit", {"file_path": fp, "old_string": "assert adjust.total() > 0", "new_string": "assert adjust.total() >= 0"})
+    assert _ot(r) and "test_from_other" in r
+
+
+def test_merge_conflict_inside_test_file_takes_git_output_as_before(world):
+    """衝突就在測試檔裡：磁碟上帶衝突標記的那份是 git 產出的，當改前（之後解衝突的 Edit 照常判）。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    proj = world["proj"]
+    _git_repo(proj)
+    _g(proj, "checkout", "-qb", "other")
+    Path(fp).write_text(LEGACY.replace("== 10", "== 20"), encoding="utf-8")
+    _g(proj, "commit", "-qam", "other track")
+    _g(proj, "checkout", "-q", "-")
+    Path(fp).write_text(LEGACY.replace("== 10", "== 30"), encoding="utf-8")
+    _g(proj, "commit", "-qam", "this track")
+    _merge_round(world)
+    assert "<<<<<<<" in Path(fp).read_text(encoding="utf-8"), "前置：衝突標記在測試檔裡"
+    assert not _pending()
+    assert any(e["event"] == "git_op" and any(f.endswith("test_legacy_report.py") for f in e["files"]) for e in _events(world))
+
+
+def test_git_status_reads_head_and_rename_untracked_modified_kinds(world):
+    """porcelain v2 解析：HEAD 取 branch.oid；改名（路徑含空白，-z 後面多一筆原路徑）、未追蹤、一般改動都認得、不錯位。"""
+    import re
+    import wg_oldtest as ot
+    proj = world["proj"]
+    _put(world, "tests/test_a.py", "def test_a():\n    assert 1\n")
+    keep = _put(world, "tests/test_keep.py", "def test_k():\n    assert 1\n")
+    _git_repo(proj)
+    _g(proj, "mv", "tests/test_a.py", "tests/test_b c.py")
+    new = _put(world, "tests/test_new.py", "def test_n():\n    pass\n")
+    Path(keep).write_text("def test_k():\n    assert 2\n", encoding="utf-8")
+    head, dirty = ot._git_status(str(proj), {})
+    assert re.match(r"^[0-9a-f]{40}$", head) and head == _g(proj, "rev-parse", "HEAD").stdout.strip()
+    assert dirty == {str(proj / "tests" / "test_b c.py"): "2", new: "?", keep: "1"}
+
+
+def test_own_commit_does_not_turn_session_added_tests_old(world):
+    """自己 commit 讓 HEAD 移動不算帶進來：本 session 新加、只靠基線認得的測試（寫它的指令失敗、old_test_added 沒記到），
+    commit 之後改它的斷言照樣不用宣告。"""
+    _put(world, "tests/test_cli.py", CLI_TESTS)
+    _git_repo(world["proj"])
+    fp = _failed_bash_append(world)
+    ti = {"command": "python _vcs_run.py commit -qam add"}
+    assert _pass(_run(world, "Bash", ti))
+    _g(world["proj"], "commit", "-qam", "add cli test")
+    _post(world, "Bash", ti)
+    fwd = fp.replace("\\", "/")
+    _bash_round(world, "Bash", f"sed -i 's/40950.00/36855.00/' '{fwd}'", fp, CLI_TESTS + CLI_NEW.replace("40950.00", "36855.00"))
+    assert any(e["event"] == "exempt" and e["test"] == "test_cli_plain_prints_two_decimals_no_currency"
+               and e["why"] == "not_in_baseline" for e in _events(world)), "前置：比對有看到斷言變了"
+    assert not _pending()
+
+
 LEGACY_DOC = LEGACY.replace("def test_legacy_report_totals():\n", "def test_legacy_report_totals():\n    \"\"\"總數是 10。\"\"\"\n")
 
 

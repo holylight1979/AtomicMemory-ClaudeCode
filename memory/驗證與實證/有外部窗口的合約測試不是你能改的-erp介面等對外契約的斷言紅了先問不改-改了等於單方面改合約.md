@@ -7,7 +7,7 @@
 - Trigger: 合約測試, contract test, ERP 介面, 對外介面測試, 改舊測試｜, 斷言紅了, 外部系統格式
 - Created-at: 2026-10-21
 - Quote: 
-- Entry: E02, E21, E08
+- Entry: E21, E08
 
 ## 知識
 

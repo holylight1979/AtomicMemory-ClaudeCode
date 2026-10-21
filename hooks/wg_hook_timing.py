@@ -73,7 +73,7 @@ class HookTimer:
                 return
             self.segments.append(["代送", int((time.time() - self.last) * 1000)])
             run = self.record("run")
-            run["ended_by"] = "fallback"
+            run["ended_after"], run["ended_by"] = done, "fallback"
             append_guard_log(GUARD, run)
             _EXIT(0)
 
@@ -119,19 +119,10 @@ def _process_started() -> float:
     return time.time()
 
 
-def _matcher_hits(matcher: Any, tool_name: str) -> bool:
-    """settings.json 的 matcher（工具名 regex，空＝全中）對不對得上；沒工具名（非工具事件）或 regex 壞了都當中。"""
-    if not matcher or not tool_name:
-        return True
-    try:
-        return re.fullmatch(str(matcher), tool_name) is not None
-    except re.error:
-        return True
-
-
 def settings_limit(event: str, tool_name: str = "") -> Optional[float]:
-    """settings.json 裡這個事件（matcher 對得上工具名的組）掛 workflow-guardian.py 的 hook timeout（秒）；
-    沒掛、沒寫 timeout 或讀不到回 None。先讀資料根那份，沒檔再讀程式碼根那份。"""
+    """settings.json 裡這個事件掛 workflow-guardian.py 的 hook timeout（秒）；有工具名就只看 matcher 對得上的那組
+    （跟 Claude Code 一樣整串比對，例 "Edit|Write"）。沒掛、沒寫 timeout 或讀不到回 None。
+    先讀資料根那份，沒檔再讀程式碼根那份（WG_CLAUDE_DIR 指到別處時，掛 hook 的 settings.json 在程式碼根）。"""
     for path in (CLAUDE_DIR / "settings.json", CODE_DIR / "settings.json"):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -143,12 +134,21 @@ def settings_limit(event: str, tool_name: str = "") -> Optional[float]:
     else:
         return None
     for group in ((data.get("hooks") or {}).get(event) or []):
-        if not _matcher_hits((group or {}).get("matcher"), tool_name):
+        matcher = str((group or {}).get("matcher") or "")
+        if tool_name and matcher and not _matches(matcher, tool_name):
             continue
         for h in (group or {}).get("hooks") or []:
             if "workflow-guardian.py" in str(h.get("command") or "") and isinstance(h.get("timeout"), (int, float)):
                 return float(h["timeout"])
     return None
+
+
+def _matches(matcher: str, tool_name: str) -> bool:
+    """matcher 整串比對工具名；寫壞的 matcher 當對不上。"""
+    try:
+        return re.fullmatch(matcher, tool_name) is not None
+    except re.error:
+        return False
 
 
 def start(event: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> Optional[HookTimer]:
@@ -202,12 +202,16 @@ def claim_output() -> None:
 
 
 def finish() -> None:
-    """hook 結束：最後一個點到現在記成「其餘」，寫一筆 kind=run。"""
+    """hook 結束：最後一個點到現在記成「其餘」，寫一筆 kind=run；ended_after＝結束前最後打到的段名
+    （Stop 某道閘擋下就直接返回，它那段的耗時落在「其餘」，看 ended_after 就知道是哪一段之後的那道閘）。"""
     global _CUR
     timer, _CUR = _CUR, None
     if not timer:
         return
     if timer.alarm:
         timer.alarm.cancel()
+    ended_after = timer.segments[-1][0] if timer.segments else ""
     timer.segments.append(["其餘", int((time.time() - timer.last) * 1000)])
-    append_guard_log(GUARD, timer.record("run"))
+    rec = timer.record("run")
+    rec["ended_after"] = ended_after
+    append_guard_log(GUARD, rec)

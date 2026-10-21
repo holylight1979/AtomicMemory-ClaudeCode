@@ -5,6 +5,7 @@ handlers/pre_tool_use.py — PreToolUse hook handler
 """
 
 import fnmatch
+import functools
 import importlib.util
 import json
 import os
@@ -203,9 +204,10 @@ def _join_cd(base: str, nxt: str) -> str:
 
 
 def _vcs_segment_pairs(command: str, subcommands: Optional[set], exe_names: Tuple[str, ...], value_flags: set,
-                       problems: Optional[List[str]] = None,
-                       shell: str = "") -> List[Tuple[str, List[Tuple[str, str]]]]:
-    """_vcs_segments 的本體，token 帶原文：(repo_cd, [(raw, value), …])。problems、shell 照 _scan_segments。"""
+                       problems: Optional[List[str]] = None, shell: str = "",
+                       alias_cwd: Optional[str] = None) -> List[Tuple[str, List[Tuple[str, str]]]]:
+    """_vcs_segments 的本體，token 帶原文：(repo_cd, [(raw, value), …])。problems、shell 照 _scan_segments。
+    alias_cwd 不是 None（只有 git 的呼叫端給，值是 tool cwd）→ 子命令是 git 別名就先展開再比（_expand_git_alias）。"""
     suffixes = tuple(f"{sep}{n}" for n in exe_names for sep in ("/", "\\"))
     out: List[Tuple[str, List[Tuple[str, str]]]] = []
     last_cd = ""
@@ -226,10 +228,14 @@ def _vcs_segment_pairs(command: str, subcommands: Optional[set], exe_names: Tupl
         repo_cd = ""
         j = exe_idx + 1
         sub = ""
+        inline: Dict[str, str] = {}   # 行內別名 `git -c alias.<名>=<展開> …`
         while j < len(tokens):
             t = tokens[j]
             if t == "-C" and t in value_flags and j + 1 < len(tokens):
                 repo_cd = _join_cd(repo_cd, tokens[j + 1])
+            if t == "-c" and t in value_flags and j + 1 < len(tokens) and tokens[j + 1].lower().startswith("alias."):
+                name, _eq, value = tokens[j + 1][len("alias."):].partition("=")
+                inline[name.lower()] = value
             if t in value_flags:
                 j += 2
                 continue
@@ -238,13 +244,18 @@ def _vcs_segment_pairs(command: str, subcommands: Optional[set], exe_names: Tupl
                 continue
             sub = t
             break
+        cd = _join_cd(last_cd, repo_cd) if repo_cd else last_cd
+        rest = seg[j:] or [("", "")]
+        if alias_cwd is not None and (subcommands is None or sub.lower() not in subcommands):
+            rest = _expand_git_alias(rest, inline, _resolve_run_cwd(cd, alias_cwd, shell))
+            sub = rest[0][1]
         if subcommands is None or sub.lower() in subcommands:
-            out.append((_join_cd(last_cd, repo_cd) if repo_cd else last_cd, seg[j:] or [("", "")]))
+            out.append((cd, rest))
     return out
 
 
 def _vcs_segments(command: str, subcommands: Optional[set], exe_names: Tuple[str, ...],
-                  value_flags: set, shell: str = "") -> List[Tuple[str, List[str]]]:
+                  value_flags: set, shell: str = "", alias_cwd: Optional[str] = None) -> List[Tuple[str, List[str]]]:
     """拆 shell 指令為片段，回傳其中 <exe> subcommand ∈ subcommands 的 (repo_cd, tokens)；subcommands=None 回全部
     <exe> 段（沒接 subcommand 的 tokens 為 [""]）。
     exe_names 如 ("git", "git.exe")；也認路徑尾綴（`C:/x/git.exe`）與大小寫。
@@ -252,13 +263,16 @@ def _vcs_segments(command: str, subcommands: Optional[set], exe_names: Tuple[str
     依序累加（相對的接在前一個後面，見 _join_cd）；都沒有 → ""（caller 用 tool cwd）。
     切段與斷詞走 _scan_segments：只在引號外切（`&& || ; | & 換行`），多行 `-m "…"`、PowerShell here-string 是一個 token，
     後面的 `-- <路徑>` 留在同一段；續行接回、註解略過；shell 給了就照那個 shell 解跳脫。支援引號路徑、`cd X && git …`／
-    `cd X; git …`、PowerShell `Set-Location`。認不出就當非目標；拆得準不準要擋的另看 _commit_shape_problem。"""
+    `cd X; git …`、PowerShell `Set-Location`。認不出就當非目標；拆得準不準要擋的另看 _commit_shape_problem。
+    alias_cwd 照 _vcs_segment_pairs：給了就先展開 git 別名，tokens 換成展開後的（`git ci -m x` → commit -m x）。"""
     return [(cd, [v for _, v in pairs])
-            for cd, pairs in _vcs_segment_pairs(command, subcommands, exe_names, value_flags, shell=shell)]
+            for cd, pairs in _vcs_segment_pairs(command, subcommands, exe_names, value_flags, shell=shell,
+                                                alias_cwd=alias_cwd)]
 
 
-def _git_segments(command: str, subcommands: set, shell: str = "") -> List[Tuple[str, List[str]]]:
-    return _vcs_segments(command, subcommands, ("git", "git.exe"), _GIT_VALUE_FLAGS, shell)
+def _git_segments(command: str, subcommands: set, shell: str = "", cwd: str = "") -> List[Tuple[str, List[str]]]:
+    """git 段一律先展開別名（cwd＝tool cwd，用來找別名所在的 repo；空字串＝hook 行程的目錄）。"""
+    return _vcs_segments(command, subcommands, ("git", "git.exe"), _GIT_VALUE_FLAGS, shell, alias_cwd=cwd)
 
 
 _SVN_VALUE_FLAGS = {"--config-dir", "--config-option", "--username", "--password"}
@@ -268,9 +282,119 @@ def _svn_segments(command: str, subcommands: set, shell: str = "") -> List[Tuple
     return _vcs_segments(command, subcommands, ("svn", "svn.exe"), _SVN_VALUE_FLAGS, shell)
 
 
-def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
-    """薄包裝：只取 git commit 段（隱私閘用）。"""
-    return _git_segments(command, {"commit"})
+def _git_commit_segments(command: str, cwd: str = "", shell: str = "") -> List[Tuple[str, List[str]]]:
+    """薄包裝：只取 git commit 段（別名展開後是 commit 的也算）。"""
+    return _git_segments(command, {"commit"}, shell, cwd)
+
+
+# 常見內建子命令：遇到就不查別名（git 不認與內建同名的別名）。不在表上的才查設定，查到同名別名時再用 _git_commands
+# 確認它是不是 git 自己的指令，所以這張表只省子行程，漏列不會判錯
+_GIT_BUILTIN_SUBS = frozenset((
+    "add am annotate apply archive bisect blame branch bundle cat-file check-attr check-ignore check-mailmap checkout "
+    "cherry cherry-pick clean clone commit commit-graph commit-tree config count-objects describe diff diff-files "
+    "diff-index diff-tree difftool fetch for-each-ref format-patch fsck gc grep help init log ls-files ls-remote ls-tree "
+    "maintenance merge merge-base mergetool mv notes prune pull push range-diff read-tree rebase reflog remote repack "
+    "replace reset restore rev-list rev-parse revert rm shortlog show show-ref sparse-checkout stash status submodule "
+    "switch symbolic-ref tag update-index update-ref var version worktree write-tree").split())
+
+
+def _git_config_aliases(run_cwd: str) -> Optional[Dict[str, str]]:
+    """run_cwd 看得到的 git 別名（系統、全域、repo 設定合併後）→ {名: 展開}；git 失敗（目錄不存在、git 跑不起來）回 None。
+    用 `-z` 取：值可以跨行（多行的 `!` 別名），逐行讀會把第二行起丟掉。"""
+    try:
+        r = subprocess.run(["git", "config", "-z", "--get-regexp", r"^alias\."], capture_output=True, timeout=3,
+                           cwd=run_cwd or None,
+                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+    except Exception:
+        return None
+    if r.returncode not in (0, 1):   # 1＝一個別名都沒有
+        return None
+    out: Dict[str, str] = {}
+    for rec in r.stdout.decode("utf-8", "replace").split("\0"):
+        key, _nl, value = rec.partition("\n")
+        if key.lower().startswith("alias."):
+            out[key[len("alias."):].lower()] = value
+    return out
+
+
+def _alias_note(text: str) -> None:
+    try:
+        sys.stderr.write(f"[Guardian:GitAlias] {text}\n")
+    except OSError:
+        pass
+
+
+@functools.lru_cache(maxsize=None)
+def _git_aliases(run_cwd: str) -> Optional[Dict[str, str]]:
+    """commit 落點看得到的別名表（hook 每個事件一個行程，快取只活一次事件）。查不到（`-C` 指到還不存在的目錄、git 逾時）
+    回 None 並在 stderr 留訊號：不拿別的目錄的設定頂替（local 別名會套錯 repo），由 _expand_git_alias 當判不了。"""
+    found = _git_config_aliases(run_cwd)
+    if found is None:
+        _alias_note(f"查 {run_cwd or '目前目錄'} 的 git 別名失敗（git config），不是 git 指令的子命令一律當判不了")
+    return found
+
+
+@functools.lru_cache(maxsize=1)
+def _git_commands() -> frozenset:
+    """git 自己的指令名（內建、exec-path 裡的、PATH 上的 git-* 外掛）：跟它們同名的別名 git 不認。查不到回空集合並在
+    stderr 留訊號——這時同名別名照別名判（可能多擋，不會漏放）。"""
+    names = _git_lines(["--list-cmds=builtins,main,others"], "")
+    if names is None:
+        _alias_note("查不到 git 指令清單（git --list-cmds），跟 git 指令同名的別名照別名判")
+    return frozenset(n.lower() for n in names or [])
+
+
+def _expand_git_alias(pairs: List[Tuple[str, str]], inline: Dict[str, str], run_cwd: str) -> List[Tuple[str, str]]:
+    """子命令是 git 別名就換成展開後的子命令與參數：行內 `-c alias.<名>=…` 優先，再查設定；別名接別名一路追，名字重複出現
+    ＝循環（git 自己也會報錯）就停；跟 git 自己的指令同名的別名不認。展開出的字 git 直接當參數、不經 shell，raw 一律寫成
+    單引號字面（`commit -m 'literal $HOME'` 的 $ 不是展開）。`!` 開頭的 shell 別名不展開，換成 [("!", "!"), (內容, 內容)]
+    兩段；落點的別名表查不到、子命令又不是 git 指令 → [("?", "?")]（可能是 local 別名）；兩種都交 _git_opaque_alias_commit。"""
+    seen: set = set()
+    while True:   # 每圈多記一個名字，別名有限，必停
+        sub = pairs[0][1].lower()
+        if not sub or sub in _GIT_BUILTIN_SUBS or sub in seen:
+            return pairs
+        seen.add(sub)
+        table = _git_aliases(run_cwd)
+        expansion = inline.get(sub, (table or {}).get(sub))
+        if expansion is None:
+            return [("?", "?")] if table is None and sub not in _git_commands() else pairs
+        if sub in _git_commands():
+            return pairs
+        if expansion.startswith("!"):
+            return [("!", "!"), (expansion[1:], expansion[1:])]
+        pairs = [("'" + w.replace("'", "") + "'", w) for w in _shell_tokens(expansion) or [""]] + pairs[1:]
+
+
+def _git_opaque_alias_commit(command: str, cwd: str = "", shell: str = "") -> bool:
+    """命令叫用了看不進去、可能藏 commit 的 git 別名：`!` 開頭的 shell 別名而內容照包裝那套判（_wrapped_commit_verdict）
+    有或可能有 commit，或落點的別名表查不到（_expand_git_alias 的 "?"）。拆不出落在哪個 repo、提交哪些檔，呼叫端當
+    「包裝裡可能有 commit」處理。"""
+    return any(p[0][1] == "?" or p[0][1] == "!" and len(p) > 1 and _wrapped_commit_verdict(p[1][1], 1, strict=True)
+               for _cd, p in _vcs_segment_pairs(command, None, ("git", "git.exe"), _GIT_VALUE_FLAGS, shell=shell,
+                                                alias_cwd=cwd))
+
+
+def _subst_commit(raw: str, shell: str) -> bool:
+    """直接 commit 段裡的命令替換（`$(…)`，Bash 另有反引號；單引號裡是字面）之後又有 git…commit：外層 commit 跑之前
+    先跑了一次看不到範圍的 commit（`git commit --dry-run -m "$(git commit -am x)"`）。heredoc 本文呼叫端已剝掉。"""
+    live = re.sub(r"'[^']*'", "''", raw)
+    m = re.search(r"\$\(" if shell == "powershell" else r"\$\(|`", live)
+    return bool(m and _GIT_COMMIT_WORDS_RE.search(live, m.start()))
+
+
+def _hidden_commit(command: str, cwd: str = "", shell: str = "") -> bool:
+    """直接拆得出的 git commit 段以外，有沒有別處（看不進去的 git 別名、bash -c 之類的包裝、eval／展開、commit 訊息裡的
+    命令替換）可能藏 commit。有一段拆得出不代表整條拆得出：`git save && git commit --dry-run`（save 是 `!git commit …`）
+    只看得到後面那段。"""
+    if _git_opaque_alias_commit(command, cwd, shell):
+        return True
+    for seg in _scan_segments(command, None, shell):
+        raw = " ".join(r for r, _ in seg)
+        direct = bool(_git_commit_segments(raw, cwd, shell))
+        if _subst_commit(raw, shell) if direct else _wrapped_commit_verdict(raw):
+            return True
+    return False
 
 
 def _resolve_run_cwd(repo_cd: str, cwd: str, shell: str = "") -> str:
@@ -393,16 +517,22 @@ def _strip_heredoc_bodies(command: str) -> str:
     return "\n".join(out)
 
 
-def _git_commits_to_run(command: str) -> Tuple[str, List[Tuple[str, List[str]]], bool]:
-    """命令裡真的會執行的 git commit（CommitOrder 與需求目標 commit_gate 共用這一支）：先剝 heredoc 本文，寫在文件裡的
-    commit 範例不算、heredoc 結束後真的執行的照算。回（剝過的命令、直接拆得出的 commit 段、有沒有 commit：拆得出段，
-    或包裝／展開裡可能有）。快篩與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。"""
+def _git_commits_to_run(command: str, cwd: str = "",
+                        shell: str = "") -> Tuple[str, List[Tuple[str, List[str]]], bool]:
+    """命令裡真的會執行的 git commit（CommitOrder、病形閘與需求目標 commit_gate 共用這一支）：先剝 heredoc 本文，寫在
+    文件裡的 commit 範例不算、heredoc 結束後真的執行的照算。回（剝過的命令、直接拆得出的 commit 段（git 別名展開後是
+    commit 的也算）、有沒有 commit：拆得出段，或 `!` shell 別名、包裝／展開裡可能有）。快篩只看 git 字樣（別名的
+    命令裡沒有 commit 字樣），與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。cwd＝tool cwd，
+    shell＝_tool_shell（跳脫規則與 Git Bash 的 `/c/…` 落點，別名要在落點的 repo 查）。"""
     low = (command or "").lower()
-    if "git" not in low or "commit" not in low:
+    if "git" not in low:
         return command or "", [], False
     stripped = _strip_heredoc_bodies(command)
-    segments = _git_commit_segments(stripped)
-    return stripped, segments, bool(segments) or _wrapped_commit_verdict(stripped)
+    segments = _git_commit_segments(stripped, cwd, shell)
+    if segments:
+        return stripped, segments, True
+    return stripped, [], (_git_opaque_alias_commit(stripped, cwd, shell)
+                          or ("commit" in low and _wrapped_commit_verdict(stripped)))
 
 
 def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
@@ -463,6 +593,25 @@ def _escaped(s: str, i: int, quote: str, shell: str) -> bool:
     return shell == "powershell" and s[i] == "`"
 
 
+_ANSI_C_RE = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|.)|'", re.S)
+_ANSI_C_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v", "e": "\x1b",
+                   "E": "\x1b", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def _ansi_c_quoted(s: str, i: int) -> Optional[Tuple[str, int]]:
+    """Bash 的 ANSI-C 引號：s[i:i+2] 是 `$'`。回 (解開的內容, 收尾引號後的位置)；沒收尾回 None（照一般引號拆、記沒閉合）。
+    解常見跳脫與 `\\xHH`，`\\'` 不收尾；其餘 `\\` 照字面留。"""
+    out, j = [], i + 2
+    for m in _ANSI_C_RE.finditer(s, j):
+        out.append(s[j:m.start()])
+        if m.group() == "'":
+            return "".join(out), m.end()
+        esc = m.group(1)
+        out.append(chr(int(esc[1:], 16)) if len(esc) > 1 else _ANSI_C_ESCAPES.get(esc, "\\" + esc))
+        j = m.end()
+    return None
+
+
 def _scan_segments(command: str, problems: Optional[List[str]] = None,
                    shell: str = "") -> List[List[Tuple[str, str]]]:
     """保留引號狀態的切段＋斷詞 → 每段一串 (raw, value)：raw 是 token 的原文（含引號、已去掉續行），value 剝一層引號。
@@ -472,7 +621,8 @@ def _scan_segments(command: str, problems: Optional[List[str]] = None,
     註解：引號外、位在 token 起頭的 `#` 到行尾略過（Bash 與 PowerShell 同語意），換行照切段；引號裡與 token 中間的 `#`
     是字面（`git commit -m "fix #12"`、`a#b`）。
     跳脫：shell 給 "bash"／"powershell" 就照那個 shell 解（_escaped；`"fix \\"a; b\\""` 裡的分號不切段），raw 留跳脫字元、
-    value 只留被跳脫的字；不給不解。
+    value 只留被跳脫的字；不給不解。Bash 引號外的 `$'…'`（ANSI-C 引號）整段照 _ansi_c_quoted 解、`$"…"` 照雙引號解，
+    raw 原樣保留。
     PowerShell here-string（shell 不是 bash）：token 起頭的 `@'`／`@"` 接換行，到行首的 `'@`／`"@` 為止整段是一個 token
     （內文的引號不算數）；value 是內文，raw 換成等價的一般引號寫法（`'內文'`／`"內文"`，內文裡同種引號拿掉），展開檢查
     照引號語意走。找不到結束行就不當 here-string，照一般引號拆。
@@ -507,6 +657,16 @@ def _scan_segments(command: str, problems: Optional[List[str]] = None,
             if quote:
                 val.append(ch)
             i += 1
+            continue
+        ansi = _ansi_c_quoted(s, i) if shell == "bash" and s.startswith("$'", i) else None
+        if ansi:
+            raw.append(s[i:ansi[1]])
+            val.append(ansi[0])
+            in_token, i = True, ansi[1]
+            continue
+        if shell == "bash" and s.startswith('$"', i):   # $"…"（locale 翻譯引號）的值同雙引號，$ 只留在 raw
+            raw.append("$")
+            in_token, i = True, i + 1
             continue
         here = _HERESTRING_OPEN_RE.match(s, i) if ch == "@" and not in_token and shell != "bash" else None
         if here:
@@ -758,7 +918,7 @@ def check_git_commit_order(
         return None
     command = tool_input.get("command", "") or ""
     try:
-        _stripped, segments, has_commit = _git_commits_to_run(command)
+        _stripped, segments, has_commit = _git_commits_to_run(command, cwd, _tool_shell(tool_name))
         if not has_commit:
             # 包在 shell 包裝／子 shell／eval 裡的 git commit 解析器拆不出來：拆得出內層且確定是查詢才放行，其餘照常檢查口令
             return None
@@ -864,14 +1024,15 @@ def check_git_privacy(
         return None
     command = tool_input.get("command", "") or ""
     low = command.lower()                       # 與口令閘同一套：Git／GIT.EXE 不分大小寫
-    if "git" not in low or "commit" not in low:
-        return None   # 快篩，省 regex/子行程
+    if "git" not in low:
+        return None   # 快篩，省 regex/子行程；不看 commit 字樣：git 別名（`git ci`）的命令裡沒有
     try:
         # 這次會提交哪些檔跟病形閘同一份判法（tools/project-smells.py commit_entries）：暫存區、commit -a、commit <路徑>，
         # 加上同一條指令前面 git add 要加進來的檔（PreToolUse 時 add 還沒跑，只看暫存區會讓 `git add .env && git commit` 漏過）
         tool = _smells_tool()
         adds: List[Tuple[str, List[str]]] = []
-        for repo_cd, tokens in _git_segments(_strip_heredoc_bodies(command), {"add", "commit"}, _tool_shell(tool_name)):
+        for repo_cd, tokens in _git_segments(_strip_heredoc_bodies(command), {"add", "commit"}, _tool_shell(tool_name),
+                                             cwd):
             run_cwd = _resolve_run_cwd(repo_cd, cwd, _tool_shell(tool_name))
             if tokens[0].lower() == "add":
                 adds.append((run_cwd, tokens))
@@ -988,14 +1149,14 @@ def _dynamic_path(vcs: str, pairs: List[Tuple[str, str]], shell: str, tool) -> s
     return pairs[int(hit[1:])][0] if hit else ""
 
 
-def _commit_shape_problem(command: str, shell: str, tool) -> str:
+def _commit_shape_problem(command: str, shell: str, tool, cwd: str = "") -> str:
     """git／svn commit 段拆不準要提交什麼的原因；拆得準回 ""。拆不準＝引號或 here-string 沒閉合（後面的分隔符號與路徑
     都可能被吞進訊息裡）、commit 落點（cd／-C）是變數、commit 段（與同一條指令裡會改變提交範圍的 git add 段）有引號外的
     展開（-m 的邊界與路徑都不準）、或路徑本身是變數（_dynamic_path）。重導向（`2>$null`）不是參數，用 project-smells 的
-    _not_args 跳過。tool＝project-smells 模組。"""
+    _not_args 跳過。tool＝project-smells 模組；cwd＝tool cwd（git 別名展開後是 commit 的段照查）。"""
     problems: List[str] = []
     segs = ([("git", cd, p) for cd, p in _vcs_segment_pairs(command, {"add", "commit"}, ("git", "git.exe"),
-                                                           _GIT_VALUE_FLAGS, problems, shell)]
+                                                           _GIT_VALUE_FLAGS, problems, shell, alias_cwd=cwd)]
             + [("svn", cd, p) for cd, p in _vcs_segment_pairs(command, {"commit", "ci"}, ("svn", "svn.exe"),
                                                              _SVN_VALUE_FLAGS, shell=shell)])
     if problems:
@@ -1024,24 +1185,25 @@ def check_smell_gate(
         return None, None
     command = tool_input.get("command", "") or ""
     low = command.lower()
-    if "commit" not in low and "svn" not in low:
+    if "git" not in low and "svn" not in low:   # 不看 commit 字樣：git 別名（`git ci`）的命令裡沒有
         return None, None
     shell = _tool_shell(tool_name)
     body = _strip_heredoc_bodies(command)
-    has_git_commit = _git_commits_to_run(command)[2]
+    has_git_commit = _git_commits_to_run(command, cwd, shell)[2]
     svn_segs = _svn_segments(body, {"commit", "ci"}, shell) if "svn" in low else []
     if not has_git_commit and not svn_segs:
         return None, None
-    git_segs = _git_segments(body, {"add", "commit"}, shell) if has_git_commit else []
-    if has_git_commit and not any(t[0].lower() == "commit" for _cd, t in git_segs):
-        return ("[Guardian:SmellGate] 這條指令裡有 git commit，但包在 bash -c／powershell -Command／$() 之類的包裝裡，"
-                "拆不出它落在哪個 repo、要提交哪些檔，病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
+    git_segs = _git_segments(body, {"add", "commit"}, shell, cwd) if has_git_commit else []
+    if has_git_commit and (not any(t[0].lower() == "commit" for _cd, t in git_segs) or _hidden_commit(body, cwd, shell)):
+        return ("[Guardian:SmellGate] 這條指令裡有 git commit 包在 bash -c／powershell -Command／$()、commit 訊息裡的 "
+                "$(…)、`!` 開頭或查不到的 git 別名之類的包裝裡（同一條指令另有直接寫的 commit 也一樣），拆不出它落在哪個 "
+                "repo、要提交哪些檔，病形檢查判不了，一律擋。把 git commit 直接寫在指令裡再下一次。"), None
     if has_git_commit and _SMELL_REPO_OVERRIDE_RE.search(body):
         return ("[Guardian:SmellGate] 這條 git commit 用 --git-dir／--work-tree 或 GIT_DIR／GIT_WORK_TREE／GIT_INDEX_FILE "
                 "指定 repo，病形檢查重現不了它實際提交哪個 repo、哪份暫存區，判不了，一律擋。改用 `git -C <repo> commit` 或先 cd 進 repo。"), None
     try:
         tool = _smells_tool()
-        problem = _commit_shape_problem(body, shell, tool)
+        problem = _commit_shape_problem(body, shell, tool, cwd)
         if problem:
             return (f"[Guardian:SmellGate] 這條 commit 指令的寫法拆不出要提交什麼（{problem}），病形檢查判不了，一律擋。"
                     "請改成單行 `-m \"…\"`（要分段就給多個 -m，或把訊息寫進檔案用 `-F <檔>`），路徑與 repo 位置直接寫字面值"
@@ -1696,7 +1858,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 缺了就擋；判不了一律擋。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
     if tool_name in ("Bash", "PowerShell"):
         _ng_cmd = tool_input.get("command", "") or ""
-        if _git_commits_to_run(_ng_cmd)[2] or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"}):
+        if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
+                or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"})):
             try:
                 from wg_need_goal import commit_gate
                 deny_reason = commit_gate(_co_sid, config, _co_state, input_data.get("transcript_path", "") or "")

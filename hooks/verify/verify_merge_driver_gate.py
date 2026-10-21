@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -292,37 +293,65 @@ def test_resolve_before_commit_on_conflicted_merge(isolated_git, tmp_path, monke
     assert priv and "[Guardian:GitPrivacy]" in priv and "_atom_index.json" in priv
 
 
+# 閒置機器上「開 python 子行程、在裡面叫一次 git」的上限（秒）：resolver 每一步就是這個單位；本機閒置實測 0.19～0.24
+IDLE_SPAWN_S = 0.3
+
+
+def _load_factor():
+    """這一刻機器多忙：開 python 子行程、在裡面叫一次 git，量三次取中位數 c（在子行程裡叫 git 才不會被錄製重播攔下；
+    CPU 被搶光時最快那次會偏低，中位數才像被量的那段實際遇到的）。c 不超過 IDLE_SPAWN_S → 1.0；超過 → c／IDLE_SPAWN_S。回 (倍數, c)。"""
+    code = "import subprocess; subprocess.run(['git', '--version'], capture_output=True)"
+    ts = []
+    for _ in range(3):
+        t0 = time.monotonic()
+        subprocess.run([sys.executable, "-c", code], capture_output=True, **_NO_WINDOW)
+        ts.append(time.monotonic() - t0)
+    c = sorted(ts)[1]
+    return max(1.0, c / IDLE_SPAWN_S), c
+
+
+def _scale_for_load(monkeypatch):
+    """邏輯題的時限照此刻負載調：閒置（起一次程序不超過 IDLE_SPAWN_S）時一律不動——閘用正式的總預算與各子行程上限
+    （--is-installed／--install 的 1.5s）；機器忙時兩者都乘上負載倍數。"""
+    factor, _ = _load_factor()
+    if factor > 1.0:
+        monkeypatch.setattr(ptu, "_MERGE_GATE_BUDGET_S", ptu._MERGE_GATE_BUDGET_S * factor)
+        real = ptu._run_capture
+        monkeypatch.setattr(ptu, "_run_capture", lambda args, cwd, timeout: real(args, cwd, timeout * factor))
+
+
+def _fits_budget(monkeypatch, run):
+    """真實預算題的量法：閘的預算放到 30s（resolver 一定跑完、不被砍在半路，錄製與重播的檔案狀態才一致），量 run() 的耗時；
+    門檻＝hook 正式預算 × 負載倍數（跑之前、之後各量一次取大的）。閒置時倍數是 1，門檻就是正式的 2.5s——閘的時限也從呼叫
+    那一刻起算，耗時不超過它就等於正式環境不會逾時。量的是「要走幾步」，不是這一刻機器多快。界線：閒置時起程序就超過
+    IDLE_SPAWN_S 的慢機器也會被放寬（單一探針分不出硬體慢與一時忙）。回 (訊息, 耗時, 門檻, 說明)。"""
+    budget = ptu._MERGE_GATE_BUDGET_S
+    f1, c1 = _load_factor()
+    monkeypatch.setattr(ptu, "_MERGE_GATE_BUDGET_S", 30.0)
+    t0 = time.monotonic()
+    msg = run()
+    elapsed = time.monotonic() - t0
+    f2, c2 = _load_factor()
+    factor = max(f1, f2)
+    return msg, elapsed, budget * factor, f"hook 預算 {budget}s；起一次程序 前 {c1:.2f}s／後 {c2:.2f}s、門檻放大 {factor:.1f} 倍"
+
+
 def test_resolver_fits_hook_budget(isolated_git, tmp_path, monkeypatch):
     """真實預算題：hook 總時限 2.5s（整條 PreToolUse 鏈只有 5s），--resolve 在「未裝驅動＋三檔全衝突」
     的最差常見情境必須跑得完；跑不完 = 使用者每次都只會看到 ⚠ 逾時、自動化形同虛設。
     失敗時是 tools/merge-atom-index.py 的 git 子行程序列長度問題（每次 spawn 在 Windows 約 0.15～0.3s，
-    彼此獨立的要併行），非 hook 邏輯。"""
-    import time
-    # 量兩次取最快（機器同時在跑別的東西時單次會被拖慢），兩次都超過才算真的太慢
-    best, last_msg = 99.0, ""
-    for n in range(2):
-        sub = tmp_path / f"run{n}"
-        sub.mkdir()
-        # 每輪各自的 global git config／attributes：上一輪 resolver 順手 --install 成功後，同一份 config 下
-        # 這輪的 merge 會被驅動直接合掉、不再衝突（量的就不是「未裝驅動」最差情境，_conflicted_merge 也會 assert）
-        gcfg = sub / "gitconfig"
-        gcfg.write_text("", encoding="utf-8")
-        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gcfg))
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(sub / "xdg"))
-        repo = _conflicted_merge(sub)
-        t0 = time.monotonic()
-        msg = check_merge_driver("Bash", {"command": "git commit -m x"}, str(repo), CFG_ON)
-        elapsed = time.monotonic() - t0
-        assert msg and "[Guardian:IndexConflict]" in msg
-        best, last_msg = min(best, elapsed), msg
-        if "⚠" not in msg and elapsed <= ptu._MERGE_GATE_BUDGET_S + 0.5:
-            break
-    assert "⚠" not in last_msg and best <= ptu._MERGE_GATE_BUDGET_S + 0.5, (
-        f"--resolve 未在 hook 預算 {ptu._MERGE_GATE_BUDGET_S}s 內完成（最快 {best:.2f}s）：{last_msg}")
+    彼此獨立的要併行），非 hook 邏輯。量法與門檻見 _fits_budget。"""
+    repo = _conflicted_merge(tmp_path)
+    msg, elapsed, limit, why = _fits_budget(
+        monkeypatch, lambda: check_merge_driver("Bash", {"command": "git commit -m x"}, str(repo), CFG_ON))
+    assert msg and "[Guardian:IndexConflict]" in msg and "⚠" not in msg, f"--resolve 沒跑完（{why}）：{msg}"
+    assert elapsed <= limit, f"--resolve 未在門檻 {limit:.2f}s 內跑完（{elapsed:.2f}s；{why}）"
 
 
-def test_resolve_then_privacy_no_exception_even_if_unresolved(isolated_git, tmp_path):
-    """不論 --resolve 是否成功，隱私閘接在後面都不得 raise（fail-open 鏈）。"""
+def test_resolve_then_privacy_no_exception_even_if_unresolved(isolated_git, tmp_path, monkeypatch):
+    """不論 --resolve 是否成功，隱私閘接在後面都不得 raise（fail-open 鏈）。邏輯題：預算放寬，resolver 一定跑完，
+    錄製與重播的 git 呼叫筆數才一樣（速度由 test_resolver_fits_hook_budget 單獨守）。"""
+    monkeypatch.setattr(ptu, "_MERGE_GATE_BUDGET_S", 30.0)
     repo = _conflicted_merge(tmp_path)
     check_merge_driver("Bash", {"command": "git commit -m x"}, str(repo), CFG_ON)
     priv = check_git_privacy("Bash", {"command": "git commit -m x"}, str(repo), {})
@@ -345,6 +374,7 @@ def test_no_conflict_commit_does_not_spawn_resolver(isolated_git, tmp_path, monk
 # ─── (A) 真 git：乾淨 repo 跑 git pull → 自動 --install ─────────────────────
 
 def test_auto_install_on_pull_isolated(isolated_git, tmp_path, monkeypatch):
+    _scale_for_load(monkeypatch)                    # 閒置時照正式的 1.5s 上限；機器忙時照負載倍數放大
     repo = _make_repo(tmp_path)
     assert _cfg_get_global("merge.atomindex.driver") == ""
     msg = check_merge_driver("Bash", {"command": "git pull"}, str(repo), CFG_ON)
@@ -381,8 +411,9 @@ def test_hook_python_exe_prefers_console_python(monkeypatch, tmp_path):
 
 # ─── SessionStart 開場 advisory ─────────────────────────────────────────────
 
-def test_session_start_index_conflict_advisory(isolated_git, tmp_path):
+def test_session_start_index_conflict_advisory(isolated_git, tmp_path, monkeypatch):
     from handlers.session_start import _index_conflict_advisory
+    monkeypatch.setattr(ptu, "_MERGE_GATE_BUDGET_S", 30.0)    # 邏輯題：解衝突一定跑完（速度另有預算題守）
     repo = _make_repo(tmp_path)
     assert _index_conflict_advisory(str(repo)) == []           # 乾淨 repo：零行
     assert _index_conflict_advisory(str(tmp_path)) == []       # 非 repo：零行
@@ -509,27 +540,18 @@ def test_svn_update_and_explicit_accept_never_trigger(spy, tmp_path):
 
 
 @svn_only
-def test_svn_resolver_fits_hook_budget(tmp_path):
-    import time
-    best, last_msg = 99.0, ""
-    for n in range(2):
-        sub = tmp_path / f"run{n}"
-        sub.mkdir()
-        wc = _svn_conflicted_wc(sub)
-        t0 = time.monotonic()
-        msg = check_merge_driver("Bash", {"command": "svn commit -m x"}, str(wc), CFG_ON)
-        elapsed = time.monotonic() - t0
-        assert msg and "[Guardian:IndexConflict]" in msg
-        best, last_msg = min(best, elapsed), msg
-        if "⚠" not in msg and elapsed <= ptu._MERGE_GATE_BUDGET_S + 0.5:
-            break
-    assert "⚠" not in last_msg and best <= ptu._MERGE_GATE_BUDGET_S + 0.5, (
-        f"svn --resolve 未在 hook 預算 {ptu._MERGE_GATE_BUDGET_S}s 內完成（最快 {best:.2f}s）：{last_msg}")
+def test_svn_resolver_fits_hook_budget(tmp_path, monkeypatch):
+    wc = _svn_conflicted_wc(tmp_path)                # 量法與門檻見 _fits_budget
+    msg, elapsed, limit, why = _fits_budget(
+        monkeypatch, lambda: check_merge_driver("Bash", {"command": "svn commit -m x"}, str(wc), CFG_ON))
+    assert msg and "[Guardian:IndexConflict]" in msg and "⚠" not in msg, f"svn --resolve 沒跑完（{why}）：{msg}"
+    assert elapsed <= limit, f"svn --resolve 未在門檻 {limit:.2f}s 內跑完（{elapsed:.2f}s；{why}）"
 
 
 @svn_only
-def test_session_start_svn_index_conflict_advisory(tmp_path):
+def test_session_start_svn_index_conflict_advisory(tmp_path, monkeypatch):
     from handlers.session_start import _index_conflict_advisory
+    monkeypatch.setattr(ptu, "_MERGE_GATE_BUDGET_S", 30.0)    # 邏輯題：解衝突一定跑完（速度另有預算題守）
     wc = _svn_conflicted_wc(tmp_path)
     lines = _index_conflict_advisory(str(wc))
     assert len(lines) == 1 and "SVN" in lines[0] and all(n in lines[0] for n in INDEX_NAMES), lines

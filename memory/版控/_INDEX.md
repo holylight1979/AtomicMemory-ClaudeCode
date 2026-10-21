@@ -8,11 +8,12 @@
 |------|------|
 | gh-cli-已裝已登入-pr本地merge-push自動標merged | gh-cli-已裝已登入-PR本地merge-push自動標merged |
 | 使用者的話算不算提交授權-要是叫你現在提交-提到commit或同意改動不算-有等我看完就是延後 | 使用者的話算不算提交授權-要是叫你現在提交-提到commit或同意改動不算-有等我看完就是延後 |
+| 判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致 | 判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-HEAD怎麼動看logs-HEAD新增段不看reflog-1-cassette錄製重播筆數要一致 |
 | 病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修 | 病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修 |
 
 ## 子層
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| Git | 21 | `memory/版控/Git/_INDEX.md` |
+| Git | 22 | `memory/版控/Git/_INDEX.md` |
 | SVN | 5 | `memory/版控/SVN/_INDEX.md` |
