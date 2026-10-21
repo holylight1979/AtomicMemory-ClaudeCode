@@ -571,3 +571,4 @@
 | 背景跑的測試hook拿不到輸出也不留收據-超過單次工具上限的批次要拆成數段前景跑 | memory/驗證與實證/背景跑的測試hook拿不到輸出也不留收據-超過單次工具上限的批次要拆成數段前景跑.md | run_in_background pytest, 背景跑測試, 收據不入帳, 超過 10 分鐘的驗證, 批次拆段, verify 收據, PYTEST 哨兵 | global |  |
 | feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等 | memory/Failures/工作流/feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等.md | 總控台派工, 並行上限, 持續多開, 有軌收尾, 名額空著, 閒置 session, 派工節奏, 工人模型 Opus | global |  |
 | 切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣 | memory/CC與原子記憶契約/切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣.md | 切入點識別字樣, 關鍵字退路, trigger 子字串, 誤中無關卡, 登錄表新列, entry_note, SELFSCORE_ASK, CLAUDE_CODE_SESSION_ID, guard log 秒級配對 | global |  |
+| 攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出 | memory/版控/Git/攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出.md | git 別名, git alias, alias.ci, git -c alias, ! shell 別名, commit 前閘, 攔 git 指令, 子命令判定, --list-cmds, config --get-regexp | global |  |

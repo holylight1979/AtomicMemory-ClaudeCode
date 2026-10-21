@@ -9,7 +9,7 @@
 | C#／.NET | 21 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
-| Bash／Shell | 14 |
+| Bash／Shell | 15 |
 
 ## Python
 
@@ -96,6 +96,7 @@
 | `memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md` | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
 | `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
 | `memory/版控/Git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md` | git 已push commit 勿改寫 — 雙 push-url + GitLab main force 保護致遠端分叉 |
+| `memory/版控/Git/攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出.md` | 攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出 |
 | `memory/設計通則/shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文.md` | shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文 |
 | `memory/設計通則/從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令.md` | 從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令 |
 | `memory/設計通則/從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據.md` | 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據 |
