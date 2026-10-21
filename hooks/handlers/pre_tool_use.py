@@ -1401,6 +1401,19 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
     }})
 
 
+def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, path: str) -> str:
+    """切入點契約（TECH §7.10）：text 原樣在前，認出切入點就接判準卡並留帳。只在真的要送訊息（deny 或提醒）時才呼叫，
+    一般工具什麼都不送的放行路徑不匯入、不讀登錄表。"""
+    from handlers._shared import entry_note, with_note
+    return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
+
+
+def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str) -> None:
+    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。"""
+    output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                        "permissionDecisionReason": _with_cards(input_data, config, reason, "pretool_deny")}})
+
+
 def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """需求目標 4.4（AskUserQuestion／ExitPlanMode 前）：有目標樹就要題目或計畫裡寫節點編號；寫碼類沒寫 deny 並列節點，
     知識類與還沒有樹只補提示（wg_need_goal_points.on_ask）。子代理不跑（裁判子 session 由 dispatcher 分去
@@ -1448,17 +1461,15 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
         if release:
             output_nothing()
             return
-        output_json({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "permissionDecision": "deny",
-            "permissionDecisionReason": (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
-                                         "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。")}})
+        _deny(input_data, config, (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
+                                   "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
         return
     if deny:
-        output_json({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": deny}})
+        _deny(input_data, config, deny)
         return
     if hint:
-        output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": hint}})
+        output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                            "additionalContext": _with_cards(input_data, config, hint, "pretool_hint")}})
         return
     output_nothing()
 
@@ -1504,9 +1515,15 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             blob, injected = build_injection_blob(
                 orig_prompt, budget=_SUBAGENT_INJECT_BUDGET, already_injected=already,
             )
-            if blob and injected:
+            if not (blob and injected):
+                blob = ""
+            # 切入點契約（TECH §7.10）：開工句認得出登錄表 subagent_prompt 路的切入點，判準卡接在記憶 blob 後面
+            from handlers._shared import entry_note
+            note = entry_note(orig_prompt, "subagent_prompt", session_id=str(input_data.get("session_id") or ""),
+                              config=config)
+            if blob or note:
                 new_input = dict(tool_input)
-                new_input["prompt"] = f"{blob}\n\n{orig_prompt}"
+                new_input["prompt"] = "\n\n".join(p for p in (blob, note, orig_prompt) if p)
                 _atom_debug_log(
                     "SubagentInject",
                     f"tool={tool_name} type={subagent_type or '-'} injected={injected} "
@@ -1576,24 +1593,12 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     deny_reason = _check_memory_atom_format(tool_name, tool_input)
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     deny_reason = check_memory_path_block(tool_name, tool_input)
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # 根層敏感檔 + Bash 全域 MCP 變更：
@@ -1605,37 +1610,19 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         or check_cross_realm_mcp_cmd(tool_name, tool_input, _cwd, config)
     )
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # ── DataFileAsk（T2.16 動使用者資料檔要先宣告）──
     # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
     deny_reason = wg_data_file.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     deny_reason = check_svn_test_block(tool_name, tool_input) or check_verify_ledger_write(tool_name, tool_input, _cwd)
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
@@ -1646,13 +1633,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
                        f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # 索引三檔合併驅動閘（advisory-only）——必須在隱私閘之前：resolver 會 git add 索引檔，
@@ -1679,38 +1660,20 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
     deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state, _cwd)
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # git commit 隱私硬閘（staged 含隱私檔 → deny；fail-open）
     deny_reason = check_git_privacy(tool_name, tool_input, _cwd, config)
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
     deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config)
     if deny_reason:
         wg_gate_bypass.note_smell_deny(_co_state, _co_sid, _cwd, deny_reason, tool_name, tool_input, input_data.get("transcript_path", "") or "", config)
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # ── GateBypass（T2.19 繞閘嫌疑）──
@@ -1720,13 +1683,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                                        input_data.get("transcript_path", "") or "",
                                        agent_id=str(input_data.get("agent_id") or ""))
     if deny_reason:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": deny_reason,
-            }
-        })
+        _deny(input_data, config, deny_reason)
         return
 
     # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
@@ -1740,13 +1697,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             except Exception as e:
                 deny_reason = f"[NeedGoal] commit 前核對需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
             if deny_reason:
-                output_json({
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": deny_reason,
-                    }
-                })
+                _deny(input_data, config, deny_reason)
                 return
 
     # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足一律 deny。
@@ -1812,13 +1763,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             except Exception:
                 pass
         if hub_deny:
-            output_json({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": hub_deny,
-                }
-            })
+            _deny(input_data, config, hub_deny)
             return
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
@@ -1836,7 +1781,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             "systemMessage": combined,
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": combined,
+                "additionalContext": _with_cards(input_data, config, combined, "pretool_hint"),   # 判準卡只給模型
             },
         })
         return

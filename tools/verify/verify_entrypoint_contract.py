@@ -15,22 +15,39 @@ cases：
    10. cards_for_entry：Entry 命中的卡排前面；沒 Entry 但 trigger 對得上識別字樣 → 退路；都沒有 → 空
    11. judgment_cards：只取知識段、標「判準卡（E04）：<卡名>」；沒卡 → note 空字串；三張卡超預算 → 截斷、truncated
    12. 真卡：總控台代寫的兩張卡 Entry 補成 E04／E08，索引也帶；PickOne 問句挑到 E04 那張（via=entry）
+  ③ 問的那一刻注入（真跑 handler；原訊息逐字不變、卡接在最後）
+   13. Stop PickOne：Entry=E04 的卡 → 接「判準卡（E04）」；只有關鍵字命中的卡 → 退路也接；都沒有 → 訊息原樣
+   14. Stop 擋訊息（TestFailGate 經 _piggyback）→ 接 E08 的卡；後面附加的預覽不拿來認切入點
+   15. PreToolUse deny（USER_DATA_FILE_NEEDS_DECLARATION）→ reason 後接 E20 的卡
+   16. MCP need_goal 回覆（樹根對不到原話）→ 回覆後接 E23 的卡
+   17. 子代理 prompt：登錄表有 subagent_prompt 路的列 → 卡接在原 prompt 前；沒認出 → 照舊不改 prompt
+  ④ 切入點留帳
+   18. 每次問 guard-entry.jsonl 多一筆、欄位齊；三張卡超預算 → 帳記 truncated
+   19. AI 隨後宣告 → 回應型 declared；又被擋 → denied；沒下文 → none（真跑資料檔閘兩次，照它自己的留帳推）
+   20. entry-stats 對假帳算出正確計數、尾行格式對
+   21. 入口炸了 → 回空字串＋stderr，問句照原樣送
 怎麼跑：pytest -q tools/verify/verify_entrypoint_contract.py，或 python tools/verify/verify_entrypoint_contract.py（尾行 ENTRYPOINT_CONTRACT_CHECK PASS|FAIL）
 """
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
+import os
+import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
-for p in (_ROOT / "hooks", _ROOT):
+os.environ.setdefault("WG_CLAUDE_DIR", str(_ROOT))     # 資料根指本樹：hooks 讀的記憶、state 不碰 live
+for p in (_ROOT / "hooks", _ROOT / "lib", _ROOT):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+import wg_core  # noqa: E402
 import wg_entrypoint as ep  # noqa: E402
 import wg_release_rules  # noqa: E402
 from lib import atom_index_json, atom_io  # noqa: E402
@@ -330,6 +347,368 @@ def test_real_cards_bound_and_picked(monkeypatch):
     out = ep.judgment_cards(PICK_ONE_TEXT, "stop_piggyback", state={}, config={})
     assert out["cards"] and out["cards"][0] == {"name": REAL_E04, "entries": ["E04"], "via": "entry"}
     assert out["note"].startswith(f"判準卡（E04）：{REAL_E04}\n- [臨] 判準：")
+
+
+# ─── ③ 問的那一刻注入（真跑 handler）──────────────────────────────────────────
+
+SID = "sess-entry-0001"
+MAP = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 病灶清單 | 量尺 | 檢查器 | 讀路徑 | 第四問 | 層 | 權威 | 上游 | 下游 | 類別 |\n"
+       "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+       "| `Game/` | 戰鬥 | 無 | 無 | 無 | 無 | 無 | 無 | 無 | 單層 | 無 | 無 | 存檔 | code |\n")
+
+
+@pytest.fixture()
+def logs(tmp_path, monkeypatch):
+    """guard log 全落 tmp（含 guard-entry.jsonl）；時鐘每筆加一秒，同一秒內寫的帳也分得出先後。"""
+    d = tmp_path / "Logs"
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", d)
+    tick = itertools.count()
+    base = datetime(2026, 10, 21, 9, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+    monkeypatch.setattr(wg_core, "_now_iso", lambda: (base + timedelta(seconds=next(tick))).isoformat(timespec="seconds"))
+    return d
+
+
+def _ledger(d: Path, name: str = "entry") -> list:
+    p = d / f"guard-{name}.jsonl"
+    return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
+
+
+def _pool(monkeypatch, cards):
+    monkeypatch.setattr(ep, "card_pool", lambda state=None: list(cards))
+
+
+@pytest.fixture()
+def stop_run(tmp_path, monkeypatch, capsys, logs):
+    """驅動 handle_stop（照 hooks/verify/verify_pick_one.py 的做法：其他閘關掉或換掉）；回 run(message, **state) → stdout 的 JSON。"""
+    import wg_harvest as wh
+    import wg_overview as wo
+    from handlers import stop as st
+    proj = tmp_path / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8", newline="\n")
+    (proj / "Game").mkdir()
+    (proj / "Game" / "Damage.cs").write_text("a\nb\n", encoding="utf-8")
+    monkeypatch.setattr(wh, "WORKFLOW_DIR", tmp_path / "workflow")
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    monkeypatch.setattr(wo, "org_memory_root", lambda: None)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    for name, fn in (("_find_session_transcript", lambda *a, **k: None), ("token_warn_payload", lambda *a, **k: ""),
+                     ("detect_evasion", lambda *a, **k: None), ("write_state", lambda *a, **k: None),
+                     ("_attribute_usefulness", lambda *a, **k: None), ("_detect_uncommitted_files", lambda mf: []),
+                     ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {})),
+                     ("_should_deep_postmortem", lambda *a, **k: False), ("reading_path_note", lambda *a, **k: ("", False))):
+        monkeypatch.setattr(st, name, fn)
+    cfg = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, "sync_reminder": {"enabled": False},
+           "atom_audit": {"enabled": False}, "aec": {"scan_report_gate": False}, "pick_one": {"enabled": True}}
+    mods = [{"path": str(proj / "Game" / "Damage.cs"), "session_id": SID, "turn_seq": 5, "last_turn_seq": 5}]
+
+    def run(message, **extra):
+        state = {"phase": "working", "modified_files": mods, "failing_tests": [], "recent_user_prompts": [],
+                 "stop_blocked_count": 0, "turn_seq": 5, "session": {"cwd": str(proj)}, **extra}
+        monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
+        with pytest.raises(SystemExit):
+            st.handle_stop({"session_id": SID, "cwd": str(proj), "last_assistant_message": message}, cfg)
+        out = capsys.readouterr().out.strip()
+        assert out, "Stop 沒輸出"
+        return json.loads(out.splitlines()[-1])
+    return run
+
+
+def test_stop_pickone_bound_keyword_and_none(stop_run, tmp_path, monkeypatch, logs):
+    _pool(monkeypatch, [])
+    ctx0 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
+    assert ctx0.startswith("[Guardian:PickOne]") and "判準卡" not in ctx0           # 都沒有 → 訊息原樣
+    bound = _card(tmp_path, "bound", triggers=["無關詞"], entry=["E04"], knowledge=["- [臨] 判準：先問分數最高那條的實害。"])
+    _pool(monkeypatch, [bound])
+    ctx1 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
+    assert ctx1 == ctx0 + "\n判準卡（E04）：bound\n- [臨] 判準：先問分數最高那條的實害。"   # 原訊息逐字不變、卡接在最後
+    kw = _card(tmp_path, "kw", triggers=["順手看到最該修"], knowledge=["- [臨] 退路卡的判準。"])
+    _pool(monkeypatch, [kw])
+    ctx2 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
+    assert ctx2 == ctx0 + "\n判準卡（E04）：kw\n- [臨] 退路卡的判準。"
+    asks = [a for a in _ledger(logs) if a["entry"] == "E04"]
+    assert [a["cards"] for a in asks] == [[], ["bound"], ["kw"]]
+    assert all(a["path"] == "stop_piggyback" and a["session_id"] == SID for a in asks)
+
+
+def test_stop_block_via_piggyback_gets_card_after_previews(stop_run, tmp_path, monkeypatch, logs):
+    failing = [{"cmd": "pytest -q tests/test_x.py", "summary": "1 failed", "turn_seq": 5, "session_id": SID}]
+    _pool(monkeypatch, [])
+    r0 = stop_run("改好了，全部完成。", failing_tests=failing)
+    assert r0.get("decision") == "block" and r0["reason"].startswith("[Guardian:TestFailGate]"), r0
+    card = _card(tmp_path, "skip-card", triggers=["x"], entry=["E08"], knowledge=["- [臨] 跳過＝這件不做。"])
+    _pool(monkeypatch, [card])
+    r1 = stop_run("改好了，全部完成。", failing_tests=failing)
+    assert r1["reason"] == r0["reason"] + "\n判準卡（E08）：skip-card\n- [臨] 跳過＝這件不做。"
+    assert [a["entry"] for a in _ledger(logs) if a["path"] == "stop_piggyback"][-1] == "E08"
+
+
+def test_subagent_stop_gets_card_but_judge_does_not(tmp_path, monkeypatch, logs):
+    """子代理收尾（_code_gate_to_the_end）接判準卡；裁判子 session 同一支函式不注入（防裁判觸發裁判）。"""
+    from handlers import stop as st
+    reason = "[Guardian:ReconcileGate] 寫碼查核\n✗ (a) CLAIM_FIXED_NEEDS_PASS：說修好但沒有改後跑綠的收據"
+    blocks = []
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (reason, None, "reconcile", None))
+    monkeypatch.setattr(st, "_unknown_write_reason", lambda unknown: "")
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(st, "output_block", blocks.append)
+    _pool(monkeypatch, [_card(tmp_path, "claim-card", triggers=["x"], entry=["E10"], knowledge=["- [臨] 轉述不是自己的宣稱。"])])
+    state = {"turn_seq": 3}
+    own = [{"path": "a.py", "session_id": SID, "turn_seq": 3}]
+    for extra in ({"event": "subagent_block", "agent_id": "ag1"}, {"event": "judge_block"}):
+        st._code_gate_to_the_end({"session_id": SID}, {}, state, SID, own, "", "測試", extra)
+    sub, judge = blocks
+    assert sub.endswith("\n判準卡（E10）：claim-card\n- [臨] 轉述不是自己的宣稱。") and reason in sub
+    assert "判準卡" not in judge and reason in judge
+    assert [a["entry"] for a in _ledger(logs)] == ["E10"]                             # 裁判那次不問也不記
+
+
+@pytest.fixture()
+def ptu_world(tmp_path, monkeypatch, logs):
+    """照 hooks/verify/verify_data_file_ask.py：假專案 settings.json 已存在、原話沒點名 → DataFileAsk 會擋。回 run(transcript_text)。"""
+    from handlers import pre_tool_use as ptu
+    proj = tmp_path / "w1" / "qb-report"
+    proj.mkdir(parents=True)
+    (proj / "settings.json").write_text('{"decimals": 0,}\n', encoding="utf-8")
+    (proj / "app.py").write_text("x = 1\n", encoding="utf-8")
+    wf = tmp_path / "wf"
+    wf.mkdir()
+    prompt = "report 的 cli 加一個 --format csv"
+    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", wf)
+    monkeypatch.setattr(wg_core, "_rebuild_min_atom_index", lambda cwd: {})
+    monkeypatch.setattr(wg_core, "_find_active_sibling_state", lambda *a, **k: None)
+    monkeypatch.setattr(wg_core, "_atom_debug_log", lambda *a, **k: None)
+    outputs = []
+
+    def _out(d):
+        outputs.append(d)
+        raise SystemExit(0)
+
+    def _nothing():
+        outputs.append(None)
+        raise SystemExit(0)
+    monkeypatch.setattr(ptu, "output_json", _out)
+    monkeypatch.setattr(ptu, "output_nothing", _nothing)
+    wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(proj)}, "turn_seq": 1,
+                              "recent_user_prompts": [prompt], "turn_prompts": [prompt]})
+    tp = tmp_path / "t.jsonl"
+
+    def run(assistant_text="先看設定怎麼讀"):
+        tp.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in (
+            {"type": "user", "message": {"role": "user", "content": prompt}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": assistant_text}]}})), encoding="utf-8")
+        with pytest.raises(SystemExit):
+            ptu.handle_pre_tool_use({"tool_name": "Edit", "session_id": SID, "cwd": str(proj), "transcript_path": str(tp),
+                                     "tool_input": {"file_path": str(proj / "settings.json"),
+                                                    "old_string": '"decimals": 0,', "new_string": '"decimals": 0'}}, {})
+        return outputs[-1]
+    return run
+
+
+def _deny_reason(out) -> str:
+    hso = (out or {}).get("hookSpecificOutput") or {}
+    return hso.get("permissionDecisionReason", "") if hso.get("permissionDecision") == "deny" else ""
+
+
+def test_pretool_deny_data_file_gets_e20_card(ptu_world, tmp_path, monkeypatch, logs):
+    _pool(monkeypatch, [])
+    base = _deny_reason(ptu_world())
+    assert base.startswith("[Guardian:DataFileAsk]") and "USER_DATA_FILE_NEEDS_DECLARATION" in base and "判準卡" not in base
+    card = _card(tmp_path, "data-card", triggers=["x"], entry=["E20"], knowledge=["- [臨] 動資料檔先問使用者會看到什麼。"])
+    _pool(monkeypatch, [card])
+    got = _deny_reason(ptu_world())
+    assert got == base + "\n判準卡（E20）：data-card\n- [臨] 動資料檔先問使用者會看到什麼。"
+    asks = [a for a in _ledger(logs) if a["path"] == "pretool_deny"]
+    assert [a["entry"] for a in asks] == ["E20", "E20"] and asks[-1]["cards"] == ["data-card"]
+
+
+def test_pretool_hint_ask_overview_gets_e05_card(tmp_path, monkeypatch, logs):
+    """提問只提醒、不擋（ASK_OVERVIEW_BEFORE_DECISION）那條路也接卡（Codex 002：E05 登的就是這條路）；擋不擋不變。"""
+    import wg_need_goal
+    import wg_need_goal_points
+    from handlers import pre_tool_use as ptu
+    hint = "[NeedGoal] ✗ (提問) ASK_OVERVIEW_BEFORE_DECISION：題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問"
+    outputs = []
+
+    def _out(d):
+        outputs.append(d)
+        raise SystemExit(0)
+    monkeypatch.setattr(ptu, "output_json", _out)
+    monkeypatch.setattr(ptu, "read_state_status", lambda sid: ({"turn_seq": 4}, "missing"))
+    monkeypatch.setattr(wg_need_goal, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
+    monkeypatch.setattr(wg_need_goal_points, "on_ask", lambda *a, **k: (None, hint))
+    _pool(monkeypatch, [_card(tmp_path, "ask-card", triggers=["x"], entry=["E05"], knowledge=["- [臨] 改法選擇先讀部位再問。"])])
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"session_id": SID, "tool_name": "AskUserQuestion", "tool_input": {"questions": []}}, {})
+    hso = outputs[-1]["hookSpecificOutput"]
+    assert "permissionDecision" not in hso                                           # 照樣只提醒、不擋
+    assert hso["additionalContext"] == hint + "\n判準卡（E05）：ask-card\n- [臨] 改法選擇先讀部位再問。"
+    assert [(a["entry"], a["path"]) for a in _ledger(logs)] == [("E05", "pretool_hint")]
+
+
+def test_shared_fallbacks_are_independent(monkeypatch):
+    """handlers/_shared 的兩個保護匯入互不影響（Codex 002：docdrift 的備援一行曾被切進接卡的 except）。"""
+    import importlib
+    from handlers import _shared
+    try:
+        monkeypatch.setitem(sys.modules, "wg_docdrift", None)                         # docdrift 匯入失敗
+        mod = importlib.reload(_shared)
+        assert mod.DOCDRIFT_AVAILABLE is False and mod.prune_committed_entries is None
+        assert mod.entry_note is ep.entry_note                                        # 接卡照常
+        monkeypatch.undo()
+        monkeypatch.setitem(sys.modules, "wg_entrypoint", None)                       # 接卡模組匯入失敗
+        mod = importlib.reload(_shared)
+        assert mod.DOCDRIFT_AVAILABLE is True and callable(mod.prune_committed_entries)
+        assert mod.entry_note("[Guardian:PickOne] x", "stop_piggyback") == "" and mod.with_note("原文", "卡") == "原文"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(_shared)
+
+
+def test_mcp_need_goal_reply_gets_e23_card(tmp_path, monkeypatch, capsys, logs):
+    import wg_need_goal as ng
+    import wg_overview as wo
+    from handlers import post_tool_use as pt
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
+    (tmp_path / "wf").mkdir()
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    monkeypatch.setattr(wo, "org_memory_root", lambda: None)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a: ([], []))
+    ng.on_prompt(SID, "讓匯出變快", 1, {})
+
+    def post(goal, cards):
+        _pool(monkeypatch, cards)
+        state = {"turn_seq": 2}
+        monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+        with pytest.raises(SystemExit):
+            pt.handle_post_tool_use({"session_id": SID, "tool_name": "mcp__workflow-guardian__need_goal",
+                                     "tool_input": {"action": "set", "goal": goal, "new_task": True, "why": "測試換題"},
+                                     "tool_response": {}}, {"docdrift": {"enabled": False}})
+        return json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    base = post("把稽核紀錄全部留下來給週報", [])
+    assert "[NeedGoal] 樹根這幾句原話裡沒有" in base and "判準卡" not in base
+    card = _card(tmp_path, "origin-card", triggers=["x"], entry=["E23"], knowledge=["- [臨] 使用者親口說的才標 user。"])
+    got = post("把稽核紀錄全部留下來給月報", [card])
+    assert "[NeedGoal] 樹根這幾句原話裡沒有" in got
+    assert got.endswith("\n判準卡（E23）：origin-card\n- [臨] 使用者親口說的才標 user。")
+    assert any(a["entry"] == "E23" and a["path"] == "mcp_reply" and a["cards"] == ["origin-card"] for a in _ledger(logs))
+
+
+def test_subagent_prompt_path(tmp_path, monkeypatch, logs):
+    import wg_atoms
+    from handlers import pre_tool_use as ptu
+    outputs = []
+
+    def _out(d):
+        outputs.append(d)
+        raise SystemExit(0)
+
+    def _nothing():
+        outputs.append(None)
+        raise SystemExit(0)
+    monkeypatch.setattr(ptu, "output_json", _out)
+    monkeypatch.setattr(ptu, "output_nothing", _nothing)
+    monkeypatch.setattr(wg_atoms, "build_injection_blob", lambda *a, **k: ("", []))
+    monkeypatch.setattr(ep, "load_registry", lambda path=None: _reg(
+        {"id": "X99", "rules": [], "markers": ["【派工單】"], "paths": ["subagent_prompt"]}))
+    _pool(monkeypatch, [_card(tmp_path, "brief-card", triggers=["x"], entry=["X99"], knowledge=["- [臨] 派工先寫期望輸出。"])])
+
+    def run(prompt):
+        with pytest.raises(SystemExit):
+            ptu.handle_pre_tool_use({"session_id": SID, "tool_name": "Agent",
+                                     "tool_input": {"prompt": prompt, "subagent_type": "general-purpose"}}, {})
+        return outputs[-1]
+    out = run("【派工單】查一下 X")
+    assert out["hookSpecificOutput"]["updatedInput"]["prompt"] == "判準卡（X99）：brief-card\n- [臨] 派工先寫期望輸出。\n\n【派工單】查一下 X"
+    assert run("普通的任務") is None                                                  # 沒認出、也沒記憶 blob → 照舊不改 prompt
+    assert [a["entry"] for a in _ledger(logs)] == ["X99"]
+
+
+# ─── ④ 切入點留帳 ────────────────────────────────────────────────────────────
+
+def test_ledger_fields_and_truncated(tmp_path, logs):
+    reg = _reg(E04_ROW)
+    long = [f"- [臨] 第 {i} 條判準：數字只是參考，先看實害、看誰會痛、多快會痛。" for i in range(12)]
+    cards = [_card(tmp_path, f"c{i}", triggers=["x"], entry=["E04"], knowledge=long) for i in range(3)]
+    budget = int(ep._estimate_tokens("\n".join(long)) * 1.5)
+    note = ep.entry_note(PICK_ONE_TEXT, "stop_piggyback", session_id=SID, registry=reg, pool=cards,
+                         config={"entrypoint": {"inject_budget_tokens": budget}})
+    assert "已截斷" in note
+    (row,) = _ledger(logs)
+    assert set(row) == {"at", "event", "session_id", "turn_seq", "entry", "path", "cards", "truncated", "with", "response"}
+    assert (row["event"], row["entry"], row["path"], row["cards"], row["truncated"], row["response"]) == \
+        ("ask", "E04", "stop_piggyback", ["c0", "c1"], True, "none")
+    assert ep.entry_note("別的訊息", "stop_piggyback", session_id=SID, registry=reg, pool=cards) == ""
+    assert len(_ledger(logs)) == 1                                                    # 沒認出的問句不記帳
+
+
+def test_response_types_follow_gate_logs(ptu_world, logs, monkeypatch):
+    _pool(monkeypatch, [])
+    assert _deny_reason(ptu_world())                                                  # 第一次問：擋
+    assert _deny_reason(ptu_world())                                                  # 沒宣告又來 → 又擋（上一個回應 denied）
+    assert not _deny_reason(ptu_world("動資料檔｜settings.json：修掉多逗號讓 cli 讀得到；幣別會變成檔內的值"))   # 宣告了 → 放行
+    asks = [a for a in _ledger(logs) if a["entry"] == "E20"]
+    assert len(asks) == 2
+    res = ep.resolve_responses(asks, {"data_file": _ledger(logs, "data_file")})
+    assert [r["response"] for r in res] == ["denied", "declared"]
+    assert res[1]["response_by"] == "data_file:declared"
+    lone = ep.resolve_responses([{**asks[0], "session_id": "other"}], {"data_file": _ledger(logs, "data_file")})
+    assert lone[0]["response"] == "none"                                              # 別的 session 的帳不算
+    # 換了回合才又被問、中間沒有對得上的閘紀錄 → none（可能是另一件事，不硬判 denied）；同回合又被問 → denied（Codex 002）
+    a1 = {"at": "2026-10-21T10:00:00+08:00", "session_id": "s9", "entry": "E28", "turn_seq": 3}
+    a2 = {**a1, "at": "2026-10-21T10:05:00+08:00", "turn_seq": 4}
+    assert [r["response"] for r in ep.resolve_responses([a1, a2], {})] == ["none", "none"]
+    a2["turn_seq"] = 3
+    assert ep.resolve_responses([a1, a2], {})[0]["response"] == "denied"
+    assert ep.resolve_responses([{**a1, "turn_seq": None}, {**a2, "turn_seq": None}], {})[0]["response"] == "none"
+
+
+def test_entry_stats_counts_and_tail(tmp_path, capsys):
+    stats = _load("entry_stats_ut", _ROOT / "tools" / "entry-stats.py")
+    d = tmp_path / "Logs"
+    d.mkdir()
+    now = datetime.now().astimezone()
+    at = lambda s: (now + timedelta(seconds=s)).isoformat(timespec="seconds")  # noqa: E731
+    asks = [{"at": at(-30), "event": "ask", "session_id": "s1", "turn_seq": 1, "entry": "E20", "path": "pretool_deny",
+             "cards": ["c"], "truncated": False, "with": [], "response": "none"},
+            {"at": at(-20), "event": "ask", "session_id": "s1", "turn_seq": 1, "entry": "E20", "path": "pretool_deny",
+             "cards": ["c", "d"], "truncated": True, "with": ["E26"], "response": "none"},
+            {"at": at(-10), "event": "ask", "session_id": "s2", "entry": "E04", "path": "stop_piggyback", "cards": [],
+             "truncated": False, "with": [], "response": "none"},
+            {"at": (now - timedelta(days=30)).isoformat(timespec="seconds"), "event": "ask", "session_id": "s3",
+             "entry": "E04", "path": "stop_piggyback", "cards": [], "truncated": False, "with": [], "response": "none"}]
+    (d / "guard-entry.jsonl").write_text("".join(json.dumps(a, ensure_ascii=False) + "\n" for a in asks) + "{壞行\n",
+                                         encoding="utf-8")
+    (d / "guard-data_file.jsonl").write_text(json.dumps({"at": at(-15), "session_id": "s1", "event": "declared"}) + "\n",
+                                             encoding="utf-8")
+    (d / "guard-pick_one.jsonl").write_text(json.dumps({"at": at(-5), "session_id": "s2", "event": "recorded"}) + "\n",
+                                            encoding="utf-8")
+    assert stats.main(["--logs", str(d), "--json"]) == 0
+    cap = capsys.readouterr()
+    lines = cap.out.strip().splitlines()
+    assert re.fullmatch(r"[A-Z][A-Z0-9_]* DONE( \w+=\S+)*", lines[-1])
+    assert lines[-1] == "ENTRY_STATS DONE entries=2 asks=3 cards=3 truncated=1"
+    data = json.loads("\n".join(lines[:-1]))
+    e04, e20 = data["entries"]                                                        # 照登錄表順序
+    assert (e20["id"], e20["asks"], e20["asks_with_cards"], e20["cards"], e20["truncated"]) == ("E20", 2, 2, 3, 1)
+    assert e20["responses"]["denied"] == 1 and e20["responses"]["declared"] == 1 and e20["with"] == {"E26": 1}
+    assert (e04["id"], e04["asks"], e04["responses"]["judged"]) == ("E04", 1, 1)
+    assert "讀不懂" in cap.err                                                        # 壞行跳過並說出來
+    assert stats.main(["--logs", str(tmp_path / "none")]) == 0
+    assert capsys.readouterr().out.strip().splitlines()[-1] == "ENTRY_STATS DONE entries=0 asks=0 cards=0 truncated=0"
+
+
+def test_entry_note_failure_is_quiet_for_gates_but_loud(monkeypatch, capsys, logs):
+    def boom(*a, **k):
+        raise RuntimeError("卡池炸了")
+    monkeypatch.setattr(ep, "judgment_cards", boom)
+    assert ep.entry_note(PICK_ONE_TEXT, "stop_piggyback", session_id=SID) == ""
+    assert "接判準卡失敗，問句照原樣送：RuntimeError" in capsys.readouterr().err
+    assert ep.with_note("原訊息", "") == "原訊息" and ep.with_note("原訊息", "卡") == "原訊息\n卡"
 
 
 if __name__ == "__main__":

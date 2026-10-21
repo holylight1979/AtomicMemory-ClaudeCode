@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 切入點契約 ③④：擋訊息、deny、MCP 回覆、子代理開工句在問的那一刻接判準卡，每次問留帳
+- **交給 AI 寫程式時會看到的**：被 Stop 擋、被 PreToolUse 拒或提醒、收到 need_goal／atom_write 等 MCP 回覆、或 PickOne 續跑提醒時，訊息原文不變，後面多一段「判準卡（E20）：<卡名>」＋卡的知識段（綁了 Entry 的卡優先，沒有就用登錄表的識別字樣比卡的 trigger；一次最多約 400 token）。沒卡就什麼都不多。每次問記一筆到 `Logs/guard-entry.jsonl`；`python tools/entry-stats.py` 看每個切入點問幾次、送幾張卡、AI 回應各型幾筆。細節 TECH §7.10。
+- **改了什麼**（軌 track-entrypoint-contract 002）：`hooks/wg_entrypoint.py` 加 `entry_note`（單一入口）、`resolve_responses`；`handlers/_shared.py` 保護匯入；`handlers/stop.py` 的 `_piggyback`、子代理收尾、PickOne 接入口；`handlers/pre_tool_use.py` 14 處 deny 收成 `_deny()`、提問前提醒與警告段、子代理 prompt 注入點接入口（裁判子 session 不接）；`handlers/post_tool_use.py` 對 `mcp__` 工具的出口接入口；登錄表 19 列加 `responses`、E01 登 EDITED_PART_NEEDS_GOAL_NODE（總控台裁定）；新工具 `tools/entry-stats.py`。舊測試兩處：`verify_g9_second_opinion` 一個斷言先切掉判準卡段再比入口；`verify_gate_bypass` 的錄放帶排除執行期 Logs 並重錄。
+- **驗證**：`tools/verify/verify_entrypoint_contract.py` 29 案（真跑 Stop、PreToolUse deny／提醒、PostToolUse、子代理、子代理收尾與裁判收尾，原訊息逐字比對；帳的欄位；真跑資料檔閘兩次推出 denied／declared、跨回合不硬判；entry-stats 計數與尾行；_shared 兩個保護匯入互不影響）；退回舊碼 002 的案例紅。四條路既有的閘測試照跑全綠，擋與放行結果不變。Codex 審查抓到 `_shared` 的 docdrift 備援一行被切進接卡 except、跨回合又被問誤判 denied、提醒路沒接，已修並補案例。
 ## 2026-10-21 切入點契約 ①②：切入點登錄表、卡片 Entry 欄、依切入點查判準卡
 - **交給 AI 寫程式時會看到的**：卡片可以標 `- Entry: E04` 表示「我是切入點 E04 的判準卡」，`atom_write`／`atom_edit_meta` 多一個 `entry` 參數（replace 沒給沿用、`[]` 清掉、append 忽略）；週健檢多一段「切入點登錄表」，列出 RULES 裡還沒登錄的規則名、登錄表寫錯的規則名、卡片寫了沒登錄的代號（只列不擋）。這一段只建好登錄表與查卡入口，擋訊息還沒接卡（③④ 接）。細節 TECH §4.1 Entry 列、§7.10。
 - **改了什麼**（軌 track-entrypoint-contract 001）：新登錄表 `workflow/entrypoints.json`（E01～E35 照自評文件，E06、E30 不算切入點不登路；另列 47 條確定不是問 LLM 的規則）；新模組 `hooks/wg_entrypoint.py`（查表、候選池、`cards_for_entry` 先 Entry 再拿識別字樣當 trigger 退路、`judgment_cards` 只取知識段限預算、`health_block`）；`lib/atom_spec`／`atom_index_json`／`atom_io`（`write_index` 讀落檔的 Entry 行、`edit_metadata(entry=)`、replace 帶回）、`tools/sync-atom-index.py`、MCP `atom-tools.js`／`atom-render.js`／`mcp.js` 帶 entry；`entrypoint.inject_budget_tokens`=400。總控台代寫的兩張卡補 Entry E04／E08。

@@ -68,6 +68,8 @@ from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
     DOCDRIFT_AVAILABLE,
+    entry_note,
+    with_note,
 )
 
 # Windows: 外呼 git/svn 時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
@@ -1037,7 +1039,10 @@ def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], st
     summary = reason.split("\n")[1].strip() if "\n" in reason else reason
     append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "kind": kind,
                                    "reason": reason[:300], **log_extra})
-    output_block(f"{non_interactive_message(gate, None, summary, why)}\n原擋訊息：\n{reason}")
+    # 切入點契約（§7.10）：子代理收尾接判準卡；裁判子 session 不注入（與 PreToolUse 的 JudgeWrite 同一條：防裁判觸發裁判）
+    note = "" if log_extra.get("event") == "judge_block" else entry_note(
+        reason, "stop_piggyback", session_id=session_id, state=state, config=config)
+    output_block(with_note(f"{non_interactive_message(gate, None, summary, why)}\n原擋訊息：\n{reason}", note))
 
 
 def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -1376,8 +1381,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _later: List[Any] = []   # 後面還會擋的閘的預覽（規則 BLOCK_LISTS_LATER_GATES）；各閘共用變數算好後才掛上
 
     def _piggyback(reason: str, gate: Optional[str] = None) -> str:
-        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；
+        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響，最後接判準卡（切入點契約 §7.10：只認這道閘自己的擋訊息，
+        後面附加的預覽與提示不拿來認切入點）。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；
         那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
+        card_note = entry_note(reason, "stop_piggyback", session_id=session_id, state=state, config=config)
         if gate:
             mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
         if _later:
@@ -1396,6 +1403,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             reason = reason + _accept_hint
         if _reading_path:
             reason = f"{reason}\n{_reading_path}"
+        reason = with_note(reason, card_note)
         if gate:
             write_state(session_id, state)
         return reason
@@ -2088,6 +2096,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                              or emitted_this_turn or committed_this_turn, config)
     if _pick:
         write_state(session_id, state)
+        _pick = with_note(_pick, entry_note(_pick, "stop_piggyback", session_id=session_id, state=state, config=config))
         output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _pick}})
         return
 

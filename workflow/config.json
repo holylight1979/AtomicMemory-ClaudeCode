@@ -558,7 +558,7 @@
     "enabled": true
   },
   "entrypoint": {
-    "_doc": "切入點契約（hooks/wg_entrypoint.py，登錄表 workflow/entrypoints.json）：程式停下來要 LLM 判斷時，依問句認出切入點，把判準卡的知識段接在問句後面。inject_budget_tokens＝一次問句接的卡知識段總預算（約兩張判準卡的知識段；超過截斷最後一張並在帳上記 truncated）。缺本區段用 wg_core.DEFAULTS 的值。",
+    "_doc": "切入點契約（hooks/wg_entrypoint.py，登錄表 workflow/entrypoints.json）：程式停下來要 LLM 判斷時，依問句認出切入點，把判準卡的知識段接在問句後面。inject_budget_tokens＝一次問句接的卡知識段總預算（判準卡知識段實測約 300 token：400 夠一張綁定卡完整送、第二張只送開頭；Entry 綁定卡排在關鍵字退路卡前面；超過截斷最後一張並在帳上記 truncated）。缺本區段用 wg_core.DEFAULTS 的值。",
     "inject_budget_tokens": 400
   },
   "provenance": {

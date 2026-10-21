@@ -7,11 +7,15 @@
 - card_pool(state)              看得到的卡（全域＋state 記的專案層／公司層索引；scope 可見性、被取代的卡照 SessionStart 同一套）
 - cards_for_entry(row, pool)    先取卡片 Entry 欄命中的卡，再拿那列的規則名＋識別字樣當 trigger 查詢當退路
 - judgment_cards(text, path)    上面三步串起來，只取知識段、總預算內截斷，回要接在問句後面的那段文字
+- entry_note(text, path, …)     問的那一刻的單一入口（Stop 擋訊息與續跑提醒、PreToolUse deny、MCP 回覆、子代理 prompt 都呼叫它）：
+                                挑卡＋每個切入點記一筆帳到 Logs/guard-entry.jsonl，回要接在問句後面的文字
+- resolve_responses(asks, …)    依各閘自己的留帳（登錄表每列的 responses）推每次問之後 AI 的回應型；tools/entry-stats.py 用
 - health_block()                健檢：RULES 裡沒登錄的規則名、登錄表寫錯的規則名、卡片寫了登錄表沒有的代號——只列不擋
 """
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -183,6 +187,98 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
         if out["truncated"]:
             break
     out["note"] = "\n\n".join(blocks)
+    return out
+
+
+LEDGER = "entry"          # Logs/guard-entry.jsonl
+RESPONSE_TYPES = ("declared", "denied", "judged", "released", "none")
+
+
+def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Dict[str, Any]] = None,
+               config: Optional[Dict[str, Any]] = None, registry: Optional[Dict[str, Any]] = None,
+               pool: Optional[List[Dict[str, Any]]] = None) -> str:
+    """問的那一刻的單一入口：text 是程式這次要送給 LLM 的問句、path 是哪條路問（登錄表 path_values）。
+    認出切入點 → 挑判準卡 → 每個認出的切入點記一筆帳 → 回要接在問句後面的文字（沒認出或沒卡回空字串）。
+    帳一筆一個切入點：時間、session、回合（state 的 turn_seq，沒有 state 記 null）、代號、路、這個切入點送了哪幾張卡、
+    有沒有截斷、同一問句還認出哪些代號、回應型（問的當下還沒有回應，記 none；之後 AI 怎麼回由 resolve_responses 依各閘留帳推）。
+    state 沒給且認出了切入點才讀 state（沒認出的問句零成本）。炸了只印 stderr、回空字串：問句照原樣送，閘的結果不受影響。"""
+    try:
+        reg = registry if registry is not None else load_registry()
+        if not match_entries(text, path, reg):
+            return ""
+        if state is None and session_id:
+            from wg_core import read_state
+            state = read_state(session_id)
+        res = judgment_cards(text, path, state=state, config=config, registry=reg, pool=pool)
+        from wg_core import append_guard_log
+        turn = (state or {}).get("turn_seq")
+        for eid in res["entries"]:
+            append_guard_log(LEDGER, {"event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
+                                      "cards": [c["name"] for c in res["cards"] if eid in c["entries"]],
+                                      "truncated": res["truncated"],
+                                      "with": [e for e in res["entries"] if e != eid], "response": "none"})
+        return res["note"]
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Entrypoint] 接判準卡失敗，問句照原樣送：{type(e).__name__}: {e}", file=sys.stderr)
+        return ""
+
+
+def with_note(text: str, note: str) -> str:
+    """問句後面接判準卡（沒卡原樣回，不多一個換行）。"""
+    return f"{text}\n{note}" if note else text
+
+
+def _event_session(rec: Dict[str, Any]) -> str:
+    return str(rec.get("session_id") or rec.get("session") or "")
+
+
+def _ts(rec: Dict[str, Any]) -> datetime:
+    """guard log 的 at（帶時區的 ISO，wg_core._now_iso）→ 可比大小的時間；壞的或沒有排最前面。"""
+    try:
+        t = datetime.fromisoformat(str(rec.get("at", "")))
+        return t if t.tzinfo else t.astimezone()
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _first_response(rules: List[Dict[str, Any]], guard_logs: Dict[str, List[Dict[str, Any]]], sid: str,
+                    at: datetime, until: Optional[datetime]) -> Optional[Tuple[datetime, Dict[str, Any]]]:
+    """窗口 (at, until] 裡、同 session、對得上登錄表 responses 某條的第一筆閘紀錄 → (時間, 那條規則)；沒有回 None。"""
+    best: Optional[Tuple[datetime, Dict[str, Any]]] = None
+    for rule in rules:
+        for rec in guard_logs.get(str(rule.get("guard")), []):
+            t = _ts(rec)
+            if _event_session(rec) != sid or t <= at or (until is not None and t > until):
+                continue
+            if rule.get("event") in ("*", rec.get("event")) and (best is None or t < best[0]):
+                best = (t, rule)
+    return best
+
+
+def resolve_responses(asks: List[Dict[str, Any]], guard_logs: Dict[str, List[Dict[str, Any]]],
+                      registry: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """每筆問（guard-entry 的 ask）之後 AI 怎麼回，照各閘自己的留帳推：登錄表那列的 responses
+    [{guard, event, type}]（event 寫 "*" 表示那個 guard 的任何一筆）。窗口＝這筆問之後、同 session 同代號下一次問之前（含）；
+    窗口裡第一筆對得上的閘紀錄 → 它的 type；對不上但同一回合（turn_seq 相同）同代號又被問了一次 → denied（上一個回應沒過）；
+    換了回合才又被問、或不知道回合 → none（可能是另一件事，不硬判）。
+    已知限制：時間戳只到秒，與問同一秒寫的閘紀錄不算回應；帳上沒有標的（哪個檔、哪支測試），同 session 同代號別件事的回應會算進來。
+    回 asks 的複本，每筆多 response 與 response_by（哪個 guard／event 判的）。"""
+    reg = registry if registry is not None else load_registry()
+    spec = {str(r["id"]): list(r.get("responses") or []) for r in reg["entrypoints"]}
+    ordered = sorted(asks, key=_ts)
+    out: List[Dict[str, Any]] = []
+    for i, ask in enumerate(ordered):
+        sid, eid, at = _event_session(ask), str(ask.get("entry")), _ts(ask)
+        nxt = next((b for b in ordered[i + 1:] if _event_session(b) == sid and str(b.get("entry")) == eid), None)
+        hit = _first_response(spec.get(eid, []), guard_logs, sid, at, _ts(nxt) if nxt else None)
+        if hit:
+            rule = hit[1]
+            resp, by = str(rule.get("type")), f"{rule.get('guard')}:{rule.get('event')}"
+        elif nxt is not None and ask.get("turn_seq") is not None and nxt.get("turn_seq") == ask.get("turn_seq"):
+            resp, by = "denied", "asked_again_same_turn"
+        else:
+            resp, by = "none", ""
+        out.append({**ask, "response": resp if resp in RESPONSE_TYPES else "none", "response_by": by})
     return out
 
 
