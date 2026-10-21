@@ -1500,6 +1500,9 @@ def ask_paths(tool_input: Any) -> List[str]:
     return out
 
 
+_ASK_OVERVIEW_HOW = "（這條不單獨擋；但這題被別條擋下要重組時，先讀題目提到、還沒讀的部位檔，讀完再定推薦，或判斷根本不必問）"
+
+
 def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int,
                          named: Sequence[Tuple[str, str, int]] = ()) -> Verdict:
     """ASK_OVERVIEW_BEFORE_DECISION：只看題目文字（不看 header、選項）判改法選擇；ExitPlanMode 一律算。
@@ -1515,11 +1518,11 @@ def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int,
         if not unread:
             return Verdict(rule, False, "題目提到的部位都讀過檔",
                            tuple(f"題目提到 {p}→部位 {part}，本回合該部位讀過 {n} 檔" for p, part, n in named))
-        return Verdict(rule, True, "題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問（只提醒，不因這條擋）",
+        return Verdict(rule, True, f"題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問{_ASK_OVERVIEW_HOW}",
                        tuple(f"題目提到 {p}→部位 {part}，本回合該部位讀過 0 檔" for p, part in unread))
     if part_files_read > 0:
         return Verdict(rule, False, f"題目沒提到部位表上的路徑；已讀過 {part_files_read} 個部位檔")
-    return Verdict(rule, True, "題目涉及改法選擇，但本 session 還沒讀過任何部位檔：先讀過部位檔再問（只提醒，不因這條擋）",
+    return Verdict(rule, True, f"題目涉及改法選擇，但本 session 還沒讀過任何部位檔：先讀過部位檔再問{_ASK_OVERVIEW_HOW}",
                    ("題目沒提到部位表上的路徑；OverviewHub 的 part_files_read 全空",))
 
 

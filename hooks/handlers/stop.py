@@ -1315,6 +1315,20 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
     return block
 
 
+def testfail_message(failing: List[Dict[str, Any]]) -> str:
+    """TestFailGate 擋訊息：最後 3 筆紅測＋三條出路。先問使用者有沒有叫跳過（程式只收引原話的不做行豁免），
+    再分程式錯還是舊斷言跟不上新需求；不給 skip／xfail 這種讓紅消失的出路——舊句「標記為已知 regression」會把 AI 帶去加 xfail
+    （切入點自評 E08）。"""
+    return (f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），不得宣告完成。\n"
+            + "\n".join(f"  - {f.get('cmd', '')[:60]}: {(f.get('summary', '').splitlines() or [''])[0][:100]}"
+                        for f in failing[-3:])
+            + "\n先看使用者有沒有叫你跳過或先不管這支：(a) 有 → 不動測試檔、讓它照紅，收尾寫一行"
+            "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」，程式對到這筆紅測就留帳放行 "
+            "(b) 沒有 → 修到綠：程式錯就修程式；是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」"
+            "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言 "
+            "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。")
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1536,17 +1550,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                   file=sys.stderr)
     if failing and claims_completion(code_text):
         state["stop_blocked_count"] = stop_count + 1
-        reason = _piggyback(
-            f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），"
-            "不得宣告完成。\n"
-            + "\n".join(
-                f"  - {f.get('cmd', '')[:60]}: "
-                f"{(f.get('summary', '').splitlines() or [''])[0][:100]}"
-                for f in failing[-3:]
-            )
-            + "\n選 (a) 修復 (b) 明確說明為何不修並標記為已知 regression "
-            "(c) 降級任務定義。不得籠統帶過。"
-        )
+        reason = _piggyback(testfail_message(failing))
         write_state(session_id, state)
         output_block(reason)
         return

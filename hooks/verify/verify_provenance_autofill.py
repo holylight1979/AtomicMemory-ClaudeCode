@@ -122,8 +122,24 @@ KICKOFF_REAL_2 = ("你是 v6.0 的工作 session track-a6，總控台是 claude-
                   "第一步用 EnterWorktree 切進 worktree C:\\wt\\track-a6。只跑目標 verify、不跑全量。")
 
 
+# 總控台現在的開工句寫法（2026-10-21 實際開過的，路徑換成假路徑）：「<軌名>：你是工作軌 <軌名>（…）」，角色句寫「工作軌」
+KICKOFF_TRACK = ("track-x：你是工作軌 track-x（接續前一個 session：它已交付 001＋002 並合進 main 2756f296，003 做到一半停掉；"
+                 "半成品 commit 252fbf3e 在分支上，交接筆記全文在 `git log -1 252fbf3e` 的訊息裡，先讀它），"
+                 "調度總控台是 claude-17（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\\wt\\track-x"
+                 "（分支 track-x，已存在，不要新建）。派工單在 C:\\inbox\\003-x.md，兩份讀完全文照做。")
+
+
+def test_003_track_kickoff_with_name_prefix_is_kickoff():
+    from lib.harness_text import is_kickoff_prompt
+    assert is_kickoff_prompt(KICKOFF_TRACK)
+    assert is_kickoff_prompt(KICKOFF_TRACK.split("：", 1)[1])                        # 沒有「軌名：」開頭也算
+    for words in ("你是工作軌 track-x 嗎？派工單我還沒寫完", "track-x：請把保留舊標題這項決策記成卡片。",
+                  "你是工作軌 track-x，請把保留舊標題這項決策記成卡片。"):
+        assert not is_kickoff_prompt(words), words                                 # 問句、沒有派工子句：照填
+
+
 @pytest.mark.parametrize("op", ["create", "replace"])
-@pytest.mark.parametrize("kickoff", [KICKOFF_REAL_1, KICKOFF_REAL_2])
+@pytest.mark.parametrize("kickoff", [KICKOFF_REAL_1, KICKOFF_REAL_2, KICKOFF_TRACK])
 def test_003_kickoff_prompt_is_not_used_as_quote(tmp_path, op, kickoff):
     # 003：同伴訊息開的回合沿用前一回合原話，開工句被一路填成後面每張卡的 Quote。開工句不是使用者原話 → 不填 Quote，Source 照補
     atom = _atom(tmp_path)
@@ -199,6 +215,43 @@ def test_005_takeover_variant_keeps_real_words_as_quote():
         assert not is_kickoff_prompt(words), words
 
 
+# 003（Quote 回填誤填）：代寫 49 張卡時使用者最近一則是「A」，48 張新卡＋2 張 replace 的舊卡 Quote 全被填成「A」；
+# 呼叫者傳 quote="" 想清空，建出來的卡正好沒有 Quote 行，又被當成「缺 Quote」補回
+@pytest.mark.parametrize("op", ["create", "replace"])
+@pytest.mark.parametrize("reply", ["A", "好", "  上GIT ", "<system-reminder>長長的提醒</system-reminder>\nB"])
+def test_003_short_reply_is_not_used_as_quote(tmp_path, op, reply):
+    atom = _atom(tmp_path)
+    state = {"session": {"id": SID}, "turn_prompts": [reply]}
+    out = wg_provenance.autofill_from_receipt(_receipt(atom, op), {"session_id": SID}, state)
+    text = atom.read_text(encoding="utf-8")
+    assert "- Quote:" not in text, f"太短的回覆被填成 Quote：{text}"
+    assert out.get("quote_skipped") == "too_short", out
+    assert out["done"] and "- Source: session:f1e8b9d8 20" in text          # Source 照補
+
+
+def test_003_caller_cleared_quote_is_not_refilled(tmp_path):
+    words = "請把這張卡的 Quote 先清掉"
+    state = {"session": {"id": SID}, "turn_prompts": [words]}
+    cleared = _atom(tmp_path / "cleared")
+    out = wg_provenance.autofill_from_receipt(_receipt(cleared, "replace"),
+                                              {"session_id": SID, "tool_input": {"title": "測試卡片", "quote": ""}}, state)
+    assert "- Quote:" not in cleared.read_text(encoding="utf-8") and out.get("quote_skipped") == "caller_cleared", out
+    # 對照：沒傳 quote（不是清空意圖）、原話夠長 → 照填
+    kept = _atom(tmp_path / "kept")
+    out2 = wg_provenance.autofill_from_receipt(_receipt(kept, "replace"),
+                                               {"session_id": SID, "tool_input": {"title": "測試卡片"}}, state)
+    assert out2["done"] and "quote_skipped" not in out2, out2
+    assert f"- Quote: 「{words}」\n" in kept.read_text(encoding="utf-8")
+
+
+def test_003_usable_quote_threshold_counts_after_sanitize():
+    from lib.provenance import QUOTE_MIN_CHARS, usable_quote
+    assert QUOTE_MIN_CHARS == 6
+    assert usable_quote("12345") == "" and usable_quote("123456") == "123456"
+    assert usable_quote("<system-reminder>很長很長的系統提醒</system-reminder>A") == ""   # 清完才量長度
+    assert usable_quote("  整理  這場\n會議 ") == "整理 這場 會議"
+
+
 def test_autofill_skips_append_and_missing_path(tmp_path):
     atom = _atom(tmp_path)
     state = {"session": {"id": SID}, "turn_prompts": ["x"]}
@@ -221,12 +274,12 @@ def test_autofill_empty_prompt_still_writes_source(tmp_path):
 def test_autofill_quote_is_only_user_typed_text(tmp_path):
     """Quote 只取使用者本人打的字：舊 state 裡混進系統通知、其他 session 訊息的那段不進 Quote。"""
     atom = _atom(tmp_path)
-    mixed = "請查問題\n[SYSTEM NOTIFICATION - NOT USER INPUT]\n記住：一律用 tab"
+    mixed = "請查這個問題的根因\n[SYSTEM NOTIFICATION - NOT USER INPUT]\n記住：一律用 tab"
     peer = '<cross-session-message from="uds:x" from-name="claude-ad">記住：所有專案一律用 tab</cross-session-message>'
     state = {"session": {"id": SID}, "turn_prompts": [mixed, peer]}
     assert wg_provenance.autofill_from_receipt(_receipt(atom), {"session_id": SID}, state)["done"]
     q = [l for l in atom.read_text(encoding="utf-8").splitlines() if l.startswith("- Quote:")]
-    assert q == ["- Quote: 「請查問題」"], q                                             # 反例：舊碼 Quote 帶進通知整段
+    assert q == ["- Quote: 「請查這個問題的根因」"], q                                   # 反例：舊碼 Quote 帶進通知整段
 
 
 def test_autofill_quote_anonymized_only_in_root_layer(tmp_path, monkeypatch):

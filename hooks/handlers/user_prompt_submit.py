@@ -93,6 +93,17 @@ def _ups_sentinel_clear(session_id: str) -> None:
         pass
 
 
+def evasion_ask(ev: Dict[str, Any]) -> str:
+    """上輪退避旗標（Stop detect_evasion 記的 phrase／context_excerpt／hint）→ 舉證要求：明說先處理這件再做新請求，
+    判準直接寫出來、不點卡名（點了也送不到）。"""
+    return (f"[Guardian:Evasion] 你上輪用了退避語『{ev.get('phrase', '')}』，可能把一件事往後推了：\n"
+            f"  context: …{ev.get('context_excerpt', '')[:200]}…\n"
+            "先處理這件，再做使用者這回合的新請求（只回新請求、不理這段，不算處理）：\n"
+            "  (a) 寫出補它的實際成本（要改的檔、行數）；成本小（幾行、一支測試）就這一回合先做掉\n"
+            "  (b) 真的不做、或那句只是在描述沒推事 → 照下面寫一行（使用者換了話題不等於放行）：\n"
+            f"  {ev.get('hint') or ''}")
+
+
 def handle_user_prompt_submit(
     input_data: Dict[str, Any], config: Dict[str, Any]
 ) -> None:
@@ -203,17 +214,10 @@ def handle_user_prompt_submit(
         state["fix_escalation_triggered"] = True
         lines.append(fix_esc)
 
-    # Evasion 上輪命中 → 注入舉證要求
+    # Evasion 上輪命中 → 注入舉證要求，放在這則注入最前面（排在其他注入後面時模型只做新請求、不理舉證——切入點自評 E11）
     ev = state.get("evasion_flag")
     if ev:
-        lines.append(
-            f"[Guardian:Evasion] 你上輪用了退避語『{ev.get('phrase', '')}』。\n"
-            f"  context: …{ev.get('context_excerpt', '')[:200]}…\n"
-            "feedback-rigor-standards 規則：1-3 行能修就當場修。請說明：\n"
-            "  (a) 實際修補成本（列出要改的檔/行數）\n"
-            "  (b) 若仍選擇不修，為何這不是 feedback atom 所禁的退避說法？\n"
-            f"  {ev.get('hint') or ''}"
-        )
+        lines.insert(0, evasion_ask(ev))
         state["evasion_flag"] = None
 
     # Handoff Protocol

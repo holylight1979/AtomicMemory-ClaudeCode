@@ -80,6 +80,22 @@ def test_p7_evasion_injection_carries_not_doing_hint(wired, monkeypatch):
     assert "[Guardian:Evasion]" in text and "不做｜<哪一件>" in text and state["evasion_flag"] is None
 
 
+def test_003_evasion_ask_comes_first_and_says_handle_it_before_new_request(wired, monkeypatch):
+    """003（切入點自評 E11）：舉證要求排在這則注入最前面（其他注入之前），明說先處理再做新請求；不點送不到的卡名。"""
+    state, debug_calls, outputs = wired
+    state["evasion_flag"] = {"phrase": "之後再", "context_excerpt": "test_parse_header 我之後再補", "category": "defer",
+                             "hint": "真的不做 → 寫一行「不做｜<哪一件>：<理由>」"}
+    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "[Guardian:OverviewHub] HUB-TEXT")
+    ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
+    text = outputs[0]["hookSpecificOutput"]["additionalContext"]
+    assert text.startswith("[Guardian:Evasion] 你上輪用了退避語『之後再』"), text[:120]
+    assert text.index("[Guardian:Evasion]") < text.index("HUB-TEXT")
+    assert "先處理這件，再做使用者這回合的新請求" in text and "成本小（幾行、一支測試）就這一回合先做掉" in text
+    assert "真的不做 → 寫一行「不做｜<哪一件>：<理由>」" in text and "使用者換了話題不等於放行" in text
+    assert "feedback-rigor-standards" not in text and "feedback atom" not in text            # 反例：點送不到的卡名
+    assert state["evasion_flag"] is None
+
+
 def test_on_prompt_text_reaches_additional_context(wired, monkeypatch):
     state, debug_calls, outputs = wired
     monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "[Guardian:OverviewHub] HUB-TEXT")

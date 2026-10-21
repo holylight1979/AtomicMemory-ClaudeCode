@@ -1310,8 +1310,10 @@ def render_commit_report(results: List[Dict[str, Any]], repo_hint: str = "<repo>
     if notes:
         lines += [f"注意：{n}" for n in notes]
     if new:
-        lines.append("處置：把 ✗ 那幾行改掉再 commit。判斷過確實該這樣寫（例如外部 API 只收這種寫法）→ 在那一行加註解 "
-                     "`smell-ok: <為什麼>`，理由會留在 diff 裡給使用者看。手動重查："
+        lines.append("處置先分清被點名的檔是不是你這次改的：是你改的 → 把 ✗ 那幾行改掉再 commit；判斷過確實該這樣寫"
+                     "（例如外部 API 只收這種寫法）→ 在那一行加註解 `smell-ok: <為什麼>`，理由會留在 diff 裡給使用者看。"
+                     "不是你改的（session 開始前就在暫存區、別人留的）→ 不修、不動它的暫存，只提交你自己的檔"
+                     "（git：git commit -- <你的檔>），被問到時寫明是誰的、病要誰修。手動重查："
                      f"python ~/.claude/tools/project-smells.py --commit-check --cwd {repo_hint}")
         return "\n".join(lines), None
     return None, "\n".join(lines)

@@ -22,6 +22,7 @@ import hashlib
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -721,8 +722,98 @@ def mark_pick_asked(state: Dict[str, Any], sid: str, turn_seq: int) -> None:
     _pick_sec(state, sid)["asked_turn"] = int(turn_seq or 0)
 
 
-def _pick_smells(wo: Any, root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[str]:
-    """部位的壞味道報告（overview-hub 設了 smells_report 才有）前 2 名，附分數。"""
+CALLSITE_BUDGET_S = 2.0          # 一次 pick_material 算呼叫點的總時間（每條壞味道一次 git grep）
+_CALLSITE_LANG = {".py": "py", ".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "js", ".ts": "js", ".tsx": "js"}
+_CALLSITE_GLOBS = {"py": ["*.py"], "js": ["*.js", "*.mjs", "*.cjs", "*.jsx", "*.ts", "*.tsx"]}
+_JS_SPEC_RE = re.compile(r"""(?:\bfrom\s+|\brequire\(\s*|\bimport\(\s*|^\s*import\s+)['"]([^'"]+)['"]""")
+_JS_COMMENT_PREFIX = ("//", "/*", "*")
+_TEST_FILE_RE = re.compile(r"(^|/)(tests?|verify|__tests__|specs?)/|(^|/)(test_[^/]*|[^/]*_test\.py|verify_[^/]*\.py|conftest\.py"
+                           r"|[^/]*\.(test|spec)\.[jt]sx?)$")
+
+
+def _imports_stem(text: str, stem: str, lang: str) -> Optional[bool]:
+    """這支檔有沒有 import 模組名 stem。Python 用 ast：`import a.stem`、`from a.stem import x`、`from a import stem`
+    （看被匯入的名字，不看 as 後面的別名；分好幾行的括號匯入、註解都照語法算）；JS／TS 逐行比 import／require 的路徑檔名，
+    註解行不算。Python 解析不了回 None（呼叫端算進「無法判」）。"""
+    if lang == "js":
+        return any(Path(spec).stem == stem or Path(spec).name == stem
+                   for ln in text.splitlines() if not ln.lstrip().startswith(_JS_COMMENT_PREFIX)
+                   for spec in _JS_SPEC_RE.findall(ln))
+    import ast
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(a.name.split(".")[-1] == stem for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and ((node.module or "").split(".")[-1] == stem
+                                                  or any(a.name == stem for a in node.names)):
+            return True
+    return False
+
+
+def _callsites(root: Path, rel: str, deadline: float) -> str:
+    """壞味道那個檔的呼叫點：專案裡 git 追蹤的檔有誰 import 它、幾處 → 「呼叫點 0」「呼叫點 2（a.py、b.py）」，
+    測試檔另計「另有測試 N 支」（測試會 import 沒人用的舊碼，混在一起會把死碼看成有人用）。以模組名（檔名去副檔名）比對，
+    同名模組會一起算。只認 Python 與 JS／TS 的 import；其他語言、不在 git、git 失敗或逾時 → 「呼叫點 無法判（原因）」。"""
+    import subprocess
+    p = Path(rel)
+    lang = _CALLSITE_LANG.get(p.suffix.lower())
+    if not lang:
+        return f"呼叫點 無法判（{p.suffix or '沒有副檔名'} 不以 import 檔案互相呼叫）"
+    stem = p.parent.name if p.stem == "__init__" else p.stem
+    if lang == "py" and not stem.isidentifier():
+        return "呼叫點 無法判（檔名不是合法模組名，只能當腳本跑或用路徑載入）"
+    left = deadline - time.monotonic()
+    if not stem or left < 0.2:
+        return "呼叫點 無法判（來不及算）"
+    try:
+        r = subprocess.run(["git", "-c", "core.quotepath=false", "-C", str(root), "grep", "-I", "-l", "-w", "-F", "-e", stem,
+                            "--", *_CALLSITE_GLOBS[lang]], capture_output=True, timeout=left,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"呼叫點 無法判（git grep 失敗：{type(e).__name__}）"
+    if r.returncode not in (0, 1):                     # 1＝沒有任何一行含這個字
+        return "呼叫點 無法判（不在 git 版控或 git grep 失敗）"
+    self_rel = p.as_posix().removeprefix("./")
+    callers: List[str] = []
+    unparsed = 0
+    for f in r.stdout.decode("utf-8", "replace").splitlines():   # 含這個字的檔才讀、才解析
+        if f == self_rel:
+            continue
+        if time.monotonic() > deadline:
+            return "呼叫點 無法判（來不及算）"
+        try:
+            hit = _imports_stem((root / f).read_text(encoding="utf-8", errors="replace"), stem, lang)
+        except OSError:
+            hit = None
+        if hit is None:
+            unparsed += 1
+        elif hit:
+            callers.append(f)
+    tests = [f for f in callers if _TEST_FILE_RE.search(f)]
+    prod = [f for f in callers if f not in tests]
+    names = "、".join(Path(f).name for f in prod[:3]) + ("…" if len(prod) > 3 else "")
+    return (f"呼叫點 {len(prod)}" + (f"（{names}）" if prod else "")
+            + (f"，另有測試 {len(tests)} 支" if tests else "") + (f"，{unparsed} 支解析不了沒算" if unparsed else "")
+            + _runnable_note(root / p, lang))
+
+
+def _runnable_note(path: Path, lang: str) -> str:
+    """Python 檔自己有 `if __name__ == "__main__"` → 補一句「本身可直接執行」：腳本靠被執行不靠被 import，呼叫點 0 不等於沒人用。"""
+    if lang != "py":
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return "，本身可直接執行（呼叫點只算 import）" if re.search(r"__name__\s*==\s*['\"]__main__['\"]", text) else ""
+
+
+def _pick_smells(wo: Any, root: Path, row: Dict[str, Any], cfg: Dict[str, Any],
+                 deadline: Optional[float] = None) -> List[str]:
+    """部位的壞味道報告（overview-hub 設了 smells_report 才有）前 2 名，附分數與呼叫點（_callsites）。"""
     report = str(cfg.get("smells_report") or "").strip()
     if not report:
         return []
@@ -732,8 +823,19 @@ def _pick_smells(wo: Any, root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) 
     rows, _, _ = wo._smells_rows(rp)
     mine = [r for r in rows if not r.get("part") or r["part"] in (row.get("part"), row.get("part_short"))]
     mine.sort(key=lambda r: -float(r["score"]) if isinstance(r.get("score"), (int, float)) else 0)
-    return [f"{Path(r['path']).name}｜{r.get('category') or r.get('kind') or '?'}"
-            + (f"｜分數 {r['score']}" if isinstance(r.get("score"), (int, float)) else "") for r in mine[:2]]
+    deadline = deadline if deadline is not None else time.monotonic() + CALLSITE_BUDGET_S
+    out = []
+    for r in mine[:2]:
+        rel = Path(str(r["path"]))
+        if rel.is_absolute():
+            try:
+                rel = rel.relative_to(root)
+            except ValueError:
+                pass
+        out.append(f"{rel.name}｜{r.get('category') or r.get('kind') or '?'}"
+                   + (f"｜分數 {r['score']}" if isinstance(r.get("score"), (int, float)) else "")
+                   + f"｜{_callsites(root, rel.as_posix(), deadline)}")
+    return out
 
 
 _LINE_COUNT_MAX_BYTES = 4 << 20
@@ -753,11 +855,12 @@ def _line_counts(paths: List[str]) -> str:
     return "、".join(out)
 
 
-def _pick_part_line(wo: Any, root: Path, row: Dict[str, Any], paths: List[str], config: Dict[str, Any]) -> str:
+def _pick_part_line(wo: Any, root: Path, row: Dict[str, Any], paths: List[str], config: Dict[str, Any],
+                    deadline: Optional[float] = None) -> str:
     cfg = wo._cfg(config, root)
     defects = [d.lstrip("- ").strip() for d in wo.defects_top_n(wo._cards_for(root, row, cfg), 2)]
     items = tracking_items_for_part(tracking_slug(str(root)), [row.get("part"), row.get("part_short")])
-    smells = _pick_smells(wo, root, row, cfg)
+    smells = _pick_smells(wo, root, row, cfg, deadline)
     sizes = _line_counts(paths)
     bits = [f"影響到：{row.get('downstream') or '表上沒寫'}",
             "已知病灶：" + ("；".join(_clip(d, 80) for d in defects) if defects else "導讀卡沒寫")]
@@ -770,9 +873,10 @@ def _pick_part_line(wo: Any, root: Path, row: Dict[str, Any], paths: List[str], 
 
 
 def pick_material(code_paths: List[str], config: Dict[str, Any]) -> List[str]:
-    """改過的程式檔 → 依部位分組的材料，一部位一行：影響到誰（表上「下游」）、導讀卡已知病灶前 2 條、壞味道報告前 2 名附分數、
-    這次改到的檔行數、未結追蹤項筆數（數字都標參考）。不排名：部位照改檔先後；最多 PICK_MATERIAL_MAX_PARTS 個部位。
-    部位表查不到的檔列一行檔名。某部位的材料讀失敗就寫一句原因，不中斷其他部位。"""
+    """改過的程式檔 → 依部位分組的材料，一部位一行：影響到誰（表上「下游」）、導讀卡已知病灶前 2 條、壞味道報告前 2 名附分數
+    與呼叫點（各部位共用 CALLSITE_BUDGET_S）、這次改到的檔行數、未結追蹤項筆數（數字都標參考）。不排名：部位照改檔先後；
+    最多 PICK_MATERIAL_MAX_PARTS 個部位。部位表查不到的檔列一行檔名。某部位的材料讀失敗就寫一句原因，不中斷其他部位。"""
+    deadline = time.monotonic() + CALLSITE_BUDGET_S
     try:
         import wg_overview as wo
     except ImportError as e:
@@ -788,7 +892,7 @@ def pick_material(code_paths: List[str], config: Dict[str, Any]) -> List[str]:
     lines: List[str] = []
     for (_, short), (root, row, paths) in list(groups.items())[:PICK_MATERIAL_MAX_PARTS]:
         try:
-            lines.append(_pick_part_line(wo, root, row, paths, config))
+            lines.append(_pick_part_line(wo, root, row, paths, config, deadline))
         except Exception as e:  # noqa: BLE001
             lines.append(f"- 【{short}】（材料讀不到：{type(e).__name__}: {e}）")
     if len(groups) > PICK_MATERIAL_MAX_PARTS:

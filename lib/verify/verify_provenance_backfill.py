@@ -138,7 +138,7 @@ def test_03_replace_after_create_picks_create_earliest(world):
 def test_04_failed_then_retry_only_success_counts(world):
     atom_b = _atom(world["mem"] / "設計通則" / "卡片乙.md", "卡片乙")
     recs = [
-        _human("h7", None, "2026-10-03T09:00:00Z", "記卡片乙", sid=SID2),
+        _human("h7", None, "2026-10-03T09:00:00Z", "把這條記成卡片乙", sid=SID2),
         _tool_use("a7", "h7", "2026-10-03T09:00:05Z", "t7", "卡片乙", sid=SID2),
         _tool_result("r7", "a7", "2026-10-03T09:00:06Z", "t7", str(atom_b), ok=False, sid=SID2),
         _tool_use("a8", "r7", "2026-10-03T09:00:10Z", "t8", "卡片乙", sid=SID2),
@@ -146,7 +146,45 @@ def test_04_failed_then_retry_only_success_counts(world):
     ]
     _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", recs)
     r = _run(world, atoms=[("root", atom_b)])["results"][0]
-    assert r["grade"] == "A" and r["hit"]["uuid"] == "h7" and r["quote"] == "「記卡片乙」"
+    assert r["grade"] == "A" and r["hit"]["uuid"] == "h7" and r["quote"] == "「把這條記成卡片乙」"
+
+
+def test_003_short_human_reply_is_not_quote(world):
+    # 003：回填找到的真人訊息是「A」這種一兩個字的回覆 → 不寫 Quote（A_noquote、too_short），Source 照補
+    atom_c = _atom(world["mem"] / "設計通則" / "卡片丙.md", "卡片丙")
+    recs = [
+        _human("h9", None, "2026-10-04T09:00:00Z", "A", sid=SID2),
+        _tool_use("a9", "h9", "2026-10-04T09:00:05Z", "t9", "卡片丙", sid=SID2),
+        _tool_result("r9", "a9", "2026-10-04T09:00:06Z", "t9", str(atom_c), sid=SID2),
+    ]
+    _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", recs)
+    r = _run(world, apply=True, atoms=[("root", atom_c)])["results"][0]
+    text = atom_c.read_text(encoding="utf-8")
+    assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "too_short", r
+    assert "- Quote:" not in text and "- Source: session:22222222#h9 2026-10-04" in text
+
+
+def test_003_caller_cleared_quote_is_not_backfilled(world):
+    # 003（codex 審）：呼叫者 replace 時明傳 quote="" 清空，背景回填找到那則原話也不補回；Source 照補。對照：沒傳 quote 照補
+    atom_d = _atom(world["mem"] / "設計通則" / "卡片丁.md", "卡片丁")
+    use = _tool_use("a10", "h10", "2026-10-05T09:00:05Z", "t10", "卡片丁", mode="replace", sid=SID2)
+    use["message"]["content"][0]["input"]["quote"] = ""
+    recs = [_human("h10", None, "2026-10-05T09:00:00Z", "把卡片丁的 Quote 清掉重寫", sid=SID2), use,
+            _tool_result("r10", "a10", "2026-10-05T09:00:06Z", "t10", str(atom_d), sid=SID2)]
+    _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", recs)
+    r = _run(world, apply=True, atoms=[("root", atom_d)])["results"][0]
+    text = atom_d.read_text(encoding="utf-8")
+    assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "caller_cleared", r
+    assert "- Quote:" not in text and "- Source: session:22222222#h10 2026-10-05" in text
+    r2 = _run(world, atoms=[("root", atom_d)])["results"][0]                   # 已有 Source：不寫，理由寫清楚
+    assert r2["grade"] == "skip" and r2["reason"] == "caller_cleared_not_quoted", r2
+    plain = _atom(world["mem"] / "設計通則" / "卡片戊.md", "卡片戊")
+    _write_jsonl(world["projects"] / "slug2" / f"{SID2}.jsonl", [
+        _human("h11", None, "2026-10-05T10:00:00Z", "把卡片戊記下來，原因寫清楚", sid=SID2),
+        _tool_use("a11", "h11", "2026-10-05T10:00:05Z", "t11", "卡片戊", mode="replace", sid=SID2),
+        _tool_result("r11", "a11", "2026-10-05T10:00:06Z", "t11", str(plain), sid=SID2)])
+    r3 = _run(world, atoms=[("root", plain)])["results"][0]
+    assert r3["grade"] == "A" and r3["quote"] == "「把卡片戊記下來，原因寫清楚」", r3
 
 
 KICKOFF = ("你是 v6.0 的工作 session track-x（共用檔同步），總控台是 claude-9f。"

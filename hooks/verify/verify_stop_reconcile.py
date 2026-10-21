@@ -579,6 +579,22 @@ def test_failing_tests_isolated_between_sibling_sessions(driven, capsys):
     assert "TestFailGate" in out and "1 項失敗" in out
 
 
+def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven, capsys):
+    """003（切入點自評 E08）：TestFailGate 三條出路先問使用者有沒有叫跳過（程式只收引原話的不做行），
+    不再寫「標記為已知 regression」——那句會把 AI 帶去加 xfail／skip 讓紅消失。擋的條件不變：有紅測又宣告完成就擋。"""
+    red = {"cmd": "python -m pytest tests -q", "summary": "FAILED tests/test_report.py::test_legacy_report", "turn_seq": 5,
+           "session_id": _SID, "pytest": True}
+    out, _, _ = driven("全部完成了。", capsys, failing_tests=[red], modified_files=[_mf(_CASE, 5)])
+    assert "[Guardian:TestFailGate] 測試未綠（1 項失敗），不得宣告完成。" in out
+    assert "先看使用者有沒有叫你跳過或先不管這支" in out and "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」" in out
+    assert "不准加 skip／xfail、不准只為了變綠改斷言" in out and "收尾別說完成" in out
+    # 需求變了、舊斷言不再對是正常情況：指去改舊測試的宣告，不一律禁改斷言（codex 審：跟改舊測試提示矛盾）
+    assert "是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」再改斷言" in out
+    assert "已知 regression" not in out and "降級任務定義" not in out                 # 反例：舊字句
+    msg = st.testfail_message([{"cmd": f"c{i}", "summary": f"s{i}\n第二行"} for i in range(5)])
+    assert "  - c2: s2" in msg and "  - c4: s4" in msg and "c1" not in msg and "第二行" not in msg   # 最後 3 筆、摘要第一行
+
+
 # ─── Q8 驗證範圍：宣告的項目是一條指令（原量尺閘案例） ───────────────────────────────────
 
 ROWS = parse_map((FIX / "q6" / "overview-map.md").read_text(encoding="utf-8"))
