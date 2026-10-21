@@ -212,6 +212,24 @@ def test_cs_unparsed_parts_are_shown_on_the_row_and_the_file_line(tmp_path):
     assert "a.cs::A.F｜巢狀 0｜條件塊 0｜認知 0｜長度 1｜信心：部分（同檔有解析不到，見該檔那一行）" in note, note
 
 
+def test_cs_unparsed_line_is_not_cut_by_the_row_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(rph, "FUNC_ROWS_SHOWN", 0)
+    root = _repo(tmp_path / "r")
+    _write(root, {"a.cs": "class A { int F() { return 2; } }\n}\n"})
+    note = _note(_state(_mf(root / "a.cs")))
+    assert "a.cs：解析不到（大括號不成對" in note and "a.cs::A.F｜" not in note and "…另 2 筆低於門檻不列" in note, note
+
+
+def test_cs_failure_keeps_python_rows_in_the_same_batch(tmp_path, monkeypatch):
+    def boom(*_a, **_k):
+        raise ValueError("壞掉了")
+    monkeypatch.setattr(rph, "cs_metrics_for_files", boom)
+    root = _repo(tmp_path / "r")
+    _write(root, {"y.py": NESTED_B, "a.cs": "class A { int F() { return 3; } }\n"})
+    note = _note(_state(_mf(root / "y.py"), _mf(root / "a.cs")))
+    assert "y.py::b｜巢狀 4｜條件塊 2" in note and "C# 的 1 個檔量不出來（ValueError: 壞掉了）" in note, note
+
+
 def test_untracked_new_file_is_counted_not_listed(tmp_path):
     root = _repo(tmp_path / "r")
     _write(root, {"y.py": _BODY.format("b") + "\n", "new.py": NESTED_B.replace("def b", "def nb")})

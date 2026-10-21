@@ -58,6 +58,7 @@ STATUS_LABEL = {"worse": "變差", "new": "新增"}
 TURN_JUDGMENT_DEFAULTS = {"turns": 2, "nesting": 3, "bumpy": 2, "handoff_chain": 2, "inherit_depth": 3, "max_items": 8}
 RESOLVE_FILES_MAX = 1500   # 接繼承鏈與轉手鏈時最多讀專案裡幾個同語言的檔（超過就只用改到的檔接）
 FUNC_ROWS_SHOWN = 20       # 函式級數據最多列幾筆（到門檻的優先，其餘只報個數）
+UNPARSED_TAG = "  ← 沒算到的部分"   # C# 檔案層解析不到：跟到門檻的一樣全列，不吃額度
 SCALE_QUOTE = ("是拐\"超過\"三個彎，也就是：第二個.. 就要開始提高注意、看到第三個拐彎已經是警戒極限、但又出現 第四個 就幾乎可以確定"
                "是臭掉了。且 這個 \"拐彎判斷\"，本身也是一種額外的輔助視角。")
 JUDGMENT_QUESTION = ("這一層／這個彎存在的理由是什麼？它有沒有真正的作用，還是只是抄過去的寫法、沒改舊架構長期衍生出來的？"
@@ -289,7 +290,7 @@ def function_rows(rows: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -
             lines.append(f"    {rel}：解析不了（{r['error']}）")
             continue
         if r["kind"] == "unparsed":   # C# 檔案層：大括號不成對、不在任何型別裡的程式
-            lines.append(f"    {rel}：解析不到（{'；'.join(r['unparsed'])}）")
+            lines.append(f"    {rel}：解析不到（{'；'.join(r['unparsed'])}）{UNPARSED_TAG}")
             continue
         name = f"{rel}::{r['name']}"
         keys = [name, r["name"], f"{Path(rel).name}::{r['name']}", r["name"].rsplit(".", 1)[-1]]
@@ -352,14 +353,19 @@ def _function_section(root: Path, base: str, tracked: List[str], deadline: float
     rest = [f for f in tracked if f not in cs]
     try:
         rows = metrics_for_files(rest, ranges, _resolve_pool(root, deadline, run)) if rest else []
-        rows += cs_metrics_for_files(cs, ranges, _resolve_pool(root, deadline, run, "*.cs")) if cs else []
     except Exception as e:  # noqa: BLE001  量不出來只寫原因
         return [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], []
+    failed = []
+    try:                                     # C# 另包一層：它失敗不牽連已算好的 Python 數據
+        rows += cs_metrics_for_files(cs, ranges, _resolve_pool(root, deadline, run, "*.cs")) if cs else []
+    except Exception as e:  # noqa: BLE001
+        failed = [f"    C# 的 {len(cs)} 個檔量不出來（{type(e).__name__}: {e}）{UNPARSED_TAG}"]
     lines, items = function_rows(rows, root, cfg)
+    lines += failed
     if not lines:
         return ["  函式級側面數據：這次的 diff 沒命中任何函式或類別本體"], []
-    hits = [ln for ln in lines if ln.endswith("← 要人看")]              # 到門檻的全列；其餘最多列 FUNC_ROWS_SHOWN 減去已列的
-    rest = [ln for ln in lines if not ln.endswith("← 要人看")]
+    hits = [ln for ln in lines if ln.endswith(("← 要人看", UNPARSED_TAG))]   # 到門檻與沒算到的全列；其餘最多列 FUNC_ROWS_SHOWN 減去已列的
+    rest = [ln for ln in lines if ln not in hits]
     shown_rest = rest[:max(0, FUNC_ROWS_SHOWN - len(hits))]
     head = ["  函式級側面數據（這次改到的函式與類別；Python ast／C# 括號配對解析，只算不判；每層加了什麼：+新增 ~覆寫）："]
     more = len(rest) - len(shown_rest)
