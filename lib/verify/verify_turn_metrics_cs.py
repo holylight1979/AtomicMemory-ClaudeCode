@@ -289,6 +289,137 @@ SHAPES = '''public class Shapes : pb::IMessage
 }
 '''
 
+LAYERS2 = """public class Body
+{
+    protected int hp;
+    public virtual void Hit(int d) { hp -= d; }
+    public void Heal(int n) { hp += n; }
+    public Body(int start) { hp = start; }
+}
+
+public class Invulnerable : Body
+{
+    public Invulnerable(int start) : base(start) { }
+    public override void Hit(int d) { }
+}
+
+public class Scaled : Body
+{
+    public Scaled(int start) : base(start * 10) { }
+}
+
+public class Overloaded : Body
+{
+    public Overloaded(int start) : base(start) { }
+    public void Heal(int n, string why) { hp += n; }
+}
+
+public abstract class Shape
+{
+    public virtual double Area() { return 0; }
+}
+
+public class Circle : Shape
+{
+    double r;
+    public override double Area() { return 3.14 * r * r; }
+}
+
+public class Board
+{
+    private Shape shape;
+    private Inner inner;
+    public double Total() => shape.Area();
+    public void Go() => inner.Step();
+}
+
+public class Inner
+{
+    public void Step() => helper.Run();
+    public void Run() { var a = 1; }
+    public string Show(bool a, bool b) { return $\"\"\"{(a && b ? 1 : 2)}\"\"\"; }
+}
+"""
+
+EQ_PY = """def f(a):
+    if a:
+        for x in a:
+            if x:
+                while x:
+                    x -= 1
+    if a:
+        if a:
+            pass
+    return a
+
+
+def e(a):
+    if a == 1:
+        return 1
+    elif a == 2:
+        return 2
+    else:
+        return 3
+
+
+def t(a):
+    try:
+        with a:
+            if a:
+                pass
+    except ValueError:
+        pass
+    return a
+"""
+
+EQ_CS = """public class Eq
+{
+    public int F(int[] a)
+    {
+        if (a != null)
+        {
+            foreach (var x in a)
+            {
+                if (x > 0)
+                {
+                    while (x > 0) { Step(); }
+                }
+            }
+        }
+        if (a != null)
+        {
+            if (a.Length > 0) { }
+        }
+        return 0;
+    }
+
+    public int E(int a)
+    {
+        if (a == 1)
+            return 1;
+        else if (a == 2)
+            return 2;
+        else
+            return 3;
+    }
+
+    public int T(int a)
+    {
+        try
+        {
+            using (var s = Open())
+            {
+                if (a > 0) { a++; }
+            }
+        }
+        catch (System.Exception)
+        {
+        }
+        return a;
+    }
+}
+"""
+
 TOP_LEVEL = """using System;
 
 Console.WriteLine("hi");
@@ -343,6 +474,18 @@ def test_override_that_does_more_than_base_or_changes_args_is_not_hollow(tmp_pat
     assert cls["Soldier"]["implementations"] == ["Armored", "Captain", "Guard", "Heavy"]
 
 
+def test_hollow_members_that_change_behavior_do_not_make_an_empty_layer(tmp_path):
+    """空覆寫擋掉上層有本體的實作（無敵）、建構子串接時引數有加工（乘 10）都是有作用的層；同名但參數個數不同是新增的多載。"""
+    cls = _by(_rows(tmp_path, {"Body.cs": LAYERS2}), "class")
+    inv = cls["Invulnerable"]["layers"][0]
+    assert not inv["empty"] and cls["Invulnerable"]["empty_layers"] == 0, inv
+    assert "擋掉上層的實作" in inv["hollow"]["Hit"] and "base" in inv["hollow"][".ctor"], "照列擋掉什麼，交給 LLM 判"
+    scaled = cls["Scaled"]["layers"][0]
+    assert not scaled["empty"] and scaled["hollow"] == {}, "base(start * 10) 有加工"
+    ov = cls["Overloaded"]["layers"][0]
+    assert ov["added"] == ["Heal"] and ov["overridden"] == [".ctor"], ov
+
+
 # ─── 只轉手與連續轉手鏈 ─────────────────────────────────────────────────────────
 
 def test_handoff_records_callee_and_chain_across_classes(tmp_path):
@@ -376,6 +519,38 @@ def test_interface_with_single_impl_marks_dispatch_and_counts_one_more_hop(tmp_p
     assert [l["name"] for l in impl["layers"]] == ["FileStore", "IStore"] and impl["interfaces"] == {"IStore": ["FileStore"]}
     assert impl["layers"][0]["overridden"] == ["Count", "Save"] and impl["layers"][0]["added"] == ["Write"]
     assert fn["Saver..ctor"]["handoff"] is None, "建構子存欄位不是轉手"
+
+
+def test_abstract_base_with_body_and_single_override_is_dispatch(tmp_path):
+    fn = _by(_rows(tmp_path, {"Body.cs": LAYERS2}), "func")
+    total = fn["Board.Total"]
+    assert total["dispatch"] == [{"via": "Shape.Area", "impl": "Circle.Area"}] and total["handoff_chain"] == 2, total
+
+
+def test_stuck_hop_later_in_the_chain_is_noted_on_the_start(tmp_path):
+    fn = _by(_rows(tmp_path, {"Body.cs": LAYERS2}), "func")
+    assert any(u.startswith("轉手對象 helper 的型別看不出來") for u in fn["Inner.Step"]["unparsed"]), fn["Inner.Step"]
+    go = fn["Board.Go"]
+    assert go["handoff_chain"] == 2 and go["confidence"] == "partial" and any("Inner.Step 那一手" in u for u in go["unparsed"]), go
+
+
+def test_raw_interpolated_holes_and_unreadable_lookup_files_are_listed(tmp_path):
+    (tmp_path / "Gone.cs").mkdir()
+    rows = _rows(tmp_path, {"Body.cs": LAYERS2}, ranges=None)
+    show = _by(rows, "func")["Inner.Show"]
+    assert show["confidence"] == "partial" and any("原始插值字串" in u for u in show["unparsed"]), show
+    rows = tmc.metrics_for_files([str(tmp_path / "Body.cs")], {str(tmp_path / "Body.cs"): [(1, 1)]}, [str(tmp_path / "Gone.cs")])
+    lost = [r for r in rows if r["kind"] == "unparsed"]
+    assert lost and "查找用的 1 個檔讀不了" in lost[0]["unparsed"][0], rows
+
+
+def test_same_shape_in_python_and_csharp_gives_same_numbers(tmp_path):
+    import turn_metrics as tm
+    py = {f["name"]: f for f in tm.function_metrics(EQ_PY, "eq.py")[0]}
+    cs = _by(_rows(tmp_path, {"Eq.cs": EQ_CS}), "func")
+    for p, c in (("f", "Eq.F"), ("e", "Eq.E"), ("t", "Eq.T")):
+        want = tuple(py[p][k] for k in ("nesting", "bumpy", "cognitive"))
+        assert tuple(cs[c][k] for k in ("nesting", "bumpy", "cognitive")) == want, (p, want, cs[c])
 
 
 def test_interface_with_two_impls_is_not_dispatch(tmp_path):

@@ -39,6 +39,7 @@ _CHAR_LIT = re.compile(r"'(?:\\.[^'\n]*|[^'\\\n])'")
 _CODE_STOP = re.compile(r"""//|/\*|['"$@]""")
 _HOLE_STOP = re.compile(r"""//|/\*|['"$@(){}\[\]:]""")
 _CTOR_INIT = re.compile(r"\)\s*:\s*(?:base|this)\s*\(.*$", re.S)
+_CTOR_ARGS = re.compile(r":\s*(?:base|this)\s*\((.*)\)\s*$", re.S)
 _OPERATOR = re.compile(r"\boperator\s*([^\s(]+)\s*\((?P<params>[^()]*)\)")
 _ACCESSOR = re.compile(r"\b(get|set|init|add|remove)\s*(\{|=>)")
 _LAMBDA_OPEN = re.compile(r"=>\s*\{|\bdelegate\s*(?:\([^()]*\))?\s*\{")
@@ -104,12 +105,13 @@ def _semicolon(src: str, pairs: Dict[int, int], i: int, end: int) -> Optional[in
     return None
 
 
-def _blank_literals(text: str) -> str:
+def _blank_literals(text: str) -> Tuple[str, List[int]]:
     """註解換成等長空白；字串與字元常值也換成空白，但開頭留一個引號當記號：`return $"{F(x)}.png";` 才不會被看成單純呼叫 F。
     插值的 {運算式} 照留（洞裡的字串照樣遮，: 之後的格式字串遮掉）；認得 "…"、@"…"（"" 跳脫）、$"…"、$@"…"、
-    原始字串 \"\"\"…\"\"\"（可帶 $）、'x'。換行一律留著，行號不跑。"""
+    原始字串 \"\"\"…\"\"\"（可帶 $）、'x'。換行一律留著，行號不跑。回 (遮好的原始碼, 原始插值字串的位置)：那種洞整段遮掉、沒算。"""
     out = list(text)
     n = len(text)
+    raw_holes: List[int] = []
 
     def blank(a: int, b: int) -> None:
         out[a:b] = ["\n" if ch == "\n" else " " for ch in text[a:b]]
@@ -159,6 +161,8 @@ def _blank_literals(text: str) -> str:
         if run - q >= 3 and "@" not in pre:                 # 原始字串：結尾是同樣多的引號
             j = text.find('"' * (run - q), run)
             j = n if j < 0 else j + run - q
+            if "$" in pre and "{" in text[run:j]:
+                raw_holes.append(i)
             blank(i, j)
             out[i] = '"'
             return j
@@ -192,7 +196,7 @@ def _blank_literals(text: str) -> str:
         return n
 
     code(0, False)
-    return "".join(out)
+    return "".join(out), raw_holes
 
 
 def _strip_generics(text: str) -> str:
@@ -682,7 +686,7 @@ def _accessors(src: str, depth: List[int], pairs: Dict[int, int], b0: int, b1: i
 
 def _parse(path: str, text: str) -> Dict[str, Any]:
     """一個 .cs 檔 → {classes, funcs, file_notes, last_line}。類別只有自己這層；鏈與實作跨檔用 _Ctx 接。"""
-    src = _blank_literals(text)
+    src, raw_holes = _blank_literals(text)
     newlines = [m.start() for m in re.finditer("\n", src)]
 
     def line_of(pos: int) -> int:
@@ -690,6 +694,7 @@ def _parse(path: str, text: str) -> Dict[str, Any]:
 
     spots = [(m.start(), f"第 {line_of(m.start())} 行有 #if 的另一支（#else／#elif）：兩支都算進來（數字可能偏大，不會偏小）")
              for m in _PREPROC_BRANCH.finditer(src)]
+    spots += [(p, f"第 {line_of(p)} 行有原始插值字串：{{運算式}} 裡的東西沒算進來（數字可能偏小）") for p in raw_holes]
     src = _blank_attributes(_PREPROC.sub(lambda m: " " * len(m.group()), src))
     depth, pairs = lang._braces(src)
     closes = set(pairs.values())
@@ -705,7 +710,7 @@ def _parse(path: str, text: str) -> Dict[str, Any]:
         info = {"name": m["name"], "qual": ".".join([x[0]["name"] for x in outer] + [m["name"]]), "file": path,
                 "lineno": line_of(m.start()), "end_lineno": line_of(c), "span": (m.start(), c), "kind": m["kind"],
                 "mods": mods, "bases": [b for b in bases if b], "partial": "partial" in mods, "members": [],
-                "abstract": set(), "hollow": {}, "solid": set(), "fields": {}, "notes": []}
+                "abstract": set(), "hollow": {}, "solid": set(), "fields": {}, "notes": [], "arity": {}, "overrides": set()}
         own: List[Dict[str, Any]] = []
         for member in lang._cs_members(src, depth, pairs, o):
             _read_member(info, own, member, src, depth, pairs, line_of, body)
@@ -781,17 +786,21 @@ def _read_member(info: Dict[str, Any], out: List[Dict[str, Any]], member: tuple,
     texts = lang._split_top(sig["params"], "()[]{}<>")
     params = dict(p for p in (lang._cs_param(t) for t in texts) if p)
     info["members"].append(name)
+    info["arity"].setdefault(name, set()).add(len(texts))
+    if "override" in mods:
+        info["overrides"].add(name)
     if declared or "abstract" in mods or "extern" in mods:
         info["abstract"].add(name)
         return
     fn = _func(info, name, f"{info['qual']}.{name}", lead, b0, b1, arrow, line_of, body, name)
     fn.update(params=params, method=True, sig=",".join(lang._cs_type_text(t) for t in texts))
+    passed = _CTOR_ARGS.search(head)
     if "override" in mods and fn["stmts"] == 0 and not arrow:
         info["hollow"][name] = "empty"
     elif "override" in mods and fn["handoff"] == f"base.{name}" and _same_args(fn["handoff_args"], list(params)):
         info["hollow"][name] = "base"
-    elif name in (CTOR, CCTOR) and fn["stmts"] == 0 and not arrow:
-        info["hollow"][name] = "ctor-base" if _CTOR_PASS.search(head) else "ctor"
+    elif name in (CTOR, CCTOR) and fn["stmts"] == 0 and not arrow and (not passed or _same_args(passed.group(1), list(params))):
+        info["hollow"][name] = "ctor-base" if passed else "ctor"     # 串接的引數有加工（: this(s * 1000)）就有作用
     else:
         info["solid"].add(name)
     out.append(fn)
@@ -846,16 +855,27 @@ def _sign_overloads(funcs: List[Dict[str, Any]]) -> None:
 _HOLLOW_TEXT = {"base": "只呼叫 base 同名方法、引數照傳", "ctor": "建構子空本體", "ctor-base": "建構子空本體，只把參數交給 base／this"}
 
 
-def _hollow_text(kind: str, member: str, above: set, above_abstract: set) -> str:
+def _hollow_text(kind: str, member: str, above: set, above_abstract: set) -> Tuple[str, bool]:
+    """空殼成員 → (說明, 算不算「這層沒加東西」)。空本體擋掉上層有本體的實作是改了行為（例：子類空覆寫扣血＝無敵），照列、不算沒加。"""
     if kind != "empty":
-        return _HOLLOW_TEXT[kind]
+        return _HOLLOW_TEXT[kind], True
     if member in above_abstract:
-        return "空本體（上層只有抽象宣告，這層補一個什麼都不做的實作）"
-    return "空本體（擋掉上層的實作）" if member in above else "空本體（上層在掃不到的基底，這層把它擋掉）"
+        return "空本體（上層只有抽象宣告，這層補一個什麼都不做的實作）", True
+    if member in above:
+        return "空本體（擋掉上層的實作：改了行為，不算空）", False
+    return "空本體（上層在掃不到的基底，這層把它擋掉：不算空）", False
+
+
+def _overrides(c: Dict[str, Any], m: str, above: set, above_arity: Dict[str, set]) -> bool:
+    """m 是覆寫上層的成員嗎：欄位、屬性看名字；方法要有 override、或參數個數對得上（同名不同參數個數是新增的多載）。"""
+    if m not in above:
+        return False
+    arity = c["arity"].get(m)
+    return arity is None or m not in above_arity or m in c["overrides"] or bool(arity & above_arity[m])
 
 
 def _inherit_layers(start: Dict[str, Any], index: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """沿第一個基底往上接：每層 added／overridden／hollow，empty＝除了 hollow 什麼都沒加。接不到的基底記 unresolved_base 並停。"""
+    """沿第一個基底往上接：每層 added／overridden／hollow，empty＝除了「沒加東西」的空殼成員什麼都沒加。接不到的基底記 unresolved_base 並停。"""
     chain, seen, cur, unresolved = [], set(), start, None
     while cur is not None and cur["name"] not in seen:
         seen.add(cur["name"])
@@ -867,15 +887,18 @@ def _inherit_layers(start: Dict[str, Any], index: Dict[str, Dict[str, Any]]) -> 
             unresolved = cur["bases"][0]
             break
         cur = nxt
-    layers, above, above_abstract = [], set(), set()
+    layers, above, above_abstract, above_arity = [], set(), set(), {}
     for c in reversed(chain):          # 從最上層往下算
         mem = c["members"]
         hollow = {m: _hollow_text(k, m, above, above_abstract) for m, k in c["hollow"].items()}
-        layers.append({"name": c["qual"], "file": c["file"], "added": [m for m in mem if m not in above],
-                       "overridden": [m for m in mem if m in above], "empty": not [m for m in mem if m not in hollow],
-                       "hollow": hollow})
+        over = [m for m in mem if _overrides(c, m, above, above_arity)]
+        layers.append({"name": c["qual"], "file": c["file"], "added": [m for m in mem if m not in over], "overridden": over,
+                       "empty": not [m for m in mem if not hollow.get(m, ("", False))[1]],
+                       "hollow": {m: text for m, (text, _) in hollow.items()}})
         above |= set(mem)
         above_abstract = (above_abstract - set(mem)) | c["abstract"]
+        for m, arity in c["arity"].items():
+            above_arity.setdefault(m, set()).update(arity)
     layers.reverse()
     return {"depth": len(layers), "empty_layers": sum(1 for l in layers if l["empty"]), "unresolved_base": unresolved,
             "layers": layers}
@@ -916,11 +939,15 @@ class _Ctx:
     def _add(self, c: Dict[str, Any]) -> None:
         have = self.index.get(c["name"])
         if have is None:
-            self.index[c["name"]] = dict(c, members=list(c["members"]), abstract=set(c["abstract"]),
-                                         hollow=dict(c["hollow"]), fields=dict(c["fields"]), parts=1)
+            self.index[c["name"]] = dict(c, members=list(c["members"]), abstract=set(c["abstract"]), hollow=dict(c["hollow"]),
+                                         fields=dict(c["fields"]), overrides=set(c["overrides"]),
+                                         arity={k: set(v) for k, v in c["arity"].items()}, parts=1)
         elif c["partial"] and have["partial"]:
             have["members"] = list(dict.fromkeys(have["members"] + c["members"]))
             have["abstract"] |= c["abstract"]
+            have["overrides"] |= c["overrides"]
+            for k, v in c["arity"].items():
+                have["arity"].setdefault(k, set()).update(v)
             have["hollow"].update(c["hollow"])
             have["fields"] = {**c["fields"], **have["fields"]}
             have["bases"] = have["bases"] or c["bases"]
@@ -1008,13 +1035,13 @@ class _Ctx:
             same = stuck and any(member in fs for fs in self.funcs.values())
             return None, None, (f"轉手對象 {'.'.join(recv)} 的型別看不出來，鏈只算到這裡（掃到的檔裡有同名方法 {member}）"
                                 if same else None)
-        fs, decl = self._find(t, member)
-        if fs:
-            return self._pick(fs, nargs, f), None, None
-        info = self.index.get(decl) if decl else None
-        impls = self.impls.get(decl, []) if info and (info["kind"] == "interface" or "abstract" in info["mods"]) else []
+        fs, _ = self._find(t, member)
+        info = self.index[t]
+        impls = self.impls.get(t, []) if info["kind"] == "interface" or "abstract" in info["mods"] else []
         got = self._pick(self._find(impls[0], member)[0], nargs, f) if len(impls) == 1 else None
-        return (got, {"via": f"{decl}.{member}", "impl": got["name"]}, None) if got else (None, None, None)
+        if got and not (fs and got in fs):      # 經過介面或抽象型別、唯一的具體實作有自己的那一個：多繞一手
+            return got, {"via": f"{t}.{member}", "impl": got["name"]}, None
+        return self._pick(fs, nargs, f), None, None
 
     def func_row(self, fn: Dict[str, Any], shaky: bool) -> Dict[str, Any]:
         n, cur, seen, hops, notes = 0, fn, set(), [], list(fn["notes"])
@@ -1025,8 +1052,8 @@ class _Ctx:
             if hop:
                 n += 1
                 hops.append(hop)
-            if why and cur is fn:
-                notes.append(why)
+            if why:
+                notes.append(why if cur is fn else f"{cur['name']} 那一手：{why}")
             cur = nxt
         return {"kind": "func", "file": fn["file"], "name": fn["name"], "lineno": fn["lineno"], "end_lineno": fn["end_lineno"],
                 "length": fn["length"], "nesting": fn["nesting"], "bumpy": fn["bumpy"], "cognitive": fn["cognitive"],
@@ -1058,6 +1085,7 @@ def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Rang
     listed = [str(f) for f in files]
     rows: List[Dict[str, Any]] = []
     parsed: Dict[str, Dict[str, Any]] = {}
+    lost: List[str] = []                  # 查找用的檔讀不了：實作數與鏈可能少算
     for f in dict.fromkeys(listed + [str(f) for f in (resolve_files or [])]):
         if not f.lower().endswith(".cs"):
             continue
@@ -1066,6 +1094,11 @@ def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Rang
         except (OSError, ValueError, RecursionError) as e:
             if f in listed:
                 rows.append({"kind": "error", "file": f, "error": f"{type(e).__name__}: {e}"[:160]})
+            else:
+                lost.append(f"{Path(f).name}（{type(e).__name__}）")
+    if lost:
+        rows.append({"kind": "unparsed", "file": listed[0] if listed else "", "lineno": 1, "end_lineno": 1, "confidence": "partial",
+                     "unparsed": [f"查找用的 {len(lost)} 個檔讀不了（{'、'.join(lost[:3])}），實作數與轉手鏈可能少算"]})
     ctx = _Ctx(parsed.values())
     for f in listed:
         if not f.lower().endswith(".cs"):
