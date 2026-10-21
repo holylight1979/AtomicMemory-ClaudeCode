@@ -6,6 +6,7 @@
 
 | Atom | 說明 |
 |------|------|
+| bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準 | bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準 |
 | claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror | claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror |
 | dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
 | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變None-子行程要帶PYTHONUTF8並errors-replace-python-I會忽略PYTHONIOENCODING |

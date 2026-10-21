@@ -14,4 +14,5 @@
 | toolchain | 工具鏈實戰記憶 |
 | windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |
 | 彙整多份來源寫現況文件時-追蹤表裡的修法建議不是現況-每句現況要能指到程式 | 彙整多份來源寫現況文件時-追蹤表裡的修法建議不是現況-每句現況要能指到程式 |
+| 按空白斷詞的token比對拿去比中文原話會失效-中文整句是一個token-比原話要用前後不是英數字的regex | 按空白斷詞的token比對拿去比中文原話會失效-中文整句是一個token-比原話要用前後不是英數字的regex |
 | 規格裡未實證的前提要先取樣再實作-不然整包白做 | 規格裡未實證的前提要先取樣再實作-不然整包白做 |

@@ -5,11 +5,11 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 23 |
+| Python | 24 |
 | C#／.NET | 21 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
-| Bash／Shell | 15 |
+| Bash／Shell | 16 |
 
 ## Python
 
@@ -19,6 +19,7 @@
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
 | `memory/CC與原子記憶契約/claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事.md` | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |
 | `memory/Failures/驗證與實證/feedback-completion-gates.md` | feedback-completion-gates |
+| `memory/OS-Windows/bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準.md` | bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準 |
 | `memory/OS-Windows/pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding.md` | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變None-子行程要帶PYTHONUTF8並errors-replace-python-I會忽略PYTHONIOENCODING |
 | `memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md` | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
 | `memory/OS-Windows/windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑.md` | Windows 新機 PATH 的 WindowsApps python.exe 是 Store 佔位程式-零輸出 exit 9009-子程序裸 spawn python 必用絕對路徑 |
@@ -91,6 +92,7 @@
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
 | `memory/CC與原子記憶契約/plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法.md` | plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法 |
 | `memory/CC與原子記憶契約/失敗的工具呼叫cc只送posttoolusefailure-靠posttooluse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記.md` | 失敗的工具呼叫CC只送PostToolUseFailure-靠PostToolUse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記 |
+| `memory/OS-Windows/bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準.md` | bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準 |
 | `memory/OS-Windows/shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標.md` | shell=True子行程帶CREATE_NO_WINDOW輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標 |
 | `memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md` | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
 | `memory/OS-Windows/子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它.md` | 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它 |
