@@ -63,8 +63,10 @@ def test_start_reads_guardian_timeout_from_settings_else_config(ledger, monkeypa
         {"type": "command", "command": guardian, "timeout": 20}]}]}}), encoding="utf-8")
     t = ht.start("Stop", {"session_id": "s1"}, _CFG)
     assert (t.limit_s, t.limit_src, t.session_id, t.segments[0][0]) == (20.0, "settings.json", "s1", "啟動")
+    ht.finish()                                                                # 收表：背景鬧鐘不留到案例外
     t = ht.start("PostToolUse", {}, _CFG)
     assert (t.limit_s, t.limit_src) == (5.0, "config")
+    ht.finish()
     assert ht.start("PreToolUse", {}, _CFG) is None and ht._CUR is None
     assert ht.start("Stop", {}, {"hook_timing": {**_CFG["hook_timing"], "enabled": False}}) is None
 
