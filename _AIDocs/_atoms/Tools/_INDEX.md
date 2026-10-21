@@ -22,7 +22,6 @@
 | 公司gitlab的mr收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器 | 公司gitlab的MR收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器 |
 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 |
 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與ListAgents啟動時間 |
-| 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 | 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 |
 
 ## 子層
 

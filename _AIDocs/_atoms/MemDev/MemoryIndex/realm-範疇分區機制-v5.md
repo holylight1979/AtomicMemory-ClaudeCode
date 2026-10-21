@@ -17,6 +17,7 @@
 - [觀] 儲存位置與注入範圍是兩個維度：`CROSS_PROJECT_LOCAL_DOMAINS` 例外機制（storage 在 `_atoms/` 仍跨專案注入）現為空集合、機制保留——起因是使用者心智模型「memory/＝索引、_atoms＝知識儲存」與「路徑前綴綁死注入範圍」的矛盾（見 [[feedback-complexity-origin-trace]]）；分類階層化後跨專案知識一律直接住 `memory/<範疇>/`，不再靠例外。
 - [觀] 本顆住 `MemDev`（開發面）：記憶系統機制對外部專案是噪音；使用面契約由 rules/core.md 記憶段與 MCP `atom_write` schema 承載。
 - [臨] 資料夾只按問題類型分（Lv1 閉合清單），不另開 Python／JS 等語言資料夾；dotnet 是唯一以技術棧命名的 Lv1。要依語言找卡，讀 `memory/_by_language/_INDEX.md`：sync-memory-index 產生的跨範疇視圖，只列卡片路徑、不搬檔、一張可屬多個語言，MEMORY.md 末尾有一行指標。判定詞庫在 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，詞尾 * 為前綴比對；或卡在 dirs 綁定的範疇資料夾）；調整歸類改詞庫後跑 `sync-memory-index.py --write`，不手改視圖。
+- [臨] 綁 Entry 的卡不自動搬（規則 ENTRY_BOUND_STAYS_CORE，判定只在 lib/atom_locations.entry_bound_ids，檔頭 Entry 為準）：sweep 不搬不喚 LLM、帳留 realm_hold；手動搬只警告。細節 TECH §4.3。
 
 ## 行動
 
