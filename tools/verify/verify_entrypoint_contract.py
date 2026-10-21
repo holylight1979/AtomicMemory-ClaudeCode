@@ -338,15 +338,32 @@ def test_card_pool_visibility_and_superseded(tmp_path, monkeypatch):
 # ─── ② 真卡（總控台代寫的兩張，Entry 由 edit_metadata 補）─────────────────────
 
 def test_real_cards_bound_and_picked(monkeypatch):
+    """Entry 欄可多值（逗號分隔）：只驗卡上解析出的代號含 E04／E08、索引跟檔一致，不綁整行；
+    卡上每個代號都拿登錄表那一列的識別字樣問一次，挑卡第一張要是綁定這個代號的專卡（不是關鍵字退路卡）。"""
     mem_dir = _ROOT / "memory"
     text = {n: next(mem_dir.rglob(f"{n}.md")).read_text(encoding="utf-8") for n in (REAL_E04, REAL_E08)}
-    assert "\n- Entry: E04\n" in text[REAL_E04] and "\n- Entry: E08\n" in text[REAL_E08]
+    codes = {}
+    for n, t in text.items():
+        m = re.search(r"^- Entry:[ \t]*(.*)$", t, re.MULTILINE)
+        codes[n] = [e.strip() for e in (m.group(1) if m else "").split(",") if e.strip()]
+    assert "E04" in codes[REAL_E04] and "E08" in codes[REAL_E08], codes
     rows = {a["name"]: a for a in atom_index_json.load_atom_index_json(mem_dir)["atoms"]}
-    assert rows[REAL_E04].get("entry") == ["E04"] and rows[REAL_E08].get("entry") == ["E08"]
+    assert all(sorted(rows[n].get("entry") or []) == sorted(codes[n]) for n in codes), {n: rows[n].get("entry") for n in codes}
     monkeypatch.setattr(ep, "MEMORY_DIR", mem_dir)
     out = ep.judgment_cards(PICK_ONE_TEXT, "stop_piggyback", state={}, config={})
-    assert out["cards"] and out["cards"][0] == {"name": REAL_E04, "entries": ["E04"], "via": "entry"}
-    assert out["note"].startswith(f"判準卡（E04）：{REAL_E04}\n- [臨] 判準：")
+    assert out["cards"] and out["cards"][0]["name"] == REAL_E04 and out["cards"][0]["via"] == "entry"
+    assert out["note"].startswith(f"判準卡（{'、'.join(out['cards'][0]['entries'])}）：{REAL_E04}\n- [臨] 判準：")
+    reg = {r["id"]: r for r in ep.load_registry()["entrypoints"]}
+    pool = ep.card_pool({})
+    wide = {"entrypoint": {"inject_budget_tokens": 100000}}            # 預算放大：只驗挑卡順序，不驗截斷
+    for name, entries in codes.items():
+        for eid in entries:
+            row = reg[eid]
+            bound = [c["name"] for c in pool if eid in c["entry"]]
+            got = ep.judgment_cards(row["markers"][0], row["paths"][0], pool=pool, config=wide)
+            assert eid in got["entries"], (eid, got["entries"])
+            assert got["cards"][0]["name"] == bound[0] and got["cards"][0]["via"] == "entry", (eid, got["cards"][:2])
+            assert name in [c["name"] for c in got["cards"] if c["via"] == "entry"], (eid, name)
 
 
 # ─── ③ 問的那一刻注入（真跑 handler）──────────────────────────────────────────
