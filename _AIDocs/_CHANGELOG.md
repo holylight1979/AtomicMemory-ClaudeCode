@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 閘小修四件：語言守門不算路徑、新寫的測試不當舊測試、同一件只記一筆、entry-stats 逐筆列問
+- **交給 AI 寫程式時會看到的**：中文報告夾著沒包反引號的路徑、檔名、規則名、旗標，不再被語言守門要求用繁中重答（第二波 A′ 那則從 59% 降到 39%）；本 session 自己新寫的測試，就算寫它的那次指令失敗了，之後改它的期望值也不會被要求「改舊測試｜」；同一回合把「順手看到最該修」那件換個說法再答一次，追蹤帳本只留一筆（第二次的內容蓋上去）；`python tools/entry-stats.py --asks --json` 逐筆列每次問與回應型。
+- **改了什麼**（軌 track-gate-small-fixes）：`hooks/lang_guard.strip_noncontent` 多剝路徑（要像路徑才剝）、帶點名稱、底線識別字、指令旗標，正規式錨在字首（長字串不變平方時間）；`hooks/wg_oldtest` 拍快照時記基線 `old_test_baseline`＝磁碟加 git HEAD 的測試名（根因：指令失敗時 Claude Code 不送 PostToolUse，`old_test_added` 漏記；A-1 transcript:162 `is_error=True`）；`hooks/wg_harvest.record_pick` 同 session 同回合同件（`same_pick_target`：去旁註後相同或一句是另一句開頭）追加「新列＋結案舊列」取代第一筆，帳本只追加；`tools/entry-stats.py` 加 `--asks`，尾行多 `asks_listed=`（沒給時不變）。舊測試一處：`verify_lang_guard` 的 link text 改成非檔名字樣（檔名照新規則剝）。
+- **驗證**：新案例 21 支（語言守門 6、舊測試閘 5、追蹤項 5、entry-stats 3、外加 A-1 實料比對），退回舊碼 8 支紅、codex 修補各案退回修補前紅；目標 verify 全綠。Codex 兩輪 8 條 BLOCK 全核實並修：帳本改寫有競態（改成只追加、新列先寫）、檔＋識別字或字面相似就併會吃掉同函式別的問題（只留去旁註後相同或前綴）、session 前被刪的測試檔基線記成空（併 HEAD）、Write 還原被刪的舊測試被記成新加、英文斜線詞被當路徑剝、entry-stats 文字逐筆缺欄；自查另抓到路徑正規式在長字串變平方時間（2 萬字 10 秒→5 毫秒）。
 ## 2026-10-21 擋訊息不再把 AI 帶錯、最該修材料附呼叫點、Quote 不再被填成「A」
 - **交給 AI 寫程式時會看到的**：六處擋訊息改成先分辨情況再給處置——紅測先問使用者有沒有叫跳過、沒叫就分程式錯還是需求變了（不再寫「標記為已知 regression」）、改舊測試分「需求變了」與「只說跳過」、卡片版繞閘先問讀者能不能照做過關、提問前先讀部位改成被擋重組時要先讀、退避舉證排在注入最前面且叫你先處理、病形閘先分是不是你改的檔。交付時「順手看到最該修」的壞味道每條多一個呼叫點（誰 import 它、幾處，算不出寫無法判）。使用者最近一則只回「A」這種短句、或呼叫者明傳 `quote=""` 時，卡片不再被自動填 Quote；新工具 `tools/quote-cleanup.py` 清已經填成「A」的（預設只列，`--apply` 才刪）。擋不擋的條件都沒變。
 - **改了什麼**（軌 track-entrypoint-contract 003）：`handlers/stop.testfail_message`、`wg_oldtest.hint`、`wg_gate_bypass.atom_refusal`、`wg_release_rules._ASK_OVERVIEW_HOW`、`handlers/user_prompt_submit.evasion_ask`、`project-smells.render_commit_report` 字句；`wg_harvest._callsites`／`_imports_stem`（Python 用 ast）；`lib/provenance.usable_quote`（`wg_provenance`、`atom-provenance-backfill` 共用；回填工具也認 atom_write 明傳的 `quote=""`）；`atom_io.VALID_SOURCES` 加 `tool:quote-cleanup`；登錄表 7 列說明欄同步。順手：`tools/move-dir-check.py` 抽樣指令那一行補不開視窗豁免註記（帶旗標會讓子行程輸出不見）；`lib/harness_text` 開工句判定認「你是工作軌 <名>」與「<名>：」開頭（總控台現在的開工句認不出，工作軌寫的卡 Quote 被填成開工句）。

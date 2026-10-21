@@ -144,6 +144,94 @@ def test_record_pick_none_and_repeats_still_count_as_answered_for_new_batch(worl
     assert not wh.pick_due(state, _SID, [{"path": "a.py", "last_turn_seq": 8}], boundary=True)
 
 
+# 第二波 A′ 實跑（tracking:1–2、guard-pick_one:2–3）：同 session 同回合對同一件以略異文字答兩次 → 記成兩筆 open
+A1_PICK_1 = """改完了。
+
+順手看到最該修：[pricing] catalog.py 的 PRICES 價格表寫死在程式裡（defects.md 剩下的唯一一項）
+- 為什麼是它：價格是業務天天會改的資料，現在改價等於改程式、發版、重跑測試
+- 建議怎麼解：把 PRICES 搬成 pricing 目錄下的 prices.json，catalog.unit_price 啟動時讀一次並快取
+- 該誰解：使用者決定改價流程
+"""
+A1_PICK_2 = """補上那段。
+
+順手看到最該修：[pricing] catalog.py 的 PRICES 價格表寫死在程式裡
+- 為什麼是它：價格是業務常改的資料，改價等於改程式發版
+- 建議怎麼解：PRICES 搬成 pricing/prices.json，catalog.unit_price 啟動讀一次快取，KeyError 行為保留
+- 該誰解：使用者決定改價流程後，下一個寫碼 session 做
+"""
+
+
+def _open(proj):
+    return wh.open_tracking_items(_rows(proj))
+
+
+def test_record_pick_same_turn_reworded_supersedes_first_row(world):
+    proj, _ = world
+    state: dict = {}
+    assert wh.record_pick(state, _SID, 1, A1_PICK_1, str(proj), at="2026-10-21T15:35:43+08:00")[0] == "recorded"
+    first_id = _rows(proj)[0]["id"]
+    ev, _ = wh.record_pick(state, _SID, 1, A1_PICK_2, str(proj), at="2026-10-21T15:35:56+08:00")
+    assert ev == "updated" and state["pick_one"][_SID]["covered_turn"] == 1
+    (row,) = _open(proj)                                                                 # 未結的只一筆，是第二次的說法
+    assert row["text"] == "catalog.py 的 PRICES 價格表寫死在程式裡" and row["proposal"].endswith("KeyError 行為保留")
+    assert row["owner"].startswith("使用者決定改價流程後") and row["supersedes"] == first_id
+    rows = _rows(proj)                                                                   # 帳本只追加：原列逐字還在
+    assert len(rows) == 3 and rows[0]["id"] == first_id and rows[0]["text"].endswith("（defects.md 剩下的唯一一項）")
+    assert rows[1]["id"] == row["id"]                                                    # 新列先寫、結案列後寫
+    assert rows[2]["status"] == "closed" and rows[2]["closes"]["id"] == first_id and rows[2]["superseded_by"] == row["id"]
+
+
+def test_record_pick_supersede_half_written_never_loses_the_item(world, monkeypatch):
+    """Codex：兩列只寫進第一列就斷了（磁碟滿、程序被砍）→ 最多多一筆重複，舊的那件不會被關掉卻沒有新的。"""
+    proj, _ = world
+    wh.record_pick({}, _SID, 1, A1_PICK_1, str(proj))
+    real = wh.append_tracking
+    monkeypatch.setattr(wh, "append_tracking", lambda slug, entries, *a, **k: real(slug, entries[:1], *a, **k))
+    wh.record_pick({}, _SID, 1, A1_PICK_2, str(proj))
+    assert len(_open(proj)) == 2
+
+
+def test_record_pick_superseded_row_stays_closed_after_ledger_pruning(world):
+    """清理器（handlers/_shared._prune_tracking_pairs）把結案超過 90 天的「結案列＋開項」成對拿掉；被取代的那筆不會因此又變回未結。"""
+    from datetime import datetime
+    from handlers import _shared
+    proj, wf = world
+    wh.record_pick({}, _SID, 1, A1_PICK_1, str(proj), at="2026-01-01T00:00:00+08:00")
+    wh.record_pick({}, _SID, 1, A1_PICK_2, str(proj), at="2026-01-01T00:00:10+08:00")
+    res = {"deleted": [], "compacted": {}, "failed": []}
+    _shared._prune_tracking_pairs(wf / "tracking", 90, datetime(2026, 10, 21).timestamp(), False, res)
+    assert res["compacted"], "前置：清理器真的拿掉了那一對"
+    assert [r["text"] for r in _rows(proj)] == ["catalog.py 的 PRICES 價格表寫死在程式裡"]
+    assert [r["text"] for r in _open(proj)] == ["catalog.py 的 PRICES 價格表寫死在程式裡"]
+
+
+def test_record_pick_different_target_or_other_session_keeps_separate_rows(world):
+    proj, _ = world
+    wh.record_pick({}, _SID, 1, A1_PICK_1, str(proj))
+    other = A1_PICK_2.replace("catalog.py 的 PRICES 價格表寫死在程式裡", "cli.py 的 main 參數手切")
+    assert wh.record_pick({}, _SID, 1, other, str(proj))[0] == "recorded"               # 同回合不同標的 → 兩筆
+    same_fn = A1_PICK_2.replace("價格表寫死在程式裡", "缺少負數檢查")
+    assert wh.record_pick({}, _SID, 1, same_fn, str(proj))[0] == "recorded"             # 同一個檔與識別字、不同問題（Codex）→ 不併
+    upper = A1_PICK_2.replace("catalog.py 的 PRICES 價格表寫死在程式裡", "validator.py 的 validate 未檢查上限")
+    assert wh.record_pick({}, _SID, 1, upper, str(proj))[0] == "recorded"
+    lower = upper.replace("未檢查上限", "未檢查下限")
+    assert wh.record_pick({}, _SID, 1, lower, str(proj))[0] == "recorded"               # 字面很像的不同問題（Codex 複審）→ 不併
+    assert wh.record_pick({}, "other-sid", 1, A1_PICK_2, str(proj))[0] == "recorded"   # 別的 session 不併（不是同一次交付）
+    assert len(_open(proj)) == 6
+
+
+def test_record_pick_supersede_write_failure_keeps_first_row_and_says_so(world, monkeypatch, capsys):
+    """換成新說法的那兩列寫不進去 → 第一筆照留、stderr 說沒換；第一筆已在帳上，仍算答過。"""
+    proj, _ = world
+    state: dict = {}
+    wh.record_pick(state, _SID, 1, A1_PICK_1, str(proj))
+    monkeypatch.setattr(wh, "append_tracking", lambda *a, **k: None)
+    assert wh.record_pick(state, _SID, 1, A1_PICK_2, str(proj))[0] == "update_failed"
+    (row,) = _open(proj)
+    assert row["text"].endswith("（defects.md 剩下的唯一一項）")
+    assert "沒換成新的說法" in capsys.readouterr().err and state["pick_one"][_SID]["covered_turn"] == 1
+
+
 def test_record_pick_write_failure_is_not_answered_and_retries(world, monkeypatch):
     """Codex BLOCK 2：帳本寫不進去 → 不算答過（下次照問）、同一段下次照記。"""
     proj, _ = world

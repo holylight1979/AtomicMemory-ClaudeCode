@@ -38,12 +38,12 @@ def test_strip_removes_code_fence():
 
 
 def test_strip_removes_inline_and_url_and_link_target():
-    text = "見 `settings.json` 與 [config.json](workflow/config.json)，網址 https://example.com/path 都不算。"
+    text = "見 `settings.json` 與 [config guide](workflow/config.json)，網址 https://example.com/path 都不算。"
     out = LG.strip_noncontent(text)
     assert "settings.json" not in out       # inline code 剝除
     assert "workflow/config.json" not in out  # link 目標剝除
     assert "example.com" not in out          # 裸 URL 剝除
-    assert "config.json" in out              # link text 保留（user-facing）
+    assert "config guide" in out             # link text 保留（user-facing；寫成檔名的 link text 照檔名剝）
 
 
 def test_strip_empty():
@@ -121,6 +121,61 @@ def test_no_remind_chinese_with_inline_terms():
             "[config.json](workflow/config.json)，這段繁體中文說明夠長可觸發判定門檻。")
     need, _, _ = LG.should_remind(text, threshold=0.5, min_lang_chars=40)
     assert need is False
+
+
+# 第二波 A′ 實跑（guard-lang.jsonl:1）：中文材料報告裡沒包反引號的路徑、檔名、規則名、旗標被算成英文 59% → 誤要求重答
+A1_REPORT = (
+    "材料整理如下，全部取自本 session 實際紀錄。\n"
+    "改了 pricing/api.py、pricing/rates.py、tests\\test_cli.py；C:\\w4\\qa2-pricing\\pricing\\cli.py 加 --plain 選項。\n"
+    "跑 python -m pytest -q tests/test_cli.py 結果 10 passed；preserve-check.py --mutation side_effect 印 PRESERVE_CHECK PASS。\n"
+    "被擋訊息依序是 OLD_TEST_CHANGE_NEEDS_DECLARATION、UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP，need_goal 的 verify_scope 拒收 no_case。\n"
+    "暫存目錄 /tmp/qa2eq 已刪；api.quote 用法與 calc.total 算出的金額跟改前一樣。\n"
+)
+
+
+def test_strip_removes_bare_paths_filenames_identifiers_and_flags():
+    out = LG.strip_noncontent(A1_REPORT)
+    for gone in ("pricing/api.py", "test_cli.py", "qa2-pricing", "--plain", "--mutation", "side_effect", "PRESERVE_CHECK",
+                 "OLD_TEST_CHANGE_NEEDS_DECLARATION", "need_goal", "/tmp/qa2eq", "api.quote", "preserve-check.py"):
+        assert gone not in out
+    assert "材料整理如下" in out and "python" in out and "passed" in out    # 中文散文與一般英文字照留
+
+
+def test_no_remind_chinese_report_with_bare_paths_and_commands():
+    raw_ratio, _ = LG.english_ratio(A1_REPORT)
+    assert raw_ratio >= 0.5                  # 前置：不剝的話英文過門檻（這段沒有反引號，舊的剝法什麼都沒剝）
+    need, ratio, n = LG.should_remind(A1_REPORT, threshold=0.5, min_lang_chars=40)
+    assert n >= 40 and ratio < 0.5 and need is False
+
+
+def test_remind_english_paragraph_even_with_paths():
+    text = ("I refactored pricing/api.py and removed the service layer, then ran the whole test suite "
+            "with --plain enabled; everything passed and the output format is unchanged for callers.")
+    need, ratio, _ = LG.should_remind(text, threshold=0.5, min_lang_chars=40)
+    assert need is True and ratio == 1.0     # 路徑與旗標剝掉，剩下的散文仍全是英文 → 照擋
+
+
+def test_remind_english_with_slash_compounds():
+    """Codex：input/output、error/recovery 這種英文斜線詞不是路徑，剝掉會讓整句真英文掉到 40 字以下而漏擋。"""
+    text = "Please review input/output handling and error/recovery behavior."
+    out = LG.strip_noncontent(text)
+    assert "input/output" in out and "error/recovery" in out
+    need, _, n = LG.should_remind(text, threshold=0.5, min_lang_chars=40)
+    assert n >= 40 and need is True
+
+
+def test_strip_long_ascii_run_stays_linear():
+    """很長的連續英數字串（base64、雜湊）不能讓碼樣正規式每個位置重試：沒錨在字首時 2 萬字要 10 秒，Stop hook 會逾時。"""
+    import time
+    for blob in ("a" * 50000, "a." * 25000, "a_" * 25000, "a/" * 25000):
+        t = time.perf_counter()
+        LG.strip_noncontent(f"中文說明 {blob} 結尾")
+        assert time.perf_counter() - t < 1.0, blob[:4]
+
+
+def test_strip_keeps_prose_words_around_sentence_periods():
+    out = LG.strip_noncontent("Done. Next step is a well-known review.")
+    assert all(w in out for w in ("Done", "Next", "well-known", "review"))   # 句點後有空格、連字號詞都不是檔名或旗標
 
 
 def test_no_remind_short_english():
