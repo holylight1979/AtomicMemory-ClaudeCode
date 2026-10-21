@@ -174,6 +174,10 @@ const TOOL_DEFINITIONS = [
           type: "array", items: { type: "string" },
           description: "Optional validity dependencies, e.g. [\"path:C:/abs/entrypoint.py\"]. Rendered as `- Depends:`; path: entries are machine-checked by health-check (missing → stale). replace: omit=keep, []=clear.",
         },
+        entry: {
+          type: "array", items: { type: "string" },
+          description: "這張卡是哪幾個切入點的判準卡，代號查 workflow/entrypoints.json（如 [\"E04\", \"E08\"]）。程式在那個切入點問 LLM 時（擋訊息、deny、MCP 回覆）先把 Entry 命中的卡的知識段接在問句後面。Rendered as `- Entry:`。replace: omit=keep, []=clear；append 忽略。",
+        },
         quote: {
           type: "string",
           description: "觸發這張卡片的使用者原話，單行 ≤200 字；通常由 PostToolUse 自動填，呼叫者不必給。Rendered as `- Quote:`（Source 之後）。replace: omit=keep, \"\"=clear, non-empty=replace.",
@@ -264,12 +268,12 @@ const TOOL_DEFINITIONS = [
   {
     name: "atom_edit_meta",
     description:
-      "Surgically edit an atom's metadata (Trigger / Related / Tags) in place — " +
+      "Surgically edit an atom's metadata (Trigger / Related / Tags / Entry) in place — " +
       "no full-file rebuild. Locates <atom_name>.md via py lib/atom_io.locate_atom (single " +
       "authority: global memory/ + memory/Failures/ + _AIDocs/_atoms/; project shared → " +
       "personal(current user) → role when scope=project), then " +
       "delegates to lib/atom_io.edit_metadata through the audit funnel. " +
-      "Pass any subset of triggers/related/tags; at least one is required. " +
+      "Pass any subset of triggers/related/tags/entry; at least one is required. " +
       "Each provided field fully replaces that field's existing value.",
     inputSchema: {
       type: "object",
@@ -289,6 +293,10 @@ const TOOL_DEFINITIONS = [
         tags: {
           type: "array", items: { type: "string" },
           description: "Replacement Tags (optional). Replaces the whole Tags line.",
+        },
+        entry: {
+          type: "array", items: { type: "string" },
+          description: "Replacement Entry（切入點代號，查 workflow/entrypoints.json，如 [\"E04\"]；optional）。Replaces the whole Entry line and the index entry field; [] clears.",
         },
         project_cwd: { type: "string", description: "Project root (required for project scope)" },
       },

@@ -515,6 +515,12 @@ def collect() -> dict:
         info.append("scorecard 區塊跳過：hooks/wg_scorecard.health_block 尚未就緒")
     except Exception as e:
         yellow.append(f"scorecard 區塊執行失敗：{type(e).__name__}: {e}"[:200])
+    # 2f. 切入點登錄表（hooks/wg_entrypoint.health_block）：沒登錄的規則名、寫錯的規則名、卡片寫了沒登錄的代號——只列不擋
+    try:
+        from wg_entrypoint import health_block as entry_health  # noqa: WPS433
+        info.extend(entry_health().get("info") or [])
+    except Exception as e:
+        yellow.append(f"切入點登錄表區塊執行失敗：{type(e).__name__}: {e}"[:200])
 
     # 3/4. 索引一致性
     for name, args in (

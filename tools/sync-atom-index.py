@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib.atom_spec import find_aka_line, find_related_line, split_related  # noqa: E402
+from lib.atom_spec import find_aka_line, find_entry_line, find_related_line, split_related  # noqa: E402
 from lib.atom_index_json import (  # noqa: E402
     SCHEMA_VERSION,
     dedup_triggers,
@@ -76,6 +76,7 @@ class IndexRow:
     depends: Optional[List[str]] = None   # None＝索引條目沒有 depends 鍵
     related: List[str] = field(default_factory=list)
     aka: List[str] = field(default_factory=list)
+    entry: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -88,6 +89,7 @@ class AtomFile:
     depends: Optional[List[str]] = None   # None＝frontmatter 沒有 Depends 行（存量）；[]／清單＝有行
     related: List[str] = field(default_factory=list)  # 作者寫的正向連結；反向由注入端反轉，不存檔
     aka: List[str] = field(default_factory=list)      # 用過的舊檔名；連結以檔名為鍵，改名靠它讓舊連結續存
+    entry: List[str] = field(default_factory=list)    # 是哪幾個切入點的判準卡（workflow/entrypoints.json 的代號）
 
 
 @dataclass
@@ -202,10 +204,12 @@ def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
         related = split_related(rm.group(1)) if rm else []
         am = find_aka_line(text)
         aka = split_related(am.group(1)) if am else []
+        em = find_entry_line(text)
         slug = md.stem
         rel = str(md.relative_to(claude_root)).replace("\\", "/")
         out[rel] = AtomFile(name=slug, path=md, rel_path=rel,
                             triggers=triggers, scope=scope, related=related, aka=aka,
+                            entry=split_related(em.group(1)) if em else [],
                             depends=parse_frontmatter_depends(text))
     return out
 
@@ -224,6 +228,7 @@ def load_index_rows(memory_dir: Path) -> List[IndexRow]:
             depends=[d for d in deps if isinstance(d, str)] if isinstance(deps, list) else None,
             related=list(a.get("related", [])),
             aka=list(a.get("aka", [])),
+            entry=list(a.get("entry", [])),
         ))
     return rows
 
@@ -315,18 +320,18 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
     """V5: 走 upsert_atom（JSON SoT，自動回寫 MD mirror）。
 
     順帶把索引的 `related`（正向連結）對齊 atom 檔——反向連結不存檔、由注入端反轉，
-    所以索引這份正向連結就是連結圖的唯一來源，必須跟著 atom 檔走。
+    所以索引這份正向連結就是連結圖的唯一來源，必須跟著 atom 檔走。`entry`（切入點代號）同理跟著 atom 檔走。
     """
     by_path = {r.path: r for r in index_rows}
     added: List[str] = []
     for rel_path, atom in atoms_by_path.items():
         row = by_path.get(rel_path)
         if row is not None:
-            if row.related == atom.related and row.aka == atom.aka:
+            if row.related == atom.related and row.aka == atom.aka and row.entry == atom.entry:
                 continue
             upsert_atom(memory_dir, name=atom.name, path=rel_path,
                         triggers=row.triggers, scope=row.scope,
-                        related=atom.related, aka=atom.aka)
+                        related=atom.related, aka=atom.aka, entry=atom.entry)
             continue
         ok = upsert_atom(
             memory_dir,
@@ -337,6 +342,7 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
             depends=atom.depends,   # None＝frontmatter 無行＝不登；有行就連 depends 一起進索引
             related=atom.related,
             aka=atom.aka,
+            entry=atom.entry,
         )
         if ok:
             added.append(atom.name)
@@ -414,6 +420,8 @@ def rebuild_index(memory_dir: Path, claude_root: Path,
             entry["related"] = list(dict.fromkeys(af.related))
         if af.aka:
             entry["aka"] = list(dict.fromkeys(af.aka))
+        if af.entry:
+            entry["entry"] = list(dict.fromkeys(af.entry))
         if old_entry.get("last_used"):
             entry["last_used"] = old_entry["last_used"]
         atoms.append(entry)

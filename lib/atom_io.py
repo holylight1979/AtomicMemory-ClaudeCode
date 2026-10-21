@@ -83,7 +83,7 @@ SENSITIVE_AUDIENCE = frozenset({"architecture", "decision"})
 # 行比對 regex 就地建於 edit_metadata 內（per-label），嚴禁 import tools/
 # （sync-atom-index.py 含 '-' 無法 import，且 lib 反依賴 tools 為架構倒掛）。
 _META_FIELD_LABEL = {
-    "triggers": "Trigger", "related": "Related", "tags": "Tags", "aka": "Aka",
+    "triggers": "Trigger", "related": "Related", "tags": "Tags", "aka": "Aka", "entry": "Entry",
     "provenance": "Source", "quote": "Quote",  # 字串欄（非 list）；provenance 另名避開 audit 的 source 參數
 }
 
@@ -460,6 +460,7 @@ def write_index(
     source: str,
     scope: Optional[str] = None,
     depends: Optional[List[str]] = None,
+    entry: Optional[List[str]] = None,
 ) -> WriteResult:
     """更新或追加 atom 條目到 _atom_index.json (SoT)，並回寫 _ATOM_INDEX.md mirror。
 
@@ -471,6 +472,8 @@ def write_index(
     （TRIGGER_MAX_LEN）——超長在寫入當下拒絕，不留給後續 validate_index 才爆。
     depends：卡片 Depends 條目（`path:<檔>` 或自由文字）；None → 沿用索引既有 depends、`[]` → 清空、
     非空 → 取代；型別不對在寫入當下拒絕（ValueError → ok=False）。
+    entry：切入點代號；None → 跟 Related／Aka 一樣讀剛落檔的 atom 的 `- Entry:` 行（edit_metadata 先寫索引、
+    後寫檔，那時檔還是舊的，所以由它明給）。
     """
     if source not in VALID_SOURCES:
         return WriteResult(ok=False, error=f"invalid source: {source}",
@@ -522,11 +525,14 @@ def write_index(
         except (OSError, UnicodeDecodeError):
             text = ""
         if text:
-            from .atom_spec import find_aka_line, find_related_line, split_related
+            from .atom_spec import find_aka_line, find_entry_line, find_related_line, split_related
             rm = find_related_line(text)
             am = find_aka_line(text)
             related = split_related(rm.group(1)) if rm else []
             aka = split_related(am.group(1)) if am else []
+            if entry is None:
+                em = find_entry_line(text)
+                entry = split_related(em.group(1)) if em else []
     upsert_atom(
         mem_dir=base_dir,
         name=slug,
@@ -536,6 +542,7 @@ def write_index(
         depends=depends,
         related=related,
         aka=aka,
+        entry=entry,
     )
     index_path = base_dir / "_atom_index.json"
     _audit_log({
@@ -734,6 +741,19 @@ def _index_has_entry(base_dir: Path, slug: str) -> bool:
         return False
 
 
+def _existing_triggers(base_dir: Path, slug: str, text: str) -> List[str]:
+    """索引既有條目的 triggers；本檔還沒入索引就取 frontmatter 的 `- Trigger:` 行（沒有就空清單）。"""
+    try:
+        from .atom_index_json import load_atom_index_json
+        for a in load_atom_index_json(base_dir).get("atoms", []):
+            if a.get("name") == slug:
+                return list(a.get("triggers") or [])
+    except (OSError, ValueError, ImportError):
+        pass
+    m = re.search(r"^-[ \t]*Trigger:[ \t]*(.*)$", text, re.MULTILINE)
+    return [t.strip() for t in m.group(1).split(",") if t.strip()] if m else []
+
+
 def edit_metadata(
     file_path: Path,
     *,
@@ -741,23 +761,25 @@ def edit_metadata(
     related: Optional[List[str]] = None,
     tags: Optional[List[str]] = None,
     aka: Optional[List[str]] = None,
+    entry: Optional[List[str]] = None,
     provenance: Optional[str] = None,
     quote: Optional[str] = None,
     source: str = "mcp",
 ) -> WriteResult:
-    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags/Aka/Source/Quote 行。
+    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags/Aka/Entry/Source/Quote 行。
 
     取代直接 Write/Edit atom .md（會被 Guardian guard 擋）與整檔 atom_write replace
     （重建知識區、風險高）。byte-stable：**只改目標那幾行**，其餘行原樣保留。
 
-    SoT 順序（triggers 變更時）：先寫 _atom_index.json（機器唯一源），成功才續寫
+    SoT 順序（triggers 或 entry 變更時）：先寫 _atom_index.json（機器唯一源），成功才續寫
     frontmatter（衍生），避免 frontmatter 領先 index 造成不可復原 drift。部分失敗
     可由 `tools/sync-atom-index.py --fix` 冪等復原，故不建交易層。
 
     Args:
         file_path: atom .md 絕對路徑（global memory 或 _AIDocs/Failures/ 皆可）
-        triggers/related/tags/aka: list[str]，None 表不動該欄位
-                （aka＝這顆用過的舊檔名；改名時寫在自己這顆，舊連結靠它續存）
+        triggers/related/tags/aka/entry: list[str]，None 表不動該欄位
+                （aka＝這顆用過的舊檔名；改名時寫在自己這顆，舊連結靠它續存；
+                entry＝切入點代號，[] 清成空行、索引移除 entry 鍵）
         provenance/quote: str，渲染為 `- Source:`／`- Quote:` 整行；None 表不動；
             空字串表清成空（不刪行）。quote 由呼叫端先 lib.provenance.sanitize_quote
         source: audit source（須在 VALID_SOURCES；預設 "mcp"）
@@ -782,7 +804,7 @@ def edit_metadata(
     # ── Surgical replace（每個非 None 欄位，只改那一行，count=1）；欄位行不存在則
     #    插到 metadata 區塊（H1 後連續 `- Key: value` 行）末尾——舊模板生的檔常缺
     #    Trigger 行，拒寫會讓它永遠補不齊。沒有 metadata 區塊才回 error。 ──
-    fields = {"triggers": triggers, "related": related, "tags": tags, "aka": aka,
+    fields = {"triggers": triggers, "related": related, "tags": tags, "aka": aka, "entry": entry,
               "provenance": provenance, "quote": quote}
     new_text = text
     for field_name, values in fields.items():
@@ -805,8 +827,8 @@ def edit_metadata(
                 )
             new_text = inserted
 
-    # ── SoT 先行：triggers 變更時先寫 _atom_index.json ──
-    if triggers is not None:
+    # ── SoT 先行：triggers 或 entry 變更時先寫 _atom_index.json ──
+    if triggers is not None or entry is not None:
         slug = Path(file_path).stem
         fp = Path(file_path).resolve()
         try:
@@ -841,7 +863,10 @@ def edit_metadata(
         scope_for_index: Optional[str] = None
         if not _index_has_entry(base_dir, slug):
             scope_for_index = _scope_from_frontmatter(text) or ("global" if in_claude else "shared")
-        idx_res = write_index(base_dir, slug, rel_path, triggers, source, scope=scope_for_index)
+        # 只改 entry 時 trigger 照舊：索引既有的優先，本檔還沒入索引就取 frontmatter 的 Trigger 行
+        idx_triggers = triggers if triggers is not None else _existing_triggers(base_dir, slug, text)
+        idx_res = write_index(base_dir, slug, rel_path, idx_triggers, source, scope=scope_for_index,
+                              entry=entry)
         if not idx_res.ok:
             # index 領先失敗 → 不續寫 frontmatter（避免不可復原 drift）
             return idx_res
@@ -1031,7 +1056,7 @@ _HEADER_KV_RE = re.compile(r"^- ([A-Za-z][A-Za-z-]*):[ \t]*(.*)$")
 # 呼叫參數 → 檔頭鍵：參數給了（不是 None，空值也算）就以呼叫者為準；沒給才從舊卡帶回
 _PARAM_HEADER_KEY = {
     "audience": "Audience", "related": "Related", "status": "Status", "provenance": "Source",
-    "quote": "Quote", "depends": "Depends", "supersedes": "Supersedes",
+    "quote": "Quote", "depends": "Depends", "supersedes": "Supersedes", "entry": "Entry",
     "pending_review_by": "Pending-review-by", "merge_strategy": "Merge-strategy",
 }
 

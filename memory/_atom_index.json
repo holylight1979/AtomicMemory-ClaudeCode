@@ -8438,7 +8438,10 @@
         "哪一件最該修",
         "pick_one"
       ],
-      "scope": "global"
+      "scope": "global",
+      "entry": [
+        "E04"
+      ]
     },
     {
       "name": "紅測不准用skip躲-使用者說跳過是這件不做-先寫不做行讓程式留帳",
@@ -8453,7 +8456,10 @@
         "測試跳過",
         "標 skip"
       ],
-      "scope": "global"
+      "scope": "global",
+      "entry": [
+        "E08"
+      ]
     }
   ]
 }

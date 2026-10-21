@@ -4,12 +4,15 @@ Schema:
     {
       "version": "1.0",
       "atoms": [
-        {"name": str, "path": str, "triggers": [str], "scope": str, "last_used": str?, "depends": [str]?}
+        {"name": str, "path": str, "triggers": [str], "scope": str, "last_used": str?, "depends": [str]?,
+         "related": [str]?, "aka": [str]?, "entry": [str]?}
       ]
     }
 
 depends（optional）：卡片 frontmatter `- Depends:` 的條目（`path:<檔或目錄>` 或自由文字），frontmatter 為真相；
 讀到 path: 指到的檔時由 hooks/wg_depends 召回一行指標（lib.atom_spec.atoms_depending_on）。
+entry（optional）：卡片 frontmatter `- Entry:` 的切入點代號（workflow/entrypoints.json），frontmatter 為真相；
+程式在那個切入點問 LLM 時先送 entry 命中的卡（hooks/wg_entrypoint.cards_for_entry）。
 
 責任：
 - load_atom_index_json(mem_dir) -> {atoms: [...]}
@@ -176,6 +179,7 @@ def upsert_atom(
     depends: Optional[List[str]] = None,
     related: Optional[List[str]] = None,
     aka: Optional[List[str]] = None,
+    entry: Optional[List[str]] = None,
 ) -> bool:
     """Insert or update an atom entry. Returns True if changed.
 
@@ -188,6 +192,8 @@ def upsert_atom(
 
     `aka` ＝這顆用過的舊檔名，來自 atom 的 `- Aka:` 行。連結以檔名為鍵，改名時靠它讓舊連結
     續存，改名者只動自己這一顆。兩者都是加法欄位：舊版工具讀不到就當沒有，故 schema 不升版。
+
+    `entry` ＝這顆是哪幾個切入點的判準卡，來自 atom 的 `- Entry:` 行；同 related：None＝沿用既有、`[]`＝移除鍵。
     """
     data = load_atom_index_json(mem_dir)
     atoms = data["atoms"]
@@ -206,6 +212,9 @@ def upsert_atom(
     keep_aka = aka if aka is not None else (existing or {}).get("aka")
     if keep_aka:
         new_entry["aka"] = list(dict.fromkeys(keep_aka))
+    keep_entry = entry if entry is not None else (existing or {}).get("entry")
+    if keep_entry:
+        new_entry["entry"] = list(dict.fromkeys(keep_entry))
     if last_used:
         new_entry["last_used"] = last_used
 

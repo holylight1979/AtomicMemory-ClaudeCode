@@ -7,6 +7,7 @@
 - Trigger: 不做｜, 紅測, skip, xfail, 跳過, 先不管, 測試跳過, 標 skip
 - Created-at: 2026-10-21
 - Quote: 「G15 四件 都按建議，但我要你對選項&建議再思考一次再決定。」
+- Entry: E08
 
 ## 知識
 

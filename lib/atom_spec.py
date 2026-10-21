@@ -63,6 +63,8 @@ OPTIONAL_METADATA = frozenset({
     "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
     "Quote",  # 觸發這張卡片的使用者原話引述（單行 ≤200 字）；PostToolUse 自動填、回填腳本補
                # 只寫現況，禁歷史敘事/版本脈絡（feedback-live-檔與記憶不留版本操作脈絡）
+    "Entry",  # 這張卡是哪幾個切入點的判準卡（逗號分隔代號，如 E04, E08；代號查 workflow/entrypoints.json）；
+              # 程式在那個切入點問 LLM 時先送 Entry 命中的卡（hooks/wg_entrypoint）
 })
 
 # 行動 always required; 知識 or 印象（指標型 atom 變體）二選一
@@ -201,6 +203,7 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
 # 當成值——讀的一方會拿標題當連結名，寫的一方會把連結接到標題後面。
 RELATED_LINE_RE = re.compile(r"^- Related:[ \t]*(.*)$", re.MULTILINE)
 AKA_LINE_RE = re.compile(r"^- Aka:[ \t]*(.*)$", re.MULTILINE)
+ENTRY_LINE_RE = re.compile(r"^- Entry:[ \t]*(.*)$", re.MULTILINE)
 _SECTION_START_RE = re.compile(r"^## ", re.MULTILINE)
 
 
@@ -224,8 +227,13 @@ def find_aka_line(text: str) -> Optional["re.Match[str]"]:
     return _find_meta_line(text, AKA_LINE_RE)
 
 
+def find_entry_line(text: str) -> Optional["re.Match[str]"]:
+    """metadata 區塊的 `- Entry:` 行（這張卡是哪幾個切入點的判準卡）。"""
+    return _find_meta_line(text, ENTRY_LINE_RE)
+
+
 def split_related(value: str) -> List[str]:
-    """逗號分隔的名稱欄（Related / Aka）→ 名稱清單；空值與 `(none)` 都是零項。"""
+    """逗號分隔的名稱欄（Related / Aka / Entry）→ 名稱清單；空值與 `(none)` 都是零項。"""
     if not value or value.strip() == "(none)":
         return []
     return [n.strip().removesuffix(".md") for n in value.split(",") if n.strip()]
@@ -565,14 +573,16 @@ def build_atom_content(
     provenance: Optional[str] = None,
     depends: Optional[Iterable[str]] = None,
     quote: Optional[str] = None,
+    entry: Optional[Iterable[str]] = None,
 ) -> str:
     """從結構化參數構造 atom 檔內容。
 
     對拍 tools/workflow-guardian-mcp/lib/atom-render.js buildAtomContent —— byte-identical 等價契約。
     SPEC §4 metadata 順序：Scope → Audience → Author → Source → Quote → Confidence → Trigger →
     Status → Last-used → Confirmations → ReadHits → Pending-review-by →
-    Merge-strategy → Created-at → Depends → Related → Supersedes。空值欄位省略（status /
-    supersedes / provenance / depends 未給時輸出與既有 parity fixture byte-identical）。
+    Merge-strategy → Created-at → Depends → Entry → Related → Supersedes。空值欄位省略（status /
+    supersedes / provenance / depends / entry 未給時輸出與既有 parity fixture byte-identical）。
+    entry：這張卡是哪幾個切入點的判準卡（workflow/entrypoints.json 的代號），渲染為 `- Entry:`。
     supersedes：本顆取代的舊 atom（被取代者不再注入、檔案保留）；None 或空 → 不輸出。
     provenance：來源（路徑／URL／commit），渲染為 `- Source:`（write_atom 的 source 是稽核白名單，故另名）。
     depends：壞滅緣條目（`path:<路徑>` 或自由文字），渲染為逗號清單 `- Depends:`。
@@ -586,6 +596,7 @@ def build_atom_content(
     supersedes_list = list(supersedes) if supersedes else []
     audience_list = list(audience) if audience else []
     depends_list = list(depends) if depends else []
+    entry_list = list(entry) if entry else []
 
     lines: List[str] = [f"# {title}", ""]
     lines.append(f"- Scope: {scope}")
@@ -609,6 +620,8 @@ def build_atom_content(
     lines.append(f"- Created-at: {created_at or today}")
     if depends_list:
         lines.append(f"- Depends: {', '.join(depends_list)}")
+    if entry_list:
+        lines.append(f"- Entry: {', '.join(entry_list)}")
     if related_list:
         lines.append(f"- Related: {', '.join(related_list)}")
     if supersedes_list:
