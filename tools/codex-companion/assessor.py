@@ -213,7 +213,7 @@ def _extract_verification_evidence(trace: List[Dict[str, Any]]) -> str:
 def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str, str]:
     """Run `codex exec` and return (stdout_text, stderr_text).
 
-    stderr 回傳給上層做 sandbox 失敗識別。
+    stderr（剝掉提示詞回聲）回傳給上層做 sandbox 失敗識別。
     無論成功失敗都把 stderr（含 timeout/spawn 錯誤的合成訊息）一併送出。
     """
     codex_bin = judge_backend.resolve_codex_bin(config) or config.get("codex_binary", "codex")
@@ -261,7 +261,11 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
             )
 
         _log(f"codex exec exit code: {result.returncode}")
+        # codex exec 的 stderr 在 `user` 段把整份提示詞回聲一次；工具軌跡裡的 1385、sandbox 字樣是我方材料，
+        # 失敗分類與額度判定只看 codex 自己的輸出
         stderr_text = (result.stderr or "")
+        if prompt_text.strip():
+            stderr_text = stderr_text.replace(prompt_text.strip(), "", 1)
 
         # Prefer -o output file
         if os.path.exists(output_file):
@@ -290,7 +294,25 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
                 pass
 
 
-_SANDBOX_FAILURE_RE = re.compile(r"CreateProcessWithLogon|sandbox", re.IGNORECASE)
+# 沙箱起不來的訊號：Windows 登入型別未授權（CreateProcessWithLogon），或同一行 sandbox 與 error／denied／failed／failure 並列。
+# 裸字 sandbox 不算：codex exec 的 stderr 檔頭每次都印一行 `sandbox: 模式名`（實測 read-only、danger-full-access）
+_SANDBOX_FAILURE_RE = re.compile(
+    r"CreateProcessWithLogon"
+    r"|sandbox.*\b(?:error|denied|failed|failure)\b|\b(?:error|denied|failed|failure)\b.*sandbox",
+    re.IGNORECASE)
+_ERROR_LINE_RE = re.compile(
+    r"\b(?:error|failed|failure|denied|exception|fatal|timeout|timed out|not found|unexpected|unauthorized|refused|"
+    r"disconnected|invalid)\b", re.IGNORECASE)
+
+
+def sandbox_failure_line(stderr: str) -> str:
+    """stderr 裡第一條「沙箱起不來」的訊號行（去頭尾空白）；沒有回 ""。"""
+    return next((line.strip() for line in (stderr or "").splitlines() if _SANDBOX_FAILURE_RE.search(line)), "")
+
+
+def first_error_line(stderr: str) -> str:
+    """其他原因的失敗附這一行：stderr 裡第一條像錯誤的行；沒有回 ""（不拿 token 數之類的尾行充數）。"""
+    return next((line.strip() for line in (stderr or "").splitlines() if _ERROR_LINE_RE.search(line)), "")
 
 
 def _run_codex_with_retry(
@@ -355,13 +377,13 @@ def _run_judge(
 def _classify_failure(stderr: str) -> Dict[str, Any]:
     """依 stderr 內容把 codex 失敗分類成 assessment。
 
-    sandbox 命中（CreateProcessWithLogon|sandbox）→ system 高嚴重度，
-      防 R2-5 級 bug 再被吞掉。
-    其他失敗 → warning + delivery=inject + notify_next_turn=True，
+    沙箱起不來（sandbox_failure_line：CreateProcessWithLogon，或同一行 sandbox 與 error／denied／failed）→ system 高嚴重度，
+      防 R2-5 級 bug 再被吞掉；檔頭那行 `sandbox: 模式名` 不算。
+    其他失敗 → warning + delivery=inject + notify_next_turn=True，summary 附錯誤首行，
       下一輪 drain 端會加注短訊提醒。
     """
     stderr_excerpt = (stderr or "")[-300:]
-    if _SANDBOX_FAILURE_RE.search(stderr or ""):
+    if sandbox_failure_line(stderr):
         return _apply_defaults({
             "status": "error",
             "severity": "high",
@@ -373,11 +395,12 @@ def _classify_failure(stderr: str) -> Dict[str, Any]:
             "applies_until": "next_prompt",
             "notify_next_turn": True,
         })
+    first = first_error_line(stderr)
     return _apply_defaults({
         "status": "warning",
         "severity": "low",
         "category": "system",
-        "summary": "退回 heuristics-only",
+        "summary": "退回 heuristics-only" + (f"（裁判失敗，非沙箱；錯誤首行：{first[:160]}）" if first else ""),
         "evidence": stderr_excerpt,
         "delivery": "inject",
         "confidence": "low",

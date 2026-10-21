@@ -87,7 +87,7 @@ so_prompts = _load_sibling("prompts", "so_prompts")
 if str(COMPANION_DIR) not in sys.path:
     sys.path.insert(0, str(COMPANION_DIR))
 import judge_backend  # noqa: E402
-import assessor  # noqa: E402  （借 _SANDBOX_FAILURE_RE）
+import assessor  # noqa: E402  （借 sandbox_failure_line／first_error_line：沙箱與其他原因的失敗分類同一套）
 
 
 # ─── 共用 ────────────────────────────────────────────────────────────────────
@@ -345,10 +345,15 @@ def probe_codex(job_dir: Path, slug: str, so_cfg: Dict[str, Any], cc_cfg: Dict[s
     stdout = _tail(out_p, 4000)
     if timed_out:
         return False, f"探針逾時（{so_cfg.get('probe_timeout_s', 60)}s）；stderr 尾：{stderr[-400:]}"
-    if _STRONG_FAIL_RE.search(stderr) or (assessor._SANDBOX_FAILURE_RE.search(stderr) and nonce not in stdout):
-        return False, f"codex 沙箱裡 spawn 不起 shell（唯讀沙箱失敗，讀不到材料檔）；stderr 尾：{stderr[-400:]}"
+    # 沙箱起不來：強訊號（1385）一律算；弱訊號（同一行 sandbox 與 error／failed）要字樣也沒讀回才算。檔頭 `sandbox: 模式名` 不算
+    strong = next((line.strip() for line in stderr.splitlines() if _STRONG_FAIL_RE.search(line)), "")
+    weak = assessor.sandbox_failure_line(stderr)
+    if strong or (weak and nonce not in stdout):
+        return False, (f"codex 沙箱起不來（唯讀沙箱裡 spawn 不起 shell，讀不到材料檔）：{(strong or weak)[:200]}；"
+                       f"stderr 尾：{stderr[-400:]}")
     if rc != 0 or nonce not in stdout:
-        return False, (f"探針沒讀回 {PROBE_FILE} 的字樣（exit={rc}；codex 沒能用 shell 讀工作目錄的檔）；"
+        return False, (f"探針沒讀回 {PROBE_FILE} 的字樣（其他原因；exit={rc}；codex 沒能用 shell 讀工作目錄的檔）；"
+                       f"錯誤首行：{assessor.first_error_line(stderr)[:200] or '（stderr 沒有錯誤行）'}；"
                        f"stdout 尾：{stdout[-200:]}；stderr 尾：{stderr[-400:]}")
     return True, ""
 

@@ -480,6 +480,28 @@ def test_002_probe_without_unelevated_is_red_like_real_codex(env, monkeypatch):
     assert len(env["plan"]["popen"]) == 1 and not _flag_pair(env["plan"]["popen"][0])
 
 
+# codex exec 的檔頭每次都印一行 `sandbox: 模式名`（實測探針 read-only、裁判 danger-full-access），不是失敗訊號
+HEADER_ONLY_FAIL = ("OpenAI Codex v0.154.0\n--------\nworkdir: C:\\jobs\\x\nmodel: gpt-6-astra\nprovider: openai\n"
+                    "approval: never\nsandbox: read-only\n--------\nuser\n用 shell 指令讀工作目錄下的 probe.txt\n"
+                    "ERROR: unexpected status 401 Unauthorized: token expired\n")
+
+
+@pytest.mark.parametrize("stderr,kind,needle", [
+    (HEADER_ONLY_FAIL, "其他原因", "錯誤首行：ERROR: unexpected status 401 Unauthorized"),
+    ((FIX / "stderr_fail.log").read_text(encoding="utf-8"), "沙箱起不來", "CreateProcessWithLogonW failed: 1385"),
+])
+def test_003_probe_failure_tells_sandbox_from_other_cause(env, stderr, kind, needle):
+    """探針失敗要分得出「沙箱起不來」與「其他原因」：stderr 只有檔頭 `sandbox: read-only` 加別的錯誤 → 其他原因並附錯誤首行；
+    真的沙箱錯（CreateProcessWithLogonW failed: 1385）→ 仍是沙箱起不來並附那一行。舊碼把檔頭字樣當訊號，兩種都標成同一句沙箱失敗。"""
+    assert "sandbox: read-only" in stderr, "前置：兩種都帶 codex exec 的固定檔頭"
+    env["plan"]["probe"] = {"stdout": "PROBE_FAIL\n", "stderr": stderr, "rc": 0}
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "probe", st
+    assert kind in st["reason"] and needle in st["reason"], st["reason"]
+    assert ("沙箱起不來" if kind == "其他原因" else "其他原因") not in st["reason"], st["reason"]
+
+
 def test_post_fail_not_done(env):
     env["plan"]["post"] = "FAIL"
     env["plan"]["post_reasons"] = ["指令命中禁區樣式：\\.claude[/\\\\]memory"]
