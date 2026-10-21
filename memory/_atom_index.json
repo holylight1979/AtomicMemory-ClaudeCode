@@ -9261,6 +9261,22 @@
         "path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py",
         "path:C:/Users/holylight/.claude/tools/entry-stats.py"
       ]
+    },
+    {
+      "name": "收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話",
+      "path": "memory/行為契約/收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話.md",
+      "triggers": [
+        "收尾檢核",
+        "anti_evasion_report",
+        "要你處理",
+        "這輪做了什麼",
+        "下一步要你做",
+        "HUD 報告",
+        "沒頭沒尾",
+        "背景軌收尾",
+        "AEC 白話"
+      ],
+      "scope": "global"
     }
   ]
 }

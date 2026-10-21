@@ -12,7 +12,7 @@
 | OS-Windows | 17 | `memory/OS-Windows/_INDEX.md` |
 | 文字與格式 | 9 | `memory/文字與格式/_INDEX.md` |
 | 設計通則 | 24 | `memory/設計通則/_INDEX.md` |
-| 行為契約 | 13 | `memory/行為契約/_INDEX.md` |
+| 行為契約 | 14 | `memory/行為契約/_INDEX.md` |
 | CC與原子記憶契約 | 40 | `memory/CC與原子記憶契約/_INDEX.md` |
 | Failures | 86 | `memory/Failures/_INDEX.md` |
 
