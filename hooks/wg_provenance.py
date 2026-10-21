@@ -96,10 +96,13 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
             sys.path.insert(0, lib_root)
         from lib.atom_io import edit_metadata
         from lib.harness_text import is_kickoff_prompt
-        from lib.provenance import format_quote, format_source_session, sanitize_quote
+        from lib.provenance import format_quote, format_source_session, sanitize_quote, usable_quote
 
         session_id = str(input_data.get("session_id") or state.get("session", {}).get("id") or "")
         quote_raw = _last_turn_prompt(state)
+        if (input_data.get("tool_input") or {}).get("quote") == "":
+            out["quote_skipped"] = "caller_cleared"      # 呼叫者明傳 quote="" 是要清掉，不拿原話補回
+            quote_raw = ""
         if quote_raw and is_kickoff_prompt(quote_raw):
             out["quote_skipped"] = "kickoff"
             quote_raw = ""
@@ -107,7 +110,9 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
             # 根層卡片不帶專案名與專案路徑；原話照抄會把它們帶進來
             from lib.realm_gate import anonymize_projects
             quote_raw = anonymize_projects(quote_raw)
-        quote_clean = sanitize_quote(quote_raw)
+        quote_clean = usable_quote(quote_raw)
+        if not quote_clean and sanitize_quote(quote_raw):
+            out["quote_skipped"] = "too_short"           # 「A」這類一兩個字的回覆說不出卡從哪來
         quote_line = format_quote(quote_clean) if quote_clean else None
 
         sm = _SOURCE_LINE_RE.search(text)

@@ -49,7 +49,7 @@ from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 from lib.provenance import (  # noqa: E402
     format_quote, format_source_session, is_human_record, is_kickoff_text, read_src_comment, record_text,
-    sanitize_quote,
+    sanitize_quote, usable_quote,
 )
 
 PROJECTS_DIR = CLAUDE_DIR / "projects"
@@ -206,12 +206,14 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
 
 
 def _set_quote(h: Hit, uid: str, text: str) -> None:
-    """記下原話所在的真人訊息（Source 用）；那則是開工句就不當 Quote。"""
+    """記下原話所在的真人訊息（Source 用）；那則是開工句、或清完太短（lib/provenance.usable_quote）就不當 Quote。"""
     h.human_uuid = uid
     if is_kickoff_text(text):
         h.quote, h.quote_skipped = None, "kickoff"
         return
-    h.quote = sanitize_quote(text) or None
+    h.quote = usable_quote(text) or None
+    if h.quote is None and sanitize_quote(text):
+        h.quote_skipped = "too_short"
 
 
 def _resolve_quote(h: Hit, idx: TranscriptIndex, humans_by_sid: Dict[str, List[Tuple[str, str, str]]]) -> None:

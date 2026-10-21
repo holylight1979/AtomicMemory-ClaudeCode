@@ -75,6 +75,16 @@ def sanitize_quote(text: str, max_chars: Optional[int] = None) -> str:
     return s
 
 
+QUOTE_MIN_CHARS = 6   # 清完短於這個（「A」「好」「上GIT」）就不當回填的原句：說不出這張卡從哪來，只會留下誤導的引句
+
+
+def usable_quote(text: str, max_chars: Optional[int] = None) -> str:
+    """回填 Quote 用的原句：sanitize_quote 清完，短於 QUOTE_MIN_CHARS 回空字串（不回填）。
+    PostToolUse 自動填（hooks/wg_provenance）與舊卡回填（tools/atom-provenance-backfill.py）共用這一支。"""
+    q = sanitize_quote(text, max_chars)
+    return q if len(q) >= QUOTE_MIN_CHARS else ""
+
+
 def format_quote(text: str) -> str:
     return f"「{sanitize_quote(text)}」"
 
