@@ -115,7 +115,7 @@ def resolve_box(name):
         return me()
     account = lookup_roster(load_roster(), stripped)
     if account:
-        return account
+        return clean_name(account)                                   # 名單檔在共用資料夾、可能被手改：帳號不合規就停，不變成信箱外的路徑
     candidate = stripped.lower().replace("_", "-")
     if NAME_RE.match(candidate) and os.path.isdir(box_dir(candidate)):
         return candidate
@@ -325,11 +325,8 @@ def scan(only_box=None):
         if only_box and box != only_box:
             continue
         for archived, folder in ((False, box_dir(box)), (True, archive_dir(box))):
-            if not os.path.isdir(folder):
-                continue
-            for name in os.listdir(folder):
-                if MAIL_FILE_RE.match(name):
-                    mails.append(Mail(box, archived, name))
+            if os.path.isdir(folder):
+                mails += [Mail(box, archived, name) for name in os.listdir(folder) if MAIL_FILE_RE.match(name)]
     mails.sort(key=lambda mail: mail.id)
     return mails
 
@@ -480,6 +477,7 @@ def cmd_check(args):
 
 def cmd_init(args):
     """信箱被整個刪掉時重建骨架；信件與名單簡稱救不回（共用資料夾通常不備份），名單靠之後「不認得就問」補回。"""
+    user = me()
     if os.path.isdir(ROOT):
         print(f"信箱已存在：{ROOT}")
     else:
@@ -488,7 +486,6 @@ def cmd_init(args):
             fail(f"連不上信箱的上一層：{parent}（網路磁碟／VPN 有連上嗎？）；不會往上建資料夾")
         os.mkdir(ROOT)
         print(f"[已重建] {ROOT}")
-    user = me()
     for box in (PUBLIC_BOX, user):
         if not os.path.isdir(box_dir(box)):
             os.makedirs(box_dir(box))
@@ -543,6 +540,8 @@ def cmd_config(args):
 
 def cmd_roster(args):
     require_root()
+    if args.add or args.drop or args.drop_account:
+        me()                                                         # 動作紀錄要記是誰改的：沒帳號就在改名單之前停
     roster = load_roster()
     if args.add:
         account = clean_name(args.add[0])
@@ -765,6 +764,7 @@ def cmd_unlock(args):
 
 def cmd_delete(args):
     require_root()
+    me()                                                             # 動作紀錄要記是誰刪的：沒帳號就在預覽時停，不要刪到一半才停
     only_box = resolve_box(args.to) if args.to else None
     mails = []
     for text in args.ids:

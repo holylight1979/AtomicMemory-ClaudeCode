@@ -156,6 +156,9 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /karpathy-guidelines | skills/karpathy-guidelines/SKILL.md | **外部 skill（MIT，源 multica-ai）**：寫/審/重構碼的行為準則（Think Before / Simplicity / Surgical / Goal-Driven）。on-demand 被動觸發，非 always-on；唯一加值的 verify-loop 另萃成 atom `goal-driven-verify-loop` | 無 |
 | /behavior-preservation | skills/behavior-preservation/SKILL.md | **v6.0**：行為保持重構的等值證法——`scripts/preserve-check.py` 以舊碼（Python 走 ast）或 `.json` 表當預期、新產物實跑當實際，三類變異 order／side_effect／boundary 各自抓；解析不到全枚舉一律拒收 exit 2 | 無 |
 | /console | skills/console/SKILL.md | 雙總控台＋工作軌協作：`對人`／`調度`／`開工句 <軌名>` 三種用法；references 放開工句、派工單、交付信、交接備忘、裁定帳範本與給人讀的一頁說明 | tools/console-status.py |
+| /atom-source | skills/atom-source/SKILL.md | 卡片來源回看：讀 atom 的 Source／Quote，原對話還在就撈原句與前後文，不在就報落檔時留的原句或「已逾保留期」 | tools/atom-source.py |
+| /meeting | skills/meeting/SKILL.md | 會議錄音 → 逐字稿 → 決議／待辦／未決三段摘要 → 決議寫進專案記憶（shared）；機制見 TECH §6.6 | tools/meeting-transcribe.py、ffmpeg、Ollama 音訊模型 |
+| /mailbox | skills/mailbox/SKILL.md | **外部貢獻（PR #4）**：共用信箱——用網路共用資料夾讓人與 AI 互相寄信收信（讀＝領取、解鎖、刪信、總覽、收件人名單）；不依賴記憶系統，`scripts/mail.py --help` 為準；設定分層：專案根 `.claude/skills/mailbox/config.json` 優先 | 網路共用資料夾（config.json 的 `mailbox_root`） |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
 > 已休眠（單人環境·非刪）：`/init-roles` / `/conflict-review`（多人團隊層）→ 見 `skills/_archived/README.md`

@@ -10,6 +10,8 @@ cases：
      → send --re 回信 → delete 預覽不刪、--yes 才刪 → overview 重產 Overview.md
   5. 兩個行程同時 read 同一封 project 信：只有一個領到，_archive 裡只有一份
   6. 信箱根被刪 → 一般指令提示 init；init 重建骨架
+  7. 沒帳號時 delete --yes／roster --add 在動手前就停（exit 4）：不刪到一半、不先寫名單
+  8. 名單檔被手改成不合規的帳號 → 寄信停下（exit 1），不在信箱外建資料夾
 """
 from __future__ import annotations
 
@@ -214,3 +216,41 @@ def test_deleted_root_hints_init_and_init_rebuilds(proj: Path):
     assert res.returncode == 0, res.stderr
     assert (root / "project").is_dir() and (root / "alice").is_dir()
     assert "alice" in json.loads((root / "_roster.json").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# 7. 沒帳號：會改東西的指令在動手前就停
+# ---------------------------------------------------------------------------
+
+def test_delete_without_account_stops_before_deleting_any_copy(proj: Path, tmp_path: Path):
+    root = mailbox_root(proj)
+    assert run(proj, "alice", "check").returncode == 0
+    body = write_body(tmp_path, "b.md", "# 多人信\n內文\n")
+    assert run(proj, "alice", "send", "--to", "me", "專案", "--body-file", body).returncode == 0
+    assert len(list(root.rglob("*_M0001_*.md"))) == 2
+    res = run(proj, None, "delete", "M1", "--yes")
+    assert res.returncode == 4 and "[需要帳號]" in res.stderr
+    assert len(list(root.rglob("*_M0001_*.md"))) == 2
+
+
+def test_roster_add_without_account_writes_nothing(proj: Path):
+    roster_file = mailbox_root(proj) / "_roster.json"
+    assert run(proj, "alice", "check").returncode == 0
+    assert not roster_file.exists()
+    res = run(proj, None, "roster", "--add", "bob", "Bob")
+    assert res.returncode == 4 and "[需要帳號]" in res.stderr
+    assert not roster_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# 8. 名單檔被手改壞：帳號不合規就停，不變成信箱外的路徑
+# ---------------------------------------------------------------------------
+
+def test_roster_entry_with_bad_account_is_rejected(proj: Path, tmp_path: Path):
+    root = mailbox_root(proj)
+    assert run(proj, "alice", "check").returncode == 0
+    (root / "_roster.json").write_text(json.dumps({"../outside": ["Bob"]}), encoding="utf-8")
+    body = write_body(tmp_path, "b.md", "# 哈囉\n內文\n")
+    res = run(proj, "alice", "send", "--to", "Bob", "--body-file", body)
+    assert res.returncode == 1 and "../outside" in res.stderr
+    assert not (root.parent / "outside").exists()
