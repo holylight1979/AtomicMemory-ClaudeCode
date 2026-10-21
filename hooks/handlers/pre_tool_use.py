@@ -29,6 +29,8 @@ from wg_core import (
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
 import wg_oldtest
 import wg_gate_bypass
+# 分段計時只打點、不看回傳：逾時被 Claude Code 取消本來就放行，提早放行只會少查（降級不改判定）
+from wg_hook_timing import lap as _hook_lap
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -1553,6 +1555,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             sys.stderr.write(advisory + "\n")
         except OSError:
             pass
+    _hook_lap("前置提示")
 
     # ─── 跨 session 衝突預警（warn-only、fail-open；deny 觸發時警告只留 stderr）───
     # config 先判 enabled 才 import wg_coordination（disabled = 零 import 成本）。
@@ -1590,6 +1593,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 sys.stderr.write(f"[Guardian:Coord] pre_tool_use 檢查異常（fail-open）：{e}\n")
             except OSError:
                 pass
+    _hook_lap("跨 session 衝突")
 
     deny_reason = _check_memory_atom_format(tool_name, tool_input)
     if deny_reason:
@@ -1624,6 +1628,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
+    _hook_lap("寫入閘")
 
     # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
     # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
@@ -1635,6 +1640,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
+    _hook_lap("舊測試閘")
 
     # 索引三檔合併驅動閘（advisory-only）——必須在隱私閘之前：resolver 會 git add 索引檔，
     # 隱私檢查要看到它 stage 完的 index。之後 privacy 仍可能 deny；已 stage 的索引檔

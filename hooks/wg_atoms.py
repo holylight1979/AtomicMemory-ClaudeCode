@@ -320,6 +320,7 @@ def load_link_graph(
     反向連結只存在記憶體裡。落檔的話，新增一顆連到 hub 的 atom 就得去改 hub 那個檔，
     而那是別人的檔——多人共用同一個版控庫時必衝突。
     """
+    memory_dirs = list(dict.fromkeys(memory_dirs))   # 呼叫端按池內每顆 atom 各給一次：去重，否則同一份索引解析幾百次
     key = tuple(sorted(str(d) for d in memory_dirs))
     hit = _LINK_GRAPH_CACHE.get(key)
     if hit is not None:
@@ -418,32 +419,58 @@ def _related_from_file(
 # 所有取候選的路都從去掉舊卡的池取。歷史查詢（使用者明說要看舊的）例外。
 
 _SUPERSEDES_LINE_RE = re.compile(r"^- Supersedes:\s*(.+)", re.MULTILINE)
+SUPERSEDES_MEMO = "_supersedes-memo.json"   # WORKFLOW_DIR 下，本機衍生快取：{atom 絕對路徑: [mtime_ns, size, [被取代名]]}
+_SUPERSEDES_MEMO_CAP = 5000                  # 刪掉的卡不逐筆清；超過就只留這次池裡的
+
+
+def _load_supersedes_memo(path: Path) -> Dict[str, list]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def collect_superseded_names(
     all_atoms: List[Tuple[AtomEntry, Path]],
     content_cache: Optional[Dict[str, str]] = None,
+    memo_path: Optional[Path] = None,
 ) -> set:
     """掃池內每顆 atom 的 `- Supersedes:` 行，回被取代者名字集合（鏈式：A→B、B→C 都在集合）。
-    只讀；讀過的內文進 content_cache 供後段續用。fail-open（讀不到的略過）。"""
+    只讀；讀過的內文進 content_cache 供後段續用。fail-open（讀不到的略過、下次再讀）。
+    給 memo_path：卡的（mtime_ns, size）跟上次一樣就用上次的名單、不開檔，只讀新卡與改過的卡，結果寫回——
+    開場逐張開幾百張卡佔 SessionStart 一半時間，機器一忙開檔最先被拖慢。"""
+    memo = _load_supersedes_memo(memo_path) if memo_path else {}
+    fresh: Dict[str, list] = {}
     out: set = set()
     for (name, rel_path, _t), base_dir in all_atoms:
         atom_path = (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
         try:
-            if not atom_path.exists():
-                continue
-            text = read_atom_text(atom_path, content_cache)
+            st = atom_path.stat()
         except (OSError, ValueError):
             continue
-        if not text:
-            continue
-        m = _SUPERSEDES_LINE_RE.search(text)
-        if not m:
-            continue
-        for old in m.group(1).split(","):
-            old = old.strip()
-            if old and old != name:
-                out.add(old)
+        key, sig = str(atom_path), [st.st_mtime_ns, st.st_size]
+        hit = memo.get(key)
+        if isinstance(hit, list) and len(hit) == 3 and hit[:2] == sig and isinstance(hit[2], list):
+            olds = [str(o) for o in hit[2]]
+        else:
+            text = read_atom_text(atom_path, content_cache)
+            if text is None:
+                continue
+            m = _SUPERSEDES_LINE_RE.search(text)
+            olds = [o.strip() for o in m.group(1).split(",") if o.strip() and o.strip() != name] if m else []
+        fresh[key] = sig + [olds]
+        out.update(olds)
+    if memo_path and any(memo.get(k) != v for k, v in fresh.items()):
+        merged = {**memo, **fresh}
+        if len(merged) > _SUPERSEDES_MEMO_CAP:
+            merged = fresh
+        tmp = memo_path.with_name(f"{memo_path.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, memo_path)
+        except OSError as e:
+            _atom_debug_error("supersedes_memo:write", e)
     return out
 
 
@@ -472,7 +499,7 @@ def superseded_names_cached(memory_dir: Path) -> set:
         if hit and hit[0] == sig:
             return hit[1]
         pool = [((n, p, list(t)), memory_dir.parent) for n, p, t in entries]
-        names = collect_superseded_names(pool)
+        names = collect_superseded_names(pool, memo_path=WORKFLOW_DIR / SUPERSEDES_MEMO)
         _SUPERSEDED_CACHE[key] = (sig, names)
         return names
     except Exception:
@@ -626,7 +653,7 @@ def build_candidate_pool(
     if org_mem_dir:
         pool.extend(((n, p, t), org_mem_dir.parent) for n, p, t in org_atoms)
     try:
-        superseded = sorted(collect_superseded_names(pool))
+        superseded = sorted(collect_superseded_names(pool, memo_path=WORKFLOW_DIR / SUPERSEDES_MEMO))
     except Exception as e:
         _atom_debug_error("candidate_pool:superseded", e)
         superseded = []

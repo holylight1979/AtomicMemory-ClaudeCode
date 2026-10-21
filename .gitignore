@@ -55,6 +55,8 @@ workflow/reading-path/
 workflow/cross-project-index-cache.json
 workflow/provenance-backfill-last.json
 workflow/hot_cache.json
+workflow/_supersedes-memo.json
+workflow/_supersedes-memo.json.*.tmp
 workflow/vector_ready.flag
 workflow/vector_rekick.marker
 workflow/vector_starting.lock
