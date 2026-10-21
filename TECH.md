@@ -978,6 +978,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── memory-audit.py / memory-write-gate.py / memory-conflict-detector.py / memory-effect-report.py
 │   ├── memory-peek.py / memory-undo.py / memory-session-score.py
 │   ├── sync-atom-index.py / sync-memory-index.py / sync_doc_counts.py / native-memory-bridge.py / merge-atom-index.py
+│   ├── atom-io-audit.py   ← 稽核帳 memory/_meta/atom_io_audit.jsonl 壞行檢查（--check）與修復（--repair，原檔留旁檔）
 │   ├── atom-move.py / atom-categorize.py / atom-set-realm.py / atom-heal.py / atom-health-check.py
 │   ├── atom-source.py / atom-provenance-backfill.py   ← 命令列回看卡片來源（§5.8）/ 舊 atom 補 Source・Quote 的回填 worker（§8）
 │   ├── quote-cleanup.py         ← 刪掉被回填成一兩個字回覆（預設「A」）的 Quote 行；預設 dry-run，--apply 走 atom_io.write_raw（§8）

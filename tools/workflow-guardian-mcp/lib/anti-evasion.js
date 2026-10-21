@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
-const { WORKFLOW_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
+const { CLAUDE_DIR, WORKFLOW_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
 
 // HUD 頁心跳（記憶體，港口持有者持有）；apiAecBeat 更新、apiAecBeatStatus 回 age_s + clients。
 let lastHudBeat = 0;
@@ -87,6 +87,95 @@ function _json(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
+// ─── 報告是哪一軌、寫給誰看（只加顯示欄位 track／audience，不改報告檔；報告寫入端在 hooks/handlers）────
+// 報告檔只有 session_id。軌名從那個 session 的對話紀錄（<資料根>/projects/*/<sid>.jsonl）開頭推：
+// 首則使用者訊息開頭的「track-<名>：」優先（開工句固定這樣起頭），其次 cwd 在 .claude-wt/<名> 或
+// .claude/worktrees/<名> 底下就用資料夾名，都沒有回 ""（HUD 退回 session 前 8 碼）。推到軌名就依 sid 永久快取
+// （對話紀錄開頭不會變）；推不到（還沒落檔、首則訊息還沒寫進去、本來就不是工作軌）隔 NEG_TTL_MS 再查。
+const PROJECTS_DIR = path.join(CLAUDE_DIR, "projects");
+const TRACK_HEAD_RE = /^\s*(track-[A-Za-z0-9._-]+)\s*[：:]/;
+const WORKTREE_CWD_RE = /[\\/](?:\.claude-wt|\.claude[\\/]worktrees)[\\/]([^\\/]+)/;
+const AUDIENCE_RE = /給(?:調度|對人)?總控台/;
+const AUDIENCE_FIELDS = ["a", "b", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"];
+const HEAD_BYTES = 256 * 1024;        // 首則訊息與 cwd 都在開頭；開工句貼了長附件也夠
+const NEG_TTL_MS = 60 * 1000;         // 推不到軌名的結果多久後重查（HUD 每 1.5 秒輪詢，不能每次都掃 projects/）
+const trackCache = new Map();         // sid → { track, at }
+
+function _transcriptOf(sid) {
+  let dirs;
+  try { dirs = fs.readdirSync(PROJECTS_DIR); } catch { return null; }
+  for (const d of dirs) {
+    const p = path.join(PROJECTS_DIR, d, `${sid}.jsonl`);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function _headLines(p) {
+  let fd;
+  try {
+    fd = fs.openSync(p, "r");
+    const buf = Buffer.alloc(HEAD_BYTES);
+    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
+    return buf.subarray(0, n).toString("utf-8").split("\n");
+  } catch { return []; }
+  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } } }
+}
+
+function _userText(rec) {
+  const c = rec && rec.message && rec.message.content;
+  if (typeof c === "string") return c;
+  if (!Array.isArray(c)) return "";
+  const t = c.find((b) => b && b.type === "text");   // 只有 tool_result 的使用者紀錄不算使用者訊息
+  return t ? String(t.text || "") : "";
+}
+
+// 對話紀錄開頭幾行 → 軌名（純函式）。
+function trackFromTranscriptHead(lines) {
+  let cwd = "", first = null;
+  for (const line of lines) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (!cwd && rec.cwd) cwd = String(rec.cwd);
+    if (first === null && rec.type === "user" && !rec.isMeta) {   // isMeta＝harness 插的說明，不是使用者打的
+      const t = _userText(rec);
+      if (t) first = t;
+    }
+    if (cwd && first !== null) break;
+  }
+  const m = TRACK_HEAD_RE.exec(first || "");
+  if (m) return m[1];
+  const w = WORKTREE_CWD_RE.exec(cwd);
+  return w ? w[1] : "";
+}
+
+function sessionTrack(sid, now = Date.now()) {
+  if (!SID_RE.test(String(sid || ""))) return "";
+  const hit = trackCache.get(sid);
+  if (hit && (hit.track || now - hit.at < NEG_TTL_MS)) return hit.track;
+  const p = _transcriptOf(sid);
+  const track = p ? trackFromTranscriptHead(_headLines(p)) : "";
+  trackCache.set(sid, { track, at: now });
+  return track;
+}
+
+// 讀者標記：報告第一個非空欄位的首行寫了「給總控台」→ "給總控台"，否則 ""（純函式）。
+function audienceOf(r) {
+  for (const k of AUDIENCE_FIELDS) {
+    if (aecBlank(r && r[k])) continue;
+    return AUDIENCE_RE.test(String(r[k]).trim().split("\n")[0]) ? "給總控台" : "";
+  }
+  return "";
+}
+
+function _withLabels(r) {
+  if (r && typeof r === "object") {
+    r.track = sessionTrack(r.session_id);
+    r.audience = audienceOf(r);
+  }
+  return r;
+}
+
 // glob WORKFLOW_DIR/aec-report/*.json → 依 at(→turn_seq) 新→舊排序。Fail-open 回 []。
 function _readReports() {
   let files;
@@ -96,7 +185,7 @@ function _readReports() {
   for (const f of files) {
     if (!f.endsWith(".json")) continue;   // 略過 .tmp（atomic write 過渡檔）
     try {
-      out.push(JSON.parse(fs.readFileSync(path.join(REPORT_DIR, f), "utf-8")));
+      out.push(_withLabels(JSON.parse(fs.readFileSync(path.join(REPORT_DIR, f), "utf-8"))));
     } catch { /* skip corrupt / partial */ }
   }
   out.sort((x, y) =>
@@ -120,7 +209,7 @@ function apiAecReport(req, res, sid, turn) {
   }
   const p = path.join(REPORT_DIR, `${sid}-t${turn}.json`);
   try {
-    _json(res, 200, JSON.parse(fs.readFileSync(p, "utf-8")));
+    _json(res, 200, _withLabels(JSON.parse(fs.readFileSync(p, "utf-8"))));
   } catch {
     _json(res, 404, { error: "not found" });
   }
@@ -261,7 +350,7 @@ function apiAecDecisionPost(req, res) {
 
 module.exports = {
   aecBlank, aecSeverity, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
-  aecChipText, toolAntiEvasionReport,
+  aecChipText, toolAntiEvasionReport, trackFromTranscriptHead, sessionTrack, audienceOf,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, apiAecTempfilesAll,
   apiAecDecisionPost,
