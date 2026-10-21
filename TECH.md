@@ -234,7 +234,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->482 atoms：core 221 + feedback 81 + 失敗模式 2 + local 178〔Tools20/MemDev147/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->484 atoms：core 222 + feedback 82 + 失敗模式 2 + local 178〔Tools20/MemDev147/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -305,7 +305,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->482<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->484<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -615,7 +615,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | Depends 召回 | `hooks/wg_depends.py`（PostToolUse） | 讀到某張卡 `- Depends: path:<檔>` 指的檔（或其目錄之下）→ 一行指標「改它前先讀卡」，同卡一 session 一次；`authority_map` 命中文件檔一次性注入地圖。索引欄由 `sync-atom-index.py --sync-depends` 以 frontmatter 為真相同步 |
 | 壓縮後重注 | PreCompact／PostCompact／PostToolBatch | 壓縮前存 OverviewHub 摘要，壓縮後每部位綜觀（部位／層／三行已交否／主目標／卡／病灶前 N，`post_compact_chars` 截）隨 atom 一起重注（atom 先） |
 | 收據與驗證範圍 | `hooks/wg_verify_ledger.py`（採認、對帳、收據對不對得上宣告的一項）、`lib/self_receipt.py`（指令解析、自寫收據）；Stop 的 ReconcileGate／VerifyScope（§7.1、§7.9） | Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS\|FAIL\|DONE`、`<NAME> DONE k=v`，格式見 `rules/coding-style.md` 自檢段）連同完整指令、exit code、cwd、根，進 `workflow/verify-ledger/<sid>.jsonl` 與 state。跑超過工具 10 分鐘上限的 run_verify 與整組 pytest 量尺（`pytest -q tools/verify`、`pytest -q lib/verify`）就背景跑：跑完自寫收據到資料根的 `workflow/verify-ledger/_runs/`（run_verify 自己寫、整組 pytest 由根 `conftest.py` 寫；PreToolUse 禁手寫；收據的 project_root 記受測的樹），改完才開始跑、全綠、同一棵樹、argv 對得上宣告的指令（或涵蓋宣告的檔案項目）、或對帳 (a)(b) 認的部位量尺就算，不綁 session；收據另記紅掉的測試名 `failed_cases`。**白名單**：量尺比對只認白名單語法，也就是單一指令，或用 `&&`、`\|\|`、`\|`、`;`、換行串起來的指令鏈，可加單雙引號、重導向（`>`、`>>`、`2>&1`、`> $null`）、行首 `#` 註解、行尾續行。其他寫法一律算解析不了，整條指令不算證據，擋訊息會說是哪一種：here-string、heredoc、`$( )`、反引號、括號、大括號、單獨的 `&`、反斜線跳脫、只有重導向沒有程式的指令段、iex／eval／source、`bash -c`、`pwsh -Command`、if／for 這類控制結構。**四條家族規則**：①成功行只能來自被執行的驗證程式。整條指令裡，註解以外的字（前置設定、變數值、引號字串、重導向目標都算）只要寫了哨兵字樣（含 config 的 sentinel_regex，比對時拿掉所有錨點），這張收據任何用途都不算。唯一例外是精確對上的量尺片段裡、與表上那段逐字相同的字（量尺自帶的 `&& echo … DONE`）；片段裡多出來或寫法不同的字照查。②前置設定只准 bash `NAME=字面值`、`export NAME=字面值`，PowerShell `$env:NAME=字面值`、`$name=字面值`，以及 `cd <絕對路徑>`（要認得出根，就放最前面並接 `&&`）。set、unset、shopt、alias、trap、function、source、pushd 都不准。bash 任何位置的變數指定（行內前綴、獨立指定、export／declare 的參數），值都要是字面值，帶 `$` 展開的整條不支援（整段單引號包住的除外）。`PS1`～`PS4`、`PROMPT_COMMAND`、`BASH_ENV`、`ENV`、`SHELLOPTS`、`BASHOPTS`、`BASH_XTRACEFD`、`IFS` 在任何位置指定都整條不算，擋訊息會說是哪一個；bash 變數名分大小寫，PowerShell 不分大小寫，且帶任何 scope 前綴（`$env:`、`$global:`、`$script:`）都認。③「提到改檔」只看實際跑程式那幾段的參數，前置設定、cd、環境指定不參與。④整體驗證與部位量尺（對帳閘）只涵蓋實際執行根之下的改檔；驗證範圍的指令項目要在宣告時的目錄跑（換到子目錄跑的是另一組）。執行根是開頭 cd 的絕對路徑（消掉 . 與 ..），沒有就是收據 cwd。`run_verify.py` 要照完整路徑身分是執行根自己那支，沒有根資訊時要照寫法就是 `run_verify.py`。從環境替程式加選項的 `PYTEST_ADDOPTS`、`PYTHONOPTIMIZE` 指定了就不算整體驗證，也對不上沒指定它的量尺（等於命令列多帶了 `-k`、路徑、`-O`）。一般證據（指令點名改檔或它的測試）維持上下層規則；開頭 cd 進專案根之內時，樹根仍是原專案根，從 `tests/` 點名 `../hooks/verify/...` 照算。**指令項目（與部位量尺）的寫法**：宣告的指令必須是整條指令的最後一段，前面只准上面的前置設定，後面只准 `\| tail` 或 `\| Select-Object -Last N`；或前面是用 `&&` 串起的跑程式指令（`pytest x.py && 量尺`，前段失敗量尺就不跑），這時量尺後面不准再接過濾（管線會蓋掉量尺的 exit）；宣告的字要一字不差、順序相同；腳本照實際路徑比對，同名但在別處的不算；宣告的指令本身解析不了，收件就退回。一般證據的指令只能有執行程式的指令（直譯器、測試與建置工具、腳本檔），多段只准用 `&&` 串、輸出不導走。誠實的做法：在宣告時的目錄照宣告的原字串單獨跑。**防線邊界**：擋得住手寫收據、用措辭避開查核、把目標不明的寫入當成沒寫、拿舊收據或別棵樹的收據冒充，也擋得住在白名單語法內用一般 shell 指令讓成功行不是驗證程式印的（引號、echo、短路、截斷、管線蓋掉 exit、讀舊 log、換目錄、跑別棵樹、shell 追蹤印字、把字樣藏在重導向目標或路徑裡）。擋不住的是用或寫一支真的程式去印假哨兵（含改 `PATH`／`PYTHONPATH` 讓同名程式換成別支）：這屬刻意造假，不是程式能保證的，不再為它加機制。 |
-| 第二意見與候選池 | MCP `second_opinion_start`／`second_opinion_result`（`tools/second-opinion/`）、`project_smells`（`tools/project-smells.py`） | 把部位卡、病灶文件、diff、帳本尾、需求目標樹（goal.md）打包給 codex 獨立審（材料裡指到沙箱外的絕對路徑：磁碟代號、Git Bash 的 /c/…、UNC，全部遮成「…/<最後一段>」，提示詞才過得了 replay-guard pre、也不把真工作副本的位置交給審查者；有目標樹時 question 要含樹根那句，否則 blocked；大任務或高風險部位收尾由 Stop 的 SecondOpinion 閘自動要求，§7.1）；把專案壞味道候選排成表 |
+| 第二意見與候選池 | MCP `second_opinion_start`／`second_opinion_result`（`tools/second-opinion/`）、`project_smells`（`tools/project-smells.py`） | 把部位卡、病灶文件、diff、帳本尾、需求目標樹（goal.md）打包給 codex 獨立審（材料裡指到沙箱外的絕對路徑：磁碟代號、Git Bash 的 /c/…、UNC，全部遮成「…/<最後一段>」，提示詞才過得了 replay-guard pre、也不把真工作副本的位置交給審查者；post 守門只判 codex 自己的輸出：stderr 先剝掉 `user` 段回聲的整份提示詞（prompt.md 全文當精確子字串）與回答全文（reply.raw.md，stdout 一併剝），剝完寫成 codex.stderr.own.log 交給 replay-guard post；codex 沒跑任何指令時（guard 只因找不到指令行而 FAIL），退路掃同一份輸出的禁區樣式與出界路徑。帳本裡的 `git diff`、帶指令樣字樣的材料行、回答裡引述的禁區字樣都不算它讀出界，它自己 exec 的指令與輸出照判；剝不到的照舊掃，理由與 note 寫明哪些未剝；有目標樹時 question 要含樹根那句，否則 blocked；大任務或高風險部位收尾由 Stop 的 SecondOpinion 閘自動要求，§7.1）；把專案壞味道候選排成表 |
 | 過程量 | `hooks/wg_scorecard.py`、`tools/scorecard-report.py`、`tools/refix-churn.py` | 每 session 一行：改過的部位裡注入後讀過檔的比例、交三行的比例（knowledge 部位不計）；同檔反覆修的熱點 |
 
 **專案什麼情況該覆蓋**（寫在 `<專案根>/.claude/overview-hub.json`，只寫要改的鍵）：
@@ -965,10 +965,10 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── auto-continue/ / gdoc-harvester/ / unity-desktop/ / usage-snapshot/
 │   └── verify/
 │
-├── skills/                                  ← <!-- skill-count -->26<!-- /skill-count --> 個 active
+├── skills/                                  ← <!-- skill-count -->27<!-- /skill-count --> 個 active
 │   ├── atom-debug / atom-source / behavior-preservation / browse-sprites / changelog-debug / codex-companion
 │   ├── conflict / consciousness-stream / console / continue / extract / fix-escalation / generate-episodic
-│   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / meeting / memory / org
+│   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / mailbox / meeting / memory / org
 │   ├── read-project / refile / skill-creator / upgrade / vector
 │   └── _archived/ init-roles / conflict-review（單人環境 dormant）
 │

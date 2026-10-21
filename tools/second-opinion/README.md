@@ -20,7 +20,8 @@ execute  探針 codex exec --skip-git-repo-check -s read-only -c windows.sandbox
          （job 目錄先放 probe.txt＝一行隨機字樣，不在提示裡；探針兩個 log 開跑前清空；逾時 60 s／1385／回覆沒有那個字樣 → failed，不退 claude；
           探完刪 probe.txt，刪不掉只在 stderr 留一行、不改判定：字樣是隨機值、不含材料）
          → codex exec -m <slug> -s read-only -c windows.sandbox="unelevated" -C <job_dir> --ephemeral --skip-git-repo-check -o reply.raw.md -  （stdin=prompt.md；逾時 300 s kill）
-         → replay-guard post --log codex.stderr.log（FAIL → failed）
+         → codex.stderr.log 剝掉提示詞回聲與回答全文 → codex.stderr.own.log → replay-guard post --log codex.stderr.own.log
+           （FAIL → failed；只因找不到指令行而 FAIL → 退路掃同一份輸出＋stdout（也剝回答），乾淨才放行）
          → parse_three_sections（缺段 → failed）→ reply.md → done
 ```
 
@@ -30,6 +31,7 @@ job 目錄 `~/.claude/workflow/second-opinion/<yyyymmdd-HHMMSS>-<sid8>-<kind>/`�
 | 其他檔 | 誰寫 | 是什麼 |
 |---|---|---|
 | `codex.stdout.log`、`probe.stdout.log`、`probe.stderr.log`、`guard.pre.log`、`guard.post.log` | py | 子程序輸出與 guard 原文（除錯用） |
+| `codex.stderr.own.log` | py | codex 自己的輸出：stderr 剝掉提示詞回聲與回答全文，replay-guard post 判的是這份（原檔 `codex.stderr.log` 留著對照） |
 | `execute.log` | **MCP（js）建立**，子程序 stdout/stderr 導向進去 | 不是 state、不是 job 結果；`run.py execute` 自己的 print 與 traceback 落這裡 |
 | `execute.lock` | py，`O_CREAT\|O_EXCL` | 同一 job 只允許一個 executor；第二個 execute 直接拒。不自動清。**要重跑一律重新 `second_opinion_start`（prepare 建新 job）**，刪 lock 沒用：非 started 的 job 會被狀態檢查擋 |
 

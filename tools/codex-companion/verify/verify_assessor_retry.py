@@ -133,6 +133,39 @@ def test_classify_failure_other_warning_with_notify():
     assert result["confidence"] == "low"
 
 
+# 裁判實測（2026-10-21，codex 0.154）：stderr 第一行是 "Reading prompt from stdin..."，檔頭固定印 `sandbox: danger-full-access`，
+# 並在 `user` 段回聲整份提示詞
+JUDGE_HEADER = ("Reading prompt from stdin...\nOpenAI Codex v0.154.0\n--------\nworkdir: C:\\proj\nmodel: gpt-6-astra\n"
+                "provider: openai\napproval: never\nsandbox: danger-full-access\nreasoning effort: medium\n--------\nuser\n")
+
+
+def test_classify_failure_header_sandbox_word_is_not_sandbox_failure():
+    """檔頭那行 `sandbox: danger-full-access` 每次都印，不是失敗訊號：只有檔頭＋別的錯誤 → 其他原因（heuristics-only），
+    summary 附錯誤首行；真的沙箱錯（CreateProcessWithLogonW failed: 1385）照樣標 sandbox。舊碼兩種都標 sandbox。"""
+    other = assessor._classify_failure(JUDGE_HEADER + "審這段\nERROR: stream disconnected before completion\n")
+    assert other["status"] == "warning" and "sandbox" not in other["summary"], other
+    assert "heuristics-only" in other["summary"] and "ERROR: stream disconnected" in other["summary"], other
+    real = assessor._classify_failure(JUDGE_HEADER + "審這段\nCreateProcessWithLogonW failed: 1385\n")
+    assert real["category"] == "system" and real["severity"] == "high" and "sandbox" in real["summary"], real
+    # 沒有像錯誤的行（例如只剩 token 數尾行）→ 不附錯誤首行、不拿尾行充數
+    bare = assessor._classify_failure(JUDGE_HEADER + "審這段\ntokens used\n20,916\n")
+    assert bare["summary"] == "退回 heuristics-only", bare
+
+
+def test_run_codex_strips_prompt_echo_before_classifying(monkeypatch):
+    """裁判 stderr 在 `user` 段回聲整份提示詞；提示詞（工具軌跡）裡的 `CreateProcessWithLogonW failed: 1385` 是我方材料，
+    _run_codex 交出的 stderr 要先剝掉，失敗分類才不會把它當沙箱失敗。舊碼原樣交出 → 標 sandbox。"""
+    prompt = "工具軌跡：#3 [FAILED] pwsh -Command Get-Content x → CreateProcessWithLogonW failed: 1385\n請判斷完成度"
+
+    class CP:
+        returncode, stdout, stderr = 1, "", JUDGE_HEADER + prompt + "\nERROR: quota exceeded\n"
+    monkeypatch.setattr(assessor.subprocess, "run", lambda *a, **kw: CP())
+    assert "CreateProcessWithLogon" in CP.stderr, "前置：原始 stderr 真的含回聲裡的 1385"
+    _, err = assessor._run_codex(prompt, "", {"codex_binary": "codex"})
+    assert "CreateProcessWithLogon" not in err and "ERROR: quota exceeded" in err, err
+    assert assessor._classify_failure(err)["status"] == "warning"
+
+
 # ─── 整合：retry 兩次都失敗 → classify_failure 介入 ────────────────
 
 

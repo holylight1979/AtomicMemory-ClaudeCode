@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-21 共用信箱 skill（`/mailbox`，PR #4 by wellstseng）：用網路共用資料夾讓人與 AI 互相寄信收信
+- **使用者看到的**：說「收信」「寄信給 xxx」「寄給專案」「回信」，AI 跑 `skills/mailbox/scripts/mail.py` 在共用資料夾收寄信；讀信＝搬進 `_archive` 領取（兩人同時讀只有一人領到），可解鎖退回、刪信、看總覽、記收件人簡稱。第一次用先在 `skills/mailbox/config.json` 填 `mailbox_root`；專案根下有 `.claude/skills/mailbox/config.json` 時整層改讀那份（同名 skill 個人層蓋過專案層，專案自己的信箱路徑照樣有效）。帳號存 `.local/`、不進版控。驗證 `tools/verify/verify_mailbox.py`。
+- **整併時補的**：還沒記帳號就 `delete --yes`／`roster --add` 不再刪到一半或先寫了名單才停（會改東西的子命令先確認帳號再動手）；名單檔的帳號照收件者規則檢查，手改壞的帳號不會變成信箱外的路徑；附件開在 Excel 等程式時，讀信／解鎖／刪信停下請你關掉再試，不再讓信和附件分家；兩人同時讀同一封時，搶輸或搶贏的一方偶爾因 Windows 剛搬動的檔短暫拒絕存取而報錯，現在開信／改名／寫狀態會稍等重試。DocIndex §5 補 mailbox／meeting／atom-source 三列。
 ## 2026-10-21 G16 補件：開工作軌補信任紀錄時，不再蓋掉別的 session 的設定、也不會把 ~/.claude.json 寫壞
 - **總控台看到的**：`console-spawn.py` 替還沒信任的 worktree 補信任紀錄前，會先拿 Claude Code 存設定用的同一把鎖（`~/.claude.json.lock`）。拿到鎖後重讀檔、只加這一個鍵，寫暫存檔再整檔換上；換行與結尾照原檔，不再把整檔翻成 CRLF。鎖等 10 秒拿不到、拿鎖後 5 秒內沒換上（鎖可能已被 Claude Code 當過期鎖換人，這時也不刪鎖）、檔不存在、不是合法 JSON、格式不對、寫入失敗 → FAIL 印原因、退人貼，原檔不動；FAIL 的步驟名改成「worktree 沒有信任紀錄、也補不上（原因見上面 ! 那行）」。
 - **改了什麼**（軌 track-spawn-trust-atomic 000）：`ensure_trust` 拆出三個函式。`check_trust` 負責讀檔加判斷，會用兩次：先判要不要補，拿鎖後重讀再判一次。`lock_config` 建 `<設定檔>.lock` 目錄，這就是 proper-lockfile 的鎖，跟 Claude Code 2.1.304 `saveConfigWithLock` 拿的是同一把；別人拿著時只等、不搶。`write_config_atomic` 寫同目錄的 `.console-spawn.<pid>.tmp` 再 `os.replace`，換上前已超過持鎖時限 `CONFIG_LOCK_HOLD_SEC` 就不換。`unlock_config` 超過時限就不刪鎖。`check_trust` 另外會擋 projects 裡不是物件的那筆，舊碼遇到會直接當掉。另外 `save_state` 補上 `newline="\n"`。
@@ -15,6 +18,11 @@
 - **改了什麼**（軌 track-console-spawn-model 000）：`build_cmd` 把 `--model` 接在指令最後，bg 與 print 都接，開工句仍在第 2 格；`load_spawn_config` 讀字串鍵 `default_model`；新增 `model_and_api_error` 函式，取最近一則真回應的 `message.model`，跳過 Claude Code 自己補寫的 `<synthetic>`，同時找 `isApiErrorMessage` 的錯誤文字；`wait_kickoff` 同一輪輪詢就能讀到報到或 API 錯誤；print 方法只帶上 `--model`、不核對，會印一行說明。
 - **驗證**：`tools/verify/verify_console_spawn.py` 新增 9 案，`--help` 案多斷言 `--model`。在舊碼上 10 紅，改後 25 passed。另外真打兩次，都用 claude.exe 2.1.304：`--model claude-opus-5-5` 17 秒 PASS、印「模型＝claude-opus-5-5」；`--model claude-nonexistent-9-9` 17 秒 FAIL、印 claude 回的錯誤原文。
 
+## 2026-10-21 G9：第二意見的 post 守門只判 codex 自己的輸出，不再被提示詞回聲與它的回答判 failed
+- **交給 AI 寫程式時會看到的**：改過檔的 session 跑第二意見，帳本裡有 `git diff`、`_AIDocs/_atoms`、帶指令樣字樣的指令，或 codex 審查時在回答裡引述了這些字樣，結果都是 done，不再 failed；codex 自己真的跑出界的指令、寫出沙箱外路徑仍判 failed。細節 TECH 第二意見列。
+- **改了什麼**（軌 track-g9-post-guard-echo 000、002）：`tools/second-opinion/run.py` 新增 `codex_own_output`：stderr 剝掉 `user` 段回聲的整份提示詞（prompt.md 全文當精確子字串）與回答全文（reply.raw.md，stdout 一併剝），剝完寫成 `codex.stderr.own.log` 交給 replay-guard post；沒指令行時的退路掃同一份輸出。scan 子行程協定多兩個必填布林 `echo_stripped`、`reply_stripped`，note／reason 寫明剝了哪些、哪些未剝。replay-guard 的指令行判定與禁區表一字未動，材料不遮。
+- **驗證**：`tools/codex-companion/verify/verify_second_opinion.py` 新 6 支 8 案（post 走真的 replay-guard，先斷言前置狀態）；重現案三支在舊碼上都紅：退路回聲（實證 job 20261021-092745 的同一句 failed 理由）、主路徑回聲裡帶 `pwsh -Command "git diff …"` 那行（舊碼 FAIL 指令命中禁區樣式）、回答引述 `git log -3`；其餘是「自己出界仍擋（含回答逐字引述自己跑過的出界指令）」「剝不到照舊掃」的護欄；協定案例補兩個旗標（先宣告改舊測試 4 支）。新 `scan` 重判三個真打 job（20261021-092745、094749、095001）都 PASS。
+- **失敗原因分得出沙箱與其他**（003）：codex exec 的 stderr 檔頭每次都印一行 `sandbox: 模式名`（實測探針 read-only、裁判 danger-full-access），以前第二意見探針與 Codex Companion 裁判拿裸字 sandbox 判「沙箱失敗」，任何失敗都被標成沙箱。現在只認 CreateProcessWithLogon（探針另認 1385），或同一行 sandbox 與 error／denied／failed 並列；其他原因的訊息附錯誤首行（探針「探針沒讀回…（其他原因…）；錯誤首行：…」、裁判「退回 heuristics-only（裁判失敗，非沙箱；錯誤首行：…）」）。裁判 `_run_codex` 交出的 stderr 也先剝掉提示詞回聲，工具軌跡裡的 1385 不再被當成沙箱失敗。案例：`verify_second_opinion.py` 新 1 支 2 案、`verify_assessor_retry.py` 新 2 案，誤判那 3 案在舊碼上紅。
 ## 2026-10-20 G11 002：拐彎判斷改在對帳之後才擋，前面的閘擋下時預告還缺幾條
 - **交給 AI 寫程式時會看到的**：收尾同時「說修好沒收據」又「缺拐彎判斷行」，先看到的是寫碼查核（對帳 (a)～(d)、驗證範圍）的紅，訊息尾「後面還會擋」列「拐彎判斷：缺 N 條（名稱）」與一行寫法，可以一回合補齊；對帳過了才輪到拐彎判斷擋，每個使用者回合仍只擋一次，對帳先擋不會吃掉這一次。拐彎判斷擋下時，尾端也照樣預告後面的第二意見等閘。判定規則與五欄格式不變。細節 TECH §7.1、§7.8。
 - **改了什麼**（軌 track-g11-reconcile-move 000）：`handlers/stop.py` ReadingPath 段只留背景量測與 stderr；新 TurnJudgment 段放在 SecondOpinion 正前方（寫碼查核、退避偵測之後），`_later_gates` 第一項掛拐彎判斷預覽；`hooks/wg_reading_path.py` 加只讀查詢 `turn_judgment_missing`；同類順手修：Equivalence 閘改成先 `_piggyback` 再 `write_state`，token 預警與驗收提示「整場附一次」的旗標才寫得進 state（新閘同此順序）。
