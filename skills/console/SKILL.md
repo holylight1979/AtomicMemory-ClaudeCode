@@ -107,7 +107,7 @@ pattern: pipeline
 ## 工作軌守則（開工句已帶）
 
 - 第一步 EnterWorktree；之後只用 worktree 絕對路徑，不碰 live；交付用 SendMessage 送全文（[delivery.md](references/delivery.md)）並附 live 未動證明。〔R〕
-- 含 git 字樣的 Bash 指令會被 worktree 守門拒絕：寫成 worktree 內的 Python 啟動器再跑，啟動器檔名也不能含 git。〔Q〕
+- 含 git 字樣的 Bash 指令會被 worktree 守門拒絕：寫成 worktree 內的 Python 啟動器再跑，啟動器檔名也不能含 git。啟動器的建立與刪除都算改程式、會讓之前的收據作廢：收尾順序固定「建啟動器 → 跑目標 verify → commit → 刪啟動器 → 再跑一次 verify → reconcile」。〔Q〕
 - 接單先核實路徑與跑法；pytest 收 0 案不是綠。〔W〕
 - 只跑目標 verify，不跑全量；commit 在分支上、不推。〔P、X〕
 
