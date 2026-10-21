@@ -13,6 +13,7 @@
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空 | codex裁判停用個別mcp用-c-mcp_servers名.enabled=false-mcp_servers空表是合併不是清空 |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
+| g9-評分規格兩家模型各自想分歧寫下來 | G9 評分規格：兩家模型各自想、分歧寫下來 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律Write成檔再跑 |
 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 |
@@ -21,6 +22,7 @@
 | 公司gitlab的mr收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器 | 公司gitlab的MR收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器 |
 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 |
 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與ListAgents啟動時間 |
+| 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 | 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 |
 
 ## 子層
 
