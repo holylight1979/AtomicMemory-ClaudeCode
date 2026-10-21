@@ -493,3 +493,4 @@
 | git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 | memory/版控/Git/git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測.md | git stash, stash push --, stash pop --index, 退回舊碼看紅, could not write index, patch does not apply, 單檔退回, 舊碼紅 | global |  |
 | 所有技術輸出必須包含一個使用開源免費-llm-產生的-針對特定規格的評分表-同時 | memory/行為契約/所有技術輸出必須包含一個使用開源免費-llm-產生的-針對特定規格的評分表-同時.md | 規格格式, 開源LLM, 白話說明, 決策上下文, 提問優先 | global |  |
 | feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹 | memory/Failures/行為契約/feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹.md | 黑箱作業, 看不見開了多少軌, 在跑的軌, 白話體驗, 無限延展, 新增子目標, 樹上長節點, 批量派工回報, 總控台回報格式, 體感評分 | global |  |
+| 小模型當文字規格裁判實測-逐條是非題加程式先切範圍才準-一次全判會拿後文湊答案-裁判偏寬鬆先記帳不擋-引用對不到原文就作廢 | memory/驗證與實證/LLM裁判/小模型當文字規格裁判實測-逐條是非題加程式先切範圍才準-一次全判會拿後文湊答案-裁判偏寬鬆先記帳不擋-引用對不到原文就作廢.md | LLM 裁判, 規格評分表, G15, gemma4 裁判, Ollama 評分, 文字品質自動評, rubric 是非題, 寬鬆偏差, text-score | global |  |
