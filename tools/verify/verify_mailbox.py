@@ -15,6 +15,7 @@ cases：
   9. （Windows）附件被開著時 read／delete 停下（exit 1）：信和附件留在原位、不分家
  10. 剛被別人搬動的檔短暫拒絕存取：開信／改名／寫狀態稍等重試；一直被佔才報錯
  11. mail.py 的文字模式寫檔都帶 newline=（LF 守門同一套規則）
+ 12. 附件搬不動、信也搬不回原位 → 停下（exit 1）並報出信與附件各在哪、怎麼湊回，不丟 traceback
 """
 from __future__ import annotations
 
@@ -298,10 +299,15 @@ def test_delete_with_attachment_open_keeps_the_mail(proj: Path, tmp_path: Path):
 # 10. 短暫拒絕存取要等過去；一直被佔才報錯（子行程造不出穩定的短暫鎖，直接載入模組測）
 # ---------------------------------------------------------------------------
 
-def test_retry_on_busy_waits_out_a_brief_lock_but_reports_a_held_one(monkeypatch):
+def load_mail_module():
     spec = importlib.util.spec_from_file_location("mailbox_mail", MAIL)
     mail = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mail)
+    return mail
+
+
+def test_retry_on_busy_waits_out_a_brief_lock_but_reports_a_held_one(monkeypatch):
+    mail = load_mail_module()
     monkeypatch.setattr(mail, "BUSY_WAIT_SECONDS", 0)
     attempts = []
 
@@ -328,3 +334,30 @@ def test_text_writes_have_newline_control():
     import verify_lf_writes as lf
     assert 'open(ping_path, "w"' in MAIL.read_text(encoding="utf-8"), "前置：check 真的有文字模式寫檔"
     assert lf.check_file(MAIL) == []
+
+
+# ---------------------------------------------------------------------------
+# 12. 附件搬不動、信也搬不回原位：報出兩邊位置與湊回指令（子行程造不出這種組合，直接載入模組、只放行第一次搬信）
+# ---------------------------------------------------------------------------
+
+def test_move_reports_both_places_when_rollback_also_fails(monkeypatch, capsys, tmp_path: Path):
+    mail = load_mail_module()
+    monkeypatch.setattr(mail, "BUSY_WAIT_SECONDS", 0)
+    monkeypatch.setattr(mail, "ROOT", str(tmp_path))
+    inbox = tmp_path / "project"
+    (inbox / "20261021-100000_M0001_alice_表格").mkdir(parents=True)
+    (inbox / "20261021-100000_M0001_alice_表格.md").write_text("# 表格\n", encoding="utf-8")
+    real_rename = os.rename
+
+    def only_first_mail_move(src, dst):
+        if src == str(inbox / "20261021-100000_M0001_alice_表格.md"):
+            return real_rename(src, dst)
+        raise PermissionError("held open")
+
+    monkeypatch.setattr(mail.os, "rename", only_first_mail_move)
+    with pytest.raises(SystemExit):
+        mail.move(mail.Mail("project", False, "20261021-100000_M0001_alice_表格.md"), True)
+    err = capsys.readouterr().err
+    assert "信也搬不回原位" in err and "unlock" in err
+    assert (inbox / "_archive" / "20261021-100000_M0001_alice_表格.md").is_file()
+    assert (inbox / "20261021-100000_M0001_alice_表格").is_dir()

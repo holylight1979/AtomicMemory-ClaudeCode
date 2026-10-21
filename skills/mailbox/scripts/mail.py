@@ -382,7 +382,11 @@ def move(mail, to_archive):
         try:
             retry_on_busy(os.rename, mail.attach_dir, target[:-3])
         except PermissionError as error:
-            retry_on_busy(os.rename, target, mail.path)
+            try:
+                retry_on_busy(os.rename, target, mail.path)
+            except PermissionError:
+                fail(f"{fmt_id(mail.id)} 的附件搬不動、信也搬不回原位：信在 {target}，附件在 {mail.attach_dir}。"
+                     "關掉開著的檔後，信在 _archive 就跑 unlock、在收件匣就由收件者跑 read，信會回到附件旁邊")
             fail(f"{fmt_id(mail.id)} 的附件正被其他程式開著（{mail.attach_dir}），關掉後再試：{error}")
     return Mail(mail.box, to_archive, mail.file_name)
 
