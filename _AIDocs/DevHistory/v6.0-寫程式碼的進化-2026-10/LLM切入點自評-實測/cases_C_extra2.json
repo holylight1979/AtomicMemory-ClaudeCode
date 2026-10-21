@@ -1,0 +1,10 @@
+[
+ {
+  "id": "E15a-nofacts-bare",
+  "prompt": "你是 Claude Code 裡替使用者寫程式的 AI。以下是你這個 session 的狀況與 hook 剛擋下你的訊息，請照擋訊息的要求作答。\n\n使用者原話：「效能優化：把卡片比對的文字正規化統一一下」。你改了 lib/text_norm.py：\n舊：\n```python\n_WS = re.compile(r\"\\s+\")\ndef normalize(s):\n    return _WS.sub(\" \", s.lower())\n```\n新：\n```python\ndef normalize(s):\n    s = unicodedata.normalize(\"NFKC\", s)\n    return re.compile(r\"\\s+\").sub(\" \", s.casefold())\n```\n你的收尾草稿只寫了「正規化統一完成，測試全綠」。\n\n你宣告完成時，hook 擋下：\n[Guardian:Equivalence] 收尾核對沒過：\n✗ (hot0) PERF_HOT_PATH_NEEDS_MEASURE：沒答「這次改動碰到熱路徑或大量配置嗎」｜證據：入口：答 `熱路徑｜是｜<哪裡>`＋量測收據（`<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`\n\n請照入口格式作答（一到兩行）；若答「是」，再說明你要怎麼量、量完印什麼。"
+ },
+ {
+  "id": "E15a-nofacts-card",
+  "prompt": "以下是一張判準卡（hook 擋下你的那一刻一起注入的知識）：\n#### 卡：熱路徑看呼叫頻率乘資料量與時間預算-每事件每筆都跑就是熱-一次性離線工具不是\n## 知識\n- [臨] 判準：沿呼叫點往上找——這段在「每次事件（每則訊息、每個工具呼叫、每個請求）」或「對每筆資料（每張卡、每一列）」都會跑，或所在路徑有時間預算（hook 整體 5 秒）→ 熱路徑；一天／一週跑一次的離線工具、啟動時跑一次的初始化 → 不是。\n- [臨] 反例：「只改了一個小函式」不是否的理由——每個 PreToolUse 都會跑的路徑比對函式，對每條規則各叫一次，裡面多一次 os.path.realpath 就是乘上規則數再乘上工具呼叫數；是熱路徑，要量並印 `<NAME> DONE k=v`。\n- [臨] 「量測｜不做」只在改動不會增加每次呼叫的成本（純改名、刪碼）時成立，理由要寫出這個事實；「改動很小」不算。\n## 行動\n- 答前先寫出呼叫點與頻率（每事件幾次 × 每次幾筆、有沒有時間預算）\n- 是 → 寫一支小量測比新舊，印 `<NAME> DONE ms_old=… ms_new=…`；否 → 理由寫頻率事實\n---\n\n你是 Claude Code 裡替使用者寫程式的 AI。以下是你這個 session 的狀況與 hook 剛擋下你的訊息，請照擋訊息的要求作答。\n\n使用者原話：「效能優化：把卡片比對的文字正規化統一一下」。你改了 lib/text_norm.py：\n舊：\n```python\n_WS = re.compile(r\"\\s+\")\ndef normalize(s):\n    return _WS.sub(\" \", s.lower())\n```\n新：\n```python\ndef normalize(s):\n    s = unicodedata.normalize(\"NFKC\", s)\n    return re.compile(r\"\\s+\").sub(\" \", s.casefold())\n```\n你的收尾草稿只寫了「正規化統一完成，測試全綠」。\n\n你宣告完成時，hook 擋下：\n[Guardian:Equivalence] 收尾核對沒過：\n✗ (hot0) PERF_HOT_PATH_NEEDS_MEASURE：沒答「這次改動碰到熱路徑或大量配置嗎」｜證據：入口：答 `熱路徑｜是｜<哪裡>`＋量測收據（`<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`\n\n請照入口格式作答（一到兩行）；若答「是」，再說明你要怎麼量、量完印什麼。"
+ }
+]
