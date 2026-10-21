@@ -44,6 +44,7 @@ from lib.atom_locations import (  # noqa: E402
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_DIR, LOCAL_ATOMS_REL, LOCAL_REALM_DOMAINS,
     core_write_target, enumerate_local_paths, failures_write_target,
     is_local_realm_path, normalize_domain_path, unclassified_error,
+    ENTRY_BOUND_STAYS_CORE, entry_bound_ids,
 )
 try:
     from lib.atom_taxonomy import core_categories as _core_categories  # noqa: E402
@@ -186,6 +187,11 @@ def set_realm(
         return {"ok": False, "error": f"target already exists: {dst_md}"}
 
     cur_scope_field = _read_scope(src_md)
+    # ENTRY_BOUND_STAYS_CORE：自動搬移會擋；手動搬是人判斷過的動作，只警告、照搬
+    entry_ids = entry_bound_ids(entry, src_md) if new_realm == "local" else []
+    warn = ({"warning": f"{ENTRY_BOUND_STAYS_CORE}: {slug} 綁 Entry {', '.join(entry_ids)}；"
+                        "搬到 local 後只在 ~/.claude 注入，其他專案與受測資料根在那個切入點送不到（照搬，不擋）"}
+            if entry_ids else {})
 
     if dry_run:
         if to_core:  # core_write_target 已 mkdir 落點：dry-run 不留空目錄鏈
@@ -199,7 +205,7 @@ def set_realm(
             "from": cur_path, "to": new_rel,
             "from_realm": "local" if cur_is_local else "core", "to_realm": new_realm,
             "scope": scope, "scope_field": cur_scope_field,
-            "sidecar": access_sidecar_path(src_md).exists(),
+            "sidecar": access_sidecar_path(src_md).exists(), **warn,
         }
 
     # 1) 實體檔 + sidecar 原子搬
@@ -237,7 +243,7 @@ def set_realm(
     return {
         "ok": True, "slug": slug, "from": cur_path, "to": new_rel,
         "to_realm": new_realm, "scope": scope, "scope_field": cur_scope_field,
-        "sidecar_moved": sidecar_moved, "md_path": str(dst_md),
+        "sidecar_moved": sidecar_moved, "md_path": str(dst_md), **warn,
     }
 
 
@@ -262,6 +268,8 @@ def main() -> int:
 
     args = p.parse_args()
     result = args.func(args)
+    if result.get("warning"):
+        print(f"[警告] {result['warning']}", file=sys.stderr)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("ok") else 1
 

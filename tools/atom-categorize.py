@@ -355,6 +355,7 @@ def _write_undo(path: Path, layout: Layout, entries: List[Dict[str, Any]]) -> No
 def apply_plan(layout: Layout, plan: Dict[str, Any], undo_file: Path) -> Dict[str, Any]:
     done: List[Dict[str, Any]] = []
     failures: List[str] = []
+    warnings: List[str] = []  # set_realm 照搬但有話要說（例：ENTRY_BOUND_STAYS_CORE），原樣帶出
     set_realm_mod = None
     for it in plan["items"]:
         if it["action"] == "noop":
@@ -372,6 +373,8 @@ def apply_plan(layout: Layout, plan: Dict[str, Any], undo_file: Path) -> Dict[st
                     raise RuntimeError(f"{it['slug']}: atom-set-realm failed: {res.get('error')}")
                 if res.get("noop"):
                     continue
+                if res.get("warning"):
+                    warnings.append(res["warning"])
                 _audit_log({"audit_id": _gen_audit_id(), "ts": _now(), "op": "categorize_move",
                             "source": _SOURCE, "slug": it["slug"], "from_path": res["from"],
                             "to_path": res["to"], "sidecar_moved": res.get("sidecar_moved"),
@@ -383,7 +386,7 @@ def apply_plan(layout: Layout, plan: Dict[str, Any], undo_file: Path) -> Dict[st
             break  # 半途失敗：停、落 undo（已做的可反向）、回報
     if done:
         _write_undo(undo_file, layout, done)
-    return {"applied": len(done), "failed": failures,
+    return {"applied": len(done), "failed": failures, "warnings": warnings,
             "undo_file": str(undo_file) if done else None,
             "validate_errors": validate_index(layout.memory_dir)}
 
