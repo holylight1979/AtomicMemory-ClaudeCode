@@ -97,6 +97,7 @@ class Hit:
     quote: Optional[str] = None       # 使用者原話（已消毒）；None＝找不到或是開工句
     human_uuid: Optional[str] = None  # 原話記錄 uuid（Source 用）
     quote_skipped: str = ""           # "kickoff"＝找到的真人訊息是開工句，不當原話
+    quote_cleared: bool = False       # 那次 atom_write 明傳 quote=""：呼叫者要清空，回填不補回
 
 
 @dataclass
@@ -136,7 +137,7 @@ def _result_path(text: str) -> Optional[str]:
 
 def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex:
     idx = TranscriptIndex()
-    pending: Dict[str, Tuple[str, str, str, str, str, str]] = {}  # tool_use_id → (uuid, ts, title, mode, sid, file)
+    pending: Dict[str, Tuple[str, str, str, str, str, str, bool]] = {}  # tool_use_id → (uuid, ts, title, mode, sid, file, 清空 quote)
     humans_by_sid: Dict[str, List[Tuple[str, str, str]]] = {}      # sid → [(ts, uuid, text)] 主線真人
     for fp in sorted(projects_dir.glob("*/*.jsonl")):
         idx.files += 1
@@ -180,7 +181,8 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
                         inp = b.get("input") if isinstance(b.get("input"), dict) else {}
                         if inp.get("mode") not in ("create", "replace"):
                             continue
-                        pending[str(b.get("id"))] = (str(uuid), ts, str(inp.get("title") or ""), str(inp["mode"]), sid, str(fp))
+                        pending[str(b.get("id"))] = (str(uuid), ts, str(inp.get("title") or ""), str(inp["mode"]), sid, str(fp),
+                                                     inp.get("quote") == "")
                 elif rtype == "user":
                     for b in blocks:
                         if not isinstance(b, dict) or b.get("type") != "tool_result":
@@ -193,9 +195,10 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
                         path = _result_path(rtext)
                         if not path or "Error" in rtext[:12]:
                             continue
-                        tu_uuid, tu_ts, title, mode, tu_sid, tfile = tu
+                        tu_uuid, tu_ts, title, mode, tu_sid, tfile, cleared = tu
                         if title:
-                            idx.add(title, Hit(ts=tu_ts, sid=tu_sid, uuid=tu_uuid, path=path, mode=mode, transcript=tfile))
+                            idx.add(title, Hit(ts=tu_ts, sid=tu_sid, uuid=tu_uuid, path=path, mode=mode, transcript=tfile,
+                                               quote_cleared=cleared))
     for lst in humans_by_sid.values():
         lst.sort()
     # 回溯原話：沿 parentUuid 走到最近真人；sidechain 走不到 → 同 sid 主線 ts≤hit 最近一則
@@ -399,6 +402,8 @@ def backfill(*, apply: bool = False, layer: str = "all", only: Optional[List[str
             hit, why = _pick_hit(hits, path, base_count.get(_norm(path.name), 1)) if hits else (None, "no_hit")
             provenance: Optional[str] = None
             quote: Optional[str] = None
+            if hit is not None and any(h.quote_cleared for h in hits if _norm(Path(h.path).name) == _norm(path.name)):
+                hit.quote, hit.quote_skipped = None, "caller_cleared"   # 哪一次寫這張卡明傳 quote="" 清過，就不補回
             if hit is not None:
                 r["grade"] = "A" if hit.quote else "A_noquote"
                 r["hit"] = {"sid": hit.sid[:8], "uuid": (hit.human_uuid or hit.uuid)[:8], "ts": hit.ts, "mode": hit.mode}
@@ -409,7 +414,7 @@ def backfill(*, apply: bool = False, layer: str = "all", only: Optional[List[str
                 quote = format_quote(hit.quote) if hit.quote else None
                 if provenance is None and quote is None:
                     r["grade"] = "skip"
-                    r["reason"] = "kickoff_not_quoted" if hit.quote_skipped else "has_source_no_quote_found"
+                    r["reason"] = f"{hit.quote_skipped}_not_quoted" if hit.quote_skipped else "has_source_no_quote_found"
             elif why == "ambiguous":
                 r["grade"], r["reason"] = "skip", "ambiguous"
                 summary["ambiguous"] += 1

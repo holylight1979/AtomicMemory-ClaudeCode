@@ -152,6 +152,7 @@ def cmd_sample(a: argparse.Namespace) -> int:
         if not (Path(t) if Path(t).is_absolute() else root / t).is_dir():
             problems.append(f"--for {t} 不是存在的目錄")
     for c in a.run or []:
+        # no-window-exempt: 抽樣指令的輸出要直接印給跑工具的人看；shell=True 帶 CREATE_NO_WINDOW 時子行程的輸出會整個不見
         r = subprocess.run(c, shell=True, cwd=str(root))
         print(f"[run] {c} → exit {r.returncode}")
         if r.returncode != 0:

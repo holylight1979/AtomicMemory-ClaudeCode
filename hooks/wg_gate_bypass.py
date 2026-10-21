@@ -589,5 +589,7 @@ def atom_refusal(title: str, knowledge: Sequence[str], actions: Optional[Sequenc
     _log("atom_refused", "", title=str(title)[:120], gates=gates, words=words, declared=reason, source=source)
     return (f"這張卡在教怎麼繞 {'、'.join(gates)}。閘誤擋要修判定（加規則＋紅案例），不寫繞法；確定誤擋就寫追蹤項。"
             "要記的是「為什麼那批檔不該進這筆」就改寫成那句再寫。\n" + rr.format_hit("gb", v) + "\n"
-            "確定這張卡不是在教繞法（例如寫的是「禁止怎麼繞」、或在分析一次誤擋）→ 知識段第一行寫"
+            "先問：讀完這張卡的人，能不能照著做，讓閘擋下的內容不經修正就過關（例如把被點名的帶病檔送進版控）？"
+            "能 → 就是在教繞法，即使你認為那次是誤擋：改寫成「為什麼那批檔不該進這筆」或寫追蹤項，不要宣告；"
+            "不能（寫的是禁止怎麼繞、教的是修病）→ 知識段第一行寫"
             f"「{ATOM_DECLARE_EXAMPLE}」再寫一次，會寫入並留帳給人抽查。")

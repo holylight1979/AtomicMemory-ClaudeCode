@@ -777,6 +777,22 @@ def test_045_retry_counts_rerun_cycles_messages_roundtrip_parse_hits():
 _MV_TOOL = str(HOOKS_DIR.parent / "tools" / "move-dir-check.py")
 
 
+def test_move_sample_run_prints_child_output_and_exit_code(tmp_path):
+    """sample --run 的抽樣指令輸出要直接回到跑工具的人眼前（所以那一行豁免壓窗旗標：shell=True 帶 CREATE_NO_WINDOW
+    子行程輸出會整個不見），exit code 判 PASS／FAIL。"""
+    import subprocess
+    (tmp_path / "pkg").mkdir()
+    # 這裡也不帶壓窗旗標：工具本身被 CREATE_NO_WINDOW 叫起時，它的 shell 子行程輸出一樣會不見（跟要驗的是同一件事）
+    ok = subprocess.run([sys.executable, "-X", "utf8", _MV_TOOL, "sample", "--root", str(tmp_path), "--for", "pkg",
+                         "--run", f'"{sys.executable}" -c "print(\'child-out\')"'],
+                        capture_output=True, text=True, encoding="utf-8")
+    assert ok.returncode == 0 and "child-out" in ok.stdout and ok.stdout.strip().endswith("MOVE_SAMPLE_CHECK PASS"), ok
+    bad = subprocess.run([sys.executable, "-X", "utf8", _MV_TOOL, "sample", "--root", str(tmp_path), "--for", "pkg",
+                          "--run", f'"{sys.executable}" -c "raise SystemExit(3)"'],
+                         capture_output=True, text=True, encoding="utf-8")
+    assert bad.returncode == 1 and "exit 3" in bad.stdout and bad.stdout.strip().endswith("MOVE_SAMPLE_CHECK FAIL"), bad
+
+
 def _mv_receipt(cmd, line, at, verdict="DONE", name="MOVE_PATH_SCAN", cwd="C:/p"):
     return {"at": at, "session_id": "s", "turn_seq": 3, "tool": "Bash", "cmd": cmd, "cmd_full": True, "env": {},
             "cwd": cwd, "project_root": cwd, "exit_code": 0,

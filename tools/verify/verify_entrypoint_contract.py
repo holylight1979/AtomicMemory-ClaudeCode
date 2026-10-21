@@ -440,7 +440,10 @@ def test_stop_block_via_piggyback_gets_card_after_previews(stop_run, tmp_path, m
     _pool(monkeypatch, [card])
     r1 = stop_run("改好了，全部完成。", failing_tests=failing)
     assert r1["reason"] == r0["reason"] + "\n判準卡（E08）：skip-card\n- [臨] 跳過＝這件不做。"
-    assert [a["entry"] for a in _ledger(logs) if a["path"] == "stop_piggyback"][-1] == "E08"
+    # 擋訊息寫了引原話的豁免寫法（「：使用者說「」），同一則問句也認出 E09（使用者豁免要引原話）、各記一筆
+    last = {a["entry"]: a for a in _ledger(logs) if a["path"] == "stop_piggyback"}
+    assert last["E08"]["cards"] == ["skip-card"] and "E09" in last["E08"]["with"]
+    assert last["E09"]["cards"] == [] and "E08" in last["E09"]["with"]
 
 
 def test_subagent_stop_gets_card_but_judge_does_not(tmp_path, monkeypatch, logs):

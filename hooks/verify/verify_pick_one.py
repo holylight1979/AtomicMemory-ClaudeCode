@@ -194,6 +194,107 @@ def test_material_groups_by_part_with_numbers_marked_reference(world):
     assert lines[-1] == "- 部位表查不到的檔：x.py"
     prompt = wh.pick_prompt(lines)
     assert "只提醒、不擋" in prompt and "為什麼不是數字最高的那個：" in prompt and "該誰解：" in prompt
+    assert "Skill.cs｜長函式｜分數 95｜呼叫點 無法判（.cs 不以 import 檔案互相呼叫）" in battle   # 算不出就說算不出
+
+
+# ─── 材料：每條壞味道附呼叫點（003，切入點自評 E04c／E04d）────────────────────────────
+# 真任務原樣：沒人呼叫的 90 行舊函式分數 48、被兩支 import 的吞錯 loader 分數 12；材料沒有呼叫點時 AI 挑分數高的死碼
+
+E04_MAP = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 病灶清單 | 量尺 | 檢查器 | 讀路徑 | 第四問 | 層 | 權威 | 上游 | 下游 | 類別 |\n"
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+           "| `report/` | 匯出 | 無 | 無 | 無 | 無 | 無 | 無 | 無 | 單層 | 無 | 無 | 日報 CSV、月結 summary | code |\n")
+E04_FILES = {
+    "report/__init__.py": "",
+    "report/legacy_export.py": "def format_legacy_rows(rows):\n    return rows\n",
+    "report/loader.py": "def load_rows(f):\n    rows = []\n    for line in f:\n        try:\n            rows.append(line)\n"
+                        "        except Exception:\n            continue\n    return rows\n",
+    "report/csv_export.py": "from report.loader import load_rows\n\n\ndef export(f):\n    return load_rows(f)\n",
+    "report/summary.py": "from report import (\n    loader,  # 月結\n)\n\n\ndef total(f):\n    return len(loader.load_rows(f))\n",
+    "report/alias.py": "from report.fmtlib import parse as loader  # 別名叫 loader，不是 import loader\n",
+    "report/broken.py": "def oops(:\n    from report import loader\n",
+    "report/notes.py": "# loader 的說明：別在這裡 import\nLOADER_DOC = 'loader legacy_export'\n",
+    "tests/test_legacy.py": "from report import legacy_export\n",
+    "web/app.js": "const fmt = require('../report/fmt');\nimport { a } from './util/fmt.js';\n",
+    "report/fmt.js": "module.exports = {};\n",
+    ".claude/hooks/gate.py": "import gate  # 自己的 import 行不算呼叫者\n\n\ndef check():\n    return True\n",
+    "tools/run_report.py": "def main():\n    pass\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "tools/move-dir-check.py": "print('x')\n",
+    "app/use_gate.py": "from hooks.gate import check\n",
+}
+
+
+@pytest.fixture
+def git_world(tmp_path, monkeypatch):
+    import subprocess
+    proj = tmp_path / "e04"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "overview-map.md").write_text(E04_MAP, encoding="utf-8", newline="\n")
+    (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": "smells.json"}), encoding="utf-8")
+    (proj / "smells.json").write_text(json.dumps({"rows": [
+        {"path": "report/legacy_export.py", "category": "long_function", "reason": "90 行、巢狀 5 層", "score": 48, "part": "匯出"},
+        {"path": "report/loader.py", "category": "swallowed_exception", "reason": "except: continue", "score": 12, "part": "匯出"},
+    ]}), encoding="utf-8")
+    for rel, text in E04_FILES.items():
+        (proj / rel).parent.mkdir(parents=True, exist_ok=True)
+        (proj / rel).write_text(text, encoding="utf-8", newline="\n")
+    flags = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    subprocess.run(["git", "init", "-q", str(proj)], check=True, capture_output=True, **flags)
+    subprocess.run(["git", "-C", str(proj), "add", "-A"], check=True, capture_output=True, **flags)
+    monkeypatch.setattr(wh, "WORKFLOW_DIR", tmp_path / "workflow")
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    monkeypatch.setattr(wo, "org_memory_root", lambda: None)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    return proj
+
+
+def test_003_material_smells_carry_callsites(git_world):
+    lines = wh.pick_material([str(git_world / "report" / "csv_export.py")], {})
+    line = lines[0]
+    # 死碼：只有測試 import，正式程式 0 處；吞錯的 loader 有兩支正式程式 import（單行 from … import 與分好幾行的括號匯入都算）
+    assert "legacy_export.py｜long_function｜分數 48｜呼叫點 0，另有測試 1 支" in line, line
+    assert "loader.py｜swallowed_exception｜分數 12｜呼叫點 2（csv_export.py、summary.py），1 支解析不了沒算" in line, line
+    assert "notes.py" not in line and "alias.py" not in line         # 只提到字樣、別名叫 loader 的都不算呼叫點
+
+
+def test_003_callsites_cannot_judge_says_so(git_world, tmp_path):
+    import time as _t
+    far = _t.monotonic() + 5
+    assert wh._callsites(git_world, "report/fmt.js", far) == "呼叫點 1（app.js）"          # JS require 路徑的檔名
+    assert wh._callsites(git_world, "Game/Skill.cs", far).startswith("呼叫點 無法判（.cs")
+    assert wh._callsites(git_world, "report/loader.py", _t.monotonic() - 1) == "呼叫點 無法判（來不及算）"
+    outside = tmp_path / "not_git"
+    outside.mkdir()
+    assert wh._callsites(outside, "a.py", far) == "呼叫點 無法判（不在 git 版控或 git grep 失敗）"
+    # 腳本靠被執行不靠被 import：呼叫點 0 要補一句，不然看起來像死碼；檔名不能 import 的直接說算不出
+    assert wh._callsites(git_world, "tools/run_report.py", far) == "呼叫點 0，本身可直接執行（呼叫點只算 import）"
+    assert wh._callsites(git_world, "tools/move-dir-check.py", far).startswith("呼叫點 無法判（檔名不是合法模組名")
+    # 點開頭目錄底下的檔：自己那一行不能被當成呼叫者，別人的 import 照算
+    assert wh._callsites(git_world, ".claude/hooks/gate.py", far) == "呼叫點 1（use_gate.py）"
+    assert wh._callsites(git_world, "./report/loader.py", far).startswith("呼叫點 2（csv_export.py、summary.py）")
+    assert wh._callsites(git_world, "report/fmt.js", _t.monotonic() + 0.3).startswith("呼叫點")     # 預算很緊也回一句，不丟例外
+
+
+@pytest.mark.parametrize("text,stem,lang,hit", [
+    ("from report.loader import load_rows", "loader", "py", True),
+    ("from report import loader, summary", "loader", "py", True),
+    ("from . import loader", "loader", "py", True),
+    ("from .loader import x  # 註解", "loader", "py", True),
+    ("import report.loader as ld", "loader", "py", True),
+    ("import os, report.loader", "loader", "py", True),
+    ("from report import (\n    summary,\n    loader,\n)\n", "loader", "py", True),     # 分好幾行的括號匯入（codex 審）
+    ("def f():\n    from report import loader\n", "loader", "py", True),           # 函式裡的匯入
+    ("from report.tools import parse as loader", "loader", "py", False),          # 別名叫 loader 不算（codex 審）
+    ("x = loader.load_rows(f)", "loader", "py", False),                           # 用到但不是 import
+    ("from report.loader_v2 import y", "loader", "py", False),
+    ("# from report.loader import y\ns = 'import loader'", "loader", "py", False),  # 註解與字串
+    ("def broken(:\n    import loader", "loader", "py", None),                     # 解析不了：不猜
+    ("import { a } from './util/fmt.js';", "fmt", "js", True),
+    ("const x = require(\"../fmt\")", "fmt", "js", True),
+    ("const x = require('../fmtx')", "fmt", "js", False),
+    ("// const x = require('../fmt')\n/* import y from './fmt' */\n * require('./fmt')", "fmt", "js", False),   # 註解行（codex 審）
+])
+def test_003_imports_stem(text, stem, lang, hit):
+    assert wh._imports_stem(text, stem, lang) is hit
 
 
 # ─── Stop 真流程：送一次、不是 block；記帳 ─────────────────────────────────────

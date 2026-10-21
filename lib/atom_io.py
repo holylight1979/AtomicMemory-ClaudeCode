@@ -67,6 +67,7 @@ VALID_SOURCES = frozenset({
     "tool:meeting-transcribe",  # 會議轉錄：決議 → 專案 shared atom（tools/meeting-transcribe.py）
     "hook:provenance",  # PostToolUse 對剛寫入的 atom 自動補 Source／Quote（hooks/wg_provenance.py）
     "tool:provenance-backfill",  # 舊 atom 一次性回填 Source／Quote（tools/atom-provenance-backfill.py）
+    "tool:quote-cleanup",  # 刪掉被回填成一兩個字回覆的 Quote 行（tools/quote-cleanup.py）
     "tool:migrate",
     "tool:overview-map-scaffold",  # 從零掃表：產 <專案>/.claude/overview-map.md 草稿與導讀卡骨架
     "tool:scorecard",  # scorecard：每 session 一行過程量、榜單候選卡
