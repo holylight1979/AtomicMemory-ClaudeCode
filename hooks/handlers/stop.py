@@ -1523,18 +1523,21 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
             "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。")
 
 
+RERUN_SCOPE_SHOWN_MAX = 600
+
+
 def _rerun_scope(f: Dict[str, Any]) -> str:
-    """規則 RED_SCOPE_FROM_FULL_COMMAND：輸出沒列出是哪一支的紅，給一條做得到的路——那條指令跑測試與換目錄的每一行（記紅時從整條
-    指令取的 test_cmd，不是截過的 cmd；不超過 TEST_CMD_CAP，整段列出不截）照抄重跑、別截斷輸出：綠了而且涵蓋這個範圍就清掉，
-    紅了照列出的那幾支記。沒記 test_cmd 給通用的出路（原指令完整照跑或跑整套）。看得出是哪一支的不加。"""
+    """規則 RED_SCOPE_FROM_FULL_COMMAND：輸出沒列出是哪一支的紅，給一條做得到的路——記紅時從整條指令解析出的每一段測試子命令與
+    換目錄（test_scope.steps，不是截過的 cmd）照抄重跑、別截斷輸出：綠了而且涵蓋這個範圍就清掉，紅了照列出的那幾支記。
+    判不出目標、舊條目、或範圍長過 RERUN_SCOPE_SHOWN_MAX 給通用的出路（原指令完整照跑或跑整套）。看得出是哪一支的不加。"""
     if red_units(f) or failure_lines(f.get("summary", "")):
         return ""
     tail = "；綠了而且涵蓋這個範圍就清掉這筆，紅了照列出的那幾支記（列得出是哪一支，才能用「不做｜」那條出口）"
-    lines = [cmd_run_line(ln) for ln in str(f.get("test_cmd") or "").splitlines()]
-    scope = " ； ".join(ln for ln in lines if ln)
-    if not scope:            # 舊條目或指令超過上限沒記 test_cmd：給通用的出路
+    scope = f.get("test_scope") if isinstance(f.get("test_scope"), dict) else {}
+    shown = " ； ".join(str(s) for s in scope.get("steps") or [])
+    if not shown or len(shown) > RERUN_SCOPE_SHOWN_MAX:   # 判不出目標、舊條目、範圍太長：給通用的出路（不截一半給人照抄）
         return "\n    重跑：原指令完整照跑、別截斷輸出，或不點名檔跑整套" + tail
-    return f"\n    重跑這個範圍（每段照抄、照順序、別接 tail／head 截輸出）：{scope}" + tail
+    return f"\n    重跑這個範圍（每段照抄、照順序、別接 tail／head 截輸出）：{shown}" + tail
 
 
 TF_GATE = "testfail"      # wg_release 的閘名（last_block／pending_release／user_released）

@@ -182,7 +182,7 @@ def test_depth2_aborts_and_stop_sends_three_options(box):
 
 
 def test_three_distinct_gates_do_not_alarm_by_default(box):
-    """紅案例（claude-64 指定，CHAIN_ALARM_DEPTH 預設不警報）：A → 改 → B → 改 → C，三道各管各的閘各擋一次 → 不響；
+    """紅案例（CHAIN_ALARM_DEPTH 預設不警報）：A → 改 → B → 改 → C，三道各管各的閘各擋一次 → 不響；
     深度照算（2）、照列進經過表。"""
     t, x = Turn(box), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
@@ -953,10 +953,10 @@ def test_session_cleanup_at_session_end(box):
     assert sorted(p.name for p in logs.iterdir()) == sorted([f"chain-{SID}.jsonl", "chain-other-new.jsonl", "guard-other.jsonl"])
 
 
-# ─── 同一則回覆算同一步（第 0 步總驗收第一回合的誤警報） ─────────────────────
+# ─── 同一則回覆算同一步（平行送出的工具呼叫） ─────────────────────────────
 
 def test_same_reply_parallel_writes_same_gate_no_alarm(box):
-    """紅案例（claude-64 指定，CHAIN_SAME_BATCH）：同一則回覆平行送五個 Write，三個被同一道閘擋、中間兩個放行改了檔 → 不警報：
+    """紅案例（CHAIN_SAME_BATCH）：同一則回覆平行送五個 Write，三個被同一道閘擋、中間兩個放行改了檔 → 不警報：
     這一批之間不接邊、同閘次數不加 1、放行的改動不算看過擋訊息後的動作；經過表標出它們跟擋同一則回覆送出。"""
     t, proj = Turn(box), box / "proj"
     t.reply("msg_0")
@@ -974,7 +974,7 @@ def test_same_reply_parallel_writes_same_gate_no_alarm(box):
 
 
 def test_gate0_first_reply_replay_no_alarm_no_halt(box):
-    """紅案例（第 0 步總驗收第一回合照帳重演，CHAIN_SAME_BATCH）：同一則回覆 12 個呼叫——DataFileAsk 擋、OverviewHub 擋兩次、
+    """紅案例（照一則回覆平行 12 個呼叫的實際帳重演，CHAIN_SAME_BATCH）：同一則回覆 12 個呼叫——DataFileAsk 擋、OverviewHub 擋兩次、
     放行兩個 Write、改舊測試閘擋三次、OverviewHub 再擋、後面三個改檔——改前在最後那次 OverviewHub 判「同閘第 2 次」警報、
     後三個被停手；改後不警報、不停手、帳上沒有 halted。"""
     t, proj = Turn(box), box / "proj"
@@ -1041,7 +1041,7 @@ def test_batch_links_to_deepest_step_of_previous_reply(box):
 
 
 def test_stop_after_batch_sees_only_reactions(box):
-    """CHAIN_SAME_BATCH × CHAIN_NO_FIX_NO_EDGE（codex 一輪 BLOCK 3，行為照規則、不退回舊判法）：工具閘 A 擋、同一則回覆裡放行一個改檔
+    """CHAIN_SAME_BATCH × CHAIN_NO_FIX_NO_EDGE（行為照規則、不退回舊判法）：工具閘 A 擋、同一則回覆裡放行一個改檔
     → AI 下一則就收尾、收尾閘 B 擋：收尾不帶 batch，但一定在那一批之後；那個改檔是 A 擋之前就決定好的，不算 A 之後的修補 → 不接邊。
     改前把它當成 A 之後的動作，接成 A→B。"""
     t, proj = Turn(box), box / "proj"

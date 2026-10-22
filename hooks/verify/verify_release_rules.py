@@ -2463,6 +2463,17 @@ _ELSEWHERE_CASES = {
         ("verify_pull_stop_gates.py", "test_7_deferral_block_clears_evasion_flag_for_same_sentence"),
         ("verify_pull_stop_gates.py", "test_7_other_sentence_keeps_evasion_flag"),
         ("verify_pull_stop_gates.py", "test_v6_off_deferral_block_keeps_evasion_flag")],
+    # 紅測範圍：案例在 verify_red_scope_full_command.py（真的 PostToolUse 記帳清帳與 Stop 擋訊息）
+    "RED_SCOPE_FROM_FULL_COMMAND": [
+        ("verify_red_scope_full_command.py", "test_rerun_covering_scope_green_clears_red"),
+        ("verify_red_scope_full_command.py", "test_long_command_full_suite_green_clears"),
+        ("verify_red_scope_full_command.py", "test_unparsed_target_never_uses_fragment_and_has_a_doable_path"),
+        ("verify_red_scope_full_command.py", "test_rerun_not_covering_scope_keeps_red_and_logs")],
+    # 寫碼回合才跑 v6 守門：案例在 verify_gate_trim.py
+    "CODING_TURN_ONLY": [("verify_gate_trim.py", "test_coding_turn_layer1_tool_writes_code"),
+                         ("verify_gate_trim.py", "test_coding_turn_keyword_intent_is_not_a_switch"),
+                         ("verify_gate_trim.py", "test_coding_turn_layer2_need_goal_declares_code_tree"),
+                         ("verify_gate_trim.py", "test_non_coding_turn_skips_v6_gates_at_stop")],
 }
 
 

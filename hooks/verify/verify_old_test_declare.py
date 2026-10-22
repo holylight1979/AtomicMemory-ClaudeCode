@@ -435,7 +435,7 @@ def test_comment_only_change_with_quote_not_triggered(world):
     assert _pass(_run(world, "Write", {"file_path": fp, "content": src.replace("expectation", "requirement")}))
 
 
-# ─── Bash／PowerShell／NotebookEdit 事後比對（派工 002）與「說明變了」 ───
+# ─── Bash／PowerShell／NotebookEdit 事後比對與「說明變了」 ───
 
 def _post(w, tool, tool_input, tp=None):
     """跑一次 PostToolUse（工具已經寫完磁碟）。"""
@@ -745,7 +745,7 @@ def test_non_python_command_takes_no_git_snapshot(world):
     assert not snap_dir.exists() or not list(snap_dir.iterdir()), "不執行 python、沒寫測試檔的指令不拍快照、不跑 git"
 
 
-# ─── git 指令（merge／pull／rebase／切分支）帶進來的別軌改動不算本 session 改的（派工 003） ───
+# ─── git 指令（merge／pull／rebase／切分支）帶進來的別的分支的改動不算本 session 改的 ───
 
 def _g(proj, *args, check=True):
     import subprocess

@@ -6,6 +6,7 @@ handlers/post_tool_use.py — PostToolUse hook handler
 偵測測試失敗、_CHANGELOG 自動 roll、staging 命名、路徑強制、docdrift、hot cache mid-turn 注入。
 """
 
+import hashlib
 import json
 import os
 import re
@@ -42,7 +43,8 @@ from wg_verify_ledger import (
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_ran_cases_verdict,
                               negative_control_verdict, parse_negative_controls,
-                              red_case_facts, red_case_names, retry_round_verdict, same_test_run)
+                              red_case_facts, red_case_names, retry_round_verdict, same_test_run,
+                              _CMD_SEG_SPLIT_RE, _TEST_RUNNER_RE)   # 測試子命令的切段與認法，紅測範圍跟涵蓋判法用同一份
 try:
     # Bash／PowerShell 改檔目標擷取（wg_core）；載不進來就只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -496,26 +498,61 @@ def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any
     return True
 
 
-TEST_CMD_CAP = 2000
 _CONTINUATION_RE = re.compile(r"[\\`]\r?\n")
-_CD_LINE_RE = re.compile(r"^\s*(?:cd|pushd|set-location|sl)(?:\s|$)", re.IGNORECASE)
+_CD_SEG_RE = re.compile(r"^\s*(?:cd|pushd|set-location|sl)\s+(\S.*?)\s*$", re.IGNORECASE)
+RED_CMD_KEPT = 200          # 紅測 cmd 只存前這麼多字；舊條目剛好這麼長就可能被截過
 
 
-def _test_cmd(command: str) -> str:
-    """規則 RED_SCOPE_FROM_FULL_COMMAND 的事實：整條指令裡跑測試的那幾行，連同換目錄的行（cd／pushd／Set-Location：測試在哪裡跑
-    靠它們），續行先併成一行；一行測試都認不出就整條。超過 TEST_CMD_CAP 字回空字串（不存，判法退回 cmd）：丟掉後段的行會把範圍
-    縮小、讓沒涵蓋的綠清掉紅。紅測的 cmd 只存前 200 字，截在 `2>&1` 中間會剩一個 `2`、被當成要跑的目錄，什麼重跑都涵蓋不到。"""
-    lines = [ln for ln in _CONTINUATION_RE.sub(" ", str(command or "")).splitlines() if ln.strip()]
-    kept = [ln for ln in lines if is_test_command(ln) or _CD_LINE_RE.match(ln)]
-    text = "\n".join(kept if any(is_test_command(ln) for ln in kept) else lines)
-    return text if len(text) <= TEST_CMD_CAP else ""
+def _test_scope(command: str) -> Dict[str, Any]:
+    """規則 RED_SCOPE_FROM_FULL_COMMAND 的事實：從整條指令解析出的測試目標，不存原字串。steps＝依序每一段測試子命令
+    （pytest／unittest／jest／vitest，切段與認法跟涵蓋判法 wg_release_rules 同一份）的「子命令＋之後的參數」——點名的檔、目錄、
+    節點、-k 這類篩選都在裡面——與它前面換到的目錄（cd／pushd／Set-Location）；續行先併。大小只跟點名了多少目標有關，跟指令多長無關，
+    不截斷。認不出任何測試子命令 → unparsed，只記整條指令的雜湊（認「原樣重跑」用），不拿片段當路徑。"""
+    text = _CONTINUATION_RE.sub(" ", str(command or ""))
+    steps: List[str] = []
+    for seg in _CMD_SEG_SPLIT_RE.split(text):
+        m = _TEST_RUNNER_RE.search(seg)
+        cd = None if m else _CD_SEG_RE.match(seg)
+        if m:
+            steps.append(" ".join(seg.split()))
+        elif cd:
+            steps.append("cd " + cd.group(1))
+    while steps and steps[-1].startswith("cd "):
+        steps.pop()                                  # 最後一段測試之後的換目錄不影響測試在哪裡跑
+    if not any(not s.startswith("cd ") for s in steps):
+        return {"unparsed": True, "sha": hashlib.sha1(" ".join(text.split()).encode("utf-8")).hexdigest()[:16]}
+    return {"steps": steps}
+
+
+def _red_scope(f: Dict[str, Any]) -> Dict[str, Any]:
+    """這筆紅的測試目標：記了 test_scope 就用它；舊條目的 cmd 不到 RED_CMD_KEPT 字（沒被截）當場解析，剛好那麼長的可能被截過、
+    當判不出（雜湊也不記：截過的字串不能拿來認原樣重跑）。"""
+    if isinstance(f.get("test_scope"), dict):
+        return f["test_scope"]
+    cmd = str(f.get("cmd") or "")
+    return _test_scope(cmd) if len(cmd) < RED_CMD_KEPT else {"unparsed": True, "sha": ""}
 
 
 def _red_pair(f: Dict[str, Any], command: str) -> Tuple[str, str]:
-    """RED_SCOPE_FROM_FULL_COMMAND：比對這筆紅與這次指令時兩邊用同一種寫法——紅記了 test_cmd，這次的指令也取測試行；
-    沒記（舊條目、超過上限）兩邊都用原字（紅那邊是截過的 cmd），照改前的判法。"""
-    red = str(f.get("test_cmd") or "")
-    return (red, _test_cmd(command) or command) if red else (str(f.get("cmd") or ""), command)
+    """RED_SCOPE_FROM_FULL_COMMAND：比對這筆紅與這次的指令，兩邊都用解析後的目標組回的指令（每段一行，判法照常解析）；
+    紅判不出目標 → 紅那邊給空字串：只認跑整套、或列得出名字的紅被跑到。這次的指令認不出測試子命令就用原字。"""
+    red = _red_scope(f)
+    now = _test_scope(command)
+    return ("" if red.get("unparsed") else "\n".join(red["steps"]),
+            command if now.get("unparsed") else "\n".join(now["steps"]))
+
+
+def _same_unparsed_run(f: Dict[str, Any], command: str) -> bool:
+    """判不出目標的紅，這次是不是原樣重跑那條指令（整條指令雜湊相同）。"""
+    red = _red_scope(f)
+    return bool(red.get("unparsed") and red.get("sha")) and _test_scope(command).get("sha") == red["sha"]
+
+
+def _same_group(f: Dict[str, Any], command: str, cwd: str) -> bool:
+    """RETRY_COUNTS_RERUN_CYCLES 的「重跑同一組」：兩邊都用解析後的目標比（same_test_run）；紅判不出目標就只認原樣重跑。"""
+    if _red_scope(f).get("unparsed"):
+        return _same_unparsed_run(f, command)
+    return same_test_run(*_red_pair(f, command), f.get("cwd") or None, cwd or None)
 
 
 def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
@@ -524,7 +561,7 @@ def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: st
     同一組的改檔紀錄這次用掉就清空（新紅測條目從零記起），別組的紅與它們的改檔不動。"""
     same = [f for f in state.get("failing_tests") or []
             if isinstance(f, dict) and f.get("session_id") == sid and not f.get("deliberate")
-            and same_test_run(*_red_pair(f, command), f.get("cwd") or None, cwd or None)]
+            and _same_group(f, command, cwd)]
     edited: Dict[str, int] = {}
     for f in same:
         for path, n in (f.pop("edits_since_run", None) or {}).items():
@@ -607,13 +644,17 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             return True
         _note_retry_round(state, sid, command, failure, str(input_data.get("cwd") or ""))
         _supersede_reds(state, sid, command, failure)
+        scope = _test_scope(command)          # 規則 RED_SCOPE_FROM_FULL_COMMAND：判範圍用解析後的目標，不用截過的 cmd
+        if scope.get("unparsed"):
+            append_guard_log("testfail_scope", {"event": "scope_unparsed", "session_id": sid,
+                                                "turn_seq": int(state.get("turn_seq", 0)), "cmd": command[:300]})
         state.setdefault("failing_tests", []).append({
             "tool": tool,
             "session_id": sid,
             "agent_id": str(input_data.get("agent_id") or ""),
             "exit_code": exit_code,
-            "cmd": command[:200],
-            "test_cmd": _test_cmd(command),     # 規則 RED_SCOPE_FROM_FULL_COMMAND：判範圍用整條指令的測試行；空＝超過上限、退回 cmd
+            "cmd": command[:RED_CMD_KEPT],
+            "test_scope": scope,
             # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
             # 記錄時就用全文判定一次
             "pytest": "pytest" in command.lower(),
@@ -635,6 +676,8 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     def _clears(f: Dict[str, Any]) -> bool:
         if f.get("session_id") != sid:          # 只清自己的；沒蓋 sid 的舊條目不是自己的
             return False
+        if _same_unparsed_run(f, command):      # RED_SCOPE_FROM_FULL_COMMAND：判不出目標的紅，原樣重跑那條指令（空白不同也算）綠了就清
+            return True
         red_cmd, green_cmd = _red_pair(f, command)
         matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
                    or green_clears_red(red_cmd, green_cmd, f.get("cwd") or None,
@@ -650,7 +693,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
             append_guard_log("testfail_scope", {"event": "green_kept_red", "rule": keep.rule, "why": keep.why,
                                                 "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)),
-                                                "red_cmd": red_cmd[:300], "green_cmd": green_cmd[:300]})
+                                                "red_scope": _red_scope(f), "green_cmd": green_cmd[:300]})
             if ran:
                 f["cleared_units"] = list(dict.fromkeys([*(f.get("cleared_units") or []), *ran]))
                 shrunk.append(f)
