@@ -66,6 +66,7 @@
 | testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
 | toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 |
+| userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | UserPromptSubmit路的判斷入口形狀-命中先記待判問句接判準卡-Stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 |
 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 |
 | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add |
 | verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項 | verify_scope宣告項目太多時PostToolUse逾時被砍-宣告靜默遺失-只列改檔必要的項 |
