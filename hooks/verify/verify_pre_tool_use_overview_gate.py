@@ -336,3 +336,23 @@ def test_locate_lines_written_before_injection_in_subagent_file_do_not_count(wor
     wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(main), {})
     wg_core.write_state(SID, state)
     assert _deny(_agent_edit(proj, outputs, f1, main))
+
+
+def test_006_scratchpad_written_via_literal_var_is_allowed(world, tmp_path, monkeypatch):
+    """閘小修 006 件 5（第五跑 C-1 第 4 回合）：`S='<scratchpad>' && git show … > "$S/old.cs"` 寫進 scratchpad 存舊版做對照。
+    前置：同一個 scratchpad 用字面路徑寫是放行的（暫存區不是部位檔）；修之前加了變數就整條當「判不出寫入目標」擋（edit_unknown_target）。
+    規則 SHELL_LITERAL_VAR_EXPANDED：同指令的字面指定代換後算得出目標，照字面路徑同樣判。"""
+    proj, outputs, tp = world
+    monkeypatch.delenv("WG_TEMP_RULES")                       # 暫存區規則本身要開著
+    scratch = tmp_path / "claude" / "C--w4-qc2-orders" / SID / "scratchpad"
+    scratch.mkdir(parents=True)
+    assert not _deny(_run("Bash", {"command": f'git show HEAD:Game/Battle/A.cs > "{scratch}/old0.cs"'}, proj, tp, outputs))
+    out = _run("Bash", {"command": f"S='{scratch}' && git show HEAD:Game/Battle/A.cs > \"$S/old_A.cs\""}, proj, tp, outputs)
+    assert not _deny(out), out
+    # 對照（codex 006）：同一個變數寫法指到部位檔照擋，而且擋的是部位證據、不是判不出目標——變數代換算出了真目標、閘有跑。
+    # 假專案本身也在 pytest 暫存目錄下，暫存規則開著會整個當暫存副本，對照這一步關掉它（專案照專案判）
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+    battle = proj / "Game" / "Battle"
+    out = _run("Bash", {"command": f"S='{battle}' && echo x > \"$S/A.cs\""}, proj, tp, outputs)
+    reason = (out or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+    assert _deny(out) and "戰鬥" in reason and "無法判定" not in reason, out

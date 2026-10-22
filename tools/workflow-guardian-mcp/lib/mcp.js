@@ -339,7 +339,7 @@ const TOOL_DEFINITIONS = [
         h: { type: "string", description: "收尾判定：單句——「可關閉」或「下一動＝…」。下一動只列使用者要做的事（重啟驗證、拍板）；寫 atom／補測試／commit 是你自己能做的，先做完再提交。必寫" },
         i: { type: "string", description: "衍生暫存清單：一行一路徑 `<路徑> — <備註>`（絕對或相對 cwd，可 glob）。只列「你自己產生的暫存／中間產物、此刻尚存、留給使用者裁決」的（scratchpad 腳本、.bak、一次性 log、undo 檔）；已刪的不列、純說明不列（預設完工即刪）。⛔ 絕不列正式產出：改了還沒 commit 的 code／doc／atom／索引／CHANGELOG 屬 (a)(b)/(g) 未同步事項，不是暫存——這些路徑會被拒收並回警。Python 端解析進 per-session 殘檔帳本，HUD 以 exists() 列尚存者供保留/刪除。無則「無」。必寫" },
         j_evidence_path: { type: "string", description: "證據持久路徑：本回合驗證收據的持久位置，一行一路徑（絕對路徑）。本 session 跑過哨兵驗證（Bash／PowerShell 輸出 `<NAME>_CHECK PASS|FAIL|DONE`）時填「無」或留空即可：系統自動帶入本 session 收據帳本的絕對路徑（帳本在資料根，不必自己找）；要另附驗證輸出檔／報告檔才填它們，填了就用你填的，Stop 對帳閘會查 exists()，不存在會擋。沒有收據填「無」。必寫" },
-        k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端寫進 workflow/tracking/<slug>.jsonl；有部位的同時寫進該部位病灶文件）。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
+        k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端寫進 workflow/tracking/<slug>.jsonl；有部位的同時寫進該部位病灶文件）。跟帳上已記的（本 session 的 need_goal followup、PickOne、先前的 k）是同一件 → 行尾加「｜同追蹤項：<那筆裡連續至少 8 字>」，系統換成新說法、不另記一筆；字面相同的自動不重記。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
       },
       required: ["a", "b", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"],
     },

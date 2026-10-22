@@ -18,6 +18,7 @@
 - [臨] 部位表的文件層與記憶層量尺不再接 echo：sync_doc_counts.py／skill-index.py／sync-memory-index.py 的 --check 自己印 DOC_COUNTS_CHECK／SKILL_INDEX_CHECK／MEMORY_INDEX_CHECK PASS|FAIL。
 - [臨] 改了獨立的測試案例檔（不是 conftest、同資料夾沒人 import 它）只作廢點名它的那一項（SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；改產品程式碼或被 import 的案例檔（probe_release_rules、verify_stop_reconcile）照舊作廢範圍裡每一項。
 - [臨] 指令開頭加 `timeout 300 python -m pytest …` 也不算收據：timeout 是包裝執行器、不在執行程式白名單，哨兵分不出是誰印的（閘小修 006 實遇：十幾張 PASS 全被判「對得上改檔 0 筆」）。要限時就用工具呼叫的 timeout 參數，指令本身直接 `python -X utf8 -m pytest -q <檔>`。
+- [臨] 收尾前在 job 暫存目錄（~/.claude/jobs/<id>/tmp）用 Write 寫的查帳 .py 也算「改了程式」，完整對照會把之前所有收據判成「改完沒重跑」，verify_scope 的 depends 也救不了（閘小修 006 實遇）。最後一輪驗證之後只用 Read／Grep／`python -m json.tool` 查帳，不再寫任何 .py。
 
 ## 行動
 

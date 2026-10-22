@@ -490,3 +490,90 @@ def test_part_injection_block_shows_proposal(world):
     block = wh.tracking_block([{"text": "暴擊分支把共用字典當暫存", "at": "2026-10-20T00:00:00", "part": "戰鬥",
                                 "proposal": "改用區域變數", "owner": "下一個寫碼 session"}], 2000)
     assert "- 暴擊分支把共用字典當暫存（2026-10-20）｜建議：改用區域變數｜該誰解：下一個寫碼 session" in block
+
+
+# ─── 閘小修 006 件 4：追蹤帳本同一件（規則 TRACKING_SAME_ITEM_NOT_REWRITTEN）──────────────────────────────
+# 第二波第五跑 B5（workflow/tracking/c--w4-qb2-sales.jsonl）同一件記成 3 筆的原文：need_goal followup、收尾檢核 k、PickOne
+_B5_FOLLOWUP = "需求目標 T1.4（部分）：monthly 走 UTC 違反 README，改不改要使用者跟財務確認後拍板（已在收尾報告提出）"
+_B5_K = ("[銷售報表] monthly 用 UTC 切月份違反 README 台北時間規則（2026-09 報 520、應為 205；2026-10 報 420、應為 735），"
+         "需財務確認後修 month_of 與 test_monthly_cli_output 期望值")
+_B5_PICK_HEAD = "**順手看到最該修**：[銷售報表] `sales/periods.py` 的 `month_of` 用 UTC 判斷月份，monthly 報表整條路都靠它\n"
+_B5_PICK_TAIL = ("- 為什麼是它：monthly 與 by-product 都靠它\n- 為什麼不是數字最高的那個：sync_ftp.py 96 分但下個月整包刪\n"
+                 "- 建議怎麼解：改台北時間\n- 該誰解：使用者決定\n")
+
+
+def _opens(proj):
+    return wh.open_tracking_items(_rows(proj))
+
+
+def _append_k(proj, text):
+    return wh.append_tracking(wh.tracking_slug(str(proj)), wh.tracking_entries(_SID, 1, text))
+
+
+def test_006_b5_paraphrases_need_ai_declaration(world):
+    """前置：B5 三筆措辭全不同，字面規則併不掉（程式不猜語意）——照原樣寫還是 3 筆未結。"""
+    proj, _ = world
+    _append_k(proj, _B5_FOLLOWUP)
+    _append_k(proj, _B5_K)
+    assert wh.record_pick({}, _SID, 1, _B5_PICK_HEAD + _B5_PICK_TAIL, str(proj))[0] == "recorded"
+    assert len(_opens(proj)) == 3
+
+
+def test_006_b5_same_item_declared_keeps_one_open(world):
+    """AI 在 k 行尾與 PickOne 段寫「同追蹤項：<那筆裡至少 8 字>」→ 換成新說法，帳上始終只留 1 筆未結（最新那句、帶部位）。"""
+    proj, _ = world
+    _append_k(proj, _B5_FOLLOWUP)
+    _append_k(proj, _B5_K + "｜同追蹤項：monthly 走 UTC 違反 README")
+    opens = _opens(proj)
+    assert len(opens) == 1 and opens[0]["text"].startswith("monthly 用 UTC 切月份") and opens[0]["part"] == "銷售報表"
+    event, _ = wh.record_pick({}, _SID, 1, _B5_PICK_HEAD + _B5_PICK_TAIL + "- 同追蹤項：monthly 用 UTC 切月份違反 README\n", str(proj))
+    opens = _opens(proj)
+    assert event == "recorded" and len(opens) == 1 and opens[0].get("source") == "pick" and opens[0].get("supersedes")
+    closed = [r for r in _rows(proj) if r["status"] == "closed"]
+    assert len(closed) == 2 and all(r.get("superseded_by") for r in closed)
+
+
+def test_006_exact_repeat_is_not_rewritten(world, capsys):
+    """need_goal 每次重做完整對照都會重寫同一條 followup：同一句第二次不重記、照回帳本路徑（不算寫入失敗）、stderr 說一聲。"""
+    proj, _ = world
+    assert _append_k(proj, _B5_FOLLOWUP) and _append_k(proj, _B5_FOLLOWUP)
+    assert len(_opens(proj)) == 1 and "帳上已有同一件未結項，不重記" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("first, second, sid2", [
+    ("匯出按鈕沒有反應", "[財務介面] 匯出按鈕沒有反應", "other-sid"),             # 舊的沒標部位：分不出是不是同一件
+    ("[登入] 登入流程發生錯誤（密碼過期）", "[登入] 登入流程發生錯誤（帳號鎖定）", _SID),   # 只差括號註：可能是兩件
+    ("[登入] 驗證碼逾時未處理上限", "[登入] 驗證碼逾時未處理下限", _SID),           # 開頭相同的不同問題
+], ids=["unpartitioned-old", "aside-differs", "prefix-same"])
+def test_006_similar_but_not_declared_is_kept(world, first, second, sid2):
+    """codex 006：沒宣告時程式只併「部位相同、原文相同」；字面相近的照記兩筆（併錯會吞掉一件，比多記一筆更糟）。"""
+    proj, _ = world
+    _append_k(proj, first)
+    wh.append_tracking(wh.tracking_slug(str(proj)), wh.tracking_entries(sid2, 1, second))
+    assert len(_opens(proj)) == 2
+
+
+@pytest.mark.parametrize("first, line", [
+    ("[銷售報表] 匯出 monthly 報表用 UTC 切月\n[銷售報表] 匯入 monthly 報表用 UTC 切月",
+     "[銷售報表] 新說法｜同追蹤項：monthly 報表用 UTC 切月"),                  # 對到兩筆：分不出是哪一筆
+    ("[戰鬥] 暴擊分支把共用字典當暫存", "[介面] 按鈕狀態｜同追蹤項：暴擊分支把共用字典"),   # 部位不同：不是同一件
+    ("[戰鬥] 暴擊分支把共用字典當暫存", "[戰鬥] 新說法｜同追蹤項：共用字典"),               # 去標點不足 8 字
+], ids=["ambiguous", "other-part", "too-short"])
+def test_006_same_as_not_merged_when_unclear(world, capsys, first, line):
+    """宣告對不到唯一一筆 → 不合併（不悄悄關掉別件）、照記新的、stderr 說原因。"""
+    proj, _ = world
+    _append_k(proj, first)
+    before = len(_opens(proj))
+    _append_k(proj, line)
+    assert len(_opens(proj)) == before + 1 and "沒有合併、照記新的" in capsys.readouterr().err
+
+
+def test_006_pick_prompt_lists_session_opens(world):
+    """PickOne 問句列出本 session 還開著的追蹤項與「同追蹤項」寫法；沒有就不列。"""
+    proj, _ = world
+    _append_k(proj, _B5_K)
+    opens = wh.session_open_tracking(str(proj), _SID)
+    assert opens and opens[0].startswith("[銷售報表] monthly 用 UTC")
+    text = wh.pick_prompt([], opens)
+    assert "同追蹤項：<那筆裡連續至少 8 個字>" in text and "- [銷售報表] monthly 用 UTC" in text
+    assert "同追蹤項" not in wh.pick_prompt([]) and wh.session_open_tracking(str(proj), "other-sid") == []

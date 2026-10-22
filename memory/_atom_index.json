@@ -11431,7 +11431,7 @@
     },
     {
       "name": "第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷",
-      "path": "memory/驗證與實證/第二意見/第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷.md",
+      "path": "_AIDocs/_atoms/Tools/第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷.md",
       "triggers": [
         "second_opinion_start",
         "diff 為空",
@@ -11534,6 +11534,130 @@
         "禁破折號",
         "test_044",
         "-k 篩選"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效",
+      "path": "memory/CC與原子記憶契約/無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效.md",
+      "triggers": [
+        "hook 全關",
+        "disableAllHooks",
+        "--settings",
+        "無 hook 對照組",
+        "量 hook 代價",
+        "WG_CLAUDE_DIR settings"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶",
+      "path": "memory/驗證與實證/解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶.md",
+      "triggers": [
+        "解除綁定",
+        "解綁 Entry",
+        "範疇自動搬移",
+        "已自動歸 local",
+        "realm_move",
+        "驗收資料根",
+        "建環境",
+        "卡集比對 刪掉",
+        "_sweep_realm_auto_migrate",
+        "ENTRY_BOUND_STAYS_CORE"
+      ],
+      "scope": "global",
+      "related": [
+        "驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit",
+        "無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀"
+      ],
+      "depends": [
+        "path:C:/Users/holylight/.claude/hooks/wg_atoms.py"
+      ]
+    },
+    {
+      "name": "比較多跑的llm代價看處理的token量不看美金-串跑第一跑付建快取的錢-美金會讓先跑的那組看起來比較貴",
+      "path": "memory/驗證與實證/比較多跑的llm代價看處理的token量不看美金-串跑第一跑付建快取的錢-美金會讓先跑的那組看起來比較貴.md",
+      "triggers": [
+        "代價",
+        "成本比較",
+        "cost_usd",
+        "多跑比較",
+        "對照組",
+        "快取",
+        "cache_creation",
+        "token 量",
+        "量測",
+        "A/B"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "sync-doc-counts的-root預設是資料根不是cwd-在worktree不帶-root量的是live文件-worktree軌要加-root指自己",
+      "path": "_AIDocs/_atoms/Tools/sync-doc-counts的-root預設是資料根不是cwd-在worktree不帶-root量的是live文件-worktree軌要加-root指自己.md",
+      "triggers": [
+        "sync_doc_counts",
+        "DOC_COUNTS_CHECK",
+        "--root",
+        "worktree 文件計數"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "config-consistency把tech第12節設定總表第一欄反引號鍵當定義來源-改設定總表要保留標題字樣與第一欄格式-tech節號被程式註解引用不能重編",
+      "path": "_AIDocs/_atoms/MemDev/config-consistency把tech第12節設定總表第一欄反引號鍵當定義來源-改設定總表要保留標題字樣與第一欄格式-tech節號被程式註解引用不能重編.md",
+      "triggers": [
+        "config-consistency",
+        "TECH 設定總表",
+        "節號",
+        "重編節號",
+        "TECH §12",
+        "改 TECH"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit",
+      "path": "memory/CC與原子記憶契約/datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit.md",
+      "triggers": [
+        "動資料檔｜",
+        "DataFileAsk",
+        "宣告行讀不到",
+        "文字還沒落盤",
+        "資料檔宣告"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼",
+      "path": "memory/CC與原子記憶契約/cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼.md",
+      "triggers": [
+        "VS Code 擴充",
+        "markdown 連結",
+        "檔案連結",
+        "可點連結",
+        "錨點",
+        "heading anchor",
+        "#L12",
+        "相對路徑連結",
+        "回覆裡的連結點不開",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "claude-vscode"
+      ],
+      "scope": "global",
+      "related": [
+        "claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion"
+      ]
+    },
+    {
+      "name": "userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判",
+      "path": "_AIDocs/_atoms/MemDev/userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md",
+      "triggers": [
+        "判斷入口",
+        "UPS 問一句",
+        "糾正｜",
+        "否決記憶｜",
+        "詞表只提示",
+        "undeclared"
       ],
       "scope": "global"
     }

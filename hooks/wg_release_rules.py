@@ -60,6 +60,15 @@ RULES: Dict[str, str] = {
                           "用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval（含 builtins.exec 這類）→ 不算寫入，放行；"
                           "import … as 取別名照判（看呼叫鏈尾的名字）。判出可能寫檔就照擋並在擋訊息帶出原因；node -e、pwsh -Command 判不了照擋，"
                           "擋訊息指路（寫成腳本檔、python -m json.tool）。",
+    "INLINE_FLAG_BEFORE_PROGRAM": "內嵌碼旗標（python -c／-、node -e／-p、pwsh -Command／-c／-e）只認直譯器自己的選項位置：程式（腳本、"
+                                  "-m 模組、pwsh 的 -File）之後的參數屬於程式，`python x.py -C <路徑>`、`python x.py -` 不是內嵌碼；"
+                                  "python／node 分大小寫、帶值的選項（python -X／-W，node -r／-C…）連值一起跳過；PowerShell 不分大小寫。"
+                                  "判定在 hooks/wg_core._inline_flag_at。",
+    "SHELL_LITERAL_VAR_EXPANDED": "Bash 寫入目標解析：同一條指令裡獨立一段、一定會跑的 `NAME=字面值`（或 export；前面不是 &&／|| 條件，"
+                                  "不在管線、背景、子 shell 裡），之後的 $NAME／${NAME} 代換成那個值再算目標（C5：`S='<scratchpad>' && "
+                                  "git show … > \"$S/old.py\"` 算得出是 scratchpad）；值不是字面（含 $、反引號、$(…)）、沒指定過、"
+                                  "單引號裡的 $、指令前綴的指定（`S=x cmd \"$S\"`）、PowerShell 變數照舊判不出（UNKNOWN）。"
+                                  "內嵌碼被 ast 判成可能寫檔的原因只附在它自己那段：前面已有判不出的段時不黏過去。判定在 hooks/wg_core._remember_vars／_expand_vars。",
     "GIT_READONLY_SUBCMD": "跨層閘：指令裡每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file、"
                            "ls-tree、rev-list、blame、describe、branch 無改名）且沒有寫到根層的目標 → 放行；擋就留 guard-crossrealm.jsonl。",
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
@@ -80,7 +89,10 @@ RULES: Dict[str, str] = {
                                 "→ 不要求先讀同目錄的檔。",
     "BASH_READONLY_COUNTS_AS_READ": "Bash／PowerShell 唯讀讀檔指令（cat、head、tail、less、more、sed -n、grep -n、svn cat、git show、"
                                     "Get-Content…；一段裡每個路徑參數都算）執行成功後，字面路徑且是實檔的算讀過，與 Read 同效；"
-                                    "含變數（$）、未展開 glob（* ? [）、指令失敗（exit≠0）、檔不存在不算；echo／printf／ls／find 不是讀檔指令。",
+                                    "Bash 沒加引號的 glob 照 cwd 展開成實檔再算（展不出東西不算）；`for V in 清單; do …\"$V\"…; done` 清單每項都是字面"
+                                    "（沒加引號的 glob 照展開）、本體沒有 break／continue／exit／return 時逐項代進本體再認讀檔指令"
+                                    "（lib/overview_hub._bash_for_bodies）；"
+                                    "其他含變數（$）、清單含 $／$(…) 的迴圈、指令失敗（exit≠0）、檔不存在不算；echo／printf／ls／find 不是讀檔指令。",
     "UNMAPPED_EDIT_NEEDS_READABLE_FILES":"表外檔改檔前要讀的同頂層目錄檔數＝min(設定的 part_files, 該目錄非執行期資料的既有檔數)："
                                           "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀照擋。",
     "TEMP_REPO_COMMIT_EXEMPT": "git commit 落在暫存目錄（系統 TEMP／TMP、scratchpad、/tmp）下的 repo → 不要求版控口令。",
@@ -2084,11 +2096,16 @@ def evasion_context_exempt_verdict(exempt_phrase: bool, ratio: float, max_ratio:
 
 # ─── G6 階段 4（判斷入口盤點 P6／P7）：宣稱與退避留給 LLM 介入的入口。事實由 wg_verify_ledger／wg_evasion／handlers/stop 收，這裡只判結構與對應 ───
 RULES.update({
-    "CLAIM_WORDS_ARE_HINTS": "(a)(b)(c) 的宣稱詞表只是提示，不替 LLM 判語意。命中且沒證據時，收尾文字要有一行"
+    "CLAIM_WORDS_ARE_HINTS": "(a)(b)(c) 的宣稱詞表只是提示，不替 LLM 判語意。命中且沒證據時，被判的同一串文字（承接的先前宣稱＋最後一則；"
+                             "中段寫過的宣稱行最後一則不必重寫）要有一行"
                              "「宣稱｜<修好|量了|試過>：收據 <指令片段或哨兵名>」或「宣稱｜<…>：非本回合宣稱，因為 <理由>」："
                              "沒這行 → 照原規則擋並附寫法；「非本回合宣稱」附理由 → 放行、留帳（guard-reconcile.jsonl event=claim_disclaimed，"
                              "健檢抽查）；「收據」→ 走 CLAIM_RECEIPT_REF_MATCH。結構化的達成＋證據（need_goal 完整對照）仍是寫碼類的正式宣告，"
                              "宣稱行只處理散文裡的詞。",
+    "CLAIM_CONDITIONAL_NOT_CLAIM": "(a)(b)(c) 判宣稱時，講以後的條件句不算：如果／假如／要是／一旦／等到／若（若干除外）…<動詞>、緊貼的「等<動詞>」、"
+                                   "<動詞>之後／以後…再／一起／才／就／會／要（子句後段有「了／過」＝已經發生，照算宣稱）；宣稱行（宣稱｜…）"
+                                   "本身是對閘的回答，整行先拿掉再判。樣式在 memory/_meta/forbidden-phrases.json 三類宣稱的 exclude_patterns"
+                                   "（備用表 hooks/wg_evasion._conditional_excludes）；完成詞（claims_completion）是整段尾巴排除的粗判，不套。",
     "CLAIM_DISCLAIM_NEEDS_REASON": "宣稱行寫「非本回合宣稱」要附理由：拿掉角括號片段後還有任一字母或數字（任何語言），而且沒留著擋訊息的"
                                    "理由範本佔位（<理由…>、<為什麼…>）；純標點不算，理由裡引用 <標籤> 照算；沒理由不算回。程式不評理由充不充分。",
     "CLAIM_RECEIPT_REF_MATCH": "宣稱行指的收據要能辨識出是哪一張：引用的字要是那條指令的一個完整 token（整個 token、檔名、路徑尾段、"
@@ -2900,6 +2917,78 @@ def old_test_change_verdict(path: str, changes: Sequence[Dict[str, str]], decls:
     ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls if not reason_present(d.get("reason", ""))][:2]
     n = len({c["key"] for c in owed})
     return Verdict(rule, True, f"動到 {n} 支既有測試，沒先宣告「改舊測試｜哪支：理由」", tuple(ev))
+# ─── 閘小修 006 追蹤帳本同一件 ───
+RULES.update({
+    "TRACKING_SAME_ITEM_NOT_REWRITTEN": "追蹤帳本唯一寫入口 wg_harvest.append_tracking：open 列寫進去前，對帳上（含同一批較早的列）部位相容"
+                                        "（相同或一邊沒寫）的未結項：① AI 在那行寫了「｜同追蹤項：<那筆裡連續至少 8 字>」（k 欄、need_goal followup "
+                                        "行尾；PickOne 多一行「同追蹤項：」）而去標點空白後恰好是一筆的一段 → 換成新說法（新列帶 supersedes、"
+                                        "同時寫結案列關掉舊的）；對不到或對到多筆 → 不合併、照記、stderr。② 沒宣告但跟某筆部位相同（嚴格相等）、原文相同"
+                                        "（不分 session）→ 不重記、stderr，PickOne 記 repeat；字面相近（只差括號註、開頭相同）程式不併，併錯會吞掉一件。"
+                                        "換句話說的同一件程式不判，交 ①；"
+                                        "PickOne 問句列出本 session 還開著的項目。",
+})
+# ─── 裁定 #53 改判準卡 ───
+RULES.update({
+    "JUDGE_CARD_CHANGE_NEEDS_DECLARATION": "要改的檔是綁了 Entry 的判準卡（memory／_atoms 目錄底下的 .md，磁碟上那份檔頭 metadata 的 `- Entry:` "
+                                           "非空，判定只用 lib/atom_locations.entry_bound_ids）＝判 AI 做得對不對的量尺：要先有宣告行"
+                                           "「改判準卡｜<卡名>：<理由>」（回覆文字／工具參數裡 `#` 開頭的註解行／thinking 三管道，主檔與子代理檔都找；"
+                                           "Bash／PowerShell 另認這次指令自己的 `#` 註解行）；卡名＝檔名去 .md（寫路徑也行，取最後一段比；只寫 Entry 代號不算），"
+                                           "多張以「、，,」分隔；理由要有文字內容、不是佔位；沒有 → 擋（字母 jc）。出口全擋：Edit／MultiEdit／Write、"
+                                           "Bash／PowerShell 的寫入目標、MCP atom_write 的 append／replace、atom_edit_meta、atom_retire（MCP 由 PreToolUse "
+                                           "matcher 掛工具名、Python 判，MCP 端照 locate_atom 同一份定位）。不分 session，總控台也要宣告。"
+                                           "每次改動都留帳 Logs/guard-judge_card.jsonl（卡名、entry、宣告行、session、allowed）；"
+                                           "事實由 hooks/wg_judge_card.py 收。沒綁 Entry 的卡、新建的卡不觸發。",
+})
+_JUDGE_CARD_DECL_RE = re.compile(r"改判準卡\s*[｜|]\s*(.+)")
+_JUDGE_CARD_ASCII_SEP_RE = re.compile(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
+_JUDGE_CARD_NAME_SPLIT_RE = re.compile(r"\s*[、，,]\s*")
+
+
+def parse_judge_card_decls(text: str) -> List[Dict[str, Any]]:
+    """宣告行 →[{names, reason, line}]。卡名與理由用第一個「：」分；沒有全形冒號才找不接路徑分隔的「:」。
+    names 是「、，,」切開的每一段（去反引號、引號、書名號）。"""
+    out: List[Dict[str, Any]] = []
+    for raw in str(text or "").splitlines():
+        m = _JUDGE_CARD_DECL_RE.search(raw)
+        if not m:
+            continue
+        rest = m.group(1)
+        if "：" in rest:
+            names, reason = rest.split("：", 1)
+        else:
+            sep = _JUDGE_CARD_ASCII_SEP_RE.search(rest)
+            names, reason = (rest[:sep.start()], rest[sep.end():]) if sep else (rest, "")
+        parts = [p.strip("`'\"「」『』 ") for p in _JUDGE_CARD_NAME_SPLIT_RE.split(names)]
+        out.append({"names": [p for p in parts if p], "reason": reason.strip(), "line": raw.strip()[:240]})
+    return out
+
+
+def judge_card_name_hits(name: str, stem: str) -> bool:
+    """宣告的卡名點到這張卡（stem＝檔名去 .md）：取路徑最後一段、去 .md 後與 stem 相同，不分大小寫。
+    擋訊息印的就是 stem，照抄一定對得上；只寫 Entry 代號（E29）不算，因為一個 Entry 綁好幾張卡，要點名是哪一張。"""
+    n = str(name or "").strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+    n = n[:-3] if n.endswith(".md") else n
+    return bool(n) and n == str(stem or "").lower()
+
+
+def judge_card_verdict(stem: str, entry: Sequence[str], decls: Sequence[Dict[str, Any]]) -> Verdict:
+    """JUDGE_CARD_CHANGE_NEEDS_DECLARATION：owed＝要改的是綁 Entry 的卡、而且沒有點到它又附理由的宣告行。
+    entry 來自 entry_bound_ids（空＝不是判準卡）；decls 來自 parse_judge_card_decls。放行時證據第一筆是那一行宣告。"""
+    rule = "JUDGE_CARD_CHANGE_NEEDS_DECLARATION"
+    if not entry:
+        return Verdict(rule, False, f"{stem} 沒綁 Entry，不是判準卡")
+    for d in decls:
+        if reason_present(d.get("reason", "")) and any(judge_card_name_hits(n, stem) for n in d["names"]):
+            return Verdict(rule, False, f"宣告過改判準卡 {stem}", (d["line"],))
+    ev = [f"{stem}：綁 Entry {'、'.join(entry)}"]
+    ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls
+           if any(judge_card_name_hits(n, stem) for n in d["names"]) and not reason_present(d.get("reason", ""))][:2]
+    return Verdict(rule, True, "要改綁了 Entry 的判準卡，沒先宣告「改判準卡｜哪張：理由」", tuple(ev))
+
+
+def judge_card_hint(stem: str) -> str:
+    return (f"照抄這一行、把角括號換成真的理由，放回覆文字或下一個 Bash 開頭 `#` 註解，再改：\n改判準卡｜{stem}：<為什麼要改這張量尺；使用者原話或判錯的證據>\n"
+            "只是想記這次學到的新做法、不是這張卡的判準錯了 → 另開一張新卡（atom_write mode=create），別動判準卡。")
 # ─── T2.19 繞閘嫌疑 ───
 RULES.update({
     "GATE_BYPASS_NEEDS_DECLARATION": "被病形閘擋過之後（state smell_deny_last；同一個 repo 根、還沒成功 commit），這條指令把被點名的檔"
