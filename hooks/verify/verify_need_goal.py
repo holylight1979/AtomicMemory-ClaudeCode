@@ -586,9 +586,10 @@ def test_old_tree_owed_after_topic_switch_can_still_be_cleared(env):
     _op("add", items=[{"text": "a1"}])
     ng.stamp_edit(SID, str(proj / "a.py"), "", 2, {})
     _op("set", goal="B", new_task=True, why="換題", turn=3)                 # 換題：T2 成為目前的樹
-    assert "(f1)" in ng.goal_gate_reason(SID, False, {})                    # T1 欠的照樣要交
+    assert ng.goal_gate_reason(SID, False, {}) is None                       # T1 欠的由程式記進度（PROGRESS_LINE_BY_PROGRAM）
+    assert _doc()["trees"]["T1"]["nodes"]["T1"]["history"][-1]["by"] == "program"
     r = _op("update", items=[{"id": "T1", "status": "doing", "why": "a.py 的改動讓 A 更接近"}], turn=3)
-    assert r["ok"] and r["tree"] == "T1" and ng.goal_gate_reason(SID, False, {}) is None
+    assert r["ok"] and r["tree"] == "T1"                                     # AI 自己交舊樹的進度照收
     assert _doc()["active"] == "T2"                                          # 交舊樹不切換目前的樹
     assert _op("add", parent="T1.1", items=[{"text": "舊樹長出的"}], turn=3)["tree"] == "T1"
     mixed = _op("reconcile", turn=3, items=[{"id": "T1", "status": "none", "followup": "f"},
@@ -1206,12 +1207,9 @@ def test_cg0_stop_verify_gates_passes_transcript_for_relink(hooked):
 
 def test_goal_gate_f1_every_time_f2_only_on_boundary(env):
     proj = _code_tree(env)
-    r = ng.goal_gate_reason(SID, False, {})
-    assert r and "(f1)" in r and "a.py" in r and "(f2)" not in r            # 不看措辭
-    assert "(f2)" in ng.goal_gate_reason(SID, True, {})
-    _op("update", items=[{"id": "T1.1", "status": "doing", "why": "改了 a.py 讓 a1 接近"}], turn=2)
-    assert ng.goal_gate_reason(SID, False, {}) is None
-    assert "還沒交完整對照" in ng.goal_gate_reason(SID, True, {})
+    assert ng.goal_gate_reason(SID, False, {}) is None                      # (f1) 不再擋：程式記進度、清待對照
+    assert not ng._owed(_tree()) and _tree()["nodes"]["T1"]["history"][-1]["by"] == "program"
+    assert "還沒交完整對照" in ng.goal_gate_reason(SID, True, {})              # (f2) 交付邊界照擋
     assert ng.goal_gate_reason(SID, True, {"overview_hub": {"need_goal": {"enabled": False}}}) is None
 
 
@@ -1229,7 +1227,7 @@ def test_stop_verify_gates_merges_goal_only_for_main_session(env):
     state = {"turn_seq": 3}
     reason, report, kind, _ = st._verify_gates(state, SID, 3, "好了", None, "", [], off, off, {}, False,
                                                goal=True, goal_cfg={})
-    assert reason and "(f1)" in reason and kind == "reconcile"
+    assert reason is None                                                   # 不在交付邊界：待對照由程式記進度、不擋
     reason, _, kind, _ = st._verify_gates(state, SID, 3, "全部完成。", None, "", [], off, off, {}, False,
                                           goal=True, goal_cfg={})
     assert "(f2)" in reason                                                 # 宣告完成＝交付邊界
@@ -1245,9 +1243,9 @@ def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, cap
                       ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
         monkeypatch.setattr(st, name, val)
     with pytest.raises(SystemExit):
-        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {"reconcile_gate": {}, "verify_scope": {}})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {"reconcile_gate": {}, "verify_scope": {}})
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert out.get("decision") == "block" and "(f1)" in out.get("reason", "")
+    assert out.get("decision") == "block" and "(f2)" in out.get("reason", "") and "(f1)" not in out.get("reason", "")
     assert state["reconcile_gate_turn"][SID]["count"] == 1                  # 吃寫碼查核同一個預算
 
 
@@ -1266,14 +1264,15 @@ def test_stop_budget_exhausts_to_pending_and_clears_after_update(env, monkeypatc
     reasons = []
     for _ in range(3):
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+            st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {})
         reasons.append(json.loads(capsys.readouterr().out.strip().splitlines()[-1])["reason"])
-    assert all("(f1)" in r for r in reasons)
+    assert all("(f2)" in r for r in reasons)
     assert pending_of(state, SID, "reconcile") is not None                  # 擋滿：記 pending、改問使用者
     assert RELEASE_TAG in reasons[-1] or "沒有人能回答" in reasons[-1] or "無法互動" in reasons[-1]
-    _op("update", items=[{"id": "T1", "status": "doing", "why": "a.py 讓 A 更接近"}], turn=3)
+    _op("reconcile", turn=3, cwd=str(env["proj"]), items=[{"id": n, "status": "none", "followup": "f"}
+                                                          for n in ("T1", "T1.1", "T1.2")])
     try:
-        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {})
     except SystemExit:
         pass
     assert pending_of(state, SID, "reconcile") is None                      # 原因真的消失 → 清 pending
@@ -1466,7 +1465,7 @@ def test_stop_report_budget_not_eaten_by_code_rule_counts(env, monkeypatch, caps
 def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     _code_tree(hooked)
-    assert "(f1)" in ng.commit_gate(SID, {})
+    assert "(f2)" in ng.commit_gate(SID, {}) and "(f1)" not in ng.commit_gate(SID, {})
     monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: None)
     monkeypatch.setattr(ptu, "check_git_privacy", lambda *a, **k: None)
     deny = _deny_text(_ptu_run("Bash", {"command": 'git commit -m "x"'}, proj, tp, outputs))
@@ -1663,7 +1662,7 @@ def test_goal_gate_switch_off_skips_delivery_and_commit_checks(env):
     """收尾瘦身：reconcile_gate.goal_gate=false → 收尾的需求目標對照 (f1)(f2)(f3)、知識類輕樹 (f4)、commit 前的目標對照都不擋；
     目標樹照記，改檔前要有樹、提問要掛節點不歸這個開關。前置：同一棵樹預設照擋。舊碼不認這個鍵 → 紅。"""
     _code_tree(env)
-    assert "(f1)" in ng.commit_gate(SID, {}) and ng.goal_gate_reason(SID, True, {})     # 前置：預設照擋
+    assert "(f2)" in ng.commit_gate(SID, {}) and ng.goal_gate_reason(SID, True, {})     # 前置：預設照擋
     off = {"reconcile_gate": {"goal_gate": False}}
     assert ng.commit_gate(SID, off) is None
     assert ng.goal_gate_reason(SID, True, off) is None

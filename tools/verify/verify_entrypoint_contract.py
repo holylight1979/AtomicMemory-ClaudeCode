@@ -295,7 +295,7 @@ def test_judgment_cards_note_and_empty(tmp_path):
     none = ep.judgment_cards(PICK_ONE_TEXT, "stop_piggyback", registry=reg, pool=[], config={})
     assert none["entries"] == ["E04"] and none["note"] == "" and none["cards"] == []
     miss = ep.judgment_cards("別的訊息", "stop_piggyback", registry=reg, pool=[bound], config={})
-    assert miss == {"entries": [], "cards": [], "truncated": False, "truncated_entries": [], "note": ""}
+    assert miss == {"entries": [], "cards": [], "truncated": False, "truncated_entries": [], "repeated": [], "note": ""}
 
 
 def test_judgment_cards_budget_truncates(tmp_path):
@@ -725,7 +725,7 @@ def test_ledger_fields_and_truncated(tmp_path, logs):
                          config={"entrypoint": {"inject_budget_tokens": budget}})
     assert "已截斷" in note
     (row,) = _ledger(logs)
-    assert set(row) == {"at", "event", "session_id", "turn_seq", "entry", "path", "cards", "truncated", "with", "response"}
+    assert set(row) == {"at", "event", "session_id", "turn_seq", "entry", "path", "cards", "truncated", "with", "response", "repeated"}
     assert (row["event"], row["entry"], row["path"], row["cards"], row["truncated"], row["response"]) == \
         ("ask", "E04", "stop_piggyback", ["c0", "c1"], True, "none")
     assert ep.entry_note("別的訊息", "stop_piggyback", session_id=SID, registry=reg, pool=cards) == ""

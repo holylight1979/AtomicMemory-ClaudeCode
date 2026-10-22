@@ -59,6 +59,7 @@ from wg_release import (
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
+from wg_bg_harvest import background_on, on_stop as bg_harvest
 from wg_harvest import (
     harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
     record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt, session_open_tracking,
@@ -943,7 +944,7 @@ def _verify_gates(
             print(s_err, file=sys.stderr)
             append_guard_log("scope", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
     if goal:
-        # 需求目標（4.5）：(f1) 改了程式還沒回頭對照不看措辭、每次都判；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界
+        # 需求目標（4.5）：(f1) 改了程式還沒回頭對照由程式記進度、不擋（PROGRESS_LINE_BY_PROGRAM）；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界
         # （宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）判。併進寫碼查核：同一個擋滿問使用者、同一個 pending；
         # (f3) 擋訊息帶規則行，擋次預算單獨計次。state 與 transcript 交給 (f3) 從對話補掛補交的定位四行
         boundary = bool(claims_completion(last_text) or claims or aec_emitted)
@@ -1566,6 +1567,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     def _mod_turn(m: Dict[str, Any]) -> int:
         return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
 
+    # 收尾檢核 (g) 交代的版控還算數：本回合交過、而且交了之後本 session 沒再改檔（報告沒記時間或改檔沒記時間 → 不算，照提醒）
+    aec_covers_sync = emitted_this_turn and bool(aec.get("at")) and all(
+        str((m or {}).get("last_at") or (m or {}).get("at") or "9") <= str(aec["at"]) for m in own_mod_files)
     aec_up_to_date = (
         bool(aec.get("turn_seq"))
         and aec.get("session_id") == session_id
@@ -1625,7 +1629,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _so_v = _so_check()[0] if "[Guardian:SecondOpinion]" not in reason else None
         if _so_v is not None and _so_v.owed and not released_this_turn(state, session_id, _SO_GATE, _user_turn(state, turn_seq)):
             later.append("第二意見：跑 second_opinion_start→second_opinion_result 並在收尾寫分歧裁決四行，或宣告「不需第二意見｜理由」")
-        if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
+        if "[Guardian:KnowledgeHarvest]" not in reason and not background_on(config) and harvest_gate_reason(
                 state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq),
                 claimed=_done(last_text)):
             later.append("知識收割：值得留的先 atom_write，再呼叫 knowledge_harvest_report")
@@ -1642,6 +1646,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                                 claimed=_done(last_text))):
             later.append("收尾檢核：最後呼叫 anti_evasion_report")
         if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
+                and not aec_covers_sync and not any(x.startswith("收尾檢核") for x in later)
                 and not state.get("muted") and phase not in ("done", "syncing")):
             sr = config.get("sync_reminder", {}) or {}
             unsynced = {(m or {}).get("path") for m in _drop_synced(own_mod_files)} - {None, ""}
@@ -2042,6 +2047,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn,
                                     claimed=_done(last_text), waived=_hv_waived)
     _log_waivers(state, session_id, turn_seq, _uturn, "harvest", _hv_waived)   # 使用者叫跳過收割、AI 引用到原話 → 放行並留帳
+    if hv_reason and background_on(config):
+        # 規則 HARVEST_IN_BACKGROUND：收割交背景的本地免費模型產待審候選卡，不擋寫碼 AI 一回合；送不出去才照舊擋（不靜默略過）
+        state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
+        if bg_harvest(session_id, _tpath or "", cwd, turn_seq, config):
+            write_state(session_id, state)
+            hv_reason = None
     if hv_reason:
         state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
         append_guard_log("knowledge_harvest", {
@@ -2228,7 +2239,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         unpushed: List[str] = []
         if not uncommitted and sr_config.get("unpushed", True):
             unpushed = _git_unpushed_roots(own_mod_files)
-        if uncommitted:
+        if (uncommitted or unpushed) and aec_covers_sync:
+            # 規則 SYNC_COVERED_BY_CLOSING_CHECK：本回合的收尾檢核 (g) 已交代哪些 commit、哪些沒上與理由（AI 的宣告＋HUD 留帳），
+            # 而且交了之後沒再改檔 → 同一件事不再擋一回合；只留 stderr 一行與留帳
+            print(f"[Guardian:SyncReminder] {len(uncommitted)} 個未 commit、{len(unpushed)} 個 repo 未 push："
+                  "本回合收尾檢核 (g) 已交代，不另擋", file=sys.stderr)
+            append_guard_log("sync_reminder", {"event": "covered_by_aec", "session_id": session_id, "turn_seq": turn_seq,
+                                               "uncommitted": len(uncommitted), "unpushed": len(unpushed)})
+        elif uncommitted:
             state["sync_reminder_count"] = sr_count + 1
             state["stop_blocked_count"] = stop_count + 1
             # 訊息瘦身：檔案清單不進 chat（statusline 常駐示數、模型自行 git status）
@@ -2373,6 +2391,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     if len(unique_files) < min_files and kq_count == 0:
+        state["phase"] = "done"
+        write_state(session_id, state)
+        _maybe_spawn_user_extract_worker(session_id, state, config)
+        output_nothing()
+        return
+
+    docdrift = (state.get("docdrift_pending") or {}) if DOCDRIFT_AVAILABLE else {}
+    if kq_count == 0 and not docdrift:
+        # 只剩「改了 N 個檔」：跟同步提醒、收尾檢核 (g) 是同一件事（規則 SYNC_BLOCK_NOT_REPEATED），只留 stderr 一行
+        print(f"[Workflow Guardian] {len(unique_files)} file(s) modified（同步交代見同步提醒／收尾檢核 (g)，不另擋）",
+              file=sys.stderr)
         state["phase"] = "done"
         write_state(session_id, state)
         _maybe_spawn_user_extract_worker(session_id, state, config)

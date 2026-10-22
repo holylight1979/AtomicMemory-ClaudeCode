@@ -130,7 +130,9 @@ def driven(monkeypatch):
         logs.clear()
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": "", **(hook_input or {})}, config)
-        return capsys.readouterr().out, state, list(logs)
+        cap = capsys.readouterr()
+        state["_err"] = cap.err          # 只剩「改了 N 個檔」時底部那行改走 stderr（SYNC_BLOCK_NOT_REPEATED）
+        return cap.out, state, list(logs)
 
     return drive
 
@@ -969,9 +971,10 @@ def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatc
     for n in ("a.md", "b.md"):
         (docs / n).write_text("x\n", encoding="utf-8", newline="\n")
     mf = [_mf(str(docs / "a.md"), 5), _mf(str(docs / "b.md"), 5)]
-    out, state, _ = driven("好了。", capsys, modified_files=mf, stop_blocked_count=0)
+    kq = [{"content": "待記的坑", "classification": "[臨]"}]       # 只剩改檔數不再擋（SYNC_BLOCK_NOT_REPEATED）；有待記知識才走一般 block
+    out, state, _ = driven("好了。", capsys, modified_files=mf, stop_blocked_count=0, knowledge_queue=kq)
     assert "[Workflow Guardian] 2 file(s) modified" in out and state["stop_blocked_count"] == 1     # 沒擋滿：照擋
-    out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2)
+    out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2, knowledge_queue=kq)
     assert "Guardian" not in out and "【收尾放行確認】" not in out and state["phase"] == "done"     # 擋滿：照舊放行
     assert not [g for g, _ in logs if g == "sync_block"]
 
@@ -3956,8 +3959,8 @@ def test_042_3_harvest_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
     import wg_harvest as wh
     monkeypatch.setattr(st, "harvest_gate_reason", wh.harvest_gate_reason)
     outs = peer_flow("全部完成了。", capsys, config={"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5,
-                                                                "min_turns_between": 3}})
-    assert ["[Guardian:KnowledgeHarvest]" in o for o in outs] == [True, False, True]
+                                                                "min_turns_between": 3, "background": False}})
+    assert ["[Guardian:KnowledgeHarvest]" in o for o in outs] == [True, False, True]   # 擋下這條路（背景關或送不出去時）
 
 
 def test_042_3_harvest_pending_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
@@ -4435,9 +4438,9 @@ def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path,
         (repo / name).write_text("# 改了\n", encoding="utf-8", newline="\n")
     docs = [_mf(str(repo / "notes.md"), 5), _mf(str(repo / "todo.md"), 5)]
     out, state, _ = driven("接著看下一段。", capsys, modified_files=docs)
-    assert "Workflow Guardian" in out and "ReadingPath" not in out and "reading_path" not in state
-    out, _, _ = driven("接著看下一段。", capsys, modified_files=docs + [_mf(str(repo / "y.py"), 3)])
-    assert out and "ReadingPath" not in out
+    assert "Workflow Guardian" in state["_err"] and "ReadingPath" not in out and "reading_path" not in state
+    out, st2, _ = driven("接著看下一段。", capsys, modified_files=docs + [_mf(str(repo / "y.py"), 3)])
+    assert "Workflow Guardian" in out + st2["_err"] and "ReadingPath" not in out
 
 
 def test_g12w_timeout_appends_the_reason_without_a_manual_command(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
@@ -4720,11 +4723,11 @@ def test_046_sync_block_skips_committed_files(driven, capsys, tmp_path):
     assert _git_out(repo, "status", "--porcelain") == ""
     mf = [_mf(str(p), 5) for p in (a, b, c)]
     out, state, _ = driven("好了。", capsys, modified_files=mf)
-    assert "[Workflow Guardian]" not in out and state["phase"] == "done", out
+    assert "[Workflow Guardian]" not in out and "file(s) modified" not in state["_err"] and state["phase"] == "done", out
     b.write_text("v2\n", encoding="utf-8", newline="\n")
     c.write_text("v2\n", encoding="utf-8", newline="\n")
-    out, _, _ = driven("好了。", capsys, modified_files=mf)
-    assert "[Workflow Guardian] 2 file(s) modified" in out and "a.md" not in out, out
+    out, st_, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian] 2 file(s) modified" in st_["_err"] and "a.md" not in out, out
 
 
 def test_046_sync_block_still_owes_unpushed_commits(driven, capsys, tmp_path):
@@ -4735,16 +4738,16 @@ def test_046_sync_block_still_owes_unpushed_commits(driven, capsys, tmp_path):
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-q", "-u", "origin", "HEAD")
     mf = [_mf(str(p), 5) for p in (a, b)]
-    out, _, _ = driven("好了。", capsys, modified_files=mf)
-    assert "[Workflow Guardian]" not in out, out
+    out, st_, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out and "file(s) modified" not in st_["_err"], out
     a.write_text("v2\n", encoding="utf-8", newline="\n")
     b.write_text("v2\n", encoding="utf-8", newline="\n")
     _git(repo, "commit", "-qam", "local only")
     assert _git_out(repo, "rev-list", "--count", "@{u}..HEAD") == "1"
     out, _, _ = driven("好了。", capsys, modified_files=mf)
     assert "[Guardian:SyncReminder]" in out and "尚未 push" in out, out                   # 上面那道先提醒一次
-    out, _, _ = driven("好了。", capsys, modified_files=mf, sync_reminder_count=1)
-    assert "[Workflow Guardian] 2 file(s) modified" in out, out                           # 提醒用完，底部照擋
+    out, st_, _ = driven("好了。", capsys, modified_files=mf, sync_reminder_count=1)
+    assert "[Workflow Guardian]" not in out and "[Workflow Guardian] 2 file(s) modified" in st_["_err"], out   # 提醒用完：底部只留 stderr、不重擋
 
 
 def test_046_sync_block_skips_files_whose_vcs_root_vanished(driven, capsys, tmp_path):
@@ -4759,14 +4762,14 @@ def test_046_sync_block_skips_files_whose_vcs_root_vanished(driven, capsys, tmp_
     a.write_text("v2\n", encoding="utf-8", newline="\n")
     b.write_text("v2\n", encoding="utf-8", newline="\n")
     mf = [_mf(str(p), 5) for p in (a, b)]
-    out, _, _ = driven("好了。", capsys, modified_files=mf)
-    assert "[Workflow Guardian] 2 file(s) modified" in out, out                            # 前置：還沒提交 → 照擋
+    out, st_, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian] 2 file(s) modified" in st_["_err"], out                            # 前置：還沒提交 → 照擋
     _git(wt, "commit", "-qam", "feat")
     _git(repo, "merge", "-q", "--ff-only", "feat")
     _git(repo, "worktree", "remove", str(wt))
     assert not wt.exists() and (repo / "a.md").read_text(encoding="utf-8") == "v2\n"
-    out, _, _ = driven("好了。", capsys, modified_files=mf)
-    assert "[Workflow Guardian]" not in out, out
+    out, st_, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out and "file(s) modified" not in st_["_err"], out
 
 
 def test_046_sync_block_vanished_counter_cases_still_owe(driven, capsys, tmp_path):
@@ -4780,13 +4783,13 @@ def test_046_sync_block_vanished_counter_cases_still_owe(driven, capsys, tmp_pat
     for f in kept:
         f.write_text("x\n", encoding="utf-8", newline="\n")
     assert st._find_vcs_root(loose) is None and all(f.exists() for f in kept)
-    out, _, _ = driven("好了。", capsys, modified_files=[_mf(str(p), 5) for p in kept])
-    assert "[Workflow Guardian] 2 file(s) modified" in out, out
+    out, st_, _ = driven("好了。", capsys, modified_files=[_mf(str(p), 5) for p in kept])
+    assert "[Workflow Guardian] 2 file(s) modified" in st_["_err"], out
     drive = next(f"{c}:\\" for c in reversed(string.ascii_uppercase) if not os.path.isdir(f"{c}:\\"))
     gone = [_mf(drive + r"proj\a.md", 5), _mf(drive + r"proj\b.md", 5)]
     assert not os.path.lexists(gone[0]["path"])                                            # 前置：連不到，看起來就是不在
-    out, _, _ = driven("好了。", capsys, modified_files=gone)
-    assert "[Workflow Guardian] 2 file(s) modified" in out, out
+    out, st_, _ = driven("好了。", capsys, modified_files=gone)
+    assert "[Workflow Guardian] 2 file(s) modified" in st_["_err"], out
 
 
 def test_046_block_lists_later_gates(driven, capsys, monkeypatch, tmp_path):
@@ -4804,7 +4807,8 @@ def test_046_block_lists_later_gates(driven, capsys, monkeypatch, tmp_path):
     out, _, _ = driven("好了。", capsys, modified_files=mf)
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" in out, out
     later = out.split("[Guardian:AlsoOwed]", 1)[1]
-    assert "knowledge_harvest_report" in later and "anti_evasion_report" in later and "同步：2 個" in later, later
+    assert "knowledge_harvest_report" in later and "anti_evasion_report" in later, later
+    assert "同步：" not in later, later      # 後面還欠收尾檢核：(g) 會交代版控，同步不重列（SYNC_COVERED_BY_CLOSING_CHECK）
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: None)
     out, _, _ = driven("好了。", capsys, modified_files=mf)
     assert "[Guardian:KnowledgeHarvest] 先收割" in out and "[Guardian:AlsoOwed]" in out, out

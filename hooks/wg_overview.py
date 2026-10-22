@@ -21,6 +21,7 @@ state["min_map"] = {"<root>": {"preview", "preview_ok", "preview_ms", "offset"}}
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -1448,10 +1449,17 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"],
                        rule="、".join(v.rule for v in vs_))
         else:
-            fourth = ("／定位｜目標：<節點編號>（這一塊在目標裡的角色）／定位｜批判：<合不合理、更好的做法、同類還可能在哪>"
-                      if goal_tree is not None else "")
-            missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
-                           f"請先在回覆寫：定位｜部位：…／定位｜根因層：…／定位｜前例：…{fourth}")
+            # 規則 LOCATE_ASK_ONCE：第一次擋就把內容要求（兩個候選＋選擇理由、節點與角色、批判的判斷）與填好部位、節點的範例一起給，
+            # 一次交齊；不先只給骨架、交了再擋一輪說格式不對
+            where = "寫在回覆文字，或下一個工具呼叫的參數（Bash 開頭的註解）；只寫在 thinking 裡程式可能讀不到"
+            if goal_tree is not None:
+                missing.append(f"還沒交出定位行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。{where}。"
+                               f"一次交齊五行：{TWO_CANDIDATES_HINT}；第四行括號寫這一塊替那個節點做什麼；第五行先下「合理／不合理，因為 …」"
+                               "的判斷再寫更好的做法與同類在哪。範例（角括號換成你的判斷，句子順序不限）：\n"
+                               + _locate_example(row, goal_tree, None))
+            else:
+                missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。{where}："
+                               "定位｜部位：…／定位｜根因層：…／定位｜前例：…")
     if missing and deny_reason is None:
         deny_reason = "evidence"
     _log("edit", session_id, part=row["part_short"], path=file_path, located=bool(rec.get("located")),
@@ -1477,6 +1485,17 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
+    # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
+    # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
+    sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
+    turn = int(state.get("turn_seq", 0) or 0)
+    last = rec.get("last_deny") or {}
+    rec["last_deny"] = {"turn": turn, "sig": sig}
+    if last.get("turn") == turn and last.get("sig") == sig:
+        msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
+               f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
+        _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
+        return (msg, msg, True)
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
            + "\n".join(f"- {m}" for m in missing))
     return (msg, msg, True)

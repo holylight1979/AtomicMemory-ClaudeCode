@@ -130,12 +130,12 @@
 - 程式檔改動 `owed=true`。
 - `update` 的某一項 id 是 X → 清掉 `node == X` 或 X 在 `node` 底下（X 以 `node + "."` 開頭）的 owed 改動，記 `cleared_seq`。
 - `reconcile` 被收下 → 整棵樹的 owed 全清。
-- 回合結束時**所有樹**還有 owed → (f1)；不看措辭、每次 Stop 都查（換題不卡開新樹，但舊樹欠的對照照樣要交一句）。
+- 回合結束時**所有樹**還有 owed → 程式記進度（`auto_progress`）：每個欠著的節點 history 加一筆 `{what: progress, by: program, why: 改了哪些檔＋最近收據}`、owed 全清；不擋、`goal_gate=false` 也照做（守門減量 001，規則 PROGRESS_LINE_BY_PROGRAM）。背景本地模型（`wg_bg_harvest`）再對這些節點草擬一句，記 `{what: progress_draft, by: local_llm, model}`。AI 要寫自己的判斷照樣用 `update`。
 
 ### 5.4 證據
 - `kind`：`receipt`（收據）／`case`（驗證案例檔）／`file`（檔:行）／`atom`（卡名）。
 - `level`：`measured`（實測）／`read`（讀碼）／`inferred`（推論）。
-- `ref`：receipt 寫 `R<seq>`（或純數字），查 `receipts[].seq`；case／file 寫路徑，可帶 `:行` 或 `:行-行`，相對路徑以 `cwd` 解析，查磁碟存在；atom 寫卡名，查全域層（`wg_atoms.resolve_atom_path`）與 `cwd` 所在專案的 `.claude/memory/**/<名>.md`。
+- `ref`：receipt 寫 `R<seq>`（或純數字），查 `receipts[].seq`；也可寫 `latest`：收件時換成最近一筆綠的收據並在證據記 `auto: true`，之後在交付邊界（Stop）與收尾檢核附樹時，有更新的綠收據就自動換過去（`refresh_auto_evidence`，規則 RECEIPT_LATEST_AUTO；沒有更新的綠收據照算「改完沒重跑」）；case／file 寫路徑，可帶 `:行` 或 `:行-行`，相對路徑以 `cwd` 解析，查磁碟存在；atom 寫卡名，查全域層（`wg_atoms.resolve_atom_path`）與 `cwd` 所在專案的 `.claude/memory/**/<名>.md`。
 - `covers`：這筆證據支持哪幾個節點，省略＝只支持它所在的那個節點；每個都要是這棵樹的節點。
 - 組合規則（程式只核對組合，不判內容）：`measured` ⇔ `receipt`（實測只能配收據，收據只能標實測）；case／file／atom 只能 `read` 或 `inferred`。
 - 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點掛的程式改動裡最大的 `seq`（讀 `node_last_edit`）；「節點掛的改動」＝掛在它本身、它的子孫，以及它的祖先（沒歸屬到更細節點的改動，例如沒有部位表的檔都掛樹根）。不因改了旁支的另一塊而整樹重驗。
@@ -166,7 +166,7 @@
 | `why` | str | set | 改寫樹根時必填；目前的樹是 `doing` 時帶 `new_task=true` 也必填（js 只驗型別，Python 驗必填） |
 | `import_from` | str | set | 續接單路徑 |
 | `parent` | str | add | 掛在哪個節點，省略＝樹根 |
-| `items` | array | add／update／reconcile | add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why 必填}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?}], followup?, note?}` |
+| `items` | array | set／add／update／reconcile | set：子目標，同 add，跟樹根同一次寫（規則 SET_WITH_SUBGOALS）；add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why 必填}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?}], followup?, note?}` |
 | `turns` | int ≥ 0 | reconcile | 拐了幾個彎（C-G11 預留） |
 | `form` | enum `full｜compact｜handoff` | read | 預設 full；handoff 回續接單區塊（給 /handoff 手寫續接單貼上） |
 | `items`（verify_scope） | array | verify_scope | `{target 必填, why 必填, inputs?, case_for?}`：target 是測試檔、測試節點（`檔::名`）、資料夾或指令，why 一句為什麼和這次改動有關；case_for（非空字串陣列）＝這支案例驗的改過程式檔，只能掛在點得到案例檔的那一項 |
@@ -251,8 +251,8 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `stamp_edit(sid, path, agent_id, turn, config)` | None | b2：post_tool_use | 蓋改檔號；程式檔記待對照、樹升寫碼類、已對照或結束的樹退回進行中；沒有樹不記 |
 | `stamp_receipts(sid, state, turn)` | int（蓋了幾筆） | b2：post_tool_use | 把工作暫存裡還沒蓋號的收據（主 session 與子代理）蓋進目標檔 |
 | `on_prompt(sid, prompt, turn, config)` | str／None | b2：user_prompt_submit | 4.1：分使用者原話／同伴轉述／系統通知，記進樹，回要送的那一行 |
-| `goal_gate_reason(sid, triggered, config, state=None, transcript_path="")` | str／None | b2：stop._verify_gates | (f1) 每次都判；(f2)(f3) 只在 `triggered`（這則宣告完成、或擋滿待查的原宣稱、或本回合交了收尾檢核）時判。state／transcript_path 給 (f3) 補掛用 |
-| `commit_gate(sid, config, state=None, transcript_path="")` | str／None | b2：pre_tool_use（commit 指令） | commit 前：(f1)＋目前的寫碼類樹的 (f2)(f3)。(f2) 的對象＝目前的樹 `kind=code`（含從續接單匯入、這個 session 還沒改過程式的寫碼類樹：前一個 session 的證據不算數） |
+| `goal_gate_reason(sid, triggered, config, state=None, transcript_path="")` | str／None | b2：stop._verify_gates | 先記帳（`auto_progress`；`triggered` 時 `refresh_auto_evidence`），`goal_gate=false` 也記；(f2)(f3) 只在 `triggered`（這則宣告完成、或擋滿待查的原宣稱、或本回合交了收尾檢核）時判。state／transcript_path 給 (f3) 補掛用 |
+| `commit_gate(sid, config, state=None, transcript_path="")` | str／None | b2：pre_tool_use（commit 指令） | commit 前：先記進度、換 latest 收據，再查目前的寫碼類樹的 (f2)(f3)。(f2) 的對象＝目前的樹 `kind=code`（含從續接單匯入、這個 session 還沒改過程式的寫碼類樹：前一個 session 的證據不算數） |
 | `snapshot_for_report(sid, kinds=("code",))` | dict／None | b2：post_tool_use（收尾檢核）、codex_companion | 原話摘要＋目標樹＋對照結果；目前的樹類別不在 kinds 回 None |
 | `review_material(sid)` | str | b2：codex_companion | 「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段分開標示的純文字；沒有樹回空字串 |
 | `handoff_block(sid)` | str | bkp：wg_handoff；b2：read form=handoff | 第七節格式；沒有未結束的樹回空字串 |

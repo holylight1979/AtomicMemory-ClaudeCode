@@ -130,9 +130,9 @@ def test_block_foreign_only_not_triggered(driven, capsys):
 
 
 def test_block_own_meets_threshold_triggers(driven, capsys):
-    """own ≥ min_files(2) → 觸發 [Workflow Guardian] 一般 block。"""
-    out = driven(
-        [_mf(_CORE, session_id=_SID), _mf(_CORE2, session_id=_SID)],
-        capsys, uncommitted="none",
-    )
+    """own ≥ min_files(2) 但只剩「改了 N 個檔」→ 跟同步提醒同一件事，不再擋（規則 SYNC_BLOCK_NOT_REPEATED）；
+    有待記知識才擋 [Workflow Guardian] 一般 block。"""
+    files = [_mf(_CORE, session_id=_SID), _mf(_CORE2, session_id=_SID)]
+    assert "[Workflow Guardian]" not in driven(files, capsys, uncommitted="none")
+    out = driven(files, capsys, uncommitted="none", knowledge_queue=[{"content": "坑", "classification": "[臨]"}])
     assert "[Workflow Guardian]" in out
