@@ -11536,6 +11536,19 @@
         "-k 篩選"
       ],
       "scope": "global"
+    },
+    {
+      "name": "無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效",
+      "path": "memory/CC與原子記憶契約/無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效.md",
+      "triggers": [
+        "hook 全關",
+        "disableAllHooks",
+        "--settings",
+        "無 hook 對照組",
+        "量 hook 代價",
+        "WG_CLAUDE_DIR settings"
+      ],
+      "scope": "global"
     }
   ]
 }
