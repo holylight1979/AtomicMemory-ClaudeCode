@@ -8,6 +8,7 @@
   （kind＝final_reply／docs、session＝這個 session）。
 - UserPromptSubmit（tail_note）：上一回合送評的最終回覆評完了（留帳找得到同 session、同文字雜湊那筆）→ 回兩行，放在這則注入的第一行：
   `上則評分 5/7｜沒過：R1、R4` 與照抄指示（識別字樣 TEXT_SCORE_TAIL，切入點登錄表 E37，問的那一刻記 guard-entry）；每則只送一次。
+  VS Code 裡「評分」與每個代號是點得進 text-specs/<規格>-說明.md 的連結（link_line）；終端機、無頭照舊純文字。
   還沒評完 → 不送、記 guard-text_score_tail pending；上一回合的回覆沒送評（太短）或評的是更早的回覆 → 不送。留帳照樣有、週彙總看得到。
   docs 類只留帳、不送。
 - 下一次 Stop：回覆裡照抄了那一行 → guard-text_score_tail 記 copied（E37 的回應，帶 text_sha 配對）。
@@ -21,6 +22,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -33,7 +35,10 @@ from wg_core import CLAUDE_DIR, WORKFLOW_DIR, append_guard_log, rotate_log_if_ov
 from wg_entrypoint import entry_note, with_note
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "text-score.py"   # 程式碼根（本樹）的評分工具
+SPEC_DIR = TOOL.parents[1] / "text-specs"                                # 規格與白話說明檔 <規格>-說明.md
 LEDGER = CLAUDE_DIR / "Logs" / "guard-text_score.jsonl"                  # 與 tools/text-score.py 的 LOG_PATH 同一個檔
+LINK_ENTRYPOINTS = {"claude-vscode"}   # 回覆裡的 markdown 檔案連結點得開的介面；終端機（cli）、無頭（sdk-*）印純文字
+_CODE_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*")   # 條目代號（text-specs/README：英文字母開頭的英數字）
 JOB_DIR = WORKFLOW_DIR / "text-score"
 KEY = "text_score"            # state[KEY][session_id]
 MARKER = "TEXT_SCORE_TAIL"
@@ -170,8 +175,32 @@ def find_record(session_id: str, sha: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def tail_note(state: Dict[str, Any], session_id: str, config: Dict[str, Any]) -> str:
-    """UserPromptSubmit 呼叫（turn_seq 還沒加一）：上一回合送評的回覆評完了 → 回要放在注入第一行的兩行；否則空字串。"""
+def link_line(line: str, spec: str, cwd: str) -> str:
+    """評分一行改成點得進白話說明檔的 markdown：「評分」連 <規格>-說明.md，沒過／作廢／未評後面每個代號連 #<代號小寫>
+    （說明檔每條的標題只寫代號，VS Code 擴充照標題文字找錨點）。路徑相對 cwd（擴充以 session cwd 為基準開相對路徑），
+    換磁碟算不出相對路徑就給絕對路徑。介面不在 LINK_ENTRYPOINTS 或這份規格沒有說明檔 → 原樣回。"""
+    doc = SPEC_DIR / f"{spec}-說明.md"
+    if os.environ.get("CLAUDE_CODE_ENTRYPOINT") not in LINK_ENTRYPOINTS or not spec or not doc.is_file():
+        return line
+    try:
+        href = Path(os.path.relpath(doc, cwd)).as_posix() if cwd else doc.as_posix()
+    except ValueError:
+        href = doc.as_posix()
+    # 空白、括號會切斷 markdown 連結；# 會被當成錨點、% 會被解碼（擴充開檔前 decodeURIComponent）
+    href = re.sub(r"[ ()%#]", lambda m: f"%{ord(m.group()):02X}", href)
+    parts = line.split("｜")
+    parts[0] = parts[0].replace("評分", f"[評分]({href})", 1)
+    for i, seg in enumerate(parts[1:], 1):
+        label, colon, codes = seg.partition("：")
+        if colon and label in ("沒過", "作廢", "未評"):
+            parts[i] = label + colon + "、".join(f"[{c}]({href}#{c.lower()})" if _CODE_RE.fullmatch(c) else c
+                                                 for c in codes.split("、"))
+    return "｜".join(parts)
+
+
+def tail_note(state: Dict[str, Any], session_id: str, config: Dict[str, Any], cwd: str = "") -> str:
+    """UserPromptSubmit 呼叫（turn_seq 還沒加一）：上一回合送評的回覆評完了 → 回要放在注入第一行的兩行；否則空字串。
+    cwd＝這次事件的 session cwd，給 link_line 算相對路徑。"""
     try:
         if not _on(config):
             return ""
@@ -188,7 +217,7 @@ def tail_note(state: Dict[str, Any], session_id: str, config: Dict[str, Any]) ->
                                                      "text_sha": reply["sha"]})
             return ""
         reply["done"] = True
-        line = "上則" + str(rec.get("summary") or "評分 未評")
+        line = link_line("上則" + str(rec.get("summary") or "評分 未評"), str(rec.get("spec") or ""), cwd)
         mine["shown"] = {"line": line, "turn": turn + 1, "sha": reply["sha"]}
         text = (f"{line}\n{TAG} {MARKER}：上一行是你上一則回覆的文字評分（規格 {rec.get('spec')}，只附不擋），"
                 "原樣抄成這則回覆的最後一行，不用解釋。")

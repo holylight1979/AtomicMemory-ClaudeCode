@@ -7,6 +7,8 @@ python tools/text-score.py <檔> --spec <規格代號>       # 手動評任何�
 python tools/text-score-weekly.py                       # 週彙總：每條過率、趨勢、作廢數
 ```
 
+`<規格代號>-說明.md` 是那份規格給人看的白話說明：開頭一句說這份評什麼，每條一個只寫代號的標題（`## [R1](判準卡相對路徑)`，VS Code 照標題找 `#r1`）＋一句白話。回覆尾巴的「上則評分」那行在 VS Code 裡點得進來。它不是規格，`text-score.py` 不讀；規格加減條目時要一起改（`tools/verify/verify_text_score.py` 會對代號）。
+
 ## 檔案長什麼樣
 
 檔名＝`<規格代號>.md`，放在這個資料夾。三段，順序固定：
