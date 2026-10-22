@@ -11573,6 +11573,23 @@
       "depends": [
         "path:C:/Users/holylight/.claude/hooks/wg_atoms.py"
       ]
+    },
+    {
+      "name": "比較多跑的llm代價看處理的token量不看美金-串跑第一跑付建快取的錢-美金會讓先跑的那組看起來比較貴",
+      "path": "memory/驗證與實證/比較多跑的llm代價看處理的token量不看美金-串跑第一跑付建快取的錢-美金會讓先跑的那組看起來比較貴.md",
+      "triggers": [
+        "代價",
+        "成本比較",
+        "cost_usd",
+        "多跑比較",
+        "對照組",
+        "快取",
+        "cache_creation",
+        "token 量",
+        "量測",
+        "A/B"
+      ],
+      "scope": "global"
     }
   ]
 }
