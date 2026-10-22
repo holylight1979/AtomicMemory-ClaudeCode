@@ -1618,6 +1618,9 @@ def test_goal_gate_switch_off_skips_delivery_and_commit_checks(env):
 
 
 if __name__ == "__main__":
-    rc = pytest.main([__file__, "-q", "-p", "no:cacheprovider"])
+    # 開乾淨的子行程跑：直接跑時本檔先以 __main__ 載入，wg_core 會在 conftest 隔離資料根之前就 import 進來（資料根指到真的
+    # 那一份），同一行程裡再收集測試就沿用它，git 錄音的呼叫序列跟著執行位置變；子行程裡照 pytest 跑法從頭載入
+    import subprocess
+    rc = subprocess.run([sys.executable, "-X", "utf8", "-m", "pytest", __file__, "-q", "-p", "no:cacheprovider"]).returncode
     print("NEED_GOAL_CHECK PASS" if rc == 0 else "NEED_GOAL_CHECK FAIL")
     sys.exit(0 if rc == 0 else 1)

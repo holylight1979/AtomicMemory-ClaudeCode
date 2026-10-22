@@ -218,7 +218,7 @@ def mark_coding(session_id: str, on: bool) -> None:
         if on:
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text("1", encoding="utf-8")
+                p.write_text("1", encoding="utf-8", newline="\n")
         else:
             p.unlink(missing_ok=True)
     except OSError as e:
