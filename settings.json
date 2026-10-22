@@ -108,7 +108,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task|AskUserQuestion|ExitPlanMode|mcp__workflow-guardian__second_opinion_start",
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task|AskUserQuestion|ExitPlanMode|mcp__workflow-guardian__second_opinion_start|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__atom_edit_meta|mcp__workflow-guardian__atom_move|mcp__workflow-guardian__need_goal",
         "hooks": [
           {
             "type": "command",
@@ -136,6 +136,18 @@
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
             "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "timeout": 5
           }
         ]
       }
