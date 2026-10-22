@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 GUARD = "old_test"
+TAG = "[Guardian:OldTestDeclare] "   # 擋訊息開頭的閘名標記：連鎖斷路器照它認閘（wg_chain CHAIN_GATE_NAME），三條擋路都帶
 # 共用的案例檔判式（wg_verify_ledger.is_case_file）沒涵蓋的 C#／Java 測試檔名慣例
 EXTRA_CASE_NAMES = ("*tests.cs", "*test.cs", "*tests.java", "*test.java")
 _PY_EXTS = (".py",)
@@ -973,7 +974,7 @@ def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[s
     left = [e for es in by_file.values() for e in es]
     _log("denied_late", sid, left[0]["file"], tool=tool_name, pending=[{k: e[k] for k in ("file", "key", "kind")} for e in left])
     tools = "／".join(sorted({e.get("tool", "") for e in left}))
-    return ("\n".join(rr.format_hit("ot", rr.old_test_change_verdict(fp, es, decls)) for fp, es in by_file.items())
+    return (TAG + "\n".join(rr.format_hit("ot", rr.old_test_change_verdict(fp, es, decls)) for fp, es in by_file.items())
             + f"\n這是 {tools} 改的（已經寫進檔），請補宣告再繼續；要撤回就只讀、只改這幾個檔。\n" + hint(left[0]["key"]))
 
 
@@ -1013,7 +1014,7 @@ def _heredoc_deny(tool_input: Dict[str, Any], input_data: Dict[str, Any], config
     for fp, cs in by_file.items():
         _log("denied", sid, fp, tool="Bash", via="heredoc", changes=cs)
     hits = [rr.format_hit("ot", rr.old_test_change_verdict(fp, cs, decls or [])) for fp, cs in by_file.items()]
-    return "\n".join(hits) + "\n這是 Bash heredoc 要寫進去的內容（寫之前就比對，還沒寫進檔）。\n" + hint(next(iter(by_file.values()))[0]["key"])
+    return TAG + "\n".join(hits) + "\n這是 Bash heredoc 要寫進去的內容（寫之前就比對，還沒寫進檔）。\n" + hint(next(iter(by_file.values()))[0]["key"])
 
 
 _READ = object()   # gate 沒拿到 state：自己讀一份（單獨呼叫時）
@@ -1061,7 +1062,7 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
         if dirty and state is not None and sid:
             write_state(sid, state)
         _log("denied", sid, fp, tool=tool_name, changes=by_file[fp])
-        return rr.format_hit("ot", rr.old_test_change_verdict(fp, by_file[fp], decls)) + "\n" + hint(by_file[fp][0]["key"])
+        return TAG + rr.format_hit("ot", rr.old_test_change_verdict(fp, by_file[fp], decls)) + "\n" + hint(by_file[fp][0]["key"])
     if (_record(state, sid, fp, [c for c in live if c not in owed], added, decls) or dirty) and state is not None and sid:
         write_state(sid, state)
     return None

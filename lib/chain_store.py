@@ -2,7 +2,8 @@
 
 做什麼：
 - 帳：Logs/chain-<session>.jsonl 一行一筆（gate＝閘觸發、action＝AI 動作、alarm、notice、shown、halted、answer、reset、snapshot、restore），
-  每筆帶回合、子代理、步序、時間戳；連鎖狀態每次都由 wg_chain.fold 從帳重算，不另存 state。
+  每筆帶回合、子代理、步序、時間戳，工具呼叫上的觸發與動作另帶 batch（哪一則回覆，從 transcript 取，見 _batch）；
+  連鎖狀態每次都由 wg_chain.fold 從帳重算，不另存 state。
 - 快照：連鎖段開了之後，每個要被改的檔這一段第一次改之前先存到 workflow/chain-snap/<session>/（原本不存在就記不存在）；
   快照檔先寫暫存再硬連結成正式名，正式名已在就不覆寫（並行的兩個 hook 不互蓋）。存快照時順手清掉這個 session 更早回合的快照。
 - 還原：使用者選「還原連鎖改動」→ 先核對實際路徑沒變、現況等於這一段最後一次寫入後的內容，才逐檔寫回快照、刪掉連鎖中新建的檔；
@@ -165,6 +166,65 @@ def _size(path: Any) -> int:
         return 0
 
 
+_BATCH_TAIL_BYTES = 2_000_000
+
+
+def _assistant(line: str) -> Optional[Dict[str, Any]]:
+    """transcript 一行若是 assistant 紀錄，回它的 message（dict）；不是回 None。"""
+    if '"assistant"' not in line:
+        return None
+    try:
+        o = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(o, dict) or o.get("type") != "assistant":
+        return None
+    return o["message"] if isinstance(o.get("message"), dict) else {}
+
+
+def _batch(input_data: Dict[str, Any]) -> Tuple[str, str]:
+    """CHAIN_SAME_BATCH 的批次鍵：這次工具呼叫所在那則 assistant 回覆「之前」最後一則 assistant 的 message.id；回 (鍵, 判不出的原因)。
+    為什麼取之前那則：CC 一則回覆串流完才整則寫進 transcript——平行一批的呼叫跑 hook 時，這一則一行都還沒落盤（第 0 步實測：
+    警報當下 transcript 只寫到這則之前）；只送一個呼叫的回覆則常已落盤。兩種都取「之前那則」，同一批才拿到同一個值：
+    自己這次的 tool_use 已在 transcript → 從那行往前找第一個 message.id 不同的 assistant；還不在 → 取最後一則 assistant。
+    判不出回 ("", 原因)，呼叫端照舊接邊：子代理（它的回覆不在主 transcript）、讀不到、尾段找不到 assistant、沒有 message.id。"""
+    tid = str(input_data.get("tool_use_id") or "")
+    if input_data.get("agent_id"):
+        return "", "子代理的呼叫（它的回覆不在主 transcript）"
+    tp = input_data.get("transcript_path")
+    try:
+        size = os.path.getsize(tp)
+        with open(tp, "rb") as f:
+            f.seek(max(0, size - _BATCH_TAIL_BYTES))
+            lines = f.read().decode("utf-8", errors="replace").splitlines()
+    except (OSError, TypeError, ValueError):
+        return "", "transcript 讀不到"
+    end, own = len(lines), ""
+    for k in range(len(lines) - 1, -1, -1):
+        msg = _assistant(lines[k]) if tid and tid in lines[k] else None
+        if msg is not None and any(isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id") == tid
+                                   for b in msg.get("content") or ()):
+            end, own = k, str(msg.get("id") or "")
+            if not own:
+                return "", "這次的 tool_use 那行沒有 message.id"
+            break
+    for k in range(end - 1, -1, -1):
+        msg = _assistant(lines[k])
+        if msg is None or (own and msg.get("id") == own):
+            continue
+        return (str(msg["id"]), "") if msg.get("id") else ("", "前一則 assistant 沒有 message.id")
+    return "", ("transcript 上還沒有前一則 assistant" if size <= _BATCH_TAIL_BYTES
+                else f"transcript 尾段 {_BATCH_TAIL_BYTES} 位元組內找不到前一則 assistant")
+
+
+def _batch_fields(input_data: Dict[str, Any]) -> Dict[str, str]:
+    """工具呼叫上的一筆帳要帶的 batch（判不出另記 batch_why）；收尾等沒有 tool_use_id 的事件不帶。"""
+    if not input_data.get("tool_use_id"):
+        return {}
+    key, why = _batch(input_data)
+    return {"batch": key} if key else {"batch": "", "batch_why": why}
+
+
 # ─── 閘觸發、停手、只記錄 ─────────────────────────────────────────────────
 
 def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, Any], config: Dict[str, Any], *,
@@ -181,7 +241,7 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
         if wc.muted_again(ch, str(gate)):
             return GateResult(True)
         row = {"gate": str(gate), "what": wc.one_line(what), "hook": hook, "event": _event(input_data),
-               "watched": [str(p) for p in watched], "later": [str(g) for g in later]}
+               "watched": [str(p) for p in watched], "later": [str(g) for g in later], **_batch_fields(input_data)}
         j = wc.judge(ch, row, cx.cfg)
         new = [cx.row("gate", **row, record_only=j.record_only, depth=j.depth, same=j.same,
                       link=j.link.rule if j.link else "")]
@@ -515,6 +575,7 @@ def action_done(sid: str, turn: int, kind: str, tool: str, files: Iterable[Dict[
             if f.get("path") and Path(str(f["path"])).is_absolute():
                 r["after"] = _state(Path(str(f["path"])), cx.cfg["snapshot_max_bytes"])
             rec.append(r)
-        cx.put("action", kind=str(kind), tool=str(tool), files=rec, what=wc.one_line(what), event=_event(input_data))
+        cx.put("action", kind=str(kind), tool=str(tool), files=rec, what=wc.one_line(what), event=_event(input_data),
+               **_batch_fields(input_data))
     except Exception as e:  # noqa: BLE001
         _warn("action_done", e)

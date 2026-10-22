@@ -57,7 +57,7 @@ from wg_release_rules import (
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
     cmd_run_line, second_opinion_decline, second_opinion_decline_ok, parse_equivalence_lines,
-    reason_present, red_units,
+    reason_present, red_units, failure_lines,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1512,7 +1512,8 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
     xfail。每筆列失敗項（規則 RED_ITEMS_ONLY_FROM_FAILURE_LINES：FAILED／ERROR 節點，不是摘要第一行）與指令實際跑的
     那行（不含註解）；notes＝不做行對到了卻沒豁免的原因（waiver_miss_notes）。"""
     return (f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），不得宣告完成。\n"
-            + "\n".join(f"  - {red_item_label(f)}（指令：{cmd_run_line(f.get('cmd', ''))[:80]}）" for f in failing[-3:])
+            + "\n".join(f"  - {red_item_label(f)}（指令：{cmd_run_line(f.get('cmd', ''))[:80]}）{_rerun_scope(f)}"
+                        for f in failing[-3:])
             + "".join(f"\n  ! {n}" for n in notes)
             + "\n先看使用者有沒有叫你跳過或先不管這支：(a) 有 → 不動測試檔、讓它照紅，收尾寫一行"
             "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」，程式對到這筆紅測就留帳放行 "
@@ -1520,6 +1521,17 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
             "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言；刻意拿舊碼跑新測試的負向對照 → 重跑那條指令、開頭加 "
             "`# 負向對照｜<指令裡的路徑>：<理由>`，那次紅就不記 "
             "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。")
+
+
+def _rerun_scope(f: Dict[str, Any]) -> str:
+    """規則 RED_SCOPE_FROM_FULL_COMMAND：輸出沒列出是哪一支的紅，給一條做得到的路——那條指令跑測試的每一行（記紅時從整條指令取的
+    test_cmd，不是截過的 cmd）照抄重跑、別截斷輸出：綠了而且涵蓋這個範圍就清掉，紅了照列出的那幾支記。看得出是哪一支的不加。"""
+    if red_units(f) or failure_lines(f.get("summary", "")):
+        return ""
+    lines = [cmd_run_line(ln) for ln in str(f.get("test_cmd") or f.get("cmd") or "").splitlines()]
+    scope = " ； ".join(ln for ln in lines if ln)
+    return (f"\n    重跑這個範圍（每段照抄、別接 tail／head 截輸出）：{scope[:400]}；綠了而且涵蓋這個範圍就清掉這筆，"
+            "紅了照列出的那幾支記（列得出是哪一支，才能用「不做｜」那條出口）")
 
 
 TF_GATE = "testfail"      # wg_release 的閘名（last_block／pending_release／user_released）

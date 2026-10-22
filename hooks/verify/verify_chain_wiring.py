@@ -150,6 +150,9 @@ def hk(tmp_path, monkeypatch):
     for mod in (wg_core, ptu, post):
         monkeypatch.setattr(mod, "output_json", out_json)
         monkeypatch.setattr(mod, "output_nothing", out_nothing)
+    # 帳與快照放這一案自己的暫存目錄：chain_store 在 pytest 底下的預設位置按案例名分、跨次執行不清，第二次跑會讀到上一次的帳
+    monkeypatch.setattr(cs, "_ledger_dir", lambda: tmp_path / "Logs")
+    monkeypatch.setattr(cs, "_snap_root", lambda: tmp_path / "workflow" / "chain-snap")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")         # 互動入口；headless 的案自己改
     monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
     made = []
@@ -349,9 +352,11 @@ def test_muted_gate_self_error_still_blocks_once_after_continue(hk, monkeypatch)
     assert _blocked(again) and "判定錯誤" in again["reason"]
 
 
-def test_subagent_stop_second_block_is_notice(monkeypatch):
+def test_subagent_stop_second_block_is_notice(monkeypatch, tmp_path):
     """子代理收尾：同一道寫碼查核第 2 次擋改送中止通知（不叫它問），第 3 次只記錄放行。"""
-    state = {"turn_seq": 4, "turn_prompts_seq": 4, "agent_modified_files": {"ag": [{"path": "c:/p/a.py", "session_id": "s-sub"}]}}
+    monkeypatch.setattr(cs, "_ledger_dir", lambda: tmp_path / "Logs")      # 帳放這一案自己的暫存目錄（同 hk）
+    monkeypatch.setattr(cs, "_snap_root", lambda: tmp_path / "workflow" / "chain-snap")
+    state ={"turn_seq": 4, "turn_prompts_seq": 4, "agent_modified_files": {"ag": [{"path": "c:/p/a.py", "session_id": "s-sub"}]}}
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile", None))

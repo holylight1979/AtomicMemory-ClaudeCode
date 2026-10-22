@@ -638,6 +638,8 @@ def test_bash_heredoc_overwriting_old_test_denied_before_write(world):
     r = _run(world, "Bash", {"command": cmd})
     assert _ot(r) and "test_legacy_report_keeps_columns（斷言變了" in r
     assert Path(fp).read_text(encoding="utf-8") == LEGACY and not _pending()           # 前置：還沒寫、也不是事後欠帳
+    import wg_chain
+    assert wg_chain.gate_name(r, "PreToolUse") == "OldTestDeclare"      # heredoc 擋路也帶標記，連鎖斷路器認得出閘名
 
 
 def test_bash_heredoc_with_declaration_in_command_allowed(world):

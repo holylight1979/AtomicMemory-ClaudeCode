@@ -26,6 +26,7 @@ import wg_release  # noqa: E402
 
 SID = "sid-chain"
 ON = {"chain_breaker": {"enabled": True}}   # 設定沒寫 enabled＝不開；這裡的案例都要開著
+DEPTH = {"chain_breaker": {"depth_alarm": True}}   # 深度警報預設關（CHAIN_ALARM_DEPTH）；測深度機制的案子打開
 
 
 def _on(cfg):
@@ -49,15 +50,25 @@ class Turn:
         self.tp.touch()
         self.now = 1000.0 * turn
         self.n = 0
+        self.mid, self.calls = "", []
 
     def inp(self, hook: str):
         self.n += 1
         d = {"hook_event_name": hook, "transcript_path": str(self.tp), "session_id": SID}
         if hook in ("PreToolUse", "PostToolUse"):
             d["tool_use_id"] = f"t{self.turn}-tu{self.n}"
+            self.calls.append(d["tool_use_id"])
         if self.agent:
             d["agent_id"] = self.agent
         return d
+
+    def reply(self, mid):
+        """AI 送出新的一則回覆 mid（CHAIN_SAME_BATCH）：照 CC，上一則串流完才整則寫進 transcript（含它的 tool_use），
+        這一則跑工具時一行都還沒落盤；之後的呼叫都屬 mid。"""
+        if self.mid:
+            _jl(self.tp, {"type": "assistant", "message": {"id": self.mid, "content": [
+                {"type": "tool_use", "id": c, "name": "Write", "input": {}} for c in self.calls]}})
+        self.mid, self.calls = mid, []
 
     def say(self, text="（回覆）"):
         _jl(self.tp, {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
@@ -159,8 +170,8 @@ def test_depth2_aborts_and_stop_sends_three_options(box):
     for opt in (wc.OPT_RESTORE, wc.OPT_CONTINUE, wc.OPT_RELEASE):
         assert f"「{opt}」" in r.notice
     assert "AskUserQuestion" in r.notice and f"{wg_release.RELEASE_TAG}{wc.CHAIN_TAG}" in r.notice
-    assert "總共連鎖 2 次、深度 2" in r.notice
-    assert _alarm_rules(t) == {"CHAIN_ALARM_DEPTH", "CHAIN_ALARM_SAME_GATE"}
+    assert "總共連鎖 2 次、深度 2" in r.notice                     # 深度照算、照列
+    assert _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}           # 深度警報預設關，響的是同閘第 2 次
     assert [s.link.rule for s in t.chain().steps[1:]] == ["CHAIN_EDGE_TIME_ORDER"] * 2
     assert t.gate("C", hook="PreToolUse") == cs.GateResult(True)      # 其餘閘只記錄
     assert t.gate("D") == cs.GateResult(True)                         # 收尾閘也只記錄、不再送通知
@@ -170,9 +181,24 @@ def test_depth2_aborts_and_stop_sends_three_options(box):
     assert _kinds(cs.read_rows(SID)).count("notice") == 1
 
 
-def test_depth2_three_distinct_gates_aborts(box):
-    """紅案例（CHAIN_ALARM_DEPTH 單獨）：A → 改 → B → 改 → C，三道閘各一次，深度 2 就中止。"""
+def test_three_distinct_gates_do_not_alarm_by_default(box):
+    """紅案例（claude-64 指定，CHAIN_ALARM_DEPTH 預設不警報）：A → 改 → B → 改 → C，三道各管各的閘各擋一次 → 不響；
+    深度照算（2）、照列進經過表。"""
     t, x = Turn(box), box / "proj" / "x.py"
+    x.write_text("x = 1\n", encoding="utf-8")
+    t.gate("A")
+    t.edit(x, "x = 1", "x = 2")
+    t.gate("B", hook="PreToolUse")
+    t.edit(x, "x = 2", "x = 3")
+    assert t.gate("C") == cs.PASS
+    ch = t.chain()
+    assert ch.alarm is None and ch.depth == 2 and "總共連鎖 2 次、深度 2" in wc.report(ch, t.now)
+    assert not wc.settings(ON)["depth_alarm"]
+
+
+def test_depth_alarm_switch_on_alarms_at_depth2(box):
+    """CHAIN_ALARM_DEPTH 開關有效：設定 depth_alarm=true → 同樣三道閘各一次，深度 2 就中止。"""
+    t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A")
     t.edit(x, "x = 1", "x = 2")
@@ -206,7 +232,7 @@ def test_alarm_on_tool_gate_notes_then_stop_notices_once(box):
     """CHAIN_STOP_NOTICE_ONCE：警報在工具閘上響 → 那次只附一句（不擋）；接著的收尾擋一次送經過表，再之後的收尾不擋。"""
     t = Turn(box)
     t.gate("A", hook="PreToolUse")
-    t.gate("B", hook="PreToolUse")
+    t.act()
     r = t.gate("A", hook="PreToolUse")
     assert r.record_only and r.notice is None and "先停手" in r.halt and wc.question(t.chain()) in r.halt
     first, second, third = t.stop(), t.stop(), t.stop()
@@ -393,8 +419,8 @@ def test_same_event_gates_do_not_link(box):
 
 
 def test_previewed_gate_does_not_link(box):
-    """CHAIN_EDGE_PREVIEWED：B 已列在 A 擋下時的預覽裡 → A→B 不接；B→C 照接，深度 1 不中止。反例：沒有預覽就深度 2 中止。"""
-    t, x = Turn(box), box / "proj" / "x.py"
+    """CHAIN_EDGE_PREVIEWED：B 已列在 A 擋下時的預覽裡 → A→B 不接；B→C 照接，深度 1 不中止。反例：沒有預覽就深度 2 中止（深度警報打開）。"""
+    t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A", later=["B"])
     t.edit(x, "x = 1", "x = 2")
@@ -403,7 +429,7 @@ def test_previewed_gate_does_not_link(box):
     assert t.gate("C") == cs.PASS
     ch = t.chain()
     assert ch.steps[1].link.rule == "CHAIN_EDGE_PREVIEWED" and ch.depth == 1
-    u = Turn(box, turn=2)
+    u = Turn(box, turn=2, cfg=DEPTH)
     u.gate("A")
     u.edit(x, "x = 3", "x = 4")
     u.gate("B")
@@ -449,14 +475,14 @@ def test_count_is_triggers_minus_one_depth_is_run(box):
 
 
 def test_thresholds_from_config(box):
-    """門檻放設定可調：max_depth=3、max_same_gate=3 → 深度 2、同閘第 2 次都不中止，到 3 才中止。"""
-    cfg = {"chain_breaker": {"max_depth": 3, "max_same_gate": 3}}
+    """門檻放設定可調：max_depth=3、max_same_gate=3（深度警報打開）→ 深度 2、同閘第 2 次都不中止，到 3 才中止。"""
+    cfg = {"chain_breaker": {"depth_alarm": True, "max_depth": 3, "max_same_gate": 3}}
     t = Turn(box, cfg=cfg)
     t.gate("A")
     t.gate("B")
     assert t.gate("A") == cs.PASS                             # 深度 2、A 第 2 次
     assert t.gate("C").notice                                 # 深度 3
-    assert wc.settings({"chain_breaker": {"max_depth": 0, "enabled": "no"}}) == wc.DEFAULTS
+    assert wc.settings({"chain_breaker": {"max_depth": 0, "enabled": "no", "depth_alarm": 1}}) == wc.DEFAULTS
     assert not wc.settings({})["enabled"] and wc.settings(ON)["enabled"]           # 沒寫 enabled＝不開
 
 
@@ -722,7 +748,7 @@ def test_late_hook_of_older_turn_keeps_newer_snapshots(box):
 
 def test_report_table_shape(box):
     """回報內容：每步一列——第幾步、哪道閘、擋了什麼（一句）、AI 做了什麼改動（檔與行數）、這一步耗時；最後一句總次數與深度。"""
-    t, x = Turn(box), box / "proj" / "x.py"
+    t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
     x.write_text("x = 1\ny = 1\n", encoding="utf-8")
     t.gate("A")
     t.edit(x, "x = 1\ny = 1", "x = 2\ny = 2\nz = 2")
@@ -771,7 +797,7 @@ def test_comment_only_bash_sed_is_unknown(box):
 
 def test_comment_only_step_still_counts(box):
     """反例（CHAIN_COMMENT_ONLY_RECORDED）：comment_only=true 的那步照常算進連鎖邊、次數與深度；表上標「（只改註解）」。"""
-    t, x = Turn(box), box / "proj" / "x.py"
+    t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A")
     t.edit(x, "x = 1", "x = 1  # 第一次")
@@ -925,6 +951,125 @@ def test_session_cleanup_at_session_end(box):
     cs.session_cleanup(SID, now=old + 8 * 86400)
     assert sorted(p.name for p in root.iterdir()) == ["other-new"]
     assert sorted(p.name for p in logs.iterdir()) == sorted([f"chain-{SID}.jsonl", "chain-other-new.jsonl", "guard-other.jsonl"])
+
+
+# ─── 同一則回覆算同一步（第 0 步總驗收第一回合的誤警報） ─────────────────────
+
+def test_same_reply_parallel_writes_same_gate_no_alarm(box):
+    """紅案例（claude-64 指定，CHAIN_SAME_BATCH）：同一則回覆平行送五個 Write，三個被同一道閘擋、中間兩個放行改了檔 → 不警報：
+    這一批之間不接邊、同閘次數不加 1、放行的改動不算看過擋訊息後的動作；經過表標出它們跟擋同一則回覆送出。"""
+    t, proj = Turn(box), box / "proj"
+    t.reply("msg_0")
+    t.reply("msg_1")
+    for k in range(5):
+        if k % 2:
+            t.write(proj / f"f{k}.py", "x = 1\n")
+        else:
+            assert t.gate("OverviewHub", hook="PreToolUse") == cs.PASS
+    ch = t.chain()
+    assert [s.link.rule for s in ch.steps[1:]] == ["CHAIN_SAME_BATCH"] * 2 and ch.depth == 0 and ch.alarm is None
+    assert wc.same_count(ch.steps, "OverviewHub") == 1
+    assert {r.get("batch") for r in cs.read_rows(SID) if r["type"] in ("gate", "action")} == {"msg_0"}   # 鍵＝這則之前那則
+    assert "跟這一步同一則回覆送出" in wc.report(ch, t.now)
+
+
+def test_gate0_first_reply_replay_no_alarm_no_halt(box):
+    """紅案例（第 0 步總驗收第一回合照帳重演，CHAIN_SAME_BATCH）：同一則回覆 12 個呼叫——DataFileAsk 擋、OverviewHub 擋兩次、
+    放行兩個 Write、改舊測試閘擋三次、OverviewHub 再擋、後面三個改檔——改前在最後那次 OverviewHub 判「同閘第 2 次」警報、
+    後三個被停手；改後不警報、不停手、帳上沒有 halted。"""
+    t, proj = Turn(box), box / "proj"
+    t.reply("msg_prev")
+    t.reply("msg_batch")
+    for k, g in enumerate(["DataFileAsk", "OverviewHub", "OverviewHub", "", "", "OldTestDeclare", "OldTestDeclare",
+                           "OldTestDeclare", "OverviewHub"]):
+        if g:
+            assert t.gate(g, hook="PreToolUse") == cs.PASS
+        else:
+            t.write(proj / f"w{k}.py", "x = 1\n")
+    for k in range(3):
+        assert cs.halt(SID, 1, "Write", t.inp("PreToolUse"), t.cfg) is None
+        t.write(proj / f"late{k}.py", "y = 1\n")
+    assert not {"alarm", "notice", "halted"} & set(_kinds(cs.read_rows(SID)))
+    ch = t.chain()
+    assert ch.depth == 0 and {s.link.rule for s in ch.steps[1:]} == {"CHAIN_SAME_BATCH"}
+
+
+def test_next_reply_after_block_still_counts_same_gate(box):
+    """反例（CHAIN_SAME_BATCH 不吃掉真的連鎖）：第一則被閘擋 → 第二則 AI 看過擋訊息改了檔 → 又被同一道閘擋 → 照舊算同閘第 2 次、警報。"""
+    t, proj = Turn(box), box / "proj"
+    t.reply("msg_0")
+    t.reply("msg_1")
+    assert t.gate("OverviewHub", hook="PreToolUse") == cs.PASS
+    t.reply("msg_2")
+    t.write(proj / "fix.py", "b = 1\n")
+    r = t.gate("OverviewHub", hook="PreToolUse")
+    assert r.record_only and r.halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
+    assert t.chain().steps[1].link.rule == "CHAIN_EDGE_TIME_ORDER"
+
+
+def test_same_reply_edits_are_not_reactions(box):
+    """反例的另一半（CHAIN_SAME_BATCH、CHAIN_SAME_GATE_NO_ACTION）：第一則被擋、同一則裡放行的改檔不算 AI 的反應 →
+    第二則一開頭又撞同一道閘（中間沒有看過擋訊息後的動作）→ 不算同閘第 2 次、不警報。"""
+    t, proj = Turn(box), box / "proj"
+    t.reply("msg_0")
+    t.reply("msg_1")
+    t.gate("OverviewHub", hook="PreToolUse")
+    t.write(proj / "same.py", "a = 1\n")
+    t.reply("msg_2")
+    assert t.gate("OverviewHub", hook="PreToolUse") == cs.PASS
+    assert t.chain().steps[1].link.rule == "CHAIN_SAME_GATE_NO_ACTION" and t.chain().alarm is None
+
+
+def test_batch_links_to_deepest_step_of_previous_reply(box):
+    """CHAIN_SAME_BATCH／CHAIN_ALARM_DEPTH：A 擋（第一則）→ 第二則改檔後 B、C 同一批被擋（都跟 A 比；C 看的檔跟改的檔沒交集，不接）
+    → 第三則改檔後 D 擋：接在第二則最深的 B 上，深度 2 警報（只跟前一步 C 比會算成深度 1；改前則在 C 就誤判深度 2）。深度警報打開。"""
+    t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
+    x.write_text("x = 1\n", encoding="utf-8")
+    t.reply("m0")
+    t.reply("m1")
+    t.gate("A", hook="PreToolUse")
+    t.reply("m2")
+    t.edit(x, "x = 1", "x = 2")
+    t.gate("B", hook="PreToolUse")
+    assert t.gate("C", hook="PreToolUse", watched=[str(box / "proj" / "other.py")]) == cs.PASS
+    assert [(s.link.rule, s.depth) for s in t.chain().steps[1:]] == [("CHAIN_EDGE_TIME_ORDER", 1),
+                                                                      ("CHAIN_EDGE_FILES_DISJOINT", 0)]
+    t.reply("m3")
+    t.edit(x, "x = 2", "x = 3")
+    r = t.gate("D", hook="PreToolUse")
+    assert r.halt and _alarm_rules(t) == {"CHAIN_ALARM_DEPTH"}
+
+
+def test_batch_unknown_falls_back_and_is_recorded(box):
+    """CHAIN_SAME_BATCH 判不出就照舊接邊並留帳：transcript 的 assistant 沒有 message.id → 閘擋 → 改檔 → 同一道閘再擋，照舊警報；
+    每筆工具上的觸發與動作記 batch 空值與 batch_why。"""
+    t, x = Turn(box), box / "proj" / "x.py"
+    x.write_text("x = 1\n", encoding="utf-8")
+    t.say()
+    t.gate("A", hook="PreToolUse")
+    t.edit(x, "x = 1", "x = 2")
+    assert t.gate("A", hook="PreToolUse").halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
+    rows = [r for r in cs.read_rows(SID) if r["type"] in ("gate", "action")]
+    assert rows and all(r["batch"] == "" and r["batch_why"] == "前一則 assistant 沒有 message.id" for r in rows)
+
+
+def test_batch_key_from_transcript(box):
+    """CHAIN_SAME_BATCH 的批次鍵（chain_store._batch）：這次 tool_use 已落盤 → 從那行往前找 message.id 不同的那則（同一則後面的行、
+    api-request 這類別種紀錄裡的同一個 id 都不算）；還沒落盤 → 最後一則 assistant；子代理、讀不到、還沒有 assistant 判不出；收尾不帶。"""
+    tp = box / "tp.jsonl"
+    _jl(tp, {"type": "user", "message": {"content": "做"}})
+    d = {"tool_use_id": "tu_b", "transcript_path": str(tp)}
+    assert cs._batch(d) == ("", "transcript 上還沒有前一則 assistant")
+    _jl(tp, {"type": "assistant", "message": {"id": "m0", "content": [{"type": "text", "text": "看"}]}})
+    assert cs._batch(d) == ("m0", "")
+    for tid in ("tu_a", "tu_b", "tu_c"):
+        _jl(tp, {"type": "assistant", "message": {"id": "m1", "content": [{"type": "tool_use", "id": tid, "name": "Write"}]}})
+        _jl(tp, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid}]}})
+    _jl(tp, {"type": "api-request-blob", "content": [{"type": "tool_use", "id": "tu_next"}]})
+    assert cs._batch(d) == ("m0", "") and cs._batch({**d, "tool_use_id": "tu_c"}) == ("m0", "")
+    assert cs._batch({**d, "tool_use_id": "tu_next"}) == ("m1", "")
+    assert cs._batch({**d, "agent_id": "ag"})[0] == "" and cs._batch({**d, "transcript_path": str(box / "nope")})[0] == ""
+    assert cs._batch_fields({"transcript_path": str(tp)}) == {}
 
 
 # ─── 規則表契約 ─────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(REPO / "lib"))
 sys.path.insert(0, str(HOOKS_DIR / "verify"))
 
+import wg_chain  # noqa: E402
 import wg_core  # noqa: E402
 import wg_data_file as df  # noqa: E402
 import wg_judge_card as jc  # noqa: E402
@@ -143,6 +144,7 @@ def test_old_test_gate_releases_after_two_denies_in_same_turn(world):
         ["denied", "denied", "cap_released"]
     hint = reasons[0].split("\n", 1)[1]
     assert hint.startswith("宣告行要比這次工具呼叫早一則訊息送出") and "`#` 註解" in hint.split("。", 1)[0]
+    assert wg_chain.gate_name(reasons[0], "PreToolUse") == "OldTestDeclare"   # 連鎖斷路器認得出閘名（CHAIN_GATE_NAME）
 
 
 def test_old_test_late_debt_releases_after_two_denies(world):
@@ -158,6 +160,7 @@ def test_old_test_late_debt_releases_after_two_denies(world):
     assert st.get("old_test_undeclared"), "前置：事後比對記了欠帳"
     reasons = [_pre(world, "Bash", {"command": "ls"}, f"toolu_ls{i}") for i in range(3)]
     assert all(OT_HIT in r for r in reasons[:2]), reasons
+    assert wg_chain.gate_name(reasons[0], "PreToolUse") == "OldTestDeclare"   # 事後欠帳那條擋路也帶標記
     assert OT_HIT not in reasons[2]
     assert not wg_core.read_state(SID).get("old_test_undeclared")
     assert "cap_released" in [e["event"] for e in _events(world, "old_test")]

@@ -496,13 +496,36 @@ def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any
     return True
 
 
+TEST_CMD_CAP = 2000
+_CONTINUATION_RE = re.compile(r"[\\`]\r?\n")
+
+
+def _test_cmd(command: str) -> str:
+    """規則 RED_SCOPE_FROM_FULL_COMMAND 的事實：整條指令裡跑測試的那幾行（續行先併成一行；is_test_command 認得的行，一行都認不出
+    就整條），整行整行收到 TEST_CMD_CAP 字為止、不截在行中間。紅測的 cmd 只存前 200 字，截在 `2>&1` 中間會剩一個 `2`、被當成
+    要跑的目錄，什麼重跑都涵蓋不到；截掉的後段測試也看不見。"""
+    lines = [ln for ln in _CONTINUATION_RE.sub(" ", str(command or "")).splitlines() if ln.strip()]
+    lines = [ln for ln in lines if is_test_command(ln)] or lines
+    out: List[str] = []
+    for ln in lines:
+        if sum(len(x) + 1 for x in out) + len(ln) > TEST_CMD_CAP:
+            break
+        out.append(ln)
+    return "\n".join(out)
+
+
+def _red_cmd(f: Dict[str, Any]) -> str:
+    """RED_SCOPE_FROM_FULL_COMMAND：判這筆紅的範圍用整條指令的測試行（test_cmd）；舊條目沒有就退回截過的 cmd。"""
+    return str(f.get("test_cmd") or f.get("cmd") or "")
+
+
 def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
     """又跑紅了：蒐集事實（同一組測試還活著的紅、它們上次跑之後改過的檔、這次的指令與紅案）交給規則
     RETRY_COUNTS_RERUN_CYCLES 判；算一輪就重試加一，並記下這一輪的證據（FixEscalation／DeepPostMortem 印）。
     同一組的改檔紀錄這次用掉就清空（新紅測條目從零記起），別組的紅與它們的改檔不動。"""
     same = [f for f in state.get("failing_tests") or []
             if isinstance(f, dict) and f.get("session_id") == sid and not f.get("deliberate")
-            and same_test_run(f.get("cmd", ""), command, f.get("cwd") or None, cwd or None)]
+            and same_test_run(_red_cmd(f), command, f.get("cwd") or None, cwd or None)]
     edited: Dict[str, int] = {}
     for f in same:
         for path, n in (f.pop("edits_since_run", None) or {}).items():
@@ -532,7 +555,7 @@ def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str)
         if not isinstance(f, dict) or f.get("session_id") != sid:
             keep.append(f)
             continue
-        v, ran = green_ran_cases_verdict(f.get("cmd", ""), f.get("summary", ""), command, f.get("cleared_units") or ())
+        v, ran = green_ran_cases_verdict(_red_cmd(f), f.get("summary", ""), command, f.get("cleared_units") or ())
         if not v.owed:
             continue
         if ran:
@@ -590,6 +613,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             "agent_id": str(input_data.get("agent_id") or ""),
             "exit_code": exit_code,
             "cmd": command[:200],
+            "test_cmd": _test_cmd(command),     # 規則 RED_SCOPE_FROM_FULL_COMMAND：判範圍用整條指令的測試行，不用截過的 cmd
             # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
             # 記錄時就用全文判定一次
             "pytest": "pytest" in command.lower(),
@@ -612,7 +636,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         if f.get("session_id") != sid:          # 只清自己的；沒蓋 sid 的舊條目不是自己的
             return False
         matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
-                   or green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
+                   or green_clears_red(_red_cmd(f), command, f.get("cwd") or None,
                                        str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
                    or (is_pytest_success and (f.get("pytest") or "pytest" in f.get("cmd", "").lower()
                                               or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
@@ -620,9 +644,12 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             return False
         # 規則 GREEN_CLEARS_ONLY_CASES_IT_RAN（篩選另見 GREEN_NARROWED_KEEPS_UNCOVERED_RED）：綠只清它跑到的紅案；只跑到一部分 →
         # 跑到的那幾支記進 cleared_units、那筆紅與它的改檔紀錄照留（放行要對那支紅測自己的最後一次執行，不是最後一次任何 pytest）
-        keep, ran = green_ran_cases_verdict(f.get("cmd", ""), f.get("summary", ""), command, f.get("cleared_units") or ())
+        keep, ran = green_ran_cases_verdict(_red_cmd(f), f.get("summary", ""), command, f.get("cleared_units") or ())
         if keep.owed:
             print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
+            append_guard_log("testfail_scope", {"event": "green_kept_red", "rule": keep.rule, "why": keep.why,
+                                                "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)),
+                                                "red_cmd": _red_cmd(f)[:300], "green_cmd": command[:300]})
             if ran:
                 f["cleared_units"] = list(dict.fromkeys([*(f.get("cleared_units") or []), *ran]))
                 shrunk.append(f)

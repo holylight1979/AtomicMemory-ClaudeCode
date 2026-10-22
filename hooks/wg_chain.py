@@ -1,14 +1,15 @@
 """wg_chain.py：連鎖斷路器的判定（純函式：不讀檔、不跑 git、不改 state）。
 
 做什麼：同一個使用者回合裡，某道閘擋下或記欠 → AI 動手（改檔、重跑、寫卡、改寫回覆、重交定位、加子目標）
-→ 又讓任一道閘擋下或記欠，就是一條連鎖邊「閘A→動作→閘B」。這裡把一個回合的帳（lib/chain_store.py 寫的 rows）
+→ 又讓任一道閘擋下或記欠，就是一條連鎖邊「閘A→動作→閘B」；同一則回覆裡平行送出的呼叫算同一步（AI 那時還沒看到擋訊息）。
+這裡把一個回合的帳（lib/chain_store.py 寫的 rows）
 摺成連鎖狀態，判：這次觸發接不接上前一步、深度、要不要警報、警報後這一段其餘閘只記錄不擋、使用者三選一怎麼解讀、
 改檔前要不要存快照、還原計畫，並產生給人看的連鎖過程表。
 每一種情境是一條有名字的規則（RULES）；呼叫端（stop、pre_tool_use、post_tool_use）只蒐集事實交給 lib/chain_store.py，
 判斷都在這裡。斷路器自己不逼修補、不要求任何宣告：它只在兩處擋——警報後 Stop 擋一次送經過表、
 中止停手中擋下讀與問以外的工具呼叫（CHAIN_HALT_UNTIL_ANSWER）；兩者都不算閘觸發。
 帳的一筆（row）：type＝gate｜action｜alarm｜notice｜answer｜reset｜snapshot｜restore，另帶 turn、agent（子代理 id，主 session 空字串）、
-seq（同回合第幾筆）、ts（epoch 秒）、at（本地時間）。
+seq（同回合第幾筆）、ts（epoch 秒）、at（本地時間）；工具呼叫上的 gate／action 另帶 batch（哪一則回覆，CHAIN_SAME_BATCH）。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_chain_breaker.py
 """
 from __future__ import annotations
@@ -35,11 +36,18 @@ RULES: Dict[str, str] = {
                              "Stop 接 Stop 算改寫回覆、閘B在工具呼叫上算 AI 接著的那次呼叫。",
     "CHAIN_SAME_GATE_NO_ACTION": "同一道閘接連觸發、中間沒記到 AI 動作（重試同一個呼叫、只改寫回覆）→ 不接成邊、也不算同閘次數，交回那道閘自己的擋次上限處理。",
     "CHAIN_SAME_EVENT": "同一個 hook 事件裡先後觸發的兩道閘不接成邊（不是 AI 動作造成的）。",
+    "CHAIN_SAME_BATCH": "同一則 assistant 回覆裡平行送出的工具呼叫算同一步：送出前就決定好，中間 AI 沒看到任何擋訊息。"
+                        "這一批之間的閘觸發不接成邊、不讓同閘次數加 1；呼叫之間放過的改動也不算 AI 看過擋訊息之後的動作，"
+                        "下一則回覆裡的呼叫才算。這一批的觸發接在前一批裡深度最深的那一步。"
+                        "同一則＝兩筆帳的 batch 相同（chain_store 從 transcript 取這次呼叫所在那則回覆之前最後一則 assistant 的 message.id）；"
+                        "有一邊是空的（收尾、子代理、transcript 讀不到或找不到）就照舊接邊，帳上記 batch_why。",
     "CHAIN_NO_FIX_NO_EDGE": "前一步是工具上的閘、之後 AI 沒有任何動作就收尾 → 收尾的閘不接上前一步。",
     "CHAIN_EDGE_PREVIEWED": "閘B已列在閘A擋下時的「後面還會擋」預覽裡（A 擋的時候 B 就欠著）→ 不是 A 之後的動作造成的，不接成邊。",
     "CHAIN_EDGE_FILES_DISJOINT": "閘B說了它看哪些檔、A 之後 AI 的每個動作都說得出改了哪些檔、兩邊沒有交集 → 不接成邊；"
                                  "B 沒說看哪些檔、或有動作說不出改了哪些檔（重跑、寫卡、判不出目標的 Bash），照接。",
-    "CHAIN_ALARM_DEPTH": "深度 ≥ max_depth（預設 2：閘→修→閘→修→第三次閘）→ 警報。",
+    "CHAIN_ALARM_DEPTH": "深度照算、照列進經過表（閘→修→閘→修→第三次閘＝深度 2），預設不警報：要擋的是繞回原點的修不停，"
+                         "那是同一道閘第 2 次（CHAIN_ALARM_SAME_GATE）；三道各管各的閘各擋一次不是連鎖。"
+                         "設定 depth_alarm=true 才在深度 ≥ max_depth（預設 2）時也警報。",
     "CHAIN_ALARM_SAME_GATE": "同一道閘同一段第 max_same_gate 次觸發（預設 2）→ 警報；只數跟這道閘上一次觸發之間 AI 有記到動作的那幾次"
                              "（中間的動作接在別道閘後面也算）。",
     "CHAIN_ABORT_RECORD_ONLY": "警報一響（含讓它響的那一次），這一段其餘所有閘只記錄、不擋、不記欠（同一道閘這一段只記一筆）；"
@@ -68,7 +76,7 @@ RULES: Dict[str, str] = {
                                    "認不出註解語法、掃到結尾還在字串裡）＝unknown；只記錄，不影響邊、次數、深度與門檻。",
 }
 
-DEFAULTS: Dict[str, Any] = {"enabled": False, "max_depth": 2, "max_same_gate": 2,
+DEFAULTS: Dict[str, Any] = {"enabled": False, "depth_alarm": False, "max_depth": 2, "max_same_gate": 2,
                             "snapshot_max_bytes": 5_000_000, "snapshot_max_files": 200, "restore_retries": 3}
 
 GATE = "ChainBreaker"
@@ -86,8 +94,9 @@ def settings(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     sec = (config or {}).get("chain_breaker")
     sec = sec if isinstance(sec, dict) else {}
     out = dict(DEFAULTS)
-    if isinstance(sec.get("enabled"), bool):
-        out["enabled"] = sec["enabled"]
+    for key in ("enabled", "depth_alarm"):
+        if isinstance(sec.get(key), bool):
+            out[key] = sec[key]
     for key in ("max_depth", "max_same_gate", "snapshot_max_bytes", "snapshot_max_files", "restore_retries"):
         v = sec.get(key)
         if isinstance(v, int) and not isinstance(v, bool) and v >= 1:
@@ -180,10 +189,7 @@ def fold(rows: Iterable[Dict[str, Any]], turn: int, agent: str = "") -> Chain:
             ch = Chain(ch.segment + 1)
         elif kind == "gate":
             step = Step(r, muted=ch.alarm is not None)
-            if ch.steps:
-                prev = ch.steps[-1]
-                step.link = link(prev, r)
-                step.depth = prev.depth + 1 if step.link.linked else 0
+            step.link, step.depth = attach(ch.steps, r)
             ch.steps.append(step)
         elif kind == "action":
             (ch.steps[-1].actions if ch.steps else ch.lead).append(r)
@@ -203,15 +209,40 @@ def _int(v: Any) -> int:
         return -1
 
 
-def link(prev: Step, row: Dict[str, Any]) -> Link:
-    """閘B（row）接不接上前一步 prev：照 CHAIN_SAME_EVENT → CHAIN_EDGE_PREVIEWED → CHAIN_SAME_GATE_NO_ACTION →
-    CHAIN_NO_FIX_NO_EDGE → CHAIN_EDGE_FILES_DISJOINT 依序排除，都不中就照時間先後接上（CHAIN_EDGE_TIME_ORDER）。"""
+def same_batch(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """CHAIN_SAME_BATCH：兩筆帳（閘觸發或動作）是同一則 assistant 回覆裡送出的工具呼叫；有一邊記不出是哪一則就不算。"""
+    key = str(a.get("batch") or "")
+    return bool(key) and key == str(b.get("batch") or "")
+
+
+def attach(steps: Sequence[Step], row: Dict[str, Any]) -> Tuple[Optional[Link], int]:
+    """新的一次觸發 row 接不接、深度多少（fold 與 judge 共用）。和前一步同一個 hook 事件 → 不接（CHAIN_SAME_EVENT）；
+    前面跟 row 同一批的觸發整批跳過（CHAIN_SAME_BATCH），改跟前一批裡深度最深的那一步比，動作只算 AI 看過那一步擋訊息之後送出的。"""
+    if not steps:
+        return None, 0
+    if row.get("event") and row.get("event") == steps[-1].row.get("event"):
+        return Link(False, "CHAIN_SAME_EVENT", "和前一步是同一個 hook 事件"), 0
+    i = len(steps) - 1
+    while i >= 0 and same_batch(steps[i].row, row):
+        i -= 1
+    if i < 0:
+        return Link(False, "CHAIN_SAME_BATCH", "和前面的觸發在同一則回覆裡一起送出（AI 還沒看到擋訊息）"), 0
+    j = i
+    while j > 0 and same_batch(steps[j - 1].row, steps[i].row):
+        j -= 1
+    k = max(range(j, i + 1), key=lambda n: (steps[n].depth, n))
+    prev = steps[k]
+    acts = [a for s in steps[k:] for a in s.actions if not same_batch(prev.row, a)]
+    lk = link(prev, row, acts)
+    return lk, (prev.depth + 1 if lk.linked else 0)
+
+
+def link(prev: Step, row: Dict[str, Any], acts: Sequence[Dict[str, Any]]) -> Link:
+    """閘B（row）接不接上前一步 prev（acts＝prev 之後、AI 看過 prev 擋訊息才送出的動作，見 attach）：照 CHAIN_EDGE_PREVIEWED →
+    CHAIN_SAME_GATE_NO_ACTION → CHAIN_NO_FIX_NO_EDGE → CHAIN_EDGE_FILES_DISJOINT 依序排除，都不中就照時間先後接上（CHAIN_EDGE_TIME_ORDER）。"""
     gate, hook = str(row.get("gate") or ""), row.get("hook")
-    if row.get("event") and row.get("event") == prev.row.get("event"):
-        return Link(False, "CHAIN_SAME_EVENT", "和前一步是同一個 hook 事件")
     if gate != prev.row.get("gate") and gate in (prev.row.get("later") or ()):
         return Link(False, "CHAIN_EDGE_PREVIEWED", f"前一步擋的時候 {gate} 就列在後面還會擋")
-    acts = prev.actions
     if not acts:
         if gate == prev.row.get("gate"):
             return Link(False, "CHAIN_SAME_GATE_NO_ACTION", "同一道閘、中間 AI 沒有動作")
@@ -239,21 +270,19 @@ class Judge(NamedTuple):
 
 
 def same_count(steps: Sequence[Step], gate: str) -> int:
-    """CHAIN_ALARM_SAME_GATE：這一次是這道閘這一段第幾次觸發——第一次算 1，之後只在跟這道閘上一次觸發之間有記到 AI 動作才加 1
-    （CHAIN_SAME_GATE_NO_ACTION）。step 的 actions 是它之後、下一次觸發之前的動作。"""
-    n, acted = 0, False
+    """CHAIN_ALARM_SAME_GATE：這一次是這道閘這一段第幾次觸發——第一次算 1，之後只在跟這道閘上一次觸發之間有記到 AI 看過那次擋訊息
+    才送出的動作（跟那次不同一批）才加 1（CHAIN_SAME_GATE_NO_ACTION、CHAIN_SAME_BATCH）。step 的 actions 是它之後、下一次觸發之前的動作。"""
+    n, last, acted = 0, None, False
     for s in steps:
         if s.row.get("gate") == gate:
-            n, acted = (n + 1 if n == 0 or acted else n), False
-        acted = acted or bool(s.actions)
+            n, last, acted = (n + 1 if n == 0 or acted else n), s.row, False
+        acted = acted or (last is not None and any(not same_batch(last, a) for a in s.actions))
     return n + 1 if n == 0 or acted else n
 
 
 def judge(ch: Chain, row: Dict[str, Any], cfg: Dict[str, Any]) -> Judge:
     """一次新的閘觸發（row 還沒進帳）：接不接上前一步、深度、同閘第幾次、要不要警報。"""
-    prev = ch.steps[-1] if ch.steps else None
-    lk = link(prev, row) if prev else None
-    depth = prev.depth + 1 if prev and lk and lk.linked else 0
+    lk, depth = attach(ch.steps, row)
     gate = str(row.get("gate") or "")
     same = same_count(ch.steps, gate)
     if ch.record_only:
@@ -261,7 +290,7 @@ def judge(ch: Chain, row: Dict[str, Any], cfg: Dict[str, Any]) -> Judge:
     hits = []
     if same >= cfg["max_same_gate"]:
         hits.append(Hit("CHAIN_ALARM_SAME_GATE", f"{gate} 這一段第 {same} 次觸發"))
-    if depth >= cfg["max_depth"]:
+    if cfg["depth_alarm"] and depth >= cfg["max_depth"]:
         hits.append(Hit("CHAIN_ALARM_DEPTH", f"連鎖深度 {depth}"))
     return Judge(bool(hits), tuple(hits), lk, depth, same)
 
@@ -417,7 +446,8 @@ def report(ch: Chain, now: float) -> str:
             what += "（只記錄）"
         elif s.row.get("record_only"):
             what += "（這一次讓警報響：改送中止）"
-        acts = "；".join(describe_action(a) for a in s.actions)
+        acts = "；".join(describe_action(a) + ("（跟這一步同一則回覆送出）" if same_batch(s.row, a) else "")
+                         for a in s.actions)
         if not acts:
             acts = f"（沒記到改動：{nxt.link.why}）" if nxt is not None and nxt.link and nxt.link.linked else "—"
         end = nxt.row.get("ts") if nxt is not None else now

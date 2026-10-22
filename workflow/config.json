@@ -847,8 +847,9 @@
     "runtime_gate_timeout_s": 2
   },
   "chain_breaker": {
-    "_doc": "連鎖斷路器（v6 守門總開關開著才跑，關時以總開關為準；判定 hooks/wg_chain.py，帳與快照還原 lib/chain_store.py）：同一個使用者回合裡閘擋下或記欠 → AI 動手 → 又讓閘擋下或記欠，記成連鎖；深度到 max_depth（閘→修→閘→修→第三次閘）或同一道閘第 max_same_gate 次觸發（只數兩次之間 AI 有動手的；原樣重試交回那道閘自己的擋次上限）就中止：這一回合其餘閘只記錄不擋；能互動的 session 讀與問以外的工具先停手，收尾送連鎖過程表、請 AI 用 AskUserQuestion 問使用者三選一（還原連鎖改動／信任後續 AI 審查繼續／放行這一回合）；沒人能答（headless、子代理）不停手、照常做完、收尾報告附表。帳在 Logs/chain-<session>.jsonl；連鎖段每個要改的檔改之前存快照到 workflow/chain-snap/<session>/（超過 snapshot_max_bytes、這一段已存 snapshot_max_files 個就不存、記原因），選還原就逐檔寫回、每檔最多試 restore_retries 次；SessionEnd 刪這個 session 的快照與 7 天沒動的別 session 快照與帳。設定沒寫 enabled＝不開；一鍵關＝enabled:false。",
+    "_doc": "連鎖斷路器（v6 守門總開關開著才跑，關時以總開關為準；判定 hooks/wg_chain.py，帳與快照還原 lib/chain_store.py）：同一個使用者回合裡閘擋下或記欠 → AI 動手 → 又讓閘擋下或記欠，記成連鎖；同一道閘第 max_same_gate 次觸發（只數兩次之間 AI 看過擋訊息後有動手的；同一則回覆裡平行送出的呼叫算同一步；原樣重試交回那道閘自己的擋次上限）就中止；深度（閘→修→閘→修→第三次閘）照算、照列進經過表，depth_alarm 開了才在深度到 max_depth 時也中止（預設關：三道各管各的閘各擋一次不是連鎖）。中止後這一回合其餘閘只記錄不擋；能互動的 session 讀與問以外的工具先停手，收尾送連鎖過程表、請 AI 用 AskUserQuestion 問使用者三選一（還原連鎖改動／信任後續 AI 審查繼續／放行這一回合）；沒人能答（headless、子代理）不停手、照常做完、收尾報告附表。帳在 Logs/chain-<session>.jsonl；連鎖段每個要改的檔改之前存快照到 workflow/chain-snap/<session>/（超過 snapshot_max_bytes、這一段已存 snapshot_max_files 個就不存、記原因），選還原就逐檔寫回、每檔最多試 restore_retries 次；SessionEnd 刪這個 session 的快照與 7 天沒動的別 session 快照與帳。設定沒寫 enabled＝不開；一鍵關＝enabled:false。",
     "enabled": true,
+    "depth_alarm": false,
     "max_depth": 2,
     "max_same_gate": 2,
     "snapshot_max_bytes": 5000000,
