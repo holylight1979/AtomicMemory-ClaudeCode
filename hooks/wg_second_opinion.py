@@ -2,14 +2,17 @@
 
 做什麼：
   auto_cfg       config `second_opinion.auto` 段＋預設（門檻：4 檔／150 行；高風險部位看部位表類別 gate，risky_prefixes 預設空）。
-  turn_events    transcript 尾段裡本回合（最後一則使用者打字之後）的 second_opinion_start／result 呼叫與回傳。
+  turn_events    transcript 尾段裡本回合（最後一則使用者打字之後）的 second_opinion_start／result 呼叫與回傳；result 另記標頭段的
+                 mode 與 note 行（start 在前面回合、本回合才取回的 job 照它判：SECOND_OPINION_RESULT_ACROSS_TURNS）。
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
   check          上面的事實交給 wg_release_rules.second_opinion_verdict，回 (Verdict, 事實)；事實的 satisfied＝這次滿足了
                  （跑過或宣告不需），Stop 據此 mark_ok。本回合跑完的第二意見（result 回 done／failed／blocked）不管有沒有
                  宣告完成都記 second_opinion_ran[sid]＝{job, 回合, 那時改過的高風險檔}（check 會改 state，由 Stop 寫回）；
-                 之後的回合把它當成上次審過的基準（規則 SECOND_OPINION_RAN_BEFORE）。四行在本回合任一則回覆裡有就算。
+                 之後的回合把它當成上次審過的基準（規則 SECOND_OPINION_RAN_BEFORE）。四行在本回合任一則回覆裡有就算；宣告行與
+                 「在等哪個 job」只看收尾這則（SECOND_OPINION_DECLINE_ACCEPTED、SECOND_OPINION_WAITING_NOT_DONE：等待中不算滿足，
+                 事實 waiting 給 Stop 留帳）。
   mark_ok        滿足或使用者放行時記 second_opinion_ok[sid]＝回合、second_opinion_cover[sid]＝那時改過的高風險檔；
                  之後的修改（多半是採納意見）只有改到新的高風險檔、或之後新改的程式檔數再過門檻才再要求（規則
                  SECOND_OPINION_ONCE_PER_CLAIM：不准「採納意見再改碼 → 又欠一次」的連鎖）。
@@ -149,7 +152,8 @@ def section_text(text: str, transcript_text: str) -> str:
 
 def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """本回合（_turn_records）的 (starts, results)：starts＝[{mode, kind, job_id, status, reason, notes}]、
-    results＝[{job_id, status, reason}]，依出現順序。"""
+    results＝[{job_id, status, reason, mode, notes, at}]，依出現順序。result 的 mode、notes 只讀標頭段（第一個空行之前；後面是
+    Codex 回覆全文），給 start 在前面回合的 job 判（SECOND_OPINION_RESULT_ACROSS_TURNS）。"""
     calls: Dict[str, Tuple[str, Dict[str, Any]]] = {}
     starts: List[Dict[str, Any]] = []
     results: List[Dict[str, Any]] = []
@@ -169,7 +173,9 @@ def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[s
                 starts.append({"mode": call[1].get("mode"), "kind": call[1].get("kind"),
                                "job_id": _field(text, "job_id") or "-", "notes": _notes(text), **ev})
             else:
-                results.append({"job_id": str(call[1].get("job_id") or "").strip(), "at": str(o.get("timestamp") or ""), **ev})
+                head = text.split("\n\n", 1)[0]
+                results.append({"job_id": str(call[1].get("job_id") or "").strip(), "at": str(o.get("timestamp") or ""),
+                                "mode": _field(head, "mode"), "notes": _notes(head), **ev})
     return starts, results
 
 
@@ -318,6 +324,15 @@ def _later(a: str, b: str) -> bool:
     return bool(ua and ub and ua > ub)
 
 
+def _job_started_at(job_id: str) -> str:
+    """job_id 開頭的開 job 時間（tools/second-opinion/run.py 用本地時間 %Y%m%d-%H%M%S）→ 帶本地時區的 ISO；解析不了回空字串。"""
+    from datetime import datetime
+    try:
+        return datetime.strptime(str(job_id)[:15], "%Y%m%d-%H%M%S").astimezone().isoformat(timespec="seconds")
+    except ValueError:
+        return ""
+
+
 def has_goal_tree(session_id: str) -> bool:
     """這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的 run 不算跑過）。目標檔讀不到或壞了 → 當有（fail-closed）並浮 stderr。"""
     try:
@@ -347,7 +362,20 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     if not paths:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     starts, results = turn_events(transcript_text)
-    runs_now = rr.second_opinion_runs(starts, results, has_tree=has_goal_tree(session_id)) if starts else []
+    runs_now = rr.second_opinion_runs(starts, results, has_tree=has_goal_tree(session_id)) if (starts or results) else []
+    # 規則 SECOND_OPINION_RESULT_ACROSS_TURNS：start 不在本回合的 job，不是本 session 開的（foreign）、或開 job 之後又改過程式檔
+    # （stale：沒審到後來的改動）都不算
+    started_now = {str(s.get("job_id")) for s in starts}
+    edits_at = [str(m.get("last_at") or m.get("at") or "") for m in code]
+    own8 = re.sub(r"[^0-9a-z]", "", str(session_id or "").lower())[:8]    # 同 tools/second-opinion/run.py 組 job_id 的 sid8
+
+    def carried(j: str, st: str) -> str:
+        if j in started_now or not (st in rr.SO_RAN or st == "running"):
+            return st
+        if (j.split("-") + ["", "", ""])[2] != own8:
+            return "foreign"
+        return "stale" if any(_later(at, _job_started_at(j)) for at in edits_at) else st
+    runs_now = [(j, carried(j, st)) for j, st in runs_now]
     risky_memo: List[List[str]] = []
 
     def risky_now() -> List[str]:
@@ -357,7 +385,8 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     ran_now = [j for j, st in runs_now if st in rr.SO_RAN]
     rec = ((state.get("second_opinion_ran") or {}).get(session_id)) or {}
     if ran_now and rec.get("job") != ran_now[-1]:
-        # 規則 SECOND_OPINION_RAN_BEFORE：本回合跑完就記下（沒宣告完成也記），之後的回合以它為審過的基準；
+        # 規則 SECOND_OPINION_RAN_BEFORE：本回合跑完就記下（沒宣告完成也記；start 在前面回合、本回合才取回也算：
+        # SECOND_OPINION_RESULT_ACROSS_TURNS），之後的回合以它為審過的基準；
         # 審過的高風險檔只算結果回來那一刻之前改的（結果之後才改的另一支高風險檔不算審過）
         done_at = next((str(r.get("at") or "") for r in reversed(results) if r.get("job_id") == ran_now[-1]), "")
         last_at = {rr.canon_path(m["path"]): str(m.get("last_at") or m.get("at") or "") for m in code}
@@ -371,11 +400,14 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     risky = risky_now()
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
     covered = set(((state.get("second_opinion_cover") or {}).get(session_id) or {}).get("risky") or [])
-    if rec and rec.get("job") not in {str(st.get("job_id")) for st in starts}:   # 前面回合跑完的：當審過的基準
+    # 前面回合跑完的才當審過的基準：不是本回合的 job，或是本回合又取一次結果、但記下它的是前面的使用者回合
+    prior = bool(rec) and (rec.get("job") not in {j for j, _s in runs_now}
+                           or int(rec.get("turn") or 0) < rr.user_turn(state, int(state.get("turn_seq") or 0)))
+    if prior:
         ok_turn = max(ok_turn, int(rec.get("turn") or 0))
         covered |= set(rec.get("risky") or [])
     after = {rr.canon_path(m["path"]) for m in code if _mod_turn(m) > ok_turn}
-    if rec and rec.get("at") and rec.get("job") not in {str(st.get("job_id")) for st in starts}:
+    if prior and rec.get("at"):
         after |= {rr.canon_path(m["path"]) for m in code if _later(str(m.get("last_at") or m.get("at") or ""), rec["at"])}
     new_risky = [p for p in risky if rr.canon_path(p) in after and rr.canon_path(p) not in covered]
     # 規則 SECOND_OPINION_ONCE_PER_CLAIM：審過之後的修改只在改到新的高風險檔、或之後新改的程式檔數再過門檻時才算新一輪
@@ -383,10 +415,11 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)
     triggers = rr.second_opinion_triggers(len(paths), lines, risky, min_files, min_lines)
     runs = runs_now if (triggers and fresh) else []
-    text = section_text(text, transcript_text)
-    v = rr.second_opinion_verdict(claims_done, triggers, fresh, runs, text)
+    # 四行可以在本回合較早那則；宣告行與在等哪個 job 只看收尾這則（SECOND_OPINION_DECLINE_ACCEPTED）
+    v = rr.second_opinion_verdict(claims_done, triggers, fresh, runs, section_text(text, transcript_text), closing=text)
     facts.update(triggers=triggers, fresh=fresh, runs=runs, changed_lines=lines, risky=[rr.canon_path(p) for p in risky],
-                 satisfied=bool(triggers and fresh and not v.owed),
+                 satisfied=bool(triggers and fresh and not v.owed and v.rule != rr.SO_WAITING),
+                 waiting=list(v.evidence) if v.rule == rr.SO_WAITING else [],
                  decline=(rr.second_opinion_decline(text) or "") if v.rule == "SECOND_OPINION_DECLINED" else "")
     return v, facts
 

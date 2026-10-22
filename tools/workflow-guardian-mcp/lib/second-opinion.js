@@ -1,7 +1,10 @@
 // second-opinion.js：MCP tools `second_opinion_start` / `second_opinion_result` 的 Node 面。
 //
 // 做什麼：start＝同步 spawn `tools/second-opinion/run.py prepare`（20 s 內回 job_id／hash／status），
-// 過閘（status=started）才 detached 起 `run.py execute` 跑 codex；result＝讀 job 目錄的 status.json＋reply.md。
+// 過閘（status=started）才 detached 起 `run.py execute` 跑 codex；result＝讀 job 目錄的 status.json＋reply.md，job 還在跑就每
+// RESULT_POLL_MS 再讀一次，等到 done／failed／blocked 才回（每次呼叫最多 RESULT_WAIT_MS，等滿仍在跑回 running 叫 AI 再呼叫一次）。
+// 上限低於 Claude Code 互動模式 MCP 呼叫 120 s 自動轉背景（CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS 預設；工具呼叫硬上限 MCP_TOOL_TIMEOUT
+// 預設 1e8 ms 不是瓶頸）：轉了背景 AI 就可能先結束回覆，hook 端那條是 SECOND_OPINION_WAITING_NOT_DONE。
 // 不碰 state、不寫 live 檔（job 目錄由 py 寫）；每個 spawn 都有 setTimeout＋kill＋clearTimeout。
 // 立場：independent 模式帶 draft 直接拒（不 spawn）；prepare blocked／failed 都回 isError，絕不把「沒起來」報成功。
 // sendToolResult 來自 mcp.js（mcp.handleToolCall lazy-require 本檔，handler 內 lazy-require 即可）。
@@ -20,6 +23,8 @@ const JOB_ID_RE = /^\d{8}-\d{6}-[0-9a-z]{8}-(diagnose|evaluate|stage-review)$/;
 const PREPARE_TIMEOUT_MS = 20000;
 const RESULT_MAX_BYTES = 20 * 1024;
 const STALE_GRACE_S = 90; // running 超過 timeout_s + 這個秒數仍沒結果 → 視為 execute 子程序死了
+const RESULT_WAIT_MS = 100000; // result 每次最多等這麼久（見檔頭：要在 Claude Code 轉背景的 120 s 之前回）
+const RESULT_POLL_MS = 2000;
 
 /** 參數守門；回錯誤字串（空＝合格）。獨立模式帶 draft 在這裡就拒，不 spawn。 */
 function validateStart(a) {
@@ -129,7 +134,8 @@ async function toolSecondOpinionStart(id, args) {
     crashLog("second_opinion execute spawn", e);
     return sendToolResult(id, lines.concat([`reason: execute 起不來：${e.message}`]).join("\n").replace("status: started", "status: failed"), true);
   }
-  lines.push(`job_dir: ${p.job_dir}`, "下一步：codex 跑完（通常 60～300 s）後呼叫 second_opinion_result({job_id})。");
+  lines.push(`job_dir: ${p.job_dir}`, `下一步：直接呼叫 second_opinion_result({job_id})，它會等到有結果（codex 通常 60～300 s；` +
+             `每次最多等 ${RESULT_WAIT_MS / 1000} s，回 running 就再呼叫一次），不用另開背景等待。`);
   return sendToolResult(id, lines.join("\n"));
 }
 
@@ -137,14 +143,20 @@ function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, "utf-8")); } catch { return null; }
 }
 
-/** job_id → {text, isError}。running 超過 timeout_s＋寬限仍無結果 → 視為 failed（子程序死了不能永遠 running）。 */
+/** job_id → {text, isError, status}（讀一次、不等）。running 超過 timeout_s＋寬限仍無結果 → 視為 failed（子程序死了不能永遠 running）。
+ *  標頭段帶 status.json 的 notes（`note:` 行）：start 在前面回合時 hook 照它判材料有沒有帶到需求目標樹。 */
 function readResult(jobId) {
-  if (!JOB_ID_RE.test(String(jobId || ""))) return { text: `second_opinion_result 拒收：job_id 格式不對（${jobId}）`, isError: true };
+  if (!JOB_ID_RE.test(String(jobId || ""))) return { text: `second_opinion_result 拒收：job_id 格式不對（${jobId}）`, isError: true, status: "invalid" };
   const jobDir = path.join(JOB_ROOT, jobId);
   const st = readJson(path.join(jobDir, "status.json"));
-  if (!st) return { text: `status: failed\nreason: 找不到 job（${jobDir}）`, isError: true };
+  if (!st && fs.existsSync(jobDir)) {
+    // job 目錄在、status.json 讀不到或沒寫完（run.py 寫檔不是原子替換，輪詢會撞上截斷的空窗）：waitResult 照等，等滿才報 failed
+    return { text: `status: failed\njob_id: ${jobId}\nreason: status.json 讀不到或沒寫完（${jobDir}）`, isError: true, status: "unreadable" };
+  }
+  if (!st) return { text: `status: failed\nreason: 找不到 job（${jobDir}）`, isError: true, status: "failed" };
   let status = st.status === "started" ? "running" : String(st.status || "failed");
   const head = [`job_id: ${jobId}`, `hash: ${st.hash || "-"}`, `model: ${st.model || "-"}`, `mode: ${st.mode || "-"}`];
+  for (const n of Array.isArray(st.notes) ? st.notes : []) head.push(`note: ${n}`);
   if (status === "running") {
     const ageS = (Date.now() - Date.parse(String(st.updated_at || "").replace(" ", "T"))) / 1000;
     const limit = Number(st.timeout_s || 300) + STALE_GRACE_S;
@@ -157,30 +169,48 @@ function readResult(jobId) {
   }
   if (status === "failed" || status === "blocked") {
     if (st.reason) head.push(`reason: ${st.reason}`);
-    return { text: [`status: ${status}`].concat(head).join("\n"), isError: true };
+    return { text: [`status: ${status}`].concat(head).join("\n"), isError: true, status };
   }
-  if (status !== "done") return { text: [`status: ${status}`].concat(head).join("\n"), isError: false };
+  if (status !== "done") {
+    if (status === "running") {
+      head.push(`下一步：還在跑，再呼叫一次 second_opinion_result({job_id: "${jobId}"})（每次最多等 ${RESULT_WAIT_MS / 1000} s）；` +
+                `要先結束回覆就在收尾寫一行 \`等第二意見｜${jobId}\`，那次不算宣告完成。`);
+    }
+    return { text: [`status: ${status}`].concat(head).join("\n"), isError: false, status };
+  }
   const replyPath = path.join(jobDir, "reply.md");
   let reply = "";
   try { reply = fs.readFileSync(replyPath, "utf-8"); } catch (e) {
-    return { text: [`status: failed`].concat(head, [`reason: done 但讀不到 reply.md：${e.message}`]).join("\n"), isError: true };
+    return { text: [`status: failed`].concat(head, [`reason: done 但讀不到 reply.md：${e.message}`]).join("\n"), isError: true, status: "failed" };
   }
   if (st.guard_note) head.push(`guard_note: ${st.guard_note}`);
   if (Buffer.byteLength(reply, "utf-8") > RESULT_MAX_BYTES) {
     reply = reply.slice(0, RESULT_MAX_BYTES) + `\n\n…（已截斷，完整回覆：${replyPath}）\n`;
   }
-  return { text: [`status: done`].concat(head, ["", reply]).join("\n"), isError: false };
+  return { text: [`status: done`].concat(head, ["", reply]).join("\n"), isError: false, status: "done" };
+}
+
+/** 等 job 跑到 done／failed／blocked 才回 readResult 的結果；等滿 waitMs 仍 running 就回 running（附再呼叫一次的下一步），
+ *  status.json 一直讀不到就回 failed。 */
+async function waitResult(jobId, waitMs = RESULT_WAIT_MS, pollMs = RESULT_POLL_MS) {
+  const until = Date.now() + waitMs;
+  let r = readResult(jobId);
+  while ((r.status === "running" || r.status === "unreadable") && Date.now() < until) {
+    await new Promise((res) => setTimeout(res, Math.min(pollMs, until - Date.now())));
+    r = readResult(jobId);
+  }
+  return r;
 }
 
 async function toolSecondOpinionResult(id, args) {
   const { sendToolResult } = require("./mcp");
   const jobId = args && args.job_id;
   if (!String(jobId || "").trim()) return sendToolResult(id, "second_opinion_result 拒收：job_id 必填", true);
-  const r = readResult(String(jobId).trim());
+  const r = await waitResult(String(jobId).trim());
   return sendToolResult(id, r.text, r.isError);
 }
 
 module.exports = {
-  toolSecondOpinionStart, toolSecondOpinionResult, validateStart, parsePrepare, readResult,
-  JOB_ROOT, RUN_PY, KINDS, MODES, JOB_ID_RE, PREPARE_TIMEOUT_MS, RESULT_MAX_BYTES,
+  toolSecondOpinionStart, toolSecondOpinionResult, validateStart, parsePrepare, readResult, waitResult,
+  JOB_ROOT, RUN_PY, KINDS, MODES, JOB_ID_RE, PREPARE_TIMEOUT_MS, RESULT_MAX_BYTES, RESULT_WAIT_MS,
 };

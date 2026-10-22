@@ -41,7 +41,7 @@ def _load(name, path):
     return mod
 
 
-SID = "sid-g9"
+SID = "sidg9xxx-g9"                  # 前 8 碼（去掉非英數）＝JOB 裡的 session 段，同 run.py 組 job_id
 START = "mcp__workflow-guardian__second_opinion_start"
 RESULT = "mcp__workflow-guardian__second_opinion_result"
 JOB = "20261020-120000-sidg9xxx-stage-review"
@@ -449,7 +449,185 @@ def test_earlier_gate_block_previews_second_opinion(drive, capsys, tmp_path):
     assert "[Guardian:TestFailGate]" in reason and "[Guardian:AlsoOwed]" in reason and "第二意見：" in reason
 
 
+# ─── 等結果、跨回合取結果、宣告收下（補題第二版第 4、5 回合）────────────────
+
+WAIT_TEXT = f"第二意見還在跑，背景等它跑完，我會回來取結果、寫裁決。\n等第二意見｜{JOB}"
+TASK_DONE = ("<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n"
+             "<summary>Background command completed (exit code 0)</summary>\n</task-notification>")
+
+
+def _feedback(drive, reason):
+    drive.tx.add({"type": "user", "isMeta": True, "message": {"role": "user", "content": "Stop hook feedback:\n" + reason}})
+
+
+def _result(drive, status="done", job=JOB, mode="independent", notes=()):
+    drive.tx.call(RESULT, {"job_id": job}, f"status: {status}\njob_id: {job}\nhash: h\nmodel: m\nmode: {mode}"
+                  + "".join(f"\nnote: {n}" for n in notes) + "\n\n## 結論\n照判定")
+
+
+def test_wait_in_flight_end_reply_naming_job_blocks_once(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_WAITING_NOT_DONE（補題第二版第 4 回合）：宣告完成 → 擋 → start → 背景等 → 結束回覆寫明在等的 job。
+    舊碼把這次結束回覆當宣告完成、照 start 了沒取結果再擋（同一回合第 2 次 → 斷路器警報）；改後只擋 1 次，等待那次留帳 waiting，
+    背景通知回來取到 done、寫四行 → 放行。"""
+    reason, state, logs = drive(DONE, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason
+    _feedback(drive, reason)
+    drive.tx.opinion(status="")
+    drive.tx.call("Bash", {"command": "until grep -q done status.json; do sleep 2; done", "run_in_background": True},
+                  "Command running in background with ID: b1.")
+    reason2, state, logs2 = drive(WAIT_TEXT, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason2, reason2
+    assert [p["event"] for p in _so_logs(logs2)] == ["waiting"] and _so_logs(logs2)[0]["job"] == JOB
+    assert SID not in (state.get("second_opinion_ok") or {}), "等待中不算滿足（不 mark_ok）"
+    drive.tx.add({"type": "user", "message": {"role": "user", "content": TASK_DONE}})
+    _result(drive, "done")
+    reason3, state, logs3 = drive(FOUR, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason3 and state["second_opinion_ok"][SID] == 5
+    assert [p["event"] for p in _so_logs(logs + logs2 + logs3)].count("block") == 1
+
+
+def test_wait_in_flight_end_reply_without_job_id_still_blocks(drive, capsys, tmp_path):
+    """收尾沒寫在等哪個 job（只說還在跑）→ 照擋，擋訊息教「直接呼叫 result 會等」與「收尾寫明 job_id」（start 完就宣告完成不能靠這條繞過）。"""
+    drive.tx.opinion(status="")
+    reason, _state, logs = drive("第二意見還在跑，全部完成後再說。", capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" in reason and "還沒取結果" in reason
+    assert "直接呼叫 second_opinion_result" in reason and "等第二意見｜<job_id>" in reason
+    assert [p["event"] for p in _so_logs(logs)] == ["block"]
+
+
+def test_block_message_says_result_waits(drive, capsys, tmp_path):
+    """第一次擋訊息寫明 start 後直接呼叫 result、它會等到有結果，不用另開背景等待（補題第二版第 4 回合 AI 照一般做法背景等）。"""
+    reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5))
+    assert "直接呼叫 second_opinion_result" in reason and "會等到有結果" in reason and "不用另開背景等待" in reason
+    assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)
+
+
+def test_result_across_turns_done_no_edits_passes(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_RESULT_ACROSS_TURNS（補題第二版第 5 回合）：上一回合 start、這一回合 result 回 done、之後沒改程式、
+    收尾有四行 → 不擋並記基準。舊碼只認本回合的 start，跨回合取回的 done 兩邊都不認，照擋「本回合沒有跑第二意見」。"""
+    reason, state, _ = drive(DONE, capsys, files=_files(tmp_path, 5))
+    _feedback(drive, reason)
+    drive.tx.opinion(status="")
+    drive.tx.user("照你的判斷做")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    _result(drive, "done")
+    reason, state, logs = drive(FOUR, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason, reason
+    assert state["second_opinion_ok"][SID] == 6 and state["second_opinion_ran"][SID]["job"] == JOB
+    drive.tx.user("下一題：說明一下")
+    state.update(turn_seq=7, turn_prompts_seq=7)
+    reason, _, logs = drive(DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+
+
+def test_result_across_turns_job_older_than_last_edit_not_counted(drive, capsys, tmp_path):
+    """start 在前面回合的 job，開 job（job_id 開頭 2026-10-20 12:00:00）之後又改過程式 → 沒審到後來的改動，不算跑過（stale）；
+    最後一次改程式在開 job 之前 → 照算。"""
+    drive.tx.user("照你的判斷做")
+    _result(drive, "done")
+    files = _files(tmp_path, 5)
+    state = {"phase": "working", "modified_files": [{**_mf(p), "last_at": "2026-10-22T09:00:00+00:00"} for p in files],
+             "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5,
+             "muted": True}
+    reason, _, _ = drive(FOUR, capsys, state=state)
+    assert "SECOND_OPINION_REQUIRED" in reason and "沒審到後來的改動" in reason
+    for m in state["modified_files"]:
+        m["last_at"] = "2026-10-19T09:00:00+00:00"
+    state.pop("second_opinion_gate_turn", None)
+    reason, state, _ = drive(FOUR, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and state["second_opinion_ok"][SID] == 5
+
+
+def test_result_across_turns_other_session_job_not_counted(drive, capsys, tmp_path):
+    """job 目錄是同一個資料根共用的：別的 session 開的 job（job_id 裡的 session 段不是本 session），這一回合拿來取結果不算跑過（foreign）。"""
+    other = "20261020-120000-aaaaaaaa-stage-review"
+    drive.tx.user("照你的判斷做")
+    _result(drive, "done", job=other)
+    reason, _, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and "不是這個 session 開的" in reason
+
+
+def test_result_across_turns_still_needs_four_lines(drive, capsys, tmp_path):
+    """跨回合取回 done 算本回合跑過：四行照要（結果是這一回合才拿到的，裁決寫在這一回合）。"""
+    drive.tx.opinion(status="")
+    drive.tx.user("照你的判斷做")
+    _result(drive, "done")
+    reason, _, _ = drive(DONE, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" in reason and "跑過第二意見，但收尾缺" in reason
+
+
+@pytest.mark.parametrize("mode,notes,status", [("review", (), "done"), ("independent", (f"{rr.SO_NO_GOAL_NOTE}：沒帶 session_id",), "done"),
+                                               ("", (), "failed")])
+def test_result_across_turns_off_mode_no_goal_or_missing_job_not_counted(drive, capsys, tmp_path, monkeypatch,
+                                                                         mode, notes, status):
+    """start 不在本回合時照 result 自己帶的 mode、note 判：mode=review、session 有樹而材料沒帶到樹、找不到 job（沒有 mode 行）都不算跑過。"""
+    monkeypatch.setattr(so, "has_goal_tree", lambda sid: True)
+    drive.tx.user("照你的判斷做")
+    if mode:
+        _result(drive, status, mode=mode, notes=notes)
+    else:
+        drive.tx.call(RESULT, {"job_id": JOB}, f"status: failed\nreason: 找不到 job（{JOB}）")
+    reason, _, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and "跑過第二意見" not in reason
+
+
+def test_refetch_reviewed_job_next_turn_not_owed_again(drive, capsys, tmp_path):
+    """上一回合跑完並滿足的 job，這一回合再呼叫一次 result 重讀 → 仍是前面回合的基準（SECOND_OPINION_RAN_BEFORE），沒改程式就不再要四行。"""
+    drive.tx.opinion("done")
+    _, state, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    drive.tx.user("再看一次結論")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    _result(drive, "done")
+    reason, _, _ = drive(DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason
+
+
+DECLINE_LINE = "不需第二意見｜這份第二意見是在最後一次改程式之後才送出的，之後沒有再改任何程式檔"
+
+
+def test_decline_accepted_not_blocked_even_if_earlier_reply_has_four_lines(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_DECLINE_ACCEPTED（補題第二版第 5 回合帳：同一秒記 declined 又記 exhausted_block）：本回合較早那則有四行、
+    被擋後收尾只寫「不需第二意見｜理由」→ 宣告被收下就不擋。舊碼判宣告行時拿的是較早那則四行齊的回覆（section_text），收尾那句
+    宣告行看不到，照擋滿那條路再擋。"""
+    reason, state, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason
+    _feedback(drive, reason)
+    reason, state, logs = drive(DECLINE_LINE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason, reason
+    assert [p["event"] for p in _so_logs(logs)] == ["declined"] and _so_logs(logs)[0]["needed"] is True
+    assert state["second_opinion_ok"][SID] == 5
+
+
 # ─── 事實與純判定 ─────────────────────────────────────────────────────────
+
+def test_runs_result_only_jobs_across_turns():
+    """SECOND_OPINION_RESULT_ACROSS_TURNS：本回合只有 result、沒有 start 的 job，照 result 的 mode、job_id 的類別、note 判。"""
+    results = [{"job_id": "20261020-120000-aaaaaaaa-stage-review", "status": "running", "mode": "independent"},
+               {"job_id": "20261020-120000-aaaaaaaa-stage-review", "status": "done", "mode": "independent"},
+               {"job_id": "20261020-120000-bbbbbbbb-diagnose", "status": "done", "mode": "independent"},
+               {"job_id": "20261020-120000-cccccccc-evaluate", "status": "failed", "mode": "", "reason": "找不到 job"},
+               {"job_id": "20261020-120000-dddddddd-evaluate", "status": "done", "mode": "independent",
+                "notes": [f"{rr.SO_NO_GOAL_NOTE}：沒帶 session_id"]},
+               {"job_id": "20261020-120000-eeeeeeee-evaluate", "status": "running", "mode": "independent"}]
+    assert rr.second_opinion_runs([], results, has_tree=True) == [
+        ("20261020-120000-aaaaaaaa-stage-review", "done"), ("20261020-120000-bbbbbbbb-diagnose", "off-mode"),
+        ("20261020-120000-dddddddd-evaluate", "no-goal"), ("20261020-120000-eeeeeeee-evaluate", "running")], \
+        "找不到 job（沒有 mode 行）不列"
+
+
+def test_verdict_waiting_and_decline_read_closing_text():
+    """宣告行與「在等哪個 job」都看收尾最後一則（closing），四行可以在較早那則（text）。"""
+    trig = ["程式檔 5 個 ≥ 4"]
+    v = rr.second_opinion_verdict(True, trig, True, [(JOB, "running")], FOUR, closing=WAIT_TEXT)
+    assert v.rule == "SECOND_OPINION_WAITING_NOT_DONE" and not v.owed
+    v = rr.second_opinion_verdict(True, trig, True, [(JOB, "started")], FOUR, closing="還在跑。")
+    assert v.owed and "等第二意見｜<job_id>" in v.why
+    for prose in (f"全部完成，job_id：{JOB}", f"等第二意見｜{JOB}-other", f"```\n等第二意見｜{JOB}\n```"):
+        v = rr.second_opinion_verdict(True, trig, True, [(JOB, "started")], FOUR, closing=prose)
+        assert v.owed, f"散文裡提到 job_id、job_id 後面多接字、程式碼區塊裡的宣告行都不算：{prose!r}"
+    v = rr.second_opinion_verdict(True, trig, True, [], FOUR, closing=DECLINE_LINE)
+    assert v.rule == "SECOND_OPINION_DECLINED" and not v.owed
+
 
 def test_turn_events_only_current_turn(tmp_path):
     tx = Tx(tmp_path / "t.jsonl")

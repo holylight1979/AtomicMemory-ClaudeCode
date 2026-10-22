@@ -1265,3 +1265,13 @@ def test_c1_adjust_chain_only_preexisting_test_flagged(world):
     for own in ("test_negative_deducts", "test_audit_logged_on_success", "test_audit_not_logged_on_failure"):
         assert own not in r, own
     assert any(e["event"] == "exempt" and e["why"] == "session_added" for e in _events(world))
+
+
+def test_hint_keeps_edit_write_not_bash_writes():
+    """規則 DECL_HINT_KEEPS_EDIT_TOOLS：舊擋訊息「或寫成下一個 Bash／PowerShell 指令開頭的 # 註解」會被讀成改用 Bash 寫測試檔
+    （寫入判不出目標，改檔紀錄漏記）。改後寫明註解只放在不寫檔的指令上、宣告完照常用 Edit／Write。"""
+    import wg_oldtest as ot
+    h = ot.hint("test_old")
+    assert h.startswith("宣告行要比這次工具呼叫早一則訊息送出") and "`#` 註解" in h.split("。", 1)[0]
+    assert "不寫檔的 Bash／PowerShell 指令" in h and "照常用 Edit／Write" in h and "不要改用 Bash／PowerShell 寫檔" in h
+    assert "或寫成下一個 Bash／PowerShell 指令開頭的" not in h
