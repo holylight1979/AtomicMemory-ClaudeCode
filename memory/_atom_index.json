@@ -5132,7 +5132,7 @@
     },
     {
       "name": "並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次",
-      "path": "memory/工作流/協作與並行/並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次.md",
       "triggers": [
         "並行實作",
         "派工簡報",
@@ -5980,7 +5980,7 @@
     },
     {
       "name": "feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整",
-      "path": "memory/Failures/行為契約/feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整.md",
       "triggers": [
         "總控端",
         "主持",
@@ -6220,7 +6220,7 @@
     },
     {
       "name": "feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定",
-      "path": "memory/Failures/行為契約/feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定.md",
       "triggers": [
         "只動根基",
         "帶變量規則",
@@ -6408,7 +6408,7 @@
     },
     {
       "name": "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
-      "path": "memory/工作流/協作與並行/總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件.md",
       "triggers": [
         "總控台",
         "退回信",
@@ -6566,7 +6566,7 @@
     },
     {
       "name": "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上",
-      "path": "memory/工作流/協作與並行/工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上.md",
       "triggers": [
         "EnterWorktree",
         "worktree 隔離",
@@ -7246,7 +7246,7 @@
     },
     {
       "name": "feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定",
-      "path": "memory/Failures/行為契約/feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定.md",
       "triggers": [
         "總控台",
         "多軌",
@@ -7336,7 +7336,7 @@
     },
     {
       "name": "接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑",
-      "path": "memory/工作流/接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑.md",
       "triggers": [
         "派工單",
         "路徑寫錯",
@@ -7370,7 +7370,7 @@
     },
     {
       "name": "feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法",
-      "path": "memory/Failures/行為契約/feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法.md",
       "triggers": [
         "閘誤擋",
         "放行迴圈",
@@ -7418,7 +7418,7 @@
     },
     {
       "name": "feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見",
-      "path": "memory/Failures/文字與格式/feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見.md",
       "triggers": [
         "可以關的 session",
         "關分頁",
@@ -7496,7 +7496,7 @@
     },
     {
       "name": "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走",
-      "path": "memory/Failures/行為契約/feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走.md",
       "triggers": [
         "總控台",
         "被牽著走",
@@ -7597,7 +7597,7 @@
     },
     {
       "name": "feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義",
-      "path": "memory/Failures/版控/feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義.md",
       "triggers": [
         "多軌派工",
         "worktree 太多",
@@ -7711,7 +7711,7 @@
     },
     {
       "name": "裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前",
-      "path": "memory/思考與決策/裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前.md",
       "triggers": [
         "裁定帳",
         "裁定前",
@@ -7745,7 +7745,7 @@
     },
     {
       "name": "退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼",
-      "path": "memory/驗證與實證/退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼.md",
       "triggers": [
         "退回看紅",
         "git checkout main --",
@@ -7881,7 +7881,7 @@
     },
     {
       "name": "原設計者下班後的夜間授權型態-對人總控台主動開工作session貼開工句-可關分頁留早上並附收錄知識提醒-只能定奪的列待原設計者-授權只給該session",
-      "path": "memory/工作流/多軌總控台/原設計者下班後的夜間授權型態-對人總控台主動開工作session貼開工句-可關分頁留早上並附收錄知識提醒-只能定奪的列待原設計者-授權只給該session.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/原設計者下班後的夜間授權型態-對人總控台主動開工作session貼開工句-可關分頁留早上並附收錄知識提醒-只能定奪的列待原設計者-授權只給該session.md",
       "triggers": [
         "下班",
         "夜間授權",
@@ -8274,7 +8274,7 @@
     },
     {
       "name": "寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著",
-      "path": "memory/工作流/多軌總控台/寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著.md",
       "triggers": [
         "擋滿等人",
         "exhausted_block",
@@ -8406,7 +8406,7 @@
     },
     {
       "name": "關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名",
-      "path": "memory/工作流/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md",
       "triggers": [
         "工作軌有沒有收割",
         "收割代寫",
@@ -8527,7 +8527,7 @@
     },
     {
       "name": "feedback-交給使用者的開工句與計畫交出前要自審-對得上最新計畫嗎-每條指示這裡真的需要嗎-剛改的東西影響哪些已給出的內容",
-      "path": "memory/Failures/行為契約/feedback-交給使用者的開工句與計畫交出前要自審-對得上最新計畫嗎-每條指示這裡真的需要嗎-剛改的東西影響哪些已給出的內容.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-交給使用者的開工句與計畫交出前要自審-對得上最新計畫嗎-每條指示這裡真的需要嗎-剛改的東西影響哪些已給出的內容.md",
       "triggers": [
         "開工句",
         "新 session prompt",
@@ -8574,7 +8574,7 @@
     },
     {
       "name": "feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句",
-      "path": "memory/Failures/工作流/feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句.md",
       "triggers": [
         "開工句更新",
         "下一階段 session",
@@ -9360,7 +9360,7 @@
     },
     {
       "name": "閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合",
-      "path": "memory/工作流/閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合.md",
       "triggers": [
         "聯合驗收",
         "案例綠",
@@ -9413,7 +9413,7 @@
     },
     {
       "name": "feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量",
-      "path": "memory/Failures/行為契約/feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量.md",
       "triggers": [
         "總控台回報",
         "等你的",
@@ -9619,7 +9619,7 @@
     },
     {
       "name": "工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件",
-      "path": "memory/工作流/多session協作/工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件.md",
       "triggers": [
         "交付信對帳",
         "文件同步",
@@ -9659,7 +9659,7 @@
     },
     {
       "name": "claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉",
-      "path": "memory/工作流/多session協作/claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉.md",
       "triggers": [
         "claude --bg",
         "console-spawn",
@@ -9675,7 +9675,7 @@
     },
     {
       "name": "feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台",
-      "path": "memory/Failures/工作流/feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台.md",
       "triggers": [
         "靜默 CLI session",
         "claude --bg 派工",
@@ -9694,7 +9694,7 @@
     },
     {
       "name": "hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep",
-      "path": "memory/工作流/多session協作/hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep.md",
       "triggers": [
         "全機殘留",
         "session-artifacts",
@@ -9710,7 +9710,7 @@
     },
     {
       "name": "文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併",
-      "path": "memory/工作流/多session協作/文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併.md",
       "triggers": [
         "文件軌",
         "memory/_staging 工作樹",
@@ -9823,7 +9823,7 @@
     },
     {
       "name": "feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹",
-      "path": "memory/Failures/行為契約/feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹.md",
       "triggers": [
         "黑箱作業",
         "看不見開了多少軌",
@@ -11059,7 +11059,7 @@
     },
     {
       "name": "feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢",
-      "path": "memory/Failures/行為契約/feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢.md",
       "triggers": [
         "有點慢",
         "多開併行",
@@ -11182,7 +11182,7 @@
     },
     {
       "name": "feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等",
-      "path": "memory/Failures/工作流/feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等.md",
       "triggers": [
         "總控台派工",
         "並行上限",
@@ -11233,7 +11233,7 @@
     },
     {
       "name": "無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載",
-      "path": "memory/驗證與實證/無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載.md",
       "triggers": [
         "無頭驗收",
         "實跑期間",
@@ -11359,7 +11359,7 @@
     },
     {
       "name": "feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問",
-      "path": "memory/Failures/行為契約/feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問.md",
       "triggers": [
         "等原設計者裁",
         "算不算過",
@@ -11374,7 +11374,7 @@
     },
     {
       "name": "feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他",
-      "path": "memory/Failures/工作流/feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他.md",
       "triggers": [
         "待原設計者裁",
         "等他裁",
@@ -11389,7 +11389,7 @@
     },
     {
       "name": "feedback-給原設計者的進度回報不要技術臭-每條用他會體驗到的事說-差什麼一句話-被退回重來的前後對照",
-      "path": "memory/Failures/行為契約/feedback-給原設計者的進度回報不要技術臭-每條用他會體驗到的事說-差什麼一句話-被退回重來的前後對照.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-給原設計者的進度回報不要技術臭-每條用他會體驗到的事說-差什麼一句話-被退回重來的前後對照.md",
       "triggers": [
         "技術臭",
         "重來一次",
@@ -11692,24 +11692,6 @@
       "scope": "global"
     },
     {
-      "name": "總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行",
-      "path": "_AIDocs/_atoms/MemDev/總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行.md",
-      "triggers": [
-        "TestFailGate",
-        "測試未綠",
-        "既有紅測",
-        "基底就紅",
-        "總控台收尾被擋",
-        "cherry-pick",
-        "單獨 commit",
-        "連擋"
-      ],
-      "scope": "global",
-      "related": [
-        "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
-      ]
-    },
-    {
       "name": "解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到",
       "path": "_AIDocs/_atoms/MemDev/解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到.md",
       "triggers": [
@@ -11751,7 +11733,7 @@
     },
     {
       "name": "feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量",
-      "path": "memory/Failures/工作流/feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量.md",
       "triggers": [
         "token 預算",
         "減量",
@@ -11796,7 +11778,7 @@
     },
     {
       "name": "feedback-開發期的工作規矩不等於產品框架的規則-總控台多軌派工裁定實跑凍結這類開發規矩不准寫進同事會用到的hook注入卡池",
-      "path": "memory/Failures/設計通則/feedback-開發期的工作規矩不等於產品框架的規則-總控台多軌派工裁定實跑凍結這類開發規矩不准寫進同事會用到的hook注入卡池.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-開發期的工作規矩不等於產品框架的規則-總控台多軌派工裁定實跑凍結這類開發規矩不准寫進同事會用到的hook注入卡池.md",
       "triggers": [
         "開發規矩",
         "產品框架",
@@ -11809,38 +11791,8 @@
       "scope": "global"
     },
     {
-      "name": "開發記憶系統用的工作規矩不等於產品裡的規則-總控台多軌派工裁定帳驗收題組不准寫進同事會用到的hook注入卡池",
-      "path": "_AIDocs/_atoms/MemDev/開發記憶系統用的工作規矩不等於產品裡的規則-總控台多軌派工裁定帳驗收題組不准寫進同事會用到的hook注入卡池.md",
-      "triggers": [
-        "總控台延展",
-        "開發期規矩",
-        "產品規則",
-        "多軌前提",
-        "單人單 session",
-        "設計新關卡",
-        "加閘",
-        "对同事的影響"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "原設計者的執行優先序-改小牽連大先-其次改小-再來牽連大-最後又小又沒影響-派工與交付信照此排",
-      "path": "memory/personal/holylight/原設計者的執行優先序-改小牽連大先-其次改小-再來牽連大-最後又小又沒影響-派工與交付信照此排.md",
-      "triggers": [
-        "優先順序",
-        "執行順序",
-        "先做哪個",
-        "改小效果大",
-        "牵連",
-        "影響面",
-        "派工排序",
-        "排優先"
-      ],
-      "scope": "personal:holylight"
-    },
-    {
       "name": "feedback-原設計者裁定只看兩把尺-耦合他的目標嗎-增加耗重嗎-任一不過就降級或拿掉-拿不準就問他附建議",
-      "path": "memory/Failures/思考與決策/feedback-原設計者裁定只看兩把尺-耦合他的目標嗎-增加耗重嗎-任一不過就降級或拿掉-拿不準就問他附建議.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-原設計者裁定只看兩把尺-耦合他的目標嗎-增加耗重嗎-任一不過就降級或拿掉-拿不準就問他附建議.md",
       "triggers": [
         "兩把尺",
         "耦合目標",
@@ -11855,7 +11807,7 @@
     },
     {
       "name": "feedback-執行優先序-改小且牽連大最先-其次改小-再來牽連大-又小又沒牽連最後-每項標改多少與牽連多大",
-      "path": "memory/Failures/工作流/feedback-執行優先序-改小且牽連大最先-其次改小-再來牽連大-又小又沒牽連最後-每項標改多少與牽連多大.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-執行優先序-改小且牽連大最先-其次改小-再來牽連大-又小又沒牽連最後-每項標改多少與牽連多大.md",
       "triggers": [
         "執行優先序",
         "先做哪件",
@@ -11884,7 +11836,7 @@
     },
     {
       "name": "feedback-被糾正後的反射是再加一道閘而不是融會貫通-卡才是載體-守門範圍要對準原話情境只在寫碼回合啟動-目標來自他不代表做法形狀經過他",
-      "path": "memory/Failures/行為契約/feedback-被糾正後的反射是再加一道閘而不是融會貫通-卡才是載體-守門範圍要對準原話情境只在寫碼回合啟動-目標來自他不代表做法形狀經過他.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-被糾正後的反射是再加一道閘而不是融會貫通-卡才是載體-守門範圍要對準原話情境只在寫碼回合啟動-目標來自他不代表做法形狀經過他.md",
       "triggers": [
         "融會貫通",
         "再加一道閘",
