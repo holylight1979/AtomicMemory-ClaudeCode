@@ -11,7 +11,7 @@ Schema:
   CLI／js 路徑都已預檢）。
   日期閘：create_atom／build 看建好的知識段＋行動段、append（atom_io.append_atom_file）看新增行，
   有敘事型日期就拒（KNOWLEDGE_LINE_NO_NARRATIVE_DATE，判式 lib/narrative_date，與 write_atom 同一份）。
-  realm_check：{scope?, project_cwd, title, triggers, knowledge, actions, domain} → scope=org 走 check_org_write，
+  realm_check：{scope?, project_cwd, title, triggers, knowledge, actions, domain, scope_reason?} → scope=org 走 check_org_write，
   shared 直接放行，其餘走 check_global_write。scrub：{text} → extra.text（去專案名／路徑／「此專案」）。
   stdout: WriteResult.to_dict()  (single-line JSON)
   exit code: 0=ok, 1=error
@@ -118,15 +118,16 @@ def _realm_check(payload: dict):
               "knowledge": payload.get("knowledge"), "actions": payload.get("actions")}
     if scope == "shared":
         return None
+    reason = payload.get("scope_reason")    # AI 對字面「此專案」的範疇宣告（規則 PROJECT_LITERAL_IS_HINT）
     if scope == "org":
         from .realm_gate import check_org_write
-        errs = check_org_write(fields)
+        errs = check_org_write(fields, scope_reason=reason)
         return "\n".join(errs) if errs else None
     from .realm_gate import check_global_write
     return check_global_write(
         payload.get("project_cwd"), title=payload.get("title", ""),
         triggers=payload.get("triggers"), knowledge=payload.get("knowledge"),
-        actions=payload.get("actions"), domain=payload.get("domain"))
+        actions=payload.get("actions"), domain=payload.get("domain"), scope_reason=reason)
 
 
 def _canonical_build_params(build_params: dict):

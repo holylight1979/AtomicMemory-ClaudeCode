@@ -219,7 +219,10 @@ def test_detect_core_emitted_not_blocked():
 
 
 def test_detect_dismiss_prompt_not_blocked():
-    assert detect_missing_aec_emission(_DONE, _mfs(_CORE), ["先這樣"], 2, False) is False
+    """G6 階段 5（HARVEST_WAIVER_ITEMIZED）：「先這樣」不再整個放掉收尾檢核，要引用到原話的不做行才豁免。"""
+    assert detect_missing_aec_emission(_DONE, _mfs(_CORE), ["先這樣"], 2, False) is True
+    cited = _DONE + "\n不做｜收尾檢核：使用者說「先這樣」"
+    assert detect_missing_aec_emission(cited, _mfs(_CORE), ["先這樣"], 2, False) is False
 
 
 # ─── one-writer：post_tool_use 收 MCP emit → 獨佔寫 state + 落報告檔 ──────

@@ -9,7 +9,7 @@ const { crashLog } = require("./log");
  *  Returns Promise<{verdict, matches, detector_model, skipped, skip_reason, scope}>.
  *  Fail-open: on script error resolves to verdict=ok+skipped=true (do not block writes
  *  when detector infra is down). Longer timeout than write-gate (LLM is slower). */
-function execConflictDetector(content, scope, projectCwd, subdir) {
+function execConflictDetector(content, scope, projectCwd, subdir, declared, title) {
   return new Promise((resolve) => {
     const scriptPath = path.join(TOOLS_DIR, "memory-conflict-detector.py");
     if (!fs.existsSync(scriptPath)) {
@@ -25,6 +25,13 @@ function execConflictDetector(content, scope, projectCwd, subdir) {
     // 分區感知：incoming 落 projects/<X> 時其他分區相似 atom warn 不 block
     if (subdir) {
       args.push("--subdir", subdir);
+    }
+    // 衝突宣告（規則 CONFLICT_DECLARED_BY_AI）：門檻候選是不是衝突由 AI 判，偵測器核對每個候選都有宣告並留帳
+    if (declared !== undefined) {
+      args.push("--declared", JSON.stringify(declared));
+    }
+    if (title) {
+      args.push("--title", String(title));
     }
     // 輸出含 atom 名（中文）：不指定編碼時 Windows 子行程以 cp950 寫出，這裡再以 UTF-8 解讀就成亂碼；
     // 收齊 Buffer 再一次解碼，避免多位元組字元被 chunk 邊界切開。

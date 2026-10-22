@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 G6 階段 5：糾正詞、「否」字否決、說跳過整批放行、衝突門檻、「此專案」字樣改交 AI 判
+- **交給 AI 寫程式時會看到的**：使用者的話命中「不對／重來」時，UPS 問一句「是不是糾正」，回「糾正｜不是：理由」就不計糾正次數；決策萃取記了卡、下一句剛好有「是否」，通知照送（附卡的路徑），另問是不是在否決；說「先這樣」不再讓收割、收割待補、收尾檢核整批放行，要寫「不做｜收割：使用者說「…」」對到那一件；atom_write 寫 shared 撞到相似卡時回「衝突待宣告（這次不寫檔）」要逐一宣告是不是衝突；寫根層被字面「此專案」擋下時，帶 scope_reason 說明是跨專案的就照寫。五種宣告都留帳。MCP 是 js，互動分頁要 Reload 才吃到新參數 conflict／scope_reason。
+- **改了什麼**（軌 track-g6-rules-to-llm 001）：`wg_release_rules` 新規則五條 `CORRECTION_WORDS_ARE_HINTS`、`EXTRACT_VETO_NEEDS_JUDGMENT`、`HARVEST_WAIVER_ITEMIZED`、`CONFLICT_DECLARED_BY_AI`、`PROJECT_LITERAL_IS_HINT`（`yes_no_declaration`、`correction_verdict`、`item_waiver`、`waived_pending`、`conflict_declaration_verdict`）；`wg_friction` 命中改待判、Stop 收宣告才計；`wg_extraction`＋`ups_gates` 否決改問；`user-extract-worker` 把卡的路徑記回通知；`wg_harvest`、`wg_evasion._completion_gate_applies` 拿掉 dismiss 整批放行；`memory-conflict-detector` write-check 回 need_declaration、拉取稽核 ERROR 標 candidate；`atom-tools.js`／`funnel.js`／`mcp.js` 收 conflict 與 scope_reason、拿掉 EXTEND 自動改道待審；`realm_gate` 字面命中收 scope_reason；切入點登錄表 E38～E41、E09 擴充；TECH §6.5／§7.1／§7.8／§7.10／§8 同步。
+- **驗證**：新案例 py 37 支＋js 14 項（基底先紅、改後綠）；目標 verify py 18 支＋js 4 支綠；codex 三輪。
 ## 2026-10-22 TECH §11.1 換成 hook 全關對現況的實測數字
 - **原設計者看到的**：TECH §11.1 不再是守門流程大量加入之前的舊估算，改成同一題寫程式驗收題（B′）hook 全關對現況各兩跑的實測：輸入 token 90 萬→398 萬（＋340%）、牆鐘 5.5→14.0 分、通過線 0/4→3/4，每格標實測或推論；另加「多出的消耗花在哪」（填目標樹 39%、被擋重寫定位 25%、收尾多跑 17%，免費模型約省回 33%）。
 - **改了什麼**（軌 track-tech-refresh 003）：§11 開頭「數字待量測軌」改成數字出處一句（連到 `DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md`）；§11.1 換表，拿掉舊的每事件毫秒估算與「典型 session overhead」列，always-load／注入上限／磁碟／RAM 移到「這次量測沒涵蓋的固定成本」小表並標舊估算；§9.6「啟動或每句變慢」改寫預期值。
@@ -13,7 +17,6 @@
 - **原設計者看到的**：在 VS Code 裡，回覆最後一行 `上則評分 5/7｜沒過：R1、R4` 的「評分」點下去開 `text-specs/reader-designer-說明.md`（一句話說這份評什麼＋R1～R7 各一句白話），R1、R4 點下去直接跳到那一條；每條標題再點一次是它的判準卡（當初的指正原話）。終端機、`claude -p` 無頭跑照舊純文字。
 - **改了什麼**（軌 track-g15-text-score 004）：新檔 `text-specs/reader-designer-說明.md`；`hooks/wg_text_score.link_line` 在 `CLAUDE_CODE_ENTRYPOINT=claude-vscode` 且規格有說明檔時把評分一行改成 markdown 連結（沒過／作廢／未評的代號都連），路徑相對 UserPromptSubmit 收到的 cwd；`tail_note` 多收 cwd；`tools/text-score.py` 列現有規格時不列 `-說明` 檔、切法解析的巢狀三元拆開；TECH §7.11 兩列、`text-specs/README.md` 一段。規格本身沒動。
 - **驗證**：`hooks/verify/verify_text_score_stop.py` 新 3 案（VS Code 連結版與照抄記 copied、終端機／無頭／沒說明檔純文字、UPS 用 hook 輸入的 cwd），19 綠；`tools/verify/verify_text_score.py` 新 1 案（說明檔開頭句、七個錨點對規格代號、連到的卡都在、不被列成規格），91 綠。
-
 ## 2026-10-22 TECH.md 補「改判準卡要先宣告」與閘小修 006 的五條規則、文件軌不開 worktree
 - **原設計者看到的**：TECH.md 寫明改綁了切入點的判準卡要先寫「改判準卡｜<卡名>：<理由>」（§4.3、§7.0 改檔當下、§7.5），MCP 的 atom_write／atom_edit_meta／atom_retire 也擋；§7.8 規則表每條規則各有一列（98 條）；§13.4 寫明只改文件的軌直接在 live 改、不開 worktree。
 - **改了什麼**（軌 track-tech-refresh 002）：§3.1 PreToolUse matcher 照 settings.json 現況（含 MultiEdit 與三個 atom 工具）；§7.5 JudgeCardDeclare 拿掉「matcher 待套用」、補已知限制（腳本自己開檔寫看不到）；§7.8 新增 JUDGE_CARD_CHANGE_NEEDS_DECLARATION、CLAIM_CONDITIONAL_NOT_CLAIM、TRACKING_SAME_ITEM_NOT_REWRITTEN、SHELL_LITERAL_VAR_EXPANDED、INLINE_FLAG_BEFORE_PROGRAM 五列；§10 補 wg_judge_card.py、verify_judge_card_declare.py、verify/fixtures。只改文件。

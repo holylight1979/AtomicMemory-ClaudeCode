@@ -45,8 +45,12 @@ except ImportError:  # 頂層模組載入
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 _CODE_ROOT = Path(__file__).resolve().parents[1]   # 程式碼根（本檔所在的樹）：頂層資料夾名和資料根一起當泛詞排除；也算核心根
 
-# 字面「專案指涉」片語（泛用，非專案名）
+# 字面「專案指涉」片語（泛用，非專案名）。只是提示（規則 PROJECT_LITERAL_IS_HINT）：命中的只有這類字樣時，
+# AI 帶 scope_reason 說明為什麼是跨專案的就照寫並留帳；專名、專案路徑是查得到的事實，照擋。
 PROJECT_LITERALS = ("此專案", "本專案", "這個專案", "這專案")
+LITERAL_SOURCE = "字面專案指涉"
+LITERAL_HINT = ("命中的只有字面「此專案」這類字樣（字樣只是提示，規則 PROJECT_LITERAL_IS_HINT）：這段若是跨專案的通則"
+                "（例如在講這個詞本身）→ 帶 scope_reason=\"<一句：為什麼是跨專案的>\" 重送，會照寫並留帳；真的在講某個專案 → 照上面改寫。")
 
 _MEMBER_CELL_RE = re.compile(r"`([^`\s|]+?)/`")          # 表格內 `name/`
 _REPO_CODE_RE = re.compile(r"\{([A-Za-z0-9_\-]+)\}")     # {game_server}
@@ -375,7 +379,7 @@ def scan_texts(root: Path, fields: Dict[str, Any], terms: Optional[Dict[str, str
                     push(field_name, term, source, text)
             for lit in PROJECT_LITERALS:
                 if lit in text:
-                    push(field_name, lit, "字面專案指涉", text)
+                    push(field_name, lit, LITERAL_SOURCE, text)
             for m in _ABS_PATH_RE.finditer(text):
                 cand = _norm_path(m.group(0))
                 if cand == root_norm or cand.startswith(root_norm + "/"):
@@ -396,6 +400,33 @@ def _suggest_landing(root: Path, title: str, domain: Optional[str]) -> str:
     return str(base / "shared" / dom / f"{slug}.md")
 
 
+def _hooks_module(name: str):
+    """hooks/ 底下的模組（wg_release_rules＝判式正本、wg_core＝留帳）：照 atom_io.gate_bypass_refusal 載 hooks 模組的做法。"""
+    import sys
+    hooks = str(_CODE_ROOT / "hooks")
+    if hooks not in sys.path:
+        sys.path.insert(0, hooks)
+    return __import__(name)
+
+
+def literal_declared(hits: List[Dict[str, str]], scope_reason: Optional[str], gate: str, title: str) -> bool:
+    """規則 PROJECT_LITERAL_IS_HINT：命中的只有字面專案指涉、AI 帶了有理由的 scope_reason（不是空白、佔位、純標點）→ True 並留帳
+    guard-realm_declared；判式或留帳載不起來 → 浮 stderr、回 False（照擋，不因依賴缺失放行）。"""
+    if not hits or scope_reason is None or any(h["source"] != LITERAL_SOURCE for h in hits):
+        return False
+    import sys
+    try:
+        if not _hooks_module("wg_release_rules").reason_present(scope_reason):
+            return False
+        _hooks_module("wg_core").append_guard_log("realm_declared", {
+            "event": "declared", "gate": gate, "title": str(title or "")[:120], "terms": sorted({h["term"] for h in hits}),
+            "reason": str(scope_reason)[:200]})
+    except Exception as e:  # noqa: BLE001
+        print(f"[realm_gate] scope_reason 判式或留帳載不起來，照擋：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    return True
+
+
 def check_global_write(
     project_cwd: Optional[str],
     *,
@@ -404,8 +435,10 @@ def check_global_write(
     knowledge: Optional[Iterable[str]] = None,
     actions: Optional[Iterable[str]] = None,
     domain: Optional[str] = None,
+    scope_reason: Optional[str] = None,
 ) -> Optional[str]:
-    """根層（scope=global、本人跨專案 personal）寫入前的範疇閘。回 None=放行；回字串=拒寫理由。"""
+    """根層（scope=global、本人跨專案 personal）寫入前的範疇閘。回 None=放行；回字串=拒寫理由。
+    scope_reason：AI 對字面專案指涉的範疇宣告（規則 PROJECT_LITERAL_IS_HINT，見 literal_declared）。"""
     root = project_root_of(project_cwd)
     fields = {"title": title, "triggers": list(triggers or []),
               "knowledge": list(knowledge or []), "actions": list(actions or [])}
@@ -413,7 +446,7 @@ def check_global_write(
     hits = [] if core else scan_texts(root, fields)
     have = {(h["field"], h["term"].lower()) for h in hits}
     hits += [h for h in scan_known_projects(fields) if (h["field"], h["term"].lower()) not in have]
-    if not hits:
+    if not hits or literal_declared(hits, scope_reason, "global", title):
         return None
     shown = hits[:6]
     where = "根層" if core else f"專案「{root.name}」"
@@ -431,6 +464,8 @@ def check_global_write(
     else:
         lines.append(f"專案專屬知識改用：scope=\"shared\", project_cwd=\"{root}\"（domain 照給）"
                      f"→ 落 {_suggest_landing(root, title, domain)}")
+    if all(h["source"] == LITERAL_SOURCE for h in hits):
+        lines.append(LITERAL_HINT)
     lines += ["（本閘不受 skip_gate 影響；append/replace 帶專名的新內容同樣擋。）",
               f"[gate cwd={project_cwd}]"]
     return "\n".join(lines)
@@ -449,10 +484,10 @@ def scrub_project_details(text: str) -> str:
     return out
 
 
-def check_org_write(text_or_fields) -> List[str]:
+def check_org_write(text_or_fields, scope_reason: Optional[str] = None) -> List[str]:
     """公司層（scope=org）寫入前的範疇閘：內容含本機已登記專案名／專案根底下絕對路徑／字面專案指涉 → 回錯誤列
     （空列＝放行）。公司層給所有專案共用，專案細節要先 scrub（atom_io_cli action=scrub）再寫。
-    接受純文字或 {title, triggers, knowledge, actions} 欄位 dict。"""
+    接受純文字或 {title, triggers, knowledge, actions} 欄位 dict。scope_reason 見 literal_declared（規則 PROJECT_LITERAL_IS_HINT）。"""
     if isinstance(text_or_fields, dict):
         fields = text_or_fields
     else:
@@ -461,9 +496,9 @@ def check_org_write(text_or_fields) -> List[str]:
     for field_name, text in _iter_field_texts(fields):
         for lit in PROJECT_LITERALS:
             if lit in text:
-                hits.append({"field": field_name, "term": lit, "source": "字面專案指涉",
+                hits.append({"field": field_name, "term": lit, "source": LITERAL_SOURCE,
                              "excerpt": text.strip()[:80]})
-    if not hits:
+    if not hits or literal_declared(hits, scope_reason, "org", str(fields.get("title") or "")):
         return []
     errors = [
         "realm gate: scope=org rejected：公司層只放全公司共用的知識，不得帶專案名、專案路徑或「此專案」指涉。",
@@ -471,4 +506,6 @@ def check_org_write(text_or_fields) -> List[str]:
     errors += [f"命中：{h['field']}『{h['term']}』({h['source']})" for h in hits[:6]]
     errors.append("改寫：先 scrub（atom_io_cli action=scrub 或 realm_gate.scrub_project_details）去專案細節，"
                   "事實描述不走樣再寫；真屬單一專案的知識改 scope=shared＋該專案 project_cwd。")
+    if all(h["source"] == LITERAL_SOURCE for h in hits):
+        errors.append(LITERAL_HINT)
     return errors

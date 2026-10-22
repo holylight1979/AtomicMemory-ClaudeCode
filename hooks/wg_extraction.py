@@ -318,6 +318,59 @@ def detect_signal(prompt: str) -> Dict:
     return {"signal": signal, "score": round(score, 2), "matched": matched}
 
 
+# ─── 否決剛記的決策：字樣只是提示（規則 EXTRACT_VETO_NEEDS_JUDGMENT）───────────
+# 決策萃取（user-extract-worker）信心夠高就直接寫成卡，下一則 UPS 通知。使用者那則含「否」之類的字不再整批丟掉通知
+# （「是否」「否則」都會中，而且舊做法沒撤卡、只是不說）：通知照送，另問 AI 是不是在否決；AI 判是就 atom_retire 撤卡。
+
+EXTRACT_VETO_LABEL = "否決記憶"
+EXTRACT_VETO_MARKER = "[Guardian:ExtractVeto]"
+EXTRACT_VETO_HINTS = ("否", "不要記", "別記", "取消記憶")
+
+
+def extract_veto_hints(typed: str) -> List[str]:
+    """使用者本人打的字裡出現的否決提示字樣（子字串，只是提示）。"""
+    low = (typed or "").lower()
+    return [w for w in EXTRACT_VETO_HINTS if w in low]
+
+
+def extract_veto_question(hints: List[str], confirmed: List[Dict[str, Any]]) -> str:
+    """UPS 問 AI 的那一句（切入點登錄表靠 EXTRACT_VETO_MARKER 認）；列剛記的卡（有路徑才列路徑）。"""
+    items = "；".join(
+        f"「{str(e.get('statement', ''))[:60]}」" + (f"（{e['atom_path']}）" if e.get("atom_path") else "")
+        for e in confirmed[:3]) + (f"；另 {len(confirmed) - 3} 條見上面的通知" if len(confirmed) > 3 else "")
+    return (f"{EXTRACT_VETO_MARKER} 使用者這句有「{'、'.join(hints)}」（字樣只是提示，規則 EXTRACT_VETO_NEEDS_JUDGMENT）："
+            f"他是在否決剛記下的決策 {items} 嗎？是 → 用 atom_retire 撤掉那張卡，並寫一行「{EXTRACT_VETO_LABEL}｜是：<理由>」；"
+            f"只是句子裡剛好有這個字（是否、否則…）→ 寫「{EXTRACT_VETO_LABEL}｜不是：<理由>」。兩種都會留帳。")
+
+
+def settle_pending_veto(state: Dict[str, Any], session_id: str) -> None:
+    """上次問了、到下一則使用者訊息 AI 都沒回 → 留帳 undeclared（不自動撤卡：沒人判過不動已寫的卡）。"""
+    pending = state.pop("extract_veto_pending", None)
+    if isinstance(pending, dict):
+        from wg_core import append_guard_log
+        append_guard_log("extract_veto", {"session_id": session_id, "turn_seq": pending.get("turn"), "event": "undeclared",
+                                          "hints": pending.get("hints", []), "statements": pending.get("statements", []),
+                                          "atoms": pending.get("atoms", [])})
+
+
+def resolve_extract_veto(state: Dict[str, Any], session_id: str, text: str) -> Optional[bool]:
+    """Stop：有待判、本回合文字有理由有填的「否決記憶｜是／不是：<理由>」→ 留帳 judged、清待判。
+    回 True／False＝AI 判是／不是；None＝沒有待判或還沒回。撤卡是 AI 自己呼叫 atom_retire，這裡只記判斷。"""
+    pending = state.get("extract_veto_pending")
+    if not isinstance(pending, dict):
+        return None
+    import wg_release_rules as rr
+    decl = rr.yes_no_declaration(text, EXTRACT_VETO_LABEL)
+    if decl is None:
+        return None
+    state.pop("extract_veto_pending", None)
+    from wg_core import append_guard_log
+    append_guard_log("extract_veto", {"session_id": session_id, "turn_seq": pending.get("turn"), "event": "judged",
+                                      "veto": decl["yes"], "reason": decl["reason"], "hints": pending.get("hints", []),
+                                      "statements": pending.get("statements", []), "atoms": pending.get("atoms", [])})
+    return decl["yes"]
+
+
 # ─── Content Classify: plan vs knowledge (was wg_content_classify) ──────────
 
 PLAN_CONTENT_RE = re.compile(

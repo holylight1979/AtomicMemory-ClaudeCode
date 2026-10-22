@@ -31,12 +31,17 @@ def _hit(atom, sim, file_path):
             "file_path": file_path, "confidence": "[觀]", "layer": "shared"}
 
 
-def _run(monkeypatch, hits, labels, subdir=None):
-    """labels: list — 依 ollama_classify 呼叫順序逐次回傳。"""
+def _run(monkeypatch, hits, labels, subdir=None, declared=None):
+    """labels: list — 依 ollama_classify 呼叫順序逐次回傳。declared：AI 的衝突宣告（規則 CONFLICT_DECLARED_BY_AI），留帳收掉不落真 Logs。"""
     seq = iter(labels)
     monkeypatch.setattr(det, "vector_search", lambda *a, **k: hits)
     monkeypatch.setattr(det, "ollama_classify", lambda **k: next(seq))
-    return det.run_write_check("incoming fact", None, "shared", subdir=subdir)
+    monkeypatch.setattr(det._hooks_module("wg_core"), "append_guard_log", lambda *a, **k: None)
+    return det.run_write_check("incoming fact", None, "shared", subdir=subdir, declared=declared)
+
+
+def _conflict(name):
+    return [{"of": name, "verdict": "conflict", "why": "同一件事、同一範圍，說法相反"}]
 
 
 def test_single_contradict_flips_to_unstable_warn(monkeypatch):
@@ -49,9 +54,14 @@ def test_single_contradict_flips_to_unstable_warn(monkeypatch):
 
 
 def test_double_confirmed_contradict_still_blocks(monkeypatch):
+    """CONFLICT_DECLARED_BY_AI：複驗一致的 CONTRADICT 只是候選——沒宣告不寫（need_declaration），AI 宣告衝突才 contradict。"""
     out = _run(monkeypatch,
                [_hit("a", 0.9, "/p/.claude/memory/shared/a.md")],
                ["CONTRADICT", "CONTRADICT"])
+    assert out["verdict"] == "need_declaration", out
+    out = _run(monkeypatch,
+               [_hit("a", 0.9, "/p/.claude/memory/shared/a.md")],
+               ["CONTRADICT", "CONTRADICT"], declared=_conflict("a"))
     assert out["verdict"] == "contradict", out
 
 
@@ -66,11 +76,18 @@ def test_cross_partition_contradict_warns_not_blocks(monkeypatch):
 
 
 def test_same_partition_contradict_still_blocks(monkeypatch):
+    """同分區的穩定 CONTRADICT 照樣是候選：沒宣告不寫，宣告衝突才 contradict。"""
     out = _run(monkeypatch,
                [_hit("cfg", 0.92,
                      "/repo/.claude/memory/projects/AppB/cfg.md")],
                ["CONTRADICT", "CONTRADICT"],
                subdir="projects/AppB")
+    assert out["verdict"] == "need_declaration", out
+    out = _run(monkeypatch,
+               [_hit("cfg", 0.92,
+                     "/repo/.claude/memory/projects/AppB/cfg.md")],
+               ["CONTRADICT", "CONTRADICT"],
+               subdir="projects/AppB", declared=_conflict("cfg"))
     assert out["verdict"] == "contradict", out
 
 
