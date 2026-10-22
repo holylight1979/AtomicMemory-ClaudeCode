@@ -11626,6 +11626,27 @@
         "資料檔宣告"
       ],
       "scope": "global"
+    },
+    {
+      "name": "cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼",
+      "path": "memory/CC與原子記憶契約/cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼.md",
+      "triggers": [
+        "VS Code 擴充",
+        "markdown 連結",
+        "檔案連結",
+        "可點連結",
+        "錨點",
+        "heading anchor",
+        "#L12",
+        "相對路徑連結",
+        "回覆裡的連結點不開",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "claude-vscode"
+      ],
+      "scope": "global",
+      "related": [
+        "claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion"
+      ]
     }
   ]
 }
