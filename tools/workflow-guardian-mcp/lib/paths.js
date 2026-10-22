@@ -52,6 +52,24 @@ function loadConfig() {
   }
 }
 
+// MIRROR: hooks/wg_core.py:v6_enabled — v6 守門總開關，預設關：WG_V6=1 開、WG_V6=0 關（優先）；沒設看 config.json 的 v6.enabled，
+// workflow/config.local.json（不進版控）同名鍵蓋過。config 每次呼叫重讀；WG_V6 是 MCP 行程啟動時的環境，改了要重開 session。
+const CONFIG_LOCAL_PATH = path.join(WORKFLOW_DIR, "config.local.json");
+function v6Enabled() {
+  const env = String(process.env.WG_V6 || "").trim();
+  if (env === "0" || env === "1") return env === "1";
+  let local = {};
+  try { local = JSON.parse(fs.readFileSync(CONFIG_LOCAL_PATH, "utf-8")); } catch (e) {
+    if (e.code !== "ENOENT") {
+      try { process.stderr.write(`[workflow-guardian] ${CONFIG_LOCAL_PATH} 讀取失敗，略過本機覆寫：${e.message}\n`); } catch {}
+    }
+  }
+  const sec = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});   // 只認 JSON 的 true，同 py
+  const base = sec((loadConfig() || {}).v6), over = local && "v6" in local ? local.v6 : undefined;
+  const v6 = over === undefined ? base : (over && typeof over === "object" && !Array.isArray(over) ? { ...base, ...over } : {});
+  return v6.enabled === true;
+}
+
 // MIRROR: hooks/wg_core.py:load_org_local — 這台機器專屬的公司層狀態（不進版控）；沒檔 → {}，壞檔 → {} 且 stderr 一行。
 const ORG_LOCAL_PATH = path.join(WORKFLOW_DIR, "org-memory.local.json");
 function loadOrgLocal() {
@@ -110,6 +128,6 @@ if (PYTHON_EXE_FALLBACK) {
 
 module.exports = {
   CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, CONFIG_PATH, REGISTRY_PATH, VERSION_PATH,
-  loadVersions, VERSIONS, loadRegistry, getRegistryMemDirs, loadConfig, loadOrgLocal,
+  loadVersions, VERSIONS, loadRegistry, getRegistryMemDirs, loadConfig, loadOrgLocal, v6Enabled,
   resolvePythonExe, PYTHON_EXE, PYTHON_EXE_FALLBACK,
 };

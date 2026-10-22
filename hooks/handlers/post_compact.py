@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import _ensure_state, write_state, output_nothing, _now_iso, MEMORY_DIR
+from wg_core import _ensure_state, write_state, output_nothing, _now_iso, MEMORY_DIR, v6_enabled
 from wg_atoms import load_atoms_within_budget
 
 _DEFAULT_BUDGET = 800   # 印象式重注入 token 預算（緊湊；config: atoms.post_compact_budget）
@@ -168,10 +168,12 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         trigger = input_data.get("trigger", "")
         # atom 名單空不 return（A2.2）：只注入過導讀卡的 session 也要 stash 綜觀；需求目標樹不看部位照送；三樣都空才什麼都不留
         atom_blob, injected, unresolved = _atom_blob(state, config, trigger)
-        sent_at = state.pop("need_goal_recovery_sent", None)
-        goal_sent = isinstance(sent_at, (int, float)) and time.time() - sent_at < _GOAL_SENT_WINDOW_S
-        goal = "" if goal_sent else goal_blob(session_id, config, input_data, state)
-        overview_blob, parts = _overview_blob(state, config, trigger, has_goal=bool(goal) or goal_sent)
+        sent_at, goal, overview_blob, parts = None, "", "", []
+        if v6_enabled(config):      # v6 守門關閉時只復原 atom 內文（9e476fd0 的行為）
+            sent_at = state.pop("need_goal_recovery_sent", None)
+            goal_sent = isinstance(sent_at, (int, float)) and time.time() - sent_at < _GOAL_SENT_WINDOW_S
+            goal = "" if goal_sent else goal_blob(session_id, config, input_data, state)
+            overview_blob, parts = _overview_blob(state, config, trigger, has_goal=bool(goal) or goal_sent)
         if not atom_blob and not overview_blob and not goal:
             if sent_at is not None:   # 旗標已 pop，要落盤
                 write_state(session_id, state)

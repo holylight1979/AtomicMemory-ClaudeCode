@@ -14,9 +14,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from wg_core import _now_iso, _atom_debug_error, user_typed_text
+from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled
 from wg_extraction import detect_signal, extract_veto_hints, extract_veto_question, settle_pending_veto
 from wg_release_rules import is_dispatch_message
+from wg_evasion import is_dismiss_prompt
 from handlers._shared import entry_note, with_note
 from harness_text import peer_message_bodies   # lib/（wg_core 已把它放進 sys.path）
 
@@ -99,7 +100,10 @@ def run_pre_gates(
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
     track_turn_prompts(state, clean_prompt)
-    # 使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，
+    v6 = v6_enabled(config)
+    if not v6 and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
+        state["failing_tests"] = []   # v6 守門關閉：照 9e476fd0，使用者說「先這樣／跳過」就清掉紅測清單
+    # v6：使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，
     # Stop 的 TestFailGate 只豁免對得上的那幾筆（規則 USER_WAIVER_NEEDS_CITATION，wg_release_rules.waived_failures）。
 
     # ─── User Decision Detector gate ────────────────────────────
@@ -125,9 +129,14 @@ def run_pre_gates(
     # ─── Confirmed extractions ──
     # 「否／不要記…」只是提示（規則 EXTRACT_VETO_NEEDS_JUDGMENT）：通知照送；使用者本人打的字有這些字樣 → 問 AI 是不是在否決，
     # AI 判是才用 atom_retire 撤卡並宣告。上次問了沒回的，這則使用者訊息先結帳（undeclared，不自動撤）。
-    if typed:
+    if typed and v6:
         settle_pending_veto(state, session_id)
     confirmed = state.get("confirmed_extractions", [])
+    if confirmed and not v6 and any(kw in prompt_lower for kw in ("否", "不要記", "別記", "取消記憶")):
+        for ext in confirmed:   # v6 守門關閉：照 9e476fd0，否決詞直接丟掉這批萃取結果（v6 改成問 AI 再撤卡）
+            _atom_debug_log("user-extract:rejected", f"User vetoed: {ext.get('statement', '')[:80]}", config)
+        state["confirmed_extractions"] = []
+        confirmed = []
     if confirmed:
         for ext in confirmed:
             stmt = ext.get("statement", "")
@@ -153,7 +162,7 @@ def run_pre_gates(
                 )
         hints = extract_veto_hints(typed)
         written = [e for e in confirmed if e.get("write_result") in ("wrote", "deduped")]
-        if hints and written:
+        if v6 and hints and written:
             q = extract_veto_question(hints, written)
             lines.append(with_note(q, entry_note(q, "user_prompt", session_id=session_id, state=state, config=config)))
             state["extract_veto_pending"] = {

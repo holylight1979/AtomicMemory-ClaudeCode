@@ -11,6 +11,7 @@ const ACTIONS = ["created", "appended", "replaced", "superseded", "retired", "sk
 const WRITE_ACTIONS = new Set(["created", "appended", "replaced", "superseded"]);
 // 萃取路由（v6 M2）：part_doc=有部位→該部位病灶文件＋卡一行指標；global=去專案細節後跨專案；org=全公司；
 // local=只在記憶系統；shared=專案；candidate_global=realm 拒後先落 shared 標「候選全域」。皆選填。
+const { v6Enabled } = require("./paths");
 const ROUTES = ["part_doc", "global", "org", "local", "shared", "candidate_global"];
 
 /** 逐 item 驗必填；回錯誤字串陣列（空＝合格）。 */
@@ -22,10 +23,11 @@ function validateItems(items) {
     if (!SOURCES.includes(it.source)) errs.push(`${tag}.source 無效（${it.source}），允許：${SOURCES.join("|")}`);
     if (!ACTIONS.includes(it.action)) errs.push(`${tag}.action 無效（${it.action}），允許：${ACTIONS.join("|")}`);
     if (!String(it.summary || "").trim()) errs.push(`${tag}.summary 必填`);
-    if (it.route !== undefined && !ROUTES.includes(it.route)) errs.push(`${tag}.route 無效（${it.route}），允許：${ROUTES.join("|")}`);
-    if (it.route === "part_doc" && !String(it.part || "").trim()) errs.push(`${tag}: route=part_doc 必填 part（部位名）`);
-    if (it.candidate_global !== undefined && typeof it.candidate_global !== "boolean") errs.push(`${tag}.candidate_global 必須是 boolean`);
-    if (it.route === "candidate_global" && it.candidate_global === false) errs.push(`${tag}: route=candidate_global 但 candidate_global=false`);
+    const v6 = v6Enabled();   // 萃取路由欄位（route／part／candidate_global）是 v6 加的；守門關閉時不驗
+    if (v6 && it.route !== undefined && !ROUTES.includes(it.route)) errs.push(`${tag}.route 無效（${it.route}），允許：${ROUTES.join("|")}`);
+    if (v6 && it.route === "part_doc" && !String(it.part || "").trim()) errs.push(`${tag}: route=part_doc 必填 part（部位名）`);
+    if (v6 && it.candidate_global !== undefined && typeof it.candidate_global !== "boolean") errs.push(`${tag}.candidate_global 必須是 boolean`);
+    if (v6 && it.route === "candidate_global" && it.candidate_global === false) errs.push(`${tag}: route=candidate_global 但 candidate_global=false`);
     if (it.action === "skip") {
       if (!String(it.reason || "").trim()) errs.push(`${tag}: action=skip 必填 reason（一句為何不寫）`);
       return;

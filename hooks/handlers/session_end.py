@@ -14,7 +14,7 @@ from typing import Any, Dict
 from wg_core import (
     CLAUDE_DIR, CODE_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     _ensure_state, _now_iso, write_state,
-    _atom_debug_error,
+    _atom_debug_error, v6_enabled,
     discover_all_project_memory_dirs, get_project_memory_dir, resolve_staging_dir,
 )
 from wg_atoms import (
@@ -79,11 +79,13 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         return
 
     _se_sentinel_arm(session_id)
+    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的收尾
 
     # scorecard：只從 state 算 S1／S3／S5、單次 append 一行（<100 ms），放哨兵之後第一位；失敗只記 debug 不影響收尾
     try:
-        from wg_scorecard import append_scorecard_line
-        append_scorecard_line(state, session_id)
+        if v6:
+            from wg_scorecard import append_scorecard_line
+            append_scorecard_line(state, session_id)
     except Exception as e:
         _atom_debug_error("session_end:scorecard", e)
 
@@ -108,9 +110,10 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         print(f"SessionEnd cleanup error: {e}", file=sys.stderr)
     try:
         # run_verify 自寫的驗證收據（workflow/verify-ledger/_runs/）：留最新 200 份、刪 30 天以上；單份刪不掉在函式內浮 stderr
-        from wg_core import CLAUDE_DIR as _CD
-        from self_receipt import prune_self_runs
-        prune_self_runs(_CD)
+        if v6:
+            from wg_core import CLAUDE_DIR as _CD
+            from self_receipt import prune_self_runs
+            prune_self_runs(_CD)
     except Exception as e:
         print(f"SessionEnd 自寫收據清理失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
@@ -257,13 +260,14 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         print(f"Over-engineering metrics error: {e}", file=sys.stderr)
 
     # 需求目標：還沒結束的樹沒有完整對照（知識類有樹沒對照、寫碼類一直沒交付）→ 守門紀錄，不打擾使用者
-    try:
-        import wg_need_goal as _ng
-        from wg_need_goal_points import silent_unreconciled
-        if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
-            silent_unreconciled(session_id, int(state.get("turn_seq", 0) or 0))
-    except Exception as e:
-        print(f"[NeedGoal] session 結束的對照紀錄失敗：{type(e).__name__}: {e}", file=sys.stderr)
+    if v6:
+        try:
+            import wg_need_goal as _ng
+            from wg_need_goal_points import silent_unreconciled
+            if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
+                silent_unreconciled(session_id, int(state.get("turn_seq", 0) or 0))
+        except Exception as e:
+            print(f"[NeedGoal] session 結束的對照紀錄失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
     cwd = state.get("session", {}).get("cwd", "")
     staging_dir = resolve_staging_dir(cwd)

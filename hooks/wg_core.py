@@ -197,7 +197,7 @@ def load_config() -> Dict[str, Any]:
         local = json.loads(CONFIG_LOCAL_PATH.read_text(encoding="utf-8"))
     except FileNotFoundError:
         local = {}
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, ValueError) as e:   # ValueError 含 JSON 壞與 UTF-8 解不開
         print(f"[workflow-guardian] {CONFIG_LOCAL_PATH} 讀取失敗，略過本機覆寫：{e}", file=sys.stderr)
         local = {}
     for key, value in (local if isinstance(local, dict) else {}).items():
@@ -210,11 +210,13 @@ def v6_enabled(config: Dict[str, Any]) -> bool:
     """v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。
 
     環境變數 WG_V6=1 開、WG_V6=0 關（優先）；沒設看 config 的 v6.enabled（workflow/config.local.json 可在本機打開）。
+    只認 JSON 的 true：寫成字串 "false"、v6 段不是物件，一律當關。
     """
     env = os.environ.get("WG_V6", "").strip()
     if env in ("0", "1"):
         return env == "1"
-    return bool((config.get("v6") or {}).get("enabled", False))
+    sec = config.get("v6")
+    return isinstance(sec, dict) and sec.get("enabled") is True
 
 
 ORG_LOCAL_NAME = "org-memory.local.json"

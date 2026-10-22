@@ -4,7 +4,7 @@
 // Python PostToolUse 解析進 state.atom_ops，knowledge_harvest_report 的逐項核對以它為準（one-writer：本檔不寫 state）。
 const fs = require("fs");
 const path = require("path");
-const { CLAUDE_DIR, CODE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE } = require("./paths");
+const { CLAUDE_DIR, CODE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE, v6Enabled } = require("./paths");
 const { crashLog } = require("./log");
 // 落點／定位／路由全部由 py lib/atom_io.locate_atom 裁決（spawnAtomCli("locate")），
 // js 只採用回傳的路徑；realm.js 只剩 js 自己真的需要的（使用者名、去重層清單）。
@@ -163,9 +163,9 @@ async function toolAtomWrite(id, args) {
     }
     // Realm gate（org）：公司層給所有專案共用，內容帶專案名／專案路徑／「此專案」→ 擋（py lib/realm_gate.check_org_write
     // 單源）。必須在 org→shared 改寫之前跑，否則 org 寫入永遠不過 realm 閘。不受 skip_gate 影響。
-    const rgo = await spawnAtomCli("realm_check", {
+    const rgo = v6Enabled() ? await spawnAtomCli("realm_check", {   // 公司層 realm 閘是 v6 加的；守門關閉時不跑
       scope: "org", project_cwd: project_cwd || process.cwd(), title, triggers, knowledge, actions, domain, scope_reason,
-    });
+    }) : { ok: true };
     if (!rgo.ok) return reply(`atom_write: ${rgo.error}`, true);
     scope = "shared";
     project_cwd = orgRoot;
@@ -425,8 +425,8 @@ async function toolAtomWrite(id, args) {
       return reply(`Atom not found: ${slug}.md — use mode=create first`, true);
     }
     // 預算與分型（py 端 mode=append：跳 dedup／quality，算既有 knowledge 區＋新增；超了不截斷、回該去哪）
-    const ga = await execWriteGate(knowledge.join("\n"), confidence, null, title,
-      { mode: "append", existing_path: filePath, actions, depends, kind_hint });
+    const ga = v6Enabled() ? await execWriteGate(knowledge.join("\n"), confidence, null, title,   // 守門關閉：append 不過預算閘（9e476fd0 沒有）
+      { mode: "append", existing_path: filePath, actions, depends, kind_hint }) : {};
     if (ga.action === "skip") {
       return reply(gateRejectText(ga), true);
     }
@@ -504,8 +504,8 @@ async function toolAtomWrite(id, args) {
     const dependsFinal = Array.isArray(depends) ? depends : prevDepends;
     const supersedesFinal = Array.isArray(supersedes) ? supersedes : (prevSupersedes || []);
     // 預算與分型（py 端 mode=replace：跳 dedup／quality；hub 五段＋Depends、預算上限由 py 回）
-    const gr = await execWriteGate(knowledge.join("\n"), confidence, null, title,
-      { mode: "replace", existing_path: filePath, actions, depends: dependsFinal, kind_hint });
+    const gr = v6Enabled() ? await execWriteGate(knowledge.join("\n"), confidence, null, title,   // 守門關閉：replace 不過預算閘（9e476fd0 沒有）
+      { mode: "replace", existing_path: filePath, actions, depends: dependsFinal, kind_hint }) : {};
     if (gr.action === "skip") {
       return reply(gateRejectText(gr), true);
     }

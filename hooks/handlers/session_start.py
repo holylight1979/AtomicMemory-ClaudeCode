@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import (
     CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
     MEMORY_INDEX,
-    _now_iso, _atom_debug_error,
+    _now_iso, _atom_debug_error, v6_enabled,
     get_project_memory_dir, find_project_root,
     register_project,
     read_state, write_state, new_state, _find_active_sibling_state,
@@ -1025,7 +1025,7 @@ def _need_goal_note(session_id: str, path: Path) -> str:
         return ""
 
 
-def _next_phase_pointer(cwd: str, source: str, session_id: str = "") -> list:
+def _next_phase_pointer(cwd: str, source: str, session_id: str = "", v6: bool = True) -> list:
     """壓縮／恢復後的接續指標：找最新的 `_staging/next-phase-*.md`（專案層優先，其次根層），
     一行叫模型先 Read 它並覆述現狀＋下一步。壓縮會丟掉對話裡的計畫脈絡；這個檔是單一權威狀態，
     不靠模型記得「該去讀」。檔裡有【需求目標樹】區塊時多補一句匯入與否。找不到就不吵。fail-open。"""
@@ -1050,7 +1050,7 @@ def _next_phase_pointer(cwd: str, source: str, session_id: str = "") -> list:
         why = "context 剛壓縮" if source == "compact" else "session 恢復"
         return [
             f"[Guardian:Resume] {why}：對話裡的計畫脈絡可能已失真 → 先 `Read {newest.as_posix()}`"
-            "（最新交接檔），用一句話覆述現狀＋下一步再動工。" + _need_goal_note(session_id, newest)
+            "（最新交接檔），用一句話覆述現狀＋下一步再動工。" + (_need_goal_note(session_id, newest) if v6 else "")
         ]
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("session_start:next_phase_pointer", e)
@@ -1097,6 +1097,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
     source = input_data.get("source", "startup")
+    v6 = v6_enabled(config)     # 關＝只送 9e476fd0 就有的開場注入與提示
     root_res = None
     root_lines: List[str] = []
     try:
@@ -1104,7 +1105,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         root_lines = _project_root_notice(root_res, cwd)
     except Exception as e:
         _atom_debug_error("session_start:project_root", e)
-    root_lines = [*root_lines, *_first_session_hint_lines(root_res, cwd)]
+    if v6:
+        root_lines = [*root_lines, *_first_session_hint_lines(root_res, cwd)]
 
     # log rotation — prevent runaway log bloat
     try:
@@ -1112,7 +1114,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         rotate_log_if_oversized(WORKFLOW_DIR / "guardian-crash.log", max_mb=10)
         rotate_log_if_oversized(WORKFLOW_DIR / "extract-worker.log", max_mb=10)
         rotate_log_if_oversized(CLAUDE_DIR / "Logs" / "codex-companion.log", max_mb=10)
-        prune_workflow_records(current_sid=session_id)  # workflow/ 執行紀錄照 _shared.WORKFLOW_RETENTION 清
+        if v6:
+            prune_workflow_records(current_sid=session_id)  # workflow/ 執行紀錄照 _shared.WORKFLOW_RETENTION 清
     except Exception as e:
         _atom_debug_error("session_start:log_rotation", e)
 
@@ -1159,9 +1162,9 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"[Workflow Guardian] Session resumed ({source}). Phase: {phase}.",
             f"Modified files: {mod_count}. Knowledge queue: {kq_count}.",
             *root_lines,
-            *_next_phase_pointer(cwd, source, session_id),
+            *_next_phase_pointer(cwd, source, session_id, v6),
         ]
-        if source == "compact":
+        if source == "compact" and v6:
             # 需求目標樹當場重送（不等下一批工具）；記時間讓緊接著的 PostCompact 不再存一份
             try:
                 from wg_need_goal_points import recovery_text
@@ -1198,7 +1201,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             state["_skip_vector_init"] = True
 
         # 追蹤提示最先算（只要 cwd 與 state）：開場超時降級、或背景鬧鐘代送時，最該到眼前的這段已經備好
-        tracking_lines = _tracking_advisory(cwd, state)
+        tracking_lines = _tracking_advisory(cwd, state) if v6 else []
         lines = ["[Workflow Guardian] Active.", *root_lines, *tracking_lines]
         _hook_timing.set_fallback(lambda: _fallback_output(lines))
         _hook_lap("追蹤提示")
@@ -1404,7 +1407,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_followup_advisory())
         if _hook_lap("回訪"):
             _degraded_exit(session_id, state, lines)
-        lines.extend(_verify_scope_advisory(cwd))
+        if v6:
+            lines.extend(_verify_scope_advisory(cwd))
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_vcs_ignore_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
@@ -1425,7 +1429,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 lines.append(f"[Pending Review] {pending} 件待裁決（shared/_pending_review/）")
         try:   # 背景收割（wg_bg_harvest）落在資料根的待審候選：有才提一行，讓它有人看（不看就是死路）
             from wg_bg_harvest import staged_count
-            _staged = staged_count()
+            _staged = v6 and staged_count()
             if _staged:
                 lines.append(f"[Harvest] {_staged} 張背景收割候選待審（memory/_staging/harvest-candidates/）："
                              "值得留的用 atom_write 落卡，不要的刪掉")
@@ -1626,7 +1630,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # 可觀測性：IDENTITY.md 完整性哨兵與必載檔硬契約哨兵（登記表驅動；USER.md 已由 user-init.sh 從 USER-{user}.md 拷好）。
     # 兩者都看 Claude Code 設定目錄（實際載入的那幾份），不看資料根：WG_CLAUDE_DIR 指到別處時那裡沒有啟動檔
     try:
-        lines.extend(check_identity_integrity(claude_config_dir(), CLAUDE_DIR))
+        if v6:
+            lines.extend(check_identity_integrity(claude_config_dir(), CLAUDE_DIR))
     except Exception as e:
         print(f"identity integrity check error: {e}", file=sys.stderr)
     try:
@@ -1636,7 +1641,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if _hook_lap("必載檔哨兵"):
         _degraded_exit(session_id, state, lines)
 
-    _take_git_snapshot(state, cwd)
+    if v6:
+        _take_git_snapshot(state, cwd)
     if _hook_lap("git 快照"):
         _degraded_exit(session_id, state, lines)
     write_state(session_id, state)

@@ -13,7 +13,7 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 import sys
 from typing import Any, Dict
 
-from wg_core import _ensure_state, write_state, output_json, output_nothing
+from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled
 
 
 def _points_module() -> Any:
@@ -41,13 +41,14 @@ def _peer_lines(ngp: Any, session_id: str, input_data: Dict[str, Any], config: D
 def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
-    ngp = _points_module() if state else None
+    v6 = v6_enabled(config)     # 關＝只做 9e476fd0 就有的壓縮後 atom 復原與 handoff 提示
+    ngp = _points_module() if state and v6 else None
     peer = _peer_lines(ngp, session_id, input_data, config, state) if ngp else []
     goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
     # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
     if not state or not (
-        state.get("pending_reinjection") or state.get("pending_reinjection_overview") or state.get("pending_handoff_emit")
-        or state.get("pending_reinjection_goal") or goal_due or peer
+        state.get("pending_reinjection") or state.get("pending_handoff_emit")
+        or (v6 and (state.get("pending_reinjection_overview") or state.get("pending_reinjection_goal"))) or goal_due or peer
     ):
         output_nothing()
         return
@@ -72,13 +73,14 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                 parts.append(blob)
 
         # (1a) 壓縮後需求目標樹獨立重送（不依附部位綜觀）：排在 atom 內文後、綜觀前（綜觀的「主目標」指向它）；一次性 pop
-        goal = state.pop("pending_reinjection_goal", None)
+        goal = state.pop("pending_reinjection_goal", None) if v6 else None
         if goal:
             parts.append(goal)
 
         # (1b) 壓縮後 OverviewHub 綜觀重注（A2.2／A2.3）：順序 atom 內文先、綜觀後；一次性 pop
-        overview = state.pop("pending_reinjection_overview", None)
-        state.pop("pending_reinjection_parts", None)
+        overview = state.pop("pending_reinjection_overview", None) if v6 else None
+        if v6:
+            state.pop("pending_reinjection_parts", None)
         if overview:
             parts.append(overview)
 

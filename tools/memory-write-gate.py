@@ -310,7 +310,25 @@ def load_config() -> Dict[str, Any]:
             defaults.update(cfg.get("write_gate", {}))
         except (json.JSONDecodeError, OSError):
             pass
+    if not _v6_on():
+        defaults["dedupe_declaration"] = False   # v6 守門關閉：相似不要求宣告，回 9e476fd0 的 skip／suggest update
     return defaults
+
+
+def _v6_on() -> bool:
+    """v6 守門總開關（判法只在 hooks/wg_core.v6_enabled：WG_V6 環境變數、config.local.json 覆寫）；載不進來當關（出廠預設）並 stderr。"""
+    env = os.environ.get("WG_V6", "").strip()
+    if env in ("0", "1"):
+        return env == "1"
+    try:
+        hooks_dir = str(_SELF_ROOT / "hooks")
+        if hooks_dir not in sys.path:
+            sys.path.insert(0, hooks_dir)
+        from wg_core import load_config as _wg_load_config, v6_enabled
+        return v6_enabled(_wg_load_config())
+    except Exception as e:  # noqa: BLE001
+        print(f"[write-gate] 讀 v6 開關失敗，當成關（相似不要求宣告）：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
 
 
 # ─── Quality Score ───────────────────────────────────────────────────────────

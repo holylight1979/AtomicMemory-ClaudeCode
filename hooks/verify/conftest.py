@@ -9,8 +9,11 @@
 3. 每一案給產出物帳本（handlers/aec_ledger 的 WORKFLOW_DIR/aec-tempfiles/<session>.jsonl）一個自己的空資料夾，放在受測目錄外。
    為什麼：同一次 pytest 的資料根是共用的、案例的 session id 又都一樣，前面案例建的暫存 repo 會留在帳上，後面每次收尾都去查
    它們的 git 狀態——案例變慢，錄製檔還錄進別案的路徑，單跑那一案就對不上。要測帳本本身的案例自己再換資料夾。
+4. 每一案預設 WG_V6=1（v6 守門總開關打開）：這些案例測的是 v6 守門本身，總開關出廠預設關；外面明設 WG_V6 就照外面。
+   測開關本身的案例（verify_v6_switch.py）自己設或清 WG_V6。
 怎麼跑：pytest 自動載入，不用另外呼叫。
 """
+import os
 import sys
 
 import pytest
@@ -33,3 +36,9 @@ def _no_reading_path_worker(monkeypatch):
     rph = sys.modules.get("wg_reading_path")   # 測試模組匯入 handlers.stop 時就載入；沒載入＝這支測試不走收尾
     if rph is not None:
         monkeypatch.setattr(rph, "_spawn_worker", lambda path: None)
+
+
+@pytest.fixture(autouse=True)
+def _wg_v6_default_on(monkeypatch):
+    if "WG_V6" not in os.environ:   # 外面明設 WG_V6 就照它
+        monkeypatch.setenv("WG_V6", "1")

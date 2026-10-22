@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 v6 守門總開關（預設關）
+- **交給 AI 寫程式時會看到的**：裝好預設不跑 v6 加的守門（需求目標樹、寫碼查核、第二意見、拐彎判斷、文字評分、判準卡、動資料檔／改舊測試／病形／繞閘宣告、背景收割等），只留 9e476fd0 以前就有的處理；導讀卡照送、定位三行降回只提醒不擋，紅測閘訊息回舊文字、「先這樣／跳過」照舊清紅測。要開：`WG_V6=1`，或 `workflow/config.local.json`（不進版控）寫 `{"v6": {"enabled": true}}`；`WG_V6=0` 強制關。
+- **改了什麼**（軌 track-v6-switch 001，裁定 #65）：`wg_core.load_config` 疊 `config.local.json`、新 `v6_enabled`（只認 JSON true）；config `v6.enabled=false`；dispatcher 關閉時不分派 v6 才有的事件（PostToolUseFailure、SubagentStop）、v6 才掛的工具（Read、AskUserQuestion…）、裁判子 session，不起 hook 計時；各 handler 分派點包 `if v6`；MCP `paths.v6Enabled`（鏡像）管公司層 realm 閘、append／replace 預算閘、收割路由欄位驗證，`memory-write-gate` 關閉時相似不要求宣告；兩份 conftest 案例預設 `WG_V6=1`。
+- **驗證**：新案例 `hooks/verify/verify_v6_switch.py`（三態、v6 閘關閉不擋／打開照擋、舊處理照跑；pytest 與直接跑 `V6_SWITCH_CHECK`）；`WG_V6=1` 目標 verify 3434 綠、3 紅單跑皆綠（錄製檔呼叫序、live 向量服務逾時）；題 B′ 關閉狀態實跑一次：token 為全關兩跑平均的 0.86 倍、牆鐘 0.72 倍。
 ## 2026-10-22 守門減量 001：同一件事只問一次，記帳交程式或背景免費模型
 - **交給 AI 寫程式時會看到的**：目標樹 `set` 可以同一次帶子目標（`items`），`reconcile` 收據寫 `latest` 不用先 read 查號碼，改了程式後的「一句進度」不用再叫 `update`（程式記、背景 gemma 草擬）；add／update／reconcile 只送回精簡樹。改部位的檔被擋時第一則就給齊定位五行的要求與範例，同一批平行改檔其餘只回一行，判準卡同一個使用者回合只送一次全文。宣告完成不再被擋去收割，改成背景產待審候選卡（開場一行提示）。交了收尾檢核就不再被同步提醒擋；話裡有「commit」不再注入 Sync context。宣告驗證範圍的回應直接講怎樣跑才算收據。
 - **改了什麼**（軌 track-cost-cut 001，裁定 #62）：`wg_need_goal`（set items、`_fill_latest`／`refresh_auto_evidence`、`auto_progress` 取代 (f1) 擋、`goal_gate=false` 也記帳、寫入動作回 compact、`snapshot_for_report` 先換 latest）；MCP `need-goal.js`／`mcp.js` 同規則；`wg_overview.on_edit`（LOCATE_ASK_ONCE、DENY_SAME_BATCH_SHORT）；`wg_entrypoint.entry_note`（CARD_ONCE_PER_TURN，`workflow/entry-sent/`，保留表加一列）；新檔 `hooks/wg_bg_harvest.py`＋`stop.py` 收割段與 AlsoOwed、`session_start` 待審提示、config `harvest.background*`；`user_prompt_submit` Sync context→stderr、`stop.py` SyncReminder 有收尾檢核不擋、底部一般擋只剩待記知識／文件漂移；`wg_verify_scope` RUN_SHAPE_HINT。TECH §11.2（新）、§6.3、§7.1、§7.7、§12，need-goal 契約 §5.3／§5.4／§6／§8。

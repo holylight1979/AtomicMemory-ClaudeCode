@@ -23,7 +23,7 @@ from wg_core import (
     check_memory_path_block, check_svn_test_block,
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
     read_state, read_state_status,
-    _atom_debug_log,
+    _atom_debug_log, v6_enabled,
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
@@ -1599,6 +1599,8 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
 def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, path: str) -> str:
     """切入點契約（TECH §7.10）：text 原樣在前，認出切入點就接判準卡並留帳。只在真的要送訊息（deny 或提醒）時才呼叫，
     一般工具什麼都不送的放行路徑不匯入、不讀登錄表。"""
+    if not v6_enabled(config):      # 判準卡是 v6 才有
+        return text
     from handlers._shared import entry_note, with_note
     return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
 
@@ -1669,9 +1671,32 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
     output_nothing()
 
 
+def _pre_v6_hub_warn(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
+                     sid: str, state: Optional[Dict[str, Any]]) -> Optional[str]:
+    """v6 守門關閉時的 OverviewHub（9e476fd0 的行為）：只看 Write／Edit／NotebookEdit、只管有部位表且命中表列的檔，
+    當時 dry_run＝只提醒不擋——on_edit 的 deny 一律降成提醒。閘自己炸只 stderr、不擋（當時 fail-open）。"""
+    fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+    if tool_name not in ("Write", "Edit", "NotebookEdit") or not fp:
+        return None
+    try:
+        from wg_overview import _lookup_quiet, on_edit as _hub_on_edit
+        if not _lookup_quiet(fp):
+            return None
+        hub_state = state if state is not None else {}
+        warn, deny, changed = _hub_on_edit(hub_state, sid, fp, input_data.get("transcript_path", "") or "", config)
+        if sid and state is not None and changed:
+            from wg_core import write_state as _ws
+            _ws(sid, state)
+        return (deny or warn) and f"{deny or warn}（v6 守門關閉：只提醒不擋）"
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 檢查異常（fail-open）：{type(e).__name__}: {e}\n")
+        return None
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
+    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉 v6 才掛的工具）
 
     # 需求目標 4.4：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
     if tool_name in ("AskUserQuestion", "ExitPlanMode"):
@@ -1724,7 +1749,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             # 切入點契約（TECH §7.10）：開工句認得出登錄表 subagent_prompt 路的切入點，判準卡接在記憶 blob 後面
             from handlers._shared import entry_note
             note = entry_note(orig_prompt, "subagent_prompt", session_id=str(input_data.get("session_id") or ""),
-                              config=config)
+                              config=config) if v6 else ""
             if blob or note:
                 new_input = dict(tool_input)
                 new_input["prompt"] = "\n\n".join(p for p in (blob, note, orig_prompt) if p)
@@ -1821,18 +1846,18 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # ── DataFileAsk（T2.16 動使用者資料檔要先宣告）──
     # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
-    deny_reason = wg_data_file.gate(tool_name, tool_input, input_data, config)
+    deny_reason = v6 and wg_data_file.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
 
     # ── JudgeCardDeclare（裁定 #53 改判準卡要先宣告）── 綁了 Entry 的卡沒有「改判準卡｜哪張：理由」就擋（wg_judge_card）
-    deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)
+    deny_reason = v6 and wg_judge_card.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
 
-    deny_reason = check_svn_test_block(tool_name, tool_input) or check_verify_ledger_write(tool_name, tool_input, _cwd)
+    deny_reason = check_svn_test_block(tool_name, tool_input) or (v6 and check_verify_ledger_write(tool_name, tool_input, _cwd))
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
@@ -1841,7 +1866,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
     # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
     try:
-        deny_reason = wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd)
+        deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd)
     except Exception as e:
         deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
                        f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")
@@ -1884,7 +1909,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
-    deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config)
+    deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config) if v6 else (None, None)
     if deny_reason:
         wg_gate_bypass.note_smell_deny(_co_state, _co_sid, _cwd, deny_reason, tool_name, tool_input, input_data.get("transcript_path", "") or "", config)
         _deny(input_data, config, deny_reason)
@@ -1893,16 +1918,16 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # ── GateBypass（T2.19 繞閘嫌疑）──
     # 這個 session 被病形閘擋過之後，unstage／改提交範圍／--no-verify 讓同一批內容過關 → 要宣告「不是繞閘｜理由」，沒宣告就擋；
     # 事實與判定在 hooks/wg_gate_bypass.py
-    deny_reason = wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
-                                       input_data.get("transcript_path", "") or "",
-                                       agent_id=str(input_data.get("agent_id") or ""))
+    deny_reason = v6 and wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
+                                              input_data.get("transcript_path", "") or "",
+                                              agent_id=str(input_data.get("agent_id") or ""))
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
 
     # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
     # 缺了就擋；判不了一律擋。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
-    if tool_name in ("Bash", "PowerShell"):
+    if v6 and tool_name in ("Bash", "PowerShell"):
         _ng_cmd = tool_input.get("command", "") or ""
         if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
                 or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"})):
@@ -1919,8 +1944,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
     # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
-    hub_warn = None
-    if tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
+    hub_warn = None if v6 else _pre_v6_hub_warn(input_data, config, tool_name, tool_input, _co_sid, _co_state)
+    if v6 and tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
         hub_deny = None
         try:
             from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,

@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
-    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
+    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR, v6_enabled,
     DEFAULTS as CORE_DEFAULTS,  # config 缺鍵時的預設只認 wg_core 那一份
 )
 from harness_text import IDE_TAG_NAMES, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
@@ -158,6 +158,8 @@ def handle_user_prompt_submit(
     # 前置閘、記原話（目標樹）、收尾記帳與寫 state 照做。到 95% 還沒送出 → 背景鬧鐘代送已備好的 lines。
     _hook_timing.set_fallback(lambda: _fallback_output(lines))
 
+    v6 = v6_enabled(config)     # 關＝只送 9e476fd0 就有的注入與提示
+
     # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）
     run_pre_gates(
         session_id, state, config, clean_prompt, prompt_lower, lines
@@ -186,9 +188,11 @@ def handle_user_prompt_submit(
     # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
     # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
     try:
-        from wg_need_goal import on_prompt as _ng_on_prompt
-        _ng_txt = _ng_on_prompt(session_id, clean_prompt, int(state.get("turn_seq", 0)) + 1, config,
-                                cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
+        _ng_txt = None
+        if v6:
+            from wg_need_goal import on_prompt as _ng_on_prompt
+            _ng_txt = _ng_on_prompt(session_id, clean_prompt, int(state.get("turn_seq", 0)) + 1, config,
+                                    cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
         if _ng_txt:
             lines.append(_ng_txt)
     except Exception as e:
@@ -202,7 +206,7 @@ def handle_user_prompt_submit(
             from wg_overview import on_prompt as _hub_on_prompt
             _hub_txt = _hub_on_prompt(
                 state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
-                intent=turn_intent,
+                **({"intent": turn_intent} if v6 else {}),   # 依意圖選片是 v6 加的；關閉時照舊整張注入
             )
             if _hub_txt:
                 lines.append(_hub_txt)
@@ -252,9 +256,11 @@ def handle_user_prompt_submit(
 
     # 文字評分（G15）：上一則回覆背景評完了 → 評分一行放在這則注入的第一行，請 AI 照抄到回覆尾巴（只附不擋；wg_text_score）
     try:
-        from wg_text_score import tail_note as _ts_tail_note
-        _ts_txt = _ts_tail_note(state, session_id, config,
-                                cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
+        _ts_txt = None
+        if v6:
+            from wg_text_score import tail_note as _ts_tail_note
+            _ts_txt = _ts_tail_note(state, session_id, config,
+                                    cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
         if _ts_txt:
             lines.insert(0, _ts_txt)
     except Exception as e:
@@ -280,7 +286,7 @@ def handle_user_prompt_submit(
     try:
         from wg_friction import correction_question, record_correction
         correction_hits = record_correction(state, session_id, clean_prompt, config)
-        if correction_hits:   # 詞表只是提示：問 AI「是不是糾正」，問的那一刻接判準卡、記 guard-entry（規則 CORRECTION_WORDS_ARE_HINTS）
+        if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」，問的那一刻接判準卡、記 guard-entry（規則 CORRECTION_WORDS_ARE_HINTS）
             from handlers._shared import entry_note, with_note
             _cq = correction_question(correction_hits)
             lines.append(with_note(_cq, entry_note(_cq, "user_prompt", session_id=session_id, state=state, config=config)))
@@ -288,7 +294,7 @@ def handle_user_prompt_submit(
         _atom_debug_error("ups:friction", e)
         print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)
     # 同伴 session 送來的訊息＝外部主張：裁定前送「用目標視角重看」三問（4.3；使用者本人打的字不觸發）
-    if correction_hits or "<cross-session-message" in clean_prompt[:300]:
+    if v6 and (correction_hits or "<cross-session-message" in clean_prompt[:300]):
         try:
             import wg_need_goal as _ng
             from wg_need_goal_points import on_correction, on_external_claim, peer_of_prompt

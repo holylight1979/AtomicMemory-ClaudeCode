@@ -7,7 +7,7 @@ handlers/pre_compact.py — PreCompact hook handler
 import sys
 from typing import Any, Dict
 
-from wg_core import _ensure_state, output_nothing, write_state, _now_iso, resolve_staging_dir
+from wg_core import _ensure_state, output_nothing, write_state, _now_iso, resolve_staging_dir, v6_enabled
 from wg_episodic import _should_generate_episodic, _generate_episodic_atom
 from wg_handoff import build_handoff_stub, should_write_stub
 
@@ -37,8 +37,9 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     # 清空 injected_atoms 的順序影響）。見 handlers/post_compact.py。
     state["pre_compact_injected_atoms"] = list(dict.fromkeys(state.get("injected_atoms", []) or []))
     # A2.1：OverviewHub 已注入部位的摘要與本回合意圖也快照，PostCompact 據此組每部位綜觀 blob（主目標／部位／層／卡／病灶／三行已交否）
-    state["pre_compact_overview_hub"] = _overview_summary(state.get("overview_hub") or {})
-    state["pre_compact_turn_intent"] = state.get("turn_intent") or "general"
+    if v6_enabled(config):      # v6 守門關閉時不做綜觀快照（9e476fd0 沒有）
+        state["pre_compact_overview_hub"] = _overview_summary(state.get("overview_hub") or {})
+        state["pre_compact_turn_intent"] = state.get("turn_intent") or "general"
 
     if not state.get("episodic_checkpoint_done"):
         ep_cfg = config.get("episodic", {})
