@@ -1057,6 +1057,17 @@ def state_file_path(session_id: str) -> Path:
 
 
 # ─── State File I/O ──────────────────────────────────────────────────────────
+#
+# 規則 STATE_RMW_LOCKED：同一個 session 的 hook 行程（同一則回覆的平行工具呼叫、共用 session_id 的子代理）讀改寫 state 要排隊。
+# dispatcher 進 handler 前呼叫 begin_state_rmw(期限)：之後第一次讀某個 session 的 state 就拿它的鎖（state-<sid>.lock），
+# 握到 end_state_rmw。讀 → 改 → 寫整段在鎖裡：寫回的一定是看過別人最新那份之後的結果，序號（event_seq）也在鎖裡配。
+# 等到期限（hook 上限的一半）仍拿不到鎖：這次照讀沒上鎖的那份讓閘照判，寫回不整份覆蓋，改留一份待併帳
+# （state-<sid>.<時間>-<pid>.pending：這次改了哪些鍵、改前、改後；副檔名不是 .json，各處掃 state-*.json 不會當成 session），
+# stderr 與 Logs/guard-state_lock.jsonl 留訊號；同一支 hook 再寫回只記上一份帳之後的變動。
+# 下一支拿到鎖的行程讀 state 時照欄位分型併回（子規則 STATE_PENDING_MERGED）：併過的帳名跟合併結果同一次寫進 state
+# （_state_pending_applied），刪不掉的帳下次跳過再刪，不會套兩次。
+# 沒進 hook 模式的寫者（測試、工具）寫回時才拿鎖；鎖裡發現檔在自己讀到之後被換過 → 照欄位分型三方合併（_merge_state），不整份覆蓋。
+# 每支行程對每個 state 檔記一份「基準」：讀到的原文（讀到檔不在＝空 state）與讀到那刻的檔案指紋；寫回、留帳後推進到自己寫出的那份。
 
 
 def state_path(session_id: str) -> Path:
@@ -1073,26 +1084,52 @@ def read_state_status(session_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """回 (state, status)：status ∈ {"ok", "missing", "error"}。
 
     Windows 上 tmp+replace 的瞬間、或另一支 hook 正持有檔案時，read 會拋 PermissionError／
-    sharing violation——那是「暫時讀不到」不是「檔不見了」。以前一律回 None，_ensure_state 就
-    把它當遺失、建 fallback state 覆蓋掉真的 state（本 session 實證：turn 15 的歷史整個歸零）。
+    sharing violation——那是「暫時讀不到」不是「檔不見了」，呼叫端不得當遺失去重建（_ensure_state 只重試、不覆蓋）。
+    hook 模式（begin_state_rmw 之後）先拿這個 session 的鎖再讀，握到 end_state_rmw（規則 STATE_RMW_LOCKED）。
+    讀到檔不在，基準記成空 state：之後寫回是「從空的建起」，跟別人同時建的照欄位合併，不當成整份換掉。
     """
     path = state_path(session_id)
+    key = str(path)
+    if _RMW["on"]:
+        _rmw_lock(path)
     if not path.exists():
+        _STATE_READ_TEXT[key] = _EMPTY_BASE
+        _STATE_READ_SIG.pop(key, None)
+        _APPLIED_BASE.pop(key, None)
         return None, "missing"
     try:
         with open(path, "r", encoding="utf-8") as f:
+            sig = _sig_of(os.fstat(f.fileno()))
             text = f.read()
         state = json.loads(text)
     except (json.JSONDecodeError, OSError):
         return None, "error"
-    _STATE_READ_TEXT[str(path)] = text
+    _STATE_READ_TEXT[key] = text
+    _STATE_READ_SIG[key] = sig
+    _APPLIED_BASE[key] = list(state.get(_PENDING_APPLIED_KEY) or []) if isinstance(state, dict) else []
     return state, "ok"
 
 
 # STATE_WRITE_SKIP_UNCHANGED：這個行程讀到的 state 原文（路徑 → 原文）；write_state 寫出來跟它一樣（只差 last_updated）就不重寫，
 # 只在檔快過跨 session 協調的掃描窗口時碰一下 mtime（wg_coordination 用 mtime 挑活著的 session）。
+# 同一份原文也是三方合併的「自己讀到的那份」。
 _STATE_READ_TEXT: Dict[str, str] = {}
+_STATE_READ_SIG: Dict[str, Tuple[int, int]] = {}   # 路徑 → 基準那份在磁碟上的 (mtime_ns, 大小)：寫回前先比，對不上或沒有才比全文
+_EMPTY_BASE = "{}"                                 # 讀到檔不在時的基準
 _STATE_TOUCH_AFTER_S = 300.0
+_STATE_LOCK_POLL_S = 0.01      # 鎖拿不到每 10 ms 再試
+_STATE_LOCK_WAIT_S = 2.0       # 沒給期限時最多等幾秒（hook 模式的期限由 dispatcher 給：hook 上限的一半）
+_STATE_REPLACE_RETRIES = 10    # replace 失敗（目標被別的讀者開著）的重試次數
+_STATE_REPLACE_RETRY_S = 0.02
+_PENDING_MAX_PER_MERGE = 20    # 一次拿到鎖最多併幾份帳（其餘留給下一支）
+_PENDING_APPLIED_KEY = "_state_pending_applied"   # state 裡記「併過、檔還在的帳名」：併帳與記帳名同一次落盤
+_FALLBACK_KEY = "_fallback_state_rebuilt"
+_RMW: Dict[str, Any] = {"on": False, "deadline": 0.0}
+_HELD_LOCKS: Dict[str, Any] = {}       # state 檔路徑 → 鎖檔 handle（hook 模式握到 end_state_rmw）
+_LOCKLESS: set = set()                 # hook 模式等到期限仍沒拿到鎖的 state 檔（訊號只浮一次）
+_OWN_PENDING: Dict[str, List[str]] = {}   # 路徑 → 這支行程留過、還沒確認落盤的帳名：全落盤之前寫回只能再留帳
+_APPLIED_BASE: Dict[str, List[str]] = {}   # 路徑 → 基準那份裡的併過帳名（呼叫端整份重建 state 時照帶，不讓帳重套）
+_MISSING = object()                    # 三方合併裡「沒有這個鍵」
 
 
 def _dump_state(state: Dict[str, Any]) -> str:
@@ -1100,38 +1137,155 @@ def _dump_state(state: Dict[str, Any]) -> str:
     return json.dumps(state, ensure_ascii=False, separators=(",", ":"))
 
 
-_STATE_LOCK_RETRIES = 10      # 鎖拿不到／replace 失敗的重試次數
-_STATE_LOCK_RETRY_S = 0.02    # 每次間隔：10 × 20 ms＝最多等 200 ms
+def _sig_of(st: os.stat_result) -> Tuple[int, int]:
+    return (st.st_mtime_ns, st.st_size)
 
 
-def _acquire_state_lock(lock_path: Path):
-    """Windows 取 state 寫入鎖（msvcrt LK_NBLCK 鎖 1 byte）：拿不到短暫重試，仍拿不到回 None 並 stderr 浮一行
-    `[state:lock-timeout]`（無鎖寫仍安全：tmp 每行程唯一＋os.replace 原子換檔）。非 Windows 回 None。"""
-    if sys.platform != "win32":
-        return None
-    import msvcrt
-    for _ in range(_STATE_LOCK_RETRIES):
+def begin_state_rmw(deadline: Optional[float] = None) -> None:
+    """hook 行程進 handler 前呼叫（dispatcher）：之後讀到的每個 session state 都先拿鎖、握到 end_state_rmw（STATE_RMW_LOCKED）。
+    deadline＝等鎖等到幾點（epoch 秒）；沒給就從現在起最多等 _STATE_LOCK_WAIT_S。"""
+    _RMW["on"] = True
+    _RMW["deadline"] = deadline if deadline is not None else time.time() + _STATE_LOCK_WAIT_S
+
+
+def end_state_rmw() -> None:
+    """handler 結束（含 sys.exit）：放掉握著的 state 鎖、離開 hook 模式。"""
+    for key, fh in list(_HELD_LOCKS.items()):
+        _release_state_lock(fh, Path(key).with_suffix(".lock"))
+    _HELD_LOCKS.clear()
+    _LOCKLESS.clear()
+    _OWN_PENDING.clear()        # 下一支 hook 重讀基準；這支留的帳對它就是一般的待併帳
+    _RMW["on"] = False
+
+
+def _acquire_state_lock(lock_path: Path, deadline: float):
+    """拿 state 鎖（Windows msvcrt 鎖 1 byte、其他平台 fcntl.flock；行程結束系統自動放）：拿不到每 10 ms 再試到 deadline
+    （至少試一次），仍拿不到回 None。"""
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    while True:
         fh = None
         try:
             fh = open(lock_path, "ab")
-            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             return fh
         except OSError:
             if fh is not None:
                 fh.close()
-            time.sleep(_STATE_LOCK_RETRY_S)
-    print(f"[state:lock-timeout] {lock_path.name}：等 {_STATE_LOCK_RETRIES * _STATE_LOCK_RETRY_S:.2f}s 仍拿不到寫入鎖，"
-          "改無鎖寫（tmp 每行程唯一，檔仍完整）", file=sys.stderr)
-    return None
+        if time.time() >= deadline:
+            return None
+        time.sleep(_STATE_LOCK_POLL_S)
+
+
+def _release_state_lock(fh, lock_path: Path) -> None:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    fh.close()
+    if sys.platform == "win32":    # Windows 有人開著就刪不掉：刪得掉＝沒人在等；其他平台刪了會讓等的人鎖到另一個檔，留著
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+
+
+def _rmw_lock(path: Path) -> bool:
+    """hook 模式：拿 path 的鎖並握著（已握著直接回 True）；拿到時先併回別人留的待併帳（不動這支行程的基準）。
+    等到期限仍沒拿到回 False。"""
+    key = str(path)
+    if key in _HELD_LOCKS:
+        return True
+    fh = _acquire_state_lock(path.with_suffix(".lock"), _RMW["deadline"])
+    if fh is None:
+        if key not in _LOCKLESS:
+            _LOCKLESS.add(key)
+            print(f"[state:lock-timeout] {path.name}：等到期限仍拿不到 state 鎖，這次照讀沒上鎖的那份；"
+                  "寫回不整份覆蓋，改留待併帳給下一支拿到鎖的 hook 併回", file=sys.stderr)
+        return False
+    _HELD_LOCKS[key] = fh
+    _LOCKLESS.discard(key)
+    _merge_pending(path)
+    return True
+
+
+def _replace_text(path: Path, text: str) -> Tuple[Optional[str], Optional[Tuple[int, int]]]:
+    """tmp（每行程唯一：<檔名>.<pid>.tmp）寫好再 os.replace 換上，檔永遠是某一方的完整內容；replace 失敗（目標被別的讀者
+    開著）重試。回 (失敗原因或 None, 換上那份的檔案指紋)：指紋取自 tmp（換檔保留時間與大小），換上之後才被別人換掉也認得出來。
+    失敗原因是「replace-failed／write-failed：原因」（tmp 清掉、原檔不動）。"""
+    tmp_path = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
+    err = None
+    try:
+        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        sig = _sig_of(os.stat(tmp_path))
+        for _ in range(_STATE_REPLACE_RETRIES):
+            try:
+                tmp_path.replace(path)
+                return None, sig
+            except OSError as e:
+                err = f"replace-failed：{e}"
+                time.sleep(_STATE_REPLACE_RETRY_S)
+    except OSError as e:
+        err = f"write-failed：{e}"
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError as e:
+                print(f"[state:tmp-left] {tmp_path.name}：{e}（另一行程握著，殘檔留下）", file=sys.stderr)
+    return err, None
+
+
+def _remember(path: Path, text: str, sig: Optional[Tuple[int, int]], state: Optional[Dict[str, Any]] = None) -> None:
+    """基準推進到剛寫出的那份：下次寫回比對有沒有被換過、STATE_WRITE_SKIP_UNCHANGED 都拿它比；state 給了就一併記它的併過帳名。"""
+    _STATE_READ_TEXT[str(path)] = text
+    if state is not None:
+        _APPLIED_BASE[str(path)] = list(state.get(_PENDING_APPLIED_KEY) or [])
+    if sig is None:
+        _STATE_READ_SIG.pop(str(path), None)
+    else:
+        _STATE_READ_SIG[str(path)] = sig
+
+
+def _disk_since_read(path: Path, base_text: str, base_sig: Optional[Tuple[int, int]]) -> Tuple[bool, Optional[str]]:
+    """（鎖裡）檔跟基準比有沒有被換過：指紋對得上就沒換；對不上或沒有指紋再比全文。
+    回 (換過沒, 磁碟上的原文；檔不在或讀不到回 None)。同指紋不同內容（同一個 100ns、同大小）認不出來。"""
+    try:
+        sig = _sig_of(os.stat(path))
+    except OSError:
+        return True, None
+    if base_sig is not None and base_sig == sig:
+        return False, None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            disk = f.read()
+    except OSError:
+        return True, None
+    return disk != base_text, disk
 
 
 def write_state(session_id: str, state: Dict[str, Any]) -> None:
-    """Atomic write：tmp 每行程唯一（state-<sid>.<pid>.tmp）＋ os.replace 換檔；advisory lock 只用來序列化寫者。
+    """寫回 state（規則 STATE_RMW_LOCKED）：在這個 session 的鎖裡寫，tmp 每行程唯一＋os.replace 換檔，state 檔永遠是完整 JSON。
 
-    以前所有 hook 行程共用同一個 .tmp、鎖拿不到就照寫：同一則訊息並行多個工具呼叫時，兩支 hook 同時 open(tmp,'w')，
-    短內容從 offset 0 蓋掉長內容前段、尾巴殘留 → replace 後 state「Extra data」，該 session 餘生每支 hook 都
-    [state:unreadable] 跳過。現在任何路徑下 state 檔只會是某一方的完整 JSON；replace 失敗（目標被讀者鎖住）重試後
-    放棄、清掉 tmp、原檔不動，stderr 浮 `[state:replace-failed]`。
+    鎖裡先看檔跟這支行程的基準比有沒有被換過：沒有 → 整份寫；有（沒全程握鎖、拿鎖時併了別人的帳、不守鎖的寫者寫過）
+    → 基準、自己改成的、磁碟上現在的三方照欄位分型合併再寫（_merge_state），寫成功才把合併結果同步回呼叫端的 dict。
+    拿不到鎖（等到期限）或換檔失敗：不無鎖寫、不整份覆蓋，改留待併帳（_write_pending），下一支拿到鎖的行程併回。
+    沒讀過這個檔就寫（合併轉址、測試造檔）＝呼叫端要整份換掉，照整份寫；fallback 重建的 state（_ensure_state 以為檔不在才建）
+    遇到鎖裡檔已存在時不寫，改把磁碟那份同步回呼叫端（讀不到不等於遺失）。
+    為什麼：平行 hook 各自讀到同一份舊 state、各自加上自己那筆再整份寫回，後寫的會蓋掉先寫的（讀檔、改檔紀錄掉了）。
     """
     WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1140,13 +1294,17 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
         session_id = canonical_id
 
     path = state_path(session_id)
+    key = str(path)
+    carried = [n for n in _APPLIED_BASE.get(key, []) if n not in (state.get(_PENDING_APPLIED_KEY) or [])]
+    if carried:                                  # 呼叫端整份重建時丟了併過名單：照基準帶回去（那幾份帳不能再套）
+        state[_PENDING_APPLIED_KEY] = [*(state.get(_PENDING_APPLIED_KEY) or []), *carried]
     old_stamp, stamp = state.get("last_updated"), _now_iso()
     state["last_updated"] = stamp
     text = _dump_state(state)
-    prev = _STATE_READ_TEXT.get(str(path))
-    if prev is not None and old_stamp is not None and path.exists():
+    base_text, base_sig = _STATE_READ_TEXT.get(key), _STATE_READ_SIG.get(key)
+    if base_text is not None and old_stamp is not None and path.exists():
         unstamped = text.replace(f'"last_updated":{json.dumps(stamp)}', f'"last_updated":{json.dumps(old_stamp)}', 1)
-        if unstamped == prev:
+        if unstamped == base_text:
             state["last_updated"] = old_stamp
             try:
                 if time.time() - path.stat().st_mtime > _STATE_TOUCH_AFTER_S:
@@ -1154,42 +1312,337 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
             except OSError:
                 pass
             return
-    tmp_path = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
-    lock_path = path.with_suffix(".lock")
 
-    lock_fh = _acquire_state_lock(lock_path)
+    lock_fh = None
+    if _RMW["on"]:
+        locked = _rmw_lock(path)
+    else:
+        lock_fh = _acquire_state_lock(path.with_suffix(".lock"), time.time() + _STATE_LOCK_WAIT_S)
+        locked = lock_fh is not None
+        if not locked:
+            print(f"[state:lock-timeout] {path.name}：等 {_STATE_LOCK_WAIT_S:g}s 仍拿不到 state 鎖", file=sys.stderr)
+    if not locked:
+        _write_pending(path, base_text, state, "lock-timeout")
+        return
     try:
-        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-        for attempt in range(_STATE_LOCK_RETRIES):
-            try:
-                tmp_path.replace(path)
-                _STATE_READ_TEXT[str(path)] = text
-                break
-            except OSError as e:
-                if attempt == _STATE_LOCK_RETRIES - 1:
-                    print(f"[state:replace-failed] {path.name}：{e}；本次寫入放棄，原檔不動", file=sys.stderr)
-                else:
-                    time.sleep(_STATE_LOCK_RETRY_S)
-    except OSError as e:
-        print(f"[state:write-failed] {tmp_path.name}：{e}；本次寫入放棄，原檔不動", file=sys.stderr)
+        if lock_fh is not None or key in _OWN_PENDING:   # 剛拿到鎖、或自己留過帳：先併掉，磁碟才含那些變動，下面三方合併才對
+            done = _merge_pending(path)
+            own_left = [n for n in _OWN_PENDING.pop(key, []) if n not in done and (path.parent / n).exists()]
+            if own_left:                                 # 自己先前的帳還沒落盤（併不進去、超過一次的份數）：這次也只能留帳
+                _OWN_PENDING[key] = own_left
+                _write_pending(path, base_text, state, "own-pending-left")
+                return
+        merged = None
+        if base_text in (None, _EMPTY_BASE) and state.get(_FALLBACK_KEY) and path.exists():
+            _adopt_disk(path, state)
+            return
+        if base_text is not None:
+            changed, disk = _disk_since_read(path, base_text, base_sig)
+            if changed and disk is not None:
+                try:
+                    theirs = json.loads(disk)
+                except ValueError:
+                    theirs = None
+                    print(f"[state:disk-unreadable] {path.name}：磁碟上那份不是合法 JSON，整份換成這次的", file=sys.stderr)
+                if isinstance(theirs, dict):
+                    merged, conflicts = _merge_state(json.loads(base_text), state, theirs)
+                    merged["last_updated"] = stamp
+                    text = _dump_state(merged)
+        err, sig = _replace_text(path, text)
+        if err:
+            tag, _, why = err.partition("：")
+            print(f"[state:{tag}] {path.name}：{why}；這次改的改留待併帳", file=sys.stderr)
+            _write_pending(path, base_text, state, tag)
+            return
+        _remember(path, text, sig, merged if merged is not None else state)
+        if merged is not None:
+            state.clear()
+            state.update(merged)
+            print(f"[state:merged] {path.name}：基準之後被別人寫過，三方合併後寫回"
+                  + (f"；兩邊都改、留磁碟那份的鍵：{', '.join(conflicts[:8])}" if conflicts else ""), file=sys.stderr)
+            append_guard_log("state_lock", {"kind": "merged", "file": path.name, "conflicts": conflicts[:30]})
     finally:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError as e:
-                print(f"[state:tmp-left] {tmp_path.name}：{e}（另一行程握著，殘檔留下）", file=sys.stderr)
         if lock_fh is not None:
+            _release_state_lock(lock_fh, path.with_suffix(".lock"))
+
+
+def _adopt_disk(path: Path, state: Dict[str, Any]) -> None:
+    """（鎖裡）fallback 重建的 state 不蓋掉已存在的檔：讀磁碟那份、同步回呼叫端並記成基準；讀不到就這次不寫（stderr）。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            sig = _sig_of(os.fstat(f.fileno()))
+            text = f.read()
+        disk = json.loads(text)
+    except (OSError, ValueError) as e:
+        print(f"[state:fallback-skipped] {path.name}：檔已存在但讀不到（{type(e).__name__}），這次不寫、不覆蓋", file=sys.stderr)
+        return
+    state.clear()
+    state.update(disk)
+    _remember(path, text, sig, disk)
+    print(f"[state:fallback-skipped] {path.name}：以為檔不在才建的 fallback state，鎖裡發現檔已存在，改用磁碟那份", file=sys.stderr)
+
+
+def _write_pending(path: Path, base_text: Optional[str], ours: Dict[str, Any], why: str) -> None:
+    """拿不到鎖或換不了檔：這次跟基準比改到的鍵（改前、改後）寫成一份待併帳，下一支拿到鎖的行程併回（子規則 STATE_PENDING_MERGED）；
+    寫成了就把基準推進到這次的內容，同一支行程再寫回只記之後的變動。沒讀過就整份寫的（base_text 是 None）記成整份換掉；
+    讀到檔不在的記成「從空的建起」。跟基準一樣就不留；帳也寫不出去 → stderr＋guard log（這次的變動真的沒進去）。"""
+    try:
+        base = json.loads(base_text) if base_text is not None else None
+    except ValueError:
+        base = {}
+    keys: Dict[str, Dict[str, Any]] = {}
+    for k in dict.fromkeys([*(base or {}), *ours]):
+        b, o = (base or {}).get(k, _MISSING), ours.get(k, _MISSING)
+        if k in ("last_updated", _PENDING_APPLIED_KEY) or b == o:
+            continue
+        keys[k] = {**({"base": b} if b is not _MISSING else {}), **({"ours": o} if o is not _MISSING else {})}
+    if not keys:
+        return
+    body: Dict[str, Any] = {"why": why, "pid": os.getpid()}
+    if base is None:
+        body["whole"] = ours
+    else:
+        body.update({"keys": keys, "from_empty": base_text == _EMPTY_BASE})
+    dest = path.with_name(f"{path.stem}.{time.time_ns()}-{os.getpid()}.pending")
+    err, _sig = _replace_text(dest, json.dumps(body, ensure_ascii=False, separators=(",", ":")))
+    rec = {"file": path.name, "pending": dest.name, "why": why, "whole": base is None, "keys": sorted(keys)[:30]}
+    if err:
+        print(f"[state:pending-failed] {dest.name}：{err}；這次改的 {len(keys)} 個鍵沒寫進 state", file=sys.stderr)
+        append_guard_log("state_lock", {"kind": "pending_failed", "error": err, **rec})
+        return
+    _remember(path, _dump_state(ours), None, ours)
+    _OWN_PENDING.setdefault(str(path), []).append(dest.name)
+    print(f"[state:pending-written] {path.name}：{why}，這次改的 {len(keys)} 個鍵留在 {dest.name}，"
+          "下一支拿到鎖的 hook 併回", file=sys.stderr)
+    append_guard_log("state_lock", {"kind": "pending_written", **rec})
+
+
+def _pending_files(path: Path) -> List[Path]:
+    """這個 state 檔的待併帳（照留帳時間排）；檔名精確比對 <state 檔名>.<時間>-<pid>.pending，別的 session 的帳不會混進來。"""
+    import glob as _glob
+    pat = re.compile(re.escape(path.stem) + r"\.\d+-\d+\.pending")
+    return sorted(p for p in path.parent.glob(_glob.escape(path.stem) + ".*.pending") if pat.fullmatch(p.name))
+
+
+def _merge_pending(path: Path) -> set:
+    """（鎖裡）把別的行程留下的待併帳照時間先後、照欄位分型併回 state、寫回後刪帳（子規則 STATE_PENDING_MERGED）。
+    併過的帳名跟合併結果同一次寫進 state（_state_pending_applied，只留檔還在的），刪不掉的下次跳過再刪，不會套兩次；
+    一次最多新併 _PENDING_MAX_PER_MERGE 份（刪不掉的舊帳不佔名額）。整份換掉的帳直接換成它那份；fallback 重建的帳遇到已存在的
+    state 不覆蓋，旗標也不會被帳加到既有的 state 上。state 是轉址 stub（merged_into）也照併進 stub 本身、不碰目標（帳的基準是這個
+    session 的歷史，套到別的 session 會算錯），另浮訊號＋留帳：讀的人會轉去目標，看不到這幾筆。state 檔不在時只套整份與「從空的建起」的帳，其餘留著；state 讀壞或寫不回 → 帳留著等下一次；
+    壞掉的帳改名 .corrupt（照 workflow 清理規則清）並浮訊號。回「磁碟上已記成併過」的帳名（呼叫端拿來確認自己的帳落盤了沒）。"""
+    pend = _pending_files(path)
+    if not pend:
+        return set()
+    existed = path.exists()
+    try:
+        cur = json.loads(path.read_text(encoding="utf-8")) if existed else None
+    except (OSError, ValueError) as e:
+        print(f"[state:pending-wait] {path.name}：state 讀不到（{type(e).__name__}），待併帳 {len(pend)} 份留著下次再併",
+              file=sys.stderr)
+        return set()
+    stub_of = str(cur.get("merged_into") or "") if isinstance(cur, dict) else ""
+    had_flag = isinstance(cur, dict) and _FALLBACK_KEY in cur
+    applied = [n for n in (cur or {}).get(_PENDING_APPLIED_KEY) or [] if (path.parent / n).exists()]
+    used, done_before, conflicts, dropped = [], [], [], []
+    for p in pend:
+        if p.name in applied:
+            done_before.append(p)
+            continue
+        if len(used) >= _PENDING_MAX_PER_MERGE:
+            break
+        try:
+            body = json.loads(p.read_text(encoding="utf-8"))
+            whole = body.get("whole")
+            items = [] if isinstance(whole, dict) else list(body["keys"].items())
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            print(f"[state:pending-corrupt] {p.name}：{type(e).__name__}: {e}；改名 .corrupt、不併", file=sys.stderr)
             try:
-                import msvcrt
-                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+                p.replace(p.with_name(p.name + ".corrupt"))
             except OSError:
                 pass
-            lock_fh.close()
+            continue
+        if isinstance(whole, dict):
+            if cur is not None and whole.get(_FALLBACK_KEY):
+                dropped.append(p.name)
+            else:
+                cur = dict(whole)
+        elif cur is None and not body.get("from_empty"):
+            continue                                   # 沒有 state 可併：留著等 state 建好
+        else:
+            cur = cur if cur is not None else {}
+            for k, ent in items:
+                v = _merge3(k, ent.get("base", _MISSING), ent.get("ours", _MISSING), cur.get(k, _MISSING), conflicts)
+                if v is _MISSING:
+                    cur.pop(k, None)
+                else:
+                    cur[k] = v
+        used.append(p)
+    if used and cur is not None:
+        if existed and not had_flag:
+            cur.pop(_FALLBACK_KEY, None)
+        cur[_PENDING_APPLIED_KEY] = list(dict.fromkeys([*applied, *(p.name for p in used)]))
+        cur["last_updated"] = _now_iso()
+        err, _sig = _replace_text(path, _dump_state(cur))
+        if err:
+            print(f"[state:pending-wait] {path.name}：併好寫不回（{err}），待併帳留著下次再併", file=sys.stderr)
+            return set(applied)
+    elif not done_before:
+        return set(applied)
+    left = []
+    for p in [*used, *done_before]:
+        try:
+            p.unlink()
+        except OSError:
+            left.append(p.name)
+    print(f"[state:pending-merged] {path.name}：併回 {len(used)} 份待併帳"
+          + (f"；之前併過、這次補刪 {len(done_before)} 份" if done_before else "")
+          + (f"；兩邊都改、留磁碟那份的鍵：{', '.join(conflicts[:8])}" if conflicts else "")
+          + (f"；fallback 重建的帳遇到已存在的 state、不覆蓋：{', '.join(dropped)}" if dropped else "")
+          + (f"；刪不掉的帳（已記成併過）：{', '.join(left)}" if left else "")
+          + (f"；這是轉址 stub（讀的人轉去 {stub_of}），併進來的 {len(used)} 份看不到" if stub_of and used else ""),
+          file=sys.stderr)
+    append_guard_log("state_lock", {"kind": "pending_merged", "file": path.name, "merged": [p.name for p in used],
+                                    "done_before": [p.name for p in done_before], "conflicts": conflicts[:30],
+                                    "dropped": dropped, "left": left, **({"redirect_stub_of": stub_of} if stub_of else {})})
+    return {*applied, *(p.name for p in used)}
+
+
+# 三方合併的欄位分型（鍵路徑：頂層鍵、`.子鍵`、`[]`＝清單裡的一筆紀錄；fnmatch 比對，先列先中）。沒列的照值的型別：
+# 物件逐鍵合併、清單取聯集、數字取大（回合、序號、門檻計數）、時間字串取新；其餘兩邊都改就留磁碟那份、記進 conflicts。
+_MERGE_TYPES: Tuple[Tuple[str, str], ...] = (
+    ("modified_files", "keyed"),                 # 業務鍵紀錄：(canon 路徑, session_id) 一筆，count＝讀到的＋兩邊各自加的
+    ("agent_modified_files.*", "keyed"),
+    ("*[].count", "add"),
+    ("edit_counts.*", "add"),                    # 累加計數：讀到的＋兩邊各自加的；有一邊變小（歸零）就取小的
+    ("stop_blocked_count", "add"),
+    ("sync_reminder_count", "add"),
+    ("topic_tracker.prompt_count", "add"),
+    ("tool_result_advisories", "add"),
+    ("wisdom_retry_count", "add"),
+    ("overview_hub.*.edits", "add"),
+    ("overview_hub.*.edited_files.*", "add"),
+    ("decl_deny_counts.counts.*", "add"),
+    ("overview_hub.*", "version:injected_turn"),   # 分版本整組：版本新的整組勝（重新注入整筆換掉），同版本才逐欄併
+    ("decl_deny_counts", "version:turn"),          # 換使用者回合整組歸零
+    ("commit_snapshot", "atomic"),                 # 整組換掉、欄位互相綁定：兩邊都改留磁碟那份
+    ("anti_evasion_report", "atomic"),
+    ("knowledge_harvest.*", "atomic"),             # validated 不能跟 items／pending 拆開
+)
+_ISO_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+
+
+def _merge_kind(key: str) -> str:
+    return next((kind for pat, kind in _MERGE_TYPES if fnmatch.fnmatchcase(key, pat)), "")
+
+
+def _merge_state(base: Dict[str, Any], ours: Dict[str, Any], theirs: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """三方合併整份 state（base＝自己的基準、ours＝自己改成的、theirs＝磁碟上現在的），回 (合併結果, 兩邊都改、判不出而留磁碟那份的鍵)。"""
+    conflicts: List[str] = []
+    out: Dict[str, Any] = {}
+    for k in dict.fromkeys([*theirs, *ours, *base]):
+        v = _merge3(k, base.get(k, _MISSING), ours.get(k, _MISSING), theirs.get(k, _MISSING), conflicts)
+        if v is not _MISSING:
+            out[k] = v
+    return out, conflicts
+
+
+def _merge3(key: str, b: Any, o: Any, t: Any, conflicts: List[str]) -> Any:
+    """一個鍵的三方合併（_MISSING＝沒有這個鍵）。只有一方改 → 取改的那方；兩方都改 → 一方刪、一方改留改的（新的一筆不丟），
+    其餘照 _MERGE_TYPES 與值的型別。兩邊改成同一個值不算沒衝突（各自 +1 長得一樣）：累加型照加，物件與清單照樣往下併。"""
+    if key == _PENDING_APPLIED_KEY:              # 併過帳名不是業務欄位：兩邊都留（任一邊記過就不再套）
+        return list(dict.fromkeys([*(t if isinstance(t, list) else []), *(o if isinstance(o, list) else [])]))
+    if o == b:
+        return t
+    if t == b:
+        return o
+    if o is _MISSING or t is _MISSING:
+        return t if o is _MISSING else o
+    kind = _merge_kind(key)
+    nums = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (o, t))
+    if kind == "add" and nums:
+        bn = b if isinstance(b, (int, float)) and not isinstance(b, bool) else 0
+        if o >= bn and t >= bn:
+            return t + o - bn
+        if o != t:
+            conflicts.append(key)
+        return min(o, t)
+    if o == t and (kind == "atomic" or not isinstance(o, (dict, list))):
+        return o
+    if kind == "atomic":
+        conflicts.append(key)
+        return t
+    if kind == "keyed" and isinstance(o, list) and isinstance(t, list):
+        return _merge_keyed(key, b if isinstance(b, list) else [], o, t, conflicts)
+    if kind.startswith("version:") and isinstance(o, dict) and isinstance(t, dict):
+        field = kind.split(":", 1)[1]
+        vo, vt = o.get(field), t.get(field)
+        if vo != vt:
             try:
-                lock_path.unlink()
-            except OSError:
+                return o if vo > vt else t
+            except TypeError:
                 pass
+    if isinstance(o, dict) and isinstance(t, dict):
+        bd = b if isinstance(b, dict) else {}
+        out = {}
+        for k in dict.fromkeys([*t, *o, *bd]):
+            v = _merge3(f"{key}.{k}", bd.get(k, _MISSING), o.get(k, _MISSING), t.get(k, _MISSING), conflicts)
+            if v is not _MISSING:
+                out[k] = v
+        return out
+    if isinstance(o, list) and isinstance(t, list):
+        return _merge_list(b if isinstance(b, list) else [], o, t)
+    if nums:
+        return max(o, t)
+    if isinstance(o, str) and isinstance(t, str) and _ISO_TIME_RE.match(o) and _ISO_TIME_RE.match(t):
+        return max(o, t)
+    conflicts.append(key)
+    return t
+
+
+def _item_key(x: Any) -> str:
+    return json.dumps(x, ensure_ascii=False, sort_keys=True)
+
+
+def _merge_list(b: List[Any], o: List[Any], t: List[Any]) -> List[Any]:
+    """集合取聯集：照磁碟那份的順序，拿掉自己刪掉的（讀到時有、自己改成沒有），補上自己新加的（讀到時沒有、磁碟也沒有）。
+    截斷長度交給下一次寫入時各欄位自己的上限。"""
+    bk, ok = {_item_key(x) for x in b}, {_item_key(x) for x in o}
+    out = [x for x in t if not (_item_key(x) in bk and _item_key(x) not in ok)]
+    seen = {_item_key(x) for x in out}
+    for x in o:
+        k = _item_key(x)
+        if k not in bk and k not in seen:
+            out.append(x)
+            seen.add(k)
+    return out
+
+
+def _record_key(r: Any) -> Optional[Tuple[str, str]]:
+    if not isinstance(r, dict) or not r.get("path"):
+        return None
+    from wg_release_rules import canon_path
+    return canon_path(r["path"]), str(r.get("session_id", ""))
+
+
+def _with_count(r: Dict[str, Any]) -> Dict[str, Any]:
+    """沒有 count 的舊紀錄算 1 次（post_tool_use._upsert_modified 的預設）。"""
+    return r if "count" in r else {**r, "count": 1}
+
+
+def _merge_keyed(key: str, b: List[Any], o: List[Any], t: List[Any], conflicts: List[str]) -> List[Any]:
+    """業務鍵紀錄清單（modified_files）：同一個 (canon 路徑, session_id) 的紀錄逐欄三方合併（count 相加），
+    沒有業務鍵的照集合聯集；順序照磁碟那份，自己新加的接在後面。"""
+    bm = {k: _with_count(r) for r in b if (k := _record_key(r))}
+    om = {k: _with_count(r) for r in o if (k := _record_key(r))}
+    tm = {k: _with_count(r) for r in t if (k := _record_key(r))}
+    out = []
+    for k in dict.fromkeys([*tm, *om]):
+        v = _merge3(f"{key}[]", bm.get(k, _MISSING), om.get(k, _MISSING), tm.get(k, _MISSING), conflicts)
+        if v is not _MISSING:
+            out.append(v)
+    return out + _merge_list([r for r in b if not _record_key(r)], [r for r in o if not _record_key(r)],
+                             [r for r in t if not _record_key(r)])
 
 
 def new_state(session_id: str, cwd: str, source: str) -> Dict[str, Any]:
@@ -1223,10 +1676,14 @@ def new_state(session_id: str, cwd: str, source: str) -> Dict[str, Any]:
 def _find_active_sibling_state(
     cwd: str, current_session_id: str, window_seconds: int = 60
 ) -> Optional[Dict[str, Any]]:
-    """SessionStart 去重：同 cwd + 近期活躍的兄弟 state。"""
+    """SessionStart 去重：同 cwd + 近期活躍的兄弟 state。挑中的那份用 read_state_status 重讀（hook 模式下拿它的鎖、
+    記下基準），之後寫回兄弟的 state 才有三方合併的基準、不整份覆蓋（規則 STATE_RMW_LOCKED）；重讀後已不是 working 或已被合併
+    → 不認領（回 None）；重讀不到 → 用掃描時那份當基準。"""
     try:
         norm_cwd = cwd.lower().replace("\\", "/")
         best: Optional[Dict[str, Any]] = None
+        best_fp: Optional[Path] = None
+        best_text = ""
         best_mtime: float = 0.0
         now = datetime.now(timezone.utc).astimezone()
 
@@ -1235,7 +1692,8 @@ def _find_active_sibling_state(
                 continue
             try:
                 with open(fp, "r", encoding="utf-8") as f:
-                    candidate = json.load(f)
+                    text = f.read()
+                candidate = json.loads(text)
             except (json.JSONDecodeError, OSError):
                 continue
 
@@ -1261,9 +1719,17 @@ def _find_active_sibling_state(
 
             mtime = fp.stat().st_mtime
             if mtime > best_mtime:
-                best = candidate
+                best, best_fp, best_text = candidate, fp, text
                 best_mtime = mtime
 
+        if best_fp is not None:
+            fresh, status = read_state_status(best_fp.stem[len("state-"):])
+            if status != "ok" or not isinstance(fresh, dict):
+                _remember(best_fp, best_text, None)      # 重讀不到：用掃描時讀到的那份當基準，寫回時照三方合併、不整份覆蓋
+                return best
+            if fresh.get("phase") != "working" or fresh.get("merged_into"):
+                return None                               # 等鎖期間它收尾或被合併了：不再認領
+            return fresh
         return best
     except Exception as e:
         _atom_debug_error("state:sibling_scan", e)
@@ -1360,6 +1826,10 @@ def _ensure_state(
         state["atom_index"] = min_index
     state["_fallback_state_rebuilt"] = True
     write_state(session_id, state)
+    if state.get("merged_into"):                  # 鎖裡發現檔已在、改用磁碟那份，而它是轉址 stub：照一般路徑跟到目標
+        target = read_state(str(state["merged_into"]))
+        if target:
+            return target
     _atom_debug_log(
         "Fallback",
         f"SessionStart missed for {session_id[:12]}… — auto-created state "
