@@ -12,5 +12,5 @@
 | 文字與格式 | 6 | `memory/Failures/文字與格式/_INDEX.md` |
 | 版控 | 3 | `memory/Failures/版控/_INDEX.md` |
 | 行為契約 | 32 | `memory/Failures/行為契約/_INDEX.md` |
-| 設計通則 | 3 | `memory/Failures/設計通則/_INDEX.md` |
+| 設計通則 | 4 | `memory/Failures/設計通則/_INDEX.md` |
 | 驗證與實證 | 12 | `memory/Failures/驗證與實證/_INDEX.md` |
