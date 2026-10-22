@@ -2,7 +2,8 @@
 
 做什麼：
 1. 衝突宣告（tools/memory-conflict-detector.py write-check）：要宣告的範圍是這次向量前幾名、不隨本地模型標籤翻面；
-   多宣告不在名單的卡不算錯；守門總開關關 → 照門檻判、不要求宣告。
+   多宣告不在名單的卡不算錯；這次本地模型沒標但 AI 宣告了衝突 → 照宣告 contradict；守門總開關關 → 照門檻判、不要求宣告；
+   向量服務埠讀 config。
 2. 去重宣告（tools/memory-write-gate.py）：of 不在這次前 3 名、但在這次比對的層裡存在 → 收；沒候選但宣告 same／supersedes →
    照宣告走（找不到那張卡就拒寫說明，不另建新卡）；舊卡已滿 → 訊息直接給「壓縮舊卡（replace）或改寫進文件」。
 3. 流程級：第一次被退 → 照退件訊息改一次重送 → 收（退件只有一次）。
@@ -86,6 +87,67 @@ def test_extra_declaration_not_in_top_is_accepted(monkeypatch, ledger):
     out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["CONTRADICT", "CONTRADICT"]}, declared=decl)
     assert out["verdict"] == "ok" and [d["of"] for d in out["declared"]] == ["a"]
     assert any("zzz" in w and "not in this run's vector top" in w for w in out["warnings"])
+
+
+def test_declared_conflict_followed_when_small_model_no_longer_flags(monkeypatch, ledger):
+    """會紅：舊碼這次本地模型沒標 → 宣告整份忽略、照寫 shared（做的事跟 AI 宣告相反）。現在宣告了 conflict 就照宣告落待審，
+    宣告不全也一樣（不要求補）；宣告裡沒有 conflict → 照寫。"""
+    full = [{"of": "a", "verdict": "conflict", "why": "同一設定鍵，一張說開一張說關"}]
+    out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["UNRELATED"]}, declared=full)
+    assert out["verdict"] == "contradict" and out["primary"] == "a"
+    partial = [{"of": "b", "verdict": "conflict", "why": "同一設定鍵說法相反"}]   # 名單有 a、b，只宣告了 b
+    out = _check(monkeypatch, [_hit("a", 0.92), _hit("b", 0.9)], {"a": ["AGREE"], "b": ["UNRELATED"]}, declared=partial)
+    assert out["verdict"] == "contradict" and out["primary"] == "b" and out["declared"][0]["of"] == "b"
+    assert [(p["of"], p["event"]) for g, p in ledger if g == "conflict_declared"] == [("a", "conflict"), ("b", "conflict")]
+    out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["UNRELATED"]},
+                 declared=[{"of": "a", "verdict": "not_conflict", "why": "範圍不同"}])
+    assert out["verdict"] == "ok"
+    out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["UNRELATED"]}, declared=[{"of": "a", "verdict": "conflict", "why": ""}])
+    assert out["verdict"] == "ok" and out["declaration_ignored"] and "candidates" not in out   # 沒附理由的不算宣告
+
+
+def test_unasked_declaration_only_waives_missing_cards(monkeypatch, ledger):
+    """不要求宣告時只豁免「其他張沒宣告」：同一張兩種判法照樣不收；合法的 conflict 照名單順序全收、不只取第一條。"""
+    hits = [_hit("a", 0.92), _hit("b", 0.9), _hit("c", 0.88)]
+    labels = lambda: {"a": ["UNRELATED"], "b": ["UNRELATED"], "c": ["UNRELATED"]}   # noqa: E731
+    both = [{"of": "a", "verdict": "conflict", "why": "同鍵相反"}, {"of": "a", "verdict": "not_conflict", "why": "範圍不同"}]
+    out = _check(monkeypatch, hits, labels(), declared=both)
+    assert out["verdict"] == "ok" and out["declaration_ignored"]
+    two = [{"of": "b", "verdict": "conflict", "why": "同鍵相反"}, {"of": "a", "verdict": "conflict", "why": "同一設定說法相反"}]
+    out = _check(monkeypatch, hits, labels(), declared=two)
+    assert out["verdict"] == "contradict" and out["primary"] == "a" and [d["of"] for d in out["declared"]] == ["a", "b"]
+
+
+def test_all_llm_errors_still_follow_declared_conflict(monkeypatch, ledger):
+    """本地模型全部 ERROR：沒宣告照舊 fail-open 放行；AI 宣告了衝突 → 照宣告落待審（模型掛了不推翻宣告）。"""
+    out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["ERROR"]})
+    assert out["skipped"] and out["verdict"] == "ok"
+    out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["ERROR"]}, declared=[{"of": "a", "verdict": "conflict", "why": "同鍵相反"}])
+    assert out["verdict"] == "contradict" and out["primary"] == "a"
+    out = _check(monkeypatch, [_hit("a", 0.9)], {"a": ["ERROR"]}, declared=[{"of": "a", "verdict": "not_conflict", "why": "範圍不同"}])
+    assert out["verdict"] == "ok"
+
+
+def test_detector_vector_port_from_config(monkeypatch, tmp_path):
+    """會紅：舊碼寫死 127.0.0.1:3849，測試或改了埠的機器接不到自己的向量服務。現在讀 config vector_search.service_port，沒設才 3849。"""
+    urls = []
+
+    class _R(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(det.urllib.request, "urlopen", lambda req, timeout=0: urls.append(req.full_url) or _R(b"[]"))
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"vector_search": {"service_port": 45678}}), encoding="utf-8")
+    monkeypatch.setattr(det, "CONFIG_PATH", cfg)
+    det.vector_search("q")
+    cfg.write_text("{}", encoding="utf-8")
+    det.vector_search("q")
+    monkeypatch.setattr(det, "CONFIG_PATH", tmp_path / "missing.json")
+    det.vector_search("q")
+    assert [urllib.parse.urlparse(u).port for u in urls] == [45678, 3849, 3849]
 
 
 def test_same_name_in_two_layers_judged_separately(monkeypatch, ledger):

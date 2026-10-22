@@ -388,9 +388,14 @@ def test_rules_unavailable_still_follows_ai_declaration(logs, monkeypatch):
 
 
 def test_below_threshold_extend_is_not_a_candidate(logs, monkeypatch):
-    """反例：EXTEND 但相似度 < 0.85 → 不是候選、照寫；帶了宣告也忽略。"""
-    out = _write_check(monkeypatch, [_hit("a", 0.7)], ["EXTEND"], declared=[{"of": "a", "verdict": "conflict", "why": "x"}])
+    """反例：EXTEND 但相似度 < 0.85 → 不是候選、不要求宣告、照寫；帶了沒有衝突的宣告也忽略。
+    AI 宣告了衝突 → 照宣告 contradict（程式不做跟宣告相反的事）。"""
+    out = _write_check(monkeypatch, [_hit("a", 0.7)], ["EXTEND"])
+    assert out["verdict"] == "ok" and "candidates" not in out
+    out = _write_check(monkeypatch, [_hit("a", 0.7)], ["EXTEND"], declared=[{"of": "a", "verdict": "conflict", "why": ""}])
     assert out["verdict"] == "ok" and out.get("declaration_ignored") and "candidates" not in out
+    out = _write_check(monkeypatch, [_hit("a", 0.7)], ["EXTEND"], declared=[{"of": "a", "verdict": "conflict", "why": "x"}])
+    assert out["verdict"] == "contradict" and out["primary"] == "a"
 
 
 def test_pull_audit_llm_error_is_candidate_not_contradict(logs, monkeypatch, tmp_path):

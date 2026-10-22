@@ -330,13 +330,20 @@ async function toolAtomWrite(id, args) {
         const decl = (cr.declared || []).find((d) => d.of === prim.atom_name || d.of === `${prim.layer}:${prim.atom_name}`);
         const pendingDir = path.join(baseDir, "shared", "_pending_review");
         fs.mkdirSync(pendingDir, { recursive: true });
-        const reportPath = path.join(pendingDir, slug + ".conflict.md");
         const report = buildConflictReport({
           slug, incomingTitle: title, incomingContent: knowledge.join("\n"),
           matches: cr.matches, detectorModel: cr.detector_model, author,
         });
-        fs.writeFileSync(reportPath + ".tmp", report, "utf-8");
-        fs.renameSync(reportPath + ".tmp", reportPath);
+        // 同名報告還在（前一次衝突還沒審）：另起 <slug>.<n>.conflict.md，不蓋掉、也不併進前一份
+        // （核准 <slug> 時 conflict-review 只收掉 <slug>.conflict.md，後來這份照樣列在 /conflict pending）。
+        // 獨占建立（wx）：兩個 MCP 行程同時寫同名報告也各得一個檔名
+        let reportPath = "";
+        for (let n = 1; !reportPath; n++) {
+          const p = path.join(pendingDir, n === 1 ? `${slug}.conflict.md` : `${slug}.${n}.conflict.md`);
+          try { fs.writeFileSync(p, report, { encoding: "utf-8", flag: "wx" }); reportPath = p; } catch (e) {
+            if (e.code !== "EEXIST" || n >= 1000) throw e;
+          }
+        }
         appendMergeHistory(baseDir, "pending-create", slug, scopeLabel, author,
           `contradict vs ${prim.atom_name || "?"} sim=${(prim.similarity || 0).toFixed(3)}` + (decl ? ` declared: ${decl.why}` : ""));
         return reply(
