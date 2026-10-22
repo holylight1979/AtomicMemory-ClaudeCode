@@ -3,7 +3,7 @@
 //
 // one-writer：本 handler 只驗參數（動作合法、必填有填、列舉值合法）、回一行 chip；**不讀寫目標檔、不配編號**。
 // 套用到 session 的目標樹、配節點編號、記回合與變更紀錄、查證據指標與先後、送回更新後的整棵樹，全由 Python PostToolUse
-// （hooks/wg_need_goal.apply_op，帶原始 session_id 與回合）獨佔。契約：_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md
+// （hooks/wg_need_goal.apply_op，帶原始 session_id 與回合）獨佔；判法以 hooks/wg_need_goal.apply_op 為準。
 //
 // MIRROR: hooks/wg_need_goal.py validate_input（同一組列舉值與規則）。
 

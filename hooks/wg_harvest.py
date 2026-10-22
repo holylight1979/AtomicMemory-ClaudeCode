@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from wg_core import _now_iso, WORKFLOW_DIR, user_typed_prompts
+from wg_core import _is_under_claude_dir, _now_iso, WORKFLOW_DIR, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
 from wg_release_rules import in_user_turn
@@ -1096,11 +1096,12 @@ def harvest_gate_reason(
         if waived is not None:
             waived.append({"item": "收割", "quote": said[:120], "line": ""})
         return None
-    return harvest_block_message()
+    return harvest_block_message(cwd=str((state.get("session") or {}).get("cwd") or ""))
 
 
-def harvest_block_message(tracking_written: bool = False) -> str:
-    """tracking_written：本 turn 的 AEC 追蹤項（k）已由 append_tracking 入帳（掛點在 post_tool_use，track-b 接）。"""
+def harvest_block_message(tracking_written: bool = False, cwd: str = "") -> str:
+    """tracking_written：本 turn 的 AEC 追蹤項（k）已由 append_tracking 入帳（掛點在 post_tool_use）。
+    cwd：session 的工作目錄；在 ~/.claude 之下才附「記憶系統開發面 → realm=local」那句。"""
     tracking = ("追蹤項已入帳，有部位的同時寫進病灶文件。" if tracking_written
                 else "追蹤項請填進收尾檢核 k 欄。")
     src = "\n".join(f"  {s}" for s in _HARVEST_SOURCES)
@@ -1109,7 +1110,8 @@ def harvest_block_message(tracking_written: bool = False) -> str:
         "再呼叫 MCP tool knowledge_harvest_report（items=[] 也要呼叫）。\n"
         "掃六個來源：\n" + src + "\n"
         "判準：只寫「從程式碼/文件讀不出來、之後會重查或重犯」的；專案專屬 → scope=shared(+project_cwd)；"
-        "記憶系統開發面 → realm=local/MemDev；一次性事實不寫。\n"
+        + ("記憶系統開發面 → realm=local/MemDev；" if _is_under_claude_dir(cwd) else "")   # 只在記憶系統自己的目錄裡有意義
+        + "一次性事實不寫。\n"
         "atom_write／atom_retire 必在呼叫 knowledge_harvest_report **之前**做完——每個 item 用工具回的 receipt 核對："
         "created/appended/replaced 要同 path 同 op 且 index_ok；superseded 要 receipt.supersedes 含該 atom；"
         "retired 要 retire receipt 的 old_path 相符；對不上會被擋回補。"

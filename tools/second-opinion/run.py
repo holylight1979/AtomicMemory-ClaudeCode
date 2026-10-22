@@ -35,6 +35,7 @@ CODE_DIR = HERE.parents[1]   # 程式碼根（本檔所在的樹）：codex-comp
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 from lib.project_root import claude_data_dir  # noqa: E402
+from lib.config_local import merge_local  # noqa: E402  本機覆寫 config.local.json
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow/config.json、job 目錄
 COMPANION_DIR = CODE_DIR / "tools" / "codex-companion"
 REPLAY_GUARD = CODE_DIR / "tools" / "replay-guard.py"
@@ -100,6 +101,7 @@ def load_config() -> Tuple[Dict[str, Any], Dict[str, Any]]:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         sys.stderr.write(f"[second-opinion] config 讀取失敗，用預設：{e}\n")
+    raw = merge_local(raw if isinstance(raw, dict) else {}, CONFIG_PATH.with_name("config.local.json"), "second-opinion")
     so = dict(DEFAULTS)
     so.update({k: v for k, v in (raw.get("second_opinion") or {}).items() if not k.startswith("_")})
     so["allow_claude_fallback"] = False

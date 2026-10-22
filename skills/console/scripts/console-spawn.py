@@ -3,7 +3,7 @@
 
 做什麼（照順序，哪一步不過就停在那步、印開工句退回人貼）：
   1. 前置：開工句檔存在；worktree 不是 live 根、且登記在 live 的 .git/worktrees/ 名單；kill switch 檔
-     <live>/workflow/console-spawn.STOP 不存在；由本腳本起、還活著的 session 未達上限（console.spawn.max_parallel，預設 5）。
+     <live>/workflow/console-spawn.STOP 不存在；由本腳本起、還活著的 session 未達上限（skills/console/spawn.json 的 max_parallel，預設 5）。
      「本腳本起過哪些」記在 <live>/workflow/state-console-spawn.json：讀寫都拿 <檔>.lock 鎖，改動是鎖內重讀再套一筆、
      暫存檔換上，好幾支同時跑也不丟列；檔壞了 → 原因印 stderr、不起（數不出活著的就不放行）；起好後沒記上 → 印出來。
   2. 信任：worktree 在 ~/.claude.json 沒有信任紀錄時 `claude --bg` 會拒起；live 根已信任就替 worktree 補一筆
@@ -13,7 +13,7 @@
      → FAIL（原檔不動）。
   3. 起 session（--method bg，預設）：`claude.exe --bg "<開工句>" --permission-mode <模式> [--model <id>]`，cwd＝worktree，
      subprocess 不經 shell（開工句以 / 開頭也原樣送到）。stdout 的 `backgrounded · <短 id>` 就是 session 短 id。
-     模型：--model 優先，其次 config console.spawn.default_model，都沒有就不帶（吃 Claude Code 預設），不猜。
+     模型：--model 優先，其次 spawn.json 的 default_model，都沒有就不帶（吃 Claude Code 預設），不猜。
   4. 等它報到：輪詢 `claude agents --json` 取它在 ListAgents 的名字；讀它的 transcript
      （<資料根>/projects/<cwd-slug>/<sessionId>.jsonl）看有沒有「<軌名> 收到開工」——SendMessage 工具呼叫的正文，
      或 assistant 的文字都認，印出是哪一種。報到後印「模型＝<transcript 最近一則真回應的 message.model>」；
@@ -24,7 +24,7 @@
   --method print：同步跑 `claude -p`（阻塞到那個 session 結束），備援用；--method gui：本腳本不動畫面，直接印開工句退回。
 
 怎麼跑：
-  python ~/.claude/tools/console-spawn.py --track track-x --worktree C:\\...\\.claude-wt\\x --branch x \\
+  python ~/.claude/skills/console/scripts/console-spawn.py --track track-x --worktree C:\\...\\.claude-wt\\x --branch x \\
       --prompt-file C:\\...\\kickoff.txt --permission-mode bypassPermissions --model claude-opus-5-5
   完整參數以 --help 為準。尾行 `CONSOLE_SPAWN_CHECK PASS` 或 `CONSOLE_SPAWN_CHECK FAIL`；exit 0／1 對應。
 """
@@ -47,7 +47,7 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-CODE_DIR = Path(__file__).resolve().parents[1]
+CODE_DIR = Path(__file__).resolve().parents[3]   # skills/console/scripts/ → 程式碼根
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 from lib.project_root import claude_data_dir, claude_global_config  # noqa: E402
@@ -56,6 +56,7 @@ NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 KILL_SWITCH = "console-spawn.STOP"
 STATE_FILE = "state-console-spawn.json"          # workflow/state-*.json 已在 .gitignore
 DEFAULTS = {"max_parallel": 5, "timeout_sec": 90, "poll_sec": 3}
+SPAWN_CONFIG = Path(__file__).resolve().parents[1] / "spawn.json"   # 跟著 skill 版控的設定（鍵同 DEFAULTS＋default_model）
 BG_ID_RE = re.compile(r"backgrounded\s*[·•:]\s*([0-9a-f]{6,})", re.I)
 KICKOFF_WORD = "收到開工"
 SYNTHETIC_MODEL = "<synthetic>"                  # Claude Code 自己補寫的 assistant（API 錯誤、No response requested）
@@ -196,14 +197,16 @@ def fallback_block(prompt: str, step: str, extra: str = "") -> str:
 
 
 # ─── 外部狀態：設定、信任、state 檔 ─────────────────────────────────────────────
-def load_spawn_config(live_root: Path) -> Dict[str, Any]:
+def load_spawn_config(f: Optional[Path] = None) -> Dict[str, Any]:
     cfg = {**DEFAULTS, "default_model": None}
-    f = live_root / "workflow" / "config.json"
+    f = f or SPAWN_CONFIG
     if not f.is_file():
         return cfg
     try:
-        section = (json.loads(f.read_text(encoding="utf-8-sig")).get("console") or {}).get("spawn") or {}
-    except (json.JSONDecodeError, OSError, AttributeError):
+        section = json.loads(f.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError):
+        return cfg
+    if not isinstance(section, dict):
         return cfg
     for k in DEFAULTS:
         if isinstance(section.get(k), (int, float)) and section[k] > 0:
@@ -435,13 +438,13 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     ap.add_argument("--permission-mode", required=True, help="明帶，不假設繼承：bypassPermissions／acceptEdits／default…")
     ap.add_argument("--method", choices=("bg", "print", "gui"), default="bg",
                     help="bg＝claude --bg（預設）；print＝claude -p 同步；gui＝不動畫面，只印退路")
-    ap.add_argument("--timeout", type=float, default=None, help="等「收到開工」的秒數（預設 config console.spawn.timeout_sec 或 90）")
+    ap.add_argument("--timeout", type=float, default=None, help="等「收到開工」的秒數（預設 spawn.json 的 timeout_sec 或 90）")
     ap.add_argument("--poll", type=float, default=None, help="輪詢間隔秒（預設 config 或 3）")
     ap.add_argument("--max-parallel", type=int, default=None, help="同時活著的本腳本 session 上限（預設 config 或 5）")
     ap.add_argument("--claude-bin", default=None, help="claude 執行檔；不給就找 VS Code 擴充內建最新版，再找 PATH")
     ap.add_argument("--model", default=None,
                     help="新 session 的模型，給完整 id（例 claude-opus-5-5；別名對不上 transcript 記的完整 id 會判 FAIL）；"
-                         "不給就用 config console.spawn.default_model，再沒有就不帶（吃 Claude Code 預設）")
+                         "不給就用 spawn.json 的 default_model，再沒有就不帶（吃 Claude Code 預設）")
     args = ap.parse_args(argv)
 
     def log(s: str) -> None:
@@ -475,7 +478,7 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     if not worktree_registered(args.worktree, live_root):
         log(f"  ✗ {args.worktree} 沒登記在 {live_root / '.git' / 'worktrees'}")
         return fail("worktree 檢查：未登記", prompt)
-    cfg = load_spawn_config(live_root)
+    cfg = load_spawn_config()
     args.timeout = args.timeout if args.timeout is not None else cfg["timeout_sec"]
     args.poll = args.poll if args.poll is not None else cfg["poll_sec"]
     max_parallel = args.max_parallel if args.max_parallel is not None else cfg["max_parallel"]
@@ -503,7 +506,7 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
         log(f"  ✗ 由本腳本起、還活著的 session 已 {len(alive)} 個（上限 {max_parallel}）：")
         for s in alive:
             log(f"      {s.get('id')}  {s.get('track')}  {s.get('worktree')}  起於 {s.get('startedAt')}")
-        return fail(f"並行上限 {max_parallel}", prompt, "先 `claude stop <id>` 收掉不用的，或調 console.spawn.max_parallel。")
+        return fail(f"並行上限 {max_parallel}", prompt, "先 `claude stop <id>` 收掉不用的，或調 skills/console/spawn.json 的 max_parallel。")
 
     # 2. 信任
     cfg_path = config_path or claude_global_config()

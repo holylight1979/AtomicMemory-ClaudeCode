@@ -35,6 +35,7 @@ def sandbox(tmp_path, monkeypatch):
     workflow.mkdir()
     monkeypatch.setattr(asp, "WORKFLOW_DIR", workflow)
     monkeypatch.setattr(asp, "SIDECAR_DIR", workflow / "acceptance-spec")
+    monkeypatch.setenv("WG_V6", "1")   # 提示歸 v6 開關管；關時不提示另見 verify_pull_dev_residue
     return workflow
 
 
