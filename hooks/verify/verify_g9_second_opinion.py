@@ -85,6 +85,9 @@ class Tx:
             self.call(RESULT, {"job_id": job}, f"status: {status}\njob_id: {job}{tail}")
 
 
+RISKY = {"second_opinion": {"auto": {"risky_prefixes": ["hooks/wg_release_rules.py", "hooks/wg_second_opinion.py"]}}}
+
+
 def _mf(path, turn=5):
     return {"path": str(path), "tool": "Edit", "session_id": SID, "turn_seq": turn, "last_turn_seq": turn}
 
@@ -284,8 +287,9 @@ def test_missing_verdict_line_blocks_and_names_it(drive, capsys, tmp_path):
 @pytest.mark.parametrize("rel", ["hooks/wg_release_rules.py", "hooks/wg_second_opinion.py"])
 def test_one_file_in_risky_prefix_blocks(drive, capsys, tmp_path, rel):
     root = _repo(tmp_path, {rel: _lines(3)})
-    reason, _, _ = drive(DONE, capsys, files=[root / rel])
+    reason, _, _ = drive(DONE, capsys, files=[root / rel], config=RISKY)
     assert "[Guardian:SecondOpinion]" in reason and f"改到高風險部位：{rel.rsplit('/', 1)[-1]}" in reason
+    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, files=[root / rel])[0], "risky_prefixes 預設空：沒設就不算高風險"
 
 
 def test_two_files_40_lines_not_risky_passes_but_200_lines_blocks(drive, capsys, tmp_path):
@@ -418,16 +422,16 @@ def test_once_per_claim_new_risky_part_or_new_files_over_threshold_owed(drive, c
     root = _repo(tmp_path, {"hooks/wg_release_rules.py": _lines(3), "hooks/wg_second_opinion.py": _lines(3)})
     rr_file, so_file = root / "hooks/wg_release_rules.py", root / "hooks/wg_second_opinion.py"
     drive.tx.opinion("done")
-    _, state, _ = drive(FOUR, capsys, files=[rr_file])
+    _, state, _ = drive(FOUR, capsys, files=[rr_file], config=RISKY)
     assert state["second_opinion_cover"][SID]["risky"]
     drive.tx.user("採納：再改 wg_release_rules")
     state.update(turn_seq=6, turn_prompts_seq=6)
     state["modified_files"][0]["last_turn_seq"] = 6
-    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, state=state)[0]   # 審過的高風險檔：不欠
+    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, state=state, config=RISKY)[0]   # 審過的高風險檔：不欠
     drive.tx.user("另外改 wg_second_opinion")
     state.update(turn_seq=7, turn_prompts_seq=7)
     state["modified_files"].append(_mf(so_file, 7))
-    assert "[Guardian:SecondOpinion]" in drive(DONE, capsys, state=state)[0]       # 新的高風險檔：再欠
+    assert "[Guardian:SecondOpinion]" in drive(DONE, capsys, state=state, config=RISKY)[0]       # 新的高風險檔：再欠
     files = _files(tmp_path, 5)
     drive.tx.opinion("done")
     _, st2, _ = drive(FOUR, capsys, files=files)

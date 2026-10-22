@@ -1,7 +1,7 @@
 """wg_second_opinion.py：G9 自動第二意見的事實收集（Stop 的 SecondOpinion 段用；判定在 wg_release_rules 的 G9 段）。
 
 做什麼：
-  auto_cfg       config `second_opinion.auto` 段＋預設（門檻：4 檔／150 行／risky_prefixes＋部位表類別 gate）。
+  auto_cfg       config `second_opinion.auto` 段＋預設（門檻：4 檔／150 行；高風險部位看部位表類別 gate，risky_prefixes 預設空）。
   turn_events    transcript 尾段裡本回合（最後一則使用者打字之後）的 second_opinion_start／result 呼叫與回傳。
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
@@ -33,8 +33,7 @@ DEFAULTS: Dict[str, Any] = {
     "enabled": True,
     "min_code_files": 4,
     "min_changed_lines": 150,
-    "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py",
-                       "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/"],
+    "risky_prefixes": [],          # 高風險部位由部位表「類別＝gate」決定（_gate_part）；要額外列前綴寫在 config
     "max_blocks_per_turn": 1,
 }
 GATE_KIND = "gate"                  # 部位表「類別」欄的原字（overview_hub.parse_map 只分 knowledge／code，這裡讀原字）
@@ -109,7 +108,7 @@ _COMPLETION_NEG_RE = re.compile(r"(?:還沒|還未|尚未|尚待|未|沒有?)[^�
 def turn_completion_text(transcript_text: str) -> str:
     """本回合宣告完成的那一則文字；沒宣告回空字串。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
     完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就是最後說完成的那一則。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
-    只看最後一則會被補件那則蓋掉（第二波 C′ 第二跑：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。"""
+    只看最後一則會被補件那則蓋掉（例：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。"""
     from wg_evasion import _COMPLETION_CLAIM_RE, _COMPLETION_EXCLUDE_RE, claims_completion
     texts = [str(b.get("text") or "") for o in _turn_records(transcript_text) if o.get("type") == "assistant"
              for b in _blocks(o) if b.get("type") == "text"]

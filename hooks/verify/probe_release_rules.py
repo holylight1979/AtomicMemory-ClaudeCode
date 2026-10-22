@@ -2,7 +2,7 @@
 
 做什麼：每個情境建自己的 tmp 資料根（WG_CLAUDE_DIR）、tmp 家目錄（HOME／USERPROFILE）、tmp 系統暫存（TEMP／TMP／TMPDIR）、
 tmp Logs（WG_TEST_LOGS_DIR）與專案，用受測樹的真 hook 入口 hooks/workflow-guardian.py 餵造好的事件 JSON，對照「規則」預期：
-  P1 先紅後綠不擋（CASE_GREEN_AFTER_EDIT）        P2 worktree 移除後 Stop 不擋（GONE_OUTSIDE_VCS）
+  P1 先紅後綠不擋（CASE_COVERS_CHANGE）        P2 worktree 移除後 Stop 不擋（GONE_OUTSIDE_VCS）
   P3 merge 時 checkout --theirs 不擋（CONTENT_EQUALS_COMMITTED）   P4 python -c 唯讀放行、node -e 擋且指路（INLINE_PY_READONLY）
   P5 唯讀 git 放行、會寫的擋且留 guard-crossrealm.jsonl（GIT_READONLY_SUBCMD）   P6 擋滿訊息列全部條目（BLOCK_BUDGET_PER_RULE）
   P7 暫存目錄 repo 的 commit 免口令（TEMP_REPO_COMMIT_EXEMPT）   P8 暫存目錄副本不注入不擋（TEMP_COPY_NOT_PROJECT）
@@ -236,7 +236,7 @@ def _d(step: dict) -> str:
     if step["result"] == "block":
         if not any(t in r for t in CODE_TAGS):
             return "pass"
-        if "OWED_AFTER_LAST_CASE" in r or "(d)" in r:
+        if "CASE_COVERS_CHANGE" in r or "(d)" in r:
             return "block(d)"
         if "CLAIM_FIXED_NEEDS_PASS" in r:
             return "block(a)"
@@ -247,7 +247,7 @@ def _d(step: dict) -> str:
 # ── 情境 ──
 
 def p1(tree, base):
-    c = Checks("P1", "先紅後綠：加案例跑紅 → 改程式 → 跑綠 → Stop 不擋（CASE_GREEN_AFTER_EDIT）；改程式後沒跑 → 照擋")
+    c = Checks("P1", "先紅後綠：加案例跑紅 → 改程式 → 跑綠 → Stop 不擋（CASE_COVERS_CHANGE）；改程式後沒跑 → 照擋")
     sb = Sandbox(tree, base, "p1")
     proj = sb.project("proj")
     s = Session(sb, proj)
@@ -370,12 +370,12 @@ def p6(tree, base):
     for i in range(1, 3):
         st = s.stop(TEXT_FIXED, active=i > 1)
         r = reason_of(st)
-        c.add(f"第 {i} 次 Stop 命中 (a) 與 (d)", "yes" if "CLAIM_FIXED_NEEDS_PASS" in r and "OWED_AFTER_LAST_CASE" in r else _d(st), "yes")
+        c.add(f"第 {i} 次 Stop 命中 (a) 與 (d)", "yes" if "CLAIM_FIXED_NEEDS_PASS" in r and "CASE_COVERS_CHANGE" in r else _d(st), "yes")
     st = s.stop(TEXT_FIXED, active=True)
     r = reason_of(st)
     head = r.split("原擋訊息")[0]
     c.add("第 3 次擋滿要問使用者", "yes" if "【收尾放行確認】" in r else _d(st), "yes")
-    c.add("擋滿摘要列全部條目", "yes" if "(a) CLAIM_FIXED_NEEDS_PASS" in head and "(d) OWED_AFTER_LAST_CASE" in head else "no", "yes",
+    c.add("擋滿摘要列全部條目", "yes" if "(a) CLAIM_FIXED_NEEDS_PASS" in head and "(d) CASE_COVERS_CHANGE" in head else "no", "yes",
           note=head[:160])
     return c, [s]
 

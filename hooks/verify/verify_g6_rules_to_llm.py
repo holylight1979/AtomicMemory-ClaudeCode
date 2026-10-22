@@ -355,7 +355,7 @@ def test_bad_declaration_is_refused(logs, monkeypatch):
     out = _write_check(monkeypatch, [_hit("a", 0.9)], ["EXTEND"],
                        declared=[{"of": "a", "verdict": "not_conflict", "why": "<一句理由>"}, {"of": "zzz", "verdict": "conflict", "why": "x 理由"}])
     assert out["verdict"] == "need_declaration"
-    assert "a：why 要寫一句理由" in out["declaration_problem"] and "zzz：不在候選" in out["declaration_problem"]
+    assert "a：why 要寫一句理由" in out["declaration_problem"] and "zzz" not in out["declaration_problem"]
     assert not _events(logs, "conflict_declared")
 
 

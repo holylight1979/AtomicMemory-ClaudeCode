@@ -237,7 +237,7 @@ def test_unrelated_test_file_cannot_vouch(driven, capsys):
                            verify_receipts={_SID: [_rcpt(5, cmd=bad)]}, anti_evasion_report=_aec(5, j=__file__, k="無"))
         assert "ReconcileGate" in out and "對不上" in out, bad
     for good in ("pytest tests/test_a.py", "pytest -q", MEASURE_CMD):
-        out, _, _ = driven("a 修好了，完成。", capsys, modified_files=[_mf(a, 5), _mf(_CASE, 5)],
+        out, _, _ = driven("a 修好了，完成。", capsys, modified_files=[_mf(a, 5), _mf(r"c:\proj\tests\test_a.py", 5)],
                            verify_receipts={_SID: [_rcpt(5, cmd=good)]}, anti_evasion_report=_aec(5, j=__file__, k="無"))
         assert "ReconcileGate" not in out, good
 
@@ -369,7 +369,7 @@ def test_whole_verification_must_be_after_every_claimed_file(driven, capsys):
                        verify_receipts={_SID: [whole(4)]})
     assert "ReconcileGate" in out and "gadget.py 最後一次修改之前" in out
     out, _, _ = driven("閘修好了，完成。", capsys, modified_files=[_mf(_W, 5, last_seq=2), _mf(g, 5, last_seq=3),
-                                                                _mf(_WC, 5, last_seq=4)],
+                                                                _mf(_WC, 5, last_seq=4), _mf(r"c:\demo\tests\test_gadget.py", 5, last_seq=4)],
                        verify_receipts={_SID: [whole(5)]})
     assert "ReconcileGate" not in out
 
@@ -2412,7 +2412,7 @@ def test_035_5_restoring_only_code_after_reverting_code_and_case_still_owes(driv
     _git(repo, "init", "-q")
     _git(repo, "config", "user.email", "t@t")
     _git(repo, "config", "user.name", "t")
-    code, case = repo / "src" / "a.py", repo / "tests" / "test_a.py"
+    code, case = repo / "src" / "a.py", repo / "tests" / "test_suite.py"
     code.write_text("def a():\n    return 2\n", encoding="utf-8", newline="\n")
     case.write_text("def test_a():\n    assert a() == 2\n", encoding="utf-8", newline="\n")
     _git(repo, "add", ".")
@@ -2420,7 +2420,7 @@ def test_035_5_restoring_only_code_after_reverting_code_and_case_still_owes(driv
     code.write_text("def a():\n    return 1\n", encoding="utf-8", newline="\n")                   # 反證：兩者都退回舊版
     case.write_text("def test_a():\n    assert a() == 1\n", encoding="utf-8", newline="\n")
     code.write_text("def a():\n    return 2\n", encoding="utf-8", newline="\n")                   # 只還原程式（等於 HEAD）
-    assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout.strip() == "M tests/test_a.py"
+    assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout.strip() == "M tests/test_suite.py"
     monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
     mods = [_mf(str(code), 5, last_at=_T2, last_seq=6), _mf(str(case), 5, last_at=_T1, last_seq=5)]
     extra = {"last_commit_turn_seq": commit_turn} if commit_turn is not None else {}
@@ -2518,7 +2518,7 @@ def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys
     edit(code, 3)                                                                          # 真的改了程式：照欠
     git("rm", "-q", "-f", "src/a.py")                                                      # 改完又整檔刪掉
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
-    assert "改了程式碼（a.py）之後" not in out
+    assert "改了程式碼（a.py" not in out
     tmp = repo / "src" / "tmp_copy.py"
     tmp.parent.mkdir(exist_ok=True)                                                        # git rm 把空的 src/ 一起拿掉了
     tmp.write_text("x = 1\n", encoding="utf-8", newline="\n")
@@ -2531,7 +2531,7 @@ def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys
     s3["modified_files"].append(_mf(str(repo / "src" / "kept.py"), 5, last_at=_T2, last_seq=100))
     (repo / "src" / "kept.py").write_text("y = 1\n", encoding="utf-8", newline="\n")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **s3)
-    debt = next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), "")
+    debt = next((ln for ln in out.split("\\n") if "案例都沒有覆蓋它" in ln), "")
     assert "（kept.py）" in debt                                                            # 配對：還在的照欠
     # 0a：同根冒出的 kept.py 檔名與內容都和 a.py 最後一次寫入時不同，不是它搬過去的 → a.py 算刪除（舊碼：任何新程式檔都分不出，
     # a.py 也照欠）。原內容搬走的照欠見 040_11。
@@ -2553,7 +2553,7 @@ def test_040_11_moving_changed_code_away_still_owes(driven, capsys, chain, monke
         git("commit", "-qam", "move")
         assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout == ""
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
-    assert "改了程式碼（" in out and "a.py" in next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), ""), how
+    assert "改了程式碼（" in out and "a.py" in next((ln for ln in out.split("\\n") if "案例都沒有覆蓋它" in ln), ""), how
 
 
 def test_040_12_committed_deletion_still_counts_as_deleted(driven, capsys, chain, monkeypatch):
@@ -2575,7 +2575,7 @@ def test_040_9_moving_changed_code_with_git_mv_still_owes_at_new_path(driven, ca
     edit(code, 3)
     git("mv", "src/a.py", "src/b.py")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
-    assert "b.py" in next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), "")
+    assert "b.py" in next((ln for ln in out.split("\\n") if "案例都沒有覆蓋它" in ln), "")
 
 
 def test_040_10_change_and_commit_in_one_command_is_not_exempted(driven, capsys, chain):
@@ -2634,15 +2634,23 @@ _DEBT_A = "改了程式碼（a.py）"
 _CODE_V, _CASE_V = "def a():\n    return {}\n", "def test_a():\n    assert a() == {}\n"
 
 
+def _cover(edit, git, v=3):
+    """補一支覆蓋 src/a.py 的案例（tests/test_a.py：檔名照模組取，CASE_COVERS_CHANGE）並加進版控。"""
+    p = Path(git.repo) / "tests" / "test_a.py"
+    edit(p, v)
+    git("add", "tests/test_a.py")
+    return p
+
+
 def _two_version_repo(tmp_path):
-    """真 git repo：src/a.py 與 tests/test_a.py 兩版各一筆提交（舊版回 1、新版回 2），HEAD 是新版。回 (repo, 程式, 案例)。"""
+    """真 git repo：src/a.py 與 tests/test_suite.py 兩版各一筆提交（舊版回 1、新版回 2），HEAD 是新版。回 (repo, 程式, 案例)。"""
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "tests").mkdir()
     _git(repo, "init", "-q")
     _git(repo, "config", "user.email", "t@t")
     _git(repo, "config", "user.name", "t")
-    code, case = repo / "src" / "a.py", repo / "tests" / "test_a.py"
+    code, case = repo / "src" / "a.py", repo / "tests" / "test_suite.py"
     for v in (1, 2):
         code.write_text(_CODE_V.format(v), encoding="utf-8", newline="\n")
         case.write_text(_CASE_V.format(v), encoding="utf-8", newline="\n")
@@ -2692,6 +2700,7 @@ def chain(monkeypatch, tmp_path):
         post("Bash", {"command": " ".join(argv)}, agent_id, judge)
 
     edit.post = post                                  # 複合指令的案例自己先做完動作，再用它送同一條指令的 PostToolUse
+    git.repo = repo
     edit.cfg = cfg
     return state, edit, git, repo, code, case
 
@@ -2701,7 +2710,7 @@ def test_037_git_reverting_both_then_restoring_only_code_still_owes(driven, caps
     只還原程式 → 經 PostToolUse 兩次 git 還原都記成改檔（最後一次改程式晚於改案例）→ Stop (d) 擋 a.py：案例還留舊版，同根不乾淨，
     程式不剔除。舊碼 git 指令不記改檔，什麼都沒記，直接放行。"""
     state, _, git, _, code, case = chain
-    git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_a.py")
+    git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_suite.py")
     git("checkout", "HEAD", "--", "src/a.py")
     paths = [m["path"] for m in state.get("modified_files") or []]
     assert os.path.normpath(str(code)) in paths and os.path.normpath(str(case)) in paths
@@ -2712,8 +2721,8 @@ def test_037_git_reverting_both_then_restoring_only_code_still_owes(driven, caps
 def test_037_git_restoring_everything_back_is_not_code_debt(driven, capsys, chain):
     """配對（新舊都綠）：程式與案例都退回舊版、再都還原成 HEAD，同根全乾淨、本 session 沒 commit → 不算改碼，(d) 不擋。"""
     state, _, git, _, _, _ = chain
-    git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_a.py")
-    git("checkout", "HEAD", "--", "src/a.py", "tests/test_a.py")
+    git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_suite.py")
+    git("checkout", "HEAD", "--", "src/a.py", "tests/test_suite.py")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), scope=True, **state)
     assert "ReconcileGate" not in out and "VerifyScope" not in out
 
@@ -2748,7 +2757,7 @@ def test_b13_others_commit_but_case_left_old_still_owes(driven, capsys, chain):
     edit(case, 3)
     git("commit", "-qam", "v3")
     _others_merge(repo, code, case, 4)
-    git("checkout", "HEAD~2", "--", "src/a.py", "tests/test_a.py")
+    git("checkout", "HEAD~2", "--", "src/a.py", "tests/test_suite.py")
     git("checkout", "HEAD", "--", "src/a.py")
     out, _, _ = driven("全部完成了。", capsys, **state)
     assert _DEBT_A in out
@@ -3073,9 +3082,10 @@ def test_040_6_notification_then_user_prompt_is_a_new_user_turn(gate_run, capsys
 
 
 @pytest.mark.parametrize("flow, owed", [
-    ("restore_code", False),           # commit 時不欠案例 → 反證把程式退回舊版又還原 → 內容回到 commit 那刻：不重算
-    ("revert_both_restore_code", True),  # 程式與案例都退回、只還原程式 → 案例內容不同：照擋（codex 035 ⑤ 反例）
-    ("owed_at_commit", True),          # commit 時就欠案例（案例先改、程式後改）→ 反證還原後照擋
+    ("restore_code", False),           # commit 時有案例覆蓋 → 反證把程式退回舊版又還原 → 不重算
+    ("revert_both_restore_code", False),  # 程式與案例都退回、只還原程式 → 案例還在、照樣覆蓋：不重欠
+    ("owed_at_commit", False),         # 案例先改、程式後改再 commit → 不比先後：不欠
+    ("no_cover", True),                # 只改了不提到 a.py 的案例 → 沒有覆蓋：照欠（單一義務，不因反證多一次）
 ])
 def test_040_7_reversal_after_commit_does_not_double_block(driven, capsys, chain, flow, owed):
     """使用者裁定「commit 後反證多擋一次要修」：PostToolUse 看到 commit 時記下本 session 改過的檔的內容雜湊與當時不欠案例的程式檔；
@@ -3083,15 +3093,15 @@ def test_040_7_reversal_after_commit_does_not_double_block(driven, capsys, chain
     經真 git、工具→PostToolUse→Stop。舊碼 commit 之後的 git checkout 還原一律算改碼，restore_code 那組也擋。"""
     state, edit, git, _, code, case = chain
     if flow == "owed_at_commit":
-        edit(case, 3)
+        _cover(edit, git)
         edit(code, 3)
     else:
         edit(code, 3)
-        edit(case, 3)
+        edit(case, 3) if flow == "no_cover" else _cover(edit, git)
     git("commit", "-qam", "v3")
     assert state["last_commit_turn_seq"] == 5
     if flow == "revert_both_restore_code":
-        git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_a.py")
+        git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_suite.py")
     else:
         git("checkout", "HEAD~1", "--", "src/a.py")
     git("checkout", "HEAD", "--", "src/a.py")
@@ -3216,7 +3226,7 @@ def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_rep
     moved.parent.mkdir(parents=True)
     Path(code).replace(moved)
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(str(moved), 5)])
-    assert "✗ (d) " in out and "改了程式碼（a.py）之後" in out    # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py（045 擋訊息格式：字母後接規則名）
+    assert "✗ (d) " in out and "改了程式碼（a.py）" in out    # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py（045 擋訊息格式：字母後接規則名）
 
 
 def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys, tmp_path):
@@ -3288,22 +3298,25 @@ def test_042_0_snapshot_exemption_needs_clean_index(driven, capsys, chain):
     assert _status(repo) == "MM src/a.py"
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert _DEBT_A in out
-    git("reset", "-q", "--", "src/a.py")                                                   # 配對：暫存區也回去 → 豁免成立
+    git("reset", "-q", "--", "src/a.py")                                                   # 暫存區也回去：沒有案例覆蓋 a.py 照欠
     assert _status(repo) == ""
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A in out
+    _cover(edit, git)                                                                      # 配對：補覆蓋它的案例 → 不欠
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert _DEBT_A not in out
 
 
 @pytest.mark.parametrize("amend, owed", [
-    ("message_only", False),           # 反證還原（豁免成立）後 amend 只改訊息：新快照沿用舊快照的還原判定，不再欠
-    ("with_new_code", True),           # amend 把新改的程式一起提交：內容不是舊快照那一刻，照欠
+    ("message_only", False),           # 反證還原後 amend 只改訊息：案例照樣覆蓋，不再欠
+    ("with_new_code", False),          # amend 把新改的程式一起提交：案例照樣覆蓋（不比先後），不欠
 ])
 def test_042_0b_amend_after_settled_reversal_keeps_exemption(driven, capsys, chain, amend, owed):
     """042 第 0 項 WARN 2：commit 後反證把程式退回舊版又還原（內容回到快照、豁免成立）→ `git commit --amend` → PostToolUse 拍新快照時
     先拿舊快照判一次，已成立的還原照算不欠。舊碼新快照照修改時間重算，程式被當成欠案例，amend 只改訊息也多擋一次。"""
     state, edit, git, _, code, case = chain
     edit(code, 3)
-    edit(case, 3)
+    _cover(edit, git)
     git("commit", "-qam", "v3")
     git("checkout", "HEAD~1", "--", "src/a.py")
     git("checkout", "HEAD", "--", "src/a.py")
@@ -3371,7 +3384,7 @@ def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, 
     edit.post("Write", {"file_path": str(inbox_case)})
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert _DEBT_A in out
-    edit(case, 3)
+    edit(repo / "tests" / "test_a.py", 3)                                            # 配對：補在 tests/ 覆蓋它的案例
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert _DEBT_A not in out
 
@@ -3412,7 +3425,7 @@ def test_gitignored_case_cannot_settle_tracked_code(driven, capsys, chain):
     edit.post("Write", {"file_path": str(ignored_case)})
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert _DEBT_A in out
-    edit(case, 3)
+    edit(repo / "tests" / "test_a.py", 3)                                            # 配對：補在 tests/ 覆蓋它的案例
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert _DEBT_A not in out
 
@@ -3608,7 +3621,7 @@ def test_042_0e_snapshot_exemption_checks_every_git_root_of_the_project(tmp_path
     sub = proj / "sub"
     (proj / "src").mkdir(parents=True)
     (sub / "tests").mkdir(parents=True)
-    code, case = proj / "src" / "a.py", sub / "tests" / "test_a.py"
+    code, case = proj / "src" / "a.py", sub / "tests" / "test_suite.py"
     for repo, f, text in ((proj, code, _CODE_V.format(2)), (sub, case, _CASE_V.format(2))):
         _git(repo, "init", "-q")
         _git(repo, "config", "user.email", "t@t")
@@ -3618,11 +3631,11 @@ def test_042_0e_snapshot_exemption_checks_every_git_root_of_the_project(tmp_path
         _git(repo, "commit", "-qm", "v2")
     snap = {"files": {str(code): vl._content_sha(str(code)), str(case): vl._content_sha(str(case))}, "settled": [str(code)]}
     case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
-    _git(sub, "add", "tests/test_a.py")
+    _git(sub, "add", "tests/test_suite.py")
     case.write_text(_CASE_V.format(2), encoding="utf-8", newline="\n")                         # 只還原工作樹
     args = (snap, [str(code)], [str(code), str(case)])
     assert vl.committed_settled_paths(*args, root_of=lambda q: str(proj)) == []
-    _git(sub, "reset", "-q", "--", "tests/test_a.py")
+    _git(sub, "reset", "-q", "--", "tests/test_suite.py")
     assert vl.committed_settled_paths(*args, root_of=lambda q: str(proj)) == [str(code)]
 
 
@@ -3775,7 +3788,7 @@ def test_044_1_same_file_other_spelling_restored_after_commit_is_settled(driven,
     配對：改回工作樹但暫存區留新碼 → 照擋。"""
     state, edit, git, repo, code, case = chain
     edit(code, 3)
-    edit(case, 3)
+    _cover(edit, git)
     git("commit", "-qam", "v3")
     other = _other_spelling(code, how)
 
@@ -3792,7 +3805,7 @@ def test_044_1_same_file_other_spelling_restored_after_commit_is_settled(driven,
     git("add", "src/a.py")
     write(3)
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
-    assert _DEBT_A in out and "OWED_AFTER_LAST_CASE" in out, how
+    assert _DEBT_A not in out, how                                                  # 案例覆蓋 a.py：暫存區留新碼也不比先後
 
 
 def _user_then_peers(monkeypatch, peers=2, **extra):
@@ -4233,14 +4246,14 @@ _T3 = "2026-10-12T10:10:00+08:00"
 
 
 def _repo_with_code_and_case(base: Path):
-    """真 git repo：src/a.py 與 tests/test_a.py 同一筆提交。回 (repo, code, case)。"""
+    """真 git repo：src/a.py 與 tests/test_suite.py 同一筆提交。回 (repo, code, case)。"""
     repo = base / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "tests").mkdir()
     _git(repo, "init", "-q")
     _git(repo, "config", "user.email", "t@t")
     _git(repo, "config", "user.name", "t")
-    code, case = repo / "src" / "a.py", repo / "tests" / "test_a.py"
+    code, case = repo / "src" / "a.py", repo / "tests" / "test_suite.py"
     code.write_text("def a():\n    return 1\n", encoding="utf-8", newline="\n")
     case.write_text("def test_a():\n    assert a() == 1\n", encoding="utf-8", newline="\n")
     _git(repo, "add", ".")
@@ -4307,34 +4320,25 @@ def _green(repo: Path, cmd: str, at: str, seq: int, turn: int = 5):
             "exit_code": 0, "at": at, "seq": seq, "project_root": str(repo), "cwd": str(repo), "env": {}}
 
 
-def test_045_b1_case_green_after_edit_settles_debt_only_when_receipt_is_after_code_edit(driven, capsys, tmp_path, monkeypatch):
-    """規則 CASE_GREEN_AFTER_EDIT（先紅後綠）：先加案例（T1）→ 改程式（T2）→ 點名該案例的 PASS（T3）→ (d) 不欠；
-    PASS 跑在改程式之前（T1）→ 照欠（舊碼只看案例 mtime 先後，先紅後綠必擋）。"""
+def test_045_b1_red_then_green_case_covers_code_regardless_of_order(driven, capsys, tmp_path, monkeypatch):
+    """規則 CASE_COVERS_CHANGE（先紅後綠）：先寫會紅的案例 tests/test_a.py（T1）→ 改程式（T2）→ (d) 不欠：案例檔名照模組取就是覆蓋，
+    不比先後、不看有沒有跑綠（舊碼：程式比案例新就欠，要點名該案例且晚於改程式的 PASS 才清）；配對：只改了不提到 a.py 的案例 → 照欠。"""
     monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
     monkeypatch.setattr(vl, "code_exists", os.path.isfile, raising=False)
-    repo, code, case = _repo_with_code_and_case(tmp_path)
+    repo, code, other = _repo_with_code_and_case(tmp_path)
+    case = repo / "tests" / "test_a.py"
     case.write_text("def test_a():\n    assert a() == 2\n", encoding="utf-8", newline="\n")      # 先寫會紅的案例
     code.write_text("def a():\n    return 2\n", encoding="utf-8", newline="\n")                   # 再改程式
     mods = [_mf(str(case), 5, last_at=_T1, last_seq=5), _mf(str(code), 5, last_at=_T2, last_seq=6)]
-    green = _green(repo, "python -m pytest -q tests/test_a.py", _T3, 7)
-    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [green]})
-    assert "改了程式碼（a.py）" not in out, out
-    assert "CASE_GREEN_AFTER_EDIT" in capsys.readouterr().err or True                           # stderr 證據（driven 先讀走 out）
-    early = _green(repo, "python -m pytest -q tests/test_a.py", _T1, 4)                          # 配對：綠在改程式之前
+    early = _green(repo, "python -m pytest -q tests/test_a.py", _T1, 4)                          # 綠在改程式之前也不影響 (d)
     out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [early]})
-    assert "(d) OWED_AFTER_LAST_CASE：改了程式碼（a.py）" in out
-    other = _green(repo, "python -m pytest -q tests/test_b.py", _T3, 7)                          # 配對：綠的是別的案例
-    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [other]})
-    assert "改了程式碼（a.py）" in out
-    echoed = _green(repo, "echo tests/test_a.py && echo X_CHECK PASS", _T3, 7)                   # 不防偽造：指令裡寫的哨兵也算
-    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [echoed]})
     assert "改了程式碼（a.py）" not in out, out
-    piped = _green(repo, "python -m pytest -q tests/test_a.py | tail -3", _T3, 7)                # 結尾過濾是白名單允許的形狀（與 (a) 同一套）→ 算
-    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [piped]})
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
     assert "改了程式碼（a.py）" not in out, out
-    redirected = _green(repo, "python -m pytest -q tests/test_a.py > out.txt", _T3, 7)           # 不防偽造：輸出導走也算
-    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [redirected]})
-    assert "改了程式碼（a.py）" not in out, out
+    other.write_text("def test_other():\n    assert True\n", encoding="utf-8", newline="\n")      # 配對：只改不相干的案例
+    mods = [_mf(str(other), 5, last_at=_T1, last_seq=5), _mf(str(code), 5, last_at=_T2, last_seq=6)]
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "(d) CASE_COVERS_CHANGE：改了程式碼（a.py）" in out
 
 
 def test_045_reverted_code_files_needs_every_own_code_file_reverted(tmp_path, monkeypatch):
@@ -4419,18 +4423,20 @@ def test_045_b3_comment_only_change_not_owed_identifier_change_owed(driven, caps
 
 
 def test_045_a6_amend_message_only_after_covered_commit_not_owed(driven, capsys, chain):
-    """A6「amend 只改訊息」（走 e8 042 的 SNAPSHOT_SETTLED）：改程式＋補案例 → commit → `commit --amend` 只改訊息 → Stop 不欠；
-    配對：amend 之後又改程式沒補案例 → 照欠（amend 不是免死金牌）。"""
+    """A6「amend 只改訊息」：改程式＋補覆蓋它的案例 → commit → `commit --amend` 只改訊息 → Stop 不欠；之後再改程式，案例仍覆蓋它 →
+    照樣不欠（CASE_COVERS_CHANGE 不比先後）；配對：沒有覆蓋它的案例（只改了不提到 a.py 的案例）→ 照欠。"""
     state, edit, git, repo, code, case = chain                       # 基底 HEAD 已是 v2，本 session 從 v3 起改
     edit(code, 3)
     edit(case, 3)
     git("commit", "-qam", "v3")
     git("commit", "--amend", "-qm", "v3 改訊息")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
-    assert "改了程式碼（a.py）" not in out, out
+    assert "改了程式碼（a.py）" in out, out                                                       # 案例沒覆蓋 a.py
+    _cover(edit, git)
+    git("commit", "-q", "--amend", "-m", "v3 補案例")
     edit(code, 4)
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
-    assert "改了程式碼（a.py）" in out
+    assert "改了程式碼（a.py）" not in out, out
 
 
 def test_045_b2_budget_shared_and_exhausted_message_lists_all(driven, capsys):
@@ -4442,7 +4448,7 @@ def test_045_b2_budget_shared_and_exhausted_message_lists_all(driven, capsys):
     rec = {_SID: {"turn": 5, "counts": {"*": 2}, "count": 2}}
     out, state, _ = driven("閘修好了，完成。", capsys, reconcile_gate_turn=rec, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=1)])
     head = out.split("原擋訊息")[0]
-    assert "【收尾放行確認】" in out and "(a) CLAIM_FIXED_NEEDS_PASS" in head and "(d) OWED_AFTER_LAST_CASE" in head
+    assert "【收尾放行確認】" in out and "(a) CLAIM_FIXED_NEEDS_PASS" in head and "(d) CASE_COVERS_CHANGE" in head
 
 
 def test_045_vcs_root_unreadable_still_owes(driven, capsys, monkeypatch):
