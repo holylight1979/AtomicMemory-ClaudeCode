@@ -385,7 +385,7 @@ def parse_hit_rules(text: str) -> List[Tuple[str, str]]:
     return out
 
 
-# ─── B2 BLOCK_BUDGET_SHARED ────────────────────────────────────────────────────
+# ─── BLOCK_BUDGET_SHARED ────────────────────────────────────────────────────
 
 def budget_counts(rec: Any, uturn: int) -> Dict[str, int]:
     """state reconcile_gate_turn[sid] 的紀錄 → 本使用者回合每條規則擋過幾次。換了回合 → 全部從 0 起。
@@ -449,7 +449,7 @@ def case_names_code(text: str, path: str) -> bool:
     return any(re.search(r"(?<![a-z0-9_])" + re.escape(w) + r"(?![a-z0-9_])", low) for w in words)
 
 
-# ─── B3 COMMENT_ONLY_CHANGE ────────────────────────────────────────────────────
+# ─── COMMENT_ONLY_CHANGE ────────────────────────────────────────────────────
 
 def _strip_docstrings(tree: ast.AST) -> ast.AST:
     for node in ast.walk(tree):
@@ -485,7 +485,7 @@ def comment_only_verdict(name: str, baseline: str) -> Verdict:
                    (f"ast 去註解與 docstring 後與 {baseline} 相同",))
 
 
-# ─── B13 CONTENT_EQUALS_COMMITTED ──────────────────────────────────────────────
+# ─── CONTENT_EQUALS_COMMITTED ──────────────────────────────────────────────
 
 def blob_sha(data: bytes) -> str:
     """git blob 的 sha1（`blob <len>\\0<內容>`），不開 git 子行程就能和 ls-tree 的結果比。"""
@@ -527,7 +527,7 @@ def content_equals_committed(name: str, current_blob: Optional[str], ref_blobs: 
     return None
 
 
-# ─── B4 INLINE_PY_READONLY ─────────────────────────────────────────────────────
+# ─── INLINE_PY_READONLY ─────────────────────────────────────────────────────
 _WRITE_MODE_RE = lazy_re(r"[wax+]")
 _DENY_MODULES = frozenset({"subprocess", "shutil", "tempfile", "sqlite3", "shelve", "dbm", "zipfile", "tarfile", "ctypes",
                            "importlib", "runpy", "code", "socket", "multiprocessing", "threading", "pty", "signal"})
@@ -730,7 +730,7 @@ def git_readonly_verdict(command: str, root_write_targets: Sequence[str],
     return Verdict("GIT_READONLY_SUBCMD", False, "每段 git 都是唯讀子命令且沒寫到根層", tuple(ev[:4]))
 
 
-# ─── B6 GREP_CONTENT_IS_READ ／ BASH_COMMENT_LINES_STRIPPED ────────────────────
+# ─── GREP_CONTENT_IS_READ ／ BASH_COMMENT_LINES_STRIPPED ────────────────────
 
 def grep_read_paths(tool_input: Dict[str, Any], is_file: Any = os.path.isfile) -> List[str]:
     """GREP_CONTENT_IS_READ：Grep 工具 output_mode=content 且 path 指到一個檔 → [path]；其他（目錄、files_with_matches、count）→ []。
@@ -760,7 +760,7 @@ def vcs_unreadable_verdict(name: str, error: str) -> Verdict:
     return Verdict("VCS_ROOT_UNREADABLE", True, f"{name} 所在的版控根讀不到，判不出去向", (str(error)[:120],))
 
 
-# ─── B7 WORKTREE_NO_PUSH ───────────────────────────────────────────────────────
+# ─── WORKTREE_NO_PUSH ───────────────────────────────────────────────────────
 
 def is_worktree_checkout(git_dir: Optional[str], common_dir: Optional[str]) -> bool:
     """`git rev-parse --git-dir` 與 `--git-common-dir` 不同＝這個 checkout 是 worktree。任一拿不到 → False（判不了當主工作樹）。"""
@@ -779,7 +779,7 @@ def push_required_verdict(root: str, is_worktree: bool, has_upstream: bool) -> V
     return Verdict("WORKTREE_NO_PUSH", True, f"{root} 是主工作樹且有 upstream", ("git-dir == git-common-dir", "@{u} 存在"))
 
 
-# ─── B8 RUNTIME_DATA_NO_OVERVIEW ───────────────────────────────────────────────
+# ─── RUNTIME_DATA_NO_OVERVIEW ───────────────────────────────────────────────
 RUNTIME_DATA_DIRS: Tuple[str, ...] = ("workflow/state", "workflow/need-goal", "workflow/verify-ledger", "workflow/dpm-done",
                                       "workflow/acceptance-spec", "workflow/aec-report", "Logs")
 # 工具自己生的快取目錄名：路徑任一段是它就算執行期資料（專案沒寫 .gitignore 時 check-ignore 不會命中）
@@ -1002,7 +1002,7 @@ def is_session_scratch(path: str, config_dirs: Iterable[str], tmp_roots: Iterabl
     return False
 
 
-# ─── B10 DeepPostMortem 指令 ───────────────────────────────────────────────────
+# ─── DeepPostMortem 指令 ───────────────────────────────────────────────────
 _DPM_BODY = (
     "  - 始末：觸發場景 → 錯誤行為 → 最終正確做法\n"
     "  - 根因：為何會犯（非表面症狀）\n"
