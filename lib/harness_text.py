@@ -4,7 +4,7 @@ Quote 與來源補填都用這一支，hooks 端 wg_core 只轉呼叫，不另�
 harness 區塊＝下列標籤成對包住的內容：
 - 標籤名完整比對（`<task-notification-example>` 不算），不分大小寫；標籤在引號外的 `>` 才結束，屬性值裡的 `>`、`/` 不算。
 - 其他 Claude session 用 SendMessage 送來的 `<cross-session-message …>`：從開頭到第一個原樣 `</cross-session-message>`
-  全部是同伴內容，裡面不解析任何標籤。依據（總控台 claude-2c 2026-10-12 實測）：Claude Code 只把同伴正文裡的
+  全部是同伴內容，裡面不解析任何標籤。依據（實測）：Claude Code 只把同伴正文裡的
   `</cross-session-message>` 轉成 `<\\/cross-session-message>`，其他標籤（`</system-reminder>`、`<system-reminder>`、
   `</task-notification>`）原樣保留；所以第一個原樣閉合一定是真邊界，正文裡沒閉合的標籤也不能讓外層吃到字串尾。
 - 其餘標籤巢狀照深度算；閉合標籤只結束和最內層同名的那一層，和最內層不同名的閉合標籤當內容（保守：不提早結束任何區塊）。
@@ -112,25 +112,6 @@ def strip_harness_blocks(text: str, repl: str = " ", only: Optional[str] = None)
                 pos = end
     out.append(block(len(text)) if stack else text[pos:])   # 沒閉合 → 吃到字串尾
     return "".join(out)
-
-
-def peer_message_bodies(text: str) -> List[str]:
-    """其他 session 用 SendMessage 送來的每個 `<cross-session-message …>…</cross-session-message>` 區塊的正文（去頭尾空白）。
-    正文不解析標籤（同 strip_harness_blocks：直接跳到第一個原樣閉合）；沒閉合就吃到字串尾。給「派工訊息開回合」的判定用。"""
-    out: List[str] = []
-    if not text:
-        return out
-    for m in _TAG_RE.finditer(text):
-        if m.group(1) == "/" or m.group(2).lower() != _PEER_TAG:
-            continue
-        end, self_closing = _tag_end(text, m.end())
-        if self_closing:
-            continue
-        close = _PEER_CLOSE_RE.search(text, end)
-        body = text[end:close.start()] if close else text[end:]
-        if body.strip():
-            out.append(body.strip())
-    return out
 
 
 def user_typed_text(prompt: str, keep_lines: bool = False) -> str:

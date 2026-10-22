@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""changelog-fold.py — 把各工作軌寫的 CHANGELOG 片段收進 _AIDocs/_CHANGELOG.md（規則 CHANGELOG_PER_TRACK）。
+"""changelog-fold.py — 把各工作軌寫的 CHANGELOG 片段收進 _AIDocs/_CHANGELOG.md（規則 CHANGELOG_PER_TRACK；多軌開發用的總控台工具，不屬產品流程）。
 
 做什麼：多軌並行時每軌都往 _CHANGELOG.md 檔頭插一段，合併必撞檔頭衝突。改成每軌只寫自己的片段
   `_AIDocs/_changelog.d/<軌名>-<NNN>.md`（內容同主檔一段：`## YYYY-MM-DD 標題` 起頭＋條列），總控台合完再跑本工具：
   片段依日期新到舊（同日依檔名）插在主檔第一個 `---` 之後，收完刪掉片段。
 怎麼跑：
-  python tools/changelog-fold.py --check        # 只列待收的片段、檢查格式；尾行 CHANGELOG_FOLD_CHECK PASS／FAIL
-  python tools/changelog-fold.py --write        # 收進主檔並刪片段；尾行 CHANGELOG_FOLD DONE folded=<n>
+  python skills/console/scripts/changelog-fold.py --check        # 只列待收的片段、檢查格式；尾行 CHANGELOG_FOLD_CHECK PASS／FAIL
+  python skills/console/scripts/changelog-fold.py --write        # 收進主檔並刪片段；尾行 CHANGELOG_FOLD DONE folded=<n>
   --dir／--changelog 換片段資料夾與主檔（測試用）。
 exit：0 完成；1 --check 有格式錯；2 主檔讀不到、找不到 `---` 分隔、片段格式錯（--write 一個都不動）。
 """
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-CODE_DIR = Path(__file__).resolve().parents[1]
+CODE_DIR = Path(__file__).resolve().parents[3]   # skills/console/scripts → 程式碼根
 DEFAULT_CHANGELOG = CODE_DIR / "_AIDocs" / "_CHANGELOG.md"
 DEFAULT_DIR = CODE_DIR / "_AIDocs" / "_changelog.d"
 HEAD_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2}) \S")

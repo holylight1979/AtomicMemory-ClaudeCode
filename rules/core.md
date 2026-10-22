@@ -18,7 +18,7 @@
 
 ## 知識庫
 - 禁憑記憶改碼；斷言嚴重度/blocker/「必爆」前先實證（跑/查/追根源）。細節 [[feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長]]
-- 修改核心結構/新認知/踩坑 → 更新 _AIDocs + CHANGELOG（新增時同步 _INDEX.md；多軌並行時工作軌只寫自己的片段 `_AIDocs/_changelog.d/<軌名>-<NNN>.md`，合併時由 `tools/changelog-fold.py` 收進 _CHANGELOG.md）；_AIDocs 只放長期參考，規劃/TODO/進行中 → memory/_staging/。
+- 修改核心結構/新認知/踩坑 → 更新 _AIDocs + _CHANGELOG.md（新增時同步 _INDEX.md）；_AIDocs 只放長期參考，規劃/TODO/進行中 → memory/_staging/。
 - live 檔（code/config/test）與 atom 只寫現況，不埋版本脈絡（版本/階段標記、日期戳、變更敘事）；編年歸 `_AIDocs/DevHistory/` 與 `_CHANGELOG.md`。
 
 ## 記憶

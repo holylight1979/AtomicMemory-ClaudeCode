@@ -217,6 +217,31 @@ def v6_enabled(config: Dict[str, Any]) -> bool:
     return isinstance(sec, dict) and sec.get("enabled") is True
 
 
+# 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算
+CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
+
+
+def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> bool:
+    """規則 CODING_TURN_ONLY：這個使用者回合有寫碼意圖——使用者本人這則的 turn_intent 是寫碼類，或這個使用者回合已經改過程式
+    （關鍵字分類漏判「把 X 改成 Y」這類，改了程式就一定算；程式照 wg_need_goal.writes_code 判，.bat／.cmd 也算；只改文件不算）；
+    判不出寫入目標的指令（unknown_writes，放行留帳的那種）不知道改了什麼，保守當成改過程式。
+    v6 的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；
+    v6 以前就有的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config v6.coding_turn_only=false 退回每回合都啟動。"""
+    st = state or {}
+    if ((config or {}).get("v6") or {}).get("coding_turn_only", True) is False:
+        return True
+    if st.get("turn_intent") in CODE_INTENTS:
+        return True
+    v = st.get("turn_prompts_seq")
+    since = int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(st.get("turn_seq", 0) or 0)
+    if any(isinstance(u, dict) and int(u.get("turn_seq") or 0) >= since for u in st.get("unknown_writes") or []):
+        return True
+    from wg_need_goal import writes_code
+    return any(isinstance(m, dict) and int(m.get("last_turn_seq") or m.get("turn_seq") or 0) >= since
+               and writes_code(str(m.get("path") or ""), config)
+               for m in st.get("modified_files") or [])
+
+
 ORG_LOCAL_NAME = "org-memory.local.json"
 
 
@@ -568,7 +593,7 @@ def get_transcript_path(session_id: str, cwd: str) -> Optional[Path]:
 def transcripts_of(transcript_path: str, agent_id: str) -> Tuple[str, List[str]]:
     """(主 session 的 transcript, 要找 AI 宣告／定位行的 transcript 清單)。子代理的對話在 <sid>/subagents/agent-<agent_id>.jsonl、
     主 session 是同層的 <sid>.jsonl：hook 給哪一份都一樣——AI 寫的行兩份都讀（子代理寫在自己回覆裡的也算），
-    使用者原話只認主檔（子代理檔裡的 user 訊息是 AI 寫的派工 prompt）。"""
+    使用者原話只認主檔（子代理檔裡的 user 訊息是 AI 寫給子代理的任務 prompt）。"""
     if not transcript_path:
         return "", []
     p = Path(transcript_path)
@@ -1774,7 +1799,7 @@ _BASH_WRITE_OP_RE = lazy_re(
 
 # ─── 工具呼叫的寫入目標（OverviewHub 閘逐目標 on_edit；track-b 的 post_tool_use try-import）─────────
 # 介面凍結：write_paths_from_tool(tool_name, tool_input) -> List[str]，只回絕對路徑。
-# 規則（總控台定死 R0～R5）：
+# 規則 R0～R5：
 #   R0 整條沒有寫入訊號（重導向／寫檔命令／直譯器內嵌碼／子 shell 或替換裡的寫入）一律回 []，不回 UNKNOWN。
 #   R1 先接 `\`＋換行續行；剝引號外的 # 註解；heredoc 只認引號外、token 開頭的 <<，本文整段跳過；引號內容是一個 token。
 #   R2 `>`／`>>`／`>|`／`&>`／`&>>` 黏連也算；fd 複製（2>&1、>&2）與 /dev/null、$null、NUL 不算目標。

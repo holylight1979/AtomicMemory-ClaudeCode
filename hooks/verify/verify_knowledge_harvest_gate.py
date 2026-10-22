@@ -39,6 +39,7 @@ def _state(**extra):
     s = {
         "phase": "working", "modified_files": [], "failing_tests": [],
         "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 5,
+        "turn_intent": "feature",                     # 寫碼回合才收割（CODING_TURN_ONLY）
     }
     s.update(extra)
     return s
@@ -164,12 +165,11 @@ def test_no_completion_claim_no_trigger(driven, capsys):
 
 
 def test_dismiss_prompt_skips(driven, capsys):
-    """G6 階段 5（HARVEST_WAIVER_ITEMIZED）：「先這樣」不再整個不擋，擋訊息附寫法；引用到原話的「不做｜收割」才放。"""
+    """近 3 則使用者原話有「先這樣」：收割整個不擋（不用再寫不做行引用）；沒有就照擋。"""
     state = _state(modified_files=[_mf(_CORE)], recent_user_prompts=["先這樣"])
-    out = driven(capsys, state)
-    assert "KnowledgeHarvest" in out and "不做｜收割：使用者說「" in out
-    state = _state(modified_files=[_mf(_CORE)], recent_user_prompts=["先這樣"])
-    assert "KnowledgeHarvest" not in driven(capsys, state, last_text=_DONE + "\n不做｜收割：使用者說「先這樣」")
+    assert "KnowledgeHarvest" not in driven(capsys, state)
+    state = _state(modified_files=[_mf(_CORE)], recent_user_prompts=["繼續"])
+    assert "KnowledgeHarvest" in driven(capsys, state)
 
 
 def test_config_section_absent_is_off(driven, capsys):

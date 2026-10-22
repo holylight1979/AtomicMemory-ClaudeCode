@@ -266,46 +266,28 @@ _DISPATCH = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" fro
              "派工：045 追加 B14；派工單在 workflow/inbox/to-track-gate-rules/000-prompt.md，照做後上GIT\n</cross-session-message>")
 
 
-def test_045_dispatch_message_opens_turn_but_is_not_an_order():
-    """規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息開新回合（turn_prompts_seq 前進、user_turn_count +1），
-    但不是使用者原話：turn_prompts 空、口令閘照擋。一般同伴訊息不開回合（序號不動）。"""
+def test_045_peer_message_never_opens_turn_and_is_not_an_order():
+    """跨 session 訊息（不論內文寫不寫「派工」、引不引路徑）都不開新回合（turn_prompts_seq、user_turn_count 不動），
+    也不是使用者原話：裡面的「上GIT」不算口令，口令閘照使用者自己打的字判。"""
     from handlers.ups_gates import track_turn_prompts
     st = {}
     _ups(st, "幫我把這個 bug 修好")
     seq0, cnt0 = st["turn_prompts_seq"], st["user_turn_count"]
     _stop(st)
-    _ups(st, _PEER)                                                                  # 一般同伴訊息：續跑回合，不開新回合
-    assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0
-    _stop(st)
-    _ups(st, _DISPATCH)                                                              # 派工訊息：新回合
-    assert st["turn_prompts_seq"] > seq0 and st["user_turn_count"] == cnt0 + 1
-    assert st["turn_prompts"] == [] and st["turn_open"] is True
+    for peer in (_PEER, _DISPATCH, _DISPATCH_NO_PATH):
+        _ups(st, peer)
+        assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0, peer[:80]
+        _stop(st)
+    assert st["turn_prompts"] == ["幫我把這個 bug 修好"]
     msg = _check(state=st)
-    assert msg and "[Guardian:CommitOrder]" in msg                                   # 派工訊息裡的「上GIT」不是口令
+    assert msg and "[Guardian:CommitOrder]" in msg                                   # 同伴訊息裡的「上GIT」不是口令
     st2 = {"turn_open": True, "turn_prompts": ["上GIT"], "turn_prompts_seq": 1, "turn_seq": 1, "recent_user_prompts": ["上GIT"]}
-    track_turn_prompts(st2, _DISPATCH)                                               # 回合中途進來的派工：也開新回合、清掉舊口令
-    assert st2["turn_prompts"] == [] and st2["turn_prompts_seq"] == 2
+    track_turn_prompts(st2, _DISPATCH)                                               # 回合中途進來的同伴訊息：口令沿用
+    assert st2["turn_prompts"] == ["上GIT"] and st2["turn_prompts_seq"] == 1
 
 
-_PEER_DELIVERY = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-a9" from-mode="bypass">\n'
-                  "已完成，交付依據 to-track-gate-rules/001-prompt.md；請審查結果。\n</cross-session-message>")
 _DISPATCH_NO_PATH = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-aa" from-mode="bypass">\n'
                      "派工：接 B14，暫存目錄副本不當專案。\n</cross-session-message>")
-
-
-def test_045_dispatch_opens_turn_only_by_first_line_marker():
-    """對人裁定 #13（codex 001 BLOCK 7）：交付信內文引用 to-track-<軌>/<檔>.md 路徑不開回合、不清口令；首行以「派工」開頭但沒帶路徑要開回合。"""
-    st = {}
-    _ups(st, "完工後直接上GIT")
-    seq0, cnt0 = st["turn_prompts_seq"], st["user_turn_count"]
-    _stop(st)
-    _ups(st, _PEER_DELIVERY)                                                         # 交付信引用派工單路徑：續跑回合，口令沿用
-    assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0 and st["turn_prompts"] == ["完工後直接上GIT"]
-    assert _check(state=st) is None
-    _stop(st)
-    _ups(st, _DISPATCH_NO_PATH)                                                      # 首行「派工」沒帶路徑：開新回合、口令清掉
-    assert st["turn_prompts_seq"] > seq0 and st["user_turn_count"] == cnt0 + 1 and st["turn_prompts"] == []
-    assert _check(state=st)
 
 
 def test_045_temp_repo_commit_exempt_judges_repo_root_not_run_dir(tmp_path, monkeypatch):

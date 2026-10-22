@@ -103,62 +103,11 @@ def test_powershell_write_to_part_file_is_denied(world):
     assert _deny(out) and "共用字典" in out["hookSpecificOutput"]["permissionDecisionReason"]   # deny 理由帶卡
 
 
-# ─── 004：驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/，含 _runs/）禁手寫 ───────────────────
-
-def test_write_into_verify_ledger_runs_is_denied(world, tmp_path):
-    proj, outputs, tp = world
-    target = str(tmp_path / "wf" / "verify-ledger" / "_runs" / "x.json")
-    out = _run("Write", {"file_path": target, "content": "{}"}, proj, tp, outputs)
-    assert _deny(out) and "驗證收據只能由驗證程式自己寫，不准手寫或改" in out["hookSpecificOutput"]["permissionDecisionReason"]
-
-
-def test_bash_and_powershell_redirect_into_verify_ledger_denied(world, tmp_path):
-    proj, outputs, tp = world
-    led = tmp_path / "wf" / "verify-ledger"
-    out = _run("Bash", {"command": f'echo {{}} > "{led / "a.jsonl"}"'}, proj, tp, outputs)
-    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
-    out = _run("PowerShell", {"command": f'Set-Content -Path "{led / "_runs" / "b.json"}" -Value "{{}}"'}, proj, tp, outputs)
-    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
-    out = _run("Edit", {"file_path": str(led / "s.jsonl"), "old_string": "a", "new_string": "b"}, proj, tp, outputs)
-    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
-
-
-@pytest.mark.parametrize("tool, cmd", [
-    ("PowerShell", "cpi a.json {led}/_runs/x.json"),
-    ("PowerShell", "mi a.json {led}/_runs/x.json"),
-    ("PowerShell", "ac {led}/a.jsonl 'x'"),
-    ("PowerShell", "sc -Path {led}/a.jsonl -Value x"),
-    ("PowerShell", "'x' | Tee-Object -FilePath {led}/a.jsonl"),
-    ("PowerShell", "ni {led}/_runs/y.json"),
-    ("Bash", "cp a.json {led}/_runs/x.json"),
-    ("Bash", "dd if=a.json of={led}/_runs/x.json"),
-])
-def test_006_4_write_aliases_into_verify_ledger_denied(world, tmp_path, tool, cmd):
-    proj, outputs, tp = world
-    led = str(tmp_path / "wf" / "verify-ledger").replace("\\", "/")
-    out = _run(tool, {"command": cmd.format(led=led)}, proj, tp, outputs)
-    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"], cmd
-
-
 def test_006_4_bash_sc_is_not_set_content(world):
     """反例：Bash 下 sc 是 Windows 的 sc.exe（服務控制），不是 Set-Content；別名只在 PowerShell 工具下換。"""
     assert wg_core.write_paths_from_tool("Bash", {"command": "sc query wuauserv"}, "C:/x") == []
     got = wg_core.write_paths_from_tool("PowerShell", {"command": "sc C:/x/a.txt v"}, "C:/x")
     assert [p.replace("\\", "/") for p in got] == ["C:/x/a.txt"]
-
-
-def test_006_4_junction_into_verify_ledger_denied(world, tmp_path):
-    import _winapi
-    proj, outputs, tp = world
-    led = tmp_path / "wf" / "verify-ledger"
-    led.mkdir(parents=True, exist_ok=True)
-    j = tmp_path / "j"
-    try:
-        _winapi.CreateJunction(str(led), str(j))
-    except OSError as e:
-        pytest.skip(f"這台建不了 junction：{e}")
-    out = _run("Write", {"file_path": str(j / "_runs" / "x.json"), "content": "{}"}, proj, tp, outputs)
-    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 def test_other_workflow_files_and_running_verify_not_affected(world, tmp_path):
@@ -219,31 +168,30 @@ def test_write_state_failure_denies(world, monkeypatch):            # 退回 002
     assert not _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))      # 寫得進去就放行
 
 
-def test_unknown_write_target_is_denied_end_to_end(world):           # 退回 001 BLOCK 4：解析不出 → fail-closed
+def test_unknown_write_target_is_allowed_end_to_end(world):
+    """規則 UNKNOWN_TARGET_LOGGED：解析不出寫入目標（變數路徑）→ 放行並留帳，不擋。"""
     proj, outputs, tp = world
     out = _run("Bash", {"command": "echo x > $OUT/a.txt"}, proj, tp, outputs)
-    assert _deny(out) and "改用 Edit／Write" in out["hookSpecificOutput"]["permissionDecisionReason"]
-    assert not wg_core.state_file_path(SID).exists() or True              # UNKNOWN 不落 state（state 可能已建，不強求）
+    assert not _deny(out)
 
 
-def test_013_4_subagent_tool_call_gets_same_unknown_target_deny(world):
-    """013 BLOCK 4 查證：子代理的工具呼叫（hook 輸入帶 agent_id）走同一個 handle_pre_tool_use，沒有 agent_id 分支，
-    `python -c "print(1)"` 照樣在執行前被 deny，不會在子代理 Stop 留下未知寫入。"""
+def test_013_4_subagent_tool_call_gets_same_unknown_target_handling(world):
+    """子代理的工具呼叫（hook 輸入帶 agent_id）走同一個 handle_pre_tool_use，沒有 agent_id 分支：
+    內嵌碼寫檔判不出目標，跟主 session 一樣放行並留帳。"""
     proj, outputs, tp = world
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "python -c \"open('x','w').write('1')\""}, "session_id": SID,
                                  "agent_id": "ag1", "agent_type": "general-purpose", "cwd": str(proj), "transcript_path": tp}, {})
-    assert _deny(outputs[-1]) and "無法判定這段指令的寫入目標" in outputs[-1]["hookSpecificOutput"]["permissionDecisionReason"]
+    assert not _deny(outputs[-1] if outputs else None)
 
 
-def test_045_inline_py_readonly_end_to_end_allows_pure_read_and_hints_for_node(world):
-    """規則 INLINE_PY_READONLY：`python -c "print(1)"` 只讀 → 放行；`node -e` 判不了 → 照擋且擋訊息指路（腳本檔）。"""
+def test_045_inline_py_readonly_end_to_end_allows_pure_read_and_node(world):
+    """規則 INLINE_PY_READONLY：`python -c "print(1)"` 只讀 → 放行；`node -e` 判不了 → 也放行（UNKNOWN_TARGET_LOGGED 留帳）。"""
     proj, outputs, tp = world
     out = _run("Bash", {"command": 'python -c "import json;print(json.dumps({}))"'}, proj, tp, outputs)
     assert not _deny(out)
     out = _run("Bash", {"command": 'node -e "console.log(1)"'}, proj, tp, outputs)
-    reason = out["hookSpecificOutput"]["permissionDecisionReason"]
-    assert _deny(out) and "node -e" in reason and "腳本檔" in reason
+    assert not _deny(out)
 
 
 def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world):

@@ -546,9 +546,7 @@ def _trusted(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if cd:                                                        # cd 進原專案根之內：樹還是原專案根（從 tests/ 點名 ../hooks 的測試照算）
         pr = str(receipt.get("project_root") or "")
         return {**receipt, "project_root": pr if pr and _under(cd, pr) else cd, "cwd": cd, "root_uncertain": False}
-    moved = (_self_receipt.changes_dir(raw, sh) if not unsupported_syntax(raw, sh)
-             else bool(receipt.get("root_uncertain") or has_cd(raw)))
-    return None if moved else receipt
+    return receipt                                                # 換目錄不整筆作廢（RECEIPT_NO_FORGERY_CHECK）；量哪棵樹由 _in_tree 判
 
 
 def _arg_sentinel_res() -> List[Pattern]:
@@ -639,28 +637,6 @@ def _unescape(t: str) -> str:
 _VAR_REF_RE = lazy_re(r"\$(?:\{[^}]*\}|[A-Za-z_][\w:]*|[0-9@*#?$!-])")
 
 
-def _prints_sentinel(raw: str, shell: str, skip: Optional[Tuple[int, int]] = None, ruler: str = "") -> bool:
-    """同一條指令裡有字寫了哨兵字樣（echo X_CHECK PASS、printf、Write-Output、xargs echo、`V="X_CHECK PASS"; echo $V`、
-    `$s = '… DONE'`、`PS4='… DONE '`…）：成功行只能來自被執行的驗證程式，指令裡寫好的一律不算，量尺路、一般證據路、
-    整體驗證路都用這一個檢查。skip＝精確對上的量尺片段（match_span 的 [start, end)）、ruler＝表上的量尺原字串：片段裡只有
-    與表上那段逐字相同的字不算（量尺自帶的 `&& echo … DONE`）；多出來或寫法不同的字照查（行內環境指定 `X='… DONE' 量尺`、
-    正規化後才對上的腳本路徑 `"./X_CHECK DONE/../run_verify.py"`）。重導向目標 `2>"X_CHECK PASS"` 也照查（註解以外的字都算）。
-    echo -e／printf 的跳脫先還原；變數引用（`X_CHECK$x PASS`，變數空字串時印出來就是哨兵）拿掉再找一次。"""
-    table = _self_receipt.split_shell(ruler)[0] if skip else []
-    for i, ch in enumerate(_self_receipt.split_shell(raw, shell)[0]):
-        ws = list(ch.words)
-        k = i - skip[0] if skip else -1
-        if 0 <= k < len(table) and i < skip[1]:
-            for w in table[k].words:                                  # 逐字扣掉表上那段的字（同一個字出現幾次扣幾次）
-                if w in ws:
-                    ws.remove(w)
-        t = _unescape(" ".join([*ws, *ch.targets]))
-        text = t + "\x00" + _VAR_REF_RE.sub("", t)          # \x00 不是空白，兩段之間湊不出哨兵
-        if any(rx.search(text) for rx in _arg_sentinel_res()):
-            return True
-    return False
-
-
 def _cwd_of(receipt: Dict[str, Any]) -> str:
     """收據的指令是從哪裡跑的（相對路徑照它解析）：cwd，沒有才用 project_root。"""
     return str(receipt.get("cwd") or receipt.get("project_root") or "")
@@ -674,13 +650,11 @@ def _in_tree(receipt: Dict[str, Any]) -> bool:
 
 
 def _clean(receipt: Dict[str, Any]) -> bool:
-    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、記了啟動環境、白名單語法、
-    是 evidence_steps 的形狀（cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、後面只准留結尾的過濾；每一段啟動時
-    繼承環境＋指令內指定的有效環境沒有縮限設定）、沒指到收據根以外、指令裡沒寫哨兵字樣。"""
+    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、記了啟動環境、沒指到收據根以外。
+    跑程式的那幾段啟動時沒有縮範圍的環境設定（PYTEST_ADDOPTS、PYTHONOPTIMIZE…：跑的是子集）。不查語法白名單、指令形狀與指令裡
+    寫的哨兵字樣（規則 RECEIPT_NO_FORGERY_CHECK：不防偽造）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_usable(receipt) and not unsupported_syntax(raw, sh)
-            and _self_receipt.evidence_steps(raw, sh, _env_of(receipt)) is not None
-            and _in_tree(receipt) and not _prints_sentinel(raw, sh))
+    return _usable(receipt) and _in_tree(receipt) and not _self_receipt.program_scope_env(raw, sh, _env_of(receipt))
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -> bool:
@@ -691,7 +665,7 @@ def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -
     if not str(measure_cmd).strip() or not _usable(receipt):
         return False
     span = _self_receipt.match_span(str(measure_cmd), raw, sh, _cwd_of(receipt), str(part_root or ""), _env_of(receipt))
-    return span is not None and not _prints_sentinel(raw, sh, span, str(measure_cmd)) and _in_tree(receipt)
+    return span is not None and _in_tree(receipt)
 
 
 _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1`、`export X=1`、`$env:X=\"1\";`、`$x = '字面值';`；"
@@ -737,18 +711,12 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if env is None:
             return (f"最近那筆收據 {head} 沒記啟動環境（升級前落的帳），看不出父行程有沒有用 PYTEST_ADDOPTS 這類設定把驗證範圍"
                     "縮小，不算證據；請重跑。")
-        why = unsupported_syntax(raw, sh)
-        if why:
-            return f"這條指令 {head} 含解析不了的語法（{why}），不算跑了量尺；請照表上原字串單獨跑。"
         if any(_ruler_ran(mc, r) for mc in rulers):
             return ""
         for mc in rulers:         # 結構上就是量尺、只差環境，而且量尺自己的字以外沒寫哨兵：講真正原因
             mis = _self_receipt.ruler_env_mismatch(mc, raw, sh, _cwd_of(r), env=env)
-            if mis and not _prints_sentinel(raw, sh, mis[0], mc):
+            if mis:
                 return f"這條指令 {head} {_scope_env_why(mis[1], env)}"
-        if _prints_sentinel(raw, sh):
-            return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
-                    "哨兵只能由被執行的程式印出。")
         envs = _self_receipt.program_scope_env(raw, sh, env)
         if envs:                  # 整體驗證、一般證據：任何一段跑程式的指令啟動時帶了縮限設定（含父行程繼承的）
             return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs], env)}"
@@ -759,16 +727,9 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
                     f"{_TOOL_HINT}")       # 精確對上卻因樹外被拒：講樹外，不說「前後接了別的指令」
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
-        others = _self_receipt.non_runners(raw, sh)
-        if others:                # 先講這個：樹外的自製工具（Unity.exe）否則會先被說成「指到收據根以外」
-            return (f"這條指令 {head} 夾了不算執行程式的指令（{'、'.join(others[:3])}：讀檔或印字的指令、或不在執行程式白名單的程式），"
-                    f"印出來的哨兵分不出是誰印的，不算證據；{_TOOL_HINT}")
         if outside:
             return (f"這條指令 {head} 指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹；"
                     "請在專案根照表上原字串跑。")
-        if _self_receipt.evidence_steps(raw, sh) is None:
-            return (f"這條指令 {head} 不是單純跑驗證程式的形狀（夾了讀檔或印字的指令、用 ; 或 || 串、或把輸出導走），"
-                    "印出來的哨兵分不出是誰印的、哪一段真的過了，不算證據；請單獨跑驗證程式（前面只准 cd 與環境設定、多段只用 && 串）。")
         return ""
     return ""
 
@@ -785,7 +746,9 @@ def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
     r = _trusted(receipt)
     if r is None or not _clean(r):
         return None
-    return " ".join(_norm_path(" ".join(evidence_words(str(r.get("cmd") or ""), _shell_of(r)))).split())
+    raw = str(r.get("cmd") or "")
+    words = evidence_words(raw, _shell_of(r)) or raw.split()
+    return " ".join(_norm_path(" ".join(words)).split())
 
 
 def _ruler_any(receipt: Dict[str, Any], measure_cmds: Iterable[str]) -> bool:
@@ -797,8 +760,7 @@ def _whole_run(receipt: Dict[str, Any]) -> bool:
     """整體驗證：執行根自己的 run_verify.py（照完整路徑身分）或不縮範圍的 pytest；只認白名單語法、前面只准前置設定、
     後面只准尾端過濾、沒指到收據根以外、整條指令沒寫哨兵字樣。涵蓋範圍見 _in_exec_root。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_usable(receipt) and is_whole_run(raw, sh, _cwd_of(receipt), _env_of(receipt)) and _in_tree(receipt)
-            and not _prints_sentinel(raw, sh))
+    return (_usable(receipt) and is_whole_run(raw, sh, _cwd_of(receipt), _env_of(receipt)) and _in_tree(receipt))
 
 
 def _in_exec_root(receipt: Dict[str, Any], path: str) -> bool:
@@ -1204,7 +1166,7 @@ def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> 
 
 
 def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str], ignored: Optional[set] = None) -> bool:
-    """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱），
+    """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 屬部位表類別 knowledge 的部位（文件、記憶、信件匣），
     或被 .gitignore 忽略／屬執行期資料 → 不是本專案的程式也不是它的案例。事實（路徑屬哪類部位、git 忽略沒）在這裡查，
     規則判排不排除。ignored＝呼叫端一次查好的被忽略路徑集合（gitignored_paths）；沒給就只查這一個。
     拿不到根、不在根底下、沒有部位表又沒被忽略、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。
@@ -1821,7 +1783,7 @@ def _blob_texts(root: Path, shas: Iterable[str], deadline: float, _run: Optional
 def _head_after_own(root: Path, own: List[str], facts: Dict[str, Any], rel_list: List[str], deadline: float,
                     _run: Optional[Callable[..., Any]]) -> bool:
     """CONTENT_EQUALS_COMMITTED 的 HEAD 例外的事實：HEAD 不是本 session 的提交、本 session 最後一次提交是它的祖先（別人接著做的，
-    例如總控台把 main 合進工作分支），而且同根本 session 改過的每個檔現在都等於 HEAD（不在版控也不在 HEAD 的兩邊都沒有也算）。
+    例如另一個 session 或人把 main 合進這個分支），而且同根本 session 改過的每個檔現在都等於 HEAD（不在版控也不在 HEAD 的兩邊都沒有也算）。
     判不了（沒有自己的提交、預算到、git 失敗）→ False，照原規則不算 HEAD。"""
     head = str(facts["commits"].get("HEAD") or "")
     if not own or not head or head in {str(s) for s in own}:
@@ -2056,8 +2018,7 @@ def _move_tool_receipt(receipt: Dict[str, Any], sub: str) -> bool:
     """搬目錄工具的收據能不能當證據：指令完整、記了啟動環境、跑的是 move-dir-check.py <sub>、指令裡沒寫哨兵字樣。
     工具放在根層 tools/，專案 session 跑它一定指到專案根以外，所以不套 _in_tree。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_usable(receipt) and re.search(re.escape(MOVE_TOOL) + r"[\"']?\s+" + sub + r"(?:\s|$)", raw) is not None
-            and not _prints_sentinel(raw, sh))
+    return _usable(receipt) and re.search(re.escape(MOVE_TOOL) + r"[\"']?\s+" + sub + r"(?:\s|$)", raw) is not None
 
 
 def _tool_cwd(receipt: Dict[str, Any]) -> str:

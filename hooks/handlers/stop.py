@@ -29,7 +29,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block, output_json,
-    append_guard_log, WORKFLOW_DIR, _atom_debug_error, v6_enabled,
+    append_guard_log, WORKFLOW_DIR, _atom_debug_error, v6_enabled, coding_turn,
 )
 from wg_release_rules import JUDGMENT_EXAMPLE, in_turn, turn_start, user_turn as _user_turn
 from wg_evasion import (
@@ -49,7 +49,7 @@ from wg_release_rules import (
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
-    cmd_run_line, second_opinion_decline, second_opinion_decline_ok, waiver_hint, parse_equivalence_lines,
+    cmd_run_line, second_opinion_decline, second_opinion_decline_ok, parse_equivalence_lines,
     reason_present,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
@@ -67,8 +67,7 @@ from wg_harvest import (
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
 from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit, second_opinion_hint
-from wg_second_opinion import (auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE,
-                               mark_ok as _so_mark_ok)
+from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE
 from wg_hook_timing import lap as _hook_lap
 from handlers._shared import (
     _hud_alive,
@@ -721,29 +720,10 @@ def _dpm_trigger_text(state: Dict[str, Any], config: Dict[str, Any]) -> str:
     return "、".join(parts) or "高 effort 失敗"
 
 
-def _cwd_is_worktree(cwd: str) -> bool:
-    """cwd 所在 checkout 是不是 git worktree（規則 DPM_WORKTREE_DELIVERY 的事實）：git-dir ≠ git-common-dir。查不到 → False。"""
-    if not cwd or not os.path.isdir(cwd):
-        return False
-    try:
-        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--git-dir", "--git-common-dir"],
-                           capture_output=True, text=True, timeout=3, creationflags=_NO_WINDOW)
-    except (FileNotFoundError, subprocess.SubprocessError, OSError):
-        return False
-    if r.returncode != 0:
-        return False
-    lines = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()] + ["", ""]
-    gd, cd = (lines[0] if os.path.isabs(lines[0]) else os.path.join(cwd, lines[0])), \
-             (lines[1] if os.path.isabs(lines[1]) else os.path.join(cwd, lines[1]))
-    return is_worktree_checkout(gd, cd)
-
-
 def _dpm_instruction(state: Dict[str, Any], config: Dict[str, Any], cwd: str = "") -> str:
-    """DPM 指令文字；worktree 隔離 session（規則 DPM_WORKTREE_DELIVERY）改要求寫進交付信由總控台代寫，不叫它 atom_write。
-    有逐輪重試紀錄就在標頭下一行附證據行（規則 RETRY_COUNTS_RERUN_CYCLES，format_hit 格式）。"""
+    """DPM 指令文字；有逐輪重試紀錄就在標頭下一行附證據行（規則 RETRY_COUNTS_RERUN_CYCLES，format_hit 格式）。cwd 留著與呼叫端同簽名。"""
     rounds = state.get("retry_rounds") or []
-    return dpm_instruction_text(_dpm_trigger_text(state, config), _cwd_is_worktree(cwd),
-                                retry_rounds_text(rounds) if rounds else "")
+    return dpm_instruction_text(_dpm_trigger_text(state, config), retry_rounds_text(rounds) if rounds else "")
 
 
 # ─── 迴歸累積提示（驗收真命中 → 建議補測試/落 atom）───────────────
@@ -1002,15 +982,6 @@ LEGACY_PENDING = ("[Guardian:ReconcileGate] 先前擋滿的查核紀錄是舊格
                   "只能照【收尾放行確認】問使用者放行。")
 
 
-def _unknown_write_reason(unknown: List[Dict[str, Any]]) -> Optional[str]:
-    """寫入目標不明的指令（post_tool_use 記的未知寫入）→ 擋訊息：不知道改了哪些檔，補案例與驗證範圍都查不了。"""
-    if not unknown:
-        return None
-    heads = "；".join(f"`{str(u.get('cmd', ''))[:60]}`" for u in unknown[-3:])
-    return (f"[Guardian:ReconcileGate] 有 {len(unknown)} 筆寫入目標不明的指令（{heads}）：不知道改了哪些檔，"
-            "補驗證案例與驗證範圍都查不了，不能當成沒改檔。")
-
-
 def _code_check_text(input_data: Dict[str, Any], transcript, transcript_text: str) -> str:
     """寫碼查核（TestFail、對帳 (a)(b)(c)、pending 原宣稱）看的最後一句：先用 hook 輸入的 last_assistant_message，沒有才退回
     transcript，且不套退避偵測用的 30 字下限（長說明之後只回一句「修好了，全部完成。」也要判這句）。"""
@@ -1021,8 +992,9 @@ def _code_check_text(input_data: Dict[str, Any], transcript, transcript_text: st
 def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], state: Optional[Dict[str, Any]],
                           receipt_key: str, own: List[Dict[str, Any]], transcript_path: str, why: str,
                           log_extra: Dict[str, Any], unknown: Optional[List[Dict[str, Any]]] = None) -> None:
-    """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)～(d)＋驗證範圍＋未知寫入），
-    有原因就擋到底（不計預算、不問使用者、不看放行答案）；(e) 與其他 Stop 閘不跑；自己沒改檔也沒有未知寫入才放行。
+    """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)～(d)＋驗證範圍），
+    跟主 session 同一份預算（每個使用者回合 reconcile_gate.max_blocks_per_turn 次，規則 SUBAGENT_SAME_BUDGET）：擋滿就放行、
+    留帳 event=*_released，主 session 收尾照看這些改檔。未知寫入只留帳不擋（UNKNOWN_TARGET_LOGGED）。(e) 與其他 Stop 閘不跑。
     (d) 與驗證範圍不看措辭：沒有收尾文字（transcript 讀不到）也照判。"""
     session_id = input_data.get("session_id", "") or ""
     unknown = list(unknown or [])
@@ -1042,12 +1014,25 @@ def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], st
         reason, _report, kind, _advice = _verify_gates(state, receipt_key, turn_seq, last_text, transcript,
                                                        transcript_text, own, rg_cfg, sg_cfg, {}, False)
         write_state(session_id, state)      # 驗證範圍的宣告結案等判定副作用
-    u_reason = _unknown_write_reason(unknown)
-    if u_reason:
-        reason, kind = (f"{u_reason}\n{reason}" if reason else u_reason), "reconcile"
+    if unknown:
+        append_guard_log("reconcile", {**log_extra, "session_id": session_id, "turn_seq": turn_seq,
+                                       "event": "unknown_writes_logged", "count": len(unknown),
+                                       "cmds": [str(u.get("cmd", ""))[:60] for u in unknown[-3:]]})
     if not reason:
         output_nothing()
         return
+    uturn = _user_turn(state, turn_seq)
+    budgets = state.setdefault("no_ask_gate_turn", {})
+    key = str(log_extra.get("agent_id") or receipt_key)
+    rec = budgets.get(key) if isinstance(budgets.get(key), dict) and budgets[key].get("turn") == uturn else {"turn": uturn, "count": 0}
+    if int(rec.get("count") or 0) >= int(rg_cfg.get("max_blocks_per_turn", 2)):
+        append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "kind": kind,
+                                       "reason": reason[:300], **{**log_extra, "event": str(log_extra.get("event", "")).replace("_block", "_released")}})
+        print(f"[Guardian:ReconcileGate] {why}擋滿 {rec['count']} 次，放行並留帳（主 session 收尾照看這些改檔）", file=sys.stderr)
+        output_nothing()
+        return
+    budgets[key] = {"turn": uturn, "count": int(rec.get("count") or 0) + 1}
+    write_state(session_id, state)
     gate = "VerifyScope" if kind == "scope" else "ReconcileGate"
     summary = reason.split("\n")[1].strip() if "\n" in reason else reason
     append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "kind": kind,
@@ -1059,7 +1044,7 @@ def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], st
 
 
 def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """SubagentStop：看子代理自己改的檔（agent_modified_files[agent_id]）與自己的收據（agent_receipt_key），寫碼查核擋到底。"""
+    """SubagentStop：看子代理自己改的檔（agent_modified_files[agent_id]）與自己的收據（agent_receipt_key），寫碼查核照預算擋。"""
     session_id = input_data.get("session_id", "") or ""
     agent_id = str(input_data.get("agent_id") or "")
     state = read_state(session_id) if session_id and agent_id else None
@@ -1071,7 +1056,7 @@ def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
 
 def handle_judge_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 Stop：dispatcher 其他事件照舊早退，Stop 只跑寫碼查核閘，擋到底。
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 Stop：dispatcher 其他事件照舊早退，Stop 只跑寫碼查核閘，照預算擋。
     改檔、未知寫入與收據來自 post_tool_use.handle_judge_post_tool_use 的最小記帳。"""
     session_id = input_data.get("session_id", "") or ""
     state = read_state(session_id) if session_id else None
@@ -1184,9 +1169,24 @@ def _record_pick(state: Dict[str, Any], session_id: str, text: str, cwd: str, co
         append_guard_log("pick_one", {"session_id": session_id, "turn_seq": turn_seq, "event": event, "text": pick["text"][:120]})
 
 
+def _record_tracking_lines(text: str, session_id: str, turn_seq: int, cwd: str) -> None:
+    """收尾那一問的答案：回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」各記一筆進追蹤帳本 workflow/tracking（同收尾檢核 (k)）。
+    記不下只浮 stderr。"""
+    lines = [m.group(0) for m in re.finditer(r"^[\s*\-•]*追蹤\s*[｜|][^\n]+", str(text or ""), re.M)]
+    if not lines:
+        return
+    try:
+        from wg_harvest import tracking_entries, append_tracking, tracking_slug
+        entries = tracking_entries(session_id, turn_seq, "\n".join(re.sub(r"^[\s*\-•]*追蹤\s*[｜|]\s*", "", ln) for ln in lines))
+        if entries:
+            append_tracking(tracking_slug(cwd), entries)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:DeferralGate] 追蹤行記不進追蹤帳本：{type(e).__name__}: {e}", file=sys.stderr)
+
+
 def _log_waivers(state: Dict[str, Any], session_id: str, turn_seq: int, uturn: Any, gate: str,
                  waived: Sequence[Dict[str, str]]) -> None:
-    """規則 HARVEST_WAIVER_ITEMIZED 的豁免留帳（guard-harvest_waived）：同一個使用者回合、同一閘、同一件只記一筆
+    """使用者說「先這樣／跳過」放行的留帳（guard-harvest_waived）：同一個使用者回合、同一閘、同一件只記一筆
     （同回合被後面的閘擋回再 Stop、宣告行還在，不重記）。記過的鍵存 state harvest_waived_logged[sid]，換回合清掉。"""
     if not waived:
         return
@@ -1349,7 +1349,7 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
     receipts = []                                   # (指令, 哨兵「名稱:結論」, exit, 各 DONE 哨兵的 k=v)
     for r in receipts_of(state, session_id):
         cmd = str(r.get("cmd") or "")
-        if int(r.get("seq") or 0) <= last_seq or not _vl._usable(r) or _vl._prints_sentinel(cmd, _vl._shell_of(r)):
+        if int(r.get("seq") or 0) <= last_seq or not _vl._usable(r):
             continue
         sents = [s for s in r.get("sentinels") or [] if isinstance(s, dict)]
         receipts.append((cmd, [f"{s.get('name')}:{s.get('verdict')}" for s in sents], r.get("exit_code"),
@@ -1513,7 +1513,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
     # 閱讀路徑影響（G12）：改碼回合交給背景量、這次不等；量完的結果之後的收尾附一次在擋的訊息與 stderr。只量不擋、不計預算（wg_reading_path）
     try:
-        _reading_path, _rp_changed = reading_path_note(state, session_id, config) if v6 else ("", False)
+        _reading_path, _rp_changed = reading_path_note(state, session_id, config) if v6 and coding_turn(state, config) else ("", False)
     except Exception as e:  # noqa: BLE001
         _reading_path, _rp_changed = f"[Guardian:ReadingPath] 閱讀路徑量測出錯：hook 內部錯誤 {type(e).__name__}: {e}", False
     if _reading_path:
@@ -1557,6 +1557,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
+    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑只在寫碼回合跑（收割、收割待補照舊每回合）；
+    # 這則宣告完成也算（這回合沒改程式、收的是前幾回合的改動，收尾照查）
+    _coding = v6 and (coding_turn(state, config) or _done(last_text))
     mod_files_all = state.get("modified_files", []) or []
     # 只認「本 session 自己 Edit/Write 的檔」——共用工作樹/merged state 下，他 session
     # 改的 core 檔（session_id 不符）不得誤觸發本 session 的收尾檢核。未標記 session_id
@@ -1600,7 +1603,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # 文字評分（G15）：交付「改了哪些程式」那則回覆與本回合改過的 .md 交背景評、不等不擋；上回合送到眼前的評分一行有沒有照抄記帳
     # （wg_text_score）。回覆評不評由 wg_text_score 依 code_reply（本使用者回合改了程式、這則宣告完成）判，規則 TEXT_SCORE_CODE_REPLY_ONLY
-    if v6:
+    if _coding:
         _ts_since = _user_turn(state, turn_seq)
         try:
             from wg_need_goal import is_code_path
@@ -1811,17 +1814,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             print("[Guardian:ReconcileGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
             _code = None
         if _code or _report:
-            # 規則 BLOCK_BUDGET_PER_RULE：預算每條規則（擋訊息的字母）各自計次，同一條擋滿 max 才算擋滿；
-            # 舊格式紀錄（整場一個 count）不承接。_count＝本回合各條的最大值（log 沿用）
+            # 規則 BLOCK_BUDGET_SHARED：寫碼查核每個使用者回合共用一份預算（鍵 "*"，不分是哪一條規則），擋滿 max 才算擋滿；
+            # _count＝本回合擋過幾次（log 沿用）
             _budget = state.setdefault("reconcile_gate_turn", {})
             _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
-            _letters = parse_hits(_code or "") or (["*"] if _code else [])
+            _letters = ["*"] if _code else []
             _max = int(_rg_cfg.get("max_blocks_per_turn", 2))
             _full_rules = budget_exhausted(_rec, _uturn, _max, _letters)
             _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == _uturn else 0
             _code_full = bool(_code) and (bool(_full_rules) or _pend is not None)
             if _full_rules:
-                print(f"[Guardian:ReconcileGate] 規則 BLOCK_BUDGET_PER_RULE：本回合條目 {'、'.join(_full_rules)} 各擋滿 {_max} 次",
+                print(f"[Guardian:ReconcileGate] 規則 BLOCK_BUDGET_SHARED：本回合寫碼查核已擋滿 {_max} 次",
                       file=sys.stderr)
             # 每次擋都查放行（不等擋滿）：最後一次擋之後使用者在 AskUserQuestion 選了放行或打字放行 → 放這一回合。無法互動的不查。
             _noninteractive = non_interactive_reason(input_data, _tpath) if _code else None
@@ -1847,7 +1850,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 })
                 print(f"[Guardian:ReconcileGate] 使用者放行這一回合（{_how}），記 user_release", file=sys.stderr)
                 _code = None
-            # 收尾報告那一份（(e)、(f4)，記憶與報告類）只數自己的「e」：寫碼規則先擋過幾次不吃掉它的次數（BLOCK_BUDGET_PER_RULE）
+            # 收尾報告那一份（(e)、(f4)，記憶與報告類）只數自己的「e」：寫碼查核先擋過幾次不吃掉它的次數
             _report_full = bool(budget_exhausted(_rec, _uturn, _max, ["e"]))
             if not _code and _report and _report_full:
                 # 只剩收尾報告那一份：照 97128e5 的行為，第 3 次放行並記 reconcile_overflow（健檢 red）
@@ -1893,11 +1896,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         elif _vg_advice or _pend_cleared:
             write_state(session_id, state)
 
-    if not state.get("evasion_flag"):
+    if not state.get("evasion_flag") and (_coding or not v6):
         recent_prompts = state.get("recent_user_prompts", []) or []
         _nd_audit: List[Dict[str, Any]] = []
         ev = detect_evasion(last_text, recent_prompts, audit=_nd_audit)
-        # 規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：退避語對到有理由的不做行或使用者引用 → 不標、留帳
+        # 規則 NOT_DOING_DECLARED：退避語對到有理由的不做行（含「使用者說「…」」）→ 不標、留帳
         for _a in _nd_audit:
             append_guard_log("evasion_declared", {"session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)),
                                                   "phrase": _a.get("phrase", ""), "rule": _a.get("rule", ""),
@@ -1960,12 +1963,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
     # 改到高風險部位宣告完成 → 本回合要真的跑過第二意見、收尾有分歧裁決四行，或宣告「不需第二意見｜理由」（留帳 guard-second_opinion.jsonl）。
     # 吃寫碼查核那套（wg_release，閘名 second_opinion）：每個使用者回合擋 second_opinion.auto.max_blocks_per_turn 次（預設 1）後擋滿，
-    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行記 second_opinion_ok[sid]＝turn_seq 與當時的目標樹，同一棵樹不再要第二輪（SECOND_OPINION_ONE_ROUND）。
+    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行記 second_opinion_ok[sid]＝turn_seq，之後沒再改程式不再要求。
     # 子代理、裁判 session 走別的 Stop 入口；headless 由 _so_check 的 non_interactive_reason 判，都不觸發。
     _sov, _sof = _so_check() if v6 else (None, {})
     _so_uturn = _user_turn(state, turn_seq)
     if _sov is not None and _sof.get("satisfied"):
-        _so_mark_ok(state, session_id, turn_seq)
+        state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
         clear_pending(state, session_id, _SO_GATE)
         write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
@@ -1976,7 +1979,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             record_release(state, session_id, _SO_GATE, _so_uturn)
             mark_block(state, session_id, _SO_GATE, _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
             clear_pending(state, session_id, _SO_GATE)
-            _so_mark_ok(state, session_id, turn_seq, reviewed=False)      # 放行不是審過：不算這棵樹審過一輪
+            state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
             append_guard_log(_SO_GATE, {"event": "user_release", "session_id": session_id, "turn_seq": turn_seq,
                                         "via": _so_how, "reason": format_hit(_SO_LETTER, _sov)[:300]})
             print(f"[Guardian:SecondOpinion] 使用者放行這一回合（{_so_how}），記 user_release", file=sys.stderr)
@@ -2032,7 +2035,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 底下四個「每回合最多擋一次」的閘（Deferral、KnowledgeHarvest、Harvest-Pending、AEC-Pending）的回合都用
     # _user_turn（使用者打字開的回合）：同伴訊息、背景通知每則都讓 turn_seq +1，拿它當鍵會每則訊息後又擋一次。
     _uturn = _since
-    if stop_count < max_blocks and last_text:
+    if stop_count < max_blocks and last_text and (_coding or not v6):
         _ah = config.get("auto_handoff", {}) or {}
         try:
             _dg_ratio = estimate_context_usage(
@@ -2059,10 +2062,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         except Exception as e:
             dg = None
             print(f"[Guardian:DeferralGate] error (fail-open): {e}", file=sys.stderr)
-        for _a in _dg_audit:   # 規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION：退縮句對到不做行 → 不擋、留帳
+        for _a in _dg_audit:   # 規則 NOT_DOING_DECLARED：退縮句對到不做行或追蹤行 → 不擋、留帳
             append_guard_log("deferral_declared", {"session_id": session_id, "turn_seq": turn_seq,
                                                    "phrase": _a.get("phrase", ""), "rule": _a.get("rule", ""),
                                                    "why": str(_a.get("why", ""))[:200], "line": str(_a.get("line", ""))[:200]})
+        _record_tracking_lines(last_text, session_id, turn_seq, cwd)
         if dg:
             state["deferral_gate_turn"] = _uturn
             state["stop_blocked_count"] = stop_count + 1
@@ -2087,7 +2091,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _hv_waived: List[Dict[str, str]] = []
     hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn,
                                     claimed=_done(last_text), waived=_hv_waived)
-    _log_waivers(state, session_id, turn_seq, _uturn, "harvest", _hv_waived)   # 使用者叫跳過收割、AI 引用到原話 → 放行並留帳
+    _log_waivers(state, session_id, turn_seq, _uturn, "harvest", _hv_waived)   # 使用者說先這樣／跳過 → 放行並留帳
     if hv_reason and v6 and background_on(config):
         # 規則 HARVEST_IN_BACKGROUND：收割交背景的本地免費模型產待審候選卡，不擋寫碼 AI 一回合；送不出去才照舊擋（不靜默略過）
         state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
@@ -2112,8 +2116,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # post_tool_use 核對落 knowledge_harvest[sid].pending；此處每回合（_user_turn）擋一次要求真做完再重報。
     # 本則是中途狀態句（仍在等 agent 回報…）→ 不擋，等真收尾再擋（wg_harvest.in_progress_text）。
     _hp_waived: List[Dict[str, str]] = []
-    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text, gate_turn=_uturn, waived=_hp_waived)
-    _log_waivers(state, session_id, turn_seq, _uturn, "harvest_pending", _hp_waived)   # 只豁免不做行指名的那幾張卡
+    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text, gate_turn=_uturn,
+                                    waived=_hp_waived)
+    _log_waivers(state, session_id, turn_seq, _uturn, "harvest_pending", _hp_waived)   # 使用者說先這樣／跳過 → 整批放行並留帳
     if hp_reason:
         state.setdefault("harvest_pending_gate_turn", {})[session_id] = _uturn
         append_guard_log("harvest_pending", {
@@ -2148,10 +2153,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
     # 純單檔/文件小改不觸發（避免過度觸發成儀式性負擔，非防退避）。aec.scan_report_gate=false 整道不擋（規則 CLOSING_RITUAL_SWITCHES）。
-    if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn and _scan_report_gate_on(config):
+    if (own_mod_files and not state.get("scan_report_warned") and not committed_this_turn and _scan_report_gate_on(config)
+            and (_coding or not v6)):
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
-        # 規則 HARVEST_WAIVER_ITEMIZED：門檻達到、本來要擋，使用者叫跳過收尾檢核、AI 引用到原話 → 放行並留帳
+        # 門檻達到、本來要擋，使用者近 3 則說了「先這樣／跳過」→ 收尾檢核放行並留帳
         _cc_w = None if (emitted_this_turn or aec_up_to_date or not completion_threshold_met(
             last_text, own_mod_files, sr_min_files, claimed=_done(last_text))) else closing_check_waiver(last_text, recent_prompts)
         _log_waivers(state, session_id, turn_seq, _uturn, "closing_check", [_cc_w] if _cc_w else [])
@@ -2181,7 +2187,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (k) 追蹤項：還沒做完、要追的事一行一項（會進 workflow/tracking 帳本）；沒有寫「無」，**不接受空字串**\n"
                 "十參都 required、未發生填「無」（(c) 已刪，不必送）；本回合已交收割報告的話 (d) 可只寫「見收割報告」。"
                 "不得用 prose「不在範圍 / 留給未來」籠統帶過。"
-                + (f"\n{waiver_hint(CLOSING_CHECK_ITEM)}" if dismissed_recently(recent_prompts) else "")
+
             )
             write_state(session_id, state)
             output_block(reason)
@@ -2194,7 +2200,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # (d)「尚未寫／見下一動」、(h)「下一動＝寫 atom」= 把知識留給下一回合（使用者要再問一次
     # 才會補）。post_tool_use 判定落 report["d_pending"]；此處每回合（_user_turn）擋一次（共用 max_blocks
     # 預算）：模型 atom_write 後重新 emit → 新報告無 d_pending → 放行。
-    pending = aec.get("d_pending") or []
+    pending = (aec.get("d_pending") or []) if (_coding or not v6) else []
     if (
         emitted_this_turn and pending
         and state.get("aec_pending_gate_turn") != _uturn

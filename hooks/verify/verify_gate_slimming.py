@@ -1,8 +1,8 @@
-"""verify_cost_cut_003.py — 守門減量派工 003（十三刀）的行為案例。
+"""verify_gate_slimming.py — 守門瘦身（少驗幾次、hook 少載、判準卡與評分與收尾減量）的行為案例。
 
-做什麼：每一刀一段，驗砍掉的重複真的不再發生（舊碼跑是紅的），同時驗原本在擋「需要判斷的事」的入口還在。
-怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_cost_cut_003.py
-       python -X utf8 hooks/verify/verify_cost_cut_003.py   （直接跑，尾行 COST_CUT_003_CHECK PASS／FAIL）
+做什麼：每件一段，驗砍掉的重複真的不再發生（舊碼跑是紅的），同時驗原本在擋「需要判斷的事」的入口還在。
+怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_gate_slimming.py
+       python -X utf8 hooks/verify/verify_gate_slimming.py   （直接跑，尾行 GATE_SLIMMING_CHECK PASS／FAIL）
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
 
-# ─── 刀8：判準卡一個話題只送一次 ───────────────────────────────────────
+# ─── 判準卡一個話題只送一次 ───────────────────────────────────────
 
 @pytest.fixture()
 def card_env(tmp_path, monkeypatch):
@@ -75,7 +75,7 @@ def test_pre_compact_forgets_sent_cards():
     assert "forget_sent(session_id)" in src[i:i + 600]
 
 
-# ─── 刀9：文字評分預設只評交付改程式那則 ─────────────────────────────────
+# ─── 文字評分預設只評交付改程式那則 ─────────────────────────────────
 
 _REPLY = "改了 hooks/x.py 的判斷，跑過 verify 全綠。" + "說明" * 200
 
@@ -87,6 +87,7 @@ def ts_env(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(wts, "JOB_DIR", tmp_path / "jobs")
     monkeypatch.setattr(wts, "_spawn_worker", lambda job: sent.append(job))
+    monkeypatch.setattr(wts, "current_goal", lambda state, sid: "sales CLI 能列出每個產品")
     return wts, sent
 
 
@@ -129,7 +130,7 @@ def test_stop_marks_code_reply_only_for_code_edits_with_completion(tmp_path, mon
     def fake(state, sid, reply, mods, turn, config, *, code_reply, user_turn):
         seen.append((code_reply, user_turn))
         raise _Halt
-    for path, want in (("c:/p/hooks/x.py", True), ("c:/p/docs/a.md", False)):
+    for path, want in (("c:/p/hooks/x.py", True),):           # 只改 .md 的回合不是寫碼回合，文字評分整段不跑（verify_gate_trim）
         state = {"phase": "working", "turn_seq": 7, "turn_prompts_seq": 6, "failing_tests": [],
                  "session": {"cwd": str(tmp_path)},
                  "modified_files": [{"path": path, "session_id": "s", "last_turn_seq": 6}]}
@@ -151,7 +152,7 @@ def test_text_score_skill_is_callable():
     assert "user-invocable: true" in md and "tools/text-score.py" in md and "TEXT_SCORE_CODE_REPLY_ONLY" in md
 
 
-# ─── 刀10：收尾檢核、收割報告、交付信合成一份 ─────────────────────────────
+# ─── 收尾檢核、收割報告、交付信合成一份 ─────────────────────────────
 
 def _aec_drive(monkeypatch, tmp_path, tool_input, tool_response=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -240,66 +241,19 @@ def test_delivery_letter_is_the_closing_report():
     assert "盤點（改前 → 改後）" not in md
 
 
-# ─── 刀12：Codex 只審一輪，只收弄壞資料／繞閘 ─────────────────────────────
+# ─── Codex 只審一輪（工作軌規矩：只寫在總控台 skill，不進產品 hook） ─────────────
 
-def _so_fresh(monkeypatch, tmp_path, ok_tree, now_tree, one_round=True):
-    import wg_need_goal as ng
-    import wg_second_opinion as so
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": now_tree})
-    files = [str(tmp_path / f"m{i}.py") for i in range(5)]
-    state = {"turn_seq": 9, "second_opinion_ok": {"s": 5}, "second_opinion_ok_tree": {"s": ok_tree},
-             "modified_files": [{"path": p, "session_id": "s", "last_turn_seq": 8} for p in files]}
-    cfg = dict(so.DEFAULTS, one_round=one_round)
-    _, facts = so.check(state, "s", state["modified_files"], "已完成", "", {}, cfg, True)
-    return facts["fresh"]
-
-
-def test_second_opinion_one_round_per_tree(monkeypatch, tmp_path):
-    """審過一輪後又改了程式：同一棵目標樹不再要第二輪（舊碼審完一改就再要 → 紅）；換了一棵樹（換題）照要。"""
-    assert _so_fresh(monkeypatch, tmp_path, "T1", "T1") is False
-    assert _so_fresh(monkeypatch, tmp_path, "T1", "T2") is True
-
-
-def test_second_opinion_one_round_switch_rolls_back(monkeypatch, tmp_path):
-    """退回開關 second_opinion.auto.one_round=false：審完又改程式就再要一輪（舊行為）。"""
-    assert _so_fresh(monkeypatch, tmp_path, "T1", "T1", one_round=False) is True
-
-
-def test_user_release_is_not_a_review(monkeypatch, tmp_path):
-    """使用者放行這一回合（reviewed=False）不算這棵樹審過：之後又改了程式照要第二意見。"""
-    import wg_need_goal as ng
-    import wg_second_opinion as so
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": "T1"})
-    files = [str(tmp_path / f"m{i}.py") for i in range(5)]
-    state = {"turn_seq": 9, "modified_files": [{"path": p, "session_id": "s", "last_turn_seq": 8} for p in files]}
-    so.mark_ok(state, "s", 5, reviewed=False)
-    assert "s" not in state["second_opinion_ok_tree"]
-    _, facts = so.check(state, "s", state["modified_files"], "已完成", "", {}, dict(so.DEFAULTS), True)
-    assert facts["fresh"] is True
-
-
-def test_mark_ok_records_tree(monkeypatch):
-    import wg_need_goal as ng
-    import wg_second_opinion as so
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": "T3"})
-    state = {}
-    so.mark_ok(state, "s", 7)
-    assert state == {"second_opinion_ok": {"s": 7}, "second_opinion_ok_tree": {"s": "T3"}}
-
-
-def test_codex_tags_findings_and_hint_says_only_two_kinds():
-    """Codex 每條意見標【弄壞資料】【繞閘】【其他】；擋訊息的入口講明只收前兩類、其餘記追蹤項、不送第二輪。"""
-    import importlib.util
+def test_codex_one_round_is_console_only():
+    """「Codex 只審一輪、只收弄壞資料／繞閘」是開發期的工作軌規矩：寫在 skills/console，產品的第二意見閘照舊。"""
     import wg_release_rules as rr
-    spec = importlib.util.spec_from_file_location("so_prompts", HOOKS_DIR.parent / "tools" / "second-opinion" / "prompts.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    assert all(t in mod.OUTPUT_RULES for t in ("【弄壞資料】", "【繞閘】", "【其他】"))
-    hint = rr.second_opinion_hint()
-    assert "SECOND_OPINION_ONE_ROUND" in hint and "追蹤項" in hint and "第二輪" in hint
+    import wg_second_opinion as so
+    md = (HOOKS_DIR.parent / "skills" / "console" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Codex 只審一輪" in md and "【弄壞資料】" in md
+    assert "one_round" not in so.DEFAULTS and "只審一輪" not in rr.second_opinion_hint()
 
 
-# ─── 刀3、刀4、刀11：總控台流程（文字規則，沒有程式閘） ───────────────────
+
+# ─── 總控台流程（文字規則，沒有程式閘） ───────────────────
 
 _CONSOLE = HOOKS_DIR.parent / "skills" / "console"
 
@@ -331,7 +285,7 @@ def test_merge_rules_fast_forward_and_no_third_run():
     assert "補驗只在候選基底落後 main 或解過衝突時跑" not in md
 
 
-# ─── 刀1：worktree 根的一次性 git 啟動器不算改程式 ──────────────────────────
+# ─── worktree 根的一次性 git 啟動器不算改程式 ──────────────────────────
 
 _LAUNCH_SRC = 'import subprocess' + chr(10) + 'subprocess.run(["git", "status"])' + chr(10)
 
@@ -414,7 +368,7 @@ def test_console_skill_launcher_order_no_rerun():
     assert "LAUNCHER_NOT_CODE" in md and "刪啟動器 → 再跑一次 verify" not in md
 
 
-# ─── 刀2：Codex 審完只重跑它碰到的檔 ─────────────────────────────────────
+# ─── Codex 審完只重跑它碰到的檔 ─────────────────────────────────────
 
 @pytest.fixture()
 def review_env(tmp_path, monkeypatch):
@@ -531,7 +485,7 @@ def test_second_opinion_start_marks_review():
     assert "mark_review(sid)" in src[i:i + 700]
 
 
-# ─── 刀5：hook 每次啟動只載入要用的部分 ─────────────────────────────────
+# ─── hook 每次啟動只載入要用的部分 ─────────────────────────────────
 
 def _loaded_after_import(module: str) -> set:
     """在乾淨的子行程 import module，回載進來的模組名。"""
@@ -587,7 +541,7 @@ def test_module_patterns_compiled_on_first_use():
     assert lz.sub("#", "1-a 2-b") == "# #" and lz.flags & re.I
 
 
-# ─── 刀6：state 讀寫收斂 ────────────────────────────────────────────────
+# ─── state 讀寫收斂 ────────────────────────────────────────────────
 
 def test_state_written_compact_and_unchanged_not_rewritten(tmp_path, monkeypatch):
     """state 落檔不縮排；讀進來沒改就寫回 → 不重寫檔（舊碼每次都縮排重寫 → 紅）；有改照寫。"""
@@ -625,9 +579,9 @@ def test_unchanged_state_still_touched_for_coordination(tmp_path, monkeypatch):
     assert p.stat().st_mtime > old + 3000
 
 
-# ─── 刀7：CHANGELOG 各軌寫自己的片段，合併時彙整 ─────────────────────────
+# ─── CHANGELOG 各軌寫自己的片段，合併時彙整 ─────────────────────────
 
-_FOLD = HOOKS_DIR.parent / "tools" / "changelog-fold.py"
+_FOLD = HOOKS_DIR.parent / "skills" / "console" / "scripts" / "changelog-fold.py"
 
 
 def _fold(*args):
@@ -667,14 +621,13 @@ def test_changelog_fold_bad_fragment_touches_nothing(tmp_path):
 
 
 def test_tracks_told_to_write_fragments():
-    """規則與開工句都講：工作軌寫 _AIDocs/_changelog.d/<軌>-<NNN>.md，合併時跑 changelog-fold。"""
-    core = (HOOKS_DIR.parent / "rules" / "core.md").read_text(encoding="utf-8")
+    """開工句與總控台守則講：工作軌寫 _AIDocs/_changelog.d/<軌>-<NNN>.md，合併時跑 changelog-fold（多軌規矩，不寫進 rules）。"""
     kick = (HOOKS_DIR.parent / "skills" / "console" / "references" / "kickoff.md").read_text(encoding="utf-8")
     skill = (HOOKS_DIR.parent / "skills" / "console" / "SKILL.md").read_text(encoding="utf-8")
-    assert "_changelog.d" in core and "_changelog.d" in kick and "changelog-fold.py --write" in skill
+    assert "_changelog.d" in kick and "changelog-fold.py --write" in skill
 
 
 if __name__ == "__main__":
     rc = pytest.main([__file__, "-q", "-p", "no:cacheprovider"])
-    print("COST_CUT_003_CHECK PASS" if rc == 0 else "COST_CUT_003_CHECK FAIL")
+    print("GATE_SLIMMING_CHECK PASS" if rc == 0 else "GATE_SLIMMING_CHECK FAIL")
     sys.exit(0 if rc == 0 else 1)

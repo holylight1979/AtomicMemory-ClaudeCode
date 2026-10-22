@@ -150,7 +150,7 @@ def test_update_to_user_checked_both_ways(env):
 
 
 def test_update_without_why_still_checks_origin(env):
-    """WHY_OPTIONAL 反例（派工 003 第 13 刀）：why 拔掉後，標使用者說的、卻對不到原話，照樣降級；對得到的照樣收成使用者說的。"""
+    """WHY_OPTIONAL 反例：why 拔掉後，標使用者說的、卻對不到原話，照樣降級；對得到的照樣收成使用者說的。"""
     _tree_with("把 audit 寫進 log 檔，格式自己定")
     _op("add", items=[{"text": "稽核紀錄落地", "origin": "inferred"}, {"text": "格式要固定", "origin": "inferred"}])
     bad = _op("update", turn=2, items=[{"id": "T1.2", "origin": "user", "quote": "格式要固定"}])

@@ -337,9 +337,8 @@ def detect_evasion(text: str, recent_user_prompts: List[str],
                    audit: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """Return {phrase, context_excerpt, category, hint} or None.
 
-    LLM 介入的入口（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）：命中的那一行若對到一條有理由的「不做｜<哪一件>：<理由>」，
-    或帶使用者引用且引用真的在近 3 則使用者原話裡 → 這一處不標（audit 給了就記一筆），繼續看別處；全部都對到 → None。
-    使用者近 3 則有「先這樣／跳過」不再整段關掉偵測（舊 escape hatch），要對到事項才算。
+    LLM 介入的入口（規則 NOT_DOING_DECLARED）：命中的那一行若對到一條有理由的「不做｜<哪一件>：<理由>」，
+    或「追蹤｜…」、帶使用者引用的不做行 → 這一處不標（audit 給了就記一筆），繼續看別處；全部都對到 → None。
     引號內轉述不算（strip_quoted_spans）；excerpt 取自原文（等長替換索引不位移）。
     """
     if not text:
@@ -388,9 +387,8 @@ def detect_deferral(
     歸咎非我。回 {phrase, sentence} 或 None。
 
     受詞判定＝命中句去掉退縮語與標點後仍 ≥ min_object_chars 字（純「下個 session。」
-    這種無受詞的句子不算）。LLM 介入的入口（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）：命中句所在的那一行
-    對到一條有理由的不做行、或帶使用者引用且引用在近 3 則使用者原話裡 → 這一句不算（audit 給了就記一筆），看下一句。
-    使用者說「先這樣／下個 session 再做」不再整段關掉偵測，要 LLM 引用原句對到事項。
+    這種無受詞的句子不算）。LLM 介入的入口（規則 NOT_DOING_DECLARED）：命中句所在的那一行
+    對到一條有理由的不做行或「追蹤｜…」行 → 這一句不算（audit 給了就記一筆），看下一句。
     ``` 程式區塊與 markdown 表格列先剔掉（strip_markdown_blocks）：列舉的字串不是退縮句。
     詞表單一來源 forbidden-phrases.json categories[id=deferral-attribution]。
     """
@@ -460,18 +458,12 @@ def deferral_gate_reason(
     if context_ratio > max_ratio:
         return None
     pct = f"~{int(context_ratio * 100)}%" if context_ratio > 0 else "無法量測（視為充裕）"
+    from wg_release_rules import CLOSING_ASK
     return (
         "[Guardian:DeferralGate] 主任務已完工、context 用量 "
         f"{pct}（≤{int(max_ratio * 100)}%），收尾卻把可做的事推開：\n"
         f"  「{det['sentence']}」（退縮語：{det['phrase']}）\n"
-        "違反 IDENTITY 反退避契約「退縮歸屬」。三選一，不得籠統帶過：\n"
-        "  (a) 現在做掉（可逆、屬原請求自然延伸的維護／修補／小問題／自己的過失）再收尾\n"
-        "  (b) 真的不能做：寫一行「不做｜<哪一件>：<理由：不可逆／需使用者拍板業務取捨／會飄移主任務>」"
-        "（規則 NOT_DOING_DECLARED，程式只查有沒有理由、留帳不擋）\n"
-        "  (c) 使用者已明示延後：寫一行「不做｜<哪一件>：使用者說「<原句片段>」」"
-        "（規則 USER_WAIVER_NEEDS_CITATION，片段要真的在近 3 則使用者原話裡）\n"
-        "  (d) 這句只是在描述、沒推任何事（例：「下個 session 開場會列出…」在講已驗過的行為）：寫一行"
-        "「不是退避｜<命中的詞>：因為 <理由>」（留帳抽查）"
+        f"{CLOSING_ASK}。這句只是在描述、沒推任何事：寫一行「不是退避｜<命中的詞>：因為 <理由>」（留帳抽查）。"
     )
 
 
@@ -517,9 +509,10 @@ CLOSING_CHECK_ITEM = "收尾檢核"
 
 
 def closing_check_waiver(text: str, recent_user_prompts: List[str]) -> Optional[Dict[str, str]]:
-    """收尾文字裡引用到近 3 則使用者原話的「不做｜收尾檢核：使用者說「…」」（規則 HARVEST_WAIVER_ITEMIZED）；沒有回 None。"""
-    from wg_release_rules import item_waiver
-    return item_waiver(text or "", user_typed_prompts(recent_user_prompts)[-3:], (CLOSING_CHECK_ITEM,))
+    """近 3 則使用者原話有 dismiss 詞（先這樣／跳過）→ 收尾檢核整件放行，回 {item, quote＝那則原話, line}；沒有回 None。
+    text 留著與呼叫端同簽名。"""
+    said = next((p for p in reversed(user_typed_prompts(recent_user_prompts)[-3:]) if _DISMISS_RE.search(p or "")), None)
+    return {"item": CLOSING_CHECK_ITEM, "quote": said[:120], "line": ""} if said is not None else None
 
 
 def dismissed_recently(recent_user_prompts: List[str]) -> bool:
@@ -543,8 +536,7 @@ def _completion_gate_applies(
     達門檻條件（全部成立）：
       1. text 含完成宣告詞（claims_completion）
       2. modified_files 觸及 core 檔，或 unique 檔數 ≥ min_files
-      3. text 沒有引用到近 3 則使用者原話的「不做｜收尾檢核：使用者說「…」」（closing_check_waiver；近 3 則有
-         「先這樣／跳過」不再整個放掉收尾檢核，規則 HARVEST_WAIVER_ITEMIZED）
+      3. 近 3 則使用者原話沒有「先這樣／跳過」（closing_check_waiver）
     """
     return completion_threshold_met(text, modified_files, min_files, claimed) \
         and closing_check_waiver(text, recent_user_prompts) is None
@@ -768,8 +760,8 @@ def is_turn_start(rec: Dict[str, Any]) -> bool:
 def _is_real_user_prompt(content: Any) -> bool:
     """判斷一則 user 訊息是「真實 prompt」（回合起點）還是延續。
 
-    含 tool_result block → 延續；整則都是 harness 文字（同伴訊息、背景通知、系統注入）且不帶派工標記 → 也是延續
-    （規則 DISPATCH_OPENS_TURN：退避預告的切點只認使用者打字或派工訊息，否則同伴訊息一進來，早段寫的預告就被切掉）；
+    含 tool_result block → 延續；整則都是 harness 文字（同伴訊息、背景通知、系統注入）→ 也是延續
+    （退避預告的切點只認使用者打字，否則同伴訊息一進來，早段寫的預告就被切掉）；
     其餘 str 或含 text block → 真實 prompt。transcript 整筆紀錄判回合起點用 is_turn_start（多排除 Stop hook 擋訊息）。
     """
     texts: List[str] = []
@@ -790,14 +782,13 @@ def _is_real_user_prompt(content: Any) -> bool:
     if not joined.strip():
         return False
     try:
-        from harness_text import peer_message_bodies, user_typed_text
-        from wg_release_rules import is_dispatch_message
+        from harness_text import user_typed_text
     except ImportError:
         return True
-    return bool(user_typed_text(joined)) or is_dispatch_message(peer_message_bodies(joined))
+    return bool(user_typed_text(joined))
 
 
-# 派工工具的 prompt 欄會夾帶 [WG:SubagentMemory] 注入的 atom 原文；拿它比對 atom
+# 子代理工具（Agent／Task）的 prompt 欄會夾帶 [WG:SubagentMemory] 注入的 atom 原文；拿它比對 atom
 # 等於 atom 自己命中自己。與 wg_rescue 同一排除規則。
 _DELEGATION_TOOLS = frozenset({"Agent", "Task"})
 _DELEGATION_SKIP_KEYS = frozenset({"prompt"})

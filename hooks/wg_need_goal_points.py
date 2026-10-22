@@ -212,32 +212,17 @@ def scope_on_read(state: Dict[str, Any], sid: Any, tool_name: str, tool_input: A
     return queued
 
 
-# ─── 4.3 收到外部主張（同伴訊息、審查報告、交付信） ─────────────────────────
+# ─── 4.3 收到外部主張（第二意見、審查報告） ─────────────────────────────────
 
-CLAIM_QUESTIONS = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、同伴、審查者）？"
+CLAIM_QUESTIONS = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、審查者）？"
                    "③如果照做的成本是零，你會怎麼裁？再兩問：" + CRITIQUE_QUESTIONS)
 REPORT_TOOLS = ("mcp__workflow-guardian__second_opinion_result",)
-# 同伴訊息：整則以 <cross-session-message> 開頭；transcript 與畫面上前面多一行 harness 說明，也要認得
-_PEER_START_RE = re.compile(r"^\s*(?:Another Claude session sent a message(?: while you were working)?:\s*)?"
-                            r"<cross-session-message\b")
-_PEER_FROM_RE = re.compile(r'<cross-session-message\b[^>]*?\bfrom-name="([^"]*)"')
-# 讀到交付信或審查報告：總控台信箱 workflow/inbox/（只認這組兩層，別的專案叫 inbox 的資料夾不算）、
-# 檔名帶 codex／review／審查／second-opinion 的 .md／.txt
-_REPORT_PATH_RE = re.compile(r"(?i)[\\/]workflow[\\/]inbox[\\/]|[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
-
-
-def peer_of_prompt(prompt: str) -> Optional[str]:
-    """這則 prompt 是同伴 session 送來的訊息（開頭就是同伴標籤，可帶 harness 說明行）→ 回發送者名稱（沒有名稱回 ""）；
-    不是回 None。使用者打字裡提到這個標籤不算。"""
-    text = str(prompt or "")
-    if not _PEER_START_RE.match(text):
-        return None
-    m = _PEER_FROM_RE.search(text, 0, 800)
-    return m.group(1) if m else ""
+# 讀到審查報告：檔名帶 codex／review／審查／second-opinion 的 .md／.txt
+_REPORT_PATH_RE = re.compile(r"(?i)[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
 
 
 def claim_calls(tool_calls: Any) -> List[Tuple[str, str]]:
-    """這批工具裡的外部主張：審查結果工具、讀交付信或審查報告檔。回 [(種類, 來源)]。"""
+    """這批工具裡的外部主張：審查結果工具、讀審查報告檔。回 [(種類, 來源)]。"""
     out: List[Tuple[str, str]] = []
     for c in tool_calls if isinstance(tool_calls, list) else []:
         name, inp, _tid = _call_parts(c)
@@ -245,7 +230,7 @@ def claim_calls(tool_calls: Any) -> List[Tuple[str, str]]:
         if name in REPORT_TOOLS:
             out.append(("審查報告", name))
         elif name == "Read" and _REPORT_PATH_RE.search(path):
-            out.append(("報告或交付信", Path(path).name))
+            out.append(("審查報告", Path(path).name))
     return out
 
 
@@ -267,84 +252,6 @@ def on_external_claim(sid: Any, kind: str, source: str, turn: Optional[int] = No
     _update(sid, lambda d: _claim_checkpoint(d, int(turn or 0)), "on_external_claim", turn)
     return head + "\n" + ng.render(tree, "header")
 
-
-PEER_SCAN_CAP = 256 * 1024     # 一批最多讀 transcript 新增段的位元組數，超過只取最後一段
-
-
-def _peer_names(chunk: bytes) -> Tuple[List[str], int]:
-    """transcript 片段裡的同伴訊息（attachment queued_command、prompt 開頭是同伴標籤）→（發送者名單, JSON 壞掉的行數）。"""
-    names: List[str] = []
-    bad = 0
-    for line in chunk.splitlines():
-        if b"queued_command" not in line or b"cross-session-message" not in line:
-            continue
-        try:
-            o = json.loads(line)
-        except ValueError:
-            bad += 1
-            continue
-        att = o.get("attachment") if isinstance(o, dict) else None
-        peer = peer_of_prompt(att.get("prompt")) if isinstance(att, dict) and att.get("type") == "queued_command" else None
-        if peer is not None:
-            names.append(peer or "同伴 session")
-    return names, bad
-
-
-def _scan_peer(d: Dict[str, Any], transcript_path: str, turn: Optional[int]) -> Tuple[List[str], Optional[str]]:
-    """鎖內：從目前的 peer_offset 往後讀 transcript 新增段，讀完把位置往前推。位置在鎖裡讀、在鎖裡寫，兩次掃描重疊時
-    後拿到鎖的從前一次寫回的位置接著讀，不會倒退、同一則不會送兩次。回（同伴名單, 錯誤訊息）。
-    第一次只記位置不回溯；transcript 變短（換檔或被截）→ 位置重置到檔尾並記 peer_scan_reset，這次不回溯；
-    新增段超過 PEER_SCAN_CAP 只讀最後一段並記 peer_scan_truncated；讀不到或有壞行 → 記 peer_scan_error。"""
-    off = d.get("peer_offset")
-    now = wg_core._now_iso()
-    try:
-        size = Path(transcript_path).stat().st_size
-        if not isinstance(off, int):
-            d["peer_offset"] = size
-            return [], None
-        if off > size:
-            d["peer_offset"] = size
-            d["peer_scan_reset"] = {"at": now, "turn": turn, "from": off, "to": size}
-            return [], None
-        start = max(off, size - PEER_SCAN_CAP)
-        with open(transcript_path, "rb") as f:
-            f.seek(start)
-            raw = f.read(size - start)
-    except OSError as e:
-        err = f"{type(e).__name__}: {e}"
-        d["peer_scan_error"] = {"at": now, "turn": turn, "error": err}
-        return [], err
-    end = raw.rfind(b"\n") + 1                       # 只吃到最後一個完整行
-    chunk = raw[:end]
-    if start > off:                                   # 截過：第一行可能只剩半行
-        chunk = chunk[chunk.find(b"\n") + 1:]
-        d["peer_scan_truncated"] = {"at": now, "turn": turn, "skipped": start - off}
-    if end:
-        d["peer_offset"] = start + end
-    names, bad = _peer_names(chunk)
-    if not bad:
-        return names, None
-    err = f"{bad} 行同伴訊息 JSON 解析失敗"
-    d["peer_scan_error"] = {"at": now, "turn": turn, "error": err}
-    return names, err
-
-
-def peer_claim_lines(sid: Any, transcript_path: str, config: Dict[str, Any], turn: Optional[int] = None,
-                     cwd: str = "") -> List[str]:
-    """PostToolBatch：工作中途送到的同伴訊息不經任何 hook，只在 transcript 記成 attachment queued_command。
-    在目標檔的鎖裡從 peer_offset 往後掃（_scan_peer），找到同伴訊息就照外部主張送三問。只在本 session 有目標檔、
-    而且 cwd 所在專案沒關掉流程時掃；掃不了不擋（stderr＋目標檔 peer_scan_error）。"""
-    if not transcript_path or not ng.goal_path(sid).exists() or not ng.cfg_for_cwd(config, cwd).get("enabled", True):
-        return []
-    names, err = _update(sid, lambda d: _scan_peer(d, transcript_path, turn), "peer_claim_lines", turn) or ([], None)
-    if err:
-        print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{err}", file=sys.stderr)
-    if not names:
-        return []
-    return [on_external_claim(sid, "同伴訊息（工作中途送到）", "、".join(dict.fromkeys(names)), turn)]
-
-
-# ─── 4.3 被使用者糾正 ─────────────────────────────────────────────────────
 
 def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Optional[str]:
     """使用者本人打的字命中糾正偵測（wg_friction.record_correction 的回傳）→ 提醒回頭看目標樹，附目前的樹；沒有樹不送。"""
@@ -407,28 +314,6 @@ def ask_text(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> str:
 
 def _node_order(nid: str) -> Tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", nid))
-
-
-def _suggest_node(tree: Dict[str, Any]) -> Tuple[str, str]:
-    """建議這題掛哪個節點：還沒完成的節點裡編號最前的那個（不含樹根），都完成了就掛樹根。回（編號, 文字）。"""
-    nodes = tree.get("nodes") or {}
-    open_ids = [n for n in sorted(nodes, key=_node_order) if n != tree["id"]
-                and (nodes[n] or {}).get("status") in ("todo", "doing", "partial")]
-    nid = open_ids[0] if open_ids else tree["id"]
-    return nid, str((nodes.get(nid) or {}).get("text") or "")
-
-
-def _ask_message(tree: Dict[str, Any], link: rr.Verdict, after: bool) -> str:
-    """擋或提醒的理由：AI 讀得到但不一定自己補（D(1) 實測），所以給規則名、缺什麼、照做就能過的修法。"""
-    head = ("剛才的提問沒寫掛在目標樹哪個節點（這次提問前沒攔到，事後提醒）" if after else
-            "提問前要寫出這題掛在目標樹哪個節點" + ("" if link.owed else "（記憶知識類不擋，只提醒）"))
-    nid, text = _suggest_node(tree)
-    fix = (f"照做：{'下次提問' if after else '在題目（或計畫）裡'}寫上節點編號再問，例如在題目後面加「（掛 {nid}）」"
-           f"；目前最可能的是 {nid}（{text}），換成真正對應的節點也可以。這題不屬於任何節點 → "
-           "先用 need_goal(action=add, parent=…) 長出那個節點，再掛上它問。")
-    return (f"[NeedGoal] {rr.format_hit('提問', link._replace(why=head))}\n{fix}"
-            "全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。" + ng.HANDOUT_CHECK + "目前的樹：\n"
-            + ng.render(tree, "compact") + "\n" + ng.NO_TOOL_HINT)
 
 
 def _node_texts(tree: Dict[str, Any]) -> Dict[str, str]:
@@ -572,13 +457,10 @@ def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any],
     if tree and nid:
         _update(sid, lambda d: _ask_checkpoint(d, turn, nid), "on_ask", turn)
     elif tree:
+        # ASK_LINKED_TO_GOAL 只記錄不擋、不送：掛節點是記帳不是判斷，問句看得懂全貌靠推薦與理由
         link = rr.ask_goal_link_verdict(tree.get("kind"), links)
-        if link.owed and not after:
-            _guard("ask_blocked", sid, turn, tool=tool_name, tree=tree["id"])
-            blocks.append(_ask_message(tree, link, after))
-        else:
-            _guard("ask_hint", sid, turn, tool=tool_name, tree=tree["id"], kind=tree.get("kind"), mode=mode)
-            hints.append(_ask_message(tree, link, after))
+        _guard("ask_unlinked", sid, turn, tool=tool_name, tree=tree["id"], kind=tree.get("kind"), mode=mode,
+               owed=link.owed)
     if view.owed:
         hints.append(f"[NeedGoal] {rr.format_hit('提問', view)}")
     if blocks and not after:
@@ -707,22 +589,6 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
         kinds = "、".join(dict.fromkeys(k for k, _s in claims))
         lines.append(on_external_claim(sid, kinds, "、".join(s for _k, s in claims), turn))
     return lines
-
-
-# ─── 交出計畫、開工句、清單之前（判斷入口盤點第四節）─────────────────────────
-
-# 計畫類文件：memory/_staging（規劃、TODO、續接單、checklist）與計畫模式的 plans/ 下的 .md；_AIDocs 等長期文件不算
-_HANDOUT_PATH_RE = re.compile(r"(?i)[\\/](?:_staging|plans)[\\/][^\\/]+\.md$")
-
-
-def handout_edit_line(state: Dict[str, Any], sid: Any, path: str, turn: int) -> Optional[str]:
-    """PostToolUse（Edit／Write）改了計畫類文件：接下來可能把計畫、開工句、清單交給使用者 → 一回合送一次
-    wg_need_goal.HANDOUT_CHECK（還對得上最新計畫嗎、剛改的影響哪些已給出的內容）。只送題不擋；回要送的句子或 None。"""
-    if not _HANDOUT_PATH_RE.search(str(path or "")) or state.get("need_goal_handout_turn") == turn:
-        return None
-    state["need_goal_handout_turn"] = turn
-    _guard("handout_check", sid, turn, path=Path(str(path)).name)
-    return f"[NeedGoal] 改了 {Path(str(path)).name}（計畫、清單類文件）。{ng.handout_check_text(sid)}"
 
 
 # ─── 4.3 目標改變後導讀卡改用目標視角 ─────────────────────────────────────

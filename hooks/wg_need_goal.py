@@ -103,18 +103,11 @@ SUBGOAL_LINE = ("樹根寫的是整個需求（使用者這次要的全部，不
 # 使用者又說話時樹怎麼長（B5 缺口②：只提換題那條路，AI 被糾正也開新樹、舊樹不收）；每則訊息與糾正提醒共用
 TREE_PATHS = ("這則若是補充（多要一件事、新的條件）→ need_goal add 長成子目標；若是糾正 → 改這棵樹（update 改節點、"
               "作廢的標放棄，set 改寫樹根），不開新樹；換成另一件事才 set new_task=true。")
-GOAL_LINE_TEMPLATE = "定位｜目標：<節點編號>（這一塊在目標裡的角色）"
 # 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；
 # 定位第五行的提示與「用目標視角重看」的兩問共用；只送題，適不適用由 LLM 判斷
 CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷（選替身）→ 替身和真正要判的事之間有沒有落差、同類情況會不會被誤判？"
                   "換了測試環境或前提 → 舊的前置步驟在新環境還成立嗎？寫「期望不發生」的案例 → 它通過是因為規則對，"
                   "還是因為什麼都沒發生（先斷言前置狀態成立）？")
-# 交出計畫、開工句、清單之前的一問（判斷入口盤點第四節；每則訊息、完整對照收下、改計畫類文件、提問被擋或提醒、收尾檢核收下時送）：
-# 只送題、不評內容。先對原話再對計畫：只對計畫，計畫偏了會跟著一起偏（原設計者 2026-10-20）
-HANDOUT_CHECK = ("交出計畫、開工句、清單給使用者前再對一次：先對使用者原話（樹上記的使用者原話，與照它寫的樹根；"
-                 "樹根是 AI 的解讀，和原話不一致以原話為準），再對最新的計畫；兩邊對不上以原話為準，並把落差說出來。"
-                 "剛改的東西影響哪些已經給出去的內容"
-                 "（之前給的開工句、清單、計畫）？有就一起改。")
 # 沒有目標樹時改了記憶知識類的檔（寫入當下，一回合一次）：知識類也要一棵輕樹；不擋寫檔，收尾還沒補由 (f4) 要
 KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 session 還沒有需求目標樹：文件、記憶、設定這類任務也要一棵輕樹——"
                        "用 need_goal(action=set, goal=…) 寫下這次真正要達成什麼（一句、用使用者的話、只寫目標不寫手段；一個節點就夠，"
@@ -486,24 +479,6 @@ def _header(tree: Dict[str, Any]) -> str:
             f"{LABEL['kind'].get(tree.get('kind'), '?')}｜子目標 {sub}、待展開 {opened}、待對照的改動 {owed}）")
 
 
-def handout_check_text(sid: Any) -> str:
-    """交出前一問＋使用者原話（第一則與最新一則）＋目前的樹最上面那句（改計畫類文件、收尾檢核收下時送；這兩處眼前沒有樹，
-    要先對原話就把原話附上）。沒有沒結束的樹 → 只有交出前一問；目標檔讀不到或結構壞了 → 只有交出前一問並寫 stderr。"""
-    try:
-        tree = active_tree(load(sid))
-        if not tree or tree.get("status") == "closed":
-            return HANDOUT_CHECK
-        said = [s for s in tree.get("user_said") or [] if isinstance(s, dict)]
-        lines = [f"使用者原話（第 {s.get('turn', '?')} 回合）：「{_clip(s.get('text'), 300)}」"
-                 for s in (said[:1] + said[1:][-1:])]
-        root = (tree.get("nodes") or {}).get(tree["id"]) or {}
-        lines.append(f"目標樹最上面那句（{tree['id']}，AI 照原話寫的解讀）：「{_clip(root.get('text'), 300)}」")
-    except Exception as e:  # noqa: BLE001  — 只是提醒：目標檔壞了照送那一問，不讓呼叫端的 hook 失敗
-        print(f"[NeedGoal] 交出前一問附不了原話（目標檔讀不到或結構壞了）：{type(e).__name__}: {e}", file=sys.stderr)
-        return HANDOUT_CHECK
-    return HANDOUT_CHECK + "\n" + "\n".join(lines)
-
-
 def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> str:
     ref = str(ev.get("ref", ""))
     extra = ""
@@ -596,9 +571,8 @@ def render(tree: Optional[Dict[str, Any]], form: str, chars: Optional[int] = Non
     if lr:
         stale = "" if lr.get("goal_rev") == tree.get("goal_rev") else \
             f"（之後目標改過，現在版本 {tree.get('goal_rev')}，這次對照作廢）"
-        out.append(f"完整對照：第 {lr.get('turn', '?')} 回合交過，目標版本 {lr.get('goal_rev')}{stale}")
-    else:
-        out.append("完整對照：還沒交")
+        who = "程式代填" if lr.get("by") == "program" else "交過"
+        out.append(f"完整對照：第 {lr.get('turn', '?')} 回合{who}，目標版本 {lr.get('goal_rev')}{stale}")
     if doc is not None and doc.get("receipts"):
         out.append("最近收據（證據引用寫 R<號>，或寫 latest 由程式填最近一筆綠的）：")
         for r in doc["receipts"][-8:]:
@@ -1265,6 +1239,7 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
             rtg.append(f"{nid} 的案例 {rec['ref']}：" + (f"先紅後綠（red_then_green，R{pair[0]} 紅 → R{pair[1]} 綠）" if pair
                                                           else "案例未見先紅（只記錄、不擋）"))
         node["evidence"] = stored + prior
+        node.pop("filled_by", None)              # AI 自己交了對照：之後程式不再代填這個節點
         node["followup"] = v["followup"]
         node["note"] = v["note"]
         node["same_class"] = v["same_class"]
@@ -1286,7 +1261,7 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
     turns = "" if inp.get("turns") is not None else f"\n  - {TURNS_HINT}"
     return {"ok": True, "tree": tree["id"], "goal_changed": False, "followups": followups,
             "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}" + "".join(f"\n  - {ln}" for ln in rtg)
-            + same + turns + f"\n{HANDOUT_CHECK}"}
+            + same + turns}
 
 
 def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> Dict[str, Any]:
@@ -1424,8 +1399,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 sent["first"] = True
                 return HINT_LINE, True
             return None, False
-        # 交出前一問每則都帶：純問答回合直接在回覆裡交開工句、清單時，回覆之前只有這個點（只送題、適不適用由 AI 判斷）
-        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}。{TREE_PATHS}{HANDOUT_CHECK}", *_origin_reminder(doc)]
+        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}。{TREE_PATHS}", *_origin_reminder(doc)]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1446,7 +1420,7 @@ DIR_SCAN_CAP = 5000     # 搬移／複製的來源是目錄時最多看幾個檔
 
 
 def _in_knowledge_part(path: str) -> bool:
-    """部位類別是 knowledge（文件、記憶、派工信箱）。真源是 overview_hub.path_kind；這支函式不在時當不是。"""
+    """部位類別是 knowledge（文件、記憶、信件匣）。真源是 overview_hub.path_kind；這支函式不在時當不是。"""
     try:
         from overview_hub import KIND_KNOWLEDGE, path_kind
     except ImportError:
@@ -1772,6 +1746,55 @@ def auto_progress(sid: Any, turn: int = 0) -> List[Dict[str, Any]]:
     return done
 
 
+AUTO_FOLLOWUP = "程式代填：最後一次改動之後沒有綠收據（要追什麼由 AI 用 reconcile 補 followup）"
+
+
+def auto_reconcile(sid: Any, turn: int = 0) -> List[str]:
+    """規則 RECONCILE_BY_PROGRAM：閘關著（goal_gate=false）時交付邊界由程式照收據代填完整對照——目前的寫碼類樹
+    還沒對照（或對照後目標改過、又改了檔）：每個還活著、還沒到終點的節點，最後一次改動之後有綠收據 → 達成、證據掛那筆
+    （by=program）；沒有 → 部分、followup 寫 AUTO_FOLLOWUP 等 AI 補。AI 自己交的對照照收、會蓋過這份。回代填了哪些節點。"""
+    def fn(doc: Dict[str, Any]) -> List[str]:
+        tree = active_tree(doc)
+        if not tree or tree.get("kind") != "code":
+            return []
+        lr = tree.get("last_reconcile") or {}
+        if lr and lr.get("goal_rev") == tree.get("goal_rev") and not _edited_since_reconcile(tree):
+            return []
+        greens = [r for r in doc.get("receipts") or [] if rr.receipt_green(r.get("verdicts"), r.get("exit"))]
+        seq = next_seq(doc)
+        filled: List[str] = []
+        for nid in _ordered(tree):
+            node = tree["nodes"][nid]
+            if node.get("status") in ("dropped", "none") or (node.get("status") in ("done", "partial")
+                                                             and node.get("filled_by") != "program"):
+                continue                         # AI 自己交的對照不蓋；程式代填過的每次重算
+            last = _last_edit_for(tree, nid)
+            r = next((g for g in reversed(greens) if int(g["seq"]) > int((last or {}).get("seq", 0))), None)
+            if r:
+                node["status"] = "done"
+                node["evidence"] = [{"kind": "receipt", "ref": f"R{r['seq']}", "level": "measured", "covers": [nid],
+                                     "seq": seq, "by": "program"}]
+                node["followup"] = ""
+            else:
+                node["status"] = "partial"
+                node["followup"] = node.get("followup") or AUTO_FOLLOWUP
+            node["filled_by"] = "program"
+            node["history"].append({"seq": seq, "turn": turn, "what": "reconcile", "by": "program",
+                                    "why": f"程式代填：{'R' + str(r['seq']) + ' 綠' if r else '沒有改動之後的綠收據'}"})
+            filled.append(nid)
+        tree["last_reconcile"] = {"seq": seq, "turn": turn, "goal_rev": tree.get("goal_rev", 1), "by": "program"}
+        tree["status"] = "closed" if all(n.get("status") in ("done", "dropped") for n in tree["nodes"].values()) else "reconciled"
+        return filled
+    try:
+        filled = update_locked(sid, fn)
+    except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 程式代填完整對照失敗（只記錄，不影響收尾）：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+    if filled:
+        _guard("auto_reconcile", sid, nodes=filled)
+    return filled
+
+
 def refresh_auto_evidence(sid: Any) -> int:
     """規則 RECEIPT_LATEST_AUTO 的後半：完整對照裡寫 latest 的收據，之後改了程式又跑綠 → 交付邊界時換成最新那筆綠的，
     不叫 AI 為同一件事重交一次對照。只換到「跑了同一組驗證」的新收據：同一條指令，或點名的案例檔涵蓋原本那筆的
@@ -1880,6 +1903,8 @@ def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]]
     if triggered and refresh_auto_evidence(sid):
         doc = load(sid)
     if not goal_gate_on(config):
+        if triggered:
+            auto_reconcile(sid, int((state or {}).get("turn_seq") or 0))
         return None
     parts = []
     f2 = _f2_text(doc) if triggered else None

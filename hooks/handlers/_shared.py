@@ -333,7 +333,7 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
     {"dir": "", "patterns": ("config.json", "followups.json", "org-memory.local.json", "health-last-run.json", "world-dev.json"),
      "kind": "keep", "param": None, "keep": "永久", "why": "設定與本機狀態"},
     {"dir": "", "patterns": ("inbox/", "vcs-sync/", "usage-snapshots/usage-log.jsonl", "usage-snapshots/<成功截圖>", "scorecard/candidates.json"),
-     "kind": "keep", "param": None, "keep": "永久", "why": "總控台本機工具、版控同步佇列（鎖刻意不刪）、使用者的成品"},
+     "kind": "keep", "param": None, "keep": "永久", "why": "信件匣、版控同步佇列（鎖刻意不刪）、使用者的成品"},
 ]
 
 _DAY = 86400

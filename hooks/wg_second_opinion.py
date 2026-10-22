@@ -1,8 +1,8 @@
 """wg_second_opinion.py：G9 自動第二意見的事實收集（Stop 的 SecondOpinion 段用；判定在 wg_release_rules 的 G9 段）。
 
 做什麼：
-  auto_cfg       config `second_opinion.auto` 段＋預設（門檻由總控台定：4 檔／150 行／risky_prefixes＋部位表類別 gate）。
-  turn_events    transcript 尾段裡本回合（最後一則使用者打字或派工訊息之後）的 second_opinion_start／result 呼叫與回傳。
+  auto_cfg       config `second_opinion.auto` 段＋預設（門檻：4 檔／150 行／risky_prefixes＋部位表類別 gate）。
+  turn_events    transcript 尾段裡本回合（最後一則使用者打字之後）的 second_opinion_start／result 呼叫與回傳。
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
@@ -33,10 +33,9 @@ DEFAULTS: Dict[str, Any] = {
     "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py",
                        "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/"],
     "max_blocks_per_turn": 1,
-    "one_round": True,              # SECOND_OPINION_ONE_ROUND：同一棵目標樹審過一輪就不再要；false＝審完又改程式就再要（舊行為）
 }
 GATE_KIND = "gate"                  # 部位表「類別」欄的原字（overview_hub.parse_map 只分 knowledge／code，這裡讀原字）
-LETTER = "第二意見"                 # 擋訊息的條目字母（BLOCK_BUDGET_PER_RULE 照它計次；不在 reconcile_gate.block_letters 裡）
+LETTER = "第二意見"                 # 擋訊息的條目字母（第二意見閘自己的預算照它計次；不在 reconcile_gate.block_letters 裡）
 GATE = "second_opinion"             # wg_release 的閘名（last_block／pending_release／user_released）與 guard log 名
 START_SUFFIX = "__second_opinion_start"
 RESULT_SUFFIX = "__second_opinion_result"
@@ -80,7 +79,7 @@ def _notes(text: str) -> List[str]:
 
 
 def _turn_records(transcript_text: str) -> List[Dict[str, Any]]:
-    """本回合的 transcript 紀錄（規則 TURN_SINCE_USER_PROMPT：最後一則使用者打字或派工訊息之後；尾段切掉起點就整段算）。"""
+    """本回合的 transcript 紀錄（規則 TURN_SINCE_USER_PROMPT：最後一則使用者打字之後；尾段切掉起點就整段算）。"""
     from wg_evasion import is_turn_start
     recs: List[Dict[str, Any]] = []
     for raw in str(transcript_text or "").splitlines():
@@ -297,27 +296,6 @@ def has_goal_tree(session_id: str) -> bool:
         return True
 
 
-def active_tree_id(session_id: str) -> Optional[str]:
-    """目前的需求目標樹編號（SECOND_OPINION_ONE_ROUND 的「同一件事」）；沒樹或讀不到 → None（整個 session 算一件）。"""
-    try:
-        import wg_need_goal as ng
-        return ng.load(session_id).get("active") or None
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:SecondOpinion] 讀不到需求目標樹，審過一輪以整個 session 算：{type(e).__name__}: {e}", file=sys.stderr)
-        return None
-
-
-def mark_ok(state: Dict[str, Any], session_id: str, turn_seq: int, reviewed: bool = True) -> None:
-    """第二意見滿足：記回合與那時的目標樹（之後同一棵樹不再要第二輪）。使用者放行這一回合（reviewed=False）只記回合、
-    不記樹：放行不是審過，之後又改了程式照舊要。"""
-    state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
-    trees = state.setdefault("second_opinion_ok_tree", {})
-    if reviewed:
-        trees[session_id] = active_tree_id(session_id)
-    else:
-        trees.pop(session_id, None)
-
-
 def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[str, Any]], text: str,
           transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], claims_done: bool
           ) -> Tuple[rr.Verdict, Dict[str, Any]]:
@@ -337,13 +315,7 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     if not claims_done or not paths:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     ok_turn = int(((state.get("second_opinion_ok") or {}).get(session_id)) or 0)
-    if cfg.get("one_round"):
-        # SECOND_OPINION_ONE_ROUND：同一件事（同一棵需求目標樹；沒樹＝整個 session）審過一輪就不再要，審完後的修補不觸發第二輪
-        trees = state.get("second_opinion_ok_tree") or {}
-        fresh = (ok_turn == 0 or (trees[session_id] != active_tree_id(session_id) if session_id in trees
-                                  else any(_mod_turn(m) > ok_turn for m in code)))
-    else:
-        fresh = ok_turn == 0 or any(_mod_turn(m) > ok_turn for m in code)
+    fresh = ok_turn == 0 or any(_mod_turn(m) > ok_turn for m in code)
     risky = risky_paths(paths, list(cfg.get("risky_prefixes") or []))
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)

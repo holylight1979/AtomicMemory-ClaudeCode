@@ -5,10 +5,8 @@
   背景行程沒有視窗、脫離 hook，腳本取自本樹。
 - min_chars 門檻：去掉空白後不到 min_chars 不送；剛好到就送；同一則不重送。
 - enabled=false：on_stop 不起背景、不動 state；tail_note 有評分也不送（同案 enabled=true 先證會送）。
-- 下一回合注入：上一回合那則評完 → 兩行（上則評分＋TEXT_SCORE_TAIL 指示）、只送一次、guard-entry 記 E37 問帳；沒評完 → 不送、記 pending 一次；
-  評的是更早回合 → 不送；下一次 Stop 回覆照抄 → copied，回應型推成 declared；沒抄不記。UserPromptSubmit 把它放在注入第一行（排在退避舉證前面）。
-- 評分一行的連結：VS Code（CLAUDE_CODE_ENTRYPOINT=claude-vscode）→「評分」連說明檔、沒過／作廢／未評的代號連 #<代號>，路徑相對 hook 收到的 cwd
-  （輸入沒 cwd 用 state 記的；換磁碟、沒 cwd 給絕對路徑；空白、括號、%、# 編碼），照抄連結版照樣記 copied；終端機、無頭、沒說明檔的規格 → 純文字（同一行先證 VS Code 會連）。
+- 下一回合只記錄：上一回合那則評完 → guard-text_score_tail 記 recorded 一次，不注入；沒評完 → 記 pending 一次；評的是更早回合 → 不記。
+- 回覆與文件都對當下的需求目標評（任務帶 goal）。
 - docs 類：本回合、本 session 改過的 .md 才送；背景照 auto_targets.docs 的路徑樣式評（checklist 有帳、TECH.md 沒帳）；改過再送、沒改不重送；不注入。
 - 背景一份出錯不影響其他份；final_reply 從 stdin 餵、docs 給路徑。
 - stop.py：各閘之前呼叫 on_stop（只給本 session 改的檔），state 有改就寫回。
@@ -59,7 +57,8 @@ WEEKLY = _load("text_score_weekly_for_stop", TREE / "tools" / "text-score-weekly
 
 SID = "sess-ts"
 REPLY = VTS.LONG
-CFG = {"text_score": {"enabled": True, "min_chars": 300, "reply_scope": "all"}}   # 評分機制本身的案例：每則都評（預設只評交付改程式那則，見 verify_cost_cut_003 刀9）
+CFG = {"text_score": {"enabled": True, "min_chars": 300, "reply_scope": "all"}}   # 評分機制本身的案例：每則都評（預設只評交付改程式那則，見 verify_gate_slimming）
+GOAL = "收尾回覆要讓設計者看懂改了什麼"
 
 
 class _Stop(Exception):
@@ -79,7 +78,7 @@ def world(tmp_path, monkeypatch):
     base = datetime(2026, 10, 21, 9, 0, 0, tzinfo=timezone(timedelta(hours=8)))
     monkeypatch.setattr(wg_core, "_now_iso", lambda: (base + timedelta(seconds=next(tick))).isoformat(timespec="seconds"))
     monkeypatch.setattr(ep, "card_pool", lambda state=None: [])
-    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)   # 評分一行預設純文字，不看跑測試的是哪個介面
+    monkeypatch.setattr(wts, "current_goal", lambda state, sid: GOAL)   # 有當下目標才評回覆（沒目標不評的案在 verify_gate_trim）
     return root
 
 
@@ -126,7 +125,7 @@ def test_stop_returns_before_judge_and_worker_logs_final_reply(world, tmp_path):
     fake = VTS.Fake()
     handler = fake.server.RequestHandlerClass
     slow_post = handler.do_POST
-    handler.do_POST = lambda self: (time.sleep(0.3), slow_post(self))[1]   # 每題慢 0.3 秒：7 題至少 2 秒
+    handler.do_POST = lambda self: (time.sleep(0.3), slow_post(self))[1]   # 每題慢 0.3 秒：8 題至少 2 秒
     try:
         VTS.data_root(tmp_path, {"a": VTS.backend(fake.url)}, {"min_chars": 300})
         state: Dict[str, Any] = {}
@@ -139,7 +138,7 @@ def test_stop_returns_before_judge_and_worker_logs_final_reply(world, tmp_path):
             (wts.JOB_DIR / "worker.log").read_text(encoding="utf-8", errors="replace")
         [rec] = [json.loads(x) for x in wts.LEDGER.read_text(encoding="utf-8").splitlines()]
         assert (rec["kind"], rec["session"], rec["text_sha"], rec["source"]) == ("final_reply", SID, wts.text_sha(REPLY), "stdin")
-        assert rec["summary"] == "評分 7/7｜全過" and len(fake.requests) == 7
+        assert rec["summary"] == "評分 8/8｜全過" and len(fake.requests) == 8
         assert state["text_score"][SID]["reply"] == {"sha": wts.text_sha(REPLY), "turn": 3}
     finally:
         fake.close()
@@ -155,7 +154,7 @@ def test_spawn_is_detached_windowless_and_from_this_tree(world, spawned):
     else:
         assert kw["start_new_session"] is True
     job = json.loads(Path(argv[5]).read_text(encoding="utf-8"))
-    assert job == {"session": SID, "tasks": [{"kind": "final_reply", "text": REPLY}]}
+    assert job == {"session": SID, "tasks": [{"kind": "final_reply", "text": REPLY, "goal": GOAL}]}
 
 
 def test_ledger_path_is_the_tools_log_path():
@@ -179,7 +178,8 @@ def test_enabled_false_sends_nothing_and_injects_nothing(world, spawned):
     _write_ledger(world, _ledger_rec(sha))
     on_state = {"turn_seq": 4, "text_score": {SID: {"reply": {"sha": sha, "turn": 4}}}}
     assert wts.on_stop({}, SID, REPLY, [], 4, CFG) is True and len(spawned) == 1            # 前置：開著會送
-    assert wts.tail_note(on_state, SID, CFG).startswith("上則評分")                         # 前置：開著會注入
+    wts.tail_note(on_state, SID, CFG)
+    assert on_state["text_score"][SID]["reply"].get("done") is True                         # 前置：開著會記
     for off in ({"text_score": {"enabled": False, "min_chars": 300}}, {}, {"text_score": {"min_chars": 300}}):
         state: Dict[str, Any] = {}                                                           # 關掉、沒有這段、沒寫 enabled
         assert wts.on_stop(state, SID, REPLY + "別則", [], 4, off) is False and len(spawned) == 1 and state == {}
@@ -198,10 +198,12 @@ def test_pointer_follows_last_long_reply_in_turn_and_across_turns(world, spawned
     assert state["text_score"][SID]["reply"] == {"sha": wts.text_sha(a), "turn": 5}
     _write_ledger(world, _ledger_rec(wts.text_sha(a), "評分 6/7｜沒過：R2"), _ledger_rec(wts.text_sha(b)))
     state["turn_seq"] = 5
-    assert wts.tail_note(state, SID, CFG).splitlines()[0] == "上則評分 6/7｜沒過：R2"
+    assert wts.tail_note(state, SID, CFG) == ""
+    assert [r["summary"] for r in _guard(world, "text_score_tail")] == ["評分 6/7｜沒過：R2"]   # 記的是指標那則（A）
     assert wts.on_stop(state, SID, a, [], 6, CFG) is True and len(spawned) == 2              # 下一回合同一段字：不重送
     state["turn_seq"] = 6
-    assert wts.tail_note(state, SID, CFG).splitlines()[0] == "上則評分 6/7｜沒過：R2"         # 但這一則照樣送評分
+    wts.tail_note(state, SID, CFG)
+    assert [r["summary"] for r in _guard(world, "text_score_tail")][-1] == "評分 6/7｜沒過：R2"   # 但這一則照樣記
 
 
 def test_spawn_failure_leaves_no_job_and_retries_next_stop(world, monkeypatch, capsys):
@@ -222,28 +224,17 @@ def test_spawn_failure_leaves_no_job_and_retries_next_stop(world, monkeypatch, c
     assert state["text_score"][SID]["sent"] == [f"reply:{wts.text_sha(REPLY)}"]
 
 
-# ─── 下一回合注入一行、照抄記帳 ───────────────────────────────────────────────
+# ─── 下一回合只記錄、不注入 ───────────────────────────────────────────────────
 
-def test_tail_note_once_then_copied_resolves_declared(world):
+def test_tail_note_records_once_never_injects(world):
     sha = wts.text_sha(REPLY)
     _write_ledger(world, _ledger_rec("other"), _ledger_rec(sha, kind="docs"), _ledger_rec(sha, session="別的"),
                   _ledger_rec(sha))
     state = {"turn_seq": 5, "text_score": {SID: {"reply": {"sha": sha, "turn": 5}}}}
-    note = wts.tail_note(state, SID, CFG)
-    first, second = note.splitlines()[:2]
-    assert first == "上則評分 5/7｜沒過：R1、R4"
-    assert second.startswith("[Guardian:TextScore] TEXT_SCORE_TAIL：") and "規格 reader-designer" in second
-    assert wts.tail_note(state, SID, CFG) == ""                                              # 只送一次
-    asks = [r for r in _guard(world, "entry") if r.get("event") == "ask"]
-    assert [(a["entry"], a["path"], a["session_id"], a["text_sha"]) for a in asks] == [("E37", "user_prompt", SID, sha)]
-    assert wts.on_stop(state, SID, "短回覆，沒照抄。", [], 6, CFG) is False and _guard(world, "text_score_tail") == []
-    assert wts.on_stop(state, SID, f"引用：\n{first}\n後面還有正文。", [], 6, CFG) is False       # 中段引用不算照抄
-    assert _guard(world, "text_score_tail") == []
-    assert wts.on_stop(state, SID, f"做完了。\n\n{first}\n  \n", [], 6, CFG) is True            # 最後一個非空行才算
-    [copied] = _guard(world, "text_score_tail")
-    assert (copied["event"], copied["turn_seq"], copied["text_sha"]) == ("copied", 6, sha)
-    [got] = ep.resolve_responses(asks, {"text_score_tail": _guard(world, "text_score_tail")})
-    assert got["response"] == "declared" and got["response_by"] == "text_score_tail:copied"
+    assert wts.tail_note(state, SID, CFG) == "" and wts.tail_note(state, SID, CFG) == ""   # 不注入
+    recs = _guard(world, "text_score_tail")
+    assert [(r["event"], r["text_sha"], r["summary"]) for r in recs] == [("recorded", sha, "評分 5/7｜沒過：R1、R4")]   # 只記一次
+    assert [r for r in _guard(world, "entry") if r.get("event") == "ask"] == []             # 不再問 AI 照抄
 
 
 def test_tail_note_pending_logged_once_and_older_turn_not_sent(world):
@@ -255,7 +246,8 @@ def test_tail_note_pending_logged_once_and_older_turn_not_sent(world):
     state["turn_seq"] = 6                                                                    # 評完時已是下一回合：不補送
     assert wts.tail_note(state, SID, CFG) == ""
     state["turn_seq"] = 5
-    assert wts.tail_note(state, SID, CFG).startswith("上則評分 5/7")                         # 對照：同回合就送
+    assert wts.tail_note(state, SID, CFG) == ""
+    assert [r["event"] for r in _guard(world, "text_score_tail")] == ["pending", "recorded"]  # 對照：同回合就記
 
 
 @pytest.fixture
@@ -276,80 +268,16 @@ def ups_wired(monkeypatch):
     return outputs
 
 
-def test_ups_puts_score_line_first_before_evasion(world, ups_wired, monkeypatch):
+def test_ups_does_not_inject_score_line(world, ups_wired, monkeypatch):
     sha = wts.text_sha(REPLY)
     _write_ledger(world, _ledger_rec(sha))
     state = {"turn_seq": 2, "evasion_flag": {"phrase": "之後再", "context_excerpt": "x", "hint": "h"},
              "text_score": {SID: {"reply": {"sha": sha, "turn": 2}}}}
     monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
     ups.handle_user_prompt_submit({"session_id": SID, "prompt": "繼續", "transcript_path": ""}, {"sync_keywords": [], **CFG})
-    ctx = ups_wired[0]["hookSpecificOutput"]["additionalContext"].splitlines()
-    assert ctx[0] == "上則評分 5/7｜沒過：R1、R4" and "TEXT_SCORE_TAIL" in ctx[1]
-    assert any(x.startswith("[Guardian:Evasion]") for x in ctx[2:]) and state["turn_seq"] == 3
-
-
-# ─── 評分一行的連結：VS Code 點得進說明檔，其他介面純文字 ───────────────────────
-
-DOC = "text-specs/reader-designer-說明.md"
-PLAIN = "上則評分 5/7｜沒過：R1、R4"
-
-
-def _scored(world, **rec) -> Dict[str, Any]:
-    sha = wts.text_sha(REPLY)
-    _write_ledger(world, _ledger_rec(sha, **rec))
-    return {"turn_seq": 5, "text_score": {SID: {"reply": {"sha": sha, "turn": 5}}}}
-
-
-def test_tail_note_links_in_vscode_and_copy_still_counts(world, monkeypatch, tmp_path):
-    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
-    state = _scored(world)
-    first = wts.tail_note(state, SID, CFG, cwd=str(TREE)).splitlines()[0]
-    assert first == f"上則[評分]({DOC}) 5/7｜沒過：[R1]({DOC}#r1)、[R4]({DOC}#r4)"
-    assert wts.on_stop(state, SID, f"做完了。\n\n{first}", [], 6, CFG) is True                # 照抄連結版也算
-    assert [r["event"] for r in _guard(world, "text_score_tail")] == ["copied"]
-    link = wts.link_line
-    assert link("上則評分 6/7｜沒過：R2｜作廢：R3｜未評：R5", "reader-designer", str(TREE / "hooks")) == (
-        f"上則[評分](../{DOC}) 6/7｜沒過：[R2](../{DOC}#r2)｜作廢：[R3](../{DOC}#r3)｜未評：[R5](../{DOC}#r5)")
-    assert link("上則評分 未評｜裁判不在：連不上", "reader-designer", str(TREE)) == f"上則[評分]({DOC}) 未評｜裁判不在：連不上"
-    absolute = (TREE / DOC).as_posix()
-    assert link("上則評分 7/7｜全過", "reader-designer", "") == f"上則[評分]({absolute}) 7/7｜全過"   # 沒 cwd
-    if sys.platform == "win32":
-        other = "Y:\\" if TREE.drive.upper() == "Z:" else "Z:\\"
-        assert link("上則評分 7/7｜全過", "reader-designer", other) == f"上則[評分]({absolute}) 7/7｜全過"
-    odd = tmp_path / "a b (c) 100%20#1"
-    odd.mkdir()
-    (odd / "reader-designer-說明.md").write_text("x", encoding="utf-8")
-    monkeypatch.setattr(wts, "SPEC_DIR", odd)
-    assert link("上則評分 6/7｜沒過：R2", "reader-designer", str(tmp_path)) == (
-        "上則[評分](a%20b%20%28c%29%20100%2520%231/reader-designer-說明.md) 6/7｜"
-        "沒過：[R2](a%20b%20%28c%29%20100%2520%231/reader-designer-說明.md#r2)")
-
-
-def test_tail_note_plain_outside_vscode_or_without_explain_doc(world, monkeypatch):
-    for entry in (None, "cli", "sdk-cli", "sdk-py"):
-        if entry:
-            monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entry)
-        assert wts.tail_note(_scored(world), SID, CFG, cwd=str(TREE)).splitlines()[0] == PLAIN, entry
-    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
-    assert wts.link_line(PLAIN, "reader-designer", str(TREE)) != PLAIN                       # 前置：同一行在 VS Code 會連
-    state = _scored(world, spec="沒有說明檔的規格")
-    assert wts.tail_note(state, SID, CFG, cwd=str(TREE)).splitlines()[0] == PLAIN
-
-
-def test_ups_passes_hook_cwd_for_links(world, ups_wired, monkeypatch):
-    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
-    state = {**_scored(world), "turn_seq": 2, "session": {"cwd": str(TREE)}}
-    state["text_score"][SID]["reply"]["turn"] = 2
-    monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
-    ups.handle_user_prompt_submit({"session_id": SID, "prompt": "繼續", "transcript_path": "", "cwd": str(TREE / "hooks")},
-                                  {"sync_keywords": [], **CFG})
-    ctx = ups_wired[0]["hookSpecificOutput"]["additionalContext"].splitlines()
-    assert ctx[0].startswith(f"上則[評分](../{DOC}) 5/7") and "TEXT_SCORE_TAIL" in ctx[1]      # 用 hook 輸入的 cwd，不是 state 記的
-    state.update({**_scored(world), "turn_seq": 3, "session": {"cwd": str(TREE)}})
-    state["text_score"][SID]["reply"]["turn"] = 3
-    ups.handle_user_prompt_submit({"session_id": SID, "prompt": "繼續", "transcript_path": ""}, {"sync_keywords": [], **CFG})
-    ctx = ups_wired[-1]["hookSpecificOutput"]["additionalContext"].splitlines()
-    assert ctx[0].startswith(f"上則[評分]({DOC}) 5/7")                                         # 輸入沒 cwd → state 記的
+    ctx = ups_wired[0]["hookSpecificOutput"]["additionalContext"]
+    assert "上則評分" not in ctx and "TEXT_SCORE_TAIL" not in ctx and "[Guardian:Evasion]" in ctx and state["turn_seq"] == 3
+    assert state["text_score"][SID]["reply"].get("done") is True                            # 照樣記
 
 
 # ─── 文件類：本回合改過的 .md、路徑樣式由 text-score 判 ─────────────────────
@@ -368,7 +296,7 @@ def test_docs_this_turn_only_and_resent_after_change(world, tmp_path, spawned):
     state: Dict[str, Any] = {}
     assert wts.on_stop(state, SID, "短", mods, 4, CFG) is True
     job = json.loads(Path(spawned[0][0][5]).read_text(encoding="utf-8"))
-    assert job["tasks"] == [{"kind": "docs", "path": str(doc)}] and "reply" not in state["text_score"][SID]
+    assert job["tasks"] == [{"kind": "docs", "path": str(doc), "goal": GOAL}] and "reply" not in state["text_score"][SID]
     assert wts.on_stop(state, SID, "短", mods, 4, CFG) is False and len(spawned) == 1        # 沒改不重送
     os.utime(doc, ns=(time.time_ns(), time.time_ns() + 10_000_000))
     assert wts.on_stop(state, SID, "短", mods, 4, CFG) is True and len(spawned) == 2          # 又改過就再送
@@ -388,10 +316,11 @@ def test_worker_scores_docs_by_path_pattern_and_never_injects(world, tmp_path):
         assert wts.on_stop(state, SID, "短", mods, 2, CFG) is True
         assert _wait(lambda: not list(wts.JOB_DIR.glob("*.json"))), \
             (wts.JOB_DIR / "worker.log").read_text(encoding="utf-8", errors="replace")
+        assert wts.LEDGER.exists(), (wts.JOB_DIR / "worker.log").read_text(encoding="utf-8", errors="replace")
         recs = [json.loads(x) for x in wts.LEDGER.read_text(encoding="utf-8").splitlines()]
         assert [(r["kind"], Path(r["source"]).name) for r in recs] == [("docs", "g15-checklist.md")]
         assert "不評：來源" in (wts.JOB_DIR / "worker.log").read_text(encoding="utf-8")         # TECH.md 不評、原因留 log
-        assert wts.tail_note(state, SID, CFG) == ""                                         # docs 不注入
+        assert wts.tail_note(state, SID, CFG) == "" and _guard(world, "text_score_tail") == []   # docs 不注入、不記
     finally:
         fake.close()
 
@@ -412,15 +341,15 @@ def test_run_job_feeds_stdin_and_one_failure_does_not_stop_others(world, monkeyp
     monkeypatch.setattr(sys, "stdin", sys.stdin)
     wts.JOB_DIR.mkdir(parents=True)
     job = wts.JOB_DIR / "j.json"
-    job.write_text(json.dumps({"session": SID, "tasks": [{"kind": "docs", "path": "bad.md"},
-                                                         {"kind": "docs", "path": "exit.md"},
-                                                         {"kind": "final_reply", "text": "回覆全文"},
-                                                         {"kind": "docs", "path": "ok.md"}]}, ensure_ascii=False),
+    job.write_text(json.dumps({"session": SID, "tasks": [{"kind": "docs", "path": "bad.md", "goal": GOAL},
+                                                         {"kind": "docs", "path": "exit.md", "goal": GOAL},
+                                                         {"kind": "final_reply", "text": "回覆全文", "goal": GOAL},
+                                                         {"kind": "docs", "path": "ok.md", "goal": GOAL}]}, ensure_ascii=False),
                    encoding="utf-8")
     assert wts.run_job(job) == 0 and not job.exists()
-    tail = ["--auto-kind", "docs", "--session", SID, "--tail-line"]
+    tail = ["--auto-kind", "docs", "--session", SID, "--tail-line", "--goal", GOAL]
     assert calls == [(["bad.md", *tail], None), (["exit.md", *tail], None),
-                     (["-", "--auto-kind", "final_reply", "--session", SID, "--tail-line"], "回覆全文"),
+                     (["-", "--auto-kind", "final_reply", "--session", SID, "--tail-line", "--goal", GOAL], "回覆全文"),
                      (["ok.md", *tail], None)]
 
 
@@ -450,7 +379,7 @@ def test_stop_calls_on_stop_before_gates_with_own_files(world, tmp_path, monkeyp
             raise _Stop
         return False
     cfg = {"text_score": {"enabled": True}}
-    state = {"phase": "working", "turn_seq": 7, "failing_tests": [], "session": {"cwd": str(tmp_path)},
+    state = {"phase": "working", "turn_seq": 7, "failing_tests": [], "session": {"cwd": str(tmp_path)}, "turn_intent": "feature",
              "modified_files": [{"path": "mine.md", "session_id": SID, "last_turn_seq": 7},
                                 {"path": "peer.md", "session_id": "別的", "last_turn_seq": 7}]}
     for name, fn in (("_ensure_state", lambda *a, **k: state), ("_find_session_transcript", lambda *a, **k: None),

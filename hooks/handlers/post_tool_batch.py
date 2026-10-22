@@ -13,7 +13,7 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 import sys
 from typing import Any, Dict
 
-from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled
+from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled, coding_turn
 
 
 def _points_module() -> Any:
@@ -26,29 +26,16 @@ def _points_module() -> Any:
         return None
 
 
-def _peer_lines(ngp: Any, session_id: str, input_data: Dict[str, Any], config: Dict[str, Any],
-                state: Dict[str, Any]) -> list:
-    """工作中途送到的同伴訊息（只在 transcript）：本 session 有目標檔才掃 transcript 新增段；判不了 → stderr、空。"""
-    try:
-        import wg_need_goal as _ng
-        return ngp.peer_claim_lines(session_id, input_data.get("transcript_path") or "", config,
-                                    int(state.get("turn_seq", 0) or 0), _ng.hook_cwd(input_data, state))
-    except Exception as e:  # noqa: BLE001
-        print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
-        return []
-
-
 def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
     v6 = v6_enabled(config)     # 關＝只做 9e476fd0 就有的壓縮後 atom 復原與 handoff 提示
-    ngp = _points_module() if state and v6 else None
-    peer = _peer_lines(ngp, session_id, input_data, config, state) if ngp else []
+    ngp = _points_module() if state and v6 and coding_turn(state, config) else None   # 規則 CODING_TURN_ONLY
     goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
     # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
-        or (v6 and (state.get("pending_reinjection_overview") or state.get("pending_reinjection_goal"))) or goal_due or peer
+        or (v6 and (state.get("pending_reinjection_overview") or state.get("pending_reinjection_goal"))) or goal_due
     ):
         output_nothing()
         return
@@ -104,7 +91,6 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                                              _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state))))
             except Exception as e:  # noqa: BLE001
                 print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
-        parts.extend(peer)
 
         write_state(session_id, state)
     except Exception as e:

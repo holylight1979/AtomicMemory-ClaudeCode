@@ -28,7 +28,7 @@ from wg_core import (
     user_typed_prompts,
 )
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
-import wg_judge_card  # 裁定 #53 改判準卡要先宣告
+import wg_judge_card  # 改判準卡留帳（JUDGE_CARD_CHANGE_NEEDS_DECLARATION）
 import wg_oldtest
 import wg_gate_bypass
 # 分段計時只打點、不看回傳：逾時被 Claude Code 取消本來就放行，提早放行只會少查（降級不改判定）
@@ -1553,31 +1553,9 @@ def check_merge_driver(
     return None
 
 
-_LEDGER_WRITE_TOOLS = ("Write", "Edit", "NotebookEdit", "MultiEdit", "Bash", "PowerShell")
-
-
-def check_verify_ledger_write(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> Optional[str]:
-    """驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/，含 run_verify 自寫的 _runs/）只能由驗證程式自己寫：
-    Edit／Write／NotebookEdit 的 file_path 與 Bash／PowerShell 解析出的寫入目標命中 → deny。
-    hook 自己落帳（PostToolUse）與 run_verify 自寫都不經工具呼叫，不受影響。"""
-    if tool_name not in _LEDGER_WRITE_TOOLS:
-        return None
-    from wg_core import WORKFLOW_DIR, write_paths_from_tool
-    base = os.path.normcase(os.path.realpath(str(WORKFLOW_DIR / "verify-ledger")))
-    for t in write_paths_from_tool(tool_name, tool_input, cwd or None):
-        if t.startswith("UNKNOWN:"):
-            continue                    # 算不出目標的寫入由 OverviewHub 閘一律擋
-        n = os.path.normcase(os.path.realpath(t))          # 經 symlink／junction 繞進帳本目錄也算
-        if n == base or n.startswith(base + os.sep):
-            return (f"[Guardian:VerifyLedger] 驗證收據只能由驗證程式自己寫，不准手寫或改：{t}。"
-                    "要收據就跑驗證程式（run_verify.py 跑完自寫 _runs/；其他驗證由 PostToolUse 依輸出哨兵落帳）。")
-    return None
-
-
 def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PreToolUse：只跑「寫入目標判不出 → deny」這一道（與主 session 的
-    OverviewHub 對 UNKNOWN 的 deny 同一個判定：wg_core.write_paths_from_tool）。`python -c "print(1)"` 這類內嵌碼在執行前
-    就擋，不會被 PostToolUse 記成永久的未知寫入；其他閘、注入、state 一律不碰（防裁判觸發裁判）。"""
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PreToolUse：只跑「寫入目標判不出 → 放行並留帳 judge_write」這一道
+    （與主 session 的 OverviewHub 同一個判定：wg_core.write_paths_from_tool）；其他閘、注入、state 一律不碰（防裁判觸發裁判）。"""
     tool_name = input_data.get("tool_name", "") or ""
     if tool_name not in ("Bash", "PowerShell"):
         output_nothing()
@@ -1585,15 +1563,11 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
     from wg_core import write_paths_from_tool
     unknown = [t for t in write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, input_data.get("cwd") or None)
                if t.startswith("UNKNOWN:")]
-    if not unknown:
-        output_nothing()
-        return
-    output_json({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": (f"[Guardian:JudgeWrite] 裁判子 session：這段指令的寫入目標判不出來（{unknown[0][8:]}…），"
-                                     "執行了就只能記成未知寫入、收尾擋到底。查資料改用 Read／Grep，或不含內嵌程式碼的指令。"),
-    }})
+    if unknown:              # 規則 UNKNOWN_TARGET_LOGGED：判不出就放行並留帳
+        from wg_core import append_guard_log
+        append_guard_log("judge_write", {"event": "unknown_target", "session_id": str(input_data.get("session_id") or ""),
+                                         "target": unknown[0][:120], "allowed": True})
+    output_nothing()
 
 
 def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, path: str) -> str:
@@ -1720,7 +1694,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         output_nothing()
         return
 
-    # 裁定 #53：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
+    # 改判準卡：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
     if tool_name.endswith(wg_judge_card.MCP_TOOLS):
         deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)
         if deny_reason:
@@ -1857,13 +1831,13 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # ── JudgeCardDeclare（裁定 #53 改判準卡要先宣告）── 綁了 Entry 的卡沒有「改判準卡｜哪張：理由」就擋（wg_judge_card）
+    # ── JudgeCardDeclare（改判準卡留帳）── 綁了 Entry 的卡有沒有「改判準卡｜哪張：理由」都放行、記帳（wg_judge_card）
     deny_reason = v6 and wg_judge_card.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
 
-    deny_reason = check_svn_test_block(tool_name, tool_input) or (v6 and check_verify_ledger_write(tool_name, tool_input, _cwd))
+    deny_reason = check_svn_test_block(tool_name, tool_input)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return

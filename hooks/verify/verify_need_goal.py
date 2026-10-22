@@ -120,7 +120,7 @@ def test_add_update_reconcile_need_a_tree(env):
 
 
 def test_set_rewrite_without_why_new_task_opens_new_tree(env):
-    """WHY_OPTIONAL（派工 003 第 13 刀）：改寫樹根不附 why 也收；有附的照樣記進 history。"""
+    """WHY_OPTIONAL：改寫樹根不附 why 也收；有附的照樣記進 history。"""
     _op("set", goal="A")
     r = _op("set", goal="B")
     assert r["ok"] and _tree()["nodes"]["T1"]["text"] == "B" and _tree()["goal_rev"] == 2, r
@@ -162,29 +162,6 @@ def test_t13_on_prompt_offers_amend_and_correct_paths_not_only_new_task(env):
     _op("set", goal="登入要能用", turn=1)
     line = ng.on_prompt(SID, "不對，是要記住登入狀態", 2, {})
     assert ng.TREE_PATHS in line and "不開新樹" in line and "add" in line and "new_task=true" in line, line
-
-
-def test_t110_handout_check_user_words_before_plan(env):
-    """T1.10（原設計者 10-20）：交出前一問只對最新計畫，計畫偏了會跟著一起偏。改成先對使用者原話（樹最上面那句）、再對計畫，
-    對不上以原話為準並說出落差；眼前沒有樹的兩處（改計畫類文件、收尾檢核收下）把樹最上面那句附上。"""
-    hc = ng.HANDOUT_CHECK
-    assert "先對使用者原話" in hc and hc.index("原話") < hc.index("最新的計畫") and "以原話為準" in hc and "落差" in hc
-    assert ng.handout_check_text(SID) == hc                                  # 沒有樹：只有那一問
-    ng.on_prompt(SID, "設定改了要馬上生效，順便把舊設定檔相容", 1, {})
-    _op("set", goal="設定改完不用重開就生效")                                # 樹根（AI 解讀）漏了「舊設定檔相容」
-    ng.on_prompt(SID, "記得舊檔", 2, {})
-    text = ng.handout_check_text(SID)
-    assert text.startswith(hc) and "目標樹最上面那句（T1，AI 照原話寫的解讀）：「設定改完不用重開就生效」" in text, text
-    assert "使用者原話（第 1 回合）：「設定改了要馬上生效，順便把舊設定檔相容」" in text            # 原話與解讀分開附，落差看得到
-    assert "使用者原話（第 2 回合）：「記得舊檔」" in text
-
-
-def test_t110_handout_check_text_survives_broken_tree(env, capsys):
-    """目標檔是合法 JSON 但樹結構壞了（缺 id）：照送那一問、寫 stderr，不丟例外讓 PostToolUse 漏送（Codex WARN）。"""
-    _op("set", goal="G")
-    ng.update_locked(SID, lambda d: d["trees"]["T1"].pop("id"))
-    assert ng.handout_check_text(SID) == ng.HANDOUT_CHECK
-    assert "交出前一問附不了原話" in capsys.readouterr().err
 
 
 def test_t13_correction_after_closed_tree_kept_when_old_tree_reopened(env):
@@ -545,14 +522,6 @@ def test_reconcile_done_node_can_carry_same_class(env):
     assert not bad["ok"] and any("same_class" in x for x in bad["rejected"]), bad
 
 
-def test_reconcile_reply_asks_handout_check_before_giving_plans(env):
-    """完整對照收下的回應是交出計畫、開工句、清單之前的最後一個點：附「還對得上最新計畫嗎、剛改的影響哪些已給出的內容」。"""
-    proj = env["proj"]
-    _op("set", goal="A", cwd=str(proj))
-    r = _op("reconcile", turn=2, cwd=str(proj), items=[{"id": "T1", "status": "none", "followup": "下次補"}])
-    assert r["ok"] and ng.HANDOUT_CHECK in r["text"], r["text"]
-
-
 def test_goal_change_after_reconcile_voids_it(env):
     proj = _code_tree(env)
     ng.stamp_receipts(SID, _receipt_state(_rcpt(3)), 2)
@@ -751,7 +720,6 @@ def test_on_prompt_first_hint_only_once_and_header_with_tree(env):
     _op("set", goal="登入要能用", turn=2)
     line = ng.on_prompt(SID, "順便看一下", 3, {})
     assert line.startswith("[NeedGoal] 目前需求目標 T1：登入要能用") and "new_task=true" in line
-    assert ng.HANDOUT_CHECK in line                                         # 純問答回合交開工句、清單前也收得到
     assert "寫或整併文件" in ng.HINT_LINE                                     # 第一則提醒寫明文件類也算要動手
     said = [s["text"] for s in _tree()["user_said"]]
     assert said == ["幫我修登入", "還有這個", "順便看一下"]                 # 沒樹時收的話開樹時搬進去（首則＝原始需求），之後的話照記
@@ -939,7 +907,8 @@ THREE2 = "定位｜部位：戰鬥：A.cs\n定位｜根因層：候選 A 邏輯�
 CRIT = "\n定位｜批判：不合理，因為字典兩邊都寫，更好的做法是只留邏輯層一個寫入點；同類還可能在哪：存檔流程也兩邊寫"
 
 
-def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
+def test_fourth_line_soft_links_root_then_node_and_reset_on_goal_change(hooked):
+    """第四行（目標節點）只記錄不擋：指到不存在的節點 → 部位掛樹根；交了對的節點就掛那個節點；目標改了已交的那組不算、要重交。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡")
@@ -947,20 +916,11 @@ def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
     first = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert first and "[NeedGoal] 目前的需求目標" in first and "T1.1" in first   # 導讀卡開頭附樹
     _read_part(f1, proj, tp)
-    _say(tp, THREE)
-    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "沒交第四行" in deny and "T1.1" in deny
-    _say(tp, THREE + "\n定位｜目標：T9（不存在）")
-    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "T9" in deny and "不在目前的樹" in deny
-    _say(tp, THREE + "\n定位｜目標：<節點編號>（這一塊在目標裡的角色）")
-    assert "沒交第四行" in _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 照抄範本不算
-    _say(tp, THREE2 + "\n定位｜目標：T1.1（共用字典就是這一塊）" + CRIT)
+    _say(tp, THREE2 + "\n定位｜目標：T9（不存在）" + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
-    links = _tree()["links"]["parts"]
-    assert list(links.values())[0]["node"] == "T1.1"
+    assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1"        # 指錯：掛樹根
     ng.stamp_edit(SID, f1, "", 2, {})
-    assert _tree()["edits"][-1]["node"] == "T1.1"                           # 之後這個部位的改動掛到 T1.1
+    assert _tree()["edits"][-1]["node"] == "T1"
     r = pt._need_goal_after_tool({"turn_seq": 3, **json.loads(wg_core.state_file_path(SID).read_text(encoding="utf-8"))},
                                  SID, "mcp__workflow-guardian__need_goal",
                                  {"action": "add", "items": [{"text": "新長出的"}]}, {"tool_response": {}, "transcript_path": tp},
@@ -974,6 +934,7 @@ def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 舊的那組不算，要重交
     _say(tp, THREE2 + "\n定位｜目標：T1.2（新長出的那條）" + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+    assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.2"
 
 
 def test_three_lines_enough_without_tree_for_non_code(hooked):
@@ -1015,29 +976,22 @@ def test_004_locate_example_is_a_suggestion_and_chained_nodes_pass(hooked):
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
 
 
-def test_cg0_locate_four_lines_need_role_and_two_candidates(hooked):
-    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：第四行沒角色 → 擋；根因層只一個候選 → 擋；擋訊息印規則名、缺哪一項、
-    範例四行照抄就過；放行後部位掛到節點。"""
+def test_cg0_locate_two_candidates_asked_once_per_user_turn(hooked):
+    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：根因層只一個候選 → 擋一次，擋訊息印規則名、缺哪一項、範例五行；
+    同一個使用者回合再交同樣的不再擋（只留帳），部位掛到第四行的節點。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡")
     _op("add", items=[{"text": "共用字典不再被兩邊改"}])
     _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                  # 第一次碰部位：注入導讀卡
     _read_part(f1, proj, tp)
-    _say(tp, THREE2 + "\n定位｜目標：T1.1")
-    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "角色" in deny
-    _say(tp, THREE + "\n定位｜目標：T1.1（共用字典的唯一寫入點）")
+    _say(tp, THREE + "\n定位｜目標：T1.1（共用字典的唯一寫入點）" + CRIT)
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "只辨識出 0 個" in deny
     assert "還沒" not in deny.split("\n判準卡（")[0]                          # 只擋內容，不是說沒交（後面接的判準卡內文不算）
     example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
-    assert len(example) == 5 and example[3].startswith("定位｜目標：T1.1（") and example[4].startswith("定位｜批判："), example
-    _say(tp, "\n".join(example))                                            # 範例照抄（角括號佔位沒換）不算交（codex BLOCK）
-    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER" in deny, deny
-    _say(tp, "\n".join(re.sub(r"<[^<>]*>", "共用字典只在邏輯層寫", ln) for ln in example))   # 佔位換成自己的判斷就過
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+    assert len(example) == 4 and example[1].startswith("定位｜根因層：候選 A") and example[3].startswith("定位｜批判："), example
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None   # 同一回合不再問
     assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
 
 
@@ -1127,16 +1081,16 @@ def test_cg0_reconcile_edited_part_needs_goal_node(hooked):
 
 
 def test_cg0_relink_needs_valid_four_lines(hooked):
-    """補掛也照定位四行的判法：沒角色、指到不存在的節點都不算掛上。"""
+    """補掛照定位四行的判法：根因層只一個候選不算掛上；第四行沒角色照掛（只記錄）。"""
     proj, tp = hooked["proj"], hooked["tp"]
     files = _two_part_world(hooked)
     _op("set", goal="G", cwd=str(proj))
     _op("add", items=[{"text": "a"}, {"text": "介面跟著刷新"}])
     ng.stamp_edit(SID, files["UI"], "", 2, {})
+    _say(tp, FOUR_UI.replace("候選 A 刷新時機；候選 B 事件沒解掛；選 A 因為只在戰鬥結束時刷", "刷新時機"))
+    assert "(f3)" in ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
     _say(tp, FOUR_UI.replace("T1.2（介面刷新跟著字典變）", "T1.2"))
-    assert "(f3)" in ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
-    _say(tp, FOUR_UI.replace("T1.2", "T9"))
-    assert "(f3)" in ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp) or "")
 
 
 def test_cg0_relink_overlapping_part_names_only_links_the_named_one(hooked):
@@ -1516,8 +1470,6 @@ def test_aec_report_gets_snapshot(env, monkeypatch, capsys):
                                 {"docdrift": {"enabled": False}, "aec": {}})
     snap = state["anti_evasion_report"]["need_goal"]
     assert snap["tree"] == "T1" and snap["reconcile"]["ok"] is False and snap["owed"] == 1
-    out = capsys.readouterr().out.strip().splitlines()[-1]
-    assert ng.HANDOUT_CHECK in json.loads(out)["hookSpecificOutput"]["additionalContext"]   # 收尾報告之前送交出前一問
     data = json.loads((env["wf"] / "aec-report" / f"{SID}-t7.json").read_text(encoding="utf-8"))
     assert data["need_goal"]["nodes"][0]["id"] == "T1"
 
@@ -1625,8 +1577,8 @@ def test_post_tool_use_untreed_knowledge_write_sends_light_tree_line(env):
     ctx, _ = pt._need_goal_after_tool({"turn_seq": 2}, "sess-k2", "Write", {"file_path": _kfile(proj, "notes.md")}, {}, {})
     assert ctx and "notes.md" in ctx and "need_goal(action=set" in ctx
     staging = _kfile(proj, ".claude/memory/_staging/next-phase-k.md")
-    ctx, changed = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": staging}, {}, {})
-    assert "need_goal(action=set" in ctx and ng.HANDOUT_CHECK in ctx and changed   # 兩句併送、交出前一問改了 state
+    ctx, _ = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": staging}, {}, {})
+    assert "need_goal(action=set" in ctx
     ctx, _ = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": _kfile(proj, "eph/x.md")}, {}, {})
     assert ctx is None                                                      # 暫存檔不管
 

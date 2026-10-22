@@ -1,4 +1,4 @@
-"""wg_judge_card.py — 改判準卡要先宣告（規則 JUDGE_CARD_CHANGE_NEEDS_DECLARATION，裁定 #53）：收事實、找宣告行、留帳、組擋訊息。
+"""wg_judge_card.py — 改判準卡要先宣告（規則 JUDGE_CARD_CHANGE_NEEDS_DECLARATION）：收事實、找宣告行、留帳。只記錄不擋。
 
 綁了 Entry 的判準卡是判 AI 做得對不對的量尺；誰改了、為什麼改，裁決時要看得到。這裡只收事實，判定在
 wg_release_rules.judge_card_verdict。四條出口在 PreToolUse 判，直譯器出口事後比對：
@@ -8,12 +8,11 @@ wg_release_rules.judge_card_verdict。四條出口在 PreToolUse 判，直譯器
   卡在哪個檔照 MCP 自己用的 lib/atom_io.locate_atom 定位（MCP 行程沒有 session 與 transcript，宣告只能在這裡核對）。
 - 直譯器自己開檔寫（JUDGE_CARD_HASH_CATCHES_INTERPRETER）：Bash／PowerShell 指令會跑直譯器、或指令字面含某張判準卡的檔名 →
   PreToolUse 把資料根索引裡綁 Entry 的卡記雜湊（snapshot，上一條路已判過的卡不重記）；PostToolUse（失敗的指令走
-  PostToolUseFailure）比對（after_tool），變了又沒宣告 → 留帳（channel=interpreter）、記 state 欠帳，下一個呼叫在 PreToolUse
-  擋到補宣告為止（_pending_deny）。卡清單取索引的 entry 欄（sync-atom-index 由檔頭同步），沒同步進索引的不在內。
+  PostToolUseFailure）比對（after_tool），變了又沒宣告 → 留帳（channel=interpreter）。卡清單取索引的 entry 欄（sync-atom-index 由檔頭同步），沒同步進索引的不在內。
 目標是 memory／_atoms 目錄底下的 .md、磁碟上已經存在、檔頭 `- Entry:` 非空（lib/atom_locations.entry_bound_ids）才管；
 宣告行三管道（回覆文字／工具參數裡 `#` 開頭的註解行／thinking），主檔與子代理檔都找，Bash／PowerShell 另認這次指令的 `#` 註解行。
-每次改動都留帳 Logs/guard-judge_card.jsonl（denied／declared／error；直譯器出口另有 undeclared／declared_late／denied_late）。
-閘自己炸＝判不了 → 擋；記雜湊、事後比對出錯只 stderr＋留帳（不擋所有直譯器指令）。
+每次改動都留帳 Logs/guard-judge_card.jsonl（undeclared／declared／error，直譯器出口 channel=interpreter）。
+出錯只 stderr＋留帳。
 開關：workflow/config.json 的 guard.judge_card_declare.enabled（預設開）。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_judge_card_declare.py
 """
@@ -34,7 +33,6 @@ FILE_TOOLS = ("Edit", "MultiEdit", "Write", "Bash", "PowerShell")
 SHELL_TOOLS = ("Bash", "PowerShell")
 MCP_TOOLS = ("__atom_write", "__atom_edit_meta", "__atom_retire")
 ATOM_DIRS = ("memory", "_atoms")
-PENDING_KEY = "judge_card_undeclared"
 SNAP_DIR = "judge-card-snap"
 # 指令會跑直譯器（可帶路徑、版本號與 .exe），或在指令位置直接跑腳本檔（`./fix.py`、`uv run fix.py`）：
 # 腳本自己開檔寫的目標 write_paths_from_tool 解析不到
@@ -181,7 +179,7 @@ def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, A
 
 def after_tool(state: Optional[Dict[str, Any]], input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> bool:
     """PostToolUse／PostToolUseFailure（Bash／PowerShell）：拿 PreToolUse 記的雜湊比磁碟，變了的卡逐張核對宣告：有宣告留帳 declared，
-    沒有留帳 undeclared 並記進 state[PENDING_KEY]（下一個呼叫擋）。state 就地改、由呼叫端寫回；回有沒有改。"""
+    沒有留帳 undeclared（不擋）。回有沒有比對到變動。"""
     tool_name = str(input_data.get("tool_name") or "")
     if state is None or not _enabled(config) or tool_name not in SHELL_TOOLS:
         return False
@@ -195,93 +193,44 @@ def after_tool(state: Optional[Dict[str, Any]], input_data: Dict[str, Any], conf
         return False
     sid = str(input_data.get("session_id") or "")
     decls = declarations(input_data, tool_name)
-    pending = list(state.get(PENDING_KEY) or [])
-    for path, entry, before in moved:
+    for path, entry, _before in moved:
         stem = Path(path).stem
         v = _rr.judge_card_verdict(stem, entry, [d for d, _ in decls])
         line = v.evidence[0] if not v.owed and v.evidence else ""
         append_guard_log(GUARD, {"event": "undeclared" if v.owed else "declared", "channel": "interpreter", "session_id": sid,
-                                 "tool": tool_name, "card": stem, "entry": entry, "path": path, "allowed": not v.owed,
+                                 "tool": tool_name, "card": stem, "entry": entry, "path": path, "allowed": True,
                                  **({"line": line, "via": next((ch for d, ch in decls if d["line"] == line), "")} if line else {})})
-        if v.owed and not any(_rr.same_file(e["path"], path) for e in pending):
-            pending.append({"path": path, "card": stem, "entry": entry, "sha": before, "tool": tool_name})
-    state[PENDING_KEY] = pending
     return True
 
 
-def _pending_deny(tool_name: str, input_data: Dict[str, Any]) -> Optional[str]:
-    """上一個 Bash／PowerShell 用直譯器改了判準卡沒宣告：這次（任何工具）先找宣告，補了的清掉、留帳 declared_late；還欠著就擋。"""
-    sid = str(input_data.get("session_id") or "")
-    if not sid:
-        return None
-    from wg_core import read_state, write_state
-    state = read_state(sid)
-    pending = list((state or {}).get(PENDING_KEY) or [])
-    if not pending:
-        return None
-    decls = declarations(input_data, tool_name)
-    left: List[Tuple[Dict[str, Any], _rr.Verdict]] = []
-    for e in pending:
-        v = _rr.judge_card_verdict(e["card"], e["entry"], [d for d, _ in decls])
-        if v.owed:
-            left.append((e, v))
-            continue
-        append_guard_log(GUARD, {"event": "declared_late", "channel": "interpreter", "session_id": sid, "tool": tool_name,
-                                 "card": e["card"], "entry": e["entry"], "path": e["path"], "allowed": True,
-                                 "line": v.evidence[0] if v.evidence else ""})
-    if len(left) != len(pending):
-        state[PENDING_KEY] = [e for e, _ in left]
-        write_state(sid, state)
-    if not left:
-        return None
-    append_guard_log(GUARD, {"event": "denied_late", "channel": "interpreter", "session_id": sid, "tool": tool_name,
-                             "cards": [e["card"] for e, _ in left], "allowed": False})
-    tools = "／".join(sorted({str(e.get("tool") or "") for e, _ in left}))
-    return ("[Guardian:JudgeCardDeclare] 上一個 " + tools + " 指令跑的直譯器改了綁 Entry 的判準卡（已經寫進檔），沒先宣告；"
-            "補宣告之前其他呼叫都擋。\n"
-            + "\n".join(_rr.format_hit("jc", v) for _, v in left) + "\n"
-            + "\n".join(_rr.judge_card_hint(e["card"]) for e, _ in left))
-
-
 def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Optional[str]:
-    """PreToolUse：回擋訊息或 None。先看直譯器改卡的欠帳（任何工具都擋）；一次改好幾張判準卡，每張都要各自點到宣告，
-    沒點到的全列出來；Bash／PowerShell 放行時記雜湊給事後比對。"""
+    """PreToolUse：只留帳不擋（量尺被改的問題在沒人知道，留帳即解），永遠回 None。改綁 Entry 的判準卡，
+    每張記一筆 declared／undeclared；Bash／PowerShell 記雜湊給事後比對。閘內部錯誤只浮 stderr 並留帳。"""
     if not _enabled(config):
         return None
     sid = str(input_data.get("session_id") or "")
     try:
-        late = _pending_deny(tool_name, input_data)
-        if late or not (tool_name in FILE_TOOLS or tool_name.endswith(MCP_TOOLS)):
-            return late
+        if not (tool_name in FILE_TOOLS or tool_name.endswith(MCP_TOOLS)):
+            return None
         cards = bound_cards(tool_name, tool_input, str(input_data.get("cwd") or ""))
-        deny = _judge(tool_name, cards, sid, input_data) if cards else None
-        if deny is None:
-            snapshot(tool_name, tool_input, input_data, [p for p, _ in cards])
-        return deny
+        if cards:
+            _judge(tool_name, cards, sid, input_data)
+        snapshot(tool_name, tool_input, input_data, [p for p, _ in cards])
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
-        sys.stderr.write(f"[Guardian:JudgeCardDeclare] 閘內部錯誤（已擋）：{err}\n")
+        sys.stderr.write(f"[Guardian:JudgeCardDeclare] 留帳失敗（不擋）：{err}\n")
         append_guard_log(GUARD, {"event": "error", "session_id": sid, "tool": tool_name, "error": err})
-        return (f"[Guardian:JudgeCardDeclare] 這次可能要改綁了 Entry 的判準卡，但閘判不了（{err}），一律擋。"
-                "先用 Read 查原因；只是要記新知識就另開一張新卡（atom_write mode=create）。")
+    return None
 
 
-def _judge(tool_name: str, cards: List[Tuple[str, List[str]]], sid: str, input_data: Dict[str, Any]) -> Optional[str]:
+def _judge(tool_name: str, cards: List[Tuple[str, List[str]]], sid: str, input_data: Dict[str, Any]) -> None:
+    """每張要改的判準卡核對宣告、留帳（undeclared／declared）；不擋。"""
     decls = declarations(input_data, tool_name)
-    owed: List[Tuple[str, _rr.Verdict]] = []
     for path, entry in cards:
         stem = Path(path).stem
         v = _rr.judge_card_verdict(stem, entry, [d for d, _ in decls])
         line = v.evidence[0] if not v.owed and v.evidence else ""
         via = next((ch for d, ch in decls if d["line"] == line), "") if line else ""
-        append_guard_log(GUARD, {"event": "denied" if v.owed else "declared", "session_id": sid, "tool": tool_name,
-                                 "card": stem, "entry": entry, "path": path, "allowed": not v.owed,
+        append_guard_log(GUARD, {"event": "undeclared" if v.owed else "declared", "session_id": sid, "tool": tool_name,
+                                 "card": stem, "entry": entry, "path": path, "allowed": True,
                                  **({"line": line, "via": via} if line else {})})
-        if v.owed:
-            owed.append((stem, v))
-    if not owed:
-        return None
-    return ("[Guardian:JudgeCardDeclare] 要改的是綁了 Entry 的判準卡（判 AI 做得對不對用的量尺）：先宣告一行再改，"
-            "帳上留下誰、為什麼改過，裁決時才分得出量尺被改過。一次改好幾張，每張都要各自宣告。\n"
-            + "\n".join(_rr.format_hit("jc", v) for _, v in owed) + "\n"
-            + "\n".join(_rr.judge_card_hint(stem) for stem, _ in owed))

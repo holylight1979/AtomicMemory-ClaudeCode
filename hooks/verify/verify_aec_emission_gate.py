@@ -54,6 +54,7 @@ def driven(monkeypatch):
             "failing_tests": [],
             "recent_user_prompts": [],
             "stop_blocked_count": 0,
+            "turn_intent": "feature",   # 寫碼回合才查收尾檢核（CODING_TURN_ONLY）
         }
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
@@ -219,8 +220,8 @@ def test_detect_core_emitted_not_blocked():
 
 
 def test_detect_dismiss_prompt_not_blocked():
-    """G6 階段 5（HARVEST_WAIVER_ITEMIZED）：「先這樣」不再整個放掉收尾檢核，要引用到原話的不做行才豁免。"""
-    assert detect_missing_aec_emission(_DONE, _mfs(_CORE), ["先這樣"], 2, False) is True
+    """使用者說「先這樣」＝這次收尾檢核整批不做：不用再逐項引用原話。"""
+    assert detect_missing_aec_emission(_DONE, _mfs(_CORE), ["先這樣"], 2, False) is False
     cited = _DONE + "\n不做｜收尾檢核：使用者說「先這樣」"
     assert detect_missing_aec_emission(cited, _mfs(_CORE), ["先這樣"], 2, False) is False
 

@@ -36,7 +36,7 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
 _TWO_CHAR_STATUS = ("部分", "索引", "骨架")
-# 部位類別：code＝寫碼部位（改了要定位三行、欠 (d) 案例）；knowledge＝知識部位（文件、記憶、派工信箱：只要卡已注入、不欠案例）
+# 部位類別：code＝寫碼部位（改了要定位三行、欠 (d) 案例）；knowledge＝知識部位（文件、記憶、信件匣：只要卡已注入、不欠案例）
 KIND_CODE = "code"
 KIND_KNOWLEDGE = "knowledge"
 _KNOWLEDGE_WORDS = ("knowledge", "知識")
@@ -464,7 +464,7 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
     2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下（與 CommitOrder 認記憶系統 worktree 同一判法）；
     3. 那個管理目錄真的登記了這棵樹：它的 `gitdir` 檔反向指回 `<root>/.git`，`commondir` 指到 `<claude_dir>/.git`
        （只寫一個 `.git` 檔指過去、管理目錄不存在或指向別處 → 不是）。
-    不看部位表：工作 session 照派工改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE、卡讀 live）。
+    不看部位表：在 worktree 裡改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE、卡讀 live）。
     任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
     try:
         r, c = Path(root), Path(claude_dir)
@@ -620,8 +620,7 @@ def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: st
     else:
         head = (
             f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-            f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
-            f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
+            f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字）：\n"
             f"定位｜部位：{row['part_short']}——{t[0]}\n"
             f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
             f"定位｜前例：{t[2]}"

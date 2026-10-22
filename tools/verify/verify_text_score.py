@@ -196,8 +196,12 @@ def write(tmp_path: Path, name: str, text: str) -> Path:
     return p
 
 
+GOAL = "收尾回覆要讓設計者看懂改了什麼"   # 規格的 {{goal}} 由 --goal 填；沒給目標不評的案在 hooks/verify/verify_gate_trim
+
+
 def run(root: Path, *args: Any, tool: Path = TOOL) -> subprocess.CompletedProcess:
     env = {**os.environ, "WG_CLAUDE_DIR": str(root)}
+    args = (*args, "--goal", GOAL) if tool == TOOL and "--goal" not in args and "--help" not in args else args
     return subprocess.run([sys.executable, "-X", "utf8", str(tool), *map(str, args)], capture_output=True, text=True,
                           encoding="utf-8", errors="replace", env=env, cwd=str(root), timeout=120)
 
@@ -219,10 +223,10 @@ def test_real_spec_parses_items_scopes_and_hash():
     spec = TS.load_spec("reader-designer")
     rows = [line.split("|")[1].strip() for line in SPEC_FILE.read_text(encoding="utf-8").split("## 判例")[0].splitlines()
             if re.match(r"^\| [A-Z]\d", line)]
-    assert [it.id for it in spec.items] == rows and len(rows) == 7
+    assert [it.id for it in spec.items] == rows and len(rows) == 8
     assert [it.scope for it in spec.items[:3]] == [("first", 1), ("first", 3), ("candidates", 0)]
     assert all(it.scope == ("full", 0) for it in spec.items[3:])
-    assert all(it.must and it.on_fail == "記帳" and it.source for it in spec.items)   # 七條同一等級、沒過時＝記帳
+    assert all(it.must and it.on_fail == "記帳" and it.source for it in spec.items)   # 八條同一等級、沒過時＝記帳
     assert [it.id for it in spec.items if it.good and it.bad] == rows[:4]
     assert spec.sha == hashlib.sha256(SPEC_FILE.read_bytes()).hexdigest()[:16]
     assert spec.allow_fail == 0
@@ -233,14 +237,14 @@ def test_explain_doc_has_item_anchors_and_cards_exist():
     """白話說明檔（評分一行點進來的地方）：開頭那句在；規格每個代號一個只寫代號的標題（VS Code 擴充把標題去掉連結、轉小寫找 #r1…）；
     標題連到的判準卡都在本樹；說明檔不會被當成規格列出。"""
     text = EXPLAIN_FILE.read_text(encoding="utf-8")
-    assert text.startswith("這份文件紀錄 AI 在 chat 內的回應「使用者讀起來好不好懂」，目前包含（白話解說）：")
+    assert text.startswith("這份文件紀錄 AI 交付「改了哪些程式」那則回應「使用者讀起來好不好懂」")
     heads = re.findall(r"^## (.+)$", text, re.M)
     anchors = [re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", h).strip().lower() for h in heads]
     codes = [it.id.lower() for it in TS.load_spec("reader-designer").items]
-    assert anchors == codes == [f"r{i}" for i in range(1, 8)]
+    assert anchors == codes == [f"r{i}" for i in range(1, 8)] + ["g1"]
     cards = [m.group(1) for h in heads if (m := re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", h))]
     missing = [c for c in cards if not (EXPLAIN_FILE.parent / c).resolve().is_file()]
-    assert len(cards) == 7 and missing == [], missing
+    assert len(cards) == 7 and missing == [], missing           # G1 出自原設計者原話，沒有卡
     with pytest.raises(TS.SpecError) as err:
         TS.load_spec("沒有這份")
     assert "reader-designer" in str(err.value) and "說明" not in str(err.value)
@@ -405,7 +409,7 @@ def test_quote_outside_cut_scope_is_void(tmp_path, fake):
     assert p.returncode == 0, p.stderr
     assert body_of(fake.requests[0]) == "全機殘留清理做完了，你不需要動作。"
     assert "| R1 | 作廢：引用對不到原文（裁判判是） |" in p.stdout
-    assert "評分 6/7｜作廢：R1" in p.stdout and "｜未定｜" in p.stdout      # 必過項作廢＝未定
+    assert "評分 7/8｜作廢：R1" in p.stdout and "｜未定｜" in p.stdout      # 必過項作廢＝未定
 
 
 # ─── 分數由程式算 ─────────────────────────────────────────────────────────────
@@ -419,7 +423,7 @@ def test_score_is_computed_by_program(tmp_path, fake):
     p = run(data_root(tmp_path, {"a": backend(fake.url)}), src)
     assert p.returncode == 0, p.stderr
     assert "評分 6/7｜沒過：R1" in p.stdout and "｜不過｜" in p.stdout
-    assert tail(p.stdout).startswith("TEXT_SCORE DONE spec=reader-designer pass=5 fail=1 na=1 void=0 unscored=0 secs=")
+    assert tail(p.stdout).startswith("TEXT_SCORE DONE spec=reader-designer pass=6 fail=1 na=1 void=0 unscored=0 secs=")
     rec = records(tmp_path / "data")[0]
     assert (rec["score"], rec["total"], rec["overall"]) == (6, 7, "不過")
 
@@ -445,7 +449,7 @@ def test_judge_absent_does_not_block_and_is_logged(tmp_path):
     p = run(root, write(tmp_path, "t.md", GOOD))
     assert p.returncode == 0, p.stderr
     assert "裁判不在，未評" in p.stdout and "rdchat-direct、local" in p.stdout
-    assert tail(p.stdout).startswith("TEXT_SCORE DONE spec=reader-designer pass=0 fail=0 na=0 void=0 unscored=7 ")
+    assert tail(p.stdout).startswith("TEXT_SCORE DONE spec=reader-designer pass=0 fail=0 na=0 void=0 unscored=8 ")
     rec = records(root)[0]
     assert rec["overall"] == "未評" and {(i["status"], i["why"]) for i in rec["items"]} == {("未評", "裁判不在")}
 
@@ -457,7 +461,7 @@ def test_model_override_and_failover_use_same_judge_model(tmp_path):
         p = run(root, write(tmp_path, "t.md", GOOD), "--model", "gemma4:26b")
         assert p.returncode == 0, p.stderr
         assert down.requests and all(r["model"] == "gemma4:26b" for r in down.requests)
-        assert len(up.requests) == 7 and {r["model"] for r in up.requests} == {"gemma4:26b"}   # 不換成本機設定的 qwen3:1.7b
+        assert len(up.requests) == 8 and {r["model"] for r in up.requests} == {"gemma4:26b"}   # 不換成本機設定的 qwen3:1.7b
         assert records(root)[0]["models_used"] == ["gemma4:26b"]
     finally:
         down.close()
@@ -475,7 +479,7 @@ def test_each_backend_uses_its_own_judge_model(tmp_path):
         assert p.returncode == 0, p.stderr
         assert rd.requests and {r["model"] for r in rd.requests} == {"gemma4:e4b"}
         assert loc.requests and {r["model"] for r in loc.requests} == {"qwen3:4b-instruct-2507-q4_K_M"}
-        assert len(other.requests) == 7 and {r["model"] for r in other.requests} == {"fallback:1b"}   # 沒列到的退到頂層
+        assert len(other.requests) == 8 and {r["model"] for r in other.requests} == {"fallback:1b"}   # 沒列到的退到頂層
         rec = records(root)[0]
         assert rec["models_used"] == ["fallback:1b"] and rec["judges"] == {
             "rdchat-direct": "gemma4:e4b", "local": "qwen3:4b-instruct-2507-q4_K_M", "other": "fallback:1b"}
@@ -519,7 +523,7 @@ def test_log_write_failure_is_visible_not_blocking(tmp_path, fake):
     root = data_root(tmp_path, {"a": backend(fake.url)})
     (root / "Logs").write_text("這裡是檔案，不是資料夾", encoding="utf-8")   # 留帳目錄建不起來
     p = run(root, write(tmp_path, "t.md", GOOD))
-    assert p.returncode == 0 and len(fake.requests) == 7
+    assert p.returncode == 0 and len(fake.requests) == 8
     assert "留帳寫不進" in p.stderr and tail(p.stdout).endswith(" logged=0")
 
 
@@ -537,8 +541,8 @@ def test_log_record_fields(tmp_path, fake):
     assert rec["spec_sha"] == hashlib.sha256(SPEC_FILE.read_bytes()).hexdigest()[:16]
     assert rec["source"] == str(src.resolve()) and rec["chars"] == len(GOOD)
     assert rec["model"] == "gemma4:e4b" and rec["judges"] == {"a": "gemma4:e4b"} and rec["secs"] >= 0   # a 不在對照表 → 頂層
-    assert (rec["prompt_tokens"], rec["answer_tokens"]) == (7 * 339, 7 * 52)
-    assert [i["id"] for i in rec["items"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
+    assert (rec["prompt_tokens"], rec["answer_tokens"]) == (8 * 339, 8 * 52)
+    assert [i["id"] for i in rec["items"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "G1"]
     assert all({"status", "verdict", "quote", "reason", "why", "secs", "prompt_tokens"} <= set(i) for i in rec["items"])
 
 
@@ -560,10 +564,10 @@ def test_json_output_is_one_line_matching_log(tmp_path, fake):
 
 
 @pytest.mark.parametrize("answers,line", [
-    ({}, "評分 7/7｜全過"),
+    ({}, "評分 8/8｜全過"),
     ({"R1": {"quote": "全機殘留清理做完了，你不需要動作。", "reason": "", "verdict": "否"},
-      "R4": {"quote": "先不刪。", "reason": "", "verdict": "否"}}, "評分 5/7｜沒過：R1、R4"),
-    ({"R3": {"quote": "不在原文裡的一句話", "reason": "", "verdict": "是"}}, "評分 6/7｜作廢：R3"),   # 作廢不算全過
+      "R4": {"quote": "先不刪。", "reason": "", "verdict": "否"}}, "評分 6/8｜沒過：R1、R4"),
+    ({"R3": {"quote": "不在原文裡的一句話", "reason": "", "verdict": "是"}}, "評分 7/8｜作廢：R3"),   # 作廢不算全過
 ])
 def test_tail_line_prints_only_the_summary(tmp_path, fake, answers, line):
     fake.answers = answers
@@ -597,11 +601,11 @@ LONG = GOOD + "\n" + "這一段是補字數用的白話說明，讓文字超過�
 def test_auto_kind_skips_without_asking(tmp_path, fake, cfg, kind, text, why):
     on = data_root(tmp_path / "on", {"a": backend(fake.url)}, {"min_chars": 300})
     assert run(on, write(tmp_path, "long.md", LONG), "--auto-kind", "final_reply").returncode == 0   # 對照：會評
-    assert len(fake.requests) == 7 and records(on)[0]["kind"] == "final_reply"
+    assert len(fake.requests) == 8 and records(on)[0]["kind"] == "final_reply"
     root = data_root(tmp_path / "off", {"a": backend(fake.url)}, cfg)
     p = run(root, write(tmp_path, "t.md", text), "--auto-kind", kind)
     assert p.returncode == 0 and "不評：" in p.stdout and why in p.stdout, p.stdout
-    assert len(fake.requests) == 7 and records(root) == []
+    assert len(fake.requests) == 8 and records(root) == []
     assert tail(p.stdout).startswith("TEXT_SCORE DONE spec=reader-designer pass=0 ") and tail(p.stdout).endswith(" logged=0")
 
 
@@ -624,7 +628,7 @@ def test_auto_kind_filters_by_path_patterns(tmp_path, fake, rel, kind, scored):
     src.write_text(LONG, encoding="utf-8")
     p = run(root, src, "--auto-kind", kind)
     assert p.returncode == 0, p.stderr
-    assert (len(fake.requests), len(records(root))) == ((7, 1) if scored else (0, 0)), p.stdout
+    assert (len(fake.requests), len(records(root))) == ((8, 1) if scored else (0, 0)), p.stdout
     if not scored:
         assert f"不符 text_score.auto_targets.{kind} 的路徑樣式" in p.stdout
 
@@ -642,7 +646,7 @@ def test_auto_kind_old_list_config_matches_kind_only(tmp_path, fake):
     root = data_root(tmp_path, {"a": backend(fake.url)}, {"auto_targets": ["final_reply", "docs"]})
     p = run(root, write(tmp_path, "隨手記.md", LONG), "--auto-kind", "docs")
     assert p.returncode == 0, p.stderr
-    assert len(fake.requests) == 7 and records(root)[0]["kind"] == "docs"
+    assert len(fake.requests) == 8 and records(root)[0]["kind"] == "docs"
 
 
 @pytest.mark.parametrize("path,pattern,ok", [

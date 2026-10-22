@@ -111,16 +111,14 @@ function _json(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
-// ─── 報告是哪一軌、寫給誰看（只加顯示欄位 track／audience，不改報告檔；報告寫入端在 hooks/handlers）────
+// ─── 報告是哪個 session 寫的（只加顯示欄位 track，不改報告檔；報告寫入端在 hooks/handlers）────
 // 報告檔只有 session_id。軌名從那個 session 的對話紀錄（<資料根>/projects/*/<sid>.jsonl）開頭推：
 // 首則使用者訊息開頭的「track-<名>：」優先（開工句固定這樣起頭），其次 cwd 在 .claude-wt/<名> 或
 // .claude/worktrees/<名> 底下就用資料夾名，都沒有回 ""（HUD 退回 session 前 8 碼）。推到軌名就依 sid 永久快取
-// （對話紀錄開頭不會變）；推不到（還沒落檔、首則訊息還沒寫進去、本來就不是工作軌）隔 NEG_TTL_MS 再查。
+// （對話紀錄開頭不會變）；推不到（還沒落檔、首則訊息還沒寫進去、不在 worktree 裡）隔 NEG_TTL_MS 再查。
 const PROJECTS_DIR = path.join(CLAUDE_DIR, "projects");
 const TRACK_HEAD_RE = /^\s*(track-[A-Za-z0-9._-]+)\s*[：:]/;
 const WORKTREE_CWD_RE = /[\\/](?:\.claude-wt|\.claude[\\/]worktrees)[\\/]([^\\/]+)/;
-const AUDIENCE_RE = /給(?:調度|對人)?總控台/;
-const AUDIENCE_FIELDS = ["a", "b", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"];
 const HEAD_BYTES = 256 * 1024;        // 首則訊息與 cwd 都在開頭；開工句貼了長附件也夠
 const NEG_TTL_MS = 60 * 1000;         // 推不到軌名的結果多久後重查（HUD 每 1.5 秒輪詢，不能每次都掃 projects/）
 const trackCache = new Map();         // sid → { track, at }
@@ -183,19 +181,9 @@ function sessionTrack(sid, now = Date.now()) {
   return track;
 }
 
-// 讀者標記：報告第一個非空欄位的首行寫了「給總控台」→ "給總控台"，否則 ""（純函式）。
-function audienceOf(r) {
-  for (const k of AUDIENCE_FIELDS) {
-    if (aecBlank(r && r[k])) continue;
-    return AUDIENCE_RE.test(String(r[k]).trim().split("\n")[0]) ? "給總控台" : "";
-  }
-  return "";
-}
-
 function _withLabels(r) {
   if (r && typeof r === "object") {
     r.track = sessionTrack(r.session_id);
-    r.audience = audienceOf(r);
   }
   return r;
 }
@@ -374,7 +362,7 @@ function apiAecDecisionPost(req, res) {
 
 module.exports = {
   aecBlank, aecSeverity, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
-  aecChipText, aecArgErrors, toolAntiEvasionReport, trackFromTranscriptHead, sessionTrack, audienceOf,
+  aecChipText, aecArgErrors, toolAntiEvasionReport, trackFromTranscriptHead, sessionTrack,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, apiAecTempfilesAll,
   apiAecDecisionPost,

@@ -5,7 +5,9 @@
   讀規格（規格是資料：代號、適用、讀者、讀者目的、通過線、檢核項表、判例表；程式不寫死任何條目）
   → 去掉開頭 --- 檔頭、code 區塊與網址 → 每條檢核項各問裁判一次；判法欄寫了「程式切出…」「抓候選詞」的先由程式切範圍
   → 裁判回 {quote, reason, verdict}；程式校驗引用逐字在送去的那段原文裡，對不到、判否沒附引用、輸入被截斷 → 該條作廢
-  → 分數由程式算（是＋不適用＝過），印評分表與一行摘要 `評分 N/M｜沒過：…`，留帳 Logs/guard-text_score.jsonl。
+  → 分數由程式算（是＝過；不適用不算沒過、不進分母），印評分表與一行摘要 `評分 N/M｜沒過：…`，留帳 Logs/guard-text_score.jsonl。
+  規格的 `- 目標: {{goal}}` 與條目問題裡的 {{goal}} 由 --goal 填當下的需求目標（收尾自動評時 hooks/wg_text_score 給：
+  目標樹樹根，沒樹用本回合使用者原話）；規格用了 {{goal}} 卻沒給目標 → 印「不評」、不留帳。
 裁判：照 tools/ollama_client 的 backend 優先序（內網 rdchat → 本地 ollama），每台用自己的裁判模型
   （text_score.judge_model_by_backend，沒列到的用 judge_model；--model 給了全部用它；那台沒裝就算不在，不換成別的模型）。
   都不在或逾時 → 印「裁判不在，未評」、記一筆未評，exit 0；不擋、不改用付費模型。
@@ -56,6 +58,7 @@ DEFAULTS: Dict[str, Any] = {
     "timeout_sec": 120,               # 每次問裁判的逾時
     "num_ctx": 8192,                  # 每次明帶；Ollama 預設 4096 會從前面靜默截掉
     "min_chars": 300,                 # 自動評的最短字數（去掉檔頭、code 與網址，不算空白）
+    "reply_scope": "code_change",     # 收尾自動評哪些回覆（hooks/wg_text_score._reply_in_scope 讀；本工具不用）
     "auto_targets": {                 # 自動評的種類 → 來源路徑樣式；空清單＝不比路徑
         "final_reply": [],
         "docs": ["memory/_staging/*checklist*.md", "_AIDocs/DevHistory/**/*提案*.md"],
@@ -65,6 +68,7 @@ DEFAULTS: Dict[str, Any] = {
 NUM_PREDICT = 512        # 一條的回答（引用＋一句理由）用不到這麼多；防裁判停不下來
 TRUNCATE_RATIO = 0.95    # prompt_eval_count ≥ num_ctx×95% 就當輸入太長（實測內網 Ollama 超過時回報整段長度，不一定截到 num_ctx）
 MAX_ITEMS = 8            # 一份規格最多 8 條：指令越長小裁判越差（提案 Q13）
+GOAL_SLOT = "{{goal}}"   # 規格裡由程式填入當下需求目標的位置
 MAX_CANDIDATES = 12      # 候選詞最多送幾個
 MIN_QUOTE_CHARS = 4      # 引用正規化後至少幾個字，太短對不出是哪一句
 
@@ -87,7 +91,7 @@ SCHEMA = {   # 欄位順序固定 引用 → 理由 → 判定（先寫判定會
 # 條目專屬的字放最前面、原文放最後：每條的開頭不同，Ollama 就不會拿上一條的快取接著算（提案 4.5：換了前一個呼叫判定會翻）
 PROMPT = """你是文字評審，照一條檢核項判斷「原文」，只回一個 JSON 物件。
 
-檢核項 {id}：{question}
+{goal_block}檢核項 {id}：{question}
 {extras}讀者：{reader}
 讀者目的：{purpose}
 
@@ -274,6 +278,21 @@ def spec_path(name: str) -> Path:
     return SPEC_DIR / f"{name}.md"
 
 
+def needs_goal(spec: Spec) -> bool:
+    """規格有沒有用 {{goal}}（目標欄或任一條問題）。"""
+    return GOAL_SLOT in str(spec.keys.get("目標") or "") or any(GOAL_SLOT in it.question for it in spec.items)
+
+
+def with_goal(spec: Spec, goal: str) -> Spec:
+    """把 {{goal}} 換成當下的需求目標，回新的規格（不動原物件）。"""
+    import copy
+    out = copy.deepcopy(spec)
+    out.keys["目標"] = str(out.keys.get("目標") or "").replace(GOAL_SLOT, goal)
+    for it in out.items:
+        it.question = it.question.replace(GOAL_SLOT, goal)
+    return out
+
+
 def load_spec(name: str) -> Spec:
     path = spec_path(name)
     if not path.is_file():
@@ -301,7 +320,7 @@ CODE_TOKEN_RE = re.compile(   # 像代號的字：旗標、帶 . / : _ - 的名�
 
 
 def strip_frontmatter(text: str) -> str:
-    """去掉開頭的 --- 檔頭（交付信的 to:／seq: 不是給讀者的話）：第一行是「鍵: 值」、框裡每一行都像檔頭才算；
+    """去掉開頭的 --- 檔頭（信件的 to:／seq: 不是給讀者的話）：第一行是「鍵: 值」、框裡每一行都像檔頭才算；
     有一行正文就整段留著，寧可多評幾行也不吃掉正文。"""
     m = FRONTMATTER_RE.match(text)
     if not m:
@@ -360,7 +379,10 @@ def scope_for(item: Item, body: str, sents: List[str]) -> Tuple[str, str]:
 
 def build_prompt(spec: Spec, item: Item, text: str, extras: str) -> str:
     examples = "".join(f"{label}的例子：{ex}\n" for label, ex in (("會判「是」", item.good), ("會判「否」", item.bad)) if ex)
-    return PROMPT.format(id=item.id, question=item.question, extras=extras + examples,
+    goal = str(spec.keys.get("目標") or "").strip()
+    goal_block = (f"當下的需求目標：{goal}\n針對這個目標，下面這一條過不過？跟這個目標或這種回覆無關的條目答「不適用」"
+                  "（不算沒過）。\n\n") if goal and GOAL_SLOT not in goal else ""
+    return PROMPT.format(id=item.id, question=item.question, extras=extras + examples, goal_block=goal_block,
                          reader=spec.keys["讀者"], purpose=spec.keys["讀者目的"], body=text)
 
 
@@ -528,7 +550,7 @@ def score(spec: Spec, text: str, *, config: Dict[str, Any], section: Dict[str, A
 
 
 def tally(spec: Spec, results: List[Result]) -> Dict[str, Any]:
-    """分數只由程式算：過＝是＋不適用；裁判回答裡的任何分數欄都不看。"""
+    """分數只由程式算：過＝是；不適用不算沒過、也不進分母；裁判回答裡的任何分數欄都不看。"""
     def by(status: str, verdict: Optional[str] = None) -> List[Result]:
         return [r for r in results if r.status == status and (verdict is None or r.verdict == verdict)]
 
@@ -536,7 +558,8 @@ def tally(spec: Spec, results: List[Result]) -> Dict[str, Any]:
         return "、".join(r.id for r in rs)
 
     yes, no, na, voids, unscored = by("判定", "是"), by("判定", "否"), by("判定", "不適用"), by("作廢"), by("未評")
-    passed = len(yes) + len(na)
+    passed = len(yes)
+    counted = len(results) - len(na)
     other_fail = [r for r in no if not r.must]
     open_other = [r for r in voids + unscored if not r.must]
     if len(unscored) == len(results):
@@ -550,7 +573,7 @@ def tally(spec: Spec, results: List[Result]) -> Dict[str, Any]:
     if overall == "未評":
         summary = f"評分 未評｜{unscored[0].why}"
     else:
-        parts = [f"評分 {passed}/{len(results)}"]
+        parts = [f"評分 {passed}/{counted}"]
         if no:
             parts.append(f"沒過：{ids(no)}")
         elif not voids and not unscored:
@@ -561,7 +584,7 @@ def tally(spec: Spec, results: List[Result]) -> Dict[str, Any]:
             parts.append(f"未評：{ids(unscored)}")
         summary = "｜".join(parts)
     return {"pass": len(yes), "fail": len(no), "na": len(na), "void": len(voids), "unscored": len(unscored),
-            "score": passed, "total": len(results), "overall": overall, "summary": summary}
+            "score": passed, "total": counted, "overall": overall, "summary": summary}
 
 
 def build_record(spec: Spec, results: List[Result], *, judges: Dict[str, str], models_used: List[str], secs: float,
@@ -684,6 +707,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                                     "預設每台照 text_score.judge_model_by_backend，沒列到的用 judge_model")
     ap.add_argument("--json", action="store_true", help="改印一行 JSON（留帳同一筆），再接尾行")
     ap.add_argument("--session", help="留帳記的 session id（有的話）")
+    ap.add_argument("--goal", default="", help="當下的需求目標（填規格裡的 {{goal}}）；規格用了 {{goal}} 卻沒給 → 不評")
     ap.add_argument("--auto-kind", help="自動評的文字種類（final_reply／docs）：照 enabled、auto_targets（種類與路徑樣式）、"
                                         "min_chars 決定評不評")
     ap.add_argument("--tail-line", action="store_true",
@@ -712,6 +736,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(done_line(spec.code, None))
             return 0
 
+    if needs_goal(spec):
+        goal = " ".join(str(args.goal or "").split())
+        if not goal:
+            print("不評：沒有當下的需求目標（目標樹樹根或本回合使用者原話）可以對", file=sys.stderr if args.tail_line else sys.stdout)
+            if not args.tail_line:
+                print(done_line(spec.code, None))
+            return 0
+        spec = with_goal(spec, goal[:300])
     rec = score(spec, text, config=config, section=section, override=args.model, source=source,
                 session=args.session, kind=args.auto_kind or "manual")
     logged = write_log(rec)

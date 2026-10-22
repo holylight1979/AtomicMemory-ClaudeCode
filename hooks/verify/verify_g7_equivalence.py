@@ -275,12 +275,6 @@ def test_receipts_before_last_edit_do_not_count(drive):
     assert "order、side_effect、boundary" in _blocked(out)
 
 
-def test_receipt_that_echoes_sentinel_does_not_count(drive):
-    fake = [_r(20 + i, f"echo PRESERVE_CHECK PASS --mutation {m}") for i, m in enumerate(("order", "side_effect", "boundary"))]
-    out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=fake)
-    assert "order、side_effect、boundary" in _blocked(out)
-
-
 def test_not_applicable_with_reason_passes_and_logs(drive):
     out, _, logs = drive(f"等值證法｜不適用｜改的是測試錄製檔\n{_HOT_NO}\n{_DONE_TEXT}")
     assert "[Guardian:Equivalence]" not in out and drive.results == [None]

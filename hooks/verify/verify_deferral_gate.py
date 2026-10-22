@@ -50,17 +50,15 @@ def test_detect_deferral_no_hit(text):
 
 # ─── G6 階段 4（P7）：使用者延後要 AI 引用原句對到事項；AI 自己的不做行要附理由（NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）──
 
-def test_p7_user_defer_needs_citation_to_the_item():
+def test_p7_user_defer_line_no_citation_check():
     text = "完工。realm atom 瘦身留到下個 session 做。"
-    # 使用者說過，但 AI 沒引用對到事項 → 照標（舊的整段 escape hatch 不再成立）
-    assert detect_deferral(text, ["這顆 atom 下個 session 再做就好"]) is not None
-    assert detect_deferral(text, ["先這樣，其他不用管"]) is not None
+    assert detect_deferral(text, ["這顆 atom 下個 session 再做就好"]) is not None   # 沒寫那一行 → 照標
     cited = text + "\n不做｜realm atom 瘦身：使用者說「下個 session 再做就好」"
     audit = []
     assert detect_deferral(cited, ["這顆 atom 下個 session 再做就好"], audit=audit) is None
-    assert audit and audit[0]["rule"] == "USER_WAIVER_NEEDS_CITATION" and "realm atom 瘦身" in audit[0]["why"]
-    # 引用的句子不在近 3 則使用者原話（使用者只是質問）→ 照標
-    assert detect_deferral(cited, ["為什麼你會判斷還需要新開 session？"]) is not None
+    assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED" and "realm atom 瘦身" in audit[0]["why"]
+    # 引用的句子不再比對使用者原話（USER_WAIVER_NEEDS_CITATION 已拿掉）：寫了那一行就不標，留帳抽查
+    assert detect_deferral(cited, ["為什麼你會判斷還需要新開 session？"]) is None
 
 
 def test_p6_claim_line_is_not_a_deferral_sentence():
@@ -89,10 +87,10 @@ def test_p7_not_doing_with_reason_passes_gate_and_audits():
     assert deferral_gate_reason(text, [], turn_seq=5, gated_turn=None, committed_this_turn=False, context_ratio=0.3,
                                 config=_CFG, audit=audit) is None
     assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED"
-    # 理由只有佔位 → 照擋，擋訊息教寫不做行
+    # 理由只有佔位 → 照擋，擋訊息問收尾那一問（快又有效的做掉、其餘寫追蹤行）
     bad = "完工。\n不做｜realm atom 瘦身：留到下個 session，<理由>"
     reason = deferral_gate_reason(bad, [], turn_seq=5, gated_turn=None, committed_this_turn=False, context_ratio=0.3, config=_CFG)
-    assert reason and "不做｜" in reason and "USER_WAIVER_NEEDS_CITATION" in reason
+    assert reason and "追蹤｜" in reason and "改得快又有效" in reason
 
 
 def test_min_object_chars_respected():
@@ -127,7 +125,7 @@ def _reason(text=_DEFER_DONE, *, turn=5, gated=None, committed=False, ratio=0.3,
 def test_gate_fires_when_done_and_tokens_plentiful():
     r = _reason()
     assert r and "[Guardian:DeferralGate]" in r
-    assert "(a)" in r and "(b)" in r and "(c)" in r
+    assert "剩下沒做的，哪些改得快又有效？" in r and "追蹤｜" in r
     assert "下個 session" in r                       # 退縮語回顯
 
 
@@ -182,6 +180,7 @@ def driven(monkeypatch):
         state = {
             "phase": "working", "modified_files": [], "failing_tests": [],
             "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 7,
+            "turn_intent": "feature",                     # 寫碼回合才查退縮語（CODING_TURN_ONLY）
         }
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)

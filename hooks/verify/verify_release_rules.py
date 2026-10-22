@@ -38,6 +38,7 @@ def test_044_every_rule_has_a_case():
     ("NEGATED_MENTION_IS_NOT_NAMING", "verify_data_file_ask.py"),
     ("DATA_FILE_DECL_VOIDED_BY_LATER_MENTION", "verify_data_file_ask.py"),
     ("OWN_COMMIT_CHANGES_STILL_COMPARED", "verify_old_test_declare.py"),
+    ("BLOCK_BUDGET_SHARED", "verify_gate_trim.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
@@ -79,15 +80,6 @@ def test_g6_correction_and_veto_declarations():
     assert rr.correction_verdict(yes).owed is True and rr.correction_verdict(yes).rule == "CORRECTION_WORDS_ARE_HINTS"
     assert rr.yes_no_declaration("不要寫『糾正｜是：x』\n糾正｜不是：在問進度", "糾正")["yes"] is False
     assert rr.yes_no_declaration("否決記憶｜是：<理由>", "否決記憶") is None
-
-
-def test_g6_harvest_waiver_itemized():
-    """HARVEST_WAIVER_ITEMIZED：整件要事項就是「收割」、引用要在原話；待補要事項等於卡名，泛稱對不到。"""
-    assert rr.item_waiver("不做｜收割：使用者說「先這樣」", ["先這樣"], ("收割",))
-    assert rr.item_waiver("不做｜收割規則卡：使用者說「先這樣」", ["先這樣"], ("收割",)) is None
-    assert rr.item_waiver("不做｜收割：使用者說「先這樣」", ["繼續"], ("收割",)) is None
-    kept, got = rr.waived_pending(["card-a: x", "card-ab: y"], "不做｜card-a：使用者說「先這樣」", ["先這樣"])
-    assert kept == ["card-ab: y"] and len(got) == 1
 
 
 def test_g6_conflict_declared_by_ai():
@@ -454,11 +446,6 @@ def test_045_inline_py_readonly_denies_writes_and_unknowns(code):
     assert v.owed is True and v.rule == "INLINE_PY_READONLY" and v.why
 
 
-def test_045_inline_code_hint_points_the_way():
-    assert "腳本檔" in rr.inline_code_hint("node") and "json.tool" in rr.inline_code_hint("python")
-    assert ".ps1" in rr.inline_code_hint("pwsh")
-
-
 # ─── B5 GIT_READONLY_SUBCMD ────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("cmd", [
@@ -543,18 +530,6 @@ def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
 
 
 # ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
-
-def test_045_dispatch_opens_turn_only_for_dispatch_marked_peer_messages():
-    assert rr.is_dispatch_message(["派工：045 B 組規則，派工單在 workflow/inbox/to-track-x/001-prompt.md"])
-    assert rr.is_dispatch_message(["【派工】接續單"])
-    assert rr.is_dispatch_message(["派工單在 C:\\Users\\me\\.claude\\workflow\\inbox\\to-track-gate-rules\\000-prompt.md，照做"])   # 首行含派工＋路徑
-    # codex 001 BLOCK 7：正文其他地方引用派工單路徑（交付、進度、審查通知）不算派工
-    assert not rr.is_dispatch_message(["已完成，交付依據 to-track-gate-rules/001-prompt.md；請審查結果。"])
-    assert not rr.is_dispatch_message(["主旨與其他字\n看 C:\\Users\\me\\.claude\\workflow\\inbox\\to-track-gate-rules\\000-prompt.md 照做"])
-    assert not rr.is_dispatch_message(["對帳過了，上GIT"])                                   # 一般同伴訊息
-    assert not rr.is_dispatch_message(["from-track-a6/006-false-block.md 收到"])          # from-track 是交付，不是派工
-    assert not rr.is_dispatch_message([]) and not rr.is_dispatch_message([""])
-
 
 def test_045_vcs_root_unreadable_is_owed_not_outside_vcs():
     v = rr.vcs_unreadable_verdict("a.py", "PermissionError: [WinError 5]")
@@ -662,12 +637,11 @@ def test_003_session_scratch_not_code_excluded_from_case_debt(tmp_path, monkeypa
 
 # ─── B10 DPM_WORKTREE_DELIVERY ─────────────────────────────────────────────────
 
-def test_045_dpm_worktree_delivery_text():
-    wt = rr.dpm_instruction_text("失敗中反覆重試", True)
-    live = rr.dpm_instruction_text("失敗中反覆重試", False)
-    assert "DPM_WORKTREE_DELIVERY" in wt and "交付信" in wt and "請用 atom_write" not in wt
-    assert "atom_write" in live and "交付信" not in live
-    assert "防再犯" in wt and "防再犯" in live
+def test_045_dpm_instruction_text_same_for_every_session():
+    """DeepPostMortem 指令不分在不在 worktree：一律叫 atom_write 補 post-mortem；證據行接在標頭下一行。"""
+    t = rr.dpm_instruction_text("失敗中反覆重試")
+    assert "atom_write" in t and "交付信" not in t and "防再犯" in t
+    assert "✗ 證據" in rr.dpm_instruction_text("失敗中反覆重試", "✗ 證據").splitlines()[1]
 
 
 # ─── C1 RED_WHILE_REVERTED ／ RETRY_IS_RED_AGAIN ／ GREEN_SAME_CASE_CLEARS ─────
@@ -1930,13 +1904,13 @@ def test_p7_not_doing_verdict():
     assert [d["item"] for d in decls] == ["A 清理", "B 瘦身", "C 整理"] and decls[1]["quote"] == "B 先這樣"
     assert not rr.not_doing_verdict("A 清理留給未來處理", decls, []).owed
     v = rr.not_doing_verdict("B 瘦身先跳過", decls, ["B 先這樣吧"])
-    assert not v.owed and v.rule == "USER_WAIVER_NEEDS_CITATION"
+    assert not v.owed and v.rule == "NOT_DOING_DECLARED"
     v = rr.not_doing_verdict("B 瘦身先跳過", decls, ["做 B"])
-    assert v.owed and v.rule == "USER_WAIVER_NEEDS_CITATION"
+    assert not v.owed, "引用不再比對使用者原話：寫了不做行就留帳放行"
     v = rr.not_doing_verdict("C 整理之後再處理", decls, [])
     assert v.owed and v.rule == "NOT_DOING_DECLARED" and "佔位" in v.why
     v = rr.not_doing_verdict("D 之後再處理", decls, [], "除非附「檢測時點 + 不修的實際風險」")
-    assert v.owed and "不做｜<哪一件>：<理由：檢測時點" in v.evidence[1]
+    assert v.owed and "改得快又有效" in v.evidence[1] and "追蹤｜<哪一件>" in v.evidence[1]   # 收尾那一問
     assert not rr.not_doing_verdict("不做｜A 清理：風險是 state 並行競寫會毀檔", decls, []).owed, "命中行本身就是不做行"
     dis = rr.parse_not_doing("不是退避｜既有的問題：因為那句在說明舊碼原本就有的行為，本輪已修")
     assert dis[0]["mode"] == "disclaim" and dis[0]["item"] == "既有的問題" and not dis[0]["quote"]
@@ -1946,6 +1920,9 @@ def test_p7_not_doing_verdict():
     _, w = rr.waived_failures([{"cmd": "pytest verify_a.py", "summary": ""}],
                               rr.parse_not_doing("不是退避｜verify_a.py：使用者說「先這樣」"), ["先這樣"])
     assert not w, "不是退避行不能豁免紅測"
+    kept, w = rr.waived_failures([{"cmd": "pytest verify_a.py", "summary": ""}],
+                                 rr.parse_not_doing("不做｜verify_a.py：使用者說「先這樣」"), ["繼續"])
+    assert "USER_WAIVER_NEEDS_CITATION" in rr.RULES and kept and not w   # 紅測豁免引用的原句要在使用者原話裡
 
 
 def test_p7_waived_failures_only_cited_and_matching():

@@ -91,7 +91,8 @@ def stop_run(monkeypatch):
         state = {"phase": "working", "turn_seq": 7,
                  "modified_files": [{"path": _A, "session_id": _SID, "turn_seq": 7, "last_at": "2026-10-22T10:00:00+08:00"},
                                     {"path": _B, "session_id": _SID, "turn_seq": 7, "last_at": "2026-10-22T10:00:00+08:00"}],
-                 "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0, "scan_report_warned": True}
+                 "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0, "scan_report_warned": True,
+                 "turn_intent": "feature"}                    # 寫碼回合才收割（CODING_TURN_ONLY）
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()
@@ -165,11 +166,11 @@ def hub(tmp_path, monkeypatch):
 
 
 def test_locate_first_deny_asks_everything_at_once(hub):
-    """第一次擋就把內容要求與填好部位、節點的範例一起給（兩個候選＋選 A 因為、節點角色、合理／不合理的判斷），
+    """第一次擋就把內容要求與填好部位的範例一起給（兩個候選＋選 A 因為、合理／不合理的判斷；第四行節點只記錄、範例不列），
     不先只給骨架、交了再擋一輪格式（現況兩跑各三輪、每輪平行四次）。"""
     wo, state, files, tp = hub
     _, deny, _ = wo.on_edit(state, "s", files[0], tp, {})
-    assert deny and "選 A 因為" in deny and "定位｜目標：T1（<這一塊替 T1 做什麼>）" in deny
+    assert deny and "選 A 因為" in deny and "定位｜目標" not in deny.split("判準卡（")[0]
     assert "合理／不合理" in deny and "定位｜部位：報表——" in deny
 
 
@@ -203,7 +204,7 @@ def test_locate_new_turn_gets_full_ask_again(hub):
     assert "定位｜根因層" in again and "同樣被擋" not in again
 
 
-# 判準卡一話題一次（原 CARD_ONCE_PER_TURN）的案例在 verify_cost_cut_003.py 刀8
+# 判準卡一話題一次（原 CARD_ONCE_PER_TURN）的案例在 verify_gate_slimming.py
 
 
 # ─── 刀1：目標樹工具呼叫合併 ───────────────────────────────────────────

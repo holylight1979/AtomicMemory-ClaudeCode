@@ -399,9 +399,7 @@ def test_satisfied_then_next_turn_without_edits_not_required(drive, capsys, tmp_
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
     state["modified_files"][0]["last_turn_seq"] = 6
     reason, _, _ = drive(DONE, capsys, state=state)
-    assert "[Guardian:SecondOpinion]" not in reason, "同一件事只審一輪（SECOND_OPINION_ONE_ROUND）：審完的修補不再要第二輪"
-    reason, _, _ = drive(DONE, capsys, state=state, config={"second_opinion": {"auto": {"one_round": False}}})
-    assert "[Guardian:SecondOpinion]" in reason, "one_round=false（舊行為）：上次滿足之後又改了程式 → 再要求"
+    assert "[Guardian:SecondOpinion]" in reason, "上次滿足之後又改了程式 → 再要求（本回合窗口裡沒有新的 run）"
 
 
 def test_earlier_gate_block_previews_second_opinion(drive, capsys, tmp_path):

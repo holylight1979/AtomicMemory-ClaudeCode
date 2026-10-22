@@ -365,10 +365,7 @@ def test_correction_without_tree_or_hits_is_silent():
     assert ngp.on_correction(SID, [], 1) is None
 
 
-# ─── 4.3 收到外部主張（同伴訊息、審查報告、交付信） ─────────────────────────
-
-PEER_PROMPT = ('<cross-session-message from="uds:x" from-name="claude-aa" from-mode="bypass">\n'
-               "調度：請把 X 改成 Y，理由是 Z。\n</cross-session-message>")
+# ─── 4.3 收到外部主張（審查結果、審查報告） ─────────────────────────────────
 
 
 @pytest.fixture
@@ -397,25 +394,6 @@ def ups_wired(monkeypatch):
     return run
 
 
-def test_peer_message_triggers_goal_view_three_questions(world, ups_wired):
-    """同伴 session 的訊息到達＝收到外部主張：裁定前送三問（服務哪條目標、框架是誰給的、成本為零怎麼裁）＋目前的樹。"""
-    make_tree()
-    ctx = ups_wired(PEER_PROMPT)
-    assert "收到外部主張" in ctx and "claude-aa" in ctx
-    assert "服務目標樹哪一條" in ctx and "框架是誰給的" in ctx and "成本是零" in ctx and "T1" in ctx
-    assert tree_now()["checkpoints"][-1]["point"] == "scope" and guard(world)[-1]["event"] == "external_claim"
-
-
-def test_peer_prompt_with_harness_prefix_line_also_counts(world, ups_wired):
-    """transcript 裡同伴訊息記成「Another Claude session sent a message:」一行加標籤區塊：帶這行開頭也要認得。"""
-    make_tree()
-    assert "claude-aa" in ups_wired("Another Claude session sent a message:\n" + PEER_PROMPT)
-    assert ngp.peer_of_prompt("引用一下 <cross-session-message from-name=\"x\">…") is None   # 使用者打字裡提到標籤不算
-    mid = "Another Claude session sent a message while you were working:\n" + PEER_PROMPT   # 工作中途那種說明行
-    assert ngp.peer_of_prompt(mid) == "claude-aa"
-    assert ngp.peer_of_prompt('<cross-session-message from="uds:y">沒有名字</cross-session-message>') == ""
-
-
 def test_user_prompt_does_not_trigger_external_claim(world, ups_wired):
     make_tree()
     assert "收到外部主張" not in ups_wired("請把 X 改成 Y")                     # 使用者本人打的字不觸發
@@ -423,150 +401,35 @@ def test_user_prompt_does_not_trigger_external_claim(world, ups_wired):
 
 
 def test_user_correction_prompt_is_correction_not_external_claim(world, ups_wired, monkeypatch):
-    """使用者本人打的糾正：只送糾正提醒，不當成外部主張（外部主張只認同伴訊息）。"""
+    """使用者本人打的糾正（寫碼回合）：只送糾正提醒，不當成外部主張（外部主張只認審查結果）。"""
     import wg_friction
     make_tree()
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: ["不對"])
-    ctx = ups_wired("不對，請把 X 改成 Y")
+    ctx = ups_wired("不對，請把 hooks/a.py 的 X 改成 Y，修這個 bug")
     assert "使用者糾正了" in ctx and "收到外部主張" not in ctx
 
 
-def test_peer_message_without_tree_still_asks(world, ups_wired):
-    ctx = ups_wired(PEER_PROMPT)
-    assert "收到外部主張" in ctx and "還沒有目標樹" in ctx
-    assert ng.active_tree(ng.load(SID)) is None                                # 不替它開樹（b2 的 4.1 會另記同伴轉述）
-
-
-def test_review_report_and_delivery_letter_in_batch_trigger(world, tmp_path):
-    """審查結果（second_opinion_result）與讀交付信／審查報告檔：PostToolBatch 合併送一則三問；讀一般檔不觸發。"""
+def test_review_report_in_batch_triggers_and_plain_or_inbox_read_does_not(world, tmp_path):
+    """審查結果（second_opinion_result）：PostToolBatch 送一則三問；讀一般檔、讀信箱裡的信都不觸發
+    （同伴訊息與信件不是產品要辨認的外部主張）。"""
     make_tree()
     state = {"turn_seq": 5}
-    plain = [{"tool_name": "Read", "tool_input": {"file_path": str(tmp_path / "src" / "a.py")}, "tool_use_id": "r1"}]
+    plain = [{"tool_name": "Read", "tool_input": {"file_path": str(tmp_path / "src" / "a.py")}, "tool_use_id": "r1"},
+             {"tool_name": "Read", "tool_input": {"file_path": "C:/x/workflow/inbox/from-a/001-done.md"}, "tool_use_id": "r3"}]
     assert not ngp.batch_due(state, plain) and ngp.batch_lines(SID, state, plain, CFG) == []
-    calls = [{"tool_name": "mcp__workflow-guardian__second_opinion_result", "tool_input": {"job_id": "j1"}, "tool_use_id": "r2"},
-             {"tool_name": "Read", "tool_input": {"file_path": "C:/x/workflow/inbox/from-track-a/001-done.md"},
-              "tool_use_id": "r3"}]
+    calls = [{"tool_name": "mcp__workflow-guardian__second_opinion_result", "tool_input": {"job_id": "j1"}, "tool_use_id": "r2"}]
     assert ngp.batch_due(state, calls)
     lines = ngp.batch_lines(SID, state, calls, CFG)
-    assert len(lines) == 1 and "收到外部主張" in lines[0] and "001-done.md" in lines[0] and "審查" in lines[0]
+    assert len(lines) == 1 and "收到外部主張" in lines[0] and "審查" in lines[0]
 
 
-def test_delivery_letter_in_workflow_inbox_is_claim_other_inbox_is_not():
-    """信箱固定叫 workflow/inbox/：讀裡面的交付信算外部主張；別的專案叫 inbox 的資料夾、名字只是開頭相同的不算。"""
+def test_review_report_file_is_claim_inbox_letter_is_not():
+    """讀審查報告檔（檔名帶 codex／review／審查）算外部主張；信箱 workflow/inbox/ 裡的信不算。"""
     def read(p):
         return [{"tool_name": "Read", "tool_input": {"file_path": p}, "tool_use_id": "r1"}]
-    assert ngp.claim_calls(read("C:/x/workflow/inbox/from-track-a/002-done.md")) == [("報告或交付信", "002-done.md")]
-    assert ngp.claim_calls(read(r"C:\x\workflow\inbox\_console\裁定帳.md")) == [("報告或交付信", "裁定帳.md")]
-    for other in ("C:/x/mail/inbox/a.md", "C:/x/inbox/from-track-a/a.md", "C:/x/workflow/inbox-old/a.md"):
+    assert ngp.claim_calls(read("C:/x/docs/codex-review.md")) == [("審查報告", "codex-review.md")]
+    for other in ("C:/x/workflow/inbox/from-track-a/002-done.md", "C:/x/mail/inbox/a.md", "C:/x/src/a.md"):
         assert ngp.claim_calls(read(other)) == [], other
-
-
-def _tx_line(obj):
-    return json.dumps(obj, ensure_ascii=False) + "\n"
-
-
-QUEUED_PEER = {"type": "attachment", "attachment": {
-    "type": "queued_command", "commandMode": "prompt", "prompt": PEER_PROMPT,
-    "origin": "{'kind': 'peer', 'name': 'claude-aa'}"}}
-
-
-def test_mid_turn_peer_message_in_transcript_triggers_three_questions(world, tmp_path):
-    """工作中途送到的同伴訊息不經任何 hook，只記成 transcript 的 attachment queued_command：PostToolBatch 從上次位置往後掃到就送三問。"""
-    make_tree()
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text(_tx_line({"type": "user", "message": {"role": "user", "content": "先前的話"}}), encoding="utf-8")
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 3) == []                       # 第一次只記位置，不回溯
-    assert ng.load(SID)["peer_offset"] == tp.stat().st_size
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_tx_line({"type": "user", "message": {"role": "user", "content": "使用者打的一般訊息"}}))
-        f.write(_tx_line(QUEUED_PEER))
-    lines = ngp.peer_claim_lines(SID, str(tp), {}, 3)
-    assert len(lines) == 1 and "收到外部主張" in lines[0] and "claude-aa" in lines[0] and "成本是零" in lines[0]
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 3) == []                       # 同一則不重送
-
-
-def test_mid_turn_scan_plain_prompt_and_no_goal_file_do_nothing(world, tmp_path):
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text(_tx_line(QUEUED_PEER), encoding="utf-8")
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == [] and not ng.goal_path(SID).exists()   # 沒目標檔不掃
-    make_tree()
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == []                       # 第一次只記位置：開樹前就在的同伴訊息不回溯
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_tx_line({"type": "attachment", "attachment": {"type": "queued_command", "prompt": "使用者排隊打的字"}}))
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == []                       # 排隊的一般 prompt 不觸發
-
-
-def test_mid_turn_scan_caps_read_size_and_fails_soft(world, tmp_path, monkeypatch):
-    """一次最多讀 PEER_SCAN_CAP，超過只取最後一段並記 truncated；讀不到 → 不丟例外、stderr、目標檔記 peer_scan_error。"""
-    make_tree()
-    monkeypatch.setattr(ngp, "PEER_SCAN_CAP", 2000)
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text("", encoding="utf-8")
-    ngp.peer_claim_lines(SID, str(tp), {}, 1)
-    with open(tp, "a", encoding="utf-8") as f:
-        for i in range(60):
-            f.write(_tx_line({"type": "user", "message": {"role": "user", "content": f"雜訊 {i}"}}))
-        f.write(_tx_line(QUEUED_PEER))
-    lines = ngp.peer_claim_lines(SID, str(tp), {}, 1)
-    doc = ng.load(SID)
-    assert lines and doc["peer_scan_truncated"]["skipped"] > 0 and doc["peer_offset"] == tp.stat().st_size
-    assert ngp.peer_claim_lines(SID, str(tmp_path / "沒有這個檔.jsonl"), {}, 1) == []
-    assert "peer_scan_error" in ng.load(SID)
-
-
-def test_post_tool_batch_handler_sends_mid_turn_peer_claim(world, tmp_path):
-    make_tree()
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text("", encoding="utf-8")
-    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
-    inp = {"session_id": SID, "hook_event_name": "PostToolBatch", "transcript_path": str(tp),
-           "tool_calls": [{"tool_name": "Read", "tool_input": {}}]}
-    assert run_handler(ptb.handle_post_tool_batch, inp, {}) is None              # 第一批只記位置
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_tx_line(QUEUED_PEER))
-    out = run_handler(ptb.handle_post_tool_batch, inp, {})
-    assert out and "收到外部主張" in out["hookSpecificOutput"]["additionalContext"]
-
-
-def test_mid_turn_overlapping_scans_never_move_offset_back(world, tmp_path, monkeypatch):
-    """兩次掃描交錯：A 算好位置、還沒拿到鎖時，B 已經掃到更後面寫回。位置只往前，同一則同伴訊息只送一次。"""
-    make_tree()
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text("", encoding="utf-8")
-    ngp.peer_claim_lines(SID, str(tp), {}, 1)
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_tx_line(QUEUED_PEER))
-    real = ng.update_locked
-    other = []
-
-    def racing(sid, fn):
-        monkeypatch.setattr(ng, "update_locked", real)                         # B 用真的鎖完整跑一次
-        with open(tp, "a", encoding="utf-8") as f:
-            f.write(_tx_line({"type": "user", "message": {"role": "user", "content": "之後又多一行"}}))
-        other.extend(ngp.peer_claim_lines(SID, str(tp), {}, 1))
-        return real(sid, fn)
-
-    monkeypatch.setattr(ng, "update_locked", racing)
-    mine = ngp.peer_claim_lines(SID, str(tp), {}, 1)
-    assert ng.load(SID)["peer_offset"] == tp.stat().st_size                      # 沒倒退回 A 算的舊位置
-    assert len(mine + other) == 1                                                # 同一則只送一次
-
-
-def test_mid_turn_scan_transcript_shrunk_resets_explicitly(world, tmp_path):
-    """transcript 變短（換檔或被截）：位置明確重置到檔尾並記 peer_scan_reset，這一次不回溯；之後新到的照掃。"""
-    make_tree()
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text(_tx_line({"type": "user", "message": {"role": "user", "content": "x" * 300}}), encoding="utf-8")
-    ngp.peer_claim_lines(SID, str(tp), {}, 1)
-    old = ng.load(SID)["peer_offset"]
-    tp.write_text(_tx_line({"type": "user", "message": {"role": "user", "content": "短"}}), encoding="utf-8")
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 2) == []
-    doc = ng.load(SID)
-    assert doc["peer_offset"] == tp.stat().st_size
-    assert (doc.get("peer_scan_reset") or {}).get("from") == old
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_tx_line(QUEUED_PEER))
-    assert ngp.peer_claim_lines(SID, str(tp), {}, 2)
 
 
 # ─── 4.4 提問 ─────────────────────────────────────────────────────────────
@@ -580,44 +443,36 @@ def ask_with(text):
     return {"questions": [{**ASK["questions"][0], "question": text}]}
 
 
-def test_ask_code_tree_unlinked_is_blocked_with_nodes(world):
+def test_ask_code_tree_unlinked_is_logged_not_blocked(world):
+    """寫碼類、題目沒指到節點：ASK_LINKED_TO_GOAL 只記錄（ask_unlinked），不擋、不送（附了推薦就放行）。"""
     make_tree("code")
-    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
-    assert deny and "掛在目標樹哪個節點" in deny and "T1.1" in deny and hint is None
-    assert guard(world)[-1]["event"] == "ask_blocked"
-
-
-def test_ask_deny_reason_gives_fix_you_can_follow():
-    """D(1) 實測：AI 讀得到 deny 理由但不一定自己補 → 理由要給照做就能過的修法：建議掛哪個節點、怎麼寫進題目、不屬於任何節點怎麼辦。"""
-    make_tree("code")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
-    assert "照做：" in deny and "（掛 T1.1）" in deny and "need_goal(action=add" in deny
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3, **READ})
+    assert (deny, hint) == (None, None)
+    last = guard(world)[-1]
+    assert last["event"] == "ask_unlinked" and last["kind"] == "code" and last["owed"] is True
 
 
 def test_ask_deny_reason_points_to_reload_when_tool_missing():
-    """裁定 #23：叫不到 need_goal 工具（MCP 是舊的）的人照擋下訊息走不下去 → 提問閘的擋下訊息（含目標檔損毀）要指路。"""
+    """叫不到 need_goal 工具（MCP 是舊的）的人照擋下訊息走不下去 → 目標檔損毀的擋下訊息要指路。"""
     make_tree("code")
-    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
-    assert "掛在目標樹哪個節點" in deny and "Reload Window" in deny and hint is None   # 原因要對、是擋不是提示
     ng.goal_path(SID).write_text("{not json", encoding="utf-8")
     deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 4})
     assert deny and "目標檔壞了" in deny and "Reload Window" in deny and hint is None
 
 
 def test_batch_records_ask_audit_blocked_count_and_linked(world):
-    """PostToolBatch 對每次提問記一筆審計：這題被擋過幾次、最後有沒有掛上節點。"""
+    """PostToolBatch 對每次提問記一筆審計：這題被擋過幾次（沒推薦被擋）、最後有沒有掛上節點。"""
     make_tree("code")
-    state = {"turn_seq": 3}
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, state)
+    state = {"turn_seq": 3, **READ}
+    bad = ask_opts("要用哪個做法？", ["A", "B"])
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", bad, state)
     ngp.note_ask_blocked(state, deny)
-    ngp.mark_asked(state, "a1", ASK)
-    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "a1"}], CFG)
     ok = ask_with("T1.1 卡在這：要用哪個？")
     ngp.mark_asked(state, "a2", ok)
     ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ok, "tool_use_id": "a2"}], CFG)
     audits = [g for g in guard(world) if g["event"] == "ask_audit"]
-    assert [(a["blocked"], a["linked"]) for a in audits] == [(1, None), (1, "T1.1")]
-    assert state.get("need_goal_ask_blocks", 0) == 0                            # 掛上之後計數歸零
+    assert [(a["blocked"], a["linked"]) for a in audits] == [(1, "T1.1")]
+    assert state.get("need_goal_ask_blocks", 0) == 0                            # 過了之後計數歸零
 
 
 def test_ask_linked_passes_and_records_checkpoint():
@@ -628,16 +483,16 @@ def test_ask_linked_passes_and_records_checkpoint():
 
 
 def test_ask_dropped_or_foreign_node_does_not_count():
+    """指到不存在的節點不算掛上：不記 checkpoint。"""
     make_tree("code")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ask_with("T9.1 要用哪個？"), {"turn_seq": 1})
-    assert deny
+    assert ngp.on_ask(SID, "AskUserQuestion", ask_with("T9.1 要用哪個？"), {"turn_seq": 1, **READ}) == (None, None)
+    assert not tree_now()["checkpoints"]
 
 
-def test_ask_knowledge_tree_hints_only(world):
+def test_ask_knowledge_tree_logs_only(world):
     make_tree("knowledge")
-    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 1})
-    assert deny is None and hint and "記憶知識類不擋" in hint
-    assert guard(world)[-1]["event"] == "ask_hint"
+    assert ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 1, **READ}) == (None, None)
+    assert guard(world)[-1]["event"] == "ask_unlinked" and guard(world)[-1]["owed"] is False
 
 
 def test_ask_without_tree_or_closed_tree_hints_write_answer(world):
@@ -668,62 +523,11 @@ def test_cg1_regard_prompts_ask_critique_and_same_class():
     assert doc and ngp.CRITIQUE_QUESTIONS in doc and "定位" not in doc.split("\n", 1)[0], doc
 
 
-def test_cg1_handout_check_after_editing_plan_docs_once_per_turn(world):
-    """改了計畫類文件（memory/_staging、plans 下的 .md）＝接下來可能把計畫、開工句、清單交給使用者：送一次「還對得上最新計畫嗎、
-    剛改的影響哪些已給出的內容」；同一回合只送一次、下一回合再改再送；改程式檔不送。"""
-    state = {"turn_seq": 4}
-    staging = "C:/u/.claude/memory/_staging/v6-checklist.md"
-    line = ngp.handout_edit_line(state, SID, staging, 4)
-    assert line and ng.HANDOUT_CHECK in line and "v6-checklist.md" in line, line
-    assert ngp.handout_edit_line(state, SID, "C:/u/.claude/plans/p.md", 4) is None          # 同回合不再送
-    assert ngp.handout_edit_line(state, SID, "C:/u/.claude/plans/p.md", 5)                   # 下一回合再送
-    assert ngp.handout_edit_line({"turn_seq": 6}, SID, "C:/u/.claude/hooks/a.py", 6) is None  # 程式檔不送
-    assert ngp.handout_edit_line({"turn_seq": 6}, SID, "C:/u/.claude/_AIDocs/x.md", 6) is None  # 長期文件不算計畫類
-    assert guard(world)[-1]["event"] == "handout_check"
-
-
-def test_t110_handout_after_plan_edit_carries_tree_top_line(world):
-    """T1.10：改計畫類文件時眼前沒有樹，叫 AI 先對原話就要把樹最上面那句附上；收尾檢核收下那句同一支函式。"""
-    make_tree()
-    line = ngp.handout_edit_line({"turn_seq": 4}, SID, "C:/u/.claude/memory/_staging/next-phase-x.md", 4)
-    assert line and ng.HANDOUT_CHECK in line and "目標樹最上面那句（T1，AI 照原話寫的解讀）：「把目標送回眼前」" in line, line
-    assert "使用者原話（第 1 回合）：「使用者原話」" in line
-
-
-def test_cg1_post_tool_use_edit_of_plan_doc_returns_handout_check(world, tmp_path):
-    """PostToolUse（Edit）改到 _staging 的 .md：need_goal 那段回「交出前一問」並標 state 有變（要落盤記回合）。"""
-    from handlers import post_tool_use as pt
-    p = tmp_path / "memory" / "_staging" / "plan.md"
-    p.parent.mkdir(parents=True)
-    p.write_text("x\n", encoding="utf-8")
-    state = {"turn_seq": 3}
-    text, changed = pt._need_goal_after_tool(state, SID, "Edit", {"file_path": str(p)}, {"cwd": str(tmp_path)}, {})
-    assert text and ng.HANDOUT_CHECK in text and changed, text
-
-
-def test_cg1_ask_message_carries_handout_check():
-    """提問（含交計畫）被擋或提醒時，訊息帶「還對得上最新計畫嗎、剛改的影響哪些已給出的內容」。"""
-    make_tree("code")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
-    assert deny and ng.HANDOUT_CHECK in deny
-
-
 def _release_q():
     """真的放行題：題目含標記、選項正好是 wg_release 固定的兩個（C-G16 起豁免看結構，不只看標記）。"""
     return {"questions": [{"question": f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？", "header": "放行", "multiSelect": False,
                            "options": [{"label": wg_release.OPT_RELEASE, "description": "放"},
                                        {"label": wg_release.OPT_KEEP, "description": "擋"}]}]}
-
-
-def test_release_tag_exempt_only_with_real_pending():
-    make_tree("code")
-    q = _release_q()
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2})
-    assert deny                                                               # 光加標記不算
-    state = {"turn_seq": 2}
-    wg_release.mark_block(state, SID, "reconcile", None, 2)
-    wg_release.set_pending(state, SID, "reconcile", 2, "now", "擋滿")
-    assert ngp.on_ask(SID, "AskUserQuestion", q, state) == (None, None)
 
 
 def test_release_pending_any_needs_same_gate_block_and_pending():
@@ -741,39 +545,45 @@ def test_release_pending_any_needs_same_gate_block_and_pending():
 
 
 def test_exit_plan_mode_reads_plan_field_and_plan_file(tmp_path):
+    """交計畫：從 plan 欄或計畫檔找節點，掛上記 checkpoint；沒有計畫正文不擋（掛節點只記錄）。"""
     make_tree("code")
     assert ngp.on_ask(SID, "ExitPlanMode", {"plan": "對準 T1.1 的計畫"}, {})[0] is None
-    assert ngp.on_ask(SID, "ExitPlanMode", {}, {})[0]                           # 沒有計畫正文 → 擋
+    assert tree_now()["checkpoints"][-1]["node"] == "T1.1"
+    assert ngp.on_ask(SID, "ExitPlanMode", {}, {})[0] is None
     plan = tmp_path / "plans" / "p.md"
     plan.parent.mkdir()
     plan.write_text("# 計畫\n服務 T1.2：先改 A 再改 B", encoding="utf-8")
     assert ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": [{"path": str(plan)}]})[0] is None
+    assert tree_now()["checkpoints"][-1]["node"] == "T1.2"
     assert ngp.on_ask(SID, "ExitPlanMode", {"planFilePath": str(plan)}, {})[0] is None
 
 
 def test_exit_plan_mode_picks_most_recently_edited_plan(tmp_path):
-    """modified_files 改到既有的檔只更新 last_seq、不換位置：要照 last_seq 挑最近改的計畫，不是照清單順序（codex P2）。"""
+    """modified_files 改到既有的檔只更新 last_seq、不換位置：要照 last_seq 挑最近改的計畫，不是照清單順序。"""
     make_tree("code")
     a, b = tmp_path / "plans" / "a.md", tmp_path / "plans" / "b.md"
     a.parent.mkdir()
     a.write_text("新計畫：服務 T1.1", encoding="utf-8")
     b.write_text("舊計畫：沒寫節點", encoding="utf-8")
     mods = [{"path": str(a), "last_seq": 9}, {"path": str(b), "last_seq": 4}]   # 先建 A、再建 B、回頭又改 A
-    assert ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": mods})[0] is None
+    ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": mods})
+    assert len(tree_now()["checkpoints"]) == 1
     mods = [{"path": str(a), "last_seq": 2}, {"path": str(b), "last_seq": 4}]
-    assert ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": mods})[0]
+    ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": mods})
+    assert len(tree_now()["checkpoints"]) == 1                                  # 挑到 B：沒節點、不記
 
 
 def test_asks_after_skips_handled_and_hints_unhandled(world):
     make_tree("code")
-    state = {"turn_seq": 6}
-    ngp.mark_asked(state, "tu1", ASK)
-    calls = [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "tu1"}]
+    state = {"turn_seq": 6, **READ}
+    nr = ask_opts("另一題", ["A", "B"])
+    ngp.mark_asked(state, "tu1", nr)
+    calls = [{"tool_name": "AskUserQuestion", "tool_input": nr, "tool_use_id": "tu1"}]
     assert ngp.batch_lines(SID, state, calls, CFG) == []                       # PreToolUse 處理過
-    calls2 = [{"tool_name": "AskUserQuestion", "tool_input": ask_with("另一題"), "tool_use_id": "tu2"}]
+    calls2 = [{"tool_name": "AskUserQuestion", "tool_input": ask_opts("再一題", ["A", "B"]), "tool_use_id": "tu2"}]
     lines = ngp.batch_lines(SID, state, calls2, CFG)
-    assert len(lines) == 1 and "事後提醒" in lines[0]                          # 沒攔到 → 事後提醒、不擋
-    assert [g for g in guard(world) if g["event"] == "ask_hint"][-1]["mode"] == "after"   # 之後還會多一筆 ask_audit
+    assert len(lines) == 1 and "ASK_NEEDS_RECOMMENDATION" in lines[0]          # 沒攔到 → 事後提醒、不擋
+    assert [g for g in guard(world) if g["event"] == "ask_no_recommendation"][-1]["mode"] == "after"
     assert ngp.batch_lines(SID, state, calls2, CFG) == []                      # 同一題不重複提醒
 
 
@@ -785,20 +595,21 @@ def _pre_input(tool_input, tid="tu1", tool="AskUserQuestion"):
 
 
 def test_pre_tool_use_handler_blocks_then_passes_and_marks(world):
-    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, **READ})
     make_tree("code")
-    out = run_handler(ptu.handle_pre_tool_use, _pre_input(ASK, "tu1"), {})
-    assert out, "PreToolUse 沒擋沒掛節點的提問"
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny" and "T1.1" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "tu1"), {})
+    assert out, "PreToolUse 沒擋沒推薦的提問"
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "ASK_NEEDS_RECOMMENDATION" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_with("T1.1：要用哪個？"), "tu2"), {}) is None
     assert {"tu1", "tu2"} <= set(wg_core.read_state(SID)["need_goal_asks"])
 
 
 def test_ask_block_count_flows_from_pre_tool_use_to_batch_audit(world):
-    """真 hook 入口串起來：PreToolUse 擋一次 state 計數 1；掛上節點那題在 PostToolBatch 審計記「擋過 1 次、掛 T1.1」並歸零。"""
-    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
+    """真 hook 入口串起來：PreToolUse 擋一次 state 計數 1；補上推薦那題在 PostToolBatch 審計記「擋過 1 次、掛 T1.1」並歸零。"""
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, "turn_intent": "feature", **READ})
     make_tree("code")
-    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ASK, "tu1"), {})
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "tu1"), {})
     assert wg_core.read_state(SID).get("need_goal_ask_blocks") == 1
     ok = ask_with("T1.1：要用哪個？")
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ok, "tu2"), {}) is None
@@ -812,10 +623,10 @@ def test_ask_block_count_flows_from_pre_tool_use_to_batch_audit(world):
 def test_pre_tool_use_handler_knowledge_hint_and_subagent_skip(world):
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 1})
     make_tree("knowledge")
-    out = run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), {})
-    assert out, "知識類提問沒有提示"
-    assert "記憶知識類不擋" in out["hookSpecificOutput"]["additionalContext"]
-    assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(ASK), "agent_id": "a1"}, {}) is None
+    bad = ask_opts("要先查哪一份？", ["A", "B"])
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(bad), {})
+    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "agent_id": "a1"}, {}) is None   # 子代理不查
 
 
 def _broken_points(monkeypatch):
@@ -868,11 +679,12 @@ def _layered_proj(base, enabled):
 
 
 def test_ask_gate_root_off_project_on_still_blocks(world, tmp_path):
-    """根層關、專案層開：提問閘照這次的 cwd 解四層設定，專案開著就要攔沒掛節點的提問。"""
+    """根層關、專案層開：提問閘照這次的 cwd 解四層設定，專案開著就要攔沒推薦的提問。"""
     root = _layered_proj(tmp_path, True)
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
     make_tree("code")
-    out = run_handler(ptu.handle_pre_tool_use, {**_pre_input(ASK), "cwd": str(root)}, ROOT_OFF)
+    bad = ask_opts("要用哪個做法？", ["A", "B"])
+    out = run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "cwd": str(root)}, ROOT_OFF)
     assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
@@ -881,66 +693,49 @@ def test_ask_gate_root_on_project_off_does_not_block(world, tmp_path):
     root = _layered_proj(tmp_path, False)
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
     make_tree("code")
-    assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(ASK), "cwd": str(root)}, {}) is None
+    bad = ask_opts("要用哪個做法？", ["A", "B"])
+    assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "cwd": str(root)}, {}) is None
 
 
 @pytest.mark.parametrize("enabled,config", [(True, ROOT_OFF), (False, {})])
 def test_batch_and_resume_entries_follow_project_layer(world, tmp_path, enabled, config):
-    """批次審計（PostToolBatch 事後提醒）、壓縮後重送、工作中途同伴訊息補掃、UPS 同伴訊息三問：都照這次的 cwd 解設定。
-    根關專案開 → 照做；根開專案關 → 都不做。"""
+    """批次審計（PostToolBatch 事後提醒）、壓縮後重送：都照這次的 cwd 解設定。根關專案開 → 照做；根開專案關 → 都不做。"""
     root = _layered_proj(tmp_path, enabled)
     make_tree("code")
-    wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 2})
+    wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 2, "turn_intent": "feature", **READ})
     inp = {"session_id": SID, "hook_event_name": "PostToolBatch", "cwd": str(root),
-           "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "lay1"}]}
+           "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ask_opts("要哪個？", ["A", "B"]),
+                           "tool_use_id": "lay1"}]}
     ctx = ((run_handler(ptb.handle_post_tool_batch, inp, config) or {}).get("hookSpecificOutput") or {}).get(
         "additionalContext", "")
-    assert ("事後提醒" in ctx) is enabled
+    assert ("ASK_NEEDS_RECOMMENDATION" in ctx) is enabled
     assert bool(ngp.recovery_text(SID, config, str(root))) is enabled
-    tp = tmp_path / "tx.jsonl"
-    tp.write_text("", encoding="utf-8")
-    ngp.peer_claim_lines(SID, str(tp), config, 2, str(root))
-    tp.write_text(_tx_line(QUEUED_PEER), encoding="utf-8")
-    assert bool(ngp.peer_claim_lines(SID, str(tp), config, 2, str(root))) is enabled
-
-
-@pytest.mark.parametrize("enabled,config", [(True, ROOT_OFF), (False, {})])
-def test_ups_peer_claim_follows_project_layer(world, tmp_path, monkeypatch, enabled, config):
-    """UserPromptSubmit 的同伴訊息三問也照這次的 cwd 解設定。"""
-    from handlers import user_prompt_submit as ups
-    root = _layered_proj(tmp_path, enabled)
-    make_tree("code")
-    state = {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 4}
-    outputs = []
-    monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
-    for name, fake in (("_ups_sentinel_check_and_arm", lambda *a: None), ("_ups_sentinel_clear", lambda sid: None),
-                       ("run_pre_gates", lambda *a: None), ("build_context", lambda *a: None),
-                       ("collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {})),
-                       ("assemble_injection", lambda *a, **k: ([], {})), ("_maybe_spawn_failure_extraction", lambda *a: None),
-                       ("_update_topic_tracker", lambda *a: None),
-                       ("_truncate_context_by_activation", lambda lines, *a: lines),
-                       ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
-                       ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):
-        monkeypatch.setattr(ups, name, fake)
-    ups.handle_user_prompt_submit({"session_id": SID, "prompt": PEER_PROMPT, "transcript_path": "", "cwd": str(root)},
-                                  {"sync_keywords": [], **config})
-    ctx = ((outputs[-1] or {}).get("hookSpecificOutput") or {}).get("additionalContext", "") if outputs else ""
-    assert ("收到外部主張" in ctx) is enabled
-    assert bool(ng.cfg_for_cwd(config, ng.hook_cwd({}, state))["enabled"]) is enabled    # 輸入沒 cwd 用 state 記的
 
 
 def test_post_tool_batch_handler_emits_scope_and_after_ask(world):
     make_tree("code")
     ngp.scope_growth_line(SID, "c:/p|a", CFG)
     ngp.scope_growth_line(SID, "c:/p|b", CFG)
-    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2, "need_goal_batch": True})
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2, "need_goal_batch": True, "turn_intent": "feature",
+                              **READ})
     inp = {"session_id": SID, "hook_event_name": "PostToolBatch",
-           "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "tu9"}]}
+           "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ask_opts("要哪個？", ["A", "B"]),
+                           "tool_use_id": "tu9"}]}
     out = run_handler(ptb.handle_post_tool_batch, inp, {})
     assert out, "PostToolBatch 沒送需求目標提醒"
     ctx = out["hookSpecificOutput"]["additionalContext"]
-    assert "讀入範圍變大" in ctx and "事後提醒" in ctx
+    assert "讀入範圍變大" in ctx and "ASK_NEEDS_RECOMMENDATION" in ctx
     assert "need_goal_batch" not in wg_core.read_state(SID)
+
+
+def test_post_tool_batch_plain_qa_turn_skips_need_goal_lines(world):
+    """規則 CODING_TURN_ONLY：不是寫碼回合（沒有寫碼意圖、也還沒改程式），PostToolBatch 不送目標樹那段。"""
+    make_tree("code")
+    ngp.scope_growth_line(SID, "c:/p|a", CFG)
+    ngp.scope_growth_line(SID, "c:/p|b", CFG)
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2, "need_goal_batch": True, **READ})
+    inp = {"session_id": SID, "hook_event_name": "PostToolBatch", "tool_calls": [{"tool_name": "Read", "tool_input": {}}]}
+    assert run_handler(ptb.handle_post_tool_batch, inp, {}) is None
 
 
 def test_post_tool_batch_idle_without_anything(world):
@@ -1033,10 +828,10 @@ def test_scope_on_read_skips_files_in_temp_copies(tmp_path, monkeypatch):
 
 
 def test_post_tool_use_read_records_parts_and_dirs_with_hub_on(proj, tmp_path, monkeypatch):
-    """OverviewHub 開著：行為跟以前一樣，第二個部位起排進待送、跨 3 個頂層目錄排一次，導讀卡照樣注入。"""
+    """OverviewHub 開著（寫碼回合）：第二個部位起排進待送、跨 3 個頂層目錄排一次，導讀卡照樣注入。"""
     make_tree()
     cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 2, "session": {"id": SID, "cwd": str(proj)}}
+    state = {"turn_seq": 2, "turn_intent": "feature", "session": {"id": SID, "cwd": str(proj)}}
     ctx = _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Battle/A.cs"), str(proj), cfg)
     assert ctx and "戰鬥導讀" in ctx and not state.get("need_goal_batch")   # 第一個部位、第一個目錄：不排
     _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Net/B.cs"), str(proj), cfg)
@@ -1251,10 +1046,9 @@ def test_need_goal_entries_resolve_config_by_cwd(rel):
 
 
 @pytest.mark.parametrize("rel,name,nargs", [("handlers/post_compact.py", "recovery_text", 3),
-                                            ("handlers/session_start.py", "recovery_text", 3),
-                                            ("handlers/post_tool_batch.py", "peer_claim_lines", 5)])
+                                            ("handlers/session_start.py", "recovery_text", 3)])
 def test_resume_entries_pass_cwd(rel, name, nargs):
-    """壓縮後重送、工作中途補掃在模組裡解設定：入口要把這次的 cwd 傳下去。"""
+    """壓縮後重送在模組裡解設定：入口要把這次的 cwd 傳下去。"""
     calls = _calls(HOOKS_DIR / rel, name)
     assert calls and all(len(c.args) + len(c.keywords) >= nargs for c in calls), f"{rel} 呼叫 {name} 沒帶 cwd"
 
@@ -1302,12 +1096,12 @@ def test_c_g16_ask_without_recommendation_blocked_then_recommended_passes(world)
 
 @pytest.mark.parametrize("kind", [None, "knowledge"])
 def test_c_g16_ask_recommendation_applies_without_tree_or_knowledge(world, kind):
-    """推薦與樹無關：沒有樹、記憶知識類的樹，沒推薦一樣擋；擋訊息併入原本的提示（沒樹提醒寫目標、知識類掛節點提醒）。"""
+    """推薦與樹無關：沒有樹、記憶知識類的樹，沒推薦一樣擋；沒樹時擋訊息併入「問完寫目標」提醒。"""
     if kind:
         make_tree(kind)
     deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("要先查哪一份？", ["A", "B"]), {"turn_seq": 1, **READ})
     assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and hint is None
-    assert (ngp.NO_TREE_HINT in deny) if kind is None else ("記憶知識類不擋" in deny)
+    assert (ngp.NO_TREE_HINT in deny) is (kind is None)
 
 
 def test_c_g16_release_question_exempt_from_recommendation(world):
@@ -1336,8 +1130,9 @@ def test_c_g16_ask_code_tree_links_by_node_text_fragment(world):
     ngp.mark_asked(state, "f1", q)
     ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": q, "tool_use_id": "f1"}], CFG)
     assert [g["linked"] for g in guard(world) if g["event"] == "ask_audit"] == ["T1.1"]
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ask_opts("為了「匯出功能支援」這件事？", ["A (Recommended)"]), state)
-    assert deny and "ASK_LINKED_TO_GOAL" in deny                                 # 7 字不夠：照擋、印規則名
+    n = len(tree_now()["checkpoints"])
+    assert ngp.on_ask(SID, "AskUserQuestion", ask_opts("為了「匯出功能支援」這件事？", ["A (Recommended)"]), state) == (None, None)
+    assert len(tree_now()["checkpoints"]) == n                                   # 7 字不夠：不算掛上（只記錄）
 
 
 def test_c_g16_ask_audit_notes_unlinked_knowledge(world):
@@ -1373,17 +1168,10 @@ def test_c_g16_overview_reminder_rides_on_message_not_own_block(world):
     deny, hint = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2})
     assert deny is None and hint and "先讀過部位檔再問" in hint and "ASK_OVERVIEW_BEFORE_DECISION" in hint
     assert ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2, **READ}) == (None, None)
-    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("要用哪個改法？", ["A (Recommended)"]), {"turn_seq": 2})
-    assert deny and "掛在目標樹哪個節點" in deny and "先讀過部位檔再問" in deny and hint is None
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("要用哪個改法？", ["A"]), {"turn_seq": 2})
+    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and "先讀過部位檔再問" in deny and hint is None
     deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("T1.1 今天先做哪一軌？", ["A (Recommended)"]), {"turn_seq": 2})
     assert (deny, hint) == (None, None)                                          # 不是改法選擇
-
-
-def test_c_g16_link_deny_names_rule():
-    """既有的掛節點擋訊息也印規則名。"""
-    make_tree("code")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3, **READ})
-    assert "ASK_LINKED_TO_GOAL" in deny and "（掛 T1.1）" in deny
 
 
 def test_c_g16_after_mode_hints_missing_recommendation(world):
@@ -1402,22 +1190,12 @@ def _two_q(q1, q2, header="h"):
 
 
 def test_c_g16_link_checked_per_question(world):
-    """codex BLOCK 1：一題掛上不能帶過同批其他題；擋訊息點名沒掛的那一題。每題都掛上才過。"""
+    """一題掛上不能帶過同批其他題：有一題沒掛就不算掛上（不記 checkpoint、記 ask_unlinked）；每題都掛上才記。"""
     make_tree("code")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", _two_q("T1.1 要哪種格式？", "保留多久？"), {"turn_seq": 3, **READ})
-    assert deny and "ASK_LINKED_TO_GOAL" in deny and "第 2 題「保留多久？」" in deny
+    assert ngp.on_ask(SID, "AskUserQuestion", _two_q("T1.1 要哪種格式？", "保留多久？"), {"turn_seq": 3, **READ}) == (None, None)
+    assert not tree_now()["checkpoints"] and guard(world)[-1]["event"] == "ask_unlinked"
     assert ngp.on_ask(SID, "AskUserQuestion", _two_q("T1.1 要哪種格式？", "T1.2 保留多久？"), {"turn_seq": 3, **READ}) == (None, None)
-
-
-def test_c_g16_header_does_not_count_as_link(world):
-    """codex WARN：只有 header 寫了節點編號不算（判準是題目或選項描述）；選項描述寫了算。"""
-    make_tree("code")
-    q = ask_opts("要哪種格式？", ["CSV (Recommended)", "JSON"])
-    q["questions"][0]["header"] = "T1.1"
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 3, **READ})
-    assert deny and "ASK_LINKED_TO_GOAL" in deny
-    q["questions"][0]["options"][0]["description"] = "對準 T1.1"
-    assert ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 3, **READ}) == (None, None)
+    assert tree_now()["checkpoints"]
 
 
 def _pending_state():
@@ -1428,7 +1206,7 @@ def _pending_state():
 
 
 def test_c_g16_release_exemption_does_not_cover_other_questions(world):
-    """codex BLOCK 2：真有待放行紀錄時，放行題豁免只管放行題本身；同批的一般題照查推薦與掛目標，標記塞進一般題也不豁免。"""
+    """真有待放行紀錄時，放行題豁免只管放行題本身；同批的一般題照查推薦，標記塞進一般題也不豁免。"""
     make_tree("code")
     mixed = _release_q()
     mixed["questions"].append({"question": "要哪種格式？", "header": "h", "multiSelect": False,
@@ -1437,7 +1215,7 @@ def test_c_g16_release_exemption_does_not_cover_other_questions(world):
     assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and "第 2 題" in deny and "第 1 題「" not in deny
     smuggled = ask_opts(f"{wg_release.RELEASE_TAG} 要哪種格式？", ["CSV", "JSON"])
     deny, _ = ngp.on_ask(SID, "AskUserQuestion", smuggled, _pending_state())
-    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and "ASK_LINKED_TO_GOAL" in deny
+    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny
     assert ngp.on_ask(SID, "AskUserQuestion", _release_q(), _pending_state()) == (None, None)
 
 

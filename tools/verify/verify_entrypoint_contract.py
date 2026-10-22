@@ -535,7 +535,6 @@ def test_subagent_stop_gets_card_but_judge_does_not(tmp_path, monkeypatch, logs)
     reason = "[Guardian:ReconcileGate] 寫碼查核\n✗ (a) CLAIM_FIXED_NEEDS_PASS：說修好但沒有改後跑綠的收據"
     blocks = []
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (reason, None, "reconcile", None))
-    monkeypatch.setattr(st, "_unknown_write_reason", lambda unknown: "")
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(st, "output_block", blocks.append)

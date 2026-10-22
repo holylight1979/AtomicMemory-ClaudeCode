@@ -324,7 +324,7 @@ const TOOL_DEFINITIONS = [
     description:
       "結構化提交收尾檢核 (a)–(k)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
       "動 core 檔並宣告完成時由 Stop 閘要求。收尾只交這一份：report 寫給讀者的白話全文（做了什麼／驗了什麼／沒做什麼／追蹤項，" +
-      "以讀者看得懂為先；工作軌照貼成交付信），給了 report 時 e／f／g 可省；要記的知識放 harvest_items（同 knowledge_harvest_report 的 items，" +
+      "以讀者看得懂為先），給了 report 時 e／f／g 可省；要記的知識放 harvest_items（同 knowledge_harvest_report 的 items，" +
       "不必另呼叫）。其餘欄必填（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
       "順序：先把值得留的知識 atom_write 寫完、再呼叫本 tool——報告是收尾檢核不是待辦清單，" +
       "(d)「尚未寫／見下一動」或 (h)「下一動＝寫 atom」會被 Stop 擋回、要求補寫後重新提交。" +
@@ -332,7 +332,7 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: "object",
       properties: {
-        report: { type: "string", description: "收尾全文，寫給沒看執行過程的讀者：做了什麼、驗了什麼（附數字或收據）、沒做什麼、追蹤項；白話、不預設欄位。給了它 e／f／g 可省（寫進這份裡）。工作軌：這份原文就是交付信，照貼進 SendMessage" },
+        report: { type: "string", description: "收尾全文，寫給沒看執行過程的讀者：做了什麼、驗了什麼（附數字或收據）、沒做什麼、追蹤項；白話、不預設欄位。給了它 e／f／g 可省（寫進這份裡）" },
         harvest_items: { type: "array", description: "知識收割清單（選填，格式同 knowledge_harvest_report 的 items；交了就不必另呼叫那支，(d) 可寫「見收割報告」）", items: { type: "object" } },
         a: { type: "string", description: "缺失發現與修補清單（`- 檔:行 — 改了什麼`）；無則「無」。必寫" },
         b: { type: "string", description: "AI 逃避通報（忽略/偷埋現象）；僅發生時填、否則「無」" },
@@ -523,19 +523,20 @@ const TOOL_DEFINITIONS = [
       "看得出的子目標同一次放 items，不必再叫 add）；" +
       "add＝之後再長子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
       "update＝改節點文字／狀態／清楚度（改了程式之後的進度收尾時程式自動記，不必為此呼叫；要寫自己的判斷再用，why 選填）；" +
-      "reconcile＝交付前的完整對照（每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
+      "reconcile＝完整對照（選用：交付時程式照收據代填，改動之後有綠收據的節點標達成、沒有的標部分；要寫自己的判斷或替「部分／沒有」補 followup 再呼叫。" +
+      "每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
       "寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案／卡片／推論不算試過），" +
       "實測只能配收據（ref 寫 latest 由程式填最近一筆綠的，不必先 read 查號碼；之後改了程式又跑綠會自動換新）且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note；" +
       "達成可附 same_class：同類別處還有沒有）；" +
       "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
-      "verify_scope＝宣告這次的驗證範圍：改了程式之後由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
+      "verify_scope＝宣告這次的驗證範圍（改程式的那一回合會問一次）：由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
       "items=[{target, why, inputs?, depends?}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關；" +
       "inputs 是這一項還讀的非程式檔或資料夾，改了它們這一項要重跑；depends 是這一項用到的程式檔或資料夾，" +
       "宣告了就只有改到它們（或這一項自己、case_for 列的、conftest）才要重跑，沒宣告則任何程式改動都要重跑）；每次宣告是完整範圍，" +
       "收尾前範圍內每一項都要在最後一次改動之後跑綠（部位表整把量尺只當參考）；有待檢討的範圍漏判時附 reviews 逐筆檢討。" +
       "每個改過的程式檔要由你宣告由哪個案例驗：驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for 列它；" +
       "真的不需要新案例就寫進 no_case=[{path, reason}]，收尾時照【收尾放行確認】問使用者、題目帶理由。" +
-      "寫碼類任務沒有樹不能改程式；改了程式要回頭對照；宣告完成、交收尾檢核、commit 前要有完整對照。" +
+      "寫碼類任務沒有樹不能改程式。" +
       "本 tool 只驗參數回 chip、不寫檔（one-writer：目標檔、編號、送回的樹由 Python PostToolUse 獨佔）。",
     inputSchema: {
       type: "object",

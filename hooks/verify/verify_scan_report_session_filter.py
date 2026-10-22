@@ -55,6 +55,7 @@ def driven(monkeypatch):
             "failing_tests": [],
             "recent_user_prompts": [],
             "stop_blocked_count": 0,
+            "turn_intent": "feature",   # 寫碼回合才查收尾檢核（CODING_TURN_ONLY）
         }
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)

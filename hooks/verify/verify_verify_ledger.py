@@ -591,8 +591,8 @@ def _measure_gate_on(receipts, tmp_path):
 
 
 def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
-    """前段 `指令 > $null 2>&1` 補空白到 200 字、尾段 `; Write-Output "VERIFY_CHECK DONE …"`，經 PostToolUse 落帳 → 驗證範圍閘不認；
-    誠實的長指令（超過 200 字、指令在最後）經同一條路 → 認得。舊碼收據只存前 200 字，假的變成只剩指令而被認。"""
+    """超過 200 字的指令經 PostToolUse 落帳整條存下（cmd_full）。驗證範圍要的是宣告的那條指令：輸出丟進 $null 再另印一行
+    不是同一條指令（比對，不是防偽造），不認；誠實的長指令認得。"""
     head = "python -X utf8 run_verify.py > $null 2>&1"
     fake = head + " " * (200 - len(head)) + '; Write-Output "VERIFY_CHECK DONE cases=1 failed=0"'
     honest = '$env:WG_CLAUDE_DIR="C:\\' + "x" * 190 + '"; python -X utf8 run_verify.py'
@@ -602,8 +602,6 @@ def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
         assert (reason is not None) is blocked, (cmd[:40], reason)
         rec = state["verify_receipts"][_SID][-1]
         assert len(cmd) > 200 and rec["cmd"] == cmd and rec["cmd_full"] is True
-    assert "參數裡寫了哨兵字樣" in _measure_gate_on(_drive(monkeypatch, tmp_path, "PowerShell", fake, _DONE_OUT)
-                                             ["verify_receipts"][_SID], tmp_path)
 
 
 def test_017_legacy_truncated_receipt_is_not_evidence(tmp_path):

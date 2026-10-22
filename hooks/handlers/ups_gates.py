@@ -16,10 +16,8 @@ from typing import Any, Dict, List
 
 from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled, WORKFLOW_DIR
 from wg_extraction import detect_signal, extract_veto_hints, extract_veto_question, settle_pending_veto
-from wg_release_rules import is_dispatch_message
 from wg_evasion import is_dismiss_prompt
 from handlers._shared import entry_note, with_note
-from harness_text import peer_message_bodies   # lib/（wg_core 已把它放進 sys.path）
 
 # Ollama client（dispatcher 已加 tools/ 到 sys.path）；用本檔位置推樹根，不用 Path.home()
 _TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
@@ -84,15 +82,7 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
         state["user_turn_count"] = int(state.get("user_turn_count", 0) or 0) + 1
 
     if not typed:
-        # 規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息（首行「派工」或含 to-track- 派工檔路徑）開新回合。
-        # 工作 session 整場只在開工句打過一次字，之後每封派工都該是新回合（預算、PASS 窗口、收割冷卻才會重算）；
-        # 它不是使用者原話，turn_prompts 照樣不收（口令不認）。一般同伴訊息、背景通知只開續跑回合。
-        if is_dispatch_message(peer_message_bodies(clean_prompt)):
-            state["turn_prompts"] = []
-            state["turn_typed"] = False
-            _new_turn()
-            state["turn_open"] = True
-            return
+        # 同伴訊息、背景通知只開續跑回合（回合只由使用者打字開，規則 TURN_SINCE_USER_PROMPT）
         spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
         if not has_list or (not state.get("turn_open") and spent):
             state["turn_prompts"] = []

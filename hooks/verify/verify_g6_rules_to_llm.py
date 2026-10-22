@@ -114,17 +114,17 @@ def test_quoted_declaration_in_prose_is_not_an_answer(logs):
 
 
 def test_question_moment_logs_guard_entry_for_each_new_entry(logs):
-    """問的那一刻（entry_note）認得出切入點、記 guard-entry ask：E38、E39、E09（收割豁免寫法）、E40、E41。"""
+    """問的那一刻（entry_note）認得出切入點、記 guard-entry ask：E38、E39、E40、E41。"""
     asks = {
         "user_prompt": [wf.correction_question(["不對"]), wex.extract_veto_question(["否"], [{"statement": "s"}])],
-        "stop_piggyback": [wh.harvest_block_message() + "\n" + rr.waiver_hint("收割")],
+        "stop_piggyback": [wh.harvest_block_message()],
         "mcp_reply": ["衝突待宣告（這次不寫檔）：x", "atom_write: realm gate …\n" + rg.LITERAL_HINT],
     }
     for path, texts in asks.items():
         for t in texts:
             ep.entry_note(t, path, session_id=SID, state={}, pool=[])
     got = {p["entry"] for g, p in logs if g == "entry" and p.get("event") == "ask"}
-    assert {"E38", "E39", "E09", "E40", "E41"} <= got
+    assert {"E38", "E39", "E40", "E41"} <= got
 
 
 def test_correction_question_is_entrypoint_e38():
@@ -227,93 +227,70 @@ def test_veto_declarations_and_undeclared_ledger(logs):
     assert "extract_veto_pending" not in state and _events(logs, "extract_veto")[-1]["event"] == "undeclared"
 
 
-# ─── 3. HARVEST_WAIVER_ITEMIZED ──────────────────────────────────────────────
+# ─── 3. 收割與收尾檢核的使用者豁免：dismiss 詞整批放行、留帳 ────────────────────
 
 _HCFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3,
                      "background": False}}   # 測擋下與豁免這條路（背景收割關掉或送不出去時走它）
 
 
 def _hstate(**kw):
-    s = {"modified_files": [{"path": CORE, "session_id": SID}], "recent_user_prompts": ["測試那支先這樣，其他照做"], "turn_seq": 5}
+    s = {"modified_files": [{"path": CORE, "session_id": SID}], "recent_user_prompts": ["測試那支先這樣，其他照做"], "turn_seq": 5,
+         "turn_intent": "feature"}
     s.update(kw)
     return s
 
 
-def test_dismiss_word_no_longer_skips_harvest(logs):
-    """會紅：舊碼近 3 則有「先這樣」就整個不擋收割。現在照擋，擋訊息附豁免寫法。"""
-    s = _hstate()
-    msg = wh.harvest_gate_reason(s, SID, DONE, _HCFG, s["modified_files"], 5)
-    assert msg and "[Guardian:KnowledgeHarvest]" in msg and "不做｜收割：使用者說「" in msg
-    assert "E09" in [r["id"] for r in ep.match_entries(msg, "stop_piggyback")]
-
-
-def test_cited_waiver_releases_harvest_and_reports(logs):
+def test_dismiss_word_waives_harvest_and_reports(logs):
+    """近 3 則有 dismiss 詞（先這樣）：收割整批放行，回報那一則原話給呼叫端留帳；不用寫不做行引用。"""
     s = _hstate(recent_user_prompts=["收割先這樣，下班了"])
     waived = []
-    assert wh.harvest_gate_reason(s, SID, DONE + "\n不做｜收割：使用者說「收割先這樣」", _HCFG,
-                                  s["modified_files"], 5, waived=waived) is None
-    assert waived and waived[0]["quote"] == "收割先這樣"
-
-
-def test_waiver_for_one_card_is_not_a_harvest_waiver(logs):
-    """codex 獨立審：使用者說略過「收割規則卡」→ 事項是那張卡，不等於整個收割；收割閘照擋。"""
-    s = _hstate(recent_user_prompts=["略過收割規則卡，其他照做"])
-    assert wh.harvest_gate_reason(s, SID, DONE + "\n不做｜收割規則卡：使用者說「略過收割規則卡」", _HCFG, s["modified_files"], 5)
-    assert wh.harvest_gate_reason(s, SID, DONE + "\n不做｜知識收割：使用者說「略過收割規則卡」", _HCFG, s["modified_files"], 5) is None
+    assert wh.harvest_gate_reason(s, SID, DONE, _HCFG, s["modified_files"], 5, waived=waived) is None
+    assert waived and waived[0]["item"] == "收割" and waived[0]["quote"] == "收割先這樣，下班了"
 
 
 def test_waiver_quote_not_in_user_words_still_blocks(logs):
-    """反例：引用的原句不在近 3 則使用者原話裡 → 照擋。"""
+    """反例：近 3 則沒有 dismiss 詞 → 照擋（AI 自己寫的不做行不算豁免）。"""
     s = _hstate(recent_user_prompts=["繼續"])
     assert wh.harvest_gate_reason(s, SID, DONE + "\n不做｜收割：使用者說「先這樣」", _HCFG, s["modified_files"], 5)
 
 
-def test_pending_waiver_is_per_item(logs):
-    """會紅：舊碼「先這樣」整批放掉收割待補。現在只豁免不做行指名的那張卡，其餘照擋。"""
+def test_pending_waiver_dismiss_releases_whole_batch(logs):
+    """收割待補：近 3 則有 dismiss 詞整批放行，每一筆都回報留帳；沒有 dismiss 詞照擋、列出每一筆。"""
     kh = {SID: {"pending": ["card-a: 無 create receipt（path=x）", "card-ab: 無 append receipt（path=y）"]}}
     s = _hstate(knowledge_harvest=kh, recent_user_prompts=["card-a 先這樣"])
     waived = []
-    msg = wh.pending_gate_reason(s, SID, 5, "不做｜card-a：使用者說「card-a 先這樣」", waived=waived)
-    assert msg and "card-ab" in msg and "card-a:" not in msg
-    assert [w["item"][:7] for w in waived] == ["card-a:"]
-
-
-def test_pending_waiver_generic_item_waives_nothing(logs):
-    """反例（codex 一輪）：事項寫泛稱（receipt、收割）對不到任何一張卡，兩筆都照擋。"""
-    kh = {SID: {"pending": ["card-a: 無 create receipt", "card-b: 無 append receipt", "item 不是物件：x"]}}
-    s = _hstate(knowledge_harvest=kh, recent_user_prompts=["先這樣"])
-    text = "不做｜receipt：使用者說「先這樣」\n不做｜收割：使用者說「先這樣」\n不做｜item：使用者說「先這樣」"
-    kept, got = rr.waived_pending(kh[SID]["pending"], text, ["先這樣"])
-    assert len(kept) == 3 and got == []
+    assert wh.pending_gate_reason(s, SID, 5, "", waived=waived) is None
+    assert [w["item"][:7] for w in waived] == ["card-a:", "card-ab"]
+    msg = wh.pending_gate_reason(_hstate(knowledge_harvest=kh, recent_user_prompts=["繼續"]), SID, 5, "")
+    assert msg and "card-a:" in msg and "card-ab" in msg
 
 
 def test_stop_waivers_release_and_ledger_each_gate(logs, monkeypatch, capsys):
-    """端到端（Stop）：使用者叫跳過收割與收尾檢核、AI 各寫一行引用原話 → 兩閘都放行，guard-harvest_waived 各一筆；
-    沒寫不做行的對照照擋。"""
+    """端到端（Stop）：使用者說收割與收尾檢核都先這樣 → 兩閘都放行，guard-harvest_waived 各一筆；同一個使用者回合不重記；
+    沒有 dismiss 詞的對照照擋。"""
     for name, val in (("_find_session_transcript", lambda *a, **k: None), ("token_warn_payload", lambda *a, **k: ""),
                       ("detect_evasion", lambda *a, **k: None), ("write_state", lambda *a, **k: None),
                       ("_attribute_usefulness", lambda *a, **k: None), ("_detect_uncommitted_files", lambda mf: []),
                       ("_git_unpushed_roots", lambda mf: []), ("_should_deep_postmortem", lambda *a, **k: False),
                       ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {}))):
         monkeypatch.setattr(st, name, val)
-    said = "收割和收尾檢核都先這樣"
 
-    def drive(last_text, state=None):
+    def drive(said, state=None):
         state = state or _hstate(recent_user_prompts=[said], phase="working", failing_tests=[], stop_blocked_count=0)
-        monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: last_text)
+        monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: DONE)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": SID, "cwd": ""}, _HCFG)
         return capsys.readouterr().out
 
-    assert "KnowledgeHarvest" in drive(DONE)
+    assert "KnowledgeHarvest" in drive("繼續")
     del logs[:]
-    cited = f"{DONE}\n不做｜收割：使用者說「{said}」\n不做｜收尾檢核：使用者說「{said}」"
+    said = "收割和收尾檢核都先這樣"
     same = _hstate(recent_user_prompts=[said], phase="working", failing_tests=[], stop_blocked_count=0)
-    out = drive(cited, same)
+    out = drive(said, same)
     assert "KnowledgeHarvest" not in out and "ScanReport" not in out
     assert sorted(p["gate"] for p in _events(logs, "harvest_waived")) == ["closing_check", "harvest"]
-    drive(cited, same)                                   # 同一個使用者回合再 Stop 一次：不重記（codex 一輪）
+    drive(said, same)                                    # 同一個使用者回合再 Stop 一次：不重記
     assert len(_events(logs, "harvest_waived")) == 2
 
 
@@ -329,12 +306,11 @@ def test_waiver_ledger_dedupes_within_one_batch(logs, monkeypatch):
     assert len(_events(logs, "harvest_waived")) == 2
 
 
-def test_closing_check_needs_cited_waiver(logs):
-    """會紅：舊碼近 3 則有「先這樣」就不要求收尾檢核。現在要「不做｜收尾檢核：使用者說「…」」對到原話。"""
+def test_closing_check_dismiss_word_waives(logs):
+    """收尾檢核：近 3 則有 dismiss 詞（先這樣）就不要求；沒有照要求。"""
     mfs = [{"path": CORE}]
-    assert wev.detect_missing_aec_emission(DONE, mfs, ["先這樣"], 2, False) is True
-    assert wev.detect_missing_aec_emission(DONE + "\n不做｜收尾檢核：使用者說「先這樣」", mfs, ["先這樣"], 2, False) is False
-    assert wev.detect_missing_aec_emission(DONE + "\n不做｜收尾檢核：使用者說「先這樣」", mfs, ["繼續"], 2, False) is True
+    assert wev.detect_missing_aec_emission(DONE, mfs, ["先這樣"], 2, False) is False
+    assert wev.detect_missing_aec_emission(DONE, mfs, ["繼續"], 2, False) is True
 
 
 # ─── 4. CONFLICT_DECLARED_BY_AI ──────────────────────────────────────────────
@@ -483,9 +459,8 @@ def test_global_gate_from_project_cwd(logs, no_registry, tmp_path):
 
 # ─── 規則表與登錄表 ─────────────────────────────────────────────────────────
 
-def test_five_rules_registered_and_named():
-    names = ("CORRECTION_WORDS_ARE_HINTS", "EXTRACT_VETO_NEEDS_JUDGMENT", "HARVEST_WAIVER_ITEMIZED",
-             "CONFLICT_DECLARED_BY_AI", "PROJECT_LITERAL_IS_HINT")
+def test_four_rules_registered_and_named():
+    names = ("CORRECTION_WORDS_ARE_HINTS", "EXTRACT_VETO_NEEDS_JUDGMENT", "CONFLICT_DECLARED_BY_AI", "PROJECT_LITERAL_IS_HINT")
     reg = ep.load_registry()
     registered = {s for r in reg["entrypoints"] for s in r.get("rules") or []}
     assert all(n in rr.RULES and n in registered for n in names)

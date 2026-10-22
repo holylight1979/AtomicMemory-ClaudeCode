@@ -86,6 +86,7 @@
 | `evidence` | list | `{kind, ref, level, covers, seq, prior?, red_then_green?}`（第五節；`red_then_green` 只有 case 證據有） |
 | `followup` | str | 部分／沒有時接下來要追什麼 |
 | `note` | str | 完整對照時的附註（放棄的理由寫這裡） |
+| `filled_by` | str，可無 | `program`＝這個節點的終點結論是程式代填的（`auto_reconcile`：`goal_gate=false` 且到交付邊界時，照改動與收據填；規則 RECONCILE_BY_PROGRAM）；AI 自己交 reconcile 會拿掉，程式不覆蓋 AI 交的 |
 
 節點編號：子節點是父編號加 `.k`，`k` 取現有子節點最大號加一；節點永不刪除（放棄只是狀態），所以號碼不會重用。
 
@@ -139,6 +140,7 @@
 - `covers`：這筆證據支持哪幾個節點，省略＝只支持它所在的那個節點；每個都要是這棵樹的節點。
 - 組合規則（程式只核對組合，不判內容）：`measured` ⇔ `receipt`（實測只能配收據，收據只能標實測）；case／file／atom 只能 `read` 或 `inferred`。
 - 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點掛的程式改動裡最大的 `seq`（讀 `node_last_edit`）；「節點掛的改動」＝掛在它本身、它的子孫，以及它的祖先（沒歸屬到更細節點的改動，例如沒有部位表的檔都掛樹根）。不因改了旁支的另一塊而整樹重驗。
+- 審查後只重跑碰到的（規則 REVIEW_FIX_RERUN_TOUCHED_ONLY）：`second_opinion_start` 打包材料那刻記審查點（`mark_review`），審查跑完（`second_opinion_result` 回 done）之後的修補，沒碰到的收據在證據加 `unaffected`（為什麼不受這次修補影響）就照算，留帳 event=unaffected_declared；審查前就過期、沒宣告照舊算過期。
 - 收據超過 300 筆時只丟最舊、沒被任何節點證據引用的；丟掉的識別記進 `receipts_seen`。
 - 匯入的證據 `prior=true`：只供閱讀，不計入 5.5 第 4～6 條。
 - 先紅後綠（規則 CASE_RED_THEN_GREEN，只記錄不擋）：`reconcile` 收下時，每筆 case 證據拿 `receipts` 依先後找 `cases` 含同一案例檔（絕對路徑，引號裡含空白的路徑整段算一個）的收據；紅＝任一哨兵 FAIL 或 exit 非 0，綠＝有 PASS 且沒紅；第一筆紅之後有綠 → 該筆記 `red_then_green=true`，對照摘要印「先紅後綠（red_then_green，R紅 → R綠）」，否則記 false、摘要印「案例未見先紅」。
@@ -315,13 +317,10 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 - 第六節 C 項（C-G1／G4／G9／G11／G15）：接點已留：`last_reconcile.turns`（G11）、`goal_changed`（G1）、`snapshot_for_report`（G9 材料）、reconcile 收下的時點（G4 掃視點）。
 - 第七節 B5 驗法。
 
-### 12.1 track-b-hooks 新增（只加鍵，不改第二～九節任何鍵的意義）
+### 12.1 track-b-hooks 新增（只加鍵，不改第二～九節任何鍵的意義；工作中途掃同伴訊息的 `peer_offset` 等鍵已隨外部主張只認審查結果一起拿掉）
 - 樹 `points`（dict，只有 wg_need_goal_points 寫）：`scope_parts` [部位鍵]、`scope_dirs` {mark, dirs, sent}（mark＝節點 history 最大 seq，樹一更新就重算）、`scope_pending` [{kind: part｜dirs, label, prev}]、`scope_sent_turn` int｜null（一回合最多送一則）、`multi_hinted` [路徑]。匯出時會跟著出去，匯入時不帶。
 - 讀入範圍由 `post_tool_use` 對 Read／Bash／PowerShell／Grep 呼叫 `wg_need_goal_points.scope_on_read` 計算，「讀了什麼」與 OverviewHub 的 on_read 同一支 `wg_overview.read_targets(tool_name, tool_input, cwd)`（Grep 內容讀檔算、Bash 行首註解不算、暫存目錄下的檔不算）；不看 OverviewHub 開關：跨頂層目錄照算，部位鍵只在 OverviewHub 開著、表上有列時才有；這個 session 還沒有目標檔就直接返回。
 - `wg_overview.read_scope_keys(path, config) → (root, part_key, dir_key)`：專案根、部位鍵 `<根>|<部位>`、頂層目錄鍵 `<根>|<頂層目錄>`；不在任何專案裡全回 None。`wg_overview.on_read` 不再算讀入範圍。
-- 目標檔頂層 `peer_offset`（int）：PostToolBatch 掃 transcript 找工作中途送到的同伴訊息（attachment `queued_command`）已掃到的位元組位置；第一次只記位置不回溯，只吃到最後一個完整行。只有 `peer_claim_lines` 寫。
-- 目標檔頂層 `peer_scan_truncated` {at, turn, skipped}（一批新增段超過 `PEER_SCAN_CAP` 256KB，只讀最後一段，skipped＝跳過的位元組數）、`peer_scan_error` {at, turn, error}（讀不到 transcript 或同伴訊息行 JSON 解析失敗；不擋，另寫 stderr）、`peer_scan_reset` {at, turn, from, to}（transcript 變短：位置從 from 重置到檔尾 to，這次不回溯）。
-- peer_offset 在目標檔的鎖裡讀、在鎖裡寫（整段掃描在 `update_locked` 裡做），只會往前：兩次掃描重疊時後拿到鎖的從前一次寫回的位置接著讀，同一則同伴訊息不送兩次。
 - 搬程式目錄在收尾的義務不是整組案例，而是 Stop 寫碼查核 (v) 的兩張收據（路徑引用掃描與抽樣驗證，規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE，TECH §7.8）；改檔前要有目標樹的判定照下一條不變。
 - 「算不算改程式」：`wg_need_goal.writes_code(path, config, sources=(), content=None)`＝目標本身 `is_code_path`；或 cp／mv 家族的來源含程式檔（來源是目錄就往下找，略過 .git，超過 `DIR_SCAN_CAP` 5000 個檔還沒看完就當有）；或沒副檔名而要寫進去的內容以 `#!` 開頭。目標在知識類部位一律不算。來源由 `wg_core.write_sources_from_tool(tool_name, tool_input, cwd) → {目標: [來源…]}` 給（與 `write_paths_from_tool` 同一次解析），內容是 Write 的 `content`。
 - hook 入口取 need_goal 設定一律 `cfg_for_cwd(config, hook_cwd(input_data, state))`：`wg_need_goal.hook_cwd` 取 hook 輸入的 cwd，沒有就 state 記的 session cwd。提問閘、PostToolBatch 批次提醒與補掃、PostCompact／SessionStart(compact) 重送、UPS 糾正與同伴訊息、SessionEnd 都照這個；`recovery_text(sid, config, cwd="")`、`peer_claim_lines(sid, transcript_path, config, turn=None, cwd="")` 多一個可省略的 cwd。

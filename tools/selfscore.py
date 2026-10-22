@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""selfscore.py — 自檢評分（切入點 E36）：總控台、checklist 軌、驗收判分打「這個 G 幾分」時，問三件事、答完記一筆帳。
+"""selfscore.py — 自檢評分：打「這個 G 幾分」時，問三件事、答完記一筆帳（手動工具，不是切入點、不接判準卡）。
 
 做什麼：
-  --ask   問的那一刻：印 G 名、評分規格卡（memory 裡的 g<N>-評分規格*.md）的評分尺三句、可用證據清單與要答的三件事，
-          並照切入點契約接判準卡、記 Logs/guard-entry.jsonl 一筆（hooks/wg_entrypoint.entry_note，路 tool_cli）。
+  --ask   問的那一刻：印 G 名、評分規格卡（memory 裡的 g<N>-評分規格*.md）的評分尺三句、可用證據清單與要答的三件事。
   （預設）答一筆：分數 0～10、依據材料（可重複）、理由、評的人 → Logs/guard-selfscore.jsonl 一行（event=score）。
           缺欄位或分數不是 0～10 的整數照記，該欄寫「沒答」、列進 unanswered，stderr 印一行，不擋（exit 0）。
   --summary 每個 G 最近一筆、最近五個分數的走勢、比上一次差多少；只讀。
@@ -85,7 +84,7 @@ def ask_text(g: str, spec: Optional[Dict[str, Any]]) -> str:
 def record(g: str, score: Optional[str], basis: List[str], why: str, rater: str, session_id: str) -> Dict[str, Any]:
     """答一筆：缺的欄寫「沒答」、列進 unanswered；分數只收 0～10 的整數，其他照記原字在 score_raw。"""
     unanswered: List[str] = []
-    # 時間記到微秒：問的帳（guard-entry）只到秒、一定不晚於實際問的時間，答的這筆就算同一秒也排得到後面、配得上
+    # 時間記到微秒：同一秒內答好幾筆也排得出先後
     rec: Dict[str, Any] = {"at": datetime.now().astimezone().isoformat(), "event": "score", "session_id": session_id}
     rec["g"] = g or UNANSWERED
     raw = (score or "").strip()
@@ -159,8 +158,8 @@ def summary(logs: Path, days: int) -> Dict[str, Any]:
 
 
 def main(argv: List[str] = None) -> int:
-    ap = argparse.ArgumentParser(description="自檢評分（切入點 E36）：--ask 問、答一筆、--summary 統計")
-    ap.add_argument("--ask", action="store_true", help="問的那一刻：印評分尺與要答的三件事、接判準卡、記 guard-entry")
+    ap = argparse.ArgumentParser(description="自檢評分：--ask 問、答一筆、--summary 統計")
+    ap.add_argument("--ask", action="store_true", help="問的那一刻：印評分尺與要答的三件事")
     ap.add_argument("--summary", action="store_true", help="每個 G 最近一筆與走勢（唯讀）")
     ap.add_argument("--g", default="", help="評哪個 G（G8／g8／8 都收）")
     ap.add_argument("--score", default=None, help="分數 0～10 的整數")
@@ -194,9 +193,8 @@ def main(argv: List[str] = None) -> int:
 
     if args.ask:
         text = ask_text(g, find_spec(g))
-        note = ep.entry_note(text, "tool_cli", session_id=session_id, extra={"g": g or UNANSWERED})   # 問的帳帶 g：答同一個 G 才算回應
-        print(ep.with_note(text, note))
-        print(f"SELFSCORE DONE asked=1 cards={note.count('判準卡（')}")
+        print(text)
+        print("SELFSCORE DONE asked=1")
         return 0
 
     rec = record(g, args.score, args.basis, args.why, args.rater, session_id)

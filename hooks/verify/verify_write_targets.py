@@ -496,12 +496,14 @@ def test_r0_readonly_commands_with_gt_in_quotes_are_empty():
     assert _bash("ls | grep '>'") == [] and _bash("git log --format='%H > %s'") == []
 
 
-def test_unknown_target_is_denied(tmp_path, monkeypatch):
+def test_unknown_target_is_allowed_and_logged(tmp_path, monkeypatch):
+    """規則 UNKNOWN_TARGET_LOGGED：判不出寫入目標 → 放行並留帳（不擋）。"""
     import wg_overview as wo
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     warn, deny, changed = wo.on_edit({}, "s", "UNKNOWN:echo x > $OUT/a", "", {})
-    assert deny and "改用 Edit／Write" in deny and not changed
-    assert '"deny_reason": "unknown_target"' in (tmp_path / "hub.log").read_text(encoding="utf-8")
+    assert deny is None and not changed
+    log = (tmp_path / "hub.log").read_text(encoding="utf-8")
+    assert '"edit_unknown_target"' in log and '"allowed": true' in log
 
 
 # ─── 007 T1.3：跨層閘把寫到 $TEMP 當成寫根層（A3 A-1 transcript 第 85 行）────────────────

@@ -80,7 +80,7 @@ pattern: pipeline
 - Codex 只審一輪：只收它標【弄壞資料】或【繞閘】的意見（當場修）；其餘記成追蹤項，不退件、不送第二輪。文件類不跑 codex。〔#27、#67b⑫〕
 
 ### Step 4 合併（裁定 #37 減量版）
-- 合併回合先 `need_goal set`「把 X 合進 main 並推」；背景跑的尺不入帳，跑完前景 grep log 取收據。合完跑 `python tools/changelog-fold.py --write` 把各軌的 CHANGELOG 片段收進主檔（各軌不碰 _CHANGELOG.md，不再解檔頭衝突）。〔U、#67b⑦〕
+- 合併回合先 `need_goal set`「把 X 合進 main 並推」；背景跑的尺不入帳，跑完前景 grep log 取收據。合完跑 `python skills/console/scripts/changelog-fold.py --write` 把各軌的 CHANGELOG 片段收進主檔（各軌不碰 _CHANGELOG.md，不再解檔頭衝突）。〔U、#67b⑦〕
 - 快照複跑只對閘本體改動；其他件信工作軌自附的收據與反證。〔#37〕
 - codex 每軌一次，工作軌自跑那次算。〔#37〕
 - 可快轉（分支已含最新 main）不補驗、直接推；落後 main 才合後補驗一次。兩軌碰同一個大檔：後合的那軌在自己分支合 main、解衝突、跑過目標 verify 再交，可快轉就直接推，總控台不跑第三次。〔#37、#67b③④〕

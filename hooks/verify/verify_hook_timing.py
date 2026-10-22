@@ -410,7 +410,8 @@ def ups_driven(monkeypatch, tmp_path):
             return bool(timer.degraded_at)
         monkeypatch.setattr(ups, "_hook_lap", fake_lap)
         with pytest.raises(SystemExit):
-            ups.handle_user_prompt_submit({"session_id": "sid", "prompt": "幫我看看這個專案", "cwd": str(tmp_path)}, {})
+            # 寫碼回合（debug）：導讀卡這段才會跑（CODING_TURN_ONLY）
+            ups.handle_user_prompt_submit({"session_id": "sid", "prompt": "幫我修好登入的 bug", "cwd": str(tmp_path)}, {})
         return capsys.readouterr().out, list(calls), list(wrote), [s[0] for s in timer.segments], timer.emitted
 
     return run
@@ -451,17 +452,19 @@ def _ptu_twice(monkeypatch, capsys, inp):
 def test_pre_tool_use_laps_do_not_change_decision(monkeypatch, capsys, tmp_path):
     """放行與擋下各一例，lap 回 True（已降級）與回 False 的輸出、退出碼、打點順序都一模一樣——逾時被取消本來就放行，
     提早放行只會少查，所以 PreToolUse 的降級只記帳、不改判定。"""
-    from wg_core import WORKFLOW_DIR
     f = tmp_path / "a.txt"
     f.write_text("x", encoding="utf-8")
     allow = _ptu_twice(monkeypatch, capsys, {"session_id": "sid-ptu-timing", "tool_name": "Read",
                                               "tool_input": {"file_path": str(f)}, "cwd": str(tmp_path)})
     assert allow[0][2] == ["前置提示", "跨 session 衝突", "寫入閘", "舊測試閘"] and '"deny"' not in allow[0][0]   # 前置：放行、四點都走到
     assert allow[0] == allow[1]
-    deny = _ptu_twice(monkeypatch, capsys, {"session_id": "sid-ptu-timing", "tool_name": "Write", "cwd": str(ROOT),
-                                             "tool_input": {"file_path": str(WORKFLOW_DIR / "verify-ledger" / "hand.jsonl"),
-                                                            "content": "{}"}})
-    assert '"deny"' in deny[0][0] and deny[0] == deny[1]                       # 手寫驗證收據被擋：降級也照擋
+    ask = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
+                          "options": [{"label": "A", "description": "甲"}, {"label": "B", "description": "乙"}]}]}
+    deny = _ptu_twice(monkeypatch, capsys, {"session_id": "sid-ptu-timing", "tool_name": "AskUserQuestion", "cwd": str(ROOT),
+                                             "tool_input": ask})
+    assert all('"deny"' in r[0] for r in deny) and deny[0][1:] == deny[1][1:]  # 沒附推薦的提問被擋：降級也照擋
+    # 兩次的判準卡可能一次全文、一次「前面已送過」（同話題只送一次），比擋下理由的第一句
+    assert [json.loads(r[0])["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[0] for r in deny] ==         [json.loads(deny[0][0])["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[0]] * 2
 
 
 # ─── SessionStart：真的起一支開場 hook，追蹤提示排在前段、降級也送得出 ───────────────────

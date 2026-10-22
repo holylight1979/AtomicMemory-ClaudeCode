@@ -7,8 +7,8 @@
 | `res_rdchat.jsonl` | 內網 rdchat-direct（192.168.199.130，Ollama 0.30.7）6 個模型 × 198 次呼叫。每行：`task`（ep＝切入點、g15）、`run`（1＝固定順序、2＝打亂）、`id`、`model`、`host`、`ts`、`wall_s`、`load_s`、`prompt_tokens`、`answer_tokens`、`answer`；g15 另有 `status`（判定／作廢）、`verdict`、`why`（作廢原因），由 live `tools/text-score.py` 的 `check_answer` 判 |
 | `res_local.jsonl` | 本機 GTX 1050 Ti（Ollama 0.32.9）：qwen3:1.7b、qwen3:4b-instruct-2507 各 198 次；qwen3:4b 13 次（太慢停掉）；gemma4:e2b、qwen3.5:4b、gemma4:e4b 速度子集各 28 次 |
 | `summary.json` | 每個模型×機器的彙總指標（報告 4.2 表的來源） |
-| `g15_labels.json` | G15 五份樣本的標準答案（G15 研究軌標的；`?` 不計分） |
-| `g15_samples/` | G15 五份樣本原文（S1、S2 真交付信；S3 真 checklist 開頭；S4、S5 研究軌改寫的白話版與混雜版） |
+| `g15_labels.json` | G15 樣本的標準答案（S1～S5 G15 研究軌標的、S6 原設計者判的；`?` 不計分） |
+| `g15_samples/` | G15 樣本原文（S1、S2 真交付信；S3 真 checklist 開頭；S4、S5 研究軌改寫的白話版與混雜版；S6 裁判誤判樣本：沒改 code 的評估回報被評 2/7，原設計者判 R2、R3 是、R4、R6、R7 不適用） |
 
 ## 設定
 

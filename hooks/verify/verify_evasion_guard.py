@@ -241,15 +241,15 @@ def test_p7_user_citation_waives_only_the_cited_item():
     audit = []
     r = detect_evasion(t, prompts, audit=audit)
     assert r is not None and "B 瘦身" in r["context_excerpt"]
-    assert audit and audit[0]["rule"] == "USER_WAIVER_NEEDS_CITATION" and "A 清理" in audit[0]["why"]
-    # 引用的原句不在近 3 則使用者原話裡 → A 也照標
-    assert detect_evasion("A 清理先跳過。\n不做｜A 清理：使用者說「A 先這樣」", ["做 A", "x", "y"]) is not None
+    assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED" and "A 清理" in audit[0]["why"]
+    # 引用的原句不再比對近幾則使用者原話：寫了「不做｜」那一件就不標
+    assert detect_evasion("A 清理先跳過。\n不做｜A 清理：使用者說「A 先這樣」", ["做 A", "x", "y"]) is None
 
 
 def test_p7_flag_carries_category_and_hint():
     r = detect_evasion("這是 pre-existing 的問題。", [])
     assert r and r["category"] == "precedent-drift"
-    assert "不做｜" in r["hint"] and "檢測時點" in r["hint"] and "使用者說" in r["hint"]
+    assert "追蹤｜" in r["hint"] and "改得快又有效" in r["hint"]
 
 
 def test_p7_ups_dismiss_no_longer_clears_failing_tests(monkeypatch):
@@ -260,15 +260,14 @@ def test_p7_ups_dismiss_no_longer_clears_failing_tests(monkeypatch):
     assert state["failing_tests"]
 
 
-def test_045_peer_message_is_not_a_turn_boundary_unless_dispatch():
-    """規則 DISPATCH_OPENS_TURN（退避預告切點）：整則都是同伴訊息 → 不是回合起點（早段寫的預告不被切掉）；
-    帶派工標記的同伴訊息、使用者打字 → 是；tool_result 延續 → 不是。"""
+def test_045_peer_message_is_not_a_turn_boundary():
+    """退避預告切點：整則都是同伴訊息（不論內容）→ 不是回合起點（早段寫的預告不被切掉）；使用者打字 → 是；tool_result 延續 → 不是。"""
     from wg_evasion import _is_real_user_prompt
     peer = '<cross-session-message from="x" from-name="claude-ad">\n對帳過了，上GIT\n</cross-session-message>'
     dispatch = '<cross-session-message from="x" from-name="claude-aa">\n派工：接 B14\n</cross-session-message>'
     assert _is_real_user_prompt(peer) is False
     assert _is_real_user_prompt([{"type": "text", "text": peer}]) is False
-    assert _is_real_user_prompt(dispatch) is True
+    assert _is_real_user_prompt(dispatch) is False
     assert _is_real_user_prompt("請把這個修好") is True
     assert _is_real_user_prompt([{"type": "tool_result", "content": "x"}]) is False
     assert _is_real_user_prompt("<task-notification>done</task-notification>") is False
@@ -431,10 +430,10 @@ def test_scan_report_no_completion_not_triggered():
 
 
 def test_scan_report_dismiss_prompt_not_triggered():
-    """G6 階段 5（HARVEST_WAIVER_ITEMIZED）：「先這樣」要引用到原話的「不做｜收尾檢核」才豁免。"""
+    """使用者說「先這樣」＝這次收尾檢核整批不做：不用再逐項引用原話。"""
     assert detect_missing_scan_report(
         "全部完成了", _mf(r"c:\a\.claude\hooks\x.py"), ["先這樣"], 2
-    ) is True
+    ) is False
     assert detect_missing_scan_report(
         "全部完成了\n不做｜收尾檢核：使用者說「先這樣」", _mf(r"c:\a\.claude\hooks\x.py"), ["先這樣"], 2
     ) is False

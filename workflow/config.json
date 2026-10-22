@@ -2,7 +2,7 @@
   "atom_debug": false,
   "enabled": true,
   "v6": {
-    "_doc": "v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。本機要開設環境變數 WG_V6=1，或在 workflow/config.local.json（不進版控）寫 {\"v6\": {\"enabled\": true}}；WG_V6=0 強制關。",
+    "_doc": "v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。本機要開設環境變數 WG_V6=1，或在 workflow/config.local.json（不進版控）寫 {\"v6\": {\"enabled\": true}}；WG_V6=0 強制關。coding_turn_only（沒寫＝true）：v6 每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（有寫碼意圖、改過程式、或收尾宣告完成；只改文件、純問答不算），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
     "enabled": false
   },
   "stop_gate_max_blocks": 2,
@@ -312,9 +312,8 @@
     "ledger_tail": 20,
     "material_max_chars": 40000,
     "auto": {
-      "_doc": "G9 自動第二意見（hooks/wg_second_opinion.py 收事實、wg_release_rules G9 段判定、handlers/stop.py SecondOpinion 段擋）：宣告完成時本 session 改過的程式檔 ≥min_code_files 或對 HEAD 改動 ≥min_changed_lines 行、或改到 risky_prefixes（相對版控根）／部位表類別 gate 的檔，要本回合真跑過 second_opinion_start→result 並寫「第二意見與分歧裁決」四行，或宣告一行「不需第二意見｜<理由>」留帳；每使用者回合擋 max_blocks_per_turn 次後擋滿照 ReconcileGate 問人。one_round=true（預設）＝同一棵需求目標樹（沒樹＝整個 session）審過一輪就不再要，審完的修補不觸發第二輪；false＝審過之後又改程式就再要一輪（舊行為）。子代理／裁判／headless 不觸發。enabled:false 整段關。",
+      "_doc": "G9 自動第二意見（hooks/wg_second_opinion.py 收事實、wg_release_rules G9 段判定、handlers/stop.py SecondOpinion 段擋）：宣告完成時本 session 改過的程式檔 ≥min_code_files 或對 HEAD 改動 ≥min_changed_lines 行、或改到 risky_prefixes（相對版控根）／部位表類別 gate 的檔，要本回合真跑過 second_opinion_start→result 並寫「第二意見與分歧裁決」四行，或宣告一行「不需第二意見｜<理由>」留帳；每使用者回合擋 max_blocks_per_turn 次後擋滿照 ReconcileGate 問人。子代理／裁判／headless 不觸發。enabled:false 整段關。",
       "enabled": true,
-      "one_round": true,
       "min_code_files": 4,
       "min_changed_lines": 150,
       "risky_prefixes": [
@@ -335,7 +334,7 @@
     "min_lang_chars": 40
   },
   "text_score": {
-    "_doc": "G15 文字規格評分（tools/text-score.py；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序，每台都用 judge_model；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。enabled／min_chars／auto_targets 只管自動評（--auto-kind <種類>：enabled=false、種類不在 auto_targets、來源路徑不符該種類的路徑樣式、去掉檔頭與 code 與網址後不到 min_chars 字，就印「不評」），手動指令照跑。自動評的來源是收尾（hooks/wg_text_score.py）：最終回覆（final_reply；reply_scope=code_change 預設只評本使用者回合改了程式、宣告完成的那一則，一回合一則，其他回覆由使用者叫 skill text-score；all＝每則夠長的都評）與本回合改過的 .md（docs）交背景評、留帳，不等不擋；下一則使用者訊息把上一則的評分一行放在注入第一行請 AI 照抄（docs 不送）；enabled=false 收尾也不送、不留帳。auto_targets＝{種類: 路徑樣式清單}：樣式從任何一層資料夾起算，* 與 ? 不跨資料夾、**/ 是零或多層、不分大小寫；空清單＝不比路徑（final_reply 從 stdin 進來）；stdin 沒有路徑，有樣式的種類就不評；要跟規格檔「適用」欄一起改。judge_model_by_backend＝{backend 名: 裁判模型}，每台用自己的（正確性為主：內網 e4b 判得較準、本機跑不動 e4b 用 instruct-2507），沒列到的 backend 用 judge_model；--model 給了全部用它；那台沒裝就算不在、不換成它原本的 llm_model；跨機同標籤要比 digest。",
+    "_doc": "G15 文字規格評分（tools/text-score.py；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序，每台都用 judge_model；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。enabled／min_chars／auto_targets 只管自動評（--auto-kind <種類>：enabled=false、種類不在 auto_targets、來源路徑不符該種類的路徑樣式、去掉檔頭與 code 與網址後不到 min_chars 字，就印「不評」），手動指令照跑。自動評的來源是收尾（hooks/wg_text_score.py）：最終回覆（final_reply；reply_scope=code_change 預設只評本使用者回合改了程式、宣告完成的那一則，一回合一則，其他回覆由使用者叫 skill text-score；all＝每則夠長的都評）與本回合改過的 .md（docs）交背景評、留帳，不等不擋；規格的 {{goal}} 由收尾填當下的需求目標（目標樹樹根，沒樹用本回合使用者原話；都沒有這次不評）；下一則使用者訊息只記下上一則評完了（guard-text_score_tail recorded），不注入；enabled=false 收尾也不送、不留帳。auto_targets＝{種類: 路徑樣式清單}：樣式從任何一層資料夾起算，* 與 ? 不跨資料夾、**/ 是零或多層、不分大小寫；空清單＝不比路徑（final_reply 從 stdin 進來）；stdin 沒有路徑，有樣式的種類就不評；要跟規格檔「適用」欄一起改。judge_model_by_backend＝{backend 名: 裁判模型}，每台用自己的（正確性為主：內網 e4b 判得較準、本機跑不動 e4b 用 instruct-2507），沒列到的 backend 用 judge_model；--model 給了全部用它；那台沒裝就算不在、不換成它原本的 llm_model；跨機同標籤要比 digest。",
     "enabled": true,
     "default_spec": "reader-designer",
     "judge_model": "gemma4:e4b",
@@ -549,7 +548,7 @@
     }
   },
   "deferral_gate": {
-    "_doc": "Stop DeferralGate（退縮歸屬）：主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ max_context_ratio（讀 transcript 真實 usage，同 auto_handoff 量測）時，收尾訊息把帶受詞的可做之事推給下個 session／獨立議題／非我造成 → 擋回三選一。min_object_chars＝命中句去掉退縮語後至少幾字才算有受詞。詞表在 memory/_meta/forbidden-phrases.json categories[deferral-attribution]；退縮句對到有理由的「不做｜…」行或使用者引用就不擋、留帳（規則 NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION，hooks/wg_release_rules.py）。",
+    "_doc": "Stop DeferralGate（退縮歸屬）：主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ max_context_ratio（讀 transcript 真實 usage，同 auto_handoff 量測）時，收尾訊息把帶受詞的可做之事推給下個 session／獨立議題／非我造成 → 擋回三選一。min_object_chars＝命中句去掉退縮語後至少幾字才算有受詞。詞表在 memory/_meta/forbidden-phrases.json categories[deferral-attribution]；退縮句對到有理由的「不做｜…」行就不擋、留帳（規則 NOT_DOING_DECLARED，hooks/wg_release_rules.py）。",
     "enabled": true,
     "max_context_ratio": 0.75,
     "min_object_chars": 6
@@ -836,7 +835,7 @@
     "vcs_budget_s": 1.5
   },
   "reconcile_gate": {
-    "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；每次 Stop 都判，主 session、SubagentStop、裁判 Stop 共用 _verify_gates；判定出例外一律擋）：收尾宣稱 vs 驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令），宣稱看最後一句（優先 hook 輸入的 last_assistant_message）以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本回合對得上改檔的 PASS：收據要晚於每個對上的改檔、同一棵樹（收據根與改檔根互為上下層都算）、指令能當一般證據（只有執行程式的指令：直譯器、測試與建置工具、腳本檔；多段只准 && 串、輸出不導走；指令任何地方寫了哨兵字樣或夾了讀檔、印字就不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（執行根自己那支 run_verify.py／無檔名 pytest／部位量尺指令，只涵蓋執行根之下的改檔）、或修改檔所在 verify 目錄；改檔所在部位有合格的 run_verify 自寫收據（workflow/verify-ledger/_runs/，argv 對上量尺、改完才開始跑、同一棵樹、全綠）也算。(b) 說量了要能當證據的 DONE 或合格自寫收據 (c) 說試過要本回合有 exec_tools 呼叫 (d) 改了 code_exts 檔要有成立的「由哪個案例驗」宣告（need_goal verify_scope 項目的 case_for：案例檔本 session 新寫或改過、那一項改完之後跑綠；不需要新案例就宣告 no_case 附理由，照擋、照【收尾放行確認】問使用者；改了別支測試不替它清帳；PASS 不能代替；跨回合、不看措辭）；驗證範圍閘關掉時退回舊判法：改碼之後同根沒有仍存在的案例檔被新增或修改就擋。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比；測試目錄或 test_／_test／.test／.spec 這類檔名，檔名裡剛好含 test 的產品檔不算；測試檔不在這些慣例裡的專案自己加樣式）；改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；判不出來照算改了）不算改碼；部位表類別 knowledge 的部位（文件、記憶、派工信箱）下的檔兩邊都不算（不欠案例、不能替寫碼部位清帳；判法看路徑屬哪一列不看副檔名，沒有部位表照舊）。(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。預算：(a)～(d)＋量尺閘共用獨立預算 max_blocks_per_turn（不吃 stop_gate_max_blocks），擋滿不放行：記 pending 跨回合承接，要用 AskUserQuestion 照【收尾放行確認】問使用者；使用者在最後一次擋之後選放行或整句打「放行」才放這一回合，並記 user_release（Logs/guard-<閘>.jsonl event=user_release，週健檢列 red）；子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬記憶與報告類，照舊第 3 次放行並寫 Logs/guard-reconcile_overflow.jsonl（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
+    "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；每次 Stop 都判，主 session、SubagentStop、裁判 Stop 共用 _verify_gates；判定出例外一律擋）：收尾宣稱 vs 驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令），宣稱看最後一句（優先 hook 輸入的 last_assistant_message）以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本回合對得上改檔的 PASS：收據要晚於每個對上的改檔、同一棵樹（收據根與改檔根互為上下層都算）、指令能當一般證據（只有執行程式的指令：直譯器、測試與建置工具、腳本檔；多段只准 && 串、輸出不導走；指令任何地方寫了哨兵字樣或夾了讀檔、印字就不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（執行根自己那支 run_verify.py／無檔名 pytest／部位量尺指令，只涵蓋執行根之下的改檔）、或修改檔所在 verify 目錄；改檔所在部位有合格的 run_verify 自寫收據（workflow/verify-ledger/_runs/，argv 對上量尺、改完才開始跑、同一棵樹、全綠）也算。(b) 說量了要能當證據的 DONE 或合格自寫收據 (c) 說試過要本回合有 exec_tools 呼叫 (d) 改了 code_exts 檔要有成立的「由哪個案例驗」宣告（need_goal verify_scope 項目的 case_for：案例檔本 session 新寫或改過、那一項改完之後跑綠；不需要新案例就宣告 no_case 附理由，照擋、照【收尾放行確認】問使用者；改了別支測試不替它清帳；PASS 不能代替；跨回合、不看措辭）；驗證範圍閘關掉時退回舊判法：改碼之後同根沒有仍存在的案例檔被新增或修改就擋。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比；測試目錄或 test_／_test／.test／.spec 這類檔名，檔名裡剛好含 test 的產品檔不算；測試檔不在這些慣例裡的專案自己加樣式）；改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；判不出來照算改了）不算改碼；部位表類別 knowledge 的部位（文件、記憶、信件匣）下的檔兩邊都不算（不欠案例、不能替寫碼部位清帳；判法看路徑屬哪一列不看副檔名，沒有部位表照舊）。(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。預算：(a)～(d)＋量尺閘共用獨立預算 max_blocks_per_turn（不吃 stop_gate_max_blocks），擋滿不放行：記 pending 跨回合承接，要用 AskUserQuestion 照【收尾放行確認】問使用者；使用者在最後一次擋之後選放行或整句打「放行」才放這一回合，並記 user_release（Logs/guard-<閘>.jsonl event=user_release，週健檢列 red）；子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬記憶與報告類，照舊第 3 次放行並寫 Logs/guard-reconcile_overflow.jsonl（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
     "enabled": true,
     "_doc_block_letters": "只有列出的條目字母會擋收尾，其餘照判、只印 stderr（規則 RECONCILE_BLOCK_LETTERS）；沒設＝全擋。使用者拍板只留 a（測試沒過不准說修好）與 d（改了程式要有測試）。",
     "block_letters": ["a", "d"],

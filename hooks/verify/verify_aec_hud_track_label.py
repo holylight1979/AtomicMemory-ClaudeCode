@@ -1,11 +1,9 @@
-"""verify_aec_hud_track_label.py — 收尾檢核 HUD 每則報告標「哪一軌」與「這則給誰看」。
+"""verify_aec_hud_track_label.py — 收尾檢核 HUD 每則報告標「哪個 session 寫的」。
 
-背景：原設計者看到背景工作軌寫給總控台的收尾檢核「沒頭沒尾」——報告檔（workflow/aec-report/<sid>-t<turn>.json）
-只有 session_id，HUD 卡片標頭只印時間與輪數。報告寫入端在 hooks/handlers（本案不動），由顯示端補推：
-軌名＝那個 session 對話紀錄（projects/*/<sid>.jsonl）首則使用者訊息開頭的「track-<名>：」，其次 cwd 在
-.claude-wt/<名> 底下就用資料夾名；讀者＝報告第一個非空欄位的首行寫了「給總控台」就標「給總控台」。
-正例：API（/api/aec/reports、/api/aec/report/<sid>/<turn>）帶出 track／audience，卡片標頭與歷史格提示印出軌名與讀者；
-反例：首行沒寫給總控台的不標、查不到對話紀錄的標頭退回 session 前 8 碼（仍有頭）。
+背景：報告檔（workflow/aec-report/<sid>-t<turn>.json）只有 session_id，HUD 卡片標頭只印時間與輪數。報告寫入端在
+hooks/handlers（本案不動），由顯示端補推：名稱＝那個 session 對話紀錄（projects/*/<sid>.jsonl）首則使用者訊息開頭的
+「track-<名>：」，其次 cwd 在 .claude-wt/<名> 底下就用資料夾名；推不到退回 session 前 8 碼。
+「這則寫給誰看」的讀者標記（給總控台）是開發期的東西，產品不標：API 不帶 audience、卡片不印。
 node 不在則 skip；假資料全在 tmp（WG_CLAUDE_DIR 指 tmp），不碰 live。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_aec_hud_track_label.py
 """
@@ -24,9 +22,9 @@ LIB = ROOT / "tools" / "workflow-guardian-mcp" / "lib"
 NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(not NODE, reason="node not available")
 
-SID_A = "aaaaaaaa-1111-2222-3333-444444444444"   # 開工句帶軌名、首行給總控台
-SID_B = "bbbbbbbb-1111-2222-3333-444444444444"   # 沒有軌名開頭，cwd 在 worktree；首行不是給總控台
-SID_C = "cccccccc-1111-2222-3333-444444444444"   # 查不到對話紀錄；第一個非空欄位（d）寫給總控台
+SID_A = "aaaaaaaa-1111-2222-3333-444444444444"   # 開工句帶軌名
+SID_B = "bbbbbbbb-1111-2222-3333-444444444444"   # 沒有軌名開頭，cwd 在 worktree
+SID_C = "cccccccc-1111-2222-3333-444444444444"   # 查不到對話紀錄
 
 
 def _jsonl(path: Path, recs) -> None:
@@ -76,15 +74,15 @@ console.log(JSON.stringify(out));
 """
 
 
-def test_api_reports_carry_track_and_audience(data_root):
+def test_api_reports_carry_track_not_audience(data_root):
     env = dict(os.environ, WG_CLAUDE_DIR=str(data_root))
     r = subprocess.run([NODE, "-e", _API, str(LIB / "anti-evasion.js"), SID_A], capture_output=True, text=True,
                        encoding="utf-8", env=env)
     assert r.returncode == 0, r.stderr
     listing, single = json.loads(r.stdout.strip().splitlines()[-1])
     got = {x["session_id"]: (x.get("track"), x.get("audience")) for x in listing["reports"]}
-    assert got == {SID_A: ("track-foo", "給總控台"), SID_B: ("bar", ""), SID_C: ("", "給總控台")}, got
-    assert (single.get("track"), single.get("audience")) == ("track-foo", "給總控台")
+    assert got == {SID_A: ("track-foo", None), SID_B: ("bar", None), SID_C: ("", None)}, got
+    assert (single.get("track"), single.get("audience")) == ("track-foo", None)
 
 
 _LATE = r"""
@@ -138,7 +136,7 @@ console.log(JSON.stringify(cases.map((r) => ({ card: cardHtml(r), tip: tipOf(r) 
 """
 
 
-def test_card_head_and_grid_tip_show_track_and_audience():
+def test_card_head_and_grid_tip_show_track_only():
     cases = [
         _report(SID_A, 3, track="track-foo", audience="給總控台"),
         _report(SID_B, 4, track="bar", audience=""),
@@ -149,7 +147,7 @@ def test_card_head_and_grid_tip_show_track_and_audience():
     assert r.returncode == 0, r.stderr
     a, b, c = json.loads(r.stdout.strip().splitlines()[-1])
     head = lambda x: x["card"][:x["card"].index("<details")]   # noqa: E731
-    assert "track-foo" in head(a) and "給總控台" in head(a)
-    assert "bar" in head(b) and "給總控台" not in head(b)
-    assert "session cccccccc" in head(c) and "給總控台" not in head(c)   # 查不到軌名：退回 session 前 8 碼
-    assert "track-foo" in a["tip"] and "給總控台" in a["tip"] and "session cccccccc" in c["tip"]
+    assert "track-foo" in head(a) and "給總控台" not in head(a)                # 舊報告帶 audience 也不印
+    assert "bar" in head(b)
+    assert "session cccccccc" in head(c)                                       # 查不到名稱：退回 session 前 8 碼
+    assert "track-foo" in a["tip"] and "給總控台" not in a["tip"] and "session cccccccc" in c["tip"]

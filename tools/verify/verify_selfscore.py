@@ -116,8 +116,8 @@ def test_summary_without_ledger_says_so(logs, capsys):
     assert "沒有自檢評分帳" in lines[0] and lines[-1] == "SELFSCORE DONE gs=0 records=0 unanswered=0"
 
 
-def test_ask_prints_rubric_and_logs_the_ask_for_e36(logs, capsys):
-    """--ask：印 G 名、評分規格卡的三句、可用證據與要答的三件事；guard-entry 記一筆 E36（路 tool_cli）。找不到卡照樣問。"""
+def test_ask_prints_rubric_without_entry_card(logs, capsys):
+    """--ask：印 G 名、評分規格卡的三句、可用證據與要答的三件事；不是產品切入點，不記 guard-entry。找不到卡照樣問。"""
     tool = _tool()
     card = next((ROOT / "memory").rglob("g3-評分規格*.md"))
     rubric = [ln.strip()[2:] for ln in ep._knowledge({"file": str(card)}).splitlines() if ln.strip().startswith("- ")]
@@ -125,28 +125,19 @@ def test_ask_prints_rubric_and_logs_the_ask_for_e36(logs, capsys):
     assert tool.main(["--ask", "--g", "g3", "--session", "s2"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("[SELFSCORE_ASK] 自檢評分｜G3：") and all(r in out for r in rubric)
-    assert "可用證據：" in out and "--score <0～10>" in out and out.strip().splitlines()[-1].startswith("SELFSCORE DONE asked=1 ")
-    asks = [r for r in _rows(logs, "entry") if r.get("event") == "ask"]
-    assert [(a["entry"], a["path"], a["session_id"]) for a in asks] == [("E36", "tool_cli", "s2")]
+    assert "可用證據：" in out and "--score <0～10>" in out and out.strip().splitlines()[-1].startswith("SELFSCORE DONE asked=1")
+    assert [r for r in _rows(logs, "entry") if r.get("event") == "ask"] == []
     tool.main(["--ask", "--g", "G99"])
     assert "找不到這個 G 的評分規格卡" in capsys.readouterr().out
 
 
-def test_registry_row_and_response_resolves_to_judged(logs):
-    """登錄表有 E36、路 tool_cli 在 path_values；問了之後答一筆，回應型照 responses 推成 judged；沒答那筆照樣算回應了。"""
+def test_not_in_entry_registry_and_score_still_logged(logs):
+    """自檢評分是開發期量 AI 的工具，不在產品切入點登錄表（沒有 E36）；答分照樣留帳 selfscore。"""
     reg = ep.load_registry()
-    row = next(r for r in reg["entrypoints"] if r["id"] == "E36")
-    doc = json.loads((ROOT / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))["_doc"]
-    assert row["paths"] == ["tool_cli"] and "tool_cli" in doc["path_values"]
-    assert [r["id"] for r in ep.match_entries("[SELFSCORE_ASK] 自檢評分｜G8：…", "tool_cli", reg)] == ["E36"]
-    assert ep.match_entries("自檢評分｜G8", "tool_cli", reg) == []              # 沒有英數字樣不算（中文字樣會被 trigger 子字串誤中）
+    assert not any(r["id"] == "E36" for r in reg["entrypoints"])
+    assert ep.match_entries("[SELFSCORE_ASK] 自檢評分｜G8：…", "tool_cli", reg) == []
     tool = _tool()
-    tool.main(["--ask", "--g", "G8", "--session", "s3"])
-    tool.main(["--g", "G3", "--session", "s3"])                               # 答了別的 G：不算這一問的回應
-    asks = [r for r in _rows(logs, "entry") if r.get("event") == "ask"]
-    assert [a.get("g") for a in asks] == ["G8"]                               # 問的帳帶 g
-    [got] = ep.resolve_responses(asks, {"selfscore": _rows(logs, "selfscore")}, reg)
-    assert got["response"] == "none"
-    tool.main(["--g", "G8", "--session", "s3"])                               # 同一秒內答也配得上（答的帳記到微秒），時間不另挪
-    [got] = ep.resolve_responses(asks, {"selfscore": _rows(logs, "selfscore")}, reg)
-    assert got["entry"] == "E36" and got["response"] == "judged" and got["response_by"] == "selfscore:score"
+    tool.main(["--g", "G8", "--session", "s3"])
+    assert [r.get("g") for r in _rows(logs, "selfscore")][-1:] == ["G8"]
+
+

@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
-    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR, v6_enabled,
+    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR, v6_enabled, coding_turn,
     DEFAULTS as CORE_DEFAULTS,  # config 缺鍵時的預設只認 wg_core 那一份
 )
 from harness_text import IDE_TAG_NAMES, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
@@ -184,6 +184,7 @@ def handle_user_prompt_submit(
     typed = user_typed_text(prompt)
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
+    coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合 v6 守門不送（記憶注入、導讀卡照舊）
 
     # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
     # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
@@ -193,7 +194,7 @@ def handle_user_prompt_submit(
             from wg_need_goal import on_prompt as _ng_on_prompt
             _ng_txt = _ng_on_prompt(session_id, clean_prompt, int(state.get("turn_seq", 0)) + 1, config,
                                     cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
-        if _ng_txt:
+        if _ng_txt and coding:                   # 原話照記；提示只在寫碼回合送
             lines.append(_ng_txt)
     except Exception as e:
         _atom_debug_error("ups:need_goal", e)
@@ -293,19 +294,15 @@ def handle_user_prompt_submit(
     except Exception as e:
         _atom_debug_error("ups:friction", e)
         print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)
-    # 同伴 session 送來的訊息＝外部主張：裁定前送「用目標視角重看」三問（4.3；使用者本人打的字不觸發）
-    if v6 and (correction_hits or "<cross-session-message" in clean_prompt[:300]):
+    # 使用者糾正：提醒回頭看目標樹（4.3）
+    if coding and correction_hits:
         try:
             import wg_need_goal as _ng
-            from wg_need_goal_points import on_correction, on_external_claim, peer_of_prompt
+            from wg_need_goal_points import on_correction
             if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
-                _ng_turn = int(state.get("turn_seq", 0) or 0) + 1
-                _ng_peer = peer_of_prompt(clean_prompt)
-                for _ng_line in (on_correction(session_id, correction_hits, _ng_turn) if correction_hits else None,
-                                 on_external_claim(session_id, "同伴訊息", _ng_peer or "同伴 session", _ng_turn)
-                                 if _ng_peer is not None else None):
-                    if _ng_line:
-                        lines.append(_ng_line)
+                _ng_line = on_correction(session_id, correction_hits, int(state.get("turn_seq", 0) or 0) + 1)
+                if _ng_line:
+                    lines.append(_ng_line)
         except Exception as e:
             print(f"[NeedGoal] 糾正或外部主張提醒失敗（不送）：{type(e).__name__}: {e}", file=sys.stderr)
             _atom_debug_error("ups:need_goal_correction", e)

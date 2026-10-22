@@ -95,6 +95,7 @@ def stop_run(monkeypatch):
 def _landed_state(**extra):
     s = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": ["繼續"],
          "stop_blocked_count": 0, "turn_seq": 9, "turn_prompts": ["繼續"], "turn_prompts_seq": 9,
+         "turn_intent": "feature",                     # 寫碼回合才偵測退避語（CODING_TURN_ONLY）
          "anti_evasion_report": {"session_id": _SID, "turn_seq": 9, "k_followups": "[HUD] 第 2 階段的彈窗設定"}}
     s.update(extra)
     return s

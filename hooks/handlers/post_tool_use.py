@@ -70,7 +70,7 @@ from handlers._shared import (
     entry_note,
 )
 import wg_oldtest
-import wg_judge_card  # 裁定 #53 直譯器改判準卡事後比對
+import wg_judge_card  # 直譯器改判準卡事後比對（JUDGE_CARD_HASH_CATCHES_INTERPRETER）
 
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
@@ -752,8 +752,8 @@ EXEC_TURN_KEYS_CAP = 50          # exec_turn_seq 最多記幾個 session／子�
 def _note_unknown_write(state: Dict[str, Any], session_id: str, target: str, command: str, tool_name: str,
                         agent_id: str = "") -> None:
     """寫入目標算不出來（write_paths_from_tool 回 UNKNOWN:…）→ 記一筆「未知寫入」：知道有寫、不知道寫了哪個檔，
-    不能當成沒寫。裁判 Stop（unknown_writes）與子代理 Stop（agent_unknown_writes[agent_id]）有這筆就擋到底；
-    主 session 的 PreToolUse 本來就 deny UNKNOWN，主 Stop 不看這份。每份最多留 UNKNOWN_WRITES_CAP 筆。"""
+    不能當成沒寫（規則 UNKNOWN_TARGET_LOGGED：放行並留帳）。主 session 與裁判記 unknown_writes（這個使用者回合有一筆就算寫碼回合，
+    wg_core.coding_turn），子代理記 agent_unknown_writes[agent_id]；Stop 只留帳 unknown_writes_logged。每份最多留 UNKNOWN_WRITES_CAP 筆。"""
     rec = {"cmd": " ".join(str(command or "").split())[:120], "target": str(target)[:60], "tool": tool_name,
            "session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()}
     lst = (state.setdefault("agent_unknown_writes", {}).setdefault(agent_id, []) if agent_id
@@ -872,17 +872,10 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
                 line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 沒樹時改了知識類：要寫輕樹（一回合一次）
                 if line:
                     lines.append(line)
-        hint = None
         if tool_name in ("Bash", "PowerShell"):
             ng.stamp_receipts(session_id, state, turn)
-        elif targets:
-            # 改了計畫類文件（_staging、plans 下的 .md）：交出計畫、開工句、清單之前的一問，一回合一次
-            from wg_need_goal_points import handout_edit_line
-            hint = handout_edit_line(state, session_id, str(targets[0]), turn)
-            if hint:
-                lines.append(hint)
         if lines:
-            return "\n".join(lines), bool(hint)
+            return "\n".join(lines), False
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] PostToolUse 蓋號／套用失敗（{tool_name}）：{type(e).__name__}: {e}", file=sys.stderr)
         ng._guard("stamp_error", session_id, tool=tool_name, error=f"{type(e).__name__}: {e}")
@@ -1044,7 +1037,7 @@ def _negative_control(input_data: Dict[str, Any], command: str):
 
 
 def _judge_card_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """裁定 #53 直譯器出口：Bash／PowerShell 跑完拿 PreToolUse 記的判準卡雜湊比，改了沒宣告記 state，下一個呼叫在 PreToolUse 擋。
+    """改判準卡的直譯器出口：Bash／PowerShell 跑完拿 PreToolUse 記的判準卡雜湊比，改了沒宣告記 state，下一個呼叫在 PreToolUse 擋。
     成功與失敗（PostToolUseFailure）兩條路都比；比對失敗只能 stderr＋留帳（事後擋不了這一次）。"""
     try:
         return wg_judge_card.after_tool(state, input_data, config)
@@ -1115,6 +1108,25 @@ def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
         except (ValueError, TypeError):
             continue
     return None
+
+
+SCOPE_ASK = ("這回合改了程式：哪些測試和這次改動有關、會受影響？由你判斷，"
+             "用 need_goal(action=verify_scope, items=[{target, why}]) 宣告這次的驗證範圍（一回合只問這一次）。")
+
+
+def _scope_ask_once(state: Dict[str, Any], session_id: str, file_path: str, config: Dict[str, Any]) -> None:
+    """規則 SCOPE_ASK_ONCE_PER_CODE_TURN：這個使用者回合第一次改程式檔（不是啟動器、還沒宣告過範圍）→ 問一次驗證範圍
+    （放 _verify_scope_advisory，這次 PostToolUse 送出）；同一回合之後不再問。"""
+    from wg_release_rules import user_turn
+    from wg_verify_ledger import git_launcher, is_code_file, reconcile_cfg
+    uturn = user_turn(state, int(state.get("turn_seq", 0) or 0))
+    asked = state.setdefault("scope_asked_turn", {})
+    if asked.get(session_id) == uturn or git_launcher(file_path):
+        return
+    if not is_code_file(file_path, reconcile_cfg(config).get("code_exts") or []):
+        return
+    asked[session_id] = uturn
+    state["_verify_scope_advisory"] = f"[Guardian:VerifyScope] {SCOPE_ASK}"
 
 
 def _apply_harvest(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], items: Any, note: Any,
@@ -1257,6 +1269,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
         if v6:
             note_git_launcher(file_path)    # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
+            _scope_ask_once(state, session_id, file_path, config)
 
         edit_counts = state.setdefault("edit_counts", {})
         edit_counts[file_path] = edit_counts.get(file_path, 0) + 1
@@ -1475,7 +1488,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # Stop 端讀 d_pending 擋一次（AEC-Pending Gate），逼 atom_write 後重新 emit。
         # 本 turn 已有 validated 收割 → (d) 的記憶收錄帳已由收割核對過，不再判 d_pending；(h) 照舊。
         # 收尾一份報告（CLOSING_REPORT_ONE_CALL）：收割清單可以跟收尾檢核同一次交（harvest_items，核對同 knowledge_harvest_report）；
-        # report＝給讀者的白話全文（做了什麼／驗了什麼／沒做什麼／追蹤項），工作軌原文就是交付信。
+        # report＝給讀者的白話全文（做了什麼／驗了什麼／沒做什麼／追蹤項）。
         if v6 and isinstance(tool_input.get("harvest_items"), list):
             _apply_harvest(state, session_id, input_data, tool_input["harvest_items"], "", aec_reject_msgs,
                            "anti_evasion_report（harvest_items）")
@@ -1537,9 +1550,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 _ng_snap = _ng.snapshot_for_report(session_id) if _ng_on else None
                 if _ng_snap:
                     report["need_goal"] = _ng_snap
-                if _ng_on:
-                    # 收尾檢核之後就是收尾報告（常帶下一步、開工句）：交出前一問在這裡也送一次
-                    aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.handout_check_text(session_id)}")
             except Exception as e:
                 _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report

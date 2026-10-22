@@ -52,20 +52,12 @@ def test_peer_message_is_not_a_correction_nor_a_dismiss():
     from wg_evasion import detect_evasion
     from wg_harvest import _dismissed
     assert detect_correction(PEER, {}) == []                                        # 反例：舊碼算成使用者糾正
-    # G6 P7：豁免要 AI 寫「不做｜<哪一件>：使用者說「<原句>」」，引用只認使用者打的字——同伴說「先這樣」對不到引用，使用者說的對得到
-    t = "既有的問題，非本次範圍。\n不做｜既有的問題：使用者說「先這樣」"
-    assert detect_evasion(t, ["幫我修好", PEER]) is not None                        # 同伴說「先這樣」不替使用者豁免
-    assert detect_evasion(t, ["先這樣", PEER]) is None                              # 使用者說的照樣豁免
-    assert _dismissed(["幫我修好", PEER]) is False and _dismissed(["先這樣"]) is True
-    from wg_evasion import detect_deferral, detect_missing_aec_emission
-    later = "完工。realm atom 瘦身留到下個 session 做。\n不做｜realm atom 瘦身：使用者說「先這樣」"
-    assert detect_deferral(later, ["幫我修好", PEER]) is not None and detect_deferral(later, ["先這樣"]) is None
+    # 收割與收尾檢核的 dismiss 詞只認使用者打的字：同伴說「先這樣」不替使用者整批放行，使用者說的才放
+    assert _dismissed(["幫我修好", PEER]) is None and _dismissed(["先這樣"]) == "先這樣"
+    from wg_evasion import detect_missing_aec_emission
     core = [{"path": r"c:\a\.claude\hooks\x.py", "tool": "Edit"}]
     assert detect_missing_aec_emission("全部完成了", core, ["幫我修好", PEER], 2, False) is True
-    # G6 階段 5（HARVEST_WAIVER_ITEMIZED）：收尾檢核也要引用到使用者原話才豁免；同伴說的引不到
-    done_cited = "全部完成了\n不做｜收尾檢核：使用者說「先這樣」"
-    assert detect_missing_aec_emission(done_cited, core, ["幫我修好", PEER], 2, False) is True
-    assert detect_missing_aec_emission(done_cited, core, ["先這樣"], 2, False) is False
+    assert detect_missing_aec_emission("全部完成了", core, ["先這樣"], 2, False) is False
     assert wg_core.user_typed_prompts(["a", NOTIFY, PEER, "b"]) == ["a", "b"]
 
 
@@ -142,10 +134,11 @@ def _peer(body: str) -> str:
 
 def _seven(prompt: str, monkeypatch) -> dict:
     """經入口跑一則 prompt，回七項「使用者說了算」是否生效：口令、糾正、豁免、紅測豁免、使用者決策、不要記、停用。
-    豁免與紅測豁免（G6 P7）要 AI 寫「不做｜<哪一件>：使用者說「先這樣」」，引用只認使用者打的字（recent_user_prompts 存清理後的文字）。"""
+    豁免＝收割與收尾檢核的 dismiss 詞；紅測豁免要 AI 寫「不做｜<哪一支>：使用者說「先這樣」」；兩者都只認使用者打的字
+    （recent_user_prompts 存清理後的文字）。"""
     from handlers import ups_gates as g
     from handlers.pre_tool_use import check_git_commit_order
-    from wg_evasion import detect_evasion
+    from wg_harvest import _dismissed
     from wg_release_rules import parse_not_doing, waived_failures
     from wg_extraction import EXTRACT_VETO_MARKER
     disabled = []
@@ -156,12 +149,11 @@ def _seven(prompt: str, monkeypatch) -> dict:
     st = {"failing_tests": [{"cmd": "pytest t_x.py"}], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
     lines = []
     g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, prompt, prompt.lower(), lines)
-    cited = "既有的問題，非本次範圍。\n不做｜既有的問題：使用者說「先這樣」"
     kept, _ = waived_failures(st["failing_tests"], parse_not_doing("不做｜t_x.py：使用者說「先這樣」"), st["recent_user_prompts"][-3:])
     return {
         "order": check_git_commit_order("Bash", {"command": "git commit -m x"}, {}, st) is None,
         "correction": bool(detect_correction(prompt, {})),
-        "dismiss": detect_evasion(cited, st["recent_user_prompts"]) is None,
+        "dismiss": _dismissed(st["recent_user_prompts"]) is not None,
         "failing": kept == [],
         "decision": bool(st.get("pending_user_extract")),
         "veto": any(EXTRACT_VETO_MARKER in ln for ln in lines),     # G6 階段 5：「不要記」改成問 AI 是不是否決，通知照送
