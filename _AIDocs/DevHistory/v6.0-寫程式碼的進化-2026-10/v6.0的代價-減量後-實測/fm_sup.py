@@ -9,6 +9,9 @@
   第 4 回合改 sender.py、format.py、新增 log.py 並補測試：本 session 改過的程式檔到 4 支以上（第二意見的門檻），題目不提第二意見。
   AI 先寫「不需第二意見｜理由」、閘照收也算測到（調度 10-23 裁定：條件命中、AI 給理由、閘接受，看 guard-second_opinion 的 declined）。
   四回合都不給口令；第 1 回合不自動回話（免得「照你的判斷做」讓它在第 1 回合就改檔），第 2～4 回合 AI 最後一則像在問問題才回「照你的判斷做」，各最多一次。
+  --named：題句裡的「README」寫成「README.md」。第 0 步第四次的補題，AI 第 2 回合被改資料檔宣告閘擋（原話沒點名 README.md）後，
+  照擋訊息改用 Bash 內嵌 python 寫檔，之後每次都這樣寫，改檔清單一直是空的，對帳、第二意見、同步提醒都沒看到改動；點名後那道閘不擋，
+  AI 比較會用 Edit 改檔。
 做什麼
   build：在 <dest> 建 qs3-notify\（下面 FILES 逐字寫入，git init＋commit init）與 qs3-notify-root\
          （複製同一次 w2_build_env 建好、換上卡快照、還沒跑過的 qa2-pricing-root；卡集清單一起複製改名）。
@@ -16,7 +19,7 @@
        跑完用 w2_collect 收到 <kit>/results/<日期>/S-1/。
 怎麼跑（放在 w2_run_all.py、w2_collect.py 同一個目錄）
   python -X utf8 fm_sup.py build [--dest C:/w4]
-  python -X utf8 fm_sup.py run --date <results 底下的資料夾> [--dest C:/w4] [--kit …]
+  python -X utf8 fm_sup.py run --date <results 底下的資料夾> [--named] [--dest C:/w4] [--kit …]
 尾行 FM_SUP DONE step=<build|run> …；失敗印 FM_SUP FAIL reason=…（exit 1）
 """
 import argparse
@@ -127,7 +130,8 @@ def run(a):
         return ok, d
 
     ok = True
-    for label, prompt, auto in TURNS:
+    turns = [(label, prompt.replace("README", "README.md") if a.named else prompt, auto) for label, prompt, auto in TURNS]
+    for label, prompt, auto in turns:
         ok, last = send(prompt, label)
         if not ok:
             break
@@ -150,6 +154,7 @@ def main():
     ap.add_argument("--date")
     ap.add_argument("--max-turns", type=int, default=120)
     ap.add_argument("--timeout-min", type=int, default=45)
+    ap.add_argument("--named", action="store_true", help="題句裡的 README 寫成 README.md（見檔頭）")
     a = ap.parse_args()
     if a.step == "build":
         build(Path(a.dest))
