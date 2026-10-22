@@ -1662,10 +1662,12 @@ _HERE_STRING = "Write-Output @'\nVERIFY_CHECK DONE cases=1 failed=0\n';\npython 
 
 
 def test_017_root_table_rulers_still_runnable_as_declared_commands():
-    """G6 (b)：根層部位表 10 列（4 把尺；行為規則層、派工信箱、部位表與專案層設定無尺；hook 兩層與 skill 層的全量 run_verify
-    已拔掉，全量改增量待補）的量尺是候選材料：宣告成指令項目後原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
+    """G6 (b)：根層部位表每一把量尺都是候選材料：宣告成指令項目後原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。
+    列數與尺數照表上實際讀到的算（部位表會合法增列，不寫死）；表上不再有全量 run_verify 當量尺。
+    改舊測試｜test_017_root_table_rulers_still_runnable_as_declared_commands：部位表合法新增三列（stop.py／pre_tool_use.py、
+    wg_release_rules.py／wg_overview.py／wg_second_opinion.py、tools/workflow-guardian-mcp/ 的單檔列），原本寫死 10 列 4 把尺。"""
     rows = [r for r in _ROOT_ROWS if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 10 and len(rows) == 4
+    assert _ROOT_ROWS and rows, "部位表讀不到列或沒有任何量尺"
     assert not [r["part_short"] for r in rows if "run_verify.py" in r["measure"]["cmd"]]   # 表上不再有全量當量尺
     for row in rows:
         single = "&&" not in row["measure"]["cmd"]          # 多段量尺後接過濾會蓋掉最後一段的 exit，只有單段量尺准接
