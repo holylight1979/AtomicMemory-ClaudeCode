@@ -99,8 +99,8 @@ RULES: Dict[str, str] = {
                            "sync_reminder.max_reminders 次，底部一般 block 照 SYNC_BLOCK_NEW_ITEMS_ONLY。判法在 handlers/user_prompt_submit.py。",
     "SYNC_BLOCK_NEW_ITEMS_ONLY": "Stop 底部的一般 sync block（待記知識、文件漂移）：同一筆在前面的使用者回合擋過就不再擋，有新的一筆才擋；"
                                  "同一個使用者回合照舊（擋幾次歸 stop_gate_max_blocks 共用預算）。一筆＝待記知識的整段內容、文件漂移的"
-                                 "來源→文件加記下的時間（解決後又漂移算新的）。擋過的記在 state.sync_block_shown（項目 → 第一次擋的使用者回合，"
-                                 "只留還欠的）；「還會擋」預覽用同一個判定，收尾檢核 (g) 已交代只免同步提醒、不免這段。"
+                                 "來源→文件加記下的時間（解決後又漂移算新的）。擋過的記在 state.sync_block_shown（項目 → 第一次擋的回合記號＝開場時間＋"
+                                 "使用者回合序號，開場重建 state 回合序號從頭算也不撞；只留還欠的），重建時連同同步提醒次數一起照搬；「還會擋」預覽用同一個判定，收尾檢核 (g) 已交代只免同步提醒、不免這段。"
                                  "判法在 handlers/stop.py 的 _sync_block_keys／_sync_block_items。",
     "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、第二意見、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"

@@ -340,11 +340,18 @@ def _sync_block_keys(state: Dict[str, Any], unsynced: int, min_files: int) -> Li
     return kq + drift
 
 
+def _turn_mark(state: Dict[str, Any], uturn: int) -> str:
+    """sync_block_shown 記的「哪一個使用者回合」：開場時間＋回合序號。專案根指紋變了、開場重建 state 時回合序號從頭算、開場時間換新，
+    重建前擋過的不會被當成同一回合再擋。"""
+    return f"{(state.get('session') or {}).get('started_at', '')}#{uturn}"
+
+
 def _sync_block_items(state: Dict[str, Any], unsynced: int, min_files: int, uturn: int) -> List[str]:
     """底部一般 sync block 這次要擋的項目（空＝不擋；收尾的擋與「還會擋」預覽共用）。規則 SYNC_BLOCK_NEW_ITEMS_ONLY：
-    前面使用者回合擋過的同一筆不再算，同一回合照舊（擋幾次歸共用預算）；擋過的記在 state sync_block_shown（項目→第一次擋的回合）。"""
+    前面使用者回合擋過的同一筆不再算，同一回合照舊（擋幾次歸共用預算）；擋過的記在 state sync_block_shown（項目→第一次擋的回合記號）。"""
     shown = state.get("sync_block_shown") or {}
-    return [k for k in _sync_block_keys(state, unsynced, min_files) if shown.get(k, uturn) == uturn]
+    mark = _turn_mark(state, uturn)
+    return [k for k in _sync_block_keys(state, unsynced, min_files) if shown.get(k, mark) == mark]
 
 
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
@@ -2787,8 +2794,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     state["stop_blocked_count"] = stop_count + 1
     # 只留這次還欠的項目（已解決、已清掉的不留著越記越多）；前面回合擋過的保留第一次擋的回合
-    _prev = state.get("sync_block_shown") or {}
-    state["sync_block_shown"] = {k: _prev.get(k, _since) for k in _sync_block_keys(state, len(unique_files), min_files)}
+    _prev, _mark = state.get("sync_block_shown") or {}, _turn_mark(state, _since)
+    state["sync_block_shown"] = {k: _prev.get(k, _mark) for k in _sync_block_keys(state, len(unique_files), min_files)}
 
     file_names = ", ".join(f.rsplit("/", 1)[-1] for f in unique_files[:8])
 

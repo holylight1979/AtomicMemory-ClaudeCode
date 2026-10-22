@@ -22,6 +22,8 @@ sys.path.insert(0, str(HOOKS_DIR))
 from handlers import stop as st  # noqa: E402
 from handlers import user_prompt_submit as ups  # noqa: E402
 from handlers import ups_gates  # noqa: E402
+from handlers import session_start as ss  # noqa: E402
+import wg_core  # noqa: E402
 
 _SID = "sid-later"
 _A = "c:/p/docs/a.md"
@@ -295,6 +297,38 @@ def test_preview_lists_sync_block_even_when_closing_check_covers(flow, capsys, m
     assert "DeferralGate" in out and "同步：1 筆待記知識或文件漂移" in out, out
 
 
+def _rebuilt_like_session_start(existing):
+    """照 session_start 專案根指紋變了的重建分支做一份新 state：new_state、_CARRY_ON_REBUILD 照搬、phase 沿用（回合序號從頭算）。"""
+    new = wg_core.new_state(_SID, existing["session"]["cwd"], "resume")
+    for key in ss._CARRY_ON_REBUILD:
+        if key in existing:
+            new[key] = existing[key]
+    new["phase"] = existing.get("phase", "working")
+    return {**new, "injected_atoms": [], "failing_tests": [], "recent_user_prompts": [], "scan_report_warned": True}
+
+
+def test_rebuilt_state_does_not_remind_again(flow, capsys):
+    """同步提醒過、底部一般擋也擋過，之後開場重建 state（專案根指紋變了）→ 同一個 session 不再提醒同步、同一筆待記知識不再擋。
+    舊碼重建時沒搬提醒額度與擋過的項目（紅）。"""
+    state, ups_run, stop_run = flow
+    state["knowledge_queue"] = [{"content": "某個坑", "classification": "[臨]"}]
+    ups_run("幫我改 a 跟 b 兩份文件", capsys)
+    edit(state, _A, _B)
+    out, _, _ = stop_run(capsys)
+    assert "[Guardian:SyncReminder]" in out, out
+    out, _, _ = stop_run(capsys)
+    assert "[Workflow Guardian]" in out, out                                       # 前置：一般擋擋過這筆待記知識
+    stop_run(capsys)
+    rebuilt = _rebuilt_like_session_start(state)
+    state.clear()
+    state.update(rebuilt)
+    ups_run("再改 c", capsys)
+    edit(state, _C)
+    out, err, _ = stop_run(capsys)
+    assert "[Guardian:SyncReminder]" not in out and "[Workflow Guardian]" not in out, out
+    assert state["sync_reminder_count"] == 1 and "前面回合已提醒過" in err, err
+
+
 @pytest.mark.parametrize("kq, drift, unsynced, shown, uturn, want", [
     ([], {}, 3, {}, 5, []),                                                          # 只剩改檔數：歸同步提醒
     ([], {"a.py→Arch.md": {}}, 1, {}, 5, []),                                        # 文件漂移但改檔不到門檻：不擋
@@ -309,7 +343,7 @@ def test_sync_block_items_cases(kq, drift, unsynced, shown, uturn, want):
     state = {"knowledge_queue": kq, "docdrift_pending": drift}
     if isinstance(shown, str):
         key = st._sync_block_items(state, unsynced, 2, uturn)[0]
-        state["sync_block_shown"] = json.loads(json.dumps({key: uturn - 1 if shown == "earlier" else uturn}))
+        state["sync_block_shown"] = json.loads(json.dumps({key: st._turn_mark(state, uturn - 1 if shown == "earlier" else uturn)}))
     got = st._sync_block_items(state, unsynced, 2, uturn)
     assert [g if g.startswith("drift:") else g[:3] for g in got] == want, got
 
