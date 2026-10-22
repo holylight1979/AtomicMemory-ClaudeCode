@@ -1,7 +1,8 @@
 // verify_atom_write_judgments.js — atom_write 的兩個 AI 宣告入口（G6 階段 5）在 MCP（js）端的接線。
 //   CONFLICT_DECLARED_BY_AI：偵測器回 need_declaration → 不落檔、回「衝突待宣告（這次不寫檔）」列候選；conflict 參數原樣傳給偵測器；
 //     宣告 not_conflict（偵測器回 ok）→ 照寫 shared、回覆附 conflict_declared；宣告 conflict（偵測器回 contradict）→ 落 .conflict.md、
-//     不寫 shared、回覆帶理由；舊偵測器回 extend_overlap 不再自動改道 _pending_review；conflict 型別錯 js 先拒。
+//     不寫 shared、回覆帶理由；守門總開關關時偵測器回 extend_overlap → 整張卡改落 _pending_review 草稿；conflict 型別錯 js 先拒。
+//     退件訊息講明名單是這次向量前幾名、多寫不在名單的不算錯。
 //   PROJECT_LITERAL_IS_HINT：從專案 cwd 寫 scope=global，內容只有字面「此專案」→ 真 py realm 閘擋、訊息帶規則名；
 //     帶 scope_reason → 照寫、留帳 guard-realm_declared；scope_reason 型別錯 js 先拒。
 // 隔離：WG_CLAUDE_DIR 指 os.tmpdir() 下的暫存資料根（require 任何 lib 之前設）；偵測器在 require atom-tools 前換成腳本化的假函式
@@ -71,7 +72,8 @@ function check(cond, label, detail) {
   // 1. 沒宣告 → 偵測器回 need_declaration → 不落檔、列候選與寫法
   detectorResult = { verdict: "need_declaration", candidates: [cand], matches: [cand], declaration_problem: "" };
   const r1 = await shared({ title: "judg-new-a", knowledge: KNOW });
-  check(r1.isError && r1.text.startsWith("衝突待宣告（這次不寫檔）") && r1.text.includes("old-card") && r1.text.includes("not_conflict"),
+  check(r1.isError && r1.text.startsWith("衝突待宣告（這次不寫檔）") && r1.text.includes("old-card") && r1.text.includes("not_conflict")
+        && r1.text.includes("這次向量前 1 名") && r1.text.includes("多寫不在名單的會略過"),
     "need_declaration → refused with candidates and how-to", r1.text);
   check(!projFile("judg-new-a"), "need_declaration → no file written");
   check(detectorCalls.at(-1).declared === undefined && detectorCalls.at(-1).title === "judg-new-a", "detector got title, no declaration");
@@ -97,11 +99,23 @@ function check(cond, label, detail) {
         && findFile(path.join(PROJ, ".claude", "memory"), "judg-new-c.conflict.md") && !projFile("judg-new-c"),
         "conflict → pending report, not written", r4.text);
 
-  // 5. 舊偵測器的 extend_overlap 不再自動改道 _pending_review
-  detectorResult = { verdict: "extend_overlap", matches: [{ ...cand, classification: "EXTEND" }] };
+  // 5. 守門總開關關時偵測器照門檻回 extend_overlap → 整張卡改落 shared/_pending_review 草稿（不要求宣告）
+  detectorResult = { verdict: "extend_overlap", primary: "old-card", matches: [{ ...cand, classification: "EXTEND" }] };
   const r5 = await shared({ title: "judg-new-d", knowledge: KNOW });
-  check(!r5.isError && projFile("judg-new-d") && !projFile("judg-new-d").includes("_pending_review"),
-        "extend_overlap no longer reroutes to _pending_review", r5.text + " → " + projFile("judg-new-d"));
+  const draft = projFile("judg-new-d") || "";
+  check(!r5.isError && draft.replace(/\\/g, "/").includes("/shared/_pending_review/")
+        && fs.readFileSync(draft, "utf-8").includes("- Pending-review-by: management")
+        && r5.text.includes("Pending-review-by: management"),
+        "extend_overlap (switch off) → draft rerouted to shared/_pending_review", r5.text + " → " + draft);
+  const mh = path.join(PROJ, ".claude", "memory", "_merge_history.log");
+  check(fs.existsSync(mh) && /pending-create\tjudg-new-d\t.*extend_overlap vs old-card sim=0\.910/.test(fs.readFileSync(mh, "utf-8")),
+        "extend_overlap reroute logged in merge history", fs.existsSync(mh) ? fs.readFileSync(mh, "utf-8") : "(no log)");
+
+  // 5b. 待審已有同名草稿 → 拒寫，不蓋掉那張草稿
+  const draftBefore = fs.readFileSync(draft, "utf-8");
+  const r5b = await shared({ title: "judg-new-d", knowledge: ["[臨] 第二次送同名卡的不同內容，不該蓋掉待審裡的第一張草稿"] });
+  check(r5b.isError && r5b.text.startsWith("待審已有同名草稿") && fs.readFileSync(draft, "utf-8") === draftBefore,
+        "extend_overlap reroute onto existing pending draft → refused, draft unchanged", r5b.text);
 
   // 6. 型別錯 js 先拒
   const r6 = await shared({ title: "judg-new-e", knowledge: KNOW, conflict: "not_conflict" });

@@ -73,7 +73,7 @@ function gateLines(g) {
   if (g.depends_missing) lines.push("depends_missing: true");
   if (g.how) lines.push(g.how);
   const d = g.dedupe_declared;
-  if (d) lines.push(`dedupe_declared: ${d.verdict} of=${d.of} score=${d.score}`);
+  if (d) lines.push(`dedupe_declared: ${d.verdict} of=${d.of}` + (typeof d.score === "number" ? ` score=${d.score}` : ""));
   if (g.dedupe_note) lines.push(g.dedupe_note);
   return lines.join("\n");
 }
@@ -163,7 +163,8 @@ async function toolAtomWrite(id, args) {
     }
     // Realm gate（org）：公司層給所有專案共用，內容帶專案名／專案路徑／「此專案」→ 擋（py lib/realm_gate.check_org_write
     // 單源）。必須在 org→shared 改寫之前跑，否則 org 寫入永遠不過 realm 閘。不受 skip_gate 影響。
-    const rgo = v6Enabled() ? await spawnAtomCli("realm_check", {   // 公司層 realm 閘是 v6 加的；守門關閉時不跑
+    // 守門總開關關時不跑公司層 realm 閘
+    const rgo = v6Enabled() ? await spawnAtomCli("realm_check", {
       scope: "org", project_cwd: project_cwd || process.cwd(), title, triggers, knowledge, actions, domain, scope_reason,
     }) : { ok: true };
     if (!rgo.ok) return reply(`atom_write: ${rgo.error}`, true);
@@ -221,10 +222,10 @@ async function toolAtomWrite(id, args) {
     return reply(`supersedes rejected: atom "${slug}" cannot supersede itself`, true);
   }
 
-  // 衝突候選不再自動改道待審（規則 CONFLICT_DECLARED_BY_AI），落點只由 py locate 決定
-  const memDir = loc.target_dir;
-  const filePath = existingPath || path.join(memDir, slug + ".md");
-  const relPath = existingPath ? loc.rel_path : loc.create_rel_path;
+  // 落點由 py locate 決定；只有守門總開關關、偵測器回 extend_overlap 時改道待審草稿（下方衝突偵測段）
+  let memDir = loc.target_dir;
+  let filePath = existingPath || path.join(memDir, slug + ".md");
+  let relPath = existingPath ? loc.rel_path : loc.create_rel_path;
 
   const author = getCurrentUser();
   const today = new Date().toISOString().slice(0, 10);
@@ -294,17 +295,17 @@ async function toolAtomWrite(id, args) {
     // dry_run 跳過：偵測器會落 .conflict.md 報告／_pending_review 草稿（副作用），預覽不該留痕。
     if (scope === "shared" && !skip_conflict_check && !dry_run) {
       const cr = await execConflictDetector(knowledge.join("\n"), "shared", project_cwd, subdir, conflict, title);
-      // 門檻候選要 AI 宣告是不是衝突（規則 CONFLICT_DECLARED_BY_AI）：沒宣告或宣告不全 → 不寫檔、列候選與寫法
+      // 門檻候選要 AI 宣告是不是衝突（規則 CONFLICT_DECLARED_BY_AI）：沒宣告或沒涵蓋向量前幾名 → 不寫檔、列名單與寫法
       if (cr.verdict === "need_declaration") {
-        const cands = (cr.candidates || []).map((c) =>
-          `  - ${c.atom_name}（本地模型 ${c.classification}，sim=${(c.similarity || 0).toFixed(3)}）：${c.fact_preview || ""}`).join("\n");
+        const cands = (cr.candidates || []).map((c) =>   // ref：不同層同名時是 <layer>:<卡名>，of 照抄它
+          `  - ${c.ref || c.atom_name}（本地模型 ${c.classification}，sim=${(c.similarity || 0).toFixed(3)}）：${c.fact_preview || ""}`).join("\n");
         return reply(
-          "衝突待宣告（這次不寫檔）：相似度門檻與本地模型的標籤只篩候選（規則 CONFLICT_DECLARED_BY_AI），是不是衝突由你判。\n" +
+          "衝突待宣告（這次不寫檔）：相似度門檻與本地模型的標籤只決定要不要問（規則 CONFLICT_DECLARED_BY_AI），是不是衝突由你判。\n" +
           (cr.declaration_problem ? `宣告不收：${cr.declaration_problem}\n` : "") +
-          `候選：\n${cands}\n` +
+          `要宣告的卡（這次向量前 ${(cr.candidates || []).length} 名，不隨本地模型標籤變；知識段不改就重送，名單不變）：\n${cands}\n` +
           "判準：兩張講的是不是同一件事、同一個範圍（同專案、同工具、同設定鍵），而且不能同時成立；範圍不同各自成立、" +
           "或一張補充另一張，都不是衝突。\n" +
-          '帶 conflict=[{"of": "<候選卡名>", "verdict": "conflict"|"not_conflict", "why": "<一句理由>"}] 重送，每個候選一條：' +
+          '帶 conflict=[{"of": "<卡名>", "verdict": "conflict"|"not_conflict", "why": "<一句理由>"}] 重送，上面每張一條（多寫不在名單的會略過，不算錯）：' +
           "not_conflict → 照寫 shared；conflict → 落待審報告、不寫 shared。兩種都留帳。", true);
       }
       // 偵測器降級訊號（複驗不穩 / 跨分區 / LLM ERROR fail-open）→ 併入成功訊息浮出
@@ -326,7 +327,7 @@ async function toolAtomWrite(id, args) {
       if (cr.verdict === "contradict") {
         // AI 宣告衝突（或舊偵測器沒帶宣告結果）→ 落待審報告、不寫 shared
         const prim = (cr.matches || []).find((m) => m.atom_name === cr.primary) || (cr.matches || [])[0] || {};
-        const decl = (cr.declared || []).find((d) => d.of === prim.atom_name);
+        const decl = (cr.declared || []).find((d) => d.of === prim.atom_name || d.of === `${prim.layer}:${prim.atom_name}`);
         const pendingDir = path.join(baseDir, "shared", "_pending_review");
         fs.mkdirSync(pendingDir, { recursive: true });
         const reportPath = path.join(pendingDir, slug + ".conflict.md");
@@ -346,6 +347,20 @@ async function toolAtomWrite(id, args) {
           `（後端 tools/conflict-review.py --list / --action approve|reject --target <name> --project-cwd <root>）`,
           false  // not isError — pending is normal flow
         );
+      }
+      if (cr.verdict === "extend_overlap") {
+        // 守門總開關關時偵測器照門檻判：高相似 EXTEND → 整張卡改落待審草稿（仍是完整 atom 格式），不要求宣告
+        memDir = path.join(baseDir, "shared", "_pending_review");
+        filePath = path.join(memDir, slug + ".md");
+        if (fs.existsSync(filePath)) {   // 既有卡定位不看 _pending_review：同名草稿只能在這裡擋，否則 create 會蓋掉它
+          return reply(`待審已有同名草稿：${filePath} — 先 /conflict pending 處理那張，或換標題再寫`, true);
+        }
+        fs.mkdirSync(memDir, { recursive: true });
+        if (!pendingReviewBy) pendingReviewBy = "management";
+        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+        const m0 = (cr.matches || []).find((m) => m.atom_name === cr.primary) || (cr.matches || [])[0] || {};
+        appendMergeHistory(baseDir, "pending-create", slug, scopeLabel, author,
+          `extend_overlap vs ${m0.atom_name || "?"} sim=${(m0.similarity || 0).toFixed(3)}`);
       }
     }
 
@@ -369,7 +384,7 @@ async function toolAtomWrite(id, args) {
       today,
       // index scope 傳 scopeLabel（與 frontmatter 一致）——不再由 py 端預設 global
       // 蹍掉專案層 scope。
-      // depends 透傳給 index（欄位名固定 depends；py write_index 簽名收了才落 index，track-a2 接）
+      // depends 透傳給 index（欄位名固定 depends，py write_index 收了才落 index）
       index: { base_dir: indexDir, slug, rel_path: relPath, triggers, scope: scopeLabel,
                ...(Array.isArray(depends) && { depends }) },
       kind_hint,
@@ -425,7 +440,7 @@ async function toolAtomWrite(id, args) {
       return reply(`Atom not found: ${slug}.md — use mode=create first`, true);
     }
     // 預算與分型（py 端 mode=append：跳 dedup／quality，算既有 knowledge 區＋新增；超了不截斷、回該去哪）
-    const ga = v6Enabled() ? await execWriteGate(knowledge.join("\n"), confidence, null, title,   // 守門關閉：append 不過預算閘（9e476fd0 沒有）
+    const ga = v6Enabled() ? await execWriteGate(knowledge.join("\n"), confidence, null, title,   // 守門總開關關時 append 不過預算閘
       { mode: "append", existing_path: filePath, actions, depends, kind_hint }) : {};
     if (ga.action === "skip") {
       return reply(gateRejectText(ga), true);
@@ -504,7 +519,7 @@ async function toolAtomWrite(id, args) {
     const dependsFinal = Array.isArray(depends) ? depends : prevDepends;
     const supersedesFinal = Array.isArray(supersedes) ? supersedes : (prevSupersedes || []);
     // 預算與分型（py 端 mode=replace：跳 dedup／quality；hub 五段＋Depends、預算上限由 py 回）
-    const gr = v6Enabled() ? await execWriteGate(knowledge.join("\n"), confidence, null, title,   // 守門關閉：replace 不過預算閘（9e476fd0 沒有）
+    const gr = v6Enabled() ? await execWriteGate(knowledge.join("\n"), confidence, null, title,   // 守門總開關關時 replace 不過預算閘
       { mode: "replace", existing_path: filePath, actions, depends: dependsFinal, kind_hint }) : {};
     if (gr.action === "skip") {
       return reply(gateRejectText(gr), true);

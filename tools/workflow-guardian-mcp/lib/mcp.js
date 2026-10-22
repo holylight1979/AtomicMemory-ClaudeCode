@@ -198,7 +198,7 @@ const TOOL_DEFINITIONS = [
             of: { type: "string" },
             why: { type: "string" },
           },
-          description: "去重宣告（create）。寫入閘回「需要宣告」（新內容和既有卡相似，列出候選卡）時才帶著重送：你判斷新內容和其中一張候選卡的關係。same＝同一條，知識段改併入那張卡（走 append；triggers／actions 不併）；supersedes＝取代，寫新卡並以 Supersedes 標那張（舊卡留檔、不再注入）；different＝不同，照常寫新卡。of＝候選卡名原字照抄，why＝一句理由（空白、佔位、純標點會被退回）。沒有命中相似時給了會被忽略並在回覆附 note。",
+          description: "去重宣告（create）。寫入閘回「需要宣告」（新內容和既有卡相似，列出候選卡）時才帶著重送：你判斷新內容和其中一張候選卡的關係。same＝同一條，知識段改併入那張卡（走 append；triggers／actions 不併）；supersedes＝取代，寫新卡並以 Supersedes 標那張（舊卡留檔、不再注入）；different＝不同，照常寫新卡。of＝候選卡名原字照抄，也可以是這次去重比對的層（回覆的 searched layers）裡其他存在的卡（不同層同名寫成 <layer>:<卡名>）；why＝一句理由（空白、佔位、純標點會被退回）。沒有命中相似時照宣告走：same／supersedes 的 of 要是那幾層裡存在的卡，different 照常寫並附 note。",
         },
         conflict: {
           type: "array",
@@ -210,7 +210,7 @@ const TOOL_DEFINITIONS = [
               why: { type: "string" },
             },
           },
-          description: "衝突宣告（scope=shared create）。atom_write 回「衝突待宣告（這次不寫檔）」並列候選卡時才帶著重送：每個候選一條。判兩張是不是同一件事、同一個範圍，而且不能同時成立；範圍不同各自成立、或一張補充另一張都不是衝突。not_conflict＝照寫；conflict＝落待審報告不寫 shared。of＝候選卡名原字照抄，why＝一句理由。都會留帳。",
+          description: "衝突宣告（scope=shared create）。atom_write 回「衝突待宣告（這次不寫檔）」並列出要宣告的卡（這次向量前幾名）時才帶著重送：名單每張一條，多寫不在名單的會略過、不算錯。判兩張是不是同一件事、同一個範圍，而且不能同時成立；範圍不同各自成立、或一張補充另一張都不是衝突。not_conflict＝照寫；conflict＝落待審報告不寫 shared。of＝卡名原字照抄，why＝一句理由。都會留帳。",
         },
         scope_reason: {
           type: "string",
