@@ -5,7 +5,7 @@
 | 範疇根 | atom 數 | 深入 |
 |--------|---------|------|
 | CC與原子記憶契約 | 4 | `_AIDocs/_atoms/CC與原子記憶契約/_INDEX.md` |
-| MemDev | 153 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
+| MemDev | 155 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
 | OS | 2 | `_AIDocs/_atoms/OS/_INDEX.md` |
 | Tools | 23 | `_AIDocs/_atoms/Tools/_INDEX.md` |
 | Vision | 1 | `_AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md` |

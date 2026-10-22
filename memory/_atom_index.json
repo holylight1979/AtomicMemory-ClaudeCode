@@ -11660,6 +11660,36 @@
         "undeclared"
       ],
       "scope": "global"
+    },
+    {
+      "name": "v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身",
+      "path": "_AIDocs/_atoms/MemDev/v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身.md",
+      "triggers": [
+        "hook 代價",
+        "token 消耗",
+        "定位閘",
+        "擋訊息重讀",
+        "填目標樹",
+        "v6.0 的代價",
+        "hook 全關",
+        "免費模型代寫"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境",
+      "path": "_AIDocs/_atoms/MemDev/多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境.md",
+      "triggers": [
+        "多跑對照",
+        "卡集一致",
+        "w2_build_env",
+        "重建受測環境",
+        "洩題卡",
+        "selfcheck",
+        "--cards-from",
+        "實跑對照"
+      ],
+      "scope": "global"
     }
   ]
 }

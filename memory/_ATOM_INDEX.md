@@ -602,3 +602,5 @@
 | datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit | memory/CC與原子記憶契約/datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit.md | 動資料檔｜, DataFileAsk, 宣告行讀不到, 文字還沒落盤, 資料檔宣告 | global |  |
 | cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼 | memory/CC與原子記憶契約/cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼.md | VS Code 擴充, markdown 連結, 檔案連結, 可點連結, 錨點, heading anchor, #L12, 相對路徑連結, 回覆裡的連結點不開, CLAUDE_CODE_ENTRYPOINT, claude-vscode | global |  |
 | userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | _AIDocs/_atoms/MemDev/userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md | 判斷入口, UPS 問一句, 糾正｜, 否決記憶｜, 詞表只提示, undeclared | global |  |
+| v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 | _AIDocs/_atoms/MemDev/v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身.md | hook 代價, token 消耗, 定位閘, 擋訊息重讀, 填目標樹, v6.0 的代價, hook 全關, 免費模型代寫 | global |  |
+| 多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境 | _AIDocs/_atoms/MemDev/多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境.md | 多跑對照, 卡集一致, w2_build_env, 重建受測環境, 洩題卡, selfcheck, --cards-from, 實跑對照 | global |  |

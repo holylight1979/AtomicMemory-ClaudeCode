@@ -67,6 +67,7 @@
 | toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 |
 | userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | UserPromptSubmit路的判斷入口形狀-命中先記待判問句接判準卡-Stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 |
+| v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 | v6.0-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 |
 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 |
 | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add |
 | verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項 | verify_scope宣告項目太多時PostToolUse逾時被砍-宣告靜默遺失-只列改檔必要的項 |
@@ -96,6 +97,7 @@
 | 在worktree驗第二意見修法要直接跑worktree的runpy-mcp跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串 | 在worktree驗第二意見修法要直接跑worktree的run.py-MCP跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串 |
 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
+| 多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境 | 多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境 |
 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 | 多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔 |
 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 |
 | 子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔 | 子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔 |
