@@ -20,6 +20,7 @@ guard-reconcile.jsonl user_release，放行的那幾件之後的回合原因還�
 擋一次，之後放行並留帳。其餘共用 stop_gate_max_blocks 的閘每個使用者回合重新計次，同一回合第 3 次放行。
 """
 
+import hashlib
 import json
 import os
 import re
@@ -52,13 +53,13 @@ from wg_release_rules import (
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
     cmd_run_line, second_opinion_decline, second_opinion_decline_ok, parse_equivalence_lines,
-    reason_present, strip_comment_lines,
+    reason_present, red_units,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
     non_interactive_reason, non_interactive_message, pending_of, set_pending, clear_pending,
-    release_items, keep_released, drop_items,
+    release_items, keep_released, drop_items, shown_items,
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
@@ -67,7 +68,7 @@ from wg_harvest import (
     harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
     record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt, session_open_tracking,
 )
-from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
+from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note, without_judgment_prompt
 from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit, second_opinion_hint
 from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE, \
@@ -278,48 +279,6 @@ def _drop_synced(mod_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         print(f"[Workflow Guardian] 規則 SYNC_BLOCK_SKIPS_SYNCED：{len(synced)} 個改過的檔已 commit 並 push，不再要求同步",
               file=sys.stderr)
     return [m for m in mod_files if (m or {}).get("path") not in synced]
-
-
-_PUSH_CMD_RE = re.compile(r"\bgit\b[^|&;\n]*?\bpush\b|\bsvn\b[^|&;\n]*?\b(?:commit|ci)\b", re.IGNORECASE)
-_PUSH_SCAN_CAP = 2_000_000     # 一次最多掃這麼多位元組（第一次收尾、resume 的長 transcript 只看尾段）
-
-
-def _note_order_push(state: Dict[str, Any], transcript: Optional[Path]) -> bool:
-    """每次收尾：上次收尾之後 transcript 新增的完整行裡有跑成功的推送（Bash／PowerShell 指令剔掉註解行後含 git … push
-    或 svn commit，對應的 tool_result 沒標 is_error）→ state order_push_seq＝目前 turn_seq（ups_gates.order_spent 據此判
-    版控口令這批做完了）。掃到哪裡記在 order_scan_offset（只算到最後一個換行，半行留給下次）。回有沒有記到推送。"""
-    if not transcript:
-        return False
-    try:
-        size = os.path.getsize(transcript)
-        off = int(state.get("order_scan_offset") or 0)
-        off = max(0 if off > size else off, size - _PUSH_SCAN_CAP)     # transcript 變短＝換了一份，從頭掃
-        with open(transcript, "rb") as f:
-            f.seek(off)
-            data = f.read(size - off)
-    except (OSError, TypeError, ValueError) as e:
-        print(f"[Guardian:CommitOrder] 讀不了 transcript，這次沒查有沒有推送：{type(e).__name__}: {e}", file=sys.stderr)
-        return False
-    cut = data.rfind(b"\n") + 1
-    state["order_scan_offset"] = off + cut
-    pushes: set = set()
-    for line in data[:cut].decode("utf-8", errors="replace").splitlines():
-        try:
-            o = json.loads(line)
-        except ValueError:
-            continue
-        msg = o.get("message") if isinstance(o, dict) else None
-        content = msg.get("content") if isinstance(msg, dict) else None
-        for b in content if isinstance(content, list) else []:
-            if not isinstance(b, dict):
-                continue
-            if (b.get("type") == "tool_use" and b.get("name") in ("Bash", "PowerShell")
-                    and _PUSH_CMD_RE.search(strip_comment_lines(str((b.get("input") or {}).get("command") or "")))):
-                pushes.add(str(b.get("id")))
-            elif b.get("type") == "tool_result" and str(b.get("tool_use_id")) in pushes and not b.get("is_error"):
-                state["order_push_seq"] = int(state.get("turn_seq", 0))
-                return True
-    return False
 
 
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
@@ -845,8 +804,8 @@ def _move_inputs(state: Dict[str, Any], receipt_key: str) -> Tuple[List[Dict[str
 
 def _judge_error(state: Dict[str, Any], key: str, turn_seq: int, gate: str, what: str, log_name: str, log_key: str,
                  e: BaseException, fix: str) -> Optional[str]:
-    """寫碼查核自己判定出錯：stderr＋guard_log 每次都記；同一個錯誤（閘＋例外型別＋訊息）每個使用者回合只擋一次，
-    之後放行並留帳 event=judge_error_released。key＝收據鍵（主 session 是 sid，子代理是 sid#agent:<id>）。回擋訊息或 None。"""
+    """規則 GATE_SELF_ERROR：寫碼查核自己判定出錯：stderr＋guard_log 每次都記；同一個錯誤（閘＋例外型別＋訊息）每個使用者回合
+    只擋一次，之後放行並留帳 event=judge_error_released。key＝收據鍵（主 session 是 sid，子代理是 sid#agent:<id>）。回擋訊息或 None。"""
     head = f"[Guardian:{gate}] {what}判定錯誤：{type(e).__name__}: {e}"
     uturn = _user_turn(state, turn_seq)
     book = state.setdefault("judge_error_blocked", {})
@@ -854,14 +813,14 @@ def _judge_error(state: Dict[str, Any], key: str, turn_seq: int, gate: str, what
     book[key] = mine
     sig = f"{gate}|{what}|{type(e).__name__}: {e}"[:300]
     released = sig in mine["errors"]
-    append_guard_log(log_name, {"session_id": key, "turn_seq": turn_seq, log_key: repr(e)[:200],
+    append_guard_log(log_name, {"session_id": key, "turn_seq": turn_seq, "rule": "GATE_SELF_ERROR", log_key: repr(e)[:200],
                                 **({"event": "judge_error_released"} if released else {})})
     if released:
         print(f"{head}（本回合已為同一個錯誤擋過一次，這次放行並留帳）", file=sys.stderr)
         return None
     mine["errors"].append(sig)
     print(head, file=sys.stderr)
-    return f"{head}。{fix}；先別宣告完成（同一個錯誤只擋這一次，之後放行並留帳）"
+    return f"{head}。{fix}；先別宣告完成（規則 GATE_SELF_ERROR：同一個錯誤只擋這一次，之後放行並留帳）"
 
 
 def _verify_gates(
@@ -1509,24 +1468,39 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
 TF_GATE = "testfail"      # wg_release 的閘名（last_block／pending_release／user_released）
 
 
+def _red_key(f: Dict[str, Any]) -> str:
+    """一筆紅測「那一件」的鍵：跑的指令＋全部失敗節點（沒有節點就用失敗輸出）；不用擋訊息的摘要（只列前三支）。"""
+    units = red_units(f)
+    return f"紅測 {cmd_run_line(f.get('cmd', ''))}｜" + ("、".join(sorted(units)) if units else str(f.get("summary") or "")[:500])
+
+
+def _mods_sig(mods: List[Dict[str, Any]]) -> str:
+    """改檔情境指紋：本 session 改過的檔與各自最後一次修改的序號／時間（放行之後又改了檔就不一樣）。"""
+    rows = sorted(f"{m.get('path')}|{m.get('last_seq', m.get('seq'))}|{m.get('last_at', m.get('at'))}"
+                  for m in mods if isinstance(m, dict))
+    return hashlib.sha1("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+
+
 def _testfail_gate(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], config: Dict[str, Any],
                    failing: List[Dict[str, Any]], code_text: str, history: List[str], turn_seq: int, uturn: int,
-                   tpath: Optional[str]) -> Optional[str]:
+                   tpath: Optional[str]) -> Tuple[Optional[str], List[str]]:
     """TestFailGate（紅測＋宣告完成才呼叫）的預算與放行：吃寫碼查核那份每個使用者回合的預算（reconcile_gate_turn 鍵 "*"，
     reconcile_gate.max_blocks_per_turn），擋滿不自行放行、記 pending 要模型照【收尾放行確認】問使用者；無法互動擋滿放行並留帳。
-    使用者放行的那幾支紅測，之後的回合還紅也不再擋（綠了就從放行紀錄拿掉）。回擋訊息；None＝放行。改了 state，呼叫端寫回。"""
+    使用者放行的那幾筆紅測（_red_key：指令＋全部失敗節點；只放擋訊息列過的），之後的回合還紅也不再擋（綠了就從紀錄拿掉）。
+    回（擋訊息或 None＝放行, 這次列出的紅測鍵）。改了 state，呼叫端寫回。"""
     if released_this_turn(state, session_id, TF_GATE, uturn):
         print("[Guardian:TestFailGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
-        return None
-    labels = [f"紅測 {red_item_label(f)}" for f in failing]
-    kept = set(keep_released(state, session_id, TF_GATE, labels))
+        return None, []
+    keys = [_red_key(f) for f in failing]
+    kept = set(keep_released(state, session_id, TF_GATE, keys))
     if kept:
-        print(f"[Guardian:TestFailGate] {len(kept)} 支紅測是使用者先前放行過、還沒綠的，照放行", file=sys.stderr)
-    failing = [f for f, lb in zip(failing, labels) if lb not in kept]
+        print(f"[Guardian:TestFailGate] {len(kept)} 筆紅測是使用者先前放行過、還沒綠的，照放行", file=sys.stderr)
+    failing, keys = [f for f, k in zip(failing, keys) if k not in kept], [k for k in keys if k not in kept]
     if not failing:
-        return None
+        return None, []
     msg = testfail_message(failing, waiver_miss_notes(failing, parse_not_doing(code_text), history[-3:],
                                                       state.get("testfail_waivers") or []))
+    shown_keys = keys[-3:]                                   # testfail_message 只列最後 3 筆
     budget = state.setdefault("reconcile_gate_turn", {})
     rec = budget.get(session_id) if isinstance(budget.get(session_id), dict) else None
     full = (bool(budget_exhausted(rec, uturn, int(reconcile_cfg(config).get("max_blocks_per_turn", 2)), ["*"]))
@@ -1535,23 +1509,24 @@ def _testfail_gate(state: Dict[str, Any], session_id: str, input_data: Dict[str,
     how = None if no_ask else user_released(state, session_id, TF_GATE, tpath)
     log = {"session_id": session_id, "turn_seq": turn_seq, "kind": "testfail", "reason": msg[:300]}
     if how:
-        record_release(state, session_id, TF_GATE, uturn, [*kept, *(lb for lb in labels if lb not in kept)])
+        seen = shown_items(state, session_id, TF_GATE)
+        record_release(state, session_id, TF_GATE, uturn, [*kept, *(k for k in keys if seen is None or k in seen)])
         mark_block(state, session_id, TF_GATE, tpath, turn_seq)      # 這個答案用掉了：之後要放行得再答一次
         clear_pending(state, session_id, TF_GATE)
         budget[session_id] = {"turn": uturn, "count": 0}
         append_guard_log("reconcile", {**log, "event": "user_release", "via": how})
         print(f"[Guardian:TestFailGate] 使用者放行這一回合（{how}），記 user_release", file=sys.stderr)
-        return None
+        return None, []
     if full and no_ask:
         append_guard_log("reconcile", {**log, "event": "noninteractive_released", "why": no_ask})
         print(f"[Guardian:TestFailGate] {no_ask}：寫碼查核本回合已擋滿，放行並留帳", file=sys.stderr)
-        return None
+        return None, []
     budget[session_id] = budget_tick(rec, uturn, ["*"])
     append_guard_log("reconcile", {**log, **({"event": "exhausted_block"} if full else {})})
     if not full:
-        return msg
+        return msg, shown_keys
     set_pending(state, session_id, TF_GATE, turn_seq, _now_iso(), msg, [code_text])
-    return f"{exhausted_message('TestFailGate', None, exhausted_summary(msg))}\n原擋訊息：\n{msg}\n{ASK_HINT}"
+    return f"{exhausted_message('TestFailGate', None, exhausted_summary(msg))}\n原擋訊息：\n{msg}\n{ASK_HINT}", shown_keys
 
 
 def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
@@ -1625,7 +1600,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 版控口令用到這批 push 完成為止：上次收尾之後跑成功的 push 記下來（ups_gates.order_spent 據此判口令用掉了）
     turn_was_open = bool(state.get("turn_open"))
     state["turn_open"] = False
-    _pushed = _note_order_push(state, transcript)
+    from handlers.ups_gates import note_order_push
+    if transcript:
+        state["order_transcript"] = str(transcript)
+    _pushed = note_order_push(state, transcript)
     if _harvest_accessed_files(state, transcript_text) or turn_was_open or _pushed:
         write_state(session_id, state)
     if _timed_out("讀 transcript"):
@@ -1669,13 +1647,18 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     _later: List[Any] = []   # 後面還會擋的閘的預覽（規則 BLOCK_LISTS_LATER_GATES）；各閘共用變數算好後才掛上
 
-    def _piggyback(reason: str, gate: Optional[str] = None) -> str:
+    def _piggyback(reason: str, gate: Optional[str] = None, items: Optional[List[str]] = None) -> str:
         """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響，最後接判準卡（切入點契約 §7.10：只認這道閘自己的擋訊息，
         後面附加的預覽與提示不拿來認切入點）。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；
-        那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
+        那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。
+        閱讀路徑結果：這次擋的是拐彎判斷 → 尾段拿掉那一題（擋訊息自己已經問了，同一則只出現一次）；別的閘擋 → 附原文
+        （拐彎判斷這回合擋過、改由別的閘擋時，尾段是這一則唯一看得到那一題的地方）。
+        items＝這次列給使用者看的那幾件（沒給就照擋訊息取 release_items）：使用者之後放行只放這幾件。"""
         card_note = entry_note(reason, "stop_piggyback", session_id=session_id, state=state, config=config) if v6 else ""
+        rp_tail = without_judgment_prompt(_reading_path) if "TURN_JUDGMENT_REQUIRED" in reason else _reading_path
         if gate:
-            mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
+            mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)),
+                       items if items is not None else release_items(reason))
         if _later:
             try:
                 note = _later[0](reason)
@@ -1690,8 +1673,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _accept_hint:
             state["acceptance_hint_emitted"] = True
             reason = reason + _accept_hint
-        if _reading_path:
-            reason = f"{reason}\n{_reading_path}"
+        if rp_tail:
+            reason = f"{reason}\n{rp_tail}"
         reason = with_note(reason, card_note)
         if gate:
             write_state(session_id, state)
@@ -1804,8 +1787,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _tj_missing = turn_judgment_missing(state, session_id, code_text, _user_turn(state, turn_seq)) \
             if "TURN_JUDGMENT_REQUIRED" not in reason else []
         if _tj_missing:
-            later.append(f"拐彎判斷：缺 {len(_tj_missing)} 條（{'、'.join(_tj_missing[:3])}{'…' if len(_tj_missing) > 3 else ''}），"
-                         f"收尾每條寫一行「{JUDGMENT_EXAMPLE.format(name='<名稱>')}」")
+            later.append(f"拐彎判斷：缺 {len(_tj_missing)} 條，收尾每條寫一行「{JUDGMENT_EXAMPLE.format(name='<名稱>')}」")
         _so_v = _so_check()[0] if "[Guardian:SecondOpinion]" not in reason else None
         if _so_v is not None and _so_v.owed and not released_this_turn(state, session_id, _SO_GATE, _user_turn(state, turn_seq)):
             later.append("第二意見：跑 second_opinion_start→second_opinion_result 並在收尾寫分歧裁決四行，或宣告「不需第二意見｜理由」")
@@ -1909,11 +1891,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if v6 and not failing:
         keep_released(state, session_id, TF_GATE, [])       # 紅測都綠了：先前放行的那幾支拿掉（state 由後面的路徑寫回）
     if v6 and failing and _done(code_text):
-        _tf_block = _testfail_gate(state, session_id, input_data, config, failing, code_text, _history, turn_seq, _since, _tpath)
+        _tf_block, _tf_shown = _testfail_gate(state, session_id, input_data, config, failing, code_text, _history, turn_seq,
+                                              _since, _tpath)
         if _tf_block:
             state["stop_blocked_count"] = stop_count + 1
             write_state(session_id, state)
-            output_block(_piggyback(_tf_block, TF_GATE))
+            output_block(_piggyback(_tf_block, TF_GATE, _tf_shown))
             return
         write_state(session_id, state)
 
@@ -1959,12 +1942,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _pend, _pend_cleared = None, True
         _uturn = _since
         _kept: List[str] = []
+        _ctx = _mods_sig(own_mod_files)          # 放行之後又改了檔＝情境變了，先前放行的那幾件不再沿用
         if _code and released_this_turn(state, session_id, "reconcile", _uturn):
             print("[Guardian:ReconcileGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
             _code = None
         else:
             # 先前回合放行過的那幾件：原因還在照放行、拿出擋訊息；原因消失（這次沒有它）就從放行紀錄拿掉
-            _kept = keep_released(state, session_id, "reconcile", release_items(_code) if _code else [])
+            _kept = keep_released(state, session_id, "reconcile", release_items(_code) if _code else [], _ctx)
             if _kept:
                 _code = drop_items(_code, _kept)
                 print(f"[Guardian:ReconcileGate] {len(_kept)} 件是使用者先前放行過、原因還在的，照放行"
@@ -1985,7 +1969,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _noninteractive = non_interactive_reason(input_data, _tpath) if _code else None
             _how = user_released(state, session_id, "reconcile", _tpath) if _code and not _noninteractive else None
             if _how:
-                record_release(state, session_id, "reconcile", _uturn, [*_kept, *release_items(_code)])
+                _shown = shown_items(state, session_id, "reconcile")      # 只放使用者在擋訊息裡看過的那幾件
+                record_release(state, session_id, "reconcile", _uturn,
+                               [*_kept, *(i for i in release_items(_code) if _shown is None or i in _shown)], _ctx)
                 mark_block(state, session_id, "reconcile", _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
                 clear_pending(state, session_id, "reconcile")
                 _budget[session_id] = {"turn": _uturn, "count": 0}

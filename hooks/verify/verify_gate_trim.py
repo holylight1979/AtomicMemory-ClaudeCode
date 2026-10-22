@@ -288,7 +288,7 @@ def test_reconcile_budget_shared_per_user_turn():
     assert rr.budget_exhausted(rr.budget_tick(rec, 3, ["*"]), 3, 2, ["*"]) == ["*"]
     assert "BLOCK_BUDGET_SHARED" in rr.RULES and "BLOCK_BUDGET_PER_RULE" not in rr.RULES
     src = (HOOKS_DIR / "handlers" / "stop.py").read_text(encoding="utf-8")
-    assert '_letters = ["*"] if _code else []' in src
+    assert 'budget_exhausted(_rec, _uturn, _max, ["*"] if _code else [])' in src     # 寫碼查核整份共用鍵 "*"
 
 
 def test_selfscore_not_an_entrypoint_and_lives_in_console_skill():

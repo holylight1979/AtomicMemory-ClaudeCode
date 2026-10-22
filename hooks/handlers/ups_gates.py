@@ -10,6 +10,9 @@ handlers/ups_gates.py — UserPromptSubmit detect 段（前置閘）
 - atom-write guard reminder（建議階段不該宣告 [固]/[觀]）
 """
 
+import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -61,10 +64,73 @@ def _clear_long_die_marker() -> None:
         cls._clear_long_die_marker()
 
 
+_SEG_SPLIT_RE = re.compile(r"&&|\|\||[;|&\n]")
+_ENV_PREFIX_RE = re.compile(r"^(?:[A-Za-z_]\w*=\S*\s+)*")
+_PUSH_SEG_RE = re.compile(r"^(?:git(?:\s+-[Cc]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+push\b(?P<git>.*)"
+                          r"|svn(?:\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|ci)\b)", re.IGNORECASE | re.DOTALL)
+_DRY_RUN_RE = re.compile(r"(?:^|\s)(?:--dry-run|-n)(?=\s|$)")
+_PUSH_SCAN_CAP = 2_000_000     # 一次最多掃這麼多位元組（第一次掃、resume 的長 transcript 只看尾段）
+_PUSH_WAITING_CAP = 20
+
+
+def is_push_command(command: str) -> bool:
+    """指令裡有一段真的在推送：剔掉註解行，照 &&、||、;、|、&、換行切段，去掉開頭的環境變數指定，那一段以 git … push
+    （不帶 --dry-run／-n；前面只准全域選項）或 svn commit／ci 起頭。echo、commit 訊息裡的字樣不算。"""
+    from wg_release_rules import strip_comment_lines
+    for seg in _SEG_SPLIT_RE.split(strip_comment_lines(command or "")):
+        m = _PUSH_SEG_RE.match(_ENV_PREFIX_RE.sub("", seg.strip()))
+        if m and not (m.group("git") is not None and _DRY_RUN_RE.search(m.group("git"))):
+            return True
+    return False
+
+
+def note_order_push(state: Dict[str, Any], transcript_path: Any) -> bool:
+    """transcript 上次掃到的地方之後的完整行裡有跑成功的推送（Bash／PowerShell 指令 is_push_command、對應的 tool_result
+    沒標 is_error）→ state order_push_seq＝目前 turn_seq。Stop 每次收尾掃、口令閘判口令前也掃（push 完、收尾之前再 commit
+    也認得）。掃到哪裡記 order_scan_offset（只算到最後一個換行，半行留給下次）；指令看到了、結果還沒寫進來的記
+    order_push_waiting 留給下次配對。讀不到 transcript 只印 stderr。回這次有沒有記到推送。"""
+    if not transcript_path:
+        return False
+    try:
+        size = os.path.getsize(transcript_path)
+        off = int(state.get("order_scan_offset") or 0)
+        off = max(0 if off > size else off, size - _PUSH_SCAN_CAP)     # transcript 變短＝換了一份，從頭掃
+        with open(transcript_path, "rb") as f:
+            f.seek(off)
+            data = f.read(size - off)
+    except (OSError, TypeError, ValueError) as e:
+        print(f"[Guardian:CommitOrder] 讀不了 transcript，這次沒查有沒有推送：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    cut = data.rfind(b"\n") + 1
+    state["order_scan_offset"] = off + cut
+    waiting = [str(i) for i in state.get("order_push_waiting") or []]
+    pushed = False
+    for line in data[:cut].decode("utf-8", errors="replace").splitlines():
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue
+        msg = o.get("message") if isinstance(o, dict) else None
+        for b in msg.get("content") if isinstance(msg, dict) and isinstance(msg.get("content"), list) else []:
+            if not isinstance(b, dict):
+                continue
+            if (b.get("type") == "tool_use" and b.get("name") in ("Bash", "PowerShell")
+                    and is_push_command(str((b.get("input") or {}).get("command") or ""))):
+                waiting.append(str(b.get("id")))
+            elif b.get("type") == "tool_result" and str(b.get("tool_use_id")) in waiting:
+                waiting.remove(str(b.get("tool_use_id")))
+                pushed = pushed or not b.get("is_error")
+    state["order_push_waiting"] = waiting[-_PUSH_WAITING_CAP:]
+    if pushed:
+        state["order_push_seq"] = int(state.get("turn_seq", 0) or 0)
+    return pushed
+
+
 def order_spent(state: Dict[str, Any]) -> bool:
-    """版控口令這批做完了沒：使用者開這個回合之後，收尾記到跑成功的推送（stop._note_order_push 記 order_push_seq；
-    「上GIT」＝commit→push 一氣，push 完成這批就結束）。只 commit 沒 push、中間夾背景通知或收尾閘逼出的補修 commit 都不算做完。
-    口令閘（pre_tool_use 的 CommitOrder）與下面的 track_turn_prompts 共用這一個判法。"""
+    """版控口令這批做完了沒：使用者開這個回合之後跑成功了推送（order_push_seq；「上GIT」＝commit→push 一氣，push 完成這批
+    就結束）。先照 order_transcript（Stop／UserPromptSubmit 記的 transcript 路徑）補掃一次新寫進來的部分。只 commit 沒 push、
+    中間夾背景通知或收尾閘逼出的補修 commit 都不算做完。口令閘（pre_tool_use 的 CommitOrder）與 track_turn_prompts 共用。"""
+    note_order_push(state, state.get("order_transcript"))
     push, seq = state.get("order_push_seq"), state.get("turn_prompts_seq")
     return (isinstance(push, int) and not isinstance(push, bool) and isinstance(seq, int) and not isinstance(seq, bool)
             and push >= seq)

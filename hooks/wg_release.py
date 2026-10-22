@@ -97,13 +97,22 @@ def _size(transcript_path: Optional[str]) -> int:
         return 0
 
 
-def mark_block(state: Dict[str, Any], sid: str, gate: str, transcript_path: Optional[str], turn_seq: int) -> None:
+def mark_block(state: Dict[str, Any], sid: str, gate: str, transcript_path: Optional[str], turn_seq: int,
+               items: Optional[Iterable[str]] = None) -> None:
     """記這個閘（reconcile＝對帳／量尺閘；shared＝吃 stop_gate_max_blocks 的閘）最後一次擋的位置：
-    transcript 長度＋turn_prompts 快照＋回合。"""
+    transcript 長度＋turn_prompts 快照＋回合＋這次擋訊息列給使用者看的那幾件（release_items；使用者放行只放這幾件）。"""
     prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else []
     state.setdefault("last_block", {}).setdefault(sid, {})[gate] = {
         "offset": _size(transcript_path), "prompts": list(prompts), "turn": int(turn_seq),
+        **({"items": list(items)} if items is not None else {}),
     }
+
+
+def shown_items(state: Dict[str, Any], sid: str, gate: str) -> Optional[List[str]]:
+    """這個閘最後一次擋時列給使用者看的那幾件；沒記（沒擋過、或擋的位置是沒記項目的寫法）→ None。"""
+    rec = ((state.get("last_block") or {}).get(sid) or {}).get(gate)
+    items = rec.get("items") if isinstance(rec, dict) else None
+    return [str(i) for i in items] if isinstance(items, list) else None
 
 
 def _blocks(o: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -236,41 +245,67 @@ def released_this_turn(state: Dict[str, Any], sid: str, gate: str, turn_seq: int
         return False
 
 
-def record_release(state: Dict[str, Any], sid: str, gate: str, turn_seq: int, items: Iterable[str] = ()) -> None:
-    """記使用者放行：這一回合整個放；items（release_items 的鍵）之後的回合原因還在就照放。"""
+def record_release(state: Dict[str, Any], sid: str, gate: str, turn_seq: int, items: Iterable[str] = (),
+                   context: Optional[str] = None) -> None:
+    """記使用者放行：這一回合整個放（選項就叫「放行這一回合」）；items（release_items 的鍵，只放使用者看過的那幾件）之後的
+    回合原因還在就照放。context＝放行當下的情境指紋（例：改檔的指紋），之後不一樣就整份不算（keep_released）。"""
     state.setdefault("user_released", {}).setdefault(sid, {})[gate] = {
-        "turn": int(turn_seq), "items": list(dict.fromkeys(str(i) for i in items if i))}
+        "turn": int(turn_seq), "items": list(dict.fromkeys(str(i) for i in items if i)),
+        **({"context": context} if context is not None else {})}
 
 
 def _hit_key(line: str) -> Optional[str]:
     s = line.strip()
-    return s.split("｜證據", 1)[0][:300] if s.startswith(HIT_PREFIX + "(") else None
+    return s.split("｜證據", 1)[0] if s.startswith(HIT_PREFIX + "(") else None
+
+
+def _sections(text: str) -> List[List[str]]:
+    """擋訊息照 `[Guardian:` 開頭的行切段（一道閘或一個判定錯誤一段）；第一個 `[Guardian:` 之前的行自成一段。"""
+    out: List[List[str]] = []
+    for ln in str(text or "").splitlines():
+        if not out or ln.lstrip().startswith("[Guardian:"):
+            out.append([])
+        out[-1].append(ln)
+    return out
+
+
+def _section_keys(sec: List[str]) -> List[str]:
+    """一段的鍵：每條 `✗ (<字母>) <規則名>：<一句現象>`（不含證據段）；這段沒有 ✗ 條目就用它的第一個非空行（整段算一件）。"""
+    hits = [k for k in map(_hit_key, sec) if k]
+    first = next((ln.strip() for ln in sec if ln.strip()), "")
+    return hits or ([first] if first else [])
 
 
 def release_items(text: str) -> List[str]:
-    """擋訊息裡「那一件」的鍵：每條 `✗ (<字母>) <規則名>：<一句現象>`（不含證據段）；沒有 ✗ 條目就用第一行。"""
-    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
-    hits = [k for k in map(_hit_key, lines) if k]
-    return list(dict.fromkeys(hits)) if hits else lines[:1]
+    """擋訊息裡「那一件」的鍵：逐段取 _section_keys（沒有 ✗ 條目的段——例如判定錯誤——自己算一件，不會被別段的放行吞掉）。"""
+    return list(dict.fromkeys(k for sec in _sections(text) for k in _section_keys(sec)))
 
 
-def keep_released(state: Dict[str, Any], sid: str, gate: str, current: Iterable[str]) -> List[str]:
-    """先前放行過、這次還在的那幾件（current＝這次擋訊息的 release_items）；原因消失的從放行紀錄拿掉。回還在的那幾件。"""
+def keep_released(state: Dict[str, Any], sid: str, gate: str, current: Iterable[str],
+                  context: Optional[str] = None) -> List[str]:
+    """先前放行過、這次還在的那幾件（current＝這次擋訊息的 release_items）；原因消失的從放行紀錄拿掉。
+    放行時記了情境指紋、這次給的不一樣（例：放行之後又改了檔）→ 整份放行不算、清掉。回還在的那幾件。"""
     rec = _release_rec(state, sid, gate)
     if not rec or not rec.get("items"):
         return []
+    stale = context is not None and rec.get("context") is not None and rec.get("context") != context
     now = set(current)
-    keep = [i for i in rec["items"] if i in now]
+    keep = [] if stale else [i for i in rec["items"] if i in now]
     if keep != rec["items"]:
-        state.setdefault("user_released", {}).setdefault(sid, {})[gate] = {"turn": rec.get("turn"), "items": keep}
+        state.setdefault("user_released", {}).setdefault(sid, {})[gate] = {**rec, "items": keep}
     return keep
 
 
 def drop_items(text: str, items: Iterable[str]) -> Optional[str]:
-    """擋訊息拿掉已放行的那幾件；拿完沒有要擋的條目（或整則就是那一件）→ None。"""
+    """擋訊息拿掉已放行的那幾件：已放行的 ✗ 條目拿掉，鍵已放行的無條目段整段拿掉；拿完沒有任何一件要擋 → None。"""
     gone = set(items)
     if not gone:
         return text
     if all(k in gone for k in release_items(text)):
         return None
-    return "\n".join(ln for ln in str(text).splitlines() if _hit_key(ln) not in gone)
+    kept: List[str] = []
+    for sec in _sections(text):
+        if not any(map(_hit_key, sec)) and all(k in gone for k in _section_keys(sec)):
+            continue
+        kept += [ln for ln in sec if _hit_key(ln) not in gone]
+    return "\n".join(kept)

@@ -442,7 +442,7 @@ def test_reconcile_blocks_first_and_its_preview_lists_turn_judgment(driven, caps
     out, state, logs = driven("閘修好了，完成。", capsys, reading_path=_owed())
     reason = _reason(out)
     assert "[Guardian:ReconcileGate]" in reason and "(a)" in reason and "TURN_JUDGMENT_REQUIRED" not in reason, reason[:800]
-    assert "拐彎判斷：缺 1 條（函式 y.py::b）" in _also(reason), reason[-800:]
+    assert "拐彎判斷：缺 1 條，" in _also(reason) and "y.py" not in _also(reason), reason[-800:]   # 預覽只報個數、不列檔名
     assert "blocked_turn" not in state["reading_path"][_SID] and not [g for g, _ in logs if g == "reading_path"], \
         "預覽不記擋、不留帳"
     out, _, logs = driven("全部完成了。", capsys, reading_path=state["reading_path"])
