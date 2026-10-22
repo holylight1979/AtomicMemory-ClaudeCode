@@ -26,6 +26,7 @@
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 |
 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 |
 | commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath | commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-Cpath |
+| config-consistency把tech第12節設定總表第一欄反引號鍵當定義來源-改設定總表要保留標題字樣與第一欄格式-tech節號被程式註解引用不能重編 | config-consistency把TECH第12節設定總表第一欄反引號鍵當定義來源-改設定總表要保留標題字樣與第一欄格式-TECH節號被程式註解引用不能重編 |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
 | conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離 | conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離 |
 | cross-encoder-rerank實測不進注入鏈-bge-base只抬r1三點r3反降每句加1秒-13題池外rerank碰不到-讀取端可選 | cross-encoder-rerank實測不進注入鏈-bge-base只抬R1三點R3反降每句加1秒-13題池外rerank碰不到-讀取端可選 |

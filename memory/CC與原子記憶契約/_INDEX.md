@@ -16,6 +16,7 @@
 | claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計 | claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total_cost_usd是session累計 |
 | claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收 | claude背景session實測-用vscode擴充那支claude.exe起-bg-agents總覽Enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收 |
 | commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令 | CommitOrder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令 |
+| datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit | DataFileAsk宣告行寫在回覆文字裡同一則訊息的工具呼叫在PreToolUse讀不到-先跑一個Bash開頭註解行再發Edit |
 | decisions | 全域決策 |
 | edit工具new-string尾端空白會被裁掉-切點停在空白上會黏字-切點要停在非空白字元並看diff | Edit工具new_string尾端空白會被裁掉-切點停在空白上會黏字-切點要停在非空白字元並看diff |
 | escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造 | escalation-hook 在 edit-count-proxy 上 false-fire 的辨識（無真實失敗迴圈時不盲從不編造） |

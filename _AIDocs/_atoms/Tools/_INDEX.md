@@ -17,6 +17,7 @@
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律Write成檔再跑 |
 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 |
+| sync-doc-counts的-root預設是資料根不是cwd-在worktree不帶-root量的是live文件-worktree軌要加-root指自己 | sync-doc-counts的--root預設是資料根不是cwd-在worktree不帶--root量的是live文件-worktree軌要加--root指自己 |
 | sync-memory-indexpy-在-windows-直接跑會-cp950-unicodeencodeerror-前綴-pythonioencodingutf-8 | sync-memory-index.py 在 Windows 直接跑會 cp950 UnicodeEncodeError — 前綴 PYTHONIOENCODING=utf-8 |
 | vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type | vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type |
 | 公司gitlab的mr收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器 | 公司gitlab的MR收尾走playwright網頁-瀏覽器已登入免密碼-git存的憑證是帳號密碼呼叫不了api-留言與關閉的選擇器 |

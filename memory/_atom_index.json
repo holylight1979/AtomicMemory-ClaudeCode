@@ -11590,6 +11590,42 @@
         "A/B"
       ],
       "scope": "global"
+    },
+    {
+      "name": "sync-doc-counts的-root預設是資料根不是cwd-在worktree不帶-root量的是live文件-worktree軌要加-root指自己",
+      "path": "_AIDocs/_atoms/Tools/sync-doc-counts的-root預設是資料根不是cwd-在worktree不帶-root量的是live文件-worktree軌要加-root指自己.md",
+      "triggers": [
+        "sync_doc_counts",
+        "DOC_COUNTS_CHECK",
+        "--root",
+        "worktree 文件計數"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "config-consistency把tech第12節設定總表第一欄反引號鍵當定義來源-改設定總表要保留標題字樣與第一欄格式-tech節號被程式註解引用不能重編",
+      "path": "_AIDocs/_atoms/MemDev/config-consistency把tech第12節設定總表第一欄反引號鍵當定義來源-改設定總表要保留標題字樣與第一欄格式-tech節號被程式註解引用不能重編.md",
+      "triggers": [
+        "config-consistency",
+        "TECH 設定總表",
+        "節號",
+        "重編節號",
+        "TECH §12",
+        "改 TECH"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit",
+      "path": "memory/CC與原子記憶契約/datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit.md",
+      "triggers": [
+        "動資料檔｜",
+        "DataFileAsk",
+        "宣告行讀不到",
+        "文字還沒落盤",
+        "資料檔宣告"
+      ],
+      "scope": "global"
     }
   ]
 }
