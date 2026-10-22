@@ -88,6 +88,9 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "min_map": {"enabled": True, "preview_timeout_s": 2},
     # 等值與熱路徑收尾閘（hooks/handlers/stop.py Equivalence Gate）：enabled 整道閘的開關
     "equivalence": {"enabled": True},
+    # svn 測試路徑閘（hooks/handlers/pre_tool_use.check_svn_test_block）：svn commit 的路徑含測試檔就擋；預設關，要的專案在
+    # 專案層 overview-hub.json 開
+    "svn_test_block": {"enabled": False},
 }
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
 RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
@@ -254,14 +257,19 @@ def validate_min_map(mm: Any) -> List[str]:
     return errors
 
 
+def validate_switch(name: str, sec: Any) -> List[str]:
+    """只有 enabled 一鍵的開關段（equivalence、svn_test_block）：是物件、沒有別的鍵、enabled 是 true／false。"""
+    if not isinstance(sec, dict):
+        return [f"{name} 必須是物件"]
+    errors = [f"{name} 有未知鍵「{k}」" for k in sorted(sec) if k != "enabled" and not k.startswith("_")]
+    if not isinstance(sec.get("enabled"), bool):
+        errors.append(f"{name}.enabled 必須是 true／false")
+    return errors
+
+
 def validate_equivalence(eq: Any) -> List[str]:
     """equivalence：只有 enabled 一鍵，是 true／false。"""
-    if not isinstance(eq, dict):
-        return ["equivalence 必須是物件"]
-    errors = [f"equivalence 有未知鍵「{k}」" for k in sorted(eq) if k != "enabled" and not k.startswith("_")]
-    if not isinstance(eq.get("enabled"), bool):
-        errors.append("equivalence.enabled 必須是 true／false")
-    return errors
+    return validate_switch("equivalence", eq)
 
 
 def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str], List[str]]:
@@ -307,6 +315,7 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
     errors.extend(validate_need_goal(c.get("need_goal")))
     errors.extend(validate_min_map(c.get("min_map")))
     errors.extend(validate_equivalence(c.get("equivalence")))
+    errors.extend(validate_switch("svn_test_block", c.get("svn_test_block")))
     return errors, retired
 
 
