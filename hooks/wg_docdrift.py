@@ -20,7 +20,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from wg_core import _now_iso, append_guard_log
+from wg_core import _is_under_claude_dir, _now_iso, append_guard_log
 
 # Windows: 外呼 git 時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -87,16 +87,19 @@ def _tokenize_path(rel_path: str) -> set:
     return tokens
 
 
-def _match_source_to_docs(rel_path: str, state: dict, config: dict) -> List[str]:
+def _match_source_to_docs(rel_path: str, state: dict, config: dict, file_path: str = "") -> List[str]:
     """Map a source file to corresponding _AIDocs entries.
 
-    Tier 1: config explicit path_mappings (fnmatch).
+    Tier 1: config explicit path_mappings (fnmatch)；self_path_mappings 是記憶系統自己這個 repo 的對應，
+            只在改的檔落在 ~/.claude 之下才套（別的專案同名路徑不算）。
     Tier 2: keyword fallback from state["aidocs"]["keywords"].
     """
     dd_cfg = config.get("docdrift", {})
 
     # Tier 1: explicit mappings
-    mappings = dd_cfg.get("path_mappings", {})
+    mappings = dict(dd_cfg.get("path_mappings", {}))
+    if file_path and _is_under_claude_dir(file_path):
+        mappings.update(dd_cfg.get("self_path_mappings", {}))
     for pattern, docs in mappings.items():
         if fnmatch.fnmatch(rel_path, pattern):
             return docs if isinstance(docs, list) else [docs]
@@ -200,7 +203,7 @@ def check_source_drift(file_path: str, state: dict, config: dict) -> None:
     if not rel:
         return
 
-    docs = _match_source_to_docs(rel, state, config)
+    docs = _match_source_to_docs(rel, state, config, file_path)
     if not docs:
         return
 

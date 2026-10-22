@@ -30,7 +30,7 @@ todos/
 # ─── Runtime cache files ─────────────────────────────────
 stats-cache.json
 .last-cleanup
-# claude --bg 背景服務（tools/console-spawn.py 會用）在 ~/.claude 落的執行期檔
+# claude --bg 背景服務（skills/console/scripts/console-spawn.py 會用）在 ~/.claude 落的執行期檔
 daemon.lock
 daemon.log
 daemon.status.json
@@ -86,6 +86,7 @@ workflow/health-last-run.json
 workflow/dpm-done/
 workflow/org-memory.local.json
 workflow/config.local.json
+workflow/followups.local.json
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json

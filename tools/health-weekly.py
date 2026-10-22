@@ -503,7 +503,7 @@ def collect() -> dict:
     info.extend(_second_opinion_declined_block(FRESH_DAYS))
     # 2d'. config 內建 PYTEST／PYTEST_MEASURE regex 停在舊版（只更新 hooks、沒對 config 的機器）
     yellow.extend(_pytest_regex_block(_load_config()))
-    # 2e. scorecard（track-d2 的 hooks/wg_scorecard.health_block；沒有就印一行跳過）
+    # 2e. scorecard（hooks/wg_scorecard.health_block；沒有就印一行跳過）
     try:
         _hooks_on_path()
         from wg_scorecard import health_block  # noqa: WPS433

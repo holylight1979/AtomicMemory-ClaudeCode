@@ -1,7 +1,7 @@
 ---
 name: console
-description: 多 session 協作總控台：一個入口四種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工 <軌名> <派工單路徑>」總控台自己開工作 session 送開工句、「/console 開工句 <軌名>」只產生第一句給人貼。要多開 session 並行開工、開總控台、派工、寫開工句、Reload 後重新點名、判斷分頁可不可關時都該觸發。
-user-invocable: true
+description: 多 session 協作總控台：一個入口四種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工 <軌名> <派工單路徑>」總控台自己開工作 session 送開工句、「/console 開工句 <軌名>」只產生第一句給人貼。只能手動打 /console 叫起（模型不會自己載入）。
+disable-model-invocation: true
 triggers: 總控台, 對人總控台, 調度總控台, 雙總控台, 開工句, 派工, 工作軌, 多開 session, 並行開工, 收割後關, console
 pattern: pipeline
 ---
@@ -9,7 +9,7 @@ pattern: pipeline
 # /console — 雙總控台＋工作軌
 
 > 人只跟一個分頁（對人總控台）說話；調度總控台指揮各工作軌（每軌一個分頁、一棵 worktree、一條分支）。
-> 給人讀的一頁說明：[references/guide-for-humans.md](references/guide-for-humans.md)。全軌現況：`python ~/.claude/tools/console-status.py`。
+> 給人讀的一頁說明：[references/guide-for-humans.md](references/guide-for-humans.md)。全軌現況：`python ~/.claude/skills/console/scripts/console-status.py`。
 > 下文〔 〕是來源，代號對照在最後一節；「為什麼」去讀那張卡。
 
 ## 用法
@@ -21,7 +21,7 @@ pattern: pipeline
 | `/console 開工 <軌名> <派工單路徑>` | 調度總控台 | 自己開工作 session 並送開工句，全程不用人貼（開不成才退回用法三） |
 | `/console 開工句 <軌名> [派工單路徑]` | 任一總控台 | 只產生工作軌第一句，給人貼進新分頁（用法四的退路） |
 
-名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`，第一段「現任」行寫兩個總控台現在的名字。
+上表指令只有人打得出來（本 skill 模型叫不了）；要別的 session 接總控台，開工句寫「先用 Read 讀 ~/.claude/skills/console/SKILL.md，照「用法X」做」（kickoff §1、§2）。名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`，第一段「現任」行寫兩個總控台現在的名字。
 
 ## 開始前：開幾個總控台、用什麼模型
 
@@ -99,7 +99,7 @@ pattern: pipeline
 
 ## 用法四：開工 <軌名> <派工單路徑>（總控台自己開 session，原話 G16）
 
-- **動作**：建 worktree 與分支（用法二 Step 2）→ 照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/tools/console-spawn.py --track <軌名> --worktree <路徑> --branch <分支> --prompt-file <那個檔> --permission-mode <自己的模式> --model <派工單寫的模型 id>`（模式明帶，不假設繼承；模型給完整 id）→ 尾行 PASS 就把它印的 ListAgents 名字寫回接續單「軌對應」行。
+- **動作**：建 worktree 與分支（用法二 Step 2）→ 照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/skills/console/scripts/console-spawn.py --track <軌名> --worktree <路徑> --branch <分支> --prompt-file <那個檔> --permission-mode <自己的模式> --model <派工單寫的模型 id>`（模式明帶，不假設繼承；模型給完整 id）→ 尾行 PASS 就把它印的 ListAgents 名字寫回接續單「軌對應」行。
 - 腳本自己等「<軌名> 收到開工」（讀該 session 的 transcript）；逾時（預設 90 秒）或任一前置不過 → 尾行 FAIL、stdout 已印開工句 code block → 原樣轉給人貼（用法三），訊息要讓人一眼知道停在哪一步；不重試超過 1 次。模型不符、API 錯誤兩種 FAIL 不退人貼，照 kickoff §6 第 4 步處理。
 - 只有要動人的畫面（剪貼簿貼進空分頁）才問一次「現在可以動你的畫面嗎」；方法由實測決定，不問人選。〔原話〕
 - **完成判定**：腳本尾行 `CONSOLE_SPAWN_CHECK PASS` 且接續單有該軌名字；人要看那個 session：`claude attach <短 id>`（腳本有印）。

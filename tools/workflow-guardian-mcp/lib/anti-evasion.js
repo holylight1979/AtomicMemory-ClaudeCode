@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
-const { CLAUDE_DIR, WORKFLOW_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
+const { WORKFLOW_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
 
 // HUD 頁心跳（記憶體，港口持有者持有）；apiAecBeat 更新、apiAecBeatStatus 回 age_s + clients。
 let lastHudBeat = 0;
@@ -68,7 +68,7 @@ function aecFollowupsMissing(k) {
 }
 
 // ─── MCP tool handler（結構化 emit 表面；不碰 state）────────────────────────────
-// 回條一行（原設計者裁定：報告任何理由都不進聊天）。要模型補的事（(k) 空字串、(d)/(h) 把記憶寫入推到之後）
+// 回條一行（報告任何理由都不進聊天）。要模型補的事（(k) 空字串、(d)/(h) 把記憶寫入推到之後）
 // 由 Python PostToolUse 用 additionalContext 回告、Stop 擋，判定只留 Python 一份。
 const SEV_WORD = { routine: "例行", notable: "有修補", "real-evasion": "疑似偷懶，待核對" };
 function aecChipText(args) {
@@ -76,7 +76,7 @@ function aecChipText(args) {
   return `收尾檢核已提交（${SEV_WORD[sev] || sev}）— 內容在 HUD`;
 }
 
-// 收尾一份報告（CLOSING_REPORT_ONE_CALL，v6）：給了 report（白話全文）時 e／f／g 可以不另填（它們只上 HUD，內容寫在 report 裡）；
+// 收尾一份報告（CLOSING_REPORT_ONE_CALL）：給了 report（白話全文）時 e／f／g 可以不另填（它們只上 HUD，內容寫在 report 裡）；
 // harvest_items 跟 knowledge_harvest_report 的 items 同一套驗法。沒給 report 或守門關閉 → e／f／g 照舊必填。
 const NARRATIVE_FIELDS = ["e", "f", "g"];
 function aecArgErrors(args, v6) {
@@ -111,83 +111,6 @@ function _json(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
-// ─── 報告是哪個 session 寫的（只加顯示欄位 track，不改報告檔；報告寫入端在 hooks/handlers）────
-// 報告檔只有 session_id。軌名從那個 session 的對話紀錄（<資料根>/projects/*/<sid>.jsonl）開頭推：
-// 首則使用者訊息開頭的「track-<名>：」優先（開工句固定這樣起頭），其次 cwd 在 .claude-wt/<名> 或
-// .claude/worktrees/<名> 底下就用資料夾名，都沒有回 ""（HUD 退回 session 前 8 碼）。推到軌名就依 sid 永久快取
-// （對話紀錄開頭不會變）；推不到（還沒落檔、首則訊息還沒寫進去、不在 worktree 裡）隔 NEG_TTL_MS 再查。
-const PROJECTS_DIR = path.join(CLAUDE_DIR, "projects");
-const TRACK_HEAD_RE = /^\s*(track-[A-Za-z0-9._-]+)\s*[：:]/;
-const WORKTREE_CWD_RE = /[\\/](?:\.claude-wt|\.claude[\\/]worktrees)[\\/]([^\\/]+)/;
-const HEAD_BYTES = 256 * 1024;        // 首則訊息與 cwd 都在開頭；開工句貼了長附件也夠
-const NEG_TTL_MS = 60 * 1000;         // 推不到軌名的結果多久後重查（HUD 每 1.5 秒輪詢，不能每次都掃 projects/）
-const trackCache = new Map();         // sid → { track, at }
-
-function _transcriptOf(sid) {
-  let dirs;
-  try { dirs = fs.readdirSync(PROJECTS_DIR); } catch { return null; }
-  for (const d of dirs) {
-    const p = path.join(PROJECTS_DIR, d, `${sid}.jsonl`);
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
-}
-
-function _headLines(p) {
-  let fd;
-  try {
-    fd = fs.openSync(p, "r");
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
-    return buf.subarray(0, n).toString("utf-8").split("\n");
-  } catch { return []; }
-  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* ignore */ } } }
-}
-
-function _userText(rec) {
-  const c = rec && rec.message && rec.message.content;
-  if (typeof c === "string") return c;
-  if (!Array.isArray(c)) return "";
-  const t = c.find((b) => b && b.type === "text");   // 只有 tool_result 的使用者紀錄不算使用者訊息
-  return t ? String(t.text || "") : "";
-}
-
-// 對話紀錄開頭幾行 → 軌名（純函式）。
-function trackFromTranscriptHead(lines) {
-  let cwd = "", first = null;
-  for (const line of lines) {
-    let rec;
-    try { rec = JSON.parse(line); } catch { continue; }
-    if (!cwd && rec.cwd) cwd = String(rec.cwd);
-    if (first === null && rec.type === "user" && !rec.isMeta) {   // isMeta＝harness 插的說明，不是使用者打的
-      const t = _userText(rec);
-      if (t) first = t;
-    }
-    if (cwd && first !== null) break;
-  }
-  const m = TRACK_HEAD_RE.exec(first || "");
-  if (m) return m[1];
-  const w = WORKTREE_CWD_RE.exec(cwd);
-  return w ? w[1] : "";
-}
-
-function sessionTrack(sid, now = Date.now()) {
-  if (!SID_RE.test(String(sid || ""))) return "";
-  const hit = trackCache.get(sid);
-  if (hit && (hit.track || now - hit.at < NEG_TTL_MS)) return hit.track;
-  const p = _transcriptOf(sid);
-  const track = p ? trackFromTranscriptHead(_headLines(p)) : "";
-  trackCache.set(sid, { track, at: now });
-  return track;
-}
-
-function _withLabels(r) {
-  if (r && typeof r === "object") {
-    r.track = sessionTrack(r.session_id);
-  }
-  return r;
-}
-
 // glob WORKFLOW_DIR/aec-report/*.json → 依 at(→turn_seq) 新→舊排序。Fail-open 回 []。
 function _readReports() {
   let files;
@@ -197,7 +120,7 @@ function _readReports() {
   for (const f of files) {
     if (!f.endsWith(".json")) continue;   // 略過 .tmp（atomic write 過渡檔）
     try {
-      out.push(_withLabels(JSON.parse(fs.readFileSync(path.join(REPORT_DIR, f), "utf-8"))));
+      out.push(JSON.parse(fs.readFileSync(path.join(REPORT_DIR, f), "utf-8")));
     } catch { /* skip corrupt / partial */ }
   }
   out.sort((x, y) =>
@@ -221,7 +144,7 @@ function apiAecReport(req, res, sid, turn) {
   }
   const p = path.join(REPORT_DIR, `${sid}-t${turn}.json`);
   try {
-    _json(res, 200, _withLabels(JSON.parse(fs.readFileSync(p, "utf-8"))));
+    _json(res, 200, JSON.parse(fs.readFileSync(p, "utf-8")));
   } catch {
     _json(res, 404, { error: "not found" });
   }
@@ -362,7 +285,7 @@ function apiAecDecisionPost(req, res) {
 
 module.exports = {
   aecBlank, aecSeverity, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
-  aecChipText, aecArgErrors, toolAntiEvasionReport, trackFromTranscriptHead, sessionTrack,
+  aecChipText, aecArgErrors, toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, apiAecTempfilesAll,
   apiAecDecisionPost,

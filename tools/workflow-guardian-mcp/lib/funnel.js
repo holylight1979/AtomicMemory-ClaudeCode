@@ -122,7 +122,7 @@ function buildConflictReport({ slug, incomingTitle, incomingContent, matches, de
  *  visible (可觀測性鐵律). */
 const GATE_OPT_KEYS = ["mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate", "dedupe"];
 
-/** opts：v6 分型（mode/existing_path/actions/depends/kind_hint/skip_gate）；只送有給的鍵，py stdin 讀同名鍵。 */
+/** opts：寫入分型（mode/existing_path/actions/depends/kind_hint/skip_gate）；只送有給的鍵，py stdin 讀同名鍵。 */
 function execWriteGate(content, classification, layers, title, opts) {
   return new Promise((resolve) => {
     const scriptPath = path.join(TOOLS_DIR, "memory-write-gate.py");

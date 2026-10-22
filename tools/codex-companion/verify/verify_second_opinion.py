@@ -598,7 +598,7 @@ def test_prepare_cli_prints_three_lines(env, capsys, tmp_path):
     assert any(l.startswith("job_dir: ") for l in out)
 
 
-# ─── 退回修正（總控台 BLOCK 2／3）：狀態機與整份掃描 ─────────────────────────
+# ─── 退回修正（BLOCK 2／3）：狀態機與整份掃描 ─────────────────────────────────
 
 
 def test_probe_spawn_oserror_writes_failed(env):
@@ -807,7 +807,7 @@ def test_scan_subcommand_oversize_is_fail(env, monkeypatch):
 
 
 def test_post_fallback_10mb_payload_under_5s(env):
-    """總控台的 10 MB 重複路徑 payload（`C:\\x ` × 2,000,000）：整份掃描要在 5 s 內回、且仍判出界 → failed。"""
+    """10 MB 重複路徑 payload（`C:\\x ` × 2,000,000）：整份掃描要在 5 s 內回、且仍判出界 → failed。"""
     import time as _t
     _no_cmd_fallback(env, ("C:" + chr(92) + "x ") * 2_000_000)
     res = _prepare(env)

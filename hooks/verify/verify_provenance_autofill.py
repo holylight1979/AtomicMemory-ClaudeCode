@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -196,12 +197,25 @@ KICKOFF_TRI_LINK = (
 )
 
 
-@pytest.mark.parametrize("text", KICKOFF_TRI_LINK)
-def test_005_takeover_controller_kickoff_with_cjk_path_is_kickoff(text):
+# 「接手「<名稱>」的根層總控端／總控台」是多 session 的角色寫法，不再是樣板：續接句只認「接手「<名稱>」」整句。
+# 同一句拿掉那段角色字照認；原句改當使用者原話（照填 Quote）。
+KICKOFF_TRI_LINK_NEUTRAL = tuple(re.sub(r"」的(?:根層)?總控(?:端|台)。", "」。", t) for t in KICKOFF_TRI_LINK)
+
+
+@pytest.mark.parametrize("text", KICKOFF_TRI_LINK_NEUTRAL)
+def test_005_takeover_kickoff_with_cjk_path_is_kickoff(text):
     from lib.provenance import is_kickoff_text
     from lib.harness_text import kickoff_clause_kind
     assert is_kickoff_text(text), text
     assert kickoff_clause_kind("先讀 C:\\x\\next-phase-中文檔名.md 全文") == "dispatch"
+
+
+@pytest.mark.parametrize("text", KICKOFF_TRI_LINK + (
+    "接手「付款」的驗證必須保留。先讀 C:\\x\\中文.md 全文",    # 「的…」後面是真的要求，不能當角色句吞掉
+))
+def test_takeover_with_trailing_words_is_not_a_template(text):
+    from lib.harness_text import is_kickoff_prompt, session_directive_reason
+    assert not is_kickoff_prompt(text) and session_directive_reason(text) is None
 
 
 def test_005_takeover_variant_keeps_real_words_as_quote():

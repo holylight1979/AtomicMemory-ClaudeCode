@@ -140,43 +140,42 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
 #     有一個子句對不上就交 LLM，因為開工句裡夾的真決策不能被丟掉。
 #   is_kickoff_prompt：Quote 自動填用（hooks/wg_provenance.py）。上面那條成立就算；或第一個子句整句是角色句
 #     （「你是…工作 session <名>」，後面可帶任何括號說明），而且後面至少還有一個子句整句對上其他樣板
-#     （總控台、第一步 EnterWorktree、派工 prompt 位置…）。角色句的括號說明（全形半形）與「對人總控台是 X、
-#     調度總控台是 Y」這類變體不在嚴格樣板裡，這裡容許；以引號開頭的引用討論（「『你是工作 session x，總控台是 y。』
-#     這兩句是範本」）只認嚴格判定、問句（「你是工作 session x 嗎？」）不算，照填 Quote。
+#     （第一步 EnterWorktree、派工 prompt 位置…）。角色句的括號說明（全形半形）與其他對不上樣板的子句（例：指名
+#     另一個 session 的「… 是 claude-xx」）不在嚴格樣板裡，這裡容許；以引號開頭的引用討論（「『你是工作 session x，
+#     第一步…』這句是範本」）只認嚴格判定、問句（「你是工作 session x 嗎？」）不算，照填 Quote。
 # 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
-# 樣板以 skills/console/references/kickoff.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
+# 樣板以 skills/console/references/kickoff.md 的實際句型為底（角色、第一步 EnterWorktree、派工 prompt 位置、
 # 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
 # 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
-# 不會被欄位吞掉。兩個例外是原設計者的一般開工句型：角色句「接手「<名稱>」的（根層）總控端／總控台」名稱收中文與全形引號，
-# 派工子句「先讀 <路徑> 全文」路徑收中文字（接續單檔名多是中文），兩者仍整句比對。
+# 不會被欄位吞掉。兩個例外：續接的角色句「接手「<名稱>」」（後面不帶別的字）名稱收中文與全形引號，
+# 派工子句「先讀 <路徑> 全文」路徑收中文字（續接單檔名多是中文），兩者仍整句比對。
 # 角色句後面的括號說明只認 _ROLE_NOTES 這份固定完整句型（從實際開過的開工句收集）；清單外的括號內容當未匹配的殘餘，
 # 整則交 LLM（不靠字數、不靠決策關鍵字）。新的派工說明要被攔，就把那句加進清單。
 _PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
 _PATH_WIDE = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[\w.~:\\/-]*"          # 「先讀 <路徑> 全文」專用：\w 含中文字，仍不收空白與標點
 _NAME = r"[A-Za-z0-9_.-]+"
-_QUOTED_NAME = r"「[^「」\n]{1,40}」"                               # 「接手「<名稱>」的總控端」專用：名稱收中文
+_QUOTED_NAME = r"「[^「」\n]{1,40}」?"                               # 「接手「<名稱>」」專用：名稱收中文；切子句會剝掉尾端的」
 _ROLE_NOTES = (
-    re.escape("需求目標核心流程設計單，只設計不寫程式"),   # track-goal
-    re.escape("閱讀路徑掃描器"),                           # track-g12
-    re.escape("獨立實跑驗證"),                             # track-verify
+    re.escape("需求目標核心流程設計單，只設計不寫程式"),   # 開工句裡的角色註記
+    re.escape("閱讀路徑掃描器"),
+    re.escape("獨立實跑驗證"),
     r"接手，前一個\s*" + _NAME + r"\s*session\s*已滿",     # 接手 session
 )
 _ROLE_NOTE = r"(?:\s*（(?:" + "|".join(_ROLE_NOTES) + r")）)?"
 _BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
 # 角色開場（不含括號說明）：嚴格樣板的 role 句與 Quote 端的開場判定共用
 _ROLE_OPENERS = (
-    # 「你是工作 session x」「你是工作軌 x」，開頭可帶「<軌名>：」（總控台的開工句寫法）
+    # 「你是工作 session x」「你是工作軌 x」，開頭可帶「<名稱>：」
     r"(?:" + _NAME + r"\s*[：:]\s*)?(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*(?:session|軌)(?:\s*" + _NAME + r")?",
     r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
     r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session",
-    r"接手\s*" + _QUOTED_NAME + r"\s*的\s*(?:根層\s*)?(?:總控端|總控台)",
+    r"接手\s*" + _QUOTED_NAME,
 )
 KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
     ("role", _ROLE_OPENERS[0] + _ROLE_NOTE),
     ("role", _ROLE_OPENERS[1]),
     ("role", _ROLE_OPENERS[2]),
     ("role", _ROLE_OPENERS[3]),
-    ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
     ("step", r"第一步(?:用|先)?\s*EnterWorktree\s*切進\s*(?:worktree\s*)?(?:" + _PATH + r")?" + _BRANCH_NOTE),
     ("step", r"worktree\s*" + _PATH + _BRANCH_NOTE),
     ("dispatch", r"派工(?:單|\s*prompt)\s*(?:在|:|：)\s*" + _PATH),
@@ -222,7 +221,7 @@ def kickoff_clause_kind(clause: str) -> Optional[str]:
 
 
 def session_directive_reason(prompt: str) -> Optional[str]:
-    """每個子句都整句對上一次性派工樣板 → 對上的樣板名（"role+controller+step" 這種）；有任何子句對不上 → None（交 LLM）。"""
+    """每個子句都整句對上一次性派工樣板 → 對上的樣板名（"role+step+dispatch" 這種）；有任何子句對不上 → None（交 LLM）。"""
     kinds: List[str] = []
     for clause in kickoff_clauses(prompt or ""):
         kind = kickoff_clause_kind(clause)

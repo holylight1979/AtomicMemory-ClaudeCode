@@ -46,6 +46,11 @@ def _item(due_offset=-1, **crit):
     }
 
 
+def _saved() -> dict:
+    """登記項疊上本機執行期紀錄（結果、提醒日、自動結案寫在 followups.local.json，登記表不動）。"""
+    return fc.merged(fc.load()["followups"][0], fc.load_runtime())
+
+
 def _write_turns(path: Path, rows):
     today = date.today().isoformat()
     path.write_text("\n".join(json.dumps({"at": f"{today}T10:00:00+08:00", **r}) for r in rows) + "\n",
@@ -64,7 +69,7 @@ def test_insufficient_sample_does_not_mark_shown(sandbox):
     _write_turns(sandbox / "injection-turns.jsonl", [{"ok": 3, "fallback": 0, "skip": 0}])
     lines, fails = fc.run_all(auto_close=True, brief=True, mark_shown=True)
     assert lines and "樣本不足" in lines[0] and fails == 0
-    saved = fc.load()["followups"][0]
+    saved = _saved()
     assert saved["done"] is False and saved["last_shown"] == ""
 
 
@@ -77,7 +82,7 @@ def test_pass_auto_closes_and_first_show_has_handoff(sandbox):
     assert "交接（假設接手者對本題零記憶）" in lines[0]
     assert "【這是什麼】x" in lines[0] and "- a" in lines[0]
     assert "已自動結案" in lines[0]
-    saved = fc.load()["followups"][0]
+    saved = _saved()
     assert saved["done"] is True and saved["last_shown"] == date.today().isoformat()
 
 
@@ -87,13 +92,13 @@ def test_fail_keeps_open_and_second_day_is_brief(sandbox):
                  [{"ok": 1, "fallback": 2, "skip": 2}] * 4)  # 1.0/回合、20% → FAIL
     lines, fails = fc.run_all(auto_close=True, brief=True, mark_shown=True)
     assert fails == 1 and "❌ 全文/回合" in lines[0] and "交接" in lines[0]
-    saved = fc.load()["followups"][0]
+    saved = _saved()
     assert saved["done"] is False
     # 同日再跑（mark_shown）→ 今日已提醒，不重複
     lines2, _ = fc.run_all(auto_close=True, brief=True, mark_shown=True)
     assert lines2 == []
     # 改成昨天提醒過 → 精簡版（無交接區）
-    data = fc.load(); data["followups"][0]["last_shown"] = _iso(date.today() - timedelta(days=1)); fc.save(data)
+    rt = fc.load_runtime(); rt["t1"]["last_shown"] = _iso(date.today() - timedelta(days=1)); fc.save_runtime(rt)
     lines3, _ = fc.run_all(auto_close=True, brief=True, mark_shown=True)
     assert lines3 and "交接" not in lines3[0] and "❌" in lines3[0]
 
