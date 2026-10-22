@@ -16,13 +16,13 @@
 ## 1. 對人總控台（人開的第一個分頁）
 
 ```
-對人總控台：你是對人總控台，執行 /console 對人。專案根 <專案根絕對路徑>；接續單 <專案根>\memory\_staging\next-phase-<專案>.md（沒有就建，第一段寫「現任」行）。我主要只跟你說話：我的問題同一回合先答；我的命令轉給調度總控台去派。
+對人總控台：你是對人總控台，先用 Read 讀 ~/.claude/skills/console/SKILL.md，照「用法一：對人總控台」做。專案根 <專案根絕對路徑>；接續單 <專案根>\memory\_staging\next-phase-<專案>.md（沒有就建，第一段寫「現任」行）。我主要只跟你說話：我的問題同一回合先答；我的命令轉給調度總控台去派。
 ```
 
 ## 2. 調度總控台（三條以上平行軌才開；一兩條軌由對人兼任）
 
 ```
-調度總控台：你是調度總控台，執行 /console 調度。專案根 <專案根絕對路徑>；接續單 <接續單路徑>；信箱 <專案根>\workflow\inbox\。對人總控台是 <對人名>（送信前先 ListAgents 確認，名字會變）。開工先 SendMessage 對人一句「調度總控台：<你的名字>」，再跑 python ~/.claude/tools/console-status.py 核實現況。
+調度總控台：你是調度總控台，先用 Read 讀 ~/.claude/skills/console/SKILL.md，照「用法二：調度總控台」做。專案根 <專案根絕對路徑>；接續單 <接續單路徑>；信箱 <專案根>\workflow\inbox\。對人總控台是 <對人名>（送信前先 ListAgents 確認，名字會變）。開工先 SendMessage 對人一句「調度總控台：<你的名字>」，再跑 python ~/.claude/skills/console/scripts/console-status.py 核實現況。
 ```
 
 ## 3. 工作軌（`/console 開工句 <軌名>` 產生的就是這段）
@@ -49,7 +49,7 @@
 ## 4. 待命 session（換手前先開好，接手前不耗 token）
 
 ```
-待命：你是待命 session。只做三步，之後不讀檔、不做別的事：①ToolSearch query select:SendMessage,ListAgents 載入工具 ②ListAgents，最上面「This session is <名字>」那行是你的名字 ③SendMessage <要接的角色的現任名> 一句「待命對人／調度總控台：<你的名字>」。收到「接手…」＋接續單路徑才執行 /continue <接續單路徑>。
+待命：你是待命 session。只做三步，之後不讀檔、不做別的事：①ToolSearch query select:SendMessage,ListAgents 載入工具 ②ListAgents，最上面「This session is <名字>」那行是你的名字 ③SendMessage <要接的角色的現任名> 一句「待命對人／調度總控台：<你的名字>」。收到「接手…」＋接續單路徑才用 Read 讀 ~/.claude/skills/continue/SKILL.md，照它對那份接續單做。
 ```
 
 ## 5. 總控台之間的固定訊息
@@ -69,11 +69,11 @@
 §3 的開工句本文不變，只是改由程式送進新 session、不用人貼：
 
 1. 總控台照 §3 填好，整段存成 `<專案根>/workflow/inbox/_console/kickoff-<軌名>.txt`（信箱不進版控）。
-2. 跑 `python ~/.claude/tools/console-spawn.py --track <軌名> --worktree <worktree 絕對路徑> --branch <分支> --prompt-file <上面那個檔> --permission-mode <總控台自己的模式> --model <派工單寫的模型 id>`。
+2. 跑 `python ~/.claude/skills/console/scripts/console-spawn.py --track <軌名> --worktree <worktree 絕對路徑> --branch <分支> --prompt-file <上面那個檔> --permission-mode <總控台自己的模式> --model <派工單寫的模型 id>`。
    腳本用 `claude --bg` 在 worktree 起 session（cwd 只准是登記過的 worktree）、把整檔當第一句送出、輪詢到那個 session 說出「<軌名> 收到開工」。
 3. 尾行 `CONSOLE_SPAWN_CHECK PASS`：它印的「ListAgents 名字」就是該軌的 claude 名字，寫回接續單「軌對應」行；「模型＝<id>」是那個 session 實際在用的模型（讀它的 transcript）。人要看那個 session 的畫面或答它的問題：`claude attach <短 id>`、`claude logs <短 id>`。
 4. 尾行 `FAIL`：多數情況 stdout 已印「退回人貼：停在「<哪一步>」」與開工句 code block，原樣轉給人照 §3 的老辦法貼；不重試超過一次。兩種 FAIL 不退人貼（人貼救不了），只印 stop 指令：
    - 「模型不符：指定＝…／實際＝…」：session 已開工、沒殺。要換模型就 `claude stop <短 id>` 後改 `--model` 重跑；將就用就照常派工。
    - 「session 回 API 錯誤」：例如模型 id 不存在。claude 不會拒起，第一回合回錯後就停著，腳本讀到就立刻 FAIL、印 claude 的原文。`claude stop <短 id>` 收掉，修正後重跑。
 
-填法：開工句第一個詞仍是軌名（腳本靠「<軌名> 收到開工」認報到）；`--permission-mode` 一律明帶，腳本不猜、不假設新 session 繼承總控台的模式。`--model` 照派工單寫的模型給完整 id（派工單要寫模型與理由：閘本體與小修軌用 Opus，例 `claude-opus-5-5`；對人裁定密集才用 Fable，例 `claude-fable-5-1`）。別名（`opus`、`fable`）對不上 transcript 記的完整 id，會判模型不符。不帶 `--model` 就用 `workflow/config.json` 的 `console.spawn.default_model`；那裡也沒設，就吃 Claude Code 預設。
+填法：開工句第一個詞仍是軌名（腳本靠「<軌名> 收到開工」認報到）；`--permission-mode` 一律明帶，腳本不猜、不假設新 session 繼承總控台的模式。`--model` 照派工單寫的模型給完整 id（派工單要寫模型與理由：閘本體與小修軌用 Opus，例 `claude-opus-5-5`；對人裁定密集才用 Fable，例 `claude-fable-5-1`）。別名（`opus`、`fable`）對不上 transcript 記的完整 id，會判模型不符。不帶 `--model` 就用 `skills/console/spawn.json` 的 `default_model`；那裡也沒設，就吃 Claude Code 預設。

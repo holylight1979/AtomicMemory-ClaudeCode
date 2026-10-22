@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（和 wg_core、state.py 同一支）
+from config_local import merge_local  # noqa: E402  本機覆寫 config.local.json
 CLAUDE_DIR = claude_data_dir()                # 使用者資料根（workflow、config）
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
@@ -43,9 +44,9 @@ for _p in (str(COMPANION_DIR), str(Path(__file__).resolve().parent)):
 def _load_config() -> Dict[str, Any]:
     try:
         full = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        return full.get("codex_companion", {})
     except (json.JSONDecodeError, OSError):
         return {}
+    return merge_local(full, CONFIG_PATH.with_name("config.local.json"), "codex").get("codex_companion", {})
 
 
 # ─── Always-on error log（standalone：不依賴 wg_core，寫 stderr）─────────────
@@ -546,11 +547,20 @@ def _within_audit_cap(
     return others_used < max(0, max_audits - acc_min)
 
 
-# ─── acceptance_review（Phase 2 影子裁判） ───────────────────────────────────
+# ─── acceptance_review（驗收裁判） ───────────────────────────────────────────
 
 
 def _acceptance_enabled(config: Dict[str, Any]) -> bool:
-    return bool(config.get("acceptance_review", {}).get("enabled", True))
+    """驗收裁判開不開：acceptance_review.enabled，且 v6 守門總開關開著（關時兩個觸發處都不跑）。
+    要讀 wg_core（約 70 ms），呼叫端先判完便宜的條件再叫。"""
+    if not config.get("acceptance_review", {}).get("enabled", True):
+        return False
+    try:
+        from wg_core import load_config as _wg_load_config, v6_enabled   # 判法只在 wg_core.v6_enabled
+        return v6_enabled(_wg_load_config())
+    except Exception as e:
+        _log_err("codex:v6_switch", e)   # 載不進來當關（出廠預設）
+        return False
 
 
 def _record_unbound(
@@ -899,7 +909,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
     })
 
     # 驗收規格檔改成 status: done → 權威完成訊號，立刻組案卷（影子，不阻斷）
-    if _acceptance_enabled(config) and _spec_marked_done(tool_name, file_path, tool_input):
+    if _spec_marked_done(tool_name, file_path, tool_input) and _acceptance_enabled(config):
         try:
             st = companion_state.read_state(session_id) or {}
             _maybe_spawn_acceptance_review(
@@ -1025,15 +1035,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
             pass  # Heuristics failure → degrade gracefully
 
     # ── acceptance_review（enforce=同步閘；否則影子 async）─────────────────
-    # 觸發條件：完成宣稱 + 本 turn 真有改動 + 綁得到本 session 唯一 open 規格。
+    # 觸發條件：完成宣稱 + 本 turn 真有改動 + 裁判開著（含 v6 開關）+ 綁得到本 session 唯一 open 規格。
     # enforce 開啟 → 同步審，fail+severity 達標才 block（其餘一律放行）；
-    # enforce 關閉 → 維持影子 async，全程 advisory。
-    if _acceptance_enabled(config):
+    # enforce 關閉（出廠）→ 影子 async，只記錄不擋。
+    if config.get("acceptance_review", {}).get("enabled", True):
         try:
             import heuristics as _heur
             claimed = _heur._has_completion_claim(merged_state, last_assistant_tail)
             changed = _heur._has_state_change(merged_state)
-            if claimed and changed:
+            if claimed and changed and _acceptance_enabled(config):
                 cwd_eff = comp_state.get("cwd", "") or input_data.get("cwd", "")
                 if bool(config.get("acceptance_review", {}).get("enforce", False)):
                     _enforce_acceptance_gate(

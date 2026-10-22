@@ -527,7 +527,8 @@ def test_docs_scored_only_with_code_change_reply(tmp_path, monkeypatch):
     doc.parent.mkdir(parents=True)
     doc.write_text("x", encoding="utf-8")
     mods = [{"path": str(doc), "session_id": "s", "last_turn_seq": 4}]
-    cfg = {"text_score": {"enabled": True, "min_chars": 300}}
+    cfg = {"text_score": {"enabled": True, "min_chars": 300,
+                          "auto_targets": {"docs": ["memory/_staging/*checklist*.md"]}}}   # 出廠沒列 docs，案例自己給樣式
     assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=False, user_turn=4) is False and sent == []
     assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=True, user_turn=4) is True
     assert [t["kind"] for t in sent[0]["tasks"]] == ["docs"]

@@ -16,6 +16,8 @@
 
 每 session 每型提醒至多一次（sidecar `workflow/acceptance-spec/<sid>.json`）。
 advisory-only 不阻斷；hook 只發指令，規格內容由模型生成（hook 無 LLM）。
+(1)(2) 的提示歸 v6 守門總開關管：規格只給驗收裁判用，裁判也歸同一個開關（codex_companion），
+關時不叫 AI 寫規格檔；(3) 照記。
 裁判無授權副作用；規格檔與任務無法唯一對應時消費端必回 uncertain 不得 block。
 config: workflow/config.json → acceptance_spec；enabled=false 一鍵關。
 never-crash 降級靜默（guardian 端 try/except 隔離、錯誤只進 debug log）。
@@ -174,6 +176,16 @@ def build_multifile_advisory(session_id: str, cwd: str, n_files: int) -> str:
     )
 
 
+def _v6_on() -> bool:
+    """v6 守門總開關（判法只在 wg_core.v6_enabled）；載不進來當關（出廠預設）並 stderr。"""
+    try:
+        from wg_core import load_config as _wg_load_config, v6_enabled
+        return v6_enabled(_wg_load_config())
+    except Exception as e:
+        sys.stderr.write(f"[acceptance_spec] 讀 v6 開關失敗，當成關：{type(e).__name__}: {e}\n")
+        return False
+
+
 # ─── PostToolUse 判定（不讀 stdin、不 print、不 exit；sidecar 讀寫順序照舊）─────
 
 
@@ -194,7 +206,7 @@ def run(input_data: Dict[str, Any], config: Dict[str, Any]) -> List[str]:
         if plan_looks_rejected(input_data.get("tool_response", "")):
             return []
         sc = read_sidecar(session_id)
-        if sc.get("plan_prompted"):
+        if sc.get("plan_prompted") or not _v6_on():
             return []
         sc["plan_prompted"] = True
         write_sidecar(session_id, sc)
@@ -225,7 +237,7 @@ def run(input_data: Dict[str, Any], config: Dict[str, Any]) -> List[str]:
     min_files = int(config.get("min_files_trigger", 3))
     excludes = config.get("count_exclude_substrings", []) or []
     n = count_session_modified_files(session_id, excludes)
-    if n < min_files:
+    if n < min_files or not _v6_on():
         return []
     sc["multifile_advised"] = True
     write_sidecar(session_id, sc)

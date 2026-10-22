@@ -59,9 +59,8 @@ DEFAULTS: Dict[str, Any] = {
     "num_ctx": 8192,                  # 每次明帶；Ollama 預設 4096 會從前面靜默截掉
     "min_chars": 300,                 # 自動評的最短字數（去掉檔頭、code 與網址，不算空白）
     "reply_scope": "code_change",     # 收尾自動評哪些回覆（hooks/wg_text_score._reply_in_scope 讀；本工具不用）
-    "auto_targets": {                 # 自動評的種類 → 來源路徑樣式；空清單＝不比路徑
+    "auto_targets": {                 # 自動評的種類 → 來源路徑樣式；空清單＝不比路徑；沒列的種類不評（出廠不評文件 docs）
         "final_reply": [],
-        "docs": ["memory/_staging/*checklist*.md", "_AIDocs/DevHistory/**/*提案*.md"],
     },
 }
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -34,6 +35,9 @@ KICKOFFS = [
     "你是 v6.0 的工作 session track-b2，總控台是 claude-4b。派工 prompt 在 C:\\Users\\holylight\\.claude\\workflow\\inbox\\"
     "to-track-b2\\000-prompt.md，用絕對路徑讀完全文照做。worktree C:\\Users\\holylight\\.claude-wt\\track-b2（分支 v6/track-…",
 ]
+# 「總控台是 X」指的是另一個 session（多 session 前提），不是樣板：帶這子句的舊開工句嚴格判定交 LLM，
+# Quote 端（is_kickoff_prompt）照樣靠角色句＋其他樣板認得。驗「跳過」的案用拿掉那個子句的同一句。
+KICKOFFS_NEUTRAL = [re.sub(r"，總控台是 claude-[0-9a-f]+", "", k) for k in KICKOFFS]
 DECISIONS = [
     "以後 commit message 一律繁體中文",
     "記住：commit message 要寫中文",
@@ -73,7 +77,7 @@ DECISIONS += [
 ]
 # 開工句模板（skills/console/references/kickoff.md）填好的整段，與只用換行分句的純開工句
 TEMPLATE_FILLED = (
-    "你是 v6.0 的工作 session track-a3，總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree "
+    "你是 v6.0 的工作 session track-a3。第一步用 EnterWorktree 切進 worktree "
     "C:\\Users\\holylight\\.claude-wt\\track-a3（分支 v6/track-a3，已存在，不要新建）。派工 prompt 在 "
     "C:\\Users\\holylight\\.claude\\workflow\\inbox\\to-track-a3\\019-continue-017.md，用絕對路徑讀完全文照做。"
     "切進去之後所有讀寫一律用 worktree 絕對路徑、不碰 live C:\\Users\\holylight\\.claude；交付信附 live 未動證明。"
@@ -100,9 +104,16 @@ def _user_part(l1_prompt: str) -> str:
     return l1_prompt.rsplit("使用者的話：", 1)[1].split("\n\nJSON", 1)[0].strip()
 
 
-@pytest.mark.parametrize("text", KICKOFFS)
+@pytest.mark.parametrize("text", KICKOFFS_NEUTRAL)
 def test_kickoff_quotes_are_session_directives(text):
     assert (_load_worker()._session_directive_reason(text) or "").startswith("role+")
+
+
+@pytest.mark.parametrize("text", KICKOFFS)
+def test_peer_session_clause_goes_to_llm_but_quote_side_still_skips(text):
+    from lib.harness_text import is_kickoff_prompt
+    assert _load_worker()._session_directive_reason(text) is None
+    assert is_kickoff_prompt(text)
 
 
 @pytest.mark.parametrize("text", REWORDED_KICKOFFS)
@@ -117,7 +128,7 @@ def test_cross_project_decisions_are_not_session_directives(text):
 
 def test_template_and_newline_kickoffs_match_clause_by_clause():
     m = _load_worker()
-    assert m._session_directive_reason(TEMPLATE_FILLED) == "role+controller+step+dispatch+scope+deliver+verify+ack"
+    assert m._session_directive_reason(TEMPLATE_FILLED) == "role+step+dispatch+scope+deliver+verify+ack"
     assert m._session_directive_reason(NEWLINE_KICKOFF) == "role+step"                  # 反例：換行不切句就對不上樣板
     assert m._session_directive_reason(TEMPLATE_FILLED + "另外，所有 repo 都用 tab") is None   # 多一個子句對不上 → 交 LLM
 
@@ -155,10 +166,10 @@ def _run_pipeline(tmp_path, monkeypatch, prompts):
 
 
 def test_pipeline_skips_kickoff_before_llm_and_records_reason(tmp_path, monkeypatch):
-    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [KICKOFFS[0], DECISIONS[0]])
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [KICKOFFS_NEUTRAL[0], DECISIONS[0]])
     assert [_user_part(p) for p in l1_seen] == [DECISIONS[0]], l1_seen                # 反例：舊碼開工句也送 L1
     assert [t for t, _ in pending_seen] == ["sd-test-1"] and stats["skipped_directive"] == 1
-    assert "action=user-extract-skip" in log and "reason=session-directive(role+controller+step+dispatch)" in log
+    assert "action=user-extract-skip" in log and "reason=session-directive(role+step+dispatch)" in log
     assert "turn=sd-test-0" in log
     assert "skipped_directive=1" in log
     assert left == []                                                                  # 兩筆都處理完、不留待重送
@@ -232,8 +243,8 @@ def test_decisions_inside_role_note_reach_llm(tmp_path, monkeypatch):
 def test_listed_role_notes_are_still_directives():
     m = _load_worker()
     for note in ("需求目標核心流程設計單，只設計不寫程式", "閱讀路徑掃描器", "獨立實跑驗證", "接手，前一個 track-a3 session 已滿"):
-        text = f"你是 v6.0 的工作 session track-a3（{note}），總控台是 claude-ad。"
-        assert m._session_directive_reason(text) == "role+controller", note
+        text = f"你是 v6.0 的工作 session track-a3（{note}）。"
+        assert m._session_directive_reason(text) == "role", note
 
 
 def test_decision_after_path_field_reaches_llm_from_entry(tmp_path, monkeypatch):
@@ -254,7 +265,7 @@ def test_spawned_worker_errors_land_in_logs_and_candidate_stays(tmp_path, monkey
     from handlers import _shared
     data, sid = tmp_path / "data", "sd-spawn"
     (data / "workflow" / "_merge_history.log").mkdir(parents=True)                     # 紀錄檔位置被目錄占住
-    state = {"pending_user_extract": [{"turn_id": f"{sid}-0", "prompt": KICKOFFS[0]}], "session": {"cwd": str(tmp_path)}}
+    state = {"pending_user_extract": [{"turn_id": f"{sid}-0", "prompt": KICKOFFS_NEUTRAL[0]}], "session": {"cwd": str(tmp_path)}}
     (data / "workflow" / f"state-{sid}.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setenv("WG_CLAUDE_DIR", str(data))                                     # worker 子行程的資料根
     monkeypatch.setattr(_shared, "CLAUDE_DIR", data)
@@ -276,7 +287,7 @@ def test_skip_stays_queued_when_the_record_cannot_be_written(tmp_path, monkeypat
     monkeypatch.setattr(m, "_call_l1", lambda p: pytest.fail("不該送 L1"))
     monkeypatch.setattr(m, "_get_assistant_last_600", lambda sid, cwd: "")
     monkeypatch.setattr(m, "evaluate_session", lambda *a, **k: {"scores": {"weighted_total": 0}})
-    state = {"pending_user_extract": [{"turn_id": "sd-test-0", "prompt": KICKOFFS[0]}]}
+    state = {"pending_user_extract": [{"turn_id": "sd-test-0", "prompt": KICKOFFS_NEUTRAL[0]}]}
     (tmp_path / "state-sd-test.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     m.run_user_extraction({"session_id": "sd-test", "cwd": str(tmp_path), "user": "u", "config": {}})
     left = json.loads((tmp_path / "state-sd-test.json").read_text(encoding="utf-8"))["pending_user_extract"]

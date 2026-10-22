@@ -1,8 +1,9 @@
 {
- "_doc": "回訪登記表：到期後 SessionStart 自動跑 tools/followup-check.py，結果推到開場 context。每筆 handoff 以「接手者零記憶」為前提寫。結案：--done <id>。",
+ "_doc": "回訪登記表：到期後 SessionStart 自動跑 tools/followup-check.py，結果推到開場 context。每筆 handoff 以「接手者零記憶」為前提寫。owner（帳號）／host（電腦代號，`python tools/followup-check.py --host-id` 印這台的）選填：有填就只對那個人／那台機器跑和顯示，量測腳本只在某台的回訪要標 host。這裡只放登記內容；每次跑的結果與提醒日寫本機 workflow/followups.local.json（不進版控）。結案：--done <id>。",
  "followups": [
   {
    "id": "injection-budget-2026-08-28",
+   "host": "699b538de7f1",
    "title": "注入預算放寬＋同題去冗，一週實際使用後效果驗證",
    "since": "2026-08-29",
    "due": "2026-09-04",
@@ -52,12 +53,11 @@
     "結案": "全過 → 已自動標 done（或 python tools/followup-check.py --done injection-budget-2026-08-28）；向使用者一句話回報四指標數字。未過 → 依上表處理、修完再跑 python tools/followup-check.py --run --force --id injection-budget-2026-08-28。"
    },
    "done": true,
-   "last_shown": "2026-09-04",
-   "result": "2026-09-04 PASS",
    "done_at": "2026-09-04"
   },
   {
    "id": "closing-gates-trim-2026-10-20",
+   "host": "699b538de7f1",
    "title": "收尾瘦身（只擋測試沒過說修好、改程式沒測試）上線後，亂擋狂驗有沒有真的消失",
    "since": "2026-10-20",
    "due": "2026-10-22",
@@ -94,9 +94,7 @@
     ],
     "結案": "不論 PASS 或 FAIL，在這個 session 的第一則回覆先用白話向使用者報告：被擋次數／回合、擋下後重跑測試／回合、跟基線比少了多少、還在擋的是哪幾道。PASS 已自動結案；FAIL 照上面處理，處理完 python tools/followup-check.py --done closing-gates-trim-2026-10-20。結案後同一個 session 收拾：刪掉 memory/_staging/收尾少空轉-量測腳本/ 整個資料夾；推進文件 memory/_staging/next-phase-收尾少空轉.md 第七節還沒解的事（定位閘死鎖、未拍板的手續）先轉成追蹤項（收尾檢核 k 欄一行一項），重量結果補一條到 _AIDocs/_CHANGELOG.md，然後刪掉推進文件；收完向使用者一句話說刪了哪些。這筆登記本身留著當紀錄（done 的項目不會再跑）。"
    },
-   "done": false,
-   "last_shown": "",
-   "result": "2026-10-20 INSUFFICIENT"
+   "done": false
   }
  ]
 }

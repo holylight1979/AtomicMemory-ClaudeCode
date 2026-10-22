@@ -13,7 +13,7 @@
 
 - 編號 NNN 每軌自己往上加；退件單接著編（例 002 退件 → 003）。
 - 腳本、素材不要以 `.py`／`.sh` 放進信箱（程式會當成改碼記欠帳），存成 `.py.txt` 讓工作軌自己複製去用。
-- 看現況：`python ~/.claude/tools/console-status.py`（印各軌最新來信與 `_console/verify*.log` 的結果）。
+- 看現況：`python ~/.claude/skills/console/scripts/console-status.py`（印各軌最新來信與 `_console/verify*.log` 的結果）。
 
 ## 開新軌
 

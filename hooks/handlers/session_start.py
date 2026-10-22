@@ -506,7 +506,7 @@ def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
     存在理由：「一週後再看數據」在 session 關掉後必然被遺忘；登記表 workflow/followups.json
-    以「接手者零記憶」寫交接，到期後使用者任何一次開 CC 都會看到並能直接行動。
+    以「接手者零記憶」寫 handoff，到期後使用者任何一次開 CC 都會看到並能直接行動（登記項標了 owner／host 的，只有那個人、那台機器看得到）。
     每日提醒一次（--mark-shown），PASS 自動結案（--auto-close），首次整份、之後精簡（--brief）。
     純子程序、fail-open：失敗只 debug log，不阻斷 SessionStart。無到期項回 []。
     """
@@ -992,7 +992,7 @@ _CARRY_ON_REBUILD = (
 
 
 def _first_session_hint_lines(root_res, cwd: str) -> list:
-    """T1-7（track-d2 的 first_session_hint）掛 SessionStart：無部位表的專案給 scaffold 指令；表有「骨架」列就列每張卡的空段；
+    """first_session_hint 掛 SessionStart：無部位表的專案給 scaffold 指令；表有「骨架」列就列每張卡的空段；
     表齊或不在任何專案 → 空。根層 cwd 以 ~/.claude 當根（它的表在 ~/.claude/.claude/overview-map.md）。fail-open。"""
     try:
         root = None

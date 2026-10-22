@@ -1,4 +1,4 @@
-"""verify_console_status.py：總控台狀態腳本（tools/console-status.py）的輸出與尾行。
+"""verify_console_status.py：總控台狀態腳本（skills/console/scripts/console-status.py）的輸出與尾行。
 
 正例：暫存 git repo 兩筆 commit 落在 origin/main 之後 → unpushed=2；多一棵 worktree → worktrees=2 且列出分支；
 兩軌來信各取最新一封並印「我在等」；verify log 取最後一行 exit=（多個取最後、沒有就印 pytest 總結）；
@@ -18,8 +18,7 @@ from pathlib import Path
 
 import pytest
 
-CLAUDE = Path(__file__).resolve().parents[2]
-TOOL = CLAUDE / "tools" / "console-status.py"
+TOOL = Path(__file__).resolve().parents[1] / "scripts" / "console-status.py"
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
 TAIL_RE = re.compile(r"^[A-Z][A-Z0-9_]* DONE( \w+=\S+)*$")

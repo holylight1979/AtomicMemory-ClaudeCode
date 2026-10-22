@@ -11,7 +11,7 @@
       "expects": "期望 LLM 判什麼",
       "code_refs": "問句組在哪幾個檔",
       "notes": "盤點時看到的問題與歧義",
-      "responses": "AI 被問之後怎麼回，照各閘自己的留帳推（Logs/guard-<guard>.jsonl 的 event；\"*\" 表示那個 guard 的任何一筆）：type 是 declared／denied／judged／released。只列「AI 回應之後」才寫的紀錄，問的當下寫的不列。沒列、或窗口裡沒對上：同代號又被問一次算 denied，否則 none（hooks/wg_entrypoint.resolve_responses）。有標的的列可寫 match（鍵名清單）：問的帳與閘紀錄這些鍵要相同才算回應（例：E36 的 g）"
+      "responses": "AI 被問之後怎麼回，照各閘自己的留帳推（Logs/guard-<guard>.jsonl 的 event；\"*\" 表示那個 guard 的任何一筆）：type 是 declared／denied／judged／released。只列「AI 回應之後」才寫的紀錄，問的當下寫的不列。沒列、或窗口裡沒對上：同代號又被問一次算 denied，否則 none（hooks/wg_entrypoint.resolve_responses）。有標的的列可寫 match（鍵名清單）：問的帳與閘紀錄這些鍵要相同才算回應（例：[\"g\"]）"
     },
     "path_values": {
       "stop_piggyback": "Stop／SubagentStop 組給 LLM 的訊息：擋下的 reason，與續跑一回合的 additionalContext（如 PickOne）",
@@ -36,7 +36,7 @@
      "asks": "第四行沒寫這一塊在目標裡的角色、根因層只有一個候選或沒寫選擇理由：照範例補交定位行",
      "expects": "改的是根因還是症狀、在哪一層，兩個候選選哪個、為什麼",
      "code_refs": ["hooks/wg_release_rules.py", "hooks/wg_overview.py"],
-     "notes": "改檔前沒交定位行走 PreToolUse deny；讀檔時的導讀是 PostToolUse 提醒。程式只查結構不評對錯。EDITED_PART_NEEDS_GOAL_NODE（交付邊界與 commit 前改到的部位要掛目標節點）要的就是第四行「定位｜目標」，總控台裁定歸本列。",
+     "notes": "改檔前沒交定位行走 PreToolUse deny；讀檔時的導讀是 PostToolUse 提醒。程式只查結構不評對錯。EDITED_PART_NEEDS_GOAL_NODE（交付邊界與 commit 前改到的部位要掛目標節點）要的就是第四行「定位｜目標」，所以歸本列。",
      "responses": []},
     {"id": "E02", "name": "側觀批判行「定位｜批判」",
      "rules": ["LOCATE_LINES_NEED_CRITIQUE"],

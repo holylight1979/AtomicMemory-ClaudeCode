@@ -1,4 +1,4 @@
-"""verify_console_spawn.py：總控台開工作 session 腳本（tools/console-spawn.py）的驗收案例。subprocess 一律假的，不真打 claude。
+"""verify_console_spawn.py：總控台開工作 session 腳本（skills/console/scripts/console-spawn.py）的驗收案例。subprocess 一律假的，不真打 claude。
 
 正例：--method bg 組出的指令是 [claude, "--bg", <開工句>, "--permission-mode", <模式>]、cwd＝worktree、不經 shell；
 開工句以 / 開頭原樣進參數；transcript 出現「<軌名> 收到開工」（SendMessage 正文或 assistant 文字）→ PASS、印短 id 與名字；
@@ -6,8 +6,8 @@ worktree 無信任而 live 根有 → 補正斜線鍵並印出；--help 有「�
 反例：--worktree 指 live 根／未登記 → FAIL 不起；--prompt-file 不存在 → FAIL；kill switch → FAIL 且訊息點名檔；
 已 5 個活著 → 拒並列現有；逾時沒收到 → exit 1、stdout 有開工句 code block 與「退回人貼」；live 根也沒信任 → FAIL；
 method=gui → 不起、印退路。
-模型：--model 接在指令尾（bg 與 print 都接）；沒給 --model 也沒 config default_model → 指令不含 --model；--model 優先於
-config；開工後讀 transcript 最近一則真回應的 message.model 印「模型＝…」，指定了卻對不上或讀不到 → FAIL 印「指定＝…／實際＝…」、
+模型：--model 接在指令尾（bg 與 print 都接）；沒給 --model 也沒 spawn.json default_model → 指令不含 --model；--model 優先於
+spawn.json；開工後讀 transcript 最近一則真回應的 message.model 印「模型＝…」，指定了卻對不上或讀不到 → FAIL 印「指定＝…／實際＝…」、
 不殺 session；session 第一回合就回 API 錯誤（例：模型 id 不存在）→ 不等逾時、立刻 FAIL 並印 claude 回的錯。
 信任寫回（~/.claude.json 其他 session 隨時在寫）：讀完到寫之間別人寫進的鍵寫回後仍在；寫暫存檔中途失敗 → 原檔一個位元組
 都沒動、暫存檔與鎖都收掉；換行（LF／CRLF）與結尾有無換行照原檔；寫入在 Claude Code 同一把鎖（<設定檔>.lock 目錄）內、
@@ -17,7 +17,7 @@ state 檔（並行上限靠它數）：A 等報到時 B 起好並記好 → 兩�
 壞檔（不是 JSON、不是物件清單）→ 原因印 stderr、不起、FAIL 退人貼、壞檔不蓋；開跑時 state 鎖就被佔 → 不起、不搶鎖；
 起好那刻記不上、等報到時鎖放掉 → 補 sessionId 時整列補記；一直記不上 → 印「沒記進 state 檔」；
 持 state 鎖很久（沒人會接管）→ 照寫、照放鎖，不留永久殘鎖。
-怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_console_spawn.py
+怎麼跑：python -X utf8 -m pytest -q skills/console/verify/verify_console_spawn.py
 """
 from __future__ import annotations
 
@@ -30,8 +30,7 @@ from pathlib import Path
 
 import pytest
 
-CLAUDE = Path(__file__).resolve().parents[2]
-TOOL = CLAUDE / "tools" / "console-spawn.py"
+TOOL = Path(__file__).resolve().parents[1] / "scripts" / "console-spawn.py"
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 _spec = importlib.util.spec_from_file_location("console_spawn", TOOL)
@@ -127,11 +126,12 @@ class World:
         return p
 
     def write_spawn_config(self, **spawn) -> None:
-        (self.live / "workflow" / "config.json").write_text(json.dumps({"console": {"spawn": spawn}}), encoding="utf-8")
+        cs.SPAWN_CONFIG.write_text(json.dumps(spawn), encoding="utf-8")
 
 
 @pytest.fixture
-def world(tmp_path):
+def world(tmp_path, monkeypatch):
+    monkeypatch.setattr(cs, "SPAWN_CONFIG", tmp_path / "spawn.json")   # 不讀 skill 真的設定檔
     return World(tmp_path)
 
 
@@ -319,7 +319,7 @@ def test_model_flag_goes_into_bg_cmd(world, capsys):
 
 
 def test_no_model_flag_no_config_adds_nothing_and_reports_actual(world, capsys):
-    assert not (world.live / "workflow" / "config.json").exists()      # 前置：config 沒有 default_model
+    assert not cs.SPAWN_CONFIG.exists()      # 前置：spawn.json 沒有 default_model
     fake, clock = FakeClaude(), Clock()
     arm_kickoff(world, fake, KICKOFF, model=OPUS)
     code, out = run(world, fake, clock, capsys)

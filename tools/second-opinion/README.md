@@ -1,7 +1,7 @@
-# second-opinion：第二意見工具（M3）
+# second-opinion：第二意見工具
 
 白話：讓另一家模型（Codex）拿**同一份材料**、**看不到我方答案**、各自回答；它起不來就老實回 `failed`，絕不把「沒跑」報成功。
-對應目標 G1（多立場視角）、G9（兩家模型等價認知）、Q9 題組（材料雜湊相同；答案互不可見；啟動不了卻回報成功是反例）。
+三條硬性：兩邊拿到的材料雜湊相同；答案互不可見；啟動不了卻回報成功是錯。
 
 ## 兩個 MCP 工具
 
@@ -51,7 +51,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 
 一律經 `lib/codex_models.resolve_slug` **精確比對** `~/.codex/models_cache.json`（`judge_backend.resolve_model_slug`）。`second_opinion.model` 預設 `gpt-6-astra`；`gpt-6-astra-900K` 這種帶後綴的名字查不到就是錯，不猜。
 
-## config（`workflow/config.json` 的 `second_opinion` 段，由總控台加）
+## config（`workflow/config.json` 的 `second_opinion` 段）
 
 ```json
 "second_opinion": {
@@ -64,14 +64,14 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 }
 ```
 收尾自動要求第二意見（Stop 的 SecondOpinion 閘）讀同一段的 `auto` 子段，沒寫就用預設（`hooks/wg_second_opinion.DEFAULTS`）：
-`{"enabled": true, "min_code_files": 4, "min_changed_lines": 150, "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py", "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/"], "max_blocks_per_turn": 1}`。
-`allow_claude_fallback` 固定 false，config 寫了也不理。codex 執行檔與 `codex_extra_args` 沿用 `codex_companion` 段。
+`{"enabled": true, "min_code_files": 4, "min_changed_lines": 150, "risky_prefixes": [], "max_blocks_per_turn": 1}`。`risky_prefixes`（相對版控根的路徑前綴）共用設定是空的；專案自己的高風險部位在部位表把那一列的類別標 `gate`（跟著專案版控，只在那個專案生效；記憶系統自己的在 `.claude/overview-map.md`）。
+`allow_claude_fallback` 固定 false，config 寫了也不理。codex 執行檔與 `codex_extra_args` 沿用 `codex_companion` 段（`workflow/config.local.json` 同名鍵蓋過共用設定，只有某台機器要的旗標寫那裡）。
 唯讀沙箱旗標（`-s read-only`，Windows 另加 `-c windows.sandbox="unelevated"`）寫在 `run.py` 的 `_sandbox_args`，不放共用的 `codex_extra_args`：沒帶 unelevated 時 codex 在沙箱裡每個指令都 `CreateProcessWithLogonW failed: 1385`，只能看提示裡內嵌、超過 `material_max_chars` 會截斷的材料；裁判（`codex-companion/assessor.py`）不傳 `-s`，不受影響。
 
-## 保留裁決（總控台審）
+## 紀錄裡沒有指令行時：整檔掃描
 
-`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切、不截）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」；掃描跑在**子行程**（`run.py scan --job <dir>`，印 JSON＋尾行 `SCAN_CHECK PASS|FAIL`），`subprocess.run(timeout=30)` 子行程 30 秒逾時 kill（spawn 與收尾另計，不是嚴格端到端上限）→ failed「掃描逾時無法判定」；子行程回傳要過協定核對（尾行恰為 PASS／FAIL、JSON 兩鍵皆為字串陣列、PASS⇔rc 0⇔皆空、FAIL⇔rc 1⇔非空），任一不符 → failed「掃描結果不可信」；`scan` 子命令自己也有 20 MB 上限（超過回一條 oversize hit＋FAIL）；唯一加速是路徑 token 以 guard 同一條 regex 抽出、保留完整 token 去重後再逐筆判定（與餵全文等價）；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。總控台裁決：接受（條件＝整檔掃描＋過大即 failed，已做）。
+`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切、不截）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」；掃描跑在**子行程**（`run.py scan --job <dir>`，印 JSON＋尾行 `SCAN_CHECK PASS|FAIL`），`subprocess.run(timeout=30)` 子行程 30 秒逾時 kill（spawn 與收尾另計，不是嚴格端到端上限）→ failed「掃描逾時無法判定」；子行程回傳要過協定核對（尾行恰為 PASS／FAIL、JSON 兩鍵皆為字串陣列、PASS⇔rc 0⇔皆空、FAIL⇔rc 1⇔非空），任一不符 → failed「掃描結果不可信」；`scan` 子命令自己也有 20 MB 上限（超過回一條 oversize hit＋FAIL）；唯一加速是路徑 token 以 guard 同一條 regex 抽出、保留完整 token 去重後再逐筆判定（與餵全文等價）；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。
 
 ## 驗證
 
-`python -X utf8 -m pytest -q tools/codex-companion/verify/verify_second_opinion.py`（subprocess 全 monkeypatch，不打 codex）。真打 codex 的探針由總控台 merge 後做：`python tools/second-opinion/run.py probe`。
+`python -X utf8 -m pytest -q tools/codex-companion/verify/verify_second_opinion.py`（subprocess 全 monkeypatch，不打 codex）。真打 codex 的探針：`python tools/second-opinion/run.py probe`。
