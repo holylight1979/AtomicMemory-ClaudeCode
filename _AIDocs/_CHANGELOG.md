@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 回覆尾巴的「上則評分」那行點得進白話說明
+- **原設計者看到的**：在 VS Code 裡，回覆最後一行 `上則評分 5/7｜沒過：R1、R4` 的「評分」點下去開 `text-specs/reader-designer-說明.md`（一句話說這份評什麼＋R1～R7 各一句白話），R1、R4 點下去直接跳到那一條；每條標題再點一次是它的判準卡（當初的指正原話）。終端機、`claude -p` 無頭跑照舊純文字。
+- **改了什麼**（軌 track-g15-text-score 004）：新檔 `text-specs/reader-designer-說明.md`；`hooks/wg_text_score.link_line` 在 `CLAUDE_CODE_ENTRYPOINT=claude-vscode` 且規格有說明檔時把評分一行改成 markdown 連結（沒過／作廢／未評的代號都連），路徑相對 UserPromptSubmit 收到的 cwd；`tail_note` 多收 cwd；`tools/text-score.py` 列現有規格時不列 `-說明` 檔、切法解析的巢狀三元拆開；TECH §7.11 兩列、`text-specs/README.md` 一段。規格本身沒動。
+- **驗證**：`hooks/verify/verify_text_score_stop.py` 新 3 案（VS Code 連結版與照抄記 copied、終端機／無頭／沒說明檔純文字、UPS 用 hook 輸入的 cwd），19 綠；`tools/verify/verify_text_score.py` 新 1 案（說明檔開頭句、七個錨點對規格代號、連到的卡都在、不被列成規格），91 綠。
+
 ## 2026-10-22 TECH.md 補「改判準卡要先宣告」與閘小修 006 的五條規則、文件軌不開 worktree
 - **原設計者看到的**：TECH.md 寫明改綁了切入點的判準卡要先寫「改判準卡｜<卡名>：<理由>」（§4.3、§7.0 改檔當下、§7.5），MCP 的 atom_write／atom_edit_meta／atom_retire 也擋；§7.8 規則表每條規則各有一列（98 條）；§13.4 寫明只改文件的軌直接在 live 改、不開 worktree。
 - **改了什麼**（軌 track-tech-refresh 002）：§3.1 PreToolUse matcher 照 settings.json 現況（含 MultiEdit 與三個 atom 工具）；§7.5 JudgeCardDeclare 拿掉「matcher 待套用」、補已知限制（腳本自己開檔寫看不到）；§7.8 新增 JUDGE_CARD_CHANGE_NEEDS_DECLARATION、CLAIM_CONDITIONAL_NOT_CLAIM、TRACKING_SAME_ITEM_NOT_REWRITTEN、SHELL_LITERAL_VAR_EXPANDED、INLINE_FLAG_BEFORE_PROGRAM 五列；§10 補 wg_judge_card.py、verify_judge_card_declare.py、verify/fixtures。只改文件。
