@@ -2437,27 +2437,50 @@ _ELSEWHERE_CASES = {
         ("verify_pull_tool_gates.py", "test_excluded_named_file_still_needs_declaration_after_other_file_fixed"),
         ("verify_pull_tool_gates.py", "test_declaration_after_a_named_still_counts_for_a"),
         ("verify_pull_tool_gates.py", "test_declaration_before_b_named_does_not_cover_b")],
+    # 收尾閘那一批：案例在 verify_pull_stop_gates.py，每支 docstring 開頭寫「規則：<名>」
+    "PENDING_SAME_USER_TURN": [("verify_pull_stop_gates.py", "test_1_pending_from_previous_user_turn_gives_fresh_budget"),
+                               ("verify_pull_stop_gates.py", "test_9_second_opinion_pending_from_previous_turn_not_exhausted")],
+    "RELEASE_COVERS_SHOWN_ITEMS": [
+        ("verify_pull_stop_gates.py", "test_1_released_item_not_asked_again_next_turn_until_cause_gone"),
+        ("verify_pull_stop_gates.py", "test_release_binds_to_items_the_user_was_shown"),
+        ("verify_pull_stop_gates.py", "test_unformatted_new_reason_is_not_swallowed_by_released_item"),
+        ("verify_pull_stop_gates.py", "test_8_released_red_tests_do_not_cover_a_new_failure")],
+    "NONINTERACTIVE_RELEASE_AT_BUDGET": [
+        ("verify_pull_stop_gates.py", "test_3_headless_main_session_releases_on_third_and_never_says_cannot_release"),
+        ("verify_pull_stop_gates.py", "test_3_subagent_block_message_does_not_say_cannot_release"),
+        ("verify_pull_stop_gates.py", "test_3_headless_equivalence_exhausted_releases_and_logs"),
+        ("verify_pull_stop_gates.py", "test_8_testfail_third_stop_releases_and_logs_headless")],
+    "ORDER_UNTIL_PUSH": [("verify_pull_stop_gates.py", "test_4_order_survives_commit_and_notification_for_gate_forced_fix"),
+                         ("verify_pull_stop_gates.py", "test_4_user_new_message_in_continuation_needs_new_order"),
+                         ("verify_pull_stop_gates.py", "test_4_push_done_spends_order_even_within_same_turn"),
+                         ("verify_pull_stop_gates.py", "test_4_echo_or_dry_run_is_not_a_push"),
+                         ("verify_pull_stop_gates.py", "test_4_push_then_commit_before_any_stop_needs_new_order"),
+                         ("verify_pull_stop_gates.py", "test_4_push_result_written_after_scan_is_still_paired"),
+                         ("verify_pull_stop_gates.py", "test_v6_off_order_spent_by_commit_and_kept_on_continuation_typing"),
+                         ("verify_pull_stop_gates.py", "test_v6_off_stop_does_not_scan_push_and_commit_gate_ignores_it")],
+    "RELOAD_ADVICE_MCP_EDITS_ONLY": [("verify_pull_stop_gates.py", "test_6_reload_advice_not_judged_without_mcp_edits")],
+    "DEFERRAL_COVERS_EVASION_SENTENCE": [
+        ("verify_pull_stop_gates.py", "test_7_deferral_block_clears_evasion_flag_for_same_sentence"),
+        ("verify_pull_stop_gates.py", "test_7_other_sentence_keeps_evasion_flag"),
+        ("verify_pull_stop_gates.py", "test_v6_off_deferral_block_keeps_evasion_flag")],
 }
-# 案例檔還沒進這棵樹的規則（收尾閘那一批）：先登記名字，案例檔進來後要點到規則名
-_PENDING_CASE_FILE = "verify_pull_stop_gates.py"
-_PENDING_RULES = ("PENDING_SAME_USER_TURN", "RELEASE_COVERS_SHOWN_ITEMS", "NONINTERACTIVE_RELEASE_AT_BUDGET",
-                  "ORDER_UNTIL_PUSH", "RELOAD_ADVICE_MCP_EDITS_ONLY", "DEFERRAL_COVERS_EVASION_SENTENCE")
+
+
+def _case_function_source(text: str, fn: str) -> str:
+    """案例檔裡 def fn 那一段（到下一個頂層 def／裝飾器／註解分段為止）；找不到回空字串。"""
+    m = re.search(rf"^def {re.escape(fn)}\(.*?(?=^(?:def |@|# ─))", text + "\n# ─", re.MULTILINE | re.DOTALL)
+    return m.group(0) if m else ""
 
 
 @pytest.mark.parametrize("rule", sorted(_ELSEWHERE_CASES))
 def test_rules_registered_with_case_functions_elsewhere(rule):
+    """規則有登記、對照的案例函式真的在；收尾閘那一批（verify_pull_stop_gates.py）另核那支案例自己點到規則名。"""
     assert rule in rr.RULES
     for case_file, fn in _ELSEWHERE_CASES[rule]:
-        assert f"def {fn}(" in (Path(__file__).parent / case_file).read_text(encoding="utf-8"), (rule, case_file, fn)
-
-
-@pytest.mark.parametrize("rule", _PENDING_RULES)
-def test_stop_gate_rules_registered_case_file_names_them_once_present(rule):
-    assert rule in rr.RULES
-    case = Path(__file__).parent / _PENDING_CASE_FILE
-    if not case.exists():
-        pytest.skip(f"{_PENDING_CASE_FILE} 還不在這棵樹：只核對規則已登記")
-    assert rule in case.read_text(encoding="utf-8"), (rule, _PENDING_CASE_FILE)
+        text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+        assert f"def {fn}(" in text, (rule, case_file, fn)
+        if case_file == "verify_pull_stop_gates.py":
+            assert f"規則：{rule}" in _case_function_source(text, fn), (rule, fn)
 
 
 def test_deny_cap_old_names_folded_into_gate_deny_cap():

@@ -3,12 +3,14 @@
   - **擋滿的待放行只算同一個使用者回合**：使用者打字開了新回合，寫碼查核的預算重給、不拿上一回合的宣稱重查，不再一開口就送「擋滿要問人」。
   - **使用者放行的是「那幾件」**：只放擋訊息裡列過的條目（對帳每條 ✗ 的規則與現象、紅測的指令＋全部失敗節點）；之後的回合原因還在不再問，原因消失就拿掉，放行之後又改了檔就整份不沿用；同一回合照選項字面「放行這一回合」整個放。沒有 ✗ 條目的新原因（例如判定錯誤）不會被已放行的條目一起吞掉。
   - **沒有人能回答放行詢問時不擋到底**：headless／SDK 主 session 比照子代理，寫碼查核、紅測、等值證法擋滿就放行並留帳（event=noninteractive_released）；擋訊息不再說「不能放行」。
-  - **閘自己判定出錯只擋一次**：規則 GATE_SELF_ERROR，同一個錯誤每個使用者回合擋一次，之後放行並留帳（event=judge_error_released）。
+  - **閘自己判定出錯只擋一次**：規則 GATE_SELF_ERROR，同一個錯誤每個使用者回合擋一次，之後放行（判法 `gate_self_error_verdict`；留帳 event=error，放行那筆 released=true）。
   - **紅測閘有上限**：吃寫碼查核那份每回合預算，擋滿照【收尾放行確認】問使用者。
   - **共用擋次每個使用者回合歸零**：退縮閘、收尾檢核推遲寫卡、Reload 建議、取用稽核、一般同步擋不會因為前面某回合擋滿就整個 session 不再擋。
   - **「上GIT」撐到這批 push 完**：只 commit、背景通知、收尾閘逼出的補修 commit 都不讓口令失效；跑成功的 push（逐段看子命令，echo、commit 訊息、--dry-run 不算）或使用者新打一則字才失效。多個 repo 一起上要先全部 commit 再 push。
   - **Reload 建議閘**只在本 session 改過 `tools/workflow-guardian-mcp/` 底下的檔才判；**退縮閘**擋下的那一句不再記退避旗標（下一則使用者訊息不再追問同一件）；**拐彎判斷**擋下時尾段的閱讀路徑結果不再重複那一題；「後面還會擋」的預覽只報條數、不列檔名。
   - **病形閘**擋到別人留在暫存區的檔：照擋訊息在 commit 指令開頭加 `# 不是繞閘｜<檔是誰的、病要誰修>`、只提交自己的檔，送一次就過。
+- **「順手看到最該修」同一個使用者回合只問一次**：這一問用 additionalContext 讓對話續跑一回合，續跑回合 turn_seq 會往前；去重原本照 turn_seq 比，每次續跑都被當成新的一批重問（實測連問 4 次）。`wg_harvest.pick_due` 改照使用者回合比（asked_uturn／covered_uturn，同 `wg_release_rules.user_turn`），Stop 輸入帶 `stop_hook_active` 時不送。
+- **規則表**：PENDING_SAME_USER_TURN、RELEASE_COVERS_SHOWN_ITEMS、NONINTERACTIVE_RELEASE_AT_BUDGET、ORDER_UNTIL_PUSH、RELOAD_ADVICE_MCP_EDITS_ONLY、DEFERRAL_COVERS_EVASION_SENTENCE、BLOCK_BUDGET_SHARED 的說明照實作改寫（v6 開關、判法位置）；`verify_release_rules` 的 `_ELSEWHERE_CASES` 逐條點到 `verify_pull_stop_gates.py` 的案例函式，並核那支案例的 docstring 寫了「規則：<名>」。判定出錯（GATE_SELF_ERROR）改用 `gate_self_error_verdict` 判。
 - **案例宣告接線**：驗證範圍閘關著時，`need_goal verify_scope` 照收的 `case_for` 宣告也算案例覆蓋——`stop._verify_gates` 呼叫 `reconcile_gate_parts` 時帶 `case_for=wg_verify_ledger.declared_cases(...)`。
 - **部位表量尺案例**：`verify_stop_reconcile` 與 `lib/verify/verify_self_receipt` 的根層部位表案例改照表上實際讀到的列數算（部位表合法新增三列單檔列，原本寫死 10 列 4 把尺）。
 - **v6 關時**照 9e476fd0：共用擋次整個 session 累計、口令 commit 過就用掉、續跑回合裡使用者補一句照舊追加、不掃 push、退縮閘不動退避旗標。其餘改動本來就只在 v6 的路徑上。

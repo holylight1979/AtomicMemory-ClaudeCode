@@ -804,19 +804,22 @@ def _move_inputs(state: Dict[str, Any], receipt_key: str) -> Tuple[List[Dict[str
 
 def _judge_error(state: Dict[str, Any], key: str, turn_seq: int, gate: str, what: str, log_name: str, log_key: str,
                  e: BaseException, fix: str) -> Optional[str]:
-    """規則 GATE_SELF_ERROR：寫碼查核自己判定出錯：stderr＋guard_log 每次都記；同一個錯誤（閘＋例外型別＋訊息）每個使用者回合
-    只擋一次，之後放行並留帳 event=judge_error_released。key＝收據鍵（主 session 是 sid，子代理是 sid#agent:<id>）。回擋訊息或 None。"""
-    head = f"[Guardian:{gate}] {what}判定錯誤：{type(e).__name__}: {e}"
+    """規則 GATE_SELF_ERROR（判法 wg_release_rules.gate_self_error_verdict）：寫碼查核自己判定出錯：stderr＋guard_log
+    event=error 每次都記；同一個錯誤（閘＋例外型別＋訊息）每個使用者回合只擋一次，之後放行（留帳 released=true）。
+    key＝收據鍵（主 session 是 sid，子代理是 sid#agent:<id>）。回擋訊息或 None。"""
+    from wg_release_rules import gate_self_error_verdict
+    error = f"{type(e).__name__}: {e}"
+    head = f"[Guardian:{gate}] {what}判定錯誤：{error}"
     uturn = _user_turn(state, turn_seq)
     book = state.setdefault("judge_error_blocked", {})
     mine = book.get(key) if isinstance(book.get(key), dict) and book[key].get("turn") == uturn else {"turn": uturn, "errors": []}
     book[key] = mine
-    sig = f"{gate}|{what}|{type(e).__name__}: {e}"[:300]
-    released = sig in mine["errors"]
-    append_guard_log(log_name, {"session_id": key, "turn_seq": turn_seq, "rule": "GATE_SELF_ERROR", log_key: repr(e)[:200],
-                                **({"event": "judge_error_released"} if released else {})})
-    if released:
-        print(f"{head}（本回合已為同一個錯誤擋過一次，這次放行並留帳）", file=sys.stderr)
+    sig = f"{gate}|{what}|{error}"[:300]
+    v = gate_self_error_verdict(f"{gate}{what}", "stop", error, blocked_this_turn=sig in mine["errors"])
+    append_guard_log(log_name, {"event": "error", "rule": v.rule, "gate": gate, "session_id": key, "turn_seq": turn_seq,
+                                log_key: repr(e)[:200], "released": not v.owed})
+    if not v.owed:
+        print(f"{head}（{v.why}，已留帳）", file=sys.stderr)
         return None
     mine["errors"].append(sig)
     print(head, file=sys.stderr)
@@ -2550,8 +2553,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     # ── 交付時順手點出最該修的一件（G4／G5）：排在所有閘之後；Stop 的 additionalContext＝對話續跑一回合、不算擋 ──
-    _pick = v6 and _pick_one_prompt(state, session_id, own_mod_files, claims_done or claims_completion(code_text)
-                                    or emitted_this_turn or committed_this_turn, config, cwd)
+    # 這次收尾本身就是 Stop hook 讓對話續跑出來的（stop_hook_active）→ 不送，免得續跑一回合又問一次
+    _pick = v6 and not input_data.get("stop_hook_active") and _pick_one_prompt(
+        state, session_id, own_mod_files, claims_done or claims_completion(code_text) or emitted_this_turn or committed_this_turn,
+        config, cwd)
     if _pick:
         write_state(session_id, state)
         _pick = with_note(_pick, entry_note(_pick, "stop_piggyback", session_id=session_id, state=state, config=config))

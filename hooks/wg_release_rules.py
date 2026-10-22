@@ -48,8 +48,12 @@ RULES: Dict[str, str] = {
     "EXEMPTION_PEERS_CODE_ONLY": "SNAPSHOT_SETTLED、NET_UNCHANGED、COMMENT_ONLY_CHANGE 要一起比的同根改檔只看程式檔（案例檔也是程式檔）："
                                  "文件、紀錄檔、設定、資料改了或正被別的 session 改著，不擋豁免；程式檔或案例檔本身沒回到那個狀態照擋"
                                  "（wg_verify_ledger.exemption_peers）。",
-    "BLOCK_BUDGET_SHARED": "寫碼查核的擋次預算每個使用者回合共用一份（reconcile_gate.max_blocks_per_turn，預設 2），換使用者回合歸零"
-                           "（v6 開時；v6 關照舊）：不管這次是哪幾條規則，同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。",
+    "BLOCK_BUDGET_SHARED": "寫碼查核（紅測、對帳 (a)～(d)＋驗證範圍）"
+                           "每個使用者回合共用一份擋次預算（reconcile_gate.max_blocks_per_turn，預設 2，鍵 *，"
+                           "不分是哪幾條規則）：同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。"
+                           "吃 stop_gate_max_blocks 的那份共用擋次（退縮閘、收尾檢核推遲寫卡、Reload 建議、取用稽核、"
+                           "一般同步擋）每個使用者回合歸零、同一回合第 3 次放行（v6 開時；v6 關照舊，整個 session 累計）。"
+                           "判法在 handlers/stop.py。",
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同，"
                            "同根其他程式檔也等於 HEAD 或只差註解 → 不算改碼；非 Python、解析不了、基準拿不到 → 照算。",
     "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於另一方已提交的版本（MERGE_HEAD、main／master；指到 HEAD 或本 session 自己提交的 commit 不算）"
@@ -146,13 +150,28 @@ RULES: Dict[str, str] = {
                              "原話裡、而且那個子句沒被否定（「不要提交測試」引了也不算），留帳 user_quote。",
     "GATE_BYPASS_NAMED_FILES_MERGED": "同一個 repo 還沒 commit 成功又被病形閘擋下時，這次點名的檔與先前點名的合併成一份；「不是繞閘｜」宣告要寫在"
                                       "該檔被點名之後才替它算數（先寫的宣告不替後來才點名的檔放行）。",
-    "PENDING_SAME_USER_TURN": "擋滿留下的待放行，只在記下它的那個使用者回合有效；換使用者回合重給預算，不拿原宣稱重查。",
-    "RELEASE_COVERS_SHOWN_ITEMS": "使用者放行只放擋訊息列過的那幾件；原因還在、之後沒再改檔，跨回合有效；原因消失就拿掉那件。",
-    "NONINTERACTIVE_RELEASE_AT_BUDGET": "無頭主 session、子代理沒有人能回答放行詢問：擋滿就放行並留帳，不擋到底。",
-    "ORDER_UNTIL_PUSH": "「上GIT」這類口令在該批作業 push 完、或使用者打新一則訊息之前持續有效；背景通知與收尾閘逼出的補修 commit "
-                        "不讓它失效（v6 開時；v6 關照舊）。",
-    "RELOAD_ADVICE_MCP_EDITS_ONLY": "本 session 沒改過 tools/workflow-guardian-mcp/ 底下的檔，就不判 Reload 建議（RELOAD_ADVICE_ALREADY_LOADED 不查）。",
-    "DEFERRAL_COVERS_EVASION_SENTENCE": "退縮閘擋下的那一句，不再另記退避旗標，下一回合不再為同一句追問。",
+    "PENDING_SAME_USER_TURN": "擋滿留下的待放行（寫碼查核、紅測、第二意見）只在記下它的那個使用者回合有效：使用者打字開了新回合就失效，預算重給、"
+                              "不拿原宣稱重查；背景通知、同伴訊息開的續跑回合不算換回合，同一回合裡照第一次擋滿時的宣稱原話重查。"
+                              "判法在 wg_release.pending_of。",
+    "RELEASE_COVERS_SHOWN_ITEMS": "使用者放行：同一個使用者回合照選項字面「放行這一回合」整個放；之後的回合只沿用擋訊息列過、"
+                                  "使用者看過的那幾件（對帳每條 ✗ 的規則與現象，沒有 ✗ 的段（例：判定錯誤）整段算一件；紅測是指令＋全部失敗節點）。"
+                                  "原因還在就不再擋、不再問，原因消失就拿掉那件；寫碼查核在放行之後又改了檔，整份放行不再沿用；新出現的照擋。"
+                                  "判法在 wg_release（release_items／keep_released）。",
+    "NONINTERACTIVE_RELEASE_AT_BUDGET": "沒有人能回答放行詢問（headless／SDK 主 session、子代理、裁判子 session）：寫碼查核、紅測、"
+                                        "等值證法照預算擋，擋滿就放行並留帳（主 session event=noninteractive_released，"
+                                        "子代理與裁判 *_released），不叫它問、不擋到底；擋訊息不說「不能放行」。",
+    "ORDER_UNTIL_PUSH": "版控口令（上GIT 等）在該批作業 push 完、或使用者打字開新回合之前持續有效（v6 開時；v6 關照舊："
+                        "commit 過就用掉）。只 commit、背景通知開的續跑回合、收尾閘逼出的補修 commit 都不讓它失效；"
+                        "續跑回合裡使用者打的第一則字算新回合、口令失效；使用者自己的回合還沒結束時排隊補打的話照舊追加。"
+                        "push 完成＝Bash／PowerShell 指令有一段子命令真的是 git push（不帶 --dry-run／-n）"
+                        "或 svn commit，對應結果沒標錯；收尾與口令閘判口令前都補掃 transcript。"
+                        "判法在 handlers/ups_gates（order_spent）。",
+    "RELOAD_ADVICE_MCP_EDITS_ONLY": "本 session（主 session＋子代理）"
+                                    "沒改過路徑含 tools/workflow-guardian-mcp/ 的檔（哪一份工作樹都算），"
+                                    "就不判 Reload 建議、不列程序表（RELOAD_ADVICE_ALREADY_LOADED 不查）。",
+    "DEFERRAL_COVERS_EVASION_SENTENCE": "退縮閘這次擋下的那一句，若這次收尾新記的退避旗標命中的詞就在那一句裡，"
+                                        "就拿掉旗標（留帳 evasion event=covered_by_deferral；退避事件照留給收尾檢核對照），"
+                                        "下一則使用者訊息不再為同一句追問；不是同一句的旗標照留（v6 開時；v6 關照舊）。",
     "RECEIPT_UNPARSED_GENERAL_ONLY":"收據指令含解析不了的語法（heredoc、$( )、反引號、eval…）→ 看不出跑了哪支：不算部位量尺、不算整體驗證，"
                                      "照算一般證據（(a)(b) 的指令提到改檔、(c) 有執行），不擋；本回合帶 PASS／DONE 的這種收據每次 Stop "
                                      "stderr 一行並留帳 guard-reconcile event=receipt_unparsed。量尺與整體驗證只看跑了哪支、在哪棵樹、"

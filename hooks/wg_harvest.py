@@ -790,7 +790,8 @@ def record_pick(state: Dict[str, Any], sid: str, turn_seq: int, text: str, cwd: 
                 print(f"[Guardian:PickOne] 同一回合又點出同一件，追蹤帳本沒換成新的說法（寫不進去），帳上留第一次那筆："
                       f"{same_turn.get('text')}", file=sys.stderr)
     if event != "write_failed":
-        _pick_sec(state, sid)["covered_turn"] = int(turn_seq or 0)
+        sec = _pick_sec(state, sid)
+        sec["covered_turn"], sec["covered_uturn"] = int(turn_seq or 0), _pick_uturn(state, turn_seq)
     return event, pick
 
 
@@ -798,19 +799,28 @@ def _mod_turn(m: Dict[str, Any]) -> int:
     return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
 
 
+def _pick_uturn(state: Dict[str, Any], turn_seq: Any) -> int:
+    from wg_release_rules import user_turn
+    return user_turn(state, int(turn_seq or 0))
+
+
 def pick_due(state: Dict[str, Any], sid: str, code_mods: List[Dict[str, Any]], boundary: bool) -> bool:
     """該不該送「順手看到最該修」那一問：到了交付邊界（boundary），且本 session 在上次問過或記過之後又改了程式
     （code_mods＝本 session 改過的程式檔紀錄）。同一批改動只問一次；AI 自己先寫了那段（covered_turn）也不再問。
-    改檔紀錄沒有回合號的不算新改動。"""
+    同一個使用者回合問過或答過就不再問（asked_uturn／covered_uturn，照 wg_release_rules.user_turn）：這一問讓對話續跑一回合，
+    續跑回合 turn_seq 會往前，照 turn_seq 比會把續跑當成新的一批重問。改檔紀錄沒有回合號的不算新改動。"""
     if not boundary or not code_mods:
         return False
     sec = (state.get("pick_one") or {}).get(sid) or {}
+    if _pick_uturn(state, state.get("turn_seq")) in (sec.get("asked_uturn"), sec.get("covered_uturn")):
+        return False
     mark = max(int(sec.get("asked_turn") or 0), int(sec.get("covered_turn") or 0))
     return any(_mod_turn(m) > mark for m in code_mods)
 
 
 def mark_pick_asked(state: Dict[str, Any], sid: str, turn_seq: int) -> None:
-    _pick_sec(state, sid)["asked_turn"] = int(turn_seq or 0)
+    sec = _pick_sec(state, sid)
+    sec["asked_turn"], sec["asked_uturn"] = int(turn_seq or 0), _pick_uturn(state, turn_seq)
 
 
 CALLSITE_BUDGET_S = 2.0          # 一次 pick_material 算呼叫點的總時間（每條壞味道一次 git grep）
