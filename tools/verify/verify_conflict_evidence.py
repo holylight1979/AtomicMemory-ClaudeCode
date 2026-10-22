@@ -137,15 +137,15 @@ def test_parse_atom_meta_without_evidence_compat(tmp_path):
 
 
 def _patched_write_check(monkeypatch, content, hit_confidence="[固]",
-                         classification="CONTRADICT"):
-    """候選要 AI 宣告（規則 CONFLICT_DECLARED_BY_AI）：這裡帶「衝突」宣告，看宣告之後的 fast-refute；留帳收掉不落真 Logs。"""
+                         classification="CONTRADICT", verdict="conflict"):
+    """候選要 AI 宣告（規則 CONFLICT_DECLARED_BY_AI）：這裡帶宣告（預設「衝突」），看宣告之後的 fast-refute；留帳收掉不落真 Logs。"""
     hit = {"score": 0.88, "atom_name": "old-atom", "layer": "global",
            "text": "舊知識內容", "file_path": "", "confidence": hit_confidence}
     monkeypatch.setattr(MCD, "vector_search", lambda *a, **k: [hit])
     monkeypatch.setattr(MCD, "_classify_match", lambda *a, **k: classification)
     monkeypatch.setattr(MCD._hooks_module("wg_core"), "append_guard_log", lambda *a, **k: None)
     return MCD.run_write_check(content, None, "global",
-                               declared=[{"of": "old-atom", "verdict": "conflict", "why": "同一件事說法相反"}])
+                               declared=[{"of": "old-atom", "verdict": verdict, "why": "同一件事說法相反"}])
 
 
 def test_write_check_fast_refute_on_empirical_incoming(monkeypatch):
@@ -172,9 +172,16 @@ def test_write_check_no_fast_refute_vs_provisional_atom(monkeypatch):
 
 
 def test_write_check_agree_never_fast_refute(monkeypatch):
+    """本地模型判 AGREE、AI 也宣告不是衝突 → 不 contradict、不 fast-refute。
+    AI 宣告衝突時照宣告 contradict（本地模型的 AGREE 不推翻宣告），fast-refute 照證據等級規則走（新側實證、舊側 [固]）。"""
+    out = _patched_write_check(
+        monkeypatch, "- Evidence: 實證\n\n- 新事實內容夠長",
+        classification="AGREE", verdict="not_conflict",
+    )
+    assert out["verdict"] != "contradict"
+    assert out["fast_refute"] is False
     out = _patched_write_check(
         monkeypatch, "- Evidence: 實證\n\n- 新事實內容夠長",
         classification="AGREE",
     )
-    assert out["verdict"] != "contradict"
-    assert out["fast_refute"] is False
+    assert out["verdict"] == "contradict" and out["fast_refute"] is True

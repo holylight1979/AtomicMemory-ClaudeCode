@@ -14,6 +14,7 @@
 - [臨] 放在 pytest_configure 不放模組層：同一行程連跑兩次 pytest.main 時 conftest 被快取，模組層只跑一次。pytest 開始前已載入的本樹模組（常數已算好）改不到，要在 stderr 列出；各層 conftest.py 會被 pytest 先載，不算預載。暫存目錄名不含 test（有案要「路徑不含 test 字樣」）。同輪載入第二支 conftest 會換掉 sys.modules['conftest']，找根 conftest 要用 request.config.pluginmanager.get_plugins() 比 __file__。
 - [臨] 整組 pytest 自寫收據只在目標恰好是整組、沒篩（-k／-m／--deselect／--lf）、沒 --ignore／--collect-only、沒 -o 覆寫收集設定（python_files 等）、沒 -c 別的 ini、跑完全綠才寫，寫到 pytest 啟動時的資料根。
 - [臨] 連帶的判讀坑：活體守門（掃索引內每張卡的案）在 pytest 下讀的是這份種出來的暫存資料根；在 worktree 跑時種子取自 worktree 的受版控檔，也就是分支基底那次 commit 的卡，不是 live 工作樹。守門紅不代表 live 現在髒（live 可能已清、只是基底仍是舊版）；要看 live 現況就標 live_data 或直接跑掃描工具本身，回報前別把它講成 live 的問題。
+- [臨] verify 檔的直接跑入口（`if __name__ == "__main__"` 裡同行程 pytest.main）也會漏隔離：本檔先以 __main__ 載入、頂層 import 的 wg_core 在 conftest 改資料根之前就算好路徑，pytest 收集同一支檔時沿用這份舊模組，資料根與 git 錄音序列跟著執行位置變（帶 WG_CLAUDE_DIR 跑時看不出來；pytest 跑法綠、直接跑紅）。直接跑入口一律 `subprocess.run([sys.executable, "-m", "pytest", __file__])` 開乾淨子行程再印哨兵。
 
 ## 行動
 

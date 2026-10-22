@@ -112,11 +112,12 @@ def test_reconcile_block_letters_splits_by_letter():
     assert rr.split_blocking([b], []) == ([], [b])
 
 
-def test_closing_ritual_switches_default_on():
-    """CLOSING_RITUAL_SWITCHES：目標對照開關沒設＝照擋，設 false 才關（端到端案在 verify_need_goal、verify_aec_emission_gate）。"""
+def test_closing_ritual_switches_goal_gate_default_off():
+    """CLOSING_RITUAL_SWITCHES：目標對照開關沒設＝不擋，設 true 才擋（端到端案在 verify_need_goal、verify_pull_goal_locate）。"""
     import wg_need_goal as ng
-    assert ng.goal_gate_on({}) and ng.goal_gate_on({"reconcile_gate": {}})
+    assert not ng.goal_gate_on({}) and not ng.goal_gate_on({"reconcile_gate": {}})
     assert not ng.goal_gate_on({"reconcile_gate": {"goal_gate": False}})
+    assert ng.goal_gate_on({"reconcile_gate": {"goal_gate": True}})
 
 
 # ─── SAME_FILE ──────────────────────────────────────────────────────────

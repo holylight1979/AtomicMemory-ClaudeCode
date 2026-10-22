@@ -38,6 +38,7 @@ from lib.project_root import claude_data_dir  # noqa: E402
 
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
+CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"   # 向量服務埠 vector_search.service_port（和寫入閘讀同一個鍵）
 from lib.atom_spec import evidence_rank, parse_evidence  # noqa: E402  證據等級（了義裁決）
 
 # conflict detection
@@ -168,12 +169,21 @@ def extract_facts(path: Path) -> List[str]:
 
 # ─── Vector Service Query ────────────────────────────────────────────────────
 
+def _vector_port() -> int:
+    """向量服務埠：config 的 vector_search.service_port；沒設或讀不到用 3849。"""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return int((cfg.get("vector_search") or {}).get("service_port", 3849))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 3849
+
+
 def vector_search(query: str, top_k: int = 10, min_score: float = 0.40) -> List[Dict]:
     """Search via Memory Vector Service."""
     try:
         import urllib.parse
         params = urllib.parse.urlencode({"q": query, "top_k": top_k, "min_score": min_score})
-        url = f"http://127.0.0.1:3849/search?{params}"
+        url = f"http://127.0.0.1:{_vector_port()}/search?{params}"
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             return json.loads(resp.read())
@@ -624,47 +634,78 @@ def _hooks_module(name: str):
 
 
 def _needs_declaration(m: Dict[str, Any], threshold: float) -> bool:
-    """門檻篩出的候選（規則 CONFLICT_DECLARED_BY_AI）：本地模型判 CONTRADICT（已複驗一致），或 EXTEND 且相似度 ≥ 門檻。"""
+    """門檻篩出的候選（規則 CONFLICT_DECLARED_BY_AI）：本地模型判 CONTRADICT（已複驗一致），或 EXTEND 且相似度 ≥ 門檻。
+    只決定要不要請 AI 宣告；要宣告的範圍是這次向量前幾名（見 _apply_declaration）。"""
     label = m.get("classification")
     return label == "CONTRADICT" or (label == "EXTEND" and m.get("similarity", 0) >= threshold)
 
 
-def _apply_declaration(out: Dict[str, Any], flagged: List[Dict[str, Any]], declared: Any, title: str
+def _v6_on(out: Dict[str, Any]) -> bool:
+    """守門總開關（判法只在 hooks/wg_core.v6_enabled：WG_V6 環境變數、config.local.json 覆寫）；載不進來當關（出廠預設），warning 浮出。"""
+    try:
+        wg = _hooks_module("wg_core")
+        return wg.v6_enabled(wg.load_config())
+    except Exception as e:  # noqa: BLE001
+        out["warnings"].append(f"v6 switch unreadable ({type(e).__name__}: {e}) — treated as off: "
+                               "threshold verdict applies, no conflict declaration asked")
+        return False
+
+
+def _apply_declaration(out: Dict[str, Any], top: List[Dict[str, Any]], declared: Any, title: str, need: bool = True
                        ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """CONFLICT_DECLARED_BY_AI：候選不再自動擋寫或改道待審，是不是衝突由 AI 宣告。沒宣告／宣告不全 → need_declaration
-    （out 附 candidates 與 declaration_problem）；任一 conflict → contradict（primary＝第一個宣告衝突的候選）；
-    全部 not_conflict → ok。宣告都記 Logs/guard-conflict_declared.jsonl。回 (verdict, primary)。
-    判式載不起來 → 照樣由 AI 的宣告決定、只是不核理由（warning 浮出）：宣告了衝突 → contradict；每個候選都宣告不是 → ok；
+    """CONFLICT_DECLARED_BY_AI：是不是衝突由 AI 宣告，要宣告的是這次向量前幾名（top，不看本地模型標籤——標籤每次重判會翻面，
+    拿它當名單，重送永遠對不上）。宣告涵蓋 top 每一張就收；不在 top 的宣告不算錯，略過並浮 warning。
+    沒宣告／宣告不全 → need_declaration（out 附 candidates 與 declaration_problem）；任一 conflict → contradict
+    （primary＝第一個宣告衝突的那張）；全部 not_conflict → ok。宣告都記 Logs/guard-conflict_declared.jsonl。回 (verdict, primary)。
+    need=False（這次本地模型沒標、不要求宣告，但 AI 帶了宣告）：宣告不全也不要求補；其中有附理由的 conflict → 照宣告 contradict
+    （程式不做跟宣告相反的事），沒有 → need_declaration 交呼叫端當忽略。
+    判式載不起來 → 照樣由 AI 的宣告決定、只是不核理由（warning 浮出）：宣告了衝突 → contradict；每張都宣告不是 → ok；
     其餘 → need_declaration。不退回門檻舊判，也不把沒人判的候選直接放行。"""
-    out["candidates"] = [{k: m.get(k) for k in ("atom_name", "classification", "similarity", "fact_preview", "layer")}
-                         for m in flagged]
+    plain = [m["atom_name"] for m in top]
+    # of 要照抄的名字：卡名在名單裡唯一就是卡名；不同層有同名卡就寫成 <layer>:<卡名>，兩張各判一次（不讓一張遮住另一張）
+    by_ref = {(m["atom_name"] if plain.count(m["atom_name"]) == 1 else f"{m.get('layer', '')}:{m['atom_name']}"): m
+              for m in top}
+    names = list(by_ref)
+    out["candidates"] = [{**{k: m.get(k) for k in ("atom_name", "classification", "similarity", "fact_preview", "layer")},
+                          "ref": ref} for ref, m in by_ref.items()]
+    raw = [declared] if isinstance(declared, dict) else (declared if isinstance(declared, list) else [])
+    raw = [d for d in raw if isinstance(d, dict)]
+    extra = [str(d.get("of", "")).strip() or "(no of)" for d in raw if str(d.get("of", "")).strip() not in names]
+    if extra:
+        out["warnings"].append(f"conflict declaration ignored for {', '.join(extra)}: not in this run's vector top {len(names)}")
+    mine = [d for d in raw if str(d.get("of", "")).strip() in names]
     try:
         rr = _hooks_module("wg_release_rules")
     except Exception as e:  # noqa: BLE001
         out["warnings"].append(f"conflict declaration rules unavailable ({type(e).__name__}: {e}) — "
                                "AI declaration applied without validating reasons; review manually")
         out["declaration_unavailable"] = True
-        raw = []
-        if isinstance(declared, list):
-            raw = declared
-        elif isinstance(declared, dict):
-            raw = [declared]
-        said ={str(d.get("of", "")).strip(): str(d.get("verdict", "")).strip() for d in raw if isinstance(d, dict)}
-        hit = next((m for m in flagged if said.get(m["atom_name"]) == "conflict"), None)
+        said = {str(d.get("of", "")).strip(): str(d.get("verdict", "")).strip() for d in mine}
+        hit = next((m for ref, m in by_ref.items() if said.get(ref) == "conflict"), None)
         if hit is not None:
             return "contradict", hit
-        if all(said.get(m["atom_name"]) == "not_conflict" for m in flagged):
+        if all(said.get(n) == "not_conflict" for n in names):
             return "ok", None
         return "need_declaration", None
-    v, decls = rr.conflict_declaration_verdict([m["atom_name"] for m in flagged], declared)
-    if v.owed:
+    v, decls = rr.conflict_declaration_verdict(names, mine)
+    if v.owed and not need:
+        # 不要求宣告時只豁免「其他張沒宣告」：收每張只宣告 conflict（沒有同一張兩種判法）且附理由的，照名單順序全收
+        said_of: Dict[str, List[Dict[str, Any]]] = {}
+        for d in mine:
+            said_of.setdefault(str(d.get("of", "")).strip(), []).append(d)
+        decls = [{"of": n, "verdict": "conflict", "why": str(said_of[n][0]["why"]).strip()[:200]} for n in names
+                 if n in said_of and {str(d.get("verdict", "")).strip() for d in said_of[n]} == {"conflict"}
+                 and rr.reason_present(str(said_of[n][0].get("why", "")))]
+        if not decls:
+            return "need_declaration", None
+    elif v.owed:
         out["declaration_problem"] = v.why if declared is not None else ""
         return "need_declaration", None
     out["declared"] = decls
     try:
         log = _hooks_module("wg_core").append_guard_log
         for d in decls:
-            m = next(m for m in flagged if m["atom_name"] == d["of"])
+            m = by_ref[d["of"]]
             log("conflict_declared", {"event": d["verdict"], "incoming": title[:120], "of": d["of"], "why": d["why"],
                                       "classification": m.get("classification"), "similarity": m.get("similarity")})
     except Exception as e:  # noqa: BLE001  留帳失敗不擋寫入，浮 warning
@@ -672,7 +713,7 @@ def _apply_declaration(out: Dict[str, Any], flagged: List[Dict[str, Any]], decla
     hit = next((d["of"] for d in decls if d["verdict"] == "conflict"), None)
     if hit is None:
         return "ok", None
-    return "contradict", next(m for m in flagged if m["atom_name"] == hit)
+    return "contradict", by_ref[hit]
 
 
 def run_write_check(content: str, project_cwd: Optional[str], scope: str,
@@ -682,10 +723,12 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
 
     Returns:
       {verdict, matches: [...], detector_model, skipped, skip_reason, warnings}
-    Verdict ∈ {ok, need_declaration, contradict, duplicate}.
-    門檻與本地模型標籤只篩候選（規則 CONFLICT_DECLARED_BY_AI）：候選（CONTRADICT、EXTEND≥threshold）要 AI 帶 declared
-    （atom_write 的 conflict 參數：[{of, verdict: conflict|not_conflict, why}]）宣告，見 _apply_declaration；
-    detector_verdict 留下門檻原本會給的判定（contradict／extend_overlap）。
+    Verdict ∈ {ok, need_declaration, contradict, duplicate}；守門總開關關時另有 extend_overlap。
+    門檻與本地模型標籤只決定要不要問（規則 CONFLICT_DECLARED_BY_AI）：有候選（CONTRADICT、EXTEND≥threshold）就要 AI 帶 declared
+    （atom_write 的 conflict 參數：[{of, verdict: conflict|not_conflict, why}]）把這次向量前幾名逐張宣告，見 _apply_declaration；
+    detector_verdict 留下門檻原本會給的判定（contradict／extend_overlap）。沒候選但帶了宣告：裡面有附理由的 conflict →
+    照宣告 contradict（本地模型重判翻面不能推翻 AI 的宣告）；其餘忽略（declaration_ignored）、照寫。
+    守門總開關關（_v6_on）：不要求宣告，照門檻判 contradict／extend_overlap。
 
     On any vector/LLM unavailability: verdict=ok + skipped=True (fail-open at
     write-time so dead infrastructure does not block all writes).
@@ -762,7 +805,9 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
     if llm_errors and llm_errors == len(matches):
         out["skipped"] = True
         out["skip_reason"] = "all LLM classifications failed"
-        return out
+        if declared is None:
+            return out
+        # AI 帶了宣告：本地模型全掛不能推翻它——往下照宣告判（宣告了衝突 → 待審），沒宣告衝突照樣放行
 
     # 跨分區排除：incoming 目標落 projects/<X> 時，其他分區的相似 atom 不參與 block
     #（同 shared 層下多個獨立專案的相似設定/陳述非事實衝突）。
@@ -791,12 +836,20 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
             f"LLM classification failed on high-similarity match "
             f"'{primary.get('atom_name', '')}' — degraded to warn (fail-open); review manually")
         verdict, primary = "ok", None
-    flagged = [m for m in decide_matches if _needs_declaration(m, threshold)]
-    if verdict in ("contradict", "extend_overlap") and flagged:
-        out["detector_verdict"] = verdict
-        verdict, primary = _apply_declaration(out, flagged, declared, title)
-    elif declared is not None:
-        out["declaration_ignored"] = True   # 沒有門檻候選：宣告不需要，照寫
+    if _v6_on(out):
+        need = verdict in ("contradict", "extend_overlap") and any(_needs_declaration(m, threshold) for m in decide_matches)
+        if need or (declared is not None and decide_matches):
+            if need:
+                out["detector_verdict"] = verdict
+            said, said_primary = _apply_declaration(out, decide_matches, declared, title, need)
+            if need or said == "contradict":   # 這次本地模型沒標、AI 已宣告衝突：照宣告落待審，不反著寫進 shared
+                verdict, primary = said, said_primary
+            elif said == "need_declaration":   # 沒有門檻候選、宣告裡也沒有衝突：不要求補，照寫
+                out["declaration_ignored"] = True
+                out.pop("candidates", None)
+        elif declared is not None:
+            out["declaration_ignored"] = True   # 向量沒有鄰居：宣告不需要，照寫
+    # 守門總開關關：不要求宣告，照門檻判——contradict → 待審報告、extend_overlap → 改道待審草稿（MCP 端處置）
     out["verdict"] = verdict
     out["primary"] = (primary or {}).get("atom_name", "")
     # 快速否證通道：incoming（新側）Evidence=實證 且矛盾對象為 [固]/[觀] → 高優先浮出

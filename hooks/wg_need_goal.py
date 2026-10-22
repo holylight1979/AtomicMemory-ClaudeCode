@@ -340,8 +340,9 @@ def cfg_for_cwd(config: Optional[Dict[str, Any]], cwd: str) -> Dict[str, Any]:
 
 
 def goal_gate_on(config: Optional[Dict[str, Any]]) -> bool:
-    """規則 CLOSING_RITUAL_SWITCHES：reconcile_gate.goal_gate=false → 收尾與 commit 前的目標對照不擋（目標樹照記）。沒設＝照擋。"""
-    return ((config or {}).get("reconcile_gate") or {}).get("goal_gate", True) is not False
+    """規則 CLOSING_RITUAL_SWITCHES：reconcile_gate.goal_gate=true 才在收尾與 commit 前擋目標對照；沒設或 false＝不擋
+    （目標樹照記，交付邊界由程式代填對照）。"""
+    return ((config or {}).get("reconcile_gate") or {}).get("goal_gate", False) is True
 
 
 def hook_cwd(input_data: Optional[Dict[str, Any]], state: Optional[Dict[str, Any]] = None) -> str:
@@ -453,6 +454,7 @@ def _adopt_untreed(doc: Dict[str, Any], tree: Dict[str, Any]) -> None:
 
 
 def _goal_changed(doc: Dict[str, Any], tree: Dict[str, Any], turn: int) -> None:
+    """目標本身改了（改寫樹根、改節點文字）：目標版本 +1，已交的定位要重交。加子節點不算（只開回樹，新節點自己欠結論）。"""
     tree["goal_rev"] = int(tree.get("goal_rev", 1)) + 1
     tree["goal_changed"] = {"seq": next_seq(doc), "turn": turn}
     _reopen(doc, tree)
@@ -526,23 +528,101 @@ def _group_owed(owed: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     return grouped
 
 
+def _activity(tree: Dict[str, Any], nid: str) -> int:
+    node = (tree.get("nodes") or {}).get(nid) or {}
+    seqs = [int(h.get("seq") or 0) for h in node.get("history") or [] if isinstance(h, dict)]
+    seqs.append(int(((tree.get("node_last_edit") or {}).get(nid) or {}).get("seq") or 0))
+    return max(seqs)
+
+
+def current_node(tree: Optional[Dict[str, Any]], part_key: Optional[str] = None) -> Optional[str]:
+    """提示裡那一行「當前節點」：給了部位鍵、而且那個部位的定位掛在活著的節點 → 那個節點（這一塊服務的目標）；
+    否則還沒到終點的子節點裡最近有動靜的（節點歷史或改檔掛上的序號最大）；都到終點了就取沒放棄的子節點裡最近的；沒有子節點回 None。"""
+    if not tree:
+        return None
+    nodes = tree.get("nodes") or {}
+    link = ((tree.get("links") or {}).get("parts") or {}).get(part_key or "") or {}
+    if (nodes.get(link.get("node") or "") or {}).get("status") not in (None, "dropped"):
+        return link["node"]
+    subs = [n for n, v in nodes.items() if n != tree["id"] and v.get("status") != "dropped"]
+    pool = [n for n in subs if nodes[n].get("status") in ("todo", "doing")] or subs
+    return max(pool, key=lambda n: (_activity(tree, n), _sort_key(n))) if pool else None
+
+
+BRIEF_ROOT_CHARS = 60
+BRIEF_NODE_CHARS = 60
+
+
+def brief(tree: Optional[Dict[str, Any]], part_key: Optional[str] = None) -> str:
+    """hook 提示附的目標樹（規則 TREE_ONCE_PER_CALL）：樹根一行＋當前節點一行；整棵樹只在 need_goal 寫入的回覆送，要看用 read
+    （不在每則提示都寫這句：寫了就誘發多叫 read）。"""
+    if not tree:
+        return ""
+    sub, opened, owed = _counts(tree)
+    nodes = tree.get("nodes") or {}
+    root = nodes.get(tree["id"]) or {}
+    out = [f"{tree['id']}：{_clip(root.get('text'), BRIEF_ROOT_CHARS)}（{LABEL['tree'].get(tree.get('status'), '?')}｜"
+           f"子目標 {sub}、待展開 {opened}、待對照 {owed}）"]
+    nid = current_node(tree, part_key)
+    if nid:
+        node = nodes[nid]
+        tag = LABEL["status"].get(node.get("status"), "?") + ("｜待展開" if node.get("clarity") == "open" else "")
+        out.append(f"當前節點 {nid} [{tag}]：{_clip(node.get('text'), BRIEF_NODE_CHARS)}")
+    return "\n".join(out)
+
+
+def _brief_sig(tree: Dict[str, Any], part_key: Optional[str] = None) -> str:
+    """brief 的內容指紋：樹與它的狀態、樹根文字、當前節點與它的文字、狀態、清楚度（不含計數：改一次檔待對照就變，不算內容變了）。"""
+    nodes = tree.get("nodes") or {}
+    nid = current_node(tree, part_key)
+    node = nodes.get(nid or "") or {}
+    raw = "\n".join([str(tree.get("id")), str(tree.get("status")), str((nodes.get(tree["id"]) or {}).get("text")), str(nid),
+                     str(node.get("text")), str(node.get("status")), str(node.get("clarity"))])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def brief_mark(doc: Dict[str, Any], tree: Optional[Dict[str, Any]], turn: int, part_key: Optional[str] = None) -> str:
+    """附樹去重（呼叫端已持有目標檔的鎖）：同一個使用者回合已經附過同一份 brief（導讀卡、讀入範圍提示）就回空字串，
+    內容變了或換回合才回 brief 並記下。只給純附帶的地方用；每則訊息（不一定送出，不拿來記）、目標視角重看、糾正、
+    壓縮重送、交付對照照附。"""
+    if not tree:
+        return ""
+    sig = _brief_sig(tree, part_key)
+    last = doc.get("brief_sent") or {}
+    if last.get("turn") == int(turn) and last.get("sig") == sig:
+        return ""
+    doc["brief_sent"] = {"turn": int(turn), "sig": sig}
+    return brief(tree, part_key)
+
+
+def brief_once(sid: Any, turn: int, part_key: Optional[str] = None) -> str:
+    """brief_mark 的上鎖版（導讀卡用）。鎖拿不到或目標檔壞了照附 brief、stderr 一行（寧可多附不靜默少附）。"""
+    try:
+        return update_locked(sid, lambda d: brief_mark(d, active_tree(d), turn, part_key))
+    except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 附樹去重失敗（照附）：{type(e).__name__}: {e}", file=sys.stderr)
+        try:
+            return brief(active_tree(load(sid)), part_key)
+        except (NeedGoalCorrupt, OSError):
+            return ""
+
+
 def render(tree: Optional[Dict[str, Any]], form: str, chars: Optional[int] = None,
            doc: Optional[Dict[str, Any]] = None) -> str:
-    """header（一行）／compact（一行一節點，chars 字數上限）／full（原話、轉述、節點證據、待對照、完整對照、最近收據）。"""
+    """header（一行）／compact（一行一節點；給 chars 才截，截掉的節點數照實寫）／full（原話、轉述、節點證據、待對照、完整對照、最近收據）。"""
     if not tree:
         return ""
     if form == "header":
         return _header(tree)
     nodes = tree.get("nodes") or {}
     if form == "compact":
-        limit = int(chars or DEFAULTS["render_chars"])
         out = [_header(tree)]
         used = len(out[0])
         order = _ordered(tree)
         for i, nid in enumerate(order):
             ln = _node_line(nid, nodes[nid], False)
-            if used + len(ln) + 1 > limit:
-                out.append(f"…（其餘 {len(order) - i} 個節點略；need_goal(action=read) 看全樹）")
+            if chars is not None and used + len(ln) + 1 > int(chars):
+                out.append(f"…（其餘 {len(order) - i} 個節點略）")
                 break
             out.append(ln)
             used += len(ln) + 1
@@ -1124,7 +1204,7 @@ def _op_add(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
     parent = parent or tree["id"]
     if parent not in tree["nodes"]:
         return {"ok": False, "tree": tree["id"], "rejected": [f"parent {parent} 不是 {tree['id']} 的節點"]}
-    _goal_changed(doc, tree, turn)
+    _reopen(doc, tree)
     added = []
     check = origin_check_on()
     events: List[Tuple[str, Dict[str, Any]]] = []
@@ -1140,7 +1220,7 @@ def _op_add(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
             downs += [line] if line else []
         added.append(nid)
         add_checkpoint(doc, tree, turn, "add", nid)
-    return {"ok": True, "tree": tree["id"], "goal_changed": True, "origin_events": events,
+    return {"ok": True, "tree": tree["id"], "goal_changed": False, "origin_events": events,
             "note": f"加了 {'、'.join(added)}" + "".join(f"\n  ⚠ {ln}" for ln in downs)}
 
 
@@ -1176,7 +1256,7 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
             node[field] = val
             node["history"].append({"seq": next_seq(doc), "turn": turn, "what": field, "why": why})
             changed = True
-            if field in ("text", "clarity"):
+            if field == "text":
                 bumped[tree["id"]] = tree
             elif val not in TERMINAL:
                 reopened[tree["id"]] = tree
@@ -1351,8 +1431,8 @@ def _result(sid: Any, action: Any, res: Dict[str, Any], doc: Optional[Dict[str, 
         head = f"[NeedGoal] {action} 拒收，沒有套用：\n" + "\n".join(f"  ✗ {r}" for r in rejected)
     else:
         head = f"[NeedGoal] {action} 收下：{res.get('note') or ''}"
-    # 規則 TREE_ONCE_PER_CALL：set（開樹／改樹根）送全樹——原話與 AI 解讀並排是判斷材料；add／update／reconcile 只送精簡樹
-    # （樹頭＋一行一節點），原話、收據清單、待對照要看用 read
+    # 規則 TREE_ONCE_PER_CALL：整棵樹只在 need_goal 寫入的回覆送一次——set（開樹／改樹根）送全樹，原話與 AI 解讀並排是判斷材料；
+    # add／update／reconcile 送精簡樹（樹頭＋每個節點一行，不截）；其他 hook 提示只附 brief（樹根＋當前節點），原話、收據清單、待對照要看用 read
     form = "full" if action == "set" else "compact"
     body = render(tree, form, doc=doc) if tree else ""
     _guard("op", sid, action=action, tree=res.get("tree"), ok=bool(res.get("ok")), rejected=len(rejected))
@@ -1402,7 +1482,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 ps = live.setdefault("peer_said", [])
                 ps.append({"seq": seq, "turn": turn, "from": peer[0], "text": peer[1][:PEER_CAP]})
                 del ps[:-SAID_MAX]
-            return ("\n".join([f"[NeedGoal] 目前需求目標 {_header(tree)}", *_origin_reminder(doc)]) if tree else None), False
+            return ("\n".join([f"[NeedGoal] 目前需求目標 {brief(tree)}", *_origin_reminder(doc)]) if tree else None), False
         doc["user_msgs"] = int(doc.get("user_msgs", 0)) + 1
         entry = {"seq": seq, "turn": turn, "text": typed}
         log = doc.setdefault("said_log", [])
@@ -1416,7 +1496,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 sent["first"] = True
                 return HINT_LINE, True
             return None, False
-        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}。{TREE_PATHS}", *_origin_reminder(doc)]
+        lines = [f"[NeedGoal] 目前需求目標 {brief(tree)}", TREE_PATHS, *_origin_reminder(doc)]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1489,7 +1569,7 @@ def _ephemeral(path: str) -> bool:
 def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: Any = (),
               content: Optional[str] = None) -> Optional[str]:
     """4.2 第一層：這次寫入算改程式（writes_code：目標是程式檔、cp／mv 的來源含程式檔、沒副檔名而內容以 #! 開頭）、
-    沒有目前的樹 → 回擋的理由。暫存檔、知識類、關掉時不管；判不了（鎖、損毀）一律擋。UNKNOWN 寫入目標交給 OverviewHub 擋。"""
+    沒有目前的樹 → 回擋的理由。暫存檔、知識類、關掉時不管；判不了（鎖、損毀）一律擋。UNKNOWN 寫入目標不在這裡判（OverviewHub 放行並留帳，規則 UNKNOWN_TARGET_LOGGED）。"""
     if not sid or not path or str(path).startswith("UNKNOWN:"):
         return None
     try:
@@ -1774,8 +1854,7 @@ def auto_reconcile(sid: Any, turn: int = 0) -> List[str]:
         tree = active_tree(doc)
         if not tree or tree.get("kind") != "code":
             return []
-        lr = tree.get("last_reconcile") or {}
-        if lr and lr.get("goal_rev") == tree.get("goal_rev") and not _edited_since_reconcile(tree):
+        if reconcile_fresh(tree) and not _edited_since_reconcile(tree):
             return []
         greens = [r for r in doc.get("receipts") or [] if rr.receipt_green(r.get("verdicts"), r.get("exit"))]
         seq = next_seq(doc)
@@ -1862,7 +1941,7 @@ def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
             "evidence: [{kind, ref, level, covers?}], followup?, note?, same_class?}]) 交完整對照：達成要附證據（寫碼類至少一筆沒紅的收據或"
             "讀碼級驗證案例；實測只能配收據，ref 寫 latest 由程式填最近一筆綠的（之後改了又跑綠會自動換新），要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、"
             "放棄寫 note；達成可附 same_class（同類別處：找到的位置，或為什麼沒有）。\n目前的樹：\n" +
-            render(tree, "compact"))
+            brief(tree))
 
 
 def _part_link_state(tree: Dict[str, Any], key: str) -> str:
@@ -1955,6 +2034,13 @@ def commit_gate(sid: Any, config: Optional[Dict[str, Any]], state: Optional[Dict
         return None
     _guard("commit_blocked", sid, tree=doc.get("active"))
     return "[NeedGoal] commit 前的目標對照沒過，先補再 commit：\n" + "\n".join(parts) + "\n" + NO_TOOL_HINT
+
+
+def reconcile_fresh(tree: Dict[str, Any]) -> bool:
+    """最後一次完整對照還算數：對的是目前的目標版本，而且之後沒有新加（或被打開）還沒到終點的節點。"""
+    lr = tree.get("last_reconcile") or {}
+    return (bool(lr) and lr.get("goal_rev") == tree.get("goal_rev")
+            and not any(v.get("status") in ("todo", "doing") for v in (tree.get("nodes") or {}).values()))
 
 
 def _edited_since_reconcile(tree: Dict[str, Any]) -> List[str]:
@@ -2052,9 +2138,10 @@ def review_material(sid: Any) -> str:
         return ""
     out = ["【使用者原話（權威）】"]
     out += [f"- 第 {s.get('turn', '?')} 回合：{s['text']}" for s in _said_summary(tree, 500, 200, 2)] or ["- （沒有記到）"]
-    out.append("【同伴轉述（別的 session 送來的話，不是使用者說的，不當權威）】")
-    out += [f"- {p.get('from') or '?'}：{_clip(p.get('text'), 120)}" for p in (tree.get("peer_said") or [])[-2:]] \
-        or ["- （沒有）"]
+    peers = (tree.get("peer_said") or [])[-2:]
+    if peers:                                    # 沒有同伴轉述就不印這段（同 render）
+        out.append("【同伴轉述（別的 session 送來的話，不是使用者說的，不當權威）】")
+        out += [f"- {p.get('from') or '?'}：{_clip(p.get('text'), 120)}" for p in peers]
     out.append("【目標樹（AI 自己的解讀，可能偏離原話；審查時以原話為準）】")
     head = "\n".join(out)
     out.append(render(tree, "compact", chars=max(200, REVIEW_CHARS - len(head) - 1)))
@@ -2207,7 +2294,7 @@ def handoff_session_of(text: str) -> Optional[str]:
 
 
 def recovery_blob(sid: Any, limit: int) -> str:
-    """壓縮後獨立重送的目標樹（不依附部位綜觀）：目前的樹 compact＋其他未結束樹的 header＋原話首則與最新一則。"""
+    """壓縮後獨立重送的目標樹（不依附部位綜觀）：目前的樹 brief（樹根＋當前節點）＋其他未結束的樹是哪幾棵；原話與全樹要看用 read。"""
     try:
         doc = load(sid)
     except (NeedGoalCorrupt, OSError):
@@ -2216,16 +2303,11 @@ def recovery_blob(sid: Any, limit: int) -> str:
     tree = active_tree(doc)
     if not live and not tree:
         return ""
-    out = ["【需求目標樹】（壓縮後重送；使用者原話是權威，樹是 AI 的解讀）"]
+    out = ["【需求目標樹】（壓縮後重送；使用者原話是權威，樹是 AI 的解讀；原話與全樹用 need_goal(action=read)）"]
     if tree:
-        said = tree.get("user_said") or []
-        if said:
-            out.append(f"使用者原話：首則「{_clip(said[0].get('text'), 200)}」"
-                       + (f"；最新「{_clip(said[-1].get('text'), 200)}」" if len(said) > 1 else ""))
-        out.append(render(tree, "compact", chars=max(200, int(limit * 0.7))))
-    others = [t for t in live if not tree or t["id"] != tree["id"]]
+        out.append(brief(tree))
+    others = [t["id"] for t in live if not tree or t["id"] != tree["id"]]
     if others:
-        out.append("其他未結束的樹：")
-        out += [f"- {_header(t)}" for t in others]
+        out.append(f"其他未結束的樹：{'、'.join(others[:6])}" + ("…" if len(others) > 6 else ""))
     text = "\n".join(out)
     return text if len(text) <= limit else text[:max(0, limit - 1)] + "…"

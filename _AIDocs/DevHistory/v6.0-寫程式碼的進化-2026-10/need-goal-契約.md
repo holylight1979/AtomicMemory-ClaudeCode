@@ -66,7 +66,7 @@
 | `edits` | list | `{seq, turn, path, node, agent_id, code, owed, cleared_seq?}`；同一檔同一節點還欠著對照時併成一筆（序號更新）；超過 300 筆只丟最舊的已清紀錄，owed 的一筆都不丟 |
 | `node_last_edit` | dict | 節點編號 → `{seq, path}`：掛在這個節點的最後一次程式改動；證據先後只讀這裡（不受 edits 截短影響） |
 | `last_reconcile` | dict／null | `{seq, turn, goal_rev, turns?}`：最近一次被收下的完整對照 |
-| `goal_changed` | dict／null | `{seq, turn}`：最近一次目標改變（開樹、改樹根、增減節點、改節點文字或清楚度、匯入） |
+| `goal_changed` | dict／null | `{seq, turn}`：最近一次目標改變（開樹、改樹根、改節點文字、匯入；加子節點、改清楚度不算） |
 | `imported_from` | dict／null | `{session, tree, path, map: {舊編號: 新編號}}` |
 | `checkpoints` | list | `{seq, turn, point, node}`，最多 200 筆；`point` 見下 |
 | `nodes` | dict | 節點編號 → 節點（2.3） |
@@ -244,7 +244,11 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `cfg_of(config, root=None)` | dict | 全部 | 合併後的 `need_goal` 設定（第十節） |
 | `cfg_for_cwd(config, cwd)` | dict | 全部 | cwd 所在專案的設定（專案層覆蓋檔也算）；(f1)(f2)、commit 前用目標檔記的 cwd |
 | `apply_op(sid, turn, tool_input, cwd="")` | dict `{ok, action, tree, rejected:[str], text, goal_changed}` | b2：post_tool_use | 套用五個動作 |
-| `render(tree, form, chars=None, doc=None)` | str | 全部 | `header`（一行）／`compact`（一行一節點，chars 上限，預設設定的 `render_chars`）／`full`（含原話、轉述、證據、待對照、最近收據，要列收據時傳 doc） |
+| `render(tree, form, chars=None, doc=None)` | str | 全部 | `header`（一行）／`compact`（一行一節點，給 chars 才截）／`full`（含原話、轉述、證據、待對照、最近收據，要列收據時傳 doc） |
+| `brief(tree, part_key=None)` | str | wg_overview、wg_need_goal_points | hook 提示附的目標樹：樹根一行＋當前節點一行（≤300 token）；整棵樹只在 need_goal 寫入的回覆送 |
+| `current_node(tree, part_key=None)` | str／None | 同上 | 當前節點：部位的定位掛在活著的節點就是它；否則還沒到終點的子節點裡最近有動靜的；都到終點取沒放棄的最近一個 |
+| `brief_mark(doc, tree, turn, part_key=None)`／`brief_once(sid, turn, part_key=None)` | str | wg_need_goal_points（讀入範圍）、wg_overview（導讀卡） | 同一使用者回合內容沒變的 brief 只附一次（第二次起回空字串）；鎖拿不到照附 |
+| `reconcile_fresh(tree)` | bool | wg_need_goal_points（session 結束記帳） | 最後一次完整對照對的是目前的目標版本、之後沒有新加或打開的未完節點 |
 | `node_ref(tree, text)` | str／None | b2：wg_overview；bkp：on_ask | 文字裡第一個 `T\d+(\.\d+)*` 且是這棵樹、狀態不是放棄的節點 |
 | `is_code_path(path, config)` | bool | 全部 | 部位類別是 knowledge → False；否則 `is_code_file(path, reconcile_cfg(config)["code_exts"])`（沒副檔名看第一行 `#!`）。部位類別真源是 `overview_hub.path_kind`（track-know） |
 | `edit_gate(sid, path, config, sources=(), content=None)` | str／None | b2：pre_tool_use | 4.2 第一層：回擋的理由或 None。算不算改程式看 `writes_code`（見 12.1） |
@@ -256,10 +260,10 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `goal_gate_reason(sid, triggered, config, state=None, transcript_path="")` | str／None | b2：stop._verify_gates | 先記帳（`auto_progress`；`triggered` 時 `refresh_auto_evidence`），`goal_gate=false` 也記；(f2)(f3) 只在 `triggered`（這則宣告完成、或擋滿待查的原宣稱、或本回合交了收尾檢核）時判。state／transcript_path 給 (f3) 補掛用 |
 | `commit_gate(sid, config, state=None, transcript_path="")` | str／None | b2：pre_tool_use（commit 指令） | commit 前：先記進度、換 latest 收據，再查目前的寫碼類樹的 (f2)(f3)。(f2) 的對象＝目前的樹 `kind=code`（含從續接單匯入、這個 session 還沒改過程式的寫碼類樹：前一個 session 的證據不算數） |
 | `snapshot_for_report(sid, kinds=("code",))` | dict／None | b2：post_tool_use（收尾檢核）、codex_companion | 原話摘要＋目標樹＋對照結果；目前的樹類別不在 kinds 回 None |
-| `review_material(sid)` | str | b2：codex_companion | 「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段分開標示的純文字；沒有樹回空字串 |
+| `review_material(sid)` | str | b2：codex_companion | 「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」分開標示的純文字（沒有同伴轉述就不印那段）；沒有樹回空字串 |
 | `handoff_block(sid)` | str | bkp：wg_handoff；b2：read form=handoff | 第七節格式；沒有未結束的樹回空字串 |
 | `import_handoff(sid, text, path, turn)` | dict `{imported:[新樹號], map, text, skipped}` | b2：post_tool_use、apply_op（set import_from） | 第七節 |
-| `recovery_blob(sid, limit)` | str | bkp：post_compact、post_tool_batch | 壓縮後獨立重送：【需求目標樹】＋目前的樹 compact＋其他未結束樹的 header＋原話首則與最新一則，總長 ≤ limit；沒有樹回空字串 |
+| `recovery_blob(sid, limit)` | str | bkp：post_compact、post_tool_batch | 壓縮後獨立重送：【需求目標樹】＋目前的樹 brief＋其他未結束的樹是哪幾棵（原話與全樹用 read），總長 ≤ limit；沒有樹回空字串 |
 
 `hooks/wg_need_goal_points.py`（bkp 實作）：
 
@@ -302,7 +306,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 |---|---|---|
 | `enabled` | true | 整個流程的開關（B5 對照組用）；false 時所有 hook 端呼叫都直接返回 |
 | `scope_growth_dirs` | 3 | 4.3 讀入範圍的頂層目錄門檻（bkp 用） |
-| `render_chars` | 1200 | compact 的字數上限 |
+| `render_chars` | 1200 | 壓縮後重送的長度上限（兩倍） |
 
 寫碼類判準的副檔名清單：`workflow/config.json` 的 `reconcile_gate.code_exts` 改成與預設 40 種**聯集**（只能加不能減）；`exclude_globs` 不跟著改（track-e8 的鍵，使用者要能減）。
 

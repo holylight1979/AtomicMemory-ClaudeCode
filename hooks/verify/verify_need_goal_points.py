@@ -351,7 +351,7 @@ def test_multi_edit_hint_once_per_file(world):
 def test_correction_with_tree_sends_tree_and_logs(world):
     make_tree()
     line = ngp.on_correction(SID, ["不對", "重來"], 7)
-    assert line and "使用者糾正了" in line and "不對" in line and "T1.1" in line
+    assert line and "使用者糾正了" in line and "不對" in line and "T1：" in line and "當前節點 T1." in line   # 樹根＋當前節點
     assert "改這棵樹、不開新樹" in line and "標放棄" in line, line         # B5 q3：糾正後開新樹、舊樹不收
     cp = tree_now()["checkpoints"][-1]
     assert cp["point"] == "correction" and cp["turn"] == 7
@@ -885,7 +885,7 @@ def test_goal_change_resends_card_in_goal_view_once(proj, tmp_path):
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None
     rec["goal_reset_turn"] = 4                                                # b2 on_goal_changed 記的
     view = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
-    assert view and "目標視角" in view and "戰鬥導讀" in view and "T1.1" in view
+    assert view and "目標視角" in view and "戰鬥導讀" in view and "T1：" in view and "當前節點 T1." in view
     assert rec["goal_view_turn"] == 4 and rec["part_files_read"] == [f]       # 讀檔紀錄沒被重置
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None   # 只重送一次
 
@@ -993,6 +993,8 @@ def test_silent_unreconciled_logs_unreconciled_trees_only(world):
     def fn(doc):
         t3 = doc["trees"][t1]
         t3["last_reconcile"] = {"seq": 1, "turn": 1, "goal_rev": 1}
+        for n in t3["nodes"].values():                                       # 交過對照：每個節點都到終點
+            n["status"] = "done"
     ng.update_locked(SID, fn)                                                 # 知識類交過對照、版本對得上 → 不記
     make_tree("code", status="closed")                                       # 結束的不記
     recs = ngp.silent_unreconciled(SID, 9)

@@ -33,8 +33,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    assistant_texts_since, org_memory_root, resolve_project_root, transcript_sizes,
+    CLAUDE_DIR, CONFIG_PATH, DECL_DENY_CAP, _atom_debug_error, _layer_kind_for_root, _map_path_of,
+    assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -376,8 +376,9 @@ def _critique_cases() -> str:
 CRITIQUE_LINE_HINT = f"定位三行之後再加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_cases()}"
 
 
-def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
-    """導讀卡開頭附的目標樹精簡版（有目前的樹才附），讓「目標」與「這一塊的說明」同時在眼前；讀不到只 stderr。"""
+def _goal_block(session_id: str, cfg: Dict[str, Any], part_key: Optional[str] = None, turn: Optional[int] = None) -> str:
+    """導讀卡開頭附的目標（有目前的樹才附）：樹根一行＋當前節點一行（這個部位掛了節點就是那個），讓「目標」與「這一塊的說明」
+    同時在眼前；同一個使用者回合已附過同一份就只留定位第五行的提醒（給了 turn 才去重）。全樹要看用 need_goal read。讀不到只 stderr。"""
     ng = cfg.get("need_goal") if isinstance(cfg.get("need_goal"), dict) else {}
     if not session_id or not ng.get("enabled", True):
         return ""
@@ -389,8 +390,10 @@ def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
         return ""
     if not tree:
         return ""
-    return (f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，{CRITIQUE_LINE_HINT}）：\n"
-            f"{_ng.render(tree, 'compact', chars=int(ng.get('render_chars') or 1200))}")
+    b = _ng.brief(tree, part_key) if turn is None else _ng.brief_once(session_id, int(turn), part_key)
+    if not b:
+        return f"[NeedGoal] 改這個部位的程式檔時，{CRITIQUE_LINE_HINT}（目前的需求目標同本回合前面那則）"
+    return f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，{CRITIQUE_LINE_HINT}）：\n{b}"
 
 
 def _goal_tree_for(session_id: str, file_path: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -445,7 +448,8 @@ def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_pa
 
 
 def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> int:
-    """目標改了（開新樹、改寫樹根、增減節點、改節點文字）：已交過定位的部位全部要重交，只認這之後交的那一組。回清了幾個部位。"""
+    """目標改了（開新樹、改寫樹根、改節點文字、匯入續接單的樹）：已交過定位的部位全部要重交，只認這之後交的那一組。
+    加子節點不算（照讀入範圍提示長子目標，不該讓已交的定位作廢）。回清了幾個部位。"""
     size = transcript_size(transcript_path)
     sizes = transcript_sizes(transcript_path)
     n = 0
@@ -482,7 +486,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     if tracked:
         from wg_harvest import tracking_block
         text = f"{text}\n{tracking_block(tracked, int(cfg['max_card_chars']))}"
-    goal = _goal_block(session_id, cfg)
+    goal = _goal_block(session_id, cfg, _key(root, row), int(state.get("turn_seq", 0) or 0))
     if goal:
         text = f"{goal}\n{text}"
     hub = state.setdefault("overview_hub", {})
@@ -859,7 +863,7 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     try:
         import wg_need_goal_points as _ngp
         head = _ngp.goal_view_text(session_id, row["part"] or row["part_short"],
-                                   knowledge=_oh.path_kind(hit_path, root) == _oh.KIND_KNOWLEDGE)
+                                   knowledge=_oh.path_kind(hit_path, root) == _oh.KIND_KNOWLEDGE, part_key=_key(root, row))
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"[NeedGoal] 目標視角重送失敗（不影響讀檔）：{type(e).__name__}: {e}\n")
         return None
@@ -892,11 +896,13 @@ def read_targets(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code
 
 
 def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
-            cwd: str, transcript_path: str, config: Dict[str, Any], exit_code: Optional[int] = None) -> Optional[str]:
+            cwd: str, transcript_path: str, config: Dict[str, Any], exit_code: Optional[int] = None,
+            agent_id: str = "") -> Optional[str]:
     """PostToolUse（Read／Bash／PowerShell／Grep）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read；
     目標改了以後又讀到已碰過的部位 → 回目標視角的導讀卡。暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）不找表、不注入、不記；
     Bash／PowerShell 指令失敗（exit_code≠0）讀到的不算（規則 BASH_READONLY_COUNTS_AS_READ）。
-    （需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）"""
+    agent_id＝子代理讀的：讀檔照記、第一次讀到照注入（子代理自己改檔時的定位閘要用），目標視角重看不送（那是問主 session 的樹）、
+    也不消耗主 session 的那一次。（需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
@@ -907,7 +913,8 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
             continue
         root, row = hit
         rec = (state.get("overview_hub") or {}).get(_key(root, row))
-        goal_view_due = rec is not None and rec.get("goal_reset_turn") not in (None, rec.get("goal_view_turn"))
+        goal_view_due = (rec is not None and not agent_id
+                         and rec.get("goal_reset_turn") not in (None, rec.get("goal_view_turn")))
         if rec is not None and not goal_view_due:
             continue
         cfg = _cfg(config, root)
@@ -1480,10 +1487,20 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
+    turn = int(state.get("turn_seq", 0) or 0)
+    # 規則 LOCATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 次 → 之後放行，越過上限那一次留帳
+    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算
+    gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
+    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"])
+    if not denied:
+        if released:
+            _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
+                 blocks=DECL_DENY_CAP, gap=gap)
+        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
+                f"{DECL_DENY_CAP} 次，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
     # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
     # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
     sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
-    turn = int(state.get("turn_seq", 0) or 0)
     last = rec.get("last_deny") or {}
     rec["last_deny"] = {"turn": turn, "sig": sig}
     if last.get("turn") == turn and last.get("sig") == sig:

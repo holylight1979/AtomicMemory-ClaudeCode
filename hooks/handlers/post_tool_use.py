@@ -43,7 +43,7 @@ from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, 
                               negative_control_verdict, parse_negative_controls,
                               red_case_facts, red_case_names, retry_round_verdict, same_test_run)
 try:
-    # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
+    # Bash／PowerShell 改檔目標擷取（wg_core）；載不進來就只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
 except ImportError:
     _write_paths_from_tool = None
@@ -70,7 +70,6 @@ from handlers._shared import (
     entry_note,
 )
 import wg_oldtest
-import wg_judge_card  # 直譯器改判準卡事後比對（JUDGE_CARD_HASH_CATCHES_INTERPRETER）
 
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
@@ -873,7 +872,7 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         for p in targets or []:
             if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
                 line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 沒樹時改了知識類：要寫輕樹（一回合一次）
-                if line:
+                if line and not agent_id:        # 子代理改的照記帳，「去寫樹」的提示不送給它（樹是主 session 的）
                     lines.append(line)
         if tool_name in ("Bash", "PowerShell"):
             ng.stamp_receipts(session_id, state, turn)
@@ -1001,7 +1000,7 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
     aid = str(input_data.get("agent_id") or "")
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     noted = _note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None else []
-    dirty = _judge_card_after(state, input_data, config) or bool(noted)
+    dirty = bool(noted)
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
     if exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
@@ -1037,18 +1036,6 @@ def _negative_control(input_data: Dict[str, Any], command: str):
         print(f"[Guardian:TestFail] 找負向對照宣告失敗，照記紅：{type(e).__name__}: {e}", file=sys.stderr)
         text = command
     return negative_control_verdict(command, parse_negative_controls(text))
-
-
-def _judge_card_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """改判準卡的直譯器出口：Bash／PowerShell 跑完拿 PreToolUse 記的判準卡雜湊比，改了沒宣告記 state，下一個呼叫在 PreToolUse 擋。
-    成功與失敗（PostToolUseFailure）兩條路都比；比對失敗只能 stderr＋留帳（事後擋不了這一次）。"""
-    try:
-        return wg_judge_card.after_tool(state, input_data, config)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:JudgeCardDeclare] 事後比對判準卡失敗（這次直譯器改卡沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
-        append_guard_log("judge_card", {"event": "after_error", "session_id": str(input_data.get("session_id") or ""),
-                                        "tool": str(input_data.get("tool_name") or ""), "error": f"{type(e).__name__}: {e}"})
-        return False
 
 
 def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_name: str, session_id: str,
@@ -1261,8 +1248,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
             append_guard_log("old_test", {"event": "after_error", "session": session_id, "tool": tool_name,
                                           "error": f"{type(e).__name__}: {e}"})
-    if v6 and _judge_card_after(state, input_data, config):
-        dirty = True
 
     if (
         tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit")
@@ -1392,7 +1377,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
                 _aid = str(input_data.get("agent_id") or "")
                 for _p in _write_paths_from_tool(tool_name, tool_input, _cwd) or []:
-                    if _p and _p.startswith("UNKNOWN:"):    # 目標不明：記未知寫入（子代理 Stop 據此擋到底），不當成某個檔
+                    if _p and _p.startswith("UNKNOWN:"):    # 目標不明：記未知寫入（收尾只留帳），不當成某個檔
                         _note_unknown_write(state, session_id, _p, command, tool_name, _aid)
                     elif _p and not _is_ephemeral_path(_p):
                         _note_modified(state, session_id, _p, tool_name, _aid)
@@ -1541,8 +1526,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 if _k_entries:
                     _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
                     append_tracking(tracking_slug(_k_cwd), _k_entries)
-            except ImportError:
-                print("[Guardian:AEC] wg_harvest.tracking_entries 尚未合併（track-c），(k) 追蹤項本次不入 workflow/tracking", file=sys.stderr)
             except Exception as e:
                 _atom_debug_error("post_tool_use:aec_tracking", e)
             # 目前的寫碼類需求目標樹（原話摘要＋節點＋對照結果）附進報告，HUD 顯示「目標對照」；收尾檢核本身不多欄
@@ -1622,6 +1605,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "",
                 input_data.get("transcript_path", "") or "", config,
                 **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
+                agent_id=str(input_data.get("agent_id") or ""),
             )
             dirty = True   # reads_after 也要落盤
         except Exception as e:
@@ -1630,8 +1614,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     degraded = _hook_lap("導讀卡")
 
     # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
-    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同
-    if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep"):
+    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同。
+    # 子代理（hook 輸入帶 agent_id）讀的不算：目標樹是主 session 的，子代理讀檔不擴大它的讀入範圍、也不收「要不要長子目標」
+    if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not input_data.get("agent_id"):
         try:
             from wg_need_goal_points import scope_on_read
             if scope_on_read(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config):

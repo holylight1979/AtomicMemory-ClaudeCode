@@ -19,8 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR,
-    output_json, output_nothing,
-    check_memory_path_block, check_svn_test_block,
+    output_json, output_nothing, append_guard_log,
+    check_memory_path_block,
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
     read_state, read_state_status,
     _atom_debug_log, v6_enabled,
@@ -1450,6 +1450,81 @@ def check_svn_encoding(tool_name: str, tool_input: Dict[str, Any]) -> Optional[s
     return None
 
 
+# svn 測試路徑閘：svn commit 段的路徑參數含測試目錄（test／tests／__tests__）或 *Test.<副檔名> 檔就擋；commit 訊息不看
+_SVN_TEST_PATH_RE = re.compile(r"(?:^|[/\\])(?:tests?|__tests__)(?:[/\\]|$)"
+                               r"|(?:^|[/\\])[^/\\]*Test\.(?:cs|py|js|ts|tsx|jsx|go|java)$", re.IGNORECASE)
+# 使用者本回合明說要把測試上 svn：AI 在指令裡逐字引用那一句（判斷交 AI，程式核對原句在本回合原話裡、沒被否定）
+_SVN_TEST_QUOTE_RE = re.compile(r"測試上\s*svn\s*原句\s*[:：]\s*「([^」\n]+)」", re.IGNORECASE)
+_SVN_TEST_QUOTE_MIN = 4
+
+
+def _svn_test_block_on(run_cwd: str, config: Dict[str, Any]) -> bool:
+    """這段 svn commit 落的專案有沒有開測試路徑閘：OverviewHub 四層合併後的 svn_test_block.enabled（預設關；專案層
+    <專案根>/.claude/overview-hub.json 寫 true 才開）。專案根：往上有部位表取表的根，沒有照無表那條路（認領／標記，退 VCS 根）。
+    設定讀不到當關，浮 stderr。"""
+    try:
+        from wg_overview import _cfg as _hub_cfg, _unmapped_root_of, find_map
+        hit = find_map(run_cwd)
+        root = hit[0] if hit else _unmapped_root_of(run_cwd)
+        sec = _hub_cfg(config, root).get("svn_test_block")
+        return isinstance(sec, dict) and sec.get("enabled") is True
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[Guardian:SvnTestBlock] 讀不到專案的 svn_test_block 設定，這次當關：{type(e).__name__}: {e}\n")
+        return False
+
+
+def _svn_test_quote(command: str, turn_prompts: List[str]) -> Optional[str]:
+    """指令裡「測試上 svn 原句：「…」」的原句：逐字出現在使用者本回合原話裡、所在子句沒被否定（與授權原句同一套
+    _quote_authorizes；「不要提交測試」引用了也不算）、至少 _SVN_TEST_QUOTE_MIN 字 → 回原句；否則 None。"""
+    for q in (x.strip() for x in _SVN_TEST_QUOTE_RE.findall(command or "")):
+        if len(q) < _SVN_TEST_QUOTE_MIN:
+            continue
+        for p in turn_prompts:
+            i = p.find(q)
+            if i >= 0 and _quote_authorizes(p, i, q):
+                return q
+    return None
+
+
+def check_svn_test_block(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any],
+                         state: Optional[Dict[str, Any]], session_id: str = "") -> Optional[str]:
+    """Bash／PowerShell 的 svn commit：路徑參數（svn_commit_args 拆出來的，-m 訊息與帶值選項的值不算）含測試檔或測試目錄、
+    而且那個專案開了閘（_svn_test_block_on）→ 擋。指令裡的原句出口（_svn_test_quote）對得上 → 放行。
+    放行與擋都留帳 Logs/guard-svn_test_block.jsonl。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    command = tool_input.get("command", "") or ""
+    if "svn" not in command.lower():
+        return None
+    shell = _tool_shell(tool_name)
+    hits: List[str] = []
+    try:
+        for repo_cd, tokens in _svn_segments(_strip_heredoc_bodies(command), {"commit", "ci"}, shell):
+            paths = [p for p in _smells_tool().svn_commit_args(tokens)[0] if _SVN_TEST_PATH_RE.search(p)]
+            if paths and _svn_test_block_on(_resolve_run_cwd(repo_cd, cwd, shell), config):
+                hits += [p for p in paths if p not in hits]
+    except Exception as e:  # noqa: BLE001  閘預設關、守的是專案慣例：拆不出路徑不擋，浮 stderr 並留帳
+        err = f"{type(e).__name__}: {e}"
+        sys.stderr.write(f"[Guardian:SvnTestBlock] 拆不出 svn commit 的路徑，這次不擋：{err}\n")
+        append_guard_log("svn_test_block", {"event": "error", "rule": "GATE_SELF_ERROR", "session_id": session_id, "tool": tool_name,
+                                            "error": err})
+        return None
+    if not hits:
+        return None
+    turn = user_typed_prompts(state.get("turn_prompts")) if isinstance((state or {}).get("turn_prompts"), list) else []
+    quote = _svn_test_quote(command, turn)
+    append_guard_log("svn_test_block", {"event": "user_quote" if quote else "denied", "session_id": session_id,
+                                        "tool": tool_name, "paths": hits, **({"quote": quote} if quote else {})})
+    if quote:
+        return None
+    return (f"[Guardian:SvnTestBlock] 這次 svn commit 的路徑含測試檔或測試目錄：{'、'.join(hits)}。"
+            "這個專案設定測試／練習檔不上 svn（overview-hub.json 的 svn_test_block）。\n"
+            "- 不是要提交測試 → 把這幾個路徑從 commit 的路徑清單拿掉再提交；\n"
+            "- 使用者本回合明說要把測試一起上 svn → 在這條指令開頭加一行 "
+            "`# 測試上 svn 原句：「<使用者本回合原話裡說要提交測試的那一句，逐字照抄>」`，原句在本回合原話裡、沒被否定就放行並留帳；\n"
+            "- 拿不準 → 先問使用者。")
+
+
 def check_merge_driver(
     tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
 ) -> Optional[str]:
@@ -1842,19 +1917,26 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    deny_reason = check_svn_test_block(tool_name, tool_input)
+    # state 這裡讀一次（動資料檔閘自己讀寫過之後）：svn 測試路徑閘、改舊測試閘與後面的口令閘、繞閘閘、OverviewHub 共用同一份
+    # （改舊測試閘就地改、有改自己寫回）
+    _co_sid = input_data.get("session_id", "") or ""
+    _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
+
+    deny_reason = check_svn_test_block(tool_name, tool_input, _cwd, config, _co_state, _co_sid)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
     _hook_lap("寫入閘")
 
-    # ── OldTestDeclare（T2.17 改舊測試要先宣告）──
-    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
+    # ── OldTestDeclare（改舊測試要先宣告）──
+    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，不擋（stderr＋留帳 error，規則 GATE_SELF_ERROR）
     try:
-        deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd)
+        deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd, _co_state)
     except Exception as e:
-        deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
-                       f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")
+        deny_reason = None
+        err = f"{type(e).__name__}: {e}"
+        sys.stderr.write(f"[Guardian:OldTestDeclare] 改舊測試閘內部錯誤，判不了有沒有動到既有測試（這次不擋，已留帳）：{err}\n")
+        append_guard_log("old_test", {"event": "error", "rule": "GATE_SELF_ERROR", "session": _co_sid, "tool": tool_name, "error": err})
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
@@ -1880,8 +1962,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             pass
 
     # git commit 口令閘（本回合使用者原話無版控口令 → deny；fail-open）
-    _co_sid = input_data.get("session_id", "") or ""
-    _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
     deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state, _cwd, _co_sid)
     if deny_reason:
         _deny(input_data, config, deny_reason)
@@ -1911,7 +1991,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
-    # 缺了就擋；判不了一律擋。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
+    # 缺了就擋；核對本身出錯不擋（stderr＋留帳 commit_gate_error，規則 GATE_SELF_ERROR）。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
     if v6 and tool_name in ("Bash", "PowerShell"):
         _ng_cmd = tool_input.get("command", "") or ""
         if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
@@ -1920,7 +2000,11 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 from wg_need_goal import commit_gate
                 deny_reason = commit_gate(_co_sid, config, _co_state, input_data.get("transcript_path", "") or "")
             except Exception as e:
-                deny_reason = f"[NeedGoal] commit 前核對需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
+                deny_reason = None
+                err = f"{type(e).__name__}: {e}"
+                sys.stderr.write(f"[NeedGoal] commit 前核對需求目標時出錯（這次不擋，已留帳）：{err}\n")
+                append_guard_log("need_goal", {"event": "commit_gate_error", "rule": "GATE_SELF_ERROR", "session_id": _co_sid,
+                                               "tool": tool_name, "command": _ng_cmd[:300], "error": err})
             if deny_reason:
                 _deny(input_data, config, deny_reason)
                 return

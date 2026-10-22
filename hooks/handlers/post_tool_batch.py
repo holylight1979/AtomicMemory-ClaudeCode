@@ -30,12 +30,16 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
     v6 = v6_enabled(config)     # 關＝只做 9e476fd0 就有的壓縮後 atom 復原與 handoff 提示
-    ngp = _points_module() if state and v6 and coding_turn(state, config) else None   # 規則 CODING_TURN_ONLY
+    # 子代理的工具批次（hook 輸入帶 agent_id）：目標樹是主 session 的——不送讀入範圍、同檔多次、提問、外部主張的提醒，
+    # 壓縮後要重送的樹也留給主 session
+    sub = bool(input_data.get("agent_id"))
+    ngp = _points_module() if state and v6 and not sub and coding_turn(state, config) else None   # 規則 CODING_TURN_ONLY
     goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
     # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
-        or (v6 and (state.get("pending_reinjection_overview") or state.get("pending_reinjection_goal"))) or goal_due
+        or (v6 and (state.get("pending_reinjection_overview") or (state.get("pending_reinjection_goal") and not sub)))
+        or goal_due
     ):
         output_nothing()
         return
@@ -60,7 +64,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                 parts.append(blob)
 
         # (1a) 壓縮後需求目標樹獨立重送（不依附部位綜觀）：排在 atom 內文後、綜觀前（綜觀的「主目標」指向它）；一次性 pop
-        goal = state.pop("pending_reinjection_goal", None) if v6 else None
+        goal = state.pop("pending_reinjection_goal", None) if v6 and not sub else None
         if goal:
             parts.append(goal)
 
