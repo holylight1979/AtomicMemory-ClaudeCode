@@ -605,3 +605,6 @@
 | v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 | _AIDocs/_atoms/MemDev/v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身.md | hook 代價, token 消耗, 定位閘, 擋訊息重讀, 填目標樹, v6.0 的代價, hook 全關, 免費模型代寫 | global |  |
 | 多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境 | _AIDocs/_atoms/MemDev/多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境.md | 多跑對照, 卡集一致, w2_build_env, 重建受測環境, 洩題卡, selfcheck, --cards-from, 實跑對照 | global |  |
 | 總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行 | _AIDocs/_atoms/MemDev/總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行.md | TestFailGate, 測試未綠, 既有紅測, 基底就紅, 總控台收尾被擋, cherry-pick, 單獨 commit, 連擋 | global |  |
+| 解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到 | _AIDocs/_atoms/MemDev/解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到.md | 哨兵解析, DONE 哨兵, k=v, parse_sentinels, CRLF, 跨行, 收據認不到 | global |  |
+| 拿字樣在指令裡當宣告綁定條件時-比對前先去掉註解行-否則寫在註解裡的宣告會自己對上自己 | _AIDocs/_atoms/MemDev/拿字樣在指令裡當宣告綁定條件時-比對前先去掉註解行-否則寫在註解裡的宣告會自己對上自己.md | 宣告綁定, 負向對照, 自己對上自己, 註解行, 字樣比對, NEGATIVE_CONTROL_DECLARED | global |  |
+| 第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次 | _AIDocs/_atoms/MemDev/第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次.md | 第二意見收尾, 分歧點, 裁決與理由, second_opinion, 缺行, SecondOpinion | global |  |

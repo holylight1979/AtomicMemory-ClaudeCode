@@ -16,6 +16,7 @@
 - [臨] 根因在 `hooks/wg_core.py:write_state`：所有 hook 行程共用同一個 `state-<sid>.tmp`；Windows 鎖用 `msvcrt.locking(LK_NBLCK)`，拿不到只 `except OSError` 把 lock_fh 設 None 然後**照樣往下寫**。兩支 hook 同時 `open(tmp,'w')`，先寫的長內容被後寫的短內容從 offset 0 覆蓋、尾端殘留，`replace` 後整檔壞。read_state_status 正確地不建 fallback，但代價是該 session 餘生每支 hook 都跳過。
 - [臨] 自救：把 state 檔用 `json.JSONDecoder().raw_decode` 取第一個完整物件寫回、原檔備份 `.corrupt-<ts>`（scratchpad 範本 repair_state.py），hook 立刻恢復。修法（待派工）：tmp 檔名帶 pid（`path.with_suffix(f'.{os.getpid()}.tmp')`）；鎖拿不到短暫重試幾次再寫；verify 加兩行程併發 write_state 後檔仍是合法 JSON 的案。
 - [臨] 已修（v6/track-b2，merge 268a12d）：`write_state` tmp 檔名帶 pid、鎖拿不到重試 10×20ms 才無鎖寫（stderr `[state:lock-timeout]`）、replace 失敗重試並不動原檔（`[state:replace-failed]`）、unlink 失敗浮 `[state:tmp-left]`；併發反例案 `hooks/verify/verify_state_write_concurrency.py` 在舊條件下確定性重現 Extra data。殺檔自救的一次性腳本已隨派工信箱清理刪除，要用時照上一條 raw_decode 做法重寫。
+- [臨] 另一個症狀（閘小修 007 實遇 2 次）：同一 session 平行多個子代理時，hook 互相覆寫 state，old_test_added 被蓋掉，本 session 剛加的測試被改舊測試閘當舊測試擋；宣告「改舊測試｜」照過，根因仍是 write_state 競寫。
 
 ## 行動
 
