@@ -7,6 +7,8 @@
 - 檔案出口：Edit 綁 Entry 的卡沒宣告 → 擋；Bash 指令開頭 `#` 宣告 → 放行；沒綁 Entry 的卡 → 不擋也不留帳。
 - 宣告格式：只寫 Entry 代號、理由留佔位、宣告字樣只寫在卡片內容（工具參數非註解行）都不算。
 - 不靠 settings.json：三個 MCP 工具名的事件直接餵 handler 都走到本閘（matcher 由原設計者套用，沒套之前 MCP 出口不經過閘）。
+- 直譯器出口（JUDGE_CARD_HASH_CATCHES_INTERPRETER）：PreToolUse 記雜湊 → 模擬腳本寫卡 → PostToolUse／PostToolUseFailure 比對；
+  沒宣告留帳 undeclared、下一個呼叫擋、補宣告 declared_late；同指令 `#` 宣告直接 declared；沒改卡、不跑直譯器不留帳不記雜湊。
 live 檔全 monkeypatch：WORKFLOW_DIR（state 落 tmp）、GUARD_LOG_DIR（留帳落 tmp）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_judge_card_declare.py
 """
@@ -235,6 +237,139 @@ def test_handler_routes_three_mcp_tools_without_settings(world):
                      ("atom_retire", {"atom_name": C1_STEM, "scope": "global", "reason": "x"})):
         assert _jc_deny(_run(world, f"mcp__workflow-guardian__{name}", ti)), name
     assert [e["tool"].rsplit("__", 1)[-1] for e in _log(world)] == ["atom_write", "atom_edit_meta", "atom_retire"]
+
+
+# ─── 直譯器自己開檔寫卡（JUDGE_CARD_HASH_CATCHES_INTERPRETER）───
+# PreToolUse 記雜湊 → 模擬指令寫進磁碟 → PostToolUse（或 PostToolUseFailure）比對 → 下一個呼叫在 PreToolUse 擋到補宣告。
+
+HASH_RULE = "JUDGE_CARD_HASH_CATCHES_INTERPRETER"
+
+
+@pytest.fixture
+def post(world, tmp_path, monkeypatch):
+    """世界加上 PostToolUse 真入口：同一份 state 檔（PreToolUse 讀得到欠帳），其餘副作用關掉；資料根索引換成假專案那份
+    （只有綁 E99 的卡，沒綁的卡不在索引的 entry 欄）。回 post(tool, tool_input, tool_use_id, failed=False)。"""
+    from handlers import post_tool_use as pt
+    proj = world["proj"]
+    (proj / "memory" / "_atom_index.json").write_text(json.dumps({"version": 1, "atoms": [
+        {"name": world["bound"].stem, "path": "memory/版控/測試判準卡-綁e99.md", "entry": ["E99"]},
+        {"name": world["plain"].stem, "path": "memory/版控/一般卡-沒綁entry.md", "entry": []},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(wg_core, "MEMORY_DIR", proj / "memory")
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", proj)
+    monkeypatch.setattr(pt, "_ensure_state", lambda sid, *a, **k: wg_core.read_state(sid))
+    monkeypatch.setattr(pt, "write_state", lambda sid, st: wg_core.write_state(sid, st))
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", wg_core.WORKFLOW_DIR)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+
+    def _post(tool, tool_input, tool_use_id, failed=False):
+        ev = {"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(proj),
+              "transcript_path": world["tp"], "tool_use_id": tool_use_id}
+        with pytest.raises(SystemExit):
+            if failed:
+                pt.handle_post_tool_use_failure({**ev, "error": "Exit code 1\nTraceback ..."}, {"docdrift": {"enabled": False}})
+            else:
+                pt.handle_post_tool_use({**ev, "tool_response": {"stdout": "", "stderr": ""}}, {"docdrift": {"enabled": False}})
+    return _post
+
+
+def _pre(w, tool, tool_input, tool_use_id):
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(w["proj"]),
+                                 "transcript_path": w["tp"], "tool_use_id": tool_use_id}, {})
+    return w["outputs"][-1]
+
+
+def _snaps():
+    d = Path(wg_core.WORKFLOW_DIR) / "judge-card-snap"
+    return sorted(p.name for p in d.glob("*.json")) if d.is_dir() else []
+
+
+def _pending_cards():
+    return [e["card"] for e in (wg_core.read_state(SID) or {}).get("judge_card_undeclared") or []]
+
+
+def _append(path, text="- [臨] 腳本補一條\n"):
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _interp_round(w, post, cmd, *, write=True, failed=False, tid="toolu_interp_1"):
+    """一輪直譯器指令：PreToolUse 放行並記雜湊 → （模擬腳本寫卡）→ PostToolUse 比對。"""
+    ti = {"command": cmd}
+    out = _pre(w, "Bash", ti, tid)
+    assert not _jc_deny(out), out
+    assert _snaps(), "前置：這條指令會跑直譯器，PreToolUse 要記雜湊"
+    if write:
+        _append(w["bound"])
+    post("Bash", ti, tid, failed=failed)
+    assert not _snaps(), "比完要刪快照"
+
+
+def test_python_script_editing_bound_card_without_declaration_blocks_next_call(world, post):
+    """python 腳本自己開檔寫綁 E99 的卡（寫入目標解析不到）→ 事後比對留帳 undeclared，下一個呼叫擋。"""
+    _interp_round(world, post, "python tools/fix_cards.py")
+    assert _pending_cards() == ["測試判準卡-綁e99"]
+    ev = _log(world)
+    assert [(e["event"], e["channel"], e["card"], e["entry"], e["allowed"]) for e in ev] == \
+        [("undeclared", "interpreter", "測試判準卡-綁e99", ["E99"], False)]
+    out = _run(world, "Edit", _edit(world, world["plain"]))       # 下一個呼叫（改的是別張沒綁的卡）也擋
+    assert _jc_deny(out), out
+    r = _reason(out)
+    assert "直譯器改了綁 Entry 的判準卡" in r and f"✗ (jc) {RULE}：" in r and "改判準卡｜測試判準卡-綁e99：<" in r
+    assert _log(world)[-1]["event"] == "denied_late"
+
+
+def test_late_declaration_clears_pending_and_is_logged(world, post):
+    _interp_round(world, post, "python tools/fix_cards.py")
+    decl = "改判準卡｜測試判準卡-綁e99：使用者說 E99 的判準寫反了，腳本批次修正"
+    _add(world, _assistant("text", decl))
+    out = _run(world, "Edit", _edit(world, world["plain"]))
+    assert not _jc_deny(out), out
+    assert _pending_cards() == []
+    late = [e for e in _log(world) if e["event"] == "declared_late"]
+    assert [(e["card"], e["line"], e["channel"]) for e in late] == [("測試判準卡-綁e99", decl, "interpreter")]
+
+
+def test_declaration_in_same_interpreter_command_is_logged_not_pending(world, post):
+    cmd = "# 改判準卡｜測試判準卡-綁e99：使用者要的判準改法，腳本一次改\npython tools/fix_cards.py"
+    _interp_round(world, post, cmd)
+    assert _pending_cards() == []
+    assert [(e["event"], e["channel"], e["via"]) for e in _log(world)] == [("declared", "interpreter", "tool_input")]
+
+
+def test_failed_command_still_compared(world, post):
+    """指令非零結束：Claude Code 只送 PostToolUseFailure，前段已經寫進卡的改動照樣比到。"""
+    _interp_round(world, post, "python tools/fix_cards.py && pytest -q", failed=True)
+    assert _pending_cards() == ["測試判準卡-綁e99"]
+
+
+def test_unparsed_writer_naming_card_is_hashed(world, post):
+    """不是直譯器、寫入目標也解析不到，但指令字面點了卡的檔名 → 照樣記雜湊比對。"""
+    _interp_round(world, post, "mytool --in-place memory/版控/測試判準卡-綁e99.md")
+    assert _pending_cards() == ["測試判準卡-綁e99"]
+
+
+def test_interpreter_run_not_touching_cards_leaves_no_log(world, post):
+    _interp_round(world, post, "python -m pytest -q tests", write=False)
+    assert _pending_cards() == [] and _log(world) == []
+
+
+@pytest.mark.parametrize("cmd", ["pypy3 tools/fix_cards.py", "./tools/fix_cards.py --all", "uv run tools/fix_cards.py"],
+                         ids=["pypy3", "direct-script", "uv-run"])
+def test_other_interpreter_launches_are_hashed(world, post, cmd):
+    """codex 007：清單外的直譯器（pypy3）、直接跑腳本檔、`uv run 腳本` 也記雜湊，改了卡照樣欠帳。"""
+    _interp_round(world, post, cmd)
+    assert _pending_cards() == ["測試判準卡-綁e99"]
+
+
+def test_plain_command_takes_no_snapshot(world, post):
+    """不跑直譯器、也沒點到卡名的指令不記雜湊（別每次全掃）。前置：索引裡真的有綁 Entry 的卡。"""
+    import wg_judge_card as jc
+    assert jc.data_root_cards() == {str(world["proj"] / "memory/版控/測試判準卡-綁e99.md"): ["E99"]}
+    out = _pre(world, "Bash", {"command": "ls -la src"}, "toolu_plain")
+    assert not _jc_deny(out) and _snaps() == []
+    assert HASH_RULE in rr.RULES
 
 
 def test_parse_declarations_names_and_paths():

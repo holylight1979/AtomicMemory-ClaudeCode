@@ -939,6 +939,99 @@ def test_fast_forward_then_own_test_commit_with_dirty_helper_still_pending(world
     assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
 
 
+# ─── 同一條指令改舊測試又 commit（OWN_COMMIT_CHANGES_STILL_COMPARED，T1.4） ───
+
+def _own_commit_round(w, fp, text, label="fix && commit"):
+    """經 python 啟動器跑的一條指令：腳本把測試檔寫成 text 再 commit -qam own，跑完工作樹乾淨（只看工作樹的話候選是空的）。"""
+    def act():
+        Path(fp).write_text(text, encoding="utf-8")
+        _g(w["proj"], "commit", "-qam", "own")
+    _py_round(w, label, act)
+    assert not _g(w["proj"], "status", "--porcelain").stdout.strip(), "前置：commit 後工作樹乾淨"
+
+
+def test_own_commit_changes_still_compared_rule_registered():
+    """規則名登記在 wg_release_rules.RULES，說明指向實作 wg_oldtest._own_commit_tests（改名或搬走要一起改）。"""
+    import wg_oldtest as ot
+    import wg_release_rules as rr
+    assert "wg_oldtest._own_commit_tests" in rr.RULES["OWN_COMMIT_CHANGES_STILL_COMPARED"]
+    assert callable(ot._own_commit_tests)
+
+
+def test_own_commit_changes_still_compared_assert_change_pending(world):
+    """同一條指令裡腳本改了舊測試的斷言又 commit：工作樹乾淨了，自己 commit 掉的那份照樣拿執行前的 HEAD 比。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    _own_commit_round(world, fp, LEGACY.replace("== 10", "== 99"))
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
+    r = _run(world, "Bash", {"command": "echo next"})
+    assert _ot(r) and "test_legacy_report_totals（斷言變了" in r
+
+
+def test_own_commit_changes_still_compared_new_test_only_not_pending(world):
+    """同指令只新加測試又 commit：不欠帳；新加那支記成本 session 加的（基線取執行前的 HEAD，不是已經含它的新 HEAD），
+    之後改它的斷言不用宣告，改舊的那支照要宣告。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    _own_commit_round(world, fp, LEGACY + "\n\ndef test_new_total():\n    assert adjust.total() >= 0\n")
+    assert not _pending()
+    assert any(k.endswith("|test_new_total") for k in wg_core.read_state(SID).get("old_test_added") or []), \
+        "前置：commit 掉的那份有比對到"
+    assert _pass(_run(world, "Edit", {"file_path": fp, "old_string": "assert adjust.total() >= 0",
+                                      "new_string": "assert adjust.total() > 0"}))
+    assert _ot(_run(world, "Edit", {"file_path": fp, "old_string": "== 10", "new_string": "== 11"}))
+
+
+def test_own_commit_changes_still_compared_declared_in_command_not_pending(world):
+    """指令自己帶宣告行（Bash 開頭 `#` 註解）：對上宣告、留帳 declared，不欠帳。"""
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    _own_commit_round(world, fp, LEGACY.replace("== 10", "== 99"),
+                      "fix && commit\n# 改舊測試｜test_legacy_report_totals：使用者要總數改成 99，舊斷言的 10 不再對")
+    assert not _pending()
+    assert any(e["event"] == "declared" and e["test"] == "test_legacy_report_totals" for e in _events(world)), \
+        "前置：有比對到並對上宣告"
+
+
+def test_own_commit_changes_still_compared_skips_merge_commit(world):
+    """merge --no-commit 再 commit（同一條指令，reflog 記 commit (merge)）：合併提交的內容是別軌的，不算自己 commit 掉的改動。"""
+    fp = _other_track(world, conflict=False)
+
+    def merge_then_commit():
+        _g(world["proj"], "merge", "-q", "--no-ff", "--no-commit", "other")
+        _g(world["proj"], "commit", "-qm", "merge other")
+    _py_round(world, "merge --no-commit other && commit", merge_then_commit)
+    assert _g(world["proj"], "reflog", "-1", "--format=%gs").stdout.startswith("commit (merge)"), "前置：最後一筆是合併提交"
+    assert Path(fp).read_text(encoding="utf-8") == OTHER, "前置：別軌的斷言改動已 commit 進來"
+    assert not _pending()
+
+
+def test_own_commit_changes_still_compared_without_reflog_compares_whole_span(world):
+    """讀不到 reflog（分不出哪幾筆是自己 commit 的）→ 執行前到現在整段都比，照樣抓到。"""
+    import shutil
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+    _g(world["proj"], "config", "core.logAllRefUpdates", "false")
+    shutil.rmtree(world["proj"] / ".git" / "logs")
+    _own_commit_round(world, fp, LEGACY.replace("== 10", "== 99"))
+    assert not (world["proj"] / ".git" / "logs" / "HEAD").exists(), "前置：真的沒有 reflog"
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_totals", "assert")]
+
+
+def test_own_commit_changes_still_compared_diff_error_is_loud(world, monkeypatch, capsys):
+    """查 HEAD 前後差異失敗 → stderr＋留帳 own_commit_diff_error，不靜默。"""
+    import wg_oldtest as ot
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    _git_repo(world["proj"])
+
+    def boom(*a):
+        raise RuntimeError("git diff 失敗：boom")
+    monkeypatch.setattr(ot, "_diff_paths", boom)
+    _own_commit_round(world, fp, LEGACY.replace("== 10", "== 99"))
+    assert "同指令 commit 掉的測試改動沒核對到" in capsys.readouterr().err
+    assert any(e["event"] == "own_commit_diff_error" for e in _events(world))
+
+
 def test_no_reflog_fast_forward_still_marks_incoming_tests_old(world):
     """Codex 複審 BLOCK 2：讀不到 reflog（logs/HEAD 不在）時 HEAD 動了分不出是誰動的——帶進來的照外來算、併基線（寧可多擋），
     並留帳說判不出。"""

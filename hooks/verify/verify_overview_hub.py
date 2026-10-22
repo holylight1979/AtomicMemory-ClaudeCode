@@ -1934,6 +1934,62 @@ def test_006_loop_exit_and_quoted_glob_do_not_inflate_reads(tmp_path, command):
     assert got == [], got
 
 
+@pytest.mark.parametrize("command", [
+    "exit 0; cat sales/periods.py",
+    "for f in x; do break; cat sales/periods.py; done",
+    "test -f defects.md || cat sales/periods.py",
+    "false && cat sales/periods.py; true",
+    "[ -f defects.md ] && echo y && cat sales/periods.py; true",
+    "grep -q x defects.md && cat sales/periods.py; echo done",
+], ids=["exit-first", "break-then-cat", "or-tail", "false-and", "test-and-chain", "grep-q-and"])
+def test_unreached_literal_read_does_not_count(tmp_path, command):
+    """規則 BASH_UNREACHED_READ_NOT_COUNTED：字面出現、但執行不到（或不一定跑）的 cat 不算讀過——整條指令結束碼 0 看不出那段跑了沒。
+    前置：同一個檔單獨 cat 會算（不是因為檔不在才沒算到）。"""
+    root = _b5w2_repo(tmp_path)
+    assert oh.read_paths_from_tool("Bash", {"command": "cat sales/periods.py"}, str(root))
+    got = [p for p in oh.read_paths_from_tool("Bash", {"command": command}, str(root)) if Path(p).is_file()]
+    assert got == [], got
+
+
+@pytest.mark.parametrize("command, n", [
+    ("cd . && cat sales/periods.py", 1),
+    ("cat defects.md && cat sales/periods.py", 2),
+    ("git ls-files && echo --- && cat defects.md", 1),
+    ("cat sales/periods.py || true", 1),
+    ("cat sales/periods.py; exit 0", 1),
+    ("[ -f defects.md ] || exit 1; cat sales/periods.py", 1),
+    ("for f in a; do break; done; cat sales/periods.py", 1),
+    ("python - <<'PY'\ndef f():\n    return 1\nPY\ncat sales/periods.py", 1),
+], ids=["cd-and", "cat-and-cat", "b5-ls-files-chain", "cat-or-true", "exit-after", "guard-exit", "after-done", "heredoc-return"])
+def test_reached_reads_still_count(tmp_path, command, n):
+    """反例：前段是一般指令的 && 後段（它失敗整條結束碼就非零，交結束碼篩）、|| 前段、exit 之前、守門式 `|| exit 1` 之後、
+    迴圈 done 之後、heredoc 內文裡的 return（那是 python 的）都照算讀過。"""
+    root = _b5w2_repo(tmp_path)
+    got = [p for p in oh.read_paths_from_tool("Bash", {"command": command}, str(root)) if Path(p).is_file()]
+    assert len(got) == n, got
+
+
+def test_exit_reached_inside_chain_stops_later_reads(tmp_path):
+    """codex 007：`true && exit 0; cat x` 在 exit 就結束，後面的 cat 沒跑；串內會跑到的 exit 之後都不算。
+    反例：`|| exit 1` 守門式（exit 在 || 後段、不一定跑）之後的 cat 照算。"""
+    root = _b5w2_repo(tmp_path)
+    got = [p for p in oh.read_paths_from_tool("Bash", {"command": "true && exit 0; cat sales/periods.py"}, str(root))]
+    assert got == [], got
+    assert oh.read_paths_from_tool("Bash", {"command": "[ -f defects.md ] || exit 1; cat sales/periods.py"}, str(root))
+
+
+def test_unreached_read_does_not_release_part_gate(tmp_path, monkeypatch):
+    """端到端：`test -f … || cat ops/README.md` 結束碼 0 → 部位檔沒讀過，照擋；直接 cat 之後才放。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    state = {}
+    _bash_read(state, root, "test -f ops/README.md || cat ops/README.md", exit_code=0)
+    warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {})
+    assert deny
+    _bash_read(state, root, "cat ops/README.md", exit_code=0)
+    assert wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {}) == (None, None, True)
+
+
 def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
     """grep -n（第一個參數是樣式，不算路徑）與 more 算讀檔（改前不認）；grep 沒帶 -n 不算。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")

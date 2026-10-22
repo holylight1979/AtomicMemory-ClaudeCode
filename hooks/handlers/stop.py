@@ -49,7 +49,7 @@ from wg_release_rules import (
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
-    cmd_run_line, second_opinion_decline, second_opinion_decline_ok,
+    cmd_run_line, second_opinion_decline, second_opinion_decline_ok, parse_equivalence_lines, reason_present,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1236,18 +1236,12 @@ def _equivalence_on(config: Dict[str, Any], cwd: str) -> bool:
     return not (isinstance(sec, dict) and sec.get("enabled") is False)
 
 
-def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, Any], input_data: Dict[str, Any],
-                      code_text: str, own_mod_files: List[Dict[str, Any]], turn_seq: int, since: int,
-                      tpath: Optional[str], cwd: str, claimed: Optional[bool] = None) -> Optional[str]:
-    """事實收集＋預算＋留帳，判定在 wg_release_rules。回擋訊息；None＝不關事或放行。改了 state（預算、擋的位置、已留帳的行），
-    由呼叫端 write_state。
-    事實：意圖（state turn_intent，只由使用者本人打的字判）、本回合改過的程式檔、它們最後一次修改之後的收據（指令完整、記了環境、
-    指令沒自己寫哨兵字樣）、收尾文字的入口行。等值沒證齊、熱路徑答了缺東西 → 照寫碼查核預算擋、擋滿問使用者；熱路徑沒答每個使用者
-    回合擋一次。"""
+def _equivalence_applies(state: Dict[str, Any], config: Dict[str, Any], code_text: str, own_mod_files: List[Dict[str, Any]],
+                         turn_seq: int, since: int, cwd: str, claimed: Optional[bool] = None) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
+    """等值閘這回合管不管：意圖 refactor／perf、宣告完成、本回合改過程式檔、閘開著 → (意圖, 本回合改過的程式檔)；不管回 None。
+    閘本身與「不適用宣告每次留帳」（EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED 的 needed 欄）共用。"""
     import wg_verify_ledger as _vl
     from wg_overview import _intent_of
-    from wg_release_rules import (equivalence_verdict, format_hit, has_measure, hot_path_verdict, parse_equivalence_lines,
-                                  proved_mutations)
     intent = _intent_of(state)
     if intent not in ("refactor", "perf") or not (claims_completion(code_text) if claimed is None else claimed):
         return None
@@ -1257,6 +1251,47 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
                  and _vl.is_code_file(str((m or {}).get("path") or ""), exts)]
     if not code_mods or not _equivalence_on(config, cwd):
         return None
+    return intent, code_mods
+
+
+def _declared_once(state: Dict[str, Any], key: str, session_id: str, since: int, text: str) -> bool:
+    """收尾宣告留帳的去重：同一個使用者回合同一句只記一筆（被擋後重寫同一句不重記）。沒記過 → 記進 state[key] 並回 True。"""
+    seen = state.setdefault(key, {})
+    mine = seen.get(session_id) if isinstance(seen.get(session_id), dict) else {}
+    said = list(mine.get("reasons") or []) if mine.get("turn") == since else []
+    if text in said:
+        return False
+    seen[session_id] = {"turn": since, "reasons": [*said, text]}
+    return True
+
+
+def _loop_mutation_receipts(cmd: str, sents: List[Dict[str, Any]], exit_code: Any, cwd: str) -> List[Tuple[Any, ...]]:
+    """規則 EQUIVALENCE_LOOP_EXPANDED：`for m in order side_effect boundary; do … --mutation $m …; done` 這種清單每項字面的迴圈，
+    展開的每份本體各當一筆收據；條件是這筆收據的 PRESERVE_CHECK PASS 行數不少於展開份數、而且沒有 FAIL（哪一輪沒印哨兵或紅了都不算）。
+    展開與「本體有跳出指令不展開」照讀檔同一支 lib/overview_hub.bash_for_bodies。"""
+    from overview_hub import bash_for_bodies
+    bodies = [b for b in bash_for_bodies(cmd, cwd) if "--mutation" in b]
+    passes = sum(int(s.get("n") or 1) for s in sents if s.get("name") == "PRESERVE_CHECK" and s.get("verdict") == "PASS")
+    if not bodies or passes < len(bodies) or any(s.get("verdict") == "FAIL" for s in sents):
+        return []
+    return [(b, ["PRESERVE_CHECK:PASS"], exit_code, []) for b in bodies]
+
+
+def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, Any], input_data: Dict[str, Any],
+                      code_text: str, own_mod_files: List[Dict[str, Any]], turn_seq: int, since: int,
+                      tpath: Optional[str], cwd: str, claimed: Optional[bool] = None) -> Optional[str]:
+    """事實收集＋預算＋留帳，判定在 wg_release_rules。回擋訊息；None＝不關事或放行。改了 state（預算、擋的位置、已留帳的行），
+    由呼叫端 write_state。
+    事實：意圖（state turn_intent，只由使用者本人打的字判）、本回合改過的程式檔、它們最後一次修改之後的收據（指令完整、記了環境、
+    指令沒自己寫哨兵字樣）、收尾文字的入口行。等值沒證齊、熱路徑答了缺東西 → 照寫碼查核預算擋、擋滿問使用者；熱路徑沒答每個使用者
+    回合擋一次。"""
+    import wg_verify_ledger as _vl
+    from wg_release_rules import (equivalence_verdict, format_hit, has_measure, hot_path_verdict, parse_equivalence_lines,
+                                  proved_mutations)
+    applies = _equivalence_applies(state, config, code_text, own_mod_files, turn_seq, since, cwd, claimed)
+    if applies is None:
+        return None
+    intent, code_mods = applies
     last_seq = max(int(m.get("last_seq") or 0) for m in code_mods)
     receipts = []                                   # (指令, 哨兵「名稱:結論」, exit, 各 DONE 哨兵的 k=v)
     for r in receipts_of(state, session_id):
@@ -1266,6 +1301,7 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
         sents = [s for s in r.get("sentinels") or [] if isinstance(s, dict)]
         receipts.append((cmd, [f"{s.get('name')}:{s.get('verdict')}" for s in sents], r.get("exit_code"),
                          [s.get("kv") or {} for s in sents if s.get("verdict") == "DONE"]))
+        receipts.extend(_loop_mutation_receipts(cmd, sents, r.get("exit_code"), cwd))
     lines = parse_equivalence_lines(code_text)
     eq = equivalence_verdict(proved_mutations(receipts), lines["na"]) if intent == "refactor" else None
     hot = hot_path_verdict(lines["hot"], lines["skip"], has_measure(receipts))
@@ -1283,9 +1319,7 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
         append_guard_log("equivalence", {"event": event, "session_id": session_id, "turn_seq": turn_seq, "intent": intent,
                                          **({"line": line[:200]} if line else {}), **kw})
 
-    if eq is not None and not eq.owed and lines["na"]:
-        _log("not_applicable", eq.evidence[0] if eq.evidence else "", why=eq.why[:200])
-    if not hot.owed:
+    if not hot.owed:          # 不適用宣告的帳在收尾閘前面記（EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED）
         _log("hot_path", hot.evidence[0] if hot.evidence else "", why=hot.why[:200])
 
     # 字母：eq＝等值、hot＝熱路徑答了但缺東西（兩條照寫碼查核預算，擋滿問使用者）；hot0＝熱路徑沒答（每個使用者回合擋一次）
@@ -1331,7 +1365,8 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
             + "\n先看使用者有沒有叫你跳過或先不管這支：(a) 有 → 不動測試檔、讓它照紅，收尾寫一行"
             "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」，程式對到這筆紅測就留帳放行 "
             "(b) 沒有 → 修到綠：程式錯就修程式；是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」"
-            "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言 "
+            "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言；刻意拿舊碼跑新測試的負向對照 → 重跑那條指令、開頭加 "
+            "`# 負向對照｜<指令裡的路徑>：<理由>`，那次紅就不記 "
             "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。")
 
 
@@ -1578,17 +1613,23 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 規則 SECOND_OPINION_DECLARED_ALWAYS_LOGGED：收尾有「不需第二意見｜<理由>」就留帳，排在所有收尾閘前面——第二意見閘這回合不要、
     # 或前面的閘先擋下，宣告照樣記；needed 記閘當下要不要。同一個使用者回合同一句理由只記一筆（被擋後重寫同一句不重記）。
     _so_reason = second_opinion_decline(code_text)
-    if _so_reason is not None and second_opinion_decline_ok(_so_reason):
-        _so_seen = state.setdefault("second_opinion_declared", {})
-        _so_mine = _so_seen.get(session_id) if isinstance(_so_seen.get(session_id), dict) else {}
-        _so_said = list(_so_mine.get("reasons") or []) if _so_mine.get("turn") == _since else []
-        if _so_reason not in _so_said:
-            _so_v0, _so_f0 = _so_check()
-            append_guard_log(_SO_GATE, {"event": "declined", "session_id": session_id, "turn_seq": turn_seq,
-                                        "reason": _so_reason[:300], "code_files": _so_f0.get("code_files"),
-                                        "triggers": _so_f0.get("triggers"),
-                                        "needed": None if _so_v0 is None else _so_v0.rule == "SECOND_OPINION_DECLINED"})
-            _so_seen[session_id] = {"turn": _since, "reasons": [*_so_said, _so_reason]}
+    if (_so_reason is not None and second_opinion_decline_ok(_so_reason)
+            and _declared_once(state, "second_opinion_declared", session_id, _since, _so_reason)):
+        _so_v0, _so_f0 = _so_check()
+        append_guard_log(_SO_GATE, {"event": "declined", "session_id": session_id, "turn_seq": turn_seq,
+                                    "reason": _so_reason[:300], "code_files": _so_f0.get("code_files"),
+                                    "triggers": _so_f0.get("triggers"),
+                                    "needed": None if _so_v0 is None else _so_v0.rule == "SECOND_OPINION_DECLINED"})
+        write_state(session_id, state)
+
+    # 規則 EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED：收尾有「等值證法｜不適用｜<理由>」（理由成立）就留帳，同第二意見宣告排在所有收尾閘前面；
+    # needed＝等值閘這回合管不管（意圖 refactor、宣告完成、改過程式檔、閘開著）。同回合同一行只記一筆。
+    for _na in parse_equivalence_lines(code_text)["na"]:
+        if reason_present(_na["reason"]) and _declared_once(state, "equivalence_na_declared", session_id, _since, _na["line"]):
+            _eq_app = _equivalence_applies(state, config, code_text, own_mod_files, turn_seq, _since, cwd, _done(code_text))
+            append_guard_log("equivalence", {"event": "not_applicable", "session_id": session_id, "turn_seq": turn_seq,
+                                             "intent": _eq_app[0] if _eq_app else None, "line": _na["line"][:200],
+                                             "reason": _na["reason"][:300], "needed": bool(_eq_app and _eq_app[0] == "refactor")})
             write_state(session_id, state)
 
     # 規則 USER_WAIVER_NEEDS_CITATION：使用者說「先這樣／跳過」不再整段清掉紅測；LLM 寫「不做｜<哪一支>：使用者說「<原句>」」、

@@ -65,11 +65,11 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 # ─── 哨兵 ─────────────────────────────────────────────────────────────
 DEFAULT_SENTINEL_RE: Pattern = re.compile(
-    r"^(?P<name>[A-Z][A-Z0-9_]*)_CHECK\s+(?P<verdict>PASS|FAIL|DONE)\b(?P<kv>(?:\s+\w+=\S+)*)", re.MULTILINE
+    r"^(?P<name>[A-Z][A-Z0-9_]*)_CHECK[ \t]+(?P<verdict>PASS|FAIL|DONE)\b(?P<kv>(?:[ \t]+\w+=\S+)*)", re.MULTILINE
 )
-# 量測類（rules/coding-style.md 自檢：`<NAME> DONE k=v k=v`）；數字是尺不是判決
+# 量測類（rules/coding-style.md 自檢：`<NAME> DONE k=v k=v`）；數字是尺不是判決。k=v 只收同一行（下一行的 exit=0 不是它的）
 DEFAULT_DONE_RE: Pattern = re.compile(
-    r"^(?P<name>[A-Z][A-Z0-9_]*)\s+DONE\b(?P<kv>(?:\s+\w+=\S+)*)\s*$", re.MULTILINE
+    r"^(?P<name>[A-Z][A-Z0-9_]*)[ \t]+DONE\b(?P<kv>(?:[ \t]+\w+=\S+)*)[ \t\r]*$", re.MULTILINE   # 行尾可帶 \r（CRLF 輸出）
 )
 _EXIT_CODE_RE = re.compile(r"^(?:Error:\s*)?Exit code (\d+)\b", re.MULTILINE)
 VERDICTS = ("PASS", "FAIL", "DONE")
@@ -162,26 +162,34 @@ def _kv(raw: Optional[str]) -> Dict[str, str]:
 
 
 def parse_sentinels(text: str, rules: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-    """輸出文字 → [{name, verdict, line, kv}]；預設兩個 regex（_CHECK 與量測 DONE）＋ config 規則；同一行同結論只記一次。
+    """輸出文字 → [{name, verdict, line, kv[, n]}]；預設兩個 regex（_CHECK 與量測 DONE）＋ config 規則；同名同結論同字的行只記一筆，
+    出現在兩個以上不同的行才加 n＝行數（迴圈跑三次印三行一樣的 PASS → n=3；同一行被兩個 regex 認到不重算）；讀的人用 get("n") or 1。
     反例：小寫 `x_check pass`、散文「測試通過」不命中。"""
     text = text or ""
     found: List[Dict[str, Any]] = []
-    seen: set = set()
+    seen: Dict[Tuple[str, str, str], Tuple[Dict[str, Any], set]] = {}
 
-    def _add(name: str, verdict: str, line: str, kv: Dict[str, str]) -> None:
+    def _add(name: str, verdict: str, m: "re.Match", kv: Dict[str, str]) -> None:
+        line = _line_of(text, m)
         key = (name, verdict, line)
+        at = text.rfind("\n", 0, m.start()) + 1          # 這一行的開頭位置：分得出不同行、同一行
         if key in seen:
+            rec, rows = seen[key]
+            rows.add(at)
+            if len(rows) > 1:
+                rec["n"] = len(rows)
             return
-        seen.add(key)
-        found.append({"name": name, "verdict": verdict, "line": line[:200], "kv": kv})
+        rec = {"name": name, "verdict": verdict, "line": line[:200], "kv": kv}
+        seen[key] = (rec, {at})
+        found.append(rec)
 
     for m in DEFAULT_SENTINEL_RE.finditer(text):
-        _add(m.group("name") + "_CHECK", m.group("verdict"), _line_of(text, m), _kv(m.group("kv")))
+        _add(m.group("name") + "_CHECK", m.group("verdict"), m, _kv(m.group("kv")))
     for m in DEFAULT_DONE_RE.finditer(text):
         name = m.group("name")
         if name.endswith("_CHECK"):
             continue      # 已由上一個 regex 收
-        _add(name, "DONE", _line_of(text, m), _kv(m.group("kv")))
+        _add(name, "DONE", m, _kv(m.group("kv")))
     for rule in rules or []:
         for m in rule["re"].finditer(text):
             raw = m.groupdict().get("verdict") or m.group(0)
@@ -189,7 +197,7 @@ def parse_sentinels(text: str, rules: Optional[List[Dict[str, Any]]] = None) -> 
             if not verdict:
                 continue
             name = rule["name"] or m.groupdict().get("name") or "CUSTOM"
-            _add(name, verdict, _line_of(text, m), {})
+            _add(name, verdict, m, {})
     return found
 
 

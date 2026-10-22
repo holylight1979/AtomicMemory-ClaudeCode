@@ -68,9 +68,16 @@ RULES: Dict[str, str] = {
                                   "不在管線、背景、子 shell 裡），之後的 $NAME／${NAME} 代換成那個值再算目標（C5：`S='<scratchpad>' && "
                                   "git show … > \"$S/old.py\"` 算得出是 scratchpad）；值不是字面（含 $、反引號、$(…)）、沒指定過、"
                                   "單引號裡的 $、指令前綴的指定（`S=x cmd \"$S\"`）、PowerShell 變數照舊判不出（UNKNOWN）。"
-                                  "內嵌碼被 ast 判成可能寫檔的原因只附在它自己那段：前面已有判不出的段時不黏過去。判定在 hooks/wg_core._remember_vars／_expand_vars。",
+                                  "內嵌碼被 ast 判成可能寫檔的原因只附在它自己那段：前面已有判不出的段時不黏過去。判定在 hooks/wg_core._remember_vars／_expand_vars。"
+                                  "子規則 SHELL_ENV_VAR_EXPANDED：指令裡沒碰過的環境變數（$TEMP、$TMP…；名字只以 $NAME／${NAME} 出現，"
+                                  "沒有 NAME=、export／unset／read／for NAME in、${NAME:=…}，條件式的也算碰過）照 hook 行程的 os.environ 代換（同 $HOME 理）；"
+                                  "環境裡沒有、大小寫不同、PWD／OLDPWD 這類 shell 自己改的、source／. ／eval 之後的段照舊判不出。判定在 hooks/wg_core._env_for_expansion。",
     "GIT_READONLY_SUBCMD": "跨層閘：指令裡每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file、"
-                           "ls-tree、rev-list、blame、describe、branch 無改名）且沒有寫到根層的目標 → 放行；擋就留 guard-crossrealm.jsonl。",
+                           "ls-tree、rev-list、blame、describe、branch 無改名）且沒有寫到根層的目標 → 放行；擋就留 guard-crossrealm.jsonl（帶 session_id）。"
+                           "「每段 git」只算 repo 在根層（家目錄 .claude、資料根、程式碼根）的段：Bash 用寫入目標掃描器的 cd／-C 追蹤推 repo，"
+                           "cd 到專案 repo 之後的 git archive 不算；repo 推不出、參數（-o、--output=、目錄）碰到根層或含展不開的變數照算；"
+                           "有命令替換、git 字樣比掃描器認到的 git 段多（eval、bash -c、heredoc 裡）、GIT_DIR／GIT_WORK_TREE、PowerShell → 照舊整條每段都算。"
+                           "寫入目標算不出（UNKNOWN）照擋，擋訊息說「算不出」不說「落在根層」。判定在 hooks/wg_core._root_git_segments。",
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
     "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
@@ -91,8 +98,13 @@ RULES: Dict[str, str] = {
                                     "Get-Content…；一段裡每個路徑參數都算）執行成功後，字面路徑且是實檔的算讀過，與 Read 同效；"
                                     "Bash 沒加引號的 glob 照 cwd 展開成實檔再算（展不出東西不算）；`for V in 清單; do …\"$V\"…; done` 清單每項都是字面"
                                     "（沒加引號的 glob 照展開）、本體沒有 break／continue／exit／return 時逐項代進本體再認讀檔指令"
-                                    "（lib/overview_hub._bash_for_bodies）；"
+                                    "（lib/overview_hub.bash_for_bodies）；"
                                     "其他含變數（$）、清單含 $／$(…) 的迴圈、指令失敗（exit≠0）、檔不存在不算；echo／printf／ls／find 不是讀檔指令。",
+    "BASH_UNREACHED_READ_NOT_COUNTED": "Bash 讀檔指令要在執行鏈上會跑到才算讀過（lib/overview_hub._bash_live_text，不做完整 shell 解析）："
+                                       "照 ; 與換行切串、串內照 && ／|| 切段；|| 之後到串尾、判斷指令（false、test、[、[[、!、grep -q、"
+                                       "command -v）接 && 之後到串尾、break／continue 開頭到 done、exit／return 開頭或串裡會跑到的"
+                                       "exit／return 之後全部 → 不算。"
+                                       "前段是一般指令的 && 後段照算（它失敗整條結束碼非零，交結束碼篩）；heredoc 內文原樣、不套這幾條。",
     "UNMAPPED_EDIT_NEEDS_READABLE_FILES":"表外檔改檔前要讀的同頂層目錄檔數＝min(設定的 part_files, 該目錄非執行期資料的既有檔數)："
                                           "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀照擋。",
     "TEMP_REPO_COMMIT_EXEMPT": "git commit 落在暫存目錄（系統 TEMP／TMP、scratchpad、/tmp）下的 repo → 不要求版控口令。",
@@ -149,6 +161,10 @@ RULES: Dict[str, str] = {
     "LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS": "根因層那行完全沒寫「候選 A／第一根因」這類標記時，兩個以上的列舉（①②、⑴⑵、(1)(2)）、"
                                               "或寫到兩個以上不同的「<名稱>層」（這層、每層、第二層這類泛稱不算）也算候選；只有一個列舉或一層"
                                               "照舊算 0 個。有標記就只看標記。固定字樣只是建議寫法，選擇理由照樣要寫。",
+    "CHOICE_REASON_BELONGS_TO_CHOICE": "根因層那行的「因為／理由／原因／由於／所以」要屬於選擇才算選擇理由：只以「；;。」切句（逗號不切），"
+                                       "同一句裡理由詞前面有「選／採」（「候選」的選不算）就算；否則要同一句裡理由詞前面沒有候選標記、"
+                                       "且在整行第一個候選標記之後（沒有固定標記從頭算）。「候選 A 快取層，因為沒清」是候選描述，"
+                                       "第一個候選前面的「新功能，所以…」是前言，都不算；「選候選 A 因為…」「採用候選 A 的理由是…」算。",
     # G1 側觀：定位之後的批判與舉一反三（原話輯 G1 2026-10-15）
     "RELOAD_ADVICE_ALREADY_LOADED": "收尾文字叫使用者 Reload Window（重新載入視窗）→ 查這個 session 的工具服務程序（每個 session 的 claude"
                                     "程序底下各有自己的服務；找不到所屬 claude 程序就看全機）啟動時載入的程式版本：全部有紀錄、心跳 3 分鐘內、"
@@ -608,25 +624,34 @@ _GIT_OUTPUT_OPT = "--output"       # 每個唯讀子命令都認得的寫檔選�
 _GIT_GLOBAL_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"})
 
 
-def _git_segments_readonly(command: str) -> Tuple[bool, List[str]]:
-    """每個以 git 開頭的指令段是不是唯讀子命令。回 (全唯讀, 證據)。先按換行切（shlex 會把換行當空白吞掉，第二行的 reset
-    會被當成第一行 status 的參數；codex 001 BLOCK 2），再按 && || ; | & 切段（引號內不切）；引號不完整、含命令替換（$( 或反引號）
-    → 判不了，當不唯讀。"""
-    raw = str(command or "").replace("\r\n", "\n").replace("\r", "\n")
-    if re.search(r"\$\(|`", raw):
-        return False, ["指令含命令替換（$( 或反引號），判不了"]
+def _shlex_segments(raw: str) -> Optional[List[List[str]]]:
+    """指令切段：先按換行切（shlex 會把換行當空白吞掉，第二行的 reset 會被當成第一行 status 的參數；codex 001 BLOCK 2），
+    再按 && || ; | & 切段（引號內不切）。引號不完整回 None。"""
     segs: List[List[str]] = []
     for line in raw.split("\n"):
         try:
             tokens = shlex.split(line, posix=True)
         except ValueError:
-            return False, ["指令引號不完整，解析不了"]
+            return None
         segs.append([])
         for tok in tokens:
             if tok in ("&&", "||", ";", "|", "&"):
                 segs.append([])
             else:
                 segs[-1].append(tok)
+    return segs
+
+
+def _git_segments_readonly(command: str, segments: Optional[Sequence[Sequence[str]]] = None) -> Tuple[bool, List[str]]:
+    """每個以 git 開頭的指令段是不是唯讀子命令。回 (全唯讀, 證據)。segments 沒給：整條指令自己切段（_shlex_segments），
+    每段 git 都判；給了（跨層閘從掃描器挑出 repo 在根層的 git 段，每段是 git 後面的參數）只判那幾段。
+    引號不完整、含命令替換（$( 或反引號）→ 判不了，當不唯讀。"""
+    raw = str(command or "").replace("\r\n", "\n").replace("\r", "\n")
+    if re.search(r"\$\(|`", raw):
+        return False, ["指令含命令替換（$( 或反引號），判不了"]
+    segs = [["git", *s] for s in segments] if segments is not None else _shlex_segments(raw)
+    if segs is None:
+        return False, ["指令引號不完整，解析不了"]
     evidence: List[str] = []
     seen_git = False
     for seg in segs:
@@ -660,11 +685,19 @@ def _git_segments_readonly(command: str) -> Tuple[bool, List[str]]:
     return seen_git, evidence
 
 
-def git_readonly_verdict(command: str, root_write_targets: Sequence[str]) -> Verdict:
-    """GIT_READONLY_SUBCMD：owed=False＝放行（每段 git 都唯讀、且寫入目標沒有落在根層）；owed=True＝照擋。"""
+def git_readonly_verdict(command: str, root_write_targets: Sequence[str],
+                         git_segments: Optional[Sequence[Sequence[str]]] = None) -> Verdict:
+    """GIT_READONLY_SUBCMD：owed=False＝放行（每段 git 都唯讀、且寫入目標沒有落在根層）；owed=True＝照擋。
+    root_write_targets 裡 UNKNOWN 開頭的是算不出的目標（擋訊息照實說算不出，不說落在根層）。
+    git_segments：要判的 git 段（git 後的參數）；None＝整條指令每段 git 都判；[]＝git 都在別的 repo 跑，不用判。"""
     if root_write_targets:
-        return Verdict("GIT_READONLY_SUBCMD", True, "指令有寫入目標落在根層", tuple(str(t)[:80] for t in root_write_targets[:3]))
-    ok, ev = _git_segments_readonly(command)
+        known = [t for t in root_write_targets if not str(t).startswith("UNKNOWN")]
+        why = "指令有寫入目標落在根層" if known else "寫入目標算不出（變數展不開、cd 去向不明或內嵌碼判不了），寧可多擋"
+        return Verdict("GIT_READONLY_SUBCMD", True, why, tuple(str(t)[:80] for t in root_write_targets[:3]))
+    if git_segments is not None and not git_segments:
+        return Verdict("GIT_READONLY_SUBCMD", False, "git 都在根層以外的 repo 跑（cd／-C 推得出 repo）、寫入目標也不在根層",
+                       ("沒有在根層 repo 跑的 git",))
+    ok, ev = _git_segments_readonly(command, git_segments)
     if not ok:
         return Verdict("GIT_READONLY_SUBCMD", True, "不是全唯讀的 git 指令", tuple(ev[-2:]) or (str(command)[:60],))
     return Verdict("GIT_READONLY_SUBCMD", False, "每段 git 都是唯讀子命令且沒寫到根層", tuple(ev[:4]))
@@ -927,6 +960,47 @@ def deliberate_red_verdict(reverted: Sequence[Tuple[str, str]], pending: Sequenc
     if reverted and pending:
         return Verdict("RED_WHILE_REVERTED", True, f"同根還有現行改碼（{'、'.join(pending[:3])}），這次紅不能算刻意", tuple(f"{n} == {r}" for n, r in reverted[:2]))
     return Verdict("RED_WHILE_REVERTED", True, "跑紅時沒有改檔處在已提交的舊版本，是真的紅", ())
+
+
+RULES["COMMIT_ORDER_DECISION_ALWAYS_LOGGED"] = ("git commit 口令閘（handlers/pre_tool_use.check_git_commit_order）判出這條指令會 commit 之後，每個結果都留一筆 "
+                                                "Logs/guard-commit_order.jsonl（event：denied／order＋口令字／quoted＋引的原句／temp_exempt／"
+                                                "claude_exempt／fail_open／error，帶 session_id、allowed、指令前 200 字）；不是 commit 的指令不寫。"
+                                                "放行條件裡有交給 LLM 判的語意授權（授權原句），事後要抽查得到。")
+RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）跑測試、預期它紅＝負向對照：宣告行「負向對照｜<這條指令裡出現的路徑或字樣>："
+                                      "<理由>」（回覆文字／工具參數／thinking 三管道，主檔與子代理檔，含這次指令自己的 `#` 註解）點到的字樣"
+                                      "是這條指令的一段、理由有文字內容 → 這次紅記 deliberate_reds（rule＝本規則、附宣告行），不進 failing_tests、"
+                                      "不計重試；點到的字樣不在指令裡、沒寫理由、沒宣告 → 照記紅。宣告只綁出現那段字樣的指令，蓋不到別的紅。")
+_NEG_CONTROL_RE = re.compile(r"負向對照\s*[｜|]\s*(.+)")
+
+
+def parse_negative_controls(text: str) -> List[Dict[str, str]]:
+    """「負向對照｜<字樣>：<理由>」→ [{subject, reason, line}]；字樣與理由用第一個「：」分，沒有全形冒號才找不接路徑分隔的「:」。"""
+    out: List[Dict[str, str]] = []
+    for raw in str(text or "").splitlines():
+        m = _NEG_CONTROL_RE.search(raw)
+        if not m:
+            continue
+        rest = m.group(1)
+        sep = rest.find("：")
+        if sep < 0:
+            ascii_sep = _JUDGE_CARD_ASCII_SEP_RE.search(rest)
+            subject, reason = (rest[:ascii_sep.start()], rest[ascii_sep.end():]) if ascii_sep else (rest, "")
+        else:
+            subject, reason = rest[:sep], rest[sep + 1:]
+        out.append({"subject": subject.strip().strip("`'\"「」"), "reason": reason.strip(), "line": raw.strip()[:240]})
+    return out
+
+
+def negative_control_verdict(command: str, decls: Sequence[Dict[str, str]]) -> Verdict:
+    """NEGATIVE_CONTROL_DECLARED：owed＝這次紅要照記（沒有點到這條指令、附理由的負向對照宣告）。斜線方向不分；
+    比的是指令真的會跑的行（`#` 註解行去掉），宣告寫在註解裡不能自己對上自己。"""
+    rule = "NEGATIVE_CONTROL_DECLARED"
+    cmd = "\n".join(ln for ln in str(command or "").splitlines() if not ln.lstrip().startswith("#")).replace("\\", "/")
+    for d in decls:
+        subject = d["subject"].replace("\\", "/")
+        if subject and subject in cmd and reason_present(d["reason"]):
+            return Verdict(rule, False, f"宣告過負向對照：{d['subject']}", (d["line"],))
+    return Verdict(rule, True, "沒有點到這條指令、附理由的負向對照宣告", ())
 
 
 RETRY_ESCALATE_ROUNDS = 2          # 兩輪重跑仍紅就升級 FixEscalation（plan 與 direct 同一個門檻）
@@ -1346,12 +1420,22 @@ def _role_core(text: str) -> str:
     return _ROLE_STRIP_RE.sub("", str(text or ""))
 
 
+# 選擇動詞：「選 A／選候選 A／採用／採取／採納」；「候選」裡的選、候選描述裡的「採集」不算
+_CHOICE_VERB_RE = re.compile(r"(?<!候)選|採(?:用|取|納)")
+
+
 def _has_choice_reason(root_line: str) -> bool:
-    """選擇理由：以「；，。」切段，段裡的理由詞前面沒有候選標記才算（「候選 A 的原因是 …」是候選自己的描述，不是選擇理由）。"""
-    for seg in re.split(r"[；;。，,]", str(root_line or "")):
-        r = _REASON_RE.search(seg)
-        c = _CANDIDATE_RE.search(seg)
-        if r and (c is None or r.start() < c.start()):
+    """CHOICE_REASON_BELONGS_TO_CHOICE：只以「；;。」切句（逗號不切，候選描述被逗號拆開後的「因為…」仍屬那個候選）。
+    理由詞符合任一條才算選擇理由：同一句裡它前面有選擇動詞；或同一句裡它前面沒有候選標記、且位置在整行第一個候選標記之後
+    （沒有固定標記從 0 起算；「候選 A 的原因是 …」是候選描述，第一個候選前面的「所以…」是前言）。"""
+    text = str(root_line or "")
+    first = _CANDIDATE_RE.search(text)
+    floor = first.start() if first else 0
+    for r in _REASON_RE.finditer(text):
+        before = re.split(r"[；;。]", text[:r.start()])[-1]     # 同一句裡理由詞前面那段
+        if _CHOICE_VERB_RE.search(before):
+            return True
+        if r.start() >= floor and not _CANDIDATE_RE.search(before):
             return True
     return False
 
@@ -2549,23 +2633,59 @@ def _quoted_other_name(text: str, start: int, end: int, base: str) -> bool:
     return False
 
 
+# 使用者原話的子句與否定字（口令閘 pre_tool_use._order_negated 與資料檔點名共用）。否定詞表只會多擋不會多放：
+# 子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉
+CLAUSE_END_RE = re.compile(r"[，,。！？!?；;\n]")
+NEG_WORD_RE = re.compile(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
+                         r"|\b(?:don'?t|do\s+not|not|never|no)\b", re.IGNORECASE)
+# 檔名右邊緊接著否定（「shop.json 先不要動」「settings.json 別碰」）
+_MENTION_RIGHT_NEG_RE = re.compile(r"^\s*(?:先|就|也|都|請)?\s*(?:不要|不可以|不能|不用|不必|不准|別|勿|暫不|先不要|先別)")
+RULES["DATA_FILE_DECL_VOIDED_BY_LATER_MENTION"] = ("資料檔宣告帳（state data_file_declared）記下宣告當時主 transcript 寫到的位置 at；之後有使用者原話"
+                                                   "提到這個檔（否定的也算）→ 舊帳作廢（拿掉、留帳 declared_voided），transcript 裡的宣告也只認"
+                                                   "最後一則提到它的原話之後寫的（子代理檔從頭找；這次指令自己的 `#` 註解照認）。後話肯定點名"
+                                                   "走點名豁免；後話沒提到這個檔照用舊帳（hooks/wg_data_file）。")
+RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但那一處被否定（同一子句裡檔名左邊有否定字，或右邊緊接否定："
+                                          "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
+                                          "裡另有沒被否定的提及照算點名（prompt_names_file）。")
+
+
+def _file_mentions(text: str, base: str) -> Iterable["re.Match"]:
+    """原話裡提到這個檔名的每一處：前後不接檔名字元；引號裡是更長的檔名、中日韓檔名前接中日韓字的不算。"""
+    rx = re.compile(r"(?<![A-Za-z0-9_.\-])" + re.escape(base) + r"(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", re.IGNORECASE)
+    cjk_head = bool(_CJK_CHAR_RE.match(base))
+    for m in rx.finditer(text):
+        if _quoted_other_name(text, m.start(), m.end(), base):
+            continue
+        if cjk_head and m.start() > 0 and _CJK_CHAR_RE.match(text[m.start() - 1]):
+            continue
+        yield m
+
+
+def mention_negated(text: str, start: int, end: int) -> bool:
+    """NEGATED_MENTION_IS_NOT_NAMING：text[start:end]（檔名）所在子句裡左邊有否定字，或右邊緊接否定。"""
+    seps = [m.end() for m in CLAUSE_END_RE.finditer(text, 0, start)]
+    return bool(NEG_WORD_RE.search(text[seps[-1] if seps else 0:start]) or _MENTION_RIGHT_NEG_RE.match(text[end:]))
+
+
+def prompt_mentions_file(prompt: str, target: str) -> bool:
+    """這則原話有沒有提到這個檔（否定的也算）：DATA_FILE_DECL_VOIDED_BY_LATER_MENTION 判後話用。"""
+    base = Path(str(target)).name
+    return bool(base) and any(True for _ in _file_mentions(str(prompt or ""), base))
+
+
 def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
     """事實 (d)：使用者原話有沒有點名這個檔，檔名含副檔名完整比對，不分大小寫：前後不接檔名字元（前面可接路徑分隔）；
-    引號裡是更長的檔名不算；檔名以中日韓字開頭時前一個字也是中日韓字不算（「備份設定.json」分不出是不是別的檔，寧可多問）。
-    英文檔名前接中文動詞照算（「把settings.json的逗號修掉」）。回點名那則原話的片段，沒有回 None。"""
+    引號裡是更長的檔名不算；檔名以中日韓字開頭時前一個字也是中日韓字不算（「備份設定.json」分不出是不是別的檔，寧可多問）；
+    被否定的那一處不算（NEGATED_MENTION_IS_NOT_NAMING）。英文檔名前接中文動詞照算（「把settings.json的逗號修掉」）。
+    回點名那則原話的片段，沒有回 None。"""
     base = Path(str(target)).name
     if not base:
         return None
-    rx = re.compile(r"(?<![A-Za-z0-9_.\-])" + re.escape(base) + r"(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", re.IGNORECASE)
-    cjk_head = bool(_CJK_CHAR_RE.match(base))
     for p in prompts or ():
         text = str(p or "")
-        for m in rx.finditer(text):
-            if _quoted_other_name(text, m.start(), m.end(), base):
-                continue
-            if cjk_head and m.start() > 0 and _CJK_CHAR_RE.match(text[m.start() - 1]):
-                continue
-            return text[max(0, m.start() - 30):m.end() + 30]
+        for m in _file_mentions(text, base):
+            if not mention_negated(text, m.start(), m.end()):
+                return text[max(0, m.start() - 30):m.end() + 30]
     return None
 
 
@@ -2702,6 +2822,10 @@ RULES.update({
                                          "寫之前看不到改後內容：PreToolUse 拍改前快照、PostToolUse 比對，沒宣告的記 state，下一個工具呼叫擋到"
                                          "補宣告（declared_late）或撤回（reverted）為止；只讀、只寫那幾個欠帳檔的呼叫不擋。事實由 wg_oldtest 收，"
                                          "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt／undeclared／denied_late／declared_late／reverted）。",
+    "OWN_COMMIT_CHANGES_STILL_COMPARED": "執行 python 的指令在同一條裡自己 commit（commit、amend、revert；合併提交不算）、工作樹又乾淨時，"
+                                         "那幾筆 commit 前後有變的測試檔照樣拿執行前的內容比，事後補記的基線取執行前的 HEAD（同指令新加又 commit 的"
+                                         "測試仍算本 session 新加）；讀不到 reflog → 整段都比，git diff 失敗 → stderr＋留帳 own_commit_diff_error"
+                                         "（wg_oldtest._own_commit_tests）。",
 })
 
 OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip", "doc": "說明變了"}
@@ -2814,6 +2938,11 @@ RULES.update({
                                            "matcher 掛工具名、Python 判，MCP 端照 locate_atom 同一份定位）。不分 session，總控台也要宣告。"
                                            "每次改動都留帳 Logs/guard-judge_card.jsonl（卡名、entry、宣告行、session、allowed）；"
                                            "事實由 hooks/wg_judge_card.py 收。沒綁 Entry 的卡、新建的卡不觸發。",
+    "JUDGE_CARD_HASH_CATCHES_INTERPRETER": "直譯器自己開檔寫卡（寫入目標解析不到）：Bash／PowerShell 指令會跑直譯器（python／node／perl…）"
+                                           "或字面含某張判準卡的檔名 → PreToolUse 記資料根索引裡綁 Entry 的卡的雜湊（這次寫入目標已判過的卡不重記），"
+                                           "PostToolUse／PostToolUseFailure 比對；變了（含被刪）照 JUDGE_CARD_CHANGE_NEEDS_DECLARATION 核對宣告，"
+                                           "有就留帳 declared（channel=interpreter），沒有留帳 undeclared、記 state judge_card_undeclared，"
+                                           "下一個呼叫（任何工具）擋到補宣告為止（補了留帳 declared_late）。其他指令不記雜湊。",
 })
 _JUDGE_CARD_DECL_RE = re.compile(r"改判準卡\s*[｜|]\s*(.+)")
 _JUDGE_CARD_ASCII_SEP_RE = re.compile(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
@@ -3249,6 +3378,14 @@ RULES.update({
                                    "答了但缺收據或缺理由 → 照寫碼查核的預算擋，擋滿問使用者。是不是熱路徑、怎麼量由 AI 判。",
 })
 
+RULES["EQUIVALENCE_LOOP_EXPANDED"] = ("三類變異寫在一條 for 迴圈裡跑（`for m in order side_effect boundary; do … --mutation $m …; done`，"
+                                      "清單每項字面、本體沒有指令位置上的 break／continue／exit／return；引號裡的字樣不算）→ 每份展開的本體各算一筆"
+                                      "收據，條件是那筆收據的 PRESERVE_CHECK PASS 行數（哨兵帳 n）不少於展開份數、沒有 FAIL、沒紅；"
+                                      "展開在 handlers/stop._loop_mutation_receipts（lib/overview_hub.bash_for_bodies），判類別照 proved_mutations。")
+RULES["EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED"] = ("收尾文字有「等值證法｜不適用｜<理由>」（理由有文字內容、不是佔位）→ 每次都留帳 guard-equivalence.jsonl "
+                                                  "not_applicable（行、理由、needed＝等值閘這回合管不管），排在所有收尾閘前面（比照 "
+                                                  "SECOND_OPINION_DECLARED_ALWAYS_LOGGED）：意圖不是重構、本回合沒改程式、前面的閘先擋下都照記；"
+                                                  "同一個使用者回合同一行只記一筆（handlers/stop._declared_once）。")
 EQUIVALENCE_MUTATIONS = ("order", "side_effect", "boundary")
 EQUIVALENCE_SENTINEL = "PRESERVE_CHECK"
 EQUIVALENCE_ENTRY = "跑三類 `preserve-check.py --mutation order|side_effect|boundary`（尾行 PRESERVE_CHECK PASS），或宣告 `等值證法｜不適用｜<理由>`"

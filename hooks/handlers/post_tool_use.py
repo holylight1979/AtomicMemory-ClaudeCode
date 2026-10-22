@@ -41,6 +41,7 @@ from wg_verify_ledger import (
     small_content_sha,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_ran_cases_verdict,
+                              negative_control_verdict, parse_negative_controls,
                               red_case_facts, red_case_names, retry_round_verdict, same_test_run)
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -61,6 +62,7 @@ from handlers._shared import (
     entry_note,
 )
 import wg_oldtest
+import wg_judge_card  # 裁定 #53 直譯器改判準卡事後比對
 
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
@@ -563,6 +565,8 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             reverted, pending_code = [], ["?"]
             print(f"[verify-ledger] 判斷刻意紅失敗，照算真的紅：{type(e).__name__}: {e}", file=sys.stderr)
         verdict = deliberate_red_verdict(reverted, pending_code)
+        if verdict.owed:
+            verdict = _negative_control(input_data, command)
         if not verdict.owed:
             print(f"[Guardian:TestFail] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}", file=sys.stderr)
             lst = state.setdefault("deliberate_reds", [])
@@ -993,7 +997,7 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
     aid = str(input_data.get("agent_id") or "")
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     noted = _note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None else []
-    dirty = bool(noted)
+    dirty = _judge_card_after(state, input_data, config) or bool(noted)
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
     if exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
@@ -1015,6 +1019,32 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
         output_json({"hookSpecificOutput": {"hookEventName": "PostToolUseFailure", "additionalContext": "\n".join(advisories)}})
     else:
         output_nothing()
+
+
+def _negative_control(input_data: Dict[str, Any], command: str):
+    """規則 NEGATIVE_CONTROL_DECLARED 的事實：宣告行從 transcript 三管道（主檔與子代理檔）加這次指令全文找。
+    讀不到 transcript 只 stderr、照記紅（寧可多擋）。"""
+    from overview_hub import LOCATE_CHANNELS
+    from wg_core import assistant_texts_since
+    tp = str(input_data.get("transcript_path") or "")
+    try:
+        text = "\n".join([assistant_texts_since(tp, "", ch) for ch in LOCATE_CHANNELS] + [command])
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:TestFail] 找負向對照宣告失敗，照記紅：{type(e).__name__}: {e}", file=sys.stderr)
+        text = command
+    return negative_control_verdict(command, parse_negative_controls(text))
+
+
+def _judge_card_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """裁定 #53 直譯器出口：Bash／PowerShell 跑完拿 PreToolUse 記的判準卡雜湊比，改了沒宣告記 state，下一個呼叫在 PreToolUse 擋。
+    成功與失敗（PostToolUseFailure）兩條路都比；比對失敗只能 stderr＋留帳（事後擋不了這一次）。"""
+    try:
+        return wg_judge_card.after_tool(state, input_data, config)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:JudgeCardDeclare] 事後比對判準卡失敗（這次直譯器改卡沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
+        append_guard_log("judge_card", {"event": "after_error", "session_id": str(input_data.get("session_id") or ""),
+                                        "tool": str(input_data.get("tool_name") or ""), "error": f"{type(e).__name__}: {e}"})
+        return False
 
 
 def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_name: str, session_id: str,
@@ -1163,6 +1193,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
             append_guard_log("old_test", {"event": "after_error", "session": session_id, "tool": tool_name,
                                           "error": f"{type(e).__name__}: {e}"})
+    if _judge_card_after(state, input_data, config):
+        dirty = True
 
     if (
         tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit")

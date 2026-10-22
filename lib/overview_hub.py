@@ -859,7 +859,61 @@ def _bash_glob(tok: str, cwd: str) -> List[str]:
     return [p for p in sorted(_glob.glob(pattern)) if os.path.isfile(p)]
 
 
-_BASH_LOOP_EXIT_RE = re.compile(r"\b(?:break|continue|exit|return)\b")
+# 迴圈本體裡的跳出指令：只認指令位置（行首、; & | ( { 之後、do／then／else 之後）；引號裡的字樣（echo "exit=$?"）不算
+_BASH_LOOP_EXIT_RE = re.compile(r"(?:^|[;&|({]|\bdo\b|\bthen\b|\belse\b)\s*(?:break|continue|exit|return)\b", re.MULTILINE)
+# 規則 BASH_UNREACHED_READ_NOT_COUNTED 的切法：一條指令先照 ; 與換行切成一串一串，每串再照 && ／|| 切段
+_BASH_STMT_SPLIT_RE = re.compile(r"(;|\n)")
+_BASH_CHAIN_SPLIT_RE = re.compile(r"(&&|\|\|)")
+# 回 true／false 當判斷用的指令：它後面的 && 段不一定跑（整條指令的結束碼看不出來）
+_BASH_COND_RE = re.compile(r"^\s*(?:!|false\b|test\b|\[\[?\s|grep\s+(?:-\w*\s+)*-\w*q|command\s+-v\b)")
+_BASH_LOOP_SKIP_RE = re.compile(r"^\s*(?:(?:do|then|else|\{)\s+)?(?:break|continue)\b")
+_BASH_DONE_RE = re.compile(r"^\s*done\b")
+_BASH_LEAVE_RE = re.compile(r"^\s*(?:exit|return)\b")
+_BASH_HEREDOC_OPEN_RE = re.compile(r"(?<!<)<<-?\s*['\"]?(\w+)")
+
+
+def _bash_live_text(text: str) -> str:
+    """規則 BASH_UNREACHED_READ_NOT_COUNTED：把執行不到（或不一定跑）的區段挖掉，剩下的才交給讀檔解析。不做完整 shell 解析
+    （引號裡的 ; && || 照樣當分隔，跟讀檔解析的段尾判法一致）：
+    - || 後面到這串結束不算（前段成功就不跑）；
+    - && 串裡出現判斷指令（false、test、[、[[、!、grep -q、command -v）之後到這串結束不算；前段是一般指令照算
+      （它失敗會讓結束碼非零，交結束碼篩掉）；
+    - 一串開頭是 break／continue → 到 done 之前不算；開頭是 exit／return、或串裡會跑到的段是 exit／return（`true && exit 0`）
+      → 之後全部不算（`|| exit 1` 的 exit 在 || 後段、不一定跑，照第一條不算、也不截斷）。
+    heredoc 內文（到結束標記那一行）原樣保留、不套上面幾條：那是餵給別的程式的資料（python 的 return 不是 shell 的）。"""
+    out: List[str] = []
+    skip_to_done, heredoc, pending = False, "", ""
+    parts = _BASH_STMT_SPLIT_RE.split(text)
+    for i in range(0, len(parts), 2):
+        stmt, sep = parts[i], parts[i + 1] if i + 1 < len(parts) else ""
+        if heredoc:
+            out.append(stmt + sep)
+            heredoc = "" if stmt.strip() == heredoc else heredoc
+            continue
+        tag = _BASH_HEREDOC_OPEN_RE.search(stmt)
+        pending = tag.group(1) if tag else pending
+        if _BASH_LEAVE_RE.match(stmt) and not skip_to_done:
+            break
+        skip_to_done = (skip_to_done and not _BASH_DONE_RE.match(stmt)) or bool(_BASH_LOOP_SKIP_RE.match(stmt))
+        live, leaves = ("", False) if skip_to_done else _bash_live_chain(stmt)
+        out.append(live + sep)
+        if leaves:              # 串裡會跑到的 exit／return（`true && exit 0`）：之後都不算
+            break
+        if pending and sep == "\n":
+            heredoc, pending = pending, ""
+    return "".join(out)
+
+
+def _bash_live_chain(stmt: str) -> Tuple[str, bool]:
+    """一串（; 或換行之間）裡會跑的前段：|| 之後、判斷指令接 && 之後都不算。回 (會跑的前段, 前段裡有沒有 exit／return)。"""
+    segs = _BASH_CHAIN_SPLIT_RE.split(stmt)
+    live, leaves = segs[0], False
+    for j in range(1, len(segs), 2):
+        if segs[j] == "||" or _BASH_COND_RE.match(segs[j - 1]):
+            break
+        live += segs[j] + segs[j + 1]
+        leaves = leaves or bool(_BASH_LEAVE_RE.match(segs[j + 1]))
+    return live, leaves
 
 
 def _quoted_in(tok: str, text: str) -> bool:
@@ -867,7 +921,7 @@ def _quoted_in(tok: str, text: str) -> bool:
     return bool(re.search(r"(['\"])" + re.escape(tok) + r"\1", text))
 
 
-def _bash_for_bodies(command: str, cwd: str) -> List[str]:
+def bash_for_bodies(command: str, cwd: str) -> List[str]:
     """規則 BASH_READONLY_COUNTS_AS_READ 的迴圈展開：清單每一項都是字面（沒加引號的 glob 照 cwd 展開，加了引號的照字面）時，
     本體裡的 $V／${V}／"$V" 換成每一項（單引號包住）各產一份，交給同一套讀檔指令解析。清單含 $、反引號、$(…)，
     或本體有 break／continue／exit／return（後面的讀檔指令不一定跑）的迴圈不展開。"""
@@ -931,8 +985,8 @@ def read_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: str) -
     command = tool_input.get("command", "") or ""
     out: List[str] = []
     if tool_name == "Bash":
-        for text in [command, *_bash_for_bodies(command, cwd)]:
-            out.extend(_bash_read_paths(text, cwd))
+        for text in [command, *bash_for_bodies(command, cwd)]:
+            out.extend(_bash_read_paths(_bash_live_text(text), cwd))
         return out
     if tool_name != "PowerShell":
         return []

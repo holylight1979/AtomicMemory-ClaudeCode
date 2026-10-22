@@ -141,3 +141,51 @@ def test_045_git_readonly_subcmd_rule(tmp_path, monkeypatch):
 def test_non_shell_tools_ignored():
     assert check_cross_realm_bash("Write", {"file_path": HOME_CLAUDE + "/hooks/x.py"}, PROJ, CFG) is None
     assert check_cross_realm_bash("Bash", {}, PROJ, CFG) is None
+
+
+# ─── 007 T1.3：A3 表外誤擋（跨層閘把寫到 $TEMP 當成寫根層）────────────────────────────
+# 原指令（A3 A-1 transcript 第 85 行，cwd 換成假專案）：看根層 skill 腳本的說明，再把專案 repo 的舊版 archive 到 $TEMP
+_A3_CMD = (f"ls {HOME_CLAUDE}/skills/behavior-preservation/scripts/ && "
+           f"python {HOME_CLAUDE}/skills/behavior-preservation/scripts/preserve-check.py --help; echo \"exit=$?\"; echo ---; "
+           "mkdir -p \"$TEMP/qa2-old\" && cd /c/FakeProj/qa2-pricing && git archive HEAD pricing | tar -x -C \"$TEMP/qa2-old\" "
+           "&& ls \"$TEMP/qa2-old/pricing\"; echo \"$TEMP/qa2-old\"")
+
+
+def test_007_temp_target_and_project_repo_git_allowed(tmp_path, monkeypatch):
+    """T1.3：寫到 $TEMP（SHELL_ENV_VAR_EXPANDED 照環境值代換）＋cd 到專案 repo 之後的 git archive（GIT_READONLY_SUBCMD 只算
+    repo 在根層的 git 段）→ 放行、不留擋紀錄。兩個根因各自都會擋：只修一個照樣擋（下面兩條各留一個根因）。"""
+    import wg_core
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path)
+    monkeypatch.setenv("TEMP", "C:/Users/me/AppData/Local/Temp")
+    assert not _denied(_A3_CMD)
+    assert not (tmp_path / "guard-crossrealm.jsonl").exists()
+    msg = check_cross_realm_bash("Bash", _b(_A3_CMD.replace("cd /c/FakeProj/qa2-pricing", "cd ~/.claude")), PROJ, CFG)
+    assert msg and "git archive 不是唯讀子命令" in msg                          # git 段改在根層 repo：照擋
+    monkeypatch.delenv("TEMP")
+    msg = check_cross_realm_bash("Bash", _b(_A3_CMD), PROJ, CFG)
+    assert msg and "寫入目標算不出" in msg and "落在根層" not in msg             # $TEMP 不在環境：算不出，照實說算不出
+    assert (tmp_path / "guard-crossrealm.jsonl").exists()                      # 前置：這個設定下擋了會留紀錄（上面的「沒紀錄」才有意義）
+
+
+def test_007_crossrealm_still_denies_and_logs_session_id(tmp_path, monkeypatch):
+    """反例都照擋：條件式指定過的 TEMP、環境裡沒有的變數、根層 repo 的 git archive、專案 repo 的 git 把檔寫進根層、
+    eval 裡藏的 git（掃描器看不到，退回整條判）、mkdir／touch 進根層（預篩 regex 沒列、掃描器有寫入訊號）。擋紀錄帶 session_id。"""
+    import json
+    import wg_core
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path)
+    monkeypatch.setenv("TEMP", "C:/Users/me/AppData/Local/Temp")
+    monkeypatch.delenv("NOPE_NOT_SET", raising=False)
+    cmds = [
+        'false && TEMP=~/.claude/hooks; mkdir -p "$TEMP/x"',
+        'ls ~/.claude/hooks/ && mkdir -p "$NOPE_NOT_SET/x"',
+        "cd ~/.claude && git archive -o hooks/x.zip HEAD",
+        "cd /c/FakeProj/qa2-pricing && git archive -o ~/.claude/hooks/x.zip HEAD",
+        'ls ~/.claude/skills/ && eval "cd ~/.claude && git commit -am x"',
+        "mkdir -p ~/.claude/hooks/x",
+        "touch ~/.claude/hooks/x.py",
+    ]
+    for cmd in cmds:
+        msg = check_cross_realm_bash("Bash", _b(cmd), PROJ, CFG, "sid-007")
+        assert msg and "CrossRealmBashBlock" in msg, cmd
+    rows = [json.loads(ln) for ln in (tmp_path / "guard-crossrealm.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(rows) == len(cmds) and all(r.get("session_id") == "sid-007" for r in rows), rows

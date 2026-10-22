@@ -368,7 +368,7 @@ def test_006_shell_literal_var_expanded():
     assert _bash("OUT=out && echo x > \"$OUT/a.txt\"") == ["C:/Work/Proj/out/a.txt"]          # 相對值照 cwd 補
     # 反例：判不出的照判不出
     assert _unknown("echo x > \"$S/a\"")                                                       # 沒指定過
-    assert _unknown(f"S=\"$TMP\" && echo x > \"$S/a\"")                                        # 值不是字面
+    assert _unknown("S=\"$(pwd)/x\" && echo x > \"$S/a\"")                                     # 值不是字面（$TMP 這類改照 SHELL_ENV_VAR_EXPANDED 代換，見 007）
     assert _unknown(f"S='{_C5_SCRATCH}' | echo x > \"$S/a\"")                                  # 管線：子 shell
     assert _unknown(f"(S='{_C5_SCRATCH}') && echo x > \"$S/a\"")                               # 子 shell 不外溢
     assert _unknown(f"S='{_C5_SCRATCH}' && echo x > '$S/a'")                                   # 單引號裡的 $ 是字面
@@ -502,3 +502,30 @@ def test_unknown_target_is_denied(tmp_path, monkeypatch):
     warn, deny, changed = wo.on_edit({}, "s", "UNKNOWN:echo x > $OUT/a", "", {})
     assert deny and "改用 Edit／Write" in deny and not changed
     assert '"deny_reason": "unknown_target"' in (tmp_path / "hub.log").read_text(encoding="utf-8")
+
+
+# ─── 007 T1.3：跨層閘把寫到 $TEMP 當成寫根層（A3 A-1 transcript 第 85 行）────────────────
+
+def test_007_shell_env_var_expanded(monkeypatch):
+    """規則 SHELL_ENV_VAR_EXPANDED：指令裡沒碰過的環境變數照 hook 行程的環境值代換（同 $HOME 理），算得出寫到暫存目錄；
+    碰過（條件式指定、for、read）、環境裡沒有、大小寫不同、PWD 這類 shell 自己改的、source 之後、PowerShell 照舊判不出。
+    反例都先把 TEMP／PWD 設進環境：判不出是因為規則，不是因為環境裡本來就沒有。"""
+    tmp = "C:/Users/me/AppData/Local/Temp"
+    monkeypatch.setenv("TEMP", tmp)
+    monkeypatch.setenv("PWD", "C:/Elsewhere")
+    monkeypatch.delenv("NOPE_NOT_SET", raising=False)
+    assert _bash('mkdir -p "$TEMP/qa2-old"') == [tmp + "/qa2-old"]
+    assert _bash("cp a.py ${TEMP}/b.py") == [tmp + "/b.py"]
+    assert _bash('cd "$TEMP" && echo x > a.txt') == [tmp + "/a.txt"]                       # cd 到環境變數之後的相對目標
+    assert _bash('S=C:/w/sp && echo x > "$S/a" && echo y > "$TEMP/b"') == ["C:/w/sp/a", tmp + "/b"]   # 與字面指定並用
+    assert _bash('S="$TEMP/old" && echo x > "$S/a"') == [tmp + "/old/a"]                     # 指定值裡的環境變數先代換，S 就是字面
+    # 反例：判不出的照判不出
+    assert _unknown('false && TEMP=~/.claude/hooks; mkdir -p "$TEMP/x"')     # 條件式指定過（跑不跑看前一段）
+    assert _unknown('for TEMP in ~/.claude/hooks; do echo x > "$TEMP/x"; done')
+    assert _unknown('read -r TEMP; echo x > "$TEMP/a"')
+    assert _unknown('mkdir -p "$NOPE_NOT_SET/x"')                            # 環境裡沒有
+    assert _unknown('mkdir -p "$temp/x"')                                    # 大小寫不同
+    assert _unknown('cd C:/Work && echo x > "$PWD/a"')                       # cd 會改 PWD
+    assert _unknown('source env.sh; mkdir -p "$TEMP/x"')                     # source 讀進來的檔可能改任何變數
+    ps = write_paths_from_tool("PowerShell", {"command": 'New-Item -Path "$TEMP/x"'}, CWD)
+    assert len(ps) == 1 and ps[0].startswith("UNKNOWN:"), ps                 # PowerShell 的 $TEMP 是 PS 變數

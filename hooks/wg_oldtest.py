@@ -16,7 +16,8 @@ C#（[Test]／[Fact]／[TestMethod]／[Theory]）、Java（@Test）從這支的�
 只會多問一次宣告），斷言一行一筆、點開頭的續行併回上一行。比之前都去註解、空白壓成一個。
 Bash 寫入目標靠 wg_core.write_paths_from_tool；python 腳本自己開檔寫的解析不到，改看 git：執行 python 前記下 HEAD、進行中的
 合併類操作標記、logs/HEAD 長度、repo 裡已經有改動的測試檔與內容，執行後新出現改動的取執行前的 HEAD 當改前（執行前乾淨＝磁碟
-與 HEAD 相同）。git 自己產出的內容另外算（_git_after）：這條指令開始的 merge／squash／cherry-pick／rebase 停在半路 →
+與 HEAD 相同）；同一條指令自己 commit 掉、工作樹又乾淨的也算：logs/HEAD 裡這條指令自己 commit／revert 的每筆前後之間有變的
+測試檔一併比對（OWN_COMMIT_CHANGES_STILL_COMPARED；合併提交不算）。git 自己產出的內容另外算（_git_after）：這條指令開始的 merge／squash／cherry-pick／rebase 停在半路 →
 git merge-tree 從 commit 重算；HEAD 被 merge／pull／rebase／切分支移動（看這段期間 logs/HEAD 的每一筆，自己 commit、revert 不算）→ 新 HEAD。
 有它就只算比 git 產出的也變了的動作（同一支腳本之後再改、再 add 的照算），git 帶進來的測試併入基線：別軌帶進來的是舊測試，
 不能當本 session 新加的放過；判不出就照執行前的內容比（寧可多擋）。node 等其他直譯器自己寫檔、不在 git repo 裡的抓不到。
@@ -403,22 +404,23 @@ def hint(first: str) -> str:
             "只加新測試不用宣告。")
 
 
-def remember_baseline(state: Optional[Dict[str, Any]], pairs: Dict[str, Optional[str]]) -> bool:
-    """{測試檔: 改前內容} 裡本 session 還沒記過的檔，把當時有哪些測試（磁碟上的加上 git HEAD 裡的）記進 state[BASELINE_KEY]
+def remember_baseline(state: Optional[Dict[str, Any]], pairs: Dict[str, Optional[str]], rev: str = "HEAD") -> bool:
+    """{測試檔: 改前內容} 裡本 session 還沒記過的檔，把當時有哪些測試（磁碟上的加上 git rev 裡的）記進 state[BASELINE_KEY]
     （第一次碰到為準，之後不覆蓋）；就地改 state，回有沒有改。基線沒有的測試＝本 session 新加的：寫它的那次指令失敗時
-    Claude Code 不送 PostToolUse，old_test_added 記不到，靠這份基線照樣認得。"""
+    Claude Code 不送 PostToolUse，old_test_added 記不到，靠這份基線照樣認得。rev＝改前那一刻的 commit：事後補記的（after_tool）
+    傳執行前的 HEAD，同一條指令新加又 commit 掉的測試才不會因為已進 HEAD 被當成舊測試。"""
     if state is None:
         return False
     import wg_release_rules as rr
     base = state.setdefault(BASELINE_KEY, {})
-    fresh = {rr.canon_path(p): sorted(set(extract_tests(src or "", p)) | _head_tests(p))
+    fresh = {rr.canon_path(p): sorted(set(extract_tests(src or "", p)) | _head_tests(p, rev))
              for p, src in pairs.items() if rr.canon_path(p) not in base}
     base.update(fresh)
     return bool(fresh)
 
 
-def _head_tests(path: str) -> set:
-    """git HEAD 裡這個檔有哪些測試（不在 git repo、HEAD 沒有這個檔 → 空）。基線要併進來：session 開始前就被刪掉（未提交）
+def _head_tests(path: str, rev: str = "HEAD") -> set:
+    """git rev（預設 HEAD）裡這個檔有哪些測試（不在 git repo、rev 沒有這個檔 → 空）。基線要併進來：session 開始前就被刪掉（未提交）
     或被拿掉一支的舊測試，之後還原再改，仍算舊測試。查不到 git 只 stderr＋留帳，基線退回只看磁碟。"""
     from wg_core import find_vcs_root
     hit = find_vcs_root(Path(path).parent)
@@ -426,7 +428,7 @@ def _head_tests(path: str) -> set:
         return set()
     try:
         root = str(hit[1])
-        r = _git(root, "show", f"HEAD:{Path(path).relative_to(root).as_posix()}",
+        r = _git(root, "show", f"{rev}:{Path(path).relative_to(root).as_posix()}",
                  env={**os.environ, "LC_ALL": "C", "LANGUAGE": "C"})   # 錯誤訊息固定英文，_HEAD_MISSING_RE 才對得上
         if r.returncode:
             err = r.stderr.decode("utf-8", "replace").strip()
@@ -662,21 +664,46 @@ def _op_tree(root: str, gd: Path) -> Tuple[str, str]:
     return tree, ""
 
 
-def _head_moves(gd: Path, offset: int) -> Tuple[List[Tuple[str, str]], str]:
-    """(這條指令期間 HEAD 被別人的內容移動的幾筆 [(移動前, 移動後)], 判不出的原因)：logs/HEAD 從 offset 起新增、說明不是
-    _OWN_MOVES 開頭的紀錄（merge、pull、rebase、checkout、reset、cherry-pick）；自己 commit、amend、revert 不算。
-    執行前沒有 reflog、檔被截短 → 判不出。"""
+def _diff_paths(root: str, old: str, new: str) -> List[str]:
+    """commit old 到 new 之間有變的檔（絕對路徑）。查不到丟例外。"""
+    r = _git(root, "diff", "--name-only", "-z", old, new)
+    if r.returncode:
+        raise RuntimeError(f"git diff 失敗：{r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    return [str(Path(root) / rel) for rel in filter(None, r.stdout.decode("utf-8", "replace").split("\0"))]
+
+
+def _head_moves(gd: Path, offset: int) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]], str]:
+    """(這條指令期間 HEAD 被別人的內容移動的幾筆, 自己 commit 讓 HEAD 動的幾筆, 判不出的原因)，每筆是 (移動前, 移動後)：
+    logs/HEAD 從 offset 起新增的紀錄，說明不是 _OWN_MOVES 開頭的（merge、pull、rebase、checkout、reset、cherry-pick）算別人的；
+    自己 commit、amend、revert 算自己的；合併提交（commit (merge)：merge --no-commit 或解完衝突再 commit）兩邊都不算，
+    它的內容大半是別軌的、分不出哪幾處是自己改的。執行前沒有 reflog、檔被截短 → 判不出。"""
     log = gd / "logs" / "HEAD"
     data = log.read_bytes() if offset >= 0 and log.is_file() else b""
     if offset < 0 or len(data) < offset:
-        return [], "HEAD 動了但讀不到這段期間的 reflog（logs/HEAD）"
-    out = []
+        return [], [], "HEAD 動了但讀不到這段期間的 reflog（logs/HEAD）"
+    foreign, own = [], []
     for line in data[offset:].decode("utf-8", "replace").splitlines():
         head, _, msg = line.partition("\t")
         parts = head.split(" ")
-        if len(parts) >= 2 and _SHA_RE.match(parts[0]) and _SHA_RE.match(parts[1]) and not msg.startswith(_OWN_MOVES):
-            out.append((parts[0], parts[1]))
-    return out, ""
+        if len(parts) < 2 or not (_SHA_RE.match(parts[0]) and _SHA_RE.match(parts[1])):
+            continue
+        if not msg.startswith(_OWN_MOVES):
+            foreign.append((parts[0], parts[1]))
+        elif not msg.startswith("commit (merge)"):
+            own.append((parts[0], parts[1]))
+    return foreign, own, ""
+
+
+def _own_commit_tests(root: str, py: Dict[str, Any], old: str, head: str, config: Dict[str, Any]) -> List[str]:
+    """這條指令自己 commit 掉的測試檔（OWN_COMMIT_CHANGES_STILL_COMPARED）：_head_moves 的每筆自己移動前後之間有變的；
+    讀不到 reflog 分不出誰動的 → 執行前到現在整段都算（寧可多比）。只看自己那幾筆：merge、pull 帶進來的大批檔不逐一取內容。
+    查不到丟例外。"""
+    _, own, why = _head_moves(_gitdir(root), int(py.get("reflog", -1)))
+    out: List[str] = []
+    for o, n in ([(old, head)] if why else own):
+        out += [p for p in _diff_paths(root, o, n)
+                if p not in out and p.lower().endswith(_ALL_EXTS) and is_test_file(p, config, root)]
+    return out
 
 
 def _git_after(root: str, py: Dict[str, Any], head: str, pairs: Dict[str, Optional[str]],
@@ -692,7 +719,7 @@ def _git_after(root: str, py: Dict[str, Any], head: str, pairs: Dict[str, Option
     old = str(py.get("head", head))
     before_ops = py.get("ops") or {}
     started = sorted(n for n, h in _git_marks(root)["ops"].items() if before_ops.get(n) != h)
-    moves, why = _head_moves(gd, int(py.get("reflog", -1))) if head != old else ([], "")
+    moves, _, why = _head_moves(gd, int(py.get("reflog", -1))) if head != old else ([], [], "")
     rev = ""
     if started:
         rev, op_why = _op_tree(root, gd)
@@ -710,11 +737,7 @@ def _git_after(root: str, py: Dict[str, Any], head: str, pairs: Dict[str, Option
     if not moves and why and head != old and _SHA_RE.match(old) and _SHA_RE.match(head):
         moves = [(old, head)]
     for o, n in moves:
-        r = _git(root, "diff", "--name-only", "-z", o, n)
-        if r.returncode:
-            raise RuntimeError(f"git diff 失敗：{r.stderr.decode('utf-8', 'replace').strip()[:200]}")
-        for rel in filter(None, r.stdout.decode("utf-8", "replace").split("\0")):
-            p = str(Path(root) / rel)
+        for p in _diff_paths(root, o, n):
             if rr.canon_path(p) in known:
                 more = set(extract_tests(_git_text(root, n, p), p)) - set(extract_tests(_git_text(root, o, p), p))
                 brought.setdefault(p, set()).update(more)
@@ -778,6 +801,8 @@ def _snap_pairs(snap: Dict[str, Any], config: Dict[str, Any], sid: str,
                 known: set) -> Tuple[Dict[str, Optional[str]], Dict[str, str], set, Dict[str, set]]:
     """(要比對的 {測試檔: 改前內容}, git 產出的 {測試檔: 內容}, 執行前就有改動的檔, git 帶進來的 {測試檔: 測試名})。要比對的＝
     寫入目標的快照，加上執行 python 後才出現改動的測試檔：執行前就有改動的取當時記下的內容，執行前乾淨的取執行前的 HEAD。
+    HEAD 前後不同時再加這條指令自己 commit 掉的測試檔（_own_commit_tests：同指令改了又 commit，工作樹乾淨也要比；
+    同一段期間 merge 帶進來的仍由 _git_after 的 side 認出，不算自己改的）。
     後三項見 _git_after（known＝已記過基線的檔）；查不到 git 只 stderr＋留帳，照舊比。"""
     pairs = dict(snap.get("files") or {})
     py = snap.get("py")
@@ -792,7 +817,15 @@ def _snap_pairs(snap: Dict[str, Any], config: Dict[str, Any], sid: str,
         return pairs, {}, set(), {}
     old = str(py.get("head", head))
     dirty = py.get("dirty") or {}
-    for p in now:
+    cands = list(now)
+    if head != old and _SHA_RE.match(old) and _SHA_RE.match(head):
+        try:
+            cands += [p for p in _own_commit_tests(root, py, old, head, config) if p not in now]
+        except Exception as e:
+            print(f"[Guardian:OldTestDeclare] 查不到這條指令期間 HEAD 前後的差異（同指令 commit 掉的測試改動沒核對到）：{e}",
+                  file=sys.stderr)
+            _log("own_commit_diff_error", sid, root, error=f"{type(e).__name__}: {e}")
+    for p in cands:
         if p not in pairs:
             pairs[p] = dirty[p] if p in dirty else (_git_text(root, old, p) if _SHA_RE.match(old) else "")
     try:
@@ -840,9 +873,11 @@ def after_tool(state: Optional[Dict[str, Any]], input_data: Dict[str, Any], conf
         text = None
         pairs, side, prior, brought = _snap_pairs(snap, config, sid, set(state.get(BASELINE_KEY) or {}))
         changed = absorb_git_tests(state, brought)
+        old_head = str((snap.get("py") or {}).get("head") or "")
+        rev = old_head if _SHA_RE.match(old_head) else "HEAD"   # 執行前的 HEAD：同指令 commit 掉的新測試不併進基線
         for path, before in pairs.items():
             touched.add(rr.canon_path(path))
-            changed = remember_baseline(state, {path: before}) or changed   # python 腳本改的檔事前不知道是哪個，這裡補記
+            changed = remember_baseline(state, {path: before}, rev) or changed   # python 腳本改的檔事前不知道是哪個，這裡補記
             changed = absorb_git_tests(state, {path: brought.get(path, ())}) or changed   # 剛記的基線也要有帶進來的
             live, added = _changes(state, sid, path, before or "", _read(path) or "", side.get(path), path in prior)
             if live and text is None:

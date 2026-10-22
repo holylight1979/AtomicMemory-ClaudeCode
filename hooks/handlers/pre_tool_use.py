@@ -465,9 +465,7 @@ _AUTH_QUOTE_RE = re.compile(r"授權原句\s*[:：]\s*「([^」]+)」")
 _COMMIT_WORD_RE = re.compile(r"commit|提交|上傳|送出|上版|上\s*git|push|推送", re.IGNORECASE)
 # 口令或授權動作字有沒有被否定，逐個看它在原話裡的位置。否定詞表只會多擋不會多放：判錯的代價是請使用者再說一次，
 # 放錯的代價是推出去收不回。子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉。
-_ORDER_CLAUSE_END_RE = re.compile(r"[，,。！？!?；;\n]")
-_ORDER_NEG_RE = re.compile(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
-                           r"|\b(?:don'?t|do\s+not|not|never|no)\b", re.IGNORECASE)
+from wg_release_rules import CLAUSE_END_RE as _ORDER_CLAUSE_END_RE, NEG_WORD_RE as _ORDER_NEG_RE  # noqa: E402  資料檔點名共用
 _ORDER_WAIT_RE = re.compile(r"(?:等我|我看完|我確認|我說|我同意)[^，,。！？!?；;\n]*$")     # 延後到使用者自己確認之後
 _ORDER_WAIT_PHRASE_RE = re.compile(r"等我|我看完|我確認|我先看|晚點|稍後再")             # 整則原話裡有延後
 _ORDER_RIGHT_NEG_RE = re.compile(r"^\s*(?:先不要|不要|先別|別|先不|暫不|不用)\s*(?:了|啦|吧|喔)?\s*$")
@@ -921,20 +919,65 @@ def _commit_target_is_claude(run_dir: str) -> Optional[bool]:
 
 def check_git_commit_order(
     tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any],
-    state: Optional[Dict[str, Any]], cwd: str = "",
+    state: Optional[Dict[str, Any]], cwd: str = "", session_id: str = "",
 ) -> Optional[str]:
-    """Bash/PowerShell `git commit` 且本回合使用者原話無版控口令 → deny 訊息；否則 None。"""
-    if tool_name not in ("Bash", "PowerShell"):
+    """Bash/PowerShell `git commit` 且本回合使用者原話無版控口令 → deny 訊息；否則 None。
+    規則 COMMIT_ORDER_DECISION_ALWAYS_LOGGED：判出這條指令會 commit 之後，每個結果（擋、口令、引原句、暫存 repo、原子記憶系統
+    repo、沒原話紀錄、閘出錯）都留一筆 Logs/guard-commit_order.jsonl；不是 commit 的指令不寫。"""
+    msg, event, extra = _commit_order_decide(tool_name, tool_input, config, state, cwd)
+    if event:
+        from wg_core import append_guard_log
+        sid = session_id or str(((state or {}).get("session") or {}).get("id") or "")
+        append_guard_log("commit_order", {"event": event, "rule": "COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "session_id": sid,
+                                          "allowed": msg is None, "cmd": str(tool_input.get("command") or "")[:200], **extra})
+    return msg
+
+
+def _co_stderr(msg: str) -> None:
+    try:
+        sys.stderr.write(msg + "\n")
+    except OSError:
+        pass
+
+
+def _temp_repo_exempt(command: str, base: str, tool_name: str):
+    """規則 TEMP_REPO_COMMIT_EXEMPT：每段 commit 都落在暫存目錄（系統 TEMP、scratchpad、pytest tmp）下的拋棄式 repo → 回放行的
+    Verdict（並 stderr 一行）；不豁免回 None。同一套白名單句型（_exempt_run_dirs）判落點，寫法拆不出來就不豁免。
+    暫存根與目標兩側都展成長路徑再比（8.3 短路徑）；判的是 commit 實際落的 repo 根，不是執行目錄
+    （正式 repo 裡一個叫 scratchpad 的子目錄拿不到豁免；codex 001 BLOCK 6／WARN 9）。"""
+    run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))
+    if not run_dirs:
         return None
+    import tempfile
+    from wg_release_rules import norm_temp_path, temp_commit_verdict, temp_roots
+    from handlers._shared import _comparable
+    from wg_core import find_vcs_root
+    roots = [norm_temp_path(_comparable(r)) for r in temp_roots(tempdir=tempfile.gettempdir())]
+    hits = [find_vcs_root(Path(_comparable(d))) for d in run_dirs]
+    verdicts = [temp_commit_verdict(_comparable(str(h[1])), roots) if h else
+                temp_commit_verdict("", roots)._replace(owed=True, why="找不到 commit 落的 repo 根") for h in hits]
+    if any(v.owed for v in verdicts):
+        return None
+    _co_stderr(f"[Guardian:CommitOrder] 規則 {verdicts[0].rule}：{verdicts[0].why}")
+    return verdicts[0]
+
+
+def _commit_order_decide(
+    tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any],
+    state: Optional[Dict[str, Any]], cwd: str = "",
+) -> Tuple[Optional[str], str, Dict[str, Any]]:
+    """口令閘的判定：(擋訊息或 None, 留帳事件（空字串＝不是 commit、不留帳）, 帳的附帶欄位)。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None, "", {}
     cfg = (config.get("guard") or {}).get("commit_order") or {}
     if not cfg.get("enabled", True):
-        return None
+        return None, "", {}
     command = tool_input.get("command", "") or ""
     try:
         _stripped, segments, has_commit = _git_commits_to_run(command, cwd, _tool_shell(tool_name))
         if not has_commit:
             # 包在 shell 包裝／子 shell／eval 裡的 git commit 解析器拆不出來：拆得出內層且確定是查詢才放行，其餘照常檢查口令
-            return None
+            return None, "", {}
         # 原子記憶系統自己的程式與文件不等口令：驗證過就直接上版控（USER.md 例外條）；記憶內容三層由 vcs-sync worker
         # 自動提交，不經此閘。看的是每段 commit 實際落在哪個 repo，不是 session 開在哪；只認看得出落點的寫法
         # （_exempt_run_dirs 白名單），每段都落在 ~/.claude 本身或它的 git worktree 才豁免；其餘照常檢查口令。
@@ -942,43 +985,17 @@ def check_git_commit_order(
         shape_hint = "" if segments else (
             "\n這次拆不出直接的 git commit，是包裝（bash -c、powershell -Command、cmd /c…）或展開（$()、反引號、eval、括號）"
             "裡可能有 commit：命令裡有 `$()` 等展開又含 commit 字樣時一律要口令；只是查詢的話把 commit 字樣拿掉或改用單引號。")
-        if segments:
-            # 規則 TEMP_REPO_COMMIT_EXEMPT：每段 commit 都落在暫存目錄（系統 TEMP、scratchpad、pytest tmp）下的拋棄式 repo → 免口令；
-            # 同一套白名單句型（_exempt_run_dirs）判落點，寫法拆不出來就不豁免
-            base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
-            run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))
-            if run_dirs:
-                import tempfile
-                from wg_release_rules import norm_temp_path, temp_commit_verdict, temp_roots
-                from handlers._shared import _comparable
-                from wg_core import find_vcs_root
-                # 暫存根與目標兩側都展成長路徑再比（8.3 短路徑）；判的是 commit 實際落的 repo 根，不是執行目錄
-                # （正式 repo 裡一個叫 scratchpad 的子目錄拿不到豁免；codex 001 BLOCK 6／WARN 9）
-                roots = [norm_temp_path(_comparable(r)) for r in temp_roots(tempdir=tempfile.gettempdir())]
-                repo_roots = []
-                for d in run_dirs:
-                    hit = find_vcs_root(Path(_comparable(d)))
-                    repo_roots.append(str(hit[1]) if hit else "")
-                verdicts = [temp_commit_verdict(_comparable(rr_), roots) if rr_ else
-                            temp_commit_verdict("", roots)._replace(owed=True, why="找不到 commit 落的 repo 根") for rr_ in repo_roots]
-                if all(not v.owed for v in verdicts):
-                    try:
-                        sys.stderr.write(f"[Guardian:CommitOrder] 規則 {verdicts[0].rule}：{verdicts[0].why}\n")
-                    except OSError:
-                        pass
-                    return None
+        base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
+        temp_ok = _temp_repo_exempt(command, base, tool_name) if segments else None
+        if temp_ok is not None:
+            return None, "temp_exempt", {"exempt_rule": temp_ok.rule, "why": temp_ok.why[:200]}
         if segments and cfg.get("exempt_cwd_under_claude_dir", True):
-            base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
             run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))
             verdicts = [_commit_target_is_claude(d) for d in run_dirs or []]
             if verdicts and all(v is True for v in verdicts):
-                return None
+                return None, "claude_exempt", {"run_dirs": list(run_dirs or [])[:5]}
             if run_dirs is None or any(v is None for v in verdicts):
-                try:
-                    sys.stderr.write("[Guardian:CommitOrder] 看不出這次 commit 落在哪個 repo（或寫法不在豁免白名單），"
-                                     "不套用豁免，繼續口令檢查\n")
-                except OSError:
-                    pass
+                _co_stderr("[Guardian:CommitOrder] 看不出這次 commit 落在哪個 repo（或寫法不在豁免白名單），不套用豁免，繼續口令檢查")
             if run_dirs is None and _commit_target_is_claude(base) is True:
                 shape_hint = ("\n若這次 commit 是在原子記憶系統自己的 repo（或它的 worktree）：豁免只認整條命令由 `&&` 串起、"
                               "第一段可 `cd <絕對路徑>`、其餘每段都是 `git [-C <字面路徑>] add|commit|push|status|diff|log|show|rm|mv|restore …` "
@@ -989,21 +1006,22 @@ def check_git_commit_order(
                 sys.stderr.write("[Guardian:CommitOrder] 無 user prompt 紀錄，口令閘 fail-open\n")
             except OSError:
                 pass
-            return None
+            return None, "fail_open", {"why": "沒有使用者原話紀錄"}
         keywords = cfg.get("keywords") or list(_COMMIT_ORDER_DEFAULT_KEYWORDS)
         # 整回合的使用者原話（含 mid-turn 排隊訊息；背景通知內文不在內，見 ups_gates.track_turn_prompts）都算。
         # 空清單＝本回合沒有使用者原話（通知開的回合且口令已用掉）→ 擋；舊 state 沒有 turn_prompts 才退回只看最後一句。
         # 讀取端再濾一次：舊版曾把其他 session 的訊息記進 turn_prompts；濾完是空清單照樣擋（不走 fail-open）
         turn_prompts = user_typed_prompts(state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:])
-        if any(_commit_order_keyword_hit(p, keywords) for p in turn_prompts):
-            return None
+        keyword = next((k for k in (_commit_order_keyword_hit(p, keywords) for p in turn_prompts) if k), None)
+        if keyword:
+            return None, "order", {"keyword": keyword}
         quoted = _quoted_authorization(command, turn_prompts)
         if quoted:
             try:
                 sys.stderr.write(f"[Guardian:CommitOrder] 依 LLM 引用的使用者原句放行：「{quoted[:80]}」\n")
             except OSError:
                 pass
-            return None
+            return None, "quoted", {"quote": quoted[:200]}
         return (
             "[Guardian:CommitOrder] 本回合使用者原話沒有版控口令（上GIT／上乾淨／全上／執P…），"
             "已擋下 git commit。\n"
@@ -1017,13 +1035,13 @@ def check_git_commit_order(
             "請使用者單獨再打一次口令（只認最新一則使用者原話，中間夾系統通知或背景事件就要重下口令）。\n"
             "確為使用者本回合要求：引用其原話請他重下口令；長期口令調整 workflow/config.json "
             "guard.commit_order.keywords（enabled=false 停用本閘）。" + shape_hint
-        )
+        ), "denied", {}
     except Exception as e:
         try:
             sys.stderr.write(f"[Guardian:CommitOrder] 檢查異常（fail-open）：{e}\n")
         except OSError:
             pass
-    return None
+        return None, "error", {"error": f"{type(e).__name__}: {e}"[:200]}
 
 
 def check_git_privacy(
@@ -1794,7 +1812,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     _cwd = input_data.get("cwd", "") or ""
     deny_reason = (
         check_cross_realm_write(tool_name, tool_input, _cwd, config)
-        or check_cross_realm_bash(tool_name, tool_input, _cwd, config)
+        or check_cross_realm_bash(tool_name, tool_input, _cwd, config, str(input_data.get("session_id") or ""))
         or check_cross_realm_mcp_cmd(tool_name, tool_input, _cwd, config)
     )
     if deny_reason:
@@ -1854,7 +1872,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # git commit 口令閘（本回合使用者原話無版控口令 → deny；fail-open）
     _co_sid = input_data.get("session_id", "") or ""
     _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
-    deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state, _cwd)
+    deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state, _cwd, _co_sid)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return

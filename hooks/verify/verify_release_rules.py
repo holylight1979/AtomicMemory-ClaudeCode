@@ -28,6 +28,48 @@ def test_044_every_rule_has_a_case():
     assert not missing, missing
 
 
+@pytest.mark.parametrize("rule, case_file", [
+    ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
+    ("BASH_UNREACHED_READ_NOT_COUNTED", "verify_overview_hub.py"),
+    ("NEGATIVE_CONTROL_DECLARED", "verify_failing_tests_subagent_isolation.py"),
+    ("EQUIVALENCE_LOOP_EXPANDED", "verify_g7_equivalence.py"),
+    ("EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED", "verify_g7_equivalence.py"),
+    ("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "verify_git_commit_order_gate.py"),
+    ("NEGATED_MENTION_IS_NOT_NAMING", "verify_data_file_ask.py"),
+    ("DATA_FILE_DECL_VOIDED_BY_LATER_MENTION", "verify_data_file_ask.py"),
+    ("OWN_COMMIT_CHANGES_STILL_COMPARED", "verify_old_test_declare.py"),
+])
+def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
+    """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
+    assert rule in rr.RULES
+    assert rule in (Path(__file__).parent / case_file).read_text(encoding="utf-8"), case_file
+
+
+def test_choice_verb_is_not_a_character_inside_candidate_words():
+    """codex 007：候選描述裡的「採集」不是選擇動詞，「選 B」後面沒寫理由照判沒理由；「採用候選 A 的理由是…」照判有。"""
+    assert rr._has_choice_reason("候選 A 採集層，因為來源重複而出錯；候選 B 快取層；選 B") is False
+    assert rr._has_choice_reason("候選 A 快取層；候選 B 索引層；採用候選 A 的理由是快取先壞") is True
+
+
+def test_negative_control_declared_verdict():
+    """NEGATIVE_CONTROL_DECLARED 純函式：點到的字樣在指令裡（斜線方向不分）、附理由才算；佔位、別的字樣、沒理由照記紅。"""
+    cmd = r"cd C:\tmp\qa2-old && python -m pytest /c/w4/qa2-pricing/tests -q"
+    ok = rr.parse_negative_controls("負向對照｜C:/tmp/qa2-old：舊碼跑新測試，預期紅")
+    assert ok[0]["subject"] == "C:/tmp/qa2-old" and not rr.negative_control_verdict(cmd, ok).owed
+    for line in ("負向對照｜/tmp/other：舊碼", "負向對照｜qa2-old", "負向對照｜qa2-old：<理由>"):
+        assert rr.negative_control_verdict(cmd, rr.parse_negative_controls(line)).owed, line
+
+
+@pytest.mark.parametrize("text, negated", [
+    ("shop.json 先不要動", True), ("不要動 shop.json", True), ("折扣碼不要放 shop.json，放新檔", True),
+    ("折扣碼不要寫死在程式裡，放進 shop.json", False), ("把 shop.json 的門檻改成 500", False),
+])
+def test_mention_negated(text, negated):
+    """NEGATED_MENTION_IS_NOT_NAMING 純函式：同一子句左邊有否定字或右邊緊接否定才算；否定在前一個子句不算。"""
+    i = text.index("shop.json")
+    assert rr.mention_negated(text, i, i + len("shop.json")) is negated
+
+
 # ─── RECONCILE_BLOCK_LETTERS／CLOSING_RITUAL_SWITCHES（收尾瘦身） ─────────────────────────────
 
 def test_reconcile_block_letters_splits_by_letter():
@@ -2239,6 +2281,32 @@ def test_005_locate_candidates_without_fixed_labels():
     # codex 005：名稱尾段相同的兩層（資料讀取／設定讀取）是兩層
     assert len(rr.root_candidates("資料讀取層解析錯誤；設定讀取層覆蓋錯誤；先修資料讀取層因為設定沿用其輸出")) == 2
     assert rr.root_candidates("候選 A 邏輯層；候選 B 不存在因為資料層只讀") == [1], "有固定標記就只看標記"
+
+
+@pytest.mark.parametrize("root, want", [
+    # 修前判反的四句：逗號拆開的候選描述、第一個候選前的前言 → 不算；「選候選 A」「採用候選 A」→ 算
+    ("候選 A 快取層，因為重啟後沒清所以失效；候選 B 索引層；選 A", False),
+    ("新功能，所以不算修壞；候選 A 快取層；候選 B 索引層；選 A", False),
+    ("候選 A 快取層；候選 B 索引層；選候選 A 因為 B 只是症狀", True),
+    ("候選 A 快取層；候選 B 索引層；採用候選 A 的理由是 B 只讀", True),
+    # 反例保持原判
+    ("候選 A 壞在快取層因為沒清；候選 B 索引層；選 A", False),
+    ("候選 A 的原因是快取失效；候選 B 是寫入時序", False),
+    ("第一根因 共用字典被兩邊改；第二根因 存檔時序；先修第一個因為第二個是它的結果", True),
+    ("候選一 邏輯層；候選二 資料層；理由：資料層只讀", True),
+    ("理由：資料層只讀", True),
+    ("候選 A 邏輯層，候選 B 資料層，選 A 因為只有邏輯層寫", True),        # 逗號分隔的選擇句照算
+    ("候選 A 快取層，因為沒清；候選 B 索引層，選它因為好重現", True),     # 同句裡後面那個因為前面有「選」
+])
+def test_007_choice_reason_belongs_to_choice(root, want):
+    """CHOICE_REASON_BELONGS_TO_CHOICE：理由詞要屬於選擇才算選擇理由——只以「；;。」切句，句裡前面有選／採，或句裡前面沒有候選標記
+    且在第一個候選標記之後。修前逗號也切段（描述的「因為」被當理由）、「選候選 A 因為」被當描述擋下。"""
+    assert "CHOICE_REASON_BELONGS_TO_CHOICE" in rr.RULES
+    if not want:          # 前置：判「沒理由」的句子真的有兩個候選，擋下是因為判到理由這一步、不是候選不夠
+        assert len(rr.root_candidates(root)) >= 2, root
+    assert rr._has_choice_reason(root) is want, root
+    v = rr.locate_lines_verdict(root, "T1.1（唯一寫入點）", "T1.1", _CG0_NODE)
+    assert ("沒寫選擇理由" in v.why) is (not want and len(rr.root_candidates(root)) >= 2), v
 
 
 # ─── 閘小修 006 ─────────────────────────────────────────────────────────────────────────────

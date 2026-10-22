@@ -53,6 +53,23 @@ def test_three_verdicts_and_measure_done_kv():
     assert got[3]["kv"] == {"vcs": "git", "commits": "40", "fix": "7", "files_refixed": "2"}
 
 
+def test_repeated_sentinel_lines_are_counted_and_kv_stays_on_its_line():
+    """第三跑 A′ 迴圈原輸出：三輪各印一行 PRESERVE_CHECK PASS、下一行 exit=0 → 記一筆、n=3；k=v 不跨行吃下一行的 exit=0。
+    單行出現（反例）不加 n，同一行被兩個 regex 認到也不重算。"""
+    out = "".join(f"=== {m}\n  cases=3 mutation={m}\nPRESERVE_CHECK PASS\nexit=0\n" for m in ("order", "side_effect", "boundary"))
+    got = vl.parse_sentinels(out)
+    assert got == [{"name": "PRESERVE_CHECK", "verdict": "PASS", "line": "PRESERVE_CHECK PASS", "kv": {}, "n": 3}]
+    rules = vl.compile_sentinel_rules([{"regex": r"^(?P<name>PRESERVE)_CHECK (?P<verdict>PASS)", "name": "PRESERVE_CHECK",
+                                        "verdict_map": {"PASS": "PASS"}}])
+    assert "n" not in vl.parse_sentinels("PRESERVE_CHECK PASS\n", rules)[0]
+
+
+def test_measure_done_with_crlf_line_end_still_matches():
+    """codex 007：k=v 改成不跨行之後，CRLF 結尾（PowerShell 輸出）的 `NAME DONE k=v\\r` 也要認得，數字不帶 \\r。"""
+    got = vl.parse_sentinels("BENCH DONE ms=12\r\nX_CHECK PASS\r\n")
+    assert [(s["name"], s["verdict"], s["kv"]) for s in got] == [("X_CHECK", "PASS", {}), ("BENCH", "DONE", {"ms": "12"})]
+
+
 def test_custom_regex_maps_pytest_summary():
     rules = vl.compile_sentinel_rules([
         {"regex": r"^(?P<verdict>\d+ (?:passed|failed))", "name": "PYTEST",

@@ -237,6 +237,34 @@ def test_three_pass_receipts_after_edit_pass(drive):
     assert "[Guardian:Equivalence]" not in out and drive.results == [None]
 
 
+# 第三跑 A′ 原指令：三類寫在一條 for 迴圈裡跑，每輪 echo "exit=$?"（引號裡的 exit 不是跳出）；輸出三行 PRESERVE_CHECK PASS
+_A3_LOOP = ("for m in order side_effect boundary; do echo \"=== $m\"; python ~/.claude/skills/behavior-preservation/scripts/"
+            "preserve-check.py --expected-from C:/Users/x/AppData/Local/Temp/qa2-old/pricing/rates.py --actual-from "
+            "C:/w4/qa2-pricing/pricing/rates.py --mutation $m --func tier_rate --order-func tiers --effect log; echo \"exit=$?\"; done")
+
+
+def _loop(cmd=_A3_LOOP, n=3, extra=()):
+    return [_r(20, cmd, sentinels=[{"name": "PRESERVE_CHECK", "verdict": "PASS", "kv": {}, "n": n}, *extra])]
+
+
+def test_loop_running_three_mutations_passes(drive):
+    """規則 EQUIVALENCE_LOOP_EXPANDED：A′ 那條迴圈一次跑完三類、印三行 PASS → 三類都算證到（之前擋「已證：無」、拆三條才過）。"""
+    assert _rule("RULES")["EQUIVALENCE_LOOP_EXPANDED"]
+    out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=_loop())
+    assert "[Guardian:Equivalence]" not in out and drive.results == [None]
+
+
+@pytest.mark.parametrize("receipts", [
+    _loop(n=1),                                                                       # 只看到一行 PASS：有幾輪沒印哨兵
+    _loop(extra=({"name": "PRESERVE_CHECK", "verdict": "FAIL", "kv": {}, "n": 1},)),  # 有一輪紅
+    _loop(cmd=_A3_LOOP.replace("order side_effect boundary", "$(cat kinds.txt)")),     # 清單不是字面
+    _loop(cmd=_A3_LOOP.replace("--effect log;", "--effect log; break;")),              # 本體真的有跳出
+], ids=["one-pass-line", "has-fail", "list-not-literal", "real-break"])
+def test_loop_without_full_evidence_still_blocks(drive, receipts):
+    out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=receipts)
+    assert "REFACTOR_NEEDS_EQUIVALENCE" in _blocked(out)
+
+
 def test_only_order_receipt_blocks_missing_two(drive):
     out, _, _ = drive(f"{_HOT_NO}\n{_DONE_TEXT}", receipts=_three()[:1])
     assert "side_effect、boundary" in _blocked(out) and "已證：order" in _blocked(out)
@@ -258,6 +286,33 @@ def test_not_applicable_with_reason_passes_and_logs(drive):
     assert "[Guardian:Equivalence]" not in out and drive.results == [None]
     na = [l for l in logs if l["event"] == "not_applicable"]
     assert len(na) == 1 and "測試錄製檔" in na[0]["line"]
+
+
+def test_not_applicable_logged_when_gate_does_not_apply(drive):
+    """規則 EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED：意圖不是重構（等值閘這回合不管）也照記，needed=False。"""
+    out, _, logs = drive(f"等值證法｜不適用｜新檔，沒有舊行為要保持\n{_DONE_TEXT}", intent="feature")
+    na = [l for l in logs if l["event"] == "not_applicable"]
+    assert [(l["needed"], l["reason"]) for l in na] == [(False, "新檔，沒有舊行為要保持")]
+
+
+def test_not_applicable_logged_even_when_an_earlier_gate_blocks(drive):
+    """紅測閘先擋下（等值閘走不到），宣告照記，needed=True。"""
+    state = {"phase": "working", "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 5, "turn_intent": "refactor",
+             "modified_files": [_mf()], "verify_receipts": {_SID: []},
+             "failing_tests": [{"session_id": _SID, "turn_seq": 5, "cmd": "pytest -q t.py", "summary": "FAILED t.py::a", "exit_code": 1}]}
+    out, _, logs = drive(f"等值證法｜不適用｜改的是測試錄製檔\n{_HOT_NO}\n{_DONE_TEXT}", state=state)
+    assert "TestFailGate" in _blocked(out) and drive.results == []        # 前置：等值閘沒走到
+    assert [l["needed"] for l in logs if l["event"] == "not_applicable"] == [True]
+
+
+def test_same_not_applicable_line_in_same_turn_logged_once(drive):
+    a, b = "等值證法｜不適用｜改的是測試錄製檔", "等值證法｜不適用｜只動了註解"
+    counts = []
+    state = None
+    for text in (a, a, b, a):
+        out, state, logs = drive(f"{text}\n{_HOT_NO}\n{_DONE_TEXT}", state=state)
+        counts.append(len([l for l in logs if l["event"] == "not_applicable"]))
+    assert counts == [1, 0, 1, 0]
 
 
 def test_not_applicable_without_reason_blocks(drive):

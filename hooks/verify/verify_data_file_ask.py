@@ -23,6 +23,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
+import wg_release_rules as rr  # noqa: E402
 import wg_data_file as df  # noqa: E402
 from handlers import pre_tool_use as ptu  # noqa: E402
 
@@ -179,6 +180,113 @@ def test_naming_after_earlier_declaration_is_exempt_not_state(world):
     ev = _log(world)[-1]
     assert ev["event"] == "exempt" and "via" not in ev and ev["why"].startswith("(d) 不成立")
     assert "settings.json" in ev["quote"] and ev["quote"] in asked, "點名對得到原話"
+
+
+# ─── NEGATED_MENTION_IS_NOT_NAMING／DATA_FILE_DECL_VOIDED_BY_LATER_MENTION ─────────────────────
+# 第五跑 C-1 使用者原話（第 4、5 回合）：先叫放進 shop.json，後來翻案「折扣碼不要放 shop.json」、但 shop.json 留門檻改動
+C5_T4 = "補一個：折扣碼不要寫死在程式裡，放進 config/shop.json，之後要加新碼改設定檔就好。"
+C5_T5 = "不對，折扣碼不要放 shop.json，改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動。"
+
+
+def _shop(w):
+    p = w["proj"] / "config" / "shop.json"
+    p.parent.mkdir(exist_ok=True)
+    p.write_text(B1_OLD + "\n", encoding="utf-8")
+    return p
+
+
+def _said(w, *prompts, extra=()):
+    st = wg_core.read_state(SID)
+    st["recent_user_prompts"] = list(prompts)
+    st["turn_prompts"] = list(prompts[-1:])
+    wg_core.write_state(SID, st)
+    _transcript(w["tp"], [_user(p) for p in prompts] + list(extra))
+
+
+@pytest.mark.parametrize("said", [
+    "config/shop.json 先不要動，折扣碼放新檔",
+    "不要動 shop.json，等我確認",
+    "折扣碼不要放 shop.json，放新檔",                 # C5 第 5 回合前半句單獨講
+    "shop.json 別碰",
+], ids=["right-neg", "left-neg", "c5-first-clause", "bie"])
+def test_negated_mention_is_not_naming(world, said):
+    """原話提到資料檔、但那一處被否定 → 不算點名，沒宣告照擋（之前字面命中就點名豁免）。前置：同一個檔沒被否定時會豁免。"""
+    shop = _shop(world)
+    assert rr.prompt_names_file(["把 shop.json 的門檻改成 500"], str(shop)), "前置：一般點名認得到"
+    _said(world, said)
+    out = _run(world, path=shop)
+    assert _df_deny(out), (said, out)
+    assert "NEGATED_MENTION_IS_NOT_NAMING" in rr.RULES
+
+
+@pytest.mark.parametrize("said", [C5_T4, C5_T5], ids=["c5-t4-negation-in-earlier-clause", "c5-t5-second-mention-not-negated"])
+def test_unnegated_mention_still_names(world, said):
+    """反例（C5 原話）：否定在前一個子句、或同一則另有沒被否定的提及 → 照算點名豁免。"""
+    shop = _shop(world)
+    _said(world, said)
+    assert not _df_deny(_run(world, path=shop))
+    assert _log(world)[-1]["event"] == "exempt"
+
+
+def test_declaration_voided_by_later_negating_prompt(world):
+    """宣告動過 settings.json（帳記 state）之後，使用者說「settings.json 先不要動」→ 舊帳作廢、留帳 declared_voided，這次照擋；
+    宣告前寫的那行不再算（只認最後一則提到它的原話之後的宣告）。"""
+    _said(world, B1_PROMPT, extra=[_assistant("text", DECL)])
+    assert not _df_deny(_run(world)) and _log(world)[-1]["via"] == "text", "前置：舊宣告記進 state"
+    _said(world, B1_PROMPT, "settings.json 先不要動，等我確認",
+          extra=[_assistant("text", DECL), _user("settings.json 先不要動，等我確認"), _assistant("text", "好，先不動")])
+    out = _run(world)
+    assert _df_deny(out), out
+    assert [e["event"] for e in _log(world)][-2:] == ["declared_voided", "denied"]
+    assert not any(k.endswith("settings.json") for k in wg_core.read_state(SID).get("data_file_declared") or {})
+    _add_line = _assistant("text", "動資料檔｜settings.json：使用者後來說可以改了，重新確認過")    # 翻案之後重新宣告 → 照認
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", DECL), _user("settings.json 先不要動，等我確認"), _add_line])
+    assert not _df_deny(_run(world)) and _log(world)[-1]["event"] == "declared"
+
+
+def test_early_naming_overridden_by_later_negation(world):
+    """codex 007：早先原話點名「放進 shop.json」，最後一則提到它的原話只有否定（「shop.json 先不要動」）→ 早先的點名不再算。
+    前置：只有早先那則時是點名豁免。"""
+    shop = _shop(world)
+    _said(world, "折扣碼放進 config/shop.json")
+    assert not _df_deny(_run(world, path=shop)), "前置：早先那則單獨是點名"
+    _said(world, "折扣碼放進 config/shop.json", "等等，shop.json 先不要動，我想一下")
+    assert _df_deny(_run(world, path=shop))
+
+
+def test_subagent_declaration_does_not_survive_later_mention(world, tmp_path):
+    """codex 007：子代理先宣告過這個檔，使用者之後在主對話提到它（否定）→ 子代理檔裡的舊宣告不再算（位置對不上主檔、分不出先後）。
+    前置：使用者沒提過這個檔時，子代理檔的宣告照認。"""
+    main = Path(world["tp"])
+    sub_dir = main.with_suffix("") / "subagents"
+    sub_dir.mkdir(parents=True)
+    _transcript(sub_dir / "agent-a1.jsonl", [_assistant("text", DECL)])
+    _transcript(main, [_user(B1_PROMPT), _assistant("text", "交給子代理")])
+    from wg_core import transcripts_of
+    assert len(transcripts_of(str(main), "a1")[1]) == 2, "前置：子代理呼叫時讀得到子代理檔"
+
+    def _sub_edit():
+        ti = {"file_path": str(world["proj"] / "settings.json"), "old_string": B1_OLD, "new_string": B1_NEW}
+        with pytest.raises(SystemExit):
+            ptu.handle_pre_tool_use({"tool_name": "Edit", "tool_input": ti, "session_id": SID, "cwd": str(world["proj"]),
+                                     "transcript_path": str(main), "agent_id": "a1"}, {})
+        return world["outputs"][-1]
+    assert not _df_deny(_sub_edit()) and _log(world)[-1]["via"] == "text", "前置：使用者沒提過時子代理的宣告照認"
+    st = wg_core.read_state(SID)
+    st.pop("data_file_declared", None)
+    wg_core.write_state(SID, st)
+    _said(world, B1_PROMPT, "settings.json 先不要動", extra=[_assistant("text", "好")])
+    assert _df_deny(_sub_edit())
+
+
+def test_later_prompt_not_mentioning_file_keeps_declaration(world):
+    """反例：宣告之後的原話沒提到這個檔 → 舊帳照用（via=state），不作廢。"""
+    _said(world, B1_PROMPT, extra=[_assistant("text", DECL)])
+    assert not _df_deny(_run(world))
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", DECL), _user("繼續，其他照做")])
+    assert not _df_deny(_run(world))
+    assert _log(world)[-1]["via"] == "state" and "declared_voided" not in [e["event"] for e in _log(world)]
+    assert "DATA_FILE_DECL_VOIDED_BY_LATER_MENTION" in rr.RULES
 
 
 def test_prompt_naming_only_in_transcript_counts(world):

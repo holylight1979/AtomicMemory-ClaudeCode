@@ -65,19 +65,24 @@ def note_created(state: Dict[str, Any], tool_name: str, file_path: str, tool_res
     return True
 
 
-def _transcript_user_texts(transcript_path: str) -> List[str]:
-    """transcript 裡每一則使用者訊息清理後的字（user_typed_text）；工具結果、isMeta、壓縮摘要不算。讀不到回空。"""
+def _transcript_user_entries(transcript_path: str) -> List[Tuple[int, str]]:
+    """transcript 裡每一則使用者訊息 [(這一行結束的位元組位置, 清理後的字 user_typed_text)]；工具結果、isMeta、壓縮摘要不算。
+    讀不到回空。"""
     if not transcript_path:
         return []
     try:
-        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(transcript_path, "rb") as f:
             lines = f.readlines()
-    except OSError:
+    except OSError as e:      # 讀不到＝原話點名與後話作廢都判不到，要出聲
+        sys.stderr.write(f"[Guardian:DataFileAsk] 讀不到 transcript（原話點名、宣告作廢這次判不到）：{type(e).__name__}: {e}\n")
+        append_guard_log(GUARD, {"event": "transcript_error", "path": transcript_path, "error": f"{type(e).__name__}: {e}"})
         return []
-    out: List[str] = []
+    out: List[Tuple[int, str]] = []
+    at = 0
     for raw in lines:
+        at += len(raw)
         try:
-            obj = json.loads(raw)
+            obj = json.loads(raw.decode("utf-8", "ignore"))
         except (json.JSONDecodeError, ValueError):
             continue
         if (not isinstance(obj, dict) or obj.get("type") != "user" or obj.get("isMeta") or obj.get("isCompactSummary")
@@ -88,8 +93,47 @@ def _transcript_user_texts(transcript_path: str) -> List[str]:
             content = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
         typed = user_typed_text(content) if isinstance(content, str) else ""
         if typed:
-            out.append(typed)
+            out.append((at, typed))
     return out
+
+
+def _transcript_user_texts(transcript_path: str) -> List[str]:
+    return [t for _, t in _transcript_user_entries(transcript_path)]
+
+
+def _size(path: str) -> int:
+    try:
+        return os.path.getsize(path) if path else 0
+    except OSError:
+        return 0
+
+
+def _mention_at(ctx: Dict[str, Any], path: str) -> int:
+    """主 transcript 裡最後一則提到這個檔（否定的也算）的使用者原話結束的位元組位置；沒有回 0。ctx 快取。"""
+    return _latest_mention(ctx, path)[0]
+
+
+def _latest_mention(ctx: Dict[str, Any], path: str) -> Tuple[int, str]:
+    """主 transcript 裡最後一則提到這個檔的使用者原話 (結束位元組位置, 原話)；沒有回 (0, "")。ctx 快取。"""
+    cache = ctx.setdefault("latest_mention", {})
+    if path not in cache:
+        if "user_entries" not in ctx:
+            ctx["user_entries"] = _transcript_user_entries(ctx["main_tp"])
+        cache[path] = next(((at, t) for at, t in reversed(ctx["user_entries"]) if _rr.prompt_mentions_file(t, path)), (0, ""))
+    return cache[path]
+
+
+def _void_stale_declaration(state: Dict[str, Any], path: str, ctx: Dict[str, Any], sid: str, tool_name: str) -> bool:
+    """規則 DATA_FILE_DECL_VOIDED_BY_LATER_MENTION：帳上宣告過這個檔，但宣告之後使用者原話又提到它（不管有沒有否定）
+    → 舊帳作廢（拿掉、留帳 declared_voided），這次照重新判。回有沒有改 state。"""
+    key = _rr.canon_path(path)
+    entry = (state.get("data_file_declared") or {}).get(key)
+    if entry is None or _mention_at(ctx, path) <= int(entry.get("at") or 0):
+        return False
+    state["data_file_declared"].pop(key)
+    append_guard_log(GUARD, {"session_id": sid, "tool": tool_name, "path": path, "event": "declared_voided",
+                             "rule": "DATA_FILE_DECL_VOIDED_BY_LATER_MENTION", "line": entry.get("line", "")})
+    return True
 
 
 def session_prompts(state: Dict[str, Any], transcript_path: str) -> List[str]:
@@ -98,13 +142,13 @@ def session_prompts(state: Dict[str, Any], transcript_path: str) -> List[str]:
     return user_typed_prompts([str(p) for p in kept]) + _transcript_user_texts(transcript_path)
 
 
-def declarations(transcript_path: str) -> List[Tuple[str, str, str, str]]:
-    """三管道（回覆文字／工具呼叫參數／thinking）整個 session 的宣告行 → [(路徑, 為什麼, 那一行, 管道)]。
+def declarations(transcript_path: str, since: int = 0) -> List[Tuple[str, str, str, str]]:
+    """三管道（回覆文字／工具呼叫參數／thinking）從 since（位元組）之後的宣告行 → [(路徑, 為什麼, 那一行, 管道)]。
     工具呼叫參數只認 `#` 開頭的註解行（Bash／PowerShell 開頭的註解）；寫進檔案內容、替換文字裡的字樣不算宣告。"""
     from overview_hub import LOCATE_CHANNELS, assistant_text_after
     out: List[Tuple[str, str, str, str]] = []
     for ch in LOCATE_CHANNELS:
-        text = assistant_text_after(transcript_path, 0, ch)
+        text = assistant_text_after(transcript_path, since, ch)
         if ch == "tool_input":
             text = "\n".join(ln for ln in text.splitlines() if ln.lstrip().startswith("#"))
         out.extend(d + (ch,) for d in _rr.parse_data_file_decls(text))
@@ -185,14 +229,23 @@ def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any]
     if "prompts" not in ctx:
         ctx["prompts"] = session_prompts(state, ctx["main_tp"])
     facts.update(named=_rr.prompt_names_file(ctx["prompts"], path), prompts=len(ctx["prompts"]))
+    latest = _latest_mention(ctx, path)[1]
+    if facts["named"] and latest and not _rr.prompt_names_file([latest], path):
+        facts["named"] = None       # 最後一則提到它的原話只有否定：早先的點名被後話推翻（NEGATED_MENTION_IS_NOT_NAMING）
     if facts["named"]:
         return _rr.data_file_verdict(path, rel, facts, []), "", str(facts["named"]).strip()
     if key in (state.get("data_file_declared") or {}):
         return _rr.Verdict("USER_DATA_FILE_NEEDS_DECLARATION", False, f"本 session 宣告過 {rel}"), "state", ""
-    if "decls" not in ctx:
-        ctx["decls"] = [d for tp in ctx["decl_tps"] for d in declarations(tp)] + _command_decls(ctx["cmd"])
-    v = _rr.data_file_verdict(path, rel, facts, [d[:3] for d in ctx["decls"]])
-    via = next((d[3] for d in ctx["decls"] if v.evidence and not v.owed and d[2] == v.evidence[0]), "")
+    # 宣告只認最後一則提到這個檔的使用者原話之後寫的（DATA_FILE_DECL_VOIDED_BY_LATER_MENTION）；子代理檔沒有使用者原話、
+    # 位置跟主檔對不起來：使用者提過這個檔就不認子代理檔的宣告（分不出寫在後話之前或之後），沒提過才從頭找
+    since = _mention_at(ctx, path)
+    if ("decls", since) not in ctx:
+        tps = [ctx["main_tp"]] if since else ctx["decl_tps"]
+        ctx[("decls", since)] = ([d for tp in tps for d in declarations(tp, since if tp == ctx["main_tp"] else 0)]
+                                 + _command_decls(ctx["cmd"]))
+    decls = ctx[("decls", since)]
+    v = _rr.data_file_verdict(path, rel, facts, [d[:3] for d in decls])
+    via = next((d[3] for d in decls if v.evidence and not v.owed and d[2] == v.evidence[0]), "")
     return v, via, ""
 
 
@@ -210,6 +263,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     changed = False
     for path in paths:
         rel = _rel(path, cwd)
+        changed = _void_stale_declaration(state, path, ctx, sid, tool_name) or changed
         v, via, quote = _verdict_for(path, rel, state, ctx, config)
         if v.owed:
             event = "denied"
@@ -222,8 +276,9 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
         if v.owed:
             owed.append((rel, v))
             continue
-        if via and via != "state":       # 有宣告行對上：記 state，同 session 同檔不再擋
-            state.setdefault("data_file_declared", {})[_rr.canon_path(path)] = {"line": v.evidence[0], "via": via}
+        if via and via != "state":       # 有宣告行對上：記 state，同 session 同檔不再擋；at＝這時主 transcript 寫到哪（之後的原話會作廢它）
+            state.setdefault("data_file_declared", {})[_rr.canon_path(path)] = {"line": v.evidence[0], "via": via,
+                                                                                 "at": _size(main_tp)}
             changed = True
         if tool_name in SHELL_TOOLS and not os.path.exists(path):
             pending.append(path)

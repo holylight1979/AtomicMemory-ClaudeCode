@@ -85,6 +85,51 @@ def test_quoted_user_sentence_authorizes_commit(said, quoted, allowed):
     assert (_check(command=cmd, state=_state(said)) is None) is allowed, (said, quoted)
 
 
+# ─── 規則 COMMIT_ORDER_DECISION_ALWAYS_LOGGED：判出是 commit 之後每個結果都留帳 ─────────────────────
+
+@pytest.fixture
+def co_log(tmp_path, monkeypatch):
+    """guard log 落 tmp；回讀 guard-commit_order.jsonl 的函式。"""
+    import json
+    import wg_core
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path / "Logs")
+
+    def _read():
+        p = tmp_path / "Logs" / "guard-commit_order.jsonl"
+        return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
+    return _read
+
+
+_C5_SAID = "test_erp_contract 那支是 ERP 對接的舊合約測試，先不用管它、跳過。其他照做。"
+
+
+def test_quoted_release_is_logged(co_log):
+    """第四跑 C-1 第 2 回合原樣：引「其他照做」放行（交 LLM 判的語意授權）→ 之前只印 stderr、事後查不到；現在留帳 quoted＋原句。"""
+    cmd = f"# 授權原句：「其他照做」\n{_CMD}"
+    assert check_git_commit_order("Bash", {"command": cmd}, {}, _state(_C5_SAID), "", "sid-co") is None
+    assert [(e["event"], e["quote"], e["session_id"], e["allowed"]) for e in co_log()] == [("quoted", "其他照做", "sid-co", True)]
+
+
+def test_order_and_denied_are_logged(co_log):
+    assert check_git_commit_order("Bash", {"command": _CMD}, {}, _state("上GIT"), "", "sid-co") is None
+    assert check_git_commit_order("Bash", {"command": _CMD}, {}, _state("幫我把這個 bug 修好"), "", "sid-co")
+    assert [(e["event"], e.get("keyword"), e["allowed"]) for e in co_log()] == [("order", "上GIT", True), ("denied", None, False)]
+    assert all(e["rule"] == "COMMIT_ORDER_DECISION_ALWAYS_LOGGED" and e["cmd"] == _CMD for e in co_log())
+
+
+def test_fail_open_without_prompts_is_logged(co_log):
+    assert check_git_commit_order("Bash", {"command": _CMD}, {}, {}, "", "sid-co") is None
+    assert [e["event"] for e in co_log()] == ["fail_open"]
+
+
+def test_non_commit_command_is_not_logged(co_log):
+    """反例：不是 commit 的指令（commit 只是查詢字樣）不寫帳。前置：同一個原話下真的 commit 會留帳。"""
+    assert check_git_commit_order("Bash", {"command": "git log --grep commit -3"}, {}, _state("幫我修 bug"), "", "s") is None
+    assert co_log() == []
+    check_git_commit_order("Bash", {"command": _CMD}, {}, _state("幫我修 bug"), "", "s")
+    assert [e["event"] for e in co_log()] == ["denied"]
+
+
 @pytest.mark.parametrize("said", ["先不要上GIT", "上GIT 先不要，等我看完", "別上乾淨",
                                   "先不要 commit、push 或上GIT",          # codex BLOCK：否定跨頓號列舉
                                   "不可以上GIT",                         # codex BLOCK：「不可以」

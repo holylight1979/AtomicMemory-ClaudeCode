@@ -1703,8 +1703,9 @@ _ROOT_CD_RE = re.compile(
     rf"(?:\bcd\s+|\bgit\s+-C\s+|\bSet-Location\s+|\bpushd\s+)[\"']?{_ROOT_HOME_RE}[\\/]\.claude(?:[\\/]{_ROOT_CORE_SUBDIRS_RE})?[\\/]?[\"']?(?=\s|;|&&|\|\||$)",
     re.IGNORECASE,
 )
+# 核心子目錄後面不必接斜線：`TEMP=~/.claude/hooks;`、`cp a.py ~/.claude/hooks` 也是根層（hooks.bak、hooks-old 不算）
 _ROOT_CORE_PATH_RE = re.compile(
-    rf"{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:{_ROOT_CORE_SUBDIRS_RE}[\\/]|{_ROOT_SENSITIVE_FILES_RE}\b)",
+    rf"{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:{_ROOT_CORE_SUBDIRS_RE}(?![\w.-])|{_ROOT_SENSITIVE_FILES_RE}\b)",
     re.IGNORECASE,
 )
 _ROOT_TOOL_INVOKE_RE = re.compile(
@@ -1993,8 +1994,9 @@ def _lex_shell(cmd: str) -> List[_Tok]:
 
 class _Scan:
     """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）、
-    sources（cp／mv 家族：目標 → 它的來源絕對路徑）、vars（這條指令裡指定過的字面變數）。"""
-    __slots__ = ("targets", "signal", "unknown", "ps", "sources", "why", "vars")
+    sources（cp／mv 家族：目標 → 它的來源絕對路徑）、vars（這條指令裡指定過的字面變數）、
+    env（可照 hook 行程環境代換的變數，見 _env_for_expansion）、gits（每段 git：(repo 目錄或 None＝判不出, git 後的參數)）。"""
+    __slots__ = ("targets", "signal", "unknown", "ps", "sources", "why", "vars", "env", "gits")
 
     def __init__(self, ps: bool = False) -> None:
         self.targets: List[str] = []
@@ -2004,6 +2006,8 @@ class _Scan:
         self.ps = ps                        # PowerShell 工具：寫檔 cmdlet 的別名才生效（Bash 下 sc 是 sc.exe，不是 Set-Content）
         self.sources: Dict[str, List[str]] = {}
         self.vars: Dict[str, str] = {}       # 規則 SHELL_LITERAL_VAR_EXPANDED：`S='字面' &&` 之後的 $S／${S} 代換成字面
+        self.env: Dict[str, str] = {}        # 規則 SHELL_ENV_VAR_EXPANDED：沒碰過的 $TEMP 這類照環境值代換；空＝不代換
+        self.gits: List[Tuple[Optional[str], List[str]]] = []
 
 
 def _write_target_abs(tok: str, cwd: Optional[str]) -> Optional[str]:
@@ -2162,12 +2166,31 @@ def _remember_vars(words: List[_Tok], prev_sep: str, next_sep: str, out: _Scan, 
             out.vars.pop(name, None)
 
 
-def _expand_vars(t: _Tok, values: Dict[str, str]) -> _Tok:
-    """這條指令前面指定過的字面變數代換進字裡（$S、${S}）；沒指定過的照留（之後判不出）；單引號裡的 $ 是字面、不代換。"""
+def _expand_vars(t: _Tok, out: _Scan) -> _Tok:
+    """這條指令前面指定過的字面變數（out.vars）、沒碰過的環境變數（out.env）代換進字裡（$S、${S}）；
+    都不是的照留（之後判不出）；單引號裡的 $ 是字面、不代換。"""
     if t.sq_dollar or "$" not in t.text:
         return t
-    text = _VAR_REF_RE.sub(lambda m: values.get(m.group(1) or m.group(2), m.group(0)), t.text)
+
+    def value(m: "re.Match[str]") -> str:
+        name = m.group(1) or m.group(2)
+        return out.vars.get(name, out.env.get(name, m.group(0)))
+
+    text = _VAR_REF_RE.sub(value, t.text)
     return t if text == t.text else _Tok("W", text, t.quoted, t.subst)
+
+
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# shell 自己會在指令中途改、或已有專屬規則的變數：不照 hook 行程的環境值代換（cd 改 PWD／OLDPWD；$HOME 由 _write_target_abs 管）
+_SHELL_OWN_VARS = frozenset({"PWD", "OLDPWD", "_", "REPLY", "OPTARG", "OPTIND", "HOME"})
+
+
+def _env_for_expansion(cmd: str) -> Dict[str, str]:
+    """規則 SHELL_ENV_VAR_EXPANDED：這條 Bash 指令裡沒碰過的環境變數（$TEMP、$TMP…）照 hook 行程的 os.environ 代換（同 $HOME 理）。
+    碰過＝名字在指令裡以 $NAME／${NAME} 以外的樣子出現（NAME=、export／unset／read／for NAME in、${NAME:=…}，
+    條件式的、子 shell 裡的也算）→ 照舊判不出。名字大小寫要和環境裡一模一樣；環境裡沒有的照舊判不出。"""
+    touched = set(_IDENT_RE.findall(_VAR_REF_RE.sub(" ", cmd)))
+    return {k: v for k, v in os.environ.items() if k not in touched and k not in _SHELL_OWN_VARS}
 
 
 def _mark_unknown(out: _Scan, seg: List[_Tok]) -> None:
@@ -2304,7 +2327,8 @@ def _git_restore_targets(args: List[str], cwd: Optional[str], seg: List[_Tok], o
     寫碼查核靠它記下「最後一次改這個檔」的時間：反證時用 git 把程式與案例退回舊版、最後只還原程式，時間序才查得到。
     只認字面檔案路徑：萬用字元、pathspec 魔術字（`:` 開頭）、目錄、--pathspec-from-file、--git-dir／--work-tree、算不出的 -C → UNKNOWN。
     `git mv 來源… 目標` 的目標同 mv 算寫入（目標是現存目錄就是目錄/來源檔名）：寫碼查核對「已不存在的程式檔不欠案例」，
-    搬走的程式要在新路徑照算。其他 git 子指令（commit、log、switch…）照舊不算寫入目標。"""
+    搬走的程式要在新路徑照算。其他 git 子指令（commit、log、switch…）照舊不算寫入目標。
+    每段 git 都記進 out.gits：(repo 目錄＝cwd 照 -C 推，--git-dir／--work-tree 或推不出 → None, git 後的參數)，給跨層閘分哪幾段在根層 repo。"""
     base, tree, i = cwd, False, 0
     while i < len(args) and args[i].startswith("-"):
         a = args[i]
@@ -2319,6 +2343,7 @@ def _git_restore_targets(args: List[str], cwd: Optional[str], seg: List[_Tok], o
             i += 1 if "=" in a else 2
         else:
             i += 1
+    out.gits.append((None if tree else base, list(args)))
     if i >= len(args):
         return
     sub, rest = args[i].lower(), args[i + 1:]
@@ -2356,8 +2381,8 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     """一個子段：先收重導向目標，再看第一個命令字是不是寫檔命令／直譯器／eval／cd。回之後的 cwd。"""
     if not seg:
         return cwd
-    if out.vars:
-        seg = [_expand_vars(t, out.vars) if t.kind == "W" else t for t in seg]
+    if out.vars or out.env:
+        seg = [_expand_vars(t, out) if t.kind == "W" else t for t in seg]
     words: List[_Tok] = []
     i = 0
     while i < len(seg):
@@ -2400,6 +2425,8 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
         name = name[:-4]
     if out.ps:
         name = _PS_WRITE_ALIASES.get(name, name)
+    if name in ("source", ".", "eval"):
+        out.env = {}                                     # 讀進來的檔、eval 的字串可能改任何變數：之後不再照環境值代換
     args = [w.text for w in words[k + 1:]]
     at = _inline_flag_at(name, args) if name in _INTERPRETERS else -1
     if at >= 0:
@@ -2514,7 +2541,11 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
             return []
         p = _write_target_abs(fp, base)
         return [p if p and p != _WRITE_TARGET_UNKNOWN else f"{_WRITE_TARGET_UNKNOWN}:{fp[:40]}"]
-    out = _scan_shell_tool(tool_name, tool_input, base)
+    return _shell_write_paths(_scan_shell_tool(tool_name, tool_input, base))
+
+
+def _shell_write_paths(out: Optional[_Scan]) -> List[str]:
+    """掃描結果 → 寫入目標：沒有寫入訊號回 []；有訊號但算不出目標回 ["UNKNOWN:<該段前 40 字>"]。"""
     if out is None or not out.signal:
         return []
     if out.unknown is not None:
@@ -2526,8 +2557,11 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
 def _scan_shell_tool(tool_name: str, tool_input: Dict[str, Any], base: str) -> Optional[_Scan]:
     if tool_name not in ("Bash", "PowerShell"):
         return None
+    cmd = tool_input.get("command", "") or ""
     out = _Scan(ps=tool_name == "PowerShell")
-    _scan_tokens(_lex_shell(tool_input.get("command", "") or ""), base, out)
+    if not out.ps:                                       # PowerShell 的 $TEMP 是 PS 變數、不是環境變數
+        out.env = _env_for_expansion(cmd)
+    _scan_tokens(_lex_shell(cmd), base, out)
     return out
 
 
@@ -2538,11 +2572,48 @@ def write_sources_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Opt
     return dict(out.sources) if out is not None and out.unknown is None else {}
 
 
+_GIT_WORD_RE = re.compile(r"\bgit(?:\.exe)?\b", re.IGNORECASE)
+_GIT_REPO_ENV_RE = re.compile(r"\bGIT_(?:DIR|WORK_TREE|COMMON_DIR)\b")
+
+
+def _in_root_realm(path: str) -> bool:
+    """路徑在根層底下（含本身）：家目錄的 .claude、資料根 CLAUDE_DIR、程式碼根 CODE_DIR。解析失敗算在（寧可多擋）。"""
+    try:
+        p = Path(path).resolve()
+        roots = [r.resolve() for r in (Path.home() / ".claude", CLAUDE_DIR, CODE_DIR)]
+    except (OSError, ValueError):
+        return True
+    return any(p == r or r in p.parents for r in roots)
+
+
+def _git_arg_reaches_root(arg: str, repo: str) -> bool:
+    """非根層 repo 的 git 參數會不會碰到根層（archive -o、diff --output=、clone／worktree add 的目錄）：相對路徑落在 repo 底下碰不到，
+    ~、絕對路徑、..、展不開的變數才可能。旗標取 = 後面、或黏在短旗標後面的值。"""
+    if arg.startswith("--"):
+        arg = arg.split("=", 1)[1] if "=" in arg else ""
+    elif arg.startswith("-"):
+        arg = arg.split("=", 1)[1] if "=" in arg else arg[2:]
+    r = _write_target_abs(arg, repo) if arg else None
+    return r == _WRITE_TARGET_UNKNOWN or (r is not None and _in_root_realm(r))
+
+
+def _root_git_segments(scan: _Scan, cmd: str) -> Optional[List[List[str]]]:
+    """規則 GIT_READONLY_SUBCMD 的範圍：只判 repo 在根層的 git 段（repo 用掃描器的 cd／-C 追蹤推；推不出、參數碰到根層也算）。
+    掃描器看不全 → None（照舊整條判）：有命令替換、git 字樣（註解行除外）比掃描器認到的 git 段多（eval、bash -c、xargs、heredoc 裡）、
+    GIT_DIR／GIT_WORK_TREE 改了 repo 位置。"""
+    from wg_release_rules import strip_comment_lines
+    if (re.search(r"\$\(|`", cmd) or _GIT_REPO_ENV_RE.search(cmd)
+            or len(_GIT_WORD_RE.findall(strip_comment_lines(cmd))) > len(scan.gits)):
+        return None
+    return [args for repo, args in scan.gits
+            if repo is None or _in_root_realm(repo) or any(_git_arg_reaches_root(a, repo) for a in args)]
+
+
 def check_cross_realm_bash(
     tool_name: str, tool_input: Dict[str, Any], cwd: str,
-    config: Dict[str, Any],
+    config: Dict[str, Any], session_id: str = "",
 ) -> Optional[str]:
-    """外部專案 session 經 Bash/PowerShell 改 ~/.claude 核心層或操作根層 repo → deny。cwd 缺失 fail-open。"""
+    """外部專案 session 經 Bash/PowerShell 改 ~/.claude 核心層或操作根層 repo → deny（擋紀錄帶 session_id）。cwd 缺失 fail-open。"""
     if tool_name not in ("Bash", "PowerShell"):
         return None
     g = (config.get("guard") or {}).get("cross_realm_bash") or {}
@@ -2557,9 +2628,10 @@ def check_cross_realm_bash(
     root_ctx = bool(_ROOT_CD_RE.search(ctx_cmd) or _ROOT_CORE_PATH_RE.search(ctx_cmd))
     if not root_ctx:
         return None
-    has_git = re.search(r"\bgit(?:\.exe)?\b", cmd, re.IGNORECASE) is not None
-    if not _BASH_WRITE_OP_RE.search(cmd) and not has_git:
-        return None  # 唯讀（sed -n / grep / cat / python ~/.claude/tools/x.py …）放行
+    has_git = _GIT_WORD_RE.search(cmd) is not None
+    scan = _scan_shell_tool(tool_name, tool_input, cwd)
+    if not _BASH_WRITE_OP_RE.search(cmd) and not has_git and not (scan and scan.signal):
+        return None  # 唯讀（sed -n / grep / cat / python ~/.claude/tools/x.py …）放行；mkdir／touch 這類 regex 沒列的看掃描器的寫入訊號
     cmd_norm = cmd.replace("\\", "/").lower()
     for pat in g.get("allowlist", []) or []:
         if pat and str(pat).replace("\\", "/").lower() in cmd_norm:
@@ -2567,12 +2639,16 @@ def check_cross_realm_bash(
     # 規則 GIT_READONLY_SUBCMD：根層上下文裡有 git（不論寫入訊號 regex 有沒有列到那個子命令：hash-object -w、worktree add、
     # branch -m 這類也算）或有寫入訊號時，每段 git 都要是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、
     # ls-files、cat-file…）、且算得出的寫入目標沒有落在根層核心路徑（重導到 scratchpad 可以）→ 放行；
-    # 目標不明（UNKNOWN）、任一目標在根層、任一段 git 會寫 → 照擋並留 guard-crossrealm.jsonl
+    # 目標不明（UNKNOWN）、任一目標在根層、任一段 git 會寫 → 照擋並留 guard-crossrealm.jsonl。
+    # 「每段 git」只算 repo 在根層的（Bash：cd 到專案 repo 之後的 git archive 不算）；掃描器看不全就照舊每段都算
     from wg_release_rules import git_readonly_verdict
-    targets = write_paths_from_tool(tool_name, tool_input, cwd)
+    targets = _shell_write_paths(scan)
     root_targets = [t for t in targets if t.startswith(_WRITE_TARGET_UNKNOWN) or _ROOT_CORE_PATH_RE.search(t)
                     or _is_core_session(t) is True]
-    verdict = git_readonly_verdict(cmd, root_targets)
+    git_segs = _root_git_segments(scan, cmd) if has_git and scan and not scan.ps else None
+    if git_segs is not None:
+        has_git = bool(git_segs)
+    verdict = git_readonly_verdict(cmd, root_targets, git_segs)
     # PowerShell 的 Set-Location／Push-Location 不在寫入目標解析器的追蹤裡（bash 的 cd 有）：換過目錄的相對目標算不準，照舊擋
     ps_cd = tool_name == "PowerShell" and re.search(r"\b(?:Set-Location|Push-Location|sl|cd|chdir|pushd)\b", cmd, re.IGNORECASE)
     if not has_git and not root_targets and not ps_cd and verdict.owed:
@@ -2583,7 +2659,7 @@ def check_cross_realm_bash(
         print(f"[Guardian:CrossRealmBashBlock] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}",
               file=sys.stderr)
         return None
-    append_guard_log("crossrealm", {"cwd": cwd, "cmd": cmd[:200], "rule": verdict.rule, "why": verdict.why,
+    append_guard_log("crossrealm", {"cwd": cwd, "session_id": session_id, "cmd": cmd[:200], "rule": verdict.rule, "why": verdict.why,
                                     "evidence": list(verdict.evidence)[:3], "targets": root_targets[:3]})
     return (
         "[Guardian:CrossRealmBashBlock] 專案 session 不得經 Bash/PowerShell 修改 ~/.claude 核心層"
