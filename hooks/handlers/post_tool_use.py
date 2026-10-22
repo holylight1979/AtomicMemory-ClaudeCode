@@ -70,7 +70,6 @@ from handlers._shared import (
     entry_note,
 )
 import wg_oldtest
-import wg_judge_card  # 直譯器改判準卡事後比對（JUDGE_CARD_HASH_CATCHES_INTERPRETER）
 
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
@@ -1001,7 +1000,7 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
     aid = str(input_data.get("agent_id") or "")
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     noted = _note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None else []
-    dirty = _judge_card_after(state, input_data, config) or bool(noted)
+    dirty = bool(noted)
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
     if exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
@@ -1037,18 +1036,6 @@ def _negative_control(input_data: Dict[str, Any], command: str):
         print(f"[Guardian:TestFail] 找負向對照宣告失敗，照記紅：{type(e).__name__}: {e}", file=sys.stderr)
         text = command
     return negative_control_verdict(command, parse_negative_controls(text))
-
-
-def _judge_card_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """改判準卡的直譯器出口：Bash／PowerShell 跑完拿 PreToolUse 記的判準卡雜湊比，改了沒宣告記 state，下一個呼叫在 PreToolUse 擋。
-    成功與失敗（PostToolUseFailure）兩條路都比；比對失敗只能 stderr＋留帳（事後擋不了這一次）。"""
-    try:
-        return wg_judge_card.after_tool(state, input_data, config)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:JudgeCardDeclare] 事後比對判準卡失敗（這次直譯器改卡沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
-        append_guard_log("judge_card", {"event": "after_error", "session_id": str(input_data.get("session_id") or ""),
-                                        "tool": str(input_data.get("tool_name") or ""), "error": f"{type(e).__name__}: {e}"})
-        return False
 
 
 def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_name: str, session_id: str,
@@ -1261,8 +1248,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
             append_guard_log("old_test", {"event": "after_error", "session": session_id, "tool": tool_name,
                                           "error": f"{type(e).__name__}: {e}"})
-    if v6 and _judge_card_after(state, input_data, config):
-        dirty = True
 
     if (
         tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit")

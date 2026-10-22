@@ -572,12 +572,12 @@ def brief(tree: Optional[Dict[str, Any]], part_key: Optional[str] = None) -> str
 
 
 def _brief_sig(tree: Dict[str, Any], part_key: Optional[str] = None) -> str:
-    """brief 的內容指紋：樹、樹根文字、當前節點與它的文字狀態（不含計數：改一次檔待對照就變，不算內容變了）。"""
+    """brief 的內容指紋：樹與它的狀態、樹根文字、當前節點與它的文字、狀態、清楚度（不含計數：改一次檔待對照就變，不算內容變了）。"""
     nodes = tree.get("nodes") or {}
     nid = current_node(tree, part_key)
     node = nodes.get(nid or "") or {}
-    raw = "\n".join([str(tree.get("id")), str((nodes.get(tree["id"]) or {}).get("text")), str(nid),
-                     str(node.get("text")), str(node.get("status"))])
+    raw = "\n".join([str(tree.get("id")), str(tree.get("status")), str((nodes.get(tree["id"]) or {}).get("text")), str(nid),
+                     str(node.get("text")), str(node.get("status")), str(node.get("clarity"))])
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 

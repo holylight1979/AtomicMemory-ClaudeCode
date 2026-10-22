@@ -33,8 +33,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    assistant_texts_since, org_memory_root, resolve_project_root, transcript_sizes,
+    CLAUDE_DIR, CONFIG_PATH, DECL_DENY_CAP, _atom_debug_error, _layer_kind_for_root, _map_path_of,
+    assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -1280,9 +1280,6 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     return (warn, None, True)
 
 
-LOCATE_DENY_MAX = 2   # 規則 LOCATE_DENY_CAP：同回合同部位同缺件最多擋幾次，之後放行留帳（同收尾閘的每回合預算）
-
-
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
             config: Dict[str, Any], cwd: str = "", agent_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
     """PreToolUse（Write／Edit／NotebookEdit／Bash／PowerShell 的每個寫入目標）：回 (警告文字, deny 理由, state 有沒有變)。
@@ -1491,15 +1488,16 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
     turn = int(state.get("turn_seq", 0) or 0)
-    # 規則 LOCATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 LOCATE_DENY_MAX 次 → 這次放行並留帳（定位行交了閘卻看不到、
-    # 讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算
+    # 規則 LOCATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 次 → 之後放行，越過上限那一次留帳
+    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算
     gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
-    if _rr.budget_exhausted(rec.get("deny_budget"), turn, LOCATE_DENY_MAX, [gap]):
-        _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
-             blocks=LOCATE_DENY_MAX, gap=gap)
+    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"])
+    if not denied:
+        if released:
+            _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
+                 blocks=DECL_DENY_CAP, gap=gap)
         return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
-                f"{LOCATE_DENY_MAX} 次，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
-    rec["deny_budget"] = _rr.budget_tick(rec.get("deny_budget"), turn, [gap])
+                f"{DECL_DENY_CAP} 次，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
     # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
     # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
     sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
