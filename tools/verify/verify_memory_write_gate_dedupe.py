@@ -3,7 +3,8 @@
 做什麼：相似度達門檻不再直接拒寫，回「要宣告」（action=skip＋need_declaration，舊 js 照拒）＋候選卡（最多 3 張：卡名、分數、知識段前 2 行）
 與三種寫法；AI 帶 dedupe={verdict, of, why} 重送 → 程式只核 verdict 三選一、of 是候選卡名、why 有字，
 收下就記 audit dedupe_declared 並照宣告路由（same→append_to、supersedes／different 照常往下判）。
-另守：沒命中／向量服務沒起照舊直接寫、給了宣告但沒命中附 note、write_gate.dedupe_declaration=false 回舊行為、
+另守：沒命中／向量服務沒起照舊直接寫、沒命中給 different 宣告附 note（same 照宣告走，見 hooks/verify/verify_mcp_write_gate.py）、
+write_gate.dedupe_declaration=false 回舊行為、
 品質分數只分寫／不寫（舊 ask 級拿掉）、pitfall 捷徑不豁免宣告。
 真實輸入：拿本樹一張真卡改名重送（等同「改名取代舊卡」），打 live 向量服務（唯讀 GET；服務沒起就 skip）。
 不寫 live：audit 一律 monkeypatch 收進記憶體；假向量命中用 monkeypatch urlopen。
@@ -207,7 +208,10 @@ def test_below_threshold_writes_directly(monkeypatch, audits, old_card):
     _vector(monkeypatch, [{**_hits(old_card)[0], "score": 0.5}])
     r = _eval()
     assert r["action"] == "add" and "dedup_match" not in r and "dedupe_note" not in r
+    # 沒候選但宣告 same：照宣告走——那張卡不在比對的層（old_card 在 pytest tmp）→ 拒寫說明，不另建新卡
     r = _eval(dedupe={"verdict": "same", "of": "old-card", "why": "同一條"})
+    assert r["action"] == "skip" and r["need_declaration"] and "這次沒有相似候選" in r["reason"] and "dedupe_declared" not in r
+    r = _eval(dedupe={"verdict": "different", "of": "old-card", "why": "不同的事"})
     assert r["action"] == "add" and r["dedupe_note"].startswith("dedupe 宣告已忽略") and "dedupe_declared" not in r
 
 

@@ -1,8 +1,10 @@
 // verify_atom_write_dedupe.js — atom_write 去重交 AI 判的 MCP（js）端：真 py 寫入閘 + 真落檔，假向量服務給候選。
 //   驗：沒宣告 → 要宣告（need_declaration）原文轉述（候選名／分數／節錄／三種寫法）且不落檔；dedupe 型別錯 js 先拒；
 //   why 空／of 不在候選 → 拒並點名；supersedes → 新卡帶 `- Supersedes: <候選>`、audit 記 dedupe_declared；
-//   same → 改 append 到候選卡、沒有新檔、回覆開頭講改併入哪張；different → 照常寫；沒命中給宣告 → 照寫附 note；
-//   分數沒到門檻 → 照寫；向量服務沒起 → 照寫；write_gate.dedupe_declaration=false → 舊行為（similar → suggest update）。
+//   same → 改 append 到候選卡、沒有新檔、回覆開頭講改併入哪張；候選卡已滿 → 拒寫並給「壓縮舊卡／改寫進文件」；different → 照常寫；
+//   沒命中給 same → 照宣告併入那張卡（不另建新卡）；分數沒到門檻 → 照寫；向量服務沒起 → 照寫；
+//   write_gate.dedupe_declaration=false → 舊行為（similar → suggest update）。
+// 去重宣告只在守門總開關開時要求（出廠預設關）：外面沒明設 WG_V6 就開（py 寫入閘子行程繼承）。
 // 隔離：WG_CLAUDE_DIR 指 os.tmpdir() 下的暫存資料根（require 任何 lib 之前設）；process.chdir 到該根（realm 閘視為核心層）；
 //   寫入後的向量重索引照 config 的 service_port 打到假服務（順驗它不再寫死 live 3849）；目錄重產在 require atom-tools 前
 //   換成空函式；sendToolResult 改成收進記憶體。
@@ -15,6 +17,7 @@ const http = require("http");
 const CODE = path.resolve(__dirname, "..", "..", "..");
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "wg-dedupe-"));
 process.env.WG_CLAUDE_DIR = ROOT;
+if (!("WG_V6" in process.env)) process.env.WG_V6 = "1";
 process.chdir(ROOT);
 fs.mkdirSync(path.join(ROOT, "memory", "_meta"), { recursive: true });
 for (const f of ["taxonomy.json", "realm-lexicon.json"]) {   // 範疇閘／核心保護清單照本樹
@@ -129,7 +132,7 @@ function check(cond, label, detail) {
   check(after.includes("同一條的補充：PostToolUse 命中時順帶印提醒") && after.length > before.length && !fs.existsSync(atomPath("dedupe-new-same")),
         "same → knowledge appended to candidate, no new file");
 
-  // 5b. same 走的是既有 append 路徑：合併後超預算照樣被擋（回覆開頭仍講改併入哪張）、候選卡不變
+  // 5b. same 走的是既有 append 路徑：合併後超預算照樣被擋（回覆開頭仍講改併入哪張、給兩條出路）、候選卡不變
   const BIG = "dedupe-big-card";
   const pad = "這段是部位的真相與邊界說明".repeat(24);   // 一行約 870 bytes
   const wb = await write({ title: BIG, skip_gate: true, knowledge: [`[臨] 一 ${pad}`, `[臨] 二 ${pad}`, `[臨] 三 ${pad}`] });
@@ -138,9 +141,20 @@ function check(cond, label, detail) {
   hits = [{ atom_name: BIG, score: 0.93, text: "chunk", file_path: atomPath(BIG), layer: "extra:local-atoms" }];
   const bigBefore = fs.readFileSync(atomPath(BIG), "utf-8");
   const r5b = await write({ title: "dedupe-new-big", knowledge: [`[臨] 補充 ${pad}`], dedupe: { verdict: "same", of: BIG, why: "同一條" } });
-  check(r5b.isError && r5b.text.startsWith(`dedupe 宣告 same：知識段改併入既有卡 ${BIG}`) && /Write-gate rejected: knowledge 區 \d+ bytes/.test(r5b.text)
+  check(r5b.isError && r5b.text.startsWith(`dedupe 宣告 same：知識段改併入既有卡 ${BIG}`)
+        && r5b.text.includes(`Write-gate rejected: 既有卡 ${BIG} 的 knowledge 區已滿`) && r5b.text.includes("壓縮舊卡（mode=replace")
         && fs.readFileSync(atomPath(BIG), "utf-8") === bigBefore && !fs.existsSync(atomPath("dedupe-new-big")),
         "same → append path budget gate still rejects, card unchanged", r5b.text);
+  hits = savedHits;
+
+  // 5c. 流程級：被退一次後照訊息宣告 same、順手縮內容重送 → 相似鄰居換了一批、候選卡不在這次前 3 名，
+  //     但它還在這次比對的層裡 → 照宣告併入（真 py 閘＋真的層內查卡），不再退第二次
+  hits = ["other-x", "other-y", "other-z"].map((n, i) => ({ atom_name: n, score: 0.9 - i * 0.03, text: "chunk", file_path: "", layer: "global" }));
+  const r5c = await write({ title: "dedupe-new-shrunk", knowledge: ["[臨] 縮過的內容：PostToolUse 命中才印提醒"],
+    dedupe: { verdict: "same", of: OLD, why: "同一條：上一輪候選裡的那張" } });
+  check(!r5c.isError && r5c.text.startsWith(`dedupe 宣告 same：知識段改併入既有卡 ${OLD}`) && !r5c.text.includes("score=")
+        && fs.readFileSync(atomPath(OLD), "utf-8").includes("縮過的內容：PostToolUse 命中才印提醒") && !fs.existsSync(atomPath("dedupe-new-shrunk")),
+        "same of card outside this run's top 3 but in searched layers → appended, no second refusal", r5c.text);
   hits = savedHits;
 
   // 6. different → 照常寫新卡
@@ -148,13 +162,17 @@ function check(cond, label, detail) {
   check(!r6.isError && fs.existsSync(atomPath("dedupe-new-diff")) && !fs.readFileSync(atomPath("dedupe-new-diff"), "utf-8").includes("Supersedes")
         && r6.text.includes(`dedupe_declared: different of=${OLD}`), "different → new card, no Supersedes", r6.text);
 
-  // 7. 分數沒到門檻 → 照寫；給了宣告 → 照寫附 note
+  // 7. 分數沒到門檻 → 照寫；給了 same → 照宣告併入那張卡（不另建新卡）；給了 different → 照寫附 note
   hits = [{ ...hits[0], score: 0.5 }];
   const r7 = await write({ title: "dedupe-low-score", knowledge: NEWK });
   check(!r7.isError && fs.existsSync(atomPath("dedupe-low-score")) && !/dedupe_declared|dedupe 宣告/.test(r7.text), "below threshold → written directly", r7.text);
-  const r7b = await write({ title: "dedupe-low-score-decl", knowledge: NEWK, dedupe: { verdict: "same", of: OLD, why: "同一條" } });
-  check(!r7b.isError && fs.existsSync(atomPath("dedupe-low-score-decl")) && r7b.text.includes("dedupe 宣告已忽略"),
-        "no hit + declaration → written with note", r7b.text);
+  const r7b = await write({ title: "dedupe-low-score-decl", knowledge: ["[臨] 沒命中也照宣告併入：低分補充行"], dedupe: { verdict: "same", of: OLD, why: "同一條" } });
+  check(!r7b.isError && !fs.existsSync(atomPath("dedupe-low-score-decl")) && r7b.text.startsWith(`dedupe 宣告 same：知識段改併入既有卡 ${OLD}`)
+        && fs.readFileSync(atomPath(OLD), "utf-8").includes("沒命中也照宣告併入：低分補充行"),
+        "no hit + same → appended to declared card, no new file", r7b.text);
+  const r7c = await write({ title: "dedupe-low-score-diff", knowledge: NEWK, dedupe: { verdict: "different", of: OLD, why: "不同的事" } });
+  check(!r7c.isError && fs.existsSync(atomPath("dedupe-low-score-diff")) && r7c.text.includes("dedupe 宣告已忽略"),
+        "no hit + different → written with note", r7c.text);
 
   // 8. 開關關掉 → 舊行為
   hits = [{ ...hits[0], score: 0.88 }];
