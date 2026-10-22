@@ -197,7 +197,9 @@ def parse_scope(method: str, where: str) -> Tuple[str, int]:
     if head == "程式先抓候選詞":
         return ("candidates", 0)
     m = FIRST_N_RE.fullmatch(head)
-    n = (int(m.group(1)) if m.group(1).isdigit() else CN_NUM[m.group(1)]) if m else 0
+    if not m:
+        raise SpecError(bad)
+    n = int(m.group(1)) if m.group(1).isdigit() else CN_NUM[m.group(1)]
     if n < 1:
         raise SpecError(bad)
     return ("first", n)
@@ -275,7 +277,8 @@ def spec_path(name: str) -> Path:
 def load_spec(name: str) -> Spec:
     path = spec_path(name)
     if not path.is_file():
-        have = "、".join(sorted(p.stem for p in SPEC_DIR.glob("*.md") if p.stem != "README")) or "（沒有）"
+        have = "、".join(sorted(p.stem for p in SPEC_DIR.glob("*.md")    # README 與 <規格>-說明.md 不是規格
+                                if p.stem != "README" and not p.stem.endswith("-說明"))) or "（沒有）"
         raise SpecError(f"找不到規格 {path}；text-specs/ 現有：{have}")
     return parse_spec(path)
 

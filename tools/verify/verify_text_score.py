@@ -3,6 +3,7 @@
 做什麼：
 - 規格是資料：真規格 reader-designer 解析出的條目與切法、條目一律正面問；另一份臨時規格（代號 Q1、Q2、切「前 2 句」）不改程式照樣跑；
   格式錯（缺鍵、代號≠檔名、沒過時亂寫、看不懂的程式切法、沒有模型判、超過 8 條、判例代號不存在、沒來源）→ exit 2、說哪裡錯、不問裁判。
+- 白話說明檔 reader-designer-說明.md：開頭句、規格每個代號一個錨點、連到的判準卡都在；不被當成規格列出。
 - 切範圍：開頭 --- 檔頭、標題不算句子、去掉引用與清單符號、code 區塊與網址不送；前 N 句；候選詞只收像代號的字。
 - 引用校驗：全半形、markdown 記號、空白不計，「…」分段依序；抄題目、順序顛倒、改寫、只在切範圍外 → 作廢；判否沒附引用 → 作廢。
 - 分數由程式算：裁判多帶 score 欄也不看；是＋不適用＝過；必過「否」→ 不過；必過作廢 → 未定。
@@ -39,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools" / "text-score.py"
 WEEKLY = ROOT / "tools" / "text-score-weekly.py"
 SPEC_FILE = ROOT / "text-specs" / "reader-designer.md"
+EXPLAIN_FILE = ROOT / "text-specs" / "reader-designer-說明.md"
 DONE_RE = re.compile(r"^[A-Z][A-Z0-9_]* DONE( \w+=\S+)*$")
 
 
@@ -225,6 +227,23 @@ def test_real_spec_parses_items_scopes_and_hash():
     assert spec.sha == hashlib.sha256(SPEC_FILE.read_bytes()).hexdigest()[:16]
     assert spec.allow_fail == 0
     assert not any("找得到" in it.question for it in spec.items) and "找得到" not in TS.PROMPT   # 一律正面問：通過＝答「是」
+
+
+def test_explain_doc_has_item_anchors_and_cards_exist():
+    """白話說明檔（評分一行點進來的地方）：開頭那句在；規格每個代號一個只寫代號的標題（VS Code 擴充把標題去掉連結、轉小寫找 #r1…）；
+    標題連到的判準卡都在本樹；說明檔不會被當成規格列出。"""
+    text = EXPLAIN_FILE.read_text(encoding="utf-8")
+    assert text.startswith("這份文件紀錄 AI 在 chat 內的回應「使用者讀起來好不好懂」，目前包含（白話解說）：")
+    heads = re.findall(r"^## (.+)$", text, re.M)
+    anchors = [re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", h).strip().lower() for h in heads]
+    codes = [it.id.lower() for it in TS.load_spec("reader-designer").items]
+    assert anchors == codes == [f"r{i}" for i in range(1, 8)]
+    cards = [m.group(1) for h in heads if (m := re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", h))]
+    missing = [c for c in cards if not (EXPLAIN_FILE.parent / c).resolve().is_file()]
+    assert len(cards) == 7 and missing == [], missing
+    with pytest.raises(TS.SpecError) as err:
+        TS.load_spec("沒有這份")
+    assert "reader-designer" in str(err.value) and "說明" not in str(err.value)
 
 
 def test_other_spec_runs_without_code_change(tmp_path, fake):

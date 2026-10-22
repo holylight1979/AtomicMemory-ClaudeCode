@@ -253,7 +253,8 @@ def handle_user_prompt_submit(
     # 文字評分（G15）：上一則回覆背景評完了 → 評分一行放在這則注入的第一行，請 AI 照抄到回覆尾巴（只附不擋；wg_text_score）
     try:
         from wg_text_score import tail_note as _ts_tail_note
-        _ts_txt = _ts_tail_note(state, session_id, config)
+        _ts_txt = _ts_tail_note(state, session_id, config,
+                                cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
         if _ts_txt:
             lines.insert(0, _ts_txt)
     except Exception as e:
