@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 TECH.md 補「改判準卡要先宣告」與閘小修 006 的五條規則、文件軌不開 worktree
+- **原設計者看到的**：TECH.md 寫明改綁了切入點的判準卡要先寫「改判準卡｜<卡名>：<理由>」（§4.3、§7.0 改檔當下、§7.5），MCP 的 atom_write／atom_edit_meta／atom_retire 也擋；§7.8 規則表每條規則各有一列（98 條）；§13.4 寫明只改文件的軌直接在 live 改、不開 worktree。
+- **改了什麼**（軌 track-tech-refresh 002）：§3.1 PreToolUse matcher 照 settings.json 現況（含 MultiEdit 與三個 atom 工具）；§7.5 JudgeCardDeclare 拿掉「matcher 待套用」、補已知限制（腳本自己開檔寫看不到）；§7.8 新增 JUDGE_CARD_CHANGE_NEEDS_DECLARATION、CLAIM_CONDITIONAL_NOT_CLAIM、TRACKING_SAME_ITEM_NOT_REWRITTEN、SHELL_LITERAL_VAR_EXPANDED、INLINE_FLAG_BEFORE_PROGRAM 五列；§10 補 wg_judge_card.py、verify_judge_card_declare.py、verify/fixtures。只改文件。
+- **驗證**：`wg_release_rules.RULES` 98 條名字全在 §7.8 第一欄（逐條比對）；`python -X utf8 tools/sync_doc_counts.py --check` DOC_COUNTS_CHECK PASS。
 ## 2026-10-22 TECH.md 整份照現況重新核對：補新機制、刪已拆的、標出目前關著的閘、新增寫程式一路總覽
 - **原設計者看到的**：TECH.md 每一節開頭第一句說這節解決什麼；§7.0 新增「寫程式時一路會遇到什麼」：照開場 → 收到需求 → 動手前定位 → 改檔 → 問人 → 跑測試 → 宣告完成 → 交付 → commit 的順序，白話列每個時刻被問什麼、送什麼卡、擋不擋，並列出目前在 config 關著的閘（驗證範圍、寫碼查核只擋 (a)(d)、目標樹對照、收尾檢核、卡片表態）。§13.4 新增多 session 協作（雙總控台、工作軌、派工信箱、console-spawn）。§11 改名「流程與耗損」，數字段標「數字待量測軌」。
 - **改了什麼**（軌 track-tech-refresh 001）：以程式為準逐節核對 TECH.md（hooks 事件 9→10、MCP 工具 12→13、§7.8 規則表補 8 條、§10 目錄樹補約 50 個現存檔、§12 補 config 有而文件沒寫的鍵與功能開關、§5／§6 檢索與寫入的數值與流程改成現況）；§7.3 原本是已拆除的 PAN 閘，改寫成「擋滿之後怎麼放行」（`hooks/wg_release.py`），PAN 只留在 §14.2；刪掉 pan-pass、pre-action-notice、startup-drift 等已不存在的東西；只改文件，不改程式。
