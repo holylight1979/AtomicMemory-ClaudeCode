@@ -2421,3 +2421,46 @@ def test_launcher_not_code_source_shapes():
            'def (:\n']                                                               # 解析不了
     assert all(rr.is_git_launcher_source(s) for s in ok)
     assert not any(rr.is_git_launcher_source(s) for s in bad)
+
+
+# ─── 別處實作的規則：登記在 RULES、指到真正驗它的案例 ──────────────────────────
+# 案例函式在各自的 verify 檔（走真入口才驗得到）；這裡只核對規則有登記、對照的案例檔與函式真的在。
+
+_ELSEWHERE_CASES = {
+    "GATE_DENY_CAP": [("verify_pull_tool_gates.py", "test_deny_cap_counts_each_item_per_user_turn"),
+                      ("verify_pull_goal_locate.py", "test_locate_gate_same_gap_blocks_twice_then_passes_with_log"),
+                      ("verify_pull_goal_locate.py", "test_unmapped_gate_same_gap_blocks_twice_then_passes_with_log")],
+    "SVN_TEST_BLOCK_OPT_IN": [("verify_pull_tool_gates.py", "test_svn_test_block_off_by_default"),
+                              ("verify_pull_tool_gates.py", "test_svn_test_block_on_looks_only_at_commit_paths"),
+                              ("verify_pull_tool_gates.py", "test_svn_test_block_user_sentence_this_turn_allows")],
+    "GATE_BYPASS_NAMED_FILES_MERGED": [
+        ("verify_pull_tool_gates.py", "test_excluded_named_file_still_needs_declaration_after_other_file_fixed"),
+        ("verify_pull_tool_gates.py", "test_declaration_after_a_named_still_counts_for_a"),
+        ("verify_pull_tool_gates.py", "test_declaration_before_b_named_does_not_cover_b")],
+}
+# 案例檔還沒進這棵樹的規則（收尾閘那一批）：先登記名字，案例檔進來後要點到規則名
+_PENDING_CASE_FILE = "verify_pull_stop_gates.py"
+_PENDING_RULES = ("PENDING_SAME_USER_TURN", "RELEASE_COVERS_SHOWN_ITEMS", "NONINTERACTIVE_RELEASE_AT_BUDGET",
+                  "ORDER_UNTIL_PUSH", "RELOAD_ADVICE_MCP_EDITS_ONLY", "DEFERRAL_COVERS_EVASION_SENTENCE")
+
+
+@pytest.mark.parametrize("rule", sorted(_ELSEWHERE_CASES))
+def test_rules_registered_with_case_functions_elsewhere(rule):
+    assert rule in rr.RULES
+    for case_file, fn in _ELSEWHERE_CASES[rule]:
+        assert f"def {fn}(" in (Path(__file__).parent / case_file).read_text(encoding="utf-8"), (rule, case_file, fn)
+
+
+@pytest.mark.parametrize("rule", _PENDING_RULES)
+def test_stop_gate_rules_registered_case_file_names_them_once_present(rule):
+    assert rule in rr.RULES
+    case = Path(__file__).parent / _PENDING_CASE_FILE
+    if not case.exists():
+        pytest.skip(f"{_PENDING_CASE_FILE} 還不在這棵樹：只核對規則已登記")
+    assert rule in case.read_text(encoding="utf-8"), (rule, _PENDING_CASE_FILE)
+
+
+def test_deny_cap_old_names_folded_into_gate_deny_cap():
+    """GATE_DENY_CAP 收斂：舊稱不另立條目，說明裡寫明併入。"""
+    assert "DECL_GATE_DENY_CAP" not in rr.RULES and "LOCATE_DENY_CAP" not in rr.RULES
+    assert "DECL_GATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"] and "LOCATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"]
