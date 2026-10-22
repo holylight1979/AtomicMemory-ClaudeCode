@@ -2865,10 +2865,16 @@ RULES["DATA_FILE_DECL_VOIDED_BY_LATER_MENTION"] = ("資料檔宣告帳（state d
 RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但那一處被否定（同一子句裡檔名左邊有否定字，或右邊緊接否定："
                                           "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
                                           "裡另有沒被否定的提及照算點名（prompt_names_file）。")
-RULES["DATA_FILE_HINT_KEEPS_EDIT_TOOLS"] = ("改資料檔宣告閘的擋訊息（hooks/wg_data_file._judge、data_file_hint）講清楚宣告放哪：比工具呼叫早一則的回覆文字，"
-                                            "或一條不寫檔的 Bash／PowerShell 指令開頭的 `#` 註解；並寫明宣告完照常用 Edit／Write 改、不要改用"
-                                            " Bash／PowerShell 寫檔（指令寫的檔常判不出目標，modified_files 漏記，對帳、第二意見、同步提醒都看不到）。"
-                                            "不准出現「或寫成 Bash 指令開頭的 # 註解」這類會被讀成改用 Bash 寫檔的說法。")
+RULES["DECL_HINT_KEEPS_EDIT_TOOLS"] = ("擋 Edit／Write 要先交宣告行的閘（改資料檔宣告 wg_data_file._judge／data_file_hint、改舊測試宣告 "
+                                       "wg_oldtest.hint、定位與最小地圖 wg_overview），擋訊息講清楚宣告放哪：比工具呼叫早一則的回覆文字，"
+                                       "或一條不寫檔的 Bash／PowerShell 指令開頭的 `#` 註解（DECL_VIA_COMMENT）；並寫明宣告完照常用 "
+                                       "Edit／Write 改、不要改用 Bash／PowerShell 寫檔（DECL_KEEP_EDIT：指令寫的檔常判不出目標，"
+                                       "modified_files 漏記，對帳、第二意見、同步提醒都看不到）。不准出現「或寫成 Bash 指令開頭的 # 註解」"
+                                       "「放在下一條 Bash 的註解」這類會被讀成改用 Bash 寫檔的說法。擋的本來就是那條 Bash 指令的閘"
+                                       "（繞閘宣告 wg_gate_bypass）不在此列：宣告寫在那條指令的註解是對的。")
+DECL_VIA_COMMENT = "一條不寫檔的 Bash／PowerShell 指令（例如 `git diff`）開頭的 `#` 註解"
+DECL_KEEP_EDIT = ("宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔：指令裡寫的檔 hook 常判不出是哪個，"
+                  "改檔紀錄會漏掉，之後對帳、第二意見、同步提醒都看不到這次改動")
 
 
 def _file_mentions(text: str, base: str) -> Iterable["re.Match"]:
@@ -2913,7 +2919,7 @@ def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
 
 def data_file_hint(rel: str) -> str:
     return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
-            "放回覆文字（下一則再改），或一條不寫檔的 Bash／PowerShell 指令（例如 `git diff`）開頭的 `#` 註解；"
+            f"放回覆文字（下一則再改），或{DECL_VIA_COMMENT}；"
             "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 

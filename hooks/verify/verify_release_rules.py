@@ -46,7 +46,7 @@ def test_044_every_rule_has_a_case():
     ("SECOND_OPINION_RESULT_ACROSS_TURNS", "verify_g9_second_opinion.py"),
     ("SECOND_OPINION_WAITING_NOT_DONE", "verify_g9_second_opinion.py"),
     ("SECOND_OPINION_DECLINE_ACCEPTED", "verify_g9_second_opinion.py"),
-    ("DATA_FILE_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
+    ("DECL_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
@@ -2510,3 +2510,19 @@ def test_deny_cap_old_names_folded_into_gate_deny_cap():
     """GATE_DENY_CAP 收斂：舊稱不另立條目，說明裡寫明併入。"""
     assert "DECL_GATE_DENY_CAP" not in rr.RULES and "LOCATE_DENY_CAP" not in rr.RULES
     assert "DECL_GATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"] and "LOCATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"]
+
+
+def test_decl_hints_do_not_steer_to_bash_writes():
+    """規則 DECL_HINT_KEEPS_EDIT_TOOLS：擋 Edit／Write 要先交宣告行的閘，擋訊息不准再用會被讀成「改用 Bash 寫檔」的說法
+    （補題第一版：AI 照「或寫成 Bash 指令開頭的 # 註解」全程用 python -c 改檔，改檔紀錄整個 session 是空的）。掃 hooks 全部
+    原始碼；繞閘宣告（擋的就是那條 Bash 指令，寫「這條」指令的註解）不在此列。"""
+    banned = ("或寫成 Bash／PowerShell 指令開頭的 `#` 註解", "或寫成下一個 Bash／PowerShell 指令開頭的", "下一個 Bash 開頭",
+              "下一個工具呼叫的參數（Bash 開頭的註解）")
+    hits = []
+    for p in sorted(HOOKS_DIR.rglob("*.py")):
+        if "verify" in p.relative_to(HOOKS_DIR).parts:
+            continue
+        src = p.read_text(encoding="utf-8")
+        hits += [f"{p.relative_to(HOOKS_DIR).as_posix()}：{b}" for b in banned if b in src]
+    assert not hits, hits
+    assert "照常用 Edit／Write" in rr.DECL_KEEP_EDIT and "不寫檔" in rr.DECL_VIA_COMMENT

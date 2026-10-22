@@ -296,11 +296,9 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     if not denied:
         return None
     hits = [owed[k] for k in denied]
-    # 規則 DATA_FILE_HINT_KEEPS_EDIT_TOOLS：宣告的管道講清楚，宣告完照常用 Edit／Write，不把 AI 引去用 Bash 寫檔
+    # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：宣告的管道講清楚，宣告完照常用 Edit／Write，不把 AI 引去用 Bash 寫檔
     return ("[Guardian:DataFileAsk] 要改使用者既有的資料檔／設定檔，先宣告一行再改：宣告行要比這次工具呼叫早一則訊息送出"
-            "（跟工具呼叫同一則送出的文字，這裡還看不到），或寫在一條不寫檔的 Bash／PowerShell 指令（例如 `git diff`）開頭的 `#` 註解。"
-            "宣告完照常用 Edit／Write 改這個檔，不要改用 Bash／PowerShell 寫檔："
-            "指令裡寫的檔 hook 常判不出是哪個，改檔紀錄會漏掉，之後對帳、第二意見、同步提醒都看不到這次改動。"
+            f"（跟工具呼叫同一則送出的文字，這裡還看不到），或寫在{_rr.DECL_VIA_COMMENT}。{_rr.DECL_KEEP_EDIT}。"
             "拿不準要不要動就先問使用者。一次改好幾個資料檔，每個都要各自宣告（留帳給健檢抽查）。\n"
             + "\n".join(_rr.format_hit("df", v) for _, _, v in hits) + "\n"
             + "\n".join(_rr.data_file_hint(rel) for _, rel, _ in hits))

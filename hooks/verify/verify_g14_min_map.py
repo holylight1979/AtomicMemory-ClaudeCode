@@ -78,10 +78,11 @@ def test_first_code_edit_blocks_with_rule_entry_and_preview(tmp_path):
     _read(state, root, "src/b.py")
     warn, deny, changed = wo.on_edit(state, "s", str(root / "src" / "a.py"), tp, FAST)
     assert deny and RULE in deny and changed is True
-    for s in ("地圖｜讀了：", "地圖｜上游：", "地圖｜下游：", "放在回覆文字或下一個 Bash 開頭 `#` 註解",
+    for s in ("地圖｜讀了：", "地圖｜上游：", "地圖｜下游：", "放在回覆文字或一條不寫檔的 Bash／PowerShell 指令", "照常用 Edit／Write",
               "掃表預覽（", "`src/` 檔 2", "`lib/` 檔 2", "路徑前綴用反引號包", "病灶清單欄填病灶文件路徑"):
         assert s in deny, s
     assert deny.rstrip().splitlines()[-1].startswith("放在回覆文字")                  # 入口在訊息末尾
+    assert "下一個 Bash 開頭" not in deny            # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：不把 AI 引去用 Bash 寫檔
     slot = state["min_map"][wo._root_key(root)]
     assert slot["preview_ok"] is True and "掃表預覽（" in slot["preview"]
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]

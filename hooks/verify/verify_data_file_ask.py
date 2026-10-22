@@ -122,7 +122,7 @@ def test_existing_settings_json_without_declaration_is_denied(world):
 
 
 def test_block_message_keeps_edit_write_not_bash_writes(world):
-    """規則 DATA_FILE_HINT_KEEPS_EDIT_TOOLS（補題第一版第 2 回合）：舊擋訊息「或寫成 Bash 指令開頭的 # 註解」「放…下一個 Bash 開頭
+    """規則 DECL_HINT_KEEPS_EDIT_TOOLS（補題第一版第 2 回合）：舊擋訊息「或寫成 Bash 指令開頭的 # 註解」「放…下一個 Bash 開頭
     # 註解」被讀成改用 Bash 寫檔，之後全程 python -c 改檔、改檔清單整個 session 是空的。擋訊息要寫明宣告完照常用 Edit／Write、
     不要改用 Bash 寫檔，註解只放在不寫檔的指令上。"""
     r = _reason(_run(world))

@@ -1147,7 +1147,8 @@ MIN_MAP_ENTRY = (
     "  地圖｜讀了：<檔清單，相對專案根，用「、」分隔，至少 1 個本 session 讀過的檔>",
     "  地圖｜上游：<誰餵這一塊（檔或模組）／無，因為…>",
     "  地圖｜下游：<誰吃這一塊／無，因為…>",
-    "放在回覆文字或下一個 Bash 開頭 `#` 註解（要比這次改檔早一則訊息送出；角括號換成你的判斷；可和定位行同一則訊息交）。",
+    f"放在回覆文字或{_rr.DECL_VIA_COMMENT}（要比這次改檔早一則訊息送出；角括號換成你的判斷；可和定位行同一則訊息交）；"
+    f"{_rr.DECL_KEEP_EDIT}。",          # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
 )
 # 掃表預覽跑在子程序（逾時砍得掉）：lib/overview_scaffold.preview_lines，參數＝程式碼根、專案根、overview_scaffold 段、refix_churn 段
 _PREVIEW_CODE = ("import json, sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
@@ -1306,7 +1307,7 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
         state.setdefault("min_map", {}).setdefault(_root_key(root), {})["offset"] = transcript_size(transcript_path)
         if via == "thinking":
             notes.append("[Guardian:OverviewHub] 最小地圖三行只在 thinking 裡，模型下回合與人都看不到；這次放行，"
-                         "請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
+                         f"請改放回覆文字或{_rr.DECL_VIA_COMMENT}，改檔照常用 Edit／Write。")
     if unread:
         notes.append(f"[Guardian:OverviewHub] 注意：{unread}")
     _log("edit_unmapped", session_id, rule=v.rule, edits=rec["edits"], deny_reason=None, capped=bool(capped), **log_kw)
@@ -1464,7 +1465,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                 _ng.link_part(session_id, key, node, int(state.get("turn_seq", 0)))
             if found_ch == "thinking":
                 warn = (f"[Guardian:OverviewHub] 【{row['part_short']}】的定位三行只在 thinking 裡，模型下回合與人都看不到；"
-                        f"這次放行，請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
+                        f"這次放行，請改放回覆文字或{_rr.DECL_VIA_COMMENT}，改檔照常用 Edit／Write。")
         elif bad_layer:
             missing.append(bad_layer + "；補交一組正確的三行即可（取最後一組）")
             deny_reason = "wrong_layer"
@@ -1480,7 +1481,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         else:
             # 規則 LOCATE_ASK_ONCE：第一次擋就把內容要求（兩個候選＋選擇理由、節點與角色、批判的判斷）與填好部位、節點的範例一起給，
             # 一次交齊；不先只給骨架、交了再擋一輪說格式不對
-            where = "寫在回覆文字，或下一個工具呼叫的參數（Bash 開頭的註解）；只寫在 thinking 裡程式可能讀不到"
+            where = (f"寫在回覆文字，或{_rr.DECL_VIA_COMMENT}；只寫在 thinking 裡程式可能讀不到；"
+                     f"{_rr.DECL_KEEP_EDIT}")         # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
             if goal_tree is not None:
                 missing.append(f"還沒交出定位行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。{where}。"
                                "一次交齊四行：定位三行（根因層寫兩個候選與選擇理由：候選 A …；候選 B …；選 A 因為 …，只找到一個就寫"
