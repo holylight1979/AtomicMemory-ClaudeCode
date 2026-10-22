@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | feedback-checklist給人綜觀進度要勾選清單-完工項搬走的是長篇分析不是勾選行-達成也留一行打勾-部分達成拆子項分開勾-檔頭放程式數的計數 | feedback-checklist給人綜觀進度要勾選清單-完工項搬走的是長篇分析不是勾選行-達成也留一行打勾-部分達成拆子項分開勾-檔頭放程式數的計數 |
+| feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量 | feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量 |
 | feedback-workflow-discipline | feedback-workflow-discipline |
 | feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照 | feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照 |
 | feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai | feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給AI |

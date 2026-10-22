@@ -608,3 +608,4 @@
 | 解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到 | _AIDocs/_atoms/MemDev/解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到.md | 哨兵解析, DONE 哨兵, k=v, parse_sentinels, CRLF, 跨行, 收據認不到 | global |  |
 | 拿字樣在指令裡當宣告綁定條件時-比對前先去掉註解行-否則寫在註解裡的宣告會自己對上自己 | _AIDocs/_atoms/MemDev/拿字樣在指令裡當宣告綁定條件時-比對前先去掉註解行-否則寫在註解裡的宣告會自己對上自己.md | 宣告綁定, 負向對照, 自己對上自己, 註解行, 字樣比對, NEGATIVE_CONTROL_DECLARED | global |  |
 | 第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次 | _AIDocs/_atoms/MemDev/第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次.md | 第二意見收尾, 分歧點, 裁決與理由, second_opinion, 缺行, SecondOpinion | global |  |
+| feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量 | memory/Failures/工作流/feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量.md | token 預算, 減量, 守門全關, disableAllHooks, 重複行為, 反覆驗證, 同步提醒, 力氣用在刀口上, 耗時上限, 守門代價 | global |  |

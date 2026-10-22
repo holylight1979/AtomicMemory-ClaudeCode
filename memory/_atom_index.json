@@ -11748,6 +11748,23 @@
         "SecondOpinion"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量",
+      "path": "memory/Failures/工作流/feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量.md",
+      "triggers": [
+        "token 預算",
+        "減量",
+        "守門全關",
+        "disableAllHooks",
+        "重複行為",
+        "反覆驗證",
+        "同步提醒",
+        "力氣用在刀口上",
+        "耗時上限",
+        "守門代價"
+      ],
+      "scope": "global"
     }
   ]
 }
