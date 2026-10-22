@@ -170,3 +170,4 @@
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
 | MemoryIndex | 2 | `_AIDocs/_atoms/MemDev/MemoryIndex/_INDEX.md` |
+| v6總控台 | 38 | `_AIDocs/_atoms/MemDev/v6總控台/_INDEX.md` |
