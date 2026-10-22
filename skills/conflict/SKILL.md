@@ -54,6 +54,7 @@ python ~/.claude/tools/conflict-review.py --action reject --target <name> --reas
 
 呈報格式：逐項列 `kind / target / author / preview`；`conflict` 類附「需先 resolved 再 approve」提示。
 approve/reject 完成後回報 dest / removed 與 merge history 記錄結果。
+回傳若有 `note`／`same_card_reports`（同一張卡還有別份衝突報告），照念「還有 N 份同卡的待審報告：…」，提醒使用者逐份看過再處理——工具不會自動一起收掉。
 
 ---
 

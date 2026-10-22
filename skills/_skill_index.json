@@ -46,7 +46,7 @@
     {
       "name": "console",
       "dir": "console",
-      "description": "多 session 協作總控台：一個入口四種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工 <軌名> <派工單路徑>」總控台自己開工作 session 送開工句、「/console 開工句 <軌名>」只產生第一句給人貼。要多開 session 並行開工、開總控台、派工、寫開工句、Reload 後重新點名、判斷分頁可不可關時都該觸發。"
+      "description": "多 session 協作總控台：一個入口四種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工 <軌名> <派工單路徑>」總控台自己開工作 session 送開工句、「/console 開工句 <軌名>」只產生第一句給人貼。只能手動打 /console 叫起（模型不會自己載入）。"
     },
     {
       "name": "continue",
