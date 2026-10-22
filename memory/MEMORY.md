@@ -11,7 +11,7 @@
 | dotnet | 15 | `memory/dotnet/_INDEX.md` |
 | OS-Windows | 21 | `memory/OS-Windows/_INDEX.md` |
 | 文字與格式 | 10 | `memory/文字與格式/_INDEX.md` |
-| 設計通則 | 28 | `memory/設計通則/_INDEX.md` |
+| 設計通則 | 29 | `memory/設計通則/_INDEX.md` |
 | 行為契約 | 14 | `memory/行為契約/_INDEX.md` |
 | CC與原子記憶契約 | 50 | `memory/CC與原子記憶契約/_INDEX.md` |
 | Failures | 74 | `memory/Failures/_INDEX.md` |
