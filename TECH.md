@@ -103,6 +103,8 @@ Python hook 的指令型式是 `"$LOCALAPPDATA/Python/bin/pythonw.exe" -c "impor
 
 本表的真源是 `settings.json` 的 `hooks` 區塊；`workflow-guardian.py` 是 1 行 shim → `hooks/dispatcher.py` → `hooks/handlers/{event}.py`（9 個檔接 11 個事件：PostToolUseFailure 走 `post_tool_use.py`、SubagentStop 走 `stop.py`），bash 類 hook 經 `hooks/run-bash-hidden.py` 包一層。dispatcher 開頭起表、結尾落帳（hook 分段計時與超時降級，§7.1 表下）。裁判子 session（環境變數 `CLAUDE_COMPANION_JUDGE=1`）走縮減版 `JUDGE_HANDLERS`：只留 PreToolUse（寫入目標判不出的指令留帳）、PostToolUse／PostToolUseFailure（最小記帳）、Stop（只跑寫碼查核），不注入記憶、不跑其他閘。守門總開關關著時（出廠，見 §7 開頭），dispatcher 不分派 v6 才有的事件（PostToolUseFailure、SubagentStop）與 v6 才掛的工具（Read、AskUserQuestion…），裁判子 session 也一律早退。安裝時由 `tools/install.py` 把這段合併進使用者的 `settings.json`（§9.5）。
 
+**session state 讀寫（`hooks/wg_core.py` 的 State File I/O 段，規則 STATE_RMW_LOCKED）**：每個 session 一份 `workflow/state-<sid>.json`（緊湊 JSON；tmp 每行程唯一＋`os.replace` 換檔，檔永遠是某一方的完整 JSON）。同一則回覆平行送出的工具呼叫、共用 session_id 的子代理，會同時起好幾支 hook 讀改寫同一份 state，所以 dispatcher 進 handler 前開 hook 模式（`begin_state_rmw`）：handler 第一次讀某個 session 的 state 就拿它的鎖（`state-<sid>.lock`；Windows msvcrt、其他平台 flock），握到 handler 結束（`end_state_rmw`，`sys.exit` 也會走到），讀→改→寫整段在鎖裡、序號（`event_seq`）也在鎖裡配，別支排隊、不會互相蓋掉。等鎖最多等到 hook 上限的一半（起點＝行程建立；PostToolUse 上限 5 秒就是 2.5 秒），剩下一半留給 handler 跑完與超時降級。每支行程對每個 state 檔記一份基準（讀到的原文與讀到那刻的檔案指紋；讀到檔不在＝空 state），寫回、留帳後推進到自己寫出的那份。等不到鎖不無鎖寫、不整份覆蓋：照讀沒上鎖的那份讓閘照判，寫回改留一份待併帳 `state-<sid>.<時間>-<pid>.pending`（只記跟基準比改了哪些鍵、改前改後；同一支再寫只記之後的變動；自己留過的帳還沒全部落盤之前，這支再寫回也只能留帳，不直接寫；完全沒讀過就寫的記成整份換掉；副檔名不是 .json，各處掃 `state-*.json` 不會當成 session），stderr `[state:lock-timeout]`／`[state:pending-written]` 與 `Logs/guard-state_lock.jsonl` 留訊號；換檔失敗（目標被別的讀者開著）也改留待併帳。下一支拿到鎖的行程讀 state 前照時間先後併回、刪帳（STATE_PENDING_MERGED，`[state:pending-merged]`；一次最多 20 份）：併過的帳名跟合併結果同一次寫進 state 的 `_state_pending_applied`（帳檔還在就留著；呼叫端整份重建 state 丟了這欄，寫回時照基準帶回去），刪不掉的下次跳過再刪、不套兩次、也不佔一次 20 份的名額；state 是轉址 stub（merged_into）時照併進 stub 自己、不碰目標（帳的基準是這個 session 的歷史），另浮訊號＋留帳（讀的人轉去目標、看不到這幾筆；stub 只在開場 resume 認領兄弟時寫，那時同 session 沒有別支 hook 在跑）；fallback 重建的 state 不會因為帳而蓋掉已存在的檔，`_fallback_state_rebuilt` 也不會被帳加到既有的 state 上；state 不在時只套整份與「從空的建起」的帳。沒進 hook 模式的寫者（測試、工具）寫回時才拿鎖（最多等 2 秒）；鎖裡發現檔跟自己的基準比被換過（拿鎖時併了別人的帳、不守鎖的寫者寫過，例如背景萃取 worker、MCP 伺服器），照同一套欄位分型三方合併（`_merge_state`／`_MERGE_TYPES`）：集合取聯集（自己刪掉的照刪）、`modified_files` 照 (canon 路徑, session_id) 逐筆併（沒有 count 的舊紀錄算 1）、累加計數（`count`、`edit_counts`、`stop_blocked_count`…）兩邊都沒變小才相加、有一邊歸零取小的、回合與序號取大、時間取新、`overview_hub` 每個部位照 `injected_turn` 新的整組勝、`commit_snapshot` 這類整組綁定的與判不出的留磁碟那份並記進 conflicts；一方消費掉的一次性鍵不會被另一方的舊快照救活。不守鎖的寫者若在同一個 100 奈秒寫出同樣大小的內容，指紋認不出；這些寫者本身沒改成守鎖。量測：`python -X utf8 hooks/verify/probe_state_parallel_perf.py`（平行 4／10 支 PostToolUse 的牆鐘、「讀 state」段〔等鎖＋併帳＋讀檔〕、紀錄掉了沒；另兩組是別人握鎖 1.8 秒／3.5 秒時同時起 N 支 Read）：平行 10 支最慢一支約 1.2 秒（上限 5 秒的 23%）；別人握 1.8 秒時最慢 2.4 秒、照排隊不留帳；握 3.5 秒時全部在 2.5 秒期限留帳、最慢 2.7 秒結束，下一支併回後紀錄 0 筆掉。案例：`hooks/verify/verify_state_parallel_rmw.py`（真 hook 子行程並行、待併帳的各種交錯、合併分型）、`verify_state_write_concurrency.py`（寫入原子性與拿不到鎖）。
+
 ### 3.2 序列圖
 
 ```mermaid
@@ -255,7 +257,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->636 atoms：core 307 + feedback 68 + 失敗模式 2 + local 259〔Tools23/MemDev223/OS2/CC與原子記憶契約4/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->648 atoms：core 317 + feedback 68 + 失敗模式 2 + local 261〔Tools23/MemDev225/OS2/CC與原子記憶契約4/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -328,7 +330,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->636<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->648<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在卡名與 trigger 罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -742,7 +744,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.8 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
 
-每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 125 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
+每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 128 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
 
 | 規則 | 判什麼 | 不欠／放行的條件 | 照欠／照擋 |
 |---|---|---|---|
@@ -855,6 +857,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | JUDGE_CARD_CHANGE_NEEDS_DECLARATION | 改綁了 Entry 的判準卡（§7.5 JudgeCardDeclare；`judge_card_verdict`）：只記錄不擋 | 要改的不是判準卡（不在 memory／_atoms 底下、`_` 開頭、磁碟上還沒有、檔頭 `- Entry:` 空）不記；有宣告「改判準卡｜<卡名>：<理由>」點到這張且理由有內容 → 記 declared | Edit／MultiEdit／Write、Bash／PowerShell 解析得出的寫入、MCP `atom_write` append／replace、`atom_edit_meta`、`atom_retire` 沒宣告 → 照放行、記 undeclared；只寫 Entry 代號不算點名 |
 | TRACKING_SAME_ITEM_NOT_REWRITTEN | 追蹤帳本同一件不重記（`wg_harvest.append_tracking`，k 欄、need_goal followup、PickOne 共用） | 行尾寫「｜同追蹤項：<那筆裡連續至少 8 字>」對到唯一一筆未結項 → 換成新說法（新列帶 supersedes＋結案列關舊的）；沒宣告但部位相同、原文相同（不分 session）→ 不重記 | 字面相近（只差括號註、開頭相同）程式不併，照記；宣告對不到或對到多筆 → 照記並 stderr |
 | CHAIN_SAME_GATE_PER_OBJECT | 連鎖斷路器的「同一道閘第 2 次」怎麼數（判定在 `hooks/wg_chain.py` 的 RULES，§7.12；這一列記各閘要報什麼） | 同一道閘擋的是不同對象 → 各算各的第 1 次（各要各的證據）：定位閘（OverviewHub）因部位欠證據擋下時報部位表那一列（專案根＋部位名；表外的檔報專案根＋同一個頂層目錄，跟它累積證據用的鍵相同）加上擋的檔，設定有錯、唯讀路徑、判不出部位的擋不報；動資料檔（DataFileAsk）報這次要寫的檔；改舊測試（OldTestDeclare）報這次要寫的檔，加上呼叫前還欠宣告的那幾支 | 同一個對象（部位相同、檔有交集）照算第 2 次、照警報；說不出對象的閘（版控口令、提交隱私、病形閘、繞閘、目標樹、svn 測試路徑、跨層寫入、收尾各閘）或一次報部位一次只報檔，照閘名算 |
+| STATE_RMW_LOCKED／STATE_PENDING_MERGED | 平行的 hook 同時讀改寫同一份 session state 會不會互相蓋掉（判定在 `hooks/wg_core` state 讀寫段，§3.1） | 讀到 state 就握這個 session 的鎖到 handler 結束：讀→改→寫整段在鎖裡、序號在鎖裡配，別支排隊；沒進 hook 模式的寫者寫回時拿鎖，鎖裡發現檔跟自己的基準比被換過就三方合併 | 等鎖等到 hook 上限的一半仍拿不到、或換檔失敗：不無鎖寫、不整份覆蓋，留待併帳（只記跟基準比的變動）＋stderr＋`Logs/guard-state_lock.jsonl`；下一支拿到鎖的行程照欄位分型併回、帳名記進 state 後刪帳（不套兩次）；待併帳也寫不出去才算真的掉，stderr＋guard log 照記 |
 
 ### 7.9 驗證範圍（verify_scope）
 

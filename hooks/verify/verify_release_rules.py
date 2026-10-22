@@ -42,6 +42,7 @@ def test_044_every_rule_has_a_case():
     ("DATA_FILE_DECL_VOIDED_BY_LATER_MENTION", "verify_data_file_ask.py"),
     ("OWN_COMMIT_CHANGES_STILL_COMPARED", "verify_old_test_declare.py"),
     ("BLOCK_BUDGET_SHARED", "verify_gate_trim.py"),
+    ("STATE_RMW_LOCKED", "verify_state_parallel_rmw.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""

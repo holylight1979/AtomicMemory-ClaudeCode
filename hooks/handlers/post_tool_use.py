@@ -1277,11 +1277,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # NotebookEdit 的路徑欄位是 notebook_path，映射進同一條 modified_files 軌
     file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
 
-    # dirty-flag 模式：本函式所有 state 變異只標 dirty，函式尾單次 write_state
-    # （原先單事件最多 5 次全量寫）。殘餘競窗：read（_ensure_state）→ 尾端 write
-    # 之間他 hook 行程的寫入會被本次覆蓋——write_state 的 msvcrt lock 只保護單次
-    # 寫入原子性，不涵蓋整段 R-M-W；要全程上鎖需把 lock 提出 write_state 重構
-    # 所有 caller，改動過大，接受此窗（同 turn 內 PostToolUse 序列執行，實際窗極小）。
+    # dirty-flag 模式：本函式所有 state 變異只標 dirty，函式尾單次 write_state。
+    # 同一則回覆的平行工具呼叫會同時起好幾支 PostToolUse：read（_ensure_state）到尾端 write 整段握著這個 session 的
+    # state 鎖（dispatcher 開的 hook 模式，規則 STATE_RMW_LOCKED），別支排隊，不會互相蓋掉。
     dirty = False
     aec_reject_msgs: List[str] = []   # anti_evasion_report 分支填；尾端併入 advisories 回給模型
     v6 = v6_enabled(config)           # 關＝只跑 9e476fd0 就有的記帳與提示
