@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
-    _atom_debug_error, append_guard_log, WORKFLOW_DIR,
+    _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled,
 )
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
@@ -1130,6 +1130,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # 所有 caller，改動過大，接受此窗（同 turn 內 PostToolUse 序列執行，實際窗極小）。
     dirty = False
     aec_reject_msgs: List[str] = []   # anti_evasion_report 分支填；尾端併入 advisories 回給模型
+    v6 = v6_enabled(config)           # 關＝只跑 9e476fd0 就有的記帳與提示
 
     # ─── 救援日誌：工具呼叫命中已注入 atom 的高特異 token → rescue-log ───
     try:
@@ -1167,7 +1168,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _maybe_auto_roll_changelog(file_path, config)
         _maybe_sync_skill_index(file_path, config)
 
-    if tool_name in ("Edit", "Write", "NotebookEdit", "Bash", "PowerShell"):
+    if not v6 and tool_name in ("Edit", "Write", "NotebookEdit") and file_path:
+        try:   # v6 以前的殘檔帳本：只收寫進系統 tempdir 的檔
+            aec_ledger.record_temp_write(session_id, file_path, int(state.get("turn_seq", 0)))
+        except Exception as e:
+            _atom_debug_error("post_tool_use:aec_ledger_write", e)
+    if v6 and tool_name in ("Edit", "Write", "NotebookEdit", "Bash", "PowerShell"):
         # 產出物帳本：這次工具呼叫建立的檔、資料夾、git 工作樹／分支／臨時 repo → 進帳，HUD 現場查還在的列出來。
         try:
             aec_ledger.record_tool_artifacts(
@@ -1179,13 +1185,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # 本 session 新建的檔（呼叫前不存在）→ state created_files：動資料檔閘的事實 (c)，暫存檔也記。
     # Write 看結果 type=create；Bash／PowerShell 看 PreToolUse 記下的呼叫前不存在的目標
-    if wg_data_file.note_created(state, tool_name, file_path, input_data.get("tool_response")):
+    if v6 and wg_data_file.note_created(state, tool_name, file_path, input_data.get("tool_response")):
         dirty = True
-    if wg_data_file.confirm_shell_created(state, str(input_data.get("tool_use_id") or "")):
+    if v6 and wg_data_file.confirm_shell_created(state, str(input_data.get("tool_use_id") or "")):
         dirty = True
     # ── OldTestDeclare（T2.17）：Bash／PowerShell／NotebookEdit 改了既有測試 → 拿 PreToolUse 拍的改前快照比，沒宣告的記 state，
     # 下一個工具呼叫在 PreToolUse 擋；Edit／Write 撤回了欠帳的那一筆就清掉。比對失敗只能 stderr＋留帳（事後擋不了這一次）。
-    if tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"):
+    if v6 and tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"):
         try:
             if wg_oldtest.after_tool(state, input_data, config):
                 dirty = True
@@ -1193,7 +1199,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
             append_guard_log("old_test", {"event": "after_error", "session": session_id, "tool": tool_name,
                                           "error": f"{type(e).__name__}: {e}"})
-    if _judge_card_after(state, input_data, config):
+    if v6 and _judge_card_after(state, input_data, config):
         dirty = True
 
     if (
@@ -1298,14 +1304,15 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         command = tool_input.get("command", "")
         # 寫碼查核 (c)「說試過／跑了」看本回合有沒有執行過指令：記最後一次執行的 turn_seq（主 session 用 sid、子代理用它自己的收據鍵），
         # 同伴訊息讓 transcript 另起一段之後，同一個使用者回合裡較早跑的指令照樣算（規則 TURN_SINCE_USER_PROMPT）
-        _exec_aid = str(input_data.get("agent_id") or "")
-        _exec = state.setdefault("exec_turn_seq", {})
-        _exec_key = agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id
-        _exec.pop(_exec_key, None)                                          # 重新插入排到最後，超量時先丟最久沒執行的
-        _exec[_exec_key] = int(state.get("turn_seq", 0))
-        for _old in list(_exec)[:-EXEC_TURN_KEYS_CAP]:
-            _exec.pop(_old, None)
-        dirty = True
+        if v6:
+            _exec_aid = str(input_data.get("agent_id") or "")
+            _exec = state.setdefault("exec_turn_seq", {})
+            _exec_key = agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id
+            _exec.pop(_exec_key, None)                                          # 重新插入排到最後，超量時先丟最久沒執行的
+            _exec[_exec_key] = int(state.get("turn_seq", 0))
+            for _old in list(_exec)[:-EXEC_TURN_KEYS_CAP]:
+                _exec.pop(_old, None)
+            dirty = True
         if re.search(r"\b(git\s+(log|blame|show|diff)|svn\s+(log|blame|diff))\b", command):
             vcs = state.setdefault("vcs_queries", [])
             vcs.append({"command": command[:200], "at": _now_iso()})
@@ -1315,7 +1322,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 先記目標再落帳，帳本的 modified_files_turn 才含本次寫入；commit 快照也在記完之後才拍
         # （`sed -i a.py && git commit` 這種同一條指令改檔又 commit，快照要看得到這次改了 a.py）
         _writes_ok = True
-        if _write_paths_from_tool is not None:
+        if v6 and _write_paths_from_tool is not None:
             try:
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
                 _aid = str(input_data.get("agent_id") or "")
@@ -1332,30 +1339,35 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 _writes_ok = False
         # 規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：記搬了哪個程式目錄（子代理搬的也記，帶 agent_id）、掃描工具的命中清單
         # （Stop 寫碼查核 (v) 用）
-        try:
-            _mv_cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
-            if _note_moved_code_dirs(state, session_id, tool_name, tool_input, _mv_cwd, config,
-                                     agent_id=str(input_data.get("agent_id") or "")):
-                dirty = True
-            if _note_move_scan_hits(state, command, input_data.get("tool_response"), _mv_cwd):
-                dirty = True
-        except Exception as e:  # noqa: BLE001
-            print(f"[Guardian:ReconcileGate] 記搬目錄事實失敗（不影響這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
+        if v6:
+            try:
+                _mv_cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+                if _note_moved_code_dirs(state, session_id, tool_name, tool_input, _mv_cwd, config,
+                                         agent_id=str(input_data.get("agent_id") or "")):
+                    dirty = True
+                if _note_move_scan_hits(state, command, input_data.get("tool_response"), _mv_cwd):
+                    dirty = True
+            except Exception as e:  # noqa: BLE001
+                print(f"[Guardian:ReconcileGate] 記搬目錄事實失敗（不影響這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
 
-        if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
+        if not v6 and _VCS_COMMIT_RE.search(command):   # v6 以前只記本回合有 commit（ScanReport 閘豁免收尾檢核）
+            state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
+            dirty = True
+        elif v6 and _note_commit(state, command, config, session_id, snapshot=_writes_ok):
             dirty = True
             import wg_gate_bypass  # T2.19：commit 跑完、落在上次被病形閘擋的 repo → 清掉 smell_deny_last
             wg_gate_bypass.note_commit_done(state, session_id, command, tool_name, input_data.get("cwd", "") or "")
 
         if _track_test_result(state, input_data, command, tool_name, config):
             dirty = True
-        try:
-            if _track_sentinels(state, input_data, command, tool_name, config, session_id):
-                dirty = True
-                _observe_scope_run(state, input_data, session_id, config)
-        except Exception as e:
-            print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
-            _atom_debug_error("post_tool_use:verify_ledger", e)
+        if v6:
+            try:
+                if _track_sentinels(state, input_data, command, tool_name, config, session_id):
+                    dirty = True
+                    _observe_scope_run(state, input_data, session_id, config)
+            except Exception as e:
+                print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
+                _atom_debug_error("post_tool_use:verify_ledger", e)
 
     elif tool_name.endswith("anti_evasion_report"):
         # MCP 結構化收尾 emit（one-writer spine）：MCP tool 只回 chip、不碰 state；
@@ -1366,7 +1378,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _AEC_KEYS = ("a", "b", "d", "e", "f", "g", "h", "i")   # (c) Token 警示欄已刪（與 85% 預警重複）；舊客戶端送來照收不存
         vals = {k: str(tool_input.get(k, "") or "") for k in _AEC_KEYS}
         # (j)(k)：鍵不存在＝舊格式呼叫（MCP 還沒載到新 schema），不寫進報告、Stop 也不拿它擋；明給空字串才擋
-        for _k in ("j_evidence_path", "k_followups"):
+        for _k in ("j_evidence_path", "k_followups") if v6 else ():
             if _k in tool_input:
                 vals[_k] = str(tool_input.get(_k) or "")
         a, b = vals["a"], vals["b"]
@@ -1410,7 +1422,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         hv_done = validated_this_turn(state, session_id, turn_seq)
         pending = aec_pending_items("" if hv_done else vals["d"], vals["h"])
         # (d) 只寫「見收割報告」：本使用者回合要真的交過核對過的收割報告，否則這份記憶收錄帳等於沒寫
-        if not hv_done and re.match(r"^\s*見收割報告", vals["d"]):
+        if v6 and not hv_done and re.match(r"^\s*見收割報告", vals["d"]):
             pending.insert(0, "(d) 寫「見收割報告」，但本回合沒有核對過的收割報告（先呼叫 knowledge_harvest_report）")
         if pending:
             report["d_pending"] = pending
@@ -1444,29 +1456,30 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             aec_reject_msgs.append("[Guardian:AEC-Followups] (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。")
         # (k) 追蹤項 → workflow/tracking/<slug>.jsonl（k=「無」不寫；slug＝tracking_slug(cwd)：最近部位表根 → 專案根 → cwd，
         # 根層是 c--users-<user>--claude；cwd 空寫 _no-cwd 並 stderr；讀回端 wg_overview／session_start 用同一支）
-        try:
-            from wg_harvest import tracking_entries, append_tracking, tracking_slug
-            _k_entries = tracking_entries(session_id, turn_seq, vals.get("k_followups", ""))
-            if _k_entries:
-                _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
-                append_tracking(tracking_slug(_k_cwd), _k_entries)
-        except ImportError:
-            print("[Guardian:AEC] wg_harvest.tracking_entries 尚未合併（track-c），(k) 追蹤項本次不入 workflow/tracking", file=sys.stderr)
-        except Exception as e:
-            _atom_debug_error("post_tool_use:aec_tracking", e)
-        # 目前的寫碼類需求目標樹（原話摘要＋節點＋對照結果）附進報告，HUD 顯示「目標對照」；收尾檢核本身不多欄
-        try:
-            import wg_need_goal as _ng
-            _ng_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "") or ""
-            _ng_on = _ng.cfg_for_cwd(config, _ng_cwd)["enabled"]
-            _ng_snap = _ng.snapshot_for_report(session_id) if _ng_on else None
-            if _ng_snap:
-                report["need_goal"] = _ng_snap
-            if _ng_on:
-                # 收尾檢核之後就是收尾報告（常帶下一步、開工句）：交出前一問在這裡也送一次
-                aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.handout_check_text(session_id)}")
-        except Exception as e:
-            _atom_debug_error("post_tool_use:aec_need_goal", e)
+        if v6:
+            try:
+                from wg_harvest import tracking_entries, append_tracking, tracking_slug
+                _k_entries = tracking_entries(session_id, turn_seq, vals.get("k_followups", ""))
+                if _k_entries:
+                    _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
+                    append_tracking(tracking_slug(_k_cwd), _k_entries)
+            except ImportError:
+                print("[Guardian:AEC] wg_harvest.tracking_entries 尚未合併（track-c），(k) 追蹤項本次不入 workflow/tracking", file=sys.stderr)
+            except Exception as e:
+                _atom_debug_error("post_tool_use:aec_tracking", e)
+            # 目前的寫碼類需求目標樹（原話摘要＋節點＋對照結果）附進報告，HUD 顯示「目標對照」；收尾檢核本身不多欄
+            try:
+                import wg_need_goal as _ng
+                _ng_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "") or ""
+                _ng_on = _ng.cfg_for_cwd(config, _ng_cwd)["enabled"]
+                _ng_snap = _ng.snapshot_for_report(session_id) if _ng_on else None
+                if _ng_snap:
+                    report["need_goal"] = _ng_snap
+                if _ng_on:
+                    # 收尾檢核之後就是收尾報告（常帶下一步、開工句）：交出前一問在這裡也送一次
+                    aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.handout_check_text(session_id)}")
+            except Exception as e:
+                _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(i) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
@@ -1560,13 +1573,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
     hub_ctx = None
-    if not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep"):      # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
+    if not degraded and tool_name in (("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash")):   # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
         try:
             from wg_overview import on_read as _hub_on_read
             hub_ctx = _hub_on_read(
                 state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "",
                 input_data.get("transcript_path", "") or "", config,
-                exit_code=_read_exit_code(input_data.get("tool_response")),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
+                **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
             )
             dirty = True   # reads_after 也要落盤
         except Exception as e:
@@ -1576,7 +1589,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
     # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同
-    if tool_name in ("Read", "Bash", "PowerShell", "Grep"):
+    if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep"):
         try:
             from wg_need_goal_points import scope_on_read
             if scope_on_read(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config):
@@ -1586,7 +1599,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     dep_ctx = None
-    if not degraded and tool_name in ("Read", "Bash", "PowerShell"):
+    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell"):
         try:
             from wg_depends import on_read_depends as _on_read_depends
             dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config)
@@ -1596,7 +1609,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print(f"depends recall error: {e}", file=sys.stderr)
 
     _hook_lap("綜觀與召回")
-    ng_ctx, ng_changed = _need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config)
+    ng_ctx, ng_changed = (_need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config)
+                          if v6 else (None, False))
     dirty = dirty or ng_changed
     _hook_lap("目標樹")
 
@@ -1662,7 +1676,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     advisories.extend(ctx_msgs)
     degraded = _hook_lap("同伴檢查")
     # 切入點契約（TECH §7.10）：MCP 工具的回覆（工具本體回的文字＋上面補的提醒）認得出切入點就接判準卡並留帳
-    if not degraded and tool_name.startswith("mcp__"):
+    if v6 and not degraded and tool_name.startswith("mcp__"):
         _mcp_text = "\n".join([response_text(input_data.get("tool_response")), *advisories])
         _note = entry_note(_mcp_text, "mcp_reply", session_id=session_id, state=state, config=config)
         if _note:

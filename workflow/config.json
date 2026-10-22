@@ -1,6 +1,10 @@
 {
   "atom_debug": false,
   "enabled": true,
+  "v6": {
+    "_doc": "v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。本機要開設環境變數 WG_V6=1，或在 workflow/config.local.json（不進版控）寫 {\"v6\": {\"enabled\": true}}；WG_V6=0 強制關。",
+    "enabled": false
+  },
   "stop_gate_max_blocks": 2,
   "min_files_to_block": 2,
   "dashboard_port": 3848,

@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from wg_core import (
-    WORKFLOW_DIR, load_config,
+    WORKFLOW_DIR, load_config, v6_enabled,
     _atom_debug_error,
 )
 import wg_hook_timing as hook_timing
@@ -50,6 +50,24 @@ JUDGE_HANDLERS = {
     "Stop": ("handlers.stop", "handle_judge_stop"),
 }
 
+# v6 守門總開關關閉（wg_core.v6_enabled）時：只分派 v6 以前（9e476fd0）就有的事件與工具；
+# 裁判子 session、hook 分段計時也是 v6 才有，關閉時照舊一律早退／不計時。
+PRE_V6_EVENTS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+                 "PreCompact", "PostCompact", "PostToolBatch", "Stop", "SessionEnd"}
+PRE_V6_TOOLS = {   # 9e476fd0 settings.json 的 matcher；v6 加掛的工具（Read、PowerShell 後記、AskUserQuestion…）關閉時不進 handler
+    "PreToolUse": {"Write", "Edit", "NotebookEdit", "Bash", "PowerShell", "Agent", "Task"},
+    "PostToolUse": {"Edit", "Write", "MultiEdit", "NotebookEdit", "ExitPlanMode", "Bash", "Agent", "Task",
+                    "mcp__workflow-guardian__anti_evasion_report", "mcp__workflow-guardian__atom_write",
+                    "mcp__workflow-guardian__atom_retire", "mcp__workflow-guardian__knowledge_harvest_report"},
+}
+
+
+def _pre_v6_skips(event: str, input_data: dict) -> bool:
+    if event not in PRE_V6_EVENTS:
+        return True
+    tools = PRE_V6_TOOLS.get(event)
+    return tools is not None and input_data.get("tool_name", "") not in tools
+
 
 def main():
     judge = bool(os.environ.get("CLAUDE_COMPANION_JUDGE"))   # 事件名在 stdin 裡，讀完才知道走不走
@@ -72,9 +90,13 @@ def main():
         sys.exit(0)
 
     event = input_data.get("hook_event_name", "")
+    v6 = v6_enabled(config)
+    if not v6 and (judge or _pre_v6_skips(event, input_data)):
+        sys.exit(0)
     spec = (JUDGE_HANDLERS if judge else HANDLERS).get(event)
     if spec:
-        hook_timing.start(event, input_data, config)    # Stop／PostToolUse 分段計時；handler 在段落邊界打點，過上限 80% 降級
+        if v6:
+            hook_timing.start(event, input_data, config)    # Stop／PostToolUse 分段計時；handler 在段落邊界打點，過上限 80% 降級
         try:
             module = importlib.import_module(spec[0])
             hook_timing.lap("載入 handler")

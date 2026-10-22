@@ -82,6 +82,7 @@ workflow/health-reports/
 workflow/health-last-run.json
 workflow/dpm-done/
 workflow/org-memory.local.json
+workflow/config.local.json
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json

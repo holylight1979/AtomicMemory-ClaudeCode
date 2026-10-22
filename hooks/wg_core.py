@@ -36,6 +36,7 @@ MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
+CONFIG_LOCAL_PATH = WORKFLOW_DIR / "config.local.json"   # 這台機器專屬覆寫（不進版控），同名鍵蓋過 config.json
 # V5+ Realm 維度：SessionEnd 自動搬移的待提示 marker（永不靜默；session_start 讀+清）
 REALM_AUTOMOVE_MARKER = WORKFLOW_DIR / "realm_automove_pending.json"
 MEMORY_INDEX = "MEMORY.md"
@@ -121,6 +122,7 @@ def is_rut_whitelisted(filename: str, config: Optional[Dict[str, Any]] = None) -
 # Defaults（可被 config.json 覆寫）
 DEFAULTS = {
     "enabled": True,
+    "v6": {"enabled": False},             # v6 守門總開關（v6_enabled）
     "stop_gate_max_blocks": 2,
     "min_files_to_block": 2,
     "sync_keywords": ["同步", "sync", "commit", "提交", "結束", "收工"],
@@ -191,7 +193,28 @@ def load_config() -> Dict[str, Any]:
         except (json.JSONDecodeError, OSError) as e:
             _atom_debug_error("config:parse_failed", e)
             config["_config_parse_failed"] = True
+    try:
+        local = json.loads(CONFIG_LOCAL_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        local = {}
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[workflow-guardian] {CONFIG_LOCAL_PATH} 讀取失敗，略過本機覆寫：{e}", file=sys.stderr)
+        local = {}
+    for key, value in (local if isinstance(local, dict) else {}).items():
+        base = config.get(key)
+        config[key] = {**base, **value} if isinstance(base, dict) and isinstance(value, dict) else value
     return config
+
+
+def v6_enabled(config: Dict[str, Any]) -> bool:
+    """v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。
+
+    環境變數 WG_V6=1 開、WG_V6=0 關（優先）；沒設看 config 的 v6.enabled（workflow/config.local.json 可在本機打開）。
+    """
+    env = os.environ.get("WG_V6", "").strip()
+    if env in ("0", "1"):
+        return env == "1"
+    return bool((config.get("v6") or {}).get("enabled", False))
 
 
 ORG_LOCAL_NAME = "org-memory.local.json"
