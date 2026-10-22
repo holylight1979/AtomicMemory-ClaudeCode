@@ -14,19 +14,24 @@ WORKER_BUDGET_S 秒，逾時附「背景 N 秒內量不完」，逾時過的根�
 量測中又改的碼先記著（pending），量完再量最新的一批；背景行程超過預算加 GRACE_S 還沒交結果 → 當它中斷了，附一句原因。
 同一批輸入（根、before、改檔大小與時間、哪些還沒 git add）只量一次、只附一次（state["reading_path"][session_id]）。
 背景行程只寫自己的結果檔（JOB_DIR），不碰 state；超過 STALE_S 沒人收的工作檔與結果檔下次起工作時清掉。
-G11 拐彎判斷：同一個背景 job 再算函式級與類別級側面數據（lib/turn_metrics：這次對 before 的 diff 命中的函式與類別——巢狀深度、
+拐彎判斷：同一個背景 job 再算函式級與類別級側面數據（lib/turn_metrics：這次對 before 的 diff 命中的函式與類別——巢狀深度、
 各自巢狀的條件區塊、認知複雜度、只轉手與連續轉手鏈、繼承鏈每層新增／覆寫了什麼與空層；.cs 改用 lib/turn_metrics_cs，同一組數據
 另附只有空覆寫的層、經過單一實作的分派、解析不到的地方；其他語言標不支援）。到門檻
 （config reading_path.turn_judgment，預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；是「從第幾個彎起要人看」的
 事實門檻，不是判臭）的每一條附進結果文字，連同一題「這一層／這個彎存在的理由是什麼、有沒有真正的作用、是不是抄舊架構長出來的」
 與尺度原文；收尾文字要有對應的「拐彎判斷｜…」五欄行（turn_judgment_note 核對，規則 TURN_JUDGMENT_REQUIRED 在 wg_release_rules），
 缺 → 每個使用者回合擋一次並列缺的那幾條與填好名字的範例行；齊 → 放行、guard-reading_path.jsonl 記 judged。程式只核對五欄，不評內容。
+只問改到的：答過的條目記名字＋內容指紋（state judged；函式比本體文字含相對縮排，類別比繼承結構，入口比實際路徑與數據），
+之後量到同名同指紋的不再問，
+只問這次改到或新到門檻的。擋的記號（blocked_turn）放在欠項外層，改碼起新一批也不清：每個使用者回合最多擋一次。
+量完前又改了碼 → 舊欠項標 stale：只收答案、不擋，新的一批量完換掉。
 怎麼跑：Stop 自動呼叫 reading_path_note 與 turn_judgment_note；背景入口 `python hooks/wg_reading_path.py --job <工作檔>` 由 Stop 起，不手動跑。
 """
 
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -74,8 +79,9 @@ JOB_DIR = WORKFLOW_DIR / "reading-path"
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "reading-path.py"
 TAG = "[Guardian:ReadingPath]"
 STATUS_LABEL = {"worse": "變差", "new": "新增"}
-# G11：門檻是「從第幾個彎起要人看」的事實門檻（config reading_path.turn_judgment 可調），不是判臭；max_items＝一次最多問幾條
+# 拐彎判斷的門檻是「從第幾個彎起要人看」的事實門檻（config reading_path.turn_judgment 可調），不是判臭；max_items＝一次最多問幾條
 TURN_JUDGMENT_DEFAULTS = {"turns": 2, "nesting": 3, "bumpy": 2, "handoff_chain": 2, "inherit_depth": 3, "max_items": 8}
+JUDGED_MAX = 200           # 答過的條目（名字＋內容指紋）最多記幾筆，舊的先丟
 RESOLVE_FILES_MAX = 1500   # 接繼承鏈與轉手鏈時最多讀專案裡幾個同語言的檔（超過就只用改到的檔接）
 FUNC_ROWS_SHOWN = 20       # 函式級數據最多列幾筆（到門檻的優先，其餘只報個數）
 UNPARSED_TAG = "  ← 沒算到的部分"   # C# 檔案層解析不到：跟到門檻的一樣全列，不吃額度
@@ -85,6 +91,8 @@ JUDGMENT_QUESTION = ("這一層／這個彎存在的理由是什麼？它有沒�
                      "會不會讓人的思考拐超過三個彎？")
 JUDGMENT_HOWTO = "收尾文字一條一行回答（五欄用｜隔開；程式只核對有沒有答、不評內容；答「不會」「這一層沒有作用」也要理由）："
 RULE_LETTER = "t"
+PROMPT_LINES = (f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}")   # 那一題、尺度原文、回答寫法
+_EXAMPLE_LEAD = "    " + JUDGMENT_EXAMPLE.split("{name}", 1)[0]   # 範例行開頭（judgment_block 的縮排＋「拐彎判斷｜」）
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 _DETACHED = (subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if sys.platform == "win32" else 0
 _SAMPLE_SPLIT = re.compile(r"\s+[>＞]\s+")   # 箭頭兩側要有空白：<佔位> 裡的 > 不算
@@ -242,7 +250,7 @@ def _measure_root(root: Path, base: str, entries: Optional[List[str]], layers: O
     return [f"{head}：before={sha}（本 session 第一次改檔前的 HEAD）→ 工作樹｜{where}", *summarize(res, tail)], False, res
 
 
-# ─── G11：函式級與類別級側面數據、到門檻的條目、那一題 ──────────────────────────────
+# ─── 拐彎判斷：函式級與類別級側面數據、到門檻的條目、那一題 ──────────────────────────────
 
 def turn_judgment_cfg(config: Dict[str, Any]) -> Dict[str, int]:
     """預設 < config.json 的 reading_path.turn_judgment 段（只收整數）。"""
@@ -301,6 +309,31 @@ def _cs_pool(root: Path, deadline: float, run: Callable[..., Any], changed: List
     return pick_lookup_files(changed, names, RESOLVE_FILES_MAX), True
 
 
+def _digest(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _source_lines(files: List[str]) -> Dict[str, List[str]]:
+    """指紋用的原始碼（路徑 → 行），在量測之前讀：量測中又改了檔 → 指紋是舊版、下一批對不上而照問，不會誤判成沒改。"""
+    out: Dict[str, List[str]] = {}
+    for f in files:
+        try:
+            out[f] = Path(f).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            out[f] = []
+    return out
+
+
+def _body_fp(row: Dict[str, Any], texts: Dict[str, List[str]]) -> Optional[str]:
+    """函式本體的內容指紋：那幾行去掉行尾空白與空行、整段去掉共同縮排再雜湊（搬位置、整段改縮排不算改到；相對縮排變了算改到，
+    Python 的縮排就是結構）。texts 沒有這個檔 → None（沒有指紋＝一律照問）。"""
+    kept = [ln.rstrip() for ln in (texts.get(row["file"]) or [])[row["lineno"] - 1:row["end_lineno"]] if ln.strip()]
+    if not kept:
+        return None
+    cut = min(len(ln) - len(ln.lstrip()) for ln in kept)
+    return _digest("\n".join(ln[cut:] for ln in kept))
+
+
 def _layer_text(layer: Dict[str, Any]) -> str:
     if layer["empty"] and layer.get("hollow"):   # C#：只有空覆寫的層
         return f"{layer['name']} 無（只有空覆寫：{'、'.join(f'~{m} {why}' for m, why in layer['hollow'].items())}）"
@@ -312,7 +345,9 @@ def _layer_text(layer: Dict[str, Any]) -> str:
 
 
 def function_rows(rows: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]]]:
-    """turn_metrics 的結果 → (附在收尾的幾行, 到門檻的條目 [{kind, name, keys, nums}])。純函式。"""
+    """turn_metrics 的結果 → (附在收尾的幾行, 到門檻的條目 [{kind, name, keys, nums, fp}])。純函式。
+    fp＝內容指紋：函式用列上的 body_fp（_function_section 補的本體文字指紋，沒有就 None＝一律照問）；類別用繼承結構
+    （每層新增／覆寫的全部成員、接不到的基底、實作）——改方法本體不算改到這一層。"""
     lines: List[str] = []
     items: List[Dict[str, Any]] = []
     for r in rows:
@@ -356,7 +391,9 @@ def function_rows(rows: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -
             nums += "｜信心：部分（同檔有解析不到，見該檔那一行）"
         lines.append(f"    {name}｜{nums}" + ("  ← 要人看" if hit else ""))
         if hit:
-            items.append({"kind": kind, "name": name, "keys": keys, "nums": nums})
+            shape = [r.get(k) for k in ("layers", "unresolved_base", "implementations", "type_kind")]
+            fp = r.get("body_fp") if kind == "函式" else _digest(json.dumps(shape, sort_keys=True, ensure_ascii=False, default=str))
+            items.append({"kind": kind, "name": name, "keys": keys, "nums": nums, "fp": fp})
     return lines, items
 
 
@@ -371,7 +408,10 @@ def entry_items(res: Dict[str, Any], cfg: Dict[str, int]) -> List[Dict[str, Any]
         nums = "｜".join(f"{name} {b.get(k, '-')}→{a.get(k, '-')}"
                         for name, k in (("拐彎", "turns"), ("跳檔", "file_jumps"), ("轉手", "handoffs")))
         entry, landing = str(r["entry"]), str(r["landing"])
-        out.append({"kind": "入口", "name": f"{entry} → {landing}", "nums": nums + ("" if r["certain"] else "（含候選）"),
+        nums += "" if r["certain"] else "（含候選）"
+        route = [[s.get("func"), s.get("kind")] for s in a.get("steps") or []]   # 指紋含實際路徑：數字相同但換了路也算改到
+        out.append({"kind": "入口", "name": f"{entry} → {landing}", "nums": nums,
+                    "fp": _digest(json.dumps([nums, route], ensure_ascii=False)),
                     "keys": [f"{entry} → {landing}", entry, landing, entry.split("::")[-1], landing.split("::")[-1]]})
     return out
 
@@ -385,6 +425,7 @@ def _function_section(root: Path, base: str, tracked: List[str], deadline: float
         return ["  函式級側面數據：量不出來（對 before 的 diff 拿不到）"], []
     cs = [f for f in tracked if f.lower().endswith(".cs")]
     rest = [f for f in tracked if f not in cs]
+    texts = _source_lines(tracked)
     try:
         rows = metrics_for_files(rest, ranges, _resolve_pool(root, deadline, run)) if rest else []
     except Exception as e:  # noqa: BLE001  量不出來只寫原因
@@ -396,6 +437,9 @@ def _function_section(root: Path, base: str, tracked: List[str], deadline: float
             rows += cs_metrics_for_files(cs, ranges, pool, partial_pool=cut)
     except Exception as e:  # noqa: BLE001
         failed = [f"    C# 的 {len(cs)} 個檔量不出來（{type(e).__name__}: {e}）{UNPARSED_TAG}"]
+    for r in rows:
+        if r["kind"] == "func":
+            r["body_fp"] = _body_fp(r, texts)
     lines, items = function_rows(rows, root, cfg)
     lines += failed
     if not lines:
@@ -408,18 +452,27 @@ def _function_section(root: Path, base: str, tracked: List[str], deadline: float
     return head + hits + shown_rest + ([f"    …另 {more} 筆低於門檻不列"] if more > 0 else []), items
 
 
-def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: int = 0) -> List[str]:
-    """到門檻的條目 → 那一題（問這一層存在的理由）、尺度原文、回答寫法。沒有條目 → 空。dropped＝超過 max_items 沒問的條數。"""
+def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: int = 0, skipped: int = 0) -> List[str]:
+    """到門檻的條目 → 那一題（問這一層存在的理由）、尺度原文、回答寫法。沒有條目 → 空（skipped 有數就只說一句）。
+    dropped＝超過 max_items 沒問的條數；skipped＝已判過、內容沒變而不再問的條數。"""
+    again = f"  已判過、內容沒變的 {skipped} 條不再問（函式比本體文字，類別比繼承結構，入口比實際路徑）" if skipped else ""
     if not items:
-        return []
+        return [again] if again else []
     lines = [f"  要人看的 {len(items)} 條（門檻：拐彎 ≥{cfg['turns']}／巢狀 ≥{cfg['nesting']}／條件塊 ≥{cfg['bumpy']}／轉手鏈 ≥{cfg['handoff_chain']}"
              f"／繼承 ≥{cfg['inherit_depth']} 層或有空層；這是從第幾個彎起要人看的事實門檻，不是判臭）："]
     lines += [f"    {it['kind']} {it['name']}｜{it['nums']}" for it in items]
+    if again:
+        lines.append(again)
     if dropped > 0:
         lines.append(f"    …另 {dropped} 條也到門檻，一批最多問 {cfg['max_items']} 條（reading_path.turn_judgment.max_items），這次不問")
-    lines += [f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}"]
-    lines += [f"    {JUDGMENT_EXAMPLE.format(name=it['name'])}" for it in items]
+    lines += [*PROMPT_LINES, *(f"    {JUDGMENT_EXAMPLE.format(name=it['name'])}" for it in items)]
     return lines
+
+
+def without_judgment_prompt(text: str) -> str:
+    """閱讀路徑結果文字去掉那一題、尺度原文、回答寫法與範例行（judgment_block 附的那幾行）；側面數據、要人看的條目照留。
+    給拐彎判斷擋下的那則訊息在尾段附結果用：擋訊息自己已經問了，同一則不出現兩次。"""
+    return "\n".join(ln for ln in (text or "").splitlines() if ln not in PROMPT_LINES and not ln.startswith(_EXAMPLE_LEAD))
 
 
 # ─── 收尾當下（Stop）：核對拐彎判斷行 ──────────────────────────────────────────
@@ -427,31 +480,48 @@ def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: in
 def turn_judgment_note(state: Dict[str, Any], session_id: str, code_text: str, uturn: int, turn_seq: int
                        ) -> Tuple[Optional[str], bool]:
     """背景量完附上的到門檻條目（rec["owed"]）要有對應的「拐彎判斷｜」五欄行 → (要擋的訊息或 None, state 有沒有改)。
-    齊 → 清掉、留帳 judged；缺 → 每個使用者回合擋一次（記 blocked_turn），同回合第二次只印 stderr。"""
+    答了的條目從欠項拿掉、記進 rec["judged"]（[名字, 內容指紋]，之後量到同名同指紋的不再問）、留帳 judged；全答完清掉欠項。
+    還缺 → 每個使用者回合擋一次（記號 rec["blocked_turn"] 在欠項外層，改碼起新一批也不清），同回合再收尾只印 stderr；
+    欠項是 stale（量完前又改了碼，條目可能已經改掉）→ 只收答案、不擋，等新的一批量完。"""
     rec = (state.get("reading_path") or {}).get(session_id) or {}
     owed = rec.get("owed") or {}
     items = owed.get("items") or []
     if not items:
         return None, False
     judgments = parse_turn_judgments(code_text)
-    v = turn_judgment_verdict(items, judgments)
-    base = {"session_id": session_id, "turn_seq": turn_seq, "job_turn": owed.get("turn"), "items": [it["name"] for it in items]}
-    if not v.owed:
-        append_guard_log("reading_path", {"event": "judged", **base,
+    answered = [not turn_judgment_verdict([it], judgments).owed for it in items]
+    done = [it for it, ok in zip(items, answered) if ok]
+    left = [it for it, ok in zip(items, answered) if not ok]
+    base = {"session_id": session_id, "turn_seq": turn_seq, "job_turn": owed.get("turn")}
+    if done:
+        append_guard_log("reading_path", {"event": "judged", **base, "items": [it["name"] for it in done],
                                           "lines": [j["line"][:200] for j in judgments if not j["missing"]][:12]})
-        rec.pop("owed", None)
-        print(f"{TAG} 拐彎判斷 {len(items)} 條都有五欄齊的行，留帳 judged", file=sys.stderr)
+        kept = dict.fromkeys(tuple(p) for p in rec.get("judged") or [])
+        kept.update(dict.fromkeys((it["name"], it["fp"]) for it in done if it.get("fp")))
+        rec["judged"] = [list(p) for p in kept][-JUDGED_MAX:]
+        if left:
+            owed["items"] = left
+        else:
+            rec.pop("owed", None)
+        print(f"{TAG} 拐彎判斷 {len(done)} 條有五欄齊的行，留帳 judged" + (f"；還缺 {len(left)} 條" if left else ""),
+              file=sys.stderr)
+    if not left:
         return None, True
-    if owed.get("blocked_turn") == uturn:
+    if owed.get("stale"):
+        print(f"{TAG} 拐彎判斷：量完前又改了碼，還缺的 {len(left)} 條先不擋，等新的一批量完再看", file=sys.stderr)
+        return None, bool(done)
+    v = turn_judgment_verdict(left, judgments)
+    if rec.get("blocked_turn") == uturn:
         print(f"{TAG} 拐彎判斷這回合已擋過一次，不再擋；還缺：{'；'.join(v.evidence[:3])}", file=sys.stderr)
-        return None, False
-    owed["blocked_turn"] = uturn
-    append_guard_log("reading_path", {"event": "judgment_block", **base, "missing": list(v.evidence)[:12]})
-    by_name = {f"{it['kind']} {it['name']}": it for it in items}
+        return None, bool(done)
+    rec["blocked_turn"] = uturn
+    append_guard_log("reading_path", {"event": "judgment_block", **base, "items": [it["name"] for it in left],
+                                      "missing": list(v.evidence)[:12]})
+    by_name = {f"{it['kind']} {it['name']}": it for it in left}
     missing = [by_name[k] for k in (e.split("｜", 1)[0] for e in v.evidence) if k in by_name]
     partial = [e for e in v.evidence if e.startswith("「")]
     lines = [f"{TAG} {format_hit(RULE_LETTER, v._replace(evidence=tuple(f'{it['kind']} {it['name']}' for it in missing)))}",
-             f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}"]
+             *PROMPT_LINES]
     for it in missing:
         lines += [f"  - {it['kind']} {it['name']}｜{it['nums']}", f"    {JUDGMENT_EXAMPLE.format(name=it['name'])}"]
     lines += [f"  已寫但缺欄：{p}" for p in partial]
@@ -460,10 +530,11 @@ def turn_judgment_note(state: Dict[str, Any], session_id: str, code_text: str, u
 
 def turn_judgment_missing(state: Dict[str, Any], session_id: str, code_text: str, uturn: int) -> List[str]:
     """「後面還會擋」的預覽用（規則 BLOCK_LISTS_LATER_GATES）：照目前狀態 turn_judgment_note 這次會擋 → 缺的條目「<kind> <name>」；
-    不會擋（沒有條目、都齊了、這個使用者回合已擋過）→ 空。只讀：不動 state、不留帳、不印 stderr。"""
-    owed = (((state.get("reading_path") or {}).get(session_id) or {}).get("owed")) or {}
+    不會擋（沒有條目、都齊了、這個使用者回合已擋過、量完前又改了碼）→ 空。只讀：不動 state、不留帳、不印 stderr。"""
+    rec = ((state.get("reading_path") or {}).get(session_id)) or {}
+    owed = rec.get("owed") or {}
     items = owed.get("items") or []
-    if not items or owed.get("blocked_turn") == uturn:
+    if not items or owed.get("stale") or rec.get("blocked_turn") == uturn:
         return []
     v = turn_judgment_verdict(items, parse_turn_judgments(code_text))
     names = {f"{it['kind']} {it['name']}" for it in items}
@@ -555,13 +626,16 @@ def _start(job: Dict[str, Any], session_id: str, rec: Dict[str, Any], spawn: Cal
             pass
         return f"{TAG} 第 {job['turn']} 回合改動的閱讀路徑量測起不來：{type(e).__name__}: {e}"
     rec["job"] = {"path": str(path), "out": str(out), "at": time.time(), "budget": WORKER_BUDGET_S, "turn": job["turn"]}
-    rec.pop("owed", None)        # 又改了碼：上一批到門檻的條目作廢，新的一批量完再問
+    if rec.get("owed"):          # 又改了碼：上一批的條目可能已經改掉 → 先不擋、只收答案，新的一批量完換掉
+        rec["owed"]["stale"] = True
     print(f"{TAG} 第 {job['turn']} 回合的改動交給背景量（最多 {WORKER_BUDGET_S:g} 秒），結果下次收尾附上", file=sys.stderr)
     return None
 
 
 def _collect(rec: Dict[str, Any]) -> Optional[str]:
-    """背景量測交了結果 → 那段文字（附一次），清掉工作；還在量 → None；超過預算加 GRACE_S 還沒交 → 當它中斷了，回一句原因。"""
+    """背景量測交了結果 → 那段文字（附一次），清掉工作；還在量 → None；超過預算加 GRACE_S 還沒交 → 當它中斷了，回一句原因。
+    到門檻的條目在這裡扣掉已判過、內容沒變的（rec["judged"] 名字＋指紋對得上），取前 max_items 條換成新的欠項、接上那一題；
+    在收結果時才扣，量測期間收到的答案也算得到。"""
     job = rec["job"]
     out = Path(job["out"])
     try:
@@ -577,14 +651,22 @@ def _collect(rec: Dict[str, Any]) -> Optional[str]:
     rec.pop("job")
     if res.get("slow"):
         rec["slow"] = sorted(set(rec.get("slow", [])) | set(res["slow"]))
-    if res.get("judgment"):      # G11：到門檻的條目留著，turn_judgment_note 核對收尾文字有沒有對應的拐彎判斷行
-        rec["owed"] = {"items": res["judgment"], "turn": job.get("turn"), "at": time.time()}
+    cfg = turn_judgment_cfg({"reading_path": {"turn_judgment": res.get("turn_judgment")}})
+    seen = {tuple(p) for p in rec.get("judged") or []}
+    hits = res.get("judgment") or []
+    fresh = [it for it in hits if (it["name"], it.get("fp")) not in seen]
+    asked = fresh[:cfg["max_items"]]
+    if asked:                    # turn_judgment_note 核對收尾文字有沒有對應的拐彎判斷行
+        rec["owed"] = {"items": asked, "turn": job.get("turn"), "at": time.time()}
+    else:
+        rec.pop("owed", None)
     for p in (out, Path(job["path"])):
         try:
             p.unlink(missing_ok=True)
         except OSError:
             pass
-    return res.get("text") or None
+    block = judgment_block(asked, cfg, len(fresh) - len(asked), len(hits) - len(fresh))
+    return "\n".join(x for x in (res.get("text"), *block) if x) or None
 
 
 def _sweep() -> None:
@@ -609,7 +691,8 @@ def _spawn_worker(job_path: Path) -> None:
 # ─── 背景行程：照工作檔量 ──────────────────────────────────────────────────────
 
 def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Dict[str, Any]:
-    """背景量測本體：照工作檔量每個根 → {"text": 附在收尾檢核的文字, "slow": 這次逾時的根}。"""
+    """背景量測本體：照工作檔量每個根 → {"text": 附在收尾檢核的文字, "slow": 這次逾時的根, "judgment": 到門檻的全部條目,
+    "turn_judgment": 門檻}。扣已判過、取上限、接那一題在收結果時做（_collect）。"""
     budget = float(job.get("budget") or WORKER_BUDGET_S)
     deadline = time.monotonic() + budget
     exts = job.get("code_exts") or []
@@ -639,7 +722,7 @@ def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Di
             if timed_out:
                 slow.append(key)
             lines += got
-        if measurable and key not in (job.get("slow") or []):   # G11：函式級與類別級數據（只有 diff 得到的追蹤中程式檔）
+        if measurable and key not in (job.get("slow") or []):   # 拐彎判斷的函式級與類別級數據（只有 diff 得到的追蹤中程式檔）
             try:
                 got, hits = _function_section(Path(root), base, measurable, deadline, run, cfg)
             except (_Timeout, OSError) as e:
@@ -648,10 +731,7 @@ def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Di
             items += entry_items(res, cfg) + hits
     if notes:   # 同上只報個數（git status 看得到是哪些）：檔名會跟對帳閘「這個檔還欠不欠」的訊息混在一起
         lines.append(f"  還沒 git add 的新檔 {notes} 個不在掃描母體（--scope git），沒量到")
-    dropped = max(0, len(items) - cfg["max_items"])
-    items = items[:cfg["max_items"]]
-    lines += judgment_block(items, cfg, dropped)
-    return {"text": "\n".join(lines), "slow": slow, "judgment": items}
+    return {"text": "\n".join(lines), "slow": slow, "judgment": items, "turn_judgment": cfg}
 
 
 def write_result(out: Path, res: Dict[str, Any]) -> None:

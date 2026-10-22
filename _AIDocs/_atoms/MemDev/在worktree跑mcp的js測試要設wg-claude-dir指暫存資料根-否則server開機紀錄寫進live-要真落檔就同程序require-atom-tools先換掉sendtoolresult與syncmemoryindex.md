@@ -11,6 +11,7 @@
 ## 知識
 
 - [臨] 在 worktree 跑 tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js 要把 WG_CLAUDE_DIR 指到暫存資料根（裡面放 memory/_meta 的 taxonomy.json、realm-lexicon.json），否則 server 的開機紀錄會寫進 live 的 workflow/mcp-boot。MCP js 測試要真落檔驗行為，可在同一程序 require lib/atom-tools，先把 mcp.sendToolResult 與 funnel.syncMemoryIndex 換成收集用的替身，再接假向量服務＋真 py 閘跑（範例 tools/workflow-guardian-mcp/verify/verify_atom_write_dedupe.js）。
+- [臨] 開機紀錄 workflow/mcp-boot/<pid>.json 由 lib/boot-record.js 的 exit handler 在 server 結束時刪掉；要證明「只落暫存資料根」得在 server 還活著時查，用這次自己起的 server 的 pid 對那一個檔，結束後才查看到的「沒檔」不算證據。
 
 ## 行動
 

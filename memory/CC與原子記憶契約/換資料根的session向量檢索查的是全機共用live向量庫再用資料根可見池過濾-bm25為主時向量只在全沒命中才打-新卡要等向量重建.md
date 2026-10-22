@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session 26d36367 track-wave2-kit 派工 004（向量涵蓋實測）
+- Source: session 26d36367（2026-10-21，向量涵蓋實測）
 - Confidence: [臨]
 - Trigger: 向量檢索, vector search, WG_CLAUDE_DIR, 資料根, global_layer, bm25, 語意找卡, 卡沒注入, _merge_hit, vector_ready.flag, 向量庫沒有新卡
 - Created-at: 2026-10-21

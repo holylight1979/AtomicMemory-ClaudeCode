@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-gate-small-fixes 004 交付信代寫 2026-10-21
+- Source: commit:cfda1231 2026-10-21（修補實證）
 - Confidence: [臨]
 - Trigger: 中文斷詞, 原話比對, names_item, token 比對失效, 測試名在原話裡
 - Created-at: 2026-10-21

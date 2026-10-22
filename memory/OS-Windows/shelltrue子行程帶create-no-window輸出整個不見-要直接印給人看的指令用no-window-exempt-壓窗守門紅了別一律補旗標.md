@@ -2,12 +2,11 @@
 
 - Scope: global
 - Author: holylight
+- Source: session:57afce55 2026-10-21
 - Confidence: [臨]
 - Trigger: CREATE_NO_WINDOW, shell=True, no-window-exempt, 子行程輸出不見, 壓窗旗標, verify_no_window_spawn, creationflags, 閃窗
 - Created-at: 2026-10-21
 - Related: 字面掃描型守門看不到常數未定義-壓窗守門只查有無creationflags字樣-補錯的常數名也pass-要配一個真的斷言旗標值的案例
-- Source: session:57afce55 2026-10-21
-- Quote: 「track-某專案：你是工作軌 track-某專案（接續前一個 session：它已交付 001＋002 並合進 main 2756f296，003 做到一半因 MCP 斷線停掉；半成品 commit 252fbf3e 在分支上，交接筆記全文在 `git log -1 252fbf3e` 的訊息裡，先讀它），調度總控台是 claude-17（送信前先 ListAgents 確認，名字會變）。第一…」
 
 ## 知識
 

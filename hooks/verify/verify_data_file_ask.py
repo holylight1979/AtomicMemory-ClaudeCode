@@ -534,8 +534,9 @@ def test_subagent_declaration_seen_when_hook_gives_agent_transcript(world):
     assert not _df_deny(_agent_run(world, agent))
 
 
-def test_broken_state_blocks(world):
+def test_broken_state_does_not_block_and_logs(world):
+    """state 讀壞＝閘判不了（GATE_SELF_ERROR）：這次不擋，留帳 error。"""
     wg_core.state_file_path(SID).write_text("{broken", encoding="utf-8")
     out = _run(world)
-    assert _df_deny(out) and "判不了" in _reason(out)
-    assert _log(world)[-1]["event"] == "error"
+    assert not _df_deny(out)
+    assert (_log(world)[-1]["event"], _log(world)[-1]["rule"]) == ("error", "GATE_SELF_ERROR")

@@ -530,7 +530,7 @@ def test_stop_block_via_piggyback_gets_card_after_previews(stop_run, tmp_path, m
 
 
 def test_subagent_stop_gets_card_but_judge_does_not(tmp_path, monkeypatch, logs):
-    """子代理收尾（_code_gate_to_the_end）接判準卡；裁判子 session 同一支函式不注入（防裁判觸發裁判）。"""
+    """子代理收尾（_code_gate_no_ask）接判準卡；裁判子 session 同一支函式不注入（防裁判觸發裁判）。"""
     from handlers import stop as st
     reason = "[Guardian:ReconcileGate] 寫碼查核\n✗ (a) CLAIM_FIXED_NEEDS_PASS：說修好但沒有改後跑綠的收據"
     blocks = []
@@ -542,7 +542,7 @@ def test_subagent_stop_gets_card_but_judge_does_not(tmp_path, monkeypatch, logs)
     state = {"turn_seq": 3}
     own = [{"path": "a.py", "session_id": SID, "turn_seq": 3}]
     for extra in ({"event": "subagent_block", "agent_id": "ag1"}, {"event": "judge_block"}):
-        st._code_gate_to_the_end({"session_id": SID}, {}, state, SID, own, "", "測試", extra)
+        st._code_gate_no_ask({"session_id": SID}, {}, state, SID, own, "", "測試", extra)
     sub, judge = blocks
     assert sub.endswith("\n判準卡（E10）：claim-card\n- [臨] 轉述不是自己的宣稱。") and reason in sub
     assert "判準卡" not in judge and reason in judge

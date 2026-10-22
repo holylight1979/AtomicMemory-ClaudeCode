@@ -57,7 +57,9 @@ WEEKLY = _load("text_score_weekly_for_stop", TREE / "tools" / "text-score-weekly
 
 SID = "sess-ts"
 REPLY = VTS.LONG
-CFG = {"text_score": {"enabled": True, "min_chars": 300, "reply_scope": "all"}}   # 評分機制本身的案例：每則都評（預設只評交付改程式那則，見 verify_gate_slimming）
+DOCS = {"final_reply": [], "docs": ["memory/_staging/*checklist*.md"]}   # 出廠沒列 docs（不評文件）；文件評分的案例自己給樣式
+CFG = {"text_score": {"enabled": True, "min_chars": 300, "reply_scope": "all",
+                      "auto_targets": DOCS}}   # 評分機制本身的案例：每則都評（預設只評交付改程式那則，見 verify_gate_slimming）
 GOAL = "收尾回覆要讓設計者看懂改了什麼"
 
 
@@ -305,7 +307,7 @@ def test_docs_this_turn_only_and_resent_after_change(world, tmp_path, spawned):
 def test_worker_scores_docs_by_path_pattern_and_never_injects(world, tmp_path):
     fake = VTS.Fake()
     try:
-        VTS.data_root(tmp_path, {"a": VTS.backend(fake.url)}, {"min_chars": 300})
+        VTS.data_root(tmp_path, {"a": VTS.backend(fake.url)}, {"min_chars": 300, "auto_targets": DOCS})
         hit = tmp_path / "proj" / "memory" / "_staging" / "g15-checklist.md"
         miss = tmp_path / "proj" / "TECH.md"
         for p in (hit, miss):

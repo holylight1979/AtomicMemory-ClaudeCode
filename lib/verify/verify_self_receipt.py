@@ -249,18 +249,15 @@ _ROOT_ROWS = {r["part_short"]: r for r in _overview_hub.parse_map((ROOT / ".clau
 
 @pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
 def test_013_3_compound_rulers_from_root_table(part):
-    """013 BLOCK 3：根層部位表 memory/、_AIDocs/ 兩列的量尺由程式自己印完成字樣、不接 echo（文件層是兩支程式 && 串）；原樣執行 → 對上；
-    前面用 && 接跑程式的指令 → 對上；後面接 `; echo X DONE`、`&& echo …`、`| sed …`、只跑前一段 → 不對；`| tail -5` 只有單段量尺對
-    （多段量尺後接過濾會蓋掉最後一段的 exit）。直接讀表上字串當輸入。"""
+    """013 BLOCK 3：根層部位表 memory/、_AIDocs/ 兩列的量尺（文件層是兩支程式 && 串）：量尺那串出現在任一處就對上，前後接什麼、
+    用什麼串、輸出導去哪都不看（RECEIPT_UNPARSED_GENERAL_ONLY；收據不防偽）；只跑多段量尺的前一段 → 不對。直接讀表上字串當輸入。"""
     m = _ROOT_ROWS[part]["measure"]["cmd"]
-    single = "&&" not in m
     assert "echo" not in m
-    assert sr.cmd_matches(m, m) and sr.cmd_matches(m, f"python -X utf8 -m pytest -q x.py && {m}")
-    assert sr.cmd_matches(m, f"WG=1 {m} 2>&1 | tail -5") is single
-    bad = [f"{m}; echo X_CHECK DONE", f"{m} && echo X_CHECK DONE", f"{m} | sed s/a/b/",
-           f"python -X utf8 -m pytest -q x.py && {m} 2>&1 | tail -5"]
-    for b in bad + ([] if single else [m.split(" && ")[0]]):
-        assert not sr.cmd_matches(m, b), b
+    for ok in (m, f"python -X utf8 -m pytest -q x.py && {m}", f"WG=1 {m} 2>&1 | tail -5", f"{m}; echo X_CHECK DONE",
+               f"{m} && echo X_CHECK DONE", f"{m} | sed s/a/b/", f"python -X utf8 -m pytest -q x.py && {m} 2>&1 | tail -5"):
+        assert sr.cmd_matches(m, ok), ok
+    if "&&" in m:
+        assert not sr.cmd_matches(m, m.split(" && ")[0])
 
 
 def test_013_2_quotes_echo_and_subsets_do_not_count():
@@ -268,7 +265,7 @@ def test_013_2_quotes_echo_and_subsets_do_not_count():
     fake = "echo 'dummy;py -3 -Xutf8 run_verify.py;'; echo VERIFY_CHECK PASS"
     assert not sr.cmd_matches(_MEASURE, fake)
     assert not sr.cmd_matches(_MEASURE, 'Write-Output "python -X utf8 run_verify.py"')
-    assert not sr.cmd_matches(_MEASURE, f"{_MEASURE}; echo VERIFY_CHECK DONE cases=1 failed=0")
+    assert sr.cmd_matches(_MEASURE, f"{_MEASURE}; echo VERIFY_CHECK DONE cases=1 failed=0")      # 後面接什麼不看（不防偽）
     assert not sr.cmd_matches("pytest -q lib/verify", "pytest -q lib/verify -k test_cmd_of")
     assert not sr.cmd_matches("pytest -q lib/verify", "pytest -q lib/verify lib/verify/verify_self_receipt.py")
     assert not sr.cmd_matches(_MEASURE, f"{_MEASURE} --json")                                 # 其他選項集合要相等
@@ -277,7 +274,6 @@ def test_013_2_quotes_echo_and_subsets_do_not_count():
     assert sr.cmd_matches(_MEASURE, "python -X utf8 run_verify.py | Select-Object -Last 5")
     assert sr.cmd_matches(_MEASURE, "# 定位｜部位：x && y\npython -X utf8 run_verify.py")       # 註解行不算指令
     assert sr.split_shell(fake)[0][0][1] == ["echo", "dummy;py -3 -Xutf8 run_verify.py;"]   # 引號內含分號 → 不切
-    assert sr.final_step(fake) is None and sr.final_step(f"{_MEASURE} | tail -3").cmd[0] == "run_verify.py"   # 017：前面只准 cd／環境設定
 
 
 def test_009_8_load_failures_are_reported_not_silent(tmp_path):
@@ -305,13 +301,12 @@ def test_run_verify_writes_receipt_after_sentinel_and_help_writes_nothing(tmp_pa
 
 
 def test_015_heredoc_body_and_echo_are_not_executed_words():
-    """015：echo 印的字不算執行的字（022 規則 3：「提到改檔」只看實際驗證段的參數，夾了 echo 整條就不是證據形狀）。
-    017b 規則 13／14：heredoc 改成 fail-closed：整條指令三種用途都不算
-    （heredoc 之後真的跑也不算；要跑尺就單獨跑）。"""
+    """015：echo 印的字不算執行的字（「提到改檔」只看跑程式那幾段的參數，echo 那段不算、也不讓整條作廢）。
+    heredoc 解析不了：看不出跑了哪支，不算量尺（RECEIPT_UNPARSED_GENERAL_ONLY：呼叫端照一般證據用）。"""
     hd = "cat <<'EOF' > note.txt\npython -X utf8 run_verify.py\nEOF\necho VERIFY_CHECK DONE cases=1 failed=0"
     assert not sr.cmd_matches(_MEASURE, hd)
     assert not sr.cmd_matches(_MEASURE, "cat <<-EOF\n  x\n  EOF\npython -X utf8 run_verify.py")
-    assert sr.evidence_words("echo tests/test_a.py; pytest -q tests/test_b.py") == []
+    assert sr.evidence_words("echo tests/test_a.py; pytest -q tests/test_b.py") == ["-q", "tests/test_b.py"]
     assert sr.evidence_words("pytest -q tests/test_b.py") == ["-q", "tests/test_b.py"]
     assert sr.evidence_words(hd) == [] and "heredoc" in sr.unsupported_syntax(hd)
 
@@ -385,21 +380,18 @@ def test_017_honest_forms_match(cmd, shell):
 
 
 def test_017_evidence_steps_shape_for_general_evidence():
-    """一般證據（對帳 (a)(b)、根層 worktree pytest）的形狀：cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、
-    後面只准留結尾的過濾；讀檔與印字的指令、; 或 || 串（codex 二審 BLOCK 1）、把輸出導走都不算。"""
+    """一般證據（對帳 (a)(b)、驗證範圍）＝跑程式的那幾段，不看怎麼串、前後夾了什麼、輸出導去哪（收據不防偽）；
+    沒有跑程式的段（讀檔、印字）或解析不了 → None。"""
     for ok in ("pytest -q tests/test_a.py", "python tools/x.py --check", "cd C:\\p && npm test", "./gradlew test",
                ".\\verify.ps1", "WG=1 python -m pytest -q x.py 2>&1 | tail -3", "pytest a.py && pytest b.py",
-               "pytest -q x.py 2>/dev/null"):
+               "pytest -q x.py 2>/dev/null", "pytest -q x.py; cat old.log", "pytest -q x.py | grep passed",
+               "python verify_good.py || python verify_widget.py", "python verify_widget.py > /dev/null && python verify_good.py",
+               "python -m pytest a.py && python -m pytest missing.py | tail -5"):
         assert sr.evidence_steps(ok, "powershell" if ok.startswith(".\\") else "bash"), ok
-    for bad in ("cat old.log", "Get-Content x.txt", "type x.txt", "pytest -q x.py; cat old.log", "echo hi",
-                "pytest -q x.py | grep passed", "pytest -q x.py | head -5", "iex x", "",
-                "python verify_good.py || python verify_widget.py",
-                "python verify_widget.py > /dev/null 2>&1; python verify_good.py",
-                "python verify_widget.py > /dev/null && python verify_good.py", "pytest a.py; pytest b.py",
-                "python verify_good.py && python verify_widget.py > $null | tail -3",
-                "python -m pytest a.py && python -m pytest missing.py | tail -5"):     # 管線蓋掉最後一段的 exit
+    for bad in ("cat old.log", "Get-Content x.txt", "type x.txt", "echo hi", "iex x", ""):
         assert sr.evidence_steps(bad) is None, bad
     assert [s.cmd[0] for s in sr.evidence_steps("cd C:\\p && pytest a.py && python -m pytest b.py")] == ["pytest", "pytest"]
+    assert [s.cmd[0] for s in sr.evidence_steps("echo x; pytest a.py | tail -3")] == ["pytest"]
 
 
 def test_017_changes_dir_and_outside_paths():
@@ -426,16 +418,13 @@ def test_017_script_file_shells_are_whitelisted():
 
 
 def test_017_short_circuit_and_prefix_rules():
-    """017 規則 3：量尺前的運算子只准開頭／;／換行／&&；前面的指令只准 cd 與環境設定（其他指令印的成功行分不出是誰印的）。"""
-    for bad in (f"Write-Output 'VERIFY_CHECK DONE cases=1 failed=0' || {_MEASURE}", f"printf x || {_MEASURE}",
-                f"echo x | {_MEASURE}", f"cat old.log; {_MEASURE}", f"cat old.log && {_MEASURE}", f"{_MEASURE} || true"):
-        assert not sr.cmd_matches(_MEASURE, bad), bad
-    for ok in (f"cd C:\\proj && {_MEASURE}", f"export X=1; {_MEASURE}", f"X=1; {_MEASURE}"):
+    """量尺前後接了什麼、用哪個運算子串都不看（收據不防偽）：跑了那支就算。"""
+    for ok in (f"Write-Output 'VERIFY_CHECK DONE cases=1 failed=0' || {_MEASURE}", f"printf x || {_MEASURE}",
+               f"echo x | {_MEASURE}", f"cat old.log; {_MEASURE}", f"cat old.log && {_MEASURE}", f"{_MEASURE} || true",
+               f"cd C:\\proj && {_MEASURE}", f"export X=1; {_MEASURE}", f"X=1; {_MEASURE}"):
         assert sr.cmd_matches(_MEASURE, ok), ok
-    for ps_bad in (f"$x = Write-Host 'VERIFY_CHECK DONE cases=1 failed=0'; {_MEASURE} | Select-Object -Last 0",
-                   f"$x=Write-Host VERIFY_CHECK DONE; {_MEASURE}", f"$env:S = python fake.py x; {_MEASURE}"):
-        assert not sr.cmd_matches(_MEASURE, ps_bad, "powershell"), ps_bad                # 指定右邊是會印字的指令
-    for ps_ok in (f"$ErrorActionPreference = 'Stop'; {_MEASURE}", f'$env:X="1"; {_MEASURE}', f"$x =1; {_MEASURE}"):
+    for ps_ok in (f"$x = Write-Host 'VERIFY_CHECK DONE cases=1 failed=0'; {_MEASURE} | Select-Object -Last 0",
+                  f"$ErrorActionPreference = 'Stop'; {_MEASURE}", f'$env:X="1"; {_MEASURE}', f"$x =1; {_MEASURE}"):
         assert sr.cmd_matches(_MEASURE, ps_ok, "powershell"), ps_ok
 
 
@@ -443,10 +432,8 @@ def test_017_codex_r3_control_flow_identity_and_order():
     """codex 三審：只有環境指定的指令留著（`X=1 || 量尺` 的 || 不能丟）；PowerShell 指定右邊是指令（Set-Location）不是設定；
     管線裡的 cd 不換父 shell 的目錄；腳本照相對根的路徑認（archive/ 裡的同名腳本不算）；選項照順序比。"""
     mem = _ROOT_ROWS["記憶資料層"]["measure"]["cmd"]
-    assert not sr.cmd_matches(mem, f"X=1 || {mem}") and not sr.cmd_matches(_MEASURE, f"X=1 || {_MEASURE}")
+    assert sr.cmd_matches(mem, f"X=1 || {mem}") and sr.cmd_matches(_MEASURE, f"X=1 || {_MEASURE}")      # 前面接什麼不看
     assert sr.cmd_matches(_MEASURE, f"X=1; {_MEASURE}") and sr.cmd_matches(_MEASURE, f"X=1 && {_MEASURE}")
-    assert not sr.cmd_matches(_MEASURE, f"$x = Set-Location; {_MEASURE}", "powershell")
-    assert not sr.cmd_matches(_MEASURE, f"$x = $y; {_MEASURE}", "powershell")
     assert sr.leading_cd(f"cd C:\\proj | export X=1 && {_MEASURE}") is None
     root = "C:\\proj"
     assert not sr.cmd_matches(_MEASURE, "python -X utf8 archive/run_verify.py", root=root)
@@ -460,10 +447,10 @@ def test_017_codex_r3_control_flow_identity_and_order():
 
 
 def test_017_codex_r4_identity_tail_and_literals():
-    """codex 四審：多段量尺接過濾時最後一段要是 echo；直接執行的腳本照路徑認；收據照 cwd、量尺照表的根解析；參數大小寫、
-    空字串、PowerShell 的 '' 跳脫都照原樣；單引號裡的 $ 是字面值。"""
+    """直接執行的腳本照路徑認；收據照 cwd、量尺照表的根解析；參數大小寫、空字串、PowerShell 的 '' 跳脫都照原樣；
+    單引號裡的 $ 是字面值；多段量尺後接過濾也算（不看形狀）。"""
     two = "python -X utf8 run_verify.py && python missing.py"
-    assert not sr.cmd_matches(two, f"{two} | tail -n 5") and sr.cmd_matches(two, two)
+    assert sr.cmd_matches(two, f"{two} | tail -n 5") and sr.cmd_matches(two, two)
     mem = _ROOT_ROWS["記憶資料層"]["measure"]["cmd"]
     assert sr.cmd_matches(mem, f"{mem} 2>&1 | tail -5")                                     # 最後一段是 echo → 照算
     root = "C:\\proj"
@@ -504,16 +491,13 @@ def test_017b_7_python_options_must_be_equal():
 
 
 def test_017b_8_tail_filters_take_only_numbers_and_options():
-    """017b 規則 8：尾端過濾只准選項與數字；帶檔名、< 輸入、<<< 都不算。再收窄成只准留結尾的過濾（tail、Select-Object -Last N）：
-    量尺的結論印在最後一行，head／-First 只會把結論切掉、留下前面輸出裡長得像哨兵的行。"""
+    """量尺後面接什麼過濾都不看（收據不防偽）：tail 帶檔名、head、sed、Select-Object 各種選項都照算；解析不了的（<<<）不算。"""
     for ok in (f"{_MEASURE} | tail -n 20", f"{_MEASURE} 2>&1 | tail -n +3", f"{_MEASURE} | tail -5",
-               f"{_MEASURE} | Select-Object -Last 5", f"{_MEASURE} | tail --lines=20"):
+               f"{_MEASURE} | Select-Object -Last 5", f"{_MEASURE} | tail --lines=20", f"{_MEASURE} | tail -n 20 old.log",
+               f"{_MEASURE} | Select-Object -ExpandProperty x", f"{_MEASURE} | sed s/a/b/", f"{_MEASURE} | head -5",
+               f"{_MEASURE} | Select-Object -First 5", f"{_MEASURE} | Select-Object -SkipLast 1"):
         assert sr.cmd_matches(_MEASURE, ok), ok
-    for bad in (f"{_MEASURE} | tail -n 20 old.log", f"{_MEASURE} | tail -n 20 < old.log",
-                f"{_MEASURE} | tail <<< 'VERIFY_CHECK PASS'", f"{_MEASURE} | Select-Object -ExpandProperty x",
-                f"{_MEASURE} | sed s/a/b/", f"{_MEASURE} | head -5", f"{_MEASURE} | Select-Object -First 5",
-                f"{_MEASURE} | Select-Object -SkipLast 1"):
-        assert not sr.cmd_matches(_MEASURE, bad), bad
+    assert not sr.cmd_matches(_MEASURE, f"{_MEASURE} | tail <<< 'VERIFY_CHECK PASS'")
 
 
 @pytest.mark.parametrize("cmd, whole", [
@@ -523,13 +507,13 @@ def test_017b_8_tail_filters_take_only_numbers_and_options():
     ("pytest -q --lf", False), ("pytest -q --ff", False), ("pytest -q -m slow", False), ("pytest -q --deselect a::b", False),
     ("pytest -q --ignore=x", False), ("pytest -q --maxfail=1", False), ("pytest -q -o testpaths=x", False),
     ("pytest -q -p xdist", False), (f"{_MEASURE} --json", False), ("python -O -m pytest -q", False),
-    ("python -h -X utf8 run_verify.py", False), ("echo VERIFY_CHECK PASS; pytest -q", False), (f"printf x || {_MEASURE}", False),
+    ("python -h -X utf8 run_verify.py", False), ("echo VERIFY_CHECK PASS; pytest -q", True), (f"printf x || {_MEASURE}", True),
     ("pytest no:fake", False), ("pytest -p", False), ("pytest -q -p no:x no:y", False),        # codex 初審 WARN 4：-p 要配值
     ("python -X utf8 ./run_verify.py", True), ("python -X utf8 archive/run_verify.py", False),  # 022 規則 4：沒根就照寫法認
     ("python -X utf8 C:\\proj\\run_verify.py", False), ("python -X utf8 ../run_verify.py", False),
 ])
 def test_017b_9_whole_run_is_a_whitelist(cmd, whole):
-    """017b 規則 9：整體驗證只有不帶參數的 run_verify.py、不帶位置參數也不帶縮範圍選項的 pytest。"""
+    """017b 規則 9：整體驗證是其中一段為不帶參數的 run_verify.py、或不帶位置參數也不帶縮範圍選項的 pytest（前後接什麼不看）。"""
     assert sr.is_whole_run(cmd) is whole, cmd
 
 
@@ -590,15 +574,17 @@ def test_017_leading_cd_root_only_for_single_absolute_cd():
 
 
 def test_017_all_root_table_rulers_parse_and_match_themselves():
-    """G6 (b)：根層部位表 10 列（4 把尺；hook 兩層與 skill 層的全量 run_verify 已拔掉，全量改增量待補）原字串在兩種 shell
-    都可解析、原樣跑對得上；單段量尺尾接 `2>&1 | tail -5` 也對得上（多段量尺後接過濾會蓋掉最後一段的 exit，不算）。"""
+    """G6 (b)：根層部位表每一把量尺的原字串在兩種 shell 都可解析、原樣跑對得上；尾接 `2>&1 | tail -5` 也對得上。
+    列數與尺數照表上實際讀到的算（部位表會合法增列，不寫死）。
+    改舊測試｜test_017_all_root_table_rulers_parse_and_match_themselves：部位表合法新增三列（stop.py／pre_tool_use.py、
+    wg_release_rules.py／wg_overview.py／wg_second_opinion.py、tools/workflow-guardian-mcp/ 的單檔列），原本寫死 10 列 4 把尺。"""
     rows = [r for r in _ROOT_ROWS.values() if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 10 and len(rows) == 4
+    assert _ROOT_ROWS and rows, "部位表讀不到列或沒有任何量尺"
     for r in rows:
         m = r["measure"]["cmd"]
         for shell in ("bash", "powershell"):
             assert sr.unsupported_syntax(m, shell) is None and sr.cmd_matches(m, m, shell), (m, shell)
-            assert sr.cmd_matches(m, f"{m} 2>&1 | tail -5", shell) is ("&&" not in m), (m, shell)
+            assert sr.cmd_matches(m, f"{m} 2>&1 | tail -5", shell), (m, shell)
 
 
 def test_029b_env_case_fold_follows_platform():

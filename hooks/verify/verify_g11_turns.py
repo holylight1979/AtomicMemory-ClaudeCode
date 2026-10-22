@@ -335,14 +335,16 @@ def test_quoted_or_fenced_judgment_lines_do_not_count():
     assert rr.parse_turn_judgments("擋訊息說：拐彎判斷｜y.py::b｜<不會／會>｜<理由>｜<怎麼改直>") == [], "行中間提到的不算"
 
 
-def test_new_code_batch_drops_stale_owed(tmp_path):
+def test_new_code_batch_holds_stale_owed_without_blocking(tmp_path):
     state = _owed_state(tmp_path)
     root = Path(state["modified_files"][0]["path"]).parent
     _write(root, {"y.py": _BODY.format("b") + "\n"})
     state["turn_seq"] = 6
     state["modified_files"] = [_mf(root / "y.py", 6)]
     assert rph.reading_path_note(state, _SID, {}, spawn=lambda p: None) == (None, True)
-    assert "owed" not in state["reading_path"][_SID], "又改了碼：上一批的條目作廢，新的一批量完再問"
+    assert state["reading_path"][_SID]["owed"].get("stale"), "又改了碼：上一批的條目標 stale，新的一批量完換掉"
+    assert rph.turn_judgment_note(state, _SID, "全部完成了。", 1, 6) == (None, False), "stale 的條目不擋"
+    assert rph.turn_judgment_missing(state, _SID, "全部完成了。", 1) == [], "預覽也不列"
 
 
 def test_threshold_config_and_item_cap(tmp_path):
@@ -440,8 +442,8 @@ def test_reconcile_blocks_first_and_its_preview_lists_turn_judgment(driven, caps
     out, state, logs = driven("閘修好了，完成。", capsys, reading_path=_owed())
     reason = _reason(out)
     assert "[Guardian:ReconcileGate]" in reason and "(a)" in reason and "TURN_JUDGMENT_REQUIRED" not in reason, reason[:800]
-    assert "拐彎判斷：缺 1 條（函式 y.py::b）" in _also(reason), reason[-800:]
-    assert "blocked_turn" not in state["reading_path"][_SID]["owed"] and not [g for g, _ in logs if g == "reading_path"], \
+    assert "拐彎判斷：缺 1 條，" in _also(reason) and "y.py" not in _also(reason), reason[-800:]   # 預覽只報個數、不列檔名
+    assert "blocked_turn" not in state["reading_path"][_SID] and not [g for g, _ in logs if g == "reading_path"], \
         "預覽不記擋、不留帳"
     out, _, logs = driven("全部完成了。", capsys, reading_path=state["reading_path"])
     assert "✗ (t) TURN_JUDGMENT_REQUIRED" in _reason(out) and "[Guardian:ReconcileGate]" not in _reason(out)
@@ -454,7 +456,7 @@ def test_reconcile_clear_missing_judgment_blocks_with_items_and_named_example(dr
     reason = _reason(out)
     assert reason.startswith("[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED："), reason[:400]
     assert "- 函式 y.py::b｜巢狀 4｜條件塊 2" in reason and EXAMPLE_B in reason and rph.JUDGMENT_QUESTION in reason
-    assert "blocked_turn" in state["reading_path"][_SID]["owed"] and state["stop_blocked_count"] == 0
+    assert "blocked_turn" in state["reading_path"][_SID] and state["stop_blocked_count"] == 0
     assert [p["event"] for g, p in logs if g == "reading_path"] == ["judgment_block"]
 
 
@@ -529,7 +531,7 @@ def test_subagent_stop_entry_does_not_check_turn_judgment(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "[Guardian:ReconcileGate]" in out, "前置：子代理收尾的寫碼查核有跑到"
     assert "TURN_JUDGMENT_REQUIRED" not in out and "拐彎判斷" not in out
-    assert "blocked_turn" not in state["reading_path"][_SID]["owed"] and not [g for g, _ in logs if g == "reading_path"]
+    assert "blocked_turn" not in state["reading_path"][_SID] and not [g for g, _ in logs if g == "reading_path"]
 
 
 # ─── 思考的彎：reconcile 的 turns ───────────────────────────────────────────────

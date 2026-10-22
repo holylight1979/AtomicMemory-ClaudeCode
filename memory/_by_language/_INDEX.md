@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 24 |
+| Python | 25 |
 | C#／.NET | 21 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
@@ -34,6 +34,7 @@
 | `memory/版控/判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致.md` | 判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-HEAD怎麼動看logs-HEAD新增段不看reflog-1-cassette錄製重播筆數要一致 |
 | `memory/驗證與實證/pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值.md` | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
 | `memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md` | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
+| `memory/驗證與實證/verify檔直接python跑前先確認有-main-入口-沒有就只import後exit0是假綠.md` | verify檔直接python跑前先確認有__main__入口-沒有就只import後exit0是假綠 |
 | `memory/驗證與實證/全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑.md` | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 |
 | `memory/驗證與實證/改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染.md` | 改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染 |
 | `memory/驗證與實證/新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔.md` | 新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytest.main跑新測試檔 |

@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: v6/track-a4 003～008 codex 審查退件（36fcc0b、3dd5a8b、2e98849，合進 main fbbcc9e）hooks/handlers/pre_tool_use.py _scan_segments／_wrapped_commit_verdict
+- Source: commit fbbcc9e（36fcc0b、3dd5a8b、2e98849）hooks/handlers/pre_tool_use.py _scan_segments／_wrapped_commit_verdict
 - Confidence: [臨]
 - Trigger: 續行, line continuation, 反斜線換行, cmd ^, PowerShell 反引號, shell 註解, 撇號, 雙引號展開, 命令替換, $(), heredoc, 斷詞器, 口令閘
 - Created-at: 2026-10-13

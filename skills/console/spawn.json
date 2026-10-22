@@ -1,0 +1,7 @@
+{
+  "_doc": "scripts/console-spawn.py --method bg 的設定：max_parallel＝由本腳本起且還活著的 session 上限；timeout_sec＝等「<軌名> 收到開工」的秒數；poll_sec＝輪詢間隔；default_model＝起 session 預設帶的模型完整 id（--model 優先；不設或空字串就吃 Claude Code 預設；報到後讀 transcript 核對，不符即 FAIL）。kill switch：<live 根>/workflow/console-spawn.STOP。",
+  "max_parallel": 5,
+  "timeout_sec": 90,
+  "poll_sec": 3,
+  "default_model": "claude-opus-5-5"
+}

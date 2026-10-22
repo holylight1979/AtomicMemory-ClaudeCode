@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: workflow/v6-inbox/to-track-e/013-returned.md、017-returned.md；from-track-e/010-codex-review.md、014-codex-review.md；codex 初審 codex-013-reply
+- Source: commit:4d7934c1 2026-10-13（codex 審查退件實證；原出處已隨工作信箱清理）
 - Confidence: [臨]
 - Trigger: 指令比對, 收據比對, cmd_matches, 量尺指令, 哨兵偽造, echo 冒充, 短路 ||, here-string, 指令截斷, 白名單語法, fail-closed, shell 斷詞, 子集冒充
 - Created-at: 2026-10-13

@@ -591,12 +591,12 @@ def _measure_gate_on(receipts, tmp_path):
 
 
 def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
-    """超過 200 字的指令經 PostToolUse 落帳整條存下（cmd_full）。驗證範圍要的是宣告的那條指令：輸出丟進 $null 再另印一行
-    不是同一條指令（比對，不是防偽造），不認；誠實的長指令認得。"""
+    """超過 200 字的指令經 PostToolUse 落帳整條存下（cmd_full）、照完整指令比對：宣告的那條指令出現在裡面就認，
+    輸出丟進 $null 再另印一行也認（RECEIPT_UNPARSED_GENERAL_ONLY：不看形狀、不防偽）。"""
     head = "python -X utf8 run_verify.py > $null 2>&1"
     fake = head + " " * (200 - len(head)) + '; Write-Output "VERIFY_CHECK DONE cases=1 failed=0"'
     honest = '$env:WG_CLAUDE_DIR="C:\\' + "x" * 190 + '"; python -X utf8 run_verify.py'
-    for cmd, blocked in ((fake, True), (honest, False)):
+    for cmd, blocked in ((fake, False), (honest, False)):          # 跑了那支就算，前後接什麼不看（收據不防偽）
         state = _drive(monkeypatch, tmp_path, "PowerShell", cmd, _DONE_OUT)
         reason = _measure_gate_on(state["verify_receipts"][_SID], tmp_path)
         assert (reason is not None) is blocked, (cmd[:40], reason)

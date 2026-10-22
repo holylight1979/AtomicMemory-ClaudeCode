@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-gate-small-fixes 004 交付信代寫 2026-10-21
+- Source: commit:cfda1231 2026-10-21（修補實證）
 - Confidence: [臨]
 - Trigger: heredoc, python -, stdin 重導向, 多份 heredoc, 靜態判寫入目標
 - Created-at: 2026-10-21

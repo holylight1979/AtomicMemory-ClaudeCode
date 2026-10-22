@@ -150,8 +150,8 @@ function esc(s) {
 function isBlank(v) { var s = String(v == null ? "" : v).trim(); return s === "" || s === "無"; }
 function sevOf(r) { return SEV[r && r.severity] || SEV.routine; }
 function keyOf(r) { return (r.session_id || "?") + "|" + (r.turn_seq != null ? r.turn_seq : "?"); }
-// 這則是哪個 session 寫的（API 由對話紀錄推的 track；推不出退回 session 前 8 碼）
-function whoOf(r) { return r.track ? String(r.track) : "session " + String(r.session_id || "?").slice(0, 8); }
+// 這則是哪個 session 寫的（session 前 8 碼）
+function whoOf(r) { return "session " + String(r.session_id || "?").slice(0, 8); }
 function tipOf(r) {
   return whoOf(r) + " · 第 " + r.turn_seq + " 輪 · " +
     sevOf(r).label + " · " + String(r.at || "").slice(5, 16).replace("T", " ");

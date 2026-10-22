@@ -360,7 +360,7 @@ def test_latest_evidence_ignores_unrelated_green_run(ng_env):
         doc["receipts"].append({"seq": ng.next_seq(doc), "cmd": "python -m pytest other_tests", "cases": [],
                                 "verdicts": ["pytest:PASS"], "exit": 0, "turn": 1})
     ng.update_locked(_SID, other)
-    reason = ng.goal_gate_reason(_SID, True, {})
+    reason = ng.goal_gate_reason(_SID, True, {"reconcile_gate": {"goal_gate": True}})   # 目標對照閘開著時
     assert reason and "改完沒重跑" in reason
 
 
@@ -374,7 +374,7 @@ def test_latest_evidence_still_owed_when_not_rerun(ng_env):
         {"kind": "receipt", "ref": "latest", "level": "measured"},
         {"kind": "case", "ref": "tests/test_a.py", "level": "read"}]}])
     edit()
-    reason = ng.goal_gate_reason(_SID, True, {})
+    reason = ng.goal_gate_reason(_SID, True, {"reconcile_gate": {"goal_gate": True}})   # 目標對照閘開著時
     assert reason and "改完沒重跑" in reason
 
 

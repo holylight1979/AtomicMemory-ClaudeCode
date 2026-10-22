@@ -3,7 +3,6 @@
 - Scope: global
 - Author: holylight
 - Source: session 26d36367 track-wave2-kit（2026-10-21），w2_build_env 實跑與 wave2-kit 分支 5166ac00..f50c3f02
-- Quote: 「track-某專案：你是工作軌 track-某專案，調度總控台是 claude-e3（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 C:\Users\holylight\.claude-wt\某專案（分支 某專案，已存在，不要新建；不存在就 SendMessage 調度要，不要自己建）。派工單在 C:\Users\holylight\.claude…」
 - Confidence: [臨]
 - Trigger: 乾淨資料根, WG_CLAUDE_DIR, 驗收環境, forbidden-phrases.json, IndexZero, 資料根帶卡, 試跑資料根, knowledge harvest 自動 commit, build_env, 洩題卡
 - Created-at: 2026-10-21

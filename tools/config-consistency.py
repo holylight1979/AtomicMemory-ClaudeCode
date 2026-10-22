@@ -1372,8 +1372,8 @@ def render_md(res: Dict[str, Any]) -> str:
     kinds: Dict[str, int] = defaultdict(int)
     for r in res["d"]:
         kinds[r["kind"]] += 1
-    L = ["# G8 設定鍵一致性報告（config-consistency）", "",
-         "> 只量不改。四類各一表；「建議」欄是 AI 初判，總控台裁定。數字是尺不是判決。", "",
+    L = ["# 設定鍵一致性報告（config-consistency）", "",
+         "> 只量不改。四類各一表；「建議」欄是 AI 初判，使用者裁定。數字是尺不是判決。", "",
          "## 摘要", "",
          f"- 定義來源：config.json `{s['config']}`（{s['config_keys']} 鍵，含中間段）；HUB_DEFAULTS `{s['hub']}`"
          f"（{s['hub_keys']} 鍵，掛 overview_hub 下）；TECH.md §12（{s['tech_keys']} 鍵）",

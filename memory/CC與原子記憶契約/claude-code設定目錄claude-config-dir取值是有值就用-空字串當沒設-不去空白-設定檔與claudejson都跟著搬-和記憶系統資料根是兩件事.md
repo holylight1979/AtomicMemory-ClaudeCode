@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-data-root-2 004 交付（session 616e4407）2026-10-14，調度總控台代寫
+- Source: session 616e4407 2026-10-14
 - Confidence: [臨]
 - Trigger: CLAUDE_CONFIG_DIR, 設定目錄, settings.json 位置, .claude.json, 資料根 WG_CLAUDE_DIR, fix-hook-python, 安裝器 子行程 環境, Claude Code 設定檔路徑, 設定檔跟著搬
 - Created-at: 2026-10-14

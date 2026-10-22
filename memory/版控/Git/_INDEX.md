@@ -9,6 +9,7 @@
 | commit-前必須核對-staged-清單而非只信自己-add-了什麼 | commit 前必須核對 staged 清單而非只信自己 add 了什麼 |
 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 |
 | git-apply-check-過但-git-am-失敗-crlf-檔案的-patch-用-git-apply-index-加-git-am-continue-保留原作者 | git apply --check 過但 git am 失敗-CRLF 檔案的 patch 用 git apply --index 加 git am --continue 保留原作者 |
+| git-pathspec短魔法把非英數字元都當魔法字-排除底線開頭的檔要寫exclude | git-pathspec短魔法把非英數字元都當魔法字-排除底線開頭的檔要寫:(exclude) |
 | git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 | git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 |
 | git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal | git 合併與換行的實證事實-text-auto 不回頭轉-stage 方向-孤立 CR 是 binary-driver 缺 command 會 fatal |
 | git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉 | git 已push commit 勿改寫 — 雙 push-url + GitLab main force 保護致遠端分叉 |
@@ -17,7 +18,6 @@
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
 | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回HEAD原文再update-index |
 | 共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 | 共用工作樹有MERGE_HEAD時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 |
-| 共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存 | 共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存 |
 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout--conflict=diff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 |
 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 |
 | 攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出 | 攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出 |

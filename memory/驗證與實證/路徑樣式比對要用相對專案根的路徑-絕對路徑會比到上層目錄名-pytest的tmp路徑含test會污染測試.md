@@ -2,12 +2,10 @@
 
 - Scope: global
 - Author: holylight
-- Source: workflow/v6-inbox/from-track-e/010-tracke-done.md（track-e 010a post-mortem 草稿）
+- Source: commit:e8fef8a2 2026-10-12（原出處已隨工作信箱清理）
 - Confidence: [臨]
 - Trigger: glob, fnmatch, 路徑樣式比對, 絕對路徑, tmp_path, pytest tmp, 測試檔判定, verify_case_globs, 案例判定, 假綠
 - Created-at: 2026-10-12
-- Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-1beaf91fa2bd46b0405ba54af998ca0f" from-name="claude-b6" from-mode="bypass"> track-e 收到：停著、不動 worktree，等 011。 </cross-session-message>」
-
 - Related: 從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑
 
 ## 知識

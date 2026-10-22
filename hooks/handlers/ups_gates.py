@@ -10,9 +10,12 @@ handlers/ups_gates.py — UserPromptSubmit detect 段（前置閘）
 - atom-write guard reminder（建議階段不該宣告 [固]/[觀]）
 """
 
+import json
+import os
+import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled, WORKFLOW_DIR
 from wg_extraction import detect_signal, extract_veto_hints, extract_veto_question, settle_pending_veto
@@ -61,19 +64,93 @@ def _clear_long_die_marker() -> None:
         cls._clear_long_die_marker()
 
 
-def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
+_SEG_SPLIT_RE = re.compile(r"&&|\|\||[;|&\n]")
+_ENV_PREFIX_RE = re.compile(r"^(?:[A-Za-z_]\w*=\S*\s+)*")
+_PUSH_SEG_RE = re.compile(r"^(?:git(?:\s+-[Cc]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+push\b(?P<git>.*)"
+                          r"|svn(?:\s+--?[\w-]+(?:=\S+)?)*\s+(?:commit|ci)\b)", re.IGNORECASE | re.DOTALL)
+_DRY_RUN_RE = re.compile(r"(?:^|\s)(?:--dry-run|-n)(?=\s|$)")
+_PUSH_SCAN_CAP = 2_000_000     # 一次最多掃這麼多位元組（第一次掃、resume 的長 transcript 只看尾段）
+_PUSH_WAITING_CAP = 20
+
+
+def is_push_command(command: str) -> bool:
+    """指令裡有一段真的在推送：剔掉註解行，照 &&、||、;、|、&、換行切段，去掉開頭的環境變數指定，那一段以 git … push
+    （不帶 --dry-run／-n；前面只准全域選項）或 svn commit／ci 起頭。echo、commit 訊息裡的字樣不算。"""
+    from wg_release_rules import strip_comment_lines
+    for seg in _SEG_SPLIT_RE.split(strip_comment_lines(command or "")):
+        m = _PUSH_SEG_RE.match(_ENV_PREFIX_RE.sub("", seg.strip()))
+        if m and not (m.group("git") is not None and _DRY_RUN_RE.search(m.group("git"))):
+            return True
+    return False
+
+
+def note_order_push(state: Dict[str, Any], transcript_path: Any) -> bool:
+    """transcript 上次掃到的地方之後的完整行裡有跑成功的推送（Bash／PowerShell 指令 is_push_command、對應的 tool_result
+    沒標 is_error）→ state order_push_seq＝目前 turn_seq。Stop 每次收尾掃、口令閘判口令前也掃（push 完、收尾之前再 commit
+    也認得）。掃到哪裡記 order_scan_offset（只算到最後一個換行，半行留給下次）；指令看到了、結果還沒寫進來的記
+    order_push_waiting 留給下次配對。讀不到 transcript 只印 stderr。回這次有沒有記到推送。"""
+    if not transcript_path:
+        return False
+    try:
+        size = os.path.getsize(transcript_path)
+        off = int(state.get("order_scan_offset") or 0)
+        off = max(0 if off > size else off, size - _PUSH_SCAN_CAP)     # transcript 變短＝換了一份，從頭掃
+        with open(transcript_path, "rb") as f:
+            f.seek(off)
+            data = f.read(size - off)
+    except (OSError, TypeError, ValueError) as e:
+        print(f"[Guardian:CommitOrder] 讀不了 transcript，這次沒查有沒有推送：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    cut = data.rfind(b"\n") + 1
+    state["order_scan_offset"] = off + cut
+    waiting = [str(i) for i in state.get("order_push_waiting") or []]
+    pushed = False
+    for line in data[:cut].decode("utf-8", errors="replace").splitlines():
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue
+        msg = o.get("message") if isinstance(o, dict) else None
+        for b in msg.get("content") if isinstance(msg, dict) and isinstance(msg.get("content"), list) else []:
+            if not isinstance(b, dict):
+                continue
+            if (b.get("type") == "tool_use" and b.get("name") in ("Bash", "PowerShell")
+                    and is_push_command(str((b.get("input") or {}).get("command") or ""))):
+                waiting.append(str(b.get("id")))
+            elif b.get("type") == "tool_result" and str(b.get("tool_use_id")) in waiting:
+                waiting.remove(str(b.get("tool_use_id")))
+                pushed = pushed or not b.get("is_error")
+    state["order_push_waiting"] = waiting[-_PUSH_WAITING_CAP:]
+    if pushed:
+        state["order_push_seq"] = int(state.get("turn_seq", 0) or 0)
+    return pushed
+
+
+def order_spent(state: Dict[str, Any]) -> bool:
+    """版控口令這批做完了沒：使用者開這個回合之後跑成功了推送（order_push_seq；「上GIT」＝commit→push 一氣，push 完成這批
+    就結束）。先照 order_transcript（Stop／UserPromptSubmit 記的 transcript 路徑）補掃一次新寫進來的部分。只 commit 沒 push、
+    中間夾背景通知或收尾閘逼出的補修 commit 都不算做完。口令閘（pre_tool_use 的 CommitOrder）與 track_turn_prompts 共用。"""
+    note_order_push(state, state.get("order_transcript"))
+    push, seq = state.get("order_push_seq"), state.get("turn_prompts_seq")
+    return (isinstance(push, int) and not isinstance(push, bool) and isinstance(seq, int) and not isinstance(seq, bool)
+            and push >= seq)
+
+
+def track_turn_prompts(state: Dict[str, Any], clean_prompt: str, v6: Optional[bool] = None) -> None:
     """本回合使用者原話清單：Stop 關回合（turn_open=False）後第一則重開，
     同回合內排隊送進來的 mid-turn 訊息追加。口令閘看整回合而非只看最後一句
-    （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送的
-    mid-turn 訊息會誤判為新回合——閘只會多擋一次、要求重下口令，fail-safe。
+    （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送進來的
+    使用者訊息算新回合：清單重開，口令要重下（使用者新打的字＝口令失效的時點）。
 
     清單只存 user_typed_text（剔掉通知、其他 session 的訊息等非使用者區塊後，先清理再截 500 字）。
     整則都不是使用者的話（背景通知、其他 session 的訊息）也走 UserPromptSubmit：內文永不進清單；
-    它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待），
-    除非那之後已經 commit 過（口令用掉了）→ 清空，再 commit 要新口令。
+    它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待、收尾閘逼出的補修 commit），
+    除非那之後這批已經 push 完（order_spent：口令用掉了）→ 清空，再 commit 要新口令。
 
     turn_prompts_seq＝使用者本人打字開的回合（寫碼查核的預算與放行看它）。回合關閉後先進來的通知只開「續跑回合」
-    （turn_typed=False）；這個續跑回合裡使用者打的第一則字仍算使用者開的新回合，序號前進（清單照舊追加）。"""
+    （turn_typed=False）；這個續跑回合裡使用者打的第一則字算使用者開的新回合：序號前進、清單重開（先前的口令失效）。
+    v6＝守門總開關（沒給就照環境變數 WG_V6 判）。關時照 9e476fd0：口令 commit 過就用掉（last_commit_turn_seq），
+    續跑回合裡使用者打的字照舊追加、口令沿用。"""
     has_list = isinstance(state.get("turn_prompts"), list)
     typed = user_typed_text(clean_prompt)[:500]
 
@@ -81,16 +158,21 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
         state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
         state["user_turn_count"] = int(state.get("user_turn_count", 0) or 0) + 1
 
+    v6 = v6_enabled({}) if v6 is None else v6
     if not typed:
         # 同伴訊息、背景通知只開續跑回合（回合只由使用者打字開，規則 TURN_SINCE_USER_PROMPT）
-        spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
-        if not has_list or (not state.get("turn_open") and spent):
-            state["turn_prompts"] = []
         if not state.get("turn_open"):
+            spent = (order_spent(state) if v6
+                     else int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0)))
+            if spent:
+                state["turn_prompts"] = []
             state["turn_typed"] = False                                  # 通知開的續跑回合：還沒有使用者打字
+        if not has_list:
+            state["turn_prompts"] = []
     elif state.get("turn_open") and has_list:
-        state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
-        if state.get("turn_typed") is False:                            # 續跑回合裡使用者的第一則字：使用者開的新回合
+        continuation = state.get("turn_typed") is False                  # 續跑回合裡使用者的第一則字：使用者開的新回合
+        state["turn_prompts"] = [typed] if v6 and continuation else (state["turn_prompts"] + [typed])[-5:]
+        if continuation:
             _new_turn()
     else:
         state["turn_prompts"] = [typed]
@@ -119,8 +201,8 @@ def run_pre_gates(
     rup.append(typed[:500])
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
-    track_turn_prompts(state, clean_prompt)
     v6 = v6_enabled(config)
+    track_turn_prompts(state, clean_prompt, v6)
     if not v6 and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
         state["failing_tests"] = []   # v6 守門關閉：照 9e476fd0，使用者說「先這樣／跳過」就清掉紅測清單
     # v6：使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，

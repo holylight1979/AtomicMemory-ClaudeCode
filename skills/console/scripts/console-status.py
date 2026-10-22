@@ -9,8 +9,8 @@
                都沒有才印「無 exit 行」＋最後一行 pytest 總結。
 
 怎麼跑：
-  python ~/.claude/tools/console-status.py                       # 信箱預設 <repo 根>/workflow/inbox
-  python ~/.claude/tools/console-status.py --inbox D:/x/inbox --logs 5
+  python ~/.claude/skills/console/scripts/console-status.py      # 信箱預設 <repo 根>/workflow/inbox
+  python ~/.claude/skills/console/scripts/console-status.py --inbox D:/x/inbox --logs 5
 尾行：`CONSOLE_STATUS DONE worktrees=<n|na> unpushed=<n|na> tracks=<n> logs=<n>`
 exit：0 完成（信箱不存在也算，會印「信箱不存在」）；2 不在 git repo 裡或叫不到 git。完整參數以 --help 為準。
 """

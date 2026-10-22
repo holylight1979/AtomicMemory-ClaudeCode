@@ -36,13 +36,13 @@ HANDLERS = {
     "PostCompact": ("handlers.post_compact", "handle_post_compact"),        # 選配 #4
     "PostToolBatch": ("handlers.post_tool_batch", "handle_post_tool_batch"),  # 選配 #4
     "Stop": ("handlers.stop", "handle_stop"),
-    "SubagentStop": ("handlers.stop", "handle_subagent_stop"),   # 子代理收尾只跑寫碼查核閘（對帳／量尺），擋到底
+    "SubagentStop": ("handlers.stop", "handle_subagent_stop"),   # 子代理收尾只跑寫碼查核閘（對帳／量尺），擋滿放行留帳
     "SessionEnd": ("handlers.session_end", "handle_session_end"),
 }
 
 # 備援裁判子 session（judge_backend.run_claude_judge 起的 headless claude，env CLAUDE_COMPANION_JUDGE=1）：
 # 不注入記憶、不跑其他閘（防裁判觸發裁判）；只留寫碼查核：PreToolUse 只擋「寫入目標判不出」（執行前就擋，不留永久欠帳），
-# PostToolUse 做最小記帳（改了哪些檔、未知寫入、驗證收據），Stop 只跑對帳／量尺閘、無法互動擋到底。其餘事件早退。
+# PostToolUse 做最小記帳（改了哪些檔、未知寫入、驗證收據），Stop 只跑對帳／量尺閘、沒人能回答放行詢問，擋滿放行留帳。其餘事件早退。
 JUDGE_HANDLERS = {
     "PreToolUse": ("handlers.pre_tool_use", "handle_judge_pre_tool_use"),
     "PostToolUse": ("handlers.post_tool_use", "handle_judge_post_tool_use"),

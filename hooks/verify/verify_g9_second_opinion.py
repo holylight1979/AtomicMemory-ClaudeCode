@@ -85,6 +85,9 @@ class Tx:
             self.call(RESULT, {"job_id": job}, f"status: {status}\njob_id: {job}{tail}")
 
 
+RISKY = {"second_opinion": {"auto": {"risky_prefixes": ["hooks/wg_release_rules.py", "hooks/wg_second_opinion.py"]}}}
+
+
 def _mf(path, turn=5):
     return {"path": str(path), "tool": "Edit", "session_id": SID, "turn_seq": turn, "last_turn_seq": turn}
 
@@ -246,10 +249,10 @@ def test_done_then_later_not_done_reply_not_required(drive, capsys, tmp_path):
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)            # 最後談到的是「還沒完成」→ 照舊不算宣告
 
 
-def test_block_message_says_last_reply_keeps_four_lines(drive, capsys, tmp_path):
-    """第二波 B′／C′（B1、C3）：被別的閘擋後補的最後一則只寫「見上一則」，四行裁決沒留在交付末尾。擋訊息要講明最後一則要保留。"""
+def test_block_message_says_any_reply_this_turn_counts(drive, capsys, tmp_path):
+    """擋訊息講明四行寫在本回合任一則回覆都算，補件那則不必重抄（SECOND_OPINION_REQUIRED）。"""
     reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5))
-    assert "交付的最後一則也要保留這四行" in reason and "不要寫「見上一則」" in reason
+    assert "本回合任一則回覆都算" in reason and "不必重抄" in reason
     assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)                 # 入口仍在閘自己訊息的最末
 
 
@@ -284,8 +287,9 @@ def test_missing_verdict_line_blocks_and_names_it(drive, capsys, tmp_path):
 @pytest.mark.parametrize("rel", ["hooks/wg_release_rules.py", "hooks/wg_second_opinion.py"])
 def test_one_file_in_risky_prefix_blocks(drive, capsys, tmp_path, rel):
     root = _repo(tmp_path, {rel: _lines(3)})
-    reason, _, _ = drive(DONE, capsys, files=[root / rel])
+    reason, _, _ = drive(DONE, capsys, files=[root / rel], config=RISKY)
     assert "[Guardian:SecondOpinion]" in reason and f"改到高風險部位：{rel.rsplit('/', 1)[-1]}" in reason
+    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, files=[root / rel])[0], "risky_prefixes 預設空：沒設就不算高風險"
 
 
 def test_two_files_40_lines_not_risky_passes_but_200_lines_blocks(drive, capsys, tmp_path):
@@ -418,16 +422,16 @@ def test_once_per_claim_new_risky_part_or_new_files_over_threshold_owed(drive, c
     root = _repo(tmp_path, {"hooks/wg_release_rules.py": _lines(3), "hooks/wg_second_opinion.py": _lines(3)})
     rr_file, so_file = root / "hooks/wg_release_rules.py", root / "hooks/wg_second_opinion.py"
     drive.tx.opinion("done")
-    _, state, _ = drive(FOUR, capsys, files=[rr_file])
+    _, state, _ = drive(FOUR, capsys, files=[rr_file], config=RISKY)
     assert state["second_opinion_cover"][SID]["risky"]
     drive.tx.user("採納：再改 wg_release_rules")
     state.update(turn_seq=6, turn_prompts_seq=6)
     state["modified_files"][0]["last_turn_seq"] = 6
-    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, state=state)[0]   # 審過的高風險檔：不欠
+    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, state=state, config=RISKY)[0]   # 審過的高風險檔：不欠
     drive.tx.user("另外改 wg_second_opinion")
     state.update(turn_seq=7, turn_prompts_seq=7)
     state["modified_files"].append(_mf(so_file, 7))
-    assert "[Guardian:SecondOpinion]" in drive(DONE, capsys, state=state)[0]       # 新的高風險檔：再欠
+    assert "[Guardian:SecondOpinion]" in drive(DONE, capsys, state=state, config=RISKY)[0]       # 新的高風險檔：再欠
     files = _files(tmp_path, 5)
     drive.tx.opinion("done")
     _, st2, _ = drive(FOUR, capsys, files=files)

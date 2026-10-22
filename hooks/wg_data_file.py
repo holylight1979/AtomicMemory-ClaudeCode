@@ -4,7 +4,8 @@
 收四件事實——(a) 不是程式檔且副檔名在資料／設定清單、(b) 呼叫前已存在、(c) 不是本 session 新建的、(d) 本 session 使用者原話
 沒點名——再從三管道（回覆文字／工具呼叫參數／thinking；重用 overview_hub 的 LOCATE_CHANNELS 與 assistant_text_after）找
 「動資料檔｜<路徑>：<為什麼>」。判定在 wg_release_rules.data_file_verdict；這裡只收事實、出擋訊息、記 state、
-寫 Logs/guard-data_file.jsonl（denied／declared／exempt）。本 session 新建的檔記進 state created_files：Write 由
+寫 Logs/guard-data_file.jsonl（denied／declared／exempt／cap_released：同一個使用者回合同一個檔擋滿兩次就放行，
+wg_core.deny_cap；error：閘自己出錯，這次不擋）。本 session 新建的檔記進 state created_files：Write 由
 handlers/post_tool_use.py 呼叫 note_created；Bash／PowerShell 由這裡記下呼叫前不存在的目標、post_tool_use 呼叫
 confirm_shell_created 確認存在後轉進去。
 開關與清單：workflow/config.json 的 guard.data_file_ask（enabled 預設 True；extensions 給了就整份取代預設清單）。
@@ -19,7 +20,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import append_guard_log, read_state_status, transcripts_of, user_typed_prompts, user_typed_text, write_state
+from wg_core import (append_guard_log, deny_cap, read_state_status, transcripts_of, user_typed_prompts, user_typed_text,
+                     write_state)
 import wg_release_rules as _rr
 
 GUARD = "data_file"
@@ -97,8 +99,11 @@ def _transcript_user_entries(transcript_path: str) -> List[Tuple[int, str]]:
     return out
 
 
-def _transcript_user_texts(transcript_path: str) -> List[str]:
-    return [t for _, t in _transcript_user_entries(transcript_path)]
+def _user_entries(ctx: Dict[str, Any]) -> List[Tuple[int, str]]:
+    """主 transcript 的使用者原話（_transcript_user_entries）；ctx 快取，整次呼叫只讀一次 transcript。"""
+    if "user_entries" not in ctx:
+        ctx["user_entries"] = _transcript_user_entries(ctx["main_tp"])
+    return ctx["user_entries"]
 
 
 def _size(path: str) -> int:
@@ -117,9 +122,7 @@ def _latest_mention(ctx: Dict[str, Any], path: str) -> Tuple[int, str]:
     """主 transcript 裡最後一則提到這個檔的使用者原話 (結束位元組位置, 原話)；沒有回 (0, "")。ctx 快取。"""
     cache = ctx.setdefault("latest_mention", {})
     if path not in cache:
-        if "user_entries" not in ctx:
-            ctx["user_entries"] = _transcript_user_entries(ctx["main_tp"])
-        cache[path] = next(((at, t) for at, t in reversed(ctx["user_entries"]) if _rr.prompt_mentions_file(t, path)), (0, ""))
+        cache[path] = next(((at, t) for at, t in reversed(_user_entries(ctx)) if _rr.prompt_mentions_file(t, path)), (0, ""))
     return cache[path]
 
 
@@ -136,10 +139,11 @@ def _void_stale_declaration(state: Dict[str, Any], path: str, ctx: Dict[str, Any
     return True
 
 
-def session_prompts(state: Dict[str, Any], transcript_path: str) -> List[str]:
-    """本 session 使用者原話：state 的近期清單與本回合清單（各截 500 字），加上 transcript 裡每一則使用者訊息（不截）。"""
+def session_prompts(state: Dict[str, Any], ctx: Dict[str, Any]) -> List[str]:
+    """本 session 使用者原話：state 的近期清單與本回合清單（各截 500 字），加上 transcript 裡每一則使用者訊息（不截；
+    與點名位置共用 ctx 那一份，不另讀 transcript）。"""
     kept = list(state.get("recent_user_prompts") or []) + list(state.get("turn_prompts") or [])
-    return user_typed_prompts([str(p) for p in kept]) + _transcript_user_texts(transcript_path)
+    return user_typed_prompts([str(p) for p in kept]) + [t for _, t in _user_entries(ctx)]
 
 
 def declarations(transcript_path: str, since: int = 0) -> List[Tuple[str, str, str, str]]:
@@ -187,7 +191,7 @@ def confirm_shell_created(state: Dict[str, Any], tool_use_id: str) -> bool:
 
 def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
     """這次工具呼叫要寫的檔：Edit 類取 file_path；Bash／PowerShell 取 wg_core.write_paths_from_tool 算得出的每個目標
-    （算不出的 UNKNOWN 由 OverviewHub 擋，本閘不管）。"""
+    （算不出的 UNKNOWN 本閘不管，由 UNKNOWN_TARGET_LOGGED 放行留帳）。"""
     if tool_name in TOOLS:
         p = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
         return [p] if p else []
@@ -197,7 +201,7 @@ def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
 
 def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Optional[str]:
     """PreToolUse：回擋訊息或 None。一條指令寫好幾個資料檔，每個都要對到宣告或各自豁免，沒對到的全列出來。
-    閘自己出錯（state 讀壞、例外）＝判不了 → 擋並寫 stderr 與守門紀錄 error。"""
+    閘自己出錯（state 讀壞、例外）＝判不了 → 這次不擋，寫 stderr 與守門紀錄 error。"""
     enabled, exts = cfg_of(config)
     if not enabled or tool_name not in TOOLS + SHELL_TOOLS:
         return None
@@ -209,10 +213,10 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
         return _judge(tool_name, paths, sid, input_data, config) if paths else None
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
-        sys.stderr.write(f"[Guardian:DataFileAsk] 閘內部錯誤（已擋）：{err}\n")
-        append_guard_log(GUARD, {"event": "error", "session_id": sid, "tool": tool_name, "paths": paths, "error": err})
-        return (f"[Guardian:DataFileAsk] 這次要寫的檔可能是資料／設定檔，但閘判不了它是不是使用者既有的資料（{err}），一律擋。"
-                "先用 Read 查原因；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+        sys.stderr.write(f"[Guardian:DataFileAsk] 閘內部錯誤，判不了是不是使用者既有的資料檔（這次不擋，已留帳）：{err}\n")
+        append_guard_log(GUARD, {"event": "error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name, "paths": paths,
+                                 "error": err})
+        return None
 
 
 def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any],
@@ -227,7 +231,7 @@ def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any]
     if facts["code"] or not facts["existed"] or facts["created"]:
         return _rr.data_file_verdict(path, rel, facts, []), "", ""
     if "prompts" not in ctx:
-        ctx["prompts"] = session_prompts(state, ctx["main_tp"])
+        ctx["prompts"] = session_prompts(state, ctx)
     facts.update(named=_rr.prompt_names_file(ctx["prompts"], path), prompts=len(ctx["prompts"]))
     latest = _latest_mention(ctx, path)[1]
     if facts["named"] and latest and not _rr.prompt_names_file([latest], path):
@@ -258,7 +262,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     main_tp, decl_tps = transcripts_of(str(input_data.get("transcript_path") or ""), str(input_data.get("agent_id") or ""))
     ctx: Dict[str, Any] = {"main_tp": main_tp, "decl_tps": decl_tps,
                            "cmd": str((input_data.get("tool_input") or {}).get("command") or "") if tool_name in SHELL_TOOLS else ""}
-    owed: List[Tuple[str, _rr.Verdict]] = []
+    owed: Dict[str, Tuple[str, str, _rr.Verdict]] = {}
     pending: List[str] = []
     changed = False
     for path in paths:
@@ -266,30 +270,34 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
         changed = _void_stale_declaration(state, path, ctx, sid, tool_name) or changed
         v, via, quote = _verdict_for(path, rel, state, ctx, config)
         if v.owed:
-            event = "denied"
-        elif via:
-            event = "declared"
-        else:
-            event = "exempt"
-        append_guard_log(GUARD, {"session_id": sid, "tool": tool_name, "path": path, "event": event, "why": v.why,
-                                 **({"via": via} if via else {}), **({"quote": quote} if quote else {})})
-        if v.owed:
-            owed.append((rel, v))
+            owed[_rr.canon_path(path)] = (path, rel, v)
             continue
+        append_guard_log(GUARD, {"session_id": sid, "tool": tool_name, "path": path, "event": "declared" if via else "exempt",
+                                 "why": v.why, **({"via": via} if via else {}), **({"quote": quote} if quote else {})})
         if via and via != "state":       # 有宣告行對上：記 state，同 session 同檔不再擋；at＝這時主 transcript 寫到哪（之後的原話會作廢它）
             state.setdefault("data_file_declared", {})[_rr.canon_path(path)] = {"line": v.evidence[0], "via": via,
                                                                                  "at": _size(main_tp)}
             changed = True
         if tool_name in SHELL_TOOLS and not os.path.exists(path):
             pending.append(path)
-    if pending and not owed:             # 指令會建出來的檔：PostToolUse 確認存在後記成本 session 建（confirm_shell_created）
+    # 擋次上限（wg_core.deny_cap）：同一個使用者回合同一個檔擋滿兩次就放行、留帳 cap_released；沒有 state 可記照擋
+    denied, released = deny_cap(state if status == "ok" else None, GUARD, list(owed))
+    changed = changed or bool(owed and status == "ok")
+    for key in owed:
+        path, _, v = owed[key]
+        if key in denied or key in released:
+            append_guard_log(GUARD, {"session_id": sid, "tool": tool_name, "path": path,
+                                     "event": "denied" if key in denied else "cap_released", "why": v.why})
+    if pending and not denied:           # 指令會建出來的檔：PostToolUse 確認存在後記成本 session 建（confirm_shell_created）
         state.setdefault("data_file_pending_new", {})[str(input_data.get("tool_use_id") or "")] = pending
         changed = True
     if changed and status == "ok":
         write_state(sid, state)
-    if not owed:
+    if not denied:
         return None
-    return ("[Guardian:DataFileAsk] 要改使用者既有的資料檔／設定檔：先問使用者，或先宣告一行再改（留帳給健檢抽查）。"
-            "一條指令寫好幾個資料檔，每個都要各自宣告。\n"
-            + "\n".join(_rr.format_hit("df", v) for _, v in owed) + "\n"
-            + "\n".join(_rr.data_file_hint(rel) for rel, _ in owed))
+    hits = [owed[k] for k in denied]
+    return ("[Guardian:DataFileAsk] 要改使用者既有的資料檔／設定檔，先宣告一行再改：宣告行要比這次工具呼叫早一則訊息送出"
+            "（跟工具呼叫同一則送出的文字，這裡還看不到），或寫成 Bash／PowerShell 指令開頭的 `#` 註解。"
+            "拿不準要不要動就先問使用者。一條指令寫好幾個資料檔，每個都要各自宣告（留帳給健檢抽查）。\n"
+            + "\n".join(_rr.format_hit("df", v) for _, _, v in hits) + "\n"
+            + "\n".join(_rr.data_file_hint(rel) for _, rel, _ in hits))

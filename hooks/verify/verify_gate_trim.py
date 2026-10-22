@@ -233,7 +233,6 @@ def test_judge_card_change_logged_not_blocked(monkeypatch):
     logs = []
     monkeypatch.setattr(jc, "bound_cards", lambda *a, **k: [("c:/m/card.md", ["E01"])])
     monkeypatch.setattr(jc, "declarations", lambda *a, **k: [])
-    monkeypatch.setattr(jc, "snapshot", lambda *a, **k: None)
     monkeypatch.setattr(jc, "append_guard_log", lambda name, rec: logs.append(rec))
     assert jc.gate("Edit", {"file_path": "c:/m/card.md"}, {"session_id": "s"}, {}) is None
     assert logs and logs[-1]["event"] == "undeclared" and logs[-1]["allowed"] is True
@@ -288,7 +287,7 @@ def test_reconcile_budget_shared_per_user_turn():
     assert rr.budget_exhausted(rr.budget_tick(rec, 3, ["*"]), 3, 2, ["*"]) == ["*"]
     assert "BLOCK_BUDGET_SHARED" in rr.RULES and "BLOCK_BUDGET_PER_RULE" not in rr.RULES
     src = (HOOKS_DIR / "handlers" / "stop.py").read_text(encoding="utf-8")
-    assert '_letters = ["*"] if _code else []' in src
+    assert 'budget_exhausted(_rec, _uturn, _max, ["*"] if _code else [])' in src     # 寫碼查核整份共用鍵 "*"
 
 
 def test_selfscore_not_an_entrypoint_and_lives_in_console_skill():
@@ -528,7 +527,8 @@ def test_docs_scored_only_with_code_change_reply(tmp_path, monkeypatch):
     doc.parent.mkdir(parents=True)
     doc.write_text("x", encoding="utf-8")
     mods = [{"path": str(doc), "session_id": "s", "last_turn_seq": 4}]
-    cfg = {"text_score": {"enabled": True, "min_chars": 300}}
+    cfg = {"text_score": {"enabled": True, "min_chars": 300,
+                          "auto_targets": {"docs": ["memory/_staging/*checklist*.md"]}}}   # 出廠沒列 docs，案例自己給樣式
     assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=False, user_turn=4) is False and sent == []
     assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=True, user_turn=4) is True
     assert [t["kind"] for t in sent[0]["tasks"]] == ["docs"]

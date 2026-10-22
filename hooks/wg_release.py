@@ -7,10 +7,13 @@
     (b) 使用者本人新打的訊息整則符合放行句型（is_release_prompt；state.turn_prompts，背景通知等 harness 訊息不進這個清單）。
   (a) 只認 tool_use_id 對到 AskUserQuestion（題目含標記）的 tool_result；其他工具輸出、assistant 文字印出同樣的字都不算。
   「最後一次擋」的位置＝擋那一刻的 transcript 位元組長度＋當時的 turn_prompts 快照（mark_block 記）。
-  擋滿記 pending_release，跨回合承接：換回合不重給預算，直到使用者放行或查核通過。
-  無法互動（non_interactive_reason：裁判子 session、子代理、headless／SDK）→ 不叫它問，擋到底（non_interactive_message）。
-  只用在寫程式碼的查核閘（ReconcileGate／VerifyScope）；其他閘照舊。
-怎麼跑：被 handlers/stop.py 匯入；verify 在 hooks/verify/verify_stop_reconcile.py（件一段）。
+  擋滿記 pending_release，只在同一個使用者回合有效（pending_of 照 wg_release_rules.user_turn 認）：換了使用者回合就失效，
+  預算重給、不拿先前的宣稱重查。
+  放行記成「這一回合＋放行的那幾件」（release_items：擋訊息每條 ✗ 的規則與現象）：同一回合整個放；之後的回合那幾件原因還在
+  就不再要求放行（keep_released／drop_items），原因消失就從紀錄拿掉。
+  無法互動（non_interactive_reason：裁判子 session、子代理、headless／SDK）→ 不叫它問；擋滿照預算放行並留帳（由呼叫端記）。
+  用在寫程式碼的查核閘（ReconcileGate／VerifyScope、TestFailGate）、第二意見、等值證法。
+怎麼跑：被 handlers/stop.py 匯入；verify 在 hooks/verify/verify_stop_reconcile.py（件一段）、verify_pull_stop_gates.py。
 """
 from __future__ import annotations
 
@@ -19,6 +22,8 @@ import os
 import re
 import unicodedata
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from wg_release_rules import HIT_PREFIX, in_turn, user_turn
 
 RELEASE_TAG = "【收尾放行確認】"
 OPT_RELEASE = "放行這一回合"
@@ -33,9 +38,9 @@ _ANSWER_PAIR_RE = re.compile(r'"([^"]*)"="([^"]*)"')
 
 
 def exhausted_message(gate: str, n: Optional[int], summary: str) -> str:
-    """擋滿後的固定擋訊息。summary 取原因第一行；n＝None 表示承接先前回合的擋滿（pending_release），不報本回合次數。"""
+    """擋滿後的固定擋訊息。summary 取原因第一行；n＝None 表示不報次數（本回合先前已擋滿、記了 pending_release）。"""
     line = (summary or "").strip().splitlines()[0] if (summary or "").strip() else "（無原因摘要）"
-    head = f"本回合已擋 {n} 次仍未解" if n is not None else "先前回合已擋滿、仍未放行也仍未解"
+    head = f"本回合已擋 {n} 次仍未解" if n is not None else "本回合已擋滿、仍未放行也仍未解"
     return (f"[Guardian:{gate}] {head}：{line[:200]}。不准自行放行，也不准改寫宣稱來繞過。"
             f"用 AskUserQuestion 問使用者，題目必須含標記{RELEASE_TAG}，選項固定兩個：「{OPT_RELEASE}」「{OPT_KEEP}」；"
             "使用者選放行才收尾。")
@@ -77,11 +82,12 @@ def non_interactive_reason(input_data: Dict[str, Any], transcript_path: Optional
 
 
 def non_interactive_message(gate: str, n: Optional[int], summary: str, why: str) -> str:
-    """無法互動時的固定擋訊息：不叫模型問使用者，一律擋到底。n＝本回合已擋次數（子代理不計預算，給 None 就不寫次數）。"""
+    """無法互動時的擋訊息：沒有人能回答放行詢問，不叫模型問使用者。n＝本回合已擋次數（給 None 就不寫次數）。
+    擋滿之後由呼叫端放行並留帳，不送這則。"""
     line = (summary or "").strip().splitlines()[0] if (summary or "").strip() else "（無原因摘要）"
     count = f"；本回合已擋 {n} 次" if n is not None else ""
-    return (f"[Guardian:{gate}] 無法互動，不能放行：{line[:200]}（{why}{count}）。"
-            "不准自行放行，也不准改寫宣稱來繞過：把它修好，或照實回報沒修好。")
+    return (f"[Guardian:{gate}] 收尾查核沒過：{line[:200]}（{why}，沒有人能回答放行詢問{count}）。"
+            "不准改寫宣稱來繞過：把它修好，或照實回報沒修好。")
 
 
 def _size(transcript_path: Optional[str]) -> int:
@@ -91,13 +97,22 @@ def _size(transcript_path: Optional[str]) -> int:
         return 0
 
 
-def mark_block(state: Dict[str, Any], sid: str, gate: str, transcript_path: Optional[str], turn_seq: int) -> None:
+def mark_block(state: Dict[str, Any], sid: str, gate: str, transcript_path: Optional[str], turn_seq: int,
+               items: Optional[Iterable[str]] = None) -> None:
     """記這個閘（reconcile＝對帳／量尺閘；shared＝吃 stop_gate_max_blocks 的閘）最後一次擋的位置：
-    transcript 長度＋turn_prompts 快照＋回合。"""
+    transcript 長度＋turn_prompts 快照＋回合＋這次擋訊息列給使用者看的那幾件（release_items；使用者放行只放這幾件）。"""
     prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else []
     state.setdefault("last_block", {}).setdefault(sid, {})[gate] = {
         "offset": _size(transcript_path), "prompts": list(prompts), "turn": int(turn_seq),
+        **({"items": list(items)} if items is not None else {}),
     }
+
+
+def shown_items(state: Dict[str, Any], sid: str, gate: str) -> Optional[List[str]]:
+    """這個閘最後一次擋時列給使用者看的那幾件；沒記（沒擋過、或擋的位置是沒記項目的寫法）→ None。"""
+    rec = ((state.get("last_block") or {}).get(sid) or {}).get(gate)
+    items = rec.get("items") if isinstance(rec, dict) else None
+    return [str(i) for i in items] if isinstance(items, list) else None
 
 
 def _blocks(o: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -173,9 +188,15 @@ def user_released(state: Dict[str, Any], sid: str, gate: str, transcript_path: O
 
 
 def pending_of(state: Dict[str, Any], sid: str, gate: str) -> Optional[Dict[str, Any]]:
-    """擋滿後待使用者放行的紀錄（跨回合承接：換了回合也不重給預算）；沒有回 None。"""
+    """擋滿後待使用者放行的紀錄；只認記在目前這個使用者回合的（背景通知、同伴訊息開的續跑回合不算換回合）。
+    換了使用者回合 → None：預算重給、不拿先前的宣稱重查。state 沒有 turn_seq（判不出回合）→ 照算有效。"""
     rec = ((state.get("pending_release") or {}).get(sid) or {}).get(gate)
-    return rec if isinstance(rec, dict) else None
+    if not isinstance(rec, dict):
+        return None
+    if "turn_seq" not in state:
+        return rec
+    now = int(state.get("turn_seq", 0) or 0)
+    return rec if in_turn(rec.get("turn"), now, user_turn(state, now)) else None
 
 
 def pending_any(state: Dict[str, Any], sid: str) -> bool:
@@ -189,9 +210,9 @@ CLAIM_CHARS = 3000
 
 def set_pending(state: Dict[str, Any], sid: str, gate: str, turn_seq: int, at: str, reason: str,
                 claims: Iterable[str] = ()) -> None:
-    """記擋滿待放行。claims＝pending 第一次建立時的「宣告完成」原話（每段尾 CLAIM_CHARS 字）：之後的 Stop 換一句話，
-    對帳 (a)(b)(c) 仍拿原話重查；pending 已在時 claims 一律沿用原本那份，之後的文字不附加、不取代、不擠掉。
-    舊版 pending（沒有 claims 欄）照舊沒有：無法重查原宣稱，只能由使用者放行清掉（stop.handle_stop 據此擋）。"""
+    """記擋滿待放行。claims＝pending 在這個使用者回合第一次建立時的「宣告完成」原話（每段尾 CLAIM_CHARS 字）：同一回合之後的
+    Stop 換一句話，對帳 (a)(b)(c) 仍拿原話重查；pending 還有效時 claims 一律沿用原本那份，之後的文字不附加、不取代、不擠掉。
+    沒有 claims 欄的 pending 照舊沒有：無法重查原宣稱，只能由使用者放行清掉（stop.handle_stop 據此擋；換了使用者回合就失效）。"""
     old = pending_of(state, sid, gate)
     rec: Dict[str, Any] = {"turn": int(turn_seq), "at": at, "reason": (reason or "")[:300]}
     if old is None:
@@ -207,10 +228,84 @@ def clear_pending(state: Dict[str, Any], sid: str, gate: str) -> None:
         sec.pop(gate, None)
 
 
+def _release_rec(state: Dict[str, Any], sid: str, gate: str) -> Optional[Dict[str, Any]]:
+    """user_released[sid][gate]：{"turn": 放行的使用者回合, "items": 放行的那幾件}；只記回合整數的紀錄當沒有放行件。"""
+    rec = ((state.get("user_released") or {}).get(sid) or {}).get(gate)
+    if isinstance(rec, dict):
+        return rec
+    return {"turn": rec, "items": []} if isinstance(rec, int) and not isinstance(rec, bool) else None
+
+
 def released_this_turn(state: Dict[str, Any], sid: str, gate: str, turn_seq: int) -> bool:
     """使用者已放行過這個閘的這一回合（放行一次＝這一回合不再擋）。"""
-    return int(((state.get("user_released") or {}).get(sid) or {}).get(gate, -1)) == int(turn_seq)
+    rec = _release_rec(state, sid, gate)
+    try:
+        return rec is not None and int(rec.get("turn")) == int(turn_seq)
+    except (TypeError, ValueError):
+        return False
 
 
-def record_release(state: Dict[str, Any], sid: str, gate: str, turn_seq: int) -> None:
-    state.setdefault("user_released", {}).setdefault(sid, {})[gate] = int(turn_seq)
+def record_release(state: Dict[str, Any], sid: str, gate: str, turn_seq: int, items: Iterable[str] = (),
+                   context: Optional[str] = None) -> None:
+    """記使用者放行：這一回合整個放（選項就叫「放行這一回合」）；items（release_items 的鍵，只放使用者看過的那幾件）之後的
+    回合原因還在就照放。context＝放行當下的情境指紋（例：改檔的指紋），之後不一樣就整份不算（keep_released）。"""
+    state.setdefault("user_released", {}).setdefault(sid, {})[gate] = {
+        "turn": int(turn_seq), "items": list(dict.fromkeys(str(i) for i in items if i)),
+        **({"context": context} if context is not None else {})}
+
+
+def _hit_key(line: str) -> Optional[str]:
+    s = line.strip()
+    return s.split("｜證據", 1)[0] if s.startswith(HIT_PREFIX + "(") else None
+
+
+def _sections(text: str) -> List[List[str]]:
+    """擋訊息照 `[Guardian:` 開頭的行切段（一道閘或一個判定錯誤一段）；第一個 `[Guardian:` 之前的行自成一段。"""
+    out: List[List[str]] = []
+    for ln in str(text or "").splitlines():
+        if not out or ln.lstrip().startswith("[Guardian:"):
+            out.append([])
+        out[-1].append(ln)
+    return out
+
+
+def _section_keys(sec: List[str]) -> List[str]:
+    """一段的鍵：每條 `✗ (<字母>) <規則名>：<一句現象>`（不含證據段）；這段沒有 ✗ 條目就用它的第一個非空行（整段算一件）。"""
+    hits = [k for k in map(_hit_key, sec) if k]
+    first = next((ln.strip() for ln in sec if ln.strip()), "")
+    return hits or ([first] if first else [])
+
+
+def release_items(text: str) -> List[str]:
+    """擋訊息裡「那一件」的鍵：逐段取 _section_keys（沒有 ✗ 條目的段——例如判定錯誤——自己算一件，不會被別段的放行吞掉）。"""
+    return list(dict.fromkeys(k for sec in _sections(text) for k in _section_keys(sec)))
+
+
+def keep_released(state: Dict[str, Any], sid: str, gate: str, current: Iterable[str],
+                  context: Optional[str] = None) -> List[str]:
+    """先前放行過、這次還在的那幾件（current＝這次擋訊息的 release_items）；原因消失的從放行紀錄拿掉。
+    放行時記了情境指紋、這次給的不一樣（例：放行之後又改了檔）→ 整份放行不算、清掉。回還在的那幾件。"""
+    rec = _release_rec(state, sid, gate)
+    if not rec or not rec.get("items"):
+        return []
+    stale = context is not None and rec.get("context") is not None and rec.get("context") != context
+    now = set(current)
+    keep = [] if stale else [i for i in rec["items"] if i in now]
+    if keep != rec["items"]:
+        state.setdefault("user_released", {}).setdefault(sid, {})[gate] = {**rec, "items": keep}
+    return keep
+
+
+def drop_items(text: str, items: Iterable[str]) -> Optional[str]:
+    """擋訊息拿掉已放行的那幾件：已放行的 ✗ 條目拿掉，鍵已放行的無條目段整段拿掉；拿完沒有任何一件要擋 → None。"""
+    gone = set(items)
+    if not gone:
+        return text
+    if all(k in gone for k in release_items(text)):
+        return None
+    kept: List[str] = []
+    for sec in _sections(text):
+        if not any(map(_hit_key, sec)) and all(k in gone for k in _section_keys(sec)):
+            continue
+        kept += [ln for ln in sec if _hit_key(ln) not in gone]
+    return "\n".join(kept)

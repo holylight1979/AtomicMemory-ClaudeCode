@@ -164,6 +164,10 @@ def handle_user_prompt_submit(
 
     v6 = v6_enabled(config)     # 關＝只送 9e476fd0 就有的注入與提示
 
+    # v6：版控口令判「這批 push 完了沒」要掃 transcript（ups_gates.order_spent）：記下路徑，口令閘與下一則訊息用
+    if v6 and input_data.get("transcript_path"):
+        state["order_transcript"] = str(input_data["transcript_path"])
+
     # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）
     run_pre_gates(
         session_id, state, config, clean_prompt, prompt_lower, lines
@@ -259,13 +263,13 @@ def handle_user_prompt_submit(
         state["fix_escalation_triggered"] = True
         lines.append(fix_esc)
 
-    # Evasion 上輪命中 → 注入舉證要求，放在這則注入最前面（排在其他注入後面時模型只做新請求、不理舉證——切入點自評 E11）
+    # Evasion 上輪命中 → 注入舉證要求，放在這則注入最前面（排在其他注入後面時模型只做新請求、不理舉證）
     ev = state.get("evasion_flag")
     if ev:
         lines.insert(0, evasion_ask(ev))
         state["evasion_flag"] = None
 
-    # 文字評分（G15）：上一則回覆背景評完了 → 評分一行放在這則注入的第一行，請 AI 照抄到回覆尾巴（只附不擋；wg_text_score）
+    # 文字評分（G15）：上一則回覆背景評完了 → 只留帳（評分不送到眼前、不叫 AI 照抄；wg_text_score.tail_note 一律回空字串）
     try:
         _ts_txt = None
         if v6:

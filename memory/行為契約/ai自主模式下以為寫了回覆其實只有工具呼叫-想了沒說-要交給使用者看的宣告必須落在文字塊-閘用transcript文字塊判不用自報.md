@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session e40bc31f，tri-link 某專案/047／root/064
+- Source: session e40bc31f
 - Confidence: [臨]
 - Trigger: 想了沒說, 以為寫了, 定位三行, located=false, 文字塊, thinking 不算, 自主模式, 自報不可信, transcript 驗
 - Created-at: 2026-10-07

@@ -2,10 +2,10 @@
 
 做什麼：只讀 state 的 `overview_hub`（每部位：注入後讀了幾個檔、交沒交定位三行、改了幾次）與 `modified_files`，
 算三個比例，單次 append 一行（<100 ms；無 state 不寫；沒注入過任何部位也不寫，沒東西可量）。
-報表與候選卡由 `tools/scorecard-report.py` 另算；本模組不讀報表、不讀 candidates.json（回路單向：M4 讀候選，候選不回餵量尺）。
+報表與候選卡由 `tools/scorecard-report.py` 另算；本模組不讀報表、不讀 candidates.json（回路單向：讀候選的一方不回餵量尺）。
 
 S1＝有改的部位裡，導讀卡注入後曾讀過至少一個檔的比例（state 的 `reads_after` 只記「注入後」，不分改前改後；
-預計畫附錄 C「首改前有沒有讀卡」要等 wg_overview 凍結 reads_before_edit 才量得準）。
+「首改前有沒有讀卡」要等 wg_overview 凍結 reads_before_edit 才量得準）。
 S3＝有改的寫碼部位裡，交出定位三行的比例（`located`）；部位表類別 knowledge 的部位不要求三行，不進分母。
 S5＝被注入的部位裡，之後讀過卡片檔（memory／_atoms 下的 .md）的比例。
 分母為零 → None（不是 0）。

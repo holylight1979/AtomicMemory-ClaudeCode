@@ -322,8 +322,8 @@ def render_text(res: Dict[str, Any]) -> str:
 # 查的是「這次真的會進版的內容」：git 的暫存區、commit -a 的已追蹤改動、commit <路徑>、同一條指令前面 git add 才要加進來的檔；
 # svn commit 的工作副本改動。每個程式檔取舊版（HEAD／BASE）與新版（要提交的那份）逐行比對：病形落在這次改到的行、而且
 # 同一行（去空白後）不在任何一個提交檔的舊版裡 → 新寫進的病（擋）；其餘 → 舊碼原本就有、這次沒碰（只列出）。
-# 病形兩種來源：內建（原設計者點名的匿名函式疊用與過長、回呼套層、lambda 指派、巢狀過深、巢狀三元、過度物件化、Unity 每幀
-# 浪費；寫得保守，寧漏不誤擋，依據見 workflow/inbox/from-track-g2/002 提案）與專案部位表「病灶清單」欄指的病灶文件（每條 `shape:`
+# 病形兩種來源：內建（匿名函式疊用與過長、回呼套層、lambda 指派、巢狀過深、巢狀三元、過度物件化、Unity 每幀
+# 浪費；寫得保守，寧漏不誤擋）與專案部位表「病灶清單」欄指的病灶文件（每條 `shape:`
 # 是專案判斷過的病）。形狀判不準（大括號語言的字串、註解剝不乾淨）或還在提醒區間的只列不擋；「判不了一律擋」只用在查不到
 # 這次要提交什麼。那一行寫 `smell-ok: <理由>` → 不擋、列進放行清單（判斷交 AI、理由留在 diff）。
 
@@ -1312,8 +1312,9 @@ def render_commit_report(results: List[Dict[str, Any]], repo_hint: str = "<repo>
     if new:
         lines.append("處置先分清被點名的檔是不是你這次改的：是你改的 → 把 ✗ 那幾行改掉再 commit；判斷過確實該這樣寫"
                      "（例如外部 API 只收這種寫法）→ 在那一行加註解 `smell-ok: <為什麼>`，理由會留在 diff 裡給使用者看。"
-                     "不是你改的（session 開始前就在暫存區、別人留的）→ 不修、不動它的暫存，只提交你自己的檔"
-                     "（git：git commit -- <你的檔>），被問到時寫明是誰的、病要誰修。手動重查："
+                     "不是你改的（session 開始前就在暫存區、別人留的）→ 不修、不動它的暫存，只提交你自己的檔，"
+                     "而且在這條 commit 指令開頭加一行 `# 不是繞閘｜<檔是誰的、病要誰修>`（下一行接 `git commit -- <你的檔>`），"
+                     "照這樣送一次就過。手動重查："
                      f"python ~/.claude/tools/project-smells.py --commit-check --cwd {repo_hint}")
         return "\n".join(lines), None
     return None, "\n".join(lines)

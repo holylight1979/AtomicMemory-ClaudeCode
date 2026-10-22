@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-gate-small-fixes 004 交付信代寫 2026-10-21
+- Source: commit:cfda1231 2026-10-21（修補實證）
 - Confidence: [臨]
 - Trigger: cat-file --batch-check, git 批次查詢, missing 行, 按輸入順序配對
 - Created-at: 2026-10-21

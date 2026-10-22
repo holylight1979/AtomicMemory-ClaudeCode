@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from wg_core import _now_iso, WORKFLOW_DIR, user_typed_prompts
+from wg_core import _is_under_claude_dir, _now_iso, WORKFLOW_DIR, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
 from wg_release_rules import in_user_turn
@@ -790,7 +790,8 @@ def record_pick(state: Dict[str, Any], sid: str, turn_seq: int, text: str, cwd: 
                 print(f"[Guardian:PickOne] 同一回合又點出同一件，追蹤帳本沒換成新的說法（寫不進去），帳上留第一次那筆："
                       f"{same_turn.get('text')}", file=sys.stderr)
     if event != "write_failed":
-        _pick_sec(state, sid)["covered_turn"] = int(turn_seq or 0)
+        sec = _pick_sec(state, sid)
+        sec["covered_turn"], sec["covered_uturn"] = int(turn_seq or 0), _pick_uturn(state, turn_seq)
     return event, pick
 
 
@@ -798,19 +799,28 @@ def _mod_turn(m: Dict[str, Any]) -> int:
     return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
 
 
+def _pick_uturn(state: Dict[str, Any], turn_seq: Any) -> int:
+    from wg_release_rules import user_turn
+    return user_turn(state, int(turn_seq or 0))
+
+
 def pick_due(state: Dict[str, Any], sid: str, code_mods: List[Dict[str, Any]], boundary: bool) -> bool:
     """該不該送「順手看到最該修」那一問：到了交付邊界（boundary），且本 session 在上次問過或記過之後又改了程式
     （code_mods＝本 session 改過的程式檔紀錄）。同一批改動只問一次；AI 自己先寫了那段（covered_turn）也不再問。
-    改檔紀錄沒有回合號的不算新改動。"""
+    同一個使用者回合問過或答過就不再問（asked_uturn／covered_uturn，照 wg_release_rules.user_turn）：這一問讓對話續跑一回合，
+    續跑回合 turn_seq 會往前，照 turn_seq 比會把續跑當成新的一批重問。改檔紀錄沒有回合號的不算新改動。"""
     if not boundary or not code_mods:
         return False
     sec = (state.get("pick_one") or {}).get(sid) or {}
+    if _pick_uturn(state, state.get("turn_seq")) in (sec.get("asked_uturn"), sec.get("covered_uturn")):
+        return False
     mark = max(int(sec.get("asked_turn") or 0), int(sec.get("covered_turn") or 0))
     return any(_mod_turn(m) > mark for m in code_mods)
 
 
 def mark_pick_asked(state: Dict[str, Any], sid: str, turn_seq: int) -> None:
-    _pick_sec(state, sid)["asked_turn"] = int(turn_seq or 0)
+    sec = _pick_sec(state, sid)
+    sec["asked_turn"], sec["asked_uturn"] = int(turn_seq or 0), _pick_uturn(state, turn_seq)
 
 
 CALLSITE_BUDGET_S = 2.0          # 一次 pick_material 算呼叫點的總時間（每條壞味道一次 git grep）
@@ -1096,11 +1106,12 @@ def harvest_gate_reason(
         if waived is not None:
             waived.append({"item": "收割", "quote": said[:120], "line": ""})
         return None
-    return harvest_block_message()
+    return harvest_block_message(cwd=str((state.get("session") or {}).get("cwd") or ""))
 
 
-def harvest_block_message(tracking_written: bool = False) -> str:
-    """tracking_written：本 turn 的 AEC 追蹤項（k）已由 append_tracking 入帳（掛點在 post_tool_use，track-b 接）。"""
+def harvest_block_message(tracking_written: bool = False, cwd: str = "") -> str:
+    """tracking_written：本 turn 的 AEC 追蹤項（k）已由 append_tracking 入帳（掛點在 post_tool_use）。
+    cwd：session 的工作目錄；在 ~/.claude 之下才附「記憶系統開發面 → realm=local」那句。"""
     tracking = ("追蹤項已入帳，有部位的同時寫進病灶文件。" if tracking_written
                 else "追蹤項請填進收尾檢核 k 欄。")
     src = "\n".join(f"  {s}" for s in _HARVEST_SOURCES)
@@ -1109,7 +1120,8 @@ def harvest_block_message(tracking_written: bool = False) -> str:
         "再呼叫 MCP tool knowledge_harvest_report（items=[] 也要呼叫）。\n"
         "掃六個來源：\n" + src + "\n"
         "判準：只寫「從程式碼/文件讀不出來、之後會重查或重犯」的；專案專屬 → scope=shared(+project_cwd)；"
-        "記憶系統開發面 → realm=local/MemDev；一次性事實不寫。\n"
+        + ("記憶系統開發面 → realm=local/MemDev；" if _is_under_claude_dir(cwd) else "")   # 只在記憶系統自己的目錄裡有意義
+        + "一次性事實不寫。\n"
         "atom_write／atom_retire 必在呼叫 knowledge_harvest_report **之前**做完——每個 item 用工具回的 receipt 核對："
         "created/appended/replaced 要同 path 同 op 且 index_ok；superseded 要 receipt.supersedes 含該 atom；"
         "retired 要 retire receipt 的 old_path 相符；對不上會被擋回補。"

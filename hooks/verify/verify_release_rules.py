@@ -30,6 +30,9 @@ def test_044_every_rule_has_a_case():
 
 @pytest.mark.parametrize("rule, case_file", [
     ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
+    ("SECOND_OPINION_RAN_BEFORE", "verify_pull_verify_ledger.py"),
+    ("CARRIED_CLAIM_ANY_TURN_RECEIPT", "verify_pull_verify_ledger.py"),
+    ("RECEIPT_UNPARSED_GENERAL_ONLY", "verify_pull_verify_ledger.py"),
     ("BASH_UNREACHED_READ_NOT_COUNTED", "verify_overview_hub.py"),
     ("NEGATIVE_CONTROL_DECLARED", "verify_failing_tests_subagent_isolation.py"),
     ("EQUIVALENCE_LOOP_EXPANDED", "verify_g7_equivalence.py"),
@@ -83,14 +86,15 @@ def test_g6_correction_and_veto_declarations():
 
 
 def test_g6_conflict_declared_by_ai():
-    """CONFLICT_DECLARED_BY_AI：每個候選一條、why 有理由、同候選不得兩種判法、不在候選退回。"""
+    """CONFLICT_DECLARED_BY_AI：每個候選一條、why 有理由、同候選不得兩種判法；多宣告不在候選裡的卡不算錯。"""
     v, got = rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "not_conflict", "why": "範圍不同"}])
     assert v.rule == "CONFLICT_DECLARED_BY_AI" and not v.owed and got[0]["verdict"] == "not_conflict"
     assert rr.conflict_declaration_verdict(["a"], [])[0].owed
     assert rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x 理由"},
                                                    {"of": "a", "verdict": "not_conflict", "why": "y 理由"}])[0].owed
-    assert "不在候選" in rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x"},
-                                                                {"of": "b", "verdict": "conflict", "why": "y"}])[0].why
+    v, got = rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x 理由"},
+                                                     {"of": "b", "verdict": "conflict", "why": "y 理由"}])
+    assert not v.owed and [d["of"] for d in got] == ["a"] and "不在候選" not in v.why
 
 
 def test_g6_project_literal_reason_present():
@@ -112,11 +116,12 @@ def test_reconcile_block_letters_splits_by_letter():
     assert rr.split_blocking([b], []) == ([], [b])
 
 
-def test_closing_ritual_switches_default_on():
-    """CLOSING_RITUAL_SWITCHES：目標對照開關沒設＝照擋，設 false 才關（端到端案在 verify_need_goal、verify_aec_emission_gate）。"""
+def test_closing_ritual_switches_goal_gate_default_off():
+    """CLOSING_RITUAL_SWITCHES：目標對照開關沒設＝不擋，設 true 才擋（端到端案在 verify_need_goal、verify_pull_goal_locate）。"""
     import wg_need_goal as ng
-    assert ng.goal_gate_on({}) and ng.goal_gate_on({"reconcile_gate": {}})
+    assert not ng.goal_gate_on({}) and not ng.goal_gate_on({"reconcile_gate": {}})
     assert not ng.goal_gate_on({"reconcile_gate": {"goal_gate": False}})
+    assert ng.goal_gate_on({"reconcile_gate": {"goal_gate": True}})
 
 
 # ─── SAME_FILE ──────────────────────────────────────────────────────────
@@ -249,13 +254,32 @@ def test_044_gone_unverifiable(kind, failed):
     assert v.rule == "GONE_UNVERIFIABLE" and v.owed is True
 
 
-# ─── OWED_AFTER_LAST_CASE ───────────────────────────────────────────────
+# ─── GATE_SELF_ERROR ───────────────────────────────────────────────
 
-def test_044_owed_after_last_case_evidence():
-    """OWED_AFTER_LAST_CASE：證據寫出最後一次改的案例是哪個（沒有就說沒有）。"""
-    assert "test_a.py" in rr.owed_after_last_case("a.py", "test_a.py").why
-    v = rr.owed_after_last_case("a.py", None)
-    assert v.rule == "OWED_AFTER_LAST_CASE" and v.owed and "沒有改過仍存在的案例檔" in v.why
+def test_gate_self_error_stop_gate_blocks_once_then_releases():
+    """收尾閘出錯：同一個使用者回合擋 1 次，之後放行（不讓 AI 一直付代價）。"""
+    v = rr.gate_self_error_verdict("ReconcileGate", "stop", "KeyError: 'x'")
+    assert v.rule == "GATE_SELF_ERROR" and v.owed and "擋一次" in v.why and v.evidence == ("KeyError: 'x'",)
+    v = rr.gate_self_error_verdict("ReconcileGate", "stop", "KeyError: 'x'", blocked_this_turn=True)
+    assert not v.owed and "放行" in v.why
+
+
+def test_gate_self_error_tool_gate_releases_directly():
+    """工具前閘出錯：讀不到 state 無從計次，直接放行。"""
+    v = rr.gate_self_error_verdict("CommitOrder", "tool", "OSError: state 讀不到")
+    assert v.rule == "GATE_SELF_ERROR" and not v.owed and "直接放行" in v.why
+
+
+# ─── CASE_COVERS_CHANGE ───────────────────────────────────────────────
+
+def test_case_covers_change_verdict_evidence():
+    """CASE_COVERS_CHANGE：有覆蓋的案例 → 不欠並列出；本 session 改過的案例都沒提到 → 欠並列出那些案例；沒改過案例 → 欠。"""
+    v = rr.case_cover_verdict("a.py", ["test_a.py"], ["test_a.py", "test_b.py"])
+    assert v.rule == "CASE_COVERS_CHANGE" and not v.owed and "test_a.py" in v.why
+    v = rr.case_cover_verdict("a.py", [], ["test_b.py"])
+    assert v.owed and "test_b.py" in v.why and "case_for" in v.why
+    v = rr.case_cover_verdict("a.py", [], [])
+    assert v.owed and "沒有改過仍存在、同根的案例檔" in v.why
 
 
 # ─── 要查 git 的豁免：規則名登記在 RULES、條件在 wg_verify_ledger（端到端案例見 verify_stop_reconcile 的 042／044 段） ──
@@ -301,13 +325,13 @@ def test_scope_edit_in_declared_depends_verdict():
 # ─── 擋訊息格式（契約） ───────────────────────────────────────────────────────
 
 def test_045_format_hit_and_parse_hits_roundtrip():
-    v = rr.Verdict("OWED_AFTER_LAST_CASE", True, "x.py 改過", ("最後一次改的案例是 verify_x.py", "x.py 在那之後還改過"))
+    v = rr.Verdict("CASE_COVERS_CHANGE", True, "x.py 改過", ("最後一次改的案例是 verify_x.py", "x.py 在那之後還改過"))
     line = rr.format_hit("d", v)
-    assert line.startswith("✗ (d) OWED_AFTER_LAST_CASE：x.py 改過｜證據：")
+    assert line.startswith("✗ (d) CASE_COVERS_CHANGE：x.py 改過｜證據：")
     assert "；" in line and "verify_x.py" in line
     text = "[Guardian:ReconcileGate] 頭\n  " + rr.format_hit("a", rr.Verdict("PASS_MISSING", True, "沒 PASS")) + "\n  " + line
     assert rr.parse_hits(text) == ["a", "d"]
-    assert rr.parse_hit_rules(text) == [("a", "PASS_MISSING"), ("d", "OWED_AFTER_LAST_CASE")]
+    assert rr.parse_hit_rules(text) == [("a", "PASS_MISSING"), ("d", "CASE_COVERS_CHANGE")]
 
 
 def test_045_format_hit_without_evidence_uses_why():
@@ -338,8 +362,8 @@ def test_045_block_budget_per_rule_same_rule_twice_exhausted_and_lists_all():
     rec = rr.budget_tick(None, 7, ["d"])
     rec = rr.budget_tick(rec, 7, ["a", "d"])
     assert rr.budget_exhausted(rec, 7, 2, ["a", "d"]) == ["d"]
-    text = "頭\n  ✗ (a) PASS_MISSING：沒 PASS｜證據：x\n  ✗ (d) OWED_AFTER_LAST_CASE：欠｜證據：y"
-    assert rr.exhausted_summary(text) == "✗ (a) PASS_MISSING；✗ (d) OWED_AFTER_LAST_CASE"
+    text = "頭\n  ✗ (a) PASS_MISSING：沒 PASS｜證據：x\n  ✗ (d) CASE_COVERS_CHANGE：欠｜證據：y"
+    assert rr.exhausted_summary(text) == "✗ (a) PASS_MISSING；✗ (d) CASE_COVERS_CHANGE"
 
 
 def test_045_block_budget_per_rule_new_turn_resets_and_legacy_record_is_conservative():
@@ -350,15 +374,18 @@ def test_045_block_budget_per_rule_new_turn_resets_and_legacy_record_is_conserva
     assert rr.budget_tick(legacy, 7, ["a"])["count"] == 3
 
 
-# ─── B1 CASE_GREEN_AFTER_EDIT ──────────────────────────────────────────────────
+# ─── CASE_COVERS_CHANGE：案例內容提到程式檔 ──────────────────────────────────
 
-def test_045_case_green_after_edit_verdict_and_cmd_names_file():
-    v = rr.green_after_edit_verdict("x.py", "verify_x.py", "python -m pytest -q hooks/verify/verify_x.py", "2026-10-13T10:00:00")
-    assert v.rule == "CASE_GREEN_AFTER_EDIT" and v.owed is False and len(v.evidence) == 2
-    assert rr.cmd_names_file("python -m pytest -q hooks/verify/verify_x.py", r"c:\p\hooks\verify\verify_x.py")
-    assert rr.cmd_names_file("pytest hooks/verify/verify_x.py::test_a", "verify_x.py")
-    assert not rr.cmd_names_file("pytest hooks/verify/verify_xy.py", "verify_x.py")     # 整詞：verify_xy 不是 verify_x
-    assert not rr.cmd_names_file("pytest hooks/verify", "verify_x.py")
+def test_case_names_code_file_or_module_whole_word():
+    assert rr.case_names_code("import wg_x as wx\n", r"c:\p\hooks\wg_x.py")
+    assert rr.case_names_code('SRC = ROOT / "tools" / "Foo-Bar.py"', "tools/foo-bar.py")
+    assert not rr.case_names_code("import wg_xy\n", "hooks/wg_x.py")                   # 整詞：wg_xy 不是 wg_x
+    assert not rr.case_names_code("import my_wg_x\n", "hooks/wg_x.py")
+    assert not rr.case_names_code("ab = 1", "hooks/ab.py")                              # 模組名不到 3 字只認檔名
+    assert rr.case_names_code("run('ab.py')", "hooks/ab.py")
+    assert rr.case_covers_code("hooks/verify/verify_ab.py", "", "hooks/ab.py")         # 檔名照模組取
+    assert rr.case_covers_code("tests/test_ab.py", "", "src/ab.py") and rr.case_covers_code("t/ab_test.go", "", "ab.go")
+    assert not rr.case_covers_code("tests/test_abc.py", "", "src/ab.py")
 
 
 # ─── B3 COMMENT_ONLY_CHANGE ────────────────────────────────────────────────────
@@ -2394,3 +2421,69 @@ def test_launcher_not_code_source_shapes():
            'def (:\n']                                                               # 解析不了
     assert all(rr.is_git_launcher_source(s) for s in ok)
     assert not any(rr.is_git_launcher_source(s) for s in bad)
+
+
+# ─── 別處實作的規則：登記在 RULES、指到真正驗它的案例 ──────────────────────────
+# 案例函式在各自的 verify 檔（走真入口才驗得到）；這裡只核對規則有登記、對照的案例檔與函式真的在。
+
+_ELSEWHERE_CASES = {
+    "GATE_DENY_CAP": [("verify_pull_tool_gates.py", "test_deny_cap_counts_each_item_per_user_turn"),
+                      ("verify_pull_goal_locate.py", "test_locate_gate_same_gap_blocks_twice_then_passes_with_log"),
+                      ("verify_pull_goal_locate.py", "test_unmapped_gate_same_gap_blocks_twice_then_passes_with_log")],
+    "SVN_TEST_BLOCK_OPT_IN": [("verify_pull_tool_gates.py", "test_svn_test_block_off_by_default"),
+                              ("verify_pull_tool_gates.py", "test_svn_test_block_on_looks_only_at_commit_paths"),
+                              ("verify_pull_tool_gates.py", "test_svn_test_block_user_sentence_this_turn_allows")],
+    "GATE_BYPASS_NAMED_FILES_MERGED": [
+        ("verify_pull_tool_gates.py", "test_excluded_named_file_still_needs_declaration_after_other_file_fixed"),
+        ("verify_pull_tool_gates.py", "test_declaration_after_a_named_still_counts_for_a"),
+        ("verify_pull_tool_gates.py", "test_declaration_before_b_named_does_not_cover_b")],
+    # 收尾閘那一批：案例在 verify_pull_stop_gates.py，每支 docstring 開頭寫「規則：<名>」
+    "PENDING_SAME_USER_TURN": [("verify_pull_stop_gates.py", "test_1_pending_from_previous_user_turn_gives_fresh_budget"),
+                               ("verify_pull_stop_gates.py", "test_9_second_opinion_pending_from_previous_turn_not_exhausted")],
+    "RELEASE_COVERS_SHOWN_ITEMS": [
+        ("verify_pull_stop_gates.py", "test_1_released_item_not_asked_again_next_turn_until_cause_gone"),
+        ("verify_pull_stop_gates.py", "test_release_binds_to_items_the_user_was_shown"),
+        ("verify_pull_stop_gates.py", "test_unformatted_new_reason_is_not_swallowed_by_released_item"),
+        ("verify_pull_stop_gates.py", "test_8_released_red_tests_do_not_cover_a_new_failure")],
+    "NONINTERACTIVE_RELEASE_AT_BUDGET": [
+        ("verify_pull_stop_gates.py", "test_3_headless_main_session_releases_on_third_and_never_says_cannot_release"),
+        ("verify_pull_stop_gates.py", "test_3_subagent_block_message_does_not_say_cannot_release"),
+        ("verify_pull_stop_gates.py", "test_3_headless_equivalence_exhausted_releases_and_logs"),
+        ("verify_pull_stop_gates.py", "test_8_testfail_third_stop_releases_and_logs_headless")],
+    "ORDER_UNTIL_PUSH": [("verify_pull_stop_gates.py", "test_4_order_survives_commit_and_notification_for_gate_forced_fix"),
+                         ("verify_pull_stop_gates.py", "test_4_user_new_message_in_continuation_needs_new_order"),
+                         ("verify_pull_stop_gates.py", "test_4_push_done_spends_order_even_within_same_turn"),
+                         ("verify_pull_stop_gates.py", "test_4_echo_or_dry_run_is_not_a_push"),
+                         ("verify_pull_stop_gates.py", "test_4_push_then_commit_before_any_stop_needs_new_order"),
+                         ("verify_pull_stop_gates.py", "test_4_push_result_written_after_scan_is_still_paired"),
+                         ("verify_pull_stop_gates.py", "test_v6_off_order_spent_by_commit_and_kept_on_continuation_typing"),
+                         ("verify_pull_stop_gates.py", "test_v6_off_stop_does_not_scan_push_and_commit_gate_ignores_it")],
+    "RELOAD_ADVICE_MCP_EDITS_ONLY": [("verify_pull_stop_gates.py", "test_6_reload_advice_not_judged_without_mcp_edits")],
+    "DEFERRAL_COVERS_EVASION_SENTENCE": [
+        ("verify_pull_stop_gates.py", "test_7_deferral_block_clears_evasion_flag_for_same_sentence"),
+        ("verify_pull_stop_gates.py", "test_7_other_sentence_keeps_evasion_flag"),
+        ("verify_pull_stop_gates.py", "test_v6_off_deferral_block_keeps_evasion_flag")],
+}
+
+
+def _case_function_source(text: str, fn: str) -> str:
+    """案例檔裡 def fn 那一段（到下一個頂層 def／裝飾器／註解分段為止）；找不到回空字串。"""
+    m = re.search(rf"^def {re.escape(fn)}\(.*?(?=^(?:def |@|# ─))", text + "\n# ─", re.MULTILINE | re.DOTALL)
+    return m.group(0) if m else ""
+
+
+@pytest.mark.parametrize("rule", sorted(_ELSEWHERE_CASES))
+def test_rules_registered_with_case_functions_elsewhere(rule):
+    """規則有登記、對照的案例函式真的在；收尾閘那一批（verify_pull_stop_gates.py）另核那支案例自己點到規則名。"""
+    assert rule in rr.RULES
+    for case_file, fn in _ELSEWHERE_CASES[rule]:
+        text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+        assert f"def {fn}(" in text, (rule, case_file, fn)
+        if case_file == "verify_pull_stop_gates.py":
+            assert f"規則：{rule}" in _case_function_source(text, fn), (rule, fn)
+
+
+def test_deny_cap_old_names_folded_into_gate_deny_cap():
+    """GATE_DENY_CAP 收斂：舊稱不另立條目，說明裡寫明併入。"""
+    assert "DECL_GATE_DENY_CAP" not in rr.RULES and "LOCATE_DENY_CAP" not in rr.RULES
+    assert "DECL_GATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"] and "LOCATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"]
