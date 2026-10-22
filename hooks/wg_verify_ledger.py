@@ -8,9 +8,9 @@
   說「量了」要有 DONE、說「試過」要有執行類工具呼叫、AEC 要有證據路徑（j）與追蹤項（k）。
   不看措辭、每次 Stop 都判：改了程式碼要有仍存在的驗證 case 被新增或修改（PASS 不代替）；改到有量尺的部位要有那把尺在
   最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE（先過 runtime_gate）。
-  指令解析只有一套（lib/self_receipt：白名單語法，解析不了的指令一律不算證據）：量尺比對 cmd_matches、整體驗證 is_whole_run、
-  「提到改檔」evidence_words（只看實際跑程式那幾段的參數）；收據的 cmd 存完整字串（升級前只存 200 字的舊收據不算）；
-  整條指令除了精確對上的量尺片段外出現哨兵字樣，這張收據任何用途都不算。
+  指令解析只有一套（lib/self_receipt）：量尺比對 cmd_matches、整體驗證 is_whole_run、「提到改檔」evidence_words（只看實際
+  跑程式那幾段的參數）。量尺與整體驗證只看跑了哪支、在哪棵樹、exit／哨兵，不看指令形狀；解析不了的指令不算量尺、不算整體驗證，
+  照算一般證據並留帳（RECEIPT_UNPARSED_GENERAL_ONLY）。收據的 cmd 存完整字串（升級前只存 200 字的舊收據不算）；不防偽造。
   收據的 env 欄＝PostToolUse 落帳時 hook 行程看到的縮限變數（PYTEST_ADDOPTS、PYTHONOPTIMIZE；lib/self_receipt.env_snapshot），
   採認時與指令內的指定合併成每段程式的有效環境（父行程已設 `PYTEST_ADDOPTS=-k smoke` 時原樣跑的 pytest 只跑子集，不算；
   指令內 `PYTEST_ADDOPTS='' …` 清掉才算）；沒記 env 欄的舊收據照自寫收據的規則不算證據。
@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK_IMPORT_ON_USE）
 
-from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, resolve_project_root
+from wg_core import CLAUDE_DIR, WORKFLOW_DIR, append_guard_log, find_vcs_root, find_vcs_root_ex, resolve_project_root
 from wg_release_rules import (canon_path, cc_config_dirs, is_git_launcher_source, is_session_scratch,
                               claim_is_modifier, excluded_region, gone_verdict, in_turn, moved_copy_candidates,
                               case_cover_verdict, case_covers_code, user_turn, Verdict,
@@ -658,20 +658,25 @@ def _clean(receipt: Dict[str, Any]) -> bool:
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -> bool:
-    """收據跑了表上這把尺（match_span，依收據的 shell 解析；腳本照路徑認：收據照它的 cwd、量尺照部位根 part_root，
-    沒給部位根就共用收據的；有效環境從收據記下的繼承環境起算）；指令要完整、記了啟動環境、沒指到收據根以外，而且量尺片段以外
-    沒有任何字寫了哨兵字樣。"""
+    """收據跑了表上這把尺（match_span：量尺那串指令出現在任一處，不看前後接了什麼；依收據的 shell 解析；腳本照路徑認：收據照它的
+    cwd、量尺照部位根 part_root，沒給部位根就共用收據的；有效環境從收據記下的繼承環境起算）；指令要完整、記了啟動環境、沒指到
+    收據根以外。解析不了的指令對不上。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
     if not str(measure_cmd).strip() or not _usable(receipt):
         return False
     span = _self_receipt.match_span(str(measure_cmd), raw, sh, _cwd_of(receipt), str(part_root or ""), _env_of(receipt))
-    return span is not None and _in_tree(receipt)
+    return span is not None and _in_tree(receipt) and _tree_known(receipt)
 
 
-_RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1`、`export X=1`、`$env:X=\"1\";`、`$x = '字面值';`；"
-               "set、unset、pushd、帶 $ 的值、PS4 這類讓 shell 自己印字的變數都不算），"
-               "後面只准 `| tail` 或 `| Select-Object -Last N`（多段量尺不准，管線會蓋掉最後一段的 exit）；要和別的測試串在一起，就用 && 把跑程式的指令接在量尺前面、"
-               "量尺放最後、後面不接過濾（例：`python -m pytest -q x.py && 量尺`）；否則請照表上原字串單獨跑。")
+def _tree_known(receipt: Dict[str, Any]) -> bool:
+    """看得出量的是哪棵樹：指令裡沒有換目錄，或只有開頭那一段 `cd <絕對路徑>`（`&&` 接的由 _trusted 換根）。其他換目錄
+    （相對路徑、第二個 cd、cd 在後面）跑在哪裡看不出來，不算量尺、不算整體驗證（一般證據照算）。"""
+    raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
+    if not _self_receipt.changes_dir(raw, sh) or leading_cd(raw, sh):
+        return True
+    chunks = _self_receipt.split_shell(raw, sh)[0]
+    cds = [i for i, ch in enumerate(chunks) if _self_receipt._is_cd(ch.words, sh)]
+    return cds == [0] and len(chunks[0].words) == 2 and _self_receipt.abs_path(chunks[0].words[1]) is not None
 
 
 _TOOL_HINT = ("專案自製的測試工具請寫進部位表的量尺欄，寫 PATH 上的程式名（例：`Unity.exe -batchmode -runTests …`）並把那支程式"
@@ -705,6 +710,10 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
             continue
         raw, sh = str(r.get("cmd") or ""), _shell_of(r)
         head = f"`{' '.join(raw.split())[:60]}`"
+        bad = unsupported_syntax(raw, sh)
+        if bad:
+            return (f"這條指令 {head} 含解析不了的語法（{bad}），看不出跑了哪支：不算量尺、不算整體驗證，只當一般證據"
+                    "（指令提到改的檔才對得上）。要算量尺就照表上原字串跑，前後要接的別的指令用一般寫法（&&、;、|）。")
         if not _cmd_complete(r):
             return f"最近那筆收據 {head} 是升級前只存前 200 字的舊收據，看不出整條指令，不算證據；請重跑。"
         env = _env_of(r)
@@ -725,8 +734,6 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if outside and any(_self_receipt.match_span(mc, raw, sh, _cwd_of(r), env=env) is not None for mc in rulers):
             return (f"這條指令 {head} 對上了表上的量尺，但指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹，不算；"
                     f"{_TOOL_HINT}")       # 精確對上卻因樹外被拒：講樹外，不說「前後接了別的指令」
-        if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
-            return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
         if outside:
             return (f"這條指令 {head} 指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹；"
                     "請在專案根照表上原字串跑。")
@@ -740,9 +747,9 @@ def _stem_of(path: str) -> str:
 
 
 def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
-    """「提到改的檔」只比實際跑程式那幾段的參數（lib/self_receipt.evidence_words；前置設定、cd、環境指定都不參與），
-    小寫、斜線正規化、空白壓一格。指令不完整、根不可信（開頭單一 cd 以外的 cd）、不能當一般證據
-    （_clean：白名單語法、只跑程式且只用 && 串、沒指到別棵樹、沒寫哨兵字樣）→ None。"""
+    """「提到改的檔」只比實際跑程式那幾段的參數（lib/self_receipt.evidence_words；前置設定、cd、環境指定、印字的指令都不參與；
+    解析不了的指令退回整條指令的字），小寫、斜線正規化、空白壓一格。指令不完整、沒記環境、指到別棵樹、環境縮範圍
+    （_clean）→ None。"""
     r = _trusted(receipt)
     if r is None or not _clean(r):
         return None
@@ -757,10 +764,11 @@ def _ruler_any(receipt: Dict[str, Any], measure_cmds: Iterable[str]) -> bool:
 
 
 def _whole_run(receipt: Dict[str, Any]) -> bool:
-    """整體驗證：執行根自己的 run_verify.py（照完整路徑身分）或不縮範圍的 pytest；只認白名單語法、前面只准前置設定、
-    後面只准尾端過濾、沒指到收據根以外、整條指令沒寫哨兵字樣。涵蓋範圍見 _in_exec_root。"""
+    """整體驗證：其中一段是執行根自己的 run_verify.py（照完整路徑身分）或不縮範圍的 pytest，不看前後接了什麼；沒指到收據根以外；
+    解析不了的指令不算。涵蓋範圍見 _in_exec_root。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_usable(receipt) and is_whole_run(raw, sh, _cwd_of(receipt), _env_of(receipt)) and _in_tree(receipt))
+    return (_usable(receipt) and is_whole_run(raw, sh, _cwd_of(receipt), _env_of(receipt)) and _in_tree(receipt)
+            and _tree_known(receipt))
 
 
 def _in_exec_root(receipt: Dict[str, Any], path: str) -> bool:
@@ -856,7 +864,7 @@ def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_gl
     (c) cmd 是部位量尺指令，或執行根自己的 run_verify.py／無檔名參數的 pytest（整體驗證）；兩者都只涵蓋執行根之下的改檔；
     (d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。(a)(b)(d) 只看實際驗證段的參數。
     再加根要對：收據根（project_root，沒有就 cwd；開頭 `cd <根> &&` 用該路徑）與該改檔的根相同或互為上下層；任一邊沒有根資訊
-    不比。指令只認白名單語法（lib/self_receipt），解析不了的不算。"""
+    不比。解析不了的指令只剩 (a)(b)(d) 的字面比對（RECEIPT_UNPARSED_GENERAL_ONLY）。"""
     r = _trusted(receipt)
     if r is None:
         return False
@@ -968,7 +976,7 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
                   min_at: Optional[str] = None, min_seq: Optional[int] = None,
                   root: Optional[str] = None, *, sentinel_name: str = "", final_prog: str = "") -> List[Dict[str, Any]]:
     """DONE 收據；turn_seq 指定只認該 turn；min_turn／min_at／min_seq 指定要在該修改之後；cmd_contains 指定 cmd 要跑了該量尺
-    （cmd_matches：白名單語法、與自寫收據同一套正規化）；require_ok：指令完整、根可信（開頭單一絕對路徑 cd 換成該根）、
+    （cmd_matches：與自寫收據同一套正規化）；require_ok：指令完整、根可信（開頭單一絕對路徑 cd 換成該根）、
     exit 要 0 或 None、沒有 FAIL 哨兵且 failed=<k> 必為 0；root 指定 cwd／project_root 要在該 root 下；sentinel_name 指定 DONE
     必須來自該名字的哨兵（空＝任一 DONE 哨兵）；沒給 cmd_contains 時指令要能當一般證據（_clean）；final_prog 指定跑程式的每一段
     （evidence_steps）都是這支程式。回的是根已換好的收據。"""
@@ -996,7 +1004,7 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             if not _ruler_ran(want, r, root or ""):
                 continue
         elif not _clean(r):
-            continue          # 沒指定量尺：指令要能當一般證據（白名單語法、只跑程式、沒寫哨兵字樣）
+            continue          # 沒指定量尺：指令要能當一般證據（_clean）
         if final_prog:            # 跑程式的每一段都是這支（`pytest a && pytest b` 照算；_clean 已確認形狀）
             runs = _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r)) or []
             if not runs or any(s.cmd[0] != final_prog for s in runs):
@@ -2105,13 +2113,14 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
     寫碼查核：(a) 說修好：有驗證範圍宣告（scope_fix）而範圍內沒有一項改完之後跑綠；沒宣告時本 turn 無對得上改檔的合格 PASS、
     也沒有改檔所在部位的合格自寫收據（self_covered）；
-    (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或白名單語法且參數沒寫哨兵字樣）、也沒有改檔部位的合格自寫收據；
+    (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或能當一般證據）、也沒有改檔部位的合格自寫收據；
     (c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
     換一句話不能讓它消失）裡宣告完成的那幾段；pending 時 (b)(c) 只叫人補證據、不叫人改措辭；
     (d) 補案例的義務（case_debt，跨回合；PASS 不代替）：有 case_check → 每個改過的程式檔要有成立的案例宣告；沒有 → 每個改過的
     程式檔要有本 session 改過、仍存在、同根的案例覆蓋它（不比先後）。不看措辭，有改碼紀錄就判。
     收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
-    (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
+    (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後；claims 裡承接來的
+    「修好」宣稱不限本回合，認任一回合晚於最後一次改動的合格 PASS（CARRIED_CLAIM_ANY_TURN_RECEIPT）。"""
     texts = [t for t in (*claims, last_text) if t and claims_completion(t)]
     moves = collapse_move_chain([m for m in moves or () if isinstance(m, dict) and m.get("new")])
     if not texts and not own_mod_files and not moves:
@@ -2129,8 +2138,10 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     root_of: Callable[[str], Optional[str]] = root if callable(root) else (lambda p, _r=root: _r)
     globs = cfg.get("verify_case_globs") or []
     measure_cmds = list(measure_cmds or [])
+    # 規則 CARRIED_CLAIM_ANY_TURN_RECEIPT：擋滿待放行承接來的「修好」宣稱，認晚於最後一次改動的合格 PASS，不限回合（碼沒動不必重跑）
+    carried_fixed = any(t and claims_completion(t) and claims_fixed(t, phrases) for t in claims)
     related, unrelated = ([], []) if not texts else related_pass_receipts(
-        this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
+        receipts if carried_fixed else this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
     _cov: List[bool] = []
 
     def covered() -> bool:
@@ -2143,6 +2154,13 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         n = _syntax_note(this_turn, verdict, measure_cmds)
         return f"（{n}）" if n else ""
 
+    for r in this_turn:
+        bad = unsupported_syntax(str(r.get("cmd") or ""), _shell_of(r)) if ("PASS" in _verdicts(r) or "DONE" in _verdicts(r)) else None
+        if bad:                   # 規則 RECEIPT_UNPARSED_GENERAL_ONLY：不擋、留帳
+            print(f"[Guardian:ReconcileGate] 規則 RECEIPT_UNPARSED_GENERAL_ONLY：收據 `{str(r.get('cmd') or '')[:60]}` 含解析不了的語法"
+                  f"（{bad}），不算量尺／整體驗證，只當一般證據", file=sys.stderr)
+            append_guard_log("reconcile", {"session_id": sid, "turn_seq": turn_seq, "event": "receipt_unparsed",
+                                           "cmd": str(r.get("cmd") or "")[:200], "why": bad[:120]})
     hits: List[str] = []          # 每條都是 format_hit 的一行：`✗ (<字母>) <規則名>：<一句現象>｜證據：…`
     # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 命中且沒證據時，先看被判的同一串文字（承接的先前宣稱＋last_text）有沒有宣稱行解掉它
     # （「非本回合宣稱，因為…」放行留帳；「收據 <ref>」要對得上本 session 一筆合格收據：CLAIM_RECEIPT_REF_MATCH）；沒有才擋，擋訊息附寫法。
@@ -2152,7 +2170,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     def find_receipt(kind: str, ref: str) -> Optional[str]:
         """宣稱行指的收據（規則 CLAIM_RECEIPT_REF_MATCH）：ref 要指得到那條指令的一個完整 token（names_item：整個 token、檔名、
         路徑或節點尾段、帶空白的逐字片段；python／pytest 這類通用字不算）或哨兵名相同。對上的那張還要過原本的收據資格（_clean：
-        指令完整、記了環境、白名單語法、沒寫哨兵字樣、同一棵樹）：修好 → 合格 PASS、同根、晚於相關改檔；量了 → DONE 且指令可信
+        指令完整、記了環境、同一棵樹）：修好 → 合格 PASS、同根、晚於相關改檔；量了 → DONE 且指令可信
         或跑了部位量尺；試過 → 指令可信的任一筆。"""
         key = str(ref or "").strip()
         if not key or is_generic_name(key):
@@ -2344,8 +2362,6 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
     # 靠措辭避開查核（補案例義務與量尺每次 Stop 都判）、把目標不明的寫入當成沒寫（未知寫入欠帳）、舊收據或別棵樹的收據冒充
     # （started_at 要晚於最後一次修改、project_root 要同一棵樹）。擋不住 AI 刻意寫一支程式去產生假收據：AI 能執行任意程式，
     # 它讀得到的任何識別都能複製，這一層不是程式能保證的，不再為它加機制。
-    # 量尺比對只認白名單語法；解析不了的指令一律不算證據（fail-closed），所以不必逐一追 shell 技巧；在白名單語法內印假哨兵的
-    # 組合（引號、echo、短路、截斷）都已封住。
     for r in runs or []:
         argv = r.get("argv") if isinstance(r, dict) else None
         if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(
@@ -2483,7 +2499,7 @@ def _step_targets(st: Any, base: str) -> Tuple[List[str], bool]:
 def run_targets(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """收據實際跑了什麼：{whole: 整體驗證（涵蓋執行根之下全部）, base: 執行根, paths: 完整跑過的路徑（可帶 ::節點）,
     narrowed: 有一段可能只跑一部分}。可能只跑一部分的那段點名的路徑不進 paths（命令列點名不等於實際執行）。
-    指令不完整、根不可信（換目錄）、不能當一般證據（白名單外語法、環境縮範圍、寫了哨兵字樣、指到別棵樹）→ None。"""
+    指令不完整、不能當一般證據（環境縮範圍、指到別棵樹）、解析不了 → None。"""
     r = _trusted(receipt)
     if r is None or not _clean(r):
         return None
@@ -2674,7 +2690,7 @@ def scope_item_status(item: Dict[str, Any], receipts: Iterable[Dict[str, Any]],
                     f"{str(item.get('base') or '').replace(chr(92), '/')}：同一條指令換了目錄跑的是另一組，請在宣告時的目錄跑")
         else:
             note = _syntax_note(near, "DONE", rulers) or _syntax_note(near, "PASS", rulers)
-        return False, ("沒有跑這一項的收據（只跑一部分如 -k、指令換目錄、環境縮範圍、白名單外語法、在別棵樹跑的都不算；"
+        return False, ("沒有跑這一項的收據（只跑一部分如 -k、指令換目錄、環境縮範圍、解析不了的語法、在別棵樹跑的都不算；"
                        "背景跑的要等它寫完自寫收據）" + (f"。{note}" if note else "") + env_note)
     last = hits[-1]
     if not _green_for_item(item, last):

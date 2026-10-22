@@ -1530,13 +1530,13 @@ def _root_row(part):
 @pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
 def test_013_3_compound_ruler_from_root_table_is_satisfiable(part):
     """013 BLOCK 3（最優先）：根層部位表這兩列的量尺由程式自己印完成字樣、不再接 echo（文件層是兩支程式 && 串）；表上字串原樣跑出的
-    收據要認得到，後面再接 `; echo 假的 DONE` 就不算。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
+    收據要認得到；後面再接 `; echo …` 也照算（不看形狀、不防偽）。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
     row = _root_row(part)
     cmd = row["measure"]["cmd"]
     assert "echo" not in cmd                                                               # 直接讀表上字串當輸入
     mod = _mf(r"c:\proj\x.md", 5, last_at=_T1, last_seq=3)
     assert _gate(cmd, row=row, mod=mod) is None
-    assert _gate(cmd + "; echo FAKE_CHECK DONE", row=row, mod=mod) is not None
+    assert _gate(cmd + "; echo FAKE_CHECK DONE", row=row, mod=mod) is None
 
 
 def test_013_2_quoted_ruler_text_is_not_a_run(scoped, capsys, monkeypatch):
@@ -1660,10 +1660,9 @@ def test_017_root_table_rulers_still_runnable_as_declared_commands():
     assert len(_ROOT_ROWS) == 10 and len(rows) == 4
     assert not [r["part_short"] for r in rows if "run_verify.py" in r["measure"]["cmd"]]   # 表上不再有全量當量尺
     for row in rows:
-        single = "&&" not in row["measure"]["cmd"]          # 多段量尺後接過濾會蓋掉最後一段的 exit，只有單段量尺准接
         for tool in ("Bash", "PowerShell"):
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)
-            assert (_gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None) is single, (row["part_short"], tool)
+            assert _gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None, (row["part_short"], tool)
             assert _gate("python -h " + row["measure"]["cmd"][len("python "):], tool, row) is not None   # 規則 7
 
 
@@ -1713,23 +1712,24 @@ def test_017b_10_measured_claim_accepts_qualified_self_receipt(driven, capsys, m
 
 
 def test_017b_11_ruler_own_echo_still_counts():
-    """017b 規則 11 例外：表上記憶資料層量尺的 echo 是指令本身 → 宣告成指令項目認得；前面再加一個印哨兵的 echo → 不認。"""
+    """表上記憶資料層量尺宣告成指令項目認得；前面再加一個印哨兵的 echo 也照認（不看形狀、不防偽）。"""
     row = _root_row("記憶資料層")
     m = row["measure"]["cmd"]
     assert _gate(m, row=row) is None
-    assert _gate("echo MEMORY_INDEX_CHECK DONE; " + m, row=row) is not None
+    assert _gate("echo MEMORY_INDEX_CHECK DONE; " + m, row=row) is None
 
 
 def test_017_file_item_pytest_done_must_come_from_pytest(tmp_path):
-    """檔案項目認 pytest 摘要行映射的收據：輸出要是 pytest 印的（最後執行的指令是 pytest、前面只准 cd 與環境設定、
-    參數沒寫哨兵字樣）；echo／cat 舊 log 印的 `5 passed` 不算。"""
+    """檔案項目認 pytest 摘要行映射的收據：要真的跑了 pytest（前後夾了別的指令也照算，不看形狀）；只有 echo／cat 舊 log、
+    沒跑 pytest 的不算。"""
     _, wt = _two_roots(tmp_path)
     path_gate = _path_scope_gate(wt)
     gate = lambda cmd: path_gate([_pytest_done(5, wt, cmd=cmd)])                                 # noqa: E731
     assert gate(_PYTEST_CMD) is None and gate(f"WG=1 {_PYTEST_CMD} 2>&1 | tail -3") is None
-    for fake in ('echo "=== 5 passed in 0.1s ==="', "cat old-pytest.log", f"cat old-pytest.log; {_PYTEST_CMD} | tail -3",
-                 f"{_PYTEST_CMD}; echo '5 passed'"):
+    for fake in ('echo "=== 5 passed in 0.1s ==="', "cat old-pytest.log"):
         assert gate(fake) is not None, fake
+    for ran in (f"cat old-pytest.log; {_PYTEST_CMD} | tail -3", f"{_PYTEST_CMD}; echo '5 passed'"):
+        assert gate(ran) is None, ran
 
 
 # ─── 017 codex 初審：指定式藏假哨兵、讀舊輸出檔冒充、done_receipts 預設也 fail-closed ─────────────────────
@@ -1772,41 +1772,40 @@ def test_017_codex_r2_3_other_tree_paths_do_not_count(tmp_path, monkeypatch):
     assert gate(f"python -m pytest -q {live}/hooks/verify/verify_x.py") is not None
     assert gate("python -m pytest -q ../live/hooks/verify/verify_x.py") is not None
     assert gate("python -m pytest -q hooks/verify/verify_x.py && python -m pytest -q hooks/verify/verify_b.py") is None
-    # codex 三審探針：後一段失敗沒印 failed、又被 | tail 蓋掉 exit，前一段的 passed 不能替它背書
-    assert gate("python -m pytest hooks/verify/verify_x.py && python -m pytest missing.py | tail -5") is not None
+    # 跑了那支就算、不看形狀（收據不防偽）：後一段接 | tail 也照認
+    assert gate("python -m pytest hooks/verify/verify_x.py && python -m pytest missing.py | tail -5") is None
 
 
-@pytest.mark.parametrize("cmd", [f"git status; {MEASURE_CMD}", f"{MEASURE_CMD} | head -5", f"cd sub; {MEASURE_CMD} | tail -n 20 old.log"])
-def test_017_block_message_explains_allowed_prefix(cmd):
-    """總控台裁定：量尺前面只准 `cd <絕對路徑> &&` 與環境設定；量尺前後接了別的指令時，擋訊息要說明允許的寫法。"""
-    reason = _gate(cmd)
-    assert reason and "裡有量尺，但前後接了別的指令" in reason and "前面只准 `cd <絕對路徑> &&` 與環境設定" in reason, cmd
-    assert "| Select-Object -Last N" in reason
-    assert "前後接了別的指令" not in (_gate("python -X utf8 tools/other.py") or "")          # 沒有量尺的指令不加這句
+@pytest.mark.parametrize("cmd, ok", [(f"git status; {MEASURE_CMD}", True), (f"{MEASURE_CMD} | head -5", True),
+                                     (f"cd sub; {MEASURE_CMD} | tail -n 20 old.log", False)])
+def test_017_ruler_with_extra_commands_counts_unless_tree_unknown(cmd, ok):
+    """量尺前後接了別的指令照認（RECEIPT_UNPARSED_GENERAL_ONLY：只看跑了哪支、在哪棵樹、exit／哨兵）；相對路徑 cd 換了目錄、
+    看不出量的是哪棵樹 → 不認。"""
+    assert (_gate(cmd) is None) is ok, cmd
 
 
 def test_017_codex_r4_scope_gate_identity_and_tail():
     """codex 四審（經驗證範圍閘的指令項目）：從 archive/ 跑 `python -X utf8 run_verify.py`（cwd 不是宣告時的目錄）跑的是另一支
-    → 不認；`../live/verify.sh` 不是宣告的 `./verify.sh` → 不認；多段指令最後一段會失敗又接 `| tail` → 不認。"""
+    → 不認；`../live/verify.sh` 不是宣告的 `./verify.sh` → 不認；多段指令後面接 `| tail` → 照認（不看形狀）。"""
     archive = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2, kv={"cases": "1", "failed": "0"}), "cwd": r"c:\proj\archive"}
     assert _scope_gate([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [archive], chains_of=lambda r: {}) is not None
     sh_row = {"part_short": "腳本層", "measure": {"method": "verify", "cmd": "./verify.sh --all", "threshold": "全綠"}}
     assert _gate("../live/verify.sh --all", row=sh_row) is not None and _gate("./verify.sh --all", row=sh_row) is None
     two = {"part_short": "兩段", "measure": {"method": "v", "cmd": "python -X utf8 run_verify.py && python check.py", "threshold": "全綠"}}
-    assert _gate(two["measure"]["cmd"] + " | tail -n 5", row=two) is not None
+    assert _gate(two["measure"]["cmd"] + " | tail -n 5", row=two) is None
     assert _gate(two["measure"]["cmd"], row=two) is None
 
 
 def test_017_codex_r3_scope_gate_follows_real_execution():
-    """codex 三審：判定要跟 shell 實際執行一致。`X=1 || 指令`（指令被短路）、`$x = Set-Location; 指令`（換到家目錄）、
-    `cd C:/repo | … && 指令`（管線裡的 cd 不換目錄）、`archive/run_verify.py`（另一支同名腳本）→ 指令項目不認；
+    """跑了哪支照指令內容認、不追 shell 短路與管線（收據不防偽：真的沒跑就印不出哨兵）：`X=1 || 指令`、`$x = Set-Location; 指令`、
+    `cd C:/repo | … && 指令` → 指令項目照認；`archive/run_verify.py`（另一支同名腳本）→ 不認；
     `指令 # cd C:/repo`（cd 只在註解裡，PostToolUse 用原字串標了 root_uncertain）→ 認。"""
     row = _root_row("記憶資料層")
     mem = row["measure"]["cmd"]
-    assert _gate(f"X=1 || {mem}", row=row) is not None and _gate(mem, row=row) is None
-    assert _gate(f"$x = Set-Location; {MEASURE_CMD}", "PowerShell") is not None
+    assert _gate(f"X=1 || {mem}", row=row) is None and _gate(mem, row=row) is None
+    assert _gate(f"$x = Set-Location; {MEASURE_CMD}", "PowerShell") is None
     assert _gate(f"$ErrorActionPreference = 'Stop'; {MEASURE_CMD}", "PowerShell") is None
-    assert _gate(f"cd {ROOT} | export X=1 && {MEASURE_CMD}") is not None
+    assert _gate(f"cd {ROOT} | export X=1 && {MEASURE_CMD}") is None
     assert _gate("python -X utf8 archive/run_verify.py") is not None
     r = {**_rcpt(5, "DONE", 0, cmd=f"{MEASURE_CMD} # cd C:/repo", at=_T2, kv={"cases": "1", "failed": "0"}),
          "root_uncertain": True}
@@ -1933,7 +1932,7 @@ def _pytest_row():
     ("export PYTEST_ADDOPTS='-k x' && PYTEST_ADDOPTS='' && python -m pytest -q", "Bash", True, True),
     ("export PYTEST_ADDOPTS='-k x' || PYTEST_ADDOPTS=''; python -m pytest -q", "Bash", True, False),  # || 右邊不會跑
     ("export PYTEST_ADDOPTS='-k x'; PYTEST_ADDOPTS='' | X=1; python -m pytest -q", "Bash", True, False),  # 管線子 shell
-    ("declare -x PYTEST_ADDOPTS=''; python -m pytest -q", "Bash", True, False),  # declare 不在 022 規則 2 的前置設定白名單
+    ("declare -x PYTEST_ADDOPTS=''; python -m pytest -q", "Bash", True, True),   # 前面夾什麼指令不看形狀
 ])
 def test_024_1_scope_env_counts_only_child_env_with_value(monkeypatch, cmd, tool, fold, counts):
     """024 規則 1：只有真的進到子程式環境（bash 行內前綴／export、PowerShell 只有 $env:）而且值非空的 PYTEST_ADDOPTS／

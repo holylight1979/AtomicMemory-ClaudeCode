@@ -5,8 +5,10 @@
   <CLAUDE_DIR>/workflow/verify-ledger/_runs/<UTC 時間戳>-<pid>.json，對帳閘與驗證範圍閘再讀它（hooks/wg_verify_ledger、wg_verify_scope）。
 怎麼跑：run_verify.py 呼叫 write_self_receipt；hooks 呼叫 load_self_receipts、cmd_matches、is_whole_run、unsupported_syntax。
   verify 在 lib/verify/verify_self_receipt.py、hooks/verify/verify_stop_reconcile.py（自寫收據段）。
-指令解析只有一套（split_shell → parse_cmds）：量尺閘、自寫收據比對、對帳閘的「整體驗證」與「提到改檔」都經過它。
-  只認白名單語法；白名單外的語法整條指令不算證據（fail-closed），不逐一追 shell 技巧。
+指令解析只有一套（split_shell → parse_cmds）：量尺比對、自寫收據比對、對帳閘的「整體驗證」與「提到改檔」都經過它。
+  量尺與整體驗證只看跑了哪支（量尺那串指令出現在哪一段都算、整體驗證是其中一段）、在哪棵樹、exit／哨兵，不看指令形狀
+  （前後接了什麼、用什麼串、輸出導去哪；收據不防偽）。解析不了的指令（白名單外語法）看不出跑了哪支：不算量尺、不算整體驗證，
+  呼叫端照一般證據用（hooks/wg_verify_ledger 留帳 RECEIPT_UNPARSED_GENERAL_ONLY）。
 """
 from __future__ import annotations
 
@@ -40,7 +42,6 @@ _ESCAPED_RE = re.compile(r"[\s;&|<>()'\"#`${}*?\[\]!~]")    # 反斜線後接這
 _FILTER_PROGS = frozenset({"tail", "select-object", "select"})
 _FILTER_ARG_RE = re.compile(r"^(?:[+-]?\d+|--?[A-Za-z][A-Za-z-]*=?\d*)$")  # tail 只准選項與數字（不帶檔名）
 _LAST_ONLY_RE = re.compile(r"^-last$", re.IGNORECASE)                    # Select-Object 只准 -Last N
-_ECHO_PROGS = frozenset({"echo", "printf", "write-output", "write-host", "write", "out-host"})   # 只會印字的指令
 _CD_PROGS = frozenset({"cd", "pushd", "set-location", "sl", "chdir", "push-location"})
 _CD_ALL = _CD_PROGS | {"popd", "pop-location"}
 _WIN_SWITCH_RE = re.compile(r"^/[A-Za-z][\w-]*(?::[^/\\]*)?$")   # msbuild /p:Release、/nologo 這類選項，不是路徑
@@ -200,12 +201,26 @@ def _scope_maps(cmd: Argv, shell: str = "bash", env: Env = None) -> List[Dict[st
     lasting_env: Dict[str, Tuple[str, str]] = {_env_key(str(n)): (str(n), str(v if v is not None else ""))
                                                for n, v in (env or {}).items()}
     out: List[Dict[str, Tuple[str, str]]] = []
-    for ch in split_shell(str(cmd or ""), shell)[0]:
+    chunks = split_shell(str(cmd or ""), shell)[0]
+    for i, ch in enumerate(chunks):
         lasting, inline = _child_env(ch.words, ch.raw, ps)
-        lasting_env.update({_env_key(n): (n, v) for n, v in lasting})
+        # 清空只在一定會在父 shell 跑到時才算（`X='-k x' || X=''` 的右邊不會跑、`X='' | …` 在管線子 shell 裡）；設了值一律算
+        sure = (ch.op in (None, ";") or (ch.op == "&&" and all(_setup_chunk(c, ps) for c in chunks[:i]))) and not (
+            i + 1 < len(chunks) and chunks[i + 1].op == "|")
+        lasting_env.update({_env_key(n): (n, v) for n, v in lasting if sure or v != ""})
         here = {**lasting_env, **{_env_key(n): (n, v) for n, v in inline}}
         out.append({k: nv for k, nv in here.items() if scope_env([nv])})
     return out
+
+
+def _setup_chunk(ch: "Chunk", ps: bool) -> bool:
+    """這一段只做環境指定或換目錄（之後用 && 接的清空一定跑得到）。"""
+    w = ch.words
+    if not w:
+        return False
+    if ps:
+        return w[0].startswith("$") or _prog(w[0]) in _SETUP_CD
+    return not _strip_env(w) or _prog(w[0]) in ({"export"} | _SETUP_CD)
 
 
 def program_scope_env(cmd: Argv, shell: str = "bash", env: Env = None) -> List[str]:
@@ -541,33 +556,23 @@ def _is_setup(st: Step) -> bool:
     return len(rhs) == 1 and bool(_PS_LITERAL_RE.match(rhs[0]))
 
 
-def _reachable(steps: List[Step], start: int) -> bool:
-    """steps[start] 一定會執行、輸出就是它的：接在開頭／;／換行／&& 之後（|| 可能沒跑、| 是把輸入給它），前面只有 cd 與環境設定，
-    而且前置設定彼此也只用 ;／換行／&& 串（`export X=… || X=''` 的右邊不會跑、`X='' | …` 在管線子 shell 裡，都改不到程式的環境）。"""
-    return start == 0 or (all(s.op in (";", "&&") for s in steps[1:start + 1]) and all(_is_setup(s) for s in steps[:start]))
-
-
-def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]:
-    """輸出就是收據的那個指令：前面只准前置設定、後面只准乾淨的尾端過濾；不是這種形狀（或白名單外語法）→ None。
-    root：從哪裡跑（腳本照它解析成路徑身分）。"""
-    steps = parse_cmds(cmd, shell, root)
-    k = _first_filter(steps)
-    return steps[k - 1] if k and _reachable(steps, k - 1) else None
-
-
 def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "", env: Env = None) -> bool:
-    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且跑程式的那段啟動時沒有會縮小範圍的環境設定（program_scope_env，
+    """整體驗證：其中一段是整體驗證（whole_run_shape），而且跑程式的那幾段啟動時沒有會縮小範圍的環境設定（program_scope_env，
     含收據記下的繼承環境 env）。涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
     return whole_run_shape(cmd, shell, root) and not program_scope_env(cmd, shell, env)
 
 
 def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
-    """只看命令列的整體驗證形狀：final_step 是執行根自己的 run_verify.py（root 給了就照完整路徑身分比，`archive/run_verify.py`、
-    別處同名都不算；沒給就認不出是哪一支，要照寫法就是 `run_verify.py`，`archive/run_verify.py`、絕對路徑都不算）且不帶任何參數，
-    或不帶位置參數、只帶不縮範圍選項（-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、
-    --collect-only、--deselect、--ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。"""
-    st = final_step(cmd, shell, root)
-    if not st or not set(st.cmd[1]) <= _WHOLE_PY_OPTS:
+    """有一段是整體驗證（_whole_step），不看它前後接了什麼、用什麼串；解析不了 → 不是。"""
+    return any(_whole_step(st, root) for st in parse_cmds(cmd, shell, root))
+
+
+def _whole_step(st: Step, root: str = "") -> bool:
+    """這一段是整體驗證：執行根自己的 run_verify.py（root 給了就照完整路徑身分比，`archive/run_verify.py`、別處同名都不算；
+    沒給就認不出是哪一支，要照寫法就是 `run_verify.py`，`archive/run_verify.py`、絕對路徑都不算）且不帶任何參數，或不帶位置參數、
+    只帶不縮範圍選項（-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、--collect-only、
+    --deselect、--ignore、目錄或檔名參數…都不算（選項白名單：沒列的一律當只跑一部分）。"""
+    if st.cmd == _ENV_ONLY or not set(st.cmd[1]) <= _WHOLE_PY_OPTS:
         return False
     if st.cmd[0] == _script_id("run_verify.py", root):
         as_written = any(posixpath.normpath(w.replace("\\", "/").lower()) == "run_verify.py" for w in st.words)
@@ -591,28 +596,13 @@ def _runs_program(st: Step) -> bool:
     return name in _RUNNER_PROGS or bool(_PY_HEAD_RE.match(name)) or name.endswith(_SCRIPT_EXTS)
 
 
-def non_runners(cmd: Argv, shell: str = "bash") -> List[str]:
-    """指令裡不算執行程式的那幾段的程式名（前置設定與尾端過濾除外）：給擋訊息說是哪個。"""
-    steps = parse_cmds(cmd, shell)
-    return [s.words[0] for s in steps[:_first_filter(steps)] if s.words and not _is_setup(s) and not _runs_program(s)]
-
-
 def evidence_steps(cmd: Argv, shell: str = "bash", env: Env = None) -> Optional[List[Step]]:
-    """一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）的形狀 → 跑程式的那幾段；不是這種形狀 → None。
-    形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、
-    exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾，而且有過濾時只准一段（管線把最後一段的
-    exit 蓋掉，前一段印的成功行會替後一段沒印 FAIL 的失敗背書）。夾了讀檔或印字的指令（cat、Get-Content、echo…）、
-    用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。每一段啟動時的有效環境都不能帶縮小驗證範圍的設定
-    （program_scope_env：`PYTEST_ADDOPTS='-k other' pytest tests/test_widget.py` 跑的不是 test_widget 全部）。"""
-    steps = parse_cmds(cmd, shell)
-    k = _first_filter(steps)
-    i = 0
-    while i < k and _is_setup(steps[i]):
-        i += 1
-    runs = steps[i:k]
-    if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]) or (k < len(steps) and len(runs) > 1):
-        return None
-    if not all(_runs_program(s) and not s.stdout for s in runs) or program_scope_env(cmd, shell, env):
+    """一般證據（對帳 (a) 提到改檔、(b) 量了、驗證範圍的跑過哪些）→ 跑程式的那幾段（直譯器、測試與建置工具、腳本檔），不看它們
+    怎麼串、前後夾了什麼、輸出導去哪（收據不防偽，規則 RECEIPT_NO_FORGERY_CHECK）。解析不了、沒有跑程式的段、或任一段啟動時的
+    有效環境帶了縮小驗證範圍的設定（program_scope_env：`PYTEST_ADDOPTS='-k other' pytest tests/test_widget.py` 跑的不是
+    test_widget 全部）→ None。"""
+    runs = [st for st in parse_cmds(cmd, shell) if st.words and not _is_setup(st) and _runs_program(st)]
+    if not runs or program_scope_env(cmd, shell, env):
         return None
     return runs
 
@@ -620,12 +610,10 @@ def evidence_steps(cmd: Argv, shell: str = "bash", env: Env = None) -> Optional[
 def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "",
                 env: Env = None) -> bool:
     """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd（量尺用 bash 規則解析，cmd 依 shell）：量尺的整條指令鏈
-    （各指令與中間的 && || | ;）連續、運算子相同地出現在最後；之後只准乾淨的尾端過濾；之前只准 cd 與環境設定，接的運算子
-    是開頭／;／換行／&&；或之前是 && 串起的跑程式指令（`pytest x.py && 量尺`），這時量尺後面不准再接過濾。各指令照順序完全相同：程式、python 直譯器選項、其他 token（`-h`、`-u`、`-k 某案`、多一個檔名、
-    選項換順序、大小寫都不算；`-Xutf8`＝`-X utf8`）。腳本照路徑認：cmd 照 root（收據從哪裡跑）解析、量尺照 measure_root
-    （表所在的根）解析，兩邊只給一個就共用；都沒給只比檔名。多段量尺後面再接過濾時，量尺最後一段要是 echo 類（管線會蓋掉
-    最後一段的 exit：最後一段若是會失敗的程式，前段印的 DONE 會替它背書）。白名單外語法、`印假哨兵 || 量尺`、
-    `量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。env＝收據記下的繼承環境（見 match_span）。"""
+    （各指令與中間的 && || | ;）連續、運算子相同地出現在 cmd 的任一處，前後接了什麼、用什麼串都不看（收據不防偽）。
+    各指令照順序完全相同：程式、python 直譯器選項、其他 token（`-h`、`-u`、`-k 某案`、多一個檔名、選項換順序、大小寫都不算；
+    `-Xutf8`＝`-X utf8`）。腳本照路徑認：cmd 照 root（收據從哪裡跑）解析、量尺照 measure_root（表所在的根）解析，兩邊只給一個
+    就共用；都沒給只比檔名。解析不了的 cmd、引號裡的量尺字樣都對不上。env＝收據記下的繼承環境（見 match_span）。"""
     return match_span(measure_cmd, cmd, shell, root, measure_root, env) is not None
 
 
@@ -647,18 +635,16 @@ def ruler_env_mismatch(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: 
 
 
 def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_root: str, env: Env = None):
-    """結構上對上量尺的候選片段（照 end 由前到後）→ ((start, end), [(名稱, 這次的值, 表上的值)]：片段裡和表上不同的有效環境)。
-    表上的量尺從乾淨環境起算；收據那邊從它記下的繼承環境 env 起算。"""
+    """結構上對上量尺的候選片段（由前到後，不看片段前後接了什麼）→ ((start, end), [(名稱, 這次的值, 表上的值)]：片段裡和表上
+    不同的有效環境)。表上的量尺從乾淨環境起算；收據那邊從它記下的繼承環境 env 起算。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
     if not m:
         return
     m_env, e_env = _scope_maps(measure_cmd), _scope_maps(cmd, shell, env)
-    tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
-    for end in range(_first_filter(e), len(e) + 1):
-        start = end - len(m)
-        if start >= 0 and (end == len(e) or tail_ok) and _chain_at(m, e, start) and (
-                _reachable(e, start) or (end == len(e) and _after_programs(e, start))):
+    for start in range(len(e) - len(m) + 1):
+        end = start + len(m)
+        if _chain_at(m, e, start):
             diff: List[Tuple[str, str, str]] = []
             for j in range(len(m)):
                 here, want = _scope_vals(e_env[start + j]), _scope_vals(m_env[j])
@@ -668,29 +654,11 @@ def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_ro
             yield (start, end), diff
 
 
-def _after_programs(steps: List[Step], start: int) -> bool:
-    """量尺前面接的是 && 串起的跑程式指令（開頭可帶前置設定，例：`pytest x.py && 量尺`）：前面任一段失敗量尺就不跑。
-    呼叫端另要求量尺是最後一段、後面沒有過濾，exit 就是量尺的，前段印的成功行替不了量尺背書。
-    前段夾了印字或讀檔的指令、用 ; 或 || 串、stdout 導走 → 不算。"""
-    i = 0
-    while i < start and _is_setup(steps[i]):
-        i += 1
-    runs = steps[i:start]
-    return (bool(runs) and _reachable(steps, i) and all(s.op == "&&" for s in steps[i + 1:start + 1])
-            and all(_runs_program(s) and not s.stdout for s in runs))
-
-
 def _chain_at(m: List[Step], e: List[Step], start: int) -> bool:
     """量尺鏈 m 從 e[start] 起連續出現（各指令照順序相同、中間運算子相同）。"""
     seg = e[start:start + len(m)]
     return len(seg) == len(m) and all(ms.cmd == es.cmd and (k == 0 or ms.op == es.op)
                                       for k, (ms, es) in enumerate(zip(m, seg)))
-
-
-def ruler_in(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "") -> bool:
-    """量尺鏈出現在 cmd 裡任何位置（不管前後接了什麼；兩邊照同一個根）：只給擋訊息說「量尺前後接了別的指令」，不是證據。"""
-    m, e = parse_cmds(measure_cmd, root=root), parse_cmds(cmd, shell, root)
-    return bool(m) and any(_chain_at(m, e, s) for s in range(len(e)))
 
 
 def abs_path(word: str) -> Optional[str]:

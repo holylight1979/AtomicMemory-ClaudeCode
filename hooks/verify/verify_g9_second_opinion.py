@@ -249,10 +249,10 @@ def test_done_then_later_not_done_reply_not_required(drive, capsys, tmp_path):
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)            # 最後談到的是「還沒完成」→ 照舊不算宣告
 
 
-def test_block_message_says_last_reply_keeps_four_lines(drive, capsys, tmp_path):
-    """第二波 B′／C′（B1、C3）：被別的閘擋後補的最後一則只寫「見上一則」，四行裁決沒留在交付末尾。擋訊息要講明最後一則要保留。"""
+def test_block_message_says_any_reply_this_turn_counts(drive, capsys, tmp_path):
+    """擋訊息講明四行寫在本回合任一則回覆都算，補件那則不必重抄（SECOND_OPINION_REQUIRED）。"""
     reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5))
-    assert "交付的最後一則也要保留這四行" in reason and "不要寫「見上一則」" in reason
+    assert "本回合任一則回覆都算" in reason and "不必重抄" in reason
     assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)                 # 入口仍在閘自己訊息的最末
 
 

@@ -30,6 +30,9 @@ def test_044_every_rule_has_a_case():
 
 @pytest.mark.parametrize("rule, case_file", [
     ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
+    ("SECOND_OPINION_RAN_BEFORE", "verify_pull_verify_ledger.py"),
+    ("CARRIED_CLAIM_ANY_TURN_RECEIPT", "verify_pull_verify_ledger.py"),
+    ("RECEIPT_UNPARSED_GENERAL_ONLY", "verify_pull_verify_ledger.py"),
     ("BASH_UNREACHED_READ_NOT_COUNTED", "verify_overview_hub.py"),
     ("NEGATIVE_CONTROL_DECLARED", "verify_failing_tests_subagent_isolation.py"),
     ("EQUIVALENCE_LOOP_EXPANDED", "verify_g7_equivalence.py"),
@@ -248,6 +251,22 @@ def test_044_gone_unverifiable(kind, failed):
     """GONE_UNVERIFIABLE：svn 工作副本、或查 git 失敗 → 判不出去向，照欠。"""
     v = rr.gone_verdict("a.py", kind, [], failed)
     assert v.rule == "GONE_UNVERIFIABLE" and v.owed is True
+
+
+# ─── GATE_SELF_ERROR ───────────────────────────────────────────────
+
+def test_gate_self_error_stop_gate_blocks_once_then_releases():
+    """收尾閘出錯：同一個使用者回合擋 1 次，之後放行（不讓 AI 一直付代價）。"""
+    v = rr.gate_self_error_verdict("ReconcileGate", "stop", "KeyError: 'x'")
+    assert v.rule == "GATE_SELF_ERROR" and v.owed and "擋一次" in v.why and v.evidence == ("KeyError: 'x'",)
+    v = rr.gate_self_error_verdict("ReconcileGate", "stop", "KeyError: 'x'", blocked_this_turn=True)
+    assert not v.owed and "放行" in v.why
+
+
+def test_gate_self_error_tool_gate_releases_directly():
+    """工具前閘出錯：讀不到 state 無從計次，直接放行。"""
+    v = rr.gate_self_error_verdict("CommitOrder", "tool", "OSError: state 讀不到")
+    assert v.rule == "GATE_SELF_ERROR" and not v.owed and "直接放行" in v.why
 
 
 # ─── CASE_COVERS_CHANGE ───────────────────────────────────────────────

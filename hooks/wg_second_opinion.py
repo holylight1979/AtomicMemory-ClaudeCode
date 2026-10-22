@@ -7,7 +7,9 @@
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
   check          上面的事實交給 wg_release_rules.second_opinion_verdict，回 (Verdict, 事實)；事實的 satisfied＝這次滿足了
-                 （跑過或宣告不需），Stop 據此 mark_ok。
+                 （跑過或宣告不需），Stop 據此 mark_ok。本回合跑完的第二意見（result 回 done／failed／blocked）不管有沒有
+                 宣告完成都記 second_opinion_ran[sid]＝{job, 回合, 那時改過的高風險檔}（check 會改 state，由 Stop 寫回）；
+                 之後的回合把它當成上次審過的基準（規則 SECOND_OPINION_RAN_BEFORE）。四行在本回合任一則回覆裡有就算。
   mark_ok        滿足或使用者放行時記 second_opinion_ok[sid]＝回合、second_opinion_cover[sid]＝那時改過的高風險檔；
                  之後的修改（多半是採納意見）只有改到新的高風險檔、或之後新改的程式檔數再過門檻才再要求（規則
                  SECOND_OPINION_ONCE_PER_CLAIM：不准「採納意見再改碼 → 又欠一次」的連鎖）。
@@ -110,8 +112,7 @@ def turn_completion_text(transcript_text: str) -> str:
     完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就是最後說完成的那一則。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
     只看最後一則會被補件那則蓋掉（例：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。"""
     from wg_evasion import _COMPLETION_CLAIM_RE, _COMPLETION_EXCLUDE_RE, claims_completion
-    texts = [str(b.get("text") or "") for o in _turn_records(transcript_text) if o.get("type") == "assistant"
-             for b in _blocks(o) if b.get("type") == "text"]
+    texts = turn_texts(transcript_text)
     if not texts:
         return ""
     last = texts[-1][-2000:]
@@ -129,6 +130,21 @@ def turn_completion_text(transcript_text: str) -> str:
 def turn_claims_completion(transcript_text: str) -> bool:
     """本回合有沒有宣告完成（turn_completion_text 找得到那一則）。"""
     return bool(turn_completion_text(transcript_text))
+
+
+def turn_texts(transcript_text: str) -> List[str]:
+    """本回合每一則 assistant 文字，依出現順序。"""
+    return [str(b.get("text") or "") for o in _turn_records(transcript_text) if o.get("type") == "assistant"
+            for b in _blocks(o) if b.get("type") == "text"]
+
+
+def section_text(text: str, transcript_text: str) -> str:
+    """分歧裁決四行要看的那一則：收尾這則四行齊就用它；否則本回合較早、四行齊的最近一則（被別的閘擋下補件的回覆不必重抄）；
+    都不齊回收尾這則（擋訊息照它列缺什麼）。"""
+    for t in [text, *reversed(turn_texts(transcript_text))]:
+        if t and not rr.second_opinion_section_missing(t):
+            return t
+    return text
 
 
 def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -314,20 +330,39 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         uniq.setdefault(rr.canon_path(m["path"]), str(m["path"]))
     paths = list(uniq.values())
     facts: Dict[str, Any] = {"code_files": len(paths), "triggers": [], "satisfied": False, "decline": ""}
-    if not claims_done or not paths:
+    if not paths:
+        return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
+    starts, results = turn_events(transcript_text)
+    runs_now = rr.second_opinion_runs(starts, results, has_tree=has_goal_tree(session_id)) if starts else []
+    risky_memo: List[List[str]] = []
+
+    def risky_now() -> List[str]:
+        if not risky_memo:
+            risky_memo.append(risky_paths(paths, list(cfg.get("risky_prefixes") or [])))
+        return risky_memo[0]
+    ran_now = [j for j, st in runs_now if st in rr.SO_RAN]
+    rec = ((state.get("second_opinion_ran") or {}).get(session_id)) or {}
+    if ran_now and rec.get("job") != ran_now[-1]:
+        # 規則 SECOND_OPINION_RAN_BEFORE：本回合跑完就記下（沒宣告完成也記），之後的回合以它為審過的基準
+        rec = {"job": ran_now[-1], "turn": int(state.get("turn_seq") or 0), "risky": [rr.canon_path(p) for p in risky_now()]}
+        state.setdefault("second_opinion_ran", {})[session_id] = rec
+    if not claims_done:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     ok_turn = int(((state.get("second_opinion_ok") or {}).get(session_id)) or 0)
-    risky = risky_paths(paths, list(cfg.get("risky_prefixes") or []))
+    risky = risky_now()
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
     covered = set(((state.get("second_opinion_cover") or {}).get(session_id) or {}).get("risky") or [])
+    if rec and rec.get("job") not in {str(st.get("job_id")) for st in starts}:   # 前面回合跑完的：當審過的基準
+        ok_turn = max(ok_turn, int(rec.get("turn") or 0))
+        covered |= set(rec.get("risky") or [])
     after = {rr.canon_path(m["path"]) for m in code if _mod_turn(m) > ok_turn}
     new_risky = [p for p in risky if rr.canon_path(p) in after and rr.canon_path(p) not in covered]
     # 規則 SECOND_OPINION_ONCE_PER_CLAIM：審過之後的修改只在改到新的高風險檔、或之後新改的程式檔數再過門檻時才算新一輪
     fresh = ok_turn == 0 or bool(new_risky) or len(after) >= min_files
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)
     triggers = rr.second_opinion_triggers(len(paths), lines, risky, min_files, min_lines)
-    runs = rr.second_opinion_runs(*turn_events(transcript_text), has_tree=has_goal_tree(session_id)) \
-        if (triggers and fresh) else []
+    runs = runs_now if (triggers and fresh) else []
+    text = section_text(text, transcript_text)
     v = rr.second_opinion_verdict(claims_done, triggers, fresh, runs, text)
     facts.update(triggers=triggers, fresh=fresh, runs=runs, changed_lines=lines, risky=[rr.canon_path(p) for p in risky],
                  satisfied=bool(triggers and fresh and not v.owed),

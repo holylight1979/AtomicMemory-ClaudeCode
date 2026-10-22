@@ -522,17 +522,17 @@ def test_pytest_chained_with_doc_ruler_counts_for_both_items(proj, lookup):
 
 
 @pytest.mark.parametrize("cmd, why", [
-    (f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN} 2>&1 | tail -5", "前面有程式時量尺後面不准接過濾"),
-    (f"python -m pytest -q hooks/verify/verify_x.py; {_DOC_CHAIN}", "用 ; 串：前面失敗量尺照跑"),
-    (f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN} && echo DOC_SYNC_CHECK DONE", "尾巴的 echo 字樣分不出是誰印的"),
+    (f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN} 2>&1 | tail -5", "後面接過濾"),
+    (f"python -m pytest -q hooks/verify/verify_x.py; {_DOC_CHAIN}", "用 ; 串"),
+    (f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN} && echo DOC_SYNC_CHECK DONE", "尾巴還有 echo"),
 ])
-def test_doc_ruler_chained_unsafely_still_does_not_count(proj, lookup, cmd, why):
-    """反例：量尺前面接了程式，卻接過濾、用 ; 串、或尾巴還有 echo 完成字樣 → 量尺那一項不認。"""
+def test_doc_ruler_chained_any_way_counts(proj, lookup, cmd, why):
+    """量尺前後接什麼、用什麼串都不看（RECEIPT_UNPARSED_GENERAL_ONLY：只看跑了哪支、在哪棵樹、exit／哨兵）→ 量尺那一項照認。"""
     state = _state()
     _declare(state, proj, [{"target": _DOC_CHAIN, "why": "改了文件計數段"}])
     mods = [_mf(proj / "_AIDocs" / "doc.md", T0, 2)]
     reason, _ = _gates(state, mods, [_chain_rcpt(proj, cmd, (("DOC_SYNC_CHECK", "DONE"),))])
-    assert reason and f"的「{_DOC_CHAIN}」" in reason, (why, reason)
+    assert reason is None, (why, reason)
 
 
 def test_fix_evidence_reads_declared_scope_not_file_names(proj, lookup):
@@ -995,13 +995,17 @@ def test_user_release_remembers_no_case_until_the_file_changes(proj, lookup):
     assert vs.case_check(state, _SID, edited, [], vl.reconcile_cfg({}), lookup)(str(x)).owed
 
 
-def test_scope_gate_off_falls_back_to_timing_rule(proj, lookup):
-    """驗證範圍閘關掉（verify_scope.enabled=false）沒有宣告入口 → (d) 退回時序判法：改碼之後改過案例並跑綠就不欠。"""
+def test_scope_gate_off_falls_back_to_coverage_rule(proj, lookup):
+    """驗證範圍閘關掉（verify_scope.enabled=false）→ (d) 看覆蓋（CASE_COVERS_CHANGE）：改過的案例檔名照模組取就不欠，
+    不比先後；只改了不相干的案例 → 照欠。"""
     state = _state()
     state.setdefault("verify_receipts", {})[_SID] = [_rcpt(proj, _Y_RUN, T2, 5)]
-    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_y.py", T1, 4)]
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_x.py", T0, 2)]
     reason, _r, _k, _a = st._verify_gates(state, _SID, 5, "", None, "", mods, vl.reconcile_cfg({}), {"enabled": False}, {}, False)
     assert reason is None, reason
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_y.py", T1, 4)]
+    reason, _r, _k, _a = st._verify_gates(state, _SID, 5, "", None, "", mods, vl.reconcile_cfg({}), {"enabled": False}, {}, False)
+    assert reason and "CASE_COVERS_CHANGE" in reason, reason
 
 
 def test_commit_snapshot_settles_by_the_same_declaration(proj, lookup, monkeypatch):
