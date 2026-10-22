@@ -11431,7 +11431,7 @@
     },
     {
       "name": "第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷",
-      "path": "memory/驗證與實證/第二意見/第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷.md",
+      "path": "_AIDocs/_atoms/Tools/第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷.md",
       "triggers": [
         "second_opinion_start",
         "diff 為空",
