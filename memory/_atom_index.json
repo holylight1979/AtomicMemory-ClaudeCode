@@ -10119,7 +10119,9 @@
         "分歧點",
         "不需第二意見｜",
         "SECOND_OPINION_REQUIRED",
-        "second_opinion_result"
+        "second_opinion_result",
+        "second_opinion_start",
+        "diff 為空"
       ],
       "scope": "global",
       "entry": [
@@ -11437,10 +11439,7 @@
         "commit 後送審",
         "stage-review"
       ],
-      "scope": "global",
-      "entry": [
-        "E16"
-      ]
+      "scope": "global"
     },
     {
       "name": "無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀",
