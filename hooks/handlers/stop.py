@@ -7,7 +7,7 @@ handlers/stop.py — Stop hook handler
     ＋ 驗證範圍閘（改了程式要有 LLM 宣告的驗證範圍、範圍內每項改完之後跑綠；wg_verify_scope）；獨立預算 reconcile_gate.max_blocks_per_turn
 1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；每個使用者回合擋一次；前面的閘擋下時列進預覽）
 1d. SecondOpinion Gate（G9：大任務或改到高風險部位宣告完成 → 本回合真的跑過第二意見、收尾有分歧裁決四行；擋一次後問使用者；
-    還在跑時收尾寫明在等哪個 job 不算宣告完成，只留帳 waiting）
+    還在跑時收尾寫一行「等第二意見｜<job_id>」不算宣告完成，只留帳 waiting）
 1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
 3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
@@ -2283,7 +2283,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         clear_pending(state, session_id, _SO_GATE)
         write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）
     elif _sov is not None and _sof.get("waiting"):
-        # 規則 SECOND_OPINION_WAITING_NOT_DONE：還在跑、收尾寫明在等哪個 job → 不算宣告完成，不擋不吃擋次，只留帳
+        # 規則 SECOND_OPINION_WAITING_NOT_DONE：還在跑、收尾有「等第二意見｜<job_id>」行 → 不算宣告完成，不擋不吃擋次，只留帳
         append_guard_log(_SO_GATE, {"event": "waiting", "session_id": session_id, "turn_seq": turn_seq,
                                     "job": _sof["waiting"][-1], "code_files": _sof.get("code_files")})
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
