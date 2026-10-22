@@ -24,7 +24,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import _now_iso, WORKFLOW_DIR, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
@@ -360,17 +360,19 @@ _TRACK_PART_RE = re.compile(r"^(?:\[(?P<p1>[^\]]+)\]|(?P<p2>[^｜|：:]{1,20})[�
 
 _TRACK_CLOSE_RE = re.compile(r"^結案\s*[：:]\s*(?P<prefix>.+)$")
 TRACK_CLOSE_MIN_CHARS = 8
-# 追蹤項行尾的提議欄（G13：記問題也記怎麼解、該誰解）：「…｜建議：<做法>｜該誰解：<誰>」，順序不拘、可只寫一欄
-_TRACK_FIELD_SPLIT_RE = re.compile(r"\s*[｜|]\s*(建議怎麼解|建議|該誰解|誰解)\s*[：:]\s*")
+# 追蹤項行尾的提議欄（G13：記問題也記怎麼解、該誰解）：「…｜建議：<做法>｜該誰解：<誰>」，順序不拘、可只寫一欄；
+# 「｜同追蹤項：<已記那筆裡至少 8 字>」＝AI 判斷這件跟帳上那筆是同一件（規則 TRACKING_SAME_ITEM_NOT_REWRITTEN）
+_TRACK_FIELD_SPLIT_RE = re.compile(r"\s*[｜|]\s*(建議怎麼解|建議|該誰解|誰解|同追蹤項)\s*[：:]\s*")
+_TRACK_FIELD_KEYS = {"建議怎麼解": "proposal", "建議": "proposal", "該誰解": "owner", "誰解": "owner", "同追蹤項": "same_as"}
 
 
-def _split_track_fields(line: str) -> Tuple[str, str, str]:
-    """追蹤項一行 → (本文, 建議, 該誰解)；沒寫的欄回空字串。要在認部位之前切：不然「問題｜建議：…」的問題會被當成部位。"""
+def _split_track_fields(line: str) -> Tuple[str, Dict[str, str]]:
+    """追蹤項一行 → (本文, {proposal, owner, same_as} 有寫的欄)。要在認部位之前切：不然「問題｜建議：…」的問題會被當成部位。"""
     parts = _TRACK_FIELD_SPLIT_RE.split(line)
     fields: Dict[str, str] = {}
     for label, value in zip(parts[1::2], parts[2::2]):
-        fields["owner" if "誰" in label else "proposal"] = value.strip()
-    return parts[0].strip(), fields.get("proposal", ""), fields.get("owner", "")
+        fields[_TRACK_FIELD_KEYS[label]] = value.strip()
+    return parts[0].strip(), {k: v for k, v in fields.items() if v}
 
 
 def _sha16(raw: str) -> str:
@@ -386,7 +388,7 @@ def tracking_entry_id(entry: Dict[str, Any]) -> str:
 
 def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[str] = None) -> List[Dict[str, Any]]:
     """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {id, session_id, turn_seq, at, part, text, status}（行尾寫了
-    「｜建議：…｜該誰解：…」另帶 proposal／owner）。
+    「｜建議：…｜該誰解：…｜同追蹤項：…」另帶 proposal／owner／same_as，same_as 由 append_tracking 合併）。
     「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串。id 含行序，同批同文字的兩筆也不同。
     一般行 status＝open；`[部位] 結案：<原項目開頭>` → status＝closed、text＝前綴（closes 由 append_tracking 對帳本補上）。"""
     text = str(k_text or "").strip()
@@ -395,7 +397,7 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
     out: List[Dict[str, Any]] = []
     stamp = at or _now_iso()
     for idx, raw in enumerate(text.splitlines()):
-        line, proposal, owner = _split_track_fields(raw.strip().lstrip("-•*").strip())
+        line, fields = _split_track_fields(raw.strip().lstrip("-•*").strip())
         if not line or line in ("無",):
             continue
         part, body = "", line
@@ -406,7 +408,7 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
         close = _TRACK_CLOSE_RE.match(body)
         row = {"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp, "part": part,
                "text": close.group("prefix").strip() if close else body, "status": "closed" if close else "open"}
-        extra = {k: v for k, v in (("proposal", proposal), ("owner", owner)) if v and not close}
+        extra = {} if close else fields
         out.append({"id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + f"|{idx}"),
                     **row, **extra})
     return out
@@ -536,18 +538,77 @@ def _resolve_closes(existing: List[Dict[str, Any]], entries: List[Dict[str, Any]
     return out
 
 
+def _supersede_rows(new: Dict[str, Any], old: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """新說法取代帳上那筆：同一次追加兩列——先寫新的 open 列（標 supersedes）、再寫結案列關掉舊的（closes 指它、標 superseded_by）；
+    中途斷掉最多多一筆重複，不會只關掉舊的。"""
+    old_id = tracking_entry_id(old)
+    close = {"id": _sha16(f"{old_id}|{new['id']}|superseded"), "session_id": new.get("session_id"),
+             "turn_seq": new.get("turn_seq"), "at": new.get("at"), "part": old.get("part") or "",
+             "text": str(old.get("text") or ""), "status": "closed", "superseded_by": new["id"],
+             "closes": {"id": old_id, "at": old.get("at"), "text_prefix": str(old.get("text") or "")},
+             **({"source": new["source"]} if new.get("source") else {})}
+    return [{**new, "supersedes": old_id}, close]
+
+
+def _merge_same(existing: List[Dict[str, Any]], entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """規則 TRACKING_SAME_ITEM_NOT_REWRITTEN：open 列寫進帳本前，對「既有帳本＋本批較早的列」裡部位相容（相同或一邊沒寫）的未結項：
+    ① 帶 same_as（AI 宣告「同追蹤項：<那筆裡至少 TRACK_CLOSE_MIN_CHARS 字>」，去標點空白後是那筆的一段）→ 恰好對到一筆就換成新說法
+    （_supersede_rows）；對不到或對到不只一筆 → 不合併、照記新的、stderr 說原因（不悄悄關掉別件）；
+    ② 沒宣告：跟某筆部位相同（嚴格相等，一邊沒寫不算）而且原文相同（不分 session，同 PickOne 的 repeat）→ 不重記、stderr。
+    字面相近（只差括號註「密碼過期／帳號鎖定」、開頭相同）程式不併：可能是不同的事，併錯會悄悄吞掉一件，比多記一筆更糟；
+    換句話說的同一件交 ①。已帶 supersedes 的列（PickOne 同回合換說法）照寫。"""
+    out: List[Dict[str, Any]] = []
+    for e in entries:
+        if e.get("status") != "open" or e.get("supersedes"):
+            out.append(e)
+            continue
+        part = str(e.get("part") or "").strip()
+        opens = [o for o in open_tracking_items(existing + out)
+                 if not part or not str(o.get("part") or "").strip() or _part_eq(o.get("part"), part)]
+        snippet = _pick_summary(str(e.get("same_as") or ""))
+        if e.get("same_as"):
+            hits = [o for o in opens if len(snippet) >= TRACK_CLOSE_MIN_CHARS and snippet in _pick_summary(str(o.get("text") or ""))]
+            if len(hits) == 1:
+                out.extend(_supersede_rows({**e, "part": part or str(hits[0].get("part") or "")}, hits[0]))
+                continue
+            if len(snippet) < TRACK_CLOSE_MIN_CHARS:
+                why = f"「同追蹤項」去標點後不足 {TRACK_CLOSE_MIN_CHARS} 字"
+            elif not hits:
+                why = "帳上找不到這段字的未結項"
+            else:
+                why = f"對到 {len(hits)} 筆、分不出是哪一筆"
+            print(f"[Guardian:Tracking] {why}，沒有合併、照記新的：[{part}] {e.get('text')}｜同追蹤項：{e.get('same_as')}",
+                  file=sys.stderr)
+            out.append(e)
+            continue
+        mine = str(e.get("text") or "").strip()
+        dup = next((o for o in opens if _part_eq(o.get("part"), part) and str(o.get("text") or "").strip() == mine), None)
+        if dup is not None:
+            print(f"[Guardian:Tracking] 帳上已有同一件未結項，不重記：[{part}] {e.get('text')}", file=sys.stderr)
+            continue
+        out.append(e)
+    return out
+
+
 def append_tracking(slug: str, entries: List[Dict[str, Any]], base_dir: Optional[Path] = None) -> Optional[Path]:
     """workflow/tracking/<slug>.jsonl 逐行追加（LF、一行一筆；執行期檔，.gitignore 收）。
     slug 必須 fullmatch [A-Za-z0-9_-]{1,64}（否則 ValueError：../、磁碟根、尾端換行都會指到 tracking 外或建怪檔）。
-    closed 列先對帳本補 closes（_resolve_closes）。entries 空 → 不建檔、回 None。寫入失敗浮 stderr（fail-open）。回帳本路徑。"""
+    open 列先過同一件合併（_merge_same），closed 列再對帳本補 closes（_resolve_closes）。
+    entries 空、或結案列全對不上 → 不建檔、回 None；全是帳上已有的同一件 → 不寫、照回帳本路徑（記過了不算失敗）。
+    寫入失敗浮 stderr（fail-open）。回帳本路徑。"""
     if not _TRACK_SLUG_RE.fullmatch(str(slug or "")):
         raise ValueError(f"tracking slug must match [A-Za-z0-9_-]+ (got {slug!r})")
-    if any(e.get("status") == "closed" for e in entries):
-        entries = _resolve_closes(read_tracking(slug, base_dir), entries)
+    d = (base_dir or WORKFLOW_DIR) / "tracking"
+    existing = read_tracking(slug, base_dir) if entries else []
+    merged = _merge_same(existing, entries)
+    if entries and not merged:
+        return d / f"{slug}.jsonl"
+    entries = merged
+    if any(e.get("status") == "closed" and not e.get("closes") for e in entries):
+        entries = _resolve_closes(existing, entries)
     if not entries:
         return None
     try:
-        d = (base_dir or WORKFLOW_DIR) / "tracking"
         d.mkdir(parents=True, exist_ok=True)
         p = d / f"{slug}.jsonl"
         with open(p, "a", encoding="utf-8", newline="\n") as fh:
@@ -626,7 +687,8 @@ def proposal_lines(items: List[Dict[str, Any]], limit: int = 3) -> List[str]:
 # 「一批改動」以回合號分：問過之後同一回合裡的改動（順手修掉剛點出的那件、回應別道閘的修補）算同一次交付，不再問。
 
 PICK_HEAD = "順手看到最該修"
-_PICK_LABELS = (("why", "為什麼是它"), ("not_top", "為什麼不是數字最高"), ("proposal", "建議怎麼解"), ("owner", "該誰解"))
+_PICK_LABELS = (("why", "為什麼是它"), ("not_top", "為什麼不是數字最高"), ("proposal", "建議怎麼解"), ("owner", "該誰解"),
+                ("same_as", "同追蹤項"))
 _PICK_LINE_RE = re.compile(r"^[\s#*\-•]*(?:\d+[.、)]\s*)?(?P<label>[^：:\n]{2,24}?)\**\s*[：:]\s*(?P<value>.*?)\s*$")
 _PICK_NONE_RE = re.compile(r"^無(?:$|[\s，,。；;（(：:、])")
 PICK_MATERIAL_MAX_PARTS = 4
@@ -666,7 +728,7 @@ def parse_pick(text: str) -> Optional[Dict[str, Any]]:
         if pm:
             part, body = (pm.group("p1") or pm.group("p2") or "").strip(), pm.group("rest").strip()
         return {"none": none, "part": part, "text": body,
-                **{k: b.get(k, "") for k, _ in _PICK_LABELS}}
+                **{k: b.get(k, "") for k, _ in _PICK_LABELS if k != "same_as" or b.get(k)}}   # 同追蹤項有寫才帶
     return None
 
 
@@ -707,30 +769,26 @@ def record_pick(state: Dict[str, Any], sid: str, turn_seq: int, text: str, cwd: 
     event = "none"
     if not pick["none"]:
         slug = tracking_slug(cwd)
-        opens = open_tracking_items(read_tracking(slug))
+        existing = read_tracking(slug)
+        opens = open_tracking_items(existing)
         same_turn = next((o for o in opens if o.get("source") == "pick" and o.get("session_id") == sid
                           and int(o.get("turn_seq") or 0) == int(turn_seq or 0) and _part_eq(o.get("part"), pick["part"])
                           and same_pick_target(str(o.get("text") or ""), pick["text"])), None)
-        if any(_part_eq(o.get("part"), pick["part"]) and str(o.get("text") or "").strip() == pick["text"] for o in opens):
+        row = {"session_id": sid, "turn_seq": int(turn_seq or 0), "at": at or _now_iso(), "part": pick["part"],
+               "text": pick["text"], "status": "open", "source": "pick"}
+        extra = {k: pick[k] for k, _ in _PICK_LABELS if pick.get(k)}
+        new = {"id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + "|pick"),
+               **row, **extra}
+        if (any(_part_eq(o.get("part"), pick["part"]) and str(o.get("text") or "").strip() == pick["text"] for o in opens)
+                or (same_turn is None and not _merge_same(existing, [new]))):   # 別的入口（k 欄、followup）已記過同一句
             event = "repeat"
+        elif same_turn is None:
+            event = "recorded" if append_tracking(slug, [new]) else "write_failed"
         else:
-            row = {"session_id": sid, "turn_seq": int(turn_seq or 0), "at": at or _now_iso(), "part": pick["part"],
-                   "text": pick["text"], "status": "open", "source": "pick"}
-            extra = {k: pick[k] for k, _ in _PICK_LABELS if pick.get(k)}
-            new = {"id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + "|pick"),
-                   **row, **extra}
-            if same_turn is None:
-                event = "recorded" if append_tracking(slug, [new]) else "write_failed"
-            else:
-                old_id = tracking_entry_id(same_turn)
-                close = {"id": _sha16(f"{old_id}|{new['id']}|superseded"), "session_id": sid, "turn_seq": row["turn_seq"],
-                         "at": row["at"], "part": pick["part"], "text": str(same_turn.get("text") or ""), "status": "closed",
-                         "source": "pick", "superseded_by": new["id"],
-                         "closes": {"id": old_id, "at": same_turn.get("at"), "text_prefix": str(same_turn.get("text") or "")}}
-                event = "updated" if append_tracking(slug, [{**new, "supersedes": old_id}, close]) else "update_failed"
-                if event == "update_failed":
-                    print(f"[Guardian:PickOne] 同一回合又點出同一件，追蹤帳本沒換成新的說法（寫不進去），帳上留第一次那筆："
-                          f"{same_turn.get('text')}", file=sys.stderr)
+            event = "updated" if append_tracking(slug, _supersede_rows(new, same_turn)) else "update_failed"
+            if event == "update_failed":
+                print(f"[Guardian:PickOne] 同一回合又點出同一件，追蹤帳本沒換成新的說法（寫不進去），帳上留第一次那筆："
+                      f"{same_turn.get('text')}", file=sys.stderr)
     if event != "write_failed":
         _pick_sec(state, sid)["covered_turn"] = int(turn_seq or 0)
     return event, pick
@@ -935,8 +993,21 @@ def pick_material(code_paths: List[str], config: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def pick_prompt(material: List[str]) -> str:
-    """交付時那一問的全文（Stop additionalContext）：材料＋要 AI 在回覆最後照格式寫的那一段。"""
+PICK_OPENS_MAX = 5
+
+
+def session_open_tracking(cwd: str, sid: str) -> List[str]:
+    """本專案追蹤帳本裡本 session 記的、還沒結的項目「[部位] 原文」（帳本順序）。讀不到回空。"""
+    return [f"[{o.get('part') or ''}] {o.get('text')}" for o in open_tracking_items(read_tracking(tracking_slug(cwd)))
+            if o.get("session_id") == sid]
+
+
+def pick_prompt(material: List[str], opens: Sequence[str] = ()) -> str:
+    """交付時那一問的全文（Stop additionalContext）：材料＋要 AI 在回覆最後照格式寫的那一段。
+    opens＝本 session 已記、還沒結的追蹤項（「[部位] 原文」）：列出來讓 AI 判斷要點的是不是其中一件（規則 TRACKING_SAME_ITEM_NOT_REWRITTEN）。"""
+    same = ([f"本 session 已記、還沒結的追蹤項（最近 {PICK_OPENS_MAX} 筆）；要點的是其中同一件，就在五行後面加一行"
+             "「同追蹤項：<那筆裡連續至少 8 個字>」，系統換成你這次的說法、不另記一筆：",
+             *(f"- {o[:100]}" for o in list(opens)[-PICK_OPENS_MAX:])] if opens else [])
     return "\n".join([
         "[Guardian:PickOne] 這次交付改了程式。收尾前順手掃一眼（只提醒、不擋；這批改動只問這一次）："
         "這次讀到、改到的程式附近，哪一件最該修？",
@@ -951,6 +1022,7 @@ def pick_prompt(material: List[str]) -> str:
         "該誰解：<這個 session／下一個寫碼 session／使用者決定／根層記憶系統／其他專案>",
         "跟這次同根、小、在範圍內的，直接修掉再交付，不用寫進來；真的沒看到值得修的，寫「順手看到最該修：無，因為…」。",
         "之後被別的閘擋下而補了一則，交付的最後一則要保留這五行（系統讀最後一則記帳），不要寫「見上一則」。",
+        *same,
     ])
 
 

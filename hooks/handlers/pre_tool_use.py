@@ -28,6 +28,7 @@ from wg_core import (
     user_typed_prompts,
 )
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
+import wg_judge_card  # 裁定 #53 改判準卡要先宣告
 import wg_oldtest
 import wg_gate_bypass
 # 分段計時只打點、不看回傳：逾時被 Claude Code 取消本來就放行，提早放行只會少查（降級不改判定）
@@ -1670,6 +1671,15 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         output_nothing()
         return
 
+    # 裁定 #53：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
+    if tool_name.endswith(wg_judge_card.MCP_TOOLS):
+        deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)
+        if deny_reason:
+            _deny(input_data, config, deny_reason)
+            return
+        output_nothing()
+        return
+
     # ─── Sub-agent 記憶注入 ────────────────────────────────────
     # sub-agent（Agent/Task）開全新 context、不觸發 UserPromptSubmit，吃不到 atom。
     # 唯一 parent→child 通道是工具 prompt 字串 → 經 PreToolUse updatedInput prepend
@@ -1794,6 +1804,12 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # ── DataFileAsk（T2.16 動使用者資料檔要先宣告）──
     # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
     deny_reason = wg_data_file.gate(tool_name, tool_input, input_data, config)
+    if deny_reason:
+        _deny(input_data, config, deny_reason)
+        return
+
+    # ── JudgeCardDeclare（裁定 #53 改判準卡要先宣告）── 綁了 Entry 的卡沒有「改判準卡｜哪張：理由」就擋（wg_judge_card）
+    deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return

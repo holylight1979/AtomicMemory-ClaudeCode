@@ -60,7 +60,7 @@ from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
 from wg_harvest import (
     harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
-    record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt,
+    record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt, session_open_tracking,
 )
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
 from wg_text_score import on_stop as _text_score_on_stop
@@ -1175,9 +1175,10 @@ def _record_pick(state: Dict[str, Any], session_id: str, text: str, cwd: str, co
 
 
 def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List[Dict[str, Any]], boundary: bool,
-                     config: Dict[str, Any]) -> Optional[str]:
+                     config: Dict[str, Any], cwd: str = "") -> Optional[str]:
     """到了交付邊界、本 session 在上次問過或記過之後又改了程式 → 回要送的那一問（並記下問過）；不到時候回 None。
-    程式檔照 wg_need_goal.is_code_path（寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。判斷出錯只 stderr、不送。"""
+    程式檔照 wg_need_goal.is_code_path（寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。判斷出錯只 stderr、不送。
+    問句附本 session 還沒結的追蹤項，點的是同一件就寫「同追蹤項：」（TRACKING_SAME_ITEM_NOT_REWRITTEN）。"""
     if not _pick_on(config) or state.get("muted"):
         return None
     turn_seq = int(state.get("turn_seq", 0))
@@ -1186,7 +1187,8 @@ def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List
         code = [m for m in own_mod_files if (m or {}).get("path") and is_code_path(m["path"], config)]
         if not pick_due(state, session_id, code, boundary):
             return None
-        text = pick_prompt(pick_material(list(dict.fromkeys(m["path"] for m in code)), config))
+        text = pick_prompt(pick_material(list(dict.fromkeys(m["path"] for m in code)), config),
+                           session_open_tracking(cwd, session_id) if cwd else [])
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:PickOne] 交付時「最該修」那一問判斷出錯（這次不送）：{type(e).__name__}: {e}", file=sys.stderr)
         return None
@@ -2229,7 +2231,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── 交付時順手點出最該修的一件（G4／G5）：排在所有閘之後；Stop 的 additionalContext＝對話續跑一回合、不算擋 ──
     _pick = _pick_one_prompt(state, session_id, own_mod_files, claims_done or claims_completion(code_text)
-                             or emitted_this_turn or committed_this_turn, config)
+                             or emitted_this_turn or committed_this_turn, config, cwd)
     if _pick:
         write_state(session_id, state)
         _pick = with_note(_pick, entry_note(_pick, "stop_piggyback", session_id=session_id, state=state, config=config))

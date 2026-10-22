@@ -105,7 +105,16 @@ _CLAIM_EXCLUDE_COMMON = [
     r"\bnot\b", r"\bisn't\b", r"\bhasn't\b", r"\bwasn't\b", r"\bnever\b", r"\bunfixed\b",
     r"[?？]\s*$", r"嗎",
 ]
+def _conditional_excludes(verbs: str) -> List[str]:
+    """規則 CLAIM_CONDITIONAL_NOT_CLAIM：講以後的條件句不是宣稱——如果／一旦／等到…<動詞>、緊貼的「等<動詞>」、
+    <動詞>之後／以後…再／一起／才／就／會／要（子句後段有了／過就不算條件：「修好之後重跑了」照算宣稱）。
+    正本在 forbidden-phrases.json，這裡是缺段時的備用。"""
+    return [rf"(?:(?:如果|假如|要是|一旦|等到|若(?!干))[^，。！？\n]{{0,12}}|等){verbs}",
+            rf"{verbs}[^，。！？\n]{{0,3}}(?:之後|以後)(?![^，。！？\n]*[了過])[^，。！？\n]{{0,10}}(?:再|一起|才|就|會|要)"]
+
+
 _FALLBACK_FIXED_EXCLUDE = [
+    *_conditional_excludes("(?:修好|修復|修正|修掉|補好)"),
     r"(?:還沒|還未|尚未|沒有?|未|無法|不能|不會|不算|不是|沒能)[^，。！？\n]{0,6}(?:修好|修復|修正|修掉|補好)",
     r"(?:修好|修復|修正)[^，。！？\n]{0,4}(?:之前|前|嗎|沒|了沒)",
     r"(?:要|該|怎麼|如何|待|請|先|再|去)\s*(?:修好|修復|修正)",
@@ -116,6 +125,7 @@ _FALLBACK_MEASURED_CLAIM = [
     r"\bmeasured\b", r"\bbenchmark(?:ed)?\b",
 ]
 _FALLBACK_MEASURED_EXCLUDE = [
+    *_conditional_excludes("(?:量|實測)"),
     r"(?:還沒|還未|尚未|沒有?|未|無法|不能|沒能)[^，。！？\n]{0,6}(?:量|測)",
     r"(?:要|該|再|先|請|去|會)\s*(?:量|實測)",
     *_CLAIM_EXCLUDE_COMMON,
@@ -125,6 +135,7 @@ _FALLBACK_TRIED_CLAIM = [
     r"\btried\b", r"\bran\s+(?:it|the|them)\b",
 ]
 _FALLBACK_TRIED_EXCLUDE = [
+    *_conditional_excludes("(?:試|跑|執行)"),
     r"(?:還沒|還未|尚未|沒有?|未|不曾|無法|不能|沒能)[^，。！？\n]{0,4}(?:試|跑|執行)",
     r"(?:試|跑|執行)[^，。！？\n]{0,3}(?:之前|前|看看|嗎|了沒)",
     r"(?:要|該|再|先|會|請|建議|去)\s*(?:試|跑|執行)",

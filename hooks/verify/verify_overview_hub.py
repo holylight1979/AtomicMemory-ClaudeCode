@@ -1861,12 +1861,13 @@ def test_b5_bash_multi_file_cat_counts_every_file(tmp_path, monkeypatch):
     ("echo hi > /dev/null", 0),                         # ② echo 不是讀檔
     ("printf 'x' ; ls ops ; find ops -name '*.md'", 0), #   printf／ls／find 也不是
     ("cat $f", 0),                                      # ③ 變數路徑
-    ('for f in ops/*.md; do cat "$f"; done', 0),        #   B5 q4 的迴圈寫法：照規則不算
+    ('for f in $(ls ops); do cat "$f"; done', 0),       #   清單是命令代換的迴圈：讀了哪些檔不確定（字面清單的見 006 案）
     ("cat ops/$f", 0),                                  #   中段變數（改前當字面路徑算進去）
     ("cat ops/nothere.md", 1),                          # ④ 檔不存在（改前照算）
     ("cat ops/README.md", 1),                           #   指令失敗（exit≠0，改前照算）
     ("cat > ops/README.md <<'EOF'", 0),                 #   重導向目標是寫，不是讀
-], ids=["echo", "printf-ls-find", "var", "q4-loop", "mid-var", "missing", "exit-1", "redirect"])
+    ("cat ops/*.txt", 0),                               #   glob 展不出實檔（bash 原樣傳字面）
+], ids=["echo", "printf-ls-find", "var", "loop-subst", "mid-var", "missing", "exit-1", "redirect", "glob-none"])
 def test_b5_bash_non_reads_do_not_count(tmp_path, monkeypatch, command, exit_code):
     """派工單補充紅案例②③④：不算讀檔的指令讀完，寫 ops/ 下的檔仍擋。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
@@ -1875,6 +1876,62 @@ def test_b5_bash_non_reads_do_not_count(tmp_path, monkeypatch, command, exit_cod
     _bash_read(state, root, command, exit_code=exit_code)
     warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "docs" / "x.md"), "", {})
     assert deny and "「ops」至少 1 個檔（目前 0 個）" in deny
+
+
+# 第二波第五跑 B-1 原指令（transcript 22:00:37）：迴圈讀一批檔，之後改 sales/periods.py 被擋「讀過 0 個」
+_B5W2_CMD = ('for f in sales/*.py tests/*.py defects.md .claude/overview-map.md .claude/overview-hub.json .gitignore; '
+             'do echo "=== $f"; cat "$f"; done; echo "=== data head"; head -20 data/sales.csv; wc -l data/sales.csv')
+
+
+def _b5w2_repo(tmp_path):
+    root = tmp_path / "qb2"
+    (root / ".git").mkdir(parents=True)
+    for rel in ("sales/periods.py", "sales/cli.py", "tests/test_report.py", "data/sales.csv", "defects.md"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x\n", encoding="utf-8")
+    return root
+
+
+@pytest.mark.parametrize("command", [
+    _B5W2_CMD,
+    "for f in README.md sales/periods.py tests/test_report.py\ndo\n  cat \"$f\"\ndone",      # 第四跑 B-1 的字面清單、換行寫法
+    "cat sales/*.py && head -5 tests/*.py",                                                   # glob 直接給讀檔指令
+], ids=["w2-b5-loop", "w2-b4-literal-multiline", "glob-direct"])
+def test_006_bash_loop_and_glob_reads_count(tmp_path, monkeypatch, command):
+    """閘小修 006 件 3（規則 BASH_READONLY_COUNTS_AS_READ）：字面清單的 for 迴圈逐項展開、glob 照 cwd 展開成實檔，讀過的算數；
+    前置：同一個專案沒讀之前改 sales/periods.py 是擋的（不然放行不是展開的功勞）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5w2_repo(tmp_path)
+    target = str(root / "sales" / "periods.py")
+    deny = wo.on_edit({}, "s", target, "", _NO_MIN_MAP)[1]
+    assert deny and "（目前 0 個）" in deny, "前置：沒讀過要擋，而且擋的是讀檔數"
+    state = {}
+    _bash_read(state, root, command, exit_code=0)
+    assert wo.on_edit(state, "s", target, "", _NO_MIN_MAP) == (None, None, True)
+    assert wo.on_edit(state, "s", str(root / "tests" / "test_new.py"), "", _NO_MIN_MAP) == (None, None, True)
+
+
+def test_006_loop_expansion_paths_are_exact(tmp_path):
+    """展開只收清單真的列到的實檔：glob 對到的每個檔、字面項照收（不存在的 .claude/… 由 bash_read_counts 濾掉）；
+    清單含命令代換整個迴圈不展開。"""
+    root = _b5w2_repo(tmp_path)
+    got = {Path(p).relative_to(root).as_posix() for p in oh.read_paths_from_tool("Bash", {"command": _B5W2_CMD}, str(root))
+           if Path(p).is_file()}
+    assert got == {"sales/periods.py", "sales/cli.py", "tests/test_report.py", "defects.md", "data/sales.csv"}, got
+    assert oh.read_paths_from_tool("Bash", {"command": 'for f in $(ls sales); do cat "sales/$f"; done'}, str(root)) == []
+
+
+@pytest.mark.parametrize("command", [
+    'for f in sales/periods.py; do break; cat "$f"; done',          # 本體先跳出：cat 沒跑
+    'for f in sales/*.py; do [ -s "$f" ] || continue; cat "$f"; done',
+    "for f in 'sales/*.py'; do cat \"$f\"; done; true",               # 加引號的 glob：bash 傳字面星號
+    "cat 'sales/*.py'; true",
+], ids=["break", "continue", "quoted-loop-glob", "quoted-direct-glob"])
+def test_006_loop_exit_and_quoted_glob_do_not_inflate_reads(tmp_path, command):
+    """codex 006：讀檔指令不一定跑、glob 被引號擋住沒展開 → 不能多算讀過（之前會把 sales/ 底下的檔全算讀過）。"""
+    root = _b5w2_repo(tmp_path)
+    got = [p for p in oh.read_paths_from_tool("Bash", {"command": command}, str(root)) if Path(p).is_file()]
+    assert got == [], got
 
 
 def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
