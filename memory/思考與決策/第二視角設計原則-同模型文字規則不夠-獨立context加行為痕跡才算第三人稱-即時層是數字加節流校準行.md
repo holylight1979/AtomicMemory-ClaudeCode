@@ -2,13 +2,12 @@
 
 - Scope: global
 - Author: holylight
-- Source: C:/Users/holylight/.claude/memory/_staging/next-phase-第二視角-Companion三面鏡.md；三方信箱 <專案路徑>/.claude/inbox/tri-link/
+- Source: C:/Users/holylight/.claude/memory/_staging/next-phase-第二視角-Companion三面鏡.md
+- Quote: 「我不小心把session關掉了..」
+- Related: feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住, 機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度
 - Confidence: [臨]
 - Trigger: 第二視角, 第三人稱, 自我批判, 綜觀視角, 過度工程, 飄移, 瞎掰, critic, Companion 三面鏡, 自我監看, 反省機制, second opinion
 - Created-at: 2026-10-07
-- Quote: 「我不小心把session關掉了..」
-
-- Related: feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住, 機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度
 
 ## 知識
 

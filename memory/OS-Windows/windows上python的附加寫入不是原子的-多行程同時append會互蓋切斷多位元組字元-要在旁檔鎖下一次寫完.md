@@ -2,11 +2,11 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-index-tools-fix 000（e7197deb）探針實測；lib/verify/verify_atom_io_audit_log.py
+- Source: commit e7197deb 實測；lib/verify/verify_atom_io_audit_log.py
+- Quote: 「妳有開好、加速後，再跟我講一次狀態、開幾個..」
 - Confidence: [臨]
 - Trigger: append 互蓋, O_APPEND, 多行程寫 jsonl, 非 UTF-8 位元組, 稽核帳壞行, msvcrt locking, 共用 log 寫入
 - Created-at: 2026-10-21
-- Quote: 「妳有開好、加速後，再跟我講一次狀態、開幾個..」
 
 ## 知識
 

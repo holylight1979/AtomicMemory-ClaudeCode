@@ -6474,11 +6474,9 @@
         "第一句當全部",
         "從最大檔出發",
         "函式名下結論",
-        "沒派工卻寫無待答",
         "行為偏差",
         "綜觀需求",
         "候選檔怎麼挑",
-        "無待答項",
         "看函式名就寫結論",
         "沒實測就下結論",
         "最大檔",
@@ -6532,7 +6530,6 @@
       "triggers": [
         "飄移",
         "初衷",
-        "原話輯",
         "目標清單",
         "外推規則",
         "範疇混用",
@@ -6894,7 +6891,6 @@
         "關鍵字清單",
         "萃取前過濾",
         "一次性指示",
-        "開工句",
         "fullmatch",
         "自由欄位"
       ],
@@ -7531,8 +7527,7 @@
         "別人的未提交改動",
         "共用工作樹合併",
         "settings.json 髒",
-        "git apply 套分支差異",
-        "總控台合併"
+        "git apply 套分支差異"
       ],
       "scope": "global"
     },
@@ -7547,7 +7542,6 @@
         "視野越做越小",
         "卡整天",
         "被鎖住",
-        "總控台",
         "追你才提",
         "自己跳出來"
       ],
@@ -7569,9 +7563,7 @@
         "血肉長齊",
         "跑偏",
         "退避的縮小版",
-        "後段項目",
-        "B 段",
-        "C 項"
+        "後段項目"
       ],
       "scope": "global"
     },
@@ -7787,7 +7779,7 @@
         "LLM 退避",
         "差池",
         "發現其他問題",
-        "交付信"
+        "回報"
       ],
       "scope": "global",
       "related": [
@@ -8374,7 +8366,7 @@
         "diff3",
         "conflict=diff3",
         "表格衝突",
-        "多軌合併",
+        "多分支合併",
         "案例檔衝突",
         "CHANGELOG 衝突"
       ],
@@ -8419,11 +8411,9 @@
         "預設路徑",
         "寫死路徑",
         "版本名資料夾",
-        "v6-inbox",
         "臨時資料夾",
         "工作殘存",
         "信箱路徑",
-        "派工單路徑預設",
         "綜觀"
       ],
       "scope": "global"
@@ -8637,7 +8627,7 @@
         "側觀視角",
         "側寫認知",
         "靜默昇華",
-        "開工句",
+        "下一階段 prompt",
         "交出前批判",
         "視野越做越小",
         "要不要我照這個改"
@@ -8834,7 +8824,6 @@
         "資料來源",
         "權威源頭",
         "續接單",
-        "派工單",
         "舊版本",
         "假設錯誤"
       ],
@@ -8932,7 +8921,7 @@
     },
     {
       "name": "feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修",
-      "path": "memory/Failures/驗證與實證/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md",
+      "path": "_AIDocs/_atoms/MemDev/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md",
       "triggers": [
         "驗證閘設計",
         "反覆重跑",
@@ -9185,7 +9174,7 @@
     },
     {
       "name": "宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳",
-      "path": "memory/CC與原子記憶契約/宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳.md",
+      "path": "_AIDocs/_atoms/MemDev/宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳.md",
       "triggers": [
         "宣稱行",
         "不做行",
@@ -9255,7 +9244,7 @@
     },
     {
       "name": "回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響",
-      "path": "memory/CC與原子記憶契約/回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響.md",
+      "path": "_AIDocs/_atoms/MemDev/回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響.md",
       "triggers": [
         "turn_intent",
         "classify_intent",
@@ -9402,8 +9391,7 @@
         "目標樹跨 session",
         "收尾自動匯出",
         "預設有下個 session",
-        "不內建",
-        "原設計者否決"
+        "不內建"
       ],
       "scope": "global"
     },
@@ -9437,8 +9425,6 @@
         "codex 挖出",
         "審查發現",
         "飄移",
-        "交付信",
-        "總控台裁定",
         "之後再修"
       ],
       "scope": "global",
@@ -9909,7 +9895,7 @@
     },
     {
       "name": "原子記憶是llm切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費llm",
-      "path": "memory/CC與原子記憶契約/原子記憶是llm切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費llm.md",
+      "path": "_AIDocs/_atoms/MemDev/原子記憶是llm切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費llm.md",
       "triggers": [
         "切入點",
         "調校層",
@@ -11901,6 +11887,217 @@
         "接手讀錯",
         "裁定後改單",
         "补充表已存在"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "閘起新一批時作廢舊欠項若排在核對答案之前-改碼那則回覆的答案永遠收不到-改標stale只收答案不擋",
+      "path": "memory/設計通則/閘起新一批時作廢舊欠項若排在核對答案之前-改碼那則回覆的答案永遠收不到-改標stale只收答案不擋.md",
+      "triggers": [
+        "作廢舊欠項",
+        "新一批量測",
+        "答案收不到",
+        "修了又欠",
+        "stale 欠項",
+        "核對順序"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "判斷有沒有改到用內容指紋-去行尾空白空行與共同縮排-不可逐行strip-指紋取完整結構不取顯示字串",
+      "path": "memory/驗證與實證/判斷有沒有改到用內容指紋-去行尾空白空行與共同縮排-不可逐行strip-指紋取完整結構不取顯示字串.md",
+      "triggers": [
+        "內容指紋",
+        "有沒有改到",
+        "去共同縮排",
+        "strip 誤判",
+        "函式指紋",
+        "只問改到的"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "已判過清單用名字加指紋成對記-同名多個用名字當鍵會互相擠掉-每批輪流重問",
+      "path": "memory/設計通則/已判過清單用名字加指紋成對記-同名多個用名字當鍵會互相擠掉-每批輪流重問.md",
+      "triggers": [
+        "已判過清單",
+        "同名條目",
+        "多載",
+        "getter setter",
+        "輪流重問",
+        "名字當鍵"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "verify檔直接python跑前先確認有-main-入口-沒有就只import後exit0是假綠",
+      "path": "memory/驗證與實證/verify檔直接python跑前先確認有-main-入口-沒有就只import後exit0是假綠.md",
+      "triggers": [
+        "直接跑",
+        "__main__",
+        "假綠",
+        "exit 0",
+        "哨兵尾行",
+        "verify 直接 python"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "git-pathspec短魔法把非英數字元都當魔法字-排除底線開頭的檔要寫exclude",
+      "path": "memory/版控/Git/git-pathspec短魔法把非英數字元都當魔法字-排除底線開頭的檔要寫exclude.md",
+      "triggers": [
+        "pathspec",
+        "Unimplemented pathspec magic",
+        ":(exclude)",
+        "排除檔案",
+        "git diff 排除",
+        ":!"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents",
+      "path": "memory/CC與原子記憶契約/claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents.md",
+      "triggers": [
+        "claude ps",
+        "claude 子指令",
+        "背景 session id",
+        "claude stop",
+        "未知子指令",
+        "一次性 session"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "無頭探針驗skill行為-claude-p加setting-sources-project與strict-mcp-config不載使用者層hook與mcp",
+      "path": "memory/驗證與實證/無頭探針驗skill行為-claude-p加setting-sources-project與strict-mcp-config不載使用者層hook與mcp.md",
+      "triggers": [
+        "無頭探針",
+        "claude -p",
+        "--setting-sources project",
+        "--strict-mcp-config",
+        "skill 行為實測",
+        "stream-json",
+        "探針不寫 live"
+      ],
+      "scope": "global",
+      "related": [
+        "無頭受測要關掉全部hook用claude--settings的disableAllHooks旗標-hooks只來自使用者層settings-資料根放空settings不生效",
+        "Git-Bash傳斜線開頭參數給Windows原生程式會被轉成路徑-例claude-p的slash指令-MSYS_NO_PATHCONV只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑"
+      ]
+    },
+    {
+      "name": "主檔旁的本機旁路檔路徑要從主檔路徑推-測試換掉主檔路徑時旁路檔跟著換",
+      "path": "memory/設計通則/主檔旁的本機旁路檔路徑要從主檔路徑推-測試換掉主檔路徑時旁路檔跟著換.md",
+      "triggers": [
+        "config.local.json",
+        "followups.local.json",
+        "本機覆寫檔",
+        "旁路檔",
+        "with_name",
+        "import 時寫死路徑",
+        "monkeypatch 主檔路徑",
+        "測試寫到真檔"
+      ],
+      "scope": "global",
+      "related": [
+        "測試收尾不清共用的live量測檔-多session同機共用claude時truncate會刪掉別人的真實資料-測試用monkeypatch改路徑"
+      ]
+    },
+    {
+      "name": "skill設disable-model-invocation後模型清單看不到-skill工具叫會被擋-人打斜線照常-要別的session跑就叫它read-skillmd",
+      "path": "memory/CC與原子記憶契約/skill設disable-model-invocation後模型清單看不到-skill工具叫會被擋-人打斜線照常-要別的session跑就叫它read-skillmd.md",
+      "triggers": [
+        "disable-model-invocation",
+        "Skill 工具被擋",
+        "explicit user invocation",
+        "user-invocable",
+        "skill 清單看不到",
+        "開工句叫 skill",
+        "SKILL.md frontmatter"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀",
+      "path": "_AIDocs/_atoms/MemDev/部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀.md",
+      "triggers": [
+        "部位表單檔列",
+        "單檔前綴",
+        "類別欄",
+        "gate 類別",
+        "knowledge 類別",
+        "少數檔變高風險",
+        "wg_second_opinion",
+        "overview-map.md"
+      ],
+      "scope": "global",
+      "related": [
+        "部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過",
+        "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過"
+      ]
+    },
+    {
+      "name": "text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列",
+      "path": "_AIDocs/_atoms/MemDev/text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列.md",
+      "triggers": [
+        "text-score",
+        "auto_targets",
+        "docs: []",
+        "不評文件",
+        "wg_text_score",
+        "文字評分自動目標"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "交給llm宣告的閘-名單取重送之間不變的來源-多寫不算錯-程式不做跟宣告相反的事",
+      "path": "memory/設計通則/交給llm宣告的閘-名單取重送之間不變的來源-多寫不算錯-程式不做跟宣告相反的事.md",
+      "triggers": [
+        "宣告名單",
+        "重送對不上",
+        "退件循環",
+        "名單翻面",
+        "小模型重判",
+        "照宣告走",
+        "宣告多寫",
+        "要 AI 宣告才放行"
+      ],
+      "scope": "global",
+      "related": [
+        "去重宣告看主張不看主題-新內容說舊卡哪句錯就是取代-補同一條判準的實例才是同一條"
+      ]
+    },
+    {
+      "name": "多行程可能同寫同名檔時用獨占建立另起檔名-不要讀後重寫或併檔",
+      "path": "memory/設計通則/多行程可能同寫同名檔時用獨占建立另起檔名-不要讀後重寫或併檔.md",
+      "triggers": [
+        "多行程同寫",
+        "同名檔互蓋",
+        "獨占建立",
+        "O_EXCL",
+        "flag wx",
+        "讀後重寫",
+        "固定 tmp 檔名",
+        "併檔",
+        "以檔名為單位審核"
+      ],
+      "scope": "global",
+      "related": [
+        "windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完"
+      ]
+    },
+    {
+      "name": "v6守門出廠預設關-直接跑的js與lib-verify驗證要自己帶wg-v6等於1",
+      "path": "_AIDocs/_atoms/MemDev/v6守門出廠預設關-直接跑的js與lib-verify驗證要自己帶wg-v6等於1.md",
+      "triggers": [
+        "WG_V6",
+        "v6.enabled",
+        "v6 出廠關",
+        "conftest 自動設 WG_V6",
+        "lib/verify",
+        "node 驗證腳本",
+        "v6 案例大量紅"
       ],
       "scope": "global"
     }

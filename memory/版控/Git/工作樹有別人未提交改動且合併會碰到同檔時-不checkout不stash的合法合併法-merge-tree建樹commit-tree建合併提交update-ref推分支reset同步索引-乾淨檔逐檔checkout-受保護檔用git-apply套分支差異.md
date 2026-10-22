@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: 合併被擋, would be overwritten, 不能 checkout, 不能 stash, merge-tree, commit-tree, update-ref, 別人的未提交改動, 共用工作樹合併, settings.json 髒, git apply 套分支差異, 總控台合併
+- Trigger: 合併被擋, would be overwritten, 不能 checkout, 不能 stash, merge-tree, commit-tree, update-ref, 別人的未提交改動, 共用工作樹合併, settings.json 髒, git apply 套分支差異
 - Created-at: 2026-10-13
 - Source: session:81a3e55f 2026-10-13
 - Quote: 「你是 v6.0 的總控台（調度），前任是 claude-2c。先讀 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md 最上方「總控台換手」段（五條新規則＋現況），再 /continue 它。你負責：收各工作 session 交付（track-e claude-05 的 038、track-g12 claud…」

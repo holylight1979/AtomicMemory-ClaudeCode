@@ -2,11 +2,10 @@
 
 - Scope: global
 - Author: holylight
+- Source: session:57afce55 2026-10-21
 - Confidence: [臨]
 - Trigger: 改前改後實測, LLM 實測, gemma 實測, 紅案例, 改前基線, temperature 0, 重跑結果不同, 題庫重用, 實測翻盤
 - Created-at: 2026-10-21
-- Source: session:57afce55 2026-10-21
-- Quote: 「track-某專案：你是工作軌 track-某專案（接續前一個 session：它已交付 001＋002 並合進 main 2756f296，003 做到一半因 MCP 斷線停掉；半成品 commit 252fbf3e 在分支上，交接筆記全文在 `git log -1 252fbf3e` 的訊息裡，先讀它），調度總控台是 claude-17（送信前先 ListAgents 確認，名字會變）。第一…」
 
 ## 知識
 

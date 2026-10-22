@@ -2,11 +2,10 @@
 
 - Scope: global
 - Author: holylight
-- Source: 某工作軌 004 交付信 post-mortem（總控台代寫）
+- Source: commit:868b639a 2026-10-21（原出處已隨工作信箱清理）
 - Confidence: [臨]
 - Trigger: CREATE_NO_WINDOW, 壓窗旗標, no-window-exempt, verify_no_window_spawn, subprocess.run 輸出不見, 子行程沒有主控台, 重跑仍紅
 - Created-at: 2026-10-21
-- Quote: 「除非像是先前我曾經說的"session派工之間必須等(衝突或先後必須..那些)"，否則就請你持續多開加速完工，須注意工人模型用Opus、Effort 也注意一下，除非"絕對必須用Fable"。」
 
 ## 知識
 

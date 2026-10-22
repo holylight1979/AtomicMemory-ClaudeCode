@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session 26d36367 track-wave2-kit 派工 003（w2_build_env 實跑）
+- Source: session 26d36367（2026-10-21，建環境實跑）
 - Confidence: [臨]
 - Trigger: sync-atom-index, add-from-frontmatter, --rebuild, 重建索引, 索引張數不對, _atom_index.json, 資料根建索引, 複製卡片進新資料根
 - Created-at: 2026-10-21

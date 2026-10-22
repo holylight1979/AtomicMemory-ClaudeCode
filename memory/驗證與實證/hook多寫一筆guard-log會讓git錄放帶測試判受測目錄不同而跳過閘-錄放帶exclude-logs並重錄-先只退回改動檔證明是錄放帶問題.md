@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-entrypoint-contract 002（verify_gate_bypass 重錄 25 檔）
+- Source: verify_gate_bypass 重錄 25 檔（2026-10）
 - Confidence: [臨]
 - Trigger: git_cassette, 錄放帶, --git-record, 受測目錄不同, verify_gate_bypass 跳過, guard log 多一筆, Logs 目錄
 - Created-at: 2026-10-21

@@ -35,6 +35,7 @@
 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-windows路徑或引述值一律用函式替換 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-Windows路徑或引述值一律用函式替換 |
 | episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格 | episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格 |
 | feedback-memory-system-doc-sync | feedback-memory-system-doc-sync |
+| feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 | feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 |
 | git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控 | git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用--git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控 |
 | git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 | git測試慢用錄製重播git_cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
@@ -64,10 +65,12 @@
 | scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層 |
 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整WC status爆預算-只信xml輸出 |
 | testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
+| text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列 | text-score的auto_targets空清單是不比路徑不是關掉-要某種類不評就整個不列 |
 | toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 |
 | userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | UserPromptSubmit路的判斷入口形狀-命中先記待判問句接判準卡-Stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 |
 | v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 | v6.0-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 |
+| v6守門出廠預設關-直接跑的js與lib-verify驗證要自己帶wg-v6等於1 | v6守門出廠預設關-直接跑的js與lib-verify驗證要自己帶WG_V6等於1 |
 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 |
 | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add |
 | verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項 | verify_scope宣告項目太多時PostToolUse逾時被砍-宣告靜默遺失-只列改檔必要的項 |
@@ -87,10 +90,12 @@
 | 判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 | 判準卡Entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 |
 | 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕 | 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進HUD刪除鈕 |
 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 |
+| 原子記憶是llm切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費llm | 原子記憶是LLM切入點的調校層-閘與案例守流程卡守判斷-驗收判錯先歸因改卡不加閘-文字評分只附不擋且裁判用開源免費LLM |
 | 取用端稽核與瘦身規範-atomaudit與3kb預算 | 取用端稽核與瘦身規範-AtomAudit與3KB預算 |
 | 同一切入點綁兩張以上判準卡時知識段短的先送-長的專卡會被擠到後面截斷-綁之前先模擬順序與送到哪幾條 | 同一切入點綁兩張以上判準卡時知識段短的先送-長的專卡會被擠到後面截斷-綁之前先模擬順序與送到哪幾條 |
 | 向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功 | 向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功 |
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 |
+| 回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響 | 回合意圖分類吃到同伴訊息正文-clean_prompt只剔IDE區塊-重構意圖會被派工信觸發-所有吃turn_intent的閘與選片都受影響 |
 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 |
 | 在live複跑stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 | 在live複跑Stop驅動測試時關掉git錄製檔且多檔合跑會出假紅-總控台複驗要照預設設定單檔跑 |
 | 在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex | 在worktree跑mcp的js測試要設WG-CLAUDE-DIR指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendToolResult與syncMemoryIndex |
@@ -104,6 +109,7 @@
 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 |
 | 守門只在寫碼回合啟動時-入口要認本回合的實質改碼或本回合宣告-不能認跨回合常駐的目標樹-也不能認關鍵字意圖 | 守門只在寫碼回合啟動時-入口要認本回合的實質改碼或本回合宣告-不能認跨回合常駐的目標樹-也不能認關鍵字意圖 |
 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 |
+| 宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給llm介入-程式只查有沒有回證據對不對並留帳 | 宣稱與退避詞表降成提示-收尾用宣稱行與不做行留給LLM介入-程式只查有沒有回證據對不對並留帳 |
 | 專案工作驗收裁判的分級啟動與殺閘設計 | 專案工作驗收裁判的分級啟動與殺閘設計 |
 | 專案等級-mcpskillhookslog-不放全域根層 | 專案等級 mcp/skill/hooks/log 不放全域根層 |
 | 導讀卡寫入受knowledge區3072bytes預算擋-skip-gate跳不過funnel-矛盾偵測先於預算跑 | 導讀卡寫入受knowledge區3072bytes預算擋-skip_gate跳不過funnel-矛盾偵測先於預算跑 |
@@ -156,6 +162,7 @@
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 |
 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 |
 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 | 部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過 |
+| 部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀 | 部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀 |
 | 量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 | 量測收據要認DONE帶k=v-sentinel_regex會把普通pytest統計行也轉成PYTEST_MEASURE-DONE-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 |
 | 量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況 | 量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況 |
 | 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序 | 錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序 |

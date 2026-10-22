@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: commit:57b293f7 2026-10-21（track-maint-small-fixes，codex 審 G2a 六條 BLOCK）
+- Source: commit:57b293f7 2026-10-21（codex 審 G2a 六條 BLOCK）
 - Confidence: [臨]
 - Trigger: git 別名, git alias, alias.ci, git -c alias, ! shell 別名, commit 前閘, 攔 git 指令, 子命令判定, --list-cmds, config --get-regexp
 - Created-at: 2026-10-21

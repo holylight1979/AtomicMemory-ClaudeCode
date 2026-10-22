@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-v6-cost-measure 001 探針實測 2026-10-22
+- Source: commit:8e6ffe3c 2026-10-22（實測）
 - Confidence: [臨]
 - Trigger: hook 全關, disableAllHooks, --settings, 無 hook 對照組, 量 hook 代價, WG_CLAUDE_DIR settings
 - Created-at: 2026-10-22

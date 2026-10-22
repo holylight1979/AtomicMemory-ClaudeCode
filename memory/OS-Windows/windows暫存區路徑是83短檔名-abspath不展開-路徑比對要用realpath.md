@@ -13,6 +13,7 @@
 - [臨] Windows 的 TEMP 環境變數常是 8.3 短檔名（例 C:\Users\ABCDEF~1\AppData\Local\Temp），tempfile.gettempdir() 原樣回傳；os.path.abspath／normpath 不展開短檔名，os.path.realpath 會展開成長檔名（路徑尾段不存在也會展開已存在的前段）。git worktree list 回報的也是長檔名。
 - [臨] 後果：拿 abspath 比「在不在暫存區之下」或做去重鍵，同一個地方的短／長兩種寫法比不上——AI 常用長檔名寫進 scratchpad，就被判成「專案外」；工作樹路徑對不上 git 回報的清單就被當成不在了。實測一份產出物帳本約 63 項暫存檔因此被誤分類。
 - [臨] pytest 的 tmp_path 已經 resolve 成長檔名，測試裡兩邊都是長檔名，這個錯在測試照不出來；要測得用 ctypes GetShortPathNameW 取短名（磁碟沒開 8.3 名就 skip）。
+- [臨] Node 的 os.tmpdir() 也回 8.3 短名，py 端已 realpath 的路徑是長名，兩邊字串直接比不相等；js 測試斷言只比檔名，或兩邊都先 realpath。
 
 ## 行動
 

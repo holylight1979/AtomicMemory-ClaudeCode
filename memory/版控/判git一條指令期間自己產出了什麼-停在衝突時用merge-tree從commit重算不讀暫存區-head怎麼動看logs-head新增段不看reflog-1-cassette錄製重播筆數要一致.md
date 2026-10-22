@@ -2,11 +2,10 @@
 
 - Scope: global
 - Author: holylight
-- Source: 某閘小修軌 003 交付信（總控台代寫）
+- Source: commit:381e3d85 2026-10-21（原出處已隨工作信箱清理）
 - Confidence: [臨]
 - Trigger: merge-tree --write-tree, 停在衝突, logs/HEAD, reflog -1, REBASE_HEAD, git_cassette, 錄製重播, 舊測試閘 merge 誤擋, python 啟動器 cp950
 - Created-at: 2026-10-21
-- Quote: 「我今天要下班離開電腦前了、明早才會進公司。 我有另外開一個空Fable Session，title 我也改了名字叫 `(備)v6總控台-人+調`，如果此session的context又快用完(超過85%)了，你再自己去貼session prompt來繼承你； Codex的檢核意見，你要提醒工作session審過 (別呆呆的就又掉進飄移坑)； **用經驗、朝目標、避免飄、不空等、不浪費**。」
 
 ## 知識
 

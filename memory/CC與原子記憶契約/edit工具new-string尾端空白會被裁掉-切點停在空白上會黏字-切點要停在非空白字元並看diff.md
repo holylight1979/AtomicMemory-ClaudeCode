@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session:23787466 2026-10-13 track-g12（v6/track-g12 commit 0a2f492、39bb754 內修回）
+- Source: session:23787466 2026-10-13（commit 0a2f492、39bb754）
 - Confidence: [臨]
 - Trigger: Edit 工具, new_string, old_string, 行尾空白, 尾端空白, trailing whitespace, 黏字, 切點, Edit 後看 diff
 - Created-at: 2026-10-13
