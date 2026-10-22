@@ -15,6 +15,7 @@
 - [臨]（實跑 2026-10-07）替代做法已驗：把要被 hook 讀到的宣告（如定位三行）放在**下一個 Bash 指令開頭的 `#` 註解**，工具參數一定進 transcript；R5 注入閘改成三管道（回覆文字→工具參數→thinking）後，同一 session 同一人：三行只在回覆文字 → `located=False`；放 Bash 註解 → 5 筆 edit 全 `located=True via=tool_input`。比「純文字回合結尾」省一個回合。
 - [臨] 第二台機器、第二條管線（VSCode 擴充＋bypass）重現：解析自己的 jsonl，assistant 區塊 text 19／tool_use 138／thinking 75，確定寫過的三段「定位三行」全不在 text，19 筆 text 全是純文字回合。對照實驗：同一檔同一人，「先文字再 Edit」那筆 located=false；「純文字回合寫三行、下一回合再 Edit」那筆 located=true via=text。根層已把判法改成三管道（回覆文字→工具呼叫參數→thinking）；最穩的做法是 Edit 前那一個 Bash 指令開頭放 `# 定位｜…` 三行（另一專案 5 筆全 via=tool_input）。
 - [臨] 定位行放在 Bash 開頭註解時，那個 Bash 要比 Edit 早一則訊息送出：同一則訊息並行送出 Bash（新定位行）與 Edit，Edit 的 PreToolUse 先讀 transcript、看不到新定位行，照舊行判（實遇：改過根因層後仍被擋「沒寫選擇理由」，單獨重送 Edit 就過）。
+- [臨]（減量軌 001 查 B′ transcript）定位行只寫在 thinking 裡時，transcript 的 thinking 區塊只剩簽名、沒有內文，程式讀不到，定位閘因此第二輪又擋。「thinking 管道」不可靠；宣告要寫在回覆文字或 Bash 開頭註解。
 
 ## 行動
 

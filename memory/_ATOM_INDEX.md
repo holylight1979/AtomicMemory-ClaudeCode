@@ -609,3 +609,5 @@
 | 拿字樣在指令裡當宣告綁定條件時-比對前先去掉註解行-否則寫在註解裡的宣告會自己對上自己 | _AIDocs/_atoms/MemDev/拿字樣在指令裡當宣告綁定條件時-比對前先去掉註解行-否則寫在註解裡的宣告會自己對上自己.md | 宣告綁定, 負向對照, 自己對上自己, 註解行, 字樣比對, NEGATIVE_CONTROL_DECLARED | global |  |
 | 第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次 | _AIDocs/_atoms/MemDev/第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次.md | 第二意見收尾, 分歧點, 裁決與理由, second_opinion, 缺行, SecondOpinion | global |  |
 | feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量 | memory/Failures/工作流/feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量.md | token 預算, 減量, 守門全關, disableAllHooks, 重複行為, 反覆驗證, 同步提醒, 力氣用在刀口上, 耗時上限, 守門代價 | global |  |
+| 驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法 | _AIDocs/_atoms/MemDev/驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法.md | 收據不認, 分號串接, 重複驗證, 反覆驗證, wg_verify_ledger, 驗證範圍, 再跑一次 | global |  |
+| 閘關了ai照樣一直呼叫工具-是提示句與mcp描述帶的-減量要改提示與記帳位置-只關閘沒用 | _AIDocs/_atoms/MemDev/閘關了ai照樣一直呼叫工具-是提示句與mcp描述帶的-減量要改提示與記帳位置-只關閘沒用.md | goal_gate, need_goal update, 提示句, MCP 描述, 減量, token 消耗, 關閘沒用 | global |  |
