@@ -165,7 +165,7 @@ def test_resumed_session_gets_sync_reminder(flow, capsys, v6):
     edit(state, _A, _B)
     out, _, _ = stop_run(capsys)
     assert "[Guardian:SyncReminder]" in out, out
-    assert state["phase"] == "working"
+    assert state["phase"] == "working" and "ended_at" not in state, state.get("ended_at")   # 續接中不算已結束（面板清理不刪）
 
 
 @pytest.mark.parametrize("phase", ["syncing", "merged"])
@@ -238,12 +238,69 @@ def test_general_block_chain_hold_does_not_mark_shown(flow, capsys, monkeypatch)
     assert "[Workflow Guardian] 2 file(s) modified, 1 knowledge pending" in out, out
 
 
+def test_general_block_drift_again_after_resolved(flow, capsys):
+    """文件漂移擋過、補了文件（pending 清掉）、後面回合同一個來源又改 → 新的一筆漂移照擋；解決掉的不留在 sync_block_shown。"""
+    state, ups_run, stop_run = flow
+    state["sync_reminder_count"] = 1
+    state["docdrift_pending"] = {"docs/a.md→Arch.md": {"source": "docs/a.md", "doc": "Arch.md", "added_at": "2026-10-23T10:00:00+08:00"}}
+    ups_run("幫我改 a 跟 b 兩份文件", capsys)
+    edit(state, _A, _B)
+    out, _, _ = stop_run(capsys)
+    assert "[Workflow Guardian]" in out and "[DocDrift]" in out, out
+    for _ in range(2):
+        stop_run(capsys)
+    ups_run("補 Arch.md", capsys)
+    state["docdrift_pending"] = {}                                                 # resolve_doc_update 清掉
+    state["knowledge_queue"] = [{"content": "某個坑", "classification": "[臨]"}]
+    out, _, _ = stop_run(capsys)
+    assert "[Workflow Guardian]" in out, out
+    assert not [k for k in state["sync_block_shown"] if k.startswith("drift:")], state["sync_block_shown"]   # 解決掉的漂移不留
+    for _ in range(2):
+        stop_run(capsys)
+    ups_run("再改 a", capsys)
+    state["docdrift_pending"] = {"docs/a.md→Arch.md": {"source": "docs/a.md", "doc": "Arch.md", "added_at": "2026-10-23T11:00:00+08:00"}}
+    out, _, _ = stop_run(capsys)
+    assert "[Workflow Guardian]" in out and "[DocDrift]" in out, out
+
+
+def test_reopen_written_before_slow_steps(flow, capsys, monkeypatch):
+    """UPS 在檢索、注入途中被砍（逾時）也不留舊的 done：改回 working 那一刻就寫回 state 檔。"""
+    state, ups_run, stop_run = flow
+    _first_turn_question_only(state, ups_run, stop_run, capsys)
+    state["ended_at"] = "2026-10-23T09:00:00+08:00"
+    written = []
+    monkeypatch.setattr(ups, "write_state", lambda sid, s: written.append((s.get("phase"), "ended_at" in s)))
+
+    def killed(*a, **k):
+        raise RuntimeError("hook 被砍")
+    monkeypatch.setattr(ups, "build_context", killed)
+    with pytest.raises(RuntimeError):
+        ups.handle_user_prompt_submit({"session_id": _SID, "prompt": "改 a", "cwd": ""}, {})
+    assert written and written[0] == ("working", False), written
+
+
+def test_preview_lists_sync_block_even_when_closing_check_covers(flow, capsys, monkeypatch):
+    """收尾檢核 (g) 已交代只免同步提醒：還有沒擋過的待記知識時，「還會擋」預覽照列（底部一般擋不看收尾檢核，之後真的會擋）。"""
+    state, ups_run, stop_run = flow
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
+    monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: False)
+    ups_run("幫我改 a 跟 b 兩份文件", capsys)
+    edit(state, _A, _B)
+    state["anti_evasion_report"] = {"turn_seq": state["turn_seq"], "session_id": _SID, "at": "2026-10-23T10:05:00+08:00"}
+    out, _, _ = stop_run(capsys, text="好了。")
+    assert "DeferralGate" in out and "同步：" not in out, out                     # 前置：只剩改檔數、(g) 已交代 → 不列
+    state["knowledge_queue"] = [{"content": "某個坑", "classification": "[臨]"}]
+    out, _, _ = stop_run(capsys, text="好了。")
+    assert "DeferralGate" in out and "同步：1 筆待記知識或文件漂移" in out, out
+
+
 @pytest.mark.parametrize("kq, drift, unsynced, shown, uturn, want", [
     ([], {}, 3, {}, 5, []),                                                          # 只剩改檔數：歸同步提醒
     ([], {"a.py→Arch.md": {}}, 1, {}, 5, []),                                        # 文件漂移但改檔不到門檻：不擋
-    ([], {"a.py→Arch.md": {}}, 2, {}, 5, ["drift:a.py→Arch.md"]),
+    ([], {"a.py→Arch.md": {"added_at": "t1"}}, 2, {}, 5, ["drift:a.py→Arch.md@t1"]),
     (["字串項目"], {}, 0, {}, 5, ["kq:"]),                                            # 待記知識不看改檔數；字串項目也認
-    ([{"content": "坑"}], {"d": {}}, 0, {}, 5, ["kq:", "drift:d"]),                  # 有待記知識：漂移一起列
+    ([{"content": "坑"}], {"d": {}}, 0, {}, 5, ["kq:", "drift:d@"]),                  # 有待記知識：漂移一起列
     ([{"content": "坑"}], {}, 2, "earlier", 5, []),                                  # 前面回合擋過
     ([{"content": "坑"}], {}, 2, "same", 5, ["kq:"]),                                # 同一回合擋過：照舊可再擋
 ])
