@@ -53,14 +53,20 @@ _RETRY_PAUSE = 0.2
 
 
 def _test_root() -> Optional[Path]:
-    """pytest 底下（PYTEST_CURRENT_TEST）每一案各用一份帳與快照，放測試用的 Logs 暫存目錄（wg_core.logs_dir）；平常回 None。
+    """pytest 底下（PYTEST_CURRENT_TEST）每一案每一次執行各用一份帳與快照：測試用的 Logs 暫存目錄（wg_core.logs_dir）底下
+    chain-tests/<這次執行>/<案例>；平常回 None。
     為什麼：同一次 pytest 的資料根共用、案例的 session id 又常一樣，前一案的觸發留在帳上，後一案同一道閘再擋一次就被當成同一回合
-    第 2 次而中止；快照也不能落進模組載入時算好的資料根。"""
+    第 2 次而中止；Logs 目錄跨次執行固定時（設了 WG_TEST_LOGS_DIR、案例把 GUARD_LOG_DIR 換成固定路徑）只按案例名分，
+    同一案第二次跑會讀到上一次的帳。快照也不能落進模組載入時算好的資料根。
+    「這次執行」＝環境變數裡的暫存目錄（TMPDIR／TEMP／TMP）：root conftest 每次 pytest 開始時換一個新的（同一個行程再跑一次
+    pytest.main 也換），案例開的子行程（走真 hook 入口的案）繼承同一份、跟案例共用帳，誰先用到都一樣。"""
     t = os.environ.get("PYTEST_CURRENT_TEST", "")
     if not t:
         return None
+    run = next((os.environ[k] for k in ("TMPDIR", "TEMP", "TMP") if os.environ.get(k)), "")
     from wg_core import logs_dir
-    return logs_dir() / "chain-tests" / hashlib.sha1(t.rsplit(" ", 1)[0].encode("utf-8")).hexdigest()[:12]
+    return (logs_dir() / "chain-tests" / hashlib.sha1(run.encode("utf-8")).hexdigest()[:10]
+            / hashlib.sha1(t.rsplit(" ", 1)[0].encode("utf-8")).hexdigest()[:12])
 
 
 def _ledger_dir() -> Path:
@@ -228,9 +234,11 @@ def _batch_fields(input_data: Dict[str, Any]) -> Dict[str, str]:
 # ─── 閘觸發、停手、只記錄 ─────────────────────────────────────────────────
 
 def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, Any], config: Dict[str, Any], *,
-               watched: Iterable[str] = (), later: Iterable[str] = (), now: Optional[float] = None) -> GateResult:
+               watched: Iterable[str] = (), target: str = "", later: Iterable[str] = (),
+               now: Optional[float] = None) -> GateResult:
     """閘要擋下或記欠之前呼叫：記一筆觸發，回這次照擋（record_only=False）還是只記錄。
-    watched＝這道閘看哪些檔（說不出就不給）；later＝收尾閘擋下時「後面還會擋」預覽裡的閘名（CHAIN_EDGE_PREVIEWED）。
+    watched＝這次擋的檔（CHAIN_EDGE_FILES_DISJOINT 與 CHAIN_SAME_GATE_PER_OBJECT 都用；說不出就不給）；
+    target＝擋的對象不是檔時的對象鍵（定位閘的部位；說不出就不給）；later＝收尾閘擋下時「後面還會擋」預覽裡的閘名（CHAIN_EDGE_PREVIEWED）。
     警報在這一次響：記通知（答案從這之後算、題目定下來、能不能互動）；收尾上回 notice、工具上回 halt，呼叫端用它取代原擋訊息。"""
     try:
         cx = _ctx(sid, turn, input_data, config, now)
@@ -241,7 +249,8 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
         if wc.muted_again(ch, str(gate)):
             return GateResult(True)
         row = {"gate": str(gate), "what": wc.one_line(what), "hook": hook, "event": _event(input_data),
-               "watched": [str(p) for p in watched], "later": [str(g) for g in later], **_batch_fields(input_data)}
+               "watched": [str(p) for p in watched], "target": str(target or ""), "later": [str(g) for g in later],
+               **_batch_fields(input_data)}
         j = wc.judge(ch, row, cx.cfg)
         new = [cx.row("gate", **row, record_only=j.record_only, depth=j.depth, same=j.same,
                       link=j.link.rule if j.link else "")]
