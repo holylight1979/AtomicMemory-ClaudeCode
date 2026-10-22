@@ -7,6 +7,7 @@
 2. 去重宣告（tools/memory-write-gate.py）：of 不在這次前 3 名、但在這次比對的層裡存在 → 收；沒候選但宣告 same／supersedes →
    照宣告走（找不到那張卡就拒寫說明，不另建新卡）；舊卡已滿 → 訊息直接給「壓縮舊卡（replace）或改寫進文件」。
 3. 流程級：第一次被退 → 照退件訊息改一次重送 → 收（退件只有一次）。
+4. 待審報告（tools/conflict-review.py）：approve／reject 某張卡後，同卡還有別份 <卡>.<n>.conflict.md → 輸出一行提示，不自動處理。
 不碰 live：向量服務與本地模型一律替身；留帳收進 list；去重比對層裡的卡建在 pytest 的隔離資料根、案例結束刪掉。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_mcp_write_gate.py
 """
@@ -40,6 +41,7 @@ def _load(name, rel):
 
 det = _load("mcp_write_gate_detector", "tools/memory-conflict-detector.py")
 gate = _load("mcp_write_gate_gate", "tools/memory-write-gate.py")
+review = _load("mcp_write_gate_review", "tools/conflict-review.py")
 
 
 # ─── 1. 衝突宣告 ─────────────────────────────────────────────────────────────
@@ -310,3 +312,52 @@ def test_flow_dedupe_refused_once_then_shrunk_resend_accepted(monkeypatch, audit
     second = _eval(content="[臨] PreToolUse 拿到的是已生成的 payload", dedupe={"verdict": "same", "of": TARGET, "why": "同一條"})
     assert second["action"] == "append" and second["append_to"]["atom_name"] == TARGET
     assert [a["action"] for a in audits if a["action"] in ("need_declaration", "dedupe_declared")] == ["need_declaration", "dedupe_declared"]
+
+
+# ─── 3. 待審報告：同卡還有別份時提示 ────────────────────────────────────────
+
+RESOLVED = ("# x\n\n- Scope: shared\n- Confidence: [臨]\n- Trigger: x-trigger, 測試\n- Pending-review-by: management\n\n"
+            "## 知識\n\n- [臨] 解決後的內容\n\n## 行動\n\n- 行動\n")
+
+
+@pytest.fixture
+def pending(tmp_path, monkeypatch):
+    """假專案的 shared/_pending_review；核准後的向量重索引與 catalog 背景刷新換成空函式（不打 live 服務）。"""
+    proj = tmp_path / "proj"
+    (proj / ".git").mkdir(parents=True)
+    pdir = proj / ".claude" / "memory" / "shared" / "_pending_review"
+    pdir.mkdir(parents=True)
+    monkeypatch.setattr(review, "_trigger_reindex", lambda: False)
+    monkeypatch.setattr(review, "_sync_project_catalog", lambda mem: None)
+    return proj, pdir
+
+
+def _report(pdir, name, body):
+    (pdir / name).write_text(f"# Write-time conflict: x\n\n{body}\n", encoding="utf-8", newline="\n")
+
+
+def test_approve_notes_other_reports_of_same_card(pending):
+    """會紅：舊碼核准 x 只收掉 x.conflict.md、不提還有 x.2.conflict.md（同名卡未審又衝突時另起的那份）。
+    現在輸出一行提示列出它，檔照在、不自動處理。"""
+    proj, pdir = pending
+    _report(pdir, "x.conflict.md", "第一份")
+    _report(pdir, "x.2.conflict.md", "第二份")
+    (pdir / "x.resolved.md").write_text(RESOLVED, encoding="utf-8", newline="\n")
+    r = review.action_approve(str(proj), "x.resolved", "tester", domain="工作流")
+    assert r.get("ok"), r
+    assert r["extras_removed"] == ["x.conflict.md"] and r["same_card_reports"] == ["x.2.conflict.md"]
+    assert r["note"].startswith("還有 1 份同卡的待審報告：x.2.conflict.md")
+    assert (pdir / "x.2.conflict.md").read_text(encoding="utf-8").endswith("第二份\n")
+    r = review.action_reject(str(proj), "x.2", "tester", "看過了")
+    assert r["ok"] and r["removed"] == ["x.2.conflict.md"] and "note" not in r
+
+
+def test_reject_notes_remaining_reports_in_number_order(pending):
+    proj, pdir = pending
+    for name in ("y.conflict.md", "y.2.conflict.md", "y.10.conflict.md", "yy.conflict.md"):
+        _report(pdir, name, name)
+    r = review.action_reject(str(proj), "y", "tester", "")
+    assert r["ok"] and r["removed"] == ["y.conflict.md"]
+    assert r["same_card_reports"] == ["y.2.conflict.md", "y.10.conflict.md"]   # yy 是別張卡
+    r = review.action_reject(str(proj), "y.2", "tester", "")
+    assert r["same_card_reports"] == ["y.10.conflict.md"] and "還有 1 份同卡的待審報告：y.10.conflict.md" in r["note"]
