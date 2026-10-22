@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-gate-small-fixes 004 交付信代寫 2026-10-21
+- Source: commit:cfda1231 2026-10-21（修補實證）
 - Confidence: [臨]
 - Trigger: 豁免帳, 紅測豁免, 使用者撤回, state 帳復活, 原話視窗
 - Created-at: 2026-10-21

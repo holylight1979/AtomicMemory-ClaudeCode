@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: v6/track-a4 001～008（0f10b03、36fcc0b、3dd5a8b、2e98849，合進 main fbbcc9e）hooks/handlers/pre_tool_use.py CommitOrder 口令閘
+- Source: commit fbbcc9e（0f10b03、36fcc0b、3dd5a8b、2e98849）hooks/handlers/pre_tool_use.py CommitOrder 口令閘
 - Confidence: [臨]
 - Trigger: bash -c, bash -lc, powershell -Command, cmd /c, shell 包裝, 包裝偵測, 執行旗標, basename, 口令閘, 指令字串解析, Program Files, & 呼叫運算子
 - Created-at: 2026-10-13

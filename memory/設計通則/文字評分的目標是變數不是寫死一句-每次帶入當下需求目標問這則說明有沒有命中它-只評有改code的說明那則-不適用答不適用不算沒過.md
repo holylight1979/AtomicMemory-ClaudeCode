@@ -2,11 +2,11 @@
 
 - Scope: global
 - Author: holylight
-- Source: v6.0 對人總控台 session（原設計者原話，2026-10-22）
+- Source: 原設計者原話 2026-10-22
+- Quote: 「我講了那麼多東西，知識經驗要交接，也要收割。」
 - Confidence: [臨]
 - Trigger: 評分規格目標, 當下的目標, 裁判提示詞, text-score 目標, 只評改code, 不適用, 評分雞肋, 裁判誤判
 - Created-at: 2026-10-22
-- Quote: 「我講了那麼多東西，知識經驗要交接，也要收割。」
 
 ## 知識
 

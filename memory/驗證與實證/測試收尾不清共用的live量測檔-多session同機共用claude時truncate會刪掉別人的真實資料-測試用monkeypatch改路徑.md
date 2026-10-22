@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session e40bc31f 2026-10-07，tri-link 兩專案信箱 052、043 回報 log 0 bytes
+- Source: session e40bc31f 2026-10-07（兩專案回報 log 0 bytes）
 - Confidence: [臨]
 - Trigger: 清 log, truncate, 測試殘留, 共用檔, 多 session, E2E 收尾, 量測 log, monkeypatch LOG_PATH, 別的 session 的資料
 - Created-at: 2026-10-07

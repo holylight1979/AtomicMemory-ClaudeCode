@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-hook-timing-startup 001（2026-10-21）：B′ 第三跑 B-2 材料重放
+- Source: 2026-10-21 hook 耗時重放
 - Confidence: [臨]
 - Trigger: hook 逾時, hook 耗時, hook_cancelled, timedOut, SessionStart 太慢, 重放, cProfile, 冷啟動, A/B 量測, 複本路徑
 - Created-at: 2026-10-21

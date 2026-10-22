@@ -2,13 +2,11 @@
 
 - Scope: global
 - Author: holylight
+- Source: session:ec069e59 2026-10-13
+- Related: pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因
 - Confidence: [臨]
 - Trigger: 反轉, 退回舊版, 紅在斷言, AttributeError, git checkout -- 檔案, restore --staged, raising=False, 新案退回紅, 保護案例
 - Created-at: 2026-10-13
-- Source: session:ec069e59 2026-10-13
-- Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
-
-- Related: pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因
 
 ## 知識
 

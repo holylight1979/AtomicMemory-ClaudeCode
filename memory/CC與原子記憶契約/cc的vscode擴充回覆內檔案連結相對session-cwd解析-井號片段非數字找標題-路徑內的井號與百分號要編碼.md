@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: ~/.vscode/extensions/anthropic.claude-code-2.1.304-win32-x64（webview/index.js 的 _v、_G1、M35；extension.js 的 openFile、ae1、P81）；track-g15-text-score 004 commit 6d9a466c
+- Source: ~/.vscode/extensions/anthropic.claude-code-2.1.304-win32-x64（webview/index.js 的 _v、_G1、M35；extension.js 的 openFile、ae1、P81）；commit 6d9a466c
 - Confidence: [臨]
 - Trigger: VS Code 擴充, markdown 連結, 檔案連結, 可點連結, 錨點, heading anchor, #L12, 相對路徑連結, 回覆裡的連結點不開, CLAUDE_CODE_ENTRYPOINT, claude-vscode
 - Created-at: 2026-10-22

@@ -48,7 +48,8 @@ RULES: Dict[str, str] = {
     "EXEMPTION_PEERS_CODE_ONLY": "SNAPSHOT_SETTLED、NET_UNCHANGED、COMMENT_ONLY_CHANGE 要一起比的同根改檔只看程式檔（案例檔也是程式檔）："
                                  "文件、紀錄檔、設定、資料改了或正被別的 session 改著，不擋豁免；程式檔或案例檔本身沒回到那個狀態照擋"
                                  "（wg_verify_ledger.exemption_peers）。",
-    "BLOCK_BUDGET_SHARED": "寫碼查核的擋次預算每個使用者回合共用一份（reconcile_gate.max_blocks_per_turn，預設 2）：不管這次是哪幾條規則，同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。",
+    "BLOCK_BUDGET_SHARED": "寫碼查核的擋次預算每個使用者回合共用一份（reconcile_gate.max_blocks_per_turn，預設 2），換使用者回合歸零"
+                           "（v6 開時；v6 關照舊）：不管這次是哪幾條規則，同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。",
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同，"
                            "同根其他程式檔也等於 HEAD 或只差註解 → 不算改碼；非 Python、解析不了、基準拿不到 → 照算。",
     "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於另一方已提交的版本（MERGE_HEAD、main／master；指到 HEAD 或本 session 自己提交的 commit 不算）"
@@ -136,6 +137,22 @@ RULES: Dict[str, str] = {
     "GATE_SELF_ERROR": "閘自己判定時出錯（例外、設定讀不到），不讓 AI 一直付代價：收尾閘（有擋次預算）同一個使用者回合因這個錯"
                        "擋 1 次後放行；工具前閘（出錯時常讀不到 state、無從計次）直接放行。兩者都要 stderr 一行＋guard log 記一筆"
                        " event=error（閘名、錯誤種類與訊息）。判法在 gate_self_error_verdict。",
+    "GATE_DENY_CAP": "宣告類閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 2 次（wg_core.DECL_DENY_CAP）後第 3 次放行並"
+                     "留帳，換使用者回合歸零（判法 wg_core.deny_cap）。適用定位閘、最小地圖三行、動資料檔、改舊測試、不是繞閘五處；留帳事件："
+                     "動資料檔／改舊測試／不是繞閘 cap_released，定位閘 edit_deny_capped，最小地圖 edit_unmapped_capped。"
+                     "舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
+    "SVN_TEST_BLOCK_OPT_IN": "svn 提交測試路徑的閘預設關，專案設定（overview-hub.json 的 svn_test_block.enabled）開了才判；開了只看 "
+                             "svn commit 的路徑參數（訊息裡寫 test 不算）；放行要有一行「測試上 svn 原句：「…」」，引的句子逐字在使用者本回合的"
+                             "原話裡、而且那個子句沒被否定（「不要提交測試」引了也不算），留帳 user_quote。",
+    "GATE_BYPASS_NAMED_FILES_MERGED": "同一個 repo 還沒 commit 成功又被病形閘擋下時，這次點名的檔與先前點名的合併成一份；「不是繞閘｜」宣告要寫在"
+                                      "該檔被點名之後才替它算數（先寫的宣告不替後來才點名的檔放行）。",
+    "PENDING_SAME_USER_TURN": "擋滿留下的待放行，只在記下它的那個使用者回合有效；換使用者回合重給預算，不拿原宣稱重查。",
+    "RELEASE_COVERS_SHOWN_ITEMS": "使用者放行只放擋訊息列過的那幾件；原因還在、之後沒再改檔，跨回合有效；原因消失就拿掉那件。",
+    "NONINTERACTIVE_RELEASE_AT_BUDGET": "無頭主 session、子代理沒有人能回答放行詢問：擋滿就放行並留帳，不擋到底。",
+    "ORDER_UNTIL_PUSH": "「上GIT」這類口令在該批作業 push 完、或使用者打新一則訊息之前持續有效；背景通知與收尾閘逼出的補修 commit "
+                        "不讓它失效（v6 開時；v6 關照舊）。",
+    "RELOAD_ADVICE_MCP_EDITS_ONLY": "本 session 沒改過 tools/workflow-guardian-mcp/ 底下的檔，就不判 Reload 建議（RELOAD_ADVICE_ALREADY_LOADED 不查）。",
+    "DEFERRAL_COVERS_EVASION_SENTENCE": "退縮閘擋下的那一句，不再另記退避旗標，下一回合不再為同一句追問。",
     "RECEIPT_UNPARSED_GENERAL_ONLY":"收據指令含解析不了的語法（heredoc、$( )、反引號、eval…）→ 看不出跑了哪支：不算部位量尺、不算整體驗證，"
                                      "照算一般證據（(a)(b) 的指令提到改檔、(c) 有執行），不擋；本回合帶 PASS／DONE 的這種收據每次 Stop "
                                      "stderr 一行並留帳 guard-reconcile event=receipt_unparsed。量尺與整體驗證只看跑了哪支、在哪棵樹、"
@@ -148,7 +165,7 @@ RULES: Dict[str, str] = {
                                "只提示不擋。live 設定只列 a（測試沒過不准說修好）與 d（改了程式要有測試），使用者拍板。",
     "CLOSING_RITUAL_SWITCHES": "收尾儀式各有開關，關掉就不擋收尾：reconcile_gate.goal_gate=false → 需求目標對照 (f1)～(f4) 與 commit 前的"
                                "目標對照不擋（目標樹照記）；aec.scan_report_gate=false → 沒交收尾檢核不擋；atom_audit.enabled=false → "
-                               "卡片表態不擋。沒設＝照擋。",
+                               "卡片表態不擋。goal_gate 沒設＝不擋（設 true 才擋）；另兩個開關沒設＝照擋。",
     # 需求目標樹的完整對照（wg_need_goal 收事實、這裡判）
     "GOAL_DONE_NEEDS_CASE_OR_RECEIPT": "寫碼類目標樹標「達成」的節點，至少一筆證據是沒紅的收據（實測）或讀碼級的驗證案例；"
                                        "只有檔案、卡片、推論級案例或紅收據 → 擋，擋訊息列節點與現有每一筆證據。記憶知識類的樹不擋。",

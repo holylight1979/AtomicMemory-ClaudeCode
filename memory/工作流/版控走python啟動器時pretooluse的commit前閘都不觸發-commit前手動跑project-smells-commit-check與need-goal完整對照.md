@@ -2,14 +2,14 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-entrypoint-contract 001／002 交付信已知限制
+- Source: commit:79d0ad30 2026-10-21（原出處已隨工作信箱清理）
 - Confidence: [臨]
 - Trigger: 啟動器 commit, worktree commit, 含 git 字樣被擋, commit 前閉, --commit-check, 病形閉沒觸發
 - Created-at: 2026-10-21
 
 ## 知識
 
-- [臨] worktree 工作軌用 Python 啟動器跑 git commit（繞開含 git 字樣的 Bash 守門）時，PreToolUse 的 commit 前閉（病形 SmellGate、需求目標 commit_gate、隱私）都不會觸發，因為閉只看 Bash 指令字面。commit 前要手動跑 python tools/project-smells.py --commit-check（尾行 SMELL_GATE_CHECK PASS）與 need_goal reconcile 完整對照，交付信附尾行。
+- [臨] 用 Python 啟動器跑 git commit（繞開含 git 字樣的 Bash 守門）時，PreToolUse 的 commit 前閉（病形 SmellGate、需求目標 commit_gate、隱私）都不會觸發，因為閉只看 Bash 指令字面。commit 前要手動跑 python tools/project-smells.py --commit-check（尾行 SMELL_GATE_CHECK PASS）與 need_goal reconcile 完整對照，回報附尾行。
 - [臨] 重建或刪除啟動器、在 job tmp 寫證明腳本，都算程式改動、會作廢之前的收據；完整對照要用這些動作之後重跑的收據。順序：證明腳本跑完就刪 → 重跑目標 verify → reconcile。
 
 ## 行動

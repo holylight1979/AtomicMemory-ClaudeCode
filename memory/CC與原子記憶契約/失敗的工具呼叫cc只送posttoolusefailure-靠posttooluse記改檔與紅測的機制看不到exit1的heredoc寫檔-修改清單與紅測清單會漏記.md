@@ -2,15 +2,15 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-gate-small-fixes 001 與 track-entrypoint-contract 004 實證；第二波驗收 A-1、B-1(B2) transcript
+- Source: 2026-10-21 實證（修補與驗收 transcript）
+- Quote: 「收割此session的知識與經驗」
 - Confidence: [臨]
 - Trigger: PostToolUseFailure, is_error, exit 1 寫檔, modified_files 漏記, failing_tests 空, heredoc 沒記到, PickOne 沒問, G11 沒量到
 - Created-at: 2026-10-21
-- Quote: 「收割此session的知識與經驗」
 
 ## 知識
 
-- [臨] Claude Code 對結束碼非 0（is_error）的工具呼叫不送 PostToolUse，只送 PostToolUseFailure；只接 PostToolUse 的記帳（modified_files、old_test_added、failing_tests、驗證收據）對 `cat > x.py <<EOF … && pytest` 這種「寫進檔了但指令 exit 1」全部漏記，下游的最該修、拐彎判斷、紅測守門就整條沒被問且無留帳（第二波驗收 A′、B′ 兩次實證；OverviewHub 在 PreToolUse 解析所以看得到）。解法：settings.json 登記 PostToolUseFailure 走同一支 dispatcher，失敗的寫入也記（只記現在存在且在這次呼叫後改過的檔）。
+- [臨] Claude Code 對結束碼非 0（is_error）的工具呼叫不送 PostToolUse，只送 PostToolUseFailure；只接 PostToolUse 的記帳（modified_files、old_test_added、failing_tests、驗證收據）對 `cat > x.py <<EOF … && pytest` 這種「寫進檔了但指令 exit 1」全部漏記，下游的最該修、拐彎判斷、紅測守門就整條沒被問且無留帳（兩次實證；OverviewHub 在 PreToolUse 解析所以看得到）。解法：settings.json 登記 PostToolUseFailure 走同一支 dispatcher，失敗的寫入也記（只記現在存在且在這次呼叫後改過的檔）。
 - [臨] Claude Code 2.1.304 的 PostToolUseFailure 事件沒有 tool_response，只有 `error` 欄：Bash 失敗＝「Exit code N」＋stderr＋stdout 換行串起。接線做法：把 error 當字串回應走成功路徑同一套 _track_test_result／_track_sentinels：exit 1 的 pytest 進 failing_tests 與收據；讀不到結束碼（被 hook 擋）不算測試結果。settings.json 要在 PostToolBatch 前掛 PostToolUseFailure（matcher Bash|PowerShell）handler 才會被呼叫。
 
 ## 行動

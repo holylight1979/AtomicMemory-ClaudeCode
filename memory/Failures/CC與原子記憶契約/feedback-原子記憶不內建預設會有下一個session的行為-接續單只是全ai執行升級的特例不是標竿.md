@@ -2,11 +2,11 @@
 
 - Scope: global
 - Author: holylight
-- Source: 原設計者 2026-10-20 晚 AskUserQuestion 答覆（T2.15 否決）
-- Confidence: [臨]
-- Trigger: 下一個 session, 自動匯出接續單, next-phase-auto, 目標樹跨 session, 收尾自動匯出, 預設有下個 session, 不內建, 原設計者否決
-- Created-at: 2026-10-20
+- Source: 原設計者 2026-10-20 晚 AskUserQuestion 答覆
 - Quote: 「該收割的知識與經驗都好了我就關掉。」
+- Confidence: [臨]
+- Trigger: 下一個 session, 自動匯出接續單, next-phase-auto, 目標樹跨 session, 收尾自動匯出, 預設有下個 session, 不內建
+- Created-at: 2026-10-20
 
 ## 知識
 

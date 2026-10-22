@@ -2,11 +2,10 @@
 
 - Scope: global
 - Author: holylight
-- Source: workflow/v6-inbox/from-track-a3/029-tracka3-done.md（總控台處理段）
+- Source: commit:c107cf94 2026-10-13（原出處已隨工作信箱清理）
 - Confidence: [臨]
 - Trigger: TaskStop, 背景任務, run_in_background, 停掉背景, 孤兒行程, 子行程還在跑, Stop-Process, Win32_Process, 取消驗證, 快照複跑
 - Created-at: 2026-10-12
-- Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-6c09e44f7ebb20737345da4306498553" from-name="claude-98" from-mode="bypass"> from-track-a3/029-tracka3-done：退件 028 小修完成。角色句的括號說明改成固定完整句型清單，清單外的括號…」
 
 ## 知識
 

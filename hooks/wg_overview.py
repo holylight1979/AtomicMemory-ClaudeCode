@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, DECL_DENY_CAP, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
+    append_guard_log, assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -1176,12 +1176,26 @@ def _session_reads(state: Dict[str, Any]) -> set:
     return out
 
 
+_TRANSCRIPT_WHY = {
+    "empty_path": "hook 沒收到 transcript_path（欄位為空）",
+    "missing": "transcript 檔不存在",
+    "unreadable": "transcript 檔存在但開不了（鎖住或無權限）",
+    "empty": "transcript 檔存在但是空的",
+}
+
+
+def _transcript_self_error(session_id: str, what: str, why: str, transcript_path: str, **kw: Any) -> None:
+    """規則 GATE_SELF_ERROR：讀不到 transcript＝閘驗不了 AI 交的那幾行、判不了 → 呼叫端放行；這裡 stderr 一行＋守門紀錄 error（不計次）。"""
+    msg = f"{_TRANSCRIPT_WHY.get(why, why)}（{transcript_path or '欄位為空'}），驗不了{what}，這次放行"
+    sys.stderr.write(f"[Guardian:OverviewHub] {msg}\n")
+    append_guard_log("overview_hub", {"event": "error", "rule": "GATE_SELF_ERROR", "session_id": session_id,
+                                      "check": what, "why": why, **kw})
+
+
 def _min_map_check(state: Dict[str, Any], root: Path, transcript_path: str) -> Tuple[_rr.Verdict, Optional[str]]:
     """三管道（LOCATE_CHANNELS，與定位三行同一套）各取最後一組地圖三行，任一管道那組通過就算交；回 (判定, 通過的管道)。
-    同根已有頂層目錄交過地圖 → 只認那次放行之後的 transcript（state["min_map"][<根>]["offset"]）。"""
+    同根已有頂層目錄交過地圖 → 只認那次放行之後的 transcript（state["min_map"][<根>]["offset"]）。呼叫端先確認 transcript 讀得到。"""
     offset = int(((state.get("min_map") or {}).get(_root_key(root)) or {}).get("offset", 0))
-    ok, why = transcript_readable(transcript_path)
-    problem = "" if ok else f"transcript 讀不到（{why}：{transcript_path or '欄位為空'}），閘驗不了地圖三行"
     read = _session_reads(state)
     first_bad: Optional[_rr.Verdict] = None
     for ch in LOCATE_CHANNELS:
@@ -1192,7 +1206,7 @@ def _min_map_check(state: Dict[str, Any], root: Path, transcript_path: str) -> T
         if not v.owed:
             return v, ch
         first_bad = first_bad or v
-    return first_bad or _rr.min_map_verdict(None, str(root), read, problem), None
+    return first_bad or _rr.min_map_verdict(None, str(root), read), None
 
 
 def _min_map_preview(state: Dict[str, Any], root: Path, config: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[str, bool]:
@@ -1248,7 +1262,13 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     readable = _readable_existing(root, top, need) if have < need else need    # 讀夠了就不必數
     v = _rr.unmapped_edit_verdict(need, readable, have)
     unread = unread_rows_note(root / MAP_REL)       # 表在、卻有資料列因寫法整列沒讀到：說出來，不靜默當成沒列
-    mm, via = _min_map_check(state, root, transcript_path) if _min_map_due(rec, file_path, cfg, config or {}) else (None, None)
+    due = _min_map_due(rec, file_path, cfg, config or {})
+    if due:
+        ok, why = transcript_readable(transcript_path)
+        if not ok:                                  # 規則 GATE_SELF_ERROR：驗不了地圖三行＝判不了，這次不要求（也不記成交過）
+            _transcript_self_error(session_id, "最小地圖三行", why, transcript_path, path=file_path, root=str(root))
+            due = False
+    mm, via = _min_map_check(state, root, transcript_path) if due else (None, None)
     mm_owed = mm is not None and mm.owed
     preview, ran = _min_map_preview(state, root, config or {}, cfg) if mm_owed else ("", False)
     log_kw = dict(path=file_path, root=str(root), top=top, part_files_read=have, need=need, readable=readable,
@@ -1262,22 +1282,35 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
         if unread:
             lines.append(f"注意：{unread}")
         msg = "\n".join(lines + (_min_map_lines(top, mm, preview) if mm_owed else []))
-        _log("edit_unmapped", session_id, rule=v.rule if v.owed else mm.rule,
-             deny_reason="part_files" if v.owed else "min_map", **log_kw)
-        return (msg, msg, ran)
+        rule, deny_reason = (v.rule, "part_files") if v.owed else (mm.rule, "min_map")
+        # 規則 LOCATE_DENY_CAP（同定位閘）：同一個使用者回合、同一個頂層目錄、同樣的缺件擋滿 DECL_DENY_CAP 次 → 之後放行，
+        # 越過上限那一次留帳（地圖三行交了閘卻看不到、讀了檔卻沒認到時不無限擋）。同缺件＝缺哪幾條與理由一樣，數字不算
+        gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join(
+            [deny_reason, v.why if v.owed else "", mm.why if mm_owed else ""])).encode("utf-8")).hexdigest()[:16]
+        denied, released = deny_cap(state, "overview_unmapped", [f"{key}|{gap}"])
+        if denied:
+            _log("edit_unmapped", session_id, rule=rule, deny_reason=deny_reason, **log_kw)
+            return (msg, msg, True)
+        if released:
+            _log("edit_unmapped_capped", session_id, rule=rule, deny_reason=deny_reason, blocks=DECL_DENY_CAP, **log_kw)
+        capped = (f"[Guardian:OverviewHub] 改 {file_path}：同一回合同樣的缺件已擋 {DECL_DENY_CAP} 次，這次放行並留帳"
+                  f"（{rule}）。")
+    else:
+        capped = None
+    # 放行（含擋滿放行）：地圖這次真的通過才記成交過，擋滿放行的不記
     rec = state.setdefault("overview_hub", {}).setdefault(key, {"part_files_read": [], "edits": 0})
     rec["edits"] = int(rec.get("edits", 0)) + 1
-    warn: Optional[str] = None
-    if mm is not None:
+    notes = [capped] if capped else []
+    if mm is not None and not mm.owed:
         rec["min_map_done"], rec["min_map_via"] = True, via
         state.setdefault("min_map", {}).setdefault(_root_key(root), {})["offset"] = transcript_size(transcript_path)
         if via == "thinking":
-            warn = ("[Guardian:OverviewHub] 最小地圖三行只在 thinking 裡，模型下回合與人都看不到；這次放行，"
-                    "請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
+            notes.append("[Guardian:OverviewHub] 最小地圖三行只在 thinking 裡，模型下回合與人都看不到；這次放行，"
+                         "請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
     if unread:
-        warn = (warn + "\n" if warn else "") + f"[Guardian:OverviewHub] 注意：{unread}"
-    _log("edit_unmapped", session_id, rule=v.rule, edits=rec["edits"], deny_reason=None, **log_kw)
-    return (warn, None, True)
+        notes.append(f"[Guardian:OverviewHub] 注意：{unread}")
+    _log("edit_unmapped", session_id, rule=v.rule, edits=rec["edits"], deny_reason=None, capped=bool(capped), **log_kw)
+    return ("\n".join(notes) or None, None, True)
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
@@ -1391,22 +1424,17 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     warn: Optional[str] = None
     readable, why = transcript_readable(transcript_path)
     if not readable:
-        # D4：讀不到 transcript 就驗不了定位三行（已 located 也一樣，環境異常先擋）；真開檔，不只 stat
-        deny_reason = "transcript_missing"
-        missing.append({
-            "empty_path": "hook 沒收到 transcript_path（欄位為空）",
-            "missing": f"transcript 檔不存在（{transcript_path}）",
-            "unreadable": f"transcript 檔存在但開不了（{transcript_path}；鎖住或無權限）",
-            "empty": f"transcript 檔存在但是空的（{transcript_path}）",
-        }[why] + "：環境異常，閘無法驗定位三行，一律擋")
+        # 規則 GATE_SELF_ERROR：讀不到 transcript（真開檔，不只 stat）＝閘驗不了定位行、判不了 → 這次不要求定位行，
+        # stderr＋守門紀錄 error、不計次；讀檔數不靠 transcript，照查
+        _transcript_self_error(session_id, "定位行", why, transcript_path, part=row["part_short"], path=file_path)
     if len(part_files) < int(ev["part_files"]):
         missing.append(f"注入導讀卡後還沒讀過這個部位的檔（要 ≥{ev['part_files']} 個，目前 {len(part_files)} 個；"
                        f"表外檔讀了 {len(reads) - len(part_files)} 個不算）")
     if len(depends_files) < int(ev["depends_files"]):
         missing.append(f"還沒讀過卡片指到的檔（要 ≥{ev['depends_files']} 個，目前 {len(depends_files)} 個）")
     # 有需求目標樹而且改的是程式檔：定位三行之後要第四行「定位｜目標：<節點編號>」，編號要在目前的樹（換了樹或節點放棄就重交）
-    goal_tree = _goal_tree_for(session_id, file_path, config) if deny_reason is None else None
-    if deny_reason is None and (not rec.get("located") or (goal_tree is not None and not _goal_linked(rec, goal_tree))):
+    goal_tree = _goal_tree_for(session_id, file_path, config) if readable else None
+    if readable and (not rec.get("located") or (goal_tree is not None and not _goal_linked(rec, goal_tree))):
         # 三管道各取「最後一組」三行（被擋後補交的那組才是現行）；任一管道那組通過層檢查（與第四行核對）即 located
         found_ch, bad_layer, bad_content, text, node = None, None, None, "", None
         longer = _longer_parts(root, row)
@@ -1468,7 +1496,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
          located_via=rec.get("located_via"), located_quality=rec.get("located_quality"),
          part_files_read=len(part_files), depends_files_read=len(depends_files),
          reads_after_inject=len(reads), dirs_after_inject=len(dirs), edits=rec["edits"],
-         intent=rec.get("intent"), slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=deny_reason)
+         intent=rec.get("intent"), slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=deny_reason,
+         **({} if readable else {"self_error": why}))
     if not missing:
         # A5.3：放行的同檔第 2 次 Edit 附候選（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}。
         # 一部位一 session 只送一次：與 on_prompt 觸發詞共用 candidates_sent（部位 key），同部位別的檔第 2 次 Edit 不再送；

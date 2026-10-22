@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-tech-refresh 001 代寫 2026-10-22
+- Source: commit:b7847dda 2026-10-22（實測）
 - Confidence: [臨]
 - Trigger: 動資料檔｜, DataFileAsk, 宣告行讀不到, 文字還沒落盤, 資料檔宣告
 - Created-at: 2026-10-22

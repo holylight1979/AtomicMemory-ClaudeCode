@@ -389,17 +389,20 @@ def test_locate_accepted_from_tool_input_and_thinking(proj, tmp_path, monkeypatc
     assert oh.locate_channel(str(tp), 0, "Server") is None
 
 
-def test_missing_transcript_denies_as_environment_error(proj, tmp_path, monkeypatch):   # B4 改 D4：fail-closed
+def test_missing_transcript_is_gate_self_error_and_passes(proj, tmp_path, monkeypatch):   # GATE_SELF_ERROR：判不了不擋
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    guard = []
+    monkeypatch.setattr(wo, "append_guard_log", lambda g, p: guard.append((g, p)))
     state = {}
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), "", {})
     for tp in (str(tmp_path / "nope.jsonl"), ""):
         warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
-        assert deny and "transcript" in deny and "環境異常" in deny and changed
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert log[-1]["event"] == "edit" and log[-1]["deny_reason"] == "transcript_missing"
+        assert deny is None and changed
+    log = [e for e in map(json.loads, (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()) if e["event"] == "edit"]
+    assert log[-1]["deny_reason"] is None and log[-1]["self_error"] == "empty_path"   # 讀檔數夠了、定位行驗不了 → 放行
+    assert [p["rule"] for _g, p in guard] == ["GATE_SELF_ERROR"] * 2 and "decl_deny_counts" not in state   # 不計次
 
 
 # ─── 軌 0：四層深合併 / find_map 界線 / _validate_cfg ─────────────────────────
@@ -974,7 +977,7 @@ def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch)
     f1 = str(root / "src" / "a.py")
     state = {}
     warn, deny, changed = wo.on_edit(state, "s", f1, "", _NO_MIN_MAP)
-    assert deny and "沒有部位表" in deny and "「src」至少 1 個檔（目前 0 個）" in deny and not changed
+    assert deny and "沒有部位表" in deny and "「src」至少 1 個檔（目前 0 個）" in deny and changed   # 擋次記在 state
     wo.on_read(state, "s", "Read", {"file_path": str(root / "docs" / "x.md")}, str(root), "", {})   # 別的頂層目錄不算
     warn, deny, _ = wo.on_edit(state, "s", f1, "", _NO_MIN_MAP)
     assert deny and "目前 0 個" in deny
@@ -1329,8 +1332,9 @@ def test_unmapped_project_hub_json_is_own_config(tmp_path, monkeypatch):        
     assert wo._own_config_layer(str(tmp_path / "nowhere" / ".claude" / "overview-hub.json")) == (False, None)
 
 
-def test_transcript_unreadable_denies_even_if_located(proj, tmp_path, monkeypatch):   # BLOCK 7：真開檔
+def test_transcript_unreadable_is_self_error_even_if_located(proj, tmp_path, monkeypatch):   # BLOCK 7：真開檔
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    monkeypatch.setattr(wo, "append_guard_log", lambda g, p: None)
     tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     state = {}
@@ -1349,11 +1353,11 @@ def test_transcript_unreadable_denies_even_if_located(proj, tmp_path, monkeypatc
     empty.write_text("", encoding="utf-8")
     assert oh.transcript_readable(str(empty)) == (False, "empty")
     assert oh.transcript_readable(tp) == (True, "")
-    for bad, word in ((str(locked), "開不了"), ("", "欄位為空"), (str(tmp_path / "nope.jsonl"), "不存在")):
+    for bad, word in ((str(locked), "unreadable"), ("", "empty_path"), (str(tmp_path / "nope.jsonl"), "missing")):
         warn, deny, _ = wo.on_edit(state, "s", f1, bad, {})
-        assert deny and word in deny and "環境異常" in deny
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["deny_reason"] for e in log[-3:]] == ["transcript_missing"] * 3
+        assert deny is None
+    log = [e for e in map(json.loads, (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()) if e["event"] == "edit"]
+    assert [e.get("self_error") for e in log[-3:]] == ["unreadable", "empty_path", "missing"]
 
 
 def test_inject_record_and_log_carry_intent_slices_layer(proj, tmp_path, monkeypatch):

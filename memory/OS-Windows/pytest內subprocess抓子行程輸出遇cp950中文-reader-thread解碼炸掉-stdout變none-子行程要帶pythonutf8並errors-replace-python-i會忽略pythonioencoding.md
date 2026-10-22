@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session 8f368a10 track-b5-control 2026-10-13，B5 自驗腳本題二盲陷阱檢查
+- Source: session 8f368a10 2026-10-13（自驗腳本盲陷阱檢查）
 - Confidence: [臨]
 - Trigger: subprocess capture_output, UnicodeDecodeError 0xb8, _readerthread 警告, stdout None, PYTHONUTF8, PYTHONIOENCODING, python -I, cp950, 子行程中文輸出
 - Created-at: 2026-10-13

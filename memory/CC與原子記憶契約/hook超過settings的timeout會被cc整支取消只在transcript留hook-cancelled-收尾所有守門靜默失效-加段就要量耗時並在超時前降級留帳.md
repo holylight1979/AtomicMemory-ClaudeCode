@@ -2,15 +2,15 @@
 
 - Scope: global
 - Author: holylight
-- Source: 第二波 B′ 第二跑（results/2026-10-21-B2，transcript:284）；原設計者 10-21 已把 Stop／SubagentStop timeout 調 20
+- Source: 2026-10-21 transcript 實證（hook_cancelled）；原設計者 10-21 已把 Stop／SubagentStop timeout 調 20
+- Quote: 「收割此session的知識與經驗」
 - Confidence: [臨]
 - Trigger: hook_cancelled, hook timeout, Stop hook 逾時, 收尾沒反應, 最該修沒問, settings timeout 10, hook 變慢
 - Created-at: 2026-10-21
-- Quote: 「收割此session的知識與經驗」
 
 ## 知識
 
-- [臨] settings.json 每個 hook 有 timeout（Stop 原設 10 秒），超過就被 CC 整支取消：沒有 stderr、沒有 additionalContext、守門自己的帳也沒有，只在 transcript 多一筆 hook_cancelled。實例：收尾 Stop 跑 10.37 秒，最該修、拐彎判斷、知識收割全被吞，判分者跟總控台都以為機制沒動。同一天合進多條守門後 hook 變慢（一條正規式對長英數 10 秒）就踩到。
+- [臨] settings.json 每個 hook 有 timeout（Stop 原設 10 秒），超過就被 CC 整支取消：沒有 stderr、沒有 additionalContext、守門自己的帳也沒有，只在 transcript 多一筆 hook_cancelled。實例：收尾 Stop 跑 10.37 秒，最該修、拐彎判斷、知識收割全被吞，事後都以為機制沒動。同一天合進多條守門後 hook 變慢（一條正規式對長英數 10 秒）就踩到。
 - [臨] 規矩：在 Stop／PostToolUse 加任何一段，dispatcher 要累計各段耗時，到上限 80% 就留帳「超時降級：跑到哪段、各段秒數」並 stderr 一行；驗收判分先 grep transcript 的 hook_cancelled，有就不能判「機制沒動」。
 
 ## 行動

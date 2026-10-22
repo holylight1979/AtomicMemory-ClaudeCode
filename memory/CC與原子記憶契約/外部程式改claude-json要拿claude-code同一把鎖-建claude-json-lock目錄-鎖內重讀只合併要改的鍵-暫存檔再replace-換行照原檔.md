@@ -2,12 +2,12 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-spawn-trust-atomic 001（2026-10-21，實讀 claude.exe 2.1.304、真打 ~/.claude.json 兩次）
+- Source: 2026-10-21，實讀 claude.exe 2.1.304、真打 ~/.claude.json 兩次
+- Quote: 「不對，checklist 連打勾那個 check 狀態都通通沒了只剩大量文字..，這樣是要怎麼綜觀進度?」
 - Confidence: [臨]
 - Trigger: ~/.claude.json, claude.json 寫入, hasTrustDialogAccepted, 信任鍵, proper-lockfile, .claude.json.lock, saveConfigWithLock, 原子寫入 config, 整份覆寫設定檔, console-spawn ensure_trust
 - Created-at: 2026-10-21
 - Depends: path:C:/Users/holylight/.claude/tools/console-spawn.py
-- Quote: 「不對，checklist 連打勾那個 check 狀態都通通沒了只剩大量文字..，這樣是要怎麼綜觀進度?」
 
 ## 知識
 

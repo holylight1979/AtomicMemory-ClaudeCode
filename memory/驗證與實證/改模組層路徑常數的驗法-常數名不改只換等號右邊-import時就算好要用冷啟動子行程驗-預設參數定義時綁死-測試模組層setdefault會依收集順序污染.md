@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: session df3c2d29（v6 A2c 盤點與退件 017）
+- Source: session df3c2d29（盤點與退件 017）
 - Confidence: [臨]
 - Trigger: 模組層常數, 路徑常數, import 時計算, 冷啟動, 子行程驗證, 預設參數綁死, setdefault, 收集順序, 測試污染, python -P
 - Created-at: 2026-10-13

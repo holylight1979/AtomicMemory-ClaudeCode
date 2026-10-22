@@ -2,11 +2,10 @@
 
 - Scope: global
 - Author: holylight
+- Source: session:a1cd2ad7 2026-10-12
 - Confidence: [臨]
 - Trigger: fail-closed, 閘環境異常, except Exception deny, 附加輸出, 候選填空, 閘內例外, 外部報告解析, OverflowError mktime
 - Created-at: 2026-10-12
-- Source: session:a1cd2ad7 2026-10-12
-- Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-9f5042f2e3dc154060b9c298be50f88d" from-name="claude-2d" from-mode="bypass"> 是，我是 a2 工作 session（worktree C:\Users\holylight\.claude-wt\track-a2，分…」
 
 ## 知識
 
