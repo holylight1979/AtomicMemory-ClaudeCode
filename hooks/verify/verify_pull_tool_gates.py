@@ -8,7 +8,7 @@ commit 前核對出錯不擋。
 - svn 測試路徑閘：預設關；專案 overview-hub.json 開了之後只看 commit 的路徑參數（-m 訊息不看）、PowerShell 也查、
   使用者本回合原句出口；overview-hub.json 寫 svn_test_block 不是未知鍵。
 - 判準卡：跑直譯器不記雜湊快照、事後不比對；改判準卡不擋。
-- commit 前目標對照核對拋例外 → 不擋、留帳 commit_gate_error。
+- 閘自己出錯（GATE_SELF_ERROR）：commit 前目標對照核對、動資料檔閘、改舊測試閘拋例外 → 不擋、留帳。
 - 耗重：動資料檔閘整次呼叫只讀一次 transcript；改舊測試閘不另讀 state。
 git 子程序走錄製重播（lib/git_cassette.py）；改了呼叫 git 的方式要 `pytest --git-record` 重錄。
 live 檔全 monkeypatch：WORKFLOW_DIR（state 落 tmp）、GUARD_LOG_DIR（留帳落 tmp）。
@@ -326,8 +326,30 @@ def test_commit_gate_exception_does_not_block(world, monkeypatch):
         monkeypatch.setattr(ptu, name, lambda *a, **k: None)
     monkeypatch.setattr(ptu, "check_smell_gate", lambda *a, **k: (None, None))
     assert "[NeedGoal]" not in _pre(world, "Bash", {"command": 'svn commit src/Foo.cs -m "x"'})
-    assert [(e["event"], "目標檔讀壞了" in e["error"]) for e in _events(world, "need_goal")
-            if e["event"] == "commit_gate_error"] == [("commit_gate_error", True)]
+    assert [(e["event"], e.get("rule"), "目標檔讀壞了" in e["error"]) for e in _events(world, "need_goal")
+            if e["event"] == "commit_gate_error"] == [("commit_gate_error", "GATE_SELF_ERROR", True)]
+
+
+# ─── 閘自己出錯（GATE_SELF_ERROR）：不擋、留帳 ─────────────────────────────
+
+def _boom(*a, **k):
+    raise RuntimeError("模擬閘內部錯誤")
+
+
+def test_data_file_gate_self_error_does_not_block(world, monkeypatch):
+    monkeypatch.setattr(df, "_judge", _boom)
+    r = _pre(world, "Edit", {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT})
+    assert "[Guardian:DataFileAsk]" not in r, r
+    assert [(e["event"], e.get("rule"), "模擬閘內部錯誤" in e["error"]) for e in _events(world, "data_file")] == \
+        [("error", "GATE_SELF_ERROR", True)]
+
+
+def test_old_test_gate_self_error_does_not_block(world, monkeypatch):
+    monkeypatch.setattr(ot, "gate", _boom)
+    r = _pre(world, "Edit", {"file_path": str(world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT})
+    assert "[Guardian:OldTestDeclare]" not in r and OT_HIT not in r, r
+    assert [(e["event"], e.get("rule"), "模擬閘內部錯誤" in e["error"]) for e in _events(world, "old_test")] == \
+        [("error", "GATE_SELF_ERROR", True)]
 
 
 # ─── 耗重 ─────────────────────────────────────────────────────────────

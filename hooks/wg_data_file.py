@@ -5,7 +5,7 @@
 沒點名——再從三管道（回覆文字／工具呼叫參數／thinking；重用 overview_hub 的 LOCATE_CHANNELS 與 assistant_text_after）找
 「動資料檔｜<路徑>：<為什麼>」。判定在 wg_release_rules.data_file_verdict；這裡只收事實、出擋訊息、記 state、
 寫 Logs/guard-data_file.jsonl（denied／declared／exempt／cap_released：同一個使用者回合同一個檔擋滿兩次就放行，
-wg_core.deny_cap）。本 session 新建的檔記進 state created_files：Write 由
+wg_core.deny_cap；error：閘自己出錯，這次不擋）。本 session 新建的檔記進 state created_files：Write 由
 handlers/post_tool_use.py 呼叫 note_created；Bash／PowerShell 由這裡記下呼叫前不存在的目標、post_tool_use 呼叫
 confirm_shell_created 確認存在後轉進去。
 開關與清單：workflow/config.json 的 guard.data_file_ask（enabled 預設 True；extensions 給了就整份取代預設清單）。
@@ -201,7 +201,7 @@ def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
 
 def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Optional[str]:
     """PreToolUse：回擋訊息或 None。一條指令寫好幾個資料檔，每個都要對到宣告或各自豁免，沒對到的全列出來。
-    閘自己出錯（state 讀壞、例外）＝判不了 → 擋並寫 stderr 與守門紀錄 error。"""
+    閘自己出錯（state 讀壞、例外）＝判不了 → 這次不擋，寫 stderr 與守門紀錄 error。"""
     enabled, exts = cfg_of(config)
     if not enabled or tool_name not in TOOLS + SHELL_TOOLS:
         return None
@@ -213,10 +213,10 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
         return _judge(tool_name, paths, sid, input_data, config) if paths else None
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
-        sys.stderr.write(f"[Guardian:DataFileAsk] 閘內部錯誤（已擋）：{err}\n")
-        append_guard_log(GUARD, {"event": "error", "session_id": sid, "tool": tool_name, "paths": paths, "error": err})
-        return (f"[Guardian:DataFileAsk] 這次要寫的檔可能是資料／設定檔，但閘判不了它是不是使用者既有的資料（{err}），一律擋。"
-                "先用 Read 查原因；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+        sys.stderr.write(f"[Guardian:DataFileAsk] 閘內部錯誤，判不了是不是使用者既有的資料檔（這次不擋，已留帳）：{err}\n")
+        append_guard_log(GUARD, {"event": "error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name, "paths": paths,
+                                 "error": err})
+        return None
 
 
 def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any],

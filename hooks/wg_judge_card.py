@@ -136,7 +136,7 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         sys.stderr.write(f"[Guardian:JudgeCardDeclare] 留帳失敗（不擋）：{err}\n")
-        append_guard_log(GUARD, {"event": "error", "session_id": sid, "tool": tool_name, "error": err})
+        append_guard_log(GUARD, {"event": "error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name, "error": err})
     return None
 
 

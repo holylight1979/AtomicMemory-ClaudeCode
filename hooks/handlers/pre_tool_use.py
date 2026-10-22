@@ -1501,7 +1501,8 @@ def check_svn_test_block(tool_name: str, tool_input: Dict[str, Any], cwd: str, c
     except Exception as e:  # noqa: BLE001  閘預設關、守的是專案慣例：拆不出路徑不擋，浮 stderr 並留帳
         err = f"{type(e).__name__}: {e}"
         sys.stderr.write(f"[Guardian:SvnTestBlock] 拆不出 svn commit 的路徑，這次不擋：{err}\n")
-        append_guard_log("svn_test_block", {"event": "error", "session_id": session_id, "tool": tool_name, "error": err})
+        append_guard_log("svn_test_block", {"event": "error", "rule": "GATE_SELF_ERROR", "session_id": session_id, "tool": tool_name,
+                                            "error": err})
         return None
     if not hits:
         return None
@@ -1923,12 +1924,14 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     _hook_lap("寫入閘")
 
     # ── OldTestDeclare（改舊測試要先宣告）──
-    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，一律擋
+    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，不擋（stderr＋留帳 error，規則 GATE_SELF_ERROR）
     try:
         deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd, _co_state)
     except Exception as e:
-        deny_reason = (f"[Guardian:OldTestDeclare] 改舊測試閘無法判定，一律擋：{type(e).__name__}: {e}。"
-                       f"先用 Read 查原因；確定不是動既有測試就改用不碰測試檔的方式。")
+        deny_reason = None
+        err = f"{type(e).__name__}: {e}"
+        sys.stderr.write(f"[Guardian:OldTestDeclare] 改舊測試閘內部錯誤，判不了有沒有動到既有測試（這次不擋，已留帳）：{err}\n")
+        append_guard_log("old_test", {"event": "error", "rule": "GATE_SELF_ERROR", "session": _co_sid, "tool": tool_name, "error": err})
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
@@ -1983,7 +1986,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
-    # 缺了就擋；核對本身出錯不擋（stderr＋留帳 commit_gate_error）。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
+    # 缺了就擋；核對本身出錯不擋（stderr＋留帳 commit_gate_error，規則 GATE_SELF_ERROR）。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
     if v6 and tool_name in ("Bash", "PowerShell"):
         _ng_cmd = tool_input.get("command", "") or ""
         if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
@@ -1995,8 +1998,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 deny_reason = None
                 err = f"{type(e).__name__}: {e}"
                 sys.stderr.write(f"[NeedGoal] commit 前核對需求目標時出錯（這次不擋，已留帳）：{err}\n")
-                append_guard_log("need_goal", {"event": "commit_gate_error", "session_id": _co_sid, "tool": tool_name,
-                                               "command": _ng_cmd[:300], "error": err})
+                append_guard_log("need_goal", {"event": "commit_gate_error", "rule": "GATE_SELF_ERROR", "session_id": _co_sid,
+                                               "tool": tool_name, "command": _ng_cmd[:300], "error": err})
             if deny_reason:
                 _deny(input_data, config, deny_reason)
                 return

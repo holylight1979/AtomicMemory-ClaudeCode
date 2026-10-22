@@ -158,7 +158,7 @@ def _ot(reason):
 
 
 def _pass(reason):
-    """本閘放行：既沒照規則擋，也不是閘自己炸的「判不了一律擋」（別的閘擋不算本閘）。"""
+    """本閘放行：沒照規則擋，也沒有本閘的其他擋訊息（別的閘擋不算本閘）。"""
     return not _ot(reason) and "[Guardian:OldTestDeclare]" not in reason
 
 
@@ -411,7 +411,8 @@ def test_rename_declared_only_by_new_name_still_denied(world):
     assert _ot(r) and "test_legacy_report_keeps_columns（改名" in r
 
 
-def test_unreadable_existing_test_file_denied(world, monkeypatch):
+def test_unreadable_existing_test_file_not_blocked_and_logged(world, monkeypatch):
+    """既有測試檔讀不到＝閘判不了（GATE_SELF_ERROR）：這次不擋，留帳 error；不能當成新檔放過（沒記成本 session 新加的測試）。"""
     fp = _put(world, "tests/test_legacy_report.py", LEGACY)
     real = Path.read_text
 
@@ -421,7 +422,10 @@ def test_unreadable_existing_test_file_denied(world, monkeypatch):
         return real(self, *a, **k)
     monkeypatch.setattr(Path, "read_text", _locked)
     r = _run(world, "Write", {"file_path": fp, "content": "def test_other():\n    pass\n"})
-    assert "[Guardian:OldTestDeclare]" in r and "PermissionError" in r
+    assert "[Guardian:OldTestDeclare]" not in r and not _ot(r)
+    err = [e for e in _events(world) if e["event"] == "error"]
+    assert [(e["rule"], "PermissionError" in e["error"]) for e in err] == [("GATE_SELF_ERROR", True)]
+    assert not (wg_core.read_state(SID) or {}).get("old_test_added")
 
 
 def test_comment_only_change_with_quote_not_triggered(world):

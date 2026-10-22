@@ -116,7 +116,7 @@ def is_test_file(file_path: str, config: Dict[str, Any], root: Optional[str]) ->
 
 
 def _read(path: str) -> Optional[str]:
-    """檔不在回 None；檔在卻讀不到讓例外往上丟（閘判不了＝擋），不能當成新檔放過。"""
+    """檔不在回 None；檔在卻讀不到讓例外往上丟（閘判不了：PreToolUse 不擋、留帳 error），不能當成新檔放過。"""
     p = Path(path)
     if not p.exists():
         return None
@@ -782,7 +782,7 @@ def _py_baseline(tool_input: Dict[str, Any], config: Dict[str, Any], cwd: str, s
 
 def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str,
              state: Optional[Dict[str, Any]]) -> None:
-    """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照（檔還不存在記 None；讀不到讓例外往上丟＝擋）；
+    """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照（檔還不存在記 None；讀不到讓例外往上丟＝判不了）；
     指令會執行 python 再加記 repo 裡已經有改動的測試檔（_py_baseline）。快照到的檔順便記基線（remember_baseline，記進 gate 拿到的
     那份 state）：這一步在 PreToolUse，指令之後失敗、PostToolUse 沒跑也記得到。"""
     sid = input_data.get("session_id", "") or ""

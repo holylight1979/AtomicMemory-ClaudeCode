@@ -11,14 +11,15 @@
     是嫌疑、或同一個 repo 根又要 commit，才重掃被點名的檔（暫存區與工作樹兩份都看）：同一條病都不在了＝病修掉了 → 清帳（cleared），不問。
     病還在 → 找宣告行「不是繞閘｜<理由>」（這條指令本身、或擋下之後 transcript 的回覆文字／工具參數／thinking，
     三管道同 lib/overview_hub.assistant_text_after）：有 → 放行、留帳 declared（理由全文）、同一組被點名的檔不再問；
-    沒有 → 擋（規則 GATE_BYPASS_NEEDS_DECLARATION；同一個使用者回合同一組檔擋滿兩次就放行、留帳 cap_released）。成功 commit（post_tool_use）→ note_commit_done 清掉 smell_deny_last。
+    沒有 → 擋（規則 GATE_BYPASS_NEEDS_DECLARATION；同一個使用者回合同一組檔擋滿兩次就放行、留帳 cap_released）。
+    成功 commit（post_tool_use）→ note_commit_done 清掉 smell_deny_last。
     --git-dir／GIT_DIR 的 commit 病形閘本身已擋（判不了），走不到這裡。state 是 session 級：上個 session 被擋、這個 session 繞不算。
 (b) atom_refusal：卡片內容同時提到 Guardian 的閘、又含改暫存區／改提交範圍的做法字樣 → 拒寫（規則 ATOM_BYPASS_HOWTO_REFUSED）；
     AI 判斷不是在教繞法（寫的是禁止怎麼繞、在分析誤擋）→ 知識段第一行寫「不是教繞閘｜<理由>」就寫入、留帳 atom_declared；
     入口在 tools/memory-write-gate.py（MCP atom_write 的 create／append／replace 都經過）與 lib/atom_io.write_atom（程式寫手）。
 是不是繞閘由 AI 判並寫理由；程式只核對序列事實與宣告行在不在，留帳 Logs/guard-gate_bypass.jsonl 給人抽查
-（事件 suspect／declared／denied／cap_released／atom_refused／cleared）。開關 guard.gate_bypass.enabled（預設 True），做法字樣
-guard.gate_bypass.staging_words。
+（事件 suspect／declared／denied／cap_released／atom_refused／cleared／error：檢查自己出錯、這次不判，規則 GATE_SELF_ERROR）。
+開關 guard.gate_bypass.enabled（預設 True），做法字樣 guard.gate_bypass.staging_words。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_gate_bypass.py
 """
 from __future__ import annotations
@@ -535,6 +536,7 @@ def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str
         return _deny_text(v, last)
     except Exception as e:  # noqa: BLE001
         _warn(f"檢查異常（這次不判）：{type(e).__name__}: {e}")
+        _log("error", session_id, rule="GATE_SELF_ERROR", error=f"{type(e).__name__}: {e}", command=command[:300])
         return None
 
 
