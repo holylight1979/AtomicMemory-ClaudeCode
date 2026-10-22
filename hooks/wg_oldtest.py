@@ -6,6 +6,7 @@
 - Edit／MultiEdit／Write：PreToolUse 比對改前（磁碟現檔）與改後（套用 old_string→new_string，或 Write 的新內容），沒宣告當場擋。
 - Bash／PowerShell／NotebookEdit：寫之前看不到改後內容，PreToolUse 把寫入目標裡的測試檔拍快照（workflow/old-test-snap/），
   PostToolUse 拿快照比磁碟（after_tool），沒宣告的記 state `old_test_undeclared`，下一個任何工具呼叫在 PreToolUse 擋到補宣告為止；
+  兩條路的擋都有上限：同一個使用者回合同一件（檔＋測試＋動作）擋滿兩次就放行、留帳 cap_released（欠帳那筆一併拿掉）；
   只讀或只寫這幾個欠帳檔（撤回）的呼叫不擋，撤回後的 PostToolUse 把已恢復的那筆清掉。
 本 session 新加的測試不算舊測試：記在 old_test_added（比對時看到新增），另有基線 old_test_baseline＝第一次拍快照時那個檔有哪些測試；
 指令失敗時 Claude Code 不送 PostToolUse、old_test_added 記不到，基線沒有的那支照樣放過。
@@ -19,7 +20,7 @@ Bash 寫入目標靠 wg_core.write_paths_from_tool；python 腳本自己開檔�
 與 HEAD 相同）；同一條指令自己 commit 掉、工作樹又乾淨的也算：logs/HEAD 裡這條指令自己 commit／revert 的每筆前後之間有變的
 測試檔一併比對（OWN_COMMIT_CHANGES_STILL_COMPARED；合併提交不算）。git 自己產出的內容另外算（_git_after）：這條指令開始的 merge／squash／cherry-pick／rebase 停在半路 →
 git merge-tree 從 commit 重算；HEAD 被 merge／pull／rebase／切分支移動（看這段期間 logs/HEAD 的每一筆，自己 commit、revert 不算）→ 新 HEAD。
-有它就只算比 git 產出的也變了的動作（同一支腳本之後再改、再 add 的照算），git 帶進來的測試併入基線：別軌帶進來的是舊測試，
+有它就只算比 git 產出的也變了的動作（同一支腳本之後再改、再 add 的照算），git 帶進來的測試併入基線：別的分支帶進來的是舊測試，
 不能當本 session 新加的放過；判不出就照執行前的內容比（寧可多擋）。node 等其他直譯器自己寫檔、不在 git repo 裡的抓不到。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_old_test_declare.py
 """
@@ -397,9 +398,10 @@ def _log(event: str, sid: str, path: str, **kw: Any) -> None:
 
 
 def hint(first: str) -> str:
-    return (f"真的要改這幾支舊測試 → 先分是哪一種：使用者要的新行為讓舊斷言不再對（例：使用者要千分位、舊斷言沒有千分位）"
-            f"→ 先寫一行「改舊測試｜{first}：<為什麼舊斷言不再對；使用者原話>」再改，多支用「、」分隔、每支都要列到（改名寫舊的名字），"
-            "放回覆文字或下一個 Bash 開頭 `#` 註解；使用者只說「跳過／先不管」某支紅測＝這件不做、不是讓它不紅 → 別加 skip、別改斷言，"
+    return ("宣告行要比這次工具呼叫早一則訊息送出（跟工具呼叫同一則送出的文字，這裡還看不到），或寫成下一個 Bash／PowerShell 指令開頭的 "
+            f"`#` 註解。真的要改這幾支舊測試 → 先分是哪一種：使用者要的新行為讓舊斷言不再對（例：使用者要千分位、舊斷言沒有千分位）"
+            f"→ 先寫一行「改舊測試｜{first}：<為什麼舊斷言不再對；使用者原話>」再改，多支用「、」分隔、每支都要列到（改名寫舊的名字）；"
+            "使用者只說「跳過／先不管」某支紅測＝這件不做、不是讓它不紅 → 別加 skip、別改斷言，"
             "撤回這次修改讓它照紅，收尾寫「不做｜<那支測試>：使用者說「<原句>」」。兩種都對不上才 AskUserQuestion 問使用者。"
             "只加新測試不用宣告。")
 
@@ -447,7 +449,7 @@ def _kind_key(c: Dict[str, str]) -> Tuple[str, str]:
 
 
 def _against_side(before: str, after: str, side: str, fp: str, prior: bool) -> Tuple[List[Dict[str, str]], List[str]]:
-    """有 git 產出的內容（side）時這次的動作：比 git 產出的變了（改回執行前的值也算：撤掉別軌的改動）；新加的以 git 產出的為準
+    """有 git 產出的內容（side）時這次的動作：比 git 產出的變了（改回執行前的值也算：撤掉別的分支帶進來的改動）；新加的以 git 產出的為準
     （git 帶進來的不是本 session 新加的）。prior＝執行前這個檔就有本 session 沒 commit 的改動（autostash 這類會把它放回來）：
     那支測試執行前就有的，比改前也要變了才算，執行前已經有的改動不重算。"""
     changes, added = diff_tests(side, after, fp)
@@ -505,7 +507,7 @@ def _record(state: Optional[Dict[str, Any]], sid: str, fp: str, done: List[Dict[
 
 def _test_targets(tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any], cwd: str) -> List[str]:
     """這次工具呼叫寫到的測試檔。Bash／PowerShell 的寫入目標由 wg_core.write_paths_from_tool 解析（目標不明的 UNKNOWN 略過，
-    OverviewHub 會擋那種指令）。"""
+    由 UNKNOWN_TARGET_LOGGED 放行留帳）。"""
     if tool_name == "NotebookEdit":
         paths = [str(tool_input.get("notebook_path", "") or "")]
     elif tool_name in EDIT_TOOLS:
@@ -676,7 +678,7 @@ def _head_moves(gd: Path, offset: int) -> Tuple[List[Tuple[str, str]], List[Tupl
     """(這條指令期間 HEAD 被別人的內容移動的幾筆, 自己 commit 讓 HEAD 動的幾筆, 判不出的原因)，每筆是 (移動前, 移動後)：
     logs/HEAD 從 offset 起新增的紀錄，說明不是 _OWN_MOVES 開頭的（merge、pull、rebase、checkout、reset、cherry-pick）算別人的；
     自己 commit、amend、revert 算自己的；合併提交（commit (merge)：merge --no-commit 或解完衝突再 commit）兩邊都不算，
-    它的內容大半是別軌的、分不出哪幾處是自己改的。執行前沒有 reflog、檔被截短 → 判不出。"""
+    它的內容大半來自別的分支、分不出哪幾處是自己改的。執行前沒有 reflog、檔被截短 → 判不出。"""
     log = gd / "logs" / "HEAD"
     data = log.read_bytes() if offset >= 0 and log.is_file() else b""
     if offset < 0 or len(data) < offset:
@@ -746,7 +748,7 @@ def _git_after(root: str, py: Dict[str, Any], head: str, pairs: Dict[str, Option
 
 def absorb_git_tests(state: Optional[Dict[str, Any]], brought: Dict[str, Iterable[str]]) -> bool:
     """git 帶進來的測試是舊測試：{測試檔: 測試名} 併進已記過基線的那幾個檔（基線沒有的測試＝本 session 新加的，不併的話
-    別軌的新測試會被放過）。就地改 state，回有沒有改。"""
+    別的分支帶進來的新測試會被放過）。就地改 state，回有沒有改。"""
     import wg_release_rules as rr
     base = (state or {}).get(BASELINE_KEY) or {}
     changed = False
@@ -778,10 +780,11 @@ def _py_baseline(tool_input: Dict[str, Any], config: Dict[str, Any], cwd: str, s
         return None
 
 
-def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str) -> None:
+def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str,
+             state: Optional[Dict[str, Any]]) -> None:
     """PreToolUse（Bash／PowerShell／NotebookEdit）：寫入目標裡的測試檔拍改前快照（檔還不存在記 None；讀不到讓例外往上丟＝擋）；
-    指令會執行 python 再加記 repo 裡已經有改動的測試檔（_py_baseline）。快照到的檔順便記基線（remember_baseline）：
-    這一步在 PreToolUse，指令之後失敗、PostToolUse 沒跑也記得到。"""
+    指令會執行 python 再加記 repo 裡已經有改動的測試檔（_py_baseline）。快照到的檔順便記基線（remember_baseline，記進 gate 拿到的
+    那份 state）：這一步在 PreToolUse，指令之後失敗、PostToolUse 沒跑也記得到。"""
     sid = input_data.get("session_id", "") or ""
     files = {p: _read(p) for p in _test_targets(tool_name, tool_input, config, cwd)}
     py = _py_baseline(tool_input, config, cwd, sid) if tool_name in ("Bash", "PowerShell") else None
@@ -790,11 +793,9 @@ def snapshot(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, A
     f = _snap_file(sid, tool_name, tool_input)
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(json.dumps({"files": files, "py": py}, ensure_ascii=False), encoding="utf-8", newline="\n")
-    if sid:
-        from wg_core import read_state, write_state
-        state = read_state(sid)
-        if remember_baseline(state, {**((py or {}).get("dirty") or {}), **files}):
-            write_state(sid, state)
+    if sid and remember_baseline(state, {**((py or {}).get("dirty") or {}), **files}):
+        from wg_core import write_state
+        write_state(sid, state)
 
 
 def _snap_pairs(snap: Dict[str, Any], config: Dict[str, Any], sid: str,
@@ -922,14 +923,32 @@ def _only_touches(tool_name: str, tool_input: Dict[str, Any], cwd: str, files: s
     return False
 
 
-def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], cwd: str) -> Optional[str]:
+def _capped(state: Optional[Dict[str, Any]], sid: str, tool_name: str,
+            owed: List[Tuple[str, Dict[str, Any]]]) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    """擋次上限（wg_core.deny_cap）：沒宣告的 [(檔, 動作)] → ({檔: 這次照擋的動作}, 這次起放行的動作)。缺件＝檔＋測試＋動作種類；
+    同一個使用者回合同一件擋滿兩次就放行、留帳 cap_released。state 就地改（計次），寫檔由呼叫端。"""
+    import wg_release_rules as rr
+    from wg_core import deny_cap
+    keys = {f"{rr.canon_path(fp)}|{c['key']}|{c['kind']}": (fp, c) for fp, c in owed}
+    denied, released = deny_cap(state, GUARD, list(keys))
+    for k in released:
+        fp, c = keys[k]
+        _log("cap_released", sid, fp, tool=tool_name, test=c["key"], kind=c["kind"])
+    by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for k in denied:
+        fp, c = keys[k]
+        by_file.setdefault(fp, []).append(c)
+    return by_file, [keys[k][1] for k in released]
+
+
+def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], cwd: str,
+                  state: Optional[Dict[str, Any]]) -> Optional[str]:
     """上一個 Bash／PowerShell／NotebookEdit 動了既有測試沒宣告：這次（任何工具）先找宣告，補了的清掉、留帳 declared_late；
-    還欠著就擋，除非這次只讀或只寫那幾個檔（撤回）。"""
+    還欠著就擋，除非這次只讀或只寫那幾個檔（撤回）；同一件擋滿兩次放行（_capped），放行的那筆從欠帳拿掉、留帳 cap_released。"""
     sid = input_data.get("session_id", "") or ""
     if not sid:
         return None
-    from wg_core import read_state, write_state
-    state = read_state(sid)
+    from wg_core import write_state
     pending = list((state or {}).get(PENDING_KEY) or [])
     if not pending:
         return None
@@ -945,31 +964,33 @@ def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[s
         write_state(sid, state)
     if not left or _only_touches(tool_name, tool_input, cwd, {rr.canon_path(e["file"]) for e in left}):
         return None
-    by_file: Dict[str, List[Dict[str, Any]]] = {}
-    for e in left:
-        by_file.setdefault(e["file"], []).append(e)
+    by_file, released = _capped(state, sid, tool_name, [(e["file"], e) for e in left])
+    if released:
+        state[PENDING_KEY] = [e for e in left if not any(e is r for r in released)]
+    write_state(sid, state)
+    if not by_file:
+        return None
+    left = [e for es in by_file.values() for e in es]
     _log("denied_late", sid, left[0]["file"], tool=tool_name, pending=[{k: e[k] for k in ("file", "key", "kind")} for e in left])
     tools = "／".join(sorted({e.get("tool", "") for e in left}))
     return ("\n".join(rr.format_hit("ot", rr.old_test_change_verdict(fp, es, decls)) for fp, es in by_file.items())
             + f"\n這是 {tools} 改的（已經寫進檔），請補宣告再繼續；要撤回就只讀、只改這幾個檔。\n" + hint(left[0]["key"]))
 
 
-def _heredoc_deny(tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str) -> Optional[str]:
-    """Bash 用 heredoc 寫測試檔（heredoc_writes 算得出改後內容）→ 寫之前與 Edit／Write 同款判：動到既有測試又找不到宣告就擋；
-    宣告對上的照 Edit 留帳。算不出改後內容的寫法回 None，交給快照＋after_tool 事後比。"""
+def _heredoc_deny(tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], cwd: str,
+                  state: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Bash 用 heredoc 寫測試檔（heredoc_writes 算得出改後內容）→ 寫之前與 Edit／Write 同款判：動到既有測試又找不到宣告就擋
+    （擋次上限同 _capped）；宣告對上的照 Edit 留帳。算不出改後內容的寫法回 None，交給快照＋after_tool 事後比。"""
     targets = _test_targets("Bash", tool_input, config, cwd)
     writes = heredoc_writes(str(tool_input.get("command", "") or ""), targets) if targets else {}
     if not writes:
         return None
     import wg_release_rules as rr
-    from wg_core import read_state, write_state
+    from wg_core import write_state
     sid = input_data.get("session_id", "") or ""
-    state = read_state(sid) if sid else None
     owing = {(rr.canon_path(e["file"]), e["key"]) for e in (state or {}).get(PENDING_KEY) or []}
     decls: Optional[List[Dict[str, Any]]] = None
-    hits: List[str] = []
-    ok: List[Tuple[str, List[Dict[str, str]], List[str]]] = []
-    first = ""
+    files: List[Tuple[str, List[Dict[str, str]], List[str]]] = []
     dirty = False
     for fp, after in writes.items():
         before = _read(fp)
@@ -978,37 +999,46 @@ def _heredoc_deny(tool_input: Dict[str, Any], input_data: Dict[str, Any], config
         live = [c for c in live if (rr.canon_path(fp), c["key"]) not in owing]
         if live and decls is None:
             decls = rr.parse_old_test_declarations(_decl_text(input_data))
-        v = rr.old_test_change_verdict(fp, live, decls or [])
-        if v.owed:
-            _log("denied", sid, fp, tool="Bash", via="heredoc", changes=live)
-            hits.append(rr.format_hit("ot", v))
-            first = first or next(c["key"] for c in live if rr.old_test_declaration_for(c, decls or [], fp) is None)
-            continue
-        ok.append((fp, live, added))
-    if not hits:   # 整條指令會執行才記宣告與新加的測試；有一個檔被擋就整條不跑，其他檔也不先記
-        for fp, live, added in ok:
-            dirty = _record(state, sid, fp, live, added, decls or []) or dirty
-    if dirty and state is not None:
+        files.append((fp, live, added))
+    owed = [(fp, c) for fp, live, _ in files for c in live if rr.old_test_declaration_for(c, decls or [], fp) is None]
+    by_file, _released = _capped(state, sid, "Bash", owed)
+    dirty = dirty or bool(owed)
+    if not by_file:   # 整條指令會執行才記宣告與新加的測試；有一個檔被擋就整條不跑，其他檔也不先記
+        for fp, live, added in files:
+            dirty = _record(state, sid, fp, [c for c in live if (fp, c) not in owed], added, decls or []) or dirty
+    if dirty and state is not None and sid:
         write_state(sid, state)
-    if not hits:
+    if not by_file:
         return None
-    return "\n".join(hits) + "\n這是 Bash heredoc 要寫進去的內容（寫之前就比對，還沒寫進檔）。\n" + hint(first)
+    for fp, cs in by_file.items():
+        _log("denied", sid, fp, tool="Bash", via="heredoc", changes=cs)
+    hits = [rr.format_hit("ot", rr.old_test_change_verdict(fp, cs, decls or [])) for fp, cs in by_file.items()]
+    return "\n".join(hits) + "\n這是 Bash heredoc 要寫進去的內容（寫之前就比對，還沒寫進檔）。\n" + hint(next(iter(by_file.values()))[0]["key"])
+
+
+_READ = object()   # gate 沒拿到 state：自己讀一份（單獨呼叫時）
 
 
 def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any],
-         cwd: str) -> Optional[str]:
+         cwd: str, state: Any = _READ) -> Optional[str]:
     """PreToolUse：①上一個 Bash 類呼叫還欠宣告 → 擋（任何工具）；②Bash／PowerShell／NotebookEdit → 拍快照放行，事後由 after_tool 比；
-    ③Edit／MultiEdit／Write 動到既有測試又找不到宣告行 → 擋。宣告過與本 session 自己新加的測試記 state，之後不再擋。"""
+    ③Edit／MultiEdit／Write 動到既有測試又找不到宣告行 → 擋。宣告過與本 session 自己新加的測試記 state，之後不再擋。
+    同一件缺宣告同一個使用者回合擋滿兩次就放行留帳（_capped）。state＝PreToolUse 已讀的那一份（None＝沒有 state 檔），
+    就地改、本閘有改就寫回；沒給才自己讀。"""
     if not _cfg(config).get("enabled", True):
         return None
-    late = _pending_deny(tool_name, tool_input, input_data, cwd)
+    sid = input_data.get("session_id", "") or ""
+    if state is _READ:
+        from wg_core import read_state
+        state = read_state(sid) if sid else None
+    late = _pending_deny(tool_name, tool_input, input_data, cwd, state)
     if late:
         return late
     if tool_name in AFTER_TOOLS:
-        pre = _heredoc_deny(tool_input, input_data, config, cwd) if tool_name == "Bash" else None
+        pre = _heredoc_deny(tool_input, input_data, config, cwd, state) if tool_name == "Bash" else None
         if pre:
             return pre
-        snapshot(tool_name, tool_input, input_data, config, cwd)
+        snapshot(tool_name, tool_input, input_data, config, cwd, state)
         return None
     if tool_name not in EDIT_TOOLS or not _test_targets(tool_name, tool_input, config, cwd):
         return None
@@ -1016,22 +1046,22 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     ba = before_after(tool_name, tool_input)
     if ba is None:
         return None
-    sid = input_data.get("session_id", "") or ""
     import wg_release_rules as rr
-    from wg_core import read_state, write_state
-    state = read_state(sid) if sid else None
+    from wg_core import write_state
     based = remember_baseline(state, {fp: ba[0]})
     live, added = _changes(state, sid, fp, ba[0], ba[1])
     # 已經欠著宣告的那幾支（上一個 Bash 改的）這次再動不另算：多半是撤回，撤回成不成由 after_tool 判、清帳
     owing = {(rr.canon_path(e["file"]), e["key"]) for e in (state or {}).get(PENDING_KEY) or []}
     live = [c for c in live if (rr.canon_path(fp), c["key"]) not in owing]
     decls = rr.parse_old_test_declarations(_decl_text(input_data)) if live else []
-    v = rr.old_test_change_verdict(fp, live, decls)
-    if v.owed:
-        if based:
+    owed = [c for c in live if rr.old_test_declaration_for(c, decls, fp) is None]
+    by_file, _released = _capped(state, sid, tool_name, [(fp, c) for c in owed])
+    dirty = based or bool(owed)
+    if by_file:
+        if dirty and state is not None and sid:
             write_state(sid, state)
-        _log("denied", sid, fp, tool=tool_name, changes=live)
-        return rr.format_hit("ot", v) + "\n" + hint(next(c["key"] for c in live if rr.old_test_declaration_for(c, decls, fp) is None))
-    if _record(state, sid, fp, live, added, decls) or based:
+        _log("denied", sid, fp, tool=tool_name, changes=by_file[fp])
+        return rr.format_hit("ot", rr.old_test_change_verdict(fp, by_file[fp], decls)) + "\n" + hint(by_file[fp][0]["key"])
+    if (_record(state, sid, fp, [c for c in live if c not in owed], added, decls) or dirty) and state is not None and sid:
         write_state(sid, state)
     return None

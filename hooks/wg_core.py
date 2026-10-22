@@ -1478,6 +1478,42 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         _atom_debug_error(f"guard_log:{guard}", e)
 
 
+# ─── 宣告閘擋次上限（動資料檔／改舊測試／不是繞閘共用）───────────────────────
+DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾次；再來就放行、由呼叫端留帳
+_DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋次數}}
+
+
+def deny_cap(state: Optional[Dict[str, Any]], gate: str, items: List[str],
+             cap: int = DECL_DENY_CAP) -> Tuple[List[str], List[str]]:
+    """宣告閘這次缺宣告的每一件（呼叫端給穩定的鍵，例：檔的 canon 路徑）→ (照擋的, 這次起放行的)。
+    同一個使用者回合（wg_release_rules.user_turn）裡同一件已經擋滿 cap 次就放行：越過上限那一次回在「放行」裡給呼叫端
+    留帳，同回合之後再遇到既不擋也不重回；照擋的各記一次。換回合整份歸零。state 就地改、寫檔由呼叫端；
+    state 是 None（沒有 session 可記）照擋、不計次。"""
+    if state is None:
+        return list(items), []
+    from wg_release_rules import user_turn
+    turn = user_turn(state, int(state.get("turn_seq", 0) or 0))
+    book = state.get(_DECL_DENY_KEY)
+    if not isinstance(book, dict) or book.get("turn") != turn or not isinstance(book.get("counts"), dict):
+        book = state[_DECL_DENY_KEY] = {"turn": turn, "counts": {}}
+    counts = book["counts"]
+    deny: List[str] = []
+    released: List[str] = []
+    for item in dict.fromkeys(items):
+        key = f"{gate}|{item}"
+        n = int(counts.get(key, 0) or 0)
+        if n < cap:
+            deny.append(item)
+        elif n == cap:
+            released.append(item)
+        counts[key] = n + 1 if n <= cap else n
+    if deny:                          # 這次照擋：放行的那幾件不算越過上限（整條還是被擋），留到下一次再放
+        for item in released:
+            counts[f"{gate}|{item}"] = cap
+        released = []
+    return deny, released
+
+
 # ─── Atom Debug Log ──────────────────────────────────────────────────────────
 
 
@@ -1522,12 +1558,6 @@ _NESTED_PROJECTS_RE = lazy_re(
 )
 _DOUBLE_CLAUDE_RE = lazy_re(
     r"[/\\]\.claude[/\\]\.claude[/\\]memory[/\\]",
-    re.IGNORECASE,
-)
-_SVN_COMMIT_RE = lazy_re(r"\bsvn\s+(?:ci|commit)\b", re.IGNORECASE)
-_TEST_PATH_RE = lazy_re(
-    r"(?:^|[/\\\s])(?:tests?|__tests__)(?:[/\\\s]|$)"
-    r"|[/\\][^/\\\s]*Test\.(?:cs|py|js|ts|tsx|jsx|go|java)\b",
     re.IGNORECASE,
 )
 
@@ -1652,25 +1682,6 @@ def check_memory_path_block(
         "  (2) 程式碼端：知識內容寫 lib.atom_io.write_atom() / write_raw() / edit_metadata()；\n"
         "      計數欄位（read_hits / last_used / confirmations）寫 lib.atom_access\n"
         "緊急 bypass：set 環境變數 `WG_DISABLE_ATOM_GUARD=1` 後重試。"
-    )
-
-
-def check_svn_test_block(
-    tool_name: str, tool_input: Dict[str, Any]
-) -> Optional[str]:
-    """阻擋 svn commit 含 test/tests/__tests__ 路徑或 *Test.<ext> 檔。"""
-    if tool_name != "Bash":
-        return None
-    cmd = tool_input.get("command", "") or ""
-    if not _SVN_COMMIT_RE.search(cmd):
-        return None
-    if not _TEST_PATH_RE.search(cmd):
-        return None
-    return (
-        "[Guardian:SvnTestBlock] svn commit 命令含 test/tests/__tests__ 路徑或 "
-        "*Test.<ext> 檔案。測試/練習/新手作業檔不可上 SVN（r10854 教訓）。\n"
-        "若確實要上，請 (1) 將指定檔案逐一列入命令、不用 glob；或 "
-        "(2) 由使用者明確指示後再執行。"
     )
 
 
@@ -1800,8 +1811,8 @@ _BASH_WRITE_OP_RE = lazy_re(
     re.IGNORECASE,
 )
 
-# ─── 工具呼叫的寫入目標（OverviewHub 閘逐目標 on_edit；track-b 的 post_tool_use try-import）─────────
-# 介面凍結：write_paths_from_tool(tool_name, tool_input) -> List[str]，只回絕對路徑。
+# ─── 工具呼叫的寫入目標（OverviewHub 閘逐目標 on_edit；post_tool_use 記改過的檔）─────────
+# 對外介面：write_paths_from_tool(tool_name, tool_input, cwd=None) -> List[str]，只回絕對路徑。
 # 規則 R0～R5：
 #   R0 整條沒有寫入訊號（重導向／寫檔命令／直譯器內嵌碼／子 shell 或替換裡的寫入）一律回 []，不回 UNKNOWN。
 #   R1 先接 `\`＋換行續行；剝引號外的 # 註解；heredoc 只認引號外、token 開頭的 <<，本文整段跳過；引號內容是一個 token。
@@ -1811,7 +1822,7 @@ _BASH_WRITE_OP_RE = lazy_re(
 #      cp 家族目標是目錄（尾 / 或既存目錄、或多來源）→ 目錄/basename(src)。
 #   R4 UNKNOWN 只在「有寫入訊號但算不出目標」：目標含展不開的變數（$HOME／~ 除外）、$(…)／反引號／eval 裡含寫入、
 #      直譯器內嵌碼（python -c／python -／node -e／pwsh -Command／[IO.File]::／open(…,'w')／fs.writeFile）、
-#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。回 ["UNKNOWN:<該段前 40 字>"]，on_edit 一律 deny。
+#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。回 ["UNKNOWN:<該段前 40 字>"]，on_edit 照 UNKNOWN_TARGET_LOGGED 放行留帳。
 #   R5 `;`／`&&`／換行的 cd 生效到後段；||／| 右側的 cd 不外溢；(…) 子 shell 的 cd 不外溢，裡面的目標照算。
 _WRITE_CMDS = frozenset({
     "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "truncate", "sed", "sort",
@@ -2612,7 +2623,7 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
 
 def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optional[str] = None) -> List[str]:
     """工具呼叫會寫到哪些檔（絕對路徑、去重、保序）。Edit／Write／NotebookEdit／MultiEdit 取 file_path（相對以 cwd 補）；
-    Bash／PowerShell 依 R0～R5：沒有寫入訊號回 []；有訊號但算不出目標回 ["UNKNOWN:<該段前 40 字>"]（fail-closed）；其他工具回 []。"""
+    Bash／PowerShell 依 R0～R5：沒有寫入訊號回 []；有訊號但算不出目標回 ["UNKNOWN:<該段前 40 字>"]（呼叫端自己決定怎麼處理）；其他工具回 []。"""
     base = cwd or os.getcwd()
     if tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit"):
         fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
