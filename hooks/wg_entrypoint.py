@@ -9,7 +9,8 @@
 - judgment_cards(text, path)    上面三步串起來，只取知識段、總預算內截斷，回要接在問句後面的那段文字
 - entry_note(text, path, …)     問的那一刻的單一入口（Stop 擋訊息與續跑提醒、PreToolUse deny、MCP 回覆、子代理 prompt 都呼叫它）：
                                 挑卡＋每個切入點記一筆帳到 Logs/guard-entry.jsonl，回要接在問句後面的文字；
-                                同一個使用者回合已送過全文的卡只送一行指回（workflow/entry-sent/<sid>.json，規則 CARD_ONCE_PER_TURN）
+                                同一個話題已送過全文的卡只送一行指回（workflow/entry-sent/<sid>.json，規則 CARD_ONCE_PER_TOPIC：
+                                話題＝目前的需求目標樹，換樹才再送；壓縮後清掉重送；子代理 prompt 不套）
 - resolve_responses(asks, …)    依各閘自己的留帳（登錄表每列的 responses）推每次問之後 AI 的回應型；tools/entry-stats.py 用
 - health_block()                健檢：RULES 裡沒登錄的規則名、登錄表寫錯的規則名、卡片寫了登錄表沒有的代號——只列不擋
 """
@@ -192,7 +193,7 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
         if name in sent or eid in out["truncated_entries"]:
             continue
         if name in (seen or ()):
-            blocks.append(f"判準卡（{'、'.join(serves[name])}）：{name}（本回合前面的訊息已送過全文，照那張判）")
+            blocks.append(f"判準卡（{'、'.join(serves[name])}）：{name}（這個話題前面已送過全文，照那張判）")
             out["cards"].append({"name": name, "entries": serves[name], "via": "entry" if name in bound_somewhere else "keyword"})
             out["repeated"].append(name)
             sent.add(name)
@@ -251,9 +252,10 @@ def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Di
             from wg_core import read_state
             state = read_state(session_id)
         turn = (state or {}).get("turn_seq")
-        seen = _sent_this_turn(session_id, turn)
+        topic = None if path == "subagent_prompt" else _topic_key(session_id)   # 子代理是另一個 context：照送全文
+        seen = _sent_this_topic(session_id, topic)
         res = judgment_cards(text, path, state=state, config=config, registry=reg, pool=pool, seen=seen)
-        _remember_sent(session_id, turn, seen | {c["name"] for c in res["cards"]})
+        _remember_sent(session_id, topic, seen | {c["name"] for c in res["cards"]})
         from wg_core import append_guard_log
         for eid in res["entries"]:
             append_guard_log(LEDGER, {**(extra or {}), "event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
@@ -272,27 +274,50 @@ def _sent_path(session_id: str) -> Path:
     return WORKFLOW_DIR / "entry-sent" / f"{''.join(c if c.isalnum() or c in '-_' else '_' for c in session_id)}.json"
 
 
-def _sent_this_turn(session_id: str, turn: Any) -> set:
-    """規則 CARD_ONCE_PER_TURN：這個 session 這個使用者回合已送過全文的卡名。沒有 session 或回合、檔讀不到 → 空集合（照送全文）。"""
-    if not session_id or turn is None:
+def _topic_key(session_id: str) -> Optional[str]:
+    """規則 CARD_ONCE_PER_TOPIC 的話題：目前的需求目標樹（換題＝need_goal set new_task 開新樹）；還沒有樹就是整個 session。
+    樹檔讀不到也當整個 session（最多少送一次重複的卡，不擋任何事）。"""
+    if not session_id:
+        return None
+    try:
+        import wg_need_goal as ng
+        tid = ng.load(session_id).get("active")
+    except Exception:  # noqa: BLE001
+        tid = None
+    return f"tree:{tid}" if tid else "session"
+
+
+def _sent_this_topic(session_id: str, topic: Optional[str]) -> set:
+    """這個 session 這個話題已送過全文的卡名。沒有 session 或話題、檔讀不到 → 空集合（照送全文）。"""
+    if not session_id or topic is None:
         return set()
     try:
         rec = json.loads(_sent_path(session_id).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return set()
-    return set(rec.get("names") or []) if rec.get("turn") == turn else set()
+    return set(rec.get("names") or []) if rec.get("topic") == topic else set()
 
 
-def _remember_sent(session_id: str, turn: Any, names: set) -> None:
-    if not session_id or turn is None or not names:
+def _remember_sent(session_id: str, topic: Optional[str], names: set) -> None:
+    if not session_id or topic is None or not names:
         return
     p = _sent_path(session_id)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"turn": turn, "names": sorted(names)}, ensure_ascii=False), encoding="utf-8",
+        p.write_text(json.dumps({"topic": topic, "names": sorted(names)}, ensure_ascii=False), encoding="utf-8",
                      newline="\n")
     except OSError as e:
-        print(f"[Guardian:Entrypoint] 記不下本回合已送的判準卡（下次照送全文）：{e}", file=sys.stderr)
+        print(f"[Guardian:Entrypoint] 記不下這個話題已送的判準卡（下次照送全文）：{e}", file=sys.stderr)
+
+
+def forget_sent(session_id: str) -> None:
+    """壓縮前清掉已送紀錄：壓縮後 context 裡沒有卡的全文了，下次照送。"""
+    if not session_id:
+        return
+    try:
+        _sent_path(session_id).unlink(missing_ok=True)
+    except OSError as e:
+        print(f"[Guardian:Entrypoint] 清不掉已送判準卡紀錄（壓縮後可能只送指回行）：{e}", file=sys.stderr)
 
 
 def with_note(text: str, note: str) -> str:

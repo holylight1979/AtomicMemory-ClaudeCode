@@ -20,7 +20,12 @@ from wg_core import (
     CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR,
     _now_iso, _atom_debug_log, _atom_debug_error,
 )
-from wg_atoms import _kw_match
+
+
+def _kw_match(*a: Any, **k: Any) -> Any:
+    """wg_atoms._kw_match 的惰性入口（HOOK_IMPORT_ON_USE）：只有萃取觸發判斷用到，import 本模組的 hook 不先載 wg_atoms。"""
+    from wg_atoms import _kw_match as _f
+    return _f(*a, **k)
 
 
 # ─── Process Utilities ───────────────────────────────────────────────────────

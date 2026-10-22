@@ -22,6 +22,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK_IMPORT_ON_USE）
 
 import wg_core
 import wg_release_rules as rr
@@ -60,21 +61,21 @@ NO_TOOL_HINT = "本 session 若叫不到 need_goal 工具（MCP 是舊的），�
 # G11 思考的彎：reconcile 的 turns（這次拐了幾個彎）缺就提醒一句、不擋；≥ TURNS_RETHINK（超過三個）要有「重找最短路：<結果>」才收
 # （原話：第二個彎提高注意、第三個警戒極限、第四個幾乎可以確定臭掉；繼續推進只會越跑越偏）。程式只核對有沒有寫，不評結果。
 TURNS_RETHINK = 4
-_RETHINK_RE = re.compile(r"重找最短路\s*[：:]\s*\S")
+_RETHINK_RE = lazy_re(r"重找最短路\s*[：:]\s*\S")
 TURNS_HINT = ("這次拐了幾個彎沒填（reconcile 的 turns）：下次附上；第二個彎起提高注意，≥4 要在 note 寫「重找最短路：<結果>」"
               "（只提醒、不擋）")
 
-NODE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])T\d+(?:\.\d+)*")
-NODE_ID_FULL_RE = re.compile(r"^T\d+(?:\.\d+)*$")
-_RECEIPT_REF_RE = re.compile(r"^[Rr]?(\d+)$")
-_LINE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
-_PEER_RE = re.compile(r"<\s*cross-session-message\b([^>]*)>(.*?)(?:<\s*/\s*cross-session-message\s*>|\Z)",
+NODE_ID_RE = lazy_re(r"(?<![A-Za-z0-9_])T\d+(?:\.\d+)*")
+NODE_ID_FULL_RE = lazy_re(r"^T\d+(?:\.\d+)*$")
+_RECEIPT_REF_RE = lazy_re(r"^[Rr]?(\d+)$")
+_LINE_SUFFIX_RE = lazy_re(r":\d+(?:-\d+)?$")
+_PEER_RE = lazy_re(r"<\s*cross-session-message\b([^>]*)>(.*?)(?:<\s*/\s*cross-session-message\s*>|\Z)",
                       re.IGNORECASE | re.DOTALL)
-_PEER_NAME_RE = re.compile(r'\bfrom-name\s*=\s*"([^"]*)"')
-_PEER_FROM_RE = re.compile(r'\bfrom\s*=\s*"([^"]*)"')
-_BLOCK_RE = re.compile(r"<!--\s*need-goal:begin[^>]*-->\s*```json\s*(.*?)\s*```\s*<!--\s*need-goal:end\s*-->",
+_PEER_NAME_RE = lazy_re(r'\bfrom-name\s*=\s*"([^"]*)"')
+_PEER_FROM_RE = lazy_re(r'\bfrom\s*=\s*"([^"]*)"')
+_BLOCK_RE = lazy_re(r"<!--\s*need-goal:begin[^>]*-->\s*```json\s*(.*?)\s*```\s*<!--\s*need-goal:end\s*-->",
                        re.DOTALL)
-HANDOFF_NAME_RE = re.compile(r"[\\/]_staging[\\/]next-phase[^\\/]*\.md$", re.IGNORECASE)
+HANDOFF_NAME_RE = lazy_re(r"[\\/]_staging[\\/]next-phase[^\\/]*\.md$", re.IGNORECASE)
 
 USER_FIRST_CAP = 4000
 USER_CAP = 1000
@@ -101,7 +102,7 @@ SUBGOAL_LINE = ("樹根寫的是整個需求（使用者這次要的全部，不
                 "看不出就不用加。")
 # 使用者又說話時樹怎麼長（B5 缺口②：只提換題那條路，AI 被糾正也開新樹、舊樹不收）；每則訊息與糾正提醒共用
 TREE_PATHS = ("這則若是補充（多要一件事、新的條件）→ need_goal add 長成子目標；若是糾正 → 改這棵樹（update 改節點、"
-              "作廢的標放棄並寫為什麼，set 改寫樹根附 why），不開新樹；換成另一件事才 set new_task=true 並附 why。")
+              "作廢的標放棄，set 改寫樹根），不開新樹；換成另一件事才 set new_task=true。")
 GOAL_LINE_TEMPLATE = "定位｜目標：<節點編號>（這一塊在目標裡的角色）"
 # 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；
 # 定位第五行的提示與「用目標視角重看」的兩問共用；只送題，適不適用由 LLM 判斷
@@ -643,9 +644,7 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
             continue
         if not NODE_ID_FULL_RE.match(_s(it.get("id"))):
             errs.append(f"{tag}.id 必填，格式 T<數字>(.<數字>)*")
-        if action == "update":
-            if not _s(it.get("why")):
-                errs.append(f"{tag}.why 必填（這次改動讓它更接近了沒、為什麼）")
+        if action == "update":     # why 選填（WHY_OPTIONAL）：有寫就進 history，沒寫不擋
             if not any(it.get(k) is not None for k in ("text", "status", "clarity", "origin")):
                 errs.append(f"{tag} 至少要改 text／status／clarity／origin 其中一項")
             if it.get("origin") is not None and it.get("origin") not in ORIGIN:
@@ -681,6 +680,8 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
             cov = e.get("covers")
             if cov is not None and (not isinstance(cov, list) or not all(NODE_ID_FULL_RE.match(_s(c)) for c in cov)):
                 errs.append(f"{etag}.covers 必須是節點編號陣列")
+            if e.get("unaffected") is not None and not isinstance(e.get("unaffected"), str):
+                errs.append(f"{etag}.unaffected 必須是字串（為什麼第二意見之後改的檔不影響這筆收據）")
     return errs
 
 
@@ -923,8 +924,62 @@ def _evidence_problems(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, e: D
             continue
         last = _last_edit_for(tree, c) if r else None
         if r and last and int(r["seq"]) <= int(last.get("seq", 0)):
-            probs.append(f"{nid} 的證據 R{r['seq']} 跑在 {c} 最後一次改動（{Path(str(last.get('path'))).name}）之前：改完沒重跑")
+            if _review_fix_unaffected(doc, tree, c, r, last, e):
+                continue
+            probs.append(f"{nid} 的證據 R{r['seq']} 跑在 {c} 最後一次改動（{Path(str(last.get('path'))).name}）之前：改完沒重跑"
+                         + ("（第二意見之後的修補只要重跑碰到它的 verify：這筆不受影響就在證據寫 unaffected＝為什麼）"
+                            if doc.get("review") else ""))
     return probs
+
+
+def _review_done(sid: Any, since: float) -> bool:
+    """這個 session 在 since 之後開的第二意見 job 有一個跑完（`workflow/second-opinion/<時間>-<sid 前 8 碼>-<種類>/status.json`
+    的 status=done；job 名格式見 tools/second-opinion/run.py new_job_id）。讀不到當沒跑完。"""
+    sid8 = re.sub(r"[^0-9a-z]", "", _base_sid(sid).lower())[:8]
+    if not sid8:
+        return False
+    for st in (wg_core.WORKFLOW_DIR / "second-opinion").glob(f"*-{sid8}-*/status.json"):
+        try:
+            if st.parent.stat().st_mtime + 1 >= since and json.loads(st.read_text(encoding="utf-8")).get("status") == "done":
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def mark_review(sid: Any) -> None:
+    """第二意見跑完（second_opinion_result 收到結果）：記下這一刻與當時各節點的最後改動，之後的修補算「審完的修補」
+    （規則 REVIEW_FIX_RERUN_TOUCHED_ONLY）。沒有樹不記。"""
+    if active_tree(load(sid)) is None:
+        return
+
+    def fn(doc: Dict[str, Any]) -> None:
+        tree = active_tree(doc)
+        doc["review"] = {"seq": next_seq(doc), "tree": tree["id"] if tree else None, "at": time.time(),
+                         "node_last_edit": copy.deepcopy((tree or {}).get("node_last_edit") or {})}
+    update_locked(sid, fn)
+
+
+def _review_fix_unaffected(doc: Dict[str, Any], tree: Dict[str, Any], c: str, r: Dict[str, Any],
+                           last: Dict[str, Any], e: Dict[str, Any]) -> bool:
+    """規則 REVIEW_FIX_RERUN_TOUCHED_ONLY：codex 審完之後的修補只重跑它碰到的檔。收據 r 跑在審查前最後一次改動之後、
+    之後的改動全是審完的修補、AI 在這筆證據宣告 unaffected（為什麼後來改的檔不影響它）→ 收據照算，留帳；
+    哪筆受影響由 AI 判，程式只核對時間先後與審查真的跑完（_review_done）。沒審過、審查沒跑完、審查前就過期、沒宣告、
+    宣告之後又改了（存下來的證據帶對照當時的 seq）→ 照舊算改完沒重跑。"""
+    rv = doc.get("review") or {}
+    why = _s(e.get("unaffected"))
+    if not why or not rv or rv.get("tree") != tree.get("id"):
+        return False
+    pre = _last_edit_for({"node_last_edit": rv.get("node_last_edit") or {}}, c)
+    if int(r["seq"]) <= int((pre or {}).get("seq", 0)) or int(last.get("seq", 0)) <= int(rv.get("seq", 0)):
+        return False
+    if e.get("seq") is not None and int(last.get("seq", 0)) > int(e["seq"]):
+        return False                             # 宣告之後又改了：舊宣告不管新改動
+    if not _review_done(doc.get("session_id"), float(rv.get("at") or 0)):
+        return False
+    _guard("unaffected_declared", doc.get("session_id"), tree=tree["id"], node=c, receipt=r.get("seq"),
+           edited=str(last.get("path")), why=why[:200])
+    return True
 
 
 def _problems(doc: Dict[str, Any], tree: Dict[str, Any], view: Dict[str, Dict[str, Any]], cwd: str,
@@ -983,12 +1038,8 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
     goal, why = _s(inp.get("goal")), _s(inp.get("why"))
     tree = active_tree(doc)
     if tree is None or inp.get("new_task") is True:
+        # 換題不再要 why（WHY_OPTIONAL）；舊樹還在進行中就在收下時列出沒結束的節點（B5 q3 改成提醒）
         old = tree if tree is not None and tree.get("status") == "doing" else None
-        if old is not None and not why:
-            # 換題與改寫樹根一樣要附 why：兩條路成本相同，被糾正時才不會挑便宜的開新樹（B5 q3）
-            return {"ok": False, "tree": old["id"], "rejected": [
-                f"{old['id']} 還在進行中，開新樹要附 why：為什麼是另一件事、不是對 {old['id']} 的糾正或補充。"
-                f"是糾正或補充就改 {old['id']}（update 改節點、作廢的標放棄；add 長子目標；set 不帶 new_task 改寫樹根附 why）"]}
         tree = _new_tree(doc, goal, turn, why)
         add_checkpoint(doc, tree, turn, "set", tree["id"])
         events: List[Tuple[str, Dict[str, Any]]] = []
@@ -997,14 +1048,12 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
         left = [n for n, v in (old or {}).get("nodes", {}).items() if v.get("status") in ("todo", "doing")]
         if left:
             note += (f"\n舊樹 {old['id']} 還有 {len(left)} 個沒結束的節點（{'、'.join(sorted(left, key=_sort_key)[:6])}）："
-                     "被新樹取代的用 update 標放棄並寫為什麼，還要做的留著。")
+                     f"如果這是對 {old['id']} 的糾正或補充，改回 {old['id']}（update／add），不要開新樹；"
+                     "被新樹取代的用 update 標放棄，還要做的留著。")
         return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": note, "origin_events": events}
     root = tree["nodes"][tree["id"]]
     if goal == root.get("text"):
         return {"ok": True, "tree": tree["id"], "goal_changed": False, "note": "樹根沒變"}
-    if not why:
-        return {"ok": False, "tree": tree["id"], "rejected": [
-            f"改寫 {tree['id']} 的樹根要附 why（為什麼改）；真的換成另一件事才帶 new_task=true 開新樹（也要附 why）"]}
     root["text"] = goal
     _goal_changed(doc, tree, turn)
     root["history"].append({"seq": tree["goal_changed"]["seq"], "turn": turn, "what": "text", "why": why})
@@ -1205,7 +1254,8 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
         prior = [e for e in node.get("evidence") or [] if e.get("prior")]
         node["status"] = v["status"]
         stored = [{"kind": e["kind"], "ref": _s(e.get("ref")), "level": e["level"],
-                   "covers": list(e.get("covers") or [nid]), "seq": seq, **({"auto": True} if e.get("auto") else {})}
+                   "covers": list(e.get("covers") or [nid]), "seq": seq, **({"auto": True} if e.get("auto") else {}),
+                   **({"unaffected": _s(e["unaffected"])} if _s(e.get("unaffected")) else {})}
                   for e in v["evidence"]]
         for rec in stored:
             if rec["kind"] != "case":
@@ -1519,6 +1569,9 @@ def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[D
     算記憶知識類寫入的（_knowledge_write）記進 untreed（寫樹時掛進新樹），這個回合第一筆回 KNOWLEDGE_TREE_LINE 給呼叫端送回 AI。
     其餘回 None。"""
     if not sid or not path or not cfg_of(config, _root_of(path))["enabled"]:
+        return None
+    from wg_verify_ledger import git_launcher
+    if git_launcher(path):          # 規則 LAUNCHER_NOT_CODE：一次性 git 啟動器的建、改、刪不蓋到樹，不讓節點證據變成「改完沒重跑」
         return None
     code = is_code_path(path, config)
     if active_tree(load(sid)) is None:

@@ -112,7 +112,7 @@ function check(cond, label, detail) {
   const ng1 = await callTool("need_goal", { action: "set", goal: "讓使用者改完設定不用重開" });
   check(!ng1.result.isError && /\[NeedGoal\] set 已收到/.test(textOf(ng1)), "need_goal set chip", textOf(ng1));
   const ng2 = await callTool("need_goal", { action: "update", items: [{ id: "T1.1", status: "done" }] });
-  check(ng2.result.isError === true && /why/.test(textOf(ng2)), "need_goal update w/o why rejected", textOf(ng2));
+  check(!ng2.result.isError && /update 已收到/.test(textOf(ng2)), "need_goal update w/o why accepted (WHY_OPTIONAL)", textOf(ng2));
   const ng3 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "doing" }] });
   check(ng3.result.isError === true && /終點/.test(textOf(ng3)), "need_goal reconcile non-terminal status rejected", textOf(ng3));
   const ng4 = await callTool("need_goal", { action: "reconcile", items: [

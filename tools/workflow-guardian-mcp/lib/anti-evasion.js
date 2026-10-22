@@ -76,9 +76,33 @@ function aecChipText(args) {
   return `收尾檢核已提交（${SEV_WORD[sev] || sev}）— 內容在 HUD`;
 }
 
+// 收尾一份報告（CLOSING_REPORT_ONE_CALL，v6）：給了 report（白話全文）時 e／f／g 可以不另填（它們只上 HUD，內容寫在 report 裡）；
+// harvest_items 跟 knowledge_harvest_report 的 items 同一套驗法。沒給 report 或守門關閉 → e／f／g 照舊必填。
+const NARRATIVE_FIELDS = ["e", "f", "g"];
+function aecArgErrors(args, v6) {
+  const a = args || {};
+  const errs = [];
+  const hasReport = v6 && typeof a.report === "string" && a.report.trim() !== "";
+  if (!hasReport) {
+    NARRATIVE_FIELDS.filter((k) => typeof a[k] !== "string").forEach((k) => errs.push(`${k} 必填（或改給 report 白話全文）`));
+  }
+  if (v6 && a.harvest_items !== undefined) {
+    if (!Array.isArray(a.harvest_items)) errs.push("harvest_items 必須是陣列");
+    else errs.push(...require("./harvest").validateItems(a.harvest_items).map((e) => `harvest_items：${e}`));
+  }
+  return errs;
+}
+
 async function toolAntiEvasionReport(id, args) {
   const { sendToolResult } = require("./mcp");
-  return sendToolResult(id, aecChipText(args));
+  const { v6Enabled } = require("./paths");
+  const v6 = v6Enabled();
+  const errs = aecArgErrors(args, v6);
+  if (errs.length) {
+    return sendToolResult(id, "anti_evasion_report 拒收：\n" + errs.map((e) => "  ✗ " + e).join("\n"), true);
+  }
+  const hv = v6 && Array.isArray(args.harvest_items) ? "；" + require("./harvest").harvestChip(args.harvest_items) : "";
+  return sendToolResult(id, aecChipText(args) + hv);
 }
 
 // ─── HUD 唯讀 API ─────────────────────────────────────────────────────────────
@@ -350,7 +374,7 @@ function apiAecDecisionPost(req, res) {
 
 module.exports = {
   aecBlank, aecSeverity, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
-  aecChipText, toolAntiEvasionReport, trackFromTranscriptHead, sessionTrack, audienceOf,
+  aecChipText, aecArgErrors, toolAntiEvasionReport, trackFromTranscriptHead, sessionTrack, audienceOf,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, apiAecTempfilesAll,
   apiAecDecisionPost,

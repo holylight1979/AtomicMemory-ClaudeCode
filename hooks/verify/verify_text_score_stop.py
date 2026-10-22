@@ -59,7 +59,7 @@ WEEKLY = _load("text_score_weekly_for_stop", TREE / "tools" / "text-score-weekly
 
 SID = "sess-ts"
 REPLY = VTS.LONG
-CFG = {"text_score": {"enabled": True, "min_chars": 300}}
+CFG = {"text_score": {"enabled": True, "min_chars": 300, "reply_scope": "all"}}   # 評分機制本身的案例：每則都評（預設只評交付改程式那則，見 verify_cost_cut_003 刀9）
 
 
 class _Stop(Exception):
@@ -441,8 +441,8 @@ def test_stop_calls_on_stop_before_gates_with_own_files(world, tmp_path, monkeyp
     seen: List[Any] = []
     writes: List[Any] = []
 
-    def fake_on_stop(state, sid, reply, mods, turn, config):
-        seen.append((sid, reply, [m["path"] for m in mods], turn, config is cfg))
+    def fake_on_stop(state, sid, reply, mods, turn, config, *, code_reply, user_turn):
+        seen.append((sid, reply, [m["path"] for m in mods], turn, config is cfg, code_reply))
         return True
 
     def lap(seg):
@@ -461,7 +461,7 @@ def test_stop_calls_on_stop_before_gates_with_own_files(world, tmp_path, monkeyp
     monkeypatch.setattr(st.aec_ledger, "collect_at_completion", lambda *a, **k: None)
     with pytest.raises(_Stop):
         st.handle_stop({"session_id": SID, "cwd": str(tmp_path), "last_assistant_message": "最終回覆全文"}, cfg)
-    assert seen == [(SID, "最終回覆全文", ["mine.md"], 7, True)] and writes and writes[-1] == SID
+    assert seen == [(SID, "最終回覆全文", ["mine.md"], 7, True, False)] and writes and writes[-1] == SID
 
 
 # ─── 週彙總讀裁判與種類 ───────────────────────────────────────────────────────

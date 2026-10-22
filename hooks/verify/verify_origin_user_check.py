@@ -149,6 +149,16 @@ def test_update_to_user_checked_both_ways(env):
     assert bad["ok"] and _node("T1.2")["origin"] == "inferred" and "對不到原話" in bad["text"]
 
 
+def test_update_without_why_still_checks_origin(env):
+    """WHY_OPTIONAL 反例（派工 003 第 13 刀）：why 拔掉後，標使用者說的、卻對不到原話，照樣降級；對得到的照樣收成使用者說的。"""
+    _tree_with("把 audit 寫進 log 檔，格式自己定")
+    _op("add", items=[{"text": "稽核紀錄落地", "origin": "inferred"}, {"text": "格式要固定", "origin": "inferred"}])
+    bad = _op("update", turn=2, items=[{"id": "T1.2", "origin": "user", "quote": "格式要固定"}])
+    assert bad["ok"] and _node("T1.2")["origin"] == "inferred" and "對不到原話" in bad["text"], bad["text"]
+    ok = _op("update", turn=2, items=[{"id": "T1.1", "origin": "user", "quote": "把 audit 寫進 log 檔"}])
+    assert ok["ok"] and _node("T1.1")["origin"] == "user" and "對不到原話" not in ok["text"], ok["text"]
+
+
 def test_text_update_on_user_node_rechecked(env):
     """codex BLOCK：只改文字、沒帶 origin，使用者說的節點也要重核（沒 quote 的舊節點改成使用者沒說過的話 → 降級）。"""
     _tree_with("請把稽核結果寫入日誌，其他照舊")
@@ -302,3 +312,7 @@ def test_005_quote_from_words_said_while_tree_closed(env):
     # 反例：引用不在任何一則原話（含沒掛上的）照降級
     r = _op("update", turn=5, items=[{"id": "T1.1", "origin": "user", "quote": "另外開一個新檔 config/discount.json", "why": "x"}])
     assert _node("T1.1")["origin"] == "inferred" and "對不到原話" in r["text"]
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))

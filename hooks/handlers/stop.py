@@ -41,7 +41,7 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source,
+    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source, git_launcher,
 )
 from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
@@ -67,7 +67,8 @@ from wg_harvest import (
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
 from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit, second_opinion_hint
-from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE
+from wg_second_opinion import (auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE,
+                               mark_ok as _so_mark_ok)
 from wg_hook_timing import lap as _hook_lap
 from handlers._shared import (
     _hud_alive,
@@ -844,6 +845,13 @@ def _verify_gates(
                      if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
     for _agent_mods in (state.get("agent_modified_files") or {}).values():
         session_paths += [m["path"] for m in _agent_mods or [] if isinstance(m, dict) and m.get("path")]
+    # worktree 根的一次性 git 啟動器（寫入時就認好、記了標記）建、改、刪都不算改碼：不讓收據作廢、不欠案例（LAUNCHER_NOT_CODE）
+    launchers = [m["path"] for m in own_mod_files if (m or {}).get("path") and git_launcher(str(m["path"]))]
+    session_paths = [p for p in session_paths if not git_launcher(str(p))]
+    if launchers:
+        own_mod_files = [m for m in own_mod_files if (m or {}).get("path") not in set(launchers)]
+        print("[Guardian:ReconcileGate] 規則 LAUNCHER_NOT_CODE：一次性 git 啟動器不算改碼："
+              + "、".join(Path(p).name for p in launchers[:5]), file=sys.stderr)
     git_dl = git_deadline()           # 兩種「內容回到某狀態」的豁免（這裡與下面 commit 快照）共用一個查 git 的整支預算
     try:
         same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"), session_paths=session_paths,
@@ -1590,9 +1598,21 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and all(0 < _mod_turn(m) <= int(aec.get("turn_seq") or 0) for m in own_mod_files)
     )
 
-    # 文字評分（G15）：最終回覆與本回合改過的 .md 交背景評、不等不擋；上回合送到眼前的評分一行有沒有照抄記帳（wg_text_score）
-    if v6 and _text_score_on_stop(state, session_id, code_text, own_mod_files, turn_seq, config):
-        write_state(session_id, state)
+    # 文字評分（G15）：交付「改了哪些程式」那則回覆與本回合改過的 .md 交背景評、不等不擋；上回合送到眼前的評分一行有沒有照抄記帳
+    # （wg_text_score）。回覆評不評由 wg_text_score 依 code_reply（本使用者回合改了程式、這則宣告完成）判，規則 TEXT_SCORE_CODE_REPLY_ONLY
+    if v6:
+        _ts_since = _user_turn(state, turn_seq)
+        try:
+            from wg_need_goal import is_code_path
+            _code_reply = _done(code_text) and any(
+                in_turn(_mod_turn(m), turn_seq, _ts_since) and is_code_path(str(m.get("path") or ""), config)
+                for m in own_mod_files)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Guardian:TextScore] 判不出這則是不是交付改程式的回覆（這則不評）：{type(e).__name__}: {e}", file=sys.stderr)
+            _code_reply = False
+        if _text_score_on_stop(state, session_id, code_text, own_mod_files, turn_seq, config, code_reply=_code_reply,
+                               user_turn=_ts_since):
+            write_state(session_id, state)
     if _timed_out("文字評分"):
         return
 
@@ -1940,12 +1960,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
     # 改到高風險部位宣告完成 → 本回合要真的跑過第二意見、收尾有分歧裁決四行，或宣告「不需第二意見｜理由」（留帳 guard-second_opinion.jsonl）。
     # 吃寫碼查核那套（wg_release，閘名 second_opinion）：每個使用者回合擋 second_opinion.auto.max_blocks_per_turn 次（預設 1）後擋滿，
-    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行記 second_opinion_ok[sid]＝turn_seq，之後沒再改程式不再要求。
+    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行記 second_opinion_ok[sid]＝turn_seq 與當時的目標樹，同一棵樹不再要第二輪（SECOND_OPINION_ONE_ROUND）。
     # 子代理、裁判 session 走別的 Stop 入口；headless 由 _so_check 的 non_interactive_reason 判，都不觸發。
     _sov, _sof = _so_check() if v6 else (None, {})
     _so_uturn = _user_turn(state, turn_seq)
     if _sov is not None and _sof.get("satisfied"):
-        state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
+        _so_mark_ok(state, session_id, turn_seq)
         clear_pending(state, session_id, _SO_GATE)
         write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
@@ -1956,7 +1976,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             record_release(state, session_id, _SO_GATE, _so_uturn)
             mark_block(state, session_id, _SO_GATE, _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
             clear_pending(state, session_id, _SO_GATE)
-            state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
+            _so_mark_ok(state, session_id, turn_seq, reviewed=False)      # 放行不是審過：不算這棵樹審過一輪
             append_guard_log(_SO_GATE, {"event": "user_release", "session_id": session_id, "turn_seq": turn_seq,
                                         "via": _so_how, "reason": format_hit(_SO_LETTER, _sov)[:300]})
             print(f"[Guardian:SecondOpinion] 使用者放行這一回合（{_so_how}），記 user_release", file=sys.stderr)

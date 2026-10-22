@@ -16,11 +16,12 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Pattern, Tuple
+from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK_IMPORT_ON_USE）
 
 from wg_core import MEMORY_DIR, user_typed_prompts
 
 
-_TEST_CMD_RE = re.compile(
+_TEST_CMD_RE = lazy_re(
     r"(?:^|\s)(?:pytest|python\s+-m\s+pytest|npm\s+(?:run\s+)?test|jest|node\s+--check|tsc|go\s+test|cargo\s+test)(?:\s|$)"
     r"|run_verify\.py"
 )
@@ -301,7 +302,7 @@ def claims_completion(text: str) -> bool:
     return True
 
 
-_QUOTED_SPAN_RE = re.compile(r"「[^「」]{0,200}」|『[^『』]{0,200}』|`[^`\n]{0,200}`")
+_QUOTED_SPAN_RE = lazy_re(r"「[^「」]{0,200}」|『[^『』]{0,200}』|`[^`\n]{0,200}`")
 
 
 def strip_quoted_spans(text: str) -> str:
@@ -361,12 +362,12 @@ def detect_evasion(text: str, recent_user_prompts: List[str],
     return None
 
 
-_SENTENCE_SPLIT_RE = re.compile(r"[。！？\n；;]")
-_OBJECT_STRIP_RE = re.compile(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。]")
+_SENTENCE_SPLIT_RE = lazy_re(r"[。！？\n；;]")
+_OBJECT_STRIP_RE = lazy_re(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。]")
 
 
-_MD_FENCE_RE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
-_MD_TABLE_ROW_RE = re.compile(r"^[ \t]*\|.*$", re.MULTILINE)
+_MD_FENCE_RE = lazy_re(r"```.*?(?:```|\Z)", re.DOTALL)
+_MD_TABLE_ROW_RE = lazy_re(r"^[ \t]*\|.*$", re.MULTILINE)
 
 
 def strip_markdown_blocks(text: str) -> str:
@@ -645,15 +646,15 @@ def crosscheck_aec_severity(
 # ─── AEC (d)/(h) pending 判定：把「記憶寫入」推到之後 ────────────────────────
 # 只有 Python 這一份：post_tool_use 落 report["d_pending"]、用 additionalContext 回告模型，Stop 的 AEC-Pending 閘讀它，
 # HUD 讀報告檔標紅；Node 的回條不再自己判。
-_AEC_PENDING_RE = re.compile(
+_AEC_PENDING_RE = lazy_re(
     r"(?:尚未|還沒|還未|沒有|未)\s*(?:寫|記|落|建|補)"
     r"|待\s*(?:寫|補|記|落|建)"
     r"|(?:稍後|之後|回頭|等會|等一下|晚點|下輪|下回|下個\s*session|下一動)\s*(?:再)?\s*(?:寫|補|記|落|建)"
     r"|見下一動|TODO|pending",
     re.IGNORECASE,
 )
-_AEC_DONE_RE = re.compile(r"已\s*(?:寫|append|更新|replace|併|補|落|記|建)|不寫|不記|不落", re.IGNORECASE)
-_AEC_H_ATOM_RE = re.compile(r"(?:寫|補|建|落|記)[^，,；;。]{0,12}?(?:atom|記憶|知識)|atom_write", re.IGNORECASE)
+_AEC_DONE_RE = lazy_re(r"已\s*(?:寫|append|更新|replace|併|補|落|記|建)|不寫|不記|不落", re.IGNORECASE)
+_AEC_H_ATOM_RE = lazy_re(r"(?:寫|補|建|落|記)[^，,；;。]{0,12}?(?:atom|記憶|知識)|atom_write", re.IGNORECASE)
 
 
 def _aec_verdict(line: str) -> str:

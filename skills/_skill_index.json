@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 27,
+  "count": 28,
   "skills": [
     {
       "name": "atom-debug",
@@ -127,6 +127,11 @@
       "name": "skill-creator",
       "dir": "skill-creator",
       "description": "建立、改造、稽核 Claude Code skill 的標準作業。確保每個 skill 遵循 Anthropic Progressive Disclosure 三層架構與 5 大設計模式，避免 agent 腦補亂寫。**任何要寫新 skill、改既有 skill、或評估 skill 品質的場合都該觸發。**"
+    },
+    {
+      "name": "text-score",
+      "dir": "text-score",
+      "description": "文字評分（G15）手動叫：收尾預設只自動評「交付改了哪些程式」那一則回覆，其他回覆或文件要評時用這個。使用者說「評一下這則」「幫我評分」「這段好不好讀」「評分上一則回覆」「text-score」時用。"
     },
     {
       "name": "upgrade",

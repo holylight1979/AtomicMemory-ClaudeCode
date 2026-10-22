@@ -28,7 +28,7 @@
 ## 3. 工作軌（`/console 開工句 <軌名>` 產生的就是這段）
 
 ```
-<軌名>：你是工作軌 <軌名>，調度總控台是 <調度名>（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 <worktree 絕對路徑>（分支 <分支>，已存在，不要新建；不存在就 SendMessage 調度要，不要自己建）。派工單在 <派工單絕對路徑>，讀完全文照做，先核實裡面的路徑與跑法。切進去之後所有讀寫只用 worktree 絕對路徑，不碰 <live 專案根>。含 git 字樣的 Bash 指令先寫成 worktree 內的 Python 啟動器（檔名不含 git）再跑。只跑派工單列的目標 verify，不跑全量、不輪詢；commit 在分支上、不推。交付用 SendMessage 送全文給調度（照 delivery 範本），附 live 未動證明，結尾寫「我在等：…」。開工前先 SendMessage 調度一句「<軌名> 收到開工」。
+<軌名>：你是工作軌 <軌名>，調度總控台是 <調度名>（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 <worktree 絕對路徑>（分支 <分支>，已存在，不要新建；不存在就 SendMessage 調度要，不要自己建）。派工單在 <派工單絕對路徑>，讀完全文照做，先核實裡面的路徑與跑法；不讀歷史快照（接續單、交接備忘、舊交付信），單上沒寫的問調度。切進去之後所有讀寫只用 worktree 絕對路徑，不碰 <live 專案根>。含 git 字樣的 Bash 指令先寫成 worktree 根目錄的 Python 啟動器（檔名不含 git、只跑 git）再跑，建刪都不算改程式。只跑派工單列的目標 verify，不跑全量、不輪詢；CHANGELOG 只寫 `_AIDocs/_changelog.d/<軌名>-<NNN>.md`，不改 _CHANGELOG.md；commit 在分支上、不推。交付用 SendMessage 送全文給調度（照 delivery 範本），附 live 未動證明，結尾寫「我在等：…」。開工前先 SendMessage 調度一句「<軌名> 收到開工」。
 ```
 
 ### 3b. 文件軌（只改文件、不改程式：TECH、README、checklist、DevHistory、派工單、說明檔）——不開 worktree、不開分支

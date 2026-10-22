@@ -2399,3 +2399,21 @@ def test_006_tracking_same_item_not_rewritten(tmp_path, monkeypatch):
     opens = wh.open_tracking_items(wh.read_tracking("s006"))
     assert [o["text"] for o in opens] == ["month_of 改台北時間"]
     assert "TRACKING_SAME_ITEM_NOT_REWRITTEN" in rr.RULES
+
+
+def test_launcher_not_code_source_shapes():
+    """LAUNCHER_NOT_CODE：整支只用 subprocess 跑 git 才算一次性啟動器；多一個別的呼叫或 import 就照算程式。"""
+    assert "LAUNCHER_NOT_CODE" in rr.RULES
+    ok = ['import subprocess\nsubprocess.run(["git", "status"])\n',
+          'import subprocess, sys\nr = subprocess.run(["git", "-C", "x", "commit", "-qm", "m"], capture_output=True, text=True)\n'
+          'print(r.stdout)\nsys.exit(r.returncode)\n',
+          'import subprocess\nfor c in [["git", "add", "-A"], ("git", "commit", "-qm", "m")]:\n    subprocess.check_call(c)\n']
+    bad = ['print("hi")\n',                                                          # 沒跑 git
+           'import subprocess\nsubprocess.run(["python", "x.py"])\n',               # 跑的不是 git
+           'import subprocess, json\nsubprocess.run(["git", "status"])\n',          # 多 import
+           'import subprocess\nsubprocess.run(["git", "status"])\nopen("a", "w").write("b")\n',   # 多寫檔
+           'import subprocess\ncmd = ["git", "status"]\nsubprocess.run(cmd)\n',      # 參數不是字面值、也不是 for 走過的
+           'import subprocess\nsubprocess.run("git status", shell=True)\n',          # 字串指令
+           'def (:\n']                                                               # 解析不了
+    assert all(rr.is_git_launcher_source(s) for s in ok)
+    assert not any(rr.is_git_launcher_source(s) for s in bad)

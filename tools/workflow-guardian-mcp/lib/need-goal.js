@@ -35,7 +35,6 @@ function validateItems(action, items) {
     }
     if (!NODE_ID_RE.test(str(it.id))) errs.push(`${tag}.id 必填，格式 T<數字>(.<數字>)*`);
     if (action === "update") {
-      if (!str(it.why)) errs.push(`${tag}.why 必填（這次改動讓它更接近了沒、為什麼）`);
       if (!["text", "status", "clarity", "origin"].some((k) => given(it[k]))) errs.push(`${tag} 至少要改 text／status／clarity／origin 其中一項`);
       if (given(it.origin) && !ORIGIN.includes(it.origin)) errs.push(`${tag}.origin 無效（${it.origin}），允許：${ORIGIN.join("|")}`);
       if (given(it.quote) && typeof it.quote !== "string") errs.push(`${tag}.quote 必須是字串（標 origin=user 時引用使用者原話的字面子句）`);
@@ -55,6 +54,9 @@ function validateItems(action, items) {
       if (!str(e.ref)) errs.push(`${etag}.ref 必填`);
       if (given(e.covers) && (!Array.isArray(e.covers) || !e.covers.every((c) => NODE_ID_RE.test(str(c))))) {
         errs.push(`${etag}.covers 必須是節點編號陣列`);
+      }
+      if (given(e.unaffected) && typeof e.unaffected !== "string") {
+        errs.push(`${etag}.unaffected 必須是字串（為什麼第二意見之後改的檔不影響這筆收據）`);
       }
     });
   });

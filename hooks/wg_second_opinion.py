@@ -33,6 +33,7 @@ DEFAULTS: Dict[str, Any] = {
     "risky_prefixes": ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py",
                        "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/"],
     "max_blocks_per_turn": 1,
+    "one_round": True,              # SECOND_OPINION_ONE_ROUND：同一棵目標樹審過一輪就不再要；false＝審完又改程式就再要（舊行為）
 }
 GATE_KIND = "gate"                  # 部位表「類別」欄的原字（overview_hub.parse_map 只分 knowledge／code，這裡讀原字）
 LETTER = "第二意見"                 # 擋訊息的條目字母（BLOCK_BUDGET_PER_RULE 照它計次；不在 reconcile_gate.block_letters 裡）
@@ -296,16 +297,38 @@ def has_goal_tree(session_id: str) -> bool:
         return True
 
 
+def active_tree_id(session_id: str) -> Optional[str]:
+    """目前的需求目標樹編號（SECOND_OPINION_ONE_ROUND 的「同一件事」）；沒樹或讀不到 → None（整個 session 算一件）。"""
+    try:
+        import wg_need_goal as ng
+        return ng.load(session_id).get("active") or None
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:SecondOpinion] 讀不到需求目標樹，審過一輪以整個 session 算：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
+def mark_ok(state: Dict[str, Any], session_id: str, turn_seq: int, reviewed: bool = True) -> None:
+    """第二意見滿足：記回合與那時的目標樹（之後同一棵樹不再要第二輪）。使用者放行這一回合（reviewed=False）只記回合、
+    不記樹：放行不是審過，之後又改了程式照舊要。"""
+    state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
+    trees = state.setdefault("second_opinion_ok_tree", {})
+    if reviewed:
+        trees[session_id] = active_tree_id(session_id)
+    else:
+        trees.pop(session_id, None)
+
+
 def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[str, Any]], text: str,
           transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], claims_done: bool
           ) -> Tuple[rr.Verdict, Dict[str, Any]]:
     """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。
     claims_done＝呼叫端看最後一則的結果；最後一則沒談到完成與否時，改看本回合最後一則談到的（turn_claims_completion）。"""
     from wg_need_goal import writes_code
-    from wg_verify_ledger import session_scratch
+    from wg_verify_ledger import git_launcher, session_scratch
     claims_done = bool(claims_done) or turn_claims_completion(transcript_text)
     code = [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)
-            and not session_scratch(str(m["path"]))]          # 規則 SESSION_SCRATCH_NOT_CODE：暫存區的一次性腳本不數
+            and not session_scratch(str(m["path"]))           # 規則 SESSION_SCRATCH_NOT_CODE：暫存區的一次性腳本不數
+            and not git_launcher(str(m["path"]))]             # 規則 LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器不數
     uniq: Dict[str, str] = {}      # 同一個檔不同寫法只算一次（SAME_FILE），保留原寫法給 git pathspec（大小寫敏感）
     for m in code:
         uniq.setdefault(rr.canon_path(m["path"]), str(m["path"]))
@@ -314,7 +337,13 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     if not claims_done or not paths:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     ok_turn = int(((state.get("second_opinion_ok") or {}).get(session_id)) or 0)
-    fresh = ok_turn == 0 or any(_mod_turn(m) > ok_turn for m in code)
+    if cfg.get("one_round"):
+        # SECOND_OPINION_ONE_ROUND：同一件事（同一棵需求目標樹；沒樹＝整個 session）審過一輪就不再要，審完後的修補不觸發第二輪
+        trees = state.get("second_opinion_ok_tree") or {}
+        fresh = (ok_turn == 0 or (trees[session_id] != active_tree_id(session_id) if session_id in trees
+                                  else any(_mod_turn(m) > ok_turn for m in code)))
+    else:
+        fresh = ok_turn == 0 or any(_mod_turn(m) > ok_turn for m in code)
     risky = risky_paths(paths, list(cfg.get("risky_prefixes") or []))
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)

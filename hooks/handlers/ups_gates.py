@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled
+from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled, WORKFLOW_DIR
 from wg_extraction import detect_signal, extract_veto_hints, extract_veto_question, settle_pending_veto
 from wg_release_rules import is_dispatch_message
 from wg_evasion import is_dismiss_prompt
@@ -25,12 +25,42 @@ from harness_text import peer_message_bodies   # lib/（wg_core 已把它放進 
 _TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
-try:
-    from ollama_client import check_long_die_status, disable_backend, OllamaClient
-except ImportError:
-    check_long_die_status = lambda: None  # noqa: E731
-    disable_backend = lambda *a, **k: False  # noqa: E731
-    OllamaClient = None
+# long_die 標記檔（ollama_client.OllamaClient.LONG_DIE_MARKER，同一個資料根）：每則訊息先看檔在不在，在才載 ollama_client
+# （它連帶 urllib／http／ssl 約 40 ms，HOOK_IMPORT_ON_USE）
+_LONG_DIE_MARKER = WORKFLOW_DIR / ".backend_long_die.json"
+
+
+def check_long_die_status() -> Any:
+    if not _LONG_DIE_MARKER.exists():
+        return None
+    try:
+        from ollama_client import check_long_die_status as _f
+    except ImportError:
+        return None
+    return _f()
+
+
+def disable_backend(*a: Any, **k: Any) -> bool:
+    try:
+        from ollama_client import disable_backend as _f
+    except ImportError:
+        return False
+    return _f(*a, **k)
+
+
+_LAZY = object()
+OllamaClient: Any = _LAZY      # 名字留在模組上（換成 None＝不清標記）；用到才載
+
+
+def _clear_long_die_marker() -> None:
+    cls = OllamaClient
+    if cls is _LAZY:
+        try:
+            from ollama_client import OllamaClient as cls
+        except ImportError:
+            return
+    if cls is not None:
+        cls._clear_long_die_marker()
 
 
 def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
@@ -189,8 +219,7 @@ def run_pre_gates(
             backend_name = long_die.get("backend", "")
             if any(kw in typed_lower for kw in ("停用", "disable")):
                 if disable_backend(backend_name):
-                    if OllamaClient is not None:
-                        OllamaClient._clear_long_die_marker()
+                    _clear_long_die_marker()
                     lines.append(
                         f"[Dual-Backend] 已永久停用 '{backend_name}'。"
                         f"如需重新啟用，修改 config.json 中 enabled: true。"
@@ -198,8 +227,7 @@ def run_pre_gates(
                 else:
                     lines.append(f"[Dual-Backend] 停用 '{backend_name}' 失敗，請手動修改 config.json。")
             elif any(kw in typed_lower for kw in ("保持", "keep", "忽略")):
-                if OllamaClient is not None:
-                    OllamaClient._clear_long_die_marker()
+                _clear_long_die_marker()
                 lines.append(f"[Dual-Backend] 保持 '{backend_name}'，long_die 將在時間段到期後自動恢復。")
     except Exception as e:
         print(f"[dual-backend] Long DIE response error: {e}", file=sys.stderr)

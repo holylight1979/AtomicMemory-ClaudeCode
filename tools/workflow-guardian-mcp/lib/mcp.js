@@ -323,13 +323,17 @@ const TOOL_DEFINITIONS = [
     name: "anti_evasion_report",
     description:
       "結構化提交收尾檢核 (a)–(k)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
-      "動 core 檔並宣告完成時由 Stop 閘要求。十參都 required（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
+      "動 core 檔並宣告完成時由 Stop 閘要求。收尾只交這一份：report 寫給讀者的白話全文（做了什麼／驗了什麼／沒做什麼／追蹤項，" +
+      "以讀者看得懂為先；工作軌照貼成交付信），給了 report 時 e／f／g 可省；要記的知識放 harvest_items（同 knowledge_harvest_report 的 items，" +
+      "不必另呼叫）。其餘欄必填（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
       "順序：先把值得留的知識 atom_write 寫完、再呼叫本 tool——報告是收尾檢核不是待辦清單，" +
       "(d)「尚未寫／見下一動」或 (h)「下一動＝寫 atom」會被 Stop 擋回、要求補寫後重新提交。" +
       "本 tool 只回 chip、不寫 state（one-writer：state/持久化由 Python PostToolUse 獨佔）。",
     inputSchema: {
       type: "object",
       properties: {
+        report: { type: "string", description: "收尾全文，寫給沒看執行過程的讀者：做了什麼、驗了什麼（附數字或收據）、沒做什麼、追蹤項；白話、不預設欄位。給了它 e／f／g 可省（寫進這份裡）。工作軌：這份原文就是交付信，照貼進 SendMessage" },
+        harvest_items: { type: "array", description: "知識收割清單（選填，格式同 knowledge_harvest_report 的 items；交了就不必另呼叫那支，(d) 可寫「見收割報告」）", items: { type: "object" } },
         a: { type: "string", description: "缺失發現與修補清單（`- 檔:行 — 改了什麼`）；無則「無」。必寫" },
         b: { type: "string", description: "AI 逃避通報（忽略/偷埋現象）；僅發生時填、否則「無」" },
         d: { type: "string", description: "記憶收錄帳：填之前先掃五個來源——①使用者指正/退回/重申的話（→ feedback）②重試≥2 次或查了才懂的機制/踩坑 ③外查來的事實（帶日期）④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的。逐項 `- <項目> → 已寫入 atom <名>`（atom_write 已完成）或 `- <項目> → 不寫（一句理由）`；判定不寫也要留痕。⛔ 不接受「尚未寫／待補／見下一動」——那是把記憶推給下一回合，會被拒收並擋 Stop；值得寫就在呼叫本 tool 之前寫完。本回合已交過收割報告（knowledge_harvest_report）可只填「見收割報告」。無則「無」。必寫" },
@@ -341,7 +345,7 @@ const TOOL_DEFINITIONS = [
         j_evidence_path: { type: "string", description: "證據持久路徑：本回合驗證收據的持久位置，一行一路徑（絕對路徑）。本 session 跑過哨兵驗證（Bash／PowerShell 輸出 `<NAME>_CHECK PASS|FAIL|DONE`）時填「無」或留空即可：系統自動帶入本 session 收據帳本的絕對路徑（帳本在資料根，不必自己找）；要另附驗證輸出檔／報告檔才填它們，填了就用你填的，Stop 對帳閘會查 exists()，不存在會擋。沒有收據填「無」。必寫" },
         k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端寫進 workflow/tracking/<slug>.jsonl；有部位的同時寫進該部位病灶文件）。跟帳上已記的（本 session 的 need_goal followup、PickOne、先前的 k）是同一件 → 行尾加「｜同追蹤項：<那筆裡連續至少 8 字>」，系統換成新說法、不另記一筆；字面相同的自動不重記。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
       },
-      required: ["a", "b", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"],
+      required: ["a", "b", "d", "h", "i", "j_evidence_path", "k_followups"],
     },
   },
   {
@@ -514,11 +518,11 @@ const TOOL_DEFINITIONS = [
     name: "need_goal",
     description:
       "需求目標樹：每個要動手的需求先抓「真正要達成什麼」，工作中長出子目標，回頭對照做法有沒有更接近。" +
-      "set＝寫樹根（任務開始，寫整個需求、不只這回合先做的那段；被糾正或補充時改這棵樹、不開新樹：改寫樹根要附 why；" +
-      "真的換成另一件事才帶 new_task=true 開新樹，目前的樹還在進行中時也要附 why；import_from＝從續接單匯入；" +
+      "set＝寫樹根（任務開始，寫整個需求、不只這回合先做的那段；被糾正或補充時改這棵樹、不開新樹；" +
+      "真的換成另一件事才帶 new_task=true 開新樹；import_from＝從續接單匯入；" +
       "看得出的子目標同一次放 items，不必再叫 add）；" +
       "add＝之後再長子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
-      "update＝改節點文字／狀態／清楚度（改了程式之後的進度收尾時程式自動記，不必為此呼叫；要寫自己的判斷再用，why 必填）；" +
+      "update＝改節點文字／狀態／清楚度（改了程式之後的進度收尾時程式自動記，不必為此呼叫；要寫自己的判斷再用，why 選填）；" +
       "reconcile＝交付前的完整對照（每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
       "寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案／卡片／推論不算試過），" +
       "實測只能配收據（ref 寫 latest 由程式填最近一筆綠的，不必先 read 查號碼；之後改了程式又跑綠會自動換新）且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note；" +
@@ -538,13 +542,13 @@ const TOOL_DEFINITIONS = [
       properties: {
         action: { type: "string", enum: ["set", "add", "update", "reconcile", "read", "verify_scope"], description: "動作（必填）" },
         goal: { type: "string", description: "set：一句、使用者的語言、只寫目標不寫手段（沒給 import_from 時必填）" },
-        new_task: { type: "boolean", description: "set：換成另一件事，開新樹（目前的樹還在進行中時要附 why）" },
-        why: { type: "string", description: "set：改寫樹根時必填，為什麼改；目前的樹還在進行中時換題也必填，為什麼是另一件事、不是對它的糾正或補充" },
+        new_task: { type: "boolean", description: "set：換成另一件事，開新樹" },
+        why: { type: "string", description: "set／update：選填，為什麼改（有寫就記進節點歷史）" },
         import_from: { type: "string", description: "set：續接單路徑（從【需求目標樹】區塊匯入）" },
         parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },
         items: {
           type: "array",
-          description: "set／add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why}]；" +
+          description: "set／add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why?}]；" +
             "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, depends?, case_for?}]",
           items: {
             type: "object",
@@ -557,7 +561,7 @@ const TOOL_DEFINITIONS = [
               clarity: { type: "string", enum: ["clear", "open"], description: "明確／待展開" },
               origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add／update：使用者說的／推出來的／工作中長出的（add 預設 grown）" },
               quote: { type: "string", description: "add／update：標 origin=user 時引用使用者原話的字面子句（至少 6 字，或某則原話的整句如「要有測試。」；對不到原話會被改成 inferred）" },
-              why: { type: "string", description: "update 必填：這次改動讓它更接近了沒、為什麼；verify_scope 必填：為什麼和這次改動有關、會受什麼影響" },
+              why: { type: "string", description: "update 選填：這次改動讓它更接近了沒、為什麼；verify_scope 必填：為什麼和這次改動有關、會受什麼影響" },
               evidence: {
                 type: "array",
                 description: "reconcile：證據",
@@ -568,6 +572,7 @@ const TOOL_DEFINITIONS = [
                     ref: { type: "string", description: "receipt 寫 latest（程式填最近一筆綠的）或 R<號>；case／file 寫路徑（可帶 :行），也可寫 pytest 節點 id（檔::測試名，要查得到那個 def 才收）；atom 寫卡名" },
                     level: { type: "string", enum: ["measured", "read", "inferred"], description: "實測（只配收據）／讀碼／推論" },
                     covers: { type: "array", items: { type: "string" }, description: "這筆證據支持哪幾個節點，省略＝所在節點" },
+                    unaffected: { type: "string", description: "選填：第二意見之後的修補只重跑碰到的 verify；這筆收據沒被碰到就寫為什麼後來改的檔不影響它（留帳）" },
                   },
                   required: ["kind", "ref", "level"],
                 },

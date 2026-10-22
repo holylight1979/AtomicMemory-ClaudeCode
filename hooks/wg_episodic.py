@@ -9,8 +9,6 @@ import json
 import os
 import re
 import sys
-import urllib.request
-import urllib.error
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -29,14 +27,28 @@ _CODE_ROOT = Path(__file__).resolve().parents[1]   # 本檔所在的樹根（~/.
 _TOOLS_DIR = str(_CODE_ROOT / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
-from ollama_client import get_client
-
 # route Confirmations counter update through atom_io funnel
 _LIB_PARENT = str(_CODE_ROOT)
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
-from lib.atom_io import write_raw  # noqa: E402
-from lib.atom_access import move_atom_pair  # noqa: E402
+
+
+# 惰性載入（HOOK_IMPORT_ON_USE）：ollama_client（連帶 urllib／http／ssl）與 atom_io／atom_access 只有寫 episodic、
+# 問本地模型、搬檔時才用；PostToolUse／Stop 每次 import 本模組只為了 _check_output_quality、_find_session_transcript。
+# 名字留在模組上（測試照 monkeypatch ep.write_raw）。
+def get_client(*a: Any, **k: Any) -> Any:
+    from ollama_client import get_client as _get_client
+    return _get_client(*a, **k)
+
+
+def write_raw(*a: Any, **k: Any) -> Any:
+    from lib.atom_io import write_raw as _write_raw
+    return _write_raw(*a, **k)
+
+
+def move_atom_pair(*a: Any, **k: Any) -> Any:
+    from lib.atom_access import move_atom_pair as _move_atom_pair
+    return _move_atom_pair(*a, **k)
 
 
 # ─── Episodic Gate ────────────────────────────────────────────────────────────
@@ -258,7 +270,9 @@ def _detect_atom_conflicts(
             continue
 
         try:
+            import urllib.error
             import urllib.parse
+            import urllib.request
             params = urllib.parse.urlencode({
                 "q": query, "top_k": 5, "min_score": 0.60,
             })

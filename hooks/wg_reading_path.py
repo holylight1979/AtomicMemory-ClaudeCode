@@ -43,8 +43,28 @@ from wg_verify_ledger import _git_root_of, is_code_file, is_verify_case, reconci
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置找，不用 CLAUDE_DIR
 from overview_hub import find_map, match_row, parse_map  # noqa: E402
-from turn_metrics import metrics_for_files, parse_diff_ranges  # noqa: E402
-from turn_metrics_cs import metrics_for_files as cs_metrics_for_files, pick_lookup_files  # noqa: E402
+
+
+# 惰性載入（HOOK_IMPORT_ON_USE）：量拐彎的兩支（turn_metrics_cs 連帶 dataclasses 約 35 ms）只有真的要算本回合改動時才用；
+# 每次 Stop import 本模組只為了 reading_path_note 等判斷。名字留在模組上（測試照 monkeypatch）。
+def metrics_for_files(*a: Any, **k: Any) -> Any:
+    from turn_metrics import metrics_for_files as _f
+    return _f(*a, **k)
+
+
+def parse_diff_ranges(*a: Any, **k: Any) -> Any:
+    from turn_metrics import parse_diff_ranges as _f
+    return _f(*a, **k)
+
+
+def cs_metrics_for_files(*a: Any, **k: Any) -> Any:
+    from turn_metrics_cs import metrics_for_files as _f
+    return _f(*a, **k)
+
+
+def pick_lookup_files(*a: Any, **k: Any) -> Any:
+    from turn_metrics_cs import pick_lookup_files as _f
+    return _f(*a, **k)
 
 WORKER_BUDGET_S = 300.0    # 背景量測整支的時間預算（根層 repo 自動偵測入口量一次約 1 分鐘）
 STOP_GIT_BUDGET_S = 1.0    # 收尾當下查「哪些改檔還沒 git add」的預算

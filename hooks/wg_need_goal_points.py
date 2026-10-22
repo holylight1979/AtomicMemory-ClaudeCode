@@ -103,7 +103,7 @@ def _update(sid: Any, fn: Any, where: str, turn: Optional[int] = None) -> Any:
 # ─── 4.3 讀入範圍變大 ─────────────────────────────────────────────────────
 
 # 「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了）共用的批判與舉一反三兩問（原話輯 G1 2026-10-15）：
-# 只送題、不擋，回答寫進目標樹（need_goal update 的 why）
+# 只送題、不擋，要記下判斷就寫進目標樹（need_goal update 的 why，選填）
 CRITIQUE_QUESTIONS = "看到的這段寫法（或這個主張）合不合理？不合理就說更好的做法；同類別處還有沒有？" + ng.CRITIQUE_CASES
 
 
@@ -363,8 +363,8 @@ def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Opti
     _update(sid, fn, "on_correction", turn)
     _guard("correction", sid, turn, tree=tree["id"], kw=list(hits)[:3])
     return (f"[NeedGoal] 使用者糾正了（命中：{'、'.join(list(hits)[:3])}）：目標樹哪一條要改？做法還對準嗎？"
-            f"糾正是對 {tree['id']} 的修正，改這棵樹、不開新樹（update 改節點、作廢的標放棄並寫為什麼；"
-            "set 不帶 new_task 改寫樹根附 why；糾正裡多出的要求用 add 長成子目標）。\n" + ng.render(tree, "compact"))
+            f"糾正是對 {tree['id']} 的修正，改這棵樹、不開新樹（update 改節點、作廢的標放棄；"
+            "set 不帶 new_task 改寫樹根；糾正裡多出的要求用 add 長成子目標）。\n" + ng.render(tree, "compact"))
 
 
 # ─── 4.4 問使用者之前 ─────────────────────────────────────────────────────

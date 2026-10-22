@@ -40,6 +40,8 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     if v6_enabled(config):      # v6 守門關閉時不做綜觀快照（9e476fd0 沒有）
         state["pre_compact_overview_hub"] = _overview_summary(state.get("overview_hub") or {})
         state["pre_compact_turn_intent"] = state.get("turn_intent") or "general"
+        from wg_entrypoint import forget_sent
+        forget_sent(session_id)     # CARD_ONCE_PER_TOPIC：壓縮後判準卡全文不在 context 了，下次照送
 
     if not state.get("episodic_checkpoint_done"):
         ep_cfg = config.get("episodic", {})

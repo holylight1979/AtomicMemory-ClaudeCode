@@ -33,9 +33,10 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
+from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK_IMPORT_ON_USE）
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, resolve_project_root
-from wg_release_rules import (canon_path, cc_config_dirs, is_session_scratch,
+from wg_release_rules import (canon_path, cc_config_dirs, is_git_launcher_source, is_session_scratch,
                               claim_is_modifier, excluded_region, gone_verdict, in_turn, moved_copy_candidates,
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
@@ -64,14 +65,14 @@ env_snapshot = _self_receipt.env_snapshot          # PostToolUse 落帳時記的
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 # ─── 哨兵 ─────────────────────────────────────────────────────────────
-DEFAULT_SENTINEL_RE: Pattern = re.compile(
+DEFAULT_SENTINEL_RE: Pattern = lazy_re(
     r"^(?P<name>[A-Z][A-Z0-9_]*)_CHECK[ \t]+(?P<verdict>PASS|FAIL|DONE)\b(?P<kv>(?:[ \t]+\w+=\S+)*)", re.MULTILINE
 )
 # 量測類（rules/coding-style.md 自檢：`<NAME> DONE k=v k=v`）；數字是尺不是判決。k=v 只收同一行（下一行的 exit=0 不是它的）
-DEFAULT_DONE_RE: Pattern = re.compile(
+DEFAULT_DONE_RE: Pattern = lazy_re(
     r"^(?P<name>[A-Z][A-Z0-9_]*)[ \t]+DONE\b(?P<kv>(?:[ \t]+\w+=\S+)*)[ \t\r]*$", re.MULTILINE   # 行尾可帶 \r（CRLF 輸出）
 )
-_EXIT_CODE_RE = re.compile(r"^(?:Error:\s*)?Exit code (\d+)\b", re.MULTILINE)
+_EXIT_CODE_RE = lazy_re(r"^(?:Error:\s*)?Exit code (\d+)\b", re.MULTILINE)
 VERDICTS = ("PASS", "FAIL", "DONE")
 RECEIPT_CAP = 50
 LEDGER_SUBDIR = "verify-ledger"
@@ -122,7 +123,7 @@ def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
     return out
 
 
-_STAT_RE = re.compile(r"\b(\d+) ([a-z]+)\b")          # 統計行的「數字 狀態詞」組：5 passed, 2 skipped, 1 xfailed
+_STAT_RE = lazy_re(r"\b(\d+) ([a-z]+)\b")          # 統計行的「數字 狀態詞」組：5 passed, 2 skipped, 1 xfailed
 
 
 def _map_verdict(raw: str, verdict_map: Dict[str, str], pytest_summary: bool = False) -> Optional[str]:
@@ -430,12 +431,12 @@ def modified_this_turn(own_mod_files: Iterable[Dict[str, Any]], turn_seq: int, s
 # ─── 宣稱偵測（詞表 wg_evasion.CLAIM_RES：fixed／measured／tried 各配 exclude）────
 # 子句切在 ，；,;。！!與換行，再加轉折詞（但／不過／而／然而／只是／可是）之後另起子句；
 # 問號留在子句裡給 exclude（`[?？]\s*$`）判疑問
-_CLAUSE_SPLIT_RE = re.compile(r"[，；,;。！!\n]+|但|不過|而|然而|只是|可是")
+_CLAUSE_SPLIT_RE = lazy_re(r"[，；,;。！!\n]+|但|不過|而|然而|只是|可是")
 # 第三方主語只在「第三方名詞是子句開頭主語（子句前 4 字內）」且「宣稱詞前沒有 我／本／已」時才算轉述
-_THIRD_PARTY_HEAD_RE = re.compile(
+_THIRD_PARTY_HEAD_RE = lazy_re(
     r"^[^，。；！？\n]{0,4}?(?:使用者|對方|同事|codex|它|他|她|log|輸出|顯示)", re.IGNORECASE
 )
-_OWN_MARK_RE = re.compile(r"[我本已]")
+_OWN_MARK_RE = lazy_re(r"[我本已]")
 
 
 def _third_party_said(head: str) -> bool:
@@ -497,11 +498,11 @@ def _norm_path(p: str) -> str:
     return str(p).replace("\\", "/").rstrip("/").lower()
 
 
-_CD_RE = re.compile(r"(?:^|[\s;&|(])(?:cd|pushd|popd|set-location|push-location|pop-location|sl|chdir)(?:\s|$)",
+_CD_RE = lazy_re(r"(?:^|[\s;&|(])(?:cd|pushd|popd|set-location|push-location|pop-location|sl|chdir)(?:\s|$)",
                     re.IGNORECASE)
 LEGACY_CMD_CAP = 200          # 升級前的 state 收據 cmd 只存前 200 字
-_ARG_SENTINEL_RE = re.compile(r"_CHECK\s+(?:PASS|FAIL|DONE)|\w\s+DONE(?!\w)")    # 參數裡的哨兵字樣（不要求行首與名字）
-_ESC_RE = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{4}|0?[0-7]{1,3}|[abefnrtv])")
+_ARG_SENTINEL_RE = lazy_re(r"_CHECK\s+(?:PASS|FAIL|DONE)|\w\s+DONE(?!\w)")    # 參數裡的哨兵字樣（不要求行首與名字）
+_ESC_RE = lazy_re(r"\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{4}|0?[0-7]{1,3}|[abefnrtv])")
 _ESC_CHARS = {"a": "\a", "b": "\b", "e": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v"}
 _arg_res: List[Pattern] = []  # _ARG_SENTINEL_RE ＋ config sentinel_regex（去掉開頭 ^）；第一次用到才讀
 
@@ -578,7 +579,7 @@ def _arg_sentinel_res() -> List[Pattern]:
     return _arg_res
 
 
-_SCOPED_FLAGS_RE = re.compile(r"\(\?([aiLmsux]*)(?:-([imsx]*))?:")
+_SCOPED_FLAGS_RE = lazy_re(r"\(\?([aiLmsux]*)(?:-([imsx]*))?:")
 
 
 def _drop_anchors(pat: str, verbose: bool = False) -> Optional[str]:
@@ -635,7 +636,7 @@ def _unescape(t: str) -> str:
     return _ESC_RE.sub(rep, t)
 
 
-_VAR_REF_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_][\w:]*|[0-9@*#?$!-])")
+_VAR_REF_RE = lazy_re(r"\$(?:\{[^}]*\}|[A-Za-z_][\w:]*|[0-9@*#?$!-])")
 
 
 def _prints_sentinel(raw: str, shell: str, skip: Optional[Tuple[int, int]] = None, ruler: str = "") -> bool:
@@ -1208,13 +1209,66 @@ def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str], ignored: Op
     規則判排不排除。ignored＝呼叫端一次查好的被忽略路徑集合（gitignored_paths）；沒給就只查這一個。
     拿不到根、不在根底下、沒有部位表又沒被忽略、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。
     session 暫存區的一次性腳本（規則 SESSION_SCRATCH_NOT_CODE，session_scratch）不看根，一律排除。"""
-    if session_scratch(path):
+    if session_scratch(path) or git_launcher(path):
         return True
     if not root:
         return False
     if ignored is None:
         ignored = gitignored_paths(root, [path])
     return excluded_region(path, root, _part_kind(path, root), path in ignored)
+
+
+LAUNCHER_DIR = WORKFLOW_DIR / "git-launchers"     # 規則 LAUNCHER_NOT_CODE 的標記：一個啟動器一個檔（檔名＝canon 路徑雜湊）
+
+
+def _launcher_marker(path: str) -> Path:
+    return LAUNCHER_DIR / f"{hashlib.sha1(canon_path(path).encode('utf-8')).hexdigest()[:20]}.json"
+
+
+def note_git_launcher(path: str, run: Callable[..., Any] = subprocess.run) -> Optional[bool]:
+    """規則 LAUNCHER_NOT_CODE 的事實端：PostToolUse 寫完 .py 時呼叫。內容只跑 git（is_git_launcher_source）、放在版控根、
+    git 沒追蹤 → 記標記、回 True；不合 → 拿掉舊標記、回 False；不是 .py、檔已不在（刪掉了）→ 標記不動、回 None。
+    查 git 失敗當成有追蹤（照算程式）並浮 stderr。"""
+    p = Path(str(path))
+    if p.suffix.lower() != ".py":
+        return None
+    try:
+        src = p.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    ok = is_git_launcher_source(src)
+    if ok:
+        vcs = find_vcs_root(p.parent)
+        ok = bool(vcs and vcs[0] == "git" and canon_path(str(vcs[1])) == canon_path(str(p.parent)))
+    if ok:
+        try:
+            r = run(["git", "-C", str(p.parent), "ls-files", "--error-unmatch", "--", p.name], capture_output=True,
+                    timeout=5, creationflags=_NO_WINDOW)
+            ok = r.returncode != 0
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"[verify_ledger] 查不到 {p.name} 有沒有進版控，當成程式照算（LAUNCHER_NOT_CODE）：{type(e).__name__}: {e}",
+                  file=sys.stderr)
+            ok = False
+    marker = _launcher_marker(str(p))
+    try:
+        if ok:
+            LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
+            marker.write_text(json.dumps({"path": str(p), "at": time.time()}, ensure_ascii=False), encoding="utf-8",
+                              newline="\n")
+        else:
+            marker.unlink(missing_ok=True)
+    except OSError as e:
+        print(f"[verify_ledger] 記不下 git 啟動器標記，{p.name} 照算程式：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    return ok
+
+
+def git_launcher(path: str) -> bool:
+    """LAUNCHER_NOT_CODE：path 寫入時被認成一次性 git 啟動器（刪掉之後標記還在，刪除也不算改程式）。"""
+    try:
+        return _launcher_marker(str(path)).exists()
+    except (OSError, ValueError):
+        return False
 
 
 def session_scratch(path: str) -> bool:
@@ -1995,7 +2049,7 @@ _RECONCILE_TAIL_EVIDENCE = (_RECONCILE_SOURCE + "補上面列的證據（跑出�
 
 
 _MOVE_ARG_RE = {k: re.compile(rf"--{k}(?:=|\s+)(\"[^\"]+\"|'[^']+'|\S+)") for k in ("old", "new", "root", "for")}
-_MOVE_HITS_RE = re.compile(r"MOVE_PATH_SCAN DONE hits=(\d+)")
+_MOVE_HITS_RE = lazy_re(r"MOVE_PATH_SCAN DONE hits=(\d+)")
 
 
 def _move_tool_receipt(receipt: Dict[str, Any], sub: str) -> bool:
@@ -2411,7 +2465,7 @@ def self_run_covered(parts: Dict[str, Dict[str, Any]], runs: Iterable[Dict[str, 
 
 
 # ─── 驗證範圍：收據跑了哪些、對不對得上宣告的一項（判定在 wg_release_rules.SCOPE_ITEM_RECEIPT_AFTER_EDIT） ───
-_PY_RE = re.compile(r"^python(?:\d+(?:\.\d+)*)?w?(?:\.exe)?$", re.IGNORECASE)
+_PY_RE = lazy_re(r"^python(?:\d+(?:\.\d+)*)?w?(?:\.exe)?$", re.IGNORECASE)
 _PYTEST_PROGS = frozenset({"pytest", "py.test"})
 _SCRIPT_RUNNERS = frozenset({"node", "bash", "sh", "pwsh", "powershell", "deno", "bun", "ruby", "perl"})
 # 不改變跑哪些案的 pytest 帶值選項（值可接在 = 後或下一個字）；沒列在這裡、也不在整體驗證白名單的選項一律當「只跑一部分」

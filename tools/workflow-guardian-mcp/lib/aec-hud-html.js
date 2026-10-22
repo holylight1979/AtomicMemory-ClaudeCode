@@ -272,6 +272,7 @@ function cardHtml(r) {
     html += partHtml("疑似偷懶的地方（hook 只比對字面，可能是誤判，看一下）", picked([["", r.b]]), "");
   }
   html += partHtml("要你處理", todoItems(r), "沒有要你處理的事") +
+    (r.report == null || isBlank(r.report) ? "" : partHtml("收尾全文", [["", r.report]], "")) +   // CLOSING_REPORT_ONE_CALL
     partHtml("這輪做了什麼", picked([["修了什麼", r.a], ["版控", r.g], ["環境有變動", r.f]]), "這輪沒有修補，也沒有改到環境") +
     (r.e == null ? "" : partHtml("記住了／之後要追", picked([["記住了", r.d], ["之後要追", kOf(r)]]), "沒有新記住的事，也沒有要追的"));
   return html + '<details class="detail"><summary>細節（原始欄位，給要查的時候看）</summary>' + detailHtml(r) + "</details></div>";

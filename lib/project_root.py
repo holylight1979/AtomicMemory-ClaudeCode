@@ -15,7 +15,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -54,37 +53,49 @@ CLAIM_LABEL = {
 }
 
 
-@dataclass
-class Declaration:
-    path: Path
-    valid: bool
-    root: Optional[str] = None
-    root_abs: Optional[str] = None
-    subs: List[str] = field(default_factory=list)
-    standalone: bool = False
-    error: str = ""
-    warnings: List[str] = field(default_factory=list)
-    raw: Dict = field(default_factory=dict)
+class _Record:
+    """欄位與預設值照 _FIELDS 的輕量資料類（取代 dataclass：每個 hook 事件都 import 本模組，dataclasses 連帶 inspect 約 20 ms，
+    HOOK_IMPORT_ON_USE）。只收關鍵字參數；list／dict 預設每次新建一份；== 比所有欄位。"""
+    _FIELDS: Tuple[Tuple[str, object], ...] = ()
+
+    def __init__(self, **kw: object) -> None:
+        names = {n for n, _ in self._FIELDS}
+        bad = set(kw) - names
+        if bad:
+            raise TypeError(f"{type(self).__name__} 沒有欄位：{'、'.join(sorted(bad))}")
+        for name, default in self._FIELDS:
+            if name in kw:
+                val = kw[name]
+            elif default is _REQUIRED:
+                raise TypeError(f"{type(self).__name__} 缺欄位 {name}")
+            else:
+                val = default() if callable(default) else default
+            setattr(self, name, val)
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is type(self) and all(getattr(self, n) == getattr(other, n) for n, _ in self._FIELDS)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(" + ", ".join(f"{n}={getattr(self, n)!r}" for n, _ in self._FIELDS) + ")"
+
+
+_REQUIRED = object()
+
+
+class Declaration(_Record):
+    _FIELDS = (("path", _REQUIRED), ("valid", _REQUIRED), ("root", None), ("root_abs", None), ("subs", list),
+               ("standalone", False), ("error", ""), ("warnings", list), ("raw", dict))
 
     @property
     def declares_root(self) -> bool:
         return bool(self.root or self.root_abs)
 
 
-@dataclass
-class Resolution:
-    path: Optional[Path]
-    claimed_by: str                      # self | own-root | ancestor-root | ancestor-subs | nearest | none
-    nearest: Optional[Path]
-    via: Optional[Path] = None           # 認領依據所在的層（印宣告行用）
-    candidates: List[Path] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    infos: List[str] = field(default_factory=list)
-    hops: List[Path] = field(default_factory=list)
-    standalone: bool = False
-    fork_atoms: int = 0
-    fingerprint: str = ""
-    decl_files: List[Tuple[str, float]] = field(default_factory=list)
+class Resolution(_Record):
+    # claimed_by：self | own-root | ancestor-root | ancestor-subs | nearest | none；via＝認領依據所在的層（印宣告行用）
+    _FIELDS = (("path", _REQUIRED), ("claimed_by", _REQUIRED), ("nearest", _REQUIRED), ("via", None), ("candidates", list),
+               ("warnings", list), ("infos", list), ("hops", list), ("standalone", False), ("fork_atoms", 0),
+               ("fingerprint", ""), ("decl_files", list))
 
     @property
     def declared(self) -> bool:

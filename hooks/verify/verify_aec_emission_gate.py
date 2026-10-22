@@ -440,7 +440,7 @@ def test_b5_node_chip_does_not_print_j(tmp_path):
               "require.cache[mp]={id:mp,filename:mp,loaded:true,exports:{sendToolResult:(id,t)=>console.log(JSON.stringify(t))}};"
               "const ae=require(js);const c=JSON.parse(process.argv[2]);"
               "console.log(JSON.stringify(c.map(([j,r,l])=>ae.aecEvidenceAutofill(j,r,l))));"
-              "ae.toolAntiEvasionReport(1,{a:'無',b:'無',d:'無',h:'可關閉',j_evidence_path:'',k_followups:'無'});")
+              "ae.toolAntiEvasionReport(1,{a:'無',b:'無',d:'無',e:'無',f:'無',g:'無',h:'可關閉',j_evidence_path:'',k_followups:'無'});")
     res = subprocess.run(["node", "-e", script, str(js), json.dumps(cases, ensure_ascii=False)],
                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert res.returncode == 0, res.stderr
@@ -513,7 +513,8 @@ def test_mcp_schema_requires_j_k():
     res = subprocess.run(["node", "-e", script, str(js)], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0, res.stderr
     req = json.loads(res.stdout)
-    assert req[-2:] == ["j_evidence_path", "k_followups"] and len(req) == 10 and "c" not in req   # (c) Token 警示欄已刪
+    # (c) Token 警示欄已刪；e／f／g 只上 HUD，給了 report（白話全文）可省，沒給由 Node 端照擋（CLOSING_REPORT_ONE_CALL）
+    assert req == ["a", "b", "d", "h", "i", "j_evidence_path", "k_followups"]
 
 
 def test_stop_pending_sibling_not_blocked(driven, capsys):

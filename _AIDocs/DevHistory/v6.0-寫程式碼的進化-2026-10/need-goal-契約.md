@@ -93,7 +93,7 @@
 
 | 事件 | 樹 | 節點 | 誰觸發 |
 |---|---|---|---|
-| `set`（沒有目前的樹，或 `new_task=true`） | 新樹 `doing`，成為 `active`；舊樹不動（目前的樹是 `doing` 時要附 why，沒附拒收；收下時列舊樹沒結束的節點） | 樹根 `doing`，history 記 why | LLM |
+| `set`（沒有目前的樹，或 `new_task=true`） | 新樹 `doing`，成為 `active`；舊樹不動（why 選填；目前的樹是 `doing` 時收下時列舊樹沒結束的節點，提醒是糾正或補充就改回舊樹） | 樹根 `doing`，history 記 why | LLM |
 | `set`（有目前的樹、不是換題）＝改寫樹根 | `doing`；`goal_rev+1` | 樹根文字換掉，history 記 why | LLM |
 | `add` | `doing`；`goal_rev+1` | 新節點 `todo` | LLM |
 | `update` 改 text 或 clarity | `doing`；`goal_rev+1` | 照改 | LLM |
@@ -163,10 +163,10 @@
 | `action` | enum `set｜add｜update｜reconcile｜read｜verify_scope` | 全部 | 必填；`verify_scope` 是驗證範圍的宣告，不進目標檔（見下） |
 | `goal` | str | set | 一句、使用者的語言、只寫目標不寫手段；`import_from` 沒給時必填 |
 | `new_task` | bool | set | 換成另一件事，開新樹 |
-| `why` | str | set | 改寫樹根時必填；目前的樹是 `doing` 時帶 `new_task=true` 也必填（js 只驗型別，Python 驗必填） |
+| `why` | str | set／update | 選填（WHY_OPTIONAL）：有寫就記進 history，沒寫不擋 |
 | `import_from` | str | set | 續接單路徑 |
 | `parent` | str | add | 掛在哪個節點，省略＝樹根 |
-| `items` | array | set／add／update／reconcile | set：子目標，同 add，跟樹根同一次寫（規則 SET_WITH_SUBGOALS）；add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why 必填}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?}], followup?, note?}` |
+| `items` | array | set／add／update／reconcile | set：子目標，同 add，跟樹根同一次寫（規則 SET_WITH_SUBGOALS）；add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why?}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?, unaffected?}]（unaffected：第二意見之後的修補沒碰到這筆收據時寫為什麼，規則 REVIEW_FIX_RERUN_TOUCHED_ONLY）, followup?, note?}` |
 | `turns` | int ≥ 0 | reconcile | 拐了幾個彎（C-G11 預留） |
 | `form` | enum `full｜compact｜handoff` | read | 預設 full；handoff 回續接單區塊（給 /handoff 手寫續接單貼上） |
 | `items`（verify_scope） | array | verify_scope | `{target 必填, why 必填, inputs?, case_for?}`：target 是測試檔、測試節點（`檔::名`）、資料夾或指令，why 一句為什麼和這次改動有關；case_for（非空字串陣列）＝這支案例驗的改過程式檔，只能掛在點得到案例檔的那一項 |
@@ -177,7 +177,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 `verify_scope` 收下後 post_tool_use 直接轉 `wg_verify_scope.declare`（存 state `verify_scope[收據鍵]`，不經 `apply_op`、不受 `need_goal.enabled` 影響；裁判 session 也收），契約與規則見 TECH §7.9、§7.8 SCOPE_*。
 
 ### 6.2 Python 端（post_tool_use 的 need_goal 分支 → `apply_op`）
-- 再驗一次 js 那些規則（MIRROR：同一組列舉值），再驗只有 Python 判得了的：節點存在、目前有沒有樹、why 必填、5.5 的 3～7。
+- 再驗一次 js 那些規則（MIRROR：同一組列舉值），再驗只有 Python 判得了的：節點存在、目前有沒有樹、5.5 的 3～7。
 - 收下 → 套用、配編號、記 history 與 checkpoints、寫守門紀錄；`reconcile` 收下時把 `partial`／`none` 的 followup 寫進追蹤帳本 `workflow/tracking/<slug>.jsonl`（`wg_harvest.tracking_entries`＋`append_tracking`，一行一項「需求目標 T2.3（部分）：…」）。
 - 回給 AI 的提示（PostToolUse additionalContext）：更新後的整棵樹（`render(tree, "full")`）＋被拒收的每一項與原因。
 

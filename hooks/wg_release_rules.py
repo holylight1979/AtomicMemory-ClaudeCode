@@ -21,6 +21,7 @@ import shlex
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
+from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK_IMPORT_ON_USE）
 
 RULES: Dict[str, str] = {
     "SAME_FILE": "同一個檔不同寫法（反斜線／正斜線、大小寫、`..`）是同一個檔：去重、快照成員、同根比較一律用 canon_path。",
@@ -263,7 +264,7 @@ def in_user_turn(t: Any, state: Dict[str, Any], turn_seq: Optional[int] = None) 
     return in_turn(t, now, user_turn(state, now))
 
 
-_MODIFIER_TAIL_RE = re.compile(r"^的\s*[^\s，。；！？、,.;!?：:）)」』]")
+_MODIFIER_TAIL_RE = lazy_re(r"^的\s*[^\s，。；！？、,.;!?：:）)」』]")
 
 
 def claim_is_modifier(clause: str, end: int) -> bool:
@@ -336,7 +337,7 @@ def owed_after_last_case(name: str, last_case: Optional[str]) -> Verdict:
 
 # ─── 擋訊息格式（契約） ───────────────────────────────────────────────────────
 HIT_PREFIX = "✗ "
-_HIT_RE = re.compile(r"^\s*✗ \(([^)]+)\) ([A-Z][A-Z0-9_]*)：")
+_HIT_RE = lazy_re(r"^\s*✗ \(([^)]+)\) ([A-Z][A-Z0-9_]*)：")
 
 
 def format_hit(letter: str, v: Verdict) -> str:
@@ -512,7 +513,7 @@ def content_equals_committed(name: str, current_blob: Optional[str], ref_blobs: 
 
 
 # ─── B4 INLINE_PY_READONLY ─────────────────────────────────────────────────────
-_WRITE_MODE_RE = re.compile(r"[wax+]")
+_WRITE_MODE_RE = lazy_re(r"[wax+]")
 _DENY_MODULES = frozenset({"subprocess", "shutil", "tempfile", "sqlite3", "shelve", "dbm", "zipfile", "tarfile", "ctypes",
                            "importlib", "runpy", "code", "socket", "multiprocessing", "threading", "pty", "signal"})
 _DENY_ATTRS = frozenset({"remove", "unlink", "rename", "renames", "replace", "rmdir", "removedirs", "makedirs", "mkdir",
@@ -750,8 +751,8 @@ def strip_comment_lines(command: str) -> str:
 
 
 # ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
-_DISPATCH_HEAD_RE = re.compile(r"^\s*[\[【（(]?\s*派工")
-_DISPATCH_PATH_RE = re.compile(r"to-track-[A-Za-z0-9_-]+[\\/][^\s\"'<>]*?\.md\b", re.IGNORECASE)
+_DISPATCH_HEAD_RE = lazy_re(r"^\s*[\[【（(]?\s*派工")
+_DISPATCH_PATH_RE = lazy_re(r"to-track-[A-Za-z0-9_-]+[\\/][^\s\"'<>]*?\.md\b", re.IGNORECASE)
 
 
 def is_dispatch_message(bodies: Iterable[str]) -> bool:
@@ -920,6 +921,75 @@ RULES.update({
 })
 
 
+RULES.update({
+    "LAUNCHER_NOT_CODE": "worktree 根目錄的一次性 git 啟動器不算本 session 改的程式檔：放在版控根、沒進版控、整支只用 subprocess 跑 git"
+                         "（第一個參數是 git 開頭的清單字面值，或 for 迴圈走過的這種清單），其他呼叫只准 print、exit、sys.exit、os.chdir，"
+                         "import 只准 subprocess／sys／os／pathlib／shlex。建、改、刪都不讓收據作廢、不欠案例、不數進第二意見門檻、"
+                         "不蓋到需求目標樹（判定 is_git_launcher_source、事實 wg_verify_ledger.note_git_launcher）；有一處不合就照算程式。"
+                         "啟動器跑的 git 改到的檔照 python 啟動器那套快照比對記帳。",
+})
+
+_LAUNCHER_IMPORTS = frozenset({"subprocess", "sys", "os", "pathlib", "shlex"})
+_LAUNCHER_RUNS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
+_LAUNCHER_OTHER_CALLS = frozenset({"print", "exit", "sys.exit", "os.chdir"})
+# subprocess 呼叫只准這些關鍵字（不准 shell、executable、env…換掉實際跑的程式）；git 參數不准這些會叫別的程式的寫法
+_LAUNCHER_KWARGS = frozenset({"capture_output", "text", "encoding", "errors", "cwd", "check", "timeout", "stdout", "stderr",
+                              "input", "universal_newlines"})
+_LAUNCHER_GIT_DENY = frozenset({"-c", "--config-env", "--exec-path", "--upload-pack", "--receive-pack", "--exec", "-x",
+                                "foreach", "filter-branch", "difftool", "mergetool", "bisect", "--extcmd", "-u"})
+
+
+def _dotted(node: Any) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        head = _dotted(node.value)
+        return f"{head}.{node.attr}" if head else ""
+    return ""
+
+
+def _git_argv(node: Any) -> bool:
+    """git 開頭、每個參數都是字串字面值、沒有會叫別的程式的寫法（-c alias.x=!…、submodule foreach、rebase --exec…）。"""
+    if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
+        return False
+    args = [e.value if isinstance(e, ast.Constant) and isinstance(e.value, str) else None for e in node.elts]
+    if None in args or args[0] not in ("git", "git.exe"):
+        return False
+    return not any(a in _LAUNCHER_GIT_DENY or a.startswith(("--exec=", "--config-env=", "-c=")) for a in args[1:])
+
+
+def is_git_launcher_source(src: str) -> bool:
+    """LAUNCHER_NOT_CODE 的內容判定：src 整支只用 subprocess 跑 git（至少一次），沒有別的呼叫與 import。解析不了 → 不是。"""
+    try:
+        tree = ast.parse(src)
+    except (SyntaxError, ValueError):
+        return False
+    loops = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(a.name.split(".")[0] not in _LAUNCHER_IMPORTS for a in node.names):
+            return False
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] not in _LAUNCHER_IMPORTS:
+            return False
+        if (isinstance(node, ast.For) and isinstance(node.target, ast.Name) and isinstance(node.iter, (ast.List, ast.Tuple))
+                and node.iter.elts and all(_git_argv(e) for e in node.iter.elts)):
+            loops.add(node.target.id)
+    runs = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _dotted(node.func)
+        if name.startswith("subprocess.") and name.split(".", 1)[1] in _LAUNCHER_RUNS:
+            first = node.args[0] if node.args else None
+            if not (_git_argv(first) or (isinstance(first, ast.Name) and first.id in loops)):
+                return False
+            if len(node.args) > 1 or any(k.arg not in _LAUNCHER_KWARGS for k in node.keywords):
+                return False
+            runs += 1
+        elif name not in _LAUNCHER_OTHER_CALLS:
+            return False
+    return runs > 0
+
+
 def cc_config_dirs(environ: Optional[Dict[str, str]] = None, home: Optional[str] = None) -> List[str]:
     """SESSION_SCRATCH_NOT_CODE 的事實：Claude Code 設定目錄（CLAUDE_CONFIG_DIR 有設就加上它，~/.claude 一律算），原樣路徑。"""
     env = environ if environ is not None else os.environ
@@ -993,7 +1063,7 @@ RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）�
                                       "<理由>」（回覆文字／工具參數／thinking 三管道，主檔與子代理檔，含這次指令自己的 `#` 註解）點到的字樣"
                                       "是這條指令的一段、理由有文字內容 → 這次紅記 deliberate_reds（rule＝本規則、附宣告行），不進 failing_tests、"
                                       "不計重試；點到的字樣不在指令裡、沒寫理由、沒宣告 → 照記紅。宣告只綁出現那段字樣的指令，蓋不到別的紅。")
-_NEG_CONTROL_RE = re.compile(r"負向對照\s*[｜|]\s*(.+)")
+_NEG_CONTROL_RE = lazy_re(r"負向對照\s*[｜|]\s*(.+)")
 
 
 def parse_negative_controls(text: str) -> List[Dict[str, str]]:
@@ -1028,7 +1098,7 @@ def negative_control_verdict(command: str, decls: Sequence[Dict[str, str]]) -> V
 
 RETRY_ESCALATE_ROUNDS = 2          # 兩輪重跑仍紅就升級 FixEscalation（plan 與 direct 同一個門檻）
 RETRY_ROUNDS_SHOWN = 5             # 訊息最多列幾輪證據
-_RED_CASE_RE = re.compile(r"^(?:FAILED|ERROR) (\S+)", re.MULTILINE)
+_RED_CASE_RE = lazy_re(r"^(?:FAILED|ERROR) (\S+)", re.MULTILINE)
 
 
 def red_case_names(summary: str) -> List[str]:
@@ -1040,7 +1110,7 @@ def red_case_names(summary: str) -> List[str]:
     return out
 
 
-_PYTEST_TALLY_RE = re.compile(r"^=*\s*\d+ (?:passed|failed|errors?|skipped|deselected|xfailed|xpassed|warnings?)\b.*$",
+_PYTEST_TALLY_RE = lazy_re(r"^=*\s*\d+ (?:passed|failed|errors?|skipped|deselected|xfailed|xpassed|warnings?)\b.*$",
                               re.MULTILINE)
 RED_CASES_CAP = 200     # 收據最多記這麼多支紅案；超過就當清單不完整
 
@@ -1155,11 +1225,11 @@ def collapse_move_chain(moves: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
     return out
 
 
-_NARROW_FLAG_RE = re.compile(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")
-_RUN_MODULE_RE = re.compile(r"(?:^|\s)-m\s+(?:pytest|unittest)\b")     # python -m pytest 的 -m 是「跑模組」，不是標記篩選
-_NODE_ID_TOKEN_RE = re.compile(r"""[^\s"']+::[^\s"']+""")
-_CMD_SEG_SPLIT_RE = re.compile(r"\|\||&&|[;|\n]")
-_TEST_RUNNER_RE = re.compile(r"(?:^|[\s/\\\"'])(?:pytest|py\.test|unittest|jest|vitest)(?:\.exe)?(?=[\s\"']|$)", re.IGNORECASE)
+_NARROW_FLAG_RE = lazy_re(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")
+_RUN_MODULE_RE = lazy_re(r"(?:^|\s)-m\s+(?:pytest|unittest)\b")     # python -m pytest 的 -m 是「跑模組」，不是標記篩選
+_NODE_ID_TOKEN_RE = lazy_re(r"""[^\s"']+::[^\s"']+""")
+_CMD_SEG_SPLIT_RE = lazy_re(r"\|\||&&|[;|\n]")
+_TEST_RUNNER_RE = lazy_re(r"(?:^|[\s/\\\"'])(?:pytest|py\.test|unittest|jest|vitest)(?:\.exe)?(?=[\s\"']|$)", re.IGNORECASE)
 
 
 def _test_runner_args(cmd: str) -> str:
@@ -1211,7 +1281,7 @@ def _dir_covered(red_file: str, dirs: Sequence[str]) -> bool:
 _VALUE_OPTS = frozenset({"-k", "-m", "-p", "-c", "-o", "-n", "-W", "--tb", "--maxfail", "--basetemp", "--rootdir", "--deselect",
                          "--ignore", "--ignore-glob", "--junitxml", "--junit-xml", "--cov", "--cov-report", "--durations",
                          "--log-level", "--confcutdir", "--import-mode", "--lfnf", "--capture"})
-_PATH_ARG_RE = re.compile(r"^[\w./\-]+$")
+_PATH_ARG_RE = lazy_re(r"^[\w./\-]+$")
 
 
 def _runner_dirs(args: str) -> List[str]:
@@ -1266,8 +1336,8 @@ def green_ran_cases_verdict(red_cmd: str, red_summary: str, green_cmd: str,
 
 
 _CASE_EXTS = r"(?:py|js|ts|cs|lua|go|rs|rb|java|kt|sh|ps1)"
-_CASE_TOKEN_RE = re.compile(r"[\w./\\:-]+\." + _CASE_EXTS + r"\b", re.IGNORECASE)
-_QUOTED_CASE_RE = re.compile(r"""(["'])([^"'\n]*?\.""" + _CASE_EXTS + r""")(?:::[^"'\n]*)?\1""", re.IGNORECASE)
+_CASE_TOKEN_RE = lazy_re(r"[\w./\\:-]+\." + _CASE_EXTS + r"\b", re.IGNORECASE)
+_QUOTED_CASE_RE = lazy_re(r"""(["'])([^"'\n]*?\.""" + _CASE_EXTS + r""")(?:::[^"'\n]*)?\1""", re.IGNORECASE)
 
 
 def case_files_in_cmd(cmd: str, cwd: Optional[str] = None) -> List[str]:
@@ -1356,28 +1426,28 @@ _LABEL_NO = {**{c: 1 for c in "Aa1一甲Ａ１①"}, **{c: 2 for c in "Bb2二乙
              **{c: 4 for c in "Dd4四丁Ｄ４④"}, **{c: 5 for c in "Ee5五戊Ｅ５⑤"}}
 _LABELS = "".join(_LABEL_NO)
 # 候選標記：「候選 A／候選一／候選（B）」或「第一根因／第 2 個根因」
-_CANDIDATE_RE = re.compile(rf"候選\s*[（(]?\s*([{_LABELS}])|第\s*([{_LABELS}])\s*個?\s*根因")
+_CANDIDATE_RE = lazy_re(rf"候選\s*[（(]?\s*([{_LABELS}])|第\s*([{_LABELS}])\s*個?\s*根因")
 _REASON_WORDS = r"(?:(?<!根)因為|理由|原因|由於|所以|because)"
-_REASON_RE = re.compile(_REASON_WORDS, re.IGNORECASE)
+_REASON_RE = lazy_re(_REASON_WORDS, re.IGNORECASE)
 # 「不存在／沒有／無」後面接標點、理由詞或行尾才算「這個候選不存在」（「候選 A 無鎖競爭」是描述）
 _ABSENT_WORD = rf"(?:不存在|沒有|找不到|無)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))"
-_ABSENT_RE = re.compile(rf"\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}", re.IGNORECASE)
+_ABSENT_RE = lazy_re(rf"\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}", re.IGNORECASE)
 # 「第二個不存在，因為…」「第二根因不存在：…」「候選 B 不存在因為…」：要寫出為什麼
-_SECOND_ABSENT_RE = re.compile(
+_SECOND_ABSENT_RE = lazy_re(
     rf"(?:第\s*[二2]\s*個?\s*(?:根因|候選)?|候選\s*[（(]?\s*[Bb二乙Ｂ２②])\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}"
     rf"[^；;。]*?(?:{_REASON_WORDS}|[:：])\s*\S{{2,}}", re.IGNORECASE)
 _ROLE_PLACEHOLDERS = {"", "角色", "這一塊在目標裡的角色", "這一塊的角色", "…", "...", "略", "無"}
-_ROLE_STRIP_RE = re.compile(r"[\s，。、；;:：,.!！?？「」『』（）()【】\[\]<>《》—－\-~～*_`'\"]+")
+_ROLE_STRIP_RE = lazy_re(r"[\s，。、；;:：,.!！?？「」『』（）()【】\[\]<>《》—－\-~～*_`'\"]+")
 
 
 _ENUM_NO = {**{c: i for i, c in enumerate("①②③④⑤", 1)}, **{c: i for i, c in enumerate("⑴⑵⑶⑷⑸", 1)},
             **{c: i for i, c in enumerate("12345", 1)}, **{c: i for i, c in enumerate("一二三四五", 1)}}
 # 列舉：①②、⑴⑵、(1)(2)／（一）（二）；括號數字前面接英數字的是函式呼叫，不算
-_ENUM_RE = re.compile(r"([①-⑤⑴-⑸])|(?<![A-Za-z0-9_])[（(]\s*([1-5一二三四五])\s*[)）]")
-_LAYER_RE = re.compile(r"([A-Za-z][A-Za-z0-9_\-]*|[一-鿿]+)\s*層")
+_ENUM_RE = lazy_re(r"([①-⑤⑴-⑸])|(?<![A-Za-z0-9_])[（(]\s*([1-5一二三四五])\s*[)）]")
+_LAYER_RE = lazy_re(r"([A-Za-z][A-Za-z0-9_\-]*|[一-鿿]+)\s*層")
 # 「這層、每層、第二層、第四層、跨層」這類泛稱（層前一個字）與「根因層」不是一層的名字
 _LAYER_GENERIC_TAIL = set("這那哪每同各一二兩三四五六七八九十百幾多上下本該底表外內深單雙其此某任跨分0123456789")
-_LAYER_LEAD_RE = re.compile(r"^.*[在是於從到修改看查的為由和與及或往向把將先再都只就也跟]")
+_LAYER_LEAD_RE = lazy_re(r"^.*[在是於從到修改看查的為由和與及或往向把將先再都只就也跟]")
 
 
 def _absent_after(text: str, end: int) -> bool:
@@ -1424,9 +1494,9 @@ def root_candidates(root_line: str) -> List[int]:
     return out if marked else _unlabeled_candidates(text)
 
 
-_CHAINED_NODES_RE = re.compile(r"^(?:\s*[/／、,，+＋]\s*T\d+(?:\.\d+)*)+")
+_CHAINED_NODES_RE = lazy_re(r"^(?:\s*[/／、,，+＋]\s*T\d+(?:\.\d+)*)+")
 # 「不合理」前面寫的若只是這類套話，不算指出哪裡不合理
-_GENERIC_SUBJECT_RE = re.compile(r"這段|這裡|這樣|現在|目前|現行|現|的|寫法|做法|設計|程式|邏輯")
+_GENERIC_SUBJECT_RE = lazy_re(r"這段|這裡|這樣|現在|目前|現行|現|的|寫法|做法|設計|程式|邏輯")
 
 
 def goal_role(goal_line: str, node_id: str) -> str:
@@ -1444,7 +1514,7 @@ def _role_core(text: str) -> str:
 
 
 # 選擇動詞：「選 A／選候選 A／採用／採取／採納」；「候選」裡的選、候選描述裡的「採集」不算
-_CHOICE_VERB_RE = re.compile(r"(?<!候)選|採(?:用|取|納)")
+_CHOICE_VERB_RE = lazy_re(r"(?<!候)選|採(?:用|取|納)")
 
 
 def _has_choice_reason(root_line: str) -> bool:
@@ -1492,14 +1562,14 @@ def locate_lines_verdict(root_line: str, goal_line: str, node_id: str, node_text
     return Verdict(rule, True, "；".join(missing), (f"定位｜根因層：{root_line}", f"定位｜目標：{goal_line}"))
 
 
-_UNREASONABLE_RE = re.compile(r"不合理")
-_REASONABLE_RE = re.compile(r"(?<!不)合理")
-_BETTER_RE = re.compile(r"更好|改成|應該|改用|換成")
+_UNREASONABLE_RE = lazy_re(r"不合理")
+_REASONABLE_RE = lazy_re(r"(?<!不)合理")
+_BETTER_RE = lazy_re(r"更好|改成|應該|改用|換成")
 # 同類欄位的標籤：「同類…：」（冒號前最多 8 字，如「同類還可能在哪：」「同類別處：」）；沒冒號時退回「；同類…」這種分隔符後的同類
-_SAME_LABEL_COLON_RE = re.compile(r"同類[^：:；;，,。]{0,8}[:：]")
-_SAME_LABEL_SEP_RE = re.compile(r"(?:^|[；;。，,])\s*同類(?:別處|還可能在哪(?:裡)?|有沒有|在哪)?\s*")
+_SAME_LABEL_COLON_RE = lazy_re(r"同類[^：:；;，,。]{0,8}[:：]")
+_SAME_LABEL_SEP_RE = lazy_re(r"(?:^|[；;。，,])\s*同類(?:別處|還可能在哪(?:裡)?|有沒有|在哪)?\s*")
 # 「無／沒有」後面接標點、理由詞或行尾才算「沒有同類」（「無鎖佇列」是位置的名字）
-_SAME_NONE_RE = re.compile(rf"^(?:無|沒有|不存在|找不到)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))", re.IGNORECASE)
+_SAME_NONE_RE = lazy_re(rf"^(?:無|沒有|不存在|找不到)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))", re.IGNORECASE)
 
 
 def _split_same_class(text: str) -> Tuple[str, Optional[str]]:
@@ -1543,7 +1613,7 @@ def locate_critique_verdict(line: str) -> Verdict:
 
 
 # 擋訊息範例的佔位：角括號裡有中文說明（`<第一個根因>`）；程式的泛型角括號（List<int>）不算
-_EXAMPLE_PLACEHOLDER_RE = re.compile(r"<[^<>\n]*[一-鿿][^<>\n]*>")
+_EXAMPLE_PLACEHOLDER_RE = lazy_re(r"<[^<>\n]*[一-鿿][^<>\n]*>")
 
 
 def locate_placeholder_verdict(vals: Dict[str, str]) -> Verdict:
@@ -1592,9 +1662,9 @@ RULES.update({
 })
 
 ASK_FRAGMENT_MIN = 8
-_REC_LABEL_RE = re.compile(r"[(（]\s*recommended\s*[)）]", re.IGNORECASE)
-_REC_TEXT_RE = re.compile(r"建議\s*[:：]")
-_DECISION_RE = re.compile(r"改法|做法|方案|寫法|怎麼改|如何改|實作|架構|重構|設計|approach|implement|refactor|design", re.IGNORECASE)
+_REC_LABEL_RE = lazy_re(r"[(（]\s*recommended\s*[)）]", re.IGNORECASE)
+_REC_TEXT_RE = lazy_re(r"建議\s*[:：]")
+_DECISION_RE = lazy_re(r"改法|做法|方案|寫法|怎麼改|如何改|實作|架構|重構|設計|approach|implement|refactor|design", re.IGNORECASE)
 
 
 def _ask_questions(tool_input: Any) -> List[Tuple[str, List[str], List[str]]]:
@@ -1747,13 +1817,13 @@ _CJK ="㐀-鿿豈-﫿"
 _SEG = rf"[A-Za-z0-9_.\-{_CJK}]+"                                     # 中間段：可含中文
 _SEG_ASCII = r"[A-Za-z0-9_.\-]+"
 _LAST = rf"(?:[A-Za-z0-9_.\-{_CJK}]*?\.[A-Za-z][A-Za-z0-9]{{0,5}}(?![A-Za-z0-9_])|{_SEG_ASCII})"   # 最後一段：含中文要有副檔名
-_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://\S+")
-_QUOTED_RE = re.compile(r"`([^`\n]+)`|「([^」\n]+)」|\"([^\"\n]+)\"|'([^'\n]+)'")
-_ASK_ABS_PATH_RE = re.compile(rf"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])(?:{_SEG}[\\/])*{_LAST}?")
-_ASK_REL_PATH_RE = re.compile(rf"(?<![A-Za-z0-9_.\-\\/:])(?:\.{{1,2}}[\\/])?{_SEG_ASCII}(?:[\\/](?:{_SEG}(?=[\\/])|{_LAST}))+[\\/]?")
-_ASK_BARE_FILE_RE = re.compile(
+_URL_RE = lazy_re(r"[A-Za-z][A-Za-z0-9+.\-]*://\S+")
+_QUOTED_RE = lazy_re(r"`([^`\n]+)`|「([^」\n]+)」|\"([^\"\n]+)\"|'([^'\n]+)'")
+_ASK_ABS_PATH_RE = lazy_re(rf"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])(?:{_SEG}[\\/])*{_LAST}?")
+_ASK_REL_PATH_RE = lazy_re(rf"(?<![A-Za-z0-9_.\-\\/:])(?:\.{{1,2}}[\\/])?{_SEG_ASCII}(?:[\\/](?:{_SEG}(?=[\\/])|{_LAST}))+[\\/]?")
+_ASK_BARE_FILE_RE = lazy_re(
     r"(?<![A-Za-z0-9_.\-\\/:])[A-Za-z0-9_\-]*[A-Za-z][A-Za-z0-9_\-]*\.[A-Za-z][A-Za-z0-9]{0,5}(?![A-Za-z0-9_.\\/])")
-_NOT_PATH_SEG_RE = re.compile(r"T\d+(?:\.\d+)*|[\d.\-]*|.")          # 節點編號、純數字（日期、版本號）、單一字元（A/B）
+_NOT_PATH_SEG_RE = lazy_re(r"T\d+(?:\.\d+)*|[\d.\-]*|.")          # 節點編號、純數字（日期、版本號）、單一字元（A/B）
 
 
 def _looks_like_path(p: str) -> bool:
@@ -2013,8 +2083,8 @@ def scope_review_verdict(pending: Sequence[str], reviews: Any) -> Verdict:
 
 # ─── RELOAD_ADVICE_ALREADY_LOADED ──────────────────────────────────────────────
 
-RELOAD_ADVICE_RE = re.compile(r"reload\s*window|重新載入視窗|重載視窗|重新載入\s*vs\s*code", re.IGNORECASE)
-RELOAD_REASON_RE = re.compile(r"重載原因\s*[:：]\s*\S")     # AI 宣告程式更新以外的重載理由（改了啟動設定等）
+RELOAD_ADVICE_RE = lazy_re(r"reload\s*window|重新載入視窗|重載視窗|重新載入\s*vs\s*code", re.IGNORECASE)
+RELOAD_REASON_RE = lazy_re(r"重載原因\s*[:：]\s*\S")     # AI 宣告程式更新以外的重載理由（改了啟動設定等）
 RELOAD_ALIVE_S = 180.0      # 心跳在這麼久之內才算新（服務每 60 秒更新一次；過期＝睡眠後或寫不了紀錄）
 
 
@@ -2156,7 +2226,7 @@ RULES.update({
                               "任一判不出就照舊標記。豁免照記錄（guard log），不注入、不升紅。owed＝照舊標記。",
 })
 
-_DO_IT_NOW_RE = re.compile(r"現在|馬上|立刻|這回合|直接做|這邊做|這裡做")
+_DO_IT_NOW_RE = lazy_re(r"現在|馬上|立刻|這回合|直接做|這邊做|這裡做")
 
 
 def evasion_context_exempt_verdict(exempt_phrase: bool, ratio: float, max_ratio: float, landed: bool,
@@ -2221,17 +2291,17 @@ RULES.update({
 CLAIM_LABELS: Dict[str, str] = {"fixed": "修好", "measured": "量了", "tried": "試過"}
 _CLAIM_LABEL_KINDS: Dict[str, str] = {"修好": "fixed", "修復": "fixed", "量了": "measured", "量過": "measured",
                                       "試過": "tried", "跑了": "tried", "跑過": "tried"}
-_CLAIM_DISP_RE = re.compile(r"宣稱\s*[｜|]\s*(修好|修復|量了|量過|試過|跑了|跑過)\s*[：:]\s*(.+)")
-_DISCLAIM_RE = re.compile(r"^(?:非|不是|並非)\s*本回合\s*(?:自己的?)?\s*宣稱\s*[，,：:、]?\s*(?:因為|理由[：:]?|原因[：:]?)?\s*(.*)$")
-_RECEIPT_REF_RE = re.compile(r"^收據\s*[：:]?\s*(.+)$")
-_NOT_DOING_RE = re.compile(r"不做\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
+_CLAIM_DISP_RE = lazy_re(r"宣稱\s*[｜|]\s*(修好|修復|量了|量過|試過|跑了|跑過)\s*[：:]\s*(.+)")
+_DISCLAIM_RE = lazy_re(r"^(?:非|不是|並非)\s*本回合\s*(?:自己的?)?\s*宣稱\s*[，,：:、]?\s*(?:因為|理由[：:]?|原因[：:]?)?\s*(.*)$")
+_RECEIPT_REF_RE = lazy_re(r"^收據\s*[：:]?\s*(.+)$")
+_NOT_DOING_RE = lazy_re(r"不做\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
 # 說明句被退避詞表誤命中（「下個 session 開場會列出…」是在描述已驗過的事）→ AI 說明這不是退避，程式只查有沒有理由、留帳
-_NOT_EVASION_RE = re.compile(r"不是退避\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(?:因為|理由[：:]?)?\s*(.+)")
-_USER_SAID_RE = re.compile(r"使用者\s*(?:說|原話|的話|說的)\s*[：:]?\s*[「『\"“]([^「」『』\"”\n]{1,160})[」』\"”]")
-_WS_RE = re.compile(r"\s+")
-_ITEM_STRIP_RE = re.compile(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。；;]")
-_WORD_CHAR_RE = re.compile(r"[A-Za-z0-9一-鿿]")
-_LATIN_ONLY_RE = re.compile(r"^[A-Za-z0-9 _.\-]+$")
+_NOT_EVASION_RE = lazy_re(r"不是退避\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(?:因為|理由[：:]?)?\s*(.+)")
+_USER_SAID_RE = lazy_re(r"使用者\s*(?:說|原話|的話|說的)\s*[：:]?\s*[「『\"“]([^「」『』\"”\n]{1,160})[」』\"”]")
+_WS_RE = lazy_re(r"\s+")
+_ITEM_STRIP_RE = lazy_re(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。；;]")
+_WORD_CHAR_RE = lazy_re(r"[A-Za-z0-9一-鿿]")
+_LATIN_ONLY_RE = lazy_re(r"^[A-Za-z0-9 _.\-]+$")
 _TOKEN_TRIM = "\"'`「」『』（）()[]{}<>,，;；。:："
 # 指不到特定收據／測試的通用字：直譯器、跑測工具、旗標、純副檔名（規則 CLAIM_RECEIPT_REF_MATCH／USER_WAIVER_NEEDS_CITATION）
 GENERIC_NAMES = frozenset({"python", "python3", "py", "pytest", "test", "tests", "verify", "run", "node", "npm", "npx", "bash", "sh",
@@ -2247,9 +2317,9 @@ def has_text(s: Any, min_chars: int = 2) -> bool:
     return len(_WORD_CHAR_RE.findall(str(s or ""))) >= min_chars
 
 
-_ANGLE_SEGMENT_RE = re.compile(r"<[^<>\n]*>")
+_ANGLE_SEGMENT_RE = lazy_re(r"<[^<>\n]*>")
 # 擋訊息教 AI 填理由的範本佔位：<理由>、<理由：…>、<一句理由>、<為什麼…>（各閘的 hint 都這樣開頭）
-_REASON_PLACEHOLDER_RE = re.compile(r"<\s*(?:一句)?(?:理由|為什麼)[^<>\n]*>")
+_REASON_PLACEHOLDER_RE = lazy_re(r"<\s*(?:一句)?(?:理由|為什麼)[^<>\n]*>")
 
 
 def reason_present(reason: str, hint_texts: Sequence[str] = ()) -> bool:
@@ -2511,7 +2581,7 @@ def item_waiver(text: str, prompts: Sequence[str], item_words: Sequence[str]) ->
     return None
 
 
-_PENDING_ATOM_RE = re.compile(r"^\s*([^\s:：]+)[:：]")     # 卡名是不含空白的 slug，緊接冒號
+_PENDING_ATOM_RE = lazy_re(r"^\s*([^\s:：]+)[:：]")     # 卡名是不含空白的 slug，緊接冒號
 
 
 def waived_pending(pending: Sequence[str], text: str, prompts: Sequence[str]) -> Tuple[List[str], List[Dict[str, str]]]:
@@ -2552,7 +2622,7 @@ def names_failed_test(text: str, item: str) -> bool:
     return False
 
 
-_FAILED_UNIT_RE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
+_FAILED_UNIT_RE = lazy_re(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
 
 
 def failed_units(summary: Any) -> List[str]:
@@ -2560,13 +2630,13 @@ def failed_units(summary: Any) -> List[str]:
     return list(dict.fromkeys(m.group(1).replace("\\", "/").lower() for m in _FAILED_UNIT_RE.finditer(str(summary or ""))))
 
 
-_FAILURE_LINE_RE = re.compile(r"^\s*(?:-{2,3}\s*)?(?:FAILED|FAIL|ERROR)\b.*$", re.MULTILINE)
+_FAILURE_LINE_RE = lazy_re(r"^\s*(?:-{2,3}\s*)?(?:FAILED|FAIL|ERROR)\b.*$", re.MULTILINE)
 # 一行一支的失敗（沒有 pytest 節點時）：go「--- FAIL: TestX」、unittest「FAIL: test_x (mod.Cls)」、jest「FAIL src/a.test.js」；
 # 「FAIL」「FAILED (failures=2)」「FAIL\t<套件>」這種結算行不是一支
-_TEST_FAIL_LINE_RE = re.compile(r"^\s*(?:-{2,3}\s*FAIL:\s*([^\s/]+)|(?:FAIL|ERROR):\s*(\S+)\s+\(|FAIL\s+(\S+\.(?:js|jsx|ts|tsx|mjs|cjs|py))\b)",
+_TEST_FAIL_LINE_RE = lazy_re(r"^\s*(?:-{2,3}\s*FAIL:\s*([^\s/]+)|(?:FAIL|ERROR):\s*(\S+)\s+\(|FAIL\s+(\S+\.(?:js|jsx|ts|tsx|mjs|cjs|py))\b)",
                                 re.MULTILINE)
 # 註解：行首的 #，或前面是空白的 #（shell 只在字首把 # 當註解開頭）
-_COMMENT_RE = re.compile(r"(?:^|(?<=\s))#.*$", re.MULTILINE)
+_COMMENT_RE = lazy_re(r"(?:^|(?<=\s))#.*$", re.MULTILINE)
 
 
 def red_units(entry: Dict[str, Any]) -> List[str]:
@@ -2721,7 +2791,7 @@ RULES.update({
                                         "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。",
 })
 
-_DATA_FILE_DECL_RE = re.compile(r"動資料檔\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)")
+_DATA_FILE_DECL_RE = lazy_re(r"動資料檔\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)")
 _DECL_PATH_TRIM = "`'\"「」『』<>（）() "
 
 
@@ -2744,8 +2814,8 @@ def decl_names_file(decl_path: str, target: str) -> bool:
     return t == d or t.endswith("/" + d) or (os.path.isabs(d) and canon_path(d) == t)
 
 
-_CJK_CHAR_RE = re.compile(r"[一-鿿㐀-䶿぀-ヿ가-힯]")
-_QUOTED_NAME_RE = re.compile(r"[「『\"“`]([^「」『』\"“”`\n]+)[」』\"”`]")
+_CJK_CHAR_RE = lazy_re(r"[一-鿿㐀-䶿぀-ヿ가-힯]")
+_QUOTED_NAME_RE = lazy_re(r"[「『\"“`]([^「」『』\"“”`\n]+)[」』\"”`]")
 
 
 def _quoted_other_name(text: str, start: int, end: int, base: str) -> bool:
@@ -2759,11 +2829,11 @@ def _quoted_other_name(text: str, start: int, end: int, base: str) -> bool:
 
 # 使用者原話的子句與否定字（口令閘 pre_tool_use._order_negated 與資料檔點名共用）。否定詞表只會多擋不會多放：
 # 子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉
-CLAUSE_END_RE = re.compile(r"[，,。！？!?；;\n]")
-NEG_WORD_RE = re.compile(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
+CLAUSE_END_RE = lazy_re(r"[，,。！？!?；;\n]")
+NEG_WORD_RE = lazy_re(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
                          r"|\b(?:don'?t|do\s+not|not|never|no)\b", re.IGNORECASE)
 # 檔名右邊緊接著否定（「shop.json 先不要動」「settings.json 別碰」）
-_MENTION_RIGHT_NEG_RE = re.compile(r"^\s*(?:先|就|也|都|請)?\s*(?:不要|不可以|不能|不用|不必|不准|別|勿|暫不|先不要|先別)")
+_MENTION_RIGHT_NEG_RE = lazy_re(r"^\s*(?:先|就|也|都|請)?\s*(?:不要|不可以|不能|不用|不必|不准|別|勿|暫不|先不要|先別)")
 RULES["DATA_FILE_DECL_VOIDED_BY_LATER_MENTION"] = ("資料檔宣告帳（state data_file_declared）記下宣告當時主 transcript 寫到的位置 at；之後有使用者原話"
                                                    "提到這個檔（否定的也算）→ 舊帳作廢（拿掉、留帳 declared_voided），transcript 裡的宣告也只認"
                                                    "最後一則提到它的原話之後寫的（子代理檔從頭找；這次指令自己的 `#` 註解照認）。後話肯定點名"
@@ -2862,7 +2932,7 @@ RULES.update({
 })
 ORIGIN_QUOTE_MIN = 6
 _SENTENCE_END = "。！？!?；;\n"
-_SENTENCE_TAIL_RE = re.compile(r"[。！？!?；;\s]+$")
+_SENTENCE_TAIL_RE = lazy_re(r"[。！？!?；;\s]+$")
 
 
 def _said_with(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
@@ -2921,7 +2991,7 @@ def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
     return "inferred", Verdict(rule, True, why, (f"節點文字：{t[:120]}", f"quote：{q[:120] or '（沒給）'}")), None
 
 
-_ROOT_SPLIT_RE = re.compile("[。；，、]|" + chr(0x2014) * 2)   # 第二支是雙破折號（本檔不准出現破折號字面）
+_ROOT_SPLIT_RE = lazy_re("[。；，、]|" + chr(0x2014) * 2)   # 第二支是雙破折號（本檔不准出現破折號字面）
 
 
 def root_unquoted_sentences(text: Any, user_said: Sequence[Any]) -> List[str]:
@@ -2953,13 +3023,13 @@ RULES.update({
 })
 
 OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip", "doc": "說明變了"}
-_OLD_TEST_FILE_RE = re.compile(r"\.[a-z]{1,5}$")
-_OLD_TEST_DECL_RE = re.compile(r"改舊測試\s*[｜|]\s*(.+)")
-_OLD_TEST_ASCII_SEP_RE = re.compile(r":(?![A-Za-z0-9_\\/:])")
-_OLD_TEST_NAME_SPLIT_RE = re.compile(r"\s*[、，,；;]\s*")
+_OLD_TEST_FILE_RE = lazy_re(r"\.[a-z]{1,5}$")
+_OLD_TEST_DECL_RE = lazy_re(r"改舊測試\s*[｜|]\s*(.+)")
+_OLD_TEST_ASCII_SEP_RE = lazy_re(r":(?![A-Za-z0-9_\\/:])")
+_OLD_TEST_NAME_SPLIT_RE = lazy_re(r"\s*[、，,；;]\s*")
 # 一行多支各帶理由（「名1：理由1、名2：理由2」）的每一段開頭：行首或分隔符後面接 ASCII 名字（可帶 檔:、::、/），再接冒號
-_OLD_TEST_NAME_LIKE_RE = re.compile(r"test|::|[._/\\]", re.IGNORECASE)   # 像測試名（不是 ERP、TECH 這種標籤字）
-_OLD_TEST_SEG_RE = re.compile(r"(?:^|[、，,；;])\s*`?(?P<name>[A-Za-z0-9_./\\-]+(?:::?[A-Za-z0-9_.]+)*)`?\s*(?:：|:(?![A-Za-z0-9_\\/:]))")
+_OLD_TEST_NAME_LIKE_RE = lazy_re(r"test|::|[._/\\]", re.IGNORECASE)   # 像測試名（不是 ERP、TECH 這種標籤字）
+_OLD_TEST_SEG_RE = lazy_re(r"(?:^|[、，,；;])\s*`?(?P<name>[A-Za-z0-9_./\\-]+(?:::?[A-Za-z0-9_.]+)*)`?\s*(?:：|:(?![A-Za-z0-9_\\/:]))")
 
 
 def parse_old_test_declarations(text: str) -> List[Dict[str, Any]]:
@@ -3068,9 +3138,9 @@ RULES.update({
                                            "有就留帳 declared（channel=interpreter），沒有留帳 undeclared、記 state judge_card_undeclared，"
                                            "下一個呼叫（任何工具）擋到補宣告為止（補了留帳 declared_late）。其他指令不記雜湊。",
 })
-_JUDGE_CARD_DECL_RE = re.compile(r"改判準卡\s*[｜|]\s*(.+)")
-_JUDGE_CARD_ASCII_SEP_RE = re.compile(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
-_JUDGE_CARD_NAME_SPLIT_RE = re.compile(r"\s*[、，,]\s*")
+_JUDGE_CARD_DECL_RE = lazy_re(r"改判準卡\s*[｜|]\s*(.+)")
+_JUDGE_CARD_ASCII_SEP_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
+_JUDGE_CARD_NAME_SPLIT_RE = lazy_re(r"\s*[、，,]\s*")
 
 
 def parse_judge_card_decls(text: str) -> List[Dict[str, Any]]:
@@ -3169,11 +3239,11 @@ RULES.update({
 })
 
 MIN_MAP_KEYS = ("讀了", "上游", "下游")
-MIN_MAP_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；值可空（空的要點名擋）
+MIN_MAP_RE = lazy_re(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；值可空（空的要點名擋）
     r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?地圖[ \t]*[｜|][ \t]*(讀了|上游|下游)[ \t]*[:：][ \t]*(.*?)[ \t]*[\"']?,?$", re.MULTILINE
 )
-_MAP_NOTE_RE = re.compile(r"[（(][^（）()\n]*[）)]")        # 檔名後的括號附註（入口、主程式）不當檔名
-_MAP_SPLIT_RE = re.compile(r"[、，,；;\s]+")
+_MAP_NOTE_RE = lazy_re(r"[（(][^（）()\n]*[）)]")        # 檔名後的括號附註（入口、主程式）不當檔名
+_MAP_SPLIT_RE = lazy_re(r"[、，,；;\s]+")
 _MAP_TOKEN_TRIM = "`'\"「」『』"
 _MAP_UNREAD_SHOWN = 5
 
@@ -3249,9 +3319,9 @@ JUDGMENT_COLUMNS = ("對象（函式、類別或入口）", "這一層／這個�
                     "理由", "怎麼改直／合理，因為…")
 JUDGMENT_EXAMPLE = "拐彎判斷｜{name}｜<不會／會：第 N 個彎在…／這一層沒有作用，因為…>｜<理由>｜<怎麼改直／合理，因為…>"
 # 行首（可帶清單記號）才算回答：Markdown 引言（> …）與圍欄程式碼裡引用上一版的行不算（codex 審 G11 BLOCK 2）
-_JUDGMENT_RE = re.compile(r"^\s*(?:[-*•]\s*|\d+[.)]\s*)?拐彎判斷\s*[｜|]\s*(.+)")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
-_COL_SPLIT_RE = re.compile(r"\s*[｜|]\s*")
+_JUDGMENT_RE = lazy_re(r"^\s*(?:[-*•]\s*|\d+[.)]\s*)?拐彎判斷\s*[｜|]\s*(.+)")
+_FENCE_RE = lazy_re(r"^\s*(```|~~~)")
+_COL_SPLIT_RE = lazy_re(r"\s*[｜|]\s*")
 _NAME_BOUNDARY = ("::", ".", "/", "\\", "→")
 
 
@@ -3338,8 +3408,8 @@ SO_RAN: Tuple[str, ...] = ("done", "failed", "blocked")
 SO_QUESTION_ROOT_MISSING = "question 沒含需求目標樹的樹根那句"
 SO_NO_GOAL_NOTE = "材料沒有需求目標樹"      # pack 的 note 開頭（start 回傳的 `note:` 行）；session 有樹時這種 run 不算跑過
 # 宣告行與四行只認行首（可帶空白、清單符號、粗體）、不在程式碼區塊裡：散文裡引用的範例、引用區塊（>）不算
-_SO_DECLINE_RE = re.compile(r"^[\s*\-]*不需第二意見(?:\*\*)?\s*[｜|]\s*(.*)$")
-_SO_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+_SO_DECLINE_RE = lazy_re(r"^[\s*\-]*不需第二意見(?:\*\*)?\s*[｜|]\s*(.*)$")
+_SO_FENCE_RE = lazy_re(r"^\s*(?:```|~~~)")
 _SO_EMPTY_REASONS = frozenset({"不需要", "不需", "不用", "沒必要", "不必", "無", "略", "沒有", "na", "none"})
 
 
@@ -3367,7 +3437,8 @@ def second_opinion_hint() -> str:
     """擋訊息末尾的入口（G6 樣式：擋的同時告訴 AI 入口在哪）。"""
     return (f"跑完在收尾最後一則寫「{SO_SECTION}」段，四行：" + "／".join(f"{lb}：…" for lb in SO_LABELS)
             + "（failed／blocked 也要寫明狀態與自己的結論）；之後被別的閘擋下而補了一則，交付的最後一則也要保留這四行，"
-            "不要寫「見上一則」。\n"
+            "不要寫「見上一則」。只審一輪（SECOND_OPINION_ONE_ROUND）：只收 Codex 標【弄壞資料】或【繞閘】的意見並當場修，"
+            "其餘記進追蹤項（收尾檢核 (k)），不為它改程式、也不送第二輪。\n"
             "要跑：second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result；"
             "或宣告 `不需第二意見｜<理由>`")
 
@@ -3514,10 +3585,10 @@ EQUIVALENCE_MUTATIONS = ("order", "side_effect", "boundary")
 EQUIVALENCE_SENTINEL = "PRESERVE_CHECK"
 EQUIVALENCE_ENTRY = "跑三類 `preserve-check.py --mutation order|side_effect|boundary`（尾行 PRESERVE_CHECK PASS），或宣告 `等值證法｜不適用｜<理由>`"
 HOT_PATH_ENTRY = "答 `熱路徑｜是｜<哪裡>`＋量測收據（`<NAME> DONE k=v`）或 `量測｜不做｜<理由>`；或 `熱路徑｜否｜<為什麼>`"
-_MUTATION_ARG_RE = re.compile(r"--mutation(?:\s+|=)[\"']?(order|side_effect|boundary)\b")
-_EQ_NA_RE = re.compile(r"等值證法\s*[｜|]\s*不適用\s*(?:[｜|]\s*(.*))?$")
-_HOT_RE = re.compile(r"熱路徑\s*[｜|]\s*(是|否)\s*(?:[｜|]\s*(.*))?$")
-_MEASURE_SKIP_RE = re.compile(r"量測\s*[｜|]\s*不做\s*(?:[｜|]\s*(.*))?$")
+_MUTATION_ARG_RE = lazy_re(r"--mutation(?:\s+|=)[\"']?(order|side_effect|boundary)\b")
+_EQ_NA_RE = lazy_re(r"等值證法\s*[｜|]\s*不適用\s*(?:[｜|]\s*(.*))?$")
+_HOT_RE = lazy_re(r"熱路徑\s*[｜|]\s*(是|否)\s*(?:[｜|]\s*(.*))?$")
+_MEASURE_SKIP_RE = lazy_re(r"量測\s*[｜|]\s*不做\s*(?:[｜|]\s*(.*))?$")
 
 
 def proved_mutations(receipts: Iterable[Tuple[Any, ...]]) -> List[str]:

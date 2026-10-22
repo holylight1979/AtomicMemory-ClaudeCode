@@ -104,7 +104,7 @@ def test_set_creates_tree_seeds_user_said_and_numbers(env):
 
 def test_validate_rejects_like_js(env):
     assert "goal" in _op("set")["rejected"][0]
-    assert any("why" in x for x in _op("update", items=[{"id": "T1", "status": "done"}])["rejected"])
+    assert not any("why" in x for x in _op("update", items=[{"id": "T1", "status": "done"}])["rejected"])  # why 選填（WHY_OPTIONAL）
     assert any("終點" in x for x in _op("reconcile", items=[{"id": "T1", "status": "doing"}])["rejected"])
     r = _op("reconcile", items=[{"id": "T1", "status": "done", "evidence": [{"kind": "proof", "ref": "x", "level": "sure"}]}])
     assert any("kind" in x for x in r["rejected"]) and any("level" in x for x in r["rejected"])
@@ -119,32 +119,31 @@ def test_add_update_reconcile_need_a_tree(env):
         assert not r["ok"] and "還沒有目標樹" in r["rejected"][0], action
 
 
-def test_set_rewrite_needs_why_new_task_opens_new_tree(env):
+def test_set_rewrite_without_why_new_task_opens_new_tree(env):
+    """WHY_OPTIONAL（派工 003 第 13 刀）：改寫樹根不附 why 也收；有附的照樣記進 history。"""
     _op("set", goal="A")
     r = _op("set", goal="B")
-    assert not r["ok"] and "why" in r["rejected"][0]
-    r = _op("set", goal="B", why="使用者改口要 B")
-    assert r["ok"] and _tree()["nodes"]["T1"]["text"] == "B" and _tree()["goal_rev"] == 2
+    assert r["ok"] and _tree()["nodes"]["T1"]["text"] == "B" and _tree()["goal_rev"] == 2, r
+    r = _op("set", goal="B2", why="使用者改口要 B2")
+    assert r["ok"] and _tree()["nodes"]["T1"]["history"][-1]["why"] == "使用者改口要 B2"
     r = _op("set", goal="C", new_task=True, why="使用者換成另一件事 C", turn=3)
     assert r["tree"] == "T2" and _doc()["active"] == "T2" and _doc()["trees"]["T1"]["status"] == "doing"
 
 
-def test_t13_new_task_while_doing_needs_why_like_rewrite(env):
-    """B5 q3：被糾正時 AI 挑了成本低的「開新樹」、舊樹沒收。目前的樹還在進行中時，開新樹與改寫樹根一樣要附 why；
-    收下時列出舊樹沒結束的節點，叫它把被取代的標放棄。對照完（已對照／結束）的樹之後換題照舊不用 why。"""
+def test_t13_new_task_while_doing_without_why_lists_old_nodes(env):
+    """B5 q3 改成提醒（WHY_OPTIONAL）：目前的樹還在進行中時換題不附 why 也收；收下時列出舊樹沒結束的節點，
+    並提醒「是糾正或補充就改回舊樹」。update 不附 why 也收。"""
     _op("set", goal="A")
     _op("add", items=[{"text": "a1"}, {"text": "a2"}])
     r = _op("set", goal="B", new_task=True, turn=2)
-    assert not r["ok"] and "why" in r["rejected"][0] and "糾正" in r["rejected"][0], r["rejected"]
-    assert _doc()["active"] == "T1" and set(_doc()["trees"]) == {"T1"}       # 拒收不開樹
-    r = _op("set", goal="B", new_task=True, why="使用者改做另一件事 B", turn=2)
     assert r["ok"] and r["tree"] == "T2" and "舊樹 T1 還有 3 個沒結束的節點" in r["text"] and "T1.1" in r["text"], r["text"]
-    assert _doc()["trees"]["T2"]["nodes"]["T2"]["history"][0]["why"] == "使用者改做另一件事 B"
-    assert not _op("set", goal="B2", turn=2)["ok"]                         # 改寫樹根照舊要 why
-    assert "也要附 why" in _op("set", goal="B2", turn=2)["rejected"][0]      # 拒收訊息不再把開新樹當成免 why 的捷徑
+    assert "改回 T1" in r["text"], r["text"]
+    assert _doc()["trees"]["T1"]["status"] == "doing"                        # 舊樹不自動收
+    u = _op("update", turn=2, items=[{"id": "T1.1", "status": "dropped"}])
+    assert u["ok"] and _doc()["trees"]["T1"]["nodes"]["T1.1"]["status"] == "dropped", u
     _op("reconcile", turn=3, items=[{"id": "T2", "status": "none", "followup": "下次做"}])
     assert _tree()["status"] == "reconciled"
-    r = _op("set", goal="C", new_task=True, turn=4)                         # 對照完再換題：不用 why
+    r = _op("set", goal="C", new_task=True, turn=4)                         # 對照完再換題：不列舊樹
     assert r["ok"] and r["tree"] == "T3" and "舊樹" not in r["text"]
 
 

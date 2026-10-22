@@ -95,10 +95,18 @@ def _spawn_worker(job_path: Path) -> None:
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log, close_fds=True, **kw)
 
 
+def _reply_in_scope(mine: Dict[str, Any], config: Dict[str, Any], code_reply: bool, user_turn: Optional[int]) -> bool:
+    """規則 TEXT_SCORE_CODE_REPLY_ONLY：回覆預設只評交付「改了哪些程式」的那一則（呼叫端判 code_reply＝本使用者回合改了程式、
+    這則宣告完成），一個使用者回合最多一則；其他回覆要評由使用者叫（skill text-score）。text_score.reply_scope="all" 退回每則夠長的都評。"""
+    if _cfg(config).get("reply_scope", "code_change") == "all":
+        return True
+    return code_reply and (user_turn is None or mine.get("code_reply_turn") != user_turn)
+
+
 def on_stop(state: Dict[str, Any], session_id: str, reply: str, mods: List[Dict[str, Any]], turn: int,
-            config: Dict[str, Any]) -> bool:
+            config: Dict[str, Any], *, code_reply: bool = False, user_turn: Optional[int] = None) -> bool:
     """Stop 呼叫：記照抄、更新「上一則」指標、送評。回 True＝state 改了（呼叫端要寫回）。
-    指標（mine["reply"]）每次 Stop 都指向本回合最後一則夠長的回覆（短的碎句不評、不換指標）；送評去重只看 sent，
+    回覆評不評照 _reply_in_scope；指標（mine["reply"]）指向最近一則送評的回覆（短的碎句不評、不換指標）；送評去重只看 sent，
     背景起成功才記進 sent，起不來下次 Stop 會再送。"""
     changed = False
     try:
@@ -111,13 +119,14 @@ def on_stop(state: Dict[str, Any], session_id: str, reply: str, mods: List[Dict[
         keys: List[str] = []
         floor = int(_cfg(config).get("min_chars") or 0)
         sha = text_sha(reply) if reply else ""
-        if sha and len(re.sub(r"\s", "", reply)) >= floor:
+        if sha and len(re.sub(r"\s", "", reply)) >= floor and _reply_in_scope(mine, config, code_reply, user_turn):
             if (mine.get("reply") or {}).get("sha") != sha or mine["reply"].get("turn") != turn:
                 mine["reply"] = {"sha": sha, "turn": turn}
                 changed = True
             if f"reply:{sha}" not in sent:
                 tasks.append({"kind": "final_reply", "text": reply})
                 keys.append(f"reply:{sha}")
+                mine["code_reply_turn"] = user_turn      # 這個使用者回合評過了（_reply_in_scope 一回合一則）
         for path in _turn_docs(mods, session_id, turn):
             key = f"doc:{path}:{Path(path).stat().st_mtime_ns}"
             if key not in sent:

@@ -77,15 +77,15 @@ pattern: pipeline
 
 ### Step 3 收信對帳
 - 交付信存 `from-track-<軌>/`，對五項：改檔集＝自述、退避禁字（之後再／另外處理／延後）、CR、live `git status` 沒被動、對 main `merge-tree` 無衝突。〔D〕
-- Codex 意見兩面判：一般寫法會踩的重大問題 → 退；快且具體有效 → 也收；兩者都不是 → 維護軌。文件類不跑 codex。〔#27、Z3〕
+- Codex 只審一輪：只收它標【弄壞資料】或【繞閘】的意見（當場修）；其餘記成追蹤項，不退件、不送第二輪。文件類不跑 codex。〔#27、#67b⑫〕
 
 ### Step 4 合併（裁定 #37 減量版）
-- 合併回合先 `need_goal set`「把 X 合進 main 並推」；背景跑的尺不入帳，跑完前景 grep log 取收據。〔U〕
+- 合併回合先 `need_goal set`「把 X 合進 main 並推」；背景跑的尺不入帳，跑完前景 grep log 取收據。合完跑 `python tools/changelog-fold.py --write` 把各軌的 CHANGELOG 片段收進主檔（各軌不碰 _CHANGELOG.md，不再解檔頭衝突）。〔U、#67b⑦〕
 - 快照複跑只對閘本體改動；其他件信工作軌自附的收據與反證。〔#37〕
 - codex 每軌一次，工作軌自跑那次算。〔#37〕
-- 補驗只在候選基底落後 main 或解過衝突時跑；含最新 main 且可快轉的直接推。〔#37、D〕
+- 可快轉（分支已含最新 main）不補驗、直接推；落後 main 才合後補驗一次。兩軌碰同一個大檔：後合的那軌在自己分支合 main、解衝突、跑過目標 verify 再交，可快轉就直接推，總控台不跑第三次。〔#37、#67b③④〕
 - 合 MCP 工具類改動前，先確認還在改碼的分頁已 Reload 或關掉。〔#23〕
-- 不跑全量：全量已從流程拔掉，所有軌合完也不跑（全量改增量待補；補上前，合併只看各軌宣告的驗證範圍與上面的補驗）。〔#37〕
+- 不跑全量：全量已從流程拔掉，所有軌合完也不跑（全量改增量待補；補上前，合併只看各軌宣告的驗證範圍與收據）。〔#37〕
 
 ### Step 5 推送與收尾
 - 推前看 `git log origin/main..main`：待推段有不是自己合的 commit，只推自己的或先問。〔X〕
@@ -107,7 +107,7 @@ pattern: pipeline
 ## 工作軌守則（開工句已帶）
 
 - 第一步 EnterWorktree；之後只用 worktree 絕對路徑，不碰 live；交付用 SendMessage 送全文（[delivery.md](references/delivery.md)）並附 live 未動證明。〔R〕
-- 含 git 字樣的 Bash 指令會被 worktree 守門拒絕：寫成 worktree 內的 Python 啟動器再跑，啟動器檔名也不能含 git。啟動器的建立與刪除都算改程式、會讓之前的收據作廢：收尾順序固定「建啟動器 → 跑目標 verify → commit → 刪啟動器 → 再跑一次 verify → reconcile」。〔Q〕
+- 含 git 字樣的 Bash 指令會被 worktree 守門拒絕：寫成 worktree 根目錄的 Python 啟動器再跑，檔名不能含 git。只跑 git 的一次性啟動器（沒進版控）建、改、刪都不算改程式，不讓之前的收據作廢、不必為它重跑 verify（LAUNCHER_NOT_CODE）；裡面多寫了別的事就照算程式。〔Q〕
 - 接單先核實路徑與跑法；pytest 收 0 案不是綠。〔W〕
 - 只跑目標 verify，不跑全量；commit 在分支上、不推。〔P、X〕
 

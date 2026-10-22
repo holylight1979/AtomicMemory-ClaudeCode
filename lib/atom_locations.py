@@ -15,7 +15,6 @@ JS mirror：tools/workflow-guardian-mcp/server.js:applyFeedbackRouting
 
 from __future__ import annotations
 
-import difflib
 import json
 import re
 import sys
@@ -1132,6 +1131,7 @@ def _snap_segment(seg: str, siblings: Dict[str, str]) -> str:
         if len(low) >= _SEG_PREFIX_MIN and len(cl) >= _SEG_PREFIX_MIN and \
                 (low.startswith(cl) or cl.startswith(low)):
             return canon
+    import difflib   # 惰性：只有段名對不上才比相似度
     best, best_ratio = None, 0.0
     for cl, canon in siblings.items():
         r = difflib.SequenceMatcher(None, low, cl).ratio()

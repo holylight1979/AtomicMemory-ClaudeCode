@@ -203,24 +203,7 @@ def test_locate_new_turn_gets_full_ask_again(hub):
     assert "定位｜根因層" in again and "同樣被擋" not in again
 
 
-def test_judgment_card_full_text_once_per_turn(tmp_path, monkeypatch):
-    """同一個使用者回合問第二次：同一張判準卡只送一行指回，帳照記並標 repeated；換回合照送全文。"""
-    import wg_core
-    import wg_entrypoint as ep
-    card = tmp_path / "卡.md"
-    card.write_text("# 卡\n\n## 知識\n\n- [臨] 根因候選要跨層找，先往上游追資料從哪壞掉。\n", encoding="utf-8")
-    reg = {"entrypoints": [{"id": "E01", "rules": ["LOCATE_X"], "paths": ["pre_tool_use"]}]}
-    pool = [{"name": "卡", "file": card, "triggers": [], "entry": ["E01"]}]
-    logs = []
-    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append(rec))
-    ask = lambda turn: ep.entry_note("擋：LOCATE_X", "pre_tool_use", session_id="s", state={"turn_seq": turn},
-                                     registry=reg, pool=pool)
-    first, second, next_turn = ask(3), ask(3), ask(4)
-    assert "往上游追" in first
-    assert "往上游追" not in second and "已送過全文" in second
-    assert logs[1]["repeated"] == ["卡"] and logs[1]["cards"] == ["卡"]
-    assert "往上游追" in next_turn
+# 判準卡一話題一次（原 CARD_ONCE_PER_TURN）的案例在 verify_cost_cut_003.py 刀8
 
 
 # ─── 刀1：目標樹工具呼叫合併 ───────────────────────────────────────────

@@ -3788,6 +3788,37 @@ def test_009_launcher_gone_is_not_copied_into_a_committed_file_that_is_gone_too(
         assert "_launch.py" not in reason, how
 
 
+_GIT_LAUNCHER = 'import subprocess\nsubprocess.run(["git", "add", "-A"])\nsubprocess.run(["git", "commit", "-qm", "x"])\n'
+
+
+@pytest.mark.parametrize("how", ["kept", "deleted"])
+def test_launcher_not_code_no_case_debt(driven, capsys, chain, monkeypatch, how):
+    """LAUNCHER_NOT_CODE（派工 003 第 1 刀）：worktree 根 Write 一支只跑 git 的一次性啟動器（留著或跑完刪掉），
+    收尾不當改碼：不欠案例、不讓收據作廢（舊碼照算程式 → (d) 欠 _run_once.py → 紅）。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, _, _ = chain
+    launcher = repo / "_run_once.py"
+    launcher.write_text(_GIT_LAUNCHER, encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(launcher)})
+    assert vl.git_launcher(str(launcher)), "前置：寫入時就認成啟動器"
+    if how == "deleted":
+        launcher.unlink()
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "_run_once.py" not in out, out
+
+
+def test_launcher_with_other_code_is_still_code(driven, capsys, chain, monkeypatch):
+    """反例：名義上是啟動器、裡面多寫了別的事（開檔寫）→ 照算程式、照欠案例。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, _, _ = chain
+    launcher = repo / "_run_once.py"
+    launcher.write_text(_GIT_LAUNCHER + 'open("x.txt", "w").write("y")\n', encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(launcher)})
+    assert not vl.git_launcher(str(launcher))
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "_run_once.py" in out, out
+
+
 def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
     """排除區只認相對專案根、錨在根的路徑：拿不到根、檔不在根底下、根所在目錄的名字、根底下別處同名目錄都不排除（照算程式）。"""
     cfg = vl.RECONCILE_DEFAULTS

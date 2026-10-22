@@ -12,16 +12,14 @@ wg_core.py — Workflow Guardian 共用基礎模組（V5）
 
 import fnmatch
 import json
-import math
 import os
 import re
-import shutil
-import socket
 import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK_IMPORT_ON_USE）
 
 # ─── 全域路徑常數 ────────────────────────────────────────────────────────────
 
@@ -1064,9 +1062,23 @@ def read_state_status(session_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "missing"
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f), "ok"
+            text = f.read()
+        state = json.loads(text)
     except (json.JSONDecodeError, OSError):
         return None, "error"
+    _STATE_READ_TEXT[str(path)] = text
+    return state, "ok"
+
+
+# STATE_WRITE_SKIP_UNCHANGED：這個行程讀到的 state 原文（路徑 → 原文）；write_state 寫出來跟它一樣（只差 last_updated）就不重寫，
+# 只在檔快過跨 session 協調的掃描窗口時碰一下 mtime（wg_coordination 用 mtime 挑活著的 session）。
+_STATE_READ_TEXT: Dict[str, str] = {}
+_STATE_TOUCH_AFTER_S = 300.0
+
+
+def _dump_state(state: Dict[str, Any]) -> str:
+    """state 落檔格式：緊湊 JSON（不縮排；state 動輒幾百 KB，縮排多四成大小與序列化時間）。"""
+    return json.dumps(state, ensure_ascii=False, separators=(",", ":"))
 
 
 _STATE_LOCK_RETRIES = 10      # 鎖拿不到／replace 失敗的重試次數
@@ -1108,18 +1120,32 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
     if canonical_id and canonical_id != session_id:
         session_id = canonical_id
 
-    state["last_updated"] = _now_iso()
     path = state_path(session_id)
+    old_stamp, stamp = state.get("last_updated"), _now_iso()
+    state["last_updated"] = stamp
+    text = _dump_state(state)
+    prev = _STATE_READ_TEXT.get(str(path))
+    if prev is not None and old_stamp is not None and path.exists():
+        unstamped = text.replace(f'"last_updated":{json.dumps(stamp)}', f'"last_updated":{json.dumps(old_stamp)}', 1)
+        if unstamped == prev:
+            state["last_updated"] = old_stamp
+            try:
+                if time.time() - path.stat().st_mtime > _STATE_TOUCH_AFTER_S:
+                    os.utime(path)
+            except OSError:
+                pass
+            return
     tmp_path = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     lock_path = path.with_suffix(".lock")
 
     lock_fh = _acquire_state_lock(lock_path)
     try:
         with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+            f.write(text)
         for attempt in range(_STATE_LOCK_RETRIES):
             try:
                 tmp_path.replace(path)
+                _STATE_READ_TEXT[str(path)] = text
                 break
             except OSError as e:
                 if attempt == _STATE_LOCK_RETRIES - 1:
@@ -1458,20 +1484,20 @@ def _atom_debug_error(source: str, exc: Exception) -> None:
 
 # ─── PreToolUse Path / Command Guards (was wg_pretool_guards.py) ─────────────
 
-_PROJECT_MEMORY_PATH_RE = re.compile(
+_PROJECT_MEMORY_PATH_RE = lazy_re(
     r"[/\\]\.claude[/\\]projects[/\\](?!_)[^/\\]+[/\\]memory[/\\]",
     re.IGNORECASE,
 )
-_NESTED_PROJECTS_RE = re.compile(
+_NESTED_PROJECTS_RE = lazy_re(
     r"[/\\]\.claude[/\\]projects[/\\][^/\\]+[/\\]projects[/\\][^/\\]+[/\\]memory[/\\]",
     re.IGNORECASE,
 )
-_DOUBLE_CLAUDE_RE = re.compile(
+_DOUBLE_CLAUDE_RE = lazy_re(
     r"[/\\]\.claude[/\\]\.claude[/\\]memory[/\\]",
     re.IGNORECASE,
 )
-_SVN_COMMIT_RE = re.compile(r"\bsvn\s+(?:ci|commit)\b", re.IGNORECASE)
-_TEST_PATH_RE = re.compile(
+_SVN_COMMIT_RE = lazy_re(r"\bsvn\s+(?:ci|commit)\b", re.IGNORECASE)
+_TEST_PATH_RE = lazy_re(
     r"(?:^|[/\\\s])(?:tests?|__tests__)(?:[/\\\s]|$)"
     r"|[/\\][^/\\\s]*Test\.(?:cs|py|js|ts|tsx|jsx|go|java)\b",
     re.IGNORECASE,
@@ -1628,12 +1654,12 @@ def check_svn_test_block(
 
 _CORE_GUARDED_SUBDIRS = ("skills", "tools", "hooks", "lib", "rules")
 _CORE_GUARDED_ROOT_FILES = ("settings.json", "claude.md", "user.md")  # lower
-_MCP_MUTATE_RE = re.compile(
+_MCP_MUTATE_RE = lazy_re(
     r"\bclaude(?:\.exe|\.cmd)?\s+mcp\s+(add(?:-json|-from-claude-desktop)?|remove)\b",
     re.IGNORECASE,
 )
-_MCP_SCOPE_USER_RE = re.compile(r"(?:-s|--scope)[\s=]+user\b", re.IGNORECASE)
-_MCP_SCOPE_PROJECT_LOCAL_RE = re.compile(
+_MCP_SCOPE_USER_RE = lazy_re(r"(?:-s|--scope)[\s=]+user\b", re.IGNORECASE)
+_MCP_SCOPE_PROJECT_LOCAL_RE = lazy_re(
     r"(?:-s|--scope)[\s=]+(?:project|local)\b", re.IGNORECASE)
 
 
@@ -1724,21 +1750,21 @@ def check_cross_realm_write(
 _ROOT_CORE_SUBDIRS_RE = r"(?:hooks|lib|tools|skills|rules|prompts)"
 _ROOT_SENSITIVE_FILES_RE = r"(?:settings\.json|CLAUDE\.md|IDENTITY[^/\\\s]*\.md|USER[^/\\\s]*\.md|TECH\.md|README\.md|Install[^/\\\s]*\.md)"
 _ROOT_HOME_RE = r"(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$env:USERPROFILE|/[a-zA-Z]/Users/[^/\s\"']+|[a-zA-Z]:[\\/]Users[\\/][^\\/\s\"']+)"
-_ROOT_CD_RE = re.compile(
+_ROOT_CD_RE = lazy_re(
     rf"(?:\bcd\s+|\bgit\s+-C\s+|\bSet-Location\s+|\bpushd\s+)[\"']?{_ROOT_HOME_RE}[\\/]\.claude(?:[\\/]{_ROOT_CORE_SUBDIRS_RE})?[\\/]?[\"']?(?=\s|;|&&|\|\||$)",
     re.IGNORECASE,
 )
 # 核心子目錄後面不必接斜線：`TEMP=~/.claude/hooks;`、`cp a.py ~/.claude/hooks` 也是根層（hooks.bak、hooks-old 不算）
-_ROOT_CORE_PATH_RE = re.compile(
+_ROOT_CORE_PATH_RE = lazy_re(
     rf"{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:{_ROOT_CORE_SUBDIRS_RE}(?![\w.-])|{_ROOT_SENSITIVE_FILES_RE}\b)",
     re.IGNORECASE,
 )
-_ROOT_TOOL_INVOKE_RE = re.compile(
+_ROOT_TOOL_INVOKE_RE = lazy_re(
     rf"\b(?:python3?|pythonw|py)(?:\.exe)?\s+[\"']?{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:tools|hooks|lib|skills)[\\/][^\s\"']*?\.py[\"']?",
     re.IGNORECASE,
 )
 # heredoc 是 `<<EOF`／`<<'EOF'`／`<<-EOF`；`<<<`（here-string）與 grep 樣式裡的 `<<<<<<<` 衝突標記不算
-_BASH_WRITE_OP_RE = re.compile(
+_BASH_WRITE_OP_RE = lazy_re(
     r"(?:<<(?!<)-?\s*[\"']?\w|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b|&\d)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
     r"|\b(?:python3?|pythonw|py)(?:\.exe)?\s+-(?:\s|c\b)|\b(?:cp|mv|rm|rmdir|del|erase|copy|move|ren|rename|truncate|install)\b"
     r"|\bgit\s+(?:-C\s+\S+\s+)?(?:add|commit|push|mv|rm|checkout|reset|stash|rebase|cherry-pick|merge|apply|am)\b"
@@ -1785,13 +1811,13 @@ _PY_NAMES = frozenset({"python", "python3", "py", "pythonw"})
 _PY_VALUE_OPTS = frozenset({"-X", "-W", "--check-hash-based-pycs"})     # 帶值的直譯器選項：值不是腳本
 _NODE_VALUE_OPTS = frozenset({"-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions",
                               "--env-file", "--input-type", "--title"})
-_INLINE_CODE_RE = re.compile(r"\[IO\.File\]::|\bopen\([^)]*['\"][wa]\+?['\"]|fs\.write(?:File|FileSync)\b", re.IGNORECASE)
-_SED_W_RE = re.compile(r"(?:^|[;{\n]\s*|/)w\s+(\S+)")
-_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_INLINE_CODE_RE = lazy_re(r"\[IO\.File\]::|\bopen\([^)]*['\"][wa]\+?['\"]|fs\.write(?:File|FileSync)\b", re.IGNORECASE)
+_SED_W_RE = lazy_re(r"(?:^|[;{\n]\s*|/)w\s+(\S+)")
+_ENV_ASSIGN_RE = lazy_re(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPERS = frozenset({"sudo", "exec", "nohup", "command", "builtin", "time"})
 _WRITE_TARGET_NULLS = frozenset({"/dev/null", "$null", "nul"})
 _WRITE_TARGET_UNKNOWN = "UNKNOWN"
-_HEREDOC_TAG_RE = re.compile(r"^-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_HEREDOC_TAG_RE = lazy_re(r"^-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
 class _Tok:
@@ -2168,7 +2194,7 @@ def _scan_tokens(toks: List[_Tok], cwd: Optional[str], out: _Scan) -> Optional[s
     return _scan_segment(seg, cwd, prev_sep, "", out)
 
 
-_VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+_VAR_REF_RE = lazy_re(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 _VAR_SURE_BEFORE = frozenset({"", ";", "\n", "&"})          # 前面接這些：這段一定會跑
 _VAR_STAYS_AFTER = frozenset({"", ";", "\n", "&&", "||"})    # 後面接這些：在目前的 shell 跑（不是管線、不是背景）
 
@@ -2205,7 +2231,7 @@ def _expand_vars(t: _Tok, out: _Scan) -> _Tok:
     return t if text == t.text else _Tok("W", text, t.quoted, t.subst)
 
 
-_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_IDENT_RE = lazy_re(r"[A-Za-z_][A-Za-z0-9_]*")
 # shell 自己會在指令中途改、或已有專屬規則的變數：不照 hook 行程的環境值代換（cd 改 PWD／OLDPWD；$HOME 由 _write_target_abs 管）
 _SHELL_OWN_VARS = frozenset({"PWD", "OLDPWD", "_", "REPLY", "OPTARG", "OPTIND", "HOME"})
 
@@ -2293,7 +2319,7 @@ def _inner_has_signal(text: str, cwd: Optional[str]) -> bool:
 
 _GIT_VALUE_OPTS = frozenset({"-c", "--namespace", "--exec-path", "--config-env"})   # 帶一個值的 git 全域選項（-C 另算）
 _GIT_TREE_OPTS = ("--git-dir", "--work-tree")                                        # 改了 repo／工作樹位置：路徑判不出來
-_PATHSPEC_MAGIC_RE = re.compile(r"[*?\[]|^:")
+_PATHSPEC_MAGIC_RE = lazy_re(r"[*?\[]|^:")
 
 
 def _git_checkout_paths(rest: List[str], base: Optional[str]) -> Optional[List[str]]:
@@ -2597,8 +2623,8 @@ def write_sources_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Opt
     return dict(out.sources) if out is not None and out.unknown is None else {}
 
 
-_GIT_WORD_RE = re.compile(r"\bgit(?:\.exe)?\b", re.IGNORECASE)
-_GIT_REPO_ENV_RE = re.compile(r"\bGIT_(?:DIR|WORK_TREE|COMMON_DIR)\b")
+_GIT_WORD_RE = lazy_re(r"\bgit(?:\.exe)?\b", re.IGNORECASE)
+_GIT_REPO_ENV_RE = lazy_re(r"\bGIT_(?:DIR|WORK_TREE|COMMON_DIR)\b")
 
 
 def _in_root_realm(path: str) -> bool:
@@ -2756,6 +2782,7 @@ def _check_mcp_servers() -> List[str]:
         with open(mcp_path, "r", encoding="utf-8") as f:
             mcp_cfg = json.loads(f.read())
         servers = mcp_cfg.get("mcpServers", {})
+        import shutil
         for name, srv in servers.items():
             cmd = srv.get("command", "")
             args = srv.get("args", [])

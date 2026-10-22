@@ -9,7 +9,6 @@ wg_atoms.py — Atom 索引解析 / Trigger / Intent / Vector search / Activatio
 """
 
 import json
-import logging
 import math
 import os
 import re
@@ -2224,17 +2223,18 @@ def _update_topic_tracker(
 # ─── Vector Observation Log + Semantic Search (was wg_intent) ───────────────
 
 _VECTOR_OBS_LOG = CLAUDE_DIR / "Logs" / "vector-observation.log"
-_vector_obs_logger: Optional[logging.Logger] = None
+_vector_obs_logger: Optional[Any] = None    # logging.Logger；logging 約 30 ms，用到才載（HOOK_IMPORT_ON_USE）
 _vector_obs_logger_failed: bool = False
 
 
-def _get_vector_obs_logger() -> Optional[logging.Logger]:
+def _get_vector_obs_logger() -> Optional[Any]:
     global _vector_obs_logger, _vector_obs_logger_failed
     if _vector_obs_logger is not None:
         return _vector_obs_logger
     if _vector_obs_logger_failed:
         return None
     try:
+        import logging
         import logging.handlers
 
         _VECTOR_OBS_LOG.parent.mkdir(parents=True, exist_ok=True)
