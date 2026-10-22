@@ -11512,6 +11512,31 @@
       "depends": [
         "path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py"
       ]
+    },
+    {
+      "name": "要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判",
+      "path": "memory/CC與原子記憶契約/要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判.md",
+      "triggers": [
+        "MCP 閘",
+        "atom_write 擋",
+        "PreToolUse matcher",
+        "MCP 沒有 session",
+        "宣告行",
+        "mcp__workflow-guardian__"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "改wg-release-rules後verify-release-rules要整支跑-有模組級檢查每條規則名要有案例與禁連續破折號-k篩選會漏",
+      "path": "_AIDocs/_atoms/MemDev/改wg-release-rules後verify-release-rules要整支跑-有模組級檢查每條規則名要有案例與禁連續破折號-k篩選會漏.md",
+      "triggers": [
+        "wg_release_rules",
+        "verify_release_rules",
+        "禁破折號",
+        "test_044",
+        "-k 篩選"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 24 |
+| Python | 25 |
 | C#／.NET | 21 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
@@ -18,6 +18,7 @@
 | `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
 | `memory/CC與原子記憶契約/claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事.md` | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |
+| `memory/CC與原子記憶契約/要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判.md` | 要靠transcript宣告判的閘擋MCP工具-MCP行程沒有session與transcript-掛settings的PreToolUse-matcher由python-hook判 |
 | `memory/Failures/驗證與實證/feedback-completion-gates.md` | feedback-completion-gates |
 | `memory/OS-Windows/bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準.md` | bash同一命令多份heredoc時stdin是最後那份-fd前綴的不是stdin-小於號也換stdin-靜態判python減號只在單一heredoc且無其他輸入重導向時準 |
 | `memory/OS-Windows/pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding.md` | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變None-子行程要帶PYTHONUTF8並errors-replace-python-I會忽略PYTHONIOENCODING |

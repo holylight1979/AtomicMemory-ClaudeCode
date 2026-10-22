@@ -17,6 +17,7 @@
 - [臨] 一行跑完多項的寫法：`python -m pytest -q a.py b.py && <量尺>`——量尺放最後、前面只用 && 串跑程式的指令、量尺後面不接過濾，測試檔各項與量尺項都認（lib/self_receipt._after_programs）。`pytest … | tail -4 && 量尺` 不算：中間的 tail 讓 pytest 那一項判成「夾了不算執行程式的指令」；多段量尺（A && B）後面接 `| tail` 也不算（管線蓋掉最後一段 exit）。
 - [臨] 部位表的文件層與記憶層量尺不再接 echo：sync_doc_counts.py／skill-index.py／sync-memory-index.py 的 --check 自己印 DOC_COUNTS_CHECK／SKILL_INDEX_CHECK／MEMORY_INDEX_CHECK PASS|FAIL。
 - [臨] 改了獨立的測試案例檔（不是 conftest、同資料夾沒人 import 它）只作廢點名它的那一項（SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；改產品程式碼或被 import 的案例檔（probe_release_rules、verify_stop_reconcile）照舊作廢範圍裡每一項。
+- [臨] 指令開頭加 `timeout 300 python -m pytest …` 也不算收據：timeout 是包裝執行器、不在執行程式白名單，哨兵分不出是誰印的（閘小修 006 實遇：十幾張 PASS 全被判「對得上改檔 0 筆」）。要限時就用工具呼叫的 timeout 參數，指令本身直接 `python -X utf8 -m pytest -q <檔>`。
 
 ## 行動
 
