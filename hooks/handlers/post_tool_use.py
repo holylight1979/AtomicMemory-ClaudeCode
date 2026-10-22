@@ -498,25 +498,24 @@ def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any
 
 TEST_CMD_CAP = 2000
 _CONTINUATION_RE = re.compile(r"[\\`]\r?\n")
+_CD_LINE_RE = re.compile(r"^\s*(?:cd|pushd|set-location|sl)(?:\s|$)", re.IGNORECASE)
 
 
 def _test_cmd(command: str) -> str:
-    """規則 RED_SCOPE_FROM_FULL_COMMAND 的事實：整條指令裡跑測試的那幾行（續行先併成一行；is_test_command 認得的行，一行都認不出
-    就整條），整行整行收到 TEST_CMD_CAP 字為止、不截在行中間。紅測的 cmd 只存前 200 字，截在 `2>&1` 中間會剩一個 `2`、被當成
-    要跑的目錄，什麼重跑都涵蓋不到；截掉的後段測試也看不見。"""
+    """規則 RED_SCOPE_FROM_FULL_COMMAND 的事實：整條指令裡跑測試的那幾行，連同換目錄的行（cd／pushd／Set-Location：測試在哪裡跑
+    靠它們），續行先併成一行；一行測試都認不出就整條。超過 TEST_CMD_CAP 字回空字串（不存，判法退回 cmd）：丟掉後段的行會把範圍
+    縮小、讓沒涵蓋的綠清掉紅。紅測的 cmd 只存前 200 字，截在 `2>&1` 中間會剩一個 `2`、被當成要跑的目錄，什麼重跑都涵蓋不到。"""
     lines = [ln for ln in _CONTINUATION_RE.sub(" ", str(command or "")).splitlines() if ln.strip()]
-    lines = [ln for ln in lines if is_test_command(ln)] or lines
-    out: List[str] = []
-    for ln in lines:
-        if sum(len(x) + 1 for x in out) + len(ln) > TEST_CMD_CAP:
-            break
-        out.append(ln)
-    return "\n".join(out)
+    kept = [ln for ln in lines if is_test_command(ln) or _CD_LINE_RE.match(ln)]
+    text = "\n".join(kept if any(is_test_command(ln) for ln in kept) else lines)
+    return text if len(text) <= TEST_CMD_CAP else ""
 
 
-def _red_cmd(f: Dict[str, Any]) -> str:
-    """RED_SCOPE_FROM_FULL_COMMAND：判這筆紅的範圍用整條指令的測試行（test_cmd）；舊條目沒有就退回截過的 cmd。"""
-    return str(f.get("test_cmd") or f.get("cmd") or "")
+def _red_pair(f: Dict[str, Any], command: str) -> Tuple[str, str]:
+    """RED_SCOPE_FROM_FULL_COMMAND：比對這筆紅與這次指令時兩邊用同一種寫法——紅記了 test_cmd，這次的指令也取測試行；
+    沒記（舊條目、超過上限）兩邊都用原字（紅那邊是截過的 cmd），照改前的判法。"""
+    red = str(f.get("test_cmd") or "")
+    return (red, _test_cmd(command) or command) if red else (str(f.get("cmd") or ""), command)
 
 
 def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
@@ -525,7 +524,7 @@ def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: st
     同一組的改檔紀錄這次用掉就清空（新紅測條目從零記起），別組的紅與它們的改檔不動。"""
     same = [f for f in state.get("failing_tests") or []
             if isinstance(f, dict) and f.get("session_id") == sid and not f.get("deliberate")
-            and same_test_run(_red_cmd(f), command, f.get("cwd") or None, cwd or None)]
+            and same_test_run(*_red_pair(f, command), f.get("cwd") or None, cwd or None)]
     edited: Dict[str, int] = {}
     for f in same:
         for path, n in (f.pop("edits_since_run", None) or {}).items():
@@ -555,7 +554,8 @@ def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str)
         if not isinstance(f, dict) or f.get("session_id") != sid:
             keep.append(f)
             continue
-        v, ran = green_ran_cases_verdict(_red_cmd(f), f.get("summary", ""), command, f.get("cleared_units") or ())
+        red_cmd, new_cmd = _red_pair(f, command)
+        v, ran = green_ran_cases_verdict(red_cmd, f.get("summary", ""), new_cmd, f.get("cleared_units") or ())
         if not v.owed:
             continue
         if ran:
@@ -613,7 +613,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             "agent_id": str(input_data.get("agent_id") or ""),
             "exit_code": exit_code,
             "cmd": command[:200],
-            "test_cmd": _test_cmd(command),     # 規則 RED_SCOPE_FROM_FULL_COMMAND：判範圍用整條指令的測試行，不用截過的 cmd
+            "test_cmd": _test_cmd(command),     # 規則 RED_SCOPE_FROM_FULL_COMMAND：判範圍用整條指令的測試行；空＝超過上限、退回 cmd
             # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
             # 記錄時就用全文判定一次
             "pytest": "pytest" in command.lower(),
@@ -635,8 +635,9 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     def _clears(f: Dict[str, Any]) -> bool:
         if f.get("session_id") != sid:          # 只清自己的；沒蓋 sid 的舊條目不是自己的
             return False
+        red_cmd, green_cmd = _red_pair(f, command)
         matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
-                   or green_clears_red(_red_cmd(f), command, f.get("cwd") or None,
+                   or green_clears_red(red_cmd, green_cmd, f.get("cwd") or None,
                                        str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
                    or (is_pytest_success and (f.get("pytest") or "pytest" in f.get("cmd", "").lower()
                                               or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
@@ -644,12 +645,12 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             return False
         # 規則 GREEN_CLEARS_ONLY_CASES_IT_RAN（篩選另見 GREEN_NARROWED_KEEPS_UNCOVERED_RED）：綠只清它跑到的紅案；只跑到一部分 →
         # 跑到的那幾支記進 cleared_units、那筆紅與它的改檔紀錄照留（放行要對那支紅測自己的最後一次執行，不是最後一次任何 pytest）
-        keep, ran = green_ran_cases_verdict(_red_cmd(f), f.get("summary", ""), command, f.get("cleared_units") or ())
+        keep, ran = green_ran_cases_verdict(red_cmd, f.get("summary", ""), green_cmd, f.get("cleared_units") or ())
         if keep.owed:
             print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
             append_guard_log("testfail_scope", {"event": "green_kept_red", "rule": keep.rule, "why": keep.why,
                                                 "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)),
-                                                "red_cmd": _red_cmd(f)[:300], "green_cmd": command[:300]})
+                                                "red_cmd": red_cmd[:300], "green_cmd": green_cmd[:300]})
             if ran:
                 f["cleared_units"] = list(dict.fromkeys([*(f.get("cleared_units") or []), *ran]))
                 shrunk.append(f)

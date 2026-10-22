@@ -1040,6 +1040,21 @@ def test_batch_links_to_deepest_step_of_previous_reply(box):
     assert r.halt and _alarm_rules(t) == {"CHAIN_ALARM_DEPTH"}
 
 
+def test_stop_after_batch_sees_only_reactions(box):
+    """CHAIN_SAME_BATCH × CHAIN_NO_FIX_NO_EDGE（codex 一輪 BLOCK 3，行為照規則、不退回舊判法）：工具閘 A 擋、同一則回覆裡放行一個改檔
+    → AI 下一則就收尾、收尾閘 B 擋：收尾不帶 batch，但一定在那一批之後；那個改檔是 A 擋之前就決定好的，不算 A 之後的修補 → 不接邊。
+    改前把它當成 A 之後的動作，接成 A→B。"""
+    t, proj = Turn(box), box / "proj"
+    t.reply("m0")
+    t.reply("m1")
+    t.gate("A", hook="PreToolUse")
+    t.write(proj / "same.py", "a = 1\n")
+    t.reply("m2")
+    assert t.gate("B") == cs.PASS
+    s = t.chain().steps[1]
+    assert (s.link.rule, s.depth) == ("CHAIN_NO_FIX_NO_EDGE", 0) and "batch" not in s.row
+
+
 def test_batch_unknown_falls_back_and_is_recorded(box):
     """CHAIN_SAME_BATCH 判不出就照舊接邊並留帳：transcript 的 assistant 沒有 message.id → 閘擋 → 改檔 → 同一道閘再擋，照舊警報；
     每筆工具上的觸發與動作記 batch 空值與 batch_why。"""
@@ -1055,7 +1070,8 @@ def test_batch_unknown_falls_back_and_is_recorded(box):
 
 def test_batch_key_from_transcript(box):
     """CHAIN_SAME_BATCH 的批次鍵（chain_store._batch）：這次 tool_use 已落盤 → 從那行往前找 message.id 不同的那則（同一則後面的行、
-    api-request 這類別種紀錄裡的同一個 id 都不算）；還沒落盤 → 最後一則 assistant；子代理、讀不到、還沒有 assistant 判不出；收尾不帶。"""
+    api-request 這類別種紀錄裡的同一個 id、子代理寫進來的 isSidechain 行都不算）；還沒落盤 → 最後一則 assistant；子代理、讀不到、
+    還沒有 assistant 判不出；收尾不帶。"""
     tp = box / "tp.jsonl"
     _jl(tp, {"type": "user", "message": {"content": "做"}})
     d = {"tool_use_id": "tu_b", "transcript_path": str(tp)}
@@ -1066,6 +1082,7 @@ def test_batch_key_from_transcript(box):
         _jl(tp, {"type": "assistant", "message": {"id": "m1", "content": [{"type": "tool_use", "id": tid, "name": "Write"}]}})
         _jl(tp, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid}]}})
     _jl(tp, {"type": "api-request-blob", "content": [{"type": "tool_use", "id": "tu_next"}]})
+    _jl(tp, {"type": "assistant", "isSidechain": True, "message": {"id": "sub1", "content": [{"type": "text", "text": "子代理"}]}})
     assert cs._batch(d) == ("m0", "") and cs._batch({**d, "tool_use_id": "tu_c"}) == ("m0", "")
     assert cs._batch({**d, "tool_use_id": "tu_next"}) == ("m1", "")
     assert cs._batch({**d, "agent_id": "ag"})[0] == "" and cs._batch({**d, "transcript_path": str(box / "nope")})[0] == ""

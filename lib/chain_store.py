@@ -170,14 +170,14 @@ _BATCH_TAIL_BYTES = 2_000_000
 
 
 def _assistant(line: str) -> Optional[Dict[str, Any]]:
-    """transcript 一行若是 assistant 紀錄，回它的 message（dict）；不是回 None。"""
+    """transcript 一行若是主 session 的 assistant 紀錄，回它的 message（dict）；不是回 None（子代理寫進來的 isSidechain 行不算）。"""
     if '"assistant"' not in line:
         return None
     try:
         o = json.loads(line)
     except ValueError:
         return None
-    if not isinstance(o, dict) or o.get("type") != "assistant":
+    if not isinstance(o, dict) or o.get("type") != "assistant" or o.get("isSidechain"):
         return None
     return o["message"] if isinstance(o.get("message"), dict) else {}
 

@@ -39,8 +39,9 @@ RULES: Dict[str, str] = {
     "CHAIN_SAME_BATCH": "同一則 assistant 回覆裡平行送出的工具呼叫算同一步：送出前就決定好，中間 AI 沒看到任何擋訊息。"
                         "這一批之間的閘觸發不接成邊、不讓同閘次數加 1；呼叫之間放過的改動也不算 AI 看過擋訊息之後的動作，"
                         "下一則回覆裡的呼叫才算。這一批的觸發接在前一批裡深度最深的那一步。"
-                        "同一則＝兩筆帳的 batch 相同（chain_store 從 transcript 取這次呼叫所在那則回覆之前最後一則 assistant 的 message.id）；"
-                        "有一邊是空的（收尾、子代理、transcript 讀不到或找不到）就照舊接邊，帳上記 batch_why。",
+                        "同一則＝兩筆帳的 batch 相同（chain_store 從 transcript 取這次呼叫所在那則回覆之前最後一則 assistant 的 message.id）。"
+                        "這一筆記不出是哪一則（子代理、transcript 讀不到或找不到，帳上記 batch_why）就不跳過任何一步；前面記得出批次的步驟照用"
+                        "（跟那一步同一批送出的動作不算反應）。收尾不是工具呼叫、一定在所有工具呼叫那幾則之後，不帶 batch。",
     "CHAIN_NO_FIX_NO_EDGE": "前一步是工具上的閘、之後 AI 沒有任何動作就收尾 → 收尾的閘不接上前一步。",
     "CHAIN_EDGE_PREVIEWED": "閘B已列在閘A擋下時的「後面還會擋」預覽裡（A 擋的時候 B 就欠著）→ 不是 A 之後的動作造成的，不接成邊。",
     "CHAIN_EDGE_FILES_DISJOINT": "閘B說了它看哪些檔、A 之後 AI 的每個動作都說得出改了哪些檔、兩邊沒有交集 → 不接成邊；"

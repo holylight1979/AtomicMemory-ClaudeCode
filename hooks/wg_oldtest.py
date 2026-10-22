@@ -38,7 +38,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 GUARD = "old_test"
-TAG = "[Guardian:OldTestDeclare] "   # 擋訊息開頭的閘名標記：連鎖斷路器照它認閘（wg_chain CHAIN_GATE_NAME），三條擋路都帶
+# 擋訊息第一行的閘名標記：連鎖斷路器照它認閘（wg_chain CHAIN_GATE_NAME），三條擋路都帶；自成一行，下一行的 ✗ 條目照舊在行首
+TAG = "[Guardian:OldTestDeclare] 動到既有測試、沒先宣告：\n"
 # 共用的案例檔判式（wg_verify_ledger.is_case_file）沒涵蓋的 C#／Java 測試檔名慣例
 EXTRA_CASE_NAMES = ("*tests.cs", "*test.cs", "*tests.java", "*test.java")
 _PY_EXTS = (".py",)

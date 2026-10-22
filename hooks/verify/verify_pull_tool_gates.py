@@ -142,9 +142,10 @@ def test_old_test_gate_releases_after_two_denies_in_same_turn(world):
     assert OT_HIT not in reasons[2] and "[Guardian:OldTestDeclare]" not in reasons[2]
     assert [e["event"] for e in _events(world, "old_test") if e["event"] in ("denied", "cap_released")] == \
         ["denied", "denied", "cap_released"]
-    hint = reasons[0].split("\n", 1)[1]
+    tag, hit, hint = reasons[0].split("\n", 2)
     assert hint.startswith("宣告行要比這次工具呼叫早一則訊息送出") and "`#` 註解" in hint.split("。", 1)[0]
-    assert wg_chain.gate_name(reasons[0], "PreToolUse") == "OldTestDeclare"   # 連鎖斷路器認得出閘名（CHAIN_GATE_NAME）
+    assert wg_chain.gate_name(tag, "PreToolUse") == "OldTestDeclare"   # 連鎖斷路器認得出閘名（CHAIN_GATE_NAME），標記自成一行
+    assert hit.startswith(OT_HIT)                                       # ✗ 條目照舊在行首（parse_hits 這類行首解析認得到）
 
 
 def test_old_test_late_debt_releases_after_two_denies(world):

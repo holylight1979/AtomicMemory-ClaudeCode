@@ -106,14 +106,49 @@ def test_block_message_lists_full_scope_for_unknown_red():
     assert "重跑這個範圍" not in st.testfail_message([named])
 
 
+def test_over_cap_keeps_old_scope_and_narrow_green_does_not_clear():
+    """反例（codex 一輪 BLOCK 1）：測試行加起來超過上限 → 不存 test_cmd（不丟後段縮小範圍），判法退回 cmd；之後只跑第一行綠
+    → 第二行那組沒重跑，紅照留；擋訊息給通用出路（原指令完整照跑或跑整套）。"""
+    state = {"failing_tests": [], "session": {"id": SID}, "turn_seq": 2}
+    long_line = "python -m pytest " + " ".join(f"tests/test_m{k:03d}.py" for k in range(150)) + " -q"
+    _track(state, f"python -m pytest tests/test_a.py -q\n{long_line}", "1 failed, 300 passed in 1.0s")
+    (red,) = state["failing_tests"]
+    assert red["test_cmd"] == ""
+    _track(state, "python -m pytest tests/test_a.py -q", "3 passed in 0.1s")
+    assert len(state["failing_tests"]) == 1
+    assert "原指令完整照跑、別截斷輸出，或不點名檔跑整套" in st.testfail_message(state["failing_tests"])
+
+
+def test_same_filtered_multiline_rerun_clears_both_sides_same_form():
+    """反例（codex 一輪 BLOCK 2）：紅與這次的指令用同一種寫法比——多行指令裡 `pytest tests -k slow` 紅、輸出沒列案例，原樣重跑綠
+    → 照「同一個篩選指令重跑」清掉（改前清得掉的，不能因為紅那邊只取測試行而清不掉）。"""
+    state = {"failing_tests": [], "session": {"id": SID}, "turn_seq": 2}
+    cmd = "echo setup\npython -m pytest tests -k slow"
+    _track(state, cmd, "1 failed, 2 passed, 5 deselected in 0.1s")
+    assert len(state["failing_tests"]) == 1
+    _track(state, cmd, "3 passed, 5 deselected in 0.1s")
+    assert state["failing_tests"] == []
+    assert ptu._red_pair({"cmd": cmd[:200]}, cmd) == (cmd, cmd)                       # 舊條目兩邊都用原字
+    assert ptu._red_pair({"test_cmd": "python -m pytest tests -k slow"}, cmd) == ("python -m pytest tests -k slow",) * 2
+
+
+def test_rerun_scope_keeps_cd_line_and_is_not_cut():
+    """codex 一輪 BLOCK 4：獨立一行的 cd 是測試在哪裡跑的前提，要一起列出；範圍整段列出、不截在中間。"""
+    state = {"failing_tests": [], "session": {"id": SID}, "turn_seq": 2}
+    long_tests = " ".join(f"tests/test_n{k:02d}.py" for k in range(40))
+    _track(state, f"cd services/billing\necho go\npython -m pytest {long_tests} -q 2>&1 | tail -1", "1 failed, 40 passed")
+    line = next(ln for ln in st.testfail_message(state["failing_tests"]).splitlines() if "重跑這個範圍" in ln)
+    assert "cd services/billing ； python -m pytest" in line and long_tests in line and "echo go" not in line
+
+
 @pytest.mark.parametrize("cmd, want", [
     ("python -m pytest tests -q", "python -m pytest tests -q"),                               # 一行：照原樣
-    ("cd proj\npython -m pytest \\\n  tests/test_a.py -q\necho done", "python -m pytest    tests/test_a.py -q"),   # 續行併、非測試行不收
-    ("echo hi\nmake build", "echo hi\nmake build"),                                            # 一行都認不出：整條
-    ("pytest a.py\n" + "pytest " + "b" * ptu.TEST_CMD_CAP, "pytest a.py"),                     # 收到上限為止、不截在行中間
+    ("cd proj\npython -m pytest \\\n  tests/test_a.py -q\necho done", "cd proj\npython -m pytest    tests/test_a.py -q"),  # 續行併、cd 留、別的不收
+    ("echo hi\nmake build", "echo hi\nmake build"),                                            # 一行測試都認不出：整條
+    ("pytest a.py\n" + "pytest " + "b" * ptu.TEST_CMD_CAP, ""),                                # 超過上限：不存（不丟後段縮範圍）
 ])
 def test_test_cmd_takes_whole_test_lines(cmd, want):
-    """RED_SCOPE_FROM_FULL_COMMAND 的事實：test_cmd＝整條指令裡跑測試的那幾行，續行先併、整行整行收。"""
+    """RED_SCOPE_FROM_FULL_COMMAND 的事實：test_cmd＝整條指令裡跑測試與換目錄的那幾行，續行先併；超過上限回空。"""
     assert ptu._test_cmd(cmd) == want
 
 
