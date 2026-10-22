@@ -15,7 +15,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (
     CLAUDE_DIR,
@@ -1661,13 +1661,16 @@ def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, p
     return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
 
 
-def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str) -> None:
+def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = (),
+          target: str = "") -> None:
     """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。
-    v6 先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。"""
+    v6 先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。
+    watched／target＝這次擋的對象（擋的檔／定位閘的部位，規則 CHAIN_SAME_GATE_PER_OBJECT）：每個部位、每個檔各要各的證據的閘才報，
+    說不出擋什麼的閘（版控口令、病形閘這類看整批提交的）不報，斷路器照舊只看閘名。"""
     try:
         chain = _chain_ctx(input_data, config, need_ledger=False)
         r = chain_store.gate_fired(chain[0], chain[1], wg_chain.gate_name(reason, "PreToolUse"), reason, input_data,
-                                   config) if chain else chain_store.PASS
+                                   config, watched=watched, target=target) if chain else chain_store.PASS
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的擋
         sys.stderr.write(f"[chain-breaker] 工具前記觸發出錯，照原本的閘行為：{type(e).__name__}: {e}\n")
         chain, r = None, chain_store.PASS
@@ -1706,15 +1709,52 @@ def _chain_before_write(input_data: Dict[str, Any], config: Dict[str, Any], chai
         chain = chain or _chain_ctx(input_data, config)
         if chain is None:
             return
-        from wg_core import write_paths_from_tool
         cwd = input_data.get("cwd", "") or ""
-        paths = [p for p in write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, cwd)
-                 if not p.startswith("UNKNOWN:")]
+        paths = _known_write_paths(tool_name, input_data.get("tool_input") or {}, cwd)
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"[chain-breaker] 改檔前存快照的事實算不出（這次不存）：{type(e).__name__}: {e}\n")
         return
     if paths:
         chain_store.before_write(chain[0], chain[1], paths, input_data, config, cwd=cwd)
+
+
+def _known_write_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
+    """這次工具呼叫算得出的寫入目標（wg_core.write_paths_from_tool；算不出的 UNKNOWN 不列）。改檔前存快照、記閘擋的檔共用。"""
+    from wg_core import write_paths_from_tool
+    return [p for p in write_paths_from_tool(tool_name, tool_input or {}, cwd) if not p.startswith("UNKNOWN:")]
+
+
+def _blocked_files(tool_name: str, tool_input: Dict[str, Any], cwd: str, owed: Sequence[str] = ()) -> List[str]:
+    """CHAIN_SAME_GATE_PER_OBJECT：每個檔各要一行宣告的閘（動資料檔、改舊測試）擋下時報給斷路器的檔＝這次要寫的檔，加上 owed
+    （改舊測試：上一個 Bash 欠著宣告的那幾支，這次任何工具都可能因它們被擋）。多報不少報：寧可多算同一個對象、不可漏算。
+    算不出（例外）回空清單＝照舊只看閘名，stderr 說一聲。"""
+    try:
+        return list(dict.fromkeys([*(str(p) for p in owed if p), *_known_write_paths(tool_name, tool_input, cwd)]))
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[chain-breaker] 算不出這次擋的檔（照閘名計數）：{type(e).__name__}: {e}\n")
+        return []
+
+
+def _hub_part(file_path: str, config: Dict[str, Any]) -> str:
+    """CHAIN_SAME_GATE_PER_OBJECT：定位閘因「這個部位欠證據」擋這個檔時報給斷路器的部位鍵——跟定位閘累積證據用的是同一把鍵
+    （wg_overview 的 state 鍵：專案根|部位表那一列的部位名；表外的檔＝專案根|(unmapped)頂層目錄）。
+    不是欠這個部位證據的擋回空字串＝照閘名計數：設定有錯（整層設定壞了，換哪個部位都一樣擋）、唯讀路徑（禁區）；判定順序跟 on_edit 相同。
+    判不出（部位表讀不到、查表例外）也回空字串，不當成表外的檔，stderr 說一聲。"""
+    try:
+        from wg_overview import _cfg, _is_readonly, _key, _lookup, _unmapped_key, _unmapped_root_of
+        if _cfg(config)["_errors"]:
+            return ""
+        hit = _lookup(file_path)
+        root = hit[0] if hit else _unmapped_root_of(file_path)
+        if root is None:
+            return ""
+        cfg = _cfg(config, root)
+        if cfg["_errors"] or _is_readonly(file_path, root, cfg):
+            return ""
+        return _key(*hit) if hit else _unmapped_key(root, file_path)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[chain-breaker] 判不出 {file_path} 的部位（照閘名計數）：{type(e).__name__}: {e}\n")
+        return ""
 
 
 def _chain_halt(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
@@ -1981,7 +2021,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
     deny_reason = v6 and wg_data_file.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
-        _deny(input_data, config, deny_reason)
+        _deny(input_data, config, deny_reason, watched=_blocked_files(tool_name, tool_input, _cwd))
         return
 
     # ── JudgeCardDeclare（改判準卡留帳）── 綁了 Entry 的卡有沒有「改判準卡｜哪張：理由」都放行、記帳（wg_judge_card）
@@ -2003,6 +2043,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # ── OldTestDeclare（改舊測試要先宣告）──
     # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，不擋（stderr＋留帳 error，規則 GATE_SELF_ERROR）
+    # 閘會就地改 state（補了宣告的欠帳拿掉）：擋下時報給斷路器的檔要含呼叫前還欠著的那幾支
+    _ot_pending = _co_state.get(wg_oldtest.PENDING_KEY) if isinstance(_co_state, dict) else None
+    _ot_owed = [str(e.get("file") or "") for e in _ot_pending if isinstance(e, dict)] if isinstance(_ot_pending, list) else []
     try:
         deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd, _co_state)
     except Exception as e:
@@ -2011,7 +2054,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         sys.stderr.write(f"[Guardian:OldTestDeclare] 改舊測試閘內部錯誤，判不了有沒有動到既有測試（這次不擋，已留帳）：{err}\n")
         append_guard_log("old_test", {"event": "error", "rule": "GATE_SELF_ERROR", "session": _co_sid, "tool": tool_name, "error": err})
     if deny_reason:
-        _deny(input_data, config, deny_reason)
+        _deny(input_data, config, deny_reason, watched=_blocked_files(tool_name, tool_input, _cwd, _ot_owed))
         return
     _hook_lap("舊測試閘")
 
@@ -2088,7 +2131,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
     hub_warn = None if v6 else _pre_v6_hub_warn(input_data, config, tool_name, tool_input, _co_sid, _co_state)
     if v6 and tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
-        hub_deny = None
+        hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；目標樹、state、環境的擋不報
         try:
             from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,
                                  write_state as _ws)
@@ -2121,7 +2164,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                     if _w:
                         _hub_warns.append(_w)
                     if _d:
-                        hub_deny = _d
+                        hub_deny, hub_file = _d, _hub_fp
                         break
                 if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
                     _ws(_co_sid, _hub_state)
@@ -2129,6 +2172,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                     _cid = (_hub_state.get("session") or {}).get("id") or _co_sid
                     _disk, _dst = read_state_status(_cid)
                     if _dst != "ok" or (_disk or {}).get("overview_hub") != _hub_state.get("overview_hub"):
+                        hub_file = ""
                         hub_deny = (f"[Guardian:OverviewHub] state 無法持久化（{_dst}；workflow/state-{_cid[:8]}….json）："
                                     f"注入與定位紀錄寫不進 state 檔，閘無法累積證據，一律擋。修好 workflow/ 目錄的寫入再改。")
                         from wg_overview import _log as _hub_log
@@ -2136,6 +2180,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
             # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝不知道該不該擋 → 一律擋，不 fail-open；traceback 進 stderr 與 hub log
+            hub_file = ""
             hub_deny = (f"[Guardian:OverviewHub] 閘環境異常，無法判定，一律擋：{type(e).__name__}: {e}。"
                         f"修好環境（state 檔／hook 依賴）再改；先用 Read 查原因。")
             try:
@@ -2145,7 +2190,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             except Exception:
                 pass
         if hub_deny:
-            _deny(input_data, config, hub_deny)
+            part = _hub_part(hub_file, config) if hub_file else ""   # 說不出部位就連檔也不報：同部位換個檔不能算成別的對象
+            _deny(input_data, config, hub_deny, watched=[hub_file] if part else (), target=part)
             return
 
     # 放行：連鎖段開著就先存要改的檔的快照（連鎖斷路器選「還原」時用）

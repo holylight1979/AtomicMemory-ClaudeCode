@@ -2,7 +2,7 @@
 工具後 handlers/post_tool_use.py、SessionEnd 清快照）。
 
 做什麼：走真的 handler 入口模擬一個使用者回合——收尾閘擋（知識收割、收割對帳的判定換成可控的開關）、工具前閘擋（動資料檔閘的判定換成
-開關）、AI 改檔（工具前放行才寫、工具後記動作）——驗：深度 2 與同一道閘第 2 次會中止、中止後其餘閘只記錄、工具先停手只准讀與問、
+開關）、AI 改檔（工具前放行才寫、工具後記動作）——驗：同一道閘擋同一個對象第 2 次會中止（工具前閘報擋的部位與檔）、中止後其餘閘只記錄、工具先停手只准讀與問、
 收尾送三選項、headless 不問人不還原、選還原只還原連鎖段、選繼續歸零再問、選放行同時放行既有閘（紅測閘記成使用者放行）、
 子代理收尾第 2 次改送中止通知、失敗的重跑也記成動作、只改註解記 comment_only；
 反例：沒有連鎖（擋一次、修一次、過）時，每一步的輸出跟關掉斷路器一模一樣。
@@ -150,9 +150,6 @@ def hk(tmp_path, monkeypatch):
     for mod in (wg_core, ptu, post):
         monkeypatch.setattr(mod, "output_json", out_json)
         monkeypatch.setattr(mod, "output_nothing", out_nothing)
-    # 帳與快照放這一案自己的暫存目錄：chain_store 在 pytest 底下的預設位置按案例名分、跨次執行不清，第二次跑會讀到上一次的帳
-    monkeypatch.setattr(cs, "_ledger_dir", lambda: tmp_path / "Logs")
-    monkeypatch.setattr(cs, "_snap_root", lambda: tmp_path / "workflow" / "chain-snap")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")         # 互動入口；headless 的案自己改
     monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
     made = []
@@ -190,7 +187,8 @@ def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
     assert _blocked(out) and out["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
     for opt in (wc.OPT_RESTORE, wc.OPT_CONTINUE, wc.OPT_RELEASE):
         assert f"「{opt}」" in out["reason"]
-    assert "總共連鎖 2 次、深度 2" in out["reason"] and "DataFileAsk" in out["reason"] and "notes.txt" in out["reason"]
+    # 動資料檔閘報了它擋的 other.txt，A 之後 AI 只改了 notes.txt → A→B 不接（CHAIN_EDGE_FILES_DISJOINT），深度 1
+    assert "總共連鎖 2 次、深度 1" in out["reason"] and "DataFileAsk" in out["reason"] and "notes.txt" in out["reason"]
     halt = s.write(y, "o = 9\n")
     assert _denied(halt) and _deny_text(halt).startswith("[Guardian:ChainBreaker] 連鎖中止中")
     assert y.read_text(encoding="utf-8") == "o = 1\n"
@@ -220,7 +218,8 @@ def test_same_tool_gate_twice_aborts(hk):
     s.gates["DataFileAsk"] = True
     second = s.write(f, "a\n")
     assert _denied(second) and _deny_text(second).startswith("[Guardian:ChainBreaker] 連鎖中止")
-    assert "DataFileAsk 這一段第 2 次觸發" in _deny_text(second) and not f.exists()
+    assert "DataFileAsk（擋 " in _deny_text(second) and "/data.txt）這一段第 2 次觸發" in _deny_text(second)   # 同一個檔
+    assert not f.exists()
     out = s.stop()
     assert _blocked(out) and "AskUserQuestion" in out["reason"]
 
@@ -354,8 +353,6 @@ def test_muted_gate_self_error_still_blocks_once_after_continue(hk, monkeypatch)
 
 def test_subagent_stop_second_block_is_notice(monkeypatch, tmp_path):
     """子代理收尾：同一道寫碼查核第 2 次擋改送中止通知（不叫它問），第 3 次只記錄放行。"""
-    monkeypatch.setattr(cs, "_ledger_dir", lambda: tmp_path / "Logs")      # 帳放這一案自己的暫存目錄（同 hk）
-    monkeypatch.setattr(cs, "_snap_root", lambda: tmp_path / "workflow" / "chain-snap")
     state ={"turn_seq": 4, "turn_prompts_seq": 4, "agent_modified_files": {"ag": [{"path": "c:/p/a.py", "session_id": "s-sub"}]}}
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
@@ -469,6 +466,118 @@ def test_no_chain_outputs_identical_to_breaker_off(hk):
     assert json.dumps(got_on, ensure_ascii=False, sort_keys=True) == json.dumps(got_off, ensure_ascii=False, sort_keys=True)
     assert not {"alarm", "notice", "halted"} & {r.get("type") for r in cs.read_rows(on.sid)}
     assert not cs.ledger_path(off.sid).exists()
+
+
+# ─── 同一道閘照擋的對象計數：工具前閘把擋的對象報給斷路器 ─────────────────────
+
+MAP = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+       "| `orders\\` | 訂單結帳 | `訂單導讀` | 有 |\n| `tests\\` | 測試 | `測試導讀` | 有 |\n")
+
+
+def _hub_switch(s: Session, monkeypatch) -> set:
+    """定位閘的判定換成開關：回的集合裡的檔照定位閘的口氣擋；部位照專案裡真的部位表查（pre_tool_use._hub_part）。
+    寫碼類檔要目標樹那道（需求目標）換成不擋，只看定位閘。"""
+    import wg_need_goal
+    import wg_overview
+    (s.proj / ".claude").mkdir(exist_ok=True)
+    (s.proj / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8")
+    blocked: set = set()
+
+    def on_edit(state, sid, fp, *a, **k):
+        if wc.canon_path(fp) not in blocked:
+            return None, None, False
+        msg = f"[Guardian:OverviewHub] 改 {fp} 前的證據不足，一律擋"
+        return msg, msg, False
+    monkeypatch.setattr(wg_overview, "on_edit", on_edit)
+    monkeypatch.setattr(wg_need_goal, "edit_gate", lambda *a, **k: None)
+    return blocked
+
+
+def test_overview_hub_reports_part_and_counts_per_part(hk, monkeypatch):
+    """接線（CHAIN_SAME_GATE_PER_OBJECT）：定位閘擋【訂單結帳】的 pricing.py → AI 改別的檔 → 擋【測試】的 test_receipt.py
+    → 照定位閘原本的擋訊息擋、不中止（帳上兩筆各帶部位鍵與擋的檔）；AI 再改檔 → 擋【訂單結帳】的 checkout.py → 同一個部位第 2 次
+    → 改送中止停手，警報句寫出部位。改前第二筆就中止。"""
+    s = hk()
+    blocked = _hub_switch(s, monkeypatch)
+    pricing, checkout = s.proj / "orders" / "pricing.py", s.proj / "orders" / "checkout.py"
+    receipt = s.proj / "tests" / "test_receipt.py"
+    blocked.add(wc.canon_path(pricing))
+    assert _deny_text(s.write(pricing, "p = 1\n")).startswith("[Guardian:OverviewHub]")
+    assert not _denied(s.write(s.proj / "README.md", "r\n"))
+    blocked.add(wc.canon_path(receipt))
+    assert _deny_text(s.write(receipt, "def test_r():\n    pass\n")).startswith("[Guardian:OverviewHub]")
+    rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
+    assert [r["target"].rsplit("|", 1)[-1] for r in rows] == ["訂單結帳", "測試"] and [r["same"] for r in rows] == [1, 1]
+    assert [[wc.canon_path(p) for p in r["watched"]] for r in rows] == [[wc.canon_path(pricing)], [wc.canon_path(receipt)]]
+    assert not _denied(s.write(s.proj / "NOTES.md", "n\n"))
+    blocked.add(wc.canon_path(checkout))
+    third = _deny_text(s.write(checkout, "c = 1\n"))
+    assert third.startswith("[Guardian:ChainBreaker] 連鎖中止") and "OverviewHub（擋 訂單結帳）這一段第 2 次觸發" in third
+
+
+def test_hub_part_only_for_part_evidence(hk, monkeypatch, capsys):
+    """CHAIN_SAME_GATE_PER_OBJECT 的部位鍵（pre_tool_use._hub_part，跟定位閘累積證據的鍵相同）：表上的檔回「專案根|部位」，
+    同部位不同檔同一把鍵；不是欠這個部位證據的擋回空（照閘名）——定位閘設定有錯（整層壞了，換部位也一樣擋）、唯讀路徑；
+    部位表讀不到也回空、stderr 說一聲，不當成表外的檔。說不出部位時，擋下那筆連檔也不報（同部位換個檔不能算成別的對象）。"""
+    import wg_overview
+    s = hk()
+    blocked = _hub_switch(s, monkeypatch)
+    a, b = str(s.proj / "orders" / "a.py"), str(s.proj / "orders" / "b.py")
+    assert ptu._hub_part(a, s.cfg).endswith("|訂單結帳") and ptu._hub_part(a, s.cfg) == ptu._hub_part(b, s.cfg)
+    assert ptu._hub_part(str(s.proj / "tests" / "t.py"), s.cfg).endswith("|測試")
+    broken = copy.deepcopy(s.cfg)
+    broken.setdefault("overview_hub", {})["enabled"] = "yes"
+    assert ptu._hub_part(a, broken) == ""
+    ro = copy.deepcopy(s.cfg)
+    ro.setdefault("overview_hub", {})["readonly_paths"] = ["orders/gen.py"]
+    assert ptu._hub_part(str(s.proj / "orders" / "gen.py"), ro) == "" and ptu._hub_part(a, ro).endswith("|訂單結帳")
+    assert "判不出" not in capsys.readouterr().err                # 上面兩個回空是判定的結果，不是出錯
+
+    def unreadable(*_a, **_k):
+        raise wg_overview.MapReadError("部位表讀不到")
+    monkeypatch.setattr(wg_overview, "_lookup", unreadable)
+    assert ptu._hub_part(a, s.cfg) == "" and "判不出" in capsys.readouterr().err
+    blocked.add(wc.canon_path(a))
+    assert _deny_text(s.write(Path(a), "a = 1\n")).startswith("[Guardian:OverviewHub]")
+    row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
+    assert row["gate"] == "OverviewHub" and row["target"] == "" and row["watched"] == []
+
+
+def test_data_file_gate_reports_blocked_file(hk):
+    """接線：動資料檔閘擋 a.json → AI 改別的檔 → 擋 b.json → 照原擋訊息擋、不中止，帳上各帶擋的檔
+    （同一個檔再擋照算第 2 次見 test_same_tool_gate_twice_aborts）。"""
+    s = hk()
+    a, b = s.proj / "a.json", s.proj / "b.json"
+    s.gates["DataFileAsk"] = True
+    assert _deny_text(s.write(a, "{}\n")).startswith("[Guardian:DataFileAsk]")
+    s.gates["DataFileAsk"] = False
+    assert not _denied(s.write(s.proj / "other.txt", "o\n"))
+    s.gates["DataFileAsk"] = True
+    assert _deny_text(s.write(b, "{}\n")).startswith("[Guardian:DataFileAsk]")
+    rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
+    assert [[wc.canon_path(p) for p in r["watched"]] for r in rows] == [[wc.canon_path(a)], [wc.canon_path(b)]]
+    assert [r["same"] for r in rows] == [1, 1] and not rows[-1]["record_only"]
+
+
+def test_old_test_gate_reports_owed_and_written_files(hk, monkeypatch):
+    """接線：改舊測試閘擋下時報的檔＝這次要寫的檔＋呼叫前還欠宣告的那幾支（上一個 Bash 動了既有測試沒宣告，這次任何工具都可能因它們被擋）。
+    說不出擋什麼的閘（版控口令）不報檔、照閘名。"""
+    import wg_oldtest
+    s = hk()
+    owed, x = s.proj / "tests" / "test_old.py", s.proj / "x.py"
+    state = wg_core.read_state(s.sid)
+    state[wg_oldtest.PENDING_KEY] = [{"file": str(owed), "key": "test_a", "kind": "assert", "tool": "Bash"}]
+    wg_core.write_state(s.sid, state)
+    monkeypatch.setattr(wg_oldtest, "gate", lambda *a, **k: "[Guardian:OldTestDeclare] 動到既有測試、沒先宣告：\n✗ (ot) …")
+    assert _deny_text(s.write(x, "x = 1\n")).startswith("[Guardian:OldTestDeclare]")
+    row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
+    assert row["gate"] == "OldTestDeclare" and row["target"] == ""
+    assert {wc.canon_path(p) for p in row["watched"]} == {wc.canon_path(owed), wc.canon_path(x)}
+    monkeypatch.setattr(wg_oldtest, "gate", lambda *a, **k: None)
+    monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: "[Guardian:CommitOrder] 本回合沒有版控口令")
+    assert _deny_text(s.pre("Bash", {"command": "git commit -m x"})).startswith("[Guardian:CommitOrder]")
+    row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
+    assert row["gate"] == "CommitOrder" and row["watched"] == [] and row["target"] == ""
 
 
 if __name__ == "__main__":
