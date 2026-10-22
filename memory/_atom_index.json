@@ -11549,6 +11549,30 @@
         "WG_CLAUDE_DIR settings"
       ],
       "scope": "global"
+    },
+    {
+      "name": "解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶",
+      "path": "memory/驗證與實證/解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶.md",
+      "triggers": [
+        "解除綁定",
+        "解綁 Entry",
+        "範疇自動搬移",
+        "已自動歸 local",
+        "realm_move",
+        "驗收資料根",
+        "建環境",
+        "卡集比對 刪掉",
+        "_sweep_realm_auto_migrate",
+        "ENTRY_BOUND_STAYS_CORE"
+      ],
+      "scope": "global",
+      "related": [
+        "驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit",
+        "無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀"
+      ],
+      "depends": [
+        "path:C:/Users/holylight/.claude/hooks/wg_atoms.py"
+      ]
     }
   ]
 }
