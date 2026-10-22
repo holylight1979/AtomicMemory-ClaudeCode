@@ -988,6 +988,8 @@ _CARRY_ON_REBUILD = (
     "overview_hub", "turn_intent", "depends_hints", "candidates_sent",
     # 一 session 一次的旗標也要照搬，否則重建後 idle 一行、權威地圖、未結追蹤項提示會重送
     "idle_scan_sent", "authority_map_injected", "tracking_advisory_sent",
+    # 收尾同步提醒的額度與底部一般擋擋過的項目（一 session 一次／同一筆不重擋），不搬的話重建後同一個 session 又提醒一次
+    "sync_reminder_count", "sync_block_shown",
 )
 
 

@@ -130,6 +130,14 @@ def handle_user_prompt_submit(
         output_nothing()
         return
 
+    # 規則 PROMPT_REOPENS_DONE：收尾或 SessionEnd 設的 done 只說上一回合收得乾淨；新的一則話開工 → 改回 working，
+    # 收尾的同步提醒與底部一般提醒才看得到這一回合的改動。SessionEnd 一起留的 ended_at 也拿掉（續接中的 session 不算已結束，
+    # 面板清理不會當成結束一分鐘就刪）。syncing（同步進行中）、merged（轉址）不動。當場寫回：後面檢索、注入逾時被砍也不留舊的 done
+    if state.get("phase") == "done":
+        state["phase"] = "working"
+        state.pop("ended_at", None)
+        write_state(session_id, state)
+
     prompt = input_data.get("prompt", "")
     # 只剔最外層是 IDE 的區塊（其餘內容留給檢索與注入）；巢狀與交錯照樣看所有 harness 標籤判斷，
     # 所以權威判斷再對它取 user_typed_text，和直接對原文取的結果相同

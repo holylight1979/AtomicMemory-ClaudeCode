@@ -327,6 +327,33 @@ def _drop_synced(mod_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [m for m in mod_files if (m or {}).get("path") not in synced]
 
 
+def _sync_block_keys(state: Dict[str, Any], unsynced: int, min_files: int) -> List[str]:
+    """底部一般 sync block 照目前狀態欠的全部項目（不管擋過沒）：有待記知識，或未同步改檔 ≥ min_files 時有文件漂移才算欠
+    （只剩改檔數歸同步提醒，規則 SYNC_BLOCK_NOT_REPEATED）。unsynced＝剔除已同步之後的不重複改檔數。
+    待記知識以整段內容的雜湊當鍵（前段相同、後段不同算兩筆）；文件漂移的鍵帶它記下的時間（同一對來源→文件解決後又漂移是新的一筆）。"""
+    kq = [f"kq:{hashlib.sha1(str(q.get('content', '') if isinstance(q, dict) else q).encode('utf-8')).hexdigest()[:16]}"
+          for q in state.get("knowledge_queue") or []]
+    pending = (state.get("docdrift_pending") or {}) if DOCDRIFT_AVAILABLE else {}
+    drift = [f"drift:{k}@{v.get('added_at', '') if isinstance(v, dict) else ''}" for k, v in pending.items()]
+    if not kq and not (drift and unsynced and unsynced >= min_files):
+        return []
+    return kq + drift
+
+
+def _turn_mark(state: Dict[str, Any], uturn: int) -> str:
+    """sync_block_shown 記的「哪一個使用者回合」：開場時間＋回合序號。專案根指紋變了、開場重建 state 時回合序號從頭算、開場時間換新，
+    重建前擋過的不會被當成同一回合再擋。"""
+    return f"{(state.get('session') or {}).get('started_at', '')}#{uturn}"
+
+
+def _sync_block_items(state: Dict[str, Any], unsynced: int, min_files: int, uturn: int) -> List[str]:
+    """底部一般 sync block 這次要擋的項目（空＝不擋；收尾的擋與「還會擋」預覽共用）。規則 SYNC_BLOCK_NEW_ITEMS_ONLY：
+    前面使用者回合擋過的同一筆不再算，同一回合照舊（擋幾次歸共用預算）；擋過的記在 state sync_block_shown（項目→第一次擋的回合記號）。"""
+    shown = state.get("sync_block_shown") or {}
+    mark = _turn_mark(state, uturn)
+    return [k for k in _sync_block_keys(state, unsynced, min_files) if shown.get(k, mark) == mark]
+
+
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
 
 
@@ -1894,17 +1921,23 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                                 claimed=_done(last_text))):
             later.append((("ScanReport",), "收尾檢核：最後呼叫 anti_evasion_report"))
         if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
-                and not aec_covers_sync and not any("ScanReport" in n for n, _ in later)
                 and not state.get("muted") and phase not in ("done", "syncing")):
             sr = config.get("sync_reminder", {}) or {}
             if not _unsynced_memo:       # 一次收尾只問一次 git（連鎖斷路器的閘名預覽與擋訊息的預覽共用）
                 _unsynced_memo.append({(m or {}).get("path") for m in _drop_synced(own_mod_files)} - {None, ""})
             unsynced = _unsynced_memo[0]
-            reminder_left = sr.get("enabled", True) and int(state.get("sync_reminder_count", 0)) < int(sr.get("max_reminders", 1))
-            if (unsynced and reminder_left) or len(unsynced) >= int(config.get("min_files_to_block", 2)) \
-                    or state.get("knowledge_queue"):
+            # 收尾檢核 (g) 已交代、或後面還欠收尾檢核（(g) 會交代版控）只免同步提醒那段（SYNC_COVERED_BY_CLOSING_CHECK）；
+            # 底部一般擋（待記知識、文件漂移）不看收尾檢核，照它自己的判定列
+            reminder_owed = (unsynced and not aec_covers_sync and not any("ScanReport" in n for n, _ in later)
+                             and sr.get("enabled", True)
+                             and int(state.get("sync_reminder_count", 0)) < int(sr.get("max_reminders", 1)))
+            block_items = _sync_block_items(state, len(unsynced), int(config.get("min_files_to_block", 2)),
+                                            _user_turn(state, turn_seq))
+            if reminder_owed:
                 later.append((("SyncReminder", "SyncBlock"),
                               f"同步：{len(unsynced)} 個改過的檔還沒 commit 或還沒 push（照口令規則處理）"))
+            elif block_items:
+                later.append((("SyncBlock",), f"同步：{len(block_items)} 筆待記知識或文件漂移還沒處理（待記的寫成 atom、漂移的文件補上）"))
         if names is not None:
             names.extend(g for n, _ in later for g in n)
         if not later:
@@ -2737,10 +2770,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     docdrift = (state.get("docdrift_pending") or {}) if DOCDRIFT_AVAILABLE else {}
-    if kq_count == 0 and not docdrift:
-        # 只剩「改了 N 個檔」：跟同步提醒、收尾檢核 (g) 是同一件事（規則 SYNC_BLOCK_NOT_REPEATED），只留 stderr 一行
-        print(f"[Workflow Guardian] {len(unique_files)} file(s) modified（同步交代見同步提醒／收尾檢核 (g)，不另擋）",
-              file=sys.stderr)
+    sync_block_owed = _sync_block_items(state, len(unique_files), min_files, _since)
+    if not sync_block_owed:
+        if kq_count == 0 and not docdrift:
+            # 只剩「改了 N 個檔」：跟同步提醒、收尾檢核 (g) 是同一件事（規則 SYNC_BLOCK_NOT_REPEATED），只留 stderr 一行
+            print(f"[Workflow Guardian] {len(unique_files)} file(s) modified（同步交代見同步提醒／收尾檢核 (g)，不另擋）",
+                  file=sys.stderr)
+        else:
+            # 規則 SYNC_BLOCK_NEW_ITEMS_ONLY：這批待記知識／文件漂移前面的使用者回合擋過了，沒有新的一筆
+            print(f"[Workflow Guardian] {kq_count} 筆待記知識、{len(docdrift)} 筆文件漂移前面回合已提醒過，沒有新的，不另擋",
+                  file=sys.stderr)
         state["phase"] = "done"
         write_state(session_id, state)
         _maybe_spawn_user_extract_worker(session_id, state, config)
@@ -2754,6 +2793,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     state["stop_blocked_count"] = stop_count + 1
+    # 只留這次還欠的項目（已解決、已清掉的不留著越記越多）；前面回合擋過的保留第一次擋的回合
+    _prev, _mark = state.get("sync_block_shown") or {}, _turn_mark(state, _since)
+    state["sync_block_shown"] = {k: _prev.get(k, _mark) for k in _sync_block_keys(state, len(unique_files), min_files)}
 
     file_names = ", ".join(f.rsplit("/", 1)[-1] for f in unique_files[:8])
 
