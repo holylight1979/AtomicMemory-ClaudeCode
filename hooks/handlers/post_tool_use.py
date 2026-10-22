@@ -20,6 +20,7 @@ from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
     _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled,
 )
+import chain_store  # 連鎖斷路器的帳（lib/；判定在 hooks/wg_chain.py）：工具後記 AI 動作
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
 from wg_hook_timing import lap as _hook_lap
@@ -940,6 +941,37 @@ def _need_goal_import(ng: Any, state: Dict[str, Any], session_id: str, fp: str, 
     return res["text"], on_goal_changed(state, transcript_path, turn) > 0
 
 
+def _chain_action(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], tool_response: Any) -> None:
+    """連鎖斷路器：這次工具呼叫算 AI 動作（判法 wg_chain.action_of）就記進連鎖帳，連鎖段開著才記（chain_store.action_done）。
+    這個 session 還沒有連鎖帳就跳過（不可能有開著的連鎖段）。只記錄，不影響這次工具；出錯 chain_store 自己浮 stderr。"""
+    sid = str(input_data.get("session_id") or "")
+    if not sid or not chain_store.ledger_path(sid).exists():
+        return
+    import wg_chain
+    from wg_release_rules import user_turn
+    tool = str(input_data.get("tool_name") or "")
+    ti = input_data.get("tool_input") or {}
+    writes: List[str] = []
+    unknown = ran = False
+    try:
+        if tool in ("Bash", "PowerShell"):
+            cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+            for p in (_write_paths_from_tool(tool, ti, cwd) if _write_paths_from_tool else []) or []:
+                if p.startswith("UNKNOWN:"):
+                    unknown = True
+                elif p:
+                    writes.append(p)
+            ran = is_test_command(str(ti.get("command") or "")) or bool(parse_sentinels(response_text(tool_response)))
+        act = wg_chain.action_of(tool, ti, tool_response, writes, unknown, ran)
+    except Exception as e:  # noqa: BLE001  判不出這次算不算動作：這筆不記，工具記帳照舊
+        print(f"[chain-breaker] 判這次工具呼叫是不是 AI 動作時出錯（這筆不記）：{type(e).__name__}: {e}", file=sys.stderr)
+        return
+    if act is not None:
+        kind, files, what = act
+        chain_store.action_done(sid, user_turn(state, int(state.get("turn_seq", 0) or 0)), kind, tool, files, input_data,
+                                config, what=what)
+
+
 def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PostToolUse 最小記帳：只記改了哪些檔、目標不明的寫入、commit 回合與驗證收據，
     給 stop.handle_judge_stop 的寫碼查核閘用；不注入、不跑其他閘、不建完整 state（不重建 atom index，防裁判觸發裁判）。"""
@@ -1018,6 +1050,8 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
         advisories.append(str(note))
     if dirty:
         write_state(session_id, state)
+    if not judge and v6_enabled(config) and exit_code_of(event["tool_response"]) is not None:
+        _chain_action(state, input_data, config, event["tool_response"])     # 指令真的跑了（紅的重跑也是動作）
     if advisories:
         output_json({"hookSpecificOutput": {"hookEventName": "PostToolUseFailure", "additionalContext": "\n".join(advisories)}})
     else:
@@ -1666,6 +1700,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # 函式尾單次寫（dirty-flag 收斂）
     if dirty:
         write_state(session_id, state)
+    if v6:
+        _chain_action(state, input_data, config, input_data.get("tool_response"))
     degraded = _hook_lap("寫 state")
     if v6:                                       # 規則 CODING_TURN_ONLY：寫碼回合才寫計時帳；PreToolUse 看這裡建的標記
         import wg_hook_timing

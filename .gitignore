@@ -50,6 +50,7 @@ workflow/_*.log
 workflow/guardian-crash.log
 workflow/extract-worker.log
 workflow/tool-results/
+workflow/chain-snap/
 workflow/need-goal/
 workflow/reading-path/
 workflow/text-score/

@@ -25,6 +25,14 @@ import wg_chain as wc  # noqa: E402
 import wg_release  # noqa: E402
 
 SID = "sid-chain"
+ON = {"chain_breaker": {"enabled": True}}   # 設定沒寫 enabled＝不開；這裡的案例都要開著
+
+
+def _on(cfg):
+    """cfg 補上 chain_breaker.enabled=True（明寫 False 的照 False）。"""
+    out = {**(cfg or {})}
+    out["chain_breaker"] = {"enabled": True, **(out.get("chain_breaker") or {})}
+    return out
 
 
 def _jl(path: Path, obj) -> None:
@@ -36,7 +44,7 @@ class Turn:
     """一個使用者回合：閘觸發、AI 改檔、收尾、使用者答題都走 chain_store 的公開函式。"""
 
     def __init__(self, root: Path, turn: int = 1, cfg=None, agent: str = ""):
-        self.root, self.turn, self.cfg, self.agent = root, turn, cfg or {}, agent
+        self.root, self.turn, self.cfg, self.agent = root, turn, _on(cfg), agent
         self.tp = root / "transcript.jsonl"
         self.tp.touch()
         self.now = 1000.0 * turn
@@ -209,7 +217,7 @@ def test_headless_main_session_aborts_without_asking(box, monkeypatch):
     assert notice["interactive"] is False and "headless" in notice["why"]
     t.answer(wc.OPT_RESTORE)
     assert t.stop() is None
-    halt = cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), {})
+    halt = cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON)
     assert halt and "無法互動" in halt and "不再動手" in halt
     assert x.read_text(encoding="utf-8") == "x = 2\n"
     assert not {"answer", "reset", "restore"} & set(_kinds(cs.read_rows(SID)))
@@ -326,8 +334,8 @@ def test_breaker_never_demands_fixes(box):
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A")
     t.gate("A")
-    assert cs.before_write(SID, 1, [str(x)], t.inp("PreToolUse"), {}) is None
-    assert cs.action_done(SID, 1, "edit", "Edit", [], t.inp("PostToolUse"), {}) is None
+    assert cs.before_write(SID, 1, [str(x)], t.inp("PreToolUse"), ON) is None
+    assert cs.action_done(SID, 1, "edit", "Edit", [], t.inp("PostToolUse"), ON) is None
     assert wc.canon_path(x) in t.chain().snaps
 
 
@@ -338,8 +346,8 @@ def test_same_event_gates_do_not_link(box):
     t = Turn(box)
     t.say()
     inp = t.inp("Stop")
-    cs.gate_fired(SID, 1, "A", "a", inp, {}, now=t.tick())
-    cs.gate_fired(SID, 1, "B", "b", inp, {}, now=t.tick())
+    cs.gate_fired(SID, 1, "A", "a", inp, ON, now=t.tick())
+    cs.gate_fired(SID, 1, "B", "b", inp, ON, now=t.tick())
     ch = t.chain()
     assert ch.steps[1].link.rule == "CHAIN_SAME_EVENT" and ch.depth == 0 and ch.count == 1
 
@@ -408,6 +416,7 @@ def test_thresholds_from_config(box):
     assert t.gate("A") == cs.PASS                             # 深度 2、A 第 2 次
     assert t.gate("C").notice                                 # 深度 3
     assert wc.settings({"chain_breaker": {"max_depth": 0, "enabled": "no"}}) == wc.DEFAULTS
+    assert not wc.settings({})["enabled"] and wc.settings(ON)["enabled"]           # 沒寫 enabled＝不開
 
 
 # ─── 答案防偽 ──────────────────────────────────────────────────────────
@@ -463,12 +472,12 @@ def test_snapshot_window_and_limits(box):
     a, big, c, d = proj / "a.py", proj / "big.bin", proj / "c.py", proj / "d.py"
     a.write_text("a = 1\n", encoding="utf-8")
     big.write_bytes(b"\x00" * 64)
-    cs.before_write(SID, 1, [str(a)], t.inp("PreToolUse"), cfg)
+    cs.before_write(SID, 1, [str(a)], t.inp("PreToolUse"), t.cfg)
     assert t.chain().snaps == {}
     t.gate("A")
     paths = [str(a), str(a), str(big), "rel.py", str(c), str(d), str(cs.ledger_path(SID)),
              str(box / "workflow" / "chain-snap" / SID / "x.snap")]
-    cs.before_write(SID, 1, paths, t.inp("PreToolUse"), cfg)
+    cs.before_write(SID, 1, paths, t.inp("PreToolUse"), t.cfg)
     snaps = {Path(p).name: r for p, r in t.chain().snaps.items()}
     assert set(snaps) == {"a.py", "big.bin", "c.py", "d.py"}
     assert snaps["a.py"]["existed"] and snaps["a.py"]["sha256"] and not snaps["a.py"].get("skipped")
@@ -480,7 +489,7 @@ def test_snapshot_window_and_limits(box):
     t.answer(wg_release.OPT_RELEASE)
     t.stop()
     e = proj / "e.py"
-    cs.before_write(SID, 1, [str(e)], t.inp("PreToolUse"), cfg)
+    cs.before_write(SID, 1, [str(e)], t.inp("PreToolUse"), t.cfg)
     assert wc.canon_path(e) not in t.chain().snaps
 
 
@@ -549,18 +558,18 @@ def test_halt_until_answer(box):
     """CHAIN_HALT_UNTIL_ANSWER：警報後到使用者選之前，讀與問以外的工具呼叫先擋下（附題目與經過表、記 halted、不算閘觸發）；
     讀、AskUserQuestion、呼叫端判定唯讀的指令照過；使用者選繼續 → 這個呼叫當場放行、新的一段照常。"""
     t = Turn(box)
-    assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), {}) is None      # 沒警報不介入
+    assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON) is None      # 沒警報不介入
     t.gate("A")
     t.gate("A")
-    msg = cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), {})
+    msg = cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON)
     assert msg and "先停手" in msg and wc.question(t.chain()) in msg and "總共連鎖 1 次" in msg
     for tool in ("Read", "Grep", "AskUserQuestion"):
-        assert cs.halt(SID, 1, tool, t.inp("PreToolUse"), {}) is None
-    assert cs.halt(SID, 1, "Bash", t.inp("PreToolUse"), {}, readonly=True) is None
+        assert cs.halt(SID, 1, tool, t.inp("PreToolUse"), ON) is None
+    assert cs.halt(SID, 1, "Bash", t.inp("PreToolUse"), ON, readonly=True) is None
     ch = t.chain()
     assert ch.halted == 1 and ch.count == 1                                # 擋下不算閘觸發
     t.answer(wc.OPT_CONTINUE)
-    assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), {}) is None
+    assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON) is None
     assert t.chain().segment == 1 and not t.record_only()
 
 
@@ -572,7 +581,7 @@ def test_tripping_alarm_does_not_let_blocked_call_through(box):
     r = t.gate("A", hook="PreToolUse")
     assert r.record_only and r.halt                                       # A 不用擋，但 halt 照擋這個呼叫
     for tool in ("Edit", "Write", "Bash", "mcp__x__write"):
-        assert cs.halt(SID, 1, tool, t.inp("PreToolUse"), {})
+        assert cs.halt(SID, 1, tool, t.inp("PreToolUse"), ON)
 
 
 def test_restore_does_not_clobber_outside_changes(box):
@@ -624,7 +633,7 @@ def test_snapshot_file_is_never_overwritten(box):
     x.write_text("V0\n", encoding="utf-8")
     t = Turn(box)
     t.gate("A")
-    cx = cs._ctx(SID, 1, t.inp("PreToolUse"), {}, None)
+    cx = cs._ctx(SID, 1, t.inp("PreToolUse"), ON, None)
     root = box / "workflow" / "chain-snap" / SID
     first = cs._take(x, root, cx, 0)
     x.write_text("V1\n", encoding="utf-8")
@@ -659,7 +668,7 @@ def test_late_hook_of_older_turn_keeps_newer_snapshots(box):
     t1.gate("A")
     t2.gate("A")
     t2.edit(x, "x", "x2")
-    cs.before_write(SID, 1, [str(y)], t1.inp("PreToolUse"), {})
+    cs.before_write(SID, 1, [str(y)], t1.inp("PreToolUse"), ON)
     names = sorted(p.name[:3] for p in (box / "workflow" / "chain-snap" / SID).iterdir())
     assert names == ["t1-", "t2-"]
 
@@ -681,8 +690,10 @@ def test_report_table_shape(box):
     assert "proj/x.py（+3/−2 行）" in row1 and "| 11 秒 |" in row1      # 閘A 1005 → 閘B 1016
     row2 = next(ln for ln in lines if ln.startswith("| 2 |"))
     assert "（沒記到改動：改寫回覆）" in row2
-    assert "| 3 | C | C：缺東西（只記錄） |" in r.notice
+    assert "| 3 | C | C：缺東西（這一次讓警報響：改送中止） |" in r.notice    # 讓警報響的那一次不標「只記錄」
     assert "總共連鎖 2 次、深度 2" in lines
+    t.gate("D")                                                               # 警報之後的才標只記錄
+    assert "| 4 | D | D：缺東西（只記錄） |" in wc.report(t.chain(), t.now)
 
 
 # ─── 002：comment_only ─────────────────────────────────────────────────
@@ -762,6 +773,106 @@ def test_edit_facts_write_and_fragments():
         {"old_string": "a = 1", "new_string": "a = 1  # c"}, {"old_string": "b = 1", "new_string": "b = 2"}]},
         {"originalFile": "a = 1\nb = 1\n"})
     assert m[0]["comment_only"] is False and (m[0]["added"], m[0]["removed"]) == (2, 2)
+
+
+# ─── 接線用的事實：閘名、AI 動作、唯讀指令、只記錄不灌水 ─────────────────
+
+def test_gate_name_from_message_tag():
+    """CHAIN_GATE_NAME：取第一個 [Guardian:名稱]／[名稱] 標記；同一道閘兩種寫法同名；認不出用預設名。"""
+    assert wc.gate_name("[Guardian:OverviewHub] 要先交定位", "X") == "OverviewHub"
+    assert wc.gate_name("[NeedGoal] 題目要掛節點", "X") == wc.gate_name("[Guardian:NeedGoal] 壞了", "X") == "NeedGoal"
+    assert wc.gate_name("前言\n[Guardian:SmellGate] 新寫進的病", "X") == "SmellGate"
+    assert wc.gate_name("[Workflow Guardian] 2 file(s)", "SyncBlock") == "SyncBlock"
+    assert wc.gate_name("沒有標記", "PreToolUse") == "PreToolUse"
+
+
+@pytest.mark.parametrize("tool, ti, writes, unknown, ran, want", [
+    ("Edit", {"file_path": "c:/p/a.py", "old_string": "a = 1", "new_string": "a = 2"}, (), False, False, "edit"),
+    ("Bash", {"command": "sed -i s/a/b/ a.py"}, ("c:/p/a.py",), False, False, "edit"),
+    ("Bash", {"command": "python gen.py > $OUT"}, (), True, False, "edit"),          # 判不出目標的寫入也算改
+    ("Bash", {"command": "python -m pytest -q t.py"}, (), False, True, "rerun"),
+    ("Bash", {"command": "git commit -m x"}, (), False, False, "other"),
+    ("Bash", {"command": "grep -n x a.py | head -5"}, (), False, False, None),          # 唯讀指令不算動作
+    ("mcp__workflow-guardian__atom_write", {}, (), False, False, "card"),
+    ("mcp__workflow-guardian__anti_evasion_report", {}, (), False, False, "report"),
+    ("mcp__workflow-guardian__need_goal", {"action": "add"}, (), False, False, "goal"),
+    ("Agent", {"description": "查 x"}, (), False, False, "other"),
+    ("Read", {"file_path": "c:/p/a.py"}, (), False, False, None),
+])
+def test_action_facts(tool, ti, writes, unknown, ran, want):
+    """CHAIN_ACTION_FACTS：哪些工具呼叫算 AI 動作、算哪一種；Bash 改檔記得出路徑就帶 files（comment_only 判不了＝None）。"""
+    got = wc.action_of(tool, ti, {}, writes, unknown, ran)
+    assert (got[0] if got else None) == want
+    if tool == "Bash" and writes:
+        assert got[1] == [{"path": "c:/p/a.py", "added": None, "removed": None, "comment_only": None}]
+
+
+@pytest.mark.parametrize("tool, cmd, want", [
+    ("Bash", "cat a.py", True),
+    ("Bash", "grep -rn x hooks/ | head -20 && wc -l a.py", True),
+    ("Bash", "git status && git diff --stat", True),
+    ("Bash", "git -C /c/w log --oneline -5", True),
+    ("Bash", "ls -la 2>/dev/null; echo done 2>&1", True),
+    ("Bash", "sed -n '1,40p' a.py", True),
+    ("Bash", "find . -name '*.py' -newer a.py", True),
+    ("Bash", "echo hi > out.txt", False),                     # 寫檔重導向
+    ("Bash", "cat a > b", False),
+    ("Bash", "sed -i 's/a/b/' a.py", False),
+    ("Bash", "sed -n 's/a/b/w out' a.py", False),             # sed 的 w 指令會寫檔
+    ("Bash", "find . -name '*.pyc' -delete", False),
+    ("Bash", "git commit -m x", False),
+    ("Bash", "git branch -D x", False),
+    ("Bash", "python -m pytest -q", False),                   # 會跑程式的一律當動手
+    ("Bash", "echo $(rm -rf x)", False),                      # 指令替換
+    ("Bash", 'echo "a $(touch x)"', False),
+    ("Bash", "cat <(ls)", False),
+    ("Bash", "sort -o out.txt a.txt", False),
+    ("Bash", "sort -oresult.txt input.txt", False),           # codex：短參數黏著輸出檔
+    ("Bash", "sort -rno out.txt a.txt", False),
+    ("Bash", "sed -n -e p -e wresult.txt input.txt", False),  # codex：第二段腳本寫檔
+    ("Bash", "sed -n -f script.sed a.txt", False),
+    ("Bash", "rg --pre ./x.sh foo", False),                   # 前處理會跑程式
+    ("Bash", "git -c diff.external=./x.sh diff", False),      # 設定覆寫可以叫外部程式
+    ("Bash", "git grep -O./x.sh foo", False),
+    ("Bash", "date -s 2020-01-01", False),
+    ("Bash", "(rm x)", False),
+    ("Bash", "echo 'abc", False),                             # 引號沒收尾
+    ("PowerShell", "Get-Item (New-Item owned.txt)", False),   # codex：括號裡執行的命令
+    ("PowerShell", "Get-ChildItem | ForEach-Object { Remove-Item $_ }", False),
+    ("PowerShell", "Get-Content a.py | Select-String x", True),
+    ("PowerShell", "Set-Content a.py 'x'", False),
+    ("PowerShell", "Get-Content a.py > b.py", False),
+])
+def test_readonly_shell(tool, cmd, want):
+    """CHAIN_HALT_UNTIL_ANSWER 的唯讀指令：白名單讀檔指令、沒有寫檔重導向與指令替換；判不出當動手。"""
+    assert wc.readonly_shell(tool, cmd) is want
+
+
+def test_muted_triggers_do_not_inflate_count(box):
+    """CHAIN_COUNT_TRIGGERS／CHAIN_ABORT_RECORD_ONLY：警報後只記錄的不算進次數與深度；同一道閘這一段只記一筆（收尾一再被叫也不灌水）。"""
+    t = Turn(box)
+    t.gate("A")
+    assert t.gate("A").notice
+    for _ in range(3):
+        assert t.gate("B") == cs.GateResult(True)
+        assert t.gate("C", hook="PreToolUse") == cs.GateResult(True)
+    ch = t.chain()
+    assert [s.row["gate"] for s in ch.steps] == ["A", "A", "B", "C"] and [s.muted for s in ch.steps] == [False, False, True, True]
+    assert (ch.count, ch.depth) == (1, 1)                       # A→A 是收尾接收尾（改寫回覆）；B、C 不算
+    assert "總共連鎖 1 次、深度 1" in wc.report(ch, t.now) and "（只記錄）" in wc.report(ch, t.now)
+
+
+def test_drop_snapshots_at_session_end(box):
+    """SessionEnd：這個 session 的快照資料夾刪掉；別的 session 的只刪 7 天沒動的。"""
+    root = box / "workflow" / "chain-snap"
+    for name in (SID, "other-new", "other-old"):
+        (root / name).mkdir(parents=True)
+        (root / name / "t1-main-s0-x.snap").write_bytes(b"x")
+    import os
+    old = 1000.0
+    os.utime(root / "other-old", (old, old))
+    cs.drop_snapshots(SID, now=old + 8 * 86400)
+    assert sorted(p.name for p in root.iterdir()) == ["other-new"]
 
 
 # ─── 規則表契約 ─────────────────────────────────────────────────────────

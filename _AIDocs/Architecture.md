@@ -41,6 +41,7 @@
 | `wg_recall_miss.py` | 失念偵測：失敗證據 × 庫中未注入 atom trigger |
 | `wg_friction.py` | 工具結果體積 + 使用者糾正訊號 → Deep Post-Mortem |
 | `wg_release_rules.py` | 放行／欠帳判定規則（純函式：不讀檔、不跑 git、不改 state）：每一種情境一條有名字的規則（`RULES` 表）＋`Verdict(rule, owed, why, evidence)`；擋訊息統一 `format_hit` → `✗ (<字母>) <規則名>：<一句現象>｜證據：…`，`parse_hits` 反解字母給擋次預算（每條規則各自計次 `budget_tick`／`budget_exhausted`）。呼叫端只蒐集事實：`wg_verify_ledger`（欠案例、先紅後綠、內容等於另一方已提交版本、只改註解、刻意紅、暫存收據）、`stop`（預算、worktree 不要求 push、DPM 交付信版）、`post_tool_use`（刻意紅不進 failing_tests、同案例綠清帳）、`pre_tool_use`（暫存 repo commit 免口令）、`wg_core`（python -c 只讀、唯讀 git）、`wg_overview`／`lib/overview_hub`（Grep content 算讀檔、Bash 註解行剝除、執行期資料免綜觀、暫存副本不當專案）、`ups_gates`／`wg_evasion`／`wg_harvest`（派工訊息開回合）、`wisdom_engine`（重試只數紅後的編輯）、`wg_need_goal`（目標樹完整對照：達成要指到案例或收據、推論最多部分、案例先紅後綠紀錄）、`wg_verify_scope`（要宣告驗證範圍、範圍項目要有收據、範圍漏判、先檢討再宣告）。規則表 TECH §7.8；案例 `hooks/verify/verify_release_rules.py`、探針 `hooks/verify/probe_release_rules.py` |
+| `wg_chain.py`＋`lib/chain_store.py` | 連鎖斷路器（v6）：`wg_chain` 是純函式判定（規則表 `RULES` 每條 `CHAIN_*` 一案，案例 `hooks/verify/verify_chain_breaker.py`）——帳摺成連鎖、邊怎麼接、警報門檻、只記錄、停手時哪些指令算唯讀、哪些工具呼叫算 AI 動作、三選一答案只認 AskUserQuestion、經過表；`chain_store` 管 I/O——帳 `Logs/chain-<session>.jsonl`、改檔前快照 `workflow/chain-snap/<session>/`、還原與重讀比對。接線：`stop`（各閘之前 `on_stop`、每道閘擋或記欠之前 `_chain_hold`、子代理收尾）、`pre_tool_use`（開頭停手 `_chain_halt`、`_deny` 記觸發、放行出口存快照）、`post_tool_use`（成功與失敗的工具呼叫記動作）、`session_end`（清快照）；接線案例 `hooks/verify/verify_chain_wiring.py`；本檔「連鎖斷路器」節 |
 | `wg_second_opinion.py` | G9 自動第二意見的事實收集（Stop 的 SecondOpinion 段用；判定在 `wg_release_rules` 的 G9 段）：`second_opinion.auto` 設定與預設、本回合 transcript 的 `second_opinion_start`／`result` 呼叫與回傳、程式檔對 HEAD 的改動行數（numstat＋未追蹤新檔；session 暫存區的一次性腳本不數，規則 SESSION_SCRATCH_NOT_CODE）、高風險部位（`risky_prefixes`、部位表類別欄原字 gate）；TECH §7.1、§7.8 |
 | `wg_harvest.py` | 階段收割純函式：`harvest_gate_reason`／`pending_gate_reason`（Stop）、`parse_receipt`／`record_atom_op`／`validate_items`／`append_ledger`（PostToolUse one-writer）、`vcs_sync_lock_active`；state 按 session_id 分區、不落盤 |
 | `wg_vcs_sync.py` | 記憶庫上版控：`collect_sync_targets`（根層 + 專案、各找最近 VCS root）、OS 互斥鎖＋`.req/` 請求檔合併、`.unpushed`／`.behind` 標記（`write_behind`／`clear_behind`／`read_behind_record`）、`roots.json`（推側 `last_sync`／`last_error`、拉側 `last_pull`／`pulled_commits`／`pull_error`）、`spawn_vcs_sync`；主邏輯 `sync_targets_inline` worker 與測試共用；git 拉段 `_git_pull`（fetch 固定 H／U、incoming 分類、ref＋pathspec restore、整樹乾淨 ff-only）＋ `_git_isolated_rebase`（隔離 worktree、索引檔衝突交 merge driver resolver）；svn `svn_update_targets`（退役 missing 先 delete、其他 missing 不 update、只解索引檔 text 衝突）；行為表 TECH §6.3／§8、`MultiMachineMemorySync.md` 自動拉取節；目標集含 config org 根；`_Svn.run` 對 ANSI code page 編不出的 argv 直接 `_Stop`（不呼叫 svn，防 best-fit 亂碼目錄；TECH §7.5） |
@@ -111,6 +112,19 @@ statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／g
 - **ScanReport 觸發條件**：宣告完成 + **本 session 自己 Edit/Write 的** `modified_files` 觸及 core 檔（hooks/lib/tools/rules/根層契約設定）或達 `min_files_to_block` + 本回合未 emit `anti_evasion_report` + 無使用者豁免 + **本 turn 未跑 git/svn commit**（`last_commit_turn_seq==turn_seq` 豁免：工作已可稽核，綁「真的 commit」非「本 turn 沒 Edit」）。滿足判定用 **turn_seq+session_id 雙鍵**（共用工作樹／merged state 下隔壁 session 的 emit 不誤放行本 session）；每 session 只觸發一次（`scan_report_warned`）；他 session 改的 core 檔不計（只數 `own_mod_files`）。
 - **HUD 窗活性**（`handlers/_shared._hud_alive`，emit 時與 Stop 各查一次）：Node `beat-status` 的 `clients`（HUD 頁 SSE 常駐連線數）≥1 → 活，頁被瀏覽器休眠／凍結心跳全停也不誤判；無連線才看心跳 `age_s < hud_stale_s`；判死原因（逾時／拒連／404／無連線）落 `Logs/guard-aec_hud.jsonl`；HUD 不可達且 notable → Stop 大聲 fallback 回 chat（不 fail-silent）。
 - state 以 `setdefault` 增量，不升 schema_version。相關 atom：[[feedback-workflow-discipline]]；`IDENTITY.md` 反退避契約節為語意層對應。
+
+### 連鎖斷路器（`hooks/wg_chain.py`、`lib/chain_store.py`；本段為唯一來源）
+
+要解的事：閘擋下 → AI 修 → 修的動作又讓別道（或同一道）閘擋下……這種間接連鎖靠逐道閘修判斷條件拔不乾淨，所以在所有閘外面加一層只記錄與中止的斷路器。v6 守門總開關開著、`config.chain_breaker.enabled` 才跑。
+
+- **一筆觸發**：閘真的要擋下或記欠的那一刻（收尾閘在擋的分支開頭問 `_chain_hold`；工具前閘走 `_deny`）。工具後只提示的、只記錄的不算。PostToolUse 記下的欠帳不另算一次，到它真的擋下（收尾或下一個工具前）才算——否則同一筆欠帳記一次、擋一次就被當成同一道閘第 2 次。閘名取擋訊息的 `[Guardian:名稱]` 標記，收尾閘由呼叫端給（跟「後面還會擋」預覽用同一套名字）。
+- **一條邊**：同一使用者回合、同一對話者（主 session 或同一個子代理）裡，閘B 接在閘A 之後觸發、中間 AI 有動作就接上（判法與排除見 `wg_chain.RULES` 的 `CHAIN_EDGE_*`、`CHAIN_SAME_EVENT`、`CHAIN_NO_FIX_NO_EDGE`）。閘A 擋下時預覽已列出的閘B 不接（它本來就欠著）。`watched`（閘看哪些檔）模組支援，目前沒有呼叫端給。
+- **AI 動作**：`wg_chain.action_of` 判——改檔（Edit／Write／Bash 寫入，含判不出目標的寫入）、重跑測試或驗證（含紅掉的 PostToolUseFailure）、寫卡、重交收尾檢核或收割回報、改目標樹、其他非唯讀指令與子代理；讀檔不算。
+- **警報**：深度到 `max_depth`（預設 2）或同一道閘這一段第 `max_same_gate` 次（預設 2）。響了之後：這一回合其餘閘只記錄（跳過那道閘的擋與記欠，所以不會留下「本回合擋過」「整個 session 問過一次」這類標記；拐彎判斷與寫碼查核自己出錯〔GATE_SELF_ERROR〕是在閘的函式裡先記標記，被改成只記錄時 `stop._unmark` 放回原值；選繼續後照常擋）；工具先停手，只放讀檔工具、`readonly_shell` 認可的唯讀指令（白名單、不准寫檔重導向與指令替換、PowerShell 不准括號；是護欄不是沙箱）與 AskUserQuestion；收尾擋一次送連鎖過程表與三選一（題目帶【收尾放行確認】【連鎖中止】）；「順手看到最該修」那一問不送。沒人能答（headless／SDK、子代理）不叫它問、不還原、不繼續，要 AI 把表寫進收尾報告。
+- **使用者答案**：只認 tool_use_id 對得上的 AskUserQuestion 結果，題目逐字等於通知那一題。還原＝只還原這一段的快照（快照是工具前放行那一刻存的；動手前核對檔案現況等於這一段最後一次寫入後的內容，被別處改過就不動）；繼續＝開新的一段、額度重給；放行＝這一回合其餘閘只記錄，同一個答案也被既有閘的 `wg_release.user_released` 認成放行（紅測、對帳、等值證法那一套照它們的規則記放行）。答案的處理結果附在那次收尾的出口（systemMessage／擋訊息尾）。
+- **斷路器自己出錯**：一律照原本的閘行為（不中止、不只記錄、不停手），stderr 印一行。pytest 底下每一案各用一份帳與快照、放測試用的 Logs 暫存目錄（`chain_store._test_root`），免得前一案的觸發讓後一案誤判、快照落進資料根。
+- **設定**：`chain_breaker` 段沒寫 `enabled`＝不開（出廠 `workflow/config.json` 寫開）。各閘自己的案例只帶部分設定，測的是各閘自己的擋次與放行；斷路器跟各閘疊起來的行為由 `verify_chain_wiring.py` 用出廠設定測。沒觸發時連子行程呼叫都不變：收尾閘名預覽用跟擋訊息同樣的排除方式，預覽裡問 git 的那段一次收尾只問一次。
+- **擋不到的**：PreToolUse matcher 沒掛的工具（MCP 的 atom_write、anti_evasion_report、need_goal 等）在停手期間照樣能呼叫；settings.json 沒註冊 PostToolUseFailure 時紅掉的重跑記不到。
 
 ### _CHANGELOG Auto-Roll（`tools/changelog-roll.py`；本段為唯一來源）
 

@@ -27,6 +27,8 @@ from wg_core import (
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
+import chain_store  # 連鎖斷路器的帳、停手、快照（lib/；判定在 hooks/wg_chain.py）
+import wg_chain
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
 import wg_judge_card  # 改判準卡留帳（JUDGE_CARD_CHANGE_NEEDS_DECLARATION）
 import wg_oldtest
@@ -1660,9 +1662,73 @@ def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, p
 
 
 def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str) -> None:
-    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。"""
+    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。
+    v6 先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。"""
+    try:
+        chain = _chain_ctx(input_data, config, need_ledger=False)
+        r = chain_store.gate_fired(chain[0], chain[1], wg_chain.gate_name(reason, "PreToolUse"), reason, input_data,
+                                   config) if chain else chain_store.PASS
+    except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的擋
+        sys.stderr.write(f"[chain-breaker] 工具前記觸發出錯，照原本的閘行為：{type(e).__name__}: {e}\n")
+        chain, r = None, chain_store.PASS
+    if chain is not None:
+        if r.halt:
+            output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                "permissionDecisionReason": r.halt}})
+            return
+        if r.record_only:
+            sys.stderr.write(f"[Guardian:ChainBreaker] 連鎖中止中：{wg_chain.gate_name(reason, 'PreToolUse')} 這次只記錄，不擋\n")
+            _chain_before_write(input_data, config, chain)
+            output_nothing()
+            return
     output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                         "permissionDecisionReason": _with_cards(input_data, config, reason, "pretool_deny")}})
+
+
+def _chain_ctx(input_data: Dict[str, Any], config: Dict[str, Any], need_ledger: bool = True) -> Optional[Tuple[str, int]]:
+    """連鎖斷路器要用的 (session_id, 使用者回合)；v6 關、沒 session、（need_ledger）這個 session 還沒有連鎖帳 → None。
+    沒有帳就不可能在中止中、也沒開連鎖段，先看帳在不在，免得每次工具呼叫都讀 state。"""
+    sid = str(input_data.get("session_id") or "")
+    if not sid or not v6_enabled(config) or (need_ledger and not chain_store.ledger_path(sid).exists()):
+        return None
+    from wg_release_rules import user_turn
+    state = read_state(sid) or {}
+    return sid, user_turn(state, int(state.get("turn_seq", 0) or 0))
+
+
+def _chain_before_write(input_data: Dict[str, Any], config: Dict[str, Any], chain: Optional[Tuple[str, int]] = None) -> None:
+    """工具真的要改檔之前（放行出口）：連鎖段開著就先存快照（chain_store.before_write；判定在 wg_chain.snapshot_need）。
+    出錯只浮 stderr、照放行（還原時這個檔列成沒快照）。"""
+    tool_name = input_data.get("tool_name", "") or ""
+    if tool_name not in ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"):
+        return
+    try:
+        chain = chain or _chain_ctx(input_data, config)
+        if chain is None:
+            return
+        from wg_core import write_paths_from_tool
+        cwd = input_data.get("cwd", "") or ""
+        paths = [p for p in write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, cwd)
+                 if not p.startswith("UNKNOWN:")]
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[chain-breaker] 改檔前存快照的事實算不出（這次不存）：{type(e).__name__}: {e}\n")
+        return
+    if paths:
+        chain_store.before_write(chain[0], chain[1], paths, input_data, config, cwd=cwd)
+
+
+def _chain_halt(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
+    """連鎖中止中（警報後、使用者還沒選繼續或放行）：讀與問以外的工具先停手 → 回擋訊息（規則 CHAIN_HALT_UNTIL_ANSWER）。
+    出錯照原本的閘行為（不停手），stderr 浮一行。"""
+    try:
+        chain = _chain_ctx(input_data, config)
+        if chain is None:
+            return None
+        readonly = tool_name in ("Bash", "PowerShell") and wg_chain.readonly_shell(tool_name, (tool_input or {}).get("command"))
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[chain-breaker] 停手判斷出錯，照原本的閘行為：{type(e).__name__}: {e}\n")
+        return None
+    return chain_store.halt(chain[0], chain[1], tool_name, input_data, config, readonly=readonly)
 
 
 def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -1751,6 +1817,13 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉 v6 才掛的工具）
+
+    # 連鎖斷路器：警報後、使用者選繼續或放行之前，讀與問以外的工具先停手（不是閘觸發、不進次數）
+    _halt = _chain_halt(input_data, config, tool_name, tool_input) if v6 else None
+    if _halt:
+        output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                            "permissionDecisionReason": _halt}})
+        return
 
     # 需求目標 4.4：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
     if tool_name in ("AskUserQuestion", "ExitPlanMode"):
@@ -2074,6 +2147,10 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         if hub_deny:
             _deny(input_data, config, hub_deny)
             return
+
+    # 放行：連鎖段開著就先存要改的檔的快照（連鎖斷路器選「還原」時用）
+    if v6:
+        _chain_before_write(input_data, config)
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）

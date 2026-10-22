@@ -10,7 +10,8 @@
 - 答案：只認 wg_release._answers_after 判讀的 AskUserQuestion 結果（tool_use_id 對得上、題目含【收尾放行確認】），再由
   wg_chain.choice_of 取題目逐字等於通知那一題的答案。
 呼叫端只用這幾支薄函式：gate_fired（閘要擋或記欠之前）、halt（PreToolUse 一開始：中止停手中要不要擋這個呼叫）、
-record_only（只問這一回合是不是只記錄）、before_write（工具改檔之前）、action_done（AI 動作完成之後）、on_stop（收尾、各閘之前）。
+record_only（只問這一回合是不是只記錄）、before_write（工具改檔之前）、action_done（AI 動作完成之後）、on_stop（收尾、各閘之前）、
+drop_snapshots（SessionEnd）。
 這裡出錯一律照原本的閘行為（不中止、不只記錄、不停手），stderr 印一行；快照存不了照放行改動、帳上記原因。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_chain_breaker.py
 """
@@ -49,14 +50,26 @@ PASS = GateResult(False)
 _RETRY_PAUSE = 0.2
 
 
+def _test_root() -> Optional[Path]:
+    """pytest 底下（PYTEST_CURRENT_TEST）每一案各用一份帳與快照，放測試用的 Logs 暫存目錄（wg_core.logs_dir）；平常回 None。
+    為什麼：同一次 pytest 的資料根共用、案例的 session id 又常一樣，前一案的觸發留在帳上，後一案同一道閘再擋一次就被當成同一回合
+    第 2 次而中止；快照也不能落進模組載入時算好的資料根。"""
+    t = os.environ.get("PYTEST_CURRENT_TEST", "")
+    if not t:
+        return None
+    from wg_core import logs_dir
+    return logs_dir() / "chain-tests" / hashlib.sha1(t.rsplit(" ", 1)[0].encode("utf-8")).hexdigest()[:12]
+
+
 def _ledger_dir() -> Path:
     from wg_core import logs_dir
-    return logs_dir()
+    return _test_root() or logs_dir()
 
 
 def _snap_root() -> Path:
     from wg_core import WORKFLOW_DIR
-    return WORKFLOW_DIR / "chain-snap"
+    t = _test_root()
+    return t / "chain-snap" if t else WORKFLOW_DIR / "chain-snap"
 
 
 def _safe(name: Any) -> str:
@@ -161,6 +174,8 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
             return PASS
         ch = cx.chain()
         hook = str(input_data.get("hook_event_name") or "")
+        if wc.muted_again(ch, str(gate)):
+            return GateResult(True)
         row = {"gate": str(gate), "what": wc.one_line(what), "hook": hook, "event": _event(input_data),
                "watched": [str(p) for p in watched], "later": [str(g) for g in later]}
         j = wc.judge(ch, row, cx.cfg)
@@ -371,6 +386,26 @@ def _prune(root: Path, turn: int) -> None:
                 f.unlink()
     except OSError as e:
         _warn("prune", e)
+
+
+def drop_snapshots(sid: str, max_age_days: float = 7.0, now: Optional[float] = None) -> None:
+    """SessionEnd 呼叫：這個 session 的快照整個資料夾刪掉（還原只在警報那一回合有效），順手刪別的 session 留下、超過 max_age_days
+    沒動過的快照資料夾（當掉沒送 SessionEnd 的）。刪不掉的浮 stderr，不擋收尾。"""
+    import shutil
+    root = _snap_root()
+    cutoff = (time.time() if now is None else now) - max_age_days * 86400
+    mine = _snap_dir(sid).name
+    try:
+        dirs = [d for d in root.iterdir() if d.is_dir()] if root.is_dir() else []
+    except OSError as e:
+        _warn("drop_snapshots", e)
+        return
+    for d in dirs:
+        try:
+            if d.name == mine or d.stat().st_mtime < cutoff:
+                shutil.rmtree(d)
+        except OSError as e:
+            _warn(f"drop_snapshots {d.name}", e)
 
 
 def restore(sid: str, ch: wc.Chain, cfg: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:

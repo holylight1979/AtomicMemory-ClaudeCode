@@ -25,7 +25,12 @@ from wg_release_rules import canon_path, comment_only_change
 
 RULES: Dict[str, str] = {
     "CHAIN_SAME_TURN": "連鎖只在同一個使用者回合、同一個對話者（主 session 或同一個子代理）裡算；換回合從零起，中止也只在警報那一回合有效。",
-    "CHAIN_COUNT_TRIGGERS": "次數＝這一段（回合開頭、或選「繼續」之後）閘觸發總數減 1；擋下、記欠、警報後只記錄的都算觸發。",
+    "CHAIN_COUNT_TRIGGERS": "次數＝這一段（回合開頭、或選「繼續」之後）閘觸發總數減 1；觸發＝真的擋下或記欠，讓警報響的那一次也算；"
+                            "警報之後只記錄的不算進次數與深度（表上照列、標只記錄）。",
+    "CHAIN_GATE_NAME": "閘名取擋訊息裡第一個 [Guardian:名稱] 或 [名稱] 標記；認不出用呼叫端給的預設名。同一道閘每次擋訊息的標記相同，同閘次數才數得準。",
+    "CHAIN_ACTION_FACTS": "哪些工具呼叫算 AI 動作：Edit／Write／MultiEdit／NotebookEdit＝改；Bash／PowerShell 有寫入目標（含判不出目標的寫入）＝改，"
+                          "跑測試或驗證＝重跑，其餘不是唯讀的指令＝其他動作；atom_write／atom_retire＝寫卡；收尾檢核與收割回報＝重交報告；"
+                          "need_goal＝改目標樹；Agent／Task＝其他動作。讀檔（Read、唯讀指令）不算動作。",
     "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到動作時，"
                              "Stop 接 Stop 算改寫回覆、閘B在工具呼叫上算 AI 接著的那次呼叫。",
     "CHAIN_SAME_EVENT": "同一個 hook 事件裡先後觸發的兩道閘不接成邊（不是 AI 動作造成的）。",
@@ -35,10 +40,12 @@ RULES: Dict[str, str] = {
                                  "B 沒說看哪些檔、或有動作說不出改了哪些檔（重跑、寫卡、判不出目標的 Bash），照接。",
     "CHAIN_ALARM_DEPTH": "深度 ≥ max_depth（預設 2：閘→修→閘→修→第三次閘）→ 警報。",
     "CHAIN_ALARM_SAME_GATE": "同一道閘同一段第 max_same_gate 次觸發（預設 2）→ 警報，不看有沒有接成邊。",
-    "CHAIN_ABORT_RECORD_ONLY": "警報一響（含讓它響的那一次），這一段其餘所有閘只記錄、不擋、不記欠；使用者選之前不逼任何修補。",
+    "CHAIN_ABORT_RECORD_ONLY": "警報一響（含讓它響的那一次），這一段其餘所有閘只記錄、不擋、不記欠（同一道閘這一段只記一筆）；"
+                               "使用者選之前不逼任何修補。呼叫端在閘擋或記欠之前問，只記錄就跳過那道閘的擋與記欠、照往下走。",
     "CHAIN_HALT_UNTIL_ANSWER": "中止就是停手：警報後到使用者選「繼續」或「放行」之前（沒人能答的，就是這一回合其餘時間；選還原或答別的也停到換回合），"
-                               "除了讀（HALT_ALLOW 與呼叫端判定唯讀的指令）和 AskUserQuestion，工具呼叫一律先擋下、附經過表與該問的題目。"
-                               "這不是閘觸發、不進次數，也不逼修補；讓警報響不會換到被擋的動作過關。",
+                               "除了讀（HALT_ALLOW 與 readonly_shell 判定唯讀的指令）和 AskUserQuestion，工具呼叫一律先擋下、附經過表與該問的題目。"
+                               "這不是閘觸發、不進次數，也不逼修補；讓警報響不會換到被擋的動作過關。"
+                               "唯讀指令只認白名單裡的讀檔指令、沒有寫檔重導向與指令替換；判不出一律當成會動手。",
     "CHAIN_STOP_NOTICE_ONCE": "警報後 Stop 只擋一次，送連鎖過程表（能互動就附三選項）；使用者在那之前已答就不擋、附結果與表；之後的 Stop 不再擋，只附提醒。",
     "CHAIN_HEADLESS_NO_ASK": "沒人能答（headless／SDK、子代理、裁判子 session；判法 wg_release.non_interactive_reason，警報那一刻判）→ 不叫 AI 問，"
                              "中止並留帳，不還原也不繼續，要 AI 把經過表寫進收尾報告。",
@@ -58,7 +65,7 @@ RULES: Dict[str, str] = {
                                    "認不出註解語法、掃到結尾還在字串裡）＝unknown；只記錄，不影響邊、次數、深度與門檻。",
 }
 
-DEFAULTS: Dict[str, Any] = {"enabled": True, "max_depth": 2, "max_same_gate": 2,
+DEFAULTS: Dict[str, Any] = {"enabled": False, "max_depth": 2, "max_same_gate": 2,
                             "snapshot_max_bytes": 5_000_000, "snapshot_max_files": 200, "restore_retries": 3}
 
 GATE = "ChainBreaker"
@@ -71,7 +78,8 @@ HALT_ALLOW = ("Read", "Grep", "Glob", "AskUserQuestion", "TodoWrite", "ToolSearc
 
 
 def settings(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """workflow/config.json 的 chain_breaker 段蓋過 DEFAULTS；型別不對、數字小於 1 的照預設。"""
+    """workflow/config.json 的 chain_breaker 段蓋過 DEFAULTS；型別不對、數字小於 1 的照預設。
+    設定裡沒寫 enabled＝不開（出廠 config.json 寫了開）：只帶部分設定的呼叫端（各閘自己的案例）照各閘原本的擋法。"""
     sec = (config or {}).get("chain_breaker")
     sec = sec if isinstance(sec, dict) else {}
     out = dict(DEFAULTS)
@@ -107,14 +115,15 @@ class Hit(NamedTuple):
 
 
 class Step:
-    """一次閘觸發，加上它之後、下一次觸發之前 AI 做的動作。"""
-    __slots__ = ("row", "actions", "link", "depth")
+    """一次閘觸發，加上它之後、下一次觸發之前 AI 做的動作。muted＝警報之後才觸發、只記錄（不算進次數與深度）。"""
+    __slots__ = ("row", "actions", "link", "depth", "muted")
 
-    def __init__(self, row: Dict[str, Any]):
+    def __init__(self, row: Dict[str, Any], muted: bool = False):
         self.row = row
         self.actions: List[Dict[str, Any]] = []
         self.link: Optional[Link] = None
         self.depth = 0
+        self.muted = muted
 
 
 class Chain:
@@ -139,11 +148,12 @@ class Chain:
 
     @property
     def count(self) -> int:
-        return max(0, len(self.steps) - 1)
+        """CHAIN_COUNT_TRIGGERS：警報之後只記錄的不算。"""
+        return max(0, sum(1 for s in self.steps if not s.muted) - 1)
 
     @property
     def depth(self) -> int:
-        return max((s.depth for s in self.steps), default=0)
+        return max((s.depth for s in self.steps if not s.muted), default=0)
 
     @property
     def record_only(self) -> bool:
@@ -166,7 +176,7 @@ def fold(rows: Iterable[Dict[str, Any]], turn: int, agent: str = "") -> Chain:
         if kind == "reset":
             ch = Chain(ch.segment + 1)
         elif kind == "gate":
-            step = Step(r)
+            step = Step(r, muted=ch.alarm is not None)
             if ch.steps:
                 prev = ch.steps[-1]
                 step.link = link(prev, r)
@@ -238,6 +248,20 @@ def judge(ch: Chain, row: Dict[str, Any], cfg: Dict[str, Any]) -> Judge:
     if depth >= cfg["max_depth"]:
         hits.append(Hit("CHAIN_ALARM_DEPTH", f"連鎖深度 {depth}"))
     return Judge(bool(hits), tuple(hits), lk, depth, same)
+
+
+def muted_again(ch: Chain, gate: str) -> bool:
+    """CHAIN_ABORT_RECORD_ONLY：警報後同一道閘這一段已經記過一筆只記錄 → 這次不再記。"""
+    return ch.record_only and any(s.muted and s.row.get("gate") == gate for s in ch.steps)
+
+
+_TAG_RE = re.compile(r"\[(?:Guardian:)?([A-Za-z][\w-]*)\]")
+
+
+def gate_name(reason: Any, default: str) -> str:
+    """CHAIN_GATE_NAME：擋訊息第一個 [Guardian:名稱]／[名稱] 標記；沒有就用 default。"""
+    m = _TAG_RE.search(str(reason or ""))
+    return m.group(1) if m else default
 
 
 def stop_step(ch: Chain) -> Optional[str]:
@@ -320,7 +344,7 @@ def restore_plan(ch: Chain) -> Tuple[List[RestoreItem], List[Dict[str, str]]]:
 
 # ─── 給人看的經過表與訊息 ──────────────────────────────────────────────────
 
-_KIND = {"edit": "改", "rerun": "重跑", "card": "寫卡", "relocate": "重交定位", "goal": "改目標樹"}
+_KIND = {"edit": "改", "rerun": "重跑", "card": "寫卡", "relocate": "重交定位", "goal": "改目標樹", "report": "重交報告"}
 
 
 def short_path(path: Any) -> str:
@@ -371,8 +395,10 @@ def report(ch: Chain, now: float) -> str:
         what = _cell(s.row.get("what"))
         if s.link is not None and not s.link.linked:
             what += f"（沒接上前一步：{s.link.why}）"
-        if s.row.get("record_only"):
+        if s.muted:
             what += "（只記錄）"
+        elif s.row.get("record_only"):
+            what += "（這一次讓警報響：改送中止）"
         acts = "；".join(describe_action(a) for a in s.actions)
         if not acts:
             acts = f"（沒記到改動：{nxt.link.why}）" if nxt is not None and nxt.link and nxt.link.linked else "—"
@@ -458,6 +484,142 @@ def answer_text(choice: str, raw: str, results: Sequence[Dict[str, Any]] = (), m
     if choice == "release":
         return f"[Guardian:{GATE}] 使用者選放行這一回合：這一回合其餘閘只記錄不擋。"
     return f"[Guardian:{GATE}] 使用者沒選三選項之一（答：{one_line(raw, 60)}）：維持中止，這一回合其餘閘只記錄。"
+
+
+# ─── 工具呼叫的事實：算不算 AI 動作、是不是唯讀指令 ───────────────────────
+
+_EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+_SHELL_TOOLS = ("Bash", "PowerShell")
+
+
+def action_of(tool_name: Any, tool_input: Any, tool_response: Any, writes: Sequence[str] = (), unknown_write: bool = False,
+              ran_tests: bool = False) -> Optional[Tuple[str, List[Dict[str, Any]], str]]:
+    """CHAIN_ACTION_FACTS：PostToolUse 的一次工具呼叫 → (kind, files, what)；不算動作回 None。
+    writes＝呼叫端算出的寫入目標（絕對路徑）、unknown_write＝有寫入訊號但算不出目標、ran_tests＝這次是跑測試或驗證。"""
+    tool = str(tool_name or "")
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    if tool in _EDIT_TOOLS:
+        return "edit", edit_facts(tool, ti, tool_response), ""
+    if tool in _SHELL_TOOLS:
+        cmd = str(ti.get("command") or "")
+        if writes or unknown_write:
+            return "edit", [{"path": str(p), "added": None, "removed": None, "comment_only": None} for p in writes], cmd
+        if ran_tests:
+            return "rerun", [], cmd
+        return None if readonly_shell(tool, cmd) else ("other", [], cmd)
+    if tool.endswith(("atom_write", "atom_retire")):
+        return "card", [], tool.rsplit("__", 1)[-1]
+    if tool.endswith(("anti_evasion_report", "knowledge_harvest_report")):
+        return "report", [], tool.rsplit("__", 1)[-1]
+    if tool.endswith("need_goal"):
+        return "goal", [], f"need_goal {ti.get('action') or ''}".strip()
+    if tool in ("Agent", "Task"):
+        return "other", [], f"{tool}：{one_line(ti.get('description') or ti.get('prompt'), 60)}"
+    return None
+
+
+_READ_CMDS = frozenset(("cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "ls", "dir", "wc", "pwd", "cd", "echo", "printf",
+                        "type", "file", "stat", "du", "df", "which", "where", "cut", "tr", "diff", "cmp", "basename", "dirname",
+                        "realpath", "readlink", "true", "nl", "jq", "sort"))
+_RUNS_PROGRAM = ("--pre", "--compress-program")          # rg 前處理、sort 壓縮程式：會跑別的程式
+_GIT_RUNS = ("--output", "--ext-diff", "-O", "--open-files-in-pager", "--exec-path")
+_SED_OPTS = frozenset(("-n", "--quiet", "--silent", "-E", "-r", "--regexp-extended"))
+_PS_READ = frozenset(("get-content", "gc", "get-childitem", "gci", "get-item", "gi", "select-string", "sls", "test-path",
+                      "get-location", "resolve-path", "measure-object", "select-object", "where-object", "sort-object",
+                      "format-list", "format-table", "write-output", "ls", "dir", "cat", "type", "pwd", "cd", "set-location"))
+_VCS_READ = {"git": frozenset(("status", "log", "diff", "show", "blame", "ls-files", "rev-parse", "grep", "cat-file", "describe")),
+             "svn": frozenset(("status", "st", "log", "diff", "info", "cat", "list", "ls", "blame"))}
+_FIND_WRITES = frozenset(("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"))
+_SED_PRINT = re.compile(r"^(?:\d+|\d+,\d+|\$)?p$")
+_NULL_SINKS = ("/dev/null", "$null", "nul")
+
+
+def readonly_shell(tool_name: Any, command: Any) -> bool:
+    """CHAIN_HALT_UNTIL_ANSWER 的唯讀指令：每一段（; && || | 換行切）都是白名單裡的讀檔指令、沒有寫檔重導向（> /dev/null、2>&1 除外）、
+    沒有指令替換 $( ) 與反引號、沒有 <( ) >( )。git／svn 只認查詢子指令（git 不准 -c 設定覆寫與會叫外部程式、寫檔的參數）；
+    find 不准 -exec／-delete 這類；sed 只認 `-n` 加一段印行腳本（不准 -e／-f）；sort 不准 -o（含黏著寫）；rg、sort 不准叫別的程式；
+    PowerShell 只認讀取 cmdlet、不准括號與大括號（裡面能執行任何命令）。判不出（引號沒收尾、拆不開）回 False。
+    這是停手的護欄，不是沙箱：白名單外的一律當成會動手。"""
+    segs = _shell_segments(str(command or ""))
+    if segs is None:
+        return False
+    ps = str(tool_name or "") == "PowerShell"
+    return all(_readonly_segment(seg, ps) for seg in segs)
+
+
+def _shell_segments(cmd: str) -> Optional[List[str]]:
+    """引號外依 ; & | 換行切段；遇到指令替換、行程替換、寫檔重導向回 None。"""
+    segs: List[str] = []
+    buf: List[str] = []
+    quote = ""
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if quote:
+            if c == quote:
+                quote = ""
+            elif c == "\\" and quote == '"' and i + 1 < n:
+                buf.append(c)
+                i += 1
+                c = cmd[i]
+            elif c == "$" and quote == '"' and cmd.startswith("$(", i):
+                return None
+            elif c == "`" and quote == '"':
+                return None
+            buf.append(c)
+            i += 1
+            continue
+        if c in "'\"":
+            quote = c
+        elif c == "`" or cmd.startswith(("$(", "<(", ">("), i):
+            return None
+        elif c == ">":
+            j = i + 1 + (cmd[i + 1:i + 2] == ">")
+            target = re.match(r"\s*(&\d|[^\s;&|<>]+)", cmd[j:])
+            if not target or not (target.group(1).startswith("&") or target.group(1).lower() in _NULL_SINKS):
+                return None
+            i = j + target.end()
+            continue
+        elif c in ";&|\n":
+            segs.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(c)
+        i += 1
+    if quote:
+        return None
+    segs.append("".join(buf))
+    return [s for s in (x.strip() for x in segs) if s]
+
+
+def _readonly_segment(seg: str, ps: bool) -> bool:
+    toks = seg.split()
+    while toks and re.match(r"^[A-Za-z_]\w*=", toks[0]):
+        toks = toks[1:]
+    if not toks:
+        return True
+    name = os.path.basename(toks[0].strip("'\"")).lower()
+    name = name[:-4] if name.endswith(".exe") else name
+    args = [t.strip("'\"") for t in toks[1:]]
+    if ps:
+        return name in _PS_READ and not any(c in seg for c in "(){}")
+    if any(a.startswith(_RUNS_PROGRAM) for a in args):
+        return False
+    if name in _VCS_READ:
+        if "-c" in args or any(a.startswith(_GIT_RUNS) for a in args):
+            return False
+        sub = next((a for k, a in enumerate(args) if not a.startswith("-") and (k == 0 or args[k - 1] != "-C")), "")
+        return sub in _VCS_READ[name]
+    if name == "find":
+        return not _FIND_WRITES & set(args)
+    if name == "sed":
+        opts, rest = [a for a in args if a.startswith("-")], [a for a in args if not a.startswith("-")]
+        return "-n" in opts and set(opts) <= _SED_OPTS and bool(rest) and bool(_SED_PRINT.match(rest[0]))
+    if name == "sort" and any(a.startswith("--output") or (a.startswith("-") and not a.startswith("--") and "o" in a)
+                              for a in args):
+        return False
+    return name in _READ_CMDS
 
 
 # ─── 編輯的事實：行數與 comment_only ─────────────────────────────────────
