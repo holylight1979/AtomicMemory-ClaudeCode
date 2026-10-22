@@ -263,6 +263,16 @@ RULES: Dict[str, str] = {
     "PROJECT_LITERAL_IS_HINT": "realm 閘（scope=global／org 寫入）的字面「此專案／本專案／這個專案／這專案」只是提示：命中的只有這類字樣時，"
                                "AI 帶 scope_reason（一句：為什麼這段是跨專案的，例如在講這個詞本身）→ 照寫、留帳（guard-realm_declared）；"
                                "沒帶 → 照擋並說明可宣告。專案專名、專案路徑、已登記專案名是查得到的事實，照擋、宣告不放。",
+    "STATE_RMW_LOCKED": "同一個 session 的 hook 行程（同一則回覆的平行工具呼叫、共用 session_id 的子代理）讀改寫 state 要排隊："
+                        "dispatcher 開 hook 模式（wg_core.begin_state_rmw），第一次讀某個 session 的 state 就拿它的鎖（state-<sid>.lock）、"
+                        "握到 handler 結束，讀→改→寫整段在鎖裡，序號（event_seq）也在鎖裡配。等鎖最多等到 hook 上限的一半（起點＝行程建立）；"
+                        "等不到不無鎖寫、不整份覆蓋：照讀沒上鎖的那份讓閘照判，寫回改留待併帳（state-<sid>.<時間>-<pid>.pending，只記跟這支行程的"
+                        "基準比改了哪些鍵；同一支再寫只記之後的變動），stderr 與 Logs/guard-state_lock.jsonl 留訊號；換檔失敗也改留待併帳。"
+                        "子規則 STATE_PENDING_MERGED：下一支拿到鎖的行程讀 state 前把待併帳照欄位分型併回（集合取聯集、業務鍵紀錄逐筆併、累加計數"
+                        "兩邊都沒歸零才相加、回合與序號取大、時間取新、分版本整組新的勝、整組綁定的與判不出的留磁碟那份並記下），併過的帳名跟合併"
+                        "結果同一次寫進 state（_state_pending_applied），刪不掉的下次跳過再刪，不套兩次。讀到檔不在＝讀到空 state：留的帳逐欄合併、"
+                        "不當整份換掉；fallback 重建的 state 不蓋掉已存在的檔。沒進 hook 模式的寫者寫回時才拿鎖，鎖裡發現檔跟自己的基準比被換過"
+                        "也照同一套三方合併。判定在 hooks/wg_core（state 讀寫段）。",
 }
 
 

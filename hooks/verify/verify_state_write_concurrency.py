@@ -5,10 +5,12 @@
   兩支並行 hook 一長一短同時 open(tmp,'w')，短的從 offset 0 蓋掉長的前段、尾巴殘留 → replace 後「Extra data」，
   該 session 餘生每支 hook 都 [state:unreadable] 跳過。
 正例：兩個子行程對同一 sid 各寫 50 次長短交錯 → 每次寫完 json.loads 都成功且內容是兩方之一的完整 dict。
-反例（證明本案抓得到舊 bug）：子行程內把 tmp 檔名改回共用（os.getpid→0）且鎖永遠拿不到，用檔案同步點排出
+反例（證明本案抓得到舊 bug）：子行程內把 tmp 檔名改回共用（os.getpid→0）且鎖形同虛設（兩邊都以為拿到），用檔案同步點排出
   「兩邊都 open 後、長的先寫完、短的再寫」的交錯 → 必重現 Extra data；同交錯只保留 tmp 每行程唯一 → 仍合法。
-鎖逾時：父行程長持 .lock → 子行程重試後仍寫出合法 JSON，stderr 有 [state:lock-timeout]。
-replace 失敗：父行程開著 state 檔（Windows 無 FILE_SHARE_DELETE 換不掉）→ 不留 tmp、原 state 仍合法、stderr 有 [state:replace-failed]。
+鎖拿不到（規則 STATE_RMW_LOCKED）：父行程長持 .lock → 子行程等到期限、不無鎖寫，state 檔不動、留一份整份換掉的待併帳，
+  stderr 有 [state:lock-timeout]／[state:pending-written]；鎖放掉後下一個握鎖讀 state 的行程併回、刪帳。
+replace 失敗：父行程開著 state 檔（Windows 無 FILE_SHARE_DELETE 換不掉）→ 不留 tmp、原 state 仍合法、stderr 有 [state:replace-failed]，
+  這次的內容改留待併帳（不丟）。
 """
 from __future__ import annotations
 
@@ -77,11 +79,20 @@ if mode == "check":
     print(read_valid())
     raise SystemExit(0)
 
+if mode == "rmw-read":
+    # 下一個握鎖讀 state 的行程（hook 模式）：讀之前併回待併帳
+    wg_core.begin_state_rmw()
+    st = wg_core.read_state(sid)
+    wg_core.end_state_rmw()
+    print(json.dumps({"state": st}))
+    raise SystemExit(0)
+
 if mode == "burst":
     signal(f"{tag}_ready")
     wait("go")
     bad = []
     for i in range(n):
+        wg_core._STATE_READ_TEXT.clear()      # 每次都當沒讀過、整份寫：本案驗寫入原子性（讀改寫的合併見 verify_state_parallel_rmw）
         wg_core.write_state(sid, expected(tag, i))
         r = read_valid()
         if r != "OK":
@@ -89,8 +100,8 @@ if mode == "burst":
     print(json.dumps({"tag": tag, "bad": bad}))
     raise SystemExit(0)
 
-# race-*：鎖永遠拿不到；race-shared 再把 tmp 檔名退回「所有行程共用」（舊 bug 的兩個條件）
-wg_core._acquire_state_lock = lambda lock_path: None
+# race-*：鎖形同虛設（兩邊都以為拿到，等於沒有互斥）；race-shared 再把 tmp 檔名退回「所有行程共用」（舊 bug 的兩個條件）
+wg_core._acquire_state_lock = lambda lock_path, deadline: open(os.devnull, "ab")
 if mode == "race-shared":
     os.getpid = lambda: 0
 real_open = open
@@ -183,6 +194,7 @@ def test_two_processes_interleaved_writes_always_valid_json(tmp_path):
     ra, rb = json.loads(oa.strip().splitlines()[-1]), json.loads(ob.strip().splitlines()[-1])
     assert ra["bad"] == [] and rb["bad"] == [], (ra, rb)
     assert bad_samples == [], bad_samples
+    assert samples > 0                                           # 父行程真的有在兩邊寫的期間讀到檔
     final = json.loads(p.read_text(encoding="utf-8"))
     assert final["i"] == 49 and _one_writer(final)
     assert not list((tmp_path / "workflow").glob("*.tmp"))       # 不留 tmp
@@ -226,10 +238,13 @@ def test_same_interleaving_with_unique_tmp_stays_valid(tmp_path):
 # ─── 鎖逾時與 replace 失敗 ─────────────────────────────────────────────────
 
 @pytest.mark.skipif(not _WIN, reason="msvcrt 鎖只在 Windows")
-def test_lock_held_by_other_process_times_out_then_writes_valid_json(tmp_path):
+def test_lock_held_by_other_process_no_lockless_write_leaves_pending(tmp_path):
     import msvcrt
     wf = tmp_path / "workflow"
     wf.mkdir()
+    p = _state_file(tmp_path)
+    before = json.dumps({"session": {"id": _SID}, "writer": "old", "i": -1, "pad": "x"})
+    p.write_text(before, encoding="utf-8", newline="\n")
     lock = wf / f"state-{_SID}.lock"
     fh = open(lock, "ab")
     msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
@@ -243,11 +258,17 @@ def test_lock_held_by_other_process_times_out_then_writes_valid_json(tmp_path):
         msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
         fh.close()
     assert a.returncode == 0, (oa, ea)
-    assert "[state:lock-timeout]" in ea
-    assert json.loads(oa.strip().splitlines()[-1])["bad"] == []
-    d = json.loads(_state_file(tmp_path).read_text(encoding="utf-8"))
-    assert {k: v for k, v in d.items() if k != "last_updated"} == _expected("A", 0, 1)
-    assert not list(wf.glob("*.tmp"))
+    assert "[state:lock-timeout]" in ea and "[state:pending-written]" in ea, ea
+    assert p.read_text(encoding="utf-8") == before                       # 拿不到鎖不無鎖寫
+    assert len(list(wf.glob(f"state-{_SID}.*.pending"))) == 1
+    r = _spawn("rmw-read", "R", 1, sync, tmp_path)
+    out, err = r.communicate(timeout=30)
+    assert r.returncode == 0 and "[state:pending-merged]" in err, (out, err)
+    d = json.loads(out.strip().splitlines()[-1])["state"]
+    applied = d.pop("_state_pending_applied")                         # 併過的帳名跟合併結果同一次落盤（不會套兩次）
+    assert len(applied) == 1 and applied[0].endswith(".pending")
+    assert {k: v for k, v in d.items() if k != "last_updated"} == _expected("A", 0, 1)   # 沒讀過就整份寫＝整份換掉
+    assert not list(wf.glob("*.pending")) and not list(wf.glob("*.tmp"))
 
 
 @pytest.mark.skipif(not _WIN, reason="Windows 才會因開著的 handle 讓 replace 失敗")
@@ -267,8 +288,9 @@ def test_replace_blocked_by_open_handle_leaves_no_tmp_and_keeps_old_state(tmp_pa
     finally:
         holder.close()
     assert a.returncode == 0, (oa, ea)
-    assert "[state:replace-failed]" in ea
+    assert "[state:replace-failed]" in ea and "[state:pending-written]" in ea
     assert p.read_text(encoding="utf-8") == before
     assert json.loads(before)["writer"] == "old"
+    assert len(list(wf.glob(f"state-{_SID}.*.pending"))) == 1          # 換不掉也不丟：這次的內容留待併帳
     assert not list(wf.glob("*.tmp"))
     assert not list(wf.glob("*.lock"))

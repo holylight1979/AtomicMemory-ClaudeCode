@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from wg_core import (
     WORKFLOW_DIR, load_config, v6_enabled,
-    _atom_debug_error,
+    _atom_debug_error, begin_state_rmw, end_state_rmw,
 )
 import wg_hook_timing as hook_timing
 
@@ -62,6 +62,20 @@ PRE_V6_TOOLS = {   # 9e476fd0 settings.json 的 matcher；v6 加掛的工具（R
 }
 
 
+# 規則 STATE_RMW_LOCKED：每支 hook 讀到 state 就握這個 session 的鎖到 handler 結束；等鎖最多等到 hook 上限的這個比例
+# （起點同分段計時＝行程建立），後一半留給 handler 跑完與超時降級（80%）。
+STATE_LOCK_WAIT_RATIO = 0.5
+
+
+def _state_lock_deadline(event: str, input_data: dict, timer) -> float:
+    """等 state 鎖等到幾點（epoch 秒）：起點都是行程建立；有起表照它的上限，沒起表的事件（PostToolBatch、PostToolUseFailure、
+    SubagentStop…）照 settings.json 這支 hook 的 timeout，讀不到當 5 秒。"""
+    if timer:
+        return timer.t0 + timer.limit_s * STATE_LOCK_WAIT_RATIO
+    limit = hook_timing.settings_limit(event, str(input_data.get("tool_name") or "")) or 5.0
+    return hook_timing._process_started() + limit * STATE_LOCK_WAIT_RATIO
+
+
 def _pre_v6_skips(event: str, input_data: dict) -> bool:
     if event not in PRE_V6_EVENTS:
         return True
@@ -95,8 +109,8 @@ def main():
         sys.exit(0)
     spec = (JUDGE_HANDLERS if judge else HANDLERS).get(event)
     if spec:
-        if v6:
-            hook_timing.start(event, input_data, config)    # Stop／PostToolUse 分段計時；handler 在段落邊界打點，過上限 80% 降級
+        timer = hook_timing.start(event, input_data, config) if v6 else None   # Stop／PostToolUse 分段計時；過上限 80% 降級
+        begin_state_rmw(_state_lock_deadline(event, input_data, timer))
         try:
             module = importlib.import_module(spec[0])
             hook_timing.lap("載入 handler")
@@ -106,6 +120,7 @@ def main():
             _atom_debug_error(f"workflow-guardian:{event}", e)
             sys.exit(0)
         finally:
+            end_state_rmw()
             hook_timing.finish()
     else:
         sys.exit(0)
