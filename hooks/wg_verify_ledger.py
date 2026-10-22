@@ -2139,7 +2139,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     globs = cfg.get("verify_case_globs") or []
     measure_cmds = list(measure_cmds or [])
     # 規則 CARRIED_CLAIM_ANY_TURN_RECEIPT：擋滿待放行承接來的「修好」宣稱，認晚於最後一次改動的合格 PASS，不限回合（碼沒動不必重跑）
-    carried_fixed = any(t and claims_completion(t) and claims_fixed(t, phrases) for t in claims)
+    carried_fixed = any(t and claims_completion(t) and claims_fixed(t, phrases) for t in claims) and not (
+        last_text and claims_completion(last_text) and claims_fixed(last_text, phrases))    # 本回合自己又說修好：照舊只認本回合
     related, unrelated = ([], []) if not texts else related_pass_receipts(
         receipts if carried_fixed else this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
     _cov: List[bool] = []

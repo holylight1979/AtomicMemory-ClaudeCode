@@ -169,7 +169,7 @@ def turn_events(transcript_text: str) -> Tuple[List[Dict[str, Any]], List[Dict[s
                 starts.append({"mode": call[1].get("mode"), "kind": call[1].get("kind"),
                                "job_id": _field(text, "job_id") or "-", "notes": _notes(text), **ev})
             else:
-                results.append({"job_id": str(call[1].get("job_id") or "").strip(), **ev})
+                results.append({"job_id": str(call[1].get("job_id") or "").strip(), "at": str(o.get("timestamp") or ""), **ev})
     return starts, results
 
 
@@ -304,6 +304,20 @@ def _mod_turn(m: Dict[str, Any]) -> int:
     return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
 
 
+def _later(a: str, b: str) -> bool:
+    """時間字串 a 晚於 b（ISO 8601，轉 UTC 比）；任一邊空或解析不了 → False（當成不晚於，照算審過）。"""
+    from datetime import datetime, timezone
+
+    def utc(s: str):
+        try:
+            d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return d.astimezone(timezone.utc) if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    ua, ub = (utc(a) if a else None), (utc(b) if b else None)
+    return bool(ua and ub and ua > ub)
+
+
 def has_goal_tree(session_id: str) -> bool:
     """這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的 run 不算跑過）。目標檔讀不到或壞了 → 當有（fail-closed）並浮 stderr。"""
     try:
@@ -343,8 +357,13 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     ran_now = [j for j, st in runs_now if st in rr.SO_RAN]
     rec = ((state.get("second_opinion_ran") or {}).get(session_id)) or {}
     if ran_now and rec.get("job") != ran_now[-1]:
-        # 規則 SECOND_OPINION_RAN_BEFORE：本回合跑完就記下（沒宣告完成也記），之後的回合以它為審過的基準
-        rec = {"job": ran_now[-1], "turn": int(state.get("turn_seq") or 0), "risky": [rr.canon_path(p) for p in risky_now()]}
+        # 規則 SECOND_OPINION_RAN_BEFORE：本回合跑完就記下（沒宣告完成也記），之後的回合以它為審過的基準；
+        # 審過的高風險檔只算結果回來那一刻之前改的（結果之後才改的另一支高風險檔不算審過）
+        done_at = next((str(r.get("at") or "") for r in reversed(results) if r.get("job_id") == ran_now[-1]), "")
+        last_at = {rr.canon_path(m["path"]): str(m.get("last_at") or m.get("at") or "") for m in code}
+        seen = [p for p in risky_now() if not (done_at and _later(last_at.get(rr.canon_path(p), ""), done_at))]
+        rec = {"job": ran_now[-1], "turn": int(state.get("turn_seq") or 0), "at": done_at,
+               "risky": [rr.canon_path(p) for p in seen]}
         state.setdefault("second_opinion_ran", {})[session_id] = rec
     if not claims_done:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
@@ -356,6 +375,8 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         ok_turn = max(ok_turn, int(rec.get("turn") or 0))
         covered |= set(rec.get("risky") or [])
     after = {rr.canon_path(m["path"]) for m in code if _mod_turn(m) > ok_turn}
+    if rec and rec.get("at") and rec.get("job") not in {str(st.get("job_id")) for st in starts}:
+        after |= {rr.canon_path(m["path"]) for m in code if _later(str(m.get("last_at") or m.get("at") or ""), rec["at"])}
     new_risky = [p for p in risky if rr.canon_path(p) in after and rr.canon_path(p) not in covered]
     # 規則 SECOND_OPINION_ONCE_PER_CLAIM：審過之後的修改只在改到新的高風險檔、或之後新改的程式檔數再過門檻時才算新一輪
     fresh = ok_turn == 0 or bool(new_risky) or len(after) >= min_files

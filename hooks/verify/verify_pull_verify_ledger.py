@@ -183,6 +183,40 @@ def test_carried_fixed_claim_accepts_green_from_earlier_turn_after_last_edit(tmp
     assert "CLAIM_FIXED_NEEDS_PASS" in out, out
 
 
+def test_fresh_fixed_claim_this_turn_still_needs_this_turn_receipt(tmp_path):
+    """承接的宣稱之外，本回合自己又說「修好了」→ 照舊只認本回合的收據（前一回合的綠收據不替新宣稱解帳）。"""
+    code = _put(tmp_path, "src/widget.py", "W = 1\n")
+    case = _put(tmp_path, "tests/test_widget.py", "from widget import W\n")
+    mods = [_mf(code, 4, T1, 1), _mf(case, 4, T1, 2)]
+    green = _rcpt(tmp_path, "python -m pytest -q tests/test_widget.py", 4, T2, 3)
+    out = _reconcile(tmp_path, "widget.py 修好了，完成。", mods, [green], turn=6, claims=["widget.py 修好了，完成。"],
+                     pending=True, user_turn=6)
+    assert "CLAIM_FIXED_NEEDS_PASS" in out, out
+
+
+def test_second_opinion_risky_file_edited_after_result_is_not_reviewed(tmp_path):
+    """第二意見結果回來之後、同一回合才改的另一支高風險檔，不算審過：下一回合宣告完成照欠。"""
+    root = _repo(tmp_path)
+    files = [_put(root, f"src/m{i}.py", "x = 1\n") for i in range(5)]
+    gate = _put(root, "hooks/late_gate.py", "y = 1\n")
+    mods = [_mf(f, 5, T1, i) for i, f in enumerate(files)] + [_mf(gate, 5, T3, 9)]
+    tx = Tx()
+    tx.user("做這個功能")
+    tx.call(START, {"mode": "independent", "kind": "stage-review", "question": "q"}, "job_id: job-l\nstatus: started")
+    tx.n += 1
+    tx.add({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": f"t{tx.n}", "name": RESULT,
+                                                          "input": {"job_id": "job-l"}}]}})
+    tx.add({"type": "user", "timestamp": T2, "message": {"content": [{"type": "tool_result", "tool_use_id": f"t{tx.n}",
+                                                                       "content": [{"type": "text", "text": "status: done"}]}]}})
+    state = {"turn_seq": 5}
+    _so(state, mods, "先停一下。", tx, claims=False, risky=["hooks/late_gate.py"])
+    assert state["second_opinion_ran"][SID]["risky"] == [], state
+    tx.user("收尾")
+    state["turn_seq"] = 6
+    v, f = _so(state, mods, "全部完成。", tx, risky=["hooks/late_gate.py"])
+    assert v.owed, (v, f)
+
+
 # ─── RECEIPT_UNPARSED_GENERAL_ONLY ───────────────────────────────────────
 
 def test_ruler_with_unrelated_prefix_counts_and_unparsed_receipt_is_logged_not_blocked(tmp_path, monkeypatch):
