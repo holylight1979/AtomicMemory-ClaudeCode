@@ -353,6 +353,10 @@ def handle_user_prompt_submit(
     ]
     # 單調遞增 turn 序號 → Stop 端 per-turn 一次性歸因守門（防 blocked turn 重複計）。
     state["turn_seq"] = int(state.get("turn_seq", 0)) + 1
+    # 規則 PROMPT_REOPENS_DONE：收尾（或 SessionEnd）設的 done 只說上一回合收得乾淨；新的一則話開工 → 改回 working，
+    # 收尾的同步提醒與底部一般提醒才看得到這一回合的改動。syncing（同步進行中）、merged（轉址）不動。
+    if state.get("phase") == "done":
+        state["phase"] = "working"
     # turn 起點的重試計數快照：Stop 的 outcome 只看本 turn 增量（累計值留給 FixEscalation）。
     state["wisdom_retry_turn_base"] = int(state.get("wisdom_retry_count", 0) or 0)
 

@@ -1851,6 +1851,13 @@ def test_044_stop_flow_rules_point_to_stop_handler():
         assert "handlers/stop.py" in rr.RULES[name], name
 
 
+def test_044_later_turn_sync_rules_point_to_handlers():
+    """PROMPT_REOPENS_DONE 判法在 handlers/user_prompt_submit.py、SYNC_BLOCK_NEW_ITEMS_ONLY 在 handlers/stop.py
+    （兩回合端到端案例見 verify_sync_reminder_later_turn.py）。"""
+    assert "handlers/user_prompt_submit.py" in rr.RULES["PROMPT_REOPENS_DONE"]
+    assert "handlers/stop.py" in rr.RULES["SYNC_BLOCK_NEW_ITEMS_ONLY"]
+
+
 # ─── LEFTOVER_NEEDS_CLEANUP（收尾自清；事實由 aec_ledger.list_alive 現場查，真 git 的案例在 verify_session_artifacts） ───
 
 def _art(kind, title, **kw):

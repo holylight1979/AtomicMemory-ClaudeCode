@@ -92,6 +92,13 @@ RULES: Dict[str, str] = {
                                        "→ 沒有任何東西可同步，不算未同步（stderr 列出）。檔還在而查不了版控的照 SYNC_BLOCK_SKIPS_SYNCED 算未同步；"
                                        "磁碟或網路分享根連不到、往上找版控根時出錯（斷線看起來也像不在）也照算未同步。"
                                        "判法在 handlers/stop.py 的 _synced_paths。",
+    "PROMPT_REOPENS_DONE": "送進新的一則話（UserPromptSubmit，同伴訊息、背景通知也算）時，phase 是 done（上一回合收尾或 SessionEnd 設的）"
+                           "就改回 working；syncing（同步進行中）、merged（轉址）不動。收尾的同步提醒與底部一般 sync block 都跳過 done，"
+                           "不改回的話第一回合收得乾淨之後整個 session 都不再提醒。擋次照舊：同步提醒每 session 最多 "
+                           "sync_reminder.max_reminders 次，底部一般 block 照 SYNC_BLOCK_NEW_ITEMS_ONLY。判法在 handlers/user_prompt_submit.py。",
+    "SYNC_BLOCK_NEW_ITEMS_ONLY": "Stop 底部的一般 sync block（待記知識、文件漂移）：同一筆在前面的使用者回合擋過就不再擋，有新的一筆才擋；"
+                                 "同一個使用者回合照舊（擋幾次歸 stop_gate_max_blocks 共用預算）。擋過的記在 state.sync_block_shown"
+                                 "（項目 → 第一次擋的使用者回合），「還會擋」預覽用同一個判定。判法在 handlers/stop.py 的 _sync_block_items。",
     "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、第二意見、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",

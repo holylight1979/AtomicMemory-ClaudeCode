@@ -327,6 +327,19 @@ def _drop_synced(mod_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [m for m in mod_files if (m or {}).get("path") not in synced]
 
 
+def _sync_block_items(state: Dict[str, Any], unsynced: int, min_files: int, uturn: int) -> List[str]:
+    """底部一般 sync block 這次欠的項目（空＝不擋；收尾的擋與「還會擋」預覽共用）。有待記知識，或未同步改檔 ≥ min_files 時有文件漂移
+    才算欠（只剩改檔數歸同步提醒，規則 SYNC_BLOCK_NOT_REPEATED）；規則 SYNC_BLOCK_NEW_ITEMS_ONLY：前面使用者回合擋過的同一筆不再算，
+    同一回合照舊（擋幾次歸共用預算）。unsynced＝剔除已同步之後的不重複改檔數。待記知識以整段內容的雜湊當鍵（前段相同、後段不同算兩筆）。"""
+    kq = [f"kq:{hashlib.sha1(str(q.get('content', '') if isinstance(q, dict) else q).encode('utf-8')).hexdigest()[:16]}"
+          for q in state.get("knowledge_queue") or []]
+    drift = [f"drift:{k}" for k in ((state.get("docdrift_pending") or {}) if DOCDRIFT_AVAILABLE else {})]
+    if not kq and not (drift and unsynced and unsynced >= min_files):
+        return []
+    shown = state.get("sync_block_shown") or {}
+    return [k for k in kq + drift if shown.get(k, uturn) == uturn]
+
+
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
 
 
@@ -1901,8 +1914,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 _unsynced_memo.append({(m or {}).get("path") for m in _drop_synced(own_mod_files)} - {None, ""})
             unsynced = _unsynced_memo[0]
             reminder_left = sr.get("enabled", True) and int(state.get("sync_reminder_count", 0)) < int(sr.get("max_reminders", 1))
-            if (unsynced and reminder_left) or len(unsynced) >= int(config.get("min_files_to_block", 2)) \
-                    or state.get("knowledge_queue"):
+            if (unsynced and reminder_left) or _sync_block_items(
+                    state, len(unsynced), int(config.get("min_files_to_block", 2)), _user_turn(state, turn_seq)):
                 later.append((("SyncReminder", "SyncBlock"),
                               f"同步：{len(unsynced)} 個改過的檔還沒 commit 或還沒 push（照口令規則處理）"))
         if names is not None:
@@ -2737,10 +2750,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     docdrift = (state.get("docdrift_pending") or {}) if DOCDRIFT_AVAILABLE else {}
-    if kq_count == 0 and not docdrift:
-        # 只剩「改了 N 個檔」：跟同步提醒、收尾檢核 (g) 是同一件事（規則 SYNC_BLOCK_NOT_REPEATED），只留 stderr 一行
-        print(f"[Workflow Guardian] {len(unique_files)} file(s) modified（同步交代見同步提醒／收尾檢核 (g)，不另擋）",
-              file=sys.stderr)
+    sync_block_owed = _sync_block_items(state, len(unique_files), min_files, _since)
+    if not sync_block_owed:
+        if kq_count == 0 and not docdrift:
+            # 只剩「改了 N 個檔」：跟同步提醒、收尾檢核 (g) 是同一件事（規則 SYNC_BLOCK_NOT_REPEATED），只留 stderr 一行
+            print(f"[Workflow Guardian] {len(unique_files)} file(s) modified（同步交代見同步提醒／收尾檢核 (g)，不另擋）",
+                  file=sys.stderr)
+        else:
+            # 規則 SYNC_BLOCK_NEW_ITEMS_ONLY：這批待記知識／文件漂移前面的使用者回合擋過了，沒有新的一筆
+            print(f"[Workflow Guardian] {kq_count} 筆待記知識、{len(docdrift)} 筆文件漂移前面回合已提醒過，沒有新的，不另擋",
+                  file=sys.stderr)
         state["phase"] = "done"
         write_state(session_id, state)
         _maybe_spawn_user_extract_worker(session_id, state, config)
@@ -2754,6 +2773,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     state["stop_blocked_count"] = stop_count + 1
+    _shown = state.setdefault("sync_block_shown", {})
+    for k in sync_block_owed:
+        _shown.setdefault(k, _since)
 
     file_names = ", ".join(f.rsplit("/", 1)[-1] for f in unique_files[:8])
 
