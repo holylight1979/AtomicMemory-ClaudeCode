@@ -380,6 +380,25 @@ def test_session_end_drops_snapshots(hk):
     assert not snap_dir.exists()
 
 
+def test_v6_off_same_gate_twice_no_abort(hk, monkeypatch):
+    """紅案例（v6 總開關）：v6 關、chain_breaker 開 → 同一道閘擋兩次也不中止，每一步的輸出跟關掉斷路器一模一樣，帳一筆都不寫。"""
+    monkeypatch.setenv("WG_V6", "0")
+
+    def run(s: Session):
+        s.gates["KnowledgeHarvest"] = True
+        outs = [s.stop()]
+        outs.append(s.write(s.proj / "n.txt", "n\n"))
+        outs.append(s.stop())
+        return outs
+    on = hk("sid-v6off-on", True)
+    got_on = run(on)
+    off = hk("sid-v6off-off", False)
+    got_off = run(off)
+    assert all(_blocked(o) and o["reason"].startswith(KH) for o in (got_on[0], got_on[2]))   # 前置：同閘真的擋了兩次
+    assert json.dumps(got_on, ensure_ascii=False, sort_keys=True) == json.dumps(got_off, ensure_ascii=False, sort_keys=True)
+    assert not cs.ledger_path(on.sid).exists()
+
+
 # ─── 001 反例：沒有連鎖時斷路器不介入、既有閘行為一行不變 ───────────────────────
 
 def test_no_chain_outputs_identical_to_breaker_off(hk):

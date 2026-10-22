@@ -317,6 +317,20 @@ def test_disabled_is_no_op(box):
     assert not cs.ledger_path(SID).exists()
 
 
+def test_v6_off_is_no_op(box, monkeypatch):
+    """紅案例（v6 總開關）：WG_V6=0、chain_breaker 開 → 整個斷路器不跑：同閘擋兩次照擋（PASS）、不停手、不存快照、
+    不記動作、收尾回 None，帳一筆都不寫。"""
+    monkeypatch.setenv("WG_V6", "0")
+    t, x = Turn(box), box / "proj" / "x.py"
+    x.write_text("x = 1\n", encoding="utf-8")
+    assert t.gate("A") == cs.PASS
+    t.edit(x, "x = 1", "x = 2")
+    assert t.gate("A") == cs.PASS and t.gate("A", hook="PreToolUse") == cs.PASS
+    assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON) is None
+    assert t.stop() is None and not t.record_only()
+    assert not cs.ledger_path(SID).exists() and not (box / "workflow" / "chain-snap").exists()
+
+
 def test_errors_fall_back_to_existing_gates(box, monkeypatch, capsys):
     """斷路器自己出錯 → 照原本的閘行為（不中止、不只記錄），stderr 印一行，不能無聲吞掉。"""
     def boom(sid):
