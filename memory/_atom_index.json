@@ -11765,6 +11765,34 @@
         "守門代價"
       ],
       "scope": "global"
+    },
+    {
+      "name": "驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法",
+      "path": "_AIDocs/_atoms/MemDev/驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法.md",
+      "triggers": [
+        "收據不認",
+        "分號串接",
+        "重複驗證",
+        "反覆驗證",
+        "wg_verify_ledger",
+        "驗證範圍",
+        "再跑一次"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "閘關了ai照樣一直呼叫工具-是提示句與mcp描述帶的-減量要改提示與記帳位置-只關閘沒用",
+      "path": "_AIDocs/_atoms/MemDev/閘關了ai照樣一直呼叫工具-是提示句與mcp描述帶的-減量要改提示與記帳位置-只關閘沒用.md",
+      "triggers": [
+        "goal_gate",
+        "need_goal update",
+        "提示句",
+        "MCP 描述",
+        "減量",
+        "token 消耗",
+        "關閘沒用"
+      ],
+      "scope": "global"
     }
   ]
 }

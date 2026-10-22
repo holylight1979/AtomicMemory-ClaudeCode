@@ -614,6 +614,10 @@ def approve_no_case(state: Dict[str, Any], key: str) -> List[str]:
     return out
 
 
+RUN_SHAPE_HINT = ("要算收據：測試指令自己一條，或只用 && 串跑程式的指令，後面只准 `| tail`；用 ; 串別的指令（echo、輸出比對、"
+                  "示範執行）或刻意弄紅的變異檢查跟它同一條，整條都不算，得再跑一次。示範與比對另開一條。")
+
+
 def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: Lookup, repos: List[str],
                  reviewed: int, rg: Optional[Dict[str, Any]] = None) -> str:
     rg = rg or vl.reconcile_cfg({})
@@ -655,6 +659,9 @@ def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: 
         # 全量改增量待補：原本句尾叫人「整把在發版前全量跑」，全量已從流程拔掉
         lines.append("參考（部位原本那把整的量尺，只當候選材料，不必全跑）：" + "；".join(rulers))
     lines.append("收尾前範圍內每一項都要在最後一次改動之後跑綠；之後若範圍外的測試因這次改動紅了，會記成範圍漏判送回檢討。")
+    # 規則 RUN_COUNTS_FIRST_TIME：先講清楚怎樣跑才算收據，第一次就跑成算數的形狀（B′ 實測：測試用 ; 串 echo／比對一起跑，
+    # 整條不算收據，只好把同一組測試再跑一次）
+    lines.append(RUN_SHAPE_HINT)
     for r in repos:
         lines.append(stats_line(r))
     return "\n".join(lines)

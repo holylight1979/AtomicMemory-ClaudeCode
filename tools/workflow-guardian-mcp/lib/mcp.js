@@ -515,12 +515,13 @@ const TOOL_DEFINITIONS = [
     description:
       "需求目標樹：每個要動手的需求先抓「真正要達成什麼」，工作中長出子目標，回頭對照做法有沒有更接近。" +
       "set＝寫樹根（任務開始，寫整個需求、不只這回合先做的那段；被糾正或補充時改這棵樹、不開新樹：改寫樹根要附 why；" +
-      "真的換成另一件事才帶 new_task=true 開新樹，目前的樹還在進行中時也要附 why；import_from＝從續接單匯入）；" +
-      "add＝加子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
-      "update＝改節點文字／狀態／清楚度，也是改了程式之後的「一句進度」（why 必填：這次改動讓它更接近了沒、為什麼）；" +
+      "真的換成另一件事才帶 new_task=true 開新樹，目前的樹還在進行中時也要附 why；import_from＝從續接單匯入；" +
+      "看得出的子目標同一次放 items，不必再叫 add）；" +
+      "add＝之後再長子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
+      "update＝改節點文字／狀態／清楚度（改了程式之後的進度收尾時程式自動記，不必為此呼叫；要寫自己的判斷再用，why 必填）；" +
       "reconcile＝交付前的完整對照（每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
       "寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案／卡片／推論不算試過），" +
-      "實測只能配收據 R<號> 且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note；" +
+      "實測只能配收據（ref 寫 latest 由程式填最近一筆綠的，不必先 read 查號碼；之後改了程式又跑綠會自動換新）且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note；" +
       "達成可附 same_class：同類別處還有沒有）；" +
       "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
       "verify_scope＝宣告這次的驗證範圍：改了程式之後由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
@@ -543,7 +544,7 @@ const TOOL_DEFINITIONS = [
         parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },
         items: {
           type: "array",
-          description: "add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why}]；" +
+          description: "set／add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why}]；" +
             "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, depends?, case_for?}]",
           items: {
             type: "object",
@@ -564,7 +565,7 @@ const TOOL_DEFINITIONS = [
                   type: "object",
                   properties: {
                     kind: { type: "string", enum: ["receipt", "case", "file", "atom"], description: "收據／驗證案例檔／檔:行／卡名" },
-                    ref: { type: "string", description: "receipt 寫 R<號>（need_goal read 看最近收據）；case／file 寫路徑（可帶 :行），也可寫 pytest 節點 id（檔::測試名，要查得到那個 def 才收）；atom 寫卡名" },
+                    ref: { type: "string", description: "receipt 寫 latest（程式填最近一筆綠的）或 R<號>；case／file 寫路徑（可帶 :行），也可寫 pytest 節點 id（檔::測試名，要查得到那個 def 才收）；atom 寫卡名" },
                     level: { type: "string", enum: ["measured", "read", "inferred"], description: "實測（只配收據）／讀碼／推論" },
                     covers: { type: "array", items: { type: "string" }, description: "這筆證據支持哪幾個節點，省略＝所在節點" },
                   },

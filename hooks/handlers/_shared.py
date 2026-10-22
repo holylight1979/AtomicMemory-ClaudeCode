@@ -292,6 +292,8 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
     {"dir": "need-goal", "patterns": ("*.json", "*.tmp", "*.lock"), "kind": "need_goal", "param": "wg_need_goal.STALE_DAYS",
      "keep": "目標檔與殘檔 30 天；壞檔備份 30 天；鎖檔在同名目標檔已不在、而且超過 30 天才刪",
      "why": "只有該 session 讀（從續接單接手讀的是續接單）；目標檔都清掉的鎖不會再有人鎖"},
+    {"dir": "entry-sent", "patterns": ("*.json",), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "只給同一 session 同一個使用者回合判「這張判準卡送過全文了沒」用（wg_entrypoint CARD_ONCE_PER_TURN）"},
     {"dir": "ups-sentinel", "patterns": ("*.json",), "kind": "age", "param": 7,
      "keep": "7 天", "why": "只給同一 session 下一輪偵測「上一輪被中斷」用"},
     {"dir": "mcp-boot", "patterns": ("*.json", "*.tmp"), "kind": "age", "param": 7,
