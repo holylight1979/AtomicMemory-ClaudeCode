@@ -469,7 +469,7 @@ def collect_superseded_names(
             merged = fresh
         tmp = memo_path.with_name(f"{memo_path.name}.{os.getpid()}.tmp")
         try:
-            tmp.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+            tmp.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8", newline="\n")
             os.replace(tmp, memo_path)
         except OSError as e:
             _atom_debug_error("supersedes_memo:write", e)
