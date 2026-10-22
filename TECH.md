@@ -756,7 +756,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | CLOSING_RITUAL_SWITCHES | 收尾儀式要不要擋 | `reconcile_gate.goal_gate`、`aec.scan_report_gate`、`atom_audit.enabled` 設 false → 需求目標對照與 commit 前的目標對照、收尾檢核、卡片表態都不擋（目標樹、報告照收；live 全關，使用者拍板） | `goal_gate` 沒設＝不擋（要擋明寫 true）；其餘兩個沒設＝照擋 |
 | CASE_DECLARED_FOR_CHANGE | (d) 補案例：由哪個案例驗（驗證範圍閘開著時；`wg_verify_scope.case_check` 收事實） | 驗證範圍宣告裡有一項的 `case_for` 列到這個程式檔，而且：那一項點得到案例檔（測試檔、測試節點，或只跑特定測試檔的指令）、案例檔仍存在、本 session 新寫或改過、那一項在最後一次改動之後跑綠（與 SCOPE_ITEM_RECEIPT_AFTER_EDIT 同一個判斷）。先紅後綠只記錄（CASE_RED_THEN_GREEN） | 沒宣告；宣告的案例不在、本 session 沒改過（既有案例已經驗到要走 no_case）、沒跑或跑紅。改了別支測試不替它清帳。擋訊息逐檔列哪一項哪裡不成立，並列本 session 改過的案例檔當宣告候選 |
 | NO_CASE_NEEDS_USER | 宣告不需要新案例 | 使用者放行那一刻（`wg_verify_scope.approve_no_case`）把宣告裡的 no_case 檔記成已裁定，綁在它當時的最後一次修改（state `no_case_approved`，user_release 紀錄列出檔名）；之後沒再改就不再擋、不每回合重問 | 宣告了 `no_case: [{path, reason}]` → 照擋，擋訊息帶理由與【收尾放行確認】的問法（題目寫「<檔> 不需要新案例：<理由>」並掛目標節點）；要不要補由使用者裁；裁定之後檔又改了 → 重裁 |
-| OWED_AFTER_LAST_CASE／CASE_GREEN_AFTER_EDIT | (d) 的退路（驗證範圍閘關掉、沒有宣告入口時） | 改碼之後有同根、仍存在、本 session 改過的案例檔被合格 PASS 點名跑綠（收據與 (a) 同一套採認：指令完整、根可信、只有執行程式的指令；點名只看實際跑程式那幾段的參數；收據晚於該程式檔最後一次修改） | 本 session 最後一次改仍存在的案例檔之後同根還改過程式檔；綠跑在改碼之前、綠的是別的案例、`echo … PASS` 自己印的、輸出導走的 |
+| CASE_COVERS_CHANGE | (d) 驗證範圍閘關掉時的判法 | 本 session 改過的程式檔有本 session 新寫或改過、仍存在、同根的案例覆蓋它：案例檔名是 test_／verify_<模組名>、<模組名>_test，或內容提到它（檔名或至少 3 字的模組名，整詞），或驗證範圍宣告的 case_for 列它（呼叫端有給宣告時）；不比改動先後、不看有沒有跑綠 | 本 session 改過的案例都沒提到它、也沒有 case_for 宣告；沒改過任何同根案例 |
 | GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW | 已不存在的改檔 | 不在任何版控根內；或 git 根內且同根沒有它的副本（沒有新出現的程式檔，或新出現的檔名與內容都和它最後一次寫入時不同）→ 算刪除 | — |
 | MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE | 已不存在的改檔 | — | 同根出現它的副本（檔名相同，或內容等於修改紀錄 `sha` 欄記的最後一次寫入內容；沒有內容紀錄、新檔讀不到 → 全算副本）＝搬走；svn 或查 git 失敗；找版控根時 OSError（讀不到 ≠ 不在版控）。已知邊界：搬完又用沒記帳的方式（跑腳本改寫）改了內容，判成刪除 |
 | EXCLUDED_REGION | 排除區 | 部位表類別 knowledge 的部位（文件、記憶、派工信箱）裡的檔是素材；被 .gitignore 忽略或屬執行期資料的檔（與 RUNTIME_DATA_NO_OVERVIEW 同一判式）不是本專案程式：既不算程式、也不能清帳 | 追蹤中的檔、沒標類別、判不出 → 照算程式 |
@@ -836,7 +836,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.9 驗證範圍（verify_scope）
 
-**目前關**（`verify_scope.enabled=false`，使用者拍板）：收尾不要求宣告範圍、範圍每項改完重跑；寫碼查核 (a) 退回「指令對得上改檔的 PASS」、(d) 退回「改碼之後同根要有改過的案例檔跑綠」（規則 OWED_AFTER_LAST_CASE／CASE_GREEN_AFTER_EDIT）。`need_goal verify_scope` 照收、測試帳與範圍漏判照記、不擋。下面寫的是開著時的行為。
+**目前關**（`verify_scope.enabled=false`，使用者拍板）：收尾不要求宣告範圍、範圍每項改完重跑；寫碼查核 (a) 退回「指令對得上改檔的 PASS」、(d) 改看「本 session 改過的案例有沒有覆蓋它」（規則 CASE_COVERS_CHANGE，不比先後）。`need_goal verify_scope` 照收、測試帳與範圍漏判照記、不擋。下面寫的是開著時的行為。
 
 目的：改完程式後該測哪些，由 LLM 看這次改了什麼、哪些測試有關聯、哪些地方會受影響來判斷，只驗這個範圍；LLM 對範圍負責，範圍外的測試事後因此紅了，要回頭檢討沒驗到的根因。程式只管流程：要它宣告、範圍內每項要有改完之後的收據、事後對帳範圍外有沒有壞。部位表的整把量尺降成候選材料。全量改增量待補：全量 `run_verify.py` 已從流程拔掉，合併進 main、發版前都不跑（太慢、多 session 同機時拖慢所有人，紅了也指不出該誰修）；之後改成「收尾跑 LLM 適度擴展過的可能相關清單」的增量做法。全量拔掉後，範圍漏判只在之後有人跑到那支測試時才記得到。
 

@@ -30,6 +30,9 @@ def test_044_every_rule_has_a_case():
 
 @pytest.mark.parametrize("rule, case_file", [
     ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
+    ("SECOND_OPINION_RAN_BEFORE", "verify_pull_verify_ledger.py"),
+    ("CARRIED_CLAIM_ANY_TURN_RECEIPT", "verify_pull_verify_ledger.py"),
+    ("RECEIPT_UNPARSED_GENERAL_ONLY", "verify_pull_verify_ledger.py"),
     ("BASH_UNREACHED_READ_NOT_COUNTED", "verify_overview_hub.py"),
     ("NEGATIVE_CONTROL_DECLARED", "verify_failing_tests_subagent_isolation.py"),
     ("EQUIVALENCE_LOOP_EXPANDED", "verify_g7_equivalence.py"),
@@ -83,14 +86,15 @@ def test_g6_correction_and_veto_declarations():
 
 
 def test_g6_conflict_declared_by_ai():
-    """CONFLICT_DECLARED_BY_AI：每個候選一條、why 有理由、同候選不得兩種判法、不在候選退回。"""
+    """CONFLICT_DECLARED_BY_AI：每個候選一條、why 有理由、同候選不得兩種判法；多宣告不在候選裡的卡不算錯。"""
     v, got = rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "not_conflict", "why": "範圍不同"}])
     assert v.rule == "CONFLICT_DECLARED_BY_AI" and not v.owed and got[0]["verdict"] == "not_conflict"
     assert rr.conflict_declaration_verdict(["a"], [])[0].owed
     assert rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x 理由"},
                                                    {"of": "a", "verdict": "not_conflict", "why": "y 理由"}])[0].owed
-    assert "不在候選" in rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x"},
-                                                                {"of": "b", "verdict": "conflict", "why": "y"}])[0].why
+    v, got = rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x 理由"},
+                                                     {"of": "b", "verdict": "conflict", "why": "y 理由"}])
+    assert not v.owed and [d["of"] for d in got] == ["a"] and "不在候選" not in v.why
 
 
 def test_g6_project_literal_reason_present():
@@ -250,13 +254,32 @@ def test_044_gone_unverifiable(kind, failed):
     assert v.rule == "GONE_UNVERIFIABLE" and v.owed is True
 
 
-# ─── OWED_AFTER_LAST_CASE ───────────────────────────────────────────────
+# ─── GATE_SELF_ERROR ───────────────────────────────────────────────
 
-def test_044_owed_after_last_case_evidence():
-    """OWED_AFTER_LAST_CASE：證據寫出最後一次改的案例是哪個（沒有就說沒有）。"""
-    assert "test_a.py" in rr.owed_after_last_case("a.py", "test_a.py").why
-    v = rr.owed_after_last_case("a.py", None)
-    assert v.rule == "OWED_AFTER_LAST_CASE" and v.owed and "沒有改過仍存在的案例檔" in v.why
+def test_gate_self_error_stop_gate_blocks_once_then_releases():
+    """收尾閘出錯：同一個使用者回合擋 1 次，之後放行（不讓 AI 一直付代價）。"""
+    v = rr.gate_self_error_verdict("ReconcileGate", "stop", "KeyError: 'x'")
+    assert v.rule == "GATE_SELF_ERROR" and v.owed and "擋一次" in v.why and v.evidence == ("KeyError: 'x'",)
+    v = rr.gate_self_error_verdict("ReconcileGate", "stop", "KeyError: 'x'", blocked_this_turn=True)
+    assert not v.owed and "放行" in v.why
+
+
+def test_gate_self_error_tool_gate_releases_directly():
+    """工具前閘出錯：讀不到 state 無從計次，直接放行。"""
+    v = rr.gate_self_error_verdict("CommitOrder", "tool", "OSError: state 讀不到")
+    assert v.rule == "GATE_SELF_ERROR" and not v.owed and "直接放行" in v.why
+
+
+# ─── CASE_COVERS_CHANGE ───────────────────────────────────────────────
+
+def test_case_covers_change_verdict_evidence():
+    """CASE_COVERS_CHANGE：有覆蓋的案例 → 不欠並列出；本 session 改過的案例都沒提到 → 欠並列出那些案例；沒改過案例 → 欠。"""
+    v = rr.case_cover_verdict("a.py", ["test_a.py"], ["test_a.py", "test_b.py"])
+    assert v.rule == "CASE_COVERS_CHANGE" and not v.owed and "test_a.py" in v.why
+    v = rr.case_cover_verdict("a.py", [], ["test_b.py"])
+    assert v.owed and "test_b.py" in v.why and "case_for" in v.why
+    v = rr.case_cover_verdict("a.py", [], [])
+    assert v.owed and "沒有改過仍存在、同根的案例檔" in v.why
 
 
 # ─── 要查 git 的豁免：規則名登記在 RULES、條件在 wg_verify_ledger（端到端案例見 verify_stop_reconcile 的 042／044 段） ──
@@ -302,13 +325,13 @@ def test_scope_edit_in_declared_depends_verdict():
 # ─── 擋訊息格式（契約） ───────────────────────────────────────────────────────
 
 def test_045_format_hit_and_parse_hits_roundtrip():
-    v = rr.Verdict("OWED_AFTER_LAST_CASE", True, "x.py 改過", ("最後一次改的案例是 verify_x.py", "x.py 在那之後還改過"))
+    v = rr.Verdict("CASE_COVERS_CHANGE", True, "x.py 改過", ("最後一次改的案例是 verify_x.py", "x.py 在那之後還改過"))
     line = rr.format_hit("d", v)
-    assert line.startswith("✗ (d) OWED_AFTER_LAST_CASE：x.py 改過｜證據：")
+    assert line.startswith("✗ (d) CASE_COVERS_CHANGE：x.py 改過｜證據：")
     assert "；" in line and "verify_x.py" in line
     text = "[Guardian:ReconcileGate] 頭\n  " + rr.format_hit("a", rr.Verdict("PASS_MISSING", True, "沒 PASS")) + "\n  " + line
     assert rr.parse_hits(text) == ["a", "d"]
-    assert rr.parse_hit_rules(text) == [("a", "PASS_MISSING"), ("d", "OWED_AFTER_LAST_CASE")]
+    assert rr.parse_hit_rules(text) == [("a", "PASS_MISSING"), ("d", "CASE_COVERS_CHANGE")]
 
 
 def test_045_format_hit_without_evidence_uses_why():
@@ -339,8 +362,8 @@ def test_045_block_budget_per_rule_same_rule_twice_exhausted_and_lists_all():
     rec = rr.budget_tick(None, 7, ["d"])
     rec = rr.budget_tick(rec, 7, ["a", "d"])
     assert rr.budget_exhausted(rec, 7, 2, ["a", "d"]) == ["d"]
-    text = "頭\n  ✗ (a) PASS_MISSING：沒 PASS｜證據：x\n  ✗ (d) OWED_AFTER_LAST_CASE：欠｜證據：y"
-    assert rr.exhausted_summary(text) == "✗ (a) PASS_MISSING；✗ (d) OWED_AFTER_LAST_CASE"
+    text = "頭\n  ✗ (a) PASS_MISSING：沒 PASS｜證據：x\n  ✗ (d) CASE_COVERS_CHANGE：欠｜證據：y"
+    assert rr.exhausted_summary(text) == "✗ (a) PASS_MISSING；✗ (d) CASE_COVERS_CHANGE"
 
 
 def test_045_block_budget_per_rule_new_turn_resets_and_legacy_record_is_conservative():
@@ -351,15 +374,18 @@ def test_045_block_budget_per_rule_new_turn_resets_and_legacy_record_is_conserva
     assert rr.budget_tick(legacy, 7, ["a"])["count"] == 3
 
 
-# ─── B1 CASE_GREEN_AFTER_EDIT ──────────────────────────────────────────────────
+# ─── CASE_COVERS_CHANGE：案例內容提到程式檔 ──────────────────────────────────
 
-def test_045_case_green_after_edit_verdict_and_cmd_names_file():
-    v = rr.green_after_edit_verdict("x.py", "verify_x.py", "python -m pytest -q hooks/verify/verify_x.py", "2026-10-13T10:00:00")
-    assert v.rule == "CASE_GREEN_AFTER_EDIT" and v.owed is False and len(v.evidence) == 2
-    assert rr.cmd_names_file("python -m pytest -q hooks/verify/verify_x.py", r"c:\p\hooks\verify\verify_x.py")
-    assert rr.cmd_names_file("pytest hooks/verify/verify_x.py::test_a", "verify_x.py")
-    assert not rr.cmd_names_file("pytest hooks/verify/verify_xy.py", "verify_x.py")     # 整詞：verify_xy 不是 verify_x
-    assert not rr.cmd_names_file("pytest hooks/verify", "verify_x.py")
+def test_case_names_code_file_or_module_whole_word():
+    assert rr.case_names_code("import wg_x as wx\n", r"c:\p\hooks\wg_x.py")
+    assert rr.case_names_code('SRC = ROOT / "tools" / "Foo-Bar.py"', "tools/foo-bar.py")
+    assert not rr.case_names_code("import wg_xy\n", "hooks/wg_x.py")                   # 整詞：wg_xy 不是 wg_x
+    assert not rr.case_names_code("import my_wg_x\n", "hooks/wg_x.py")
+    assert not rr.case_names_code("ab = 1", "hooks/ab.py")                              # 模組名不到 3 字只認檔名
+    assert rr.case_names_code("run('ab.py')", "hooks/ab.py")
+    assert rr.case_covers_code("hooks/verify/verify_ab.py", "", "hooks/ab.py")         # 檔名照模組取
+    assert rr.case_covers_code("tests/test_ab.py", "", "src/ab.py") and rr.case_covers_code("t/ab_test.go", "", "ab.go")
+    assert not rr.case_covers_code("tests/test_abc.py", "", "src/ab.py")
 
 
 # ─── B3 COMMENT_ONLY_CHANGE ────────────────────────────────────────────────────
