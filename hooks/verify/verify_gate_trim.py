@@ -233,7 +233,6 @@ def test_judge_card_change_logged_not_blocked(monkeypatch):
     logs = []
     monkeypatch.setattr(jc, "bound_cards", lambda *a, **k: [("c:/m/card.md", ["E01"])])
     monkeypatch.setattr(jc, "declarations", lambda *a, **k: [])
-    monkeypatch.setattr(jc, "snapshot", lambda *a, **k: None)
     monkeypatch.setattr(jc, "append_guard_log", lambda name, rec: logs.append(rec))
     assert jc.gate("Edit", {"file_path": "c:/m/card.md"}, {"session_id": "s"}, {}) is None
     assert logs and logs[-1]["event"] == "undeclared" and logs[-1]["allowed"] is True

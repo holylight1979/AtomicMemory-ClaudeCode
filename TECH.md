@@ -255,7 +255,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->614 atoms：core 304 + feedback 72 + 失敗模式 2 + local 236〔Tools23/MemDev200/OS2/CC與原子記憶契約4/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->614 atoms：core 294 + feedback 69 + 失敗模式 2 + local 249〔Tools23/MemDev213/OS2/CC與原子記憶契約4/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -542,7 +542,7 @@ sequenceDiagram
 
 - **Depends** path 型：`tools/atom-health-check.py check_stale_deps` 驗指向存在性，消失 → 標 stale。decay 是時間函數，這是真值函數。
 - **Evidence** 權重：實證 3 > 引述 2 > 推測 1 > 未標 0。
-- **衝突裁決**（`tools/memory-conflict-detector.py`）：write-time 向量 ≥0.60 送本地 LLM 分類（dry_run 跳過偵測）；本地標籤與 0.85 門檻只篩候選（CONTRADICT 複驗一致、或 EXTEND 且相似度 ≥0.85），是不是衝突由 session 裡的 AI 宣告：atom_write 回「衝突待宣告（這次不寫檔）」列候選，AI 帶 `conflict=[{of, verdict: conflict|not_conflict, why}]` 重送（只收陣列、每個候選一條、同候選不得兩種判法），任一 conflict → pending 報告、不寫 shared，全部 not_conflict → 照寫，都留帳 `guard-conflict_declared`（規則 CONFLICT_DECLARED_BY_AI；判式載不起來時照 AI 的宣告處置、不核理由）；拉取稽核本地模型沒判出（ERROR）時報告標 candidate、不標 contradict。裁決優先序 **證據等級 → recency**，取代純「新勝舊」；**fast-refute**：新側實證、舊側 [固]/[觀] → 置頂裁決，不等 Wilson 統計窗。
+- **衝突裁決**（`tools/memory-conflict-detector.py`）：write-time 向量 ≥0.60 送本地 LLM 分類（dry_run 跳過偵測）；本地標籤與 0.85 門檻只篩候選（CONTRADICT 複驗一致、或 EXTEND 且相似度 ≥0.85），是不是衝突由 session 裡的 AI 宣告：atom_write 回「衝突待宣告（這次不寫檔）」列這次向量前幾名（不隨本地標籤翻面；不同層同名寫 `<layer>:<卡名>`），AI 帶 `conflict=[{of, verdict: conflict|not_conflict, why}]` 重送（只收陣列、名單每張一條、同一張不得兩種判法；多寫不在名單的略過、不算錯），任一 conflict → pending 報告、不寫 shared，全部 not_conflict → 照寫，都留帳 `guard-conflict_declared`（規則 CONFLICT_DECLARED_BY_AI；判式載不起來時照 AI 的宣告處置、不核理由）；守門總開關關時不要求宣告，照門檻判：CONTRADICT → pending 報告、EXTEND≥0.85 → 整張改落 `_pending_review` 草稿（同名草稿已在就拒寫）；拉取稽核本地模型沒判出（ERROR）時報告標 candidate、不標 contradict。裁決優先序 **證據等級 → recency**，取代純「新勝舊」；**fast-refute**：新側實證、舊側 [固]/[觀] → 置頂裁決，不等 Wilson 統計窗。
 - 偵測器三種模式：write-check（atom_write 時）、pull-audit（`hooks/post-git-pull.sh --mode=pull-audit`）、full-scan（手動全掃）。
 
 ### 6.6 會議轉錄入庫：`tools/meeting-transcribe.py`

@@ -18,6 +18,7 @@ Requirements: Python 3.8+. Vector dedup needs Memory Vector Service @ port 3849.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -422,7 +423,7 @@ def dedup_threshold_for(config: Dict[str, Any], title: str = "") -> float:
 
 # ─── 去重宣告（相似 → AI 判同一條／取代／不同；程式只核形狀、照宣告路由、留帳）──────────
 # 判斷交 AI：程式不判「像到什麼程度算同一條」，門檻只決定要不要問。
-# 核對只看三件事：verdict 三選一、of 是這次列出的候選卡名（原字）、why 有字（不是空白／佔位／純標點）。
+# 核對只看三件事：verdict 三選一、of 指得到一張卡（這次列出的候選，或這次比對的層裡同名的卡）、why 有字（不是空白／佔位／純標點）。
 
 DEDUPE_VERDICTS = ("same", "supersedes", "different")
 DEDUPE_FORMS = (
@@ -479,23 +480,62 @@ def _why_has_content(why: Any) -> bool:
     return bool(core) and core != _DEDUPE_WHY_TEMPLATE
 
 
-def dedupe_problems(dedupe: Any, candidates: List[Dict[str, Any]]) -> List[str]:
-    """核對 AI 的去重宣告形狀，回問題清單（空＝收）。不判宣告內容對不對——那是 AI 的判斷，抽查靠 audit。"""
+def _cards_in_layers(name: str, layers: Optional[List[str]]) -> Tuple[List[str], str]:
+    """這次比對的層（layers；None＝全部層）裡叫 name 的卡 → 所在層名清單（同層多張只算一次）。
+    層與卡的認定和向量索引同一套（tools/memory-vector-service/indexer：候選就是從那裡搜出來的）。
+    查不了回 ([], 原因)：呼叫端當「找不到」，原因帶進訊息、stderr 也浮一行。"""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "write_gate_indexer", _SELF_ROOT / "tools" / "memory-vector-service" / "indexer.py")
+        idx = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(idx)
+        picked = [lay for lay in idx.discover_layers() if layers is None or lay[0] in layers]
+        found = sorted({layer for layer, p, _ in idx.discover_atoms(picked) if p.stem == name})
+        return found, ""
+    except Exception as e:  # noqa: BLE001
+        print(f"[write-gate] 查這次比對的層裡有沒有「{name}」失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return [], f"{type(e).__name__}: {e}"
+
+
+def resolve_dedupe(dedupe: Any, candidates: List[Dict[str, Any]], layers: Optional[List[str]]
+                   ) -> Tuple[List[str], Optional[Dict[str, Any]]]:
+    """核對 AI 的去重宣告形狀並找出 of 指的卡，回 (問題清單, 卡{atom_name, layer, score})；問題清單空才有卡。
+    不判宣告內容對不對——那是 AI 的判斷，抽查靠 audit。
+    of 先比這次列出的候選（ref 原字）；不在候選就到這次比對的層找同名卡（候選只是相似度前幾名，內容一改名單就換，
+    宣告的卡還在那幾層就收；不同層同名寫成 <layer>:<卡名>），這種卡沒有分數（score=None）。"""
     if not isinstance(dedupe, dict):
-        return ["dedupe 要是物件 {verdict, of, why}"]
+        return ["dedupe 要是物件 {verdict, of, why}"], None
     problems = []
     verdict = dedupe.get("verdict")
     if verdict not in DEDUPE_VERDICTS:
         problems.append(f"verdict 要是 same／supersedes／different 其中一個（收到 {verdict!r}）")
     of = str(dedupe.get("of") or "").strip()
-    refs = [c["ref"] for c in candidates]
-    if of not in refs:
-        same_name = [r for r, c in zip(refs, candidates) if c["atom_name"] == of]
-        problems.append(f"of「{of}」在不同層各有一張，寫成 {' 或 '.join(same_name)}" if same_name
-                        else f"of「{of}」不在這次列出的候選卡裡（卡名原字照抄）")
+    target = next((c for c in candidates if c["ref"] == of), None)
+    same_name = [c["ref"] for c in candidates if c["atom_name"] == of]
+    if target is None and same_name:
+        problems.append(f"of「{of}」在不同層各有一張，寫成 {' 或 '.join(same_name)}")
+    elif target is None:
+        layer, _, name = of.rpartition(":")
+        scope = [layer] if layer else layers
+        found, err = _cards_in_layers(name, scope) if name and (not layer or layers is None or layer in layers) else ([], "")
+        if len(found) == 1:
+            target = {"atom_name": name, "layer": found[0], "score": None}
+        elif found:
+            problems.append(f"of「{of}」在不同層各有一張，寫成 {' 或 '.join(f'{lay}:{name}' for lay in found)}")
+        else:
+            where = "、".join(layers) if layers else "全部層"
+            problems.append(f"of「{of}」不在這次列出的候選卡裡，這次比對的層（{where}）也沒有這張卡（卡名原字照抄）"
+                            + (f"；查詢失敗：{err}" if err else ""))
+    if target is not None and verdict == "supersedes":
+        # Supersedes 行只記卡名，落檔後先解析寫入者同層、再退全域（lib/atom_io._resolve_supersedes_target）：
+        # 比對的層裡有兩張同名卡，就保證不了取代到的是宣告的那張
+        found, _ = _cards_in_layers(target["atom_name"], layers)
+        if len(found) > 1:
+            problems.append(f"supersedes 的「{target['atom_name']}」在 {'、'.join(found)} 都有同名卡，Supersedes 只記卡名、"
+                            "分不出要取代哪一張——改宣告 same（併入指定層那張）或 different（照常寫新卡）")
     if not _why_has_content(dedupe.get("why")):
         problems.append("why 要寫一句理由（收到空白、佔位或純標點）")
-    return problems
+    return problems, (None if problems else target)
 
 
 def declaration_request(candidates: List[Dict[str, Any]], threshold: float, problems: List[str]) -> str:
@@ -646,9 +686,10 @@ def evaluate(
     missing_sections[]（hub 缺段白話名）、depends_missing（hub 無 Depends）、how（一句怎麼做）。
     layers：去重只比這幾層（見 check_dedup）。title：指標卡去重門檻提高。
     mode≠create 或 skip_gate：跳 dedup／quality，只做預算與分型（append 預算＝既有 knowledge 區＋新增）。
-    dedupe：去重宣告（見 dedupe_problems）。相似度達門檻時：沒宣告或宣告不收 → 拒寫要宣告（action=skip＋
+    dedupe：去重宣告（見 resolve_dedupe）。相似度達門檻時：沒宣告或宣告不收 → 拒寫要宣告（action=skip＋
     need_declaration=true、candidates[]、reason 列候選與三種寫法）；收 → audit dedupe_declared，same 回 action=append＋append_to{atom_name,layer}，
-    supersedes／different 照常往下判，結果帶 dedupe_declared{verdict,of,why,score}。沒命中仍給 → dedupe_note。
+    supersedes／different 照常往下判，結果帶 dedupe_declared{verdict,of,why,score}（of 不在候選、在比對層找到的卡 score=None）。
+    沒命中仍給：same／supersedes 照宣告走（of 找不到 → 拒寫並說明，不另建新卡）；different 或形狀不對 → dedupe_note。
     """
     if config is None:
         config = load_config()
@@ -723,15 +764,15 @@ def evaluate(
             f"。若這是導讀卡：補齊五段標準名（{HUB_STANDARD_NAMES}）或帶 kind_hint=hub"
             if kind == "plain" else ""
         )
-        return _kinded({
-            "action": "skip",
-            "quality_score": 0,
-            "reason": (
-                f"knowledge 區 {total} bytes{detail} 超過預算 {limit} bytes；個案事實移文件"
-                f"（不截斷：個案細節寫進 {route_to}；atom 只留結論/判斷/教訓/檔案錨點，"
-                "大段逐筆內容改為文件路徑一行）" + hub_hint
-            ),
-        })
+        if mode == "append":   # 舊卡已滿：縮新內容再 append 照樣滿，直接給兩條出路
+            reason = (f"既有卡 {title} 的 knowledge 區已滿：{total} bytes{detail} 超過預算 {limit} bytes，這次不寫（不截斷）。"
+                      f"二選一：壓縮舊卡（mode=replace 把舊卡＋這次的內容重寫成精簡版），或把這次的內容改寫進文件 {route_to}"
+                      "（舊卡不動）")
+        else:
+            reason = (f"knowledge 區 {total} bytes{detail} 超過預算 {limit} bytes；個案事實移文件"
+                      f"（不截斷：個案細節寫進 {route_to}；atom 只留結論/判斷/教訓/檔案錨點，"
+                      "大段逐筆內容改為文件路徑一行）" + hub_hint)
+        return _kinded({"action": "skip", "quality_score": 0, "reason": reason})
 
     # 導讀卡：五段齊＋Depends 必填（缺的列出來，不放行）
     if kind == "hub" and (missing or depends_missing):
@@ -824,8 +865,22 @@ def evaluate(
             "dedup_match": dedup_match,
         })
     candidates = (dedup or {}).get("candidates") or []   # 命中卻沒卡名＝無從宣告，當沒命中
-    if candidates:
-        problems = [] if dedupe is None else dedupe_problems(dedupe, candidates)
+    # 沒候選但宣告了併入／取代：照宣告走（of 要是這次比對的層裡存在的卡），不悄悄另建新卡
+    acts_on_card = (config.get("dedupe_declaration", True) and isinstance(dedupe, dict)
+                    and dedupe.get("verdict") in ("same", "supersedes"))
+    if candidates or acts_on_card:
+        problems, target = ([], None) if dedupe is None else resolve_dedupe(dedupe, candidates, layers)
+        if problems and not candidates:
+            write_audit_log("need_declaration", content, 0, candidates=[], problems=problems)
+            return _kinded({
+                "action": "skip",
+                "need_declaration": True,
+                "quality_score": 0,
+                "reason": (f"宣告不收：{'；'.join(problems)}。這次沒有相似候選（相似度未達 "
+                           f"{dedup_threshold_for(config, title):.2f}，或向量服務沒回應）：要併入／取代就把 of 改成存在的卡名"
+                           "（不同層同名寫成 <layer>:<卡名>）；不需要就拿掉 dedupe，照常寫新卡。"),
+                "candidates": [],
+            })
         if dedupe is None or problems:
             write_audit_log("need_declaration", content, 0,
                             candidates=[c["ref"] for c in candidates], problems=problems)
@@ -839,16 +894,15 @@ def evaluate(
                 "dedup_match": dedup_match,
                 "candidates": candidates,
             })
-        target = next(c for c in candidates if c["ref"] == str(dedupe["of"]).strip())
         declared = {"verdict": dedupe["verdict"], "of": target["atom_name"],
                     "why": str(dedupe["why"]).strip(), "score": target["score"]}
         write_audit_log("dedupe_declared", content, 0, **declared)
         if declared["verdict"] == "same":
+            score = f"score={target['score']}；" if target["score"] is not None else ""
             return _kinded({
                 "action": "append",
                 "quality_score": 1.0,
-                "reason": (f"dedupe 宣告 same：知識段改併入既有卡 {target['atom_name']}"
-                           f"（score={target['score']}；triggers／actions 不併）"),
+                "reason": f"dedupe 宣告 same：知識段改併入既有卡 {target['atom_name']}（{score}triggers／actions 不併）",
                 "append_to": {"atom_name": target["atom_name"], "layer": target["layer"]},
                 "dedupe_declared": declared,
             })

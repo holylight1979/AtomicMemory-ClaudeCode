@@ -2,7 +2,8 @@
 
 做什麼：
 (a) 病形閘（handlers/pre_tool_use.check_smell_gate）擋下 commit 時，note_smell_deny 從擋訊息解析被點名的檔與病名，記進
-    state["smell_deny_last"]（時間、repo 根、點名的檔與病、當時要提交的檔、transcript 長度）。之後在同一個 repo 根底下，
+    state["smell_deny_last"]（時間、repo 根、點名的檔與病、當時要提交的檔、transcript 長度；同一個 repo 還沒成功 commit 又被擋，
+    點名的檔合併、不覆蓋，先前被點名又被排除在提交外的照留）。之後在同一個 repo 根底下，
     check 看這條 Bash／PowerShell 指令是不是嫌疑序列：
       · git restore --staged／reset／rm --cached／stash、svn revert／changelist 動到被點名的檔；
       · git／svn commit 的提交範圍不含被點名的檔；
@@ -10,13 +11,13 @@
     是嫌疑、或同一個 repo 根又要 commit，才重掃被點名的檔（暫存區與工作樹兩份都看）：同一條病都不在了＝病修掉了 → 清帳（cleared），不問。
     病還在 → 找宣告行「不是繞閘｜<理由>」（這條指令本身、或擋下之後 transcript 的回覆文字／工具參數／thinking，
     三管道同 lib/overview_hub.assistant_text_after）：有 → 放行、留帳 declared（理由全文）、同一組被點名的檔不再問；
-    沒有 → 擋（規則 GATE_BYPASS_NEEDS_DECLARATION）。成功 commit（post_tool_use）→ note_commit_done 清掉 smell_deny_last。
+    沒有 → 擋（規則 GATE_BYPASS_NEEDS_DECLARATION；同一個使用者回合同一組檔擋滿兩次就放行、留帳 cap_released）。成功 commit（post_tool_use）→ note_commit_done 清掉 smell_deny_last。
     --git-dir／GIT_DIR 的 commit 病形閘本身已擋（判不了），走不到這裡。state 是 session 級：上個 session 被擋、這個 session 繞不算。
 (b) atom_refusal：卡片內容同時提到 Guardian 的閘、又含改暫存區／改提交範圍的做法字樣 → 拒寫（規則 ATOM_BYPASS_HOWTO_REFUSED）；
     AI 判斷不是在教繞法（寫的是禁止怎麼繞、在分析誤擋）→ 知識段第一行寫「不是教繞閘｜<理由>」就寫入、留帳 atom_declared；
     入口在 tools/memory-write-gate.py（MCP atom_write 的 create／append／replace 都經過）與 lib/atom_io.write_atom（程式寫手）。
 是不是繞閘由 AI 判並寫理由；程式只核對序列事實與宣告行在不在，留帳 Logs/guard-gate_bypass.jsonl 給人抽查
-（事件 suspect／declared／denied／atom_refused／cleared）。開關 guard.gate_bypass.enabled（預設 True），做法字樣
+（事件 suspect／declared／denied／cap_released／atom_refused／cleared）。開關 guard.gate_bypass.enabled（預設 True），做法字樣
 guard.gate_bypass.staging_words。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_gate_bypass.py
 """
@@ -164,11 +165,21 @@ def note_smell_deny(state: Optional[Dict[str, Any]], session_id: str, cwd: str, 
                 committing = sorted(found[3]) if found else []
             except Exception as e:  # noqa: BLE001
                 _warn(f"記當時要提交的檔失敗（只少這筆證據）：{type(e).__name__}: {e}")
+        here = {"offset": _transcript_size(transcript_path), "offsets": wg_core.transcript_sizes(transcript_path)}  # 主檔＋各子代理檔各記一個起點
+        named_at = {rel: here for rel in files}
+        prev = state.get(STATE_KEY)
+        if isinstance(prev, dict) and prev.get("vcs") == vcs and _canon(str(prev.get("root") or "")) == _canon(root):
+            # 同一個 repo 還沒成功 commit 又被擋：先前點名的檔（可能已被排除在這次提交外）照留，病名合併；
+            # 每個檔記自己第一次被點名的起點（_named_since），宣告要寫在被點名之後才替它算數
+            merged = {rel: list(names) for rel, names in (prev.get("files") or {}).items()}
+            for rel, names in files.items():
+                merged[rel] = list(dict.fromkeys(merged.get(rel, []) + list(names)))
+            named_at = {rel: _named_at(prev, rel) or here for rel in merged}
+            files = merged
         state[STATE_KEY] = {
             "at": time.strftime("%Y-%m-%d %H:%M:%S"), "vcs": vcs, "root": root, "files": files,
             "committing": committing[:200], "command": (tool_input.get("command", "") or "")[:300],
-            "transcript_offset": _transcript_size(transcript_path),
-            "transcript_offsets": wg_core.transcript_sizes(transcript_path),     # 主檔＋各子代理檔各記一個起點
+            "transcript_offset": here["offset"], "transcript_offsets": here["offsets"], "named_at": named_at,
         }
         _persist(session_id, state)
     except Exception as e:  # noqa: BLE001
@@ -194,6 +205,16 @@ def _in_index(vcs: str, root: str, rel: str) -> bool:
     if vcs != "git":
         return False
     return bool(_ptu()._git_lines(["ls-files", "--", rel], root))
+
+
+def _named_at(last: Dict[str, Any], rel: str) -> Optional[Dict[str, Any]]:
+    """帳上被點名的檔 rel 第一次被點名時 transcript 的起點 {"offset", "offsets"}；沒有 named_at 的舊紀錄用整筆的起點；
+    不在帳上回 None。"""
+    if rel not in (last.get("files") or {}):
+        return None
+    hit = (last.get("named_at") or {}).get(rel)
+    return hit if isinstance(hit, dict) else {"offset": int(last.get("transcript_offset") or 0),
+                                              "offsets": last.get("transcript_offsets")}
 
 
 def _transcript_size(transcript_path: str) -> int:
@@ -431,11 +452,12 @@ def _deny_text(v, last: Dict[str, Any]) -> str:
     return "\n".join((
         "[Guardian:GateBypass] 繞閘嫌疑：上次被病形閘點名的檔病還在，這條指令把它移出暫存或排除在提交之外，已先擋下。"
         "是不是在繞閘由你判斷並寫理由（例如這批檔是別人的、你是在撤掉一整批錯誤改動）。",
+        "宣告行要比這條指令早一則訊息送出（跟指令同一則送出的文字，這裡還看不到），或寫成這條 Bash／PowerShell 指令開頭的 `#` 註解：",
+        f"  {DECLARE_EXAMPLE}",
         rr.format_hit("gb", v),
         "閘擋了之後能做的是修掉病，或說明為什麼這批內容不該進這筆，不是找路繞過：",
         "- 病還在就修病（修完重掃沒病自動清帳，不用宣告）；",
-        "- 是別人的檔、不屬這次需求 → 寫明是誰的：放回覆文字或下一個 Bash 開頭 `#` 註解一行",
-        f"  {DECLARE_EXAMPLE}",
+        "- 是別人的檔、不屬這次需求 → 照上面的寫法寫明是誰的；",
         "- 確定閘誤擋 → 寫追蹤項（「｜建議：…｜該誰解：…」）而不是繞。",
         f"（上次擋在 {last.get('at', '?')}，repo {last.get('root', '?')}）",
     ))
@@ -488,9 +510,10 @@ def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str
         import wg_release_rules as rr
         denied = "；".join(f"{f}（{'、'.join(n)}）" for f, n in sick.items())
         _log("suspect", session_id, root=last.get("root"), files=sick, facts=facts, command=command[:300])
-        # 同一組檔宣告過、內容又變了（另一批內容）：只認上一次宣告之後新寫的宣告行
-        offset = max([int(last.get("transcript_offset") or 0)] + [int(d.get("offset") or 0) for d in prior])
-        offsets = _merged_offsets([last.get("transcript_offsets")] + [d.get("offsets") for d in prior])
+        # 宣告只認還病著的每個檔都被點名之後寫的；同一組檔宣告過、內容又變了（另一批內容）：只認上一次宣告之後新寫的
+        since = [_named_at(last, rel) or {} for rel in sick]
+        offset = max([int(s.get("offset") or 0) for s in since] + [int(d.get("offset") or 0) for d in prior])
+        offsets = _merged_offsets([s.get("offsets") for s in since] + [d.get("offsets") for d in prior])
         decl = find_declaration(command, transcript_path, offset, agent_id, offsets)
         v = rr.gate_bypass_verdict(denied, facts, decl[0] if decl else "")
         if not v.owed:
@@ -500,6 +523,13 @@ def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str
                                                         "at": time.strftime("%Y-%m-%d %H:%M:%S")})
             _log("declared", session_id, root=last.get("root"), files=sick, facts=facts, reason=decl[0], via=decl[1])
             _persist(session_id, state)
+            return None
+        # 擋次上限（wg_core.deny_cap）：缺件＝這組被點名的檔；同一個使用者回合擋滿兩次就放行、留帳 cap_released
+        denied, released = wg_core.deny_cap(state, "gate_bypass", [group])
+        _persist(session_id, state)
+        if released:
+            _log("cap_released", session_id, root=last.get("root"), files=sick, facts=facts, rule=v.rule)
+        if not denied:
             return None
         _log("denied", session_id, root=last.get("root"), files=sick, facts=facts, rule=v.rule)
         return _deny_text(v, last)

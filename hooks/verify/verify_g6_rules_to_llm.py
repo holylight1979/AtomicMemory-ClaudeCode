@@ -352,10 +352,12 @@ def test_declared_conflict_blocks_with_primary(logs, monkeypatch):
 
 
 def test_bad_declaration_is_refused(logs, monkeypatch):
+    """名單裡那張的理由是佔位 → 退；多寫一張不在名單的（zzz）不算錯，略過並浮 warning。"""
     out = _write_check(monkeypatch, [_hit("a", 0.9)], ["EXTEND"],
                        declared=[{"of": "a", "verdict": "not_conflict", "why": "<一句理由>"}, {"of": "zzz", "verdict": "conflict", "why": "x 理由"}])
     assert out["verdict"] == "need_declaration"
-    assert "a：why 要寫一句理由" in out["declaration_problem"] and "zzz：不在候選" in out["declaration_problem"]
+    assert "a：why 要寫一句理由" in out["declaration_problem"] and "zzz" not in out["declaration_problem"]
+    assert any("zzz" in w for w in out["warnings"])
     assert not _events(logs, "conflict_declared")
 
 

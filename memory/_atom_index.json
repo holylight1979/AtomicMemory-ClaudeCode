@@ -5571,7 +5571,7 @@
     },
     {
       "name": "根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox",
-      "path": "memory/工作流/協作與並行/根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox.md",
       "triggers": [
         "root-link",
         "tri-link",
@@ -5599,9 +5599,7 @@
         "討論了啥",
         "沒看懂",
         "增量回報",
-        "三方討論",
-        "tri-link",
-        "root-link"
+        "三方討論"
       ],
       "scope": "global",
       "related": [
@@ -7579,7 +7577,7 @@
     },
     {
       "name": "feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了",
-      "path": "memory/Failures/工作流/feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了.md",
       "triggers": [
         "文件類交付",
         "文件總整理",
@@ -8291,7 +8289,7 @@
     },
     {
       "name": "跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器",
-      "path": "memory/CC與原子記憶契約/跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器.md",
       "triggers": [
         "跨 session 訊息何時送進來",
         "等同伴回覆",
@@ -8342,13 +8340,11 @@
       "name": "feedback-請使用者親手跑一批驗收題時-每題開測前先說這題測哪個方向與前幾題測到了什麼-不然他會問為什麼要測那麼多",
       "path": "memory/Failures/行為契約/feedback-請使用者親手跑一批驗收題時-每題開測前先說這題測哪個方向與前幾題測到了什麼-不然他會問為什麼要測那麼多.md",
       "triggers": [
-        "驗收題組",
         "多題實測",
         "為什麼要測那麼多",
         "每組目的",
         "使用者親手跑",
         "開測通知",
-        "B5",
         "題型方向"
       ],
       "scope": "global"
@@ -8482,7 +8478,7 @@
     },
     {
       "name": "跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送",
-      "path": "memory/CC與原子記憶契約/跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送.md",
       "triggers": [
         "跨 session 訊息被扣住",
         "Cross-session delivery notice",
@@ -8917,7 +8913,7 @@
     },
     {
       "name": "共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存",
-      "path": "memory/版控/Git/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md",
       "triggers": [
         "ff-only",
         "讓路",
@@ -9024,7 +9020,7 @@
     },
     {
       "name": "feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆",
-      "path": "memory/Failures/工作流/feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆.md",
       "triggers": [
         "轉告",
         "SendMessage",
@@ -9042,7 +9038,7 @@
     },
     {
       "name": "feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai",
-      "path": "memory/Failures/工作流/feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai.md",
       "triggers": [
         "接續單",
         "next-phase",
@@ -9341,7 +9337,7 @@
     },
     {
       "name": "claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收",
-      "path": "memory/CC與原子記憶契約/claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收.md",
       "triggers": [
         "claude --bg",
         "claude agents",
@@ -9874,7 +9870,7 @@
     },
     {
       "name": "驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit",
-      "path": "memory/驗證與實證/驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit.md",
+      "path": "_AIDocs/_atoms/MemDev/驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit.md",
       "triggers": [
         "乾淨資料根",
         "WG_CLAUDE_DIR",
@@ -10189,7 +10185,7 @@
       "name": "交出計畫清單收尾前逐條對使用者原話不是對自己寫的樹根落差要說出來",
       "path": "memory/行為契約/交出計畫清單收尾前逐條對使用者原話不是對自己寫的樹根落差要說出來.md",
       "triggers": [
-        "交出計畫、開工句、清單給使用者前再對一次",
+        "交出計畫、下一階段 prompt、清單給使用者前再對一次",
         "先對使用者原話",
         "以原話為準",
         "把落差說出來",
@@ -10888,7 +10884,7 @@
     },
     {
       "name": "收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話",
-      "path": "memory/行為契約/收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話.md",
       "triggers": [
         "收尾檢核",
         "anti_evasion_report",
@@ -11023,7 +11019,7 @@
     },
     {
       "name": "無頭驗收實跑期間不要合併進live-受測session的hook程式是live的只有資料根是副本-中途合併會讓同一題前後半段跑不同程式",
-      "path": "memory/驗證與實證/無頭驗收實跑期間不要合併進live-受測session的hook程式是live的只有資料根是副本-中途合併會讓同一題前後半段跑不同程式.md",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/無頭驗收實跑期間不要合併進live-受測session的hook程式是live的只有資料根是副本-中途合併會讓同一題前後半段跑不同程式.md",
       "triggers": [
         "無頭實跑",
         "驗收期間合併",
@@ -11443,7 +11439,7 @@
     },
     {
       "name": "無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀",
-      "path": "memory/驗證與實證/無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀.md",
+      "path": "_AIDocs/_atoms/MemDev/無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀.md",
       "triggers": [
         "受測 AI 改卡",
         "量尺被改",
@@ -11552,7 +11548,7 @@
     },
     {
       "name": "解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶",
-      "path": "memory/驗證與實證/解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶.md",
+      "path": "_AIDocs/_atoms/MemDev/解除entry綁定的卡下次sessionend會被範疇自動搬移搬走-驗收資料根帶了會在跑中搬並在下一回合開場印卡名-建環境先預判不帶.md",
       "triggers": [
         "解除綁定",
         "解綁 Entry",
