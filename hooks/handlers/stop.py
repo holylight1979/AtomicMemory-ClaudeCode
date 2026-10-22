@@ -36,7 +36,7 @@ from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
     get_current_turn_text, read_transcript_tail, get_current_turn_visible_text,
-    is_context_exempt_phrase, _aec_blank,
+    is_context_exempt_phrase, _aec_blank, closing_check_waiver, completion_threshold_met, dismissed_recently, CLOSING_CHECK_ITEM,
 )
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
@@ -49,7 +49,8 @@ from wg_release_rules import (
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
-    cmd_run_line, second_opinion_decline, second_opinion_decline_ok, parse_equivalence_lines, reason_present,
+    cmd_run_line, second_opinion_decline, second_opinion_decline_ok, waiver_hint, parse_equivalence_lines,
+    reason_present,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1174,6 +1175,49 @@ def _record_pick(state: Dict[str, Any], session_id: str, text: str, cwd: str, co
         append_guard_log("pick_one", {"session_id": session_id, "turn_seq": turn_seq, "event": event, "text": pick["text"][:120]})
 
 
+def _log_waivers(state: Dict[str, Any], session_id: str, turn_seq: int, uturn: Any, gate: str,
+                 waived: Sequence[Dict[str, str]]) -> None:
+    """規則 HARVEST_WAIVER_ITEMIZED 的豁免留帳（guard-harvest_waived）：同一個使用者回合、同一閘、同一件只記一筆
+    （同回合被後面的閘擋回再 Stop、宣告行還在，不重記）。記過的鍵存 state harvest_waived_logged[sid]，換回合清掉。"""
+    if not waived:
+        return
+    book = state.setdefault("harvest_waived_logged", {})
+    mine = book.get(session_id) if isinstance(book.get(session_id), dict) else {}
+    if mine.get("uturn") != uturn:
+        mine = {"uturn": uturn, "keys": []}
+    logged = 0
+    for w in waived:
+        key = f"{gate}|{w['item']}"
+        if key in mine["keys"]:          # 跨 Stop 與同一批重複的那件都只記一次
+            continue
+        mine["keys"].append(key)
+        logged += 1
+        append_guard_log("harvest_waived", {"session_id": session_id, "turn_seq": turn_seq, "gate": gate,
+                                            "item": w["item"], "quote": w["quote"], "line": w["line"]})
+    book[session_id] = mine
+    if logged:
+        write_state(session_id, state)
+
+
+def _record_prompt_judgments(state: Dict[str, Any], session_id: str, transcript: Any, transcript_text: str) -> None:
+    """UserPromptSubmit 問過的「這句是不是糾正」「是不是在否決剛記的決策」→ 收本回合可見文字裡的宣告行
+    （規則 CORRECTION_WORDS_ARE_HINTS／EXTRACT_VETO_NEEDS_JUDGMENT）。排在所有閘之前，後面的閘擋不擋都不漏收；
+    沒有待判零成本。收失敗只 stderr：待判留著，下一則使用者訊息照舊規則結帳。"""
+    if not (state.get("user_correction_pending") or state.get("extract_veto_pending")):
+        return
+    try:
+        from wg_extraction import resolve_extract_veto
+        from wg_friction import resolve_correction
+        text, _ = get_current_turn_visible_text(transcript, text=transcript_text)
+        got = [resolve_correction(state, session_id, text), resolve_extract_veto(state, session_id, text)]
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Correction] 收糾正／否決宣告行失敗（待判留著，下一則使用者訊息照舊規則結）：{type(e).__name__}: {e}",
+              file=sys.stderr)
+        return
+    if any(g is not None for g in got):
+        write_state(session_id, state)
+
+
 def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List[Dict[str, Any]], boundary: bool,
                      config: Dict[str, Any], cwd: str = "") -> Optional[str]:
     """到了交付邊界、本 session 在上次問過或記過之後又改了程式 → 回要送的那一問（並記下問過）；不到時候回 None。
@@ -1429,6 +1473,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if _timed_out("殘檔帳本"):
         return
     _record_pick(state, session_id, code_text, cwd, config)   # 交付回覆裡的「順手看到最該修」→ 追蹤項（G13）
+    _record_prompt_judgments(state, session_id, transcript, transcript_text)   # UPS 問過的「是不是糾正／否決」收宣告行（G6）
 
     if _timed_out("最該修記帳"):
         return
@@ -1993,8 +2038,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # wg_harvest.harvest_gate_reason（活動門檻、冷卻只認 validated、dismiss 詞表重用 wg_evasion）。
     # 不吃 stop_gate_max_blocks 共用預算、每回合最多擋一次（harvest_gate_turn[sid] 記 _user_turn）；
     # state 全按 session_id 分區——隔壁 session 的收割不放行本 session。
+    _hv_waived: List[Dict[str, str]] = []
     hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn,
-                                    claimed=_done(last_text))
+                                    claimed=_done(last_text), waived=_hv_waived)
+    _log_waivers(state, session_id, turn_seq, _uturn, "harvest", _hv_waived)   # 使用者叫跳過收割、AI 引用到原話 → 放行並留帳
     if hv_reason:
         state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
         append_guard_log("knowledge_harvest", {
@@ -2012,7 +2059,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # ── Harvest-Pending Gate：收割回報有 item 對不上 receipt ──────
     # post_tool_use 核對落 knowledge_harvest[sid].pending；此處每回合（_user_turn）擋一次要求真做完再重報。
     # 本則是中途狀態句（仍在等 agent 回報…）→ 不擋，等真收尾再擋（wg_harvest.in_progress_text）。
-    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text, gate_turn=_uturn)
+    _hp_waived: List[Dict[str, str]] = []
+    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text, gate_turn=_uturn, waived=_hp_waived)
+    _log_waivers(state, session_id, turn_seq, _uturn, "harvest_pending", _hp_waived)   # 只豁免不做行指名的那幾張卡
     if hp_reason:
         state.setdefault("harvest_pending_gate_turn", {})[session_id] = _uturn
         append_guard_log("harvest_pending", {
@@ -2050,6 +2099,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn and _scan_report_gate_on(config):
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
+        # 規則 HARVEST_WAIVER_ITEMIZED：門檻達到、本來要擋，使用者叫跳過收尾檢核、AI 引用到原話 → 放行並留帳
+        _cc_w = None if (emitted_this_turn or aec_up_to_date or not completion_threshold_met(
+            last_text, own_mod_files, sr_min_files, claimed=_done(last_text))) else closing_check_waiver(last_text, recent_prompts)
+        _log_waivers(state, session_id, turn_seq, _uturn, "closing_check", [_cc_w] if _cc_w else [])
         if detect_missing_aec_emission(
             last_text, own_mod_files, recent_prompts, sr_min_files, emitted_this_turn or aec_up_to_date, claimed=_done(last_text)
         ):
@@ -2076,6 +2129,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (k) 追蹤項：還沒做完、要追的事一行一項（會進 workflow/tracking 帳本）；沒有寫「無」，**不接受空字串**\n"
                 "十參都 required、未發生填「無」（(c) 已刪，不必送）；本回合已交收割報告的話 (d) 可只寫「見收割報告」。"
                 "不得用 prose「不在範圍 / 留給未來」籠統帶過。"
+                + (f"\n{waiver_hint(CLOSING_CHECK_ITEM)}" if dismissed_recently(recent_prompts) else "")
             )
             write_state(session_id, state)
             output_block(reason)

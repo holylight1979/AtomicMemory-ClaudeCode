@@ -253,7 +253,8 @@ def handle_user_prompt_submit(
     # 文字評分（G15）：上一則回覆背景評完了 → 評分一行放在這則注入的第一行，請 AI 照抄到回覆尾巴（只附不擋；wg_text_score）
     try:
         from wg_text_score import tail_note as _ts_tail_note
-        _ts_txt = _ts_tail_note(state, session_id, config)
+        _ts_txt = _ts_tail_note(state, session_id, config,
+                                cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
         if _ts_txt:
             lines.insert(0, _ts_txt)
     except Exception as e:
@@ -277,10 +278,15 @@ def handle_user_prompt_submit(
     # 命中（只算使用者本人打的字）且有需求目標樹 → 提醒回頭看樹（4.3，不擋）
     correction_hits: List[str] = []
     try:
-        from wg_friction import record_correction
+        from wg_friction import correction_question, record_correction
         correction_hits = record_correction(state, session_id, clean_prompt, config)
+        if correction_hits:   # 詞表只是提示：問 AI「是不是糾正」，問的那一刻接判準卡、記 guard-entry（規則 CORRECTION_WORDS_ARE_HINTS）
+            from handlers._shared import entry_note, with_note
+            _cq = correction_question(correction_hits)
+            lines.append(with_note(_cq, entry_note(_cq, "user_prompt", session_id=session_id, state=state, config=config)))
     except Exception as e:
         _atom_debug_error("ups:friction", e)
+        print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)
     # 同伴 session 送來的訊息＝外部主張：裁定前送「用目標視角重看」三問（4.3；使用者本人打的字不觸發）
     if correction_hits or "<cross-session-message" in clean_prompt[:300]:
         try:

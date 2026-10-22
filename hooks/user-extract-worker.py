@@ -510,6 +510,8 @@ def _write_atom_via_mcp(
         return "failed"
 
     if result.ok:
+        # 卡的實際落點記回這筆（呼叫端傳進來的 candidate 就是 confirmed_extraction）：UPS 通知與否決問句才指得出要撤哪張
+        candidate["atom_path"] = str(getattr(result, "path", None) or "")
         return "wrote"
     err = result.error or ""
     if "already exists" in err:

@@ -62,16 +62,21 @@ def test_peer_message_is_not_a_correction_nor_a_dismiss():
     assert detect_deferral(later, ["幫我修好", PEER]) is not None and detect_deferral(later, ["先這樣"]) is None
     core = [{"path": r"c:\a\.claude\hooks\x.py", "tool": "Edit"}]
     assert detect_missing_aec_emission("全部完成了", core, ["幫我修好", PEER], 2, False) is True
-    assert detect_missing_aec_emission("全部完成了", core, ["先這樣"], 2, False) is False
+    # G6 階段 5（HARVEST_WAIVER_ITEMIZED）：收尾檢核也要引用到使用者原話才豁免；同伴說的引不到
+    done_cited = "全部完成了\n不做｜收尾檢核：使用者說「先這樣」"
+    assert detect_missing_aec_emission(done_cited, core, ["幫我修好", PEER], 2, False) is True
+    assert detect_missing_aec_emission(done_cited, core, ["先這樣"], 2, False) is False
     assert wg_core.user_typed_prompts(["a", NOTIFY, PEER, "b"]) == ["a", "b"]
 
 
 def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     from handlers import ups_gates as g
+    from wg_extraction import EXTRACT_VETO_MARKER
     disabled = []
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 否決問句接判準卡會記 guard-entry，不落真 Logs
     cfg = {"userExtraction": {"enabled": True}}
     said = "先這樣。記住：一律使用 UTF-8。不要記。停用"
 
@@ -83,12 +88,14 @@ def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     assert st["failing_tests"] == ["t::x"]                                          # 同伴「先這樣」不清失敗紀錄
     assert not st.get("pending_user_extract")                                       # 同伴「記住…」不算使用者決策
     assert any("已記為 atom" in ln for ln in lines)                                 # 同伴「不要記」不否決
+    assert not any(EXTRACT_VETO_MARKER in ln for ln in lines)                       # 同伴「不要記」連問都不問
     assert disabled == []                                                           # 同伴「停用」不停後端
     st, lines = fresh(), []
     g.run_pre_gates("sid", st, cfg, said, said.lower(), lines)                      # 對照：使用者自己打同一段話
     assert st["failing_tests"] == ["t::x"], "G6 P7：使用者的「先這樣」也不再在入口清掉整份紅測，豁免改在 Stop 對到具體那一筆"
     assert st.get("pending_user_extract") and disabled == ["ollama"]
-    assert not any("已記為 atom" in ln for ln in lines)
+    # G6 階段 5（EXTRACT_VETO_NEEDS_JUDGMENT）：使用者的「不要記」通知照送，另問 AI 是不是在否決
+    assert any("已記為 atom" in ln for ln in lines) and any(EXTRACT_VETO_MARKER in ln for ln in lines)
 
 
 _ASK = "記住這條：幫我查一下各閘的最佳實踐，再同時改 hooks/a.py、hooks/b.py、hooks/c.py 這三支"
@@ -140,10 +147,12 @@ def _seven(prompt: str, monkeypatch) -> dict:
     from handlers.pre_tool_use import check_git_commit_order
     from wg_evasion import detect_evasion
     from wg_release_rules import parse_not_doing, waived_failures
+    from wg_extraction import EXTRACT_VETO_MARKER
     disabled = []
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 否決問句接判準卡會記 guard-entry，不落真 Logs
     st = {"failing_tests": [{"cmd": "pytest t_x.py"}], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
     lines = []
     g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, prompt, prompt.lower(), lines)
@@ -155,7 +164,7 @@ def _seven(prompt: str, monkeypatch) -> dict:
         "dismiss": detect_evasion(cited, st["recent_user_prompts"]) is None,
         "failing": kept == [],
         "decision": bool(st.get("pending_user_extract")),
-        "veto": not any("已記為 atom" in ln for ln in lines),
+        "veto": any(EXTRACT_VETO_MARKER in ln for ln in lines),     # G6 階段 5：「不要記」改成問 AI 是不是否決，通知照送
         "disable": disabled == ["ollama"],
     }
 

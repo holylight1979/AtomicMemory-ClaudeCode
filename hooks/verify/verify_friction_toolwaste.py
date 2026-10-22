@@ -189,6 +189,7 @@ def test_detect_correction_disabled_and_custom_keywords():
 
 
 def test_record_correction_counts_caps_and_logs(sandbox):
+    """命中先記待判（規則 CORRECTION_WORDS_ARE_HINTS）；AI 回「糾正｜是」才計，明細 cap 10。"""
     _, logs = sandbox
     state = {"turn_seq": 5}
     assert wf.record_correction(state, "s1", "隨便聊聊", CFG) == []
@@ -196,10 +197,12 @@ def test_record_correction_counts_caps_and_logs(sandbox):
     for i in range(12):
         state["turn_seq"] = i
         assert wf.record_correction(state, "s1", f"不對 第{i}次", CFG)
+        assert wf.resolve_correction(state, "s1", f"糾正｜是：第{i}次是在說我改錯") is True
     assert state["user_correction_count"] == 12
     assert len(state["user_correction_hits"]) == 10
     assert state["user_correction_hits"][-1]["turn"] == 11
-    assert len(logs) == 12 and logs[-1][0] == "friction" and logs[-1][1]["count"] == 12
+    events = [p["event"] for g, p in logs if g == "friction"]
+    assert events.count("candidate") == 12 and events.count("judged") == 12 and logs[-1][1]["count"] == 12
     assert wf.friction_triggered(state, CFG)
     assert "12 次" in wf.friction_summary(state) and "不對" in wf.friction_summary(state)
 

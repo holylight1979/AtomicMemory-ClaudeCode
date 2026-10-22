@@ -7,6 +7,8 @@
 - enabled=false：on_stop 不起背景、不動 state；tail_note 有評分也不送（同案 enabled=true 先證會送）。
 - 下一回合注入：上一回合那則評完 → 兩行（上則評分＋TEXT_SCORE_TAIL 指示）、只送一次、guard-entry 記 E37 問帳；沒評完 → 不送、記 pending 一次；
   評的是更早回合 → 不送；下一次 Stop 回覆照抄 → copied，回應型推成 declared；沒抄不記。UserPromptSubmit 把它放在注入第一行（排在退避舉證前面）。
+- 評分一行的連結：VS Code（CLAUDE_CODE_ENTRYPOINT=claude-vscode）→「評分」連說明檔、沒過／作廢／未評的代號連 #<代號>，路徑相對 hook 收到的 cwd
+  （輸入沒 cwd 用 state 記的；換磁碟、沒 cwd 給絕對路徑；空白、括號、%、# 編碼），照抄連結版照樣記 copied；終端機、無頭、沒說明檔的規格 → 純文字（同一行先證 VS Code 會連）。
 - docs 類：本回合、本 session 改過的 .md 才送；背景照 auto_targets.docs 的路徑樣式評（checklist 有帳、TECH.md 沒帳）；改過再送、沒改不重送；不注入。
 - 背景一份出錯不影響其他份；final_reply 從 stdin 餵、docs 給路徑。
 - stop.py：各閘之前呼叫 on_stop（只給本 session 改的檔），state 有改就寫回。
@@ -77,6 +79,7 @@ def world(tmp_path, monkeypatch):
     base = datetime(2026, 10, 21, 9, 0, 0, tzinfo=timezone(timedelta(hours=8)))
     monkeypatch.setattr(wg_core, "_now_iso", lambda: (base + timedelta(seconds=next(tick))).isoformat(timespec="seconds"))
     monkeypatch.setattr(ep, "card_pool", lambda state=None: [])
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)   # 評分一行預設純文字，不看跑測試的是哪個介面
     return root
 
 
@@ -97,8 +100,9 @@ def _guard(root: Path, name: str) -> List[Dict[str, Any]]:
     return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
 
 
-def _ledger_rec(sha: str, summary: str = "評分 5/7｜沒過：R1、R4", kind: str = "final_reply", session: str = SID) -> str:
-    return json.dumps({"ts": "2026-10-21T09:00:00", "session": session, "kind": kind, "spec": "reader-designer",
+def _ledger_rec(sha: str, summary: str = "評分 5/7｜沒過：R1、R4", kind: str = "final_reply", session: str = SID,
+                spec: str = "reader-designer") -> str:
+    return json.dumps({"ts": "2026-10-21T09:00:00", "session": session, "kind": kind, "spec": spec,
                        "text_sha": sha, "summary": summary, "items": []}, ensure_ascii=False)
 
 
@@ -282,6 +286,70 @@ def test_ups_puts_score_line_first_before_evasion(world, ups_wired, monkeypatch)
     ctx = ups_wired[0]["hookSpecificOutput"]["additionalContext"].splitlines()
     assert ctx[0] == "上則評分 5/7｜沒過：R1、R4" and "TEXT_SCORE_TAIL" in ctx[1]
     assert any(x.startswith("[Guardian:Evasion]") for x in ctx[2:]) and state["turn_seq"] == 3
+
+
+# ─── 評分一行的連結：VS Code 點得進說明檔，其他介面純文字 ───────────────────────
+
+DOC = "text-specs/reader-designer-說明.md"
+PLAIN = "上則評分 5/7｜沒過：R1、R4"
+
+
+def _scored(world, **rec) -> Dict[str, Any]:
+    sha = wts.text_sha(REPLY)
+    _write_ledger(world, _ledger_rec(sha, **rec))
+    return {"turn_seq": 5, "text_score": {SID: {"reply": {"sha": sha, "turn": 5}}}}
+
+
+def test_tail_note_links_in_vscode_and_copy_still_counts(world, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
+    state = _scored(world)
+    first = wts.tail_note(state, SID, CFG, cwd=str(TREE)).splitlines()[0]
+    assert first == f"上則[評分]({DOC}) 5/7｜沒過：[R1]({DOC}#r1)、[R4]({DOC}#r4)"
+    assert wts.on_stop(state, SID, f"做完了。\n\n{first}", [], 6, CFG) is True                # 照抄連結版也算
+    assert [r["event"] for r in _guard(world, "text_score_tail")] == ["copied"]
+    link = wts.link_line
+    assert link("上則評分 6/7｜沒過：R2｜作廢：R3｜未評：R5", "reader-designer", str(TREE / "hooks")) == (
+        f"上則[評分](../{DOC}) 6/7｜沒過：[R2](../{DOC}#r2)｜作廢：[R3](../{DOC}#r3)｜未評：[R5](../{DOC}#r5)")
+    assert link("上則評分 未評｜裁判不在：連不上", "reader-designer", str(TREE)) == f"上則[評分]({DOC}) 未評｜裁判不在：連不上"
+    absolute = (TREE / DOC).as_posix()
+    assert link("上則評分 7/7｜全過", "reader-designer", "") == f"上則[評分]({absolute}) 7/7｜全過"   # 沒 cwd
+    if sys.platform == "win32":
+        other = "Y:\\" if TREE.drive.upper() == "Z:" else "Z:\\"
+        assert link("上則評分 7/7｜全過", "reader-designer", other) == f"上則[評分]({absolute}) 7/7｜全過"
+    odd = tmp_path / "a b (c) 100%20#1"
+    odd.mkdir()
+    (odd / "reader-designer-說明.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(wts, "SPEC_DIR", odd)
+    assert link("上則評分 6/7｜沒過：R2", "reader-designer", str(tmp_path)) == (
+        "上則[評分](a%20b%20%28c%29%20100%2520%231/reader-designer-說明.md) 6/7｜"
+        "沒過：[R2](a%20b%20%28c%29%20100%2520%231/reader-designer-說明.md#r2)")
+
+
+def test_tail_note_plain_outside_vscode_or_without_explain_doc(world, monkeypatch):
+    for entry in (None, "cli", "sdk-cli", "sdk-py"):
+        if entry:
+            monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entry)
+        assert wts.tail_note(_scored(world), SID, CFG, cwd=str(TREE)).splitlines()[0] == PLAIN, entry
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
+    assert wts.link_line(PLAIN, "reader-designer", str(TREE)) != PLAIN                       # 前置：同一行在 VS Code 會連
+    state = _scored(world, spec="沒有說明檔的規格")
+    assert wts.tail_note(state, SID, CFG, cwd=str(TREE)).splitlines()[0] == PLAIN
+
+
+def test_ups_passes_hook_cwd_for_links(world, ups_wired, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
+    state = {**_scored(world), "turn_seq": 2, "session": {"cwd": str(TREE)}}
+    state["text_score"][SID]["reply"]["turn"] = 2
+    monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
+    ups.handle_user_prompt_submit({"session_id": SID, "prompt": "繼續", "transcript_path": "", "cwd": str(TREE / "hooks")},
+                                  {"sync_keywords": [], **CFG})
+    ctx = ups_wired[0]["hookSpecificOutput"]["additionalContext"].splitlines()
+    assert ctx[0].startswith(f"上則[評分](../{DOC}) 5/7") and "TEXT_SCORE_TAIL" in ctx[1]      # 用 hook 輸入的 cwd，不是 state 記的
+    state.update({**_scored(world), "turn_seq": 3, "session": {"cwd": str(TREE)}})
+    state["text_score"][SID]["reply"]["turn"] = 3
+    ups.handle_user_prompt_submit({"session_id": SID, "prompt": "繼續", "transcript_path": ""}, {"sync_keywords": [], **CFG})
+    ctx = ups_wired[-1]["hookSpecificOutput"]["additionalContext"].splitlines()
+    assert ctx[0].startswith(f"上則[評分]({DOC}) 5/7")                                         # 輸入沒 cwd → state 記的
 
 
 # ─── 文件類：本回合改過的 .md、路徑樣式由 text-score 判 ─────────────────────

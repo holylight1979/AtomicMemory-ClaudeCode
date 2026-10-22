@@ -615,14 +615,77 @@ def _decide_verdict(matches: List[Dict[str, Any]],
     return "ok", None
 
 
+def _hooks_module(name: str):
+    """hooks/ 底下的模組（wg_release_rules＝判式正本、wg_core＝留帳）：照 lib.atom_io 載 hooks 模組的做法。"""
+    hooks = str(_CODE_ROOT / "hooks")
+    if hooks not in sys.path:
+        sys.path.insert(0, hooks)
+    return __import__(name)
+
+
+def _needs_declaration(m: Dict[str, Any], threshold: float) -> bool:
+    """門檻篩出的候選（規則 CONFLICT_DECLARED_BY_AI）：本地模型判 CONTRADICT（已複驗一致），或 EXTEND 且相似度 ≥ 門檻。"""
+    label = m.get("classification")
+    return label == "CONTRADICT" or (label == "EXTEND" and m.get("similarity", 0) >= threshold)
+
+
+def _apply_declaration(out: Dict[str, Any], flagged: List[Dict[str, Any]], declared: Any, title: str
+                       ) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """CONFLICT_DECLARED_BY_AI：候選不再自動擋寫或改道待審，是不是衝突由 AI 宣告。沒宣告／宣告不全 → need_declaration
+    （out 附 candidates 與 declaration_problem）；任一 conflict → contradict（primary＝第一個宣告衝突的候選）；
+    全部 not_conflict → ok。宣告都記 Logs/guard-conflict_declared.jsonl。回 (verdict, primary)。
+    判式載不起來 → 照樣由 AI 的宣告決定、只是不核理由（warning 浮出）：宣告了衝突 → contradict；每個候選都宣告不是 → ok；
+    其餘 → need_declaration。不退回門檻舊判，也不把沒人判的候選直接放行。"""
+    out["candidates"] = [{k: m.get(k) for k in ("atom_name", "classification", "similarity", "fact_preview", "layer")}
+                         for m in flagged]
+    try:
+        rr = _hooks_module("wg_release_rules")
+    except Exception as e:  # noqa: BLE001
+        out["warnings"].append(f"conflict declaration rules unavailable ({type(e).__name__}: {e}) — "
+                               "AI declaration applied without validating reasons; review manually")
+        out["declaration_unavailable"] = True
+        raw = []
+        if isinstance(declared, list):
+            raw = declared
+        elif isinstance(declared, dict):
+            raw = [declared]
+        said ={str(d.get("of", "")).strip(): str(d.get("verdict", "")).strip() for d in raw if isinstance(d, dict)}
+        hit = next((m for m in flagged if said.get(m["atom_name"]) == "conflict"), None)
+        if hit is not None:
+            return "contradict", hit
+        if all(said.get(m["atom_name"]) == "not_conflict" for m in flagged):
+            return "ok", None
+        return "need_declaration", None
+    v, decls = rr.conflict_declaration_verdict([m["atom_name"] for m in flagged], declared)
+    if v.owed:
+        out["declaration_problem"] = v.why if declared is not None else ""
+        return "need_declaration", None
+    out["declared"] = decls
+    try:
+        log = _hooks_module("wg_core").append_guard_log
+        for d in decls:
+            m = next(m for m in flagged if m["atom_name"] == d["of"])
+            log("conflict_declared", {"event": d["verdict"], "incoming": title[:120], "of": d["of"], "why": d["why"],
+                                      "classification": m.get("classification"), "similarity": m.get("similarity")})
+    except Exception as e:  # noqa: BLE001  留帳失敗不擋寫入，浮 warning
+        out["warnings"].append(f"conflict declaration ledger write failed: {type(e).__name__}: {e}")
+    hit = next((d["of"] for d in decls if d["verdict"] == "conflict"), None)
+    if hit is None:
+        return "ok", None
+    return "contradict", next(m for m in flagged if m["atom_name"] == hit)
+
+
 def run_write_check(content: str, project_cwd: Optional[str], scope: str,
                     threshold: float = WRITE_CHECK_THRESHOLD,
-                    subdir: Optional[str] = None) -> Dict[str, Any]:
+                    subdir: Optional[str] = None, declared: Any = None, title: str = "") -> Dict[str, Any]:
     """Pre-write semantic conflict check (SPEC §7.1 write-time).
 
     Returns:
       {verdict, matches: [...], detector_model, skipped, skip_reason, warnings}
-    Verdict ∈ {ok, extend_overlap, contradict, duplicate}.
+    Verdict ∈ {ok, need_declaration, contradict, duplicate}.
+    門檻與本地模型標籤只篩候選（規則 CONFLICT_DECLARED_BY_AI）：候選（CONTRADICT、EXTEND≥threshold）要 AI 帶 declared
+    （atom_write 的 conflict 參數：[{of, verdict: conflict|not_conflict, why}]）宣告，見 _apply_declaration；
+    detector_verdict 留下門檻原本會給的判定（contradict／extend_overlap）。
 
     On any vector/LLM unavailability: verdict=ok + skipped=True (fail-open at
     write-time so dead infrastructure does not block all writes).
@@ -728,7 +791,14 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
             f"LLM classification failed on high-similarity match "
             f"'{primary.get('atom_name', '')}' — degraded to warn (fail-open); review manually")
         verdict, primary = "ok", None
+    flagged = [m for m in decide_matches if _needs_declaration(m, threshold)]
+    if verdict in ("contradict", "extend_overlap") and flagged:
+        out["detector_verdict"] = verdict
+        verdict, primary = _apply_declaration(out, flagged, declared, title)
+    elif declared is not None:
+        out["declaration_ignored"] = True   # 沒有門檻候選：宣告不需要，照寫
     out["verdict"] = verdict
+    out["primary"] = (primary or {}).get("atom_name", "")
     # 快速否證通道：incoming（新側）Evidence=實證 且矛盾對象為 [固]/[觀] → 高優先浮出
     if (verdict == "contradict" and primary is not None
             and _incoming_evidence(content) == "實證"
@@ -839,6 +909,8 @@ def _write_pull_conflict_report(proj_root: Path, atom_name: str,
     fr_lines = (
         f"- Fast-refute: yes（{FAST_REFUTE_NOTE}）\n" if fast_refute else ""
     )
+    if verdict == "candidate":   # 規則 CONFLICT_DECLARED_BY_AI：本地模型沒判出，相似度只篩候選
+        fr_lines += "- Note: 本地模型沒判出結果，這張只是相似度候選；審的時候先判兩張是不是同一件事、同一範圍、不能同時成立\n"
     body = (
         f"# Pull-time conflict: {atom_name}\n\n"
         f"{fr_lines}"
@@ -910,6 +982,8 @@ def run_pull_audit(project_cwd: str, since: str = "last") -> Dict[str, Any]:
         for h in candidates:
             label = _classify_match(body, h)
             sim = float(h.get("score", 0))
+            # 本地模型沒判出（ERROR）時相似度高只是候選，報告標 candidate、不標 contradict（規則 CONFLICT_DECLARED_BY_AI）
+            verdict = "contradict" if label == "CONTRADICT" else "candidate"
             if label == "CONTRADICT" or (label == "ERROR" and sim >= WRITE_CHECK_THRESHOLD):
                 match = {
                     "atom_name": h.get("atom_name", ""),
@@ -925,14 +999,14 @@ def run_pull_audit(project_cwd: str, since: str = "last") -> Dict[str, Any]:
                     and h.get("confidence") in ("[固]", "[觀]")
                 )
                 report = _write_pull_conflict_report(proj_root, atom["atom_name"],
-                                                    atom, match, "contradict",
+                                                    atom, match, verdict,
                                                     fast_refute=fast_refute)
                 _append_merge_history(proj_root, "pull-audit-flag", atom["atom_name"],
                                       "shared", "<git>",
-                                      f"contradict vs {match['atom_name']} sim={sim:.3f} report={report.name}"
+                                      f"{verdict} vs {match['atom_name']} sim={sim:.3f} report={report.name}"
                                       + (" fast-refute" if fast_refute else ""))
                 flagged.append({"atom": atom["atom_name"], "report": str(report),
-                                "match": match["atom_name"], "similarity": sim,
+                                "match": match["atom_name"], "similarity": sim, "verdict": verdict,
                                 "fast_refute": fast_refute})
                 break  # one report per incoming atom
 
@@ -968,7 +1042,11 @@ def main():
     parser.add_argument("--project-cwd", type=str, default=None,
                         help="(write-check / pull-audit) project root")
     parser.add_argument("--threshold", type=float, default=WRITE_CHECK_THRESHOLD,
-                        help="(write-check) cosine threshold for extend_overlap (default 0.85)")
+                        help="(write-check) cosine threshold: EXTEND at/above it becomes a candidate needing declaration (default 0.85)")
+    parser.add_argument("--declared", type=str, default=None,
+                        help="(write-check) AI conflict declaration JSON: [{of, verdict: conflict|not_conflict, why}]")
+    parser.add_argument("--title", type=str, default="",
+                        help="(write-check) incoming atom title (ledger only)")
     parser.add_argument("--subdir", type=str, default=None,
                         help="(write-check) incoming write target subdir relative to memory root "
                              "(e.g. projects/X) — cross-partition matches warn instead of block")
@@ -981,8 +1059,13 @@ def main():
         if not args.content:
             print(json.dumps({"error": "--content is required for write-check"}))
             sys.exit(2)
+        try:
+            declared = json.loads(args.declared) if args.declared else None
+        except json.JSONDecodeError as e:
+            print(json.dumps({"error": f"--declared is not valid JSON: {e}"}))
+            sys.exit(2)
         result = run_write_check(args.content, args.project_cwd, args.scope, args.threshold,
-                                 subdir=args.subdir)
+                                 subdir=args.subdir, declared=declared, title=args.title)
         print(json.dumps(result, ensure_ascii=False))
         return
 

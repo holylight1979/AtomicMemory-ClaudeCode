@@ -107,7 +107,7 @@
     }
   ],
   "dismiss_keywords": {
-    "_doc": "使用者近 3 則 prompt 含這些 → 只剩收割閘（wg_harvest）與舊 prose 收尾檢核路徑當放行。退避偵測、退縮歸屬、紅測清單不再整段關掉：要 AI 寫「不做｜<哪一件>：使用者說「<原句片段>」」對到具體事項（規則 USER_WAIVER_NEEDS_CITATION）。",
+    "_doc": "使用者近 3 則 prompt 含這些只是提示，任何閘都不再整段關掉：退避偵測、退縮歸屬、紅測清單要 AI 寫「不做｜<哪一件>：使用者說「<原句片段>」」對到具體事項（規則 USER_WAIVER_NEEDS_CITATION）；收割閘、收割待補、收尾檢核同樣要對到那一件（規則 HARVEST_WAIVER_ITEMIZED），命中這些詞只讓擋訊息附上這個寫法。",
     "patterns": [
       "先這樣",
       "留著",

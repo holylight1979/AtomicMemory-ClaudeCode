@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from wg_core import _now_iso, WORKFLOW_DIR, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
-from wg_release_rules import in_user_turn
+from wg_release_rules import in_user_turn, item_waiver, waived_pending, waiver_hint
 
 _ATOM_OPS_CAP = 200
 _RECEIPT_OPS = ("create", "append", "replace", "retire")
@@ -1041,28 +1041,34 @@ def append_ledger(sid: str, record: Dict[str, Any], base_dir: Optional[Path] = N
 # ─── Stop 閘判定 ──────────────────────────────────────────────────
 
 
+def _recent_typed(state: Dict[str, Any]) -> List[str]:
+    return user_typed_prompts(state.get("recent_user_prompts", []) or [])[-3:]
+
+
 def _dismissed(recent_prompts: List[str]) -> bool:
+    """近 3 則使用者原話有 dismiss 詞：只決定擋訊息附不附豁免寫法（規則 HARVEST_WAIVER_ITEMIZED），不再整批放行。"""
     return any(_DISMISS_RE.search(p or "") for p in user_typed_prompts(recent_prompts)[-3:])
 
 
 def harvest_gate_reason(
     state: Dict[str, Any], sid: str, last_text: str, config: Dict[str, Any],
     own_mod_files: List[Dict[str, Any]], turn_seq: int, gate_turn: Optional[int] = None, claimed: Optional[bool] = None,
+    waived: Optional[List[Dict[str, str]]] = None,
 ) -> Optional[str]:
     """該擋 KnowledgeHarvest 就回擋訊息，否則 None。純判定，不改 state。claimed＝呼叫端判好的「本回合宣告完成」（Stop 看整回合，
     補件那則不重說也算）；沒給就看 last_text。
 
-    觸發＝宣告完成 ∧ 近 3 則 prompt 無 dismiss 詞 ∧ 有實質活動（turn_seq ≥ min_turns ∨ 本 session
+    觸發＝宣告完成 ∧ 有實質活動（turn_seq ≥ min_turns ∨ 本 session
     有改檔 ∨ accessed_files ≥ min_accessed）∧ 冷卻已過（距上次 validated 收割 ≥ min_turns_between）
-    ∧ 本 turn 未回報 ∧ 本回合未擋過 ∧ 無 pending（pending 由 Harvest-Pending 閘接手，不雙擋）。
+    ∧ 本 turn 未回報 ∧ 本回合未擋過 ∧ 無 pending（pending 由 Harvest-Pending 閘接手，不雙擋）
+    ∧ 收尾文字沒有引用到使用者原話的「不做｜收割：使用者說「…」」（規則 HARVEST_WAIVER_ITEMIZED；成立時那條不做行
+    append 進 waived 給呼叫端留帳）。dismiss 詞只決定擋訊息附不附豁免寫法。
     「本回合未擋過」比 gate_turn（Stop 給使用者打字開的回合：同伴訊息、背景通知不算新回合）；沒給用 turn_seq。
     """
     cfg = harvest_config(config)
     if not cfg or not turn_seq:
         return None
     if not (bool(last_text) and claims_completion(last_text) if claimed is None else claimed):
-        return None
-    if _dismissed(state.get("recent_user_prompts", []) or []):
         return None
     if reported_this_turn(state, sid, turn_seq):
         return None
@@ -1086,7 +1092,14 @@ def harvest_gate_reason(
             return None
     elif last_valid is not None and turn_seq - int(last_valid) < min_between:
         return None
-    return harvest_block_message()
+    prompts = _recent_typed(state)
+    w = item_waiver(last_text, prompts, ("收割", "知識收割"))
+    if w is not None:
+        if waived is not None:
+            waived.append(w)
+        return None
+    hint = f"\n{waiver_hint('收割')}" if _dismissed(prompts) else ""
+    return harvest_block_message() + hint
 
 
 def harvest_block_message(tracking_written: bool = False) -> str:
@@ -1117,9 +1130,11 @@ def in_progress_text(last_text: str) -> bool:
 
 
 def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_text: str = "",
-                        gate_turn: Optional[int] = None) -> Optional[str]:
+                        gate_turn: Optional[int] = None, waived: Optional[List[Dict[str, str]]] = None) -> Optional[str]:
     """本 session 收割回報有核不過的 item → 每回合擋一次要求補（回合＝gate_turn，Stop 給使用者打字開的回合；沒給用 turn_seq）；
-    使用者說「先這樣／跳過」或本則是中途狀態句（還在等別人回報）就不擋：擋了只會逼模型在半途補報。"""
+    本則是中途狀態句（還在等別人回報）就不擋：擋了只會逼模型在半途補報。使用者說「先這樣／跳過」不再整批放掉：
+    收尾文字的「不做｜<那一項>：使用者說「…」」逐筆豁免（規則 HARVEST_WAIVER_ITEMIZED，豁免的 append 進 waived 給呼叫端留帳），
+    其餘照擋。"""
     if not turn_seq:
         return None
     pending = section(state, sid).get("pending") or []
@@ -1129,13 +1144,18 @@ def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_tex
         return None
     if (state.get("harvest_pending_gate_turn") or {}).get(sid) == (turn_seq if gate_turn is None else gate_turn):
         return None
-    if _dismissed(state.get("recent_user_prompts", []) or []):
+    prompts = _recent_typed(state)
+    kept, got = waived_pending(pending, last_text, prompts)
+    if waived is not None:
+        waived.extend(got)
+    if not kept:
         return None
+    hint = f"\n{waiver_hint('<那一項的卡名>')}" if _dismissed(prompts) else ""
     return (
-        f"[Guardian:Harvest-Pending] 收割回報有 {len(pending)} 項核不過（宣稱寫了但沒有對應的 atom 工具 receipt）：\n"
-        + "\n".join(f"  ✗ {x}" for x in pending[:6])
+        f"[Guardian:Harvest-Pending] 收割回報有 {len(kept)} 項核不過（宣稱寫了但沒有對應的 atom 工具 receipt）：\n"
+        + "\n".join(f"  ✗ {x}" for x in kept[:6])
         + "\n先用 atom_write／atom_retire 真的做完（或把該 item 改成 action=skip 附 reason），"
-        "再重新呼叫 knowledge_harvest_report。"
+        "再重新呼叫 knowledge_harvest_report。" + hint
     )
 
 
