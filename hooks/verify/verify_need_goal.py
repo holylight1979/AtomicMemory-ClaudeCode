@@ -37,6 +37,7 @@ import overview_hub  # noqa: E402
 import wg_verify_ledger as vl  # noqa: E402
 
 SID = "sess-goal-0001"
+ON = {"reconcile_gate": {"goal_gate": True}}   # 測閘開著的行為：目標對照閘程式預設是關的
 
 
 @pytest.fixture
@@ -48,6 +49,10 @@ def env(tmp_path, monkeypatch):
     wf.mkdir()
     guard = []
     monkeypatch.setattr(wg_core, "WORKFLOW_DIR", wf)
+    # 匯入時就存了一份資料夾的模組也導走（追蹤帳本、工具結果帳）：同一行程先載入模組再跑 pytest 時常數指到正式資料根
+    import wg_harvest
+    monkeypatch.setattr(wg_harvest, "WORKFLOW_DIR", wf)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", wf)
     monkeypatch.setattr(wg_core, "append_guard_log", lambda g, p: guard.append((g, p)))
     monkeypatch.setattr(wg_core, "_rebuild_min_atom_index", lambda cwd: {})
     monkeypatch.setattr(wg_core, "_find_active_sibling_state", lambda *a, **k: None)
@@ -97,7 +102,7 @@ def test_set_creates_tree_seeds_user_said_and_numbers(env):
     assert _op("add", items=[{"text": "舊設定的檔不能壞"}, {"text": "方向：要不要通知", "clarity": "open"}])["ok"]
     assert _op("add", parent="T1.1", items=[{"text": "下層"}])["ok"]
     assert sorted(_tree()["nodes"]) == ["T1", "T1.1", "T1.1.1", "T1.2"]
-    assert _tree()["goal_rev"] == 3 and _tree()["nodes"]["T1.2"]["clarity"] == "open"
+    assert _tree()["goal_rev"] == 1 and _tree()["nodes"]["T1.2"]["clarity"] == "open"   # 加子節點不算目標改
     bad = _op("add", parent="T9", items=[{"text": "x"}])
     assert not bad["ok"] and "T9" in bad["rejected"][0]
 
@@ -453,7 +458,7 @@ def test_goal_done_needs_case_or_receipt(env, code, evidence, verdict, want):
     r = _op("reconcile", items=_done_items(ev), turn=3, cwd=str(proj))
     if want is None:
         assert r["ok"], r["rejected"]
-        assert ng.goal_gate_reason(SID, True, {}) is None                   # 交付邊界的 (f2) 用同一套判定，收了就不再擋
+        assert ng.goal_gate_reason(SID, True, ON) is None                   # 交付邊界的 (f2) 用同一套判定，收了就不再擋
         return
     hit = [x for x in r["rejected"] if f"規則 {want}" in x]
     assert not r["ok"] and hit, r["rejected"]
@@ -531,11 +536,14 @@ def test_goal_change_after_reconcile_voids_it(env):
         {"id": "T1.1", "status": "done", "evidence": [{"kind": "receipt", "ref": rno, "level": "measured"}]},
         {"id": "T1.2", "status": "dropped", "note": "不做"}])
     assert ok["ok"] and _tree()["status"] == "closed"
-    assert ng.goal_gate_reason(SID, True, {}) is None
+    assert ng.goal_gate_reason(SID, True, ON) is None
     _op("add", items=[{"text": "後來長出的"}], turn=4)
     t = _tree()
     assert t["status"] == "doing"
-    reason = ng.goal_gate_reason(SID, True, {})
+    reason = ng.goal_gate_reason(SID, True, ON)                              # 加子節點不算目標改：只欠新節點的結論
+    assert reason and "(f2)" in reason and "T1.3" in reason and "舊對照作廢" not in reason
+    _op("update", items=[{"id": "T1.1", "text": "a1 改寫"}], turn=4)
+    reason = ng.goal_gate_reason(SID, True, ON)                              # 改節點文字才算：舊對照作廢
     assert reason and "(f2)" in reason and "舊對照作廢" in reason
 
 
@@ -554,7 +562,7 @@ def test_old_tree_owed_after_topic_switch_can_still_be_cleared(env):
     _op("add", items=[{"text": "a1"}])
     ng.stamp_edit(SID, str(proj / "a.py"), "", 2, {})
     _op("set", goal="B", new_task=True, why="換題", turn=3)                 # 換題：T2 成為目前的樹
-    assert ng.goal_gate_reason(SID, False, {}) is None                       # T1 欠的由程式記進度（PROGRESS_LINE_BY_PROGRAM）
+    assert ng.goal_gate_reason(SID, False, ON) is None                       # T1 欠的由程式記進度（PROGRESS_LINE_BY_PROGRAM）
     assert _doc()["trees"]["T1"]["nodes"]["T1"]["history"][-1]["by"] == "program"
     r = _op("update", items=[{"id": "T1", "status": "doing", "why": "a.py 的改動讓 A 更接近"}], turn=3)
     assert r["ok"] and r["tree"] == "T1"                                     # AI 自己交舊樹的進度照收
@@ -574,9 +582,9 @@ def test_imported_code_tree_needs_reconcile_even_without_new_edits(env):
     block = ng.handoff_block(SID)
     ng.import_handoff("sess-cont", block, str(proj / "next-phase-c.md"), 1)
     assert ng.active_tree(ng.load("sess-cont"))["kind"] == "code"
-    reason = ng.goal_gate_reason("sess-cont", True, {})
+    reason = ng.goal_gate_reason("sess-cont", True, ON)
     assert reason and "(f2)" in reason and "還沒交完整對照" in reason          # 續接後只補驗證就交付也要對照
-    assert "(f2)" in ng.commit_gate("sess-cont", {})
+    assert "(f2)" in ng.commit_gate("sess-cont", ON)
 
 
 def test_caps_never_drop_owed_or_last_edit_order(env, monkeypatch):
@@ -615,7 +623,7 @@ def test_receipt_trim_keeps_cited_and_never_restamps(env, monkeypatch):
     seqs = [r["seq"] for r in _doc()["receipts"]]
     assert cited in seqs and len(seqs) == 2                                  # 被引用的留著
     assert ng.stamp_receipts(SID, state, 3) == 0                            # 截掉的不會被重新蓋成新號
-    assert ng.goal_gate_reason(SID, True, {}) is None
+    assert ng.goal_gate_reason(SID, True, ON) is None
 
 
 def test_prune_keeps_lock_files(env):
@@ -638,7 +646,7 @@ def test_project_level_switch_turns_gates_off(env):
     ng.update_locked(SID, lambda d: ng.active_tree(d).update(kind="code"))
     ng.update_locked(SID, lambda d: ng.active_tree(d)["edits"].append(
         {"seq": 99, "turn": 1, "path": str(proj / "a.py"), "node": "T1", "agent_id": "", "code": True, "owed": True}))
-    assert ng.goal_gate_reason(SID, True, {}) is None and ng.commit_gate(SID, {}) is None
+    assert ng.goal_gate_reason(SID, True, ON) is None and ng.commit_gate(SID, ON) is None
     assert ng.edit_gate(SID, str(proj / "b.py"), {}) is None
 
 
@@ -922,15 +930,15 @@ def test_fourth_line_soft_links_root_then_node_and_reset_on_goal_change(hooked):
     assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1"        # 指錯：掛樹根
     ng.stamp_edit(SID, f1, "", 2, {})
     assert _tree()["edits"][-1]["node"] == "T1"
-    r = pt._need_goal_after_tool({"turn_seq": 3, **json.loads(wg_core.state_file_path(SID).read_text(encoding="utf-8"))},
-                                 SID, "mcp__workflow-guardian__need_goal",
-                                 {"action": "add", "items": [{"text": "新長出的"}]}, {"tool_response": {}, "transcript_path": tp},
-                                 {})
-    assert r[1] is True                                                     # 目標改了 → 清定位
-    state = json.loads(wg_core.state_file_path(SID).read_text(encoding="utf-8"))
-    wo.on_goal_changed(state, tp, 3)
-    wg_core.write_state(SID, state)
+    state = {**json.loads(wg_core.state_file_path(SID).read_text(encoding="utf-8")), "turn_seq": 3}
+    pt._need_goal_after_tool(state, SID, "mcp__workflow-guardian__need_goal", {"action": "add", "items": [{"text": "新長出的"}]},
+                             {"tool_response": {}, "transcript_path": tp}, {})
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
+    assert rec["located"] is True                                           # 加子節點不算目標改：定位不清
+    pt._need_goal_after_tool(state, SID, "mcp__workflow-guardian__need_goal",
+                             {"action": "update", "items": [{"id": "T1.1", "text": "共用字典只留一個寫入點"}]},
+                             {"tool_response": {}, "transcript_path": tp}, {})
+    wg_core.write_state(SID, state)                                         # 改節點文字＝目標改了 → 清定位
     assert rec["located"] is False and "goal_node" not in rec and rec["goal_reset_turn"] == 3
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 舊的那組不算，要重交
     _say(tp, THREE2 + "\n定位｜目標：T1.2（新長出的那條）" + CRIT)
@@ -1066,19 +1074,19 @@ def test_cg0_reconcile_edited_part_needs_goal_node(hooked):
     ng.link_part(SID, ng._hub_key_of(files["Battle"]), "T1.1", 2)          # 戰鬥交過定位第四行
     for k in ("Battle", "UI", "Docs"):
         ng.stamp_edit(SID, files[k], "", 2, {})
-    r = ng.goal_gate_reason(SID, True, {})
+    r = ng.goal_gate_reason(SID, True, ON)
     f3 = r.split("(f3)", 1)[1] if r and "(f3)" in r else ""
     assert "EDITED_PART_NEEDS_GOAL_NODE" in f3 and "介面：" in f3 and "B.cs" in f3 and "沒掛目標" in f3, r
     assert "戰鬥：" not in f3 and "gen.py" not in r                          # 掛過的、知識類部位不列
     assert "need_goal" in f3 and "定位四行" in f3                             # 指路
     assert "f3" in rr.parse_hits(r)                                          # 擋次預算單獨計次
-    assert "(f3)" not in (ng.goal_gate_reason(SID, False, {}) or "")         # 只在交付邊界
-    assert "(f3)" in ng.commit_gate(SID, {})
+    assert "(f3)" not in (ng.goal_gate_reason(SID, False, ON) or "")         # 只在交付邊界
+    assert "(f3)" in ng.commit_gate(SID, ON)
     _say(tp, FOUR_UI)                                                        # 補交介面的定位四行
-    r = ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    r = ng.goal_gate_reason(SID, True, ON, state={}, transcript_path=tp)
     assert "(f3)" not in (r or "")
     assert _tree()["links"]["parts"][ng._hub_key_of(files["UI"])]["node"] == "T1.2"
-    assert "(f3)" not in (ng.commit_gate(SID, {}) or "")
+    assert "(f3)" not in (ng.commit_gate(SID, ON) or "")
 
 
 def test_cg0_relink_needs_valid_four_lines(hooked):
@@ -1089,9 +1097,9 @@ def test_cg0_relink_needs_valid_four_lines(hooked):
     _op("add", items=[{"text": "a"}, {"text": "介面跟著刷新"}])
     ng.stamp_edit(SID, files["UI"], "", 2, {})
     _say(tp, FOUR_UI.replace("候選 A 刷新時機；候選 B 事件沒解掛；選 A 因為只在戰鬥結束時刷", "刷新時機"))
-    assert "(f3)" in ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    assert "(f3)" in ng.goal_gate_reason(SID, True, ON, state={}, transcript_path=tp)
     _say(tp, FOUR_UI.replace("T1.2（介面刷新跟著字典變）", "T1.2"))
-    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp) or "")
+    assert "(f3)" not in (ng.goal_gate_reason(SID, True, ON, state={}, transcript_path=tp) or "")
 
 
 def test_cg0_relink_overlapping_part_names_only_links_the_named_one(hooked):
@@ -1111,7 +1119,7 @@ def test_cg0_relink_overlapping_part_names_only_links_the_named_one(hooked):
     ng.stamp_edit(SID, str(st_), "", 2, {})
     _say(tp, "定位｜部位：UI 設定——S.cs\n定位｜根因層：候選 A 存檔時機；候選 B 欄位對應；選 A 因為按了沒反應\n"
              "定位｜前例：無\n定位｜目標：T1.1（設定頁的存檔入口）" + CRIT)
-    r = ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    r = ng.goal_gate_reason(SID, True, ON, state={}, transcript_path=tp)
     f3 = r.split("(f3)", 1)[1] if r and "(f3)" in r else ""
     assert "UI：" in f3 and "View.cs" in f3 and "S.cs" not in f3, r
     assert overview_hub.locate_values("定位｜部位：UI 設定\n定位｜根因層：x\n定位｜前例：無", "UI", exclude=["UI 設定"]) is None
@@ -1125,9 +1133,9 @@ def test_cg0_dropped_node_unlinks_part(hooked):
     _op("add", items=[{"text": "a"}, {"text": "b"}])
     ng.link_part(SID, ng._hub_key_of(files["UI"]), "T1.2", 2)
     ng.stamp_edit(SID, files["UI"], "", 2, {})
-    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {}) or "")
+    assert "(f3)" not in (ng.goal_gate_reason(SID, True, ON) or "")
     _op("update", items=[{"id": "T1.2", "status": "dropped", "why": "不做了"}], turn=3)
-    r = ng.goal_gate_reason(SID, True, {})
+    r = ng.goal_gate_reason(SID, True, ON)
     assert "(f3)" in r and "T1.2 已放棄" in r
 
 
@@ -1138,7 +1146,7 @@ def test_cg0_overview_off_layer_records_no_part(hooked):
     _op("set", goal="G", cwd=str(proj))
     ng.stamp_edit(SID, files["UI"], "", 2, {"overview_hub": {"enabled": False}})
     assert not _tree().get("parts_edited")
-    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {"overview_hub": {"enabled": False}}) or "")
+    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {**ON, "overview_hub": {"enabled": False}}) or "")
 
 
 def test_cg0_stop_verify_gates_passes_transcript_for_relink(hooked):
@@ -1149,11 +1157,11 @@ def test_cg0_stop_verify_gates_passes_transcript_for_relink(hooked):
     ng.stamp_edit(SID, files["UI"], "", 2, {})
     off = {"enabled": False}
     reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", None, "", [], off, off, {}, False,
-                                  goal=True, goal_cfg={})
+                                  goal=True, goal_cfg=ON)
     assert "(f3)" in reason
     _say(tp, FOUR_UI)
     reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", Path(tp), "", [], off, off, {}, False,
-                                  goal=True, goal_cfg={})
+                                  goal=True, goal_cfg=ON)
     assert "(f3)" not in (reason or "")
 
 
@@ -1161,17 +1169,17 @@ def test_cg0_stop_verify_gates_passes_transcript_for_relink(hooked):
 
 def test_goal_gate_f1_every_time_f2_only_on_boundary(env):
     proj = _code_tree(env)
-    assert ng.goal_gate_reason(SID, False, {}) is None                      # (f1) 不再擋：程式記進度、清待對照
+    assert ng.goal_gate_reason(SID, False, ON) is None                      # (f1) 不再擋：程式記進度、清待對照
     assert not ng._owed(_tree()) and _tree()["nodes"]["T1"]["history"][-1]["by"] == "program"
-    assert "還沒交完整對照" in ng.goal_gate_reason(SID, True, {})              # (f2) 交付邊界照擋
-    assert ng.goal_gate_reason(SID, True, {"overview_hub": {"need_goal": {"enabled": False}}}) is None
+    assert "還沒交完整對照" in ng.goal_gate_reason(SID, True, ON)              # (f2) 交付邊界照擋
+    assert ng.goal_gate_reason(SID, True, {**ON, "overview_hub": {"need_goal": {"enabled": False}}}) is None
 
 
 def test_knowledge_tree_never_blocks(env):
     proj = env["proj"]
     _op("set", goal="整理卡片")
     ng.stamp_edit(SID, str(proj / "a.md"), "", 2, {})
-    assert ng.goal_gate_reason(SID, True, {}) is None and ng.commit_gate(SID, {}) is None
+    assert ng.goal_gate_reason(SID, True, ON) is None and ng.commit_gate(SID, ON) is None
     assert ng.snapshot_for_report(SID) is None
 
 
@@ -1180,10 +1188,10 @@ def test_stop_verify_gates_merges_goal_only_for_main_session(env):
     off = {"enabled": False}
     state = {"turn_seq": 3}
     reason, report, kind, _ = st._verify_gates(state, SID, 3, "好了", None, "", [], off, off, {}, False,
-                                               goal=True, goal_cfg={})
+                                               goal=True, goal_cfg=ON)
     assert reason is None                                                   # 不在交付邊界：待對照由程式記進度、不擋
     reason, _, kind, _ = st._verify_gates(state, SID, 3, "全部完成。", None, "", [], off, off, {}, False,
-                                          goal=True, goal_cfg={})
+                                          goal=True, goal_cfg=ON)
     assert "(f2)" in reason                                                 # 宣告完成＝交付邊界
     reason, _, kind, _ = st._verify_gates(state, f"{SID}#agent:x", 3, "全部完成。", None, "", [], off, off, {}, False)
     assert reason is None                                                   # 子代理、裁判不傳 goal
@@ -1197,7 +1205,7 @@ def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, cap
                       ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
         monkeypatch.setattr(st, name, val)
     with pytest.raises(SystemExit):
-        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {"reconcile_gate": {}, "verify_scope": {}})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {"reconcile_gate": {"goal_gate": True}, "verify_scope": {}})
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out.get("decision") == "block" and "(f2)" in out.get("reason", "") and "(f1)" not in out.get("reason", "")
     assert state["reconcile_gate_turn"][SID]["count"] == 1                  # 吃寫碼查核同一個預算
@@ -1218,7 +1226,7 @@ def test_stop_budget_exhausts_to_pending_and_clears_after_update(env, monkeypatc
     reasons = []
     for _ in range(3):
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {})
+            st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, ON)
         reasons.append(json.loads(capsys.readouterr().out.strip().splitlines()[-1])["reason"])
     assert all("(f2)" in r for r in reasons)
     assert pending_of(state, SID, "reconcile") is not None                  # 擋滿：記 pending、改問使用者
@@ -1226,7 +1234,7 @@ def test_stop_budget_exhausts_to_pending_and_clears_after_update(env, monkeypatc
     _op("reconcile", turn=3, cwd=str(env["proj"]), items=[{"id": n, "status": "none", "followup": "f"}
                                                           for n in ("T1", "T1.1", "T1.2")])
     try:
-        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, ON)
     except SystemExit:
         pass
     assert pending_of(state, SID, "reconcile") is None                      # 原因真的消失 → 清 pending
@@ -1240,7 +1248,7 @@ def test_subagent_stop_does_not_run_goal_check(env, monkeypatch, capsys):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
     try:
-        st.handle_subagent_stop({"session_id": SID, "agent_id": "ag1", "last_assistant_message": "全部完成。"}, {})
+        st.handle_subagent_stop({"session_id": SID, "agent_id": "ag1", "last_assistant_message": "全部完成。"}, ON)
     except SystemExit:
         pass
     out = capsys.readouterr().out
@@ -1339,7 +1347,7 @@ def test_knowledge_edit_after_closed_reconcile_reopens_and_old_tree_still_owes(e
     ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})
     assert _tree()["status"] == "doing"
     _op("set", goal="別的事", new_task=True, why="換題", turn=3)
-    r = ng.knowledge_gate_reason(SID, True, {}, 3, 3)
+    r = ng.knowledge_gate_reason(SID, True, ON, 3, 3)
     assert r and "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in r and "T1" in r and "notes.md" in r
     assert "T1" in [x["tree"] for x in ngp.silent_unreconciled(SID, 3)]
 
@@ -1347,30 +1355,30 @@ def test_knowledge_edit_after_closed_reconcile_reopens_and_old_tree_still_owes(e
 def test_knowledge_gate_f4_light_tree_and_reconcile_at_delivery(env):
     proj = env["proj"]
     ng.stamp_edit(SID, _kfile(proj, "old.md"), "", 1, {})                  # 上一個使用者回合改的
-    assert ng.knowledge_gate_reason(SID, False, {}, 3, 3) is None           # 不在本回合：不要求（session 結束另記帳）
+    assert ng.knowledge_gate_reason(SID, False, ON, 3, 3) is None           # 不在本回合：不要求（session 結束另記帳）
     ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})
-    r = ng.knowledge_gate_reason(SID, False, {}, 3, 3)
+    r = ng.knowledge_gate_reason(SID, False, ON, 3, 3)
     assert r and "(f4)" in r and "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" in r and "notes.md" in r and "old.md" not in r
     assert "need_goal(action=set" in r                                      # 不看措辭：沒宣告完成也要
-    assert ng.knowledge_gate_reason(SID, False, {"overview_hub": {"need_goal": {"enabled": False}}}, 3, 3) is None
+    assert ng.knowledge_gate_reason(SID, False, {**ON, "overview_hub": {"need_goal": {"enabled": False}}}, 3, 3) is None
     _op("set", goal="整併說明", turn=3)
-    assert ng.knowledge_gate_reason(SID, False, {}, 3, 3) is None           # 寫了樹；不在交付邊界不要對照
-    r = ng.knowledge_gate_reason(SID, True, {}, 3, 3)
+    assert ng.knowledge_gate_reason(SID, False, ON, 3, 3) is None           # 寫了樹；不在交付邊界不要對照
+    r = ng.knowledge_gate_reason(SID, True, ON, 3, 3)
     assert r and "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in r and "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" not in r
     res = _op("reconcile", turn=3, cwd=str(proj), items=[
         {"id": "T1", "status": "done", "evidence": [{"kind": "file", "ref": "notes.md", "level": "read"}]}])
     assert res["ok"], res                                                   # 知識類達成不要求案例或收據
-    assert ng.knowledge_gate_reason(SID, True, {}, 3, 3) is None
+    assert ng.knowledge_gate_reason(SID, True, ON, 3, 3) is None
     ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 4, {})                # 對照之後又改
-    assert "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in ng.knowledge_gate_reason(SID, True, {}, 4, 4)
+    assert "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in ng.knowledge_gate_reason(SID, True, ON, 4, 4)
 
 
 def test_knowledge_gate_f4_skips_code_and_pure_qa_trees(env):
     _code_tree(env)
-    assert ng.knowledge_gate_reason(SID, True, {}, 3, 3) is None            # 寫碼類歸 (f2)
+    assert ng.knowledge_gate_reason(SID, True, ON, 3, 3) is None            # 寫碼類歸 (f2)
     _op("set", goal="只是問答", sid="sess-qa")
     assert _tree("sess-qa")["kind"] == "knowledge"
-    assert ng.knowledge_gate_reason("sess-qa", True, {}, 3, 3) is None      # 純問答（樹上沒改檔）不要求對照
+    assert ng.knowledge_gate_reason("sess-qa", True, ON, 3, 3) is None      # 純問答（樹上沒改檔）不要求對照
 
 
 def test_stop_verify_gates_puts_f4_in_report_not_code_check(env):
@@ -1378,7 +1386,7 @@ def test_stop_verify_gates_puts_f4_in_report_not_code_check(env):
     off = {"enabled": False}
     state = {"turn_seq": 3, "turn_prompts_seq": 3}
     reason, report, kind, _ = st._verify_gates(state, SID, 3, "好了", None, "", [], off, off, {}, False,
-                                               goal=True, goal_cfg={})
+                                               goal=True, goal_cfg=ON)
     assert reason is None and report and "(f4)" in report and kind == "reconcile"   # 記憶與報告類：不進寫碼查核
     reason, report, _, _ = st._verify_gates(state, f"{SID}#agent:x", 3, "好了", None, "", [], off, off, {}, False)
     assert reason is None and report is None                                # 子代理不跑
@@ -1392,7 +1400,7 @@ def test_stop_f4_blocks_twice_then_releases_with_overflow_not_asking(env, monkey
     outs = []
     for _ in range(3):
         try:
-            st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+            st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, ON)
         except SystemExit:
             pass
         outs.append(capsys.readouterr().out)
@@ -1409,7 +1417,7 @@ def test_stop_report_budget_not_eaten_by_code_rule_counts(env, monkeypatch, caps
              "reconcile_gate_turn": {SID: {"turn": 3, "counts": {"f1": 2}, "count": 2}}}
     _stop_env(env, monkeypatch, state)
     try:
-        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, ON)
     except SystemExit:
         pass
     out = capsys.readouterr().out
@@ -1419,10 +1427,10 @@ def test_stop_report_budget_not_eaten_by_code_rule_counts(env, monkeypatch, caps
 def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     _code_tree(hooked)
-    assert "(f2)" in ng.commit_gate(SID, {}) and "(f1)" not in ng.commit_gate(SID, {})
+    assert "(f2)" in ng.commit_gate(SID, ON) and "(f1)" not in ng.commit_gate(SID, ON)
     monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: None)
     monkeypatch.setattr(ptu, "check_git_privacy", lambda *a, **k: None)
-    deny = _deny_text(_ptu_run("Bash", {"command": 'git commit -m "x"'}, proj, tp, outputs))
+    deny = _deny_text(_ptu_run("Bash", {"command": 'git commit -m "x"'}, proj, tp, outputs, config=ON))
     assert deny and deny.startswith("[NeedGoal] commit 前") and "(f2)" in deny
     assert _deny_text(_ptu_run("Bash", {"command": "git log -1"}, proj, tp, outputs)) is None
 
@@ -1434,10 +1442,10 @@ def test_gate_messages_point_to_reload_when_tool_missing(env):
     deny = ng.edit_gate(SID, str(proj / "a.py"), {})
     assert "還沒有目標樹" in deny and "Reload Window" in deny                      # 原因要對，不只指路句在
     _code_tree(env)
-    deny = ng.commit_gate(SID, {})
+    deny = ng.commit_gate(SID, ON)
     assert "目標對照沒過" in deny and "Reload Window" in deny
     ng.goal_path(SID).write_text("{not json", encoding="utf-8")
-    for deny in (ng.edit_gate(SID, str(proj / "a.py"), {}), ng.commit_gate(SID, {})):
+    for deny in (ng.edit_gate(SID, str(proj / "a.py"), {}), ng.commit_gate(SID, ON)):
         assert "目標檔損毀" in deny and "Reload Window" in deny
 
 
@@ -1449,8 +1457,8 @@ def test_commit_gate_ignores_commit_examples_inside_heredoc(hooked, monkeypatch)
     monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: None)
     monkeypatch.setattr(ptu, "check_git_privacy", lambda *a, **k: None)
     doc = "cat > guide.md <<'EOF'\n步驟：\ngit commit -m example\nsvn commit -m example\nEOF"
-    assert _deny_text(_ptu_run("Bash", {"command": doc}, proj, tp, outputs)) is None
-    deny = _deny_text(_ptu_run("Bash", {"command": doc + "\ngit commit -m real"}, proj, tp, outputs))
+    assert _deny_text(_ptu_run("Bash", {"command": doc}, proj, tp, outputs, config=ON)) is None
+    deny = _deny_text(_ptu_run("Bash", {"command": doc + "\ngit commit -m real"}, proj, tp, outputs, config=ON))
     assert deny and deny.startswith("[NeedGoal] commit 前")
 
 
@@ -1608,9 +1616,9 @@ def test_render_compact_respects_limit(env):
 
 def test_goal_gate_switch_off_skips_delivery_and_commit_checks(env):
     """收尾瘦身：reconcile_gate.goal_gate=false → 收尾的需求目標對照 (f1)(f2)(f3)、知識類輕樹 (f4)、commit 前的目標對照都不擋；
-    目標樹照記，改檔前要有樹、提問要掛節點不歸這個開關。前置：同一棵樹預設照擋。舊碼不認這個鍵 → 紅。"""
+    目標樹照記，改檔前要有樹、提問要掛節點不歸這個開關。前置：同一棵樹 goal_gate=true 照擋。舊碼不認這個鍵 → 紅。"""
     _code_tree(env)
-    assert "(f2)" in ng.commit_gate(SID, {}) and ng.goal_gate_reason(SID, True, {})     # 前置：預設照擋
+    assert "(f2)" in ng.commit_gate(SID, ON) and ng.goal_gate_reason(SID, True, ON)     # 前置：開著照擋
     off = {"reconcile_gate": {"goal_gate": False}}
     assert ng.commit_gate(SID, off) is None
     assert ng.goal_gate_reason(SID, True, off) is None
