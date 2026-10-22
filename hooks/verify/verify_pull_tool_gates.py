@@ -10,6 +10,7 @@ commit 前核對出錯不擋。
 - 判準卡：跑直譯器不記雜湊快照、事後不比對；改判準卡不擋。
 - 閘自己出錯（GATE_SELF_ERROR）：commit 前目標對照核對、動資料檔閘、改舊測試閘拋例外 → 不擋、留帳。
 - 耗重：動資料檔閘整次呼叫只讀一次 transcript；改舊測試閘不另讀 state。
+- config.local 合併：wg_core.load_config 走 lib/config_local.merge_local，跟它結果相同、不再自己合併。
 git 子程序走錄製重播（lib/git_cassette.py）；改了呼叫 git 的方式要 `pytest --git-record` 重錄。
 live 檔全 monkeypatch：WORKFLOW_DIR（state 落 tmp）、GUARD_LOG_DIR（留帳落 tmp）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_pull_tool_gates.py
@@ -372,3 +373,36 @@ def test_old_test_gate_reads_no_extra_state(world, monkeypatch):
     monkeypatch.setattr(wg_core, "read_state", spy)
     assert OT_HIT in _pre(world, "Edit", {"file_path": str(world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT})
     assert "wg_oldtest" not in callers, callers
+
+
+# ─── config.local 合併只有一份（lib/config_local.merge_local）─────────────────
+
+def test_load_config_local_merge_goes_through_merge_local(tmp_path, monkeypatch, capsys):
+    """config.local 有巢狀鍵：wg_core.load_config 與 merge_local 結果相同（頂層淺合併，巢狀那層整個取代）；
+    load_config 不再自己合併——換掉 merge_local 會改變它的結果；本機覆寫讀壞照舊 stderr 一行、照共用設定跑。"""
+    from config_local import merge_local
+    wf = tmp_path / "wf"
+    wf.mkdir()
+    shared = {"guard": {"data_file_ask": {"enabled": True}, "gate_bypass": {"enabled": True, "staging_words": ["x"]}},
+              "v6": {"enabled": False}, "x": 1}
+    local = {"guard": {"gate_bypass": {"enabled": False}}, "v6": {"enabled": True}, "x": {"y": 2}, "only_local": [1]}
+    (wf / "config.json").write_text(json.dumps(shared), encoding="utf-8")
+    (wf / "config.local.json").write_text(json.dumps(local), encoding="utf-8")
+    monkeypatch.setattr(wg_core, "CONFIG_PATH", wf / "config.json")
+    monkeypatch.setattr(wg_core, "CONFIG_LOCAL_PATH", wf / "config.local.json")
+    got = wg_core.load_config()
+    assert got == merge_local({**wg_core.DEFAULTS, **shared}, wf / "config.local.json")
+    assert got["guard"] == {"data_file_ask": {"enabled": True}, "gate_bypass": {"enabled": False}}
+    assert got["x"] == {"y": 2} and got["only_local"] == [1] and got["v6"] == {"enabled": True}
+    monkeypatch.setattr(wg_core, "merge_local", lambda config, path, tag="": {**config, "_merged_by": tag})
+    assert wg_core.load_config()["_merged_by"] == "workflow-guardian"
+    monkeypatch.undo()
+    monkeypatch.setattr(wg_core, "CONFIG_PATH", wf / "config.json")
+    monkeypatch.setattr(wg_core, "CONFIG_LOCAL_PATH", wf / "config.local.json")
+    capsys.readouterr()
+    (wf / "config.local.json").write_text("{broken", encoding="utf-8")
+    assert wg_core.load_config() == {**wg_core.DEFAULTS, **shared}
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) == 1 and err[0].startswith(f"[workflow-guardian] {wf / 'config.local.json'} 讀取失敗，略過本機覆寫：")
+    (wf / "config.local.json").write_text("[1, 2]", encoding="utf-8")       # 不是物件：不合併、不出聲
+    assert wg_core.load_config() == {**wg_core.DEFAULTS, **shared} and capsys.readouterr().err == ""

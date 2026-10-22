@@ -29,6 +29,7 @@ CODE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODE_DIR / "lib"))
 from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（tools 也呼叫它）
 from harness_text import HOOK_RESIDUE_LINE_RE, strip_harness_blocks, user_typed_text  # noqa: E402,F401  使用者原話規則唯一一份
+from config_local import merge_local  # noqa: E402  config.local.json 蓋到 config.json 的規則唯一一份
 CLAUDE_DIR = claude_data_dir()
 MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
@@ -191,17 +192,7 @@ def load_config() -> Dict[str, Any]:
         except (json.JSONDecodeError, OSError) as e:
             _atom_debug_error("config:parse_failed", e)
             config["_config_parse_failed"] = True
-    try:
-        local = json.loads(CONFIG_LOCAL_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        local = {}
-    except (OSError, ValueError) as e:   # ValueError 含 JSON 壞與 UTF-8 解不開
-        print(f"[workflow-guardian] {CONFIG_LOCAL_PATH} 讀取失敗，略過本機覆寫：{e}", file=sys.stderr)
-        local = {}
-    for key, value in (local if isinstance(local, dict) else {}).items():
-        base = config.get(key)
-        config[key] = {**base, **value} if isinstance(base, dict) and isinstance(value, dict) else value
-    return config
+    return merge_local(config, CONFIG_LOCAL_PATH, "workflow-guardian")
 
 
 def v6_enabled(config: Dict[str, Any]) -> bool:
