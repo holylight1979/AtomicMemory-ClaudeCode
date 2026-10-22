@@ -25,6 +25,7 @@
 | `裁判模型選型-研究與實測-2026-10-21.md`、`裁判模型選型-實測/` | 「自評」（切入點判準實測、G15 評分）該用哪個開源免費模型：rdchat-direct 與公司個人電腦兩種硬體的盤點、候選篩選（含原設計者的 HuggingFace 清單）、12 個模型×機器組合的實測（判準率、一致率、秒數）、兩組推薦與兩件待原設計者定的事；`裁判模型選型-實測/` 放原始答案與判分規則 | track-llm-judge-selection |
 | `v6.0的代價-hook全關對現況.md`、`v6.0的代價-實測/` | 題 B′ 把 hook 全關對照現況各跑兩次：多花多少 token（輸入輸出分開、每回合一列）、多等多久、逐項耗時對 G、換到哪幾條驗收條目、多出來的花在哪些來源、哪些能交給開源免費模型；`v6.0的代價-實測/` 放量測腳本、逐跑數字與八張判分對照 | track-v6-cost-measure |
 | `checklist已完成項封存-2026-10-21.md` | checklist 改版時搬出的段落（逐條 G 分析、已完成的列、10-20 舊狀態、第四節已定的段），原文照搬並附達成證據 | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
+| `v6-開發期紀錄-checklist搬出.md` | checklist 改成只寫「交 AI 寫程式時會體驗到什麼」時搬出的開發期段落（驗收題組與各跑、受測環境、各軌與閘小修編號、卡片搬層、裁定來龍去脈、改版前的總表與證據 commit），原文照搬，每個原本沒結的行註明現況與去向 | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |
 
