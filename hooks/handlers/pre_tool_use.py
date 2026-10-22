@@ -1013,7 +1013,7 @@ def _commit_order_decide(
         # 讀取端再濾一次：舊版曾把其他 session 的訊息記進 turn_prompts；濾完是空清單照樣擋（不走 fail-open）
         turn_prompts = user_typed_prompts(state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:])
         from handlers.ups_gates import order_spent
-        spent = order_spent(state)          # 這批 commit→push 已做完：口令用掉了，原話不再算授權
+        spent = v6_enabled(config) and order_spent(state)   # v6：這批 commit→push 已做完＝口令用掉了，原話不再算授權
         if spent:
             turn_prompts = []
         keyword = next((k for k in (_commit_order_keyword_hit(p, keywords) for p in turn_prompts) if k), None)

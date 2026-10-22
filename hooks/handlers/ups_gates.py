@@ -15,7 +15,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled, WORKFLOW_DIR
 from wg_extraction import detect_signal, extract_veto_hints, extract_veto_question, settle_pending_veto
@@ -136,7 +136,7 @@ def order_spent(state: Dict[str, Any]) -> bool:
             and push >= seq)
 
 
-def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
+def track_turn_prompts(state: Dict[str, Any], clean_prompt: str, v6: Optional[bool] = None) -> None:
     """本回合使用者原話清單：Stop 關回合（turn_open=False）後第一則重開，
     同回合內排隊送進來的 mid-turn 訊息追加。口令閘看整回合而非只看最後一句
     （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送進來的
@@ -148,7 +148,9 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     除非那之後這批已經 push 完（order_spent：口令用掉了）→ 清空，再 commit 要新口令。
 
     turn_prompts_seq＝使用者本人打字開的回合（寫碼查核的預算與放行看它）。回合關閉後先進來的通知只開「續跑回合」
-    （turn_typed=False）；這個續跑回合裡使用者打的第一則字算使用者開的新回合：序號前進、清單重開（先前的口令失效）。"""
+    （turn_typed=False）；這個續跑回合裡使用者打的第一則字算使用者開的新回合：序號前進、清單重開（先前的口令失效）。
+    v6＝守門總開關（沒給就照環境變數 WG_V6 判）。關時照 9e476fd0：口令 commit 過就用掉（last_commit_turn_seq），
+    續跑回合裡使用者打的字照舊追加、口令沿用。"""
     has_list = isinstance(state.get("turn_prompts"), list)
     typed = user_typed_text(clean_prompt)[:500]
 
@@ -156,18 +158,22 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
         state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
         state["user_turn_count"] = int(state.get("user_turn_count", 0) or 0) + 1
 
+    v6 = v6_enabled({}) if v6 is None else v6
     if not typed:
         # 同伴訊息、背景通知只開續跑回合（回合只由使用者打字開，規則 TURN_SINCE_USER_PROMPT）
-        if not has_list or (not state.get("turn_open") and order_spent(state)):
-            state["turn_prompts"] = []
         if not state.get("turn_open"):
+            spent = (order_spent(state) if v6
+                     else int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0)))
+            if spent:
+                state["turn_prompts"] = []
             state["turn_typed"] = False                                  # 通知開的續跑回合：還沒有使用者打字
+        if not has_list:
+            state["turn_prompts"] = []
     elif state.get("turn_open") and has_list:
-        if state.get("turn_typed") is False:                            # 續跑回合裡使用者的第一則字：使用者開的新回合
-            state["turn_prompts"] = [typed]
+        continuation = state.get("turn_typed") is False                  # 續跑回合裡使用者的第一則字：使用者開的新回合
+        state["turn_prompts"] = [typed] if v6 and continuation else (state["turn_prompts"] + [typed])[-5:]
+        if continuation:
             _new_turn()
-        else:
-            state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
     else:
         state["turn_prompts"] = [typed]
         _new_turn()
@@ -195,8 +201,8 @@ def run_pre_gates(
     rup.append(typed[:500])
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
-    track_turn_prompts(state, clean_prompt)
     v6 = v6_enabled(config)
+    track_turn_prompts(state, clean_prompt, v6)
     if not v6 and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
         state["failing_tests"] = []   # v6 守門關閉：照 9e476fd0，使用者說「先這樣／跳過」就清掉紅測清單
     # v6：使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，

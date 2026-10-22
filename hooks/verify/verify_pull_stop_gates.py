@@ -368,6 +368,50 @@ def test_shared_budget_resets_per_user_turn(driven, capsys, monkeypatch):
     assert "DeferralGate" in out and state["stop_blocked_count"] == 1              # 新的使用者回合：退縮閘照樣擋一次
 
 
+# ─── v6 守門總開關關時照 9e476fd0：共用擋次整個 session 累計、口令 commit 過就用掉 ─────────────────
+
+@pytest.fixture()
+def v6_off(monkeypatch):
+    monkeypatch.setenv("WG_V6", "0")
+
+
+def test_v6_off_shared_budget_stays_session_wide(driven, capsys, monkeypatch, v6_off):
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
+    out, state, _ = driven("好了。", capsys, turn_seq=6, stop_blocked_count=2, stop_blocked_turn=5)
+    assert "DeferralGate" not in out and state["stop_blocked_count"] == 2          # 換了使用者回合也不歸零
+    out, state, _ = driven("好了。", capsys, turn_seq=6, stop_blocked_count=0)
+    assert "DeferralGate" in out                                                   # 前置：沒擋滿照擋
+
+
+def test_v6_off_order_spent_by_commit_and_kept_on_continuation_typing(v6_off):
+    s = {}
+    _ups(s, "上GIT")
+    s["last_commit_turn_seq"] = s["turn_seq"]
+    s["turn_open"] = False
+    _ups(s, _NOTIFY)
+    assert _commit(s)                                                              # commit 過就用掉
+    s2 = {}
+    _ups(s2, "上GIT")
+    s2["turn_open"] = False
+    _ups(s2, _NOTIFY)
+    _ups(s2, "README 也順便看一下")
+    assert s2["turn_prompts"] == ["上GIT", "README 也順便看一下"] and _commit(s2) is None   # 續跑回合補一句：照舊追加
+
+
+def test_v6_off_stop_does_not_scan_push_and_commit_gate_ignores_it(driven, capsys, tmp_path, v6_off):
+    s = {}
+    _ups(s, "上GIT")
+    _, after, _ = driven("全部完成了。", capsys, hook_input={"transcript_path": str(_push_transcript(tmp_path))}, **s)
+    assert "order_push_seq" not in after and "order_transcript" not in after
+    assert _commit({**after, "order_push_seq": after["turn_seq"]}) is None          # 口令閘不看 push
+
+
+def test_v6_off_deferral_block_keeps_evasion_flag(driven, capsys, monkeypatch, v6_off):
+    monkeypatch.setattr(st, "detect_evasion", wg_evasion.detect_evasion)
+    out, state, _ = driven(_DEFER, capsys)
+    assert "[Guardian:DeferralGate]" in out and state.get("evasion_flag")          # 照舊記旗標
+
+
 # ─── 閱讀路徑尾段不重複那一題 ─────────────────────────────────────────────────
 
 _ITEM = {"kind": "函式", "name": "y.py::b", "keys": ["y.py::b", "b"], "nums": "巢狀 4｜條件塊 2"}

@@ -164,8 +164,8 @@ def handle_user_prompt_submit(
 
     v6 = v6_enabled(config)     # 關＝只送 9e476fd0 就有的注入與提示
 
-    # 版控口令判「這批 push 完了沒」要掃 transcript（ups_gates.order_spent）：記下路徑，口令閘與下一則訊息用
-    if input_data.get("transcript_path"):
+    # v6：版控口令判「這批 push 完了沒」要掃 transcript（ups_gates.order_spent）：記下路徑，口令閘與下一則訊息用
+    if v6 and input_data.get("transcript_path"):
         state["order_transcript"] = str(input_data["transcript_path"])
 
     # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）

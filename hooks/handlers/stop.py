@@ -1553,15 +1553,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     max_blocks = config.get("stop_gate_max_blocks", 2)
+    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（各 v6 閘的分派點各自看它）
     # 「本回合」照規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起到現在（同伴訊息、背景通知不另開回合）。
     turn_seq = int(state.get("turn_seq", 0))
     _since = _user_turn(state, turn_seq)
-    # 共用擋次（stop_gate_max_blocks 那份）每個使用者回合重新計次：同一回合擋滿後放行，換了使用者回合歸零
-    if state.get("stop_blocked_turn") != _since:
+    # 共用擋次（stop_gate_max_blocks 那份）：v6 開＝每個使用者回合重新計次（同一回合擋滿後放行，換了使用者回合歸零）；
+    # v6 關＝照 9e476fd0，整個 session 累計
+    if v6 and state.get("stop_blocked_turn") != _since:
         state["stop_blocked_count"], state["stop_blocked_turn"] = 0, _since
     stop_count = int(state.get("stop_blocked_count", 0) or 0)
     phase = state.get("phase", "working")
-    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（各 v6 閘的分派點各自看它）
 
     def _timed_out(seg: str) -> bool:
         """這一段跑完打點（wg_hook_timing）；累計過 hook 上限的 80%（已留帳＋stderr）→ 寫回 state、放行，後面的閘這次不跑。"""
@@ -1597,13 +1598,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # accessed_files 回收（取代 per-Read PostToolUse hook）——先寫進 state，
     # 後續任何 gate 的 write_state 也會一併固化；此處立即寫防走到不寫 state 的路徑。
     # 關回合：下一則 UserPromptSubmit 才是新回合的第一句（turn_prompts 重開，見 ups_gates.track_turn_prompts）。
-    # 版控口令用到這批 push 完成為止：上次收尾之後跑成功的 push 記下來（ups_gates.order_spent 據此判口令用掉了）
+    # v6 開：版控口令用到這批 push 完成為止，上次收尾之後跑成功的 push 記下來（ups_gates.order_spent 據此判口令用掉了）；
+    # v6 關照 9e476fd0，口令 commit 過就用掉，不掃
     turn_was_open = bool(state.get("turn_open"))
     state["turn_open"] = False
-    from handlers.ups_gates import note_order_push
-    if transcript:
-        state["order_transcript"] = str(transcript)
-    _pushed = note_order_push(state, transcript)
+    _pushed = False
+    if v6:
+        from handlers.ups_gates import note_order_push
+        if transcript:
+            state["order_transcript"] = str(transcript)
+        _pushed = note_order_push(state, transcript)
     if _harvest_accessed_files(state, transcript_text) or turn_was_open or _pushed:
         write_state(session_id, state)
     if _timed_out("讀 transcript"):
@@ -2217,7 +2221,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if dg:
             state["deferral_gate_turn"] = _uturn
             state["stop_blocked_count"] = stop_count + 1
-            if _ev_now is not None and state.get("evasion_flag") is _ev_now and _deferral_covers(dg, _ev_now):
+            if v6 and _ev_now is not None and state.get("evasion_flag") is _ev_now and _deferral_covers(dg, _ev_now):
                 # 退縮閘這次擋下的就是退避旗標那一句：已逼著當場處理，下一則使用者訊息不再追問同一件（事件照留給收尾檢核對照）
                 state["evasion_flag"] = None
                 append_guard_log("evasion", {"session_id": session_id, "event": "covered_by_deferral",
