@@ -2865,6 +2865,10 @@ RULES["DATA_FILE_DECL_VOIDED_BY_LATER_MENTION"] = ("資料檔宣告帳（state d
 RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但那一處被否定（同一子句裡檔名左邊有否定字，或右邊緊接否定："
                                           "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
                                           "裡另有沒被否定的提及照算點名（prompt_names_file）。")
+RULES["DATA_FILE_HINT_KEEPS_EDIT_TOOLS"] = ("改資料檔宣告閘的擋訊息（hooks/wg_data_file._judge、data_file_hint）講清楚宣告放哪：比工具呼叫早一則的回覆文字，"
+                                            "或一條不寫檔的 Bash／PowerShell 指令開頭的 `#` 註解；並寫明宣告完照常用 Edit／Write 改、不要改用"
+                                            " Bash／PowerShell 寫檔（指令寫的檔常判不出目標，modified_files 漏記，對帳、第二意見、同步提醒都看不到）。"
+                                            "不准出現「或寫成 Bash 指令開頭的 # 註解」這類會被讀成改用 Bash 寫檔的說法。")
 
 
 def _file_mentions(text: str, base: str) -> Iterable["re.Match"]:
@@ -2909,7 +2913,8 @@ def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
 
 def data_file_hint(rel: str) -> str:
     return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
-            "放回覆文字或下一個 Bash 開頭 `#` 註解；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+            "放回覆文字（下一則再改），或一條不寫檔的 Bash／PowerShell 指令（例如 `git diff`）開頭的 `#` 註解；"
+            "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 
 def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
@@ -3409,8 +3414,10 @@ RULES.update({
                                "只看檔數）或路徑命中高風險部位（部位表該列類別是 gate，或 config 另列的 risky_prefixes，預設空），而且上次審過"
                                "（滿足、使用者放行，或前面回合跑完的第二意見：SECOND_OPINION_RAN_BEFORE）之後的修改改到新的高風險檔、或新改的程式檔數"
                                "再過門檻（SECOND_OPINION_ONCE_PER_CLAIM）→ 本回合（TURN_SINCE_USER_PROMPT）要真的跑過第二意見：second_opinion_start"
-                               "（mode=independent，kind=stage-review 或 evaluate）由 second_opinion_result 回 done／failed／blocked（running、"
-                               "只 start 沒取結果、start 沒開出 job、question 沒含樹根被擋、session 有樹而材料沒帶到樹都不算），而且本回合任一則回覆"
+                               "（mode=independent，kind=stage-review 或 evaluate）由 second_opinion_result 回 done／failed／blocked（start 在前面"
+                               "回合、本回合才取回也算：SECOND_OPINION_RESULT_ACROSS_TURNS；running、"
+                               "只 start 沒取結果、start 沒開出 job、question 沒含樹根被擋、session 有樹而材料沒帶到樹都不算，還在跑時收尾寫明在等的"
+                               " job_id 不算宣告完成：SECOND_OPINION_WAITING_NOT_DONE），而且本回合任一則回覆"
                                "有「第二意見與分歧裁決」段與四行（被別的閘擋下後補件那則不必重抄；行首、程式碼區塊外；Codex 結論／我方結論／分歧點／裁決與理由，標籤後要有字）。門檻是事實核對；"
                                "程式只核對有沒有跑、標籤在不在，不評內容。擋 max_blocks_per_turn 次（預設 1）後擋滿，不自行放行、改問使用者"
                                "（wg_release）；子代理、裁判 session、headless 不觸發；前面的閘擋下時列進 BLOCK_LISTS_LATER_GATES 預覽。",
@@ -3423,6 +3430,23 @@ RULES.update({
                                              "就留帳 event=declined，不管第二意見閘這回合要不要、前面的閘有沒有先擋下；needed 記閘當下"
                                              "要不要第二意見（null＝設定關或無法互動沒判）。同一個使用者回合同一句理由只記一筆（被擋後重寫"
                                              "同一句不重記）。",
+    "SECOND_OPINION_DECLINE_ACCEPTED": "宣告行只看收尾最後一則（跟 SECOND_OPINION_DECLARED_ALWAYS_LOGGED 留帳的是同一則）：理由成立就判"
+                                       "SECOND_OPINION_DECLINED 不擋，也不走擋滿那條路。四行可以寫在本回合較早那則（section_text 往前找），"
+                                       "但不能拿那則蓋掉收尾的宣告行。",
+    "SECOND_OPINION_RESULT_ACROSS_TURNS": "本回合 second_opinion_result 回 done／failed／blocked 就算本回合跑過、記 SECOND_OPINION_RAN_BEFORE"
+                                          "的基準，不管 start 在哪一回合。start 不在本回合時照 result 自己帶的判：mode 行要是 independent、"
+                                          "job_id 的類別要是 stage-review／evaluate、note 行（材料有沒有帶到樹）同 start；沒有 mode 行"
+                                          "（找不到 job）不列、不算；job_id 裡的 session 前 8 碼不是本 session → foreign 不算；開 job 之後"
+                                          "（job_id 開頭的時間）本 session 又改過程式檔 → 沒審到後來的改動，判 stale 不算（這兩項在 "
+                                          "wg_second_opinion.check 判）。前面回合已記成基準的 job，這一回合再取一次結果"
+                                          "仍是前面回合的基準。",
+    "SECOND_OPINION_WAITING_NOT_DONE": "本回合開出（或本回合才取結果）的 job 還在跑（result 回 running，或 start 了還沒取結果），收尾最後一則"
+                                       "有一行「等第二意見｜<job_id>」（行首、程式碼區塊外、完整的那個 job_id，後面不接 job_id 用的字元）"
+                                       " → 這次結束回覆不算宣告完成：不擋、不吃擋次、不算滿足，留帳 event=waiting；"
+                                       "之後取到 done／failed／blocked 再照 SECOND_OPINION_REQUIRED 判（回合中背景通知叫回來、或下一回合"
+                                       "取回都算：SECOND_OPINION_RESULT_ACROSS_TURNS）。沒有這行（散文裡提到 job_id 不算）→ 照擋。second_opinion_result "
+                                       "本身會等到有結果（每次最多 second-opinion.js RESULT_WAIT_MS，低於 Claude Code 互動模式 MCP 呼叫"
+                                       "120 s 轉背景），所以通常用不到這條。",
 })
 
 SO_SECTION = "第二意見與分歧裁決"
@@ -3431,6 +3455,14 @@ SO_KINDS: Tuple[str, ...] = ("stage-review", "evaluate")
 SO_RAN: Tuple[str, ...] = ("done", "failed", "blocked")
 SO_QUESTION_ROOT_MISSING = "question 沒含需求目標樹的樹根那句"
 SO_NO_GOAL_NOTE = "材料沒有需求目標樹"      # pack 的 note 開頭（start 回傳的 `note:` 行）；session 有樹時這種 run 不算跑過
+SO_WAIT_LINE = "等第二意見｜<job_id>"
+SO_RESULT_WAITS = ("start 後直接呼叫 second_opinion_result，它會等到有結果（回 running 就再呼叫一次），不用另開背景等待；"
+                   f"要先結束回覆就在收尾寫一行 `{SO_WAIT_LINE}`，那次不算宣告完成")
+SO_WAITING = "SECOND_OPINION_WAITING_NOT_DONE"
+_SO_JOB_KIND_RE = lazy_re(r"-(diagnose|evaluate|stage-review)$")     # job_id 尾的類別（second-opinion.js JOB_ID_RE）
+# 等待宣告行：行首（可帶空白、清單符號）、程式碼區塊外，｜後是完整 job_id（後面不能再接 job_id 用的字元）
+_SO_WAIT_RE = lazy_re(r"^[\s*\-]*等第二意見(?:\*\*)?\s*[｜|]\s*`?(\d{8}-\d{6}-[0-9a-z]{8}-(?:diagnose|evaluate|stage-review))"
+                      r"(?![0-9A-Za-z_-])")
 # 宣告行與四行只認行首（可帶空白、清單符號、粗體）、不在程式碼區塊裡：散文裡引用的範例、引用區塊（>）不算
 _SO_DECLINE_RE = lazy_re(r"^[\s*\-]*不需第二意見(?:\*\*)?\s*[｜|]\s*(.*)$")
 _SO_FENCE_RE = lazy_re(r"^\s*(?:```|~~~)")
@@ -3462,7 +3494,7 @@ def second_opinion_hint() -> str:
     return (f"跑完在收尾最後一則寫「{SO_SECTION}」段，四行：" + "／".join(f"{lb}：…" for lb in SO_LABELS)
             + "（failed／blocked 也要寫明狀態與自己的結論）；寫在本回合任一則回覆都算，被別的閘擋下後補件那則不必重抄。\n"
             "要跑：second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result；"
-            "或宣告 `不需第二意見｜<理由>`")
+            f"{SO_RESULT_WAITS}；或宣告 `不需第二意見｜<理由>`")
 
 
 def second_opinion_decline(text: str) -> Optional[str]:
@@ -3479,6 +3511,11 @@ def second_opinion_decline_ok(reason: str) -> bool:
     """SECOND_OPINION_DECLINED：理由有文字內容、不是佔位、不是「不需要」這類空話。不評理由充不充分。"""
     core = _ITEM_STRIP_RE.sub("", str(reason or "")).lower()
     return reason_present(reason) and core not in _SO_EMPTY_REASONS
+
+
+def second_opinion_waiting(text: str) -> List[str]:
+    """SECOND_OPINION_WAITING_NOT_DONE：收尾裡每一行「等第二意見｜<job_id>」的 job_id（行首、程式碼區塊外、完整 job_id）。"""
+    return [m.group(1) for m in (_SO_WAIT_RE.match(ln) for ln in _so_lines(text)) if m]
 
 
 def second_opinion_section_missing(text: str) -> List[str]:
@@ -3507,16 +3544,25 @@ def second_opinion_triggers(n_code: int, changed_lines: Optional[int], risky: Se
 
 def second_opinion_runs(starts: Sequence[Dict[str, Any]], results: Sequence[Dict[str, Any]],
                         has_tree: bool = False) -> List[Tuple[str, str]]:
-    """本回合每次 start 的最終狀態 [(job_id, 狀態)]。starts／results＝transcript 依序收的 {mode, kind, job_id, status, reason, notes}／
-    {job_id, status, reason}；has_tree＝這個 session 有需求目標樹。只認 second_opinion_result 回的狀態（result 回
+    """本回合每個 job 的最終狀態 [(job_id, 狀態)]：先列本回合每次 start，再列本回合只有 result、start 在前面回合的 job
+    （SECOND_OPINION_RESULT_ACROSS_TURNS：mode 照 result 的 mode 行、kind 照 job_id 尾、notes 照 result 的 note 行；沒有 mode 行＝
+    找不到 job，不列）。starts／results＝transcript 依序收的 {mode, kind, job_id, status, reason, notes}／
+    {job_id, status, reason, mode, notes}；has_tree＝這個 session 有需求目標樹。只認 second_opinion_result 回的狀態（result 回
     done／failed／blocked 才算跑過）。狀態：done／failed／blocked（算跑過）、running、started（start 了沒取結果）、
-    rejected（question 沒含樹根被擋）、no-goal（session 有樹但材料沒帶到：start 的 note 以 SO_NO_GOAL_NOTE 開頭）、
+    rejected（question 沒含樹根被擋）、no-goal（session 有樹但材料沒帶到：note 以 SO_NO_GOAL_NOTE 開頭）、
     invalid（start 沒開出 job：被拒收或 prepare 失敗，job_id 是 -）、off-mode（不是 independent 或 kind 不對）。"""
     last: Dict[str, Dict[str, Any]] = {}
     for r in results:
         last[str(r.get("job_id") or "")] = r
+    started = {str(s.get("job_id") or "-") for s in starts}
+    only_result = []
+    for jid, r in last.items():
+        if jid and jid not in started and r.get("mode"):
+            m = _SO_JOB_KIND_RE.search(jid)
+            only_result.append({"job_id": jid, "mode": r.get("mode"), "kind": m.group(1) if m else "",
+                                "notes": r.get("notes") or ()})
     out: List[Tuple[str, str]] = []
-    for s in starts:
+    for s in [*starts, *only_result]:
         jid = str(s.get("job_id") or "-")
         no_goal = has_tree and any(str(n).startswith(SO_NO_GOAL_NOTE) for n in s.get("notes") or ())
         if s.get("mode") != "independent" or s.get("kind") not in SO_KINDS:
@@ -3538,8 +3584,12 @@ def second_opinion_runs(starts: Sequence[Dict[str, Any]], results: Sequence[Dict
 
 
 _SO_WAIT = {
-    "running": "第二意見還在跑（result=running），等 second_opinion_result 回 done／failed／blocked 再收尾",
-    "started": "start 了但本回合沒取結果，呼叫 second_opinion_result({job_id}) 拿到 done／failed／blocked",
+    "running": "第二意見還在跑（result=running）：再呼叫一次 second_opinion_result({job_id})，它會等到有結果；"
+               f"要先結束回覆就在收尾寫一行 `{SO_WAIT_LINE}`",
+    "started": "start 了但還沒取結果：直接呼叫 second_opinion_result({job_id})，它會等到 done／failed／blocked；"
+               f"要先結束回覆就在收尾寫一行 `{SO_WAIT_LINE}`",
+    "stale": "取回的 job 是前面回合開的，開了之後又改過程式檔，沒審到後來的改動：重跑 second_opinion_start",
+    "foreign": "取回的 job 不是這個 session 開的（job_id 裡的 session 前 8 碼對不上），不算：本 session 自己跑 second_opinion_start",
     "rejected": f"start 被擋：{SO_QUESTION_ROOT_MISSING}，照 reason 把那句抄進 question 重跑",
     "no-goal": f"這次的材料沒有需求目標樹（start 的 note：{SO_NO_GOAL_NOTE}…），不算跑過：確認 start 帶到 session_id"
                "（PreToolUse 補）後重跑",
@@ -3549,10 +3599,13 @@ _SO_WAIT = {
 
 
 def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_since_ok: bool,
-                           runs: Sequence[Tuple[str, str]], text: str) -> Verdict:
-    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED：owed＝要擋。triggers＝second_opinion_triggers 的結果；edited_since_ok＝
-    上次滿足之後又改過程式；runs＝second_opinion_runs 的結果；text＝收尾最後一則。"""
+                           runs: Sequence[Tuple[str, str]], text: str, closing: Optional[str] = None) -> Verdict:
+    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED／SECOND_OPINION_WAITING_NOT_DONE：owed＝要擋。triggers＝
+    second_opinion_triggers 的結果；edited_since_ok＝上次滿足之後又改過程式；runs＝second_opinion_runs 的結果；text＝看四行的那則
+    （wg_second_opinion.section_text）；closing＝收尾最後一則（宣告行與在等哪個 job 只看它：SECOND_OPINION_DECLINE_ACCEPTED），
+    沒給就同 text。"""
     rule = "SECOND_OPINION_REQUIRED"
+    closing = text if closing is None else closing
     if not claims_done:
         return Verdict(rule, False, "沒有宣告完成")
     if not triggers:
@@ -3563,17 +3616,23 @@ def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_si
     missing = second_opinion_section_missing(text)
     if ran and not missing:
         return Verdict(rule, False, f"本回合跑過第二意見（{ran[-1][0]} {ran[-1][1]}），收尾有分歧裁決四行")
-    reason = second_opinion_decline(text)
+    reason = second_opinion_decline(closing)
     if reason is not None:
         if second_opinion_decline_ok(reason):
             return Verdict("SECOND_OPINION_DECLINED", False, f"AI 宣告不需第二意見：{reason[:120]}")
         return Verdict("SECOND_OPINION_DECLINED", True, "宣告「不需第二意見」但理由空、只有佔位或只寫不需要",
                        tuple(triggers) + (f"理由：「{reason[:60]}」",))
+    declared = set(second_opinion_waiting(closing))
+    waiting = [j for j, s in runs if s in ("running", "started") and j in declared]
+    if waiting:
+        return Verdict(SO_WAITING, False, f"第二意見 {waiting[-1]} 還在跑、收尾寫明在等它：這次結束回覆不算宣告完成",
+                       tuple(waiting))
     if ran:
         return Verdict(rule, True, "跑過第二意見，但收尾缺：" + "、".join(missing),
                        tuple(triggers) + tuple(f"{j} {s}" for j, s in ran[-3:]))
     seen = [s for _j, s in runs]
-    wait = next((_SO_WAIT[k] for k in ("running", "started", "rejected", "no-goal", "invalid", "off-mode") if k in seen), "")
+    wait = next((_SO_WAIT[k] for k in ("running", "started", "stale", "foreign", "rejected", "no-goal", "invalid", "off-mode")
+                 if k in seen), "")
     return Verdict(rule, True, wait or "大任務或高風險部位宣告完成，本回合沒有跑第二意見",
                    tuple(triggers) + tuple(f"{j} {s}" for j, s in runs[-3:]))
 
