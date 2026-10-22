@@ -31,6 +31,14 @@
 <軌名>：你是工作軌 <軌名>，調度總控台是 <調度名>（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorktree 切進 <worktree 絕對路徑>（分支 <分支>，已存在，不要新建；不存在就 SendMessage 調度要，不要自己建）。派工單在 <派工單絕對路徑>，讀完全文照做，先核實裡面的路徑與跑法。切進去之後所有讀寫只用 worktree 絕對路徑，不碰 <live 專案根>。含 git 字樣的 Bash 指令先寫成 worktree 內的 Python 啟動器（檔名不含 git）再跑。只跑派工單列的目標 verify，不跑全量、不輪詢；commit 在分支上、不推。交付用 SendMessage 送全文給調度（照 delivery 範本），附 live 未動證明，結尾寫「我在等：…」。開工前先 SendMessage 調度一句「<軌名> 收到開工」。
 ```
 
+### 3b. 文件軌（只改文件、不改程式：TECH、README、checklist、DevHistory、派工單、說明檔）——不開 worktree、不開分支
+
+```
+<軌名>：你是文件軌 <軌名>，調度總控台是 <調度名>（送信前先 ListAgents 確認，名字會變）。直接在 live（<專案根絕對路徑>）工作，不建 worktree、不開分支、不 commit。派工單在 <派工單絕對路徑>，讀完全文照做；只准動派工單「只准動這幾個檔」列的檔，其他檔一律只讀。文件類不跑 codex、不採 codex 意見。交付用 SendMessage 送全文給調度：列改了哪些檔（絕對路徑）、每檔刪／改／補要點、驗法尾行（例 DOC_COUNTS_CHECK PASS），結尾寫「我在等：…」。總控台看 diff 後直接在 main commit＋推。開工前先 SendMessage 調度一句「<軌名> 收到開工」。
+```
+
+程式＋文件一起改的才用 §3；只改文件就用這段，派工單要寫死「只准動這幾個檔」（原設計者裁定：改文件也開分支是浪費時間、空間、token）。文件軌用 `claude --bg` 直接在 live 起、不走 console-spawn 的 worktree 檢查。
+
 填法：
 - `<軌名>`：望文生義，例 `track-login-fix`，不用編號代號。
 - worktree 與分支由調度先建好（`git worktree add <路徑> -b <分支> main`），開工句只叫它切進去。
