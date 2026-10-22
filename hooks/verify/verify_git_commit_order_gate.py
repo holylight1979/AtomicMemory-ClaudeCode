@@ -333,6 +333,34 @@ def test_045_temp_repo_commit_exempt_judges_repo_root_not_run_dir(tmp_path, monk
     assert _check(f"git -C {str(exp).replace(chr(92), '/')} add -A && git -C {str(exp).replace(chr(92), '/')} commit -m x", state=st) is None   # 暫存根下：免口令
 
 
+def test_temp_repo_exempt_helper_and_log(tmp_path, monkeypatch, co_log):
+    """暫存 repo 豁免抽成 _temp_repo_exempt（壓巢狀）之後：暫存根下的 repo 回放行的 Verdict、留帳 temp_exempt＋規則名；
+    正式 repo 回 None、照口令判（擋、留帳 denied）。設定同上一案。"""
+    import subprocess
+    import wg_release_rules as rr
+    from handlers.pre_tool_use import _temp_repo_exempt
+    monkeypatch.delenv("WG_TEMP_RULES", raising=False)
+    monkeypatch.setattr(rr, "_TEMP_TOKENS", ())
+    zone = tmp_path / "tempzone"
+    zone.mkdir()
+    for k in ("TEMP", "TMP", "TMPDIR"):
+        monkeypatch.setenv(k, str(zone))
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(zone))
+    exp, proj = zone / "exp", tmp_path / "project"
+    for d in (exp, proj):
+        d.mkdir()
+        subprocess.run(["git", "init", "-q", str(d)], check=True, capture_output=True)
+    cmd_tmp = f"git -C {str(exp).replace(chr(92), '/')} commit -m x"
+    cmd_proj = f"git -C {str(proj).replace(chr(92), '/')} commit -m x"
+    v = _temp_repo_exempt(cmd_tmp, str(tmp_path), "Bash")
+    assert v is not None and not v.owed and v.rule == "TEMP_REPO_COMMIT_EXEMPT"
+    assert _temp_repo_exempt(cmd_proj, str(tmp_path), "Bash") is None
+    st = _state("幫我修 bug")
+    assert check_git_commit_order("Bash", {"command": cmd_tmp}, {}, st, "", "s") is None
+    assert check_git_commit_order("Bash", {"command": cmd_proj}, {}, st, "", "s")
+    assert [(e["event"], e.get("exempt_rule")) for e in co_log()] == [("temp_exempt", "TEMP_REPO_COMMIT_EXEMPT"), ("denied", None)]
+
+
 def test_spent_order_is_not_reused_by_notification_turn():
     # 「上GIT」那回合已經 commit 過 → 之後背景通知開的回合要再 commit，得有新口令
     st = {}

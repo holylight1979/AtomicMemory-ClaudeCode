@@ -189,3 +189,15 @@ def test_007_crossrealm_still_denies_and_logs_session_id(tmp_path, monkeypatch):
         assert msg and "CrossRealmBashBlock" in msg, cmd
     rows = [json.loads(ln) for ln in (tmp_path / "guard-crossrealm.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert len(rows) == len(cmds) and all(r.get("session_id") == "sid-007" for r in rows), rows
+
+
+def test_git_arg_flag_value_parsing(tmp_path):
+    """_git_arg_reaches_root 的旗標取值（巢狀三元拆成 if／elif 之後行為不變）：長旗標取 = 後面、短旗標取黏著的值或 = 後面、
+    單獨旗標沒有值；值是根層路徑才算碰到根層，repo 底下的相對路徑碰不到。"""
+    import wg_core
+    repo = str(tmp_path / "proj")
+    root_x = str(CLAUDE_DIR / "hooks" / "x.zip").replace("\\", "/")
+    cases = {f"--output={root_x}": True, "--output": False, f"-o{root_x}": True, f"-o={root_x}": True, "-o": False, "-": False,
+             "--output=out/x.zip": False, "-oout/x.zip": False, root_x: True, "out/x.zip": False}
+    got = {a: wg_core._git_arg_reaches_root(a, repo) for a in cases}
+    assert got == cases, got
