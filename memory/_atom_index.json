@@ -11647,6 +11647,19 @@
       "related": [
         "claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion"
       ]
+    },
+    {
+      "name": "userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判",
+      "path": "_AIDocs/_atoms/MemDev/userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md",
+      "triggers": [
+        "判斷入口",
+        "UPS 問一句",
+        "糾正｜",
+        "否決記憶｜",
+        "詞表只提示",
+        "undeclared"
+      ],
+      "scope": "global"
     }
   ]
 }
