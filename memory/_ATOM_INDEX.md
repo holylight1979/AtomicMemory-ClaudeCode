@@ -604,3 +604,4 @@
 | userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | _AIDocs/_atoms/MemDev/userpromptsubmit路的判斷入口形狀-命中先記待判問句接判準卡-stop在所有閘前收行首標籤是不是理由取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md | 判斷入口, UPS 問一句, 糾正｜, 否決記憶｜, 詞表只提示, undeclared | global |  |
 | v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身 | _AIDocs/_atoms/MemDev/v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身.md | hook 代價, token 消耗, 定位閘, 擋訊息重讀, 填目標樹, v6.0 的代價, hook 全關, 免費模型代寫 | global |  |
 | 多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境 | _AIDocs/_atoms/MemDev/多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境.md | 多跑對照, 卡集一致, w2_build_env, 重建受測環境, 洩題卡, selfcheck, --cards-from, 實跑對照 | global |  |
+| 總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行 | _AIDocs/_atoms/MemDev/總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行.md | TestFailGate, 測試未綠, 既有紅測, 基底就紅, 總控台收尾被擋, cherry-pick, 單獨 commit, 連擋 | global |  |

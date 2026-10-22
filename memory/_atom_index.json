@@ -11690,6 +11690,24 @@
         "實跑對照"
       ],
       "scope": "global"
+    },
+    {
+      "name": "總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行",
+      "path": "_AIDocs/_atoms/MemDev/總控台收尾被main既有紅測連擋時-請負責軌把那個修正單獨commit再cherry-pick進main-不自己改碼不找人放行.md",
+      "triggers": [
+        "TestFailGate",
+        "測試未綠",
+        "既有紅測",
+        "基底就紅",
+        "總控台收尾被擋",
+        "cherry-pick",
+        "單獨 commit",
+        "連擋"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
+      ]
     }
   ]
 }
