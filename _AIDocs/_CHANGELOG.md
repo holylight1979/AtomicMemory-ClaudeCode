@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 TECH §11.1 換成 hook 全關對現況的實測數字
+- **原設計者看到的**：TECH §11.1 不再是守門流程大量加入之前的舊估算，改成同一題寫程式驗收題（B′）hook 全關對現況各兩跑的實測：輸入 token 90 萬→398 萬（＋340%）、牆鐘 5.5→14.0 分、通過線 0/4→3/4，每格標實測或推論；另加「多出的消耗花在哪」（填目標樹 39%、被擋重寫定位 25%、收尾多跑 17%，免費模型約省回 33%）。
+- **改了什麼**（軌 track-tech-refresh 003）：§11 開頭「數字待量測軌」改成數字出處一句（連到 `DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md`）；§11.1 換表，拿掉舊的每事件毫秒估算與「典型 session overhead」列，always-load／注入上限／磁碟／RAM 移到「這次量測沒涵蓋的固定成本」小表並標舊估算；§9.6「啟動或每句變慢」改寫預期值。
+- **驗證**：數字逐格對報告①～⑤與 `v6.0的代價-實測/b6_measure-輸出.md`；`python -X utf8 tools/sync_doc_counts.py --check` DOC_COUNTS_CHECK PASS。
+
 ## 2026-10-22 回覆尾巴的「上則評分」那行點得進白話說明
 - **原設計者看到的**：在 VS Code 裡，回覆最後一行 `上則評分 5/7｜沒過：R1、R4` 的「評分」點下去開 `text-specs/reader-designer-說明.md`（一句話說這份評什麼＋R1～R7 各一句白話），R1、R4 點下去直接跳到那一條；每條標題再點一次是它的判準卡（當初的指正原話）。終端機、`claude -p` 無頭跑照舊純文字。
 - **改了什麼**（軌 track-g15-text-score 004）：新檔 `text-specs/reader-designer-說明.md`；`hooks/wg_text_score.link_line` 在 `CLAUDE_CODE_ENTRYPOINT=claude-vscode` 且規格有說明檔時把評分一行改成 markdown 連結（沒過／作廢／未評的代號都連），路徑相對 UserPromptSubmit 收到的 cwd；`tail_note` 多收 cwd；`tools/text-score.py` 列現有規格時不列 `-說明` 檔、切法解析的巢狀三元拆開；TECH §7.11 兩列、`text-specs/README.md` 一段。規格本身沒動。
