@@ -1423,6 +1423,14 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             pending = _count_pending_review(project_mem_dir)
             if pending > 0:
                 lines.append(f"[Pending Review] {pending} 件待裁決（shared/_pending_review/）")
+        try:   # 背景收割（wg_bg_harvest）落在資料根的待審候選：有才提一行，讓它有人看（不看就是死路）
+            from wg_bg_harvest import staged_count
+            _staged = staged_count()
+            if _staged:
+                lines.append(f"[Harvest] {_staged} 張背景收割候選待審（memory/_staging/harvest-candidates/）："
+                             "值得留的用 atom_write 落卡，不要的刪掉")
+        except Exception as e:  # noqa: BLE001
+            print(f"[Harvest] 數待審候選失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
         if v4_user and config.get("userExtraction", {}).get("enabled", False):
             try:

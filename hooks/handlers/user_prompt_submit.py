@@ -313,16 +313,10 @@ def handle_user_prompt_submit(
     sync_kw = config.get("sync_keywords", CORE_DEFAULTS["sync_keywords"])
     prompt_has_sync = any(kw in prompt for kw in sync_kw)
 
+    # 同步數字只留 stderr 一行、不進 chat：記憶卡由 vcs-sync 背景自動上，程式檔的版控交代在收尾檢核 (g)；
+    # statusline（tools/statusline.py）常駐顯示改檔／佇列數（零 token）。
     if prompt_has_sync and (mod_count > 0 or kq_count > 0):
-        lines.append(f"[Guardian] Sync context: {mod_count} files modified, {kq_count} knowledge items pending.")
-        if mod_count > 0:
-            files = list({m["path"] for m in state["modified_files"]})
-            lines.append(f"Files: {', '.join(f.rsplit('/', 1)[-1] for f in files[:10])}")
-        if kq_count > 0:
-            for q in state["knowledge_queue"]:
-                lines.append(f"  - {q.get('classification', '[臨]')} {q['content'][:60]}")
-    # 週期性「N files modified」提醒不進 chat——statusline（tools/statusline.py）
-    # 常駐顯示改檔/佇列數（零 token）；模型端 enforcement 由 Stop SyncReminder 閘兜底。
+        print(f"[Guardian] Sync context: {mod_count} files modified, {kq_count} knowledge items pending.", file=sys.stderr)
 
     # ─── 最終裁切 → 以「實際送出」結算注入記帳 ───
     # 所有 lines 生產者都在上面；這裡裁切一次，之後不再動 lines。

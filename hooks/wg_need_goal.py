@@ -92,11 +92,13 @@ _RETRY_S = 0.02
 _RETRIES = 10
 STALE_DAYS = 30
 
-HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先用 need_goal(action=set, goal=…) "
-             "寫下它真正要達成什麼（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段）；純問答可以不寫。")
+HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先用 need_goal(action=set, goal=…, items=[…]) "
+             "寫下它真正要達成什麼（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段），看得出的子目標同一次放 items；"
+             "純問答可以不寫。")
 # 開新樹收下時附的一句（B5 缺口①：AI 懂了子目標，樹上卻永遠只有樹根）：只送題，有沒有子目標由 AI 判斷
 SUBGOAL_LINE = ("樹根寫的是整個需求（使用者這次要的全部，不只這回合先做的那段）；已經看得出的子目標（使用者同一句話裡的其他要求、"
-                "要先達成的前提）現在就用 need_goal(action=add) 長成節點，說不清的 clarity=open；看不出就不用加。")
+                "要先達成的前提）下次在 set 同一次放 items 一起寫（這次沒帶就用 need_goal(action=add) 補），說不清的 clarity=open；"
+                "看不出就不用加。")
 # 使用者又說話時樹怎麼長（B5 缺口②：只提換題那條路，AI 被糾正也開新樹、舊樹不收）；每則訊息與糾正提醒共用
 TREE_PATHS = ("這則若是補充（多要一件事、新的條件）→ need_goal add 長成子目標；若是糾正 → 改這棵樹（update 改節點、"
               "作廢的標放棄並寫為什麼，set 改寫樹根附 why），不開新樹；換成另一件事才 set new_task=true 並附 why。")
@@ -586,7 +588,7 @@ def render(tree: Optional[Dict[str, Any]], form: str, chars: Optional[int] = Non
         out.append("  " + _node_line(nid, nodes[nid], True, doc))
     owed = _owed(tree)
     if owed:
-        out.append("待對照的改動（用 update 對改到的節點交一句進度就清掉）：")
+        out.append("待對照的改動（收尾時程式照改動與收據自動記進度；要寫自己的判斷用 update）：")
         for node, items in _group_owed(owed).items():
             out.append(f"  - {node} ← {'、'.join(items)}")
     lr = tree.get("last_reconcile")
@@ -597,7 +599,7 @@ def render(tree: Optional[Dict[str, Any]], form: str, chars: Optional[int] = Non
     else:
         out.append("完整對照：還沒交")
     if doc is not None and doc.get("receipts"):
-        out.append("最近收據（證據引用寫 R<號>）：")
+        out.append("最近收據（證據引用寫 R<號>，或寫 latest 由程式填最近一筆綠的）：")
         for r in doc["receipts"][-8:]:
             out.append(f"  - R{r['seq']} 第 {r.get('turn', '?')} 回合 `{_clip(r.get('cmd'), 80)}` "
                        f"{' '.join(r.get('verdicts') or []) or '無哨兵'} exit {r.get('exit')}")
@@ -735,6 +737,11 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
             errs.append("set 要給 goal（一句、使用者的語言、只寫目標不寫手段），或給 import_from（續接單路徑）")
         if inp.get("new_task") is not None and not isinstance(inp.get("new_task"), bool):
             errs.append("new_task 必須是 true／false")
+        items = inp.get("items")
+        if items is not None and not isinstance(items, list):
+            errs.append("set 的 items 必須是陣列（子目標 [{text, clarity?, origin?, quote?}]，同 add）")
+        elif items:
+            errs += _validate_items("add", items)
         return errs
     if action == "read":
         if inp.get("form") is not None and inp.get("form") not in READ_FORMS:
@@ -757,6 +764,22 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
 
 
 # ─── 證據與完整對照的七條 ──────────────────────────────────────────────────
+
+LATEST = "latest"   # reconcile 收據寫 latest：程式填最近一筆綠的收據（規則 RECEIPT_LATEST_AUTO，AI 不用先 read 樹查號碼）
+
+
+def _latest_green(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    return next((r for r in reversed(doc.get("receipts") or [])
+                 if rr.receipt_green(r.get("verdicts"), r.get("exit"))), None)
+
+
+def _fill_latest(doc: Dict[str, Any], evidence: List[Dict[str, Any]]) -> None:
+    """收據證據寫 latest 的，換成最近一筆綠的收據 R<號>、標 auto（之後改了程式又跑綠，交付邊界由 refresh_auto_evidence 往前推）。"""
+    r = _latest_green(doc)
+    for e in evidence:
+        if e.get("kind") == "receipt" and str(e.get("ref", "")).strip().lower() == LATEST and r:
+            e["ref"], e["auto"] = f"R{r['seq']}", True
+
 
 def _receipt_by_ref(doc: Dict[str, Any], ref: str) -> Optional[Dict[str, Any]]:
     m = _RECEIPT_REF_RE.match(str(ref or "").strip())
@@ -830,7 +853,11 @@ def _atom_exists(name: str, cwd: str) -> bool:
 def _evidence_missing(doc: Dict[str, Any], ev: Dict[str, Any], cwd: str) -> Optional[str]:
     kind, ref = ev.get("kind"), str(ev.get("ref", ""))
     if kind == "receipt":
-        return None if _receipt_by_ref(doc, ref) else f"收據 {ref} 找不到（need_goal(action=read) 看最近收據的號碼，寫 R<號>）"
+        if _receipt_by_ref(doc, ref):
+            return None
+        if ref.strip().lower() == LATEST:
+            return "還沒有綠的收據可填（先跑驗證）"
+        return f"收據 {ref} 找不到（寫 latest 由程式填最近一筆綠的收據，或寫 R<號>）"
     if kind in ("case", "file") and "::" in ref:
         return _node_id_missing(kind, ref, cwd)
     if kind in ("case", "file"):
@@ -1164,6 +1191,8 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
     view = {nid: {"status": it["status"], "evidence": [dict(e) for e in it.get("evidence") or []],
                   "followup": _s(it.get("followup")), "note": _s(it.get("note")), "same_class": _s(it.get("same_class"))}
             for nid, it in items.items()}
+    for v in view.values():
+        _fill_latest(doc, v["evidence"])
     probs = _problems(doc, tree, view, cwd, set(items))
     if probs:
         return {"ok": False, "tree": tree["id"], "rejected": probs}
@@ -1176,7 +1205,8 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
         prior = [e for e in node.get("evidence") or [] if e.get("prior")]
         node["status"] = v["status"]
         stored = [{"kind": e["kind"], "ref": _s(e.get("ref")), "level": e["level"],
-                   "covers": list(e.get("covers") or [nid]), "seq": seq} for e in v["evidence"]]
+                   "covers": list(e.get("covers") or [nid]), "seq": seq, **({"auto": True} if e.get("auto") else {})}
+                  for e in v["evidence"]]
         for rec in stored:
             if rec["kind"] != "case":
                 continue
@@ -1249,6 +1279,12 @@ def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> 
             doc["cwd"] = cwd
         if action == "set":
             r = _op_set(doc, inp, turn)
+            if r.get("ok") and inp.get("items"):     # 規則 SET_WITH_SUBGOALS：樹根與看得出的子目標一次寫，不另叫 add
+                ra = _op_add(doc, {"items": inp["items"], "parent": r["tree"]}, turn)
+                if not ra.get("ok"):
+                    r["ok"], r["rejected"] = False, ["樹根收下了，子目標沒收："] + list(ra.get("rejected") or [])
+                r["note"] = f"{r.get('note') or ''}\n{ra.get('note') or ''}".strip()
+                r["origin_events"] = list(r.get("origin_events") or []) + list(ra.get("origin_events") or [])
         elif action == "add":
             r = _op_add(doc, inp, turn)
         elif action == "update":
@@ -1274,7 +1310,10 @@ def _result(sid: Any, action: Any, res: Dict[str, Any], doc: Optional[Dict[str, 
         head = f"[NeedGoal] {action} 拒收，沒有套用：\n" + "\n".join(f"  ✗ {r}" for r in rejected)
     else:
         head = f"[NeedGoal] {action} 收下：{res.get('note') or ''}"
-    body = render(tree, "full", doc=doc) if tree else ""
+    # 規則 TREE_ONCE_PER_CALL：set（開樹／改樹根）送全樹——原話與 AI 解讀並排是判斷材料；add／update／reconcile 只送精簡樹
+    # （樹頭＋一行一節點），原話、收據清單、待對照要看用 read
+    form = "full" if action == "set" else "compact"
+    body = render(tree, form, doc=doc) if tree else ""
     _guard("op", sid, action=action, tree=res.get("tree"), ok=bool(res.get("ok")), rejected=len(rejected))
     return {"ok": bool(res.get("ok")), "action": action, "tree": res.get("tree"), "rejected": rejected,
             "text": f"{head}\n{body}".rstrip(), "goal_changed": bool(res.get("goal_changed"))}
@@ -1646,16 +1685,76 @@ def _tree_ids(doc: Dict[str, Any]) -> List[str]:
     return sorted(doc.get("trees") or {}, key=lambda t: int(t[1:]) if t[1:].isdigit() else 0)
 
 
-def _f1_text(doc: Dict[str, Any]) -> Optional[str]:
-    rows = []
-    for tid in _tree_ids(doc):
-        for node, items in _group_owed(_owed(doc["trees"][tid])).items():
-            rows.append(f"  - {node} ← {'、'.join(items)}")
-    if not rows:
-        return None
-    return ("[Guardian:ReconcileGate] (f1) 改了程式還沒回頭對照目標：\n" + "\n".join(rows) +
-            "\n用 need_goal(action=update, items=[{id: <那個節點或它底下的節點>, why: 這次改動讓它更接近了沒、為什麼, "
-            "status: …}]) 交一句進度就清掉（不必整棵樹結案）。")
+def auto_progress(sid: Any, turn: int = 0) -> List[Dict[str, Any]]:
+    """規則 PROGRESS_LINE_BY_PROGRAM：(f1) 待對照不再叫 AI 另呼叫 update——程式照改到的檔與最近收據替每個欠著的節點記一筆進度
+    （history what=progress、by=program），清掉待對照，回記了哪些 [{tree, node, files, receipt}]（給背景本地模型草擬一句進度用）。
+    目標有沒有更接近仍由 AI 在完整對照（reconcile）判；它要自己寫進度照樣可以 update。"""
+    def fn(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        r = (doc.get("receipts") or [None])[-1]
+        rtext = "還沒有收據"
+        if r:
+            green = rr.receipt_green(r.get("verdicts"), r.get("exit"))
+            rtext = f"最近收據 R{r['seq']}（{'綠' if green else '沒綠'}）"
+        for tid in _tree_ids(doc):
+            tree = doc["trees"][tid]
+            for node, names in _group_owed(_owed(tree)).items():
+                if node not in tree["nodes"]:
+                    continue
+                seq = next_seq(doc)
+                tree["nodes"][node]["history"].append({"seq": seq, "turn": turn, "what": "progress", "by": "program",
+                                                       "why": f"改了 {'、'.join(names[:6])}；{rtext}"})
+                out.append({"tree": tid, "node": node, "files": names[:6], "receipt": r.get("seq") if r else None})
+            for e in _owed(tree):
+                e["owed"] = False
+                e["cleared_seq"] = next_seq(doc)
+        return out
+    try:
+        done = update_locked(sid, fn)
+    except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 程式記進度失敗（待對照留著，下次收尾再記）：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+    if done:
+        _guard("auto_progress", sid, nodes=[d["node"] for d in done])
+    return done
+
+
+def refresh_auto_evidence(sid: Any) -> int:
+    """規則 RECEIPT_LATEST_AUTO 的後半：完整對照裡寫 latest 的收據，之後改了程式又跑綠 → 交付邊界時換成最新那筆綠的，
+    不叫 AI 為同一件事重交一次對照。只換到「跑了同一組驗證」的新收據：同一條指令，或點名的案例檔涵蓋原本那筆的
+    （原本那筆沒點名案例檔就只認同一條指令）——後來跑了別的測試不算重跑了這一項。沒有就不動（照舊算「改完沒重跑」）。回換了幾筆。"""
+    def same_run(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
+        if str(old.get("cmd") or "") == str(new.get("cmd") or ""):
+            return True
+        oc = set(old.get("cases") or [])
+        return bool(oc) and oc <= set(new.get("cases") or [])
+
+    def fn(doc: Dict[str, Any]) -> int:
+        tree = active_tree(doc)
+        greens = [r for r in doc.get("receipts") or [] if rr.receipt_green(r.get("verdicts"), r.get("exit"))]
+        if not tree or not greens:
+            return 0
+        n = 0
+        for node in tree["nodes"].values():
+            for e in node.get("evidence") or []:
+                old = _receipt_by_ref(doc, str(e.get("ref"))) if e.get("auto") and e.get("kind") == "receipt" else None
+                new = next((r for r in reversed(greens) if old and same_run(old, r)), None)
+                if new and int(new["seq"]) > int(old["seq"]):
+                    e["ref"] = f"R{new['seq']}"
+                    n += 1
+        return n
+    try:
+        doc = load(sid)
+        tree = active_tree(doc)
+        if not tree or not any(e.get("auto") for v in tree["nodes"].values() for e in v.get("evidence") or []):
+            return 0
+        n = update_locked(sid, fn)
+    except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 自動換最新收據失敗（照舊要重交對照）：{type(e).__name__}: {e}", file=sys.stderr)
+        return 0
+    if n:
+        _guard("auto_refresh", sid, refs=n)
+    return n
 
 
 def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
@@ -1668,7 +1767,7 @@ def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
     return (f"[Guardian:ReconcileGate] (f2) 交付前的目標對照（{tree['id']}）缺：\n" + "\n".join(f"  - {p}" for p in probs) +
             "\n用 need_goal(action=reconcile, items=[每個還活著的節點：{id, status: done|partial|none|dropped, "
             "evidence: [{kind, ref, level, covers?}], followup?, note?, same_class?}]) 交完整對照：達成要附證據（寫碼類至少一筆沒紅的收據或"
-            "讀碼級驗證案例；實測只能配收據 R<號>，要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、"
+            "讀碼級驗證案例；實測只能配收據，ref 寫 latest 由程式填最近一筆綠的（之後改了又跑綠會自動換新），要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、"
             "放棄寫 note；達成可附 same_class（同類別處：找到的位置，或為什麼沒有）。\n目前的樹：\n" +
             render(tree, "compact"))
 
@@ -1715,18 +1814,21 @@ def _f3_text(doc: Dict[str, Any]) -> Optional[str]:
 
 def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]],
                      state: Optional[Dict[str, Any]] = None, transcript_path: str = "") -> Optional[str]:
-    """回合結束：(f1) 待對照每次都判（不看措辭）；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界（triggered）判。
+    """回合結束：(f1) 待對照由程式記進度（不擋）；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界（triggered）判。
+    記進度與收據 latest 往前換是記帳、不是閘：reconcile_gate.goal_gate=false 也照做（目標樹與收尾檢核附的樹要是現況）。
     只給主 session 用。開關看目標檔記的 cwd 所在專案（專案層關掉就不擋）。state／transcript_path 給 (f3) 補掛用。"""
-    if not sid or not goal_gate_on(config):
+    if not sid:
         return None
     doc = load(sid)
     if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:
         return None
+    if any(_owed(t) for t in doc["trees"].values()):
+        auto_progress(sid, int((state or {}).get("turn_seq") or 0))
+    if triggered and refresh_auto_evidence(sid):
+        doc = load(sid)
+    if not goal_gate_on(config):
+        return None
     parts = []
-    f1 = _f1_text(doc)
-    if f1:
-        parts.append(f1)
-        _guard("gate_f1", sid, owed=sum(len(_owed(t)) for t in doc["trees"].values()))
     f2 = _f2_text(doc) if triggered else None
     if f2:
         parts.append(f2)
@@ -1749,7 +1851,11 @@ def commit_gate(sid: Any, config: Optional[Dict[str, Any]], state: Optional[Dict
         return f"[NeedGoal] commit 前：目標檔損毀，無法核對需求目標，一律擋：{e}\n{NO_TOOL_HINT}"
     if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:
         return None
-    parts = [t for t in (_f1_text(doc), _f2_text(doc), _f3_text(_relinked(sid, doc, config, state, transcript_path))) if t]
+    if any(_owed(t) for t in doc["trees"].values()):
+        auto_progress(sid, int((state or {}).get("turn_seq") or 0))
+    if refresh_auto_evidence(sid):
+        doc = load(sid)
+    parts = [t for t in (_f2_text(doc), _f3_text(_relinked(sid, doc, config, state, transcript_path))) if t]
     if not parts:
         return None
     _guard("commit_blocked", sid, tree=doc.get("active"))
@@ -1809,7 +1915,9 @@ def _said_summary(tree: Dict[str, Any], first_cap: int, cap: int, last: int) -> 
 
 
 def snapshot_for_report(sid: Any, kinds: Tuple[str, ...] = ("code",)) -> Optional[Dict[str, Any]]:
-    """收尾檢核報告附的目標樹：原話摘要＋節點＋對照結果；目前的樹類別不在 kinds 回 None。"""
+    """收尾檢核報告附的目標樹：原話摘要＋節點＋對照結果；目前的樹類別不在 kinds 回 None。附之前先把 latest 收據往前換
+    （RECEIPT_LATEST_AUTO），報告上的對照結果才是現況，AI 不會為了報告上的舊收據重交對照。"""
+    refresh_auto_evidence(sid)
     try:
         doc = load(sid)
     except (NeedGoalCorrupt, OSError) as e:

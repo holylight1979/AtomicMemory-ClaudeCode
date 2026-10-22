@@ -8,7 +8,8 @@
 - cards_for_entry(row, pool)    先取卡片 Entry 欄命中的卡，再拿那列的規則名＋識別字樣當 trigger 查詢當退路
 - judgment_cards(text, path)    上面三步串起來，只取知識段、總預算內截斷，回要接在問句後面的那段文字
 - entry_note(text, path, …)     問的那一刻的單一入口（Stop 擋訊息與續跑提醒、PreToolUse deny、MCP 回覆、子代理 prompt 都呼叫它）：
-                                挑卡＋每個切入點記一筆帳到 Logs/guard-entry.jsonl，回要接在問句後面的文字
+                                挑卡＋每個切入點記一筆帳到 Logs/guard-entry.jsonl，回要接在問句後面的文字；
+                                同一個使用者回合已送過全文的卡只送一行指回（workflow/entry-sent/<sid>.json，規則 CARD_ONCE_PER_TURN）
 - resolve_responses(asks, …)    依各閘自己的留帳（登錄表每列的 responses）推每次問之後 AI 的回應型；tools/entry-stats.py 用
 - health_block()                健檢：RULES 裡沒登錄的規則名、登錄表寫錯的規則名、卡片寫了登錄表沒有的代號——只列不擋
 """
@@ -156,17 +157,18 @@ def inject_budget(config: Optional[Dict[str, Any]] = None, key: str = "inject_bu
 
 def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = None,
                    config: Optional[Dict[str, Any]] = None, registry: Optional[Dict[str, Any]] = None,
-                   pool: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                   pool: Optional[List[Dict[str, Any]]] = None, seen: Optional[set] = None) -> Dict[str, Any]:
     """問句 → {"entries": [代號], "cards": [{"name", "entries", "via"}], "truncated": bool, "truncated_entries": [代號],
     "note": "<要接在問句後面的文字>"}。沒認出切入點 → entries 空；認出但沒卡 → note 空字串（不接、不印「無」）。
     預算每個切入點各一份＝min(entrypoint.inject_budget_tokens, inject_budget_total ÷ 認出的切入點數)，整則加起來不超過總上限，
     切入點多時每個都分得到。先送每個切入點的綁定卡、再送各自的退路卡（_send_order），超過這個切入點的預算就截斷最後一張
     （尾端標「已截斷」）、它後面的卡不送；有卡卻沒送完的切入點都記進 truncated_entries。
     一張卡同時是幾個切入點的判準卡只送一次（算在第一個送它的切入點），標題列出它在這句裡服務的全部代號；
-    綁定的那一列算綁定（via=entry）。truncated＝有任何截斷，truncated_entries＝哪幾個切入點被截。"""
+    綁定的那一列算綁定（via=entry）。truncated＝有任何截斷，truncated_entries＝哪幾個切入點被截。
+    seen＝這個回合已送過全文的卡名：只送一行指回、不佔預算，記進 repeated（全文還在前面的對話裡）。"""
     rows = match_entries(text, path, registry)
     out: Dict[str, Any] = {"entries": [str(r["id"]) for r in rows], "cards": [], "truncated": False,
-                           "truncated_entries": [], "note": ""}
+                           "truncated_entries": [], "repeated": [], "note": ""}
     if not rows:
         return out
     pool = pool if pool is not None else card_pool(state)
@@ -188,6 +190,12 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
         if left_total < _TRUNCATE_MIN_TOKENS:
             break
         if name in sent or eid in out["truncated_entries"]:
+            continue
+        if name in (seen or ()):
+            blocks.append(f"判準卡（{'、'.join(serves[name])}）：{name}（本回合前面的訊息已送過全文，照那張判）")
+            out["cards"].append({"name": name, "entries": serves[name], "via": "entry" if name in bound_somewhere else "keyword"})
+            out["repeated"].append(name)
+            sent.add(name)
             continue
         body = _knowledge(card)
         if not body:
@@ -242,18 +250,48 @@ def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Di
         if state is None and session_id:
             from wg_core import read_state
             state = read_state(session_id)
-        res = judgment_cards(text, path, state=state, config=config, registry=reg, pool=pool)
-        from wg_core import append_guard_log
         turn = (state or {}).get("turn_seq")
+        seen = _sent_this_turn(session_id, turn)
+        res = judgment_cards(text, path, state=state, config=config, registry=reg, pool=pool, seen=seen)
+        _remember_sent(session_id, turn, seen | {c["name"] for c in res["cards"]})
+        from wg_core import append_guard_log
         for eid in res["entries"]:
             append_guard_log(LEDGER, {**(extra or {}), "event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
                                       "cards": [c["name"] for c in res["cards"] if eid in c["entries"]],
+                                      "repeated": [c["name"] for c in res["cards"] if eid in c["entries"] and c["name"] in res["repeated"]],
                                       "truncated": eid in res["truncated_entries"],
                                       "with": [e for e in res["entries"] if e != eid], "response": "none"})
         return res["note"]
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:Entrypoint] 接判準卡失敗，問句照原樣送：{type(e).__name__}: {e}", file=sys.stderr)
         return ""
+
+
+def _sent_path(session_id: str) -> Path:
+    from wg_core import WORKFLOW_DIR
+    return WORKFLOW_DIR / "entry-sent" / f"{''.join(c if c.isalnum() or c in '-_' else '_' for c in session_id)}.json"
+
+
+def _sent_this_turn(session_id: str, turn: Any) -> set:
+    """規則 CARD_ONCE_PER_TURN：這個 session 這個使用者回合已送過全文的卡名。沒有 session 或回合、檔讀不到 → 空集合（照送全文）。"""
+    if not session_id or turn is None:
+        return set()
+    try:
+        rec = json.loads(_sent_path(session_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return set(rec.get("names") or []) if rec.get("turn") == turn else set()
+
+
+def _remember_sent(session_id: str, turn: Any, names: set) -> None:
+    if not session_id or turn is None or not names:
+        return
+    p = _sent_path(session_id)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"turn": turn, "names": sorted(names)}, ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        print(f"[Guardian:Entrypoint] 記不下本回合已送的判準卡（下次照送全文）：{e}", file=sys.stderr)
 
 
 def with_note(text: str, note: str) -> str:

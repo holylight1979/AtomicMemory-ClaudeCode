@@ -26,7 +26,8 @@ _SID = "sid"
 _DONE = "全部完成了"
 _CORE = r"c:\a\.claude\hooks\x.py"
 _ATOM_PATH = r"C:\Users\u\.claude\memory\dotnet\foo-bar.md"
-_CFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3}}
+_CFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3,
+                    "background": False}}   # 測擋下這條路（背景送不出去或開關關掉時走它）
 _PTU_CFG = {"docdrift": {"enabled": False}, "aec": {}, **_CFG}
 
 

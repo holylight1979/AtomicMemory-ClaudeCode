@@ -568,7 +568,12 @@
     "enabled": true,
     "min_turns": 3,
     "min_accessed": 5,
-    "min_turns_between": 3
+    "min_turns_between": 3,
+    "_doc_background": "background＝true（預設）：觸發條件同上時不擋寫碼 AI，改起背景行程（hooks/wg_bg_harvest.py）問 vector_search.ollama_backends 的開源免費模型 background_model，從 transcript 尾段產最多 background_max_cards 張待審候選卡（專案 shared/_pending_review/，沒專案層落 memory/_staging/harvest-candidates/），順手替程式記過進度的目標樹節點草擬一句進度；留帳 Logs/guard-harvest_bg.jsonl。模型不在只記 failed、不改用付費模型。false＝照舊擋下要 AI 呼叫 knowledge_harvest_report。",
+    "background": true,
+    "background_model": "gemma4:e4b",
+    "background_max_cards": 3,
+    "background_timeout_sec": 180
   },
   "pick_one": {
     "_doc": "寫碼交付時順手點出最該修的一件（G4／G5／G13）：本 session 改了程式、到交付邊界（宣告完成、本回合交了收尾檢核或 commit）→ Stop 用 additionalContext 送一次「這次看到的鄰近問題裡哪一件最該修、為什麼、為什麼不是數字最高的那個」（只提醒、不擋；同一批改動只問一次），材料依部位分組、數字標參考。AI 回覆裡的「順手看到最該修」段記成追蹤項（另存建議怎麼解、該誰解），下個 session 開場先列。缺本區段或 enabled 不是 true＝整個關。",
