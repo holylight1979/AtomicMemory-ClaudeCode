@@ -9,6 +9,7 @@
 ⑤ 同名的兩個函式（property 的 getter／setter）一行答完兩個都記住，改別處後不互相擠掉再問。
 ⑥ 每行文字一樣、只改相對縮排（換了巢狀層）→ 算改到、要再問；入口數字一樣但換了經過的函式、類別在顯示上限外多了成員 → 指紋不同；
    函式讀不到本體 → 沒有指紋、一律照問。
+⑦ 結果文字去掉那一題（without_judgment_prompt）：數據與條目照留，接在拐彎判斷擋訊息後面那一題只出現一次。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_pull_reading_path.py
      或 python -X utf8 hooks/verify/verify_pull_reading_path.py（尾行 PULL_READING_PATH_CHECK PASS／FAIL）
 """
@@ -219,6 +220,23 @@ def test_entry_class_and_unreadable_fingerprints():
 
     fn = {"kind": "func", "file": str(root / "y.py"), "name": "f", "nesting": 3, "bumpy": 0, "cognitive": 3, "length": 5}
     assert rph.function_rows([fn], root, cfg)[1][0]["fp"] is None
+
+
+def test_result_text_without_the_prompt_keeps_data_and_drops_the_question(tmp_path):
+    """拐彎判斷擋下的那則訊息尾段附結果用：去掉那一題、尺度原文、回答寫法與範例行，數據與要人看的條目照留；擋訊息本身照問。"""
+    root = _repo(tmp_path / "r", FLAT)
+    state: dict = {}
+    _edit(state, root, F + "\n\n" + G, 5)
+    note = _note(state)
+    assert rph.JUDGMENT_QUESTION in note and "拐彎判斷｜y.py::f｜" in note, "前置：結果文字帶著那一題與範例行"
+    bare = rph.without_judgment_prompt(note)
+    assert rph.JUDGMENT_QUESTION not in bare and rph.SCALE_QUOTE not in bare and rph.JUDGMENT_HOWTO not in bare
+    assert "拐彎判斷｜" not in bare, "範例行也拿掉"
+    assert bare.startswith("[Guardian:ReadingPath] 第 5 回合") and "y.py::f｜巢狀 3" in bare and "要人看的 2 條" in bare
+    msg, _ = rph.turn_judgment_note(state, _SID, "完成。", 1, 5)
+    assert rph.JUDGMENT_QUESTION in msg and rph.SCALE_QUOTE in msg, "擋訊息自己照問"
+    assert f"{msg}\n{bare}".count(rph.JUDGMENT_QUESTION) == 1, "擋訊息接上結果文字：那一題只出現一次"
+    assert rph.without_judgment_prompt("") == "" and rph.without_judgment_prompt(None) == ""
 
 
 if __name__ == "__main__":

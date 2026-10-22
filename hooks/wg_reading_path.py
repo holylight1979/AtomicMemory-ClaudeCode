@@ -91,6 +91,8 @@ JUDGMENT_QUESTION = ("這一層／這個彎存在的理由是什麼？它有沒�
                      "會不會讓人的思考拐超過三個彎？")
 JUDGMENT_HOWTO = "收尾文字一條一行回答（五欄用｜隔開；程式只核對有沒有答、不評內容；答「不會」「這一層沒有作用」也要理由）："
 RULE_LETTER = "t"
+PROMPT_LINES = (f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}")   # 那一題、尺度原文、回答寫法
+_EXAMPLE_LEAD = "    " + JUDGMENT_EXAMPLE.split("{name}", 1)[0]   # 範例行開頭（judgment_block 的縮排＋「拐彎判斷｜」）
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 _DETACHED = (subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS) if sys.platform == "win32" else 0
 _SAMPLE_SPLIT = re.compile(r"\s+[>＞]\s+")   # 箭頭兩側要有空白：<佔位> 裡的 > 不算
@@ -463,9 +465,14 @@ def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: in
         lines.append(again)
     if dropped > 0:
         lines.append(f"    …另 {dropped} 條也到門檻，一批最多問 {cfg['max_items']} 條（reading_path.turn_judgment.max_items），這次不問")
-    lines += [f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}"]
-    lines += [f"    {JUDGMENT_EXAMPLE.format(name=it['name'])}" for it in items]
+    lines += [*PROMPT_LINES, *(f"    {JUDGMENT_EXAMPLE.format(name=it['name'])}" for it in items)]
     return lines
+
+
+def without_judgment_prompt(text: str) -> str:
+    """閱讀路徑結果文字去掉那一題、尺度原文、回答寫法與範例行（judgment_block 附的那幾行）；側面數據、要人看的條目照留。
+    給拐彎判斷擋下的那則訊息在尾段附結果用：擋訊息自己已經問了，同一則不出現兩次。"""
+    return "\n".join(ln for ln in (text or "").splitlines() if ln not in PROMPT_LINES and not ln.startswith(_EXAMPLE_LEAD))
 
 
 # ─── 收尾當下（Stop）：核對拐彎判斷行 ──────────────────────────────────────────
@@ -514,7 +521,7 @@ def turn_judgment_note(state: Dict[str, Any], session_id: str, code_text: str, u
     missing = [by_name[k] for k in (e.split("｜", 1)[0] for e in v.evidence) if k in by_name]
     partial = [e for e in v.evidence if e.startswith("「")]
     lines = [f"{TAG} {format_hit(RULE_LETTER, v._replace(evidence=tuple(f'{it['kind']} {it['name']}' for it in missing)))}",
-             f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}"]
+             *PROMPT_LINES]
     for it in missing:
         lines += [f"  - {it['kind']} {it['name']}｜{it['nums']}", f"    {JUDGMENT_EXAMPLE.format(name=it['name'])}"]
     lines += [f"  已寫但缺欄：{p}" for p in partial]
