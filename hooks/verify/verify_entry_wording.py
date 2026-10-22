@@ -128,7 +128,7 @@ def test_smellgate_disposal_asks_whose_file_first():
     last = msg.splitlines()[-1]
     assert last.startswith("處置先分清被點名的檔是不是你這次改的：是你改的 → 把 ✗ 那幾行改掉再 commit")
     assert "`smell-ok: <為什麼>`" in last and "不是你改的（session 開始前就在暫存區、別人留的）→ 不修、不動它的暫存，只提交你自己的檔" in last
-    assert "被問到時寫明是誰的、病要誰修" in last and last.endswith("--commit-check --cwd <repo>")
+    assert "`# 不是繞閘｜<檔是誰的、病要誰修>`" in last and last.endswith("--commit-check --cwd <repo>")
     assert "處置：把 ✗" not in msg                                 # 反例：舊句不分是不是你的檔，帶 AI 去代刀
     assert "E29" in _entries(msg, "pretool_deny")
     ok, only = ps.render_commit_report([{"new": [], "listed": [HIT], "old": [], "allowed": [], "notes": []}], "<repo>")

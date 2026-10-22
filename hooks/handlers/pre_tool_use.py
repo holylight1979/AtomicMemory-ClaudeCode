@@ -1012,6 +1012,10 @@ def _commit_order_decide(
         # 空清單＝本回合沒有使用者原話（通知開的回合且口令已用掉）→ 擋；舊 state 沒有 turn_prompts 才退回只看最後一句。
         # 讀取端再濾一次：舊版曾把其他 session 的訊息記進 turn_prompts；濾完是空清單照樣擋（不走 fail-open）
         turn_prompts = user_typed_prompts(state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:])
+        from handlers.ups_gates import order_spent
+        spent = order_spent(state)          # 這批 commit→push 已做完：口令用掉了，原話不再算授權
+        if spent:
+            turn_prompts = []
         keyword = next((k for k in (_commit_order_keyword_hit(p, keywords) for p in turn_prompts) if k), None)
         if keyword:
             return None, "order", {"keyword": keyword}
@@ -1035,7 +1039,8 @@ def _commit_order_decide(
             "請使用者單獨再打一次口令（只認最新一則使用者原話，中間夾系統通知或背景事件就要重下口令）。\n"
             "確為使用者本回合要求：引用其原話請他重下口令；長期口令調整 workflow/config.json "
             "guard.commit_order.keywords（enabled=false 停用本閘）。" + shape_hint
-        ), "denied", {}
+            + ("\n這批已 push 完：本回合先前的口令用掉了，再 commit 要使用者新下口令。" if spent else "")
+        ), "denied", {"spent": True} if spent else {}
     except Exception as e:
         try:
             sys.stderr.write(f"[Guardian:CommitOrder] 檢查異常（fail-open）：{e}\n")

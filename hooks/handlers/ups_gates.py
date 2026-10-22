@@ -61,19 +61,28 @@ def _clear_long_die_marker() -> None:
         cls._clear_long_die_marker()
 
 
+def order_spent(state: Dict[str, Any]) -> bool:
+    """版控口令這批做完了沒：使用者開這個回合之後，收尾記到跑成功的推送（stop._note_order_push 記 order_push_seq；
+    「上GIT」＝commit→push 一氣，push 完成這批就結束）。只 commit 沒 push、中間夾背景通知或收尾閘逼出的補修 commit 都不算做完。
+    口令閘（pre_tool_use 的 CommitOrder）與下面的 track_turn_prompts 共用這一個判法。"""
+    push, seq = state.get("order_push_seq"), state.get("turn_prompts_seq")
+    return (isinstance(push, int) and not isinstance(push, bool) and isinstance(seq, int) and not isinstance(seq, bool)
+            and push >= seq)
+
+
 def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     """本回合使用者原話清單：Stop 關回合（turn_open=False）後第一則重開，
     同回合內排隊送進來的 mid-turn 訊息追加。口令閘看整回合而非只看最後一句
-    （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送的
-    mid-turn 訊息會誤判為新回合——閘只會多擋一次、要求重下口令，fail-safe。
+    （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送進來的
+    使用者訊息算新回合：清單重開，口令要重下（使用者新打的字＝口令失效的時點）。
 
     清單只存 user_typed_text（剔掉通知、其他 session 的訊息等非使用者區塊後，先清理再截 500 字）。
     整則都不是使用者的話（背景通知、其他 session 的訊息）也走 UserPromptSubmit：內文永不進清單；
-    它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待），
-    除非那之後已經 commit 過（口令用掉了）→ 清空，再 commit 要新口令。
+    它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待、收尾閘逼出的補修 commit），
+    除非那之後這批已經 push 完（order_spent：口令用掉了）→ 清空，再 commit 要新口令。
 
     turn_prompts_seq＝使用者本人打字開的回合（寫碼查核的預算與放行看它）。回合關閉後先進來的通知只開「續跑回合」
-    （turn_typed=False）；這個續跑回合裡使用者打的第一則字仍算使用者開的新回合，序號前進（清單照舊追加）。"""
+    （turn_typed=False）；這個續跑回合裡使用者打的第一則字算使用者開的新回合：序號前進、清單重開（先前的口令失效）。"""
     has_list = isinstance(state.get("turn_prompts"), list)
     typed = user_typed_text(clean_prompt)[:500]
 
@@ -83,15 +92,16 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
 
     if not typed:
         # 同伴訊息、背景通知只開續跑回合（回合只由使用者打字開，規則 TURN_SINCE_USER_PROMPT）
-        spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
-        if not has_list or (not state.get("turn_open") and spent):
+        if not has_list or (not state.get("turn_open") and order_spent(state)):
             state["turn_prompts"] = []
         if not state.get("turn_open"):
             state["turn_typed"] = False                                  # 通知開的續跑回合：還沒有使用者打字
     elif state.get("turn_open") and has_list:
-        state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
         if state.get("turn_typed") is False:                            # 續跑回合裡使用者的第一則字：使用者開的新回合
+            state["turn_prompts"] = [typed]
             _new_turn()
+        else:
+            state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
     else:
         state["turn_prompts"] = [typed]
         _new_turn()

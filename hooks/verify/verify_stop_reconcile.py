@@ -412,7 +412,7 @@ def test_receipt_root_above_file_root_counts(driven, capsys, monkeypatch):
     assert "ReconcileGate" in out and "不是改檔所屬的專案根" in out                         # 反例：互不包含
 
 
-# ─── 缺口 1：判定器出例外一律擋，仍吃預算 ──────────────────────────────────────
+# ─── 缺口 1：判定器出例外擋一次（同一個錯誤之後放行留帳），仍吃預算 ──────────────────────────────────────
 
 def _boom(*a, **k):
     raise RuntimeError("boom")
@@ -423,7 +423,7 @@ def test_reconcile_judge_exception_blocks(driven, capsys, monkeypatch):
     assert "ReconcileGate" not in out                                                       # 正例：判定器正常 → 放行
     monkeypatch.setattr(st, "reconcile_gate_parts", _boom)
     out, state, logs = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]})
-    assert "[Guardian:ReconcileGate] 判定錯誤，一律擋：RuntimeError: boom" in out and "先別宣告完成" in out
+    assert "[Guardian:ReconcileGate] 判定錯誤：RuntimeError: boom" in out and "先別宣告完成" in out
     assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
     assert any(g == "reconcile" and "boom" in p.get("error", "") for g, p in logs)
 
@@ -436,7 +436,7 @@ def test_scope_judge_exception_blocks(driven, capsys, monkeypatch):
     assert "ReconcileGate" not in out and "VerifyScope" not in out                          # 正例
     monkeypatch.setattr(vs, "gate_reason", _boom)
     out, state, _ = driven("全部完成了。", capsys, **kw)
-    assert "[Guardian:VerifyScope] 判定錯誤，一律擋：RuntimeError: boom" in out
+    assert "[Guardian:VerifyScope] 判定錯誤：RuntimeError: boom" in out
     assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
 
 
@@ -444,7 +444,7 @@ def test_judge_exception_third_block_asks_user(driven, capsys, monkeypatch):
     """判定錯誤也吃預算；擋滿後照件一改問使用者（不再 overflow 放行）。"""
     monkeypatch.setattr(st, "reconcile_gate_parts", _boom)
     out, state, logs = driven("閘修好了，完成。", capsys, reconcile_gate_turn={_SID: {"turn": 5, "count": 2}})
-    assert "本回合已擋 2 次仍未解：[Guardian:ReconcileGate] 判定錯誤，一律擋" in out and "【收尾放行確認】" in out
+    assert "本回合已擋 2 次仍未解：[Guardian:ReconcileGate] 判定錯誤" in out and "【收尾放行確認】" in out
     assert "reconcile_overflow" not in state
 
 
@@ -907,11 +907,14 @@ def test_release_answer_after_last_block_releases_once_and_logs(exhausted, capsy
     assert "ReconcileGate" not in out                                                       # 正例：放行一次
     rel = [p for g, p in logs if g == "reconcile" and p.get("event") == "user_release"]
     assert rel and rel[0]["via"] == "ask" and "(a)" in rel[0]["reason"]
-    assert state["reconcile_gate_turn"][_SID]["count"] == 0 and state["user_released"][_SID]["reconcile"] == 5
+    assert state["reconcile_gate_turn"][_SID]["count"] == 0 and state["user_released"][_SID]["reconcile"]["turn"] == 5
     out, _, _ = driven("閘修好了，完成。", capsys, **{k: state[k] for k in ("reconcile_gate_turn", "user_released", "session")})
     assert "ReconcileGate" not in out                                                       # 這一回合不再擋
-    out, _, _ = driven("閘修好了，完成。", capsys, turn_seq=6, user_released=state["user_released"])
-    assert "ReconcileGate" in out                                                           # 下一回合照擋
+    out, _, _ = driven("閘修好了，完成。", capsys, turn_seq=6, user_released=copy.deepcopy(state["user_released"]))
+    assert "ReconcileGate" not in out                                                       # 下一回合：放行的那一件原因還在，不再擋
+    out, _, _ = driven("閘修好了，我量了，完成。", capsys, turn_seq=6, tool_names=["Read"],
+                       user_released=copy.deepcopy(state["user_released"]))
+    assert "(b)" in out and "(a)" not in out                                                # 新出現的一件照擋，放行過的那件不再列
 
 
 def test_keep_blocking_answer_still_blocks(exhausted, capsys):
@@ -974,20 +977,20 @@ def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatc
     kq = [{"content": "待記的坑", "classification": "[臨]"}]       # 只剩改檔數不再擋（SYNC_BLOCK_NOT_REPEATED）；有待記知識才走一般 block
     out, state, _ = driven("好了。", capsys, modified_files=mf, stop_blocked_count=0, knowledge_queue=kq)
     assert "[Workflow Guardian] 2 file(s) modified" in out and state["stop_blocked_count"] == 1     # 沒擋滿：照擋
-    out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2, knowledge_queue=kq)
+    out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2, stop_blocked_turn=5, knowledge_queue=kq)
     assert "Guardian" not in out and "【收尾放行確認】" not in out and state["phase"] == "done"     # 擋滿：照舊放行
     assert not [g for g, _ in logs if g == "sync_block"]
 
 
 def test_shared_budget_deferral_gate_keeps_skipping_when_exhausted(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
-    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, need_goal_code_decl_turn=5)   # 本回合宣告了寫碼樹
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, stop_blocked_turn=5, need_goal_code_decl_turn=5)   # 本回合宣告了寫碼樹
     assert "DeferralGate" not in out and "【收尾放行確認】" not in out                         # 擋滿：照舊跳過
     out, _, _ = driven("好了。", capsys, stop_blocked_count=0, need_goal_code_decl_turn=5)
     assert "DeferralGate" in out and "本回合已擋" not in out                                # 沒擋滿：照原本的擋
 
 
-# ─── 003：無法互動情境一律擋到底（不叫它問使用者） ──────────────────────────────
+# ─── 003：無法互動情境不叫它問使用者；擋滿放行留帳 ──────────────────────────────
 
 def test_non_interactive_reason_signals(tmp_path):
     tp = tmp_path / "t.jsonl"
@@ -1003,12 +1006,14 @@ def test_non_interactive_reason_signals(tmp_path):
     assert rl.non_interactive_reason({}, str(tp), env={}) is None
 
 
-def test_headless_exhausted_blocks_without_asking_even_with_release_answer(exhausted, capsys, monkeypatch):
+def test_headless_exhausted_releases_and_logs_even_with_release_answer(exhausted, capsys, monkeypatch):
+    """headless 主 session 比照子代理：擋滿就放行並留帳 noninteractive_released（不叫它問、不擋到底）；放行答案也不採信。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     out, _, logs = exhausted(capsys, after=[_ask_line(rl.OPT_RELEASE)], turn_prompts=["原本那句", "放行"])
-    assert "[Guardian:ReconcileGate] 無法互動，不能放行：✗ (a)" in out and "headless／SDK（entrypoint=sdk-cli）" in out
-    assert "AskUserQuestion" not in out.split("原擋訊息")[0] and "【收尾放行確認】" not in out           # 不叫它問
-    assert [p.get("event") for g, p in logs if g == "reconcile"] == ["noninteractive_block"]
+    assert "ReconcileGate" not in out and "【收尾放行確認】" not in out and "不能放行" not in out
+    rel = [p for g, p in logs if g == "reconcile"]
+    assert [p.get("event") for p in rel] == ["noninteractive_released"]
+    assert rel[0]["why"] == "headless／SDK（entrypoint=sdk-cli）" and "(a)" in rel[0]["reason"]
 
 
 def test_headless_before_exhausted_is_ordinary_block(driven, capsys, monkeypatch):
@@ -1105,7 +1110,7 @@ def _sub_state(**extra):
 
 def test_subagent_code_change_without_case_blocks_non_interactive(sub_stop, capsys):
     out, logs = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}))
-    assert "[Guardian:ReconcileGate] 無法互動，不能放行：✗ (d)" in out and "子代理 Stop" in out
+    assert "[Guardian:ReconcileGate] 收尾查核沒過：✗ (d)" in out and "子代理 Stop" in out and "不能放行" not in out
     assert "AskUserQuestion" not in out.split("原擋訊息")[0] and "本回合已擋" not in out          # 不問、不計次
     assert [p["event"] for g, p in logs if g == "reconcile"] == ["subagent_block"]
 
@@ -1197,7 +1202,8 @@ def _ups_turn(monkeypatch, state, prompt):
     ups.handle_user_prompt_submit({"session_id": _SID, "prompt": prompt, "transcript_path": ""}, {"sync_keywords": []})
 
 
-def test_006_3_pending_release_carries_over_turns(exhausted, capsys, monkeypatch):
+def test_006_3_pending_release_scoped_to_user_turn(exhausted, capsys, monkeypatch):
+    """擋滿留的 pending 只在同一個使用者回合有效：使用者新打字開回合 → 預算重給、不直接送擋滿訊息；打「放行」照放行。"""
     out, state, _ = exhausted(capsys)                                                       # turn 5 擋滿
     assert _GATE_HEAD in out and state["pending_release"][_SID]["reconcile"]["turn"] == 5
     s6 = copy.deepcopy(state)
@@ -1205,23 +1211,24 @@ def test_006_3_pending_release_carries_over_turns(exhausted, capsys, monkeypatch
     assert s6["turn_seq"] == 6 and s6["turn_prompts"] == ["好，放行"]
     out, after, logs = exhausted(capsys, **s6)
     assert "ReconcileGate" not in out and "reconcile" not in (after.get("pending_release") or {}).get(_SID, {})
-    assert [p["via"] for g, p in logs if p.get("event") == "user_release"] == ["prompt"]   # 正例：跨回合放行
+    assert [p["via"] for g, p in logs if p.get("event") == "user_release"] == ["prompt"]   # 正例：最後一次擋之後打「放行」
     s6b = copy.deepcopy(state)
     _ups_turn(monkeypatch, s6b, "繼續修")
     out, after, _ = exhausted(capsys, **s6b)
-    assert "先前回合已擋滿、仍未放行也仍未解" in out and "【收尾放行確認】" in out              # 反例：不重給新回合預算
+    assert "收尾宣稱對不上" in out and "已擋滿" not in out and "【收尾放行確認】" not in out   # 新回合：預算重給、照一般擋
     assert {k: after["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 6, "count": 1}
+    assert rl.pending_of(after, _SID, "reconcile") is None                                  # turn 5 的 pending 不算數
 
 
 def test_006_3_pending_cleared_when_check_passes(driven, capsys):
     """查核通過才清 pending（pending 帶原宣稱 claims；舊版沒帶 claims 的照擋，見 test_013_1_legacy_pending_blocks_until_user_release）。"""
-    pend = {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r", "claims": ["閘修好了，完成。"]}}}
+    pend = {_SID: {"reconcile": {"turn": 5, "at": "x", "reason": "r", "claims": ["閘修好了，完成。"]}}}
     out, state, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]},
                            pending_release=pend)
     assert "ReconcileGate" not in out and state["pending_release"][_SID] == {}
 
 
-def test_006_6_judge_stop_blocks_to_the_end(capsys, monkeypatch):
+def test_006_6_judge_stop_blocks_without_asking(capsys, monkeypatch):
     import dispatcher
     # UPS 等照舊早退；PreToolUse 只擋判不出的寫入；PostToolUseFailure 補記失敗指令寫下的檔（同 PostToolUse 的最小記帳）
     assert set(dispatcher.JUDGE_HANDLERS) == {"PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"}
@@ -1235,7 +1242,7 @@ def test_006_6_judge_stop_blocks_to_the_end(capsys, monkeypatch):
     with pytest.raises(SystemExit):
         st.handle_judge_stop({"session_id": _SID, "last_assistant_message": "全部完成了。"}, {})
     out = capsys.readouterr().out
-    assert "無法互動，不能放行" in out and "裁判子 session" in out and "(d)" in out
+    assert "沒有人能回答放行詢問" in out and "裁判子 session" in out and "(d)" in out and "不能放行" not in out
     state["modified_files"] = []
     with pytest.raises(SystemExit):
         st.handle_judge_stop({"session_id": _SID, "last_assistant_message": "全部完成了。"}, {})
@@ -1305,8 +1312,9 @@ _T1, _T2 = "2026-10-12T10:00:00+08:00", "2026-10-12T10:05:00+08:00"
 
 
 def _pend_state(claims):
-    """擋滿時 set_pending 寫下的 pending（含 claims）；直接寫字面值，退回舊碼反證時不依賴新簽名。"""
-    return {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r", "claims": list(claims)}}}
+    """擋滿時 set_pending 寫下的 pending（含 claims）；直接寫字面值，退回舊碼反證時不依賴新簽名。記在本回合（turn 5）：
+    pending 只在同一個使用者回合有效。"""
+    return {_SID: {"reconcile": {"turn": 5, "at": "x", "reason": "r", "claims": list(claims)}}}
 
 
 def test_009_1_rephrase_keeps_case_debt_and_pending(driven, capsys):
@@ -1334,7 +1342,7 @@ def test_009_1_pending_claim_rechecked_after_rephrase(driven, capsys):
 def test_013_1_legacy_pending_blocks_until_user_release(driven, capsys):
     """013 BLOCK 1 規則 2：舊版 pending（沒帶 claims）原宣稱無從重查 → 照擋（不再當成可收尾），pending 留著且不被補上 claims；
     說完成也一樣擋；只有使用者放行能清（放行流程見 test_006_3_pending_release_carries_over_turns）。"""
-    legacy = {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r"}}}
+    legacy = {_SID: {"reconcile": {"turn": 5, "at": "x", "reason": "r"}}}
     for text in ("變更內容如上。", "全部完成了。"):
         out, state, _ = driven(text, capsys, pending_release=copy.deepcopy(legacy))
         assert "舊格式，沒有原宣稱可以重查" in out and "【收尾放行確認】" in out, text
@@ -1358,9 +1366,9 @@ def test_013_1_original_claim_survives_repeated_rephrase(driven, capsys):
 
 def test_009_1_subagent_and_judge_judge_case_debt_regardless_of_wording(sub_stop, capsys, monkeypatch):
     out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="變更內容如上。")
-    assert "無法互動，不能放行" in out and "改了程式碼（x.py）" in out
+    assert "沒有人能回答放行詢問" in out and "改了程式碼（x.py）" in out
     out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="")
-    assert "無法互動，不能放行" in out                                                       # 讀不到收尾文字也照判
+    assert "沒有人能回答放行詢問" in out                                                     # 讀不到收尾文字也照判
     state = {"turn_seq": 0, "modified_files": [_mf(_CODE, 0)]}
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     with pytest.raises(SystemExit):
@@ -2357,7 +2365,7 @@ def test_035_3_unreadable_map_blocks_as_judge_error_not_silent_skip(driven, caps
     assert "存在但讀不到" in capsys.readouterr().err
     out, _, logs = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"),
                           scope=True)
-    assert "判定錯誤，一律擋" in out and "MapReadError" in out and "存在但讀不到" in out
+    assert "判定錯誤：MapReadError" in out and "存在但讀不到" in out
     assert "SCOPE_DECLARED_FOR_CHANGE" not in out
     assert any(g in ("scope", "reconcile") and "MapReadError" in str(p.get("error")) for g, p in logs)
 
@@ -2479,10 +2487,10 @@ def test_subagent_reverted_edit_is_not_code_debt(sub_stop, capsys, clean_repo):
     """子代理 Stop 走同一個 _verify_gates：子代理暫改又還原的檔不欠案例；配對：還改著 → 照擋（無法互動）。"""
     repo, x = clean_repo
     out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(x, 5)]}))
-    assert "無法互動，不能放行" not in out and _DEBT_X not in out
+    assert "沒有人能回答放行詢問" not in out and _DEBT_X not in out
     (repo / "hooks" / "x.py").write_text("x = 4\n", encoding="utf-8", newline="\n")
     out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(x, 5)]}))
-    assert "無法互動，不能放行" in out and _DEBT_X in out
+    assert "沒有人能回答放行詢問" in out and _DEBT_X in out
 
 
 @pytest.mark.parametrize("kind", ["untracked", "ignored", "staged", "deleted"])
@@ -2781,7 +2789,7 @@ def test_037_subagent_judged_with_other_agents_dirty_files_in_same_root(sub_stop
     edit(code, 2, agent_id="ag1")
     edit(case, 1, agent_id="ag2")
     out, _ = sub_stop(capsys, state, agent_id="ag1")
-    assert "無法互動，不能放行" in out and _DEBT_A in out
+    assert "沒有人能回答放行詢問" in out and _DEBT_A in out
     edit(case, 2, agent_id="ag2")
     out, _ = sub_stop(capsys, state, agent_id="ag1")
     assert _DEBT_A not in out
@@ -2962,7 +2970,10 @@ def test_040_1_release_answer_after_first_block_releases(gate_run, capsys):
         assert "ReconcileGate" not in out, p[:20]
     ups("繼續改")                                                                           # 使用者真打字：新回合
     out, _ = stop()
-    assert "(d)" in out
+    assert "ReconcileGate" not in out                                                       # 放行的那一件原因還在：不再要求放行
+    state["modified_files"].append(_mf(r"c:\proj\hooks\y.py", state["turn_seq"], last_at=_T2, last_seq=9))
+    out, _ = stop()
+    assert "(d)" in out and "y.py" in out                                                   # 新改的檔是新的一件：照擋
 
 
 def test_no_case_user_release_is_remembered_until_the_file_changes(driven, capsys, tmp_path, monkeypatch):
@@ -3056,8 +3067,8 @@ def test_040_5_dict_response_without_exit_uses_pytest_summary(driven, capsys, mo
 
 def test_040_6_notification_then_user_prompt_is_a_new_user_turn(gate_run, capsys):
     """040 codex BLOCK：放行並收尾（Stop 關回合）→ 背景通知先進來（續跑回合）→ 下一次 Stop 之前使用者打字交代新任務 →
-    這一則仍是使用者開的新回合：turn_prompts_seq 前進、上一回合的放行不沿用，(d) 照擋。舊碼通知把 turn_open 設成 True，
-    使用者的字被當成同回合追加，序號不前進，舊放行把新任務的查核原因清掉。"""
+    這一則仍是使用者開的新回合：turn_prompts_seq 前進、整回合的放行不沿用；放行的那一件原因還在不再擋，新任務改的檔照擋 (d)。
+    舊碼通知把 turn_open 設成 True，使用者的字被當成同回合追加，序號不前進，舊放行把新任務的查核原因清掉。"""
     state, stop, ups, ask, ref = gate_run
     ref[0] = capsys
     stop()
@@ -3068,8 +3079,9 @@ def test_040_6_notification_then_user_prompt_is_a_new_user_turn(gate_run, capsys
     assert state["turn_prompts_seq"] == 5
     ups("接著改 hooks/y.py")
     assert state["turn_prompts_seq"] == 7
+    state["modified_files"].append(_mf(r"c:\proj\hooks\y.py", 7, last_at=_T2, last_seq=9))
     out, _ = stop()
-    assert "(d)" in out
+    assert "(d)" in out and "y.py" in out
 
 
 @pytest.mark.parametrize("flow, owed", [

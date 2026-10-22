@@ -207,14 +207,16 @@ def test_standing_order_survives_notification_turns():
     assert _NOTIFY not in st["turn_prompts"]
 
 
-def test_user_message_during_notification_turn_appends():
+def test_user_message_during_notification_turn_starts_new_turn():
+    """口令到使用者新打字為止：通知開的續跑回合裡使用者補一句 → 使用者開的新回合，清單重開、先前的口令失效。"""
     st = {}
     _ups(st, "完工後直接上GIT")
     _stop(st)
     _ups(st, _NOTIFY)
-    _ups(st, "計畫檔沒價值就順便刪掉")          # 通知回合進行中使用者補一句 → 追加，不重開
-    assert st["turn_prompts"] == ["完工後直接上GIT", "計畫檔沒價值就順便刪掉"]
-    assert _check(state=st) is None
+    assert _check(state=st) is None                 # 通知開的續跑回合：口令照撐
+    _ups(st, "計畫檔沒價值就順便刪掉")
+    assert st["turn_prompts"] == ["計畫檔沒價值就順便刪掉"]
+    assert _check(state=st)
 
 
 def test_notification_text_is_never_an_order():
@@ -344,14 +346,19 @@ def test_temp_repo_exempt_helper_and_log(tmp_path, monkeypatch, co_log):
 
 
 def test_spent_order_is_not_reused_by_notification_turn():
-    # 「上GIT」那回合已經 commit 過 → 之後背景通知開的回合要再 commit，得有新口令
+    # 「上GIT」＝commit→push 一氣：只 commit 了，背景通知開的續跑回合還在同一批（收尾閘逼出的補修 commit 不用重下口令）；
+    # 這批 push 完（Stop 記 order_push_seq）之後再 commit，得有新口令
     st = {}
     _ups(st, "上GIT")
     st["last_commit_turn_seq"] = st["turn_seq"]   # post_tool_use 記的「本回合跑過 commit」
     _stop(st)
     _ups(st, _NOTIFY)
+    assert _check(state=st) is None
+    st["order_push_seq"] = st["turn_seq"]         # stop._note_order_push 記的「這批 push 完了」
+    _stop(st)
+    _ups(st, _NOTIFY)
     msg = _check(state=st)
-    assert msg and "[Guardian:CommitOrder]" in msg
+    assert msg and "[Guardian:CommitOrder]" in msg and "這批已 push 完" in msg
     _ups(st, "這批也上GIT")                       # 使用者重下 → 放行
     assert _check(state=st) is None
 

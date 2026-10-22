@@ -86,6 +86,9 @@ def test_session_mcp_pids_follow_process_tree(self_pid, expected):
     assert st._session_mcp_pids(_ROWS, self_pid) == expected
 
 
+_MCP_EDIT = {"ag1": [{"path": r"c:\proj\tools\workflow-guardian-mcp\lib\a.js", "turn_seq": 5}]}   # 本 session 改過工具服務的檔才判
+
+
 @pytest.mark.parametrize("stale, text, blocked", [
     (False, "全部完成了。新工具要生效，請 Reload Window。", True),
     (True, "全部完成了。新工具要生效，請 Reload Window。", False),
@@ -97,7 +100,7 @@ def test_stop_blocks_redundant_reload_advice(driven, capsys, monkeypatch, stale,
     disk = 1_792_045_981_215.0
     loaded = disk - 60_000 if stale else disk
     monkeypatch.setattr(st, "_mcp_load_facts", lambda *a, **k: ([(loaded, time.time() - 30)], disk))
-    out, _, _ = driven(text, capsys)
+    out, _, _ = driven(text, capsys, agent_modified_files=_MCP_EDIT)
     assert ("RELOAD_ADVICE_ALREADY_LOADED" in out) is blocked, out
     if blocked:
         assert "重載原因：" in out
