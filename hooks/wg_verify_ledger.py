@@ -41,7 +41,7 @@ from wg_release_rules import (canon_path, cc_config_dirs, is_session_scratch,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
                               MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking,
-                              parse_claim_dispositions, claim_disposition_verdict, names_item, is_generic_name)
+                              parse_claim_dispositions, claim_disposition_verdict, names_item, is_generic_name, is_claim_line)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -438,12 +438,14 @@ def _third_party_said(head: str) -> bool:
 def _claims(text: str, kind: str, phrases: Optional[Dict[str, Pattern]] = None) -> bool:
     """逐子句判：子句命中 <kind> 詞、同子句無 <kind>_exclude 詞（否定／疑問只取消同子句；轉折詞後另起子句）、
     不是第三方轉述（第三方名詞在子句開頭且宣稱詞前沒有我／本／已）；引號／code span 內容先剝掉（引用閘文字不算宣稱）；
-    宣稱詞後面直接接「的＋名詞」（修好的 X）是形容詞用法，不算（規則 CLAIM_MODIFIER_NOT_OWN），同子句後面另有宣稱照算。"""
+    宣稱詞後面直接接「的＋名詞」（修好的 X）是形容詞用法，不算（規則 CLAIM_MODIFIER_NOT_OWN），同子句後面另有宣稱照算。
+    宣稱行（「宣稱｜修好：…」）是對閘的回答，整行先拿掉（規則 CLAIM_CONDITIONAL_NOT_CLAIM）；講以後的條件句由詞表的 exclude 排除。"""
     if not text:
         return False
     ph = phrases or CLAIM_RES
     pos, neg = ph[kind], ph[f"{kind}_exclude"]
-    for clause in _CLAUSE_SPLIT_RE.split(strip_quoted_spans(text[-3000:])):
+    text = "\n".join(ln for ln in text[-3000:].splitlines() if not is_claim_line(ln))
+    for clause in _CLAUSE_SPLIT_RE.split(strip_quoted_spans(text)):
         clause = clause.strip()
         if neg.search(clause):
             continue
@@ -2135,9 +2137,10 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         return f"（{n}）" if n else ""
 
     hits: List[str] = []          # 每條都是 format_hit 的一行：`✗ (<字母>) <規則名>：<一句現象>｜證據：…`
-    # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 命中且沒證據時，先看 last_text 有沒有宣稱行解掉它（「非本回合宣稱，因為…」放行留帳；
-    # 「收據 <ref>」要對得上本 session 一筆合格收據：CLAIM_RECEIPT_REF_MATCH）；沒有才擋，擋訊息附寫法
-    dispositions = parse_claim_dispositions(last_text)
+    # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 命中且沒證據時，先看被判的同一串文字（承接的先前宣稱＋last_text）有沒有宣稱行解掉它
+    # （「非本回合宣稱，因為…」放行留帳；「收據 <ref>」要對得上本 session 一筆合格收據：CLAIM_RECEIPT_REF_MATCH）；沒有才擋，擋訊息附寫法。
+    # 宣稱從承接的文字來、宣稱行只看最後一則 → 中段寫過的豁免行最後一則沒重寫就再擋一次（第五跑 B5）
+    dispositions = parse_claim_dispositions("\n".join(t for t in (*claims, last_text) if t))
 
     def find_receipt(kind: str, ref: str) -> Optional[str]:
         """宣稱行指的收據（規則 CLAIM_RECEIPT_REF_MATCH）：ref 要指得到那條指令的一個完整 token（names_item：整個 token、檔名、

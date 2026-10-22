@@ -2239,3 +2239,57 @@ def test_005_locate_candidates_without_fixed_labels():
     # codex 005：名稱尾段相同的兩層（資料讀取／設定讀取）是兩層
     assert len(rr.root_candidates("資料讀取層解析錯誤；設定讀取層覆蓋錯誤；先修資料讀取層因為設定沿用其輸出")) == 2
     assert rr.root_candidates("候選 A 邏輯層；候選 B 不存在因為資料層只讀") == [1], "有固定標記就只看標記"
+
+
+# ─── 閘小修 006 ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_006_judge_card_change_needs_declaration():
+    """JUDGE_CARD_CHANGE_NEEDS_DECLARATION（裁定 #53）：綁 Entry 的卡要有點名這張、附理由的宣告；沒綁 Entry 不管。
+    四條出口與留帳的端到端案例在 verify_judge_card_declare.py。"""
+    decls = rr.parse_judge_card_decls("改判準卡｜卡-a：使用者說判準錯了\n改判準卡｜卡-b：<為什麼要改這張量尺>")
+    assert not rr.judge_card_verdict("卡-a", ["E29"], decls).owed
+    v = rr.judge_card_verdict("卡-b", ["E29"], decls)
+    assert v.owed and any("沒附理由" in e for e in v.evidence), v
+    assert rr.judge_card_verdict("卡-c", ["E29"], decls).owed
+    assert not rr.judge_card_verdict("卡-c", [], decls).owed
+    assert "JUDGE_CARD_CHANGE_NEEDS_DECLARATION" in rr.RULES
+
+
+def test_006_inline_flag_before_program():
+    """INLINE_FLAG_BEFORE_PROGRAM：內嵌碼旗標只認直譯器選項位置；Bash 解析的案例在 verify_write_targets.py 的 006 段。"""
+    import wg_core
+    assert wg_core._inline_flag_at("python", ["x.py", "-C", "C:/p"]) == -1
+    assert wg_core._inline_flag_at("python", ["-X", "utf8", "-c", "print(1)"]) == 2
+    assert wg_core._inline_flag_at("pwsh", ["-NoProfile", "-C", "x"]) == 1
+    assert "INLINE_FLAG_BEFORE_PROGRAM" in rr.RULES
+
+
+def test_006_shell_literal_var_expanded():
+    """SHELL_LITERAL_VAR_EXPANDED：同指令字面指定之後的 $S 代換；Bash 解析案例在 verify_write_targets.py 006 段、
+    閘的端到端在 verify_pre_tool_use_overview_gate.py 006 段。"""
+    import wg_core
+    got = wg_core.write_paths_from_tool("Bash", {"command": "S='C:/tmp/sp' && echo x > \"$S/a.py\""}, "C:/w")
+    assert got == [str(Path("C:/tmp/sp/a.py"))], got
+    assert wg_core.write_paths_from_tool("Bash", {"command": "echo x > \"$S/a.py\""}, "C:/w")[0].startswith("UNKNOWN:")
+    assert "SHELL_LITERAL_VAR_EXPANDED" in rr.RULES
+
+
+def test_006_claim_conditional_not_claim():
+    """CLAIM_CONDITIONAL_NOT_CLAIM：條件句與宣稱行不算宣稱；三份詞表與 B5 重播在 verify_verify_ledger.py 的 006 段。"""
+    assert not vl.claims_fixed("追蹤系統裡這件事重複記了 3 筆，修好之後一起結案。")
+    assert not vl.claims_fixed("宣稱｜修好：非本回合宣稱，因為那句是講以後的條件")
+    assert vl.claims_fixed("修好之後重跑了，全綠")
+    assert "CLAIM_CONDITIONAL_NOT_CLAIM" in rr.RULES
+
+
+def test_006_tracking_same_item_not_rewritten(tmp_path, monkeypatch):
+    """TRACKING_SAME_ITEM_NOT_REWRITTEN：同一句不重記；「同追蹤項」對到唯一一筆就換新說法。B5 重播與反例在 verify_pick_one.py 006 段。"""
+    import wg_harvest as wh
+    monkeypatch.setattr(wh, "WORKFLOW_DIR", tmp_path)
+    wh.append_tracking("s006", wh.tracking_entries("sid", 1, "[報表] monthly 用 UTC 切月份"))
+    wh.append_tracking("s006", wh.tracking_entries("sid", 1, "[報表] monthly 用 UTC 切月份"))
+    wh.append_tracking("s006", wh.tracking_entries("sid", 2, "[報表] month_of 改台北時間｜同追蹤項：monthly 用 UTC 切月份"))
+    opens = wh.open_tracking_items(wh.read_tracking("s006"))
+    assert [o["text"] for o in opens] == ["month_of 改台北時間"]
+    assert "TRACKING_SAME_ITEM_NOT_REWRITTEN" in rr.RULES

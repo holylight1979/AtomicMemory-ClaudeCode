@@ -484,7 +484,8 @@ def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位，不會隨部位導讀卡注入）；最舊 3 筆："]
     lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
     lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）；"
-                 "新記的追蹤項可在行尾加「｜建議：<怎麼解>｜該誰解：<誰>」。")
+                 "新記的追蹤項可在行尾加「｜建議：<怎麼解>｜該誰解：<誰>」；跟帳上某一筆是同一件就加「｜同追蹤項：<那筆裡連續至少 8 字>」，"
+                 "系統換成新說法、不另記一筆。")
     return out + ["\n".join(lines)]
 
 

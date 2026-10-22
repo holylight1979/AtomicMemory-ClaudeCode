@@ -336,6 +336,58 @@ def test_r4_python_inline_code_is_unknown():
     assert _bash("python x.py --out a.py") == []                                    # 跑腳本不是內嵌碼
 
 
+def test_006_inline_flag_only_before_the_program():
+    """規則 INLINE_FLAG_BEFORE_PROGRAM（閘小修 006 件 6；005 工作 session 真被擋的指令 `python _vcs_run.py -C <路徑> status`）：
+    程式（腳本、-m 模組）之後的 -C／-c／- 是程式的參數；python／node 分大小寫、帶值選項連值跳過；pwsh 不分大小寫、-File 之後停。"""
+    assert _bash("python _vcs_run.py -C C:/Users/holylight/.claude status --porcelain") == []
+    assert _bash("python tools/report.py -C C:/w4/qc2-orders") == []
+    assert _bash("python x.py -") == [] and _bash("python x.py -c config.ini") == []
+    assert _bash("python -m pytest -c a.ini -q") == []                                  # -m 之後是 pytest 的 -c
+    assert _bash("node b.js -e prod") == [] and _bash("node -C dev b.js") == []
+    assert _bash("pwsh -File a.ps1 -c x") == []
+    assert _unknown("python -X utf8 -c \"open('x','w')\"")                              # 帶值選項跳過後的 -c 照判
+    assert _unknown("python -W ignore -c \"open('x','w')\"")
+    assert _unknown("node -r ./setup.js -e \"fs.writeFileSync('x','1')\"")
+    assert _unknown("pwsh -ExecutionPolicy Bypass -Command \"Set-Content a b\"")
+    assert _unknown("pwsh -NoProfile -C \"Set-Content a b\"")                            # PowerShell 不分大小寫
+
+
+_C5_SCRATCH = "C:\\Users\\HOLYLI~1\\AppData\\Local\\Temp\\claude\\C--w4-qc2-orders\\b9537e60\\scratchpad"
+# 第五跑 C-1 第 4 回合原指令（transcript 22:27:41，被擋 edit_unknown_target）：scratchpad 用變數 S 指定再寫進去
+_C5_CMD = (f"S='{_C5_SCRATCH}' && git show 27a294f:orders/pricing.py > \"$S/old_pricing.py\" && python -c \"import importlib.util, sys; "
+           "spec = importlib.util.spec_from_file_location('old', sys.argv[1]); m = importlib.util.module_from_spec(spec); "
+           "spec.loader.exec_module(m); print(m.subtotal)\" \"$S/old_pricing.py\"; rm \"$S/old_pricing.py\"; git status --short")
+
+
+def test_006_shell_literal_var_expanded():
+    """規則 SHELL_LITERAL_VAR_EXPANDED（閘小修 006 件 5）：同指令獨立一段的字面指定，之後的 $S／${S} 代換再算目標。"""
+    want = _C5_SCRATCH.replace("\\", "/") + "/old_pricing.py"
+    assert _bash(f"S='{_C5_SCRATCH}' && git show HEAD:a.py > \"$S/old_pricing.py\"") == [want]
+    assert _bash(f"S='{_C5_SCRATCH}'; cp a.py ${{S}}/old_pricing.py") == [want]
+    assert _bash(f"export S='{_C5_SCRATCH}'\nrm \"$S/old_pricing.py\"") == [want]
+    assert _bash("OUT=out && echo x > \"$OUT/a.txt\"") == ["C:/Work/Proj/out/a.txt"]          # 相對值照 cwd 補
+    # 反例：判不出的照判不出
+    assert _unknown("echo x > \"$S/a\"")                                                       # 沒指定過
+    assert _unknown(f"S=\"$TMP\" && echo x > \"$S/a\"")                                        # 值不是字面
+    assert _unknown(f"S='{_C5_SCRATCH}' | echo x > \"$S/a\"")                                  # 管線：子 shell
+    assert _unknown(f"(S='{_C5_SCRATCH}') && echo x > \"$S/a\"")                               # 子 shell 不外溢
+    assert _unknown(f"S='{_C5_SCRATCH}' && echo x > '$S/a'")                                   # 單引號裡的 $ 是字面
+    assert _unknown(f"S='{_C5_SCRATCH}' && unset S && echo x > \"$S/a\"")
+    assert _unknown(f"S='{_C5_SCRATCH}' echo x > \"$S/a\"")                                    # 前綴指定：$S 在指定前就展開
+    # codex 006：條件式指定（前面接 &&／||）跑不跑看前一段，不能拿來代換——否則真正寫的舊值目標被算成 scratchpad
+    assert _unknown(f"S=C:/repo/memory; false && S='{_C5_SCRATCH}'; printf x > \"$S/卡.md\"")
+    assert _unknown(f"cd sub || S='{_C5_SCRATCH}'; echo x > \"$S/a\"")
+
+
+def test_006_c5_command_blames_the_inline_code_segment():
+    """C5 原指令修完後：scratchpad 那幾段算得出目標（上一案）；整條仍被擋（python -c 用 importlib 跑檔，INLINE_PY_READONLY 照擋），
+    但判不出的段（有 UNKNOWN 就只回那一筆）與原因都指到 python -c 那段，不再是 git show 那段配上「內嵌碼：importlib」。"""
+    got = write_paths_from_tool("Bash", {"command": _C5_CMD}, CWD)
+    assert len(got) == 1 and got[0].startswith("UNKNOWN:python -c") and "內嵌碼：內嵌碼匯入 importlib" in got[0], got
+    got = write_paths_from_tool("Bash", {"command": "echo x > \"$Q/a\"; python -c \"import shutil\""}, CWD)
+    assert len(got) == 1 and got[0].startswith("UNKNOWN:echo") and "內嵌碼" not in got[0], got
+
+
 def test_004_python_heredoc_and_import_alias_judged_by_ast():
     """第三跑 B-1／B-2：`python - <<'EOF'` 的內文、`import x as y` 取別名都交 ast 判（規則 INLINE_PY_READONLY）：純讀放行；
     寫檔照 UNKNOWN 並帶出 ast 判出的原因；shell 會展開的 heredoc（定界符沒引號又含 $）判不準照擋。"""

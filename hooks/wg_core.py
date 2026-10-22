@@ -1755,6 +1755,10 @@ _INTERPRETERS = {
     "node": ("-e", "--eval", "-p", "--print"), "nodejs": ("-e", "--eval", "-p", "--print"),
     "pwsh": ("-command", "-c", "-encodedcommand", "-e", "-ec"), "powershell": ("-command", "-c", "-encodedcommand", "-e", "-ec"),
 }
+_PY_NAMES = frozenset({"python", "python3", "py", "pythonw"})
+_PY_VALUE_OPTS = frozenset({"-X", "-W", "--check-hash-based-pycs"})     # 帶值的直譯器選項：值不是腳本
+_NODE_VALUE_OPTS = frozenset({"-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions",
+                              "--env-file", "--input-type", "--title"})
 _INLINE_CODE_RE = re.compile(r"\[IO\.File\]::|\bopen\([^)]*['\"][wa]\+?['\"]|fs\.write(?:File|FileSync)\b", re.IGNORECASE)
 _SED_W_RE = re.compile(r"(?:^|[;{\n]\s*|/)w\s+(\S+)")
 _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -1767,11 +1771,12 @@ _HEREDOC_TAG_RE = re.compile(r"^-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 class _Tok:
     """lexer 的一個 token。kind：W（字）／OUT（輸出重導向）／DUP（fd 複製，跳過）／IN（輸入重導向，跳過下一字）／
     SEP（; && || | & 換行）／LP／RP／HD（heredoc 內文，不是指令字；quoted＝定界符加了引號、shell 不展開）。
-    W 的 quoted＝任一部分被引號包過；subst＝字裡 $(…) 與反引號的內文。"""
-    __slots__ = ("kind", "text", "quoted", "subst")
+    W 的 quoted＝任一部分被引號包過；subst＝字裡 $(…) 與反引號的內文；sq_dollar＝單引號裡有 `$`（字面的錢字號，不能代換變數）。"""
+    __slots__ = ("kind", "text", "quoted", "subst", "sq_dollar")
 
-    def __init__(self, kind: str, text: str = "", quoted: bool = False, subst: Optional[List[str]] = None) -> None:
-        self.kind, self.text, self.quoted, self.subst = kind, text, quoted, subst or []
+    def __init__(self, kind: str, text: str = "", quoted: bool = False, subst: Optional[List[str]] = None,
+                 sq_dollar: bool = False) -> None:
+        self.kind, self.text, self.quoted, self.subst, self.sq_dollar = kind, text, quoted, subst or [], sq_dollar
 
 
 def _lex_shell(cmd: str) -> List[_Tok]:
@@ -1779,17 +1784,17 @@ def _lex_shell(cmd: str) -> List[_Tok]:
     cmd = cmd.replace("\\\n", " ")
     toks: List[_Tok] = []
     buf: List[str] = []
-    quoted = False
+    quoted = sq_dollar = False
     subst: List[str] = []
     pending_heredocs: List[str] = []
     depth = 0
     i, n = 0, len(cmd)
 
     def flush() -> None:
-        nonlocal buf, quoted, subst
+        nonlocal buf, quoted, subst, sq_dollar
         if buf or quoted:
-            toks.append(_Tok("W", "".join(buf), quoted, subst))
-        buf, quoted, subst = [], False, []
+            toks.append(_Tok("W", "".join(buf), quoted, subst, sq_dollar))
+        buf, quoted, subst, sq_dollar = [], False, [], False
 
     def read_subst(start: int, open_ch: str, close_ch: str) -> int:
         """從 start（指在 $( 的 ( 或反引號後）讀到配對結束，回結束位置（含結尾字元）。"""
@@ -1814,6 +1819,7 @@ def _lex_shell(cmd: str) -> List[_Tok]:
             j = n if j < 0 else j
             buf.append(cmd[i + 1:j])
             quoted = True
+            sq_dollar = sq_dollar or "$" in cmd[i + 1:j]
             i = j + 1
             continue
         if c == '"':
@@ -1987,8 +1993,8 @@ def _lex_shell(cmd: str) -> List[_Tok]:
 
 class _Scan:
     """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）、
-    sources（cp／mv 家族：目標 → 它的來源絕對路徑）。"""
-    __slots__ = ("targets", "signal", "unknown", "ps", "sources", "why")
+    sources（cp／mv 家族：目標 → 它的來源絕對路徑）、vars（這條指令裡指定過的字面變數）。"""
+    __slots__ = ("targets", "signal", "unknown", "ps", "sources", "why", "vars")
 
     def __init__(self, ps: bool = False) -> None:
         self.targets: List[str] = []
@@ -1997,6 +2003,7 @@ class _Scan:
         self.why = ""                       # 內嵌碼被 ast 判成可能寫檔的原因（擋訊息帶出來，不叫人亂改寫法）
         self.ps = ps                        # PowerShell 工具：寫檔 cmdlet 的別名才生效（Bash 下 sc 是 sc.exe，不是 Set-Content）
         self.sources: Dict[str, List[str]] = {}
+        self.vars: Dict[str, str] = {}       # 規則 SHELL_LITERAL_VAR_EXPANDED：`S='字面' &&` 之後的 $S／${S} 代換成字面
 
 
 def _write_target_abs(tok: str, cwd: Optional[str]) -> Optional[str]:
@@ -2117,7 +2124,9 @@ def _scan_tokens(toks: List[_Tok], cwd: Optional[str], out: _Scan) -> Optional[s
             while j < len(toks) and lvl:
                 lvl += {"LP": 1, "RP": -1}.get(toks[j].kind, 0)
                 j += 1
+            saved = dict(out.vars)                       # 子 shell 裡的指定不外溢
             _scan_tokens(toks[i + 1:j - 1], cwd, out)
+            out.vars = saved
             i = j
             continue
         if t.kind == "SEP":
@@ -2130,21 +2139,77 @@ def _scan_tokens(toks: List[_Tok], cwd: Optional[str], out: _Scan) -> Optional[s
     return _scan_segment(seg, cwd, prev_sep, "", out)
 
 
+_VAR_REF_RE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+_VAR_SURE_BEFORE = frozenset({"", ";", "\n", "&"})          # 前面接這些：這段一定會跑
+_VAR_STAYS_AFTER = frozenset({"", ";", "\n", "&&", "||"})    # 後面接這些：在目前的 shell 跑（不是管線、不是背景）
+
+
+def _remember_vars(words: List[_Tok], prev_sep: str, next_sep: str, out: _Scan, unset: bool = False) -> None:
+    """規則 SHELL_LITERAL_VAR_EXPANDED 的記帳：獨立一段的 `NAME=值`（或 export／unset）一定會跑、而且在目前的 shell 生效才記；
+    前面接 &&／||（跑不跑看前一段成敗）、在管線或背景裡的，把舊值拿掉（之後照判不出，寧可多擋）：
+    `false && S=/scratchpad; printf x > "$S/卡.md"` 實際寫的是舊的 S。值是字面（沒有 $、反引號、$(…)）才記。
+    PowerShell 的變數語法不同，不記。"""
+    if out.ps:
+        return
+    keep = prev_sep in _VAR_SURE_BEFORE and next_sep in _VAR_STAYS_AFTER
+    for w in words:
+        name, eq, val = w.text.partition("=")
+        if not name.isidentifier():
+            continue
+        if keep and eq and not unset and not (w.subst or "$" in val or "`" in val):
+            out.vars[name] = val
+        else:
+            out.vars.pop(name, None)
+
+
+def _expand_vars(t: _Tok, values: Dict[str, str]) -> _Tok:
+    """這條指令前面指定過的字面變數代換進字裡（$S、${S}）；沒指定過的照留（之後判不出）；單引號裡的 $ 是字面、不代換。"""
+    if t.sq_dollar or "$" not in t.text:
+        return t
+    text = _VAR_REF_RE.sub(lambda m: values.get(m.group(1) or m.group(2), m.group(0)), t.text)
+    return t if text == t.text else _Tok("W", text, t.quoted, t.subst)
+
+
 def _mark_unknown(out: _Scan, seg: List[_Tok]) -> None:
     out.signal = True
     if out.unknown is None:
         out.unknown = " ".join(t.text for t in seg if t.text and t.kind != "HD")
 
 
-def _inline_python_code(args: List[str], lows: List[str], seg: List[_Tok]) -> str:
-    """python -c 的程式字串；`python -`（從 stdin 讀程式）取同一段 heredoc 的內文——只有一份 heredoc、沒有別的輸入重導向
-    （多份時 stdin 是最後那份、`<` 也會換掉它），而且定界符加了引號或內文沒有 $／反引號（否則 shell 會先展開）才算得準。
-    都不是回空字串（判不了）。"""
-    if "-c" in lows:
-        k = lows.index("-c") + 1
-        return args[k] if k < len(args) else ""
+def _inline_flag_at(name: str, args: List[str]) -> int:
+    """規則 INLINE_FLAG_BEFORE_PROGRAM：內嵌碼旗標（python -c／-、node -e／-p、pwsh -Command／-c／-e）只認直譯器自己的選項位置——
+    程式（腳本、-m 模組、pwsh 的 -File）之後的參數是程式的，`python x.py -C <路徑>` 的 -C 不是 python -c。
+    python／node 的選項分大小寫（node -C 是條件旗標）、帶值的選項連值一起跳過；PowerShell 參數本來就不分大小寫、遇到 -File 才停。
+    回旗標在 args 的位置，沒有回 -1。"""
+    flags = _INTERPRETERS[name]
+    if name in ("pwsh", "powershell"):
+        for i, a in enumerate(args):
+            low = a.lower()
+            if low in ("-file", "-f"):
+                return -1
+            if low in flags:
+                return i
+        return -1
+    valued = _PY_VALUE_OPTS if name in _PY_NAMES else _NODE_VALUE_OPTS
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in flags:
+            return i
+        if a in ("-m", "--") or not a.startswith("-"):
+            return -1
+        i += 2 if a in valued else 1
+    return -1
+
+
+def _inline_python_code(args: List[str], at: int, seg: List[_Tok]) -> str:
+    """python -c 的程式字串（at＝_inline_flag_at 找到的旗標位置）；`python -`（從 stdin 讀程式）取同一段 heredoc 的內文——
+    只有一份 heredoc、沒有別的輸入重導向（多份時 stdin 是最後那份、`<` 也會換掉它），而且定界符加了引號或內文沒有 $／反引號
+    （否則 shell 會先展開）才算得準。都不是回空字串（判不了）。"""
+    if args[at] == "-c":
+        return args[at + 1] if at + 1 < len(args) else ""
     hds = [t for t in seg if t.kind == "HD"]
-    if ("-" in lows and len(hds) == 1 and not any(t.kind == "IN" for t in seg)
+    if (args[at] == "-" and len(hds) == 1 and not any(t.kind == "IN" for t in seg)
             and (hds[0].quoted or not re.search(r"[$`]", hds[0].text))):
         return hds[0].text
     return ""
@@ -2291,6 +2356,8 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     """一個子段：先收重導向目標，再看第一個命令字是不是寫檔命令／直譯器／eval／cd。回之後的 cwd。"""
     if not seg:
         return cwd
+    if out.vars:
+        seg = [_expand_vars(t, out.vars) if t.kind == "W" else t for t in seg]
     words: List[_Tok] = []
     i = 0
     while i < len(seg):
@@ -2323,6 +2390,10 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     while k < len(words) and (_ENV_ASSIGN_RE.match(words[k].text) or words[k].text.lower() in _WRAPPERS):
         k += 1
     if k >= len(words):
+        _remember_vars(words, prev_sep, next_sep, out)     # 整段只有指定：之後的段看得到（指令前綴的指定不算）
+        return cwd
+    if words[k].text in ("export", "unset"):
+        _remember_vars(words[k + 1:], prev_sep, next_sep, out, unset=words[k].text == "unset")
         return cwd
     name = words[k].text.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
     if name.endswith(".exe"):
@@ -2330,17 +2401,18 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     if out.ps:
         name = _PS_WRITE_ALIASES.get(name, name)
     args = [w.text for w in words[k + 1:]]
-    lows = [a.lower() for a in args]
-    if name in _INTERPRETERS and any(a in _INTERPRETERS[name] for a in lows):
+    at = _inline_flag_at(name, args) if name in _INTERPRETERS else -1
+    if at >= 0:
         # 規則 INLINE_PY_READONLY：python -c 的程式碼、`python -` 從 heredoc 讀的程式用 ast 靜態判只讀 → 沒有寫入訊號；
         # 判出可能寫檔的原因記在 out.why（擋訊息帶出）；其他直譯器內嵌碼（node -e、pwsh -Command）判不了照 UNKNOWN
-        code = _inline_python_code(args, lows, seg) if name in ("python", "python3", "py", "pythonw") else ""
+        code = _inline_python_code(args, at, seg) if name in _PY_NAMES else ""
         if code:
             from wg_release_rules import inline_python_verdict
             v = inline_python_verdict(code)
             if not v.owed:
                 return cwd
-            out.why = out.why or v.why
+            if out.unknown is None:                      # 原因只跟著它自己那段：前面已有判不出的段，原因不能黏過去
+                out.why = v.why
         _mark_unknown(out, seg)
         return cwd
     if name == "eval":

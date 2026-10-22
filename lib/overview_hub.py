@@ -828,6 +828,69 @@ def _ps_read_args(cmdlet: str, args: str) -> List[str]:
     return out
 
 
+_GLOB_CHARS = frozenset("*?[")
+# for V in 清單 ; do 本體 ; done（清單與 do、本體與 done 之間可以是 ; 或換行）
+_BASH_FOR_RE = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b(.*?)(?:;|\n)\s*done\b", re.DOTALL)
+
+
+def _bash_read_paths(text: str, cwd: str) -> List[str]:
+    """一段 Bash 文字裡每個讀檔指令的路徑參數（相對路徑補 cwd）：$ 開頭的不收；glob 照 cwd 展開成實檔；
+    沒斜線的 token 只有 cwd 下真有這個檔才收（數字、樣式、指令名不算路徑）。"""
+    out: List[str] = []
+    for m in _BASH_READ_RE.finditer(text):
+        rest = text[m.end():]
+        end = _BASH_SEG_END_RE.search(rest)
+        for tok in _bash_read_args(m.group(1).split()[0], rest[:end.start()] if end else rest):
+            if not tok or tok.startswith("$"):
+                continue
+            if _GLOB_CHARS & set(tok) and not _quoted_in(tok, rest):     # 加了引號的 glob bash 不展開，照字面（不是實檔就不算）
+                out.extend(_bash_glob(tok, cwd))
+                continue
+            if not _is_path_token(tok) and not (cwd and (Path(cwd) / tok).is_file()):
+                continue
+            out.append(tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok))
+    return out
+
+
+def _bash_glob(tok: str, cwd: str) -> List[str]:
+    """Bash 的 glob 照 cwd 展開成實檔（排序、去目錄）；展不出東西回空——bash 會原樣傳字面，那不是讀到的檔。"""
+    import glob as _glob
+    pattern = tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok)
+    return [p for p in sorted(_glob.glob(pattern)) if os.path.isfile(p)]
+
+
+_BASH_LOOP_EXIT_RE = re.compile(r"\b(?:break|continue|exit|return)\b")
+
+
+def _quoted_in(tok: str, text: str) -> bool:
+    """tok 在 text 裡是用引號包著寫的（'…' 或 "…"）。"""
+    return bool(re.search(r"(['\"])" + re.escape(tok) + r"\1", text))
+
+
+def _bash_for_bodies(command: str, cwd: str) -> List[str]:
+    """規則 BASH_READONLY_COUNTS_AS_READ 的迴圈展開：清單每一項都是字面（沒加引號的 glob 照 cwd 展開，加了引號的照字面）時，
+    本體裡的 $V／${V}／"$V" 換成每一項（單引號包住）各產一份，交給同一套讀檔指令解析。清單含 $、反引號、$(…)，
+    或本體有 break／continue／exit／return（後面的讀檔指令不一定跑）的迴圈不展開。"""
+    out: List[str] = []
+    for m in _BASH_FOR_RE.finditer(command):
+        var, items, body = m.group(1), m.group(2), m.group(3).strip()
+        if "$" in items or "`" in items or _BASH_LOOP_EXIT_RE.search(body):
+            continue
+        try:
+            toks = shlex.split(items, posix=False)                     # 保留引號：分得出加了引號的 glob
+        except ValueError:
+            continue
+        values: List[str] = []
+        for t in toks:
+            if t[:1] in "'\"" and t[-1:] == t[:1] and len(t) >= 2:
+                values.append(t[1:-1])
+            else:
+                values.extend(_bash_glob(t, cwd) if _GLOB_CHARS & set(t) else [t])
+        ref = re.compile(r'"?\$(?:\{' + var + r'\}|' + var + r'\b)"?')
+        out.extend(ref.sub(lambda _m, v=v: f"'{v}'", body) for v in values if "'" not in v)
+    return out
+
+
 def _bash_read_args(cmd: str, rest: str) -> List[str]:
     """一段 Bash 讀檔指令的路徑參數（原樣 token、引號已剝）：旗標、重導向與其目標不算；grep 只在帶 -n（行號）時算讀檔，
     第一個非旗標參數是樣式不算；git show 的 `<rev>:` 前綴剝掉。"""
@@ -868,15 +931,8 @@ def read_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: str) -
     command = tool_input.get("command", "") or ""
     out: List[str] = []
     if tool_name == "Bash":
-        for m in _BASH_READ_RE.finditer(command):
-            rest = command[m.end():]
-            end = _BASH_SEG_END_RE.search(rest)
-            for tok in _bash_read_args(m.group(1).split()[0], rest[:end.start()] if end else rest):
-                if not tok or tok.startswith("$"):
-                    continue
-                if not _is_path_token(tok) and not (cwd and (Path(cwd) / tok).is_file()):
-                    continue
-                out.append(tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok))
+        for text in [command, *_bash_for_bodies(command, cwd)]:
+            out.extend(_bash_read_paths(text, cwd))
         return out
     if tool_name != "PowerShell":
         return []

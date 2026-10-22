@@ -294,6 +294,43 @@ def test_claim_detection_with_fixture_phrases(phrases, text, fixed, measured, tr
     assert vl.claims_tried(text, phrases) is tried
 
 
+_B5 = json.loads((FIX.parents[1] / "gate006" / "b5_conditional_claim_texts.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("text,fixed,measured,tried", [
+    ("追蹤系統裡這件事重複記了 3 筆，修好之後一起結案。", False, False, False),   # 第五跑 B5 原句
+    ("如果修好就結案", False, False, False),
+    ("等修好再一起結案", False, False, False),
+    ("一旦修正完成就通知財務", False, False, False),
+    ("量完之後再決定門檻", False, False, False),
+    ("跑過之後再看要不要改", False, False, False),
+    ("修好之後重跑了，全綠", True, False, True),           # 反例：之後的動作已經發生（了）→ 照算
+    ("已修好，之後再補文件", True, False, False),          # 反例：修好那個子句是宣稱
+    ("修好若干問題", True, False, False),                   # 反例：若干不是條件
+    ("如果修好甲就結案而乙已修好了", True, False, False),   # codex 006：條件句與真宣稱同一句，「而」另起子句，後半照算
+    ("宣稱｜修好：非本回合宣稱，因為那句是「修好之後一起結案」", False, False, False),   # 宣稱行是對閘的回答
+])
+def test_006_claim_conditional_not_claim(phrases, text, fixed, measured, tried):
+    """規則 CLAIM_CONDITIONAL_NOT_CLAIM（閘小修 006 件 2）：講以後的條件句、宣稱行本身不算宣稱；正式詞表、測試詞表、備用表三份一致。"""
+    for ph in (phrases, ev.compile_claim_phrases(HOOKS_DIR.parent / "memory" / "_meta" / "forbidden-phrases.json"), ev.compile_claim_phrases(FIX / "missing.json")):
+        assert (vl.claims_fixed(text, ph), vl.claims_measured(text, ph), vl.claims_tried(text, ph)) == (fixed, measured, tried)
+
+
+def _b5_hits(last_text, claims=()):
+    res = vl.reconcile_gate_parts(last_text, [], 1, [], [], vl.reconcile_cfg({}), claims=claims)
+    return json.dumps(res, ensure_ascii=False, default=str)
+
+
+def test_006_b5_conditional_and_carried_disclaim_replay():
+    """第五跑 B5 B-2 兩次擋的重播（fixtures/gate006/b5_conditional_claim_texts.json）：第一次只有條件句 → 不擋；
+    第二次承接的那則帶豁免行、最後一則沒重寫 → 不擋（宣稱行不算宣稱、豁免行從被判的整串找）。反例：自己說修好照擋。"""
+    assert "修好之後一起結案" in _B5["t69"] and vl.claims_completion(_B5["t79"])        # 前置：真的有那句、承接文字會被判
+    assert "CLAIM_FIXED_NEEDS_PASS" not in _b5_hits(_B5["t69"])
+    assert "CLAIM_FIXED_NEEDS_PASS" not in _b5_hits(_B5["t84"], claims=(_B5["t79"],))
+    assert "CLAIM_FIXED_NEEDS_PASS" in _b5_hits("monthly 的月份我修好了，這件結案。")
+    assert "CLAIM_FIXED_NEEDS_PASS" in _b5_hits(_B5["t84"], claims=("monthly 的月份我修好了，這件結案。",))
+
+
 def test_default_claim_phrases_fallback_present():
     assert set(ev.CLAIM_RES) >= {"fixed", "fixed_exclude", "measured", "measured_exclude", "tried", "tried_exclude"}
     assert vl.claims_fixed("已修復")
