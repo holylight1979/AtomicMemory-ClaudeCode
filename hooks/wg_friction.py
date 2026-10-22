@@ -13,8 +13,11 @@
 
 2. 使用者糾正（UserPromptSubmit → Stop）
    - 比對糾正／改口關鍵字（是「你做錯方向」的話，不是 bug／測試失敗的話——那組在
-     response_capture.failure_extraction）。命中 → state["user_correction_count"] +1、
-     明細 cap 10、`Logs/guard-friction.jsonl`。
+     response_capture.failure_extraction）。詞表只是提示（規則 CORRECTION_WORDS_ARE_HINTS）：
+     命中 → 記成待判（state["user_correction_pending"]）、UPS 問 AI 一句（correction_question）；
+     Stop 收本回合的「糾正｜是／不是：<理由>」（resolve_correction）：是 → 計數 +1，不是 → 不計；
+     到下一則使用者本人打的訊息還沒回 → 不計、記成沒回（settle_pending_correction；詞表不替 AI 判）。
+     計數明細 cap 10，每一步都記 `Logs/guard-friction.jsonl`（event candidate／judged／undeclared）。
    - 達 `min_hits` → Stop 的 Deep Post-Mortem 視為 effort 與真失敗同時成立。
 
 config：workflow/config.json `tool_result_waste` / `friction`。
@@ -225,24 +228,83 @@ def detect_correction(prompt: str, config: Dict[str, Any]) -> List[str]:
     return [kw for kw in keywords if _kw_match(kw.lower(), text)]
 
 
+CORRECTION_LABEL = "糾正"
+CORRECTION_MARKER = "[Guardian:Correction]"
+
+
+def _count_correction(state: Dict[str, Any], session_id: str, pending: Dict[str, Any], event: str, reason: str = "") -> None:
+    """計一次糾正（AI 判是）：計數 +1、明細 cap 10、guard log。"""
+    state["user_correction_count"] = int(state.get("user_correction_count", 0) or 0) + 1
+    hits = state.setdefault("user_correction_hits", [])
+    hits.append({"turn": pending.get("turn"), "kw": pending.get("kw", []), "excerpt": pending.get("excerpt", ""),
+                 "at": pending.get("at", _now_iso()), "by": event})
+    if len(hits) > _HITS_CAP:
+        state["user_correction_hits"] = hits[-_HITS_CAP:]
+    append_guard_log("friction", {
+        "session_id": session_id, "turn_seq": pending.get("turn"), "event": event, "correction": True,
+        "kw": pending.get("kw", []), "count": state["user_correction_count"], "excerpt": pending.get("excerpt", ""),
+        "reason": reason,
+    })
+
+
+def settle_pending_correction(state: Dict[str, Any], session_id: str) -> None:
+    """上一次命中到現在 AI 都沒回糾正行 → 沒人判過，不計（詞表不替 AI 判；規則 CORRECTION_WORDS_ARE_HINTS），
+    留帳 undeclared 給健檢抽查沒回的比例。"""
+    pending = state.pop("user_correction_pending", None)
+    if isinstance(pending, dict):
+        append_guard_log("friction", {
+            "session_id": session_id, "turn_seq": pending.get("turn"), "event": "undeclared",
+            "kw": pending.get("kw", []), "excerpt": pending.get("excerpt", ""),
+        })
+
+
 def record_correction(
     state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any],
 ) -> List[str]:
-    """UserPromptSubmit：命中 → 計數 +1、明細 cap 10、guard log。回命中清單。"""
+    """UserPromptSubmit：使用者本人打的訊息先結上一次沒回的待判（不計、留帳 undeclared）；這則命中 → 記成待判、留帳 candidate，
+    不計數（等 AI 回糾正行，見 resolve_correction）。回命中清單。"""
+    from wg_core import user_typed_text
+    if user_typed_text(prompt or ""):        # 背景通知、同伴訊息不算使用者開新回合，不結帳
+        settle_pending_correction(state, session_id)
     matched = detect_correction(prompt, config)
     if not matched:
         return []
     turn = int(state.get("turn_seq", 0) or 0)
-    state["user_correction_count"] = int(state.get("user_correction_count", 0) or 0) + 1
-    hits = state.setdefault("user_correction_hits", [])
-    hits.append({"turn": turn, "kw": matched[:3], "excerpt": prompt.strip().replace("\n", " ")[:80], "at": _now_iso()})
-    if len(hits) > _HITS_CAP:
-        state["user_correction_hits"] = hits[-_HITS_CAP:]
+    excerpt = prompt.strip().replace("\n", " ")[:80]
+    state["user_correction_pending"] = {"turn": turn, "kw": matched[:3], "excerpt": excerpt, "at": _now_iso()}
     append_guard_log("friction", {
-        "session_id": session_id, "turn_seq": turn, "kw": matched[:3],
-        "count": state["user_correction_count"], "excerpt": prompt.strip()[:120],
+        "session_id": session_id, "turn_seq": turn, "event": "candidate", "kw": matched[:3], "excerpt": prompt.strip()[:120],
     })
     return matched
+
+
+def correction_question(matched: List[str]) -> str:
+    """UPS 問 AI 的那一句（切入點登錄表靠 CORRECTION_MARKER 認）。"""
+    return (f"{CORRECTION_MARKER} 使用者這句命中糾正詞「{'、'.join(matched[:3])}」（詞表只是提示，規則 CORRECTION_WORDS_ARE_HINTS）："
+            f"他是在糾正你的方向或做法嗎？在這回合的回覆裡寫一行「{CORRECTION_LABEL}｜是：<理由>」或「{CORRECTION_LABEL}｜不是：<理由>」"
+            "（是 → 計一次糾正，累積到門檻會要求深度檢討；不是 → 不計；沒寫 → 不計但記成沒回，健檢會抽查）。")
+
+
+def resolve_correction(state: Dict[str, Any], session_id: str, text: str) -> Optional[bool]:
+    """Stop：有待判、本回合文字有理由有填的糾正行 → 是：計一次；不是：不計、留帳 judged＋理由；清掉待判。
+    回 True／False＝AI 判是／不是；None＝沒有待判或還沒回（留到下一則使用者訊息結成沒回、不計）。"""
+    pending = state.get("user_correction_pending")
+    if not isinstance(pending, dict):
+        return None
+    import wg_release_rules as rr
+    decl = rr.yes_no_declaration(text, CORRECTION_LABEL)
+    if decl is None:
+        return None
+    state.pop("user_correction_pending", None)
+    v = rr.correction_verdict(decl)
+    if v.owed:
+        _count_correction(state, session_id, pending, "judged", decl["reason"])
+    else:
+        append_guard_log("friction", {
+            "session_id": session_id, "turn_seq": pending.get("turn"), "event": "judged", "correction": False,
+            "kw": pending.get("kw", []), "excerpt": pending.get("excerpt", ""), "reason": decl["reason"],
+        })
+    return bool(v.owed)
 
 
 def friction_triggered(state: Dict[str, Any], config: Dict[str, Any]) -> bool:

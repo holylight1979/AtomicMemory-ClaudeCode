@@ -28,6 +28,45 @@ def test_044_every_rule_has_a_case():
     assert not missing, missing
 
 
+# ─── G6 階段 5：其餘固定規則改交 AI 判（純函式；端到端案在 verify_g6_rules_to_llm.py） ─────────────
+
+def test_g6_correction_and_veto_declarations():
+    """CORRECTION_WORDS_ARE_HINTS／EXTRACT_VETO_NEEDS_JUDGMENT：宣告行只認行首、最後一條為準、佔位不算；沒回不計（owed＝計一次）。"""
+    assert "EXTRACT_VETO_NEEDS_JUDGMENT" in rr.RULES
+    assert rr.correction_verdict(None).owed is False                                     # 沒回：詞表不替 AI 判
+    yes = rr.yes_no_declaration("- 糾正｜是：他指出我改錯檔", "糾正")
+    assert rr.correction_verdict(yes).owed is True and rr.correction_verdict(yes).rule == "CORRECTION_WORDS_ARE_HINTS"
+    assert rr.yes_no_declaration("不要寫『糾正｜是：x』\n糾正｜不是：在問進度", "糾正")["yes"] is False
+    assert rr.yes_no_declaration("否決記憶｜是：<理由>", "否決記憶") is None
+
+
+def test_g6_harvest_waiver_itemized():
+    """HARVEST_WAIVER_ITEMIZED：整件要事項就是「收割」、引用要在原話；待補要事項等於卡名，泛稱對不到。"""
+    assert rr.item_waiver("不做｜收割：使用者說「先這樣」", ["先這樣"], ("收割",))
+    assert rr.item_waiver("不做｜收割規則卡：使用者說「先這樣」", ["先這樣"], ("收割",)) is None
+    assert rr.item_waiver("不做｜收割：使用者說「先這樣」", ["繼續"], ("收割",)) is None
+    kept, got = rr.waived_pending(["card-a: x", "card-ab: y"], "不做｜card-a：使用者說「先這樣」", ["先這樣"])
+    assert kept == ["card-ab: y"] and len(got) == 1
+
+
+def test_g6_conflict_declared_by_ai():
+    """CONFLICT_DECLARED_BY_AI：每個候選一條、why 有理由、同候選不得兩種判法、不在候選退回。"""
+    v, got = rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "not_conflict", "why": "範圍不同"}])
+    assert v.rule == "CONFLICT_DECLARED_BY_AI" and not v.owed and got[0]["verdict"] == "not_conflict"
+    assert rr.conflict_declaration_verdict(["a"], [])[0].owed
+    assert rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x 理由"},
+                                                   {"of": "a", "verdict": "not_conflict", "why": "y 理由"}])[0].owed
+    assert "不在候選" in rr.conflict_declaration_verdict(["a"], [{"of": "a", "verdict": "conflict", "why": "x"},
+                                                                {"of": "b", "verdict": "conflict", "why": "y"}])[0].why
+
+
+def test_g6_project_literal_reason_present():
+    """PROJECT_LITERAL_IS_HINT：scope_reason 用 reason_present 判有沒有理由（realm_gate.literal_declared）；佔位與空白不算。"""
+    assert "PROJECT_LITERAL_IS_HINT" in rr.RULES
+    assert rr.reason_present("在講這個詞本身，跨專案都適用")
+    assert not rr.reason_present("<一句：為什麼是跨專案的>") and not rr.reason_present("  ")
+
+
 # ─── RECONCILE_BLOCK_LETTERS／CLOSING_RITUAL_SWITCHES（收尾瘦身） ─────────────────────────────
 
 def test_reconcile_block_letters_splits_by_letter():

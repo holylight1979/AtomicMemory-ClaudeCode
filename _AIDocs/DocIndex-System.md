@@ -206,7 +206,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - atom_io_cli.py — thin CLI bridge（stdin JSON → write_* → stdout WriteResult）給 MCP server.js spawn；action `realm_check` 供 atom_write 對 scope=global 先問 realm 閘；`check_supersedes`（可解析／非自指／無循環／非核心保護）、`retire`（locate → `memory-audit.delete_atom(project_dir)`，extra 帶 receipt 欄位）、`search`（唯讀查記憶 → `lib/memory_search`）
 - provenance.py — 來源讀寫共用：sanitize_quote／format_source_session／parse_source／find_transcript／last_human_record／resolve_context／atom_source
 - memory_search.py — 讀取端 `search()`（候選池 → trigger/BM25/vector → RRF，`schema_version=1`；MCP `memory_search`／cli `search`／`tools/memory-search.py` 三入口共用；`default_identity` 取現用身份）
-- realm_gate.py — 「專案專屬內容不得落 global」realm 閘：`project_terms(root)` 機械化推導專名（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號}）+ 專案絕對路徑 + 「此專案」字面＋本機已登記專案名與專案路徑（`known_project_names`／`known_project_roots`，讀 registry，不寫死任何專案名）；`check_global_write` 命中即拒並附去專案化原則與落點；cwd∈~/.claude 或無 cwd 時只掃已登記專案名；`anonymize_projects` 給根層卡片自動 Quote 去專案化
+- realm_gate.py — 「專案專屬內容不得落 global」realm 閘：`project_terms(root)` 機械化推導專名（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號}）+ 專案絕對路徑 + 「此專案」字面＋本機已登記專案名與專案路徑（`known_project_names`／`known_project_roots`，讀 registry，不寫死任何專案名）；`check_global_write` 命中即拒並附去專案化原則與落點；命中的只有字面「此專案」這類字樣時，AI 帶 `scope_reason` 照寫並留帳（規則 PROJECT_LITERAL_IS_HINT，org 同一條）；cwd∈~/.claude 或無 cwd 時只掃已登記專案名；`anonymize_projects` 給根層卡片自動 Quote 去專案化
 - atom_index_json.py — `_atom_index.json` JSON SoT API（load / save / upsert / delete / regenerate_md / migrate / validate）
 - vcs_ignore.py — 專案記憶庫衍生檔退出版控：`ensure_ignore`（svn:ignore 併入／`{mem}/.gitignore` 補行）、`tracked_derived`（已版控偵測）、`advisory_lines`（SessionStart 一次性告警＋marker）、`derived_exit_hint`（IndexConflict 共用措辭）；`python -m lib.vcs_ignore <mem>` 唯讀報告
 - ollama_extract_core.py — 萃取共用核心 + SessionBudgetTracker（240 tok/session, CJK-aware）
@@ -220,7 +220,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - check-bypass.py — 靜態掃描 funnel 繞過（WHITELIST 外 `write_text` / `open(w)` / `fs.writeFileSync` 命中 memory 路徑 → CI exit 1）
 - audit-reconcile.py — 動態對拍（mtime × audit log entries），三分類（counter_only / knowledge / unknown）
 - memory-write-gate.py — 寫入閘門（6 規則 + 0.80 dedup；pitfall 捷徑僅豁免品質分、不豁免 dedup）
-- memory-conflict-detector.py — 向量衝突 + LLM 分類（mode ∈ {full-scan / write-check / pull-audit}）；裁決優先序＝證據等級（實證>引述>推測>未標）→ recency + fast-refute 快速否證通道（新側實證 vs 舊側 [固]/[觀] 置頂）
+- memory-conflict-detector.py — 向量衝突 + LLM 分類（mode ∈ {full-scan / write-check / pull-audit}）；write-check 的本地標籤與 0.85 門檻只篩候選，是不是衝突由 AI 帶 `--declared` 宣告（規則 CONFLICT_DECLARED_BY_AI，沒宣告回 need_declaration）；pull-audit 本地模型沒判出標 candidate；裁決優先序＝證據等級（實證>引述>推測>未標）→ recency + fast-refute 快速否證通道（新側實證 vs 舊側 [固]/[觀] 置頂）
 - conflict-review.py — Pending Queue 後端（list / approve / reject；`is_management`＝config `review.deciders`，空＝全員，拒絕時 hint 指向 config）
 - atom-move.py — 跨層原子搬遷工具（mv + 更新 Scope + 同步索引 + 處理 inbound refs）
 - sync-atom-index.py — atom frontmatter Trigger ↔ `_atom_index.json` 一致性同步

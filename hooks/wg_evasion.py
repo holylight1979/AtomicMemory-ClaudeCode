@@ -501,6 +501,20 @@ def is_core_file(path: str) -> bool:
     return False
 
 
+CLOSING_CHECK_ITEM = "收尾檢核"
+
+
+def closing_check_waiver(text: str, recent_user_prompts: List[str]) -> Optional[Dict[str, str]]:
+    """收尾文字裡引用到近 3 則使用者原話的「不做｜收尾檢核：使用者說「…」」（規則 HARVEST_WAIVER_ITEMIZED）；沒有回 None。"""
+    from wg_release_rules import item_waiver
+    return item_waiver(text or "", user_typed_prompts(recent_user_prompts)[-3:], (CLOSING_CHECK_ITEM,))
+
+
+def dismissed_recently(recent_user_prompts: List[str]) -> bool:
+    """近 3 則使用者原話有 dismiss 詞：只決定擋訊息附不附豁免寫法，不放行。"""
+    return any(_DISMISS_RE.search(p or "") for p in user_typed_prompts(recent_user_prompts)[-3:])
+
+
 def _completion_gate_applies(
     text: str,
     modified_files: List[Dict[str, Any]],
@@ -517,19 +531,22 @@ def _completion_gate_applies(
     達門檻條件（全部成立）：
       1. text 含完成宣告詞（claims_completion）
       2. modified_files 觸及 core 檔，或 unique 檔數 ≥ min_files
-      3. 近 3 則 user prompt 無豁免關鍵字
+      3. text 沒有引用到近 3 則使用者原話的「不做｜收尾檢核：使用者說「…」」（closing_check_waiver；近 3 則有
+         「先這樣／跳過」不再整個放掉收尾檢核，規則 HARVEST_WAIVER_ITEMIZED）
     """
+    return completion_threshold_met(text, modified_files, min_files, claimed) \
+        and closing_check_waiver(text, recent_user_prompts) is None
+
+
+def completion_threshold_met(text: str, modified_files: List[Dict[str, Any]], min_files: int,
+                             claimed: Optional[bool] = None) -> bool:
+    """_completion_gate_applies 的條件 1、2（宣告完成＋動 core 檔或多檔），不看豁免；Stop 用它判豁免那一筆要不要留帳。"""
     if not modified_files or not (claims_completion(text or "") if claimed is None else claimed):
         return False
-    for p in user_typed_prompts(recent_user_prompts)[-3:]:
-        if _DISMISS_RE.search(p or ""):
-            return False
     unique_paths = {(m or {}).get("path", "") for m in modified_files}
     unique_paths.discard("")
     touched_core = any(is_core_file(p) for p in unique_paths)
-    if not touched_core and len(unique_paths) < max(int(min_files), 1):
-        return False
-    return True
+    return touched_core or len(unique_paths) >= max(int(min_files), 1)
 
 
 def detect_missing_scan_report(
@@ -560,7 +577,7 @@ def detect_missing_aec_emission(
     anti_evasion_report」（emitted_this_turn 由 caller 以 turn_seq+session_id 雙鍵判定）。
 
     回 True＝達門檻卻未 emit（block、逼補結構化收尾檢核）。門檻與豁免（core/min_files、
-    dismiss 逃生門）與 scan_report 版共用 _completion_gate_applies，不重演。claimed 見 _completion_gate_applies。
+    引用使用者原話的「不做｜收尾檢核」）與 scan_report 版共用 _completion_gate_applies，不重演。claimed 見 _completion_gate_applies。
     """
     if not _completion_gate_applies(text, modified_files, recent_user_prompts, min_files, claimed):
         return False

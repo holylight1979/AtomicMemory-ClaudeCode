@@ -156,6 +156,29 @@ RULES: Dict[str, str] = {
                                    "（目標檔 links.parts）掛到樹裡還活著的節點；沒交過、掛的節點已放棄或不在樹 → 擋，列"
                                    "「<部位>：<改的檔> 沒掛目標」並指路補交定位四行或 need_goal add 子目標。表外的檔、知識類部位、"
                                    "OverviewHub 在那一層關掉的不算。",
+    # G6 階段 5：其餘固定規則改交 AI 判（字詞表與門檻只篩候選，判斷由 AI 宣告附理由、程式只核對有沒有理由並留帳）
+    "CORRECTION_WORDS_ARE_HINTS": "糾正詞表（wg_friction）只是提示：使用者本人打的字命中時不直接計糾正，記成待判、UserPromptSubmit 問 AI"
+                                  "「他是在糾正你嗎」；AI 在那一回合寫一行「糾正｜是：<理由>」→ 計一次；「糾正｜不是：<理由>」→ 不計"
+                                  "（guard-friction event=judged 留理由）；到下一則使用者本人打的訊息還沒回 → 不計（詞表不替 AI 判）、"
+                                  "留帳 undeclared 給健檢抽查沒回的比例。"
+                                  "理由只查有沒有文字、不是佔位（reason_present），不評充不充分。",
+    "EXTRACT_VETO_NEEDS_JUDGMENT": "決策萃取已寫成卡（confirmed_extractions）之後，使用者下一則含「否／不要記／別記／取消記憶」不再整批丟掉通知："
+                                   "通知照送，另問 AI「這句是不是在否決剛記的那條」；是 → AI 用 atom_retire 撤那張卡並寫"
+                                   "「否決記憶｜是：<理由>」；只是句子裡剛好有這個字（是否、否則）→「否決記憶｜不是：<理由>」；"
+                                   "兩種都留帳（guard-extract_veto event=judged），沒回留 undeclared、不自動撤。",
+    "HARVEST_WAIVER_ITEMIZED": "近 3 則使用者原話有 dismiss 詞（先這樣／跳過…）不再整批放掉收割閘、收割待補與收尾檢核：照擋，擋訊息附寫法；"
+                               "AI 寫「不做｜<哪一件>：使用者說「<原句片段>」」且片段真的在近 3 則使用者原話裡（quote_in_prompts）→ 只豁免那一件："
+                               "收割閘與收尾檢核認事項含「收割」／「收尾檢核」的不做行；收割待補的事項要等於那一筆的卡名"
+                               "（泛稱對不到任何一筆），沒指名的照擋；"
+                               "豁免留帳（guard-harvest_waived）。dismiss 詞只決定擋訊息附不附這個寫法；豁免只看引用對不對得到使用者原話。",
+    "CONFLICT_DECLARED_BY_AI": "寫入時衝突偵測（memory-conflict-detector write-check）的相似度門檻與本地模型標籤只篩候選：判 CONTRADICT（複驗一致）"
+                               "或 EXTEND 且相似度 ≥ 門檻的候選不再自動擋寫或改道待審，atom_write 回「衝突待宣告（這次不寫檔）」列候選；"
+                               "AI 帶 conflict=[{of, verdict: conflict|not_conflict, why}] 重送，每個候選都要宣告、why 要有文字："
+                               "任一 conflict → 照舊落待審報告不寫 shared；全部 not_conflict → 照寫；兩種都留帳（guard-conflict_declared）。"
+                               "拉取稽核本地模型沒判出結果（ERROR）時，相似度高只標候選、不標衝突。",
+    "PROJECT_LITERAL_IS_HINT": "realm 閘（scope=global／org 寫入）的字面「此專案／本專案／這個專案／這專案」只是提示：命中的只有這類字樣時，"
+                               "AI 帶 scope_reason（一句：為什麼這段是跨專案的，例如在講這個詞本身）→ 照寫、留帳（guard-realm_declared）；"
+                               "沒帶 → 照擋並說明可宣告。專案專名、專案路徑、已登記專案名是查得到的事實，照擋、宣告不放。",
 }
 
 
@@ -2305,6 +2328,107 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
     if reason_present(d["reason"], hint_why):
         return Verdict("NOT_DOING_DECLARED", False, f"AI 宣告不做「{d['item'][:60]}」，因為 {d['reason'][:120]}", (d["line"],))
     return Verdict("NOT_DOING_DECLARED", True, "不做行沒附理由（或只有佔位）", (d["line"], not_doing_hint(exception)))
+
+
+def yes_no_declaration(text: str, label: str) -> Optional[Dict[str, Any]]:
+    """AI 回程式問句的宣告行「<label>｜是：<理由>」或「<label>｜不是：<理由>」→ 理由有填（reason_present）的最後一條：
+    {"yes", "reason", "line"}；沒有回 None（理由空、純標點、範本佔位都不算）。只認行首（可帶空白、清單符號、粗體）：
+    句中引用的宣告字樣（「不要寫成『糾正｜是：…』」）是說明不是答覆；寫了好幾條以最後一條為準。
+    CORRECTION_WORDS_ARE_HINTS／EXTRACT_VETO_NEEDS_JUDGMENT 用。"""
+    rx = re.compile(rf"^[\s*\-•]*{re.escape(label)}\s*[｜|]\s*(不是|是)\s*[：:]\s*(.+)")
+    found = None
+    for raw in str(text or "").splitlines():
+        m = rx.match(raw)
+        if m and reason_present(m.group(2)):
+            found = {"yes": m.group(1) == "是", "reason": m.group(2).strip()[:200], "line": raw.strip()[:240]}
+    return found
+
+
+def correction_verdict(decl: Optional[Dict[str, Any]]) -> Verdict:
+    """CORRECTION_WORDS_ARE_HINTS：owed＝計一次糾正，只有 AI 判是才計；沒回不計（詞表不替 AI 判，沒回的比例靠留帳抽查）。"""
+    if decl is None:
+        return Verdict("CORRECTION_WORDS_ARE_HINTS", False, "命中糾正詞，AI 沒回糾正行：不計、記成沒回")
+    if decl["yes"]:
+        return Verdict("CORRECTION_WORDS_ARE_HINTS", True, f"AI 判是糾正：{decl['reason'][:120]}", (decl["line"],))
+    return Verdict("CORRECTION_WORDS_ARE_HINTS", False, f"AI 判不是糾正：{decl['reason'][:120]}", (decl["line"],))
+
+
+CONFLICT_VERDICTS = ("conflict", "not_conflict")
+
+
+def conflict_declarations(declared: Any) -> List[Dict[str, Any]]:
+    """atom_write 的 conflict 參數（一個物件或物件陣列）→ 物件陣列；別的型別回空。"""
+    if isinstance(declared, dict):
+        return [declared]
+    if isinstance(declared, list):
+        return [d for d in declared if isinstance(d, dict)]
+    return []
+
+
+def conflict_declaration_verdict(candidates: Sequence[str], declared: Any) -> Tuple[Verdict, List[Dict[str, str]]]:
+    """CONFLICT_DECLARED_BY_AI：candidates＝門檻篩出的候選卡名。每個候選都要有一條 {of: 候選名, verdict: conflict|not_conflict,
+    why: 理由（reason_present）} → not owed，回照候選順序的宣告 [{of, verdict, why}]；owed＝要（重新）宣告，why 列出缺的與寫錯的。"""
+    decls = conflict_declarations(declared)
+    problems: List[str] = []
+    got: List[Dict[str, str]] = []
+    for name in candidates:
+        mine = [d for d in decls if str(d.get("of", "")).strip() == name]
+        d = mine[0] if mine else None
+        if d is None:
+            problems.append(f"{name}：沒宣告")
+        elif len({str(x.get("verdict", "")).strip() for x in mine}) > 1:
+            problems.append(f"{name}：同一張候選宣告了兩種判法，只留一條")
+        elif str(d.get("verdict", "")).strip() not in CONFLICT_VERDICTS:
+            problems.append(f"{name}：verdict 要是 conflict 或 not_conflict")
+        elif not reason_present(str(d.get("why", ""))):
+            problems.append(f"{name}：why 要寫一句理由")
+        else:
+            got.append({"of": name, "verdict": str(d["verdict"]).strip(), "why": str(d["why"]).strip()[:200]})
+    stray = [str(d.get("of", "")) for d in decls if str(d.get("of", "")).strip() not in candidates]
+    problems += [f"{s or '(沒寫 of)'}：不在候選" for s in stray]
+    if problems:
+        return Verdict("CONFLICT_DECLARED_BY_AI", True, "衝突候選要逐一宣告：" + "；".join(problems)), []
+    hit = [d["of"] for d in got if d["verdict"] == "conflict"]
+    why = f"AI 宣告衝突：{'、'.join(hit)}" if hit else "AI 宣告全部候選都不是衝突"
+    return Verdict("CONFLICT_DECLARED_BY_AI", False, why, tuple(f"{d['of']}：{d['verdict']}：{d['why']}" for d in got)), got
+
+
+def waiver_hint(item: str) -> str:
+    return (f"使用者叫你跳過的就是這一件 → 寫一行「不做｜{item}：使用者說「<原句片段>」」（規則 HARVEST_WAIVER_ITEMIZED，"
+            "片段要在近 3 則使用者原話裡，只豁免這一件、會留帳）；他說的是別的事 → 照做")
+
+
+def item_waiver(text: str, prompts: Sequence[str], item_words: Sequence[str]) -> Optional[Dict[str, str]]:
+    """HARVEST_WAIVER_ITEMIZED（整件：收割閘、收尾檢核）：收尾文字裡事項就是 item_words 其中一個（去空白與標點後相等；
+    「收割規則卡」是一張卡、不是整個收割）、而且引用的使用者原話片段真的在 prompts（近 3 則使用者原話）裡的第一條不做行；
+    沒有回 None。"""
+    words = {_ITEM_STRIP_RE.sub("", w).lower() for w in item_words}
+    for d in parse_not_doing(text):
+        if d["mode"] == "not_doing" and d["quote"] and _ITEM_STRIP_RE.sub("", d["item"]).lower() in words \
+                and quote_in_prompts(d["quote"], prompts):
+            return d
+    return None
+
+
+_PENDING_ATOM_RE = re.compile(r"^\s*([^\s:：]+)[:：]")     # 卡名是不含空白的 slug，緊接冒號
+
+
+def waived_pending(pending: Sequence[str], text: str, prompts: Sequence[str]) -> Tuple[List[str], List[Dict[str, str]]]:
+    """HARVEST_WAIVER_ITEMIZED（逐筆：收割待補）：待補一筆是「<卡名>: <哪裡對不上>」；不做行的事項要等於那一筆的卡名
+    （不分大小寫、去頭尾空白與反引號）且引用片段在 prompts → 只豁免那張卡的待補；泛稱（receipt、收割）對不到任何一筆。
+    沒有卡名的待補（item 不是物件、items 必須是 list）不能豁免。回 (還欠的, 豁免的 [{item, quote, line}])。"""
+    decls = [d for d in parse_not_doing(text) if d["mode"] == "not_doing" and d["quote"] and quote_in_prompts(d["quote"], prompts)]
+    kept: List[str] = []
+    waived: List[Dict[str, str]] = []
+    for p in pending:
+        m = _PENDING_ATOM_RE.match(str(p or ""))
+        atom = m.group(1).strip().lower() if m else ""
+        d = next((d for d in decls if atom and d["item"].strip().strip("`").lower() == atom), None)
+        if d is None:
+            kept.append(p)
+        else:
+            waived.append({"item": str(p)[:160], "quote": d["quote"], "line": d["line"]})
+    return kept, waived
 
 
 def names_failed_test(text: str, item: str) -> bool:

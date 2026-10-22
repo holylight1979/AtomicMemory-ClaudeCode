@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 G6 階段 5：糾正詞、「否」字否決、說跳過整批放行、衝突門檻、「此專案」字樣改交 AI 判
+- **交給 AI 寫程式時會看到的**：使用者的話命中「不對／重來」時，UPS 問一句「是不是糾正」，回「糾正｜不是：理由」就不計糾正次數；決策萃取記了卡、下一句剛好有「是否」，通知照送（附卡的路徑），另問是不是在否決；說「先這樣」不再讓收割、收割待補、收尾檢核整批放行，要寫「不做｜收割：使用者說「…」」對到那一件；atom_write 寫 shared 撞到相似卡時回「衝突待宣告（這次不寫檔）」要逐一宣告是不是衝突；寫根層被字面「此專案」擋下時，帶 scope_reason 說明是跨專案的就照寫。五種宣告都留帳。MCP 是 js，互動分頁要 Reload 才吃到新參數 conflict／scope_reason。
+- **改了什麼**（軌 track-g6-rules-to-llm 001）：`wg_release_rules` 新規則五條 `CORRECTION_WORDS_ARE_HINTS`、`EXTRACT_VETO_NEEDS_JUDGMENT`、`HARVEST_WAIVER_ITEMIZED`、`CONFLICT_DECLARED_BY_AI`、`PROJECT_LITERAL_IS_HINT`（`yes_no_declaration`、`correction_verdict`、`item_waiver`、`waived_pending`、`conflict_declaration_verdict`）；`wg_friction` 命中改待判、Stop 收宣告才計；`wg_extraction`＋`ups_gates` 否決改問；`user-extract-worker` 把卡的路徑記回通知；`wg_harvest`、`wg_evasion._completion_gate_applies` 拿掉 dismiss 整批放行；`memory-conflict-detector` write-check 回 need_declaration、拉取稽核 ERROR 標 candidate；`atom-tools.js`／`funnel.js`／`mcp.js` 收 conflict 與 scope_reason、拿掉 EXTEND 自動改道待審；`realm_gate` 字面命中收 scope_reason；切入點登錄表 E38～E41、E09 擴充；TECH §6.5／§7.1／§7.8／§8 同步。
+- **驗證**：見交付信（新案例在基底先紅、改後綠；目標 verify 收據）。
 ## 2026-10-22 一建卡就綁 Entry 的卡也不會落到 local
 - **原設計者看到的**：用 atom_write 建卡時就帶 Entry，卡名剛好含詞庫的本地範疇詞（例 codex），卡照樣落在 memory/<範疇>/（要給 core 的 domain），帳上多一行 realm_hold（source=atom_io:create）。MCP 是 js，互動分頁要 Reload 才吃到新版。
 - **改了什麼**（軌 track-realm-entry-pin 002）：`lib/atom_io.locate_atom` 收 `entry`，自動 realm 判 local 前問 `entry_bound_ids`，綁了就不改 realm、回 `extra.realm_hold`；`lib/atom_io_cli.create_atom` 落檔成功後依 `realm_hold` 寫帳；`tools/workflow-guardian-mcp/lib/atom-tools.js` 把 entry 傳進 locate、把 realm_hold 透傳給 create_atom、stderr 一行；TECH.md §4.3、SPEC §2.2 補述。

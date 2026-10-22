@@ -431,8 +431,12 @@ def test_scan_report_no_completion_not_triggered():
 
 
 def test_scan_report_dismiss_prompt_not_triggered():
+    """G6 階段 5（HARVEST_WAIVER_ITEMIZED）：「先這樣」要引用到原話的「不做｜收尾檢核」才豁免。"""
     assert detect_missing_scan_report(
         "全部完成了", _mf(r"c:\a\.claude\hooks\x.py"), ["先這樣"], 2
+    ) is True
+    assert detect_missing_scan_report(
+        "全部完成了\n不做｜收尾檢核：使用者說「先這樣」", _mf(r"c:\a\.claude\hooks\x.py"), ["先這樣"], 2
     ) is False
 
 
