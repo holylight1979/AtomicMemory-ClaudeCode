@@ -124,7 +124,8 @@ def on_stop(state: Dict[str, Any], session_id: str, reply: str, mods: List[Dict[
         _sweep()
         job = JOB_DIR / f"{session_id or 'nosession'}-{uuid.uuid4().hex[:8]}.json"
         try:
-            job.write_text(json.dumps({"session": session_id, "tasks": tasks}, ensure_ascii=False), encoding="utf-8")
+            job.write_text(json.dumps({"session": session_id, "tasks": tasks}, ensure_ascii=False), encoding="utf-8",
+                           newline="\n")
             _spawn_worker(job)
         except Exception:
             job.unlink(missing_ok=True)
