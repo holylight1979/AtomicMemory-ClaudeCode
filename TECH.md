@@ -1037,7 +1037,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | hook 有跑但 atom 沒注入 | 確認 `memory/_atom_index.json` 的 triggers 含 prompt 關鍵字（ASCII 整詞、CJK 子字串）；開 `/atom-debug` 看注入 log；每次注入尾行 `[Context budget: x/y \| trim: …]` 顯示預算裁切 |
 | MCP `atom_write` 回 `cli parse fail` | §9.3 `WG_PYTHON` |
 | 問卡片來源回 `unrecoverable` | 正常結果，不是故障：該顆 Source 是 B 級（`commit:`／`unknown`＋「原對話已逾保留期」）且無 Quote——落檔當時沒有自動填，回填時 transcript 也已被清。看 `source` 欄的日期與 `warnings`；要補只能人工：`atom_write` 用 replace 帶 `quote`，或 py `lib/atom_io.edit_metadata(label="quote")`（MCP `atom_edit_meta` 不收 quote）。若 Source 明明是 `session:` 卻回 `unrecoverable`，查 `projects/*/<sid>.jsonl` 是否存在、`Logs/guard-provenance.jsonl` 有無當時的自動填失敗 |
-| 啟動或每句變慢 | 預期值見 §11.1 |
+| 啟動或每句變慢 | 預期值見 §11.1：同一題寫程式任務，現況比 hook 全關多等約 8.6 分，hook 程式本身只佔約兩成，其餘是被提醒或擋下後多跑的模型呼叫；本機逐事件耗時跑 `python tools/hook-timing.py` |
 
 `install.py --verify` 之外可手動抽查的項目：`python tools/memory-audit.py --global-only` 無 ERROR；Claude Code 內按 `/` 看得到 `/memory` `/handoff` `/continue` `/vector`；問 Claude「列出 workflow-guardian MCP 工具」對得上 §9 表；開新 session statusline 無 `WG:?`；Dashboard 開得起來；`python tools/merge-atom-index.py --status` 末行「已安裝」；`python tools/memory-search.py "git commit" --no-vector --json` 輸出含 `"schema_version": 1` 且 `results` 非空。
 
@@ -1211,7 +1211,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 
 這一節回答：裝了這套系統，每個 session、每句話、每次工具呼叫多花多少時間與 token，又從哪裡量到真實數字。
 
-**數字待量測軌**：下表 11.1 的數字是守門流程（§7）大量加入之前量的，量測軌交付後整段更新；在那之前只當數量級參考，不當現況。
+**數字從哪來**：§11.1 的數字是 2026-10-22 用同一題寫程式驗收題（題 B′）把 hook 全部關掉、和照常開著各跑兩次量出來的，報告全文 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md`（逐跑原始數字在同目錄 `v6.0的代價-實測/`）。
 
 **流程上多出來的工作**（每個事件跑哪些段落見 §3.1；要看本機真實耗時跑 `python tools/hook-timing.py`，印每個事件跑幾次、降級幾次、各段中位數與最長）：
 
@@ -1220,20 +1220,41 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 - 每次收尾（Stop，上限 10s；另有 codex_companion 150s）：§7.1 的閘依序跑；文字評分與閱讀路徑丟背景行程，不佔 hook 時間。
 - 背景行程（不佔 hook 時間）：萃取 worker、vcs-sync worker、文字評分、閱讀路徑量測、向量服務啟動器。
 
-### 11.1 Vanilla Claude Code vs 本系統
+### 11.1 hook 全關 vs 現況（題 B′ 實測）
 
-| 指標 | Vanilla | 本系統 |
-|------|---------|------|
-| Session 啟動延遲 | ~0 | +50–200ms |
-| 每次 prompt 額外延遲 | ~0 | +~16ms 主路徑；需 vector 時 +200–500ms |
-| 首次 prompt 額外延遲 | ~0 | +500–1,500ms（episodic search） |
-| PostToolUse 延遲 | ~0 | +50–250ms |
-| hook Python import | — | ~120ms（dispatcher 惰性 import） |
-| always-load token | 0 | IDENTITY + USER + rules/core.md + rules/coding-style.md + `memory/MEMORY.md`；本機估算器（CJK 1.5 tok/字）五檔合計約 5,459 tok（IDENTITY 1,919 / coding-style 1,542 / core 1,206 / USER 803 / MEMORY 322）；真 tokenizer 約 1–1.3 tok/字 → 實務約 4,000–4,500 tok（估算，未以供應商 tokenizer 實測）；~/.claude 內另 `_local_catalog.md` ~180 tok |
-| 每輪注入 | 0 | atom 段 ≤1200 硬頂；整包 additionalContext ≤1000/2000/3000 依 prompt 分級 |
-| 典型 session overhead | 0 | ~2,500–3,500 tok（turn 2 起 always-load 進 prompt cache，邊際 ~10%；注入段每輪全額計費） |
-| 磁碟 | 0 | ~5–20MB（atoms + LanceDB + state） |
-| 背景 RAM | 0 | ~100–200MB（LanceDB + Ollama 常駐模型） |
+這張表回答：同一題寫程式任務（給 sales 專案加一個子命令，再開新 session 問「有什麼該注意的」，共三回合），hook 照常開著比全部關掉多花多少 token、多等多久、換到什麼。兩組的 CLAUDE.md、規則檔、記憶工具都一樣，所以量到的是 hook 與 hook 注入文字的代價，不是整套記憶系統。數字是兩跑平均；「實測」＝帳上直接讀到的數，「推論」＝換算或估計出來的數。
+
+| 指標 | hook 全關 | 現況 | 差多少 | 實測／推論 |
+|------|-----------|------|--------|-----------|
+| 輸入 token（模型實際讀過的量，含重讀快取） | 90 萬 | 398 萬 | ＋340% | 實測 |
+| 其中第一回合（加子命令） | 35 萬 | 351 萬 | 約 10 倍 | 實測 |
+| 輸出 token | 2.0 萬 | 6.2 萬 | ＋212% | 實測 |
+| 輸入＋輸出合計 | 92 萬 | 404 萬 | 多 312 萬，4.4 倍（＋337%） | 實測 |
+| 牆鐘時間（整題三回合） | 5.5 分 | 14.0 分 | 多 8.6 分 | 實測；受同機負載影響，看大小不看小數 |
+| 其中 hook 程式本身跑的時間 | 0 | 約 108 秒 | 約佔多等時間的兩成 | 實測 |
+| 模型呼叫次數 | 19 | 43 | ＋24 | 實測 |
+| 被 hook 擋下次數 | 0 | 12.5（兩跑各 12、13） | — | 實測 |
+| hook 注入的文字 | 0 | 約 6.0 萬 token | — | 推論（系統自己的估算口徑） |
+| 通過線（4 張判分表＝兩跑 × Opus／Codex 兩位判分） | 0/4 | 3/4 | — | 實測（現況有一張 Codex 判「新 session 先講未結項」沒過） |
+| 美金（只當參考） | 1.26／1.02 | 2.78／3.80 | — | 實測；第一跑要付建快取的錢，比大小看 token 不看美金 |
+
+換到什麼（推論，報告③）：全關兩跑的 AI 也自己找到題目埋的 UTC 切月錯誤、沒被高分誘餌帶走；它缺的是交付時點名誘餌說理由、把這件記進追蹤帳本、動手前寫定位與批判、新 session 先講未結項。hook 換到的是「把判斷說出來、記下來、下次接得上」，不是「看得到問題」。
+
+**多出的消耗花在哪**：多出的 312 萬 token 大頭不在 hook 程式本身，而在 hook 提醒或擋下之後 AI 多跑的模型呼叫，以及擋訊息在之後每次呼叫被重讀（推論，拆帳規則與全表見報告④）。前三大塊：
+
+- AI 照規則呼叫系統工具，120.8 萬（38.7%）：hook 每次提醒「先寫／更新需求目標樹」，AI 就去呼叫目標樹工具（現況每跑 10.5 次、全關 1 次，實測），光目標樹就約 89 萬。
+- 擋訊息與被擋重做，76.7 萬（24.6%）：最大是動手前定位三行與導讀卡約 70 萬，其中被擋後重寫的呼叫約 25 萬，其餘約 45 萬是擋訊息附的導讀卡與判準卡在之後每次呼叫被重讀。
+- 收尾擋下與多跑的回合，51.5 萬（16.5%）：收尾被擋後多跑的回合，以知識收割約 25 萬為主。
+- 改用免費模型（內網 gemma4:e4b，約兩成會判錯）約可省回多出部分的 33%（推論，報告⑤）：只交錯了救得回來的記帳類工作，例如目標樹的進度更新與交付對照、收尾後掃對話產候選知識卡；定位三行是寫碼 AI 自己的綜觀，不能代寫，要省得改成同一回合擋訊息只送一次。
+
+**這次量測沒涵蓋的固定成本**：兩組都有、所以沒進上表差額的部分，數字是舊估算、這次沒重量（推論）。
+
+| 指標 | 數字 |
+|------|------|
+| always-load token | IDENTITY + USER + rules/core.md + rules/coding-style.md + `memory/MEMORY.md`；本機估算器（CJK 1.5 tok/字）五檔合計約 5,459 tok（IDENTITY 1,919 / coding-style 1,542 / core 1,206 / USER 803 / MEMORY 322）；真 tokenizer 約 1–1.3 tok/字 → 實務約 4,000–4,500 tok（估算，未以供應商 tokenizer 實測）；~/.claude 內另 `_local_catalog.md` ~180 tok |
+| 每輪記憶注入上限 | atom 段 ≤1200 硬頂；整包 additionalContext ≤1000/2000/3000 依 prompt 分級（§11.2） |
+| 磁碟 | ~5–20MB（atoms + LanceDB + state） |
+| 背景 RAM | ~100–200MB（LanceDB + Ollama 常駐模型） |
 
 ### 11.2 Token Budget（`wg_core.compute_token_budget`）
 
