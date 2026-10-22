@@ -11,6 +11,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const CODE = path.resolve(__dirname, "..", "..", "..");
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "wg-judg-"));
@@ -28,6 +29,7 @@ fs.mkdirSync(path.join(PROJ, ".claude", "memory"), { recursive: true });
 
 let detectorResult = { verdict: "ok", matches: [] };
 const detectorCalls = [];
+const { PYTHON_EXE: PY } = require("../lib/paths");
 const funnel = require("../lib/funnel");
 funnel.syncMemoryIndex = () => {};
 funnel.triggerVectorReindex = () => {};
@@ -98,6 +100,23 @@ function check(cond, label, detail) {
   check(!r4.isError && r4.text.includes('BLOCKED — conflict declared vs "old-card"（理由：同一設定鍵一開一關）')
         && findFile(path.join(PROJ, ".claude", "memory"), "judg-new-c.conflict.md") && !projFile("judg-new-c"),
         "conflict → pending report, not written", r4.text);
+
+  // 4b. 同名再衝突一次（前一份還沒審）→ 兩份報告各一個檔：第二份另起 <slug>.2.conflict.md，第一份原樣；
+  //     /conflict pending（tools/conflict-review.py --list）兩份都列得到
+  const rep = findFile(path.join(PROJ, ".claude", "memory"), "judg-new-c.conflict.md");
+  const rep1 = rep ? fs.readFileSync(rep, "utf-8") : "";
+  const KNOW2 = ["[臨] 第二次送同名卡的內容，跟第一次不同，兩份待審報告都要留著"];
+  const r4b = await shared({ title: "judg-new-c", knowledge: KNOW2, conflict: [{ of: "old-card", verdict: "conflict", why: "同一設定鍵一開一關" }] });
+  const rep2 = findFile(path.join(PROJ, ".claude", "memory"), "judg-new-c.2.conflict.md");
+  check(!r4b.isError && /Report written: .*judg-new-c\.2\.conflict\.md/.test(r4b.text)   // 暫存根的長短路徑寫法可能不同，只比檔名
+        && rep && fs.readFileSync(rep, "utf-8") === rep1 && rep1.includes(KNOW[0])
+        && rep2 && fs.readFileSync(rep2, "utf-8").includes(KNOW2[0]) && !projFile("judg-new-c"),
+        "second conflict on same slug → second report file, first untouched", r4b.text);
+  const listed = spawnSync(PY, [path.join(CODE, "tools", "conflict-review.py"), "--list", "--project-cwd", PROJ],
+                           { encoding: "utf-8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  const files = (() => { try { return JSON.parse(listed.stdout).pending.map((p) => p.file); } catch { return []; } })();
+  check(files.includes("judg-new-c.conflict.md") && files.includes("judg-new-c.2.conflict.md"),
+        "conflict-review --list shows both reports", listed.stdout + listed.stderr);
 
   // 5. 守門總開關關時偵測器照門檻回 extend_overlap → 整張卡改落 shared/_pending_review 草稿（不要求宣告）
   detectorResult = { verdict: "extend_overlap", primary: "old-card", matches: [{ ...cand, classification: "EXTEND" }] };
