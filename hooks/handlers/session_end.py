@@ -109,7 +109,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         _cleanup_old_states()
     except Exception as e:
         print(f"SessionEnd cleanup error: {e}", file=sys.stderr)
-    chain_store.drop_snapshots(session_id)   # 連鎖斷路器的快照：這個 session 的、與 7 天沒動的別 session 的（刪不掉浮 stderr）
+    chain_store.session_cleanup(session_id)   # 連鎖斷路器：這個 session 的快照；7 天沒動的別 session 快照與連鎖帳（刪不掉浮 stderr）
     try:
         # run_verify 自寫的驗證收據（workflow/verify-ledger/_runs/）：留最新 200 份、刪 30 天以上；單份刪不掉在函式內浮 stderr
         if v6:

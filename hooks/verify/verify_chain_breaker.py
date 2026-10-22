@@ -95,6 +95,10 @@ class Turn:
         cs.action_done(SID, self.turn, kind, "Bash", list(files), self.inp("PostToolUse"), self.cfg, what=cmd,
                        now=self.tick())
 
+    def act(self, cmd="python -m pytest -q"):
+        """AI 做了一個動作（重跑）：同一道閘兩次之間有動作才算同閘次數（CHAIN_SAME_GATE_NO_ACTION）。"""
+        self.bash(cmd, kind="rerun")
+
     def stop(self):
         self.say()
         return cs.on_stop(SID, self.turn, self.inp("Stop"), self.cfg, now=self.tick())
@@ -178,15 +182,24 @@ def test_depth2_three_distinct_gates_aborts(box):
     assert r.notice and _alarm_rules(t) == {"CHAIN_ALARM_DEPTH"}
 
 
-def test_same_gate_second_time_aborts_without_edge(box):
-    """紅案例（CHAIN_ALARM_SAME_GATE、CHAIN_NO_FIX_NO_EDGE）：工具閘 A 擋 → AI 沒動手就收尾 → 收尾閘 A 又擋：
-    沒接成邊、深度 0，照樣中止。"""
+def test_same_gate_needs_action_between(box):
+    """紅案例（C1：CHAIN_SAME_GATE_NO_ACTION、CHAIN_ALARM_SAME_GATE）：閘A 擋 → AI 沒動作又撞閘A（重試同一個呼叫、只改寫回覆就收尾）
+    → 不接邊、不算同閘次數、不警報，交回 A 自己的擋次上限；閘A 擋 → AI 動手 → 閘A 再擋 → 警報；中間的動作接在別道閘後面也算。"""
     t = Turn(box)
     assert t.gate("A", hook="PreToolUse") == cs.PASS
-    r = t.gate("A")
+    assert t.gate("A", hook="PreToolUse") == cs.PASS
+    assert t.gate("A") == cs.PASS
     ch = t.chain()
-    assert r.notice and ch.steps[1].link.rule == "CHAIN_NO_FIX_NO_EDGE" and ch.depth == 0
-    assert _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
+    assert [s.link.rule for s in ch.steps[1:]] == ["CHAIN_SAME_GATE_NO_ACTION"] * 2 and ch.depth == 0
+    assert wc.same_count(ch.steps, "A") == 1
+    t.act()
+    r = t.gate("A")
+    assert r.notice and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
+    u = Turn(box, turn=2)
+    u.gate("A")
+    u.gate("B", later=["A"])
+    u.act()                                                      # 動作接在 B 後面
+    assert u.gate("A").notice and "CHAIN_ALARM_SAME_GATE" in _alarm_rules(u)
 
 
 def test_alarm_on_tool_gate_notes_then_stop_notices_once(box):
@@ -203,25 +216,32 @@ def test_alarm_on_tool_gate_notes_then_stop_notices_once(box):
 
 
 def test_headless_main_session_aborts_without_asking(box, monkeypatch):
-    """紅案例（CHAIN_HEADLESS_NO_ASK）：headless 主 session 觸發 → 不叫 AI 問、只留帳；transcript 裡就算有答案也不還原、
-    不繼續；通知要 AI 在收尾報告寫明。"""
+    """紅案例（C2：CHAIN_HEADLESS_NO_ASK）：headless 主 session 觸發 → 不叫 AI 問、不停手：其餘閘只記錄、改檔照放、帳上有 alarm；
+    transcript 裡就算有答案也不還原、不繼續；收尾通知要 AI 照常做完、在收尾報告寫明。工具閘上響的那一次照放、收尾再送表。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     t, x = Turn(box), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A")
     t.edit(x, "x = 1", "x = 2")
     r = t.gate("A")
-    assert r.notice and "無法互動" in r.notice and "收尾報告" in r.notice and "沒有還原" in r.notice
+    assert r.notice and "無法互動" in r.notice and "收尾報告" in r.notice and "沒有還原" in r.notice and "照常" in r.notice
     assert "AskUserQuestion" not in r.notice and wc.OPT_RESTORE not in r.notice
     notice = t.chain().notice
     assert notice["interactive"] is False and "headless" in notice["why"]
     t.answer(wc.OPT_RESTORE)
     assert t.stop() is None
-    halt = cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON)
-    assert halt and "無法互動" in halt and "不再動手" in halt
-    assert x.read_text(encoding="utf-8") == "x = 2\n"
-    assert not {"answer", "reset", "restore"} & set(_kinds(cs.read_rows(SID)))
-    assert t.record_only()
+    assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON) is None           # 不停手
+    t.edit(x, "x = 2", "x = 3")
+    assert x.read_text(encoding="utf-8") == "x = 3\n"
+    assert t.gate("B", hook="PreToolUse") == cs.GateResult(True)                # 其餘閘只記錄
+    assert not {"answer", "reset", "restore", "halted"} & set(_kinds(cs.read_rows(SID)))
+    assert "alarm" in _kinds(cs.read_rows(SID)) and t.record_only()
+    u = Turn(box, turn=2)
+    assert u.gate("A", hook="PreToolUse") == cs.PASS
+    u.act()
+    assert u.gate("A", hook="PreToolUse") == cs.GateResult(True)               # 工具閘上響：照放，不給 halt
+    out = u.stop()
+    assert out.block and "無法互動" in out.text and u.stop() is None
 
 
 def test_subagent_has_own_chain_and_is_not_asked(box):
@@ -230,9 +250,11 @@ def test_subagent_has_own_chain_and_is_not_asked(box):
     main.gate("A")
     r = sub.gate("A", hook="SubagentStop")
     assert r == cs.PASS and main.chain().count == 0
+    sub.act()
     r = sub.gate("A", hook="SubagentStop")
     assert r.notice and "子代理" in r.notice and "AskUserQuestion" not in r.notice
     assert not main.record_only() and sub.record_only()
+    assert cs.halt(SID, 1, "Edit", sub.inp("PreToolUse"), ON) is None           # 子代理不停手（C2）
 
 
 def test_restore_puts_back_chain_segment_only(box):
@@ -265,6 +287,7 @@ def test_continue_resets_and_asks_again(box):
     """紅案例（CHAIN_CONTINUE_RESETS）：選繼續 → 計數歸零、閘照常擋；同樣額度再超 → 再問一次。"""
     t = Turn(box)
     t.gate("A")
+    t.act()
     assert t.gate("A").notice
     t.answer(wc.OPT_CONTINUE)
     out = t.stop()
@@ -272,6 +295,7 @@ def test_continue_resets_and_asks_again(box):
     assert not t.record_only()
     assert t.chain().segment == 1 and t.chain().count == 0
     assert t.gate("A") == cs.PASS                     # 新的一段第一次：照擋
+    t.act()
     r = t.gate("A")
     assert r.notice and "總共連鎖 1 次" in r.notice
     assert _kinds(cs.read_rows(SID)).count("notice") == 2
@@ -281,6 +305,7 @@ def test_release_keeps_record_only_until_next_turn(box):
     """CHAIN_RELEASE_TURN、CHAIN_SAME_TURN：選放行 → 這一回合其餘閘只記錄；下一回合從零起、閘照常擋。"""
     t = Turn(box)
     t.gate("A")
+    t.act()
     t.gate("A")
     t.answer(wg_release.OPT_RELEASE)
     out = t.stop()
@@ -347,6 +372,7 @@ def test_breaker_never_demands_fixes(box):
     t, x = Turn(box), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A")
+    t.act()
     t.gate("A")
     assert cs.before_write(SID, 1, [str(x)], t.inp("PreToolUse"), ON) is None
     assert cs.action_done(SID, 1, "edit", "Edit", [], t.inp("PostToolUse"), ON) is None
@@ -413,10 +439,11 @@ def test_count_is_triggers_minus_one_depth_is_run(box):
     t, x = Turn(box), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.gate("A", hook="PreToolUse")
-    t.gate("B")                                              # 沒動手就收尾：不接
+    t.gate("B")                                              # 沒動手就收尾：不接（CHAIN_NO_FIX_NO_EDGE）
     t.edit(x, "x = 1", "x = 2")
     assert t.gate("C", hook="PreToolUse") == cs.PASS
     ch = t.chain()
+    assert ch.steps[1].link.rule == "CHAIN_NO_FIX_NO_EDGE"
     assert (ch.count, ch.depth) == (2, 1)
     assert wc.report(ch, t.now).endswith("總共連鎖 2 次、深度 1")
 
@@ -467,6 +494,7 @@ def test_other_answer_keeps_abort(box):
     """CHAIN_ANSWER_BY_TOOL_USE_ID：使用者打了三選項以外的字 → 記下來、維持中止只記錄，不還原也不歸零。"""
     t = Turn(box)
     t.gate("A")
+    t.act()
     t.gate("A")
     t.answer("先等等")
     out = t.stop()
@@ -499,6 +527,7 @@ def test_snapshot_window_and_limits(box):
     assert snaps["c.py"]["existed"] is False
     assert "已存滿" in snaps["d.py"]["skipped"]
     assert len([r for r in cs.read_rows(SID) if r["type"] == "snapshot"]) == 4
+    t.act()
     t.gate("A")
     t.answer(wg_release.OPT_RELEASE)
     t.stop()
@@ -574,6 +603,7 @@ def test_halt_until_answer(box):
     t = Turn(box)
     assert cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON) is None      # 沒警報不介入
     t.gate("A")
+    t.act()
     t.gate("A")
     msg = cs.halt(SID, 1, "Edit", t.inp("PreToolUse"), ON)
     assert msg and "先停手" in msg and wc.question(t.chain()) in msg and "總共連鎖 1 次" in msg
@@ -588,10 +618,11 @@ def test_halt_until_answer(box):
 
 
 def test_tripping_alarm_does_not_let_blocked_call_through(box):
-    """CHAIN_HALT_UNTIL_ANSWER（codex：故意讓警報響來繞閘）：工具閘 A 擋 → AI 原樣重送 → 第 2 次讓警報響，
+    """CHAIN_HALT_UNTIL_ANSWER（codex：故意讓警報響來繞閘）：工具閘 A 擋 → AI 動了別的手 → 再撞 A 讓警報響，
     回的不是放行而是 halt（呼叫端照擋）；之後換別的寫入工具也被 halt 擋，閘只記錄換不到動作過關。"""
     t = Turn(box)
     assert t.gate("A", hook="PreToolUse") == cs.PASS                       # 呼叫端照 A 的訊息擋
+    t.act()
     r = t.gate("A", hook="PreToolUse")
     assert r.record_only and r.halt                                       # A 不用擋，但 halt 照擋這個呼叫
     for tool in ("Edit", "Write", "Bash", "mcp__x__write"):
@@ -866,27 +897,34 @@ def test_muted_triggers_do_not_inflate_count(box):
     """CHAIN_COUNT_TRIGGERS／CHAIN_ABORT_RECORD_ONLY：警報後只記錄的不算進次數與深度；同一道閘這一段只記一筆（收尾一再被叫也不灌水）。"""
     t = Turn(box)
     t.gate("A")
+    t.act()
     assert t.gate("A").notice
     for _ in range(3):
         assert t.gate("B") == cs.GateResult(True)
         assert t.gate("C", hook="PreToolUse") == cs.GateResult(True)
     ch = t.chain()
     assert [s.row["gate"] for s in ch.steps] == ["A", "A", "B", "C"] and [s.muted for s in ch.steps] == [False, False, True, True]
-    assert (ch.count, ch.depth) == (1, 1)                       # A→A 是收尾接收尾（改寫回覆）；B、C 不算
+    assert (ch.count, ch.depth) == (1, 1)                       # A→重跑→A；B、C 只記錄不算
     assert "總共連鎖 1 次、深度 1" in wc.report(ch, t.now) and "（只記錄）" in wc.report(ch, t.now)
 
 
-def test_drop_snapshots_at_session_end(box):
-    """SessionEnd：這個 session 的快照資料夾刪掉；別的 session 的只刪 7 天沒動的。"""
-    root = box / "workflow" / "chain-snap"
+def test_session_cleanup_at_session_end(box):
+    """SessionEnd：這個 session 的快照資料夾刪掉；別的 session 的快照與連鎖帳只刪 7 天沒動的；這個 session 的帳留著（事後驗收要讀）。"""
+    import os
+    root, logs = box / "workflow" / "chain-snap", box / "Logs"
     for name in (SID, "other-new", "other-old"):
         (root / name).mkdir(parents=True)
         (root / name / "t1-main-s0-x.snap").write_bytes(b"x")
-    import os
+    logs.mkdir()
+    for name in (SID, "other-new", "other-old"):
+        (logs / f"chain-{name}.jsonl").write_text("{}\n", encoding="utf-8")
+    (logs / "guard-other.jsonl").write_text("{}\n", encoding="utf-8")
     old = 1000.0
-    os.utime(root / "other-old", (old, old))
-    cs.drop_snapshots(SID, now=old + 8 * 86400)
+    for p in (root / "other-old", logs / "chain-other-old.jsonl", logs / f"chain-{SID}.jsonl", logs / "guard-other.jsonl"):
+        os.utime(p, (old, old))
+    cs.session_cleanup(SID, now=old + 8 * 86400)
     assert sorted(p.name for p in root.iterdir()) == ["other-new"]
+    assert sorted(p.name for p in logs.iterdir()) == sorted([f"chain-{SID}.jsonl", "chain-other-new.jsonl", "guard-other.jsonl"])
 
 
 # ─── 規則表契約 ─────────────────────────────────────────────────────────

@@ -115,16 +115,17 @@ statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／g
 
 ### 連鎖斷路器（`hooks/wg_chain.py`、`lib/chain_store.py`；本段為唯一來源）
 
-要解的事：閘擋下 → AI 修 → 修的動作又讓別道（或同一道）閘擋下……這種間接連鎖靠逐道閘修判斷條件拔不乾淨，所以在所有閘外面加一層只記錄與中止的斷路器。v6 守門總開關開著、`config.chain_breaker.enabled` 才跑。
+要解的事：閘擋下 → AI 修 → 修的動作又讓別道（或同一道）閘擋下……這種間接連鎖靠逐道閘修判斷條件拔不乾淨，所以在所有閘外面加一層只記錄與中止的斷路器。v6 守門總開關開著、`config.chain_breaker.enabled` 才跑；總開關關著時 `chain_store` 每個公開函式都照「沒事」回（以總開關為準）。
 
 - **一筆觸發**：閘真的要擋下或記欠的那一刻（收尾閘在擋的分支開頭問 `_chain_hold`；工具前閘走 `_deny`）。工具後只提示的、只記錄的不算。PostToolUse 記下的欠帳不另算一次，到它真的擋下（收尾或下一個工具前）才算——否則同一筆欠帳記一次、擋一次就被當成同一道閘第 2 次。閘名取擋訊息的 `[Guardian:名稱]` 標記，收尾閘由呼叫端給（跟「後面還會擋」預覽用同一套名字）。
-- **一條邊**：同一使用者回合、同一對話者（主 session 或同一個子代理）裡，閘B 接在閘A 之後觸發、中間 AI 有動作就接上（判法與排除見 `wg_chain.RULES` 的 `CHAIN_EDGE_*`、`CHAIN_SAME_EVENT`、`CHAIN_NO_FIX_NO_EDGE`）。閘A 擋下時預覽已列出的閘B 不接（它本來就欠著）。`watched`（閘看哪些檔）模組支援，目前沒有呼叫端給。
+- **一條邊**：同一使用者回合、同一對話者（主 session 或同一個子代理）裡，閘B 接在閘A 之後觸發、中間 AI 有動作就接上（判法與排除見 `wg_chain.RULES` 的 `CHAIN_EDGE_*`、`CHAIN_SAME_EVENT`、`CHAIN_NO_FIX_NO_EDGE`）。閘A 擋下時預覽已列出的閘B 不接（它本來就欠著）。同一道閘接連觸發、中間沒記到 AI 動作（原樣重試、只改寫回覆）不接、也不算同閘次數，交回那道閘自己的擋次上限（CHAIN_SAME_GATE_NO_ACTION）。`watched`（閘看哪些檔）模組支援，目前沒有呼叫端給。
 - **AI 動作**：`wg_chain.action_of` 判——改檔（Edit／Write／Bash 寫入，含判不出目標的寫入）、重跑測試或驗證（含紅掉的 PostToolUseFailure）、寫卡、重交收尾檢核或收割回報、改目標樹、其他非唯讀指令與子代理；讀檔不算。
-- **警報**：深度到 `max_depth`（預設 2）或同一道閘這一段第 `max_same_gate` 次（預設 2）。響了之後：這一回合其餘閘只記錄（跳過那道閘的擋與記欠，所以不會留下「本回合擋過」「整個 session 問過一次」這類標記；拐彎判斷與寫碼查核自己出錯〔GATE_SELF_ERROR〕是在閘的函式裡先記標記，被改成只記錄時 `stop._unmark` 放回原值；選繼續後照常擋）；工具先停手，只放讀檔工具、`readonly_shell` 認可的唯讀指令（白名單、不准寫檔重導向與指令替換、PowerShell 不准括號；是護欄不是沙箱）與 AskUserQuestion；收尾擋一次送連鎖過程表與三選一（題目帶【收尾放行確認】【連鎖中止】）；「順手看到最該修」那一問不送。沒人能答（headless／SDK、子代理）不叫它問、不還原、不繼續，要 AI 把表寫進收尾報告。
+- **警報**：深度到 `max_depth`（預設 2）或同一道閘這一段第 `max_same_gate` 次（預設 2；只數跟上一次之間 AI 有動作的）。響了之後：這一回合其餘閘只記錄（跳過那道閘的擋與記欠，所以不會留下「本回合擋過」「整個 session 問過一次」這類標記；拐彎判斷與寫碼查核自己出錯〔GATE_SELF_ERROR〕是在閘的函式裡先記標記，被改成只記錄時 `stop._unmark` 放回原值；選繼續後照常擋）；能互動的 session 工具先停手，只放讀檔工具、`readonly_shell` 認可的唯讀指令（白名單、不准寫檔重導向與指令替換、PowerShell 不准括號；是護欄不是沙箱）與 AskUserQuestion；收尾擋一次送連鎖過程表與三選一（題目帶【收尾放行確認】【連鎖中止】）；「順手看到最該修」那一問不送。沒人能答（headless／SDK、子代理）不叫它問、不停手：其餘閘只記錄、AI 照常做完，讓警報響的那次工具呼叫照放，收尾擋一次要 AI 把表寫進收尾報告；不還原、不繼續。
 - **使用者答案**：只認 tool_use_id 對得上的 AskUserQuestion 結果，題目逐字等於通知那一題。還原＝只還原這一段的快照（快照是工具前放行那一刻存的；動手前核對檔案現況等於這一段最後一次寫入後的內容，被別處改過就不動）；繼續＝開新的一段、額度重給；放行＝這一回合其餘閘只記錄，同一個答案也被既有閘的 `wg_release.user_released` 認成放行（紅測、對帳、等值證法那一套照它們的規則記放行）。答案的處理結果附在那次收尾的出口（systemMessage／擋訊息尾）。
+- **清理**：SessionEnd 刪這個 session 的快照，和 7 天沒動的別 session 快照與連鎖帳（`chain_store.session_cleanup`）；這個 session 的帳留著，事後（含無頭跑完的驗收）要讀。
 - **斷路器自己出錯**：一律照原本的閘行為（不中止、不只記錄、不停手），stderr 印一行。pytest 底下每一案各用一份帳與快照、放測試用的 Logs 暫存目錄（`chain_store._test_root`），免得前一案的觸發讓後一案誤判、快照落進資料根。
 - **設定**：`chain_breaker` 段沒寫 `enabled`＝不開（出廠 `workflow/config.json` 寫開）。各閘自己的案例只帶部分設定，測的是各閘自己的擋次與放行；斷路器跟各閘疊起來的行為由 `verify_chain_wiring.py` 用出廠設定測。沒觸發時連子行程呼叫都不變：收尾閘名預覽用跟擋訊息同樣的排除方式，預覽裡問 git 的那段一次收尾只問一次。
-- **擋不到的**：PreToolUse matcher 沒掛的工具（MCP 的 atom_write、anti_evasion_report、need_goal 等）在停手期間照樣能呼叫；settings.json 沒註冊 PostToolUseFailure 時紅掉的重跑記不到。
+- **settings.json 要掛的**：PreToolUse matcher 要含 MCP 寫入工具（atom_write、atom_retire、atom_edit_meta、atom_move、need_goal）停手才擋得到；要註冊 PostToolUseFailure（matcher `Bash|PowerShell`，同一支 dispatcher）紅掉的重跑才記得到動作。沒掛的工具停手期間照樣能呼叫。
 
 ### _CHANGELOG Auto-Roll（`tools/changelog-roll.py`；本段為唯一來源）
 

@@ -11,7 +11,7 @@
   wg_chain.choice_of 取題目逐字等於通知那一題的答案。
 呼叫端只用這幾支薄函式：gate_fired（閘要擋或記欠之前）、halt（PreToolUse 一開始：中止停手中要不要擋這個呼叫）、
 record_only（只問這一回合是不是只記錄）、before_write（工具改檔之前）、action_done（AI 動作完成之後）、on_stop（收尾、各閘之前）、
-drop_snapshots（SessionEnd）。
+session_cleanup（SessionEnd）。
 這裡出錯一律照原本的閘行為（不中止、不只記錄、不停手），stderr 印一行；快照存不了照放行改動、帳上記原因。
 v6 守門總開關關著整個不跑（_ctx 回 None）：v6 關只跑 v6 以前就有的處理，chain_breaker.enabled 寫開也一樣；SessionEnd 清快照照做。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_chain_breaker.py
@@ -198,6 +198,8 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
             _append(cx.sid, new)
             return GateResult(True, notice=wc.notice_text(cx.chain(), cx.now))
         _append(cx.sid, new)
+        if why:                                   # CHAIN_HEADLESS_NO_ASK：沒人能答不停手，這次照放（只記錄），收尾再送經過表
+            return GateResult(True)
         return GateResult(True, halt=wc.halt_text(cx.chain(), cx.now))
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的閘行為
         _warn("gate_fired", e)
@@ -392,24 +394,33 @@ def _prune(root: Path, turn: int) -> None:
         _warn("prune", e)
 
 
-def drop_snapshots(sid: str, max_age_days: float = 7.0, now: Optional[float] = None) -> None:
-    """SessionEnd 呼叫：這個 session 的快照整個資料夾刪掉（還原只在警報那一回合有效），順手刪別的 session 留下、超過 max_age_days
-    沒動過的快照資料夾（當掉沒送 SessionEnd 的）。刪不掉的浮 stderr，不擋收尾。"""
+def session_cleanup(sid: str, max_age_days: float = 7.0, now: Optional[float] = None) -> None:
+    """SessionEnd 呼叫：這個 session 的快照整個資料夾刪掉（還原只在警報那一回合有效）；別的 session 留下、超過 max_age_days 沒動過的
+    快照資料夾與連鎖帳一起刪（當掉沒送 SessionEnd 的也清得到）。這個 session 的帳留著：它是事後看連鎖經過的唯一紀錄
+    （無頭跑完 SessionEnd 就到，驗收讀的就是它），由之後的 SessionEnd 照天數清。刪不掉的浮 stderr，不擋收尾。"""
     import shutil
-    root = _snap_root()
     cutoff = (time.time() if now is None else now) - max_age_days * 86400
     mine = _snap_dir(sid).name
     try:
+        root = _snap_root()
         dirs = [d for d in root.iterdir() if d.is_dir()] if root.is_dir() else []
+        ldir = _ledger_dir()
+        ledgers = [f for f in ldir.glob("chain-*.jsonl") if f != ledger_path(sid)] if ldir.is_dir() else []
     except OSError as e:
-        _warn("drop_snapshots", e)
+        _warn("session_cleanup", e)
         return
     for d in dirs:
         try:
             if d.name == mine or d.stat().st_mtime < cutoff:
                 shutil.rmtree(d)
         except OSError as e:
-            _warn(f"drop_snapshots {d.name}", e)
+            _warn(f"session_cleanup {d.name}", e)
+    for f in ledgers:
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError as e:
+            _warn(f"session_cleanup {f.name}", e)
 
 
 def restore(sid: str, ch: wc.Chain, cfg: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:

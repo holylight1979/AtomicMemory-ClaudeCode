@@ -31,24 +31,27 @@ RULES: Dict[str, str] = {
     "CHAIN_ACTION_FACTS": "哪些工具呼叫算 AI 動作：Edit／Write／MultiEdit／NotebookEdit＝改；Bash／PowerShell 有寫入目標（含判不出目標的寫入）＝改，"
                           "跑測試或驗證＝重跑，其餘不是唯讀的指令＝其他動作；atom_write／atom_retire＝寫卡；收尾檢核與收割回報＝重交報告；"
                           "need_goal＝改目標樹；Agent／Task＝其他動作。讀檔（Read、唯讀指令）不算動作。",
-    "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到動作時，"
+    "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到動作、A 與 B 是不同的閘時，"
                              "Stop 接 Stop 算改寫回覆、閘B在工具呼叫上算 AI 接著的那次呼叫。",
+    "CHAIN_SAME_GATE_NO_ACTION": "同一道閘接連觸發、中間沒記到 AI 動作（重試同一個呼叫、只改寫回覆）→ 不接成邊、也不算同閘次數，交回那道閘自己的擋次上限處理。",
     "CHAIN_SAME_EVENT": "同一個 hook 事件裡先後觸發的兩道閘不接成邊（不是 AI 動作造成的）。",
     "CHAIN_NO_FIX_NO_EDGE": "前一步是工具上的閘、之後 AI 沒有任何動作就收尾 → 收尾的閘不接上前一步。",
     "CHAIN_EDGE_PREVIEWED": "閘B已列在閘A擋下時的「後面還會擋」預覽裡（A 擋的時候 B 就欠著）→ 不是 A 之後的動作造成的，不接成邊。",
     "CHAIN_EDGE_FILES_DISJOINT": "閘B說了它看哪些檔、A 之後 AI 的每個動作都說得出改了哪些檔、兩邊沒有交集 → 不接成邊；"
                                  "B 沒說看哪些檔、或有動作說不出改了哪些檔（重跑、寫卡、判不出目標的 Bash），照接。",
     "CHAIN_ALARM_DEPTH": "深度 ≥ max_depth（預設 2：閘→修→閘→修→第三次閘）→ 警報。",
-    "CHAIN_ALARM_SAME_GATE": "同一道閘同一段第 max_same_gate 次觸發（預設 2）→ 警報，不看有沒有接成邊。",
+    "CHAIN_ALARM_SAME_GATE": "同一道閘同一段第 max_same_gate 次觸發（預設 2）→ 警報；只數跟這道閘上一次觸發之間 AI 有記到動作的那幾次"
+                             "（中間的動作接在別道閘後面也算）。",
     "CHAIN_ABORT_RECORD_ONLY": "警報一響（含讓它響的那一次），這一段其餘所有閘只記錄、不擋、不記欠（同一道閘這一段只記一筆）；"
                                "使用者選之前不逼任何修補。呼叫端在閘擋或記欠之前問，只記錄就跳過那道閘的擋與記欠、照往下走。",
-    "CHAIN_HALT_UNTIL_ANSWER": "中止就是停手：警報後到使用者選「繼續」或「放行」之前（沒人能答的，就是這一回合其餘時間；選還原或答別的也停到換回合），"
+    "CHAIN_HALT_UNTIL_ANSWER": "能互動的 session 中止就是停手：警報後到使用者選「繼續」或「放行」之前（選還原或答別的也停到換回合）；沒人能答的不停手（CHAIN_HEADLESS_NO_ASK），"
                                "除了讀（HALT_ALLOW 與 readonly_shell 判定唯讀的指令）和 AskUserQuestion，工具呼叫一律先擋下、附經過表與該問的題目。"
                                "這不是閘觸發、不進次數，也不逼修補；讓警報響不會換到被擋的動作過關。"
                                "唯讀指令只認白名單裡的讀檔指令、沒有寫檔重導向與指令替換；判不出一律當成會動手。",
     "CHAIN_STOP_NOTICE_ONCE": "警報後 Stop 只擋一次，送連鎖過程表（能互動就附三選項）；使用者在那之前已答就不擋、附結果與表；之後的 Stop 不再擋，只附提醒。",
-    "CHAIN_HEADLESS_NO_ASK": "沒人能答（headless／SDK、子代理、裁判子 session；判法 wg_release.non_interactive_reason，警報那一刻判）→ 不叫 AI 問，"
-                             "中止並留帳，不還原也不繼續，要 AI 把經過表寫進收尾報告。",
+    "CHAIN_HEADLESS_NO_ASK": "沒人能答（headless／SDK、子代理、裁判子 session；判法 wg_release.non_interactive_reason，警報那一刻判）→ 不叫 AI 問、"
+                             "不停手：這一回合其餘閘只記錄、留帳，AI 照常把工作做完；讓警報響的那次工具呼叫照放，收尾擋一次要 AI 把經過表寫進收尾報告。"
+                             "不還原也不繼續。",
     "CHAIN_ANSWER_BY_TOOL_USE_ID": "使用者答案只認中止通知之後、tool_use_id 對得上 AskUserQuestion 的結果（wg_release._answers_after），"
                                    "題目逐字等於通知記下的那一題（含【收尾放行確認】【連鎖中止】；NFKC、空白正規化後比）、答案逐字是三選項之一；"
                                    "其他工具輸出、AI 文字印出同樣的字、AI 自己改寫題意另出的題都不算。",
@@ -201,8 +204,8 @@ def _int(v: Any) -> int:
 
 
 def link(prev: Step, row: Dict[str, Any]) -> Link:
-    """閘B（row）接不接上前一步 prev：照 CHAIN_SAME_EVENT → CHAIN_EDGE_PREVIEWED → CHAIN_NO_FIX_NO_EDGE →
-    CHAIN_EDGE_FILES_DISJOINT 依序排除，都不中就照時間先後接上（CHAIN_EDGE_TIME_ORDER）。"""
+    """閘B（row）接不接上前一步 prev：照 CHAIN_SAME_EVENT → CHAIN_EDGE_PREVIEWED → CHAIN_SAME_GATE_NO_ACTION →
+    CHAIN_NO_FIX_NO_EDGE → CHAIN_EDGE_FILES_DISJOINT 依序排除，都不中就照時間先後接上（CHAIN_EDGE_TIME_ORDER）。"""
     gate, hook = str(row.get("gate") or ""), row.get("hook")
     if row.get("event") and row.get("event") == prev.row.get("event"):
         return Link(False, "CHAIN_SAME_EVENT", "和前一步是同一個 hook 事件")
@@ -210,6 +213,8 @@ def link(prev: Step, row: Dict[str, Any]) -> Link:
         return Link(False, "CHAIN_EDGE_PREVIEWED", f"前一步擋的時候 {gate} 就列在後面還會擋")
     acts = prev.actions
     if not acts:
+        if gate == prev.row.get("gate"):
+            return Link(False, "CHAIN_SAME_GATE_NO_ACTION", "同一道閘、中間 AI 沒有動作")
         if is_stop(hook) and not is_stop(prev.row.get("hook")):
             return Link(False, "CHAIN_NO_FIX_NO_EDGE", "前一步之後 AI 沒動手就收尾")
         return Link(True, "CHAIN_EDGE_TIME_ORDER", "改寫回覆" if is_stop(hook) else "AI 接著的工具呼叫")
@@ -230,7 +235,18 @@ class Judge(NamedTuple):
     alarm: Tuple[Hit, ...]     # 這次讓警報響的規則；空＝沒響（或這一段早就響過）
     link: Optional[Link]
     depth: int
-    same: int                  # 同一道閘這一段第幾次
+    same: int                  # 同一道閘這一段第幾次（只數跟上一次之間 AI 有動作的）
+
+
+def same_count(steps: Sequence[Step], gate: str) -> int:
+    """CHAIN_ALARM_SAME_GATE：這一次是這道閘這一段第幾次觸發——第一次算 1，之後只在跟這道閘上一次觸發之間有記到 AI 動作才加 1
+    （CHAIN_SAME_GATE_NO_ACTION）。step 的 actions 是它之後、下一次觸發之前的動作。"""
+    n, acted = 0, False
+    for s in steps:
+        if s.row.get("gate") == gate:
+            n, acted = (n + 1 if n == 0 or acted else n), False
+        acted = acted or bool(s.actions)
+    return n + 1 if n == 0 or acted else n
 
 
 def judge(ch: Chain, row: Dict[str, Any], cfg: Dict[str, Any]) -> Judge:
@@ -239,7 +255,7 @@ def judge(ch: Chain, row: Dict[str, Any], cfg: Dict[str, Any]) -> Judge:
     lk = link(prev, row) if prev else None
     depth = prev.depth + 1 if prev and lk and lk.linked else 0
     gate = str(row.get("gate") or "")
-    same = 1 + sum(1 for s in ch.steps if s.row.get("gate") == gate)
+    same = same_count(ch.steps, gate)
     if ch.record_only:
         return Judge(True, (), lk, depth, same)
     hits = []
@@ -276,8 +292,10 @@ def stop_step(ch: Chain) -> Optional[str]:
 
 
 def halted(ch: Chain) -> bool:
-    """CHAIN_HALT_UNTIL_ANSWER：現在是不是中止停手中（警報後，使用者還沒選繼續或放行）。"""
-    return ch.alarm is not None and (ch.answer or {}).get("choice") != "release"
+    """CHAIN_HALT_UNTIL_ANSWER：現在是不是中止停手中（能互動的 session 警報後，使用者還沒選繼續或放行）。
+    沒人能答的不停手（CHAIN_HEADLESS_NO_ASK）。"""
+    return (ch.alarm is not None and bool((ch.notice or {}).get("interactive", True))
+            and (ch.answer or {}).get("choice") != "release")
 
 
 def _nfkc(s: Any) -> str:
@@ -433,13 +451,13 @@ def _ask_line(ch: Chain) -> str:
 
 
 def _headless_tail(no_ask: str) -> str:
-    return (f"\n無法互動（{no_ask}）：不問使用者、不還原、也不再修補。把上表原樣放進收尾報告，"
-            "寫明「連鎖中止：連鎖改動沒有還原，等使用者決定」，然後結束。")
+    return (f"\n無法互動（{no_ask}）：不問使用者、不還原。照常把工作做完，收尾報告附上上表，"
+            "寫明「連鎖中止：連鎖改動沒有還原，等使用者決定」。")
 
 
 def _abort_head(ch: Chain, lead: str) -> str:
     no_ask = (ch.notice or {}).get("why") or ""
-    stop = "這一回合不再動手、只能讀檔" if no_ask else "使用者選之前，除了讀檔與 AskUserQuestion，其他工具一律先停手"
+    stop = "閘要的東西不用再補" if no_ask else "使用者選之前，除了讀檔與 AskUserQuestion，其他工具一律先停手"
     return f"[Guardian:{GATE}] {lead}：{_reason(ch)}。這一回合其餘閘只記錄不擋，不用再修補；{stop}。\n"
 
 

@@ -204,11 +204,17 @@ def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
 
 
 def test_same_tool_gate_twice_aborts(hk):
-    """紅案例：同一道工具前閘同回合第 2 次 → 第 2 次改送中止停手（不是原擋訊息），收尾擋一次送經過表。"""
+    """紅案例（C1）：同一道工具前閘原樣重試、中間沒動作 → 照那道閘原本的擋（不中止）；AI 動了別的手再撞同一道閘 → 改送中止停手
+    （不是原擋訊息），收尾擋一次送經過表。"""
     s = hk()
     f = s.proj / "data.txt"
     s.gates["DataFileAsk"] = True
     assert _deny_text(s.write(f, "a\n")).startswith("[Guardian:DataFileAsk]")
+    retry = s.write(f, "a\n")
+    assert _denied(retry) and _deny_text(retry).startswith("[Guardian:DataFileAsk]")       # 沒動作：交回閘自己
+    s.gates["DataFileAsk"] = False
+    assert not _denied(s.write(s.proj / "other.txt", "o\n"))                                # AI 動了手
+    s.gates["DataFileAsk"] = True
     second = s.write(f, "a\n")
     assert _denied(second) and _deny_text(second).startswith("[Guardian:ChainBreaker] 連鎖中止")
     assert "DataFileAsk 這一段第 2 次觸發" in _deny_text(second) and not f.exists()
@@ -217,20 +223,33 @@ def test_same_tool_gate_twice_aborts(hk):
 
 
 def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
-    """紅案例：headless 主 session 觸發 → 不叫 AI 問、只留帳；transcript 裡就算有答案也不還原不繼續；之後只能讀。"""
+    """紅案例（C2）：headless 主 session 觸發 → 不叫 AI 問、不停手：其餘閘只記錄、改檔照常、帳上有 alarm；transcript 裡就算有答案
+    也不還原不繼續。工具前閘上響的那一次照放，收尾擋一次送表、之後不再擋。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk()
     out, x, y = _depth2(s)
-    assert _blocked(out) and "無法互動" in out["reason"] and "收尾報告" in out["reason"]
+    assert _blocked(out) and "無法互動" in out["reason"] and "收尾報告" in out["reason"] and "照常" in out["reason"]
     assert "AskUserQuestion" not in out["reason"]
     s.answer(wc.OPT_RESTORE)
     s.gates["KnowledgeHarvest"] = True
     after = s.stop()
     assert not _blocked(after)
     assert x.read_text(encoding="utf-8") == "n = 2\n" and y.read_text(encoding="utf-8") == "o = 1\n"
-    halt = s.write(x, "n = 3\n")
-    assert _denied(halt) and "不再動手" in _deny_text(halt)
-    assert not {"answer", "restore", "reset"} & {r.get("type") for r in cs.read_rows(s.sid)}
+    assert not _denied(s.write(x, "n = 3\n")) and x.read_text(encoding="utf-8") == "n = 3\n"      # 不停手
+    s.gates["DataFileAsk"] = True
+    assert not _denied(s.write(y, "o = 2\n"))                                                     # 閘只記錄
+    kinds = {r.get("type") for r in cs.read_rows(s.sid)}
+    assert "alarm" in kinds and not {"answer", "restore", "reset", "halted"} & kinds
+    t = hk("sid-headless-tool")
+    f = t.proj / "d.txt"
+    t.gates["DataFileAsk"] = True
+    assert _denied(t.write(f, "a\n"))
+    t.gates["DataFileAsk"] = False
+    assert not _denied(t.write(t.proj / "e.txt", "e\n"))
+    t.gates["DataFileAsk"] = True
+    assert not _denied(t.write(f, "a\n")) and f.exists()                                          # 響的那一次照放
+    first = t.stop()
+    assert _blocked(first) and first["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止") and not _blocked(t.stop())
 
 
 def test_restore_puts_back_chain_segment_only(hk):
@@ -289,9 +308,10 @@ def test_release_also_releases_existing_gate(hk, monkeypatch):
 
 
 def _abort_by_kh(s: Session):
-    """知識收割擋兩次 → 中止（同一道閘第 2 次）。"""
+    """知識收割擋 → AI 改檔 → 知識收割再擋 → 中止（同一道閘第 2 次、中間有動作）。"""
     s.gates["KnowledgeHarvest"] = True
     assert _blocked(s.stop())
+    assert not _denied(s.write(s.proj / "kh.txt", "k\n"))
     assert s.stop()["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
     s.gates["KnowledgeHarvest"] = False
 
@@ -340,11 +360,25 @@ def test_subagent_stop_second_block_is_notice(monkeypatch):
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append(("block", msg)))
     monkeypatch.setattr(st, "output_nothing", lambda: outs.append(("pass", "")))
     cfg = copy.deepcopy(wg_core.load_config())
-    for _ in range(3):
+    for k in range(3):
         st.handle_subagent_stop({"hook_event_name": "SubagentStop", "session_id": "s-sub", "agent_id": "ag"}, cfg)
+        cs.action_done("s-sub", 4, "edit", "Edit", [], {"hook_event_name": "PostToolUse", "session_id": "s-sub",
+                                                         "agent_id": "ag", "tool_use_id": f"sub{k}"}, cfg)   # 子代理接著改檔
     kinds = [k for k, _ in outs]
     assert kinds[:2] == ["block", "block"] and kinds[-1] == "pass"
     assert "原擋訊息" in outs[0][1] and outs[1][1].startswith("[Guardian:ChainBreaker] 連鎖中止") and "子代理" in outs[1][1]
+
+
+def test_halt_covers_mcp_write_tools(hk):
+    """settings.json 的 PreToolUse 補掛 MCP 寫入工具之後，停手也擋得到：警報後 atom_write／need_goal 先停手；警報前照常放行。"""
+    s = hk()
+    ti = {"title": "x", "knowledge": "y"}
+    assert not _denied(s.pre("mcp__workflow-guardian__atom_write", ti))
+    _abort_by_kh(s)
+    for tool in ("mcp__workflow-guardian__atom_write", "mcp__workflow-guardian__atom_retire",
+                 "mcp__workflow-guardian__atom_edit_meta", "mcp__workflow-guardian__atom_move", "mcp__workflow-guardian__need_goal"):
+        out = s.pre(tool, ti)
+        assert _denied(out) and _deny_text(out).startswith("[Guardian:ChainBreaker] 連鎖中止中"), tool
 
 
 def test_failed_rerun_and_comment_only_are_recorded(hk):
@@ -367,17 +401,21 @@ def test_failed_rerun_and_comment_only_are_recorded(hk):
 
 
 def test_session_end_drops_snapshots(hk):
-    """SessionEnd：這個 session 的快照資料夾刪掉。"""
+    """SessionEnd：這個 session 的快照資料夾刪掉、7 天沒動的別 session 連鎖帳刪掉；這個 session 的帳留著。"""
+    import os
     s = hk()
     _depth2(s)
     snap_dir = cs._snap_dir(s.sid)
-    assert snap_dir.is_dir() and any(snap_dir.iterdir())
+    stale = cs.ledger_path("old-session")
+    stale.write_text("{}\n", encoding="utf-8")
+    os.utime(stale, (1000.0, 1000.0))
+    assert snap_dir.is_dir() and any(snap_dir.iterdir()) and cs.ledger_path(s.sid).exists()
     from handlers import session_end
     try:
         session_end.handle_session_end({"hook_event_name": "SessionEnd", "session_id": s.sid, "cwd": str(s.proj)}, s.cfg)
     except (Out, SystemExit):
         pass
-    assert not snap_dir.exists()
+    assert not snap_dir.exists() and not stale.exists() and cs.ledger_path(s.sid).exists()
 
 
 def test_v6_off_same_gate_twice_no_abort(hk, monkeypatch):
