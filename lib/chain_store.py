@@ -184,8 +184,8 @@ def _assistant(line: str) -> Optional[Dict[str, Any]]:
 
 def _batch(input_data: Dict[str, Any]) -> Tuple[str, str]:
     """CHAIN_SAME_BATCH 的批次鍵：這次工具呼叫所在那則 assistant 回覆「之前」最後一則 assistant 的 message.id；回 (鍵, 判不出的原因)。
-    為什麼取之前那則：CC 一則回覆串流完才整則寫進 transcript——平行一批的呼叫跑 hook 時，這一則一行都還沒落盤（第 0 步實測：
-    警報當下 transcript 只寫到這則之前）；只送一個呼叫的回覆則常已落盤。兩種都取「之前那則」，同一批才拿到同一個值：
+    為什麼取之前那則：CC 一則回覆串流完才整則寫進 transcript——平行一批的呼叫跑 hook 時，這一則一行都還沒落盤（實測：
+    批中觸發當下 transcript 只寫到這則之前）；只送一個呼叫的回覆則常已落盤。兩種都取「之前那則」，同一批才拿到同一個值：
     自己這次的 tool_use 已在 transcript → 從那行往前找第一個 message.id 不同的 assistant；還不在 → 取最後一則 assistant。
     判不出回 ("", 原因)，呼叫端照舊接邊：子代理（它的回覆不在主 transcript）、讀不到、尾段找不到 assistant、沒有 message.id。"""
     tid = str(input_data.get("tool_use_id") or "")
