@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: 驗收題組, 多題實測, 為什麼要測那麼多, 每組目的, 使用者親手跑, 開測通知, B5, 題型方向
+- Trigger: 多題實測, 為什麼要測那麼多, 每組目的, 使用者親手跑, 開測通知, 題型方向
 - Created-at: 2026-10-14
 - Source: session:242d1f2a#bc112cc0 2026-10-14
 - Quote: 「OK 有不同方向、那就沒問題；B5 q4 開了」
