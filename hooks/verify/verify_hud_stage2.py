@@ -80,6 +80,8 @@ def stop_run(monkeypatch):
         monkeypatch.setattr(st, name, val)
     monkeypatch.setattr(st, "append_guard_log", lambda kind, payload: logged.append((kind, payload)))
 
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測閘本身：當成寫碼回合（CODING_TURN_ONLY 的案在 verify_gate_trim）
+
     def run(capsys, state, text, ratio):
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: text)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
@@ -95,7 +97,6 @@ def stop_run(monkeypatch):
 def _landed_state(**extra):
     s = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": ["繼續"],
          "stop_blocked_count": 0, "turn_seq": 9, "turn_prompts": ["繼續"], "turn_prompts_seq": 9,
-         "turn_intent": "feature",                     # 寫碼回合才偵測退避語（CODING_TURN_ONLY）
          "anti_evasion_report": {"session_id": _SID, "turn_seq": 9, "k_followups": "[HUD] 第 2 階段的彈窗設定"}}
     s.update(extra)
     return s

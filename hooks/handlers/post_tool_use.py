@@ -854,6 +854,9 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         if is_ng:
             res = ng.apply_op(session_id, turn, tool_input, cwd)
             changed = False
+            if res["ok"] and res.get("kind") == "code" and (tool_input or {}).get("action") in ("set", "add", "update"):
+                state["need_goal_code_decl_turn"] = turn   # 規則 CODING_TURN_ONLY 第二層：本回合 LLM 宣告了寫碼樹
+                changed = True
             if res["goal_changed"]:
                 from wg_overview import on_goal_changed
                 changed = on_goal_changed(state, transcript_path, turn) > 0
@@ -1679,6 +1682,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if dirty:
         write_state(session_id, state)
     degraded = _hook_lap("寫 state")
+    if v6:                                       # 規則 CODING_TURN_ONLY：寫碼回合才寫計時帳；PreToolUse 看這裡建的標記
+        import wg_hook_timing
+        from wg_core import coding_turn
+        if coding_turn(state, config):
+            wg_hook_timing.mark_coding(session_id, True)
+        else:
+            wg_hook_timing.quiet()
 
     # ─── 跨 session late-collision（寫後補償；必須在 write_state 之後查——
     # 兩 session 同時首寫時，寫前掃描雙方都看不見對方，落盤後才可見）───

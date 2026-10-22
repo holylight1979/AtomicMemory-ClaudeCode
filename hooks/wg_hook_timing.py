@@ -15,6 +15,10 @@ UserPromptSubmit 已備好的注入）。PreToolUse 不登記：逾時被取消�
 資料根（WG_CLAUDE_DIR）沒有 settings.json 時讀程式碼根那份（掛 hook 的就是它）；都讀不到退 config hook_timing.fallback_limit_s。
 只計 fallback_limit_s 列到的事件（SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop）。
 起點是這個行程的建立時間（Windows 用 GetProcessTimes）；pythonw 啟動器殼本身的時間算不到，所以實際比 Claude Code 的計時略少。
+規則 CODING_TURN_ONLY：不是寫碼回合（wg_core.coding_turn）就不寫 kind=run 這筆計時帳（降級、快被取消的帳照記，降級保護照跑）。
+UserPromptSubmit、PostToolUse、Stop 判出不是寫碼回合就呼叫 quiet()；PreToolUse 沒有現成的 state，看標記檔
+workflow/hook-timing-coding/<sid>（PostToolUse 判出寫碼回合時 mark_coding 建、使用者新一則訊息時 UserPromptSubmit 刪），
+沒有就不記。
 用法：dispatcher 開頭 start(event, input_data, config)、結尾 finish()；handler 在段落邊界 `if lap("段名"): <寫 state、放行>`，
 或先 lap 再看 degraded() 決定下一段跑不跑。沒 start 過（單元測試直接呼叫 handler）lap 一律回 False、不記帳。
 """
@@ -27,7 +31,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from wg_core import CLAUDE_DIR, CODE_DIR, append_guard_log
+from wg_core import CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, append_guard_log
 
 GUARD = "hook_timing"
 ALARM_RATIO = 0.95                                   # 背景鬧鐘：跑到上限的這個比例還沒結束就先留帳
@@ -46,6 +50,7 @@ class HookTimer:
         self.alarm: Optional[threading.Timer] = None
         self.fallback: Optional[Callable[[], str]] = None    # 鬧鐘代送的 stdout（handler 登記）
         self.emitted = False                                  # 正常輸出或代送已占位
+        self.quiet = False                                    # 不是寫碼回合：結束時不寫 kind=run
 
     def overrun(self) -> None:
         """背景鬧鐘：到上限 95% 還沒 finish（某一段一路跑過頭、打不到點）→ 先留一筆 kind=overrun＋stderr；
@@ -201,6 +206,31 @@ def claim_output() -> None:
             _CUR.emitted = True
 
 
+def _mark_path(session_id: str):
+    from pathlib import Path
+    return Path(WORKFLOW_DIR) / "hook-timing-coding" / (session_id or "nosession")
+
+
+def mark_coding(session_id: str, on: bool) -> None:
+    """寫碼回合的標記檔（給 PreToolUse 結束時判）：on＝建、off＝刪；出錯只 stderr。"""
+    p = _mark_path(session_id)
+    try:
+        if on:
+            if not p.exists():
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("1", encoding="utf-8")
+        else:
+            p.unlink(missing_ok=True)
+    except OSError as e:
+        print(f"[Guardian:HookTiming] 寫碼回合標記{'建' if on else '刪'}不了：{e}", file=sys.stderr)
+
+
+def quiet() -> None:
+    """這次 hook 在非寫碼回合：結束時不寫 kind=run（規則 CODING_TURN_ONLY）。沒起表不做事。"""
+    if _CUR:
+        _CUR.quiet = True
+
+
 def finish() -> None:
     """hook 結束：最後一個點到現在記成「其餘」，寫一筆 kind=run；ended_after＝結束前最後打到的段名
     （Stop 某道閘擋下就直接返回，它那段的耗時落在「其餘」，看 ended_after 就知道是哪一段之後的那道閘）。"""
@@ -210,6 +240,8 @@ def finish() -> None:
         return
     if timer.alarm:
         timer.alarm.cancel()
+    if timer.quiet or (timer.event == "PreToolUse" and not _mark_path(timer.session_id).exists()):
+        return                                       # 規則 CODING_TURN_ONLY：非寫碼回合不寫計時帳
     ended_after = timer.segments[-1][0] if timer.segments else ""
     timer.segments.append(["其餘", int((time.time() - timer.last) * 1000)])
     rec = timer.record("run")

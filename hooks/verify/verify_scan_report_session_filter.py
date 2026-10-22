@@ -48,6 +48,8 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "_detect_uncommitted_files", lambda mf: [])
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測閘本身：當成寫碼回合（CODING_TURN_ONLY 的案在 verify_gate_trim）
+
     def drive(modified_files, capsys, **extra):
         state = {
             "phase": "working",
@@ -55,7 +57,6 @@ def driven(monkeypatch):
             "failing_tests": [],
             "recent_user_prompts": [],
             "stop_blocked_count": 0,
-            "turn_intent": "feature",   # 寫碼回合才查收尾檢核（CODING_TURN_ONLY）
         }
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)

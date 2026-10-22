@@ -518,7 +518,7 @@ const TOOL_DEFINITIONS = [
     name: "need_goal",
     description:
       "需求目標樹：每個要動手的需求先抓「真正要達成什麼」，工作中長出子目標，回頭對照做法有沒有更接近。" +
-      "set＝寫樹根（任務開始，寫整個需求、不只這回合先做的那段；被糾正或補充時改這棵樹、不開新樹；" +
+      "set＝寫樹根（任務開始，寫整個需求、不只這回合先做的那段；要改程式帶 kind=code；被糾正或補充時改這棵樹、不開新樹；" +
       "真的換成另一件事才帶 new_task=true 開新樹；import_from＝從續接單匯入；" +
       "看得出的子目標同一次放 items，不必再叫 add）；" +
       "add＝之後再長子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
@@ -544,6 +544,7 @@ const TOOL_DEFINITIONS = [
         action: { type: "string", enum: ["set", "add", "update", "reconcile", "read", "verify_scope"], description: "動作（必填）" },
         goal: { type: "string", description: "set：一句、使用者的語言、只寫目標不寫手段（沒給 import_from 時必填）" },
         new_task: { type: "boolean", description: "set：換成另一件事，開新樹" },
+        kind: { type: "string", enum: ["code", "knowledge"], description: "set：這件事要不要改程式（code＝寫碼類，宣告後本回合動手前的守門就起跑；knowledge＝記憶知識類）。沒給就等第一次改程式檔才標寫碼類" },
         why: { type: "string", description: "set／update：選填，為什麼改（有寫就記進節點歷史）" },
         import_from: { type: "string", description: "set：續接單路徑（從【需求目標樹】區塊匯入）" },
         parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },

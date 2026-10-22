@@ -2244,16 +2244,12 @@ RULES.update({
                           "出現在命中那一行 → 不標、不擋、留帳（guard log evasion_declared／deferral_declared）；理由要有文字內容、不是佔位。"
                           "說明句被詞表誤命中（「下個 session 開場會列出…」是在描述已驗過的事）→ 寫「不是退避｜<命中的詞或句>：因為 <理由>」"
                           "同樣只查有沒有理由、留帳。詞表各類的 exception 文字（風險、為什麼超出）附在提示裡給 LLM 寫理由用，程式不評理由內容。",
-    "USER_WAIVER_NEEDS_CITATION": "紅測清單的使用者豁免：近 3 則使用者原話含「先這樣／跳過／留著」不直接清掉紅測清單（退避偵測、退縮歸屬、"
-                                  "收割與收尾檢核不用引用：寫了「不做｜」行就留帳放行，收割與收尾檢核遇 dismiss 詞整批放行）。"
-                                  "LLM 要寫「不做｜<哪一件>：使用者說「<原句片段>」」且片段（至少 2 個中文或英數字，純標點不算；英文片段整詞比對）"
-                                  "真的出現在近 3 則使用者原話裡 → 只豁免事項指得到那一筆的（事項是失敗指令或摘要的一個"
-                                  "完整 token：整個 token、檔名、路徑或節點尾段；pytest 節點也認函式名、類別名與不帶副檔名的檔名；通用字不算）；"
-                                  "摘要逐支列出失敗（FAILED／ERROR 行）時每一支各自要有豁免，有一支沒有整筆照算紅。"
-                                  "紅測豁免一成立就記帳（state testfail_waivers：事項、原句、那一則原話、豁免到的那幾支；留帳 testfail_waived 與 "
-                                  "deferral_declared），之後同 session 同一支（記帳那時的同一個節點；摘要沒列節點的比同一條指令）看帳、不看近 3 則窗口，"
-                                  "但收尾仍要有對到它的不做行；使用者在記帳之後又提到這一支 → 帳不算，以新的話為準（回到近 3 則引用判）。"
-                                  "沒引用、引用找不到、帳上沒有 → 照判。",
+    "USER_WAIVER_NEEDS_CITATION": "紅測清單的使用者豁免（名稱沿用）：近 3 則使用者原話含「先這樣／跳過／留著」不直接清掉紅測清單；"
+                                  "LLM 寫「不做｜<哪一支>：使用者說「<原句片段>」」就留帳放行，原句不再比對使用者原話（事後抽查）。"
+                                  "只豁免事項指得到那一筆的（事項是失敗指令或摘要的一個完整 token：整個 token、檔名、路徑或節點尾段；"
+                                  "pytest 節點也認函式名、類別名與不帶副檔名的檔名；通用字不算）；摘要逐支列出失敗（FAILED／ERROR 行）時每一支"
+                                  "各自要有豁免，有一支沒有整筆照算紅。豁免一成立就記帳（state testfail_waivers；留帳 testfail_waived 與 "
+                                  "deferral_declared），之後同 session 同一支看帳，但收尾仍要有對到它的不做行；使用者在記帳之後又提到這一支 → 帳不算。",
     "RED_ITEMS_ONLY_FROM_FAILURE_LINES": "紅測的失敗項只從失敗行取：pytest 摘要 FAILED／ERROR 開頭的節點行（扣掉之後的綠已跑到的 "
                                          "cleared_units）；沒有節點行時只認行首 FAIL／FAILED／ERROR 的行（unittest、go、jest）"
                                          "加上指令點名的案例檔。指令裡 # 開頭的註解行（AI 自己寫的不做行）、git 輸出、Exit code 行都不是失敗項，"
@@ -2663,14 +2659,15 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
                     ledger: Sequence[Dict[str, Any]] = (), history: Sequence[str] = ()
                     ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], Dict[str, Any]]]]:
     """USER_WAIVER_NEEDS_CITATION 套在紅測清單：回 (還算紅的, [(被豁免的那筆, 對上的不做行＋via＋units)])。
-    豁免條件：不做行的事項指得到那支失敗（names_failed_test；通用字不算），而且引用在近 3 則原話裡（via＝quote）；或本 session
+    豁免條件：不做行的事項指得到那支失敗（names_failed_test；通用字不算），而且寫了「使用者說「…」」（via＝quote；原句不再
+    比對近 3 則原話，留帳抽查）；或本 session
     帳上（ledger＝state testfail_waivers，豁免成立時記的）有同一支的豁免（via＝ledger：引用看帳、不看窗口）。
     摘要逐支列出失敗（failed_units）時每一支各自要有豁免，有一支沒有整筆照算紅；沒列出就整筆（指令＋摘要）當一支。
     帳只認記帳那時的同一支（_booked_for），而且使用者在那之後沒再提到這支（waiver_mentioned_since；history＝近幾則原話，預設
     prompts；提到了就以新的話為準，回到引用窗口判；stop 每次收尾也把這種帳從 state 拿掉，免得那則原話擠出近 5 則後帳又活回來）；
     帳不自動放：收尾仍要有對到那一支的不做行。"""
     lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
-    cited = [d for d in lines if d["quote"] and quote_in_prompts(d["quote"], prompts)]
+    cited = [d for d in lines if d["quote"]]       # 引用不再比對近 3 則原話：寫了就留帳放行（原句照記、事後抽查）
     hist = list(history or prompts)
     live = [e for e in ledger or () if not waiver_mentioned_since(e, hist)]
     kept: List[Dict[str, Any]] = []
@@ -2694,8 +2691,8 @@ def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str,
 def waiver_miss_notes(kept: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], prompts: Sequence[str],
                       ledger: Sequence[Dict[str, Any]] = ()) -> List[str]:
     """RED_ITEMS_ONLY_FROM_FAILURE_LINES：還算紅的那幾筆為什麼沒豁免（不說的話 AI 只看到又被擋，會以為是名字沒對上）：
-    不做行對到了某支、引用卻不在近 3 則原話（帳上也沒有）→ 說是哪一支、引了哪句；帳上有這支的豁免、這次收尾卻沒寫對到它的不做行
-    → 給那一行照抄（帳不自動放）。"""
+    不做行對到了某支、卻只寫了 AI 自己的理由（沒有「使用者說「…」」）→ 說是哪一支、要怎麼寫；帳上有這支的豁免、這次收尾卻沒寫
+    對到它的不做行 → 給那一行照抄（帳不自動放）。"""
     out: List[str] = []
     lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
     for f in kept:
@@ -2705,11 +2702,11 @@ def waiver_miss_notes(kept: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, 
             e = next((e for e in ledger or () if _booked_for(e, u, listed, str(f.get("cmd", "")))), None)
             if named and e:
                 continue                         # 這支照帳豁免了，整筆還紅是因為別支
-            d = next((d for d in named if d.get("quote") and not quote_in_prompts(d["quote"], prompts)), None)
+            d = next((d for d in named if not d.get("quote")), None)
             line = ""
             if d:
-                line = (f"不做行「{d['item'][:60]}」對到了 {u[:100]}，但引用的「{d['quote'][:40]}」不在近 3 則使用者原話裡、帳上也沒有"
-                        "這支的豁免：使用者早先說過的話要他再說一次，或照 (b)(c) 處理")
+                line = (f"不做行「{d['item'][:60]}」對到了 {u[:100]}，但只寫了自己的理由：紅測要使用者說了才豁免，寫成"
+                        f"「不做｜{d['item'][:60]}：使用者說「<原句>」」，或照 (b)(c) 處理")
             elif not named and e:
                 line = (f"帳上有 {u[:100]} 的豁免（使用者說「{str(e.get('quote') or '')[:40]}」），這次收尾沒寫對到它的不做行："
                         f"補一行「不做｜{str(e.get('item') or '')[:60]}：使用者說「{str(e.get('quote') or '')[:40]}」」就放行")
@@ -3473,7 +3470,7 @@ def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_si
     if not triggers:
         return Verdict(rule, False, "改動沒過大任務門檻、也沒改到高風險部位")
     if not edited_since_ok:
-        return Verdict(rule, False, "上次滿足第二意見之後沒有再改程式")
+        return Verdict(rule, False, "上次第二意見之後的修改沒改到新的高風險部位、新改的程式檔也沒過門檻（採納意見的修改不再要一輪）")
     ran = [(j, s) for j, s in runs if s in SO_RAN]
     missing = second_opinion_section_missing(text)
     if ran and not missing:

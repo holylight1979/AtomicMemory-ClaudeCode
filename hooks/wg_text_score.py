@@ -130,7 +130,9 @@ def on_stop(state: Dict[str, Any], session_id: str, reply: str, mods: List[Dict[
                 tasks.append({"kind": "final_reply", "text": reply})
                 keys.append(f"reply:{sha}")
                 mine["code_reply_turn"] = user_turn      # 這個使用者回合評過了（_reply_in_scope 一回合一則）
-        for path in _turn_docs(mods, session_id, turn):
+        # 文件也只在交付改程式那則評（code_reply；reply_scope=all 退回每回合都評）：純文件回合不是寫碼回合，不評
+        docs_on = code_reply or _cfg(config).get("reply_scope", "code_change") == "all"
+        for path in _turn_docs(mods, session_id, turn) if docs_on else []:
             key = f"doc:{path}:{Path(path).stat().st_mtime_ns}"
             if key not in sent:
                 tasks.append({"kind": "docs", "path": path})

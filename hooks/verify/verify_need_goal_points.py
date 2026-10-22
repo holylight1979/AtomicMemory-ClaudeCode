@@ -401,12 +401,12 @@ def test_user_prompt_does_not_trigger_external_claim(world, ups_wired):
 
 
 def test_user_correction_prompt_is_correction_not_external_claim(world, ups_wired, monkeypatch):
-    """使用者本人打的糾正（寫碼回合）：只送糾正提醒，不當成外部主張（外部主張只認審查結果）。"""
+    """使用者本人打的糾正：不當成外部主張（外部主張只認審查結果）；剛打字時還不是寫碼回合，回頭看目標樹的糾正提醒也不送。"""
     import wg_friction
     make_tree()
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: ["不對"])
     ctx = ups_wired("不對，請把 hooks/a.py 的 X 改成 Y，修這個 bug")
-    assert "使用者糾正了" in ctx and "收到外部主張" not in ctx
+    assert "收到外部主張" not in ctx and "使用者糾正了" not in ctx
 
 
 def test_review_report_in_batch_triggers_and_plain_or_inbox_read_does_not(world, tmp_path):
@@ -607,7 +607,7 @@ def test_pre_tool_use_handler_blocks_then_passes_and_marks(world):
 
 def test_ask_block_count_flows_from_pre_tool_use_to_batch_audit(world):
     """真 hook 入口串起來：PreToolUse 擋一次 state 計數 1；補上推薦那題在 PostToolBatch 審計記「擋過 1 次、掛 T1.1」並歸零。"""
-    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, "turn_intent": "feature", **READ})
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, "need_goal_code_decl_turn": 3, **READ})
     make_tree("code")
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "tu1"), {})
     assert wg_core.read_state(SID).get("need_goal_ask_blocks") == 1
@@ -702,7 +702,7 @@ def test_batch_and_resume_entries_follow_project_layer(world, tmp_path, enabled,
     """批次審計（PostToolBatch 事後提醒）、壓縮後重送：都照這次的 cwd 解設定。根關專案開 → 照做；根開專案關 → 都不做。"""
     root = _layered_proj(tmp_path, enabled)
     make_tree("code")
-    wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 2, "turn_intent": "feature", **READ})
+    wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 2, "need_goal_code_decl_turn": 2, **READ})
     inp = {"session_id": SID, "hook_event_name": "PostToolBatch", "cwd": str(root),
            "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ask_opts("要哪個？", ["A", "B"]),
                            "tool_use_id": "lay1"}]}
@@ -716,7 +716,7 @@ def test_post_tool_batch_handler_emits_scope_and_after_ask(world):
     make_tree("code")
     ngp.scope_growth_line(SID, "c:/p|a", CFG)
     ngp.scope_growth_line(SID, "c:/p|b", CFG)
-    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2, "need_goal_batch": True, "turn_intent": "feature",
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2, "need_goal_batch": True, "need_goal_code_decl_turn": 2,
                               **READ})
     inp = {"session_id": SID, "hook_event_name": "PostToolBatch",
            "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ask_opts("要哪個？", ["A", "B"]),
@@ -831,7 +831,7 @@ def test_post_tool_use_read_records_parts_and_dirs_with_hub_on(proj, tmp_path, m
     """OverviewHub 開著（寫碼回合）：第二個部位起排進待送、跨 3 個頂層目錄排一次，導讀卡照樣注入。"""
     make_tree()
     cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 2, "turn_intent": "feature", "session": {"id": SID, "cwd": str(proj)}}
+    state = {"turn_seq": 2, "need_goal_code_decl_turn": 2, "session": {"id": SID, "cwd": str(proj)}}
     ctx = _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Battle/A.cs"), str(proj), cfg)
     assert ctx and "戰鬥導讀" in ctx and not state.get("need_goal_batch")   # 第一個部位、第一個目錄：不排
     _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Net/B.cs"), str(proj), cfg)

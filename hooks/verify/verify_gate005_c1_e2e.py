@@ -133,7 +133,7 @@ def test_c1_waiver_booked_on_turn2_and_released_on_turn7_only_for_erp(replay, ca
     t7 = [s for s in stops if s["turn"] == 7]
     assert _red(t7[0]) and "帳上有" in t7[0]["out"] and _C1_LINE in t7[0]["out"], t7[0]["out"][:600]
     assert not any(_red(s) for s in t7[1:]), [s["out"][:400] for s in t7[1:] if _red(s)]
-    assert all(_waived(s, "ledger") for s in t7[1:]), "原話已不在近 3 則，照帳放行"
+    assert all(_waived(s, "quote") or _waived(s, "ledger") for s in t7[1:]), "寫了不做行就放行（引用不再比對近 3 則）"
     # 第 6 回合回答使用者的問題時宣告完成、沒寫不做行：ERP 那支還紅，同樣照擋並給那一行（舊碼這時紅已被 3 支測試檔的綠誤清）
     t6 = [s for s in stops if s["turn"] == 6]
     assert t6 and _red(t6[0]) and _C1_LINE in t6[0]["out"]
@@ -169,8 +169,9 @@ def test_green_shrinks_red_per_case_and_a_new_red_is_not_masked():
     assert [rr.red_units(f) for f in state["failing_tests"]] == [[a]], state["failing_tests"]
 
 
-def test_c1_without_ledger_turn7_blocks_with_erp_node_and_why(replay, capsys):
-    """拿掉帳（舊碼第 2 回合記不到帳的情況）：第 7 回合照擋；擋訊息列 ERP 節點並說引用不在近 3 則，不再列 Untracked files:。"""
+def test_c1_without_ledger_turn7_line_still_releases(replay, capsys):
+    """拿掉帳：第 7 回合第一次收尾沒寫不做行照擋（擋訊息列 ERP 節點，不列 Untracked files:）；之後寫了「不做｜…：使用者說「…」」
+    的那幾次放行——引用不再比對近 3 則原話（USER_WAIVER_NEEDS_CITATION 只看不做行，留帳抽查）。"""
     replay.capsys = capsys
 
     def drop_ledger(state, turn, _n):
@@ -179,7 +180,5 @@ def test_c1_without_ledger_turn7_blocks_with_erp_node_and_why(replay, capsys):
 
     stops, _ = replay(drop_ledger)
     t7 = [s for s in stops if s["turn"] == 7]
-    assert t7 and all(_red(s) for s in t7), "前置：沒帳、原話不在近 3 則 → 四次收尾都擋（真實紀錄擋了兩次後被 3 支測試檔的綠放掉）"
-    for s in t7[1:]:                            # 寫了不做行的那幾次
-        msg = s["out"]
-        assert ERP in msg and "不在近 3 則" in msg and "Untracked files" not in msg and "Exit code 1" not in msg, msg[:900]
+    assert t7 and _red(t7[0]) and ERP in t7[0]["out"] and "Untracked files" not in t7[0]["out"], t7[0]["out"][:600]
+    assert not any(_red(s) for s in t7[1:]), [s["out"][:400] for s in t7[1:] if _red(s)]

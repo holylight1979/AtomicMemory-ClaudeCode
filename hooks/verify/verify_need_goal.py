@@ -772,7 +772,8 @@ def test_ups_handler_puts_goal_line_before_hub(env, monkeypatch):
     monkeypatch.setattr(wo, "on_prompt", lambda *a, **k: "[Guardian:OverviewHub] HUB")
     ups.handle_user_prompt_submit({"session_id": SID, "prompt": "幫我加一個匯出功能", "transcript_path": ""}, {"sync_keywords": []})
     ctx = outputs[0]["hookSpecificOutput"]["additionalContext"]
-    assert ng.HINT_LINE in ctx and ctx.index(ng.HINT_LINE) < ctx.index("HUB")
+    # 還沒宣告寫碼樹、也還沒改程式：目標樹提示不送；關鍵字判寫碼只送一行「先立樹」，排在導讀卡之前（CODING_TURN_ONLY 第三層）
+    assert ng.HINT_LINE not in ctx and ng.CODE_TREE_HINT in ctx and ctx.index(ng.CODE_TREE_HINT) < ctx.index("HUB")
     assert _doc()["said_log"][-1]["turn"] == 5                               # 這則的回合號＝turn_seq＋1
 
 
@@ -1605,10 +1606,6 @@ def test_render_compact_respects_limit(env):
     assert len(text) <= 520 and "其餘" in text
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
-
-
 def test_goal_gate_switch_off_skips_delivery_and_commit_checks(env):
     """收尾瘦身：reconcile_gate.goal_gate=false → 收尾的需求目標對照 (f1)(f2)(f3)、知識類輕樹 (f4)、commit 前的目標對照都不擋；
     目標樹照記，改檔前要有樹、提問要掛節點不歸這個開關。前置：同一棵樹預設照擋。舊碼不認這個鍵 → 紅。"""
@@ -1618,3 +1615,9 @@ def test_goal_gate_switch_off_skips_delivery_and_commit_checks(env):
     assert ng.commit_gate(SID, off) is None
     assert ng.goal_gate_reason(SID, True, off) is None
     assert ng.knowledge_gate_reason(SID, True, off, 5) is None
+
+
+if __name__ == "__main__":
+    rc = pytest.main([__file__, "-q", "-p", "no:cacheprovider"])
+    print("NEED_GOAL_CHECK PASS" if rc == 0 else "NEED_GOAL_CHECK FAIL")
+    sys.exit(0 if rc == 0 else 1)

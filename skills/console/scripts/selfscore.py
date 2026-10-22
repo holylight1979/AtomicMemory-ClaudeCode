@@ -9,9 +9,9 @@
 帳本不是卡：不注入、不過期；從帳本淬鍊出的判準才寫卡。session 預設取 Claude Code 給工具子行程的 CLAUDE_CODE_SESSION_ID。
 
 怎麼跑：
-  python tools/selfscore.py --ask --g G8
-  python tools/selfscore.py --g G8 --score 7 --basis commit:6e3fced4 --basis "第二波 A′ 判分" --why "…" --rater 總控台
-  python tools/selfscore.py --summary [--days 30] [--json] [--logs <Logs 目錄>]
+  python skills/console/scripts/selfscore.py --ask --g G8
+  python skills/console/scripts/selfscore.py --g G8 --score 7 --basis commit:6e3fced4 --basis "第二波 A′ 判分" --why "…" --rater 總控台
+  python skills/console/scripts/selfscore.py --summary [--days 30] [--json] [--logs <Logs 目錄>]
 尾行：問 `SELFSCORE DONE asked=1 cards=<判準卡張數>`；答 `SELFSCORE DONE recorded=1 unanswered=<沒答欄數>`；
 統計 `SELFSCORE DONE gs=<有帳的 G 數> records=<筆數> unanswered=<有沒答欄的筆數>`。exit 0（沒資料也 0）。
 完整參數以 --help 為準。
@@ -31,7 +31,7 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+CODE_DIR = Path(__file__).resolve().parents[3]   # 程式碼根（本檔在 skills/console/scripts/）
 if str(CODE_DIR / "hooks") not in sys.path:
     sys.path.insert(0, str(CODE_DIR / "hooks"))
 
@@ -77,7 +77,7 @@ def ask_text(g: str, spec: Optional[Dict[str, Any]]) -> str:
         lines += [f"- {r}" for r in spec["rubric"]] or ["- （卡的知識段是空的）"]
     lines.append(f"可用證據：{EVIDENCE}")
     lines.append("要答三件事：幾分（0～10）、依據哪些材料、為什麼。答完跑："
-                 f"python tools/selfscore.py --g {g} --score <0～10> --basis <材料>（可重複）--why \"<理由>\" --rater <總控台／軌名>")
+                 f"python skills/console/scripts/selfscore.py --g {g} --score <0～10> --basis <材料>（可重複）--why \"<理由>\" --rater <總控台／軌名>")
     return "\n".join(lines)
 
 

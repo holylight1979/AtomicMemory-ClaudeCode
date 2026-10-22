@@ -1,7 +1,7 @@
-"""verify_selfscore.py：tools/selfscore.py（自檢評分，切入點 E36）——答一筆讀得回來、缺欄位記「沒答」不擋、summary 算得對、
---ask 印評分尺並記問的帳、登錄表有這一列且回應型推得出 judged。
+"""verify_selfscore.py：skills/console/scripts/selfscore.py（自檢評分，總控台用的開發期工具）——答一筆讀得回來、缺欄位記「沒答」不擋、
+summary 算得對、--ask 印評分尺、不在產品切入點登錄表。
 
-怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_selfscore.py
+怎麼跑：python -X utf8 -m pytest -q skills/console/verify/verify_selfscore.py
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "hooks"))
 
 import wg_entrypoint as ep  # noqa: E402
@@ -22,7 +22,7 @@ TAIL = re.compile(r"^SELFSCORE DONE( \w+=\S+)+$")
 
 
 def _tool():
-    spec = importlib.util.spec_from_file_location("selfscore_ut", ROOT / "tools" / "selfscore.py")
+    spec = importlib.util.spec_from_file_location("selfscore_ut", ROOT / "skills" / "console" / "scripts" / "selfscore.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

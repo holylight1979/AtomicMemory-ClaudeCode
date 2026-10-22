@@ -175,12 +175,13 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
     monkeypatch.setattr(st, "estimate_context_usage", lambda *a, **k: 0.3)
 
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測閘本身：當成寫碼回合（CODING_TURN_ONLY 的案在 verify_gate_trim）
+
     def drive(last_text, capsys, **extra):
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: last_text)
         state = {
             "phase": "working", "modified_files": [], "failing_tests": [],
             "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 7,
-            "turn_intent": "feature",                     # 寫碼回合才查退縮語（CODING_TURN_ONLY）
         }
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)

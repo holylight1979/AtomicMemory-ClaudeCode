@@ -397,9 +397,44 @@ def test_satisfied_then_next_turn_without_edits_not_required(drive, capsys, tmp_
     state.update(turn_seq=6, turn_prompts_seq=6)
     reason, _, logs = drive(DONE, capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
-    state["modified_files"][0]["last_turn_seq"] = 6
+
+
+def test_once_per_claim_adopting_opinion_edits_not_owed_again(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_ONCE_PER_CLAIM：審過之後為採納意見再改（改的是審過的檔、也沒過門檻）→ 不再欠第二次
+    （舊碼：上次滿足之後又改了程式就再要一輪，採納 → 再改 → 再欠，連鎖不停 → 紅）。"""
+    files = _files(tmp_path, 5)
+    drive.tx.opinion("done")
+    _, state, _ = drive(FOUR, capsys, files=files)
+    assert state["second_opinion_ok"][SID] == 5
+    drive.tx.user("照 codex 的意見改一行")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    state["modified_files"][0]["last_turn_seq"] = 6                     # 採納意見改了審過的其中一檔
     reason, _, _ = drive(DONE, capsys, state=state)
-    assert "[Guardian:SecondOpinion]" in reason, "上次滿足之後又改了程式 → 再要求（本回合窗口裡沒有新的 run）"
+    assert "[Guardian:SecondOpinion]" not in reason
+
+
+def test_once_per_claim_new_risky_part_or_new_files_over_threshold_owed(drive, capsys, tmp_path):
+    """審過之後改到新的高風險檔 → 才再欠；再改審過的那個高風險檔不欠；之後新改的程式檔數再過門檻也再欠。"""
+    root = _repo(tmp_path, {"hooks/wg_release_rules.py": _lines(3), "hooks/wg_second_opinion.py": _lines(3)})
+    rr_file, so_file = root / "hooks/wg_release_rules.py", root / "hooks/wg_second_opinion.py"
+    drive.tx.opinion("done")
+    _, state, _ = drive(FOUR, capsys, files=[rr_file])
+    assert state["second_opinion_cover"][SID]["risky"]
+    drive.tx.user("採納：再改 wg_release_rules")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    state["modified_files"][0]["last_turn_seq"] = 6
+    assert "[Guardian:SecondOpinion]" not in drive(DONE, capsys, state=state)[0]   # 審過的高風險檔：不欠
+    drive.tx.user("另外改 wg_second_opinion")
+    state.update(turn_seq=7, turn_prompts_seq=7)
+    state["modified_files"].append(_mf(so_file, 7))
+    assert "[Guardian:SecondOpinion]" in drive(DONE, capsys, state=state)[0]       # 新的高風險檔：再欠
+    files = _files(tmp_path, 5)
+    drive.tx.opinion("done")
+    _, st2, _ = drive(FOUR, capsys, files=files)
+    drive.tx.user("又做一大批")
+    st2.update(turn_seq=6, turn_prompts_seq=6)
+    st2["modified_files"] += [_mf(p, 6) for p in _files(tmp_path, 4, sub="proj/other")]
+    assert "[Guardian:SecondOpinion]" in drive(DONE, capsys, state=st2)[0]         # 之後新改的檔數再過門檻：再欠
 
 
 def test_earlier_gate_block_previews_second_opinion(drive, capsys, tmp_path):

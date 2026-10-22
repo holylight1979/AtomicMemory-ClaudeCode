@@ -23,7 +23,7 @@
       "pretool_hint": "PreToolUse 的 additionalContext 提醒（只提醒、不擋）：提問前提醒與一般警告段",
       "post_tool_hint": "PostToolUse／PostToolBatch 的提醒（非 MCP 工具；本契約不接）",
       "local_llm": "程式自己呼叫本地 LLM（不經 session；本契約不接）",
-      "tool_cli": "AI 自己跑的本系統命令列工具印給它的問題（例：tools/selfscore.py --ask 印評分尺要它答）"
+      "tool_cli": "AI 自己跑的本系統命令列工具印給它的問題（目前沒有接卡的）"
     },
     "not_entrypoints": "RULES 裡確定不是問 LLM 的規則（判法定義、自動退路、讀寫判定、收件檢查）。健檢列出「既沒登錄、也不在這裡」的規則名，只列不擋。"
   },

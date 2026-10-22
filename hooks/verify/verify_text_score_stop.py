@@ -379,7 +379,7 @@ def test_stop_calls_on_stop_before_gates_with_own_files(world, tmp_path, monkeyp
             raise _Stop
         return False
     cfg = {"text_score": {"enabled": True}}
-    state = {"phase": "working", "turn_seq": 7, "failing_tests": [], "session": {"cwd": str(tmp_path)}, "turn_intent": "feature",
+    state = {"phase": "working", "turn_seq": 7, "failing_tests": [], "session": {"cwd": str(tmp_path)}, "need_goal_code_decl_turn": 7,
              "modified_files": [{"path": "mine.md", "session_id": SID, "last_turn_seq": 7},
                                 {"path": "peer.md", "session_id": "別的", "last_turn_seq": 7}]}
     for name, fn in (("_ensure_state", lambda *a, **k: state), ("_find_session_transcript", lambda *a, **k: None),

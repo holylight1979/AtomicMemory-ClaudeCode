@@ -218,23 +218,26 @@ def v6_enabled(config: Dict[str, Any]) -> bool:
 
 
 # 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算
-CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
-
-
 def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> bool:
-    """規則 CODING_TURN_ONLY：這個使用者回合有寫碼意圖——使用者本人這則的 turn_intent 是寫碼類，或這個使用者回合已經改過程式
-    （關鍵字分類漏判「把 X 改成 Y」這類，改了程式就一定算；程式照 wg_need_goal.writes_code 判，.bat／.cmd 也算；只改文件不算）；
-    判不出寫入目標的指令（unknown_writes，放行留帳的那種）不知道改了什麼，保守當成改過程式。
-    v6 的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；
-    v6 以前就有的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config v6.coding_turn_only=false 退回每回合都啟動。"""
+    """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合，三層：
+    ① 實質行為（最高位）：這個使用者回合已經有改程式檔的工具行為——Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔
+       （modified_files 有一筆，程式照 wg_need_goal.writes_code 判，.bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令
+       （unknown_writes，不知道寫了什麼，保守算）。
+    ② 改碼之前的入口：本使用者回合 LLM 呼叫了 need_goal set／add／update，而且那棵樹是寫碼類（state need_goal_code_decl_turn）。
+       樹只是前幾回合留著、本回合沒宣告不算。
+    ③ 使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定要不要送一行「要改碼先立樹」（wg_need_goal.CODE_TREE_HINT）與記憶選片。
+    判錯會漏的：LLM 沒立樹就直接改碼，動手前的守門晚到第一次改程式檔才啟動（由 ① 補上）。
+    v6 的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；v6 以前就有的
+    處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config v6.coding_turn_only=false 退回每回合都啟動。"""
     st = state or {}
     if ((config or {}).get("v6") or {}).get("coding_turn_only", True) is False:
-        return True
-    if st.get("turn_intent") in CODE_INTENTS:
         return True
     v = st.get("turn_prompts_seq")
     since = int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(st.get("turn_seq", 0) or 0)
     if any(isinstance(u, dict) and int(u.get("turn_seq") or 0) >= since for u in st.get("unknown_writes") or []):
+        return True
+    d = st.get("need_goal_code_decl_turn")
+    if isinstance(d, int) and not isinstance(d, bool) and d >= since:
         return True
     from wg_need_goal import writes_code
     return any(isinstance(m, dict) and int(m.get("last_turn_seq") or m.get("turn_seq") or 0) >= since
@@ -2715,12 +2718,14 @@ def check_cross_realm_bash(
     # 規則 GIT_READONLY_SUBCMD：根層上下文裡有 git（不論寫入訊號 regex 有沒有列到那個子命令：hash-object -w、worktree add、
     # branch -m 這類也算）或有寫入訊號時，每段 git 都要是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、
     # ls-files、cat-file…）、且算得出的寫入目標沒有落在根層核心路徑（重導到 scratchpad 可以）→ 放行；
-    # 目標不明（UNKNOWN）、任一目標在根層、任一段 git 會寫 → 照擋並留 guard-crossrealm.jsonl。
+    # 任一目標在根層、任一段 git 會寫 → 照擋並留 guard-crossrealm.jsonl；目標判不出（UNKNOWN、PowerShell 換過目錄的相對目標）
+    # → 放行並留帳（規則 UNKNOWN_TARGET_LOGGED，event=unknown_allowed）。
     # 「每段 git」只算 repo 在根層的（Bash：cd 到專案 repo 之後的 git archive 不算）；掃描器看不全就照舊每段都算
     from wg_release_rules import git_readonly_verdict
     targets = _shell_write_paths(scan)
-    root_targets = [t for t in targets if t.startswith(_WRITE_TARGET_UNKNOWN) or _ROOT_CORE_PATH_RE.search(t)
-                    or _is_core_session(t) is True]
+    unknown = [t for t in targets if t.startswith(_WRITE_TARGET_UNKNOWN)]
+    root_targets = [t for t in targets if not t.startswith(_WRITE_TARGET_UNKNOWN)
+                    and (_ROOT_CORE_PATH_RE.search(t) or _is_core_session(t) is True)]
     git_segs = _root_git_segments(scan, cmd) if has_git and scan and not scan.ps else None
     if git_segs is not None:
         has_git = bool(git_segs)
@@ -2729,8 +2734,10 @@ def check_cross_realm_bash(
     ps_cd = tool_name == "PowerShell" and re.search(r"\b(?:Set-Location|Push-Location|sl|cd|chdir|pushd)\b", cmd, re.IGNORECASE)
     if not has_git and not root_targets and not ps_cd and verdict.owed:
         verdict = verdict._replace(owed=False, why="沒有 git、寫入目標也不在根層", evidence=tuple(str(t)[:60] for t in targets[:3]) or ("無目標",))
-    if ps_cd and verdict.owed is False and not has_git:
-        verdict = verdict._replace(owed=True, why="PowerShell 換過目錄，相對寫入目標算不準", evidence=("Set-Location／Push-Location 後的寫入",))
+    if (unknown or ps_cd) and not verdict.owed:
+        append_guard_log("crossrealm", {"cwd": cwd, "session_id": session_id, "cmd": cmd[:200], "event": "unknown_allowed",
+                                        "rule": "UNKNOWN_TARGET_LOGGED", "allowed": True,
+                                        "targets": unknown[:3] or ["PowerShell 換過目錄的相對目標"]})
     if not verdict.owed:
         print(f"[Guardian:CrossRealmBashBlock] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}",
               file=sys.stderr)

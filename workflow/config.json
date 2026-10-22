@@ -2,7 +2,7 @@
   "atom_debug": false,
   "enabled": true,
   "v6": {
-    "_doc": "v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。本機要開設環境變數 WG_V6=1，或在 workflow/config.local.json（不進版控）寫 {\"v6\": {\"enabled\": true}}；WG_V6=0 強制關。coding_turn_only（沒寫＝true）：v6 每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（有寫碼意圖、改過程式、或收尾宣告完成；只改文件、純問答不算），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
+    "_doc": "v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。本機要開設環境變數 WG_V6=1，或在 workflow/config.local.json（不進版控）寫 {\"v6\": {\"enabled\": true}}；WG_V6=0 強制關。coding_turn_only（沒寫＝true）：v6 每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或本回合 need_goal 宣告了寫碼樹（set kind=code／add／update）；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算、只送一行先立樹，只改文件、純問答不算；非寫碼回合也不寫 hook 計時帳），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
     "enabled": false
   },
   "stop_gate_max_blocks": 2,

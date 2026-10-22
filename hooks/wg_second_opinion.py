@@ -7,7 +7,10 @@
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
   check          上面的事實交給 wg_release_rules.second_opinion_verdict，回 (Verdict, 事實)；事實的 satisfied＝這次滿足了
-                 （跑過或宣告不需），Stop 據此記 second_opinion_ok[sid]，之後沒再改程式不再要求。
+                 （跑過或宣告不需），Stop 據此 mark_ok。
+  mark_ok        滿足或使用者放行時記 second_opinion_ok[sid]＝回合、second_opinion_cover[sid]＝那時改過的高風險檔；
+                 之後的修改（多半是採納意見）只有改到新的高風險檔、或之後新改的程式檔數再過門檻才再要求（規則
+                 SECOND_OPINION_ONCE_PER_CLAIM：不准「採納意見再改碼 → 又欠一次」的連鎖）。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_g9_second_opinion.py
 """
 from __future__ import annotations
@@ -315,15 +318,27 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     if not claims_done or not paths:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     ok_turn = int(((state.get("second_opinion_ok") or {}).get(session_id)) or 0)
-    fresh = ok_turn == 0 or any(_mod_turn(m) > ok_turn for m in code)
     risky = risky_paths(paths, list(cfg.get("risky_prefixes") or []))
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
+    covered = set(((state.get("second_opinion_cover") or {}).get(session_id) or {}).get("risky") or [])
+    after = {rr.canon_path(m["path"]) for m in code if _mod_turn(m) > ok_turn}
+    new_risky = [p for p in risky if rr.canon_path(p) in after and rr.canon_path(p) not in covered]
+    # 規則 SECOND_OPINION_ONCE_PER_CLAIM：審過之後的修改只在改到新的高風險檔、或之後新改的程式檔數再過門檻時才算新一輪
+    fresh = ok_turn == 0 or bool(new_risky) or len(after) >= min_files
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)
     triggers = rr.second_opinion_triggers(len(paths), lines, risky, min_files, min_lines)
     runs = rr.second_opinion_runs(*turn_events(transcript_text), has_tree=has_goal_tree(session_id)) \
         if (triggers and fresh) else []
     v = rr.second_opinion_verdict(claims_done, triggers, fresh, runs, text)
-    facts.update(triggers=triggers, fresh=fresh, runs=runs, changed_lines=lines,
+    facts.update(triggers=triggers, fresh=fresh, runs=runs, changed_lines=lines, risky=[rr.canon_path(p) for p in risky],
                  satisfied=bool(triggers and fresh and not v.owed),
                  decline=(rr.second_opinion_decline(text) or "") if v.rule == "SECOND_OPINION_DECLINED" else "")
     return v, facts
+
+
+def mark_ok(state: Dict[str, Any], session_id: str, turn: int, facts: Dict[str, Any]) -> None:
+    """第二意見這一輪了結（跑過、宣告不需、使用者放行）：記回合與那時改過的高風險檔（之後再改到它們不算新一輪）。"""
+    state.setdefault("second_opinion_ok", {})[session_id] = turn
+    cover = state.setdefault("second_opinion_cover", {})
+    old = set(((cover.get(session_id) or {}).get("risky")) or [])
+    cover[session_id] = {"turn": turn, "risky": sorted(old | set(facts.get("risky") or []))}

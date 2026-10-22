@@ -39,7 +39,6 @@ def _state(**extra):
     s = {
         "phase": "working", "modified_files": [], "failing_tests": [],
         "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 5,
-        "turn_intent": "feature",                     # 寫碼回合才收割（CODING_TURN_ONLY）
     }
     s.update(extra)
     return s

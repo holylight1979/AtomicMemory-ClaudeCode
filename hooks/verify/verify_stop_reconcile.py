@@ -981,9 +981,9 @@ def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatc
 
 def test_shared_budget_deferral_gate_keeps_skipping_when_exhausted(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
-    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, turn_intent="feature")
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, need_goal_code_decl_turn=5)   # 本回合宣告了寫碼樹
     assert "DeferralGate" not in out and "【收尾放行確認】" not in out                         # 擋滿：照舊跳過
-    out, _, _ = driven("好了。", capsys, stop_blocked_count=0, turn_intent="feature")
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=0, need_goal_code_decl_turn=5)
     assert "DeferralGate" in out and "本回合已擋" not in out                                # 沒擋滿：照原本的擋
 
 
@@ -3694,6 +3694,8 @@ def test_exemption_peers_comment_only_ignores_a_dirty_doc(tmp_path):
 def peer_flow(driven, monkeypatch):
     """042 加項：使用者打字開回合 → Stop → 同伴 session 訊息經真 UserPromptSubmit 進來（turn_seq +1，使用者回合不變）→ Stop →
     使用者再打字開新回合 → Stop。state 一路沿用。回 run(text, capsys, config, before_stop(state, 步驟)) → 三次 Stop 的輸出。"""
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測每回合一次本身：當成寫碼回合（CODING_TURN_ONLY 另有案）
+
     def run(text, capsys, config=None, before_stop=None, **extra):
         state = {"turn_seq": 4, "session": {"cwd": ""}, **extra}
         _ups_turn(monkeypatch, state, "把 x 做完")
@@ -3965,8 +3967,8 @@ def test_c6_waiver_by_test_name_is_booked_and_survives_the_window(driven, capsys
     later = ["好", "再跑一次測試", "README 也順手更新"]
     out, state2, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=later, testfail_waivers=led,
                                modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" not in out, "原句不在近 3 則了，照帳放行"
-    assert any(g == "testfail_waived" and p.get("via") == "ledger" for g, p in logs)
+    assert "TestFailGate" not in out, "原句不在近 3 則了，照樣放行（引用不再比對原話；帳也在）"
+    assert any(g == "testfail_waived" and p.get("via") in ("quote", "ledger") for g, p in logs)
     assert len(state2["testfail_waivers"]) == 1, "同一支不重記"
 
 
@@ -3979,35 +3981,35 @@ def test_c6_ledger_needs_the_line_and_covers_only_that_test(driven, capsys):
     out, _, _ = driven("全部完成了。", capsys, failing_tests=erp, recent_user_prompts=["好"], testfail_waivers=led,
                        modified_files=[_mf(_CASE, 5)])
     assert "TestFailGate" in out, "沒寫不做行：帳不自動放"
-    out, _, _ = driven("全部完成了。\n不做｜test_total：使用者說「先不用管它、跳過」", capsys, failing_tests=other,
+    out, _, _ = driven("全部完成了。\n不做｜test_total：太難了先不修", capsys, failing_tests=other,
                        recent_user_prompts=["好"], testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out, "帳上沒有 test_total"
+    assert "TestFailGate" in out, "帳上沒有 test_total、只寫自己的理由：照擋"
 
 
 def test_004_waiver_ledger_books_the_test_and_yields_to_later_words(driven, capsys):
-    """codex 004：記帳時記下豁免到的那一支（units）；使用者之後又提到這一支（「取消剛才的豁免…要修好」）→ 帳不算、以新的話為準，
-    舊的不做行照擋。"""
+    """記帳時記下豁免到的那一支（units）；使用者之後又提到這一支（「取消剛才的豁免…要修好」）→ 帳不算，
+    只寫自己理由的不做行照擋（寫「使用者說「…」」的不做行不再比對原話，照樣放行留帳）。"""
     red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 5, "session_id": _SID, "pytest": True}]
     text = "全部完成了。\n不做｜test_erp_contract：使用者說「先不用管它、跳過」"
     out, state, _ = driven(text, capsys, failing_tests=red, recent_user_prompts=[_ERP_SAID], modified_files=[_mf(_CASE, 5)])
     led = state.get("testfail_waivers") or []
     assert "TestFailGate" not in out and led[0]["units"] == [_ERP] and led[0]["cmd"] == red[0]["cmd"], led
     later = [_ERP_SAID, "取消剛才的豁免，test_erp_contract 要修好", "好", "繼續"]
-    out, _, _ = driven(text, capsys, failing_tests=red, recent_user_prompts=later, testfail_waivers=led,
-                       modified_files=[_mf(_CASE, 5)])
+    out, _, _ = driven("全部完成了。\n不做｜test_erp_contract：太難了先不修", capsys, failing_tests=red,
+                       recent_user_prompts=later, testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
     assert "TestFailGate" in out
 
 
 def test_004_voided_waiver_is_dropped_from_state_so_it_cannot_revive(driven, capsys):
     """使用者記帳後又提到那一支：那次收尾（就算沒有紅測）就把帳從 state 拿掉並留帳 testfail_waiver_voided；之後那則原話擠出近 5 則，
-    舊的不做行照擋，帳不會活回來。"""
+    只寫自己理由的不做行照擋，帳不會活回來。"""
     led = [{"item": "test_erp_contract", "quote": "先不用管它、跳過", "said": _ERP_SAID, "units": [_ERP],
             "cmd": "python -m pytest tests -q"}]
     _, state, logs = driven("改好了。", capsys, failing_tests=[], recent_user_prompts=[_ERP_SAID, "test_erp_contract 還是要修好"],
                             testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
     assert state.get("testfail_waivers") == [] and any(g == "testfail_waiver_voided" for g, _p in logs)
     red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 9, "session_id": _SID, "pytest": True}]
-    out, _, _ = driven("全部完成了。\n不做｜test_erp_contract：使用者說「先不用管它、跳過」", capsys, failing_tests=red,
+    out, _, _ = driven("全部完成了。\n不做｜test_erp_contract：太難了先不修", capsys, failing_tests=red,
                        recent_user_prompts=["好", "繼續", "再跑", "看一下", "嗯"], testfail_waivers=state["testfail_waivers"],
                        modified_files=[_mf(_CASE, 5)])
     assert "TestFailGate" in out
@@ -4089,6 +4091,7 @@ def test_044_7_aec_after_last_edit_satisfies_scan_report_in_later_turn(driven, c
 def test_044_7_edit_after_last_aec_still_requires_scan_report(driven, capsys, monkeypatch):
     """配對：turn 3 交過檢核，但 turn 4 又改了一個檔 → turn 5 說完成：有新改動沒交代，ScanReport 照擋。
     隔壁 session 在 turn 4 之後交的檢核（session_id 不符）也不算。"""
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測收尾檢核對回合本身：當成寫碼回合
     docs = [_mf(r"c:\proj\docs\a.md", 3, last_at=_T1, last_seq=1), _mf(r"c:\proj\docs\b.md", 4, last_at=_T1, last_seq=2)]
     state = _user_then_peers(monkeypatch, peers=0, modified_files=docs, anti_evasion_report=_aec(3, j="無", k="無"))
     out, _, _ = driven("全部完成了。", capsys, **copy.deepcopy(state))
@@ -4110,7 +4113,7 @@ def test_044_6_commit_before_peer_message_exempts_scan_report(driven, capsys, mo
 def test_044_6_commit_before_peer_message_counts_as_task_done_for_deferral(driven, capsys, monkeypatch):
     """stop.py 傳給 DeferralGate 的「本回合已 commit」：turn 5 commit → 同伴訊息（turn 6）→ 收尾把可做的事推給下個 session（沒寫完成）
     → 主任務已完工（本回合 commit 了），DeferralGate 照擋。舊碼只認 turn_seq==6，判沒完工、漏擋。"""
-    state = _user_then_peers(monkeypatch, peers=1, last_commit_turn_seq=5, turn_intent="debug")
+    state = _user_then_peers(monkeypatch, peers=1, last_commit_turn_seq=5, need_goal_code_decl_turn=5)
     out, _, _ = driven("要不要下個 session 再把 realm atom 瘦身？", capsys, **state)
     assert "[Guardian:DeferralGate]" in out
 
@@ -4567,7 +4570,7 @@ def test_046_block_lists_later_gates(driven, capsys, monkeypatch, tmp_path):
         (docs / n).write_text("x\n", encoding="utf-8", newline="\n")
     assert st._find_vcs_root(docs) is None
     mf = [_mf(str(docs / "a.md"), 5), _mf(str(docs / "b.md"), 5)]   # 還在、不在版控：照算未同步（不存在的假路徑會被 SYNC_SKIPS_VANISHED_OUTSIDE_VCS 剔掉）
-    out, _, _ = driven("好了。", capsys, modified_files=mf, turn_intent="feature")   # 寫碼回合才查退縮語
+    out, _, _ = driven("好了。", capsys, modified_files=mf, need_goal_code_decl_turn=5)   # 寫碼回合才查退縮語
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" in out, out
     later = out.split("[Guardian:AlsoOwed]", 1)[1]
     assert "knowledge_harvest_report" in later and "anti_evasion_report" in later, later
@@ -4583,7 +4586,7 @@ def test_046_block_lists_nothing_when_nothing_else_owed(driven, capsys, monkeypa
     """期望不發生要先斷言前置：退縮閘真的擋了；後面三道都不欠 → 不附預覽段。"""
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
     monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: False)
-    out, _, _ = driven("好了。", capsys, modified_files=[], turn_intent="feature")
+    out, _, _ = driven("好了。", capsys, modified_files=[], need_goal_code_decl_turn=5)
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" not in out, out
 
 
@@ -4630,3 +4633,9 @@ def test_trim_live_config_blocks_only_two_things():
     assert cfg["verify_scope"]["enabled"] is False
     assert cfg["aec"]["scan_report_gate"] is False
     assert cfg["atom_audit"]["enabled"] is False
+
+
+if __name__ == "__main__":
+    rc = pytest.main([__file__, "-q", "-p", "no:cacheprovider"])
+    print("STOP_RECONCILE_CHECK PASS" if rc == 0 else "STOP_RECONCILE_CHECK FAIL")
+    sys.exit(0 if rc == 0 else 1)

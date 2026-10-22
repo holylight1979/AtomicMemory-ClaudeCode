@@ -234,8 +234,7 @@ _HCFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_tu
 
 
 def _hstate(**kw):
-    s = {"modified_files": [{"path": CORE, "session_id": SID}], "recent_user_prompts": ["測試那支先這樣，其他照做"], "turn_seq": 5,
-         "turn_intent": "feature"}
+    s = {"modified_files": [{"path": CORE, "session_id": SID}], "recent_user_prompts": ["測試那支先這樣，其他照做"], "turn_seq": 5}
     s.update(kw)
     return s
 
@@ -274,6 +273,7 @@ def test_stop_waivers_release_and_ledger_each_gate(logs, monkeypatch, capsys):
                       ("_git_unpushed_roots", lambda mf: []), ("_should_deep_postmortem", lambda *a, **k: False),
                       ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {}))):
         monkeypatch.setattr(st, name, val)
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測閘本身：當成寫碼回合（CODING_TURN_ONLY 的案在 verify_gate_trim）
 
     def drive(said, state=None):
         state = state or _hstate(recent_user_prompts=[said], phase="working", failing_tests=[], stop_blocked_count=0)

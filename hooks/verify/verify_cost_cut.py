@@ -84,6 +84,8 @@ def stop_run(monkeypatch):
     monkeypatch.setattr(st, "_drop_synced", lambda mf: mf)
     monkeypatch.setattr(st, "append_guard_log", lambda name, rec: logs.append((name, rec)))
 
+    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測閘本身：當成寫碼回合（CODING_TURN_ONLY 的案在 verify_gate_trim）
+
     def run(capsys, uncommitted=True, config=None, **extra):
         monkeypatch.setattr(st, "_detect_uncommitted_files",
                             (lambda mf: [m["path"] for m in mf]) if uncommitted else (lambda mf: []))
@@ -91,8 +93,7 @@ def stop_run(monkeypatch):
         state = {"phase": "working", "turn_seq": 7,
                  "modified_files": [{"path": _A, "session_id": _SID, "turn_seq": 7, "last_at": "2026-10-22T10:00:00+08:00"},
                                     {"path": _B, "session_id": _SID, "turn_seq": 7, "last_at": "2026-10-22T10:00:00+08:00"}],
-                 "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0, "scan_report_warned": True,
-                 "turn_intent": "feature"}                    # 寫碼回合才收割（CODING_TURN_ONLY）
+                 "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0, "scan_report_warned": True}
         state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()

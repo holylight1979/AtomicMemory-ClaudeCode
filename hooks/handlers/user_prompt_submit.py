@@ -117,6 +117,10 @@ def evasion_ask(ev: Dict[str, Any]) -> str:
             f"  {ev.get('hint') or ''}")
 
 
+# 關鍵字分類（classify_intent）判成要改程式的意圖：只用來送「先立樹」提示與記憶選片，不當守門開關
+_CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
+
+
 def handle_user_prompt_submit(
     input_data: Dict[str, Any], config: Dict[str, Any]
 ) -> None:
@@ -185,6 +189,9 @@ def handle_user_prompt_submit(
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
     coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合 v6 守門不送（記憶注入、導讀卡照舊）
+    if not coding:
+        _hook_timing.quiet()                       # 不寫計時帳；新的使用者回合起點：拿掉寫碼回合標記
+        _hook_timing.mark_coding(session_id, False)
 
     # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
     # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
@@ -196,6 +203,9 @@ def handle_user_prompt_submit(
                                     cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
         if _ng_txt and coding:                   # 原話照記；提示只在寫碼回合送
             lines.append(_ng_txt)
+        elif v6 and turn_intent in _CODE_INTENTS:   # 規則 CODING_TURN_ONLY 第三層：關鍵字判寫碼只送一行「先立樹」，不啟動守門
+            from wg_need_goal import CODE_TREE_HINT
+            lines.append(CODE_TREE_HINT)
     except Exception as e:
         _atom_debug_error("ups:need_goal", e)
         print(f"[NeedGoal] UserPromptSubmit 記原話失敗：{type(e).__name__}: {e}", file=sys.stderr)

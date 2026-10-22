@@ -1008,13 +1008,29 @@ def _needs_f2(tree: Optional[Dict[str, Any]]) -> bool:
 _NO_TREE = "還沒有目標樹，先用 need_goal(action=set, goal=…) 寫樹根"
 
 
+KINDS = ("code", "knowledge")
+# 規則 CODING_TURN_ONLY 第三層：關鍵字分類判成寫碼、但還沒宣告寫碼樹也還沒改程式時，只送這一行（不啟動守門）
+CODE_TREE_HINT = ("[NeedGoal] 這則看起來要改程式：動手前先 need_goal(action=set, kind=code, goal=<整個需求>, items=[看得出的子目標])"
+                  " 立寫碼樹；沒立樹直接改程式，守門從第一次改程式檔才起跑。")
+
+
+def _declare_kind(tree: Dict[str, Any], inp: Dict[str, Any]) -> None:
+    """set 帶 kind（code／knowledge）＝LLM 宣告這件事是不是要改程式；寫碼類一旦由改程式檔標上就不退回知識類。"""
+    kind = inp.get("kind")
+    if kind in KINDS and not (kind == "knowledge" and tree.get("node_last_edit")):
+        tree["kind"] = kind
+
+
 def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, Any]:
     goal, why = _s(inp.get("goal")), _s(inp.get("why"))
     tree = active_tree(doc)
+    if tree is not None and inp.get("new_task") is not True:
+        _declare_kind(tree, inp)
     if tree is None or inp.get("new_task") is True:
         # 換題不再要 why（WHY_OPTIONAL）；舊樹還在進行中就在收下時列出沒結束的節點（B5 q3 改成提醒）
         old = tree if tree is not None and tree.get("status") == "doing" else None
         tree = _new_tree(doc, goal, turn, why)
+        _declare_kind(tree, inp)
         add_checkpoint(doc, tree, turn, "set", tree["id"])
         events: List[Tuple[str, Dict[str, Any]]] = []
         root_line = _check_root(doc, tree, turn, events)
@@ -1341,7 +1357,8 @@ def _result(sid: Any, action: Any, res: Dict[str, Any], doc: Optional[Dict[str, 
     body = render(tree, form, doc=doc) if tree else ""
     _guard("op", sid, action=action, tree=res.get("tree"), ok=bool(res.get("ok")), rejected=len(rejected))
     return {"ok": bool(res.get("ok")), "action": action, "tree": res.get("tree"), "rejected": rejected,
-            "text": f"{head}\n{body}".rstrip(), "goal_changed": bool(res.get("goal_changed"))}
+            "text": f"{head}\n{body}".rstrip(), "goal_changed": bool(res.get("goal_changed")),
+            "kind": (tree or {}).get("kind")}
 
 
 def _append_tracking(sid: Any, turn: int, lines: List[str], cwd: str) -> None:

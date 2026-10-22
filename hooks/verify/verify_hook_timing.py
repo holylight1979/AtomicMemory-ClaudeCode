@@ -95,8 +95,11 @@ def test_settings_limit_reads_code_root_and_matches_tool(monkeypatch, tmp_path):
     assert ht.settings_limit("PreToolUse", "Grep") is None and ht.settings_limit("PreToolUse", "MultiEdit") is None
 
 
-def test_entry_events_timed_with_config_fallback_and_run_record(ledger, monkeypatch):
-    """開場、提問、工具呼叫前三個事件都起表（settings 讀不到時上限 20／8／5 秒），每次 finish 各寫一筆 run。"""
+def test_entry_events_timed_with_config_fallback_and_run_record(ledger, monkeypatch, tmp_path):
+    """開場、提問、工具呼叫前三個事件都起表（settings 讀不到時上限 20／8／5 秒），每次 finish 各寫一筆 run
+    （PreToolUse 要在寫碼回合，看寫碼回合標記檔；這裡先建好）。"""
+    monkeypatch.setattr(ht, "WORKFLOW_DIR", tmp_path)
+    ht.mark_coding("s", True)
     monkeypatch.setattr(ht, "settings_limit", lambda *a: None)
     monkeypatch.setattr(ht, "_process_started", time.time)                    # 假起點：剛起的行程（pytest 本身早跑了好幾秒）
     for event, limit in (("SessionStart", 20.0), ("UserPromptSubmit", 8.0), ("PreToolUse", 5.0)):
@@ -425,7 +428,7 @@ def test_ups_degraded_skips_retrieval_keeps_gates_goal_and_state(ups_driven, cap
     assert calls == ["前置閘", "目標樹"] and wrote == [5]                         # 降級：脈絡／導讀卡／檢索注入不跑，記原話與寫 state 照做
     assert segs == ["前置閘", "目標樹", "收尾提示"] and emitted is True
     ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert "閘的提示" in ctx and "[NeedGoal] 記下原話" in ctx
+    assert "閘的提示" in ctx and "這則看起來要改程式" in ctx            # 還沒改碼：目標樹提示不送，只送先立樹一行
     assert "[Guardian:HookTiming] 這次 UserPromptSubmit hook 超時降級（跑完「前置閘」" in ctx.splitlines()[-1]
     out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="目標樹")
     assert calls == ["前置閘", "脈絡", "目標樹"] and wrote == [5]
@@ -530,6 +533,10 @@ def test_dispatcher_writes_one_timing_record_per_hook(tmp_path):
         {"type": "command", "command": "x/.claude/hooks/workflow-guardian.py", "timeout": 7}]}]}}), encoding="utf-8")
     env = {**os.environ, "WG_CLAUDE_DIR": str(root), "WG_TEST_LOGS_DIR": str(logs)}
     env.pop("CLAUDE_COMPANION_JUDGE", None)
+    # 寫碼回合（本回合宣告了寫碼樹）才寫計時帳（CODING_TURN_ONLY；非寫碼回合不寫的案在 verify_gate_trim）
+    (root / "workflow").mkdir()
+    (root / "workflow" / "state-sid-timing.json").write_text(json.dumps(
+        {"session": {"id": "sid-timing"}, "turn_seq": 0, "need_goal_code_decl_turn": 0}), encoding="utf-8")
     inp = {"hook_event_name": "PostToolUse", "session_id": "sid-timing", "tool_name": "Read",
            "tool_input": {"file_path": str(tmp_path / "x.txt")}, "tool_response": {}, "cwd": str(tmp_path)}
     p = subprocess.run([sys.executable, str(HOOKS_DIR / "workflow-guardian.py")], input=json.dumps(inp).encode("utf-8"),

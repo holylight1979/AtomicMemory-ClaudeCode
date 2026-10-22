@@ -39,8 +39,15 @@ def _denied(cmd: str, cwd: str = PROJ, cfg=CFG, tool: str = "Bash") -> bool:
     return bool(msg and "CrossRealmBashBlock" in msg)
 
 
-def test_inline_python_heredoc_after_cd_root_denied():
-    assert _denied("cd ~/.claude && export PYTHONIOENCODING=utf-8 && python - <<'EOF'\nfrom pathlib import Path\nPath('hooks/x.py').write_text('x')\nEOF")
+def test_inline_python_heredoc_after_cd_root_allowed_and_logged(tmp_path, monkeypatch):
+    """規則 UNKNOWN_TARGET_LOGGED：cd 進根層後跑內嵌 python 寫檔，寫入目標判不出 → 放行並留帳 unknown_allowed（不再擋）。"""
+    import json
+    import wg_core
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path)
+    cmd = "cd ~/.claude && export PYTHONIOENCODING=utf-8 && python - <<'EOF'\nfrom pathlib import Path\nPath('hooks/x.py').write_text('x')\nEOF"
+    assert not _denied(cmd)
+    rows = [json.loads(ln) for ln in (tmp_path / "guard-crossrealm.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert rows and rows[-1]["event"] == "unknown_allowed" and rows[-1]["allowed"] is True
 
 
 def test_root_git_commit_from_project_denied():
@@ -53,7 +60,7 @@ def test_direct_core_path_write_ops_denied():
     assert _denied(f"echo hi > {HOME_CLAUDE}/hooks/wg_core.py")
     assert _denied(f"sed -i 's/a/b/' {HOME_CLAUDE}/lib/atom_io.py")
     assert _denied(f"cp foo.py {HOME_CLAUDE}/tools/")
-    assert _denied("python -c \"open(r'C:/Users/me/.claude/skills/x/SKILL.md','w')\"")
+    assert not _denied("python -c \"open(r'C:/Users/me/.claude/skills/x/SKILL.md','w')\"")   # 內嵌碼判不出目標：放行留帳
     assert _denied(f"cat > {HOME_CLAUDE}/settings.json <<'EOF'\n{{}}\nEOF")
 
 
@@ -162,22 +169,23 @@ def test_007_temp_target_and_project_repo_git_allowed(tmp_path, monkeypatch):
     msg = check_cross_realm_bash("Bash", _b(_A3_CMD.replace("cd /c/FakeProj/qa2-pricing", "cd ~/.claude")), PROJ, CFG)
     assert msg and "git archive 不是唯讀子命令" in msg                          # git 段改在根層 repo：照擋
     monkeypatch.delenv("TEMP")
-    msg = check_cross_realm_bash("Bash", _b(_A3_CMD), PROJ, CFG)
-    assert msg and "寫入目標算不出" in msg and "落在根層" not in msg             # $TEMP 不在環境：算不出，照實說算不出
-    assert (tmp_path / "guard-crossrealm.jsonl").exists()                      # 前置：這個設定下擋了會留紀錄（上面的「沒紀錄」才有意義）
+    assert check_cross_realm_bash("Bash", _b(_A3_CMD), PROJ, CFG) is None      # $TEMP 不在環境：算不出 → 放行留帳
+    assert (tmp_path / "guard-crossrealm.jsonl").exists()                      # 前置：這個設定下會留紀錄（上面的「沒紀錄」才有意義）
 
 
 def test_007_crossrealm_still_denies_and_logs_session_id(tmp_path, monkeypatch):
-    """反例都照擋：條件式指定過的 TEMP、環境裡沒有的變數、根層 repo 的 git archive、專案 repo 的 git 把檔寫進根層、
-    eval 裡藏的 git（掃描器看不到，退回整條判）、mkdir／touch 進根層（預篩 regex 沒列、掃描器有寫入訊號）。擋紀錄帶 session_id。"""
+    """反例照擋：根層 repo 的 git archive、專案 repo 的 git 把檔寫進根層、eval 裡藏的 git（掃描器看不到，退回整條判）、
+    mkdir／touch 進根層（預篩 regex 沒列、掃描器有寫入訊號）；條件式指定過的 TEMP、環境裡沒有的變數算不出目標 → 放行留帳。
+    擋與放行的紀錄都帶 session_id。"""
     import json
     import wg_core
     monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path)
     monkeypatch.setenv("TEMP", "C:/Users/me/AppData/Local/Temp")
     monkeypatch.delenv("NOPE_NOT_SET", raising=False)
+    unknown = ['false && TEMP=~/.claude/hooks; mkdir -p "$TEMP/x"', 'ls ~/.claude/hooks/ && mkdir -p "$NOPE_NOT_SET/x"']
+    for cmd in unknown:
+        assert check_cross_realm_bash("Bash", _b(cmd), PROJ, CFG, "sid-007") is None, cmd
     cmds = [
-        'false && TEMP=~/.claude/hooks; mkdir -p "$TEMP/x"',
-        'ls ~/.claude/hooks/ && mkdir -p "$NOPE_NOT_SET/x"',
         "cd ~/.claude && git archive -o hooks/x.zip HEAD",
         "cd /c/FakeProj/qa2-pricing && git archive -o ~/.claude/hooks/x.zip HEAD",
         'ls ~/.claude/skills/ && eval "cd ~/.claude && git commit -am x"',
@@ -188,7 +196,8 @@ def test_007_crossrealm_still_denies_and_logs_session_id(tmp_path, monkeypatch):
         msg = check_cross_realm_bash("Bash", _b(cmd), PROJ, CFG, "sid-007")
         assert msg and "CrossRealmBashBlock" in msg, cmd
     rows = [json.loads(ln) for ln in (tmp_path / "guard-crossrealm.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
-    assert len(rows) == len(cmds) and all(r.get("session_id") == "sid-007" for r in rows), rows
+    assert len(rows) == len(cmds) + len(unknown) and all(r.get("session_id") == "sid-007" for r in rows), rows
+    assert [r.get("event") for r in rows[:len(unknown)]] == ["unknown_allowed"] * len(unknown)
 
 
 def test_git_arg_flag_value_parsing(tmp_path):

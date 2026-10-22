@@ -291,9 +291,11 @@ def test_reconcile_budget_shared_per_user_turn():
     assert '_letters = ["*"] if _code else []' in src
 
 
-def test_selfscore_not_an_entrypoint():
+def test_selfscore_not_an_entrypoint_and_lives_in_console_skill():
+    """自檢評分是總控台用的開發期工具：不在切入點登錄表、整支在 skills/console/scripts/，產品 tools/ 底下沒有（舊碼在 tools/ → 紅）。"""
     reg = json.loads((ROOT / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))
     assert "E36" not in {e.get("id") for e in reg["entrypoints"]}
+    assert (ROOT / "skills" / "console" / "scripts" / "selfscore.py").is_file() and not (ROOT / "tools" / "selfscore.py").exists()
 
 
 def test_dev_rules_not_in_product_texts():
@@ -309,26 +311,53 @@ def test_dev_rules_not_in_product_texts():
 
 # ─── 守門只在寫碼回合啟動 ────────────────────────────────────
 
-def test_coding_turn_by_intent_or_code_edit():
-    """有寫碼意圖、或這個使用者回合改過程式（writes_code：.py、.bat、.cmd…）才算寫碼回合；只改文件、純問答不算。"""
-    st5 = {"turn_intent": "general", "turn_seq": 5, "turn_prompts_seq": 5}
-    assert wg_core.coding_turn({"turn_intent": "feature"})
-    assert not wg_core.coding_turn(dict(st5))
-    for code in ("c:/p/a.py", "c:/p/run.bat", "c:/p/run.cmd"):
-        assert wg_core.coding_turn({**st5, "modified_files": [{"path": code, "last_turn_seq": 5}]}), code
-    assert not wg_core.coding_turn({**st5, "modified_files": [{"path": "c:/p/a.md", "last_turn_seq": 5}]})   # 只改文件
-    assert not wg_core.coding_turn({**st5, "modified_files": [{"path": "c:/p/a.py", "last_turn_seq": 4}]})   # 改的是上一回合
-    assert wg_core.coding_turn({"turn_intent": "general"}, {"v6": {"coding_turn_only": False}})
+def test_coding_turn_layer1_tool_writes_code():
+    """第一層（實質行為）：這個使用者回合用工具改過程式檔（Edit、Bash 寫 .bat／.cmd 也算）或有判不出目標的寫入 → 寫碼回合；
+    第一次改之前不是；只改文件不是；改的是上一個使用者回合不算。"""
+    st5 = {"turn_seq": 5, "turn_prompts_seq": 5}
+    assert not wg_core.coding_turn(dict(st5))                                         # 第一次 Edit 之前
+    assert wg_core.coding_turn({**st5, "modified_files": [{"path": "c:/p/a.py", "tool": "Edit", "last_turn_seq": 5}]})   # 之後
+    for code in ("c:/p/run.bat", "c:/p/run.cmd"):
+        assert wg_core.coding_turn({**st5, "modified_files": [{"path": code, "tool": "Bash", "last_turn_seq": 5}]}), code
+    assert not wg_core.coding_turn({**st5, "modified_files": [{"path": "c:/p/a.md", "tool": "Edit", "last_turn_seq": 5}]})
+    assert not wg_core.coding_turn({**st5, "modified_files": [{"path": "c:/p/a.py", "last_turn_seq": 4}]})
     unk = {**st5, "unknown_writes": [{"cmd": "python -c ...", "target": "UNKNOWN:inline", "turn_seq": 5}]}
-    assert wg_core.coding_turn(unk)                                  # 判不出寫入目標：保守當成改過程式
-    assert not wg_core.coding_turn({**unk, "unknown_writes": [{"cmd": "x", "turn_seq": 4}]})
+    assert wg_core.coding_turn(unk) and not wg_core.coding_turn({**unk, "unknown_writes": [{"cmd": "x", "turn_seq": 4}]})
+    assert wg_core.coding_turn({"turn_seq": 5}, {"v6": {"coding_turn_only": False}})
+
+
+def test_coding_turn_keyword_intent_is_not_a_switch():
+    """第三層：關鍵字分類判成寫碼（turn_intent）不當開關——沒宣告、沒改檔就不是寫碼回合（舊碼吃意圖 → 紅）。"""
+    assert not wg_core.coding_turn({"turn_intent": "feature", "turn_seq": 5, "turn_prompts_seq": 5})
+
+
+def test_coding_turn_layer2_need_goal_declares_code_tree(ng_env):
+    """第二層：本使用者回合 need_goal set（kind=code）、add、update 寫碼樹 → 還沒改檔也算寫碼回合；
+    樹是前幾回合留的、本回合沒宣告 → 不算；知識類樹的宣告不算。"""
+    from handlers import post_tool_use as pt
+    ng = ng_env[0]
+
+    def call(state, action, **kw):
+        ti = {"action": action, **kw}
+        pt._need_goal_after_tool(state, "s", "mcp__workflow-guardian__need_goal", ti, {"tool_response": {}}, {})
+        return state
+
+    st = call({"turn_seq": 3, "turn_prompts_seq": 3}, "set", goal="加匯出", kind="code")
+    assert st.get("need_goal_code_decl_turn") == 3 and wg_core.coding_turn(st)           # 本回合 set 寫碼樹、還沒改檔
+    later = {"turn_seq": 4, "turn_prompts_seq": 4, "need_goal_code_decl_turn": 3}
+    assert not wg_core.coding_turn(later)                                                # 前幾回合留的樹、本回合沒宣告
+    tid = ng.active_tree(ng.load("s"))["id"]
+    assert wg_core.coding_turn(call(dict(later), "update", items=[{"id": tid, "text": "加匯出（CSV）"}]))   # 只 update
+    assert wg_core.coding_turn(call(dict(later), "add", items=[{"text": "舊 JSON 不能壞"}]))           # add
+    k = call({"turn_seq": 7, "turn_prompts_seq": 7}, "set", goal="整理筆記", kind="knowledge", new_task=True)
+    assert not wg_core.coding_turn(k)                                                    # 知識類樹不算
 
 
 def test_non_coding_turn_skips_v6_gates_at_stop():
-    """收尾：不是寫碼回合、也沒宣告完成，退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑不跑（舊碼照跑 → 紅）；
-    收割、收割待補是 v6 以前就有的，照舊每回合跑。"""
+    """收尾：不是寫碼回合、也不是「前幾回合改過程式、這則宣告完成」，退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑不跑
+    （舊碼照跑 → 紅）；收割、收割待補是 v6 以前就有的，照舊每回合跑。"""
     src = (HOOKS_DIR / "handlers" / "stop.py").read_text(encoding="utf-8")
-    assert "_coding = v6 and (coding_turn(state, config) or _done(last_text))" in src
+    assert "_coding = v6 and (coding_turn(state, config) or (_done(last_text) and _wrote_code(own_mod_files, config)))" in src
     for frag in ('if not state.get("evasion_flag") and (_coding or not v6):',
                  "if stop_count < max_blocks and last_text and (_coding or not v6):",
                  '(aec.get("d_pending") or []) if (_coding or not v6) else []'):
@@ -381,7 +410,8 @@ def test_docs_only_turn_skips_closing_check_unless_done_claimed(stop_drive, caps
 
 
 def test_non_coding_turn_ups_skips_goal_tree_keeps_cards(monkeypatch, tmp_path, capsys):
-    """UPS：純問答回合不送目標樹提示（原話照記）；導讀卡是 v6 以前就有的記憶注入，照舊送；寫碼回合兩者都送。"""
+    """UPS：使用者剛打字時還沒宣告、還沒改程式，目標樹提示不送（原話照記）；關鍵字判寫碼的只多送一行「先立樹」、不啟動守門；
+    導讀卡是 v6 以前就有的記憶注入，照舊送。"""
     from handlers import user_prompt_submit as ups
     import wg_need_goal
     import wg_overview
@@ -411,9 +441,11 @@ def test_non_coding_turn_ups_skips_goal_tree_keeps_cards(monkeypatch, tmp_path, 
             ups.handle_user_prompt_submit({"session_id": "s", "prompt": prompt, "cwd": str(tmp_path)}, {})
         cap = capsys.readouterr().out
         out[prompt] = json.loads(cap)["hookSpecificOutput"]["additionalContext"] if cap.strip() else ""
-    assert "提示行" not in out["之前那個決定是什麼？"] and "OverviewHub" in out["之前那個決定是什麼？"]
-    assert "提示行" in out["幫我新增一個 by-product 子命令"]
-    assert seen["ng"] == 2 and seen["hub"] == 2                         # 原話兩則都照記、導讀卡兩則都判
+    import wg_need_goal as ng
+    qa, code = out["之前那個決定是什麼？"], out["幫我新增一個 by-product 子命令"]
+    assert "提示行" not in qa and ng.CODE_TREE_HINT not in qa and "OverviewHub" in qa
+    assert "提示行" not in code and ng.CODE_TREE_HINT in code                   # 關鍵字判寫碼：只送先立樹一行
+    assert seen["ng"] == 2 and seen["hub"] == 2                                   # 原話兩則都照記、導讀卡兩則都判
 
 
 # ─── 文字評分 ──────────────────────────────────────────────────────
@@ -483,6 +515,48 @@ def test_on_stop_without_goal_does_not_score(tmp_path, monkeypatch):
     assert sent == []
     wts.on_stop({"turn_prompts": ["幫我修 x"]}, "s", reply + "2", [], 4, cfg, code_reply=True, user_turn=4)
     assert sent and sent[0]["tasks"][0]["goal"] == "幫我修 x"
+
+
+def test_docs_scored_only_with_code_change_reply(tmp_path, monkeypatch):
+    """文件類評分只在交付改程式那則（code_reply）送：純文件回合不評（舊碼本回合改過的 .md 一律送 → 紅）。"""
+    import wg_text_score as wts
+    sent = []
+    monkeypatch.setattr(wts, "JOB_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(wts, "_spawn_worker", lambda job: sent.append(json.loads(Path(job).read_text(encoding="utf-8"))))
+    monkeypatch.setattr(wts, "current_goal", lambda state, sid: "加匯出")
+    doc = tmp_path / "proj" / "memory" / "_staging" / "g15-checklist.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text("x", encoding="utf-8")
+    mods = [{"path": str(doc), "session_id": "s", "last_turn_seq": 4}]
+    cfg = {"text_score": {"enabled": True, "min_chars": 300}}
+    assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=False, user_turn=4) is False and sent == []
+    assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=True, user_turn=4) is True
+    assert [t["kind"] for t in sent[0]["tasks"]] == ["docs"]
+
+
+def test_hook_timing_not_recorded_in_non_coding_turn(tmp_path, monkeypatch):
+    """非寫碼回合不寫 kind=run 計時帳（舊碼每次 hook 都寫 → 紅）；寫碼回合照寫；PreToolUse 看寫碼回合標記檔。"""
+    import time as _t
+    import wg_hook_timing as ht
+    logs = []
+    monkeypatch.setattr(ht, "append_guard_log", lambda g, rec: logs.append(rec))
+    monkeypatch.setattr(ht, "WORKFLOW_DIR", tmp_path)
+
+    def one(event, quiet):
+        ht._CUR = ht.HookTimer(event, "s-ht", 8.0, "config", 0.8, _t.time())
+        if quiet:
+            ht.quiet()
+        ht.finish()
+    one("UserPromptSubmit", quiet=True)
+    one("Stop", quiet=False)
+    assert [r["event"] for r in logs if r["kind"] == "run"] == ["Stop"]
+    one("PreToolUse", quiet=False)
+    assert [r["event"] for r in logs if r["kind"] == "run"] == ["Stop"]          # 沒有寫碼回合標記：不記
+    ht.mark_coding("s-ht", True)
+    one("PreToolUse", quiet=False)
+    assert [r["event"] for r in logs if r["kind"] == "run"] == ["Stop", "PreToolUse"]
+    ht.mark_coding("s-ht", False)
+    assert not (tmp_path / "hook-timing-coding" / "s-ht").exists()
 
 
 def test_misjudged_sample_recorded():

@@ -106,6 +106,7 @@ function validateArgs(args) {
     const errs = [];
     if (!str(a.goal) && !str(a.import_from)) errs.push("set 要給 goal（一句、使用者的語言、只寫目標不寫手段），或給 import_from（續接單路徑）");
     if (given(a.new_task) && typeof a.new_task !== "boolean") errs.push("new_task 必須是 true／false");
+    if (given(a.kind) && !["code", "knowledge"].includes(a.kind)) errs.push(`kind 無效（${a.kind}），允許：code|knowledge`);
     if (given(a.items) && !Array.isArray(a.items)) errs.push("set 的 items 必須是陣列（子目標 [{text, clarity?, origin?, quote?}]，同 add）");
     else if (Array.isArray(a.items) && a.items.length) errs.push(...validateItems("add", a.items));
     return errs;

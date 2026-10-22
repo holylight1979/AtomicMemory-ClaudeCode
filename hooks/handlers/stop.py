@@ -67,8 +67,9 @@ from wg_harvest import (
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note
 from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit, second_opinion_hint
-from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE
-from wg_hook_timing import lap as _hook_lap
+from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE, \
+    mark_ok as _so_mark_ok
+from wg_hook_timing import lap as _hook_lap, quiet as _hook_quiet
 from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
@@ -1433,6 +1434,12 @@ def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
             "(c) 降級任務定義。不得籠統帶過。")
 
 
+def _wrote_code(mods: List[Dict[str, Any]], config: Dict[str, Any]) -> bool:
+    """本 session 改過的檔裡有沒有程式檔（wg_need_goal.writes_code）。"""
+    from wg_need_goal import writes_code
+    return any(isinstance(m, dict) and writes_code(str(m.get("path") or ""), config) for m in mods)
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1557,9 +1564,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
-    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑只在寫碼回合跑（收割、收割待補照舊每回合）；
-    # 這則宣告完成也算（這回合沒改程式、收的是前幾回合的改動，收尾照查）
-    _coding = v6 and (coding_turn(state, config) or _done(last_text))
     mod_files_all = state.get("modified_files", []) or []
     # 只認「本 session 自己 Edit/Write 的檔」——共用工作樹/merged state 下，他 session
     # 改的 core 檔（session_id 不符）不得誤觸發本 session 的收尾檢核。未標記 session_id
@@ -1568,6 +1572,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         m for m in mod_files_all
         if (m or {}).get("session_id", session_id) == session_id
     ]
+    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑只在寫碼回合跑（收割、收割待補照舊每回合）；
+    # 本 session 前幾回合改過程式、這則宣告完成也算（改碼已經發生過，收尾照查）
+    _coding = v6 and (coding_turn(state, config) or (_done(last_text) and _wrote_code(own_mod_files, config)))
+    if not _coding:
+        _hook_quiet()                                # 非寫碼回合不寫計時帳
     # 純 VCS commit turn 豁免收尾檢核：本 turn 已把工作寫進 VCS 歷史（可稽核＝與「藏」相反），
     # anti-evasion 目的在 commit 那刻消解。不開後門——豁免綁「本 turn 真的 commit 了」
     # （post_tool_use 記的 last_commit_turn_seq），而非「本 turn 沒 Edit」；光宣告完成不 commit
@@ -1721,7 +1730,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
 
     # 規則 USER_WAIVER_NEEDS_CITATION：使用者說「先這樣／跳過」不再整段清掉紅測；LLM 寫「不做｜<哪一支>：使用者說「<原句>」」、
-    # 原句真的在近 3 則使用者原話、事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的）。
+    # 事項對得上那筆失敗 → 只豁免那幾筆並留帳（對到哪一筆、引了哪句、哪一回合寫的；原句不再比對使用者原話）。
     # 豁免一成立就記進 state testfail_waivers（事項、原句、那一則原話），之後同 session 同一支看帳、不看近 3 則窗口；
     # 使用者在記帳之後又提到那一支 → 那筆帳每次收尾都拿掉（原話只留近 5 則，不拿掉的話那則擠出去後帳又活回來）
     _history = _user_typed_prompts(state.get("recent_user_prompts") or [])
@@ -1963,12 +1972,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
     # 改到高風險部位宣告完成 → 本回合要真的跑過第二意見、收尾有分歧裁決四行，或宣告「不需第二意見｜理由」（留帳 guard-second_opinion.jsonl）。
     # 吃寫碼查核那套（wg_release，閘名 second_opinion）：每個使用者回合擋 second_opinion.auto.max_blocks_per_turn 次（預設 1）後擋滿，
-    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行記 second_opinion_ok[sid]＝turn_seq，之後沒再改程式不再要求。
+    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行 mark_ok（記回合與已審的高風險檔）：之後為採納意見做的修改不再要求，改到新的高風險檔或新改的檔數再過門檻才再要（SECOND_OPINION_ONCE_PER_CLAIM）。
     # 子代理、裁判 session 走別的 Stop 入口；headless 由 _so_check 的 non_interactive_reason 判，都不觸發。
     _sov, _sof = _so_check() if v6 else (None, {})
     _so_uturn = _user_turn(state, turn_seq)
     if _sov is not None and _sof.get("satisfied"):
-        state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
+        _so_mark_ok(state, session_id, turn_seq, _sof)
         clear_pending(state, session_id, _SO_GATE)
         write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
@@ -1979,7 +1988,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             record_release(state, session_id, _SO_GATE, _so_uturn)
             mark_block(state, session_id, _SO_GATE, _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
             clear_pending(state, session_id, _SO_GATE)
-            state.setdefault("second_opinion_ok", {})[session_id] = turn_seq
+            _so_mark_ok(state, session_id, turn_seq, _sof)
             append_guard_log(_SO_GATE, {"event": "user_release", "session_id": session_id, "turn_seq": turn_seq,
                                         "via": _so_how, "reason": format_hit(_SO_LETTER, _sov)[:300]})
             print(f"[Guardian:SecondOpinion] 使用者放行這一回合（{_so_how}），記 user_release", file=sys.stderr)

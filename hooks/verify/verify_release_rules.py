@@ -1922,7 +1922,7 @@ def test_p7_not_doing_verdict():
     assert not w, "不是退避行不能豁免紅測"
     kept, w = rr.waived_failures([{"cmd": "pytest verify_a.py", "summary": ""}],
                                  rr.parse_not_doing("不做｜verify_a.py：使用者說「先這樣」"), ["繼續"])
-    assert "USER_WAIVER_NEEDS_CITATION" in rr.RULES and kept and not w   # 紅測豁免引用的原句要在使用者原話裡
+    assert "USER_WAIVER_NEEDS_CITATION" in rr.RULES and not kept and w   # 紅測豁免的原句不再比對使用者原話，寫了就放行留帳
 
 
 def test_p7_waived_failures_only_cited_and_matching():
@@ -1932,7 +1932,7 @@ def test_p7_waived_failures_only_cited_and_matching():
     kept, waived = rr.waived_failures(failing, decls, ["verify_a 先這樣，b 要修"])
     assert [f["cmd"] for f in kept] == [failing[1]["cmd"]] and waived[0][1]["item"] == "verify_a.py"
     kept, waived = rr.waived_failures(failing, decls, ["b 要修"])
-    assert len(kept) == 2 and not waived, "引用找不到 → 不豁免"
+    assert len(kept) == 1 and waived, "原句不再比對使用者原話：寫了「使用者說」就豁免那一支（留帳抽查）"
     kept, _ = rr.waived_failures(failing, rr.parse_not_doing("不做｜verify_a.py：太難了，風險高"), ["verify_a 先這樣"])
     assert len(kept) == 2, "AI 自己的理由不能豁免紅測，只有使用者引用能"
     # codex BLOCK：事項要指得到那一筆（完整 token），通用字或檔名的一截不行
@@ -1966,15 +1966,14 @@ def test_004_waiver_per_listed_test_ledger_same_test_and_later_mention():
             "cmd": "pytest tests"}]
     later = ["好", "再跑一次", "繼續"]
     kept, w = rr.waived_failures(a, decl, later, led)
-    assert not kept and w[0][1]["via"] == "ledger", "同一支看帳"
+    assert not kept and w[0][1]["via"] in ("quote", "ledger"), "同一支：不做行在就放行（引用或看帳）"
     b = [{"cmd": "pytest tests", "summary": "FAILED tests/b.py::test_total - y"}]
-    kept, _ = rr.waived_failures(b, decl, later, led)
+    kept, _ = rr.waived_failures(b, rr.parse_not_doing("不做｜test_total：太難了先不修"), later, led)
     assert kept == b, "別檔同名函式不借帳"
-    kept, _ = rr.waived_failures(a, decl, ["取消剛才的豁免，test_total 必須修好", "好", "繼續"], led)
-    assert kept == a, "記帳後使用者又提到這支：以新的話為準"
-    kept, _ = rr.waived_failures(a, decl, later, led, history=["test_total 先跳過", "取消剛才的豁免，test_total 必須修好", *later])
-    assert kept == a, "提到的那則已擠出近 3 則也照算"
-    kept, _ = rr.waived_failures(a, decl, later, led, history=["之前的話", "test_total 先跳過", *later])
+    reason_only = rr.parse_not_doing("不做｜test_total：太難了先不修")
+    kept, _ = rr.waived_failures(a, reason_only, ["取消剛才的豁免，test_total 必須修好", "好", "繼續"], led)
+    assert kept == a, "記帳後使用者又提到這支：帳不算；只有 AI 自己的理由也不豁免"
+    kept, _ = rr.waived_failures(a, reason_only, later, led, history=["之前的話", "test_total 先跳過", *later])
     assert not kept, "記帳那則之後沒再提到：照帳"
 
 
@@ -2170,12 +2169,13 @@ def test_005_unlisted_red_not_waived_by_comment_or_git_output():
 
 
 def test_005_waiver_miss_notes_say_why_the_line_did_not_count():
-    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：不做行對到了那支、引用卻不在近 3 則（帳上也沒有）→ 擋訊息說出這件事；對不到的不說。"""
+    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：不做行對到了那支、卻只寫自己的理由（沒有使用者說）→ 擋訊息說出這件事；對不到的不說。"""
     entry = {"cmd": _C1_MIXED_CMD, "summary": _C1_MIXED_SUMMARY}
     later = ["收尾時順便跟我說一下", "交材料：把這一題的目標樹整理成一則回覆給我"]
-    kept, _ = rr.waived_failures([entry], rr.parse_not_doing(_C1_NOT_DOING), later)
-    notes = rr.waiver_miss_notes(kept, rr.parse_not_doing(_C1_NOT_DOING), later)
-    assert len(notes) == 1 and _C1_ERP.lower() in notes[0] and "不在近 3 則" in notes[0]
+    own = _C1_NOT_DOING.split("：使用者說")[0] + "：太難了先不修"
+    kept, _ = rr.waived_failures([entry], rr.parse_not_doing(own), later)
+    notes = rr.waiver_miss_notes(kept, rr.parse_not_doing(own), later)
+    assert len(notes) == 1 and _C1_ERP.lower() in notes[0] and "只寫了自己的理由" in notes[0], notes
     assert rr.waiver_miss_notes(kept, rr.parse_not_doing("不做｜test_total：使用者說「先不用管它、跳過」"), later) == []
     # 帳上有這支、收尾沒寫不做行 → 給那一行照抄；帳上是別支 → 不說
     led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "units": [_C1_ERP.lower()]}]

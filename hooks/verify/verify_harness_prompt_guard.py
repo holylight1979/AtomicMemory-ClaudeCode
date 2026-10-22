@@ -133,13 +133,12 @@ def _peer(body: str) -> str:
 
 
 def _seven(prompt: str, monkeypatch) -> dict:
-    """經入口跑一則 prompt，回七項「使用者說了算」是否生效：口令、糾正、豁免、紅測豁免、使用者決策、不要記、停用。
+    """經入口跑一則 prompt，回六項「使用者說了算」是否生效：口令、糾正、豁免、使用者決策、不要記、停用（紅測豁免的引用不再比對原話，不在此列）。
     豁免＝收割與收尾檢核的 dismiss 詞；紅測豁免要 AI 寫「不做｜<哪一支>：使用者說「先這樣」」；兩者都只認使用者打的字
     （recent_user_prompts 存清理後的文字）。"""
     from handlers import ups_gates as g
     from handlers.pre_tool_use import check_git_commit_order
     from wg_harvest import _dismissed
-    from wg_release_rules import parse_not_doing, waived_failures
     from wg_extraction import EXTRACT_VETO_MARKER
     disabled = []
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
@@ -149,12 +148,10 @@ def _seven(prompt: str, monkeypatch) -> dict:
     st = {"failing_tests": [{"cmd": "pytest t_x.py"}], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
     lines = []
     g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, prompt, prompt.lower(), lines)
-    kept, _ = waived_failures(st["failing_tests"], parse_not_doing("不做｜t_x.py：使用者說「先這樣」"), st["recent_user_prompts"][-3:])
     return {
         "order": check_git_commit_order("Bash", {"command": "git commit -m x"}, {}, st) is None,
         "correction": bool(detect_correction(prompt, {})),
         "dismiss": _dismissed(st["recent_user_prompts"]) is not None,
-        "failing": kept == [],
         "decision": bool(st.get("pending_user_extract")),
         "veto": any(EXTRACT_VETO_MARKER in ln for ln in lines),     # G6 階段 5：「不要記」改成問 AI 是不是否決，通知照送
         "disable": disabled == ["ollama"],
@@ -163,7 +160,7 @@ def _seven(prompt: str, monkeypatch) -> dict:
 
 def test_peer_message_behind_a_reminder_has_no_authority(monkeypatch):
     got = _seven(REMINDER + _peer(SAID), monkeypatch)
-    assert not any(got.values()), got                                               # 反例：舊碼只看開頭，七項都生效
+    assert not any(got.values()), got                                               # 反例：舊碼只看開頭，六項都生效
 
 
 @pytest.mark.parametrize("head", [NOTIFY_HEAD, _peer("同伴的話") + "\n"])
