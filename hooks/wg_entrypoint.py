@@ -289,7 +289,8 @@ def _remember_sent(session_id: str, turn: Any, names: set) -> None:
     p = _sent_path(session_id)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"turn": turn, "names": sorted(names)}, ensure_ascii=False), encoding="utf-8")
+        p.write_text(json.dumps({"turn": turn, "names": sorted(names)}, ensure_ascii=False), encoding="utf-8",
+                     newline="\n")
     except OSError as e:
         print(f"[Guardian:Entrypoint] 記不下本回合已送的判準卡（下次照送全文）：{e}", file=sys.stderr)
 
