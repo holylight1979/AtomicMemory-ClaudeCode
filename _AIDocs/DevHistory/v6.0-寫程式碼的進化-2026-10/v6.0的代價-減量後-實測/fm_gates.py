@@ -8,7 +8,8 @@
      ③ 實際擋下或記一筆欠帳：帳上 type=gate、record_only=false 的筆數（raw），另列每回合幾筆；其中「觸發」照「閘＋擋的對象」算
         （調度 10-23 裁定）：這回合這道閘對這個對象第一次，或跟它對同一對象上一次之間 AI 有動作（帳上 type=action）——
         同一批平行呼叫、原樣重試、只改寫回覆的再擋不算觸發。對象＝OverviewHub 擋訊息的【部位】；其他閘（與沒有部位的 OverviewHub）
-        用帳上 watched 或被擋那個工具呼叫的 file_path；說不出對象的照閘名算。
+        用帳上 watched 或被擋那個工具呼叫的 file_path；說不出對象的照閘名算。帳上有 target／watched（斷路器報的對象）就用帳上的，
+        比法同斷路器 CHAIN_SAME_GATE_PER_OBJECT（都報 target 比 target、都只報檔看交集、其餘照閘名）。
   3. 同一回合同一道閘對同一對象觸發 >1 → 列出每次的擋訊息原文（帳上 what 是截短的，原文從 transcript 對 tool_use_id／時間取）與前後各一個工具呼叫。
   4. 抽核：transcript 的工具前擋（tool_result 以「PreToolUse:… hook error」開頭）與收尾擋（hook_blocking_error, Stop）逐道閘數，
      跟帳上同 hook 的筆數比；斷路器自己的停手擋與經過表（ChainBreaker）不算閘觸發，另列。
@@ -74,20 +75,40 @@ def norm_path(p):
 
 
 def object_of(r, g, tid2input):
-    """這一筆擋的對象：OverviewHub 用【部位】；其他用帳上 watched 或被擋呼叫的 file_path；說不出回空字串（照閘名算）。"""
+    """這一筆擋的對象 (target, 檔集合)，比法同斷路器 CHAIN_SAME_GATE_PER_OBJECT：帳上有 target／watched 就用帳上的；
+    舊帳沒有時退回自己判——OverviewHub 從擋訊息取【部位】，其他閘取被擋呼叫的 file_path（沒部位的 OverviewHub 從擋訊息取檔）。"""
+    target = str(r.get("target") or "")
+    files = {norm_path(x) for x in r.get("watched") or () if x}
     what = r.get("what") or ""
-    if g == "OverviewHub":
+    if not target and not files and g == "OverviewHub":
         m = PART_RE.search(what)
-        if m:
-            return f"部位:{m.group(1)}"
-    if r.get("watched"):
-        return "檔:" + "|".join(sorted(norm_path(p) for p in r["watched"]))
-    inp = tid2input.get(r.get("event")) or {}
-    fp = inp.get("file_path") or inp.get("notebook_path")
-    if fp:
-        return f"檔:{norm_path(fp)}"
-    m = HUB_FILE_RE.search(what) if g == "OverviewHub" else None
-    return f"檔:{norm_path(m.group(1))}" if m else ""
+        target = m.group(1) if m else ""
+    if not target and not files:
+        inp = tid2input.get(r.get("event")) or {}
+        fp = inp.get("file_path") or inp.get("notebook_path")
+        m = HUB_FILE_RE.search(what) if g == "OverviewHub" and not fp else None
+        fp = fp or (m.group(1) if m else "")
+        files = {norm_path(fp)} if fp else set()
+    return target, files
+
+
+def same_object(a, b):
+    """同斷路器 same_object：都報 target 比 target；都只報檔有交集算同一個；一邊說不出、或一邊 target 一邊檔 → 照閘名算同一個。"""
+    (ta, fa), (tb, fb) = a, b
+    if ta and tb:
+        return ta == tb
+    if ta or tb or not fa or not fb:
+        return True
+    return bool(fa & fb)
+
+
+def object_label(o):
+    t, f = o
+    if t:
+        return f"部位:{t.rsplit('|', 1)[-1]}"
+    if f:
+        return "檔:" + "、".join(sorted(x.rsplit("/", 1)[-1] for x in f))
+    return "（說不出對象，照閘名）"
 
 
 def load_jsonl(p):
@@ -194,7 +215,7 @@ def main():
         for i, r in enumerate(rows):
             r["_turn"] = turn_no(turns, r["ts"])
             r["_g"] = gate_key(r) if r.get("type") == "gate" else ""
-            r["_obj"] = object_of(r, r["_g"], tid2input) if r.get("type") == "gate" else ""
+            r["_obj"] = object_of(r, r["_g"], tid2input) if r.get("type") == "gate" else ("", set())
             # 讓警報響的那一筆帳上記 record_only=true，但那個工具呼叫／那次收尾其實被中止通知擋下了：算③
             nxt = rows[i + 1] if i + 1 < len(rows) else {}
             r["_alarm_hit"] = r.get("type") == "gate" and nxt.get("type") == "alarm" and nxt.get("turn") == r.get("turn")
@@ -202,35 +223,42 @@ def main():
         for r in sorted(rows, key=lambda x: (x["ts"], x.get("seq", 0))):
             if r.get("type") != "gate":
                 continue
-            by_tg[(r["_turn"], r["_g"], r["_obj"])].append(r)
+            by_tg[(r["_turn"], r["_g"])].append(r)
         col3_raw, col3_trig, col2, maxper, batch_false = Counter(), Counter(), Counter(), Counter(), Counter()
         turn_raw = defaultdict(Counter)   # 閘 → {回合: 這回合擋下或記欠幾筆}
         by_obj = defaultdict(Counter)     # 閘 → {"T<回合> <對象>": 觸發數}
         detail = []
-        for (tn, g, obj), rs in sorted(by_tg.items()):
+        for (tn, g), rs in sorted(by_tg.items()):
             live = [r for r in rs if r["_live"]]
             col2[g] += len(rs) - len(live)
             col3_raw[g] += len(live)
             if live:
                 turn_raw[g][tn] += len(live)
-            trig, prev, batch_only = [], None, 0
+            seen, chain, batch_only = [], {}, 0
             for r in live:
-                between = [x for x in rows if x.get("type") == "action" and prev is not None
-                           and prev["ts"] <= x["ts"] <= r["ts"] and x["_turn"] == tn]
-                pm = tid2msg.get(prev.get("event")) if prev is not None else None
+                # 跟這一筆同一個對象的上一筆（斷路器同閘同對象的比法）；沒有就是這個對象這回合第一次
+                prev = next((x for x in reversed(seen) if same_object(x["_obj"], r["_obj"])), None)
+                seen.append(r)
+                if prev is None:
+                    chain[id(r)] = [r]
+                    col3_trig[g] += 1
+                    by_obj[g][f"T{tn} {object_label(r['_obj'])}"] += 1
+                    continue
+                between = [x for x in rows if x.get("type") == "action" and prev["ts"] <= x["ts"] <= r["ts"] and x["_turn"] == tn]
+                pm = tid2msg.get(prev.get("event"))
                 # 同一則回覆（同一批平行工具）裡的動作不是看了擋訊息才做的：AI 還沒看到前一次擋，不算「動作讓閘再擋」
                 acted = [x for x in between if pm is None or tid2msg.get(x.get("event")) != pm]
-                if prev is None or acted:
-                    trig.append(r)
-                elif between:
-                    batch_only += 1
-                prev = r
+                if acted:
+                    chain[id(r)] = chain[id(prev)] + [r]
+                    col3_trig[g] += 1
+                    by_obj[g][f"T{tn} {object_label(r['_obj'])}"] += 1
+                else:
+                    chain[id(r)] = chain[id(prev)]
+                    batch_only += 1 if between else 0
             batch_false[g] += batch_only
-            col3_trig[g] += len(trig)
-            maxper[g] = max(maxper[g], len(trig))
-            if trig:
-                by_obj[g][f"T{tn} {obj or '（說不出對象，照閘名）'}"] += len(trig)
-            if len(trig) > 1:
+            longest = max((chain[id(r)] for r in live), key=len, default=[])
+            maxper[g] = max(maxper[g], len(longest))
+            for trig in {id(c[-1]): c for c in chain.values() if len(c) > 1}.values():
                 totals["over1"] += 1
                 items = []
                 for r in trig:
@@ -244,7 +272,7 @@ def main():
                     items.append({"seq": r.get("seq"), "at": r.get("at"), "hook": r.get("hook"), "depth": r.get("depth"),
                                   "same": r.get("same"), "link": r.get("link"), "raw": raw, "before": fmt_call(b),
                                   "blocked": fmt_call(me), "after": fmt_call(af)})
-                detail.append({"turn": tn, "gate": g, "object": obj, "triggers": items})
+                detail.append({"turn": tn, "gate": g, "object": object_label(trig[-1]["_obj"]), "triggers": items})
         alarms = [r for r in rows if r.get("type") == "alarm"]
         totals["alarms"] += len(alarms)
         tx_pre = Counter(first_tag(t) for _, t in denies.values())
@@ -300,7 +328,7 @@ def main():
                "- 觸發對象（回合 對象：觸發數）：" + "；".join(f"{g} " + "、".join(f"{k} {v}" for k, v in sorted(c.items()))
                                                    for g, c in sorted(by_obj.items())), ""]
         for d in detail:
-            md += [f"### 回合 {d['turn']}・{d['gate']}（對象 {d['object'] or '說不出，照閘名'}）觸發 {len(d['triggers'])} 次", ""]
+            md += [f"### 回合 {d['turn']}・{d['gate']}（對象 {d['object']}）觸發 {len(d['triggers'])} 次", ""]
             for it in d["triggers"]:
                 md += [f"- 步序 {it['seq']}（{it['at']}，{it['hook']}，depth={it['depth']} same={it['same']} link={it['link']}）",
                        f"  - 前一個工具呼叫：{it['before']}", f"  - 被擋的呼叫：{it['blocked']}", f"  - 後一個工具呼叫：{it['after']}",

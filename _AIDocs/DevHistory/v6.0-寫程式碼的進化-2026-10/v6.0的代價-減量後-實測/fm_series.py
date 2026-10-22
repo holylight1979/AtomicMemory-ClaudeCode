@@ -7,7 +7,7 @@
   3. 跑：改 code 題 w2_run_all --only B --date <日>-CC{off,on}-<n> [--hooks-off]；非改 code 題 fm_nc.py run --date <日>-NC…。
      環境照呼叫端（WG_V6=1 由呼叫端設；兩組都設）。輸出落 <kit>/results/<那跑>/_fm/。
   4. 跑完：資料根 Logs\\ 整包（含連鎖斷路器帳 chain-<session>.jsonl；w2_collect 只收 guard-*.jsonl）複製到 _fm/root-Logs/；
-     全關組核 hook 紀錄 0（transcript 沒有 hook 附件與 stop_hook_summary、資料根 Logs 空）；用 b6_measure.measure_segment 量每段，
+     全關組核 hook 紀錄 0（transcript 沒有 hook 附件與 stop_hook_summary、資料根沒有 hook 計時帳與斷路器帳；其他 log 照列）；用 b6_measure.measure_segment 量每段，
      寫 _fm/measure.json（輸入＝input＋cache_creation＋cache_read，同上一輪口徑）。
   5. 作廢與加跑：一跑沒跑完（failed>0）或現況某跑 hook 被系統砍掉（transcript 的 hook_cancelled）→ 那跑作廢；
      一類題四跑後，有作廢、或現況兩跑「輸入＋輸出 token」或「牆鐘」相差超過 25%（差 ÷ 兩跑平均）→ 加跑一對（全關3→現況3），只加一次。
@@ -144,8 +144,10 @@ def one_run(cls, grp, n, day, dest, cards, snap):
         why.append(f"沒跑完（尾行：{tail}）")
     if grp == "on" and tot["hook_cancelled"]:
         why.append(f"hook 被系統砍掉 {tot['hook_cancelled']} 次")
-    if grp == "off" and (traces or root_log_files):
-        why.append(f"全關組卻有 hook 紀錄（transcript {traces} 筆、資料根 Logs {len(root_log_files)} 檔）")
+    # 全關組的 hook 痕跡只認 hook 才會寫的帳（計時帳、斷路器帳）；資料根 Logs 其他檔（MCP、向量服務的 log）照列不作廢
+    hook_only = [f for f in root_log_files if f == "guard-hook_timing.jsonl" or f.startswith("chain-")]
+    if grp == "off" and (traces or hook_only):
+        why.append(f"全關組卻有 hook 紀錄（transcript {traces} 筆、資料根 hook 帳 {hook_only}）")
     build_warn = [x.strip() for p in sorted(fm.glob("build-*.log"))
                   for x in p.read_text(encoding="utf-8", errors="replace").splitlines() if x.lstrip().startswith("WARN")]
     rec = {"name": name, "cls": cls, "grp": grp, "n": n, "void": bool(why), "why": "；".join(why), "tail": tail,
