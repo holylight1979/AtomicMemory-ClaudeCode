@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-22 TECH.md 整份照現況重新核對：補新機制、刪已拆的、標出目前關著的閘、新增寫程式一路總覽
+- **原設計者看到的**：TECH.md 每一節開頭第一句說這節解決什麼；§7.0 新增「寫程式時一路會遇到什麼」：照開場 → 收到需求 → 動手前定位 → 改檔 → 問人 → 跑測試 → 宣告完成 → 交付 → commit 的順序，白話列每個時刻被問什麼、送什麼卡、擋不擋，並列出目前在 config 關著的閘（驗證範圍、寫碼查核只擋 (a)(d)、目標樹對照、收尾檢核、卡片表態）。§13.4 新增多 session 協作（雙總控台、工作軌、派工信箱、console-spawn）。§11 改名「流程與耗損」，數字段標「數字待量測軌」。
+- **改了什麼**（軌 track-tech-refresh 001）：以程式為準逐節核對 TECH.md（hooks 事件 9→10、MCP 工具 12→13、§7.8 規則表補 8 條、§10 目錄樹補約 50 個現存檔、§12 補 config 有而文件沒寫的鍵與功能開關、§5／§6 檢索與寫入的數值與流程改成現況）；§7.3 原本是已拆除的 PAN 閘，改寫成「擋滿之後怎麼放行」（`hooks/wg_release.py`），PAN 只留在 §14.2；刪掉 pan-pass、pre-action-notice、startup-drift 等已不存在的東西；只改文件，不改程式。
+- **驗證**：`python -X utf8 tools/sync_doc_counts.py --check --root <worktree>` DOC_COUNTS_CHECK PASS；六個唯讀核對員分段對程式核對（近千項），刪／改／補逐項落到文件。
 ## 2026-10-22 改判準卡要先宣告留帳；第五跑表外五件：條件句不算修好、迴圈讀檔算讀過、追蹤帳本同一件只留一筆、scratchpad 變數與腳本 -C 不再被當判不出
 - **交給 AI 寫程式時會看到的**：改綁了 Entry 的判準卡（Edit／Write／Bash 寫入、atom_write append／replace、atom_edit_meta、atom_retire）之前要先寫「改判準卡｜<卡名>：<理由>」，沒寫就擋並給照抄行，每次改動都進 `guard-judge_card.jsonl`（總控台也一樣）；「修好之後一起結案」這種講以後的句子、AI 自己寫的「宣稱｜修好：…」那一行不再被當成修好宣稱，中段寫過的豁免行最後一則不必重寫；`for f in sales/*.py …; do cat "$f"; done` 讀的檔與 `cat sales/*.py` 都算讀過部位檔；同一件追蹤項字面相同不重記，換句話說的在行尾寫「｜同追蹤項：<那筆裡至少 8 字>」就換成新說法、帳上只留一筆（PickOne 問句會列出本 session 還開著的）；`S='<scratchpad>' && git show … > "$S/old.py"` 算得出寫到 scratchpad、`python <腳本> -C <路徑>` 不再被當成 python -c。
 - **改了什麼**（軌 track-gate-fixes-006）：新模組 `hooks/wg_judge_card.py`＋`wg_release_rules` 規則 `JUDGE_CARD_CHANGE_NEEDS_DECLARATION`（判定只用 `entry_bound_ids`，MCP 出口照 `locate_atom` 定位，MCP 出口要 settings.json PreToolUse matcher 掛三個工具名，由原設計者套用、這次 commit 不含 settings.json）；`CLAIM_CONDITIONAL_NOT_CLAIM`（`forbidden-phrases.json` 三類宣稱各加兩條條件句排除、`wg_verify_ledger._claims` 先剝宣稱行、宣稱行從被判的整串文字找）；`BASH_READONLY_COUNTS_AS_READ` 改寫（`lib/overview_hub._bash_for_bodies`／`_bash_glob`）；`TRACKING_SAME_ITEM_NOT_REWRITTEN`（`wg_harvest._merge_same` 掛在唯一寫入口 `append_tracking`，`record_pick` 換說法改用共用的 `_supersede_rows`）；`SHELL_LITERAL_VAR_EXPANDED`＋`INLINE_FLAG_BEFORE_PROGRAM`（`wg_core` 寫入目標解析：同指令字面變數代換、內嵌碼旗標只認直譯器選項位置、內嵌碼原因只附在自己那段）。
