@@ -72,9 +72,10 @@ def _points(tree: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _last_update_seq(tree: Dict[str, Any]) -> int:
-    """樹最後一次更新：所有節點 history 裡最大的 seq（開樹、增改節點、對照、匯入都會記 history）。"""
+    """樹最後一次更新：所有節點 history 裡最大的 seq（開樹、增改節點、對照、匯入都會記 history）。
+    程式自己記的（by=program：改檔後的進度、代填的對照）不算更新——AI 沒重看目標，跨頂層目錄的計數不歸零。"""
     seqs = [int(h.get("seq") or 0) for n in (tree.get("nodes") or {}).values() if isinstance(n, dict)
-            for h in n.get("history") or [] if isinstance(h, dict)]
+            for h in n.get("history") or [] if isinstance(h, dict) and h.get("by") != "program"]
     return max(seqs, default=int(tree.get("created_seq") or 0))
 
 
@@ -250,7 +251,7 @@ def on_external_claim(sid: Any, kind: str, source: str, turn: Optional[int] = No
     if not tree:
         return head + "（還沒有目標樹：先回到使用者原話，想清楚這件事要達成什麼。）"
     _update(sid, lambda d: _claim_checkpoint(d, int(turn or 0)), "on_external_claim", turn)
-    return head + "\n" + ng.render(tree, "header")
+    return head + "\n" + ng.brief(tree)
 
 
 def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Optional[str]:
@@ -271,7 +272,7 @@ def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Opti
     _guard("correction", sid, turn, tree=tree["id"], kw=list(hits)[:3])
     return (f"[NeedGoal] 使用者糾正了（命中：{'、'.join(list(hits)[:3])}）：目標樹哪一條要改？做法還對準嗎？"
             f"糾正是對 {tree['id']} 的修正，改這棵樹、不開新樹（update 改節點、作廢的標放棄；"
-            "set 不帶 new_task 改寫樹根；糾正裡多出的要求用 add 長成子目標）。\n" + ng.render(tree, "compact"))
+            "set 不帶 new_task 改寫樹根；糾正裡多出的要求用 add 長成子目標）。\n" + ng.brief(tree))
 
 
 # ─── 4.4 問使用者之前 ─────────────────────────────────────────────────────
@@ -542,7 +543,8 @@ def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> Tuple[List[str], bool]:
     out: List[str] = []
     if pts["scope_pending"] and pts["scope_sent_turn"] != turn:
         items = pts["scope_pending"]
-        out.append(_queue_text(items) + "\n" + ng.render(tree, "header"))
+        b = ng.brief_mark(doc, tree, turn)                     # 同回合已附過同一份就不重附
+        out.append(_queue_text(items) + (f"\n{b}" if b else ""))
         pts["scope_pending"] = []
         pts["scope_sent_turn"] = turn
         ng.add_checkpoint(doc, tree, turn, "scope", tree["id"])
@@ -593,16 +595,16 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
 
 # ─── 4.3 目標改變後導讀卡改用目標視角 ─────────────────────────────────────
 
-def goal_view_text(sid: Any, part: str, knowledge: bool = False) -> Optional[str]:
-    """目標改了之後，已碰過的部位再讀到時，導讀卡前面加的那段：目標視角的提問＋目前的樹；沒有樹回 None。
-    knowledge＝知識類部位（不要求定位行），不叫它重交定位。"""
+def goal_view_text(sid: Any, part: str, knowledge: bool = False, part_key: Optional[str] = None) -> Optional[str]:
+    """目標改了之後，已碰過的部位再讀到時，導讀卡前面加的那段：目標視角的提問＋樹根與當前節點（part_key＝部位鍵，
+    那個部位掛的節點優先當當前節點）；沒有樹回 None。knowledge＝知識類部位（不要求定位行），不叫它重交定位。"""
     doc = _load(sid, "goal_view_text")
     tree = _live(doc) if doc else None
     if not tree:
         return None
     redo = "" if knowledge else "改這裡前要重交定位四行與第五行批判。"
     return (f"[NeedGoal] 目標改了，用目標視角重看【{part}】：這一塊在新目標裡扮演什麼角色？先前在這裡的判斷還成立嗎？"
-            f"{CRITIQUE_QUESTIONS}{redo}\n" + ng.render(tree, "compact"))
+            f"{CRITIQUE_QUESTIONS}{redo}\n" + ng.brief(tree, part_key))
 
 
 # ─── 軌五：壓縮後重送、續接單 ──────────────────────────────────────────────
@@ -658,7 +660,7 @@ def silent_unreconciled(sid: Any, turn: Optional[int] = None) -> List[Dict[str, 
         if not isinstance(t, dict) or t.get("status") == "closed":
             continue
         lr = t.get("last_reconcile") or {}
-        fresh = bool(lr) and lr.get("goal_rev") == t.get("goal_rev")
+        fresh = ng.reconcile_fresh(t)
         owed = sum(1 for e in t.get("edits") or [] if isinstance(e, dict) and e.get("owed"))
         if fresh and not owed and (t.get("kind") == "code" or not ng._edited_since_reconcile(t)):
             continue
