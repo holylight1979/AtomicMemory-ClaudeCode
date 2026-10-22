@@ -9,7 +9,8 @@
   - **「上GIT」撐到這批 push 完**：只 commit、背景通知、收尾閘逼出的補修 commit 都不讓口令失效；跑成功的 push（逐段看子命令，echo、commit 訊息、--dry-run 不算）或使用者新打一則字才失效。多個 repo 一起上要先全部 commit 再 push。
   - **Reload 建議閘**只在本 session 改過 `tools/workflow-guardian-mcp/` 底下的檔才判；**退縮閘**擋下的那一句不再記退避旗標（下一則使用者訊息不再追問同一件）；**拐彎判斷**擋下時尾段的閱讀路徑結果不再重複那一題；「後面還會擋」的預覽只報條數、不列檔名。
   - **病形閘**擋到別人留在暫存區的檔：照擋訊息在 commit 指令開頭加 `# 不是繞閘｜<檔是誰的、病要誰修>`、只提交自己的檔，送一次就過。
-- **案例宣告接線**：驗證範圍閘關著時，`need_goal verify_scope` 照收的 `case_for` 宣告也算案例覆蓋——`stop._verify_gates` 呼叫 `reconcile_gate_parts` 時帶 `case_for=wg_verify_ledger.declared_cases(...)`；`declared_cases` 還不存在時不帶（getattr 退路），有了就自動接上。
+- **案例宣告接線**：驗證範圍閘關著時，`need_goal verify_scope` 照收的 `case_for` 宣告也算案例覆蓋——`stop._verify_gates` 呼叫 `reconcile_gate_parts` 時帶 `case_for=wg_verify_ledger.declared_cases(...)`。
+- **部位表量尺案例**：`verify_stop_reconcile` 與 `lib/verify/verify_self_receipt` 的根層部位表案例改照表上實際讀到的列數算（部位表合法新增三列單檔列，原本寫死 10 列 4 把尺）。
 - **v6 關時**照 9e476fd0：共用擋次整個 session 累計、口令 commit 過就用掉、續跑回合裡使用者補一句照舊追加、不掃 push、退縮閘不動退避旗標。其餘改動本來就只在 v6 的路徑上。
 - **改了什麼**：`hooks/wg_release.py`（pending_of 認回合、放行紀錄改「回合＋那幾件＋情境指紋」、mark_block 記列給使用者看的項目）、`hooks/handlers/stop.py`（判定出錯、無頭放行、紅測預算、共用擋次、Reload、退縮旗標、閱讀路徑尾段、子代理收尾函式改名 `_code_gate_no_ask`）、`hooks/handlers/ups_gates.py`（`is_push_command`／`note_order_push`／`order_spent`、續跑回合清單重開）、`hooks/handlers/user_prompt_submit.py`（記 transcript 路徑）、`hooks/handlers/pre_tool_use.py` 口令段讀 `order_spent`、`tools/project-smells.py` 擋訊息、`hooks/dispatcher.py` 註解。
 - **驗證**：新案例 `hooks/verify/verify_pull_stop_gates.py`（30 支，含 v6 關照舊的 4 支與流程級兩條：病形閘照做一次就過、紅測擋 → 改碼跑綠 → 再收尾不重欠）；換回改前的碼跑會紅。`verify_stop_reconcile`、`verify_git_commit_order_gate`、`verify_reload_advice`、`verify_entry_wording`、`verify_g11_turns`、`verify_gate_trim`、`verify_entrypoint_contract` 對齊新行為。

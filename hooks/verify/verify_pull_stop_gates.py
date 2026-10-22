@@ -368,20 +368,16 @@ def test_shared_budget_resets_per_user_turn(driven, capsys, monkeypatch):
     assert "DeferralGate" in out and state["stop_blocked_count"] == 1              # 新的使用者回合：退縮閘照樣擋一次
 
 
-# ─── 案例宣告接線：wg_verify_ledger 有 declared_cases 才帶 case_for ─────────────────────────────
+# ─── 案例宣告接線：對帳帶 case_for＝wg_verify_ledger.declared_cases(...) ─────────────────────────────
 
-def test_declared_cases_wired_into_reconcile_only_when_available(driven, capsys, monkeypatch):
-    import wg_verify_ledger as vl
-    seen = []
+def test_declared_cases_wired_into_reconcile(driven, capsys, monkeypatch):
+    seen, marker = [], (lambda path: ["verify_x.py"])
+    calls = []
+    monkeypatch.setattr(st, "declared_cases", lambda state, sid, cfg: calls.append(sid) or marker)
     real = st.reconcile_gate_parts
-    monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: seen.append(k) or real(*a, **{x: y for x, y in k.items()
-                                                                                                    if x != "case_for"}))
-    monkeypatch.delattr(vl, "declared_cases", raising=False)
+    monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: seen.append(k) or real(*a, **k))
     driven(_CLAIM, capsys)
-    assert seen and "case_for" not in seen[-1]                                    # 還沒有這支：不帶參數、照常判
-    monkeypatch.setattr(vl, "declared_cases", lambda state, sid, cfg: {"c:/proj/hooks/x.py": ["verify_x.py"]}, raising=False)
-    driven(_CLAIM, capsys)
-    assert seen[-1].get("case_for") == {"c:/proj/hooks/x.py": ["verify_x.py"]}
+    assert calls == [_SID] and seen and seen[-1].get("case_for") is marker
 
 
 # ─── v6 守門總開關關時照 9e476fd0：共用擋次整個 session 累計、口令 commit 過就用掉 ─────────────────

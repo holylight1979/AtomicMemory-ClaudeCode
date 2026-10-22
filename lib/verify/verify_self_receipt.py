@@ -574,9 +574,12 @@ def test_017_leading_cd_root_only_for_single_absolute_cd():
 
 
 def test_017_all_root_table_rulers_parse_and_match_themselves():
-    """G6 (b)：根層部位表 10 列（4 把尺）原字串在兩種 shell 都可解析、原樣跑對得上；尾接 `2>&1 | tail -5` 也對得上。"""
+    """G6 (b)：根層部位表每一把量尺的原字串在兩種 shell 都可解析、原樣跑對得上；尾接 `2>&1 | tail -5` 也對得上。
+    列數與尺數照表上實際讀到的算（部位表會合法增列，不寫死）。
+    改舊測試｜test_017_all_root_table_rulers_parse_and_match_themselves：部位表合法新增三列（stop.py／pre_tool_use.py、
+    wg_release_rules.py／wg_overview.py／wg_second_opinion.py、tools/workflow-guardian-mcp/ 的單檔列），原本寫死 10 列 4 把尺。"""
     rows = [r for r in _ROOT_ROWS.values() if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 10 and len(rows) == 4
+    assert _ROOT_ROWS and rows, "部位表讀不到列或沒有任何量尺"
     for r in rows:
         m = r["measure"]["cmd"]
         for shell in ("bash", "powershell"):

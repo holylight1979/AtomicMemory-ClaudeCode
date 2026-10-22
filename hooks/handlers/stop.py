@@ -44,7 +44,7 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source, git_launcher,
+    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source, git_launcher, declared_cases,
 )
 from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
@@ -899,14 +899,12 @@ def _verify_gates(
             else:
                 mcmds = measure_cmds_of(own_mod_files, _lk)
             since = turn_start(_user_turn(state, turn_seq), session_id, own_mod_files, receipts)
-            # 驗證範圍閘關著時，verify_scope 照收的 case_for 宣告也算案例覆蓋（wg_verify_ledger 有 declared_cases 才帶）
-            import wg_verify_ledger as _vl
-            _declared = getattr(_vl, "declared_cases", None)
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
-                **({"case_for": _declared(state, session_id, rg_cfg)} if _declared else {}),
+                # 驗證範圍閘關著時，verify_scope 照收的 case_for 宣告也算案例覆蓋
+                case_for=declared_cases(state, session_id, rg_cfg),
                 case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
                                                                   deadline=git_dl, cfg=rg_cfg),
                 committed_new=state.get("committed_new_code"), user_turn=since,
