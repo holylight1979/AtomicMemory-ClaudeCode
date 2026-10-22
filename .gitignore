@@ -71,6 +71,7 @@ workflow/aec-report/
 workflow/aec-decision/
 workflow/ups-sentinel/
 workflow/entry-sent/
+workflow/hook-timing-coding/
 workflow/git-launchers/
 workflow/mcp-boot/
 workflow/pan-pass/
