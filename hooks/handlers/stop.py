@@ -899,10 +899,14 @@ def _verify_gates(
             else:
                 mcmds = measure_cmds_of(own_mod_files, _lk)
             since = turn_start(_user_turn(state, turn_seq), session_id, own_mod_files, receipts)
+            # 驗證範圍閘關著時，verify_scope 照收的 case_for 宣告也算案例覆蓋（wg_verify_ledger 有 declared_cases 才帶）
+            import wg_verify_ledger as _vl
+            _declared = getattr(_vl, "declared_cases", None)
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
+                **({"case_for": _declared(state, session_id, rg_cfg)} if _declared else {}),
                 case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
                                                                   deadline=git_dl, cfg=rg_cfg),
                 committed_new=state.get("committed_new_code"), user_turn=since,
