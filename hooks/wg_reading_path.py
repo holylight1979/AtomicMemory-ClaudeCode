@@ -4,6 +4,8 @@
 把結果附上一次（stop.py 併進那次擋的訊息與 stderr）。數字是尺不是判決：只量、只附，不擋、不計預算。
 量的內容：對本 session 改過的檔所在的入口跑量尺的比較模式（before＝本 session 第一次改檔前的 HEAD、after＝工作樹、--scope git），
 組成一段文字：尾行（READING_PATH DONE mode=compare …）、可評級與否（不可評級附原因）、變差／新增最差一條。
+超線才有字：一個根沒有到門檻的條目（見下「拐彎判斷」）→ 它的數據（上面那段與函式級數據表）不進結果文字、不送模型，
+只印 stderr、guard log 記 measured；有條目才整段附上。
 量不出來（不在 git、還沒有 commit、沒有入口、工具失敗、背景逾時、背景行程中斷）只附一句原因，不附手動指令（模型會接單去跑）。
 入口：部位表（overview-map.md）命中那一列「讀路徑樣本」欄的第一個程式檔（寫死的路徑存在就用它；帶 <佔位> 的照樣式
 比對改過的檔，對得上就用那個檔）；有任何一個改檔拿不到入口，就不給 --entry，交給量尺自動偵測整個專案的入口
@@ -25,10 +27,10 @@ WORKER_BUDGET_S 秒，逾時附「背景 N 秒內量不完」，逾時過的根�
 只問這次改到或新到門檻的。擋的記號（blocked_turn）放在欠項外層，改碼起新一批也不清：每個使用者回合最多擋一次。
 量完前又改了碼 → 舊欠項標 stale：只收答案、不擋，新的一批量完換掉。
 C#：不走上面整個專案的量尺與側面數據，改走 lib/reading_path_cs——只量上次交工作以來變過的 .cs（state measured 記每個改檔的指紋）
-加一跳上下游（不掃整個專案），
-本機有 .NET SDK 附的 Roslyn 就用它解析、沒有用輕量解析。超線才問、才有字（_cs_section）：變差或新增的路拐彎超過 cs_layers
-（預設 3）、本次改到的函式只把呼叫往下傳、改到的型別繼承鏈有空層或超過 cs_layers 層；每條材料只列那幾層，長度上限 CS_MATERIAL_MAX。
-沒超線 → 結果文字沒有 C# 的任何一行（不送模型），量過的摘要只進 guard log 與 stderr。
+加一跳上下游（不掃整個專案）；git 根照上面的 before，svn 工作副本（版控偵測 wg_verify_ledger._vcs_hit）對 BASE 比（svn_plans；
+svn 裡的其他語言只報個數）。本機有 .NET SDK 附的 Roslyn 就用它解析、沒有用輕量解析。超線才問、才有字（_cs_section）：
+變差或新增的路拐彎超過 cs_layers（預設 3）、本次改到的函式只把呼叫往下傳、改到的型別繼承鏈有空層或超過 cs_layers 層；
+每條材料只列那幾層，長度上限 CS_MATERIAL_MAX。沒超線 → 結果文字沒有 C# 的任何一行（不送模型），量過的摘要只進 guard log 與 stderr。
 怎麼跑：Stop 自動呼叫 reading_path_note 與 turn_judgment_note；背景入口 `python hooks/wg_reading_path.py --job <工作檔>` 由 Stop 起，不手動跑。
 """
 
@@ -48,7 +50,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from wg_core import WORKFLOW_DIR, append_guard_log, hook_python_exe   # 子行程直譯器單一來源（pythonw 換同目錄 python.exe）
 from wg_release_rules import JUDGMENT_EXAMPLE, format_hit, parse_turn_judgments, turn_judgment_verdict
-from wg_verify_ledger import _git_root_of, is_code_file, is_verify_case, reconcile_cfg
+from wg_verify_ledger import _git_root_of, _vcs_hit, is_code_file, is_verify_case, reconcile_cfg
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置找，不用 CLAUDE_DIR
 from overview_hub import find_map, match_row, parse_map  # noqa: E402
@@ -100,12 +102,14 @@ class _Timeout(Exception):
     """整支預算用完。"""
 
 
-def _spawn(args: List[str], deadline: float, run: Callable[..., Any], data: Optional[bytes] = None) -> Any:
+def _spawn(args: List[str], deadline: float, run: Callable[..., Any], data: Optional[bytes] = None,
+           cwd: Optional[Path] = None) -> Any:
     left = deadline - time.monotonic()
     if left <= 0:
         raise _Timeout
     try:
-        return run(args, capture_output=True, timeout=left, creationflags=_NO_WINDOW, **({"input": data} if data is not None else {}))
+        extra = {**({"input": data} if data is not None else {}), **({"cwd": str(cwd)} if cwd else {})}
+        return run(args, capture_output=True, timeout=left, creationflags=_NO_WINDOW, **extra)
     except subprocess.TimeoutExpired:
         raise _Timeout from None
 
@@ -398,46 +402,55 @@ def entry_items(res: Dict[str, Any], cfg: Dict[str, int]) -> List[Dict[str, Any]
     return out
 
 
-def _function_section(root: Path, base: str, tracked: List[str], deadline: float,
-                      run: Callable[..., Any], cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]]]:
-    """一個根的函式級數據：改到的程式檔（C# 以外，C# 走 _cs_section）裡對 before 的 diff 命中的函式與類別 → (幾行, 到門檻的條目)。
+def _function_section(root: Path, base: str, tracked: List[str], deadline: float, run: Callable[..., Any],
+                      cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]], bool]:
+    """一個根的函式級數據：改到的程式檔（C# 以外，C# 走 _cs_section）裡對 before 的 diff 命中的函式與類別
+    → (幾行, 到門檻的條目, 量到了沒)。量不出來（False）時那幾行是原因，照附；量到了的數據行沒超線就不附（run_job 決定）。
     還沒 git add 的新檔不列（沒有 diff 可比；檔名也會跟對帳閘「這個檔還欠不欠」的訊息混在一起，只在外面報個數）。"""
     ranges = _diff_ranges(root, base, tracked, deadline, run)
     if ranges is None:
-        return ["  函式級側面數據：量不出來（對 before 的 diff 拿不到）"], []
+        return ["  函式級側面數據：量不出來（對 before 的 diff 拿不到）"], [], False
     texts = _source_lines(tracked)
     try:
         rows = metrics_for_files(tracked, ranges, _resolve_pool(root, deadline, run))
     except Exception as e:  # noqa: BLE001  量不出來只寫原因
-        return [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], []
+        return [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], [], False
     for r in rows:
         if r["kind"] == "func":
             r["body_fp"] = _body_fp(r, texts)
     lines, items = function_rows(rows, root, cfg)
     if not lines:
-        return ["  函式級側面數據：這次的 diff 沒命中任何函式或類別本體"], []
+        return ["  函式級側面數據：這次的 diff 沒命中任何函式或類別本體"], [], True
     hits = [ln for ln in lines if ln.endswith("← 要人看")]   # 到門檻的全列；其餘最多列 FUNC_ROWS_SHOWN 減去已列的
     rest = [ln for ln in lines if ln not in hits]
     shown_rest = rest[:max(0, FUNC_ROWS_SHOWN - len(hits))]
     head = ["  函式級側面數據（這次改到的函式與類別；Python ast 解析，只算不判；每層加了什麼：+新增 ~覆寫）："]
     more = len(rest) - len(shown_rest)
-    return head + hits + shown_rest + ([f"    …另 {more} 筆低於門檻不列"] if more > 0 else []), items
+    return head + hits + shown_rest + ([f"    …另 {more} 筆低於門檻不列"] if more > 0 else []), items, True
 
 
 # ─── C#：一跳範圍的閱讀路徑，超線才問 ─────────────────────────────────────────
 
 def _cs_section(root: Path, base: str, files: List[str], deadline: float, run: Callable[..., Any],
-                cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]], Dict[str, Any]]:
-    """一個根上次交工作以來改到的 .cs → (幾行, 超線的條目, 量測摘要)。超線才有字與條目（見檔頭 C# 段）；沒超線 → ([], [], 摘要)，
-    結果文字不出現 C# 的任何一行。量不出來 → 一句原因。摘要（分析器、範圍檔數、條目數、說明）由 _collect 記 guard log、印 stderr。"""
+                cfg: Dict[str, int], kind: str = "git") -> Tuple[List[str], List[Dict[str, Any]], Dict[str, Any]]:
+    """一個根上次交工作以來改到的 .cs → (幾行, 超線的條目, 量測摘要)。kind：git 工作區或 svn 工作副本（base 不用，對 BASE）。
+    超線才有字與條目（見檔頭 C# 段）；沒超線 → ([], [], 摘要)，結果文字不出現 C# 的任何一行。量不出來 → 一句原因。
+    摘要（分析器、範圍檔數、條目數、說明）由 _collect 記 guard log、印 stderr。"""
     import reading_path_cs
+    exe: Dict[str, str] = {}
+    encodable: Optional[Callable[[str], bool]] = None
+    if kind == "svn":   # svn 執行檔與 argv 編碼檢查的單一來源（wg_vcs_sync）
+        from wg_vcs_sync import _svn_argv_encodable, _svn_exe
+        exe["svn"], encodable = _svn_exe(), _svn_argv_encodable
 
-    def git(args: List[str], data: Optional[bytes] = None) -> Tuple[int, bytes]:
-        proc = _spawn(["git", "-C", str(root), *args], deadline, run, data)
+    def tool(argv: List[str], data: Optional[bytes] = None, cwd: Optional[Path] = None) -> Tuple[int, bytes]:
+        if encodable and argv[0] == "svn" and not all(encodable(a) for a in argv[1:]):
+            return 1, b""   # svn.exe 收 argv 走 ANSI 字碼頁：編不出的路徑不交給它（會被換成別的字、讀錯檔），當查不到
+        proc = _spawn([exe.get(argv[0], argv[0]), *argv[1:]], deadline, run, data, cwd)
         return proc.returncode, proc.stdout
 
     try:
-        got = reading_path_cs.measure(root, base, files, git, deadline)
+        got = reading_path_cs.measure(root, base, files, tool, deadline, kind)
         texts = _source_lines([fw["file"] for fw in got["forwarders"]])
         items = (_cs_route_items(got["rows"], cfg) + _cs_forwarder_items(got["forwarders"], texts)
                  + _cs_class_items(got["classes"], root, cfg))
@@ -653,14 +666,19 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
 
 def _plan(state: Dict[str, Any], own: List[Dict[str, Any]], exts: List[str], cfg: Dict[str, Any],
           rec: Dict[str, Any], run: Callable[..., Any]) -> Optional[Dict[str, Any]]:
-    """本 session 改過的程式檔 → 背景工作；同一批已量過 → None（記下這一批的鍵）。"""
+    """本 session 改過的程式檔 → 背景工作；同一批已量過 → None（記下這一批的鍵）。git 根照 plans；svn 工作副本裡的 .cs 照 svn_plans
+    （C# 走一跳範圍、對 BASE 比；svn 裡的其他語言跟不在版控的一樣只報個數——Python 的比較要 git 歷史）。"""
     deadline = time.monotonic() + STOP_GIT_BUDGET_S
     groups: Dict[str, Tuple[Path, List[str]]] = {}
+    svn: Dict[str, Tuple[Path, List[str]]] = {}
     outside = []
     for f in code_files(own, exts):
         hit = _git_root_of(f)
+        vcs = None if hit else _vcs_hit(f)
         if hit:
             groups.setdefault(hit[0], (hit[1], []))[1].append(f)
+        elif vcs and vcs[0] == "svn" and f.lower().endswith(".cs"):
+            svn.setdefault(_norm(str(vcs[1])), (vcs[1], []))[1].append(f)
         else:
             outside.append(f)
     plans = []
@@ -669,8 +687,10 @@ def _plan(state: Dict[str, Any], own: List[Dict[str, Any]], exts: List[str], cfg
         tracked = {_norm(f) for f in files} if slow else _tracked(root, files, deadline, run)
         fresh = [f for f in files if Path(f).exists() and _norm(f) not in tracked]   # 還沒 git add 的新檔
         plans.append([key, str(root), files, base_spec(key, state.get("committed_new_code") or {}), fresh])
+    svn_plans = [[key, str(root), files] for key, (root, files) in sorted(svn.items())]
     # 同一批輸入＝根、before、改檔大小與時間、哪些還沒 git add 都相同（只 git add 不改檔也算新的一批）
-    cache = json.dumps([[k, b, fr, _fingerprint(fs)] for k, _, fs, b, fr in plans] + [outside], ensure_ascii=False)
+    cache = json.dumps([[k, b, fr, _fingerprint(fs)] for k, _, fs, b, fr in plans]
+                       + [[k, _fingerprint(fs)] for k, _, fs in svn_plans] + [outside], ensure_ascii=False)
     if rec.get("key") == cache:
         return None
     rec["key"] = cache
@@ -678,7 +698,7 @@ def _plan(state: Dict[str, Any], own: List[Dict[str, Any]], exts: List[str], cfg
     # 收尾被擋、接著再改同一個檔，回合號不會變
     seen, new = rec.get("measured") or {}, set().union(*(fresh for *_, fresh in plans))
     rec["measured"] = {f: [m, s, f in new] for f, m, s in _fingerprint(code_files(own, exts))}
-    return {"turn": int(state.get("turn_seq", 0)), "plans": plans, "outside": len(outside),
+    return {"turn": int(state.get("turn_seq", 0)), "plans": plans, "svn_plans": svn_plans, "outside": len(outside),
             "slow": list(rec.get("slow", [])), "code_exts": exts, "case_globs": cfg.get("verify_case_globs") or [],
             "turn_files": [f for f, fp in rec["measured"].items() if seen.get(f) != fp]}
 
@@ -725,8 +745,12 @@ def _collect(rec: Dict[str, Any]) -> Optional[str]:
     rec.pop("job")
     if res.get("slow"):
         rec["slow"] = sorted(set(rec.get("slow", [])) | set(res["slow"]))
-    for log in res.get("cs_log") or []:   # C# 量過的摘要：沒超線也留帳；說明（分析器、截掉的鄰居）只進 stderr，不進結果文字
-        append_guard_log("reading_path", {"event": "cs_measured", "job_turn": job.get("turn"), **log})
+    for log in res.get("measured") or []:   # 量過的摘要：沒超線也留帳；沒附的數據行與說明只印 stderr，不進結果文字
+        data = log.pop("lines", [])
+        append_guard_log("reading_path", {"event": "measured", "job_turn": job.get("turn"), "rows": len(data), **log})
+        if data:
+            print("\n".join([f"{TAG} {log.get('root')}：沒有到門檻的條目，這段數據不附在收尾（只在這裡看得到）：", *data]),
+                  file=sys.stderr)
         for note in log.get("notes") or []:
             print(f"{TAG} C#（{log.get('root')}）：{note}", file=sys.stderr)
     cfg = turn_judgment_cfg({"reading_path": {"turn_judgment": res.get("turn_judgment")}})
@@ -770,26 +794,30 @@ def _spawn_worker(job_path: Path) -> None:
 
 def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Dict[str, Any]:
     """背景量測本體：照工作檔量每個根 → {"text": 附在收尾檢核的文字, "slow": 這次逾時的根, "judgment": 到門檻的全部條目,
-    "turn_judgment": 門檻}。扣已判過、取上限、接那一題在收結果時做（_collect）。"""
+    "turn_judgment": 門檻, "measured": 量過的摘要（沒超線的數據行只在這裡，_collect 印 stderr、記 guard log）}。
+    超線才有字：一個根沒有到門檻的條目，它的數據行（尾行、可評級、最差一條、函式級數據表）不進結果文字；量不出來的一句原因、
+    沒量到的檔數照附。扣已判過、取上限、接那一題在收結果時做（_collect）。"""
     budget = float(job.get("budget") or WORKER_BUDGET_S)
     deadline = time.monotonic() + budget
     exts = job.get("code_exts") or []
     lines = [f"{TAG} 第 {job.get('turn')} 回合改動對閱讀路徑的影響（背景量完；尺不是判決，只量不擋）："]
     if job.get("outside"):   # 只報個數：這些檔多半已刪或隨 worktree 移除，列檔名會跟對帳閘「這個檔還欠不欠」的訊息混在一起
-        lines.append(f"  不在 git 工作區的改檔 {job['outside']} 個：比較要 git 歷史當 before，沒量")
+        lines.append(f"  不在 git 工作區的改檔 {job['outside']} 個（svn 工作副本只量 .cs）：比較要 git 歷史當 before，沒量")
     if not TOOL.is_file():
         return {"text": "\n".join(lines + [f"  量不出來：找不到量尺 {TOOL}"])}
-    slow, notes, cs_log = [], 0, []
+    slow, notes, measured = [], 0, []
     cfg = turn_judgment_cfg({"reading_path": {"turn_judgment": job.get("turn_judgment")}})
     items: List[Dict[str, Any]] = []
     now = {_norm(f) for f in job["turn_files"]} if "turn_files" in job else None   # 舊工作檔沒有這欄＝全部都算這次改的
+    globs = job.get("case_globs") or []
+    cs_work: List[Tuple[str, str, List[str], str]] = []     # (根, before, 這次要量的 .cs, git／svn)：Python 都量完再量
     for key, root, files, base, fresh in job.get("plans") or []:
         notes += len(fresh)
-        product = [f for f in files if not is_verify_case(f, job.get("case_globs") or [], root)]
+        product = [f for f in files if not is_verify_case(f, globs, root)]
         measurable = [f for f in product if f not in fresh]
         cs = [f for f in measurable if f.lower().endswith(".cs")]     # C# 走一跳範圍（_cs_section），不量整個專案
         rest = [f for f in measurable if f not in cs]
-        res = None
+        res, data, hits = None, [], []                                 # data＝量到的數據行：這個根有條目才附
         if not measurable:
             why = "改的都是還沒 git add 的新檔" if product else "這次只改了測試檔"
             lines.append(f"  {root}：{why}，沒有產品入口可量")
@@ -802,26 +830,39 @@ def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Di
                 got, timed_out = [f"  {root}：量不出來，跑不動子行程：{e}"], False
             if timed_out:
                 slow.append(key)
-            lines += got
+            (data if res is not None else lines).extend(got)          # 量不出來：一句原因照附
         if key in (job.get("slow") or []):
             continue
         if rest:   # 拐彎判斷的函式級與類別級數據（只有 diff 得到的追蹤中程式檔）
             try:
-                got, hits = _function_section(Path(root), base, rest, deadline, run, cfg)
+                got, hits, ok = _function_section(Path(root), base, rest, deadline, run, cfg)
             except (_Timeout, OSError) as e:
-                got, hits = [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], []
-            lines += got
-            items += entry_items(res, cfg) + hits
+                got, hits, ok = [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], [], False
+            (data if ok else lines).extend(got)
+            hits = entry_items(res, cfg) + hits
+        if hits:
+            lines += data
+            items += hits
+        elif data:
+            tail = next((ln.strip() for ln in data if ln.strip().startswith("READING_PATH")), "")
+            measured.append({"lang": "py", "root": root, "items": 0, "tail": tail, "lines": data})
         cs_now = [f for f in cs if now is None or _norm(f) in now]
         if cs_now:
-            got, hits, log = _cs_section(Path(root), base, cs_now, deadline, run, cfg)
-            lines += got
-            items += hits
-            cs_log += [{"root": root, **log}] if log else []
+            cs_work.append((root, base, cs_now, "git"))
+    for key, root, files in job.get("svn_plans") or []:
+        cs_now = [f for f in files if not is_verify_case(f, globs, root) and (now is None or _norm(f) in now)]
+        if cs_now:
+            cs_work.append((root, "BASE", cs_now, "svn"))
+    for root, base, files, kind in cs_work:
+        got, hits, log = _cs_section(Path(root), base, files, deadline, run, cfg, kind)
+        lines += got
+        items += hits
+        if log:
+            measured.append({"lang": "cs", "root": root, "vcs": kind, **log})
     if notes:   # 同上只報個數（git status 看得到是哪些）：檔名會跟對帳閘「這個檔還欠不欠」的訊息混在一起
         lines.append(f"  還沒 git add 的新檔 {notes} 個不在掃描母體（--scope git），沒量到")
     return {"text": "\n".join(lines) if len(lines) > 1 else None, "slow": slow, "judgment": items, "turn_judgment": cfg,
-            "cs_log": cs_log}
+            "measured": measured}
 
 
 def write_result(out: Path, res: Dict[str, Any]) -> None:

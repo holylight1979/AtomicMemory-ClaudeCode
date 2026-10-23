@@ -9,7 +9,8 @@
 C#：改了 .cs → 不列函式級數據表，走一跳範圍的閱讀路徑（lib/reading_path_cs），超線才問（只轉手的一層、繼承鏈有空層；巢狀深不問），
       那一題與五欄核對共用；沒超線、或只有解析不到 → 沒有字（解析不到只進 stderr）；基底的基底在一跳外 → 標接不到、不往上讀；
       C# 量不出來不牽連同一批的 Python 數據。案例細節見 lib/verify/verify_reading_path_cs.py。
-反例：數據全低於門檻 → 不問、不擋；Python 與 C# 以外的檔標不支援、不問；還沒 git add 的新檔不列函式級數據（只報個數）。
+反例：數據全低於門檻 → 不問、不擋、結果文字沒有那個根的數據（數據只印 stderr、guard log 記 measured）；Python 與 C# 以外的檔
+      標不支援、不問（同樣只在 stderr）；還沒 git add 的新檔不列函式級數據（只報個數）。
 思考的彎：reconcile turns ≥4 沒寫「重找最短路：」→ 拒收；turns=2 收下；沒給 turns → 收下並提醒一句。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_g11_turns.py
 """
@@ -129,21 +130,33 @@ def test_nested_function_lists_metrics_question_scale_and_example_then_owed(tmp_
     assert [it["kind"] + " " + it["name"] for it in owed["items"]] == ["函式 y.py::b"] and owed["turn"] == 5
 
 
-def test_all_below_threshold_asks_nothing(tmp_path):
+def _quiet(state, capsys, config=None) -> str:
+    """收尾兩次、第二次量完但沒超線：結果文字是空的（不送模型）→ 回 stderr（沒附的數據只在這裡看得到）。"""
+    first, _ = rph.reading_path_note(state, _SID, config or {}, spawn=_inline)
+    assert first is None and state["reading_path"][_SID].get("job")
+    capsys.readouterr()
+    second, _ = rph.reading_path_note(state, _SID, config or {}, spawn=_inline)
+    assert second is None and not state["reading_path"][_SID].get("job"), second
+    return capsys.readouterr().err
+
+
+def test_all_below_threshold_sends_no_text_and_asks_nothing(tmp_path, capsys, logs):
     root = _repo(tmp_path / "r")
     _write(root, {"y.py": _BODY.format("b").replace("k *= 2", "k *= 3")})
     state = _state(_mf(root / "y.py"))
-    note = _note(state)
-    assert "y.py::b｜巢狀 0｜條件塊 0" in note and "要人看" not in note and rph.JUDGMENT_QUESTION not in note, note
+    err = _quiet(state, capsys)
+    assert "y.py::b｜巢狀 0｜條件塊 0" in err and "沒有到門檻的條目，這段數據不附在收尾" in err, err
     assert "owed" not in state["reading_path"][_SID]
     assert rph.turn_judgment_note(state, _SID, "全部完成了。", 1, 6) == (None, False)
+    measured = [p for g, p in logs if p.get("event") == "measured"]
+    assert measured and measured[0]["lang"] == "py" and measured[0]["items"] == 0 and measured[0]["rows"] > 0, logs
 
 
-def test_other_language_file_is_marked_unsupported_and_not_asked(tmp_path):
+def test_other_language_file_is_marked_unsupported_and_not_asked(tmp_path, capsys):
     root = _repo(tmp_path / "r", {**APP, "a.lua": "local x = 1\n"})
     _write(root, {"a.lua": "local x = 2\n"})
-    note = _note(_state(_mf(root / "a.lua")))
-    assert "a.lua：不支援（只算 Python 與 C#）" in note and rph.JUDGMENT_QUESTION not in note, note
+    err = _quiet(_state(_mf(root / "a.lua")), capsys)
+    assert "a.lua：不支援（只算 Python 與 C#）" in err and rph.JUDGMENT_QUESTION not in err, err
 
 
 CS_TURNS = """public abstract class Unit
@@ -339,14 +352,14 @@ def test_new_code_batch_holds_stale_owed_without_blocking(tmp_path):
     assert rph.turn_judgment_missing(state, _SID, "全部完成了。", 1) == [], "預覽也不列"
 
 
-def test_threshold_config_and_item_cap(tmp_path):
+def test_threshold_config_and_item_cap(tmp_path, capsys):
     cfg = {"reading_path": {"turn_judgment": {"nesting": 9, "bumpy": 9, "turns": 9, "max_items": 1, "bad": "x"}}}
     assert rph.turn_judgment_cfg(cfg) == {**rph.TURN_JUDGMENT_DEFAULTS, "nesting": 9, "bumpy": 9, "turns": 9, "max_items": 1}
     root = _repo(tmp_path / "r")
     _write(root, {"y.py": NESTED_B})
     state = _state(_mf(root / "y.py"))
-    note = _note(state, cfg)
-    assert "y.py::b｜巢狀 4" in note and "要人看" not in note and "owed" not in state["reading_path"][_SID], "門檻調高就不問"
+    err = _quiet(state, capsys, cfg)
+    assert "y.py::b｜巢狀 4" in err and "要人看" not in err and "owed" not in state["reading_path"][_SID], "門檻調高就不問、不附字"
     items = [{"kind": "函式", "name": f"f{i}", "keys": [f"f{i}"], "nums": "巢狀 3"} for i in range(3)]
     block = "\n".join(rph.judgment_block(items[:1], rph.turn_judgment_cfg(cfg), dropped=2))
     assert "要人看的 1 條" in block and "另 2 條也到門檻，一批最多問 1 條" in block, "超過上限的條數要說出來，不當成低於門檻"

@@ -7,6 +7,9 @@
 批次：同一個使用者回合交工作後又改同一個 .cs（回合號不變）→ 下一批照檔案指紋照樣量，沒再變的不重量。
 範圍：大 fixture（300 個無關檔、兩跳外的上下游）→ 解析只碰改到的檔與一跳上下游；檔名對上卻不是定義所在 → 照樣找到定義的檔。
 材料：超線條目只列那幾層，一條有長度上限，範圍裡其他函式不出現。
+svn：svn 工作副本（svnadmin 現場建）裡改 .cs → 照樣量（新加的檔沒有 BASE、改過的檔對 BASE、沒改過的鄰居對工作樹），找鄰居
+     有 ripgrep 用 rg、沒有逐檔讀，兩種結果相同；_plan 照既有版控偵測分出 svn；這次沒改 .cs 不量。本機沒有 svn 時略過。
+Python：沒到門檻 → 結果文字是空的（數據只在 stderr、guard log 記 measured）；到門檻 → 照舊附數據表。
 分析器：本機有 .NET SDK 附的 Roslyn 就用 Roslyn，沒有用輕量解析；兩種跑同一批案例結果相同；Roslyn 跑不動（含快取目錄建不起來）
         退回輕量並註明。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider lib/verify/verify_reading_path_cs.py
@@ -15,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -85,6 +89,12 @@ def _job(root: Path, files: list, turn_files=None) -> dict:
            "code_exts": EXTS, "case_globs": [], "turn_judgment": dict(rph.TURN_JUDGMENT_DEFAULTS), "budget": 240}
     job["turn_files"] = files if turn_files is None else [str(root / f) for f in turn_files]
     return job
+
+
+def _tool(argv, data=None, cwd=None):
+    """measure 用的執行函式：照給的完整指令（與工作目錄）跑 → (結束碼, stdout)。"""
+    p = subprocess.run(argv, input=data, capture_output=True, cwd=cwd)
+    return p.returncode, p.stdout
 
 
 @pytest.fixture(params=["light", "roslyn"])
@@ -220,11 +230,7 @@ def test_scope_is_changed_files_plus_one_hop_on_a_big_project(tmp_path, analyzer
     real_tmc = tmc._parse
     monkeypatch.setattr(tmc, "_parse", lambda path, text: parsed.append(Path(path).name) or real_tmc(path, text))
 
-    def vcs(args, data=None):
-        p = subprocess.run(["git", "-C", str(root), *args], input=data, capture_output=True)
-        return p.returncode, p.stdout
-
-    got = reading_path_cs.measure(root, "HEAD", [str(root / "Shop.cs")], vcs)
+    got = reading_path_cs.measure(root, "HEAD", [str(root / "Shop.cs")], _tool)
     assert got["scope"] == ["Clerk.cs", "Shop.cs", "Till.cs"], got["scope"]
     assert got["analyzer"] == analyzer, got["notes"]
     touched = {Path(p).name for p in parsed}
@@ -258,11 +264,7 @@ def test_downstream_finds_the_definition_when_the_file_name_misleads(tmp_path):
             "Shop.cs": "public class Shop\n{\n    private Store _s = new Store();\n    public void Sell(int n) { _s.Put(n); }\n}\n"}
     root = _repo(tmp_path / "r", base, {"Shop.cs": base["Shop.cs"].replace("_s.Put(n);", "if (n > 1) { _s.Put(n); }")})
 
-    def vcs(args, data=None):
-        p = subprocess.run(["git", "-C", str(root), *args], input=data, capture_output=True)
-        return p.returncode, p.stdout
-
-    assert "Services.cs" in reading_path_cs.measure(root, "HEAD", [str(root / "Shop.cs")], vcs)["scope"]
+    assert "Services.cs" in reading_path_cs.measure(root, "HEAD", [str(root / "Shop.cs")], _tool)["scope"]
 
 
 def test_roslyn_build_setup_failure_falls_back_to_light(tmp_path, monkeypatch):
@@ -275,11 +277,7 @@ def test_roslyn_build_setup_failure_falls_back_to_light(tmp_path, monkeypatch):
     monkeypatch.setattr(cs_roslyn, "CACHE", blocker / "cache")
     root = _repo(tmp_path / "r", {"Svc.cs": SVC_BEFORE, "Repo.cs": REPO}, {"Svc.cs": SVC_AFTER})
 
-    def vcs(args, data=None):
-        p = subprocess.run(["git", "-C", str(root), *args], input=data, capture_output=True)
-        return p.returncode, p.stdout
-
-    got = reading_path_cs.measure(root, "HEAD", [str(root / "Svc.cs")], vcs)
+    got = reading_path_cs.measure(root, "HEAD", [str(root / "Svc.cs")], _tool)
     assert got["analyzer"] == "light" and any("Roslyn 跑不動" in n for n in got["notes"]), got["notes"]
 
 
@@ -301,6 +299,140 @@ def test_roslyn_build_drops_older_builds_but_not_other_builds_in_progress(tmp_pa
     assert dll.is_file() and left == sorted([dll.parents[1].name, "other.999.tmp"]), left
 
 
+# ─── svn 工作副本 ────────────────────────────────────────────────────────────
+
+def _svn(*args: str) -> None:
+    subprocess.run(["svn", "--non-interactive", *args], check=True, capture_output=True)
+
+
+def _svn_wc(tmp_path: Path, base: dict, after: dict) -> Path:
+    """本機建一個 svn repo 與工作副本：base 先 commit，after 寫進工作副本並 svn add（新檔是 added，沒有 BASE）。"""
+    if not (shutil.which("svn") and shutil.which("svnadmin")):
+        pytest.skip("本機沒有 svn／svnadmin")
+    repo, wc = tmp_path / "repo", tmp_path / "wc"
+    subprocess.run(["svnadmin", "create", str(repo)], check=True, capture_output=True)
+    _svn("checkout", "-q", repo.resolve().as_uri(), str(wc))
+    _write(wc, base)
+    _svn("add", "-q", "--force", str(wc))
+    _svn("commit", "-q", "-m", "base", str(wc))
+    _write(wc, after)
+    _svn("add", "-q", "--force", str(wc))
+    return wc
+
+
+@pytest.fixture(params=["rg", "scan"])
+def finder(request, monkeypatch):
+    """svn 找鄰居兩種都跑：本機有 ripgrep 用 rg；scan＝當作沒裝 rg，逐檔讀。"""
+    import reading_path_cs
+    if request.param == "scan":
+        real = reading_path_cs.shutil.which
+        monkeypatch.setattr(reading_path_cs.shutil, "which", lambda name, *a, **k: None if name == "rg" else real(name, *a, **k))
+    elif not shutil.which("rg"):
+        pytest.skip("本機沒有 ripgrep")
+    return request.param
+
+
+def test_svn_working_copy_four_layer_chain_is_over_line(tmp_path, finder, monkeypatch):
+    import cs_roslyn
+    monkeypatch.setattr(cs_roslyn, "find_roslyn", lambda: None)
+    wc = _svn_wc(tmp_path, {"E.cs": LANDING.format("E"), "Far.cs": "public class Far\n{\n}\n"}, CHAIN4)
+    files = [str(wc / f) for f in CHAIN4]
+    job = {"turn": 5, "plans": [], "svn_plans": [[str(wc), str(wc), files]], "outside": 0, "slow": [], "code_exts": EXTS,
+           "case_globs": [], "turn_judgment": dict(rph.TURN_JUDGMENT_DEFAULTS), "budget": 240, "turn_files": files}
+    res = rph.run_job(job)
+    assert [it["name"] for it in _items(res, "入口")] == ["A.cs::A.Run → E.cs::E.Run"], res.get("text")
+    assert res["measured"][0]["vcs"] == "svn" and res["measured"][0]["scope"] == 5, res["measured"]
+
+
+def test_svn_modified_file_compares_against_base(tmp_path, monkeypatch):
+    """svn 裡改既有的檔：before＝BASE（svn cat），沒改過的鄰居 before＝工作樹；只轉手的那層照樣標空層。"""
+    import cs_roslyn
+    import reading_path_cs
+    monkeypatch.setattr(cs_roslyn, "find_roslyn", lambda: None)
+    wc = _svn_wc(tmp_path, {"Svc.cs": SVC_BEFORE, "Repo.cs": REPO}, {"Svc.cs": SVC_AFTER})
+    got = reading_path_cs.measure(wc, "BASE", [str(wc / "Svc.cs")], _tool, kind="svn")
+    assert got["scope"] == ["Repo.cs", "Svc.cs"] and [f["func"] for f in got["forwarders"]] == ["Svc.cs::Svc.Save"], got
+
+
+def test_svn_paths_with_at_sign_are_read_as_plain_paths(tmp_path, monkeypatch):
+    """路徑裡有 @（Unity 套件目錄 com.x@1.2）：svn 會當成指定版本而拒收；照樣查得到狀態、取得到 BASE。"""
+    import cs_roslyn
+    import reading_path_cs
+    monkeypatch.setattr(cs_roslyn, "find_roslyn", lambda: None)
+    wc = _svn_wc(tmp_path, {"lib@2/Svc.cs": SVC_BEFORE, "pkg@1.2/Repo.cs": REPO}, {"lib@2/Svc.cs": SVC_AFTER})
+    got = reading_path_cs.measure(wc, "BASE", [str(wc / "lib@2/Svc.cs")], _tool, kind="svn")
+    assert got["scope"] == ["lib@2/Svc.cs", "pkg@1.2/Repo.cs"], got
+    assert [f["func"] for f in got["forwarders"]] == ["lib@2/Svc.cs::Svc.Save"] and not got["notes"][1:], got["notes"]
+
+
+def test_svn_path_outside_the_ansi_code_page_is_kept_from_svn_and_noted(tmp_path, monkeypatch):
+    """svn.exe 收 argv 走 ANSI 字碼頁：編不出的路徑不交給它（會被換字、讀錯檔）；其餘照量，那個檔當沒改過並註明。"""
+    import cs_roslyn
+    from wg_vcs_sync import _svn_argv_encodable
+    if _svn_argv_encodable("Café"):
+        pytest.skip("本機 ANSI 字碼頁編得出 é")
+    monkeypatch.setattr(cs_roslyn, "find_roslyn", lambda: None)
+    wc = _svn_wc(tmp_path, {"Svc.cs": SVC_BEFORE, "Repo.cs": REPO, "Café.cs": "public class Cafe\n{\n    private Svc _s;\n}\n"},
+                 {"Svc.cs": SVC_AFTER})
+    files = [str(wc / "Svc.cs")]
+    job = {"turn": 5, "plans": [], "svn_plans": [[str(wc), str(wc), files]], "outside": 0, "slow": [], "code_exts": EXTS,
+           "case_globs": [], "turn_judgment": dict(rph.TURN_JUDGMENT_DEFAULTS), "budget": 240, "turn_files": files}
+    res = rph.run_job(job)
+    assert [it["name"] for it in _items(res, "空層")] == ["Svc.cs::Svc.Save"], res.get("text")
+    assert any("svn 查不到狀態的 1 檔（例：Café.cs）" in n for n in res["measured"][0]["notes"]), res["measured"]
+
+
+def test_svn_plan_and_no_cs_change_is_not_measured(tmp_path, monkeypatch):
+    """_plan 照既有的版控偵測把 svn 工作副本裡的 .cs 放進 svn_plans；這次沒改 .cs → 不量；只改文件 → 不交工作。"""
+    import reading_path_cs
+    wc = _svn_wc(tmp_path, {"E.cs": LANDING.format("E"), "m.md": "x\n"}, CHAIN4)
+    jobs: list = []
+    mods = [{"path": str(wc / f), "session_id": _SID, "turn_seq": 5, "last_turn_seq": 5} for f in CHAIN4]
+    rph.reading_path_note({"turn_seq": 5, "modified_files": mods}, _SID, {},
+                          spawn=lambda p: jobs.append(json.loads(Path(p).read_text(encoding="utf-8"))))
+    assert jobs and jobs[0]["plans"] == [] and [Path(f).name for f in jobs[0]["svn_plans"][0][2]] == list(CHAIN4), jobs
+    calls = []
+    monkeypatch.setattr(reading_path_cs, "measure", lambda *a, **k: calls.append(a) or {})
+    res = rph.run_job({**jobs[0], "turn_files": []})
+    assert calls == [] and res["judgment"] == [] and not res["text"], "這回合沒改 .cs：svn 的 C# 也不量"
+    state = {"turn_seq": 6, "modified_files": [{"path": str(wc / "m.md"), "session_id": _SID, "turn_seq": 6, "last_turn_seq": 6}]}
+    assert rph.reading_path_note(state, _SID, {}, spawn=lambda p: calls.append(p)) == (None, False) and calls == []
+
+
+def test_svn_changed_file_svn_cannot_take_is_measured_as_new_not_skipped(tmp_path, monkeypatch):
+    """改到的檔本身是 svn 編不出的檔名：查不到狀態也當新檔整檔量（寧可多問），不能當沒改過而整個不量。"""
+    import cs_roslyn
+    from wg_vcs_sync import _svn_argv_encodable
+    if _svn_argv_encodable("Café"):
+        pytest.skip("本機 ANSI 字碼頁編得出 é")
+    monkeypatch.setattr(cs_roslyn, "find_roslyn", lambda: None)
+    wc = _svn_wc(tmp_path, {"Café.cs": SVC_BEFORE, "Repo.cs": REPO}, {"Café.cs": SVC_AFTER})
+    files = [str(wc / "Café.cs")]
+    job = {"turn": 5, "plans": [], "svn_plans": [[str(wc), str(wc), files]], "outside": 0, "slow": [], "code_exts": EXTS,
+           "case_globs": [], "turn_judgment": dict(rph.TURN_JUDGMENT_DEFAULTS), "budget": 240, "turn_files": files}
+    res = rph.run_job(job)
+    assert [it["name"] for it in _items(res, "空層")] == ["Café.cs::Svc.Save"], res.get("text")
+    assert any("改到的當新檔" in n for n in res["measured"][0]["notes"]), res["measured"]
+
+
+# ─── Python：沒超線不附數據 ───────────────────────────────────────────────────
+
+def test_python_under_line_sends_no_text_and_over_line_keeps_the_table(tmp_path, capsys):
+    """Python 改動沒到門檻：結果文字是空的（數據只在 stderr）；到門檻：照舊附數據表與那一題。"""
+    flat = "def b(n):\n    k = n + 1\n    return k\n"
+    deep = ("def b(n):\n    if n:\n        for x in range(n):\n            if x:\n                while x:\n                    x -= 1\n"
+            "    return n\n")
+    root = _repo(tmp_path / "r", {"y.py": flat}, {"y.py": flat.replace("n + 1", "n + 2")})
+    res = rph.run_job(_job(root, ["y.py"]))
+    assert not res["text"] and res["judgment"] == [] and res["measured"][0]["lang"] == "py", res
+    rec = {"job": {"out": str(tmp_path / "o.json"), "path": str(tmp_path / "j.json"), "turn": 5, "at": 0}}
+    rph.write_result(Path(rec["job"]["out"]), res)
+    assert rph._collect(rec) is None and "y.py::b｜巢狀 0" in capsys.readouterr().err
+    _write(root, {"y.py": deep})
+    res = rph.run_job(_job(root, ["y.py"]))
+    assert "y.py::b｜巢狀 4" in (res["text"] or "") and "函式級側面數據" in res["text"] and res["judgment"], res
+
+
 # ─── 分析器：Roslyn 跑不動退回輕量並註明 ─────────────────────────────────────────
 
 def test_roslyn_failure_falls_back_to_light_with_a_note(tmp_path, monkeypatch):
@@ -313,11 +445,7 @@ def test_roslyn_failure_falls_back_to_light_with_a_note(tmp_path, monkeypatch):
     monkeypatch.setattr(cs_roslyn, "parse_many", boom)
     root = _repo(tmp_path / "r", {"Svc.cs": SVC_BEFORE, "Repo.cs": REPO}, {"Svc.cs": SVC_AFTER})
 
-    def vcs(args, data=None):
-        p = subprocess.run(["git", "-C", str(root), *args], input=data, capture_output=True)
-        return p.returncode, p.stdout
-
-    got = reading_path_cs.measure(root, "HEAD", [str(root / "Svc.cs")], vcs)
+    got = reading_path_cs.measure(root, "HEAD", [str(root / "Svc.cs")], _tool)
     assert got["analyzer"] == "light" and any("Roslyn 跑不動" in n and "編不起來" in n for n in got["notes"]), got
     assert [f["func"] for f in got["forwarders"]] == ["Svc.cs::Svc.Save"], "退回輕量照樣量得到"
 
