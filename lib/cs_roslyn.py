@@ -118,6 +118,9 @@ def _built(info: Dict[str, str], deadline: float) -> Path:
         shutil.rmtree(tmp, ignore_errors=True)
     if not dll.is_file():
         raise RoslynError("編完找不到小程式")
+    for old in CACHE.iterdir():                 # 舊版原始碼編的（一份約 30MB）不再用：清掉；別的行程正在編的暫存夾不動
+        if old.name != key and not old.name.endswith(".tmp"):
+            shutil.rmtree(old, ignore_errors=True)
     return dll
 
 

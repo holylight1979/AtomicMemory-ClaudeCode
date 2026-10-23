@@ -283,6 +283,24 @@ def test_roslyn_build_setup_failure_falls_back_to_light(tmp_path, monkeypatch):
     assert got["analyzer"] == "light" and any("Roslyn 跑不動" in n for n in got["notes"]), got["notes"]
 
 
+def test_roslyn_build_drops_older_builds_but_not_other_builds_in_progress(tmp_path, monkeypatch):
+    """小程式原始碼換版後編新的一份，舊版編好的（一份約 30MB）清掉；別的行程正在編的暫存夾不動。編譯換成假的。"""
+    import cs_roslyn
+    monkeypatch.setattr(cs_roslyn, "CACHE", tmp_path / "cache")
+    (tmp_path / "cache" / "0ldbuild00000" / "out").mkdir(parents=True)
+    (tmp_path / "cache" / "other.999.tmp").mkdir()
+
+    def fake_run(args, data, timeout, cwd=None):
+        out = Path(args[args.index("-o") + 1])
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "cs_roslyn.dll").write_bytes(b"x")
+        return b""
+    monkeypatch.setattr(cs_roslyn, "_run", fake_run)
+    dll = cs_roslyn._built({"sdk": "9.9.9", "dir": "x", "tfm": "net9.0", "dotnet": "dotnet"}, float("inf"))
+    left = sorted(p.name for p in (tmp_path / "cache").iterdir())
+    assert dll.is_file() and left == sorted([dll.parents[1].name, "other.999.tmp"]), left
+
+
 # ─── 分析器：Roslyn 跑不動退回輕量並註明 ─────────────────────────────────────────
 
 def test_roslyn_failure_falls_back_to_light_with_a_note(tmp_path, monkeypatch):
