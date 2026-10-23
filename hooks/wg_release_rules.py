@@ -3791,10 +3791,11 @@ RULES.update({
     "USER_TURN_KEY_KEPT": "使用者回合鍵（turn_prompts_seq）不掉：state 在 compact／resume 重建時回合編號與回合鍵照搬"
                           "（session_start._CARRY_ON_REBUILD：turn_seq、turn_prompts_seq、user_turn_count、turn_open、turn_typed）；"
                           "鍵還是不在（state 從零建）時，UserPromptSubmit 第一則進來的訊息就算是同伴訊息、背景通知也把鍵錨在這一則"
-                          "（ups_gates.track_turn_prompts；不加 user_turn_count），之後照 TURN_SINCE_USER_PROMPT 前進。鍵不在時 user_turn "
+                          "（ups_gates.track_turn_prompts；不加 user_turn_count；v6 關照舊不錨），之後照 TURN_SINCE_USER_PROMPT 前進。鍵不在時 user_turn "
                           "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（PickOne 每則重問、各閘每回合的擋次與預算重來）。",
-    "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）逐句看：最後 2000 字裡有一句有完成詞、而那一句本身沒有排除詞"
-                                     "（還沒／尚未…完成、待補、仍在等、等待…回報、尚未開始、中途、進行中）就算。排除詞只取消它自己那一句；"
+    "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）：最後 2000 字裡有「這則之後工作還在繼續」的話（仍在等、"
+                                     "等待…回報、尚未開始）整則不算；否則逐句看，有一句有完成詞、而那一句本身沒有其餘排除詞（還沒／尚未…完成、"
+                                     "待補、中途、進行中）就算，這幾個只取消它自己那一句；第二意見往前找（turn_completion_text）同一套；"
                                      "句界＝句號、驚嘆號、問號、換行，逗號、分號不切（「A2 已完成，仍在等 A1 回報」仍是中途）。"
                                      "收割待補閘的「中途狀態句不擋」（wg_harvest.in_progress_text）同源：另有一句宣告完成就不算中途。",
     "OPENING_NOTICE_NOT_TODO": "開場的系統提示不寫成待辦口吻：處置句寫清誰決定、要不要現在處理；使用者這回合要的是別的事時只轉述、不動手"

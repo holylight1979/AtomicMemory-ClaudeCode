@@ -178,9 +178,9 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str, v6: Optional[bo
         state["turn_prompts"] = [typed]
         _new_turn()
     seq = state.get("turn_prompts_seq")
-    if not (isinstance(seq, int) and not isinstance(seq, bool) and seq > 0):
+    if v6 and not (isinstance(seq, int) and not isinstance(seq, bool) and seq > 0):
         # 規則 USER_TURN_KEY_KEPT：state 從零建（遺失重建、舊 state）沒有回合鍵，之後只進同伴訊息、背景通知就一直補不上，
-        # user_turn 會退回逐則前進的 turn_seq、每則都當成新使用者回合。錨在這一則；之後照上面的規則前進
+        # user_turn 會退回逐則前進的 turn_seq、每則都當成新使用者回合。錨在這一則；之後照上面的規則前進（v6 關照 9e476fd0，不錨）
         state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1
     if typed:
         state["turn_typed"] = True

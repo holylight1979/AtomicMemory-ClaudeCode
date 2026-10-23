@@ -112,3 +112,12 @@ def test_missing_key_anchored_at_first_peer_message_then_typing_opens_new_turn(m
     assert state["turn_seq"] == 3 and user_turn(state, state["turn_seq"]) == 1
     _ups(monkeypatch, state, "好，接著改報表")
     assert state["turn_seq"] == 4 and user_turn(state, state["turn_seq"]) == 4 and state["turn_prompts"] == ["好，接著改報表"]
+
+
+def test_v6_off_does_not_anchor_missing_key():
+    """守門總開關關（照 9e476fd0）：鍵不在也不錨，同伴訊息照舊只開續跑回合。"""
+    state = wg_core.new_state(_SID, "c:/proj", "startup")
+    track_turn_prompts(state, PEER, v6=False)
+    assert "turn_prompts_seq" not in state and state["turn_typed"] is False
+    track_turn_prompts(state, PEER, v6=True)
+    assert state["turn_prompts_seq"] == 1

@@ -285,35 +285,42 @@ def test_zuo_wan_le_counts_as_completion_claim():
 @pytest.mark.parametrize("text, expected", [
     ("三件都做完了。中途被擋了兩次，都補上了。", True),                       # 實例：內文描述流程的「中途」讓整則不算，第二意見沒觸發
     ("我還沒動git：完成的三件列在下面。\n全部做完了，等你看 diff。", True),     # 開頭那句的否定只取消它自己
-    ("改了 3 支檔，完成。\n目前進行中的只有 codex 那一輪，結果回來再補。", True),
+    ("三件都做完了，測試全過。\n目標樹：T2 [進行中｜明確｜使用者說的] 報表改版（下一個需求）", True),   # 貼出的樹節點狀態
     ("第一件完成，中途還卡著兩件。", False),                                   # 同一句：照排除
     ("A1 完成；整合尚未開始。", False),                                        # 分號不切句：中途狀態
     ("A2 已完成，仍在等 A1 回報。", False),
+    ("A 完成。仍在等 B 回報。", False),                                        # 「還在等」是整則的狀態：句號分開也不算
+    ("A1 完成。整合尚未開始。", False),
 ])
 def test_completion_exclude_only_cancels_its_own_sentence(text, expected):
-    """規則 COMPLETION_CLAIM_PER_SENTENCE：排除詞只取消同一句的完成詞，不再整則一刀切（舊碼前三列判 False）。"""
+    """規則 COMPLETION_CLAIM_PER_SENTENCE：否定、待補、中途、進行中只取消同一句的完成詞，不再整則一刀切（舊碼前三列判 False）；
+    講「這則之後工作還在繼續」的（仍在等、等待…回報、尚未開始）照舊整則不算（codex 一輪 BLOCK 1：句號分開的中途回報被當收尾）。"""
     assert claims_completion(text) is expected
 
 
 def test_in_progress_text_not_midway_when_another_sentence_claims_done():
-    """同一規則：收割待補閘的「中途狀態句不擋」也逐句看——另有一句宣告完成就是收尾（舊碼：有「中途」就當中途、不擋）。"""
+    """同一規則：收割待補閘的「中途狀態句不擋」也逐句看——另有一句宣告完成就是收尾（舊碼：有「中途」就當中途、不擋）；
+    還在等別人的整則照舊是中途。"""
     from wg_harvest import in_progress_text
     assert in_progress_text("三件都做完了。中途被擋了兩次，都補上了。") is False
     assert in_progress_text("A2 已完成，仍在等 A1 回報。") is True
+    assert in_progress_text("A 完成。仍在等 B 回報。") is True
     assert in_progress_text("搞定前半，目前中途，先回報進度。") is True
 
 
 def _gate_texts():
-    """hooks／lib（不含 verify）原始碼裡送得到 AI 眼前的字串：每個字串字面值（f-string 整條、插值換成 X）。不算：docstring、
-    正則來源（re.compile 等的參數、名字以 _RE／PATTERNS 結尾的常數）、規則說明表 RULES（文件，不送出）、stderr 與留帳呼叫的參數。
-    回 [(相對路徑, 行號, 文字)]。"""
+    """hooks／lib（不含 verify）原始碼裡送得到 AI 眼前的字串：每個字串字面值（f-string 整條、插值換成 X；`+` 串起來的字面值併成
+    一條）。不算：docstring、正則來源（`re.<函式>` 的第一個參數、lazy_re／_compile_union 的參數、名字以 _RE／PATTERNS 結尾的常數）、
+    規則說明表 RULES（文件，不送出）、印到 sys.stderr 與留帳呼叫的參數。回 [(相對路徑, 行號, 文字)]。"""
     import ast
-    regex_calls = {"compile", "search", "match", "fullmatch", "sub", "subn", "finditer", "findall", "split", "lazy_re",
-                   "_compile_union"}
+    pattern_calls = {"lazy_re", "_compile_union"}
     log_calls = {"log", "_log", "append_guard_log", "_atom_debug_error", "_atom_debug_log"}
 
     def name_of(node):
         return node.attr if isinstance(node, ast.Attribute) else getattr(node, "id", "")
+
+    def is_stderr(node):
+        return isinstance(node, ast.Attribute) and node.attr == "stderr" and name_of(node.value) == "sys"
 
     def skipped_roots(tree):
         roots = []
@@ -324,8 +331,11 @@ def _gate_texts():
                     roots.append(b.value)
             elif isinstance(n, ast.Call):
                 fn = name_of(n.func)
-                stderr = fn == "print" and any(k.arg == "file" for k in n.keywords)
-                if fn in regex_calls or fn in log_calls or stderr or (fn == "update" and name_of(n.func.value) == "RULES"):
+                on_re = isinstance(n.func, ast.Attribute) and name_of(n.func.value) == "re"
+                if on_re and n.args:
+                    roots.append(n.args[0])
+                stderr = fn == "print" and any(k.arg == "file" and is_stderr(k.value) for k in n.keywords)
+                if fn in pattern_calls or fn in log_calls or stderr or (fn == "update" and name_of(n.func.value) == "RULES"):
                     roots.append(n)
             elif isinstance(n, (ast.Assign, ast.AnnAssign)):
                 targets = n.targets if isinstance(n, ast.Assign) else [n.target]
@@ -333,6 +343,17 @@ def _gate_texts():
                 if any(x.endswith("_RE") or x.upper().endswith("PATTERNS") or x == "RULES" for x in names):
                     roots.append(n.value)
         return {id(x) for r in roots for x in ast.walk(r)}
+
+    def text_of(node):
+        """字串字面值、f-string、全由這兩種用 + 串起來的式子 → 文字；其他 → None。"""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(v.value if isinstance(v, ast.Constant) else "X" for v in node.values)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = text_of(node.left), text_of(node.right)
+            return None if left is None or right is None else left + right
+        return None
 
     out = []
     root = HOOKS_DIR.parent
@@ -343,14 +364,15 @@ def _gate_texts():
                 continue
             tree = ast.parse(p.read_text(encoding="utf-8"))
             skip = skipped_roots(tree)
-            inner = {id(v) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr) for v in n.values}
+            inner = set()
             for n in ast.walk(tree):
                 if id(n) in skip or id(n) in inner:
                     continue
-                if isinstance(n, ast.Constant) and isinstance(n.value, str):
-                    out.append((rel, n.lineno, n.value))
-                elif isinstance(n, ast.JoinedStr):
-                    out.append((rel, n.lineno, "".join(v.value if isinstance(v, ast.Constant) else "X" for v in n.values)))
+                text = text_of(n)
+                if text is None:
+                    continue
+                inner |= {id(x) for x in ast.walk(n) if x is not n}     # 併進這一條的片段不再各算一次
+                out.append((rel, n.lineno, text))
     return out
 
 

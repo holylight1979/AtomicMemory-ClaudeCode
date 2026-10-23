@@ -113,7 +113,9 @@ _COMPLETION_NEG_RE = re.compile(r"(?:還沒|還未|尚未|尚待|未|沒有?)[^�
 def turn_completion_text(transcript_text: str) -> str:
     """本回合宣告完成的那一則文字；沒宣告回空字串。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
     完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就是最後說完成的那一則。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
-    只看最後一則會被補件那則蓋掉（例：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。"""
+    只看最後一則會被補件那則蓋掉（例：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。
+    往前看的每一則跟最後一則同一套判法：這則宣告完成（claims_completion，逐句看）就記它；沒宣告、又明說沒完成才清掉
+    （規則 COMPLETION_CLAIM_PER_SENTENCE：「我還沒動git：完成的三件…。全部做完了」是宣告完成，開頭那句的否定不清掉它）。"""
     from wg_evasion import _COMPLETION_CLAIM_RE, _COMPLETION_EXCLUDE_RE, claims_completion
     texts = turn_texts(transcript_text)
     if not texts:
@@ -123,10 +125,10 @@ def turn_completion_text(transcript_text: str) -> str:
         return texts[-1] if claims_completion(texts[-1]) else ""
     claimed = ""
     for t in texts[:-1]:
-        if _COMPLETION_NEG_RE.search(t[-2000:]):
-            claimed = ""
-        elif claims_completion(t):
+        if claims_completion(t):
             claimed = t
+        elif _COMPLETION_NEG_RE.search(t[-2000:]):
+            claimed = ""
     return claimed
 
 
