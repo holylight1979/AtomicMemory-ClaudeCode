@@ -102,6 +102,28 @@ def test_map_with_read_files_passes_and_same_key_not_blocked_again(tmp_path):
     assert wo.on_edit(state, "s", str(root / "src" / "a.py"), "", FAST) == (None, None, True)
 
 
+def _reply(tp, mid, text="…"):
+    """AI 的一則回覆 mid 整則落進 transcript：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"id": mid, "content": [{"type": "text", "text": text}]}},
+                           ensure_ascii=False) + "\n")
+
+
+def test_parallel_unmapped_edits_in_one_reply_count_once(tmp_path):
+    """規則 DENY_CAP_PER_REPLY（最小地圖）：同一則回覆平行送出 3 個改同一頂層目錄程式檔的 Edit、都沒交地圖三行 → 3 個都擋
+    （擋次照則數；舊碼照每個呼叫算，第 3 個記 edit_unmapped_capped、沒交地圖就放行）；下一則交了三行 → 放行。"""
+    root, tp, state = _bare(tmp_path), _transcript(tmp_path), {"turn_seq": 3}
+    _read(state, root, "src/b.py")
+    _reply(tp, "m1")
+    outs = [wo.on_edit(state, "s", str(root / "src" / name), tp, FAST, tool_use_id=f"tu_{i}")
+            for i, name in enumerate(("a.py", "b.py", "a.py"))]
+    assert [bool(deny) for _, deny, _ in outs] == [True] * 3, outs
+    assert "edit_unmapped_capped" not in (tmp_path / "hub.log").read_text(encoding="utf-8")
+    _reply(tp, "m2")
+    _reply(tp, "m3", MAP)
+    assert wo.on_edit(state, "s", str(root / "src" / "a.py"), tp, FAST, tool_use_id="tu_4") == (None, None, True)
+
+
 def test_listed_file_not_read_is_named(tmp_path):
     """三行列了 src/x.py 但本 session 沒讀過 → 擋並點名那個檔。"""
     root, tp, state = _bare(tmp_path), _transcript(tmp_path), {}

@@ -928,14 +928,15 @@ def _only_touches(tool_name: str, tool_input: Dict[str, Any], cwd: str, files: s
     return False
 
 
-def _capped(state: Optional[Dict[str, Any]], sid: str, tool_name: str,
-            owed: List[Tuple[str, Dict[str, Any]]]) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]]]:
+def _capped(state: Optional[Dict[str, Any]], sid: str, tool_name: str, owed: List[Tuple[str, Dict[str, Any]]],
+            call: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]]]:
     """擋次上限（wg_core.deny_cap）：沒宣告的 [(檔, 動作)] → ({檔: 這次照擋的動作}, 這次起放行的動作)。缺件＝檔＋測試＋動作種類；
-    同一個使用者回合同一件擋滿兩次就放行、留帳 cap_released。state 就地改（計次），寫檔由呼叫端。"""
+    同一個使用者回合同一件擋滿兩則回覆就放行、留帳 cap_released；call＝這次的 hook 輸入，同一則回覆平行送出的呼叫算一次
+    （DENY_CAP_PER_REPLY）。state 就地改（計次），寫檔由呼叫端。"""
     import wg_release_rules as rr
     from wg_core import deny_cap
     keys = {f"{rr.canon_path(fp)}|{c['key']}|{c['kind']}": (fp, c) for fp, c in owed}
-    denied, released = deny_cap(state, GUARD, list(keys))
+    denied, released = deny_cap(state, GUARD, list(keys), call=call)
     for k in released:
         fp, c = keys[k]
         _log("cap_released", sid, fp, tool=tool_name, test=c["key"], kind=c["kind"])
@@ -969,7 +970,7 @@ def _pending_deny(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[s
         write_state(sid, state)
     if not left or _only_touches(tool_name, tool_input, cwd, {rr.canon_path(e["file"]) for e in left}):
         return None
-    by_file, released = _capped(state, sid, tool_name, [(e["file"], e) for e in left])
+    by_file, released = _capped(state, sid, tool_name, [(e["file"], e) for e in left], input_data)
     if released:
         state[PENDING_KEY] = [e for e in left if not any(e is r for r in released)]
     write_state(sid, state)
@@ -1006,7 +1007,7 @@ def _heredoc_deny(tool_input: Dict[str, Any], input_data: Dict[str, Any], config
             decls = rr.parse_old_test_declarations(_decl_text(input_data))
         files.append((fp, live, added))
     owed = [(fp, c) for fp, live, _ in files for c in live if rr.old_test_declaration_for(c, decls or [], fp) is None]
-    by_file, _released = _capped(state, sid, "Bash", owed)
+    by_file, _released = _capped(state, sid, "Bash", owed, input_data)
     dirty = dirty or bool(owed)
     if not by_file:   # 整條指令會執行才記宣告與新加的測試；有一個檔被擋就整條不跑，其他檔也不先記
         for fp, live, added in files:
@@ -1060,7 +1061,7 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     live = [c for c in live if (rr.canon_path(fp), c["key"]) not in owing]
     decls = rr.parse_old_test_declarations(_decl_text(input_data)) if live else []
     owed = [c for c in live if rr.old_test_declaration_for(c, decls, fp) is None]
-    by_file, _released = _capped(state, sid, tool_name, [(fp, c) for c in owed])
+    by_file, _released = _capped(state, sid, tool_name, [(fp, c) for c in owed], input_data)
     dirty = based or bool(owed)
     if by_file:
         if dirty and state is not None and sid:

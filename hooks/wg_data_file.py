@@ -280,8 +280,9 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
             changed = True
         if tool_name in SHELL_TOOLS and not os.path.exists(path):
             pending.append(path)
-    # 擋次上限（wg_core.deny_cap）：同一個使用者回合同一個檔擋滿兩次就放行、留帳 cap_released；沒有 state 可記照擋
-    denied, released = deny_cap(state if status == "ok" else None, GUARD, list(owed))
+    # 擋次上限（wg_core.deny_cap）：同一個使用者回合同一個檔擋滿兩則回覆就放行、留帳 cap_released；同一則回覆平行送出的呼叫
+    # 算一次（DENY_CAP_PER_REPLY）；沒有 state 可記照擋
+    denied, released = deny_cap(state if status == "ok" else None, GUARD, list(owed), call=input_data)
     changed = changed or bool(owed and status == "ok")
     for key in owed:
         path, _, v = owed[key]

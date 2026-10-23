@@ -123,6 +123,56 @@ def test_deny_cap_counts_each_item_per_user_turn():
     assert wg_core.deny_cap(None, "g", ["a"]) == (["a"], [])             # 沒有 state 可記：照擋
 
 
+def _reply(tp, mid, *tids):
+    """AI 的一則回覆 mid 整則落進 transcript（含它送出的 tool_use）：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
+    blocks = [{"type": "tool_use", "id": t, "name": "Edit", "input": {}} for t in tids] or [{"type": "text", "text": "…"}]
+    with open(tp, "a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"id": mid, "content": blocks}}, ensure_ascii=False) + "\n")
+
+
+def test_deny_cap_per_reply_counts_one_reply_once(world):
+    """規則 DENY_CAP_PER_REPLY：同一則回覆平行送出的呼叫（批次鍵同 CHAIN_SAME_BATCH）只算一次擋次——那一則全照第一次的結果擋、
+    不加次數，下一則才加；放行那一則的其他呼叫不重回放行。判不出是哪一則（子代理）照每個呼叫算、留帳 batch_unknown。"""
+    tp = Path(world["tp"])
+    _reply(tp, "m0")
+
+    def call(tid, **kw):
+        return {"tool_use_id": tid, "transcript_path": str(tp), "session_id": SID, **kw}
+    st = {"turn_seq": 3}
+    assert [wg_core.deny_cap(st, "g", ["a"], call=call(t)) for t in ("t1", "t2", "t3", "t4")] == [(["a"], [])] * 4
+    _reply(tp, "m1", "t1", "t2", "t3", "t4")
+    assert wg_core.deny_cap(st, "g", ["a"], call=call("t5")) == (["a"], [])                # 第二則：第 2 次
+    _reply(tp, "m2", "t5")
+    assert wg_core.deny_cap(st, "g", ["a"], call=call("t6")) == ([], ["a"])                # 第三則：放行、回給呼叫端留帳
+    assert wg_core.deny_cap(st, "g", ["a"], call=call("t7")) == ([], [])                   # 同一則的下一個呼叫：不重回
+    assert not _events(world, "deny_cap")
+    sub = {"turn_seq": 3}
+    assert [wg_core.deny_cap(sub, "g", ["a"], call=call(f"s{i}", agent_id="ag1")) for i in range(3)] == \
+        [(["a"], []), (["a"], []), ([], ["a"])]                                             # 子代理：照每個呼叫算
+    assert {(e["event"], e["rule"]) for e in _events(world, "deny_cap")} == {("batch_unknown", "DENY_CAP_PER_REPLY")}
+    # 一次缺兩件：a 剛到上限、b 照擋 → 整條擋、a 不算放行也不算「這一則算過」；同一則下一個呼叫只缺 a → a 放行（codex 一輪 BLOCK 1）
+    two = {"turn_seq": 3, "decl_deny_counts": {"turn": 3, "counts": {"g|a": 2, "g|b": 0}, "batch": {}}}
+    _reply(tp, "m3", "t6", "t7")
+    assert wg_core.deny_cap(two, "g", ["a", "b"], call=call("t8")) == (["b"], [])
+    assert wg_core.deny_cap(two, "g", ["a"], call=call("t9")) == ([], ["a"])
+    assert wg_core.deny_cap(two, "g", ["a", "b"], call=call("t10")) == (["b"], [])      # b 同一則照第一次擋；a 已放行過不重回
+
+
+def test_data_file_gate_parallel_edits_in_one_reply_count_once(world):
+    """規則 DENY_CAP_PER_REPLY（動資料檔）：同一則回覆平行送出 3 個改同一個資料檔的 Edit、都沒宣告 → 3 個都擋（舊碼第 3 個放行）；
+    下一則再擋一次（第 2 則），第三則才放行留帳 cap_released。"""
+    ti = {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}
+    tp = Path(world["tp"])
+    _reply(tp, "msg_1")
+    reasons = [_pre(world, "Edit", ti, f"tu_{i}") for i in range(3)]
+    assert all("[Guardian:DataFileAsk]" in r for r in reasons), reasons
+    _reply(tp, "msg_2", "tu_0", "tu_1", "tu_2")
+    assert "[Guardian:DataFileAsk]" in _pre(world, "Edit", ti, "tu_3")
+    _reply(tp, "msg_3", "tu_3")
+    assert "[Guardian:DataFileAsk]" not in _pre(world, "Edit", ti, "tu_4")
+    assert [e["event"] for e in _events(world, "data_file")] == ["denied"] * 4 + ["cap_released"]
+
+
 def test_data_file_gate_releases_after_two_denies_in_same_turn(world):
     ti = {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}
     reasons = [_pre(world, "Edit", ti) for _ in range(3)]

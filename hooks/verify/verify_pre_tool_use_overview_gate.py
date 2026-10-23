@@ -211,6 +211,46 @@ def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(worl
     assert _rec(_state())["edits"] == 2                                        # 累加不丟
 
 
+def _reply(tp, mid, *tids, text=""):
+    """AI 的一則回覆 mid 整則落進 transcript（文字＋它送出的 tool_use）：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
+    blocks = ([{"type": "text", "text": text}] if text else []) + [{"type": "tool_use", "id": t, "name": "Edit", "input": {}}
+                                                                    for t in tids]
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"id": mid, "content": blocks or [{"type": "text", "text": "…"}]}},
+                           ensure_ascii=False) + "\n")
+
+
+def _call(tool, tool_input, proj, tp, outputs, tid):
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(proj),
+                                 "transcript_path": tp, "tool_use_id": tid}, {})
+    return outputs[-1]
+
+
+def test_parallel_edits_in_one_reply_all_denied_then_locate_passes(world):
+    """規則 DENY_CAP_PER_REPLY（004 改 code 題 B6 的根因）：同一則回覆平行送出 4 個 Edit 改同一部位的檔、都沒交定位 → 4 個都擋
+    （擋次照則數，這一則只算一次；舊碼照每個呼叫算，第 3 個起記 edit_deny_capped、沒交定位就放行）；下一則交了定位 → 放行。"""
+    proj, outputs, tp = world
+    files = [str(proj / "Game" / "Battle" / f"{n}.cs") for n in "ABCD"]
+    for f in files[1:]:
+        Path(f).write_text("x", encoding="utf-8")
+    _reply(tp, "msg_0")
+    assert _deny(_call("Edit", {"file_path": files[0]}, proj, tp, outputs, "tu_inject"))     # 注入導讀卡（不算進缺件次數）
+    _reply(tp, "msg_1", "tu_inject")
+    state = _state()
+    wo.on_read(state, SID, "Read", {"file_path": files[0]}, str(proj), tp, {})                 # 讀部位檔
+    wg_core.write_state(SID, state)
+    _reply(tp, "msg_2")
+    outs = [_call("Edit", {"file_path": f, "old_string": "x", "new_string": "y"}, proj, tp, outputs, f"tu_{i}")
+            for i, f in enumerate(files)]
+    assert [_deny(o) for o in outs] == [True] * 4, outs
+    assert "edit_deny_capped" not in (proj.parent / "hub.log").read_text(encoding="utf-8")
+    _reply(tp, "msg_3", "tu_0", "tu_1", "tu_2", "tu_3")
+    _reply(tp, "msg_4", text=LOCATE.replace("A.cs", "A.cs、B.cs、C.cs、D.cs"))
+    assert not _deny(_call("Edit", {"file_path": files[2], "old_string": "x", "new_string": "y"}, proj, tp, outputs, "tu_5"))
+    assert _rec(_state())["located"] is True
+
+
 # ─── 子代理：對話在 <sid>/subagents/agent-<agent_id>.jsonl，主 session 是同層的 <sid>.jsonl ───
 
 AGENT = "ae3c716a6fc9ec36b"

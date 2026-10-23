@@ -398,14 +398,16 @@ def test_pick_one_not_re_asked_in_continuation_of_same_user_turn():
     assert wh.pick_due(s, _SID, mods, True)
 
 
-def test_pick_one_not_sent_when_stop_hook_active(driven, capsys, monkeypatch):
-    """這次收尾本身是 Stop hook 讓對話續跑出來的（stop_hook_active）→ 不送那一問；一般收尾照送。"""
+def test_pick_one_still_sent_when_stop_hook_active(driven, capsys, monkeypatch):
+    """規則 PICK_ONCE_PER_USER_TURN：這次收尾是 Stop hook 讓對話續跑出來的（stop_hook_active）不當條件，照樣問（同一個使用者回合只問一次
+    由 pick_due 管，案例在 verify_pick_one）；續跑旗標只交給 _pick_one_prompt 處理沒有使用者回合鍵的舊 state。
+    原本這案斷言續跑不送：第一次收尾先被紅測閘擋，整回合就一次都不問（004 改 code 題現況3）。"""
     calls = []
-    monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: calls.append(1) or "[Guardian:PickOne] 順手看到最該修？")
+    monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: calls.append(k.get("continuation")) or "[Guardian:PickOne] 順手看到最該修？")
     out, _, _ = driven("全部完成了。", capsys, hook_input={"stop_hook_active": True})
-    assert "PickOne" not in out and not calls
+    assert "PickOne" in out and calls == [True]
     out, _, _ = driven("全部完成了。", capsys)
-    assert "PickOne" in out and calls
+    assert "PickOne" in out and calls == [True, False]
 
 
 # ─── 案例宣告接線：對帳帶 case_for＝wg_verify_ledger.declared_cases(...) ─────────────────────────────

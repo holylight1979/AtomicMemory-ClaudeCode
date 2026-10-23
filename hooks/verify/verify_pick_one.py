@@ -410,13 +410,14 @@ def stop_run(world, monkeypatch, capsys):
                      ("append_guard_log", lambda guard, payload: logs.append((guard, payload)))):
         monkeypatch.setattr(st, name, fn)
 
-    def run(message, mods, config=None, **extra):
+    def run(message, mods, config=None, hook=None, **extra):
+        """hook＝收尾 hook 輸入多帶的欄位（例：stop_hook_active）；extra 蓋進 state。"""
         state = {"phase": "working", "modified_files": mods, "failing_tests": [], "recent_user_prompts": [],
                  "stop_blocked_count": 0, "turn_seq": 5, "session": {"cwd": str(proj)}, **extra}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": str(proj), "last_assistant_message": message},
+            st.handle_stop({"session_id": _SID, "cwd": str(proj), "last_assistant_message": message, **(hook or {})},
                            _PASS_CFG if config is None else config)
         cap = capsys.readouterr()
         run.err = cap.err                    # 斷言失敗時印出來看是哪道閘先走了
@@ -440,6 +441,51 @@ def test_stop_sends_pick_once_as_context_not_block(stop_run):
     assert ctx.startswith("[Guardian:PickOne]") and "【戰鬥】" in ctx and "為什麼不是數字最高的那個：" in ctx
     assert state["pick_one"][_SID]["asked_turn"] == 5 and ev[-1]["event"] == "asked"
     out2, _, _ = run("改好了，全部完成。", mods, pick_one=state["pick_one"])                 # 同一批改動第二次
+    assert "PickOne" not in out2
+
+
+def test_stop_continuation_after_red_test_block_still_asks_once(stop_run):
+    """規則 PICK_ONCE_PER_USER_TURN（004 改 code 題現況3 的根因）：第一次收尾先被紅測閘擋 → AI 修好 → 續跑出來的收尾
+    （stop_hook_active）照樣送一次「點出最該修」；同一個使用者回合的下一次續跑收尾不再送。舊碼看到續跑就不送，整回合一次都沒問。"""
+    proj, run = stop_run
+    damage = proj / "Game" / "Battle" / "Damage.cs"
+    red = [{"session_id": _SID, "cmd": "python -m pytest -q tests", "summary": "1 failed", "turn_seq": 5}]
+    out, state, _ = run("改好了，全部完成。", [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
+    assert "TestFailGate" in out and "PickOne" not in out, run.err                       # 前置：第一次收尾被紅測閘擋
+    out2, state2, ev2 = run("修好了，測試全綠，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
+                            turn_seq=6, turn_prompts_seq=5)
+    assert "[Guardian:PickOne]" in out2, run.err
+    assert state2["pick_one"][_SID]["asked_uturn"] == 5 and ev2[-1]["event"] == "asked"
+    out3, _, _ = run("好了，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
+                     turn_seq=7, turn_prompts_seq=5, pick_one=state2["pick_one"])
+    assert "PickOne" not in out3                                                          # 同一個使用者回合：不送第二次
+
+
+def test_boundary_seen_earlier_in_turn_still_asks_when_last_reply_answers_another_gate(stop_run):
+    """規則 PICK_ONCE_PER_USER_TURN 的交付邊界記整個使用者回合（無頭實跑看到的路）：宣告完成那次收尾被紅測閘擋 → 修好之後那幾次收尾
+    又被別的閘擋，最後沒被擋的那次回覆在回答同步提醒、沒再說完成 → 照樣送一次。只看最後一則的話這一回合一次都不問。"""
+    proj, run = stop_run
+    damage = proj / "Game" / "Battle" / "Damage.cs"
+    red = [{"session_id": _SID, "cmd": "python -m pytest -q tests", "summary": "1 failed", "turn_seq": 5}]
+    out, state, _ = run("改好了，全部完成。", [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
+    assert "TestFailGate" in out and state["pick_one"][_SID]["boundary_uturn"] == 5, run.err
+    out2, state2, _ = run("沒有口令所以先不 commit，改了哪些檔都列在下面，等你決定要不要上 GIT。", [_mod(damage, turn=6)],
+                          hook={"stop_hook_active": True}, turn_seq=7, turn_prompts_seq=5, pick_one=state["pick_one"])
+    assert "[Guardian:PickOne]" in out2, run.err
+    out3, _, _ = run("沒有口令所以先不 commit。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
+                     turn_seq=8, turn_prompts_seq=6, pick_one=state["pick_one"])
+    assert "PickOne" not in out3                                                          # 換了使用者回合、這回合沒到交付邊界：不送
+
+
+def test_without_user_turn_key_continuation_does_not_ask_again(stop_run):
+    """state 沒有使用者回合鍵（turn_prompts_seq）時，使用者回合退回 turn_seq、續跑一回合就前進：問過之後的續跑收尾又改了程式，不重問
+    （codex 一輪 BLOCK 3）；沒問過的續跑收尾照樣問（PICK_ONCE_PER_USER_TURN）。"""
+    proj, run = stop_run
+    damage = proj / "Game" / "Battle" / "Damage.cs"
+    out, state, _ = run("改好了，全部完成。", [_mod(damage)], hook={"stop_hook_active": True})
+    assert "[Guardian:PickOne]" in out, run.err                                           # 沒問過：續跑也問
+    out2, _, _ = run("又改了一處，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True}, turn_seq=6,
+                     pick_one=state["pick_one"])
     assert "PickOne" not in out2
 
 
