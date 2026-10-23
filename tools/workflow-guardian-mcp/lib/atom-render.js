@@ -133,11 +133,18 @@ function validateAtomContent(content) {
   if (!content.includes("## 行動")) {
     return "Missing ## 行動 section";
   }
-  const confMatch = content.match(/^- Confidence:[ \t]*(.+)$/m);
+  // 只在檔頭找、[ \t]* 不跨行（同 py lib/atom_spec.validate_atom_content）：空的 Confidence 行不能拿下一行的 [臨] 充數
+  const confMatch = headerOf(content).match(/^- Confidence:[ \t]*(.+)$/m);
   if (!confMatch || !["[固]", "[觀]", "[臨]"].includes(confMatch[1].trim())) {
     return "Missing or invalid Confidence metadata";
   }
   return null;
 }
 
-module.exports = { isBlockKnowledge, renderKnowledgeLines, buildAtomContent, validateAtomContent, stripBypassDeclaration };
+/** atom 檔頭＝第一個 `## ` 標題之前（沒有就全文）；檔頭欄位只在這裡找（py lib/atom_io._header_end 同一個界線）。 */
+function headerOf(content) {
+  const m = /^## /m.exec(content);
+  return m ? content.slice(0, m.index) : content;
+}
+
+module.exports = { isBlockKnowledge, renderKnowledgeLines, buildAtomContent, validateAtomContent, stripBypassDeclaration, headerOf };

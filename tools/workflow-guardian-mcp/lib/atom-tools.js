@@ -27,12 +27,9 @@ function receiptLine(obj) {
   return `receipt: ${JSON.stringify(obj)}`;
 }
 
-// 檔頭欄位讀法（同 py lib/atom_io.write_atom）：只看檔頭（第一個 `## ` 標題之前，知識段程式碼範例裡的
+// 檔頭欄位讀法（同 py lib/atom_io.write_atom）：只看檔頭（atom-render.headerOf：第一個 `## ` 標題之前，知識段程式碼範例裡的
 // `- Source:` 不算）、[ \t]* 不跨行（`\s*` 遇到空欄位行會吃掉換行，把下一行讀成這欄的值，replace 再原樣寫回）。
-function headerOf(content) {
-  const m = /^## /m.exec(content);
-  return m ? content.slice(0, m.index) : content;
-}
+const { headerOf } = require("./atom-render");
 
 /** 從既有 atom 檔頭讀 `- Source:`（provenance）字串；無此行回 null，空行回 ""。 */
 function readSourceLine(content) {

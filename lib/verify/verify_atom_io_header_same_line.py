@@ -174,3 +174,29 @@ def test_replace_does_not_read_body_example_as_header_field(isolated_claude):
     text = fp.read_text(encoding="utf-8")
     assert "範例裡的字" not in text, f"正文範例被讀成檔頭欄位寫回：\n{text}"
     assert atom_io.read_supersedes("# t\n\n- Scope: global\n\n## 知識\n\n- Supersedes: body-line\n") == []
+
+
+CONFIDENCE_CASES = {
+    "合法": "# t\n\n- Scope: global\n- Confidence: [臨]\n- Trigger: a\n\n## 知識\n\n- [臨] k\n\n## 行動\n\n- a\n",
+    "空 Confidence 行、下一行單獨放 [臨]": "# t\n\n- Scope: global\n- Confidence:\n[臨]\n- Trigger: a\n\n## 知識\n\n- [臨] k\n\n## 行動\n\n- a\n",
+    "檔頭沒有、只有正文範例裡有": "# t\n\n- Scope: global\n- Trigger: a\n\n## 知識\n\n```\n- Confidence: [臨]\n```\n\n## 行動\n\n- a\n",
+}
+
+
+def test_confidence_check_same_line_header_only_py_matches_js():
+    """驗 Confidence 只讀同一行、只在檔頭找：py lib/atom_spec.validate_atom_content 與 js atom-render.validateAtomContent
+    對同一組輸入判法一致（舊碼 py 用 `\\s*` 整份找：空 Confidence 行拿下一行的 [臨] 充數、正文範例也算，py 收 js 拒）。"""
+    from lib.atom_spec import validate_atom_content
+    py = {k: validate_atom_content(v) for k, v in CONFIDENCE_CASES.items()}
+    js_src = ("const { validateAtomContent } = require(process.argv[1]);"
+              "const cases = JSON.parse(require('fs').readFileSync(0, 'utf-8'));"
+              "const out = {}; for (const k of Object.keys(cases)) out[k] = validateAtomContent(cases[k]);"
+              "process.stdout.write(JSON.stringify(out));")
+    proc = subprocess.run(["node", "-e", js_src, str(LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "atom-render.js")],
+                          input=json.dumps(CONFIDENCE_CASES, ensure_ascii=False), capture_output=True, text=True,
+                          encoding="utf-8", timeout=30)
+    js = json.loads(proc.stdout)
+    assert py["合法"] is None and js["合法"] is None, (py, js, proc.stderr)
+    for k in ("空 Confidence 行、下一行單獨放 [臨]", "檔頭沒有、只有正文範例裡有"):
+        assert py[k] == "Missing or invalid Confidence metadata", f"py 收了：{k}"
+        assert js[k] == "Missing or invalid Confidence metadata", f"js 收了：{k}"
