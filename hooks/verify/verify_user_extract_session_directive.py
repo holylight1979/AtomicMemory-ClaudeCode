@@ -146,6 +146,8 @@ def _run_pipeline(tmp_path, monkeypatch, prompts):
     """替身 L1／L2（L2 回 conf 0.8 → 進候選）跑 run_user_extraction；回 (stats, L1 收到的, 進候選的 (turn, prompt), 萃取紀錄, 剩下的佇列)。"""
     m = _load_worker()
     monkeypatch.setattr(m, "WORKFLOW_DIR", tmp_path)
+    import wg_core   # state 寫回走 hook 同一把鎖（lib/state_rmw → wg_core.state_path），落點一起換
+    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path)
     l1_seen, pending_seen = [], []
     monkeypatch.setattr(m, "_call_l1", lambda p: l1_seen.append(p) or True)
     monkeypatch.setattr(m, "_call_l2", lambda p: {"decision": True, "conf": 0.8, "scope": "shared",

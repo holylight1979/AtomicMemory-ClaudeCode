@@ -27,28 +27,32 @@ function receiptLine(obj) {
   return `receipt: ${JSON.stringify(obj)}`;
 }
 
-/** 從既有 atom 檔頭讀 `- Source:`（provenance）字串；無此行回 null。 */
+// 檔頭欄位讀法（同 py lib/atom_io.write_atom）：只看檔頭（atom-render.headerOf：第一個 `## ` 標題之前，知識段程式碼範例裡的
+// `- Source:` 不算）、[ \t]* 不跨行（`\s*` 遇到空欄位行會吃掉換行，把下一行讀成這欄的值，replace 再原樣寫回）。
+const { headerOf } = require("./atom-render");
+
+/** 從既有 atom 檔頭讀 `- Source:`（provenance）字串；無此行回 null，空行回 ""。 */
 function readSourceLine(content) {
-  const m = content.match(/^- Source:\s*(.+)$/m);
+  const m = headerOf(content).match(/^- Source:[ \t]*(.*)$/m);
   return m ? m[1].trim() : null;
 }
 
-/** 從既有 atom 檔頭讀 `- Quote:` 原句；無此行回 null。 */
+/** 從既有 atom 檔頭讀 `- Quote:` 原句；無此行回 null，空行回 ""。 */
 function readQuoteLine(content) {
-  const m = content.match(/^- Quote:\s*(.+)$/m);
+  const m = headerOf(content).match(/^- Quote:[ \t]*(.*)$/m);
   return m ? m[1].trim() : null;
 }
 
-/** 從既有 atom 檔頭讀 `- Depends:` 清單；無此行回 null。 */
+/** 從既有 atom 檔頭讀 `- Depends:` 清單；無此行回 null，空行回 []（同 py：空的 Depends 行算清）。 */
 function readDependsLine(content) {
-  const m = content.match(/^- Depends:\s*(.+)$/m);
+  const m = headerOf(content).match(/^- Depends:[ \t]*(.*)$/m);
   if (!m) return null;
   return m[1].split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-/** 從既有 atom 檔頭讀 `- Supersedes:` 清單（replace 未給 supersedes 時保留原行用）；無此行回 null。 */
+/** 從既有 atom 檔頭讀 `- Supersedes:` 清單（replace 未給 supersedes 時保留原行用）；無此行或空行回 null。 */
 function readSupersedesLine(content) {
-  const m = content.match(/^- Supersedes:\s*(.+)$/m);
+  const m = headerOf(content).match(/^- Supersedes:[ \t]*(.+)$/m);
   if (!m) return null;
   return m[1].split(",").map((s) => s.trim()).filter(Boolean);
 }
@@ -462,7 +466,12 @@ async function toolAtomWrite(id, args) {
     // 拼接+validate+落檔統一 spawn py（lib.atom_io.append_atom_file）；不走 js readFileSync
     // 自拼 splice（CRLF 混寫面，見 lib/atom_io.py:_atomic_write 註解）。
     // Last-used 不在 .md，append 後改寫 access.json（下方 spawnAtomAccess）。
-    const wr = await spawnAtomCli("append", { file_path: filePath, knowledge, source: "mcp" });
+    // provenance／quote 三態同 replace（沒給＝不動；""＝刪行；非空＝換掉），py 端改檔頭那一行。
+    const wr = await spawnAtomCli("append", {
+      file_path: filePath, knowledge, source: "mcp",
+      ...(typeof provenance === "string" && { provenance }),
+      ...(typeof quote === "string" && { quote }),
+    });
     if (!wr.ok) {
       return reply(`funnel append failed: ${wr.error}`, true);
     }
@@ -510,9 +519,9 @@ async function toolAtomWrite(id, args) {
     if (fs.existsSync(filePath)) {
       try {
         const old = fs.readFileSync(filePath, "utf-8");
-        const am = old.match(/^- Author:\s*(.+)$/m);
+        const am = headerOf(old).match(/^- Author:[ \t]*(.+)$/m);
         if (am) prevAuthor = am[1].trim();
-        const cm = old.match(/^- Created-at:\s*(.+)$/m);
+        const cm = headerOf(old).match(/^- Created-at:[ \t]*(.+)$/m);
         if (cm) { prevCreatedAt = cm[1].trim(); hadCreatedAt = true; }
         prevSupersedes = readSupersedesLine(old);
         prevProvenance = readSourceLine(old);
@@ -773,7 +782,7 @@ async function toolAtomPromote(id, args) {
   // Execute promotion
   // Last-used 不在 .md，只改 Confidence + 知識條目層級的 [臨]/[觀]
   const updated = content
-    .replace(/^- Confidence:\s*.+$/m, `- Confidence: ${next}`);
+    .replace(/^- Confidence:[ \t]*.+$/m, `- Confidence: ${next}`);   // [ \t]* 不跨行：空欄位不把下一行換掉
 
   // Also update individual knowledge lines: [臨] → [觀] etc.
   // 只處理 ## 知識 段落內、行首（含縮排）的 `- [X]` 條目——全文全域替換會誤改
@@ -1052,7 +1061,7 @@ function toolAtomMove(id, args) {
       if (code !== 0) {
         sendToolResult(id, `atom_move exited ${code}\n${combined}`, true);
       } else {
-        // 本次操作結果與「索引既有問題」分開講：exit 0 = 本次成功；
+        // 本次操作結果與「搬移前就有的索引問題」分開講：exit 0 = 本次成功；
         // index_preexisting_issues 是搬移前就存在的 validate 錯誤（非本次造成），只轉述。
         sendToolResult(id, formatAtomMoveReport(combined));
       }
@@ -1092,7 +1101,7 @@ function formatAtomMoveReport(raw) {
     }
     const pre = rep.index_preexisting_issues || [];
     if (pre.length) {
-      lines.push(`⚠ 索引既有問題 ${pre.length} 項（搬移前就存在、非本次造成；` +
+      lines.push(`⚠ 索引裡有 ${pre.length} 項是搬移前就有的（這次搬移沒造成；` +
         `修法：atom_edit_meta 縮短 trigger 或 tools/sync-atom-index.py --fix）：`);
       for (const e of pre) lines.push(`    - ${e}`);
     }

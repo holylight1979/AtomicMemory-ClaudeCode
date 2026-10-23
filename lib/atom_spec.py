@@ -419,7 +419,9 @@ def validate_atom_content(content: str) -> Optional[str]:
         return "Missing ## 知識 or ## 印象 section"
     if "## 行動" not in content:
         return "Missing ## 行動 section"
-    m = re.search(r"^- Confidence:\s*(.+)$", content, re.MULTILINE)
+    # 只在檔頭（第一個 `## ` 之前）找、[ \t]* 不跨行：空的 Confidence 行不能拿下一行的 [臨] 充數（同 js atom-render.validateAtomContent）
+    h = re.search(r"^## ", content, re.MULTILINE)
+    m = re.search(r"^- Confidence:[ \t]*(.+)$", content[:h.start()] if h else content, re.MULTILINE)
     if not m or m.group(1).strip() not in VALID_CONFIDENCE:
         return "Missing or invalid Confidence metadata"
     return None

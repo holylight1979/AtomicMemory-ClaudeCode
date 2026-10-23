@@ -1,7 +1,7 @@
 // state.js — workflow/state-*.json 讀寫與會期清理（3-tier auto-cleanup）。
 const fs = require("fs");
 const path = require("path");
-const { WORKFLOW_DIR, loadConfig } = require("./paths");
+const { WORKFLOW_DIR, CODE_DIR, PYTHON_EXE, loadConfig } = require("./paths");
 
 // ─── State File I/O ─────────────────────────────────────────────────────────
 
@@ -42,17 +42,42 @@ function readState(sessionId) {
   }
 }
 
-function writeState(sessionId, state) {
-  state.last_updated = new Date().toISOString();
-  const p = path.join(WORKFLOW_DIR, `state-${sessionId}.json`);
-  const tmp = p + ".tmp";
-  try {
-    fs.mkdirSync(WORKFLOW_DIR, { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2), "utf-8");
-    fs.renameSync(tmp, p);
-  } catch {
-    try { fs.unlinkSync(tmp); } catch {}
-  }
+/** 改 state 的幾個頂層鍵（規則 STATE_RMW_LOCKED）：跟 hook 守同一把 state-<sid>.lock，鎖裡讀改寫、別人寫過就三方合併、
+ *  拿不到鎖留待併帳——Node 沒有 hook 用的那種檔案鎖，整段交 `python -m lib.state_rmw`（hook 同一份 wg_core 實作）。
+ *  以前這裡讀整份、改、tmp→rename 整份寫回，會蓋掉 hook 剛寫的那份。
+ *  回 Promise<{ok, outcome?, state?, error?}>：outcome＝written／pending（拿不到鎖，留待併帳給下一支 hook 併回）／unchanged，
+ *  失敗是 missing／failed 或 spawn、回覆壞掉；失敗也寫 stderr。 */
+function applyStateChanges(sessionId, changes) {
+  return new Promise((resolve) => {
+    let out = "", err = "", settled = false;
+    const done = (res) => {
+      if (settled) return;
+      settled = true;
+      if (!res.ok) process.stderr.write(`[guardian] state ${String(sessionId).slice(0, 8)} not updated: ${res.error}\n`);
+      resolve(res);
+    };
+    let cp;
+    try {
+      cp = require("child_process").spawn(PYTHON_EXE, ["-m", "lib.state_rmw"], {
+        cwd: CODE_DIR, env: { ...process.env, PYTHONIOENCODING: "utf-8" }, windowsHide: true,
+      });
+    } catch (e) {
+      return done({ ok: false, error: `spawn failed: ${e.message}` });
+    }
+    cp.stdout.on("data", (d) => (out += d));
+    cp.stderr.on("data", (d) => (err += d));
+    cp.on("error", (e) => done({ ok: false, error: `spawn failed: ${e.message}` }));
+    cp.stdin.on("error", (e) => done({ ok: false, error: `stdin to lib.state_rmw failed: ${e.message}` }));
+    cp.on("close", () => {
+      if (err.trim()) process.stderr.write(err);   // 合併／待併帳訊號照轉
+      try {
+        done(JSON.parse(out.trim().split("\n").pop()));
+      } catch {
+        done({ ok: false, error: `bad reply from lib.state_rmw: ${(out || err).slice(0, 200)}` });
+      }
+    });
+    cp.stdin.end(JSON.stringify({ session_id: sessionId, set: changes }));
+  });
 }
 
 function deleteState(sessionId) {
@@ -142,6 +167,6 @@ function listAllSessions() {
 }
 
 module.exports = {
-  listStatePaths, resolveSessionId, readState, writeState, deleteState,
+  listStatePaths, resolveSessionId, readState, applyStateChanges, deleteState,
   deriveSessionName, listAllSessions,
 };

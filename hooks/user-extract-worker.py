@@ -45,6 +45,7 @@ _CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔�
 if _CLAUDE_ROOT not in sys.path:
     sys.path.insert(0, _CLAUDE_ROOT)
 
+from lib.state_rmw import update_state_locked
 from lib.ollama_extract_core import (
     _atom_debug_log, _atom_debug_error,
     _parse_llm_response,
@@ -302,23 +303,6 @@ def _read_state(session_id: str) -> Optional[Dict]:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
-
-
-def _write_state_atomic(state_path: Path, state: dict) -> bool:
-    """Atomic write: temp → rename."""
-    tmp = state_path.with_suffix(".tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-        tmp.replace(state_path)
-        return True
-    except OSError:
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
-        return False
 
 
 # ─── Atom write via MCP subprocess ───────────────────────────────────────────
@@ -585,7 +569,6 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     ue_config = config.get("userExtraction", {})
     token_budget = ue_config.get("tokenBudget", 240)
 
-    state_path = WORKFLOW_DIR / f"state-{session_id}.json"
     state = _read_state(session_id)
     if not state:
         return {"processed": 0, "confirmed": 0, "skipped": 0}
@@ -785,7 +768,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Ack-then-clear processed candidates ───────────────────────────
     if processed_indices:
-        ack_then_clear(state_path, "pending_user_extract", processed_indices)
+        ack_then_clear(session_id, "pending_user_extract", processed_indices)
 
     # ── Direct atom write for confirmed (pre-write, pending user veto) ──
     # 先寫 atom 再存 state，讓每筆 confirmed_extraction 帶 write_result，
@@ -802,18 +785,16 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
         elif result == "rejected":  # 範疇閘分不出 → 候選已進 _pending.candidates.md
             category_rejected.append(ext.get("statement", "")[:80])
 
-    # Save state with confirmed_extractions (含 write_result)
+    # Save state with confirmed_extractions (含 write_result)：鎖裡重讀最新那份再加（同一把 state 鎖，拿不到留待併帳）
     if confirmed_extractions:
-        # Re-read state (ack_then_clear may have modified it)
-        fresh_state = _read_state(session_id)
-        if fresh_state:
+        def _apply(fresh_state: Dict[str, Any]) -> bool:
             fresh_state.setdefault("confirmed_extractions", []).extend(confirmed_extractions)
             if write_failed:
                 fresh_state.setdefault("user_extract_write_failed", []).extend(write_failed)
             if category_rejected:
                 fresh_state.setdefault("user_extract_category_rejected", []).extend(category_rejected)
-            fresh_state["last_updated"] = datetime.now().astimezone().isoformat()
-            _write_state_atomic(state_path, fresh_state)
+            return True
+        update_state_locked(session_id, _apply)
 
     # ── Merge history log ─────────────────────────────────────────────
     _append_merge_history(
