@@ -10,7 +10,8 @@
 中止停手中擋下讀與問以外的工具呼叫（CHAIN_HALT_UNTIL_ANSWER）；兩者都不算閘觸發。
 帳的一筆（row）：type＝gate｜action｜alarm｜notice｜answer｜reset｜snapshot｜restore，另帶 turn、agent（子代理 id，主 session 空字串）、
 seq（同回合第幾筆）、ts（epoch 秒）、at（本地時間）；工具呼叫上的 gate／action 另帶 batch（哪一則回覆，CHAIN_SAME_BATCH）；
-gate 另帶這次擋的對象：watched（擋的檔）、target（不是檔的對象，例如定位閘的部位），說不出就空（CHAIN_SAME_GATE_PER_OBJECT）。
+gate 另帶這次擋的對象：watched（擋的檔）、target（不是檔的對象，例如定位閘的部位），說不出就空（CHAIN_SAME_GATE_PER_OBJECT）；
+工具呼叫上的 gate 再帶 call（被擋的呼叫逐字的雜湊，CHAIN_SAME_CALL_RETRY）。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_chain_breaker.py
 """
 from __future__ import annotations
@@ -36,6 +37,9 @@ RULES: Dict[str, str] = {
     "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到動作、A 與 B 是不同的閘時，"
                              "Stop 接 Stop 算改寫回覆、閘B在工具呼叫上算 AI 接著的那次呼叫。",
     "CHAIN_SAME_GATE_NO_ACTION": "同一道閘接連觸發、中間沒記到 AI 動作（重試同一個呼叫、只改寫回覆）→ 不接成邊、也不算同閘次數，交回那道閘自己的擋次上限處理。",
+    "CHAIN_SAME_CALL_RETRY": "同一道閘擋同一個對象，這次被擋的工具呼叫跟這道閘這個對象上一次被擋的逐字相同（工具名＋參數，帳上 call）"
+                             "→ 原樣重試：不接成邊、不讓同閘次數加 1，中間做了別的動作（回應別的提示）也一樣，交回那道閘自己的擋次上限處理。"
+                             "改了內容、補進宣告（呼叫變了）照舊算；有一邊沒記 call（收尾閘、舊帳）照舊只看中間有沒有動作。",
     "CHAIN_SAME_EVENT": "同一個 hook 事件裡先後觸發的兩道閘不接成邊（不是 AI 動作造成的）。",
     "CHAIN_SAME_BATCH": "同一則 assistant 回覆裡平行送出的工具呼叫算同一步：送出前就決定好，中間 AI 沒看到任何擋訊息。"
                         "這一批之間的閘觸發不接成邊、不讓同閘次數加 1；呼叫之間放過的改動也不算 AI 看過擋訊息之後的動作，"
@@ -224,9 +228,16 @@ def same_batch(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return bool(key) and key == str(b.get("batch") or "")
 
 
+def same_call(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """CHAIN_SAME_CALL_RETRY：兩次觸發擋的是逐字相同的工具呼叫；有一邊沒記 call 就不算。"""
+    key = str(a.get("call") or "")
+    return bool(key) and key == str(b.get("call") or "")
+
+
 def attach(steps: Sequence[Step], row: Dict[str, Any]) -> Tuple[Optional[Link], int]:
     """新的一次觸發 row 接不接、深度多少（fold 與 judge 共用）。和前一步同一個 hook 事件 → 不接（CHAIN_SAME_EVENT）；
-    前面跟 row 同一批的觸發整批跳過（CHAIN_SAME_BATCH），改跟前一批裡深度最深的那一步比，動作只算 AI 看過那一步擋訊息之後送出的。"""
+    前面跟 row 同一批的觸發整批跳過（CHAIN_SAME_BATCH）；原封不動重送這道閘這個對象上一次擋下的呼叫 → 不接（CHAIN_SAME_CALL_RETRY，
+    中間夾了別道閘也一樣）；其餘跟前一批裡深度最深的那一步比，動作只算 AI 看過那一步擋訊息之後送出的。"""
     if not steps:
         return None, 0
     if row.get("event") and row.get("event") == steps[-1].row.get("event"):
@@ -236,6 +247,9 @@ def attach(steps: Sequence[Step], row: Dict[str, Any]) -> Tuple[Optional[Link], 
         i -= 1
     if i < 0:
         return Link(False, "CHAIN_SAME_BATCH", "和前面的觸發在同一則回覆裡一起送出（AI 還沒看到擋訊息）"), 0
+    last = next((s for s in reversed(steps) if s.row.get("gate") == row.get("gate") and same_object(s.row, row)), None)
+    if last is not None and same_call(last.row, row):
+        return Link(False, "CHAIN_SAME_CALL_RETRY", "同一道閘、同一個對象，原封不動重送上一次被擋的呼叫"), 0
     j = i
     while j > 0 and same_batch(steps[j - 1].row, steps[i].row):
         j -= 1
@@ -305,15 +319,17 @@ def target_label(row: Dict[str, Any]) -> str:
 
 def same_count(steps: Sequence[Step], row: Dict[str, Any]) -> int:
     """CHAIN_ALARM_SAME_GATE：這一次觸發 row 是這道閘、這個對象這一段第幾次——第一次算 1，之後只在跟這道閘這個對象上一次觸發之間
-    有記到 AI 看過那次擋訊息才送出的動作（跟那次不同一批）才加 1（CHAIN_SAME_GATE_PER_OBJECT、CHAIN_SAME_GATE_NO_ACTION、
-    CHAIN_SAME_BATCH）。step 的 actions 是它之後、下一次觸發之前的動作。"""
+    有記到 AI 看過那次擋訊息才送出的動作（跟那次不同一批）、而且這次擋的不是原封不動的同一個呼叫才加 1（CHAIN_SAME_GATE_PER_OBJECT、
+    CHAIN_SAME_GATE_NO_ACTION、CHAIN_SAME_BATCH、CHAIN_SAME_CALL_RETRY）。step 的 actions 是它之後、下一次觸發之前的動作。"""
     gate = row.get("gate")
     n, last, acted = 0, None, False
     for s in steps:
         if s.row.get("gate") == gate and same_object(s.row, row):
-            n, last, acted = (n + 1 if n == 0 or acted else n), s.row, False
+            if last is None or (acted and not same_call(last, s.row)):
+                n += 1
+            last, acted = s.row, False
         acted = acted or (last is not None and any(not same_batch(last, a) for a in s.actions))
-    return n + 1 if n == 0 or acted else n
+    return n + 1 if last is None or (acted and not same_call(last, row)) else n
 
 
 def judge(ch: Chain, row: Dict[str, Any], cfg: Dict[str, Any]) -> Judge:

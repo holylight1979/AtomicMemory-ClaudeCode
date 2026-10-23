@@ -159,10 +159,20 @@ RULES: Dict[str, str] = {
     "GATE_SELF_ERROR": "閘自己判定時出錯（例外、設定讀不到），不讓 AI 一直付代價：收尾閘（有擋次預算）同一個使用者回合因這個錯"
                        "擋 1 次後放行；工具前閘（出錯時常讀不到 state、無從計次）直接放行。兩者都要 stderr 一行＋guard log 記一筆"
                        " event=error（閘名、錯誤種類與訊息）。判法在 gate_self_error_verdict。",
-    "GATE_DENY_CAP": "宣告類閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 2 次（wg_core.DECL_DENY_CAP）後第 3 次放行並"
-                     "留帳，換使用者回合歸零（判法 wg_core.deny_cap）。適用定位閘、最小地圖三行、動資料檔、改舊測試、不是繞閘五處；留帳事件："
-                     "動資料檔／改舊測試／不是繞閘 cap_released，定位閘 edit_deny_capped，最小地圖 edit_unmapped_capped。"
-                     "舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
+    "GATE_DENY_CAP": "宣告類閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 2 則回覆（wg_core.DECL_DENY_CAP；怎麼數則見 "
+                     "DENY_CAP_PER_REPLY）後下一則放行並留帳，換使用者回合歸零（判法 wg_core.deny_cap）。適用定位閘、最小地圖三行、動資料檔、"
+                     "改舊測試、不是繞閘五處；留帳事件：動資料檔／改舊測試／不是繞閘 cap_released，定位閘 edit_deny_capped，最小地圖 "
+                     "edit_unmapped_capped。舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
+    "DENY_CAP_PER_REPLY": "擋次上限照「則」數，不照工具呼叫數：同一則回覆裡平行送出的呼叫是送出前就決定好的，AI 還沒看到第一則擋訊息。"
+                          "同一件缺件在同一則裡只算一次，那一則的其他呼叫照第一次的結果（擋就照擋）、不加次數；下一則回覆的呼叫才加。"
+                          "哪一則＝這次呼叫之前最後一則 assistant 的 message.id（同 CHAIN_SAME_BATCH，lib/chain_store.batch_of）。"
+                          "判不出是哪一則（子代理、transcript 讀不到、沒有 message.id）照每個呼叫算，留帳 guard-deny_cap event=batch_unknown。",
+    "PICK_ONCE_PER_USER_TURN": "交付時「點出最該修」一個使用者回合問一次（wg_harvest.pick_due 看 asked_uturn、covered_uturn）；這次收尾是不是"
+                               "收尾 hook 讓對話續跑出來的（stop_hook_active）不當條件：第一次收尾先被別的閘（例：紅測閘）擋下、修完續跑"
+                               "收尾，照樣問這一次。交付邊界（宣告完成、交了收尾檢核、commit）也看整個使用者回合：到過的那次收尾"
+                               "被後面的閘擋下也記（state pick_one[sid].boundary_uturn），之後沒被擋的那次收尾最後一則在答別的閘、"
+                               "沒再說完成也照樣問。state 沒有使用者回合鍵（turn_prompts_seq）時使用者回合會退回 turn_seq、續跑就前進，"
+                               "這時續跑收尾不重問已經問過的。連鎖中止中照舊不送。",
     "SVN_TEST_BLOCK_OPT_IN": "svn 提交測試路徑的閘預設關，專案設定（overview-hub.json 的 svn_test_block.enabled）開了才判；開了只看 "
                              "svn commit 的路徑參數（訊息裡寫 test 不算）；放行要有一行「測試上 svn 原句：「…」」，引的句子逐字在使用者本回合的"
                              "原話裡、而且那個子句沒被否定（「不要提交測試」引了也不算），留帳 user_quote。",
@@ -217,7 +227,8 @@ RULES: Dict[str, str] = {
                                                  "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
                                                  "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。"
                                                  "角色那半只記錄不擋（guard-need_goal locate_soft）；根因層兩候選不夠時每個使用者"
-                                                 "回合擋一次（state two_candidates_asked），同回合之後只記錄。",
+                                                 "回合擋一則回覆（wg_core.deny_cap 上限 1；同一則回覆平行送出的改檔一起擋，"
+                                                 "DENY_CAP_PER_REPLY），同回合之後只記錄。",
     "LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS": "根因層那行完全沒寫「候選 A／第一根因」這類標記時，兩個以上的列舉（①②、⑴⑵、(1)(2)）、"
                                               "或寫到兩個以上不同的「<名稱>層」（這層、每層、第二層這類泛稱不算）也算候選；只有一個列舉或一層"
                                               "照舊算 0 個。有標記就只看標記。固定字樣只是建議寫法，選擇理由照樣要寫。",

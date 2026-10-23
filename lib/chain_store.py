@@ -2,7 +2,8 @@
 
 做什麼：
 - 帳：Logs/chain-<session>.jsonl 一行一筆（gate＝閘觸發、action＝AI 動作、alarm、notice、shown、halted、answer、reset、snapshot、restore），
-  每筆帶回合、子代理、步序、時間戳，工具呼叫上的觸發與動作另帶 batch（哪一則回覆，從 transcript 取，見 _batch）；
+  每筆帶回合、子代理、步序、時間戳，工具呼叫上的觸發與動作另帶 batch（哪一則回覆，從 transcript 取，見 _batch），
+  工具呼叫上的觸發再帶 call（被擋的呼叫逐字的雜湊，見 _call_fields）；
   連鎖狀態每次都由 wg_chain.fold 從帳重算，不另存 state。
 - 快照：連鎖段開了之後，每個要被改的檔這一段第一次改之前先存到 workflow/chain-snap/<session>/（原本不存在就記不存在）；
   快照檔先寫暫存再硬連結成正式名，正式名已在就不覆寫（並行的兩個 hook 不互蓋）。存快照時順手清掉這個 session 更早回合的快照。
@@ -223,12 +224,28 @@ def _batch(input_data: Dict[str, Any]) -> Tuple[str, str]:
                 else f"transcript 尾段 {_BATCH_TAIL_BYTES} 位元組內找不到前一則 assistant")
 
 
+def batch_of(input_data: Dict[str, Any]) -> Tuple[str, str]:
+    """這次工具呼叫是哪一則回覆送出的（CHAIN_SAME_BATCH 的批次鍵；宣告閘的擋次上限 DENY_CAP_PER_REPLY 也用這把）→ (鍵, 判不出的原因)。
+    沒有 tool_use_id（不是工具呼叫）判不出。"""
+    if not input_data.get("tool_use_id"):
+        return "", "沒有 tool_use_id"
+    return _batch(input_data)
+
+
 def _batch_fields(input_data: Dict[str, Any]) -> Dict[str, str]:
     """工具呼叫上的一筆帳要帶的 batch（判不出另記 batch_why）；收尾等沒有 tool_use_id 的事件不帶。"""
     if not input_data.get("tool_use_id"):
         return {}
     key, why = _batch(input_data)
     return {"batch": key} if key else {"batch": "", "batch_why": why}
+
+
+def _call_fields(input_data: Dict[str, Any]) -> Dict[str, str]:
+    """CHAIN_SAME_CALL_RETRY：工具呼叫上的觸發記這次被擋的呼叫長什麼樣（工具名＋參數逐字的雜湊）；收尾、說不出參數的不帶。"""
+    if not input_data.get("tool_use_id") or not isinstance(input_data.get("tool_input"), dict):
+        return {}
+    raw = json.dumps([input_data.get("tool_name"), input_data.get("tool_input")], ensure_ascii=False, sort_keys=True)
+    return {"call": hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]}
 
 
 # ─── 閘觸發、停手、只記錄 ─────────────────────────────────────────────────
@@ -250,7 +267,7 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
             return GateResult(True)
         row = {"gate": str(gate), "what": wc.one_line(what), "hook": hook, "event": _event(input_data),
                "watched": [str(p) for p in watched], "target": str(target or ""), "later": [str(g) for g in later],
-               **_batch_fields(input_data)}
+               **_batch_fields(input_data), **_call_fields(input_data)}
         j = wc.judge(ch, row, cx.cfg)
         new = [cx.row("gate", **row, record_only=j.record_only, depth=j.depth, same=j.same,
                       link=j.link.rule if j.link else "")]

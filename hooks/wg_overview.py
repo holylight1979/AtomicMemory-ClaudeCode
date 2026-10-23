@@ -1042,10 +1042,12 @@ def _longer_parts(root: Path, row: Dict[str, Any]) -> List[str]:
 
 
 def _goal_line_check(tree: Dict[str, Any], vals: Dict[str, str], session_id: str = "",
-                     state: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Any]:
+                     state: Optional[Dict[str, Any]] = None,
+                     call: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Any]:
     """定位核對（有需求目標樹時）：回 (節點, None) 通過；(節點, [Verdict…]) 要擋：第五行批判不夠（LOCATE_LINES_NEED_CRITIQUE），
     或根因層沒寫兩個候選與選擇理由（LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）——兩候選一個使用者回合只問一次
-    （state two_candidates_asked 記回合，規則 TWO_CANDIDATES_ASK_ONCE；沒給 state 照每次問），之後只留帳。
+    （規則 TWO_CANDIDATES_ASK_ONCE：擋次上限 1 則回覆，wg_core.deny_cap；call＝這次的 hook 輸入，同一則回覆平行送出的改檔
+    算同一次問、一起擋，DENY_CAP_PER_REPLY；沒給 state 照每次問），之後只留帳。
     第四行目標節點與範例佔位（LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER）只記錄不擋：沒寫或指錯節點就掛樹根（收尾 (f3) 從 transcript
     補掛），缺的記進 guard-need_goal（locate_soft）。"""
     import wg_need_goal as _ng
@@ -1059,12 +1061,8 @@ def _goal_line_check(tree: Dict[str, Any], vals: Dict[str, str], session_id: str
         soft.append((role.rule, role.why))           # 第四行的角色：只記錄
     owed = [v for v in (_rr.locate_critique_verdict(vals.get("批判", "")),) if v.owed]
     if two.owed:
-        uturn = _rr.user_turn(state, int(state.get("turn_seq", 0) or 0)) if state is not None else None
-        asked = (state or {}).setdefault("two_candidates_asked", {}) if state is not None else {}
-        if state is None or asked.get(session_id) != uturn:
+        if state is None or deny_cap(state, "two_candidates", [session_id], cap=1, call=call)[0]:
             owed.append(two)
-            if state is not None:
-                asked[session_id] = uturn
         else:
             soft.append((two.rule, two.why))
     place = _rr.locate_placeholder_verdict(vals)
@@ -1246,7 +1244,8 @@ def _min_map_lines(top: str, v: _rr.Verdict, preview: str) -> List[str]:
 
 
 def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str, cfg: Dict[str, Any],
-                   config: Optional[Dict[str, Any]] = None, transcript_path: str = "") -> Tuple[Optional[str], Optional[str], bool]:
+                   config: Optional[Dict[str, Any]] = None, transcript_path: str = "",
+                   call: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Optional[str], bool]:
     """沒有部位表的專案、或表上沒列的檔：要求本 session 讀過同頂層目錄的檔，數量照規則 UNMAPPED_EDIT_NEEDS_READABLE_FILES
     （設定的 N 與該目錄可讀既有檔數取小）。執行期資料（gitignored、workflow/state*、Logs、快取目錄…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。
     往上找不到任何部位表的專案，第一次改某頂層目錄的程式檔前另要最小地圖三行（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP），
@@ -1284,17 +1283,18 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
             lines.append(f"注意：{unread}")
         msg = "\n".join(lines + (_min_map_lines(top, mm, preview) if mm_owed else []))
         rule, deny_reason = (v.rule, "part_files") if v.owed else (mm.rule, "min_map")
-        # 規則 LOCATE_DENY_CAP（同定位閘）：同一個使用者回合、同一個頂層目錄、同樣的缺件擋滿 DECL_DENY_CAP 次 → 之後放行，
-        # 越過上限那一次留帳（地圖三行交了閘卻看不到、讀了檔卻沒認到時不無限擋）。同缺件＝缺哪幾條與理由一樣，數字不算
+        # 規則 GATE_DENY_CAP（同定位閘）：同一個使用者回合、同一個頂層目錄、同樣的缺件擋滿 DECL_DENY_CAP 則回覆 → 之後放行，
+        # 越過上限那一次留帳（地圖三行交了閘卻看不到、讀了檔卻沒認到時不無限擋）。同缺件＝缺哪幾條與理由一樣，數字不算；
+        # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）
         gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join(
             [deny_reason, v.why if v.owed else "", mm.why if mm_owed else ""])).encode("utf-8")).hexdigest()[:16]
-        denied, released = deny_cap(state, "overview_unmapped", [f"{key}|{gap}"])
+        denied, released = deny_cap(state, "overview_unmapped", [f"{key}|{gap}"], call=call)
         if denied:
             _log("edit_unmapped", session_id, rule=rule, deny_reason=deny_reason, **log_kw)
             return (msg, msg, True)
         if released:
             _log("edit_unmapped_capped", session_id, rule=rule, deny_reason=deny_reason, blocks=DECL_DENY_CAP, **log_kw)
-        capped = (f"[Guardian:OverviewHub] 改 {file_path}：同一回合同樣的缺件已擋 {DECL_DENY_CAP} 次，這次放行並留帳"
+        capped = (f"[Guardian:OverviewHub] 改 {file_path}：同一回合同樣的缺件已擋 {DECL_DENY_CAP} 則回覆，這次放行並留帳"
                   f"（{rule}）。")
     else:
         capped = None
@@ -1315,9 +1315,11 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
-            config: Dict[str, Any], cwd: str = "", agent_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
+            config: Dict[str, Any], cwd: str = "", agent_id: str = "",
+            tool_use_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
     """PreToolUse（Write／Edit／NotebookEdit／Bash／PowerShell 的每個寫入目標）：回 (警告文字, deny 理由, state 有沒有變)。
     agent_id＝子代理的工具呼叫：定位三行連子代理自己的 transcript 一起找（wg_core.transcripts_of）。
+    tool_use_id＝這次工具呼叫的 id：擋次上限照「同一則回覆算一次」數（規則 DENY_CAP_PER_REPLY）；沒給照每個呼叫算。
 
     deny 理由帶整張卡（模型只看得到 permissionDecisionReason）。三項證據缺一即 deny；transcript 讀不到 deny；
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
@@ -1370,8 +1372,10 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         _log("edit_readonly", session_id, path=file_path, pattern=ro, part=row["part_short"] if row else None,
              deny_reason="readonly", layer=cfg.get("_layer"))
         return (msg, msg, False)
+    call = ({"tool_use_id": tool_use_id, "transcript_path": transcript_path, "agent_id": agent_id, "session_id": session_id}
+            if tool_use_id else None)
     if row is None:
-        return _unmapped_edit(state, session_id, root, file_path, cfg, config, transcript_path)
+        return _unmapped_edit(state, session_id, root, file_path, cfg, config, transcript_path, call)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
     knowledge = _oh.path_kind(file_path, root) == _oh.KIND_KNOWLEDGE
@@ -1449,7 +1453,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                 bad_layer = bad
                 continue
             if goal_tree is not None:
-                node, why = _goal_line_check(goal_tree, vals, session_id, state)
+                node, why = _goal_line_check(goal_tree, vals, session_id, state, call)
                 if why:
                     bad_content = (why, node)
                     continue
@@ -1519,16 +1523,17 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
     turn = int(state.get("turn_seq", 0) or 0)
-    # 規則 LOCATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 次 → 之後放行，越過上限那一次留帳
-    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算
+    # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
+    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
+    # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
     gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
-    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"])
+    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"], call=call)
     if not denied:
         if released:
             _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
                  blocks=DECL_DENY_CAP, gap=gap)
         return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
-                f"{DECL_DENY_CAP} 次，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
+                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
     # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
     # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
     sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]

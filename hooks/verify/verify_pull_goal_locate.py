@@ -18,7 +18,7 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_need_goal import (  # noqa: E402,F401
-    CRIT, ON, SID, THREE2, _code_tree, _deny_text, _mapped_world, _op, _ptu_run, _read_part, _say, _tree,
+    CRIT, ON, SID, THREE, THREE2, _code_tree, _deny_text, _mapped_world, _op, _ptu_run, _read_part, _say, _tree,
     _two_part_world, env, hooked, ng, pt, ptu, wg_core, wo,
 )
 import wg_need_goal_points as ngp  # noqa: E402
@@ -162,6 +162,65 @@ def test_locate_gate_same_gap_blocks_twice_then_passes_with_log(hooked):
     state["turn_seq"] = int(state.get("turn_seq", 0) or 0) + 1                # 下一個使用者回合
     wg_core.write_state(SID, state)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+
+
+def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked):
+    """擋訊息要的行＝閘判交齊的條件：有目標樹時擋訊息要「一次交齊四行」（部位、根因層兩候選＋理由、前例、批判），範例照填
+    （角括號換成自己的判斷）交上去 → 一次放行、不再擋第二輪。擋訊息沒要的第四行目標節點，閘也只記錄（locate_soft、掛樹根）。
+    擋訊息少要一行、或閘多擋一行，這案就紅。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
+    _read_part(f1, proj, tp)
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "一次交齊四行" in deny
+    example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
+    assert [ln.split("：", 1)[0] for ln in example] == ["定位｜部位", "定位｜根因層", "定位｜前例", "定位｜批判"]
+    text = "\n".join(example)
+    for k, v in (("<這次改哪個檔、哪一段>", "A.cs 的暴擊分支"), ("<第一個根因>", "邏輯層寫字典"), ("<第二個根因>", "存檔時序"),
+                 ("<為什麼不是 B>", "存檔只讀字典"), ("<卡名>／無", "共用字典"), ("<現在寫法的問題>", "字典兩邊都寫"),
+                 ("<替代做法>", "只留邏輯層一個寫入點"), ("<別處同樣寫法的位置>", "存檔流程")):
+        text = text.replace(k, v)
+    assert "<" not in text, text
+    _say(tp, text)
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+    soft = [p for g, p in hooked["guard"] if g == "need_goal" and p.get("event") == "locate_soft"]
+    assert soft and "LOCATE_GOAL_NODE" in soft[-1]["rules"]
+
+
+def _reply(tp, mid, *tids):
+    """AI 的一則回覆 mid 整則落進 transcript（含它送出的 tool_use）：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
+    blocks = [{"type": "tool_use", "id": t, "name": "Edit", "input": {}} for t in tids] or [{"type": "text", "text": "…"}]
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"id": mid, "content": blocks}}, ensure_ascii=False) + "\n")
+
+
+def _edit_call(f, proj, tp, outputs, tid):
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": "Edit", "tool_input": {"file_path": f, "old_string": "x", "new_string": "y"},
+                                 "session_id": SID, "cwd": str(proj), "transcript_path": tp, "tool_use_id": tid}, {})
+    return outputs[-1]
+
+
+def test_two_candidates_ask_once_counts_one_reply(hooked):
+    """規則 DENY_CAP_PER_REPLY（同類：TWO_CANDIDATES_ASK_ONCE，上限 1 則回覆）：定位行根因層只寫一個候選、同一則回覆平行送出
+    3 個改同部位的 Edit → 3 個都擋（是同一次問）；舊碼照呼叫記「這回合問過了」，第 2 個起只記錄、放行。下一則同樣的定位行 → 只記錄、放行。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    files = [f1] + [str(Path(f1).with_name(n)) for n in ("B.cs", "C.cs")]
+    for f in files[1:]:
+        Path(f).write_text("x", encoding="utf-8")
+    _op("set", goal="戰鬥不卡")
+    _op("add", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                  # 注入導讀卡
+    _read_part(f1, proj, tp)
+    _say(tp, THREE + "\n定位｜目標：T1.1（共用字典的唯一寫入點）" + CRIT)    # 根因層只一個候選
+    _reply(tp, "msg_1")
+    denies = [_deny_text(_edit_call(f, proj, tp, outputs, f"tu_{i}")) for i, f in enumerate(files)]
+    assert all(d and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in d for d in denies), denies
+    _reply(tp, "msg_2", "tu_0", "tu_1", "tu_2")
+    assert _deny_text(_edit_call(files[1], proj, tp, outputs, "tu_3")) is None      # 下一則：這回合問過了，只記錄
 
 
 def _bare(base):

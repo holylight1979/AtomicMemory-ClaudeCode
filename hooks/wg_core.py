@@ -1939,17 +1939,21 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         _atom_debug_error(f"guard_log:{guard}", e)
 
 
-# ─── 宣告閘擋次上限（動資料檔／改舊測試／不是繞閘共用）───────────────────────
-DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾次；再來就放行、由呼叫端留帳
-_DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋次數}}
+# ─── 宣告閘擋次上限（定位閘、最小地圖、動資料檔、改舊測試、不是繞閘共用）───────────
+DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾則回覆；再來就放行、由呼叫端留帳
+_DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋則數}, "batch": {同鍵: 上次算次的那則}}
 
 
 def deny_cap(state: Optional[Dict[str, Any]], gate: str, items: List[str],
-             cap: int = DECL_DENY_CAP) -> Tuple[List[str], List[str]]:
+             cap: int = DECL_DENY_CAP, call: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[str]]:
     """宣告閘這次缺宣告的每一件（呼叫端給穩定的鍵，例：檔的 canon 路徑）→ (照擋的, 這次起放行的)。
     同一個使用者回合（wg_release_rules.user_turn）裡同一件已經擋滿 cap 次就放行：越過上限那一次回在「放行」裡給呼叫端
     留帳，同回合之後再遇到既不擋也不重回；照擋的各記一次。換回合整份歸零。state 就地改、寫檔由呼叫端；
-    state 是 None（沒有 session 可記）照擋、不計次。"""
+    state 是 None（沒有 session 可記）照擋、不計次。
+    次數照「則」數（規則 DENY_CAP_PER_REPLY）：call＝這次工具呼叫的 hook 輸入（tool_use_id、transcript_path、agent_id、session_id），
+    跟這一件上一次算次的呼叫是同一則回覆平行送出的（批次鍵同 CHAIN_SAME_BATCH，lib/chain_store.batch_of）→ 照那一次的結果
+    （那次擋就照擋）、不加次數；判不出是哪一則（子代理、transcript 讀不到…）照每個呼叫算，留帳 guard-deny_cap event=batch_unknown。
+    call 沒給照每個呼叫算、不留帳。"""
     if state is None:
         return list(items), []
     from wg_release_rules import user_turn
@@ -1957,20 +1961,44 @@ def deny_cap(state: Optional[Dict[str, Any]], gate: str, items: List[str],
     book = state.get(_DECL_DENY_KEY)
     if not isinstance(book, dict) or book.get("turn") != turn or not isinstance(book.get("counts"), dict):
         book = state[_DECL_DENY_KEY] = {"turn": turn, "counts": {}}
-    counts = book["counts"]
+    if not isinstance(book.get("batch"), dict):
+        book["batch"] = {}
+    batch = ""
+    if call is not None and items:
+        try:
+            from chain_store import batch_of
+            batch, why = batch_of(call)
+        except Exception as e:  # noqa: BLE001  判不出批次只是退回照每個呼叫算，不能讓閘跟著壞
+            why = f"{type(e).__name__}: {e}"
+        if not batch:
+            append_guard_log("deny_cap", {"event": "batch_unknown", "rule": "DENY_CAP_PER_REPLY", "gate": gate,
+                                          "session_id": str(call.get("session_id") or ""), "why": why})
+    counts, seen = book["counts"], book["batch"]
     deny: List[str] = []
     released: List[str] = []
+    before: Dict[str, Any] = {}
     for item in dict.fromkeys(items):
         key = f"{gate}|{item}"
         n = int(counts.get(key, 0) or 0)
+        if batch and n and seen.get(key) == batch:   # 同一則回覆裡這一件已經算過：照那一次（≤cap＝那次擋），不加次數
+            if n <= cap:
+                deny.append(item)
+            continue
         if n < cap:
             deny.append(item)
         elif n == cap:
             released.append(item)
+        before[key] = seen.get(key)
         counts[key] = n + 1 if n <= cap else n
-    if deny:                          # 這次照擋：放行的那幾件不算越過上限（整條還是被擋），留到下一次再放
+        seen[key] = batch
+    if deny:                          # 這次照擋：放行的那幾件不算越過上限（整條還是被擋），留到下一次再放；也不算這一則算過它
         for item in released:
-            counts[f"{gate}|{item}"] = cap
+            key = f"{gate}|{item}"
+            counts[key] = cap
+            if before[key] is None:
+                seen.pop(key, None)
+            else:
+                seen[key] = before[key]
         released = []
     return deny, released
 

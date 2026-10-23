@@ -205,8 +205,8 @@ def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
 
 
 def test_same_tool_gate_twice_aborts(hk):
-    """紅案例（C1）：同一道工具前閘原樣重試、中間沒動作 → 照那道閘原本的擋（不中止）；AI 動了別的手再撞同一道閘 → 改送中止停手
-    （不是原擋訊息），收尾擋一次送經過表。"""
+    """紅案例（C1）：同一道工具前閘原樣重試、中間沒動作 → 照那道閘原本的擋（不中止）；AI 動了別的手、改了內容再撞同一道閘 → 改送中止停手
+    （不是原擋訊息），收尾擋一次送經過表。動了別的手之後原封不動重送算原樣重試（CHAIN_SAME_CALL_RETRY），見下一案。"""
     s = hk()
     f = s.proj / "data.txt"
     s.gates["DataFileAsk"] = True
@@ -216,12 +216,34 @@ def test_same_tool_gate_twice_aborts(hk):
     s.gates["DataFileAsk"] = False
     assert not _denied(s.write(s.proj / "other.txt", "o\n"))                                # AI 動了手
     s.gates["DataFileAsk"] = True
-    second = s.write(f, "a\n")
+    second = s.write(f, "b\n")                                                              # 改了內容再送
     assert _denied(second) and _deny_text(second).startswith("[Guardian:ChainBreaker] 連鎖中止")
     assert "DataFileAsk（擋 " in _deny_text(second) and "/data.txt）這一段第 2 次觸發" in _deny_text(second)   # 同一個檔
     assert not f.exists()
     out = s.stop()
     assert _blocked(out) and "AskUserQuestion" in out["reason"]
+
+
+def test_verbatim_retry_after_other_action_keeps_gate_block_headless(hk, monkeypatch):
+    """紅案例（CHAIN_SAME_CALL_RETRY，004 非改 code 題現況1 重演、無頭入口）：動資料檔閘擋 Write → AI 做了別的動作 → 原封不動重送
+    → 照那道閘原本的擋（不警報、其餘閘不變成只記錄，這筆改動沒宣告就過不了）；改了內容再送 → 照舊算第 2 次警報。
+    舊碼重送那次就警報，無頭照 CHAIN_HEADLESS_NO_ASK 放行，檔就沒宣告改成了。"""
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    s = hk("sid-retry")
+    f = s.proj / "README.md"
+    s.gates["DataFileAsk"] = True
+    assert _deny_text(s.write(f, "說明\n")).startswith("[Guardian:DataFileAsk]")
+    s.gates["DataFileAsk"] = False
+    assert not _denied(s.write(s.proj / "release.md", "r\n"))                               # AI 做了別的動作
+    s.gates["DataFileAsk"] = True
+    retry = s.write(f, "說明\n")
+    assert _denied(retry) and _deny_text(retry).startswith("[Guardian:DataFileAsk]") and not f.exists()
+    assert not {"alarm", "notice"} & {r.get("type") for r in cs.read_rows(s.sid)}
+    s.gates["DataFileAsk"] = False
+    assert not _denied(s.write(s.proj / "release.md", "r2\n"))
+    s.gates["DataFileAsk"] = True
+    assert not _denied(s.write(f, "說明（改寫）\n"))                                          # 改了內容：第 2 次，無頭響的那次照放
+    assert "alarm" in {r.get("type") for r in cs.read_rows(s.sid)}
 
 
 def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
@@ -249,7 +271,7 @@ def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
     t.gates["DataFileAsk"] = False
     assert not _denied(t.write(t.proj / "e.txt", "e\n"))
     t.gates["DataFileAsk"] = True
-    assert not _denied(t.write(f, "a\n")) and f.exists()                                          # 響的那一次照放
+    assert not _denied(t.write(f, "b\n")) and f.exists()                       # 改了內容再送：響的那一次照放
     first = t.stop()
     assert _blocked(first) and first["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止") and not _blocked(t.stop())
 

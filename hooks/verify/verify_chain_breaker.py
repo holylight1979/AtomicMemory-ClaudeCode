@@ -78,10 +78,19 @@ class Turn:
         self.now += s
         return self.now
 
-    def gate(self, name, hook="Stop", **kw):
+    def gate(self, name, hook="Stop", call=None, **kw):
+        """閘 name 觸發一次；call＝(工具名, 參數) 被擋的那個工具呼叫（CHAIN_SAME_CALL_RETRY 比它；不給＝說不出呼叫長什麼樣）。"""
         if hook in wc.STOP_HOOKS:
             self.say()
-        return cs.gate_fired(SID, self.turn, name, f"{name}：缺東西", self.inp(hook), self.cfg, now=self.tick(), **kw)
+        d = self.inp(hook)
+        if call is not None:
+            d["tool_name"], d["tool_input"] = call
+        return cs.gate_fired(SID, self.turn, name, f"{name}：缺東西", d, self.cfg, now=self.tick(), **kw)
+
+    def goal(self, action="set"):
+        """AI 改了目標樹（need_goal；CHAIN_ACTION_FACTS 算動作、說不出改了哪些檔）。"""
+        cs.action_done(SID, self.turn, "goal", "mcp__workflow-guardian__need_goal", [], self.inp("PostToolUse"), self.cfg,
+                       what=f"need_goal {action}", now=self.tick())
 
     def _did(self, tool, path, before, after, ti):
         tr = {"originalFile": before} if before is not None else {"type": "create"}
@@ -1006,6 +1015,69 @@ def test_next_reply_after_block_still_counts_same_gate(box):
     r = t.gate("OverviewHub", hook="PreToolUse")
     assert r.record_only and r.halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
     assert t.chain().steps[1].link.rule == "CHAIN_EDGE_TIME_ORDER"
+
+
+def test_verbatim_retry_after_other_action_is_not_second_trigger(box):
+    """紅案例（CHAIN_SAME_CALL_RETRY；004 非改 code 題現況1 的形狀）：動資料檔閘擋 Edit README → 下一則 AI 回應別的提示改了目標樹
+    → 原封不動重送同一個 Edit 又被擋 → 原樣重試：不算同閘第 2 次、不接邊、不警報（交回閘自己的擋次上限）。
+    舊碼只看中間有沒有動作，重送那次就警報（無頭情境下警報讓這一回合其餘的閘只記錄，該宣告的改動就沒宣告過了）。"""
+    t, readme = Turn(box), str(box / "proj" / "ops" / "README.md")
+    edit = ("Edit", {"file_path": readme, "old_string": "舊說明", "new_string": "新說明"})
+    t.reply("msg_0")
+    t.reply("msg_1")
+    assert t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme]) == cs.PASS
+    t.reply("msg_2")
+    t.goal("set")
+    assert t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme]) == cs.PASS
+    ch = t.chain()
+    assert ch.steps[1].link.rule == "CHAIN_SAME_CALL_RETRY" and ch.alarm is None
+    assert wc.same_count(ch.steps, {"gate": "DataFileAsk", "watched": [readme], "call": ch.steps[1].row["call"]}) == 1
+
+
+def test_verbatim_retry_across_another_gate_does_not_link(box):
+    """CHAIN_SAME_CALL_RETRY 不只跟前一步比（codex 一輪 BLOCK 2）：A 擋 Edit x → 動手 → B 擋另一個呼叫 → 動手 → 原封不動重送 x 又被 A 擋
+    → 不接在 B 後面、深度不加、不算 A 第 2 次；深度警報打開也不中止。舊判法接在 B 後面成深度 2 而警報。"""
+    t, f = Turn(box, cfg=DEPTH), str(box / "proj" / "a.py")
+    x = ("Edit", {"file_path": f, "old_string": "a = 1", "new_string": "a = 2"})
+    y = ("Edit", {"file_path": f, "old_string": "b = 1", "new_string": "b = 2"})
+    t.reply("m0")
+    t.reply("m1")
+    t.gate("A", hook="PreToolUse", call=x, watched=[f])
+    t.reply("m2")
+    t.goal("set")
+    t.gate("B", hook="PreToolUse", call=y, watched=[f])
+    t.reply("m3")
+    t.goal("add")
+    assert t.gate("A", hook="PreToolUse", call=x, watched=[f]) == cs.PASS
+    ch = t.chain()
+    assert ch.steps[2].link.rule == "CHAIN_SAME_CALL_RETRY" and ch.steps[2].depth == 0 and ch.alarm is None
+
+
+def test_changed_call_after_action_still_counts_second_trigger(box):
+    """反例（CHAIN_SAME_CALL_RETRY 不吃掉真的連鎖）：擋 → AI 動手 → 改了內容（或在指令開頭補了宣告，呼叫變了）再送又被擋
+    → 照舊算同閘第 2 次、警報；原樣重試夾在中間不改變這個結果。"""
+    t, readme = Turn(box), str(box / "proj" / "ops" / "README.md")
+    edit = ("Edit", {"file_path": readme, "old_string": "舊說明", "new_string": "新說明"})
+    t.reply("msg_0")
+    t.reply("msg_1")
+    t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme])
+    t.reply("msg_2")
+    t.goal("set")
+    t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme])            # 原樣重試：不算
+    t.reply("msg_3")
+    t.goal("add")
+    changed = ("Edit", {**edit[1], "new_string": "新說明（改寫）"})
+    r = t.gate("DataFileAsk", hook="PreToolUse", call=changed, watched=[readme])
+    assert r.record_only and r.halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
+    u = Turn(box, turn=2)
+    bash = ("Bash", {"command": "echo x > ops/README.md"})
+    u.reply("m0")
+    u.reply("m1")
+    u.gate("DataFileAsk", hook="PreToolUse", call=bash, watched=[readme])
+    u.reply("m2")
+    u.act()
+    declared = ("Bash", {"command": "# 動資料檔｜ops/README.md：\necho x > ops/README.md"})   # 補了宣告（寫錯了閘照擋）
+    assert u.gate("DataFileAsk", hook="PreToolUse", call=declared, watched=[readme]).halt
 
 
 def test_same_reply_edits_are_not_reactions(box):

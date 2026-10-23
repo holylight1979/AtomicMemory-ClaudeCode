@@ -2101,7 +2101,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 事實與判定在 hooks/wg_gate_bypass.py
     deny_reason = v6 and wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
                                               input_data.get("transcript_path", "") or "",
-                                              agent_id=str(input_data.get("agent_id") or ""))
+                                              agent_id=str(input_data.get("agent_id") or ""),
+                                              tool_use_id=str(input_data.get("tool_use_id") or ""))
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return
@@ -2158,7 +2159,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         break
                     _w, _d, _c = _hub_on_edit(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
-                        agent_id=str(input_data.get("agent_id") or ""),
+                        agent_id=str(input_data.get("agent_id") or ""), tool_use_id=str(input_data.get("tool_use_id") or ""),
                     )
                     hub_changed = hub_changed or _c
                     if _w:

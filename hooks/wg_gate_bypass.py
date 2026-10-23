@@ -477,8 +477,10 @@ def _merged_offsets(records: Sequence[Any]) -> Optional[Dict[str, int]]:
 
 
 def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any],
-          state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, agent_id: str = "") -> Optional[str]:
+          state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, agent_id: str = "",
+          tool_use_id: str = "") -> Optional[str]:
     """PreToolUse GateBypass 段：嫌疑序列沒宣告 → 擋訊息；其餘 None。state 有改（清帳、記宣告）就寫回 state 檔。
+    tool_use_id＝這次工具呼叫的 id：擋次上限照「同一則回覆算一次」數（DENY_CAP_PER_REPLY）；沒給照每個呼叫算。
     重掃判不了當病還在；其他非預期錯誤 stderr 後放行（本閘守的是繞法，帶病的提交病形閘本身照擋）。"""
     if tool_name not in ("Bash", "PowerShell") or not enabled(config) or not state:
         return None
@@ -525,8 +527,10 @@ def check(tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str
             _log("declared", session_id, root=last.get("root"), files=sick, facts=facts, reason=decl[0], via=decl[1])
             _persist(session_id, state)
             return None
-        # 擋次上限（wg_core.deny_cap）：缺件＝這組被點名的檔；同一個使用者回合擋滿兩次就放行、留帳 cap_released
-        denied, released = wg_core.deny_cap(state, "gate_bypass", [group])
+        # 擋次上限（wg_core.deny_cap）：缺件＝這組被點名的檔；同一個使用者回合擋滿兩則回覆就放行、留帳 cap_released
+        call = ({"tool_use_id": tool_use_id, "transcript_path": transcript_path, "agent_id": agent_id, "session_id": session_id}
+                if tool_use_id else None)
+        denied, released = wg_core.deny_cap(state, "gate_bypass", [group], call=call)
         _persist(session_id, state)
         if released:
             _log("cap_released", session_id, root=last.get("root"), files=sick, facts=facts, rule=v.rule)
