@@ -133,7 +133,7 @@ function validateAtomContent(content) {
   if (!content.includes("## 行動")) {
     return "Missing ## 行動 section";
   }
-  const confMatch = content.match(/^- Confidence:\s*(.+)$/m);
+  const confMatch = content.match(/^- Confidence:[ \t]*(.+)$/m);
   if (!confMatch || !["[固]", "[觀]", "[臨]"].includes(confMatch[1].trim())) {
     return "Missing or invalid Confidence metadata";
   }

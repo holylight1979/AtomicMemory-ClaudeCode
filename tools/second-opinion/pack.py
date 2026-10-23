@@ -169,16 +169,72 @@ def _run(cmd: List[str], cwd: str, timeout_s: int) -> str:
     return r.stdout if r.returncode == 0 else ""
 
 
+NEW_FILES_BUDGET = 200_000   # 未追蹤新檔：單檔超過只列檔名；累計超過其餘只報個數（進提示詞前還會再截 material_max_chars）
+
+
+def _new_file_patch(root: Path, rel: str) -> str:
+    """一個未追蹤新檔 → git 格式的 new file patch 段；二進位、過大、讀不了只留檔頭與原因。"""
+    head = f"diff --git a/{rel} b/{rel}\nnew file mode 100644\n--- /dev/null\n+++ b/{rel}\n"
+    p = root / rel
+    try:
+        size = p.stat().st_size
+        if size > NEW_FILES_BUDGET:
+            return head + f"（未追蹤新檔過大，未附內容：{size} bytes）\n"
+        data = p.read_bytes()
+    except OSError as e:
+        return head + f"（未追蹤新檔讀不了：{type(e).__name__}）\n"
+    if b"\0" in data:
+        return head + "（二進位新檔，未附內容）\n"
+    lines = normalize_lf(data.decode("utf-8", errors="replace")).split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return head + f"@@ -0,0 +1,{len(lines)} @@\n" + "".join(f"+{ln}\n" for ln in lines)
+
+
+def _new_files_patch(root: Path, rels: List[str]) -> str:
+    """未追蹤新檔逐一接成 patch 段（依路徑排序）；列出來但已不是檔（期間被刪、目錄）的略過。"""
+    files = sorted(r for r in rels if (root / r).is_file())
+    parts: List[str] = []
+    total = 0
+    for i, rel in enumerate(files):
+        if total > NEW_FILES_BUDGET:
+            parts.append(f"（另有 {len(files) - i} 個未追蹤新檔未附：新檔材料已超過 {NEW_FILES_BUDGET} 字）\n")
+            break
+        seg = _new_file_patch(root, rel)
+        parts.append(seg)
+        total += len(seg)
+    return "".join(parts)
+
+
+def _svn_unversioned(root: Path, status: str) -> List[str]:
+    """`svn status` 的 `?` 行（沒加進版控）→ 相對路徑；`?` 的是目錄就展開成底下的檔。"""
+    rels: List[str] = []
+    for line in status.splitlines():
+        if not line.startswith("?") or len(line) < 9:
+            continue
+        rel = line[8:].strip()
+        p = root / rel
+        if p.is_dir():
+            rels += [f.relative_to(root).as_posix() for f in p.rglob("*") if f.is_file()]
+        else:
+            rels.append(Path(rel).as_posix())
+    return rels
+
+
 def collect_diff(cwd: str, timeout_s: int = 20) -> str:
-    """工作樹 vs HEAD；空則 main...HEAD；都不是 git 再試 svn diff。回空字串＝沒有差異或無版控。"""
+    """工作樹 vs HEAD；空則 main...HEAD；都不是 git 再試 svn diff。回空字串＝沒有差異或無版控。
+    git diff／svn diff 都不含沒加進版控的檔：未追蹤新檔（git 的 ls-files --others --exclude-standard、svn 的 `?`）
+    接在後面寫成 new file patch 段，新建的檔審查者才看得到。"""
     root = Path(cwd)
     if (root / ".git").exists() or _run(["git", "rev-parse", "--git-dir"], cwd, timeout_s).strip():
         out = _run(["git", "diff", "HEAD"], cwd, timeout_s)
         if not out.strip():
             out = _run(["git", "diff", "main...HEAD"], cwd, timeout_s)
-        return out
+        others = _run(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd, timeout_s)
+        return out + _new_files_patch(root, [r for r in others.split("\0") if r])
     if (root / ".svn").exists():
-        return _run(["svn", "diff"], cwd, timeout_s)
+        out = _run(["svn", "diff"], cwd, timeout_s)
+        return out + _new_files_patch(root, _svn_unversioned(root, _run(["svn", "status"], cwd, timeout_s)))
     return ""
 
 

@@ -776,12 +776,15 @@ def append_atom_file(
     *,
     source: str,
     op: str = "atom_append",
+    provenance: Optional[str] = None,
+    quote: Optional[str] = None,
 ) -> WriteResult:
     """對「已定位」的 atom .md 追加知識行（path 由 caller 解析，不重跑 scope 路由）。
 
     供 server.js toolAtomWrite(mode=append) spawn 用：js 端已處理 legacy fallback /
     Failures / local-realm 路由得到 file_path，內容拼接與落檔統一走 py（單一實作，
     落檔一律 LF，由 write_text_lf 保證）。對拍 write_atom(mode=append) 拼接行為。
+    provenance／quote：呼叫者明給才改檔頭 `- Source:`／`- Quote:`（_append_header_fields，三態同 replace）。
     不更新 access.json / index（caller 沿既有 spawnAtomAccess / appendToIndex 流程）。
     """
     audit_id = _gen_audit_id()
@@ -796,7 +799,10 @@ def append_atom_file(
     date_err = narrative_date_error(render_knowledge_lines(knowledge))
     if date_err:
         return WriteResult(ok=False, audit_id=audit_id, error=date_err)
-    content = _build_append_content(existing, knowledge)
+    content = _append_header_fields(_build_append_content(existing, knowledge), provenance, quote)
+    if content is None:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error="append: provenance/quote given but the atom has no metadata block to write them into")
     err = validate_atom_content(content)
     if err:
         return WriteResult(ok=False, audit_id=audit_id,
@@ -852,6 +858,36 @@ def _insert_meta_line(text: str, line: str) -> Optional[str]:
         return None
     lines.insert(last_meta + 1, line)
     return eol.join(lines)
+
+
+def _set_meta_line(text: str, label: str, replacement: str) -> Optional[str]:
+    """檔頭 `- <label>:` 那一行整行換成 replacement（第一個、只吃同行空白：`\\s*` 遇到空值欄位會跨行，
+    把下一行（通常 `## 知識`）一併換掉）；沒有這行就插到 metadata 區塊末。沒有 metadata 區塊回 None。"""
+    line_re = re.compile(rf"^-[ \t]*{label}:[ \t]*.*$", re.MULTILINE)
+    # 以函式回傳替換字串：值含反斜線（Windows 路徑、Quote 原話）時不得被當成 regex 跳脫
+    new_text, n = line_re.subn(lambda _m: replacement, text, count=1)
+    return new_text if n else _insert_meta_line(text, replacement)
+
+
+def _drop_meta_line(text: str, label: str) -> str:
+    """刪掉檔頭第一個 `- <label>:` 行（含換行）；本來就沒有原樣回。"""
+    return re.sub(rf"^-[ \t]*{label}:[ \t]*.*(?:\r?\n|\Z)", "", text, count=1, flags=re.MULTILINE)
+
+
+def _append_header_fields(content: str, provenance: Optional[str], quote: Optional[str]) -> Optional[str]:
+    """append 帶的 provenance／quote 寫進檔頭，三態同 replace：None＝不動；非空＝換掉該行（沒有就補）；""＝刪掉該行。
+    呼叫者明給了就照寫，不靜默丟掉（以前 append 只收知識行）。沒有 metadata 區塊可補回 None。"""
+    for label, value in (("Source", provenance), ("Quote", quote)):
+        if value is None:
+            continue
+        if not value.strip():
+            content = _drop_meta_line(content, label)
+            continue
+        replaced = _set_meta_line(content, label, f"- {label}: {value.strip()}")
+        if replaced is None:
+            return None
+        content = replaced
+    return content
 
 
 def _scope_from_frontmatter(text: str) -> Optional[str]:
@@ -944,24 +980,17 @@ def edit_metadata(
             continue
         label = _META_FIELD_LABEL[field_name]
         value_str = values if isinstance(values, str) else ", ".join(values)
-        replacement = f"- {label}: {value_str}"
-        # per-label regex 收斂到「該欄位那一行」（就地定義，不依賴 tools/）。
-        # 只吃同行空白：`\s*` 遇到空值欄位會跨行，把下一行（通常 `## 知識`）一併替換掉。
-        line_re = re.compile(rf"^-[ \t]*{label}:[ \t]*.*$", re.MULTILINE)
         if field_name == "entry" and not values:
             # 不綁任何切入點＝這張卡沒有 Entry 行：整行刪掉（含換行），本來就沒有就不插
-            new_text = re.sub(rf"^-[ \t]*{label}:[ \t]*.*(?:\r?\n|\Z)", "", new_text, count=1, flags=re.MULTILINE)
+            new_text = _drop_meta_line(new_text, label)
             continue
-        # 以函式回傳替換字串：值含反斜線（Windows 路徑、Quote 原話）時不得被當成 regex 跳脫
-        new_text, n = line_re.subn(lambda _m: replacement, new_text, count=1)
-        if n == 0:
-            inserted = _insert_meta_line(new_text, replacement)
-            if inserted is None:
-                return WriteResult(
-                    ok=False, audit_id=audit_id,
-                    error=f"frontmatter field not found and no metadata block to insert into: {label}",
-                )
-            new_text = inserted
+        replaced = _set_meta_line(new_text, label, f"- {label}: {value_str}")
+        if replaced is None:
+            return WriteResult(
+                ok=False, audit_id=audit_id,
+                error=f"frontmatter field not found and no metadata block to insert into: {label}",
+            )
+        new_text = replaced
 
     # ── SoT 先行：triggers 或 entry 變更時先寫 _atom_index.json ──
     if triggers is not None or entry is not None:
@@ -1027,7 +1056,7 @@ def edit_metadata(
 
 # ─── Supersedes（本顆取代舊顆；被取代者不再注入、檔案保留） ─────────────────
 
-_SUPERSEDES_LINE_RE = re.compile(r"^- Supersedes:\s*(.+)$", re.MULTILINE)
+_SUPERSEDES_LINE_RE = re.compile(r"^- Supersedes:[ \t]*(.+)$", re.MULTILINE)   # 不跨行：空行不把下一行讀成被取代者
 
 
 def read_supersedes(text: str) -> List[str]:
@@ -1459,7 +1488,10 @@ def write_atom(
                                error=f"Atom not found: {slug}.md (use mode=create first)")
         existing = file_path.read_text(encoding="utf-8-sig")
         # Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
-        content = _build_append_content(existing, knowledge)
+        content = _append_header_fields(_build_append_content(existing, knowledge), provenance, quote)
+        if content is None:
+            return WriteResult(ok=False, audit_id=audit_id,
+                               error="append: provenance/quote given but the atom has no metadata block to write them into")
         supersedes_final = read_supersedes(existing)
     elif mode == "replace":
         # Confirmations/ReadHits 在 access.json，replace 不需保留（檔本就分離）
@@ -1474,23 +1506,24 @@ def write_atom(
         index_depends = None   # replace：下面依最終檔頭決定（有行→該清單、無行→[] 清索引），索引跟 frontmatter 走
         if file_path.exists():
             old = file_path.read_text(encoding="utf-8-sig")
-            am = re.search(r"^- Author:\s*(.+)$", old, re.MULTILINE)
+            # 檔頭欄位一律 [ \t]* 不跨行：空欄位行不能把下一行（`## 知識`、別的欄位）吃成值
+            am = re.search(r"^- Author:[ \t]*(.+)$", old, re.MULTILINE)
             if am:
                 prev_author = am.group(1).strip()
-            cmm = re.search(r"^- Created-at:\s*(.+)$", old, re.MULTILINE)
+            cmm = re.search(r"^- Created-at:[ \t]*(.+)$", old, re.MULTILINE)
             if cmm:
                 prev_created = cmm.group(1).strip()
             prev_supersedes = read_supersedes(old)
-            # Source／Depends：呼叫者未給（None）→ 保留舊行；給了（含空）→ 以呼叫者為準
+            # Source／Depends：呼叫者未給（None）→ 保留舊行；給了（含空）→ 以呼叫者為準；舊卡空行＝空字串（build 不輸出）
             if provenance is None:
-                sm = re.search(r"^- Source:\s*(.+)$", old, re.MULTILINE)
+                sm = re.search(r"^- Source:[ \t]*(.*)$", old, re.MULTILINE)
                 prev_provenance = sm.group(1).strip() if sm else None
             if depends is None:
                 # [ \t]* 不跨行：空的 `- Depends:` 行不能把下一行（Trigger／標題）吃成依賴；空行＝[]（清）
                 dm = re.search(r"^- Depends:[ \t]*(.*)$", old, re.MULTILINE)
                 prev_depends = [t.strip() for t in re.split(r"[,，]", dm.group(1)) if t.strip()] if dm else None
             if quote is None:
-                qm = re.search(r"^- Quote:\s*(.+)$", old, re.MULTILINE)
+                qm = re.search(r"^- Quote:[ \t]*(.*)$", old, re.MULTILINE)
                 prev_quote = qm.group(1).strip() if qm else None
         if supersedes is None:
             supersedes_final = prev_supersedes

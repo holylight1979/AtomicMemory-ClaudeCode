@@ -22,8 +22,10 @@ from ollama_client import get_client
 
 try:
     from .project_root import claude_data_dir
+    from .state_rmw import update_state_locked
 except ImportError:  # 頂層模組載入
     from project_root import claude_data_dir
+    from state_rmw import update_state_locked
 
 VALID_TYPES = ("factual", "procedural", "architectural", "pitfall", "decision")
 
@@ -170,77 +172,29 @@ def _dedup_items(
 
 # ─── Ack-then-clear ──────────────────────────────────────────────────
 
-def ack_then_clear(state_path: Path, key: str, indices: List[int]) -> bool:
-    """Read state → pop specified indices from state[key] → write back（持鎖 RMW）。
+def ack_then_clear(session_id: str, key: str, indices: List[int]) -> bool:
+    """Read state → pop specified indices from state[key] → write back（lib/state_rmw.update_state_locked：跟 hook 同一把鎖）。
 
     Used to clear successfully-written items from knowledge_queue / pending_user_extract
-    without losing items added concurrently by other hooks.
+    without losing items added concurrently by other hooks：鎖裡讀改寫；拿不到鎖時寫回改留待併帳，
+    清單三方合併看基準（自己刪掉的項不會被併回、別人新加的照留）。
 
-    整段 read-modify-write 持 advisory lock（仿 atom_locations.append_learned_terms
-    的 msvcrt 模式）：無鎖時兩個 worker 併發 RMW 會 lost-update——
-    對方剛 append 的 queue 項被本方以舊快照整檔覆寫而永久遺失。
-
-    Returns True on success, False on any error.
+    Returns True on success, False when the state is missing/unreadable.
     """
-    lock_path = state_path.with_suffix(".lock")
-    lock_fh = None
-    if sys.platform == "win32":
-        try:
-            import msvcrt
-            lock_fh = open(lock_path, "ab")
-            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
-        except OSError:
-            # 鎖失敗 fail-open（不阻斷清佇列），但留訊號（可觀測性鐵律）
-            print(f"[ack_then_clear] advisory lock unavailable for {state_path.name}; "
-                  "proceeding unlocked", file=sys.stderr)
-            if lock_fh:
-                lock_fh.close()
-            lock_fh = None
-    try:
-        try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return False
+    if not indices:
+        return True
 
+    def _pop(state: Dict[str, Any]) -> bool:
         queue = state.get(key, [])
-        if not queue or not indices:
-            return True  # nothing to clear
-
-        # Pop indices in reverse order to maintain correctness
-        for idx in sorted(indices, reverse=True):
+        if not queue:
+            return False  # nothing to clear
+        for idx in sorted(indices, reverse=True):   # Pop indices in reverse order to maintain correctness
             if 0 <= idx < len(queue):
                 queue.pop(idx)
-
         state[key] = queue
-        state["last_updated"] = datetime.now().astimezone().isoformat()
+        return True
 
-        # Atomic write: temp file → rename
-        tmp = state_path.with_suffix(".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-                json.dump(state, f, ensure_ascii=False, indent=2)
-            tmp.replace(state_path)
-            return True
-        except OSError:
-            if tmp.exists():
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-            return False
-    finally:
-        if lock_fh is not None:
-            try:
-                import msvcrt
-                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
-            lock_fh.close()
-            try:
-                lock_path.unlink()
-            except OSError:
-                pass
+    return update_state_locked(session_id, _pop)
 
 
 # ─── Session Budget Tracker ──────────────────────────────────────────

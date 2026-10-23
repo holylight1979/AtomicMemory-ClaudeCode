@@ -6,7 +6,7 @@ const http = require("http");
 const https = require("https");
 const { exec } = require("child_process");
 const { CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, loadRegistry, getRegistryMemDirs, PYTHON_EXE } = require("./paths");
-const { listAllSessions, readState, writeState } = require("./state");
+const { listAllSessions, readState } = require("./state");
 const { enrichAtomWithAccess } = require("./atom-access");
 
 // ─── v2.1 API Handlers ──────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ function readWorldDev() {
 }
 let worldDev = readWorldDev();
 let worldDevTimer = null;
-function flushWorldDev() {                                   // 原子寫，仿 writeState（.tmp→rename）
+function flushWorldDev() {                                   // 原子寫（.tmp→rename）
   worldDevTimer = null;
   worldDev.updated_at = Date.now();
   const tmp = WORLD_DEV_PATH + ".tmp";

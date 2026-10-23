@@ -60,6 +60,7 @@ _CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔�
 if _CLAUDE_ROOT not in sys.path:
     sys.path.insert(0, _CLAUDE_ROOT)
 
+from lib.state_rmw import update_state_locked
 from lib.ollama_extract_core import (
     _call_ollama,
     _parse_llm_response,
@@ -545,50 +546,22 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
 # ─── State writeback (for per-turn mode) ─────────────────────────────────
 
 
-def _write_state_atomic(state_path: Path, state: dict) -> bool:
-    """Atomic write: temp file → rename. Returns True on success."""
-    tmp = state_path.with_suffix(".tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-        tmp.replace(state_path)
-        return True
-    except OSError as e:
-        _atom_debug_error("extract_worker:state_write", e)
-        if tmp.exists():
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
-        return False
-
-
 def _per_turn_writeback(ctx: dict, result: dict) -> None:
-    """Write per-turn extraction results back to session state."""
+    """Write per-turn extraction results back to session state（update_state_locked：跟 hook 同一把 state 鎖，拿不到留待併帳）。"""
     session_id = ctx.get("session_id", "")
     if not session_id:
         return
-    state_path = WORKFLOW_DIR / f"state-{session_id}.json"
-    if not state_path.exists():
-        return
-    try:
-        with open(state_path, "r", encoding="utf-8") as f:
-            state = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return
-
     items = result.get("extracted_items", [])
-    if items:
-        kq = state.get("knowledge_queue", [])
-        kq.extend(items)
-        state["knowledge_queue"] = kq
 
-    if result.get("final_offset"):
-        state["extraction_offset"] = result["final_offset"]
+    def _apply(state: dict) -> bool:
+        if items:
+            state["knowledge_queue"] = state.get("knowledge_queue", []) + items
+        if result.get("final_offset"):
+            state["extraction_offset"] = result["final_offset"]
+        state["extract_worker_pid"] = 0  # clear lease (worker done)
+        return True
 
-    state["extract_worker_pid"] = 0  # clear lease (worker done)
-    state["last_updated"] = _now_iso()
-    _write_state_atomic(state_path, state)
+    update_state_locked(session_id, _apply)
     # Note: ack_then_clear (imported from lib/) is available for
     # user-extract-worker.py to pop from pending_user_extract after
     # successful atom_write. Not called here — per_turn appends to
@@ -731,8 +704,7 @@ def _session_end_writeback(ctx: dict, result: dict) -> None:
         # failed → 不清，留 queue 下次重試
 
     if written_q_indices and session_id:
-        ack_then_clear(WORKFLOW_DIR / f"state-{session_id}.json",
-                       "knowledge_queue", written_q_indices)
+        ack_then_clear(session_id, "knowledge_queue", written_q_indices)
 
     _atom_debug_log(
         "session_end_writeback",
@@ -1120,26 +1092,12 @@ def _legacy_main():
     }
     result = run_extraction(ctx)
 
-    # Legacy mode: write results back to state file (same as old behavior)
+    # Legacy mode: write results back to state file（同一把 state 鎖，拿不到留待併帳）
     if result.get("extracted_items"):
-        try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return
-        state["pending_extraction"] = result["extracted_items"]
-        state["last_updated"] = _now_iso()
-        tmp = state_path.with_suffix(".tmp")
-        try:
-            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-                json.dump(state, f, ensure_ascii=False, indent=2)
-            tmp.replace(state_path)
-        except OSError:
-            if tmp.exists():
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
+        def _apply(st: dict) -> bool:
+            st["pending_extraction"] = result["extracted_items"]
+            return True
+        update_state_locked(session_id, _apply)
 
 
 if __name__ == "__main__":

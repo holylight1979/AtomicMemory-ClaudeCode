@@ -14,7 +14,7 @@ const worldChat = require("./world-chat");   // 腦內世界生物 LLM 對話代
 
 const { WORKFLOW_DIR, VERSIONS, loadConfig } = require("./lib/paths");
 const { onFatal, crashLog } = require("./lib/log");
-const { resolveSessionId, readState, writeState, deleteState, listAllSessions } = require("./lib/state");
+const { resolveSessionId, readState, applyStateChanges, deleteState, listAllSessions } = require("./lib/state");
 const { buildAtomContent, renderKnowledgeLines, isBlockKnowledge } = require("./lib/atom-render");
 const dashboardHtml = require("./lib/dashboard-html");
 const antiEvasion = require("./lib/anti-evasion");   // Anti-Evasion HUD 唯讀 API + heartbeat
@@ -153,43 +153,34 @@ const httpServer = http.createServer((req, res) => {
     const sid = resolveSessionId(signalMatch[1]) || signalMatch[1];
     let body = "";
     req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
+    req.on("end", async () => {
+      let signal;
       try {
-        const { signal } = JSON.parse(body);
-        const state = readState(sid);
-        if (!state) {
-          res.writeHead(404, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify({ error: "not found" }));
-        }
-        switch (signal) {
-          case "sync_started":
-            state.phase = "syncing";
-            break;
-          case "sync_completed":
-            state.phase = "done";
-            state.sync_pending = false;
-            state.knowledge_queue = [];
-            state.modified_files = [];
-            state.ended_at = new Date().toISOString();
-            break;
-          case "reset":
-            state.phase = "working";
-            state.sync_pending = false;
-            state.stop_blocked_count = 0;
-            state.remind_count = 0;
-            state.muted = false;
-            break;
-          case "mute":
-            state.muted = true;
-            break;
-        }
-        writeState(sid, state);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, state }));
+        ({ signal } = JSON.parse(body));
       } catch {
         res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "invalid body" }));
+        return res.end(JSON.stringify({ error: "invalid body" }));
       }
+      if (!readState(sid)) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "not found" }));
+      }
+      // 只送這個訊號要改的鍵；讀改寫在 hook 同一把 state 鎖裡做（applyStateChanges），不整份覆蓋 hook 剛寫的那份
+      const SIGNAL_CHANGES = {
+        sync_started: () => ({ phase: "syncing" }),
+        sync_completed: () => ({ phase: "done", sync_pending: false, knowledge_queue: [], modified_files: [],
+                                 ended_at: new Date().toISOString() }),
+        reset: () => ({ phase: "working", sync_pending: false, stop_blocked_count: 0, remind_count: 0, muted: false }),
+        mute: () => ({ muted: true }),
+      };
+      const changes = SIGNAL_CHANGES[signal] ? SIGNAL_CHANGES[signal]() : {};
+      const r = await applyStateChanges(sid, changes);
+      if (!r.ok) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ ok: false, error: r.error }));
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, state: r.state }));
     });
     return;
   }

@@ -7,8 +7,9 @@ session、哪則使用者訊息觸發 atom_write 寫出來的，補 `- Source:` 
 
 分級：
   A        transcript 命中 atom_write → `Source: session:<sid8>#<uuid8> <日期>` ＋ `Quote: 「使用者原話」`
-  A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text；同伴訊息開的回合
-           不是真人訊息，往回走會走到開工句）→ 只補 Source、不寫 Quote
+  A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text），或寫卡那回合
+           是別人開的（同伴訊息、背景任務通知：origin.kind 有值且不是 human；往回走會越過它走到更早的真人訊息，
+           多半是開工句，樣板認不全也不能填）→ 只補 Source、不寫 Quote
   A-ai     只找得到 `<!-- src: -->` 指標的自動萃取 atom → 只補 Source（同上），不寫 Quote：指到的是 AI 的話，Quote 只放使用者原話
   B        無命中 → `Source: commit:<hash7> <日期>（原對話已逾保留期）`（無 git 用 `unknown <日期>（…）`）
   skip     已有 Quote（冪等）／既有 Source 非空且無命中／ambiguous（同檔名多層無法判定，不寫）
@@ -64,8 +65,9 @@ _SKIP_DIR_PARTS = {"_meta", "_distant", "_vectordb", "_staging", "episodic", "wi
                    "templates"}   # templates/ 是範本，長得像 atom，不跳會被寫進假 Source
 _PATH_RE = re.compile(r"Path:\s*(\S.*?\.md)\s*$", re.M)
 _RECEIPT_PATH_RE = re.compile(r'"path"\s*:\s*"((?:[^"\\]|\\.)*)"')
-_QUOTE_LINE_RE = re.compile(r"^- Quote:\s*\S", re.M)
-_SOURCE_LINE_RE = re.compile(r"^- Source:\s*(\S.*)$", re.M)
+# [ \t]* 不跨行：空的 `- Quote:`／`- Source:` 行不能把下一行（`- Confidence:` 這類）當成已有的值
+_QUOTE_LINE_RE = re.compile(r"^- Quote:[ \t]*\S", re.M)
+_SOURCE_LINE_RE = re.compile(r"^- Source:[ \t]*(\S.*)$", re.M)
 _CREATED_RE = re.compile(r"^- Created-at:\s*(\d{4}-\d{2}-\d{2})", re.M)
 _CONFIDENCE_RE = re.compile(r"^- Confidence:\s*\[", re.M)
 _H1_RE = re.compile(r"^# (.+?)\s*$", re.M)
@@ -96,7 +98,7 @@ class Hit:
     transcript: str
     quote: Optional[str] = None       # 使用者原話（已消毒）；None＝找不到或是開工句
     human_uuid: Optional[str] = None  # 原話記錄 uuid（Source 用）
-    quote_skipped: str = ""           # "kickoff"＝找到的真人訊息是開工句，不當原話
+    quote_skipped: str = ""           # "kickoff"＝找到的真人訊息是開工句；"not_user_turn"＝寫卡那回合是別人開的；都不當原話
     quote_cleared: bool = False       # 那次 atom_write 明傳 quote=""：呼叫者要清空，回填不補回
 
 
@@ -135,10 +137,19 @@ def _result_path(text: str) -> Optional[str]:
     return None
 
 
+def _opened_by_other(rec: Dict[str, Any], blocks: List[Any]) -> bool:
+    """這則 user 紀錄開了一個不是使用者開的回合：origin.kind 有值且不是 human（同伴訊息 peer、背景任務通知
+    task-notification…）。tool_result 與沒有 origin 的 meta 紀錄（Stop hook 回饋、附圖）是同一回合的延續，不算。"""
+    origin = rec.get("origin")
+    if rec.get("type") != "user" or not isinstance(origin, dict) or origin.get("kind") in (None, "human"):
+        return False
+    return not any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks)
+
+
 def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex:
     idx = TranscriptIndex()
     pending: Dict[str, Tuple[str, str, str, str, str, str, bool]] = {}  # tool_use_id → (uuid, ts, title, mode, sid, file, 清空 quote)
-    humans_by_sid: Dict[str, List[Tuple[str, str, str]]] = {}      # sid → [(ts, uuid, text)] 主線真人
+    openers_by_sid: Dict[str, List[Tuple[str, str, str, bool]]] = {}  # sid → [(ts, uuid, text, 是真人)] 主線開回合的紀錄
     for fp in sorted(projects_dir.glob("*/*.jsonl")):
         idx.files += 1
         try:
@@ -166,12 +177,14 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
                 content = msg.get("content")
                 blocks = content if isinstance(content, list) else []
                 human = rtype == "user" and is_human_record(rec)
+                other = _opened_by_other(rec, blocks)
                 text = record_text(rec) if (human or rtype == "assistant") else ""
                 if isinstance(uuid, str):
-                    idx.by_uuid[uuid] = {"parent": rec.get("parentUuid"), "type": rtype, "ts": ts,
-                                         "side": side, "human": human, "text": text if (human or rtype == "assistant") else ""}
-                if human and not side and isinstance(uuid, str):
-                    humans_by_sid.setdefault(sid, []).append((ts, uuid, text))
+                    idx.by_uuid[uuid] = {"parent": rec.get("parentUuid"), "type": rtype, "ts": ts, "side": side,
+                                         "human": human, "other": other,
+                                         "text": text if (human or rtype == "assistant") else ""}
+                if (human or other) and not side and isinstance(uuid, str):
+                    openers_by_sid.setdefault(sid, []).append((ts, uuid, text, human))
                 if rtype == "assistant":
                     for b in blocks:
                         if not isinstance(b, dict) or b.get("type") != "tool_use":
@@ -199,30 +212,35 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
                         if title:
                             idx.add(title, Hit(ts=tu_ts, sid=tu_sid, uuid=tu_uuid, path=path, mode=mode, transcript=tfile,
                                                quote_cleared=cleared))
-    for lst in humans_by_sid.values():
+    for lst in openers_by_sid.values():
         lst.sort()
-    # 回溯原話：沿 parentUuid 走到最近真人；sidechain 走不到 → 同 sid 主線 ts≤hit 最近一則
+    # 回溯原話：沿 parentUuid 走到最近真人；sidechain 走不到 → 同 sid 主線 ts≤hit 最近一則真人
     for hits in idx.by_title.values():
         for h in hits:
-            _resolve_quote(h, idx, humans_by_sid)
+            _resolve_quote(h, idx, openers_by_sid)
     return idx
 
 
-def _set_quote(h: Hit, uid: str, text: str) -> None:
-    """記下原話所在的真人訊息（Source 用）；那則是開工句、或清完太短（lib/provenance.usable_quote）就不當 Quote。"""
+def _set_quote(h: Hit, uid: str, text: str, user_turn: bool = True) -> None:
+    """記下原話所在的真人訊息（Source 用）；那則是開工句、寫卡那回合不是使用者開的（user_turn=False）、
+    或清完太短（lib/provenance.usable_quote）就不當 Quote。"""
     h.human_uuid = uid
     if is_kickoff_text(text):
         h.quote, h.quote_skipped = None, "kickoff"
+        return
+    if not user_turn:
+        h.quote, h.quote_skipped = None, "not_user_turn"
         return
     h.quote = usable_quote(text) or None
     if h.quote is None and sanitize_quote(text):
         h.quote_skipped = "too_short"
 
 
-def _resolve_quote(h: Hit, idx: TranscriptIndex, humans_by_sid: Dict[str, List[Tuple[str, str, str]]]) -> None:
+def _resolve_quote(h: Hit, idx: TranscriptIndex, openers_by_sid: Dict[str, List[Tuple[str, str, str, bool]]]) -> None:
     cur = h.uuid
     seen = set()
     steps = 0
+    crossed_other = False   # 走到真人之前先越過了別人開的回合：那則真人訊息不是這張卡的觸發句
     while cur and cur not in seen and steps < 500:
         seen.add(cur)
         steps += 1
@@ -230,13 +248,15 @@ def _resolve_quote(h: Hit, idx: TranscriptIndex, humans_by_sid: Dict[str, List[T
         if rec is None:
             break
         if rec.get("human"):
-            _set_quote(h, cur, rec.get("text") or "")
+            _set_quote(h, cur, rec.get("text") or "", user_turn=not crossed_other)
             return
+        crossed_other = crossed_other or bool(rec.get("other"))
         cur = rec.get("parent")
-    cands = [t for t in humans_by_sid.get(h.sid, []) if t[0] <= h.ts]
-    if cands:
-        ts, uid, text = cands[-1]
-        _set_quote(h, uid, text)
+    cands = [t for t in openers_by_sid.get(h.sid, []) if t[0] <= h.ts]
+    humans = [t for t in cands if t[3]]
+    if humans:
+        ts, uid, text, _ = humans[-1]
+        _set_quote(h, uid, text, user_turn=cands[-1][3])
 
 
 # ─── atom 掃描 ───────────────────────────────────────────────────────────────
