@@ -781,7 +781,7 @@ def _shlex_segments(raw: str) -> Optional[List[List[str]]]:
         pending = ""
         segs.append([])
         for tok in tokens:
-            if set(tok) <= set(_SEG_PUNCT):
+            if tok and set(tok) <= set(_SEG_PUNCT):
                 segs.append([])
             elif segs[-1] or tok not in SHELL_PREFIX_KEYWORDS:
                 segs[-1].append(tok)
@@ -2864,7 +2864,8 @@ RULES["BASE_RED_TRACKED_NOT_OWED"] = (
     "改動前的基底 commit 上就紅、而且有追蹤項點名的紅測，不算本回合欠帳：收尾寫「基底紅｜<紅的那支測試名>：<基底 commit> 也紅；"
     "追蹤 <文件路徑>」，紅的每一支都要三件同時成立才留帳放行（Logs/guard-testfail_base_red.jsonl 記哪一支、哪個基底 commit、"
     "哪份追蹤文件）：(1) 本 session 真的在那個 commit 的乾淨工作樹跑過、那次紅的就有這一支（跑紅時記下 HEAD 與已追蹤檔有沒有改動，"
-    "state red_run_commits；不從別處推論）；(2) 那個 commit 是現在 HEAD 的祖先、不是本 session 自己提交的；(3) 追蹤文件（.md／.txt）"
+    "state red_run_commits；不從別處推論）；(2) 那個 commit 是現在 HEAD 的祖先、在本 session 開始之前就有（committer 時間；"
+    "本 session 做的 merge、rebase、提交都不算）、不在本 session 的提交紀錄裡；(3) 追蹤文件（.md／.txt）"
     "在、本 session 沒改過、內文點名這一支。缺一照擋：基底綠、這次紅 → 沒有基底的紅可對，照擋；擋訊息說缺哪一件。"
     "摘要沒逐支列出失敗的不收（看不出基底紅的是不是同一支）。事實在 handlers/post_tool_use._track_test_result（記）與 "
     "handlers/stop.py 的 TestFailGate 段（查祖先、讀追蹤文件）蒐集。")
@@ -2896,21 +2897,22 @@ def listed_red_units(summary: Any) -> List[str]:
     return failed_units(summary) or failure_units(summary)
 
 
-def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, runs: Sequence[Dict[str, Any]],
-                  ancestry: Dict[Tuple[str, str], Optional[bool]], own_shas: Iterable[str],
-                  tracking: Dict[str, Dict[str, Any]]) -> str:
-    """一支紅測對一條基底紅行：三件都成立回空字串，否則回缺的那一件（擋訊息照印）。"""
+def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, facts: Dict[str, Any]) -> str:
+    """一支紅測對一條基底紅行：三件都成立回空字串，否則回缺的那一件（擋訊息照印）。facts 見 base_red_failures。"""
     base = d["base"]
     if not base:
         return "沒寫基底 commit（7 位以上的雜湊）"
     if not any(r.get("clean") is True and str(r.get("head") or "").lower().startswith(base) and unit in (r.get("units") or ())
-               for r in runs):
+               for r in facts.get("runs") or ()):
         return f"本 session 沒在基底 {base} 的乾淨工作樹跑紅過這一支（基底綠、或沒在基底跑過 → 照算本回合的紅）"
-    if any(str(s).lower().startswith(base) for s in own_shas):
+    if any(str(s).lower().startswith(base) for s in facts.get("own_shas") or ()):
         return f"基底 {base} 是本 session 自己提交的，不是改動前"
-    if ancestry.get((base, cwd)) is not True:
+    born, started = (facts.get("base_times") or {}).get(base), facts.get("started")
+    if born is None or started is None or born >= started:
+        return f"基底 {base} 不是本 session 開始前就有的 commit（本 session 做的 merge、rebase 之後的 commit 不算；查不到時間也不算）"
+    if (facts.get("ancestry") or {}).get((base, cwd)) is not True:
         return f"基底 {base} 不是現在 HEAD 的祖先（或查不到）"
-    t = tracking.get(d["tracking"]) if d["tracking"] else None
+    t = (facts.get("tracking") or {}).get(d["tracking"]) if d["tracking"] else None
     if t is None:
         return "沒寫追蹤文件（「追蹤 <路徑>」）"
     if not t.get("exists"):
@@ -2924,14 +2926,12 @@ def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, runs: Sequence[Dict[st
     return ""
 
 
-def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], runs: Sequence[Dict[str, Any]],
-                      ancestry: Dict[Tuple[str, str], Optional[bool]], own_shas: Iterable[str],
-                      tracking: Dict[str, Dict[str, Any]]
+def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], facts: Dict[str, Any]
                       ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], List[Dict[str, str]]]], List[str]]:
     """BASE_RED_TRACKED_NOT_OWED 套在紅測清單：回 (還算紅的, [(放行的那筆, 每支一筆 {unit, base, tracking, line})], 擋訊息附註)。
-    事實由呼叫端給：runs＝state red_run_commits（本 session 的）、ancestry[(基底, 那筆紅的 cwd)]＝是不是 HEAD 的祖先、
-    own_shas＝本 session 提交過的 commit、tracking[路徑]＝{exists, doc, own_edit, text}。沒有任何基底紅行對到的紅照原樣留著、不附註。"""
-    own = [str(s) for s in own_shas or ()]
+    facts 由呼叫端蒐集：runs＝state red_run_commits（本 session 的）、ancestry[(基底, 那筆紅的 cwd)]＝是不是 HEAD 的祖先、
+    own_shas＝本 session 提交過的 commit、base_times[基底]＝committer 時間（epoch 秒，查不到 None）、started＝本 session 開始時間、
+    tracking[路徑]＝{exists, doc, own_edit, text}。沒有任何基底紅行對到的紅照原樣留著、不附註。"""
     kept: List[Dict[str, Any]] = []
     based: List[Tuple[Dict[str, Any], List[Dict[str, str]]]] = []
     notes: List[str] = []
@@ -2946,7 +2946,7 @@ def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[st
             notes.append("基底紅要逐支列得出是哪一支：這筆紅的輸出沒列 FAILED／ERROR 行，別截斷輸出、單獨重跑一次")
             continue
         cwd = str(f.get("cwd") or "")
-        gaps = [(u, _base_red_gap(u, d, cwd, runs, ancestry, own, tracking) if d else "沒有對到它的基底紅行") for u, d in named]
+        gaps = [(u, _base_red_gap(u, d, cwd, facts) if d else "沒有對到它的基底紅行") for u, d in named]
         bad = [f"基底紅不成立（{u[:100]}）：{g}" for u, g in gaps if g]
         if bad:
             kept.append(f)

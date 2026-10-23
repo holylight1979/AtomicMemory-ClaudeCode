@@ -2574,20 +2574,25 @@ def test_008_base_red_tracked_not_owed():
     runs = [{"clean": True, "head": "abcdef1234" + "0" * 30, "units": [unit_a, unit_b]}]
     track = {"k.md": {"exists": True, "doc": True, "own_edit": False, "text": "test_a test_b 基底就紅"}}
     both = rr.parse_base_red("基底紅｜test_a：abcdef1234 也紅；追蹤 k.md\n基底紅｜test_b：abcdef1234 也紅；追蹤 k.md")
-    ok = {("abcdef1234", "C:/r"): True}
-    kept, based, notes = rr.base_red_failures([red], both, runs, ok, [], track)
+    ok = {"runs": runs, "ancestry": {("abcdef1234", "C:/r"): True}, "own_shas": [], "base_times": {"abcdef1234": 100.0},
+          "started": 200.0, "tracking": track}
+    kept, based, notes = rr.base_red_failures([red], both, ok)
     assert not kept and not notes and [r["unit"] for r in based[0][1]] == [unit_a, unit_b]
-    kept, based, notes = rr.base_red_failures([red], both[:1], runs, ok, [], track)      # 兩支只宣告一支 → 整筆照紅
+    kept, based, notes = rr.base_red_failures([red], both[:1], ok)                      # 兩支只宣告一支 → 整筆照紅
     assert kept and not based and any("沒有對到它的基底紅行" in n and unit_b in n for n in notes)
-    kept, _, notes = rr.base_red_failures([red], both, runs, {("abcdef1234", "C:/r"): False}, [], track)
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "ancestry": {("abcdef1234", "C:/r"): False}})
     assert kept and any("不是現在 HEAD 的祖先" in n for n in notes)
-    kept, _, notes = rr.base_red_failures([red], both, [{**runs[0], "units": [unit_a]}], ok, [], track)   # 基底只紅 a、b 是這次才紅
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "runs": [{**runs[0], "units": [unit_a]}]})   # 基底只紅 a、b 是這次才紅
     assert kept and any(unit_b in n and "沒在基底" in n for n in notes)
-    kept, _, notes = rr.base_red_failures([red], both, runs, ok, [], {"k.md": {**track["k.md"], "doc": False}})
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "tracking": {"k.md": {**track["k.md"], "doc": False}}})
     assert kept and any("不是 .md" in n for n in notes)
     unlisted = {"cmd": "pytest t.py", "summary": "1 failed", "cwd": "C:/r"}
-    kept, _, notes = rr.base_red_failures([unlisted], rr.parse_base_red("基底紅｜t.py：abcdef1234 也紅；追蹤 k.md"), runs, ok, [], track)
+    kept, _, notes = rr.base_red_failures([unlisted], rr.parse_base_red("基底紅｜t.py：abcdef1234 也紅；追蹤 k.md"), ok)
     assert kept and any("逐支列得出" in n for n in notes)
-    kept, based, notes = rr.base_red_failures([red], [], runs, ok, [], track)
+    kept, based, notes = rr.base_red_failures([red], [], ok)
     assert kept == [red] and not based and not notes
+    for over, why in (({"base_times": {"abcdef1234": 300.0}}, "開始前就有"), ({"base_times": {}}, "查不到時間"),
+                      ({"started": None}, "開始前就有"), ({"own_shas": ["ABCDEF1234ffff"]}, "自己提交的")):
+        kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
+        assert kept and any(why in n for n in notes), (over, notes)
     assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []

@@ -1591,18 +1591,28 @@ TF_GATE = "testfail"      # wg_release 的閘名（last_block／pending_release�
 
 
 def _base_red_facts(state: Dict[str, Any], session_id: str, failing: List[Dict[str, Any]], decls: List[Dict[str, str]],
-                    cwd: str) -> Tuple[List[Dict[str, Any]], Dict[Tuple[str, str], Optional[bool]], List[str], Dict[str, Dict[str, Any]]]:
-    """BASE_RED_TRACKED_NOT_OWED 的事實（判定在 wg_release_rules.base_red_failures）：本 session 的跑紅紀錄、每個基底對每筆紅的
-    cwd 是不是 HEAD 的祖先（git merge-base --is-ancestor；查不到當不是）、本 session 提交過的 commit、每份追蹤文件
-    （相對路徑照 session cwd 解；有沒有、是不是 .md／.txt、本 session 改過沒、內文）。"""
+                    cwd: str) -> Dict[str, Any]:
+    """BASE_RED_TRACKED_NOT_OWED 的事實（判定在 wg_release_rules.base_red_failures，鍵見那裡）：本 session 的跑紅紀錄、
+    每個基底對每筆紅的 cwd 是不是 HEAD 的祖先（git merge-base --is-ancestor；查不到當不是）與 committer 時間、本 session
+    開始時間與提交過的 commit、每份追蹤文件（相對路徑照 session cwd 解；有沒有、是不是 .md／.txt、本 session 改過沒、內文）。"""
+    from datetime import datetime
     from wg_release_rules import BASE_RED_DOC_EXTS, canon_path
     from wg_verify_ledger import _run_git
     runs = [r for r in state.get("red_run_commits") or [] if isinstance(r, dict) and r.get("session_id") == session_id]
     own = [s for rec in (state.get("committed_new_code") or {}).values() if isinstance(rec, dict) for s in rec.get("shas") or []]
+    try:
+        started: Optional[float] = datetime.fromisoformat(str((state.get("session") or {}).get("started_at") or "")).timestamp()
+    except ValueError:
+        started = None
     ancestry: Dict[Tuple[str, str], Optional[bool]] = {}
+    base_times: Dict[str, Optional[float]] = {}
     for base in {d["base"] for d in decls if d["base"]}:
         for fcwd in {str(f.get("cwd") or "") for f in failing}:
             ancestry[(base, fcwd)] = bool(fcwd) and _run_git(Path(fcwd), ["merge-base", "--is-ancestor", base, "HEAD"], 3) is not None
+            ct = _run_git(Path(fcwd), ["show", "-s", "--format=%ct", base], 3) if fcwd and base_times.get(base) is None else None
+            if ct and ct.strip().isdigit():
+                base_times[base] = float(ct.strip())
+        base_times.setdefault(base, None)
     edited = {canon_path(m.get("path")) for m in state.get("modified_files") or []
               if isinstance(m, dict) and m.get("session_id", session_id) == session_id}
     tracking: Dict[str, Dict[str, Any]] = {}
@@ -1616,7 +1626,7 @@ def _base_red_facts(state: Dict[str, Any], session_id: str, failing: List[Dict[s
             text = ""
         tracking[ref] = {"exists": p.is_file(), "doc": p.suffix.lower() in BASE_RED_DOC_EXTS,
                          "own_edit": canon_path(str(p)) in edited, "text": text}
-    return runs, ancestry, own, tracking
+    return {"runs": runs, "ancestry": ancestry, "own_shas": own, "base_times": base_times, "started": started, "tracking": tracking}
 
 
 def _red_key(f: Dict[str, Any]) -> str:
@@ -2067,7 +2077,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         from wg_release_rules import base_red_failures, parse_base_red
         _bdecls = parse_base_red(code_text)
         if _bdecls:
-            failing, _based, _base_notes = base_red_failures(failing, _bdecls, *_base_red_facts(state, session_id, failing, _bdecls, cwd))
+            failing, _based, _base_notes = base_red_failures(failing, _bdecls, _base_red_facts(state, session_id, failing, _bdecls, cwd))
             for _f, _rows in _based:
                 append_guard_log("testfail_base_red", {"session_id": session_id, "turn_seq": turn_seq, "rule": "BASE_RED_TRACKED_NOT_OWED",
                                                        "failing_cmd": str(_f.get("cmd", ""))[:120], "units": [r["unit"][:120] for r in _rows],

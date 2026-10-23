@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,11 @@ def repo(tmp_path):
     return r, base, track
 
 
+def _session(started: str = "") -> dict:
+    """session 開始時間：預設「現在」（fixture 剛建的兩個 commit 都在 session 開始前）。"""
+    return {"cwd": "", "started_at": started or datetime.now(timezone.utc).isoformat()}
+
+
 def _red(cwd: Path) -> dict:
     return {"cmd": RED_CMD, "summary": RED_OUT, "turn_seq": 5, "session_id": _SID, "pytest": True, "cwd": str(cwd)}
 
@@ -90,7 +96,7 @@ def test_post_tool_use_records_commit_and_cleanliness(repo, tmp_path):
 def test_stop_releases_when_base_red_proven_and_tracked(driven, capsys, repo):
     r, base, track = repo
     text = f"全部完成了。\n基底紅｜test_legacy：{base[:10]} 也紅；追蹤 {track}"
-    out, _, logs = driven(text, capsys, failing_tests=[_red(r)], red_run_commits=[_run_row(base)],
+    out, _, logs = driven(text, capsys, failing_tests=[_red(r)], red_run_commits=[_run_row(base)], session=_session(),
                           modified_files=[_mf(_CASE, 5)], anti_evasion_report=_aec(5, "無", "無"))
     assert "TestFailGate" not in out, out
     hit = [p for g, p in logs if g == "testfail_base_red"]
@@ -102,7 +108,7 @@ def test_stop_base_green_this_red_still_blocks(driven, capsys, repo):
     r, base, track = repo
     head = _git(r, "rev-parse", "HEAD")
     text = f"全部完成了。\n基底紅｜test_legacy：{base[:10]} 也紅；追蹤 {track}"
-    out, _, logs = driven(text, capsys, failing_tests=[_red(r)], red_run_commits=[_run_row(head)],
+    out, _, logs = driven(text, capsys, failing_tests=[_red(r)], red_run_commits=[_run_row(head)], session=_session(),
                           modified_files=[_mf(_CASE, 5)], anti_evasion_report=_aec(5, "無", "無"))
     assert "TestFailGate" in out and "沒在基底" in out and not [p for g, p in logs if g == "testfail_base_red"]
 
@@ -113,10 +119,12 @@ def test_stop_base_green_this_red_still_blocks(driven, capsys, repo):
     ("tracking_edited", "本 session 改過"),   # 追蹤項是這個 session 才寫的
     ("not_named", "沒點名"),                  # 追蹤文件沒提到這一支
     ("no_tracking", "沒寫追蹤文件"),
-], ids=["dirty-base-run", "own-commit", "tracking-edited", "tracking-not-naming", "no-tracking"])
+    ("born_after_start", "開始前就有"),        # 基底是本 session 開始後才有的 commit（例：自己做的 merge）
+], ids=["dirty-base-run", "own-commit", "tracking-edited", "tracking-not-naming", "no-tracking", "born-after-start"])
 def test_stop_missing_one_condition_blocks(driven, capsys, repo, change, why):
     r, base, track = repo
-    rows, extra, mods = [_run_row(base, clean=change != "dirty")], {}, [_mf(_CASE, 5)]
+    rows, mods = [_run_row(base, clean=change != "dirty")], [_mf(_CASE, 5)]
+    extra = {"session": _session("2000-01-01T00:00:00+00:00" if change == "born_after_start" else "")}
     if change == "own_commit":
         extra["committed_new_code"] = {str(r).lower(): {"shas": [base], "paths": []}}
     if change == "tracking_edited":
