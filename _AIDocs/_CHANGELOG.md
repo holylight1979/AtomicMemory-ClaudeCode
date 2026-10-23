@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-23 C# 改完也量「人讀要跳幾層」：只量改到的檔加一跳上下游，超線才問
+- **AI 寫 C# 時會看到的**（守門總開關 v6 開時，寫碼回合收尾背景量）：只在超線時收到「要人看」的條目與那一題，一條一句理由（拐彎判斷五欄行）：變差或新增的路上拐彎超過 3 個（材料列那幾層，一條最多 300 字）、這次改到的函式只把呼叫往下傳（空層）、改到的型別繼承鏈有空層或超過 3 層。沒超線就什麼都不附（不花 token）；巢狀深、條件塊多不再問 C#。這回合沒改 .cs 不量。
+- **改了什麼**：新 `lib/reading_path_cs.py`（範圍＝上次交工作以來變過的 .cs〔照檔案指紋，不照回合號〕＋一跳上下游，下游照檔名再 git grep 找型別定義、上游 git grep 型別名，各最多 40 檔；用量尺同一個 Graph 與 compare 比 before／after）；新 `lib/cs_roslyn.py`＋`lib/cs_roslyn/`（本機有 .NET SDK 附的 Roslyn 就編一支小程式抓語法事實，分類規則照輕量解析；沒有或跑不動退回輕量解析並在 stderr 註明）；`hooks/wg_reading_path.py` C# 分流（`_cs_section`，門檻 `reading_path.turn_judgment.cs_layers`＝3，材料上限 `CS_MATERIAL_MAX`），拿掉 C# 查找池（`_cs_pool`、`turn_metrics_cs.pick_lookup_files`）與 C# 函式級數據表；`tools/reading-path.py` 拆出 `graph_of`／`graph_report`／`decode_source` 給限定範圍建圖用；`reading_path_lang.Func` 加 `end`（C# 本體末行）。
+- **驗證**：新案例 `lib/verify/verify_reading_path_cs.py`（4 層超線、只轉手空層、繼承空層、2 層不打擾、沒改 .cs 不量、v6 關不量、材料上限、300 檔大 fixture 只碰一跳、Roslyn 退回輕量；Roslyn／輕量兩遍）；`verify_g11_turns` 五個 C# 案改成新語意。真專案（複本另起 git，原專案沒動）：mapeditor（115 檔）改一檔，範圍 11～25 檔、1～2 秒；sgi_client 的 11272 個 .cs 改一檔，範圍 17～38 檔、5～7 秒（多半花在 git grep 找鄰居），都沒超線、沒有字。
+- **已知限制**：路徑只算一跳範圍看得到的那一段（下限）；只認 git，svn 專案（例：sgi_client）收尾不量，同 Python 版。
 ## 2026-10-22 工具前宣告閘有擋次上限、收據不看指令形狀、拐彎判斷只問改到的函式；TECH 同步這批守門減量
 - **AI 寫程式時會看到的**（守門總開關 v6 開時）：
   - **工具前的宣告閘不再擋到底**：動資料檔、改舊測試、不是繞閘三道閘，同一個使用者回合同一件缺件擋 2 次，第 3 次放行並留帳 cap_released（規則 GATE_DENY_CAP，與定位閘、最小地圖共用 `wg_core.deny_cap`）；這幾道閘自己出錯（state 讀壞、例外）不擋，stderr＋留帳 error（GATE_SELF_ERROR）；commit 前的目標對照核對出錯也不擋。繞閘閘：同一個 repo 還沒 commit 又被病形閘擋，點名的檔合併成一份，宣告要寫在該檔被點名之後才算（GATE_BYPASS_NAMED_FILES_MERGED）。

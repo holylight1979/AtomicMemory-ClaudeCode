@@ -57,6 +57,7 @@ class Func:
     cls: str           # 所屬類別名（模組層函式為空）
     lang: str          # py｜cs｜coarse
     line: int
+    end: int = 0       # 本體最後一行（C# 有記，拿來對 diff 命中的函式；0＝沒記）
     params: list = field(default_factory=list)
     param_types: dict = field(default_factory=dict)   # 參數 → 型別的類別名（拿來解析接收者）
     defaults: dict = field(default_factory=dict)      # 參數 → 預設值是函式參照時的 Call（def run(cb=work)）
@@ -894,7 +895,7 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
     base = f"{mod.file}::{cls.name}.{name}"
     fid = base if all(f.id != base for f in mod.funcs) else f"{base}#{b0}"   # 暫用；多載在整個類別讀完後改成簽章 id
     line = src.count("\n", 0, start + len(raw) - len(raw.lstrip())) + 1
-    f = Func(fid, mod.file, f"{cls.name}.{name}", name, cls.name, "cs", line,
+    f = Func(fid, mod.file, f"{cls.name}.{name}", name, cls.name, "cs", line, src.count("\n", 0, b1) + 1,
              params=[p for p, _ in params], param_types={p: t for p, t in params if t}, prop=is_prop,
              sig=",".join(_cs_type_text(t) for t in texts))
     f.abstract = "abstract" in mods or declared

@@ -501,7 +501,7 @@ def _loaded_after_import(module: str) -> set:
 @pytest.mark.parametrize("module, not_loaded", [
     ("dispatcher", {"dataclasses", "logging", "socket", "difflib"}),
     ("handlers.post_tool_use", {"ollama_client", "urllib.request", "wg_vcs_sync", "logging"}),
-    ("handlers.stop", {"ollama_client", "urllib.request", "turn_metrics_cs", "logging"}),
+    ("handlers.stop", {"ollama_client", "urllib.request", "turn_metrics_cs", "reading_path_cs", "cs_roslyn", "logging"}),
     ("handlers.user_prompt_submit", {"ollama_client", "urllib.request", "logging"}),
 ])
 def test_hook_import_on_use(module, not_loaded):
@@ -516,7 +516,7 @@ def test_lazy_names_still_patchable_and_callable():
     from handlers import post_tool_use as pt
     import wg_reading_path as rp
     for mod, name in ((ep, "write_raw"), (ep, "get_client"), (ep, "move_atom_pair"), (pt, "spawn_vcs_sync"),
-                      (pt, "_trigger_incremental_index"), (rp, "cs_metrics_for_files"), (rp, "parse_diff_ranges")):
+                      (pt, "_trigger_incremental_index"), (rp, "metrics_for_files"), (rp, "parse_diff_ranges")):
         assert callable(getattr(mod, name)), name
     rp.parse_diff_ranges("")                         # 呼叫時才真的載 turn_metrics，載得到
 

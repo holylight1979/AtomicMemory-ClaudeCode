@@ -15,8 +15,7 @@ WORKER_BUDGET_S 秒，逾時附「背景 N 秒內量不完」，逾時過的根�
 同一批輸入（根、before、改檔大小與時間、哪些還沒 git add）只量一次、只附一次（state["reading_path"][session_id]）。
 背景行程只寫自己的結果檔（JOB_DIR），不碰 state；超過 STALE_S 沒人收的工作檔與結果檔下次起工作時清掉。
 拐彎判斷：同一個背景 job 再算函式級與類別級側面數據（lib/turn_metrics：這次對 before 的 diff 命中的函式與類別——巢狀深度、
-各自巢狀的條件區塊、認知複雜度、只轉手與連續轉手鏈、繼承鏈每層新增／覆寫了什麼與空層；.cs 改用 lib/turn_metrics_cs，同一組數據
-另附只有空覆寫的層、經過單一實作的分派、解析不到的地方；其他語言標不支援）。到門檻
+各自巢狀的條件區塊、認知複雜度、只轉手與連續轉手鏈、繼承鏈每層新增／覆寫了什麼與空層；其他語言標不支援）。到門檻
 （config reading_path.turn_judgment，預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；是「從第幾個彎起要人看」的
 事實門檻，不是判臭）的每一條附進結果文字，連同一題「這一層／這個彎存在的理由是什麼、有沒有真正的作用、是不是抄舊架構長出來的」
 與尺度原文；收尾文字要有對應的「拐彎判斷｜…」五欄行（turn_judgment_note 核對，規則 TURN_JUDGMENT_REQUIRED 在 wg_release_rules），
@@ -25,6 +24,11 @@ WORKER_BUDGET_S 秒，逾時附「背景 N 秒內量不完」，逾時過的根�
 之後量到同名同指紋的不再問，
 只問這次改到或新到門檻的。擋的記號（blocked_turn）放在欠項外層，改碼起新一批也不清：每個使用者回合最多擋一次。
 量完前又改了碼 → 舊欠項標 stale：只收答案、不擋，新的一批量完換掉。
+C#：不走上面整個專案的量尺與側面數據，改走 lib/reading_path_cs——只量上次交工作以來變過的 .cs（state measured 記每個改檔的指紋）
+加一跳上下游（不掃整個專案），
+本機有 .NET SDK 附的 Roslyn 就用它解析、沒有用輕量解析。超線才問、才有字（_cs_section）：變差或新增的路拐彎超過 cs_layers
+（預設 3）、本次改到的函式只把呼叫往下傳、改到的型別繼承鏈有空層或超過 cs_layers 層；每條材料只列那幾層，長度上限 CS_MATERIAL_MAX。
+沒超線 → 結果文字沒有 C# 的任何一行（不送模型），量過的摘要只進 guard log 與 stderr。
 怎麼跑：Stop 自動呼叫 reading_path_note 與 turn_judgment_note；背景入口 `python hooks/wg_reading_path.py --job <工作檔>` 由 Stop 起，不手動跑。
 """
 
@@ -50,7 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式�
 from overview_hub import find_map, match_row, parse_map  # noqa: E402
 
 
-# 惰性載入（HOOK_IMPORT_ON_USE）：量拐彎的兩支（turn_metrics_cs 連帶 dataclasses 約 35 ms）只有真的要算本回合改動時才用；
+# 惰性載入（HOOK_IMPORT_ON_USE）：量拐彎的模組只有真的要算本回合改動時才用（C# 的 lib/reading_path_cs 在 _cs_section 裡才 import）；
 # 每次 Stop import 本模組只為了 reading_path_note 等判斷。名字留在模組上（測試照 monkeypatch）。
 def metrics_for_files(*a: Any, **k: Any) -> Any:
     from turn_metrics import metrics_for_files as _f
@@ -61,16 +65,6 @@ def parse_diff_ranges(*a: Any, **k: Any) -> Any:
     from turn_metrics import parse_diff_ranges as _f
     return _f(*a, **k)
 
-
-def cs_metrics_for_files(*a: Any, **k: Any) -> Any:
-    from turn_metrics_cs import metrics_for_files as _f
-    return _f(*a, **k)
-
-
-def pick_lookup_files(*a: Any, **k: Any) -> Any:
-    from turn_metrics_cs import pick_lookup_files as _f
-    return _f(*a, **k)
-
 WORKER_BUDGET_S = 300.0    # 背景量測整支的時間預算（根層 repo 自動偵測入口量一次約 1 分鐘）
 STOP_GIT_BUDGET_S = 1.0    # 收尾當下查「哪些改檔還沒 git add」的預算
 GRACE_S = 60.0             # 背景行程超過預算這麼久還沒交結果 → 當它中斷了
@@ -79,12 +73,14 @@ JOB_DIR = WORKFLOW_DIR / "reading-path"
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "reading-path.py"
 TAG = "[Guardian:ReadingPath]"
 STATUS_LABEL = {"worse": "變差", "new": "新增"}
-# 拐彎判斷的門檻是「從第幾個彎起要人看」的事實門檻（config reading_path.turn_judgment 可調），不是判臭；max_items＝一次最多問幾條
-TURN_JUDGMENT_DEFAULTS = {"turns": 2, "nesting": 3, "bumpy": 2, "handoff_chain": 2, "inherit_depth": 3, "max_items": 8}
+# 拐彎判斷的門檻是「從第幾個彎起要人看」的事實門檻（config reading_path.turn_judgment 可調），不是判臭；max_items＝一次最多問幾條；
+# cs_layers＝C# 超線：路上拐彎、繼承層數超過這個數才問（人讀要跳超過 3 層）
+TURN_JUDGMENT_DEFAULTS = {"turns": 2, "nesting": 3, "bumpy": 2, "handoff_chain": 2, "inherit_depth": 3, "max_items": 8, "cs_layers": 3}
 JUDGED_MAX = 200           # 答過的條目（名字＋內容指紋）最多記幾筆，舊的先丟
-RESOLVE_FILES_MAX = 1500   # 接繼承鏈與轉手鏈時最多讀專案裡幾個同語言的檔（超過就只用改到的檔接）
+RESOLVE_FILES_MAX = 1500   # 接 Python 繼承鏈與轉手鏈時最多讀專案裡幾個 .py（超過就只用改到的檔接）
 FUNC_ROWS_SHOWN = 20       # 函式級數據最多列幾筆（到門檻的優先，其餘只報個數）
-UNPARSED_TAG = "  ← 沒算到的部分"   # C# 檔案層解析不到：跟到門檻的一樣全列，不吃額度
+CS_MATERIAL_MAX = 300      # C# 超線一條的材料（那幾層的名字與數字）最多幾個字，超過留頭尾各兩層、中間標省略
+ANALYZER_LABEL = {"roslyn": "Roslyn 解析", "light": "輕量解析"}
 SCALE_QUOTE = ("是拐\"超過\"三個彎，也就是：第二個.. 就要開始提高注意、看到第三個拐彎已經是警戒極限、但又出現 第四個 就幾乎可以確定"
                "是臭掉了。且 這個 \"拐彎判斷\"，本身也是一種額外的輔助視角。")
 JUDGMENT_QUESTION = ("這一層／這個彎存在的理由是什麼？它有沒有真正的作用，還是只是抄過去的寫法、沒改舊架構長期衍生出來的？"
@@ -104,12 +100,12 @@ class _Timeout(Exception):
     """整支預算用完。"""
 
 
-def _spawn(args: List[str], deadline: float, run: Callable[..., Any]) -> Any:
+def _spawn(args: List[str], deadline: float, run: Callable[..., Any], data: Optional[bytes] = None) -> Any:
     left = deadline - time.monotonic()
     if left <= 0:
         raise _Timeout
     try:
-        return run(args, capture_output=True, timeout=left, creationflags=_NO_WINDOW)
+        return run(args, capture_output=True, timeout=left, creationflags=_NO_WINDOW, **({"input": data} if data is not None else {}))
     except subprocess.TimeoutExpired:
         raise _Timeout from None
 
@@ -300,15 +296,6 @@ def _resolve_pool(root: Path, deadline: float, run: Callable[..., Any]) -> List[
     return names if len(names) <= RESOLVE_FILES_MAX else []
 
 
-def _cs_pool(root: Path, deadline: float, run: Callable[..., Any], changed: List[str]) -> Tuple[List[str], bool]:
-    """接 C# 繼承鏈、轉手鏈、數實作可查的 .cs → (檔, 有沒有截過)。超過 RESOLVE_FILES_MAX 就照關聯挑滿上限（改到的檔、
-    繼承／實作指到的、同目錄、using 指到的，再補其他）；截過的池裡實作數只是下限，turn_metrics_cs 不據此算分派。"""
-    names = _tracked_files(root, deadline, run, "*.cs")
-    if len(names) <= RESOLVE_FILES_MAX:
-        return names, False
-    return pick_lookup_files(changed, names, RESOLVE_FILES_MAX), True
-
-
 def _digest(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
 
@@ -358,9 +345,6 @@ def function_rows(rows: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -
         if r["kind"] == "error":
             lines.append(f"    {rel}：解析不了（{r['error']}）")
             continue
-        if r["kind"] == "unparsed":   # C# 檔案層：大括號不成對、不在任何型別裡的程式
-            lines.append(f"    {rel}：解析不到（{'；'.join(r['unparsed'])}）{UNPARSED_TAG}")
-            continue
         name = f"{rel}::{r['name']}"
         keys = [name, r["name"], f"{Path(rel).name}::{r['name']}", r["name"].rsplit(".", 1)[-1]]
         if r["kind"] == "class":
@@ -379,12 +363,10 @@ def function_rows(rows: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -
             nums = f"巢狀 {r['nesting']}｜條件塊 {r['bumpy']}｜認知 {r['cognitive']}｜長度 {r['length']}"
             if r.get("handoff"):
                 nums += f"｜只轉手 → {r['handoff']}（連續 {r.get('handoff_chain', 1)}）"
-            if r.get("dispatch"):                              # C#：轉手鏈經過只有一個實作的介面
-                nums += "｜分派 " + "、".join(f"{d['via']} → {d['impl']}（只有一個實作）" for d in r["dispatch"])
-            hit = (r["nesting"] >= cfg["nesting"] or r["bumpy"] >= cfg["bumpy"]
+            hit =(r["nesting"] >= cfg["nesting"] or r["bumpy"] >= cfg["bumpy"]
                    or int(r.get("handoff_chain") or 0) >= cfg["handoff_chain"])
             kind = "函式"
-        if r.get("unparsed"):                                  # C#：這一筆哪裡沒解析到
+        if r.get("unparsed"):                                  # C# 類別：這一筆哪裡沒解析到
             more = len(r["unparsed"]) - 2
             nums += f"｜解析不到：{'；'.join(r['unparsed'][:2])}{f' …另 {more} 條' if more > 0 else ''}"
         elif r.get("confidence") == "partial":
@@ -418,38 +400,122 @@ def entry_items(res: Dict[str, Any], cfg: Dict[str, int]) -> List[Dict[str, Any]
 
 def _function_section(root: Path, base: str, tracked: List[str], deadline: float,
                       run: Callable[..., Any], cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]]]:
-    """一個根的函式級數據：改到的程式檔裡對 before 的 diff 命中的函式與類別 → (幾行, 到門檻的條目)。
+    """一個根的函式級數據：改到的程式檔（C# 以外，C# 走 _cs_section）裡對 before 的 diff 命中的函式與類別 → (幾行, 到門檻的條目)。
     還沒 git add 的新檔不列（沒有 diff 可比；檔名也會跟對帳閘「這個檔還欠不欠」的訊息混在一起，只在外面報個數）。"""
     ranges = _diff_ranges(root, base, tracked, deadline, run)
     if ranges is None:
         return ["  函式級側面數據：量不出來（對 before 的 diff 拿不到）"], []
-    cs = [f for f in tracked if f.lower().endswith(".cs")]
-    rest = [f for f in tracked if f not in cs]
     texts = _source_lines(tracked)
     try:
-        rows = metrics_for_files(rest, ranges, _resolve_pool(root, deadline, run)) if rest else []
+        rows = metrics_for_files(tracked, ranges, _resolve_pool(root, deadline, run))
     except Exception as e:  # noqa: BLE001  量不出來只寫原因
         return [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], []
-    failed = []
-    try:                                     # C# 另包一層：它失敗不牽連已算好的 Python 數據
-        if cs:
-            pool, cut = _cs_pool(root, deadline, run, cs)
-            rows += cs_metrics_for_files(cs, ranges, pool, partial_pool=cut)
-    except Exception as e:  # noqa: BLE001
-        failed = [f"    C# 的 {len(cs)} 個檔量不出來（{type(e).__name__}: {e}）{UNPARSED_TAG}"]
     for r in rows:
         if r["kind"] == "func":
             r["body_fp"] = _body_fp(r, texts)
     lines, items = function_rows(rows, root, cfg)
-    lines += failed
     if not lines:
         return ["  函式級側面數據：這次的 diff 沒命中任何函式或類別本體"], []
-    hits = [ln for ln in lines if ln.endswith(("← 要人看", UNPARSED_TAG))]   # 到門檻與沒算到的全列；其餘最多列 FUNC_ROWS_SHOWN 減去已列的
+    hits = [ln for ln in lines if ln.endswith("← 要人看")]   # 到門檻的全列；其餘最多列 FUNC_ROWS_SHOWN 減去已列的
     rest = [ln for ln in lines if ln not in hits]
     shown_rest = rest[:max(0, FUNC_ROWS_SHOWN - len(hits))]
-    head = ["  函式級側面數據（這次改到的函式與類別；Python ast／C# 括號配對解析，只算不判；每層加了什麼：+新增 ~覆寫）："]
+    head = ["  函式級側面數據（這次改到的函式與類別；Python ast 解析，只算不判；每層加了什麼：+新增 ~覆寫）："]
     more = len(rest) - len(shown_rest)
     return head + hits + shown_rest + ([f"    …另 {more} 筆低於門檻不列"] if more > 0 else []), items
+
+
+# ─── C#：一跳範圍的閱讀路徑，超線才問 ─────────────────────────────────────────
+
+def _cs_section(root: Path, base: str, files: List[str], deadline: float, run: Callable[..., Any],
+                cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]], Dict[str, Any]]:
+    """一個根上次交工作以來改到的 .cs → (幾行, 超線的條目, 量測摘要)。超線才有字與條目（見檔頭 C# 段）；沒超線 → ([], [], 摘要)，
+    結果文字不出現 C# 的任何一行。量不出來 → 一句原因。摘要（分析器、範圍檔數、條目數、說明）由 _collect 記 guard log、印 stderr。"""
+    import reading_path_cs
+
+    def git(args: List[str], data: Optional[bytes] = None) -> Tuple[int, bytes]:
+        proc = _spawn(["git", "-C", str(root), *args], deadline, run, data)
+        return proc.returncode, proc.stdout
+
+    try:
+        got = reading_path_cs.measure(root, base, files, git, deadline)
+        texts = _source_lines([fw["file"] for fw in got["forwarders"]])
+        items = (_cs_route_items(got["rows"], cfg) + _cs_forwarder_items(got["forwarders"], texts)
+                 + _cs_class_items(got["classes"], root, cfg))
+    except _Timeout:
+        return ["  C# 閱讀路徑量不出來（背景時間預算用完）"], [], {}
+    except Exception as e:  # noqa: BLE001  量不出來只寫原因，不牽連同一批的 Python 數據
+        return [f"  C# 閱讀路徑量不出來（{type(e).__name__}: {e}）"[:300]], [], {}
+    for it in items:
+        it["lang"] = "cs"
+    log = {"files": len(files), "scope": len(got["scope"]), "analyzer": got["analyzer"], "items": len(items), "notes": got["notes"]}
+    if not items:
+        return [], [], log
+    return [f"  C# 閱讀路徑：改到的 {len(files)} 檔加一跳上下游共 {len(got['scope'])} 檔（{ANALYZER_LABEL[got['analyzer']]}），"
+            f"超線 {len(items)} 條，列在下面要人看的條目裡"], items, log
+
+
+def _cs_route_items(rows: List[Dict[str, Any]], cfg: Dict[str, int]) -> List[Dict[str, Any]]:
+    """變差／新增、拐彎超過 cs_layers 的路 → 入口條目。同一個入口只問一條：全確定的路優先（候選路可能是走不到的捷徑），其次拐彎最多；
+    整段落在別條路裡的不另問（同一條鏈只問一次）。"""
+    over = [r for r in rows if r.get("status") in STATUS_LABEL and int((r.get("after") or {}).get("turns") or 0) > cfg["cs_layers"]]
+    worst: Dict[str, Dict[str, Any]] = {}
+    for r in sorted(over, key=lambda r: (not r["certain"], -r["after"]["turns"], r["landing"])):
+        worst.setdefault(r["entry"], r)
+    picked: List[Dict[str, Any]] = []
+    for r in sorted(worst.values(), key=lambda r: (not r["certain"], -r["after"]["turns"], r["entry"])):
+        chain = [s["func"] for s in r["after"]["steps"]]
+        if not any(_inside(chain, [s["func"] for s in p["after"]["steps"]]) for p in picked):
+            picked.append(r)
+    items = []
+    for r in picked:
+        a, entry, landing = r["after"], str(r["entry"]), str(r["landing"])
+        nums = _cs_material(f"跳 {a['turns']} 層（換檔 {a['file_jumps']}、轉手 {a['handoffs']}）：",
+                            [_qual(s["func"]) for s in a["steps"]], "" if r["certain"] else "（含候選）")
+        route = [[s.get("func"), s.get("kind")] for s in a["steps"]]   # 指紋含實際路徑：數字相同但換了路也算改到
+        items.append({"kind": "入口", "name": f"{entry} → {landing}", "nums": nums,
+                      "fp": _digest(json.dumps([nums, route], ensure_ascii=False)),
+                      "keys": [f"{entry} → {landing}", entry, landing, _qual(entry), _qual(landing)]})
+    return items
+
+
+def _cs_forwarder_items(forwarders: List[Dict[str, Any]], texts: Dict[str, List[str]]) -> List[Dict[str, Any]]:
+    """本次改到、只把呼叫往下傳的 C# 函式 → 空層條目（指紋比本體文字，同 Python 函式）。"""
+    items = []
+    for fw in forwarders:
+        targets = [_qual(t) for t in fw["targets"]] or ["（對象看不出來）"]
+        more = f" 等 {len(targets)} 個（分派）" if len(targets) > 1 else ""
+        name, qual = fw["func"], _qual(fw["func"])
+        items.append({"kind": "空層", "name": name, "nums": _cs_material("只轉手 → ", [targets[0] + more], "：這一層沒加東西"),
+                      "fp": _body_fp({"file": fw["file"], "lineno": fw["line"], "end_lineno": fw["end"] or fw["line"]}, texts),
+                      "keys": [name, qual, f"{Path(name.split('::')[0]).name}::{qual}", qual.rsplit(".", 1)[-1]]})
+    return items
+
+
+def _cs_class_items(classes: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -> List[Dict[str, Any]]:
+    """改到的 C# 型別：繼承鏈 2 層以上有空層、或超過 cs_layers 層 → 類別條目（數字照 function_rows，材料有上限）。"""
+    over = [r for r in classes if r["depth"] > cfg["cs_layers"] or (r["depth"] >= 2 and any(l["empty"] for l in r["layers"]))]
+    _, items = function_rows(over, root, {**cfg, "inherit_depth": cfg["cs_layers"] + 1})
+    for it in items:
+        it["nums"] = _cs_material("", [it["nums"]], "")
+    return items
+
+
+def _cs_material(lead: str, layers: List[str], tail: str) -> str:
+    """一條的材料：開頭的數字＋那幾層。超過 CS_MATERIAL_MAX 留頭尾各兩層、中間寫省略幾層；還是太長就截斷。"""
+    text = lead + " → ".join(layers) + tail
+    if len(text) > CS_MATERIAL_MAX and len(layers) > 4:
+        text = lead + " → ".join(layers[:2] + [f"…另 {len(layers) - 4} 層…"] + layers[-2:]) + tail
+    return text if len(text) <= CS_MATERIAL_MAX else text[:CS_MATERIAL_MAX - 1] + "…"
+
+
+def _qual(func_id: str) -> str:
+    return func_id.split("::", 1)[-1]
+
+
+def _inside(short: List[str], long: List[str]) -> bool:
+    """short 整段連續出現在 long 裡。"""
+    n = len(short)
+    return n <= len(long) and any(long[i:i + n] == short for i in range(len(long) - n + 1))
 
 
 def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: int = 0, skipped: int = 0) -> List[str]:
@@ -458,8 +524,11 @@ def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: in
     again = f"  已判過、內容沒變的 {skipped} 條不再問（函式比本體文字，類別比繼承結構，入口比實際路徑）" if skipped else ""
     if not items:
         return [again] if again else []
-    lines = [f"  要人看的 {len(items)} 條（門檻：拐彎 ≥{cfg['turns']}／巢狀 ≥{cfg['nesting']}／條件塊 ≥{cfg['bumpy']}／轉手鏈 ≥{cfg['handoff_chain']}"
-             f"／繼承 ≥{cfg['inherit_depth']} 層或有空層；這是從第幾個彎起要人看的事實門檻，不是判臭）："]
+    py = sum(1 for it in items if it.get("lang") != "cs")
+    rules = ([f"拐彎 ≥{cfg['turns']}／巢狀 ≥{cfg['nesting']}／條件塊 ≥{cfg['bumpy']}／轉手鏈 ≥{cfg['handoff_chain']}"
+              f"／繼承 ≥{cfg['inherit_depth']} 層或有空層"] if py else [])
+    rules += ([f"C# 路上拐彎 >{cfg['cs_layers']}、只轉手的一層、繼承鏈有空層或 >{cfg['cs_layers']} 層"] if py < len(items) else [])
+    lines = [f"  要人看的 {len(items)} 條（門檻：{'；'.join(rules)}；這是從第幾個彎起要人看的事實門檻，不是判臭）："]
     lines += [f"    {it['kind']} {it['name']}｜{it['nums']}" for it in items]
     if again:
         lines.append(again)
@@ -605,8 +674,13 @@ def _plan(state: Dict[str, Any], own: List[Dict[str, Any]], exts: List[str], cfg
     if rec.get("key") == cache:
         return None
     rec["key"] = cache
+    # C# 只量上次交工作以來變過的檔：照檔案指紋（修改時間、大小、還沒 git add 與否）比，不照回合號——同一個使用者回合裡
+    # 收尾被擋、接著再改同一個檔，回合號不會變
+    seen, new = rec.get("measured") or {}, set().union(*(fresh for *_, fresh in plans))
+    rec["measured"] = {f: [m, s, f in new] for f, m, s in _fingerprint(code_files(own, exts))}
     return {"turn": int(state.get("turn_seq", 0)), "plans": plans, "outside": len(outside),
-            "slow": list(rec.get("slow", [])), "code_exts": exts, "case_globs": cfg.get("verify_case_globs") or []}
+            "slow": list(rec.get("slow", [])), "code_exts": exts, "case_globs": cfg.get("verify_case_globs") or [],
+            "turn_files": [f for f, fp in rec["measured"].items() if seen.get(f) != fp]}
 
 
 def _start(job: Dict[str, Any], session_id: str, rec: Dict[str, Any], spawn: Callable[[Path], Any]) -> Optional[str]:
@@ -651,6 +725,10 @@ def _collect(rec: Dict[str, Any]) -> Optional[str]:
     rec.pop("job")
     if res.get("slow"):
         rec["slow"] = sorted(set(rec.get("slow", [])) | set(res["slow"]))
+    for log in res.get("cs_log") or []:   # C# 量過的摘要：沒超線也留帳；說明（分析器、截掉的鄰居）只進 stderr，不進結果文字
+        append_guard_log("reading_path", {"event": "cs_measured", "job_turn": job.get("turn"), **log})
+        for note in log.get("notes") or []:
+            print(f"{TAG} C#（{log.get('root')}）：{note}", file=sys.stderr)
     cfg = turn_judgment_cfg({"reading_path": {"turn_judgment": res.get("turn_judgment")}})
     seen = {tuple(p) for p in rec.get("judged") or []}
     hits = res.get("judgment") or []
@@ -701,19 +779,22 @@ def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Di
         lines.append(f"  不在 git 工作區的改檔 {job['outside']} 個：比較要 git 歷史當 before，沒量")
     if not TOOL.is_file():
         return {"text": "\n".join(lines + [f"  量不出來：找不到量尺 {TOOL}"])}
-    slow, notes = [], 0
+    slow, notes, cs_log = [], 0, []
     cfg = turn_judgment_cfg({"reading_path": {"turn_judgment": job.get("turn_judgment")}})
     items: List[Dict[str, Any]] = []
+    now = {_norm(f) for f in job["turn_files"]} if "turn_files" in job else None   # 舊工作檔沒有這欄＝全部都算這次改的
     for key, root, files, base, fresh in job.get("plans") or []:
         notes += len(fresh)
         product = [f for f in files if not is_verify_case(f, job.get("case_globs") or [], root)]
         measurable = [f for f in product if f not in fresh]
+        cs = [f for f in measurable if f.lower().endswith(".cs")]     # C# 走一跳範圍（_cs_section），不量整個專案
+        rest = [f for f in measurable if f not in cs]
         res = None
         if not measurable:
             why = "改的都是還沒 git add 的新檔" if product else "這次只改了測試檔"
             lines.append(f"  {root}：{why}，沒有產品入口可量")
-        else:
-            entries, layers = entries_for(measurable, exts)
+        elif rest:
+            entries, layers = entries_for(rest, exts)
             try:
                 got, timed_out, res = _measure_root(Path(root), base, entries, layers, deadline, budget, run,
                                                     key in (job.get("slow") or []))
@@ -722,16 +803,25 @@ def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Di
             if timed_out:
                 slow.append(key)
             lines += got
-        if measurable and key not in (job.get("slow") or []):   # 拐彎判斷的函式級與類別級數據（只有 diff 得到的追蹤中程式檔）
+        if key in (job.get("slow") or []):
+            continue
+        if rest:   # 拐彎判斷的函式級與類別級數據（只有 diff 得到的追蹤中程式檔）
             try:
-                got, hits = _function_section(Path(root), base, measurable, deadline, run, cfg)
+                got, hits = _function_section(Path(root), base, rest, deadline, run, cfg)
             except (_Timeout, OSError) as e:
                 got, hits = [f"  函式級側面數據：量不出來（{type(e).__name__}: {e}）"], []
             lines += got
             items += entry_items(res, cfg) + hits
+        cs_now = [f for f in cs if now is None or _norm(f) in now]
+        if cs_now:
+            got, hits, log = _cs_section(Path(root), base, cs_now, deadline, run, cfg)
+            lines += got
+            items += hits
+            cs_log += [{"root": root, **log}] if log else []
     if notes:   # 同上只報個數（git status 看得到是哪些）：檔名會跟對帳閘「這個檔還欠不欠」的訊息混在一起
         lines.append(f"  還沒 git add 的新檔 {notes} 個不在掃描母體（--scope git），沒量到")
-    return {"text": "\n".join(lines), "slow": slow, "judgment": items, "turn_judgment": cfg}
+    return {"text": "\n".join(lines) if len(lines) > 1 else None, "slow": slow, "judgment": items, "turn_judgment": cfg,
+            "cs_log": cs_log}
 
 
 def write_result(out: Path, res: Dict[str, Any]) -> None:

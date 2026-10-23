@@ -670,35 +670,6 @@ def test_top_level_statements_outside_types_are_listed(tmp_path):
     assert _by(rows, "func")["Tool.Go"]["confidence"] == "full", "沒算到的程式只標在檔案那一行；Tool.Go 自己完整解析到"
 
 
-# ─── 查找池挑法 ────────────────────────────────────────────────────────────
-
-def test_pick_lookup_files_orders_by_relation_and_keeps_the_limit(tmp_path):
-    files = {"game/Leaf.cs": "using Shared.Util;\npublic class Leaf : Mid\n#if NEW_API\n    , IHit\n#endif\n{ }\n",
-             "game/Near.cs": "class Near { }\n",
-             "core/Mid.cs": "public class Mid : Base { }\n", "base/Base.cs": "public class Base { }\n",
-             "api/IHit.cs": "public interface IHit { }\n", "Shared/Util/Tool.cs": "class Tool { }\n",
-             **{f"fill/F{i}.cs": f"class F{i} {{ }}\n" for i in range(6)}}
-    paths = {}
-    for name, text in files.items():
-        p = tmp_path / name
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text, encoding="utf-8", newline="\n")
-        paths[name] = str(p)
-    every = sorted(paths.values())
-    picked = tmc.pick_lookup_files([paths["game/Leaf.cs"]], every, 7)
-    rel = [Path(p).relative_to(tmp_path).as_posix() for p in picked]
-    assert rel[0] == "game/Leaf.cs" and set(rel[1:4]) == {"core/Mid.cs", "api/IHit.cs", "base/Base.cs"}, \
-        "改到的檔、再來繼承與實作指到的，一路往上接到 Base"
-    assert rel[4:6] == ["game/Near.cs", "Shared/Util/Tool.cs"], "再來同目錄、using 指到的目錄"
-    assert len(rel) == 7 and rel[6].startswith("fill/"), "最後補其他到上限"
-    crowded = [paths["game/Leaf.cs"]] + [str(tmp_path / "game" / f"G{i}.cs") for i in range(20)]
-    for p in crowded[1:]:
-        Path(p).write_text("class G { }\n", encoding="utf-8", newline="\n")
-    picked = tmc.pick_lookup_files([paths["game/Leaf.cs"]], sorted(crowded + every), 5)
-    assert {Path(p).name for p in picked[1:4]} == {"Mid.cs", "IHit.cs", "Base.cs"}, "同目錄檔很多時，鏈照樣先進池"
-    assert tmc.pick_lookup_files([paths["game/Leaf.cs"]], every[:5], 7) == every[:5], "沒超過上限就全給"
-
-
 # ─── 範圍、非 C#、CLI ─────────────────────────────────────────────────────────
 
 def test_ranges_pick_only_hit_rows_and_non_cs_is_unsupported(tmp_path):

@@ -285,9 +285,12 @@ def is_test(rel: str) -> bool:
 
 
 def read_source(path: Path) -> str:
+    return decode_source(path.read_bytes())
+
+
+def decode_source(data: bytes) -> str:
     """有 BOM 照 BOM（UTF-8／UTF-16 LE／BE）；沒 BOM 先看前 4KB 的 NUL 分布：奇數位置大量 NUL → UTF-16 LE、
     偶數位置 → UTF-16 BE；否則嚴格 UTF-8。解不開、或有 NUL 卻判不出編碼 → 丟例外（列進解析失敗，不靜默替換）。"""
-    data = path.read_bytes()
     boms = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"))
     encoding = next((enc for bom, enc in boms if data.startswith(bom)), "")
     head = data[:4096]
@@ -1913,22 +1916,31 @@ def build_graph(root: Path, scope: str = "git", policy: str | None = None, layer
     """policy：報告上要寫的範圍政策（git archive 解出來的目錄實際上就是追蹤清單，傳 "git"）；不給就照 scan_paths 的結果。
     layers：layer_axis 讀出的層次軸（None＝沒宣告）。"""
     paths, actual = scan_paths(root, scope)
+    return graph_of(root, {p.relative_to(root).as_posix(): p for p in paths}, policy or actual, layers)
+
+
+def graph_of(root: Path, sources: dict, policy: str, layers: dict | None = None, parse_cs=None) -> Graph:
+    """sources：相對路徑 → 檔（Path，照 read_source 讀）或原始碼文字（str，例如從 git 取出的舊版），照給的順序建圖；
+    policy：報告上寫的範圍政策。parse_cs：換掉 C# 的逐檔解析，收 {相對路徑: 文字}、回 {相對路徑: Module 或例外}
+    （Roslyn 一次解一批）；不給就照 PARSERS。讀不了、解析不了的檔列進解析失敗。"""
     modules = []
-    rels = [p.relative_to(root).as_posix() for p in paths if not lang.GENERATED_RE.search(p.relative_to(root).as_posix())]
+    rels = [rel for rel in sources if not lang.GENERATED_RE.search(rel)]
     digest = hashlib.sha1("\n".join(sorted(rels)).encode("utf-8")).hexdigest()[:12]
     by_file = file_layers(layers, rels)
     scan = {"parse_errors": [], "empty_files": [], "file_funcs": {},
-            "scope": {"policy": policy or actual, "files": len(rels), "digest": digest},
+            "scope": {"policy": policy, "files": len(rels), "digest": digest},
             "layers": {"source": layers["source"], "files": len(by_file)} if layers else None}
-    for path in paths:
-        rel = path.relative_to(root).as_posix()
-        if lang.GENERATED_RE.search(rel):
-            continue
-        try:
-            text = read_source(path)
-            mod = PARSERS[path.suffix.lower()](rel, text)
-        except (SyntaxError, ValueError, RecursionError) as e:
-            scan["parse_errors"].append(f"{rel}（{type(e).__name__}）")
+    pre = {rel: _source_text(sources[rel]) for rel in rels if parse_cs and rel.lower().endswith(".cs")}   # 一批交給 parse_cs
+    batch = parse_cs({r: t for r, t in pre.items() if isinstance(t, str)}) if parse_cs else {}
+    for rel in rels:
+        text = mod = pre[rel] if rel in pre else _source_text(sources[rel])
+        if not isinstance(text, Exception):
+            try:
+                mod = batch[rel] if rel in batch else PARSERS[Path(rel).suffix.lower()](rel, text)
+            except (SyntaxError, ValueError, RecursionError) as e:
+                mod = e
+        if isinstance(mod, Exception):
+            scan["parse_errors"].append(f"{rel}（{type(mod).__name__}）")
             scan["file_funcs"][rel] = -1
             continue
         modules.append(mod)
@@ -1936,6 +1948,14 @@ def build_graph(root: Path, scope: str = "git", policy: str | None = None, layer
         if not mod.funcs and not is_test(rel) and DEF_HINT[mod.lang].search(text):
             scan["empty_files"].append(rel)       # 測試夾具常是只有頂層程式碼的腳本，不列
     return Graph(root, modules, scan, by_file)
+
+
+def _source_text(src):
+    """graph_of 的一個來源 → 文字；檔案解不開（read_source 丟 ValueError）回那個例外，列進解析失敗。"""
+    try:
+        return read_source(src) if isinstance(src, Path) else src
+    except ValueError as e:
+        return e
 
 
 def spec_hits(g: Graph, spec: str):
@@ -2007,10 +2027,14 @@ def analyze(root: Path, entry=None, to: str | None = None, scope: str = "git",
             policy: str | None = None, layers: dict | None = None) -> dict:
     """entry：一個入口寫法或多個（list）；entry_misses＝找不到任何函式的入口寫法。layers：layer_axis 的結果。"""
     g = build_graph(root, scope, policy, layers)
+    return graph_report(g, find_entries(g, entry), to, [s for s in entry_specs(entry) if not match_spec(g, s)])
+
+
+def graph_report(g: Graph, eids: list, to: str | None = None, misses: list | None = None) -> dict:
+    """建好的圖上從每個入口（func id）找各落點的路，彙總成 analyze 的報表；to：只看落在這些函式的路徑；misses：找不到的入口寫法。"""
     targets = {f.id for f in spec_hits(g, to)[0]} if to else None
-    report = {"root": str(root), "stats": graph_stats(g), "entries": [],
-              "entry_misses": [s for s in entry_specs(entry) if not match_spec(g, s)]}
-    for eid in find_entries(g, entry):
+    report = {"root": str(g.root), "stats": graph_stats(g), "entries": [], "entry_misses": list(misses or [])}
+    for eid in eids:
         found, unresolved_funcs = g.routes(eid)
         routes = [r.summary() for r in found if targets is None or r.landing in targets]
         report["entries"].append(entry_summary(g, eid, routes, unresolved_funcs))

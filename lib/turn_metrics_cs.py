@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import bisect
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -59,7 +58,6 @@ _CTOR_PASS = re.compile(r":\s*(?:base|this)\s*\(")
 _MODS = r"(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|unsafe|new|file)\s+)*"
 _ENUM = re.compile(_MODS + r"\benum\s+\w+[^{;]*\{")
 _NS_BLOCK = re.compile(r"\bnamespace\s+[\w.]+\s*\{")
-_USING_NS = re.compile(r"^\s*using\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;", re.M)
 _TOP_DECL = re.compile(r"\b(?:global\s+)?using\s+[^;{}()]*;|\bextern\s+alias\s+\w+\s*;|\bnamespace\s+[\w.]+\s*;|"
                        + _MODS + r"\bdelegate\b[^;{}]*;")
 CTOR, CCTOR = ".ctor", ".cctor"
@@ -902,7 +900,7 @@ class _Ctx:
     """跨檔查表：型別索引（partial 併成一個；同名不同 namespace 先到先用）、每個型別的方法、介面與抽象類別的直接實作。"""
 
     def __init__(self, parsed: Iterable[Dict[str, Any]], partial_pool: bool = False):
-        self.partial_pool = partial_pool   # 查找池截過：實作數只是下限，不據此說「只有一個實作」
+        self.partial_pool = partial_pool   # 查找池只是專案的一部分：實作數只是下限，不據此說「只有一個實作」
         self.index: Dict[str, Dict[str, Any]] = {}
         self.funcs: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
         self.impls: Dict[str, List[str]] = {}
@@ -1036,7 +1034,7 @@ class _Ctx:
         got = self._pick(self._find(impls[0], member)[0], nargs, f) if len(impls) == 1 else None
         if got and not (fs and got in fs) and self.partial_pool:
             return (self._pick(fs, nargs, f), None,
-                    f"經過 {t}.{member}：查找池超過上限只挑了一部分，實作看不全，沒算分派")
+                    f"經過 {t}.{member}：查找池只是專案的一部分，實作看不全，沒算分派")
         if got and not (fs and got in fs):      # 經過介面或抽象型別、唯一的具體實作有自己的那一個：多繞一手
             return got, {"via": f"{t}.{member}", "impl": got["name"]}, None
         return self._pick(fs, nargs, f), None, None
@@ -1069,7 +1067,7 @@ class _Ctx:
         cands = bases[:1] * first_is_interface + bases[1:]
         abstract_like = c["kind"] == "interface" or "abstract" in c["mods"]
         if self.partial_pool and (abstract_like or cands):
-            notes.append("實作數是查找池裡看得到的下限（池超過上限只挑了一部分）")
+            notes.append("實作數是查找池裡看得到的下限（池只是專案的一部分）")
         return {"kind": "class", "file": c["file"], "name": c["qual"], "lineno": c["lineno"], "end_lineno": c["end_lineno"],
                 **_inherit_layers(start, self.index), "type_kind": c["kind"],
                 "interfaces": {b: (self.impls.get(b, []) if b in self.index else None) for b in cands},
@@ -1083,63 +1081,11 @@ def _base_list(text: Optional[str]) -> List[str]:
     return [n for n in names if n]
 
 
-def _refs(path: str) -> Tuple[set, set]:
-    """一個 .cs 檔直接指到的 → (繼承與實作的型別名, using 的命名空間)；讀不了 → 兩個空集合。"""
-    try:
-        src = _code_only(_blank_literals(Path(path).read_text(encoding="utf-8-sig", errors="replace"))[0])
-    except OSError:
-        return set(), set()
-    bases = {b for m in lang._CS_CLASS.finditer(src) for b in _base_list(m["bases"])}
-    return bases, set(_USING_NS.findall(src))
-
-
-def pick_lookup_files(changed: List[str], candidates: List[str], limit: int) -> List[str]:
-    """查找池（接繼承鏈、轉手鏈、數實作用）超過上限時怎麼挑：改到的檔 → 它們繼承／實作直接指到的型別所在的檔（照「檔名＝型別名」找、
-    找到的再往上接；量少又是鏈本身，放最前）→ 同目錄的檔 → using 指到的命名空間所在目錄的檔 → 其他檔照原順序補滿 limit。
-    同目錄放在繼承之後：大目錄（產生碼）的同目錄檔會先把上限吃光，鏈反而接不到。沒超過上限就全給。"""
-    if len(candidates) <= limit:
-        return list(candidates)
-    key = lambda p: os.path.normcase(os.path.abspath(p))
-    picked: Dict[str, str] = {}
-
-    def add(p: str) -> bool:
-        if len(picked) >= limit or key(p) in picked:
-            return False
-        picked[key(p)] = p
-        return True
-
-    for p in changed:
-        add(p)
-    by_type: Dict[str, List[str]] = {}
-    for p in candidates:
-        by_type.setdefault(Path(p).name.split(".")[0], []).append(p)   # Pool.cs、Pool.Fill.cs 都是 Pool
-    own = {key(p): _refs(p) for p in changed}
-    todo, seen = list(changed), set()
-    while todo and len(picked) < limit:
-        p = todo.pop(0)
-        bases = (own.get(key(p)) or _refs(p))[0]
-        for t in sorted(bases - seen):   # 固定順序：上限不夠放時結果可重現
-            seen.add(t)
-            todo += [q for q in by_type.get(t, []) if add(q)]
-    dirs = {key(str(Path(p).parent)) for p in changed}
-    for p in candidates:
-        if key(str(Path(p).parent)) in dirs:
-            add(p)
-    for ns in sorted(set().union(*(names for _, names in own.values()))):
-        tail = "/" + ns.replace(".", "/").lower()
-        for p in candidates:
-            if Path(p).parent.as_posix().lower().endswith(tail):
-                add(p)
-    for p in candidates:
-        add(p)
-    return list(picked.values())
-
-
 def metrics_for_files(files: Iterable[str], ranges: Optional[Dict[str, List[Range]]] = None,
                       resolve_files: Optional[Iterable[str]] = None, partial_pool: bool = False) -> List[Dict[str, Any]]:
     """多檔 → 一筆一 dict（方法 kind=func、型別 kind=class、檔案層解析不到 kind=unparsed、非 .cs kind=unsupported、讀不了 kind=error）。
     ranges 給了就只列落在區間裡的（鍵是路徑，與 files 用 realpath 對）。resolve_files：接繼承鏈、轉手鏈、數實作時另外可查的檔，不列進結果。
-    partial_pool：resolve_files 是從更多檔裡挑出來的（pick_lookup_files）→ 實作數標成下限、不算「只有一個實作」的分派。"""
+    partial_pool：resolve_files 只是專案的一部分（例如一跳範圍）→ 實作數標成下限、不算「只有一個實作」的分派。"""
     want = {_norm(k): v for k, v in (ranges or {}).items()}
     listed = [str(f) for f in files]
     rows: List[Dict[str, Any]] = []
