@@ -24,6 +24,7 @@
 """
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -79,7 +80,8 @@ def build(dest):
         fail(f"{seed} 不在或 Logs 不是空的（要先跑 w2_build_env＋fm_snap apply、而且這個資料根沒被用過）")
     for p in (proj, root):
         if p.exists():
-            shutil.rmtree(p)
+            # 上一跑留下的 .git 物件檔是唯讀，Windows 上 rmtree 刪不掉：遇到就先改可寫再刪
+            shutil.rmtree(p, onexc=lambda fn, path, exc: (os.chmod(path, 0o666), fn(path)))
     for rel, text in FILES.items():
         f = proj / rel
         f.parent.mkdir(parents=True, exist_ok=True)

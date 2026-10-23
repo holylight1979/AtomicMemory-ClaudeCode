@@ -12,7 +12,7 @@
   5. 作廢與加跑：一跑沒跑完（failed>0）或現況某跑 hook 被系統砍掉（transcript 的 hook_cancelled）→ 那跑作廢；
      一類題四跑後，有作廢、或現況兩跑「輸入＋輸出 token」或「牆鐘」相差超過 25%（差 ÷ 兩跑平均）→ 加跑一對（全關3→現況3），只加一次。
 怎麼跑（放在 w2_*.py、fm_nc.py 同一個目錄；先跑完一次 w2_build_env 拿到卡集清單）
-  WG_V6=1 python -X utf8 fm_series.py --day 2026-10-23 --cards <卡集清單.json> --snap <卡內容快照資料夾> [--only CC,NC] [--dest C:/w4]
+  WG_V6=1 python -X utf8 fm_series.py --day 2026-10-23 --cards <卡集清單.json> --snap <卡內容快照資料夾> [--only CC,NC] [--resume] [--dest C:/w4]
 尾行 FM_SERIES DONE runs=<跑數> void=<作廢數> extra=<加跑的類> ；建環境連兩次 FAIL 印 FM_SERIES FAIL reason=…（exit 1）
 """
 import argparse
@@ -185,17 +185,33 @@ def main():
     ap.add_argument("--snap", required=True)
     ap.add_argument("--only", default="CC,NC")
     ap.add_argument("--dest", default="C:/w4")
+    ap.add_argument("--resume", action="store_true",
+                    help="接續中斷的串跑：總表裡已跑完、沒作廢、留有 measure.json 的那跑沿用不重跑，其餘照順序跑")
     a = ap.parse_args()
     if os.environ.get("WG_V6") != "1":
         print("FM_SERIES FAIL reason=WG_V6 沒設成 1（兩組都要設）")
         sys.exit(1)
     dest, cards, snap = Path(a.dest), Path(a.cards), Path(a.snap)
-    all_recs, extra = [], []
     summary = KIT / "results" / f"_fm-series-{a.day}.json"
-    for cls in a.only.split(","):
+    prior = {}
+    if a.resume and summary.is_file():
+        prior = {r["name"]: r for r in json.loads(summary.read_text(encoding="utf-8"))}
+    only = a.only.split(",")
+    all_recs = [r for r in prior.values() if r["cls"] not in only and not r.get("fatal")]
+    extra = []
+
+    def run_or_reuse(cls, grp, n):
+        name = f"{a.day}-{cls}{grp}-{n}"
+        old = prior.get(name)
+        if old and not old["void"] and (KIT / "results" / name / "_fm" / "measure.json").is_file():
+            log(f"{name}：沿用已跑完的那跑（--resume）")
+            return dict(old, reused=True)
+        return one_run(cls, grp, n, a.day, dest, cards, snap)
+
+    for cls in only:
         recs = []
         for grp, n in (("off", 1), ("on", 1), ("off", 2), ("on", 2)):
-            r = one_run(cls, grp, n, a.day, dest, cards, snap)
+            r = run_or_reuse(cls, grp, n)
             recs.append(r)
             all_recs.append(r)
             summary.write_text(json.dumps(all_recs, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
@@ -207,7 +223,7 @@ def main():
             log(f"{cls} 加跑一對：{why}")
             extra.append(f"{cls}（{why}）")
             for grp in ("off", "on"):
-                r = one_run(cls, grp, 3, a.day, dest, cards, snap)
+                r = run_or_reuse(cls, grp, 3)
                 r["extra_reason"] = why
                 all_recs.append(r)
                 summary.write_text(json.dumps(all_recs, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
