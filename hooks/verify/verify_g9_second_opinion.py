@@ -826,6 +826,6 @@ def test_unknown_write_recovered_files_count_for_second_opinion(drive, capsys, t
     state = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0,
              "turn_seq": 5, "turn_prompts_seq": 5, "muted": True, "session": {"cwd": str(repo)}}
     bash_unknown_write(monkeypatch, repo, state, f"cd {repo.as_posix()} && " + heredoc(code), code, sid=SID)
-    assert len(state["modified_files"]) == 5 and all(m["via"] == "vcs_status" for m in state["modified_files"])
     reason, _, logs = drive(DONE, capsys, state=state)
     assert "[Guardian:SecondOpinion]" in reason and "程式檔 5 個" in reason, reason
+    assert all(m["via"] == "vcs_status" for m in state["modified_files"])

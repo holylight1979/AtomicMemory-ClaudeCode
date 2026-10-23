@@ -4666,12 +4666,12 @@ def test_unknown_write_recovered_code_owes_case(driven, capsys, tmp_path, monkey
     repo = init_repo(tmp_path / "qs3-notify", NOTIFY)
     state, _ = bash_unknown_write(monkeypatch, repo, {"turn_seq": 5, "session": {"cwd": str(repo)}},
                                   py_c(repo, PY_C_SENDER), PY_C_SENDER, sid=_SID)
-    out, _, _ = driven("全部完成了。", capsys, modified_files=state["modified_files"])
+    out, _, _ = driven("全部完成了。", capsys, modified_files=state.get("modified_files") or [])
     assert "(d) CASE_COVERS_CHANGE：改了程式碼（sender.py）" in out, out
     case = ("p='tests/test_sender.py'\nopen(p,'w',encoding='utf-8').write("
             "'from notify.sender import MAX_RETRIES\\n\\n\\ndef test_retries():\\n    assert MAX_RETRIES == 6\\n')\n")
     state, _ = bash_unknown_write(monkeypatch, repo, state, py_c(repo, case), case, sid=_SID)
-    out, _, _ = driven("全部完成了。", capsys, modified_files=state["modified_files"])
+    out, _, _ = driven("全部完成了。", capsys, modified_files=state.get("modified_files") or [])
     assert "改了程式碼（sender.py）" not in out, out
 
 

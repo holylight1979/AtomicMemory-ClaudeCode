@@ -97,9 +97,9 @@ def bash_unknown_write(monkeypatch, repo: Path, state: Dict[str, Any], command: 
     where = str(cwd or repo)
     targets = write_paths_from_tool(tool, {"command": command}, where)
     assert targets and targets[0].startswith("UNKNOWN:"), targets          # 前提：舊碼就是在這裡什麼都不記
-    logs: List[Tuple[str, Dict[str, Any]]] = []
+    logs: List[Tuple[str, Dict[str, Any]]] = []                           # 守門紀錄；寫回 state 記成 ("write_state", {})
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
-    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: logs.append(("write_state", {})))
     monkeypatch.setattr(pt, "WORKFLOW_DIR", repo.parent / f"wf-{uuid.uuid4().hex[:6]}")
     monkeypatch.setattr(pt, "append_guard_log", lambda name, rec: logs.append((name, rec)))
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
@@ -239,7 +239,100 @@ def test_recovered_files_stamped_into_goal_tree(monkeypatch, repo):
     assert canon_path(repo / "notify" / "log.py") in stamped
 
 
+def test_big_file_without_sha_not_bumped_unless_written_after(monkeypatch, repo):
+    """codex BLOCK 2：超過雜湊上限（2 MiB）的檔沒有 sha 可比。本 session 第 2 回合記過 big.py；第 5 回合子代理 B 的腳本沒碰它
+    （mtime 不晚於上次記下的時間）→ 不刷成第 5 回合、不記到 B 名下；上次記下之後又被寫過 → 照補。"""
+    big = repo / "notify" / "big.py"
+    big.write_bytes(b"x = 1\n" + b"#" * (2 * 1024 * 1024 + 1))
+    state = _state(turn=2)
+    pt._note_modified(state, _SID, str(big), "Edit")
+    assert "sha" not in state["modified_files"][0]
+    state["turn_seq"] = 5
+    real = pt.handle_post_tool_use
+    monkeypatch.setattr(pt, "handle_post_tool_use", lambda inp, cfg: real({**inp, "agent_id": "agB"}, cfg))   # 子代理 B
+    state, _ = bash_unknown_write(monkeypatch, repo, state, py_c(repo, PY_C_SENDER), PY_C_SENDER)
+    m = _entry(state, big)
+    assert m["last_turn_seq"] == 2 and m["count"] == 1, m
+    assert canon_path(big) not in [canon_path(x["path"]) for x in state["agent_modified_files"]["agB"]]
+    monkeypatch.setattr(pt, "handle_post_tool_use", real)
+    _entry(state, big)["last_at"] = "2020-01-01T00:00:00+08:00"                # 上次記下是很久以前：之後的寫入照補
+    code = "open('notify/big.py','ab').write(b'#')\n"
+    state, _ = bash_unknown_write(monkeypatch, repo, state, py_c(repo, code), code)
+    assert _entry(state, big)["last_turn_seq"] == 5 and _entry(state, big)["via"] == "vcs_status"
+
+
+def test_failure_path_non_utf8_py_still_written_back(monkeypatch, repo):
+    """codex BLOCK 4：失敗指令寫出合法的 cp1252 .py（有 coding 宣告）。判啟動器時讀它會 UnicodeDecodeError——不能讓已經記進 state 的
+    改檔因此沒寫回、未知寫入也沒記：modified_files 有它、unknown_writes 有一筆、state 有寫回。"""
+    code = "p='notify/latin.py'\nopen(p,'wb').write(b\"# -*- coding: cp1252 -*-\\nNAME = '\\xe9'\\n\")\n"
+    state, logs = bash_unknown_write(monkeypatch, repo, _state(), heredoc(code, "exit 1"), code + "raise SystemExit(1)\n",
+                                     failure=True)
+    assert _paths(state) == [canon_path(repo / "notify" / "latin.py")], state.get("modified_files")
+    assert len(state["unknown_writes"]) == 1 and ("write_state", {}) in logs
+
+
+def test_long_command_with_many_newlines_stays_fast(repo):
+    """codex BLOCK 3：一萬六千個換行後接一條內嵌 python。找 cd 目標與點名的檔不能隨換行數二次方變慢（舊 regex 7 秒，hook 上限 5 秒）。"""
+    cmd = "\n" * 16000 + heredoc(PY_C_SENDER)                 # 換行後面沒有 cd：舊 regex 每個起點都吞完整串換行再回溯
+    t = time.monotonic()
+    dirs = uw.work_dirs(cmd, str(repo))
+    named = uw.named_files(cmd, dirs)
+    took = time.monotonic() - t
+    assert took < 0.5 and [canon_path(p) for p in named] == [canon_path(repo / "notify" / "sender.py")], (took, named)
+
+
+def test_future_mtime_not_counted(monkeypatch, repo):
+    """mtime 在未來（時鐘調過、解壓保留時間）的髒檔不是這條指令寫的。"""
+    fut = repo / "notify" / "format.py"
+    fut.write_text("def format_message(text):\n    return text\n", encoding="utf-8")
+    t = time.time() + 3600
+    os.utime(fut, (t, t))
+    state, _ = bash_unknown_write(monkeypatch, repo, _state(), py_c(repo, PY_C_SENDER), PY_C_SENDER)
+    assert _paths(state) == [canon_path(repo / "notify" / "sender.py")], state.get("modified_files")
+
+
 # ─── 判法本體（wg_unknown_write）：預算、點名、svn ──────────────────────────────
+
+def test_git_porcelain_rename_in_either_column(tmp_path):
+    """-z 輸出裡改名／複製（X 欄或 Y 欄是 R／C）後面多一筆原路徑，不能當成下一筆紀錄。"""
+    out = b"R  new.py\0old.py\0MR moved.py\0orig_name.py\0 M a.py\0?? b.py\0"
+    got = uw._git_changed(tmp_path, [], 1.0, lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, out, b""))
+    assert [Path(p).name for p in got] == ["new.py", "moved.py", "a.py", "b.py"], got
+
+
+def test_named_status_budget_shared_across_roots(tmp_path):
+    """兩個版控根都整棵查逾時：點名查詢兩根合用一份 NAMED_TIMEOUT_S，不是每根各一份。"""
+    a, b = init_repo(tmp_path / "a", {"x.py": "1\n"}), init_repo(tmp_path / "b", {"y.py": "1\n"})
+    given: List[float] = []
+
+    def run(cmd, **kw):
+        if cmd[-1] == "--":
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        given.append(kw["timeout"])
+        time.sleep(0.3)
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+    cmd = f"cd {msys(a)} && python -c \"p='x.py'\" && cd {msys(b)} && python -c \"p='y.py'\""
+    uw.recover(cmd, str(tmp_path), time.time() - 5, run=run)
+    assert len(given) == 2 and given[1] <= uw.NAMED_TIMEOUT_S - 0.25, given
+
+
+def test_svn_expands_only_unversioned_dirs_with_one_global_cap(tmp_path, monkeypatch):
+    """svn：只有未納管的目錄往下展開（加入、衝突的目錄底下的改動 svn 會逐筆列）；展開的檔數上限是全部合計，到了就停並寫明。"""
+    root = tmp_path / "wc"
+    (root / ".svn").mkdir(parents=True)
+    for rel in ("added/a.cs", "new1/x.cs", "new1/y.cs", "new2/z.cs"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("x", encoding="utf-8")
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><status><target path=".">'
+           '<entry path="added"><wc-status item="added" props="none"/></entry>'
+           '<entry path="new1"><wc-status item="unversioned" props="none"/></entry>'
+           '<entry path="new2"><wc-status item="unversioned" props="none"/></entry>'
+           '</target></status>').encode("utf-8")
+    monkeypatch.setattr(uw, "UNVERSIONED_DIR_CAP", 2)
+    paths, note = uw.recover("python -I - <<'EOF'\nimport os\nEOF", str(root), time.time() - 5,
+                             run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, xml, b""))
+    assert sorted(Path(p).name for p in paths) == ["x.cs", "y.cs"] and "展開到 2 個檔就停" in note["why"], (paths, note)
+
 
 def test_full_status_timeout_falls_back_to_named_and_remembers_root(monkeypatch, repo):
     """整棵 git status 逾時 → 只查指令點名的檔（帶路徑的 status）照樣補到，那個根記進 slow；下次帶著 slow 呼叫就不再整棵查。

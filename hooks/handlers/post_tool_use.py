@@ -856,10 +856,13 @@ UNKNOWN_SLOW_ROOTS_CAP = 10
 def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str, tool_name: str, agent_id: str,
                            input_data: Dict[str, Any]) -> Tuple[List[str], str]:
     """規則 UNKNOWN_WRITE_RECOVERED（判法在 wg_unknown_write.recover）：指令開始時間從 transcript 找，這之後寫過、版控說有改動的檔
-    記進 modified_files（via=vcs_status）。本 session 上次記下的內容雜湊跟現在一樣的檔不算（這次沒改到它，不刷成本回合改的）；
-    暫存路徑照 Edit 的規矩濾掉。整棵查逾時的根記在 state unknown_write_slow_roots，同 session 之後只查點名的檔。
-    回 (補到的檔, 補不到或只補到一部分的原因)；耗時與結果留 guard-unknown_write.jsonl。出錯只留帳，不影響這次工具。"""
+    記進 modified_files（via=vcs_status）。本 session 已經記過的檔：內容雜湊跟上次一樣、或上次記下之後 mtime 沒再變（太大的檔
+    沒有雜湊，靠這一條）→ 這次沒改到它，不刷成本回合改的；暫存路徑照 Edit 的規矩濾掉。整棵查逾時的根記在
+    state unknown_write_slow_roots，同 session 之後只查點名的檔。
+    回 (補到的檔, 補不到或只補到一部分的原因)；耗時（含雜湊與啟動器檢查）與結果留 guard-unknown_write.jsonl。
+    出錯只 stderr＋留帳、照記已補到的，不影響這次工具。"""
     import wg_unknown_write as uw
+    t0 = time.monotonic()
     cwd = input_data.get("cwd", "") or (state.get("session") or {}).get("cwd", "") or ""
     try:
         started = _tool_started_at(str(input_data.get("transcript_path") or ""), str(input_data.get("tool_use_id") or ""))
@@ -871,25 +874,53 @@ def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str,
         return [], f"補算失敗：{type(e).__name__}: {e}"
     if note["slow"]:
         state["unknown_write_slow_roots"] = list(dict.fromkeys(slow + note["slow"]))[-UNKNOWN_SLOW_ROOTS_CAP:]
-    before = {canon_path(m["path"]): m.get("sha") for m in state.get("modified_files") or []
+    before = {canon_path(m["path"]): m for m in state.get("modified_files") or []
               if isinstance(m, dict) and m.get("path") and m.get("session_id", session_id) == session_id}
     noted: List[str] = []
+    why = note["why"]
     for p in paths:
-        if _is_ephemeral_path(p):
-            continue
-        sha = small_content_sha(p)
-        if sha and before.get(canon_path(p)) == sha:
-            continue
-        _note_modified(state, session_id, p, tool_name, agent_id, via=uw.VIA)
-        note_git_launcher(p)          # LAUNCHER_NOT_CODE：內嵌碼寫出來的啟動器也認
-        noted.append(p)
+        try:
+            if _is_ephemeral_path(p) or _unchanged_since_noted(p, before.get(canon_path(p))):
+                continue
+            _note_modified(state, session_id, p, tool_name, agent_id, via=uw.VIA)
+            noted.append(p)
+            _note_launcher(p)         # LAUNCHER_NOT_CODE：內嵌碼寫出來的啟動器也認
+        except Exception as e:  # noqa: BLE001
+            print(f"[Guardian:UnknownWrite] 補記 {p} 失敗：{type(e).__name__}: {e}", file=sys.stderr)
+            why = "；".join(x for x in (why, f"補記 {Path(p).name} 失敗：{type(e).__name__}") if x)
     append_guard_log("unknown_write", {"session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "tool": tool_name,
-                                       "agent": bool(agent_id), "ms": note.get("ms"), "roots": note["roots"],
-                                       "named": note["named"], "listed": len(paths), "recovered": len(noted),
-                                       "why": note["why"]})
-    if note["why"] and note["roots"]:
-        print(f"[Guardian:UnknownWrite] {note['why']}", file=sys.stderr)
-    return noted, note["why"]
+                                       "agent": bool(agent_id), "ms": int((time.monotonic() - t0) * 1000),
+                                       "status_ms": note.get("ms"), "roots": note["roots"], "named": note["named"],
+                                       "listed": len(paths), "recovered": len(noted), "lag_ms": note.get("lag_ms"),
+                                       "why": why})
+    if why and note["roots"]:
+        print(f"[Guardian:UnknownWrite] {why}", file=sys.stderr)
+    return noted, why
+
+
+def _unchanged_since_noted(path: str, prev: Optional[Dict[str, Any]]) -> bool:
+    """本 session 已經記過這個檔，而且之後沒再改：內容雜湊跟記下的一樣；或沒有雜湊可比（太大的檔）而 mtime 不晚於上次記下的時間
+    （記錄時間只到秒，放寬 1 秒）。沒記過、讀不到 → False（照補）。"""
+    if not prev:
+        return False
+    sha = small_content_sha(path)
+    if sha:
+        return sha == prev.get("sha")
+    from datetime import datetime
+    try:
+        at = datetime.fromisoformat(str(prev.get("last_at") or prev.get("at") or "")).timestamp()
+        return os.path.getmtime(path) < at + 1
+    except (ValueError, OSError):
+        return False
+
+
+def _note_launcher(path: str) -> None:
+    """note_git_launcher 包一層：讀不了的內容（非 UTF-8 的 .py）、查 git 出錯只 stderr，不讓同一批後面的改檔記不到。"""
+    try:
+        note_git_launcher(path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify_ledger] 判斷 {Path(path).name} 是不是一次性啟動器失敗，照算程式（LAUNCHER_NOT_CODE）："
+              f"{type(e).__name__}: {e}", file=sys.stderr)
 
 
 def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command: str, tool_name: str,
@@ -1215,12 +1246,13 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
               file=sys.stderr)
     noted: List[str] = []
     unknown = False
+    seq0 = state.get("event_seq")         # 每記一筆改檔都會前進：中途出錯也看得出 state 已經改了
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     try:
         for p in _write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, cwd or (state.get("session") or {}).get("cwd") or "") or []:
             if p and p.startswith("UNKNOWN:"):
+                unknown = True                # 先標：補算中途出錯，已經記進 state 的照樣寫回
                 noted += _note_unknown_write(state, session_id, p, command, tool_name, aid, input_data)
-                unknown = True
                 continue
             if not p or _is_ephemeral_path(p) or not os.path.isfile(p):
                 continue
@@ -1230,7 +1262,7 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
             noted.append(p)
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
-    return noted, bool(noted) or unknown
+    return noted, bool(noted) or unknown or state.get("event_seq") != seq0
 
 
 def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[str], aid: str, cwd: str,
@@ -1429,7 +1461,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     ):
         _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
         if v6:
-            note_git_launcher(file_path)    # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
+            _note_launcher(file_path)       # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
             _scope_ask_once(state, session_id, file_path, config)
 
         edit_counts = state.setdefault("edit_counts", {})
@@ -1554,7 +1586,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                         recovered += _note_unknown_write(state, session_id, _p, command, tool_name, _aid, input_data)
                     elif _p and not _is_ephemeral_path(_p):
                         _note_modified(state, session_id, _p, tool_name, _aid)
-                        note_git_launcher(_p)     # LAUNCHER_NOT_CODE：用 shell 寫出來的啟動器也認；刪掉時標記不動
+                        _note_launcher(_p)        # LAUNCHER_NOT_CODE：用 shell 寫出來的啟動器也認；刪掉時標記不動
                     else:
                         continue
                     dirty = True
