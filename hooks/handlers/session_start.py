@@ -970,7 +970,7 @@ def _project_root_notice(res, cwd: str) -> List[str]:
             f"(1) 認領 {best} (Recommended) → 執行 `{_ROOT_ASK_CMD} claim --root \"{best}\" --cwd \"{cwd}\"`；"
             f"(2) 本層獨立 → `{_ROOT_ASK_CMD} standalone on --cwd \"{cwd}\"`；"
             f"(3) 瀏覽選別的資料夾 → `{_ROOT_ASK_CMD} pick --cwd \"{cwd}\"`；"
-            f"(4) 這次先不決定（不寫檔，下次再問）。選定後由你執行指令，並告知「重開 session 生效」。")
+            f"(4) 這次先不決定（不寫檔，下次開場會再問一次）。選定後由你執行指令，並告知「重開 session 生效」。")
     return lines
 
 
@@ -990,7 +990,19 @@ _CARRY_ON_REBUILD = (
     "idle_scan_sent", "authority_map_injected", "tracking_advisory_sent",
     # 收尾同步提醒的額度與底部一般擋擋過的項目（一 session 一次／同一筆不重擋），不搬的話重建後同一個 session 又提醒一次
     "sync_reminder_count", "sync_block_shown",
+    # 回合編號與使用者回合鍵（規則 USER_TURN_KEY_KEPT）：只搬鍵的話 turn_seq 歸零、鍵比 turn_seq 還大；不搬的話之後只進同伴訊息時
+    # user_turn 退回 turn_seq、每則同伴訊息都當成新使用者回合（PickOne 每則重問、各閘每回合的擋次重來）。照搬的 modified_files
+    # 也帶著舊的 turn_seq，編號接著走才對得上
+    "turn_seq", "turn_prompts_seq", "user_turn_count", "turn_open", "turn_typed",
 )
+
+
+def _harvest_staged_line(n: int) -> str:
+    """開場一行：資料根有 n 張背景收割候選待審。規則 OPENING_NOTICE_NOT_TODO：處置句寫清誰決定、要不要現在處理——寫成待辦口吻
+    （「…不要的刪掉」）時，使用者說「先告訴我、再等我說要做什麼」，AI 仍照提示刪了草稿。"""
+    return (f"[Harvest] {n} 張背景收割候選待審（memory/_staging/harvest-candidates/，背景模型草擬的記憶草稿，核可前不注入）。"
+            "要不要現在處理由使用者決定：使用者這回合要的是別的事，只在回覆裡轉述這一行、不動這些檔；"
+            "使用者說要處理，再由你逐張判斷，值得留的用 atom_write 落卡、不要的刪掉。")
 
 
 def _first_session_hint_lines(root_res, cwd: str) -> list:
@@ -1433,8 +1445,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             from wg_bg_harvest import staged_count
             _staged = v6 and staged_count()
             if _staged:
-                lines.append(f"[Harvest] {_staged} 張背景收割候選待審（memory/_staging/harvest-candidates/）："
-                             "值得留的用 atom_write 落卡，不要的刪掉")
+                lines.append(_harvest_staged_line(_staged))
         except Exception as e:  # noqa: BLE001
             print(f"[Harvest] 數待審候選失敗：{type(e).__name__}: {e}", file=sys.stderr)
 

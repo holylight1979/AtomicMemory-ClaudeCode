@@ -1134,8 +1134,10 @@ def harvest_block_message(tracking_written: bool = False, cwd: str = "") -> str:
 
 def in_progress_text(last_text: str) -> bool:
     """收尾訊息是中途狀態句（仍在等 agent 回報／尚未開始／整合中途…）→ 不是收尾，閘不該在此刻擋。
-    詞表＝forbidden-phrases.json completion_claim.exclude_patterns（與 claims_completion 同源）。"""
-    return bool(last_text) and bool(_COMPLETION_EXCLUDE_RE.search(last_text[-2000:]))
+    詞表＝forbidden-phrases.json completion_claim.exclude_patterns（與 claims_completion 同源）；另有一句宣告完成
+    （claims_completion，逐句看）就不算中途：「三件都做完了。中途被擋了兩次」是收尾（規則 COMPLETION_CLAIM_PER_SENTENCE）。"""
+    return (bool(last_text) and bool(_COMPLETION_EXCLUDE_RE.search(last_text[-2000:]))
+            and not claims_completion(last_text))
 
 
 def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_text: str = "",

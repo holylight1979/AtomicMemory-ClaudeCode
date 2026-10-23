@@ -257,7 +257,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     cwd = str(input_data.get("cwd") or "")
     state, status = read_state_status(sid) if sid else (None, "missing")
     if status == "error":
-        raise RuntimeError(f"state 檔讀不到（workflow/state-{sid[:8]}….json），判不了是不是本 session 建的")
+        raise RuntimeError(f"state 檔讀不到（workflow/state-{sid[:8]}….json），判不了這個 session 有沒有新建過它")
     state = state or {}
     main_tp, decl_tps = transcripts_of(str(input_data.get("transcript_path") or ""), str(input_data.get("agent_id") or ""))
     ctx: Dict[str, Any] = {"main_tp": main_tp, "decl_tps": decl_tps,

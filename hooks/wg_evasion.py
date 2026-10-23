@@ -287,19 +287,18 @@ def detect_test_failure(
     return None
 
 
+_COMPLETION_SENTENCE_SPLIT_RE = lazy_re(r"[。！？!?\n]")
+
+
 def claims_completion(text: str) -> bool:
-    """終結宣告偵測。命中完成詞後，若鄰近有進行式/否定修飾
-    （還沒/尚未/未…完成、完成…尚未 等）→ 非真正終結，排除。
-    偏 false-negative（少判完成→少誤阻）符合契約鬆綁方向。
-    """
+    """終結宣告偵測（規則 COMPLETION_CLAIM_PER_SENTENCE）：最後 2000 字逐句看，有一句有完成詞、而那一句本身沒有排除詞
+    （還沒／尚未…完成、完成…尚未、待補、仍在等、等待…回報、尚未開始、中途、進行中）就算。排除詞只取消它自己那一句：
+    描述過程的「中途被擋了兩次」不讓另一句「三件都做完了」跟著不算。句界＝句號、驚嘆號、問號、換行；逗號、分號不切
+    （「A2 已完成，仍在等 A1 回報」「A1 完成；整合尚未開始」是同一句的中途狀態）。同一句有排除詞就不算，偏 false-negative。"""
     if not text:
         return False
-    tail = text[-2000:]
-    if not _COMPLETION_CLAIM_RE.search(tail):
-        return False
-    if _COMPLETION_EXCLUDE_RE.search(tail):
-        return False
-    return True
+    return any(_COMPLETION_CLAIM_RE.search(s) and not _COMPLETION_EXCLUDE_RE.search(s)
+               for s in _COMPLETION_SENTENCE_SPLIT_RE.split(text[-2000:]))
 
 
 _QUOTED_SPAN_RE = lazy_re(r"「[^「」]{0,200}」|『[^『』]{0,200}』|`[^`\n]{0,200}`")

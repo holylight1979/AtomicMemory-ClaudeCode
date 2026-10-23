@@ -282,6 +282,90 @@ def test_zuo_wan_le_counts_as_completion_claim():
     assert claims_completion("還沒做完了的部分列在下面") is False                          # 否定照排除
 
 
+@pytest.mark.parametrize("text, expected", [
+    ("三件都做完了。中途被擋了兩次，都補上了。", True),                       # 實例：內文描述流程的「中途」讓整則不算，第二意見沒觸發
+    ("我還沒動git：完成的三件列在下面。\n全部做完了，等你看 diff。", True),     # 開頭那句的否定只取消它自己
+    ("改了 3 支檔，完成。\n目前進行中的只有 codex 那一輪，結果回來再補。", True),
+    ("第一件完成，中途還卡著兩件。", False),                                   # 同一句：照排除
+    ("A1 完成；整合尚未開始。", False),                                        # 分號不切句：中途狀態
+    ("A2 已完成，仍在等 A1 回報。", False),
+])
+def test_completion_exclude_only_cancels_its_own_sentence(text, expected):
+    """規則 COMPLETION_CLAIM_PER_SENTENCE：排除詞只取消同一句的完成詞，不再整則一刀切（舊碼前三列判 False）。"""
+    assert claims_completion(text) is expected
+
+
+def test_in_progress_text_not_midway_when_another_sentence_claims_done():
+    """同一規則：收割待補閘的「中途狀態句不擋」也逐句看——另有一句宣告完成就是收尾（舊碼：有「中途」就當中途、不擋）。"""
+    from wg_harvest import in_progress_text
+    assert in_progress_text("三件都做完了。中途被擋了兩次，都補上了。") is False
+    assert in_progress_text("A2 已完成，仍在等 A1 回報。") is True
+    assert in_progress_text("搞定前半，目前中途，先回報進度。") is True
+
+
+def _gate_texts():
+    """hooks／lib（不含 verify）原始碼裡送得到 AI 眼前的字串：每個字串字面值（f-string 整條、插值換成 X）。不算：docstring、
+    正則來源（re.compile 等的參數、名字以 _RE／PATTERNS 結尾的常數）、規則說明表 RULES（文件，不送出）、stderr 與留帳呼叫的參數。
+    回 [(相對路徑, 行號, 文字)]。"""
+    import ast
+    regex_calls = {"compile", "search", "match", "fullmatch", "sub", "subn", "finditer", "findall", "split", "lazy_re",
+                   "_compile_union"}
+    log_calls = {"log", "_log", "append_guard_log", "_atom_debug_error", "_atom_debug_log"}
+
+    def name_of(node):
+        return node.attr if isinstance(node, ast.Attribute) else getattr(node, "id", "")
+
+    def skipped_roots(tree):
+        roots = []
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.body:
+                b = n.body[0]
+                if isinstance(b, ast.Expr) and isinstance(b.value, ast.Constant) and isinstance(b.value.value, str):
+                    roots.append(b.value)
+            elif isinstance(n, ast.Call):
+                fn = name_of(n.func)
+                stderr = fn == "print" and any(k.arg == "file" for k in n.keywords)
+                if fn in regex_calls or fn in log_calls or stderr or (fn == "update" and name_of(n.func.value) == "RULES"):
+                    roots.append(n)
+            elif isinstance(n, (ast.Assign, ast.AnnAssign)):
+                targets = n.targets if isinstance(n, ast.Assign) else [n.target]
+                names = [name_of(t.value if isinstance(t, ast.Subscript) else t) for t in targets]
+                if any(x.endswith("_RE") or x.upper().endswith("PATTERNS") or x == "RULES" for x in names):
+                    roots.append(n.value)
+        return {id(x) for r in roots for x in ast.walk(r)}
+
+    out = []
+    root = HOOKS_DIR.parent
+    for base in ("hooks", "lib"):
+        for p in sorted((root / base).rglob("*.py")):
+            rel = p.relative_to(root).as_posix()
+            if "/verify/" in rel:
+                continue
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+            skip = skipped_roots(tree)
+            inner = {id(v) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr) for v in n.values}
+            for n in ast.walk(tree):
+                if id(n) in skip or id(n) in inner:
+                    continue
+                if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                    out.append((rel, n.lineno, n.value))
+                elif isinstance(n, ast.JoinedStr):
+                    out.append((rel, n.lineno, "".join(v.value if isinstance(v, ast.Constant) else "X" for v in n.values)))
+    return out
+
+
+def test_gate_texts_do_not_trip_evasion_detector():
+    """規則 GATE_TEXT_AVOIDS_EVASION_WORDS：閘的擋訊息與提示裡的字句，AI 照抄進回覆時不能被退避偵測判成 AI 退避
+    （實例：DataFileAsk 擋訊息「(c) 非本 session 建」，AI 在交付裡原樣貼出被擋的那則，判分兩跑都記成退避）。
+    偵測面不開引用豁免，改擋訊息的說法；每則字串直接跑 detect_evasion（引號內、宣稱行、有理由的不做行照偵測本身的規則不算）。"""
+    hits = []
+    for rel, line, text in _gate_texts():
+        ev = detect_evasion(text, [])
+        if ev:
+            hits.append(f"{rel}:{line}：「{ev['phrase']}」← {text[:80]}")
+    assert not hits, "\n".join(hits)
+
+
 def test_stop_hook_feedback_is_not_a_turn_boundary():
     """Claude Code 把 Stop hook 的擋訊息寫成 user 紀錄「Stop hook feedback:…」：不是使用者打字，不是回合起點
     （第二意見閘與退避預告切點共用這個判定；C-1 被別的閘擋一次，已跑完的第二意見就被切掉）。"""

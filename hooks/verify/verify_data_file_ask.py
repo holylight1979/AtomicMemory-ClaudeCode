@@ -115,7 +115,7 @@ def test_existing_settings_json_without_declaration_is_denied(world):
     assert _df_deny(out), out
     r = _reason(out)
     assert f"✗ (df) {RULE}：" in r
-    for fact in ("(a) 不是程式檔", "(b) 使用者既有", "(c) 非本 session 建", "(d) 需求沒點名"):
+    for fact in ("(a) 不是程式檔", "(b) 使用者既有", "(c) 這個 session 沒建過它", "(d) 需求沒點名"):
         assert fact in r, fact
     assert "入口行範例：動資料檔｜settings.json：" in r and "AskUserQuestion" in r and "開頭的 `#` 註解" in r
     assert [e["event"] for e in _log(world)] == ["denied"]

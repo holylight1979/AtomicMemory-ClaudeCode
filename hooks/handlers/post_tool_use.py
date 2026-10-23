@@ -1178,7 +1178,9 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
       測試紅了，a.py 已經改了。目標用成功路徑同一支 write_paths_from_tool 算；失敗的指令不一定寫到，只記這次開始後改過的現存檔，目標不明的不記。
     - 測試指令紅了記紅測（failing_tests）與驗證收據，跟成功路徑同一套函式；失敗事件沒有 tool_response，錯誤全文（"Exit code N\\n輸出…"）
       在 error 欄，當字串回應餵進去。error 裡讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。
-    只記帳不擋；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測、不送提示。"""
+    - 改舊測試的事後比對（_old_test_after，同成功路徑）：`sed -i … tests/x.py && pytest` 紅了，改動已經寫進測試檔，照樣拿 PreToolUse
+      拍的快照比，沒宣告的記欠帳、下一個工具呼叫擋（規則 OLD_TEST_COMPARED_ON_FAILED_COMMAND）。
+    只記帳不擋；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測、不比改舊測試（它的 PreToolUse 不拍快照）、不送提示。"""
     tool_name = input_data.get("tool_name", "") or ""
     session_id = input_data.get("session_id", "") or ""
     if tool_name not in ("Bash", "PowerShell") or not session_id:
@@ -1198,6 +1200,8 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     noted, dirty = (_note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None
                     else ([], False))
+    if not judge and v6_enabled(config) and _old_test_after(state, input_data, config):
+        dirty = True
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
     if exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
@@ -1281,6 +1285,18 @@ def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] PostToolUseFailure 蓋號失敗：{type(e).__name__}: {e}", file=sys.stderr)
         return []
+
+
+def _old_test_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """改舊測試的事後比對（wg_oldtest.after_tool），PostToolUse 與 PostToolUseFailure 共用；回 state 有沒有改。
+    比對失敗只能 stderr＋留帳（事後擋不了這一次）。"""
+    try:
+        return wg_oldtest.after_tool(state, input_data, config)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
+        append_guard_log("old_test", {"event": "after_error", "session": input_data.get("session_id", "") or "",
+                                      "tool": input_data.get("tool_name", ""), "error": f"{type(e).__name__}: {e}"})
+        return False
 
 
 def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
@@ -1459,15 +1475,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if v6 and wg_data_file.confirm_shell_created(state, str(input_data.get("tool_use_id") or "")):
         dirty = True
     # ── OldTestDeclare（T2.17）：Bash／PowerShell／NotebookEdit 改了既有測試 → 拿 PreToolUse 拍的改前快照比，沒宣告的記 state，
-    # 下一個工具呼叫在 PreToolUse 擋；Edit／Write 撤回了欠帳的那一筆就清掉。比對失敗只能 stderr＋留帳（事後擋不了這一次）。
-    if v6 and tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"):
-        try:
-            if wg_oldtest.after_tool(state, input_data, config):
-                dirty = True
-        except Exception as e:
-            print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
-            append_guard_log("old_test", {"event": "after_error", "session": session_id, "tool": tool_name,
-                                          "error": f"{type(e).__name__}: {e}"})
+    # 下一個工具呼叫在 PreToolUse 擋；Edit／Write 撤回了欠帳的那一筆就清掉。
+    if v6 and tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell") and _old_test_after(state, input_data, config):
+        dirty = True
 
     if (
         tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit")

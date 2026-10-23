@@ -2474,7 +2474,7 @@ def is_claim_line(line: str) -> bool:
 
 def claim_hint(kind: str) -> str:
     label = CLAIM_LABELS.get(kind, kind)
-    return (f"詞表只是提示（規則 CLAIM_WORDS_ARE_HINTS）：這句不是本回合自己做了的宣稱 → 回一行「宣稱｜{label}：非本回合宣稱，因為 <理由>」；"
+    return (f"詞表只是提示（規則 CLAIM_WORDS_ARE_HINTS）：這句不是這一回合自己做了的宣稱 → 回一行「宣稱｜{label}：非本回合宣稱，因為 <理由>」；"
             f"是宣稱 → 補證據，或回「宣稱｜{label}：收據 <指令片段或哨兵名>」指出對應哪張收據")
 
 
@@ -2960,7 +2960,7 @@ def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Seque
     base = Path(str(target)).name
     ev = [f"(a) 不是程式檔：副檔名 {ext} 在資料／設定清單",
           "(b) 使用者既有：呼叫前檔已存在",
-          "(c) 非本 session 建：本 session 沒新建過它",
+          "(c) 這個 session 沒建過它：本 session 的新建紀錄裡沒有它",
           f"(d) 需求沒點名：本 session 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
     hit = [d for d in decls if decl_names_file(d[0], target)]
     for _path, why, line in hit:
@@ -3780,3 +3780,28 @@ def hot_path_verdict(hot: Sequence[Dict[str, str]], skip: Sequence[Dict[str, str
     if no:
         return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, "答了熱路徑否但沒附為什麼（或只有佔位）", (no[0]["line"], entry))
     return Verdict("PERF_HOT_PATH_NEEDS_MEASURE", True, "沒答「這次改動碰到熱路徑或大量配置嗎」", (entry,))
+
+
+# ─── 閘小修 008 A：閘的判定與提示（事實由各自的模組收，這裡只登錄規則名與說明） ───
+RULES.update({
+    "OLD_TEST_COMPARED_ON_FAILED_COMMAND": "Bash／PowerShell 指令非零結束時 Claude Code 不送 PostToolUse、改送 PostToolUseFailure；"
+                                           "改舊測試的事後比對（wg_oldtest.after_tool）兩個事件都跑（post_tool_use._old_test_after）："
+                                           "`sed -i … tests/x.py && pytest` 紅了，改既有斷言已經寫進檔，照樣比、沒宣告記欠帳、下一個工具呼叫擋；"
+                                           "新加的測試同一刻記進 old_test_added。裁判子 session 不比（它的 PreToolUse 不拍快照）。",
+    "USER_TURN_KEY_KEPT": "使用者回合鍵（turn_prompts_seq）不掉：state 在 compact／resume 重建時回合編號與回合鍵照搬"
+                          "（session_start._CARRY_ON_REBUILD：turn_seq、turn_prompts_seq、user_turn_count、turn_open、turn_typed）；"
+                          "鍵還是不在（state 從零建）時，UserPromptSubmit 第一則進來的訊息就算是同伴訊息、背景通知也把鍵錨在這一則"
+                          "（ups_gates.track_turn_prompts；不加 user_turn_count），之後照 TURN_SINCE_USER_PROMPT 前進。鍵不在時 user_turn "
+                          "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（PickOne 每則重問、各閘每回合的擋次與預算重來）。",
+    "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）逐句看：最後 2000 字裡有一句有完成詞、而那一句本身沒有排除詞"
+                                     "（還沒／尚未…完成、待補、仍在等、等待…回報、尚未開始、中途、進行中）就算。排除詞只取消它自己那一句；"
+                                     "句界＝句號、驚嘆號、問號、換行，逗號、分號不切（「A2 已完成，仍在等 A1 回報」仍是中途）。"
+                                     "收割待補閘的「中途狀態句不擋」（wg_harvest.in_progress_text）同源：另有一句宣告完成就不算中途。",
+    "OPENING_NOTICE_NOT_TODO": "開場的系統提示不寫成待辦口吻：處置句寫清誰決定、要不要現在處理；使用者這回合要的是別的事時只轉述、不動手"
+                               "（session_start._harvest_staged_line：背景收割候選待審那一行）。",
+    "GATE_TEXT_AVOIDS_EVASION_WORDS": "閘的擋訊息與提示（hooks／lib 送得到 AI 眼前的字串）不用會中退避詞表（memory/_meta/forbidden-phrases.json）"
+                                      "的字句：AI 在回覆裡照抄被擋的那則時，退避偵測不開引用豁免，照抄的字會被記成 AI 退避。"
+                                      "改說法、不改偵測面；守門案例對每則字串跑 detect_evasion（verify_evasion_guard）。",
+    "SUBPROCESS_RUN_LOOKED_UP_AT_CALL": "跑子行程的函式不把 subprocess.run 綁成參數預設值：預設 None、呼叫當下才取 subprocess.run。"
+                                        "綁在定義時，測試的 git 錄製重播換掉 subprocess.run 也攔不到，結果看匯入順序、錄製檔對不上。",
+})

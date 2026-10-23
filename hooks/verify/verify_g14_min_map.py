@@ -201,7 +201,7 @@ def test_preview_timeout_blocks_and_is_cached(tmp_path, monkeypatch):
     monkeypatch.setattr(wo.subprocess, "run", _no_preview)
     _read(state, root, "lib/d.py")
     _, deny2, changed2 = wo.on_edit(state, "s", str(root / "lib" / "c.py"), tp, cfg)
-    assert deny2 and "掃表預覽失敗：逾時" in deny2 and changed2 is True             # 預覽沒重跑；state 變的是擋次（LOCATE_DENY_CAP）
+    assert deny2 and "掃表預覽失敗：逾時" in deny2 and changed2 is True             # 預覽沒重跑；state 變的是擋次（GATE_DENY_CAP）
 
 
 def test_disabled_switch_skips_rule_and_keeps_readable_files_gate(tmp_path):

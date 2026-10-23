@@ -301,7 +301,7 @@ def test_preview_lists_sync_block_even_when_closing_check_covers(flow, capsys, m
 
 
 def _rebuilt_like_session_start(existing):
-    """照 session_start 專案根指紋變了的重建分支做一份新 state：new_state、_CARRY_ON_REBUILD 照搬、phase 沿用（回合序號從頭算）。"""
+    """照 session_start 專案根指紋變了的重建分支做一份新 state：new_state、_CARRY_ON_REBUILD 照搬（含回合序號）、phase 沿用。"""
     new = wg_core.new_state(_SID, existing["session"]["cwd"], "resume")
     for key in ss._CARRY_ON_REBUILD:
         if key in existing:

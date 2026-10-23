@@ -2532,3 +2532,24 @@ def test_decl_hints_do_not_steer_to_bash_writes():
         hits += [f"{p.relative_to(HOOKS_DIR).as_posix()}：{b}" for b in banned if b in src]
     assert not hits, hits
     assert "照常用 Edit／Write" in rr.DECL_KEEP_EDIT and "不寫檔" in rr.DECL_VIA_COMMENT
+
+
+# ─── 閘小修 008 A：規則名登錄、對照的案例真的在、案例點到規則名 ───
+_008A_CASES = {
+    "OLD_TEST_COMPARED_ON_FAILED_COMMAND": ("verify_old_test_declare.py",
+                                            "test_failed_command_changing_old_test_still_compared_and_blocks_next_call"),
+    "USER_TURN_KEY_KEPT": ("verify_user_turn_key.py", "test_rebuilt_state_three_peer_messages_pick_one_asks_once"),
+    "COMPLETION_CLAIM_PER_SENTENCE": ("verify_evasion_guard.py", "test_completion_exclude_only_cancels_its_own_sentence"),
+    "OPENING_NOTICE_NOT_TODO": ("verify_opening_notice.py",
+                                "test_harvest_staged_line_says_who_decides_and_relay_only_when_user_wants_else"),
+    "GATE_TEXT_AVOIDS_EVASION_WORDS": ("verify_evasion_guard.py", "test_gate_texts_do_not_trip_evasion_detector"),
+    "SUBPROCESS_RUN_LOOKED_UP_AT_CALL": ("verify_subprocess_run_default.py", "test_no_parameter_defaults_to_subprocess_run"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_008A_CASES))
+def test_008a_rules_registered_with_cases(rule):
+    case_file, fn = _008A_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and f"def {fn}(" in text, (rule, case_file, fn)
+    assert rule in text, (rule, case_file)                     # 案例檔（模組說明或案例說明）點到規則名

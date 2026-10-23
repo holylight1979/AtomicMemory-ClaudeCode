@@ -373,7 +373,7 @@ def _critique_cases() -> str:
     return _ng.CRITIQUE_CASES
 
 
-CRITIQUE_LINE_HINT = f"定位三行之後再加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_cases()}"
+CRITIQUE_LINE_HINT = f"定位三行的下面加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_cases()}"
 
 
 def _goal_block(session_id: str, cfg: Dict[str, Any], part_key: Optional[str] = None, turn: Optional[int] = None) -> str:

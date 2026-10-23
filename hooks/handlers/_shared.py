@@ -275,7 +275,7 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
     {"dir": "", "patterns": ("state-*.json",), "kind": "elsewhere", "param": "handlers/_shared._cleanup_old_states（SessionStart、SessionEnd）",
      "keep": "10 分鐘到 6 小時分級，最長 7 天", "why": "只有該 session 自己讀；分級要看檔案內容，留在 _cleanup_old_states"},
     {"dir": "", "patterns": ("companion-*.json",), "kind": "age", "param": 7,
-     "keep": "7 天", "why": "codex 旁路紀錄只給當下 session 用"},
+     "keep": "7 天", "why": "codex 旁路紀錄只給當時那個 session 用"},
     {"dir": "", "patterns": ("coord-warn-cache-*.tmp", "state-*.tmp", "companion-*.tmp", "*.corrupt*", "coord-warn-cache-*.json",
                              "state-*.pending"),
      "kind": "age", "param": 7, "keep": "7 天",

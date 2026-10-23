@@ -925,7 +925,7 @@ def test_moved_away_old_path_can_still_be_declared(proj, lookup):
                                          "case_for": ["hooks/old_x.py", "hooks/x.py"]}])
     assert "收下" in text, text
     text = _declare_cases(_state(), proj, [{"target": "hooks/verify/verify_x.py", "why": "w", "case_for": ["hooks/old_x.py"]}])
-    assert "拒收" in text and "也不是本 session 改過的檔" in text, text
+    assert "拒收" in text and "也不是這個 session 改過的檔" in text, text
 
 
 def test_unrelated_case_edit_no_longer_settles_code_debt(proj, lookup):

@@ -440,7 +440,7 @@ def declare(state: Dict[str, Any], key: str, tool_input: Dict[str, Any], cwd: st
                 for raw in it["depends"]:
                     p = _resolve(raw, cwd)
                     if not p.exists() and rr.canon_path(p) not in changed:
-                        problem = f"depends 裡的 {raw} 不存在（{p}），也不是本 session 改過的檔"
+                        problem = f"depends 裡的 {raw} 不存在（{p}），也不是這個 session 改過的檔"
                         break
                     depends.append(rr.canon_path(p))
         v = rr.scope_item_form_verdict(target, why, problem)
@@ -510,7 +510,7 @@ def _case_files(item: Dict[str, Any], rg: Dict[str, Any]) -> List[str]:
 def _declared_file_problem(raw: str, p: Path, rg: Dict[str, Any], changed: set) -> str:
     """case_for／no_case 列的檔：要是程式檔，而且存在、或是本 session 改過的檔（搬走或刪掉的舊路徑也還欠著，要能宣告）。"""
     if not p.is_file() and rr.canon_path(p) not in changed:
-        return f"{raw} 不存在（{p}），也不是本 session 改過的檔"
+        return f"{raw} 不存在（{p}），也不是這個 session 改過的檔"
     if not vl.is_code_file(str(p), rg.get("code_exts") or []):
         return f"{raw} 不是程式檔（不是程式就不欠案例）"
     return ""

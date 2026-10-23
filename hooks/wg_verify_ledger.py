@@ -1196,10 +1196,11 @@ def _launcher_marker(path: str) -> Path:
     return LAUNCHER_DIR / f"{hashlib.sha1(canon_path(path).encode('utf-8')).hexdigest()[:20]}.json"
 
 
-def note_git_launcher(path: str, run: Callable[..., Any] = subprocess.run) -> Optional[bool]:
+def note_git_launcher(path: str, run: Optional[Callable[..., Any]] = None) -> Optional[bool]:
     """規則 LAUNCHER_NOT_CODE 的事實端：PostToolUse 寫完 .py 時呼叫。內容只跑 git（is_git_launcher_source）、放在版控根、
     git 沒追蹤 → 記標記、回 True；不合 → 拿掉舊標記、回 False；不是 .py、檔已不在（刪掉了）→ 標記不動、回 None。
-    查 git 失敗當成有追蹤（照算程式）並浮 stderr。"""
+    查 git 失敗當成有追蹤（照算程式）並浮 stderr。run 沒給＝呼叫當下的 subprocess.run（規則 SUBPROCESS_RUN_LOOKED_UP_AT_CALL）。"""
+    run = run or subprocess.run
     p = Path(str(path))
     if p.suffix.lower() != ".py":
         return None
