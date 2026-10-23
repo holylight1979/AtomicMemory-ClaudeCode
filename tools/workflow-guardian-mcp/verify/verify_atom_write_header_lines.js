@@ -86,6 +86,15 @@ function check(cond, label, detail) {
   check(!/^- Depends:/m.test(t2), "空的 Depends 行算清（同 py），不輸出", t2);
   check(/\n- Related: header-card-a\n/.test(t2) && !t2.includes("Depends: - Related"), "Related 行原樣、沒被讀成依賴", t2);
 
+  // 2b. 檔頭沒有 Source／Quote、知識段程式碼範例裡有長得像欄位的行：replace 不能把它讀成來源搬進檔頭
+  const C = "header-card-c";
+  const c3 = await write({ title: C, mode: "create" });
+  check(!c3.isError, "create（沒有 Source／Quote）成功", c3.text);
+  fs.writeFileSync(atomPath(C), read(C).replace("## 知識\n", "## 知識\n\n```\n- Source: 範例裡的字\n- Quote: 範例裡的字\n```\n"), "utf-8");
+  const r3 = await write({ title: C, mode: "replace", knowledge: ["- [臨] 判準：C 換過"] });
+  check(!r3.isError, "replace（沒給 Source／Quote）成功", r3.text);
+  check(!read(C).includes("範例裡的字"), "知識段範例行沒被讀成檔頭欄位寫回", read(C));
+
   // 3. append 帶 provenance／quote → 檔頭換成呼叫者給的值
   const newSrc = "session:abcdef12#11223344 2026-10-20；commit:1234567 2026-10-23";
   const a1 = await write({ title: A, mode: "append", knowledge: ["- [臨] 併入的知識"], provenance: newSrc, quote: "「併入時的原句」" });

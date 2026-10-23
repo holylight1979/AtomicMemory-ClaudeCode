@@ -173,14 +173,20 @@ const httpServer = http.createServer((req, res) => {
         reset: () => ({ phase: "working", sync_pending: false, stop_blocked_count: 0, remind_count: 0, muted: false }),
         mute: () => ({ muted: true }),
       };
-      const changes = SIGNAL_CHANGES[signal] ? SIGNAL_CHANGES[signal]() : {};
-      const r = await applyStateChanges(sid, changes);
+      // 只認自有屬性（`__proto__` 這類繼承來的名字不算），不認得的 signal 不改任何鍵（同改前：照讀照回）
+      const changes = Object.prototype.hasOwnProperty.call(SIGNAL_CHANGES, signal) ? SIGNAL_CHANGES[signal]() : {};
+      let r;
+      try {
+        r = await applyStateChanges(sid, changes);
+      } catch (e) {
+        r = { ok: false, error: e && e.message || String(e) };
+      }
       if (!r.ok) {
         res.writeHead(500, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ ok: false, error: r.error }));
+        return res.end(JSON.stringify({ ok: false, outcome: r.outcome, error: r.error }));
       }
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, state: r.state }));
+      res.end(JSON.stringify({ ok: true, outcome: r.outcome, state: r.state || readState(sid) }));
     });
     return;
   }

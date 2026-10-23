@@ -44,11 +44,15 @@ function readState(sessionId) {
 
 /** 改 state 的幾個頂層鍵（規則 STATE_RMW_LOCKED）：跟 hook 守同一把 state-<sid>.lock，鎖裡讀改寫、別人寫過就三方合併、
  *  拿不到鎖留待併帳——Node 沒有 hook 用的那種檔案鎖，整段交 `python -m lib.state_rmw`（hook 同一份 wg_core 實作）。
- *  以前這裡讀整份、改、tmp→rename 整份寫回，會蓋掉 hook 剛寫的那份。回 Promise<{ok, state?, error?}>；失敗也寫 stderr。 */
+ *  以前這裡讀整份、改、tmp→rename 整份寫回，會蓋掉 hook 剛寫的那份。
+ *  回 Promise<{ok, outcome?, state?, error?}>：outcome＝written／pending（拿不到鎖，留待併帳給下一支 hook 併回）／unchanged，
+ *  失敗是 missing／failed 或 spawn、回覆壞掉；失敗也寫 stderr。 */
 function applyStateChanges(sessionId, changes) {
   return new Promise((resolve) => {
-    let out = "", err = "";
+    let out = "", err = "", settled = false;
     const done = (res) => {
+      if (settled) return;
+      settled = true;
       if (!res.ok) process.stderr.write(`[guardian] state ${String(sessionId).slice(0, 8)} not updated: ${res.error}\n`);
       resolve(res);
     };
@@ -63,6 +67,7 @@ function applyStateChanges(sessionId, changes) {
     cp.stdout.on("data", (d) => (out += d));
     cp.stderr.on("data", (d) => (err += d));
     cp.on("error", (e) => done({ ok: false, error: `spawn failed: ${e.message}` }));
+    cp.stdin.on("error", (e) => done({ ok: false, error: `stdin to lib.state_rmw failed: ${e.message}` }));
     cp.on("close", () => {
       if (err.trim()) process.stderr.write(err);   // 合併／待併帳訊號照轉
       try {

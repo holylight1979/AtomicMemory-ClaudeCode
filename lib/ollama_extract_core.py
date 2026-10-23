@@ -179,7 +179,8 @@ def ack_then_clear(session_id: str, key: str, indices: List[int]) -> bool:
     without losing items added concurrently by other hooks：鎖裡讀改寫；拿不到鎖時寫回改留待併帳，
     清單三方合併看基準（自己刪掉的項不會被併回、別人新加的照留）。
 
-    Returns True on success, False when the state is missing/unreadable.
+    Returns True when written / left as a pending record / nothing to clear; False when the state is missing/unreadable
+    or both the state and the pending record failed to write.
     """
     if not indices:
         return True
@@ -194,7 +195,7 @@ def ack_then_clear(session_id: str, key: str, indices: List[int]) -> bool:
         state[key] = queue
         return True
 
-    return update_state_locked(session_id, _pop)
+    return update_state_locked(session_id, _pop) in ("written", "pending", "unchanged")
 
 
 # ─── Session Budget Tracker ──────────────────────────────────────────

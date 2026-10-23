@@ -33,7 +33,7 @@ function parseEpisodicAtom(filePath) {
   };
   const titleMatch = content.match(/^#\s+(.+)$/m);
   if (titleMatch) atom.title = titleMatch[1];
-  const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
+  const metaRe = /^-[ \t]+([\w-]+):[ \t]*(.+)$/gm;   // [ \t] 不跨行：空欄位不把下一行讀成值
   let m;
   while ((m = metaRe.exec(content)) !== null) {
     const key = m[1].toLowerCase(), val = m[2].trim();
@@ -602,7 +602,7 @@ function parseAtomFile(filePath, fileName, layerLabel, defaultScope) {
       scope: defaultScope,
       file: fileName,
     };
-    const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
+    const metaRe = /^-[ \t]+([\w-]+):[ \t]*(.+)$/gm;   // [ \t] 不跨行：空欄位不把下一行讀成值
     let m;
     while ((m = metaRe.exec(content)) !== null) {
       const key = m[1].toLowerCase(), val = m[2].trim();

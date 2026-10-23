@@ -8,8 +8,8 @@ session、哪則使用者訊息觸發 atom_write 寫出來的，補 `- Source:` 
 分級：
   A        transcript 命中 atom_write → `Source: session:<sid8>#<uuid8> <日期>` ＋ `Quote: 「使用者原話」`
   A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text），或寫卡那回合
-           是別人開的（同伴訊息、背景任務通知：origin.kind 有值且不是 human；往回走會越過它走到更早的真人訊息，
-           多半是開工句，樣板認不全也不能填）→ 只補 Source、不寫 Quote
+           不是認得出的真人訊息開的（同伴訊息、背景任務通知、內容是純字串的提示：開回合但 is_human_record 否；
+           往回走會越過它走到更早的真人訊息，多半是開工句，樣板認不全也不能填）→ 只補 Source、不寫 Quote
   A-ai     只找得到 `<!-- src: -->` 指標的自動萃取 atom → 只補 Source（同上），不寫 Quote：指到的是 AI 的話，Quote 只放使用者原話
   B        無命中 → `Source: commit:<hash7> <日期>（原對話已逾保留期）`（無 git 用 `unknown <日期>（…）`）
   skip     已有 Quote（冪等）／既有 Source 非空且無命中／ambiguous（同檔名多層無法判定，不寫）
@@ -137,13 +137,13 @@ def _result_path(text: str) -> Optional[str]:
     return None
 
 
-def _opened_by_other(rec: Dict[str, Any], blocks: List[Any]) -> bool:
-    """這則 user 紀錄開了一個不是使用者開的回合：origin.kind 有值且不是 human（同伴訊息 peer、背景任務通知
-    task-notification…）。tool_result 與沒有 origin 的 meta 紀錄（Stop hook 回饋、附圖）是同一回合的延續，不算。"""
-    origin = rec.get("origin")
-    if rec.get("type") != "user" or not isinstance(origin, dict) or origin.get("kind") in (None, "human"):
+def _opens_turn(rec: Dict[str, Any], blocks: List[Any]) -> bool:
+    """這則 user 紀錄開了一個新回合：不是 tool_result，而且帶 origin（使用者、同伴訊息 peer、背景任務通知 task-notification…）
+    或不是 meta。沒有 origin 的 meta 紀錄（Stop hook 回饋、附圖）是同一回合的延續，不算。
+    開回合但不是認得出的真人訊息（is_human_record 否：別人開的、或內容是純字串的提示）＝這回合找不到可當 Quote 的使用者原話。"""
+    if rec.get("type") != "user" or any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks):
         return False
-    return not any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks)
+    return isinstance(rec.get("origin"), dict) or not rec.get("isMeta")
 
 
 def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex:
@@ -177,7 +177,7 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
                 content = msg.get("content")
                 blocks = content if isinstance(content, list) else []
                 human = rtype == "user" and is_human_record(rec)
-                other = _opened_by_other(rec, blocks)
+                other = not human and _opens_turn(rec, blocks)
                 text = record_text(rec) if (human or rtype == "assistant") else ""
                 if isinstance(uuid, str):
                     idx.by_uuid[uuid] = {"parent": rec.get("parentUuid"), "type": rtype, "ts": ts, "side": side,
@@ -214,7 +214,8 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
                                                quote_cleared=cleared))
     for lst in openers_by_sid.values():
         lst.sort()
-    # 回溯原話：沿 parentUuid 走到最近真人；sidechain 走不到 → 同 sid 主線 ts≤hit 最近一則真人
+    # 回溯原話：沿 parentUuid 走到最近真人（越過別人開的回合就不當 Quote）；走不到（sidechain 斷鏈）→ 同 sid 主線
+    # ts≤hit 最近一則真人，且主線最近一則開回合的就是它、回溯途中也沒越過別人開的回合，才當 Quote
     for hits in idx.by_title.values():
         for h in hits:
             _resolve_quote(h, idx, openers_by_sid)
@@ -240,7 +241,7 @@ def _resolve_quote(h: Hit, idx: TranscriptIndex, openers_by_sid: Dict[str, List[
     cur = h.uuid
     seen = set()
     steps = 0
-    crossed_other = False   # 走到真人之前先越過了別人開的回合：那則真人訊息不是這張卡的觸發句
+    crossed_other = False   # 走到真人之前先越過了別人開的回合：那則真人訊息不是這張卡的觸發句（斷鏈退主線時照樣算數）
     while cur and cur not in seen and steps < 500:
         seen.add(cur)
         steps += 1
@@ -256,7 +257,7 @@ def _resolve_quote(h: Hit, idx: TranscriptIndex, openers_by_sid: Dict[str, List[
     humans = [t for t in cands if t[3]]
     if humans:
         ts, uid, text, _ = humans[-1]
-        _set_quote(h, uid, text, user_turn=cands[-1][3])
+        _set_quote(h, uid, text, user_turn=cands[-1][3] and not crossed_other)
 
 
 # ─── atom 掃描 ───────────────────────────────────────────────────────────────

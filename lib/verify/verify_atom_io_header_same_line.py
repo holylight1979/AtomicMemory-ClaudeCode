@@ -61,7 +61,7 @@ def _blank_header_fields(fp: Path) -> str:
     return fp.read_text(encoding="utf-8")
 
 
-def test_008_replace_keeps_knowledge_heading_when_quote_line_is_empty(isolated_claude):
+def test_replace_keeps_knowledge_heading_when_quote_line_is_empty(isolated_claude):
     fp = _card()
     before = _blank_header_fields(fp)
     assert "\n- Quote:\n- Confidence:" in before and "\n- Source:\n- Quote:" in before
@@ -74,7 +74,7 @@ def test_008_replace_keeps_knowledge_heading_when_quote_line_is_empty(isolated_c
     assert "- [臨] 新知識" in text
 
 
-def test_008_edit_metadata_empty_then_replace_round_trip(isolated_claude):
+def test_edit_metadata_empty_then_replace_round_trip(isolated_claude):
     """實際中過的路：edit_metadata(quote="") 留空行 → 之後沒給 quote 的 replace 不能把下一行吃進 Quote。"""
     fp = _card()
     res = atom_io.edit_metadata(fp, quote="", source="test")
@@ -88,12 +88,12 @@ def test_008_edit_metadata_empty_then_replace_round_trip(isolated_claude):
     assert "- Source: session:abcdef12#11223344 2026-10-20\n" in text, "沒給 provenance 的 replace 照舊保留 Source"
 
 
-def test_008_supersedes_empty_line_does_not_read_next_line():
+def test_supersedes_empty_line_does_not_read_next_line():
     assert atom_io.read_supersedes("# t\n\n- Supersedes:\n- Confidence: [臨]\n") == []
     assert atom_io.read_supersedes("# t\n\n- Supersedes: a, b\n") == ["a", "b"]
 
 
-def test_008_append_writes_caller_provenance_and_quote(isolated_claude):
+def test_append_writes_caller_provenance_and_quote(isolated_claude):
     fp = _card()
     new_src = "session:abcdef12#11223344 2026-10-20；commit:1234567 2026-10-23"
     r = write_atom(title="header-card", mode="append", knowledge=["[臨] 併入的知識"], provenance=new_src,
@@ -105,7 +105,7 @@ def test_008_append_writes_caller_provenance_and_quote(isolated_claude):
     assert "- [臨] 舊知識" in text and "- [臨] 併入的知識" in text
 
 
-def test_008_append_without_provenance_keeps_header(isolated_claude):
+def test_append_without_provenance_keeps_header(isolated_claude):
     fp = _card()
     r = write_atom(title="header-card", mode="append", knowledge=["[臨] 只加知識"], **COMMON)
     assert r.ok, r.error
@@ -113,7 +113,7 @@ def test_008_append_without_provenance_keeps_header(isolated_claude):
     assert "- Source: session:abcdef12#11223344 2026-10-20\n" in text and "- Quote: 「原句一號」\n" in text
 
 
-def test_008_append_empty_string_clears_and_missing_line_is_inserted(isolated_claude):
+def test_append_empty_string_clears_and_missing_line_is_inserted(isolated_claude):
     fp = _card(provenance=None, quote=None)
     assert "- Source:" not in fp.read_text(encoding="utf-8")
     r = write_atom(title="header-card", mode="append", knowledge=["[臨] 補來源"], provenance="commit:abcdef1 2026-10-23",
@@ -125,7 +125,7 @@ def test_008_append_empty_string_clears_and_missing_line_is_inserted(isolated_cl
     assert "- Source:" not in fp.read_text(encoding="utf-8"), '""＝清掉 Source 行（同 replace）'
 
 
-def test_008_cli_append_used_by_mcp_writes_provenance(isolated_claude):
+def test_cli_append_used_by_mcp_writes_provenance(isolated_claude):
     """MCP js 的 append spawn `atom_io_cli append`：payload 帶 provenance 也要寫進檔頭。"""
     fp = _card()
     payload = {"action": "append", "file_path": str(fp), "knowledge": ["[臨] 經 cli 併入"], "source": "mcp",
@@ -137,3 +137,40 @@ def test_008_cli_append_used_by_mcp_writes_provenance(isolated_claude):
     assert res["ok"], res.get("error")
     text = fp.read_text(encoding="utf-8")
     assert "- Source: commit:7654321 2026-10-23\n" in text and "- [臨] 經 cli 併入" in text, text
+
+
+def _card_with_body_example(isolated_claude) -> Path:
+    """檔頭沒有 Source／Quote，知識段有一段程式碼範例，裡面的行長得像檔頭欄位。"""
+    fp = _card(provenance=None, quote=None)
+    text = fp.read_text(encoding="utf-8")
+    example = "\n```\n- Source: 範例裡的字\n- Quote: 範例裡的字\n```\n"
+    fp.write_text(text.replace("- [臨] 舊知識\n", "- [臨] 舊知識\n" + example, 1), encoding="utf-8", newline="\n")
+    return fp
+
+
+def test_append_header_edit_never_touches_body_lines(isolated_claude):
+    """append 帶 provenance／quote 只改檔頭：知識段程式碼範例裡的 `- Source:`／`- Quote:` 行不能被換掉或刪掉。"""
+    fp = _card_with_body_example(isolated_claude)
+    r = write_atom(title="header-card", mode="append", knowledge=["[臨] 加一條"], provenance="commit:abcdef1 2026-10-23",
+                   quote="「原句」", **COMMON)
+    assert r.ok, r.error
+    text = fp.read_text(encoding="utf-8")
+    head, body = text.split("\n## ", 1)
+    assert "- Source: commit:abcdef1 2026-10-23" in head and "- Quote: 「原句」" in head, text
+    assert "- Source: 範例裡的字\n- Quote: 範例裡的字\n" in body, f"正文的範例行被改了：\n{text}"
+    r = write_atom(title="header-card", mode="append", knowledge=["[臨] 再加一條"], provenance="", quote="", **COMMON)
+    assert r.ok, r.error
+    text = fp.read_text(encoding="utf-8")
+    head, body = text.split("\n## ", 1)
+    assert "- Source:" not in head and "- Quote:" not in head
+    assert "- Source: 範例裡的字\n- Quote: 範例裡的字\n" in body, f'provenance="" 刪到正文的範例行：\n{text}'
+
+
+def test_replace_does_not_read_body_example_as_header_field(isolated_claude):
+    """replace 沒給 provenance／quote：檔頭沒有這兩行時，不能把知識段範例裡的 `- Source:` 讀成來源搬進檔頭。"""
+    fp = _card_with_body_example(isolated_claude)
+    r = write_atom(title="header-card", mode="replace", knowledge=["[臨] 換掉知識"], **COMMON)
+    assert r.ok, r.error
+    text = fp.read_text(encoding="utf-8")
+    assert "範例裡的字" not in text, f"正文範例被讀成檔頭欄位寫回：\n{text}"
+    assert atom_io.read_supersedes("# t\n\n- Scope: global\n\n## 知識\n\n- Supersedes: body-line\n") == []

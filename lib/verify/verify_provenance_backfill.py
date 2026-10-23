@@ -358,7 +358,7 @@ def test_14_only_glob_and_needs_run_marker(world):
 
 
 # 樣板認不出的開工句（角色句不是「工作 session／工作軌」，後面也沒有第一步 EnterWorktree）
-UNRECOGNIZED_KICKOFF = ("你是這個專案的「值班」session（新任，接 claude-9f）。"
+UNRECOGNIZED_KICKOFF = ("你是這個專案的「值班」session（新任，接前一位）。"
                         "職責：審查、合併、推送。先讀接續單 C:\\inbox\\next.md。")
 
 
@@ -368,8 +368,8 @@ def _peer(uuid, parent, ts, body="寫卡", sid=SID2, kind="peer"):
                 sid=sid, origin={"kind": kind}, isMeta=True)
 
 
-def test_008_peer_turn_does_not_quote_unrecognized_kickoff(world):
-    # 008：寫卡那回合是同伴訊息開的 → 往回走越過它走到的真人訊息（樣板認不出的開工句）不得當 Quote；Source 照補
+def test_peer_turn_does_not_quote_unrecognized_kickoff(world):
+    # 寫卡那回合是同伴訊息開的 → 往回走越過它走到的真人訊息（樣板認不出的開工句）不得當 Quote；Source 照補
     from lib.provenance import is_kickoff_text
     assert not is_kickoff_text(UNRECOGNIZED_KICKOFF), "前提：這句開工句樣板認不出（認得出就測不到回合歸屬）"
     atom = _atom(world["mem"] / "設計通則" / "卡片辛.md", "卡片辛")
@@ -385,7 +385,7 @@ def test_008_peer_turn_does_not_quote_unrecognized_kickoff(world):
     assert "- Source: session:22222222#k1 2026-10-05\n" in text
 
 
-def test_008_task_notification_turn_is_not_user_turn(world):
+def test_task_notification_turn_is_not_user_turn(world):
     # 背景任務通知開的回合同樣不是使用者開的：前一回合使用者的話不是這張卡的觸發句
     atom = _atom(world["mem"] / "設計通則" / "卡片壬.md", "卡片壬")
     _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", [
@@ -398,7 +398,7 @@ def test_008_task_notification_turn_is_not_user_turn(world):
     assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "not_user_turn" and r["quote"] is None, r
 
 
-def test_008_stop_hook_feedback_is_same_turn(world):
+def test_stop_hook_feedback_is_same_turn(world):
     # 對照：沒有 origin 的 meta 紀錄（Stop hook 回饋）是同一回合的延續，越過它照樣用使用者原話
     atom = _atom(world["mem"] / "設計通則" / "卡片癸.md", "卡片癸")
     _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", [
@@ -410,7 +410,7 @@ def test_008_stop_hook_feedback_is_same_turn(world):
     assert r["grade"] == "A" and r["quote"] == "「把這次的踩坑記成卡片」", r
 
 
-def test_008_sidechain_fallback_respects_peer_turn(world):
+def test_sidechain_fallback_respects_peer_turn(world):
     # 子代理寫卡（走不回主線）退回主線 ts≤hit 最近一則：主線最近開回合的是同伴訊息 → 不寫 Quote
     atom = _atom(world["mem"] / "設計通則" / "卡片子.md", "卡片子")
     _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", [
@@ -422,7 +422,7 @@ def test_008_sidechain_fallback_respects_peer_turn(world):
     assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "not_user_turn", r
 
 
-def test_008_empty_quote_and_source_lines_do_not_read_next_line(world):
+def test_empty_quote_and_source_lines_do_not_read_next_line(world):
     # 空的 `- Quote:` 行不算已有 Quote（舊判法 `\s*\S` 跨行吃到下一行的 `-`，整張被當 has_quote 跳過）；
     # 空的 `- Source:` 行不算已有 Source（舊判法把下一行當成既有來源，Source 就不補）
     _atom(world["atom"], "卡片甲", extra="- Source:\n- Quote:\n")
@@ -431,3 +431,30 @@ def test_008_empty_quote_and_source_lines_do_not_read_next_line(world):
     assert r["grade"] == "A" and r.get("reason") != "has_quote", r
     assert "- Source: session:11111111#h1 2026-10-01\n" in text and "- Quote: 「請把 這條 記成卡片甲」\n" in text, text
     assert text.count("- Quote:") == 1 and text.count("- Source:") == 1
+
+
+def test_broken_chain_after_peer_turn_keeps_not_user_turn(world):
+    # 回溯先越過同伴訊息（在 sidechain 上，不進主線的開回合清單）、接著斷鏈退主線：主線最近開回合的是真人也不能當 Quote
+    # （越過別人回合的證據要帶著）
+    atom = _atom(world["mem"] / "設計通則" / "卡片丑.md", "卡片丑")
+    peer = _peer("p1", "gone", "2026-10-05T09:30:00Z", body="請寫卡")
+    peer["isSidechain"] = True
+    _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", [
+        _human("h1", None, "2026-10-05T09:00:00Z", "主線上使用者說的另一件事情", sid=SID2),
+        peer,
+        _tool_use("a1", "p1", "2026-10-05T09:30:05Z", "t1", "卡片丑", sid=SID2),
+        _tool_result("r1", "a1", "2026-10-05T09:30:06Z", "t1", str(atom), sid=SID2)])
+    r = _run(world, atoms=[("root", atom)])["results"][0]
+    assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "not_user_turn" and r["quote"] is None, r
+
+
+def test_plain_string_prompt_opens_a_turn(world):
+    # 內容是純字串的提示（無頭 -p 這類，is_human_record 認不出）也開了新回合：不能越過它拿更早那則真人訊息當 Quote
+    atom = _atom(world["mem"] / "設計通則" / "卡片寅.md", "卡片寅")
+    _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", [
+        _human("h1", None, "2026-10-05T09:00:00Z", "很早以前的另一則使用者訊息", sid=SID2),
+        _rec("s1", "h1", "2026-10-05T09:30:00Z", "user", "只做一件事：把這次的結論記成卡片", sid=SID2),
+        _tool_use("a1", "s1", "2026-10-05T09:30:05Z", "t1", "卡片寅", sid=SID2),
+        _tool_result("r1", "a1", "2026-10-05T09:30:06Z", "t1", str(atom), sid=SID2)])
+    r = _run(world, atoms=[("root", atom)])["results"][0]
+    assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "not_user_turn", r

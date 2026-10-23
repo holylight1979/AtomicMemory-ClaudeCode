@@ -45,7 +45,7 @@ def repo(tmp_path):
     return r
 
 
-def test_008_untracked_new_file_is_in_diff_material(repo):
+def test_untracked_new_file_is_in_diff_material(repo):
     (repo / "old.py").write_text("def f():\n    return 2\n", encoding="utf-8", newline="\n")
     (repo / "pkg").mkdir()
     (repo / "pkg" / "新模組.py").write_text("def g():\n    return '新'\n", encoding="utf-8", newline="\n")
@@ -57,7 +57,7 @@ def test_008_untracked_new_file_is_in_diff_material(repo):
     assert "run.log" not in out, ".gitignore 排除的檔不帶"
 
 
-def test_008_new_files_only_still_produce_material(repo):
+def test_new_files_only_still_produce_material(repo):
     """沒改舊檔、只新建檔（git diff HEAD 與 main...HEAD 都空）：材料不能是空的。"""
     (repo / "tests").mkdir()
     (repo / "tests" / "test_new.py").write_text("def test_x():\n    assert True\n", encoding="utf-8", newline="\n")
@@ -65,7 +65,7 @@ def test_008_new_files_only_still_produce_material(repo):
     assert "+++ b/tests/test_new.py" in out and "+    assert True" in out, out
 
 
-def test_008_binary_and_oversize_new_files_list_name_only(repo, monkeypatch):
+def test_binary_and_oversize_new_files_list_name_only(repo, monkeypatch):
     (repo / "img.bin").write_bytes(b"\x89PNG\0\0data")
     out = pack.collect_diff(str(repo))
     assert "+++ b/img.bin\n（二進位新檔，未附內容）\n" in out, out
@@ -75,18 +75,37 @@ def test_008_binary_and_oversize_new_files_list_name_only(repo, monkeypatch):
     assert seg.endswith("+++ b/big.txt\n（未追蹤新檔過大，未附內容：51 bytes）\n"), seg
 
 
-def test_008_new_files_budget_reports_remaining_count(tmp_path, monkeypatch):
+def test_new_files_budget_is_a_hard_cap(tmp_path, monkeypatch):
     for name in ("a.txt", "b.txt", "c.txt"):
         (tmp_path / name).write_text("line\n", encoding="utf-8", newline="\n")
-    monkeypatch.setattr(pack, "NEW_FILES_BUDGET", 10)
+    one = len(pack._new_file_patch(tmp_path, "a.txt"))
+    monkeypatch.setattr(pack, "NEW_FILES_BUDGET", one + 5)
     out = pack._new_files_patch(tmp_path, ["c.txt", "a.txt", "b.txt", "gone.txt"])
-    assert "+++ b/a.txt\n@@ -0,0 +1,1 @@\n+line\n" in out and "b.txt" not in out.split("（另有")[0]
-    assert "（另有 2 個未追蹤新檔未附：新檔材料已超過 10 字）" in out, "超過累計上限：其餘只報個數；列了但不存在的檔不算"
+    assert out.startswith("diff --git a/a.txt b/a.txt") and "b.txt" not in out.split("（另有")[0]
+    assert len(out.split("（另有")[0]) <= one + 5, "累計不得超過上限（放不下就停）"
+    assert "（另有 2 個未追蹤新檔未附：新檔材料累計會超過" in out, "放不下的只報個數；列了但不存在的檔不算"
 
 
-def test_008_svn_unversioned_status_lines(tmp_path):
+def test_new_file_patch_marks_missing_eol_and_empty_file(tmp_path):
+    (tmp_path / "noeol.txt").write_bytes(b"x")
+    (tmp_path / "crlf.txt").write_bytes(b"a\r\nb\r\n")
+    (tmp_path / "empty.txt").write_bytes(b"")
+    assert pack._new_file_patch(tmp_path, "noeol.txt").endswith("@@ -0,0 +1,1 @@\n+x\n\\ No newline at end of file\n")
+    assert pack._new_file_patch(tmp_path, "crlf.txt").endswith("@@ -0,0 +1,2 @@\n+a\n+b\n")
+    assert pack._new_file_patch(tmp_path, "empty.txt").endswith("+++ b/empty.txt\n"), "空檔只有檔頭、沒有內容段"
+
+
+def test_svn_unversioned_lists_dirs_by_name_only(tmp_path, monkeypatch):
+    """svn 只列未加入的目錄本身，裡面哪些檔被 ignore 判不了：目錄只列名、不展開（不把被忽略的檔帶進材料）。"""
+    (tmp_path / ".svn").mkdir()
     (tmp_path / "newdir").mkdir()
-    (tmp_path / "newdir" / "x.py").write_text("x = 1\n", encoding="utf-8")
-    (tmp_path / "y.py").write_text("y = 1\n", encoding="utf-8")
+    (tmp_path / "newdir" / "x.py").write_text("x = 1\n", encoding="utf-8", newline="\n")
+    (tmp_path / "newdir" / "private.log").write_text("secret\n", encoding="utf-8", newline="\n")
+    (tmp_path / "y.py").write_text("y = 1\n", encoding="utf-8", newline="\n")
     status = "M       old.py\n?       y.py\n?       newdir\n!       ignored.tmp\n"
-    assert sorted(pack._svn_unversioned(tmp_path, status)) == ["newdir/x.py", "y.py"]
+    assert pack._svn_unversioned(tmp_path, status) == (["y.py"], ["newdir"])
+    fake = {"diff": "Index: old.py\n", "status": status}
+    monkeypatch.setattr(pack, "_run", lambda cmd, cwd, t: fake.get(cmd[1], "") if cmd[0] == "svn" else "")
+    out = pack.collect_diff(str(tmp_path))
+    assert out.startswith("Index: old.py\n") and "+++ b/y.py\n@@ -0,0 +1,1 @@\n+y = 1\n" in out, out
+    assert "未加入版控的目錄 newdir/" in out and "secret" not in out and "x = 1" not in out, out

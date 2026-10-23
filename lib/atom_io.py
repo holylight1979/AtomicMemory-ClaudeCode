@@ -860,18 +860,28 @@ def _insert_meta_line(text: str, line: str) -> Optional[str]:
     return eol.join(lines)
 
 
+def _header_end(text: str) -> int:
+    """檔頭結束位置＝第一個 `## ` 標題行的開頭（沒有就是全文尾）。檔頭欄位只在這之前找：
+    知識段裡的程式碼範例可能有 `- Source:` 這種行，不能被當成欄位改掉、刪掉或讀成值。"""
+    m = re.search(r"^## ", text, re.MULTILINE)
+    return m.start() if m else len(text)
+
+
 def _set_meta_line(text: str, label: str, replacement: str) -> Optional[str]:
-    """檔頭 `- <label>:` 那一行整行換成 replacement（第一個、只吃同行空白：`\\s*` 遇到空值欄位會跨行，
-    把下一行（通常 `## 知識`）一併換掉）；沒有這行就插到 metadata 區塊末。沒有 metadata 區塊回 None。"""
+    """檔頭 `- <label>:` 那一行整行換成 replacement（檔頭裡第一個、只吃同行空白：`\\s*` 遇到空值欄位會跨行，
+    把下一行（通常 `## 知識`）一併換掉）；檔頭沒有這行就插到 metadata 區塊末。沒有 metadata 區塊回 None。"""
+    end = _header_end(text)
     line_re = re.compile(rf"^-[ \t]*{label}:[ \t]*.*$", re.MULTILINE)
     # 以函式回傳替換字串：值含反斜線（Windows 路徑、Quote 原話）時不得被當成 regex 跳脫
-    new_text, n = line_re.subn(lambda _m: replacement, text, count=1)
-    return new_text if n else _insert_meta_line(text, replacement)
+    head, n = line_re.subn(lambda _m: replacement, text[:end], count=1)
+    return head + text[end:] if n else _insert_meta_line(text, replacement)
 
 
 def _drop_meta_line(text: str, label: str) -> str:
-    """刪掉檔頭第一個 `- <label>:` 行（含換行）；本來就沒有原樣回。"""
-    return re.sub(rf"^-[ \t]*{label}:[ \t]*.*(?:\r?\n|\Z)", "", text, count=1, flags=re.MULTILINE)
+    """刪掉檔頭第一個 `- <label>:` 行（含換行）；檔頭本來就沒有原樣回（正文不動）。"""
+    end = _header_end(text)
+    head = re.sub(rf"^-[ \t]*{label}:[ \t]*.*(?:\r?\n|\Z)", "", text[:end], count=1, flags=re.MULTILINE)
+    return head + text[end:]
 
 
 def _append_header_fields(content: str, provenance: Optional[str], quote: Optional[str]) -> Optional[str]:
@@ -1060,8 +1070,8 @@ _SUPERSEDES_LINE_RE = re.compile(r"^- Supersedes:[ \t]*(.+)$", re.MULTILINE)   #
 
 
 def read_supersedes(text: str) -> List[str]:
-    """從 atom 檔頭讀 `- Supersedes: a, b` → ["a", "b"]；無行 → []。"""
-    m = _SUPERSEDES_LINE_RE.search(text)
+    """從 atom 檔頭讀 `- Supersedes: a, b` → ["a", "b"]；無行 → []。只看檔頭（_header_end 之前）。"""
+    m = _SUPERSEDES_LINE_RE.search(text[:_header_end(text)])
     if not m:
         return []
     return [t.strip() for t in m.group(1).split(",") if t.strip()]
@@ -1506,24 +1516,26 @@ def write_atom(
         index_depends = None   # replace：下面依最終檔頭決定（有行→該清單、無行→[] 清索引），索引跟 frontmatter 走
         if file_path.exists():
             old = file_path.read_text(encoding="utf-8-sig")
-            # 檔頭欄位一律 [ \t]* 不跨行：空欄位行不能把下一行（`## 知識`、別的欄位）吃成值
-            am = re.search(r"^- Author:[ \t]*(.+)$", old, re.MULTILINE)
+            # 檔頭欄位一律只在檔頭找（_header_end 之前）、[ \t]* 不跨行：空欄位行不能把下一行（`## 知識`、別的欄位）吃成值，
+            # 知識段程式碼範例裡的 `- Source:` 這類行也不算
+            old_head = old[:_header_end(old)]
+            am = re.search(r"^- Author:[ \t]*(.+)$", old_head, re.MULTILINE)
             if am:
                 prev_author = am.group(1).strip()
-            cmm = re.search(r"^- Created-at:[ \t]*(.+)$", old, re.MULTILINE)
+            cmm = re.search(r"^- Created-at:[ \t]*(.+)$", old_head, re.MULTILINE)
             if cmm:
                 prev_created = cmm.group(1).strip()
             prev_supersedes = read_supersedes(old)
             # Source／Depends：呼叫者未給（None）→ 保留舊行；給了（含空）→ 以呼叫者為準；舊卡空行＝空字串（build 不輸出）
             if provenance is None:
-                sm = re.search(r"^- Source:[ \t]*(.*)$", old, re.MULTILINE)
+                sm = re.search(r"^- Source:[ \t]*(.*)$", old_head, re.MULTILINE)
                 prev_provenance = sm.group(1).strip() if sm else None
             if depends is None:
                 # [ \t]* 不跨行：空的 `- Depends:` 行不能把下一行（Trigger／標題）吃成依賴；空行＝[]（清）
-                dm = re.search(r"^- Depends:[ \t]*(.*)$", old, re.MULTILINE)
+                dm = re.search(r"^- Depends:[ \t]*(.*)$", old_head, re.MULTILINE)
                 prev_depends = [t.strip() for t in re.split(r"[,，]", dm.group(1)) if t.strip()] if dm else None
             if quote is None:
-                qm = re.search(r"^- Quote:[ \t]*(.*)$", old, re.MULTILINE)
+                qm = re.search(r"^- Quote:[ \t]*(.*)$", old_head, re.MULTILINE)
                 prev_quote = qm.group(1).strip() if qm else None
         if supersedes is None:
             supersedes_final = prev_supersedes

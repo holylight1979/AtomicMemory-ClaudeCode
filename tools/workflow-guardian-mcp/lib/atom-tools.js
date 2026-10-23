@@ -27,31 +27,35 @@ function receiptLine(obj) {
   return `receipt: ${JSON.stringify(obj)}`;
 }
 
-// 檔頭欄位讀法一律 [ \t]* 不跨行（同 py lib/atom_io.write_atom）：`\s*` 遇到空欄位行會吃掉換行，
-// 把下一行（`## 知識`、別的欄位）讀成這欄的值，replace 再原樣寫回。
+// 檔頭欄位讀法（同 py lib/atom_io.write_atom）：只看檔頭（第一個 `## ` 標題之前，知識段程式碼範例裡的
+// `- Source:` 不算）、[ \t]* 不跨行（`\s*` 遇到空欄位行會吃掉換行，把下一行讀成這欄的值，replace 再原樣寫回）。
+function headerOf(content) {
+  const m = /^## /m.exec(content);
+  return m ? content.slice(0, m.index) : content;
+}
 
 /** 從既有 atom 檔頭讀 `- Source:`（provenance）字串；無此行回 null，空行回 ""。 */
 function readSourceLine(content) {
-  const m = content.match(/^- Source:[ \t]*(.*)$/m);
+  const m = headerOf(content).match(/^- Source:[ \t]*(.*)$/m);
   return m ? m[1].trim() : null;
 }
 
 /** 從既有 atom 檔頭讀 `- Quote:` 原句；無此行回 null，空行回 ""。 */
 function readQuoteLine(content) {
-  const m = content.match(/^- Quote:[ \t]*(.*)$/m);
+  const m = headerOf(content).match(/^- Quote:[ \t]*(.*)$/m);
   return m ? m[1].trim() : null;
 }
 
 /** 從既有 atom 檔頭讀 `- Depends:` 清單；無此行回 null，空行回 []（同 py：空的 Depends 行算清）。 */
 function readDependsLine(content) {
-  const m = content.match(/^- Depends:[ \t]*(.*)$/m);
+  const m = headerOf(content).match(/^- Depends:[ \t]*(.*)$/m);
   if (!m) return null;
   return m[1].split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 /** 從既有 atom 檔頭讀 `- Supersedes:` 清單（replace 未給 supersedes 時保留原行用）；無此行或空行回 null。 */
 function readSupersedesLine(content) {
-  const m = content.match(/^- Supersedes:[ \t]*(.+)$/m);
+  const m = headerOf(content).match(/^- Supersedes:[ \t]*(.+)$/m);
   if (!m) return null;
   return m[1].split(",").map((s) => s.trim()).filter(Boolean);
 }
@@ -518,9 +522,9 @@ async function toolAtomWrite(id, args) {
     if (fs.existsSync(filePath)) {
       try {
         const old = fs.readFileSync(filePath, "utf-8");
-        const am = old.match(/^- Author:[ \t]*(.+)$/m);
+        const am = headerOf(old).match(/^- Author:[ \t]*(.+)$/m);
         if (am) prevAuthor = am[1].trim();
-        const cm = old.match(/^- Created-at:[ \t]*(.+)$/m);
+        const cm = headerOf(old).match(/^- Created-at:[ \t]*(.+)$/m);
         if (cm) { prevCreatedAt = cm[1].trim(); hadCreatedAt = true; }
         prevSupersedes = readSupersedesLine(old);
         prevProvenance = readSourceLine(old);
