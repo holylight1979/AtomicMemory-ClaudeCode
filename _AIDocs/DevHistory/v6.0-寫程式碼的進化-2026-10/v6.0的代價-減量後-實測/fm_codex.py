@@ -3,7 +3,7 @@
 
 做什麼：讀 <kit>/results/<那跑>/judge/codex-prompt.md 當 stdin，輸出寫 <那跑>/判分-codex.md，stdout／stderr 存 judge/codex-run.log；
         跑完核對判分檔非空（codex 失敗常是 exit 0、輸出檔 0 位元組、錯因只在 stderr 尾）。
-怎麼跑：python -X utf8 fm_codex.py --run 2026-10-23-CCon-1 [--kit C:/Users/holylight/.claude/workflow/inbox/wave2-kit]
+怎麼跑：python -X utf8 fm_codex.py --run 2026-10-23-CCon-1 [--kit <wave2-kit 目錄，預設 ~/.claude/workflow/inbox/wave2-kit>]
 尾行 FM_CODEX_CHECK PASS／FAIL（exit 0／1）
 """
 import argparse
@@ -16,7 +16,7 @@ SKIP_REPO = "--skip-" + "g" + "it" + "-repo-check"
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("--run", required=True)
-ap.add_argument("--kit", default="C:/Users/holylight/.claude/workflow/inbox/wave2-kit")
+ap.add_argument("--kit", default=str(Path.home() / ".claude" / "workflow" / "inbox" / "wave2-kit"))
 a = ap.parse_args()
 kit = Path(a.kit)
 run = kit / "results" / a.run

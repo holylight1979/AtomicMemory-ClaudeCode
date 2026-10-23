@@ -7,7 +7,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-RES = Path("C:/Users/holylight/.claude/workflow/inbox/wave2-kit/results")
+RES = Path.home() / ".claude" / "workflow" / "inbox" / "wave2-kit" / "results"
 OLD_OFF = [f"2026-10-23-CCoff-{n}" for n in (1, 2, 3)]
 OLD_ON = [f"2026-10-23-CCon-{n}" for n in (1, 2, 3)]
 STAGE = {("B-1", "first"): "第一段：加子命令", ("B-1", "final"): "第一段：交材料", ("B-2", "first"): "第二段：新 session 問狀況"}

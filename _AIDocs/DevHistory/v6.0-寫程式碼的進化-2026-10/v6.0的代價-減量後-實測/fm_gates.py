@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-KIT = Path("C:/Users/holylight/.claude/workflow/inbox/wave2-kit")
+KIT = Path.home() / ".claude" / "workflow" / "inbox" / "wave2-kit"
 TAG_RE = re.compile(r"\[(?:Guardian:)?([A-Za-z][\w\-]*)\]")
 DENY_RE = re.compile(r"^PreToolUse:(\w+) hook error:\s*")
 STOP_LINE_RE = re.compile(r"^\s*✗ \(([^)]+)\) ([^：:]+)[：:]", re.M)
