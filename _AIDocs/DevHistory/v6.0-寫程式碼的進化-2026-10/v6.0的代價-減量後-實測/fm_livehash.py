@@ -1,5 +1,5 @@
 """fm_livehash.py — 量測前後核 live 程式沒被動：hooks/ lib/ tools/ skills/ settings.json workflow/config.json 逐檔 sha256 合成一個總雜湊。
-怎麼跑：python -X utf8 fm_livehash.py [--live C:/Users/holylight/.claude] [--save <json>] [--diff <之前存的 json>]
+怎麼跑：python -X utf8 fm_livehash.py [--live <live 根，預設 ~/.claude>] [--save <json>] [--diff <之前存的 json>]
 尾行 FM_LIVEHASH DONE files=<n> digest=<前 16 碼> changed=<跟 --diff 比變了幾檔或 na>
 """
 import argparse
@@ -12,7 +12,7 @@ FILES = ("settings.json", "workflow/config.json")
 SKIP = ("__pycache__", "node_modules", "_vectordb")
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--live", default="C:/Users/holylight/.claude")
+ap.add_argument("--live", default=str(Path.home() / ".claude"))
 ap.add_argument("--save")
 ap.add_argument("--diff")
 a = ap.parse_args()

@@ -11,6 +11,7 @@
      寫 _fm/measure.json（輸入＝input＋cache_creation＋cache_read，同上一輪口徑）。
   5. 作廢與加跑：一跑沒跑完（failed>0）或現況某跑 hook 被系統砍掉（transcript 的 hook_cancelled）→ 那跑作廢；
      一類題四跑後，有作廢、或現況兩跑「輸入＋輸出 token」或「牆鐘」相差超過 25%（差 ÷ 兩跑平均）→ 加跑一對（全關3→現況3），只加一次。
+  b6_measure 從本檔往上找 v6.0的代價-實測/（原地跑就找到同一棵樹那份）；照下面用法複製到暫存目錄跑時找不到，改用 live（~/.claude）同一位置那份。
 怎麼跑（放在 w2_*.py、fm_nc.py 同一個目錄；先跑完一次 w2_build_env 拿到卡集清單）
   WG_V6=1 python -X utf8 fm_series.py --day 2026-10-23 --cards <卡集清單.json> --snap <卡內容快照資料夾> [--only CC,NC] [--resume] [--dest C:/w4]
 尾行 FM_SERIES DONE runs=<跑數> void=<作廢數> extra=<加跑的類> ；建環境連兩次 FAIL 印 FM_SERIES FAIL reason=…（exit 1）
@@ -26,9 +27,11 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-LIVE = Path("C:/Users/holylight/.claude")
+LIVE = Path.home() / ".claude"
 KIT = LIVE / "workflow" / "inbox" / "wave2-kit"
-MEASURE_DIR = Path("C:/Users/holylight/.claude-wt/final-measure/_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-實測")
+MEASURE_NAME = "v6.0的代價-實測"
+MEASURE_DIR = next((p / MEASURE_NAME for p in (HERE, *HERE.parents) if (p / MEASURE_NAME / "b6_measure.py").is_file()),
+                   LIVE / "_AIDocs" / "DevHistory" / "v6.0-寫程式碼的進化-2026-10" / MEASURE_NAME)
 CLASSES = {"CC": {"project": "qb2-sales", "seg_re": r"B-\d"}, "NC": {"project": "qn4-release-guide", "seg_re": r"N-\d"}}
 DIFF_LIMIT = 0.25
 

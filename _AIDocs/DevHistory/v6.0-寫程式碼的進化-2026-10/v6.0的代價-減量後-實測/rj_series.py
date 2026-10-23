@@ -3,7 +3,6 @@
 做什麼
   每跑照 fm_series.one_run 同一套：重建 C:\\w4（w2_build_env --selfcheck --cards-from）→ fm_snap apply 換卡內容快照 → w2_run_all --only B
   → 收資料根 Logs → 量測寫 _fm/measure.json → 作廢判定。兩跑後照 fm_series.need_extra（有作廢、或 token／牆鐘相差超過 25%）加跑 -R3，只加一次。
-  fm_series 的 MEASURE_DIR 指向已拆掉的 final-measure worktree，這裡先把 rejudge worktree 同一份 b6_measure 放進 sys.path。
   總表寫 <kit>/results/_rj-series-<日>.json（不碰 004 的 _fm-series-<日>.json）。
 怎麼跑（放在 fm_series.py 同一個目錄）
   WG_V6=1 python -X utf8 rj_series.py --cards <卡集清單.json> --snap <卡內容快照資料夾> [--day 2026-10-23] [--dest C:/w4]
@@ -15,11 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-MEASURE = Path("C:/Users/holylight/.claude-wt/rejudge/_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-實測")
-sys.path.insert(0, str(MEASURE))
-sys.path.insert(0, str(HERE))
-import fm_series as fs  # noqa: E402
+import fm_series as fs
 
 
 def main():
