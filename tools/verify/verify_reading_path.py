@@ -13,6 +13,7 @@ import codecs
 import importlib.util
 import itertools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -3148,6 +3149,17 @@ def test_cli_text_json_and_sentinels(tmp_path):
     helped = subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--help"], capture_output=True, text=True,
                             encoding="utf-8")
     assert helped.returncode == 0 and "--before" in helped.stdout and "抓不到" in helped.stdout
+
+
+def test_help_on_a_cp950_terminal_prints_without_traceback():
+    """cp950 編碼的終端機（沒開 UTF-8 模式）跑 --help：說明裡有 cp950 沒有的字（≥ 等），原本 argparse 印到一半丟
+    UnicodeEncodeError；現在照常印完、結束碼 0。"""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+    env["PYTHONIOENCODING"] = "cp950"
+    helped = subprocess.run([sys.executable, str(SCRIPT), "--help"], capture_output=True, env=env)
+    err = helped.stderr.decode("utf-8", "replace")
+    assert helped.returncode == 0 and "Traceback" not in err, err[-400:]
+    assert "--before" in helped.stdout.decode("utf-8", "replace")
 
 
 @pytest.fixture(autouse=True)
