@@ -26,6 +26,7 @@ from handlers import session_start as ss  # noqa: E402
 import wg_core  # noqa: E402
 
 _SID = "sid-later"
+_REAL_DETECT = st._detect_uncommitted_files
 _A = "c:/p/docs/a.md"
 _B = "c:/p/docs/b.md"
 _C = "c:/p/docs/c.md"
@@ -79,9 +80,11 @@ def flow(monkeypatch, tmp_path):
         return json.loads(cap.out)["hookSpecificOutput"]["additionalContext"] if cap.out.strip() else ""
 
     def stop_run(capsys, text="先改到這裡，等你看過再說。", uncommitted=True, config=None):
+        """uncommitted：True＝改過的檔都算沒提交、False＝都算提交了、None＝真的查 git／svn status。"""
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: text)
         monkeypatch.setattr(st, "_detect_uncommitted_files",
-                            (lambda mf: [m["path"] for m in mf]) if uncommitted else (lambda mf: []))
+                            _REAL_DETECT if uncommitted is None
+                            else (lambda mf: [m["path"] for m in mf]) if uncommitted else (lambda mf: []))
         logs.clear()
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": ""}, config or {})
@@ -375,3 +378,20 @@ def test_later_turn_preview_lists_sync_only_when_owed(flow, capsys, monkeypatch)
     state["sync_reminder_count"] = 1
     out, _, _ = stop_run(capsys, text="好了。")
     assert "DeferralGate" in out and "同步：" not in out, out
+
+
+def test_unknown_write_recovered_gets_sync_reminder(flow, capsys, tmp_path, monkeypatch):
+    """規則 UNKNOWN_WRITE_RECOVERED：第 2 回合 AI 只用 `cd 專案 && python -I -c "…open(p,'w')…"` 改 notify/sender.py（寫入目標判不出），
+    真的 PostToolUse 從 git status 補進 modified_files → 收尾照真的 git status 判未提交：對帳閘先擋（改了程式欠案例），預覽列出同步；
+    對帳與驗證範圍關掉時同步提醒自己擋。舊碼：modified_files 空、兩道都不擋（紅）。（v6 開才記 Bash 的寫入目標，這案只跑 v6 開）"""
+    from verify_unknown_write_recover import NOTIFY, PY_C_SENDER, bash_unknown_write, init_repo, py_c
+    state, ups_run, stop_run = flow
+    _first_turn_question_only(state, ups_run, stop_run, capsys)
+    ups_run("把重試次數改成 6", capsys)
+    repo = init_repo(tmp_path / "qs3-notify", NOTIFY)
+    bash_unknown_write(monkeypatch, repo, state, py_c(repo, PY_C_SENDER), PY_C_SENDER, sid=_SID)
+    out, _, _ = stop_run(capsys, uncommitted=None)
+    assert "改了程式碼（sender.py）" in out and "同步：1 個改過的檔還沒 commit" in out, out
+    out, _, _ = stop_run(capsys, uncommitted=None,
+                         config={"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}})
+    assert "[Guardian:SyncReminder]" in out and "偵測到 1 個" in out, out
