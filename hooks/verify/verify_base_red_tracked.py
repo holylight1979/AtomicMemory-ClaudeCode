@@ -87,7 +87,11 @@ def test_post_tool_use_records_commit_and_cleanliness(repo, tmp_path):
     (r / "a.txt").write_text("dirty\n", encoding="utf-8")
     _post_red(state, r)
     assert state["red_run_commits"][-1]["clean"] is False
+    _post_red(state, tmp_path, f"Set-Location -LiteralPath '{wt}'; {RED_CMD}")             # PowerShell 帶參數名換目錄也記得到
+    assert state["red_run_commits"][-1]["head"] == base and Path(state["red_run_commits"][-1]["dir"]) == wt
     n = len(state["red_run_commits"])
+    _post_red(state, tmp_path, f"cd {wt.as_posix()} && {RED_CMD}; cd {r.as_posix()} && {RED_CMD}")   # 兩段測試：分不出紅在哪段
+    assert len(state["red_run_commits"]) == n
     pt._track_test_result(state, {"session_id": _SID, "cwd": str(r), "tool_response": {"stdout": "boom", "exit_code": 1}},
                           RED_CMD, "Bash", {})
     assert len(state["red_run_commits"]) == n                                # 看不出是哪一支紅：不記成證據

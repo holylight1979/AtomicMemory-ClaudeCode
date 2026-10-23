@@ -266,3 +266,14 @@ def test_008_delete_forms_into_root_denied():
     for cmd in ("rd -r ~/.claude/hooks", "ri ~/.claude/hooks/x.py", "del ~/.claude/hooks/x.py"):
         assert _denied(cmd, tool="PowerShell"), cmd
     assert not _denied("rm -r ./build", cwd=PROJ)
+
+
+def test_008_unknown_part_does_not_hide_root_target(monkeypatch):
+    """UNKNOWN_PART_KEEPS_KNOWN_TARGETS（codex 一輪）：一個參數像內嵌碼、或另一段目標展不開，舊碼整條只回 UNKNOWN、跨層閘放過
+    明確的核心檔刪除；現在照擋。"""
+    monkeypatch.delenv("NOPE_X_008", raising=False)
+    for cmd in ("rm -rf ~/.claude/hooks/x.py '[System.IO.Directory]::'", "rm -rf ~/.claude/hooks/x.py '[IO.File]::'",
+                'rm ~/.claude/hooks/x.py; echo hi > "$NOPE_X_008/out"', 'rm -rf ~/.claude/hooks/x.py "$(echo hi > /tmp/q)"'):
+        assert _denied(cmd), cmd
+    assert not _denied('git -C ~/.claude status; echo ";&" git reset --hard')     # 引號裡的 ;& 不是段界（只有 echo 的參數）
+    assert not _denied('git -C ~/.claude status; echo "" git reset --hard')

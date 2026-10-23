@@ -103,7 +103,11 @@ RULES: Dict[str, str] = {
                                        "rmdir；PowerShell 的 Remove-Item 與別名 ri、del、erase、rd、rmdir、rm；Set-Location／sl／chdir／"
                                        "Push-Location（含 -Path、-LiteralPath）之後的相對目標照換過的目錄算。目標從管線進來（Get-Item x | Remove-Item）"
                                        "或 [System.IO.File|Directory]:: → UNKNOWN（照 UNKNOWN_TARGET_LOGGED），不是沒看到。判定在 hooks/wg_core._scan_segment。",
-    "DIR_TARGET_JUDGED_BY_CONTAINER": "改檔閘逐目標判時，整個資料夾當目標（rm -rf、Remove-Item -Recurse、搬走）看它所在的上一層屬於哪個專案，"
+    "UNKNOWN_PART_KEEPS_KNOWN_TARGETS": "寫入目標掃描器：一條指令裡有判不出目標的部分（$(…) 裡有寫入、[IO.File]:: 這類內嵌碼、展不開的變數目標），"
+                                        "只多記一筆 UNKNOWN，同段與別段看得懂的目標照列：`rm <核心檔> '[IO.File]::'`、"
+                                        "`rm <核心檔>; echo x > \"$VAR/out\"` 舊碼只回 UNKNOWN、跨層閘放過，現在照擋。"
+                                        "判定在 hooks/wg_core._scan_segment 與 _shell_write_paths。",
+    "DIR_TARGET_JUDGED_BY_CONTAINER":"改檔閘逐目標判時，整個資料夾當目標（rm -rf、Remove-Item -Recurse、搬走）看它所在的上一層屬於哪個專案，"
                                       "不拿資料夾自己的專案標記（.git、_AIDocs、部位表）：刪掉整個專案資料夾不是在改那個專案的檔，拿它自己當根只會要求"
                                       "讀「(outside)」的檔、永遠讀不到。上一層是專案就照它的規則；資料夾裡的單一檔照舊。cwd 這類「我在哪」的目錄不走這條。"
                                       "判定在 hooks/wg_overview.write_target_root。",
@@ -753,39 +757,53 @@ SHELL_PREFIX_KEYWORDS = frozenset({"do", "then", "else", "elif", "if", "while", 
 _GIT_GLOBAL_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"})
 
 
-_SEG_PUNCT = ";&|"
+_SEG_BREAKS = frozenset(";&|\n")
 
 
-def _shell_words(text: str) -> List[str]:
-    """一行 shell 斷字（引號照 POSIX、`#` 不當註解）；`;`／`&`／`|` 連著寫的那串單獨成一個字（`a;` → `a`、`;`）。
-    引號沒收拋 ValueError。"""
-    lex = shlex.shlex(text, posix=True, punctuation_chars=_SEG_PUNCT)
-    lex.whitespace_split = True
-    lex.commenters = ""
-    return list(lex)
+def _unquoted_pieces(raw: str) -> Optional[List[str]]:
+    """引號外的 ; & | 換行切開（單引號裡什麼都照字面；雙引號裡與引號外 \\ 跳脫下一個字）；引號到最後沒收回 None。"""
+    pieces: List[str] = []
+    buf: List[str] = []
+    quote = ""
+    i = 0
+    while i < len(raw):
+        c = raw[i]
+        i += 1
+        if c == "\\" and quote != "'" and i < len(raw):
+            buf += [c, raw[i]]
+            i += 1
+            continue
+        if quote:
+            quote = "" if c == quote else quote
+        elif c in "'\"":
+            quote = c
+        elif c in _SEG_BREAKS:
+            pieces.append("".join(buf))
+            buf = []
+            continue
+        buf.append(c)
+    return None if quote else pieces + ["".join(buf)]
 
 
 def _shlex_segments(raw: str) -> Optional[List[List[str]]]:
-    """指令切段：先按換行切（shlex 會把換行當空白吞掉，第二行的 reset 會被當成第一行 status 的參數），
-    再按 && || ; | & 切段（引號內不切）。規則 SEGMENTS_SPLIT_LIKE_SHELL：引號裡的換行不是段界：一行切不開（引號沒收）
-    就接下一行再切，`python -c "…多行…"` 整段是一個參數，接到最後仍不完整才回 None；分隔符黏在字上（`a; do`、`x&&git`）也切。
+    """指令切段：按引號外的換行與 && || ; | & 切（shlex 會把換行當空白吞掉，第二行的 reset 會被當成第一行 status 的參數），
+    每段再用 shlex 斷字。規則 SEGMENTS_SPLIT_LIKE_SHELL：引號裡的換行與 ; & | 都不是段界（`python -c "…多行…"`、
+    `echo ";&" git reset` 整段是 echo 的參數），引號到最後沒收才回 None；分隔符黏在字上（`a; do`、`x&&git`）也切。
     段首的 shell 保留字（do、then、{…）剝掉（SHELL_KEYWORD_PREFIX_STRIPPED）。"""
+    pieces = _unquoted_pieces(raw)
+    if pieces is None:
+        return None
     segs: List[List[str]] = []
-    pending = ""
-    for line in raw.split("\n"):
-        pending = f"{pending}\n{line}" if pending else line
+    for piece in pieces:
         try:
-            tokens = _shell_words(pending)
+            tokens = shlex.split(piece, posix=True)
         except ValueError:
-            continue
-        pending = ""
-        segs.append([])
-        for tok in tokens:
-            if tok and set(tok) <= set(_SEG_PUNCT):
-                segs.append([])
-            elif segs[-1] or tok not in SHELL_PREFIX_KEYWORDS:
-                segs[-1].append(tok)
-    return None if pending else segs
+            return None
+        while tokens and tokens[0] in SHELL_PREFIX_KEYWORDS:
+            tokens.pop(0)
+        if tokens:                       # && 與 || 之間、只有保留字的段是空的
+            segs.append(tokens)
+    return segs
 
 
 def _git_segments_readonly(command: str, segments: Optional[Sequence[Sequence[str]]] = None) -> Tuple[bool, List[str]]:
@@ -2866,8 +2884,8 @@ RULES["BASE_RED_TRACKED_NOT_OWED"] = (
     "哪份追蹤文件）：(1) 本 session 真的在那個 commit 的乾淨工作樹跑過、那次紅的就有這一支（跑紅時記下 HEAD 與已追蹤檔有沒有改動，"
     "state red_run_commits；不從別處推論）；(2) 那個 commit 是現在 HEAD 的祖先、在本 session 開始之前就有（committer 時間；"
     "本 session 做的 merge、rebase、提交都不算）、不在本 session 的提交紀錄裡；(3) 追蹤文件（.md／.txt）"
-    "在、本 session 沒改過、內文點名這一支。缺一照擋：基底綠、這次紅 → 沒有基底的紅可對，照擋；擋訊息說缺哪一件。"
-    "摘要沒逐支列出失敗的不收（看不出基底紅的是不是同一支）。事實在 handlers/post_tool_use._track_test_result（記）與 "
+    "在、本 session 沒改過、內文點名這一支（整詞）。缺一照擋：基底綠、這次紅 → 沒有基底的紅可對，照擋；擋訊息說缺哪一件。"
+    "摘要沒逐支列出失敗的不收（看不出基底紅的是不是同一支）；基底那次的指令要只有一段測試，好幾段測試的紅分不出是哪一段的、不記成證據。事實在 handlers/post_tool_use._track_test_result（記）與 "
     "handlers/stop.py 的 TestFailGate 段（查祖先、讀追蹤文件）蒐集。")
 _BASE_RED_RE = lazy_re(r"基底紅\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
 _BASE_SHA_RE = lazy_re(r"(?<![0-9a-fA-F])[0-9a-fA-F]{7,40}(?![0-9a-fA-F])")
@@ -2921,8 +2939,8 @@ def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, facts: Dict[str, Any])
         return f"追蹤文件 {d['tracking']} 不是 {'／'.join(BASE_RED_DOC_EXTS)}（測試檔、程式檔不算追蹤項）"
     if t.get("own_edit"):
         return f"追蹤文件 {d['tracking']} 本 session 改過（追蹤項要是改動前就記下的）"
-    if d["item"].lower() not in str(t.get("text") or "").lower():
-        return f"追蹤文件 {d['tracking']} 沒點名 {d['item']}"
+    if not re.search(rf"(?<!\w){re.escape(d['item'])}(?!\w)", str(t.get("text") or ""), re.IGNORECASE):
+        return f"追蹤文件 {d['tracking']} 沒點名 {d['item']}（要整詞出現，test_x_other 不算點名 test_x）"
     return ""
 
 

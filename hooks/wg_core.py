@@ -2311,7 +2311,8 @@ _BASH_WRITE_OP_RE = lazy_re(
 #      cp 家族目標是目錄（尾 / 或既存目錄、或多來源）→ 目錄/basename(src)。
 #   R4 UNKNOWN 只在「有寫入訊號但算不出目標」：目標含展不開的變數（$HOME／~ 除外）、$(…)／反引號／eval 裡含寫入、
 #      直譯器內嵌碼（python -c／python -／node -e／pwsh -Command／[IO.File]::／open(…,'w')／fs.writeFile）、
-#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。回 ["UNKNOWN:<該段前 40 字>"]，on_edit 照 UNKNOWN_TARGET_LOGGED 放行留帳。
+#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。算得出的目標照列、再加一筆 "UNKNOWN:<該段前 40 字>"
+#      （UNKNOWN_PART_KEEPS_KNOWN_TARGETS），on_edit 對那一筆照 UNKNOWN_TARGET_LOGGED 放行留帳。
 #   R5 `;`／`&&`／換行的 cd 生效到後段；||／| 右側的 cd 不外溢；(…) 子 shell 的 cd 不外溢，裡面的目標照算。
 _WRITE_CMDS = frozenset({
     "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "rmdir", "truncate", "sed", "sort",
@@ -2992,13 +2993,10 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
             continue
         words.append(t)
         i += 1
-    for w in words:
-        if w.subst and any(_inner_has_signal(s, cwd) for s in w.subst):
-            _mark_unknown(out, seg)
-            return cwd
-        if _INLINE_CODE_RE.search(w.text):
-            _mark_unknown(out, seg)
-            return cwd
+    # 規則 UNKNOWN_PART_KEEPS_KNOWN_TARGETS：某個字判不出（$(…) 裡有寫入、[IO.File]:: 這類內嵌碼）只多記一筆 UNKNOWN，
+    # 同一段看得懂的目標照算（`rm -rf <核心檔> '[IO.File]::'` 不能讓後面那個參數蓋掉前面明確的刪除）
+    if any((w.subst and any(_inner_has_signal(s, cwd) for s in w.subst)) or _INLINE_CODE_RE.search(w.text) for w in words):
+        _mark_unknown(out, seg)
     from wg_release_rules import SHELL_PREFIX_KEYWORDS    # 規則 SHELL_KEYWORD_PREFIX_STRIPPED：do／then／{ 後面才是命令
     k = 0
     while k < len(words) and (_ENV_ASSIGN_RE.match(words[k].text) or words[k].text.lower() in _WRAPPERS
@@ -3140,12 +3138,13 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
 
 
 def _shell_write_paths(out: Optional[_Scan]) -> List[str]:
-    """掃描結果 → 寫入目標：沒有寫入訊號回 []；有訊號但算不出目標回 ["UNKNOWN:<該段前 40 字>"]。"""
+    """掃描結果 → 寫入目標：沒有寫入訊號回 []；有段算不出目標 → 算得出的目標照列，最後加一筆 "UNKNOWN:<第一個判不出那段前 40 字>"
+    （規則 UNKNOWN_PART_KEEPS_KNOWN_TARGETS：一段判不出不能蓋掉別段明確的目標，`rm <核心檔>; echo x > "$VAR/out"` 照擋）。"""
     if out is None or not out.signal:
         return []
     if out.unknown is not None:
         why = f"｜內嵌碼：{out.why[:60]}" if out.why else ""
-        return [f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}{why}"]
+        return [*out.targets, f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}{why}"]
     return out.targets
 
 
