@@ -806,3 +806,26 @@ def test_005_same_decline_in_same_turn_logged_once(drive, capsys, tmp_path):
     _, _, la = drive(f"不需第二意見｜{long_a}", capsys, state=state)
     _, _, lb = drive(f"不需第二意見｜{long_b}", capsys, state=state)
     assert len(_so_logs(la, "declined")) == 1 and len(_so_logs(lb, "declined")) == 1, "前 200 字相同、後面不同是兩句"
+
+
+# ─── UNKNOWN_WRITE_RECOVERED：判不出目標的 Bash 寫入補進 modified_files 後，第二意見照數程式檔 ─────────────────
+
+def test_unknown_write_recovered_files_count_for_second_opinion(drive, capsys, tmp_path, monkeypatch):
+    """AI 只用 heredoc 餵給 python 改 3 支程式、新增 1 支程式與 1 支測試（寫入目標判不出），真的 PostToolUse 從 git status 補進
+    modified_files → 宣告完成、本回合沒跑第二意見 → 照擋「程式檔 5 個」。舊碼：modified_files 空，第二意見不數（紅）。"""
+    from verify_unknown_write_recover import NOTIFY, bash_unknown_write, heredoc, init_repo
+    repo = init_repo(tmp_path / "qs3-notify", NOTIFY)
+    code = ("def edit(p, old, new):\n"
+            "    s = open(p, encoding='utf-8').read()\n"
+            "    open(p, 'w', encoding='utf-8').write(s.replace(old, new))\n"
+            "edit('notify/sender.py', 'MAX_RETRIES = 3', 'MAX_RETRIES = 6')\n"
+            "edit('notify/format.py', 'text.strip()', 'text.strip().upper()')\n"
+            "edit('notify/__init__.py', '', 'VERSION = 2\\n')\n"
+            "for p in ('notify/log.py', 'tests/test_sender.py'):\n"
+            "    open(p, 'w').write('x = 1\\n')\n")
+    state = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0,
+             "turn_seq": 5, "turn_prompts_seq": 5, "muted": True, "session": {"cwd": str(repo)}}
+    bash_unknown_write(monkeypatch, repo, state, f"cd {repo.as_posix()} && " + heredoc(code), code, sid=SID)
+    reason, _, logs = drive(DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" in reason and "程式檔 5 個" in reason, reason
+    assert all(m["via"] == "vcs_status" for m in state["modified_files"])

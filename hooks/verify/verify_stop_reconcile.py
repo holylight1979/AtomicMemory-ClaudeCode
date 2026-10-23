@@ -4654,6 +4654,27 @@ def test_trim_live_config_blocks_only_two_things():
     assert cfg["atom_audit"]["enabled"] is False
 
 
+# ─── UNKNOWN_WRITE_RECOVERED：判不出目標的 Bash 寫入補進 modified_files 後，對帳 (d) 照常判 ─────────────────
+
+def test_unknown_write_recovered_code_owes_case(driven, capsys, tmp_path, monkeypatch):
+    """補題第一版：AI 只用 `cd 專案 && python -I -c "…open(p,'w')…"` 改 notify/sender.py（寫入目標判不出），真的 PostToolUse
+    從 git status 補進 modified_files → 收尾 (d) 照擋「改了程式碼（sender.py）」；之後用同樣寫法補一支覆蓋它的案例
+    tests/test_sender.py（未追蹤的新檔也補得到）→ 不欠。舊碼：modified_files 空，(d) 不擋（紅）。"""
+    from verify_unknown_write_recover import NOTIFY, PY_C_SENDER, bash_unknown_write, init_repo, py_c
+    monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile, raising=False)
+    repo = init_repo(tmp_path / "qs3-notify", NOTIFY)
+    state, _ = bash_unknown_write(monkeypatch, repo, {"turn_seq": 5, "session": {"cwd": str(repo)}},
+                                  py_c(repo, PY_C_SENDER), PY_C_SENDER, sid=_SID)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=state.get("modified_files") or [])
+    assert "(d) CASE_COVERS_CHANGE：改了程式碼（sender.py）" in out, out
+    case = ("p='tests/test_sender.py'\nopen(p,'w',encoding='utf-8').write("
+            "'from notify.sender import MAX_RETRIES\\n\\n\\ndef test_retries():\\n    assert MAX_RETRIES == 6\\n')\n")
+    state, _ = bash_unknown_write(monkeypatch, repo, state, py_c(repo, case), case, sid=_SID)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=state.get("modified_files") or [])
+    assert "改了程式碼（sender.py）" not in out, out
+
+
 if __name__ == "__main__":
     # 開乾淨的子行程跑：直接跑時本檔先以 __main__ 載入，wg_core 會在 conftest 隔離資料根之前就 import 進來（資料根指到真的
     # 那一份），同一行程裡再收集測試就沿用它，git 錄音的呼叫序列跟著執行位置變；子行程裡照 pytest 跑法從頭載入

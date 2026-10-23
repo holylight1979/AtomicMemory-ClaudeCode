@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
@@ -761,26 +761,28 @@ def _note_committed_new_code(state: Dict[str, Any], own: List[Dict[str, Any]], c
             r["paths"] = list(dict.fromkeys(r["paths"] + new))[-200:]
 
 
-def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "") -> None:
+def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "",
+                   via: str = "") -> None:
     """modified_files 以 (path, session_id) 去重：重複編輯只累加 count、刷 at／tool／last_turn_seq，
     不無限累積 entry。turn_seq＝第一次改的回合、last_turn_seq＝最近一次改的回合（對帳閘「本 turn 改了哪些」用）。
     消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。
     子代理（agent_id 非空）改的檔另記一份到 agent_modified_files[agent_id]（SubagentStop 的對帳／量尺閘只看子代理自己的）；
     主 session 的 modified_files 照舊也記，主 session 行為不變。
     sha＝寫完之後的內容雜湊（small_content_sha，太大的檔不記）；檔已不存在（rm、搬走）就留上一次的：Stop 判已不存在的檔
-    是不是搬到同根新出現的程式檔（規則 MOVED_NEW_CODE_SEEN）要比它最後的內容。"""
+    是不是搬到同根新出現的程式檔（規則 MOVED_NEW_CODE_SEEN）要比它最後的內容。
+    via＝這一次怎麼知道它被改的：空＝工具輸入就寫明了目標；"vcs_status"＝目標判不出、事後從版控狀態補算（UNKNOWN_WRITE_RECOVERED）。"""
     sha = small_content_sha(file_path)
-    _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name, sha)
+    _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name, sha, via)
     if agent_id:
         _upsert_modified(state, state.setdefault("agent_modified_files", {}).setdefault(agent_id, []),
-                         session_id, file_path, tool_name, sha)
+                         session_id, file_path, tool_name, sha, via)
     state["sync_pending"] = True
 
 
 def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_id: str, file_path: str,
-                     tool_name: str, sha: Optional[str] = None) -> None:
+                     tool_name: str, sha: Optional[str] = None, via: str = "") -> None:
     """同一個檔不論哪種寫法（Edit 的反斜線、Bash 的正斜線、大小寫、`..`）只留一筆，比對用 canon_path；
-    path 欄保留第一次記下的原字串。sha 是 None（檔不在、讀不到）不蓋掉舊值。"""
+    path 欄保留第一次記下的原字串。sha 是 None（檔不在、讀不到）不蓋掉舊值。via 跟著最近一次寫入（跟 tool 欄一樣）。"""
     turn = int(state.get("turn_seq", 0))
     key = canon_path(file_path)
     for m in mods:
@@ -799,6 +801,10 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
             m.setdefault("turn_seq", turn)
             if sha:
                 m["sha"] = sha
+            if via:
+                m["via"] = via
+            else:
+                m.pop("via", None)
             break
     else:
         now = _now_iso()
@@ -813,6 +819,7 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
             "turn_seq": turn,
             "last_turn_seq": turn,
             **({"sha": sha} if sha else {}),
+            **({"via": via} if via else {}),
         })
 
 
@@ -821,16 +828,100 @@ EXEC_TURN_KEYS_CAP = 50          # exec_turn_seq 最多記幾個 session／子�
 
 
 def _note_unknown_write(state: Dict[str, Any], session_id: str, target: str, command: str, tool_name: str,
-                        agent_id: str = "") -> None:
+                        agent_id: str = "", input_data: Optional[Dict[str, Any]] = None) -> List[str]:
     """寫入目標算不出來（write_paths_from_tool 回 UNKNOWN:…）→ 記一筆「未知寫入」：知道有寫、不知道寫了哪個檔，
     不能當成沒寫（規則 UNKNOWN_TARGET_LOGGED：放行並留帳）。主 session 與裁判記 unknown_writes（這個使用者回合有一筆就算寫碼回合，
-    wg_core.coding_turn），子代理記 agent_unknown_writes[agent_id]；Stop 只留帳 unknown_writes_logged。每份最多留 UNKNOWN_WRITES_CAP 筆。"""
-    rec = {"cmd": " ".join(str(command or "").split())[:120], "target": str(target)[:60], "tool": tool_name,
-           "session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()}
+    wg_core.coding_turn），子代理記 agent_unknown_writes[agent_id]；Stop 只留帳 unknown_writes_logged。每份最多留 UNKNOWN_WRITES_CAP 筆。
+    有 hook 輸入（input_data）→ 規則 UNKNOWN_WRITE_RECOVERED：從版控狀態補出這條指令真的改了哪些檔（_recover_unknown_write），
+    記進 modified_files，對帳、第二意見、同步提醒照常判；補到的記在這一筆的 recovered，補不到的原因記 unrecovered。回補到的檔。"""
+    rec: Dict[str, Any] = {"cmd": " ".join(str(command or "").split())[:120], "target": str(target)[:60], "tool": tool_name,
+                           "session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()}
+    noted: List[str] = []
+    if input_data is not None:
+        noted, why = _recover_unknown_write(state, session_id, command, tool_name, agent_id, input_data)
+        if noted:
+            rec["recovered"] = noted[:10]
+        if why:
+            rec["unrecovered"] = why[:200]
     lst = (state.setdefault("agent_unknown_writes", {}).setdefault(agent_id, []) if agent_id
            else state.setdefault("unknown_writes", []))
     lst.append(rec)
     del lst[:-UNKNOWN_WRITES_CAP]
+    return noted
+
+
+UNKNOWN_SLOW_ROOTS_CAP = 10
+
+
+def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str, tool_name: str, agent_id: str,
+                           input_data: Dict[str, Any]) -> Tuple[List[str], str]:
+    """規則 UNKNOWN_WRITE_RECOVERED（判法在 wg_unknown_write.recover）：指令開始時間從 transcript 找，這之後寫過、版控說有改動的檔
+    記進 modified_files（via=vcs_status）。本 session 已經記過的檔：內容雜湊跟上次一樣、或上次記下之後 mtime 沒再變（太大的檔
+    沒有雜湊，靠這一條）→ 這次沒改到它，不刷成本回合改的；暫存路徑照 Edit 的規矩濾掉。整棵查逾時的根記在
+    state unknown_write_slow_roots，同 session 之後只查點名的檔。
+    回 (補到的檔, 補不到或只補到一部分的原因)；耗時（含雜湊與啟動器檢查）與結果留 guard-unknown_write.jsonl。
+    出錯只 stderr＋留帳、照記已補到的，不影響這次工具。"""
+    import wg_unknown_write as uw
+    t0 = time.monotonic()
+    cwd = input_data.get("cwd", "") or (state.get("session") or {}).get("cwd", "") or ""
+    try:
+        started, start_from = _tool_start_bound(str(input_data.get("transcript_path") or ""),
+                                                str(input_data.get("tool_use_id") or ""))
+        slow = [str(r) for r in state.get("unknown_write_slow_roots") or []]
+        paths, note = uw.recover(command, cwd, started, slow)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:UnknownWrite] 補算改檔失敗（這次判不出目標的寫入只留帳）：{type(e).__name__}: {e}", file=sys.stderr)
+        _atom_debug_error("post_tool_use:unknown_write_recover", e)
+        return [], f"補算失敗：{type(e).__name__}: {e}"
+    if note["slow"]:
+        state["unknown_write_slow_roots"] = list(dict.fromkeys(slow + note["slow"]))[-UNKNOWN_SLOW_ROOTS_CAP:]
+    before = {canon_path(m["path"]): m for m in state.get("modified_files") or []
+              if isinstance(m, dict) and m.get("path") and m.get("session_id", session_id) == session_id}
+    noted: List[str] = []
+    why = note["why"]
+    for p in paths:
+        try:
+            if _is_ephemeral_path(p) or _unchanged_since_noted(p, before.get(canon_path(p))):
+                continue
+            _note_modified(state, session_id, p, tool_name, agent_id, via=uw.VIA)
+            noted.append(p)
+            _note_launcher(p)         # LAUNCHER_NOT_CODE：內嵌碼寫出來的啟動器也認
+        except Exception as e:  # noqa: BLE001
+            print(f"[Guardian:UnknownWrite] 補記 {p} 失敗：{type(e).__name__}: {e}", file=sys.stderr)
+            why = "；".join(x for x in (why, f"補記 {Path(p).name} 失敗：{type(e).__name__}") if x)
+    append_guard_log("unknown_write", {"session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "tool": tool_name,
+                                       "agent": bool(agent_id), "ms": int((time.monotonic() - t0) * 1000),
+                                       "status_ms": note.get("ms"), "roots": note["roots"], "named": note["named"],
+                                       "listed": len(paths), "recovered": len(noted), "lag_ms": note.get("lag_ms"),
+                                       "start_from": start_from, "why": why})
+    if why and note["roots"]:
+        print(f"[Guardian:UnknownWrite] {why}", file=sys.stderr)
+    return noted, why
+
+
+def _unchanged_since_noted(path: str, prev: Optional[Dict[str, Any]]) -> bool:
+    """本 session 已經記過這個檔，而且之後沒再改：內容雜湊跟記下的一樣；或沒有雜湊可比（太大的檔）而 mtime 不晚於上次記下的時間
+    （記錄時間只到秒，放寬 1 秒）。沒記過、讀不到 → False（照補）。"""
+    if not prev:
+        return False
+    sha = small_content_sha(path)
+    if sha:
+        return sha == prev.get("sha")
+    from datetime import datetime
+    try:
+        at = datetime.fromisoformat(str(prev.get("last_at") or prev.get("at") or "")).timestamp()
+        return os.path.getmtime(path) < at + 1
+    except (ValueError, OSError):
+        return False
+
+
+def _note_launcher(path: str) -> None:
+    """note_git_launcher 包一層：讀不了的內容（非 UTF-8 的 .py）、查 git 出錯只 stderr，不讓同一批後面的改檔記不到。"""
+    try:
+        note_git_launcher(path)
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify_ledger] 判斷 {Path(path).name} 是不是一次性啟動器失敗，照算程式（LAUNCHER_NOT_CODE）："
+              f"{type(e).__name__}: {e}", file=sys.stderr)
 
 
 def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command: str, tool_name: str,
@@ -903,9 +994,11 @@ _EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 
 
 def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
-                          input_data: Dict[str, Any], config: Dict[str, Any]) -> Tuple[Optional[str], bool]:
+                          input_data: Dict[str, Any], config: Dict[str, Any],
+                          recovered: Sequence[str] = ()) -> Tuple[Optional[str], bool]:
     """需求目標樹（wg_need_goal）：need_goal 工具呼叫套用到目標樹並送回整棵樹、目標改了清各部位的「已定位」、
     改檔與收據蓋號、讀到帶【需求目標樹】區塊的續接單時匯入。回（要送回 AI 的提示, state 有沒有變）。
+    recovered＝Bash／PowerShell 判不出目標、事後從版控狀態補到的檔（UNKNOWN_WRITE_RECOVERED），跟算得出的目標一樣蓋號。
     目標檔自己整段上鎖；這裡出錯只 stderr＋守門紀錄，不影響工具結果。"""
     import wg_need_goal as ng
     is_ng = tool_name.endswith("need_goal")
@@ -938,7 +1031,8 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
             fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
             targets = [fp] if fp else []
         else:
-            targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
+            targets = list(_write_paths_from_tool(tool_name, tool_input, cwd) or []) if _write_paths_from_tool is not None else []
+            targets += list(recovered)
         agent_id = str(input_data.get("agent_id") or "")
         lines: List[str] = []
         for p in targets or []:
@@ -1064,7 +1158,7 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
         targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
         for p in targets or []:
             if p and p.startswith("UNKNOWN:"):
-                _note_unknown_write(state, session_id, p, command, tool_name)
+                _note_unknown_write(state, session_id, p, command, tool_name, "", input_data)
             elif p and not _is_ephemeral_path(p):
                 _note_modified(state, session_id, p, tool_name)
         _note_commit(state, command, config, session_id)
@@ -1102,8 +1196,8 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
         return
     aid = str(input_data.get("agent_id") or "")
     command = str((input_data.get("tool_input") or {}).get("command") or "")
-    noted = _note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None else []
-    dirty = bool(noted)
+    noted, dirty = (_note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None
+                    else ([], False))
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
     if exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
@@ -1144,16 +1238,24 @@ def _negative_control(input_data: Dict[str, Any], command: str):
 
 
 def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_name: str, session_id: str,
-                        aid: str, cwd: str) -> List[str]:
-    """失敗指令寫到的檔記進 modified_files，回記了哪些。指令開始時間從 transcript 找；找不到就只要存在就記，並浮一行。"""
+                        aid: str, cwd: str) -> Tuple[List[str], bool]:
+    """失敗指令寫到的檔記進 modified_files，回 (記了哪些, state 有沒有變)。指令開始時間從 transcript 找；找不到就只要存在就記，並浮一行。
+    目標判不出（heredoc 餵給直譯器、`python -c` 寫完再 exit 1）跟成功路徑一樣記未知寫入、從版控狀態補算（UNKNOWN_WRITE_RECOVERED）。"""
     started = _tool_started_at(str(input_data.get("transcript_path") or ""), str(input_data.get("tool_use_id") or ""))
     if started is None:
         print("[post_tool_use_failure] 找不到這次工具呼叫的開始時間，失敗指令的目標檔只要存在就記成改過（可能多記沒寫到的檔）",
               file=sys.stderr)
     noted: List[str] = []
+    unknown = False
+    seq0 = state.get("event_seq")         # 每記一筆改檔都會前進：中途出錯也看得出 state 已經改了
+    command = str((input_data.get("tool_input") or {}).get("command") or "")
     try:
         for p in _write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, cwd or (state.get("session") or {}).get("cwd") or "") or []:
-            if not p or p.startswith("UNKNOWN:") or _is_ephemeral_path(p) or not os.path.isfile(p):
+            if p and p.startswith("UNKNOWN:"):
+                unknown = True                # 先標：補算中途出錯，已經記進 state 的照樣寫回
+                noted += _note_unknown_write(state, session_id, p, command, tool_name, aid, input_data)
+                continue
+            if not p or _is_ephemeral_path(p) or not os.path.isfile(p):
                 continue
             if started is not None and os.path.getmtime(p) < started - 2:      # 指令開始前就是這樣：沒寫到（失敗在寫之前）
                 continue
@@ -1161,7 +1263,7 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
             noted.append(p)
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
-    return noted
+    return noted, bool(noted) or unknown or state.get("event_seq") != seq0
 
 
 def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[str], aid: str, cwd: str,
@@ -1182,27 +1284,41 @@ def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[
 
 
 def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
-    """transcript 尾段（最後 512KB）找這次 tool_use 那筆 assistant 紀錄的時間（epoch 秒）；找不到或讀不到回 None。"""
+    """這次工具呼叫開始時間的下界（epoch 秒），見 _tool_start_bound；讀不到回 None。"""
+    return _tool_start_bound(transcript_path, tool_use_id)[0]
+
+
+def _tool_start_bound(transcript_path: str, tool_use_id: str) -> Tuple[Optional[float], str]:
+    """(這次工具呼叫開始時間的下界, 怎麼得來的)：transcript 尾段（最後 512KB）找這次 tool_use 那筆 assistant 紀錄的時間（"tool_use"）。
+    找不到：Claude Code 邊串流邊執行工具，同一則回覆平行送出的第一個工具跑完時，這則回覆的紀錄常常還沒寫到磁碟
+    （實跑 12 次判不出目標的寫入有 3 次如此，都是同則第一個）——這則回覆一定在已落盤的最後一筆之後才開始，改用那筆的時間
+    （"transcript_tail"；窗口多了模型產生這則回覆的那段）。沒有 transcript、讀不到、一筆時間都沒有 → (None, "")。"""
     from datetime import datetime
-    if not transcript_path or not tool_use_id:
-        return None
+    if not transcript_path:
+        return None, ""
     try:
         with open(transcript_path, "rb") as fh:
             fh.seek(0, 2)
             fh.seek(max(0, fh.tell() - 512 * 1024))
             tail = fh.read().decode("utf-8", "replace")
     except OSError:
-        return None
+        return None, ""
+    last: Optional[float] = None
     for line in reversed(tail.splitlines()):
-        if tool_use_id not in line:
+        if last is not None and (not tool_use_id or tool_use_id not in line):
             continue
         try:
             rec = json.loads(line)
-            if rec.get("type") == "assistant" and rec.get("timestamp"):
-                return datetime.fromisoformat(str(rec["timestamp"]).replace("Z", "+00:00")).timestamp()
-        except (ValueError, TypeError):
+            ts = datetime.fromisoformat(str(rec["timestamp"]).replace("Z", "+00:00")).timestamp() if rec.get("timestamp") else None
+        except (ValueError, TypeError, KeyError):
             continue
-    return None
+        if ts is None:
+            continue
+        if tool_use_id and tool_use_id in line and rec.get("type") == "assistant":
+            return ts, "tool_use"
+        if last is None:
+            last = ts
+    return last, "transcript_tail" if last is not None else ""
 
 
 SCOPE_ASK = ("這回合改了程式：哪些測試和這次改動有關、會受影響？由你判斷，"
@@ -1282,6 +1398,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # state 鎖（dispatcher 開的 hook 模式，規則 STATE_RMW_LOCKED），別支排隊，不會互相蓋掉。
     dirty = False
     aec_reject_msgs: List[str] = []   # anti_evasion_report 分支填；尾端併入 advisories 回給模型
+    recovered: List[str] = []         # 判不出目標的寫入事後補到的檔（UNKNOWN_WRITE_RECOVERED）：目標樹也要蓋號
     v6 = v6_enabled(config)           # 關＝只跑 9e476fd0 就有的記帳與提示
 
     # ─── 救援日誌：工具呼叫命中已注入 atom 的高特異 token → rescue-log ───
@@ -1359,7 +1476,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     ):
         _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
         if v6:
-            note_git_launcher(file_path)    # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
+            _note_launcher(file_path)       # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
             _scope_ask_once(state, session_id, file_path, config)
 
         edit_counts = state.setdefault("edit_counts", {})
@@ -1480,11 +1597,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
                 _aid = str(input_data.get("agent_id") or "")
                 for _p in _write_paths_from_tool(tool_name, tool_input, _cwd) or []:
-                    if _p and _p.startswith("UNKNOWN:"):    # 目標不明：記未知寫入（收尾只留帳），不當成某個檔
-                        _note_unknown_write(state, session_id, _p, command, tool_name, _aid)
+                    if _p and _p.startswith("UNKNOWN:"):    # 目標不明：記未知寫入，再從版控狀態補出真的改了哪些檔
+                        recovered += _note_unknown_write(state, session_id, _p, command, tool_name, _aid, input_data)
                     elif _p and not _is_ephemeral_path(_p):
                         _note_modified(state, session_id, _p, tool_name, _aid)
-                        note_git_launcher(_p)     # LAUNCHER_NOT_CODE：用 shell 寫出來的啟動器也認；刪掉時標記不動
+                        _note_launcher(_p)        # LAUNCHER_NOT_CODE：用 shell 寫出來的啟動器也認；刪掉時標記不動
                     else:
                         continue
                     dirty = True
@@ -1739,7 +1856,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print(f"depends recall error: {e}", file=sys.stderr)
 
     _hook_lap("綜觀與召回")
-    ng_ctx, ng_changed = (_need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config)
+    ng_ctx, ng_changed = (_need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config, recovered)
                           if v6 else (None, False))
     dirty = dirty or ng_changed
     _hook_lap("目標樹")
