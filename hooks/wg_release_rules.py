@@ -2859,6 +2859,103 @@ def waiver_miss_notes(kept: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, 
     return out
 
 
+# ─── BASE_RED_TRACKED_NOT_OWED：改動前基底就紅、有追蹤項的紅測 ───
+RULES["BASE_RED_TRACKED_NOT_OWED"] = (
+    "改動前的基底 commit 上就紅、而且有追蹤項點名的紅測，不算本回合欠帳：收尾寫「基底紅｜<紅的那支測試名>：<基底 commit> 也紅；"
+    "追蹤 <文件路徑>」，紅的每一支都要三件同時成立才留帳放行（Logs/guard-testfail_base_red.jsonl 記哪一支、哪個基底 commit、"
+    "哪份追蹤文件）：(1) 本 session 真的在那個 commit 的乾淨工作樹跑過、那次紅的就有這一支（跑紅時記下 HEAD 與已追蹤檔有沒有改動，"
+    "state red_run_commits；不從別處推論）；(2) 那個 commit 是現在 HEAD 的祖先、不是本 session 自己提交的；(3) 追蹤文件（.md／.txt）"
+    "在、本 session 沒改過、內文點名這一支。缺一照擋：基底綠、這次紅 → 沒有基底的紅可對，照擋；擋訊息說缺哪一件。"
+    "摘要沒逐支列出失敗的不收（看不出基底紅的是不是同一支）。事實在 handlers/post_tool_use._track_test_result（記）與 "
+    "handlers/stop.py 的 TestFailGate 段（查祖先、讀追蹤文件）蒐集。")
+_BASE_RED_RE = lazy_re(r"基底紅\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
+_BASE_SHA_RE = lazy_re(r"(?<![0-9a-fA-F])[0-9a-fA-F]{7,40}(?![0-9a-fA-F])")
+_TRACK_REF_RE = lazy_re(r"追蹤\s*[｜|：:]?\s*(?:`([^`\n]+)`|([^\s，。；;、）)｜|]+))")
+BASE_RED_DOC_EXTS = (".md", ".txt")
+
+
+def parse_base_red(text: str) -> List[Dict[str, str]]:
+    """收尾文字裡的基底紅行 →[{item, base, tracking, line}]：base＝「追蹤」之前第一個 7～40 位十六進位（小寫；沒有＝空字串），
+    tracking＝「追蹤」後面的路徑（反引號包住的可含空白；尾端 :<行號> 拿掉；沒有＝空字串）。"""
+    out: List[Dict[str, str]] = []
+    for raw in str(text or "").splitlines():
+        m = _BASE_RED_RE.search(raw)
+        if not m:
+            continue
+        rest = m.group(2)
+        sha = _BASE_SHA_RE.search(rest.split("追蹤", 1)[0])
+        trk = _TRACK_REF_RE.search(rest)
+        path = re.sub(r":\d+$", "", (trk.group(1) or trk.group(2)).strip()) if trk else ""
+        out.append({"item": m.group(1).strip().strip("`"), "base": sha.group(0).lower() if sha else "",
+                    "tracking": path, "line": raw.strip()[:240]})
+    return out
+
+
+def listed_red_units(summary: Any) -> List[str]:
+    """紅測輸出逐支列出的失敗：pytest 節點，沒有就一行一支的失敗名稱；沒列出回空。跑紅時記基底證據與收尾比對用同一份。"""
+    return failed_units(summary) or failure_units(summary)
+
+
+def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, runs: Sequence[Dict[str, Any]],
+                  ancestry: Dict[Tuple[str, str], Optional[bool]], own_shas: Iterable[str],
+                  tracking: Dict[str, Dict[str, Any]]) -> str:
+    """一支紅測對一條基底紅行：三件都成立回空字串，否則回缺的那一件（擋訊息照印）。"""
+    base = d["base"]
+    if not base:
+        return "沒寫基底 commit（7 位以上的雜湊）"
+    if not any(r.get("clean") is True and str(r.get("head") or "").lower().startswith(base) and unit in (r.get("units") or ())
+               for r in runs):
+        return f"本 session 沒在基底 {base} 的乾淨工作樹跑紅過這一支（基底綠、或沒在基底跑過 → 照算本回合的紅）"
+    if any(str(s).lower().startswith(base) for s in own_shas):
+        return f"基底 {base} 是本 session 自己提交的，不是改動前"
+    if ancestry.get((base, cwd)) is not True:
+        return f"基底 {base} 不是現在 HEAD 的祖先（或查不到）"
+    t = tracking.get(d["tracking"]) if d["tracking"] else None
+    if t is None:
+        return "沒寫追蹤文件（「追蹤 <路徑>」）"
+    if not t.get("exists"):
+        return f"追蹤文件 {d['tracking']} 不存在"
+    if not t.get("doc"):
+        return f"追蹤文件 {d['tracking']} 不是 {'／'.join(BASE_RED_DOC_EXTS)}（測試檔、程式檔不算追蹤項）"
+    if t.get("own_edit"):
+        return f"追蹤文件 {d['tracking']} 本 session 改過（追蹤項要是改動前就記下的）"
+    if d["item"].lower() not in str(t.get("text") or "").lower():
+        return f"追蹤文件 {d['tracking']} 沒點名 {d['item']}"
+    return ""
+
+
+def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], runs: Sequence[Dict[str, Any]],
+                      ancestry: Dict[Tuple[str, str], Optional[bool]], own_shas: Iterable[str],
+                      tracking: Dict[str, Dict[str, Any]]
+                      ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], List[Dict[str, str]]]], List[str]]:
+    """BASE_RED_TRACKED_NOT_OWED 套在紅測清單：回 (還算紅的, [(放行的那筆, 每支一筆 {unit, base, tracking, line})], 擋訊息附註)。
+    事實由呼叫端給：runs＝state red_run_commits（本 session 的）、ancestry[(基底, 那筆紅的 cwd)]＝是不是 HEAD 的祖先、
+    own_shas＝本 session 提交過的 commit、tracking[路徑]＝{exists, doc, own_edit, text}。沒有任何基底紅行對到的紅照原樣留著、不附註。"""
+    own = [str(s) for s in own_shas or ()]
+    kept: List[Dict[str, Any]] = []
+    based: List[Tuple[Dict[str, Any], List[Dict[str, str]]]] = []
+    notes: List[str] = []
+    for f in failing:
+        units, listed = _waiver_units(f or {})
+        named = [(u, next((d for d in decls if names_failed_test(u, d["item"])), None)) for u in units]
+        if not any(d for _, d in named):
+            kept.append(f)
+            continue
+        if not listed:
+            kept.append(f)
+            notes.append("基底紅要逐支列得出是哪一支：這筆紅的輸出沒列 FAILED／ERROR 行，別截斷輸出、單獨重跑一次")
+            continue
+        cwd = str(f.get("cwd") or "")
+        gaps = [(u, _base_red_gap(u, d, cwd, runs, ancestry, own, tracking) if d else "沒有對到它的基底紅行") for u, d in named]
+        bad = [f"基底紅不成立（{u[:100]}）：{g}" for u, g in gaps if g]
+        if bad:
+            kept.append(f)
+            notes += [n for n in bad if n not in notes]
+            continue
+        based.append((f, [{"unit": u, "base": d["base"], "tracking": d["tracking"], "line": d["line"]} for u, d in named]))
+    return kept, based, notes
+
+
 # ─── 動資料檔 ───
 RULES.update({
     "USER_DATA_FILE_NEEDS_DECLARATION": "Edit／Write／NotebookEdit 動到使用者既有的資料檔或設定檔要先問或先宣告。四件事實全成立才管："

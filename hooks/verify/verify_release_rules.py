@@ -2561,3 +2561,33 @@ def test_008_delete_and_dir_target_rules_registered():
     verify_dir_target_root.py（兩種 shell 的刪除寫法、殘留資料夾放行、專案裡的子資料夾照擋）與 verify_cross_realm_bash_guard.py。"""
     assert "wg_core._scan_segment" in rr.RULES["DELETE_FORMS_SAME_ACROSS_SHELLS"]
     assert "wg_overview.write_target_root" in rr.RULES["DIR_TARGET_JUDGED_BY_CONTAINER"]
+
+
+def test_008_base_red_tracked_not_owed():
+    """BASE_RED_TRACKED_NOT_OWED：三件都對得上才放行；缺一照算紅並說缺哪件；沒有基底紅行對到的紅原樣留著、不附註。"""
+    d = rr.parse_base_red("收尾\n基底紅｜test_a：ABCDEF1234 也紅；追蹤 `docs/known red.md:12`\n基底紅｜test_b：沒寫雜湊")
+    assert d[0]["item"] == "test_a" and d[0]["base"] == "abcdef1234" and d[0]["tracking"] == "docs/known red.md"
+    assert d[1]["base"] == "" and d[1]["tracking"] == ""
+    assert rr.parse_base_red("基底紅｜test_a：abcdef1 也紅；追蹤｜x/t.md")[0]["tracking"] == "x/t.md"
+    unit_a, unit_b = "t.py::test_a", "t.py::test_b"
+    red = {"cmd": "pytest t.py", "summary": f"FAILED {unit_a} - x\nFAILED {unit_b} - y", "cwd": "C:/r"}
+    runs = [{"clean": True, "head": "abcdef1234" + "0" * 30, "units": [unit_a, unit_b]}]
+    track = {"k.md": {"exists": True, "doc": True, "own_edit": False, "text": "test_a test_b 基底就紅"}}
+    both = rr.parse_base_red("基底紅｜test_a：abcdef1234 也紅；追蹤 k.md\n基底紅｜test_b：abcdef1234 也紅；追蹤 k.md")
+    ok = {("abcdef1234", "C:/r"): True}
+    kept, based, notes = rr.base_red_failures([red], both, runs, ok, [], track)
+    assert not kept and not notes and [r["unit"] for r in based[0][1]] == [unit_a, unit_b]
+    kept, based, notes = rr.base_red_failures([red], both[:1], runs, ok, [], track)      # 兩支只宣告一支 → 整筆照紅
+    assert kept and not based and any("沒有對到它的基底紅行" in n and unit_b in n for n in notes)
+    kept, _, notes = rr.base_red_failures([red], both, runs, {("abcdef1234", "C:/r"): False}, [], track)
+    assert kept and any("不是現在 HEAD 的祖先" in n for n in notes)
+    kept, _, notes = rr.base_red_failures([red], both, [{**runs[0], "units": [unit_a]}], ok, [], track)   # 基底只紅 a、b 是這次才紅
+    assert kept and any(unit_b in n and "沒在基底" in n for n in notes)
+    kept, _, notes = rr.base_red_failures([red], both, runs, ok, [], {"k.md": {**track["k.md"], "doc": False}})
+    assert kept and any("不是 .md" in n for n in notes)
+    unlisted = {"cmd": "pytest t.py", "summary": "1 failed", "cwd": "C:/r"}
+    kept, _, notes = rr.base_red_failures([unlisted], rr.parse_base_red("基底紅｜t.py：abcdef1234 也紅；追蹤 k.md"), runs, ok, [], track)
+    assert kept and any("逐支列得出" in n for n in notes)
+    kept, based, notes = rr.base_red_failures([red], [], runs, ok, [], track)
+    assert kept == [red] and not based and not notes
+    assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []

@@ -1565,7 +1565,9 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
             "(b) 沒有 → 修到綠：程式錯就修程式；是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」"
             "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言；刻意拿舊碼跑新測試的負向對照 → 重跑那條指令、開頭加 "
             "`# 負向對照｜<指令裡的路徑>：<理由>`，那次紅就不記 "
-            "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。")
+            "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。"
+            "改動前的基底 commit 上就紅、追蹤文件也記了這一支 → 在基底 commit 的乾淨工作樹跑一次那支（要紅），收尾寫"
+            "「基底紅｜<紅的那支測試名>：<基底 commit> 也紅；追蹤 <文件路徑>」，程式核對得上就留帳放行。")
 
 
 RERUN_SCOPE_SHOWN_MAX = 600
@@ -1588,6 +1590,35 @@ def _rerun_scope(f: Dict[str, Any]) -> str:
 TF_GATE = "testfail"      # wg_release 的閘名（last_block／pending_release／user_released）
 
 
+def _base_red_facts(state: Dict[str, Any], session_id: str, failing: List[Dict[str, Any]], decls: List[Dict[str, str]],
+                    cwd: str) -> Tuple[List[Dict[str, Any]], Dict[Tuple[str, str], Optional[bool]], List[str], Dict[str, Dict[str, Any]]]:
+    """BASE_RED_TRACKED_NOT_OWED 的事實（判定在 wg_release_rules.base_red_failures）：本 session 的跑紅紀錄、每個基底對每筆紅的
+    cwd 是不是 HEAD 的祖先（git merge-base --is-ancestor；查不到當不是）、本 session 提交過的 commit、每份追蹤文件
+    （相對路徑照 session cwd 解；有沒有、是不是 .md／.txt、本 session 改過沒、內文）。"""
+    from wg_release_rules import BASE_RED_DOC_EXTS, canon_path
+    from wg_verify_ledger import _run_git
+    runs = [r for r in state.get("red_run_commits") or [] if isinstance(r, dict) and r.get("session_id") == session_id]
+    own = [s for rec in (state.get("committed_new_code") or {}).values() if isinstance(rec, dict) for s in rec.get("shas") or []]
+    ancestry: Dict[Tuple[str, str], Optional[bool]] = {}
+    for base in {d["base"] for d in decls if d["base"]}:
+        for fcwd in {str(f.get("cwd") or "") for f in failing}:
+            ancestry[(base, fcwd)] = bool(fcwd) and _run_git(Path(fcwd), ["merge-base", "--is-ancestor", base, "HEAD"], 3) is not None
+    edited = {canon_path(m.get("path")) for m in state.get("modified_files") or []
+              if isinstance(m, dict) and m.get("session_id", session_id) == session_id}
+    tracking: Dict[str, Dict[str, Any]] = {}
+    for ref in {d["tracking"] for d in decls if d["tracking"]}:
+        p = Path(os.path.expanduser(ref))
+        p = p if p.is_absolute() or not cwd else Path(cwd) / p
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")[:2_000_000] if p.is_file() else ""
+        except OSError as e:
+            print(f"[Guardian:TestFailGate] 追蹤文件 {p} 讀不了（當不存在）：{type(e).__name__}: {e}", file=sys.stderr)
+            text = ""
+        tracking[ref] = {"exists": p.is_file(), "doc": p.suffix.lower() in BASE_RED_DOC_EXTS,
+                         "own_edit": canon_path(str(p)) in edited, "text": text}
+    return runs, ancestry, own, tracking
+
+
 def _red_key(f: Dict[str, Any]) -> str:
     """一筆紅測「那一件」的鍵：跑的指令＋全部失敗節點（沒有節點就用失敗輸出）；不用擋訊息的摘要（只列前三支）。"""
     units = red_units(f)
@@ -1603,7 +1634,7 @@ def _mods_sig(mods: List[Dict[str, Any]]) -> str:
 
 def _testfail_gate(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], config: Dict[str, Any],
                    failing: List[Dict[str, Any]], code_text: str, history: List[str], turn_seq: int, uturn: int,
-                   tpath: Optional[str], hold=None) -> Tuple[Optional[str], List[str]]:
+                   tpath: Optional[str], hold=None, extra_notes: Sequence[str] = ()) -> Tuple[Optional[str], List[str]]:
     """TestFailGate（紅測＋宣告完成才呼叫）的預算與放行：吃寫碼查核那份每個使用者回合的預算（reconcile_gate_turn 鍵 "*"，
     reconcile_gate.max_blocks_per_turn），擋滿不自行放行、記 pending 要模型照【收尾放行確認】問使用者；無法互動擋滿放行並留帳。
     使用者放行的那幾筆紅測（_red_key：指令＋全部失敗節點；只放擋訊息列過的），之後的回合還紅也不再擋（綠了就從紀錄拿掉）。
@@ -1619,7 +1650,7 @@ def _testfail_gate(state: Dict[str, Any], session_id: str, input_data: Dict[str,
     if not failing:
         return None, []
     msg = testfail_message(failing, waiver_miss_notes(failing, parse_not_doing(code_text), history[-3:],
-                                                      state.get("testfail_waivers") or []))
+                                                      state.get("testfail_waivers") or []) + list(extra_notes))
     shown_keys = keys[-3:]                                   # testfail_message 只列最後 3 筆
     budget = state.setdefault("reconcile_gate_turn", {})
     rec = budget.get(session_id) if isinstance(budget.get(session_id), dict) else None
@@ -2029,6 +2060,21 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                      "cmd": str(_f.get("cmd") or "")[:200], "failing": str(_f.get("summary") or _f.get("cmd") or "")[:200]}]
                 state["testfail_waivers"] = _ledger
                 write_state(session_id, state)
+    # 規則 BASE_RED_TRACKED_NOT_OWED：收尾寫「基底紅｜<那支>：<基底 commit> 也紅；追蹤 <文件>」，三件事實（本 session 在那個 commit
+    # 的乾淨工作樹跑紅過那支、那個 commit 是 HEAD 的祖先且不是自己提交的、追蹤文件點名它）都對得上才留帳放行；缺哪一件寫進擋訊息
+    _base_notes: List[str] = []
+    if v6 and failing:
+        from wg_release_rules import base_red_failures, parse_base_red
+        _bdecls = parse_base_red(code_text)
+        if _bdecls:
+            failing, _based, _base_notes = base_red_failures(failing, _bdecls, *_base_red_facts(state, session_id, failing, _bdecls, cwd))
+            for _f, _rows in _based:
+                append_guard_log("testfail_base_red", {"session_id": session_id, "turn_seq": turn_seq, "rule": "BASE_RED_TRACKED_NOT_OWED",
+                                                       "failing_cmd": str(_f.get("cmd", ""))[:120], "units": [r["unit"][:120] for r in _rows],
+                                                       "base": sorted({r["base"] for r in _rows}), "tracking": sorted({r["tracking"] for r in _rows}),
+                                                       "line": _rows[0]["line"]})
+                print(f"[Guardian:TestFailGate] 基底就紅、有追蹤項：{'、'.join(r['unit'][:60] for r in _rows[:3])}"
+                      f"（基底 {'、'.join(sorted({r['base'] for r in _rows}))}，已留帳）", file=sys.stderr)
     # ── 連鎖斷路器（判定 hooks/wg_chain.py，帳與還原 lib/chain_store.py；v6 才有）─────────────
     # 各閘之前問一次：警報後還沒送經過表 → 擋這一次送表；使用者答了三選一 → 照答案做（還原／歸零／放行），結果附在這次收尾的出口。
     # 之後每道閘要擋或記欠之前問 _chain_hold：警報後只記錄（跳過那道閘的擋與記欠、往下走），這一次讓警報響就送中止通知取代原擋訊息。
@@ -2070,7 +2116,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         keep_released(state, session_id, TF_GATE, [])       # 紅測都綠了：先前放行的那幾支拿掉（state 由後面的路徑寫回）
     if v6 and failing and _done(code_text):
         _tf_block, _tf_shown = _testfail_gate(state, session_id, input_data, config, failing, code_text, _history, turn_seq,
-                                              _since, _tpath, hold=_chain_hold)
+                                              _since, _tpath, hold=_chain_hold, extra_notes=_base_notes)
         if _tf_block:
             state["stop_blocked_count"] = stop_count + 1
             write_state(session_id, state)
