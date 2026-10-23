@@ -89,9 +89,10 @@ def stale(path: Path, text: Optional[str] = None, age_s: float = 3600) -> None:
 
 
 def bash_unknown_write(monkeypatch, repo: Path, state: Dict[str, Any], command: str, effect: str, *, failure: bool = False,
-                       sid: str = _SID, tool: str = "Bash", transcript: bool = True, cwd: Optional[Path] = None
-                       ) -> Tuple[Dict[str, Any], List[Tuple[str, Dict[str, Any]]]]:
-    """照 AI 的寫法跑一次判不出目標的寫入：先確認 command 的寫入目標真的判不出（UNKNOWN），transcript 記這次 tool_use 的時戳，
+                       sid: str = _SID, tool: str = "Bash", transcript: bool = True, cwd: Optional[Path] = None,
+                       flushed: bool = True) -> Tuple[Dict[str, Any], List[Tuple[str, Dict[str, Any]]]]:
+    """照 AI 的寫法跑一次判不出目標的寫入：先確認 command 的寫入目標真的判不出（UNKNOWN），transcript 記這次 tool_use 的時戳
+    （flushed=False：同一則回覆平行送出的第一個工具跑完時，這則的紀錄還沒落盤——transcript 只有更早的一筆使用者紀錄），
     再在 repo 裡真的跑 effect（python 程式碼，改檔；failure=True 時它自己 exit 1），最後把 command 交給真的 PostToolUse
     （failure=True 走 PostToolUseFailure）。回 (state, 守門紀錄)。"""
     where = str(cwd or repo)
@@ -107,8 +108,10 @@ def bash_unknown_write(monkeypatch, repo: Path, state: Dict[str, Any], command: 
     tu = f"tu-{uuid.uuid4().hex[:8]}"
     tr = repo.parent / f"{tu}.jsonl"
     started = datetime.fromtimestamp(time.time() - 0.5, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-    tr.write_text(json.dumps({"type": "assistant", "timestamp": started, "message": {"content": [
-        {"type": "tool_use", "id": tu, "name": tool, "input": {"command": command}}]}}) + "\n", encoding="utf-8")
+    rec = ({"type": "assistant", "timestamp": started, "message": {"content": [
+        {"type": "tool_use", "id": tu, "name": tool, "input": {"command": command}}]}} if flushed
+           else {"type": "user", "timestamp": started, "message": {"role": "user", "content": "照做"}})
+    tr.write_text(json.dumps(rec) + "\n", encoding="utf-8")
     r = subprocess.run([sys.executable, "-I", "-c", effect], cwd=where, capture_output=True, text=True)
     assert r.returncode == (1 if failure else 0), r.stderr
     inp = {"session_id": sid, "tool_name": tool, "tool_input": {"command": command}, "cwd": where, "tool_use_id": tu,
@@ -200,6 +203,25 @@ def test_recorded_same_content_rewrite_not_bumped(monkeypatch, repo):
     state, _ = bash_unknown_write(monkeypatch, repo, state, py_c(repo, code), code)
     m = _entry(state, sender)
     assert m["last_turn_seq"] == 2 and m["count"] == 1 and "via" not in m, m
+
+
+def test_first_parallel_tool_without_flushed_record_still_recovered(monkeypatch, repo):
+    """實跑抓到的：同一則回覆平行送出的第一個工具跑完時，這則的 transcript 紀錄還沒落盤，用 tool_use_id 找不到時戳（12 次漏 3 次，
+    其中一支改既有測試的整個沒記到，對帳因此誤擋、觸發斷路器）。改用已落盤的最後一筆紀錄的時間當下界 → 照樣補到、帳上記 start_from。"""
+    state, logs = bash_unknown_write(monkeypatch, repo, _state(), py_c(repo, PY_C_SENDER), PY_C_SENDER, flushed=False)
+    assert _paths(state) == [canon_path(repo / "notify" / "sender.py")], state.get("unknown_writes")
+    assert [r["start_from"] for n, r in logs if n == "unknown_write"] == ["transcript_tail"]
+
+
+def test_user_edit_one_second_before_start_not_counted(monkeypatch, repo):
+    """codex BLOCK 1 的情境：使用者在指令開始前 1 秒改了 README.md（本 session 沒記過它），這條指令只改 sender.py → README 不算。
+    （往前放寬原本 2 秒會收進來；實跑量到指令自己寫的檔 mtime 一律晚於自己的時戳，放寬只留 0.05 秒。）"""
+    readme = repo / "README.md"
+    readme.write_text("# notify\n\n- 使用者剛改的。\n", encoding="utf-8")
+    t = time.time() - 1.5                                     # helper 的開始時間是現在減 0.5 秒：這是開始前 1 秒
+    os.utime(readme, (t, t))
+    state, _ = bash_unknown_write(monkeypatch, repo, _state(), py_c(repo, PY_C_SENDER), PY_C_SENDER)
+    assert _paths(state) == [canon_path(repo / "notify" / "sender.py")], state.get("modified_files")
 
 
 def test_not_in_vcs_or_no_start_time_logged_unrecovered(monkeypatch, tmp_path, repo):

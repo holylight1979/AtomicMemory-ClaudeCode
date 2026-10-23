@@ -22,7 +22,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from wg_core import find_vcs_root
 
 VIA = "vcs_status"           # modified_files 的來源欄：從版控狀態補算
-MTIME_SLACK_S = 2.0          # 開始時間往前放寬：檔案系統時間粒度（FAT 2 秒）與 transcript 時戳的誤差
+# 開始時間往前放寬多少：實跑量到指令自己寫的檔 mtime 一律晚於自己的 tool_use 時戳（最少 +31 ms），早於時戳的都是別的指令寫的；
+# 只留時戳到毫秒的截斷誤差。FAT（2 秒粒度）上的專案會漏記
+MTIME_SLACK_S = 0.05
 FUTURE_SLACK_S = 2.0         # mtime 晚於「現在」超過這麼多不算（未來時間不是這條指令寫的）
 FULL_TIMEOUT_S = 1.2         # 整棵 status 上限：2.7 千檔 git 約 0.14 秒、1.3 萬檔 svn 約 0.5～0.9 秒；138 萬檔的 svn 要一分鐘以上
 NAMED_TIMEOUT_S = 0.8        # 只查點名的檔：萬檔 svn 查 3 個檔約 0.1～0.2 秒

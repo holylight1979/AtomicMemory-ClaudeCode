@@ -67,10 +67,11 @@ RULES: Dict[str, str] = {
     "UNKNOWN_WRITE_RECOVERED": "Bash／PowerShell 寫入目標判不出（UNKNOWN_TARGET_LOGGED 那一筆）的指令跑完後（PostToolUse 與"
                                "結束碼非 0 的 PostToolUseFailure 都算），從版控狀態補出它真的改了哪些檔、記進 modified_files（via=vcs_status），"
                                "對帳、第二意見、同步提醒照常判。真的改了＝git status／svn status 列為改動或未納管，而且 mtime 不早於"
-                               "這次指令的開始時間（transcript 裡那筆 tool_use 的時戳）減 2 秒：快照前就髒、這次沒動的檔不算；"
-                               "本 session 上次記下的內容雜湊跟現在一樣也不算。整棵 status 超過 1.2 秒 → 只查指令文字裡點名、存在的檔，"
-                               "同 session 之後這個根直接只查點名的。不在 git／svn 工作區、找不到開始時間、查詢失敗 → 照舊只記未知寫入，"
-                               "那一筆寫明補不到的原因（unrecovered）。判法在 hooks/wg_unknown_write.recover。",
+                               "這次指令的開始時間（transcript 裡那筆 tool_use 的時戳）減 2 秒、也不晚於現在加 2 秒：快照前就髒、"
+                               "這次沒動的檔不算；本 session 已經記過的檔，內容雜湊跟上次一樣、或沒有雜湊（超過 2 MiB）而 mtime 不晚於"
+                               "上次記下的時間，也不算（不刷成本回合改的）。整棵 status 超過 1.2 秒 → 只查指令文字裡點名、存在的檔"
+                               "（幾個根合用 0.8 秒），同 session 之後這個根直接只查點名的。不在 git／svn 工作區、找不到開始時間、"
+                               "查詢失敗 → 照舊只記未知寫入，那一筆寫明補不到的原因（unrecovered）。判法在 hooks/wg_unknown_write.recover。",
     "INLINE_FLAG_BEFORE_PROGRAM": "內嵌碼旗標（python -c／-、node -e／-p、pwsh -Command／-c／-e）只認直譯器自己的選項位置：程式（腳本、"
                                   "-m 模組、pwsh 的 -File）之後的參數屬於程式，`python x.py -C <路徑>`、`python x.py -` 不是內嵌碼；"
                                   "python／node 分大小寫、帶值的選項（python -X／-W，node -r／-C…）連值一起跳過；PowerShell 不分大小寫。"

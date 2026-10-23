@@ -865,7 +865,8 @@ def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str,
     t0 = time.monotonic()
     cwd = input_data.get("cwd", "") or (state.get("session") or {}).get("cwd", "") or ""
     try:
-        started = _tool_started_at(str(input_data.get("transcript_path") or ""), str(input_data.get("tool_use_id") or ""))
+        started, start_from = _tool_start_bound(str(input_data.get("transcript_path") or ""),
+                                                str(input_data.get("tool_use_id") or ""))
         slow = [str(r) for r in state.get("unknown_write_slow_roots") or []]
         paths, note = uw.recover(command, cwd, started, slow)
     except Exception as e:  # noqa: BLE001
@@ -892,7 +893,7 @@ def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str,
                                        "agent": bool(agent_id), "ms": int((time.monotonic() - t0) * 1000),
                                        "status_ms": note.get("ms"), "roots": note["roots"], "named": note["named"],
                                        "listed": len(paths), "recovered": len(noted), "lag_ms": note.get("lag_ms"),
-                                       "why": why})
+                                       "start_from": start_from, "why": why})
     if why and note["roots"]:
         print(f"[Guardian:UnknownWrite] {why}", file=sys.stderr)
     return noted, why
@@ -1283,27 +1284,41 @@ def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[
 
 
 def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
-    """transcript 尾段（最後 512KB）找這次 tool_use 那筆 assistant 紀錄的時間（epoch 秒）；找不到或讀不到回 None。"""
+    """這次工具呼叫開始時間的下界（epoch 秒），見 _tool_start_bound；讀不到回 None。"""
+    return _tool_start_bound(transcript_path, tool_use_id)[0]
+
+
+def _tool_start_bound(transcript_path: str, tool_use_id: str) -> Tuple[Optional[float], str]:
+    """(這次工具呼叫開始時間的下界, 怎麼得來的)：transcript 尾段（最後 512KB）找這次 tool_use 那筆 assistant 紀錄的時間（"tool_use"）。
+    找不到：Claude Code 邊串流邊執行工具，同一則回覆平行送出的第一個工具跑完時，這則回覆的紀錄常常還沒寫到磁碟
+    （實跑 12 次判不出目標的寫入有 3 次如此，都是同則第一個）——這則回覆一定在已落盤的最後一筆之後才開始，改用那筆的時間
+    （"transcript_tail"；窗口多了模型產生這則回覆的那段）。沒有 transcript、讀不到、一筆時間都沒有 → (None, "")。"""
     from datetime import datetime
-    if not transcript_path or not tool_use_id:
-        return None
+    if not transcript_path:
+        return None, ""
     try:
         with open(transcript_path, "rb") as fh:
             fh.seek(0, 2)
             fh.seek(max(0, fh.tell() - 512 * 1024))
             tail = fh.read().decode("utf-8", "replace")
     except OSError:
-        return None
+        return None, ""
+    last: Optional[float] = None
     for line in reversed(tail.splitlines()):
-        if tool_use_id not in line:
+        if last is not None and (not tool_use_id or tool_use_id not in line):
             continue
         try:
             rec = json.loads(line)
-            if rec.get("type") == "assistant" and rec.get("timestamp"):
-                return datetime.fromisoformat(str(rec["timestamp"]).replace("Z", "+00:00")).timestamp()
-        except (ValueError, TypeError):
+            ts = datetime.fromisoformat(str(rec["timestamp"]).replace("Z", "+00:00")).timestamp() if rec.get("timestamp") else None
+        except (ValueError, TypeError, KeyError):
             continue
-    return None
+        if ts is None:
+            continue
+        if tool_use_id and tool_use_id in line and rec.get("type") == "assistant":
+            return ts, "tool_use"
+        if last is None:
+            last = ts
+    return last, "transcript_tail" if last is not None else ""
 
 
 SCOPE_ASK = ("這回合改了程式：哪些測試和這次改動有關、會受影響？由你判斷，"
