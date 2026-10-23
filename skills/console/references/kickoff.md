@@ -76,4 +76,4 @@
    - 「模型不符：指定＝…／實際＝…」：session 已開工、沒殺。要換模型就 `claude stop <短 id>` 後改 `--model` 重跑；將就用就照常派工。
    - 「session 回 API 錯誤」：例如模型 id 不存在。claude 不會拒起，第一回合回錯後就停著，腳本讀到就立刻 FAIL、印 claude 的原文。`claude stop <短 id>` 收掉，修正後重跑。
 
-填法：開工句第一個詞仍是軌名（腳本靠「<軌名> 收到開工」認報到）；`--permission-mode` 一律明帶，腳本不猜、不假設新 session 繼承總控台的模式。`--model` 照派工單寫的模型給完整 id（派工單要寫模型與理由：閘本體與小修軌用 Opus，例 `claude-opus-5-5`；對人裁定密集才用 Fable，例 `claude-fable-5-1`）。別名（`opus`、`fable`）對不上 transcript 記的完整 id，會判模型不符。不帶 `--model` 就用 `skills/console/spawn.json` 的 `default_model`；那裡也沒設，就吃 Claude Code 預設。
+填法：開工句第一個詞仍是軌名（腳本靠「<軌名> 收到開工」認報到）；`--permission-mode` 一律明帶，腳本不猜、不假設新 session 繼承總控台的模式。`--model` 照派工單寫的模型給完整 id（派工單要寫模型與理由：閘本體與小修軌用 Opus，例 `claude-opus-5-5`；對人裁定密集才用 Fable，例 `claude-fable-5-1`）。別名（`opus`、`fable`）對不上 transcript 記的完整 id，會判模型不符。不帶 `--model` 就用 `skills/console/spawn.json` 的 `default_model`；那裡也沒設，就吃 Claude Code 預設。要新 session 用別份設定檔（例：關掉守門的設定檔）就加 `--settings <檔>`：腳本轉成絕對路徑交給 `claude --settings`，檔不存在就 FAIL、不起；不帶就不傳。

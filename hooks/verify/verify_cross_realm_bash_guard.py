@@ -210,3 +210,70 @@ def test_git_arg_flag_value_parsing(tmp_path):
              "--output=out/x.zip": False, "-oout/x.zip": False, root_x: True, "out/x.zip": False}
     got = {a: wg_core._git_arg_reaches_root(a, repo) for a in cases}
     assert got == cases, got
+
+
+# ─── 008：唯讀指令不再誤擋（DOT_GIT_PATH_NOT_GIT_CALL、SEGMENTS_SPLIT_LIKE_SHELL）、迴圈與分支裡的寫入看得到（SHELL_KEYWORD_PREFIX_STRIPPED）
+
+READONLY_PROBE_CMD = (
+    'echo "=== project .git/hooks (non-sample)"; ls /c/w4/qc2-orders/.git/hooks | grep -v \'\.sample$\' || echo "(none)"; '
+    'echo "=== ~/.claude/settings.json hook events"; python -c "\nimport json,pathlib\n'
+    "p=pathlib.Path.home()/'.claude/settings.json'\nd=json.loads(p.read_text(encoding='utf-8'))\n"
+    "for ev,arr in (d.get('hooks') or {}).items():\n    print(ev, len(arr))\n\""
+)
+
+
+def test_008_dot_git_path_and_multiline_quote_readonly_allowed():
+    """實際誤擋過的唯讀指令：ls 專案的 .git/hooks、echo 提到 ~/.claude/settings.json、多行 python -c 讀它 → 放行。
+    舊碼把 `.git` 當成 git 字樣（多於掃描器認到的 0 段 git）退回整條切段，又在多行引號的第一行切斷 →「引號不完整」照擋。"""
+    import wg_core
+    import wg_release_rules as rr
+    assert not _denied(READONLY_PROBE_CMD)
+    assert wg_core._GIT_WORD_RE.findall("ls a/.git/hooks; cat .git/HEAD; git status; git.exe log") == ["git", "git.exe"]
+    segs = rr._shlex_segments('git log -1\npython -c "\nimport json\nprint(1)\n"\ngit status')
+    assert segs == [["git", "log", "-1"], ["python", "-c", "\nimport json\nprint(1)\n"], ["git", "status"]]
+    assert rr._shlex_segments('git status\necho "never closed') is None                   # 到最後引號仍不完整才算解析不了
+    ro = 'cd ~/.claude && git log -1 && python -c "\nprint(1)\n" && echo $(date)'           # $( ) 退回整條判的那條路
+    assert rr.git_readonly_verdict(ro, []).owed is True                                    # 命令替換照判不了（不是這次放寬的）
+    assert rr.git_readonly_verdict('git log -1\npython -c "\nprint(1)\n"', []).owed is False
+    assert rr.git_readonly_verdict('git log -1\npython -c "\nprint(1)\n"\ngit commit -m x', []).owed is True   # 引號後面的寫照擋
+
+
+def test_008_shell_keyword_prefix_writes_seen(tmp_path, monkeypatch):
+    """for／while 本體、if 分支、{ } 群組、! 開頭的段：剝掉保留字再認命令。寫到根層的照擋；目標帶迴圈變數 → 掃描器認得到、
+    判不出目標，照 UNKNOWN_TARGET_LOGGED 放行留帳（舊碼整段沒看到，留帳也沒有）；if 分支裡的唯讀 git 放行。"""
+    import json
+    import wg_core
+    import wg_release_rules as rr
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path)
+    for cmd in ["if true; then mkdir ~/.claude/hooks/newdir; fi", "{ touch ~/.claude/hooks/x.py; }",
+                "for f in a; do install -m644 /tmp/a ~/.claude/hooks/a.py; done", "! cp /tmp/a ~/.claude/hooks/a.py",
+                "while true; do ln -sf /tmp/a ~/.claude/hooks/a.py; break; done"]:
+        assert _denied(cmd), cmd
+    loop = "cd ~/.claude && for f in hooks/a.py hooks/b.py; do sed -i 's/x/y/' $f; done"
+    assert not _denied(loop)
+    rows = [json.loads(ln) for ln in (tmp_path / "guard-crossrealm.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert rows[-1]["event"] == "unknown_allowed" and rows[-1]["cmd"] == loop
+    assert wg_core.write_paths_from_tool("Bash", {"command": f"for f in a b; do rm {PROJ}/x.py; done"}, cwd=PROJ) == [
+        str(Path(PROJ) / "x.py")]
+    assert wg_core.write_paths_from_tool("Bash", {"command": "echo do then; printf '{'"}, cwd=PROJ) == []   # 參數裡的保留字不動
+    assert not _denied("cd ~/.claude && if true; then git status; fi")
+    assert rr._shlex_segments("for r in a; do git -C x status; done") == [["for", "r", "in", "a"], ["git", "-C", "x", "status"], ["done"]]
+
+
+def test_008_delete_forms_into_root_denied():
+    """DELETE_FORMS_SAME_ACROSS_SHELLS：rm -r（舊碼把 -r 當帶值旗標吃掉目標、整條放過）、PowerShell 的 rd／ri／del 別名刪根層 → 擋。"""
+    assert _denied("rm -r ~/.claude/hooks/x.py")
+    for cmd in ("rd -r ~/.claude/hooks", "ri ~/.claude/hooks/x.py", "del ~/.claude/hooks/x.py"):
+        assert _denied(cmd, tool="PowerShell"), cmd
+    assert not _denied("rm -r ./build", cwd=PROJ)
+
+
+def test_008_unknown_part_does_not_hide_root_target(monkeypatch):
+    """UNKNOWN_PART_KEEPS_KNOWN_TARGETS（codex 一輪）：一個參數像內嵌碼、或另一段目標展不開，舊碼整條只回 UNKNOWN、跨層閘放過
+    明確的核心檔刪除；現在照擋。"""
+    monkeypatch.delenv("NOPE_X_008", raising=False)
+    for cmd in ("rm -rf ~/.claude/hooks/x.py '[System.IO.Directory]::'", "rm -rf ~/.claude/hooks/x.py '[IO.File]::'",
+                'rm ~/.claude/hooks/x.py; echo hi > "$NOPE_X_008/out"', 'rm -rf ~/.claude/hooks/x.py "$(echo hi > /tmp/q)"'):
+        assert _denied(cmd), cmd
+    assert not _denied('git -C ~/.claude status; echo ";&" git reset --hard')     # 引號裡的 ;& 不是段界（只有 echo 的參數）
+    assert not _denied('git -C ~/.claude status; echo "" git reset --hard')

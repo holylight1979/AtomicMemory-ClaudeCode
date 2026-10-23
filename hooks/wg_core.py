@@ -27,7 +27,7 @@ from wg_lazy_re import lazy_re  # 模組層樣式第一次用到才編譯（HOOK
 # CODE_DIR＝程式碼根（hooks、lib、tools）：一律由本檔位置推，不吃 WG_CLAUDE_DIR、不看家目錄。
 CODE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODE_DIR / "lib"))
-from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（tools 也呼叫它）
+from project_root import claude_config_dir, claude_data_dir  # noqa: E402  資料根的唯一算法（tools 也呼叫它）
 from harness_text import HOOK_RESIDUE_LINE_RE, strip_harness_blocks, user_typed_text  # noqa: E402,F401  使用者原話規則唯一一份
 from config_local import merge_local  # noqa: E402  config.local.json 蓋到 config.json 的規則唯一一份
 CLAUDE_DIR = claude_data_dir()
@@ -2311,18 +2311,28 @@ _BASH_WRITE_OP_RE = lazy_re(
 #      cp 家族目標是目錄（尾 / 或既存目錄、或多來源）→ 目錄/basename(src)。
 #   R4 UNKNOWN 只在「有寫入訊號但算不出目標」：目標含展不開的變數（$HOME／~ 除外）、$(…)／反引號／eval 裡含寫入、
 #      直譯器內嵌碼（python -c／python -／node -e／pwsh -Command／[IO.File]::／open(…,'w')／fs.writeFile）、
-#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。回 ["UNKNOWN:<該段前 40 字>"]，on_edit 照 UNKNOWN_TARGET_LOGGED 放行留帳。
+#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。算得出的目標照列、再加一筆 "UNKNOWN:<該段前 40 字>"
+#      （UNKNOWN_PART_KEEPS_KNOWN_TARGETS），on_edit 對那一筆照 UNKNOWN_TARGET_LOGGED 放行留帳。
 #   R5 `;`／`&&`／換行的 cd 生效到後段；||／| 右側的 cd 不外溢；(…) 子 shell 的 cd 不外溢，裡面的目標照算。
 _WRITE_CMDS = frozenset({
-    "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "truncate", "sed", "sort",
+    "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "rmdir", "truncate", "sed", "sort",
     "set-content", "out-file", "add-content", "copy-item", "move-item", "new-item", "remove-item",
     "rename-item", "tee-object",
 })
-# PowerShell 寫檔 cmdlet 的內建別名（只在 PowerShell 工具下換成正式名；cp／mv 在 Bash 分支已處理）
+# PowerShell 寫檔 cmdlet 的內建別名（只在 PowerShell 工具下換成正式名；cp／mv／rm 在 Bash 分支已處理）。
+# 規則 DELETE_FORMS_SAME_ACROSS_SHELLS：刪除的別名（ri、del、erase、rd、rmdir）跟 Remove-Item 同一條路，不然同一件事換個寫法閘就看不到
 _PS_WRITE_ALIASES = {
     "cpi": "copy-item", "copy": "copy-item", "mi": "move-item", "move": "move-item", "ac": "add-content",
     "sc": "set-content", "ni": "new-item", "rni": "rename-item", "ren": "rename-item", "tee": "tee-object",
+    "ri": "remove-item", "del": "remove-item", "erase": "remove-item", "rd": "remove-item", "rmdir": "remove-item",
 }
+_PS_CD_NAMES = frozenset({"set-location", "sl", "chdir", "push-location"})     # PowerShell 換目錄（cd／pushd 跟 Bash 同名）
+# 位置參數都是寫入目標的命令，與它們會吃掉下一個字的旗標
+_TARGET_VALUE_FLAGS = {
+    "touch": frozenset({"-r", "--reference", "-d", "--date", "-t"}), "truncate": frozenset({"-s", "--size", "-r", "--reference"}),
+    "mkdir": frozenset({"-m", "--mode"}), "rm": frozenset(), "rmdir": frozenset(),
+}
+_PS_CD_PATH_PARAMS = frozenset({"-path", "-literalpath"})
 _COPY_CMDS = frozenset({"cp", "mv", "install", "rsync", "ln", "copy-item", "move-item"})
 _COPY_VALUE_FLAGS = frozenset({"-m", "-o", "-g", "-t", "-e", "--mode", "--owner", "--group", "--target-directory", "--suffix", "-S"})
 _PS_VALUE_PARAMS = frozenset({
@@ -2339,7 +2349,7 @@ _PY_NAMES = frozenset({"python", "python3", "py", "pythonw"})
 _PY_VALUE_OPTS = frozenset({"-X", "-W", "--check-hash-based-pycs"})     # 帶值的直譯器選項：值不是腳本
 _NODE_VALUE_OPTS = frozenset({"-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions",
                               "--env-file", "--input-type", "--title"})
-_INLINE_CODE_RE = lazy_re(r"\[IO\.File\]::|\bopen\([^)]*['\"][wa]\+?['\"]|fs\.write(?:File|FileSync)\b", re.IGNORECASE)
+_INLINE_CODE_RE = lazy_re(r"\[(?:System\.)?IO\.(?:File|Directory)\]::|\bopen\([^)]*['\"][wa]\+?['\"]|fs\.write(?:File|FileSync)\b", re.IGNORECASE)
 _SED_W_RE = lazy_re(r"(?:^|[;{\n]\s*|/)w\s+(\S+)")
 _ENV_ASSIGN_RE = lazy_re(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _WRAPPERS = frozenset({"sudo", "exec", "nohup", "command", "builtin", "time"})
@@ -2983,15 +2993,14 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
             continue
         words.append(t)
         i += 1
-    for w in words:
-        if w.subst and any(_inner_has_signal(s, cwd) for s in w.subst):
-            _mark_unknown(out, seg)
-            return cwd
-        if _INLINE_CODE_RE.search(w.text):
-            _mark_unknown(out, seg)
-            return cwd
+    # 規則 UNKNOWN_PART_KEEPS_KNOWN_TARGETS：某個字判不出（$(…) 裡有寫入、[IO.File]:: 這類內嵌碼）只多記一筆 UNKNOWN，
+    # 同一段看得懂的目標照算（`rm -rf <核心檔> '[IO.File]::'` 不能讓後面那個參數蓋掉前面明確的刪除）
+    if any((w.subst and any(_inner_has_signal(s, cwd) for s in w.subst)) or _INLINE_CODE_RE.search(w.text) for w in words):
+        _mark_unknown(out, seg)
+    from wg_release_rules import SHELL_PREFIX_KEYWORDS    # 規則 SHELL_KEYWORD_PREFIX_STRIPPED：do／then／{ 後面才是命令
     k = 0
-    while k < len(words) and (_ENV_ASSIGN_RE.match(words[k].text) or words[k].text.lower() in _WRAPPERS):
+    while k < len(words) and (_ENV_ASSIGN_RE.match(words[k].text) or words[k].text.lower() in _WRAPPERS
+                              or (not words[k].quoted and words[k].text in SHELL_PREFIX_KEYWORDS)):
         k += 1
     if k >= len(words):
         _remember_vars(words, prev_sep, next_sep, out)     # 整段只有指定：之後的段看得到（指令前綴的指定不算）
@@ -3025,7 +3034,9 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
         if _inner_has_signal(" ".join(args), cwd):
             _mark_unknown(out, seg)
         return cwd
-    if name in ("cd", "pushd"):
+    if name in ("cd", "pushd") or (out.ps and name in _PS_CD_NAMES):
+        if out.ps:                                       # Set-Location -Path X／-LiteralPath X：參數名不是目錄
+            args = [a for a in args if a.lower() not in _PS_CD_PATH_PARAMS]
         if prev_sep in ("|", "||"):
             return cwd                                   # ||／| 右側的 cd 不外溢
         if not args:
@@ -3046,13 +3057,13 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     if name == "tee":
         for a in positional:
             _add(out, seg, _write_target_abs(a, cwd))
-    elif name in ("touch", "mkdir", "rm", "truncate"):
+    elif name in _TARGET_VALUE_FLAGS:
         skip = False
         for a in args:
             if skip:
                 skip = False
                 continue
-            if a in ("-s", "--size", "-r", "--reference", "-m", "-d", "--date", "-t"):
+            if a in _TARGET_VALUE_FLAGS[name]:           # 帶值旗標各命令自己的：rm -r 的 -r 不帶值（touch -r 才帶）
                 skip = True
                 continue
             if not a.startswith("-"):
@@ -3101,7 +3112,10 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
         elif len(pos) >= 2:
             _add_copy(out, seg, pos[:-1], pos[-1], cwd)
     else:
-        for item in _ps_targets(name, args):
+        items = _ps_targets(name, args)
+        if not items:                                    # 目標從管線進來（Get-Item x | Remove-Item）：有寫入、算不出目標
+            _mark_unknown(out, seg)
+        for item in items:
             if "\x00" in item:
                 dst, src = item.split("\x00", 1)
                 _add_copy(out, seg, [src], dst, cwd)
@@ -3124,12 +3138,13 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
 
 
 def _shell_write_paths(out: Optional[_Scan]) -> List[str]:
-    """掃描結果 → 寫入目標：沒有寫入訊號回 []；有訊號但算不出目標回 ["UNKNOWN:<該段前 40 字>"]。"""
+    """掃描結果 → 寫入目標：沒有寫入訊號回 []；有段算不出目標 → 算得出的目標照列，最後加一筆 "UNKNOWN:<第一個判不出那段前 40 字>"
+    （規則 UNKNOWN_PART_KEEPS_KNOWN_TARGETS：一段判不出不能蓋掉別段明確的目標，`rm <核心檔>; echo x > "$VAR/out"` 照擋）。"""
     if out is None or not out.signal:
         return []
     if out.unknown is not None:
         why = f"｜內嵌碼：{out.why[:60]}" if out.why else ""
-        return [f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}{why}"]
+        return [*out.targets, f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}{why}"]
     return out.targets
 
 
@@ -3151,15 +3166,17 @@ def write_sources_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Opt
     return dict(out.sources) if out is not None and out.unknown is None else {}
 
 
-_GIT_WORD_RE = lazy_re(r"\bgit(?:\.exe)?\b", re.IGNORECASE)
+# 規則 DOT_GIT_PATH_NOT_GIT_CALL：路徑裡的 `.git`（`ls repo/.git/hooks`）不是在叫 git，不算 git 字樣
+_GIT_WORD_RE = lazy_re(r"(?<!\.)\bgit(?:\.exe)?\b", re.IGNORECASE)
 _GIT_REPO_ENV_RE = lazy_re(r"\bGIT_(?:DIR|WORK_TREE|COMMON_DIR)\b")
 
 
 def _in_root_realm(path: str) -> bool:
-    """路徑在根層底下（含本身）：家目錄的 .claude、資料根 CLAUDE_DIR、程式碼根 CODE_DIR。解析失敗算在（寧可多擋）。"""
+    """路徑在根層底下（含本身）：Claude Code 設定目錄（claude_config_dir：settings.json、CLAUDE.md 所在，一般安裝就是家目錄的
+    .claude）、資料根 CLAUDE_DIR、程式碼根 CODE_DIR。解析失敗算在（寧可多擋）。"""
     try:
         p = Path(path).resolve()
-        roots = [r.resolve() for r in (Path.home() / ".claude", CLAUDE_DIR, CODE_DIR)]
+        roots = [r.resolve() for r in (claude_config_dir(), CLAUDE_DIR, CODE_DIR)]
     except (OSError, ValueError):
         return True
     return any(p == r or r in p.parents for r in roots)

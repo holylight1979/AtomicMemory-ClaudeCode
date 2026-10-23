@@ -159,7 +159,8 @@ def test_atoms_depending_on_bases_project_vs_root(tmp_path):
 
 
 POST_TOOL_USE = HOOKS_DIR / "handlers" / "post_tool_use.py"
-DEPENDS_BRANCH = 'if tool_name in ("Read", "Bash", "PowerShell"):'   # Depends 召回那支（另兩支多收 Grep），紅案例改寫它
+DEPENDS_BRANCH = 'if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell"):'   # Depends 召回那支（另兩支多收 Grep），紅案例改寫它
+HUB_V6_TOOLS = '(("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash"))'   # 導讀卡那支：v6 關時照舊只收 Read／Bash
 
 
 READ_HANDLERS = ("_hub_on_read", "scope_on_read", "_on_read_depends")   # 導讀卡、需求目標讀入範圍、Depends 召回
@@ -183,6 +184,8 @@ def _membership_tools(node: ast.AST, consts: dict):
             and len(node.ops) == 1 and isinstance(node.ops[0], ast.In)):
         return None
     right = node.comparators[0]
+    if isinstance(right, ast.IfExp) and isinstance(right.test, ast.Name) and right.test.id == "v6":
+        right = right.body            # `A if v6 else B`：守的是 v6 開時的讀檔分支；關時是 v6 之前的原樣，不在這條缺口裡
     if isinstance(right, ast.Name):
         assert right.id in consts, f"第 {node.lineno} 行 tool_name in {right.id}：模組層級找不到 {right.id} 的值"
         right = consts[right.id]
@@ -240,6 +243,19 @@ def test_read_branch_guard_catches_rewrites(new_branch, tail, why):
     紅的原因也要對（why）。"""
     with pytest.raises(AssertionError, match=why):
         check_read_branches(_depends_branch_rewritten(new_branch, tail))
+
+
+@pytest.mark.parametrize("new_tools, why", [
+    ('(("Read", "Bash", "Grep") if v6 else ("Read", "Bash"))', "沒收 Bash／PowerShell"),          # v6 那側漏 PowerShell
+    ('(("Read", "Bash", "PowerShell") if WG_ON else ("Read", "Bash"))', "解析不到字串常數集合"),   # 條件不是 v6：判不了就紅
+], ids=["v6-side-missing-powershell", "ifexp-not-v6"])
+def test_read_branch_guard_reads_v6_side(new_tools, why):
+    """v6 總開關把導讀卡分支寫成 `tool_name in (A if v6 else B)`：守衛看 v6 開那一側（A），漏 PowerShell 照紅；
+    條件不是 v6 的條件式判不了，也紅。"""
+    src = POST_TOOL_USE.read_text(encoding="utf-8")
+    assert src.count(HUB_V6_TOOLS) == 1, "導讀卡分支的寫法變了，紅案例要跟著改"
+    with pytest.raises(AssertionError, match=why):
+        check_read_branches(src.replace(HUB_V6_TOOLS, new_tools))
 
 
 def test_powershell_and_bare_bash_reads_trigger_recall(world):

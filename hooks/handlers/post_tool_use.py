@@ -601,6 +601,41 @@ def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str)
     state["failing_tests"] = keep
 
 
+RED_RUN_COMMITS_CAP = 50
+
+
+def _note_red_run_commit(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
+    """規則 BASE_RED_TRACKED_NOT_OWED 的事實：這次紅是在哪個 commit、已追蹤檔有沒有改動，連同逐支列出的紅
+    記進 state red_run_commits（收尾核「基底 commit 也紅」只認這份，不從別處推論）。跑測試的目錄＝第一段測試之前換到的目錄
+    （test_scope 的 cd，相對的照前一個目錄解；PowerShell 的 -Path／-LiteralPath 參數名拿掉），沒換就是 hook 的 cwd。
+    沒逐支列出、指令裡不只一段測試（合在一起的輸出分不出哪支紅是哪一段的，基底綠、這次紅會被記成基底紅）、目錄算不出、
+    不在 git 工作樹 → 不記（這次紅不能當基底的證據；目錄算不出 stderr 一行，git 本身跑不了 _run_git 會說）。"""
+    from wg_core import _write_target_abs
+    from wg_release_rules import RED_CASES_CAP, listed_red_units
+    from wg_verify_ledger import _run_git
+    units = listed_red_units(failure)
+    steps = _test_scope(command).get("steps") or []
+    if not units or sum(1 for s in steps if not s.startswith("cd ")) != 1:
+        return
+    run_dir: Optional[str] = cwd
+    for step in steps:
+        if not step.startswith("cd "):
+            break
+        arg = re.sub(r"^-(?:literal)?path\s+", "", step[3:].strip(), flags=re.IGNORECASE).strip("'\"")
+        run_dir = _write_target_abs(arg, run_dir) if run_dir else None
+    if not run_dir or run_dir.startswith("UNKNOWN") or not os.path.isdir(run_dir):
+        print(f"[Guardian:TestFail] 這次紅測在哪個目錄跑算不出（{run_dir or '空'}），不記成基底 commit 的證據", file=sys.stderr)
+        return
+    head = _run_git(Path(run_dir), ["rev-parse", "HEAD"], 3)
+    status = _run_git(Path(run_dir), ["status", "--porcelain", "--untracked-files=no"], 5) if head else None
+    if not head or status is None:
+        return
+    rows = state.setdefault("red_run_commits", [])
+    rows.append({"session_id": sid, "units": units[:RED_CASES_CAP], "head": head.strip(), "clean": not status.strip(),
+                 "dir": run_dir, "cmd": command[:200], "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()})
+    del rows[:-RED_RUN_COMMITS_CAP]
+
+
 def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
                        tool: str = "Bash", config: Optional[Dict[str, Any]] = None) -> bool:
     """Bash／PowerShell 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
@@ -624,6 +659,9 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     if failure is None and exit_code not in (None, 0):
         failure = tail_lines(stdout + "\n" + stderr, 20) or f"(exit code {exit_code}, no output)"
     if failure:
+        if v6_enabled(config or {}):
+            # 規則 BASE_RED_TRACKED_NOT_OWED：每次紅都記在哪個 commit 跑的（在刻意紅判定之前：在基底跑紅本來就是要拿來當證據）
+            _note_red_run_commit(state, sid, command, failure, str(input_data.get("cwd") or ""))
         # 規則 RED_WHILE_REVERTED：跑紅時本 session 改過的程式檔有內容等於非 HEAD 已提交版本（退回舊碼反證）→ 刻意紅：
         # 不進 failing_tests（TestFailGate、重試計數、DPM 都不吃），另記 deliberate_reds 留痕
         own_mods = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", sid) == sid]

@@ -91,6 +91,26 @@ RULES: Dict[str, str] = {
                            "cd 到專案 repo 之後的 git archive 不算；repo 推不出、參數（-o、--output=、目錄）碰到根層或含展不開的變數照算；"
                            "有命令替換、git 字樣比掃描器認到的 git 段多（eval、bash -c、heredoc 裡）、GIT_DIR／GIT_WORK_TREE、PowerShell → 照舊整條每段都算。"
                            "寫入目標算不出（UNKNOWN）照擋，擋訊息說「算不出」不說「落在根層」。判定在 hooks/wg_core._root_git_segments。",
+    "DOT_GIT_PATH_NOT_GIT_CALL": "跨層閘數 git 字樣、判指令有沒有 git 時，路徑裡的 `.git`（`ls repo/.git/hooks`）不算：它不是在叫 git。"
+                                 "不然唯讀的 ls 會被當成「有 git、掃描器沒認到」，退回整條切段判。樣式在 hooks/wg_core._GIT_WORD_RE。",
+    "SEGMENTS_SPLIT_LIKE_SHELL": "整條切段判 git 時（_shlex_segments）照 shell 切：引號裡的換行不是段界，一行的引號沒收就接下一行再切，"
+                                 "`python -c \"…多行…\"` 整段是一個參數，接到最後引號仍不完整才算解析不了；引號外的換行照切段；"
+                                 "`;`／`&&`／`|` 黏在字上（`a; do`、`x&&git`）也是分隔。",
+    "SHELL_KEYWORD_PREFIX_STRIPPED": "段首的 shell 保留字（do、then、else、elif、if、while、until、!、{）不是命令，剝掉再認："
+                                     "for／while 迴圈本體、if 分支、{ } 群組裡的寫檔命令與 git 照樣認得（寫入目標掃描器 hooks/wg_core._scan_segment"
+                                     "與整條切段的 _shlex_segments 同一份字表 SHELL_PREFIX_KEYWORDS）。",
+    "DELETE_FORMS_SAME_ACROSS_SHELLS": "同一件刪除換個寫法，寫入目標照樣認得：Bash 的 rm（-r 不帶值，舊碼把它當 touch -r 吃掉下一個字）、"
+                                       "rmdir；PowerShell 的 Remove-Item 與別名 ri、del、erase、rd、rmdir、rm；Set-Location／sl／chdir／"
+                                       "Push-Location（含 -Path、-LiteralPath）之後的相對目標照換過的目錄算。目標從管線進來（Get-Item x | Remove-Item）"
+                                       "或 [System.IO.File|Directory]:: → UNKNOWN（照 UNKNOWN_TARGET_LOGGED），不是沒看到。判定在 hooks/wg_core._scan_segment。",
+    "UNKNOWN_PART_KEEPS_KNOWN_TARGETS": "寫入目標掃描器：一條指令裡有判不出目標的部分（$(…) 裡有寫入、[IO.File]:: 這類內嵌碼、展不開的變數目標），"
+                                        "只多記一筆 UNKNOWN，同段與別段看得懂的目標照列：`rm <核心檔> '[IO.File]::'`、"
+                                        "`rm <核心檔>; echo x > \"$VAR/out\"` 舊碼只回 UNKNOWN、跨層閘放過，現在照擋。"
+                                        "判定在 hooks/wg_core._scan_segment 與 _shell_write_paths。",
+    "DIR_TARGET_JUDGED_BY_CONTAINER":"改檔閘逐目標判時，整個資料夾當目標（rm -rf、Remove-Item -Recurse、搬走）看它所在的上一層屬於哪個專案，"
+                                      "不拿資料夾自己的專案標記（.git、_AIDocs、部位表）：刪掉整個專案資料夾不是在改那個專案的檔，拿它自己當根只會要求"
+                                      "讀「(outside)」的檔、永遠讀不到。上一層是專案就照它的規則；資料夾裡的單一檔照舊。cwd 這類「我在哪」的目錄不走這條。"
+                                      "判定在 hooks/wg_overview.write_target_root。",
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
     "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
@@ -732,24 +752,57 @@ _GIT_WRITE_FLAGS = {"hash-object": ("-w",),
                     "diff": ("--output", "-o"), "log": ("--output", "-o"), "show": ("--output", "-o"), "shortlog": ("--output", "-o"),
                     "grep": ("--output", "-O", "--open-files-in-pager")}
 _GIT_OUTPUT_OPT = "--output"       # 每個唯讀子命令都認得的寫檔選項
+# 規則 SHELL_KEYWORD_PREFIX_STRIPPED：段首這些字是 shell 語法，後面才是命令（for／while 迴圈本體、if 分支、{ } 群組）
+SHELL_PREFIX_KEYWORDS = frozenset({"do", "then", "else", "elif", "if", "while", "until", "!", "{"})
 _GIT_GLOBAL_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"})
 
 
+_SEG_BREAKS = frozenset(";&|\n")
+
+
+def _unquoted_pieces(raw: str) -> Optional[List[str]]:
+    """引號外的 ; & | 換行切開（單引號裡什麼都照字面；雙引號裡與引號外 \\ 跳脫下一個字）；引號到最後沒收回 None。"""
+    pieces: List[str] = []
+    buf: List[str] = []
+    quote = ""
+    i = 0
+    while i < len(raw):
+        c = raw[i]
+        i += 1
+        if c == "\\" and quote != "'" and i < len(raw):
+            buf += [c, raw[i]]
+            i += 1
+            continue
+        if quote:
+            quote = "" if c == quote else quote
+        elif c in "'\"":
+            quote = c
+        elif c in _SEG_BREAKS:
+            pieces.append("".join(buf))
+            buf = []
+            continue
+        buf.append(c)
+    return None if quote else pieces + ["".join(buf)]
+
+
 def _shlex_segments(raw: str) -> Optional[List[List[str]]]:
-    """指令切段：先按換行切（shlex 會把換行當空白吞掉，第二行的 reset 會被當成第一行 status 的參數），
-    再按 && || ; | & 切段（引號內不切）。引號不完整回 None。"""
+    """指令切段：按引號外的換行與 && || ; | & 切（shlex 會把換行當空白吞掉，第二行的 reset 會被當成第一行 status 的參數），
+    每段再用 shlex 斷字。規則 SEGMENTS_SPLIT_LIKE_SHELL：引號裡的換行與 ; & | 都不是段界（`python -c "…多行…"`、
+    `echo ";&" git reset` 整段是 echo 的參數），引號到最後沒收才回 None；分隔符黏在字上（`a; do`、`x&&git`）也切。
+    段首的 shell 保留字（do、then、{…）剝掉（SHELL_KEYWORD_PREFIX_STRIPPED）。"""
+    pieces = _unquoted_pieces(raw)
+    if pieces is None:
+        return None
     segs: List[List[str]] = []
-    for line in raw.split("\n"):
+    for piece in pieces:
         try:
-            tokens = shlex.split(line, posix=True)
+            tokens = shlex.split(piece, posix=True)
         except ValueError:
             return None
-        segs.append([])
-        for tok in tokens:
-            if tok in ("&&", "||", ";", "|", "&"):
-                segs.append([])
-            else:
-                segs[-1].append(tok)
+        while tokens and tokens[0] in SHELL_PREFIX_KEYWORDS:
+            tokens.pop(0)
+        if tokens:                       # && 與 || 之間、只有保留字的段是空的
+            segs.append(tokens)
     return segs
 
 
@@ -2822,6 +2875,103 @@ def waiver_miss_notes(kept: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, 
             if line and line not in out:
                 out.append(line)
     return out
+
+
+# ─── BASE_RED_TRACKED_NOT_OWED：改動前基底就紅、有追蹤項的紅測 ───
+RULES["BASE_RED_TRACKED_NOT_OWED"] = (
+    "改動前的基底 commit 上就紅、而且有追蹤項點名的紅測，不算本回合欠帳：收尾寫「基底紅｜<紅的那支測試名>：<基底 commit> 也紅；"
+    "追蹤 <文件路徑>」，紅的每一支都要三件同時成立才留帳放行（Logs/guard-testfail_base_red.jsonl 記哪一支、哪個基底 commit、"
+    "哪份追蹤文件）：(1) 本 session 真的在那個 commit 的乾淨工作樹跑過、那次紅的就有這一支（跑紅時記下 HEAD 與已追蹤檔有沒有改動，"
+    "state red_run_commits；不從別處推論）；(2) 那個 commit 是現在 HEAD 的祖先、在本 session 開始之前就有（committer 時間；"
+    "本 session 做的 merge、rebase、提交都不算）、不在本 session 的提交紀錄裡；(3) 追蹤文件（.md／.txt）"
+    "在、本 session 沒改過、內文點名這一支（整詞）。缺一照擋：基底綠、這次紅 → 沒有基底的紅可對，照擋；擋訊息說缺哪一件。"
+    "摘要沒逐支列出失敗的不收（看不出基底紅的是不是同一支）；基底那次的指令要只有一段測試，好幾段測試的紅分不出是哪一段的、不記成證據。事實在 handlers/post_tool_use._track_test_result（記）與 "
+    "handlers/stop.py 的 TestFailGate 段（查祖先、讀追蹤文件）蒐集。")
+_BASE_RED_RE = lazy_re(r"基底紅\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
+_BASE_SHA_RE = lazy_re(r"(?<![0-9a-fA-F])[0-9a-fA-F]{7,40}(?![0-9a-fA-F])")
+_TRACK_REF_RE = lazy_re(r"追蹤\s*[｜|：:]?\s*(?:`([^`\n]+)`|([^\s，。；;、）)｜|]+))")
+BASE_RED_DOC_EXTS = (".md", ".txt")
+
+
+def parse_base_red(text: str) -> List[Dict[str, str]]:
+    """收尾文字裡的基底紅行 →[{item, base, tracking, line}]：base＝「追蹤」之前第一個 7～40 位十六進位（小寫；沒有＝空字串），
+    tracking＝「追蹤」後面的路徑（反引號包住的可含空白；尾端 :<行號> 拿掉；沒有＝空字串）。"""
+    out: List[Dict[str, str]] = []
+    for raw in str(text or "").splitlines():
+        m = _BASE_RED_RE.search(raw)
+        if not m:
+            continue
+        rest = m.group(2)
+        sha = _BASE_SHA_RE.search(rest.split("追蹤", 1)[0])
+        trk = _TRACK_REF_RE.search(rest)
+        path = re.sub(r":\d+$", "", (trk.group(1) or trk.group(2)).strip()) if trk else ""
+        out.append({"item": m.group(1).strip().strip("`"), "base": sha.group(0).lower() if sha else "",
+                    "tracking": path, "line": raw.strip()[:240]})
+    return out
+
+
+def listed_red_units(summary: Any) -> List[str]:
+    """紅測輸出逐支列出的失敗：pytest 節點，沒有就一行一支的失敗名稱；沒列出回空。跑紅時記基底證據與收尾比對用同一份。"""
+    return failed_units(summary) or failure_units(summary)
+
+
+def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, facts: Dict[str, Any]) -> str:
+    """一支紅測對一條基底紅行：三件都成立回空字串，否則回缺的那一件（擋訊息照印）。facts 見 base_red_failures。"""
+    base = d["base"]
+    if not base:
+        return "沒寫基底 commit（7 位以上的雜湊）"
+    if not any(r.get("clean") is True and str(r.get("head") or "").lower().startswith(base) and unit in (r.get("units") or ())
+               for r in facts.get("runs") or ()):
+        return f"本 session 沒在基底 {base} 的乾淨工作樹跑紅過這一支（基底綠、或沒在基底跑過 → 照算本回合的紅）"
+    if any(str(s).lower().startswith(base) for s in facts.get("own_shas") or ()):
+        return f"基底 {base} 是本 session 自己提交的，不是改動前"
+    born, started = (facts.get("base_times") or {}).get(base), facts.get("started")
+    if born is None or started is None or born >= started:
+        return f"基底 {base} 不是本 session 開始前就有的 commit（本 session 做的 merge、rebase 之後的 commit 不算；查不到時間也不算）"
+    if (facts.get("ancestry") or {}).get((base, cwd)) is not True:
+        return f"基底 {base} 不是現在 HEAD 的祖先（或查不到）"
+    t = (facts.get("tracking") or {}).get(d["tracking"]) if d["tracking"] else None
+    if t is None:
+        return "沒寫追蹤文件（「追蹤 <路徑>」）"
+    if not t.get("exists"):
+        return f"追蹤文件 {d['tracking']} 不存在"
+    if not t.get("doc"):
+        return f"追蹤文件 {d['tracking']} 不是 {'／'.join(BASE_RED_DOC_EXTS)}（測試檔、程式檔不算追蹤項）"
+    if t.get("own_edit"):
+        return f"追蹤文件 {d['tracking']} 本 session 改過（追蹤項要是改動前就記下的）"
+    if not re.search(rf"(?<!\w){re.escape(d['item'])}(?!\w)", str(t.get("text") or ""), re.IGNORECASE):
+        return f"追蹤文件 {d['tracking']} 沒點名 {d['item']}（要整詞出現，test_x_other 不算點名 test_x）"
+    return ""
+
+
+def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], facts: Dict[str, Any]
+                      ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], List[Dict[str, str]]]], List[str]]:
+    """BASE_RED_TRACKED_NOT_OWED 套在紅測清單：回 (還算紅的, [(放行的那筆, 每支一筆 {unit, base, tracking, line})], 擋訊息附註)。
+    facts 由呼叫端蒐集：runs＝state red_run_commits（本 session 的）、ancestry[(基底, 那筆紅的 cwd)]＝是不是 HEAD 的祖先、
+    own_shas＝本 session 提交過的 commit、base_times[基底]＝committer 時間（epoch 秒，查不到 None）、started＝本 session 開始時間、
+    tracking[路徑]＝{exists, doc, own_edit, text}。沒有任何基底紅行對到的紅照原樣留著、不附註。"""
+    kept: List[Dict[str, Any]] = []
+    based: List[Tuple[Dict[str, Any], List[Dict[str, str]]]] = []
+    notes: List[str] = []
+    for f in failing:
+        units, listed = _waiver_units(f or {})
+        named = [(u, next((d for d in decls if names_failed_test(u, d["item"])), None)) for u in units]
+        if not any(d for _, d in named):
+            kept.append(f)
+            continue
+        if not listed:
+            kept.append(f)
+            notes.append("基底紅要逐支列得出是哪一支：這筆紅的輸出沒列 FAILED／ERROR 行，別截斷輸出、單獨重跑一次")
+            continue
+        cwd = str(f.get("cwd") or "")
+        gaps = [(u, _base_red_gap(u, d, cwd, facts) if d else "沒有對到它的基底紅行") for u, d in named]
+        bad = [f"基底紅不成立（{u[:100]}）：{g}" for u, g in gaps if g]
+        if bad:
+            kept.append(f)
+            notes += [n for n in bad if n not in notes]
+            continue
+        based.append((f, [{"unit": u, "base": d["base"], "tracking": d["tracking"], "line": d["line"]} for u, d in named]))
+    return kept, based, notes
 
 
 # ─── 動資料檔 ───

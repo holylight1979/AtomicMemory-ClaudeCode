@@ -6,7 +6,7 @@ const http = require("http");
 const https = require("https");
 const { exec } = require("child_process");
 const { CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, loadRegistry, getRegistryMemDirs, PYTHON_EXE } = require("./paths");
-const { listAllSessions, readState, writeState } = require("./state");
+const { listAllSessions, readState } = require("./state");
 const { enrichAtomWithAccess } = require("./atom-access");
 
 // ─── v2.1 API Handlers ──────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ function parseEpisodicAtom(filePath) {
   };
   const titleMatch = content.match(/^#\s+(.+)$/m);
   if (titleMatch) atom.title = titleMatch[1];
-  const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
+  const metaRe = /^-[ \t]+([\w-]+):[ \t]*(.+)$/gm;   // [ \t] 不跨行：空欄位不把下一行讀成值
   let m;
   while ((m = metaRe.exec(content)) !== null) {
     const key = m[1].toLowerCase(), val = m[2].trim();
@@ -260,7 +260,7 @@ function readWorldDev() {
 }
 let worldDev = readWorldDev();
 let worldDevTimer = null;
-function flushWorldDev() {                                   // 原子寫，仿 writeState（.tmp→rename）
+function flushWorldDev() {                                   // 原子寫（.tmp→rename）
   worldDevTimer = null;
   worldDev.updated_at = Date.now();
   const tmp = WORLD_DEV_PATH + ".tmp";
@@ -602,7 +602,7 @@ function parseAtomFile(filePath, fileName, layerLabel, defaultScope) {
       scope: defaultScope,
       file: fileName,
     };
-    const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
+    const metaRe = /^-[ \t]+([\w-]+):[ \t]*(.+)$/gm;   // [ \t] 不跨行：空欄位不把下一行讀成值
     let m;
     while ((m = metaRe.exec(content)) !== null) {
       const key = m[1].toLowerCase(), val = m[2].trim();

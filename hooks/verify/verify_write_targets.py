@@ -381,9 +381,12 @@ def test_006_shell_literal_var_expanded():
 
 def test_006_c5_command_blames_the_inline_code_segment():
     """C5 原指令修完後：scratchpad 那幾段算得出目標（上一案）；整條仍被擋（python -c 用 importlib 跑檔，INLINE_PY_READONLY 照擋），
-    但判不出的段（有 UNKNOWN 就只回那一筆）與原因都指到 python -c 那段，不再是 git show 那段配上「內嵌碼：importlib」。"""
+    但判不出的段與原因都指到 python -c 那段，不再是 git show 那段配上「內嵌碼：importlib」。算得出的目標照列、UNKNOWN 那一筆
+    在最後（規則 UNKNOWN_PART_KEEPS_KNOWN_TARGETS：舊碼有 UNKNOWN 就只回那一筆，把同一條指令明確的目標蓋掉）。"""
     got = write_paths_from_tool("Bash", {"command": _C5_CMD}, CWD)
-    assert len(got) == 1 and got[0].startswith("UNKNOWN:python -c") and "內嵌碼：內嵌碼匯入 importlib" in got[0], got
+    unknown = [g for g in got if g.startswith("UNKNOWN:")]
+    assert len(unknown) == 1 and got[-1] == unknown[0] and unknown[0].startswith("UNKNOWN:python -c"), got
+    assert "內嵌碼：內嵌碼匯入 importlib" in unknown[0] and any(g.endswith("old_pricing.py") for g in got), got
     got = write_paths_from_tool("Bash", {"command": "echo x > \"$Q/a\"; python -c \"import shutil\""}, CWD)
     assert len(got) == 1 and got[0].startswith("UNKNOWN:echo") and "內嵌碼" not in got[0], got
 
@@ -531,3 +534,11 @@ def test_007_shell_env_var_expanded(monkeypatch):
     assert _unknown('source env.sh; mkdir -p "$TEMP/x"')                     # source 讀進來的檔可能改任何變數
     ps = write_paths_from_tool("PowerShell", {"command": 'New-Item -Path "$TEMP/x"'}, CWD)
     assert len(ps) == 1 and ps[0].startswith("UNKNOWN:"), ps                 # PowerShell 的 $TEMP 是 PS 變數
+
+
+def test_008_unknown_part_keeps_known_targets():
+    """UNKNOWN_PART_KEEPS_KNOWN_TARGETS：同段的參數像內嵌碼、或別段的目標展不開，看得懂的目標照列，UNKNOWN 那一筆在最後。"""
+    got = write_paths_from_tool("Bash", {"command": "rm -rf /x/keep.py '[System.IO.Directory]::'"}, "/x")
+    assert got[0].endswith("keep.py") and got[-1].startswith("UNKNOWN:") and len(got) == 3, got   # 那個參數本身也是 rm 的目標
+    got = write_paths_from_tool("Bash", {"command": 'rm /x/a.py; echo hi > "$NOPE_X_008/out"'}, "/x")
+    assert len(got) == 2 and got[0].endswith("a.py") and got[1].startswith("UNKNOWN:echo"), got

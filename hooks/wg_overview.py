@@ -209,6 +209,19 @@ def _unmapped_root_of(path: str) -> Optional[Path]:
     return vcs_root_of(path)
 
 
+def write_target_root(path: str) -> Optional[Path]:
+    """寫入目標（改檔閘逐目標判）落在哪個專案根，規則 DIR_TARGET_JUDGED_BY_CONTAINER：整個資料夾當目標（rm -rf、
+    Remove-Item -Recurse、搬走）看它所在的上一層，不拿資料夾自己的專案標記（.git、_AIDocs、部位表）：刪掉整個專案資料夾
+    不是在改那個專案的檔，拿它自己當根只會要求讀「(outside)」的檔，永遠讀不到。檔案照舊（_unmapped_root_of）。
+    cwd 這類「我在哪」的目錄不走這裡（_project_root_of／_unmapped_root_of 照舊拿目錄自己）。"""
+    try:
+        p = Path(path)
+        is_dir = p.is_absolute() and p.is_dir()
+    except (OSError, ValueError):
+        is_dir = False
+    return _unmapped_root_of(str(p.parent) if is_dir else path)
+
+
 def _root_key(root: Path) -> str:
     return str(root).replace(chr(92), "/").lower()
 
@@ -1356,7 +1369,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     if hit:
         root, row = hit
     else:
-        root, row = _unmapped_root_of(file_path), None
+        root, row = write_target_root(file_path), None
         if root is None:
             return (None, None, False)
     cfg = _cfg(config, root)

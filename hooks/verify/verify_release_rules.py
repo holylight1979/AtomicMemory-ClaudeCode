@@ -2553,3 +2553,74 @@ def test_008a_rules_registered_with_cases(rule):
     text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
     assert rule in rr.RULES and f"def {fn}(" in text, (rule, case_file, fn)
     assert rule in text, (rule, case_file)                     # 案例檔（模組說明或案例說明）點到規則名
+
+
+# ─── 008 C：跨層判定的切段（端到端案例在 verify_cross_realm_bash_guard.py 的 008 段） ──────────
+
+def test_008_segments_split_like_shell():
+    """SEGMENTS_SPLIT_LIKE_SHELL：引號裡的換行留在同一段、引號外照切；黏著的 ; && | 也切；到最後引號沒收才回 None。"""
+    assert rr._shlex_segments('git log -1\npython -c "\nprint(1)\n"') == [["git", "log", "-1"], ["python", "-c", "\nprint(1)\n"]]
+    assert rr._shlex_segments("git status;git commit -m x") == [["git", "status"], ["git", "commit", "-m", "x"]]
+    assert rr._shlex_segments("echo 'a;b' && git log") == [["echo", "a;b"], ["git", "log"]]
+    assert rr._shlex_segments('git log "unclosed\nstill') is None
+    assert rr.git_readonly_verdict("cd x;git commit -am y", []).owed is True                # 黏著的分隔後面的 commit 照擋
+    assert rr._shlex_segments('git status; echo ";&" git reset --hard') == [["git", "status"], ["echo", ";&", "git", "reset", "--hard"]]
+    assert rr._shlex_segments('git status; echo "" git reset') == [["git", "status"], ["echo", "", "git", "reset"]]
+    assert rr._shlex_segments(r"echo 'a\' ; git log") == [["echo", "a\\"], ["git", "log"]]   # 單引號裡的反斜線照字面
+    assert "UNKNOWN_PART_KEEPS_KNOWN_TARGETS" in rr.RULES and "_shell_write_paths" in rr.RULES["UNKNOWN_PART_KEEPS_KNOWN_TARGETS"]
+
+
+def test_008_shell_keyword_prefix_stripped():
+    """SHELL_KEYWORD_PREFIX_STRIPPED：段首 do／then／else／{／! 剝掉才是命令；不在段首的照當參數。"""
+    assert rr._shlex_segments("if x; then git status; else git log; fi") == [
+        ["x"], ["git", "status"], ["git", "log"], ["fi"]]
+    assert rr._shlex_segments("{ git diff; }") == [["git", "diff"], ["}"]]
+    assert rr._shlex_segments("git log -- do") == [["git", "log", "--", "do"]]
+    assert rr.git_readonly_verdict("for r in a; do git push; done", []).owed is True
+    assert rr.git_readonly_verdict("if true; then git status; fi", []).owed is False
+    assert {"DOT_GIT_PATH_NOT_GIT_CALL", "SEGMENTS_SPLIT_LIKE_SHELL", "SHELL_KEYWORD_PREFIX_STRIPPED"} <= set(rr.RULES)
+
+
+def test_008_delete_and_dir_target_rules_registered():
+    """DELETE_FORMS_SAME_ACROSS_SHELLS、DIR_TARGET_JUDGED_BY_CONTAINER：判定在 wg_core 掃描器與 wg_overview，案例在
+    verify_dir_target_root.py（兩種 shell 的刪除寫法、殘留資料夾放行、專案裡的子資料夾照擋）與 verify_cross_realm_bash_guard.py。"""
+    assert "wg_core._scan_segment" in rr.RULES["DELETE_FORMS_SAME_ACROSS_SHELLS"]
+    assert "wg_overview.write_target_root" in rr.RULES["DIR_TARGET_JUDGED_BY_CONTAINER"]
+
+
+def test_008_base_red_tracked_not_owed():
+    """BASE_RED_TRACKED_NOT_OWED：三件都對得上才放行；缺一照算紅並說缺哪件；沒有基底紅行對到的紅原樣留著、不附註。"""
+    d = rr.parse_base_red("收尾\n基底紅｜test_a：ABCDEF1234 也紅；追蹤 `docs/known red.md:12`\n基底紅｜test_b：沒寫雜湊")
+    assert d[0]["item"] == "test_a" and d[0]["base"] == "abcdef1234" and d[0]["tracking"] == "docs/known red.md"
+    assert d[1]["base"] == "" and d[1]["tracking"] == ""
+    assert rr.parse_base_red("基底紅｜test_a：abcdef1 也紅；追蹤｜x/t.md")[0]["tracking"] == "x/t.md"
+    unit_a, unit_b = "t.py::test_a", "t.py::test_b"
+    red = {"cmd": "pytest t.py", "summary": f"FAILED {unit_a} - x\nFAILED {unit_b} - y", "cwd": "C:/r"}
+    runs = [{"clean": True, "head": "abcdef1234" + "0" * 30, "units": [unit_a, unit_b]}]
+    track = {"k.md": {"exists": True, "doc": True, "own_edit": False, "text": "test_a test_b 基底就紅"}}
+    both = rr.parse_base_red("基底紅｜test_a：abcdef1234 也紅；追蹤 k.md\n基底紅｜test_b：abcdef1234 也紅；追蹤 k.md")
+    ok = {"runs": runs, "ancestry": {("abcdef1234", "C:/r"): True}, "own_shas": [], "base_times": {"abcdef1234": 100.0},
+          "started": 200.0, "tracking": track}
+    kept, based, notes = rr.base_red_failures([red], both, ok)
+    assert not kept and not notes and [r["unit"] for r in based[0][1]] == [unit_a, unit_b]
+    kept, based, notes = rr.base_red_failures([red], both[:1], ok)                      # 兩支只宣告一支 → 整筆照紅
+    assert kept and not based and any("沒有對到它的基底紅行" in n and unit_b in n for n in notes)
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "ancestry": {("abcdef1234", "C:/r"): False}})
+    assert kept and any("不是現在 HEAD 的祖先" in n for n in notes)
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "runs": [{**runs[0], "units": [unit_a]}]})   # 基底只紅 a、b 是這次才紅
+    assert kept and any(unit_b in n and "沒在基底" in n for n in notes)
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "tracking": {"k.md": {**track["k.md"], "doc": False}}})
+    assert kept and any("不是 .md" in n for n in notes)
+    unlisted = {"cmd": "pytest t.py", "summary": "1 failed", "cwd": "C:/r"}
+    kept, _, notes = rr.base_red_failures([unlisted], rr.parse_base_red("基底紅｜t.py：abcdef1234 也紅；追蹤 k.md"), ok)
+    assert kept and any("逐支列得出" in n for n in notes)
+    kept, based, notes = rr.base_red_failures([red], [], ok)
+    assert kept == [red] and not based and not notes
+    other = {"k.md": {**track["k.md"], "text": "known: test_a_other test_b_other"}}         # 只提到名字更長的別支 → 沒點名
+    kept, _, notes = rr.base_red_failures([red], both, {**ok, "tracking": other})
+    assert kept and any("沒點名 test_a" in n for n in notes)
+    for over, why in (({"base_times": {"abcdef1234": 300.0}}, "開始前就有"), ({"base_times": {}}, "查不到時間"),
+                      ({"started": None}, "開始前就有"), ({"own_shas": ["ABCDEF1234ffff"]}, "自己提交的")):
+        kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
+        assert kept and any(why in n for n in notes), (over, notes)
+    assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []
