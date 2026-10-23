@@ -1741,11 +1741,11 @@ def _hub_part(file_path: str, config: Dict[str, Any]) -> str:
     不是欠這個部位證據的擋回空字串＝照閘名計數：設定有錯（整層設定壞了，換哪個部位都一樣擋）、唯讀路徑（禁區）；判定順序跟 on_edit 相同。
     判不出（部位表讀不到、查表例外）也回空字串，不當成表外的檔，stderr 說一聲。"""
     try:
-        from wg_overview import _cfg, _is_readonly, _key, _lookup, _unmapped_key, _unmapped_root_of
+        from wg_overview import _cfg, _is_readonly, _key, _lookup, _unmapped_key, write_target_root
         if _cfg(config)["_errors"]:
             return ""
         hit = _lookup(file_path)
-        root = hit[0] if hit else _unmapped_root_of(file_path)
+        root = hit[0] if hit else write_target_root(file_path)      # 跟 on_edit 同一支判根（資料夾目標看上一層）
         if root is None:
             return ""
         cfg = _cfg(config, root)

@@ -84,3 +84,20 @@ def test_delete_forms_same_across_shells(tmp_path):
     for c in (f"Get-Item '{win}' | Remove-Item -Recurse -Force", f"[System.IO.Directory]::Delete('{win}', $true)"):
         t = wg_core.write_paths_from_tool("PowerShell", {"command": c}, cwd=str(tmp_path))
         assert len(t) == 1 and t[0].startswith("UNKNOWN:"), (c, t)
+
+
+def test_chain_object_key_matches_gate_for_dir_target(tmp_path):
+    """斷路器的對象鍵（pre_tool_use._hub_part）跟改檔閘記帳用的鍵同一把：資料夾目標、上一層也是專案時，鍵的根是上一層。
+    舊碼 _hub_part 拿資料夾自己當根，鍵變成「子資料夾|(unmapped)(outside)」，跟閘的鍵對不上。"""
+    from handlers import pre_tool_use as ptu
+    proj = tmp_path / "proj"
+    (proj / ".git").mkdir(parents=True)
+    (proj / "README.md").write_text("# p\n", encoding="utf-8")
+    sub = proj / "sub"
+    (sub / "_AIDocs").mkdir(parents=True)
+    state: dict = {}
+    assert wo.on_edit(state, "s", str(sub), "", _NO_MIN_MAP)[1]                      # 前置：上一層是專案，先擋
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), "", {})
+    assert wo.on_edit(state, "s", str(sub), "", _NO_MIN_MAP)[1] is None
+    key = ptu._hub_part(str(sub), _NO_MIN_MAP)
+    assert key == wo._unmapped_key(proj, str(sub)) and key in state["overview_hub"], (key, list(state["overview_hub"]))
