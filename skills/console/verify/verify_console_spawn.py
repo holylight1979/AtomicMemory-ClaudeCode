@@ -6,6 +6,7 @@ worktree 無信任而 live 根有 → 補正斜線鍵並印出；--help 有「�
 反例：--worktree 指 live 根／未登記 → FAIL 不起；--prompt-file 不存在 → FAIL；kill switch → FAIL 且訊息點名檔；
 已 5 個活著 → 拒並列現有；逾時沒收到 → exit 1、stdout 有開工句 code block 與「退回人貼」；live 根也沒信任 → FAIL；
 method=gui → 不起、印退路。
+設定檔：--settings 轉絕對路徑接在指令尾（bg 與 print 都接），檔不存在 → FAIL 不起，沒給就不帶；main 沒給 run_fn 時用呼叫當下的 subprocess.run。
 模型：--model 接在指令尾（bg 與 print 都接）；沒給 --model 也沒 spawn.json default_model → 指令不含 --model；--model 優先於
 spawn.json；開工後讀 transcript 最近一則真回應的 message.model 印「模型＝…」，指定了卻對不上或讀不到 → FAIL 印「指定＝…／實際＝…」、
 不殺 session；session 第一回合就回 API 錯誤（例：模型 id 不存在）→ 不等逾時、立刻 FAIL 並印 claude 回的錯。
@@ -384,6 +385,44 @@ def test_print_method_also_passes_model(world, capsys):
     code, out = run(world, fake, clock, capsys, **{"--method": "print", "--model": OPUS})
     (p,) = [c for c in fake.calls if "-p" in c["cmd"]]
     assert code == 0 and p["cmd"][-2:] == ["--model", OPUS] and "不核對實際模型" in out
+
+
+# ─── --settings（新 session 用哪份設定檔）、run_fn 呼叫當下才取 ─────────────────────────
+def test_settings_flag_passed_as_absolute_path(world, capsys, tmp_path, monkeypatch):
+    """--settings 給相對路徑 → 轉絕對路徑接在 --bg 指令尾（新 session 的 cwd 是 worktree，相對路徑會指錯）；print 也帶。"""
+    (tmp_path / "guard-off.json").write_text('{"disableAllHooks": true}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, [sendmessage_block(f"{TRACK} 收到開工")], model=OPUS)
+    code, _ = run(world, fake, clock, capsys, **{"--settings": "guard-off.json", "--model": OPUS})
+    (bg,) = fake.bg_calls()
+    assert code == 0 and bg["cmd"][-4:] == ["--settings", str((tmp_path / "guard-off.json").resolve()), "--model", OPUS]
+    fake = FakeClaude()
+    code, _ = run(world, fake, clock, capsys, **{"--method": "print", "--settings": "guard-off.json"})
+    (p,) = [c for c in fake.calls if "-p" in c["cmd"]]
+    assert code == 0 and p["cmd"][-2:] == ["--settings", str((tmp_path / "guard-off.json").resolve())]
+
+
+def test_settings_file_missing_fails_without_spawning(world, capsys, tmp_path):
+    fake, clock = FakeClaude(), Clock()
+    code, out = run(world, fake, clock, capsys, **{"--settings": str(tmp_path / "nope.json")})
+    assert code == 1 and not fake.calls and "設定檔不存在" in out and out.rstrip().endswith("CONSOLE_SPAWN_CHECK FAIL")
+
+
+def test_no_settings_flag_adds_nothing(world, capsys):
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, [sendmessage_block(f"{TRACK} 收到開工")])
+    run(world, fake, clock, capsys)
+    assert "--settings" not in fake.bg_calls()[0]["cmd"]
+
+
+def test_run_fn_default_taken_at_call_time(world, capsys, monkeypatch):
+    """沒給 run_fn → 用呼叫當下的 subprocess.run：測試換掉它（錄製重播、假 claude）攔得到；舊碼在定義時就綁住真的 subprocess.run。"""
+    fake, clock = FakeClaude(), Clock()
+    arm_kickoff(world, fake, [sendmessage_block(f"{TRACK} 收到開工")])
+    monkeypatch.setattr(cs.subprocess, "run", fake)
+    code = cs.main(world.argv(), sleep_fn=clock.sleep, now_fn=clock.now, config_path=world.config, data_dir=world.data)
+    assert code == 0 and len(fake.bg_calls()) == 1
 
 
 # ─── 信任紀錄寫回（~/.claude.json 其他 session 隨時在寫）──────────────────────────────

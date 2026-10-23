@@ -91,6 +91,22 @@ RULES: Dict[str, str] = {
                            "cd 到專案 repo 之後的 git archive 不算；repo 推不出、參數（-o、--output=、目錄）碰到根層或含展不開的變數照算；"
                            "有命令替換、git 字樣比掃描器認到的 git 段多（eval、bash -c、heredoc 裡）、GIT_DIR／GIT_WORK_TREE、PowerShell → 照舊整條每段都算。"
                            "寫入目標算不出（UNKNOWN）照擋，擋訊息說「算不出」不說「落在根層」。判定在 hooks/wg_core._root_git_segments。",
+    "DOT_GIT_PATH_NOT_GIT_CALL": "跨層閘數 git 字樣、判指令有沒有 git 時，路徑裡的 `.git`（`ls repo/.git/hooks`）不算：它不是在叫 git。"
+                                 "不然唯讀的 ls 會被當成「有 git、掃描器沒認到」，退回整條切段判。樣式在 hooks/wg_core._GIT_WORD_RE。",
+    "SEGMENTS_SPLIT_LIKE_SHELL": "整條切段判 git 時（_shlex_segments）照 shell 切：引號裡的換行不是段界，一行的引號沒收就接下一行再切，"
+                                 "`python -c \"…多行…\"` 整段是一個參數，接到最後引號仍不完整才算解析不了；引號外的換行照切段；"
+                                 "`;`／`&&`／`|` 黏在字上（`a; do`、`x&&git`）也是分隔。",
+    "SHELL_KEYWORD_PREFIX_STRIPPED": "段首的 shell 保留字（do、then、else、elif、if、while、until、!、{）不是命令，剝掉再認："
+                                     "for／while 迴圈本體、if 分支、{ } 群組裡的寫檔命令與 git 照樣認得（寫入目標掃描器 hooks/wg_core._scan_segment"
+                                     "與整條切段的 _shlex_segments 同一份字表 SHELL_PREFIX_KEYWORDS）。",
+    "DELETE_FORMS_SAME_ACROSS_SHELLS": "同一件刪除換個寫法，寫入目標照樣認得：Bash 的 rm（-r 不帶值，舊碼把它當 touch -r 吃掉下一個字）、"
+                                       "rmdir；PowerShell 的 Remove-Item 與別名 ri、del、erase、rd、rmdir、rm；Set-Location／sl／chdir／"
+                                       "Push-Location（含 -Path、-LiteralPath）之後的相對目標照換過的目錄算。目標從管線進來（Get-Item x | Remove-Item）"
+                                       "或 [System.IO.File|Directory]:: → UNKNOWN（照 UNKNOWN_TARGET_LOGGED），不是沒看到。判定在 hooks/wg_core._scan_segment。",
+    "DIR_TARGET_JUDGED_BY_CONTAINER": "改檔閘逐目標判時，整個資料夾當目標（rm -rf、Remove-Item -Recurse、搬走）看它所在的上一層屬於哪個專案，"
+                                      "不拿資料夾自己的專案標記（.git、_AIDocs、部位表）：刪掉整個專案資料夾不是在改那個專案的檔，拿它自己當根只會要求"
+                                      "讀「(outside)」的檔、永遠讀不到。上一層是專案就照它的規則；資料夾裡的單一檔照舊。cwd 這類「我在哪」的目錄不走這條。"
+                                      "判定在 hooks/wg_overview.write_target_root。",
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
     "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
@@ -732,25 +748,44 @@ _GIT_WRITE_FLAGS = {"hash-object": ("-w",),
                     "diff": ("--output", "-o"), "log": ("--output", "-o"), "show": ("--output", "-o"), "shortlog": ("--output", "-o"),
                     "grep": ("--output", "-O", "--open-files-in-pager")}
 _GIT_OUTPUT_OPT = "--output"       # 每個唯讀子命令都認得的寫檔選項
+# 規則 SHELL_KEYWORD_PREFIX_STRIPPED：段首這些字是 shell 語法，後面才是命令（for／while 迴圈本體、if 分支、{ } 群組）
+SHELL_PREFIX_KEYWORDS = frozenset({"do", "then", "else", "elif", "if", "while", "until", "!", "{"})
 _GIT_GLOBAL_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"})
+
+
+_SEG_PUNCT = ";&|"
+
+
+def _shell_words(text: str) -> List[str]:
+    """一行 shell 斷字（引號照 POSIX、`#` 不當註解）；`;`／`&`／`|` 連著寫的那串單獨成一個字（`a;` → `a`、`;`）。
+    引號沒收拋 ValueError。"""
+    lex = shlex.shlex(text, posix=True, punctuation_chars=_SEG_PUNCT)
+    lex.whitespace_split = True
+    lex.commenters = ""
+    return list(lex)
 
 
 def _shlex_segments(raw: str) -> Optional[List[List[str]]]:
     """指令切段：先按換行切（shlex 會把換行當空白吞掉，第二行的 reset 會被當成第一行 status 的參數），
-    再按 && || ; | & 切段（引號內不切）。引號不完整回 None。"""
+    再按 && || ; | & 切段（引號內不切）。規則 SEGMENTS_SPLIT_LIKE_SHELL：引號裡的換行不是段界：一行切不開（引號沒收）
+    就接下一行再切，`python -c "…多行…"` 整段是一個參數，接到最後仍不完整才回 None；分隔符黏在字上（`a; do`、`x&&git`）也切。
+    段首的 shell 保留字（do、then、{…）剝掉（SHELL_KEYWORD_PREFIX_STRIPPED）。"""
     segs: List[List[str]] = []
+    pending = ""
     for line in raw.split("\n"):
+        pending = f"{pending}\n{line}" if pending else line
         try:
-            tokens = shlex.split(line, posix=True)
+            tokens = _shell_words(pending)
         except ValueError:
-            return None
+            continue
+        pending = ""
         segs.append([])
         for tok in tokens:
-            if tok in ("&&", "||", ";", "|", "&"):
+            if set(tok) <= set(_SEG_PUNCT):
                 segs.append([])
-            else:
+            elif segs[-1] or tok not in SHELL_PREFIX_KEYWORDS:
                 segs[-1].append(tok)
-    return segs
+    return None if pending else segs
 
 
 def _git_segments_readonly(command: str, segments: Optional[Sequence[Sequence[str]]] = None) -> Tuple[bool, List[str]]:

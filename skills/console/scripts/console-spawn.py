@@ -11,9 +11,10 @@
      用的同一把鎖（<設定檔>.lock 目錄），鎖內重讀、只合併這一鍵，寫同目錄暫存檔再整檔換上（換行與結尾照原檔）。
      live 根也沒信任、檔不存在或不是合法 JSON、鎖等不到、拿鎖後 5 秒內沒換上（鎖可能被當過期換人）、寫入失敗
      → FAIL（原檔不動）。
-  3. 起 session（--method bg，預設）：`claude.exe --bg "<開工句>" --permission-mode <模式> [--model <id>]`，cwd＝worktree，
+  3. 起 session（--method bg，預設）：`claude.exe --bg "<開工句>" --permission-mode <模式> [--settings <檔>] [--model <id>]`，cwd＝worktree，
      subprocess 不經 shell（開工句以 / 開頭也原樣送到）。stdout 的 `backgrounded · <短 id>` 就是 session 短 id。
      模型：--model 優先，其次 spawn.json 的 default_model，都沒有就不帶（吃 Claude Code 預設），不猜。
+     設定檔：--settings 有給才帶（轉成絕對路徑原樣交給 claude 的 --settings，例：關掉守門的設定檔）；檔不存在 → 前置就 FAIL、不起。
   4. 等它報到：輪詢 `claude agents --json` 取它在 ListAgents 的名字；讀它的 transcript
      （<資料根>/projects/<cwd-slug>/<sessionId>.jsonl）看有沒有「<軌名> 收到開工」——SendMessage 工具呼叫的正文，
      或 assistant 的文字都認，印出是哪一種。報到後印「模型＝<transcript 最近一則真回應的 message.model>」；
@@ -167,9 +168,10 @@ def model_and_api_error(transcript: Path) -> Tuple[Optional[str], Optional[str]]
     return model, err
 
 
-def build_cmd(claude_bin: str, method: str, prompt: str, permission_mode: str, model: Optional[str] = None) -> List[str]:
-    """開工句固定在 index 2（印指令時遮掉）；--model 只在有指定時接在最後。"""
-    tail = ["--model", model] if model else []
+def build_cmd(claude_bin: str, method: str, prompt: str, permission_mode: str, model: Optional[str] = None,
+              settings: Optional[str] = None) -> List[str]:
+    """開工句固定在 index 2（印指令時遮掉）；--settings、--model 只在有指定時接在最後。"""
+    tail = (["--settings", settings] if settings else []) + (["--model", model] if model else [])
     if method == "bg":
         return [claude_bin, "--bg", prompt, "--permission-mode", permission_mode] + tail
     if method == "print":
@@ -428,8 +430,9 @@ def wait_kickoff(args, claude_bin: str, short_id: str, run_fn, sleep_fn, now_fn,
         sleep_fn(args.poll)
 
 
-def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=time.sleep, now_fn=time.monotonic,
-         config_path: Optional[Path] = None, data_dir: Optional[Path] = None) -> int:
+def main(argv: Optional[List[str]] = None, *, run_fn: Optional[Callable[..., Any]] = None, sleep_fn=time.sleep,
+         now_fn=time.monotonic, config_path: Optional[Path] = None, data_dir: Optional[Path] = None) -> int:
+    run_fn = run_fn or subprocess.run     # 呼叫當下才取：不在定義時綁住，測試換掉 subprocess.run 時才攔得到
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--track", required=True, help="軌名（開工句第一個詞；「<軌名> 收到開工」靠它認）")
     ap.add_argument("--worktree", required=True, type=Path, help="worktree 絕對路徑（新 session 的 cwd；不能是 live 根）")
@@ -442,6 +445,8 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     ap.add_argument("--poll", type=float, default=None, help="輪詢間隔秒（預設 config 或 3）")
     ap.add_argument("--max-parallel", type=int, default=None, help="同時活著的本腳本 session 上限（預設 config 或 5）")
     ap.add_argument("--claude-bin", default=None, help="claude 執行檔；不給就找 VS Code 擴充內建最新版，再找 PATH")
+    ap.add_argument("--settings", type=Path, default=None,
+                    help="新 session 的設定檔（原樣轉給 claude 的 --settings，例：關掉守門的設定檔）；不給就不帶；檔不存在 → FAIL、不起")
     ap.add_argument("--model", default=None,
                     help="新 session 的模型，給完整 id（例 claude-opus-5-5；別名對不上 transcript 記的完整 id 會判 FAIL）；"
                          "不給就用 spawn.json 的 default_model，再沒有就不帶（吃 Claude Code 預設）")
@@ -471,6 +476,10 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
     if not args.worktree.is_dir():
         log(f"  ✗ worktree 目錄不存在：{args.worktree}")
         return fail("worktree 目錄不存在", prompt)
+    if args.settings is not None and not args.settings.is_file():
+        log(f"  ✗ --settings 的設定檔不存在：{args.settings}")
+        return fail("設定檔不存在", prompt)
+    settings = str(args.settings.resolve()) if args.settings is not None else None   # 新 session 的 cwd 是 worktree：相對路徑先轉絕對
     live_root = live_root_of(args.worktree)
     if live_root is None or norm(live_root) == norm(args.worktree):
         log(f"  ✗ {args.worktree} 不是 git worktree（或就是 live 根）：新 session 只准開在 worktree")
@@ -515,7 +524,7 @@ def main(argv: Optional[List[str]] = None, *, run_fn=subprocess.run, sleep_fn=ti
                     f"live 根沒信任就在 {args.worktree} 跑一次 `claude` 接受信任提示；其他原因排除後再重跑本腳本。")
 
     # 3. 起 session
-    cmd = build_cmd(claude_bin, args.method, prompt, args.permission_mode, model)
+    cmd = build_cmd(claude_bin, args.method, prompt, args.permission_mode, model, settings)
     shown = [c if i != 2 else f"<開工句 {len(prompt)} 字>" for i, c in enumerate(cmd)]
     log(f"  · 指令：{shown}  cwd={args.worktree}")
     if args.method == "print":

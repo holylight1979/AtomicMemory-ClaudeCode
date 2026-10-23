@@ -2532,3 +2532,32 @@ def test_decl_hints_do_not_steer_to_bash_writes():
         hits += [f"{p.relative_to(HOOKS_DIR).as_posix()}：{b}" for b in banned if b in src]
     assert not hits, hits
     assert "照常用 Edit／Write" in rr.DECL_KEEP_EDIT and "不寫檔" in rr.DECL_VIA_COMMENT
+
+
+# ─── 008 C：跨層判定的切段（端到端案例在 verify_cross_realm_bash_guard.py 的 008 段） ──────────
+
+def test_008_segments_split_like_shell():
+    """SEGMENTS_SPLIT_LIKE_SHELL：引號裡的換行留在同一段、引號外照切；黏著的 ; && | 也切；到最後引號沒收才回 None。"""
+    assert rr._shlex_segments('git log -1\npython -c "\nprint(1)\n"') == [["git", "log", "-1"], ["python", "-c", "\nprint(1)\n"]]
+    assert rr._shlex_segments("git status;git commit -m x") == [["git", "status"], ["git", "commit", "-m", "x"]]
+    assert rr._shlex_segments("echo 'a;b' && git log") == [["echo", "a;b"], ["git", "log"]]
+    assert rr._shlex_segments('git log "unclosed\nstill') is None
+    assert rr.git_readonly_verdict("cd x;git commit -am y", []).owed is True                # 黏著的分隔後面的 commit 照擋
+
+
+def test_008_shell_keyword_prefix_stripped():
+    """SHELL_KEYWORD_PREFIX_STRIPPED：段首 do／then／else／{／! 剝掉才是命令；不在段首的照當參數。"""
+    assert rr._shlex_segments("if x; then git status; else git log; fi") == [
+        ["x"], ["git", "status"], ["git", "log"], ["fi"]]
+    assert rr._shlex_segments("{ git diff; }") == [["git", "diff"], ["}"]]
+    assert rr._shlex_segments("git log -- do") == [["git", "log", "--", "do"]]
+    assert rr.git_readonly_verdict("for r in a; do git push; done", []).owed is True
+    assert rr.git_readonly_verdict("if true; then git status; fi", []).owed is False
+    assert {"DOT_GIT_PATH_NOT_GIT_CALL", "SEGMENTS_SPLIT_LIKE_SHELL", "SHELL_KEYWORD_PREFIX_STRIPPED"} <= set(rr.RULES)
+
+
+def test_008_delete_and_dir_target_rules_registered():
+    """DELETE_FORMS_SAME_ACROSS_SHELLS、DIR_TARGET_JUDGED_BY_CONTAINER：判定在 wg_core 掃描器與 wg_overview，案例在
+    verify_dir_target_root.py（兩種 shell 的刪除寫法、殘留資料夾放行、專案裡的子資料夾照擋）與 verify_cross_realm_bash_guard.py。"""
+    assert "wg_core._scan_segment" in rr.RULES["DELETE_FORMS_SAME_ACROSS_SHELLS"]
+    assert "wg_overview.write_target_root" in rr.RULES["DIR_TARGET_JUDGED_BY_CONTAINER"]
