@@ -288,7 +288,7 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
         if wc.is_stop(hook):
             new.append(cx.row("shown"))
             _append(cx.sid, new)
-            return GateResult(True, notice=wc.notice_text(cx.chain(), cx.now))
+            return GateResult(True, notice=wc.notice_text(cx.chain(), cx.now, replaced=what))   # CHAIN_ABORT_SHOWS_REPLACED_BLOCK
         kept = wc.keeps_blocking(cx.chain(), str(gate))
         if kept:                                  # CHAIN_HEADLESS_KEEPS_DATA_GATES：讓警報響的這一次也照擋
             new[0].update(record_only=False, kept=True)
@@ -298,7 +298,7 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
             return PASS
         if why:                                   # CHAIN_HEADLESS_NO_ASK：沒人能答不停手，這次照放（只記錄），收尾再送經過表
             return GateResult(True)
-        return GateResult(True, halt=wc.halt_text(cx.chain(), cx.now))
+        return GateResult(True, halt=wc.halt_text(cx.chain(), cx.now, replaced=what))
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的閘行為
         _warn("gate_fired", e)
         return PASS
