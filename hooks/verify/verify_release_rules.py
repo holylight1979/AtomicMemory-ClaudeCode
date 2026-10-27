@@ -2738,3 +2738,62 @@ def test_so_fact_trigger_rules_registered_with_cases(rule):
     case_file, fn = _SO_FACT_CASES[rule]
     text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
     assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)
+
+
+# ─── 擋或提醒（RULE_MODE）：每條規則有 mode、三類照擋、其餘提醒、總開關關一律照舊 ───
+_BLOCK_RULES = ("COMMIT_SMELL_NEW_BLOCKS", "GATE_BYPASS_NEEDS_DECLARATION", "USER_DATA_FILE_NEEDS_DECLARATION",
+                "OLD_TEST_CHANGE_NEEDS_DECLARATION", "RED_TEST_BLOCKS_COMPLETION", "CLAIM_FIXED_NEEDS_PASS")
+_REMIND_RULES = ("CODE_EDIT_NEEDS_GOAL_TREE", "OVERVIEW_CARD_BEFORE_EDIT", "OVERVIEW_CARD_MISSING", "OVERVIEW_PART_FILES_READ",
+                 "COMMIT_GOAL_RECONCILED", "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT",
+                 "CLOSING_CHECK_REQUIRED", "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED",
+                 "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE", "ATOM_CONSUMPTION_AUDIT",
+                 "EVASION_FLAG_NEXT_PROMPT", "CASE_COVERS_CHANGE", "ASK_NEEDS_RECOMMENDATION",
+                 "REMIND_ON_PRIOR_RESULT", "GATE_MODE_TABLE")
+
+
+def test_rule_mode_covers_every_rule_with_block_or_remind():
+    """規則 GATE_MODE_TABLE：RULES 的每一條都在 RULE_MODE，值只有 block／remind；沒登的規則名當 block。"""
+    assert set(rr.RULE_MODE) == set(rr.RULES)
+    assert set(rr.RULE_MODE.values()) <= {rr.BLOCK, rr.REMIND}
+    assert rr.mode_of("NOT_A_RULE_NAME") == rr.BLOCK
+
+
+@pytest.mark.parametrize("rule", _BLOCK_RULES)
+def test_three_classes_block_when_v6_on(rule):
+    assert rule in rr.RULES and rr.RULE_CLASS[rule] in ("病形", "宣告", "紅測")
+    assert rr.gate_mode(rule, True) == rr.BLOCK
+
+
+@pytest.mark.parametrize("rule", _REMIND_RULES)
+def test_other_v6_gates_remind_when_v6_on_and_block_when_off(rule):
+    assert rule in rr.RULES
+    assert rr.gate_mode(rule, True) == rr.REMIND
+    assert rr.gate_mode(rule, False) == rr.BLOCK
+
+
+def test_out_of_scope_rules_stay_block():
+    for rule in ("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "ORDER_UNTIL_PUSH", "SVN_TEST_BLOCK_OPT_IN"):
+        assert rr.RULE_CLASS[rule] == "不在範圍" and rr.gate_mode(rule, True) == rr.BLOCK
+
+
+def test_hit_mode_follows_letter_main_rule():
+    """寫碼查核的字母：(a) 照擋、(d) 提醒，就算擋訊息帶的是判宣稱的共用規則名。"""
+    assert rr.hit_mode("a", "CLAIM_WORDS_ARE_HINTS", True) == rr.BLOCK
+    assert rr.hit_mode("d", "SAME_FILE", True) == rr.REMIND
+    assert rr.hit_mode("d", "SAME_FILE", False) == rr.BLOCK
+
+
+def test_remind_line_one_line_with_rule_and_fix_and_cap():
+    line = rr.remind_line("CASE_COVERS_CHANGE", "改了 a.py\n沒案例", "補 verify_a.py")
+    assert line.startswith("[Guardian:提醒] CASE_COVERS_CHANGE：") and "\n" not in line and "做法：補 verify_a.py" in line
+    long = rr.remind_line("X", "y" * 500, "z")
+    assert len(long) <= rr.REMIND_LINE_CAP and long.endswith("…")
+
+
+def test_remind_key_and_due_once_per_object():
+    k = rr.remind_key("OVERVIEW_CARD_BEFORE_EDIT", r"C:\proj\hooks\a.py")
+    assert k == rr.remind_key("OVERVIEW_CARD_BEFORE_EDIT", "c:/proj/hooks/a.py")
+    assert rr.remind_due([], "OVERVIEW_CARD_BEFORE_EDIT", "c:/proj/hooks/a.py")
+    assert not rr.remind_due([k], "OVERVIEW_CARD_BEFORE_EDIT", "C:/proj/hooks/a.py")
+    assert rr.remind_due([k], "OVERVIEW_CARD_BEFORE_EDIT", "c:/proj/hooks/b.py")
+    assert rr.remind_key("HARVEST_AT_PHASE_DONE") == "HARVEST_AT_PHASE_DONE|"

@@ -4193,3 +4193,98 @@ RULES.update({
                                 "那批沒出現（沒交收尾檢核也沒完整對照）→ Stop 照舊擋；附了沒照做 → Stop 照擋（判定、擋次不變）。"
                                 "留帳 guard-second_opinion event=pre_close（owed、sent）。",
 })
+
+
+# ─── 擋或提醒（RULE_MODE）：v6 守門每條規則照擋（block）還是提醒（remind），判定與送法只讀這一處 ───
+# 照擋只三類：病形閘（含防繞）、改使用者資料檔／改舊測試沒先宣告、測試沒過卻說修好；其餘 v6 守門一律提醒。
+# 「不在範圍」是不屬於 v6 的安全與權限邊界（版控口令、記憶寫入、svn 測試路徑），照擋、不讀本表。
+# 本段放在檔尾、最後算 RULE_MODE：之後再加規則的段落要同時把它登進本表（verify_release_rules 掃表案會紅）。
+RULES.update({
+    "COMMIT_SMELL_NEW_BLOCKS": "commit／svn commit 那刻，這次提交新寫進的病形（巢狀過深、匿名區塊過長…，判法在 tools/project-smells.py check_commit）"
+                               "→ 擋；拆不出要提交什麼（包在 bash -c、--git-dir、查不到的別名）判不了也擋。舊碼原本就有的只列出、不擋。"
+                               "判法在 handlers/pre_tool_use.check_smell_gate。",
+    "RED_TEST_BLOCKS_COMPLETION": "本 session 自己跑紅、還沒綠的測試在，收尾宣告完成 → 擋（紅測閘，handlers/stop._testfail_gate）；"
+                                  "預算、放行、豁免照 BLOCK_BUDGET_SHARED、USER_WAIVER_NEEDS_CITATION、BASE_RED_TRACKED_NOT_OWED。",
+    "CODE_EDIT_NEEDS_GOAL_TREE": "改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：v6 開時提醒一行 need_goal set，不擋。",
+    "OVERVIEW_CARD_BEFORE_EDIT": "改某部位的檔時本 session 還沒看過這個部位的導讀卡（wg_overview.on_edit 的 not_injected）：提醒、卡隨改檔結果送到。",
+    "OVERVIEW_CARD_MISSING": "部位表列了導讀卡、卡檔卻找不到（wg_overview.on_edit 的 card_missing）：提醒列出找過哪裡。",
+    "OVERVIEW_PART_FILES_READ": "改某部位的檔前要讀過這個部位的檔與卡指到的檔（min_overview_evidence，wg_overview.on_edit 的 evidence）：提醒、不擋。",
+    "COMMIT_GOAL_RECONCILED": "commit 前目前寫碼類樹的完整對照 (f2) 與改到的部位掛目標 (f3)（wg_need_goal.commit_gate）：提醒、不擋。",
+    "DEFERRAL_OF_DOABLE_WORK": "主任務完工、context 還夠，收尾把帶受詞、可做的事推給下個 session／獨立議題／非我造成（wg_evasion.deferral_gate_reason）。",
+    "HARVEST_AT_PHASE_DONE": "階段完工要交知識收割清單（wg_harvest.harvest_gate_reason；背景收割開著就交背景）。",
+    "HARVEST_ITEM_NEEDS_RECEIPT": "收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。",
+    "CLOSING_CHECK_REQUIRED": "動到 core 檔或多檔、宣告完成，本回合要交收尾檢核 anti_evasion_report（handlers/stop.py ScanReport 段）。",
+    "CLOSING_CHECK_MEMORY_NOT_DEFERRED": "收尾檢核 (d)／(h) 不得把寫 atom 推到之後（post_tool_use 判 d_pending，handlers/stop.py AEC-Pending 段）。",
+    "SYNC_REMINDER_UNSYNCED": "本 session 改過的檔還沒 commit 或還沒 push，要照口令規則交代（handlers/stop.py SyncReminder 段；口令閘本身不在此）。",
+    "SYNC_BLOCK_PENDING_ITEMS": "還有待記知識或文件漂移沒處理（handlers/stop.py 底部同步段，SYNC_BLOCK_NEW_ITEMS_ONLY）。",
+    "DEEP_POSTMORTEM_ON_FAILURE": "這個 session 有真失敗訊號，結束前補一張完整檢討卡（handlers/stop._should_deep_postmortem）。",
+    "ATOM_CONSUMPTION_AUDIT": "注入的指標卡要回報有沒有用到（handlers/stop._audit_pointer_atom_consumption）。",
+    "EVASION_FLAG_NEXT_PROMPT": "收尾文字有退避語：記旗標、下一則使用者訊息時注入（wg_evasion.detect_evasion），不續跑。",
+    "REMIND_ON_PRIOR_RESULT": "提醒掛在前一個動作的工具結果（PostToolUse），不掛 PreToolUse 的 additionalContext；收尾類的要求掛在改程式檔那則"
+                              "工具結果，Stop 只留帳、不續跑、不開放行題。提醒一行內：規則名＋現象＋做法（remind_line），不附卡全文；"
+                              "同一條規則同一個對象同一個 session 只提醒一次（remind_due）。",
+    "GATE_MODE_TABLE": "v6 守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘 v6 守門是 remind；"
+                       "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
+})
+
+BLOCK = "block"
+REMIND = "remind"
+
+# 照擋的規則名 → 屬哪一類（上表三類＋不在範圍）。共用的判事實規則（SAME_FILE、TURN_SINCE_USER_PROMPT…）不決定送法，標 remind 不影響照擋閘使用。
+RULE_CLASS: Dict[str, str] = {
+    **dict.fromkeys(("COMMIT_SMELL_NEW_BLOCKS", "GATE_BYPASS_NEEDS_DECLARATION", "GATE_BYPASS_NAMED_FILES_MERGED"), "病形"),
+    **dict.fromkeys(("USER_DATA_FILE_NEEDS_DECLARATION", "DATA_FILE_DECL_VOIDED_BY_LATER_MENTION",
+                     "OLD_TEST_CHANGE_NEEDS_DECLARATION", "OLD_TEST_COMPARED_ON_FAILED_COMMAND",
+                     "OWN_COMMIT_CHANGES_STILL_COMPARED"), "宣告"),
+    **dict.fromkeys(("RED_TEST_BLOCKS_COMPLETION", "RED_ITEMS_ONLY_FROM_FAILURE_LINES", "RED_SCOPE_FROM_FULL_COMMAND",
+                     "GREEN_CLEARS_ONLY_CASES_IT_RAN", "GREEN_NARROWED_KEEPS_UNCOVERED_RED", "GREEN_SAME_CASE_CLEARS",
+                     "USER_WAIVER_NEEDS_CITATION", "BASE_RED_TRACKED_NOT_OWED", "NEGATIVE_CONTROL_DECLARED",
+                     "RED_WHILE_REVERTED", "BLOCK_BUDGET_SHARED", "RELEASE_COVERS_SHOWN_ITEMS", "PENDING_SAME_USER_TURN",
+                     "NONINTERACTIVE_RELEASE_AT_BUDGET", "CLAIM_FIXED_NEEDS_PASS", "CARRIED_CLAIM_ANY_TURN_RECEIPT",
+                     "CLAIM_WORDS_ARE_HINTS", "CLAIM_RECEIPT_REF_MATCH", "CLAIM_DISCLAIM_NEEDS_REASON",
+                     "CLAIM_CONDITIONAL_NOT_CLAIM", "CLAIM_MODIFIER_NOT_OWN", "COMPLETION_CLAIM_PER_SENTENCE"), "紅測"),
+    **dict.fromkeys(("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "ORDER_UNTIL_PUSH", "TEMP_REPO_COMMIT_EXEMPT",
+                     "SVN_TEST_BLOCK_OPT_IN", "ATOM_BYPASS_HOWTO_REFUSED", "CONFLICT_DECLARED_BY_AI"), "不在範圍"),
+}
+RULE_MODE: Dict[str, str] = {name: BLOCK if name in RULE_CLASS else REMIND for name in RULES}
+
+# 寫碼查核的條目字母 → 決定這一條送法的規則（同一個字母的擋訊息可能帶判宣稱的共用規則名，送法照字母的主規則）
+LETTER_RULE: Dict[str, str] = {
+    "a": "CLAIM_FIXED_NEEDS_PASS", "b": "CLAIM_MEASURED_NEEDS_DONE", "c": "CLAIM_TRIED_NEEDS_EXEC",
+    "d": "CASE_COVERS_CHANGE", "v": "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "e": "AEC_EVIDENCE_PATH",
+    "f3": "EDITED_PART_NEEDS_GOAL_NODE", "f4": "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
+}
+REMIND_LINE_CAP = 240
+
+
+def mode_of(rule: str) -> str:
+    """規則 GATE_MODE_TABLE：這條規則照擋還是提醒；表上沒登的當 block（沒分類前行為不變）。"""
+    return RULE_MODE.get(str(rule), BLOCK)
+
+
+def gate_mode(rule: str, v6: bool) -> str:
+    """呼叫端決定送法的唯一入口：總開關關（v6=False）一律 block＝照舊；開時照 RULE_MODE。"""
+    return mode_of(rule) if v6 else BLOCK
+
+
+def hit_mode(letter: str, rule: str, v6: bool = True) -> str:
+    """format_hit 一條（parse_hit_rules 拆出的字母、規則名）的送法：寫碼查核的字母照 LETTER_RULE 的主規則，其餘照規則名。"""
+    return gate_mode(LETTER_RULE.get(str(letter), rule), v6)
+
+
+def remind_line(rule: str, what: str, fix: str) -> str:
+    """規則 REMIND_ON_PRIOR_RESULT：提醒一行，格式 `[Guardian:提醒] <規則名>：<現象>｜做法：<做法>`；換行壓成空白，超過上限截斷。"""
+    flat = " ".join(f"[Guardian:提醒] {rule}：{what}｜做法：{fix}".split())
+    return flat if len(flat) <= REMIND_LINE_CAP else flat[:REMIND_LINE_CAP - 1] + "…"
+
+
+def remind_key(rule: str, obj: Any = "") -> str:
+    """同一條規則、同一個對象（部位、檔、頂層目錄；空＝整個 session 一件）的提醒鍵。對象是路徑時照 canon_path 比。"""
+    o = str(obj or "")
+    is_path = "/" in o or "\\" in o
+    return f"{rule}|{canon_path(o) if is_path else o}"
+
+
+def remind_due(sent: Iterable[str], rule: str, obj: Any = "") -> bool:
+    """這件提醒這個 session 送過沒（sent＝呼叫端存在 state 的提醒鍵）；沒送過才送，送了由呼叫端把 remind_key 加進去。"""
+    return remind_key(rule, obj) not in set(sent or ())
