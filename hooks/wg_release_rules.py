@@ -3984,3 +3984,17 @@ RULES.update({
                                    "（wg_provenance._subagent_opener），lib/provenance.is_human_record 是才填（isSidechain 一律不算真人）；"
                                    "貼上的內容（lib/harness_text.strip_pasted）不當原話。守門總開關開關都套。",
 })
+
+
+# ─── 寫碼回合的記憶注入只送該到的（判定在 hooks/handlers/ups_inject.assemble_injection，這裡只登錄規則名與說明） ───
+RULES.update({
+    "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、這則判成寫碼意圖：ups_inject._lean_turn）記憶卡只有 trigger 命中的給整段"
+                                        "（含原有的同題節錄、塞不下時的印象節錄）；bm25／vector／related 命中的不看 hot／cold 一律走 cold 一行"
+                                        "（form＝cold，取用端稽核只追 trigger 命中的，不受影響）。總開關關、或不是寫碼意圖照舊。",
+    "POINTER_NO_NAME_ECHO": "寫碼回合的一行指標（cold 行、budget 塞不下退的路標）摘要或標題只是卡名再寫一次時不重印，只留卡名＋路徑"
+                            "（wg_atoms.title_echoes_name：去掉標點、空白、大小寫與截斷的 … 後是卡名的開頭）；摘要是印象行、或比卡名多資訊的照留。",
+    "NO_RESEND_AFTER_RESUME": "寫碼回合同一張卡在這個 session 最近一次壓縮之後已整段送出過（injection_log 的 form_final＝ok，送出時間 at "
+                              "晚於 pre_compact_snapshot／post_compact_at 一秒以上：ups_inject.sent_full_since_compact），resume 清空 "
+                              "injected_atoms 後再命中只給一行指回（form＝seen，不算路標、取用端稽核不追問）；壓縮之後、之前只送過一行、"
+                              "或判不出先後的照常送。送出時間只在總開關開時記。",
+})
