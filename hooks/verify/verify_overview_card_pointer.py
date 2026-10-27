@@ -93,14 +93,14 @@ def test_pointer_first_touch_sends_defect_line_and_card_path(proj, tmp_path):
     f1, tp = str(proj / "Game/Battle/A.cs"), _transcript(tmp_path, "x")
     hint = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     assert hint.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前") and "已知病灶" not in hint and _card(proj) not in hint
-    txt = wo.on_edit(state, "s", f1, tp, {})[1]
-    assert "已知病灶：共用字典跨場次沒清，第二場數值帶前一場" in txt
+    _, txt, _, hit = wo.edit_check(state, "s", f1, tp, {})                       # 沒交定位：擋這一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE），訊息＝卡＋定位要求
+    assert "已知病灶：共用字典跨場次沒清，第二場數值帶前一場" in txt and "這一次擋" in txt
     assert _card(proj) in txt and "先 Read" in txt
     assert "結算傷害" not in txt and "浮點比較" not in txt and "pytest tests/battle" not in txt
     assert "定位｜部位：戰鬥" in txt
     assert _rec(state, "戰鬥")["card_mode"] == "pointer"
     card_ev = next(e for e in reversed(_log(tmp_path)) if e["event"] == "card")
-    assert card_ev["card_mode"] == "pointer" and card_ev["chars"] == len(txt.split("\n", 1)[1]) and "交定位" in hint
+    assert card_ev["card_mode"] == "pointer" and card_ev["chars"] == len(hit["extra"]) and "交定位" in hint
 
 
 def test_pointer_edit_denied_until_card_read_then_passes(proj, tmp_path):
@@ -111,7 +111,8 @@ def test_pointer_edit_denied_until_card_read_then_passes(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
-    assert "導讀卡現在才送" in wo.on_edit(state, "s", f1, tp, {})[1]               # 第一刀：卡隨第一次改檔到
+    _, deny, _, hit = wo.edit_check(state, "s", f1, tp, {})                      # 第一刀：卡隨第一次改檔到（提醒件）；定位已交 → 不擋
+    assert deny is None and "導讀卡現在才送" in hit["what"] and _card(proj) in hit["extra"]
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert deny and "還沒 Read 這個部位的導讀卡" in deny and _card(proj) in deny
     assert "還沒交出定位" not in deny and "還沒讀過這個部位的檔" not in deny        # 缺的只有讀卡
@@ -130,7 +131,7 @@ def test_card_read_hint_says_read_edit_files_with_the_card(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
-    txt = wo.on_edit(state, "s", f1, tp, {})[1]                                  # 卡（指標行）隨第一次改檔到
+    txt = wo.edit_check(state, "s", f1, tp, {})[3]["extra"]                      # 卡（指標行）隨第一次改檔到（提醒件）
     deny = wo.on_edit(state, "s", f1, tp, {})[1]
     for text in (txt, deny):
         assert "下一則讀卡時順便讀要改的檔" in text and "同一則送" not in text
@@ -143,7 +144,8 @@ def test_pointer_card_read_in_same_bash_command_counts(proj, tmp_path):
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
     assert wo.on_read(state, "s", "Bash", {"command": f'cat "{f1}" "{f2}" "{_card(proj)}"'}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
-    assert "先讀完再改" in wo.on_edit(state, "s", f1, tp, {})[1]                   # 卡隨第一次改檔到；卡已讀過，不要求再 Read
+    _, deny, _, hit = wo.edit_check(state, "s", f1, tp, {})                      # 卡隨第一次改檔到；卡已讀過，不要求再 Read；定位已交 → 不擋
+    assert deny is None and "先讀完再改" in hit["fix"]
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
 
 
@@ -156,7 +158,8 @@ def test_pointer_failed_card_read_does_not_count(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     wo.on_read(state, "s", "Bash", {"command": f'cat "{_card(proj)}"'}, str(proj), tp, {}, exit_code=1)
     _transcript(tmp_path, LOCATE)
-    assert "導讀卡現在才送" in wo.on_edit(state, "s", f1, tp, {})[1]
+    _, deny, _, hit = wo.edit_check(state, "s", f1, tp, {})                      # 卡隨第一次改檔到（提醒件）；定位已交 → 不擋
+    assert deny is None and "導讀卡現在才送" in hit["what"]
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert deny and "還沒 Read 這個部位的導讀卡" in deny
 
@@ -175,7 +178,8 @@ def test_pointer_two_cards_one_unread_still_denied(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": _card(proj)}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
-    assert "導讀卡現在才送" in wo.on_edit(state, "s", f1, tp, {})[1]
+    _, deny, _, hit = wo.edit_check(state, "s", f1, tp, {})                      # 卡隨第一次改檔到（提醒件）；定位已交 → 不擋
+    assert deny is None and "導讀卡現在才送" in hit["what"]
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     unread_line = next(l for l in deny.splitlines() if "還沒 Read 這個部位的導讀卡" in l)
     assert str(second) in unread_line and _card(proj) not in unread_line

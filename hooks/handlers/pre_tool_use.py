@@ -2198,7 +2198,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 from wg_overview import remind_hit
                 _what = " ".join(ln.strip() for ln in deny_reason.splitlines()[1:3] if ln.strip()) or deny_reason.splitlines()[0]
                 if _remind_later(input_data, _co_state, remind_hit("COMMIT_GOAL_RECONCILED", _tree, f"commit 前的目標對照沒過：{_what}",
-                                                                   "need_goal(action=reconcile) 補完整對照、改到的部位補定位第四行"),
+                                                                   "改到的部位補定位第四行（目標對照由程式代填，不必呼叫 reconcile）"),
                                  "need_goal", command=_ng_cmd[:300]):
                     from wg_core import write_state as _ws_cg
                     _ws_cg(_co_sid, _co_state)
@@ -2229,6 +2229,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                     _hub_state = {}
                 _hub_warns: List[str] = []
                 hub_changed = False
+                _once = False
                 for _hub_fp in _hub_targets:
                     # 需求目標第一層（4.2）：寫碼類檔沒有目標樹，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）；
                     # 送法照 RULE_MODE（CODE_EDIT_NEEDS_GOAL_TREE 提醒；目標檔損毀／判定出錯＝GATE_SELF_ERROR）
@@ -2250,12 +2251,18 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                     hub_changed = hub_changed or _c
                     if _w and not _d:              # 有 deny 理由時警告文字就是擋訊息本身，不當警告送
                         _hub_warns.append(_w)
+                    _once = bool(_d and _hit and _hit.get("block_once"))   # 規則 LOCATE_FIRST_EDIT_BLOCKS_ONCE：第一次改、缺定位，擋這一次
                     if _d and (_hit is None or _rr.gate_mode(_hit["rule"], v6) == _rr.BLOCK):
                         hub_deny, hub_file = _d, _hub_fp
                         break
-                    if _d:
-                        # 規則 GATE_MODE_TABLE：定位閘、導讀卡、無表專案、設定壞 → 不擋，下一個工具結果附一行（導讀卡順帶注入）
+                    if _hit:
+                        # 規則 GATE_MODE_TABLE：定位閘、導讀卡、無表專案、設定壞 → 不擋，下一個工具結果附一行（導讀卡順帶注入）；
+                        # 第一次改就交了定位（_d 空）卡也走這裡當提醒件送
                         hub_changed = _remind_later(input_data, _hub_state, _hit, "overview_hub", path=_hub_fp) or hub_changed
+                    if _once and _hub_persist:
+                        # 卡已排進提醒（隨下一個工具結果到），這一次照擋、訊息＝卡＋定位要求；state 記不住「擋過了」（沒 session）就只提醒
+                        hub_deny, hub_file = _d, _hub_fp
+                        break
                 if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
                     _ws(_co_sid, _hub_state)
                     # write_state 失敗只吞 OSError 不回報：回讀磁碟核對，寫不進去就擋（否則下一次 Edit 又被當第一次）
@@ -2272,6 +2279,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         else:
                             # 規則 GATE_SELF_ERROR（remind）：state 寫不進去，待提醒也存不住 → 這一行只能跟著這次放行的警告走、stderr＋留帳
                             _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, rule="GATE_SELF_ERROR", allowed=True)
+                            if hub_deny and _once:                        # 「只擋第一次」的擋要靠 state 記住；記不住就放行（否則每次 Edit 都被當第一次）
+                                hub_deny = None
                             sys.stderr.write(_persist_msg + "\n")
                             _hub_warns.append(_rr.remind_line("GATE_SELF_ERROR", f"state 無法持久化（{_dst}），閘判不了",
                                                               "修好 workflow/ 目錄的寫入"))

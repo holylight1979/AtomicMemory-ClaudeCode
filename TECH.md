@@ -257,7 +257,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->670 atoms：core 367 + feedback 71 + 失敗模式 2 + local 230〔Tools25/MemDev191/OS2/CC與原子記憶契約5/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->671 atoms：core 367 + feedback 71 + 失敗模式 2 + local 231〔Tools25/MemDev192/OS2/CC與原子記憶契約5/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -330,7 +330,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->670<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->671<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在卡名與 trigger 罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -614,7 +614,7 @@ sequenceDiagram
 | Reload 建議（規則 RELOAD_ADVICE_ALREADY_LOADED） | 收尾叫使用者 Reload Window，但每個活著的工具服務（MCP server）都已載入磁碟上最新的程式；本 session（含子代理）沒改過路徑含 `tools/workflow-guardian-mcp/` 的檔就整個不判（RELOAD_ADVICE_MCP_EDITS_ONLY） | **提醒**｜擋一次：拿掉那句；真有程式以外的理由（改了 MCP 啟動設定、settings.json）就保留並加一行「重載原因：<哪個設定改了>」；每個使用者回合一次、吃共用預算 |
 | 同步閘（SyncReminder） | 兩段：SyncReminder 本 session 改的檔有 1 個沒 commit、或已 commit 但 repo 領先 upstream 沒 push 就擋（`sync_reminder.max_reminders` 1，每 session 一次）；之後最底下的一般同步擋才看 ≥`min_files_to_block` 2 檔、吃共用預算，先剔除已 commit 並 push 的檔再判門檻（規則 SYNC_BLOCK_SKIPS_SYNCED）。root 有 vcs-sync worker 活鎖（`wg_harvest.vcs_sync_lock_active`）時跳過該 root 的 unpushed 判定；改檔所在 repo 是 git worktree（git-dir ≠ git-common-dir）或分支沒有 upstream → 不要求 push（規則 WORKTREE_NO_PUSH）。兩段都跳過 phase 是 done／syncing 的 session；收尾或 SessionEnd 設的 done 在下一則話（UserPromptSubmit）改回 working（規則 PROMPT_REOPENS_DONE），第一回合收得乾淨之後的回合（含續接）照樣會判 | **提醒**｜block，訊息瘦身不列檔案清單；本回合交了收尾檢核就不擋、只印 stderr（(g) 已交代，SYNC_COVERED_BY_CLOSING_CHECK）；底部一般擋只剩待記知識或文件漂移才擋，改檔數只印 stderr（SYNC_BLOCK_NOT_REPEATED），同一筆前面回合擋過就不再擋、有新的一筆才擋（SYNC_BLOCK_NEW_ITEMS_ONLY）；UPS 的 Sync context 只印 stderr；上GIT＝commit+push 一氣，local commit 不算同步；git/svn clean 且 push 後自動標 `sync_completed`（`sync_reminder.unpushed` 可關） |
 | AtomAudit（卡片表態） | **目前不擋**（`atom_audit.enabled=false`）。開著時：本 session 有 trigger 命中但只以路標注入、且未 Read | **提醒**｜要求讀取或表態（取用端閉環稽核） |
-| 驗收裁判 | 獨立 hook `codex_companion.py`（150s），v6 開時才跑；出廠 `acceptance_review.enforce=false` 只在背景記錄、不擋（§7.4） | 獨立 hook、不經 RULE_MODE｜enforce 打開時 fail 且 severity ≥high → block 附逐條證據；裁判逾時 → uncertain 放行 |
+| 驗收裁判 | 獨立 hook `codex_companion.py`，v6 開時才跑；Stop 只起背景審查、立即放行，結果在下一則使用者訊息附一行，fail 且 severity ≥high 才附完整說明（§7.4） | 獨立 hook、不經 RULE_MODE｜永不 block；裁判逾時 → 下一則附「uncertain」 |
 | Deep Post-Mortem | effort AND real_failure（使用者糾正 ≥2 次單獨即同時滿足兩者，見 §7.5 使用者糾正訊號）；effort 的重試只數「紅了、改了、再跑仍紅」的輪數、刻意紅（退回舊碼反證）不算（規則 RETRY_COUNTS_RERUN_CYCLES／RED_WHILE_REVERTED） | **提醒**｜one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清。不分在不在 git worktree，一律叫 atom_write 寫到資料根 |
 | PickOne（交付時順手點出最該修） | `pick_one.enabled` 開；到交付邊界（最後一句或 >30 字段落宣告完成、本回合交了收尾檢核、本回合 commit）；本 session 在上次問過或記過之後又改了程式檔（寫碼類判準 `wg_need_goal.is_code_path`）；先在交收尾檢核或完整對照那批附上（PICK_ONE_PRE_CLOSE，開關 `pick_one.pre_close`：附了就記問過，Stop 不再送、不再讓對話續跑一輪），Stop 的拐彎判斷擋下時同一則一起問（PICK_ONE_WITH_TURN_JUDGMENT），兩處都沒走到才排在所有閘之後 | **不擋**：回 `hookSpecificOutput.additionalContext`（對話續跑一回合，不是 block）送一次「這次看到的鄰近問題裡哪一件最該修、為什麼、為什麼不是數字最高的那個、建議怎麼解、該誰解」，材料依部位分組（表上「下游」、導讀卡已知病灶前 2 條、壞味道報告前 2 名附分數與呼叫點、改到的檔行數、未結追蹤項筆數；數字都標參考、不排名）。呼叫點＝`wg_harvest._callsites`：在專案根 `git grep -l` 找含那個檔模組名的檔，Python 逐檔用 ast 看 import／from（看被匯入的名字不看別名，多行括號匯入照算），JS／TS 逐行比 import／require 路徑（註解行不算）；回「呼叫點 N（誰）」、測試檔另計「另有測試 N 支」、解析不了的另記「N 支解析不了沒算」、檔裡有 `__main__` 補「本身可直接執行」；其他語言、檔名不是合法模組名、不在 git、逾時（整次材料共用 `CALLSITE_BUDGET_S` 2 秒）回「呼叫點 無法判（原因）」。以模組名比對，同名模組會一起算；動態載入、路徑字串、子行程呼叫不算；同一批改動只問一次，同一個使用者回合也只問一次（`pick_one[sid].asked_uturn`／`covered_uturn`，照使用者回合比：這一問讓對話續跑一回合，續跑回合不算新的一批）；這次收尾是不是 Stop hook 續跑出來的（輸入帶 `stop_hook_active`）不當條件——第一次收尾先被別的閘（例：紅測閘）擋下、修完續跑收尾，照樣問這一次（PICK_ONCE_PER_USER_TURN）；交付邊界也記整個使用者回合（`pick_one[sid].boundary_uturn`，各閘之前先記）：宣告完成那次被擋、之後沒被擋的那次回覆在答別的閘沒再說完成，照樣問；state 沒有 `turn_prompts_seq` 時續跑收尾不重問已經問過的；回合鍵在 state 重建時照搬、不在時錨在第一則訊息（USER_TURN_KEY_KEPT），只進同伴訊息的那段不會每則重問；連鎖中止中不送。每次 Stop 開頭（任何閘之前）把最後一句裡照格式寫的「順手看到最該修：…」段記進追蹤帳本（`source=pick`，另存 why／not_top／proposal／owner；同段不重記；同 session 同回合同部位又點出同一件但文字略異（`same_pick_target`：去括號旁註與標點後相同、或一句是另一句開頭；只看檔名識別字或字面相似度不算，同函式的不同問題不併）→ 換成第二次的說法：同一次追加兩列，先寫新 open 列（標 `supersedes`）、再寫結案列關掉第一筆（`superseded_by`）；帳本只追加不改寫，中途斷掉最多多一筆重複，清理器照結案成對處理；寫不進去 stderr、事件 update_failed、第一筆照留；「無，因為…」不記但算答過，`covered_turn`）；SessionStart 先列附了建議的未結項（不分部位，最新 3 筆，要 AI 第一則回覆告訴使用者）。同一件不重記（TRACKING_SAME_ITEM_NOT_REWRITTEN，唯一寫入口 `append_tracking`，k 欄、need_goal followup、PickOne 都過）：部位相同且原文相同 → 不重記（字面相近不併，併錯會吞掉一件）；換句話說的同一件由 AI 在行尾寫「｜同追蹤項：<那筆裡連續至少 8 字>」（PickOne 段多一行「同追蹤項：」，問句列出本 session 還開著的項目），對到唯一一筆就換成新說法（supersedes＋結案成對），對不到或多筆照記並 stderr。判斷全交 AI，`wg_harvest` 只管時點與記帳 |
 | 迴歸提示 | 本 session 有驗收 fail/high 真命中 | piggyback 建議補測試／落 atom，每 session 一次 |
@@ -664,7 +664,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 |----|--------|------|
 | ① 規格工件 | `hooks/acceptance_spec.py`（由 guardian PostToolUse 同程序呼叫 `run()`） | ExitPlanMode → 從 plan 落 `<專案根>/.claude/verify/acceptance-<slug>.md`（必須發生／禁止發生／驗證指令）；無 plan 但改 ≥3 檔 → 一次性建議。advisory-only |
 | ② 影子裁判 | `tools/codex-companion/acceptance.py` | Stop 完成宣稱觸發：任務↔規格**四分流**（bound 才審；ambiguous / other_session / none → uncertain 不發）→ 案卷（需求原話 + 清單 + diff 頭尾採樣 + 測試輸出，截斷必 in-band 標記）→ verdict pass/fail/uncertain → `workflow/acceptance-audit.jsonl` |
-| ③ enforce | `codex_companion.py` Stop | `enforce=true` 時同步審：fail ∧ high 才 block（出廠 false，只記錄）；配額分桶 acceptance 上限 8／保底 6 |
+| ③ 背景審 | `codex_companion.py` Stop | Stop 不等：起背景審查、立即放行；結果落 assessment 檔，下一則 UserPromptSubmit 附一行，fail ∧ high 附完整說明；配額分桶 acceptance 上限 8／保底 6 |
 | ④ 迴歸提示 | `stop.py _acceptance_regression_hint` | 見 7.1 |
 
 **裁判後端鏈**（`tools/codex-companion/judge_backend.py`）：codex（跨廠、**有** block 權）→ headless `claude -p --model sonnet`（同廠不同模型、預設**只有** advisory 權，`fallback.allow_block` 才升硬閘）→ 皆無退 heuristics-only 並 SessionStart 揭露一次。授權類失敗（未登入/401/429）當輪切備援並落 `workflow/companion-backend.json` 抑制，`reprobe_hours` 24 內不重試。備援子 session 帶 `CLAUDE_COMPANION_JUDGE=1`，自家 hook 見之早退（防裁判觸發裁判）。**殺閘寫死在程式**（`promotion_stats()`）：fail ≥10 筆且 precision <50% → 收掉。
@@ -751,7 +751,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.8 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
 
-每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 210 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
+每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 214 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
 
 | 規則 | 判什麼 | 不欠／放行的條件 | 照欠／照擋 |
 |---|---|---|---|
@@ -1484,7 +1484,7 @@ git／svn 子程序錄製重播（`lib/git_cassette.py`＋根 `conftest.py` 的 
 | `self_iteration.forget.enabled` / `dry_run` | false / true | selective forgetting |
 | `codex_companion.enabled` / `score_threshold` / `max_audits_per_session` | true / 7 / 30 | Codex Companion |
 | `codex_companion.fallback.model` / `allow_block` / `reprobe_hours` | sonnet / false / 24 | 裁判備援 |
-| `codex_companion.acceptance_review.enforce` / `enforce_severity_threshold` | false / high | 驗收裁判（§7.4，整段歸 v6 開關）：false＝只在背景記錄、不擋；true＝fail 且嚴重度達門檻就擋收尾 |
+| `codex_companion.max_inject_severity` | high | 驗收裁判（§7.4，整段歸 v6 開關）：Stop 永不擋；審查結果 fail 且嚴重度 ≥ 此值才在下一則附完整說明，其餘只附一行 |
 | `codex_companion.codex_extra_args` / `codex_binary` | [] / 不設（只在程式預設：從 PATH 找） | 原樣附加到 codex exec 的旗標（裁判與第二意見共用）／codex 執行檔路徑；只有某台機器要的旗標或路徑寫在 `workflow/config.local.json` 的 `codex_companion` 段（設定的路徑找不到檔也退 PATH） |
 | `codex_companion.audit_quota.acceptance_review_min/max` | 6 / 8 | 配額分桶 |
 | `acceptance_spec.min_files_trigger` | 3 | 規格工件建議門檻 |

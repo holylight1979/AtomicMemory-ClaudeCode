@@ -179,7 +179,7 @@ def test_write_state_failure_reminds_v6_on(world, monkeypatch):
     hub log state_persist_failed 帶 rule、allowed；寫得進去就安靜放行。"""
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _run("Edit", {"file_path": f1}, proj, tp, outputs) is None         # 正常：注入＋建檔（卡改隨工具結果送）
+    assert _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))          # 正常：注入＋建檔；第一次改缺定位擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
     state = _state()
     wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), tp, {})
     wg_core.write_state(SID, state)

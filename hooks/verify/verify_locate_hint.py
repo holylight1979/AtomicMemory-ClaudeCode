@@ -2,8 +2,8 @@
 
 讀檔走真的 PostToolUse 處理器（handle_post_tool_use），改檔走真的 PreToolUse 處理器（handle_pre_tool_use）：提示要出現在
 第一個 Edit 之前那則讀檔工具結果的 additionalContext 裡（讀檔只送這一行、不送卡，規則 READ_TOUCH_NO_CARD；卡隨第一次 Edit 那則的
-工具結果到、不擋：提醒件 OVERVIEW_CARD_BEFORE_EDIT 進 remind_pending）；照提示立樹、交四行再改 → 不擋；沒照做 → 也不擋、不再提醒
-（規則 GATE_MODE_TABLE；判定與留帳不動）。
+工具結果到：提醒件 OVERVIEW_CARD_BEFORE_EDIT 進 remind_pending）；照提示立樹、交四行再改 → 不擋；沒照做 → 第一次改這個部位擋一次
+（規則 LOCATE_FIRST_EDIT_BLOCKS_ONCE），之後不擋、不再提醒（規則 GATE_MODE_TABLE；判定與留帳不動）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_locate_hint.py
   （直接跑 python -X utf8 hooks/verify/verify_locate_hint.py 也行：開子行程跑 pytest，尾行印哨兵）
 共用 verify_need_goal 的資料根隔離（env／hooked）與部位世界；不碰 live。
@@ -92,17 +92,18 @@ def test_locate_hint_ignored_not_blocked_and_not_reminded_twice(hooked, post_rea
     不再提醒定位（提醒帳 remind_sent 已有這兩件；判定照舊留帳 edit_blocked／edit_remind）。"""
     f1 = _mapped_world(hooked)
     assert "立需求目標樹" in post_read({"file_path": f1})
-    assert _edit(hooked, f1) is None
+    assert _edit(hooked, f1)                                              # 第一次缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    assert _edit(hooked, f1) is None                                      # 第二次：不擋
     state = wg_core.read_state(SID)
     pending_rules = lambda st: [h["rule"] for h in st.get("remind_pending") or []]   # noqa: E731
     assert pending_rules(state) == ["OVERVIEW_CARD_BEFORE_EDIT"]                   # 等著送的只有卡，沒有立樹／定位的第二次提醒
     assert any(k.startswith("CODE_EDIT_NEEDS_GOAL_TREE|") for k in state["remind_sent"])
     assert any(k.startswith("LOCATE_BEFORE_EDIT|") for k in state["remind_sent"])
-    assert [p["why"] for g, p in hooked["guard"] if g == "need_goal" and p["event"] == "edit_blocked"] == ["no_tree"]
+    assert [p["why"] for g, p in hooked["guard"] if g == "need_goal" and p["event"] == "edit_blocked"] == ["no_tree", "no_tree"]
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     assert _edit(hooked, f1) is None
     assert pending_rules(wg_core.read_state(SID)) == ["OVERVIEW_CARD_BEFORE_EDIT"]
-    assert not [o for o in hooked["outputs"] if o]
+    assert len([o for o in hooked["outputs"] if o]) == 1                  # 只有第一次那一擋
 
 
 def test_locate_hint_skips_non_code_second_read_located_and_short_for_next_part(hooked, post_read):
@@ -133,7 +134,7 @@ def test_locate_hint_not_sent_when_edit_injected_first(hooked, post_read):
     """改檔時才補注入的部位（第一次碰就是 Edit）：那則擋訊息已經講了要交什麼，之後再讀它的程式檔不另送提示。"""
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    assert _edit(hooked, f1) is None                                                # 補注入導讀卡、不擋（卡隨改檔結果送）
+    assert _edit(hooked, f1)                                                        # 補注入導讀卡；第一次改缺定位擋一次，卡排進提醒隨下個工具結果送
     assert [h["rule"] for h in wg_core.read_state(SID)["remind_pending"]] == ["OVERVIEW_CARD_BEFORE_EDIT"]
     assert "交定位" not in post_read({"file_path": f1})
     assert not _hint_events(hooked)

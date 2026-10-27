@@ -229,8 +229,9 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
     assert rec["part_files_read"] == [f1, f2] and rec["reads_after"] == [f1, f2]       # 觸發注入的 f1 也算（INJECT_TRIGGER_READ_COUNTED）
 
-    card = _card(state, f1, tp, cfg, sid="sess")                        # 第一次改 → 卡這時才送（整張）、擋一次
-    assert "整張" not in card and "戰鬥導讀" in card and "定位｜部位：戰鬥" in card
+    warn, card, _, hit = wo.edit_check(state, "sess", f1, tp, cfg)     # 第一次改 → 卡這時才送（整張）；沒交定位 → 擋這一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    assert card and "導讀卡現在才送" in card and "整張" not in card and "戰鬥導讀" in card and "定位｜部位：戰鬥" in card
+    assert "這一次擋" in card and hit["rule"] == "OVERVIEW_CARD_BEFORE_EDIT" and hit["block_once"] is True
     warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 沒交定位 → 一律擋（A4.1 沒有不擋的模式）
     assert deny and "定位三行" in deny and "讀了 2 個檔" in deny and warn == deny and changed
 
@@ -241,10 +242,11 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     assert rec["located_via"] == "text" and rec["located_quality"] == "card"
 
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log] == ["inject", "locate_hint", "card", "edit_card_delivered", "edit", "edit"]   # 讀到程式檔先提示；卡隨第一次改檔送
-    assert log[0]["chars"] == 0 and log[0]["card_pending"] is True and log[2]["chars"] == len(card.split("\n", 1)[1])
-    assert log[4]["located"] is False and log[4]["deny_reason"] == "evidence"
-    assert log[5]["located"] is True and log[5]["deny_reason"] is None and log[5]["located_quality"] == "card"
+    assert [e["event"] for e in log] == ["inject", "locate_hint", "card", "edit_card_delivered", "edit_blocked_once", "edit", "edit"]   # 讀到程式檔先提示；卡隨第一次改檔送、那一刀擋一次
+    assert log[0]["chars"] == 0 and log[0]["card_pending"] is True and log[2]["chars"] == len(hit["extra"])
+    assert log[4]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE" and log[4]["part"] == "戰鬥"
+    assert log[5]["located"] is False and log[5]["deny_reason"] == "evidence"
+    assert log[6]["located"] is True and log[6]["deny_reason"] is None and log[6]["located_quality"] == "card"
 
 
 def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypatch):
@@ -255,7 +257,8 @@ def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypa
         warn, deny, changed = wo.on_edit({}, "s", f1, tp, cfg)
         assert deny and "還沒看過" in deny and "戰鬥導讀" in deny and warn == deny and changed   # B1：deny 理由要帶整張卡，模型才看得到
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert log[-1]["event"] == "edit_before_inject" and log[-1]["deny_reason"] == "not_injected"
+    assert log[-2]["event"] == "edit_before_inject" and log[-2]["deny_reason"] == "not_injected"
+    assert log[-1]["event"] == "edit_blocked_once" and log[-1]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE"   # 第一次改缺定位：擋這一次
 
 
 def test_no_card_row_still_asks_for_locate(proj, tmp_path, monkeypatch):
@@ -759,7 +762,7 @@ def test_cfg_error_still_allows_editing_the_config_files_themselves(proj, tmp_pa
     assert changed and deny and "還沒看過" in deny and "戰鬥導讀" in deny
     assert wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {}) == (None, None, False)   # 設定沒錯：自家設定檔靜默放行
     events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert events.count("edit_own_config") == 3 and "edit_cfg_error" in events and events[-1] == "edit_before_inject"
+    assert events.count("edit_own_config") == 3 and "edit_cfg_error" in events and events[-2:] == ["edit_before_inject", "edit_blocked_once"]
 
 
 def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypatch, capsys):   # 退回 002 的 WARN
@@ -975,7 +978,7 @@ def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(pr
     for i in range(20):                                                            # ② 讀 20 個表外檔不算部位檔
         wo.on_read(state, "s", "Read", {"file_path": str(proj / f"note{i}.md")}, str(proj), tp, {})
     _locate(tp)
-    _card(state, f1, tp, two)
+    assert wo.on_edit(state, "s", f1, tp, two)[1] is None                        # 卡隨第一次改檔送；定位已交 → 那一刀放行
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, two)
     assert deny and "目前 1 個" in deny and "表外檔讀了 20 個不算" in deny and "定位三行" not in deny
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
@@ -1127,7 +1130,8 @@ def test_status_none_row_unchanged(proj, tmp_path, monkeypatch):
     wo.on_read(state, "s", "Read", {"file_path": v1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "b.cs")}, str(proj), tp, {})
     _locate(tp, part="框架")
-    assert "沒有可注入的導讀卡" in _card(state, v1, tp)
+    _, deny, _, hit = wo.edit_check(state, "s", v1, tp, {})                           # 卡隨第一次改檔送；定位已交 → 放行
+    assert deny is None and "沒有可注入的導讀卡" in hit["extra"]
     assert wo.on_edit(state, "s", v1, tp, {}) == (None, None, True)                 # 狀態「無」不要求卡
 
 
@@ -1264,14 +1268,14 @@ def test_thinking_channel_allows_with_reminder(proj, tmp_path, monkeypatch):
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp, block="thinking", precedent="無")
-    _card(state, f1, tp)
-    warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
+    warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})                    # 卡隨第一次改檔送；定位（thinking）已交 → 放行附提醒
     assert deny is None and changed and warn and "thinking" in warn and "放行" in warn
     rec = next(iter(state["overview_hub"].values()))
     assert rec["located_via"] == "thinking" and rec["located_quality"] == "none"
     warn2, deny2, changed2 = wo.on_edit(state, "s", f1, tp, {})                 # 已 located，第二次不再提醒 thinking
     assert deny2 is None and changed2 and "只在 thinking 裡" not in (warn2 or "")
-    assert "【戰鬥】候選" in warn2                                               # A5.3：同檔第 2 次放行的 Edit 附候選（沒內容是一行版；verify_candidates_trigger 驗細節）
+    warn3, deny3, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert deny3 is None and "【戰鬥】候選" in warn3                             # A5.3：同檔第 2 次放行的 Edit 附候選（沒內容是一行版；verify_candidates_trigger 驗細節）
 
 
 # ─── 退回 001：BLOCK 1／2／3／7 ───────────────────────────────────────────────────
@@ -1377,7 +1381,7 @@ def test_transcript_unreadable_is_self_error_even_if_located(proj, tmp_path, mon
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
-    _card(state, f1, tp)
+    assert wo.on_edit(state, "s", f1, tp, {})[1] is None                          # 卡隨第一次改檔送；定位已交 → 放行
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
     rec = next(iter(state["overview_hub"].values()))
     assert rec["located"] is True

@@ -133,11 +133,12 @@ def test_first_edit_sends_card_once(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
-    warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and warn == deny and changed
-    assert "第一次改【戰鬥】部位的檔；讀檔時只送了一行，導讀卡現在才送" in deny and "讀過的部位檔與交過的定位行照算" in deny
-    assert "已知病灶：共用字典跨場次沒清" in deny and _card(proj) in deny and "定位｜部位：戰鬥——" in deny
-    assert "結算傷害" not in deny                                                   # pointer：卡其他段不送
+    warn, deny, changed, hit = wo.edit_check(state, "s", f1, tp, {})            # 定位已交 → 不擋；卡當提醒件（extra）隨這次改檔結果到
+    assert deny is None and warn is None and changed and hit["rule"] == "OVERVIEW_CARD_BEFORE_EDIT"
+    assert "第一次改【戰鬥】部位的檔；讀檔時只送了一行，導讀卡現在才送" in hit["what"] and "讀過的部位檔與交過的定位行照算" in hit["fix"]
+    card = hit["extra"]
+    assert "已知病灶：共用字典跨場次沒清" in card and _card(proj) in card and "定位｜部位：戰鬥——" in card
+    assert "結算傷害" not in card                                                   # pointer：卡其他段不送
     assert _rec(state)["card_pending"] is False
     warn, deny2, _ = wo.on_edit(state, "s", f1, tp, {})
     assert deny2 and "還沒 Read 這個部位的導讀卡" in deny2 and "導讀卡現在才送" not in deny2 and "已知病灶：" not in deny2
@@ -145,7 +146,7 @@ def test_first_edit_sends_card_once(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": _card(proj)}, str(proj), tp, {})
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
     events = [e["event"] for e in _log(tmp_path)]
-    assert events == ["inject", "locate_hint", "card", "edit_card_delivered", "edit", "edit"]
+    assert events == ["inject", "locate_hint", "card", "edit_card_delivered", "edit_first_located", "edit", "edit"]
     card_ev = next(e for e in _log(tmp_path) if e["event"] == "card")
     assert card_ev["chars"] > 0 and card_ev["card_mode"] == "pointer" and card_ev["via"] == "edit"
 
@@ -159,8 +160,9 @@ def test_first_edit_full_mode_sends_whole_card_then_passes(proj, tmp_path):
     _assert_one_hint_line_only(wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}))
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
-    deny = wo.on_edit(state, "s", f1, tp, {})[1]
-    assert deny and "結算傷害" in deny and "浮點比較" in deny and "pytest tests/battle" in deny and "先讀完再改" in deny
+    _, deny, _, hit = wo.edit_check(state, "s", f1, tp, {})                      # 定位已交 → 不擋；整張卡在提醒件裡
+    card = hit["extra"]
+    assert deny is None and "結算傷害" in card and "浮點比較" in card and "pytest tests/battle" in card and "先讀完再改" in hit["fix"]
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
 
 
