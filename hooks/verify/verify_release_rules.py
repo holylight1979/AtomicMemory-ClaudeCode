@@ -2710,6 +2710,14 @@ def test_closing_round_rules_cased_in_closing_round(rule):
     assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("rule", ["CLOSING_RECONCILE_IN_REPORT", "CLOSING_MISSING_PART_HINT", "CLOSING_GOAL_CODING_ONLY",
+                                  "CLOSING_CALL_ALL_THREE"])
+def test_closing_merge_rules_cased_in_closing_merge(rule):
+    """收尾三段一次交齊的規則：端到端案例在 verify_closing_merge.py（PostToolUse→Stop）。"""
+    assert rule in rr.RULES
+    assert rule in (Path(__file__).parent / "verify_closing_merge.py").read_text(encoding="utf-8")
+
+
 # ─── 第二意見看事實觸發：規則名登錄、案例真的在、案例點到規則名 ───
 _SO_FACT_CASES = {
     "SECOND_OPINION_FACT_TRIGGER": ("verify_g9_second_opinion.py", "test_fact_trigger_owed_without_completion_words"),

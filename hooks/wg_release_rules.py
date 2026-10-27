@@ -4144,6 +4144,24 @@ def second_opinion_hint_background() -> str:
     return second_opinion_hint().replace(SO_RESULT_WAITS, SO_BACKGROUND_WAITS)
 
 
+# ─── 收尾三段一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、handlers/stop.py 目標對照段、wg_closing_round.closing_call，這裡只登錄規則名與說明） ───
+RULES.update({
+    "CLOSING_RECONCILE_IN_REPORT": "收尾檢核（anti_evasion_report）可帶 reconcile 欄＝need_goal action=reconcile 的 {items, turns?}：MCP 端同一套驗法、"
+                                   "PostToolUse 交給同一個入口 wg_need_goal.apply_op（同一套判法、同一段回覆、同樣記進目標檔，報告記 reconcile="
+                                   "applied／rejected／off／error），先套用再附樹給 HUD。跟 harvest_items（CLOSING_REPORT_ONE_CALL）一起交＝收尾三段"
+                                   "一次交齊，Stop 不再要求另呼叫 need_goal reconcile、knowledge_harvest_report；套不上只少這段，收尾檢核照收，"
+                                   "回覆寫明只要補交對照。分開交的舊走法照收。總開關關時不驗、不套用。",
+    "CLOSING_MISSING_PART_HINT": "收尾段的擋訊息寫明缺哪段、怎麼補，跟工具說明同一個說法：(f2) 擋下時本回合交過收尾檢核 → 只補 need_goal reconcile、"
+                                 "收尾檢核不重交；還沒交 → 目標對照放進收尾檢核的 reconcile 欄一次交。收尾檢核閘擋訊息與「後面還會擋」預覽"
+                                 "（收尾檢核、知識收割兩列）都寫一次交齊的走法。判定不變。",
+    "CLOSING_GOAL_CODING_ONLY": "目標對照的 (f2) 完整對照與 (f3) 改到的部位掛目標只在寫碼回合判（stop.py 的 _coding：本回合改了程式或宣告了寫碼樹，"
+                                "或前幾回合改過程式、這則宣告完成或本回合交了收尾檢核）；不是寫碼回合（例：續接單匯入的舊樹、本 session 沒改程式）宣告完成不要求。"
+                                "(f1) 記進度、(f4) 記憶知識類輕樹照舊。",
+    "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點、第二意見接縫都靠它）認三支：收尾檢核（一次交齊時三段都在裡面）、"
+                              "need_goal action=reconcile、knowledge_harvest_report；任一支所在的那批就是收尾前最後一個工具回應。",
+})
+
+
 # ─── 第二意見看事實觸發（事實與時點在 hooks/wg_second_opinion.py、wg_closing_round.py、handlers/stop.py，這裡只登錄規則名與說明） ───
 RULES.update({
     "SECOND_OPINION_FACT_TRIGGER": "第二意見閘進不進門看事實、不看措辭：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，同 "

@@ -330,3 +330,16 @@ def test_so_pre_close_not_owed_or_off_attaches_nothing(batch_env, drive, capsys,
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     assert "[Guardian:SecondOpinion]" not in _batch(_so_state(_files(tmp_path, 5)), [AEC], _PASS_CFG, capsys, sid=SO_SID,
                                                     transcript_path=str(drive.tx.path))
+
+
+def test_so_pre_close_follows_closing_call(batch_env, drive, capsys, tmp_path):
+    """SECOND_OPINION_PRE_CLOSE 的接縫：收尾那批一律照 closing_call 認，closing_call 認得的每一種呼叫（收尾檢核、完整對照、知識收割回報）
+    那批都附第二意見那段；它不認的（need_goal 其他動作、一般工具）不附。案例只問 closing_call，不另寫一份認法。"""
+    import wg_closing_round as cr
+    calls = [AEC, {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}},
+             {"tool_name": "mcp__workflow-guardian__knowledge_harvest_report", "tool_input": {}},
+             {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "verify_scope"}},
+             {"tool_name": "Bash", "tool_input": {"command": "pytest"}}]
+    for c in calls:
+        ctx = _batch(_so_state(_files(tmp_path, 5)), [c], _PASS_CFG, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
+        assert ("[Guardian:SecondOpinion]" in ctx) == cr.closing_call(c["tool_name"], c["tool_input"]), c
