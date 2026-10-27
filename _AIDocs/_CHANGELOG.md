@@ -4,6 +4,18 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 定位閘每個使用者回合最多擋一次、擋訊息講死 thinking 讀不到、目標視角重看只一行、完整範例每個 session 只給一次
+- **AI 寫程式時會看到的**（守門總開關 v6 開時，`hooks/wg_overview.py`）：
+  - **定位閘每個使用者回合最多擋一次**（規則 LOCATE_BLOCK_ONCE_PER_USER_TURN）：同一個使用者回合已經擋過某個部位，別的部位只缺定位行 → 一行提醒、放行、留帳（`_overview-hub.log` event=edit_locate_reminded）。缺讀檔證據、導讀卡還沒注入照擋；擋過的那個部位再缺照擋；同伴訊息、背景通知續跑不算新回合，下一個使用者回合重來。
+  - **擋訊息講死 thinking 讀不到**（規則 LOCATE_NOT_IN_THINKING）：原本「只寫在 thinking 裡程式可能讀不到」，改成「不要寫在 thinking：thinking 預設不寫進 transcript，hook 讀不到，只寫在那裡照樣會再擋一次」。
+  - **目標視角重看只送一行**（規則 GOAL_VIEW_ONE_LINE，`_goal_view`）：目標改了（第一次 need_goal set 也算）之後再讀到已碰過的部位，只送目標視角提問＋當前節點一行，不再重貼導讀卡、定位範本與部位表原文。
+  - **完整範例每個 session 只給一次**（規則 LOCATE_EXAMPLE_ONCE_PER_SESSION）：有目標樹、擋訊息精簡（`guard.deny_text_slim`）開時，第二則起的缺定位擋訊息把「一次交齊四行…範例」換成「四行格式同本 session 第一則定位擋訊息；寫在回覆文字或 # 註解（thinking 讀不到）…」；擋照擋，擋次上限照原文比、不因換字重新計次。
+  - **讀卡提示直接講下一步**（規則 CARD_READ_WITH_EDIT_FILES，`lib/overview_hub._pointer_body`、`_card_unread_line`）：指標行與讀卡缺件行從「可跟…同一則送」改成「下一則讀卡時順便讀要改的檔」，讓讀卡跟讀要改的檔併在同一則；只改文字，判定不變。
+- **省了多少**（004 事件帳重播：R1／R2 第一回合照真實順序把讀檔與改檔交給分支函式，transcript 只給到那一列之前；004 前的版本重播出的擋跟帳上 8／7 筆逐列相同）：
+  - token：R1 −6.1 千（範例只給一次 −6.7、thinking 那句讓第一筆擋多 +0.6）；R2 −39.9 千（第二個部位兩筆改提醒 −16.5、目標視角兩段 1586→578 字 −16.8、範例 −7.2、thinking +0.6）；平均 −23.0 千。
+  - 擋次：R1 8→8、R2 7→5；呼叫數與秒數重播量不出變化（R2 那兩筆跟同一則回覆裡照擋的改檔一起，這次呼叫照樣要重來）。
+  - 擋訊息改硬能不能讓 AI 不再把定位寫進 thinking（報告的 (e1)：R1 5.8 萬、15.7 秒，R2 6.1 萬、25.3 秒）是推論，沒計入。
+- **驗證**：新案例 `verify_overview_hub::test_locate_block_once_per_user_turn`、`test_locate_deny_says_thinking_is_not_read`，`verify_need_goal_points::test_goal_view_resend_is_one_line_read_first_then_tree`，`verify_pull_goal_locate::test_locate_example_full_once_per_session_then_short`；`test_goal_change_resends_card_in_goal_view_once` 照新裁定改成「不含導讀卡、只一行」。拿 main 與 004 前的 `wg_overview.py` 回放，新案都紅。
 ## 2026-10-27 導讀卡第一次碰到時只送病灶一句＋卡路徑，改那塊之前自己 Read
 - **AI 寫程式時會看到的**（守門總開關 v6 開時）：
   - **第一次碰到部位不再整張塞導讀卡**（設定 `overview_hub.card_injection`，預設 `pointer`；`lib/overview_hub.build_injection_ex(pointer=True)`、`_pointer_body`）：定位要求照送，卡的部分只剩兩行——卡上「已知病灶」第一條（截 160 字）與卡路徑，寫明「改這個部位的檔之前先 Read，可跟讀部位檔同一則送」。目標改了之後的目標視角重送也照這個送法。沒有卡的部位兩種送法逐字相同。
