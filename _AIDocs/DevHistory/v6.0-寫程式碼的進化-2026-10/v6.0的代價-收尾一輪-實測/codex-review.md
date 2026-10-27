@@ -1,0 +1,3 @@
+- **【弄壞資料】`hooks/wg_closing_round.py:153`（`so_done_notice` 的 job 目錄掃描）**
+  - **具體情境：**兩個 session ID 分別是 `abcd1234-session-a`、`abcd1234-session-b`，各自有仍在執行的第二意見 job。A 的 PostToolBatch 包含 `second_opinion_start`，便走 `watch_job(state, A)` → `so_done_notice(state, A)`。`_sid8()` 把兩者都縮成 `abcd1234`，目錄掃描因此把 **B 的 job 也加入 A 的 `running`**；B 跑完後，又把它加入 A 的 `noticed`，並通知 A 取回 B 的結果。這條路徑直接造成兩個 session 的看守資料及結果通知互相污染，不需要任何讀寫失敗才會發生。
+  - **建議改法：**從 start 的實際回傳取得確切 job ID，並以 job metadata 中的完整 session ID 核對歸屬；不要用 session 前八碼掃描結果直接建立看守紀錄。附件未提供 start 回傳接入 PostToolBatch 的完整結構，以及 `status.json` 是否保存完整 session ID；實作時需補查這兩段，不能把前八碼視為唯一識別。
