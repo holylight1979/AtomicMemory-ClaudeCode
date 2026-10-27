@@ -126,6 +126,40 @@ def test_pointer_card_read_in_same_bash_command_counts(proj, tmp_path):
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
 
 
+def test_pointer_failed_card_read_does_not_count(proj, tmp_path):
+    """讀卡跟讀部位檔同一套認定：指令失敗（exit≠0）讀到的卡不算讀過，改檔照擋。"""
+    state: dict = {}
+    tp = _transcript(tmp_path, "x")
+    f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
+    wo.on_read(state, "s", "Bash", {"command": f'cat "{_card(proj)}"'}, str(proj), tp, {}, exit_code=1)
+    _transcript(tmp_path, LOCATE)
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert deny and "還沒 Read 這個部位的導讀卡" in deny
+
+
+def test_pointer_two_cards_one_unread_still_denied(proj, tmp_path):
+    """表上兩張卡只讀一張：照擋，訊息只列沒讀的那張。"""
+    second = proj / ".claude" / "memory" / "shared" / "戰鬥根因層.md"
+    second.write_text("# 根因層\n\n## 已知病灶\n- 結算順序跟技能表不同步\n", encoding="utf-8")
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        "| `Game/Battle/` | 戰鬥 | `戰鬥導讀`、`戰鬥根因層` | 有 | code |\n", encoding="utf-8")
+    state: dict = {}
+    tp = _transcript(tmp_path, "x")
+    f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": _card(proj)}, str(proj), tp, {})
+    _transcript(tmp_path, LOCATE)
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    unread_line = next(l for l in deny.splitlines() if "還沒 Read 這個部位的導讀卡" in l)
+    assert str(second) in unread_line and _card(proj) not in unread_line
+    wo.on_read(state, "s", "Read", {"file_path": str(second)}, str(proj), tp, {})
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+
+
 def test_pointer_knowledge_part_needs_card_read(proj, tmp_path):
     """知識類部位原本只要「卡已注入」：指標制卡沒送到眼前，改之前也要 Read 過卡，不要求部位檔與定位三行。"""
     state: dict = {}
