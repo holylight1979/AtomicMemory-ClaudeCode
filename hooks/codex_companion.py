@@ -141,6 +141,19 @@ def _resolve_plan_artifact(tool_input: Any, tool_trace: list) -> tuple[str, str]
     return "", inline
 
 
+def _handoff_review_on(config: Dict[str, Any]) -> bool:
+    """接續單自檢開不開：v6 守門開著時看 soft_gate.handoff_review_v6（沒寫＝關），v6 關照 soft_gate.handoff_review（沒寫＝開）。
+    要讀 wg_core（約 70 ms），呼叫端先比完檔名再叫；讀不進來當 v6 關。"""
+    sg = config.get("soft_gate", {})
+    try:
+        from wg_core import load_config as _wg_load_config, v6_enabled
+        v6 = v6_enabled(_wg_load_config())
+    except Exception as e:
+        _log_err("codex:v6_switch", e)
+        v6 = False
+    return bool(sg.get("handoff_review_v6", False)) if v6 else bool(sg.get("handoff_review", True))
+
+
 def _detect_checkpoint(
     tool_name: str, file_path: str, config: Dict[str, Any]
 ) -> Optional[str]:
@@ -148,16 +161,16 @@ def _detect_checkpoint(
 
     (1) ExitPlanMode → plan_review
     (2) 結構性檔案 Edit/Write + soft_gate.architecture_review=true → architecture_review
-    (3) next-phase/handoff 檔 Edit/Write（soft_gate.handoff_review，預設開）→ handoff_review
+    (3) next-phase/handoff 檔 Edit/Write（開關見 _handoff_review_on）→ handoff_review
         ——跨 session 交接文件的對抗式自檢，把作者「自評」升級為獨立「他評」（補盲點）。
     """
     if tool_name in _PLAN_TOOLS:
         return "plan_review"
     if (tool_name in _WRITE_TOOLS and file_path
-            and config.get("soft_gate", {}).get("handoff_review", True)
             and _NEXT_PHASE_RE.search(file_path.replace("\\", "/"))
             # 範本檔（templates/）是骨架非交接內容，審它必然「全是佔位符」誤報
-            and "/templates/" not in file_path.replace("\\", "/")):
+            and "/templates/" not in file_path.replace("\\", "/")
+            and _handoff_review_on(config)):
         return "handoff_review"
     if (tool_name in _WRITE_TOOLS and file_path
             and config.get("soft_gate", {}).get("architecture_review", False)):

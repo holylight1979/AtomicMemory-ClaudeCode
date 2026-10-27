@@ -1605,12 +1605,15 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
         if "/_AIDocs/" in normalized or "/_aidocs/" in normalized.lower():
             fname = normalized.rsplit("/", 1)[-1]
-            if is_plan_filename(fname):
+            once = v6 and config.get("aidocs", {}).get("advisory_v6_once", True)   # v6 守門開著時同一個檔一個 session 只提醒一次
+            if is_plan_filename(fname) and not (once and normalized in state.get("aidocs_advisory_sent", [])):
                 state["_aidocs_advisory"] = (
                     f"⚠ {fname} 看起來是暫時性文件，"
                     f"建議放 memory/_staging/ 而非 _AIDocs/。"
                     f"判斷基準：實作完成後是否仍有長期參考價值？"
                 )
+                if once:
+                    state["aidocs_advisory_sent"] = [*state.get("aidocs_advisory_sent", []), normalized]
                 print(f"AIDocs gate triggered: {fname}", file=sys.stderr)
 
         if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
@@ -1886,6 +1889,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     degraded = _hook_lap("導讀卡")
 
+    # 動資料檔閘：第一次讀到改了會被問的資料檔 → 一行宣告格式（規則 DATA_FILE_READ_HINT；判定不動，read_hint 炸了自己吞並出聲）
+    df_ctx = None
+    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not input_data.get("agent_id"):
+        df_ctx = wg_data_file.read_hint(state, tool_name, tool_input, input_data.get("cwd", "") or "",
+                                        _read_exit_code(input_data.get("tool_response")), config)
+        dirty = dirty or bool(df_ctx)
+
     # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
     # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同。
     # 子代理（hook 輸入帶 agent_id）讀的不算：目標樹是主 session 的，子代理讀檔不擴大它的讀入範圍、也不收「要不要長子目標」
@@ -1919,6 +1929,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         advisories.append(ng_ctx)
     if hub_ctx:
         advisories.append(hub_ctx)
+    if df_ctx:
+        advisories.append(df_ctx)
     if dep_ctx:
         advisories.append(dep_ctx)
     if state:
