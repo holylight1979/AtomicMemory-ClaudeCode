@@ -1515,6 +1515,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     depends_files = rec["depends_files_read"]
     ev = cfg["min_overview_evidence"]
     missing: List[str] = []
+    example_item = short_item = None      # LOCATE_EXAMPLE_ONCE_PER_SESSION：完整範例那一條與第二則起換上的短句
     deny_reason: Optional[str] = None
     warn: Optional[str] = None
     readable, why = transcript_readable(transcript_path)
@@ -1581,11 +1582,14 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                      f"hook 讀不到，只寫在那裡照樣會再擋一次；"
                      f"{_rr.DECL_KEEP_EDIT}")         # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
             if goal_tree is not None:
-                missing.append(f"還沒交出定位行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。{where}。"
-                               "一次交齊四行：定位三行（根因層寫兩個候選與選擇理由：候選 A …；候選 B …；選 A 因為 …，只找到一個就寫"
-                               "「第二個不存在因為 …」），加一行批判——先下「合理／不合理，因為 …」的判斷再寫更好的做法與同類在哪。"
-                               "範例（角括號換成你的判斷，句子順序不限）：\n"
-                               + _locate_example(row, goal_tree, None))
+                head = f"還沒交出定位行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
+                example_item = (f"{head}{where}。"
+                                "一次交齊四行：定位三行（根因層寫兩個候選與選擇理由：候選 A …；候選 B …；選 A 因為 …，只找到一個就寫"
+                                "「第二個不存在因為 …」），加一行批判——先下「合理／不合理，因為 …」的判斷再寫更好的做法與同類在哪。"
+                                "範例（角括號換成你的判斷，句子順序不限）：\n"
+                                + _locate_example(row, goal_tree, None))
+                missing.append(example_item)
+                short_item = f"{head}{LOCATE_EXAMPLE_AGAIN}"
             else:
                 missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。{where}："
                                "定位｜部位：…／定位｜根因層：…／定位｜前例：…")
@@ -1646,13 +1650,22 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
         _note_block(state, key)
         return (msg, msg, True)
+    # 規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：擋訊息精簡（guard.deny_text_slim）開、本 session 已送過一則完整範例 → 這條換短句；
+    # 缺件清單本身不換（擋次上限與同批短訊息照原文比，換了字不會重新計次）
+    again = example_item is not None and _rr.deny_slim_enabled(config) and bool(state.get(_EXAMPLE_SENT_KEY))
+    shown = [short_item if again and m is example_item else m for m in missing]
+    if example_item is not None and not again:
+        state[_EXAMPLE_SENT_KEY] = True
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
-           + "\n".join(f"- {m}" for m in missing))
+           + "\n".join(f"- {m}" for m in shown))
     _note_block(state, key)
     return (msg, msg, True)
 
 
 _BLOCKED_KEY = "overview_locate_blocked"
+_EXAMPLE_SENT_KEY = "overview_locate_example_sent"
+LOCATE_EXAMPLE_AGAIN = ("四行格式同本 session 第一則定位擋訊息；寫在回覆文字或不寫檔指令開頭的 `#` 註解（thinking 讀不到），"
+                        "宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔")
 
 
 def _blocked_parts(state: Dict[str, Any], uturn: int) -> List[str]:

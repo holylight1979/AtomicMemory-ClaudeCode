@@ -189,6 +189,32 @@ def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked):
     assert soft and "LOCATE_GOAL_NODE" in soft[-1]["rules"]
 
 
+def test_locate_example_full_once_per_session_then_short(hooked):
+    """規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：有目標樹、擋訊息精簡開（guard.deny_text_slim 預設開）——本 session 第一則缺定位的擋訊息
+    照給完整範例；之後的回合再擋，那一條換成短句（四行格式同第一則、寫在回覆文字或 # 註解、thinking 讀不到），擋照擋；
+    精簡關掉照舊每則完整範例。改前每則都附完整範例。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
+    _read_part(f1, proj, tp)
+    first = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert first and "一次交齊四行" in first and "定位｜批判" in first
+    state = _state()
+    state["turn_seq"] = int(state.get("turn_seq", 0) or 0) + 1                # 下一個使用者回合
+    state["turn_prompts_seq"] = state["turn_seq"]
+    wg_core.write_state(SID, state)
+    again = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert again and "四行格式同本 session 第一則定位擋訊息" in again and "（thinking 讀不到）" in again
+    assert "一次交齊四行" not in again and len(again) < len(first)
+    state = _state()
+    state["turn_seq"] += 1
+    state["turn_prompts_seq"] = state["turn_seq"]
+    wg_core.write_state(SID, state)
+    full = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs, config={"guard": {"deny_text_slim": False}}))
+    assert full and "一次交齊四行" in full
+
+
 def _reply(tp, mid, *tids):
     """AI 的一則回覆 mid 整則落進 transcript（含它送出的 tool_use）：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
     blocks = [{"type": "tool_use", "id": t, "name": "Edit", "input": {}} for t in tids] or [{"type": "text", "text": "…"}]

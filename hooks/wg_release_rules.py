@@ -4094,3 +4094,9 @@ RULES.update({
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
                            "子代理讀的不提示），讓第一次改就帶宣告。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：沒宣告照擋。",
 })
+RULES.update({
+    "LOCATE_EXAMPLE_ONCE_PER_SESSION": "有目標樹時缺定位行的擋訊息（LOCATE_ASK_ONCE 那條完整範例）每個 session 只給一次完整範例：擋訊息精簡"
+                                       "（guard.deny_text_slim）開、本 session 已送過（state overview_locate_example_sent）→ 那一條換成短句"
+                                       "（wg_overview.LOCATE_EXAMPLE_AGAIN：四行格式同第一則、寫在回覆文字或 # 註解、thinking 讀不到）；"
+                                       "缺件清單照原文比（擋次上限、同批短訊息不因換字重新計次）；精簡關掉每則照給完整範例。",
+})

@@ -197,12 +197,16 @@ def test_locate_changed_missing_same_turn_gets_full_text(hub):
 
 
 def test_locate_new_turn_gets_full_ask_again(hub):
-    """換了使用者回合，或缺的東西變了：照送全文（入口不變成永遠只有一行）。"""
+    """換了使用者回合，或缺的東西變了：照送整則擋訊息、不是「同樣被擋」那一行（入口不變成永遠只有一行）；完整範例本 session
+    已送過，那一條換成指回第一則的短句（LOCATE_EXAMPLE_ONCE_PER_SESSION），擋訊息精簡關掉才再給範本行。"""
     wo, state, files, tp = hub
     wo.on_edit(state, "s", files[0], tp, {})
     state["turn_seq"] = 4
     _, again, _ = wo.on_edit(state, "s", files[1], tp, {})
-    assert "定位｜根因層" in again and "同樣被擋" not in again
+    assert "還沒交出定位行" in again and "四行格式同本 session 第一則定位擋訊息" in again and "同樣被擋" not in again
+    state["turn_seq"] = 5
+    _, full, _ = wo.on_edit(state, "s", files[1], tp, {"guard": {"deny_text_slim": False}})
+    assert "定位｜根因層" in full and "同樣被擋" not in full
 
 
 # 判準卡一話題一次（原 CARD_ONCE_PER_TURN）的案例在 verify_gate_slimming.py
