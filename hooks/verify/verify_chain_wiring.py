@@ -454,6 +454,34 @@ def test_failed_rerun_and_comment_only_are_recorded(hk):
     assert acts[1]["files"][0]["comment_only"] is True
 
 
+def test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block(hk):
+    """接線（CHAIN_NO_EDIT_NO_EDGE、CHAIN_ABORT_SHOWS_REPLACED_BLOCK）：收尾閘（知識收割）擋 → AI 只重跑測試、沒改檔
+    → 同一道閘再擋：照原擋訊息擋、不中止；AI 改了檔 → 第 3 次：改送中止通知，通知最後附上被換掉的那次擋的原文。
+    工具前閘（動資料檔）改了內容再撞第 2 次：停手訊息附上原擋訊息。改前重跑之後第 2 次就中止、通知裡看不到原擋訊息。"""
+    s = hk()
+    s.gates["KnowledgeHarvest"] = True
+    assert _blocked(s.stop())
+    s._run(post.handle_post_tool_use, s.inp("PostToolUse", tool_name="Bash", tool_use_id="r1",
+                                             tool_input={"command": "python -m pytest -q t.py"},
+                                             tool_response={"stdout": "1 passed in 0.10s", "stderr": "", "interrupted": False}), s.cfg)
+    assert [r["kind"] for r in cs.read_rows(s.sid) if r.get("type") == "action"] == ["rerun"]
+    second = s.stop()
+    assert _blocked(second) and KH in second["reason"] and "連鎖中止" not in second["reason"]
+    assert not s.write(s.proj / "notes.md", "n\n")
+    third = s.stop()
+    assert _blocked(third) and third["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
+    assert third["reason"].rstrip().endswith(KH) and "被中止訊息換掉的擋" in third["reason"]
+    t = hk("sid-replaced-tool")
+    f = t.proj / "data.txt"
+    t.gates["DataFileAsk"] = True
+    assert _denied(t.write(f, "a\n"))
+    t.gates["DataFileAsk"] = False
+    assert not _denied(t.write(t.proj / "other.txt", "o\n"))
+    t.gates["DataFileAsk"] = True
+    halt = _deny_text(t.write(f, "b\n"))
+    assert halt.startswith("[Guardian:ChainBreaker] 連鎖中止") and halt.rstrip().endswith(DF)
+
+
 def test_session_end_drops_snapshots(hk):
     """SessionEnd：這個 session 的快照資料夾刪掉、7 天沒動的別 session 連鎖帳刪掉；這個 session 的帳留著。"""
     import os
