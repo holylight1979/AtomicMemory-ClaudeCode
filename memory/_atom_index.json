@@ -1367,7 +1367,9 @@
         "查 CRLF",
         "git ls-files --eol",
         "grep -c 假數字",
-        "解合併衝突腳本"
+        "解合併衝突腳本",
+        "git status 一直顯示 M",
+        "index 時間戳"
       ],
       "scope": "global",
       "related": [
@@ -3831,11 +3833,14 @@
         "材料不足",
         "replay-guard pre",
         "unelevated 仍 1385",
-        "codex 讀實檔"
+        "codex 讀實檔",
+        "無法完成審查",
+        "差異內嵌提示"
       ],
       "scope": "global",
       "related": [
-        "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空"
+        "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空",
+        "審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔"
       ]
     },
     {
@@ -13103,7 +13108,7 @@
     },
     {
       "name": "審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔",
-      "path": "memory/驗證與實證/審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔.md",
+      "path": "_AIDocs/_atoms/Tools/審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔.md",
       "triggers": [
         "審查回沒問題",
         "審查回很短",
@@ -13233,7 +13238,10 @@
         "環境差",
         "重播輸入還原",
         "量尺校準",
-        "只比字數"
+        "只比字數",
+        "transcript 截到那一列",
+        "從未來讀",
+        "tool_result 重複列"
       ],
       "scope": "global",
       "related": [
@@ -13287,6 +13295,323 @@
       "scope": "global",
       "related": [
         "用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時"
+      ]
+    },
+    {
+      "name": "claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點",
+      "path": "memory/CC與原子記憶契約/claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點.md",
+      "triggers": [
+        "Stop hook feedback",
+        "hook_blocking_error",
+        "擋訊息兩份",
+        "Stop 擋訊息",
+        "重讀量",
+        "事件帳重播",
+        "判準卡去重",
+        "transcript 計數",
+        "已送過判定"
+      ],
+      "scope": "global",
+      "related": [
+        "用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時"
+      ]
+    },
+    {
+      "name": "要ai先交宣告行才放行的閘-宣告格式在它第一次讀到對象時就附上-等改的時候才擋會多兩次模型呼叫",
+      "path": "memory/設計通則/要ai先交宣告行才放行的閘-宣告格式在它第一次讀到對象時就附上-等改的時候才擋會多兩次模型呼叫.md",
+      "triggers": [
+        "宣告行",
+        "先宣告再放行",
+        "宣告格式提示",
+        "讀檔時提示",
+        "擋下再補宣告",
+        "少兩次呼叫",
+        "資料檔宣告",
+        "提示時機",
+        "閘提前告知"
+      ],
+      "scope": "global",
+      "related": [
+        "datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit"
+      ]
+    },
+    {
+      "name": "harness提示這條指令改了你讀過的檔-指向全機共用的claude目錄時不等於是你改的-先看差異是誰的資料與自己寫到哪個資料根",
+      "path": "memory/驗證與實證/harness提示這條指令改了你讀過的檔-指向全機共用的claude目錄時不等於是你改的-先看差異是誰的資料與自己寫到哪個資料根.md",
+      "triggers": [
+        "改了你讀過的檔",
+        "file modified 提示",
+        "檔案被改",
+        "誰改的",
+        "多 session 共用 ~/.claude",
+        "共用目錄",
+        "資料根",
+        "WG_CLAUDE_DIR",
+        "誤認自己改的"
+      ],
+      "scope": "global",
+      "related": [
+        "測試收尾不清共用的live量測檔-多session同機共用claude時truncate會刪掉別人的真實資料-測試用monkeypatch改路徑"
+      ]
+    },
+    {
+      "name": "hook注入成本看同一段送幾次乘之後還有幾次呼叫-長session重複送的同一段提示是大頭-不只看單段長短",
+      "path": "_AIDocs/_atoms/MemDev/hook注入成本看同一段送幾次乘之後還有幾次呼叫-長session重複送的同一段提示是大頭-不只看單段長短.md",
+      "triggers": [
+        "注入成本",
+        "重複注入",
+        "同一段提示重送",
+        "注入重讀",
+        "注入減量",
+        "長 session token",
+        "additionalContext 重讀",
+        "去重省 token",
+        "注入噪音"
+      ],
+      "scope": "global",
+      "related": [
+        "v60-hook代價大頭在被提醒被擋後多跑的模型呼叫與擋訊息重讀-不在hook程式本身",
+        "claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置"
+      ]
+    },
+    {
+      "name": "改程式題第一回合的無頭量尺量不到日常注入噪音-受測專案沒有aidocs也不是記憶系統開發-量注入減量要用真實session事件帳重播",
+      "path": "_AIDocs/_atoms/MemDev/改程式題第一回合的無頭量尺量不到日常注入噪音-受測專案沒有aidocs也不是記憶系統開發-量注入減量要用真實session事件帳重播.md",
+      "triggers": [
+        "第一回合量尺",
+        "無頭量尺",
+        "注入噪音",
+        "注入減量量測",
+        "日常情境",
+        "hook_additional_context",
+        "真實 session 重播",
+        "JIT",
+        "CoordWarn",
+        "振盪"
+      ],
+      "scope": "global",
+      "related": [
+        "用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時",
+        "hook注入成本看同一段送幾次乘之後還有幾次呼叫-長session重複送的同一段提示是大頭-不只看單段長短"
+      ]
+    },
+    {
+      "name": "claude-code的transcript跨檔不重複-resume不會把舊列複製進新檔-逐檔加總不重複計數-子代理檔在subagents底下要排除",
+      "path": "memory/CC與原子記憶契約/claude-code的transcript跨檔不重複-resume不會把舊列複製進新檔-逐檔加總不重複計數-子代理檔在subagents底下要排除.md",
+      "triggers": [
+        "transcript 加總",
+        "transcript 跨檔",
+        "resume 新檔",
+        "重複計數",
+        "jsonl 統計",
+        "subagents 目錄",
+        "對話紀錄統計",
+        "token 統計",
+        "掃 projects 目錄"
+      ],
+      "scope": "global",
+      "related": [
+        "子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔"
+      ]
+    },
+    {
+      "name": "sessionstart在resume與compact每次都再跑-開場提示每次重算重送-去重要依清單項目不能整段只送一次",
+      "path": "memory/CC與原子記憶契約/sessionstart在resume與compact每次都再跑-開場提示每次重算重送-去重要依清單項目不能整段只送一次.md",
+      "triggers": [
+        "SessionStart",
+        "SessionStart resume",
+        "SessionStart compact",
+        "開場提示重送",
+        "開場去重",
+        "重複注入",
+        "依項目去重",
+        "中段開場",
+        "整段只送一次"
+      ],
+      "scope": "global",
+      "related": [
+        "claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置"
+      ]
+    },
+    {
+      "name": "量某處改動省多少前先核實那筆花費在受測題的實跑帳上出現過-沒出現改前改後必然一樣-砍前數字要出自同一題同一版",
+      "path": "memory/驗證與實證/量某處改動省多少前先核實那筆花費在受測題的實跑帳上出現過-沒出現改前改後必然一樣-砍前數字要出自同一題同一版.md",
+      "triggers": [
+        "量省多少",
+        "減量量測",
+        "受測題目",
+        "量不到",
+        "砍前數字",
+        "花費來源",
+        "注入 0 段",
+        "改前改後一樣"
+      ],
+      "scope": "global",
+      "related": [
+        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
+        "改程式題第一回合的無頭量尺量不到日常注入噪音-受測專案沒有aidocs也不是記憶系統開發-量注入減量要用真實session事件帳重播"
+      ]
+    },
+    {
+      "name": "改設定預設值時舊案例用autouse-fixture把預設釘回舊值-斷言一行不動-新預設另開案例檔-子行程案例要被跑的檔自己釘",
+      "path": "memory/驗證與實證/改設定預設值時舊案例用autouse-fixture把預設釘回舊值-斷言一行不動-新預設另開案例檔-子行程案例要被跑的檔自己釘.md",
+      "triggers": [
+        "改預設值",
+        "autouse fixture",
+        "monkeypatch.setitem",
+        "預設 dict",
+        "釘回舊值",
+        "舊案例斷言",
+        "子行程吃不到 monkeypatch"
+      ],
+      "scope": "global",
+      "related": [
+        "改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染"
+      ]
+    },
+    {
+      "name": "合併停在衝突又有功能改動時先只交解衝突的合併commit-功能改動另開commit-不混成暗改的合併",
+      "path": "memory/版控/Git/合併停在衝突又有功能改動時先只交解衝突的合併commit-功能改動另開commit-不混成暗改的合併.md",
+      "triggers": [
+        "合併衝突",
+        "merge commit",
+        "暗改合併",
+        "evil merge",
+        "解衝突",
+        "功能改動分開 commit"
+      ],
+      "scope": "global",
+      "related": [
+        "解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile"
+      ]
+    },
+    {
+      "name": "用git-archive解出的舊碼樹當基線跑測試要放repo外-放在別的repo工作樹裡會被外層git影響出假紅",
+      "path": "memory/驗證與實證/用git-archive解出的舊碼樹當基線跑測試要放repo外-放在別的repo工作樹裡會被外層git影響出假紅.md",
+      "triggers": [
+        "git archive",
+        "基線樹",
+        "舊碼樹",
+        "基線跑測試",
+        "外層 .git",
+        "假紅",
+        "舊碼對照"
+      ],
+      "scope": "global",
+      "related": [
+        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑",
+        "回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror"
+      ]
+    },
+    {
+      "name": "worktree隔離session的claude-job-dir在live資料根底下-規定寫入只用worktree時暫存放worktree內不stage或repo外-不用job-tmp",
+      "path": "_AIDocs/_atoms/CC與原子記憶契約/worktree隔離session的claude-job-dir在live資料根底下-規定寫入只用worktree時暫存放worktree內不stage或repo外-不用job-tmp.md",
+      "triggers": [
+        "CLAUDE_JOB_DIR",
+        "jobs tmp",
+        "job 暫存",
+        "worktree 暫存放哪",
+        "不碰 live",
+        "寫入只用 worktree",
+        "worktree 隔離 session"
+      ],
+      "scope": "global",
+      "related": [
+        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑"
+      ]
+    },
+    {
+      "name": "git-bash的tar解windows絕對路徑報cannot-connect-to-c-resolve-failed-冒號前被當遠端主機-加force-local或改用python-tarfile",
+      "path": "memory/OS-Windows/git-bash的tar解windows絕對路徑報cannot-connect-to-c-resolve-failed-冒號前被當遠端主機-加force-local或改用python-tarfile.md",
+      "triggers": [
+        "tar -xf",
+        "tar --force-local",
+        "Cannot connect to C",
+        "resolve failed",
+        "Git Bash tar",
+        "tarfile",
+        "解壓 Windows 絕對路徑"
+      ],
+      "scope": "global",
+      "related": [
+        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑"
+      ]
+    },
+    {
+      "name": "第二意見材料是工作樹對head-沒差才取mainhead-未追蹤檔也打包-分段commit的工作要先commit乾淨再送-暫存腳本移出repo",
+      "path": "_AIDocs/_atoms/Tools/第二意見材料是工作樹對head-沒差才取mainhead-未追蹤檔也打包-分段commit的工作要先commit乾淨再送-暫存腳本移出repo.md",
+      "triggers": [
+        "second_opinion_start",
+        "第二意見 材料",
+        "collect_diff",
+        "pack.py",
+        "main...HEAD",
+        "未追蹤檔打包",
+        "分段 commit 送審",
+        "diff 為空"
+      ],
+      "scope": "global",
+      "related": [
+        "第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔"
+      ],
+      "depends": [
+        "path:C:/Users/holylight/.claude/tools/second-opinion/pack.py"
+      ]
+    },
+    {
+      "name": "用擋訊息原文當比對鍵的計數機制-縮短擋訊息只在組最後那則訊息時替換-改缺件清單的字會重新計次反而多擋",
+      "path": "memory/設計通則/用擋訊息原文當比對鍵的計數機制-縮短擋訊息只在組最後那則訊息時替換-改缺件清單的字會重新計次反而多擋.md",
+      "triggers": [
+        "擋訊息縮短",
+        "擋訊息換字",
+        "比對鍵",
+        "擋次上限",
+        "同批短訊息",
+        "缺件清單",
+        "重新計次",
+        "多擋"
+      ],
+      "scope": "global",
+      "related": [
+        "閘的擋次上限要照同一則回覆算一次-逐個工具呼叫計數會在ai看到擋訊息前就用完上限-擋次去重上限跟分批用同一套批次鍵",
+        "計數或去重的鍵判不出時退回較粗的鍵不退到較細的鍵-退細會把同一對象拆成多個而少響-判不出就不報要整份對象一起清"
+      ]
+    },
+    {
+      "name": "連鎖斷路器警報看same-count不看link-改什麼算修補要same-count與link兩處一起改-只改link不會少響",
+      "path": "_AIDocs/_atoms/MemDev/連鎖斷路器警報看same-count不看link-改什麼算修補要same-count與link兩處一起改-只改link不會少響.md",
+      "triggers": [
+        "連鎖斷路器",
+        "wg_chain",
+        "same_count",
+        "link",
+        "CHAIN_ALARM_SAME_GATE",
+        "什麼算修補",
+        "警報沒少響"
+      ],
+      "scope": "global",
+      "related": [
+        "斷路器判原樣重試要比被擋呼叫的逐字指紋-跟同閘同對象上一次被擋比-不能只看中間有沒有ai動作或只比前一步"
+      ],
+      "depends": [
+        "path:C:/Users/holylight/.claude/hooks/wg_chain.py"
+      ]
+    },
+    {
+      "name": "windows主控台看git-log與commit回顯的中文亂碼不代表commit存錯-用git-cat-file-commit-head讀原始位元組核對",
+      "path": "memory/OS-Windows/windows主控台看git-log與commit回顯的中文亂碼不代表commit存錯-用git-cat-file-commit-head讀原始位元組核對.md",
+      "triggers": [
+        "git log 亂碼",
+        "commit 訊息亂碼",
+        "主控台亂碼",
+        "git cat-file",
+        "UTF-8",
+        "中文 commit"
+      ],
+      "scope": "global",
+      "related": [
+        "svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8",
+        "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉"
       ]
     }
   ]

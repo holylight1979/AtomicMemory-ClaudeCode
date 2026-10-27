@@ -45,6 +45,7 @@
 | hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過 | hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留Extra-data-整session後續hook全跳過 |
 | hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本 | hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本 |
 | hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定 | hook 內呼叫外部工具的四個坑-HOME覆寫下CLAUDE_DIR指錯-pythonw無stdio-5秒預算-探針要隔離global設定 |
+| hook注入成本看同一段送幾次乘之後還有幾次呼叫-長session重複送的同一段提示是大頭-不只看單段長短 | hook注入成本看同一段送幾次乘之後還有幾次呼叫-長session重複送的同一段提示是大頭-不只看單段長短 |
 | hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約 | hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編server.js前先顧relinquish的mtime契約 |
 | hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | HUD暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 |
 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec_hud-stop再查一次 |
@@ -131,6 +132,7 @@
 | 改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live | 改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live |
 | 改檔閘逐目標判專案根時整個資料夾當目標要看上一層-拿資料夾自己當根會落在outside讀檔條件永遠滿足不了-cwd不套同一條 | 改檔閘逐目標判專案根時整個資料夾當目標要看上一層-拿資料夾自己當根會落在outside讀檔條件永遠滿足不了-cwd不套同一條 |
 | 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看 | 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看 |
+| 改程式題第一回合的無頭量尺量不到日常注入噪音-受測專案沒有aidocs也不是記憶系統開發-量注入減量要用真實session事件帳重播 | 改程式題第一回合的無頭量尺量不到日常注入噪音-受測專案沒有AIDocs也不是記憶系統開發-量注入減量要用真實session事件帳重播 |
 | 改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控 | 改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控 |
 | 新閘合進main時要回頭掃既有真hook探針的沙箱config-off-否則舊探針被新閘擋在main上一直紅-例probe-release-rules的p3被need-goal擋 | 新閘合進main時要回頭掃既有真hook探針的沙箱config-off-否則舊探針被新閘擋在main上一直紅-例probe-release-rules的p3被need-goal擋 |
 | 斷路器判原樣重試要比被擋呼叫的逐字指紋-跟同閘同對象上一次被擋比-不能只看中間有沒有ai動作或只比前一步 | 斷路器判原樣重試要比被擋呼叫的逐字指紋-跟同閘同對象上一次被擋比-不能只看中間有沒有AI動作或只比前一步 |
@@ -169,6 +171,7 @@
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 |
 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 |
 | 送得到ai眼前的擋訊息與提示從源頭避開退避詞-ai會原樣貼回-用守門案例逐則跑detect-evasion | 送得到ai眼前的擋訊息與提示從源頭避開退避詞-ai會原樣貼回-用守門案例逐則跑detect_evasion |
+| 連鎖斷路器警報看same-count不看link-改什麼算修補要same-count與link兩處一起改-只改link不會少響 | 連鎖斷路器警報看same-count不看link-改什麼算修補要same-count與link兩處一起改-只改link不會少響 |
 | 部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀 | 部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀 |
 | 量hook注入改前改後-同一串事件重播兩棵樹-包記號切出要量的文字 | 量hook注入改前改後-同一串事件重播兩棵樹-包記號切出要量的文字 |
 | 量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 | 量測收據要認DONE帶k=v-sentinel_regex會把普通pytest統計行也轉成PYTEST_MEASURE-DONE-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 |
