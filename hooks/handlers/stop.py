@@ -924,7 +924,7 @@ def _verify_gates(
     """對帳閘＋驗證範圍閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／scope／"",
     提醒或 None：背景全量新記的範圍漏判)。寫碼查核＝對帳 (a)～(d)＋驗證範圍；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
     goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)(f3)，併進寫碼查核；記憶知識類的輕樹 (f4) 併進 (e) 那一份；
-    子代理與裁判不跑目標對照。coding＝False（不是寫碼回合）：(f2)(f3) 不判（規則 CLOSING_GOAL_CODING_ONLY），(f1)(f4) 照判。
+    子代理與裁判不跑目標對照。coding＝False（不是寫碼回合，也不是本 session 改過程式後交收尾檢核）：(f2)(f3) 不判（規則 CLOSING_GOAL_CODING_ONLY），(f1)(f4) 照判。
     (a)(b)(c) 對 last_text 與 claims（pending 承接的本回合先前宣稱）；(d) 與驗證範圍不看措辭，有改碼紀錄就判（last_text 空也判）。
     自寫收據（_runs/）驗證範圍（入帳找漏判）與 (a) 共用，只讀一次。寫碼查核整個過了 → 這份驗證範圍記成結案。
     判定本身出錯 → stderr＋guard_log 每次都記；同一個錯誤每個使用者回合只擋一次（_judge_error），之後放行並留帳。"""
@@ -2183,7 +2183,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
             state, session_id, turn_seq, code_text, transcript, transcript_text, own_mod_files,
             _rg_cfg, _sg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
-            goal=True, goal_cfg=config, coding=_coding,
+            # 本 session 改過程式又交了收尾檢核＝交付邊界，不說完成也算（只看措辭會漏）；本 session 沒改過程式才豁免
+            goal=True, goal_cfg=config, coding=_coding or (emitted_this_turn and _wrote_code(own_mod_files, config)),
         )
         if _vg_advice:
             print(_vg_advice, file=sys.stderr)

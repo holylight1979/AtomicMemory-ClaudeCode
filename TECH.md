@@ -906,7 +906,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | DATA_FILE_READ_HINT | 讀到改了會被動資料檔閘問的檔（`wg_data_file.read_hint`，PostToolUse 接線在 `handle_post_tool_use` 導讀卡段之後） | 程式檔、副檔名不在清單、系統文件、本 session 新建、宣告過、state 裡的使用者原話點名、提示過的檔、子代理讀的、閘或 v6 關著 → 不提示 | 讀檔結果後附一行「改 <檔> 要先宣告｜格式：動資料檔｜<路徑>：<為什麼…>；比改它的那次呼叫早一則訊息送出…」，第二個檔起「也要先宣告（格式同前一則提示）」；判定不動 |
 | CLOSING_RECONCILE_IN_REPORT | 收尾檢核帶目標對照（`post_tool_use._aec_reconcile`、`anti-evasion.js` `aecArgErrors`、`mcp.js` schema；案例 `verify_closing_merge`、`verify_aec_reconcile.js`） | anti_evasion_report 的 `reconcile` 欄＝need_goal reconcile 的 {items, turns?}：MCP 端同一套驗法，PostToolUse 交 `wg_need_goal.apply_op`（同判法、同回覆、同樣記進目標檔），先套用再附樹給 HUD；報告記 `reconcile`＝applied／rejected／off／error；跟 `harvest_items` 一起交＝收尾三段一次交齊 | 套不上只少這段，收尾檢核照收、回覆寫明只補對照；分開交照收；總開關關不驗不套用 |
 | CLOSING_MISSING_PART_HINT | 收尾段擋下時寫缺哪段（`stop.closing_reconcile_hint`、`CLOSING_ONE_CALL`） | (f2) 擋：本回合交過收尾檢核 → 只補 need_goal reconcile；沒交 → 放進收尾檢核的 reconcile 欄一次交。收尾檢核閘擋訊息、「後面還會擋」預覽的收尾檢核與知識收割兩列寫一次交齊 | 判定、擋次不變 |
-| CLOSING_GOAL_CODING_ONLY | (f2)(f3) 何時判（`stop._verify_gates` 的 `coding`＝`handle_stop` 的 `_coding`） | 寫碼回合（本回合改了程式或宣告了寫碼樹，或前幾回合改過程式、這則宣告完成）才當交付邊界 | 非寫碼回合（例：續接單匯入的舊樹、本 session 沒改程式）不要求；(f1)(f4) 照舊 |
+| CLOSING_GOAL_CODING_ONLY | (f2)(f3) 何時判（`stop._verify_gates` 的 `coding`＝`handle_stop` 的 `_coding`） | 寫碼回合（本回合改了程式或宣告了寫碼樹，或前幾回合改過程式、這則宣告完成或本回合交了收尾檢核）才當交付邊界 | 非寫碼回合（例：續接單匯入的舊樹、本 session 沒改程式）不要求；(f1)(f4) 照舊 |
 | CLOSING_CALL_ALL_THREE | 哪一批是收尾那批（`wg_closing_round.closing_call`；收尾前附著點與第二意見接縫共用） | 收尾檢核、need_goal action=reconcile、knowledge_harvest_report 任一支 | need_goal 其他動作不算 |
 
 ### 7.9 驗證範圍（verify_scope）

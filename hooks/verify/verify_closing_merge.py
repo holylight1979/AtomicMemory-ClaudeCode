@@ -148,6 +148,18 @@ def test_imported_tree_not_asked_outside_coding_turn(env, monkeypatch, capsys):
     assert "(f2)" in _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {}}).get("reason", "")
 
 
+def test_closing_check_after_earlier_code_edit_still_asks(env, monkeypatch, capsys):
+    """規則 CLOSING_GOAL_CODING_ONLY 的界線：本 session 前幾回合改過程式，這回合不改程式、不說完成，只交了不帶 reconcile 的收尾檢核
+    → 交收尾檢核就是交付邊界，(f2) 照要（只看措辭的 _coding 會漏掉這種收尾 → 修補前紅）。"""
+    proj = _code_tree(env)
+    state = _state(proj, modified_files=[{"path": str(proj / "a.py"), "session_id": SID, "turn_seq": 2, "last_turn_seq": 2}])
+    state.pop("need_goal_code_decl_turn")
+    _aec(monkeypatch, capsys, state, proj)
+    reason = _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {"enabled": False}},
+                   text="變更內容見收尾檢核報告。").get("reason", "")
+    assert "(f2)" in reason and "收尾檢核本回合已交，缺目標對照" in reason, reason
+
+
 # ─── CLOSING_CALL_ALL_THREE ─────────────────────────────────────────────────────
 
 def test_closing_call_knows_all_three():

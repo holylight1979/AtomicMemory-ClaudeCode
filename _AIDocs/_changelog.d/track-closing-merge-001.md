@@ -3,7 +3,7 @@
   - **收尾檢核可帶目標對照**（規則 CLOSING_RECONCILE_IN_REPORT）：`anti_evasion_report` 多一個選填欄 `reconcile`（格式同 need_goal action=reconcile 的 items／turns）。MCP 端同一套驗法（`tools/workflow-guardian-mcp/lib/anti-evasion.js` `aecArgErrors`），PostToolUse 交給同一個入口 `wg_need_goal.apply_op`（`hooks/handlers/post_tool_use._aec_reconcile`；同判法、同回覆、同樣記進目標檔），先套用再把樹附進 HUD 報告；報告記 `reconcile`＝applied／rejected／off／error。跟既有的 `harvest_items`（CLOSING_REPORT_ONE_CALL）一起交＝收尾三段一次交齊，Stop 不再要求另呼叫 need_goal reconcile、knowledge_harvest_report。套不上只少這段：收尾檢核照收，回覆寫明只要補交對照。舊的三支分開交照收。
   - **先提示**：三支工具的說明（`mcp.js`）都寫一次交齊；need_goal 的說明另寫「anti_evasion_report 還沒載入就趁別的工具呼叫同一批先載入」（004 R1 那跑收尾才載入，載入本身多一次呼叫）。MCP js 改了要 Reload 才生效。
   - **沒照做才擋，擋訊息寫缺哪段**（CLOSING_MISSING_PART_HINT）：(f2) 擋下時，本回合交過收尾檢核 → 寫「只補 need_goal reconcile，收尾檢核不用重交」；還沒交 → 寫一次交齊的走法（`stop.closing_reconcile_hint`）。收尾檢核閘的擋訊息、「後面還會擋」預覽的收尾檢核與知識收割兩列也寫一次交齊。判定、擋次不變。
-  - **非寫碼回合不要求目標對照**（CLOSING_GOAL_CODING_ONLY）：(f2)(f3) 只在寫碼回合判（`stop._verify_gates` 新參數 `coding`，傳 `handle_stop` 既有的 `_coding`）；例：續接單匯入的寫碼類舊樹、本 session 沒改程式，宣告完成不再要求完整對照。(f1)(f4) 照舊。知識收割閘沒動（預設交背景、不擋）。
+  - **非寫碼回合不要求目標對照**（CLOSING_GOAL_CODING_ONLY）：(f2)(f3) 只在寫碼回合判（`stop._verify_gates` 新參數 `coding`：`handle_stop` 既有的 `_coding`，或本 session 改過程式且本回合交了收尾檢核）；例：續接單匯入的寫碼類舊樹、本 session 沒改程式，宣告完成不再要求完整對照。(f1)(f4) 照舊。知識收割閘沒動（預設交背景、不擋）。
   - **收尾那批認三支**（CLOSING_CALL_ALL_THREE）：`wg_closing_round.closing_call` 多認 knowledge_harvest_report（收尾檢核、need_goal reconcile 照認）；收尾前附著點與第二意見接縫都靠它。
 - **關掉／繞過的機制**：非寫碼回合不再要求目標對照 (f2)(f3)；其餘閘的判定與擋次沒動。
 - **省多少**（題 B′ 第一回合收尾段；事件帳重播 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-收尾合一-實測/closing_merge_replay.py`，輸入＝input＋cache_creation＋cache_read）：
