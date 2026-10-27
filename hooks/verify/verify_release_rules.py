@@ -2619,8 +2619,8 @@ def test_008_base_red_tracked_not_owed():
     other = {"k.md": {**track["k.md"], "text": "known: test_a_other test_b_other"}}         # 只提到名字更長的別支 → 沒點名
     kept, _, notes = rr.base_red_failures([red], both, {**ok, "tracking": other})
     assert kept and any("沒點名 test_a" in n for n in notes)
-    for over, why in (({"base_times": {"abcdef1234": 300.0}}, "開始前就有"), ({"base_times": {}}, "查不到時間"),
-                      ({"started": None}, "開始前就有"), ({"own_shas": ["ABCDEF1234ffff"]}, "自己提交的")):
+    for over, why in (({"base_times": {"abcdef1234": 300.0}}, "早於本 session 開始"), ({"base_times": {}}, "查不到時間"),
+                      ({"started": None}, "早於本 session 開始"), ({"own_shas": ["ABCDEF1234ffff"]}, "自己提交的")):
         kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
         assert kept and any(why in n for n in notes), (over, notes)
     assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []

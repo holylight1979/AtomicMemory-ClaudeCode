@@ -123,7 +123,7 @@ def test_stop_base_green_this_red_still_blocks(driven, capsys, repo):
     ("tracking_edited", "本 session 改過"),   # 追蹤項是這個 session 才寫的
     ("not_named", "沒點名"),                  # 追蹤文件沒提到這一支
     ("no_tracking", "沒寫追蹤文件"),
-    ("born_after_start", "開始前就有"),        # 基底是本 session 開始後才有的 commit（例：自己做的 merge）
+    ("born_after_start", "早於本 session 開始"),  # 基底是本 session 開始後才有的 commit（例：自己做的 merge）
 ], ids=["dirty-base-run", "own-commit", "tracking-edited", "tracking-not-naming", "no-tracking", "born-after-start"])
 def test_stop_missing_one_condition_blocks(driven, capsys, repo, change, why):
     r, base, track = repo

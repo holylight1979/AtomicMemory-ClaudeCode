@@ -2927,7 +2927,7 @@ def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, facts: Dict[str, Any])
         return f"基底 {base} 是本 session 自己提交的，不是改動前"
     born, started = (facts.get("base_times") or {}).get(base), facts.get("started")
     if born is None or started is None or born >= started:
-        return f"基底 {base} 不是本 session 開始前就有的 commit（本 session 做的 merge、rebase 之後的 commit 不算；查不到時間也不算）"
+        return f"基底 {base} 要早於本 session 開始，這個 commit 沒有（本 session 做的 merge、rebase 之後的 commit 不算；查不到時間也不算）"
     if (facts.get("ancestry") or {}).get((base, cwd)) is not True:
         return f"基底 {base} 不是現在 HEAD 的祖先（或查不到）"
     t = (facts.get("tracking") or {}).get(d["tracking"]) if d["tracking"] else None
