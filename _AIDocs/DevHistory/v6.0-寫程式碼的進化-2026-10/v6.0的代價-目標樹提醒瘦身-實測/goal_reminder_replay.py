@@ -8,7 +8,7 @@
      need_goal 寫入的回覆（送全樹，這刀不改）、要改碼先立樹那一行（不改）。
   3. 同一串事件（同一句使用者訊息、同一個 set 輸入、同部位、同回合）在 repo 外的暫存資料根裡分別交舊碼（--old-tree）與
      新碼（--new-tree，預設本 repo）產生文字；新 token＝實測 token×估算式（新文字）÷估算式（舊碼重播的文字）。
-     舊碼重播的字數對帳 transcript 那段的字數（印差幾 %，程式文字自 10-23 以來的小改會有幾字差）。
+     舊碼重播的文字逐字對帳 transcript 那段（印幾段完全相同、不同處的片段；程式文字自 10-23 以來的小改會有幾字差）。
   4. 這段的花費＝token×之後被重讀幾次（第一回合從它進 context 那次起的每一次呼叫，含被擋重做與守門要求的額外呼叫）。
   5. 擋次：第一回合 PreToolUse／Stop 擋訊息裡 NeedGoal 開頭的筆數；秒：這刀不增減模型呼叫，額外呼叫秒數不變（印 0）。
 
@@ -18,7 +18,7 @@
       [--ruler <first_turn_breakdown.py>] [--keep] [--pieces]
   --pieces 印每段的重播文字（稽核用）；--keep 留下暫存資料根（預設跑完刪）。完整參數以 --help 為準。
   尾行 GOAL_REMINDER_REPLAY DONE runs=… src_before=<萬> hints_before=<萬> hints_after=<萬> saved=<萬> saved_r1=<萬> saved_r2=<萬>
-      blocks_before=… blocks_after=… secs_saved=0 drift_max=<%>
+      blocks_before=… blocks_after=… secs_saved=0 drift_max=<字數差 %> same=<逐字相同段數>/<重播段數>
 """
 import argparse
 import importlib.util
@@ -213,7 +213,7 @@ def main():
     old = run_tree(Path(a.old_tree), payload, a.keep)
     new = run_tree(Path(a.new_tree), payload, a.keep)
     tot = {"src_before": 0.0, "hints_before": 0.0, "hints_after": 0.0}
-    saved_by, drift_max = {}, 0.0
+    saved_by, drift_max, same_n, diff_notes = {}, 0.0, 0, []
     for nm in names:
         r = runs[nm]
         evs = iter(zip(old[nm], new[nm]))
@@ -230,6 +230,9 @@ def main():
             o, w = next(evs)
             drift = abs(len(o) - len(it["text"])) / max(len(it["text"]), 1)
             drift_max = max(drift_max, drift)
+            diffs = [(t, b) for t, b in _changed_spans(it["text"], o)]
+            same_n += not diffs
+            diff_notes += [f"{nm[-2:]} 呼叫 #{it['k']} {KIND_NAME[it['kind']]}：帳上「{t}」→ 舊碼重播「{b}」" for t, b in diffs]
             tok_new = it["tok"] * est(w) / est(o)
             after = tok_new * it["reread"]
             tot["hints_before"] += before
@@ -244,13 +247,24 @@ def main():
               f"擋 {r['blocks']} 筆（NeedGoal 擋訊息）")
     k = len(names)
     blocks = sum(r["blocks"] for r in runs.values())
+    n_ev = sum(1 for r in runs.values() for it in r["items"] if it["event"])
+    print(f"\n## 舊碼重播對帳 transcript（逐字）：{same_n}／{n_ev} 段完全相同" + ("；不同處：" if diff_notes else ""))
+    for d in diff_notes:
+        print(f"- {d}")
     print(f"\n平均每跑：來源合計（提示＋寫入回覆，不含先立樹一行）{tot['src_before'] / k:,.0f}；這刀改的提示 {tot['hints_before'] / k:,.0f}"
           f" → {tot['hints_after'] / k:,.0f}，省 {(tot['hints_before'] - tot['hints_after']) / k:,.0f}；舊碼重播字數對帳最大差 {drift_max:.1%}")
     w = lambda x: f"{x / 1e4:.2f}"  # noqa: E731
     print(f"GOAL_REMINDER_REPLAY DONE runs={k} src_before={w(tot['src_before'] / k)} hints_before={w(tot['hints_before'] / k)} "
           f"hints_after={w(tot['hints_after'] / k)} saved={w((tot['hints_before'] - tot['hints_after']) / k)} "
           + " ".join(f"saved_{nm[-2:].lower()}={w(v)}" for nm, v in saved_by.items())
-          + f" blocks_before={blocks} blocks_after={blocks} secs_saved=0 drift_max={drift_max * 100:.1f}")
+          + f" blocks_before={blocks} blocks_after={blocks} secs_saved=0 drift_max={drift_max * 100:.1f} same={same_n}/{n_ev}")
+
+
+def _changed_spans(a, b):
+    """兩段文字不同的地方（difflib 逐字）：[(a 那邊的片段, b 那邊的片段)]；完全相同回 []。"""
+    import difflib
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    return [(a[i1:i2], b[j1:j2]) for op, i1, i2, j1, j2 in sm.get_opcodes() if op != "equal"]
 
 
 if __name__ == "__main__":
