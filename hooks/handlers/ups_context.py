@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 
 from wg_core import (
     MEMORY_DIR, EPISODIC_DIR, _atom_debug_error,
-    _estimate_tokens, truncate_to_tokens, user_typed_text,
+    _estimate_tokens, truncate_to_tokens, user_typed_text, v6_enabled,
 )
 from wg_atoms import (
     any_trigger_hit,
@@ -147,14 +147,20 @@ def build_context(
             _atom_debug_error("ParallelSuggest", e)
 
     # ─── _AIDocs keyword matching ──────────────────
+    # v6 守門開著時同一份文件一個 session 只指一次（aidocs.v6_once，沒寫＝開）；命中幾份、超過 5 份不送照舊判
     aidocs_state = state.get("aidocs", {})
     aidocs_kw_map = aidocs_state.get("keywords", {})
     max_matches = config.get("aidocs", {}).get("max_prompt_matches", 3)
+    v6 = v6_enabled(config)
     if aidocs_kw_map and prompt.strip():
         matched_docs: List[str] = []
         for fname, keywords in aidocs_kw_map.items():
             if any_trigger_hit(keywords, prompt_lower):
                 matched_docs.append(fname)
+        if matched_docs and len(matched_docs) <= 5 and v6 and config.get("aidocs", {}).get("v6_once", True):
+            pointed = state.setdefault("aidocs_pointed", [])
+            matched_docs = [d for d in matched_docs if d not in pointed]
+            pointed.extend(matched_docs[:max_matches])
         if matched_docs and len(matched_docs) <= 5:
             aidocs_root = aidocs_state.get("project_root", "")
             pointer_lines = ["[Guardian:AIDocs] Relevant project docs:"]
@@ -169,7 +175,10 @@ def build_context(
             lines.extend(pointer_lines)
 
     # ── JIT load internal pipeline reference for memory system dev ──
-    if _is_memory_system_dev(prompt_lower, state.get("session", {}).get("cwd", "")):
+    # v6 守門開著時一個 session 只送一次（jit_internal_pipeline.v6_once，沒寫＝開）；判不判記憶系統開發照舊
+    jit_once = v6 and config.get("jit_internal_pipeline", {}).get("v6_once", True)
+    if (_is_memory_system_dev(prompt_lower, state.get("session", {}).get("cwd", ""))
+            and not (jit_once and state.get("jit_pipeline_sent"))):
         ref_path = MEMORY_DIR / "_reference" / "internal-pipeline.md"
         if ref_path.exists():
             try:
@@ -181,6 +190,8 @@ def build_context(
                         f"[JIT:InternalPipeline]\n{truncate_to_tokens(ref_text, jit_budget)}"
                     )
                     budget -= jit_budget
+                    if jit_once:
+                        state["jit_pipeline_sent"] = True
             except (OSError, UnicodeDecodeError):
                 pass
 

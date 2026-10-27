@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: git_cassette, 錄製重播, CassetteMismatch, --git-record, fail-open, except Exception, 單跑會紅, 依執行順序, aec_ledger, 產出物帳本, 跨案殘留, untracked 錄製檔
+- Trigger: 錄製重播, CassetteMismatch, fail-open, except Exception, 單跑會紅, 依執行順序, aec_ledger, 產出物帳本, 跨案殘留, untracked 錄製檔
 - Created-at: 2026-10-16
 - Related: hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定
 - Source: session:eefb3380 2026-10-16

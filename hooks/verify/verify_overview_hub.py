@@ -35,6 +35,12 @@ def _no_org(monkeypatch):
     monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
     monkeypatch.setattr(wo, "_WARNED", set())
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支測整張注入（card_injection=full）的行為；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    monkeypatch.setitem(wo.HUB_DEFAULTS, "card_injection", "full")
+
 APPB_TABLE = """
 | 順序 | 路徑前綴 | 部位 | 導讀卡（atom 名） | 狀態 |
 |---|---|---|---|---|
@@ -214,7 +220,7 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     assert wo.on_read(state, "sess", "Read", {"file_path": f2}, str(proj), tp, cfg) is None  # 第二次不再注入
     assert wo.on_read(state, "sess", "Bash", {"command": f'cat "{f1}"'}, str(proj), tp, cfg) is None
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
-    assert rec["part_files_read"] == [f2, f1] and rec["reads_after"] == [f2, f1]
+    assert rec["part_files_read"] == [f1, f2] and rec["reads_after"] == [f1, f2]       # 觸發注入的 f1 也算（INJECT_TRIGGER_READ_COUNTED）
 
     warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 沒交定位 → 一律擋（A4.1 沒有不擋的模式）
     assert deny and "定位三行" in deny and "讀了 2 個檔" in deny and warn == deny and changed
@@ -324,7 +330,7 @@ def test_reads_after_counts_cross_part_and_untabled_files(proj, tmp_path, monkey
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "o.cs")}, str(proj), tp, {})     # 另一部位
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), tp, {})          # 表外檔
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
-    assert len(rec["reads_after"]) == 2
+    assert len(rec["reads_after"]) == 3                                           # 含觸發注入的 A.cs（INJECT_TRIGGER_READ_COUNTED）
 
 
 def test_bash_vcs_reads_count_as_reads():                                 # 專案覆蓋提案 #4
@@ -945,21 +951,22 @@ def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(pr
     bad = {"overview_hub": {"min_overview_evidence": {"card": False}}}            # ① 讀卡不可關：關了是設定錯誤 → 擋
     warn, deny, _ = wo.on_edit({}, "s", f1, tp, bad)
     assert deny and "不可關" in deny
+    two = {"overview_hub": {"min_overview_evidence": {"part_files": 2}}}          # 觸發注入那次讀算 1 個（INJECT_TRIGGER_READ_COUNTED）
     state = {}
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})          # 注入
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})          # 注入（f1 算 1 個）
     for i in range(20):                                                            # ② 讀 20 個表外檔不算部位檔
         wo.on_read(state, "s", "Read", {"file_path": str(proj / f"note{i}.md")}, str(proj), tp, {})
     _locate(tp)
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and "目前 0 個" in deny and "表外檔讀了 20 個不算" in deny and "定位三行" not in deny
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, two)
+    assert deny and "目前 1 個" in deny and "表外檔讀了 20 個不算" in deny and "定位三行" not in deny
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)              # ③ 部位檔 1 ＋ 已交三行 → 放行
+    assert wo.on_edit(state, "s", f1, tp, two) == (None, None, True)             # ③ 部位檔 2 ＋ 已交三行 → 放行
     (proj / ".claude" / "overview-hub.json").write_text('{"min_overview_evidence": {"part_files": 3}}', encoding="utf-8")
     state2 = {}
     wo.on_read(state2, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state2, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     warn, deny, _ = wo.on_edit(state2, "s", f1, tp, {})
-    assert deny and "要 ≥3 個，目前 1 個" in deny                                   # 專案可調數字
+    assert deny and "要 ≥3 個，目前 2 個" in deny                                   # 專案可調數字
 
 
 # 讀檔數規則（UNMAPPED_EDIT_NEEDS_READABLE_FILES）與 Bash 讀檔辨識的案，改的是無表專案的程式檔：最小地圖（G14，
@@ -2021,7 +2028,7 @@ def _same_files(a, b):
 
 def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
     """規則 SHELL_READ_COUNTS_LIKE_READ：唯讀 Bash／PowerShell 讀檔跟 Read 同效。第一次碰到部位就用一條 cat 讀三個檔 → 導讀卡照注入、
-    注入之後的兩個檔算讀過（跟送三個 Read 一樣 2 個；改前注入完就停，0 個）；MSYS 寫法 /c/…、不帶 -n 的 grep、開頭 cd 之後的相對路徑、
+    三個檔都算讀過（跟送三個 Read 一樣 3 個，觸發注入的那個也算；改前注入完就停，0 個）；MSYS 寫法 /c/…、不帶 -n 的 grep、開頭 cd 之後的相對路徑、
     PowerShell Get-Content 都算；只印檔名、筆數或不印的 grep（-l、-c、--count、-q）不算，帶了 -n 也不算（-nl、-n -c 不能灌讀檔證據）。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     cfg = {"overview_hub": {"enabled": True}}
@@ -2038,7 +2045,7 @@ def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
     txt = wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
     assert txt and "戰鬥導讀" in txt
     rec = _battle(by_cat)
-    assert len(rec["part_files_read"]) == 2 and _same_files(rec["part_files_read"], _battle(by_read)["part_files_read"])
+    assert len(rec["part_files_read"]) == 3 and _same_files(rec["part_files_read"], _battle(by_read)["part_files_read"])
     forms = [("Bash", f"grep foo {f['E']}"), ("PowerShell", f"Get-Content '{f['G']}' -TotalCount 5")]
     if os.name == "nt":
         msys = "/" + f["A"][0].lower() + f["A"][2:].rsplit("/Game/", 1)[0]          # C:/x/proj → /c/x/proj
@@ -2074,9 +2081,38 @@ def test_shell_write_command_not_a_read(proj, tmp_path, monkeypatch):
     for tool, cmd in (("Bash", f"cat {b} > {out}"), ("Bash", f"cat {b} | tee {out}"), ("Bash", f"sed -i 's/x/y/' {b}"),
                       ("PowerShell", f"Get-Content '{b}' | Out-File '{out}'"), ("PowerShell", f"Get-Content '{b}' > '{out}'")):
         wo.on_read(state, "s", tool, {"command": cmd}, str(proj), tp, cfg)
-        assert rec["part_files_read"] == [], cmd
+        assert rec["part_files_read"] == [a], cmd                                # 只有觸發注入那次 Read
     wo.on_read(state, "s", "Bash", {"command": f"cat {b} 2>&1"}, str(proj), tp, cfg)
-    assert len(rec["part_files_read"]) == 1
+    assert len(rec["part_files_read"]) == 2
+
+
+
+def test_inject_trigger_read_counted(proj, tmp_path, monkeypatch):
+    """規則 INJECT_TRIGGER_READ_COUNTED：觸發導讀卡注入的那次讀就是真讀——一條指令讀到同部位 3 支檔、第一支觸發注入 → 讀過 3 個；
+    Read 第一次碰到部位 → 讀過 1 個（改前兩種都不算觸發的那支：cat 0 個、Read 0 個）。沒觸發注入的一般讀照舊各算一次、不重記；
+    改檔前才注入（on_edit 補注入）沒有讀檔，照舊 0 個；讀檔證據夠了照樣要交定位。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    cfg = {"overview_hub": {"enabled": True}}
+    tp = _transcript(tmp_path, ["先看看。"])
+    battle = proj / "Game" / "Battle"
+    f = {}
+    for n in "ABCD":
+        (battle / f"{n}.cs").write_text("x", encoding="utf-8")
+        f[n] = (battle / f"{n}.cs").as_posix()
+    by_cat = {"turn_seq": 1}
+    assert "戰鬥導讀" in wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
+    assert _battle(by_cat)["part_files_read"] == [f["A"], f["B"], f["C"]]
+    assert wo.on_read(by_cat, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg) is None      # 已注入：一般讀，不重記
+    wo.on_read(by_cat, "s", "Read", {"file_path": f["D"]}, str(proj), tp, cfg)
+    assert len(_battle(by_cat)["part_files_read"]) == 4 and _battle(by_cat)["reads_after"][0] == f["A"]
+    by_read = {"turn_seq": 1}
+    assert wo.on_read(by_read, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg)
+    assert _battle(by_read)["part_files_read"] == [f["A"]]
+    warn, deny, _ = wo.on_edit(by_read, "s", f["A"], tp, cfg)
+    assert deny and "注入導讀卡後還沒讀過" not in deny and "定位" in deny                           # 讀檔證據夠了，還要交定位
+    by_edit = {"turn_seq": 1}
+    wo.on_edit(by_edit, "s", f["A"], tp, cfg)                                                       # 改檔前才補注入：沒有讀
+    assert _battle(by_edit)["part_files_read"] == []
 
 
 @pytest.fixture(autouse=True)

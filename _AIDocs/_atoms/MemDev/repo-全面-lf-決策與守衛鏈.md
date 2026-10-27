@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: LF, CRLF, 換行, eol, gitattributes, write_text_lf, normalize-eol, verify_lf_writes, newline
+- Trigger: LF, CRLF, gitattributes, write_text_lf, normalize-eol, verify_lf_writes
 - Created-at: 2026-09-03
 - Source: commit:a8f5122 2026-09-03（原對話已逾保留期）
 

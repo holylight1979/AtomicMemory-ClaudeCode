@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: TEMP_COPY_NOT_PROJECT, TEMP_REPO_COMMIT_EXEMPT, WG_TEMP_RULES, 暫存目錄豁免, pytest tmp 假專案, 探針 run 目錄, 31 案翻紅, 暫存規則測試開關, probe-runs, _is_ephemeral_path, 無頭實跑受測專案位置, LOCALAPPDATA Temp 不記帳, modified_files 漏記, 同步提醒看不到改檔
 - Created-at: 2026-10-13
-- Quote: 「你是 v6.0 的「調度」總控台（新任，接 claude-aa；對人總控台見接續單「現任」行）。職責：派工、對帳、快照複跑、合併、推送、刪樹刪分支、與各工作 session 通訊；不改碼、不開子代理、不回答原設計者。第一步 ToolSearch 載入 SendMessage 與 ListAgents，ListAgents 看自己的名字，SendMessage claude-aa 與對人總控台各一…」
 
 ## 知識
 
@@ -18,6 +17,7 @@
 - [臨] 無頭實跑的受測專案也不能放系統暫存：TEMP_COPY_NOT_PROJECT 把暫存底下的專案當副本，定位閘不擋、不注入；`_shared._is_ephemeral_path` 把 %LOCALAPPDATA%\Temp 底下的寫入當暫存檔不記帳，收尾閘看不到改檔。受測專案放 C:\w4\<名>；刪時 git 物件檔是唯讀，rmtree 要先清唯讀再刪。
 - [臨] `_shared._is_ephemeral_path` 是用 tempfile.gettempdir() 判的：暫存目錄底下的寫入一律不記進 modified_files，同步提醒、寫碼查核都看不到改檔；實測第一跑就因此白跑。
 - [臨] 並行改檔案例的沙箱不能放在 pytest 的 tmp_path：路徑含 `/pytest-of-`，`_is_ephemeral_path` 會把改檔當暫存檔、一筆都不記，案例看起來像紀錄全掉。沙箱改用 `tempfile.mkdtemp`，子行程的 TEMP 指到沙箱外，再設 `WG_TEMP_RULES=off`。
+
 
 ## 行動
 

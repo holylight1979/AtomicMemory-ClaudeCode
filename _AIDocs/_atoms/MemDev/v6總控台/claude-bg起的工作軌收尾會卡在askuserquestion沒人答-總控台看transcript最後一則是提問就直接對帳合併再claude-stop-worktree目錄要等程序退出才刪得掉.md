@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: session:cb4c9c8e 2026-10-21 背景工作軌（claude --bg）卡放行題 12 小時
 - Confidence: [臨]
-- Trigger: claude --bg, console-spawn, bg session waiting, 背景工作軌, claude stop, claude attach, ListAgents bg waiting, 收尾放行題沒人答, 工作樹 Permission denied
+- Trigger: claude --bg, console-spawn, bg session waiting, 背景工作軌, claude stop, ListAgents bg waiting, 收尾放行題沒人答, 工作樹 Permission denied
 - Created-at: 2026-10-21
 - Quote: 「喔最後一個也關掉了。」
 

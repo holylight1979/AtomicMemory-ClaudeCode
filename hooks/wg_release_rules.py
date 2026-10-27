@@ -460,6 +460,22 @@ def format_hit(letter: str, v: Verdict) -> str:
     return f"{HIT_PREFIX}({letter}) {v.rule}：{v.why}｜證據：" + "；".join(ev)
 
 
+DENY_EVIDENCE_CAP = 160      # DENY_TEXT_SLIM：每項證據最多幾個字，超過截短
+
+
+def deny_slim_enabled(config: Any) -> bool:
+    """guard.deny_text_slim（預設開，規則 DENY_TEXT_SLIM）；寫 false 時採用的閘退回自己原本的長文字（原處不動）。"""
+    return (((config or {}).get("guard") or {}).get("deny_text_slim", True)) is not False
+
+
+def slim_deny(tag: str, fix: str, hits: Sequence[Tuple[str, Verdict]], cap: int = DENY_EVIDENCE_CAP) -> str:
+    """DENY_TEXT_SLIM 的擋訊息：第一行 `[<閘>] 修法：<一句>`，下面每條命中一行 format_hit（parse_hits 照認，
+    每項證據超過 cap 字截短）。判準卡名由接卡處（wg_entrypoint.entry_note）接在後面。"""
+    rows = [format_hit(letter, v._replace(evidence=tuple(e if len(e) <= cap else e[:cap] + "…" for e in v.evidence)))
+            for letter, v in hits]
+    return "\n".join([f"[{tag}] 修法：{fix}", *rows])
+
+
 def split_blocking(hits: List[str], block_letters: Any) -> Tuple[List[str], List[str]]:
     """規則 RECONCILE_BLOCK_LETTERS：format_hit 條目分成（會擋, 只提示）。block_letters 不是清單＝全擋。"""
     if not isinstance(block_letters, list):
@@ -3093,6 +3109,26 @@ def data_file_hint(rel: str) -> str:
             "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 
+def data_file_fix(rels: Sequence[str]) -> str:
+    """DENY_TEXT_SLIM 的動資料檔修法句（DECL_HINT_KEEPS_EDIT_TOOLS 的要點照留：宣告放哪、宣告完照常用 Edit／Write）。"""
+    lines = "；".join(f"入口行範例：動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
+    return (f"比這次工具呼叫早一則訊息送出宣告行（{lines}），或寫在{DECL_VIA_COMMENT}；每個檔各一行。"
+            "宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+
+
+DATA_FILE_HINT_SHOWN = 4      # DATA_FILE_READ_HINT 一行最多列幾個檔名
+
+
+def data_file_read_hint(rels: Sequence[str], first: bool) -> str:
+    """DATA_FILE_READ_HINT：第一次讀到會被 DataFileAsk 管的檔時附的一行（判定不動，沒宣告照擋）；
+    first＝這個 session 第一次提示，給格式與管道；之後只點名檔、說格式同前。"""
+    names = "、".join(rels[:DATA_FILE_HINT_SHOWN]) + (f" 等 {len(rels)} 個檔" if len(rels) > DATA_FILE_HINT_SHOWN else "")
+    if not first:
+        return f"[Guardian:DataFileAsk] 改 {names} 也要先宣告（格式同前一則提示）。"
+    return (f"[Guardian:DataFileAsk] 改 {names} 要先宣告｜格式：動資料檔｜<路徑>：<為什麼要動它、動了使用者會看到什麼>；"
+            f"比改它的那次呼叫早一則訊息送出（跟改檔同一則送出的文字這裡看不到），或寫在{DECL_VIA_COMMENT}。")
+
+
 def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
     """USER_DATA_FILE_NEEDS_DECLARATION：owed＝擋。facts＝{code, ext, ext_listed, existed, created, named, prompts}
     （named＝prompt_names_file 的結果，prompts＝原話則數）；decls＝三管道收到的宣告（parse_data_file_decls）。
@@ -3992,6 +4028,29 @@ RULES.update({
 })
 
 
+# ─── 觸發導讀卡注入那次讀也算讀過（判定在 hooks/wg_overview.on_read，這裡只登錄規則名與說明） ───
+RULES.update({
+    "INJECT_TRIGGER_READ_COUNTED": "觸發導讀卡注入的那次讀就是真讀：Read 或唯讀 Bash／PowerShell 第一次讀到某部位，觸發注入的那個檔本身"
+                                   "也記進讀過部位檔（part_files_read、reads_after），一條指令讀到的同部位其他檔照 SHELL_READ_COUNTS_LIKE_READ"
+                                   "全記；改檔前才補注入（on_edit）沒有讀檔，不記。「看過全貌才改」靠注入後還要交的定位四行守。",
+})
+
+
+# ─── 需求目標提示減量：三種情況一次全文、提示附樹一行（送法在 hooks/wg_need_goal.py，這裡只登錄規則名與說明） ───
+RULES.update({
+    "CRITIQUE_CASES_ONCE_PER_SESSION": "「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了重看）與導讀卡附樹的定位第五行提示"
+                                       "帶的三種情況（wg_need_goal.CRITIQUE_CASES）每個 session 送一次全文，之後換成一句指回"
+                                       "（CRITIQUE_CASES_POINTER）；兩問與定位第五行格式照送。已送記在目標檔 critique_sent"
+                                       "（wg_need_goal.critique_mark／critique_once；還沒有目標檔就照送全文、不建檔；讀寫失敗照送全文），"
+                                       "壓縮後重送目標樹時清掉（wg_need_goal_points.recovery_text 呼叫 forget_reminders），下一則再送一次全文。"
+                                       "設定 v6.slim_reminders=false 退回每則全文。",
+    "TREE_LINE_IN_HINTS": "need_goal 以外的 hook 提示（導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、交付對照）附的目標樹"
+                          "只一行當前節點（wg_need_goal.brief_line；沒有子節點就是樹根自己）；樹根與整棵樹只在 need_goal "
+                          "set／add／update／reconcile 的回覆送（TREE_ONCE_PER_CALL）。壓縮後重送照附樹根一行＋當前節點"
+                          "（recovery_blob，context 裡已沒有寫入回覆的樹）。設定 v6.slim_reminders=false 退回每則附樹根一行。",
+})
+
+
 # ─── 寫碼回合的記憶注入只送該到的（判定在 hooks/handlers/ups_inject.assemble_injection，這裡只登錄規則名與說明） ───
 RULES.update({
     "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、這則判成寫碼意圖：ups_inject._lean_turn）記憶卡只有 trigger 命中的給整段"
@@ -4005,6 +4064,22 @@ RULES.update({
                               "命中章節 sections，送出時間 at 晚於 pre_compact_snapshot／post_compact_at 一秒以上：ups_inject.delivered_forms"
                               " 的 full），resume 清空 injected_atoms 後再命中只給一行指回（form＝seen，不算路標、取用端稽核不追問）；"
                               "壓縮之後、之前只送過一行或只送章節、判不出先後的照常送。送出時間與章節標記只在總開關開時記。",
+})
+
+
+# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
+RULES.update({
+    "DENY_TEXT_SLIM": "擋訊息精簡格式（guard.deny_text_slim，預設開）：第一行「[<閘>] 修法：<一句>」，下面每條命中一行 format_hit"
+                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認），判準卡名由接卡處接在後面；"
+                      "共用組裝 slim_deny，採用的閘交規則名與一句修法（動資料檔閘：data_file_fix）。寫 false 退回各閘原本的長文字（原處不動）。",
+    "CARD_FULL_ONCE_PER_SESSION": "判準卡一個 session 每張最多送一次全文（entrypoint.card_once_per_session，預設開；hooks/wg_entrypoint）："
+                                  "之後換回合、換目標樹都只併成一行「判準卡：<卡名>、…」，不印「這個話題前面已送過全文」；"
+                                  "同一個切入點這個 session 拿過卡，再被問就不往下送新卡、帳上不記截斷；同一則認出好幾個切入點、額度被平分到比單一額度小時，截斷送出的卡不算送過、被截的切入點不算拿過卡（下次單獨被問照送）。壓縮前清掉紀錄（之後重送）、"
+                                  "子代理開工句照送全文也不佔主對話；寫 false 退回 CARD_ONCE_PER_TOPIC。",
+    "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
+                           "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
+                           "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
+                           "子代理讀的不提示），讓第一次改就帶宣告。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：沒宣告照擋。",
 })
 
 

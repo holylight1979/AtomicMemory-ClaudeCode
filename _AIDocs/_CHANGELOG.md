@@ -4,6 +4,50 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 導讀卡第一次碰到時只送病灶一句＋卡路徑，改那塊之前自己 Read
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：
+  - **第一次碰到部位不再整張塞導讀卡**（設定 `overview_hub.card_injection`，預設 `pointer`；`lib/overview_hub.build_injection_ex(pointer=True)`、`_pointer_body`）：定位要求照送，卡的部分只剩兩行——卡上「已知病灶」第一條（截 160 字）與卡路徑，寫明「改這個部位的檔之前先 Read，可跟讀部位檔同一則送」。目標改了之後的目標視角重送也照這個送法。沒有卡的部位兩種送法逐字相同。
+  - **改那塊之前要 Read 過卡**（`hooks/wg_overview._unread_cards`）：指標制送卡的程式部位，本 session 沒讀過表上每張卡就照定位閘的方式擋，跟其他缺件列在同一則擋訊息、附卡路徑；讀卡記在讀檔帳（同讀檔證據），改檔 log 記 `card_mode`、`card_unread`。知識類部位照舊只要「卡已注入」就放行：指標制沒 Read 過卡只附一行提醒（附卡路徑）、帳上記 `card_unread`，不擋（多一道擋就是多一次模型呼叫）。程式部位第一次改本來就會因缺定位行被擋，讀卡要求併在同一則擋訊息，不多一次。
+  - **接縫**：`card_injection: "full"` 回到整張注入（原程式原處不動），不要求 Read 卡；值只收 `pointer`／`full`，寫錯是設定錯誤（`lib/hub_config.validate_hub_cfg`）。v6 總開關關時一律 `full`（`wg_overview._cfg` 算出 `_card_mode`），行為跟以前一樣。升級前注入、沒有 `card_mode` 的舊紀錄照整張算，不追要讀卡。
+- **省多少**（事件帳重播，腳本與輸出在 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-導讀卡指標-實測/`）：004 那題（qb2-sales）三個部位表上都沒有卡。五跑第一回合 72 個 OverviewHub 事件交給本分支的程式重播，先證重播的整張模式對 transcript 原注入 15/15 逐字相同（含 5 段目標視角重送），再比：指標對整張注入 15/15 逐字相同、改檔 62/62 擋法相同、多要讀的卡 0 張 → 這題省 0 token、0 次擋、0 秒（R2 第一次立樹觸發的目標視角重送約 1.46 萬也一樣：重送內容是定位要求與表列原文，沒有卡正文）。有卡的部位（根層 6 個 code 部位，feature 意圖）：整張注入平均 2,892 token、指標 522；碰了沒改的部位照 004 R1 的位置被重讀 20 次，每個省約 4.7 萬；改了的部位要 Read 卡（平均 2,451）約打平（每個 +0.08 萬），前提是讀卡跟別的讀檔同一則送。
+- **驗證**：新案例 `hooks/verify/verify_overview_card_pointer.py` 14 支（含走真 PreToolUse 入口一支、讀卡失敗不算、兩張卡缺一仍擋）；拿 main 5ccf44d2 回放 12 紅、2 綠（綠的是「v6 關行為不變」「沒卡部位兩模式相同」兩支不變式）。照整張注入寫的 8 支舊案例檔（verify_overview_hub、verify_candidates_trigger、verify_goal_weighted_inject、verify_pre_tool_use_overview_gate、verify_pull_goal_locate、verify_need_goal、verify_need_goal_points、verify_tracking_readback）加 autouse fixture 把預設釘回 `full`，斷言一行沒改（測的是整張注入本身）。
+- **已知限制**：讀卡跟讀部位檔同一套認定（讀檔帳 `_session_reads`）：只讀一部分（`head`、Read 帶 limit）也算讀過，指令失敗讀到的不算；本 session 還沒注入任何部位前讀的卡、而那張卡本身落在部位表某個部位裡時，那次讀不進讀檔帳，要再讀一次。卡路徑在根層 worktree 指 live 的 `memory/`（`card_mem_dir`，跟整張注入讀的同一份）。改了的部位省不省看 AI 有沒有把讀卡併進同一則：沒併就多一次呼叫（004 平均每次約 7 萬 token），比整張注入貴。
+## 2026-10-27 擋訊息只給規則名＋一句修法＋卡名；判準卡一個 session 只送一次全文；讀到資料檔就先說要宣告
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：
+  - **擋訊息精簡**（規則 DENY_TEXT_SLIM，共用組裝 `hooks/wg_release_rules.slim_deny`，開關 `guard.deny_text_slim` 預設開）：第一行「[閘] 修法：<一句>」，下面是 `✗ (字母) 規則名：現象｜證據：…`（每項證據超過 160 字截短，`parse_hits` 照認），判準卡名接在後面。動資料檔閘先採用（`wg_data_file._judge`、修法句 `data_file_fix`，「照常用 Edit／Write、不要改用 Bash 寫檔」「問使用者」這些踩坑留下的要點照留）；寫 false 退回原本整段說明（原處不動）。
+  - **判準卡一個 session 每張只送一次全文**（規則 CARD_FULL_ONCE_PER_SESSION，`hooks/wg_entrypoint.judgment_cards`／`entry_note`，開關 `entrypoint.card_once_per_session` 預設開）：之後換回合、換目標樹都只併成一行「判準卡：<卡名>、…」，不再印「這個話題前面已送過全文」；同一個切入點這個 session 拿過卡，再被擋就不往下送新卡（額度被同一則的其他切入點平分而截斷的卡不算送過，下次照送）。壓縮後重送、子代理開工句照送全文；寫 false 退回同一棵目標樹一次的 CARD_ONCE_PER_TOPIC。
+  - **第一次讀到改了會被問的資料檔就先提示宣告格式**（規則 DATA_FILE_READ_HINT，`hooks/wg_data_file.read_hint`，接在 `hooks/handlers/post_tool_use.handle_post_tool_use` 導讀卡段之後）：Read、唯讀 Bash／PowerShell、Grep 讀到 README、設定檔這類檔時附一行「改 <檔> 要先宣告｜格式：動資料檔｜<路徑>：<為什麼…>；比改它的那次呼叫早一則訊息送出…」，一個檔一個 session 一次，第二個檔起只點名；判定不變，沒宣告照擋。
+- **省了多少**（004 現況兩跑 R1／R2 的 transcript 帳重播，口徑同 `v6.0的代價-第一回合分布`；量尺留在 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-擋訊息瘦身-實測/`）：同一批輸入交給分支函式組裝（當時版 f5b30c9e 逐字對上 transcript，R1 13／13、R2 12／12 筆），擋訊息與附卡少讀 0.98／1.34 萬 token；讀檔提示生效時（推論：AI 在改檔前一則照格式寫宣告）動資料檔閘的擋 1 次、額外呼叫 2 次、6.7 秒歸零，第一回合每跑省 15.5／16.2 萬（提示本身被重讀加回 0.44／0.41 萬已扣）。合計第一回合 148.5→132.2 萬、166.4→149.0 萬。
+- **驗證**：新案例 `verify_data_file_ask::test_deny_text_slim_rule_fix_and_hit_only`／`test_slim_deny_caps_long_evidence`／`test_read_hint_on_first_read_of_data_file`／`test_read_hint_skips_named_declared_and_switched_off`、`verify_gate_slimming::test_card_full_once_per_session_then_names_only`／`test_card_cut_by_shared_budget_is_not_counted_sent`／`test_card_full_once_per_session_resend_and_switch`、`verify_release_rules::test_slim_rules_registered_with_cases`；舊碼回放紅。舊案例改法：CARD_ONCE_PER_TOPIC 三支改帶開關跑舊模式；`verify_entrypoint_contract` 兩支換卡池前清已送紀錄。
+- **已知限制**：定位閘（`wg_overview.on_edit`）的擋訊息本文還沒採用精簡格式；讀檔提示只看 state 裡的使用者原話（不讀 transcript），原話點名了但 state 沒記到的檔會多提示一次。
+## 2026-10-27 觸發導讀卡那次讀也算讀過
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：第一次讀到某部位的檔（Read，或唯讀的 Bash／PowerShell）會觸發導讀卡注入，觸發的那個檔現在也記進「讀過部位檔」（規則 INJECT_TRIGGER_READ_COUNTED，`hooks/wg_overview.on_read`）；一條指令讀到的同部位其他檔照 SHELL_READ_COUNTS_LIKE_READ 全記。原本規則刻意只算「導讀卡之後」讀的，原設計者 10-27 裁定那次讀就是真讀；「看過全貌才改」靠之後的定位四行守。改檔前才補注入（還沒讀就改）沒有讀檔，照舊不記。
+- **省了多少**（004 事件帳重播：R1／R2 第一次改檔前的讀檔呼叫依序餵給各版 `on_read`，再用 `on_edit` 判第一次改檔；main 版重播的讀檔事實跟帳上擋訊息逐字相同）：第一次改檔時讀過部位檔 R1 0 → 6 個、R2 5 → 6 個；R1「讀過 0 個」那個擋的理由消失（擋本身照樣發生，因為還沒交定位），報告量到的那次「照擋訊息補 Read 5 支」呼叫（5.7 萬 token、7.0 秒）不會再有；R2 不變。這一段 R1 的改善 001（一條指令讀多個檔不再注入完就停，R1 已是 5 個）就做到了，這次多記觸發的那一個檔，兩跑的擋不擋不再變；它只影響「讀一個檔就動手」那種寫法。
+- **驗證**：新案例 `verify_overview_hub::test_inject_trigger_read_counted`（cat 三支 → 3 個、Read 一支 → 1 個、已注入後的讀不重記、改檔前補注入不記）；`verify_overview_hub` 三支、`verify_state_parallel_rmw` 兩支舊案照裁定改數字（觸發的那個檔現在算）。拿 main 與 001 的 `wg_overview.py` 回放，新案都紅。
+## 2026-10-27 跟手上事情無關的提示一個 session 只送一次（v6 開時）；Codex 接續單自檢 v6 開時不觸發
+- **AI 會看到的**（守門總開關 v6 開時；v6 關一字不差）：
+  - `[Parallel:Suggest]` 並行建議、`[JIT:InternalPipeline]` 記憶系統內部管線說明：一個 session 送過一次就不再送（原本並行建議每 3 則冷卻後重送、JIT 在改記憶系統時每則都送約 250 tok）。開關 `parallel_agents.v6_once`、`jit_internal_pipeline.v6_once`。
+  - `[Guardian:AIDocs] Relevant project docs`：同一份文件一個 session 只指一次，之後新命中的文件照指；命中超過 5 份不送的判法不動。開關 `aidocs.v6_once`。寫暫時性檔名（plan／todo／draft…）進 `_AIDocs` 的 `[Guardian:AIDocs]` 提醒同一個檔只提醒一次，開關 `aidocs.advisory_v6_once`。
+  - 開場的 `[Guardian:Oscillation]`（atom 反覆修改）、`[Guardian:覆轍]`（跨 session 反覆出現的信號）：每次 SessionStart 都算（含 resume、compact），現在只列這個 session 還沒列過的 atom／信號，全列過就不送。開關 `self_iteration.oscillation_v6_once`、`rut_v6_once`。
+  - `[Guardian:CoordWarn]` 同檔預警：同一個檔一個 session 只警一次（原本 10 分鐘後重警）。寫後 60 秒碰撞偵測、`git add -A`／`reset --hard` 收尾預警不動。開關 `coordination.v6_once`。
+  - Codex 接續單自檢（寫 next-phase／handoff 檔時在背景叫 codex 審、下一則注入 `[Codex Companion: Handoff 自檢 tN]`）：v6 開時改看 `codex_companion.soft_gate.handoff_review_v6`（沒寫＝關）；v6 關照舊看 `soft_gate.handoff_review`。計畫審查、驗收裁判不受影響。
+- **省多少**（事件帳重播：transcript 裡實際送出的每一段，套新規則後剩多少；token 用第一回合分布量尺的估算係數，「含重讀」＝這段之後到 compact／session 結束每次模型呼叫都再讀一次）：
+  - 004 改程式題第一回合（CCon-R1、R2＋交叉三跑）：砍前 0 段、0 token、0 次擋 → 砍後 0 → 省 0（受測專案沒有 _AIDocs、不是記憶系統開發、單 session，這幾種都沒送）。
+  - wave2-kit 全部 59 支無頭紀錄（所有回合）：41 段、含重讀 7.9 萬 token → 32 段、7.1 萬 → 省 9 段、0.8 萬。
+  - 真實 session（live transcript 唯讀，10-01 起 219 個，160 個有這幾種提示；10-27 11:20 量）：3,308 段、注入本身 67.2 萬 token、含重讀 9,725 萬 → 834 段、12.9 萬、1,816 萬 → 省 2,474 段、54.3 萬、7,908 萬；有這幾種提示的 session 平均含重讀 60.8 萬 → 11.4 萬（省 49.4 萬），段數 20.7 → 5.2。最大三項：AIDocs 相關文件（省 3,599 萬）、Codex 接續單自檢（省 3,072 萬）、並行建議（省 917 萬）。
+  - 秒：這幾種都不擋、不多叫模型，回合內 0；Codex 接續單自檢另在背景每次跑 codex 約 35 秒、送約 9,900 字（codex-audit.log 10 月可算的 185 次，共 108 分鐘）。
+  - 重播腳本 `C:\w4\notice-once-replay\notice_replay.py`（`--help`；尾行 `NOTICE_REPLAY DONE`），背景 codex 秒數 `codex_handoff_cost.py`。
+- **驗證**：`hooks/verify/verify_notice_once.py`（每項三案：v6 開第二次不送、開關寫 false 退回、v6 關照舊；main 5ccf44d2 回放 v6 開那幾案全紅、v6 關那幾案全綠）；`tools/codex-companion/verify/verify_handoff_review.py` 釘 v6 關（它驗的是出廠預設）。v6 關時同一份情境在 main 與分支輸出逐字相同（`C:\w4\notice-once-replay\v6_off_same.py`）。
+- **已知取捨**：送過的提示被 compact 壓掉後不再補送；專案根換了（state 重建）旗標歸零、各項可再送一次；同一個檔第二個 session 也來改時不再另警（第一次已提醒這個檔有別人在改）。
+## 2026-10-27 需求目標提示不再每則重送三種情況全文與樹根：一個 session 送一次全文，附樹只一行當前節點
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：每讀一個新部位、讀入範圍變大、目標改了重看、收到外部主張，提示裡「遇到這三種情況再多問一句：…」那段（約 150 字）只在這個 session 第一則送全文，之後換成一句指回「遇到選替身、換前提、寫「期望不發生」的案例這三種情況，照前面那則全文再多問一句」；「這段寫法合不合理、同類別處還有沒有」兩問與定位第五行的格式照送。附在提示後面的目標樹只剩一行「當前節點 T1.x [狀態]：…」，樹根與整棵樹只在 need_goal set／add／update／reconcile 的回覆送。
+- **規則 CRITIQUE_CASES_ONCE_PER_SESSION**（`hooks/wg_need_goal.py` `critique_mark`／`critique_once`／`forget_reminders`、`CRITIQUE_CASES_POINTER`）：已送記在目標檔 `critique_sent`；壓縮後重送目標樹（`wg_need_goal_points.recovery_text`）時清掉，下一則再送一次全文；還沒有目標檔照送全文、不為這筆建檔；目標檔壞了照送全文、不取鎖（不觸發改名留證——自己的第一版會在壓縮重送時把壞檔換成空樹，已修並加案例）。
+- **規則 TREE_LINE_IN_HINTS**（`wg_need_goal.brief_line`／`brief_for`）：導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、交付對照只附當前節點一行（沒有子節點就是樹根自己）；壓縮後重送（`recovery_blob`）照附樹根一行＋當前節點。
+- **開關**：`workflow/config.json` 的 `v6.slim_reminders`（沒寫＝開），寫 false 退回每則全文與樹根一行；文字常數原處不動（`CRITIQUE_CASES`、`CRITIQUE_QUESTIONS`、`CLAIM_QUESTIONS`、`wg_overview.CRITIQUE_LINE_HINT`）。
+- **省了多少**（004 現況兩跑 2026-10-23-CCon-R1／R2 第一回合，事件帳重播：同一串事件交 5ccf44d2 與新碼產生文字，舊碼重播字數與帳上逐字相同）：這刀改的提示每跑 20,462 → 13,683 token，省 6,780（R1 4,889、R2 8,670）；擋 0 → 0；秒 0（不增減模型呼叫）。量尺 `_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-目標樹提醒瘦身-實測/goal_reminder_replay.py`（尾行 `GOAL_REMINDER_REPLAY DONE`）。
+- **改了什麼**：`hooks/wg_need_goal.py`、`hooks/wg_need_goal_points.py`（`critique_questions`、`CRITIQUE_TWO`、`CLAIM_HEAD`；`_flush`、`on_external_claim`、`on_correction`、`goal_view_text`、`recovery_text`）、`hooks/wg_overview.py`（只動 `_goal_block` 與旁邊的 `CRITIQUE_LINE_SHORT`）、`hooks/wg_release_rules.py`（RULES 檔尾兩條）、TECH §7.7／§7.8／§11.2／§12。
+- **驗證**：`verify_pull_goal_locate` 新 4 案（附樹只一行、三種情況一次全文含壓縮後重送與沒樹不建檔、壞檔不碰、開關關掉退回舊送法），改寫 `verify_need_goal_points` 3 案、`verify_need_goal` 1 案；拿 5ccf44d2 回放 9 案全紅。目標 verify 12 支綠。
+- **已知限制**：子代理用主 session 的目標檔，子代理先讀到部位時全文送進子代理那邊、主 session 之後只收指回（同導讀卡「第一次讀到的那邊收」）；`probe_need_goal_flow.py`、`probe_c_g0.py` 在 5ccf44d2 就紅（同 7 步，斷言的是目標對照閘預設開、第四行硬擋的舊設計），這次沒動；`workflow/config.json` 的 `v6._doc` 沒補 `slim_reminders` 的說明（不在這次可改的檔）。
 ## 2026-10-27 寫碼回合的記憶卡只有 trigger 命中給整段；一行指標不重印卡名；resume 之後不重送整段
 - **AI 寫程式時會看到的**（守門總開關 v6 開、這則判成寫碼意圖時；關掉或不是寫碼意圖照舊）：
   - **只有 trigger 命中的卡給整段**（規則 CODING_TURN_FULL_ONLY_ON_TRIGGER，`hooks/handlers/ups_inject.assemble_injection`、開關 `_lean_turn`）：bm25／vector／related 命中的卡就算 hot（7 天內讀過 ≥3 次）也只給 cold 一行，要用再 Read。trigger 命中的照舊（整段、同題節錄、塞不下時的印象節錄、路標），送的整段一字不差。一行送過的卡之後的寫碼回合被 trigger 命中時補整段（`_line_upgrades`；它照舊留在 `injected_atoms`，搜尋段不會再給它）。

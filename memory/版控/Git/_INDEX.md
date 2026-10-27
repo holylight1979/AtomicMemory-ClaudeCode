@@ -28,3 +28,4 @@
 | 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
 | 解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile | 解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile |
 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 |
+| 證明repo沒被自己動過而它有背景自動提交時-比自己動過那幾支檔的status與雜湊加head新增段沒碰那些路徑-不比head也不比整份status | 證明repo沒被自己動過而它有背景自動提交時-比自己動過那幾支檔的status與雜湊加HEAD新增段沒碰那些路徑-不比HEAD也不比整份status |

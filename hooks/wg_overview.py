@@ -1,16 +1,17 @@
 """wg_overview — OverviewHub 的 state 層：三個 hook 各呼叫一個函式。
 
-做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就依本回合意圖（state["turn_intent"]）
-查 goal_weights 選片注入該部位導讀卡（沒片命中退整卡），一個 session 一個部位只注入一次；之後記「注入後讀了
-哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關）、讀過部位檔 ≥N、交了定位三行
-（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項。
+做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就注入定位要求與該部位導讀卡，一個 session
+一個部位只注入一次。卡怎麼送看 card_injection：pointer（預設）只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；
+full 依本回合意圖（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；v6 總開關關時一律 full。
+之後記「注入後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制的程式部位另要 Read 過卡）、
+讀過部位檔 ≥N、交了定位三行（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項（指標制沒 Read 過卡只提醒、留帳）。
 readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
 沒有部位表的專案（或表上沒列的檔）改前要求本 session 讀過同頂層目錄 ≥N 個檔；往上找不到任何部位表的專案，第一次改
 某頂層目錄的程式檔前另要最小地圖三行（地圖｜讀了／上游／下游），擋訊息附掃表預覽。設定四層深合併（_cfg）、
 設定錯誤時 Edit 一律擋。每個事件各落一行 jsonl 到 workflow/_overview-hub.log 當量測資料。
 
 state["overview_hub"] = {
-  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "transcript_offsets": {檔: byte}, "intent", "slices", "card_paths",
+  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "transcript_offsets": {檔: byte}, "intent", "slices", "card_paths", "card_mode",
                      "reads_after": [...], "part_files_read": [...], "depends_files_read": [...],
                      "located": bool, "located_via", "located_quality", "edits": n, "locate_template"},
   "<root>|(unmapped)<top_dir>": {"part_files_read": [...], "edits": n, "min_map_done": bool, "min_map_via"}
@@ -34,7 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, DECL_DENY_CAP, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    append_guard_log, assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
+    append_guard_log, assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes, v6_enabled,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -46,7 +47,7 @@ import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LAYER_AXIS_RE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
     build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
-    split_card_sections, top_dir, transcript_readable, transcript_size, unread_rows_note,
+    top_dir, transcript_readable, transcript_size, unread_rows_note,
 )
 
 import wg_release_rules as _rr  # noqa: E402  放行／欠帳判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、RUNTIME_DATA_NO_OVERVIEW、TEMP_COPY_NOT_PROJECT）
@@ -133,7 +134,8 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     """四層深合併（hub_config.merge_hub_cfg）：預設 < config.json overview_hub < 公司層 < 專案層 overview-hub.json。
 
     這裡只補呼叫端的事：公司根（行程內快取）、錯誤與退役鍵各警告一次、驗證器內部錯誤進 atom-debug log、
-    `_layer`（root／org／project_mapped／project_unmapped／none）。回傳必帶 `_errors`（非空時 on_edit deny）。
+    `_layer`（root／org／project_mapped／project_unmapped／none）、`_card_mode`（這次實際用的導讀卡送法：v6 總開關關時一律
+    full，維持 v6 以前整張注入的行為）。回傳必帶 `_errors`（非空時 on_edit deny）。
     """
     org = _org_root()
     c = merge_hub_cfg(config, org, root)
@@ -144,6 +146,7 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     for e in c["_errors"]:
         _warn_once(f"error:{root}:{e}", f"設定錯誤（{root or '根層'}）：{e}")
     c["_layer"] = "none" if root is None else _layer_kind_for_root(root, org)
+    c["_card_mode"] = c.get("card_injection") if v6_enabled(config) else "full"
     return c
 
 
@@ -389,9 +392,19 @@ def _critique_cases() -> str:
 CRITIQUE_LINE_HINT = f"定位三行的下面加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_cases()}"
 
 
+def _critique_pointer() -> str:
+    import wg_need_goal as _ng
+    return _ng.CRITIQUE_CASES_POINTER
+
+
+# 三種情況這個 session 送過全文之後（規則 CRITIQUE_CASES_ONCE_PER_SESSION）：定位第五行的格式照送，三種情況換成指回句
+CRITIQUE_LINE_SHORT = f"定位三行的下面加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_pointer()}"
+
+
 def _goal_block(session_id: str, cfg: Dict[str, Any], part_key: Optional[str] = None, turn: Optional[int] = None) -> str:
-    """導讀卡開頭附的目標（有目前的樹才附）：樹根一行＋當前節點一行（這個部位掛了節點就是那個），讓「目標」與「這一塊的說明」
-    同時在眼前；同一個使用者回合已附過同一份就只留定位第五行的提醒（給了 turn 才去重）。全樹要看用 need_goal read。讀不到只 stderr。"""
+    """導讀卡開頭附的目標（有目前的樹才附）：brief_for（新送法只一行當前節點，這個部位掛了節點就是那個；樹根與整棵樹在 need_goal
+    寫入的回覆送過），讓「目標」與「這一塊的說明」同時在眼前；同一個使用者回合已附過同一份就只留定位第五行的提醒（給了 turn 才去重）。
+    定位第五行提示裡的三種情況每個 session 只送一次全文（wg_need_goal.critique_once）。全樹要看用 need_goal read。讀不到只 stderr。"""
     ng = cfg.get("need_goal") if isinstance(cfg.get("need_goal"), dict) else {}
     if not session_id or not ng.get("enabled", True):
         return ""
@@ -403,10 +416,11 @@ def _goal_block(session_id: str, cfg: Dict[str, Any], part_key: Optional[str] = 
         return ""
     if not tree:
         return ""
-    b = _ng.brief(tree, part_key) if turn is None else _ng.brief_once(session_id, int(turn), part_key)
+    b = _ng.brief_for(tree, part_key) if turn is None else _ng.brief_once(session_id, int(turn), part_key)
+    hint = CRITIQUE_LINE_HINT if _ng.critique_once(session_id) else CRITIQUE_LINE_SHORT
     if not b:
-        return f"[NeedGoal] 改這個部位的程式檔時，{CRITIQUE_LINE_HINT}（目前的需求目標同本回合前面那則）"
-    return f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，{CRITIQUE_LINE_HINT}）：\n{b}"
+        return f"[NeedGoal] 改這個部位的程式檔時，{hint}（目前的需求目標同本回合前面那則）"
+    return f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，{hint}）：\n{b}"
 
 
 def _goal_tree_for(session_id: str, file_path: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -488,9 +502,11 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     intent = _intent_of(state)
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
     kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
+    mode = cfg.get("_card_mode", "full")
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
-                                    knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""))
+                                    knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""),
+                                    pointer=mode == "pointer")
     if miss:
         text += "".join(f"\n表上的卡在 {p}，不在預設目錄；請更新表或搬卡" for p in miss["found"])
         if miss["missing"]:
@@ -511,6 +527,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "intent": intent,
         "slices": used,
         "card_paths": [str(cp) for cp in card_paths],
+        "card_mode": mode,                # pointer：卡沒整張送，改這塊之前要 Read 過卡（_unread_cards）
         "reads_after": [],
         "part_files_read": [],
         "depends_files_read": [],
@@ -527,7 +544,8 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
                           if miss and miss["missing"] else None),
     }
     _log("inject", session_id, part=row["part_short"], status=row["status"], via=via, path=hit_path,
-         card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"))
+         card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"),
+         card_mode=mode)
     return text
 
 
@@ -541,11 +559,7 @@ def defects_top_n(card_paths: List[Any], n: int) -> List[str]:
             body = Path(cp).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        sec = split_card_sections(body)["slices"].get("defects") or ""
-        for line in sec.splitlines():
-            s = line.strip()
-            if s.startswith("- ") and len(out) < n:
-                out.append(s)
+        out.extend(_oh.defect_bullets(body)[:n - len(out)])
         if len(out) >= n:
             break
     return out
@@ -885,7 +899,7 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     card_paths, _miss = _resolve_row_cards(root, row, cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), _locate_template(cfg), extra,
-                                    [], GOAL_VIEW_LENS, "")
+                                    [], GOAL_VIEW_LENS, "", pointer=cfg.get("_card_mode") == "pointer")
     _log("goal_view", session_id, part=row["part_short"], path=hit_path, reset_turn=reset, chars=len(text), slices=used)
     return f"{head}\n{text}"
 
@@ -981,7 +995,8 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     agent_id＝子代理讀的：讀檔照記、第一次讀到照注入（子代理自己改檔時的定位閘要用），目標視角重看不送（那是問主 session 的樹）、
     也不消耗主 session 的那一次。（需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）
     一條指令讀到好幾個檔（Bash cat a b c）：每個檔都照順序記，注入之後的檔照算讀過——跟一則回覆平行送出幾個 Read 一樣
-    （規則 SHELL_READ_COUNTS_LIKE_READ）；這一次注入或重送的導讀卡都接起來回。"""
+    （規則 SHELL_READ_COUNTS_LIKE_READ）；觸發注入的那個檔本身也記進讀過（規則 INJECT_TRIGGER_READ_COUNTED，Read 也一樣：
+    那次讀就是真讀，「看過全貌才改」靠之後的定位四行守）；這一次注入或重送的導讀卡都接起來回。"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
@@ -1000,8 +1015,11 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
         root_cfg = _cfg(config, root)
         if not root_cfg["enabled"]:
             continue
-        text = (_inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg) if rec is None
-                else _goal_view(state, session_id, root, row, rec, p, root_cfg))
+        if rec is None:
+            text = _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg)
+            _record_read(state, p, hit)          # INJECT_TRIGGER_READ_COUNTED：注入前那筆記不進還沒建的部位紀錄，注入後補記
+        else:
+            text = _goal_view(state, session_id, root, row, rec, p, root_cfg)
         if text:
             texts.append(text)
     return "\n\n".join(texts) or None
@@ -1393,6 +1411,20 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     return ("\n".join(notes) or None, None, True)
 
 
+def _unread_cards(state: Dict[str, Any], rec: Dict[str, Any]) -> List[str]:
+    """指標制注入（rec.card_mode＝pointer）的部位：卡檔裡本 session 還沒讀過的（讀檔帳＝_session_reads，與讀檔證據同源）。
+    整張注入、升級前沒有 card_mode 的舊紀錄、沒有卡的部位回空（卡已經送到眼前或本來就沒有卡）。"""
+    if rec.get("card_mode") != "pointer":
+        return []
+    read = _session_reads(state)
+    return [cp for cp in rec.get("card_paths") or [] if _rr.canon_path(cp) not in read]
+
+
+def _card_unread_line(unread: List[str]) -> str:
+    return (f"還沒 Read 這個部位的導讀卡：{'、'.join(unread)}（第一次碰到時只送了已知病灶一句與卡路徑，整張沒有注入；"
+            "改之前先 Read，可跟其他讀檔同一則送）")
+
+
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
             config: Dict[str, Any], cwd: str = "", agent_id: str = "",
             tool_use_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
@@ -1400,7 +1432,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     agent_id＝子代理的工具呼叫：定位三行連子代理自己的 transcript 一起找（wg_core.transcripts_of）。
     tool_use_id＝這次工具呼叫的 id：擋次上限照「同一則回覆算一次」數（規則 DENY_CAP_PER_REPLY）；沒給照每個呼叫算。
 
-    deny 理由帶整張卡（模型只看得到 permissionDecisionReason）。三項證據缺一即 deny；transcript 讀不到 deny；
+    deny 理由帶注入文字（模型只看得到 permissionDecisionReason；card_injection＝full 是整張卡，pointer 是病灶一句＋卡路徑）。
+    三項證據缺一即 deny；指標制注入的程式部位另要本 session Read 過卡（知識類部位沒讀只提醒、留帳）；transcript 讀不到 deny；
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
     """
     if not file_path:
@@ -1480,7 +1513,9 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                  cards=cm["missing"], timed_out=cm["timed_out"], layer=cfg.get("_layer"))
             msg = f"{mm}\n{text.replace(chr(10) + mm, '')}"
             return (msg, msg, True)
-        todo = "先讀完再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge else "先讀完、讀過部位檔、在回覆交出定位三行，再改。"
+        first = "先 Read 導讀卡" if _unread_cards(state, state["overview_hub"][key]) else "先讀完"
+        todo = (f"{first}再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge
+                else f"{first}、讀過部位檔、在回覆交出定位三行，再改。")
         msg = (f"[Guardian:OverviewHub] 要改【{row['part_short']}】部位的檔但本 session 還沒看過這個部位的導讀卡；"
                f"卡片現在才注入（下面）。{todo}\n{text}")
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",
@@ -1490,12 +1525,18 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     rec["edits"] = int(rec.get("edits", 0)) + 1
     if not knowledge:
         rec["kind"] = _oh.KIND_CODE        # 同一列也有寫碼命中（例：只撞到子字串）：scorecard 的 S3 要算這個部位
+    unread = _unread_cards(state, rec)          # 指標制：卡沒送到眼前，要 Read 過才算看過（讀了就記在讀檔帳，這裡核對並落 log）
     if knowledge:
-        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立）；讀檔數照記（on_read），不查讀部位檔、定位三行、transcript
+        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立）；指標制沒 Read 過卡只附一行提醒並記帳（card_unread），不擋。
+        # 讀檔數照記（on_read），不查讀部位檔、定位三行、transcript
         _log("edit", session_id, part=row["part_short"], path=file_path, kind=_oh.KIND_KNOWLEDGE, located=bool(rec.get("located")),
              part_files_read=len(rec["part_files_read"]), depends_files_read=len(rec["depends_files_read"]),
              reads_after_inject=len(rec["reads_after"]), edits=rec["edits"], intent=rec.get("intent"),
-             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=None)
+             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=None,
+             card_mode=rec.get("card_mode"), card_unread=len(unread))
+        if unread:
+            return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：{_card_unread_line(unread)}"
+                    "；知識類部位這次照放行，已留帳。", None, True)
         return (None, None, True)
     candidates: Optional[str] = None
     reads = rec["reads_after"]
@@ -1503,7 +1544,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     part_files = rec["part_files_read"]
     depends_files = rec["depends_files_read"]
     ev = cfg["min_overview_evidence"]
-    missing: List[str] = []
+    missing: List[str] = [_card_unread_line(unread)] if unread else []
     deny_reason: Optional[str] = None
     warn: Optional[str] = None
     readable, why = transcript_readable(transcript_path)
@@ -1582,7 +1623,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
          part_files_read=len(part_files), depends_files_read=len(depends_files),
          reads_after_inject=len(reads), dirs_after_inject=len(dirs), edits=rec["edits"],
          intent=rec.get("intent"), slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=deny_reason,
-         **({} if readable else {"self_error": why}))
+         card_mode=rec.get("card_mode"), card_unread=len(unread), **({} if readable else {"self_error": why}))
     if not missing:
         # A5.3：放行的同檔第 2 次 Edit 附候選（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}。
         # 一部位一 session 只送一次：與 on_prompt 觸發詞共用 candidates_sent（部位 key），同部位別的檔第 2 次 Edit 不再送；

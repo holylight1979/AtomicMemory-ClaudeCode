@@ -17,6 +17,7 @@
 - [臨] 整棵匯出變體：`git archive --format=tar <基底> | tar -x -C <暫存資料夾>` 匯出舊碼，不註冊工作樹、不動 index；把新測試檔複製進去在那棵樹直接跑 pytest。Windows 的 tar 要用 POSIX 路徑（cygpath -u），用 Windows 路徑會 Cannot open。
 - [臨] 用 git 錄製重播（git_cassette）的案例在舊碼樹要加 `WG_GIT_CASSETTE=off` 跑真 git：錄製檔是新碼錄的，舊碼的 git 呼叫序列不同，重播對不上，紅的原因就不是行為。
 
+
 ## 行動
 
 - 證明新案先紅：detached 工作樹＋先 import 舊模組的 runner，不在自己的工作樹退回舊碼

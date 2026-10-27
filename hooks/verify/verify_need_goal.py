@@ -36,6 +36,13 @@ import hub_config  # noqa: E402
 import overview_hub  # noqa: E402
 import wg_verify_ledger as vl  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    from hub_config import HUB_DEFAULTS
+    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
+
 SID = "sess-goal-0001"
 ON = {"reconcile_gate": {"goal_gate": True}}   # 測閘開著的行為：目標對照閘程式預設是關的
 
@@ -727,7 +734,7 @@ def test_on_prompt_first_hint_only_once_and_header_with_tree(env):
     assert ng.on_prompt(SID, "還有這個", 2, {}) is None
     _op("set", goal="登入要能用", turn=2)
     line = ng.on_prompt(SID, "順便看一下", 3, {})
-    assert line.startswith("[NeedGoal] 目前需求目標 T1：登入要能用") and "new_task=true" in line
+    assert line.startswith("[NeedGoal] 目前需求目標 當前節點 T1 [進行中]：登入要能用") and "new_task=true" in line   # 沒有子節點：當前節點就是樹根
     assert "寫或整併文件" in ng.HINT_LINE                                     # 第一則提醒寫明文件類也算要動手
     said = [s["text"] for s in _tree()["user_said"]]
     assert said == ["幫我修登入", "還有這個", "順便看一下"]                 # 沒樹時收的話開樹時搬進去（首則＝原始需求），之後的話照記

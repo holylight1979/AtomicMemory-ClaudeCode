@@ -24,6 +24,13 @@ from verify_need_goal import (  # noqa: E402,F401
 import wg_need_goal_points as ngp  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    from hub_config import HUB_DEFAULTS
+    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
+
 NG_TOOL = "mcp__workflow-guardian__need_goal"
 
 
@@ -333,33 +340,98 @@ def _big_tree(env):
     return r
 
 
-def test_hook_prompts_carry_only_root_and_current_node(env):
-    """need_goal 以外的 hook 提示（導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、壓縮後重送、交付對照）
-    附的目標樹只有樹根一行＋當前節點一行、≤300 token、不含「其餘 N 個節點略」；need_goal add 的回覆照回整棵樹。
-    舊碼這些提示附精簡樹（上限 1200 字）、超過就印「其餘 N 個節點略」。"""
-    r = _big_tree(env)
-    assert all(f"T1.{i}" in r["text"] for i in range(1, 31)) and "節點略" not in r["text"]   # add 回覆：整棵樹
-    cfg = ng.cfg_of({})
+def _hook_texts(config):
+    """need_goal 以外的 hook 提示各一則（config＝整份設定）：導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、
+    壓縮後重送、交付對照。"""
+    cfg = ng.cfg_of(config)
     for part in ("x|a", "x|b"):
         ngp.scope_growth_line(SID, part, cfg)
-    texts = {
-        "導讀卡附樹": wo._goal_block(SID, wo._cfg({})),
+    return {
+        "導讀卡附樹": wo._goal_block(SID, wo._cfg(config)),
         "目標視角重看": ngp.goal_view_text(SID, "戰鬥"),
         "讀入範圍": ngp.batch_lines(SID, {"turn_seq": 5, "need_goal_batch": True}, [], cfg)[0],
         "糾正": ngp.on_correction(SID, ["不對"], 5),
         "外部主張": ngp.on_external_claim(SID, "審查報告", "codex", 5),
-        "每則訊息": ng.on_prompt(SID, "再看一下", 6, {}),
-        "壓縮後重送": ngp.recovery_text(SID, {}),
-        "交付對照": ng.goal_gate_reason(SID, True, ON),
+        "每則訊息": ng.on_prompt(SID, "再看一下", 6, config),
+        "壓縮後重送": ngp.recovery_text(SID, config),
+        "交付對照": ng.goal_gate_reason(SID, True, {**ON, **config}),
     }
+
+
+CRITIQUE_SENT = ("導讀卡附樹", "目標視角重看", "讀入範圍", "外部主張")       # 帶三種情況的四則（依 _hook_texts 的送出順序）
+
+
+def test_hook_prompts_carry_only_current_node_line(env):
+    """規則 TREE_LINE_IN_HINTS：need_goal 以外的 hook 提示附的目標樹只一行當前節點、不附樹根一行；壓縮後重送照附樹根＋當前節點
+    （context 裡沒有寫入回覆送的樹了）；≤300 token、不含「其餘 N 個節點略」；need_goal add 的回覆照回整棵樹。
+    舊碼（5ccf44d2）每則提示都附樹根一行＋當前節點一行（紅）；更早的碼附精簡樹、超過就印「其餘 N 個節點略」。"""
+    r = _big_tree(env)
+    assert all(f"T1.{i}" in r["text"] for i in range(1, 31)) and "節點略" not in r["text"]   # add 回覆：整棵樹
+    texts = _hook_texts({})
     brief = ng.brief(_tree())
     assert wg_core._estimate_tokens(brief) <= TOKEN_CAP, brief
     assert brief.count("\n") == 1 and "當前節點 T1.30" in brief             # 兩行；當前節點＝最近有動靜、還沒到終點的
     root_line, node_line = brief.split("\n")
+    assert ng.brief_line(_tree()) == node_line
     for name, text in texts.items():                                          # 樹根行的計數會隨記帳變，比到括號前
-        assert text and root_line.split("（")[0] in text and node_line in text and "節點略" not in text, name
+        assert text and node_line in text and "節點略" not in text, name
+        assert (root_line.split("（")[0] in text) is (name == "壓縮後重送"), name
         if name != "交付對照":                                                # 交付對照另列缺件，不算樹
             assert sum(f"T1.{i} " in text or f"T1.{i} [" in text for i in range(1, 30)) == 0, name
+
+
+def test_hook_prompts_slim_off_keep_root_line_and_full_cases(env, monkeypatch):
+    """接縫：v6.slim_reminders=false 退回舊送法——每則 hook 提示照附樹根一行＋當前節點、三種情況每則全文、不記已送。"""
+    _big_tree(env)
+    off = {"v6": {"slim_reminders": False}}
+    monkeypatch.setattr(wg_core, "load_config", lambda: off)
+    assert ng.slim_reminders() is False and ng.slim_reminders({}) is True and ng.slim_reminders({"v6": {"slim_reminders": "false"}})
+    texts = _hook_texts(off)
+    root_line, node_line = ng.brief(_tree()).split("\n")
+    for name, text in texts.items():
+        assert text and root_line.split("（")[0] in text and node_line in text, name
+    for name in CRITIQUE_SENT:
+        assert ng.CRITIQUE_CASES in texts[name] and ng.CRITIQUE_CASES_POINTER not in texts[name], name
+    assert "critique_sent" not in ng.load(SID)
+
+
+def test_critique_cases_full_once_per_session_then_pointer(env):
+    """規則 CRITIQUE_CASES_ONCE_PER_SESSION：三種情況（CRITIQUE_CASES）本 session 第一則送全文，之後的導讀卡附樹、目標視角重看、
+    讀入範圍、外部主張只送指回句（定位第五行的格式與兩問照送）；壓縮後重送目標樹時清掉已送紀錄，下一則再送一次全文；
+    還沒有目標檔時外部主張照送全文、不為記這筆建檔。舊碼（5ccf44d2）每則都送全文（紅）。"""
+    assert ngp.CRITIQUE_QUESTIONS in ngp.on_external_claim(SID, "審查報告", "codex", 1)   # 沒樹：全文
+    assert not ng.goal_path(SID).exists()
+    _big_tree(env)
+    cfg = ng.cfg_of({})
+    first = wo._goal_block(SID, wo._cfg({}), None, 7)
+    again = wo._goal_block(SID, wo._cfg({}), None, 8)
+    for part in ("x|a", "x|b"):
+        ngp.scope_growth_line(SID, part, cfg)
+    later = {"讀入範圍": ngp.batch_lines(SID, {"turn_seq": 8, "need_goal_batch": True}, [], cfg)[0],
+             "目標視角重看": ngp.goal_view_text(SID, "戰鬥"),
+             "外部主張": ngp.on_external_claim(SID, "審查報告", "codex", 8)}
+    assert wo.CRITIQUE_LINE_HINT in first                                     # 第一則：全文
+    assert wo.CRITIQUE_LINE_SHORT in again and ng.CRITIQUE_CASES not in again  # 第二張導讀卡：第五行格式照送、三種情況指回
+    assert "定位｜批判：" in wo.CRITIQUE_LINE_SHORT
+    for name, text in later.items():
+        assert ng.CRITIQUE_CASES not in text and ng.CRITIQUE_CASES_POINTER in text and ngp.CRITIQUE_TWO in text, name
+    assert ng.load(SID)["critique_sent"] is True
+    assert ngp.recovery_text(SID, {})                                         # 壓縮後重送目標樹：清掉已送紀錄
+    assert "critique_sent" not in ng.load(SID)
+    assert ng.CRITIQUE_CASES in ngp.goal_view_text(SID, "戰鬥")               # 壓縮之後的第一則：再送一次全文
+    assert ng.CRITIQUE_CASES_POINTER in ngp.goal_view_text(SID, "戰鬥")
+
+
+def test_critique_record_never_touches_corrupt_goal_file(env):
+    """CRITIQUE_CASES_ONCE_PER_SESSION 的讀寫不碰壞掉的目標檔：critique_once 照送全文、壓縮後重送不清也不改名，
+    壞檔原地留著給 need_goal 寫入時改名留證（提問閘照舊說「目標檔壞了」）。直接走 update_locked 會把壞檔改名、換成空骨架。"""
+    _big_tree(env)
+    p = ng.goal_path(SID)
+    p.write_text("{壞掉的 json", encoding="utf-8")
+    assert ng.critique_once(SID) is True
+    ng.forget_reminders(SID)
+    assert ngp.recovery_text(SID, {}) == ""
+    assert p.read_text(encoding="utf-8") == "{壞掉的 json" and not list(p.parent.glob("*.corrupt-*"))
 
 
 def test_card_brief_once_per_turn_unless_content_changes(env):

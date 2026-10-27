@@ -105,10 +105,16 @@ def _update(sid: Any, fn: Any, where: str, turn: Optional[int] = None) -> Any:
 
 # 「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了）共用的批判與舉一反三兩問（原話輯 G1 2026-10-15）：
 # 只送題、不擋，要記下判斷就寫進目標樹（need_goal update 的 why，選填）
-CRITIQUE_QUESTIONS = "看到的這段寫法（或這個主張）合不合理？不合理就說更好的做法；同類別處還有沒有？" + ng.CRITIQUE_CASES
+CRITIQUE_TWO = "看到的這段寫法（或這個主張）合不合理？不合理就說更好的做法；同類別處還有沒有？"
+CRITIQUE_QUESTIONS = CRITIQUE_TWO + ng.CRITIQUE_CASES
 
 
-def _queue_text(items: List[Dict[str, Any]]) -> str:
+def critique_questions(full: bool = True) -> str:
+    """兩問＋三種情況：full＝全文（CRITIQUE_QUESTIONS）；送過全文之後（規則 CRITIQUE_CASES_ONCE_PER_SESSION）三種情況換成指回句。"""
+    return CRITIQUE_TWO + ng.critique_cases(full)
+
+
+def _queue_text(items: List[Dict[str, Any]], full: bool = True) -> str:
     labels = [i["label"] for i in items]
     parts = [f"【{_label(i['label'])}】" for i in items if i.get("kind") == "part"]
     dirs = [i for i in items if i.get("kind") == "dirs"]
@@ -123,7 +129,7 @@ def _queue_text(items: List[Dict[str, Any]]) -> str:
         d = dirs[-1]["prev"]
         bits.append(f"樹最後一次更新後讀過的檔跨了 {len(d)} 個頂層目錄（{'、'.join(_label(x) for x in d)}）")
     where = f"先前在{''.join(f'【{_label(p)}】' for p in prev[-3:])}的判斷要改觀嗎？" if prev else "先前的判斷要改觀嗎？"
-    return (f"[NeedGoal] 讀入範圍變大：{'；'.join(bits)}。目標樹要長新的子目標嗎？{where}{CRITIQUE_QUESTIONS}"
+    return (f"[NeedGoal] 讀入範圍變大：{'；'.join(bits)}。目標樹要長新的子目標嗎？{where}{critique_questions(full)}"
             "有改就用 need_goal（add／update）記下並寫為什麼。")
 
 
@@ -215,8 +221,9 @@ def scope_on_read(state: Dict[str, Any], sid: Any, tool_name: str, tool_input: A
 
 # ─── 4.3 收到外部主張（第二意見、審查報告） ─────────────────────────────────
 
-CLAIM_QUESTIONS = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、審查者）？"
-                   "③如果照做的成本是零，你會怎麼裁？再兩問：" + CRITIQUE_QUESTIONS)
+CLAIM_HEAD = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、審查者）？"
+              "③如果照做的成本是零，你會怎麼裁？再兩問：")
+CLAIM_QUESTIONS = CLAIM_HEAD + CRITIQUE_QUESTIONS
 REPORT_TOOLS = ("mcp__workflow-guardian__second_opinion_result",)
 # 讀到審查報告：檔名帶 codex／review／審查／second-opinion 的 .md／.txt
 _REPORT_PATH_RE = re.compile(r"(?i)[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
@@ -242,20 +249,21 @@ def _claim_checkpoint(doc: Dict[str, Any], turn: int) -> None:
 
 
 def on_external_claim(sid: Any, kind: str, source: str, turn: Optional[int] = None) -> str:
-    """收到外部主張、要裁定之前（讀入範圍變大的一種）：送一次「用目標視角重看」三問，有樹附樹頭、沒樹提醒先回原話。
-    記 checkpoint scope 與守門紀錄 external_claim。"""
-    head = f"[NeedGoal] 收到外部主張（{kind}：{source}），裁定之前用目標視角重看：{CLAIM_QUESTIONS}"
+    """收到外部主張、要裁定之前（讀入範圍變大的一種）：送一次「用目標視角重看」三問，有樹附 brief_for、沒樹提醒先回原話
+    （沒樹時三種情況照送全文，不為記已送建目標檔）。記 checkpoint scope 與守門紀錄 external_claim。"""
     doc = _load(sid, "on_external_claim", turn)
     tree = _live(doc) if doc else None
+    full = ng.critique_once(sid) if tree else True
+    head = f"[NeedGoal] 收到外部主張（{kind}：{source}），裁定之前用目標視角重看：{CLAIM_HEAD}{critique_questions(full)}"
     _guard("external_claim", sid, turn, kind=kind, source=source, tree=tree["id"] if tree else None)
     if not tree:
         return head + "（還沒有目標樹：先回到使用者原話，想清楚這件事要達成什麼。）"
     _update(sid, lambda d: _claim_checkpoint(d, int(turn or 0)), "on_external_claim", turn)
-    return head + "\n" + ng.brief(tree)
+    return head + "\n" + ng.brief_for(tree)
 
 
 def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Optional[str]:
-    """使用者本人打的字命中糾正偵測（wg_friction.record_correction 的回傳）→ 提醒回頭看目標樹，附目前的樹；沒有樹不送。"""
+    """使用者本人打的字命中糾正偵測（wg_friction.record_correction 的回傳）→ 提醒回頭看目標樹，附 brief_for；沒有樹不送。"""
     if not hits:
         return None
     doc = _load(sid, "on_correction", turn)
@@ -272,7 +280,7 @@ def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Opti
     _guard("correction", sid, turn, tree=tree["id"], kw=list(hits)[:3])
     return (f"[NeedGoal] 使用者糾正了（命中：{'、'.join(list(hits)[:3])}）：目標樹哪一條要改？做法還對準嗎？"
             f"糾正是對 {tree['id']} 的修正，改這棵樹、不開新樹（update 改節點、作廢的標放棄；"
-            "set 不帶 new_task 改寫樹根；糾正裡多出的要求用 add 長成子目標）。\n" + ng.brief(tree))
+            "set 不帶 new_task 改寫樹根；糾正裡多出的要求用 add 長成子目標）。\n" + ng.brief_for(tree))
 
 
 # ─── 4.4 問使用者之前 ─────────────────────────────────────────────────────
@@ -544,7 +552,7 @@ def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> Tuple[List[str], bool]:
     if pts["scope_pending"] and pts["scope_sent_turn"] != turn:
         items = pts["scope_pending"]
         b = ng.brief_mark(doc, tree, turn)                     # 同回合已附過同一份就不重附
-        out.append(_queue_text(items) + (f"\n{b}" if b else ""))
+        out.append(_queue_text(items, ng.critique_mark(doc)) + (f"\n{b}" if b else ""))
         pts["scope_pending"] = []
         pts["scope_sent_turn"] = turn
         ng.add_checkpoint(doc, tree, turn, "scope", tree["id"])
@@ -596,7 +604,7 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
 # ─── 4.3 目標改變後導讀卡改用目標視角 ─────────────────────────────────────
 
 def goal_view_text(sid: Any, part: str, knowledge: bool = False, part_key: Optional[str] = None) -> Optional[str]:
-    """目標改了之後，已碰過的部位再讀到時，導讀卡前面加的那段：目標視角的提問＋樹根與當前節點（part_key＝部位鍵，
+    """目標改了之後，已碰過的部位再讀到時，導讀卡前面加的那段：目標視角的提問＋brief_for（part_key＝部位鍵，
     那個部位掛的節點優先當當前節點）；沒有樹回 None。knowledge＝知識類部位（不要求定位行），不叫它重交定位。"""
     doc = _load(sid, "goal_view_text")
     tree = _live(doc) if doc else None
@@ -604,18 +612,20 @@ def goal_view_text(sid: Any, part: str, knowledge: bool = False, part_key: Optio
         return None
     redo = "" if knowledge else "改這裡前要重交定位四行與第五行批判。"
     return (f"[NeedGoal] 目標改了，用目標視角重看【{part}】：這一塊在新目標裡扮演什麼角色？先前在這裡的判斷還成立嗎？"
-            f"{CRITIQUE_QUESTIONS}{redo}\n" + ng.brief(tree, part_key))
+            f"{critique_questions(ng.critique_once(sid))}{redo}\n" + ng.brief_for(tree, part_key))
 
 
 # ─── 軌五：壓縮後重送、續接單 ──────────────────────────────────────────────
 
 def recovery_text(sid: Any, config: Dict[str, Any], cwd: str = "") -> str:
     """壓縮後獨立重送的【需求目標樹】（recovery_blob，上限＝兩倍 render_chars）；沒有樹、流程關掉（照 cwd 所在專案的設定）、
-    判不了 → ""（判不了寫 stderr）。PostCompact 存、PostToolBatch 送；SessionStart(compact) 當場送。"""
+    判不了 → ""（判不了寫 stderr）。PostCompact 存、PostToolBatch 送；SessionStart(compact) 當場送。
+    壓縮後 context 裡沒有批判題全文了：同時清掉已送紀錄（forget_reminders），下一則提示照送全文。"""
     try:
         cfg = ng.cfg_for_cwd(config, cwd)
         if not cfg.get("enabled", True):
             return ""
+        ng.forget_reminders(sid)
         return ng.recovery_blob(sid, 2 * int(cfg.get("render_chars") or 1200))
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] 壓縮後目標樹組不出來（不送）：{type(e).__name__}: {e}", file=sys.stderr)
