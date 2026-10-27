@@ -257,7 +257,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->680 atoms：core 341 + feedback 70 + 失敗模式 2 + local 267〔Tools23/MemDev231/OS2/CC與原子記憶契約4/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->689 atoms：core 349 + feedback 70 + 失敗模式 2 + local 268〔Tools23/MemDev232/OS2/CC與原子記憶契約4/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -330,7 +330,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->680<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->689<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在卡名與 trigger 罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -412,7 +412,7 @@ sequenceDiagram
 - **跟手上事情無關的提示一個 session 只送一次（v6 開時）**：送進 context 的提示之後每次模型呼叫都重讀一次，重複送的同一段只是重讀成本。v6 開時：`[Parallel:Suggest]`、`[JIT:InternalPipeline]` 送過就不再送；`[Guardian:AIDocs]` 相關文件同一份只指一次（新命中的照指）；開場的 `[Guardian:Oscillation]`、`[Guardian:覆轍]`（每次 SessionStart 都算，含 resume、compact）只列這個 session 還沒列過的 atom／信號，全列過就不送；`[Guardian:CoordWarn]` 同檔預警、寫暫時性檔名進 `_AIDocs` 的提醒同一個檔只一次；Codex 接續單自檢不觸發。命中判法、提示文字不動；每項一個開關（§12），寫 false 退回原樣；v6 關時跟以前一字不差。紀錄放 state（`aidocs_pointed`、`jit_pipeline_sent`、`oscillation_notice_sent`、`rut_notice_sent`、`aidocs_advisory_sent`；並行建議沿用 `parallel_last_inject_turn`；同檔預警沿用 warn-cache），專案根換了重建 state 時歸零、可再送一次。案例 `hooks/verify/verify_notice_once.py`。
 - **subagent 記憶**：PreToolUse `Agent|Task` 時把相關 atom 緊湊版塞進子 agent prompt（`[WG:SubagentMemory]`）：只用全域索引、BM25 只在 trigger 命中 ≤2 時補、ACT-R 排序、預算 700 tok；切入點判準卡接在記憶之後、原 prompt 之前（§7.10）。
 - **需求目標樹**：有樹時每則送回樹根一行＋當前節點一行；被糾正、收到同伴訊息時送「用目標視角重看」三問（§7.7）。
-- **部位導讀卡**：提示提到部位表上的檔 → 第一次碰到的部位整張導讀卡注入，末段附這個部位的【未結追蹤項】（§7.6）。
+- **部位導讀卡**：提示提到部位表上的檔 → 第一次碰到的部位注入導讀卡（預設只送已知病灶一句＋卡路徑，`card_injection`），末段附這個部位的【未結追蹤項】（§7.6）。
 - **建議類**：同錯重複失敗升級（FixEscalation）、失敗關鍵字偵測、多 agent 拆分與研究 fan-out 建議、Proactive 與遷移提示、跨專案別名命中（AliasMatch）。
 - **後端與自檢告警**：使用者決策萃取回報與失敗告警、Ollama backend 進 Long DIE、Atom-Write Guard、UPS 哨兵殘留、state 重建、config 解析失敗。
 - **guard 訊息**：上輪退避舉證要求、handoff 六區塊提醒、sync 關鍵字提醒。
@@ -577,7 +577,7 @@ sequenceDiagram
 |---|---|---|---|
 | ① 開場（SessionStart） | 列「之前交付時點出、還沒解的問題」（未結追蹤項，附建議怎麼解，要 AI 第一則回覆先轉述）、待檢討的範圍漏判、公司層與週健檢狀態 | 提醒 | §3.1、§8 |
 | ② 收到需求（UserPromptSubmit） | 注入相關記憶卡；還沒有**需求目標樹**（把這件事真正要達成什麼寫成樹根＋子目標）就提醒先寫；有樹就每則送回樹根一行＋當前節點一行（目標樹提示只在寫碼回合送） | 提醒 | §5、§7.7 |
-| ③ 動手前定位（改檔前的 PreToolUse） | 沒有目標樹不准改程式檔。改**部位表**（把專案切成幾個部位、每個部位一張導讀卡的對照表）上的程式檔，要先注入那個部位的導讀卡、讀過部位裡的檔、交「定位」五行：部位／根因層（兩個候選＋為什麼選這個）／前例／這塊在目標樹哪個節點／批判（這段寫法合不合理、同類問題還在哪）。沒有部位表的專案，第一次改某個頂層目錄前交「地圖」三行（讀了／上游／下游）。同一個使用者回合同樣的缺件擋 2 次，第 3 次放行並留帳（GATE_DENY_CAP）；讀不到對話紀錄＝閘判不了，這次不要求定位行與地圖三行（GATE_SELF_ERROR） | 擋 | §7.6、§7.7 |
+| ③ 動手前定位（改檔前的 PreToolUse） | 沒有目標樹不准改程式檔。改**部位表**（把專案切成幾個部位、每個部位一張導讀卡的對照表）上的程式檔，要先注入那個部位的導讀卡（預設只送病灶一句＋卡路徑，要自己 Read 過卡）、讀過部位裡的檔、交「定位」五行：部位／根因層（兩個候選＋為什麼選這個）／前例／這塊在目標樹哪個節點／批判（這段寫法合不合理、同類問題還在哪）。沒有部位表的專案，第一次改某個頂層目錄前交「地圖」三行（讀了／上游／下游）。同一個使用者回合同樣的缺件擋 2 次，第 3 次放行並留帳（GATE_DENY_CAP）；讀不到對話紀錄＝閘判不了，這次不要求定位行與地圖三行（GATE_SELF_ERROR） | 擋 | §7.6、§7.7 |
 | ④ 改檔當下 | 改使用者既有的資料檔或設定檔要先寫「動資料檔｜<路徑>：<為什麼>」；改既有測試（刪、改名、改斷言、加 skip）要先寫「改舊測試｜<哪支>：<理由>」——這兩道同一個使用者回合同一件缺件擋 2 次後放行並留帳（GATE_DENY_CAP），閘自己出錯不擋、留帳（GATE_SELF_ERROR）。改到綁了切入點的判準卡（檔頭 `- Entry:` 非空，含經 MCP `atom_write` append／replace、`atom_edit_meta`、`atom_retire` 改）只留帳不擋，寫了「改判準卡｜<卡名>：<理由>」就連理由一起記下；寫入目標判不出的指令（例：`python -c` 內嵌碼裡開檔寫）放行並留帳 | 擋 | §7.5、§7.6 |
 | ⑤ 改完之後（PostToolUse） | 記下改了哪些檔、蓋到目標樹；讀到某張卡 `Depends` 指著的檔就召回那張卡；本 session 第一次碰到的部位注入導讀卡 | 提醒 | §7.6、§7.7 |
 | ⑥ 問使用者之前（AskUserQuestion） | 每題要附推薦選項（缺了擋）；有樹時每題掛到哪個目標節點只記錄、沒掛不擋；問改法前先讀過題目提到的部位（只提醒） | 擋 | §7.7 |
@@ -697,9 +697,9 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 部件 | 位置 | 做什麼 |
 |------|------|--------|
 | 部位表 | `<專案根>/.claude/overview-map.md`（根層自己的表在 `~/.claude/.claude/overview-map.md`）；解析 `lib/overview_hub.parse_map` | 一列一個部位：路徑樣式、層、導讀卡名、卡片狀態、病灶文件、量尺、類別（code／knowledge，沒欄或沒標＝code）。新專案用 `tools/overview-map-scaffold.py` 掃出骨架（預設 dry-run，`--write` 落檔、不撤回可重入） |
-| 注入 | UPS（提示提到部位檔）、PostToolUse（Read／Bash 讀到部位檔）；`hooks/wg_overview.py` | 本 session 第一次碰到某部位 → 整張導讀卡注入；依本回合意圖（`turn_intent` 十類）用 `goal_weights` 選先送哪幾片 |
+| 注入 | UPS（提示提到部位檔）、PostToolUse（Read／Bash 讀到部位檔）；`hooks/wg_overview.py`、`lib/overview_hub.build_injection_ex` | 本 session 第一次碰到某部位 → 送定位要求＋導讀卡。卡怎麼送看 `card_injection`：預設 `pointer` 只送兩行——卡上「已知病灶」第一條（截 160 字）與卡路徑，叫 AI 改這塊之前自己 Read（可跟讀部位檔同一則送）；`full` 整張注入，依本回合意圖（`turn_intent` 十類）用 `goal_weights` 選先送哪幾片。v6 總開關關時一律 `full`（維持 v6 以前的行為）；沒有卡的部位兩種送法逐字相同。目標改了之後的目標視角重送照同一個送法 |
 | 最小地圖（G14，無表專案） | PreToolUse，同寫入閘的入口；只在往上找不到任何部位表、改的是程式檔時查 | 本 session 第一次改某頂層目錄的程式檔前要交「地圖｜讀了／上游／下游」三行（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP，§7.8）；擋訊息附掃表預覽與落表格式，引導先落一張部位表；設定 `overview_hub.min_map`（enabled、preview_timeout_s） |
-| 寫入閘 | PreToolUse（Edit／Write／NotebookEdit，以及 Bash／PowerShell 解析出的寫入目標） | 三項證據缺一即 deny：卡已注入、注入後讀過該部位檔 ≥`min_overview_evidence.part_files`（觸發注入的那次讀也算，INJECT_TRIGGER_READ_COUNTED）、交了定位三行（部位／根因層／前例；前例填存在的卡名、「無」或「待規格：<理由>」，光禿「待規格」與照抄範本不算）。三行從回覆文字、工具參數（Bash 開頭 `#` 註解）、thinking 三處都認；子代理的對話在 `<sid>/subagents/agent-<agent_id>.jsonl`，主檔與子代理檔都讀（`wg_core.assistant_texts_since`），起點在注入或目標改的那刻各檔各記（`transcript_offsets`），之後才出現的子代理檔整份都算。`readonly_paths` 一律擋；transcript 讀不到＝閘判不了，這次不要求定位行與地圖三行（讀檔數照查）並記守門紀錄 error（GATE_SELF_ERROR）；同回合同缺件擋 2 則回覆後放行留帳（GATE_DENY_CAP；同一則回覆平行送出的幾個改檔算一則，DENY_CAP_PER_REPLY）；同一個使用者回合擋過某個部位之後，別的部位只缺定位行改成一行提醒、放行、留帳，缺讀檔或卡還沒注入照擋（LOCATE_BLOCK_ONCE_PER_USER_TURN）；缺定位的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到（LOCATE_NOT_IN_THINKING）；有目標樹時完整範例每個 session 只給一次，之後換短句（LOCATE_EXAMPLE_ONCE_PER_SESSION）；沒表或表外檔只要求同頂層目錄讀過檔（該目錄沒有可讀既有檔就不要求，見 UNMAPPED_EDIT_NEEDS_READABLE_FILES）；整個資料夾當目標（rm -rf、Remove-Item -Recurse）看它所在的上一層屬於哪個專案（DIR_TARGET_JUDGED_BY_CONTAINER）。部位表類別 knowledge 的部位（錨在專案根的最長前綴命中，`lib/overview_hub.part_kind`）三項只要「卡已注入」，不要求讀部位檔與定位三行，注入文字也不叫人交三行。閘自己出例外也擋（不 fail-open） |
+| 寫入閘 | PreToolUse（Edit／Write／NotebookEdit，以及 Bash／PowerShell 解析出的寫入目標） | 三項證據缺一即 deny：卡已注入、注入後讀過該部位檔 ≥`min_overview_evidence.part_files`（觸發注入的那次讀也算，INJECT_TRIGGER_READ_COUNTED）、交了定位三行（部位／根因層／前例；前例填存在的卡名、「無」或「待規格：<理由>」，光禿「待規格」與照抄範本不算）；指標制送卡的程式部位另要本 session Read 過表上每張卡（讀檔帳同讀檔證據，`wg_overview._unread_cards`；沒讀的跟其他缺件列在同一則擋訊息、附卡路徑；改檔 log 記 `card_mode`、`card_unread`）。三行從回覆文字、工具參數（Bash 開頭 `#` 註解）、thinking 三處都認；子代理的對話在 `<sid>/subagents/agent-<agent_id>.jsonl`，主檔與子代理檔都讀（`wg_core.assistant_texts_since`），起點在注入或目標改的那刻各檔各記（`transcript_offsets`），之後才出現的子代理檔整份都算。`readonly_paths` 一律擋；transcript 讀不到＝閘判不了，這次不要求定位行與地圖三行（讀檔數照查）並記守門紀錄 error（GATE_SELF_ERROR）；同回合同缺件擋 2 則回覆後放行留帳（GATE_DENY_CAP；同一則回覆平行送出的幾個改檔算一則，DENY_CAP_PER_REPLY）；同一個使用者回合擋過某個部位之後，別的部位只缺定位行改成一行提醒、放行、留帳，缺讀檔或卡還沒注入照擋（LOCATE_BLOCK_ONCE_PER_USER_TURN）；缺定位的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到（LOCATE_NOT_IN_THINKING）；有目標樹時完整範例每個 session 只給一次，之後換短句（LOCATE_EXAMPLE_ONCE_PER_SESSION）；沒表或表外檔只要求同頂層目錄讀過檔（該目錄沒有可讀既有檔就不要求，見 UNMAPPED_EDIT_NEEDS_READABLE_FILES）；整個資料夾當目標（rm -rf、Remove-Item -Recurse）看它所在的上一層屬於哪個專案（DIR_TARGET_JUDGED_BY_CONTAINER）。部位表類別 knowledge 的部位（錨在專案根的最長前綴命中，`lib/overview_hub.part_kind`）三項只要「卡已注入」（指標制下沒 Read 過卡只附一行提醒、帳上記 `card_unread`，不擋），不要求讀部位檔與定位三行，注入文字也不叫人交三行。閘自己出例外也擋（不 fail-open） |
 | 候選填空 | `wg_overview._candidates_on_trigger`／`on_edit` | 提示命中 `root_cause_triggers` → 已注入部位各送一次「候選前 N＋根因卡＋兩問」，一個都沒注入時以 cwd 專案表送全專案一次；放行的同檔第二次 Edit 也附，但與觸發詞共用 `candidates_sent`，一部位一 session 只送一次。來源 `smells_report` → 導讀卡「已知病灶」段 → 明說無候選（改檔路徑沒內容時只送一行，不附根因卡與兩問）；候選產生失敗只附一行，不改變閘判定。smells 候選照報告原順序取、不按分數重排（全專案時各部位輪流取、依部位分組列），每列附「分數 X（參考）」，根因那一問要求挑的不是分數最高的就說為什麼（G5：數字只當參考） |
 | Depends 召回 | `hooks/wg_depends.py`（PostToolUse） | 讀到某張卡 `- Depends: path:<檔>` 指的檔（或其目錄之下）→ 一行指標「改它前先讀卡」，同卡一 session 一次；`authority_map` 命中文件檔一次性注入地圖。索引欄由 `sync-atom-index.py --sync-depends` 以 frontmatter 為真相同步 |
 | 壓縮後重注 | PreCompact／PostCompact／PostToolBatch | 壓縮前存 OverviewHub 摘要，壓縮後每部位綜觀（部位／層／三行已交否／主目標／卡／病灶前 N，`post_compact_chars` 截）隨 atom 一起重注（atom 先） |
@@ -717,7 +717,8 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | `locate_template`／`locate_extra` | 三句預設問法 | 團隊要換問法，或某部位要加第四問（第四問只提醒、不納入三行檢查） |
 | `root_cause_triggers`／`idle_triggers` | 內建詞表 | 團隊口語不同（例「又出現」「接著呢」）→ 換詞 |
 | `smells_report`／`smells_max_age_days` | 空／7 | 專案有自己的壞味道報告產生器 → 指過去，天數照報告更新頻率 |
-| `candidate_top_n`／`post_compact_chars`／`max_card_chars` | 5／1500／6000 | 病灶段很長、部位很多、壓縮後要更多綜觀 → 調整字數與條數 |
+| `card_injection` | `pointer` | 卡很短、幾乎每次碰到都會改，想省掉讀卡那一步 → `full`（整張注入，不要求 Read 卡）；只收 `pointer`／`full` |
+| `candidate_top_n`／`post_compact_chars`／`max_card_chars` | 5／1500／6000 | 病灶段很長、部位很多、壓縮後要更多綜觀 → 調整字數與條數（`max_card_chars` 只管整張注入） |
 | `authority_map` | 空 | 專案有權威文件（規格書、介面表）→ 檔名樣式對到地圖檔 |
 | 部位表「量尺」欄＋`verify_chains` | 無 | 部位有整組的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`：它是候選材料（宣告驗證範圍時送到眼前參考），不是收尾必跑；整包全量（`run_verify.py`）不能填成量尺（全量改增量待補）；有量尺的知識部位改了也要宣告範圍。驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查，範圍還欠收據時探一次，沒就緒就說原因 |
 | `path_bases`、`eol_policy`、`source_encodings`、`commit_encoding` | 單根／依檔頭／utf-8 | 多根倉庫、CRLF 專案、非 UTF-8 原始碼（例 cp950） |

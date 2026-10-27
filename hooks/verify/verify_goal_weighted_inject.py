@@ -24,6 +24,13 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 import wg_overview as wo  # noqa: E402
 from wg_atoms import classify_intent  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    from hub_config import HUB_DEFAULTS
+    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
+
 Q0 = Path(__file__).resolve().parent / "fixtures" / "v6" / "q0"
 CASES = sorted(p for p in Q0.iterdir() if p.is_dir())
 

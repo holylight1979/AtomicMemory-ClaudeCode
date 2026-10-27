@@ -30,6 +30,8 @@ _HOOK_BUDGET_S = 5
 # 變量預設（預計畫附錄 D）
 HUB_DEFAULTS: Dict[str, Any] = {
     "enabled": True,
+    # 第一次碰到部位時導讀卡怎麼送：pointer＝只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；full＝整張注入（舊做法）
+    "card_injection": "pointer",
     "max_card_chars": 6000,
     "locate_template": [],
     "locate_extra": {},
@@ -95,6 +97,7 @@ HUB_DEFAULTS: Dict[str, Any] = {
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
 RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
+CARD_INJECTION_MODES = ("pointer", "full")
 _LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings", "idle_triggers")
 _DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights", "verify_chains", "authority_map", "smells_category_map")
 _NONNEG_INT_KEYS = ("candidate_top_n", "smells_max_age_days", "post_compact_chars")
@@ -308,6 +311,8 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
         errors.extend(f"source_encodings「{e}」不是 Python 認得的編碼" for e in c["source_encodings"] if not encoding_ok(e))
     if c.get("eol_policy") not in _EOL_POLICIES:
         errors.append(f"eol_policy 必須是 {'／'.join(_EOL_POLICIES)} 之一")
+    if c.get("card_injection") not in CARD_INJECTION_MODES:
+        errors.append(f"card_injection 必須是 {'／'.join(CARD_INJECTION_MODES)} 之一")
     errors.extend(validate_path_bases(c.get("path_bases"), root))
     errors.extend(validate_goal_weights(c.get("goal_weights")))
     errors.extend(validate_evidence(c.get("min_overview_evidence")))

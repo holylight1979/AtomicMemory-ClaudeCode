@@ -24,6 +24,13 @@ from verify_need_goal import (  # noqa: E402,F401
 import wg_need_goal_points as ngp  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    from hub_config import HUB_DEFAULTS
+    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
+
 NG_TOOL = "mcp__workflow-guardian__need_goal"
 
 

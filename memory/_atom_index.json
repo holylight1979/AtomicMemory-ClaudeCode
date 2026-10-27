@@ -63,8 +63,6 @@
       "path": "memory/Failures/工作流/feedback-workflow-discipline.md",
       "triggers": [
         "handoff",
-        "續接",
-        "下 session",
         "next-phase",
         "順手修補",
         "drift 修補",
@@ -230,8 +228,6 @@
         "上GIT",
         "上傳GIT",
         "上SVN",
-        "commit",
-        "push",
         "直上版控",
         "記憶相關不用問"
       ],
@@ -1370,7 +1366,8 @@
         "git diff 整檔",
         "查 CRLF",
         "git ls-files --eol",
-        "grep -c 假數字"
+        "grep -c 假數字",
+        "解合併衝突腳本"
       ],
       "scope": "global",
       "related": [
@@ -1973,7 +1970,6 @@
       "triggers": [
         "sed -i",
         "CRLF",
-        "LF",
         "gitattributes",
         "eol=crlf",
         "換行差異",
@@ -2188,7 +2184,6 @@
         "上乾淨",
         "工作樹",
         "收尾",
-        "git status",
         "未提交",
         "chore commit",
         "用不到就刪",
@@ -2800,7 +2795,6 @@
       "triggers": [
         "殘檔帳本",
         "aec-tempfiles",
-        "aec_ledger",
         "HUD 刪除鈕",
         "isDeletable",
         "衍生暫存清單",
@@ -3055,7 +3049,6 @@
         "StandardOutputEncoding",
         "Encoding.Default",
         "Big5",
-        "cp950",
         "RedirectStandardOutput",
         "編譯 log",
         "ProcessStartInfo",
@@ -3246,8 +3239,7 @@
         "探針副作用",
         "空目錄",
         "parse_memory_index fallback",
-        "驗證機制",
-        "post-mortem"
+        "驗證機制"
       ],
       "scope": "global",
       "related": [
@@ -3656,13 +3648,10 @@
       "triggers": [
         "LF",
         "CRLF",
-        "換行",
-        "eol",
         "gitattributes",
         "write_text_lf",
         "normalize-eol",
-        "verify_lf_writes",
-        "newline"
+        "verify_lf_writes"
       ],
       "scope": "global",
       "related": [
@@ -3839,7 +3828,6 @@
         "獨立掃碼",
         "codex 報告",
         "--output-last-message",
-        "second_opinion_start",
         "材料不足",
         "replay-guard pre",
         "unelevated 仍 1385",
@@ -4154,8 +4142,6 @@
         "HUD 未開",
         "HUD 心跳",
         "beat-status",
-        "hud_stale_s",
-        "aec_hud_fallback",
         "setInterval 節流",
         "intensive throttling",
         "Web Worker",
@@ -5285,8 +5271,6 @@
         "audio",
         "語音辨識",
         "錄音轉文字",
-        "會議錄音",
-        "會議音檔",
         "gemma4:e4b",
         "images 欄位",
         "會議轉錄",
@@ -5423,7 +5407,8 @@
         "wg_provenance",
         "回填原句",
         "A 級 B 級",
-        "原對話已逾保留期"
+        "原對話已逾保留期",
+        "QUOTE_FROM_USER_OPENED_TURN"
       ],
       "scope": "global"
     },
@@ -5748,9 +5733,6 @@
       "name": "feedback-沒實測的內容不能推到結論-每句標實測讀碼推論假說四級-先列實測清單-信尾固定自檢",
       "path": "memory/personal/holylight/feedback-沒實測的內容不能推到結論-每句標實測讀碼推論假說四級-先列實測清單-信尾固定自檢.md",
       "triggers": [
-        "沒實測",
-        "推到結論",
-        "證據等級",
         "實測清單",
         "讀碼 vs 實測",
         "共識不是證據",
@@ -5926,7 +5908,6 @@
         "特徵測試",
         "反射實跑",
         "高速修整",
-        "收口",
         "同一事實兩份"
       ],
       "scope": "global"
@@ -6704,7 +6685,6 @@
         "harness 標籤",
         "閉合標籤",
         "轉義",
-        "user_typed_text",
         "strip_harness_blocks",
         "清理器",
         "標籤注入",
@@ -6848,7 +6828,6 @@
         "驗收題",
         "盲測",
         "受測 session",
-        "封存答案",
         "對照組",
         "設計單驗法",
         "洩題"
@@ -7268,7 +7247,6 @@
         "字面掃描",
         "守門腳本",
         "creationflags",
-        "CREATE_NO_WINDOW",
         "NameError",
         "閃 console 窗",
         "verify_no_window_spawn",
@@ -7496,14 +7474,12 @@
       "triggers": [
         "checklist",
         "追蹤表",
-        "接續單",
         "推進文件",
         "飄移",
         "廢話",
         "紀錄檔",
         "總整理",
         "歷程",
-        "next-phase",
         "文件膨脹",
         "codex 壞臭味"
       ],
@@ -8710,22 +8686,6 @@
       "scope": "global"
     },
     {
-      "name": "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過",
-      "path": "memory/CC與原子記憶契約/部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過.md",
-      "triggers": [
-        "overview-map.md",
-        "部位表",
-        "路徑前綴",
-        "match_row",
-        "最長前綴",
-        "導讀卡沒注入",
-        "部位判錯",
-        "合併部位表",
-        "量尺"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill",
       "path": "memory/CC與原子記憶契約/瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill.md",
       "triggers": [
@@ -8926,13 +8886,11 @@
       "name": "工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑",
       "path": "_AIDocs/_atoms/MemDev/工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑.md",
       "triggers": [
-        "verify_scope",
         "驗證範圍",
         "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
         "工作樹",
         "worktree",
         "_staging",
-        "收據不算",
         "指令換目錄",
         "別棵樹"
       ],
@@ -9027,10 +8985,8 @@
       "name": "錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序",
       "path": "_AIDocs/_atoms/MemDev/錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序.md",
       "triggers": [
-        "git_cassette",
         "錄製重播",
         "CassetteMismatch",
-        "--git-record",
         "fail-open",
         "except Exception",
         "單跑會紅",
@@ -9098,7 +9054,6 @@
       "name": "git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控",
       "path": "_AIDocs/_atoms/MemDev/git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控.md",
       "triggers": [
-        "git_cassette",
         "CassetteMismatch",
         "--git-record",
         "cassette",
@@ -9173,21 +9128,6 @@
       ]
     },
     {
-      "name": "部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過",
-      "path": "_AIDocs/_atoms/MemDev/部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過.md",
-      "triggers": [
-        "部位表",
-        "overview-map",
-        "路徑前綴",
-        "_is_path_token",
-        "parse_map",
-        "病灶清單欄",
-        "部位表列被略過",
-        "根目錄檔案當部位"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "檔名集中定義的取捨-對人好的做法對llm只收名字集中一層-位置拼裝與全面字面守衛是llm讀碼負擔",
       "path": "memory/設計通則/檔名集中定義的取捨-對人好的做法對llm只收名字集中一層-位置拼裝與全面字面守衛是llm讀碼負擔.md",
       "triggers": [
@@ -9253,24 +9193,9 @@
       "scope": "global"
     },
     {
-      "name": "靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法",
-      "path": "memory/驗證與實證/靜態病形規則上線前要在外部大專案上跑一次-自己寫的案例會漏掉別人的慣用寫法.md",
-      "triggers": [
-        "病形規則",
-        "lint 規則",
-        "靜態分析",
-        "誤擋",
-        "校準",
-        "大括號近似",
-        "Allman"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的",
       "path": "memory/CC與原子記憶契約/部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的.md",
       "triggers": [
-        "overview-map.md",
         "部位表",
         "路徑前綴",
         "反引號",
@@ -9279,7 +9204,12 @@
         "defects_doc",
         "對不到部位",
         "新專案部位表",
-        "表被當空的"
+        "表被當空的",
+        "overview-map",
+        "_is_path_token",
+        "病灶清單欄",
+        "部位表列被略過",
+        "根目錄檔案當部位"
       ],
       "scope": "global"
     },
@@ -9487,7 +9417,8 @@
         "子代理宣告",
         "PreToolUse 子代理",
         "讀 transcript 的閘",
-        "使用者原話來源"
+        "使用者原話來源",
+        "promptId"
       ],
       "scope": "global",
       "related": [
@@ -9690,7 +9621,6 @@
         "bg session waiting",
         "背景工作軌",
         "claude stop",
-        "claude attach",
         "ListAgents bg waiting",
         "收尾放行題沒人答",
         "工作樹 Permission denied"
@@ -10606,7 +10536,6 @@
         "修錯層",
         "根因",
         "症狀",
-        "綜觀",
         "讀入範圍"
       ],
       "scope": "global"
@@ -10797,7 +10726,6 @@
         "根因",
         "解不了",
         "之後再說",
-        "另外處理",
         "順手修"
       ],
       "scope": "global"
@@ -10951,7 +10879,10 @@
         "壓窗旗標",
         "verify_no_window_spawn",
         "creationflags",
-        "閃窗"
+        "閃窗",
+        "subprocess.run 輸出不見",
+        "子行程沒有主控台",
+        "重跑仍紅"
       ],
       "scope": "global",
       "related": [
@@ -11158,20 +11089,6 @@
       ]
     },
     {
-      "name": "補子行程壓窗旗標前先看它的輸出要去哪-刻意印到主控台的子行程用no-window-exempt註記-掃描規則不是真理",
-      "path": "memory/OS-Windows/補子行程壓窗旗標前先看它的輸出要去哪-刻意印到主控台的子行程用no-window-exempt註記-掃描規則不是真理.md",
-      "triggers": [
-        "CREATE_NO_WINDOW",
-        "壓窗旗標",
-        "no-window-exempt",
-        "verify_no_window_spawn",
-        "subprocess.run 輸出不見",
-        "子行程沒有主控台",
-        "重跑仍紅"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "刻意改程式語意前先讀碼列出會被打到的舊斷言-宣告改舊測試後一次改完再跑-第一次紅就對清單不重跑",
       "path": "memory/驗證與實證/刻意改程式語意前先讀碼列出會被打到的舊斷言-宣告改舊測試後一次改完再跑-第一次紅就對清單不重跑.md",
       "triggers": [
@@ -11315,7 +11232,6 @@
         "SessionStart 太慢",
         "重放",
         "cProfile",
-        "冷啟動",
         "A/B 量測",
         "複本路徑"
       ],
@@ -11405,10 +11321,6 @@
         "待原設計者裁",
         "等他裁",
         "分歧待裁",
-        "算不算過",
-        "定義題",
-        "卡等",
-        "總控台裁定",
         "全推進"
       ],
       "scope": "global"
@@ -11468,19 +11380,6 @@
       "scope": "global"
     },
     {
-      "name": "無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀",
-      "path": "_AIDocs/_atoms/MemDev/無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀.md",
-      "triggers": [
-        "受測 AI 改卡",
-        "量尺被改",
-        "資料根唯讀",
-        "判準卡被改",
-        "無頭驗收",
-        "受測環境 memory"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路",
       "path": "memory/CC與原子記憶契約/綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路.md",
       "triggers": [
@@ -11490,7 +11389,10 @@
         "Entry 卡唯讀",
         "改判準卡｜",
         "判錯當天落卡",
-        "評分規格卡"
+        "評分規格卡",
+        "資料根唯讀",
+        "無頭驗收",
+        "受測環境 memory"
       ],
       "scope": "global"
     },
@@ -12161,7 +12063,9 @@
         "conftest 自動設 WG_V6",
         "lib/verify",
         "node 驗證腳本",
-        "v6 案例大量紅"
+        "v6 案例大量紅",
+        "探針全 FAIL",
+        "基底比對"
       ],
       "scope": "global"
     },
@@ -12244,7 +12148,11 @@
         "檔案指紋",
         "量過之後有沒有變",
         "已量過",
-        "mtime"
+        "mtime",
+        "state 重建",
+        "compact 後重問",
+        "回合鍵照搬",
+        "USER_TURN_KEY_KEPT"
       ],
       "scope": "global",
       "related": [
@@ -12513,7 +12421,7 @@
         "反覆發生的項目",
         "狀態重建",
         "回合序號從頭算",
-        "開場時間"
+        "回合鍵照搬"
       ],
       "scope": "global",
       "related": [
@@ -13103,12 +13011,282 @@
         "isMeta",
         "開工句",
         "開回合紀錄",
-        "使用者原話"
+        "使用者原話",
+        "isSidechain",
+        "真人訊息",
+        "純字串 content"
       ],
       "scope": "global",
       "related": [
         "子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔",
         "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem"
+      ]
+    },
+    {
+      "name": "改提示或擋訊息的字句前用句中3到5字短片段grep全部測試-引用那條規則的測試檔整支跑不用-k",
+      "path": "memory/驗證與實證/改提示或擋訊息的字句前用句中3到5字短片段grep全部測試-引用那條規則的測試檔整支跑不用-k.md",
+      "triggers": [
+        "改擋訊息字句",
+        "改提示文字",
+        "改錯誤訊息",
+        "子字串斷言",
+        "grep 測試",
+        "短片段搜尋",
+        "測試整支跑",
+        "pytest -k",
+        "斷言漏改"
+      ],
+      "scope": "global",
+      "related": [
+        "擋訊息教的替代管道會被當成替代做法-寫明註解只放在不寫檔的指令上-宣告完照常用edit-write-同類說法全面grep並用掃原始碼的案例守住"
+      ]
+    },
+    {
+      "name": "證明repo沒被自己動過而它有背景自動提交時-比自己動過那幾支檔的status與雜湊加head新增段沒碰那些路徑-不比head也不比整份status",
+      "path": "memory/版控/Git/證明repo沒被自己動過而它有背景自動提交時-比自己動過那幾支檔的status與雜湊加head新增段沒碰那些路徑-不比head也不比整份status.md",
+      "triggers": [
+        "證明沒動過",
+        "repo 未動",
+        "HEAD 變了",
+        "背景自動提交",
+        "git status 比對",
+        "雜湊比對",
+        "誤判有人動過",
+        "自動 commit 干擾",
+        "開工前基準"
+      ],
+      "scope": "global",
+      "related": [
+        "無頭實跑證明正式環境沒被動到不能只比前後相同-期間可能有別的並行工作寫入-要逐檔歸屬看卡片來源欄並grep自己的session-id"
+      ]
+    },
+    {
+      "name": "閘判回覆有沒有宣告完成時排除詞分兩類-講之後還在繼續的整則不算-其餘只取消所在那句-判完成的地方共用一套",
+      "path": "_AIDocs/_atoms/MemDev/閘判回覆有沒有宣告完成時排除詞分兩類-講之後還在繼續的整則不算-其餘只取消所在那句-判完成的地方共用一套.md",
+      "triggers": [
+        "宣告完成判定",
+        "完成詞排除詞",
+        "逐句判完成",
+        "整則一刀切",
+        "仍在等",
+        "中途狀態句",
+        "收割中途判定",
+        "第二意見往前找",
+        "切句",
+        "claims_completion"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-多則回覆擇一判定時宣告行與留帳要看同一則-往前找只限要找的那一項-宣告與留帳固定看收尾那則",
+        "閘要求的動作若要等長工作就要同時給兩條路-工具本身分段同步等到結果-承認等待中用一行結構化宣告-否則照做了還被擋"
+      ]
+    },
+    {
+      "name": "送得到ai眼前的擋訊息與提示從源頭避開退避詞-ai會原樣貼回-用守門案例逐則跑detect-evasion",
+      "path": "_AIDocs/_atoms/MemDev/送得到ai眼前的擋訊息與提示從源頭避開退避詞-ai會原樣貼回-用守門案例逐則跑detect-evasion.md",
+      "triggers": [
+        "擋訊息退避詞",
+        "提示被判退避",
+        "原樣貼回擋訊息",
+        "轉述被擋那則",
+        "字面值掃描",
+        "detect_evasion 守門",
+        "源頭換說法",
+        "GATE_TEXT_AVOIDS_EVASION_WORDS"
+      ],
+      "scope": "global",
+      "related": [
+        "禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱",
+        "被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套",
+        "擋訊息教的替代管道會被當成替代做法-寫明註解只放在不寫檔的指令上-宣告完照常用edit-write-同類說法全面grep並用掃原始碼的案例守住"
+      ]
+    },
+    {
+      "name": "審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔",
+      "path": "memory/驗證與實證/審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔.md",
+      "triggers": [
+        "審查回沒問題",
+        "審查回很短",
+        "乾淨結論",
+        "執行紀錄",
+        "真的讀到檔",
+        "沙箱起不來",
+        "codex 審查採用",
+        "第二意見回乾淨",
+        "材料塞 stdin"
+      ],
+      "scope": "global",
+      "related": [
+        "codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄",
+        "給獨立審查者的材料若只有文件沒有執行紀錄-它只能判寫了沒不能判做了沒-對帳表每格要附證據指標"
+      ]
+    },
+    {
+      "name": "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過",
+      "path": "memory/CC與原子記憶契約/部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過.md",
+      "triggers": [
+        "overview-map.md",
+        "部位表",
+        "路徑前綴",
+        "match_row",
+        "最長前綴",
+        "導讀卡沒注入",
+        "部位判錯",
+        "合併部位表",
+        "量尺"
+      ],
+      "scope": "global",
+      "related": [
+        "部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的"
+      ]
+    },
+    {
+      "name": "子代理呼叫hook帶的是主session的session-id-要知道它是哪一回合派出的-用子代理檔第一筆promptid對主檔同promptid的user紀錄",
+      "path": "memory/CC與原子記憶契約/子代理呼叫hook帶的是主session的session-id-要知道它是哪一回合派出的-用子代理檔第一筆promptid對主檔同promptid的user紀錄.md",
+      "triggers": [
+        "子代理 hook",
+        "agent_id",
+        "session_id 共用",
+        "promptId",
+        "派出回合",
+        "子代理寫卡",
+        "背景子代理",
+        "本回合使用者原話",
+        "subagents/agent-"
+      ],
+      "scope": "global",
+      "related": [
+        "子代理的對話紀錄是獨立檔-讀transcript的hook閘要分主檔與子代理檔-使用者原話只認主檔",
+        "從transcript回找使用者原話要停在開回合的紀錄-越過同伴訊息與背景通知會走到開工句",
+        "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞"
+      ]
+    },
+    {
+      "name": "使用者貼上的內容在transcript包成pasted-content區塊-拿原話當他說的之前先剔掉-閉合id要逐字比-data-id不算id",
+      "path": "memory/CC與原子記憶契約/使用者貼上的內容在transcript包成pasted-content區塊-拿原話當他說的之前先剔掉-閉合id要逐字比-data-id不算id.md",
+      "triggers": [
+        "pasted_content",
+        "貼上內容",
+        "貼上區塊",
+        "使用者原話",
+        "Quote",
+        "引句",
+        "開工句貼上",
+        "閉合 id",
+        "data-id"
+      ],
+      "scope": "global",
+      "related": [
+        "使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行",
+        "從transcript回找使用者原話要停在開回合的紀錄-越過同伴訊息與背景通知會走到開工句"
+      ]
+    },
+    {
+      "name": "改共用state鍵的意義前先grep鍵名列出所有讀者-讀者不只一類就別動鍵的語意-在自己那段補一條路",
+      "path": "memory/設計通則/改共用state鍵的意義前先grep鍵名列出所有讀者-讀者不只一類就別動鍵的語意-在自己那段補一條路.md",
+      "triggers": [
+        "共用 state 鍵",
+        "改欄位語意",
+        "鍵的讀者",
+        "grep 讀者",
+        "共用名單",
+        "移出名單",
+        "假帳",
+        "injected_atoms",
+        "改語意影響面"
+      ],
+      "scope": "global",
+      "related": [
+        "最小地圖的上下游要寫這次改動會碰到的呼叫者-grep看到卻沒讀的就是缺塊-先補讀再改",
+        "刻意改程式語意前先讀碼列出會被打到的舊斷言-宣告改舊測試後一次改完再跑-第一次紅就對清單不重跑"
+      ]
+    },
+    {
+      "name": "claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置",
+      "path": "memory/CC與原子記憶契約/claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置.md",
+      "triggers": [
+        "--resume",
+        "resume 接續",
+        "resume 後 context",
+        "壓縮才丟",
+        "送過重置",
+        "SessionStart resume",
+        "重複注入",
+        "post_compact_at",
+        "輸入 token 對帳"
+      ],
+      "scope": "global",
+      "related": [
+        "壓縮後根層-claudemd-由磁碟重讀不需自製-constraint-pinning-真正會丟的是對話中的計畫脈絡-用-staging-計畫檔加-sessionstart-resume-指標接續"
+      ]
+    },
+    {
+      "name": "用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時",
+      "path": "memory/驗證與實證/用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時.md",
+      "triggers": [
+        "事件帳重播",
+        "重播對帳",
+        "舊碼重播",
+        "改前改後量測",
+        "量省多少",
+        "逐字比對",
+        "環境差",
+        "重播輸入還原",
+        "量尺校準",
+        "只比字數"
+      ],
+      "scope": "global",
+      "related": [
+        "量hook注入改前改後-同一串事件重播兩棵樹-包記號切出要量的文字"
+      ]
+    },
+    {
+      "name": "提醒去重這類旁支紀錄別直接走會把壞檔改名重建的帶鎖更新-先不上鎖讀一次-壞檔就跳過-已記過就直接回",
+      "path": "memory/設計通則/提醒去重這類旁支紀錄別直接走會把壞檔改名重建的帶鎖更新-先不上鎖讀一次-壞檔就跳過-已記過就直接回.md",
+      "triggers": [
+        "帶鎖更新",
+        "壞檔改名留證",
+        "空骨架重建",
+        "旁支紀錄",
+        "提醒去重",
+        "無鎖預讀",
+        "修復副作用",
+        "狀態檔損壞",
+        "判定路徑改變"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "新加設定鍵先查目標段有沒有鍵白名單驗證-有驗證的段放新鍵會被當設定錯誤-改放沒驗證且有同型前例的段或連驗證器一起改",
+      "path": "memory/設計通則/新加設定鍵先查目標段有沒有鍵白名單驗證-有驗證的段放新鍵會被當設定錯誤-改放沒驗證且有同型前例的段或連驗證器一起改.md",
+      "triggers": [
+        "新增設定鍵",
+        "設定開關",
+        "鍵白名單",
+        "未知鍵",
+        "設定驗證",
+        "fail-closed",
+        "設定段選擇",
+        "config schema",
+        "設定錯誤擋死"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝.md",
+      "triggers": [
+        "砍後量法",
+        "無頭重跑量砍後",
+        "事件帳重播",
+        "hook 指向 live",
+        "worktree 量測",
+        "省多少三欄",
+        "減量量測"
+      ],
+      "scope": "global",
+      "related": [
+        "用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時"
       ]
     }
   ]

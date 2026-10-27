@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: session:f399cdb2 2026-10-13 tools/verify/verify_second_opinion_pack_spawn.py
 - Confidence: [臨]
-- Trigger: 字面掃描, 守門腳本, creationflags, CREATE_NO_WINDOW, NameError, 閃 console 窗, verify_no_window_spawn, 假通過, 靜態掃描不夠, monkeypatch 斷言
+- Trigger: 字面掃描, 守門腳本, creationflags, NameError, 閃 console 窗, verify_no_window_spawn, 假通過, 靜態掃描不夠, monkeypatch 斷言
 - Created-at: 2026-10-13
 - Quote: 「請把知識、經驗，該atoms的都記好，特別是我最後提出的」
 

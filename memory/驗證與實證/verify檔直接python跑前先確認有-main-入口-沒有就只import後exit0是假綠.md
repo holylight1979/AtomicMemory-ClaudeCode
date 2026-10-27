@@ -6,11 +6,11 @@
 - Confidence: [臨]
 - Trigger: 直接跑, __main__, 假綠, exit 0, 哨兵尾行, verify 直接 python
 - Created-at: 2026-10-22
-- Quote: 「<pasted_content id="e02d"> 調度總控台：你是 v6.0 的調度總控台，執行 /console 調度，接替 claude-ba（token 快乾）。專案根 C:\Users\holylight\.claude（main）；接續單 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md；信箱…」
 
 ## 知識
 
 - [臨] 沒有 `if __name__ == "__main__"` 的測試檔，「python 檔名.py」只 import 完就 exit 0，看起來像過了；宣稱「直接跑也過」之前先 grep 入口，並看尾行有沒有 `<NAME>_CHECK PASS`；沒尾行就不算這種驗證。
+
 
 ## 行動
 

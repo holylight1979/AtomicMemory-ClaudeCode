@@ -35,6 +35,12 @@ def _no_org(monkeypatch):
     monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
     monkeypatch.setattr(wo, "_WARNED", set())
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支測整張注入（card_injection=full）的行為；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    monkeypatch.setitem(wo.HUB_DEFAULTS, "card_injection", "full")
+
 APPB_TABLE = """
 | 順序 | 路徑前綴 | 部位 | 導讀卡（atom 名） | 狀態 |
 |---|---|---|---|---|

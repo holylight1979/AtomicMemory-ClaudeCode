@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: 沒有預填答案, 驗收題, 盲測, 受測 session, 封存答案, 對照組, 設計單驗法, 洩題
+- Trigger: 沒有預填答案, 驗收題, 盲測, 受測 session, 對照組, 設計單驗法, 洩題
 - Created-at: 2026-10-13
 - Source: session:c4685bc9 2026-10-13
 
