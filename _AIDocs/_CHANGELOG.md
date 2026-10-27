@@ -4,6 +4,13 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 定位與立樹先提示後擋（LOCATE_HINT_ON_FIRST_READ）
+
+- `hooks/wg_overview.py`：`on_read` 讀檔時注入導讀卡的部位，第一次讀到它的程式檔那則讀檔結果（PostToolUse）附一行（`_locate_read_hint`／`locate_read_hint`）：沒目標樹就先 need_goal set、交定位四行（根因層兩候選＋理由、批判先下判斷；need_goal 關＝三行）、寫在比改檔早一則的回覆文字或不寫檔指令的 `#` 註解、thinking 讀不到；立樹與定位併成同一行。一部位一 session 一次（部位紀錄 `locate_hint`），第二個部位起只點名「格式同前」；改檔時才補注入、已交過定位、非程式檔、子代理讀的、OverviewHub 或 v6 關著不送。`on_edit` 判定與擋訊息不動。
+- `hooks/wg_need_goal.py`：`edit_gate` 的適用判式抽成 `_edit_gate_applies`（行為不變），新增 `tree_owed_for_edit` 給讀檔提示用同一支判式。
+- `hooks/wg_release_rules.py` 檔尾登錄 LOCATE_HINT_ON_FIRST_READ；案例 `hooks/verify/verify_locate_hint.py`（走真的 PostToolUse／PreToolUse：提示在第一個 Edit 之前那則讀檔結果、照做不擋、沒照做照擋、非程式檔／第二次讀／已交定位／改檔先注入／子代理不送、v6 與 OverviewHub 關時不變、need_goal 關＝三行），`verify_release_rules.py` 檔尾對照。
+- TECH.md §7.6 寫入閘、§7.7 改程式前、§7.8 加列。
+- 量測：`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-定位先提示-實測/locate_hint_replay.py`（＋`locate_hint_worker.py`、`-輸出.md`）：004 R1／R2 第一回合事件帳在 f5b30c9e／f45be4ea／分支三版重播，當時版逐字對上 transcript（27/27、28/28）；分支判定與擋訊息同 main；提示都出在第一個改檔之前；AI 照提示做（推論）時被擋重做那段每跑 4 次呼叫不發生，第一回合省 36.5 萬／44.2 萬 token、擋 8／7 次 → 0。
 ## 2026-10-27 收尾三段一次交齊：收尾檢核帶目標對照與知識收割，一次呼叫交完
 - **AI 寫程式時會看到的**（守門總開關 v6 開；總開關關時 reconcile 欄不驗、不套用，行為同改動前）：
   - **收尾檢核可帶目標對照**（規則 CLOSING_RECONCILE_IN_REPORT）：`anti_evasion_report` 多一個選填欄 `reconcile`（格式同 need_goal action=reconcile 的 items／turns）。MCP 端同一套驗法（`tools/workflow-guardian-mcp/lib/anti-evasion.js` `aecArgErrors`），PostToolUse 交給同一個入口 `wg_need_goal.apply_op`（`hooks/handlers/post_tool_use._aec_reconcile`；同判法、同回覆、同樣記進目標檔），先套用再把樹附進 HUD 報告；報告記 `reconcile`＝applied／rejected／off／error。跟既有的 `harvest_items`（CLOSING_REPORT_ONE_CALL）一起交＝收尾三段一次交齊，Stop 不再要求另呼叫 need_goal reconcile、knowledge_harvest_report。套不上只少這段：收尾檢核照收，回覆寫明只要補交對照。舊的三支分開交照收。
