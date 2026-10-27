@@ -2026,7 +2026,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                     "triggers": _so_f0.get("triggers"),
                                     "needed": None if _so_v0 is None else _so_v0.rule == "SECOND_OPINION_DECLINED"})
         write_state(session_id, state)
-    # 規則 SECOND_OPINION_EXIT_FINGERPRINT：收尾交了出口（不需／等第二意見，判定收下）就先記出口時的改檔指紋，同樣排在所有收尾閘前面——
+    # 規則 SECOND_OPINION_EXIT_FINGERPRINT：收尾交了出口（不需／等第二意見，判定收下）就先記出口時的改檔指紋，同樣排在所有收尾閘前面：
     # 前面的閘擋下、補件那則不重寫出口行，下一次 Stop 指紋沒變照樣認得這組改動交過了
     if v6 and (_so_reason is not None or second_opinion_waiting(code_text)) and _so_mark_exit(
             state, session_id, turn_seq, _so_check()[1]):

@@ -4149,8 +4149,8 @@ RULES.update({
     "SECOND_OPINION_FACT_TRIGGER": "第二意見閘進不進門看事實、不看措辭：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，同 "
                                    "SECOND_OPINION_REQUIRED）的每次收尾都判，不再要 AI 說了完成詞（取代原本的「宣告完成時」"
                                    "與 turn_completion_text 往前找）。只有還沒到收尾的 Stop 不判（wg_second_opinion.not_closing；這個使用者回合"
-                                   "沒交收尾那批（closing_call）才算）：中途問使用者——收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成；"
-                                   "或寫明之後工作還在繼續——wg_evasion 判完成的排除詞第一類（仍在等、等待…回報、尚未開始，同一份詞）。"
+                                   "沒交收尾那批（closing_call）才算）：中途問使用者，即收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成；"
+                                   "或寫明之後工作還在繼續，即 wg_evasion 判完成的排除詞第一類（仍在等、等待…回報、尚未開始，同一份詞）。"
                                    "不判時留帳 event=deferred（kind＝question／pending），欠帳不消，下一次收尾照欠。"
                                    "出口照舊兩條：「不需第二意見｜<理由>」或「等第二意見｜<job_id>」（跑過＋四行也算），都留帳。",
     "SECOND_OPINION_EXIT_FINGERPRINT": "一組改動只欠一次：交了出口（不需／等第二意見、跑過＋四行）就記出口時的改檔指紋（state "

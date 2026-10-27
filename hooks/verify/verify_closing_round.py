@@ -297,6 +297,8 @@ def test_so_pre_close_attaches_same_text_then_stop_passes(batch_env, drive, caps
     那批就附上第二意見那段，跟 Stop 擋的是同一段話；同一個使用者回合再交一批、指紋沒變不重附；收尾照提示寫出口行 → Stop 不擋、
     留帳 declined；沒照做 → Stop 照擋（判定不放寬）。"""
     import copy
+    import wg_closing_round as cr
+    assert cr.closing_call(AEC["tool_name"], AEC["tool_input"]), "前置：造的這批是 closing_call 認得的收尾那批"
     files = _files(tmp_path, 5)
     state = _so_state(files)
     untouched = copy.deepcopy(state)

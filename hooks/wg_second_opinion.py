@@ -7,7 +7,7 @@
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
-  not_closing    觸發看事實不看措辭（規則 SECOND_OPINION_FACT_TRIGGER）：每次收尾都判，只有還沒到收尾的 Stop 不判——中途問使用者
+  not_closing    觸發看事實不看措辭（規則 SECOND_OPINION_FACT_TRIGGER）：每次收尾都判，只有還沒到收尾的 Stop 不判：中途問使用者
                  （最後一行是問句、沒宣告完成）或寫明之後工作還在繼續（仍在等、等待…回報、尚未開始），而且這個使用者回合沒交收尾那批；
                  欠帳不消，下一次收尾照欠。
   fingerprint    出口時的改檔指紋（規則 SECOND_OPINION_EXIT_FINGERPRINT）：交過「不需第二意見｜」或「等第二意見｜」之後，
@@ -395,7 +395,7 @@ def mark_exit(state: Dict[str, Any], session_id: str, turn: int, facts: Dict[str
 
 
 def owed_message(v: rr.Verdict, facts: Dict[str, Any], config: Dict[str, Any]) -> str:
-    """欠第二意見時的那段話：收尾那批先附（SECOND_OPINION_PRE_CLOSE）跟 Stop 擋（SECOND_OPINION_REQUIRED）用同一段——先提示後擋，
+    """欠第二意見時的那段話：收尾那批先附（SECOND_OPINION_PRE_CLOSE）跟 Stop 擋（SECOND_OPINION_REQUIRED）用同一段：先提示後擋，
     講同一件事、同一個格式，照提示做了就不會被擋。"""
     from wg_closing_round import so_background_on
     hint = rr.second_opinion_hint_background() if so_background_on(config) else rr.second_opinion_hint()

@@ -787,9 +787,11 @@ def test_health_weekly_lists_declined(tmp_path, monkeypatch):
 
 def test_005_decline_logged_when_gate_does_not_need_it(drive, capsys, tmp_path):
     """第四跑 C-1 第 3、4 回合：沒改程式、沒宣告完成，AI 照樣寫「不需第二意見｜…」→ 閘這回合不要，宣告也記一筆（needed=False）；
-    舊碼只在閘要第二意見而且宣告成立那條路記，第 2～5 回合的宣告全沒帳。"""
+    舊碼只在閘要第二意見而且宣告成立那條路記，第 2～5 回合的宣告全沒帳。
+    改舊測試｜原本用「改了 5 支、沒說完成」當閘不要的情境；SECOND_OPINION_FACT_TRIGGER 之後那是要判的收尾（不看完成詞），
+    照敘述改成這個 session 沒改程式檔，「閘不要時宣告也留帳」這件照驗。"""
     text = "不需第二意見｜這一輪沒有改任何程式，只是核對已經提交的內容"
-    reason, state, logs = drive(text, capsys, files=_files(tmp_path, 5))
+    reason, state, logs = drive(text, capsys, files=())
     declined = _so_logs(logs, "declined")
     assert "[Guardian:SecondOpinion]" not in reason and "second_opinion_ok" not in state, "前置：閘這回合沒要第二意見"
     assert len(declined) == 1 and declined[0]["needed"] is False and declined[0]["reason"].startswith("這一輪沒有改任何程式")
@@ -856,7 +858,7 @@ ASK = "改了 5 支檔。匯出格式要用 CSV 還是 JSON？"
 
 @pytest.mark.parametrize("text", [S1_DONE, C1_DONE])
 def test_fact_trigger_owed_without_completion_words(drive, capsys, tmp_path, text):
-    """規則 SECOND_OPINION_FACT_TRIGGER（紅）：005 第 0 步兩筆漏擋——補題 S-1 第 4 回合收尾「兩件都改好了…全部 4 支測試都通過」、
+    """規則 SECOND_OPINION_FACT_TRIGGER（紅）：005 第 0 步兩筆漏擋：補題 S-1 第 4 回合收尾「兩件都改好了…全部 4 支測試都通過」、
     C-1 第 1 回合「已經寫好，但我還沒 commit」（還沒 commit 不是沒做完），都沒有完成詞表認得的說法；舊碼判成沒宣告完成，
     改了 5 支程式整個沒進第二意見閘。改後看事實：過門檻的收尾就欠，擋訊息照舊列規則、檔數與兩條出口。"""
     reason, _state, logs = drive(text, capsys, files=_files(tmp_path, 5))
@@ -890,7 +892,6 @@ def test_exit_fingerprint_once_per_change_set(drive, capsys, tmp_path):
     files = _files(tmp_path, 5)
     reason, state, logs = drive(f"{S1_DONE}\n{DECLINE_LINE}", capsys, files=files)
     assert "[Guardian:SecondOpinion]" not in reason and [p["event"] for p in _so_logs(logs)] == ["declined"]
-    assert state[so.EXIT][SID]["via"] == "declined" and state[so.EXIT][SID]["fp"]
     reason, state, logs = drive(S1_DONE, capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs), "沒再改程式：這組改動交過了"
     drive.tx.user("cli 再補一個參數")
@@ -900,17 +901,23 @@ def test_exit_fingerprint_once_per_change_set(drive, capsys, tmp_path):
     assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
     reason, state, _ = drive(f"補好了。\n{DECLINE_LINE}", capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason, "再交一次出口就放行（不是修了又欠、修不停）"
+    assert state[so.EXIT][SID]["via"] == "declined" and state[so.EXIT][SID]["fp"]
 
 
 def test_exit_fingerprint_waiting_exit_then_close_again_not_owed(drive, capsys, tmp_path):
     """SECOND_OPINION_EXIT_FINGERPRINT（紅）：收尾寫「等第二意見｜<job_id>」（job 還在跑）→ 留帳 waiting；同一回合沒再改程式、沒取結果又收尾
     → 不欠（舊碼照「start 了沒取結果」再擋一輪）。取回在等的結果那一回合照要四行（DONE_NOTICE），寫齊放行。"""
+    reason, state, _ = drive(DONE, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason
+    _feedback(drive, reason)
     drive.tx.opinion(status="")
-    reason, state, logs = drive(WAIT_TEXT, capsys, files=_files(tmp_path, 5))
+    reason, state, logs = drive(WAIT_TEXT, capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason and [p["event"] for p in _so_logs(logs)] == ["waiting"]
-    assert state[so.EXIT][SID]["via"] == "waiting"
     reason, state, logs = drive(DONE, capsys, state=state)
-    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs), "出口之後沒再改程式：不再擋"
+    assert state[so.EXIT][SID]["via"] == "waiting"
+    drive.tx.user("結果回來了嗎")
+    state.update(turn_seq=6, turn_prompts_seq=6)
     _result(drive, "done")
     reason, state, _ = drive("看過結果了。", capsys, state=state)
     assert "[Guardian:SecondOpinion]" in reason and "第二意見與分歧裁決" in reason
@@ -919,16 +926,17 @@ def test_exit_fingerprint_waiting_exit_then_close_again_not_owed(drive, capsys, 
 
 
 def test_exit_fingerprint_recorded_even_when_earlier_gate_blocks(drive, capsys, tmp_path):
-    """SECOND_OPINION_EXIT_FINGERPRINT：出口行在所有收尾閘前面就記——紅測閘先擋下、補件那則只寫不做行、沒重寫出口行，
+    """SECOND_OPINION_EXIT_FINGERPRINT：出口行在所有收尾閘前面就記：紅測閘先擋下、補件那則只寫不做行、沒重寫出口行，
     第二意見閘不再為同一組改動擋（舊碼宣告行只看收尾最後一則，補件那則沒寫就照擋）。"""
     state = {"phase": "working", "modified_files": [_mf(p) for p in _files(tmp_path, 5)], "stop_blocked_count": 0,
              "failing_tests": [{"cmd": "pytest a", "summary": "1 failed", "session_id": SID, "turn_seq": 5}],
              "recent_user_prompts": [], "turn_seq": 5, "turn_prompts_seq": 5, "muted": True}
-    reason, state, _ = drive(f"{S1_DONE}\n{DECLINE_LINE}", capsys, state=state)
-    assert "[Guardian:TestFailGate]" in reason and state[so.EXIT][SID]["via"] == "declined"
+    reason, state, _ = drive(f"{DONE}\n{DECLINE_LINE}", capsys, state=state)
+    assert "[Guardian:TestFailGate]" in reason
     state["failing_tests"] = []
-    reason, _, logs = drive("紅測修好了，重跑全綠。", capsys, state=state)
+    reason, state, logs = drive(DONE, capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs, "block")
+    assert state[so.EXIT][SID]["via"] == "declined"
 
 
 def test_fact_trigger_v6_off_unchanged(drive, capsys, tmp_path, monkeypatch):
@@ -959,7 +967,7 @@ def test_not_closing_and_fingerprint_units():
 
 
 def test_exit_fingerprint_user_release_counts_as_exit(drive, capsys, tmp_path):
-    """SECOND_OPINION_EXIT_FINGERPRINT：使用者放行也記成出口（不再欠的那類）——先前宣告不需、之後又改 1 支被擋到擋滿、使用者放行 →
+    """SECOND_OPINION_EXIT_FINGERPRINT：使用者放行也記成出口（不再欠的那類）：先前宣告不需、之後又改 1 支被擋到擋滿、使用者放行 →
     下一回合沒再改程式不欠（沒記的話，指紋跟那次宣告不同、出口又是不需 → 之後每次收尾都欠，修不停）。"""
     _, state, _ = drive(f"{DECLINE_LINE}\n{DONE}", capsys, files=_files(tmp_path, 5))
     drive.tx.user("再改一支")
