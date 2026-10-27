@@ -7,7 +7,6 @@
 - Confidence: [臨]
 - Trigger: 8.3 短路徑, GetLongPathNameW, normpath, 長路徑前綴, UNC, 暫存目錄判斷, gettempdir, 路徑包含, HOLYLI~1
 - Created-at: 2026-10-13
-- Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
 ## 知識
 
@@ -15,6 +14,7 @@
 - [臨] 順序：先拿掉 `\\?\` 前綴（磁碟機路徑去前綴，`\\?\UNC\server\share` 轉 `\\server\share`）——`os.path.normpath` 遇到 `\\?\` 開頭會整條原樣回傳，連 `..` 都不消；再 normpath → 轉長路徑 → 轉完再 normpath（API 會保留 `..`，否則 `<tmp>\..\..\專案\x.py` 會被判成在 tmp 底下）。
 - [臨] UNC 路徑不呼叫 GetLongPathNameW（不為了比對去查網路）；GLOBALROOT、`\\.\` 裝置命名空間、`\\?\Volume{…}`、`C:foo` 磁碟機相對路徑不展開，判不在底下（錯的方向是多要證據，不是漏記）。轉換失敗（API 回 0 不拋例外）時，帶短檔名記號 `~數字` 的路徑要在 stderr 說一聲，不靜默。
 - [臨] pytest 也中這個坑（實測）：把 8.3 短路徑（session scratchpad 給的 `C:\Users\HOLYLI~1\…`）的測試檔交給 pytest → `ERROR: not found`，同一個檔 ls 看得到；改成長路徑（`C:/Users/holylight/…`）就收得到。跑 scratchpad 裡的測試，路徑一律先換成長路徑。
+
 
 ## 行動
 

@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [觀]
-- Trigger: sed -i, CRLF, LF, gitattributes, eol=crlf, 換行差異, 批改多檔, git status 多出檔, autocrlf, 機械式取代, perl -pi, LF 變 CRLF
+- Trigger: sed -i, CRLF, gitattributes, eol=crlf, 換行差異, 批改多檔, git status 多出檔, autocrlf, 機械式取代, perl -pi, LF 變 CRLF
 - Created-at: 2026-08-07
 - Source: commit:e15269f 2026-08-07（原對話已逾保留期）
 

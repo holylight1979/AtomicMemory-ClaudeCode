@@ -7,7 +7,6 @@
 - Trigger: guard-entry.jsonl, entry-stats, 切入點帳, resolve_responses, 回應型, response none, 判分出處, --days
 - Created-at: 2026-10-21
 - Depends: path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py, path:C:/Users/holylight/.claude/tools/entry-stats.py
-- Quote: 「track-某專案：你是工作軌 track-某專案（接續前一個 session，它已交付 001～004 並收割；前情在 C:\Users\holylight\.claude\workflow\inbox\from-track-某專案\001～004-delivery.md，唯讀），調度總控台是 claude-17（送信前先 ListAgents 確認，名字會變）。第一步用 EnterWorkt…」
 
 ## 知識
 
@@ -16,6 +15,7 @@
 - [臨] entry-stats 預設 --days 7，讀超過 7 天的材料會靜默變 0 筆（實測 20 天前的 4 筆 → entries=0），讀舊材料要帶大的 --days。
 - [臨] 登錄表 responses 空的列（E01／E02／E03／E26之二／E29／E35）回應型只會是 none 或同回合重問的 denied，放行要看該閘自己的留帳。
 - [臨] 更正：entry-stats 現已有 --asks 逐筆列回應型（內部呼叫 resolve_responses），不必自己推；--days 預設 7 仍在，舊材料要帶大值。
+
 
 ## 行動
 

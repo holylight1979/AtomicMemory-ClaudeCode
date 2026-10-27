@@ -3,7 +3,6 @@
 - Scope: global
 - Author: holylight
 - Source: session 08519976 track-b-hooks 2026-10-13（探針：need_goal_hook_probe.py）；2026-10-22 chain-breaker 實測
-- Quote: 「<pasted_content id="1bd6"> 你是 v6.0 的工作 session track-b-hooks（B 段：把需求目標核心流程的五個關鍵點接進 hooks，含跨 session 續接；不是備份），總控台是 claude-9f（調度；對人總控台是 claude-91）。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.cla…」
 - Confidence: [臨]
 - Trigger: 探針, 真 hook 入口探針, dispatcher 探針, WG_CLAUDE_DIR, WG_TEST_LOGS_DIR, GUARD_LOG_DIR, 守門紀錄寫進 live, 探針污染 live, 隔離探針, 以 session 為鍵的帳, 跨呼叫累積, 同一回合第 2 次
 - Created-at: 2026-10-13
@@ -18,6 +17,7 @@
 - [臨] 另兩條同類漏網：①一次跑多個 hooks/verify 檔時，只要有一個模組沒設 WG_CLAUDE_DIR 就先 import wg_core，整個 pytest 行程的資料根就是 live，跑真 UPS／PostToolUse 入口的既有測試會把假 session 的檔寫進 live workflow/；②測試中途呼叫 monkeypatch.undo() 會連 fixture 的資料根導向一起撤掉，之後的寫入落進真資料根；只撤部分替換用 pytest.MonkeyPatch.context()。
 - [臨] 根因通則：驗收只看測試綠、沒驗跑完 live 多了什麼；資料根、守門紀錄目錄、家目錄三個根各自決定，只導一個就漏。新增會寫檔的機制要比照 wg_core.logs_dir：在 pytest 裡資料根沒被測試導走時改寫系統暫存目錄。
 - [臨] 新加「以 session 為鍵、跨呼叫累積」的帳時，同一次 pytest 的資料根是共用的、案例的 session id 又常一樣，前一案的觸發會讓後一案被判成同一回合第 2 次；要每案一份：拿 PYTEST_CURRENT_TEST 去掉結尾的階段字樣（(setup)／(call)／(teardown)）當命名空間，放進 wg_core.logs_dir() 的測試暫存目錄，不放模組載入時就算好的資料根。
+
 
 ## 行動
 

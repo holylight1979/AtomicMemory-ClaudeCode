@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: scratchpad eqtest/check_equivalence.py（2026-10-08）
 - Confidence: [臨]
-- Trigger: 等值證明, 行為保持重構, 結果完全相同, switch 改查表, 對照表重構, 特徵測試, 反射實跑, 高速修整, 收口, 同一事實兩份
+- Trigger: 等值證明, 行為保持重構, 結果完全相同, switch 改查表, 對照表重構, 特徵測試, 反射實跑, 高速修整, 同一事實兩份
 - Created-at: 2026-10-07
 - Quote: 「你跩什麼? 真正的問題是什麼? 是LLM要怎麼主動將這種狀況 高速修整、且結果與原本錯亂的寫法還完全相同呀!」
 

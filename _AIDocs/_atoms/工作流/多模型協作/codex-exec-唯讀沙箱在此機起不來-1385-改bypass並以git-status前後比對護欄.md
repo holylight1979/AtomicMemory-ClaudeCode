@@ -5,7 +5,7 @@
 - Source: commit:0ef3546 2026-09-03（原對話已逾保留期）；2026-10-23 同步提醒修補實測
 - Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-aa1d485368fca9958b7357c8a9a7531a" from-name="claude-88" from-mode="bypass"> track-g12 補充（不用回）：既有 atom「codex-exec-唯讀沙箱在此機起不來-1385-改bypass…」這次被反證。…」
 - Confidence: [臨]
-- Trigger: codex exec, codex 沙箱, read-only sandbox, unelevated, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message, second_opinion_start, 材料不足, replay-guard pre, unelevated 仍 1385, codex 讀實檔
+- Trigger: codex exec, codex 沙箱, read-only sandbox, unelevated, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message, 材料不足, replay-guard pre, unelevated 仍 1385, codex 讀實檔
 - Created-at: 2026-09-03
 - Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
 

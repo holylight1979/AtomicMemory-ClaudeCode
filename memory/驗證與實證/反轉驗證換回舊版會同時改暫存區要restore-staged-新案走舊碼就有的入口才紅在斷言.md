@@ -7,7 +7,6 @@
 - Confidence: [臨]
 - Trigger: 反轉, 退回舊版, 紅在斷言, AttributeError, git checkout -- 檔案, restore --staged, raising=False, 新案退回紅, 保護案例
 - Created-at: 2026-10-13
-- Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
 ## 知識
 
@@ -21,6 +20,7 @@
 - [臨] 斷言如果對整份樣板做子字串比對，可能比到樣板裡的範例句而假綠，要只取填入的那一段來比。
 - [臨] 不碰 git 暫存區的換回做法：小腳本先讀工作樹現檔 bytes，`git show <基準>:<檔>` 取舊版 bytes 蓋回原位，`pytest -k <新案名>` 只跑新案，`finally` 寫回先前讀到的 bytes 並比對相等才算還原。暫存區完全不動，不用 restore --staged；寫回的是跑之前讀到的內容，所以檔案上未提交的改動也保住。基準 rev、受測檔、測試檔、-k 表達式都當參數，同一支腳本可跨輪重用。
 - [臨] 只看 pytest 紅綠分不出「哪一案是新修的、哪一案是新舊都綠的保護案」：另寫逐案對照腳本，同一批輸入在基準版本與現在版本各跑一次、印「基準＝結果／現在＝結果／預期」。每次在全新子行程載入模組，避免同一行程拿到快取的舊模組。換回寫法同上（讀 bytes、蓋舊版、finally 寫回比對）。
+
 
 ## 行動
 

@@ -3,7 +3,6 @@
 - Scope: global
 - Author: holylight
 - Source: workflow/v6-inbox/from-track-gate-rules/001-gate-rules-done.md §6-3
-- Quote: 「你是 v6.0 的「調度」總控台（新任，接 claude-aa；對人總控台見接續單「現任」行）。職責：派工、對帳、快照複跑、合併、推送、刪樹刪分支、與各工作 session 通訊；不改碼、不開子代理、不回答原設計者。第一步 ToolSearch 載入 SendMessage 與 ListAgents，ListAgents 看自己的名字，SendMessage claude-aa 與對人總控台各一…」
 - Confidence: [臨]
 - Trigger: EnterWorktree 隔離, 含 git 字樣被擋, skip-git-repo-check 被擋, 檔名含 git 被擋, Python 啟動器, worktree Bash 守門, 隔離守門 git, PowerShell 跑 pytest, 收據對不上, push HEAD:main
 - Created-at: 2026-10-13
@@ -19,6 +18,7 @@
 - [臨] 例外：git commit 不要包進 Python 啟動器——子行程裡的 commit 不經 PreToolUse，commit 前的病形閘、隱私閘都被跳過，等於自己繞閘。worktree 裡 commit 用 PowerShell 工具直下 `git -C <wt> add <檔…> && git -C <wt> commit -F <訊息檔>`（記憶系統 repo 的豁免句型），讓閘照常檢查。
 - [臨] worktree 的 git add/commit 要單獨一條；同條帶了 live 路徑（就算只 log/status）會被 CrossRealmBashBlock 整條擋
 - [臨] 啟動器 commit 會繞過病形閘：先 stage，跑 project-smells.py --commit-check PASS 才 commit
+
 
 ## 行動
 

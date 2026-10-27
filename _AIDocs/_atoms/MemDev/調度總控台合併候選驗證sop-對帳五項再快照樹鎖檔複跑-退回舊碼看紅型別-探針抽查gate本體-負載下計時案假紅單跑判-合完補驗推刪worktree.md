@@ -3,7 +3,6 @@
 - Scope: global
 - Author: holylight
 - Source: session:81a3e55f 2026-10-13
-- Quote: 「你是 v6.0 的總控台（調度），前任是 claude-2c。先讀 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md 最上方「總控台換手」段（五條新規則＋現況），再 /continue 它。你負責：收各工作 session 交付（track-e claude-05 的 038、track-g12 claud…」
 - Confidence: [臨]
 - Trigger: 總控台對帳, 合併候選, 快照樹, console-verify, snapshot-running, 退回舊碼紅, 探針抽查, 計時案假紅, 並行負載, 工作軌交付, 調度總控台, 合完推
 - Created-at: 2026-10-13
@@ -15,6 +14,7 @@
 - [臨] 總控台自己也會被寫碼查核閘擋：scratchpad 與信箱裡的 .py 工具在路徑分類改走部位表前被當程式碼要案例；對帳工具存成 `.py.txt` 放持久目錄，要用時複製到 scratchpad 改回 .py。
 - [臨]（track-a2c 001 實踩）工作軌自列的目標 verify 清單會漏掉「全樹掃描型」靜態守門（例 verify_code_paths_from_code_root 掃所有 tools／lib 的路徑寫法），快照綠、合進 main 後 live 補驗才紅。快照腳本的清單要取聯集：軌自列目標 verify ＋ live 補驗標準清單（`workflow/inbox/merge-scripts/verify_live_after_merge.sh` 的 FILES），改到 tools／lib 路徑常數的軌尤其要帶靜態守門。漏了就歸軌小輪補修不 reset，main 在補驗綠前不推。
 - [臨] 全量已從流程拔掉（使用者裁定，全量改增量待補）：「全綠收據只在機器空閒時跑一次」那步取消；合完只做補驗與各軌宣告的驗證範圍。見 [[feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單]]
+
 
 ## 行動
 

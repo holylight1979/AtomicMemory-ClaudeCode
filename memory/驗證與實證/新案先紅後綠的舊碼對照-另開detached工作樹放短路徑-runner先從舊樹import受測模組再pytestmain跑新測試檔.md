@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: 先紅後綠, 舊碼紅, 退回舊碼看紅, red then green, 舊碼對照, 新案在舊碼上跑, detached worktree, sys.modules, pytest.main
 - Created-at: 2026-10-15
-- Quote: 「你是 v6.0 推進 session，讀 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md，照「推進的依據與方式」開工。」
 
 ## 知識
 
@@ -16,6 +15,7 @@
 - [臨] 不另開工作樹的變體：把基底檔 git show 存成 job tmp 下的 .txt（暫存路徑別含 hooks/、lib/ 這類部位目錄名，否則 OverviewHub 會把 cp 當成改部位檔擋下），runner 用 importlib.machinery.SourceFileLoader 以原模組名預載進 sys.modules，再 pytest.main 跑 worktree 的新測試檔；runner 開頭先斷言基底模組沒有新符號，紅要紅在斷言。
 - [臨] 整棵匯出變體：`git archive --format=tar <基底> | tar -x -C <暫存資料夾>` 匯出舊碼，不註冊工作樹、不動 index；把新測試檔複製進去在那棵樹直接跑 pytest。Windows 的 tar 要用 POSIX 路徑（cygpath -u），用 Windows 路徑會 Cannot open。
 - [臨] 用 git 錄製重播（git_cassette）的案例在舊碼樹要加 `WG_GIT_CASSETTE=off` 跑真 git：錄製檔是新碼錄的，舊碼的 git 呼叫序列不同，重播對不上，紅的原因就不是行為。
+
 
 ## 行動
 

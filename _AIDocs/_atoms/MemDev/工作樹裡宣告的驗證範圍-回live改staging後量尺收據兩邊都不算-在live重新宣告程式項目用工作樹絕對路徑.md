@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: v6 T1.4 session 31aa0da5（2026-10-16），宣告 31aa0da5-S3
 - Confidence: [臨]
-- Trigger: verify_scope, 驗證範圍, SCOPE_ITEM_RECEIPT_AFTER_EDIT, 工作樹, worktree, _staging, 收據不算, 指令換目錄, 別棵樹
+- Trigger: 驗證範圍, SCOPE_ITEM_RECEIPT_AFTER_EDIT, 工作樹, worktree, _staging, 指令換目錄, 別棵樹
 - Created-at: 2026-10-16
 - Quote: 「checklist文件你有更新嗎??」
 
