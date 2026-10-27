@@ -280,6 +280,42 @@ def test_headless_main_session_aborts_without_asking(box, monkeypatch):
     assert out.block and "無法互動" in out.text and u.stop() is None
 
 
+def test_headless_keeps_data_gates_after_alarm(box, monkeypatch):
+    """紅案例（CHAIN_HEADLESS_KEEPS_DATA_GATES）：無頭、警報之後，會改使用者資料的閘（KEEP_BLOCKING）照擋、同一道再擋也照擋，
+    每次都記一筆 kept、不算進次數；其餘閘（定位閘）只記錄。讓警報響的那一次是動資料檔閘也照擋。能互動的 session 不變：
+    響的那次改送停手，使用者選「放行這一回合」之後動資料檔閘照放（使用者的決定）。改前警報後全部只記錄。"""
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    t = Turn(box)
+    t.gate("A", hook="PreToolUse")
+    t.act()
+    assert t.gate("A", hook="PreToolUse") == cs.GateResult(True)                # 警報響：不是資料閘，無頭照放
+    for name in sorted(wc.KEEP_BLOCKING):
+        assert t.gate(name, hook="PreToolUse") == cs.PASS, name
+    assert t.gate("DataFileAsk", hook="PreToolUse") == cs.PASS                  # 同一道閘再擋一次也照擋
+    assert t.gate("OverviewHub", hook="PreToolUse") == cs.GateResult(True)      # 管做法的閘只記錄
+    ch = t.chain()
+    kept = [s for s in ch.steps if s.row.get("kept")]
+    assert len(kept) == len(wc.KEEP_BLOCKING) + 1 and all(s.muted and not s.row["record_only"] for s in kept)
+    assert ch.count == 1 and "會改使用者資料照擋" in wc.report(ch, t.now)
+    out = t.stop()
+    assert out.block and "照它的擋訊息補宣告" in out.text and "AskUserQuestion" not in out.text
+    f = box / "proj" / "README.md"
+    u = Turn(box, turn=2)
+    assert u.gate("DataFileAsk", hook="PreToolUse", watched=[str(f)]) == cs.PASS
+    u.act()
+    assert u.gate("DataFileAsk", hook="PreToolUse", watched=[str(f)]) == cs.PASS   # 讓警報響的這一次也照擋
+    assert u.chain().alarm and u.chain().steps[-1].row["kept"] and not u.chain().steps[-1].row["record_only"]
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    v = Turn(box, turn=3)
+    v.gate("DataFileAsk", hook="PreToolUse", watched=[str(f)])
+    v.act()
+    assert v.gate("DataFileAsk", hook="PreToolUse", watched=[str(f)]).halt       # 能互動：改送停手
+    v.answer(wc.OPT_RELEASE)
+    assert cs.halt(SID, 3, "Write", v.inp("PreToolUse"), ON) is None
+    assert v.gate("DataFileAsk", hook="PreToolUse", watched=[str(f)]) == cs.GateResult(True)
+    assert not any(s.row.get("kept") for s in v.chain().steps)
+
+
 def test_subagent_has_own_chain_and_is_not_asked(box):
     """CHAIN_SAME_TURN／CHAIN_HEADLESS_NO_ASK：子代理（帶 agent_id）的觸發另算一條鏈、不算進主 session；子代理裡中止也不問人。"""
     main, sub = Turn(box), Turn(box, agent="agent-1")

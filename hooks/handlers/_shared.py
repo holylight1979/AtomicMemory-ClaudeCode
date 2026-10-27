@@ -7,7 +7,7 @@ handlers/_shared.py — module-level state + 跨 handler 共用 helper
 - entry_note / with_note（切入點契約 hooks/wg_entrypoint；模組壞了退成不接卡，不拖垮閘）
 - _call_project_hook（subprocess invoke project hook）
 - _cleanup_old_states（state 檔 TTL 清理）
-- _is_ephemeral_path（路徑過濾）
+- _is_ephemeral_path（路徑過濾）／note_ephemeral_skip（暫存目錄專案的寫入不記帳時，一個專案根說一次）
 - _maybe_spawn_user_extract_worker（user extract worker spawn）
 """
 
@@ -169,14 +169,60 @@ def _is_ephemeral_path(path: str) -> bool:
     if not path:
         return False
     norm = _comparable(path)
-    try:
-        tmp_root = _comparable(tempfile.gettempdir()).rstrip("/")
-        if tmp_root and norm.lower().startswith(tmp_root.lower() + "/"):
-            return True
-    except Exception as e:  # noqa: BLE001  判不了暫存目錄 → 當一般路徑（照記改檔），浮一行
-        print(f"[_shared] 判斷暫存目錄失敗，路徑照一般檔處理：{type(e).__name__}: {e}", file=sys.stderr)
+    if _temp_root_of(norm):
+        return True
     norm_low = norm.lower()
     return any(tok in norm_low for tok in _EPHEMERAL_DIR_TOKENS)
+
+
+def _temp_root_of(norm: str) -> str:
+    """norm（_comparable 過的路徑）在系統暫存目錄底下 → 回暫存根（同一種表示）；不在、判不了回空字串。"""
+    try:
+        tmp_root = _comparable(tempfile.gettempdir()).rstrip("/")
+        return tmp_root if tmp_root and norm.lower().startswith(tmp_root.lower() + "/") else ""
+    except Exception as e:  # noqa: BLE001  判不了暫存目錄 → 當一般路徑（照記改檔），浮一行
+        print(f"[_shared] 判斷暫存目錄失敗，路徑照一般檔處理：{type(e).__name__}: {e}", file=sys.stderr)
+        return ""
+
+
+EPHEMERAL_NOTED_KEY = "ephemeral_noted_roots"
+EPHEMERAL_NOTED_CAP = 20
+
+
+def note_ephemeral_skip(state: Dict[str, Any], path: str) -> bool:
+    """規則 EPHEMERAL_WRITE_NOTED_ONCE：寫入目標在系統暫存目錄底下（_is_ephemeral_path 的暫存根那一支）→ 照舊不記進改檔清單，
+    同一 session（state）、同一個專案根第一次印一行 stderr 說明為什麼沒記，state 記下這個根；回 True＝這次印了（呼叫端要寫回 state）。
+    不在暫存根底下、只因快取目錄（__pycache__、.pytest_cache）判成暫存的那一支不是專案，不印。專案根＝檔所在的版控根；沒有就 session 的 cwd（檔在它底下時）；
+    再沒有就暫存根底下第一層資料夾。"""
+    norm = _comparable(path) if path else ""
+    tmp_root = _temp_root_of(norm) if norm else ""
+    if not tmp_root:
+        return False
+    root = _ephemeral_project_root(norm, tmp_root, str((state.get("session") or {}).get("cwd") or ""))
+    seen = state.get(EPHEMERAL_NOTED_KEY)
+    seen = [str(r) for r in seen] if isinstance(seen, list) else []
+    if root.lower() in seen:
+        return False
+    state[EPHEMERAL_NOTED_KEY] = (seen + [root.lower()])[-EPHEMERAL_NOTED_CAP:]
+    print(f"[Guardian:EphemeralWrite] {root} 在系統暫存目錄底下，這個專案的寫入照暫存檔處理、不記進改檔清單："
+          "收尾的對帳、第二意見、同步提醒都看不到這些改動。要讓閘照看，把專案放到暫存目錄以外。本 session 這個專案只說這一次。",
+          file=sys.stderr)
+    return True
+
+
+def _ephemeral_project_root(norm: str, tmp_root: str, cwd: str) -> str:
+    try:
+        from wg_verify_ledger import vcs_root_of
+        vcs = vcs_root_of(norm)
+    except Exception as e:  # noqa: BLE001  找不到版控根 → 退回 cwd／暫存根第一層
+        print(f"[_shared] 找暫存專案的版控根失敗，改用 cwd 或暫存根第一層：{type(e).__name__}: {e}", file=sys.stderr)
+        vcs = None
+    if vcs is not None:
+        return _comparable(str(vcs))
+    base = _comparable(cwd) if cwd else ""
+    if base and norm.lower().startswith(base.lower().rstrip("/") + "/"):
+        return base.rstrip("/")
+    return f"{tmp_root}/{norm[len(tmp_root) + 1:].split('/', 1)[0]}"
 
 
 # ─── Project delegate hook ───────────────────────────────────────────

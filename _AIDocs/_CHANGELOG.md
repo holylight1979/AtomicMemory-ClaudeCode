@@ -4,6 +4,14 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 沒人能答時改使用者資料的閘照擋；用 Bash 讀過的檔算讀過；暫存目錄專案的寫入不記帳時說一聲
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：
+  - **無頭、子代理裡連鎖斷路器警報之後，改使用者資料的閘照擋**（規則 CHAIN_HEADLESS_KEEPS_DATA_GATES，`hooks/wg_chain.py` 的 `KEEP_BLOCKING`／`keeps_blocking`，`lib/chain_store.gate_fired`）：動資料檔、改舊測試、commit 前的版控口令／隱私檔／svn 測試路徑、專案 session 改根層核心或全域 MCP 這八道，讓警報響的那一次也照原擋訊息擋，每次記一筆 kept（不算進次數、不再警報），經過表標「會改使用者資料照擋」、收尾中止通知寫明要照擋訊息補宣告。其餘閘（定位、目標樹、對帳、病形、繞閘、記憶寫入路徑）照舊只記錄。原本警報後全部只記錄，一次無頭量測裡 ops/README.md 沒宣告就改成了。能互動的 session 不變（警報後本來就停手到使用者選）。
+  - **用 Bash／PowerShell 讀過的部位檔跟 Read 一樣算讀過**（規則 SHELL_READ_COUNTS_LIKE_READ，`hooks/wg_overview.py` `_read_paths`／`on_read`；需求目標的讀入範圍共用）：第一次碰到某部位就用一條 `cat A B C` 讀三個檔，原本注入導讀卡之後就停、一個都沒記（定位閘說讀過 0 個），現在注入之後的檔照記（跟送三個 Read 一樣 2 個）；MSYS 寫法 `/c/…`、不帶 -n 的 grep、開頭 `cd <目錄> &&` 之後的相對路徑也算；只印檔名、筆數或不印的 grep（-l／-L／-c／-q）帶了 -n 也不算（原本 `grep -nl` 這類會被算成讀過）。
+  - **會寫檔的指令讀到的檔不算讀過**（規則 SHELL_WRITE_COMMAND_NOT_A_READ）：`cat x > out`、`| tee`、`sed -i`、PowerShell `Out-File`／`>` 這類有寫檔目標的指令，整條讀到的檔不算、也不注入導讀卡（原本 `cat x > out` 算讀過 x）。
+  - **專案放在系統暫存目錄底下時，寫入照舊不記帳，但說一聲**（規則 EPHEMERAL_WRITE_NOTED_ONCE，`hooks/handlers/_shared.note_ephemeral_skip`，`post_tool_use` 的 Edit／Write、Bash／PowerShell、失敗指令、判不出目標補算四處）：同一 session、同一個專案根第一次印一行 stderr `[Guardian:EphemeralWrite]`，說明收尾的對帳、第二意見、同步提醒看不到這些改動。
+- **驗證**：新案例 `verify_chain_breaker::test_headless_keeps_data_gates_after_alarm`、`verify_chain_wiring::test_headless_after_alarm_data_file_blocked_code_file_record_only`（走真 pre_tool_use 入口）、`verify_overview_hub::test_shell_read_counts_like_read`／`test_shell_write_command_not_a_read`、`verify_ephemeral_path::test_temp_project_write_not_noted_but_said_once_per_root`、`verify_release_rules::test_gate_design_rules_registered_with_cases`；`verify_chain_wiring` 兩案的舊斷言（無頭響的那一次動資料檔照放）照新設計改成照擋。拿 main 5ccf44d2 的程式回放，新案全紅。
+- **已知限制**：指令中間的 cd 不追（只認開頭那一個）；grep 判會不會印內容時不認 `--` 與 `-e <樣式>`，樣式長得像旗標（`grep -- -q x`）會少算一次讀檔；暫存專案的說明記最近 20 個專案根，超過時最早的根之後會再說一次；裁判子 session 的改檔記帳沒加暫存說明。
 ## 2026-10-23 第一回合收得乾淨之後，後面回合的改動照樣有同步提醒
 - **使用者會看到的**：session 第一回合只問問題、沒改檔，收尾會把 session 標成 done；以前 done 一路沿用到 session 結束，之後改了再多檔，收尾的同步提醒、底部一般提醒（待記知識、文件漂移）、擋下時「後面還會擋」那段的同步都不再出現。續接（`claude -p --resume`）更明顯：每一段結束時 SessionEnd 都標 done，續接開場印「Phase: done」，之後一次都不提醒。現在：
   - **新的一則話把 done 改回 working**（規則 PROMPT_REOPENS_DONE，`hooks/handlers/user_prompt_submit.py`）：同伴訊息、背景通知也算；SessionEnd 一起留的 `ended_at` 也拿掉（續接中的 session 不再被 MCP 面板清理當成已結束、一分鐘就刪 state）；改完當場寫回 state，後面檢索、注入逾時被砍也不留舊的 done。syncing（同步進行中）、merged（轉址）不動。擋次照舊：同步提醒每 session 最多 `sync_reminder.max_reminders` 次（預設 1），本回合收尾檢核 (g) 已交代就不擋（SYNC_COVERED_BY_CLOSING_CHECK）。
