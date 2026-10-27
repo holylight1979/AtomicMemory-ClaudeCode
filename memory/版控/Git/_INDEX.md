@@ -16,6 +16,7 @@
 | gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-identity-星號md誤傷identity開頭的atom | gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-IDENTITY-星號md誤傷identity開頭的atom |
 | sed-i-在-crlf-repo-會整檔改換行 | sed -i 在 CRLF repo 會整檔改換行 |
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
+| 兩分支各自把文件裡的計數改成同一個數-合併不衝突但總數已錯-合併後計數用程式重算不信合併結果 | 兩分支各自把文件裡的計數改成同一個數-合併不衝突但總數已錯-合併後計數用程式重算不信合併結果 |
 | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回HEAD原文再update-index |
 | 共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 | 共用工作樹有MERGE_HEAD時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 |
 | 合併停在衝突又有功能改動時先只交解衝突的合併commit-功能改動另開commit-不混成暗改的合併 | 合併停在衝突又有功能改動時先只交解衝突的合併commit-功能改動另開commit-不混成暗改的合併 |

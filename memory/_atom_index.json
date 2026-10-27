@@ -3672,7 +3672,9 @@
         "SyntaxError unterminated",
         "assert old in s",
         "post-mortem",
-        "Write 工具"
+        "Write 工具",
+        "python -X utf8 -c",
+        "PowerShell python -c"
       ],
       "scope": "global",
       "related": [
@@ -11949,7 +11951,10 @@
         "ensure-mcp.py",
         "user-init.sh",
         "rmtree 唯讀",
-        "排除詞判不出完成"
+        "排除詞判不出完成",
+        "CLAUDE_EFFORT",
+        "子行程繼承環境變數",
+        "ListAgents"
       ],
       "scope": "global",
       "related": [
@@ -12639,7 +12644,10 @@
         "結果新鮮度",
         "別 session 的工作",
         "取到 done 就算跑過",
-        "結果過期"
+        "結果過期",
+        "session 前 8 碼",
+        "ID 前綴碰撞",
+        "tool_use_id 歸屬"
       ],
       "scope": "global",
       "related": [
@@ -13612,6 +13620,40 @@
       "related": [
         "svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8",
         "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉"
+      ]
+    },
+    {
+      "name": "提早送的觸發點綁在ai自選的單一工具上會因走法改變而失效-附著點要認多種收尾類工具並留舊送法當退路-改後先核對新跑裡那個時點還會出現",
+      "path": "memory/設計通則/提早送的觸發點綁在ai自選的單一工具上會因走法改變而失效-附著點要認多種收尾類工具並留舊送法當退路-改後先核對新跑裡那個時點還會出現.md",
+      "triggers": [
+        "提早送",
+        "觸發點",
+        "附著點",
+        "綁單一工具",
+        "AI 自選工具",
+        "收尾類工具",
+        "走法改變",
+        "舊送法退路"
+      ],
+      "scope": "global",
+      "related": [
+        "量某處改動省多少前先核實那筆花費在受測題的實跑帳上出現過-沒出現改前改後必然一樣-砍前數字要出自同一題同一版"
+      ]
+    },
+    {
+      "name": "兩分支各自把文件裡的計數改成同一個數-合併不衝突但總數已錯-合併後計數用程式重算不信合併結果",
+      "path": "memory/版控/Git/兩分支各自把文件裡的計數改成同一個數-合併不衝突但總數已錯-合併後計數用程式重算不信合併結果.md",
+      "triggers": [
+        "合併不衝突但計數錯",
+        "文件寫死數量",
+        "兩邊各自加一",
+        "合併後重算",
+        "len(RULES)",
+        "語意衝突"
+      ],
+      "scope": "global",
+      "related": [
+        "案例不要寫死會合法增長的清單長度-照實際讀到的算-只斷言每一項的性質"
       ]
     }
   ]
