@@ -2,7 +2,7 @@
 
 做什麼：state 重建時回合編號與回合鍵照搬（session_start._CARRY_ON_REBUILD）；鍵還是不在（從零建）時，UserPromptSubmit 第一則進來的
 訊息就算是同伴訊息也把鍵錨在這一則（ups_gates.track_turn_prompts）。鍵不在時 user_turn 退回逐則前進的 turn_seq，只進同伴訊息的
-那段每則都被當成新使用者回合：調度分頁實測 compact 重建 state 後，PickOne 每則同伴訊息都再問一次（turn 14／15／17／19／49…）。
+那段每則都被當成新使用者回合：實測長 session compact 重建 state 後，PickOne 每則同伴訊息都再問一次（turn 14／15／17／19／49…）。
 正例：重建後連三則同伴訊息，每則都改了程式、到交付邊界 → PickOne 只問一次；重建前的回合鍵、回合編號照舊；從零建的 state 第一則
       同伴訊息就錨定，之後同伴訊息不前進、使用者打字照舊開新回合。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_user_turn_key.py
