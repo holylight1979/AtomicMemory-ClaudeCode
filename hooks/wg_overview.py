@@ -874,14 +874,12 @@ def read_scope_keys(path: str, config: Dict[str, Any]) -> Tuple[Optional[Path], 
     return root, (_key(*hit) if hit else None), f"{_root_key(root)}|{top_dir(path, root)}"
 
 
-# 目標改了之後重送導讀卡用的視角（取代 goal_weights 依意圖選的 lens）
-GOAL_VIEW_LENS = "目標視角：這一塊服務目標樹哪個節點？目標改了之後，先前在這裡的判斷還成立嗎？"
-
-
 def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], rec: Dict[str, Any],
                hit_path: str, cfg: Dict[str, Any]) -> Optional[str]:
-    """目標改變後（on_goal_changed 記了 goal_reset_turn）已碰過的部位再讀到 → 導讀卡改用目標視角重送一次
-    （goal_view_turn 記重送過的那次重置）。不重建部位紀錄，讀過的部位檔照算。"""
+    """目標改變後（on_goal_changed 記了 goal_reset_turn，第一次 need_goal set 也算）已碰過的部位再讀到 → 用目標視角重看一次
+    （goal_view_turn 記重看過的那次重置）。規則 GOAL_VIEW_ONE_LINE：只送一行——目標視角的提問＋當前節點
+    （wg_need_goal_points.goal_view_text 兩段併成一行），不重貼導讀卡、定位要求與部位表原文（卡在第一次注入時已經送過）。
+    不重建部位紀錄，讀過的部位檔照算。"""
     reset = rec.get("goal_reset_turn")
     rec["goal_view_turn"] = reset
     try:
@@ -893,12 +891,9 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
         return None
     if not head:
         return None
-    card_paths, _miss = _resolve_row_cards(root, row, cfg)
-    extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
-    text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), _locate_template(cfg), extra,
-                                    [], GOAL_VIEW_LENS, "")
-    _log("goal_view", session_id, part=row["part_short"], path=hit_path, reset_turn=reset, chars=len(text), slices=used)
-    return f"{head}\n{text}"
+    line = " ".join(s.strip() for s in head.splitlines() if s.strip())
+    _log("goal_view", session_id, part=row["part_short"], path=hit_path, reset_turn=reset, chars=len(line), slices=[])
+    return line
 
 
 _MSYS_DRIVE_RE = re.compile(r"(?<![^\s'\"=(])/([A-Za-z])(?=/)")
@@ -1500,6 +1495,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                f"卡片現在才注入（下面）。{todo}\n{text}")
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",
              intent=_intent_of(state), layer=cfg.get("_layer"), kind=_oh.KIND_KNOWLEDGE if knowledge else _oh.KIND_CODE)
+        _note_block(state, key)
         return (msg, msg, True)
     _migrate_rec(rec)
     rec["edits"] = int(rec.get("edits", 0)) + 1
@@ -1531,6 +1527,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                        f"表外檔讀了 {len(reads) - len(part_files)} 個不算）")
     if len(depends_files) < int(ev["depends_files"]):
         missing.append(f"還沒讀過卡片指到的檔（要 ≥{ev['depends_files']} 個，目前 {len(depends_files)} 個）")
+    n_evidence = len(missing)             # 讀檔證據缺的條數；之後加的都是定位行的（LOCATE_BLOCK_ONCE_PER_USER_TURN 用）
     # 有需求目標樹而且改的是程式檔：定位三行之後要第四行「定位｜目標：<節點編號>」，編號要在目前的樹（換了樹或節點放棄就重交）
     goal_tree = _goal_tree_for(session_id, file_path, config) if readable else None
     if readable and (not rec.get("located") or (goal_tree is not None and not _goal_linked(rec, goal_tree))):
@@ -1579,7 +1576,9 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         else:
             # 規則 LOCATE_ASK_ONCE：第一次擋就把內容要求（兩個候選＋選擇理由、節點與角色、批判的判斷）與填好部位、節點的範例一起給，
             # 一次交齊；不先只給骨架、交了再擋一輪說格式不對
-            where = (f"寫在回覆文字，或{_rr.DECL_VIA_COMMENT}；只寫在 thinking 裡程式可能讀不到；"
+            # 規則 LOCATE_NOT_IN_THINKING：thinking 那條路講死（受測設定 thinking 不落盤，AI 寫了還被擋第二次）
+            where = (f"寫在回覆文字，或{_rr.DECL_VIA_COMMENT}；不要寫在 thinking：thinking 預設不寫進 transcript，"
+                     f"hook 讀不到，只寫在那裡照樣會再擋一次；"
                      f"{_rr.DECL_KEEP_EDIT}")         # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
             if goal_tree is not None:
                 missing.append(f"還沒交出定位行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。{where}。"
@@ -1617,6 +1616,14 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
     turn = int(state.get("turn_seq", 0) or 0)
+    # 規則 LOCATE_BLOCK_ONCE_PER_USER_TURN：同一個使用者回合定位閘已經擋過別的部位 → 這個部位只缺定位行時改一行提醒、放行、留帳；
+    # 缺讀檔證據照擋，擋過的那個部位再缺照擋（照下面的擋次上限），下一個使用者回合重來
+    blocked = _blocked_parts(state, _rr.user_turn(state, turn))
+    if n_evidence == 0 and blocked and key not in blocked:
+        _log("edit_locate_reminded", session_id, part=row["part_short"], path=file_path, rule="LOCATE_BLOCK_ONCE_PER_USER_TURN",
+             deny_reason=deny_reason, blocked_parts=len(blocked))
+        return (f"[Guardian:OverviewHub] 【{row['part_short']}】還沒交定位行；這個使用者回合定位閘已擋過一次，這次只提醒、放行並留帳。",
+                None, True)
     # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
     # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
     # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
@@ -1637,7 +1644,24 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
                f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
         _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
+        _note_block(state, key)
         return (msg, msg, True)
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
            + "\n".join(f"- {m}" for m in missing))
+    _note_block(state, key)
     return (msg, msg, True)
+
+
+_BLOCKED_KEY = "overview_locate_blocked"
+
+
+def _blocked_parts(state: Dict[str, Any], uturn: int) -> List[str]:
+    """LOCATE_BLOCK_ONCE_PER_USER_TURN：這個使用者回合（wg_release_rules.user_turn）定位閘已經擋過的部位鍵；換回合是空的。"""
+    rec = state.get(_BLOCKED_KEY)
+    return [str(p) for p in rec.get("parts") or []] if isinstance(rec, dict) and rec.get("turn") == uturn else []
+
+
+def _note_block(state: Dict[str, Any], key: str) -> None:
+    """定位閘擋了這個部位：記進這個使用者回合擋過的部位（換回合從空的起）。"""
+    uturn = _rr.user_turn(state, int(state.get("turn_seq", 0) or 0))
+    state[_BLOCKED_KEY] = {"turn": uturn, "parts": list(dict.fromkeys([*_blocked_parts(state, uturn), key]))}

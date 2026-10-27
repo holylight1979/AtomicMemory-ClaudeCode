@@ -4029,3 +4029,16 @@ RULES.update({
                               " 的 full），resume 清空 injected_atoms 後再命中只給一行指回（form＝seen，不算路標、取用端稽核不追問）；"
                               "壓縮之後、之前只送過一行或只送章節、判不出先後的照常送。送出時間與章節標記只在總開關開時記。",
 })
+
+
+# ─── 定位閘每個使用者回合最多擋一次、thinking 那條路講死、目標視角重看只一行（判定在 hooks/wg_overview.py，這裡只登錄） ───
+RULES.update({
+    "LOCATE_BLOCK_ONCE_PER_USER_TURN": "同一個使用者回合（user_turn：使用者本人打字開的回合，同伴訊息、背景通知續跑不算新回合）定位閘已經擋過"
+                                       "某個部位之後，別的部位只缺定位行 → 一行提醒、放行、留帳（_overview-hub.log event=edit_locate_reminded）；"
+                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來"
+                                       "（wg_overview.on_edit、_blocked_parts／_note_block，state overview_locate_blocked）。",
+    "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要寫在回覆文字或"
+                              "不寫檔指令開頭的 # 註解（wg_overview.on_edit 的 where）。",
+    "GOAL_VIEW_ONE_LINE": "目標視角重看（目標改了之後已碰過的部位再讀到，第一次 need_goal set 也算）只送一行：目標視角提問＋當前節點"
+                          "（wg_need_goal_points.goal_view_text 併成一行），不重貼導讀卡、定位範本與部位表原文（wg_overview._goal_view）。",
+})
