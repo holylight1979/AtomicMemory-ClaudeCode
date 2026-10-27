@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 先紅後綠, 舊碼紅, 退回舊碼看紅, red then green, 舊碼對照, 新案在舊碼上跑, detached worktree, sys.modules, pytest.main
 - Created-at: 2026-10-15
+- Quote: 「你是 v6.0 推進 session，讀 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md，照「推進的依據與方式」開工。」
 
 ## 知識
 
