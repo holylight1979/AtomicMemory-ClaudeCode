@@ -902,16 +902,29 @@ def _judge_error(state: Dict[str, Any], key: str, turn_seq: int, gate: str, what
     return f"{head}。{fix}；先別宣告完成（規則 GATE_SELF_ERROR：同一個錯誤只擋這一次，之後放行並留帳）"
 
 
+CLOSING_ONE_CALL = ("收尾三段一次交齊：目標對照放 anti_evasion_report 的 reconcile 欄（同 need_goal reconcile 的 items／turns）、"
+                    "知識收割放 harvest_items，跟收尾檢核同一次交，不必另呼叫 need_goal reconcile、knowledge_harvest_report；已分開交過的不用重交。")
+
+
+def closing_reconcile_hint(aec_emitted: bool) -> str:
+    """規則 CLOSING_MISSING_PART_HINT：(f2) 擋下時寫明缺的是目標對照、怎麼補（跟 anti_evasion_report／need_goal 說明同一個說法）：
+    本回合交過收尾檢核 → 只補對照，收尾檢核不重交；還沒交 → 一次交齊。"""
+    if aec_emitted:
+        return "收尾三段：收尾檢核本回合已交，缺目標對照——只補這段：need_goal(action=reconcile, items=…)，收尾檢核不用重交。"
+    return f"收尾三段：缺目標對照。{CLOSING_ONE_CALL}"
+
+
 def _verify_gates(
     state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
     transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
     rg_cfg: Dict[str, Any], sg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
     claims: List[str] = (), pending: bool = False, goal: bool = False, goal_cfg: Optional[Dict[str, Any]] = None,
+    coding: bool = True,
 ) -> tuple:
     """對帳閘＋驗證範圍閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／scope／"",
     提醒或 None：背景全量新記的範圍漏判)。寫碼查核＝對帳 (a)～(d)＋驗證範圍；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
     goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)(f3)，併進寫碼查核；記憶知識類的輕樹 (f4) 併進 (e) 那一份；
-    子代理與裁判不跑目標對照。
+    子代理與裁判不跑目標對照。coding＝False（不是寫碼回合，也不是本 session 改過程式後交收尾檢核）：(f2)(f3) 不判（規則 CLOSING_GOAL_CODING_ONLY），(f1)(f4) 照判。
     (a)(b)(c) 對 last_text 與 claims（pending 承接的本回合先前宣稱）；(d) 與驗證範圍不看措辭，有改碼紀錄就判（last_text 空也判）。
     自寫收據（_runs/）驗證範圍（入帳找漏判）與 (a) 共用，只讀一次。寫碼查核整個過了 → 這份驗證範圍記成結案。
     判定本身出錯 → stderr＋guard_log 每次都記；同一個錯誤每個使用者回合只擋一次（_judge_error），之後放行並留帳。"""
@@ -1040,11 +1053,14 @@ def _verify_gates(
         boundary = bool(claims_completion(last_text) or claims or aec_emitted)
         try:
             from wg_need_goal import goal_gate_reason
-            g_reason = goal_gate_reason(session_id, boundary, goal_cfg,
+            # 收尾段只在寫碼回合要（CLOSING_GOAL_CODING_ONLY）：不是寫碼回合就不當交付邊界，(f2)(f3) 不判
+            g_reason = goal_gate_reason(session_id, boundary and coding, goal_cfg,
                                         state=state, transcript_path=str(transcript) if transcript else "")
         except Exception as e:  # noqa: BLE001
             g_reason = _judge_error(state, session_id, turn_seq, "ReconcileGate", "需求目標對照", "reconcile", "goal_error", e,
                                     "修好目標檔（workflow/need-goal/）或回報")
+        if g_reason and "(f2)" in g_reason:
+            g_reason = f"{g_reason}\n{closing_reconcile_hint(aec_emitted)}"
         if g_reason:
             reason = f"{reason}\n{g_reason}" if reason else g_reason
             kind = "reconcile"
@@ -1973,7 +1989,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if "[Guardian:KnowledgeHarvest]" not in reason and not background_on(config) and harvest_gate_reason(
                 state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq),
                 claimed=_done(last_text)):
-            later.append((("KnowledgeHarvest",), "知識收割：值得留的先 atom_write，再呼叫 knowledge_harvest_report"))
+            later.append((("KnowledgeHarvest",), "知識收割：值得留的先 atom_write，再交收割清單（anti_evasion_report 的 harvest_items "
+                                                 "跟收尾檢核一次交，或 knowledge_harvest_report）"))
         if ("[Guardian:Cleanup]" not in reason
                 and (state.get("cleanup_gate_turn") or {}).get(session_id) != _user_turn(state, turn_seq)):
             _cv = leftover_cleanup_verdict(True, _cleanup_facts())
@@ -1985,7 +2002,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
                                                 int(config.get("min_files_to_block", 2)), emitted_this_turn,
                                                 claimed=_done(last_text))):
-            later.append((("ScanReport",), "收尾檢核：最後呼叫 anti_evasion_report"))
+            later.append((("ScanReport",), "收尾檢核：最後呼叫 anti_evasion_report（目標對照放 reconcile、知識收割放 harvest_items，"
+                                           "一次交齊）"))
         if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
                 and not state.get("muted") and phase not in ("done", "syncing")):
             sr = config.get("sync_reminder", {}) or {}
@@ -2165,7 +2183,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
             state, session_id, turn_seq, code_text, transcript, transcript_text, own_mod_files,
             _rg_cfg, _sg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
-            goal=True, goal_cfg=config,
+            # 本 session 改過程式又交了收尾檢核＝交付邊界，不說完成也算（只看措辭會漏）；本 session 沒改過程式才豁免
+            goal=True, goal_cfg=config, coding=_coding or (emitted_this_turn and _wrote_code(own_mod_files, config)),
         )
         if _vg_advice:
             print(_vg_advice, file=sys.stderr)
@@ -2600,7 +2619,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "本 session 跑過哨兵驗證就**必填真存在的路徑**（Stop 對帳閘會查 exists），沒有收據才填「無」\n"
                 "  (k) 追蹤項：還沒做完、要追的事一行一項（會進 workflow/tracking 帳本）；沒有寫「無」，**不接受空字串**\n"
                 "十參都 required、未發生填「無」（(c) 已刪，不必送）；本回合已交收割報告的話 (d) 可只寫「見收割報告」。"
-                "不得用 prose「不在範圍 / 留給未來」籠統帶過。"
+                "不得用 prose「不在範圍 / 留給未來」籠統帶過。\n" + CLOSING_ONE_CALL
 
             )
             write_state(session_id, state)

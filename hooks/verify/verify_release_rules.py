@@ -2710,6 +2710,14 @@ def test_closing_round_rules_cased_in_closing_round(rule):
     assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("rule", ["CLOSING_RECONCILE_IN_REPORT", "CLOSING_MISSING_PART_HINT", "CLOSING_GOAL_CODING_ONLY",
+                                  "CLOSING_CALL_ALL_THREE"])
+def test_closing_merge_rules_cased_in_closing_merge(rule):
+    """收尾三段一次交齊的規則：端到端案例在 verify_closing_merge.py（PostToolUse→Stop）。"""
+    assert rule in rr.RULES
+    assert rule in (Path(__file__).parent / "verify_closing_merge.py").read_text(encoding="utf-8")
+
+
 # ─── 定位與立樹先提示後擋：規則名登錄、對照的案例真的在、案例點到規則名 ───
 def test_locate_hint_rule_registered_with_case():
     text = (Path(__file__).parent / "verify_locate_hint.py").read_text(encoding="utf-8")
