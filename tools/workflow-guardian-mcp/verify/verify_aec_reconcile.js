@@ -18,7 +18,7 @@ const fail = (m) => { ok = false; console.error("FAIL: " + m); };
       const e = errsOf(r);
       if (!e.length || !e.every((x) => x.startsWith("reconcile"))) fail(`${label} 沒拒或沒前綴：${JSON.stringify(e)}`);
     }
-    if (errsOf([1], false).length) fail("守門關閉時不該驗 reconcile 欄");
+    if (errsOf([1], false).some((x) => x.includes("reconcile"))) fail("守門關閉時不該驗 reconcile 欄");   // e／f／g 照舊必填那幾條不算
 
     const t = mcp.TOOL_DEFINITIONS.find((x) => x.name === "anti_evasion_report");
     if (!t.inputSchema.properties.reconcile || t.inputSchema.required.includes("reconcile")) fail("schema 沒有選填的 reconcile");
