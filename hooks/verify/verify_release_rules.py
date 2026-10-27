@@ -2655,3 +2655,13 @@ def test_quote_from_user_opened_turn_registered():
     （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
     assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
     assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()
+
+
+def test_inject_lean_rules_registered_with_cases():
+    """CODING_TURN_FULL_ONLY_ON_TRIGGER／POINTER_NO_NAME_ECHO／NO_RESEND_AFTER_RESUME：判定在 hooks/handlers/ups_inject.py，
+    案例在 verify_inject_lean.py（每條至少一支、案例檔點到規則名）。"""
+    text = (Path(__file__).resolve().parent / "verify_inject_lean.py").read_text(encoding="utf-8")
+    for rule, fn in (("CODING_TURN_FULL_ONLY_ON_TRIGGER", "test_coding_turn_full_only_on_trigger"),
+                     ("POINTER_NO_NAME_ECHO", "test_cold_line_drops_name_echo"),
+                     ("NO_RESEND_AFTER_RESUME", "test_resume_does_not_resend_full_card")):
+        assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule

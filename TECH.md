@@ -318,7 +318,7 @@ sequenceDiagram
 | 6 | supersedes | **候選池層**先剔除被 `Supersedes` 指到的舊 atom（集合每 session 在 SessionStart 算一次存 `atom_index.superseded`，trigger／BM25／vector／Related 共用同一池；子代理注入用另一個只含全域索引的池，但套同一套被取代規則）；候選層再掃一次補中途新增的取代聲明；明確要看舊做法才放行：同時有歷史詞（以前／舊版／之前…）與查閱或比較動詞（怎麼做／比較／列出…），且歷史詞前面沒有否定（「不要用舊的」「舊版已被取代」不放行） | `wg_atoms.collect_superseded_names`、`superseded_names_cached`；`ups_search._HISTORY_QUERY_RE` |
 | 7 | RRF 融合 | 三路各自排名 → `Σ 1/(60+rank)` | `RRF_K_DEFAULT` 60；`fusion:"legacy"` 可回退 |
 | 8 | 活化調節 | `final = rrf × exp(gain × activation_rank)`，**gain 現為 0**（activation 只在 hot/cold 與最終裁切起作用，不再左右相關性排序）；再減分心懲罰 | ACT-R `ln(Σ t^-d)`；`vector_search.rrf_activation_gain` 0（程式預設常數 0.25 保留為回滾值） |
-| 9 | hot/cold | trigger 命中恆 hot；其餘看 access 近期性；cold → 一行摘要 | `hot_recent_threshold` 3 |
+| 9 | hot/cold | trigger 命中恆 hot；其餘看 access 近期性；cold → 一行摘要。寫碼回合（守門總開關開、這則判成寫碼意圖，`ups_inject._lean_turn`）只有 trigger 命中算 hot，bm25／vector／related 一律 cold 一行（CODING_TURN_FULL_ONLY_ON_TRIGGER）；一行指標的摘要只是卡名再寫一次就不重印（POINTER_NO_NAME_ECHO）；本 session 最近一次壓縮之後已整段送過的卡再命中只給一行指回（NO_RESEND_AFTER_RESUME，見 §5.2） | `hot_recent_threshold` 3 |
 | 10 | 同題去冗 | 與本 turn 已全文注入者 trigger **精確**重疊 ≥3 → 只送節錄 | `injection.redundancy_gate.min_shared_triggers` 3 |
 | 11 | per-turn 三態 | 累計 vs 硬頂：ok（全文）／fallback（節錄）／skip（一行指標）。「全文」是注入版（`wg_atoms._strip_atom_for_injection`）：標題＋Confidence／Trigger／Status＋印象段＋知識段（超過 200 tok 截斷並標「已截斷，原 N tokens」）＋行動段，HTML 註解剝掉；冷行、路標、標頭都算進硬頂；連續 2 次塞不下（`_BUDGET_SKIP_STREAK_MAX`）才停 | `wg_core.TURN_BUDGET_LIMIT` 1200 |
 | 12 | related spread | 沿 `Related` 走 1 層；relevance gate 只留最小高訊號集，另有查詢閘：對全池跑 BM25，分數低於 `query_gate_min` 的鄰居不擴散 | `max_related` 6、`skip_demoted`、`query_gate_min` 5（程式預設 3.5） |
@@ -349,6 +349,8 @@ sequenceDiagram
 **為什麼總額分級看 token 不看字元**：中文 37 字（≈33 tok）是一句實質問句，卻被字元數分級壓到 1000；英文 76 字（19 tok）反而拿 2000。`_estimate_tokens` CJK-aware（中文 ~1.5 tok/字），全管線同一口徑。
 
 **為什麼同題去冗**：一句「git 收尾」曾同時命中 3 顆同題 atom 全文（~1,000 tok 講同一件事）。trigger 精確重疊 ≥3 的 atom 對，全庫 8,515 對只有 4 對、且皆真同題——門檻是校準過的；子字串重疊不採計（泛 trigger 噪音）。被判冗餘者不是丟，是降成「表頭 + 知識前兩句」並標 `same-topic → 代表者`。
+
+**為什麼寫碼回合只給 trigger 整段、指標不重印卡名、resume 不重送**：寫碼回合的記憶卡段每一次模型呼叫都在輸入裡，改程式題第一回合約 20 次呼叫，段裡每多 1 token 第一回合就多約 20 token。trigger 命中＝卡的觸發詞出現在使用者原話裡，是「該想起的」；bm25／vector／related 只是沾邊，hot（7 天內讀過 ≥3 次）是常用不是對題，寫碼回合給一行路徑，要用再 Read；一行送過的卡之後被 trigger 命中仍補整段（它還在 `injected_atoms`，搜尋段不會再給它，由組裝段從全池補回），否則先沾邊的卡會把之後真的對題的那次擋掉。一行指標原本把卡名寫三次（`[Atom:卡名]`、摘要＝標題、路徑），摘要跟卡名去掉標點後相同或是它的開頭時不重印，每行省 40～60 token；摘要是印象行、或比卡名多資訊的照留。同一段 session 內已注入的卡本來就由 `injected_atoms` 排除；SessionStart 在 resume／compact 都會清空它，但 resume 後對話還在 context 裡（實測 resume 第一次呼叫的輸入＝上一回合最後一次呼叫的輸入＋輸出＋新進），所以用 `injection_log` 的送出時間（`at`，只在總開關開時記）判「最近一次壓縮（`pre_compact_snapshot`／`post_compact_at`）之後整段送過」→ 一行指回（form `seen`，取用端稽核不追問）；壓縮之後原文已不在 context，照送；只抽了命中章節送的（紀錄 `sections`）不算整段，照送；判不出先後的也照送。trigger 命中的卡送的整段跟以前一字不差（拿改程式題實跑紀錄重播，三張 trigger 卡兩版逐字相同）。
 
 **為什麼 fallback 是節錄不是標題**：降級版保留知識段前 2 條（[固]/[觀] 優先、每條 160 字），最肥 atom 537→349 tok。只剩標題的降級版，模型看了也不會去 Read。
 
@@ -745,7 +747,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.8 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
 
-每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 156 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
+每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 159 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
 
 | 規則 | 判什麼 | 不欠／放行的條件 | 照欠／照擋 |
 |---|---|---|---|
@@ -884,6 +886,9 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | CHAIN_NO_EDIT_NO_EDGE | 連鎖斷路器：兩次擋之間沒改檔算不算修補（判定在 `hooks/wg_chain.py` 的 `changes_files`／`link`／`same_count`，§7.12） | 兩次擋之間的動作都沒改到檔（重跑、沒寫入目標的指令、重交報告、改目標樹）→ 同一道閘不接邊、不算同閘次數；不同的閘照「沒記到動作」判 | 中間有改檔、寫卡、子代理 → 照接、照算；原樣重送被擋的呼叫照 CHAIN_SAME_CALL_RETRY |
 | CHAIN_ABORT_SHOWS_REPLACED_BLOCK | 中止換掉的那次擋，原擋訊息送不送得到 AI（`wg_chain.notice_text`／`halt_text` 的 replaced，`chain_store.gate_fired` 傳全文） | — | 讓警報響的那一次，原擋訊息（含附註）照附在中止通知或停手訊息最後，超過 2000 字留開頭並標原文長度；之後的停手訊息、提醒不附 |
 | QUOTE_FROM_USER_OPENED_TURN | 卡片 Quote 自動填與回填取哪則使用者原話（`wg_provenance._turn_quote`、回填的 `not_user_turn`；案例 `verify_quote_user_turn`；細節見 §8「來源自動填」） | 寫卡那一回合是使用者本人打字開的：主 session 取 `turn_prompts` 最後一則；子代理取派它那一回合（子代理檔第一筆 `promptId` 對主檔開回合的紀錄）的真人原話；貼上的內容剔掉 | 同伴訊息、背景通知開的續跑回合（`turn_typed=False`）、子代理派出的回合不是真人開的或對不到、子代理檔裡的任務 prompt、整則是貼上的內容 → 不填 Quote（Source 照補） |
+| CODING_TURN_FULL_ONLY_ON_TRIGGER | 寫碼回合哪些記憶卡給整段（`handlers/ups_inject.assemble_injection`，開關 `_lean_turn`：守門總開關開、state `turn_intent` 屬寫碼意圖；案例 `verify_inject_lean`） | trigger 命中的照舊：hot、同題節錄、塞不下時的印象節錄、路標 | bm25／vector／related 命中的不看 hot／cold，一律 cold 一行（form `cold`，取用端稽核只追 trigger 的、不受影響）；一行送過的卡照舊進 `injected_atoms`（搜尋段不再給它當候選、失念偵測當它注入過），之後的寫碼回合被 trigger 命中時由 `_line_upgrades` 從全池補回候選給整段（來源記 trigger）；總開關關、或不是寫碼意圖照舊看 hot／cold |
+| POINTER_NO_NAME_ECHO | 寫碼回合一行指標（cold 行、budget 退的路標）印不印摘要（`wg_atoms.title_echoes_name`） | 摘要是印象行、或比卡名多資訊 → 照印 | 摘要／標題去掉標點、空白、底線、大小寫與截斷的 … 後是卡名的開頭（含相同）→ 不重印，只留 `[Atom:卡名]`、Status、路徑 |
+| NO_RESEND_AFTER_RESUME | 寫碼回合同一張卡要不要再整段送（`ups_inject.delivered_forms` 的 full） | 最近一次壓縮（`pre_compact_snapshot`／`post_compact_at`）之後沒整段送過：之前只送過一行、只抽了命中章節（紀錄 `sections`）、壓縮前送的、紀錄沒有送出時間 `at` 又有壓縮、送出時間跟壓縮在一秒內 → 照常送 | `injection_log` 有 form_final＝ok、`at` 晚於壓縮一秒以上 → 一行「(前面已整段送過)」指回（form `seen`，不算路標、AtomAudit 不追問）；`at` 只在總開關開時記 |
 
 ### 7.9 驗證範圍（verify_scope）
 
