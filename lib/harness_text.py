@@ -135,7 +135,7 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
 
 # ─── 貼上的內容 ─────────────────────────────────────────────────────────────────
 # Claude Code 把使用者貼上的文字包成 `<pasted_content id="…">…</pasted_content id="…">`（實查 transcript：閉合標籤也帶同一個 id）。
-# 貼上的是使用者從別處拿來的材料（別的 session 寫的開工句與派工、日誌、文件），不是他本人打的字。
+# 貼上的是使用者從別處拿來的材料（別的 session 寫的開工句與任務說明、日誌、文件），不是他本人打的字。
 # 只有卡片的「使用者原話」引句（Quote，lib/provenance.sanitize_quote）剔掉它；口令、糾正等判斷照舊吃 user_typed_text。
 _PASTED_OPEN_RE = re.compile(r"<\s*pasted_content\b([^>]*)>", re.IGNORECASE)
 _PASTED_CLOSE_RE = re.compile(r"<\s*/\s*pasted_content\b([^>]*)>", re.IGNORECASE)

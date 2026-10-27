@@ -16,7 +16,7 @@
     可能已經開了下一回合）；也不拿子代理 transcript 裡的 user 訊息（那是主 session 的 AI 寫給它的任務）。改看派它的那一回合：
     子代理檔第一筆的 promptId 對到主檔開那一回合的紀錄（_subagent_opener），是真人訊息（lib/provenance.is_human_record）才取它
     的原話，Source 的 uuid 也指它；是同伴訊息、背景通知、對不到 → 不填。
-- 那則原話是開工句（lib/harness_text.is_kickoff_prompt：派工樣板整則對上，或以「你是…工作 session」開場）→ 不填 Quote：
+- 那則原話是開工句（lib/harness_text.is_kickoff_prompt：開工句樣板整則對上，或以「你是…工作 session」開場）→ 不填 Quote：
   開工句是派給這個 session 的指示，不是哪張卡片的使用者原話。貼上的內容（`<pasted_content>`）不是本人打的字，
   lib/provenance.sanitize_quote 會剔掉。Source（session 指標）照補。原卡已有 Quote 一律不動（上面第一條）。
 - 任何失敗只記 Logs/guard-provenance.jsonl，不阻斷 hook。
@@ -60,7 +60,7 @@ def _last_turn_prompt(state: Dict[str, Any]) -> str:
 
 
 def _subagent_opener(transcript_path: str, agent_id: str) -> Optional[Dict[str, Any]]:
-    """子代理是在主 session 哪一回合派出的：子代理檔第一筆紀錄（派工 prompt）的 promptId，對主檔裡第一筆同 promptId 的 user 紀錄
+    """子代理是在主 session 哪一回合派出的：子代理檔第一筆紀錄（交給它的任務說明）的 promptId，對主檔裡第一筆同 promptId 的 user 紀錄
     ＝開那一回合的訊息（使用者、同伴訊息、背景通知…；實查本機 237 份子代理檔全對得上）。hook 給主檔或子代理檔都行；讀不到、對不上 → None。"""
     main, files = transcripts_of(transcript_path, agent_id)
     if not main or len(files) < 2:
@@ -166,7 +166,7 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
         if not quote_clean and sanitize_quote(quote_raw):
             out["quote_skipped"] = "too_short"           # 「A」這類一兩個字的回覆說不出卡從哪來
         elif not quote_clean and quote_raw.strip():
-            out["quote_skipped"] = "pasted"              # 整則是貼上的內容（別人寫的開工句、派工、日誌）：不是本人打的字
+            out["quote_skipped"] = "pasted"              # 整則是貼上的內容（別人寫的開工句、任務說明、日誌）：不是本人打的字
         quote_line = format_quote(quote_clean) if quote_clean else None
 
         sm = _SOURCE_LINE_RE.search(text)
