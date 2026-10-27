@@ -2723,3 +2723,18 @@ def test_locate_hint_rule_registered_with_case():
     text = (Path(__file__).parent / "verify_locate_hint.py").read_text(encoding="utf-8")
     fn = "test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block"
     assert "LOCATE_HINT_ON_FIRST_READ" in rr.RULES and f"def {fn}(" in text and "LOCATE_HINT_ON_FIRST_READ" in text
+
+
+# ─── 第二意見看事實觸發：規則名登錄、案例真的在、案例點到規則名 ───
+_SO_FACT_CASES = {
+    "SECOND_OPINION_FACT_TRIGGER": ("verify_g9_second_opinion.py", "test_fact_trigger_owed_without_completion_words"),
+    "SECOND_OPINION_EXIT_FINGERPRINT": ("verify_g9_second_opinion.py", "test_exit_fingerprint_once_per_change_set"),
+    "SECOND_OPINION_PRE_CLOSE": ("verify_closing_round.py", "test_so_pre_close_attaches_same_text_then_stop_passes"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_SO_FACT_CASES))
+def test_so_fact_trigger_rules_registered_with_cases(rule):
+    case_file, fn = _SO_FACT_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)

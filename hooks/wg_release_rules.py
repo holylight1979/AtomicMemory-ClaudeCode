@@ -3621,7 +3621,7 @@ def turn_judgment_verdict(items: Sequence[Dict[str, Any]], judgments: Sequence[D
 # 事實由 hooks/wg_second_opinion.py 收（本回合 transcript 的 start／result、git numstat、高風險部位），閘在 handlers/stop.py 的
 # SecondOpinion 段；material 端（tools/second-opinion/pack.py）引用 SO_QUESTION_ROOT_MISSING 當 blocked 原因的開頭。
 RULES.update({
-    "SECOND_OPINION_REQUIRED": "宣告完成時，本 session 改過的程式檔（寫碼類判準）達大任務門檻（檔數 ≥ second_opinion.auto.min_code_files，"
+    "SECOND_OPINION_REQUIRED": "收尾時（看事實不看措辭，中途問使用者與寫明還在等的不算：SECOND_OPINION_FACT_TRIGGER），本 session 改過的程式檔（寫碼類判準）達大任務門檻（檔數 ≥ second_opinion.auto.min_code_files，"
                                "或對 HEAD 的程式改動行數 ≥ min_changed_lines：git diff --numstat HEAD，未追蹤的新檔算整檔行數，查不到 git "
                                "只看檔數）或路徑命中高風險部位（部位表該列類別是 gate，或 config 另列的 risky_prefixes，預設空），而且上次審過"
                                "（滿足、使用者放行，或前面回合跑完的第二意見：SECOND_OPINION_RAN_BEFORE）之後的修改改到新的高風險檔、或新改的程式檔數"
@@ -3845,7 +3845,7 @@ def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_si
     seen = [s for _j, s in runs]
     wait = next((_SO_WAIT[k] for k in ("running", "started", "stale", "foreign", "rejected", "no-goal", "invalid", "off-mode")
                  if k in seen), "")
-    return Verdict(rule, True, wait or "大任務或高風險部位宣告完成，本回合沒有跑第二意見",
+    return Verdict(rule, True, wait or "大任務或高風險部位收尾，本回合沒有跑第二意見",
                    tuple(triggers) + tuple(f"{j} {s}" for j, s in runs[-3:]))
 
 
@@ -3981,7 +3981,7 @@ RULES.update({
                           "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（PickOne 每則重問、各閘每回合的擋次與預算重來）。",
     "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）：最後 2000 字裡有「這則之後工作還在繼續」的話（仍在等、"
                                      "等待…回報、尚未開始）整則不算；否則逐句看，有一句有完成詞、而那一句本身沒有其餘排除詞（還沒／尚未…完成、"
-                                     "待補、中途、進行中）就算，這幾個只取消它自己那一句；第二意見往前找（turn_completion_text）同一套；"
+                                     "待補、中途、進行中）就算，這幾個只取消它自己那一句；收尾閘往前找宣告完成的那則（wg_second_opinion.turn_completion_text）同一套（第二意見閘進不進門不靠它：SECOND_OPINION_FACT_TRIGGER，只借第一類「還在繼續」的詞判這則還沒到收尾）；"
                                      "句界＝句號、驚嘆號、問號、換行，逗號、分號不切（「A2 已完成，仍在等 A1 回報」仍是中途）。"
                                      "收割待補閘的「中途狀態句不擋」（wg_harvest.in_progress_text）同源：另有一句宣告完成就不算中途。",
     "OPENING_NOTICE_NOT_TODO": "開場的系統提示不寫成待辦口吻：處置句寫清誰決定、要不要現在處理；使用者這回合要的是別的事時只轉述、不動手"
@@ -4170,4 +4170,26 @@ RULES.update({
                                  "同缺定位擋訊息 LOCATE_ASK_ONCE），寫在比改檔早一則的回覆文字或不寫檔指令開頭的 # 註解、thinking 讀不到"
                                  "（DECL_HINT_KEEPS_EDIT_TOOLS）；立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
                                  "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送。判定與擋訊息不動：沒照做照擋。",
+})
+
+
+# ─── 第二意見看事實觸發（事實與時點在 hooks/wg_second_opinion.py、wg_closing_round.py、handlers/stop.py，這裡只登錄規則名與說明） ───
+RULES.update({
+    "SECOND_OPINION_FACT_TRIGGER": "第二意見閘進不進門看事實、不看措辭：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，同 "
+                                   "SECOND_OPINION_REQUIRED）的每次收尾都判，不再要 AI 說了完成詞（取代原本的「宣告完成時」"
+                                   "與 turn_completion_text 往前找）。只有還沒到收尾的 Stop 不判（wg_second_opinion.not_closing；這個使用者回合"
+                                   "沒交收尾那批（closing_call）才算）：中途問使用者，即收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成；"
+                                   "或寫明之後工作還在繼續，即 wg_evasion 判完成的排除詞第一類（仍在等、等待…回報、尚未開始，同一份詞）。"
+                                   "不判時留帳 event=deferred（kind＝question／pending），欠帳不消，下一次收尾照欠。"
+                                   "出口照舊兩條：「不需第二意見｜<理由>」或「等第二意見｜<job_id>」（跑過＋四行也算），都留帳。",
+    "SECOND_OPINION_EXIT_FINGERPRINT": "一組改動只欠一次：交了出口（不需／等第二意見、跑過＋四行）就記出口時的改檔指紋（state "
+                                       "second_opinion_exit：本 session 程式檔的路徑＋最後改的時間與回合；收尾的出口行在所有收尾閘前面先記，"
+                                       "前面的閘擋下、補件那則不重寫出口行也算）；之後的收尾指紋沒變 → 不欠（Verdict 規則名用本條），"
+                                       "本回合取回在等的結果不在此列（要四行；在等的 job 跟指紋一起記在出口帳 jobs，不靠背景看守開關）。出口是不需或等第二意見、之後又改了程式（指紋變了，改 1 支也算）"
+                                       "→ 再欠一次；出口是跑過＋四行，之後的修改照 SECOND_OPINION_ONCE_PER_CLAIM（採納意見不再欠）。",
+    "SECOND_OPINION_PRE_CLOSE": "收尾那批（closing_call 認的：收尾檢核或完整對照）照 Stop 同一套事實先判第二意見（"
+                                "wg_closing_round.so_pre_close），欠就把 Stop 會擋的同一段（wg_second_opinion.owed_message）附在那批的回應"
+                                "後面，AI 第一次寫收尾就寫出口行、不再被 Stop 多擋一輪；同一個使用者回合附過、改檔指紋沒變就不重附。"
+                                "那批沒出現（沒交收尾檢核也沒完整對照）→ Stop 照舊擋；附了沒照做 → Stop 照擋（判定、擋次不變）。"
+                                "留帳 guard-second_opinion event=pre_close（owed、sent）。",
 })

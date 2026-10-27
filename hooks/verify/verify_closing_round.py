@@ -7,6 +7,7 @@
   PICK_ONE_WITH_TURN_JUDGMENT  Stop 的拐彎判斷擋下時，最該修同一則一起問；下一次收尾不再另送。
   SECOND_OPINION_BACKGROUND    第二意見閘的擋訊息寫 start 後不用等；MCP 端 start 的下一步與 result 的說明同一個說法。
   SECOND_OPINION_DONE_NOTICE   開了的 job 跑完、AI 還沒取回 → 下一批工具回應或收尾提醒一次；取過、開始看守前就跑完的不提醒。
+  SECOND_OPINION_PRE_CLOSE     交收尾那批先判第二意見，欠就附上 Stop 會擋的同一段；照做了 Stop 不擋、沒照做照擋；同回合不重附。
 每一案拿改動前的 main（5ccf44d2／e39061a0）回放都是紅：舊碼 PostToolBatch 不做這些事、Stop 照舊兩輪、擋訊息寫直接呼叫 result 等結果。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_closing_round.py
 """
@@ -27,7 +28,7 @@ import wg_reading_path as rph  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 from handlers import stop as st  # noqa: E402
 from verify_pick_one import _PASS_CFG, _SID, _mod, stop_run, world  # noqa: E402,F401  共用的假專案與 Stop 驅動
-from verify_g9_second_opinion import DONE, FOUR, JOB, SID as SO_SID, WAIT_TEXT, _feedback, _files, drive  # noqa: E402,F401
+from verify_g9_second_opinion import DECLINE_LINE, DONE, FOUR, HINT_TAIL, JOB, S1_DONE, SID as SO_SID, WAIT_TEXT, _feedback, _files, _so_logs, drive  # noqa: E402,F401
 
 AEC = {"tool_name": "mcp__workflow-guardian__anti_evasion_report", "tool_input": {"a": "無"}}
 TJ_NOTE = ("[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完；尺不是判決，只量不擋）：\n"
@@ -280,3 +281,65 @@ def test_second_opinion_waiting_close_then_stop_notices(drive, capsys, tmp_path,
     assert "[Guardian:SecondOpinion]" in reason and "第二意見與分歧裁決" in reason, reason
     reason, state, _ = drive(FOUR.replace("全部完成。", "照結果處理了。"), capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason and state["second_opinion_ok"][SO_SID] == 5
+
+
+# ─── SECOND_OPINION_PRE_CLOSE ───────────────────────────────────────────────────
+
+def _so_state(files):
+    return {"phase": "working", "modified_files": [{"path": str(p), "tool": "Edit", "session_id": SO_SID, "turn_seq": 5,
+                                                    "last_turn_seq": 5} for p in files],
+            "failing_tests": [], "recent_user_prompts": [], "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5,
+            "muted": True}
+
+
+def test_so_pre_close_attaches_same_text_then_stop_passes(batch_env, drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_PRE_CLOSE（紅：舊碼收尾那批不判第二意見，AI 要等 Stop 擋下才知道、多寫一輪出口行）：改了 5 支程式、交收尾檢核
+    那批就附上第二意見那段，跟 Stop 擋的是同一段話；同一個使用者回合再交一批、指紋沒變不重附；收尾照提示寫出口行 → Stop 不擋、
+    留帳 declined；沒照做 → Stop 照擋（判定不放寬）。"""
+    import copy
+    import wg_closing_round as cr
+    assert cr.closing_call(AEC["tool_name"], AEC["tool_input"]), "前置：造的這批是 closing_call 認得的收尾那批"
+    files = _files(tmp_path, 5)
+    state = _so_state(files)
+    untouched = copy.deepcopy(state)
+    ctx = _batch(state, [AEC], _PASS_CFG, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
+    assert "[Guardian:SecondOpinion]" in ctx, ctx[:300]
+    so_part = ctx[ctx.index("[Guardian:SecondOpinion]"):].split("\n判準卡")[0].rstrip()
+    assert "SECOND_OPINION_REQUIRED" in so_part and "程式檔 5 個" in so_part and so_part.endswith(HINT_TAIL)
+    rec = state["second_opinion_pre_close"][SO_SID]
+    assert rec["uturn"] == 5 and rec["owed"] is True and rec["fp"]
+    assert "[Guardian:SecondOpinion]" not in _batch(state, [AEC], _PASS_CFG, capsys, sid=SO_SID,
+                                                    transcript_path=str(drive.tx.path)), "同回合、指紋沒變：不重附"
+    reason, _, _ = drive(S1_DONE, capsys, state=copy.deepcopy(untouched))
+    assert reason.startswith(so_part), "先提示後擋：Stop 擋的就是收尾那批附的同一段"
+    reason, _, logs = drive(S1_DONE, capsys, state=copy.deepcopy(state))
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"], "附了沒照做：照擋"
+    reason, after, logs = drive(f"{S1_DONE}\n{DECLINE_LINE}", capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and [p["event"] for p in _so_logs(logs)] == ["declined"]
+    assert after["second_opinion_exit"][SO_SID]["via"] == "declined"
+
+
+def test_so_pre_close_not_owed_or_off_attaches_nothing(batch_env, drive, capsys, tmp_path, monkeypatch):
+    """不欠（改 1 支、沒過門檻）、第二意見設定關、headless → 收尾那批不附第二意見（照樣記這個使用者回合交過收尾那批）。"""
+    ctx = _batch(_so_state(_files(tmp_path, 1)), [AEC], _PASS_CFG, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
+    assert "[Guardian:SecondOpinion]" not in ctx
+    off = _so_state(_files(tmp_path, 5))
+    cfg = {**_PASS_CFG, "second_opinion": {"auto": {"enabled": False}}}
+    assert "[Guardian:SecondOpinion]" not in _batch(off, [AEC], cfg, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
+    assert off["second_opinion_pre_close"][SO_SID]["uturn"] == 5
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    assert "[Guardian:SecondOpinion]" not in _batch(_so_state(_files(tmp_path, 5)), [AEC], _PASS_CFG, capsys, sid=SO_SID,
+                                                    transcript_path=str(drive.tx.path))
+
+
+def test_so_pre_close_follows_closing_call(batch_env, drive, capsys, tmp_path):
+    """SECOND_OPINION_PRE_CLOSE 的接縫：收尾那批一律照 closing_call 認，closing_call 認得的每一種呼叫（收尾檢核、完整對照、知識收割回報）
+    那批都附第二意見那段；它不認的（need_goal 其他動作、一般工具）不附。案例只問 closing_call，不另寫一份認法。"""
+    import wg_closing_round as cr
+    calls = [AEC, {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}},
+             {"tool_name": "mcp__workflow-guardian__knowledge_harvest_report", "tool_input": {}},
+             {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "verify_scope"}},
+             {"tool_name": "Bash", "tool_input": {"command": "pytest"}}]
+    for c in calls:
+        ctx = _batch(_so_state(_files(tmp_path, 5)), [c], _PASS_CFG, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
+        assert ("[Guardian:SecondOpinion]" in ctx) == cr.closing_call(c["tool_name"], c["tool_input"]), c

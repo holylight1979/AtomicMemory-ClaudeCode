@@ -7,6 +7,8 @@
      - 量好的拐彎判斷結果（到門檻的條目＋那一題；TURN_JUDGMENT_PRE_CLOSE，跟 ① 同一個開關）。還有一批在量就不附，留給 Stop；
      - 「順手看到最該修」該問就附材料、記問過（PICK_ONE_PRE_CLOSE，開關 pick_one.pre_close）：Stop 的 pick_due 看到問過就不再送、
        不再讓對話續跑一輪。
+     - 第二意見照 Stop 同一套事實判欠不欠，欠就把 Stop 會擋的那段先附上（SECOND_OPINION_PRE_CLOSE；so_pre_close），並記「這個使用者回合
+       交過收尾那批」（wg_second_opinion.not_closing 據此把這次 Stop 當收尾）。
   ③ 本 session 開的第二意見 job（start 自己回的 job_id，或收尾等待行寫明的；不掃 job 目錄）從在跑變成跑完 → 附一次「取回、補四行」（SECOND_OPINION_DONE_NOTICE，開關
      second_opinion.auto.background）；Stop 在最後也問同一支（so_done_notice），收尾當下才跑完的照樣接上。
 沒走到附著點（沒交收尾檢核、量測還沒好、開關關）→ Stop 照舊送（舊送法原處不動）。v6 總開關關、子代理的批次 → 呼叫端不呼叫。
@@ -116,6 +118,34 @@ def turn_judgment_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, A
                                           "items": [it.get("name") for it in ((((state.get("reading_path") or {}).get(sid))
                                                                                or {}).get("owed") or {}).get("items") or []]})
     return text
+
+
+def so_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
+    """規則 SECOND_OPINION_PRE_CLOSE：收尾那批照 Stop 同一套事實（wg_second_opinion.check，closing＝True、收尾還沒寫）判第二意見欠不欠，
+    欠 → 回 Stop 會擋的同一段（owed_message）；不管欠不欠都記這個使用者回合交過收尾那批（PRE_CLOSE）。第二意見設定關、沒人能回答
+    （headless、子代理）→ 只記、不判不附（Stop 也不判）。同一個使用者回合已經附過、改檔指紋沒變（收尾分兩批交）→ 不重附。
+    改了 state，呼叫端寫回。"""
+    import wg_second_opinion as so
+    from wg_evasion import read_transcript_tail
+    from wg_release import non_interactive_reason
+    from wg_release_rules import user_turn
+    turn_seq = int(state.get("turn_seq", 0) or 0)
+    prev = ((state.get(so.PRE_CLOSE) or {}).get(sid)) or {}
+    rec = {"uturn": user_turn(state, turn_seq), "owed": False, "fp": ""}
+    state.setdefault(so.PRE_CLOSE, {})[sid] = rec
+    tpath = str(input_data.get("transcript_path") or "")
+    cfg = so.auto_cfg(config)
+    if not cfg.get("enabled", True) or non_interactive_reason(input_data, tpath or None):
+        return None
+    from pathlib import Path
+    v, facts = so.check(state, sid, _own(state, sid), "", read_transcript_tail(Path(tpath)) if tpath else "", config, cfg, True)
+    rec.update(owed=bool(v.owed), fp=str(facts.get("fingerprint") or ""))
+    again = bool(v.owed and prev.get("owed") and prev.get("uturn") == rec["uturn"] and prev.get("fp") == rec["fp"])
+    if facts.get("code_files"):
+        append_guard_log("second_opinion", {"event": "pre_close", "session_id": sid, "turn_seq": turn_seq, "owed": v.owed,
+                                            "rule": v.rule, "code_files": facts.get("code_files"),
+                                            "triggers": facts.get("triggers"), "sent": bool(v.owed and not again)})
+    return so.owed_message(v, facts, config) if v.owed and not again else None
 
 
 # ─── ③ 第二意見跑完接上 ─────────────────────────────────────────────────────────
@@ -240,7 +270,14 @@ def on_batch(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config
             tj = None
             print(f"[Guardian:ReadingPath] 收尾前附拐彎判斷出錯（收尾照舊附）：{type(e).__name__}: {e}", file=sys.stderr)
         pick = pick_pre_close(state, sid, config, input_data)
-        for text in (tj, pick):
+        try:
+            so_text = so_pre_close(state, sid, config, input_data)
+            changed = True
+        except Exception as e:  # noqa: BLE001
+            so_text = None
+            print(f"[Guardian:SecondOpinion] 收尾前判第二意見出錯（這次不附，收尾照舊由 Stop 判）：{type(e).__name__}: {e}",
+                  file=sys.stderr)
+        for text in (tj, pick, so_text):
             if text:
                 print(text.splitlines()[0], file=sys.stderr)
                 parts.append(_note(text, state, sid, config))

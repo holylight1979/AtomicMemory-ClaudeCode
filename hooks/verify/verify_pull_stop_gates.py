@@ -366,7 +366,7 @@ def test_9_second_opinion_pending_from_previous_turn_not_exhausted(driven, capsy
     pend = {_SID: {"second_opinion": {"turn": 4, "at": "x", "reason": "r", "claims": ["全部完成了。"]}}}
     out, _, _ = driven("全部完成了。", capsys, pending_release=pend, turn_prompts_seq=5,
                        last_block={_SID: {"second_opinion": {"offset": 0, "prompts": [], "turn": 4}}})
-    assert "[Guardian:SecondOpinion] 宣告完成前要第二意見" in out and "已擋滿" not in out, out[:300]
+    assert "[Guardian:SecondOpinion] 收尾要處理第二意見" in out and "已擋滿" not in out, out[:300]
 
 
 # ─── 共用擋次每個使用者回合歸零 ───────────────────────────────────────────────

@@ -1,0 +1,18 @@
+## 2026-10-27 第二意見看事實觸發：改了夠多的程式，收尾一定處理第二意見；一組改動只欠一次；欠的在收尾那批先講
+- **AI 寫程式時會看到的**（守門總開關 v6 開；關時整段不跑，行為同改動前）：
+  - **進不進門看事實、不看措辭**（規則 SECOND_OPINION_FACT_TRIGGER；`hooks/wg_second_opinion.check` 的 `closing` 參數取代原本的完成詞判法，`handlers/stop.py` 改傳 `not not_closing(...)`）：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，門檻不變）的每次收尾都判。只有還沒到收尾的不判（這個使用者回合沒交收尾那批才算）：中途問使用者（最後一行是問句、沒宣告完成），或寫明之後工作還在繼續（直接用 `wg_evasion` 判完成的排除詞第一類：仍在等、等待…回報、尚未開始）；留帳 event=deferred，欠帳不消，下一次收尾照欠。
+  - **出口兩條照舊、一組改動只欠一次**（SECOND_OPINION_EXIT_FINGERPRINT）：寫「不需第二意見｜<理由>」或「等第二意見｜<job_id>」（跑過＋四行也算）就記出口時的改檔指紋（state `second_opinion_exit`；出口行在所有收尾閘前面先記，前面的閘擋下、補件那則不重寫也認）。指紋沒變不再欠；出口是不需／等第二意見、之後又改了程式（改 1 支也算）再欠一次，交一行出口就停；跑過＋四行之後的修改照 SECOND_OPINION_ONCE_PER_CLAIM（採納意見不再欠）。
+  - **欠的在收尾那批先講**（SECOND_OPINION_PRE_CLOSE；`hooks/wg_closing_round.so_pre_close`，收尾那批用 `closing_call` 認、沒改它）：交收尾檢核或完整對照那批照 Stop 同一套事實判，欠就附上 Stop 會擋的同一段（`wg_second_opinion.owed_message`，擋訊息開頭改成「收尾要處理第二意見」）；同回合再交一批、指紋沒變不重附。那批沒出現或附了沒照做，Stop 照擋（判定、擋次不變）。留帳 `guard-second_opinion` event=pre_close。
+- **關掉／改掉的既有機制**：第二意見閘不再用 `turn_completion_text`／`claims_completion` 決定進不進門（`turn_claims_completion` 刪掉；`turn_completion_text` 其他收尾閘照用）；「最後一則說還沒做完」（沒講在等）以前不判，現在照欠；「仍在等／等待結果回來」照舊不判，但欠帳留著、下一則真收尾照欠（`verify_g9_second_opinion.py` 兩支舊案例改名改判）；`wg_release_rules` G9 段三處說明文字（verdict 的 why、SECOND_OPINION_REQUIRED 的「宣告完成時」、COMPLETION_CLAIM_PER_SENTENCE 的第二意見那句）改成收尾的說法，判定沒動；寫了「等第二意見｜<job_id>」之後同回合沒再改程式又收尾，以前照「start 了沒取結果」再擋，現在不擋（結果取回那一回合照要四行）。
+- **砍前 → 砍後 → 省多少**（離線重播：同一份 transcript 事實交給 main f45be4ea 與本分支的 `wg_second_opinion` 各判一次；字數換 token 用 004 量尺係數 1.321×中日韓字＋0.534×其他字）：
+
+  | 情境 | 砍前 | 砍後 | 省多少 |
+  |---|---|---|---|
+  | 004 R1／R2 題 B′ 第一回合 | 第二意見閘 0 次（無頭跑 entrypoint=sdk-cli，閘不觸發） | 0 次（同） | 0 |
+  | 005 第 0 步補題 S-1 第 4 回合（改 5 支、有交收尾檢核與完整對照；收尾「兩件都改好了…全部 4 支測試都通過」） | 漏擋：沒進門，0 次擋、0 次多叫 | 收尾那批附約 496 token 的提示，AI 第一次寫收尾就寫出口行：0 次擋、0 次多叫 | 漏擋補上，不多叫呼叫 |
+  | 005 第 0 步 C-1 第 1 回合（改 7 支程式、沒交收尾那批；收尾「已經寫好，但我還沒 commit」） | 漏擋：沒進門 | 沒有收尾那批 → 由 Stop 判；那次拐彎判斷閘先擋，預覽多一行第二意見（約 70 token），補件一起寫出口：0 次多叫。第二意見是第一道擋的閘時多 1 次呼叫 | 漏擋補上；有收尾那批時不多叫，沒有時最多多 1 次 |
+  | 舊判法認得完成詞的收尾（推論：照判定流程；004／005 第 0 步帳裡沒有第二意見閘當第一道擋的實例可量） | Stop 擋 1 次、AI 多 1 次呼叫回頭寫出口行 | 有收尾那批：0 次擋、0 次多叫（提示先到） | 每次少 1 次呼叫與重讀整份 context |
+
+- **驗證**：案例 `hooks/verify/verify_g9_second_opinion.py`（S-1／C-1 兩句仍欠、中途提問與寫明還在等都不擋、留帳 deferred、下一則收尾照欠、交過收尾那批再問句結尾照欠、不需宣告放行後不改不欠／改 1 支再欠／再宣告放行、等第二意見出口後再收尾不欠且取回要四行、出口在前面的閘擋下時也記、使用者放行也算出口、背景開關關或前面的閘擋下時在等的結果取回照要四行、v6 關不動、not_closing 與 fingerprint 單元）、`hooks/verify/verify_closing_round.py`（收尾那批附同一段、同回合不重附、照做不擋、沒照做照擋；不欠／設定關／headless 不附；closing_call 認得的每一種呼叫都附、不認得的不附）、`verify_release_rules.py` 檔尾登錄三條規則。32 支目標 verify（會驅動 Stop 的 28 支＋release_rules、pull_stop_gates、pull_verify_ledger、closing_merge）全綠；新案例拿改動前的 main 回放 8 支紅、codex 修正前的分支回放 2 支紅，都紅在要證的那一步。改舊測試 1 支：`test_005_decline_logged_when_gate_does_not_need_it`（閘不要的情境改成沒改程式檔）。
+- **codex 一輪**（只收【弄壞資料】【繞閘】；本機唯讀沙箱起不來，改把 diff 連前後文貼進提示）：2 條【繞閘】都收、都修：背景開關關、或等待那次被前面的閘擋下時，在等的 job 沒記進看守，取回結果被出口指紋直接放行、跳過四行。改成在等的 job 跟指紋一起記在出口帳（`second_opinion_exit.jobs`），判斷不靠背景開關；提早記出口時也一併記看守。
+- **已知限制**：收尾那批靠 AI 交收尾檢核或完整對照；兩樣都沒交時，第二意見只能在 Stop 擋（前面有別的閘擋時跟著預覽走、不多一輪）。還沒到收尾的認法看最後一行的問句、完成詞與「還在等」那組詞；沒交收尾那批時，這樣寫可以把這次延後（留帳 deferred），但欠帳不消，下一次收尾照欠。

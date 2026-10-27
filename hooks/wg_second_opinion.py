@@ -7,6 +7,12 @@
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
+  not_closing    觸發看事實不看措辭（規則 SECOND_OPINION_FACT_TRIGGER）：每次收尾都判，只有還沒到收尾的 Stop 不判：中途問使用者
+                 （最後一行是問句、沒宣告完成）或寫明之後工作還在繼續（仍在等、等待…回報、尚未開始），而且這個使用者回合沒交收尾那批；
+                 欠帳不消，下一次收尾照欠。
+  fingerprint    出口時的改檔指紋（規則 SECOND_OPINION_EXIT_FINGERPRINT）：交過「不需第二意見｜」或「等第二意見｜」之後，
+                 指紋沒變就不再欠；變了（出口之後又改了程式）就再欠一次。mark_exit 記、check 比。
+  owed_message   欠的時候那段話：收尾那批先附（wg_closing_round.so_pre_close，SECOND_OPINION_PRE_CLOSE）跟 Stop 擋同一段。
   check          上面的事實交給 wg_release_rules.second_opinion_verdict，回 (Verdict, 事實)；事實的 satisfied＝這次滿足了
                  （跑過或宣告不需），Stop 據此 mark_ok。本回合跑完的第二意見（result 回 done／failed／blocked）不管有沒有
                  宣告完成都記 second_opinion_ran[sid]＝{job, 回合, 那時改過的高風險檔}（check 會改 state，由 Stop 寫回）；
@@ -20,6 +26,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -46,6 +53,10 @@ LETTER = "第二意見"                 # 擋訊息的條目字母（第二意�
 GATE = "second_opinion"             # wg_release 的閘名（last_block／pending_release／user_released）與 guard log 名
 START_SUFFIX = "__second_opinion_start"
 RESULT_SUFFIX = "__second_opinion_result"
+EXIT = "second_opinion_exit"        # state 鍵：{sid: {"fp", "via", "turn"}}（出口時的改檔指紋）
+PRE_CLOSE = "second_opinion_pre_close"   # state 鍵：{sid: {"uturn", "owed"}}（這個使用者回合交過收尾那批；wg_closing_round 記）
+REDO_VIA = ("declined", "waiting")  # 出口之後又改了程式就再欠的出口；跑過（ran）照 SECOND_OPINION_ONCE_PER_CLAIM
+EXIT_COVERS = "SECOND_OPINION_EXIT_FINGERPRINT"   # 出口蓋住這組改動時 Verdict 的規則名
 
 
 def auto_cfg(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -130,11 +141,6 @@ def turn_completion_text(transcript_text: str) -> str:
         elif _COMPLETION_NEG_RE.search(t[-2000:]):
             claimed = ""
     return claimed
-
-
-def turn_claims_completion(transcript_text: str) -> bool:
-    """本回合有沒有宣告完成（turn_completion_text 找得到那一則）。"""
-    return bool(turn_completion_text(transcript_text))
 
 
 def turn_texts(transcript_text: str) -> List[str]:
@@ -345,22 +351,75 @@ def has_goal_tree(session_id: str) -> bool:
         return True
 
 
-def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[str, Any]], text: str,
-          transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], claims_done: bool
-          ) -> Tuple[rr.Verdict, Dict[str, Any]]:
-    """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。
-    claims_done＝呼叫端看最後一則的結果；最後一則沒談到完成與否時，改看本回合最後一則談到的（turn_claims_completion）。"""
+_QUESTION_END_RE = re.compile(r"(?:[?？]|嗎|呢)[\s。.」』）)*]*$")
+
+
+def not_closing(state: Dict[str, Any], session_id: str, text: str, user_turn: int) -> str:
+    """規則 SECOND_OPINION_FACT_TRIGGER 不判的 Stop（還沒到收尾）→ 回哪一類，是收尾回空字串。這個使用者回合交過收尾那批
+    （closing_call，wg_closing_round 記在 PRE_CLOSE）就一定是收尾。兩類：
+      pending   寫明這則之後工作還在繼續：wg_evasion 判完成的排除詞第一類（仍在等、等待…回報、尚未開始；claims_completion 整則不算的
+                那組，同一份詞，看最後 2000 字）；
+      question  中途問使用者：收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成。
+    欠帳不消，下一次收尾照欠。"""
+    if int((((state.get(PRE_CLOSE) or {}).get(session_id)) or {}).get("uturn") or -1) == int(user_turn):
+        return ""
+    from wg_evasion import _COMPLETION_PENDING_RE, claims_completion
+    if _COMPLETION_PENDING_RE.search(str(text or "")[-2000:]):
+        return "pending"
+    lines = [ln.strip() for ln in rr._so_lines(text) if ln.strip()]
+    return "question" if lines and _QUESTION_END_RE.search(lines[-1]) and not claims_completion(text) else ""
+
+
+def _code_entries(own_mod_files: Sequence[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
     from wg_need_goal import writes_code
     from wg_verify_ledger import git_launcher, session_scratch
-    claims_done = bool(claims_done) or turn_claims_completion(transcript_text)
-    code = [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)
+    return [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)
             and not session_scratch(str(m["path"]))           # 規則 SESSION_SCRATCH_NOT_CODE：暫存區的一次性腳本不數
             and not git_launcher(str(m["path"]))]             # 規則 LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器不數
+
+
+def fingerprint(code: Sequence[Dict[str, Any]]) -> str:
+    """規則 SECOND_OPINION_EXIT_FINGERPRINT：本 session 改過的程式檔（路徑、最後改的時間與回合）的指紋；之後再改任何一支就變。"""
+    keys = sorted({(rr.canon_path(m["path"]), str(m.get("last_at") or m.get("at") or ""),
+                    int(m.get("last_turn_seq") or m.get("turn_seq") or 0)) for m in code})
+    return hashlib.sha1(json.dumps(keys, ensure_ascii=False).encode("utf-8")).hexdigest()[:16] if keys else ""
+
+
+def mark_exit(state: Dict[str, Any], session_id: str, turn: int, facts: Dict[str, Any]) -> bool:
+    """交了出口（facts 的 exit_via：declined／waiting／ran）就記出口時的改檔指紋；沒交出口不動 → 回有沒有改 state。"""
+    via, fp = str(facts.get("exit_via") or ""), str(facts.get("fingerprint") or "")
+    if not via or not fp:
+        return False
+    rec: Dict[str, Any] = {"fp": fp, "via": via, "turn": int(turn or 0)}
+    if via == "waiting":
+        rec["jobs"] = [str(j) for j in facts.get("waiting") or []]      # 取回這些 job 的那一回合要四行（不靠背景看守）
+    state.setdefault(EXIT, {})[session_id] = rec
+    return True
+
+
+def owed_message(v: rr.Verdict, facts: Dict[str, Any], config: Dict[str, Any]) -> str:
+    """欠第二意見時的那段話：收尾那批先附（SECOND_OPINION_PRE_CLOSE）跟 Stop 擋（SECOND_OPINION_REQUIRED）用同一段：先提示後擋，
+    講同一件事、同一個格式，照提示做了就不會被擋。"""
+    from wg_closing_round import so_background_on
+    hint = rr.second_opinion_hint_background() if so_background_on(config) else rr.second_opinion_hint()
+    return (f"[Guardian:SecondOpinion] 收尾要處理第二意見（本 session 改了 {facts.get('code_files')} 個程式檔）\n"
+            f"{rr.format_hit(LETTER, v)}\n{hint}")
+
+
+def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[str, Any]], text: str,
+          transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], closing: bool
+          ) -> Tuple[rr.Verdict, Dict[str, Any]]:
+    """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。
+    closing＝這次是收尾（規則 SECOND_OPINION_FACT_TRIGGER：不看有沒有說完成，只有還沒到收尾的 not_closing 不算）；
+    收尾那批的提示也用這支判（text 空：收尾還沒寫）。"""
+    code = _code_entries(own_mod_files, config)
     uniq: Dict[str, str] = {}      # 同一個檔不同寫法只算一次（SAME_FILE），保留原寫法給 git pathspec（大小寫敏感）
     for m in code:
         uniq.setdefault(rr.canon_path(m["path"]), str(m["path"]))
     paths = list(uniq.values())
-    facts: Dict[str, Any] = {"code_files": len(paths), "triggers": [], "satisfied": False, "decline": ""}
+    facts: Dict[str, Any] = {"code_files": len(paths), "triggers": [], "satisfied": False, "decline": "",
+                             "fingerprint": fingerprint(code), "exit_via": ""}
+    claims_done = bool(closing)
     if not paths:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     starts, results = turn_events(transcript_text)
@@ -398,12 +457,24 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         state.setdefault("second_opinion_ran", {})[session_id] = rec
     # 規則 SECOND_OPINION_DONE_NOTICE（背景開關開）：收尾寫過「等第二意見｜<job>」的 job，本回合取回跑完了＝接上那一刻，照宣告完成判四行
     # （不再說完成也要；判定、擋次照 SECOND_OPINION_REQUIRED）
-    if not claims_done and results:
+    # 在等的 job：出口帳記的（SECOND_OPINION_EXIT_FINGERPRINT，不靠背景開關、前面的閘擋下也記了）＋背景看守記的
+    ex = ((state.get(EXIT) or {}).get(session_id)) or {}
+    waited_back = False
+    if results:
         from wg_closing_round import so_background_on, waited_jobs
-        waited = set(waited_jobs(state, session_id)) if so_background_on(config) else set()
-        claims_done = any(r.get("job_id") in waited and r.get("status") in rr.SO_RAN for r in results)
+        waited = set(ex.get("jobs") or []) if ex.get("via") == "waiting" else set()
+        if so_background_on(config):
+            waited |= set(waited_jobs(state, session_id))
+        waited_back = any(r.get("job_id") in waited and r.get("status") in rr.SO_RAN for r in results)
+    claims_done = claims_done or waited_back
     if not claims_done:
+        facts["deferred"] = True                     # 改過程式、這次還沒到收尾：不判，欠帳留給下一次收尾
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
+    # 規則 SECOND_OPINION_EXIT_FINGERPRINT：交過出口、之後沒再改程式（指紋相同）→ 這組改動欠的已經交了，不再欠；
+    # 在等的結果本回合取回了不在此列（要接上四行）
+    if ex.get("fp") and ex.get("fp") == facts["fingerprint"] and not waited_back:
+        facts["covered"] = str(ex.get("via") or "")
+        return rr.Verdict(EXIT_COVERS, False, f"上次交了出口（{facts['covered']}）之後沒再改程式"), facts
     ok_turn = int(((state.get("second_opinion_ok") or {}).get(session_id)) or 0)
     risky = risky_now()
     min_files, min_lines = int(cfg.get("min_code_files", 4)), int(cfg.get("min_changed_lines", 150))
@@ -419,22 +490,28 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         after |= {rr.canon_path(m["path"]) for m in code if _later(str(m.get("last_at") or m.get("at") or ""), rec["at"])}
     new_risky = [p for p in risky if rr.canon_path(p) in after and rr.canon_path(p) not in covered]
     # 規則 SECOND_OPINION_ONCE_PER_CLAIM：審過之後的修改只在改到新的高風險檔、或之後新改的程式檔數再過門檻時才算新一輪
-    fresh = ok_turn == 0 or bool(new_risky) or len(after) >= min_files
+    # 出口是不需／等第二意見、之後又改了程式（指紋變了）→ 新的一組改動，再欠一次（SECOND_OPINION_EXIT_FINGERPRINT）
+    fresh = ok_turn == 0 or bool(new_risky) or len(after) >= min_files or (ex.get("via") in REDO_VIA and bool(ex.get("fp")))
     lines = None if (len(paths) >= min_files or risky) else changed_lines(paths)
     triggers = rr.second_opinion_triggers(len(paths), lines, risky, min_files, min_lines)
     runs = runs_now if (triggers and fresh) else []
     # 四行可以在本回合較早那則；宣告行與在等哪個 job 只看收尾這則（SECOND_OPINION_DECLINE_ACCEPTED）
     v = rr.second_opinion_verdict(claims_done, triggers, fresh, runs, section_text(text, transcript_text), closing=text)
+    satisfied = bool(triggers and fresh and not v.owed and v.rule != rr.SO_WAITING)
+    declined = v.rule == "SECOND_OPINION_DECLINED"
     facts.update(triggers=triggers, fresh=fresh, runs=runs, changed_lines=lines, risky=[rr.canon_path(p) for p in risky],
-                 satisfied=bool(triggers and fresh and not v.owed and v.rule != rr.SO_WAITING),
-                 waiting=list(v.evidence) if v.rule == rr.SO_WAITING else [],
-                 decline=(rr.second_opinion_decline(text) or "") if v.rule == "SECOND_OPINION_DECLINED" else "")
+                 satisfied=satisfied, waiting=list(v.evidence) if v.rule == rr.SO_WAITING else [],
+                 decline=(rr.second_opinion_decline(text) or "") if declined else "",
+                 exit_via=("waiting" if v.rule == rr.SO_WAITING else "declined" if satisfied and declined
+                           else "ran" if satisfied else ""))
     return v, facts
 
 
 def mark_ok(state: Dict[str, Any], session_id: str, turn: int, facts: Dict[str, Any]) -> None:
-    """第二意見這一輪了結（跑過、宣告不需、使用者放行）：記回合與那時改過的高風險檔（之後再改到它們不算新一輪）。"""
+    """第二意見這一輪了結（跑過、宣告不需、使用者放行）：記回合與那時改過的高風險檔（之後再改到它們不算新一輪）；
+    交了出口就一併記出口時的改檔指紋（mark_exit）。"""
     state.setdefault("second_opinion_ok", {})[session_id] = turn
     cover = state.setdefault("second_opinion_cover", {})
     old = set(((cover.get(session_id) or {}).get("risky")) or [])
     cover[session_id] = {"turn": turn, "risky": sorted(old | set(facts.get("risky") or []))}
+    mark_exit(state, session_id, turn, facts)
