@@ -2680,3 +2680,18 @@ def test_inject_lean_rules_registered_with_cases():
                      ("POINTER_NO_NAME_ECHO", "test_cold_line_drops_name_echo"),
                      ("NO_RESEND_AFTER_RESUME", "test_resume_does_not_resend_full_card")):
         assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
+
+
+# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
+_SLIM_CASES = {
+    "DENY_TEXT_SLIM": ("verify_data_file_ask.py", "test_deny_text_slim_rule_fix_and_hit_only"),
+    "CARD_FULL_ONCE_PER_SESSION": ("verify_gate_slimming.py", "test_card_full_once_per_session_then_names_only"),
+    "DATA_FILE_READ_HINT": ("verify_data_file_ask.py", "test_read_hint_on_first_read_of_data_file"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_SLIM_CASES))
+def test_slim_rules_registered_with_cases(rule):
+    case_file, fn = _SLIM_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)

@@ -17,9 +17,13 @@ sys.path.insert(0, str(HOOKS_DIR))
 
 # ─── 判準卡一個話題只送一次 ───────────────────────────────────────
 
+TOPIC_MODE = {"entrypoint": {"card_once_per_session": False}}     # 退回 CARD_ONCE_PER_TOPIC 的開關
+
+
 @pytest.fixture()
 def card_env(tmp_path, monkeypatch):
-    """一張綁 E01 的判準卡；回 (ask, logs, topic)：ask(turn, path) 問一次，topic["tree"] 換目前的目標樹。"""
+    """一張綁 E01 的判準卡；回 (ask, logs, topic)：ask(turn, path) 問一次，topic["tree"] 換目前的目標樹。
+    這組驗開關關掉時的 CARD_ONCE_PER_TOPIC（預設的 CARD_FULL_ONCE_PER_SESSION 見下一段）。"""
     import wg_core
     import wg_entrypoint as ep
     import wg_need_goal as ng
@@ -32,7 +36,7 @@ def card_env(tmp_path, monkeypatch):
     monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append(rec))
     monkeypatch.setattr(ng, "load", lambda sid: {"active": topic["tree"]})
     ask = lambda turn, path="pre_tool_use": ep.entry_note("擋：LOCATE_X", path, session_id="s", state={"turn_seq": turn},
-                                                          registry=reg, pool=pool)
+                                                          registry=reg, pool=pool, config=TOPIC_MODE)
     return ask, logs, topic
 
 
@@ -66,6 +70,84 @@ def test_card_subagent_prompt_always_full(card_env):
     topic["tree"] = "T1"
     assert "往上游追" in ask(1, "subagent_prompt") and "往上游追" in ask(1, "subagent_prompt")
     assert "往上游追" in ask(1)
+
+
+@pytest.fixture()
+def session_cards(tmp_path, monkeypatch):
+    """綁 E01 的「卡」＋關鍵字退路的「退路卡」，預算只夠「卡」；回 (ask, logs, topic)：ask(turn, path, config) 問一次。"""
+    import wg_core
+    import wg_entrypoint as ep
+    import wg_need_goal as ng
+    (tmp_path / "卡.md").write_text("# 卡\n\n## 知識\n\n- [臨] 根因候選要跨層找，先往上游追資料從哪壞掉。\n", encoding="utf-8")
+    (tmp_path / "退路卡.md").write_text("# 退路卡\n\n## 知識\n\n" + "- [臨] 歸因早停：找到合理嫌疑機制就停止驗證，要拿實例跑一次確認。\n" * 6,
+                                        encoding="utf-8")
+    reg = {"entrypoints": [{"id": "E01", "rules": ["LOCATE_X"], "paths": ["pre_tool_use", "subagent_prompt"]}]}
+    pool = [{"name": "卡", "file": tmp_path / "卡.md", "triggers": [], "entry": ["E01"]},
+            {"name": "退路卡", "file": tmp_path / "退路卡.md", "triggers": ["locate_x"], "entry": []}]
+    room = {"entrypoint": {"inject_budget_tokens": ep._estimate_tokens(ep._knowledge(pool[0])) + 10}}
+    logs, topic = [], {"tree": None}
+    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append(rec))
+    monkeypatch.setattr(ng, "load", lambda sid: {"active": topic["tree"]})
+
+    def ask(turn, path="pre_tool_use", config=None):
+        cfg = {"entrypoint": {**room["entrypoint"], **((config or {}).get("entrypoint") or {})}}
+        return ep.entry_note("擋：LOCATE_X", path, session_id="s", state={"turn_seq": turn}, registry=reg, pool=pool, config=cfg)
+    return ask, logs, topic
+
+
+def test_card_full_once_per_session_then_names_only(session_cards):
+    """規則 CARD_FULL_ONCE_PER_SESSION：一張卡一個 session 只送一次全文，之後（換回合、換目標樹都一樣）只一行「判準卡：<卡名>」，
+    不印「這個話題前面已送過全文」；同一個切入點拿過卡就不再往下送新卡（帳不記截斷）。舊碼換樹重送全文、第二次問把預算讓給退路卡 → 紅。"""
+    ask, logs, topic = session_cards
+    first = ask(1)
+    assert "往上游追" in first and "歸因早停" not in first and logs[-1]["truncated"]      # 預算只夠綁定卡
+    topic["tree"] = "T1"
+    again = ask(2)
+    assert again == "判準卡：卡" and "已送過全文" not in again                              # 換樹也不重送、只給卡名
+    assert (logs[-1]["repeated"], logs[-1]["cards"], logs[-1]["truncated"]) == (["卡"], ["卡"], False)
+    topic["tree"] = "T2"
+    assert ask(3) == "判準卡：卡"
+
+
+def test_card_cut_by_shared_budget_is_not_counted_sent(tmp_path, monkeypatch):
+    """CARD_FULL_ONCE_PER_SESSION：同一則認出兩個切入點、總額度平分後不夠，截斷送出的卡不算送過、那個切入點不算拿過卡，
+    下次單獨被問照送全文（舊碼記成送過，整個 session 只給卡名）。卡本身比單一額度大的截斷照算送過。"""
+    import wg_core
+    import wg_entrypoint as ep
+    (tmp_path / "長卡.md").write_text("# 長卡\n\n## 知識\n\n" + "- [臨] 根因候選要跨層找，先往上游追資料從哪壞掉。\n" * 3
+                                      + "- [臨] 最後一條：修 B 之後 A 的壞資料還會流到誰。\n", encoding="utf-8")
+    (tmp_path / "短卡.md").write_text("# 短卡\n\n## 知識\n\n- [臨] 批判先下合理或不合理。\n", encoding="utf-8")
+    reg = {"entrypoints": [{"id": "E01", "rules": ["LOCATE_X"], "paths": ["pre_tool_use"]},
+                           {"id": "E02", "rules": ["CRIT_Y"], "paths": ["pre_tool_use"]}]}
+    pool = [{"name": "長卡", "file": tmp_path / "長卡.md", "triggers": [], "entry": ["E01"]},
+            {"name": "短卡", "file": tmp_path / "短卡.md", "triggers": [], "entry": ["E02"]}]
+    cost = ep._estimate_tokens(ep._knowledge(pool[0]))
+    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: None)
+    cfg = {"entrypoint": {"inject_budget_tokens": cost + 50, "inject_budget_total": cost + 50}}
+    ask = lambda text: ep.entry_note(text, "pre_tool_use", session_id="s", state={"turn_seq": 1}, registry=reg, pool=pool,
+                                     config=cfg)
+    both = ask("擋：LOCATE_X、CRIT_Y")
+    assert "已截斷" in both and "最後一條" not in both and "批判先下" in both     # 平分後長卡被截
+    alone = ask("擋：LOCATE_X")
+    assert "最後一條" in alone, alone                                              # 單獨問：全文補送
+    assert ask("擋：CRIT_Y") == "判準卡：短卡"                                     # 整張送過的照只給卡名
+
+
+def test_card_full_once_per_session_resend_and_switch(session_cards):
+    """壓縮後清掉紀錄重送全文；子代理開工句照送全文、不佔主對話；entrypoint.card_once_per_session=false 退回 CARD_ONCE_PER_TOPIC。"""
+    import wg_entrypoint as ep
+    ask, _, topic = session_cards
+    assert "往上游追" in ask(1) and ask(2) == "判準卡：卡"
+    assert "往上游追" in ask(2, "subagent_prompt") and ask(3) == "判準卡：卡"
+    ep.forget_sent("s")
+    assert "往上游追" in ask(4)
+    ep.forget_sent("s")
+    topic["tree"] = "T1"
+    assert "往上游追" in ask(5, config=TOPIC_MODE)
+    old = ask(6, config=TOPIC_MODE)
+    assert "已送過全文" in old and "歸因早停" in old                                         # 舊樣式：指回行＋往下送退路卡
 
 
 def test_pre_compact_forgets_sent_cards():
