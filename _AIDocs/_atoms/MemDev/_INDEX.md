@@ -66,6 +66,7 @@
 | repo-全面-lf-決策與守衛鏈 | repo-全面-LF-決策與守衛鏈 |
 | scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層 |
 | state待併帳退路的不變量-基準記讀到的原文與指紋-自己的帳沒落盤只能再留帳-併過帳名與結果同次落盤-不轉給別的session | state待併帳退路的不變量-基準記讀到的原文與指紋-自己的帳沒落盤只能再留帳-併過帳名與結果同次落盤-不轉給別的session |
+| stop案例要模擬寫碼回合用state的need-goal-code-decl-turn-補modified-files會連帶觸發補案例檢查與驗證範圍閘-案例因無關原因轉紅 | Stop案例要模擬寫碼回合用state的need_goal_code_decl_turn-補modified_files會連帶觸發補案例檢查與驗證範圍閘-案例因無關原因轉紅 |
 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整WC status爆預算-只信xml輸出 |
 | testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
 | text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列 | text-score的auto_targets空清單是不比路徑不是關掉-要某種類不評就整個不列 |
