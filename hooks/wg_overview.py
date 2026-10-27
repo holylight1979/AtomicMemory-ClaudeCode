@@ -488,9 +488,11 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     intent = _intent_of(state)
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
     kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
+    mode = cfg["card_injection"]
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
-                                    knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""))
+                                    knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""),
+                                    pointer=mode == "pointer")
     if miss:
         text += "".join(f"\n表上的卡在 {p}，不在預設目錄；請更新表或搬卡" for p in miss["found"])
         if miss["missing"]:
@@ -511,6 +513,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "intent": intent,
         "slices": used,
         "card_paths": [str(cp) for cp in card_paths],
+        "card_mode": mode,                # pointer：卡沒整張送，改這塊之前要 Read 過卡（_unread_cards）
         "reads_after": [],
         "part_files_read": [],
         "depends_files_read": [],
@@ -527,7 +530,8 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
                           if miss and miss["missing"] else None),
     }
     _log("inject", session_id, part=row["part_short"], status=row["status"], via=via, path=hit_path,
-         card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"))
+         card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"),
+         card_mode=mode)
     return text
 
 
@@ -541,11 +545,7 @@ def defects_top_n(card_paths: List[Any], n: int) -> List[str]:
             body = Path(cp).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        sec = split_card_sections(body)["slices"].get("defects") or ""
-        for line in sec.splitlines():
-            s = line.strip()
-            if s.startswith("- ") and len(out) < n:
-                out.append(s)
+        out.extend(_oh.defect_bullets(body)[:n - len(out)])
         if len(out) >= n:
             break
     return out
@@ -885,7 +885,7 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     card_paths, _miss = _resolve_row_cards(root, row, cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), _locate_template(cfg), extra,
-                                    [], GOAL_VIEW_LENS, "")
+                                    [], GOAL_VIEW_LENS, "", pointer=cfg["card_injection"] == "pointer")
     _log("goal_view", session_id, part=row["part_short"], path=hit_path, reset_turn=reset, chars=len(text), slices=used)
     return f"{head}\n{text}"
 
@@ -1327,6 +1327,52 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     return ("\n".join(notes) or None, None, True)
 
 
+def _unread_cards(state: Dict[str, Any], rec: Dict[str, Any]) -> List[str]:
+    """指標制注入（rec.card_mode＝pointer）的部位：卡檔裡本 session 還沒讀過的（讀檔帳＝_session_reads，與讀檔證據同源）。
+    整張注入、升級前沒有 card_mode 的舊紀錄、沒有卡的部位回空（卡已經送到眼前或本來就沒有卡）。"""
+    if rec.get("card_mode") != "pointer":
+        return []
+    read = _session_reads(state)
+    return [cp for cp in rec.get("card_paths") or [] if _rr.canon_path(cp) not in read]
+
+
+def _card_unread_line(unread: List[str]) -> str:
+    return (f"還沒 Read 這個部位的導讀卡：{'、'.join(unread)}（第一次碰到時只送了已知病灶一句與卡路徑，整張沒有注入；"
+            "改之前先 Read，可跟其他讀檔同一則送）")
+
+
+def _locate_deny(state: Dict[str, Any], session_id: str, rec: Dict[str, Any], row: Dict[str, Any], key: str, file_path: str,
+                 deny_reason: Optional[str], missing: List[str],
+                 call: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str], bool]:
+    """部位檔改檔閘缺件時的出口（程式部位與知識部位共用）：擋次上限、同批只回一行、其餘送全文。"""
+    turn = int(state.get("turn_seq", 0) or 0)
+    # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
+    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
+    # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
+    gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
+    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"], call=call)
+    if not denied:
+        if released:
+            _log("edit_deny_capped", session_id, part=row["part_short"],
+                 path=file_path, deny_reason=deny_reason, blocks=DECL_DENY_CAP, gap=gap)
+        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
+                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
+    # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
+    # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
+    sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
+    last = rec.get("last_deny") or {}
+    rec["last_deny"] = {"turn": turn, "sig": sig}
+    if last.get("turn") == turn and last.get("sig") == sig:
+        msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
+               f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
+        _log("edit_deny_repeat", session_id, part=row["part_short"],
+             path=file_path, deny_reason=deny_reason)
+        return (msg, msg, True)
+    msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
+           + "\n".join(f"- {m}" for m in missing))
+    return (msg, msg, True)
+
+
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
             config: Dict[str, Any], cwd: str = "", agent_id: str = "",
             tool_use_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
@@ -1334,7 +1380,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     agent_id＝子代理的工具呼叫：定位三行連子代理自己的 transcript 一起找（wg_core.transcripts_of）。
     tool_use_id＝這次工具呼叫的 id：擋次上限照「同一則回覆算一次」數（規則 DENY_CAP_PER_REPLY）；沒給照每個呼叫算。
 
-    deny 理由帶整張卡（模型只看得到 permissionDecisionReason）。三項證據缺一即 deny；transcript 讀不到 deny；
+    deny 理由帶注入文字（模型只看得到 permissionDecisionReason；card_injection＝full 是整張卡，pointer 是病灶一句＋卡路徑）。
+    三項證據缺一即 deny；指標制注入的部位另要本 session Read 過卡（知識類部位也要）；transcript 讀不到 deny；
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
     """
     if not file_path:
@@ -1414,7 +1461,9 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                  cards=cm["missing"], timed_out=cm["timed_out"], layer=cfg.get("_layer"))
             msg = f"{mm}\n{text.replace(chr(10) + mm, '')}"
             return (msg, msg, True)
-        todo = "先讀完再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge else "先讀完、讀過部位檔、在回覆交出定位三行，再改。"
+        first = "先 Read 導讀卡" if _unread_cards(state, state["overview_hub"][key]) else "先讀完"
+        todo = (f"{first}再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge
+                else f"{first}、讀過部位檔、在回覆交出定位三行，再改。")
         msg = (f"[Guardian:OverviewHub] 要改【{row['part_short']}】部位的檔但本 session 還沒看過這個部位的導讀卡；"
                f"卡片現在才注入（下面）。{todo}\n{text}")
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",
@@ -1424,12 +1473,17 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     rec["edits"] = int(rec.get("edits", 0)) + 1
     if not knowledge:
         rec["kind"] = _oh.KIND_CODE        # 同一列也有寫碼命中（例：只撞到子字串）：scorecard 的 S3 要算這個部位
+    unread = _unread_cards(state, rec)          # 指標制：卡沒送到眼前，要 Read 過才算看過（讀了就記在讀檔帳，這裡核對並落 log）
     if knowledge:
-        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立）；讀檔數照記（on_read），不查讀部位檔、定位三行、transcript
+        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立；指標制另要 Read 過卡）；讀檔數照記（on_read），
+        # 不查讀部位檔、定位三行、transcript
         _log("edit", session_id, part=row["part_short"], path=file_path, kind=_oh.KIND_KNOWLEDGE, located=bool(rec.get("located")),
              part_files_read=len(rec["part_files_read"]), depends_files_read=len(rec["depends_files_read"]),
              reads_after_inject=len(rec["reads_after"]), edits=rec["edits"], intent=rec.get("intent"),
-             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=None)
+             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason="card_unread" if unread else None,
+             card_mode=rec.get("card_mode"), card_unread=len(unread))
+        if unread:
+            return _locate_deny(state, session_id, rec, row, key, file_path, "card_unread", [_card_unread_line(unread)], call)
         return (None, None, True)
     candidates: Optional[str] = None
     reads = rec["reads_after"]
@@ -1437,7 +1491,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     part_files = rec["part_files_read"]
     depends_files = rec["depends_files_read"]
     ev = cfg["min_overview_evidence"]
-    missing: List[str] = []
+    missing: List[str] = [_card_unread_line(unread)] if unread else []
     deny_reason: Optional[str] = None
     warn: Optional[str] = None
     readable, why = transcript_readable(transcript_path)
@@ -1516,7 +1570,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
          part_files_read=len(part_files), depends_files_read=len(depends_files),
          reads_after_inject=len(reads), dirs_after_inject=len(dirs), edits=rec["edits"],
          intent=rec.get("intent"), slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=deny_reason,
-         **({} if readable else {"self_error": why}))
+         card_mode=rec.get("card_mode"), card_unread=len(unread), **({} if readable else {"self_error": why}))
     if not missing:
         # A5.3：放行的同檔第 2 次 Edit 附候選（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}。
         # 一部位一 session 只送一次：與 on_prompt 觸發詞共用 candidates_sent（部位 key），同部位別的檔第 2 次 Edit 不再送；
@@ -1535,28 +1589,4 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
-    turn = int(state.get("turn_seq", 0) or 0)
-    # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
-    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
-    # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
-    gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
-    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"], call=call)
-    if not denied:
-        if released:
-            _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
-                 blocks=DECL_DENY_CAP, gap=gap)
-        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
-                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
-    # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
-    # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
-    sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
-    last = rec.get("last_deny") or {}
-    rec["last_deny"] = {"turn": turn, "sig": sig}
-    if last.get("turn") == turn and last.get("sig") == sig:
-        msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
-               f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
-        _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
-        return (msg, msg, True)
-    msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
-           + "\n".join(f"- {m}" for m in missing))
-    return (msg, msg, True)
+    return _locate_deny(state, session_id, rec, row, key, file_path, deny_reason, missing, call)

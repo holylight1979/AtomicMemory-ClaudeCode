@@ -600,27 +600,57 @@ def _card_body_for(parsed: Dict[str, Any], used: List[str], cp: Path) -> str:
     return "\n".join(x for x in out if x)
 
 
+POINTER_DEFECT_CAP = 160   # 指標制那句已知病灶的字數上限
+
+
+def defect_bullets(body: str) -> List[str]:
+    """導讀卡「已知病灶」片裡的頂層 bullet（`- ` 開頭的行，原樣含 `- `）；沒有這片回 []。"""
+    sec = split_card_sections(body)["slices"].get("defects") or ""
+    return [s for s in (line.strip() for line in sec.splitlines()) if s.startswith("- ")]
+
+
+def _pointer_body(card_paths: List[Path], note: str) -> str:
+    """指標制（card_injection=pointer）的卡片部分：已知病灶一句（照卡序取第一條）＋卡路徑，共兩行；卡讀不到另列一行。"""
+    defect, failed = "", []
+    for cp in card_paths:
+        try:
+            body = cp.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            failed.append(f"---- 導讀卡讀取失敗：{cp}（{e}）----")
+            continue
+        defect = defect or next(iter(defect_bullets(body)), "")
+    defect = defect[2:].strip()
+    if len(defect) > POINTER_DEFECT_CAP:
+        defect = defect[:POINTER_DEFECT_CAP] + "…"
+    paths = "、".join(str(cp) for cp in card_paths)
+    return "\n".join([f"已知病灶：{defect or '卡上沒有「已知病灶」段'}",
+                      f"導讀卡{note}：{paths}（整張沒有注入；改這個部位的檔之前先 Read，可跟讀部位檔同一則送）", *failed])
+
+
 def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
                        locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
                        slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "",
-                       knowledge: bool = False, extra: str = "") -> Tuple[str, List[str]]:
+                       knowledge: bool = False, extra: str = "", pointer: bool = False) -> Tuple[str, List[str]]:
     """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
 
     slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
     lens／ask_first：視角與先問的那一題，加在 head；extra：意圖帶的一段話（goal_weights.<意圖>.extra），接在它們之後。max_chars 只截**每張卡的正文**（選片後或整卡），
     head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
     knowledge：知識類部位（part_kind）：head 不要求定位三行，卡照注。
+    pointer：卡不整張送，head 照送、卡片部分換成 _pointer_body 兩行（不選片、片名回 []）；沒卡的部位兩種輸出逐字相同。
     """
     part = row["part"] or row["part_short"]
     t = list(locate_template or [])
     t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
     if knowledge:
         head = (f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-                f"這是知識類部位（部位表類別 knowledge）：不要求定位三行，下面的導讀卡讀完即可改。")
+                f"這是知識類部位（部位表類別 knowledge）：不要求定位三行，"
+                + ("Read 下面的導讀卡後即可改。" if pointer and card_paths else "下面的導讀卡讀完即可改。"))
     else:
         head = (
             f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-            f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字）：\n"
+            f"改這個部位的檔之前{'先 Read 下面的導讀卡' if pointer and card_paths else '先把下面的導讀卡讀完'}，"
+            f"並交出定位三行（三行都要，格式照抄；寫在回覆文字）：\n"
             f"定位｜部位：{row['part_short']}——{t[0]}\n"
             f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
             f"定位｜前例：{t[2]}"
@@ -631,6 +661,8 @@ def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: st
         why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
         return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----", []
     note = "" if row["status"] == "有" else f"（注意：表上標此卡狀態「{row['status']}」，不是完整導讀，注入前專案要求先補驗）"
+    if pointer:
+        return f"{head}\n{_pointer_body(card_paths, note)}", []
     parts = [head]
     used_all: List[str] = []
     for cp in card_paths:
