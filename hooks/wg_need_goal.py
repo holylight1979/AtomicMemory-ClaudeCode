@@ -645,11 +645,14 @@ def critique_mark(doc: Dict[str, Any]) -> bool:
 
 
 def critique_once(sid: Any) -> bool:
-    """critique_mark 的上鎖版。還沒有目標檔（沒寫過樹）→ True、不為這筆建檔；鎖拿不到或目標檔壞了 → True、stderr 一行
+    """critique_mark 的上鎖版。還沒有目標檔（沒寫過樹）→ True、不為這筆建檔；先不上鎖讀一次：已送過就回 False、不取鎖，
+    目標檔壞了 → True、不碰檔（壞檔改名留證留給 need_goal 寫入，提醒不觸發）；鎖拿不到 → True。失敗都 stderr 一行
     （寧可多送一次全文不靜默少送）。"""
     if not goal_path(sid).exists():
         return True
     try:
+        if load(sid).get("critique_sent") and slim_reminders():
+            return False
         return bool(update_locked(sid, critique_mark))
     except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
         print(f"[NeedGoal] 批判題已送紀錄讀寫失敗（照送全文）：{type(e).__name__}: {e}", file=sys.stderr)
@@ -662,10 +665,12 @@ def critique_cases(full: bool) -> str:
 
 def forget_reminders(sid: Any) -> None:
     """壓縮後 context 裡沒有批判題全文了：清掉 critique_sent，下次照送全文（規則 CRITIQUE_CASES_ONCE_PER_SESSION）。
-    沒有目標檔不建；讀寫失敗 stderr 一行（壓縮後可能只收到指回句）。"""
+    沒有目標檔不建；沒記過就不取鎖；目標檔壞了不碰（不觸發改名留證）；讀寫失敗 stderr 一行（壓縮後可能只收到指回句）。"""
     if not goal_path(sid).exists():
         return
     try:
+        if "critique_sent" not in load(sid):
+            return
         update_locked(sid, lambda d: d.pop("critique_sent", None))
     except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
         print(f"[NeedGoal] 清不掉批判題已送紀錄（壓縮後可能只送指回句）：{type(e).__name__}: {e}", file=sys.stderr)

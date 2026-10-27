@@ -415,6 +415,18 @@ def test_critique_cases_full_once_per_session_then_pointer(env):
     assert ng.CRITIQUE_CASES_POINTER in ngp.goal_view_text(SID, "戰鬥")
 
 
+def test_critique_record_never_touches_corrupt_goal_file(env):
+    """CRITIQUE_CASES_ONCE_PER_SESSION 的讀寫不碰壞掉的目標檔：critique_once 照送全文、壓縮後重送不清也不改名，
+    壞檔原地留著給 need_goal 寫入時改名留證（提問閘照舊說「目標檔壞了」）。直接走 update_locked 會把壞檔改名、換成空骨架。"""
+    _big_tree(env)
+    p = ng.goal_path(SID)
+    p.write_text("{壞掉的 json", encoding="utf-8")
+    assert ng.critique_once(SID) is True
+    ng.forget_reminders(SID)
+    assert ngp.recovery_text(SID, {}) == ""
+    assert p.read_text(encoding="utf-8") == "{壞掉的 json" and not list(p.parent.glob("*.corrupt-*"))
+
+
 def test_card_brief_once_per_turn_unless_content_changes(env):
     """導讀卡附的兩行：同一個使用者回合內容沒變只附第一張（後面的只留定位第五行提醒）；換回合、當前節點換了或文字改了就再附。
     舊碼每張卡都附整棵精簡樹。"""
