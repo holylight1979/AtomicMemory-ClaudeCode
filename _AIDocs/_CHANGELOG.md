@@ -4,6 +4,15 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 寫碼回合的記憶卡只有 trigger 命中給整段；一行指標不重印卡名；resume 之後不重送整段
+- **AI 寫程式時會看到的**（守門總開關 v6 開、這則判成寫碼意圖時；關掉或不是寫碼意圖照舊）：
+  - **只有 trigger 命中的卡給整段**（規則 CODING_TURN_FULL_ONLY_ON_TRIGGER，`hooks/handlers/ups_inject.assemble_injection`、開關 `_lean_turn`）：bm25／vector／related 命中的卡就算 hot（7 天內讀過 ≥3 次）也只給 cold 一行，要用再 Read。trigger 命中的照舊（整段、同題節錄、塞不下時的印象節錄、路標），送的整段一字不差。一行送過的卡之後的寫碼回合被 trigger 命中時補整段（`_line_upgrades`；它照舊留在 `injected_atoms`，搜尋段不會再給它）。
+  - **一行指標不重印卡名**（規則 POINTER_NO_NAME_ECHO，`hooks/wg_atoms.title_echoes_name`、`format_cold_inject_line(drop_name_echo=)`）：cold 行與 budget 退的路標原本把卡名寫三次（`[Atom:卡名]`、摘要＝標題、路徑），摘要只是卡名換個寫法時不印，每行省 40～60 token；摘要是印象行、或比卡名多資訊的照印。
+  - **resume 之後不重送整段**（規則 NO_RESEND_AFTER_RESUME，`ups_inject.delivered_forms`）：SessionStart 在 resume 會清空 `injected_atoms`，但對話還在 context 裡；本 session 最近一次壓縮之後整段送過的卡再命中只給一行「(前面已整段送過)」指回（form `seen`，取用端稽核 AtomAudit 不追問）。壓縮之後、之前只送過一行或只抽了命中章節、判不出先後的照常送。`injection_log` 每筆在總開關開時多記送出時間 `at`，只抽章節的多記 `sections`。
+- **沒做**：記憶注入預算 3000→1500 不成立——記憶卡段硬頂本來就是 1,200（`wg_core.TURN_BUDGET_LIMIT`），3000 是整輪注入總額（`TOKEN_BUDGET_MAX`，Session:Context、NeedGoal 提示、導讀卡共用），兩個都不是 config 鍵；改程式題第一回合整輪只用 1,330，降總額砍不到記憶卡、反而先裁到導讀卡。
+- **省多少**（改程式題第一回合，實跑紀錄 5 跑重播；main 重播與 transcript 逐字相同）：記憶卡段每次呼叫估 1,135→985 token（三行 cold 各少 45～55），乘第一回合 18～27 次呼叫，每跑少 2.7～4.0 千（主樣本兩跑 3,295／3,595，佔第一回合約 0.2%）；擋次、秒數不變（0→0，沒有因記憶卡多出的呼叫）。trigger 命中的三張卡兩版逐字相同。交材料那回合省下的額度讓原本整張丟掉的一張 trigger 卡改送一行路標（淨多 6 token）。
+- **驗證**：新案例 `hooks/verify/verify_inject_lean.py`（三條規則、v6 關／非寫碼意圖照舊、trigger 卡整段兩態逐字相同、壓縮後照送、兩則 UPS 走真結算的 resume 往返、AtomAudit 不追 seen、一行送過的卡之後 trigger 命中補整段、只抽章節不算整段）；拿 main 5ccf44d2 回放 14 紅 8 綠（綠的是照舊與對照案）。codex 一輪（只收弄壞資料／繞閘）審出 2 條繞閘都採納：寫碼回合壓成一行的卡留在 injected_atoms，之後 trigger 命中也送不到整段（補 `_line_upgrades`）；只抽章節的送出被當成整段送過（補 `sections`），各補會紅案例。`verify_release_rules.py` 檔尾加一支把三條規則指到案例檔。目標範圍 21 支整支跑（合進 main 03e0b00d 之後）818 綠、1 紅（`verify_injection_redundancy_gate::test_library_wide_pairs_are_few`：卡片庫 trigger 重疊對 31＞20，基底紅，跟這次改動無關）。
+- **已知限制**：resume 判斷靠 `injection_log`（上限 100 筆），更早的紀錄被裁掉後會照常重送；離線評估工具 `tools/memory-eval/online_replay.py` 的路標集合沒有 `seen`，評估時會把指回那行當整段送達。
 ## 2026-10-27 連鎖斷路器只在「修了又欠」時響：兩次擋之間沒改檔不算連鎖；中止時看得到被換掉那次擋原本說缺什麼
 - **AI 寫程式時會看到的**（守門總開關 v6 開、chain_breaker 開時）：
   - **兩次擋之間只重跑測試、建刪暫存工作樹、重交收尾報告、改目標樹，同一道閘再擋不再判成連鎖中止**（規則 CHAIN_NO_EDIT_NO_EDGE，`hooks/wg_chain.py` 的 `changes_files`／`link`／`same_count`）：這些動作照記、照列進經過表，但沒改到檔不算修補——同一道閘不接成邊、不讓同閘次數加 1，照那道閘原本的擋訊息擋。改到檔＝改檔（Edit／Write…、Bash／PowerShell 有寫入目標，含判不出目標的寫入）、寫卡、子代理（它改了什麼主 session 看不到）。實例：紅測閘擋第 1 次 → 建暫存樹、重跑那支測試、刪暫存樹、重交報告，全程沒改檔 → 第 2 次被判成連鎖中止。不同的閘之間只有這類動作，照「沒記到動作」那樣判。
