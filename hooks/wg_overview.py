@@ -1,16 +1,17 @@
 """wg_overview — OverviewHub 的 state 層：三個 hook 各呼叫一個函式。
 
-做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就依本回合意圖（state["turn_intent"]）
-查 goal_weights 選片注入該部位導讀卡（沒片命中退整卡），一個 session 一個部位只注入一次；之後記「注入後讀了
-哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關）、讀過部位檔 ≥N、交了定位三行
-（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項。
+做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就注入定位要求與該部位導讀卡，一個 session
+一個部位只注入一次。卡怎麼送看 card_injection：pointer（預設）只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；
+full 依本回合意圖（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；v6 總開關關時一律 full。
+之後記「注入後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制另要 Read 過卡）、
+讀過部位檔 ≥N、交了定位三行（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項。
 readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
 沒有部位表的專案（或表上沒列的檔）改前要求本 session 讀過同頂層目錄 ≥N 個檔；往上找不到任何部位表的專案，第一次改
 某頂層目錄的程式檔前另要最小地圖三行（地圖｜讀了／上游／下游），擋訊息附掃表預覽。設定四層深合併（_cfg）、
 設定錯誤時 Edit 一律擋。每個事件各落一行 jsonl 到 workflow/_overview-hub.log 當量測資料。
 
 state["overview_hub"] = {
-  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "transcript_offsets": {檔: byte}, "intent", "slices", "card_paths",
+  "<root>|<part>": {"injected_turn", "injected_at", "transcript_offset", "transcript_offsets": {檔: byte}, "intent", "slices", "card_paths", "card_mode",
                      "reads_after": [...], "part_files_read": [...], "depends_files_read": [...],
                      "located": bool, "located_via", "located_quality", "edits": n, "locate_template"},
   "<root>|(unmapped)<top_dir>": {"part_files_read": [...], "edits": n, "min_map_done": bool, "min_map_via"}
