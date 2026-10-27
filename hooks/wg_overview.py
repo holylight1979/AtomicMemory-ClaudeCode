@@ -981,7 +981,8 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     agent_id＝子代理讀的：讀檔照記、第一次讀到照注入（子代理自己改檔時的定位閘要用），目標視角重看不送（那是問主 session 的樹）、
     也不消耗主 session 的那一次。（需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）
     一條指令讀到好幾個檔（Bash cat a b c）：每個檔都照順序記，注入之後的檔照算讀過——跟一則回覆平行送出幾個 Read 一樣
-    （規則 SHELL_READ_COUNTS_LIKE_READ）；這一次注入或重送的導讀卡都接起來回。"""
+    （規則 SHELL_READ_COUNTS_LIKE_READ）；觸發注入的那個檔本身也記進讀過（規則 INJECT_TRIGGER_READ_COUNTED，Read 也一樣：
+    那次讀就是真讀，「看過全貌才改」靠之後的定位四行守）；這一次注入或重送的導讀卡都接起來回。"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
@@ -1000,8 +1001,11 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
         root_cfg = _cfg(config, root)
         if not root_cfg["enabled"]:
             continue
-        text = (_inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg) if rec is None
-                else _goal_view(state, session_id, root, row, rec, p, root_cfg))
+        if rec is None:
+            text = _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg)
+            _record_read(state, p, hit)          # INJECT_TRIGGER_READ_COUNTED：注入前那筆記不進還沒建的部位紀錄，注入後補記
+        else:
+            text = _goal_view(state, session_id, root, row, rec, p, root_cfg)
         if text:
             texts.append(text)
     return "\n\n".join(texts) or None

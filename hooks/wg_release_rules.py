@@ -3990,3 +3990,11 @@ RULES.update({
                                    "（wg_provenance._subagent_opener），lib/provenance.is_human_record 是才填（isSidechain 一律不算真人）；"
                                    "貼上的內容（lib/harness_text.strip_pasted）不當原話。守門總開關開關都套。",
 })
+
+
+# ─── 觸發導讀卡注入那次讀也算讀過（判定在 hooks/wg_overview.on_read，這裡只登錄規則名與說明） ───
+RULES.update({
+    "INJECT_TRIGGER_READ_COUNTED": "觸發導讀卡注入的那次讀就是真讀：Read 或唯讀 Bash／PowerShell 第一次讀到某部位，觸發注入的那個檔本身"
+                                   "也記進讀過部位檔（part_files_read、reads_after），一條指令讀到的同部位其他檔照 SHELL_READ_COUNTS_LIKE_READ"
+                                   "全記；改檔前才補注入（on_edit）沒有讀檔，不記。「看過全貌才改」靠注入後還要交的定位四行守。",
+})
