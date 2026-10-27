@@ -4100,3 +4100,7 @@ RULES.update({
                                        "（wg_overview.LOCATE_EXAMPLE_AGAIN：四行格式同第一則、寫在回覆文字或 # 註解、thinking 讀不到）；"
                                        "缺件清單照原文比（擋次上限、同批短訊息不因換字重新計次）；精簡關掉每則照給完整範例。",
 })
+RULES.update({
+    "CARD_READ_WITH_EDIT_FILES": "指標制送卡時，指標行（lib/overview_hub._pointer_body）與讀卡缺件行（wg_overview._card_unread_line）"
+                                 "直接講下一步：「下一則讀卡時順便讀要改的檔」，讓讀卡跟讀要改的檔併在同一則送、不為讀卡多停一次。只改文字，判定不變。",
+})

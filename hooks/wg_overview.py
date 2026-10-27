@@ -1417,7 +1417,7 @@ def _unread_cards(state: Dict[str, Any], rec: Dict[str, Any]) -> List[str]:
 
 def _card_unread_line(unread: List[str]) -> str:
     return (f"還沒 Read 這個部位的導讀卡：{'、'.join(unread)}（第一次碰到時只送了已知病灶一句與卡路徑，整張沒有注入；"
-            "改之前先 Read，可跟其他讀檔同一則送）")
+            "改之前先 Read：下一則讀卡時順便讀要改的檔）")
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
