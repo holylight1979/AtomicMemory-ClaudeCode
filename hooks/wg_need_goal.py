@@ -1637,6 +1637,13 @@ def _ephemeral(path: str) -> bool:
     return _shared._is_ephemeral_path(path)
 
 
+def _edit_gate_applies(path: str, config: Optional[Dict[str, Any]], sources: Any = (),
+                       content: Optional[str] = None) -> bool:
+    """edit_gate 管不管這筆寫入：不是暫存檔、這一層 need_goal 開著、算改程式（writes_code）。讀到程式檔先提示
+    （tree_owed_for_edit）用同一支，提示與擋講同一件事。"""
+    return not _ephemeral(path) and cfg_of(config, _root_of(path))["enabled"] and writes_code(path, config, sources, content)
+
+
 def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: Any = (),
               content: Optional[str] = None) -> Optional[str]:
     """4.2 第一層：這次寫入算改程式（writes_code：目標是程式檔、cp／mv 的來源含程式檔、沒副檔名而內容以 #! 開頭）、
@@ -1644,8 +1651,7 @@ def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: An
     if not sid or not path or str(path).startswith("UNKNOWN:"):
         return None
     try:
-        if (_ephemeral(path) or not cfg_of(config, _root_of(path))["enabled"]
-                or not writes_code(path, config, sources, content)):
+        if not _edit_gate_applies(path, config, sources, content):
             return None
         if active_tree(load(sid)) is not None:
             return None
@@ -1659,6 +1665,21 @@ def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: An
     _guard("edit_blocked", sid, path=path, why="no_tree")
     return (f"[NeedGoal] 改程式檔 {path} 前：這個需求還沒有目標樹。先用 need_goal(action=set, goal=…) 寫下"
             "這個需求真正要達成什麼（一句、用使用者的話、只寫目標不寫手段），再改程式。" + NO_TOOL_HINT)
+
+
+def tree_owed_for_edit(sid: Any, path: str, config: Optional[Dict[str, Any]]) -> bool:
+    """讀到程式檔先提示（規則 LOCATE_HINT_ON_FIRST_READ）：現在改這個檔，edit_gate 會不會因為沒有目標樹而擋——同一支
+    _edit_gate_applies（讀的時候沒有寫入內容與 cp／mv 來源）加目前的樹；目標檔損毀時改檔照樣擋、修法也是 need_goal set，回 True；
+    其他錯誤只 stderr、回 False（不提，改檔時 edit_gate 照判）。"""
+    if not sid or not path or str(path).startswith("UNKNOWN:"):
+        return False
+    try:
+        return _edit_gate_applies(path, config) and active_tree(load(sid)) is None
+    except NeedGoalCorrupt:
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 讀檔時判斷有沒有目標樹出錯（這次提示不提立樹，改檔時照判）：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
 
 
 def goal_for_edit(sid: Any, path: str, config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

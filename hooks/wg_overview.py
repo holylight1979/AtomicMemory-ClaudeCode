@@ -1006,6 +1006,9 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
         goal_view_due = (rec is not None and not agent_id
                          and rec.get("goal_reset_turn") not in (None, rec.get("goal_view_turn")))
         if rec is not None and not goal_view_due:
+            hint = _locate_read_hint(state, session_id, root, row, p, config, agent_id)
+            if hint:
+                texts.append(hint)
             continue
         root_cfg = _cfg(config, root)
         if not root_cfg["enabled"]:
@@ -1013,11 +1016,58 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
         if rec is None:
             text = _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg)
             _record_read(state, p, hit)          # INJECT_TRIGGER_READ_COUNTED：注入前那筆記不進還沒建的部位紀錄，注入後補記
+            state["overview_hub"][_key(root, row)]["locate_hint"] = "due"   # LOCATE_HINT_ON_FIRST_READ：讀到這部位的程式檔時提示
         else:
             text = _goal_view(state, session_id, root, row, rec, p, root_cfg)
         if text:
             texts.append(text)
+        hint = _locate_read_hint(state, session_id, root, row, p, config, agent_id)
+        if hint:
+            texts.append(hint)
     return "\n\n".join(texts) or None
+
+
+_LOCATE_HINT_KEY = "overview_locate_hint_sent"     # 本 session 送過完整那一則提示沒（之後的部位只點名、說格式同前）
+
+
+def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], path: str,
+                      config: Dict[str, Any], agent_id: str = "") -> Optional[str]:
+    """規則 LOCATE_HINT_ON_FIRST_READ：讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（可以就是觸發注入的那次）→ 讀檔結果後
+    附一行，講改之前 on_edit 與 wg_need_goal.edit_gate 要的東西：沒目標樹就先 need_goal set（判式同 edit_gate：tree_owed_for_edit）、
+    定位行幾行（有樹或要立樹＝四行，同擋訊息 LOCATE_ASK_ONCE；need_goal 關＝三行）、寫在哪（回覆文字或不寫檔指令開頭的 # 註解，
+    thinking 讀不到）。一部位一 session 一次（rec.locate_hint：注入時 due、送了 sent）；改檔時才補注入的部位（擋訊息已講過）、
+    已交過定位、非程式檔（含知識類部位）、子代理讀的不送（不消耗主 session 的那一次）；v6 總開關關著不送（注入本身是 v6 以前就有的，
+    關時照舊）。判定不動：沒照做照擋。"""
+    rec = (state.get("overview_hub") or {}).get(_key(root, row))
+    if (agent_id or not rec or rec.get("locate_hint") != "due" or rec.get("located") or not v6_enabled(config)
+            or not _cfg(config, root)["enabled"]):
+        return None
+    import wg_need_goal as _ng
+    if not _ng.is_code_path(path, config):
+        return None
+    need_tree = _ng.tree_owed_for_edit(session_id, path, config)
+    try:
+        four = need_tree or _ng.goal_for_edit(session_id, path, config) is not None
+    except _ng.NeedGoalCorrupt:
+        four = True                                  # 改檔時照擋，修法是重寫樹；樹立好之後就是四行
+    rec["locate_hint"] = "sent"
+    first = not state.get(_LOCATE_HINT_KEY)
+    state[_LOCATE_HINT_KEY] = True
+    _log("locate_hint", session_id, part=row["part_short"], path=path, need_tree=need_tree, four=four, first=first)
+    return locate_read_hint(row["part_short"], need_tree, four, first)
+
+
+def locate_read_hint(part: str, need_tree: bool, four: bool, first: bool) -> str:
+    """LOCATE_HINT_ON_FIRST_READ 那一行：立樹＋定位併成一行。first＝本 session 第一則，給格式與管道（同缺定位擋訊息的要求）；
+    之後的部位只點名、說格式同前。"""
+    tree = "先用 need_goal(action=set, goal=…) 立需求目標樹，再" if need_tree else ""
+    if not first:
+        return f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}交定位{'四' if four else '三'}行（格式同前一則提示）。"
+    lines = ("交定位四行：定位｜部位、定位｜根因層（候選 A …；候選 B …；選 A 因為 …，只找到一個就寫「第二個不存在因為 …」）、定位｜前例、"
+             "定位｜批判（先下「合理／不合理，因為 …」再寫更好的做法與同類在哪）" if four
+             else "交定位三行：定位｜部位、定位｜根因層、定位｜前例")
+    return (f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}{lines}；寫在比改檔早一則的回覆文字，或{_rr.DECL_VIA_COMMENT}"
+            "（thinking 讀不到），宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔。")
 
 
 def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_path: str,
