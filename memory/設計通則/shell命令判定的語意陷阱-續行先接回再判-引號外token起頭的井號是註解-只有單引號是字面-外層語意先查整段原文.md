@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: commit fbbcc9e（36fcc0b、3dd5a8b、2e98849）hooks/handlers/pre_tool_use.py _scan_segments／_wrapped_commit_verdict
 - Confidence: [臨]
-- Trigger: 續行, line continuation, 反斜線換行, cmd ^, PowerShell 反引號, shell 註解, 撇號, 雙引號展開, 命令替換, $(), heredoc, 斷詞器, 口令閘
+- Trigger: 續行, line continuation, 反斜線換行, cmd ^, PowerShell 反引號, shell 註解, 撇號, 雙引號展開, 命令替換, $(), heredoc, 斷詞器, 口令閘, 帶值旗標, 旗標表, 段界, shlex, 引號外切段, 保留字, 段首命令名, 寫入目標掃描
 - Created-at: 2026-10-13
 - Related: 從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令, 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據
 
@@ -16,6 +16,9 @@
 - [臨] 要逐段判：找到一個查詢包裝，不代表同一條命令的其他片段安全（`bash -c "git log"; (git commit -m x)`）。每段都要跑子 shell 括號／eval／命令替換的檢查。
 - [臨] heredoc 只剝內文：起始行 delimiter 後面的 `&& git commit -F msg` 是真命令要留；逐行找第一個結束行（零行內文也算），跨行 regex 會漏認空 heredoc 的結束行、一路剝到下一個同名 heredoc，把中間的命令吞掉。
 - [臨] 展開訊號加目標字樣就擋（fail-closed）會誤擋少數查詢（`cd "$(git rev-parse --show-toplevel)" && git log --grep=commit`），接受為已知邊界時要把「查詢請拿掉字樣或改用單引號」寫進擋訊息，讓被擋的人有路可走。
+- [臨] 「哪些旗標後面帶值」的表要每個命令各一份：共用一份時，`rm -r X` 的 -r 被當成 `touch -r` 的帶值旗標把 X 吃掉，整條刪核心檔的指令被放過；`touch -m` 不帶值，共用表也會把下一個字吃掉。
+- [臨] 段界要先在引號外切、再對每段斷字：shlex 斷完字就看不出哪個 ; & | 原本在引號裡，引號裡的 ";&"、空字串 "" 會被當成段界而誤擋；先按換行切則會把多行 `python -c "…"` 在第一行切斷，判成「引號不完整」。
+- [臨] 段首的保留字（do、then、else、elif、if、while、until、!、{）不是命令：拿段首第一個字當命令名，for／if／{ } 裡的寫入整段看不到；剝保留字的字表只留一份，所有判段首的地方共用。
 
 ## 行動
 

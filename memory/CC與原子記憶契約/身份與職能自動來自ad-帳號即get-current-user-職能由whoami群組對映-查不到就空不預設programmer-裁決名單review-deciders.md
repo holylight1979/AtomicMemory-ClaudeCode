@@ -10,12 +10,12 @@
 
 ## 知識
 
-- [臨] 身份＝公司 AD 帳號，`wg_roles.get_current_user()`（`CLAUDE_USER` → OS 帳號）回的就是去網域的 AD 名（`<網域>\\holylight`→`holylight`）；取不到回 `unknown`，`unknown` 不讀任何 personal。不做 SSO／RBAC／簽章／成員表（辩論會議裁決）。
+- [臨] 身份＝公司 AD 帳號，`wg_roles.get_current_user()`（`CLAUDE_USER` → OS 帳號）回的就是去網域的 AD 名（`<網域>\\holylight`→`holylight`）；取不到回 `unknown`，`unknown` 不讀任何 personal。不做 SSO／RBAC／簽章／成員表（辯論會議裁決）。
 - [臨] 職能三層解析 `load_user_role`：① `personal/<u>/role.md`（專案 → 根層）的 `- Role:`；② AD 群組 `whoami /groups /fo csv`（OEM 碼頁解碼），群組名 `<網域>\\<專案代碼>_<序號>_<職能名>` 依 config `roles.ad_group_map` 子字串對映（核心程式／伺服器程式→programmer、美術→art…），專案 MEMORY.md `> Project-Code: <專案代碼>` 可限定；③ 都沒有 → `[]`（只看 shared／org／global，**不預設 programmer**，否則「不知道」被當成「是程式」擴大 role atom 可見範圍）。
 - [臨] 「管理職」概念已拿掉：`is_management()` 讀 `workflow/config.json review.deciders`，空＝人人可裁決待審草稿（＝實戰現況：某專案成員自己 approve/reject），`[Pending Review]` 全員顯示；要限制填 AD 帳號清單。`_roles.md` 白名單與 `--promote-mgmt` 已刪。
 
 ## 行動
 
 - 看不到 roles/<r>/ 的 atom → `python ~/.claude/tools/init-roles.py --project-cwd <專案> --status` 看三層各解析到什麼
-- 例外覆寫職能：`init-roles.py --project-cwd <專案> --me art`；删掉 role.md 即回到 AD 解析
+- 例外覆寫職能：`init-roles.py --project-cwd <專案> --me art`；刪掉 role.md 即回到 AD 解析
 - 新職能名出現在 AD 群組→ 加進 config roles.ad_group_map，不寫程式

@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: TaskStop, 背景任務, run_in_background, 停掉背景, 孤兒行程, 子行程還在跑, Stop-Process, Win32_Process, 取消驗證, 快照複跑
 - Created-at: 2026-10-12
+- Quote: 「你是 v6.0 的「待命總控台」，現任總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命總控台：<你的名字>」。之後不要讀檔、不要…」
 
 ## 知識
 

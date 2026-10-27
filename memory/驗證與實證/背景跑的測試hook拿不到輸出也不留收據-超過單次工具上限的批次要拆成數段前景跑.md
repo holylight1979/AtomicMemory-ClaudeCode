@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: run_in_background pytest, 背景跑測試, 收據不入帳, 超過 10 分鐘的驗證, 批次拆段, verify 收據, PYTEST 哨兵
 - Created-at: 2026-10-21
+- Quote: 「除非像是先前我曾經說的"session派工之間必須等(衝突或先後必須..那些)"，否則就請你持續多開加速完工，須注意工人模型用Opus、Effort 也注意一下，除非"絕對必須用Fable"。」
 
 ## 知識
 

@@ -18,7 +18,7 @@
 - [觀] 驗證 lib 改動：起 `WG_DASHBOARD_PORT=<另一埠> node server.js` 跑完整 E2E（含 Playwright 點真前端），別 kill 他人持埠實例。bash 需 `sleep N | node …` 撐 stdin；TaskStop 只殺 shell 父層，node 須另行 Stop-Process。
 - [觀] 孤兒殘留後果：新路由不上線、POST 回 404 但檔內有；「開新 session = guardian 重啟」是錯誤心智模型。
 - [觀] 上線 SOP（改 server.js）：whoami mtime == 新檔 mtime（或新路由回非-404）+ 3848 listener PID == 新實例。列程序用 Get-CimInstance 篩 CommandLine 含 workflow-guardian-mcp，勿用 wmic|grep（見 [[feedback-tooling-reliability]]）；CreationDate 早於 mtime = 舊碼。
-- [觀] 例外：純静態前端檔（world.html）改動不需動程序，Ctrl+F5 即生效。
+- [觀] 例外：純靜態前端檔（world.html）改動不需動程序，Ctrl+F5 即生效。
 - [觀] 踩雷：交棒初版走 execFile powershell → detached spawn EPERM + 卡巴斯基封鎖 → 改純 http 協作、零 spawn。
 - [觀] runtime 重綁已實證：啟動 probe + 每 15s heartbeat，持埠者暴斃 ~15s 內自動重綁；「只在啟動搶埠」為錯誤假說。
 - [觀] 「0 listener + 多個活 node」：playwright/excel 等 MCP 也是 node.exe；guardian 全滅時 0 listener 屬正常，開新 session 自癒。
@@ -30,4 +30,4 @@
 - 改 server.js 要 live 生效：靠 stdin-EOF 自退 + 協作式交棒，不靠重開 VS Code 硬碰
 - 改 lib/*.js：交棒不會觸發——驗證走隔離埠實例，上線等 reload window 後以 whoami 的 pid 換了為準
 - 判舊/新碼、列程序一律用 Get-CimInstance（CreationDate vs mtime），不用 wmic|grep
-- 純改 world.html 静態檔 → Ctrl+F5，免動程序
+- 純改 world.html 靜態檔 → Ctrl+F5，免動程序

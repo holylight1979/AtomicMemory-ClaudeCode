@@ -10,8 +10,8 @@
 
 ## 知識
 
-- [臨] 用 Bash run_in_background 跑的驗證指令，need_goal 的收據在指令啟動那一刻就落帳，那時輸出還沒有哨兵行，所以帳上記「無哨兵 exit None」；跑完後也不會回填。这筆收據拿不到 PYTEST:PASS 一類的 verdict，reconcile 引它当 measured 證據不成立。
-- [臨] 要讓驗證成為実測證據：前景跑（十分鐘內），或跑完後在前景 `grep -E 'passed|failed|^exit='` 那份 log 一次取收據（輸出里有哨兵字樣就會被蓋號）。超過十分鐘的驗證改自寫收據（self_receipt.write_self_receipt）。
+- [臨] 用 Bash run_in_background 跑的驗證指令，need_goal 的收據在指令啟動那一刻就落帳，那時輸出還沒有哨兵行，所以帳上記「無哨兵 exit None」；跑完後也不會回填。這筆收據拿不到 PYTEST:PASS 一類的 verdict，reconcile 引它當 measured 證據不成立。
+- [臨] 要讓驗證成為實測證據：前景跑（十分鐘內），或跑完後在前景 `grep -E 'passed|failed|^exit='` 那份 log 一次取收據（輸出里有哨兵字樣就會被蓋號）。超過十分鐘的驗證改自寫收據（self_receipt.write_self_receipt）。
 - [臨]（實遇）使用者把正在前景跑的驗證指令手動轉到背景（工具結果顯示 manually backgrounded by user），效果跟 run_in_background 一樣：收據當下就落帳成「無哨兵 exit None」，跑完也不回填，驗證範圍與完整對照都不認；要收據就在前景重跑一次。
 
 ## 行動

@@ -19,7 +19,7 @@
 | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回HEAD原文再update-index |
 | 共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 | 共用工作樹有MERGE_HEAD時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 |
 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout--conflict=diff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 |
-| 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 |
+| 在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1 | 在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1 |
 | 攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出 | 攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出 |
 | 改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去 | 改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去 |
 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 |

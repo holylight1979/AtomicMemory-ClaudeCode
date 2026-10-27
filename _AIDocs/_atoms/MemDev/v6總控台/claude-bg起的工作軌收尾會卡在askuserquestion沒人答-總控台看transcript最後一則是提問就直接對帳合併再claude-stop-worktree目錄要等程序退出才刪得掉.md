@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 用 `claude --bg`（總控台的 console-spawn）起的工作軌沒有人在畫面前：它改完、commit 完都會做，但收尾闸擋滿發「收尾放行確認」（例無新案例的放行題）時會永遠卡在 AskUserQuestion：ListAgents 顯示 `bg · waiting`，後續 SendMessage 進不去（收件要等下一次工具呼叫），交付信送不出來。實例：某軌第二件做完後卡了 12 小時。
+- [臨] 用 `claude --bg`（總控台的 console-spawn）起的工作軌沒有人在畫面前：它改完、commit 完都會做，但收尾閘擋滿發「收尾放行確認」（例無新案例的放行題）時會永遠卡在 AskUserQuestion：ListAgents 顯示 `bg · waiting`，後續 SendMessage 進不去（收件要等下一次工具呼叫），交付信送不出來。實例：某軌第二件做完後卡了 12 小時。
 - [臨] 總控台的處理：讀它的 transcript（projects 下該 worktree slug 資料夾裡的 <sid>.jsonl）最後一則 assistant，是 AskUserQuestion 就知道卡在哪題；分支 HEAD 比上次交付前進了就自己對帳（git show --stat、merge-tree、跑目標 verify）合併，再 `claude stop <短 id>` 停掉；要人答才用 `claude attach <短 id>`。停掉後 worktree 目錄會有幾十秒 Permission denied，稍後再 rm。
 - [臨] 預防：給 bg 軌的派工單要寫「收尾被擋滿要問人時不發 AskUserQuestion，把擋訊息原文寫進交付信給總控台裁」；改舊測試／無新案例這類會觸發放行題的事先在派工單裡裁好。
 

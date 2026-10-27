@@ -18,3 +18,10 @@
 
 - 合併前先 `git status` 列髒檔∩分支改檔；有交集且不能 checkout／stash 就走 merge-tree＋commit-tree＋update-ref＋git apply
 - 合完逐檔驗：髒檔 diff 只剩使用者 hunk、其餘檔 status 乾淨、JSON 可解析
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-22 | 退役移入 _distant/：對人總控台裁定（2026-10-22 卡池清理）：卡內教的是把合併拆成三步避開 commit 口令閘，正是根治自作主張④禁止的繞閘做法；寫入閘不讓改寫，留著會誤導同事。可用 memory-audit --restore 還原；日後要留「不碰髒檔的 merge-tree 合併」技巧另寫一張不含繞口令的。 | memory-audit --delete |

@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 实踩（對人總控台 session）：用 Bash `cp` 把 live 的測試檔複製到 `workflow/v6-inbox/to-track-a6/` 當派工素材，收尾闘 (d) 從此每回合擋「改了程式碼…仍存在的程式檔」，改名 .py.txt、刪掉都解不掉，最後要使用者放行。根因兩層：①`hooks/wg_verify_ledger.py` `is_code_file` 只看副檔名，信箱路徑與 live 程式同一 git 根，所以信箱裡的 .py 被視為本專案程式檔；②`case_debt` 的 `case_exists` 只套在清帳的案例檔，欠帳的程式檔不查存在，且 net_unchanged 只豁免 git 追蹤檔，session 內新建再刪的 untracked 檔永遠欠帳。已派 042 修；修前的避法：派工素材不要以 .py 落在 repo 內任何路徑，要就貼進 .md 派工單或存 .patch。
+- [臨] 實踩（對人總控台 session）：用 Bash `cp` 把 live 的測試檔複製到 `workflow/v6-inbox/to-track-a6/` 當派工素材，收尾閘 (d) 從此每回合擋「改了程式碼…仍存在的程式檔」，改名 .py.txt、刪掉都解不掉，最後要使用者放行。根因兩層：①`hooks/wg_verify_ledger.py` `is_code_file` 只看副檔名，信箱路徑與 live 程式同一 git 根，所以信箱裡的 .py 被視為本專案程式檔；②`case_debt` 的 `case_exists` 只套在清帳的案例檔，欠帳的程式檔不查存在，且 net_unchanged 只豁免 git 追蹤檔，session 內新建再刪的 untracked 檔永遠欠帳。已派 042 修；修前的避法：派工素材不要以 .py 落在 repo 內任何路徑，要就貼進 .md 派工單或存 .patch。
 - [臨] 同樣適用 .sh：總控台把快照抽查腳本寫進 workflow/v6-inbox/_console/*.sh，live 的 (d) 每回合都擋「改了程式碼沒補案例」（義務跨回合，放行一次只消一回合）。在 042 的 exclude_globs 合進 main 之前，解法是腳本放 session scratchpad（暫存判定排除）跑，要留存就存成 .sh.txt／.py.txt；已被記欠的檔改名或刪掉，同根沒新程式檔就解除。
 - [臨] 根因②的修法定案：排除區的真源是部位表「類別」欄（code｜knowledge），不是另維護一份 glob 清單；`wg_verify_ledger.is_excluded` 交規則 EXCLUDED_REGION 判，事實由 `lib/overview_hub.path_kind` 查表（錨在專案根的最長前綴，表列前綴與路徑同一套消 `./`、`..`；沒表、沒標、判不出＝code）。`RECONCILE_DEFAULTS.exclude_globs` 已刪。合進 live 之前，信箱裡的 .py／.sh 仍會被舊閘記成改碼，上面的 scratchpad／.txt 做法照舊適用。
 - [臨] 現況：被 .gitignore 忽略的路徑（信箱、暫存產物）改了不欠補案例、也不能替追蹤中的程式清帳——`wg_release_rules.excluded_region` 收 git 忽略事實，與 RUNTIME_DATA_NO_OVERVIEW 同一判式（runtime_data_verdict），`wg_verify_ledger.case_debt` 每根一次批查 git check-ignore。信箱掉出部位表（改名、清理期間）也不會再被當程式；追蹤中的程式照欠。
@@ -18,4 +18,4 @@
 ## 行動
 
 - 總控台給工作 session 的參考檔：程式內容貼進派工單 .md 或存 .patch，不複製 .py 進 repo
-- 收尾闘指的檔已不存在仍被擋 → 查 case_debt owed 分支有沒有查存在，不要只改名
+- 收尾閘指的檔已不存在仍被擋 → 查 case_debt owed 分支有沒有查存在，不要只改名

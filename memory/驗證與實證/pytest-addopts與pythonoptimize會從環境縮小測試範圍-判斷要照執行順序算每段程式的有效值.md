@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: PYTEST_ADDOPTS, PYTHONOPTIMIZE, 環境變數縮小範圍, 整體驗證, pytest 子集, 有效環境, env 前綴, run_verify 自寫收據
 - Created-at: 2026-10-13
+- Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
 ## 知識
 

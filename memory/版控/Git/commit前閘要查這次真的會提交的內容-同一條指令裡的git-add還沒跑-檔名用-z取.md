@@ -7,6 +7,7 @@
 - Trigger: commit 前檢查, PreToolUse git commit, git add && git commit, 暫存區, diff --cached, core.quotePath, name-status -z, 隱私閘漏過, 病形閘, pre-commit 閘
 - Created-at: 2026-10-20
 - Related: commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令
+- Quote: 「<pasted_content id="6abf"> 接手推進原子記憶系統 v6.0 發版後的第一波（專案根 C:\Users\holylight\.claude）。先讀接續單 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md（照「每輪怎麼做」「還有效的規矩」），再讀 checklist C:\Users\…」
 
 ## 知識
 

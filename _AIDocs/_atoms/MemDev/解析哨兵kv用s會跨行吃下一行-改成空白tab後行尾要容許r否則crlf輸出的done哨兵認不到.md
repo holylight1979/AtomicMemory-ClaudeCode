@@ -2,15 +2,18 @@
 
 - Scope: global
 - Author: holylight
-- Source: track-gate-fixes-007 交付（main 3778d793）
+- Source: track-gate-fixes-007 交付（main 3778d793）；2026-10-23 MCP 與寫卡工具修補實測
 - Confidence: [臨]
-- Trigger: 哨兵解析, DONE 哨兵, k=v, parse_sentinels, CRLF, 跨行, 收據認不到
+- Trigger: 哨兵解析, DONE 哨兵, k=v, parse_sentinels, CRLF, 跨行, 收據認不到, 檔頭欄位, 空欄位吃下一行, 檔頭區
 - Created-at: 2026-10-22
 
 ## 知識
 
 - [臨] 解析 `<NAME> DONE k=v` 哨兵時用 `\s+` 分隔會跨行，把下一行的 `exit=0` 當成同一筆的欄位。改成 `[ \t]+` 之後，行尾要容許 `\r`，否則 Windows 上 CRLF 輸出的 DONE 哨兵認不到（閘小修 007 自己改出來的回歸，codex 抓到）。
 - [臨] 同字哨兵多行（迴圈跑三類變異各印一行）要記次數 n，不能合成一筆。
+- [臨] Markdown 檔頭欄位同類：`^- Key:\s*(.+)$` 遇到空欄位，`\s*` 會吃掉換行、把下一行（例如 `## 知識`）當成值，再寫回就改壞了；空白要用 `[ \t]*`。
+- [臨] 檔頭欄位的讀、改、刪都要限定在檔頭區（第一個 `## ` 之前），不然正文程式碼範例裡的 `- Source:` 會被讀成值、被改掉或刪掉；兩種語言的實作要同一種讀法，驗證函式也一樣。
+
 
 ## 行動
 

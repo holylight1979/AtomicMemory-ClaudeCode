@@ -13,7 +13,7 @@
 - [觀] 宣告完成前跑 `python run_verify.py`（H-test-prune 後取代 `pytest tests/`；動態掃 hooks/verify/、tools/verify/、tools/codex-companion/verify/、lib/verify/、skills/{name}/verify/）；失敗逆向分流（相關→修 / 無關≤ 5 行→順手修 / 無關超門→known-regression）
 - [觀] 測試 / 練習碼禁上 SVN/GIT，tests/__tests__/Test.* PreToolUse hook 擋
 - [觀] 修復失敗 ≥ 2-3 次啟動網搜，不躺溝 trial-and-error
-- [觀] 重構先清殘骩到 _archive/{date}/，跑乾淨 baseline 確認
+- [觀] 重構先清殘骸到 _archive/{date}/，跑乾淨 baseline 確認
 - [觀] 整合 / 上線手動 E2E smoke + 肉眼確認 output
 - [觀] xfail / known-regression 必附：原因 / 何時修 / 收尾清單
 - [觀] 完工後清暫存：每個需求/任務完成宣告時，AI 必列「衍生暫存清單」（IDENTITY 收尾 (d)），**預設直接刪**。例外只在 user 明確標「保留？」項。

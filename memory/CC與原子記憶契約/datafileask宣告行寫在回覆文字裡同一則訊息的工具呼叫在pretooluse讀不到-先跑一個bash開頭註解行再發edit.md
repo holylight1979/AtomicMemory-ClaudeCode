@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 動資料檔｜, DataFileAsk, 宣告行讀不到, 文字還沒落盤, 資料檔宣告
 - Created-at: 2026-10-22
+- Related: 擋訊息教的替代管道會被當成替代做法-寫明註解只放在不寫檔的指令上-宣告完照常用edit-write-同類說法全面grep並用掃原始碼的案例守住
 
 ## 知識
 

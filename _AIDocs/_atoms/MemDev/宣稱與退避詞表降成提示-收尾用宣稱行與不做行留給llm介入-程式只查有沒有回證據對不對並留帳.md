@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 宣稱行, 不做行, 不是退避, CLAIM_WORDS_ARE_HINTS, NOT_DOING_DECLARED, USER_WAIVER_NEEDS_CITATION, 說明句誤擋, 非本回合宣稱, 對應哪張收據, 退避例外入口, 先這樣 跳過 豁免, claim_disclaimed, testfail_waived, G6 階段 4, 判斷入口盤點 P6, P7
 - Created-at: 2026-10-20
+- Quote: 「<pasted_content id="d06f"> 接手推進原子記憶系統 v6.0（專案根 C:\Users\holylight\.claude）。先讀接續單 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md（照「每輪怎麼做」「還有效的規矩」），再讀 checklist C:\Users\holyligh…」
 
 ## 知識
 

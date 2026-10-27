@@ -15,7 +15,7 @@
 - [臨] 週健檢 `health-weekly.py` 跑 `--global-only`，專案層 error 永遠不進週報；dashboard 跑全掃。兩邊數字不同是掃描範圍差，不是 py↔js 差（dashboard 直接呼叫 Python audit）。
 - [臨] Trigger 數量 info（建議 3~12）是純提示：效果報表 Top 有用 atom 的 trigger 多在 13~24，這條門檻與實務脫節，看 error/warning 就好。
 - [臨] atom 檔的 metadata 解析器有三套：`lib/atom_spec.parse_frontmatter`（atom-move／atom-heal／acceptance 共用）、`tools/memory-audit.parse_atom_file`、`tools/atom-health-check.parse_frontmatter`；索引與注入端不解析 .md，只讀 `_atom_index.json`。改 metadata 布局規則（空行、欄位順序、新欄）要三套一起看，新欄名須登記 `OPTIONAL_METADATA` 否則 audit 報「未知欄位」。
-- [臨] `move_to_distant` 把 atom 移到「原範疇資料夾」下的 `_distant/<yyyy_mm>/`（例 `memory/OS-Windows/_distant/`），不是 `memory/_distant/`；要数、要搜、要 restore 都要 rglob 所有 `_distant/`。
+- [臨] `move_to_distant` 把 atom 移到「原範疇資料夾」下的 `_distant/<yyyy_mm>/`（例 `memory/OS-Windows/_distant/`），不是 `memory/_distant/`；要數、要搜、要 restore 都要 rglob 所有 `_distant/`。
 
 ## 行動
 

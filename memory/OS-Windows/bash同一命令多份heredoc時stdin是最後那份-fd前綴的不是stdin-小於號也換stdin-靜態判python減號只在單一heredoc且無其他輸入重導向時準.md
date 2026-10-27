@@ -10,7 +10,7 @@
 ## 知識
 
 - [臨] bash 同一個命令接多份 heredoc 時，stdin 是最後那份；帶 fd 前綴（3<<EOF）的不是 stdin；`<` 也會換掉 stdin。
-- [臨] 静態判 `python -` 內文的程式（例：拿 heredoc 內文交 ast 判寫入目標），只有在單一 heredoc、沒有別的輸入重導向時才判得準；兩份 heredoc 只看第一份會把寫檔的第二份判成沒寫入目標。其餘情形照 UNKNOWN 擋。
+- [臨] 靜態判 `python -` 內文的程式（例：拿 heredoc 內文交 ast 判寫入目標），只有在單一 heredoc、沒有別的輸入重導向時才判得準；兩份 heredoc 只看第一份會把寫檔的第二份判成沒寫入目標。其餘情形照 UNKNOWN 擋。
 
 ## 行動
 

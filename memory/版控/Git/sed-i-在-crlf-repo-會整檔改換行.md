@@ -23,6 +23,6 @@
 
 ## 行動
 
-- 批改完立刻以 python 把動過的檔還原：`data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")`（先降 LF 再升 CRLF，幂等）
+- 批改完立刻以 python 把動過的檔還原：`data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")`（先降 LF 再升 CRLF，冪等）
 - commit 前用 `git diff --cached --name-only` 逐行核對；只有換行殘影的檔不要 stage
 - 改檔前先確認 `.gitattributes` 的 eol 宣告，別預設 repo 是 LF

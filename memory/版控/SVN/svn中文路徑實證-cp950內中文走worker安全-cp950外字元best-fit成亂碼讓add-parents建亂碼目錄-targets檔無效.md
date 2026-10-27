@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: svn 亂碼, svn add 中文, UIºt¥X, 亂碼資料夾, cp950, best-fit, --targets, svn argv 編碼, GetACP, 中文路徑 svn, SvnEncoding
+- Trigger: svn 亂碼, svn add 中文, UIºt¥X, 亂碼資料夾, cp950, best-fit, --targets, svn argv 編碼, GetACP, 中文路徑 svn, SvnEncoding, svn 批次查詢失敗, svn 逐檔查
 - Created-at: 2026-10-01
 - Source: session:d892b7c9#160556c3 2026-10-01
 - Quote: 「你會繼續推進到全部完工吧?」
@@ -14,6 +14,8 @@
 - [臨] 真正危險是 cp950 外字元（如 `ゔ`、`é`）：Windows 把 argv 做 best-fit 轉碼（`é`→`e`）或 `?`，`svn add --parents` 會真的建出亂碼目錄、`delete` 可能刪錯鄰居。`--targets` 檔無法繞過（UTF-8 內容 → W155010 not found；cp950 內容根本編不出來）。注意「ヴ」U+30F4 其實在 cp950 內（`\xc7\xae`），要測 cp950 外得用 `ゔ`。
 - [臨] 現行防線（`hooks/wg_vcs_sync.py`）：`_Svn.run` 前置守門——argv 含 ACP 編不出的字元就 `_Stop`不呼叫 svn，留 `.unpushed` 與可讀理由；`_svn_argv_encoding()` 用 GetACP。偵測：`atom-health-check`「`mojibake_names`」與 `sync-memory-index` 對名稱含 U+0080–U+00FF 的項 stderr `⚠ 疑似亂碼名稱` 並跳過；PreToolUse `check_svn_encoding` 對 Bash/PowerShell 的 `svn add <非 ASCII 路徑>` 出 `[Guardian:SvnEncoding]` 提醒。
 - [臨] 某專案的 `shared/UIºt¥X`（＝`UI演出` 的 Big5 位元組被當 cp1252 解碼）建於 2026-09-24、svn 本地 added、空、遠端無，早於 vcs-sync worker 誕生，非 worker 所建；最可能是 session 內從 MSYS bash（LANG=zh_TW.UTF-8）手動 svn add。清理：`svn revert "<該路徑>"`。
+- [臨] 通用防法：程式要把路徑交給 svn.exe 前，先試 `arg.encode(f"cp{GetACP()}")`（ctypes.windll.kernel32.GetACP；Python 開了 UTF-8 mode 時 locale 會回 utf-8，不能拿來判）；編不出的參數不交給 svn（交了會被換成別的字、讀到錯的檔），當成「查不到」另外處理並註明。
+- [臨] 一次把多個路徑交給 svn（例：`svn status --xml a b c`）時，只要其中一個 svn 不收，整批失敗；批次失敗就改成逐檔查，只把逐檔也查不到的那幾檔另外處理，其餘照常。
 
 ## 行動
 

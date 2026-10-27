@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: commit:e8fef8a2 2026-10-12（原出處已隨工作信箱清理）
 - Confidence: [臨]
-- Trigger: glob, fnmatch, 路徑樣式比對, 絕對路徑, tmp_path, pytest tmp, 測試檔判定, verify_case_globs, 案例判定, 假綠
+- Trigger: glob, fnmatch, 路徑樣式比對, 絕對路徑, tmp_path, pytest tmp, 測試檔判定, verify_case_globs, 案例判定, 假綠, ripgrep, rg glob 排除, rg 搜出 0 檔
 - Created-at: 2026-10-12
 - Related: 從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑
 
@@ -14,6 +14,7 @@
 - [臨] pytest 的 tmp_path 目錄名本身含 test（`pytest-of-<user>\test_<案名>\`）。用它建真檔去測任何路徑樣式邏輯，結果會被這個上層目錄名污染，可能假綠也可能假紅。測路徑樣式時用虛構的專案根（如 `c:\proj\…`）走樣式判定，檔案存在與否另外查真檔。
 - [臨] 發現經過：記憶系統「改了程式要補驗證案例」的查核以 verify_case_globs 判案例檔，拿絕對路徑比對；寫「刪掉案例不算」的測試時用 tmp_path 建檔，程式檔也被判成案例、自己清掉欠帳，閘沒擋才追出來。真實專案放在名字含 test 的目錄下也會中。
 - [臨] 同類第二例：部位表 `lib/overview_hub.match_row` 的非錨定子字串命中拿整條絕對路徑比，根層 repo 的根目錄本身叫 `.claude`，表上沒列的根層檔（TECH.md、.gitignore、workflow/config.json）全落到 `.claude/` 列。根目錄本身的名字也是「根以外」，比對要從根以下開始（`p[len(root):]`），反例要含「根目錄名等於某列前綴」。
+- [臨] 同類第三例（ripgrep）：`rg` 給絕對路徑當搜尋根時，排除用的 glob（例：`-g '!**/Temp/**'`）會比到搜尋根以上的目錄名；專案只要放在 Temp、build、bin 這類資料夾底下，就整批被排掉、搜出 0 檔。解法：以專案根當工作目錄、搜 `.`，輸出再接回專案根。
 
 ## 行動
 

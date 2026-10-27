@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: svn 中文路徑, svn add 亂碼, peg revision is not allowed, E200009, E020024, Error resolving case, pwsh svn, PowerShell svn 亂碼, svn add --parents 建錯目錄, cp950 路徑, 一 a440, svn 路徑含 @, subprocess svn
+- Trigger: svn 中文路徑, svn add 亂碼, peg revision is not allowed, E200009, E020024, Error resolving case, pwsh svn, PowerShell svn 亂碼, svn add --parents 建錯目錄, cp950 路徑, 一 a440, svn 路徑含 @, subprocess svn, Unity 套件 @ 版本目錄, svn 路徑尾端加 @
 - Created-at: 2026-09-18
 - Related: svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8, workflow-svn
 - Source: session:61b4ad85#a01c48cd 2026-09-18
@@ -15,6 +15,7 @@
 - [臨] 另一個雷：Big5 的「一」是 A4 40，第二位元組是 '@'；路徑若以 cp950 位元組進到 svn，會被當 peg revision 切開→ E200009 "a peg revision is not allowed here"。尾端補 `@` 只是繞過解析，亂碼本身沒解。
 - [臨] 收拾法：`svn status --xml` 拿到的路徑是正確 UTF-8，用 Python 解析後對 item=added 且磁碟上是空目錄的項目 `svn revert` + `os.rmdir`，再用 Python 重做 add/commit。
 - [臨] 亂碼目錄名若含 cp950 無法表示的 Latin-1 字（º ¥ ¬ ³ ½ ª ¼ ö § ¾ Ô ° «…），連 Python subprocess 也定址不到（CRT 寬→ANSI best-fit 成別的字，`svn revert` 回 Skipped），磁碟目錄刪掉後會卡在 status=missing。最後手段：備份 `<wc-root>/.svn/wc.db` 後用 sqlite3 刪 `NODES` 中 `local_relpath=<完整相對路徑> AND op_depth>0` 與 `ACTUAL_NODE` 同路徑列，前提是該路徑只有 op_depth>0 的列、無 op_depth=0 base、無子節點（純 schedule-add 空目錄）；再 `svn cleanup` 驗。注意 local_relpath 相對於 WC 根（`svn info --show-item wc-root`），巢狀子目錄要加前綴。
+- [臨] 路徑本身就含 @ 也會中（例：Unity 套件目錄 `com.unity.uiextensions@2.2.7`）：svn 把最後一個 @ 後面當成指定版本（peg revision），整批指令報 E200009 "a peg revision is not allowed here" 拒收。這種情況正解就是每個路徑尾端再加一個 @（`<路徑>@`），svn 才把整串當普通路徑；程式化呼叫 svn 時一律對每個路徑參數補尾端 @ 最省事。
 
 ## 行動
 

@@ -9,7 +9,7 @@
 
 ## 知識
 
-- [臨] git 錄放帶測試（git_cassette）用受測目錄內容比對判是不是同一個場景；hook 多寫一筆 guard log（GUARD_LOG_DIR 在 tmp_path 下）會讓 Logs 目錄比錄製時早出現，錄放帶判「受測目錄不同」就跳過受測邏輯，案例看起來綠其實沒驗。修法：git_cassette(exclude=("Logs",)) 再 --git-record 重錄；先只退回改動檔跑一次全綠，證明是錄放帶問題不是閉變了。
+- [臨] git 錄放帶測試（git_cassette）用受測目錄內容比對判是不是同一個場景；hook 多寫一筆 guard log（GUARD_LOG_DIR 在 tmp_path 下）會讓 Logs 目錄比錄製時早出現，錄放帶判「受測目錄不同」就跳過受測邏輯，案例看起來綠其實沒驗。修法：git_cassette(exclude=("Logs",)) 再 --git-record 重錄；先只退回改動檔跑一次全綠，證明是錄放帶問題不是閘變了。
 
 ## 行動
 

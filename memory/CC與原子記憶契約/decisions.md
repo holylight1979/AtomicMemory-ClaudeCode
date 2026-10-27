@@ -23,4 +23,4 @@
 
 - 記憶寫入走 write-gate 品質閘門
 - 向量搜尋 fallback：Ollama → sentence-transformers → keyword
-- Guardian 一般閘（退避、AEC、AtomAudit、同步）每回合最多擋 2 次，第 3 次放行並記帳；寫碼查核（對帳 (a)～(d)＋量尺）擋滿不准自行放行，只能照【收尾放行確認】用 AskUserQuestion 問使用者，使用者在最後一次擋之後放行才放這一回合（記 user_release，健檢列 red）；子代理、裁判、headless 沒人能回答，擋到底
+- Guardian 一般閘（退避、AEC、AtomAudit、同步）每回合最多擋 2 次，第 3 次放行並記帳；寫碼查核（對帳 (a)～(d)＋量尺）擋滿不准自行放行，只能照【收尾放行確認】用 AskUserQuestion 問使用者，使用者在最後一次擋之後放行才放這一回合（記 user_release，健檢列 red）；寫碼查核的待放行只在同一個使用者回合有效；子代理、裁判、headless 沒人能回答，擋滿就放行並留帳

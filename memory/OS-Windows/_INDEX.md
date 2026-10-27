@@ -10,6 +10,7 @@
 | claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror | claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror |
 | dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
 | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變None-子行程要帶PYTHONUTF8並errors-replace-python-I會忽略PYTHONIOENCODING |
+| python-cli在cp950終端機印中文說明丟unicodeencodeerror-stdout與stderr改utf-8加errors-replace-會被同行程import的檔要放main開頭不放模組層 | python-cli在cp950終端機印中文說明丟UnicodeEncodeError-stdout與stderr改utf-8加errors-replace-會被同行程import的檔要放main開頭不放模組層 |
 | shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標 | shell=True子行程帶CREATE_NO_WINDOW輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標 |
 | taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
 | unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫 | unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫 |
@@ -18,6 +19,7 @@
 | windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑 | Windows 新機 PATH 的 WindowsApps python.exe 是 Store 佔位程式-零輸出 exit 9009-子程序裸 spawn python 必用絕對路徑 |
 | windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn | windows上node測試chdir進暫存夾後rmSync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn |
 | windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完 | Windows上Python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完 |
+| windows上用python轉印git輸出每行會帶r-接shell迴圈前要tr-d或python端用stdout-buffer寫位元組 | windows上用python轉印git輸出每行會帶r-接shell迴圈前要tr-d或python端用stdout-buffer寫位元組 |
 | windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 | Windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 |
 | windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對permissionerror稍等重試 | Windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對PermissionError稍等重試 |
 | windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath | Windows暫存區路徑是8.3短檔名-abspath不展開-路徑比對要用realpath |

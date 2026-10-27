@@ -12,7 +12,10 @@
 | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑 | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
 | cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留 | CC同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留 |
 | cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼 | CC的VSCode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼 |
+| claude-bg起的背景session交完回合閒置約一小時會自己結束-背景執行的長任務會叫醒它-要等別人回覆先commit並送出交付 | claude-bg起的背景session交完回合閒置約一小時會自己結束-背景執行的長任務會叫醒它-要等別人回覆先commit並送出交付 |
 | claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents | claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents |
+| claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 |
+| claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 |
 | claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事 | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |
 | claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion | claude-p無頭跑會被hook判成無法互動-G9第二意見整條不觸發-預設CLAUDE_CODE_ENTRYPOINT=claude-vscode可保留但-p沒有AskUserQuestion |
 | claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計 | claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total_cost_usd是session累計 |
@@ -22,6 +25,7 @@
 | edit工具new-string尾端空白會被裁掉-切點停在空白上會黏字-切點要停在非空白字元並看diff | Edit工具new_string尾端空白會被裁掉-切點停在空白上會黏字-切點要停在非空白字元並看diff |
 | escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造 | escalation-hook 在 edit-count-proxy 上 false-fire 的辨識（無真實失敗迴圈時不盲從不編造） |
 | hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason | hook-systemMessage-只給使用者看-模型讀不到-要回饋模型用additionalContext或deny-reason |
+| hook執行當下同一則assistant回覆還沒寫進transcript-平行工具呼叫要分批就用這次呼叫之前最後一則assistant的message-id當批次鍵-不能拿tool-use-id去查 | hook執行當下同一則assistant回覆還沒寫進transcript-平行工具呼叫要分批就用這次呼叫之前最後一則assistant的message-id當批次鍵-不能拿tool-use-id去查 |
 | hook超過settings的timeout會被cc整支取消只在transcript留hook-cancelled-收尾所有守門靜默失效-加段就要量耗時並在超時前降級留帳 | hook超過settings的timeout會被CC整支取消只在transcript留hook_cancelled-收尾所有守門靜默失效-加段就要量耗時並在超時前降級留帳 |
 | mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口 | mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口 |
 | plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法 | plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法 |
@@ -40,12 +44,14 @@
 | 外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔 | 外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔 |
 | 失敗的工具呼叫cc只送posttoolusefailure-靠posttooluse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記 | 失敗的工具呼叫CC只送PostToolUseFailure-靠PostToolUse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記 |
 | 專案層tool事件閘要用原生hooks-根層只轉送sessionstart給project-hooks | 專案層tool事件閘要用原生hooks-根層只轉送SessionStart給project_hooks |
+| 從transcript回找使用者原話要停在開回合的紀錄-越過同伴訊息與背景通知會走到開工句 | 從transcript回找使用者原話要停在開回合的紀錄-越過同伴訊息與背景通知會走到開工句 |
 | 換資料根的session向量檢索查的是全機共用live向量庫再用資料根可見池過濾-bm25為主時向量只在全沒命中才打-新卡要等向量重建 | 換資料根的session向量檢索查的是全機共用live向量庫再用資料根可見池過濾-bm25為主時向量只在全沒命中才打-新卡要等向量重建 |
 | 收割只寫讀程式讀不出下次會重犯的使用者糾正與被證錯的卡必收程式常數與當天狀態不收 | 收割只寫讀程式讀不出、下次會重犯的；使用者糾正與被證錯的卡必收，程式常數與當天狀態不收 |
 | 無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效 | 無頭受測要關掉全部hook用claude--settings的disableAllHooks旗標-hooks只來自使用者層settings-資料根放空settings不生效 |
 | 瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill | 瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill |
 | 程式核對ai宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答 | 程式核對AI宣告行時對象名只認整名或邊界結尾-子字串會一行清多條帳-引言與圍欄裡的行不算回答 |
 | 綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路 | 綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路 |
+| 要核子代理碰過哪些檔-agent回的output-file可能是0位元組-真的transcript在projects下的subagents-agent-idjsonl-逐筆查tool-use的input | 要核子代理碰過哪些檔-agent回的output_file可能是0位元組-真的transcript在projects下的subagents-agent-id.jsonl-逐筆查tool_use的input |
 | 要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判 | 要靠transcript宣告判的閘擋MCP工具-MCP行程沒有session與transcript-掛settings的PreToolUse-matcher由python-hook判 |
 | 身份與職能自動來自ad-帳號即get-current-user-職能由whoami群組對映-查不到就空不預設programmer-裁決名單review-deciders | 身份與職能自動來自AD-帳號即get-current-user-職能由whoami群組對映-查不到就空不預設programmer-裁決名單review-deciders |
 | 部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過 | 部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過 |

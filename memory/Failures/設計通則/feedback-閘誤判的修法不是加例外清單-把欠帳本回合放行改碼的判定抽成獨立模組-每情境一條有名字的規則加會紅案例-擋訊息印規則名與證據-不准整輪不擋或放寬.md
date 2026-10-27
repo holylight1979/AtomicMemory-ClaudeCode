@@ -7,6 +7,7 @@
 - Trigger: 閘誤判, 誤擋, 例外清單, 放行定義, 判定模組, 規則名, 證據清單, wg_release_rules, 整輪不擋, 放寬, 精準判斷, 驗證阻擋
 - Created-at: 2026-10-13
 - Related: feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行
+- Quote: 「你是 v6.0 的「調度」總控台（新任，接 claude-9f；對人總控台是 claude-91）。職責：派工、對帳、快照複跑、合併、推送、與各工作 session 通訊；不改碼、不開子代理、不回答原設計者（那是 claude-91 的）。第一步 ToolSearch 載入 SendMessage 與 ListAgents，ListAgents 看自己的名字，SendMessage claude…」
 
 ## 知識
 

@@ -5,7 +5,7 @@
 - Source: session:ea2955fd#61aecc26 2026-10-13
 - Quote: 「還是提醒：此session歷經的 知識、經驗，atoms起來了齁?」
 - Confidence: [臨]
-- Trigger: 相鄰問題, 順手修, 一併修正, 另外處理, 不在範圍, 之後再說, LLM 退避, 差池, 發現其他問題, 回報
+- Trigger: 差池, LLM 退避
 - Created-at: 2026-10-13
 - Related: feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session
 

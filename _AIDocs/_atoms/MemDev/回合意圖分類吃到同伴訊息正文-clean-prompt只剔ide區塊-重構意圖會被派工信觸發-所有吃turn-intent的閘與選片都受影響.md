@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: turn_intent, classify_intent, clean_prompt, 意圖分類, 同伴訊息, 重構意圖, refactor 誤判, user_typed_text, goal_weights, 意圖來源
 - Created-at: 2026-10-20
+- Quote: 「請隨時注意你自己的命令以及工作session是否發生跑題、飄移、或不確定的自作主張。 我補充一個想到的問題：對於所謂的 "超過3個拐彎"，這次好像沒看到 "物件繼承超過3層、但並非每一層都具有真正的作用，可能只是不停抄襲過去寫法、偷懶不改舊架構長期衍生下的結果" 這種防治；反而看到了"針對python、針對unity.."這些。我想下達方針所使用的 語意、甚至是埋入LLM介入點的 語意，更應該融…」
 
 ## 知識
 

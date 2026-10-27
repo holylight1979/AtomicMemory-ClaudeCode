@@ -11,14 +11,14 @@
 
 ## 知識
 
-- [臨] WinForms 工具的端到端实測可全自動：PowerShell `Start-Process` 起 exe → `(New-Object -ComObject WScript.Shell).AppActivate($pid)` 拉到前景（`SetForegroundWindow` 常被前景鎖擋掉）→ `MCPControl get_screenshot` 取得縮放截圖（本機 1920×1080 → 1464×823），後続 `left_click` 座標直接用截圖座標，十字準星驗位；每一鍵後重截圖看 log/对话框。
+- [臨] WinForms 工具的端到端實測可全自動：PowerShell `Start-Process` 起 exe → `(New-Object -ComObject WScript.Shell).AppActivate($pid)` 拉到前景（`SetForegroundWindow` 常被前景鎖擋掉）→ `MCPControl get_screenshot` 取得縮放截圖（本機 1920×1080 → 1464×823），後續 `left_click` 座標直接用截圖座標，十字準星驗位；每一鍵後重截圖看 log/對話框。
 - [臨] 被別的視窗蓋住時用 `PrintWindow(hwnd, hdc, 2)`（PW_RENDERFULLCONTENT）截該視窗，`Graphics.CopyFromScreen` 只會拍到上層視窗。
-- [臨] MCPControl `type` 中文到 WinForms TextBox 不進字（走 IME，框内空但篩選邏輯收到亂码）；要驗篩選或輸入用 ASCII（先 ctrl+a 再 type）。
+- [臨] MCPControl `type` 中文到 WinForms TextBox 不進字（走 IME，框內空但篩選邏輯收到亂碼）；要驗篩選或輸入用 ASCII（先 ctrl+a 再 type）。
 - [臨] 工具會寫 DB 的測試：先記 `LENGTH+MD5` 基線，寫完比對輸出檔的 MD5，再用工具自己帶的 MySqlConnector.dll（PowerShell `Add-Type -Path`）以參數化 UPDATE 把原檔還原，結束前再查一次基線。使用者己在桌面時先問再接管滑鼠。
 
 ## 行動
 
 - 要驗 WinForms 工具：AppActivate → MCPControl 截圖 → 照截圖座標點 → 每步重截圖
 - 視窗被蓋住用 PrintWindow 截，不用 CopyFromScreen
-- 輸入框测試用 ASCII，中文 type 不可信
+- 輸入框測試用 ASCII，中文 type 不可信
 - 寫 DB 的工具測完用原檔還原並比 MD5

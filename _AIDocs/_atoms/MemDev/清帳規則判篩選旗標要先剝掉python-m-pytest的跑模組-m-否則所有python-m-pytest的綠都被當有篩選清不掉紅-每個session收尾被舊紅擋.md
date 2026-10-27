@@ -9,8 +9,8 @@
 
 ## 知識
 
-- [臨] 清帳規則（綠測要不要清掉舊紅測）裡「有沒有篩選旗標」的判式若把 `-m` 當 pytest 的標記篩選，`python -X utf8 -m pytest …` 這種全庫最常見的跑法全部被當成「有篩選」，字面不同的舊紅就永遠清不掉，每個 session 收尾都被 TestFailGate 擋。修法：判旗標前先剥 `-m pytest|unittest`（跑模組），`pytest -m slow` 照舉算篩選。
-- [臨] 教訓：閸本體凡解析指令字串，紅案例要附「常見指令寫法變體」一組（python -m pytest／pytest 直呼／-k／::／絕對路徑／PowerShell 版），不只用簡化的 `pytest …`；快照與自審都沒抓到，是工作 session 自己收尾被擋才發現（裁定 #36）。
+- [臨] 清帳規則（綠測要不要清掉舊紅測）裡「有沒有篩選旗標」的判式若把 `-m` 當 pytest 的標記篩選，`python -X utf8 -m pytest …` 這種全庫最常見的跑法全部被當成「有篩選」，字面不同的舊紅就永遠清不掉，每個 session 收尾都被 TestFailGate 擋。修法：判旗標前先剝 `-m pytest|unittest`（跑模組），`pytest -m slow` 照舉算篩選。
+- [臨] 教訓：閘本體凡解析指令字串，紅案例要附「常見指令寫法變體」一組（python -m pytest／pytest 直呼／-k／::／絕對路徑／PowerShell 版），不只用簡化的 `pytest …`；快照與自審都沒抓到，是工作 session 自己收尾被擋才發現（裁定 #36）。
 
 ## 行動
 
