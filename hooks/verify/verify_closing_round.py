@@ -27,7 +27,7 @@ import wg_reading_path as rph  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 from handlers import stop as st  # noqa: E402
 from verify_pick_one import _PASS_CFG, _SID, _mod, stop_run, world  # noqa: E402,F401  共用的假專案與 Stop 驅動
-from verify_g9_second_opinion import DONE, JOB, SID as SO_SID, WAIT_TEXT, _feedback, _files, drive  # noqa: E402,F401
+from verify_g9_second_opinion import DONE, FOUR, JOB, SID as SO_SID, WAIT_TEXT, _feedback, _files, drive  # noqa: E402,F401
 
 AEC = {"tool_name": "mcp__workflow-guardian__anti_evasion_report", "tool_input": {"a": "無"}}
 TJ_NOTE = ("[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完；尺不是判決，只量不擋）：\n"
@@ -151,6 +151,20 @@ def test_pick_one_pre_close_then_stop_does_not_resend(batch_env, stop_run, monke
     assert "[Guardian:PickOne]" in out and ev[-1]["event"] == "asked", "開關關：舊送法照舊"
 
 
+def test_reconcile_batch_is_pre_close_too(batch_env, stop_run, tmp_path, capsys):
+    """PICK_ONE_PRE_CLOSE／TURN_JUDGMENT_PRE_CLOSE：完整對照（need_goal action=reconcile）那批也是收尾前的附著點（無頭實跑兩跑 AI 都沒交
+    收尾檢核，最後一個收尾類工具是 reconcile）；need_goal 其他動作（set、verify_scope）不是。"""
+    proj, _ = stop_run
+    damage = proj / "Game" / "Battle" / "Damage.cs"
+    state = {"modified_files": [_mod(damage)], "turn_seq": 5, "session": {"cwd": str(proj)}}
+    _measured(state, damage)
+    for action in ("set", "verify_scope"):
+        ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": action}}], _PASS_CFG, capsys)
+        assert "PickOne" not in ctx and "拐彎判斷｜" not in ctx, action
+    ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}}], _PASS_CFG, capsys)
+    assert "[Guardian:PickOne]" in ctx and "拐彎判斷｜" in ctx
+
+
 def test_pick_one_not_on_ordinary_batch(batch_env, stop_run, capsys):
     """沒交收尾檢核的批次不附（還在工作中，交付邊界還沒到）。"""
     proj, _ = stop_run
@@ -251,3 +265,10 @@ def test_second_opinion_waiting_close_then_stop_notices(drive, capsys, tmp_path,
     out = capsys.readouterr().out.strip()
     ctx = json.loads(out.splitlines()[-1])["hookSpecificOutput"]["additionalContext"]
     assert f"第二意見 {JOB} 跑完了（done）" in ctx
+    # 取回在等的那個 job：不說完成也照宣告完成判四行（不能靠之後不說完成跳過）；寫齊四行才放行
+    drive.tx.call("mcp__workflow-guardian__second_opinion_result", {"job_id": JOB},
+                  f"status: done\njob_id: {JOB}\nhash: h\nmodel: m\nmode: independent\n\n## 結論\n照判定")
+    reason, state, _ = drive("看過結果了。", capsys, state=state)
+    assert "[Guardian:SecondOpinion]" in reason and "第二意見與分歧裁決" in reason, reason
+    reason, state, _ = drive(FOUR.replace("全部完成。", "照結果處理了。"), capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and state["second_opinion_ok"][SO_SID] == 5

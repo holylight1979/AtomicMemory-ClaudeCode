@@ -2,7 +2,7 @@
 
 做什麼（每批工具跑完，hooks/handlers/post_tool_batch.py 呼叫 on_batch；判斷交 AI，程式只管時點）：
   ① 改完程式就起跑：拐彎判斷的背景量測（wg_reading_path.early_start；規則 READING_PATH_EARLY_START，開關 reading_path.early_start）。
-  ② 這批有收尾檢核（anti_evasion_report；收尾檢核放最後，交了就是交付邊界）＝收尾前最後一個工具回應，附上：
+  ② 這批有收尾檢核（anti_evasion_report；收尾檢核放最後，交了就是交付邊界）或完整對照（need_goal reconcile：交付時的對照）＝收尾前最後一個工具回應（closing_call），附上：
      - 量好的拐彎判斷結果（到門檻的條目＋那一題；TURN_JUDGMENT_PRE_CLOSE，跟 ① 同一個開關）。還有一批在量就不附，留給 Stop；
      - 「順手看到最該修」該問就附材料、記問過（PICK_ONE_PRE_CLOSE，開關 pick_one.pre_close）：Stop 的 pick_due 看到問過就不再送、
        不再讓對話續跑一輪。
@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from wg_core import WORKFLOW_DIR, append_guard_log, coding_turn
 
 CLOSING_TOOL_SUFFIX = "__anti_evasion_report"
+NEED_GOAL_SUFFIX = "__need_goal"
 SO_START_SUFFIX = "__second_opinion_start"
 SO_RESULT_SUFFIX = "__second_opinion_result"
 SO_JOB_ROOT = WORKFLOW_DIR / "second-opinion"       # 同 tools/second-opinion/run.py 的 job 目錄
@@ -52,6 +53,12 @@ def _calls(tool_calls: Any) -> List[Tuple[str, Dict[str, Any]]]:
     return out
 
 
+def closing_call(name: str, inp: Dict[str, Any]) -> bool:
+    """收尾前最後一個工具回應的認法：收尾檢核（anti_evasion_report），或需求目標樹的完整對照（need_goal action=reconcile；
+    need_goal 說明裡它就是交付時的對照）。"""
+    return name.endswith(CLOSING_TOOL_SUFFIX) or (name.endswith(NEED_GOAL_SUFFIX) and inp.get("action") == "reconcile")
+
+
 def _own(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:
     return [m for m in state.get("modified_files") or [] if (m or {}).get("session_id", sid) == sid]
 
@@ -65,7 +72,7 @@ def _note(text: str, state: Dict[str, Any], sid: str, config: Dict[str, Any]) ->
 # ─── ② 收尾前附著：拐彎判斷結果、最該修 ─────────────────────────────────────────
 
 def pick_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
-    """規則 PICK_ONE_PRE_CLOSE：交收尾檢核那批＝交付邊界，「順手看到最該修」該問（wg_harvest.pick_due：上次問過或記過之後又改了程式、
+    """規則 PICK_ONE_PRE_CLOSE：交收尾檢核或完整對照那批＝交付邊界，「順手看到最該修」該問（wg_harvest.pick_due：上次問過或記過之後又改了程式、
     這個使用者回合還沒問過）就回那一問並記問過；不該問、靜音、連鎖警報後只記錄 → None。判斷出錯只 stderr、不送（Stop 照舊會問）。"""
     if not pick_pre_close_on(config) or state.get("muted"):
         return None
@@ -93,7 +100,7 @@ def pick_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any], inpu
 
 
 def turn_judgment_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any]) -> Optional[str]:
-    """規則 TURN_JUDGMENT_PRE_CLOSE：改完程式就起跑量好的結果（到門檻的條目＋那一題）在交收尾檢核那批附上，取走後 Stop 不再送；
+    """規則 TURN_JUDGMENT_PRE_CLOSE：改完程式就起跑量好的結果（到門檻的條目＋那一題）在交收尾檢核或完整對照那批附上，取走後 Stop 不再送；
     欠項照舊由 Stop 的 turn_judgment_note 核對收尾文字。還有一批在量、沒有結果、開關關 → None。"""
     from wg_reading_path import early_start_on, take_early_note
     if not early_start_on(config):
@@ -120,12 +127,20 @@ def _job_status(job: str) -> str:
         return ""                                                      # 還沒寫或寫到一半：當還在跑
 
 
-def watch_job(state: Dict[str, Any], sid: str, job: str = "") -> None:
-    """記下本 session 開了第二意見（job 沒給＝這批有 start、job_id 還不知道，下一次 so_done_notice 去 job 目錄找）。"""
+def watch_job(state: Dict[str, Any], sid: str, job: str = "", waited: bool = False) -> None:
+    """記下本 session 開了第二意見（job 沒給＝這批有 start、job_id 還不知道，下一次 so_done_notice 去 job 目錄找）。
+    waited＝收尾寫了「等第二意見｜<job>」：另記進 waited，取回它的那一回合照宣告完成判四行（waited_jobs）。"""
     rec = state.setdefault(SO_WATCH, {}).setdefault(sid, {})
     rec["on"] = True
     if job and job not in rec.setdefault("running", []) and job not in rec.get("noticed", []):
         rec["running"].append(job)
+    if job and waited and job not in rec.setdefault("waited", []):
+        rec["waited"] = (rec["waited"] + [job])[-SO_NOTICED_MAX:]
+
+
+def waited_jobs(state: Dict[str, Any], sid: str) -> List[str]:
+    """規則 SECOND_OPINION_DONE_NOTICE：收尾寫過「等第二意見｜<job>」的 job（wg_second_opinion.check 據此在取回那一回合要四行）。"""
+    return list((((state.get(SO_WATCH) or {}).get(sid)) or {}).get("waited") or [])
 
 
 def so_done_notice(state: Dict[str, Any], sid: str, fetched: Sequence[str] = ()) -> Optional[str]:
@@ -171,7 +186,7 @@ def on_batch(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config
                 changed = early_start(state, sid, config) or changed
             except Exception as e:  # noqa: BLE001
                 print(f"[Guardian:ReadingPath] 改完程式就起跑的量測出錯（收尾照舊起跑）：{type(e).__name__}: {e}", file=sys.stderr)
-    if coding and any(n.endswith(CLOSING_TOOL_SUFFIX) for n, _ in calls):
+    if coding and any(closing_call(n, inp) for n, inp in calls):
         try:
             tj = turn_judgment_pre_close(state, sid, config)
         except Exception as e:  # noqa: BLE001

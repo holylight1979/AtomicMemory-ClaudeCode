@@ -396,6 +396,12 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         rec = {"job": ran_now[-1], "turn": int(state.get("turn_seq") or 0), "at": done_at,
                "risky": [rr.canon_path(p) for p in seen]}
         state.setdefault("second_opinion_ran", {})[session_id] = rec
+    # 規則 SECOND_OPINION_DONE_NOTICE（背景開關開）：收尾寫過「等第二意見｜<job>」的 job，本回合取回跑完了＝接上那一刻，照宣告完成判四行
+    # （不再說完成也要；判定、擋次照 SECOND_OPINION_REQUIRED）
+    if not claims_done and results:
+        from wg_closing_round import so_background_on, waited_jobs
+        waited = set(waited_jobs(state, session_id)) if so_background_on(config) else set()
+        claims_done = any(r.get("job_id") in waited and r.get("status") in rr.SO_RAN for r in results)
     if not claims_done:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     ok_turn = int(((state.get("second_opinion_ok") or {}).get(session_id)) or 0)

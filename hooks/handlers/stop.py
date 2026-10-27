@@ -2374,7 +2374,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                     "job": _sof["waiting"][-1], "code_files": _sof.get("code_files")})
         if _so_background_on(config):           # 規則 SECOND_OPINION_DONE_NOTICE：在等的 job 記進看守，跑完了下一批工具回應或收尾提醒取回
             for _so_job in _sof["waiting"]:
-                _so_watch_job(state, session_id, _so_job)
+                _so_watch_job(state, session_id, _so_job, waited=True)
             write_state(session_id, state)
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
         print("[Guardian:SecondOpinion] 使用者已放行這一回合，本次不擋", file=sys.stderr)
