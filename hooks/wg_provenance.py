@@ -9,21 +9,29 @@
 - 呼叫者已給非空 Source（例：會議轉錄的逐字稿路徑）→ 只補 Quote。
 - Quote 取 state["turn_prompts"][-1]（本回合最後一則使用者原話，≤500 字）消毒後 ≤200 字；
   空字串不寫。uuid 從 transcript 尾端最後一則真人訊息取，取不到只寫 session＋日期。
+- 規則 QUOTE_FROM_USER_OPENED_TURN：Quote 只取「寫卡那一回合是使用者本人打字開的」那回合的原話（回填工具同一條，not_user_turn）。
+  - 主 session：state["turn_typed"] 是 False（同伴訊息、背景通知開的續跑回合）→ 不填。turn_prompts 在續跑回合沿用前一個
+    使用者回合的原話（口令閘要它跨過背景等待），那不是這張卡的觸發句。
+  - 子代理（hook input 帶 agent_id）：不看 state——主 session 現在的回合不一定是派它的那一回合（背景子代理寫卡時，使用者
+    可能已經開了下一回合）；也不拿子代理 transcript 裡的 user 訊息（那是主 session 的 AI 寫給它的任務）。改看派它的那一回合：
+    子代理檔第一筆的 promptId 對到主檔開那一回合的紀錄（_subagent_opener），是真人訊息（lib/provenance.is_human_record）才取它
+    的原話，Source 的 uuid 也指它；是同伴訊息、背景通知、對不到 → 不填。
 - 那則原話是開工句（lib/harness_text.is_kickoff_prompt：派工樣板整則對上，或以「你是…工作 session」開場）→ 不填 Quote：
-  開工句是派給這個 session 的指示，不是哪張卡片的使用者原話；同伴訊息開的回合沿用前一回合原話，開工句會一路被帶進後面寫的卡。
-  Source（session 指標）照補。原卡已有 Quote 一律不動（上面第一條）。
+  開工句是派給這個 session 的指示，不是哪張卡片的使用者原話。貼上的內容（`<pasted_content>`）不是本人打的字，
+  lib/provenance.sanitize_quote 會剔掉。Source（session 指標）照補。原卡已有 Quote 一律不動（上面第一條）。
 - 任何失敗只記 Logs/guard-provenance.jsonl，不阻斷 hook。
 
 入口：autofill_from_receipt(receipt, input_data, state) → dict（結果摘要，供測試與日誌）。
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
-from wg_core import CLAUDE_DIR, append_guard_log
+from wg_core import CLAUDE_DIR, append_guard_log, transcripts_of
 
 _QUOTE_LINE_RE = re.compile(r"^- Quote:\s*\S", re.MULTILINE)
 _SOURCE_LINE_RE = re.compile(r"^- Source:\s*(\S.*)$", re.MULTILINE)
@@ -49,6 +57,48 @@ def _last_turn_prompt(state: Dict[str, Any]) -> str:
         if typed:
             return typed
     return ""
+
+
+def _subagent_opener(transcript_path: str, agent_id: str) -> Optional[Dict[str, Any]]:
+    """子代理是在主 session 哪一回合派出的：子代理檔第一筆紀錄（派工 prompt）的 promptId，對主檔裡第一筆同 promptId 的 user 紀錄
+    ＝開那一回合的訊息（使用者、同伴訊息、背景通知…；實查本機 237 份子代理檔全對得上）。hook 給主檔或子代理檔都行；讀不到、對不上 → None。"""
+    main, files = transcripts_of(transcript_path, agent_id)
+    if not main or len(files) < 2:
+        return None
+    try:
+        with open(files[1], encoding="utf-8", errors="replace") as fh:
+            first = json.loads(fh.readline() or "null")
+        pid = first.get("promptId") if isinstance(first, dict) else None
+        if not isinstance(pid, str) or not pid:
+            return None
+        with open(main, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if pid not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and rec.get("promptId") == pid and rec.get("type") == "user":
+                    return rec
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _turn_quote(input_data: Dict[str, Any], state: Dict[str, Any]) -> Tuple[str, Optional[str], str]:
+    """規則 QUOTE_FROM_USER_OPENED_TURN（見模組說明）→ (原話（使用者本人打的字，可能空）, Source 要指的真人訊息 uuid 或 None, 不填的原因)。"""
+    from wg_core import user_typed_text
+    agent_id = str(input_data.get("agent_id") or "")
+    if not agent_id:
+        if state.get("turn_typed") is False:
+            return "", None, "not_user_turn"
+        return _last_turn_prompt(state), None, ""
+    from lib.provenance import is_human_record, record_text
+    opener = _subagent_opener(str(input_data.get("transcript_path") or ""), agent_id)
+    if opener is None or not is_human_record(opener):
+        return "", None, "not_user_turn"
+    return user_typed_text(record_text(opener), keep_lines=True), str(opener.get("uuid") or "") or None, ""
 
 
 def _last_human_uuid(transcript_path: str) -> Optional[str]:
@@ -99,7 +149,9 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
         from lib.provenance import format_quote, format_source_session, sanitize_quote, usable_quote
 
         session_id = str(input_data.get("session_id") or state.get("session", {}).get("id") or "")
-        quote_raw = _last_turn_prompt(state)
+        quote_raw, opener_uuid, skipped = _turn_quote(input_data, state)
+        if skipped:
+            out["quote_skipped"] = skipped
         if (input_data.get("tool_input") or {}).get("quote") == "":
             out["quote_skipped"] = "caller_cleared"      # 呼叫者明傳 quote="" 是要清掉，不拿原話補回
             quote_raw = ""
@@ -113,13 +165,18 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
         quote_clean = usable_quote(quote_raw)
         if not quote_clean and sanitize_quote(quote_raw):
             out["quote_skipped"] = "too_short"           # 「A」這類一兩個字的回覆說不出卡從哪來
+        elif not quote_clean and quote_raw.strip():
+            out["quote_skipped"] = "pasted"              # 整則是貼上的內容（別人寫的開工句、派工、日誌）：不是本人打的字
         quote_line = format_quote(quote_clean) if quote_clean else None
 
         sm = _SOURCE_LINE_RE.search(text)
         has_source = bool(sm and sm.group(1).strip())
         provenance = None
         if not has_source and session_id:
-            uuid = _last_human_uuid(str(input_data.get("transcript_path") or ""))
+            # uuid 只在主 session 的 transcript 找（子代理的 hook 給哪一份都換回主檔：子代理檔裡的 user 訊息不是使用者的）
+            main_transcript = transcripts_of(str(input_data.get("transcript_path") or ""),
+                                             str(input_data.get("agent_id") or ""))[0]
+            uuid = opener_uuid or _last_human_uuid(main_transcript)
             provenance = format_source_session(session_id, uuid, date.today().isoformat())
 
         if provenance is None and quote_line is None:

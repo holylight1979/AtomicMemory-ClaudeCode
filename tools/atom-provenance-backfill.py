@@ -7,9 +7,10 @@ session、哪則使用者訊息觸發 atom_write 寫出來的，補 `- Source:` 
 
 分級：
   A        transcript 命中 atom_write → `Source: session:<sid8>#<uuid8> <日期>` ＋ `Quote: 「使用者原話」`
-  A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text），或寫卡那回合
-           不是認得出的真人訊息開的（同伴訊息、背景任務通知、內容是純字串的提示：開回合但 is_human_record 否；
-           往回走會越過它走到更早的真人訊息，多半是開工句，樣板認不全也不能填）→ 只補 Source、不寫 Quote
+  A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text），或整則是貼上的內容，
+           或寫卡那回合不是認得出的真人訊息開的（同伴訊息、背景任務通知、沒有 origin 的純字串提示：開回合但 is_human_record 否；
+           往回走會越過它走到更早的真人訊息，多半是開工句，樣板認不全也不能填）→ 只補 Source、不寫 Quote。
+           子代理那邊的紀錄（isSidechain）不算真人訊息：它的 user 訊息是主 session 的 AI 寫給它的任務
   A-ai     只找得到 `<!-- src: -->` 指標的自動萃取 atom → 只補 Source（同上），不寫 Quote：指到的是 AI 的話，Quote 只放使用者原話
   B        無命中 → `Source: commit:<hash7> <日期>（原對話已逾保留期）`（無 git 用 `unknown <日期>（…）`）
   skip     已有 Quote（冪等）／既有 Source 非空且無命中／ambiguous（同檔名多層無法判定，不寫）
@@ -140,7 +141,8 @@ def _result_path(text: str) -> Optional[str]:
 def _opens_turn(rec: Dict[str, Any], blocks: List[Any]) -> bool:
     """這則 user 紀錄開了一個新回合：不是 tool_result，而且帶 origin（使用者、同伴訊息 peer、背景任務通知 task-notification…）
     或不是 meta。沒有 origin 的 meta 紀錄（Stop hook 回饋、附圖）是同一回合的延續，不算。
-    開回合但不是認得出的真人訊息（is_human_record 否：別人開的、或內容是純字串的提示）＝這回合找不到可當 Quote 的使用者原話。"""
+    開回合但不是認得出的真人訊息（is_human_record 否：別人開的、沒有 origin 的純字串提示、子代理的任務 prompt）
+    ＝這回合找不到可當 Quote 的使用者原話。"""
     if rec.get("type") != "user" or any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks):
         return False
     return isinstance(rec.get("origin"), dict) or not rec.get("isMeta")

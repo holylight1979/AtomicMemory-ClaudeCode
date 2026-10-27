@@ -133,6 +133,43 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
+# ─── 貼上的內容 ─────────────────────────────────────────────────────────────────
+# Claude Code 把使用者貼上的文字包成 `<pasted_content id="…">…</pasted_content id="…">`（實查 transcript：閉合標籤也帶同一個 id）。
+# 貼上的是使用者從別處拿來的材料（別的 session 寫的開工句與派工、日誌、文件），不是他本人打的字。
+# 只有卡片的「使用者原話」引句（Quote，lib/provenance.sanitize_quote）剔掉它；口令、糾正等判斷照舊吃 user_typed_text。
+_PASTED_OPEN_RE = re.compile(r"<\s*pasted_content\b([^>]*)>", re.IGNORECASE)
+_PASTED_CLOSE_RE = re.compile(r"<\s*/\s*pasted_content\b([^>]*)>", re.IGNORECASE)
+_PASTED_ANY_RE = re.compile(r"<\s*/?\s*pasted_content\b", re.IGNORECASE)
+_ID_ATTR_RE = re.compile(r"""(?<![\w-])id\s*=\s*["']([^"'>]*)["']""", re.IGNORECASE)   # data-id 這類不算
+
+
+def _pasted_id(attrs: str) -> Optional[str]:
+    m = _ID_ATTR_RE.search(attrs)
+    return m.group(1) if m else None
+
+
+def strip_pasted(text: str, repl: str = " ") -> str:
+    """剔掉貼上的內容區塊，每個換成 repl：開標籤帶 id 時閉合標籤的 id 要逐字相同（大小寫不同、data-id 都不算；貼上的材料裡
+    夾別的貼上區塊不會提早結束），沒 id 就認第一個閉合；沒閉合吃到字串尾。剔完還殘留 pasted_content 標籤字樣 → 回空字串
+    （分不出哪段是本人打的，寧可不認）。"""
+    text = text or ""
+    out: List[str] = []
+    pos = 0
+    while True:
+        m = _PASTED_OPEN_RE.search(text, pos)
+        if not m:
+            break
+        out.append(text[pos:m.start()])
+        out.append(repl)
+        want = _pasted_id(m.group(1))
+        close = next((c for c in _PASTED_CLOSE_RE.finditer(text, m.end())
+                      if want is None or _pasted_id(c.group(1)) == want), None)
+        pos = close.end() if close else len(text)
+    out.append(text[pos:])
+    s = "".join(out)
+    return "" if _PASTED_ANY_RE.search(s) else s
+
+
 # ─── 開工句（一次性 session 指示）樣板 ─────────────────────────────────────────
 # 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效，不是跨專案知識，也不是哪張卡片的「使用者原話」。
 # 兩個用途、兩種嚴格度（同一套樣板）：
