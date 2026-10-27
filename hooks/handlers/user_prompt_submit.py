@@ -294,7 +294,7 @@ def handle_user_prompt_submit(
     if intent == "handoff":
         lines.append(
             "[Guardian:Handoff] 偵測到 handoff 意圖。"
-            "下 session 的 Claude 不會看到本次對話脈絡。"
+            "接手的 session 裡的 Claude 不會看到本次對話脈絡。"
             "請執行 /handoff 走 6 區塊強制模板，不要徒手寫 prompt。"
         )
 

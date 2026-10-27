@@ -1109,11 +1109,10 @@ def harvest_gate_reason(
     return harvest_block_message(cwd=str((state.get("session") or {}).get("cwd") or ""))
 
 
-def harvest_block_message(tracking_written: bool = False, cwd: str = "") -> str:
-    """tracking_written：本 turn 的 AEC 追蹤項（k）已由 append_tracking 入帳（掛點在 post_tool_use）。
-    cwd：session 的工作目錄；在 ~/.claude 之下才附「記憶系統開發面 → realm=local」那句。"""
-    tracking = ("追蹤項已入帳，有部位的同時寫進病灶文件。" if tracking_written
-                else "追蹤項請填進收尾檢核 k 欄。")
+def harvest_block_message(cwd: str = "") -> str:
+    """cwd：session 的工作目錄；在 ~/.claude 之下才附「記憶系統開發面 → realm=local」那句。
+    追蹤項只說「填進收尾檢核 k 欄」：k 欄寫進追蹤帳本（workflow/tracking），碰到部位時接在導讀卡末段，不另寫病灶文件。"""
+    tracking = "追蹤項請填進收尾檢核 k 欄。"
     src = "\n".join(f"  {s}" for s in _HARVEST_SOURCES)
     return (
         "[Guardian:KnowledgeHarvest] 宣告完成＝階段完工，收尾前先盤點本場學到的東西，"
@@ -1134,8 +1133,10 @@ def harvest_block_message(tracking_written: bool = False, cwd: str = "") -> str:
 
 def in_progress_text(last_text: str) -> bool:
     """收尾訊息是中途狀態句（仍在等 agent 回報／尚未開始／整合中途…）→ 不是收尾，閘不該在此刻擋。
-    詞表＝forbidden-phrases.json completion_claim.exclude_patterns（與 claims_completion 同源）。"""
-    return bool(last_text) and bool(_COMPLETION_EXCLUDE_RE.search(last_text[-2000:]))
+    詞表＝forbidden-phrases.json completion_claim.exclude_patterns（與 claims_completion 同源）；另有一句宣告完成
+    （claims_completion，逐句看）就不算中途：「三件都做完了。中途被擋了兩次」是收尾（規則 COMPLETION_CLAIM_PER_SENTENCE）。"""
+    return (bool(last_text) and bool(_COMPLETION_EXCLUDE_RE.search(last_text[-2000:]))
+            and not claims_completion(last_text))
 
 
 def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_text: str = "",

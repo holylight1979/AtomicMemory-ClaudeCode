@@ -166,7 +166,7 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 {_bullets(kq, empty='（無）')}
 {goal_tree}
 ---
-> 補全後可直接續工；或人工檢視後刪除。標準接續：下個 session 打 `/continue`。
+> 補全後可直接續工；或人工檢視後刪除。標準接續：接手的 session 打 `/continue`。
 """
 
 

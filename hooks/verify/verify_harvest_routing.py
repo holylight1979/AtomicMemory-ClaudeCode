@@ -119,12 +119,13 @@ def test_tracking_k_none_writes_nothing(tmp_path):
     assert not (tmp_path / "tracking").exists()
 
 
-def test_block_message_two_states_and_route():
-    """BLOCK 5：追蹤項那句條件式：入帳了才說「已入帳」，沒接線時叫人填 k 欄。"""
+def test_block_message_tracking_line_matches_behavior_and_route():
+    """追蹤項那句照實際行為：叫人填 k 欄（k 欄進追蹤帳本、碰到部位接在導讀卡末段）。原本另有「追蹤項已入帳，有部位的同時寫進
+    病灶文件」那條分支，正式路徑從不走、說的也跟實際不符（同收尾檢核 k_followups 那句，閘小修 008 ㉒），連參數一起拿掉。"""
+    import inspect
     off = wh.harvest_block_message()
-    assert "追蹤項請填進收尾檢核 k 欄" in off and "追蹤項已入帳" not in off
-    on = wh.harvest_block_message(tracking_written=True)
-    assert "追蹤項已入帳，有部位的同時寫進病灶文件" in on and "請填進收尾檢核 k 欄" not in on
+    assert "追蹤項請填進收尾檢核 k 欄" in off and "病灶文件" not in off
+    assert "tracking_written" not in inspect.signature(wh.harvest_block_message).parameters
     assert "route(part_doc|global|org|local|shared|candidate_global" in off
 
 

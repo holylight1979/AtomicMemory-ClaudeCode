@@ -242,6 +242,15 @@ def test_done_then_patch_mentioning_solution_still_blocks(drive, capsys, tmp_pat
     assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
+def test_done_with_negated_first_sentence_then_patch_reply_still_blocks(drive, capsys, tmp_path):
+    """規則 COMPLETION_CLAIM_PER_SENTENCE（codex 一輪 BLOCK 2）：宣告完成那則開頭寫「我還沒動git：完成的三件…」，下一句「全部做完了」；
+    別的閘擋下、補件只寫拐彎判斷 → 往前看時那則照算宣告完成（舊判法整則套否定詞就清掉，第二意見漏擋）。"""
+    drive.tx.say("我還沒動git：完成的三件列在下面。\n全部做完了，等你看 diff。")
+    drive.tx.add({"type": "user", "isMeta": True, "message": {"role": "user", "content": STOP_FEEDBACK}})
+    reason, _state, logs = drive(C2_PATCH, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
+
+
 def test_done_then_later_not_done_reply_not_required(drive, capsys, tmp_path):
     drive.tx.say(C2_DONE)
     reason, _state, logs = drive("還沒做完：ERP 合約測試照你說的留紅，另有 8 個檔等你說 commit。", capsys,

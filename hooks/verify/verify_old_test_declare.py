@@ -486,6 +486,47 @@ def test_powershell_set_content_dropping_test_blocks_next_call(world):
     assert _ot(r) and "test_legacy_report_totals（消失）" in r and "這是 PowerShell 改的" in r
 
 
+def _post_failed(w, tool, tool_input, monkeypatch):
+    """跑一次 PostToolUseFailure（指令寫完磁碟、整條非零結束：Claude Code 不送 PostToolUse、改送這個）。目標樹蓋號關掉。"""
+    monkeypatch.setattr(pt, "_need_goal_stamp_failed", lambda *a, **k: [], raising=False)
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use_failure({"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(w["proj"]),
+                                         "hook_event_name": "PostToolUseFailure", "transcript_path": _transcript(w, "跑一下"),
+                                         "error": "Exit code 1\n1 failed, 2 passed"}, {"docdrift": {"enabled": False}})
+
+
+def test_failed_command_changing_old_test_still_compared_and_blocks_next_call(world, monkeypatch):
+    """規則 OLD_TEST_COMPARED_ON_FAILED_COMMAND：`sed -i … tests/x.py && pytest` 紅了，改既有斷言已經寫進檔；
+    沒有 PostToolUse，原本快照沒人比、沒宣告也不擋。現在失敗事件照樣比，下一個工具呼叫擋到補宣告。"""
+    import wg_oldtest as ot
+    fp = _put(world, "tests/test_legacy_report.py", LEGACY)
+    fwd = fp.replace("\\", "/")
+    ti = {"command": f"sed -i 's/\"USD\"/\"TWD\"/' '{fwd}' && python -m pytest tests -q"}
+    assert _pass(_run(world, "Bash", ti))
+    snap = ot._snap_file(SID, "Bash", ti)
+    assert snap.exists(), "前置：PreToolUse 拍了快照"
+    Path(fp).write_text(LEGACY.replace('"USD"', '"TWD"'), encoding="utf-8")
+    _post_failed(world, "Bash", ti, monkeypatch)
+    assert [(e["key"], e["kind"]) for e in _pending()] == [("test_legacy_report_keeps_columns", "assert")]
+    assert not snap.exists(), "快照比完就收掉"
+    r = _run(world, "Bash", {"command": "echo next"})
+    assert _ot(r) and "test_legacy_report_keeps_columns（斷言變了" in r and "這是 Bash 改的" in r
+
+
+def test_failed_command_appending_new_test_records_it_as_session_added(world, monkeypatch):
+    """同一規則的另一面：失敗指令新加的測試，失敗事件就記進 old_test_added（不必等基線兜底）。"""
+    fp = _put(world, "tests/test_cli.py", CLI_TESTS)
+    fwd = fp.replace("\\", "/")
+    src = (world["tmp"] / "new_test.txt").as_posix()
+    ti = {"command": f"cat '{src}' >> '{fwd}'\npython -m pytest tests -q"}
+    assert _pass(_run(world, "Bash", ti))
+    Path(fp).write_text(CLI_TESTS + CLI_NEW, encoding="utf-8")
+    _post_failed(world, "Bash", ti, monkeypatch)
+    assert any(k.endswith("|test_cli_plain_prints_two_decimals_no_currency")
+               for k in wg_core.read_state(SID).get("old_test_added", []))
+    assert not _pending()
+
+
 def test_bash_only_appending_new_test_not_pending(world):
     fp = _put(world, "tests/test_legacy_report.py", LEGACY)
     fwd = fp.replace("\\", "/")

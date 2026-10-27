@@ -83,7 +83,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                     f"[Auto-Handoff] 剛發生壓縮。已自動備妥 handoff stub 於 `{stub_path}`"
                     f"（客觀區塊已填）。請**補全其中 `TODO(模型補全)` 三區塊**"
                     f"（why / 做法 / 決策依據）使其達六區塊自足，"
-                    f"確保下個 session `/continue` 無損接續。"
+                    f"確保接手的 session 用 `/continue` 無損接續。"
                 )
             state["pending_handoff_emit"] = False  # 一次性，即使 config 關亦清旗標
 

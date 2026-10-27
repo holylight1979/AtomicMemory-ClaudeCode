@@ -56,7 +56,7 @@ ROOT_LABEL = "AI 的解讀"
 DEFAULTS: Dict[str, Any] = {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200}
 # 擋下訊息共用的指路句（改檔閘、commit 閘、提問閘）：MCP 是視窗層級共用的 node 程序，改了要 Reload 才載到新工具，
 # 叫不到 need_goal 的人照「先用 need_goal」走不下去
-NO_TOOL_HINT = "本 session 若叫不到 need_goal 工具（MCP 是舊的），先 Reload Window 或開新 session 再做。"
+NO_TOOL_HINT = "本 session 若叫不到 need_goal 工具（MCP 是舊的），先 Reload Window，或改開一個新的 session 接著做。"
 
 # G11 思考的彎：reconcile 的 turns（這次拐了幾個彎）缺就提醒一句、不擋；≥ TURNS_RETHINK（超過三個）要有「重找最短路：<結果>」才收
 # （原話：第二個彎提高注意、第三個警戒極限、第四個幾乎可以確定臭掉；繼續推進只會越跑越偏）。程式只核對有沒有寫，不評結果。
@@ -2163,7 +2163,7 @@ def handoff_block(sid: Any) -> str:
     if not trees:
         return ""
     out = ["## 【需求目標樹】", "",
-           "（need_goal 產生；下個 session 讀到這份續接單會自動匯入。使用者原話是權威，樹是上一個 session 的解讀。）", ""]
+           "（need_goal 產生；接手的 session 讀到這份續接單會自動匯入。使用者原話是權威，樹是上一個 session 的解讀。）", ""]
     for t in trees:
         nodes = t.get("nodes") or {}
         out.append(f"### {_header(t)}")

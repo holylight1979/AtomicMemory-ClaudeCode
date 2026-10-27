@@ -1,0 +1,29 @@
+## 2026-10-23 閘小修 008 A：閘的判定與提示（失敗指令照比改舊測試、回合鍵不掉、完成詞逐句判、開場提示不寫成待辦、擋訊息不用退避詞、subprocess.run 不綁預設值）
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：
+  - **用 Bash 改了舊測試、同一條指令的 pytest 紅了，照樣要補宣告**（規則 OLD_TEST_COMPARED_ON_FAILED_COMMAND）：指令非零結束時 Claude Code 不送 PostToolUse、改送 PostToolUseFailure，原本改舊測試的事後比對只掛前者，`sed -i … tests/x.py && pytest` 紅了，改既有斷言已經寫進檔卻沒人比、不擋。現在兩個事件都比，沒宣告的記欠帳、下一個工具呼叫擋到補宣告；失敗指令新加的測試也同一刻記成本 session 新加的。
+  - **同伴訊息、背景通知帶起的回合不再每則重問「點出最該修」、各閘不再每則重擋**（規則 USER_TURN_KEY_KEPT）：調度分頁 compact 時 state 被重建，使用者回合鍵（turn_prompts_seq）沒帶過去、turn_seq 歸零；之後進來的全是同伴訊息（使用者沒打字），鍵一直補不上，「本回合」退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（guard-pick_one 上 21:27 之後 turn 14／15／17／19／49／85／99 各問一次）。現在重建時回合編號與回合鍵照搬；鍵還是不在（從零建）時第一則訊息就錨定，之後同伴訊息不前進、使用者打字照舊開新回合。
+  - **收尾內文描述過程寫了「中途」「進行中」，另一句「三件都做完了」照算宣告完成**（規則 COMPLETION_CLAIM_PER_SENTENCE）：完成詞的排除詞原本整則一刀切，最後 2000 字任何地方有一個就整則不算，大任務可能整個漏掉第二意見與收尾檢核。現在分兩類：講「這則之後工作還在繼續」的（仍在等、等待…回報、尚未開始）是整則的狀態，出現一處整則照舊不算；其餘（否定緊鄰完成詞、待補、中途、進行中）只取消它自己那一句，逗號、分號不切句。收割待補閘的「中途狀態句不擋」同源，另有一句宣告完成就不算中途；第二意見往前找宣告完成那則時同一套判法（先看那則有沒有宣告完成，沒宣告又明說沒完成才清掉）。
+  - **開場「[Harvest] N 張背景收割候選待審」寫明誰決定**（規則 OPENING_NOTICE_NOT_TODO）：原本寫「值得留的用 atom_write 落卡，不要的刪掉」，使用者說「先告訴我、再等我說要做什麼」時 AI 照提示刪了草稿（004 現況2、重新判分 R2 各一次）。現在寫「要不要現在處理由使用者決定：使用者這回合要的是別的事，只在回覆裡轉述這一行、不動這些檔；使用者說要處理，再由你逐張判斷…」。
+  - **照抄被擋的那則訊息不再被記成 AI 退避**（規則 GATE_TEXT_AVOIDS_EVASION_WORDS）：DataFileAsk 擋訊息自己寫了「(c) 非本 session 建」，AI 在交付裡原樣貼出被擋的那則，「非本 session」中退縮詞，判分兩跑都記成退避。退避偵測不開引用豁免（原設計者已否決），改從源頭把 13 則擋訊息與提示的說法換掉（對照見下），加守門案例：hooks／lib 送得到 AI 眼前的字串逐則跑 detect_evasion，判得出退避就紅。
+  - **收割閘擋訊息不再有「追蹤項已入帳，有部位的同時寫進病灶文件」那條分支**（同 ㉒ 一類，調度加派）：正式路徑從不傳 `tracking_written=True`，那句不會送出、說的也跟實際不符（追蹤項只進追蹤帳本，碰到部位時接在導讀卡末段）；`wg_harvest.harvest_block_message` 連參數一起拿掉，只留「追蹤項請填進收尾檢核 k 欄」。
+- **擋訊息改了哪幾句**（原句 → 新句）：
+  - `wg_release_rules.data_file_verdict`（DataFileAsk 證據）「(c) 非本 session 建：本 session 沒新建過它」→「(c) 這個 session 沒建過它：本 session 的新建紀錄裡沒有它」
+  - `wg_release_rules.claim_hint`（宣稱詞提示）「這句不是本回合自己做了的宣稱」→「這句不是這一回合自己做了的宣稱」
+  - `wg_need_goal.NO_TOOL_HINT`「先 Reload Window 或開新 session 再做」→「先 Reload Window，或改開一個新的 session 接著做」
+  - `wg_need_goal` 續接單目標樹段「下個 session 讀到這份續接單會自動匯入」→「接手的 session 讀到這份續接單會自動匯入」
+  - `wg_overview.CRITIQUE_LINE_HINT`「定位三行之後再加一行」→「定位三行的下面加一行」
+  - `wg_verify_scope`（兩處）「也不是本 session 改過的檔」→「也不是這個 session 改過的檔」
+  - `wg_data_file`（閘自己出錯的原因）「判不了是不是本 session 建的」→「判不了這個 session 有沒有新建過它」
+  - `post_tool_batch`（Auto-Handoff）「確保下個 session `/continue` 無損接續」→「確保接手的 session 用 `/continue` 無損接續」
+  - `wg_handoff`（自動交接單）「標準接續：下個 session 打 `/continue`」→「標準接續：接手的 session 打 `/continue`」
+  - `user_prompt_submit`（Handoff 提示）「下 session 的 Claude 不會看到本次對話脈絡」→「接手的 session 裡的 Claude 不會看到本次對話脈絡」
+  - `session_start`（專案根四選一）「下次再問」→「下次開場會再問一次」
+  - `handlers/_shared` 清理表說明「codex 旁路紀錄只給當下 session 用」→「只給當時那個 session 用」（「當下 session」被「下 session」誤中）
+- **改了什麼**（軌 track-008-gate-text）：`hooks/handlers/post_tool_use.py`（新 `_old_test_after`，PostToolUse 的 oldtest 段改呼叫它，`handle_post_tool_use_failure` 接上它；`_track_test_result` 沒動）、`hooks/wg_oldtest.py`（只改模組說明）、`hooks/handlers/ups_gates.py`（`track_turn_prompts` 尾端錨定回合鍵）、`hooks/handlers/session_start.py`（`_CARRY_ON_REBUILD` 加五個鍵、新 `_harvest_staged_line`、專案根提示一句）、`hooks/wg_evasion.py`（`claims_completion` 逐句判；`detect_evasion` 沒動）、`hooks/wg_harvest.py`（`in_progress_text`；`harvest_block_message` 拿掉 tracking_written 死分支）、`hooks/wg_second_opinion.py`（`turn_completion_text` 往前找的順序）、`hooks/wg_verify_ledger.py`（`note_git_launcher` 的 run 預設 None）、`hooks/wg_reading_path.py`（`reading_path_note`、`run_job` 的 run 預設 None）、上列 13 則擋訊息所在的檔、`hooks/wg_release_rules.py`（檔尾登錄六條規則；`data_file_verdict`、`claim_hint` 各改一句）、`hooks/verify/verify_g14_min_map.py`（註解 LOCATE_DENY_CAP → GATE_DENY_CAP）。`hooks/handlers/stop.py` 沒動。文件：TECH.md §3.1 PostToolUseFailure 列、§6.3 背景收割、§7.1 PickOne 列、§7.5 OldTestDeclare 列、§7.8 加六列（141 條）。
+- **驗證**：
+  - 新案例：`verify_old_test_declare.py`（失敗指令改舊斷言照樣擋、失敗指令新加的測試記成新加）、`verify_user_turn_key.py`（重建後連三則同伴訊息 PickOne 只問一次、重建前的鍵照舊、鍵不在時錨在第一則同伴訊息、v6 關不錨）、`verify_g9_second_opinion.py`（宣告完成那則開頭有否定句、補件那則不重說完成，第二意見照擋）、`verify_evasion_guard.py`（完成詞逐句判六列、中途判定、擋訊息掃描守門）、`verify_opening_notice.py`（收割提示措辭）、`verify_subprocess_run_default.py`（hooks 沒有參數預設值是 subprocess.run、匯入後才換掉的 subprocess.run 用得到）、`verify_release_rules.py` 檔尾六條規則對照。
+  - 舊碼回放：038a7cfc 的 hooks／lib 匯出成獨立暫存 repo（conftest 才種得到詞表與 config）、套上新案例：20 紅、3 綠（綠的是完成詞「同一句有排除詞照舊不算」三列，行為本來就不變）。
+  - 目標 verify 41 支檔 2262 案：重錄 13 份 git 錄製檔後全綠（2 skip 是既有的）。重錄原因：㉓ 修好後錄製重播攔到了原本漏網的 git 呼叫（`note_git_launcher` 的 ls-files、`reading_path_note` 的 ls-files），舊錄製少了這幾筆。
+  - codex 一輪（第一次唯讀沙箱在本機起不來、一行都沒讀到，改完整讀檔權限重跑；全程沒改檔）：BLOCK 2 條都成立、都改了並補會紅案例——①「A 完成。仍在等 B 回報。」用句號分開時被當成收尾，收割待補閘會在半途擋（改成「還在等」類整則不算）；②宣告完成那則開頭有否定句、補件那則不重說完成時，第二意見往前找會漏掉（改成同一套逐句判法）。兩支新案例在第一版（70a666c7）上紅。WARN 處理：守門案例改成 `+` 串起來的字面值併成一條、只排除 `re.<函式>` 的第一個參數（不再把字串的 `.split()` 當正則整棵排除）、只排除印到 sys.stderr 的；收緊後沒抓到新的。v6 關時不錨回合鍵（照 9e476fd0），補一支案例。
+  - 改了 4 支舊案：`verify_harvest_routing.py` 收割擋訊息那支改成驗「只叫人填 k 欄、沒有病灶文件那句、參數已拿掉」；`verify_data_file_ask.py`、`verify_verify_scope.py` 斷言的擋訊息字句跟著換成新句；`verify_sync_reminder_later_turn.py` 一句說明（重建後回合序號不再從頭算）。
+- **已知限制**：守門案例只掃 hooks／lib 的 Python；MCP 端（`tools/workflow-guardian-mcp/lib/atom-tools.js` 的「索引既有問題…非本次造成」、`mcp.js` need_goal 說明「add＝之後再長子目標」）在 B 軌的檔，已交調度轉；`tools/atom-move.py` 輸出鍵 `index_preexisting_issues` 中「pre-existing」，是兩支程式之間的介面鍵，沒改。重建時回合內容與各閘每回合的帳（turn_prompts 口令清單、order_*、reconcile_gate_turn、pick_one…）沒搬：重建那一回合各閘可能再擋／再問一次、還沒用完的「上GIT」口令要重下（重建原本就有的限制）。完成詞判法不切英文句點、沒有英文的等待排除詞（「Done. Still waiting for CI.」新舊都算完成）；2000 字截斷邊界會切掉否定或切半完成詞（舊碼同樣）。守門案例只掃字面值：字串存進變數再拼接、從資料檔讀來的提示掃不到。

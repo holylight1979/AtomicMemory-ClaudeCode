@@ -637,11 +637,13 @@ def _fingerprint(files: List[str]) -> List[Any]:
 # ─── 收尾當下（Stop）：收結果、交工作 ──────────────────────────────────────────
 
 def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, Any],
-                      run: Callable[..., Any] = subprocess.run,
+                      run: Optional[Callable[..., Any]] = None,
                       spawn: Optional[Callable[[Path], Any]] = None) -> Tuple[Optional[str], bool]:
     """收尾時呼叫 → (要附在收尾檢核的文字或 None, state 有沒有改)。
     ① 背景量完的結果附上一次；② 這回合改了程式碼（或量測中又改過）而且是新的一批 → 交給背景量，這次不附、不等。
-    會更新 state["reading_path"][session_id]（呼叫端負責寫回 state）。spawn：起背景行程的函式（預設 _spawn_worker）。"""
+    會更新 state["reading_path"][session_id]（呼叫端負責寫回 state）。spawn：起背景行程的函式（預設 _spawn_worker）。
+    run 沒給＝呼叫當下的 subprocess.run（規則 SUBPROCESS_RUN_LOOKED_UP_AT_CALL：測試的 git 錄製重播換掉它時才攔得到）。"""
+    run = run or subprocess.run
     cfg = reconcile_cfg(config)
     exts = cfg.get("code_exts") or []
     own = [m for m in state.get("modified_files") or [] if (m or {}).get("session_id", session_id) == session_id]
@@ -792,11 +794,13 @@ def _spawn_worker(job_path: Path) -> None:
 
 # ─── 背景行程：照工作檔量 ──────────────────────────────────────────────────────
 
-def run_job(job: Dict[str, Any], run: Callable[..., Any] = subprocess.run) -> Dict[str, Any]:
+def run_job(job: Dict[str, Any], run: Optional[Callable[..., Any]] = None) -> Dict[str, Any]:
     """背景量測本體：照工作檔量每個根 → {"text": 附在收尾檢核的文字, "slow": 這次逾時的根, "judgment": 到門檻的全部條目,
     "turn_judgment": 門檻, "measured": 量過的摘要（沒超線的數據行只在這裡，_collect 印 stderr、記 guard log）}。
     超線才有字：一個根沒有到門檻的條目，它的數據行（尾行、可評級、最差一條、函式級數據表）不進結果文字；量不出來的一句原因、
-    沒量到的檔數照附。扣已判過、取上限、接那一題在收結果時做（_collect）。"""
+    沒量到的檔數照附。扣已判過、取上限、接那一題在收結果時做（_collect）。run 沒給＝呼叫當下的 subprocess.run
+    （規則 SUBPROCESS_RUN_LOOKED_UP_AT_CALL）。"""
+    run = run or subprocess.run
     budget = float(job.get("budget") or WORKER_BUDGET_S)
     deadline = time.monotonic() + budget
     exts = job.get("code_exts") or []

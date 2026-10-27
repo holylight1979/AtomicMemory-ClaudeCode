@@ -6,10 +6,11 @@
 - Edit／MultiEdit／Write：PreToolUse 比對改前（磁碟現檔）與改後（套用 old_string→new_string，或 Write 的新內容），沒宣告當場擋。
 - Bash／PowerShell／NotebookEdit：寫之前看不到改後內容，PreToolUse 把寫入目標裡的測試檔拍快照（workflow/old-test-snap/），
   PostToolUse 拿快照比磁碟（after_tool），沒宣告的記 state `old_test_undeclared`，下一個任何工具呼叫在 PreToolUse 擋到補宣告為止；
+  指令非零結束時 Claude Code 改送 PostToolUseFailure，一樣呼叫 after_tool（規則 OLD_TEST_COMPARED_ON_FAILED_COMMAND）；
   兩條路的擋都有上限：同一個使用者回合同一件（檔＋測試＋動作）擋滿兩次就放行、留帳 cap_released（欠帳那筆一併拿掉）；
   只讀或只寫這幾個欠帳檔（撤回）的呼叫不擋，撤回後的 PostToolUse 把已恢復的那筆清掉。
 本 session 新加的測試不算舊測試：記在 old_test_added（比對時看到新增），另有基線 old_test_baseline＝第一次拍快照時那個檔有哪些測試；
-指令失敗時 Claude Code 不送 PostToolUse、old_test_added 記不到，基線沒有的那支照樣放過。
+事後那一則 hook 沒跑到（逾時、被砍）時 old_test_added 記不到，基線沒有的那支照樣放過。
 
 切本體：Python 照縮排（含單行 `def test_x(): assert …`；notebook 取所有程式格接起來），斷言以邏輯行比（括號或三引號沒合上、
 行尾反斜線就併下一行），本體第一行是字串就是說明；JS／TS（it／test，describe 只看跳過；描述文字就是名字，改了算改名）、
