@@ -2644,3 +2644,18 @@ def test_gate_design_rules_registered_with_cases(rule):
     if rule.startswith("CHAIN_"):
         import wg_chain
         assert rule in wg_chain.RULES                                # 判定在斷路器，兩邊同名
+
+
+# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
+_SLIM_CASES = {
+    "DENY_TEXT_SLIM": ("verify_data_file_ask.py", "test_deny_text_slim_rule_fix_and_hit_only"),
+    "CARD_FULL_ONCE_PER_SESSION": ("verify_gate_slimming.py", "test_card_full_once_per_session_then_names_only"),
+    "DATA_FILE_READ_HINT": ("verify_data_file_ask.py", "test_read_hint_on_first_read_of_data_file"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_SLIM_CASES))
+def test_slim_rules_registered_with_cases(rule):
+    case_file, fn = _SLIM_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)

@@ -460,6 +460,22 @@ def format_hit(letter: str, v: Verdict) -> str:
     return f"{HIT_PREFIX}({letter}) {v.rule}：{v.why}｜證據：" + "；".join(ev)
 
 
+DENY_EVIDENCE_CAP = 160      # DENY_TEXT_SLIM：每項證據最多幾個字，超過截短
+
+
+def deny_slim_enabled(config: Any) -> bool:
+    """guard.deny_text_slim（預設開，規則 DENY_TEXT_SLIM）；寫 false 時採用的閘退回自己原本的長文字（原處不動）。"""
+    return (((config or {}).get("guard") or {}).get("deny_text_slim", True)) is not False
+
+
+def slim_deny(tag: str, fix: str, hits: Sequence[Tuple[str, Verdict]], cap: int = DENY_EVIDENCE_CAP) -> str:
+    """DENY_TEXT_SLIM 的擋訊息：第一行 `[<閘>] 修法：<一句>`，下面每條命中一行 format_hit（parse_hits 照認，
+    每項證據超過 cap 字截短）。判準卡名由接卡處（wg_entrypoint.entry_note）接在後面。"""
+    rows = [format_hit(letter, v._replace(evidence=tuple(e if len(e) <= cap else e[:cap] + "…" for e in v.evidence)))
+            for letter, v in hits]
+    return "\n".join([f"[{tag}] 修法：{fix}", *rows])
+
+
 def split_blocking(hits: List[str], block_letters: Any) -> Tuple[List[str], List[str]]:
     """規則 RECONCILE_BLOCK_LETTERS：format_hit 條目分成（會擋, 只提示）。block_letters 不是清單＝全擋。"""
     if not isinstance(block_letters, list):
@@ -3093,6 +3109,26 @@ def data_file_hint(rel: str) -> str:
             "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 
+def data_file_fix(rels: Sequence[str]) -> str:
+    """DENY_TEXT_SLIM 的動資料檔修法句（DECL_HINT_KEEPS_EDIT_TOOLS 的要點照留：宣告放哪、宣告完照常用 Edit／Write）。"""
+    lines = "；".join(f"入口行範例：動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
+    return (f"比這次工具呼叫早一則訊息送出宣告行（{lines}），或寫在{DECL_VIA_COMMENT}；每個檔各一行。"
+            "宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+
+
+DATA_FILE_HINT_SHOWN = 4      # DATA_FILE_READ_HINT 一行最多列幾個檔名
+
+
+def data_file_read_hint(rels: Sequence[str], first: bool) -> str:
+    """DATA_FILE_READ_HINT：第一次讀到會被 DataFileAsk 管的檔時附的一行（判定不動，沒宣告照擋）；
+    first＝這個 session 第一次提示，給格式與管道；之後只點名檔、說格式同前。"""
+    names = "、".join(rels[:DATA_FILE_HINT_SHOWN]) + (f" 等 {len(rels)} 個檔" if len(rels) > DATA_FILE_HINT_SHOWN else "")
+    if not first:
+        return f"[Guardian:DataFileAsk] 改 {names} 也要先宣告（格式同前一則提示）。"
+    return (f"[Guardian:DataFileAsk] 改 {names} 要先宣告｜格式：動資料檔｜<路徑>：<為什麼要動它、動了使用者會看到什麼>；"
+            f"比改它的那次呼叫早一則訊息送出（跟改檔同一則送出的文字這裡看不到），或寫在{DECL_VIA_COMMENT}。")
+
+
 def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
     """USER_DATA_FILE_NEEDS_DECLARATION：owed＝擋。facts＝{code, ext, ext_listed, existed, created, named, prompts}
     （named＝prompt_names_file 的結果，prompts＝原話則數）；decls＝三管道收到的宣告（parse_data_file_decls）。
@@ -3972,4 +4008,20 @@ RULES.update({
                                   "同一 session、同一個專案根（版控根，沒有就 cwd，再沒有就暫存根底下第一層）第一次印一行 stderr "
                                   "[Guardian:EphemeralWrite] 說明沒記、收尾閘看不到（_shared.note_ephemeral_skip）；不在暫存根底下、只因快取目錄"
                                   "（__pycache__、.pytest_cache）判成暫存的不是專案，不印。",
+})
+
+
+# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
+RULES.update({
+    "DENY_TEXT_SLIM": "擋訊息精簡格式（guard.deny_text_slim，預設開）：第一行「[<閘>] 修法：<一句>」，下面每條命中一行 format_hit"
+                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認），判準卡名由接卡處接在後面；"
+                      "共用組裝 slim_deny，採用的閘交規則名與一句修法（動資料檔閘：data_file_fix）。寫 false 退回各閘原本的長文字（原處不動）。",
+    "CARD_FULL_ONCE_PER_SESSION": "判準卡一個 session 每張最多送一次全文（entrypoint.card_once_per_session，預設開；hooks/wg_entrypoint）："
+                                  "之後換回合、換目標樹都只併成一行「判準卡：<卡名>、…」，不印「這個話題前面已送過全文」；"
+                                  "同一個切入點這個 session 拿過卡，再被問就不往下送新卡、帳上不記截斷；同一則認出好幾個切入點、額度被平分到比單一額度小時，截斷送出的卡不算送過、被截的切入點不算拿過卡（下次單獨被問照送）。壓縮前清掉紀錄（之後重送）、"
+                                  "子代理開工句照送全文也不佔主對話；寫 false 退回 CARD_ONCE_PER_TOPIC。",
+    "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
+                           "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
+                           "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
+                           "子代理讀的不提示），讓第一次改就帶宣告。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：沒宣告照擋。",
 })

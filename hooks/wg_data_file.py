@@ -189,6 +189,41 @@ def confirm_shell_created(state: Dict[str, Any], tool_use_id: str) -> bool:
     return True
 
 
+def read_hint(state: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code: Optional[int],
+              config: Optional[Dict[str, Any]]) -> Optional[str]:
+    """PostToolUse（Read／Bash／PowerShell／Grep；規則 DATA_FILE_READ_HINT）：這次讀到的檔（wg_overview.read_targets，跟定位閘
+    同一套「讀了什麼」）裡，改了會被本閘問的——副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session
+    沒宣告過、state 裡的使用者原話沒點名——而且這個 session 還沒提示過的，回一行宣告格式；提示過的記進 state data_file_hinted。
+    判定（gate）不動：沒宣告照擋。炸了印 stderr、留帳 error、回 None，讀檔照常。"""
+    enabled, exts = cfg_of(config)
+    if not enabled:
+        return None
+    try:
+        from wg_need_goal import writes_code
+        from wg_overview import read_targets
+        hinted = state.get("data_file_hinted") or []
+        skip = set(hinted) | set(state.get("data_file_declared") or {}) | set(state.get("created_files") or [])
+        prompts = user_typed_prompts([str(p) for p in list(state.get("recent_user_prompts") or []) + list(state.get("turn_prompts") or [])])
+        new: Dict[str, str] = {}
+        for p in read_targets(tool_name, tool_input, cwd, exit_code):
+            key = _rr.canon_path(p)
+            if (key in skip or key in new or _ext_of(p) not in exts or _system_doc_md(p) or not os.path.isfile(p)
+                    or writes_code(p, config) or _rr.prompt_names_file(prompts, p)):
+                continue
+            new[key] = _rel(p, cwd)
+        if not new:
+            return None
+        state["data_file_hinted"] = hinted + list(new)
+        append_guard_log(GUARD, {"event": "read_hint", "session_id": str((state.get("session") or {}).get("id") or ""),
+                                 "tool": tool_name, "paths": list(new.values()), "first": not hinted})
+        return _rr.data_file_read_hint(list(new.values()), first=not hinted)
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+        sys.stderr.write(f"[Guardian:DataFileAsk] 讀檔後的宣告格式提示出錯（這次不提示，改檔照常判）：{err}\n")
+        append_guard_log(GUARD, {"event": "error", "rule": "DATA_FILE_READ_HINT", "tool": tool_name, "error": err})
+        return None
+
+
 def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
     """這次工具呼叫要寫的檔：Edit 類取 file_path；Bash／PowerShell 取 wg_core.write_paths_from_tool 算得出的每個目標
     （算不出的 UNKNOWN 本閘不管，由 UNKNOWN_TARGET_LOGGED 放行留帳）。"""
@@ -297,6 +332,9 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     if not denied:
         return None
     hits = [owed[k] for k in denied]
+    if _rr.deny_slim_enabled(config):       # 規則 DENY_TEXT_SLIM：規則名＋一句修法，判準卡名由接卡處接
+        return _rr.slim_deny("Guardian:DataFileAsk", _rr.data_file_fix([rel for _, rel, _ in hits]),
+                             [("df", v) for _, _, v in hits])
     # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：宣告的管道講清楚，宣告完照常用 Edit／Write，不把 AI 引去用 Bash 寫檔
     return ("[Guardian:DataFileAsk] 要改使用者既有的資料檔／設定檔，先宣告一行再改：宣告行要比這次工具呼叫早一則訊息送出"
             f"（跟工具呼叫同一則送出的文字，這裡還看不到），或寫在{_rr.DECL_VIA_COMMENT}。{_rr.DECL_KEEP_EDIT}。"
