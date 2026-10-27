@@ -4000,6 +4000,21 @@ RULES.update({
 })
 
 
+# ─── 需求目標提示減量：三種情況一次全文、提示附樹一行（送法在 hooks/wg_need_goal.py，這裡只登錄規則名與說明） ───
+RULES.update({
+    "CRITIQUE_CASES_ONCE_PER_SESSION": "「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了重看）與導讀卡附樹的定位第五行提示"
+                                       "帶的三種情況（wg_need_goal.CRITIQUE_CASES）每個 session 送一次全文，之後換成一句指回"
+                                       "（CRITIQUE_CASES_POINTER）；兩問與定位第五行格式照送。已送記在目標檔 critique_sent"
+                                       "（wg_need_goal.critique_mark／critique_once；還沒有目標檔就照送全文、不建檔；讀寫失敗照送全文），"
+                                       "壓縮後重送目標樹時清掉（wg_need_goal_points.recovery_text 呼叫 forget_reminders），下一則再送一次全文。"
+                                       "設定 v6.slim_reminders=false 退回每則全文。",
+    "TREE_LINE_IN_HINTS": "need_goal 以外的 hook 提示（導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、交付對照）附的目標樹"
+                          "只一行當前節點（wg_need_goal.brief_line；沒有子節點就是樹根自己）；樹根與整棵樹只在 need_goal "
+                          "set／add／update／reconcile 的回覆送（TREE_ONCE_PER_CALL）。壓縮後重送照附樹根一行＋當前節點"
+                          "（recovery_blob，context 裡已沒有寫入回覆的樹）。設定 v6.slim_reminders=false 退回每則附樹根一行。",
+})
+
+
 # ─── 寫碼回合的記憶注入只送該到的（判定在 hooks/handlers/ups_inject.assemble_injection，這裡只登錄規則名與說明） ───
 RULES.update({
     "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、這則判成寫碼意圖：ups_inject._lean_turn）記憶卡只有 trigger 命中的給整段"

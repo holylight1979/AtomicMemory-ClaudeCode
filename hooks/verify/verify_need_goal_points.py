@@ -351,7 +351,8 @@ def test_multi_edit_hint_once_per_file(world):
 def test_correction_with_tree_sends_tree_and_logs(world):
     make_tree()
     line = ngp.on_correction(SID, ["不對", "重來"], 7)
-    assert line and "使用者糾正了" in line and "不對" in line and "T1：" in line and "當前節點 T1." in line   # 樹根＋當前節點
+    assert line and "使用者糾正了" in line and "不對" in line and "當前節點 T1." in line
+    assert "T1：" not in line                                                # 附樹只一行當前節點（TREE_LINE_IN_HINTS）
     assert "改這棵樹、不開新樹" in line and "標放棄" in line, line         # B5 q3：糾正後開新樹、舊樹不收
     cp = tree_now()["checkpoints"][-1]
     assert cp["point"] == "correction" and cp["turn"] == 7
@@ -507,20 +508,22 @@ def test_ask_without_tree_or_closed_tree_hints_write_answer(world):
 
 def test_cg1_regard_prompts_ask_critique_and_same_class():
     """讀入範圍變大、收到外部主張、目標改了重看：三個「用目標視角重看」的提示都多問兩句（這樣合不合理、同類別處有沒有），
-    只送題不擋。舊碼沒有這兩問（紅）。"""
+    只送題不擋；三種情況本 session 第一則送全文、之後一句指回（CRITIQUE_CASES_ONCE_PER_SESSION）。舊碼沒有這兩問（紅）。"""
     make_tree()
     ngp.scope_growth_line(SID, "c:/p|戰鬥", CFG)
     line = ngp.scope_growth_line(SID, "c:/p|網路", CFG)
-    assert line and ngp.CRITIQUE_QUESTIONS in line, line
-    assert ngp.CRITIQUE_QUESTIONS in ngp.on_external_claim(SID, "審查報告", "x", 3)
+    assert line and ngp.CRITIQUE_QUESTIONS in line, line                     # 排進待送的那句（還沒送出）
+    assert ngp.CRITIQUE_QUESTIONS in ngp.on_external_claim(SID, "審查報告", "x", 3)   # 本 session 第一則送出的：全文
     view = ngp.goal_view_text(SID, "戰鬥")
-    assert view and ngp.CRITIQUE_QUESTIONS in view and "定位四行" in view
+    assert view and ngp.CRITIQUE_TWO in view and ng.CRITIQUE_CASES_POINTER in view and "定位四行" in view
+    assert ng.CRITIQUE_CASES not in view                                      # 送過全文之後：兩問照送、三種情況指回
     assert "合不合理" in ngp.CRITIQUE_QUESTIONS and "同類別處" in ngp.CRITIQUE_QUESTIONS
     # 三個具體問法（原設計者補充；階段 1 的實例：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）
     assert ng.CRITIQUE_CASES in ngp.CRITIQUE_QUESTIONS and ng.CRITIQUE_CASES in wo.CRITIQUE_LINE_HINT
     assert all(w in ng.CRITIQUE_CASES for w in ("替身", "落差", "前置步驟", "期望不發生", "什麼都沒發生"))
+    assert all(w in ng.CRITIQUE_CASES_POINTER for w in ("替身", "前提", "期望不發生"))   # 指回句點得出是哪三種
     doc = ngp.goal_view_text(SID, "專案文件層", knowledge=True)            # 知識類部位不用交定位行，不叫它重交
-    assert doc and ngp.CRITIQUE_QUESTIONS in doc and "定位" not in doc.split("\n", 1)[0], doc
+    assert doc and ngp.CRITIQUE_TWO in doc and "定位" not in doc.split("\n", 1)[0], doc
 
 
 def _release_q():
@@ -885,7 +888,7 @@ def test_goal_change_resends_card_in_goal_view_once(proj, tmp_path):
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None
     rec["goal_reset_turn"] = 4                                                # b2 on_goal_changed 記的
     view = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
-    assert view and "目標視角" in view and "戰鬥導讀" in view and "T1：" in view and "當前節點 T1." in view
+    assert view and "目標視角" in view and "戰鬥導讀" in view and "當前節點 T1." in view and "T1：" not in view
     assert rec["goal_view_turn"] == 4 and rec["part_files_read"] == [f]       # 讀檔紀錄沒被重置
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None   # 只重送一次
 
