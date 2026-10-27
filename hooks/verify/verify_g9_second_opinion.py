@@ -185,7 +185,7 @@ def test_five_files_no_run_blocks_with_rule_count_and_entry(drive, capsys, tmp_p
     reason, state, logs = drive(DONE, capsys, files=_files(tmp_path, 5))
     assert "[Guardian:SecondOpinion]" in reason and "SECOND_OPINION_REQUIRED" in reason
     assert "程式檔 5 個" in reason and "本回合沒有跑第二意見" in reason
-    own = reason.split("\n判準卡（")[0]          # 切入點契約：判準卡接在擋訊息後面，入口在閘自己訊息的最末
+    own = reason.split("\n判準卡")[0]          # 切入點契約：判準卡接在擋訊息後面，入口在閘自己訊息的最末
     assert own.rstrip().endswith(HINT_TAIL), own[-200:]
     assert "second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result" in reason
     assert [p["event"] for p in _so_logs(logs)] == ["block"]
@@ -262,7 +262,7 @@ def test_block_message_says_any_reply_this_turn_counts(drive, capsys, tmp_path):
     """擋訊息講明四行寫在本回合任一則回覆都算，補件那則不必重抄（SECOND_OPINION_REQUIRED）。"""
     reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5))
     assert "本回合任一則回覆都算" in reason and "不必重抄" in reason
-    assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)                 # 入口仍在閘自己訊息的最末
+    assert reason.split("\n判準卡")[0].rstrip().endswith(HINT_TAIL)                 # 入口仍在閘自己訊息的最末
 
 
 def test_job_from_previous_user_prompt_still_blocks(drive, capsys, tmp_path):
@@ -510,7 +510,7 @@ def test_block_message_says_result_waits(drive, capsys, tmp_path):
     reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5),
                                   config={"second_opinion": {"auto": {"background": False}}})
     assert "直接呼叫 second_opinion_result" in reason and "會等到有結果" in reason and "不用另開背景等待" in reason
-    assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)
+    assert reason.split("\n判準卡")[0].rstrip().endswith(HINT_TAIL)
 
 
 def test_result_across_turns_done_no_edits_passes(drive, capsys, tmp_path):
