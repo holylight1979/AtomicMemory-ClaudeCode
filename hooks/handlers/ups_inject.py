@@ -8,9 +8,11 @@ handlers/ups_inject.py — UserPromptSubmit injection assemble 段
 - section hints 局部抽取（SECTION_INJECT_THRESHOLD）
 - Related-Edge Spreading（max_depth=1）
 - ReadHits++ via lib.atom_access + 效用導向晉升提示（Wilson 下界）
+- 寫碼回合精簡（規則 CODING_TURN_FULL_ONLY_ON_TRIGGER／POINTER_NO_NAME_ECHO／NO_RESEND_AFTER_RESUME，見 _lean_turn）
 """
 
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,13 +20,14 @@ import json as _json_mod
 import os
 from datetime import datetime
 
-from wg_core import CLAUDE_DIR, log_promotion_audit, _atom_debug_log, _estimate_tokens
+from wg_core import CLAUDE_DIR, log_promotion_audit, _atom_debug_log, _estimate_tokens, v6_enabled
 from wg_atoms import (
     AtomEntry,
     _strip_atom_for_injection,
     bm25_match,
     spread_related, decide_atom_injection, compute_injection_rank,
     classify_hot_cold, format_cold_inject_line, atom_status_suffix, pointer_path,
+    title_echoes_name, any_trigger_hit,
     _strip_atom_for_injection_impression_only,
     SECTION_INJECT_THRESHOLD, _extract_sections,
     _TURN_BUDGET_LIMIT,
@@ -57,7 +60,7 @@ def _append_injection_turn_log(
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return  # verify 套件以假 session 跑真 ups_inject，不得污染正式統計
     try:
-        counts = {"ok": 0, "fallback": 0, "skip": 0, "cold": 0, "redundant": 0,
+        counts = {"ok": 0, "fallback": 0, "skip": 0, "cold": 0, "redundant": 0, "seen": 0,
                   "dropped": 0, "pointer_trim": 0, "dropped_trim": 0}
         for r in records:
             f = r.get("form_final") or r.get("form")
@@ -104,6 +107,73 @@ def redundant_with(triggers, full_seen: List[Tuple[str, set]], min_shared: int) 
         if len(mine & seen_set) >= min_shared:
             return seen_name
     return None
+
+
+def _lean_turn(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """寫碼回合精簡注入：v6 開、而且這則判成寫碼意圖（state turn_intent，UPS 在檢索前就判好；規則 CODING_TURN_ONLY 第三層的記憶選片）。
+    成立時三條規則一起生效，不成立照舊：
+    - CODING_TURN_FULL_ONLY_ON_TRIGGER：只有 trigger 命中的卡給整段；bm25／vector／related 命中的一律走一行（不看 hot／cold）。
+    - POINTER_NO_NAME_ECHO：一行指標的摘要只是把卡名再寫一次時不重印，只留卡名＋路徑。
+    - NO_RESEND_AFTER_RESUME：本 session 最近一次壓縮之後已整段送過的卡，再命中只給一行指回（resume 會清空 injected_atoms，
+      但對話還在 context 裡）。
+    一行送過的卡照舊進 injected_atoms（搜尋段排除它、失念偵測當它注入過），這則被 trigger 命中時由 _line_upgrades 補回整段。"""
+    if not v6_enabled(config or {}):
+        return False
+    from handlers.user_prompt_submit import _CODE_INTENTS   # 呼叫端已載入；放函式內免循環匯入
+    return (state or {}).get("turn_intent") in _CODE_INTENTS
+
+
+def _iso_ts(value: Any) -> float:
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+_LINE_FORMS = ("cold", "skip", "pointer_trim")   # 只送到一行、內容沒送出的 form
+
+
+def delivered_forms(state: Dict[str, Any]) -> Dict[str, str]:
+    """這個 session 每張卡送到哪一步（injection_log，以最終送達 form_final 為準）：
+    "full"＝最近一次壓縮（PreCompact／PostCompact 的時間戳）之後整段送出過（form ok、不是只抽章節）——規則 NO_RESEND_AFTER_RESUME；
+    "line"＝只送過一行（cold／skip／pointer_trim）、沒有整段——寫碼回合被 trigger 命中時補整段。整段優先。
+    整段送出判不出在壓縮之後（紀錄沒有送出時間、或跟壓縮在同一秒內）不算整段，照常送。"""
+    mark = max(_iso_ts(state.get("pre_compact_snapshot")), _iso_ts(state.get("post_compact_at")))
+    out: Dict[str, str] = {}
+    for rec in state.get("injection_log") or []:
+        if not isinstance(rec, dict):
+            continue
+        name, form = str(rec.get("name") or ""), rec.get("form_final") or rec.get("form")
+        at = rec.get("at")
+        if form == "ok" and not rec.get("sections") and (not mark or (isinstance(at, (int, float)) and at > mark + 1)):
+            out[name] = "full"
+        elif form in _LINE_FORMS:
+            out.setdefault(name, "line")
+    return out
+
+
+def _line_upgrades(
+    matched: List[Tuple[AtomEntry, Path]], all_atoms: List[Tuple[AtomEntry, Path]], already_injected: List[str],
+    delivered: Dict[str, str], prompt: str, atom_source: Dict[str, str],
+) -> List[Tuple[AtomEntry, Path]]:
+    """CODING_TURN_FULL_ONLY_ON_TRIGGER 的補送：前面只送過一行（還在 injected_atoms，搜尋段不再給它當候選）、這則 trigger 命中的卡
+    補回候選、來源記 trigger，排在第一個非 trigger 候選之前（同名取首見，同搜尋段）。改 atom_source（呼叫端傳本地副本）。"""
+    have = {e[0][0] for e in matched}
+    already = set(already_injected)
+    pl = (prompt or "").lower()
+    extra: List[Tuple[AtomEntry, Path]] = []
+    for entry in all_atoms:
+        name, _rel, triggers = entry[0]
+        if name in have or name not in already or delivered.get(name) != "line":
+            continue
+        have.add(name)
+        if any_trigger_hit(triggers, pl):
+            extra.append(entry)
+            atom_source[name] = "trigger"
+    if not extra:
+        return matched
+    i = next((k for k, e in enumerate(matched) if atom_source.get(e[0][0]) != "trigger"), len(matched))
+    return matched[:i] + extra + matched[i:]
 
 
 def _filter_related_by_relevance(
@@ -190,9 +260,15 @@ def assemble_injection(
 
     caches：search 段下傳的 {"content", "access"} 讀取快取（None 時自建空 dict，
     函式仍可獨測）——同 atom 本 prompt 只實讀一次。
-    prompt：給 Related 擴散的 query gate 用（空字串＝不做 query gate，沿舊行為）。"""
+    prompt：給 Related 擴散的 query gate 用（空字串＝不做 query gate，沿舊行為）；寫碼回合也拿它判一行送過的卡要不要補整段。"""
     newly_injected: List[str] = []
     atom_source_dirs: Dict[str, Path] = {}
+    lean = _lean_turn(state, config)
+    delivered = delivered_forms(state) if lean else {}
+    sent_full = {n for n, k in delivered.items() if k == "full"}
+    if lean:
+        atom_source = dict(atom_source)
+        matched_with_dir = _line_upgrades(matched_with_dir, all_atoms, already_injected, delivered, prompt, atom_source)
     if not matched_with_dir:
         return newly_injected, atom_source_dirs
 
@@ -214,16 +290,37 @@ def assemble_injection(
     inject_records: List[Dict[str, Any]] = []
 
     _atom_scopes: Dict[str, str] = (state.get("atom_index") or {}).get("scopes") or {}
+    stamp = v6_enabled(config or {})          # 送出時間、只抽章節：NO_RESEND_AFTER_RESUME 的帳（v6 關不記，照舊）
 
     def _record(name_: str, path_: Path, rel_: str, source_: str, form_: str) -> None:
-        inject_records.append({
+        rec = {
             "name": name_,
             "path": str(path_),
             "rel": rel_ or f"{name_}.md",
             "source": source_,
             "form": form_,
             "scope": _atom_scopes.get(name_, ""),
-        })
+        }
+        if stamp:
+            rec["at"] = time.time()
+        inject_records.append(rec)
+
+    def _pointer(name_: str, raw_: str, title_: str, path_: Path, tag_: str = "") -> str:
+        """一行路標：[Atom:名]（標籤）標題 [Status] (full: Read 路徑)；寫碼回合標題只是卡名再寫一次就不重印（POINTER_NO_NAME_ECHO）。"""
+        tail = f"{atom_status_suffix(raw_)} (full: Read {pointer_path(path_)})"
+        if lean and title_echoes_name(title_, name_):
+            return f"[Atom:{name_}] {tag_}".rstrip() + tail
+        return f"[Atom:{name_}] {tag_ + ' ' if tag_ else ''}{title_}{tail}"
+
+    def _push_seen(name_: str, path_: Path, rel_: str, source_: str, related: bool = False) -> bool:
+        """NO_RESEND_AFTER_RESUME：前面已整段送過 → 一行指回（form＝seen：不算路標，AtomAudit 不追問）。"""
+        tag = "(related, 前面已整段送過)" if related else "(前面已整段送過)"
+        line = f"[Atom:{name_}] {tag} (full: Read {pointer_path(path_)})"
+        if _push(line, name_, path_, rel_, source_, "seen"):
+            _atom_debug_log("BUDGET", f"atom={name_} source={source_} decision=seen used={acct['used']}/{_TURN_BUDGET_LIMIT}",
+                            config)
+            return True
+        return False
 
     acct = {"used": 0}  # atom 段實際送出的估算 token（含標頭／路標／cold 行，全部計費）
 
@@ -261,10 +358,15 @@ def assemble_injection(
             continue
 
         source = atom_source.get(name, "vector")
-        classification = classify_hot_cold(atom_path, source, access_cache=access_cache)
+        if name in sent_full:
+            _push_seen(name, atom_path, rel_path, source)
+            continue
+        # CODING_TURN_FULL_ONLY_ON_TRIGGER：寫碼回合只有 trigger 命中算 hot，其餘一律走一行
+        classification = ("cold" if lean and source != "trigger"
+                          else classify_hot_cold(atom_path, source, access_cache=access_cache))
 
         if classification == "cold":
-            cold_line = format_cold_inject_line(name, raw_content, rel_path, atom_path)
+            cold_line = format_cold_inject_line(name, raw_content, rel_path, atom_path, drop_name_echo=lean)
             if _push(cold_line, name, atom_path, rel_path, source, "cold"):
                 _atom_debug_log(
                     "BUDGET",
@@ -293,10 +395,12 @@ def assemble_injection(
         content = _strip_atom_for_injection(raw_content)
         content_tokens = _estimate_tokens(content)
 
+        sectioned = False
         if name in section_hints and content_tokens > SECTION_INJECT_THRESHOLD:
             extracted = _extract_sections(content, section_hints[name])
             if extracted is not None:
                 content = extracted
+                sectioned = True
 
         # 三態決策以「含標頭的完整區塊」為準：先試全文，塞不下再試印象式節錄，都不行才路標。
         # decide_atom_injection 只算內文；標頭幾個 token 曾讓 1,199 tok 的內文被判 ok 卻在 _push 破頂，
@@ -318,6 +422,8 @@ def assemble_injection(
             if _push(block, name, atom_path, rel_path, source, form, rescue_content=rescue_txt, final=False):
                 pushed = True
                 skip_streak = 0
+                if sectioned and stamp:
+                    inject_records[-1]["sections"] = True   # 只送了命中的章節：不算整段送過
                 if form == "ok":
                     full_seen.append((name, _norm_triggers(triggers)))
                 _atom_debug_log(
@@ -332,10 +438,7 @@ def assemble_injection(
         # skip（連 impression fallback 都塞不下、或加上標頭就破頂）→ 1-line 路標後 continue：
         # 排序偏後仍可能有塞得下的小顆；連續 skip/dropped 達上限才視為 budget 真枯竭。
         first_line = content.split("\n", 1)[0].strip("# ").strip()[:_POINTER_TITLE_CAP]
-        pointer = (
-            f"[Atom:{name}] {first_line}{atom_status_suffix(raw_content)}"
-            f" (full: Read {pointer_path(atom_path)})"
-        )
+        pointer = _pointer(name, raw_content, first_line, atom_path)
         skip_streak += 1
         if _push(pointer, name, atom_path, rel_path, source, "skip"):
             _atom_debug_log(
@@ -369,9 +472,12 @@ def assemble_injection(
         raw_content = read_atom_text(rpath, content_cache)
         if raw_content is None:
             continue
-        related_classification = classify_hot_cold(rpath, "related", access_cache=access_cache)
+        if rname in sent_full:
+            _push_seen(rname, rpath, rel_path, "related", related=True)
+            continue
+        related_classification = "cold" if lean else classify_hot_cold(rpath, "related", access_cache=access_cache)
         if related_classification == "cold":
-            cold_line = format_cold_inject_line(rname, raw_content, rel_path, rpath)
+            cold_line = format_cold_inject_line(rname, raw_content, rel_path, rpath, drop_name_echo=lean)
             cold_line = cold_line.replace(f"[Atom:{rname}] (cold)", f"[Atom:{rname}] (related, cold)", 1)
             if _push(cold_line, rname, rpath, rel_path, "related", "cold"):
                 _atom_debug_log(
@@ -408,10 +514,7 @@ def assemble_injection(
         if pushed:
             continue
         first_line = content.split("\n", 1)[0].strip("# ").strip()[:_POINTER_TITLE_CAP]
-        pointer = (
-            f"[Atom:{rname}] (related) {first_line}{atom_status_suffix(raw_content)}"
-            f" (full: Read {pointer_path(rpath)})"
-        )
+        pointer = _pointer(rname, raw_content, first_line, rpath, "(related)")
         skip_streak += 1
         if _push(pointer, rname, rpath, rel_path, "related", "skip"):
             _atom_debug_log(
@@ -424,7 +527,8 @@ def assemble_injection(
 
     if atom_lines:
         lines.extend(atom_lines)
-        state["injected_atoms"] = already_injected + newly_injected
+        merged = already_injected + newly_injected
+        state["injected_atoms"] = list(dict.fromkeys(merged)) if lean else merged   # 補整段的卡已在名單裡
         # 取用端稽核資料面：session 累積注入記錄（含 source/form），Stop AtomAudit
         # 閘據此判定「trigger 命中但僅一行路標且未 Read」。turn_seq 在 UPS 收尾才
         # +1（user_prompt_submit 尾段），此處先 +1 對齊「本 turn」序號。

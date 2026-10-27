@@ -1209,8 +1209,19 @@ def pointer_path(
     return rel_path or f"{name}.md"
 
 
+_NAME_ECHO_STRIP_RE = re.compile(r"[\W_]+")
+
+
+def title_echoes_name(title: str, name: str) -> bool:
+    """規則 POINTER_NO_NAME_ECHO：一行指標的標題／摘要只是卡名再寫一次（卡名就是標題轉成的檔名）。
+    去掉標點、空白、底線、大小寫，與截斷留下的 …，剩下的是卡名的開頭（含整個相同）→ True；空字串 → False。"""
+    t = _NAME_ECHO_STRIP_RE.sub("", (title or "").rstrip("…")).lower()
+    return bool(t) and _NAME_ECHO_STRIP_RE.sub("", name or "").lower().startswith(t)
+
+
 def format_cold_inject_line(
     name: str, raw_content: str, rel_path: str, atom_path: Optional[Path] = None,
+    drop_name_echo: bool = False,
 ) -> str:
     summary = ""
     impression = _extract_named_section(raw_content, "印象")
@@ -1239,6 +1250,8 @@ def format_cold_inject_line(
 
     display_path = pointer_path(atom_path, rel_path, name)
     status = atom_status_suffix(raw_content)
+    if drop_name_echo and title_echoes_name(summary, name):
+        return f"[Atom:{name}] (cold){status} (full: Read {display_path})"
     return f"[Atom:{name}] (cold) {summary}{status} (full: Read {display_path})"
 
 
