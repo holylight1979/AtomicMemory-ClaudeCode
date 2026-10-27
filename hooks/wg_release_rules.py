@@ -3992,6 +3992,14 @@ RULES.update({
 })
 
 
+# ─── 觸發導讀卡注入那次讀也算讀過（判定在 hooks/wg_overview.on_read，這裡只登錄規則名與說明） ───
+RULES.update({
+    "INJECT_TRIGGER_READ_COUNTED": "觸發導讀卡注入的那次讀就是真讀：Read 或唯讀 Bash／PowerShell 第一次讀到某部位，觸發注入的那個檔本身"
+                                   "也記進讀過部位檔（part_files_read、reads_after），一條指令讀到的同部位其他檔照 SHELL_READ_COUNTS_LIKE_READ"
+                                   "全記；改檔前才補注入（on_edit）沒有讀檔，不記。「看過全貌才改」靠注入後還要交的定位四行守。",
+})
+
+
 # ─── 需求目標提示減量：三種情況一次全文、提示附樹一行（送法在 hooks/wg_need_goal.py，這裡只登錄規則名與說明） ───
 RULES.update({
     "CRITIQUE_CASES_ONCE_PER_SESSION": "「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了重看）與導讀卡附樹的定位第五行提示"

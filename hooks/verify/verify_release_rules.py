@@ -2636,6 +2636,7 @@ _GATE_DESIGN_CASES = {
     "CHAIN_NO_EDIT_NO_EDGE": ("verify_chain_breaker.py", "test_no_edit_actions_between_same_gate_do_not_link"),
     "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": ("verify_chain_wiring.py",
                                          "test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block"),
+    "INJECT_TRIGGER_READ_COUNTED": ("verify_overview_hub.py", "test_inject_trigger_read_counted"),
 }
 
 
