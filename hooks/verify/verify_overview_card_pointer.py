@@ -1,7 +1,7 @@
 """verify_overview_card_pointer.py — 導讀卡指標制（overview_hub.card_injection）。
 
-第一次碰到部位只送「已知病灶一句＋卡路徑」兩行，定位要求照送；改那塊之前要本 session Read 過卡，沒讀照定位閘的方式擋
-（擋訊息附卡路徑，知識類部位也一樣）；card_injection=full 回到整張注入、不要求讀卡；v6 總開關關時一律整張；
+第一次碰到部位只送「已知病灶一句＋卡路徑」兩行，定位要求照送；改程式部位之前要本 session Read 過卡，沒讀照定位閘的方式擋
+（擋訊息附卡路徑），知識類部位沒讀只提醒、留帳；card_injection=full 回到整張注入、不要求讀卡；v6 總開關關時一律整張；
 沒有卡的部位兩種送法逐字相同。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_overview_card_pointer.py
 """
@@ -160,17 +160,21 @@ def test_pointer_two_cards_one_unread_still_denied(proj, tmp_path):
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
 
 
-def test_pointer_knowledge_part_needs_card_read(proj, tmp_path):
-    """知識類部位原本只要「卡已注入」：指標制卡沒送到眼前，改之前也要 Read 過卡，不要求部位檔與定位三行。"""
+def test_pointer_knowledge_part_unread_card_warns_not_blocks(proj, tmp_path):
+    """知識類部位照舊只要「卡已注入」就放行：指標制卡沒 Read 過只附一行提醒（附卡路徑）、帳上記 card_unread，不擋；
+    讀了之後不再提醒。"""
     state: dict = {}
     tp = _transcript(tmp_path, "x")
     f = str(proj / "Docs/a.md")
     assert "README 跑法段常漏新子命令" in wo.on_prompt(state, "s", f"看一下 {f}", tp, {})
-    warn, deny, _ = wo.on_edit(state, "s", f, tp, {})
-    assert deny and _card(proj, "文件導讀") in deny and "定位三行" not in deny
-    assert _log(tmp_path)[-1]["deny_reason"] == "card_unread"
+    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
+    assert deny is None and changed and warn and "還沒 Read 這個部位的導讀卡" in warn and _card(proj, "文件導讀") in warn
+    assert "定位三行" not in warn
+    last = _log(tmp_path)[-1]
+    assert last["event"] == "edit" and last["deny_reason"] is None and last["card_unread"] == 1
     wo.on_read(state, "s", "Read", {"file_path": _card(proj, "文件導讀")}, str(proj), tp, {})
     assert wo.on_edit(state, "s", f, tp, {}) == (None, None, True)
+    assert _log(tmp_path)[-1]["card_unread"] == 0
 
 
 def test_pointer_edit_before_inject_tells_to_read_card(proj, tmp_path):

@@ -3,8 +3,8 @@
 做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就注入定位要求與該部位導讀卡，一個 session
 一個部位只注入一次。卡怎麼送看 card_injection：pointer（預設）只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；
 full 依本回合意圖（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；v6 總開關關時一律 full。
-之後記「注入後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制另要 Read 過卡）、
-讀過部位檔 ≥N、交了定位三行（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項。
+之後記「注入後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制的程式部位另要 Read 過卡）、
+讀過部位檔 ≥N、交了定位三行（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項（指標制沒 Read 過卡只提醒、留帳）。
 readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
 沒有部位表的專案（或表上沒列的檔）改前要求本 session 讀過同頂層目錄 ≥N 個檔；往上找不到任何部位表的專案，第一次改
 某頂層目錄的程式檔前另要最小地圖三行（地圖｜讀了／上游／下游），擋訊息附掃表預覽。設定四層深合併（_cfg）、
@@ -1425,38 +1425,6 @@ def _card_unread_line(unread: List[str]) -> str:
             "改之前先 Read，可跟其他讀檔同一則送）")
 
 
-def _locate_deny(state: Dict[str, Any], session_id: str, rec: Dict[str, Any], row: Dict[str, Any], key: str, file_path: str,
-                 deny_reason: Optional[str], missing: List[str],
-                 call: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str], bool]:
-    """部位檔改檔閘缺件時的出口（程式部位與知識部位共用）：擋次上限、同批只回一行、其餘送全文。"""
-    turn = int(state.get("turn_seq", 0) or 0)
-    # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
-    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
-    # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
-    gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
-    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"], call=call)
-    if not denied:
-        if released:
-            _log("edit_deny_capped", session_id, part=row["part_short"],
-                 path=file_path, deny_reason=deny_reason, blocks=DECL_DENY_CAP, gap=gap)
-        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
-                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
-    # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
-    # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
-    sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
-    last = rec.get("last_deny") or {}
-    rec["last_deny"] = {"turn": turn, "sig": sig}
-    if last.get("turn") == turn and last.get("sig") == sig:
-        msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
-               f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
-        _log("edit_deny_repeat", session_id, part=row["part_short"],
-             path=file_path, deny_reason=deny_reason)
-        return (msg, msg, True)
-    msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
-           + "\n".join(f"- {m}" for m in missing))
-    return (msg, msg, True)
-
-
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
             config: Dict[str, Any], cwd: str = "", agent_id: str = "",
             tool_use_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
@@ -1465,7 +1433,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     tool_use_id＝這次工具呼叫的 id：擋次上限照「同一則回覆算一次」數（規則 DENY_CAP_PER_REPLY）；沒給照每個呼叫算。
 
     deny 理由帶注入文字（模型只看得到 permissionDecisionReason；card_injection＝full 是整張卡，pointer 是病灶一句＋卡路徑）。
-    三項證據缺一即 deny；指標制注入的部位另要本 session Read 過卡（知識類部位也要）；transcript 讀不到 deny；
+    三項證據缺一即 deny；指標制注入的程式部位另要本 session Read 過卡（知識類部位沒讀只提醒、留帳）；transcript 讀不到 deny；
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
     """
     if not file_path:
@@ -1559,15 +1527,16 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         rec["kind"] = _oh.KIND_CODE        # 同一列也有寫碼命中（例：只撞到子字串）：scorecard 的 S3 要算這個部位
     unread = _unread_cards(state, rec)          # 指標制：卡沒送到眼前，要 Read 過才算看過（讀了就記在讀檔帳，這裡核對並落 log）
     if knowledge:
-        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立；指標制另要 Read 過卡）；讀檔數照記（on_read），
-        # 不查讀部位檔、定位三行、transcript
+        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立）；指標制沒 Read 過卡只附一行提醒並記帳（card_unread），不擋。
+        # 讀檔數照記（on_read），不查讀部位檔、定位三行、transcript
         _log("edit", session_id, part=row["part_short"], path=file_path, kind=_oh.KIND_KNOWLEDGE, located=bool(rec.get("located")),
              part_files_read=len(rec["part_files_read"]), depends_files_read=len(rec["depends_files_read"]),
              reads_after_inject=len(rec["reads_after"]), edits=rec["edits"], intent=rec.get("intent"),
-             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason="card_unread" if unread else None,
+             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=None,
              card_mode=rec.get("card_mode"), card_unread=len(unread))
         if unread:
-            return _locate_deny(state, session_id, rec, row, key, file_path, "card_unread", [_card_unread_line(unread)], call)
+            return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：{_card_unread_line(unread)}"
+                    "；知識類部位這次照放行，已留帳。", None, True)
         return (None, None, True)
     candidates: Optional[str] = None
     reads = rec["reads_after"]
@@ -1673,4 +1642,28 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
-    return _locate_deny(state, session_id, rec, row, key, file_path, deny_reason, missing, call)
+    turn = int(state.get("turn_seq", 0) or 0)
+    # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
+    # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
+    # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
+    gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
+    denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"], call=call)
+    if not denied:
+        if released:
+            _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
+                 blocks=DECL_DENY_CAP, gap=gap)
+        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
+                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
+    # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
+    # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
+    sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
+    last = rec.get("last_deny") or {}
+    rec["last_deny"] = {"turn": turn, "sig": sig}
+    if last.get("turn") == turn and last.get("sig") == sig:
+        msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
+               f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
+        _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
+        return (msg, msg, True)
+    msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
+           + "\n".join(f"- {m}" for m in missing))
+    return (msg, msg, True)
