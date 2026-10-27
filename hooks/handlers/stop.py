@@ -6,7 +6,7 @@ handlers/stop.py — Stop hook handler
 1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）
     ＋ 驗證範圍閘（改了程式要有 LLM 宣告的驗證範圍、範圍內每項改完之後跑綠；wg_verify_scope）；獨立預算 reconcile_gate.max_blocks_per_turn
 1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；每個使用者回合擋一次；前面的閘擋下時列進預覽）
-1d. SecondOpinion Gate（G9：大任務或改到高風險部位的收尾（看事實不看措辭，中途問使用者不算）→ 本回合跑過第二意見＋分歧裁決四行、
+1d. SecondOpinion Gate（G9：大任務或改到高風險部位的收尾（看事實不看措辭，中途提問、寫明還在等的不算）→ 本回合跑過第二意見＋分歧裁決四行、
     「不需第二意見｜理由」或「等第二意見｜<job_id>」（留帳 waiting）；出口之後沒再改程式不再欠；擋一次後問使用者）
 1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
@@ -77,7 +77,7 @@ from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgm
 from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit, second_opinion_hint, second_opinion_hint_background
 from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE, \
-    mark_ok as _so_mark_ok, mark_exit as _so_mark_exit, mid_question as _so_mid_question, owed_message as _so_owed_message
+    mark_ok as _so_mark_ok, mark_exit as _so_mark_exit, not_closing as _so_not_closing, owed_message as _so_owed_message
 from wg_closing_round import pick_pre_close_on as _pick_pre_close_on, so_background_on as _so_background_on, \
     so_done_notice as _so_done_notice, watch_job as _so_watch_job
 from wg_hook_timing import lap as _hook_lap, quiet as _hook_quiet
@@ -1940,14 +1940,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     def _so_check() -> Tuple[Any, Dict[str, Any]]:
         """SecondOpinion Gate（G9）的判定，一次 Stop 只算一次（_later_gates 預覽與本閘共用）。設定關、無法互動（headless）→ (None, {})；
-        判不出照放行並浮 stderr。規則 SECOND_OPINION_FACT_TRIGGER：每次收尾都判，只有中途問使用者（mid_question）不判。"""
+        判不出照放行並浮 stderr。規則 SECOND_OPINION_FACT_TRIGGER：每次收尾都判，只有還沒到收尾（not_closing：中途提問、寫明還在等）
+        不判，事實記 not_closing 給閘留帳。"""
         if not _so_memo:
             v, facts = None, {}
             cfg = _so_auto_cfg(config)
             if cfg.get("enabled", True) and not non_interactive_reason(input_data, _tpath):
                 try:
-                    v, facts = _so_facts(state, session_id, own_mod_files, code_text, transcript_text, config, cfg,
-                                         not _so_mid_question(state, session_id, code_text, _user_turn(state, turn_seq)))
+                    skip = _so_not_closing(state, session_id, code_text, _user_turn(state, turn_seq))
+                    v, facts = _so_facts(state, session_id, own_mod_files, code_text, transcript_text, config, cfg, not skip)
+                    facts = {**facts, "not_closing": skip}
                 except Exception as e:  # noqa: BLE001  判不出不擋，但浮 stderr 並留帳（健檢可查）
                     print(f"[Guardian:SecondOpinion] 判不出，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
                     append_guard_log(_SO_GATE, {"event": "error", "session_id": session_id, "turn_seq": turn_seq,
@@ -2363,7 +2365,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── SecondOpinion Gate（G9）──────────────────────────────────
     # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
-    # 改到高風險部位的收尾（SECOND_OPINION_FACT_TRIGGER：不看措辭，只有中途問使用者不算）→ 本回合要真的跑過第二意見、收尾有分歧裁決四行，
+    # 改到高風險部位的收尾（SECOND_OPINION_FACT_TRIGGER：不看措辭，只有還沒到收尾的不算，留帳 deferred）→ 本回合要真的跑過第二意見、收尾有分歧裁決四行，
     # 或宣告「不需第二意見｜理由」（留帳 guard-second_opinion.jsonl）；出口之後沒再改程式不再欠（SECOND_OPINION_EXIT_FINGERPRINT）。
     # 欠的那段先在收尾那批附過（SECOND_OPINION_PRE_CLOSE，同一段話），沒照做才在這裡擋。
     # 吃寫碼查核那套（wg_release，閘名 second_opinion）：每個使用者回合擋 second_opinion.auto.max_blocks_per_turn 次（預設 1）後擋滿，
@@ -2371,7 +2373,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 子代理、裁判 session 走別的 Stop 入口；headless 由 _so_check 的 non_interactive_reason 判，都不觸發。
     _sov, _sof = _so_check() if v6 else (None, {})
     _so_uturn = _user_turn(state, turn_seq)
-    if _sov is not None and _sof.get("satisfied"):
+    if _sov is not None and _sof.get("deferred"):
+        # 規則 SECOND_OPINION_FACT_TRIGGER：改過程式、這次還沒到收尾（中途提問／寫明還在等）→ 不判、不擋，留帳；欠帳下一次收尾照判
+        append_guard_log(_SO_GATE, {"event": "deferred", "session_id": session_id, "turn_seq": turn_seq,
+                                    "kind": _sof.get("not_closing"), "code_files": _sof.get("code_files")})
+    elif _sov is not None and _sof.get("satisfied"):
         _so_mark_ok(state, session_id, turn_seq, _sof)
         clear_pending(state, session_id, _SO_GATE)
         write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）

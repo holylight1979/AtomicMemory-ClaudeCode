@@ -7,8 +7,9 @@
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
   has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
-  mid_question   觸發看事實不看措辭（規則 SECOND_OPINION_FACT_TRIGGER）：每次收尾都判，唯一不判的是中途問使用者的 Stop
-                 （最後一行是問句、這則沒宣告完成、這個使用者回合沒交收尾那批）；欠帳不消，下一次收尾照欠。
+  not_closing    觸發看事實不看措辭（規則 SECOND_OPINION_FACT_TRIGGER）：每次收尾都判，只有還沒到收尾的 Stop 不判——中途問使用者
+                 （最後一行是問句、沒宣告完成）或寫明之後工作還在繼續（仍在等、等待…回報、尚未開始），而且這個使用者回合沒交收尾那批；
+                 欠帳不消，下一次收尾照欠。
   fingerprint    出口時的改檔指紋（規則 SECOND_OPINION_EXIT_FINGERPRINT）：交過「不需第二意見｜」或「等第二意見｜」之後，
                  指紋沒變就不再欠；變了（出口之後又改了程式）就再欠一次。mark_exit 記、check 比。
   owed_message   欠的時候那段話：收尾那批先附（wg_closing_round.so_pre_close，SECOND_OPINION_PRE_CLOSE）跟 Stop 擋同一段。
@@ -353,16 +354,20 @@ def has_goal_tree(session_id: str) -> bool:
 _QUESTION_END_RE = re.compile(r"(?:[?？]|嗎|呢)[\s。.」』）)*]*$")
 
 
-def mid_question(state: Dict[str, Any], session_id: str, text: str, user_turn: int) -> bool:
-    """規則 SECOND_OPINION_FACT_TRIGGER 唯一不判的 Stop：中途問使用者——收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成、
-    這個使用者回合也沒交收尾那批（closing_call，wg_closing_round 記在 PRE_CLOSE）。三件都成立才算；欠帳不消，下一次收尾照欠。"""
+def not_closing(state: Dict[str, Any], session_id: str, text: str, user_turn: int) -> str:
+    """規則 SECOND_OPINION_FACT_TRIGGER 不判的 Stop（還沒到收尾）→ 回哪一類，是收尾回空字串。這個使用者回合交過收尾那批
+    （closing_call，wg_closing_round 記在 PRE_CLOSE）就一定是收尾。兩類：
+      pending   寫明這則之後工作還在繼續：wg_evasion 判完成的排除詞第一類（仍在等、等待…回報、尚未開始；claims_completion 整則不算的
+                那組，同一份詞，看最後 2000 字）；
+      question  中途問使用者：收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成。
+    欠帳不消，下一次收尾照欠。"""
     if int((((state.get(PRE_CLOSE) or {}).get(session_id)) or {}).get("uturn") or -1) == int(user_turn):
-        return False
+        return ""
+    from wg_evasion import _COMPLETION_PENDING_RE, claims_completion
+    if _COMPLETION_PENDING_RE.search(str(text or "")[-2000:]):
+        return "pending"
     lines = [ln.strip() for ln in rr._so_lines(text) if ln.strip()]
-    if not lines or not _QUESTION_END_RE.search(lines[-1]):
-        return False
-    from wg_evasion import claims_completion
-    return not claims_completion(text)
+    return "question" if lines and _QUESTION_END_RE.search(lines[-1]) and not claims_completion(text) else ""
 
 
 def _code_entries(own_mod_files: Sequence[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -402,7 +407,7 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
           transcript_text: str, config: Dict[str, Any], cfg: Dict[str, Any], closing: bool
           ) -> Tuple[rr.Verdict, Dict[str, Any]]:
     """SecondOpinion Gate 的事實＋判定。git 只在檔數與高風險部位都沒觸發時才查（行數是第三個條件）。
-    closing＝這次是收尾（規則 SECOND_OPINION_FACT_TRIGGER：不看有沒有說完成，只有中途問使用者 mid_question 不算）；
+    closing＝這次是收尾（規則 SECOND_OPINION_FACT_TRIGGER：不看有沒有說完成，只有還沒到收尾的 not_closing 不算）；
     收尾那批的提示也用這支判（text 空：收尾還沒寫）。"""
     code = _code_entries(own_mod_files, config)
     uniq: Dict[str, str] = {}      # 同一個檔不同寫法只算一次（SAME_FILE），保留原寫法給 git pathspec（大小寫敏感）
@@ -456,6 +461,7 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         waited_back = any(r.get("job_id") in waited and r.get("status") in rr.SO_RAN for r in results)
     claims_done = claims_done or waited_back
     if not claims_done:
+        facts["deferred"] = True                     # 改過程式、這次還沒到收尾：不判，欠帳留給下一次收尾
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     # 規則 SECOND_OPINION_EXIT_FINGERPRINT：交過出口、之後沒再改程式（指紋相同）→ 這組改動欠的已經交了，不再欠；
     # 在等的結果本回合取回了不在此列（要接上四行）

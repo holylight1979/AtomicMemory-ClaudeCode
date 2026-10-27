@@ -227,11 +227,14 @@ def test_c2_done_then_other_gate_patch_reply_still_blocks_once(drive, capsys, tm
     assert [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
-def test_partial_done_then_final_in_progress_still_owed(drive, capsys, tmp_path):
-    """規則 SECOND_OPINION_FACT_TRIGGER：最後一則說「整體仍進行中，等待測試結果」也是收尾（不是問使用者）——改了 5 支程式就欠，
-    不看說法（舊判法照狀態詞算沒宣告完成、不判）。"""
+def test_partial_done_then_waiting_not_judged_then_next_close_owed(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_FACT_TRIGGER：最後一則寫明之後工作還在繼續（「等待測試結果回來」：wg_evasion 判完成的排除詞第一類）→ 還沒到收尾，
+    不判、不擋，留帳 deferred；欠帳不消，下一則真收尾（「兩件都改好了…」，沒有完成詞）照欠（紅：舊碼那則沒完成詞就不判，漏擋）。"""
     drive.tx.say("第一階段完成：資料表搬好了。")
-    reason, _state, logs = drive("整體仍進行中，等待測試結果回來再整理。", capsys, files=_files(tmp_path, 5))
+    reason, state, logs = drive("整體仍進行中，等待測試結果回來再整理。", capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason
+    assert [(p["event"], p["kind"]) for p in _so_logs(logs)] == [("deferred", "pending")]
+    reason, _, logs = drive(S1_DONE, capsys, state=state)
     assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
@@ -863,11 +866,13 @@ def test_fact_trigger_owed_without_completion_words(drive, capsys, tmp_path, tex
 
 
 def test_fact_trigger_mid_question_not_owed_but_debt_kept(drive, capsys, tmp_path):
-    """SECOND_OPINION_FACT_TRIGGER 唯一不判的：中途問使用者（最後一行是問句、沒宣告完成、這個使用者回合沒交收尾那批）→ 不欠、不留帳；
-    欠帳不消：使用者回答後的收尾照欠。交過收尾那批（PRE_CLOSE 記了這個使用者回合）再用問句結尾 → 是收尾，照欠（紅：舊碼問句不判）。"""
+    """SECOND_OPINION_FACT_TRIGGER 不判的另一類：中途問使用者（最後一行是問句、沒宣告完成、這個使用者回合沒交收尾那批）→ 不擋，
+    留帳 deferred；欠帳不消：使用者回答後的收尾照欠。交過收尾那批（PRE_CLOSE 記了這個使用者回合）再用問句結尾 → 是收尾，照欠
+    （紅：舊碼問句不判）。"""
     files = _files(tmp_path, 5)
     reason, state, logs = drive(ASK, capsys, files=files)
-    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+    assert "[Guardian:SecondOpinion]" not in reason
+    assert [(p["event"], p["kind"]) for p in _so_logs(logs)] == [("deferred", "question")]
     drive.tx.user("用 CSV")
     state.update(turn_seq=6, turn_prompts_seq=6)
     reason, state, _ = drive(DONE, capsys, state=state)
@@ -934,14 +939,20 @@ def test_fact_trigger_v6_off_unchanged(drive, capsys, tmp_path, monkeypatch):
     assert so.EXIT not in state and "second_opinion_gate_turn" not in state
 
 
-def test_mid_question_and_fingerprint_units():
-    """mid_question：最後一行問句（? ？ 嗎 呢，可帶括號引號）才算；程式碼區塊裡的問句、宣告完成的那則、交過收尾那批的回合都不算。
+def test_not_closing_and_fingerprint_units():
+    """not_closing：question＝最後一行問句（? ？ 嗎 呢，可帶括號引號），程式碼區塊裡的問句、宣告完成的那則不算；pending＝wg_evasion 排除詞
+    第一類（仍在等、等待…回報、尚未開始），「還沒做完」「等你說 commit」不算；交過收尾那批的使用者回合兩類都不算（是收尾）。
     fingerprint：同一組改動相同、改了任一支（時間或回合）就變；沒有程式檔是空字串（不記出口）。"""
-    assert so.mid_question({}, SID, ASK, 5) and so.mid_question({}, SID, "要不要順便清掉（會刪 3 個檔）嗎」", 5)
-    assert not so.mid_question({}, SID, "全部完成了，要上GIT嗎？", 5), "宣告完成的那則是收尾"
-    assert not so.mid_question({}, SID, "改好了。\n```\nok?\n```", 5)
-    assert not so.mid_question({so.PRE_CLOSE: {SID: {"uturn": 5}}}, SID, ASK, 5)
-    assert so.mid_question({so.PRE_CLOSE: {SID: {"uturn": 4}}}, SID, ASK, 5), "上一個使用者回合交的不算這回合"
+    assert so.not_closing({}, SID, ASK, 5) == "question" == so.not_closing({}, SID, "要不要順便清掉（會刪 3 個檔）嗎」", 5)
+    assert so.not_closing({}, SID, "全部完成了，要上GIT嗎？", 5) == "", "宣告完成的那則是收尾"
+    assert so.not_closing({}, SID, "改好了。\n```\nok?\n```", 5) == ""
+    for t in ("改了 3 支，仍在等背景測試跑完。", "等待 CI 結果回來再收尾。", "第二步尚未開始。"):
+        assert so.not_closing({}, SID, t, 5) == "pending", t
+    for t in ("還沒做完：ERP 合約測試留紅。", "另有 8 個檔等你說 commit。"):
+        assert so.not_closing({}, SID, t, 5) == "", t
+    assert so.not_closing({so.PRE_CLOSE: {SID: {"uturn": 5}}}, SID, ASK, 5) == ""
+    assert so.not_closing({so.PRE_CLOSE: {SID: {"uturn": 5}}}, SID, "仍在等背景測試跑完。", 5) == ""
+    assert so.not_closing({so.PRE_CLOSE: {SID: {"uturn": 4}}}, SID, ASK, 5) == "question", "上一個使用者回合交的不算這回合"
     a = [{"path": "C:/p/a.py", "last_turn_seq": 5, "last_at": "t1"}, {"path": "C:/p/b.py", "last_turn_seq": 5}]
     assert so.fingerprint(a) == so.fingerprint(list(reversed(a))) == so.fingerprint(a + [{**a[0], "path": r"c:\p\A.py"}])
     assert so.fingerprint(a) != so.fingerprint([{**a[0], "last_at": "t2"}, a[1]]) and so.fingerprint([]) == ""
