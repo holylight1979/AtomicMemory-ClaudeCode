@@ -64,7 +64,8 @@ RULES: Dict[str, str] = {
                                   "或一邊報 target 一邊只報檔，照舊只看閘名。中間沒動作不算（CHAIN_SAME_GATE_NO_ACTION）、"
                                   "同一則回覆算一步（CHAIN_SAME_BATCH）照舊疊在上面；經過表每一筆列出擋的對象。",
     "CHAIN_ABORT_RECORD_ONLY": "警報一響（含讓它響的那一次），這一段其餘所有閘只記錄、不擋、不記欠（同一道閘這一段只記一筆）；"
-                               "使用者選之前不逼任何修補。呼叫端在閘擋或記欠之前問，只記錄就跳過那道閘的擋與記欠、照往下走。",
+                               "使用者選之前不逼任何修補。呼叫端在閘擋或記欠之前問，只記錄就跳過那道閘的擋與記欠、照往下走。"
+                               "沒人能答時會改使用者資料的那幾道照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）。",
     "CHAIN_HALT_UNTIL_ANSWER": "能互動的 session 中止就是停手：警報後到使用者選「繼續」或「放行」之前（選還原或答別的也停到換回合）；沒人能答的不停手（CHAIN_HEADLESS_NO_ASK），"
                                "除了讀（HALT_ALLOW 與 readonly_shell 判定唯讀的指令）和 AskUserQuestion，工具呼叫一律先擋下、附經過表與該問的題目。"
                                "這不是閘觸發、不進次數，也不逼修補；讓警報響不會換到被擋的動作過關。"
@@ -72,7 +73,14 @@ RULES: Dict[str, str] = {
     "CHAIN_STOP_NOTICE_ONCE": "警報後 Stop 只擋一次，送連鎖過程表（能互動就附三選項）；使用者在那之前已答就不擋、附結果與表；之後的 Stop 不再擋，只附提醒。",
     "CHAIN_HEADLESS_NO_ASK": "沒人能答（headless／SDK、子代理、裁判子 session；判法 wg_release.non_interactive_reason，警報那一刻判）→ 不叫 AI 問、"
                              "不停手：這一回合其餘閘只記錄、留帳，AI 照常把工作做完；讓警報響的那次工具呼叫照放，收尾擋一次要 AI 把經過表寫進收尾報告。"
-                             "不還原也不繼續。",
+                             "不還原也不繼續。會改使用者資料的那幾道閘例外，照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）。",
+    "CHAIN_HEADLESS_KEEPS_DATA_GATES": "沒人能答、警報之後（通知記下不能互動），擋的是改使用者資料的閘照擋（KEEP_BLOCKING，閘名取擋訊息標記）："
+                                       "動資料檔（DataFileAsk）、改舊測試（OldTestDeclare）、commit 前的版控口令（CommitOrder）與隱私檔"
+                                       "（GitPrivacy）與 svn 測試路徑（SvnTestBlock）、專案 session 改根層核心或全域 MCP 設定"
+                                       "（CrossRealmWriteBlock／CrossRealmBashBlock／CrossRealmMcpBlock）——這些放掉就是沒人看著改了使用者的資料檔、"
+                                       "既有測試、版本庫歷史或根層設定，事後看帳也收不回。讓警報響的那一次也照擋；每一次都記一筆（帳上 kept），"
+                                       "不算進次數與深度、不再警報。其餘閘（定位、目標樹、對帳、病形、繞閘、記憶寫入路徑這類管做法與品質的）照"
+                                       "CHAIN_ABORT_RECORD_ONLY 只記錄。能互動的 session 不變：警報後本來就停手到使用者選，選「放行這一回合」照放。",
     "CHAIN_ANSWER_BY_TOOL_USE_ID": "使用者答案只認中止通知之後、tool_use_id 對得上 AskUserQuestion 的結果（wg_release._answers_after），"
                                    "題目逐字等於通知記下的那一題（含【收尾放行確認】【連鎖中止】；NFKC、空白正規化後比）、答案逐字是三選項之一；"
                                    "其他工具輸出、AI 文字印出同樣的字、AI 自己改寫題意另出的題都不算。",
@@ -99,6 +107,9 @@ OPT_CONTINUE = "信任後續 AI 審查，繼續"
 CHOICES: Dict[str, str] = {OPT_RESTORE: "restore", OPT_CONTINUE: "continue", OPT_RELEASE: "release"}
 STOP_HOOKS = ("Stop", "SubagentStop")
 HALT_ALLOW = ("Read", "Grep", "Glob", "AskUserQuestion", "TodoWrite", "ToolSearch")
+# CHAIN_HEADLESS_KEEPS_DATA_GATES：沒人能答時警報後照擋的閘（擋訊息的標記名）
+KEEP_BLOCKING = frozenset(("DataFileAsk", "OldTestDeclare", "CommitOrder", "GitPrivacy", "SvnTestBlock",
+                           "CrossRealmWriteBlock", "CrossRealmBashBlock", "CrossRealmMcpBlock"))
 
 
 def settings(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -353,6 +364,11 @@ def muted_again(ch: Chain, gate: str) -> bool:
     return ch.record_only and any(s.muted and s.row.get("gate") == gate for s in ch.steps)
 
 
+def keeps_blocking(ch: Chain, gate: str) -> bool:
+    """CHAIN_HEADLESS_KEEPS_DATA_GATES：警報了、通知記下沒人能答，而這道閘擋的是改使用者資料 → 照擋（不只記錄）。"""
+    return ch.alarm is not None and (ch.notice or {}).get("interactive") is False and str(gate) in KEEP_BLOCKING
+
+
 _TAG_RE = re.compile(r"\[(?:Guardian:)?([A-Za-z][\w-]*)\]")
 
 
@@ -496,7 +512,9 @@ def report(ch: Chain, now: float) -> str:
         what = _cell(s.row.get("what"))
         if s.link is not None and not s.link.linked:
             what += f"（沒接上前一步：{s.link.why}）"
-        if s.muted:
+        if s.row.get("kept"):
+            what += "（沒人能答，會改使用者資料照擋）"
+        elif s.muted:
             what += "（只記錄）"
         elif s.row.get("record_only"):
             what += "（這一次讓警報響：改送中止）"
@@ -541,7 +559,8 @@ def _headless_tail(no_ask: str) -> str:
 
 def _abort_head(ch: Chain, lead: str) -> str:
     no_ask = (ch.notice or {}).get("why") or ""
-    stop = "閘要的東西不用再補" if no_ask else "使用者選之前，除了讀檔與 AskUserQuestion，其他工具一律先停手"
+    stop = ("閘要的東西不用再補；動資料檔、改舊測試、commit 前、專案改根層核心這幾道會改使用者資料的閘照擋，照它的擋訊息補宣告"
+            if no_ask else "使用者選之前，除了讀檔與 AskUserQuestion，其他工具一律先停手")
     return f"[Guardian:{GATE}] {lead}：{_reason(ch)}。這一回合其餘閘只記錄不擋，不用再修補；{stop}。\n"
 
 
