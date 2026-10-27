@@ -1143,10 +1143,11 @@ def locate_read_hint(part: str, need_tree: bool, four: bool, first: bool) -> str
     if not first:
         return f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}交定位{'四' if four else '三'}行（格式同前一則提示）。"
     lines = ("交定位四行：定位｜部位、定位｜根因層（候選 A …；候選 B …；選 A 因為 …，只找到一個就寫「第二個不存在因為 …」）、定位｜前例、"
-             "定位｜批判（先下「合理／不合理，因為 …」再寫更好的做法與同類在哪）" if four
+             "定位｜批判（這段寫法合不合理、為什麼；看得出更好的做法就寫，同類在哪也寫；只查有沒有內容）" if four
              else "交定位三行：定位｜部位、定位｜根因層、定位｜前例")
+    via_tree = "，或在 need_goal set／update 的 locate 欄一起交（不必另發註解指令）" if four else ""   # 三行版＝need_goal 關，沒這條路
     return (f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}{lines}；寫在比改檔早一則的回覆文字，或{_rr.DECL_VIA_COMMENT}"
-            "（thinking 讀不到），宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔。")
+            f"（thinking 讀不到）{via_tree}；宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔。")
 
 
 def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_path: str,
@@ -1328,7 +1329,7 @@ def _longer_parts(root: Path, row: Dict[str, Any]) -> List[str]:
 def _goal_line_check(tree: Dict[str, Any], vals: Dict[str, str], session_id: str = "",
                      state: Optional[Dict[str, Any]] = None,
                      call: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Any]:
-    """定位核對（有需求目標樹時）：回 (節點, None) 通過；(節點, [Verdict…]) 要擋：第五行批判不夠（LOCATE_LINES_NEED_CRITIQUE），
+    """定位核對（有需求目標樹時）：回 (節點, None) 通過；(節點, [Verdict…]) 要擋：第五行批判沒寫或沒內容（LOCATE_LINES_NEED_CRITIQUE），
     或根因層沒寫兩個候選與選擇理由（LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）——兩候選一個使用者回合只問一次
     （規則 TWO_CANDIDATES_ASK_ONCE：擋次上限 1 則回覆，wg_core.deny_cap；call＝這次的 hook 輸入，同一則回覆平行送出的改檔
     算同一次問、一起擋，DENY_CAP_PER_REPLY；沒給 state 照每次問），之後只留帳。
@@ -1365,8 +1366,8 @@ def _locate_example(row: Dict[str, Any], tree: Dict[str, Any], node: Optional[st
         f"  定位｜部位：{row['part_short']}——<這次改哪個檔、哪一段>",
         f"  定位｜根因層：候選 A <第一個根因>{f'（{layers[0]}）' if layers else ''}；候選 B <第二個根因>；選 A 因為 <為什麼不是 B>",
         "  定位｜前例：<卡名>／無",
-        "  定位｜批判：不合理，因為 <現在寫法的問題>，更好的做法是 <替代做法>；同類還可能在哪：<別處同樣寫法的位置>",
-        "  （這段寫法合理就寫「合理，因為 <理由>」；同類找不到就寫「無，因為 <理由>」）",
+        "  定位｜批判：<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>",
+        "  （合理就明說合理與原因；只查有沒有寫、有沒有內容，不認固定字樣）",
     ))
 
 
@@ -1581,8 +1582,7 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
             return (msg, msg, True, hit)
         if released:
             _log("edit_unmapped_capped", session_id, rule=rule, deny_reason=deny_reason, blocks=DECL_DENY_CAP, **log_kw)
-        capped = (f"[Guardian:OverviewHub] 改 {file_path}：同一回合同樣的缺件已擋 {DECL_DENY_CAP} 則回覆，這次放行並留帳"
-                  f"（{rule}）。")
+        capped = (f"[Guardian:OverviewHub] 改 {file_path}：同一回合同樣的缺件已擋過，這次放行並留帳（{rule}）。")
     else:
         capped = None
     # 放行（含擋滿放行）：地圖這次真的通過才記成交過，擋滿放行的不記
@@ -1787,6 +1787,7 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
     n_evidence = len(missing)             # 讀檔證據缺的條數；之後加的都是定位行的（LOCATE_BLOCK_ONCE_PER_USER_TURN 用）
     # 有需求目標樹而且改的是程式檔：定位三行之後要第四行「定位｜目標：<節點編號>」，編號要在目前的樹（換了樹或節點放棄就重交）
     goal_tree = _goal_tree_for(session_id, file_path, config) if readable else None
+    locate_gap: Optional[Dict[str, Any]] = None   # 定位行交了但內容不過（規則 LOCATE_LINES_NEED_CRITIQUE 等）：擋或放行決定後才落帳
     if readable and (not rec.get("located") or (goal_tree is not None and not _goal_linked(rec, goal_tree))):
         found_ch, text, node, bad_layer, bad_content = _find_locate(state, session_id, root, row, rec, transcript_path, agent_id,
                                                                    goal_tree, call)
@@ -1801,9 +1802,8 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
                            + "\n  建議寫法（只是範例：候選、理由、批判與同類寫到了就算，句子順序不限；"
                              "角括號換成你對這一塊的判斷）：\n" + _locate_example(row, goal_tree, node))
             deny_reason = "locate_content"
-            import wg_need_goal as _ng
-            _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"],
-                       rule="、".join(v.rule for v in vs_))
+            locate_gap = {"part": row["part_short"], "path": file_path, "tree": goal_tree["id"],
+                          "rule": "、".join(v.rule for v in vs_), "why": [v.why[:120] for v in vs_]}
         else:
             item, short_item = _locate_ask(row, goal_tree, len(reads), len(dirs))
             example_item = item if short_item else None
@@ -1846,22 +1846,26 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
     # 規則 LOCATE_BLOCK_ONCE_PER_USER_TURN：同一個使用者回合定位閘已經擋過別的部位 → 這個部位只缺定位行時改一行提醒、放行、留帳；
     # 缺讀檔證據照擋，擋過的那個部位再缺照擋（照下面的擋次上限），下一個使用者回合重來
     blocked = _blocked_parts(state, _rr.user_turn(state, turn))
+    lack = missing[0].splitlines()[0][:60]
     if n_evidence == 0 and blocked and key not in blocked:
         _log("edit_locate_reminded", session_id, part=row["part_short"], path=file_path, rule="LOCATE_BLOCK_ONCE_PER_USER_TURN",
              deny_reason=deny_reason, blocked_parts=len(blocked))
-        return (f"[Guardian:OverviewHub] 【{row['part_short']}】還沒交定位行；這個使用者回合定位閘已擋過一次，這次只提醒、放行並留帳。",
-                None, True, None)
+        _locate_gap_guard("locate_soft", session_id, locate_gap, released="LOCATE_BLOCK_ONCE_PER_USER_TURN")
+        return (f"[Guardian:OverviewHub] 【{row['part_short']}】定位缺 {lack}，這次放行並留帳"
+                "（這個使用者回合定位閘擋別的部位時已擋過一次，同回合不再擋）。", None, True, None)
     # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
     # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
     # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
     gap = hashlib.sha1(re.sub(r"\d+", "#", "\n".join([str(deny_reason), *missing])).encode("utf-8")).hexdigest()[:16]
     denied, released = deny_cap(state, "overview_locate", [f"{key}|{gap}"], call=call)
     if not denied:
+        # 放行訊息不寫「已擋 N 則」：N 是閘的計次（state 合併、同批判定都會讓它與實際擋次對不上），帳在 _overview-hub.log
         if released:
             _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
                  blocks=DECL_DENY_CAP, gap=gap)
-        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
-                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True, None)
+        _locate_gap_guard("locate_soft", session_id, locate_gap, released="GATE_DENY_CAP")
+        return (f"[Guardian:OverviewHub] 【{row['part_short']}】定位缺 {lack}，這次放行並留帳"
+                "（這個使用者回合同樣的缺件已擋過，同回合不再擋；下一個使用者回合還會查）。", None, True, None)
     # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
     # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
     sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
@@ -1871,6 +1875,7 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
         msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）同樣被擋：缺的跟上一則擋訊息一樣"
                f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
         _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
+        _locate_gap_guard("locate_blocked", session_id, locate_gap)
         _note_block(state, key)
         return (msg, msg, True, hit)
     # 規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：擋訊息精簡（guard.deny_text_slim）開、本 session 已送過一則完整範例 → 這條換短句；
@@ -1881,8 +1886,18 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
         state[_EXAMPLE_SENT_KEY] = True
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
            + "\n".join(f"- {m}" for m in shown))
+    _locate_gap_guard("locate_blocked", session_id, locate_gap)
     _note_block(state, key)
     return (msg, msg, True, hit)
+
+
+def _locate_gap_guard(event: str, session_id: str, gap: Optional[Dict[str, Any]], **extra: Any) -> None:
+    """定位行內容不過的那筆帳（guard-need_goal）：真的 deny 記 locate_blocked；放行（同回合擋過一次、擋次上限）記 locate_soft 並帶
+    released=哪條規則放的。沒有內容不過的缺件（缺讀檔證據、完全沒交）不記。"""
+    if not gap:
+        return
+    import wg_need_goal as _ng
+    _ng._guard(event, session_id, **gap, **extra)
 
 
 def _find_locate(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], rec: Dict[str, Any],
@@ -1927,6 +1942,93 @@ def _mark_located(state: Dict[str, Any], session_id: str, key: str, row: Dict[st
     return None
 
 
+def _row_for_locate(part: str, cwd: str) -> Tuple[Optional[Tuple[Path, Dict[str, Any]]], str]:
+    """locate 欄的 part：絕對／相對檔路徑 → 查表（_lookup_quiet）；部位名 → cwd 所在專案的表列（part_short 或 part 全名）。
+    回 ((root, row) 或 None, 命中用的檔路徑或空字串)。"""
+    p = str(part or "").strip()
+    looks_path = os.path.isabs(p) or ("/" in p or "\\" in p)
+    cand = p if os.path.isabs(p) else (os.path.join(cwd, p) if cwd and looks_path else "")
+    hit = _lookup_quiet(cand) if cand else None
+    if hit:
+        return hit, cand
+    found = find_map(cwd) if cwd else None
+    if not found:
+        return None, ""
+    root = found[0]
+    for row in _table_rows(root):
+        if p.lower() in (str(row.get("part_short") or "").lower(), str(row.get("part") or "").lower()):
+            return (root, row), ""
+    return None, ""
+
+
+def locate_from_goal(state: Dict[str, Any], session_id: str, cwd: str, transcript_path: str,
+                     locate: Any, config: Dict[str, Any]) -> List[str]:
+    """規則 LOCATE_VIA_NEED_GOAL：need_goal set／update 的 locate 欄 [{part, lines}]——改程式前的定位四行隨目標樹那一次呼叫
+    一起交，不必另發一條只有 `#` 註解的指令（007 實測：每個部位多一個模型回合、一次約 10 萬 token 輸入）。每項：part（部位名或
+    檔路徑）對到部位表列；lines 併成文字走改檔時同一套判定——locate_values 取組、_layer_mismatch 層、有樹時 _goal_line_check
+    第四／五行內容（兩候選、批判；不計 two_candidates 擋次）；通過 → rec 標 located（_mark_located，via=need_goal）並掛節點，
+    沒紀錄的部位先建紀錄（_inject deliver=False，卡等第一次改檔才送）；不過 → 不算交、回一行說缺什麼（改檔前照舊補交）。
+    OverviewHub／v6 關：整道不動，回一行說沒套用。回要附在 need_goal 回覆之後的行；帳 located_via_need_goal／locate_via_need_goal_rejected。"""
+    import wg_need_goal as _ng
+    items = locate if isinstance(locate, list) else []
+    if not items:
+        return []
+    if not _cfg(config)["enabled"]:
+        return ["[Guardian:OverviewHub] locate 欄沒套用（OverviewHub／v6 關著），定位照舊在改檔前交"]
+    try:
+        tree = _ng.active_tree(_ng.load(session_id))
+    except Exception:  # noqa: BLE001  目標檔壞了由 edit_gate 那一道報；這裡當沒樹（三行版）
+        tree = None
+    out: List[str] = []
+    for it in items:
+        part = str((it or {}).get("part") or "") if isinstance(it, dict) else ""
+        lines = [str(x) for x in ((it or {}).get("lines") or [])] if isinstance(it, dict) else []
+        hit, hit_path = _row_for_locate(part, cwd)
+        if not hit:
+            _log("locate_via_need_goal_rejected", session_id, part=part, why="no_part")
+            out.append(f"[Guardian:OverviewHub] locate 的「{part}」對不到部位表（部位名或該部位的檔路徑；cwd={cwd or '?'}），這項沒收")
+            continue
+        root, row = hit
+        key = _key(root, row)
+        rec = (state.get("overview_hub") or {}).get(key)
+        template = rec.get("locate_template") if isinstance(rec, dict) else _locate_template(_cfg(config, root))
+        text = "\n".join(lines)
+        vals = locate_values(text, row["part_short"], template, _longer_parts(root, row))
+        if not vals:
+            _log("locate_via_need_goal_rejected", session_id, part=row["part_short"], why="missing_lines")
+            out.append(f"[Guardian:OverviewHub] 【{row['part_short']}】的 locate 沒收：缺定位三行（定位｜部位／根因層／前例各一行，"
+                       f"部位行要提到「{row['part_short']}」）；改檔前照舊補交")
+            continue
+        bad = _layer_mismatch(row, vals)
+        if bad:
+            _log("locate_via_need_goal_rejected", session_id, part=row["part_short"], why="wrong_layer")
+            out.append(f"[Guardian:OverviewHub] 【{row['part_short']}】的 locate 沒收：{bad}")
+            continue
+        knowledge = isinstance(rec, dict) and rec.get("kind") == _oh.KIND_KNOWLEDGE
+        goal_tree = tree if (tree is not None and not knowledge) else None
+        node = None
+        if goal_tree is not None:
+            node, owed = _goal_line_check(goal_tree, vals, session_id, None, None)
+            if owed:
+                _log("locate_via_need_goal_rejected", session_id, part=row["part_short"], why="content",
+                     rules=[v.rule for v in owed])
+                out.append(f"[Guardian:OverviewHub] 【{row['part_short']}】的 locate 沒收：\n  "
+                           + "\n  ".join(_rr.format_hit("定位", v) for v in owed))
+                continue
+        if not isinstance(rec, dict):
+            prefixes = row.get("prefixes") or []
+            seed = hit_path or (str(root / prefixes[0]) if prefixes else str(root))
+            _inject(state, session_id, root, row, seed, "need_goal", transcript_path, _cfg(config, root), deliver=False)
+            rec = state["overview_hub"][key]
+        _migrate_rec(rec)
+        _mark_located(state, session_id, key, row, rec, "need_goal", text, node, goal_tree)
+        rec["locate_hint"] = "sent"          # 已交，之後讀這部位的程式檔不再提示
+        _log("located_via_need_goal", session_id, part=row["part_short"], node=node, tree=goal_tree["id"] if goal_tree else None,
+             four=goal_tree is not None)
+        out.append(f"[Guardian:OverviewHub] 【{row['part_short']}】定位已收（隨目標樹交）；改它的程式檔不再要求定位行")
+    return out
+
+
 def _first_edit_once(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], file_path: str, transcript_path: str,
                      agent_id: str, call: Optional[Dict[str, Any]], config: Dict[str, Any], cfg: Dict[str, Any],
                      msg: str, hit: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], bool, Dict[str, Any]]:
@@ -1941,6 +2043,11 @@ def _first_edit_once(state: Dict[str, Any], session_id: str, root: Path, row: Di
         goal_tree = _goal_tree_for(session_id, file_path, config)
     except Exception:  # noqa: BLE001  目標檔壞了由 wg_need_goal.edit_gate 那一道報；這裡只決定要求幾行
         goal_tree = None
+    if rec.get("located") and (goal_tree is None or _goal_linked(rec, goal_tree)):
+        # 規則 LOCATE_VIA_NEED_GOAL：定位已隨 need_goal set／update 的 locate 欄交過（locate_from_goal）→ 這一次不擋、不掃 transcript
+        _log("edit_first_located", session_id, part=part, path=file_path, rule="LOCATE_FIRST_EDIT_BLOCKS_ONCE",
+             located_via=rec.get("located_via"))
+        return (None, None, True, hit)
     readable, _why = transcript_readable(transcript_path)
     if readable:
         found_ch, text, node, _bl, _bc = _find_locate(state, session_id, root, row, rec, transcript_path, agent_id, goal_tree, call)
@@ -1963,7 +2070,8 @@ def _locate_ask(row: Dict[str, Any], goal_tree: Optional[Dict[str, Any]], n_read
     """擋訊息裡「還沒交定位行」那一條。規則 LOCATE_ASK_ONCE：第一次擋就把內容要求（兩個候選＋選擇理由、節點與角色、批判的判斷）
     與填好部位、節點的範例一起給，一次交齊；不先只給骨架、交了再擋一輪說格式不對。規則 LOCATE_NOT_IN_THINKING：thinking 那條路講死
     （受測設定 thinking 不落盤，AI 寫了還被擋第二次）。回 (完整那一條, 第二則起換上的短句)；沒有樹是三行版、沒有短句。"""
-    where = (f"寫在回覆文字，或{_rr.DECL_VIA_COMMENT}；不要寫在 thinking：thinking 預設不寫進 transcript，"
+    where = (f"寫在回覆文字，或{_rr.DECL_VIA_COMMENT}，或在 need_goal(action=set／update) 的 locate 欄一起交"
+             f"（[{{part, lines}}]，不必另發註解指令）；不要寫在 thinking：thinking 預設不寫進 transcript，"
              f"hook 讀不到，只寫在那裡照樣會再擋一次；"
              f"{_rr.DECL_KEEP_EDIT}")         # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
     if goal_tree is None:
@@ -1972,7 +2080,7 @@ def _locate_ask(row: Dict[str, Any], goal_tree: Optional[Dict[str, Any]], n_read
     head = f"還沒交出定位行（注入導讀卡後讀了 {n_reads} 個檔、跨 {n_dirs} 個目錄）。"
     item = (f"{head}{where}。"
             "一次交齊四行：定位三行（根因層寫兩個候選與選擇理由：候選 A …；候選 B …；選 A 因為 …，只找到一個就寫"
-            "「第二個不存在因為 …」），加一行批判——先下「合理／不合理，因為 …」的判斷再寫更好的做法與同類在哪。"
+            "「第二個不存在因為 …」），加一行批判——這段寫法合不合理、為什麼，看得出更好的做法就寫，同類在哪也寫（只查有沒有內容）。"
             "範例（角括號換成你的判斷，句子順序不限）：\n"
             + _locate_example(row, goal_tree, None))
     return (item, f"{head}{LOCATE_EXAMPLE_AGAIN}")

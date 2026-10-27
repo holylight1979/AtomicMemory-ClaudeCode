@@ -62,6 +62,7 @@ FIX_DPM = "結束前用 atom_write 補一張完整檢討卡（為什麼失敗、
 FIX_AUDIT = "收尾一行交代每張注入的指標卡有沒有用到、用在哪"
 FIX_CLEANUP = "用完的刪掉（git worktree remove／branch -d／刪暫存 repo）；要留的在收尾檢核 (i) 寫理由"
 FIX_TJ = "收尾每條寫一行「拐彎判斷｜<名稱>｜<不會／會：…>｜<理由>｜<怎麼改直／合理>」"
+TJ_NAMES_SHOWN = 3   # 拐彎判斷的一行提醒最多列幾條名字
 FIX_HARVEST = "值得留的先 atom_write，再交收割清單（anti_evasion_report 的 harvest_items 一起交，或 knowledge_harvest_report）"
 FIX_HARVEST_ITEM = "收割清單裡的每一項要對得上寫卡收據：真寫完再重報"
 FIX_AEC_PENDING = "現在就 atom_write 寫完，再重交 anti_evasion_report 把該項改成「→ 已寫入 atom <名>」或「→ 不寫（理由）」"
@@ -147,9 +148,11 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         part("搬目錄", lambda: _move_reminder(state, sid, config, say))
     if git_cmds:
         part("收尾自清", lambda: _cleanup_reminder(sid, git_cmds, cwd, say))
-    if tj_due:
-        names = "、".join(str(it.get("name")) for it in tj_owed["items"][:4])
-        say("TURN_JUDGMENT_REQUIRED", f"背景量完，{len(tj_owed['items'])} 條到門檻：{names}", FIX_TJ, tj_owed.get("at") or tj_owed.get("turn"))
+    if tj_due:   # 只有超線的條目才會成為欠項（wg_reading_path._collect）：一行列最多 3 條名字，其餘報個數
+        items = tj_owed["items"]
+        names = "、".join(str(it.get("name")) for it in items[:TJ_NAMES_SHOWN])
+        more = f"（另 {len(items) - TJ_NAMES_SHOWN} 條）" if len(items) > TJ_NAMES_SHOWN else ""
+        say("TURN_JUDGMENT_REQUIRED", f"背景量完，{len(items)} 條到門檻：{names}{more}", FIX_TJ, tj_owed.get("at") or tj_owed.get("turn"))
     if closing:
         part("知識收割", lambda: _closing_batch_reminders(state, sid, own, config, turn_seq, say))
     return lines, changed or bool(lines)

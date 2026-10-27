@@ -558,6 +558,20 @@ const TOOL_DEFINITIONS = [
         kind: { type: "string", enum: ["code", "knowledge"], description: "set：這件事要不要改程式（code＝寫碼類，宣告後本回合動手前的守門就起跑；knowledge＝記憶知識類）。沒給就等第一次改程式檔才標寫碼類" },
         why: { type: "string", description: "set／update：選填，為什麼改（有寫就記進節點歷史）" },
         import_from: { type: "string", description: "set：續接單路徑（從【需求目標樹】區塊匯入）" },
+        locate: {
+          type: "array",
+          description: "set／update 選填：改程式前的定位四行可以在這裡一起交，不必另發註解指令。每項一個部位：" +
+            "part＝部位名或該部位的檔路徑；lines＝[\"定位｜部位：…\",\"定位｜根因層：候選 A …；候選 B …；選 A 因為 …\"," +
+            "\"定位｜前例：…\",\"定位｜批判：合理／不合理，因為 …\"]（判法同改檔前；通過的部位改檔時不再要求定位行，沒過回覆說缺什麼）",
+          items: {
+            type: "object",
+            properties: {
+              part: { type: "string", description: "部位名（部位表的部位欄）或該部位底下的檔路徑" },
+              lines: { type: "array", items: { type: "string" }, description: "定位四行，一行一個元素" },
+            },
+            required: ["part", "lines"],
+          },
+        },
         parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },
         items: {
           type: "array",
@@ -633,6 +647,18 @@ const TOOL_DEFINITIONS = [
         },
         turns: { type: "integer", description: "reconcile：這次拐了幾個彎（選填）" },
         form: { type: "string", enum: ["full", "compact", "handoff"], description: "read：顯示形式，預設 full" },
+        data_files: {
+          type: "array",
+          description: "set／update（選填）：改使用者資料檔前的宣告可在這裡一起交，不必另發註解指令；每檔一項 {path, why}，why 空的那項不算宣告",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "要動的使用者資料檔路徑（相對專案或絕對）" },
+              why: { type: "string", description: "為什麼要動、改完使用者會看到什麼不同" },
+            },
+            required: ["path", "why"],
+          },
+        },
       },
       required: ["action"],
     },

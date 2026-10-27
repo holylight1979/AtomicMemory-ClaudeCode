@@ -2188,7 +2188,7 @@ def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
     warn, deny, _ = wo.on_edit(state, "s", battle, tp, {})
     assert deny and "還沒交出定位" in deny
     warn, deny, changed = wo.on_edit(state, "s", ui, tp, {})
-    assert deny is None and changed and warn.startswith("[Guardian:OverviewHub] 【介面】還沒交定位行") and "\n" not in warn
+    assert deny is None and changed and warn.startswith("[Guardian:OverviewHub] 【介面】定位缺") and "\n" not in warn
     state["turn_seq"] = 4                                                          # 同伴訊息續跑：不是使用者打字開的回合
     assert wo.on_edit(state, "s", ui, tp, {})[1] is None
     assert wo.on_edit(state, "s", battle, tp, {})[1]                               # 擋過的部位再缺：照擋

@@ -30,6 +30,7 @@ from wg_core import (
 import chain_store  # 連鎖斷路器的帳、停手、快照（lib/；判定在 hooks/wg_chain.py）
 import wg_chain
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
+import wg_read_fast  # 規則 READ_FAST_PATH：改檔前先把累積的 Read 補帳
 import wg_judge_card  # 改判準卡留帳（JUDGE_CARD_CHANGE_NEEDS_DECLARATION）
 import wg_oldtest
 import wg_gate_bypass
@@ -1911,6 +1912,12 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉 v6 才掛的工具）
+
+    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log；要讀檔證據的閘（OverviewHub、動資料檔、無表專案、提問前讀過部位檔）
+    # 之前先把累積的 Read 補帳（沒累積只多一次 stat）
+    if v6 and wg_read_fast.pending(str(input_data.get("session_id") or "")):
+        from handlers.post_tool_use import replay_reads_before_tool
+        replay_reads_before_tool(input_data, config)
 
     # 連鎖斷路器：警報後、使用者選繼續或放行之前，讀與問以外的工具先停手（不是閘觸發、不進次數）
     _halt = _chain_halt(input_data, config, tool_name, tool_input) if v6 else None

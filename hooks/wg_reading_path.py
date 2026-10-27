@@ -9,7 +9,12 @@ wg_closing_round）看本回合改過的程式檔有沒有變，變了就照同�
 組成一段文字：尾行（READING_PATH DONE mode=compare …）、可評級與否（不可評級附原因）、變差／新增最差一條。
 超線才有字：一個根沒有到門檻的條目（見下「拐彎判斷」）→ 它的數據（上面那段與函式級數據表）不進結果文字、不送模型，
 只印 stderr、guard log 記 measured；有條目才整段附上。
-量不出來（不在 git、還沒有 commit、沒有入口、工具失敗、背景逾時、背景行程中斷）只附一句原因，不附手動指令（模型會接單去跑）。
+只在超線時才提醒（開關 reading_path.remind_only_over_threshold，缺＝開）：整批收結果時（_collect）沒有任何一條要問
+（沒超線、或超線的都已判過）→ 整段結果文字（含量不出來的原因、沒量到的檔數）都不送模型：guard log 記 event=under_threshold、
+原文印 stderr、不欠判斷；只有至少一條要問才送（條目＋那一題），PostToolBatch 的一行提醒也只在那時出現、最多列 3 條名字。
+關了照舊：只要結果文字非空就送。
+量不出來（不在 git、還沒有 commit、沒有入口、工具失敗、背景逾時、背景行程中斷）只寫一句原因，不附手動指令（模型會接單去跑）；
+開關開著時這句只在 stderr 與 guard log。
 入口：部位表（overview-map.md）命中那一列「讀路徑樣本」欄的第一個程式檔（寫死的路徑存在就用它；帶 <佔位> 的照樣式
 比對改過的檔，對得上就用那個檔）；有任何一個改檔拿不到入口，就不給 --entry，交給量尺自動偵測整個專案的入口
 （main、__main__，都沒有才用沒人呼叫的公開函式）。測試檔與還沒 git add 的新檔不拿來找入口（後者附一句沒量到）。
@@ -660,7 +665,7 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
     before = json.dumps(rec, sort_keys=True, ensure_ascii=False)
     early = rec.pop(EARLY_NOTE, None)
     had_job = bool(rec.get("job"))
-    note = _collect(rec) if had_job else None
+    note = _collect(rec, config) if had_job else None
     if not had_job or rec.get("job"):   # 這次沒收到新的一批 → 送先收下的那份；收到了就算沒超線，舊的那份也作廢
         note = note or early
     if rec.get("job"):                  # 還在量：這批先記著，量完再量最新的
@@ -678,6 +683,12 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
 def early_start_on(config: Dict[str, Any]) -> bool:
     """開關 reading_path.early_start（缺＝開）：關了只在收尾起跑（舊送法）。"""
     return ((config or {}).get("reading_path") or {}).get("early_start", True) is not False
+
+
+def remind_only_over_threshold(config: Optional[Dict[str, Any]]) -> bool:
+    """開關 reading_path.remind_only_over_threshold（缺＝開）：收結果時沒有任何一條要問就整段不送模型（只留帳、印 stderr）。
+    關了照舊：結果文字非空就送（量不出來的原因、沒量到的檔數也送）。"""
+    return ((config or {}).get("reading_path") or {}).get("remind_only_over_threshold", True) is not False
 
 
 def _result_ready(job: Optional[Dict[str, Any]]) -> bool:
@@ -781,10 +792,11 @@ def _start(job: Dict[str, Any], session_id: str, rec: Dict[str, Any], spawn: Cal
     return None
 
 
-def _collect(rec: Dict[str, Any]) -> Optional[str]:
+def _collect(rec: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """背景量測交了結果 → 那段文字（附一次），清掉工作；還在量 → None；超過預算加 GRACE_S 還沒交 → 當它中斷了，回一句原因。
     到門檻的條目在這裡扣掉已判過、內容沒變的（rec["judged"] 名字＋指紋對得上），取前 max_items 條換成新的欠項、接上那一題；
-    在收結果時才扣，量測期間收到的答案也算得到。"""
+    在收結果時才扣，量測期間收到的答案也算得到。
+    remind_only_over_threshold（缺＝開）：扣完沒有任何一條要問 → 整段不送（回 None），guard log 記 under_threshold、原文印 stderr。"""
     job = rec["job"]
     out = Path(job["out"])
     try:
@@ -822,8 +834,16 @@ def _collect(rec: Dict[str, Any]) -> Optional[str]:
             p.unlink(missing_ok=True)
         except OSError:
             pass
+    text = res.get("text") or ""
+    if not asked and remind_only_over_threshold(config):   # 沒有一條要問：整段不送模型，只留帳、印 stderr
+        append_guard_log("reading_path", {"event": "under_threshold", "job_turn": job.get("turn"), "items": 0,
+                                          "hits": len(hits), "skipped": len(hits) - len(fresh), "text": text[:600]})
+        if text:
+            print(f"{TAG} 沒有條目超線，這段不送模型（只留帳 under_threshold；開關 reading_path.remind_only_over_threshold）：\n{text}",
+                  file=sys.stderr)
+        return None
     block = judgment_block(asked, cfg, len(fresh) - len(asked), len(hits) - len(fresh))
-    return "\n".join(x for x in (res.get("text"), *block) if x) or None
+    return "\n".join(x for x in (text, *block) if x) or None
 
 
 def _sweep() -> None:

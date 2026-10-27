@@ -248,10 +248,13 @@ def test_cs_failure_keeps_python_rows_in_the_same_batch(tmp_path, monkeypatch):
     assert "y.py::b｜巢狀 4｜條件塊 2" in note and "C# 閱讀路徑量不出來（ValueError: 壞掉了）" in note, note
 
 
-def test_untracked_new_file_is_counted_not_listed(tmp_path):
+def test_untracked_new_file_is_counted_not_listed(tmp_path, capsys):
+    """還沒 git add 的新檔只報個數、不列檔名與函式名；這批沒有條目超線 → 這句只在 stderr（remind_only_over_threshold 開），關了才送。"""
     root = _repo(tmp_path / "r")
     _write(root, {"y.py": _BODY.format("b") + "\n", "new.py": NESTED_B.replace("def b", "def nb")})
-    note = _note(_state(_mf(root / "y.py"), _mf(root / "new.py")))
+    err = _quiet(_state(_mf(root / "y.py"), _mf(root / "new.py")), capsys)
+    assert "還沒 git add 的新檔 1 個" in err and "new.py" not in err and "nb" not in err, err
+    note = _note(_state(_mf(root / "y.py"), _mf(root / "new.py")), {"reading_path": {"remind_only_over_threshold": False}})
     assert "還沒 git add 的新檔 1 個" in note and "new.py" not in note and "nb" not in note, note
 
 

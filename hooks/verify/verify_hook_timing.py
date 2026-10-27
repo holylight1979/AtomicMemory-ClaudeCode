@@ -530,7 +530,7 @@ def test_session_start_over_limit_still_delivers_tracking_and_leaves_overrun(tmp
 def test_dispatcher_writes_one_timing_record_per_hook(tmp_path):
     root, logs = tmp_path / "root", tmp_path / "logs"
     root.mkdir()
-    (root / "settings.json").write_text(json.dumps({"hooks": {"PostToolUse": [{"matcher": "Read", "hooks": [
+    (root / "settings.json").write_text(json.dumps({"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [
         {"type": "command", "command": "x/.claude/hooks/workflow-guardian.py", "timeout": 7}]}]}}), encoding="utf-8")
     env = {**os.environ, "WG_CLAUDE_DIR": str(root), "WG_TEST_LOGS_DIR": str(logs)}
     env.pop("CLAUDE_COMPANION_JUDGE", None)
@@ -538,8 +538,10 @@ def test_dispatcher_writes_one_timing_record_per_hook(tmp_path):
     (root / "workflow").mkdir()
     (root / "workflow" / "state-sid-timing.json").write_text(json.dumps(
         {"session": {"id": "sid-timing"}, "turn_seq": 0, "need_goal_code_decl_turn": 0}), encoding="utf-8")
-    inp = {"hook_event_name": "PostToolUse", "session_id": "sid-timing", "tool_name": "Read",
-           "tool_input": {"file_path": str(tmp_path / "x.txt")}, "tool_response": {}, "cwd": str(tmp_path)}
+    # 唯讀 Bash 走完整路徑（Read 的 PostToolUse 走快路徑只落 read-log、不計時，規則 READ_FAST_PATH）
+    inp = {"hook_event_name": "PostToolUse", "session_id": "sid-timing", "tool_name": "Bash",
+           "tool_input": {"command": f'cat "{tmp_path / "x.txt"}"'}, "tool_response": {"stdout": "", "stderr": "", "exit_code": 0},
+           "cwd": str(tmp_path)}
     p = subprocess.run([sys.executable, str(HOOKS_DIR / "workflow-guardian.py")], input=json.dumps(inp).encode("utf-8"),
                        capture_output=True, env=env, cwd=str(tmp_path), timeout=120)
     assert p.returncode == 0, p.stderr.decode("utf-8", "replace")[-500:]

@@ -16,11 +16,22 @@ from pathlib import Path
 # 確保 hooks/ 在 sys.path（runpy.run_path 不會自動加）
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from wg_core import (
-    WORKFLOW_DIR, load_config, v6_enabled,
-    _atom_debug_error, begin_state_rmw, end_state_rmw,
-)
-import wg_hook_timing as hook_timing
+import wg_read_fast   # 只載標準庫：Read 事件的快路徑在載 wg_core 之前就分流（規則 READ_FAST_PATH）
+
+# wg_core／wg_hook_timing 在 main 讀完 stdin、確定不是 Read 快路徑之後才載（模組層的名字留給測試換）
+WORKFLOW_DIR = load_config = v6_enabled = _atom_debug_error = begin_state_rmw = end_state_rmw = None
+hook_timing = None
+
+
+def _load_core() -> None:
+    global WORKFLOW_DIR, load_config, v6_enabled, _atom_debug_error, begin_state_rmw, end_state_rmw, hook_timing
+    if hook_timing is not None:
+        return
+    import wg_core as _c
+    import wg_hook_timing as _t
+    WORKFLOW_DIR, load_config, v6_enabled = _c.WORKFLOW_DIR, _c.load_config, _c.v6_enabled
+    _atom_debug_error, begin_state_rmw, end_state_rmw = _c._atom_debug_error, _c.begin_state_rmw, _c.end_state_rmw
+    hook_timing = _t
 
 # 惰性 import：event → (module, func)，只在該 event 觸發時 importlib 載入
 # 對應 handler module，省下每次 hook（含最高頻 PostToolBatch/PreToolUse）付全量
@@ -70,6 +81,7 @@ STATE_LOCK_WAIT_RATIO = 0.5
 def _state_lock_deadline(event: str, input_data: dict, timer) -> float:
     """等 state 鎖等到幾點（epoch 秒）：起點都是行程建立；有起表照它的上限，沒起表的事件（PostToolBatch、PostToolUseFailure、
     SubagentStop…）照 settings.json 這支 hook 的 timeout，讀不到當 5 秒。"""
+    _load_core()
     if timer:
         return timer.t0 + timer.limit_s * STATE_LOCK_WAIT_RATIO
     limit = hook_timing.settings_limit(event, str(input_data.get("tool_name") or "")) or 5.0
@@ -91,14 +103,20 @@ def main():
         sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)  # lf-exempt: 重包 stdio fd，不是檔案；hook 協定輸出不得改
         sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', closefd=False)  # lf-exempt: 重包 stdio fd，不是檔案；hook 協定輸出不得改
 
-    WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
-
     try:
         raw = sys.stdin.buffer.read()
         input_data = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
         sys.exit(0)
 
+    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只追加一行 read-log 就走（不載 wg_core、不讀 config／state、不計時）；
+    # 下一個非 Read 事件（handlers/post_tool_use.replay_read_log）補帳，v6 關／守門關在那裡照原判法丟掉
+    if wg_read_fast.is_fast_read(input_data):
+        wg_read_fast.log_read(input_data)
+        return
+
+    _load_core()
+    WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
     config = load_config()
     if not config.get("enabled", True):
         sys.exit(0)

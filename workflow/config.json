@@ -480,6 +480,8 @@
     "enabled": true
   },
   "reading_path": {
+    "_doc": "閱讀路徑與拐彎判斷（hooks/wg_reading_path.py）。remind_only_over_threshold（缺＝true）：背景量完收結果時沒有任何一條到門檻要問（含只剩「量不出來」「還沒 git add」這種一句原因）→ 整段不送模型、PostToolBatch 不附提醒行，只記 Logs/guard-reading_path.jsonl event=under_threshold 與 stderr；至少一條要問才送條目＋那一題。false 照舊：結果文字非空就送。",
+    "remind_only_over_threshold": true,
     "turn_judgment": {
       "_doc": "拐彎判斷：收尾背景算函式級側面數據（拐彎數、巢狀、條件塊、轉手鏈、繼承深度與每層加了什麼），達門檻的逐條問 AI「這一層存在的理由、有沒有真正作用、會不會讓人拐超過三個彎」，收尾要有「拐彎判斷｜…」五欄行（規則 TURN_JUDGMENT_REQUIRED）。門檻是「從第幾個彎起要人看」的事實門檻，不是判臭；max_items＝一次最多問幾條（hooks/wg_reading_path.py TURN_JUDGMENT_DEFAULTS）。",
       "turns": 2,

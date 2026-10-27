@@ -73,7 +73,7 @@ def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hoo
     ctx = post_read({"file_path": f1})
     hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
     assert "先用 need_goal(action=set, goal=…) 立需求目標樹" in hint and "交定位四行" in hint
-    assert "候選 A …；候選 B …；選 A 因為 …" in hint and "「合理／不合理，因為 …」" in hint
+    assert "候選 A …；候選 B …；選 A 因為 …" in hint and "合不合理、為什麼" in hint
     assert "回覆文字" in hint and "開頭的 `#` 註解" in hint and "（thinking 讀不到）" in hint and "照常用 Edit／Write" in hint
     assert "戰鬥導讀" not in ctx                                                    # 讀檔結果只有提示、沒有卡（READ_TOUCH_NO_CARD）
     assert not [o for o in hooked["outputs"] if o]                                 # 還沒有任何 PreToolUse 輸出：提示在第一個 Edit 之前
@@ -161,7 +161,7 @@ def test_locate_hint_text_matches_what_gates_check():
     DECL_VIA_COMMENT、宣告完照常用 Edit／Write（DECL_HINT_KEEPS_EDIT_TOOLS）；三行版只點三行；後續部位一行點名。"""
     four = wo.locate_read_hint("戰鬥", True, True, True)
     for piece in ("定位｜部位", "定位｜根因層", "候選 A", "候選 B", "選 A 因為", "第二個不存在因為", "定位｜前例", "定位｜批判",
-                  "合理／不合理，因為", wo._rr.DECL_VIA_COMMENT, "thinking 讀不到", "照常用 Edit／Write"):
+                  "合不合理、為什麼", wo._rr.DECL_VIA_COMMENT, "thinking 讀不到", "照常用 Edit／Write"):
         assert piece in four, piece
     assert "\n" not in four and four.index("need_goal(action=set") < four.index("定位四行")   # 立樹與定位併成同一行、先立樹
     three = wo.locate_read_hint("戰鬥", False, False, True)

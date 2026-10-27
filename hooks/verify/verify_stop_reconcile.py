@@ -4255,9 +4255,10 @@ def test_g12w_timeout_appends_the_reason_without_a_manual_command(driven, capsys
     mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)]
     _, state, _ = driven("全部完成了。", capsys, modified_files=mods)
     out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
-    reason = json.loads(out)["reason"]
-    assert "[Guardian:ReadingPath]" in reason and f"背景 {rph.WORKER_BUDGET_S:g} 秒內量不完" in reason, reason[-600:]
-    assert "手動" not in reason and "--before" not in reason and state["stop_blocked_count"] == 0
+    # 規則 remind_only_over_threshold：量不出來的原因不再送給模型（只留帳 under_threshold）；不擋、不給手動指令
+    reason = json.loads(out)["reason"] if out.strip() else ""
+    assert "[Guardian:ReadingPath]" not in reason and "手動" not in reason and "--before" not in reason
+    assert state["stop_blocked_count"] == 0
 
 
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的端到端案（真 git repo） ═══════════════════════════════

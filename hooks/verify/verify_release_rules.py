@@ -1404,9 +1404,8 @@ def test_004_locate_semantic_role_after_chained_nodes_and_reason_anywhere():
     assert rr.goal_role("T1.2、T1.3（測試）", "T1.2") == "測試"
     assert not rr.locate_lines_verdict(_CG0_TWO, _B1_GOAL, "T1.1", _CG0_NODE).owed
     assert not rr.locate_critique_verdict(_B1_CRIT).owed
-    # 反例：只說「不合理」沒指出哪裡（套話不算），照擋
-    v = rr.locate_critique_verdict("這段寫法不合理，更好的做法是改台北時間；同類還可能在哪：無，因為只有一處")
-    assert v.owed and "沒寫理由" in v.why and "建議寫法" in v.why
+    # 改造包 Q：批判行只查有沒有內容，「這段寫法不合理」這種沒指出哪裡的也放（寫得好不好是 AI 的判斷，不是閘的）
+    assert not rr.locate_critique_verdict("這段寫法不合理，更好的做法是改台北時間；同類還可能在哪：無，因為只有一處").owed
 
 
 def test_cg0_locate_lines_both_missing_listed_together():
@@ -1432,28 +1431,24 @@ def test_cg0_edited_part_needs_goal_node():
     assert rr.parse_hits(line) == ["f3"]                                     # 擋次預算單獨計次
 
 
-# ─── C-G1：LOCATE_LINES_NEED_CRITIQUE（定位第五行「批判」只查結構） ───
+# ─── C-G1：LOCATE_LINES_NEED_CRITIQUE（定位第五行「批判」只查有沒有寫、有沒有內容） ───
 
 @pytest.mark.parametrize("line, owed, want", [
     ("不合理，因為字典兩邊都寫，更好的做法是只留邏輯層一個寫入點；同類還可能在哪：存檔流程也兩邊寫", False, ""),
     ("合理，因為這段只轉送事件；同類還可能在哪：無，因為只有這一個入口", False, ""),
-    ("合理，理由是只查結構不評內容；同類：locate_groups 的排除清單", False, ""),
-    ("不合理，原因是用檔名猜關聯，改成直接認宣告範圍；同類別處：(b) 的 covered()", False, ""),     # 「改成」也是更好的做法
+    ("不合理，原因是用檔名猜關聯，改成直接認宣告範圍；同類別處：(b) 的 covered()", False, ""),
+    # 改造包 Q（007 實測）：真批判沒有「不合理／更好的做法／同類」字樣也算交——寫得對不對是 AI 的判斷，閘只查有沒有內容
+    ("README 規定月份歸屬以台北時間為準，periods.month_of 卻轉 UTC，10/01 凌晨兩筆落到 9 月", False, ""),
+    ("合理，因為只轉送事件；同類還可能在哪：無。", False, ""),                                          # 同類寫「無」沒理由也不擋
+    ("不合理，因為字典兩邊都寫；同類還可能在哪：存檔流程", False, ""),                                 # 不合理沒替代做法也不擋
+    ("合理，這段只做一件事", False, ""),                                                                # 剛好 8 字
     ("", True, "沒交"),
-    ("還好；同類還可能在哪：存檔流程", True, "合不合理"),                                             # 沒下判斷
-    ("合理；同類還可能在哪：存檔流程", True, "理由"),                                                 # 合理沒理由
-    ("不合理，因為字典兩邊都寫；同類還可能在哪：存檔流程", True, "更好的做法"),                       # 不合理沒替代做法
-    ("不合理，因為字典兩邊都寫，更好的做法是只留一個寫入點", True, "同類"),                           # 沒舉一反三
-    ("合理，因為只轉送；同類還可能在哪：", True, "同類"),                                              # 同類空白
-    ("合理，因為只轉送；同類還可能在哪：無", True, "同類"),                                            # 「無」沒寫為什麼
-    # codex BLOCK：理由裡出現「同類」不能切斷；同類位置以「無」字開頭的名詞（無鎖佇列）不是「沒有同類」
-    ("不合理，因為同類入口各自維護規則，更好的做法是共用判定函式；同類還可能在哪：存檔入口", False, ""),
-    ("合理，因為只轉送事件；同類還可能在哪：無鎖佇列的入列流程", False, ""),
-    ("合理，因為只轉送事件；同類還可能在哪：無。", True, "同類寫「無」"),
+    ("合理", True, "太短"),                                                                              # 兩個字不是批判
+    ("還好；同類：無", True, "太短"),
 ])
 def test_cg1_locate_lines_need_critique(line, owed, want):
-    """LOCATE_LINES_NEED_CRITIQUE：第五行要下「合理／不合理」判斷並附理由，不合理要寫更好的做法，還要寫同類還可能在哪
-    （或「無，因為…」）。只看結構、不評內容。"""
+    """LOCATE_LINES_NEED_CRITIQUE：第五行只查有沒有寫、去掉標點後有沒有 ≥ CRITIQUE_MIN_CHARS（8）字；不認固定字樣。
+    舊碼要「合理／不合理」＋理由＋更好的做法＋同類，007 的真批判被判沒交（紅）。"""
     v = rr.locate_critique_verdict(line)
     assert v.rule == "LOCATE_LINES_NEED_CRITIQUE" and v.owed is owed, v
     assert want in v.why, v
@@ -1465,7 +1460,7 @@ def test_cg1_locate_lines_need_critique(line, owed, want):
     ({"部位": "戰鬥——A.cs 結算段", "根因": "候選 A 邏輯層；候選 B 存檔；選 A 因為只有它寫", "目標": "T1.1（唯一寫入點）"}, False),
     ({"部位": "UI——List<int> 排序", "根因": "Dictionary<string, int> 沒鎖"}, False),           # 程式的泛型角括號不是佔位
     ({"部位": "戰鬥——<這次改哪個檔、哪一段>"}, True),
-    ({"批判": "不合理，因為 <現在寫法的問題>，更好的做法是 <替代做法>；同類還可能在哪：<別處同樣寫法的位置>"}, True),
+    ({"批判": "<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>"}, True),
 ])
 def test_cg1_locate_lines_no_example_placeholder(vals, owed):
     """LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER：擋訊息附的範例照抄（角括號裡的中文說明沒換掉）不算交；程式的泛型角括號不算佔位。"""

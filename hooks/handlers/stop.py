@@ -1637,13 +1637,13 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
 RERUN_SCOPE_SHOWN_MAX = 600
 
 
-def _rerun_scope(f: Dict[str, Any]) -> str:
+def _rerun_scope(f: Dict[str, Any], v6: bool = True) -> str:
     """規則 RED_SCOPE_FROM_FULL_COMMAND：輸出沒列出是哪一支的紅，給一條做得到的路——記紅時從整條指令解析出的每一段測試子命令與
     換目錄（test_scope.steps，不是截過的 cmd）照抄重跑、別截斷輸出：綠了而且涵蓋這個範圍就清掉，紅了照列出的那幾支記。
     判不出目標、舊條目、或範圍長過 RERUN_SCOPE_SHOWN_MAX 給通用的出路（原指令完整照跑或跑整套）。看得出是哪一支的不加。"""
     if red_units(f) or failure_lines(f.get("summary", "")):
         return ""
-    tail = "；綠了而且涵蓋這個範圍就清掉這筆，紅了照列出的那幾支記（列得出是哪一支，才能用「不做｜」那條出口）"
+    tail = "；綠了而且涵蓋這個範圍就清掉這筆，紅了照列出的那幾支記" + ("（列得出是哪一支，才能用「不做｜」那條出口）" if v6 else "")
     scope = f.get("test_scope") if isinstance(f.get("test_scope"), dict) else {}
     shown = " ； ".join(str(s) for s in scope.get("steps") or [])
     if not shown or len(shown) > RERUN_SCOPE_SHOWN_MAX:   # 判不出目標、舊條目、範圍太長：給通用的出路（不截一半給人照抄）
@@ -1756,19 +1756,19 @@ def _testfail_gate(state: Dict[str, Any], session_id: str, input_data: Dict[str,
     return f"{exhausted_message('TestFailGate', None, exhausted_summary(msg))}\n原擋訊息：\n{msg}\n{ASK_HINT}", shown_keys
 
 
-def _red_item_lines(f: Dict[str, Any]) -> str:
+def _red_item_lines(f: Dict[str, Any], v6: bool = True) -> str:
     """擋訊息裡一筆紅測：還沒跑綠的那幾支（red_item_label）＋指令實際那行；逐支列出的附重跑哪幾支檔就夠，沒列出的附重跑範圍。"""
     rerun = red_rerun_files_label(f)
     return (f"  - {red_item_label(f)}（指令：{cmd_run_line(f.get('cmd', ''))[:80]}）"
-            + (f"\n    {rerun}" if rerun else _rerun_scope(f)))
+            + (f"\n    {rerun}" if rerun else _rerun_scope(f, v6)))
 
 
 def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
     """v6 守門關閉時的 TestFailGate 擋訊息：出路照 9e476fd0 原文（關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口），
     但列的失敗項跟 v6 開同一份——只列還沒跑綠的那幾支、算支數。舊寫法印摘要第一行、不看 cleared_units，已經綠的那支會一直
-    被列成失敗（2026-10-27 實踩：13 支檔 20 紅、3 支檔綠了之後 Stop 仍列 verify_locate_hint.py 那支，AI 被帶去重跑整個範圍）。"""
+    被列成失敗（實踩：多支檔一批紅、幾支綠了之後 Stop 仍列已綠的那支，AI 被帶去重跑整個範圍）。"""
     return (f"[Guardian:TestFailGate] 測試未綠：{red_count_label(failing)}，不得宣告完成。\n"
-            + "\n".join(_red_item_lines(f) for f in failing[-3:])
+            + "\n".join(_red_item_lines(f, v6=False) for f in failing[-3:])
             + "\n選 (a) 修復 (b) 明確說明為何不修並標記為已知 regression "
             "(c) 降級任務定義。不得籠統帶過。")
 

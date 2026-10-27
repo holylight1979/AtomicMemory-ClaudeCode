@@ -7,6 +7,8 @@
       → 各附一句原因、都不附手動指令；逾時過的根之後不再量（不再起任何子行程）。子行程都帶 CREATE_NO_WINDOW。
 逾時一律用假的 run 丟 TimeoutExpired，不真的睡到預算用完。
 真 Stop 入口（改碼交工作、下次收尾附段落、沒改碼不附、逾時附原因）在 verify_stop_reconcile.py 的 driven 夾具。
+本檔驗的是量測本身與量不出來的原因文字，所以把 reading_path.remind_only_over_threshold 關掉（LEGACY）；開著時沒有條目超線的
+一批整段不送（只留帳），由 verify_turn_judgment_threshold.py 驗。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_reading_path_hook.py
 """
 from __future__ import annotations
@@ -27,6 +29,7 @@ import wg_reading_path as rph  # noqa: E402
 REAL_SPAWN = rph._spawn_worker   # hooks/verify/conftest.py 每案把它換成不起行程；真起行程的案例換回來
 
 _SID = "sid-rp"
+LEGACY = {"reading_path": {"remind_only_over_threshold": False}}   # 沒超線也送（本檔要看原因文字）
 _EXTS = [".py", ".cs", ".js"]
 _BODY = "def {0}(n):\n    k = n + 1\n    k *= 2\n    return k\n"
 APP = {"app.py": "from x import a\nfrom y import b\n\n\ndef main():\n    n = a(1)\n    n += b(2)\n    return n\n\n\n"
@@ -77,9 +80,9 @@ def _inline(run=subprocess.run, seen=None):
 
 def _note(state, run=subprocess.run, worker_run=None):
     """收尾兩次：第一次交給背景量（這次不附），第二次附上量完的結果。回第二次附的文字。"""
-    first, changed = rph.reading_path_note(state, _SID, {}, run=run, spawn=_inline(worker_run or run))
+    first, changed = rph.reading_path_note(state, _SID, LEGACY, run=run, spawn=_inline(worker_run or run))
     assert first is None and changed and state["reading_path"][_SID].get("job"), "交工作的那次收尾不附結果、記下工作"
-    second, _ = rph.reading_path_note(state, _SID, {}, run=run, spawn=_inline(worker_run or run))
+    second, _ = rph.reading_path_note(state, _SID, LEGACY, run=run, spawn=_inline(worker_run or run))
     assert not state["reading_path"][_SID].get("job"), "結果附過就清掉工作"
     return second
 
@@ -158,7 +161,7 @@ def test_code_change_turn_hands_off_then_attaches_tail_ratable_and_worst_once(tm
     head = _git(root, "rev-parse", "--short=12", "HEAD")
     assert f"before={head}" in note
     seen = []
-    assert rph.reading_path_note(state, _SID, {}, spawn=_inline(seen=seen)) == (None, False) and seen == [], \
+    assert rph.reading_path_note(state, _SID, LEGACY, spawn=_inline(seen=seen)) == (None, False) and seen == [], \
         "同一批輸入只量一次、只附一次"
     _write(root, {"z.py": _BODY.format("c") + "\n"})
     assert _note(state), "又改了 → 再量再附"
@@ -167,9 +170,9 @@ def test_code_change_turn_hands_off_then_attaches_tail_ratable_and_worst_once(tm
 def test_no_code_change_this_turn_attaches_nothing(tmp_path):
     root = _repo(tmp_path / "r")
     state = _state(_mf(root / "notes.md"))
-    assert rph.reading_path_note(state, _SID, {}) == (None, False) and "reading_path" not in state
+    assert rph.reading_path_note(state, _SID, LEGACY) == (None, False) and "reading_path" not in state
     state = _state(_mf(root / "y.py", 3))
-    assert rph.reading_path_note(state, _SID, {}) == (None, False) and "reading_path" not in state, \
+    assert rph.reading_path_note(state, _SID, LEGACY) == (None, False) and "reading_path" not in state, \
         "前幾回合改的不算這回合改碼"
 
 
@@ -294,9 +297,9 @@ def test_stop_does_not_wait_for_the_worker(tmp_path):
     state = _state(_mf(root / "y.py"))
     jobs = []
     started = time.monotonic()
-    note, changed = rph.reading_path_note(state, _SID, {}, spawn=jobs.append)
+    note, changed = rph.reading_path_note(state, _SID, LEGACY, spawn=jobs.append)
     assert note is None and changed and len(jobs) == 1 and time.monotonic() - started < rph.STOP_GIT_BUDGET_S + 1.0
-    assert rph.reading_path_note(state, _SID, {}, spawn=jobs.append) == (None, True) and len(jobs) == 1, \
+    assert rph.reading_path_note(state, _SID, LEGACY, spawn=jobs.append) == (None, True) and len(jobs) == 1, \
         "還在量：這回合又收尾一次只記 pending、不再起第二個"
     assert state["reading_path"][_SID]["pending"] is True
 
@@ -307,15 +310,15 @@ def test_in_flight_job_defers_the_newer_batch_until_it_reports(tmp_path):
     _write(root, {"y.py": _BODY.format("b") + "\n"})
     state = _state(_mf(root / "y.py"))
     jobs = []
-    rph.reading_path_note(state, _SID, {}, spawn=jobs.append)
+    rph.reading_path_note(state, _SID, LEGACY, spawn=jobs.append)
     state["turn_seq"] = 6
     state["modified_files"] = [_mf(root / "y.py", 6)]
     _write(root, {"y.py": _BODY.format("b") + "\n\n"})
-    assert rph.reading_path_note(state, _SID, {}, spawn=jobs.append) == (None, True) and len(jobs) == 1
+    assert rph.reading_path_note(state, _SID, LEGACY, spawn=jobs.append) == (None, True) and len(jobs) == 1
     first = json.loads(Path(jobs[0]).read_text(encoding="utf-8"))
     rph.write_result(Path(first["out"]), {"text": "[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響：舊的一批"})
     state["turn_seq"] = 7                                     # 這回合沒改碼，但有記著的一批
-    note, _ = rph.reading_path_note(state, _SID, {}, spawn=jobs.append)
+    note, _ = rph.reading_path_note(state, _SID, LEGACY, spawn=jobs.append)
     assert "舊的一批" in note and len(jobs) == 2 and json.loads(Path(jobs[1]).read_text(encoding="utf-8"))["turn"] == 7
     assert not Path(first["out"]).exists() and not Path(jobs[0]).exists(), "收過的工作檔與結果檔刪掉"
     assert "pending" not in state["reading_path"][_SID]
@@ -326,12 +329,12 @@ def test_worker_that_never_reports_is_given_up_with_a_reason(tmp_path):
     root = _repo(tmp_path / "r")
     _write(root, {"y.py": _BODY.format("b") + "\n"})
     state = _state(_mf(root / "y.py"))
-    rph.reading_path_note(state, _SID, {}, spawn=lambda p: None)
+    rph.reading_path_note(state, _SID, LEGACY, spawn=lambda p: None)
     job = state["reading_path"][_SID]["job"]
     state["turn_seq"] = 6
-    assert rph.reading_path_note(state, _SID, {}) == (None, False), "還在預算內：不附、不動"
+    assert rph.reading_path_note(state, _SID, LEGACY) == (None, False), "還在預算內：不附、不動"
     job["at"] = time.time() - (rph.WORKER_BUDGET_S + rph.GRACE_S + 1)
-    note, changed = rph.reading_path_note(state, _SID, {})
+    note, changed = rph.reading_path_note(state, _SID, LEGACY)
     assert changed and "沒交結果" in note and "可能被中斷" in note and "手動" not in note, note
     assert "job" not in state["reading_path"][_SID]
 
@@ -344,7 +347,7 @@ def test_spawn_failure_says_why_once(tmp_path):
     def boom(path):
         raise OSError("no python")
 
-    note, changed = rph.reading_path_note(state, _SID, {}, spawn=boom)
+    note, changed = rph.reading_path_note(state, _SID, LEGACY, spawn=boom)
     assert changed and "起不來" in note and "no python" in note and "job" not in state["reading_path"][_SID]
     assert not list(rph.JOB_DIR.glob("*.job.json")), "起不來的工作檔不留"
 
@@ -354,12 +357,12 @@ def test_real_background_worker_writes_the_result(tmp_path, monkeypatch):
     monkeypatch.setattr(rph, "_spawn_worker", REAL_SPAWN)
     loose = _write(tmp_path / "loose", APP)                   # 不在 git：背景行程只寫一句原因，不跑量尺
     state = _state(_mf(loose / "y.py"))
-    assert rph.reading_path_note(state, _SID, {}) == (None, True)
+    assert rph.reading_path_note(state, _SID, LEGACY) == (None, True)
     out = Path(state["reading_path"][_SID]["job"]["out"])
     deadline = time.monotonic() + 60
     while not out.exists() and time.monotonic() < deadline:   # 等的是真行程做完，不是等預算用完
         time.sleep(0.1)
-    note, _ = rph.reading_path_note(state, _SID, {})
+    note, _ = rph.reading_path_note(state, _SID, LEGACY)
     assert note and "不在 git 工作區的改檔 1 個" in note, (note, (rph.JOB_DIR / "worker.log").read_text(encoding="utf-8")
                                                            if (rph.JOB_DIR / "worker.log").exists() else "")
 

@@ -271,12 +271,11 @@ RULES: Dict[str, str] = {
                                     "不舊於磁碟上的版本 → 這個建議多餘，每個使用者回合擋一次並附兩邊版本；列不出、讀不到、有服務沒紀錄或心跳過期、"
                                     "有任何一個還是舊的 → 放行；AI 寫明「重載原因：…」（程式更新以外的理由）照它的判斷。依據是程序樹與服務自己"
                                     "記的版本，不是 session 名稱（Claude Code 沒寫進文件的命名行為）；「有沒有叫人重載」用字詞找，只當觸發點。",
-    "LOCATE_LINES_NEED_CRITIQUE": "有需求目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判：…」：下「合理」或「不合理」的判斷並附理由"
-                                  "（因為／理由／原因／由於，位置不限；「X 不合理」前面寫出哪裡不合理也算，套話不算），"
-                                  "不合理要寫更好的做法（更好／改成／應該／改用／換成），還要寫「同類還可能在哪：…」"
-                                  "（或「無，因為…」）。同類欄位認最後一個「同類…：」標籤（理由裡提到同類不切斷）；「無」後面接標點、"
-                                  "理由詞或行尾才算沒有同類（「無鎖佇列」是位置）。照抄範本不算交。與定位四行同一支判定、每個部位交一次；"
-                                  "只看結構不評對錯，知識類部位不查。",
+    "LOCATE_LINES_NEED_CRITIQUE": "有需求目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判：…」：只查有沒有寫、有沒有內容"
+                                  "（去掉標點空白後至少 CRITIQUE_MIN_CHARS＝8 個字），不認固定字樣：寫「合理」附原因、寫哪裡不合理、"
+                                  "寫更好的做法、寫同類在哪，怎麼判是 AI 的事（原設計者 G6：需要判斷的事不寫成固定規則）。"
+                                  "照抄範本不算交（lib/overview_hub.locate_values 丟掉範本句）。與定位四行同一支判定、每個部位交一次；"
+                                  "知識類部位不查。",
     "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER": "有需求目標樹時改寫碼部位，定位各行（部位／根因／前例／目標／批判）還留著擋訊息範例的角括號佔位"
                                            "（角括號裡有中文說明，如 <第一個根因>）→ 當沒填，只記錄不擋（guard-need_goal locate_soft）；"
                                            "程式的泛型角括號（List<int>）不算。查的是有沒有填，不評內容。",
@@ -1635,10 +1634,6 @@ def root_candidates(root_line: str) -> List[int]:
 
 
 _CHAINED_NODES_RE = lazy_re(r"^(?:\s*[/／、,，+＋]\s*T\d+(?:\.\d+)*)+")
-# 「不合理」前面寫的若只是這類套話，不算指出哪裡不合理
-_GENERIC_SUBJECT_RE = lazy_re(r"這段|這裡|這樣|現在|目前|現行|現|的|寫法|做法|設計|程式|邏輯")
-
-
 def goal_role(goal_line: str, node_id: str) -> str:
     """第四行節點編號後面括號（全形或半形）裡的角色；編號後面先接著別的節點編號（T1.1/T1.4、T1.2、T1.3）就跳過去再找括號。
     沒有括號回空字串（角色要寫在括號裡）。"""
@@ -1718,54 +1713,22 @@ def locate_candidates_verdict(root_line: str) -> Verdict:
     return Verdict(rule, True, miss, (f"定位｜根因層：{root_line}",))
 
 
-_UNREASONABLE_RE = lazy_re(r"不合理")
-_REASONABLE_RE = lazy_re(r"(?<!不)合理")
-_BETTER_RE = lazy_re(r"更好|改成|應該|改用|換成")
-# 同類欄位的標籤：「同類…：」（冒號前最多 8 字，如「同類還可能在哪：」「同類別處：」）；沒冒號時退回「；同類…」這種分隔符後的同類
-_SAME_LABEL_COLON_RE = lazy_re(r"同類[^：:；;，,。]{0,8}[:：]")
-_SAME_LABEL_SEP_RE = lazy_re(r"(?:^|[；;。，,])\s*同類(?:別處|還可能在哪(?:裡)?|有沒有|在哪)?\s*")
-# 「無／沒有」後面接標點、理由詞或行尾才算「沒有同類」（「無鎖佇列」是位置的名字）
+# 「無／沒有」後面接標點、理由詞或行尾才算「沒有」（「無鎖佇列」是位置的名字）
 _SAME_NONE_RE = lazy_re(rf"^(?:無|沒有|不存在|找不到)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))", re.IGNORECASE)
-
-
-def _split_same_class(text: str) -> Tuple[str, Optional[str]]:
-    """批判那行切成（判斷段, 同類段）；找不到同類欄位回 (全文, None)。取最後一個標籤，理由裡提到「同類」不會被切斷。"""
-    hits = list(_SAME_LABEL_COLON_RE.finditer(text)) or list(_SAME_LABEL_SEP_RE.finditer(text))
-    if not hits:
-        return text, None
-    m = hits[-1]
-    return text[:m.start()], text[m.end():].strip()
+CRITIQUE_MIN_CHARS = 8   # 批判行去掉標點空白後至少幾個字才算有內容（「合理」「無」這種不算批判）
 
 
 def locate_critique_verdict(line: str) -> Verdict:
-    """LOCATE_LINES_NEED_CRITIQUE：定位第五行「定位｜批判」的結構：同類欄位之前要有合理／不合理的判斷＋理由（不合理另要更好的做法），
-    同類欄位要寫在哪（或「無／沒有」＋理由）。缺的項一起列。"""
+    """LOCATE_LINES_NEED_CRITIQUE：定位第五行「定位｜批判」只查有沒有寫、有沒有內容（≥ CRITIQUE_MIN_CHARS 字）。
+    合不合理、更好的做法、同類在哪都是 AI 的判斷，不認固定字樣（原設計者 G6：需要判斷的事不寫成固定規則）。"""
     rule = "LOCATE_LINES_NEED_CRITIQUE"
     text = str(line or "").strip()
     if not text:
-        return Verdict(rule, True, "沒交第五行「定位｜批判：…」（這段寫法合不合理、更好的做法、同類還可能在哪）")
-    head, where = _split_same_class(text)
-    missing: List[str] = []
-    bad = _UNREASONABLE_RE.search(head)
-    if bad:
-        named = _GENERIC_SUBJECT_RE.sub("", _role_core(head[:bad.start()]))     # 「X 不合理」：X 就是哪裡不合理
-        if not (_REASON_RE.search(head) or len(named) >= 2):
-            missing.append("判「不合理」沒寫理由（建議寫法：不合理，因為 …；或把哪裡不合理寫在前面）")
-        if not _BETTER_RE.search(head):
-            missing.append("判「不合理」沒寫更好的做法（建議寫法：更好的做法是 …）")
-    elif _REASONABLE_RE.search(head):
-        if not _REASON_RE.search(head):
-            missing.append("判「合理」沒寫理由（建議寫法：合理，因為 …）")
-    else:
-        missing.append("沒下這段寫法合不合理的判斷（建議寫法：合理，因為 …／不合理，因為 …，更好的做法是 …）")
-    if where is not None and _SAME_NONE_RE.match(where):
-        if not (_REASON_RE.search(where) and len(_role_core(_REASON_RE.split(where, 1)[-1])) >= 2):
-            missing.append("同類寫「無」要附為什麼沒有（建議寫法：無，因為 …）")
-    elif where is None or len(_role_core(where)) < 2:
-        missing.append("沒寫同類還可能在哪（建議寫法：同類還可能在哪：…；沒有就寫「無，因為 …」）")
-    if not missing:
-        return Verdict(rule, False, "批判那行有判斷、理由與同類別處")
-    return Verdict(rule, True, "；".join(missing), (f"定位｜批判：{text}",))
+        return Verdict(rule, True, "沒交第五行「定位｜批判：…」（這段寫法合不合理：合理寫原因、不合理寫哪裡與更好的做法；同類還可能在哪）")
+    if len(_role_core(text)) < CRITIQUE_MIN_CHARS:
+        return Verdict(rule, True, f"第五行「定位｜批判」太短（去掉標點不到 {CRITIQUE_MIN_CHARS} 字），寫出你對這段寫法的判斷與原因",
+                       (f"定位｜批判：{text}",))
+    return Verdict(rule, False, "批判那行有內容")
 
 
 # 擋訊息範例的佔位：角括號裡有中文說明（`<第一個根因>`）；程式的泛型角括號（List<int>）不算
@@ -3143,15 +3106,16 @@ def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
 
 def data_file_hint(rel: str) -> str:
     return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
-            f"放回覆文字（下一則再改），或{DECL_VIA_COMMENT}；"
+            f"放回覆文字（下一則再改），或{DECL_VIA_COMMENT}，或在 need_goal set 的 data_files 一起交；"
             "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 
 def data_file_fix(rels: Sequence[str]) -> str:
-    """DENY_TEXT_SLIM 的動資料檔修法句（DECL_HINT_KEEPS_EDIT_TOOLS 的要點照留：宣告放哪、宣告完照常用 Edit／Write）。"""
-    lines = "；".join(f"入口行範例：動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
-    return (f"比這次工具呼叫早一則訊息送出宣告行（{lines}），或寫在{DECL_VIA_COMMENT}；每個檔各一行。"
-            "宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔；拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
+    """DENY_TEXT_SLIM 的動資料檔修法句，一行：宣告怎麼寫（每個檔一行範例）＋放哪＋宣告完照常用 Edit／Write
+    （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH §7.5 DataFileAsk 與判準卡，不放訊息裡。"""
+    lines = "；".join(f"動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
+    return (f"比這次呼叫早一則訊息送出 {lines}（或寫在不寫檔的 Bash／PowerShell 指令開頭的 `#` 註解，或在 need_goal set 的 data_files 一起交）；"
+            "改檔照常用 Edit／Write，不要改用 Bash／PowerShell 寫檔。")
 
 
 DATA_FILE_HINT_SHOWN = 4      # DATA_FILE_READ_HINT 一行最多列幾個檔名
@@ -3163,8 +3127,8 @@ def data_file_read_hint(rels: Sequence[str], first: bool) -> str:
     names = "、".join(rels[:DATA_FILE_HINT_SHOWN]) + (f" 等 {len(rels)} 個檔" if len(rels) > DATA_FILE_HINT_SHOWN else "")
     if not first:
         return f"[Guardian:DataFileAsk] 改 {names} 也要先宣告（格式同前一則提示）。"
-    return (f"[Guardian:DataFileAsk] 改 {names} 要先宣告｜格式：動資料檔｜<路徑>：<為什麼要動它、動了使用者會看到什麼>；"
-            f"比改它的那次呼叫早一則訊息送出（跟改檔同一則送出的文字這裡看不到），或寫在{DECL_VIA_COMMENT}。")
+    return (f"[Guardian:DataFileAsk] 改 {names} 前先宣告：動資料檔｜<路徑>：<為什麼要動它、動了使用者會看到什麼>"
+            "（比改檔早一則訊息送出，或寫在不寫檔的 Bash／PowerShell 指令開頭的 `#` 註解，或在 need_goal set 的 data_files 一起交）。")
 
 
 def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
@@ -3182,10 +3146,10 @@ def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Seque
     if facts.get("named"):
         return Verdict(rule, False, f"(d) 不成立：使用者原話點名了：「{str(facts['named']).strip()[:80]}」")
     base = Path(str(target)).name
-    ev = [f"(a) 不是程式檔：副檔名 {ext} 在資料／設定清單",
-          "(b) 使用者既有：呼叫前檔已存在",
-          "(c) 這個 session 沒建過它：本 session 的新建紀錄裡沒有它",
-          f"(d) 需求沒點名：本 session 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
+    ev = [f"(a) 不是程式檔，副檔名 {ext} 在資料／設定清單",
+          "(b) 呼叫前已存在",
+          "(c) 這個 session 沒建過它",
+          f"(d) 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
     hit = [d for d in decls if decl_names_file(d[0], target)]
     for _path, why, line in hit:
         if reason_present(why):

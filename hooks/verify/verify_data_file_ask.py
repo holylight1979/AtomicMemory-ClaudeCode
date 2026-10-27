@@ -115,9 +115,9 @@ def test_existing_settings_json_without_declaration_is_denied(world):
     assert _df_deny(out), out
     r = _reason(out)
     assert f"✗ (df) {RULE}：" in r
-    for fact in ("(a) 不是程式檔", "(b) 使用者既有", "(c) 這個 session 沒建過它", "(d) 需求沒點名"):
+    for fact in ("(a) 不是程式檔", "(b) 呼叫前已存在", "(c) 這個 session 沒建過它", "(d) 使用者原話"):
         assert fact in r, fact
-    assert "入口行範例：動資料檔｜settings.json：" in r and "AskUserQuestion" in r and "開頭的 `#` 註解" in r
+    assert "動資料檔｜settings.json：<" in r and "開頭的 `#` 註解" in r
     assert [e["event"] for e in _log(world)] == ["denied"]
 
 
@@ -356,7 +356,7 @@ def test_code_and_markdown_are_not_asked(world, name):
 def test_existing_readme_md_without_declaration_is_denied(world):
     out = _run(world, path=world["proj"] / "README.md")
     assert _df_deny(out), out
-    assert "README.md" in _reason(out) and "(a) 不是程式檔：副檔名 .md 在資料／設定清單" in _reason(out)
+    assert "README.md" in _reason(out) and "(a) 不是程式檔，副檔名 .md 在資料／設定清單" in _reason(out)
 
 
 def test_existing_md_with_declaration_allowed(world):
@@ -489,7 +489,7 @@ def test_shell_two_data_files_one_declared_names_the_other(world):
     assert _df_deny(out)
     r = _reason(out)
     assert "要改的是 rates.csv" in r and r.count("✗ (df)") == 1, "只擋沒宣告的 rates.csv，settings.json 對上了"
-    assert "入口行範例：動資料檔｜rates.csv：" in r and "入口行範例：動資料檔｜settings.json" not in r
+    assert "動資料檔｜rates.csv：<" in r and "動資料檔｜settings.json：<" not in r
 
 
 def test_shell_without_data_file_targets_is_untouched(world):
@@ -534,7 +534,7 @@ def test_subagent_dispatch_prompt_is_not_user_words(world):
     _transcript(agent, [_user("把 settings.json 的多逗號修掉"), _assistant("text", "好")])
     out = _agent_run(world, agent)
     assert _df_deny(out), out
-    assert "(d) 需求沒點名" in _reason(out)
+    assert "(d) 使用者原話" in _reason(out)
 
 
 def test_subagent_declaration_seen_when_hook_gives_agent_transcript(world):
@@ -559,7 +559,7 @@ def test_deny_text_slim_rule_fix_and_hit_only(world):
     guard.deny_text_slim=false 退回原本的長文字（原處不動）。舊碼只有長文字 → 紅。"""
     slim = _reason(_run(world))
     head, hit = slim.splitlines()[:2]
-    assert head.startswith("[Guardian:DataFileAsk] 修法：比這次工具呼叫早一則訊息送出宣告行（入口行範例：動資料檔｜settings.json：")
+    assert head.startswith("[Guardian:DataFileAsk] 修法：比這次呼叫早一則訊息送出 動資料檔｜settings.json：")
     assert hit.startswith(f"✗ (df) {RULE}：") and rr.parse_hit_rules(slim) == [("df", RULE)]
     assert "先宣告一行再改" not in slim and "留帳給健檢抽查" not in slim
     old = _reason(_run(world, config={"guard": {"deny_text_slim": False}}))
@@ -594,7 +594,7 @@ def test_read_hint_on_first_read_of_data_file(world, post_read):
     """規則 DATA_FILE_READ_HINT：第一次讀到改了會被問的資料檔 → 讀檔結果後附一行宣告格式；同檔再讀不重送；之後的檔只點名「格式同前」；
     程式檔、子代理讀的不提示。判定不動：沒宣告照擋。舊碼讀檔後什麼都不說、第一次改才被擋 → 紅。"""
     first = post_read({"file_path": str(world["proj"] / "settings.json")})
-    assert "[Guardian:DataFileAsk] 改 settings.json 要先宣告｜格式：動資料檔｜<路徑>：" in first and "早一則訊息送出" in first
+    assert "[Guardian:DataFileAsk] 改 settings.json 前先宣告：動資料檔｜<路徑>：" in first and "早一則訊息送出" in first
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "settings.json")})
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.py")})
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "README.md")}, agent_id="ag-1")
@@ -617,3 +617,40 @@ def test_read_hint_skips_named_declared_and_switched_off(world, post_read, monke
     monkeypatch.setenv("WG_V6", "0")
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.toml")})
     assert not [e for e in _log(world) if e["event"] == "read_hint"]
+
+
+# ─── 擋訊息縮到兩行、讀檔提示一行（改造包 P4；判定不動）───
+
+def test_block_message_is_two_lines_with_rule_and_howto(world):
+    """擋訊息只有兩行：一行「[Guardian:DataFileAsk] 修法：<宣告怎麼寫，附一行範例>」、一行 `✗ (df) 規則名：哪個檔｜證據：為什麼算使用者的資料檔`；
+    管道細說、拿不準先問、留帳這些搬去 TECH／判準卡。舊訊息 444 字、修法句帶「入口行範例」「AskUserQuestion」→ 紅。"""
+    r = _reason(_run(world))
+    lines = r.split("\n判準卡")[0].splitlines()
+    assert len(lines) == 2, lines
+    fix, hit = lines
+    assert fix.startswith("[Guardian:DataFileAsk] 修法：") and "動資料檔｜settings.json：<為什麼要動它、動了使用者會看到什麼>" in fix
+    assert hit.startswith(f"✗ (df) {RULE}：要改使用者既有的資料檔 settings.json") and "｜證據：" in hit
+    assert rr.parse_hits(r) == ["df"]
+    for gone in ("入口行範例", "AskUserQuestion", "每個檔各一行", "例如 `git diff`", "本 session 的新建紀錄"):
+        assert gone not in fix + hit, gone                      # 後面接的判準卡是卡池文字，不算擋訊息
+    assert len(fix) <= 195 and len(hit) <= 180 and len("\n".join(lines)) <= 375, (len(fix), len(hit))   # 舊版 191＋252＝444；含「可在 need_goal data_files 一起交」半句
+
+
+def test_read_hint_is_one_line(world, post_read):
+    """讀到會被問的檔時的提示一行、不超過 130 字：檔名＋宣告格式＋放哪；「跟改檔同一則送出的文字這裡看不到」這類說明不放。"""
+    first = post_read({"file_path": str(world["proj"] / "settings.json")})
+    assert first.startswith("[Guardian:DataFileAsk] 改 settings.json 前先宣告：動資料檔｜<路徑>：<") and "\n" not in first
+    assert len(first) <= 160 and "這裡看不到" not in first, (len(first), first)
+    assert "`#` 註解" in first and "早一則" in first
+
+
+def test_declaration_format_unchanged_still_accepted(world):
+    """宣告格式字樣（程式比對的「動資料檔｜<路徑>：<為什麼>」）一字不改：照舊宣告在回覆文字與 `#` 註解都放行；擋訊息範例裡的字樣就是能被認的格式。"""
+    r = _reason(_run(world))
+    example = r.split("動資料檔｜settings.json：", 1)[1].split("（", 1)[0]
+    assert example == "<為什麼要動它、動了使用者會看到什麼>" and not rr.reason_present(example), "範例佔位要填理由才算宣告"
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("text", DECL)])
+    assert not _df_deny(_run(world)) and _log(world)[-1]["via"] == "text"
+    _transcript(world["tp"], [_user(B1_PROMPT), _assistant("tool_use", "# 動資料檔｜settings.json：修掉多逗號\ngit diff")])
+    wg_core.write_state(SID, {**wg_core.read_state(SID), "data_file_declared": {}})
+    assert not _df_deny(_run(world)) and _log(world)[-1]["via"] == "tool_input"

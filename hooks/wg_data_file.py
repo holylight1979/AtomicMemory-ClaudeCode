@@ -3,7 +3,8 @@
 做什麼：PreToolUse 的 Edit／Write／NotebookEdit 要動的檔，與 Bash／PowerShell 指令的每個寫入目標（wg_core.write_paths_from_tool），
 收四件事實——(a) 不是程式檔且副檔名在資料／設定清單、(b) 呼叫前已存在、(c) 不是本 session 新建的、(d) 本 session 使用者原話
 沒點名——再從三管道（回覆文字／工具呼叫參數／thinking；重用 overview_hub 的 LOCATE_CHANNELS 與 assistant_text_after）找
-「動資料檔｜<路徑>：<為什麼>」。判定在 wg_release_rules.data_file_verdict；這裡只收事實、出擋訊息、記 state、
+「動資料檔｜<路徑>：<為什麼>」；第四管道：need_goal set／update 帶 data_files=[{path, why}] 隨目標樹一起交，PostToolUse 交
+declare_via_need_goal 直接記帳、不經文字比對。判定在 wg_release_rules.data_file_verdict；這裡只收事實、出擋訊息、記 state、
 寫 Logs/guard-data_file.jsonl（denied／declared／exempt／cap_released：同一個使用者回合同一個檔擋滿兩次就放行，
 wg_core.deny_cap；error：閘自己出錯，這次不擋）。本 session 新建的檔記進 state created_files：Write 由
 handlers/post_tool_use.py 呼叫 note_created；Bash／PowerShell 由這裡記下呼叫前不存在的目標、post_tool_use 呼叫
@@ -222,6 +223,43 @@ def read_hint(state: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
         sys.stderr.write(f"[Guardian:DataFileAsk] 讀檔後的宣告格式提示出錯（這次不提示，改檔照常判）：{err}\n")
         append_guard_log(GUARD, {"event": "error", "rule": "DATA_FILE_READ_HINT", "tool": tool_name, "error": err})
         return None
+
+
+def declare_via_need_goal(state: Dict[str, Any], sid: str, data_files: Any, main_tp: str, cwd: str) -> Tuple[Optional[str], bool]:
+    """need_goal set／update 帶的 data_files=[{path, why}]（規則 USER_DATA_FILE_NEEDS_DECLARATION 的第四管道）：不經文字比對，
+    直接記進 state data_file_declared（欄位同 _judge 記的：line／via／at），之後 gate 走「本 session 宣告過」放行；
+    DATA_FILE_DECL_VOIDED_BY_LATER_MENTION 照舊靠 at。why 空或只有佔位（reason_present）的那項不算，回覆裡點名。
+    回（要送回 AI 的一行或 None, state 有沒有改）。"""
+    if not isinstance(data_files, list) or not data_files:
+        return None, False
+    taken: List[str] = []
+    skipped: List[str] = []
+    at = _size(main_tp)
+    for d in data_files:
+        if not isinstance(d, dict) or not str(d.get("path") or "").strip():
+            continue
+        raw = str(d["path"]).strip().strip(_rr._DECL_PATH_TRIM)
+        why = str(d.get("why") or "").strip()
+        rel = _rel(raw, cwd)
+        if not _rr.reason_present(why):
+            skipped.append(rel)
+            append_guard_log(GUARD, {"session_id": sid, "event": "declared_skipped", "via": "need_goal", "path": raw,
+                                     "why": "why 空或只有佔位"})
+            continue
+        key = _rr.canon_path(raw if os.path.isabs(raw) or not cwd else os.path.join(cwd, raw))
+        line = f"動資料檔｜{rel}：{why}"[:200]
+        state.setdefault("data_file_declared", {})[key] = {"line": line, "via": "need_goal", "at": at}
+        append_guard_log(GUARD, {"session_id": sid, "event": "declared_via_need_goal", "via": "need_goal", "path": raw,
+                                 "why": why[:120]})
+        taken.append(rel)
+    if not taken and not skipped:
+        return None, False
+    parts = []
+    if taken:
+        parts.append("宣告收下（之後改它不再問）：" + "、".join(taken))
+    if skipped:
+        parts.append("沒收（why 空或只有佔位，改它還是會問）：" + "、".join(skipped))
+    return "[Guardian:DataFileAsk] " + "；".join(parts), bool(taken)
 
 
 def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:

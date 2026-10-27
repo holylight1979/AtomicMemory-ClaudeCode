@@ -1019,7 +1019,7 @@ def test_cg0_locate_two_candidates_asked_once_per_user_turn(hooked, block_mode):
 
 def test_cg1_locate_needs_critique_line(hooked, block_mode):
     """LOCATE_LINES_NEED_CRITIQUE：有目標樹改寫碼部位，定位四行之後要第五行「批判」；沒交 → 擋（規則名、缺哪一項）；
-    照抄範本 → 當沒交；判合理沒理由 → 擋；結構對 → 放行並掛節點。舊碼不認「批判」這個鍵，四行就放（紅）。"""
+    照抄範本 → 當沒交；只寫兩個字 → 擋「太短」；有內容 → 放行並掛節點（改造包 Q：不認「合理／更好的做法／同類」字樣）。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡")
@@ -1033,9 +1033,9 @@ def test_cg1_locate_needs_critique_line(hooked, block_mode):
     _say(tp, four + "\n定位｜批判：" + overview_hub.CRITIQUE_TEMPLATE)
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert deny and "沒交第五行" in deny                                     # 照抄範本不算交
-    _say(tp, four + "\n定位｜批判：合理；同類還可能在哪：存檔流程")
+    _say(tp, four + "\n定位｜批判：合理")
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "LOCATE_LINES_NEED_CRITIQUE" in deny and "沒寫理由" in deny
+    assert deny and "LOCATE_LINES_NEED_CRITIQUE" in deny and "太短" in deny
     _say(tp, four + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
     assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"

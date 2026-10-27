@@ -97,6 +97,35 @@ function validateVerifyScope(a) {
   return errs;
 }
 
+/** set／update 選填 locate=[{part, lines}]（規則 LOCATE_VIA_NEED_GOAL）：只驗形狀，內容由 Python wg_overview.locate_from_goal 判。 */
+function validateLocate(a) {
+  if (!given(a.locate)) return [];
+  if (!Array.isArray(a.locate)) return ["locate 必須是陣列（[{part, lines}]：部位名或檔路徑、定位四行）"];
+  const errs = [];
+  a.locate.forEach((it, i) => {
+    if (!it || typeof it !== "object" || Array.isArray(it)) { errs.push(`locate[${i}] 必須是物件`); return; }
+    if (!str(it.part)) errs.push(`locate[${i}].part 必填（部位名或該部位的檔路徑）`);
+    if (!Array.isArray(it.lines) || !it.lines.length || !it.lines.every((x) => str(x))) {
+      errs.push(`locate[${i}].lines 必須是非空字串陣列（定位｜部位／根因層／前例／批判各一行）`);
+    }
+  });
+  return errs;
+}
+
+/** data_files（set／update 選填）：改使用者資料檔前的宣告隨目標樹一起交，[{path, why}]；只驗形狀（陣列、每項物件、path 非空字串、
+ * why 是字串），why 空不空、路徑對不對由 Python 收件時判（hooks/wg_data_file.declare_via_need_goal）。 */
+function validateDataFiles(a) {
+  if (!given(a.data_files)) return [];
+  if (!Array.isArray(a.data_files)) return ["data_files 必須是陣列（[{path, why}]：要動的使用者資料檔與為什麼）"];
+  const errs = [];
+  a.data_files.forEach((d, i) => {
+    if (!d || typeof d !== "object" || Array.isArray(d)) { errs.push(`data_files[${i}] 必須是物件 {path, why}`); return; }
+    if (!str(d.path)) errs.push(`data_files[${i}].path 必填（要動的資料檔路徑）`);
+    if (given(d.why) && typeof d.why !== "string") errs.push(`data_files[${i}].why 必須是字串（為什麼要動、改完使用者會看到什麼不同）`);
+  });
+  return errs;
+}
+
 /** 回錯誤字串陣列（空＝合格）。 */
 function validateArgs(args) {
   const a = args || {};
@@ -109,6 +138,8 @@ function validateArgs(args) {
     if (given(a.kind) && !["code", "knowledge"].includes(a.kind)) errs.push(`kind 無效（${a.kind}），允許：code|knowledge`);
     if (given(a.items) && !Array.isArray(a.items)) errs.push("set 的 items 必須是陣列（子目標 [{text, clarity?, origin?, quote?}]，同 add）");
     else if (Array.isArray(a.items) && a.items.length) errs.push(...validateItems("add", a.items));
+    errs.push(...validateLocate(a));
+    errs.push(...validateDataFiles(a));
     return errs;
   }
   if (a.action === "read") {
@@ -116,6 +147,7 @@ function validateArgs(args) {
   }
   if (!Array.isArray(a.items) || !a.items.length) return [`${a.action} 要給 items（非空陣列）`];
   const errs = validateItems(a.action, a.items);
+  if (a.action === "update") { errs.push(...validateLocate(a)); errs.push(...validateDataFiles(a)); }
   if (a.action === "reconcile" && given(a.turns) && !(Number.isInteger(a.turns) && a.turns >= 0)) errs.push("turns 必須是 ≥0 的整數");
   return errs;
 }
@@ -132,6 +164,6 @@ async function toolNeedGoal(id, args) {
 }
 
 module.exports = {
-  toolNeedGoal, validateArgs,
+  toolNeedGoal, validateArgs, validateLocate,
   ACTIONS, NODE_STATUS, TERMINAL, CLARITY, ORIGIN, EVIDENCE_KINDS, EVIDENCE_LEVELS, READ_FORMS, REVIEW_VERDICTS,
 };

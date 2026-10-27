@@ -91,19 +91,21 @@ def test_reading_path_early_start_on_code_batch(batch_env, tmp_path, capsys):
 
 
 def test_reading_path_early_result_kept_for_stop(batch_env, tmp_path, capsys):
-    """背景交了結果、還沒到收尾 → 收下存著（EARLY_NOTE），Stop 的 reading_path_note 送一次；Stop 收到新的一批就只送新的。"""
+    """背景交了結果（有一條超線）、還沒到收尾 → 收下存著（EARLY_NOTE），Stop 的 reading_path_note 送一次；Stop 收到新的一批就只送新的。"""
     code = tmp_path / "proj" / "cli.py"
     code.parent.mkdir(parents=True)
     code.write_text("x = 1\n", encoding="utf-8")
     state = _code_state(code)
     _batch(state, [{"tool_name": "Write", "tool_input": {"file_path": str(code)}}], _PASS_CFG, capsys)
     job = state["reading_path"][_SID]["job"]
-    rph.write_result(Path(job["out"]), {"text": TJ_NOTE, "judgment": []})
+    item = {"kind": "函式", "name": "cli.py::by_product", "keys": ["cli.py::by_product"], "nums": "拐彎 3", "fp": "f"}
+    rph.write_result(Path(job["out"]), {"text": TJ_NOTE, "judgment": [item]})
     _batch(state, [{"tool_name": "Bash", "tool_input": {"command": "pytest"}}], _PASS_CFG, capsys)
     rec = state["reading_path"][_SID]
-    assert rec.get(rph.EARLY_NOTE) == TJ_NOTE and not rec.get("job")
+    early = rec.get(rph.EARLY_NOTE) or ""
+    assert early.startswith(TJ_NOTE) and rph.JUDGMENT_QUESTION in early and not rec.get("job"), early
     note, _ = rph.reading_path_note(state, _SID, _PASS_CFG, spawn=lambda p: None)
-    assert note == TJ_NOTE and rph.EARLY_NOTE not in rec
+    assert note == early and rph.EARLY_NOTE not in rec
     rec[rph.EARLY_NOTE] = "舊的一批"
     rec["job"] = {"path": str(tmp_path / "j.job.json"), "out": str(tmp_path / "j.result.json"), "at": 0, "budget": 300, "turn": 5}
     rph.write_result(tmp_path / "j.result.json", {"text": None, "judgment": []})          # 新的一批沒超線

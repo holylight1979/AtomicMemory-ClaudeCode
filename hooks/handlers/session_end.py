@@ -363,6 +363,16 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             print(f"[recall-miss] error: {e}", file=sys.stderr)
             _atom_debug_error("session_end:recall_miss", e)
 
+    # 規則 READ_FAST_PATH：session 最後幾次 Read 還躺在 read-log（之後沒有非 Read 事件來補帳）→ 這裡補完、檔也清掉
+    # （讀檔帳與工具結果體積才算完整；有累積才載 post_tool_use）
+    try:
+        import wg_read_fast
+        if wg_read_fast.pending(session_id):
+            from handlers.post_tool_use import replay_read_log
+            replay_read_log(state, session_id, config, v6)
+    except Exception as e:
+        _atom_debug_error("session_end:read_fast_replay", e)
+
     # ── 工具結果體積：整場 per-tool 次數／總量／最大值聚合成一筆
     # Logs/guard-tool-result-stats.jsonl，per-session 暫存檔聚合後刪。純本地、fail-open。
     try:

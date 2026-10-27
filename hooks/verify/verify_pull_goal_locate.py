@@ -186,8 +186,8 @@ def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked, block_mode):
     assert [ln.split("：", 1)[0] for ln in example] == ["定位｜部位", "定位｜根因層", "定位｜前例", "定位｜批判"]
     text = "\n".join(example)
     for k, v in (("<這次改哪個檔、哪一段>", "A.cs 的暴擊分支"), ("<第一個根因>", "邏輯層寫字典"), ("<第二個根因>", "存檔時序"),
-                 ("<為什麼不是 B>", "存檔只讀字典"), ("<卡名>／無", "共用字典"), ("<現在寫法的問題>", "字典兩邊都寫"),
-                 ("<替代做法>", "只留邏輯層一個寫入點"), ("<別處同樣寫法的位置>", "存檔流程")):
+                 ("<為什麼不是 B>", "存檔只讀字典"), ("<卡名>／無", "共用字典"),
+                 ("<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>", "字典兩邊都寫，只留邏輯層一個寫入點；存檔流程同樣")):
         text = text.replace(k, v)
     assert "<" not in text, text
     _say(tp, text)
@@ -539,6 +539,55 @@ def test_need_goal_cases_never_write_data_root_even_when_modules_preloaded(tmp_p
     left = sorted(str(p.relative_to(fake)) for p in fake.rglob("*") if p.is_file())
     assert left == [], left
 
+
+# ─── 改造包 Q（007 實測）：批判行不認固定字樣；內容不過的帳名；放行訊息不寫「已擋 N 則」 ─────────────
+
+_Q_FOUR = THREE2 + "\n定位｜目標：T1.1（共用字典的唯一寫入點）"
+_Q_CRIT = "\n定位｜批判：README 規定月份歸屬以台北時間為準，periods.month_of 卻轉 UTC，10/01 凌晨兩筆落到 9 月"
+
+
+def _q_locate_content_events(env):
+    """guard-need_goal 裡「定位行內容不過」那筆帳（帶 rule）：[(event, released)]；_goal_line_check 的 locate_soft（帶 rules）不算。"""
+    return [(p.get("event"), p.get("released")) for g, p in env["guard"]
+            if g == "need_goal" and p.get("event") in ("locate_blocked", "locate_soft") and p.get("rule")]
+
+
+def test_q1_critique_line_passes_without_fixed_wording(hooked, block_mode):
+    """Q-1：批判行是真批判、沒有「不合理／更好的做法／同類」字樣 → 放行、掛節點；只寫兩個字 → 擋「太短」。
+    舊碼要固定字樣，007 的這行被判沒交（紅）。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
+    _read_part(f1, proj, tp)
+    _say(tp, _Q_FOUR + "\n定位｜批判：合理")
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "LOCATE_LINES_NEED_CRITIQUE" in deny and "太短" in deny and "更好的做法是" not in deny, deny
+    _say(tp, _Q_FOUR + _Q_CRIT)
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+    assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
+    assert all(e == "locate_blocked" for e, _ in _q_locate_content_events(hooked))   # 真的擋才記 locate_blocked
+
+
+def test_q2_q3_release_logs_soft_and_message_has_no_block_count(hooked, block_mode):
+    """Q-2／Q-3：定位行交了但內容不過 → 擋 2 次各記 locate_blocked；第 3 次擋次上限放行 → 記 locate_soft（released=GATE_DENY_CAP），
+    不再記 locate_blocked；放行訊息寫「定位缺 …，這次放行」、不寫「已擋 N 則」。舊碼放行那次也記 locate_blocked、訊息說「已擋 2 則回覆」（紅）。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
+    _read_part(f1, proj, tp)
+    _say(tp, _Q_FOUR + "\n定位｜批判：合理")
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert _q_locate_content_events(hooked) == [("locate_blocked", None), ("locate_blocked", None)]
+    out = _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
+    text = json.dumps(out, ensure_ascii=False)
+    assert _deny_text(out) is None and "定位缺" in text and "這次放行" in text, text
+    assert "已擋 2 則" not in text and "則回覆" not in text, text
+    assert _q_locate_content_events(hooked)[-1] == ("locate_soft", "GATE_DENY_CAP")
+    assert _q_locate_content_events(hooked).count(("locate_blocked", None)) == 2
+    assert "edit_deny_capped" in _hub_events(hooked)
 
 if __name__ == "__main__":
     rc = subprocess.run([sys.executable, "-X", "utf8", "-m", "pytest", __file__, "-q", "-p", "no:cacheprovider"]).returncode

@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
-    _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled,
+    _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled, transcripts_of,
 )
 import chain_store  # 連鎖斷路器的帳（lib/；判定在 hooks/wg_chain.py）：工具後記 AI 動作
 from wg_episodic import _check_output_quality
@@ -65,6 +65,7 @@ def spawn_vcs_sync(*a: Any, **k: Any) -> Any:
     return _f(*a, **k)
 from handlers import aec_ledger
 import wg_data_file  # T2.16 動使用者資料檔要先宣告：記本 session 新建的檔
+import wg_read_fast  # 規則 READ_FAST_PATH：Read 事件只落 read-log，下一個事件在這裡補帳
 from handlers._shared import (
     _hud_alive,
     _is_ephemeral_path, note_ephemeral_skip,
@@ -1065,7 +1066,20 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
             if res["goal_changed"]:
                 from wg_overview import on_goal_changed
                 changed = on_goal_changed(state, transcript_path, turn) > 0
-            return res["text"], changed
+            text = res["text"]
+            if res["ok"]:                     # 規則 LOCATE_VIA_NEED_GOAL：定位四行隨樹一起交（目標改了先清、再標這次交的）
+                lines = ng.locate_via_tree(state, session_id, cwd, transcript_path, tool_input or {}, config)
+                if lines:
+                    text, changed = f"{text}\n" + "\n".join(lines), True
+            if res["ok"] and (tool_input or {}).get("data_files") and (tool_input or {}).get("action") in ("set", "update"):
+                # 動資料檔宣告隨目標樹一起交（wg_data_file.declare_via_need_goal）：記進 state，省掉另發註解指令的一個回合
+                df_line, df_changed = wg_data_file.declare_via_need_goal(
+                    state, session_id, tool_input.get("data_files"),
+                    transcripts_of(transcript_path, str(input_data.get("agent_id") or ""))[0], cwd)
+                changed = changed or df_changed
+                if df_line:
+                    text = text + "\n" + df_line
+            return text, changed
         if tool_name == "Read":
             return _need_goal_import(ng, state, session_id, str(tool_input.get("file_path")), turn, transcript_path)
         if tool_name in _EDIT_TOOLS:
@@ -1445,6 +1459,134 @@ def _aec_reconcile(state: Dict[str, Any], session_id: str, rec: Dict[str, Any], 
     return f"{res['text']}\n{AEC_RECONCILE_RETRY}", "rejected"
 
 
+def _note_tool_result(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
+                      input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """每個工具結果都做的兩筆帳：救援日誌（工具呼叫命中已注入 atom 的高特異 token → rescue-log）、工具結果體積
+    （每筆量長度落 per-session 檔；單筆超門檻 → advisory 存 state）。回 state 有沒有變。"""
+    dirty = False
+    try:
+        from wg_rescue import check_rescue_hits
+        if check_rescue_hits(state, session_id, tool_name, tool_input):
+            dirty = True
+    except Exception as e:
+        print(f"rescue check error: {e}", file=sys.stderr)
+    try:
+        from wg_friction import record_tool_result
+        _trs_adv = record_tool_result(
+            state, session_id, tool_name, tool_input, input_data.get("tool_response"), config,
+            base_dir=WORKFLOW_DIR,
+        )
+        if _trs_adv:
+            state["_tool_result_advisory"] = _trs_adv
+            dirty = True
+    except Exception as e:
+        print(f"tool result size error: {e}", file=sys.stderr)
+    return dirty
+
+
+def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
+                   input_data: Dict[str, Any], config: Dict[str, Any], v6: bool, degraded: bool,
+                   lap: Any) -> Tuple[List[str], bool, bool]:
+    """讀檔事件的四段（Read／Bash／PowerShell／Grep；非讀檔工具只打「導讀卡」那個點）：OverviewHub on_read、動資料檔讀提示、
+    需求目標讀入範圍、Depends 召回。主流程傳 _hook_lap；read-log 補帳（replay_read_log）傳不打點的 lap。
+    回（要附進工具結果的提示、state 有沒有變、打完點後的 degraded）。"""
+    ctx: List[str] = []
+    dirty = False
+    cwd = input_data.get("cwd", "") or ""
+    agent_id = str(input_data.get("agent_id") or "")
+    # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
+    if not degraded and tool_name in (("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash")):   # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
+        try:
+            from wg_overview import on_read as _hub_on_read
+            hub_ctx = _hub_on_read(
+                state, session_id, tool_name, tool_input, cwd, input_data.get("transcript_path", "") or "", config,
+                **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
+                agent_id=agent_id,
+            )
+            if hub_ctx:
+                ctx.append(hub_ctx)
+            dirty = True   # reads_after 也要落盤
+        except Exception as e:
+            print(f"overview hub read error: {e}", file=sys.stderr)
+
+    degraded = lap("導讀卡")
+
+    # 動資料檔閘：第一次讀到改了會被問的資料檔 → 一行宣告格式（規則 DATA_FILE_READ_HINT；判定不動，read_hint 炸了自己吞並出聲）
+    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
+        df_ctx = wg_data_file.read_hint(state, tool_name, tool_input, cwd, _read_exit_code(input_data.get("tool_response")), config)
+        if df_ctx:
+            ctx.append(df_ctx)
+            dirty = True
+
+    # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
+    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同。
+    # 子代理（hook 輸入帶 agent_id）讀的不算：目標樹是主 session 的，子代理讀檔不擴大它的讀入範圍、也不收「要不要長子目標」
+    if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
+        try:
+            from wg_need_goal_points import scope_on_read
+            if scope_on_read(state, session_id, tool_name, tool_input, cwd, config):
+                dirty = True   # need_goal_batch 要落盤
+        except Exception as e:  # noqa: BLE001
+            print(f"[NeedGoal] 讀入範圍記錄失敗（不影響讀檔）：{type(e).__name__}: {e}", file=sys.stderr)
+
+    # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
+    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell"):
+        try:
+            from wg_depends import on_read_depends as _on_read_depends
+            dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, cwd, config)
+            if dep_ctx:
+                ctx.append(dep_ctx)
+                dirty = True   # depends_hints／authority_map_injected 要落盤
+        except Exception as e:
+            print(f"depends recall error: {e}", file=sys.stderr)
+    return ctx, dirty, degraded
+
+
+def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, Any], v6: bool) -> Tuple[List[str], bool]:
+    """規則 READ_FAST_PATH：Read 的 PostToolUse 走 dispatcher 快路徑只落 read-log；這裡在下一個非 Read 事件把累積的 Read
+    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub on_read、動資料檔讀提示、讀入範圍、Depends 召回、
+    讀到續接單匯入目標樹）——結果一樣、晚一個事件出現。v6 關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
+    回（要附進這則工具結果的提示＝上一個 PreToolUse 補出來存在 state 的＋這次補出來的、state 有沒有變）。"""
+    ctx: List[str] = list(state.pop(wg_read_fast.HINTS_KEY, None) or [])
+    dirty = bool(ctx)
+    if not session_id:
+        return ctx, dirty
+    entries = wg_read_fast.drain(session_id)
+    if not entries or not v6:
+        return ctx, dirty
+    for ev in (wg_read_fast.event_of(e) for e in entries):
+        ti = ev["tool_input"]
+        dirty = _note_tool_result(state, session_id, "Read", ti, ev, config) or dirty
+        rc, rd, _ = _read_tracking(state, session_id, "Read", ti, ev, config, v6, False, lambda seg: False)
+        ng_ctx, ng_changed = _need_goal_after_tool(state, session_id, "Read", ti, ev, config, [])
+        ctx.extend(rc)
+        if ng_ctx:
+            ctx.append(ng_ctx)
+        dirty = dirty or rd or ng_changed
+    return ctx, dirty
+
+
+def replay_reads_before_tool(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """PreToolUse（Edit／Write／Bash… 要讀檔證據的閘之前）：有累積的 Read 就讀 state 補帳、寫回；補出來的提示存
+    state[read_replay_hints]，下一個 PostToolUse 隨工具結果送。沒累積就什麼都不碰（不多讀 state）。炸了不擋工具、stderr 出聲。"""
+    sid = str(input_data.get("session_id") or "")
+    if not sid or not wg_read_fast.pending(sid):
+        return
+    try:
+        state = _ensure_state(sid, input_data, config)
+        if not state:
+            print("[Guardian:ReadFastPath] state 讀不到，這批 Read 留到下一個事件再補帳", file=sys.stderr)
+            return
+        ctx, dirty = replay_read_log(state, sid, config, v6_enabled(config))
+        if ctx:
+            state[wg_read_fast.HINTS_KEY] = ctx
+            dirty = True
+        if dirty:
+            write_state(sid, state)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:ReadFastPath] PreToolUse 補帳失敗（不擋這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
+
+
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1467,26 +1609,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     recovered: List[str] = []         # 判不出目標的寫入事後補到的檔（UNKNOWN_WRITE_RECOVERED）：目標樹也要蓋號
     v6 = v6_enabled(config)           # 關＝只跑 9e476fd0 就有的記帳與提示
 
-    # ─── 救援日誌：工具呼叫命中已注入 atom 的高特異 token → rescue-log ───
-    try:
-        from wg_rescue import check_rescue_hits
-        if check_rescue_hits(state, session_id, tool_name, tool_input):
-            dirty = True
-    except Exception as e:
-        print(f"rescue check error: {e}", file=sys.stderr)
+    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log（dispatcher 快路徑），這裡先把累積的 Read 補帳（提示隨這則工具結果送）
+    replay_ctx, replay_dirty = replay_read_log(state, session_id, config, v6)
+    dirty = dirty or replay_dirty
 
-    # ─── 工具結果體積：每筆量長度落 per-session 檔（不進 state）；單筆超門檻 → advisory ───
-    try:
-        from wg_friction import record_tool_result
-        _trs_adv = record_tool_result(
-            state, session_id, tool_name, tool_input, input_data.get("tool_response"), config,
-            base_dir=WORKFLOW_DIR,
-        )
-        if _trs_adv:
-            state["_tool_result_advisory"] = _trs_adv
-            dirty = True
-    except Exception as e:
-        print(f"tool result size error: {e}", file=sys.stderr)
+    dirty = _note_tool_result(state, session_id, tool_name, tool_input, input_data, config) or dirty
 
     # ─── sub-agent 注入歸因記錄 ───────────────────────────────
     # PostToolUse 對 Agent/Task 自足：tool_response 含 agentId / content / prompt
@@ -1883,52 +2010,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
 
-    # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
-    hub_ctx = None
-    if not degraded and tool_name in (("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash")):   # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
-        try:
-            from wg_overview import on_read as _hub_on_read
-            hub_ctx = _hub_on_read(
-                state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "",
-                input_data.get("transcript_path", "") or "", config,
-                **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
-                agent_id=str(input_data.get("agent_id") or ""),
-            )
-            dirty = True   # reads_after 也要落盤
-        except Exception as e:
-            print(f"overview hub read error: {e}", file=sys.stderr)
-
-    degraded = _hook_lap("導讀卡")
-
-    # 動資料檔閘：第一次讀到改了會被問的資料檔 → 一行宣告格式（規則 DATA_FILE_READ_HINT；判定不動，read_hint 炸了自己吞並出聲）
-    df_ctx = None
-    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not input_data.get("agent_id"):
-        df_ctx = wg_data_file.read_hint(state, tool_name, tool_input, input_data.get("cwd", "") or "",
-                                        _read_exit_code(input_data.get("tool_response")), config)
-        dirty = dirty or bool(df_ctx)
-
-    # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
-    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同。
-    # 子代理（hook 輸入帶 agent_id）讀的不算：目標樹是主 session 的，子代理讀檔不擴大它的讀入範圍、也不收「要不要長子目標」
-    if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not input_data.get("agent_id"):
-        try:
-            from wg_need_goal_points import scope_on_read
-            if scope_on_read(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config):
-                dirty = True   # need_goal_batch 要落盤
-        except Exception as e:  # noqa: BLE001
-            print(f"[NeedGoal] 讀入範圍記錄失敗（不影響讀檔）：{type(e).__name__}: {e}", file=sys.stderr)
-
-    # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
-    dep_ctx = None
-    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell"):
-        try:
-            from wg_depends import on_read_depends as _on_read_depends
-            dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config)
-            if dep_ctx:
-                dirty = True   # depends_hints／authority_map_injected 要落盤
-        except Exception as e:
-            print(f"depends recall error: {e}", file=sys.stderr)
-
+    read_ctx, _rd, degraded = _read_tracking(state, session_id, tool_name, tool_input, input_data, config, v6, degraded, _hook_lap)
+    dirty = dirty or _rd
     _hook_lap("綜觀與召回")
     ng_ctx, ng_changed = (_need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config, recovered)
                           if v6 else (None, False))
@@ -1936,14 +2019,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     _hook_lap("目標樹")
 
     advisories = list(aec_reject_msgs)
+    advisories.extend(replay_ctx)       # 補帳的 Read 的提示（含上一個 PreToolUse 補出來、存在 state 裡的）排在這則自己的前面
     if ng_ctx:
         advisories.append(ng_ctx)
-    if hub_ctx:
-        advisories.append(hub_ctx)
-    if df_ctx:
-        advisories.append(df_ctx)
-    if dep_ctx:
-        advisories.append(dep_ctx)
+    advisories.extend(read_ctx)
     # 提醒（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：工具前守門判成提醒的那幾件，在這則工具結果送一行（同規則同對象一 session 一次）；
     # need_goal set 那則先提醒「之後提問要附推薦」（ASK_NEEDS_RECOMMENDATION，每 session 一次；漏了在提問那則補一行）
     if v6:

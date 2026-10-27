@@ -850,6 +850,63 @@ def _validate_verify_scope(inp: Dict[str, Any]) -> List[str]:
     return errs
 
 
+def _validate_locate(inp: Dict[str, Any]) -> List[str]:
+    """set／update 選填 locate=[{part, lines}]（規則 LOCATE_VIA_NEED_GOAL）：只驗形狀，內容由 wg_overview.locate_from_goal 照改檔時的判法。"""
+    loc = inp.get("locate")
+    if loc is None:
+        return []
+    if not isinstance(loc, list):
+        return ["locate 必須是陣列（[{part, lines}]：部位名或檔路徑、定位四行）"]
+    errs: List[str] = []
+    for i, it in enumerate(loc):
+        if not isinstance(it, dict):
+            errs.append(f"locate[{i}] 必須是物件")
+            continue
+        if not _s(it.get("part")):
+            errs.append(f"locate[{i}].part 必填（部位名或該部位的檔路徑）")
+        ls = it.get("lines")
+        if not isinstance(ls, list) or not ls or not all(isinstance(x, str) and x.strip() for x in ls):
+            errs.append(f"locate[{i}].lines 必須是非空字串陣列（定位｜部位／根因層／前例／批判各一行）")
+    return errs
+
+
+def locate_via_tree(state: Dict[str, Any], sid: Any, cwd: str, transcript_path: str, inp: Dict[str, Any],
+                    config: Optional[Dict[str, Any]]) -> List[str]:
+    """need_goal set／update 收下之後：locate 欄交給 wg_overview.locate_from_goal（規則 LOCATE_VIA_NEED_GOAL）。
+    出錯只 stderr＋守門紀錄、回一行，不影響已套用的樹。"""
+    if not inp.get("locate") or inp.get("action") not in ("set", "update"):
+        return []
+    try:
+        from wg_overview import locate_from_goal
+        return locate_from_goal(state, str(sid), cwd, transcript_path, inp["locate"], config or {})
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] locate 欄套用失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        _guard("locate_via_tree_error", sid, error=f"{type(e).__name__}: {e}")
+        return [f"[NeedGoal] locate 欄沒套用（{type(e).__name__}: {e}），定位照舊在改檔前交"]
+
+
+
+
+def _validate_data_files(inp: Dict[str, Any]) -> List[str]:
+    """data_files（set／update 選填）：動資料檔宣告隨目標樹一起交，[{path, why}]。這裡只驗形狀（同 js validateDataFiles）；
+    why 空不空、記帳由 wg_data_file.declare_via_need_goal 收件時判。"""
+    dfs = inp.get("data_files")
+    if dfs is None:
+        return []
+    if not isinstance(dfs, list):
+        return ["data_files 必須是陣列（[{path, why}]：要動的使用者資料檔與為什麼）"]
+    errs: List[str] = []
+    for i, d in enumerate(dfs):
+        if not isinstance(d, dict):
+            errs.append(f"data_files[{i}] 必須是物件 {{path, why}}")
+            continue
+        if not _s(d.get("path")):
+            errs.append(f"data_files[{i}].path 必填（要動的資料檔路徑）")
+        if d.get("why") is not None and not isinstance(d.get("why"), str):
+            errs.append(f"data_files[{i}].why 必須是字串（為什麼要動、改完使用者會看到什麼不同）")
+    return errs
+
+
 def validate_input(inp: Dict[str, Any]) -> List[str]:
     """js 那層的同一組規則：動作合法、必填有填、列舉值合法。"""
     action = inp.get("action")
@@ -866,7 +923,7 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
             errs.append("set 的 items 必須是陣列（子目標 [{text, clarity?, origin?, quote?}]，同 add）")
         elif items:
             errs += _validate_items("add", items)
-        return errs
+        return errs + _validate_locate(inp) + _validate_data_files(inp)
     if action == "read":
         if inp.get("form") is not None and inp.get("form") not in READ_FORMS:
             errs.append(f"form 無效（{inp.get('form')}），允許：{'|'.join(READ_FORMS)}")
@@ -877,6 +934,8 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
     if not isinstance(items, list) or not items:
         return [f"{action} 要給 items（非空陣列）"]
     errs += _validate_items(action, items)
+    if action == "update":
+        errs += _validate_locate(inp) + _validate_data_files(inp)
     t = inp.get("turns")
     if action == "reconcile" and t is not None and (not isinstance(t, int) or isinstance(t, bool) or t < 0):
         errs.append("turns 必須是 ≥0 的整數")

@@ -173,7 +173,7 @@ def test_locate_first_deny_asks_everything_at_once(hub):
     wo, state, files, tp = hub
     _, deny, _ = wo.on_edit(state, "s", files[0], tp, {})
     assert deny and "選 A 因為" in deny and "定位｜目標" not in deny.split("判準卡（")[0]
-    assert "合理／不合理" in deny and "定位｜部位：報表——" in deny
+    assert "合不合理" in deny and "定位｜部位：報表——" in deny
 
 
 def test_locate_same_batch_deny_is_one_line(hub):
