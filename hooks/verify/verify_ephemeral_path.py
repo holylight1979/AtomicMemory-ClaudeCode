@@ -5,6 +5,7 @@ session scratchpad 就是短路徑寫法；只比字面前綴時兩種寫法對�
 寫碼查核 (d) 要求補案例。
 正例：長／短 × 長／短（路徑寫法 × gettempdir 回傳寫法）四種組合都判成暫存，檔案還不存在也一樣。
 反例：一般專案路徑、含 `~1` 但不在暫存目錄下的路徑判成非暫存；`<暫存>\\..\\..\\專案\\x.py` 是專案原碼（經 post_tool_use 照常記改檔）。
+暫存目錄底下的專案寫入不記帳時，同一個專案根說一次（規則 EPHEMERAL_WRITE_NOTED_ONCE，_shared.note_ephemeral_skip）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_ephemeral_path.py
 """
 from __future__ import annotations
@@ -185,3 +186,44 @@ def test_post_tool_use_ledger_lands_in_tmp_not_live(monkeypatch, tmp_path):
     assert not _noted_via_post_tool_use(monkeypatch, long_ + r"\claude\sess\scratchpad\probe.py")
     assert (tmp_path / "aec-tempfiles" / "sid-eph.jsonl").is_file()
     assert (sorted(p.name for p in live.glob("*.jsonl")) if live.is_dir() else []) == before
+
+
+def _post_write(monkeypatch, state: dict, tool: str, tool_input: dict) -> None:
+    """經 post_tool_use 入口跑一次改檔（同一份 state 跨呼叫共用，模擬同一個 session）。"""
+    from handlers import post_tool_use as pt
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"session_id": "sid-eph", "tool_name": tool, "tool_input": tool_input, "tool_response": {},
+                                 "cwd": str(HOOKS_DIR.parent)}, {"docdrift": {"enabled": False}})
+
+
+def test_temp_project_write_not_noted_but_said_once_per_root(monkeypatch, tmp_path, capsys):
+    """規則 EPHEMERAL_WRITE_NOTED_ONCE：專案放在系統暫存目錄底下，寫入照舊不進 modified_files，但印一行 stderr 說明為什麼沒記；
+    同一 session、同一個專案根（版控根）只印一次——第二個檔、Bash 寫入同一個專案都不再印；別的專案根再印一次；
+    快取目錄（不在暫存根底下的 __pycache__）照舊不記、不印。改前什麼都不印，收尾閘看不到改檔也沒人知道為什麼。"""
+    monkeypatch.setenv("WG_V6", "1")
+    temp = tmp_path / "Temp"
+    (temp / "q5-agenda" / ".git").mkdir(parents=True)
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: str(temp))
+    state = {"turn_seq": 3, "session": {"cwd": str(HOOKS_DIR.parent)}}
+    a, b = temp / "q5-agenda" / "src" / "a.py", temp / "q5-agenda" / "src" / "b.py"
+    _post_write(monkeypatch, state, "Edit", {"file_path": str(a)})
+    err = [ln for ln in capsys.readouterr().err.splitlines() if "[Guardian:EphemeralWrite]" in ln]
+    root = _shared._comparable(str(temp / "q5-agenda"))
+    assert len(err) == 1 and root in err[0] and "不記進改檔清單" in err[0]
+    assert state[_shared.EPHEMERAL_NOTED_KEY] == [root.lower()]
+    _post_write(monkeypatch, state, "Edit", {"file_path": str(b)})
+    _post_write(monkeypatch, state, "Bash", {"command": f"echo x > '{(temp / 'q5-agenda' / 'c.txt').as_posix()}'"})
+    assert "[Guardian:EphemeralWrite]" not in capsys.readouterr().err
+    _post_write(monkeypatch, state, "Bash", {"command": f"echo x > '{(temp / 'q6' / 'x.py').as_posix()}'"})
+    err = [ln for ln in capsys.readouterr().err.splitlines() if "[Guardian:EphemeralWrite]" in ln]
+    assert len(err) == 1 and _shared._comparable(str(temp / "q6")) in err[0]   # Bash 寫入；沒版控根：暫存根底下第一層
+    cache = tmp_path / "proj" / "__pycache__" / "x.cpython-314.pyc"
+    _post_write(monkeypatch, state, "Write", {"file_path": str(cache), "content": "x"})
+    assert "[Guardian:EphemeralWrite]" not in capsys.readouterr().err
+    assert not [m for m in state.get("modified_files") or [] if "q5-agenda" in m.get("path", "") or "q6" in m.get("path", "")]
+    assert len(state[_shared.EPHEMERAL_NOTED_KEY]) == 2
+    assert _shared.note_ephemeral_skip(state, str(a)) is False                 # 直接問也一樣：這個根說過了

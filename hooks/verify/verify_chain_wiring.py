@@ -226,8 +226,8 @@ def test_same_tool_gate_twice_aborts(hk):
 
 def test_verbatim_retry_after_other_action_keeps_gate_block_headless(hk, monkeypatch):
     """紅案例（CHAIN_SAME_CALL_RETRY，004 非改 code 題現況1 重演、無頭入口）：動資料檔閘擋 Write → AI 做了別的動作 → 原封不動重送
-    → 照那道閘原本的擋（不警報、其餘閘不變成只記錄，這筆改動沒宣告就過不了）；改了內容再送 → 照舊算第 2 次警報。
-    舊碼重送那次就警報，無頭照 CHAIN_HEADLESS_NO_ASK 放行，檔就沒宣告改成了。"""
+    → 照那道閘原本的擋（不警報、其餘閘不變成只記錄，這筆改動沒宣告就過不了）；改了內容再送 → 照舊算第 2 次警報，
+    動資料檔閘無頭照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）。舊碼重送那次就警報，無頭照 CHAIN_HEADLESS_NO_ASK 放行，檔就沒宣告改成了。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk("sid-retry")
     f = s.proj / "README.md"
@@ -242,13 +242,14 @@ def test_verbatim_retry_after_other_action_keeps_gate_block_headless(hk, monkeyp
     s.gates["DataFileAsk"] = False
     assert not _denied(s.write(s.proj / "release.md", "r2\n"))
     s.gates["DataFileAsk"] = True
-    assert not _denied(s.write(f, "說明（改寫）\n"))                                          # 改了內容：第 2 次，無頭響的那次照放
+    second = s.write(f, "說明（改寫）\n")                                                     # 改了內容：第 2 次，警報響
+    assert _denied(second) and _deny_text(second).startswith("[Guardian:DataFileAsk]") and not f.exists()   # 資料閘無頭照擋
     assert "alarm" in {r.get("type") for r in cs.read_rows(s.sid)}
 
 
 def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
     """紅案例（C2）：headless 主 session 觸發 → 不叫 AI 問、不停手：其餘閘只記錄、改檔照常、帳上有 alarm；transcript 裡就算有答案
-    也不還原不繼續。工具前閘上響的那一次照放，收尾擋一次送表、之後不再擋。"""
+    也不還原不繼續。動資料檔閘例外照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）：警報後、和讓警報響的那一次都照擋；收尾擋一次送表、之後不再擋。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk()
     out, x, y = _depth2(s)
@@ -261,7 +262,7 @@ def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
     assert x.read_text(encoding="utf-8") == "n = 2\n" and y.read_text(encoding="utf-8") == "o = 1\n"
     assert not _denied(s.write(x, "n = 3\n")) and x.read_text(encoding="utf-8") == "n = 3\n"      # 不停手
     s.gates["DataFileAsk"] = True
-    assert not _denied(s.write(y, "o = 2\n"))                                                     # 閘只記錄
+    assert _denied(s.write(y, "o = 2\n")) and y.read_text(encoding="utf-8") == "o = 1\n"         # 動資料檔閘照擋
     kinds = {r.get("type") for r in cs.read_rows(s.sid)}
     assert "alarm" in kinds and not {"answer", "restore", "reset", "halted"} & kinds
     t = hk("sid-headless-tool")
@@ -271,9 +272,38 @@ def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
     t.gates["DataFileAsk"] = False
     assert not _denied(t.write(t.proj / "e.txt", "e\n"))
     t.gates["DataFileAsk"] = True
-    assert not _denied(t.write(f, "b\n")) and f.exists()                       # 改了內容再送：響的那一次照放
+    assert _denied(t.write(f, "b\n")) and not f.exists()                       # 改了內容再送：響的那一次是資料閘，照擋
     first = t.stop()
     assert _blocked(first) and first["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止") and not _blocked(t.stop())
+
+
+def test_headless_after_alarm_data_file_blocked_code_file_record_only(hk, monkeypatch):
+    """紅案例（CHAIN_HEADLESS_KEEPS_DATA_GATES；004 非改 code 題現況1：無頭量測裡 ops/README.md 沒宣告就改成）：無頭、
+    定位閘擋同一個部位第 2 次讓警報響之後 → 改資料檔沒宣告：照動資料檔閘原擋訊息擋、檔沒寫成，再送一次也照擋；
+    同一情境改一般程式檔被定位閘擋 → 只記錄、照寫。收尾的經過表標出照擋的那幾筆。改前警報後動資料檔閘只記錄、檔沒宣告就改了。"""
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    s = hk("sid-keep")
+    blocked = _hub_switch(s, monkeypatch)
+    pricing, checkout, cli = (s.proj / "orders" / n for n in ("pricing.py", "checkout.py", "cli.py"))
+    blocked.add(wc.canon_path(pricing))
+    assert _deny_text(s.write(pricing, "p = 1\n")).startswith("[Guardian:OverviewHub]")
+    assert not _denied(s.write(s.proj / "NOTES.md", "n\n"))                                       # AI 動了手
+    blocked.add(wc.canon_path(checkout))
+    assert not _denied(s.write(checkout, "c = 1\n")) and checkout.exists()                          # 同部位第 2 次：警報，無頭照放
+    assert "alarm" in {r.get("type") for r in cs.read_rows(s.sid)}
+    readme = s.proj / "ops" / "README.md"
+    s.gates["DataFileAsk"] = True
+    for _ in range(2):
+        out = s.write(readme, "部署說明\n")
+        assert _denied(out) and _deny_text(out).startswith("[Guardian:DataFileAsk]") and not readme.exists()
+    s.gates["DataFileAsk"] = False
+    blocked.add(wc.canon_path(cli))
+    assert not _denied(s.write(cli, "x = 1\n")) and cli.exists()                                    # 一般程式檔：只記錄
+    rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
+    assert [r["gate"] for r in rows if r.get("kept")] == ["DataFileAsk", "DataFileAsk"]
+    assert rows[-1]["gate"] == "OverviewHub" and rows[-1]["record_only"] and not rows[-1].get("kept")
+    first = s.stop()
+    assert _blocked(first) and "會改使用者資料照擋" in first["reason"] and "照它的擋訊息補宣告" in first["reason"]
 
 
 def test_restore_puts_back_chain_segment_only(hk):

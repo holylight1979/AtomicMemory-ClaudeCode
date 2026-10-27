@@ -3956,3 +3956,31 @@ RULES.update({
     "SUBPROCESS_RUN_LOOKED_UP_AT_CALL": "跑子行程的函式不把 subprocess.run 綁成參數預設值：預設 None、呼叫當下才取 subprocess.run。"
                                         "綁在定義時，測試的 git 錄製重播換掉 subprocess.run 也攔不到，結果看匯入順序、錄製檔對不上。",
 })
+
+
+# ─── 閘的三件設計題（無頭警報後資料閘照擋、唯讀 Bash 讀檔、暫存目錄專案寫入）：判定在各自的模組，這裡只登錄規則名與說明 ───
+RULES.update({
+    "CHAIN_HEADLESS_KEEPS_DATA_GATES": "沒人能答（無頭、子代理）時連鎖斷路器警報之後，會改使用者資料的閘照擋（含讓警報響的那一次），其餘閘照舊只記錄。"
+                                       "哪幾道與理由見 hooks/wg_chain.py 的 RULES 同名條與 KEEP_BLOCKING（判定 keeps_blocking）。",
+    "SHELL_READ_COUNTS_LIKE_READ": "唯讀 Bash／PowerShell 讀檔跟 Read 同效（定位閘的讀過部位檔、需求目標的讀入範圍共用 wg_overview.read_targets）："
+                                   "一條指令讀好幾個檔、第一次碰到部位時，注入導讀卡之後的檔照記（跟送幾個 Read 一樣）；MSYS 寫法 /c/x 當 C:/x"
+                                   "（跟寫檔判定 wg_core._write_target_abs 同一個檔）；會印出命中行的 grep 不帶 -n 也算（只印檔名、筆數或不印的 -l、-L、-c、-q 帶了 -n 也不算）；"
+                                   "開頭 `cd <目錄> &&` 之後的相對路徑照那個目錄補（中間的 cd 不追）。其餘照 BASH_READONLY_COUNTS_AS_READ。",
+    "SHELL_WRITE_COMMAND_NOT_A_READ": "Bash／PowerShell 指令有寫檔目標（wg_core.write_paths_from_tool 判出任何目標，含判不出的；重導向 >、tee、"
+                                      "sed -i、Out-File…）就不是唯讀：整條讀到的檔都不算讀過、也不注入導讀卡；`2>&1`、`> /dev/null` 不是寫檔目標。",
+    "EPHEMERAL_WRITE_NOTED_ONCE": "專案放在系統暫存目錄底下（handlers/_shared._is_ephemeral_path 的暫存根那一支），寫入照舊不記進改檔清單；"
+                                  "同一 session、同一個專案根（版控根，沒有就 cwd，再沒有就暫存根底下第一層）第一次印一行 stderr "
+                                  "[Guardian:EphemeralWrite] 說明沒記、收尾閘看不到（_shared.note_ephemeral_skip）；不在暫存根底下、只因快取目錄"
+                                  "（__pycache__、.pytest_cache）判成暫存的不是專案，不印。",
+})
+
+
+# ─── 卡片來源自動填：使用者原話（判定在 hooks/wg_provenance.py，這裡只登錄規則名與說明） ───
+RULES.update({
+    "QUOTE_FROM_USER_OPENED_TURN": "卡片的 Quote 只取寫卡那一回合是使用者本人打字開的原話（wg_provenance._turn_quote；回填工具 "
+                                   "atom-provenance-backfill 的 not_user_turn 同一條）：主 session 的 state.turn_typed 是 False"
+                                   "（同伴訊息、背景通知開的續跑回合，turn_prompts 沿用前一回合原話給口令閘用）→ 不填；子代理（hook 帶 "
+                                   "agent_id）不看 state、不拿子代理檔的任務 prompt，改由子代理檔第一筆的 promptId 對主檔開那一回合的紀錄"
+                                   "（wg_provenance._subagent_opener），lib/provenance.is_human_record 是才填（isSidechain 一律不算真人）；"
+                                   "貼上的內容（lib/harness_text.strip_pasted）不當原話。守門總開關開關都套。",
+})

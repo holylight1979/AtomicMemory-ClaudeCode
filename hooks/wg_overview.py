@@ -901,14 +901,78 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     return f"{head}\n{text}"
 
 
+_MSYS_DRIVE_RE = re.compile(r"(?<![^\s'\"=(])/([A-Za-z])(?=/)")
+_LEAD_CD_RE = re.compile(r"""^\s*cd\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|'"]+))\s*(?:&&|;|\n)""")
+_GREP_CMD_RE = re.compile(r"((?:^|[;&|(])\s*grep)(?=\s)([^;&|)\n]*)", re.MULTILINE)
+_GREP_NO_CONTENT = ("--count", "--files-with-matches", "--files-without-match", "--quiet", "--silent")
+
+
+def _grep_prints_lines(args: str) -> bool:
+    """SHELL_READ_COUNTS_LIKE_READ：這段 grep 會印出命中的行（不是只印檔名 -l／-L、只印筆數 -c、不印 -q）。"""
+    for tok in args.split():
+        if tok.startswith("--") and tok.split("=", 1)[0] in _GREP_NO_CONTENT:
+            return False
+        if tok.startswith("-") and not tok.startswith("--") and set(tok[1:]) & set("lLcq"):
+            return False
+    return True
+
+
+_SHORT_FLAGS_RE = re.compile(r"(?<!\S)(-[A-Za-z]+|--line-number)(?!\S)")
+
+
+def _drop_line_numbers(args: str) -> str:
+    """不印內容的 grep 段拿掉 -n（含 -nl 這類合寫裡的 n）：lib 只認帶 -n 的 grep，留著就把只印檔名或筆數的 grep 算成讀過。"""
+    def fix(m: "re.Match[str]") -> str:
+        tok = m.group(1)
+        if tok == "--line-number":
+            return ""
+        tok = tok.replace("n", "")
+        return "" if tok == "-" else tok
+    return _SHORT_FLAGS_RE.sub(fix, args)
+
+
+def _shell_read_text(command: str) -> str:
+    """SHELL_READ_COUNTS_LIKE_READ：Bash 讀檔指令交 lib 解析前的兩個改寫——MSYS 寫法 `/c/x` 換成 `C:/x`（跟寫檔判定
+    wg_core._write_target_abs 同一個檔）；grep 照會不會印出命中行對齊 lib 只認帶 -n 的判法：會印的補上 -n（-n 不改印出多少內容），
+    只印檔名、筆數或不印的（-l、-L、-c、-q）拿掉 -n，就算原本帶 -n 也不算讀過。"""
+    command = _MSYS_DRIVE_RE.sub(lambda m: f"{m.group(1).upper()}:", command)
+    return _GREP_CMD_RE.sub(lambda m: f"{m.group(1)} -n{m.group(2)}" if _grep_prints_lines(m.group(2))
+                            else f"{m.group(1)}{_drop_line_numbers(m.group(2))}", command)
+
+
+def _lead_cd(command: str, cwd: str) -> str:
+    """SHELL_READ_COUNTS_LIKE_READ：指令開頭 `cd <目錄> &&`（或 ; 、換行）→ 後面的相對路徑照這個目錄補；沒有、或目錄含變數 → 原 cwd。
+    只認開頭那一個 cd，中間的 cd 不追。"""
+    m = _LEAD_CD_RE.match(command)
+    d = next((g for g in m.groups() if g), "") if m else ""
+    if not d or "$" in d or d.startswith("~"):
+        return cwd
+    return d if Path(d).is_absolute() or not cwd else str(Path(cwd) / d)
+
+
+def _writes_files(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> bool:
+    """SHELL_WRITE_COMMAND_NOT_A_READ：這條 Bash／PowerShell 指令有寫檔目標（重導向 >、tee、sed -i、Out-File…；判不出目標的也算）。
+    判寫檔目標的程式出錯 → 照寫檔算（不算讀過），stderr 說一聲。"""
+    try:
+        from wg_core import write_paths_from_tool
+        return bool(write_paths_from_tool(tool_name, tool_input, cwd or None))
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[Guardian:OverviewHub] 判不出這條指令有沒有寫檔，讀到的檔這次不算讀過：{type(e).__name__}: {e}\n")
+        return True
+
+
 def _read_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code: Optional[int] = None) -> List[str]:
     """讀檔辨識的入口：Grep（規則 GREP_CONTENT_IS_READ：output_mode=content 且 path 是檔）、Bash 先剝行首 # 註解行
-    （規則 BASH_COMMENT_LINES_STRIPPED）再交 lib 解析；Bash／PowerShell 解析出的路徑照規則 BASH_READONLY_COUNTS_AS_READ
+    （規則 BASH_COMMENT_LINES_STRIPPED）、換 MSYS 路徑、grep 補 -n、相對路徑照開頭的 cd 補（規則 SHELL_READ_COUNTS_LIKE_READ）再交 lib 解析；
+    Bash／PowerShell 有寫檔目標整條不算讀（規則 SHELL_WRITE_COMMAND_NOT_A_READ），解析出的路徑照規則 BASH_READONLY_COUNTS_AS_READ
     篩（exit_code＝這次指令的結束碼，未知給 None）；其他工具照 lib 原規則。"""
     if tool_name == "Grep":
         return _rr.grep_read_paths(tool_input)
+    if tool_name in ("Bash", "PowerShell") and _writes_files(tool_name, tool_input, cwd):
+        return []
     if tool_name == "Bash":
-        tool_input = {**tool_input, "command": _rr.strip_comment_lines(str(tool_input.get("command") or ""))}
+        command = _shell_read_text(_rr.strip_comment_lines(str(tool_input.get("command") or "")))
+        tool_input, cwd = {**tool_input, "command": command}, _lead_cd(command, cwd)
     paths = read_paths_from_tool(tool_name, tool_input, cwd)
     return _rr.bash_read_counts(paths, exit_code) if tool_name in ("Bash", "PowerShell") else paths
 
@@ -926,10 +990,13 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     目標改了以後又讀到已碰過的部位 → 回目標視角的導讀卡。暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）不找表、不注入、不記；
     Bash／PowerShell 指令失敗（exit_code≠0）讀到的不算（規則 BASH_READONLY_COUNTS_AS_READ）。
     agent_id＝子代理讀的：讀檔照記、第一次讀到照注入（子代理自己改檔時的定位閘要用），目標視角重看不送（那是問主 session 的樹）、
-    也不消耗主 session 的那一次。（需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）"""
+    也不消耗主 session 的那一次。（需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）
+    一條指令讀到好幾個檔（Bash cat a b c）：每個檔都照順序記，注入之後的檔照算讀過——跟一則回覆平行送出幾個 Read 一樣
+    （規則 SHELL_READ_COUNTS_LIKE_READ）；這一次注入或重送的導讀卡都接起來回。"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
+    texts: List[str] = []
     for p in read_targets(tool_name, tool_input, cwd, exit_code):
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
@@ -941,15 +1008,14 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
                          and rec.get("goal_reset_turn") not in (None, rec.get("goal_view_turn")))
         if rec is not None and not goal_view_due:
             continue
-        cfg = _cfg(config, root)
-        if not cfg["enabled"]:
-            return None
-        if rec is None:
-            return _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, cfg)
-        view = _goal_view(state, session_id, root, row, rec, p, cfg)
-        if view:
-            return view
-    return None
+        root_cfg = _cfg(config, root)
+        if not root_cfg["enabled"]:
+            continue
+        text = (_inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg) if rec is None
+                else _goal_view(state, session_id, root, row, rec, p, root_cfg))
+        if text:
+            texts.append(text)
+    return "\n\n".join(texts) or None
 
 
 def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_path: str,

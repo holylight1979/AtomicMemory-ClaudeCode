@@ -4,6 +4,23 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 卡片的 Quote 不再被填成沿用的舊原話、貼上的開工句；子代理寫卡改看派它的那一回合
+- **使用者會看到的**：子代理代寫的卡、或同伴訊息／背景通知開的回合裡寫的卡，`- Quote:` 不再出現一句跟這張卡無關的話（實例：10-27 一個背景子代理寫的 5 張卡，Quote 全被填成主 session 開場貼上的那則開工句，連 `<pasted_content id=…>` 標籤一起）。使用者打字開的回合照填原話；子代理是在使用者打字開的回合派出的，照填那則原話。
+- **根因**：PostToolUse 自動填（`hooks/wg_provenance.autofill_from_receipt`）的 Quote 取 `state.turn_prompts`。子代理的 hook 帶的是主 session 的 session_id，讀到的是主 session 的 state；`turn_prompts` 在同伴訊息、背景通知開的續跑回合照設計沿用前一個使用者回合的原話（口令閘要它跨過背景等待）。那個 session 唯一一則真人訊息是貼上的開工句，`is_kickoff_prompt` 認不出（貼上標籤＋角色句不是「工作 session／工作軌」），就被填進每張卡。子代理 transcript 裡的任務 prompt 沒被拿來用（派工單的推測不成立）；回填工具早就有「寫卡那回合不是使用者開的不填」（`not_user_turn`），自動填這一側漏了。
+- **規則 QUOTE_FROM_USER_OPENED_TURN**：主 session `state.turn_typed is False` → 不填；子代理（hook input 帶 `agent_id`）不看 state、不拿子代理檔的 user 訊息，改由子代理檔第一筆的 `promptId` 對主檔開那一回合的紀錄（`_subagent_opener`；本機 237 份子代理檔全對得上），是真人訊息才取它的原話、Source 的 uuid 也指它。守門總開關開關都套（這不是閘）。規則名登錄在 `hooks/wg_release_rules.RULES`（檔尾），TECH §7.8 一列、§8 細節。
+- **貼上的內容不當原話**：`lib/harness_text.strip_pasted`（閉合標籤的 id 要逐字相同、`data-id` 不算——codex 審出大小寫不同與 `data-id` 會提早結束、讓貼上材料漏進 Quote，已修；沒閉合吃到尾、殘留標籤字樣整則不認），`lib/provenance.sanitize_quote` 先過它；三個寫 Quote 的入口（自動填、回填、萃取器）都經 `sanitize_quote`。口令、糾正等判斷仍吃 `user_typed_text`，沒動。
+- **追蹤帳第㉔項一起修**：`lib/provenance.is_human_record` 認得純字串內容、`origin.kind=human` 的真人訊息（本機 123 筆；子代理被派出的回合裡有 37 筆是這種）；`isSidechain` 紀錄一律不算真人（舊格式 transcript 把子代理紀錄寫在主檔時，回填沿 parentUuid 會走到子代理的任務 prompt 當 Quote——舊碼實際會填）；`record_text` 回純字串內容。沒 origin 的純字串（compact 摘要、`-p` 送的提示、slash 指令回顯）照舊不算。
+- **改了什麼**（軌 track-subagent-quote-fix）：`hooks/wg_provenance.py`（`_subagent_opener`、`_turn_quote`、Source uuid 一律在主檔找、`quote_skipped=pasted`）、`lib/provenance.py`（`is_human_record`、`record_text`、`sanitize_quote`）、`lib/harness_text.py`（`strip_pasted`）、`tools/atom-provenance-backfill.py`（說明）、TECH §8 來源自動填／來源回填兩列。
+- **驗證**：新案例 `hooks/verify/verify_quote_user_turn.py`（17 案：實錄形狀重放、續跑回合 v6 開關兩態、子代理派出後主 session 換回合、純字串真人訊息、對不到回合、貼上開工句、打字＋貼上、閉合 id 對不上、`strip_pasted`、`is_human_record`、回填三案）；拿 main 5ccf44d2 回放 16 紅 1 綠（綠的是保護案）。目標範圍 8 支 208 案全綠。
+- **已知限制**：使用者「打字」（不是貼上）一則樣板認不出的開工句、AI 在那同一回合寫卡，Quote 仍會是那則（開工句樣板不收開發期角色名）；live 卡池裡已被誤填的 Quote 沒清（另有人在清）。
+## 2026-10-27 沒人能答時改使用者資料的閘照擋；用 Bash 讀過的檔算讀過；暫存目錄專案的寫入不記帳時說一聲
+- **AI 寫程式時會看到的**（守門總開關 v6 開時）：
+  - **無頭、子代理裡連鎖斷路器警報之後，改使用者資料的閘照擋**（規則 CHAIN_HEADLESS_KEEPS_DATA_GATES，`hooks/wg_chain.py` 的 `KEEP_BLOCKING`／`keeps_blocking`，`lib/chain_store.gate_fired`）：動資料檔、改舊測試、commit 前的版控口令／隱私檔／svn 測試路徑、專案 session 改根層核心或全域 MCP 這八道，讓警報響的那一次也照原擋訊息擋，每次記一筆 kept（不算進次數、不再警報），經過表標「會改使用者資料照擋」、收尾中止通知寫明要照擋訊息補宣告。其餘閘（定位、目標樹、對帳、病形、繞閘、記憶寫入路徑）照舊只記錄。原本警報後全部只記錄，一次無頭量測裡 ops/README.md 沒宣告就改成了。能互動的 session 不變（警報後本來就停手到使用者選）。
+  - **用 Bash／PowerShell 讀過的部位檔跟 Read 一樣算讀過**（規則 SHELL_READ_COUNTS_LIKE_READ，`hooks/wg_overview.py` `_read_paths`／`on_read`；需求目標的讀入範圍共用）：第一次碰到某部位就用一條 `cat A B C` 讀三個檔，原本注入導讀卡之後就停、一個都沒記（定位閘說讀過 0 個），現在注入之後的檔照記（跟送三個 Read 一樣 2 個）；MSYS 寫法 `/c/…`、不帶 -n 的 grep、開頭 `cd <目錄> &&` 之後的相對路徑也算；只印檔名、筆數或不印的 grep（-l／-L／-c／-q）帶了 -n 也不算（原本 `grep -nl` 這類會被算成讀過）。
+  - **會寫檔的指令讀到的檔不算讀過**（規則 SHELL_WRITE_COMMAND_NOT_A_READ）：`cat x > out`、`| tee`、`sed -i`、PowerShell `Out-File`／`>` 這類有寫檔目標的指令，整條讀到的檔不算、也不注入導讀卡（原本 `cat x > out` 算讀過 x）。
+  - **專案放在系統暫存目錄底下時，寫入照舊不記帳，但說一聲**（規則 EPHEMERAL_WRITE_NOTED_ONCE，`hooks/handlers/_shared.note_ephemeral_skip`，`post_tool_use` 的 Edit／Write、Bash／PowerShell、失敗指令、判不出目標補算四處）：同一 session、同一個專案根第一次印一行 stderr `[Guardian:EphemeralWrite]`，說明收尾的對帳、第二意見、同步提醒看不到這些改動。
+- **驗證**：新案例 `verify_chain_breaker::test_headless_keeps_data_gates_after_alarm`、`verify_chain_wiring::test_headless_after_alarm_data_file_blocked_code_file_record_only`（走真 pre_tool_use 入口）、`verify_overview_hub::test_shell_read_counts_like_read`／`test_shell_write_command_not_a_read`、`verify_ephemeral_path::test_temp_project_write_not_noted_but_said_once_per_root`、`verify_release_rules::test_gate_design_rules_registered_with_cases`；`verify_chain_wiring` 兩案的舊斷言（無頭響的那一次動資料檔照放）照新設計改成照擋。拿 main 5ccf44d2 的程式回放，新案全紅。
+- **已知限制**：指令中間的 cd 不追（只認開頭那一個）；grep 判會不會印內容時不認 `--` 與 `-e <樣式>`，樣式長得像旗標（`grep -- -q x`）會少算一次讀檔；暫存專案的說明記最近 20 個專案根，超過時最早的根之後會再說一次；裁判子 session 的改檔記帳沒加暫存說明。
 ## 2026-10-23 第一回合收得乾淨之後，後面回合的改動照樣有同步提醒
 - **使用者會看到的**：session 第一回合只問問題、沒改檔，收尾會把 session 標成 done；以前 done 一路沿用到 session 結束，之後改了再多檔，收尾的同步提醒、底部一般提醒（待記知識、文件漂移）、擋下時「後面還會擋」那段的同步都不再出現。續接（`claude -p --resume`）更明顯：每一段結束時 SessionEnd 都標 done，續接開場印「Phase: done」，之後一次都不提醒。現在：
   - **新的一則話把 done 改回 working**（規則 PROMPT_REOPENS_DONE，`hooks/handlers/user_prompt_submit.py`）：同伴訊息、背景通知也算；SessionEnd 一起留的 `ended_at` 也拿掉（續接中的 session 不再被 MCP 面板清理當成已結束、一分鐘就刪 state）；改完當場寫回 state，後面檢索、注入逾時被砍也不留舊的 done。syncing（同步進行中）、merged（轉址）不動。擋次照舊：同步提醒每 session 最多 `sync_reminder.max_reminders` 次（預設 1），本回合收尾檢核 (g) 已交代就不擋（SYNC_COVERED_BY_CLOSING_CHECK）。

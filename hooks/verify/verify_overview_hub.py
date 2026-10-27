@@ -2010,6 +2010,75 @@ def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
     assert wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", _NO_MIN_MAP) == (None, None, True)
 
 
+
+def _battle(state):
+    return next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
+
+
+def _same_files(a, b):
+    return {os.path.normcase(os.path.normpath(p)) for p in a} == {os.path.normcase(os.path.normpath(p)) for p in b}
+
+
+def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
+    """規則 SHELL_READ_COUNTS_LIKE_READ：唯讀 Bash／PowerShell 讀檔跟 Read 同效。第一次碰到部位就用一條 cat 讀三個檔 → 導讀卡照注入、
+    注入之後的兩個檔算讀過（跟送三個 Read 一樣 2 個；改前注入完就停，0 個）；MSYS 寫法 /c/…、不帶 -n 的 grep、開頭 cd 之後的相對路徑、
+    PowerShell Get-Content 都算；只印檔名、筆數或不印的 grep（-l、-c、--count、-q）不算，帶了 -n 也不算（-nl、-n -c 不能灌讀檔證據）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    cfg = {"overview_hub": {"enabled": True}}
+    tp = _transcript(tmp_path, ["先看看。"])
+    battle = proj / "Game" / "Battle"
+    f = {}
+    for n in "ABCDEFGH":
+        (battle / f"{n}.cs").write_text("foo = 1", encoding="utf-8")
+        f[n] = (battle / f"{n}.cs").as_posix()
+    by_read = {"turn_seq": 1}
+    for n in "ABC":
+        wo.on_read(by_read, "s", "Read", {"file_path": f[n]}, str(proj), tp, cfg)
+    by_cat = {"turn_seq": 1}
+    txt = wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
+    assert txt and "戰鬥導讀" in txt
+    rec = _battle(by_cat)
+    assert len(rec["part_files_read"]) == 2 and _same_files(rec["part_files_read"], _battle(by_read)["part_files_read"])
+    forms = [("Bash", f"grep foo {f['E']}"), ("PowerShell", f"Get-Content '{f['G']}' -TotalCount 5")]
+    if os.name == "nt":
+        msys = "/" + f["A"][0].lower() + f["A"][2:].rsplit("/Game/", 1)[0]          # C:/x/proj → /c/x/proj
+        forms += [("Bash", f"cat {msys}/Game/Battle/D.cs"), ("Bash", f"cd {msys}/Game && head -5 Battle/F.cs")]
+    for tool, cmd in forms:
+        n = len(rec["part_files_read"])
+        wo.on_read(by_cat, "s", tool, {"command": cmd}, str(proj), tp, cfg)
+        assert len(rec["part_files_read"]) == n + 1, cmd
+    n = len(rec["part_files_read"])
+    for cmd in (f"grep -l foo {f['H']}", f"grep -c foo {f['H']}", f"grep --count foo {f['H']}", f"grep -nl foo {f['H']}",
+                f"grep -n -c foo {f['H']}", f"grep -rnq foo {f['H']}", f"grep --line-number --files-with-matches foo {f['H']}"):
+        wo.on_read(by_cat, "s", "Bash", {"command": cmd}, str(proj), tp, cfg)
+        assert len(rec["part_files_read"]) == n, cmd
+
+
+def test_shell_write_command_not_a_read(proj, tmp_path, monkeypatch):
+    """規則 SHELL_WRITE_COMMAND_NOT_A_READ：有寫檔目標的指令不是唯讀，讀到的檔不算讀過——重導向 >、tee、sed -i、
+    PowerShell Out-File／> 都不算（改前 `cat x > out`、`cat x | tee out` 算）；`2>&1` 只是併輸出，照算。
+    第一次碰到部位就用會寫檔的指令讀 → 也不注入導讀卡。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    cfg = {"overview_hub": {"enabled": True}}
+    tp = _transcript(tmp_path, ["先看看。"])
+    battle = proj / "Game" / "Battle"
+    a, b, out = (battle / "A.cs").as_posix(), (battle / "B.cs").as_posix(), (proj / "out.txt").as_posix()
+    for p in (a, b):
+        Path(p).write_text("x", encoding="utf-8")
+    fresh = {"turn_seq": 1}
+    assert wo.on_read(fresh, "s", "Bash", {"command": f"cat {a} > {out}"}, str(proj), tp, cfg) is None
+    assert not fresh.get("overview_hub")
+    state = {"turn_seq": 1}
+    assert wo.on_read(state, "s", "Read", {"file_path": a}, str(proj), tp, cfg)
+    rec = _battle(state)
+    for tool, cmd in (("Bash", f"cat {b} > {out}"), ("Bash", f"cat {b} | tee {out}"), ("Bash", f"sed -i 's/x/y/' {b}"),
+                      ("PowerShell", f"Get-Content '{b}' | Out-File '{out}'"), ("PowerShell", f"Get-Content '{b}' > '{out}'")):
+        wo.on_read(state, "s", tool, {"command": cmd}, str(proj), tp, cfg)
+        assert rec["part_files_read"] == [], cmd
+    wo.on_read(state, "s", "Bash", {"command": f"cat {b} 2>&1"}, str(proj), tp, cfg)
+    assert len(rec["part_files_read"]) == 1
+
+
 @pytest.fixture(autouse=True)
 def _cassette(git_cassette):
     """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
