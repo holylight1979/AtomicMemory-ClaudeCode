@@ -108,6 +108,8 @@ TREE_PATHS = ("這則若是補充（多要一件事、新的條件）→ need_go
 CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷（選替身）→ 替身和真正要判的事之間有沒有落差、同類情況會不會被誤判？"
                   "換了測試環境或前提 → 舊的前置步驟在新環境還成立嗎？寫「期望不發生」的案例 → 它通過是因為規則對，"
                   "還是因為什麼都沒發生（先斷言前置狀態成立）？")
+# 同一個 session 送過全文之後的那句指回（規則 CRITIQUE_CASES_ONCE_PER_SESSION）
+CRITIQUE_CASES_POINTER = "遇到選替身、換前提、寫「期望不發生」的案例這三種情況，照前面那則全文再多問一句。"
 # 沒有目標樹時改了記憶知識類的檔（寫入當下，一回合一次）：知識類也要一棵輕樹；不擋寫檔，收尾還沒補由 (f4) 要
 KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 session 還沒有需求目標樹：文件、記憶、設定這類任務也要一棵輕樹——"
                        "用 need_goal(action=set, goal=…) 寫下這次真正要達成什麼（一句、用使用者的話、只寫目標不寫手段；一個節點就夠，"
@@ -339,6 +341,14 @@ def cfg_for_cwd(config: Optional[Dict[str, Any]], cwd: str) -> Dict[str, Any]:
     return cfg_of(config, _root_of(cwd) if cwd else None)
 
 
+def slim_reminders(config: Optional[Dict[str, Any]] = None) -> bool:
+    """設定 v6.slim_reminders（沒寫＝開）：開＝批判題每個 session 送一次全文、之後一句指回（CRITIQUE_CASES_ONCE_PER_SESSION），
+    hook 提示附樹只一行當前節點（TREE_LINE_IN_HINTS）；寫 false 退回每則提示照附批判題全文與樹根一行。
+    config＝整份設定，沒給就讀 wg_core.load_config()。只認 JSON 的 false 關。"""
+    sec = (wg_core.load_config() if config is None else config).get("v6")
+    return not (isinstance(sec, dict) and sec.get("slim_reminders") is False)
+
+
 def goal_gate_on(config: Optional[Dict[str, Any]]) -> bool:
     """規則 CLOSING_RITUAL_SWITCHES：reconcile_gate.goal_gate=true 才在收尾與 commit 前擋目標對照；沒設或 false＝不擋
     （目標樹照記，交付邊界由程式代填對照）。"""
@@ -553,22 +563,37 @@ BRIEF_ROOT_CHARS = 60
 BRIEF_NODE_CHARS = 60
 
 
+def _node_brief(tree: Dict[str, Any], nid: str) -> str:
+    node = (tree.get("nodes") or {}).get(nid) or {}
+    tag = LABEL["status"].get(node.get("status"), "?") + ("｜待展開" if node.get("clarity") == "open" else "")
+    return f"當前節點 {nid} [{tag}]：{_clip(node.get('text'), BRIEF_NODE_CHARS)}"
+
+
 def brief(tree: Optional[Dict[str, Any]], part_key: Optional[str] = None) -> str:
-    """hook 提示附的目標樹（規則 TREE_ONCE_PER_CALL）：樹根一行＋當前節點一行；整棵樹只在 need_goal 寫入的回覆送，要看用 read
-    （不在每則提示都寫這句：寫了就誘發多叫 read）。"""
+    """樹根一行＋當前節點一行（規則 TREE_ONCE_PER_CALL）：壓縮後重送、舊送法的 hook 提示用；整棵樹只在 need_goal 寫入的回覆送，
+    要看用 read（不在每則提示都寫這句：寫了就誘發多叫 read）。"""
     if not tree:
         return ""
     sub, opened, owed = _counts(tree)
-    nodes = tree.get("nodes") or {}
-    root = nodes.get(tree["id"]) or {}
+    root = (tree.get("nodes") or {}).get(tree["id"]) or {}
     out = [f"{tree['id']}：{_clip(root.get('text'), BRIEF_ROOT_CHARS)}（{LABEL['tree'].get(tree.get('status'), '?')}｜"
            f"子目標 {sub}、待展開 {opened}、待對照 {owed}）"]
     nid = current_node(tree, part_key)
     if nid:
-        node = nodes[nid]
-        tag = LABEL["status"].get(node.get("status"), "?") + ("｜待展開" if node.get("clarity") == "open" else "")
-        out.append(f"當前節點 {nid} [{tag}]：{_clip(node.get('text'), BRIEF_NODE_CHARS)}")
+        out.append(_node_brief(tree, nid))
     return "\n".join(out)
+
+
+def brief_line(tree: Optional[Dict[str, Any]], part_key: Optional[str] = None) -> str:
+    """規則 TREE_LINE_IN_HINTS：hook 提示附的一行——當前節點（沒有子節點就是樹根自己）。樹根與整棵樹在 need_goal
+    set／add／update／reconcile 的回覆送過了，提示不再重附。"""
+    return _node_brief(tree, current_node(tree, part_key) or tree["id"]) if tree else ""
+
+
+def brief_for(tree: Optional[Dict[str, Any]], part_key: Optional[str] = None,
+              config: Optional[Dict[str, Any]] = None) -> str:
+    """hook 提示附的目標樹：新送法 brief_line、舊送法 brief（開關 slim_reminders）。"""
+    return brief_line(tree, part_key) if slim_reminders(config) else brief(tree, part_key)
 
 
 def _brief_sig(tree: Dict[str, Any], part_key: Optional[str] = None) -> str:
@@ -583,7 +608,7 @@ def _brief_sig(tree: Dict[str, Any], part_key: Optional[str] = None) -> str:
 
 def brief_mark(doc: Dict[str, Any], tree: Optional[Dict[str, Any]], turn: int, part_key: Optional[str] = None) -> str:
     """附樹去重（呼叫端已持有目標檔的鎖）：同一個使用者回合已經附過同一份 brief（導讀卡、讀入範圍提示）就回空字串，
-    內容變了或換回合才回 brief 並記下。只給純附帶的地方用；每則訊息（不一定送出，不拿來記）、目標視角重看、糾正、
+    內容變了或換回合才回 brief_for 並記下。只給純附帶的地方用；每則訊息（不一定送出，不拿來記）、目標視角重看、糾正、
     壓縮重送、交付對照照附。"""
     if not tree:
         return ""
@@ -592,19 +617,63 @@ def brief_mark(doc: Dict[str, Any], tree: Optional[Dict[str, Any]], turn: int, p
     if last.get("turn") == int(turn) and last.get("sig") == sig:
         return ""
     doc["brief_sent"] = {"turn": int(turn), "sig": sig}
-    return brief(tree, part_key)
+    return brief_for(tree, part_key)
 
 
 def brief_once(sid: Any, turn: int, part_key: Optional[str] = None) -> str:
-    """brief_mark 的上鎖版（導讀卡用）。鎖拿不到或目標檔壞了照附 brief、stderr 一行（寧可多附不靜默少附）。"""
+    """brief_mark 的上鎖版（導讀卡用）。鎖拿不到或目標檔壞了照附 brief_for、stderr 一行（寧可多附不靜默少附）。"""
     try:
         return update_locked(sid, lambda d: brief_mark(d, active_tree(d), turn, part_key))
     except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
         print(f"[NeedGoal] 附樹去重失敗（照附）：{type(e).__name__}: {e}", file=sys.stderr)
         try:
-            return brief(active_tree(load(sid)), part_key)
+            return brief_for(active_tree(load(sid)), part_key)
         except (NeedGoalCorrupt, OSError):
             return ""
+
+
+def critique_mark(doc: Dict[str, Any]) -> bool:
+    """規則 CRITIQUE_CASES_ONCE_PER_SESSION（呼叫端已持有目標檔的鎖）：這次送不送 CRITIQUE_CASES 全文。這個 session 還沒送過
+    （目標檔沒有 critique_sent）→ 記下、回 True；送過 → False，呼叫端改送 CRITIQUE_CASES_POINTER。舊送法一律 True、不記。
+    子代理用主 session 的目標檔，誰先收到全文就算送過（同導讀卡「第一次讀到的那邊收」）。"""
+    if not slim_reminders():
+        return True
+    if doc.get("critique_sent"):
+        return False
+    doc["critique_sent"] = True
+    return True
+
+
+def critique_once(sid: Any) -> bool:
+    """critique_mark 的上鎖版。還沒有目標檔（沒寫過樹）→ True、不為這筆建檔；先不上鎖讀一次：已送過就回 False、不取鎖，
+    目標檔壞了 → True、不碰檔（壞檔改名留證留給 need_goal 寫入，提醒不觸發）；鎖拿不到 → True。失敗都 stderr 一行
+    （寧可多送一次全文不靜默少送）。"""
+    if not goal_path(sid).exists():
+        return True
+    try:
+        if load(sid).get("critique_sent") and slim_reminders():
+            return False
+        return bool(update_locked(sid, critique_mark))
+    except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 批判題已送紀錄讀寫失敗（照送全文）：{type(e).__name__}: {e}", file=sys.stderr)
+        return True
+
+
+def critique_cases(full: bool) -> str:
+    return CRITIQUE_CASES if full else CRITIQUE_CASES_POINTER
+
+
+def forget_reminders(sid: Any) -> None:
+    """壓縮後 context 裡沒有批判題全文了：清掉 critique_sent，下次照送全文（規則 CRITIQUE_CASES_ONCE_PER_SESSION）。
+    沒有目標檔不建；沒記過就不取鎖；目標檔壞了不碰（不觸發改名留證）；讀寫失敗 stderr 一行（壓縮後可能只收到指回句）。"""
+    if not goal_path(sid).exists():
+        return
+    try:
+        if "critique_sent" not in load(sid):
+            return
+        update_locked(sid, lambda d: d.pop("critique_sent", None))
+    except (NeedGoalLockTimeout, NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 清不掉批判題已送紀錄（壓縮後可能只送指回句）：{type(e).__name__}: {e}", file=sys.stderr)
 
 
 def render(tree: Optional[Dict[str, Any]], form: str, chars: Optional[int] = None,
@@ -1432,7 +1501,8 @@ def _result(sid: Any, action: Any, res: Dict[str, Any], doc: Optional[Dict[str, 
     else:
         head = f"[NeedGoal] {action} 收下：{res.get('note') or ''}"
     # 規則 TREE_ONCE_PER_CALL：整棵樹只在 need_goal 寫入的回覆送一次——set（開樹／改樹根）送全樹，原話與 AI 解讀並排是判斷材料；
-    # add／update／reconcile 送精簡樹（樹頭＋每個節點一行，不截）；其他 hook 提示只附 brief（樹根＋當前節點），原話、收據清單、待對照要看用 read
+    # add／update／reconcile 送精簡樹（樹頭＋每個節點一行，不截）；其他 hook 提示只附 brief_for（新送法只一行當前節點，規則 TREE_LINE_IN_HINTS），
+    # 原話、收據清單、待對照要看用 read
     form = "full" if action == "set" else "compact"
     body = render(tree, form, doc=doc) if tree else ""
     _guard("op", sid, action=action, tree=res.get("tree"), ok=bool(res.get("ok")), rejected=len(rejected))
@@ -1465,7 +1535,7 @@ def _peer_of(prompt: str) -> Optional[Tuple[str, str]]:
 
 def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]], cwd: str = "") -> Optional[str]:
     """使用者送出訊息那一刻：使用者本人打的字記進目前的樹、同伴訊息記成轉述、系統通知不記；回要送給 AI 的那一行。
-    沒有目前的樹而且是這個 session 第一則使用者訊息、或目前的樹剛對照完／結束 → 送一次「先寫目標」；有樹 → 送樹根一行。"""
+    沒有目前的樹而且是這個 session 第一則使用者訊息、或目前的樹剛對照完／結束 → 送一次「先寫目標」；有樹 → 送 brief_for。"""
     if not sid or not cfg_for_cwd(config, cwd)["enabled"]:
         return None
     typed = user_typed_text(prompt or "", keep_lines=True)
@@ -1482,7 +1552,8 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 ps = live.setdefault("peer_said", [])
                 ps.append({"seq": seq, "turn": turn, "from": peer[0], "text": peer[1][:PEER_CAP]})
                 del ps[:-SAID_MAX]
-            return ("\n".join([f"[NeedGoal] 目前需求目標 {brief(tree)}", *_origin_reminder(doc)]) if tree else None), False
+            return ("\n".join([f"[NeedGoal] 目前需求目標 {brief_for(tree, config=config)}", *_origin_reminder(doc)])
+                    if tree else None), False
         doc["user_msgs"] = int(doc.get("user_msgs", 0)) + 1
         entry = {"seq": seq, "turn": turn, "text": typed}
         log = doc.setdefault("said_log", [])
@@ -1496,7 +1567,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 sent["first"] = True
                 return HINT_LINE, True
             return None, False
-        lines = [f"[NeedGoal] 目前需求目標 {brief(tree)}", TREE_PATHS, *_origin_reminder(doc)]
+        lines = [f"[NeedGoal] 目前需求目標 {brief_for(tree, config=config)}", TREE_PATHS, *_origin_reminder(doc)]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1941,7 +2012,7 @@ def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
             "evidence: [{kind, ref, level, covers?}], followup?, note?, same_class?}]) 交完整對照：達成要附證據（寫碼類至少一筆沒紅的收據或"
             "讀碼級驗證案例；實測只能配收據，ref 寫 latest 由程式填最近一筆綠的（之後改了又跑綠會自動換新），要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、"
             "放棄寫 note；達成可附 same_class（同類別處：找到的位置，或為什麼沒有）。\n目前的樹：\n" +
-            brief(tree))
+            brief_for(tree))
 
 
 def _part_link_state(tree: Dict[str, Any], key: str) -> str:
@@ -2305,7 +2376,7 @@ def recovery_blob(sid: Any, limit: int) -> str:
         return ""
     out = ["【需求目標樹】（壓縮後重送；使用者原話是權威，樹是 AI 的解讀；原話與全樹用 need_goal(action=read)）"]
     if tree:
-        out.append(brief(tree))
+        out.append(brief(tree))           # 壓縮後 context 裡沒有寫入回覆送的樹了：照附樹根一行（不套 TREE_LINE_IN_HINTS）
     others = [t["id"] for t in live if not tree or t["id"] != tree["id"]]
     if others:
         out.append(f"其他未結束的樹：{'、'.join(others[:6])}" + ("…" if len(others) > 6 else ""))
