@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from wg_core import WORKFLOW_DIR, _now_iso, rotate_log_if_oversized
+from wg_core import WORKFLOW_DIR, _now_iso, rotate_log_if_oversized, v6_enabled
 
 COORD_LOG_DIR = WORKFLOW_DIR.parent / "Logs" / "session-coordination"
 
@@ -227,6 +227,8 @@ def check_cross_session_conflict(
 
         if use_cache:
             suppress_s = float(cfg.get("warn_suppress_min", 10)) * 60
+            if cfg.get("v6_once", True) and v6_enabled(config):
+                suppress_s = float("inf")   # v6 守門開著時同一個檔一個 session 只警一次（warn-cache 留 24 小時）
             if _warn_cache_suppressed(session_id, norm_target, suppress_s):
                 coord_log(session_id, "conflict_suppressed", peer=hit["peer_sid"],
                           path=file_path, ms=ms)
