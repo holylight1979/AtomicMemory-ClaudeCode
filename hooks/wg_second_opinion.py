@@ -390,7 +390,10 @@ def mark_exit(state: Dict[str, Any], session_id: str, turn: int, facts: Dict[str
     via, fp = str(facts.get("exit_via") or ""), str(facts.get("fingerprint") or "")
     if not via or not fp:
         return False
-    state.setdefault(EXIT, {})[session_id] = {"fp": fp, "via": via, "turn": int(turn or 0)}
+    rec: Dict[str, Any] = {"fp": fp, "via": via, "turn": int(turn or 0)}
+    if via == "waiting":
+        rec["jobs"] = [str(j) for j in facts.get("waiting") or []]      # 取回這些 job 的那一回合要四行（不靠背景看守）
+    state.setdefault(EXIT, {})[session_id] = rec
     return True
 
 
@@ -454,10 +457,14 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         state.setdefault("second_opinion_ran", {})[session_id] = rec
     # 規則 SECOND_OPINION_DONE_NOTICE（背景開關開）：收尾寫過「等第二意見｜<job>」的 job，本回合取回跑完了＝接上那一刻，照宣告完成判四行
     # （不再說完成也要；判定、擋次照 SECOND_OPINION_REQUIRED）
+    # 在等的 job：出口帳記的（SECOND_OPINION_EXIT_FINGERPRINT，不靠背景開關、前面的閘擋下也記了）＋背景看守記的
+    ex = ((state.get(EXIT) or {}).get(session_id)) or {}
     waited_back = False
     if results:
         from wg_closing_round import so_background_on, waited_jobs
-        waited = set(waited_jobs(state, session_id)) if so_background_on(config) else set()
+        waited = set(ex.get("jobs") or []) if ex.get("via") == "waiting" else set()
+        if so_background_on(config):
+            waited |= set(waited_jobs(state, session_id))
         waited_back = any(r.get("job_id") in waited and r.get("status") in rr.SO_RAN for r in results)
     claims_done = claims_done or waited_back
     if not claims_done:
@@ -465,7 +472,6 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     # 規則 SECOND_OPINION_EXIT_FINGERPRINT：交過出口、之後沒再改程式（指紋相同）→ 這組改動欠的已經交了，不再欠；
     # 在等的結果本回合取回了不在此列（要接上四行）
-    ex = ((state.get(EXIT) or {}).get(session_id)) or {}
     if ex.get("fp") and ex.get("fp") == facts["fingerprint"] and not waited_back:
         facts["covered"] = str(ex.get("via") or "")
         return rr.Verdict(EXIT_COVERS, False, f"上次交了出口（{facts['covered']}）之後沒再改程式"), facts

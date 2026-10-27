@@ -985,3 +985,38 @@ def test_exit_fingerprint_user_release_counts_as_exit(drive, capsys, tmp_path):
     state.update(turn_seq=7, turn_prompts_seq=7)
     reason, _, logs = drive(DONE, capsys, state=state)
     assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+
+
+def test_exit_fingerprint_waiting_needs_four_lines_with_background_off(drive, capsys, tmp_path):
+    """SECOND_OPINION_EXIT_FINGERPRINT（codex 一輪【繞閘】1）：背景開關關（不看守）時，交「等第二意見｜<job_id>」之後沒再改程式、
+    取回結果卻不寫四行 → 照擋（舊做法靠背景看守記在等的 job，開關一關，取回時被出口指紋直接放行）。在等的 job 記在出口帳裡。"""
+    off = {"second_opinion": {"auto": {"background": False}}}
+    drive.tx.opinion(status="")
+    reason, state, logs = drive(WAIT_TEXT, capsys, files=_files(tmp_path, 5), config=off)
+    assert [p["event"] for p in _so_logs(logs)] == ["waiting"]
+    drive.tx.user("結果回來了嗎")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    _result(drive, "done")
+    reason, state, _ = drive("看過結果了。", capsys, state=state, config=off)
+    assert "[Guardian:SecondOpinion]" in reason and "第二意見與分歧裁決" in reason
+    reason, _, _ = drive(FOUR, capsys, state=state, config=off)
+    assert "[Guardian:SecondOpinion]" not in reason
+
+
+def test_exit_fingerprint_waiting_kept_when_earlier_gate_blocks(drive, capsys, tmp_path):
+    """SECOND_OPINION_EXIT_FINGERPRINT（codex 一輪【繞閘】2）：等待行那次被前面的閘（紅測閘）先擋下、沒走到第二意見段；補件那則沒重寫
+    等待行、程式沒變 → 不擋；之後取回結果仍要四行（在等的 job 跟出口指紋同時記，不靠後面那段記看守）。"""
+    state = {"phase": "working", "modified_files": [_mf(p) for p in _files(tmp_path, 5)], "stop_blocked_count": 0,
+             "failing_tests": [{"cmd": "pytest a", "summary": "1 failed", "session_id": SID, "turn_seq": 5}],
+             "recent_user_prompts": [], "turn_seq": 5, "turn_prompts_seq": 5, "muted": True}
+    drive.tx.opinion(status="")
+    reason, state, _ = drive(f"{DONE}\n{WAIT_TEXT}", capsys, state=state)
+    assert "[Guardian:TestFailGate]" in reason
+    state["failing_tests"] = []
+    reason, state, logs = drive(DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs, "block")
+    drive.tx.user("結果回來了嗎")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    _result(drive, "done")
+    reason, state, _ = drive("看過結果了。", capsys, state=state)
+    assert "[Guardian:SecondOpinion]" in reason and "第二意見與分歧裁決" in reason

@@ -4185,7 +4185,7 @@ RULES.update({
     "SECOND_OPINION_EXIT_FINGERPRINT": "一組改動只欠一次：交了出口（不需／等第二意見、跑過＋四行）就記出口時的改檔指紋（state "
                                        "second_opinion_exit：本 session 程式檔的路徑＋最後改的時間與回合；收尾的出口行在所有收尾閘前面先記，"
                                        "前面的閘擋下、補件那則不重寫出口行也算）；之後的收尾指紋沒變 → 不欠（Verdict 規則名用本條），"
-                                       "本回合取回在等的結果不在此列（要四行）。出口是不需或等第二意見、之後又改了程式（指紋變了，改 1 支也算）"
+                                       "本回合取回在等的結果不在此列（要四行；在等的 job 跟指紋一起記在出口帳 jobs，不靠背景看守開關）。出口是不需或等第二意見、之後又改了程式（指紋變了，改 1 支也算）"
                                        "→ 再欠一次；出口是跑過＋四行，之後的修改照 SECOND_OPINION_ONCE_PER_CLAIM（採納意見不再欠）。",
     "SECOND_OPINION_PRE_CLOSE": "收尾那批（closing_call 認的：收尾檢核或完整對照）照 Stop 同一套事實先判第二意見（"
                                 "wg_closing_round.so_pre_close），欠就把 Stop 會擋的同一段（wg_second_opinion.owed_message）附在那批的回應"
