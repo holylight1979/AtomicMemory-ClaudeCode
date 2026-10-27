@@ -149,7 +149,7 @@ RULES: Dict[str, str] = {
                                        "exit／return 之後全部 → 不算。"
                                        "前段是一般指令的 && 後段照算（它失敗整條結束碼非零，交結束碼篩）；heredoc 內文原樣、不套這幾條。",
     "UNMAPPED_EDIT_NEEDS_READABLE_FILES":"表外檔改檔前要讀的同頂層目錄檔數＝min(設定的 part_files, 該目錄非執行期資料的既有檔數)："
-                                          "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀照擋。",
+                                          "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀算欠（送法照 GATE_MODE_TABLE：v6 開提醒一次、關照擋）。",
     "TEMP_REPO_COMMIT_EXEMPT": "git commit 落在暫存目錄（系統 TEMP／TMP、scratchpad、/tmp）下的 repo → 不要求版控口令。",
     "TEMP_COPY_NOT_PROJECT": "寫入目標或跑的腳本在暫存目錄下 → 不當專案：不找部位表、不注入、不要求綜觀；量尺與對帳也不把它當收據。",
     "RED_WHILE_REVERTED": "跑紅時，受測根裡有本 session 改過的程式檔內容等於非 HEAD 的已提交版本（退回舊碼反證）→ 刻意紅：不算失敗、不計重試。",
@@ -3375,7 +3375,7 @@ RULES.update({
                                            "事實由 hooks/wg_judge_card.py 收。沒綁 Entry 的卡、新建的卡不觸發。",
     "JUDGE_CARD_HASH_CATCHES_INTERPRETER": "直譯器自己開檔寫卡（Bash／PowerShell 跑 python／node／perl…，寫入目標解析不到）：不記雜湊、"
                                            "不事後比對、不擋；改到綁 Entry 的判準卡最多留一筆帳（guard-judge_card），寫入目標解析得到的照 "
-                                           "JUDGE_CARD_CHANGE_NEEDS_DECLARATION 留帳。",
+                                           "JUDGE_CARD_CHANGE_NEEDS_DECLARATION 留帳。送法 remind（RULE_MODE）：本來就只留帳不擋，標 mode 不改行為。",
 })
 _JUDGE_CARD_DECL_RE = lazy_re(r"改判準卡\s*[｜|]\s*(.+)")
 _JUDGE_CARD_ASCII_SEP_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
@@ -4071,7 +4071,7 @@ RULES.update({
 RULES.update({
     "LOCATE_BLOCK_ONCE_PER_USER_TURN": "同一個使用者回合（user_turn：使用者本人打字開的回合，同伴訊息、背景通知續跑不算新回合）定位閘已經擋過"
                                        "某個部位之後，別的部位只缺定位行 → 一行提醒、放行、留帳（_overview-hub.log event=edit_locate_reminded）；"
-                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來"
+                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來；本條只在送法是 block 時有意義（v6 關）"
                                        "（wg_overview.on_edit、_blocked_parts／_note_block，state overview_locate_blocked）。",
     "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要寫在回覆文字或"
                               "不寫檔指令開頭的 # 註解（wg_overview.on_edit 的 where）。",
@@ -4169,7 +4169,8 @@ RULES.update({
                                  "_edit_gate_applies＋目前的樹），交定位四行（根因層兩候選＋選擇理由、批判先下判斷；need_goal 關＝三行，"
                                  "同缺定位擋訊息 LOCATE_ASK_ONCE），寫在比改檔早一則的回覆文字或不寫檔指令開頭的 # 註解、thinking 讀不到"
                                  "（DECL_HINT_KEEPS_EDIT_TOOLS）；立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
-                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送。判定與擋訊息不動：沒照做照擋。",
+                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送。判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
+                                 "要立樹時 CODE_EDIT_NEEDS_GOAL_TREE），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
 })
 
 
@@ -4192,6 +4193,23 @@ RULES.update({
                                 "後面，AI 第一次寫收尾就寫出口行、不再被 Stop 多擋一輪；同一個使用者回合附過、改檔指紋沒變就不重附。"
                                 "那批沒出現（沒交收尾檢核也沒完整對照）→ Stop 照舊擋；附了沒照做 → Stop 照擋（判定、擋次不變）。"
                                 "留帳 guard-second_opinion event=pre_close（owed、sent）。",
+})
+
+
+# ─── 驗證批次閘（PreToolUse Bash／PowerShell；事實與擋次在 hooks/wg_verify_batch.py，這裡只登錄規則名與說明；不歸 v6 開關管） ───
+RULES.update({
+    "VERIFY_FULL_RUN_NEEDS_USER_ORDER": "整組驗證（run_verify.py 不帶參數；pytest 沒點名檔，即沒有位置參數或只有目錄，也沒 -k／-m／--lf 這類縮範圍選項；"
+                                        "PYTEST_ADDOPTS 縮了範圍不算整組）要本回合使用者原話有口令（guard.verify_batch.full_run_keywords，預設 整組／全量／"
+                                        "全部測試／run_verify；原話取法同 CommitOrder：state.turn_prompts 經 user_typed_prompts，背景通知、子代理回報不算）"
+                                        "→ 沒口令擋。解析不了的指令（heredoc、eval、bash -c）不管。",
+    "VERIFY_SAME_BATCH_ALREADY_GREEN": "同一組驗證指令（self_receipt 正規化後的 程式＋參數；`python -m pytest` 與 `pytest` 同一組、直譯器選項不算）"
+                                       "最近一筆收據是綠的（沒有 FAIL 哨兵、結束碼 0；自寫收據 exit_code=0 且 failed=0），而且收據之後本 session"
+                                       "（子代理看自己的 agent_modified_files）沒有改檔（收據 seq 對改檔 last_seq；自寫收據沒 seq 就比 UTC 時間）→ 擋"
+                                       "「這批改動已驗證過：收據時間、指令、綠」。上次紅、之後有改檔、改檔少序號又少時間（分不出先後）→ 放行。"
+                                       "口令只開整組的門、不洗掉已驗過：全量綠了沒改檔再跑全量照擋。",
+    "VERIFY_BATCH_BLOCK_ONCE_PER_TURN": "驗證批次閘每個使用者回合每條規則最多擋 1 次（wg_core.deny_cap cap=1），第 2 次放行、留帳 released、stderr 說明已放行；"
+                                        "擋訊息格式 `✗ (r) <規則名>：<一句現象>｜證據：<一行一證據>`；擋下與放行都留帳 Logs/guard-verify_batch.jsonl；"
+                                        "閘自己出錯放行留帳 error（GATE_SELF_ERROR）。",
 })
 
 
@@ -4225,6 +4243,20 @@ RULES.update({
                               "同一條規則同一個對象同一個 session 只提醒一次（remind_due）。",
     "GATE_MODE_TABLE": "v6 守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘 v6 守門是 remind；"
                        "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
+    "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer／locate_content 缺件）：v6 開時提醒一行、不擋；"
+                          "第一次讀到該部位程式檔的讀檔結果（LOCATE_HINT_ON_FIRST_READ）送過就算提醒過，之後沒交不再提醒也不擋。",
+    "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在 v6 守門範圍，照擋、不注入（wg_overview.on_edit 的 readonly）。",
+    "OVERVIEW_HUB_UNDER_V6": "OverviewHub 整道（導讀卡注入、候選前 N、讀檔記錄、定位）綁 v6 總開關：v6 關時 wg_overview._cfg 的 enabled 一律 False，"
+                             "不注入、不記、不擋；同事預設關 v6 就完全不會收到導讀卡。",
+    "REMIND_PENDING_IN_STATE": "工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法、順帶要注入的卡），"
+                               "下一個工具結果（PostToolUse）取走：該提醒的併進 additionalContext、記進 remind_sent；送過的只留帳不重送"
+                               "（wg_overview.remind_queue／remind_flush）。state 寫不進去就只 stderr＋留帳，不改用 PreToolUse 送。",
+    "GOAL_RECONCILE_AT_DELIVERY": "(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：v6 開時提醒，"
+                                  "掛在改程式檔那則工具結果，Stop 只留帳；commit 前那份歸 COMMIT_GOAL_RECONCILED。",
+    "STOP_REMIND_LEDGER_ONLY": "Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log "
+                               "event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、"
+                               "不記 pending_release、不吃擋滿預算、不算進連鎖斷路器的觸發；寫碼查核一批條目混了照擋與提醒的，只有照擋條目進擋訊息"
+                               "（handlers/stop._remind_logged；子代理與裁判收尾同一套）。",
 })
 
 BLOCK = "block"
@@ -4244,7 +4276,9 @@ RULE_CLASS: Dict[str, str] = {
                      "CLAIM_WORDS_ARE_HINTS", "CLAIM_RECEIPT_REF_MATCH", "CLAIM_DISCLAIM_NEEDS_REASON",
                      "CLAIM_CONDITIONAL_NOT_CLAIM", "CLAIM_MODIFIER_NOT_OWN", "COMPLETION_CLAIM_PER_SENTENCE"), "紅測"),
     **dict.fromkeys(("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "ORDER_UNTIL_PUSH", "TEMP_REPO_COMMIT_EXEMPT",
-                     "SVN_TEST_BLOCK_OPT_IN", "ATOM_BYPASS_HOWTO_REFUSED", "CONFLICT_DECLARED_BY_AI"), "不在範圍"),
+                     "SVN_TEST_BLOCK_OPT_IN", "ATOM_BYPASS_HOWTO_REFUSED", "CONFLICT_DECLARED_BY_AI",
+                     "OVERVIEW_READONLY_PATHS", "VERIFY_FULL_RUN_NEEDS_USER_ORDER", "VERIFY_SAME_BATCH_ALREADY_GREEN",
+                     "VERIFY_BATCH_BLOCK_ONCE_PER_TURN"), "不在範圍"),
 }
 RULE_MODE: Dict[str, str] = {name: BLOCK if name in RULE_CLASS else REMIND for name in RULES}
 
@@ -4255,6 +4289,18 @@ LETTER_RULE: Dict[str, str] = {
     "f3": "EDITED_PART_NEEDS_GOAL_NODE", "f4": "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
 }
 REMIND_LINE_CAP = 240
+
+
+# Stop 原本會擋、v6 開時改成提醒的規則：說明文字補一句現況（判定與原文不動；送法見 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY）
+for _name in ("CASE_COVERS_CHANGE", "CASE_DECLARED_FOR_CHANGE", "NO_CASE_NEEDS_USER", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
+              "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY", "SCOPE_DECLARED_FOR_CHANGE",
+              "SCOPE_ITEM_RECEIPT_AFTER_EDIT", "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
+              "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED", "SECOND_OPINION_REQUIRED", "SECOND_OPINION_DECLINED",
+              "REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE", "LEFTOVER_NEEDS_CLEANUP", "RELOAD_ADVICE_ALREADY_LOADED",
+              "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
+              "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
+              "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE", "SECOND_OPINION_DONE_NOTICE"):
+    RULES[_name] += "｜v6 開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；v6 關照舊擋。"
 
 
 def mode_of(rule: str) -> str:

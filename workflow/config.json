@@ -239,16 +239,25 @@
     "tokenBudget": 240
   },
   "parallel_agents": {
+    "_doc": "並行建議 [Parallel:Suggest] 只在強訊號出：score 滿分 7（連接詞×2＋批量 2＋跨目標 1＋複數 1＋多檔 1），一般請求落 2～5，min_score 6 以上才不會每則都出；max_per_session 同類建議一 session 最多幾次。判斷（score_prompt）照舊，門檻只管印不印。",
     "enabled": true,
-    "min_score": 2,
+    "min_score": 6,
+    "max_per_session": 2,
     "cooldown_turns": 3,
     "min_prompt_chars": 15
   },
   "research_fanout": {
-    "_doc": "知識檢索型 prompt（幫我查/搜索/我想知道）偵測 → 注入兩階段 fan-out SOP。命中時抑制 parallel_agents 提示避免重複。一鍵關 = enabled:false。",
+    "_doc": "知識檢索型 prompt（幫我查/搜索/我想知道）偵測 → 注入兩階段 fan-out SOP。命中時抑制 parallel_agents 提示避免重複。一鍵關 = enabled:false。 只在強訊號出：min_signal_hits＝檢索動詞＋知識域／本地定位／明示檔命中總數門檻（「幫我查一下 X 的用法」=2 不出，「幫我查、研究一下 A 跟 B 的差別與選型比較」那級才出）；max_per_session 一 session 最多幾次。判斷（classify）照舊。",
     "enabled": true,
+    "min_signal_hits": 4,
+    "max_per_session": 2,
     "cooldown_turns": 2,
     "min_prompt_chars": 5
+  },
+  "aidocs": {
+    "_doc": "每則 [Guardian:AIDocs]：關鍵字命中數 ≥ min_prompt_hits 才指、最多 max_prompt_matches 條、同一份一 session 只指一次（v6_once）；開場只給一行 Read _AIDocs/_INDEX.md。",
+    "min_prompt_hits": 2,
+    "max_prompt_matches": 1
   },
   "changelog_auto_roll": {
     "enabled": true,
@@ -263,6 +272,7 @@
     "_doc_codex_binary": "codex_binary 不設＝從 PATH 找 codex；要指定執行檔路徑寫 workflow/config.local.json 的 codex_companion 段（tools/codex-companion/judge_backend.resolve_codex_bin：設定值找不到檔也退 PATH）。",
     "model": "gpt-6-astra",
     "assessment_timeout": 120,
+    "_doc_assessment_timeout": "背景審查子程序（audit.py）單次 codex 呼叫的秒數上限；Stop hook 不等它，與收尾耗時無關。",
     "codex_extra_args": [],
     "_doc_codex_extra_args": "原樣附加到 codex exec 的旗標（裁判與第二意見共用）。只有某台機器需要的旗標（例：停用那台 ~/.codex/config.toml 註冊、裁判用不到的 MCP 伺服器）寫在 workflow/config.local.json 的 codex_companion 段。",
     "score_threshold": 7,
@@ -273,9 +283,9 @@
       "completion_evidence": true,
       "architecture_review": false,
       "handoff_review": true,
-      "block_severity_threshold": "high"
+      "block_severity_threshold": "high",
+      "_doc": "completion_evidence=收尾自檢（heuristics）：silent_advisory=false 且 severity≥block_severity_threshold 時只落 completion_evidence assessment 檔、下一則附說明，不 block 收尾。"
     },
-    "block_template": "Codex Companion 軟閘：偵測到高風險缺漏。\n{detail}\n請補充驗證或修正後再收尾。",
     "fallback": {
       "_doc": "備援裁判（tools/codex-companion/judge_backend.py）：codex 不在（codex_binary 路徑與 PATH 都找不到）或授權未開通（未登入/401/429/額度）→ 改用 headless `claude -p --model <model>` 當裁判。獨立性降級（同廠同家族、盲點相關）故 allow_block 預設 false＝只發 advisory 不擋收尾；要當硬閘自行改 true。授權類失敗會落 workflow/companion-backend.json 抑制標記，reprobe_hours 內不重試 codex，codex 一旦成功即清除。claude_binary 留空＝自動找（PATH → VSCode 擴充 → ~/.local/share/claude/versions）。兩者皆不可用 → 退 heuristics-only 並於 SessionStart 揭露一次。全關＝enabled:false。",
       "enabled": true,
@@ -291,13 +301,10 @@
       "acceptance_review_max": 8
     },
     "acceptance_review": {
-      "_doc": "驗收裁判（hooks/codex_companion.py）：歸 v6 守門總開關管，關時兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。宣稱完成且綁到本 session 唯一 open 規格 → 組案卷（需求原話+驗收清單+diff 採樣+測試輸出）發 codex 回 verdict。enforce=false（出廠）只記錄不擋：背景審、advisory 照注。enforce=true 時於 Stop 同步審：fail 且 severity≥enforce_severity_threshold → block 收尾（沿用 top-level stop_gate_max_blocks=2，第 3 次強制放行+揭露）；pass/uncertain/低嚴重度→放行，advisory 照注。裁判逾時→uncertain 放行不卡收尾。規格檔標 done 觸發的審計維持 async 影子。全部判定寫 acceptance-audit.jsonl。綁定契約：唯一 open 規格才審，否則 uncertain 永不 block（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同規格每 session 審計上限；enforce_timeout=同步審單次 codex 秒數上限。全關=enabled:false。",
+      "_doc": "驗收裁判（hooks/codex_companion.py）：歸 v6 守門總開關管，關時兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。宣稱完成且綁到本 session 唯一 open 規格 → 組案卷（需求原話+驗收清單+diff 採樣+測試輸出）在背景子程序（audit.py）發 codex 回 verdict；Stop 不等、永不 block。結果落 companion-assessment 檔，下一則 UserPromptSubmit 一律附一行（verdict／severity／摘要）；fail 且 severity≥max_inject_severity 才附完整說明（摘要＋事證＋建議）。全部判定寫 acceptance-audit.jsonl。綁定契約：唯一 open 規格才審，否則 uncertain（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同規格每 session 審計上限。全關=enabled:false。",
       "enabled": true,
       "max_per_spec": 2,
-      "max_prompt_chars": 22000,
-      "enforce": false,
-      "enforce_severity_threshold": "high",
-      "enforce_timeout": 60
+      "max_prompt_chars": 22000
     }
   },
   "second_opinion": {
@@ -526,6 +533,16 @@
         "上SVN",
         "執P",
         "執驗上P"
+      ]
+    },
+    "verify_batch": {
+      "_doc": "PreToolUse 驗證批次閘（hooks/wg_verify_batch.py；不歸 v6 開關管）：Bash／PowerShell 跑 pytest（含 python -m pytest）、run_verify.py、verify_*.py／test_*.py 時判兩件事。① 整組驗證（run_verify.py 不帶參數、pytest 沒點名檔或只給目錄、沒縮範圍選項）要本回合使用者原話含 full_run_keywords 任一字（取法同 commit_order：turn_prompts，背景通知與子代理回報不算）→ 沒有就擋。② 同一組指令上次收據綠、之後本 session 沒改檔 → 擋「這批改動已驛證過」（收據：state verify_receipts 與 workflow/verify-ledger/_runs/ 自寫收據；指紋：收據 seq 對 modified_files.last_seq）；上次紅或之後有改檔放行。每回合每條規則最多擋 1 次、第 2 次放行留帳；擋下與放行都記 Logs/guard-verify_batch.jsonl。解析不了的指令（heredoc、eval、bash -c）不管。一鍵關＝enabled:false。",
+      "enabled": true,
+      "full_run_keywords": [
+        "整組",
+        "全量",
+        "全部測試",
+        "run_verify"
       ]
     }
   },
@@ -804,13 +821,23 @@
       {
         "regex": "^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)(?:, \\d+ [a-z]+)*) in \\d",
         "name": "PYTEST",
-        "verdict_map": {"failed": "FAIL", "error": "FAIL", "passed": "PASS", "xpassed": "PASS"},
+        "verdict_map": {
+          "failed": "FAIL",
+          "error": "FAIL",
+          "passed": "PASS",
+          "xpassed": "PASS"
+        },
         "pytest_summary": true
       },
       {
         "regex": "^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)(?:, \\d+ [a-z]+)*) in \\d",
         "name": "PYTEST_MEASURE",
-        "verdict_map": {"failed": "FAIL", "error": "FAIL", "passed": "DONE", "xpassed": "DONE"},
+        "verdict_map": {
+          "failed": "FAIL",
+          "error": "FAIL",
+          "passed": "DONE",
+          "xpassed": "DONE"
+        },
         "pytest_summary": true
       }
     ],
@@ -819,8 +846,11 @@
   "reconcile_gate": {
     "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；主 session、SubagentStop、裁判 Stop 共用 _verify_gates）：拿收尾宣稱對驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令）。宣稱看最後一句（優先 hook 輸入的 last_assistant_message）、以子句判（轉折詞另起子句、否定／疑問排除、第三方轉述不算）。(a) 說修好要有本回合、晚於每個對上的改檔、同一棵樹的 PASS（對上＝指令含改檔檔名、對應的 test_／verify_ 檔、整體驗證或部位量尺，或該部位合格的自寫收據）；(b) 說量了要有能當證據的 DONE 或合格自寫收據；(c) 說試過要本回合有 exec_tools 呼叫；(d) 改了 code_exts 檔要有驗它的案例（need_goal verify_scope 的 case_for，或不需要新案例的 no_case 宣告；判法以 hooks/wg_verify_ledger.py 為準）；(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比）；改過又原樣還原的檔不算改碼；部位表類別 knowledge 的部位下的檔兩邊都不算。max_blocks_per_turn＝(a)～(d)＋量尺閘共用的每回合預算（不吃 stop_gate_max_blocks）；擋滿之後怎麼放行、子代理與 headless 怎麼收尾，以 hooks/handlers/stop.py、hooks/wg_release.py 為準。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
     "enabled": true,
-    "_doc_block_letters": "只有列出的條目字母會擋收尾，其餘照判、只印 stderr（規則 RECONCILE_BLOCK_LETTERS）；沒設＝全擋。出廠只留 a（測試沒過不准說修好）與 d（改了程式要有測試）。",
-    "block_letters": ["a", "d"],
+    "_doc_block_letters": "v6 關時寫碼查核擋哪些條目字母（規則 RECONCILE_BLOCK_LETTERS；沒列的照判、只印 stderr）。v6 開時送法只看 hooks/wg_release_rules.py 的 RULE_MODE（(a) 照擋、(d) 提醒），本欄不再決定；兩處不要各寫一套。",
+    "block_letters": [
+      "a",
+      "d"
+    ],
     "_doc_goal_gate": "false＝需求目標對照 (f1)～(f4) 與 commit 前的目標對照不擋（目標樹照記；改檔前要有樹、提問掛節點不歸這裡）（規則 CLOSING_RITUAL_SWITCHES）。",
     "goal_gate": false,
     "max_blocks_per_turn": 2,
@@ -829,14 +859,62 @@
       "PowerShell"
     ],
     "code_exts": [
-      ".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".cs", ".lua",
-      ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".java", ".kt", ".kts",
-      ".go", ".rs", ".rb", ".php", ".swift", ".m", ".mm", ".scala", ".dart", ".vue",
-      ".svelte", ".ps1", ".psm1", ".bat", ".cmd", ".sh", ".bash", ".sql", ".gd", ".shader", ".hlsl", ".glsl"
+      ".py",
+      ".pyw",
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".ts",
+      ".tsx",
+      ".jsx",
+      ".cs",
+      ".lua",
+      ".c",
+      ".h",
+      ".cc",
+      ".cpp",
+      ".cxx",
+      ".hpp",
+      ".hh",
+      ".java",
+      ".kt",
+      ".kts",
+      ".go",
+      ".rs",
+      ".rb",
+      ".php",
+      ".swift",
+      ".m",
+      ".mm",
+      ".scala",
+      ".dart",
+      ".vue",
+      ".svelte",
+      ".ps1",
+      ".psm1",
+      ".bat",
+      ".cmd",
+      ".sh",
+      ".bash",
+      ".sql",
+      ".gd",
+      ".shader",
+      ".hlsl",
+      ".glsl"
     ],
     "verify_case_globs": [
-      "**/verify/**", "**/tests/**", "**/test/**", "**/__tests__/**", "**/*.tests/**",
-      "**/test_*", "**/*_test.*", "**/*_tests.*", "**/*.test.*", "**/*.spec.*", "**/test.*", "**/tests.*",
+      "**/verify/**",
+      "**/tests/**",
+      "**/test/**",
+      "**/__tests__/**",
+      "**/*.tests/**",
+      "**/test_*",
+      "**/*_test.*",
+      "**/*_tests.*",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/test.*",
+      "**/tests.*",
       "**/conftest.py"
     ]
   },

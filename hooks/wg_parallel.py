@@ -11,7 +11,9 @@ Three layers cooperate:
 
 Config (workflow/config.json `parallel_agents`):
   - enabled: bool
-  - min_score: int (default 2)
+  - min_score: int (default 6) — 只在「明確多個互不相關目標」那級才出（連接詞×2＋批量＋跨目標＋複數＋多檔
+    滿分 7；今天一般請求落在 2～5，門檻 6 以上才不會每則都出）
+  - max_per_session: int (default 2) — 同類建議一個 session 最多出幾次（state.parallel_suggest_count）
   - cooldown_turns: int (default 3)
   - min_prompt_chars: int (default 15)
   - v6_once: bool (default true) — v6 守門開著時一個 session 只送一次；v6 關照 cooldown_turns 冷卻
@@ -162,6 +164,8 @@ def detect_parallel_opportunity(
         from wg_core import v6_enabled
         if v6_enabled(config):
             return None
+    if state.get("parallel_suggest_count", 0) >= cfg.get("max_per_session", 2):
+        return None
 
     min_chars = cfg.get("min_prompt_chars", 15)
     if len(prompt.strip()) < min_chars:
@@ -171,7 +175,7 @@ def detect_parallel_opportunity(
     if _is_pure_question(prompt):
         return None
 
-    min_score = cfg.get("min_score", 2)
+    min_score = cfg.get("min_score", 6)
     score, hints = score_prompt(prompt)
     if score < min_score:
         return None
@@ -184,6 +188,7 @@ def detect_parallel_opportunity(
         return None
 
     state["parallel_last_inject_turn"] = cur_turn
+    state["parallel_suggest_count"] = state.get("parallel_suggest_count", 0) + 1
 
     hint_str = ", ".join(hints) if hints else "多目標"
     return (

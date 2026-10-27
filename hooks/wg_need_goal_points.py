@@ -432,22 +432,26 @@ def _ask_checkpoint(doc: Dict[str, Any], turn: int, nid: str) -> None:
 
 
 def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any], after: bool
-               ) -> Tuple[Optional[str], Optional[str]]:
+               ) -> Tuple[Optional[str], Optional[str], List[Dict[str, Any]]]:
     """蒐集事實（題目全文、目標樹、部位檔讀了幾個）交 wg_release_rules 的三條提問規則判，組成擋訊息或提示。
-    有任何一條要擋（事前模式）→ 所有句子併成一則擋訊息；否則併成一則提示。事後模式只提示。"""
+    有任何一條要擋（事前模式）→ 所有句子併成一則擋訊息；否則併成一則提示。事後模式只提示。
+    第三個回傳值＝提醒件清單（規則名、現象、做法、block＝這條本來是擋）：PreToolUse 拿規則名查 gate_mode 決定照擋還是改提醒
+    （規則 GATE_MODE_TABLE）；判定與文字不因送法而變。"""
     turn = int(state.get("turn_seq", 0) or 0)
     mode = "after" if after else "pre"
     pending = wg_release.pending_any(state, str(sid))
     if (tool_name == "AskUserQuestion" and pending
             and rr.ask_release_only(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)):
-        return None, None
+        return None, None, []
     blocks: List[str] = []
     hints: List[str] = []
+    hits: List[Dict[str, Any]] = []
     if tool_name == "AskUserQuestion":
         rec = rr.ask_recommendation_verdict(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)
         if rec.owed:
-            blocks.append(f"[NeedGoal] {rr.format_hit('提問', rec)}\n"
-                          + rr.ask_recommendation_fix(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS))
+            fix = rr.ask_recommendation_fix(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)
+            blocks.append(f"[NeedGoal] {rr.format_hit('提問', rec)}\n" + fix)
+            hits.append({"rule": rec.rule, "what": rec.why, "fix": fix, "block": True})
             _guard("ask_no_recommendation", sid, turn, tool=tool_name, missing=len(rec.evidence), mode=mode)
     view = rr.ask_overview_verdict(tool_name, tool_input, _part_reads(state), _named_parts(tool_name, tool_input, state))
     try:
@@ -456,11 +460,15 @@ def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any],
         _guard("corrupt", sid, turn, where="on_ask", error=str(e))
         blocks.append(f"[NeedGoal] 目標檔壞了，判不了這題掛哪個節點（{e}）：先用 need_goal(action=set, goal=…) 重寫樹根"
                       "（壞檔會自動備份），再問。" + ng.NO_TOOL_HINT)
+        hits.append({"rule": "GATE_SELF_ERROR", "what": f"目標檔壞了，判不了這題掛哪個節點（{e}）",
+                     "fix": "need_goal(action=set, goal=…) 重寫樹根（壞檔會自動備份）", "block": True})
         doc = None
     tree = _live(doc) if doc else None
     if doc is not None and not tree:
         _guard("ask_hint", sid, turn, tool=tool_name, reason="no_tree", mode=mode)
         hints.append(NO_TREE_HINT)
+        hits.append({"rule": "ASK_LINKED_TO_GOAL", "what": "還沒有需求目標樹", "fix": "這題問完把使用者的答案寫進 need_goal(action=set, goal=…)",
+                     "block": False})
     links = _links(tree, tool_name, tool_input, state, pending)
     nid = _all_linked(links)
     if tree and nid:
@@ -472,9 +480,16 @@ def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any],
                owed=link.owed)
     if view.owed:
         hints.append(f"[NeedGoal] {rr.format_hit('提問', view)}")
+        hits.append({"rule": view.rule, "what": view.why, "fix": "先 Read 題目點名的部位的檔再問改法", "block": False})
     if blocks and not after:
-        return "\n\n".join(blocks + hints), None
-    return None, "\n\n".join(blocks + hints) or None
+        return "\n\n".join(blocks + hints), None, hits
+    return None, "\n\n".join(blocks + hints) or None, hits
+
+
+def on_ask_full(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any]
+                ) -> Tuple[Optional[str], Optional[str], List[Dict[str, Any]]]:
+    """on_ask 加第三個值：提醒件清單（PreToolUse 查 gate_mode 用，見 _judge_ask）。"""
+    return _judge_ask(sid, tool_name, tool_input, state, after=False)
 
 
 def on_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
@@ -482,7 +497,7 @@ def on_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any]) -> 
     ASK_NEEDS_RECOMMENDATION 每一題要附推薦（不分有沒有樹）；ASK_LINKED_TO_GOAL 有樹就要指到節點（編號或原文片段），
     寫碼類沒指到擋並列節點、知識類只提示、還沒有樹送「問完把答案寫進 need_goal」；ASK_OVERVIEW_BEFORE_DECISION 問改法而
     還沒讀過部位檔，擋訊息或提示多一句（不單獨擋）。題目含【收尾放行確認】且真有待放行紀錄整題豁免。通過記 checkpoint ask。"""
-    return _judge_ask(sid, tool_name, tool_input, state, after=False)
+    return _judge_ask(sid, tool_name, tool_input, state, after=False)[:2]
 
 
 def ask_key(tool_input: Any) -> str:
@@ -517,7 +532,7 @@ def asks_after(sid: Any, state: Dict[str, Any], tool_calls: Any) -> List[str]:
         if name not in ASK_TOOLS or (tid and tid in seen) or ask_key(inp) in seen:
             continue
         mark_asked(state, tid, inp)
-        _deny, hint = _judge_ask(sid, name, inp, state, after=True)
+        _deny, hint, _hits = _judge_ask(sid, name, inp, state, after=True)
         if hint:
             out.append(hint)
     return out

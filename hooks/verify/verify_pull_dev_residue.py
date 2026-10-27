@@ -1,7 +1,7 @@
 """verify_pull_dev_residue.py — 只對原設計者本機或開發期才有意義的東西，同事的 CC 不再碰到。
 
 用真的 workflow/config.json（本 worktree 那份）判，退回舊碼或舊設定會紅：
-1. 驗收裁判歸 v6 開關：關 → 收尾宣稱完成也不叫裁判；開 → 只走背景記錄（enforce 出廠 false），不走同步擋；
+1. 驗收裁判歸 v6 開關：關 → 收尾宣稱完成也不叫裁判；開 → 只走背景審（Stop 不等、不擋），沒有同步擋這條路；
    驗收規格提示同一個開關。
 2. 文件漂移：別的專案改 tools/x.py 不記；改 ~/.claude 自己的 tools/x.py 照記。
 3. 回訪表：host 存電腦代號（電腦名小寫後 sha256 前 12 碼），對不上的機器不跑不顯示、那台照顯示；登記表找不到電腦名原文；
@@ -63,7 +63,6 @@ def _stop_calls(monkeypatch, v6: str) -> list:
     import state as companion_state
     monkeypatch.setenv("WG_V6", v6)
     calls: list = []
-    monkeypatch.setattr(cc, "_enforce_acceptance_gate", lambda *a, **k: calls.append("enforce"))
     monkeypatch.setattr(cc, "_maybe_spawn_acceptance_review", lambda *a, **k: calls.append("record"))
     monkeypatch.setattr(companion_state, "read_state", lambda sid: {"tool_trace": [{"tool": "Edit"}], "turn_index": 1})
     monkeypatch.setattr(companion_state, "update_last_assistant_tail", lambda *a: None)
@@ -75,12 +74,13 @@ def _stop_calls(monkeypatch, v6: str) -> list:
 
 
 def test_acceptance_review_not_triggered_when_v6_off(monkeypatch):
-    assert _stop_calls(monkeypatch, "0") == []          # 舊碼：不看 v6，enforce=true 走同步裁判
+    assert _stop_calls(monkeypatch, "0") == []          # 舊碼：不看 v6，照叫裁判
 
 
 def test_acceptance_review_records_only_when_v6_on(monkeypatch):
-    assert CONFIG["codex_companion"]["acceptance_review"]["enforce"] is False
-    assert _stop_calls(monkeypatch, "1") == ["record"]   # 舊設定 enforce=true：走 enforce（會擋）
+    assert "enforce" not in CONFIG["codex_companion"]["acceptance_review"]   # 同步擋的設定鍵已拔
+    assert not hasattr(cc, "_enforce_acceptance_gate")                       # 同步擋的程式路徑已拔
+    assert _stop_calls(monkeypatch, "1") == ["record"]   # 只剩背景審這一條
 
 
 def test_spec_done_trigger_follows_v6(monkeypatch):

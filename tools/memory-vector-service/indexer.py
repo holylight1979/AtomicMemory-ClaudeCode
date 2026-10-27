@@ -898,6 +898,9 @@ def search_vectors(
 
 
 if __name__ == "__main__":
+    for _stream in (sys.stdout, sys.stderr):   # 卡名含 cp950 外字時印不出會整支炸掉（實例：鬪）；輸出一律 utf-8、印不出的字用替代字
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
     import argparse
     from config import load_config
 

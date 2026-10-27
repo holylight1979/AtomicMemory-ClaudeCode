@@ -54,6 +54,13 @@ def _temp_rules_off(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)
+
+
+@pytest.fixture(autouse=True)
 def _git_budget_generous(monkeypatch):
     """真 git 案例（037／042／043／044／045）在全檔連跑的負載下每次 git 可達 0.7 秒，時間預算不該變成判定：
     一律放寬到 20 秒；要測「預算用完照算改了」的案自己再壓回 0。已刪改檔查去向的預算（VANISH_BUDGET_S，2 秒）同理：

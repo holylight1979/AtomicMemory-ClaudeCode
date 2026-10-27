@@ -78,7 +78,8 @@ RULES: Dict[str, str] = {
                                "除了讀（HALT_ALLOW 與 readonly_shell 判定唯讀的指令）和 AskUserQuestion，工具呼叫一律先擋下、附經過表與該問的題目。"
                                "這不是閘觸發、不進次數，也不逼修補；讓警報響不會換到被擋的動作過關。"
                                "唯讀指令只認白名單裡的讀檔指令、沒有寫檔重導向與指令替換；判不出一律當成會動手。",
-    "CHAIN_STOP_NOTICE_ONCE": "警報後 Stop 只擋一次，送連鎖過程表（能互動就附三選項）；使用者在那之前已答就不擋、附結果與表；之後的 Stop 不再擋，只附提醒。",
+    "CHAIN_STOP_NOTICE_ONCE": "警報後 Stop 只擋一次，送連鎖過程表（能互動就附三選項）；使用者在那之前已答就不擋：答案在收尾才讀到的附結果與表，"
+                              "答案已在停手那題認過、帳上有 answer 的只附一行結果、不重送表（同一段已答＝不再問）；之後的 Stop 不再擋，只附提醒。",
     "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": "警報在哪一次響，那道閘原本要送的擋訊息（含附註，例如紅測閘的基底紅缺哪一件）就照附在取代它的中止訊息最後"
                                         "（收尾的中止通知、工具上的停手訊息），超過 REPLACED_CAP 字留開頭：經過表只列第一行，AI 照原文才知道缺什麼、"
                                         "該問使用者什麼。之後的停手訊息與提醒不再附（那時沒有被換掉的擋）。",
@@ -398,11 +399,12 @@ def gate_name(reason: Any, default: str) -> str:
 
 
 def stop_step(ch: Chain) -> Optional[str]:
-    """CHAIN_STOP_NOTICE_ONCE：收尾該做什麼——"notice"（擋一次送經過表）／"remind"（不擋、附提醒）／None（不介入）。"""
+    """CHAIN_STOP_NOTICE_ONCE：收尾該做什麼——"notice"（擋一次送經過表）／"answered"（使用者在停手那題已答、收尾還沒送過表：
+    不擋、只附一行結果）／"remind"（不擋、附提醒）／None（不介入）。"""
     if ch.alarm is None:
         return None
     if ch.shown is None:
-        return "notice"
+        return "answered" if ch.answer is not None else "notice"
     if ch.answer is None and (ch.notice or {}).get("interactive"):
         return "remind"
     return None
@@ -614,6 +616,12 @@ def halt_text(ch: Chain, now: float, replaced: str = "") -> str:
                 f"總共連鎖 {ch.count} 次、深度 {ch.depth}")
     return (_abort_head(ch, "連鎖中止中") + report(ch, now) + (_headless_tail(no_ask) if no_ask else _ask_line(ch))
             + _replaced_tail(replaced))
+
+
+def answered_text(ch: Chain) -> str:
+    """CHAIN_STOP_NOTICE_ONCE：答案在停手那題就認過（帳上有 answer）、收尾第一次碰到 → 只附這一行結果（還原的附還原結果）。"""
+    a, r = ch.answer or {}, ch.restored or {}
+    return answer_text(str(a.get("choice") or ""), str(a.get("answer") or ""), r.get("results") or (), r.get("missed") or ())
 
 
 def remind_text(ch: Chain) -> str:

@@ -1962,6 +1962,24 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         advisories.append(df_ctx)
     if dep_ctx:
         advisories.append(dep_ctx)
+    # 提醒（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：工具前守門判成提醒的那幾件，在這則工具結果送一行（同規則同對象一 session 一次）；
+    # need_goal set 那則先提醒「之後提問要附推薦」（ASK_NEEDS_RECOMMENDATION，每 session 一次；漏了在提問那則補一行）
+    if v6:
+        try:
+            from wg_overview import remind_flush, remind_once
+            if state.get("remind_pending"):
+                dirty = True
+            remind_lines = remind_flush(state, session_id)
+            if (tool_name.endswith("need_goal") and (tool_input or {}).get("action") == "set"
+                    and not is_error_response(input_data.get("tool_response"))):
+                line = remind_once(state, "ASK_NEEDS_RECOMMENDATION", "", "之後問使用者（AskUserQuestion）每一題都要附推薦",
+                                   "推薦的選項排第一、label 加「 (Recommended)」，或題目加「建議：選 X，因為 …」")
+                if line:
+                    remind_lines.append(line)
+                    dirty = True
+            advisories.extend(remind_lines)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Guardian:提醒] 工具結果附提醒失敗（不影響工具結果）：{type(e).__name__}: {e}", file=sys.stderr)
     if state:
         for key, prefix in [
             ("_path_enforcement_advisory", "[Guardian:PathEnforce]"),

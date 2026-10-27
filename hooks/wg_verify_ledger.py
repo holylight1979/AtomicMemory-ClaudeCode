@@ -41,7 +41,7 @@ from wg_release_rules import (canon_path, cc_config_dirs, is_git_launcher_source
                               case_cover_verdict, case_covers_code, user_turn, Verdict,
                               format_hit, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
-                              MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking,
+                              MOVE_TOOL, move_dir_verdict, collapse_move_chain, split_blocking, hit_mode, parse_hit_rules, REMIND,
                               parse_claim_dispositions, claim_disposition_verdict, names_item, is_generic_name, is_claim_line)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
@@ -2100,6 +2100,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          case_check: Optional[Callable[[str], Verdict]] = None,
                          case_for: Optional[Callable[[str], Iterable[str]]] = None,
                          audit: Optional[List[Dict[str, Any]]] = None,
+                         remind: Optional[List[str]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     audit＝(a)(b)(c) 命中但被 last_text 裡的宣稱行解掉的那幾筆（規則 CLAIM_WORDS_ARE_HINTS：「非本回合宣稱，因為…」或
@@ -2108,6 +2109,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     退回下面的檔名對應；回 (有沒有, 說明行)＝有宣告，(a) 只認它。
     case_check＝(d)「由哪個案例驗」的判定（wg_verify_scope.case_check；驗證範圍閘開著時 stop 傳入）：給了就照 LLM 的案例宣告判，
     沒給看覆蓋（CASE_COVERS_CHANGE；case_for＝驗證範圍宣告的「程式檔 → 驗它的案例檔」，declared_cases 建，沒給只看案例內容）。
+    remind＝給了（v6 開著）就照規則 GATE_MODE_TABLE 分流：hit_mode 判成提醒的條目（(b)(c)(d)(v)(e)）不進擋訊息、原行 append 進這個清單
+    交呼叫端留帳；None＝全部照擋（總開關關）。
     「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
     （同伴訊息、背景通知讓 turn_seq 前進，剛跑完的驗證仍算本回合）；沒給只認 turn_seq 那一個。
     exec_this_turn＝本回合跑過 Bash／PowerShell（PostToolUse 記的 exec_turn_seq 落在本回合）：(c) 不再只靠 transcript 這一段的工具名。
@@ -2286,6 +2289,14 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     # 規則 RECONCILE_BLOCK_LETTERS：沒列在 block_letters 的條目照判、只提示不擋
     hits, quiet = split_blocking(hits, cfg.get("block_letters"))
     report, quiet_report = split_blocking(report, cfg.get("block_letters"))
+    if remind is not None:
+        # 規則 GATE_MODE_TABLE：提醒類條目（字母照 LETTER_RULE 的主規則）不進擋訊息，交呼叫端留帳；(a) 照擋
+        def _is_remind(h: str) -> bool:
+            letter, rule = (parse_hit_rules(h) or [("", "")])[0]
+            return hit_mode(letter, rule, True) == REMIND
+        remind.extend(h for h in hits + report if _is_remind(h))
+        hits = [h for h in hits if not _is_remind(h)]
+        report = [h for h in report if not _is_remind(h)]
     for h in quiet + quiet_report:
         print(f"[Guardian:ReconcileGate] 規則 RECONCILE_BLOCK_LETTERS：只提示不擋｜{h[:200]}", file=sys.stderr)
     note = ""

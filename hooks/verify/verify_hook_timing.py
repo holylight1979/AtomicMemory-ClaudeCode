@@ -441,6 +441,7 @@ def test_ups_degraded_skips_retrieval_keeps_gates_goal_and_state(ups_driven, cap
 def _ptu_twice(monkeypatch, capsys, inp):
     """同一個工具呼叫跑兩次：lap 一路回 False、一路回 True（已降級）；回兩次的 (stdout, 退出碼, 打點)。"""
     runs = []
+    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)   # 拿擋下那條比兩次輸出：送法固定成擋
     for degraded in (False, True):
         seen, code = [], None
         monkeypatch.setattr(ptu, "_hook_lap", lambda seg, d=degraded, s=seen: s.append(seg) or d)

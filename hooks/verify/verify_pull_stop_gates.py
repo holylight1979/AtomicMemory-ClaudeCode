@@ -513,3 +513,11 @@ if __name__ == "__main__":
     rc = pytest.main([__file__, "-q", "-p", "no:cacheprovider"])
     print("PULL_STOP_GATES_CHECK PASS" if rc == 0 else "PULL_STOP_GATES_CHECK FAIL")
     sys.exit(0 if rc == 0 else 1)
+
+
+@pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；
+    v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)

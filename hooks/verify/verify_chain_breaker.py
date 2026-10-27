@@ -436,6 +436,25 @@ def test_continue_resets_and_asks_again(box):
     assert _kinds(cs.read_rows(SID)).count("notice") == 2
 
 
+def test_chain_release_same_turn_no_reask(box):
+    """CHAIN_STOP_NOTICE_ONCE（實例 session 17c8cd5c：CommitOrder 第 2 次擋 → 警報 → 使用者在停手那題答放行 → 同一回合收尾又送整張表）：
+    警報在工具閘上響、使用者在停手那題答「放行這一回合」（halt 認到、記 answer）→ 同一使用者回合收尾不擋、不重送經過表，
+    只附一行結果；再收尾不介入。"""
+    t = Turn(box)
+    t.gate("CommitOrder", hook="PreToolUse")
+    t.act()
+    assert t.gate("CommitOrder", hook="PreToolUse").halt
+    t.answer(wg_release.OPT_RELEASE)
+    assert cs.halt(SID, 1, "Bash", t.inp("PreToolUse"), ON) is None        # 放行 → 停手解除、這個呼叫過
+    ch = t.chain()
+    assert ch.answer["choice"] == "release" and ch.shown is None             # 答在停手那題、Stop 還沒送過表
+    out = t.stop()
+    assert out is not None and not out.block
+    assert "放行這一回合" in out.text and "| 步 |" not in out.text
+    assert t.stop() is None
+    assert _kinds(cs.read_rows(SID)).count("answer") == 1
+
+
 def test_release_keeps_record_only_until_next_turn(box):
     """CHAIN_RELEASE_TURN、CHAIN_SAME_TURN：選放行 → 這一回合其餘閘只記錄；下一回合從零起、閘照常擋。"""
     t = Turn(box)

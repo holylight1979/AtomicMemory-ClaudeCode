@@ -342,8 +342,9 @@ def record_only(sid: str, turn: int, input_data: Dict[str, Any], config: Dict[st
 
 def on_stop(sid: str, turn: int, input_data: Dict[str, Any], config: Dict[str, Any],
             now: Optional[float] = None) -> Optional[StopOut]:
-    """收尾時、各閘之前呼叫一次（CHAIN_STOP_NOTICE_ONCE）：警報後還沒送過經過表 → 擋一次送表（使用者已先答了就不擋、附結果與表）；
-    送過、使用者答了 → 照答案做、不擋、附結果；送過還沒答 → 不擋、附提醒。沒警報回 None（既有閘照舊）。"""
+    """收尾時、各閘之前呼叫一次（CHAIN_STOP_NOTICE_ONCE）：警報後還沒送過經過表 → 擋一次送表（使用者已先答了就不擋、附結果與表；
+    答案已在停手那題認過、帳上有 answer → 不擋、只附一行結果，不重送表）；送過、使用者答了 → 照答案做、不擋、附結果；
+    送過還沒答 → 不擋、附提醒。沒警報回 None（既有閘照舊）。"""
     try:
         cx = _ctx(sid, turn, input_data, config, now)
         if cx is None:
@@ -354,6 +355,9 @@ def on_stop(sid: str, turn: int, input_data: Dict[str, Any], config: Dict[str, A
             cx.put("shown")                    # 先記在中止的這一段（答「繼續」會開新的一段）
             done = _apply(cx, input_data)
             return StopOut(False, f"{done}\n{wc.report(ch, cx.now)}") if done else StopOut(True, wc.notice_text(ch, cx.now))
+        if step == "answered":
+            cx.put("shown")                    # 這一段的表算送過：之後的收尾不再介入
+            return StopOut(False, wc.answered_text(ch))
         if step == "remind":
             done = _apply(cx, input_data)
             return StopOut(False, done or wc.remind_text(ch))

@@ -24,6 +24,10 @@ UPS handler 偵測「知識檢索型」請求（幫我查 / 搜索 / 我想知�
 
 Config (workflow/config.json `research_fanout`):
   - enabled: bool
+  - min_signal_hits: int (default 4) —— 檢索動詞＋知識域／本地定位／明示檔 的命中總數；
+    「幫我查一下 X 的用法」只有 2，不出；要「幫我查、研究一下 A 跟 B 的差別與選型」那級才出。
+    判斷（classify）照舊，門檻只管印不印。
+  - max_per_session: int (default 2) —— 一個 session 最多出幾次（state.research_suggest_count）
   - cooldown_turns: int (default 2)
   - min_prompt_chars: int (default 5) —— 中文密度高，「幫我查最佳實踐」僅 7 字元即
     是完整請求；檢索動詞已是必要條件，長度門檻只需擋住「查」這類單詞殘句。
@@ -93,6 +97,11 @@ def _is_skip(text: str) -> bool:
     if not stripped:
         return True
     return any(p.match(stripped) for p in _SKIP_PATTERNS)
+
+
+def _hint_hits(hints: List[str]) -> int:
+    """hints 形如 "檢索動詞×2"／"知識域×3" → 命中總數（強訊號門檻用）。"""
+    return sum(int(m) for h in hints for m in re.findall(r"×(\d+)", h))
 
 
 def classify(prompt: str) -> Tuple[Optional[str], List[str]]:
@@ -170,6 +179,10 @@ def detect_research_fanout(
     mode, hints = classify(prompt)
     if mode is None:
         return None
+    if _hint_hits(hints) < cfg.get("min_signal_hits", 4):
+        return None
+    if state.get("research_suggest_count", 0) >= cfg.get("max_per_session", 2):
+        return None
 
     cooldown = cfg.get("cooldown_turns", 2)
     cur_turn = state.get("topic_tracker", {}).get("prompt_count", 0)
@@ -177,6 +190,7 @@ def detect_research_fanout(
     if cur_turn - last_inject < cooldown:
         return None
     state["research_last_inject_turn"] = cur_turn
+    state["research_suggest_count"] = state.get("research_suggest_count", 0) + 1
 
     hint_str = ", ".join(hints)
     tmpl = _KNOWLEDGE_LINE if mode == "knowledge" else _CODEBASE_LINE

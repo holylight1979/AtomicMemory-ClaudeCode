@@ -38,6 +38,9 @@ def test_044_every_rule_has_a_case():
     ("EQUIVALENCE_LOOP_EXPANDED", "verify_g7_equivalence.py"),
     ("EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED", "verify_g7_equivalence.py"),
     ("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "verify_git_commit_order_gate.py"),
+    ("VERIFY_FULL_RUN_NEEDS_USER_ORDER", "verify_verify_batch.py"),
+    ("VERIFY_SAME_BATCH_ALREADY_GREEN", "verify_verify_batch.py"),
+    ("VERIFY_BATCH_BLOCK_ONCE_PER_TURN", "verify_verify_batch.py"),
     ("NEGATED_MENTION_IS_NOT_NAMING", "verify_data_file_ask.py"),
     ("DATA_FILE_DECL_VOIDED_BY_LATER_MENTION", "verify_data_file_ask.py"),
     ("OWN_COMMIT_CHANGES_STILL_COMPARED", "verify_old_test_declare.py"),
@@ -2797,3 +2800,28 @@ def test_remind_key_and_due_once_per_object():
     assert not rr.remind_due([k], "OVERVIEW_CARD_BEFORE_EDIT", "C:/proj/hooks/a.py")
     assert rr.remind_due([k], "OVERVIEW_CARD_BEFORE_EDIT", "c:/proj/hooks/b.py")
     assert rr.remind_key("HARVEST_AT_PHASE_DONE") == "HARVEST_AT_PHASE_DONE|"
+
+
+# ─── 工具前守門改提醒（P2～P10d）登的規則名：送法在表上、對象鍵一 session 一次（送法案例在 verify_gate_mode_pre.py） ───
+
+def test_pre_gate_remind_rules_registered_with_mode():
+    """LOCATE_BEFORE_EDIT 與 REMIND_PENDING_IN_STATE 是 v6 守門（remind）；OVERVIEW_READONLY_PATHS 不在範圍（block）；
+    v6 關全部 block。"""
+    for rule in ("LOCATE_BEFORE_EDIT", "REMIND_PENDING_IN_STATE", "OVERVIEW_CARD_BEFORE_EDIT", "CODE_EDIT_NEEDS_GOAL_TREE",
+                 "COMMIT_GOAL_RECONCILED", "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP", "ASK_NEEDS_RECOMMENDATION", "GATE_SELF_ERROR"):
+        assert rule in rr.RULES and rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK, rule
+    assert rr.RULE_CLASS["OVERVIEW_READONLY_PATHS"] == "不在範圍" and rr.gate_mode("OVERVIEW_READONLY_PATHS", True) == rr.BLOCK
+    assert rr.remind_key("LOCATE_BEFORE_EDIT", "戰鬥") == "LOCATE_BEFORE_EDIT|戰鬥"
+# ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）、(f2) 交付前對照（GOAL_RECONCILE_AT_DELIVERY）；入口案例在 verify_gate_mode_stop.py ───
+@pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "GOAL_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED",
+                                  "SECOND_OPINION_REQUIRED", "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
+                                  "RELOAD_ADVICE_ALREADY_LOADED", "SCOPE_DECLARED_FOR_CHANGE", "AEC_EVIDENCE_PATH",
+                                  "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "GATE_SELF_ERROR"))
+def test_stop_remind_rules_are_remind_when_v6_on(rule):
+    """Stop 改提醒的那幾道閘：規則名在表上、v6 開是 remind、關是 block（照舊）；(a)（CLAIM_FIXED_NEEDS_PASS）照擋見上面的三類案。"""
+    assert rule in rr.RULES and rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK
+    assert (Path(__file__).parent / "verify_gate_mode_stop.py").is_file()
+
+
+def test_overview_hub_under_v6_rule_registered():
+    assert "OVERVIEW_HUB_UNDER_V6" in rr.RULES and rr.gate_mode("OVERVIEW_HUB_UNDER_V6", True) == rr.REMIND

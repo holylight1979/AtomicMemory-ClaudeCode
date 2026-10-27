@@ -9,7 +9,8 @@
 4. Q8 配額分桶：acceptance_review 有保底名額也有上限，與既有審查互不餓死
 5. 稽核落盤：jsonl append + human_label 預留 + Q5 promotion_stats
 6. hook 觸發：spec 標 done 偵測、bound → spawn、unbound → 落 uncertain 不 spawn
-7. 影子紅線：任何路徑不產生 block decision
+7. 收尾驗收一律背景審：Stop 只 spawn、不等、不 block（同步 enforce 閘已拔）
+8. 影子紅線：任何路徑不產生 block decision
 """
 from __future__ import annotations
 
@@ -549,117 +550,31 @@ def test_per_spec_review_cap(sandbox, monkeypatch):
     assert len(spawned) == 2  # 第 3 次撞 per-spec 上限
 
 
-# ─── 7. Phase 3 enforce 閘 ───────────────────────────────────────────────────
-
-_ENF_CFG = {
-    "max_audits_per_session": 30,
-    "acceptance_review": {"enforce": True, "enforce_severity_threshold": "high",
-                          "enforce_timeout": 60, "max_per_spec": 2},
-}
+# ─── 7. 收尾驗收：一律背景審，Stop 不等、不 block ─────────────────────────────
 
 
-def _fake_result(verdict, severity="low", problems=None, notify=False):
-    r = {"verdict": verdict, "severity": severity, "score": 5,
-         "summary": f"fake {verdict}", "problems": problems or [],
-         "status": "ok", "delivery": "ignore", "uncertain_reason": ""}
-    if notify:
-        r["notify_next_turn"] = True
-    return r
-
-
-def _run_gate(sandbox, monkeypatch, result, max_blocks=2):
-    """跑 enforce 閘；回 (block_reason or None)。"""
-    import assessor as _asr
-    monkeypatch.setattr(_asr, "run_assessment", lambda *a, **k: dict(result))
-    monkeypatch.setattr(acc, "collect_diff_digest", lambda cwd: ("digest", False))
-    monkeypatch.setattr(cc, "CONFIG_PATH", sandbox["workflow"] / "config.json")
-    (sandbox["workflow"] / "config.json").write_text(
-        json.dumps({"stop_gate_max_blocks": max_blocks}), encoding="utf-8")
-    blocked = {}
-
-    def fake_block(reason, session_id=""):
-        blocked["reason"] = reason
-        raise SystemExit(0)
-
-    monkeypatch.setattr(cc, "_output_block", fake_block)
-    try:
-        cc._enforce_acceptance_gate(SID, 7, str(sandbox["proj"]), _ENF_CFG, {}, "tail")
-    except SystemExit:
-        pass
-    return blocked.get("reason")
-
-
-def test_enforce_fail_high_blocks_with_evidence(sandbox, monkeypatch):
+def test_stop_claim_spawns_background_review_only(sandbox, monkeypatch):
+    """收尾宣稱完成 → 只起背景 audit 子程序（trigger=stop_claim）；hook 行程內不呼叫裁判。"""
     _write_spec(sandbox["proj"], "task-a")
     companion_state.ensure_state(SID, str(sandbox["proj"]))
-    reason = _run_gate(sandbox, monkeypatch, _fake_result(
-        "fail", "high",
-        [{"criterion": "做 A", "evidence": "diff 無 A", "explanation": "沒做"}]))
-    assert reason and "收尾被擋" in reason and "diff 無 A" in reason
-    assert "第 1/2 次" in reason
-    # jsonl 雙軌照記
-    assert acc.read_audits()[0]["trigger"] == "stop_enforce"
-    assert companion_state.get_spec_blocks(
-        SID, acc.resolve_binding(SID, str(sandbox["proj"]))["spec_path"]) == 1
+    spawned = []
+    monkeypatch.setattr(cc, "_spawn_audit_subprocess", lambda td: spawned.append(td))
+    monkeypatch.setattr(assessor, "run_assessment",
+                        lambda *a, **k: pytest.fail("Stop 不得同步呼叫裁判"))
+    cc._maybe_spawn_acceptance_review(
+        SID, 7, str(sandbox["proj"]), {"max_audits_per_session": 30,
+                                       "acceptance_review": {"max_per_spec": 2}},
+        "stop_claim")
+    assert len(spawned) == 1
+    assert spawned[0]["assessment_type"] == "acceptance_review"
+    assert spawned[0]["context"]["trigger"] == "stop_claim"
+    assert companion_state.read_metrics(SID)["acceptance_reviews_spawned"] == 1
 
 
-def test_enforce_fail_medium_released(sandbox, monkeypatch):
-    """Q6 拍板：medium fail 不擋，維持 advisory。"""
-    _write_spec(sandbox["proj"], "task-a")
-    companion_state.ensure_state(SID, str(sandbox["proj"]))
-    reason = _run_gate(sandbox, monkeypatch, _fake_result(
-        "fail", "medium",
-        [{"criterion": "c", "evidence": "e", "explanation": "x"}]))
-    assert reason is None
-
-
-def test_enforce_pass_and_uncertain_released(sandbox, monkeypatch):
-    _write_spec(sandbox["proj"], "task-a")
-    companion_state.ensure_state(SID, str(sandbox["proj"]))
-    assert _run_gate(sandbox, monkeypatch, _fake_result("pass")) is None
-    assert _run_gate(sandbox, monkeypatch, _fake_result("uncertain")) is None
-
-
-def test_enforce_judge_timeout_released_with_signal(sandbox, monkeypatch):
-    """裁判逾時 → uncertain 放行 + degraded metric（不卡收尾）。"""
-    _write_spec(sandbox["proj"], "task-a")
-    companion_state.ensure_state(SID, str(sandbox["proj"]))
-    reason = _run_gate(sandbox, monkeypatch,
-                       _fake_result("uncertain", notify=True))
-    assert reason is None
-    assert companion_state.read_metrics(SID)["acceptance_judge_degraded"] == 1
-
-
-def test_enforce_block_cap_forces_release_without_reaudit(sandbox, monkeypatch):
-    """達 2 次上限：第 3 次不再審、強制放行、留揭露 advisory。"""
-    spec = _write_spec(sandbox["proj"], "task-a")
-    companion_state.ensure_state(SID, str(sandbox["proj"]))
-    companion_state.increment_spec_blocks(SID, str(spec))
-    companion_state.increment_spec_blocks(SID, str(spec))
-    audited = []
-    import assessor as _asr
-    monkeypatch.setattr(_asr, "run_assessment",
-                        lambda *a, **k: audited.append(1) or _fake_result("fail", "high"))
-    reason = _run_gate(sandbox, monkeypatch, _fake_result("fail", "high"))
-    # _run_gate 內又 patch 了 run_assessment；以未 block + 未再審雙重確認
-    assert reason is None
-    assert companion_state.read_metrics(SID)["acceptance_forced_release"] == 1
-    # 揭露 advisory 已落 assessment 檔（次輪 drain 注入）
-    pending = list(sandbox["workflow"].glob(
-        f"companion-assessment-{SID}-t*-acceptance_review.json"))
-    assert pending
-    data = json.loads(pending[0].read_text(encoding="utf-8"))
-    assert "強制放行" in data["assessment"]["summary"]
-
-
-def test_enforce_unbound_never_blocks(sandbox, monkeypatch):
-    """兩份 open 規格（ambiguous）→ 不審、不 block、記 uncertain。"""
-    _write_spec(sandbox["proj"], "task-a")
-    _write_spec(sandbox["proj"], "task-b")
-    companion_state.ensure_state(SID, str(sandbox["proj"]))
-    reason = _run_gate(sandbox, monkeypatch, _fake_result("fail", "high"))
-    assert reason is None
-    assert acc.read_audits()[0]["binding"] == acc.BINDING_AMBIGUOUS
+def test_no_sync_gate_left_in_hook():
+    """同步擋收尾的程式路徑已拔：沒有 enforce 閘、沒有 block 權判定、沒有 block 出口。"""
+    for name in ("_enforce_acceptance_gate", "_judge_may_block", "_output_block"):
+        assert not hasattr(cc, name), name
 
 
 # ─── 8. 影子紅線：不產生 block ────────────────────────────────────────────────

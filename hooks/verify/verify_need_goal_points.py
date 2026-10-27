@@ -604,22 +604,25 @@ def _pre_input(tool_input, tid="tu1", tool="AskUserQuestion"):
             "tool_use_id": tid, "cwd": str(HOOKS_DIR.parent)}
 
 
-def test_pre_tool_use_handler_blocks_then_passes_and_marks(world):
+def _pending_rules():
+    return [h["rule"] for h in wg_core.read_state(SID).get("remind_pending") or []]
+
+
+def test_pre_tool_use_handler_reminds_then_passes_and_marks(world):
+    """沒推薦的提問不擋（規則 GATE_MODE_TABLE）：記一件待提醒 ASK_NEEDS_RECOMMENDATION、PreToolUse 不送東西；附了推薦照放。"""
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, **READ})
     make_tree("code")
     out = run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "tu1"), {})
-    assert out, "PreToolUse 沒擋沒推薦的提問"
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "ASK_NEEDS_RECOMMENDATION" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert out is None and "ASK_NEEDS_RECOMMENDATION" in _pending_rules()
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_with("T1.1：要用哪個？"), "tu2"), {}) is None
     assert {"tu1", "tu2"} <= set(wg_core.read_state(SID)["need_goal_asks"])
 
 
 def test_ask_block_count_flows_from_pre_tool_use_to_batch_audit(world):
-    """真 hook 入口串起來：PreToolUse 擋一次 state 計數 1；補上推薦那題在 PostToolBatch 審計記「擋過 1 次、掛 T1.1」並歸零。"""
+    """真 hook 入口串起來：PreToolUse 判該擋（改提醒、不 deny）一次 state 計數 1；補上推薦那題在 PostToolBatch 審計記「擋過 1 次、掛 T1.1」並歸零。"""
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, "need_goal_code_decl_turn": 3, **READ})
     make_tree("code")
-    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "tu1"), {})
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "tu1"), {}) is None
     assert wg_core.read_state(SID).get("need_goal_ask_blocks") == 1
     ok = ask_with("T1.1：要用哪個？")
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ok, "tu2"), {}) is None
@@ -634,9 +637,11 @@ def test_pre_tool_use_handler_knowledge_hint_and_subagent_skip(world):
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 1})
     make_tree("knowledge")
     bad = ask_opts("要先查哪一份？", ["A", "B"])
-    out = run_handler(ptu.handle_pre_tool_use, _pre_input(bad), {})
-    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(bad), {}) is None       # 不擋：記待提醒
+    assert "ASK_NEEDS_RECOMMENDATION" in _pending_rules()
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 1})
     assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "agent_id": "a1"}, {}) is None   # 子代理不查
+    assert not _pending_rules()
 
 
 def _broken_points(monkeypatch):
@@ -644,15 +649,17 @@ def _broken_points(monkeypatch):
     monkeypatch.setitem(sys.modules, "wg_need_goal_points", None)
 
 
-def test_pre_tool_use_broken_gate_blocks_normal_question(world, monkeypatch):
-    """提問前檢查自己壞了 → 照契約擋（fail-closed）＋stderr＋守門紀錄 ask_error（claude-91 裁定）。"""
+def test_pre_tool_use_broken_gate_reminds_normal_question(world, monkeypatch):
+    """提問前檢查自己壞了（規則 GATE_SELF_ERROR，v6 開）→ 不擋：stderr＋守門紀錄 ask_error、記一件待提醒；v6 關照契約擋（fail-closed）。"""
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
     _broken_points(monkeypatch)
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), {}) is None
+    assert [(g["event"], g["rule"]) for g in guard(world) if g["event"] == "ask_error"] == [("ask_error", "GATE_SELF_ERROR")]
+    assert _pending_rules() == ["GATE_SELF_ERROR"]
+    monkeypatch.setenv("WG_V6", "0")
     out = run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), {})
-    assert out, "提問前檢查壞掉時沒擋"
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "提問前檢查壞了" in out["hookSpecificOutput"]["permissionDecisionReason"]
-    assert guard(world)[-1]["event"] == "ask_error"
 
 
 def test_pre_tool_use_broken_gate_still_lets_real_release_question_through(world, monkeypatch):
@@ -660,8 +667,8 @@ def test_pre_tool_use_broken_gate_still_lets_real_release_question_through(world
     q = _release_q()
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
     _broken_points(monkeypatch)
-    out = run_handler(ptu.handle_pre_tool_use, _pre_input(q), {})
-    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"     # 沒有待放行紀錄：照擋
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(q), {}) is None      # 沒有待放行紀錄：當一般題，v6 開改提醒
+    assert _pending_rules() == ["GATE_SELF_ERROR"]
     state = {"session": {"id": SID}, "turn_seq": 2}
     wg_release.mark_block(state, SID, "reconcile", None, 2)
     wg_release.set_pending(state, SID, "reconcile", 2, "now", "擋滿")
@@ -694,8 +701,8 @@ def test_ask_gate_root_off_project_on_still_blocks(world, tmp_path):
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
     make_tree("code")
     bad = ask_opts("要用哪個做法？", ["A", "B"])
-    out = run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "cwd": str(root)}, ROOT_OFF)
-    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "cwd": str(root)}, ROOT_OFF) is None
+    assert "ASK_NEEDS_RECOMMENDATION" in _pending_rules()                        # 專案開著：照判（送法是提醒）
 
 
 def test_ask_gate_root_on_project_off_does_not_block(world, tmp_path):
@@ -705,6 +712,7 @@ def test_ask_gate_root_on_project_off_does_not_block(world, tmp_path):
     make_tree("code")
     bad = ask_opts("要用哪個做法？", ["A", "B"])
     assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(bad), "cwd": str(root)}, {}) is None
+    assert not _pending_rules()                                                   # 關掉：連提醒都沒有
 
 
 @pytest.mark.parametrize("enabled,config", [(True, ROOT_OFF), (False, {})])
@@ -1063,7 +1071,7 @@ def _calls(path, name):
 @pytest.mark.parametrize("rel,name", [
     ("handlers/session_end.py", "silent_unreconciled"),
     ("handlers/user_prompt_submit.py", "on_correction"),
-    ("handlers/pre_tool_use.py", "on_ask"),
+    ("handlers/pre_tool_use.py", "on_ask_full"),
     ("handlers/post_tool_batch.py", "batch_lines"),
     ("handlers/post_tool_use.py", "scope_on_read"),
 ])
@@ -1261,9 +1269,13 @@ def test_c_g16_broken_gate_lets_only_pure_release_ask_through(world, monkeypatch
     _broken_points(monkeypatch)
     mixed = _release_q()
     mixed["questions"].append(ask_opts("要哪種格式？", ["CSV", "JSON"])["questions"][0])
-    out = run_handler(ptu.handle_pre_tool_use, _pre_input(mixed, "m1"), {})
-    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(mixed, "m1"), {}) is None   # 夾一般題：當一般題（v6 開改提醒）
+    assert _pending_rules() == ["GATE_SELF_ERROR"]
+    st = wg_core.read_state(SID)
+    st.pop("remind_pending", None)
+    wg_core.write_state(SID, st)
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(_release_q(), "m2"), {}) is None
+    assert not _pending_rules()                                                    # 純放行題：照放、不提醒
 
 
 def _hub(proj, **reads):
@@ -1341,12 +1353,17 @@ def test_c_g16b_part_lookup_error_falls_back_not_blocks(world, proj, monkeypatch
     assert "網路磁碟斷線" in capsys.readouterr().err
 
 
-def test_c_g16_pre_tool_use_entry_blocks_missing_recommendation(world):
-    """真 hook 入口：沒推薦 → PreToolUse deny；加了 (Recommended) → 放行。"""
+def test_c_g16_pre_tool_use_entry_reminds_missing_recommendation_blocks_when_v6_off(world, monkeypatch):
+    """真 hook 入口：沒推薦 → v6 開記待提醒不 deny（規則 GATE_MODE_TABLE）、v6 關照 deny（規則名在擋訊息裡）；加了 (Recommended) → 放行。"""
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, **READ})
     make_tree("code")
-    out = run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "r1"), {})
+    bad = ask_opts("T1.1：要用哪個？", ["A", "B"])
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(bad, "r1"), {}) is None
+    assert _pending_rules() == ["ASK_NEEDS_RECOMMENDATION"]
+    monkeypatch.setenv("WG_V6", "0")
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(bad, "r0"), {})
     assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "ASK_NEEDS_RECOMMENDATION" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    monkeypatch.setenv("WG_V6", "1")
     ok = ask_opts("T1.1：要用哪個？", ["A (Recommended)", "B"])
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ok, "r2"), {}) is None

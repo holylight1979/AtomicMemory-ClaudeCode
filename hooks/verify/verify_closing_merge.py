@@ -33,6 +33,13 @@ from handlers import stop as st  # noqa: E402
 from verify_need_goal import ON, SID, _code_tree, _op, _stop_env, _tree, env  # noqa: E402,F401  共用 tmp 資料根與 Stop 驅動
 from verify_gate_trim import stop_drive  # noqa: E402,F401
 
+
+@pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)
+
 SKIP = [{"source": "decision", "summary": "這次的取捨寫在程式註解裡", "action": "skip", "reason": "讀程式就看得到"}]
 RECON = {"items": [{"id": n, "status": "none", "followup": "等使用者給格式"} for n in ("T1", "T1.1", "T1.2")], "turns": 1}
 HARVEST_ON = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3, "background": False}}

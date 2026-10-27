@@ -572,3 +572,11 @@ def test_reconcile_without_turns_is_accepted_with_a_reminder(tmp_path, monkeypat
     assert ng.apply_op(sid, 3, {"action": "set", "goal": "G2", "new_task": True, "why": "另一件"}, str(tmp_path))["ok"]
     r = ng.apply_op(sid, 4, {"action": "reconcile", "items": [{"id": "T2", "status": "done", "evidence": ev_}], "turns": 2}, str(tmp_path))
     assert r["ok"] and ng.TURNS_HINT not in r["text"] and ng.load(sid)["trees"]["T2"]["last_reconcile"]["turns"] == 2
+
+
+@pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；
+    v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)

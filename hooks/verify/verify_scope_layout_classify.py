@@ -72,7 +72,7 @@ def test_session_start_advisory_only_when_unclassified(tmp_path):
     mem = _mk_project(tmp_path)
     out = _scope_layout_advisory(mem)
     assert len(out) == 1 and out[0].startswith("[Guardian:ScopeLayout]")
-    assert "/memory classify" in out[0]
+    assert "整理記憶分類" in out[0]          # 瘦身後只留一行入口口令；/memory classify 流程寫在 skill
     (mem / "shared" / "_taxonomy.json").write_text("{}", encoding="utf-8")
     assert _scope_layout_advisory(mem) == []
     assert _scope_layout_advisory(None) == []

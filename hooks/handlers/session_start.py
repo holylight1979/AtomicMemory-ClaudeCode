@@ -40,7 +40,7 @@ from wg_atoms import (
 )
 from project_root import claude_config_dir   # lib/（wg_core 已放進 sys.path）：Claude Code 設定目錄，啟動檔在這裡
 from wg_evasion import (
-    _load_oscillation_warnings, _detect_rut_patterns, _check_periodic_review_due,
+    _load_oscillation_warnings, _check_periodic_review_due,
 )
 from wg_roles import (
     get_current_user, load_user_role, is_management, bootstrap_personal_dir,
@@ -443,14 +443,36 @@ def _scope_layout_advisory(project_mem_dir) -> list:
         from atom_locations import scope_layout_classified
         if scope_layout_classified(Path(project_mem_dir)):
             return []
-        return [
-            "[Guardian:ScopeLayout] 記憶系統已改為 scope 分層：personal 只給本人、針對專案的規則進 shared "
-            "並記提出者、他專案 atom 不再注入。本專案的記憶尚未依此整理（無 layout 標記／shared/_taxonomy.json）。"
-            "使用者說「整理記憶分類」→ 走 /memory classify：plan 出建議表 → 使用者確認 personal 去向 → "
-            "apply（搬檔、索引 scope 回寫、標記）→ 提醒把 .claude/memory 上傳版控。"
-        ]
+        return ["[Guardian:ScopeLayout] 記憶尚未依 scope 分層整理，要整理說「整理記憶分類」"]
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("session_start:scope_layout_advisory", e)
+        return []
+
+
+def _aidocs_opening_lines(aidocs_entries, project_root) -> List[str]:
+    """開場 _AIDocs 一行：有索引就指 _INDEX.md（檔名清單不印，要用再 Read）；沒 _AIDocs 目錄才提示建立。"""
+    if aidocs_entries:
+        return [f"[AIDocs] {len(aidocs_entries)} docs → Read _AIDocs/_INDEX.md"]
+    if project_root and not (Path(project_root) / "_AIDocs").is_dir():
+        return ["[Guardian] No _AIDocs found. Run /init-project to create."]
+    return []
+
+
+def _local_catalog_lines(cwd: str) -> List[str]:
+    """本地範疇 catalog 一行指標（只在核心環境 cwd∈~/.claude；整張表要用再 Read）。
+
+    core catalog 走 CLAUDE.md @import memory/MEMORY.md；本地範疇明細在側檔 memory/_local_catalog.md。
+    fail-safe：缺檔／非核心 → []（local atom 仍走 trigger 注入）。
+    """
+    try:
+        if not _is_under_claude_dir(cwd):
+            return []
+        lc = MEMORY_DIR / "_local_catalog.md"
+        if not lc.exists():
+            return []
+        return [f"[LocalCatalog] 本地範疇索引：Read {lc.as_posix()}"]
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("realm:local_catalog_inject", e)
         return []
 
 
@@ -1459,13 +1481,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:
                 _atom_debug_error("daily_push", e)
 
-        max_entries = config.get("aidocs", {}).get("max_session_start_entries", 15)
-        if aidocs_entries:
-            fnames = [f for f, _d, _kw in aidocs_entries[:max_entries]]
-            lines.append(f"[AIDocs] {len(aidocs_entries)} docs: {', '.join(fnames)}")
-            lines.append("[查閱知識庫] Read _AIDocs/_INDEX.md")
-        elif project_root and not (Path(project_root) / "_AIDocs").is_dir():
-            lines.append("[Guardian] No _AIDocs found. Run /init-project to create.")
+        lines.extend(_aidocs_opening_lines(aidocs_entries, project_root))
 
         if project_root:
             try:
@@ -1491,20 +1507,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "——請修復 JSON（詳 Logs/atom-debug）。"
         )
 
-    # ── V5+ realm：本地範疇 catalog 注入（補完 index 層 realm 一致性）────────────
-    # core catalog 走 CLAUDE.md @import memory/MEMORY.md（全專案，fail-safe 退路）；
-    # 本地範疇明細抽到側檔 memory/_local_catalog.md，僅核心環境（cwd∈~/.claude）此處注入，
-    # 外部專案不注入 → always-load 省本地段。對 startup/resume/compact 兩分支皆生效。
-    # fail-safe：缺檔/讀錯/非核心 → 靜默略過（catalog 本屬 readability，local atom 仍 trigger 注入）。
-    try:
-        if _is_under_claude_dir(cwd):
-            _lc = MEMORY_DIR / "_local_catalog.md"
-            if _lc.exists():
-                _lc_txt = _lc.read_text(encoding="utf-8-sig").strip()
-                if _lc_txt:
-                    lines.append(_lc_txt)
-    except Exception as e:
-        _atom_debug_error("realm:local_catalog_inject", e)
+    # ── V5+ realm：本地範疇 catalog 一行指標（僅核心環境 cwd∈~/.claude）────────────
+    lines.extend(_local_catalog_lines(cwd))
 
     # V5+ Realm 維度：上個 session 自動歸類搬移的不靜默提示（永不靜默；讀後清 marker）
     try:
@@ -1581,13 +1585,6 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             lines.append(osc_warning)
     except Exception as e:
         print(f"Oscillation load error: {e}", file=sys.stderr)
-
-    try:
-        rut_warning = _detect_rut_patterns(state, config)
-        if rut_warning:
-            lines.append(rut_warning)
-    except Exception as e:
-        print(f"Rut detection error: {e}", file=sys.stderr)
 
     if WISDOM_AVAILABLE:
         try:

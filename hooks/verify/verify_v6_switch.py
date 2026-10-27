@@ -225,11 +225,15 @@ def test_stop_reconcile_gate_skipped_when_off(stop_run, monkeypatch, on):
 
 @pytest.mark.parametrize("on", [False, True])
 def test_stop_turn_judgment_gate_skipped_when_off(stop_run, monkeypatch, on):
+    """開：拐彎判斷閘跑了，但 TURN_JUDGMENT_REQUIRED 是提醒（GATE_MODE_TABLE）→ 不擋、只留帳 event=remind；關：閘不跑、沒帳。"""
     _set_v6(monkeypatch, on)
+    logs = []
+    monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None, None))
     monkeypatch.setattr(st, "turn_judgment_note", lambda *a, **k: ("[Guardian:TurnJudgment] 必擋替身", False))
     out = stop_run(_stop_state())
-    assert ("TurnJudgment" in out) is on
+    assert "TurnJudgment" not in out
+    assert any(g == "reading_path" and p.get("event") == "remind" and p.get("rule") == "TURN_JUDGMENT_REQUIRED" for g, p in logs) is on
 
 
 def test_stop_off_testfail_message_is_pre_v6(stop_run, monkeypatch):

@@ -134,8 +134,8 @@ DEFAULTS = {
     },
     "aidocs": {
         "enabled": True,
-        "max_session_start_entries": 15,
-        "max_prompt_matches": 3,
+        "max_prompt_matches": 1,      # 每則最多指幾份；min_prompt_hits：關鍵字命中數門檻（1 個命中不算明顯）
+        "min_prompt_hits": 2,
     },
     "sync_reminder": {
         "enabled": True,

@@ -3,8 +3,10 @@
 七項（各一個開關，程式預設；提示文字原處不動、判不判命中照舊）：
   1. Codex 接續單自檢（codex_companion._detect_checkpoint）：v6 開看 codex_companion.soft_gate.handoff_review_v6（沒寫＝關），
      v6 關照 soft_gate.handoff_review（沒寫＝開）。
-  2. [Parallel:Suggest]（wg_parallel.detect_parallel_opportunity）：parallel_agents.v6_once，送過一次就不再送；v6 關照 cooldown_turns 冷卻。
-  3. [Guardian:AIDocs] Relevant project docs（handlers/ups_context.build_context）：aidocs.v6_once，同一份文件只指一次，新命中的照指。
+  2. [Parallel:Suggest]（wg_parallel.detect_parallel_opportunity）：parallel_agents.v6_once，送過一次就不再送；v6 關照 cooldown_turns 冷卻
+     （另有不看 v6 的 min_score／max_per_session，見 verify_injection_slim.py；本檔明給低門檻單測 v6_once）。
+  3. [Guardian:AIDocs] Relevant project docs（handlers/ups_context.build_context）：aidocs.v6_once，同一份文件只指一次，新命中的照指
+     （瘦身後不看 v6 總開關；命中門檻 min_prompt_hits 本檔明給 1）。
   4. [JIT:InternalPipeline]（同上）：jit_internal_pipeline.v6_once，送過一次就不再送。
   5. [Guardian:CoordWarn] 同檔預警（wg_coordination.check_cross_session_conflict）：coordination.v6_once，同一個檔警過就不再警
      （v6 關照 warn_suppress_min 分鐘後重警）。
@@ -77,6 +79,7 @@ def test_plan_review_untouched_by_v6(monkeypatch):
 
 
 def _parallel_twice(cfg: dict) -> tuple:
+    cfg = {"parallel_agents": {"min_score": 1, "max_per_session": 99, **cfg.get("parallel_agents", {})}}
     state = {"topic_tracker": {"prompt_count": 1}}
     first = wg_parallel.detect_parallel_opportunity(PARALLEL_PROMPT, state, cfg)
     state["topic_tracker"]["prompt_count"] = 9          # 早過了冷卻
@@ -120,9 +123,14 @@ def ups_world(tmp_path, monkeypatch):
     }
 
 
+_LOOSE_AIDOCS = {"min_prompt_hits": 1, "max_prompt_matches": 3}
+
+
 def _ups(state: dict, prompt: str, config: dict | None = None) -> str:
     lines: list = []
-    ups_context.build_context("sid", state, config or {}, prompt, prompt, prompt.lower(), 3000, lines)
+    config = dict(config or {})
+    config["aidocs"] = {**_LOOSE_AIDOCS, **config.get("aidocs", {})}
+    ups_context.build_context("sid", state, config, prompt, prompt, prompt.lower(), 3000, lines)
     return "\n".join(lines)
 
 
@@ -141,11 +149,13 @@ def test_aidocs_pointer_v6_once_false_repeats(ups_world, monkeypatch):
     assert "[Guardian:AIDocs]" in _ups(ups_world, "routing 表少一列", cfg)
 
 
-def test_aidocs_pointer_unchanged_when_v6_off(ups_world, monkeypatch):
+def test_aidocs_pointer_once_per_doc_even_when_v6_off(ups_world, monkeypatch):
+    """注入瘦身後同一份文件一 session 只指一次不看 v6 總開關（v6 關時以前每則都重指）。"""
     _v6(monkeypatch, False)
     first = _ups(ups_world, "routing 表少一列")
-    assert "`_AIDocs/Routing.md`" in first and _ups(ups_world, "routing 表少一列") == first
-    assert "aidocs_pointed" not in ups_world
+    assert "`_AIDocs/Routing.md`" in first
+    assert "[Guardian:AIDocs]" not in _ups(ups_world, "routing 表少一列")
+    assert ups_world["aidocs_pointed"] == ["Routing.md"]
 
 
 JIT_PROMPT = "workflow-guardian 的記憶系統注入順序要調"

@@ -133,3 +133,11 @@ def _cassette(git_cassette):
     """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
     pytest --git-record 重錄。"""
     git_cassette()
+
+
+@pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；
+    v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)

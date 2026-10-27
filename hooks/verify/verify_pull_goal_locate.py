@@ -19,7 +19,7 @@ sys.path.insert(0, str(VERIFY))
 
 from verify_need_goal import (  # noqa: E402,F401
     CRIT, ON, SID, THREE, THREE2, _code_tree, _deny_text, _mapped_world, _op, _ptu_run, _read_part, _say, _tree,
-    _two_part_world, env, hooked, ng, pt, ptu, wg_core, wo,
+    _two_part_world, block_mode, env, hooked, ng, pt, ptu, wg_core, wo,
 )
 import wg_need_goal_points as ngp  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
@@ -154,7 +154,7 @@ def test_program_progress_does_not_reset_cross_dir_count(env):
 
 # ─── 定位閘同缺件擋次上限（盤查第 5 列） ──────────────────────────────────────
 
-def test_locate_gate_same_gap_blocks_twice_then_passes_with_log(hooked):
+def test_locate_gate_same_gap_blocks_twice_then_passes_with_log(hooked, block_mode):
     """同回合同部位同缺件：擋第 1、2 次，第 3 次放行並留帳（edit_deny_capped）；換回合重給 2 次。舊碼第 3 次照擋。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
@@ -171,7 +171,7 @@ def test_locate_gate_same_gap_blocks_twice_then_passes_with_log(hooked):
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
 
 
-def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked):
+def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked, block_mode):
     """擋訊息要的行＝閘判交齊的條件：有目標樹時擋訊息要「一次交齊四行」（部位、根因層兩候選＋理由、前例、批判），範例照填
     （角括號換成自己的判斷）交上去 → 一次放行、不再擋第二輪。擋訊息沒要的第四行目標節點，閘也只記錄（locate_soft、掛樹根）。
     擋訊息少要一行、或閘多擋一行，這案就紅。"""
@@ -196,7 +196,7 @@ def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked):
     assert soft and "LOCATE_GOAL_NODE" in soft[-1]["rules"]
 
 
-def test_locate_example_full_once_per_session_then_short(hooked):
+def test_locate_example_full_once_per_session_then_short(hooked, block_mode):
     """規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：有目標樹、擋訊息精簡開（guard.deny_text_slim 預設開）——本 session 第一則缺定位的擋訊息
     照給完整範例；之後的回合再擋，那一條換成短句（四行格式同第一則、寫在回覆文字或 # 註解、thinking 讀不到），擋照擋；
     精簡關掉照舊每則完整範例。改前每則都附完整範例。"""
@@ -236,7 +236,7 @@ def _edit_call(f, proj, tp, outputs, tid):
     return outputs[-1]
 
 
-def test_two_candidates_ask_once_counts_one_reply(hooked):
+def test_two_candidates_ask_once_counts_one_reply(hooked, block_mode):
     """規則 DENY_CAP_PER_REPLY（同類：TWO_CANDIDATES_ASK_ONCE，上限 1 則回覆）：定位行根因層只寫一個候選、同一則回覆平行送出
     3 個改同部位的 Edit → 3 個都擋（是同一次問）；舊碼照呼叫記「這回合問過了」，第 2 個起只記錄、放行。下一則同樣的定位行 → 只記錄、放行。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]

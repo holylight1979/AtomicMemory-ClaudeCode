@@ -152,6 +152,7 @@ def hk(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, "output_nothing", out_nothing)
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")         # 互動入口；headless 的案自己改
     monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
+    monkeypatch.setattr(st, "_gate_mode", lambda rule, v6: st._BLOCK)   # 測判定與擋訊息內容，送法固定成擋
     made = []
 
     def make(sid: str = "sid-wire", chain_on: bool = True) -> Session:
@@ -563,13 +564,14 @@ def _hub_switch(s: Session, monkeypatch) -> set:
     (s.proj / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8")
     blocked: set = set()
 
-    def on_edit(state, sid, fp, *a, **k):
+    def edit_check(state, sid, fp, *a, **k):
         if wc.canon_path(fp) not in blocked:
-            return None, None, False
+            return None, None, False, None
         msg = f"[Guardian:OverviewHub] 改 {fp} 前的證據不足，一律擋"
-        return msg, msg, False
-    monkeypatch.setattr(wg_overview, "on_edit", on_edit)
+        return msg, msg, False, wg_overview.remind_hit("OVERVIEW_PART_FILES_READ", "", "證據不足", "先讀")
+    monkeypatch.setattr(wg_overview, "edit_check", edit_check)
     monkeypatch.setattr(wg_need_goal, "edit_gate", lambda *a, **k: None)
+    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)   # 接線測擋下那一刻的斷路器記帳：送法固定成擋
     return blocked
 
 

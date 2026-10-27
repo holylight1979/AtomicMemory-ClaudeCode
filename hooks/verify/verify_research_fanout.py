@@ -21,6 +21,10 @@ from wg_research import classify, detect_research_fanout  # noqa: E402
 import wg_parallel  # noqa: E402
 
 
+# 本檔測判斷（classify）、cooldown、開關；強訊號門檻（min_signal_hits）與每 session 上限在 verify_injection_slim.py
+_LOOSE = {"research_fanout": {"min_signal_hits": 1, "max_per_session": 99}}
+
+
 def _state(turn: int = 5, last: int = -10):
     return {
         "topic_tracker": {"prompt_count": turn},
@@ -62,13 +66,13 @@ def test_codebase_mode(prompt):
     "查",                                    # 過短（min_prompt_chars）
 ])
 def test_no_false_fire(prompt):
-    assert detect_research_fanout(prompt, _state(), {}) is None
+    assert detect_research_fanout(prompt, _state(), _LOOSE) is None
 
 
 # ─── 3. 注入內容與閘門 ───────────────────────────────────────────────────────
 
 def test_knowledge_line_carries_two_stages():
-    line = detect_research_fanout("幫我搜索 Rust 的並行方案差別", _state(), {})
+    line = detect_research_fanout("幫我搜索 Rust 的並行方案差別", _state(), _LOOSE)
     assert line is not None
     for token in ("Stage A", "Stage B", "關鍵字", "workflow-research-fanout"):
         assert token in line
@@ -76,7 +80,7 @@ def test_knowledge_line_carries_two_stages():
 
 def test_codebase_line_is_single_stage():
     """codebase 走單階段：不得出現兩階段字樣（文案明寫「不需 WebSearch」故不比對該詞）。"""
-    line = detect_research_fanout("幫我找一下 hot_cache 定義在哪個檔", _state(), {})
+    line = detect_research_fanout("幫我找一下 hot_cache 定義在哪個檔", _state(), _LOOSE)
     assert line is not None
     assert "Explore" in line
     assert "不需 WebSearch" in line          # 本地 symbol 精確，擴充只引噪音
@@ -86,14 +90,14 @@ def test_codebase_line_is_single_stage():
 
 def test_cooldown_blocks_second_hit():
     st = _state(turn=5)
-    assert detect_research_fanout("幫我搜索 A 的原理", st, {}) is not None
+    assert detect_research_fanout("幫我搜索 A 的原理", st, _LOOSE) is not None
     # 同輪 / cooldown 內第二次不再注入
-    assert detect_research_fanout("我想知道 B 的原理", st, {}) is None
+    assert detect_research_fanout("我想知道 B 的原理", st, _LOOSE) is None
 
 
 def test_cooldown_expires():
     st = _state(turn=5, last=0)   # 5 - 0 >= 2
-    assert detect_research_fanout("幫我搜索 A 的原理", st, {}) is not None
+    assert detect_research_fanout("幫我搜索 A 的原理", st, _LOOSE) is not None
 
 
 def test_config_kill_switch():
@@ -116,4 +120,4 @@ def test_covers_what_parallel_scores_zero(prompt):
     """
     score, _ = wg_parallel.score_prompt(prompt)
     assert score == 0, f"前提失效：wg_parallel 現在對 {prompt!r} 給 {score} 分，需重新評估分模組決策"
-    assert detect_research_fanout(prompt, _state(), {}) is not None
+    assert detect_research_fanout(prompt, _state(), _LOOSE) is not None

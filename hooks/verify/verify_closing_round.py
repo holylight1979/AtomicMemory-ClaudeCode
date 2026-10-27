@@ -31,6 +31,13 @@ from verify_pick_one import _PASS_CFG, _SID, _mod, stop_run, world  # noqa: E402
 from verify_g9_second_opinion import DECLINE_LINE, DONE, FOUR, HINT_TAIL, JOB, S1_DONE, SID as SO_SID, WAIT_TEXT, _feedback, _files, _so_logs, drive  # noqa: E402,F401
 
 AEC = {"tool_name": "mcp__workflow-guardian__anti_evasion_report", "tool_input": {"a": "無"}}
+
+
+@pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)
 TJ_NOTE = ("[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完；尺不是判決，只量不擋）：\n"
            "  要人看的 1 條（門檻：拐彎 ≥2）：\n    函式 cli.py::by_product｜拐彎 3\n    拐彎判斷｜cli.py::by_product｜…")
 
@@ -161,7 +168,8 @@ def test_reconcile_batch_is_pre_close_too(batch_env, stop_run, tmp_path, capsys)
     _measured(state, damage)
     for action in ("set", "verify_scope"):
         ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": action}}], _PASS_CFG, capsys)
-        assert "PickOne" not in ctx and "拐彎判斷｜" not in ctx, action
+        # 不是收尾那批：不附最該修、不附量好的結果本文；背景量完的欠項一行提醒（TURN_JUDGMENT_REQUIRED，REMIND_ON_PRIOR_RESULT）照送
+        assert "PickOne" not in ctx and TJ_NOTE.splitlines()[0] not in ctx, action
     ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}}], _PASS_CFG, capsys)
     assert "[Guardian:PickOne]" in ctx and "拐彎判斷｜" in ctx
 

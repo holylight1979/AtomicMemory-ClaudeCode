@@ -429,19 +429,22 @@ def _mod(path, turn=5):
     return {"path": str(path), "session_id": _SID, "turn_seq": turn, "last_turn_seq": turn}
 
 
-def test_stop_sends_pick_once_as_context_not_block(stop_run):
+def _remind(ev):
+    return [p for p in ev if p.get("event") == "remind" and p.get("rule") == "PICK_ONE_PRE_CLOSE"]
+
+
+def test_stop_pick_is_ledger_only_not_context_nor_block(stop_run):
+    """規則 STOP_REMIND_LEDGER_ONLY：v6 開著 Stop 不續跑——該問的那一問只留帳（guard-pick_one event=remind，摘錄是那一問的第一行），
+    不送 additionalContext 也不擋；問過的記號照記，同一批改動第二次不再記。那一問本身在收尾那批附（PICK_ONE_PRE_CLOSE，verify_closing_round）。"""
     proj, run = stop_run
     mods = [_mod(proj / "Game" / "Battle" / "Damage.cs")]
     out, state, ev = run("改好了，全部完成。", mods)
-    assert out.strip(), run.err
-    payload = json.loads(out.strip().splitlines()[-1])
-    assert "decision" not in payload                                                     # 不是擋
-    ctx = payload["hookSpecificOutput"]["additionalContext"]
-    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
-    assert ctx.startswith("[Guardian:PickOne]") and "【戰鬥】" in ctx and "為什麼不是數字最高的那個：" in ctx
-    assert state["pick_one"][_SID]["asked_turn"] == 5 and ev[-1]["event"] == "asked"
-    out2, _, _ = run("改好了，全部完成。", mods, pick_one=state["pick_one"])                 # 同一批改動第二次
-    assert "PickOne" not in out2
+    assert out.strip() == "", (out, run.err)
+    rem = _remind(ev)
+    assert rem and rem[-1]["excerpt"].startswith("[Guardian:PickOne]")          # 摘錄只留第一行；部位名由 pre_close 那案驗
+    assert state["pick_one"][_SID]["asked_turn"] == 5 and any(p["event"] == "asked" for p in ev)
+    out2, _, ev2 = run("改好了，全部完成。", mods, pick_one=state["pick_one"])                 # 同一批改動第二次
+    assert "PickOne" not in out2 and not _remind(ev2)
 
 
 def test_stop_continuation_after_red_test_block_still_asks_once(stop_run):
@@ -454,11 +457,11 @@ def test_stop_continuation_after_red_test_block_still_asks_once(stop_run):
     assert "TestFailGate" in out and "PickOne" not in out, run.err                       # 前置：第一次收尾被紅測閘擋
     out2, state2, ev2 = run("修好了，測試全綠，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
                             turn_seq=6, turn_prompts_seq=5)
-    assert "[Guardian:PickOne]" in out2, run.err
-    assert state2["pick_one"][_SID]["asked_uturn"] == 5 and ev2[-1]["event"] == "asked"
-    out3, _, _ = run("好了，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
-                     turn_seq=7, turn_prompts_seq=5, pick_one=state2["pick_one"])
-    assert "PickOne" not in out3                                                          # 同一個使用者回合：不送第二次
+    assert "PickOne" not in out2 and _remind(ev2), run.err                                # 只留帳，不續跑
+    assert state2["pick_one"][_SID]["asked_uturn"] == 5 and any(p["event"] == "asked" for p in ev2)
+    out3, _, ev3 = run("好了，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
+                       turn_seq=7, turn_prompts_seq=5, pick_one=state2["pick_one"])
+    assert "PickOne" not in out3 and not _remind(ev3)                                     # 同一個使用者回合：不記第二次
 
 
 def test_boundary_seen_earlier_in_turn_still_asks_when_last_reply_answers_another_gate(stop_run):
@@ -469,12 +472,12 @@ def test_boundary_seen_earlier_in_turn_still_asks_when_last_reply_answers_anothe
     red = [{"session_id": _SID, "cmd": "python -m pytest -q tests", "summary": "1 failed", "turn_seq": 5}]
     out, state, _ = run("改好了，全部完成。", [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
     assert "TestFailGate" in out and state["pick_one"][_SID]["boundary_uturn"] == 5, run.err
-    out2, state2, _ = run("沒有口令所以先不 commit，改了哪些檔都列在下面，等你決定要不要上 GIT。", [_mod(damage, turn=6)],
-                          hook={"stop_hook_active": True}, turn_seq=7, turn_prompts_seq=5, pick_one=state["pick_one"])
-    assert "[Guardian:PickOne]" in out2, run.err
-    out3, _, _ = run("沒有口令所以先不 commit。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
-                     turn_seq=8, turn_prompts_seq=6, pick_one=state["pick_one"])
-    assert "PickOne" not in out3                                                          # 換了使用者回合、這回合沒到交付邊界：不送
+    out2, state2, ev2 = run("沒有口令所以先不 commit，改了哪些檔都列在下面，等你決定要不要上 GIT。", [_mod(damage, turn=6)],
+                            hook={"stop_hook_active": True}, turn_seq=7, turn_prompts_seq=5, pick_one=state["pick_one"])
+    assert "PickOne" not in out2 and _remind(ev2), run.err                                # 到過邊界：記一次（只留帳）
+    out3, _, ev3 = run("沒有口令所以先不 commit。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
+                       turn_seq=8, turn_prompts_seq=6, pick_one=state["pick_one"])
+    assert "PickOne" not in out3 and not _remind(ev3)                                     # 換了使用者回合、這回合沒到交付邊界：不記
 
 
 def test_without_user_turn_key_continuation_does_not_ask_again(stop_run):
@@ -482,11 +485,11 @@ def test_without_user_turn_key_continuation_does_not_ask_again(stop_run):
     （codex 一輪 BLOCK 3）；沒問過的續跑收尾照樣問（PICK_ONCE_PER_USER_TURN）。"""
     proj, run = stop_run
     damage = proj / "Game" / "Battle" / "Damage.cs"
-    out, state, _ = run("改好了，全部完成。", [_mod(damage)], hook={"stop_hook_active": True})
-    assert "[Guardian:PickOne]" in out, run.err                                           # 沒問過：續跑也問
-    out2, _, _ = run("又改了一處，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True}, turn_seq=6,
-                     pick_one=state["pick_one"])
-    assert "PickOne" not in out2
+    out, state, ev = run("改好了，全部完成。", [_mod(damage)], hook={"stop_hook_active": True})
+    assert "PickOne" not in out and _remind(ev), run.err                                  # 沒問過：續跑也記（只留帳）
+    out2, _, ev2 = run("又改了一處，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True}, turn_seq=6,
+                       pick_one=state["pick_one"])
+    assert "PickOne" not in out2 and not _remind(ev2)
 
 
 @pytest.mark.parametrize("message,mods_kind,config", [

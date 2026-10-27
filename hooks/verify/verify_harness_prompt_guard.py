@@ -100,8 +100,9 @@ def _hints(prompt: str) -> list:
     st = {"session_context_injected": True, "modified_files": [{"path": f"c:/p/{i}.py"} for i in range(6)],
           "topic_tracker": {"keyword_signals": ["refactor", "migrate"], "prompt_count": 9}}
     lines: list = []
+    loose = {"research_fanout": {"min_signal_hits": 1}, "parallel_agents": {"min_score": 1}}   # 門檻另測；這裡只看誰的字會觸發
     g.run_pre_gates("sid", st, {}, prompt, prompt.lower(), lines)
-    c.build_context("sid", st, {}, prompt, prompt, prompt.lower(), 3000, lines)
+    c.build_context("sid", st, loose, prompt, prompt, prompt.lower(), 3000, lines)
     return lines
 
 

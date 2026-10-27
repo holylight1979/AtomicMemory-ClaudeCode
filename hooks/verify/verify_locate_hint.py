@@ -81,16 +81,20 @@ def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hoo
     assert [(e["need_tree"], e["four"], e["first"]) for e in _hint_events(hooked)] == [(True, True, True)]
 
 
-def test_locate_hint_ignored_still_blocks_with_same_deny(hooked, post_read):
-    """先讀、沒照做就改 → 照擋：沒樹先被需求目標閘擋；立了樹沒交定位 → 定位閘照擋，擋訊息照舊要「一次交齊四行」附範例。
-    有樹時的提示只講定位、不提立樹。"""
+def test_locate_hint_ignored_not_blocked_and_not_reminded_twice(hooked, post_read):
+    """先讀、沒照做就改（規則 GATE_MODE_TABLE）：讀檔提示就是那一次提醒——沒樹就改不擋、不再提醒立樹；立了樹沒交定位也不擋、
+    不再提醒定位（提醒帳 remind_sent 已有這兩件；判定照舊留帳 edit_blocked／edit_remind）。"""
     f1 = _mapped_world(hooked)
     assert "立需求目標樹" in post_read({"file_path": f1})
-    deny = _edit(hooked, f1)
-    assert deny and deny.startswith("[NeedGoal]") and "目標樹" in deny
+    assert _edit(hooked, f1) is None
+    state = wg_core.read_state(SID)
+    assert not state.get("remind_pending") and any(k.startswith("CODE_EDIT_NEEDS_GOAL_TREE|") for k in state["remind_sent"])
+    assert any(k.startswith("LOCATE_BEFORE_EDIT|") for k in state["remind_sent"])
+    assert [p["why"] for g, p in hooked["guard"] if g == "need_goal" and p["event"] == "edit_blocked"] == ["no_tree"]
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    deny = _edit(hooked, f1)
-    assert deny and "[Guardian:OverviewHub]" in deny and "一次交齊四行" in deny and "定位｜批判" in deny
+    assert _edit(hooked, f1) is None
+    assert not wg_core.read_state(SID).get("remind_pending")
+    assert not [o for o in hooked["outputs"] if o]
 
 
 def test_locate_hint_skips_non_code_second_read_located_and_short_for_next_part(hooked, post_read):
@@ -121,7 +125,8 @@ def test_locate_hint_not_sent_when_edit_injected_first(hooked, post_read):
     """改檔時才補注入的部位（第一次碰就是 Edit）：那則擋訊息已經講了要交什麼，之後再讀它的程式檔不另送提示。"""
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    assert _edit(hooked, f1)                                                        # 補注入導讀卡、擋
+    assert _edit(hooked, f1) is None                                                # 補注入導讀卡、不擋（卡隨改檔結果送）
+    assert [h["rule"] for h in wg_core.read_state(SID)["remind_pending"]] == ["OVERVIEW_CARD_BEFORE_EDIT"]
     assert "交定位" not in post_read({"file_path": f1})
     assert not _hint_events(hooked)
 

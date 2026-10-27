@@ -192,11 +192,19 @@ def driven(monkeypatch):
     return drive
 
 
-def test_stop_blocks_on_deferral(driven, capsys):
+def test_stop_reminds_on_deferral_v6_and_blocks_v6_off(driven, capsys, monkeypatch):
+    """規則 DEFERRAL_OF_DOABLE_WORK 是提醒（GATE_MODE_TABLE）：v6 開 → Stop 不擋、只留帳 event=remind、一回合一次的記號照記、
+    不吃共用擋次；v6 關 → 照擋（9e476fd0 原樣）。"""
+    logs = []
+    monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
+    out, state = driven(_DEFER_DONE, capsys)
+    assert "[Guardian:DeferralGate]" not in out
+    assert state["deferral_gate_turn"] == 7 and state["stop_blocked_count"] == 0
+    assert any(g == "deferral" and p.get("event") == "remind" and p.get("rule") == "DEFERRAL_OF_DOABLE_WORK" for g, p in logs)
+    monkeypatch.setenv("WG_V6", "0")
     out, state = driven(_DEFER_DONE, capsys)
     assert "[Guardian:DeferralGate]" in out
-    assert state["deferral_gate_turn"] == 7
-    assert state["stop_blocked_count"] == 1
+    assert state["deferral_gate_turn"] == 7 and state["stop_blocked_count"] == 1
 
 
 def test_p7_stop_passes_with_not_doing_line_and_logs(driven, capsys, monkeypatch):

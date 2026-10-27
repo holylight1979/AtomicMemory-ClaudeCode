@@ -200,3 +200,11 @@ def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys, tmp_path):
     assert state.get("stop_blocked_count", 0) >= 2   # 共用預算已被吃光
     assert "DeepPostMortem" in o3                     # 曾餓死 → 現獨立預算觸發
     assert state.get("deep_postmortem_done") is True
+
+
+@pytest.fixture(autouse=True)
+def _block_mode(monkeypatch):
+    """規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；
+    v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。"""
+    import wg_release_rules as _rr
+    monkeypatch.setattr(_rr, "mode_of", lambda rule: _rr.BLOCK)

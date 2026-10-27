@@ -134,8 +134,9 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     """四層深合併（hub_config.merge_hub_cfg）：預設 < config.json overview_hub < 公司層 < 專案層 overview-hub.json。
 
     這裡只補呼叫端的事：公司根（行程內快取）、錯誤與退役鍵各警告一次、驗證器內部錯誤進 atom-debug log、
-    `_layer`（root／org／project_mapped／project_unmapped／none）、`_card_mode`（這次實際用的導讀卡送法：v6 總開關關時一律
-    full，維持 v6 以前整張注入的行為）。回傳必帶 `_errors`（非空時 on_edit deny）。
+    `_layer`（root／org／project_mapped／project_unmapped／none）、`_card_mode`（這次實際用的導讀卡送法）。
+    OverviewHub 整道（導讀卡注入、候選、讀檔記錄、定位）綁 v6 總開關：v6 關時 `enabled` 一律 False，什麼都不送、不記
+    （規則 OVERVIEW_HUB_UNDER_V6）。回傳必帶 `_errors`（非空時 on_edit deny）。
     """
     org = _org_root()
     c = merge_hub_cfg(config, org, root)
@@ -146,7 +147,9 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     for e in c["_errors"]:
         _warn_once(f"error:{root}:{e}", f"設定錯誤（{root or '根層'}）：{e}")
     c["_layer"] = "none" if root is None else _layer_kind_for_root(root, org)
-    c["_card_mode"] = c.get("card_injection") if v6_enabled(config) else "full"
+    v6 = v6_enabled(config)
+    c["enabled"] = bool(c.get("enabled")) and v6
+    c["_card_mode"] = c.get("card_injection")
     return c
 
 
@@ -1000,6 +1003,9 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
         if not hit:
+            line = _unmapped_read_hint(state, session_id, p, config, agent_id)
+            if line:
+                texts.append(line)
             continue
         root, row = hit
         rec = (state.get("overview_hub") or {}).get(_key(root, row))
@@ -1030,6 +1036,37 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
 _LOCATE_HINT_KEY = "overview_locate_hint_sent"     # 本 session 送過完整那一則提示沒（之後的部位只點名、說格式同前）
 
 
+def _unmapped_read_hint(state: Dict[str, Any], session_id: str, path: str, config: Dict[str, Any], agent_id: str = "") -> Optional[str]:
+    """沒有部位表（或表上沒列）的程式檔第一次被讀到：_unmapped_edit 改檔時會欠的那兩件（同頂層目錄讀夠檔、最小地圖三行）
+    先各提醒一行，每頂層目錄每 session 一次（remind_once；改檔那邊同鍵，提醒過就不再提醒）。v6 關、子代理讀的、非程式檔、
+    執行期資料不送。判定不動。"""
+    if agent_id or not path or not v6_enabled(config):
+        return None
+    root = _unmapped_root_of(path)
+    if root is None:
+        return None
+    cfg = _cfg(config, root)
+    if not cfg["enabled"]:
+        return None
+    import wg_need_goal as _ng
+    if not _ng.is_code_path(path, config) or not _rr.runtime_data_verdict(path, str(root), None).owed:   # 讀檔不多跑 git
+        return None
+    key, top = _unmapped_key(root, path), top_dir(path, root)
+    rec = (state.get("overview_hub") or {}).get(key)
+    have = len(rec["part_files_read"]) if rec else 0
+    need = int(cfg["min_overview_evidence"]["part_files"])
+    readable = _readable_existing(root, top, need) if have < need else need
+    v = _rr.unmapped_edit_verdict(need, readable, have)
+    lines = []
+    if v.owed:
+        lines.append(remind_once(state, v.rule, key, f"改「{top}」下的程式檔前要先讀過同頂層目錄的檔（{v.why}）", "先 Read 同目錄的既有檔再改"))
+    if _min_map_due(rec, path, cfg, config):
+        lines.append(remind_once(state, "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP", key,
+                                 f"這個專案沒有部位表，第一次改「{top}」的程式檔前要交最小地圖三行",
+                                 f"在回覆文字或{_rr.DECL_VIA_COMMENT}寫 地圖｜讀了：<讀過的檔>／地圖｜上游：…／地圖｜下游：…"))
+    return "\n".join(ln for ln in lines if ln) or None
+
+
 def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], path: str,
                       config: Dict[str, Any], agent_id: str = "") -> Optional[str]:
     """規則 LOCATE_HINT_ON_FIRST_READ：讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（可以就是觸發注入的那次）→ 讀檔結果後
@@ -1053,6 +1090,9 @@ def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: D
     rec["locate_hint"] = "sent"
     first = not state.get(_LOCATE_HINT_KEY)
     state[_LOCATE_HINT_KEY] = True
+    remind_mark(state, "LOCATE_BEFORE_EDIT", row["part_short"])      # 這一行就是定位的提醒：之後沒交不擋、也不再提醒
+    if need_tree:
+        remind_mark(state, "CODE_EDIT_NEEDS_GOAL_TREE", "")
     _log("locate_hint", session_id, part=row["part_short"], path=path, need_tree=need_tree, four=four, first=first)
     return locate_read_hint(row["part_short"], need_tree, four, first)
 
@@ -1149,9 +1189,58 @@ def _own_config_layer(file_path: str) -> Tuple[bool, Optional[Path]]:
     return (False, None)
 
 
+# ─── 提醒帳（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：工具前守門判成提醒的那一件先記 state，下一個工具結果取走 ───
+REMIND_SENT_KEY = "remind_sent"          # state：這個 session 送過的提醒鍵（wg_release_rules.remind_key）
+REMIND_PENDING_KEY = "remind_pending"    # state：工具前記下、等下一個工具結果送出的提醒
+REMIND_PENDING_CAP = 20
+
+
+def remind_hit(rule: str, obj: Any, what: str, fix: str, extra: str = "") -> Dict[str, Any]:
+    """一件提醒：規則名、對象（部位／頂層目錄鍵／空＝整個 session）、現象、做法、順帶要送的全文（例：改檔時才注入的導讀卡）。"""
+    return {"rule": str(rule), "obj": str(obj or ""), "what": str(what or ""), "fix": str(fix or ""), "extra": str(extra or "")}
+
+
+def remind_mark(state: Dict[str, Any], rule: str, obj: Any = "") -> bool:
+    """記「這件提醒送過了」；本來沒送過回 True（呼叫端這時才送），送過回 False。"""
+    sent = state.setdefault(REMIND_SENT_KEY, [])
+    if not _rr.remind_due(sent, rule, obj):
+        return False
+    sent.append(_rr.remind_key(rule, obj))
+    return True
+
+
+def remind_once(state: Dict[str, Any], rule: str, obj: Any, what: str, fix: str) -> Optional[str]:
+    """該提醒就組一行（remind_line）並記送過；送過回 None。給讀檔結果這類當場就能送的用。"""
+    return _rr.remind_line(rule, what, fix) if remind_mark(state, rule, obj) else None
+
+
+def remind_queue(state: Dict[str, Any], hit: Dict[str, Any]) -> None:
+    """工具前守門：這件判成提醒、不擋，先記進 state，等下一個工具結果（PostToolUse）送。"""
+    pend = state.setdefault(REMIND_PENDING_KEY, [])
+    pend.append(dict(hit))
+    del pend[:-REMIND_PENDING_CAP]
+
+
+def remind_flush(state: Dict[str, Any], session_id: str) -> List[str]:
+    """PostToolUse：取走等著的提醒；該送的（同規則同對象本 session 第一次）組一行＋順帶全文，送過的只留帳不重送。回要併進
+    additionalContext 的段落。"""
+    pend = state.pop(REMIND_PENDING_KEY, None) or []
+    out: List[str] = []
+    for hit in pend:
+        rule, obj = str(hit.get("rule") or ""), hit.get("obj") or ""
+        if not remind_mark(state, rule, obj):
+            _log("remind_skipped", session_id, rule=rule, obj=obj)
+            continue
+        out.append(_rr.remind_line(rule, str(hit.get("what") or ""), str(hit.get("fix") or "")))
+        if hit.get("extra"):
+            out.append(str(hit["extra"]))
+        _log("remind_sent", session_id, rule=rule, obj=obj)
+    return out
+
+
 def _cfg_error_deny(cfg: Dict[str, Any], session_id: str, file_path: str,
-                    row: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, bool]]:
-    """`_errors` 非空 → (訊息, deny 理由, False)，訊息列全部錯誤；沒錯誤回 None。"""
+                    row: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, bool, Dict[str, Any]]]:
+    """`_errors` 非空 → (訊息, deny 理由, False, 提醒件 GATE_SELF_ERROR)，訊息列全部錯誤；沒錯誤回 None。"""
     if not cfg["_errors"]:
         return None
     where = f"改【{row['part_short']}】部位的檔（{file_path}）" if row else f"改 {file_path}"
@@ -1159,7 +1248,8 @@ def _cfg_error_deny(cfg: Dict[str, Any], session_id: str, file_path: str,
            + "；".join(cfg["_errors"]))
     _log("edit_cfg_error", session_id, part=row["part_short"] if row else None, path=file_path,
          layer=cfg["_layer"], errors=cfg["_errors"])
-    return (msg, msg, False)
+    return (msg, msg, False, remind_hit("GATE_SELF_ERROR", "overview_hub", f"OverviewHub 設定有錯（{cfg['_layer']}），閘判不了",
+                                        "修這一層的 overview-hub.json：" + "；".join(cfg["_errors"])))
 
 
 def _row_layers(row: Dict[str, Any]) -> List[str]:
@@ -1387,17 +1477,17 @@ def _min_map_lines(top: str, v: _rr.Verdict, preview: str) -> List[str]:
 
 def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str, cfg: Dict[str, Any],
                    config: Optional[Dict[str, Any]] = None, transcript_path: str = "",
-                   call: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Optional[str], bool]:
+                   call: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Optional[str], bool, Optional[Dict[str, Any]]]:
     """沒有部位表的專案、或表上沒列的檔：要求本 session 讀過同頂層目錄的檔，數量照規則 UNMAPPED_EDIT_NEEDS_READABLE_FILES
     （設定的 N 與該目錄可讀既有檔數取小）。執行期資料（gitignored、workflow/state*、Logs、快取目錄…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。
     往上找不到任何部位表的專案，第一次改某頂層目錄的程式檔前另要最小地圖三行（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP），
-    擋訊息附掃表預覽；兩條都欠就同一則訊息列。"""
+    擋訊息附掃表預覽；兩條都欠就同一則訊息列。第四個回傳值＝欠的那件提醒（規則、頂層目錄鍵、現象、做法），放行時 None。"""
     key = _unmapped_key(root, file_path)
     top = top_dir(file_path, root)
     v = _rr.runtime_data_verdict(file_path, str(root), _gitignored(root, file_path))
     if not v.owed:
         _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, rule=v.rule, deny_reason=None)
-        return (None, None, False)
+        return (None, None, False, None)
     need = int(cfg["min_overview_evidence"]["part_files"])
     rec = (state.get("overview_hub") or {}).get(key)
     have = len(rec["part_files_read"]) if rec else 0
@@ -1425,6 +1515,9 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
             lines.append(f"注意：{unread}")
         msg = "\n".join(lines + (_min_map_lines(top, mm, preview) if mm_owed else []))
         rule, deny_reason = (v.rule, "part_files") if v.owed else (mm.rule, "min_map")
+        hit = (remind_hit(rule, key, f"改「{top}」下的檔前還沒讀過同頂層目錄的檔（{v.why}）", "先 Read 同目錄的既有檔再改") if v.owed
+               else remind_hit(rule, key, f"這個專案沒有部位表，第一次改「{top}」的程式檔前要交最小地圖三行",
+                               f"在回覆文字或{_rr.DECL_VIA_COMMENT}寫 地圖｜讀了：<讀過的檔>／地圖｜上游：…／地圖｜下游：…"))
         # 規則 GATE_DENY_CAP（同定位閘）：同一個使用者回合、同一個頂層目錄、同樣的缺件擋滿 DECL_DENY_CAP 則回覆 → 之後放行，
         # 越過上限那一次留帳（地圖三行交了閘卻看不到、讀了檔卻沒認到時不無限擋）。同缺件＝缺哪幾條與理由一樣，數字不算；
         # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）
@@ -1433,7 +1526,7 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
         denied, released = deny_cap(state, "overview_unmapped", [f"{key}|{gap}"], call=call)
         if denied:
             _log("edit_unmapped", session_id, rule=rule, deny_reason=deny_reason, **log_kw)
-            return (msg, msg, True)
+            return (msg, msg, True, hit)
         if released:
             _log("edit_unmapped_capped", session_id, rule=rule, deny_reason=deny_reason, blocks=DECL_DENY_CAP, **log_kw)
         capped = (f"[Guardian:OverviewHub] 改 {file_path}：同一回合同樣的缺件已擋 {DECL_DENY_CAP} 則回覆，這次放行並留帳"
@@ -1453,7 +1546,7 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     if unread:
         notes.append(f"[Guardian:OverviewHub] 注意：{unread}")
     _log("edit_unmapped", session_id, rule=v.rule, edits=rec["edits"], deny_reason=None, capped=bool(capped), **log_kw)
-    return ("\n".join(notes) or None, None, True)
+    return ("\n".join(notes) or None, None, True, None)
 
 
 def _unread_cards(state: Dict[str, Any], rec: Dict[str, Any]) -> List[str]:
@@ -1473,7 +1566,16 @@ def _card_unread_line(unread: List[str]) -> str:
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
             config: Dict[str, Any], cwd: str = "", agent_id: str = "",
             tool_use_id: str = "") -> Tuple[Optional[str], Optional[str], bool]:
-    """PreToolUse（Write／Edit／NotebookEdit／Bash／PowerShell 的每個寫入目標）：回 (警告文字, deny 理由, state 有沒有變)。
+    """同 edit_check，只回前三個（警告文字, deny 理由, state 有沒有變）；送法由 edit_check 的第四個值（提醒件）配 RULE_MODE 決定。"""
+    return edit_check(state, session_id, file_path, transcript_path, config, cwd, agent_id, tool_use_id)[:3]
+
+
+def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
+               config: Dict[str, Any], cwd: str = "", agent_id: str = "",
+               tool_use_id: str = "") -> Tuple[Optional[str], Optional[str], bool, Optional[Dict[str, Any]]]:
+    """PreToolUse（Write／Edit／NotebookEdit／Bash／PowerShell 的每個寫入目標）：回 (警告文字, deny 理由, state 有沒有變, 提醒件)。
+    提醒件（remind_hit：規則名、對象、現象、做法、順帶全文）只在有 deny 理由時給，呼叫端拿規則名查 gate_mode 決定照擋還是改提醒
+    （規則 GATE_MODE_TABLE）；這裡的判定與擋訊息不因送法而變。
     agent_id＝子代理的工具呼叫：定位三行連子代理自己的 transcript 一起找（wg_core.transcripts_of）。
     tool_use_id＝這次工具呼叫的 id：擋次上限照「同一則回覆算一次」數（規則 DENY_CAP_PER_REPLY）；沒給照每個呼叫算。
 
@@ -1482,58 +1584,59 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     readonly 命中 deny 不注入；定位三行只在 thinking 交的放行附提醒。cwd 目前只供記錄，判定全由檔案路徑決定。
     """
     if not file_path:
-        return (None, None, False)
+        return (None, None, False, None)
     if file_path.startswith("UNKNOWN:"):
         # 規則 UNKNOWN_TARGET_LOGGED：write_paths_from_tool 解析不出寫入目標（變數路徑、eval、cd -、內嵌碼…）→ 放行並留帳，不擋；
         # 讀得懂的照常判。PostToolUse 照舊記一筆未知寫入
         _log("edit_unknown_target", session_id, path=file_path, deny_reason=None, allowed=True)
-        return (None, None, False)
+        return (None, None, False, None)
     if _rr.is_temp_path(_long(file_path), _temp_roots()):
         # 規則 TEMP_COPY_NOT_PROJECT：暫存目錄下的副本不當專案（git archive 解到 scratchpad 的樹含部位表也一樣），不找表、不注入、不擋
         _log("edit_temp_copy", session_id, path=file_path, rule="TEMP_COPY_NOT_PROJECT", deny_reason=None)
-        return (None, None, False)
+        return (None, None, False, None)
     # 改的是 OverviewHub 自己的設定檔／部位表 → 不走 OverviewHub 流程（否則設定寫錯一個鍵就再也改不回來）；有錯仍回警告列出來讓模型知道在修什麼
     own, own_root = _own_config_layer(file_path)
     if own:
         errors = _cfg(config, own_root)["_errors"]
         if not errors:
-            return (None, None, False)
+            return (None, None, False, None)
         msg = (f"[Guardian:OverviewHub] 正在改 OverviewHub 自己的設定檔（{file_path}），放行以便修復。目前的設定錯誤："
                + "；".join(errors))
         _log("edit_own_config", session_id, path=file_path, errors=errors)
-        return (msg, None, False)
+        return (msg, None, False, None)
     # 設定錯誤先於 enabled／命中判定：設定壞了（含 enabled 不是 bool）整層都不可信，一律 deny，沒命中部位表的檔也擋
     cfg = _cfg(config)
     denied = _cfg_error_deny(cfg, session_id, file_path, None)
     if denied:
         return denied
     if not cfg["enabled"]:
-        return (None, None, False)
+        return (None, None, False, None)
     hit = _lookup_quiet(file_path)
     if hit:
         root, row = hit
     else:
         root, row = write_target_root(file_path), None
         if root is None:
-            return (None, None, False)
+            return (None, None, False, None)
     cfg = _cfg(config, root)
     denied = _cfg_error_deny(cfg, session_id, file_path, row)
     if denied:
         return denied
     if not cfg["enabled"]:
-        return (None, None, False)
+        return (None, None, False, None)
     ro = _is_readonly(file_path, root, cfg)
     if ro:
         msg = (f"[Guardian:OverviewHub] {file_path} 在這一層的 readonly_paths（樣式「{ro}」）：程式產物／索引不可手改，"
                f"改來源或跑產生器。")
         _log("edit_readonly", session_id, path=file_path, pattern=ro, part=row["part_short"] if row else None,
              deny_reason="readonly", layer=cfg.get("_layer"))
-        return (msg, msg, False)
+        return (msg, msg, False, remind_hit("OVERVIEW_READONLY_PATHS", file_path, f"{file_path} 命中 readonly_paths（{ro}）", "改來源或跑產生器"))
     call = ({"tool_use_id": tool_use_id, "transcript_path": transcript_path, "agent_id": agent_id, "session_id": session_id}
             if tool_use_id else None)
     if row is None:
         return _unmapped_edit(state, session_id, root, file_path, cfg, config, transcript_path, call)
     key = _key(root, row)
+    part = row["part_short"]
     rec = (state.get("overview_hub") or {}).get(key)
     knowledge = _oh.path_kind(file_path, root) == _oh.KIND_KNOWLEDGE
     if rec is not None and _needs_card(row) and (rec.get("cards_missing") or not rec.get("card_paths")):
@@ -1544,7 +1647,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             msg = _missing_card_msg(row, again)
             _log("edit_card_missing", session_id, part=row["part_short"], path=file_path, deny_reason="card_missing",
                  cards=again["missing"], timed_out=again["timed_out"], layer=cfg.get("_layer"))
-            return (msg, msg, True)
+            return (msg, msg, True, remind_hit("OVERVIEW_CARD_MISSING", part, f"【{part}】的導讀卡找不到：{'、'.join(again['missing'])}",
+                                               "補卡檔或修部位表的導讀卡欄"))
         if not rec.get("cards_missing") and again is None:
             rec["card_paths"] = [str(p) for p in paths]   # 升級前的舊紀錄：卡都在預設目錄，照常判定
         else:
@@ -1557,7 +1661,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _log("edit_card_missing", session_id, part=row["part_short"], path=file_path, deny_reason="card_missing",
                  cards=cm["missing"], timed_out=cm["timed_out"], layer=cfg.get("_layer"))
             msg = f"{mm}\n{text.replace(chr(10) + mm, '')}"
-            return (msg, msg, True)
+            return (msg, msg, True, remind_hit("OVERVIEW_CARD_MISSING", part, f"【{part}】的導讀卡找不到：{'、'.join(cm['missing'])}",
+                                               "補卡檔或修部位表的導讀卡欄"))
         first = "先 Read 導讀卡" if _unread_cards(state, state["overview_hub"][key]) else "先讀完"
         todo = (f"{first}再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge
                 else f"{first}、讀過部位檔、在回覆交出定位三行，再改。")
@@ -1566,7 +1671,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",
              intent=_intent_of(state), layer=cfg.get("_layer"), kind=_oh.KIND_KNOWLEDGE if knowledge else _oh.KIND_CODE)
         _note_block(state, key)
-        return (msg, msg, True)
+        return (msg, msg, True, remind_hit("OVERVIEW_CARD_BEFORE_EDIT", part, f"改【{part}】部位的檔前本 session 還沒看過它的導讀卡",
+                                           f"卡隨這次改檔結果送到（下面）；{todo}", extra=text))
     _migrate_rec(rec)
     rec["edits"] = int(rec.get("edits", 0)) + 1
     if not knowledge:
@@ -1582,8 +1688,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
              card_mode=rec.get("card_mode"), card_unread=len(unread))
         if unread:
             return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：{_card_unread_line(unread)}"
-                    "；知識類部位這次照放行，已留帳。", None, True)
-        return (None, None, True)
+                    "；知識類部位這次照放行，已留帳。", None, True, None)
+        return (None, None, True, None)
     candidates: Optional[str] = None
     reads = rec["reads_after"]
     dirs = sorted({top_dir(p, root) for p in reads})
@@ -1671,6 +1777,14 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                                "定位｜部位：…／定位｜根因層：…／定位｜前例：…")
     if missing and deny_reason is None:
         deny_reason = "evidence"
+    # 提醒件（規則 GATE_MODE_TABLE 用）：缺讀檔證據 → OVERVIEW_PART_FILES_READ；只缺定位行 → LOCATE_BEFORE_EDIT（讀檔提示送過就算提醒過）
+    hit = None
+    if missing:
+        hit = (remind_hit("OVERVIEW_PART_FILES_READ", part, f"改【{part}】前還沒讀夠這個部位的檔（{missing[0].splitlines()[0][:80]}）",
+                          "先 Read 部位檔與卡指到的檔，再交定位行") if n_evidence
+               else remind_hit("LOCATE_BEFORE_EDIT", part, f"改【{part}】的程式檔前還沒交定位{'四' if goal_tree is not None else '三'}行",
+                               f"寫在回覆文字或{_rr.DECL_VIA_COMMENT}：定位｜部位、根因層（兩候選＋選擇理由）、前例"
+                               + ("、批判" if goal_tree is not None else "")))
     _log("edit", session_id, part=row["part_short"], path=file_path, located=bool(rec.get("located")),
          located_via=rec.get("located_via"), located_quality=rec.get("located_quality"),
          part_files_read=len(part_files), depends_files_read=len(depends_files),
@@ -1694,7 +1808,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             sent.append(key)
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
-        return (warn, None, True)
+        return (warn, None, True, None)
     turn = int(state.get("turn_seq", 0) or 0)
     # 規則 LOCATE_BLOCK_ONCE_PER_USER_TURN：同一個使用者回合定位閘已經擋過別的部位 → 這個部位只缺定位行時改一行提醒、放行、留帳；
     # 缺讀檔證據照擋，擋過的那個部位再缺照擋（照下面的擋次上限），下一個使用者回合重來
@@ -1703,7 +1817,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         _log("edit_locate_reminded", session_id, part=row["part_short"], path=file_path, rule="LOCATE_BLOCK_ONCE_PER_USER_TURN",
              deny_reason=deny_reason, blocked_parts=len(blocked))
         return (f"[Guardian:OverviewHub] 【{row['part_short']}】還沒交定位行；這個使用者回合定位閘已擋過一次，這次只提醒、放行並留帳。",
-                None, True)
+                None, True, None)
     # 規則 GATE_DENY_CAP：同一個使用者回合、同一部位、同樣的缺件已擋 DECL_DENY_CAP 則回覆 → 之後放行，越過上限那一次留帳
     # （定位行交了閘卻看不到、讀了檔卻沒認到時不無限擋）；換回合重給。同缺件＝擋的理由與缺的條目一樣，讀了幾個檔、節點編號這類數字不算。
     # 同一則回覆平行送出的幾個改檔算一次（DENY_CAP_PER_REPLY）：AI 那時還沒看到第一則擋訊息，第 3 個起不因此放行
@@ -1714,7 +1828,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             _log("edit_deny_capped", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason,
                  blocks=DECL_DENY_CAP, gap=gap)
         return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：同一回合同樣的缺件已擋 "
-                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True)
+                f"{DECL_DENY_CAP} 則回覆，這次放行並留帳（{missing[0].splitlines()[0][:60]}…）。", None, True, None)
     # 規則 DENY_SAME_BATCH_SHORT：同一個使用者回合、同一部位、缺的跟上一則擋訊息一樣（平行送出的幾個改檔一起被擋）→
     # 只回一行指回上一則，不重送整段要求與判準卡；缺的變了（補交了一部分）才送新的全文
     sig = hashlib.sha1("\n".join([str(deny_reason), *missing]).encode("utf-8")).hexdigest()[:16]
@@ -1725,7 +1839,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                f"（{missing[0].splitlines()[0][:60]}…），照上一則一次補齊後再改。")
         _log("edit_deny_repeat", session_id, part=row["part_short"], path=file_path, deny_reason=deny_reason)
         _note_block(state, key)
-        return (msg, msg, True)
+        return (msg, msg, True, hit)
     # 規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：擋訊息精簡（guard.deny_text_slim）開、本 session 已送過一則完整範例 → 這條換短句；
     # 缺件清單本身不換（擋次上限與同批短訊息照原文比，換了字不會重新計次）
     again = example_item is not None and _rr.deny_slim_enabled(config) and bool(state.get(_EXAMPLE_SENT_KEY))
@@ -1735,7 +1849,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
            + "\n".join(f"- {m}" for m in shown))
     _note_block(state, key)
-    return (msg, msg, True)
+    return (msg, msg, True, hit)
 
 
 _BLOCKED_KEY = "overview_locate_blocked"

@@ -72,6 +72,13 @@ def world(tmp_path, monkeypatch):
     return proj, outputs, str(tp)
 
 
+@pytest.fixture
+def block_mode(monkeypatch):
+    """送法固定成擋（gate_mode 全回 block）：這些案例測的是定位閘的判定與擋訊息內容，不是送法；v6 開時改提醒的送法在
+    verify_gate_mode_pre.py。"""
+    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)
+
+
 def _run(tool, tool_input, proj, tp, outputs):
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use(
@@ -93,7 +100,7 @@ def _rec(state):
     return next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
 
 
-def test_bash_write_to_part_file_is_denied_and_state_created(world):
+def test_bash_write_to_part_file_is_denied_and_state_created(world, block_mode):
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     assert not wg_core.state_file_path(SID).exists()
@@ -103,7 +110,7 @@ def test_bash_write_to_part_file_is_denied_and_state_created(world):
     assert _rec(_state())["edits"] == 0
 
 
-def test_powershell_write_to_part_file_is_denied(world):
+def test_powershell_write_to_part_file_is_denied(world, block_mode):
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     out = _run("PowerShell", {"command": f'Set-Content -Path "{f1}" -Value "x"'}, proj, tp, outputs)
@@ -120,10 +127,14 @@ def test_006_4_bash_sc_is_not_set_content(world):
 def test_other_workflow_files_and_running_verify_not_affected(world, tmp_path):
     proj, outputs, tp = world
     for tool, ti in (("Write", {"file_path": str(tmp_path / "wf" / "other.json"), "content": "{}"}),
-                     ("Write", {"file_path": str(tmp_path / "wf" / "verify-ledger-notes.md"), "content": "x"}),
-                     ("Bash", {"command": "python -X utf8 run_verify.py"})):
+                     ("Write", {"file_path": str(tmp_path / "wf" / "verify-ledger-notes.md"), "content": "x"})):
         out = _run(tool, ti, proj, tp, outputs)
         assert not _deny(out), (tool, ti)
+    # 整組 run_verify 另有驗證批次閘（wg_verify_batch）要使用者口令：給本回合原話「跑整組」，這裡只看綜觀閘不擋它
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 1, "turn_prompts_seq": 1,
+                              "turn_prompts": ["跑整組"], "recent_user_prompts": ["跑整組"]})
+    out = _run("Bash", {"command": "python -X utf8 run_verify.py"}, proj, tp, outputs)
+    assert not _deny(out)
 
 
 def test_bash_without_write_target_passes_untouched(world):
@@ -144,7 +155,9 @@ def test_editing_own_hub_config_is_allowed_with_warning(world):
     assert not _deny(out) and "放行以便修復" in out["hookSpecificOutput"]["additionalContext"]
 
 
-def test_gate_internal_error_denies(world, monkeypatch):            # 退回 001 BLOCK 6：閘自己炸也擋，不 fail-open
+def test_gate_internal_error_reminds_v6_on_denies_v6_off(world, monkeypatch):
+    """閘自己炸（規則 GATE_SELF_ERROR）：v6 開 → 不擋、stderr＋hub log gate_error（rule、allowed）；state 建不出來就只留帳。
+    送法是 block（表上標 block、或 v6 關時 gate_mode 回 block）→ 照 001 BLOCK 6 擋、不 fail-open（擋訊息「閘環境異常」帶錯誤）。"""
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")
 
@@ -152,15 +165,21 @@ def test_gate_internal_error_denies(world, monkeypatch):            # 退回 001
         raise PermissionError("state locked")
     monkeypatch.setattr(wg_core, "_ensure_state", _boom)
     out = _run("Edit", {"file_path": f1}, proj, tp, outputs)
-    assert _deny(out) and "閘環境異常" in out["hookSpecificOutput"]["permissionDecisionReason"] and "state locked" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert out is None, out
     log = (proj.parent / "hub.log").read_text(encoding="utf-8")
-    assert '"event": "gate_error"' in log and '"deny_reason": "gate_error"' in log
+    assert '"event": "gate_error"' in log and '"rule": "GATE_SELF_ERROR"' in log and '"allowed": true' in log
+    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)   # 送法固定成擋（同 v6 關時 gate_mode 的回法）
+    out = _run("Edit", {"file_path": f1}, proj, tp, outputs)
+    assert _deny(out) and "閘環境異常" in out["hookSpecificOutput"]["permissionDecisionReason"] and "state locked" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert '"deny_reason": "gate_error"' in (proj.parent / "hub.log").read_text(encoding="utf-8")
 
 
-def test_write_state_failure_denies(world, monkeypatch):            # 退回 002 第 7 條：寫不進 state 就擋
+def test_write_state_failure_reminds_v6_on(world, monkeypatch):
+    """寫不進 state（規則 GATE_SELF_ERROR，v6 開）：不擋；待提醒存不住，一行提醒跟著這次放行的警告走（additionalContext），
+    hub log state_persist_failed 帶 rule、allowed；寫得進去就安靜放行。"""
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))          # 正常：注入＋建檔
+    assert _run("Edit", {"file_path": f1}, proj, tp, outputs) is None         # 正常：注入＋建檔（卡改隨工具結果送）
     state = _state()
     wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), tp, {})
     wg_core.write_state(SID, state)
@@ -170,8 +189,10 @@ def test_write_state_failure_denies(world, monkeypatch):            # 退回 002
     with pytest.MonkeyPatch.context() as mp:                                   # 模擬 write_state 吞掉 OSError 沒寫進去
         mp.setattr(wg_core, "write_state", lambda sid, st: None)
         out = _run("Edit", {"file_path": f1}, proj, tp, outputs)
-    assert _deny(out) and "state 無法持久化" in out["hookSpecificOutput"]["permissionDecisionReason"]
-    assert '"deny_reason": "state_unpersisted"' in (proj.parent / "hub.log").read_text(encoding="utf-8")
+    ctx = (out or {}).get("hookSpecificOutput", {}).get("additionalContext", "")
+    assert not _deny(out) and "[Guardian:提醒] GATE_SELF_ERROR" in ctx and "state 無法持久化" in ctx, out
+    log = (proj.parent / "hub.log").read_text(encoding="utf-8")
+    assert '"event": "state_persist_failed"' in log and '"rule": "GATE_SELF_ERROR"' in log and "state_unpersisted" not in log
     assert not _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))      # 寫得進去就放行
 
 
@@ -201,7 +222,7 @@ def test_045_inline_py_readonly_end_to_end_allows_pure_read_and_node(world):
     assert not _deny(out)
 
 
-def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world):
+def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world, block_mode):
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     assert _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))          # 第一次：注入＋deny，state 建檔
@@ -234,7 +255,7 @@ def _call(tool, tool_input, proj, tp, outputs, tid):
     return outputs[-1]
 
 
-def test_parallel_edits_in_one_reply_all_denied_then_locate_passes(world):
+def test_parallel_edits_in_one_reply_all_denied_then_locate_passes(world, block_mode):
     """規則 DENY_CAP_PER_REPLY（004 改 code 題 B6 的根因）：同一則回覆平行送出 4 個 Edit 改同一部位的檔、都沒交定位 → 4 個都擋
     （擋次照則數，這一則只算一次；舊碼照每個呼叫算，第 3 個起記 edit_deny_capped、沒交定位就放行）；下一則交了定位 → 放行。"""
     proj, outputs, tp = world
@@ -286,7 +307,7 @@ def _agent_edit(proj, outputs, f1, tp):
 
 
 @pytest.mark.parametrize("hook_gives", ["main", "agent"])
-def test_subagent_locate_lines_in_its_own_transcript_allow_edit(world, tmp_path, hook_gives):
+def test_subagent_locate_lines_in_its_own_transcript_allow_edit(world, tmp_path, hook_gives, block_mode):
     """子代理讀過部位檔、在自己的回覆寫了定位三行 → 放行；hook 給主檔或給子代理檔都要認得到。"""
     proj, outputs, _ = world
     main, agent = _agent_layout(tmp_path)
@@ -304,7 +325,7 @@ def test_subagent_locate_lines_in_its_own_transcript_allow_edit(world, tmp_path,
 
 
 @pytest.mark.parametrize("hook_gives", ["main", "agent"])
-def test_subagent_without_locate_lines_anywhere_is_denied(world, tmp_path, hook_gives):
+def test_subagent_without_locate_lines_anywhere_is_denied(world, tmp_path, hook_gives, block_mode):
     proj, outputs, _ = world
     main, agent = _agent_layout(tmp_path)
     tp = main if hook_gives == "main" else agent
@@ -319,7 +340,7 @@ def test_subagent_without_locate_lines_anywhere_is_denied(world, tmp_path, hook_
     assert _rec(_state())["located"] is False
 
 
-def test_locate_lines_written_before_injection_in_subagent_file_do_not_count(world, tmp_path):
+def test_locate_lines_written_before_injection_in_subagent_file_do_not_count(world, tmp_path, block_mode):
     """各檔各記注入當下的大小：子代理在讀卡之前就寫的定位行不算（跟主檔的 offset 規則一致）。"""
     proj, outputs, _ = world
     main, agent = _agent_layout(tmp_path)
@@ -333,7 +354,7 @@ def test_locate_lines_written_before_injection_in_subagent_file_do_not_count(wor
     assert _deny(_agent_edit(proj, outputs, f1, main))
 
 
-def test_006_scratchpad_written_via_literal_var_is_allowed(world, tmp_path, monkeypatch):
+def test_006_scratchpad_written_via_literal_var_is_allowed(world, tmp_path, monkeypatch, block_mode):
     """閘小修 006 件 5（第五跑 C-1 第 4 回合）：`S='<scratchpad>' && git show … > "$S/old.cs"` 寫進 scratchpad 存舊版做對照。
     前置：同一個 scratchpad 用字面路徑寫是放行的（暫存區不是部位檔）；修之前加了變數就整條當「判不出寫入目標」擋（edit_unknown_target）。
     規則 SHELL_LITERAL_VAR_EXPANDED：同指令的字面指定代換後算得出目標，照字面路徑同樣判。"""

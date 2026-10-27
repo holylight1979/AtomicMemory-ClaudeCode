@@ -2414,7 +2414,7 @@ def _build_session_context(episodic_results: List[Dict[str, Any]]) -> List[str]:
     context_lines = ["[Session:Context] Related past sessions:"]
     char_budget = 600
 
-    for ep in episodic_results:
+    for ep in episodic_results[:2]:          # 最多 2 筆、每筆摘要截 80 字：過去 session 只給線索，要細節再 Read
         name = ep.get("atom_name", "")
         created = ep.get("created", ep.get("last_used", ""))
         summary = ep.get("summary", "")
@@ -2423,7 +2423,7 @@ def _build_session_context(episodic_results: List[Dict[str, Any]]) -> List[str]:
         if name.startswith("episodic-") and len(name) > 18:
             slug = name[18:]
 
-        line = f"- [{created}] {slug}: {summary[:120]}"
+        line = f"- [{created}] {slug}: {summary[:80]}"
         if len(line) > char_budget:
             break
         context_lines.append(line)
@@ -2461,6 +2461,9 @@ def _proactive_classify(
 ) -> List[str]:
     pro_config = config.get("proactive", {})
     lines: List[str] = []
+    if state.get("proactive_sent"):          # 建卡建議一個 session 最多 1 次（判斷照跑在第一次）
+        return lines
+    state["proactive_sent"] = True
 
     recurring = _detect_cross_session_patterns(episodic_results, prompt)
     pattern_threshold = pro_config.get("pattern_threshold", 2)

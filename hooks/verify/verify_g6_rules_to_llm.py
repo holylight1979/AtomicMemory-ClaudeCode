@@ -274,6 +274,7 @@ def test_stop_waivers_release_and_ledger_each_gate(logs, monkeypatch, capsys):
                       ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {}))):
         monkeypatch.setattr(st, name, val)
     monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)   # 測閘本身：當成寫碼回合（CODING_TURN_ONLY 的案在 verify_gate_trim）
+    monkeypatch.setattr(rr, "mode_of", lambda rule: rr.BLOCK)      # 送法釘成 block 驗放行與留帳；提醒送法見 verify_gate_mode_stop.py
 
     def drive(said, state=None):
         state = state or _hstate(recent_user_prompts=[said], phase="working", failing_tests=[], stop_blocked_count=0)

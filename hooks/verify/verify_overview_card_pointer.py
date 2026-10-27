@@ -216,6 +216,7 @@ def test_pre_tool_use_entry_denies_with_pointer_lines(proj, tmp_path, monkeypatc
         raise SystemExit(0)
     monkeypatch.setattr(ptu, "output_json", _out)
     monkeypatch.setattr(ptu, "output_nothing", _out)
+    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)   # 測擋訊息內容：送法固定成擋
     f1 = str(proj / "Game/Battle/A.cs")
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use({"tool_name": "Edit", "tool_input": {"file_path": f1, "old_string": "x", "new_string": "y"},

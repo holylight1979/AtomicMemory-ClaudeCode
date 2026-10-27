@@ -33,6 +33,7 @@ import wg_data_file  # T2.16 動使用者資料檔要先宣告
 import wg_judge_card  # 改判準卡留帳（JUDGE_CARD_CHANGE_NEEDS_DECLARATION）
 import wg_oldtest
 import wg_gate_bypass
+import wg_release_rules as _rr   # 擋或提醒（gate_mode／RULE_MODE，規則 GATE_MODE_TABLE）
 # 分段計時只打點、不看回傳：逾時被 Claude Code 取消本來就放行，提早放行只會少查（降級不改判定）
 from wg_hook_timing import lap as _hook_lap
 
@@ -1649,6 +1650,14 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
         from wg_core import append_guard_log
         append_guard_log("judge_write", {"event": "unknown_target", "session_id": str(input_data.get("session_id") or ""),
                                          "target": unknown[0][:120], "allowed": True})
+    # 驗證批次閘裁判也適用（不碰 state：沒有收據與擋次帳，只判整組驗證要口令；裁判沒有使用者原話，整組一律擋）
+    import wg_verify_batch
+    deny_reason = wg_verify_batch.check(tool_name, input_data.get("tool_input") or {}, config, None,
+                                        input_data.get("cwd") or "", str(input_data.get("session_id") or ""))
+    if deny_reason:
+        output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                            "permissionDecisionReason": deny_reason}})
+        return
     output_nothing()
 
 
@@ -1659,6 +1668,29 @@ def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, p
         return text
     from handlers._shared import entry_note, with_note
     return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
+
+
+def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], hit: Dict[str, Any], guard: str, **kw: Any) -> bool:
+    """PreToolUse 的提醒出口（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：這一件判成 remind、不擋 → 留帳 event=remind
+    （guard＝哪一道閘的守門紀錄；overview_hub 走 hub log）、記進 state 的待提醒，由下一個工具結果（PostToolUse）送一行。
+    state 拿不到（讀不到、沒 session）就只 stderr＋留帳，回 False；呼叫端負責把 state 寫回。"""
+    from wg_core import append_guard_log as _glog
+    sid = str(input_data.get("session_id") or "")
+    row = {"event": "remind", "rule": hit["rule"], "obj": hit.get("obj") or "", "session_id": sid,
+           "tool": str(input_data.get("tool_name") or ""), **kw}
+    if guard == "overview_hub":
+        from wg_overview import _log as _hub_log
+        _hub_log("edit_remind", sid, part=hit.get("obj") or None, **{k: v for k, v in row.items() if k not in ("event", "session_id", "obj")})
+    else:
+        _glog(guard, row)
+    if not isinstance(state, dict):
+        sys.stderr.write(f"[Guardian:{guard}] 提醒記不進 state（{hit['rule']}），這次只留帳：{hit.get('what', '')}\n")
+        return False
+    from wg_overview import REMIND_SENT_KEY, remind_queue
+    if not _rr.remind_due(state.get(REMIND_SENT_KEY) or [], hit["rule"], hit.get("obj")):
+        return False                              # 同規則同對象本 session 提醒過：只留帳、不再排
+    remind_queue(state, hit)
+    return True
 
 
 def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = (),
@@ -1784,24 +1816,34 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
     import wg_release
     try:
         import wg_need_goal as _ng
-        from wg_need_goal_points import mark_asked, note_ask_blocked, on_ask
+        from wg_need_goal_points import mark_asked, note_ask_blocked, on_ask_full
         from wg_core import write_state
         state, status = read_state_status(sid)
         if not _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
             output_nothing()
             return
         tool_input = input_data.get("tool_input") or {}
-        deny, hint = on_ask(sid, tool_name, tool_input, state or {})
+        deny, hint, hits = on_ask_full(sid, tool_name, tool_input, state or {})
+        v6 = v6_enabled(config)
+        # 規則 GATE_MODE_TABLE：本來要擋的那幾條有任一條照擋（表上 block、或總開關關）才 deny；否則連提示一起改成下一個工具結果附一行
+        block = bool(deny) and any(_rr.gate_mode(h["rule"], v6) == _rr.BLOCK for h in hits if h.get("block"))
+        remind = v6 and bool(hits) and not block
         if status == "ok" and state is not None:
             mark_asked(state, str(input_data.get("tool_use_id") or ""), tool_input)
-            note_ask_blocked(state, deny)     # PostToolBatch 的提問審計看「擋過幾次」
+            note_ask_blocked(state, deny)     # PostToolBatch 的提問審計看「擋過幾次」（改提醒的也算一次）
+            if remind:
+                from wg_overview import remind_hit
+                for h in hits:
+                    _remind_later(input_data, state, remind_hit(h["rule"], "", h["what"], h["fix"]), "need_goal")
             write_state(sid, state)
+        elif remind:                              # state 讀不到：只留帳＋stderr（提醒送不出去）
+            from wg_overview import remind_hit
+            _remind_later(input_data, None, remind_hit(hits[0]["rule"], "", hits[0]["what"], hits[0]["fix"]), "need_goal")
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         state = read_state(sid) or {}
         raw_input = input_data.get("tool_input") or {}
         try:   # 整次全是放行題才放（夾一般題、標記塞進一般題照擋）；判規則的模組也壞了才退回只看標記，免得收尾死鎖
-            import wg_release_rules as _rr
             release_only = _rr.ask_release_only(raw_input, wg_release.RELEASE_TAG,
                                                 (wg_release.OPT_RELEASE, wg_release.OPT_KEEP))
         except Exception as rr_err:  # noqa: BLE001
@@ -1811,18 +1853,30 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
         sys.stderr.write(f"[NeedGoal] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
         try:
             from wg_core import append_guard_log
-            append_guard_log("need_goal", {"event": "ask_error", "session_id": sid, "tool": tool_name, "error": err,
-                                           "released": release})
+            append_guard_log("need_goal", {"event": "ask_error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name,
+                                           "error": err, "released": release})
         except Exception as log_err:  # noqa: BLE001
             sys.stderr.write(f"[NeedGoal] ask_error 守門紀錄寫不進去：{type(log_err).__name__}: {log_err}\n")
         if release:
             output_nothing()
             return
-        _deny(input_data, config, (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
-                                   "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
+        if _rr.gate_mode("GATE_SELF_ERROR", v6_enabled(config)) == _rr.BLOCK:
+            _deny(input_data, config, (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
+                                       "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
+            return
+        # 規則 GATE_SELF_ERROR：閘自己壞＝判不了 → 不擋，下一個工具結果附一行、stderr 與 ask_error 留帳已在上面
+        hit = {"rule": "GATE_SELF_ERROR", "obj": "need_goal_ask", "what": f"提問前檢查壞了，判不了這題掛哪個節點（{err}）",
+               "fix": "修好 hooks/wg_need_goal*.py；這題照問", "extra": ""}
+        if _remind_later(input_data, state if state.get("session") else None, hit, "need_goal"):
+            from wg_core import write_state as _ws_err
+            _ws_err(sid, state)
+        output_nothing()
         return
-    if deny:
+    if block:
         _deny(input_data, config, deny)
+        return
+    if remind:
+        output_nothing()                  # 規則 REMIND_ON_PRIOR_RESULT：不掛 PreToolUse 的 additionalContext
         return
     if hint:
         output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
@@ -2083,6 +2137,15 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
+    # 驗證批次閘（整組驗證要使用者口令；同一組指令同一批改動只驗一次 → deny；不歸 v6 管；判定在 hooks/wg_verify_batch.py，fail-open）
+    if tool_name in ("Bash", "PowerShell"):
+        import wg_verify_batch
+        deny_reason = wg_verify_batch.check(tool_name, tool_input, config, _co_state, _cwd, _co_sid,
+                                            agent_id=str(input_data.get("agent_id") or ""), call=input_data)
+        if deny_reason:
+            _deny(input_data, config, deny_reason)
+            return
+
     # git commit 隱私硬閘（staged 含隱私檔 → deny；fail-open）
     deny_reason = check_git_privacy(tool_name, tool_input, _cwd, config)
     if deny_reason:
@@ -2122,21 +2185,36 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 sys.stderr.write(f"[NeedGoal] commit 前核對需求目標時出錯（這次不擋，已留帳）：{err}\n")
                 append_guard_log("need_goal", {"event": "commit_gate_error", "rule": "GATE_SELF_ERROR", "session_id": _co_sid,
                                                "tool": tool_name, "command": _ng_cmd[:300], "error": err})
-            if deny_reason:
+            if deny_reason and _rr.gate_mode("COMMIT_GOAL_RECONCILED", v6) == _rr.BLOCK:
                 _deny(input_data, config, deny_reason)
                 return
+            if deny_reason:
+                # 規則 COMMIT_GOAL_RECONCILED（remind）：commit 照跑，那則 Bash 的工具結果附一行；每棵樹一次
+                try:
+                    from wg_need_goal import load as _ng_load
+                    _tree = str(_ng_load(_co_sid).get("active") or "")
+                except Exception:  # noqa: BLE001
+                    _tree = ""
+                from wg_overview import remind_hit
+                _what = " ".join(ln.strip() for ln in deny_reason.splitlines()[1:3] if ln.strip()) or deny_reason.splitlines()[0]
+                if _remind_later(input_data, _co_state, remind_hit("COMMIT_GOAL_RECONCILED", _tree, f"commit 前的目標對照沒過：{_what}",
+                                                                   "need_goal(action=reconcile) 補完整對照、改到的部位補定位第四行"),
+                                 "need_goal", command=_ng_cmd[:300]):
+                    from wg_core import write_state as _ws_cg
+                    _ws_cg(_co_sid, _co_state)
 
-    # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足一律 deny。
+    # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足照 RULE_MODE 擋或提醒（規則 GATE_MODE_TABLE）。
     # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
     # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
     hub_warn = None if v6 else _pre_v6_hub_warn(input_data, config, tool_name, tool_input, _co_sid, _co_state)
     if v6 and tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
         hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；目標樹、state、環境的擋不報
+        _hub_state = _co_state
         try:
             from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,
                                  write_state as _ws)
-            from wg_overview import on_edit as _hub_on_edit
+            from wg_overview import edit_check as _hub_edit_check, remind_hit as _remind_hit
             from wg_need_goal import edit_gate as _ng_edit_gate
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
@@ -2152,21 +2230,32 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 _hub_warns: List[str] = []
                 hub_changed = False
                 for _hub_fp in _hub_targets:
-                    # 需求目標第一層（4.2）：寫碼類檔沒有目標樹就擋，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）
+                    # 需求目標第一層（4.2）：寫碼類檔沒有目標樹，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）；
+                    # 送法照 RULE_MODE（CODE_EDIT_NEEDS_GOAL_TREE 提醒；目標檔損毀／判定出錯＝GATE_SELF_ERROR）
                     _ng_deny = _ng_edit_gate(_co_sid, _hub_fp, config, _ng_sources.get(_hub_fp, ()), _ng_content)
                     if _ng_deny:
-                        hub_deny = _ng_deny
-                        break
-                    _w, _d, _c = _hub_on_edit(
+                        _ng_rule = "GATE_SELF_ERROR" if ("目標檔損毀" in _ng_deny or "時出錯" in _ng_deny) else "CODE_EDIT_NEEDS_GOAL_TREE"
+                        if _rr.gate_mode(_ng_rule, v6) == _rr.BLOCK:
+                            hub_deny = _ng_deny
+                            break
+                        _ng_hit = (_remind_hit(_ng_rule, "need_goal_edit", _ng_deny.splitlines()[0], "need_goal(action=set, goal=…) 重寫樹")
+                                   if _ng_rule == "GATE_SELF_ERROR" else
+                                   _remind_hit(_ng_rule, "", "改程式檔前這個需求還沒有目標樹",
+                                               "先 need_goal(action=set, goal=…) 一句寫下真正要達成什麼（用使用者的話、只寫目標不寫手段）"))
+                        hub_changed = _remind_later(input_data, _hub_state, _ng_hit, "need_goal", path=_hub_fp) or hub_changed
+                    _w, _d, _c, _hit = _hub_edit_check(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
                         agent_id=str(input_data.get("agent_id") or ""), tool_use_id=str(input_data.get("tool_use_id") or ""),
                     )
                     hub_changed = hub_changed or _c
-                    if _w:
+                    if _w and not _d:              # 有 deny 理由時警告文字就是擋訊息本身，不當警告送
                         _hub_warns.append(_w)
-                    if _d:
+                    if _d and (_hit is None or _rr.gate_mode(_hit["rule"], v6) == _rr.BLOCK):
                         hub_deny, hub_file = _d, _hub_fp
                         break
+                    if _d:
+                        # 規則 GATE_MODE_TABLE：定位閘、導讀卡、無表專案、設定壞 → 不擋，下一個工具結果附一行（導讀卡順帶注入）
+                        hub_changed = _remind_later(input_data, _hub_state, _hit, "overview_hub", path=_hub_fp) or hub_changed
                 if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
                     _ws(_co_sid, _hub_state)
                     # write_state 失敗只吞 OSError 不回報：回讀磁碟核對，寫不進去就擋（否則下一次 Edit 又被當第一次）
@@ -2174,22 +2263,46 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                     _disk, _dst = read_state_status(_cid)
                     if _dst != "ok" or (_disk or {}).get("overview_hub") != _hub_state.get("overview_hub"):
                         hub_file = ""
-                        hub_deny = (f"[Guardian:OverviewHub] state 無法持久化（{_dst}；workflow/state-{_cid[:8]}….json）："
-                                    f"注入與定位紀錄寫不進 state 檔，閘無法累積證據，一律擋。修好 workflow/ 目錄的寫入再改。")
+                        _persist_msg = (f"[Guardian:OverviewHub] state 無法持久化（{_dst}；workflow/state-{_cid[:8]}….json）："
+                                        f"注入與定位紀錄寫不進 state 檔，閘無法累積證據。修好 workflow/ 目錄的寫入再改。")
                         from wg_overview import _log as _hub_log
-                        _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, deny_reason="state_unpersisted")
+                        if _rr.gate_mode("GATE_SELF_ERROR", v6) == _rr.BLOCK:
+                            hub_deny = _persist_msg.replace("閘無法累積證據。", "閘無法累積證據，一律擋。")
+                            _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, deny_reason="state_unpersisted")
+                        else:
+                            # 規則 GATE_SELF_ERROR（remind）：state 寫不進去，待提醒也存不住 → 這一行只能跟著這次放行的警告走、stderr＋留帳
+                            _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, rule="GATE_SELF_ERROR", allowed=True)
+                            sys.stderr.write(_persist_msg + "\n")
+                            _hub_warns.append(_rr.remind_line("GATE_SELF_ERROR", f"state 無法持久化（{_dst}），閘判不了",
+                                                              "修好 workflow/ 目錄的寫入"))
                 hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
-            # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝不知道該不該擋 → 一律擋，不 fail-open；traceback 進 stderr 與 hub log
+            # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝判不了：送法照 RULE_MODE（GATE_SELF_ERROR：v6 開提醒、關照擋）；traceback 進 stderr 與 hub log
             hub_file = ""
-            hub_deny = (f"[Guardian:OverviewHub] 閘環境異常，無法判定，一律擋：{type(e).__name__}: {e}。"
-                        f"修好環境（state 檔／hook 依賴）再改；先用 Read 查原因。")
-            try:
-                sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 閘內部錯誤（已 deny）：{type(e).__name__}: {e}\n")
-                from wg_overview import _log as _hub_log
-                _hub_log("gate_error", _co_sid, tool=tool_name, error=f"{type(e).__name__}: {e}", deny_reason="gate_error")
-            except Exception:
-                pass
+            err = f"{type(e).__name__}: {e}"
+            if _rr.gate_mode("GATE_SELF_ERROR", v6) == _rr.BLOCK:
+                hub_deny = (f"[Guardian:OverviewHub] 閘環境異常，無法判定，一律擋：{err}。"
+                            f"修好環境（state 檔／hook 依賴）再改；先用 Read 查原因。")
+                try:
+                    sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 閘內部錯誤（已 deny）：{err}\n")
+                    from wg_overview import _log as _hub_log
+                    _hub_log("gate_error", _co_sid, tool=tool_name, error=err, deny_reason="gate_error")
+                except Exception:
+                    pass
+            else:
+                try:
+                    sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 閘內部錯誤，判不了（這次不擋，已留帳）：{err}\n")
+                    from wg_overview import _log as _hub_log, remind_hit as _remind_hit
+                    _hub_log("gate_error", _co_sid, tool=tool_name, error=err, rule="GATE_SELF_ERROR", allowed=True)
+                    if _hub_state is None and _co_sid and _co_status == "missing":
+                        from wg_core import _ensure_state as _hub_ensure_state2
+                        _hub_state = _hub_ensure_state2(_co_sid, input_data, config)
+                    if _remind_later(input_data, _hub_state, _remind_hit("GATE_SELF_ERROR", "overview_hub", f"OverviewHub 閘內部錯誤，判不了：{err}",
+                                                                        "修好環境（state 檔／hook 依賴）；先用 Read 查原因"), "overview_hub"):
+                        from wg_core import write_state as _ws_err
+                        _ws_err(_co_sid, _hub_state)
+                except Exception as e2:  # noqa: BLE001
+                    sys.stderr.write(f"[Guardian:OverviewHub] 閘內部錯誤的留帳也失敗：{type(e2).__name__}: {e2}\n")
         if hub_deny:
             part = _hub_part(hub_file, config) if hub_file else ""   # 說不出部位就連檔也不報：同部位換個檔不能算成別的對象
             _deny(input_data, config, hub_deny, watched=[hub_file] if part else (), target=part)

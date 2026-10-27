@@ -21,7 +21,7 @@ from wg_core import (
     _estimate_tokens, truncate_to_tokens, user_typed_text, v6_enabled,
 )
 from wg_atoms import (
-    any_trigger_hit,
+    count_trigger_hits,
     _search_episodic_context, _build_session_context,
     _proactive_classify,
 )
@@ -147,17 +147,20 @@ def build_context(
             _atom_debug_error("ParallelSuggest", e)
 
     # ─── _AIDocs keyword matching ──────────────────
-    # v6 守門開著時同一份文件一個 session 只指一次（aidocs.v6_once，沒寫＝開）；命中幾份、超過 5 份不送照舊判
+    # 只在命中明顯（關鍵字命中數 ≥ aidocs.min_prompt_hits，預設 2）才指、最多 aidocs.max_prompt_matches（預設 1）條、
+    # 命中最多的優先；同一份文件一個 session 只指一次（aidocs.v6_once 沒寫＝開，不看 v6 總開關）；超過 5 份命中不送照舊判
+    aidocs_cfg = config.get("aidocs", {})
     aidocs_state = state.get("aidocs", {})
     aidocs_kw_map = aidocs_state.get("keywords", {})
-    max_matches = config.get("aidocs", {}).get("max_prompt_matches", 3)
+    max_matches = aidocs_cfg.get("max_prompt_matches", 1)
+    min_hits = aidocs_cfg.get("min_prompt_hits", 2)
     v6 = v6_enabled(config)
     if aidocs_kw_map and prompt.strip():
-        matched_docs: List[str] = []
-        for fname, keywords in aidocs_kw_map.items():
-            if any_trigger_hit(keywords, prompt_lower):
-                matched_docs.append(fname)
-        if matched_docs and len(matched_docs) <= 5 and v6 and config.get("aidocs", {}).get("v6_once", True):
+        scored = [(count_trigger_hits(keywords, prompt_lower), fname) for fname, keywords in aidocs_kw_map.items()]
+        scored = [(n, f) for n, f in scored if n >= min_hits]
+        scored.sort(key=lambda t: -t[0])
+        matched_docs: List[str] = [f for _n, f in scored]
+        if matched_docs and len(matched_docs) <= 5 and aidocs_cfg.get("v6_once", True):
             pointed = state.setdefault("aidocs_pointed", [])
             matched_docs = [d for d in matched_docs if d not in pointed]
             pointed.extend(matched_docs[:max_matches])

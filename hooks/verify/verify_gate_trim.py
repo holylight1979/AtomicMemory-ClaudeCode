@@ -374,6 +374,7 @@ def stop_drive(monkeypatch):
                      ("_hud_alive", lambda *a, **k: (True, {})), ("append_guard_log", lambda *a, **k: None),
                      ("_git_unpushed_roots", lambda mf: []), ("_should_deep_postmortem", lambda *a, **k: False)):
         monkeypatch.setattr(st, name, fn)
+    monkeypatch.setattr(st, "_gate_mode", lambda rule, v6: st._BLOCK)   # 測判定與擋訊息內容，送法固定成擋
 
     def drive(capsys, last_text, mods):
         state = {"phase": "working", "modified_files": mods, "failing_tests": [], "recent_user_prompts": ["繼續"],

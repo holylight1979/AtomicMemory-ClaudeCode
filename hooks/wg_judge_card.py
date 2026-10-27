@@ -10,7 +10,7 @@ wg_release_rules.judge_card_verdict。出口在 PreToolUse 判：
 目標是 memory／_atoms 目錄底下的 .md、磁碟上已經存在、檔頭 `- Entry:` 非空（lib/atom_locations.entry_bound_ids）才管；
 宣告行三管道（回覆文字／工具參數裡 `#` 開頭的註解行／thinking），主檔與子代理檔都找，Bash／PowerShell 另認這次指令的 `#` 註解行。
 每次改動每張卡留一筆帳 Logs/guard-judge_card.jsonl（undeclared／declared／error）。
-出錯只 stderr＋留帳。
+送法：remind（wg_release_rules.RULE_MODE，規則 GATE_MODE_TABLE）——本來就只留帳不擋，標 mode 不改行為；出錯只 stderr＋留帳。
 開關：workflow/config.json 的 guard.judge_card_declare.enabled（預設開）。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_judge_card_declare.py
 """

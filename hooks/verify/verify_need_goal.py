@@ -856,7 +856,13 @@ def hooked(env, monkeypatch):
     return env
 
 
-def test_pretool_write_code_without_tree_denied_then_allowed(hooked):
+@pytest.fixture
+def block_mode(monkeypatch):
+    """送法固定成擋（gate_mode 全回 block）：這些案例測的是判定與擋訊息內容，不是送法；v6 開時改提醒的送法在 verify_gate_mode_pre.py。"""
+    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)
+
+
+def test_pretool_write_code_without_tree_denied_then_allowed(hooked, block_mode):
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     target = str(proj / "src" / "a.py")
     deny = _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs))
@@ -870,7 +876,7 @@ def test_pretool_write_code_without_tree_denied_then_allowed(hooked):
     assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)) is None
 
 
-def test_pretool_move_code_dir_and_new_shebang_script_need_tree(hooked):
+def test_pretool_move_code_dir_and_new_shebang_script_need_tree(hooked, block_mode):
     """搬或複製含程式檔的目錄（目的地還不存在、看不到副檔名）、新建沒副檔名而內容以 #! 開頭的腳本：都算改程式，
     沒樹就擋；搬純文件目錄、寫沒副檔名的純文字不擋；有樹就放行。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
@@ -923,7 +929,7 @@ THREE2 = "定位｜部位：戰鬥：A.cs\n定位｜根因層：候選 A 邏輯�
 CRIT = "\n定位｜批判：不合理，因為字典兩邊都寫，更好的做法是只留邏輯層一個寫入點；同類還可能在哪：存檔流程也兩邊寫"
 
 
-def test_fourth_line_soft_links_root_then_node_and_reset_on_goal_change(hooked):
+def test_fourth_line_soft_links_root_then_node_and_reset_on_goal_change(hooked, block_mode):
     """第四行（目標節點）只記錄不擋：指到不存在的節點 → 部位掛樹根；交了對的節點就掛那個節點；目標改了已交的那組不算、要重交。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
@@ -975,7 +981,7 @@ def test_locate_groups_parse_goal_key():
 
 # ─── C-G0：定位四行要說角色與兩個根因候選；收尾查改到的部位都掛到目標 ─────────────
 
-def test_004_locate_example_is_a_suggestion_and_chained_nodes_pass(hooked):
+def test_004_locate_example_is_a_suggestion_and_chained_nodes_pass(hooked, block_mode):
     """第三跑 B-1：擋訊息附的範例標成「建議寫法」（內容到了就算、句子順序不限）；第四行「T1.1/T1.2（角色）」、第五行把哪裡不合理
     寫在前面，端到端放行。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
@@ -992,7 +998,7 @@ def test_004_locate_example_is_a_suggestion_and_chained_nodes_pass(hooked):
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
 
 
-def test_cg0_locate_two_candidates_asked_once_per_user_turn(hooked):
+def test_cg0_locate_two_candidates_asked_once_per_user_turn(hooked, block_mode):
     """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：根因層只一個候選 → 擋一次，擋訊息印規則名、缺哪一項、範例五行；
     同一個使用者回合再交同樣的不再擋（只留帳），部位掛到第四行的節點。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
@@ -1011,7 +1017,7 @@ def test_cg0_locate_two_candidates_asked_once_per_user_turn(hooked):
     assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
 
 
-def test_cg1_locate_needs_critique_line(hooked):
+def test_cg1_locate_needs_critique_line(hooked, block_mode):
     """LOCATE_LINES_NEED_CRITIQUE：有目標樹改寫碼部位，定位四行之後要第五行「批判」；沒交 → 擋（規則名、缺哪一項）；
     照抄範本 → 當沒交；判合理沒理由 → 擋；結構對 → 放行並掛節點。舊碼不認「批判」這個鍵，四行就放（紅）。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
@@ -1212,6 +1218,7 @@ def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, cap
                       ("get_last_assistant_text", lambda *a, **k: "好"), ("token_warn_payload", lambda *a, **k: ""),
                       ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
         monkeypatch.setattr(st, name, val)
+    monkeypatch.setattr(st, "_gate_mode", lambda rule, v6: st._BLOCK)   # 測判定與擋訊息內容，送法固定成擋
     with pytest.raises(SystemExit):
         st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {"reconcile_gate": {"goal_gate": True}, "verify_scope": {}})
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
@@ -1224,6 +1231,7 @@ def _stop_env(env, monkeypatch, state):
                       ("get_last_assistant_text", lambda *a, **k: "好"), ("token_warn_payload", lambda *a, **k: ""),
                       ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
         monkeypatch.setattr(st, name, val)
+    monkeypatch.setattr(st, "_gate_mode", lambda rule, v6: st._BLOCK)   # 測判定與擋訊息內容，送法固定成擋
 
 
 def test_stop_budget_exhausts_to_pending_and_clears_after_update(env, monkeypatch, capsys):
@@ -1433,7 +1441,7 @@ def test_stop_report_budget_not_eaten_by_code_rule_counts(env, monkeypatch, caps
     assert "(f4)" in out and not state.get("reconcile_overflow")
 
 
-def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):
+def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch, block_mode):
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     _code_tree(hooked)
     assert "(f2)" in ng.commit_gate(SID, ON) and "(f1)" not in ng.commit_gate(SID, ON)
@@ -1458,7 +1466,7 @@ def test_gate_messages_point_to_reload_when_tool_missing(env):
         assert "目標檔損毀" in deny and "Reload Window" in deny
 
 
-def test_commit_gate_ignores_commit_examples_inside_heredoc(hooked, monkeypatch):
+def test_commit_gate_ignores_commit_examples_inside_heredoc(hooked, monkeypatch, block_mode):
     """heredoc 本文裡的 git／svn commit 是文件內容（操作說明、派工單），不觸發 commit_gate；heredoc 結束後真的執行的
     commit 照擋。與 CommitOrder 共用同一支判定。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
