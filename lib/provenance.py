@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from .atom_spec import parse_frontmatter, slugify
-from .harness_text import is_kickoff_prompt, user_typed_text
+from .harness_text import is_kickoff_prompt, strip_pasted, user_typed_text
 from .project_root import claude_data_dir
 
 PROJECTS_DIR = claude_data_dir() / "projects"
@@ -62,12 +62,13 @@ def quote_max_chars() -> int:
 
 
 def sanitize_quote(text: str, max_chars: Optional[int] = None) -> str:
-    """原句清成可落檔的單行：先取 user_typed_text（只留使用者本人打的字；harness 區塊、系統通知、[WG:…] 等殘渣行剔掉，
-    殘留標籤字樣整則不認），再空白折一格、去頭尾配對引號、超長截 `…`。回空字串＝沒有可寫的原句。
+    """原句清成可落檔的單行：先剔掉貼上的內容（strip_pasted：貼上的材料不是本人打的字），再取 user_typed_text（只留使用者
+    本人打的字；harness 區塊、系統通知、[WG:…] 等殘渣行剔掉，殘留標籤字樣整則不認），再空白折一格、去頭尾配對引號、
+    超長截 `…`。回空字串＝沒有可寫的原句。
     max_chars 不給＝config 的 provenance.quote_max_chars（quote_max_chars()）；給 0＝不截。"""
     if max_chars is None:
         max_chars = quote_max_chars()
-    s = re.sub(r"\s+", " ", user_typed_text(text or "", keep_lines=True)).strip()
+    s = re.sub(r"\s+", " ", user_typed_text(strip_pasted(text or ""), keep_lines=True)).strip()
     while len(s) >= 2 and _QUOTE_PAIRS.get(s[0]) == s[-1]:
         s = s[1:-1].strip()
     if max_chars > 0 and len(s) > max_chars:
@@ -162,9 +163,16 @@ def _content_blocks(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def is_human_record(rec: Dict[str, Any]) -> bool:
-    """真人訊息：type=user ∧ content 含 text 區塊 ∧ origin.kind=human（缺 origin：無 tool_result 且非 isMeta）。"""
-    if not isinstance(rec, dict) or rec.get("type") != "user":
+    """真人訊息：type=user、不是子代理那邊的紀錄（isSidechain：子代理的 user 訊息是主 session 的 AI 寫給它的任務與工具結果），而且
+    - 內容是純字串：只認 origin.kind=human（沒 origin 的純字串是 compact 摘要、程式用 -p 送的提示、slash 指令回顯）；
+    - 內容是區塊清單：含 text 區塊 ∧ origin.kind=human（缺 origin 的舊紀錄：無 tool_result 且非 isMeta）。"""
+    if not isinstance(rec, dict) or rec.get("type") != "user" or rec.get("isSidechain"):
         return False
+    msg = rec.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(content, str):
+        origin = rec.get("origin")
+        return bool(content.strip()) and isinstance(origin, dict) and origin.get("kind") == "human"
     blocks = _content_blocks(rec)
     if not any(b.get("type") == "text" for b in blocks):
         return False
@@ -177,14 +185,18 @@ def is_human_record(rec: Dict[str, Any]) -> bool:
 
 
 def record_text(rec: Dict[str, Any]) -> str:
-    """真人 user 或 assistant 的 text 區塊串接；其他記錄回空字串。"""
+    """真人 user 或 assistant 的 text 區塊串接（內容是純字串就是那段字）；其他記錄回空字串。"""
     if not isinstance(rec, dict):
         return ""
     if rec.get("type") == "user" and not is_human_record(rec):
         return ""
     if rec.get("type") not in ("user", "assistant"):
         return ""
-    parts = [str(b.get("text") or "") for b in _content_blocks(rec) if b.get("type") == "text"]
+    msg = rec.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if isinstance(content, str):
+        return content.strip()
+    parts =[str(b.get("text") or "") for b in _content_blocks(rec) if b.get("type") == "text"]
     return "\n".join(p for p in parts if p.strip()).strip()
 
 

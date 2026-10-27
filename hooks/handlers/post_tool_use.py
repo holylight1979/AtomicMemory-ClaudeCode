@@ -67,7 +67,7 @@ from handlers import aec_ledger
 import wg_data_file  # T2.16 動使用者資料檔要先宣告：記本 session 新建的檔
 from handlers._shared import (
     _hud_alive,
-    _is_ephemeral_path,
+    _is_ephemeral_path, note_ephemeral_skip,
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
     entry_note,
@@ -919,7 +919,10 @@ def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str,
     why = note["why"]
     for p in paths:
         try:
-            if _is_ephemeral_path(p) or _unchanged_since_noted(p, before.get(canon_path(p))):
+            if _is_ephemeral_path(p):
+                note_ephemeral_skip(state, p)      # EPHEMERAL_WRITE_NOTED_ONCE（state 跟著未知寫入一起寫回）
+                continue
+            if _unchanged_since_noted(p, before.get(canon_path(p))):
                 continue
             _note_modified(state, session_id, p, tool_name, agent_id, via=uw.VIA)
             noted.append(p)
@@ -1288,7 +1291,7 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
         print("[post_tool_use_failure] 找不到這次工具呼叫的開始時間，失敗指令的目標檔只要存在就記成改過（可能多記沒寫到的檔）",
               file=sys.stderr)
     noted: List[str] = []
-    unknown = False
+    unknown = eph = False
     seq0 = state.get("event_seq")         # 每記一筆改檔都會前進：中途出錯也看得出 state 已經改了
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     try:
@@ -1297,7 +1300,10 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
                 unknown = True                # 先標：補算中途出錯，已經記進 state 的照樣寫回
                 noted += _note_unknown_write(state, session_id, p, command, tool_name, aid, input_data)
                 continue
-            if not p or _is_ephemeral_path(p) or not os.path.isfile(p):
+            if p and _is_ephemeral_path(p):
+                eph = note_ephemeral_skip(state, p) or eph       # EPHEMERAL_WRITE_NOTED_ONCE
+                continue
+            if not p or not os.path.isfile(p):
                 continue
             if started is not None and os.path.getmtime(p) < started - 2:      # 指令開始前就是這樣：沒寫到（失敗在寫之前）
                 continue
@@ -1305,7 +1311,7 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
             noted.append(p)
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
-    return noted, bool(noted) or unknown or state.get("event_seq") != seq0
+    return noted, bool(noted) or unknown or eph or state.get("event_seq") != seq0
 
 
 def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[str], aid: str, cwd: str,
@@ -1517,11 +1523,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if v6 and tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell") and _old_test_after(state, input_data, config):
         dirty = True
 
-    if (
-        tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit")
-        and file_path
-        and not _is_ephemeral_path(file_path)
-    ):
+    _edit_tool = tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit") and bool(file_path)
+    if _edit_tool and _is_ephemeral_path(file_path) and note_ephemeral_skip(state, file_path):   # EPHEMERAL_WRITE_NOTED_ONCE
+        dirty = True
+    if _edit_tool and not _is_ephemeral_path(file_path):
         _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
         if v6:
             _note_launcher(file_path)       # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
@@ -1653,7 +1658,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     elif _p and not _is_ephemeral_path(_p):
                         _note_modified(state, session_id, _p, tool_name, _aid)
                         _note_launcher(_p)        # LAUNCHER_NOT_CODE：用 shell 寫出來的啟動器也認；刪掉時標記不動
-                    else:
+                    elif not (_p and note_ephemeral_skip(state, _p)):    # 暫存檔不記帳；暫存目錄專案第一次說一聲（EPHEMERAL_WRITE_NOTED_ONCE）
                         continue
                     dirty = True
             except Exception as e:

@@ -449,7 +449,7 @@ def test_broken_chain_after_peer_turn_keeps_not_user_turn(world):
 
 
 def test_plain_string_prompt_opens_a_turn(world):
-    # 內容是純字串的提示（無頭 -p 這類，is_human_record 認不出）也開了新回合：不能越過它拿更早那則真人訊息當 Quote
+    # 內容是純字串、沒有 origin 的提示（程式用 -p 送的這類，is_human_record 否）也開了新回合：不能越過它拿更早那則真人訊息當 Quote
     atom = _atom(world["mem"] / "設計通則" / "卡片寅.md", "卡片寅")
     _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", [
         _human("h1", None, "2026-10-05T09:00:00Z", "很早以前的另一則使用者訊息", sid=SID2),

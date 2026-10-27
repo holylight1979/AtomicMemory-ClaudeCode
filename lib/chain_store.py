@@ -256,21 +256,27 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
     """閘要擋下或記欠之前呼叫：記一筆觸發，回這次照擋（record_only=False）還是只記錄。
     watched＝這次擋的檔（CHAIN_EDGE_FILES_DISJOINT 與 CHAIN_SAME_GATE_PER_OBJECT 都用；說不出就不給）；
     target＝擋的對象不是檔時的對象鍵（定位閘的部位；說不出就不給）；later＝收尾閘擋下時「後面還會擋」預覽裡的閘名（CHAIN_EDGE_PREVIEWED）。
-    警報在這一次響：記通知（答案從這之後算、題目定下來、能不能互動）；收尾上回 notice、工具上回 halt，呼叫端用它取代原擋訊息。"""
+    警報在這一次響：記通知（答案從這之後算、題目定下來、能不能互動）；收尾上回 notice、工具上回 halt，呼叫端用它取代原擋訊息。
+    沒人能答時，警報後（含讓它響的那一次）會改使用者資料的閘回照擋、照原擋訊息擋（wg_chain.keeps_blocking），帳上那筆帶 kept。"""
     try:
         cx = _ctx(sid, turn, input_data, config, now)
         if cx is None:
             return PASS
         ch = cx.chain()
         hook = str(input_data.get("hook_event_name") or "")
-        if wc.muted_again(ch, str(gate)):
+        kept = wc.keeps_blocking(ch, str(gate))
+        if not kept and wc.muted_again(ch, str(gate)):
             return GateResult(True)
         row = {"gate": str(gate), "what": wc.one_line(what), "hook": hook, "event": _event(input_data),
                "watched": [str(p) for p in watched], "target": str(target or ""), "later": [str(g) for g in later],
                **_batch_fields(input_data), **_call_fields(input_data)}
         j = wc.judge(ch, row, cx.cfg)
-        new = [cx.row("gate", **row, record_only=j.record_only, depth=j.depth, same=j.same,
-                      link=j.link.rule if j.link else "")]
+        new = [cx.row("gate", **row, record_only=j.record_only and not kept, depth=j.depth, same=j.same,
+                      link=j.link.rule if j.link else "", **({"kept": True} if kept else {}))]
+        if kept:                                  # CHAIN_HEADLESS_KEEPS_DATA_GATES：警報後沒人能答，改使用者資料的閘照擋、每次都記
+            _append(cx.sid, new)
+            _kept_note(gate)
+            return PASS
         if not j.alarm:
             _append(cx.sid, new)
             return GateResult(j.record_only)
@@ -282,14 +288,25 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
         if wc.is_stop(hook):
             new.append(cx.row("shown"))
             _append(cx.sid, new)
-            return GateResult(True, notice=wc.notice_text(cx.chain(), cx.now))
+            return GateResult(True, notice=wc.notice_text(cx.chain(), cx.now, replaced=what))   # CHAIN_ABORT_SHOWS_REPLACED_BLOCK
+        kept = wc.keeps_blocking(cx.chain(), str(gate))
+        if kept:                                  # CHAIN_HEADLESS_KEEPS_DATA_GATES：讓警報響的這一次也照擋
+            new[0].update(record_only=False, kept=True)
         _append(cx.sid, new)
+        if kept:
+            _kept_note(gate)
+            return PASS
         if why:                                   # CHAIN_HEADLESS_NO_ASK：沒人能答不停手，這次照放（只記錄），收尾再送經過表
             return GateResult(True)
-        return GateResult(True, halt=wc.halt_text(cx.chain(), cx.now))
+        return GateResult(True, halt=wc.halt_text(cx.chain(), cx.now, replaced=what))
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的閘行為
         _warn("gate_fired", e)
         return PASS
+
+
+def _kept_note(gate: str) -> None:
+    print(f"[Guardian:{wc.GATE}] 連鎖中止中：{gate} 擋的是改使用者資料，沒人能答照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）",
+          file=sys.stderr)
 
 
 def halt(sid: str, turn: int, tool: str, input_data: Dict[str, Any], config: Dict[str, Any], *,

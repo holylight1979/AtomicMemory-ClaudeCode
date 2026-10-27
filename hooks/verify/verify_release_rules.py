@@ -2624,3 +2624,43 @@ def test_008_base_red_tracked_not_owed():
         kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
         assert kept and any(why in n for n in notes), (over, notes)
     assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []
+
+
+# ─── 閘的三件設計題：規則名登錄、對照的案例真的在、案例點到規則名 ───
+_GATE_DESIGN_CASES = {
+    "CHAIN_HEADLESS_KEEPS_DATA_GATES": ("verify_chain_wiring.py",
+                                        "test_headless_after_alarm_data_file_blocked_code_file_record_only"),
+    "SHELL_READ_COUNTS_LIKE_READ": ("verify_overview_hub.py", "test_shell_read_counts_like_read"),
+    "SHELL_WRITE_COMMAND_NOT_A_READ": ("verify_overview_hub.py", "test_shell_write_command_not_a_read"),
+    "EPHEMERAL_WRITE_NOTED_ONCE": ("verify_ephemeral_path.py", "test_temp_project_write_not_noted_but_said_once_per_root"),
+    "CHAIN_NO_EDIT_NO_EDGE": ("verify_chain_breaker.py", "test_no_edit_actions_between_same_gate_do_not_link"),
+    "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": ("verify_chain_wiring.py",
+                                         "test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_GATE_DESIGN_CASES))
+def test_gate_design_rules_registered_with_cases(rule):
+    case_file, fn = _GATE_DESIGN_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)
+    if rule.startswith("CHAIN_"):
+        import wg_chain
+        assert rule in wg_chain.RULES                                # 判定在斷路器，兩邊同名
+
+
+def test_quote_from_user_opened_turn_registered():
+    """QUOTE_FROM_USER_OPENED_TURN：判定在 hooks/wg_provenance._turn_quote，案例在 verify_quote_user_turn.py
+    （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
+    assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
+    assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()
+
+
+def test_inject_lean_rules_registered_with_cases():
+    """CODING_TURN_FULL_ONLY_ON_TRIGGER／POINTER_NO_NAME_ECHO／NO_RESEND_AFTER_RESUME：判定在 hooks/handlers/ups_inject.py，
+    案例在 verify_inject_lean.py（每條至少一支、案例檔點到規則名）。"""
+    text = (Path(__file__).resolve().parent / "verify_inject_lean.py").read_text(encoding="utf-8")
+    for rule, fn in (("CODING_TURN_FULL_ONLY_ON_TRIGGER", "test_coding_turn_full_only_on_trigger"),
+                     ("POINTER_NO_NAME_ECHO", "test_cold_line_drops_name_echo"),
+                     ("NO_RESEND_AFTER_RESUME", "test_resume_does_not_resend_full_card")):
+        assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
