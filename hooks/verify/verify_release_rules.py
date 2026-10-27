@@ -2624,3 +2624,23 @@ def test_008_base_red_tracked_not_owed():
         kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
         assert kept and any(why in n for n in notes), (over, notes)
     assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []
+
+
+# ─── 閘的三件設計題：規則名登錄、對照的案例真的在、案例點到規則名 ───
+_GATE_DESIGN_CASES = {
+    "CHAIN_HEADLESS_KEEPS_DATA_GATES": ("verify_chain_wiring.py",
+                                        "test_headless_after_alarm_data_file_blocked_code_file_record_only"),
+    "SHELL_READ_COUNTS_LIKE_READ": ("verify_overview_hub.py", "test_shell_read_counts_like_read"),
+    "SHELL_WRITE_COMMAND_NOT_A_READ": ("verify_overview_hub.py", "test_shell_write_command_not_a_read"),
+    "EPHEMERAL_WRITE_NOTED_ONCE": ("verify_ephemeral_path.py", "test_temp_project_write_not_noted_but_said_once_per_root"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_GATE_DESIGN_CASES))
+def test_gate_design_rules_registered_with_cases(rule):
+    case_file, fn = _GATE_DESIGN_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)
+    if rule.startswith("CHAIN_"):
+        import wg_chain
+        assert rule in wg_chain.RULES                                # 判定在斷路器，兩邊同名
