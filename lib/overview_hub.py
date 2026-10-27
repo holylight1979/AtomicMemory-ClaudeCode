@@ -624,7 +624,7 @@ def _pointer_body(card_paths: List[Path], note: str) -> str:
         defect = defect[:POINTER_DEFECT_CAP] + "…"
     paths = "、".join(str(cp) for cp in card_paths)
     return "\n".join([f"已知病灶：{defect or '卡上沒有「已知病灶」段'}",
-                      f"導讀卡{note}：{paths}（整張沒有注入；改這個部位的檔之前先 Read，可跟讀部位檔同一則送）", *failed])
+                      f"導讀卡{note}：{paths}（整張沒有注入；改這個部位的檔之前先 Read：下一則讀卡時順便讀要改的檔）", *failed])
 
 
 def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,

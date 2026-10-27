@@ -2115,6 +2115,63 @@ def test_inject_trigger_read_counted(proj, tmp_path, monkeypatch):
     assert _battle(by_edit)["part_files_read"] == []
 
 
+
+def _two_part_proj(tmp_path):
+    root = tmp_path / "two"
+    mem = root / ".claude" / "memory" / "shared"
+    rows = (("Game/Battle", "戰鬥"), ("Game/UI", "介面"), ("Game/Cfg", "設定"))
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        + "".join(f"| `{d}/` | {n} | `{n}導讀` | 有 |\n" for d, n in rows), encoding="utf-8")
+    for d, n in rows:
+        (mem / n).mkdir(parents=True)
+        (mem / n / f"{n}導讀.md").write_text(f"# {n}導讀\n病灶：無", encoding="utf-8")
+        (root / d).mkdir(parents=True)
+        (root / d / "a.py").write_text("x = 1", encoding="utf-8")
+    return root
+
+
+def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
+    """規則 LOCATE_BLOCK_ONCE_PER_USER_TURN：同一個使用者回合定位閘擋過【戰鬥】之後，【介面】只缺定位行 → 一行提醒、放行、留帳；
+    同伴訊息續跑的回合（turn_seq 前進、turn_prompts_seq 不變）不算新回合，照樣只提醒；擋過的【戰鬥】再缺照擋；【設定】還沒讀過
+    （缺的不只定位）照擋；下一個使用者回合【介面】再缺照擋。改前每個部位各擋一次。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _two_part_proj(tmp_path)
+    tp = _transcript(tmp_path, ["先看看。"])
+    battle, ui, cfgf = (str(root / d / "a.py") for d in ("Game/Battle", "Game/UI", "Game/Cfg"))
+    state = {"turn_seq": 3, "turn_prompts_seq": 3}
+    for f in (battle, ui):
+        wo.on_read(state, "s", "Read", {"file_path": f}, str(root), tp, {})
+    warn, deny, _ = wo.on_edit(state, "s", battle, tp, {})
+    assert deny and "還沒交出定位" in deny
+    warn, deny, changed = wo.on_edit(state, "s", ui, tp, {})
+    assert deny is None and changed and warn.startswith("[Guardian:OverviewHub] 【介面】還沒交定位行") and "\n" not in warn
+    state["turn_seq"] = 4                                                          # 同伴訊息續跑：不是使用者打字開的回合
+    assert wo.on_edit(state, "s", ui, tp, {})[1] is None
+    assert wo.on_edit(state, "s", battle, tp, {})[1]                               # 擋過的部位再缺：照擋
+    assert wo.on_edit(state, "s", cfgf, tp, {})[1]                                 # 還沒讀過、卡才注入：照擋
+    state.update(turn_seq=5, turn_prompts_seq=5)                                   # 下一個使用者回合
+    assert wo.on_edit(state, "s", ui, tp, {})[1]
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    reminded = [e for e in log if e["event"] == "edit_locate_reminded"]
+    assert len(reminded) == 2 and all(e["rule"] == "LOCATE_BLOCK_ONCE_PER_USER_TURN" for e in reminded)
+
+
+def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
+    """規則 LOCATE_NOT_IN_THINKING：缺定位行的擋訊息講死——thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，
+    要寫在回覆文字或不寫檔指令開頭的 # 註解；不再說「可能讀不到」。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    Path(f1).write_text("x", encoding="utf-8")
+    state = {}
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    deny = wo.on_edit(state, "s", f1, tp, {})[1]
+    assert "不要寫在 thinking：thinking 預設不寫進 transcript，hook 讀不到" in deny and "可能讀不到" not in deny
+    assert "寫在回覆文字" in deny and "開頭的 `#` 註解" in deny
+
+
 @pytest.fixture(autouse=True)
 def _cassette(git_cassette):
     """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求

@@ -116,8 +116,22 @@ def test_pointer_edit_denied_until_card_read_then_passes(proj, tmp_path):
     assert [e["card_unread"] for e in edits] == [1, 0] and edits[0]["deny_reason"] == "evidence"
 
 
+def test_card_read_hint_says_read_edit_files_with_the_card(proj, tmp_path):
+    """規則 CARD_READ_WITH_EDIT_FILES：指標行與讀卡缺件行都直接講下一步怎麼送——「下一則讀卡時順便讀要改的檔」，
+    不再只說「可跟…同一則送」（語氣是可以，AI 不一定照做，讀卡就多停一次）。只改文字，判定不變。"""
+    state: dict = {}
+    tp = _transcript(tmp_path, "先看看。")
+    f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
+    _transcript(tmp_path, LOCATE)
+    deny = wo.on_edit(state, "s", f1, tp, {})[1]
+    for text in (txt, deny):
+        assert "下一則讀卡時順便讀要改的檔" in text and "同一則送" not in text
+
+
 def test_pointer_card_read_in_same_bash_command_counts(proj, tmp_path):
-    """指標行說「可跟讀部位檔同一則送」：一條 cat 同時讀部位檔與卡，改檔就不缺讀卡。"""
+    """指標行說「下一則讀卡時順便讀要改的檔」：一條 cat 同時讀部位檔與卡，改檔就不缺讀卡。"""
     state: dict = {}
     tp = _transcript(tmp_path, "x")
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
@@ -250,7 +264,8 @@ def test_no_card_part_identical_in_both_modes(proj, tmp_path):
 
 
 def test_goal_view_resend_is_pointer_too(proj, tmp_path, monkeypatch):
-    """目標改了之後重送導讀卡（目標視角那次）也照指標制，不整張重送。"""
+    """目標改了之後的目標視角重看不重送導讀卡：整張不送、指標行也不送，只一行目標視角提問（規則 GOAL_VIEW_ONE_LINE；
+    卡在第一次碰到部位時已經送過指標）。"""
     import wg_need_goal_points as ngp
     monkeypatch.setattr(ngp, "goal_view_text", lambda *a, **k: "[NeedGoal] 目標視角：測試")
     state: dict = {}
@@ -259,7 +274,7 @@ def test_goal_view_resend_is_pointer_too(proj, tmp_path, monkeypatch):
     wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), tp, {})
     _rec(state, "戰鬥")["goal_reset_turn"] = 4
     view = wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), tp, {})
-    assert view and "目標視角：測試" in view and "已知病灶：共用字典" in view and "結算傷害" not in view
+    assert view == "[NeedGoal] 目標視角：測試" and "已知病灶" not in view and "結算傷害" not in view
 
 
 def test_card_injection_value_validated(proj, tmp_path):

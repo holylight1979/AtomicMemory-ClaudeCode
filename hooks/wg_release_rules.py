@@ -4067,6 +4067,19 @@ RULES.update({
 })
 
 
+# ─── 定位閘每個使用者回合最多擋一次、thinking 那條路講死、目標視角重看只一行（判定在 hooks/wg_overview.py，這裡只登錄） ───
+RULES.update({
+    "LOCATE_BLOCK_ONCE_PER_USER_TURN": "同一個使用者回合（user_turn：使用者本人打字開的回合，同伴訊息、背景通知續跑不算新回合）定位閘已經擋過"
+                                       "某個部位之後，別的部位只缺定位行 → 一行提醒、放行、留帳（_overview-hub.log event=edit_locate_reminded）；"
+                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來"
+                                       "（wg_overview.on_edit、_blocked_parts／_note_block，state overview_locate_blocked）。",
+    "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要寫在回覆文字或"
+                              "不寫檔指令開頭的 # 註解（wg_overview.on_edit 的 where）。",
+    "GOAL_VIEW_ONE_LINE": "目標視角重看（目標改了之後已碰過的部位再讀到，第一次 need_goal set 也算）只送一行：目標視角提問＋當前節點"
+                          "（wg_need_goal_points.goal_view_text 併成一行），不重貼導讀卡、定位範本與部位表原文（wg_overview._goal_view）。",
+})
+
+
 # ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
 RULES.update({
     "DENY_TEXT_SLIM": "擋訊息精簡格式（guard.deny_text_slim，預設開）：第一行「[<閘>] 修法：<一句>」，下面每條命中一行 format_hit"
@@ -4080,6 +4093,16 @@ RULES.update({
                            "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
                            "子代理讀的不提示），讓第一次改就帶宣告。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：沒宣告照擋。",
+})
+RULES.update({
+    "LOCATE_EXAMPLE_ONCE_PER_SESSION": "有目標樹時缺定位行的擋訊息（LOCATE_ASK_ONCE 那條完整範例）每個 session 只給一次完整範例：擋訊息精簡"
+                                       "（guard.deny_text_slim）開、本 session 已送過（state overview_locate_example_sent）→ 那一條換成短句"
+                                       "（wg_overview.LOCATE_EXAMPLE_AGAIN：四行格式同第一則、寫在回覆文字或 # 註解、thinking 讀不到）；"
+                                       "缺件清單照原文比（擋次上限、同批短訊息不因換字重新計次）；精簡關掉每則照給完整範例。",
+})
+RULES.update({
+    "CARD_READ_WITH_EDIT_FILES": "指標制送卡時，指標行（lib/overview_hub._pointer_body）與讀卡缺件行（wg_overview._card_unread_line）"
+                                 "直接講下一步：「下一則讀卡時順便讀要改的檔」，讓讀卡跟讀要改的檔併在同一則送、不為讀卡多停一次。只改文字，判定不變。",
 })
 
 

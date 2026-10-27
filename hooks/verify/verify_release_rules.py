@@ -2637,6 +2637,11 @@ _GATE_DESIGN_CASES = {
     "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": ("verify_chain_wiring.py",
                                          "test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block"),
     "INJECT_TRIGGER_READ_COUNTED": ("verify_overview_hub.py", "test_inject_trigger_read_counted"),
+    "LOCATE_BLOCK_ONCE_PER_USER_TURN": ("verify_overview_hub.py", "test_locate_block_once_per_user_turn"),
+    "LOCATE_NOT_IN_THINKING": ("verify_overview_hub.py", "test_locate_deny_says_thinking_is_not_read"),
+    "GOAL_VIEW_ONE_LINE": ("verify_need_goal_points.py", "test_goal_view_resend_is_one_line_read_first_then_tree"),
+    "LOCATE_EXAMPLE_ONCE_PER_SESSION": ("verify_pull_goal_locate.py", "test_locate_example_full_once_per_session_then_short"),
+    "CARD_READ_WITH_EDIT_FILES": ("verify_overview_card_pointer.py", "test_card_read_hint_says_read_edit_files_with_the_card"),
 }
 
 

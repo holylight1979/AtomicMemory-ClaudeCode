@@ -895,9 +895,31 @@ def test_goal_change_resends_card_in_goal_view_once(proj, tmp_path):
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None
     rec["goal_reset_turn"] = 4                                                # b2 on_goal_changed 記的
     view = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
-    assert view and "目標視角" in view and "戰鬥導讀" in view and "當前節點 T1." in view and "T1：" not in view
+    assert view and "目標視角" in view and "當前節點 T1." in view and "T1：" not in view
+    assert "戰鬥導讀" not in view and "\n" not in view                       # GOAL_VIEW_ONE_LINE：只一行，不重貼導讀卡
     assert rec["goal_view_turn"] == 4 and rec["part_files_read"] == [f]       # 讀檔紀錄沒被重置
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None   # 只重送一次
+
+
+def test_goal_view_resend_is_one_line_read_first_then_tree(proj, tmp_path):
+    """規則 GOAL_VIEW_ONE_LINE（004 R2：第一次 need_goal set 被當成目標改了，兩個部位各重送一整段導讀卡）：先讀部位、後立樹
+    → 照樣觸發目標視角重看，但只送一行（目標視角提問＋當前節點），不重貼導讀卡、定位範本與部位表原文；目標真的改了
+    （再一次 on_goal_changed）→ 照樣再重看一次、也只一行。改前每次重看都附整張卡。"""
+    cfg = {"overview_hub": {"enabled": True}}
+    state = {"turn_seq": 2}
+    tp = _tp(tmp_path)
+    f = str(proj / "Game/Battle/A.cs")
+    first = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
+    assert "戰鬥導讀" in first                                                   # 第一次注入照送整張卡
+    make_tree()
+    assert wo.on_goal_changed(state, tp, 3) == 1                              # 先讀後立樹：第一次 set 也算目標改了
+    view = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
+    assert view.startswith("[NeedGoal] 目標改了，用目標視角重看【戰鬥】") and "當前節點 T1." in view
+    assert "\n" not in view and "戰鬥導讀" not in view and "定位｜部位：" not in view and len(view) < len(first)
+    assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None
+    wo.on_goal_changed(state, tp, 5)                                          # 目標真的又改了
+    again = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
+    assert again and "\n" not in again and "目標視角" in again
 
 
 # ─── 軌五：壓縮、續接單、session 結束 ─────────────────────────────────────
