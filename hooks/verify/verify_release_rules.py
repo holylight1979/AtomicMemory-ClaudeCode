@@ -2647,3 +2647,10 @@ def test_gate_design_rules_registered_with_cases(rule):
     if rule.startswith("CHAIN_"):
         import wg_chain
         assert rule in wg_chain.RULES                                # 判定在斷路器，兩邊同名
+
+
+def test_quote_from_user_opened_turn_registered():
+    """QUOTE_FROM_USER_OPENED_TURN：判定在 hooks/wg_provenance._turn_quote，案例在 verify_quote_user_turn.py
+    （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
+    assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
+    assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()
