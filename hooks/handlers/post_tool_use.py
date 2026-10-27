@@ -1381,25 +1381,6 @@ def _tool_start_bound(transcript_path: str, tool_use_id: str) -> Tuple[Optional[
     return last, "transcript_tail" if last is not None else ""
 
 
-SCOPE_ASK = ("這回合改了程式：哪些測試和這次改動有關、會受影響？由你判斷，"
-             "用 need_goal(action=verify_scope, items=[{target, why}]) 宣告這次的驗證範圍（一回合只問這一次）。")
-
-
-def _scope_ask_once(state: Dict[str, Any], session_id: str, file_path: str, config: Dict[str, Any]) -> None:
-    """規則 SCOPE_ASK_ONCE_PER_CODE_TURN：這個使用者回合第一次改程式檔（不是啟動器、還沒宣告過範圍）→ 問一次驗證範圍
-    （放 _verify_scope_advisory，這次 PostToolUse 送出）；同一回合之後不再問。"""
-    from wg_release_rules import user_turn
-    from wg_verify_ledger import git_launcher, is_code_file, reconcile_cfg
-    uturn = user_turn(state, int(state.get("turn_seq", 0) or 0))
-    asked = state.setdefault("scope_asked_turn", {})
-    if asked.get(session_id) == uturn or git_launcher(file_path):
-        return
-    if not is_code_file(file_path, reconcile_cfg(config).get("code_exts") or []):
-        return
-    asked[session_id] = uturn
-    state["_verify_scope_advisory"] = f"[Guardian:VerifyScope] {SCOPE_ASK}"
-
-
 def _apply_harvest(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], items: Any, note: Any,
                    aec_reject_msgs: List[str], via: str) -> None:
     """收割回報核對（one-writer）：knowledge_harvest_report 與 anti_evasion_report 的 harvest_items（收尾一份報告，
@@ -1555,7 +1536,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
         if v6:
             _note_launcher(file_path)       # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
-            _scope_ask_once(state, session_id, file_path, config)
+            # 目標樹只立一次（GOAL_TREE_SET_ONCE）：改程式檔不再問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN，問一次 AI 就多叫一次
+            # need_goal verify_scope）；宣告來了照收（_verify_scope_declare），Stop 的 SCOPE_* 照判只留帳
 
         edit_counts = state.setdefault("edit_counts", {})
         edit_counts[file_path] = edit_counts.get(file_path, 0) + 1

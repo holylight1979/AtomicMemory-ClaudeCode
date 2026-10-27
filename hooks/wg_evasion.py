@@ -274,16 +274,33 @@ def tail_lines(s: str, n: int) -> str:
     return "\n".join(lines[-n:])
 
 
+_FAILED_NODE_LINE_RE = lazy_re(r"^(?:FAILED|ERROR)\s+\S+")
+FAILED_LINES_CAP = 200          # 與 wg_release_rules.RED_CASES_CAP 同值（那邊 import 這個模組，不能反向引用）；超過就標清單不完整
+INCOMPLETE_NOTE = "(清單不完整：FAILED／ERROR 行超過 {cap} 支，只記前 {cap} 支；結算行的數字對不上就不拿這份清單清帳)"
+
+
+def failure_summary(combined: str, tail: int = 20) -> str:
+    """紅測摘要：所有 FAILED／ERROR 節點行（去重保序，上限 FAILED_LINES_CAP）＋最後 tail 行（含結算行）。舊寫法只取尾 20 行：
+    20 支 FAILED＋結算行＝21 行，第一支被切掉、永遠不在帳上 → 綠了清不乾淨、逼人重跑整個範圍（2026-10-27 實踩）。
+    超過上限時尾端加一行清單不完整的註記（red_case_facts 看結算數字對不上也會判不完整）。"""
+    lines = [l for l in (combined or "").splitlines() if l.strip()]
+    nodes = list(dict.fromkeys(l for l in lines if _FAILED_NODE_LINE_RE.match(l)))
+    over = len(nodes) > FAILED_LINES_CAP
+    tail_part = [l for l in lines[-tail:] if not (over and _FAILED_NODE_LINE_RE.match(l))]   # 超限：尾段的節點行也不收，上限才是上限
+    kept = dict.fromkeys([*nodes[:FAILED_LINES_CAP], *tail_part])
+    return "\n".join([*kept, *([INCOMPLETE_NOTE.format(cap=FAILED_LINES_CAP)] if over else [])])
+
+
 def detect_test_failure(
     stdout: str, stderr: str, interrupted: bool
 ) -> Optional[str]:
-    """Return last-20-lines summary if failure detected, else None."""
+    """失敗就回摘要（failure_summary：全部 FAILED／ERROR 節點行＋尾 20 行），沒失敗回 None。"""
     combined = (stdout or "") + "\n" + (stderr or "")
     if interrupted:
-        return tail_lines(combined, 20) or "(interrupted, no output)"
+        return failure_summary(combined) or "(interrupted, no output)"
     for pat in _FAILURE_PATTERNS:
         if pat.search(combined):
-            return tail_lines(combined, 20)
+            return failure_summary(combined)
     return None
 
 

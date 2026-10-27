@@ -1194,6 +1194,11 @@ RULES["COMMIT_ORDER_DECISION_ALWAYS_LOGGED"] = ("git commit 口令閘（handlers
                                                 "Logs/guard-commit_order.jsonl（event：denied／order＋口令字／quoted＋引的原句／temp_exempt／"
                                                 "claude_exempt／fail_open／error，帶 session_id、allowed、指令前 200 字）；不是 commit 的指令不寫。"
                                                 "放行條件裡有交給 LLM 判的語意授權（授權原句），事後要抽查得到。")
+RULES["PROJECT_RULE_WORDS_ARE_HINTS"] = ("背景自動萃取（user-extract-worker）與存量整理（classify-project-scope plan）判「這條是不是專案專屬規則」時，"
+                                        "線索詞（此專案／本專案／上傳／發布／必須／禁止／git／svn…）只是提示：命中只有線索詞 → 萃取落 personal、"
+                                        "留帳 guard-scope_hint（event=hint，附命中的詞與原句），整理建議表列 suggest=review（疑似專案專屬，待確認）"
+                                        "附命中的詞給人判，不自動寫 shared、不自動搬。可定案的只有 L2（LLM）宣告 shared，與查得到的事實"
+                                        "（目前專案的專名、專案路徑、已登記專案名）。")
 RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）跑測試、預期它紅＝負向對照：宣告行「負向對照｜<這條指令裡出現的路徑或字樣>："
                                       "<理由>」（回覆文字／工具參數／thinking 三管道，主檔與子代理檔，含這次指令自己的 `#` 註解）點到的字樣"
                                       "是這條指令的一段、理由有文字內容 → 這次紅記 deliberate_reds（rule＝本規則、附宣告行），不進 failing_tests、"
@@ -2432,7 +2437,7 @@ RULES.update({
     "RED_ITEMS_ONLY_FROM_FAILURE_LINES": "紅測的失敗項只從失敗行取：pytest 摘要 FAILED／ERROR 開頭的節點行（扣掉之後的綠已跑到的 "
                                          "cleared_units）；沒有節點行時只認行首 FAIL／FAILED／ERROR 的行（unittest、go、jest）"
                                          "加上指令點名的案例檔。指令裡 # 開頭的註解行（AI 自己寫的不做行）、git 輸出、Exit code 行都不是失敗項，"
-                                         "不拿來對不做行。擋訊息逐筆列失敗項與指令實際跑的那行（不是摘要第一行、不是註解）；沒列出失敗項就說沒列出、"
+                                         "不拿來對不做行。擋訊息抬頭算還沒跑綠的支數與已綠的支數（不是幾筆紀錄），逐筆只列還沒跑綠的失敗項（已清的絕不列）與指令實際跑的那行（不是摘要第一行、不是註解），附重跑哪幾支檔就夠（還紅的那幾支所在的檔）；沒列出失敗項就說沒列出、"
                                          "要不截斷重跑；不做行對到了某支、但引用不在近 3 則使用者原話、帳上也沒有 → 擋訊息說出是哪一支、缺什麼；"
                                          "帳上有那支的豁免、這次收尾卻沒寫對到它的不做行 → 擋訊息給那一行照抄（帳不自動放）。",
 })
@@ -2786,8 +2791,41 @@ def _waiver_units(entry: Dict[str, Any]) -> Tuple[List[str], bool]:
     return (units, True) if units else ([_unlisted_unit(entry)], False)
 
 
+def cleared_units(entry: Dict[str, Any]) -> List[str]:
+    """這筆紅測逐支列出的失敗裡，之後的綠已經跑到的那幾支（cleared_units 與 failed_units 的交集，照摘要順序）。"""
+    done = set((entry or {}).get("cleared_units") or ())
+    return [u for u in failed_units((entry or {}).get("summary", "")) if u in done]
+
+
+def red_unit_files(units: Sequence[str]) -> List[str]:
+    """這幾支紅案所在的檔（去重保序）：重跑這幾支檔就夠。"""
+    return list(dict.fromkeys(str(u).split("::", 1)[0] for u in units))
+
+
+def red_count_label(failing: Sequence[Dict[str, Any]]) -> str:
+    """擋訊息抬頭的數字：還沒跑綠的支數（逐支列出的扣掉已清；沒列出的整筆算 1 支）與已經綠的支數，不是幾筆紀錄。"""
+    left = sum(len(red_units(f or {})) or 1 for f in failing)
+    done = sum(len(cleared_units(f or {})) for f in failing)
+    return f"還有 {left} 支沒跑綠（{done} 支已綠）"
+
+
+RERUN_FILES_SHOWN_MAX = 600
+
+
+def red_rerun_files_label(entry: Dict[str, Any]) -> str:
+    """這筆紅測還沒跑綠的那幾支所在的檔，重跑這幾支檔就夠（整檔跑綠＝那檔的紅案全清，GREEN_CLEARS_ONLY_CASES_IT_RAN）；
+    沒逐支列出的回空（由 _rerun_scope 給範圍）。太長就只列前三支加支數。"""
+    files = red_unit_files(red_units(entry))
+    if not files:
+        return ""
+    shown = "、".join(files)
+    if len(shown) > RERUN_FILES_SHOWN_MAX:
+        shown = "、".join(files[:3]) + f" 等 {len(files)} 支"
+    return "重跑這幾支檔就夠：" + shown
+
+
 def red_item_label(entry: Dict[str, Any], shown: int = 3) -> str:
-    """擋訊息裡這筆紅測的失敗項：逐支列節點；沒有就列失敗行；都沒有就明說輸出沒列出是哪一支。"""
+    """擋訊息裡這筆紅測的失敗項：逐支列還沒跑綠的節點（已清的絕不列）；沒有就列失敗行；都沒有就明說輸出沒列出是哪一支。"""
     units = red_units(entry)
     if units:
         return "、".join(units[:shown]) + (f" 等 {len(units)} 支" if len(units) > shown else "")
@@ -4198,10 +4236,13 @@ RULES.update({
 
 # ─── 驗證批次閘（PreToolUse Bash／PowerShell；事實與擋次在 hooks/wg_verify_batch.py，這裡只登錄規則名與說明；不歸 v6 開關管） ───
 RULES.update({
-    "VERIFY_FULL_RUN_NEEDS_USER_ORDER": "整組驗證（run_verify.py 不帶參數；pytest 沒點名檔，即沒有位置參數或只有目錄，也沒 -k／-m／--lf 這類縮範圍選項；"
-                                        "PYTEST_ADDOPTS 縮了範圍不算整組）要本回合使用者原話有口令（guard.verify_batch.full_run_keywords，預設 整組／全量／"
+    "VERIFY_FULL_RUN_NEEDS_USER_ORDER": "會拖時間的整組驗證（run_verify.py 不帶參數；pytest 沒點名檔，即沒有位置參數或只有目錄，也沒 -k／-m／--lf 這類縮範圍選項；"
+                                        "PYTEST_ADDOPTS 縮了範圍不算整組；會拖時間＝同一組指令最近一筆收據耗時 ≥ guard.verify_batch.slow_run_s〔只有自寫收據記了"
+                                        " started_at 能算，算不出當不知道〕或 指令跑的樹底下符合 verify_case_globs 的測試檔 ≥ large_suite_files〔數到門檻停、"
+                                        "state.verify_batch_suite_files 每根快取一筆〕）要本回合使用者原話有口令（guard.verify_batch.full_run_keywords，預設 整組／全量／"
                                         "全部測試／run_verify；原話取法同 CommitOrder：state.turn_prompts 經 user_typed_prompts，背景通知、子代理回報不算）"
-                                        "→ 沒口令擋。解析不了的指令（heredoc、eval、bash -c）不管。",
+                                        "→ 沒口令擋，擋訊息說上次耗時幾秒／測試檔幾支。不拖時間（含不知道）的整組沒口令也放行、留帳 reason=small。"
+                                        "解析不了的指令（heredoc、eval、bash -c）不管。",
     "VERIFY_SAME_BATCH_ALREADY_GREEN": "同一組驗證指令（self_receipt 正規化後的 程式＋參數；`python -m pytest` 與 `pytest` 同一組、直譯器選項不算）"
                                        "最近一筆收據是綠的（沒有 FAIL 哨兵、結束碼 0；自寫收據 exit_code=0 且 failed=0），而且收據之後本 session"
                                        "（子代理看自己的 agent_modified_files）沒有改檔（收據 seq 對改檔 last_seq；自寫收據沒 seq 就比 UTC 時間）→ 擋"
@@ -4244,15 +4285,26 @@ RULES.update({
     "GATE_MODE_TABLE": "v6 守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘 v6 守門是 remind；"
                        "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
     "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer／locate_content 缺件）：v6 開時提醒一行、不擋；"
-                          "第一次讀到該部位程式檔的讀檔結果（LOCATE_HINT_ON_FIRST_READ）送過就算提醒過，之後沒交不再提醒也不擋。",
+                          "第一次讀到該部位程式檔的讀檔結果（LOCATE_HINT_ON_FIRST_READ）送過就算提醒過，之後沒交不再提醒也不擋；"
+                          "唯一例外：每部位本 session 第一次改程式檔、定位沒交 → 擋這一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）。",
     "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在 v6 守門範圍，照擋、不注入（wg_overview.on_edit 的 readonly）。",
     "OVERVIEW_HUB_UNDER_V6": "OverviewHub 整道（導讀卡注入、候選前 N、讀檔記錄、定位）綁 v6 總開關：v6 關時 wg_overview._cfg 的 enabled 一律 False，"
                              "不注入、不記、不擋；同事預設關 v6 就完全不會收到導讀卡。",
+    "LOCATE_FIRST_EDIT_BLOCKS_ONCE": "定位閘在提醒模式下的例外（使用者裁「只擋第一次」）：同一 session 第一次改某部位的程式檔（送卡那一刀；子代理同主 session）"
+                                     "先驗一次定位行：交了就放、卡照舊當提醒件送；沒交 → 擋這一次，訊息＝卡＋定位要求（一次交齊四行），卡同時排進提醒；"
+                                     "之後同部位再缺定位只提醒不擋。判定 wg_overview._first_edit_once（locate_first_deny_due 記在 state.locate_first_deny），"
+                                     "送法 pre_tool_use（提醒件帶 block_once；state 記不住就只提醒），留帳 hub log event=edit_blocked_once。",
     "REMIND_PENDING_IN_STATE": "工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法、順帶要注入的卡），"
                                "下一個工具結果（PostToolUse）取走：該提醒的併進 additionalContext、記進 remind_sent；送過的只留帳不重送"
                                "（wg_overview.remind_queue／remind_flush）。state 寫不進去就只 stderr＋留帳，不改用 PreToolUse 送。",
     "GOAL_RECONCILE_AT_DELIVERY": "(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：v6 開時提醒，"
-                                  "掛在改程式檔那則工具結果，Stop 只留帳；commit 前那份歸 COMMIT_GOAL_RECONCILED。",
+                                  "Stop 只留帳；commit 前那份歸 COMMIT_GOAL_RECONCILED。",
+    "GOAL_TREE_SET_ONCE": "目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（CODE_EDIT_NEEDS_GOAL_TREE），之後不再送任何會促使 AI 去呼叫"
+                          "need_goal reconcile／verify_scope 的文字：改程式檔那則工具結果不附 SCOPE_*、(f2)(f3)(f4)（post_tool_batch.closing_reminders），"
+                          "PostToolUse 改程式檔不問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN 拿掉），收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，"
+                          "need_goal set 的回覆、沒樹改知識類檔的提示、MCP 工具說明都不寫接著對照。判定不動：Stop 照判、只留帳（STOP_REMIND_LEDGER_ONLY）；"
+                          "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile／verify_scope 照收。v6 關整道不動（照擋）。"
+                          "為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。",
     "STOP_REMIND_LEDGER_ONLY": "Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log "
                                "event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、"
                                "不記 pending_release、不吃擋滿預算、不算進連鎖斷路器的觸發；寫碼查核一批條目混了照擋與提醒的，只有照擋條目進擋訊息"
@@ -4278,7 +4330,7 @@ RULE_CLASS: Dict[str, str] = {
     **dict.fromkeys(("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "ORDER_UNTIL_PUSH", "TEMP_REPO_COMMIT_EXEMPT",
                      "SVN_TEST_BLOCK_OPT_IN", "ATOM_BYPASS_HOWTO_REFUSED", "CONFLICT_DECLARED_BY_AI",
                      "OVERVIEW_READONLY_PATHS", "VERIFY_FULL_RUN_NEEDS_USER_ORDER", "VERIFY_SAME_BATCH_ALREADY_GREEN",
-                     "VERIFY_BATCH_BLOCK_ONCE_PER_TURN"), "不在範圍"),
+                     "VERIFY_BATCH_BLOCK_ONCE_PER_TURN", "LOCATE_FIRST_EDIT_BLOCKS_ONCE"), "不在範圍"),
 }
 RULE_MODE: Dict[str, str] = {name: BLOCK if name in RULE_CLASS else REMIND for name in RULES}
 
@@ -4301,6 +4353,11 @@ for _name in ("CASE_COVERS_CHANGE", "CASE_DECLARED_FOR_CHANGE", "NO_CASE_NEEDS_U
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
               "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE", "SECOND_OPINION_DONE_NOTICE"):
     RULES[_name] += "｜v6 開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；v6 關照舊擋。"
+
+# 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條 v6 開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile／verify_scope），Stop 照判只留帳
+for _name in ("SCOPE_DECLARED_FOR_CHANGE", "SCOPE_ITEM_RECEIPT_AFTER_EDIT", "GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
+              "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
+    RULES[_name] += "｜目標樹只立一次（GOAL_TREE_SET_ONCE）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile／verify_scope，收尾檢核的提醒不寫目標對照。"
 
 
 def mode_of(rule: str) -> str:

@@ -7,7 +7,10 @@
      收據（state verify_receipts 的 seq／自寫收據的時間）對 modified_files 的 last_seq／last_at。
   3. 三條規則：VERIFY_FULL_RUN_NEEDS_USER_ORDER、VERIFY_SAME_BATCH_ALREADY_GREEN、VERIFY_BATCH_BLOCK_ONCE_PER_TURN（RULES 登在
      hooks/wg_release_rules.py 檔尾）。擋訊息格式照 format_hit：`✗ (r) <規則名>：<一句現象>｜證據：<一行一證據>`。
-  判定（decide）是純函式：不讀檔、不改 state；check 收事實（讀自寫收據、擋次帳）交 decide，擋下與放行都留帳 Logs/guard-verify_batch.jsonl。
+  4. 整組只攔「會拖時間」的（006 實測：小專案 pytest 幾秒就完也被攔＝誤傷）：同一組指令最近一筆收據的耗時 ≥ slow_run_s
+     （只有自寫收據記了 started_at 能算；session 收據沒記＝不知道），或指令跑的樹底下的測試檔（reconcile_gate.verify_case_globs
+     的程式檔）≥ large_suite_files（數到門檻就停、state 每根快取一筆）。兩者都不成立（含耗時不知道）→ 沒口令也放行、留帳 reason=small。
+  判定（decide）是純函式：不讀檔、不改 state；check 收事實（讀自寫收據、數測試檔、擋次帳）交 decide，擋下與放行都留帳 Logs/guard-verify_batch.jsonl。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_verify_batch.py
 """
 from __future__ import annotations
@@ -26,6 +29,11 @@ GATE = "verify_batch"
 TAG = "[Guardian:VerifyBatch]"
 LETTER = "r"
 DEFAULT_FULL_RUN_KEYWORDS = ("整組", "全量", "全部測試", "run_verify")
+DEFAULT_SLOW_RUN_S = 120            # 上次同一組指令跑了這麼久以上才算「會拖時間」
+DEFAULT_LARGE_SUITE_FILES = 50      # 樹底下測試檔這麼多支以上才算「會拖時間」
+WHY_SMALL = "整組但不會拖時間，放行"
+SUITE_CACHE_KEY = "verify_batch_suite_files"   # state[該鍵][根] = {"files": n, "at": iso}；每根只數一次
+_SKIP_DIRS = frozenset({"node_modules", "__pycache__", "venv", ".venv", "dist", "build", "site-packages"})
 _CASE_PREFIXES = ("verify_", "test_")
 _CASE_SUFFIX = "_test.py"
 
@@ -165,6 +173,84 @@ def last_green_same(cmd: VerifyCmd, receipts: Iterable[Dict[str, Any]], shell: s
     return last if receipt_green(last) else None
 
 
+def last_run_seconds(cmd: VerifyCmd, receipts: Iterable[Dict[str, Any]], shell: str = "bash") -> Optional[float]:
+    """同一組指令最近一筆收據跑了幾秒：started_at 到 at（自寫收據有記）；沒 started_at 或時間解析不了 → None（不知道）。"""
+    same = [r for r in receipts if isinstance(r, dict) and receipt_key(r, shell) == cmd.key]
+    if not same:
+        return None
+    last = max(same, key=lambda r: (str(r.get("at") or ""), int(r.get("seq") or 0)))
+    start, end = _to_utc(last.get("started_at")), _to_utc(last.get("at"))
+    if start is None or end is None or end < start:
+        return None
+    return (end - start).total_seconds()
+
+
+def _root_key(root: str) -> str:
+    from wg_release_rules import canon_path
+    return canon_path(root)
+
+
+def suite_roots(cmd: VerifyCmd, cwd: str) -> List[str]:
+    """整組指令跑的是哪幾棵樹：pytest 給了目錄就是那些目錄（相對 cwd），否則 cwd；cwd 不知道就空（檔數當不知道）。"""
+    roots: List[str] = []
+    for prog, args in cmd.key:
+        if prog != "pytest":
+            continue
+        for a in args:
+            if a and not a.startswith("-") and ".py" not in a and "::" not in a:
+                p = Path(a) if Path(a).is_absolute() else (Path(cwd) / a if cwd else None)
+                if p is not None:
+                    roots.append(str(p))
+    if not roots and cwd:
+        roots.append(cwd)
+    return roots
+
+
+def _count_case_files(root: str, rc: Dict[str, Any], cap: int) -> int:
+    """root 底下符合 verify_case_globs 的程式檔有幾支，數到 cap 就停（只要知道有沒有到門檻）。讀不到的目錄略過。"""
+    import os
+    from wg_verify_ledger import is_case_file
+    n = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in _SKIP_DIRS]
+        for f in filenames:
+            if is_case_file(os.path.join(dirpath, f), rc, root):
+                n += 1
+                if n >= cap:
+                    return n
+    return n
+
+
+def suite_files(state: Optional[Dict[str, Any]], roots: Iterable[str], rc: Dict[str, Any], cap: int) -> Tuple[int, bool]:
+    """這些樹底下的測試檔數合計（每根數到 cap 就停）與 state 快取有沒有新寫入。快取 state[SUITE_CACHE_KEY][根]＝{"files","at"}。"""
+    cache = state.setdefault(SUITE_CACHE_KEY, {}) if isinstance(state, dict) else {}
+    if not isinstance(cache, dict):
+        cache = {}
+    total, wrote = 0, False
+    for root in roots:
+        key = _root_key(root)
+        hit = cache.get(key)
+        if isinstance(hit, dict) and isinstance(hit.get("files"), int):
+            n = hit["files"]
+        else:
+            n = _count_case_files(root, rc, cap) if Path(root).is_dir() else 0
+            if isinstance(state, dict):
+                cache[key] = {"files": n, "at": datetime.now().astimezone().isoformat(timespec="seconds")}
+                wrote = True
+        total += n
+    return total, wrote
+
+
+def slow_reason(seconds: Optional[float], files: int, slow_run_s: float, large_suite_files: int) -> Optional[Tuple[str, ...]]:
+    """會拖時間嗎：上次耗時 ≥ slow_run_s（不知道不算）或測試檔 ≥ large_suite_files → 證據；都不是 → None。"""
+    if seconds is not None and seconds >= slow_run_s:
+        return (f"上次耗時 {seconds:.0f} 秒 ≥ slow_run_s {slow_run_s:g}", f"測試檔 {files} 支")
+    if files >= large_suite_files:
+        return (f"測試檔 {files} 支 ≥ large_suite_files {large_suite_files}（數到門檻就停）",
+                "上次耗時 不知道" if seconds is None else f"上次耗時 {seconds:.0f} 秒")
+    return None
+
+
 def keyword_hit(prompts: Iterable[str], keywords: Iterable[str]) -> Optional[str]:
     """使用者原話（已濾掉背景通知、他 session 訊息）裡有沒有整組口令；不分大小寫子字串。"""
     for p in prompts:
@@ -176,8 +262,10 @@ def keyword_hit(prompts: Iterable[str], keywords: Iterable[str]) -> Optional[str
 
 
 def decide(cmd: VerifyCmd, prompts: Sequence[str], keywords: Sequence[str],
-           receipts: Iterable[Dict[str, Any]], mods: Iterable[Dict[str, Any]], shell: str = "bash") -> Verdict:
-    """純判定：owed=True 要擋。先看這批是不是已驗過（SAME），再看整組要不要口令（FULL）。"""
+           receipts: Iterable[Dict[str, Any]], mods: Iterable[Dict[str, Any]], shell: str = "bash",
+           slow: Optional[Tuple[str, ...]] = None) -> Verdict:
+    """純判定：owed=True 要擋。先看這批是不是已驗過（SAME），再看整組要不要口令（FULL）。
+    slow＝這組整組指令會拖時間的證據（slow_reason）；None＝不會拖（含不知道）→ 整組沒口令也放行（why=WHY_SMALL）。"""
     mods = list(mods)
     green = last_green_same(cmd, receipts, shell)
     if green is not None:
@@ -188,10 +276,12 @@ def decide(cmd: VerifyCmd, prompts: Sequence[str], keywords: Sequence[str],
                            (f"收據 {green.get('at')}", f"指令 {shown[:120]}", "結果 綠", f"之後改檔 0（本 session 改檔 {len(mods)}）"))
     if cmd.full:
         kw = keyword_hit(prompts, keywords)
-        if not kw:
-            return Verdict(RULE_FULL, True, "整組驗證要使用者本回合原話的口令",
-                           ("本回合使用者原話沒有 " + "／".join(keywords), f"使用者原話 {len(prompts)} 則"))
-        return Verdict(RULE_FULL, False, f"使用者口令「{kw}」")
+        if kw:
+            return Verdict(RULE_FULL, False, f"使用者口令「{kw}」")
+        if slow is None:
+            return Verdict(RULE_FULL, False, WHY_SMALL)
+        return Verdict(RULE_FULL, True, "會拖時間的整組驗證要使用者本回合原話的口令",
+                       (*slow, "本回合使用者原話沒有 " + "／".join(keywords), f"使用者原話 {len(prompts)} 則"))
     return Verdict(RULE_SAME, False, "第一次跑或上次之後有改檔" if green is None else "上次綠之後有改檔")
 
 
@@ -215,7 +305,8 @@ def deny_message(v: Verdict, released: bool) -> str:
     line = format_hit(LETTER, v)
     if released:
         return f"{TAG} {line}\n本回合這條規則已擋過一次，這次放行、留帳（規則 {RULE_ONCE}）。"
-    fix = ("整組驗證只在使用者本回合原話有口令（guard.verify_batch.full_run_keywords）時跑；要驗自己這批改動就點名檔跑。"
+    fix = ("會拖時間的整組驗證（上次耗時 ≥ slow_run_s 或測試檔 ≥ large_suite_files）只在使用者本回合原話有口令"
+           "（guard.verify_batch.full_run_keywords）時跑；要驗自己這批改動就點名檔跑。"
            if v.rule == RULE_FULL else
            "同一組指令、同一批改動只驗一次：改了檔再跑，或跑別組。上次紅會放行。")
     return f"{TAG} {line}\n{fix}\n關閉本閘：workflow/config.json guard.verify_batch.enabled=false。"
@@ -246,11 +337,21 @@ def check(tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any], st
         from wg_verify_ledger import agent_receipt_key, receipts_of
         receipts = receipts_of(st, agent_receipt_key(sid, agent_id) if agent_id else sid) + list(self_receipts or [])
         keywords = [str(k) for k in (cfg.get("full_run_keywords") or DEFAULT_FULL_RUN_KEYWORDS)]
-        v = decide(cmd, _prompts(st), keywords, receipts, _own_mods(st, sid, agent_id), shell)
+        slow = None
+        if cmd.full:
+            from wg_verify_ledger import reconcile_cfg
+            large = int(cfg.get("large_suite_files", DEFAULT_LARGE_SUITE_FILES) or DEFAULT_LARGE_SUITE_FILES)
+            files, cached = suite_files(state if isinstance(state, dict) else None, suite_roots(cmd, cwd), reconcile_cfg(config), large)
+            if cached and sid:
+                write_state(sid, state)
+            slow = slow_reason(last_run_seconds(cmd, receipts, shell), files,
+                               float(cfg.get("slow_run_s", DEFAULT_SLOW_RUN_S) or DEFAULT_SLOW_RUN_S), large)
+        v = decide(cmd, _prompts(st), keywords, receipts, _own_mods(st, sid, agent_id), shell, slow)
         entry = {"session_id": sid, "agent_id": agent_id, "tool": tool_name, "cmd": command[:200], "rule": v.rule,
                  "full": cmd.full, "why": v.why[:200], "evidence": list(v.evidence)[:6]}
         if not v.owed:
-            append_guard_log(GATE, {"event": "allowed", "allowed": True, **entry})
+            reason = {"reason": "small"} if v.why == WHY_SMALL else {}
+            append_guard_log(GATE, {"event": "allowed", "allowed": True, **reason, **entry})
             return None
         deny, released = deny_cap(state if isinstance(state, dict) else None, GATE, [v.rule], cap=1, call=call)
         if isinstance(state, dict) and sid:

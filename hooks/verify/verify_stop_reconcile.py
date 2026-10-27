@@ -585,7 +585,7 @@ def test_failing_tests_isolated_between_sibling_sessions(driven, capsys):
     assert "TestFailGate" not in out
     red_b = {**red_a, "session_id": _SID}
     out, _, _ = driven("全部完成了。", capsys, failing_tests=[red_a, red_b], modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out and "1 項失敗" in out
+    assert "TestFailGate" in out and "還有 1 支沒跑綠（0 支已綠）" in out
 
 
 def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven, capsys):
@@ -594,7 +594,7 @@ def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven
     red = {"cmd": "python -m pytest tests -q", "summary": "FAILED tests/test_report.py::test_legacy_report", "turn_seq": 5,
            "session_id": _SID, "pytest": True}
     out, _, _ = driven("全部完成了。", capsys, failing_tests=[red], modified_files=[_mf(_CASE, 5)])
-    assert "[Guardian:TestFailGate] 測試未綠（1 項失敗），不得宣告完成。" in out
+    assert "[Guardian:TestFailGate] 測試未綠：還有 1 支沒跑綠（0 支已綠），不得宣告完成。" in out
     assert "先看使用者有沒有叫你跳過或先不管這支" in out and "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」" in out
     assert "不准加 skip／xfail、不准只為了變綠改斷言" in out and "收尾別說完成" in out
     # 需求變了、舊斷言不再對是正常情況：指去改舊測試的宣告，不一律禁改斷言（codex 審：跟改舊測試提示矛盾）
@@ -3942,10 +3942,10 @@ def test_p7_testfail_waives_only_the_cited_test_and_logs(driven, capsys):
            {"cmd": "python -m pytest verify_b.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}]
     prompts = ["verify_a 先這樣，b 要修"]
     out, _, _ = driven("全部完成了。", capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out and "2 項失敗" in out, "使用者只說了「先這樣」、AI 沒引用對到哪一支 → 兩支照擋"
+    assert "TestFailGate" in out and "還有 2 支沒跑綠" in out, "使用者只說了「先這樣」、AI 沒引用對到哪一支 → 兩支照擋"
     text = "全部完成了。\n不做｜verify_a.py：使用者說「verify_a 先這樣」"
     out, _, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out and "1 項失敗" in out and "verify_b.py" in out
+    assert "TestFailGate" in out and "還有 1 支沒跑綠" in out and "verify_b.py" in out
     hit = [p for g, p in logs if g == "testfail_waived"]
     assert hit and hit[0]["failing_cmd"].endswith("verify_a.py") and hit[0]["user_said"] == "verify_a 先這樣" and hit[0]["turn_seq"] == 5
     both = text + "\n不做｜verify_b.py：使用者說「b 要修」"

@@ -113,8 +113,8 @@ CRITIQUE_CASES_POINTER = "遇到選替身、換前提、寫「期望不發生」
 # 沒有目標樹時改了記憶知識類的檔（寫入當下，一回合一次）：知識類也要一棵輕樹；不擋寫檔，收尾還沒補由 (f4) 要
 KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 session 還沒有需求目標樹：文件、記憶、設定這類任務也要一棵輕樹——"
                        "用 need_goal(action=set, goal=…) 寫下這次真正要達成什麼（一句、用使用者的話、只寫目標不寫手段；一個節點就夠，"
-                       "不要求定位行），沒樹時改的檔會自動掛進樹；做完用 need_goal(action=reconcile) 對照（例如該保留的內容都還在嗎）。"
-                       "這一步不擋寫檔；收尾時還沒寫樹或沒對照會被要求補交（記憶知識類，不問使用者）。")
+                       "不要求定位行），沒樹時改的檔會自動掛進樹；做完自己核一下該保留的內容都還在嗎（不必另呼叫工具）。"
+                       "這一步不擋寫檔；收尾時還沒寫樹由 (f4) 處理（記憶知識類，不問使用者）。")
 UNTREED_MAX = 200            # 沒樹時改的記憶知識類檔最多記幾個（同一檔只記一筆；超過丟最舊的並記 untreed_dropped）
 
 
@@ -2161,7 +2161,7 @@ def knowledge_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, 
     v = rr.knowledge_light_tree_verdict(untreed)
     if v.owed:
         hits.append(rr.format_hit("f4", v) + "\n    → need_goal(action=set, goal=…) 寫一棵輕樹（一個節點即可，用使用者的話、"
-                    "只寫目標），剛改的檔會自動掛進去；交付前再 reconcile。")
+                    "只寫目標），剛改的檔會自動掛進去。")
     for tid in _tree_ids(doc) if triggered else []:
         t = doc["trees"][tid]
         if t.get("status") == "closed":

@@ -37,7 +37,7 @@ if _HOOKS_DIR not in sys.path:
 from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR,
     cwd_to_project_slug, get_transcript_path, find_project_root,
-    _is_under_claude_dir, user_typed_text,
+    _is_under_claude_dir, user_typed_text, append_guard_log,
 )
 from wg_roles import get_current_user
 
@@ -315,33 +315,42 @@ def _slug_from_statement(statement: str) -> str:
     return slug or "auto-decision"
 
 
+# 專案規則的「線索詞」（規則 PROJECT_RULE_WORDS_ARE_HINTS）：命中只代表「疑似專案專屬」，不替 AI 定案。
 _PROJECT_RULE_MARKERS = (
     "此專案", "本專案", "這個專案", "專案內", "上傳", "上傳到", "發布", "publish", "deploy",
     "commit", "svn", "git", "必須", "禁止", "不得", "一律",
 )
 
 
-def _is_project_rule(statement: str, slug: str, triggers: List[str], cwd: str, l2_scope: str) -> bool:
-    """內容是「針對專案的規則」而非個人偏好 ⇒ 該落 shared 並記提出者。
-    三個訊號任一成立：L2 判 shared/project；語句含專案規則標記詞；提到專案專名
-    （借 realm_gate 的專名推導：對 scope=global 會拒的內容，就是專案專屬內容）。"""
+def project_rule_signal(statement: str, slug: str, triggers: List[str], cwd: str, l2_scope: str) -> Dict[str, Any]:
+    """內容是不是「針對專案的規則」（該落 shared）：回 {"verdict": rule|hint|none, "why", "hits"}。
+    rule（可定案）：L2（LLM）判 shared/project；或內容帶目前專案的專名／專案路徑／已登記專案名（realm_gate 查得到的事實）。
+    hint（只是線索，規則 PROJECT_RULE_WORDS_ARE_HINTS）：只命中線索詞或字面「此專案」這類字樣 → 不自動定案，
+    呼叫端落 personal 並列為「疑似專案專屬，待確認」（/memory classify 的建議表會再浮出）。
+    none：沒有任何訊號。"""
     if str(l2_scope or "").lower() in ("shared", "project"):
-        return True
+        return {"verdict": "rule", "why": "L2（LLM）判 shared", "hits": []}
     text = statement or ""
     low = text.lower()
-    if any(m.lower() in low for m in _PROJECT_RULE_MARKERS):
-        return True
+    word_hits = [m for m in _PROJECT_RULE_MARKERS if m.lower() in low]
     if cwd:
         try:
-            from lib.realm_gate import check_global_write, is_core_root, project_root_of
+            from lib.realm_gate import (LITERAL_SOURCE, is_core_root, project_root_of, scan_known_projects,
+                                        scan_texts)
+            root = project_root_of(cwd)
             # 只認「目前所在專案」的專名；根層 cwd 提到別的專案不代表是那個專案的規則
-            if is_core_root(project_root_of(cwd)):
-                return False
-            if check_global_write(cwd, title=slug, triggers=triggers, knowledge=[text]):
-                return True
+            if not is_core_root(root):
+                fields = {"title": slug, "triggers": list(triggers or []), "knowledge": [text]}
+                hits = scan_texts(root, fields) + scan_known_projects(fields)
+                facts = sorted({h["term"] for h in hits if h["source"] != LITERAL_SOURCE})
+                if facts:
+                    return {"verdict": "rule", "why": "帶專案專名／路徑：" + "、".join(facts[:4]), "hits": facts}
         except Exception as e:  # noqa: BLE001 — 專名推導失敗只失去這一路訊號
             _atom_debug_error("user-extract:project_rule_gate", e)
-    return False
+    if word_hits:
+        return {"verdict": "hint", "why": "疑似專案專屬，待確認（只命中線索詞：" + "、".join(word_hits[:4]) + "）",
+                "hits": word_hits}
+    return {"verdict": "none", "why": "個人偏好或未見專案規則訊號", "hits": []}
 
 
 def _write_atom_via_mcp(
@@ -376,15 +385,22 @@ def _write_atom_via_mcp(
     knowledge_lines = [f"- [臨] {statement}", f"<!-- src: {turn_id} -->"]
 
     # 落點三分：cwd 在 ~/.claude → global（~/.claude 本身即 global root）；
-    # 專案內且內容是「專案規則」（提到專案專名／此專案／上傳／發布／必須／禁止…，或 L2 判 shared）
-    # → shared 並記提出者（Author=使用者，日後異議找 Author）；其餘 → 本人×專案 personal。
+    # 專案內且內容是「專案規則」（L2 判 shared，或提到目前專案的專名／路徑）→ shared 並記提出者
+    # （Author=使用者，日後異議找 Author）；只命中線索詞（此專案／上傳／必須／禁止…）→ 不定案，落 personal、
+    # 留帳 guard-scope_hint，等 /memory classify 建議表列「疑似專案專屬，待確認」由人判；其餘 → 本人×專案 personal。
     in_claude_dir = _is_under_claude_dir(cwd) if cwd else False
+    sig = {"verdict": "none"} if in_claude_dir else project_rule_signal(statement, slug, triggers, cwd, scope)
     if in_claude_dir:
         write_scope = "global"
-    elif _is_project_rule(statement, slug, triggers, cwd, scope):
+    elif sig["verdict"] == "rule":
         write_scope = "shared"
     else:
         write_scope = "personal"
+        if sig["verdict"] == "hint":
+            print(f"[scope] HINT user-extract '{slug}'：{sig['why']}，先落 personal（規則 PROJECT_RULE_WORDS_ARE_HINTS）",
+                  file=sys.stderr)
+            append_guard_log("scope_hint", {"event": "hint", "rule": "PROJECT_RULE_WORDS_ARE_HINTS", "session_id": session_id,
+                                            "slug": slug, "hits": sig["hits"], "statement": statement[:120]})
 
     # 去重預檢：用 funnel 的正規定位（locate_atom）找既有檔。核心層 atom 住
     # memory/<範疇>/[Lv2]/，自算扁平路徑永遠 miss、去重形同死碼。

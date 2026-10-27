@@ -2,7 +2,7 @@
 
 - lib.atom_locations.scope_layout_classified：_atom_index.json.layout=="scope-v2" 或 shared/_taxonomy.json → 已整理；無索引 → 視為已整理
 - session_start._scope_layout_advisory：未整理才提示一行；已整理／無專案 → []
-- tools/classify-project-scope.py：plan 給 personal 存量建議＋索引計數；apply 依決定搬檔、回寫索引、打標記；mark 只打標記
+- tools/classify-project-scope.py：plan 給 personal 存量建議（shared／personal／review＝疑似專案專屬待人判）＋索引計數；apply 依決定搬檔、回寫索引、打標記；mark 只打標記
 """
 from __future__ import annotations
 
@@ -85,8 +85,10 @@ def test_plan_suggests_and_counts(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_USER", "holylight")
     plan = tool.build_plan(mem)
     by = {p["slug"]: p for p in plan["personal"]}
-    assert by["rule"]["suggest"] == "shared" and by["rule"]["mine"] is True
-    assert by["pref"]["suggest"] == "personal"
+    # 會紅（規則 PROJECT_RULE_WORDS_ARE_HINTS）：舊碼字面「此專案／必須」命中就建議 shared。現在列 review（待確認）附命中的詞，由人判
+    assert by["rule"]["suggest"] == "review" and by["rule"]["mine"] is True
+    assert "此專案" in by["rule"]["hits"] and "待確認" in by["rule"]["reason"]
+    assert by["pref"]["suggest"] == "personal" and by["pref"]["hits"] == []
     assert plan["index"]["scope_mismatch"] == 1  # rule 錯標 global
     assert plan["shared_flat"] == 1 and plan["classified"] is None
 

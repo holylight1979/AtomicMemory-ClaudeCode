@@ -9,8 +9,9 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 （讀入範圍變大、同檔改多次、PreToolUse 沒攔到的提問）合併成同一段送出；收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、
 交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）、第二意見跑完接上。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
-各一行（closing_reminders：欠案例、驗證範圍、目標對照、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、
-取用稽核）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
+各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、取用稽核；
+目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：驗證範圍 SCOPE_*、目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
+reconcile／verify_scope，各一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
 只提醒一次（state remind_sent[sid]）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
 """
@@ -48,16 +49,13 @@ def _closing_round(state: Dict[str, Any], session_id: str, input_data: Dict[str,
 
 _HIT_ROW_RE = re.compile(r"^\s*✗ \(([^)]+)\) ([A-Z][A-Z0-9_]*)：(.*?)(?:｜證據：|$)")
 _MCP_SEGMENT = "/tools/workflow-guardian-mcp/"
-FIX_CASE = "補一支會紅的案例（檔名照它取或內容提到它），或在 need_goal verify_scope 的 case_for／no_case 宣告並附理由"
-FIX_SCOPE = "need_goal(action=verify_scope, items=[…]) 宣告該測哪些，範圍內每一項在改完之後跑綠"
+FIX_CASE = "補一支會紅的案例（檔名照它取或內容提到它）"
 FIX_MOVE = "掃一次舊路徑的引用、跑一支搬過去的抽樣，兩張收據都要在"
-FIX_GOAL = "收尾前改到的部位掛到樹上活著的節點 (f3)；交付時 need_goal(action=reconcile) 交完整對照 (f2)，一次交齊放在 anti_evasion_report"
-FIX_F4 = "need_goal(action=set, goal=…) 寫一棵輕樹（一個節點即可）"
 FIX_EQUIV = "最後一次改程式之後跑 order／side_effect／boundary 三類變異、各印 PRESERVE_CHECK PASS；不適用寫「等值證法｜不適用｜<理由>」"
 FIX_HOT = "收尾答一題「這次改動碰到熱路徑或大量配置嗎」：是→量、附 DONE 收據；否→一句為什麼"
 FIX_RELOAD = "服務要重載才生效；收尾叫使用者 Reload 前先查它載的是不是已經最新，已最新就不要叫"
 FIX_DEFER = "收尾不把帶受詞、可做的事往後推或推給別人；當場做掉，或寫「不做｜<事>：<理由>」（理由只准寫做了會怎樣）"
-FIX_CLOSING = "收尾最後呼叫 anti_evasion_report（目標對照放 reconcile、知識收割放 harvest_items，一次交齊）"
+FIX_CLOSING = "收尾最後呼叫 anti_evasion_report（知識收割放 harvest_items，一次交齊）"
 FIX_SYNC = "收尾照口令規則交代：有「上GIT」口令就 commit＋push 一氣，沒口令就列改了哪些檔等口令、不先 commit"
 FIX_SO = "second_opinion_start→second_opinion_result，收尾寫分歧裁決四行；或寫「不需第二意見｜<理由>」"
 FIX_DPM = "結束前用 atom_write 補一張完整檢討卡（為什麼失敗、怎麼找到根因、下次怎麼避）"
@@ -81,8 +79,7 @@ def _hit_rows(text: str) -> List[Tuple[str, str, str]]:
 
 def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> Tuple[List[str], bool]:
     """這一批之後欠的收尾類守門，各一行（remind_line）→ (要附的行, state 有沒有改)。
-    時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 欠案例 (d)、搬目錄 (v)、驗證範圍、
-    目標對照 (f2)(f3)(f4)、等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見（事實成立）、深度檢討、取用稽核；
+    時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 欠案例 (d)、搬目錄 (v)、等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見（事實成立）、深度檢討、取用稽核；
     這批有 git 建東西的 Bash → 收尾自清；搬了含程式檔的目錄（moved_code_dirs 多一筆）→ (v)；背景量完有欠項 → 拐彎判斷；
     這批是收尾那批（closing_call）→ 知識收割、收割對帳、報告待寫。
     每條規則每個對象每 session 一次（remind_due／remind_key，已送鍵存 state remind_sent[sid]）。判定重用各閘的純函式，不另複製；
@@ -135,8 +132,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
             print(f"[Guardian:提醒] {name}判不出（這批少這一段）：{type(e).__name__}: {e}", file=sys.stderr)
 
     if new_code:
-        part("欠案例與驗證範圍", lambda: _code_check_reminders(state, sid, own, config, say))
-        part("目標對照", lambda: _goal_reminders(state, sid, config, turn_seq, say))
+        part("欠案例", lambda: _code_check_reminders(state, sid, own, config, say))
         part("等值意圖", lambda: _equivalence_reminders(state, config, cwd, say))
         if any(_MCP_SEGMENT in str(m["path"]).replace("\\", "/").lower() for m in new_code):
             say("RELOAD_ADVICE_ALREADY_LOADED", "改了 tools/workflow-guardian-mcp/ 的檔", FIX_RELOAD)
@@ -160,27 +156,25 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
 
 
 def _code_check_reminders(state, sid, own, config, say) -> None:
-    """(d) 每個改過的程式檔一次（wg_verify_ledger.case_debt，同 Stop 的判法）、驗證範圍 SCOPE_*（wg_verify_scope.gate_reason）。"""
+    """(d) 每個改過的程式檔一次（wg_verify_ledger.case_debt，同 Stop 的判法）。驗證範圍 SCOPE_* 不提醒（GOAL_TREE_SET_ONCE：
+    提醒了 AI 就多叫一次 need_goal verify_scope），Stop 照判、只留帳；案例覆蓋仍認 verify_scope 收過的宣告（有才用）。"""
     import wg_verify_ledger as vl
     import wg_verify_scope as vs
     from pathlib import Path
     rg, sg = vl.reconcile_cfg(config), vs.scope_cfg(config)
+    if not rg.get("enabled", True):
+        return
     receipts = vl.receipts_of(state, sid)
     try:
         from wg_overview import _lookup
     except ImportError:
         _lookup = None
-    if rg.get("enabled", True):
-        why: Dict[str, Any] = {}
-        case_check = vs.case_check(state, sid, own, receipts, rg, _lookup) if (_lookup and sg.get("enabled", True)) else None
-        for p in vl.case_debt(own, int(state.get("turn_seq", 0) or 0), rg, vl.file_root_of, evidence=why,
-                              case_check=case_check, case_for=vl.declared_cases(state, sid, rg)):
-            v = why.get(p)
-            say(v.rule if v else "CASE_COVERS_CHANGE", f"改了 {Path(p).name}，{v.why if v else '還沒有案例覆蓋它'}", FIX_CASE, p)
-    if sg.get("enabled", True) and _lookup:
-        s_reason, _ = vs.gate_reason(state, sid, own, receipts, rg, _lookup, sg)
-        for _letter, rule, what in _hit_rows(s_reason or ""):
-            say(rule, what, FIX_SCOPE, what[:80])
+    why: Dict[str, Any] = {}
+    case_check = vs.case_check(state, sid, own, receipts, rg, _lookup) if (_lookup and sg.get("enabled", True)) else None
+    for p in vl.case_debt(own, int(state.get("turn_seq", 0) or 0), rg, vl.file_root_of, evidence=why,
+                          case_check=case_check, case_for=vl.declared_cases(state, sid, rg)):
+        v = why.get(p)
+        say(v.rule if v else "CASE_COVERS_CHANGE", f"改了 {Path(p).name}，{v.why if v else '還沒有案例覆蓋它'}", FIX_CASE, p)
 
 
 def _move_reminder(state, sid, config, say) -> None:
@@ -199,17 +193,6 @@ def _move_reminder(state, sid, config, say) -> None:
     for letter, rule, what in (r for h in rem for r in _hit_rows(h)):
         if letter == "v":
             say(rule, what, FIX_MOVE, what[:80])
-
-
-def _goal_reminders(state, sid, config, turn_seq, say) -> None:
-    """(f2)(f3) 有寫碼類樹就提醒一次交付前要對照；(f4) 照 wg_need_goal.knowledge_gate_reason（純判定，triggered=False 只判輕樹）。"""
-    import wg_need_goal as ng
-    from wg_release_rules import user_turn
-    if ng.goal_gate_on(config) and ng.active_tree(ng.load(sid)) is not None:
-        say("GOAL_RECONCILE_AT_DELIVERY", "本回合改了程式、這個需求有目標樹", FIX_GOAL)
-    text = ng.knowledge_gate_reason(sid, False, config, turn_seq, user_turn(state, turn_seq))
-    for _letter, rule, what in _hit_rows(text or ""):
-        say(rule, what, FIX_F4, what[:80])
 
 
 def _equivalence_reminders(state, config, cwd, say) -> None:

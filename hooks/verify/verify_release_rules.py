@@ -51,6 +51,7 @@ def test_044_every_rule_has_a_case():
     ("SECOND_OPINION_DECLINE_ACCEPTED", "verify_g9_second_opinion.py"),
     ("DECL_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
+    ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
@@ -2825,3 +2826,18 @@ def test_stop_remind_rules_are_remind_when_v6_on(rule):
 
 def test_overview_hub_under_v6_rule_registered():
     assert "OVERVIEW_HUB_UNDER_V6" in rr.RULES and rr.gate_mode("OVERVIEW_HUB_UNDER_V6", True) == rr.REMIND
+
+
+def test_locate_first_edit_blocks_once_rule_registered():
+    """第一次改擋一次：規則登了、v6 開仍是 block（不在三類，但也不是提醒）。"""
+    assert "LOCATE_FIRST_EDIT_BLOCKS_ONCE" in rr.RULES and rr.gate_mode("LOCATE_FIRST_EDIT_BLOCKS_ONCE", True) == rr.BLOCK
+# ─── 目標樹只立一次（GOAL_TREE_SET_ONCE）：v6 守門（remind）、判定不動；改檔那則與 Stop 的行為案例在 verify_goal_tree_once.py ───
+def test_goal_tree_set_once_registered_and_noted():
+    """規則登在表上、v6 開是 remind、關是 block；被它改掉送法的那幾條說明都補了現況，而且是在 RULE_MODE 算完之後補（不影響送法表）。"""
+    assert "GOAL_TREE_SET_ONCE" in rr.RULES and rr.gate_mode("GOAL_TREE_SET_ONCE", True) == rr.REMIND
+    assert rr.gate_mode("GOAL_TREE_SET_ONCE", False) == rr.BLOCK
+    for rule in ("SCOPE_DECLARED_FOR_CHANGE", "GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
+                 "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
+        assert "GOAL_TREE_SET_ONCE" in rr.RULES[rule], rule
+        assert rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK, rule
+    assert (Path(__file__).parent / "verify_goal_tree_once.py").is_file()

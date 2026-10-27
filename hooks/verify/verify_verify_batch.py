@@ -1,7 +1,8 @@
 """verify_verify_batch.py — PreToolUse 驗證批次閘（hooks/wg_verify_batch.py）。
 
-規則 VERIFY_FULL_RUN_NEEDS_USER_ORDER：整組驗證（run_verify.py 不帶參數、pytest 沒點名檔）要本回合使用者原話有口令；
-  背景通知（task-notification）內文不算使用者原話。
+規則 VERIFY_FULL_RUN_NEEDS_USER_ORDER：會拖時間的整組驗證（run_verify.py 不帶參數、pytest 沒點名檔；且上次耗時 ≥ slow_run_s
+  或測試檔 ≥ large_suite_files）要本回合使用者原話有口令；背景通知（task-notification）內文不算使用者原話。
+  不拖時間（含耗時不知道、檔數沒到）的整組沒口令也放行、留帳 reason=small。
 規則 VERIFY_SAME_BATCH_ALREADY_GREEN：同一組指令、上次收據綠、之後沒改檔 → 擋「這批改動已驗證過」；上次紅或之後有改檔 → 放行。
 規則 VERIFY_BATCH_BLOCK_ONCE_PER_TURN：同一個使用者回合同一條規則最多擋 1 次，第 2 次放行、留帳 released。
 解析不了的指令（heredoc／eval／bash -c）放行不留帳；guard.verify_batch.enabled=false 整閘不動。
@@ -54,8 +55,19 @@ def _receipt(cmd, seq, at, green=True):
             "sentinels": [{"name": "PYTEST", "verdict": "PASS" if green else "FAIL"}], "exit_code": 0 if green else 1}
 
 
-def _check(cmd, state, config=CFG, call=None):
-    return vb.check("Bash", {"command": cmd}, config, state, "", SID, "", call, self_receipts=[])
+def _slow_self_receipt(seconds, green=False):
+    """整組指令（pytest -q）的自寫收據，跑了 seconds 秒；預設紅（只用它的耗時，不讓 SAME 規則先擋）。"""
+    return {"source": "run_verify_self", "argv": ["python", "-m", "pytest", "-q"], "cmd": "python -m pytest -q",
+            "exit_code": 0 if green else 1, "failed": 0 if green else 2,
+            "started_at": "2026-10-27T01:00:00+00:00", "at": f"2026-10-27T01:{seconds // 60:02d}:{seconds % 60:02d}+00:00"}
+
+
+SLOW_FULL = [_slow_self_receipt(180)]   # 整組規則只攔會拖時間的：上面的案例預設「上次跑了 180 秒」，小樹／不知道的案例在檔尾另給
+
+
+def _check(cmd, state, config=CFG, call=None, self_receipts=None):
+    return vb.check("Bash", {"command": cmd}, config, state, "", SID, "", call,
+                    self_receipts=list(SLOW_FULL if self_receipts is None else self_receipts))
 
 
 # ─── VERIFY_FULL_RUN_NEEDS_USER_ORDER ───────────────────────────────────────────
@@ -206,3 +218,69 @@ def test_config_has_verify_batch_section():
 def test_pre_tool_use_wires_gate_after_commit_order():
     src = (HOOKS_DIR / "handlers" / "pre_tool_use.py").read_text(encoding="utf-8")
     assert src.index("check_git_commit_order(tool_name") < src.index("wg_verify_batch.check(tool_name, tool_input, config, _co_state")
+
+
+# ─── 只攔會拖時間的：VERIFY_FULL_RUN_NEEDS_USER_ORDER 要「上次耗時 ≥ slow_run_s」或「測試檔 ≥ large_suite_files」才擋 ───
+
+def _suite(tmp_path, n):
+    root = tmp_path / "proj"
+    (root / "tests").mkdir(parents=True)
+    for i in range(n):
+        (root / "tests" / f"test_{i}.py").write_text("def test_x(): pass\n", encoding="utf-8")
+    return str(root)
+
+
+def _check_in(cmd, state, cwd, self_receipts=(), config=CFG):
+    return vb.check("Bash", {"command": cmd}, config, state, cwd, SID, "", None, self_receipts=list(self_receipts))
+
+
+def test_small_suite_full_run_allowed_without_keyword(log, tmp_path):
+    """006 的誤傷：小專案（qb2-sales 測試檔 3 支）跑 pytest 幾秒就完，沒口令也放行、留帳 reason=small。"""
+    root = _suite(tmp_path, 3)
+    assert _check_in(FULL, _state("幫我修這個 bug"), root) is None
+    e = log()[-1]
+    assert (e["event"], e["rule"], e["reason"]) == ("allowed", vb.RULE_FULL, "small")
+
+
+def test_large_suite_full_run_blocked_without_keyword(log, tmp_path, monkeypatch):
+    root = _suite(tmp_path, 50)
+    st = _state("幫我修這個 bug")
+    msg = _check_in(FULL, st, root)
+    assert msg and vb.RULE_FULL in msg and log()[-1]["event"] == "denied"
+    # 檔數只數一次：快取在 state 每根一筆，第二次不再走檔案系統
+    assert st["verify_batch_suite_files"][vb._root_key(root)]["files"] >= 50
+    monkeypatch.setattr(vb, "_count_case_files", lambda *a, **k: (_ for _ in ()).throw(AssertionError("recounted")))
+    st["turn_seq"] = st["turn_prompts_seq"] = 4
+    assert _check_in(FULL, st, root)
+
+
+def test_slow_previous_run_blocks_without_keyword(log, tmp_path):
+    root = _suite(tmp_path, 3)
+    msg = _check_in(FULL, _state("幫我修這個 bug"), root, self_receipts=[_slow_self_receipt(180)])
+    assert msg and vb.RULE_FULL in msg and log()[-1]["event"] == "denied"
+    # 上次耗時 90 秒 < 120 → 不算拖時間
+    assert _check_in(FULL, _state("幫我修這個 bug"), root, self_receipts=[_slow_self_receipt(90)]) is None
+
+
+def test_unknown_duration_small_suite_allowed(log, tmp_path):
+    """session 收據沒記開始時間 → 耗時不知道；檔數又沒到門檻 → 放行（偏放行不偏擋）。"""
+    root = _suite(tmp_path, 3)
+    st = _state("幫我修這個 bug", receipts=(_receipt(FULL, 6, "2026-10-27T10:01:00+08:00", green=False),))
+    assert _check_in(FULL, st, root) is None
+    assert log()[-1]["reason"] == "small"
+
+
+def test_block_message_states_why_slow(log, tmp_path):
+    big = _suite(tmp_path, 50)
+    msg = _check_in(FULL, _state("幫我修這個 bug"), big)
+    assert "測試檔" in msg and "50" in msg
+    small = _suite(tmp_path / "b", 2)
+    msg = _check_in(FULL, _state("幫我修這個 bug"), small, self_receipts=[_slow_self_receipt(180)])
+    assert "上次耗時 180 秒" in msg
+
+
+def test_slow_thresholds_configurable_and_in_config():
+    cfg = json.loads((HOOKS_DIR.parent / "workflow" / "config.json").read_text(encoding="utf-8"))
+    sec = cfg["guard"]["verify_batch"]
+    assert sec["slow_run_s"] == 120 and sec["large_suite_files"] == 50
+    assert vb.slow_reason(10.0, 3, 5, 50) and vb.slow_reason(None, 7, 120, 5) and vb.slow_reason(None, 3, 120, 50) is None

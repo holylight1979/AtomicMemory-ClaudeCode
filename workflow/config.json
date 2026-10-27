@@ -536,14 +536,16 @@
       ]
     },
     "verify_batch": {
-      "_doc": "PreToolUse 驗證批次閘（hooks/wg_verify_batch.py；不歸 v6 開關管）：Bash／PowerShell 跑 pytest（含 python -m pytest）、run_verify.py、verify_*.py／test_*.py 時判兩件事。① 整組驗證（run_verify.py 不帶參數、pytest 沒點名檔或只給目錄、沒縮範圍選項）要本回合使用者原話含 full_run_keywords 任一字（取法同 commit_order：turn_prompts，背景通知與子代理回報不算）→ 沒有就擋。② 同一組指令上次收據綠、之後本 session 沒改檔 → 擋「這批改動已驛證過」（收據：state verify_receipts 與 workflow/verify-ledger/_runs/ 自寫收據；指紋：收據 seq 對 modified_files.last_seq）；上次紅或之後有改檔放行。每回合每條規則最多擋 1 次、第 2 次放行留帳；擋下與放行都記 Logs/guard-verify_batch.jsonl。解析不了的指令（heredoc、eval、bash -c）不管。一鍵關＝enabled:false。",
+      "_doc": "PreToolUse 驗證批次閘（hooks/wg_verify_batch.py；不歸 v6 開關管）：Bash／PowerShell 跑 pytest（含 python -m pytest）、run_verify.py、verify_*.py／test_*.py 時判兩件事。① 會拖時間的整組驗證（run_verify.py 不帶參數、pytest 沒點名檔或只給目錄、沒縮範圍選項；且 同一組指令最近一筆收據耗時 ≥ slow_run_s 秒〔只有自寫收據記了 started_at 能算，算不出當不知道〕或 指令跑的樹底下符合 reconcile_gate.verify_case_globs 的測試檔 ≥ large_suite_files 支〔數到門檻就停，state.verify_batch_suite_files 每根快取一筆〕）要本回合使用者原話含 full_run_keywords 任一字（取法同 commit_order：turn_prompts，背景通知與子代理回報不算）→ 沒有就擋；不拖時間（含不知道）的整組沒口令也放行、留帳 reason=small（006 實測小專案 pytest 幾秒就完被攔＝誤傷）。② 同一組指令上次收據綠、之後本 session 沒改檔 → 擋「這批改動已驛證過」（收據：state verify_receipts 與 workflow/verify-ledger/_runs/ 自寫收據；指紋：收據 seq 對 modified_files.last_seq）；上次紅或之後有改檔放行。每回合每條規則最多擋 1 次、第 2 次放行留帳；擋下與放行都記 Logs/guard-verify_batch.jsonl。解析不了的指令（heredoc、eval、bash -c）不管。一鍵關＝enabled:false。",
       "enabled": true,
       "full_run_keywords": [
         "整組",
         "全量",
         "全部測試",
         "run_verify"
-      ]
+      ],
+      "slow_run_s": 120,
+      "large_suite_files": 50
     }
   },
   "deferral_gate": {

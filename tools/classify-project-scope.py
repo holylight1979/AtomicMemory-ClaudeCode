@@ -9,7 +9,7 @@ Author 記提出者；索引 scope 由 path 推導；他專案 atom 不注入。
 
 用法（專案根下執行，或 --memory-dir <proj>/.claude/memory）：
   status                         已整理？（_atom_index.json.layout=="scope-v2" 或 shared/_taxonomy.json）
-  plan                           JSON：personal 存量逐顆建議 + 索引問題計數 + shared 平鋪數
+  plan                           JSON：personal 存量逐顆建議（shared／personal／review＝疑似專案專屬待人判）+ 索引問題計數 + shared 平鋪數
   apply --decisions <file.json>  {slug: "shared"|"personal"|"cross_project"|"reject"}；未列者不動；完成後 mark
   mark                           只打「已整理」標記
 """
@@ -108,12 +108,13 @@ def build_plan(mem: Path) -> Dict[str, Any]:
         stmt = _first_statement(text)
         am = _AUTHOR_RE.search(text)
         author = am.group(1) if am else ""
-        is_rule = worker._is_project_rule(stmt, a["name"], a.get("triggers", []), str(root.parent), "")
+        # 線索詞（此專案／上傳／必須…）只標「待確認」給人判，不當定案（規則 PROJECT_RULE_WORDS_ARE_HINTS）
+        sig = worker.project_rule_signal(stmt, a["name"], a.get("triggers", []), str(root.parent), "")
         personal.append({
             "slug": a["name"], "path": a["path"], "owner": owner, "author": author,
             "statement": stmt[:120],
-            "suggest": "shared" if is_rule else "personal",
-            "reason": "專案規則（專名/此專案/上傳/發布/必須/禁止）" if is_rule else "個人偏好或未見專案規則訊號",
+            "suggest": {"rule": "shared", "hint": "review"}.get(sig["verdict"], "personal"),
+            "reason": sig["why"], "hits": sig["hits"],
             "mine": owner == me,
         })
 

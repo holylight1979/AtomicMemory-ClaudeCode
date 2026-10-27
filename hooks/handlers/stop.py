@@ -62,7 +62,7 @@ from wg_release_rules import (
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
     cmd_run_line, second_opinion_decline, second_opinion_decline_ok, second_opinion_waiting, parse_equivalence_lines,
-    reason_present, red_units, failure_lines,
+    reason_present, red_units, failure_lines, red_count_label, red_rerun_files_label,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -918,6 +918,8 @@ def _remind_logged(log_name: str, gate: str, rule: str, text: str, session_id: s
 
 CLOSING_ONE_CALL = ("收尾三段一次交齊：目標對照放 anti_evasion_report 的 reconcile 欄（同 need_goal reconcile 的 items／turns）、"
                     "知識收割放 harvest_items，跟收尾檢核同一次交，不必另呼叫 need_goal reconcile、knowledge_harvest_report；已分開交過的不用重交。")
+# v6 開時「後面還會擋」預覽與改檔那則提醒用的做法（GOAL_TREE_SET_ONCE：不寫目標對照，寫了 AI 就多叫一次 need_goal reconcile）
+CLOSING_CHECK_FIX = "最後呼叫 anti_evasion_report（知識收割放 harvest_items，一次交齊）"
 
 
 def closing_reconcile_hint(aec_emitted: bool) -> str:
@@ -1617,10 +1619,10 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
     """TestFailGate 擋訊息：最後 3 筆紅測＋三條出路。先問使用者有沒有叫跳過（程式只收引原話的不做行豁免），
     再分程式錯還是舊斷言跟不上新需求；不給 skip／xfail 這種讓紅消失的出路——「標記為已知 regression」這種說法會把 AI 帶去加
     xfail。每筆列失敗項（規則 RED_ITEMS_ONLY_FROM_FAILURE_LINES：FAILED／ERROR 節點，不是摘要第一行）與指令實際跑的
-    那行（不含註解）；notes＝不做行對到了卻沒豁免的原因（waiver_miss_notes）。"""
-    return (f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），不得宣告完成。\n"
-            + "\n".join(f"  - {red_item_label(f)}（指令：{cmd_run_line(f.get('cmd', ''))[:80]}）{_rerun_scope(f)}"
-                        for f in failing[-3:])
+    那行（不含註解）；notes＝不做行對到了卻沒豁免的原因（waiver_miss_notes）。抬頭算還沒跑綠的支數（不是幾筆紀錄）、
+    附已經綠的支數；逐支列出的每筆附「重跑這幾支檔就夠」（還紅的那幾支所在的檔，已清的不列）。"""
+    return (f"[Guardian:TestFailGate] 測試未綠：{red_count_label(failing)}，不得宣告完成。\n"
+            + "\n".join(_red_item_lines(f) for f in failing[-3:])
             + "".join(f"\n  ! {n}" for n in notes)
             + "\n先看使用者有沒有叫你跳過或先不管這支：(a) 有 → 不動測試檔、讓它照紅，收尾寫一行"
             "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」，程式對到這筆紅測就留帳放行 "
@@ -1754,12 +1756,19 @@ def _testfail_gate(state: Dict[str, Any], session_id: str, input_data: Dict[str,
     return f"{exhausted_message('TestFailGate', None, exhausted_summary(msg))}\n原擋訊息：\n{msg}\n{ASK_HINT}", shown_keys
 
 
+def _red_item_lines(f: Dict[str, Any]) -> str:
+    """擋訊息裡一筆紅測：還沒跑綠的那幾支（red_item_label）＋指令實際那行；逐支列出的附重跑哪幾支檔就夠，沒列出的附重跑範圍。"""
+    rerun = red_rerun_files_label(f)
+    return (f"  - {red_item_label(f)}（指令：{cmd_run_line(f.get('cmd', ''))[:80]}）"
+            + (f"\n    {rerun}" if rerun else _rerun_scope(f)))
+
+
 def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
-    """v6 守門關閉時的 TestFailGate 擋訊息（9e476fd0 原文）：關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口。"""
-    return (f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），"
-            "不得宣告完成。\n"
-            + "\n".join(f"  - {f.get('cmd', '')[:60]}: {(f.get('summary', '').splitlines() or [''])[0][:100]}"
-                        for f in failing[-3:])
+    """v6 守門關閉時的 TestFailGate 擋訊息：出路照 9e476fd0 原文（關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口），
+    但列的失敗項跟 v6 開同一份——只列還沒跑綠的那幾支、算支數。舊寫法印摘要第一行、不看 cleared_units，已經綠的那支會一直
+    被列成失敗（2026-10-27 實踩：13 支檔 20 紅、3 支檔綠了之後 Stop 仍列 verify_locate_hint.py 那支，AI 被帶去重跑整個範圍）。"""
+    return (f"[Guardian:TestFailGate] 測試未綠：{red_count_label(failing)}，不得宣告完成。\n"
+            + "\n".join(_red_item_lines(f) for f in failing[-3:])
             + "\n選 (a) 修復 (b) 明確說明為何不修並標記為已知 regression "
             "(c) 降級任務定義。不得籠統帶過。")
 
@@ -2050,8 +2059,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
                                                 int(config.get("min_files_to_block", 2)), emitted_this_turn,
                                                 claimed=_done(last_text))):
-            later.append((("ScanReport",), "收尾檢核：最後呼叫 anti_evasion_report（目標對照放 reconcile、知識收割放 harvest_items，"
-                                           "一次交齊）", "CLOSING_CHECK_REQUIRED"))
+            later.append((("ScanReport",), f"收尾檢核：{CLOSING_CHECK_FIX}", "CLOSING_CHECK_REQUIRED"))
         if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
                 and not state.get("muted") and phase not in ("done", "syncing")):
             sr = config.get("sync_reminder", {}) or {}

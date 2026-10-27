@@ -121,22 +121,11 @@ def test_verify_ledger_dir_writable():
     assert not hasattr(pt, "check_verify_ledger_write")
 
 
-# ─── 驗證範圍只在改程式那一回合問一次 ─────────────────────────────
+# ─── 驗證範圍不再在改程式那一回合問（目標樹只立一次 GOAL_TREE_SET_ONCE；案例在 verify_goal_tree_once.py） ─────
 
-def test_scope_asked_once_per_code_turn(tmp_path, monkeypatch):
+def test_scope_not_asked_on_code_edit():
     from handlers import post_tool_use as pt
-    import wg_verify_ledger as vl
-    monkeypatch.setattr(vl, "LAUNCHER_DIR", tmp_path / "markers")
-    state = {"turn_seq": 5, "turn_prompts_seq": 5}
-    pt._scope_ask_once(state, "s", str(tmp_path / "a.py"), {})
-    assert "verify_scope" in state.pop("_verify_scope_advisory")
-    pt._scope_ask_once(state, "s", str(tmp_path / "b.py"), {})
-    assert "_verify_scope_advisory" not in state                   # 同一回合不再問
-    pt._scope_ask_once(state, "s", str(tmp_path / "README.md"), {})
-    assert "_verify_scope_advisory" not in state
-    state["turn_prompts_seq"] = state["turn_seq"] = 7
-    pt._scope_ask_once(state, "s", str(tmp_path / "a.py"), {})
-    assert "_verify_scope_advisory" in state                       # 新回合又改程式：再問一次
+    assert not hasattr(pt, "_scope_ask_once") and not hasattr(pt, "SCOPE_ASK")
 
 
 # ─── 定位：兩候選保留判斷、一回合問一次；第四行節點只記錄 ──────────────
