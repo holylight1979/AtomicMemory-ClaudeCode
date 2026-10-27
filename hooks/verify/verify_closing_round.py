@@ -34,11 +34,11 @@ TJ_NOTE = ("[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（
            "  要人看的 1 條（門檻：拐彎 ≥2）：\n    函式 cli.py::by_product｜拐彎 3\n    拐彎判斷｜cli.py::by_product｜…")
 
 
-def _batch(state, calls, config, capsys, sid=_SID):
-    """跑一次 PostToolBatch（state 就地改）→ 送出的 additionalContext（沒送回空字串）。"""
+def _batch(state, calls, config, capsys, sid=_SID, **extra):
+    """跑一次 PostToolBatch（state 就地改；extra 蓋進 hook 輸入，例 transcript_path）→ 送出的 additionalContext（沒送回空字串）。"""
     ptb._ensure_state = lambda *a, **k: state
     with pytest.raises(SystemExit):
-        ptb.handle_post_tool_batch({"session_id": sid, "tool_calls": calls}, config)
+        ptb.handle_post_tool_batch({"session_id": sid, "tool_calls": calls, **extra}, config)
     out = capsys.readouterr().out.strip()
     return json.loads(out.splitlines()[-1])["hookSpecificOutput"]["additionalContext"] if out else ""
 
@@ -216,31 +216,39 @@ def _job_dir(root, job, status):
 
 
 def test_second_opinion_done_notice_once_per_job(batch_env, monkeypatch, tmp_path, capsys):
-    """規則 SECOND_OPINION_DONE_NOTICE：這批開了第二意見 → 看守；跑完、還沒取回 → 下一批提醒一次（舊碼沒有這條，AI 只能守著 result 等）；
-    同一個 job 不再提醒；這批自己取過的不提醒；開始看守前就跑完的不提醒。"""
+    """規則 SECOND_OPINION_DONE_NOTICE：這批 start 自己回的 job_id 記進看守（hook 輸入帶回傳就讀它，沒帶就照 tool_use_id 到 transcript 找）；
+    跑完、還沒取回 → 下一批提醒一次（舊碼沒有這條，AI 只能守著 result 等）；同一個 job 不再提醒；這批自己取過的不提醒；
+    別的 session 的 job（job_id 裡 session 前 8 碼剛好一樣）不收進看守、不提醒。"""
     import wg_closing_round as cr
     root = tmp_path / "so-jobs"
     monkeypatch.setattr(cr, "SO_JOB_ROOT", root)
     sid = "abcd1234-x"
-    old, job, got = (f"20261027-10000{i}-abcd1234-stage-review" for i in range(3))
-    _job_dir(root, old, "done")
+    other, job, got = (f"20261027-10000{i}-abcd1234-stage-review" for i in range(3))
+    _job_dir(root, other, "running")                                       # 另一個 session（abcd1234-y）開的，前 8 碼同
     state = {"turn_seq": 5}
-    start = [{"tool_name": "mcp__workflow-guardian__second_opinion_start", "tool_input": {"kind": "stage-review"}}]
+    start = {"tool_name": "mcp__workflow-guardian__second_opinion_start", "tool_input": {"kind": "stage-review"}, "tool_use_id": "s1",
+             "tool_response": f"job_id: {job}\nhash: h\nstatus: started"}
     _job_dir(root, job, "running")
-    assert _batch(state, start, _PASS_CFG, capsys, sid=sid) == ""
-    assert state["second_opinion_watch"][sid]["running"] == [job], "跑完的舊 job 不看守"
+    assert _batch(state, [start], _PASS_CFG, capsys, sid=sid) == ""
+    assert state["second_opinion_watch"][sid]["running"] == [job], "只收這批 start 自己回的 job"
     _job_dir(root, job, "done")
+    _job_dir(root, other, "done")
     ctx = _batch(state, [{"tool_name": "Bash", "tool_input": {}}], _PASS_CFG, capsys, sid=sid)
-    assert f"第二意見 {job} 跑完了（done）" in ctx and "second_opinion_result" in ctx and old not in ctx
+    assert f"第二意見 {job} 跑完了（done）" in ctx and "second_opinion_result" in ctx and other not in ctx
     assert _batch(state, [{"tool_name": "Bash", "tool_input": {}}], _PASS_CFG, capsys, sid=sid) == "", "同一個 job 只提醒一次"
+    tx = tmp_path / "t.jsonl"                                              # hook 輸入沒帶回傳：照 tool_use_id 到 transcript 找
+    tx.write_text(json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "s2", "content": [{"type": "text", "text": f"job_id: {got}\nstatus: started"}]}]}}) + "\n",
+        encoding="utf-8")
     _job_dir(root, got, "running")
-    _batch(state, start, _PASS_CFG, capsys, sid=sid)
+    _batch(state, [{**start, "tool_use_id": "s2", "tool_response": None}], _PASS_CFG, capsys, sid=sid, transcript_path=str(tx))
+    assert state["second_opinion_watch"][sid]["running"] == [got]
     _job_dir(root, got, "done")
     fetch = [{"tool_name": "mcp__workflow-guardian__second_opinion_result", "tool_input": {"job_id": got}}]
     assert _batch(state, fetch, _PASS_CFG, capsys, sid=sid) == "", "這批自己取過：不提醒"
     assert not state["second_opinion_watch"][sid]["on"]
     off = {"turn_seq": 5}
-    _batch(off, start, {**_PASS_CFG, "second_opinion": {"auto": {"background": False}}}, capsys, sid=sid)
+    _batch(off, [start], {**_PASS_CFG, "second_opinion": {"auto": {"background": False}}}, capsys, sid=sid)
     assert "second_opinion_watch" not in off, "開關關：不看守"
 
 

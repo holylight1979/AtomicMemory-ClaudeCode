@@ -4026,7 +4026,8 @@ RULES.update({
                                  "「start 後不用等結果，先把收尾其餘的事做完；收尾時還在跑就寫等第二意見｜<job_id>（不算宣告完成、不擋）」"
                                  "（second_opinion_hint_background；判定、門檻、擋次都不變，還在跑照 SECOND_OPINION_WAITING_NOT_DONE）；"
                                  "MCP 端 second_opinion_start 的下一步與 second_opinion_result 的說明同一個說法。關了照舊寫 start 後直接呼叫 result 等結果。",
-    "SECOND_OPINION_DONE_NOTICE": "本 session 開的第二意見 job（這批有 second_opinion_start、或收尾寫了等第二意見｜<job_id>）記進看守"
+    "SECOND_OPINION_DONE_NOTICE": "本 session 開的第二意見 job（這批 second_opinion_start 自己回的 job_id，或收尾寫了等第二意見｜<job_id>；"
+                                  "不掃 job 目錄：job_id 裡只有 session 前 8 碼，掃目錄會收進別的 session 的 job）記進看守"
                                   "（state second_opinion_watch）；從在跑變成 done／failed／blocked 而 AI 還沒取回（這批或本回合沒有對那個 job 的 "
                                   "second_opinion_result）→ 附一次「取回、補四行」：下一批工具回應（PostToolBatch）或收尾（Stop 跟最該修同一則）"
                                   "先到先送，每個 job 只送一次、留帳 guard-second_opinion event=done_notice。開始看守時已經跑完的 job 不提醒。"
