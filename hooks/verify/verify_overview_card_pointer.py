@@ -96,7 +96,9 @@ def test_pointer_first_touch_sends_defect_line_and_card_path(proj, tmp_path):
     assert "結算傷害" not in txt and "浮點比較" not in txt and "pytest tests/battle" not in txt
     assert "定位｜部位：戰鬥" in txt
     assert _rec(state, "戰鬥")["card_mode"] == "pointer"
-    assert _log(tmp_path)[-1]["card_mode"] == "pointer" and _log(tmp_path)[-1]["chars"] == len(txt)
+    card_txt, hint = txt.split("\n\n[Guardian:OverviewHub] 改【戰鬥】的程式檔前", 1)   # 程式檔：注入之後接 LOCATE_HINT_ON_FIRST_READ 一行
+    inj = next(e for e in reversed(_log(tmp_path)) if e["event"] == "inject")
+    assert inj["card_mode"] == "pointer" and inj["chars"] == len(card_txt) and "交定位" in hint
 
 
 def test_pointer_edit_denied_until_card_read_then_passes(proj, tmp_path):

@@ -4162,6 +4162,17 @@ RULES.update({
 })
 
 
+# ─── 定位與立樹先提示後擋（提示在 hooks/wg_overview._locate_read_hint；立樹判式 wg_need_goal.tree_owed_for_edit 與 edit_gate 共用） ───
+RULES.update({
+    "LOCATE_HINT_ON_FIRST_READ": "讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（Read／唯讀 Bash／PowerShell／Grep，PostToolUse 的"
+                                 "讀檔結果，不掛在改檔的 PreToolUse）→ 附一行：還沒有目標樹就先 need_goal set（判式與 edit_gate 同一支"
+                                 "_edit_gate_applies＋目前的樹），交定位四行（根因層兩候選＋選擇理由、批判先下判斷；need_goal 關＝三行，"
+                                 "同缺定位擋訊息 LOCATE_ASK_ONCE），寫在比改檔早一則的回覆文字或不寫檔指令開頭的 # 註解、thinking 讀不到"
+                                 "（DECL_HINT_KEEPS_EDIT_TOOLS）；立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
+                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送。判定與擋訊息不動：沒照做照擋。",
+})
+
+
 # ─── 第二意見看事實觸發（事實與時點在 hooks/wg_second_opinion.py、wg_closing_round.py、handlers/stop.py，這裡只登錄規則名與說明） ───
 RULES.update({
     "SECOND_OPINION_FACT_TRIGGER": "第二意見閘進不進門看事實、不看措辭：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，同 "
