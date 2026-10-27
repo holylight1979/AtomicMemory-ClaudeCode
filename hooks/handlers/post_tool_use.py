@@ -1439,6 +1439,31 @@ def _apply_harvest(state: Dict[str, Any], session_id: str, input_data: Dict[str,
         )
 
 
+AEC_RECONCILE_RETRY = ("收尾檢核其他欄已收下，只差這段：修好後用 need_goal(action=reconcile, items=…) 補交"
+                       "（或重送 anti_evasion_report 帶 reconcile）。")
+
+
+def _aec_reconcile(state: Dict[str, Any], session_id: str, rec: Dict[str, Any], input_data: Dict[str, Any],
+                   config: Dict[str, Any]) -> Tuple[str, str]:
+    """規則 CLOSING_RECONCILE_IN_REPORT：anti_evasion_report 的 reconcile 欄＝need_goal(action=reconcile)，交給同一個入口
+    wg_need_goal.apply_op（同一套判法、同一段回覆、同樣記進目標檔）。回 (要送回 AI 的那段, 留在報告裡的結果 applied／rejected／off／error)。
+    沒套上只少這段：收尾檢核照收，回覆寫明只要補交對照。"""
+    import wg_need_goal as ng
+    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+    if not ng.cfg_for_cwd(config, cwd)["enabled"]:
+        return "[NeedGoal] need_goal 在這一層關閉（overview_hub.need_goal.enabled=false），reconcile 欄沒有套用", "off"
+    op = {"action": "reconcile", **{k: rec[k] for k in ("items", "turns") if k in rec}}
+    try:
+        res = ng.apply_op(session_id, int(state.get("turn_seq", 0)), op, cwd)
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] anti_evasion_report 的 reconcile 欄套用失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        ng._guard("stamp_error", session_id, tool="anti_evasion_report.reconcile", error=f"{type(e).__name__}: {e}")
+        return f"[NeedGoal] reconcile 欄沒寫進目標檔（{type(e).__name__}: {e}）。{AEC_RECONCILE_RETRY}", "error"
+    if res["ok"]:
+        return res["text"], "applied"
+    return f"{res['text']}\n{AEC_RECONCILE_RETRY}", "rejected"
+
+
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1756,6 +1781,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if v6 and isinstance(tool_input.get("harvest_items"), list):
             _apply_harvest(state, session_id, input_data, tool_input["harvest_items"], "", aec_reject_msgs,
                            "anti_evasion_report（harvest_items）")
+        # 目標對照也同一次交（CLOSING_RECONCILE_IN_REPORT）：先套用再附樹，HUD 的「目標對照」是這次交的結果
+        if v6 and isinstance(tool_input.get("reconcile"), dict):
+            _rc_text, report["reconcile"] = _aec_reconcile(state, session_id, tool_input["reconcile"], input_data, config)
+            aec_reject_msgs.append(_rc_text)
         if v6 and str(tool_input.get("report") or "").strip():
             report["report"] = str(tool_input["report"])
         hv_done = validated_this_turn(state, session_id, turn_seq)

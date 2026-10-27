@@ -2,7 +2,8 @@
 
 做什麼（每批工具跑完，hooks/handlers/post_tool_batch.py 呼叫 on_batch；判斷交 AI，程式只管時點）：
   ① 改完程式就起跑：拐彎判斷的背景量測（wg_reading_path.early_start；規則 READING_PATH_EARLY_START，開關 reading_path.early_start）。
-  ② 這批有收尾檢核（anti_evasion_report；收尾檢核放最後，交了就是交付邊界）或完整對照（need_goal reconcile：交付時的對照）＝收尾前最後一個工具回應（closing_call），附上：
+  ② 這批有收尾檢核（anti_evasion_report；收尾檢核放最後，交了就是交付邊界，一次交齊時目標對照與知識收割也在裡面）或分開交的完整對照
+     （need_goal reconcile：交付時的對照）、知識收割回報（knowledge_harvest_report）＝收尾前最後一個工具回應（closing_call），附上：
      - 量好的拐彎判斷結果（到門檻的條目＋那一題；TURN_JUDGMENT_PRE_CLOSE，跟 ① 同一個開關）。還有一批在量就不附，留給 Stop；
      - 「順手看到最該修」該問就附材料、記問過（PICK_ONE_PRE_CLOSE，開關 pick_one.pre_close）：Stop 的 pick_due 看到問過就不再送、
        不再讓對話續跑一輪。
@@ -23,6 +24,7 @@ from wg_core import WORKFLOW_DIR, append_guard_log, coding_turn
 
 CLOSING_TOOL_SUFFIX = "__anti_evasion_report"
 NEED_GOAL_SUFFIX = "__need_goal"
+HARVEST_SUFFIX = "__knowledge_harvest_report"
 SO_START_SUFFIX = "__second_opinion_start"
 SO_RESULT_SUFFIX = "__second_opinion_result"
 SO_JOB_ROOT = WORKFLOW_DIR / "second-opinion"       # 同 tools/second-opinion/run.py 的 job 目錄
@@ -54,9 +56,11 @@ def _calls(tool_calls: Any) -> List[Tuple[str, Dict[str, Any]]]:
 
 
 def closing_call(name: str, inp: Dict[str, Any]) -> bool:
-    """收尾前最後一個工具回應的認法：收尾檢核（anti_evasion_report），或需求目標樹的完整對照（need_goal action=reconcile；
-    need_goal 說明裡它就是交付時的對照）。"""
-    return name.endswith(CLOSING_TOOL_SUFFIX) or (name.endswith(NEED_GOAL_SUFFIX) and inp.get("action") == "reconcile")
+    """收尾前最後一個工具回應的認法（規則 CLOSING_CALL_ALL_THREE）：收尾三段一次交齊的收尾檢核（anti_evasion_report，
+    reconcile、harvest_items 欄帶著目標對照與知識收割），或分開交的任一支——需求目標樹的完整對照（need_goal action=reconcile）、
+    知識收割回報（knowledge_harvest_report）。"""
+    return (name.endswith(CLOSING_TOOL_SUFFIX) or name.endswith(HARVEST_SUFFIX)
+            or (name.endswith(NEED_GOAL_SUFFIX) and inp.get("action") == "reconcile"))
 
 
 def _own(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:

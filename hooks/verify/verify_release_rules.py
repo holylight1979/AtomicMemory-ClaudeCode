@@ -2708,3 +2708,11 @@ def test_closing_round_rules_cased_in_closing_round(rule):
     """收尾只跑一輪、第二意見背景跑的規則：端到端案例在 verify_closing_round.py（PostToolBatch→Stop）。"""
     assert rule in rr.RULES
     assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("rule", ["CLOSING_RECONCILE_IN_REPORT", "CLOSING_MISSING_PART_HINT", "CLOSING_GOAL_CODING_ONLY",
+                                  "CLOSING_CALL_ALL_THREE"])
+def test_closing_merge_rules_cased_in_closing_merge(rule):
+    """收尾三段一次交齊的規則：端到端案例在 verify_closing_merge.py（PostToolUse→Stop）。"""
+    assert rule in rr.RULES
+    assert rule in (Path(__file__).parent / "verify_closing_merge.py").read_text(encoding="utf-8")

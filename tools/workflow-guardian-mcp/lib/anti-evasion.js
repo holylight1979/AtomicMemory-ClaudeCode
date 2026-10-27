@@ -78,6 +78,8 @@ function aecChipText(args) {
 
 // 收尾一份報告（CLOSING_REPORT_ONE_CALL）：給了 report（白話全文）時 e／f／g 可以不另填（它們只上 HUD，內容寫在 report 裡）；
 // harvest_items 跟 knowledge_harvest_report 的 items 同一套驗法。沒給 report 或守門關閉 → e／f／g 照舊必填。
+// reconcile（CLOSING_RECONCILE_IN_REPORT）＝need_goal action=reconcile 的 {items, turns?}，同一套驗法；套用由 Python PostToolUse
+// 交 wg_need_goal.apply_op（跟 need_goal 那支同一個入口）。守門關閉時不驗、Python 也不套用。
 const NARRATIVE_FIELDS = ["e", "f", "g"];
 function aecArgErrors(args, v6) {
   const a = args || {};
@@ -89,6 +91,12 @@ function aecArgErrors(args, v6) {
   if (v6 && a.harvest_items !== undefined) {
     if (!Array.isArray(a.harvest_items)) errs.push("harvest_items 必須是陣列");
     else errs.push(...require("./harvest").validateItems(a.harvest_items).map((e) => `harvest_items：${e}`));
+  }
+  if (v6 && a.reconcile !== undefined) {
+    const r = a.reconcile;
+    if (!r || typeof r !== "object" || Array.isArray(r)) errs.push("reconcile 必須是物件 {items, turns?}（同 need_goal action=reconcile）");
+    else errs.push(...require("./need-goal").validateArgs({ action: "reconcile", items: r.items, turns: r.turns })
+      .map((e) => `reconcile：${e}`));
   }
   return errs;
 }
@@ -102,7 +110,8 @@ async function toolAntiEvasionReport(id, args) {
     return sendToolResult(id, "anti_evasion_report 拒收：\n" + errs.map((e) => "  ✗ " + e).join("\n"), true);
   }
   const hv = v6 && Array.isArray(args.harvest_items) ? "；" + require("./harvest").harvestChip(args.harvest_items) : "";
-  return sendToolResult(id, aecChipText(args) + hv);
+  const rc = v6 && args.reconcile !== undefined ? "；目標對照已收到（對照結果隨後由 hook 送回）" : "";
+  return sendToolResult(id, aecChipText(args) + hv + rc);
 }
 
 // ─── HUD 唯讀 API ─────────────────────────────────────────────────────────────

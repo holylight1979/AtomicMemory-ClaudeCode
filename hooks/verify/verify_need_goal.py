@@ -1206,7 +1206,8 @@ def test_stop_verify_gates_merges_goal_only_for_main_session(env):
 
 def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, capsys):
     _code_tree(env)
-    state = {"turn_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": [], "turn_open": True}
+    state = {"turn_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": [], "turn_open": True,
+             "need_goal_code_decl_turn": 3}          # 寫碼回合（本回合宣告了寫碼樹）：(f2) 只在寫碼回合判
     for name, val in (("_ensure_state", lambda *a, **k: state), ("_find_session_transcript", lambda *a, **k: None),
                       ("get_last_assistant_text", lambda *a, **k: "好"), ("token_warn_payload", lambda *a, **k: ""),
                       ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
@@ -1228,7 +1229,8 @@ def _stop_env(env, monkeypatch, state):
 def test_stop_budget_exhausts_to_pending_and_clears_after_update(env, monkeypatch, capsys):
     from wg_release import RELEASE_TAG, pending_of
     _code_tree(env)
-    state = {"turn_seq": 3, "turn_prompts_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": []}
+    state = {"turn_seq": 3, "turn_prompts_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": [],
+             "need_goal_code_decl_turn": 3}          # 寫碼回合（本回合宣告了寫碼樹）：(f2) 只在寫碼回合判
     _stop_env(env, monkeypatch, state)
     reasons = []
     for _ in range(3):
