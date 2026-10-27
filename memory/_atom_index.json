@@ -13019,6 +13019,36 @@
         "自己啟動測試"
       ],
       "scope": "global"
+    },
+    {
+      "name": "主腦在live樹上跑測試探子代理進度會留假紅帳-紅測閘逼主腦重跑整個範圖-子代理改live檔時主腦只等通知不跑它的案例",
+      "path": "_AIDocs/_atoms/MemDev/主腦在live樹上跑測試探子代理進度會留假紅帳-紅測閘逼主腦重跑整個範圖-子代理改live檔時主腦只等通知不跑它的案例.md",
+      "triggers": [
+        "假紅帳",
+        "子代理改 live",
+        "紅測閘 重跑",
+        "TestFailGate 連擋",
+        "探進度 跑測試",
+        "主腦 合併 流程",
+        "整合包",
+        "failing_tests 掃不掉"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-staging做完或過時的檔要當場搬封存或刪-不留一堆接續單與重生得出的報告-清理時附一張為什麼封存的表",
+      "path": "memory/Failures/工作流/feedback-staging做完或過時的檔要當場搬封存或刪-不留一堆接續單與重生得出的報告-清理時附一張為什麼封存的表.md",
+      "triggers": [
+        "_staging",
+        "staging 清理",
+        "接續單 過時",
+        "next-phase 已完成",
+        "封存",
+        "已做完的計爲",
+        "遷移 DevHistory",
+        "重生的報告"
+      ],
+      "scope": "global"
     }
   ]
 }
