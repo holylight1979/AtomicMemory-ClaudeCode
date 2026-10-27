@@ -106,6 +106,44 @@ def test_coding_turn_related_spread_one_line(mem, v6_on):
     assert _block(lines, "neighbour").startswith("[Atom:neighbour] (related, cold)")
 
 
+def _upgrade_turn(mem: Path, prompt: str, first_source: str = "bm25"):
+    """第一則：A 以非 trigger 命中送成一行並結算；第二則：搜尋段已用 injected_atoms 排除 A（候選空），prompt 帶不帶 A 的 trigger。"""
+    all_atoms = [_entry(BM25_CARD, mem.parent)]
+    state = _coding_state()
+    lines, _ = _run(mem.parent, state, [BM25_CARD], [first_source])
+    ups_inject.reconcile_injection_after_trim("sid", state, {}, lines)
+    assert BM25_CARD in state["injected_atoms"]
+    state["turn_seq"] = 1
+    lines2: list = []
+    ups_inject.assemble_injection("sid", state, {}, [], all_atoms, list(state["injected_atoms"]), {}, {}, lines2,
+                                  prompt=prompt)
+    return state, lines2
+
+
+def test_line_only_card_upgrades_when_trigger_hits_later(mem, v6_on):
+    """前面只給過一行的卡，之後這則被 trigger 命中 → 補整段、來源記 trigger（main 沒有補送的路 → 紅）。
+    一行送過的卡照舊留在 injected_atoms：搜尋段不重送那一行、失念偵測當它注入過。"""
+    _mk(mem, BM25_CARD, hot=True)
+    state, lines2 = _upgrade_turn(mem, "加一個子命令，碰到 X 怎麼辦")       # 卡的 trigger 是 x（ASCII 整詞）
+    rec = state["injection_log"][-1]
+    assert (rec["name"], rec["source"], rec["form"]) == (BM25_CARD, "trigger", "ok")
+    assert "## 知識" in _block(lines2, BM25_CARD)
+    assert state["injected_atoms"].count(BM25_CARD) == 1
+
+
+def test_line_only_card_not_resent_without_trigger(mem, v6_on, monkeypatch):
+    """這則沒命中 trigger：一行送過的卡不補、不重送那一行；v6 關照舊不補。"""
+    _mk(mem, BM25_CARD, hot=True)
+    state, lines2 = _upgrade_turn(mem, "加一個子命令", first_source="vector")
+    assert not lines2 and len(state["injection_log"]) == 1
+    mem2 = mem.parent / "off" / "memory"
+    mem2.mkdir(parents=True)
+    _mk(mem2, BM25_CARD)                                                      # 不是 hot：v6 關也是一行
+    monkeypatch.setenv("WG_V6", "0")
+    state, lines2 = _upgrade_turn(mem2, "碰到 X 怎麼辦")
+    assert not lines2
+
+
 def test_trigger_card_full_text_same_as_before(mem, v6_on, monkeypatch):
     """該想起的要完整送到：trigger 命中的卡，寫碼回合送的整段跟 v6 關時一字不差。"""
     _mk(mem, TRIGGER_CARD, impression="先跑既有測試")
@@ -192,6 +230,25 @@ def test_resend_after_compact_or_pointer_only(mem, v6_on):
         lines, forms = _run(mem.parent, _coding_state(turn_seq=3, **extra), [TRIGGER_CARD], ["trigger"])
         assert forms == {TRIGGER_CARD: "ok"}, extra
         assert "## 知識" in _block(lines, TRIGGER_CARD)
+
+
+def test_section_only_delivery_is_not_full(mem, v6_on):
+    """只抽了命中章節送出（vector 章節提示）記 sections，不算整段送過：resume 後 trigger 命中照常送（不是指回）。"""
+    p = _mk(mem, TRIGGER_CARD)
+    p.write_text(p.read_text(encoding="utf-8").replace(
+        "## 知識\n\n", "## 知識\n\n" + "".join(f"- [臨] 第 {i} 條：改程式前先跑既有測試確認基底是綠的。\n" for i in range(40))),
+        encoding="utf-8")
+    state = _coding_state()
+    lines: list = []
+    ups_inject.assemble_injection("sid", state, {}, [_entry(TRIGGER_CARD, mem.parent)], [], [], {TRIGGER_CARD: "trigger"},
+                                  {TRIGGER_CARD: [{"section": "行動"}]}, lines)
+    ups_inject.reconcile_injection_after_trim("sid", state, {}, lines)
+    first = state["injection_log"][0]
+    assert first["form_final"] == "ok" and first.get("sections") is True and "第 0 條" not in "\n".join(lines)
+    assert ups_inject.delivered_forms(state) == {}
+    state.update(turn_seq=1, injected_atoms=[])
+    lines2, forms2 = _run(mem.parent, state, [TRIGGER_CARD], ["trigger"])
+    assert forms2 == {TRIGGER_CARD: "ok"} and "第 0 條" in "\n".join(lines2)
 
 
 def test_resume_round_trip_through_reconcile(mem, v6_on):
