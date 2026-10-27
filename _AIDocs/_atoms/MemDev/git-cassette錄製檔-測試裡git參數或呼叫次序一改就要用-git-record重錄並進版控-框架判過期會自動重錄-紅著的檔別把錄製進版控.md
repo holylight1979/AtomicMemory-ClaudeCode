@@ -16,6 +16,7 @@
 - [臨] 一個 Bash 指令裡用 `git checkout -- <路徑>`／`git restore <路徑>` 丟掉錄製檔改動會被 OverviewHub 閘擋（判不出寫入目標）；要只提交一部分就用 `git add <明確路徑>` 挑，別碰其他的，worktree 刪掉時一起消失。
 - [臨] verify_stop_reconcile 的錄音在每筆 git 呼叫前會比對受測目錄內容；改了測試夾具檔名後，只刪不合的那幾份錄音、用預設 auto 模式重跑（缺檔才錄），不要整支 --git-record（會把上百份錄音全換掉，diff 很髒）。
 - [臨] 兩條分支各自重錄同一份錄音、合併時衝突：刪掉衝突的那幾份，用合併後的程式重錄，不取任一邊。
+- [臨] 程式雜湊或 git 版本跟錄製檔記的對不上也算過期，跑一輪 verify 就自動重錄，一輪可改寫約 150 個錄製檔（hooks/verify/cassettes、tools/verify/cassettes）。這些不是自己的改動：提交前用 git checkout -- <cassettes 路徑> 還原（被守門擋就不還原），只 git add 自己的檔。
 
 ## 行動
 
