@@ -5143,25 +5143,6 @@
       ]
     },
     {
-      "name": "並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次.md",
-      "triggers": [
-        "並行實作",
-        "派工簡報",
-        "全量驗證",
-        "run_verify 並行",
-        "多線同改一檔",
-        "主持人整合",
-        "sub-agent 卡在等驗證",
-        "叫停 agent"
-      ],
-      "scope": "global",
-      "related": [
-        "workflow-parallel-agents",
-        "feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單"
-      ]
-    },
-    {
       "name": "feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到",
       "path": "memory/Failures/行為契約/feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到.md",
       "triggers": [
@@ -5581,25 +5562,6 @@
       "scope": "global"
     },
     {
-      "name": "根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox.md",
-      "triggers": [
-        "root-link",
-        "tri-link",
-        "三方討論",
-        "根層專案層溝通",
-        "跨session對齊",
-        "跟根層談",
-        "信箱摩槽",
-        "兩個session討論同題"
-      ],
-      "scope": "global",
-      "related": [
-        "並行llm即時通訊-inbox機制",
-        "feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定"
-      ]
-    },
-    {
       "name": "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
       "path": "memory/Failures/工作流/feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌.md",
       "triggers": [
@@ -5984,28 +5946,6 @@
       ]
     },
     {
-      "name": "feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整.md",
-      "triggers": [
-        "總控端",
-        "主持",
-        "派工",
-        "問進度",
-        "分工寫文件",
-        "多 session",
-        "三方討論",
-        "信箱",
-        "待命",
-        "無待答項",
-        "彙整"
-      ],
-      "scope": "global",
-      "related": [
-        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
-        "並行llm即時通訊-inbox機制"
-      ]
-    },
-    {
       "name": "成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同",
       "path": "memory/驗證與實證/成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同.md",
       "triggers": [
@@ -6224,28 +6164,6 @@
       ]
     },
     {
-      "name": "feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定.md",
-      "triggers": [
-        "只動根基",
-        "帶變量規則",
-        "參與專案不調整",
-        "專案層只給思路",
-        "總控台派工",
-        "多專案奇耙設定",
-        "根層角色",
-        "專案層角色",
-        "公司層變量",
-        "變量吸收",
-        "範圍聲明"
-      ],
-      "scope": "global",
-      "related": [
-        "feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌",
-        "根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox"
-      ]
-    },
-    {
       "name": "feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號",
       "path": "memory/Failures/文字與格式/feedback-給使用者看的計畫文件語意混雜-歷史解法技術細節解讀混在同一句就看不懂-四類分開放原句右側寫我的理解每項掛目標代號.md",
       "triggers": [
@@ -6412,31 +6330,6 @@
       "scope": "global"
     },
     {
-      "name": "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件.md",
-      "triggers": [
-        "總控台",
-        "退回信",
-        "整批合併",
-        "整合落差",
-        "停工",
-        "恢復條件",
-        "舊步驟作廢",
-        "worktree 派工",
-        "多軌",
-        "工作分支合 main",
-        "背景工作 session merge"
-      ],
-      "scope": "global",
-      "related": [
-        "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地",
-        "handoff-綜觀品質與抗失真寫法",
-        "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑",
-        "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據",
-        "改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看"
-      ]
-    },
-    {
       "name": "hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過",
       "path": "_AIDocs/_atoms/MemDev/hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過.md",
       "triggers": [
@@ -6570,26 +6463,6 @@
         "目標被淡化"
       ],
       "scope": "global"
-    },
-    {
-      "name": "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上.md",
-      "triggers": [
-        "EnterWorktree",
-        "worktree 隔離",
-        "寫不到 live",
-        "交付信",
-        "信箱",
-        "SendMessage 交付",
-        "工作 session",
-        "收據 root",
-        "primary working directory"
-      ],
-      "scope": "global",
-      "related": [
-        "worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名",
-        "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒"
-      ]
     },
     {
       "name": "驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄",
@@ -7267,28 +7140,6 @@
       ]
     },
     {
-      "name": "feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定.md",
-      "triggers": [
-        "總控台",
-        "多軌",
-        "雙總控台",
-        "對人總控台",
-        "調度總控台",
-        "派工",
-        "工作 session",
-        "codex 審查報告",
-        "最終判斷",
-        "提問優先",
-        "總控台不改碼",
-        "換手規則"
-      ],
-      "scope": "global",
-      "related": [
-        "多軌開發耗時長的根因-對抗審沒封頂每輪收新邊角-三方驗證做在每個增量且全由總控台串行-發版線定太晚-總控台自己改碼開子代理-負載下反覆跑全量"
-      ]
-    },
-    {
       "name": "codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回",
       "path": "_AIDocs/_atoms/Tools/codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回.md",
       "triggers": [
@@ -7391,23 +7242,6 @@
       "scope": "global"
     },
     {
-      "name": "feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法.md",
-      "triggers": [
-        "閘誤擋",
-        "放行迴圈",
-        "根因",
-        "立即派工",
-        "總控台收尾",
-        "關分頁",
-        "繞閘",
-        "記錯成改碼",
-        "第一時間修",
-        "被閘擋住"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行",
       "path": "_AIDocs/_atoms/MemDev/總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行.md",
       "triggers": [
@@ -7435,21 +7269,6 @@
         "transcript usage",
         "cache_read_input_tokens",
         "多 session 盤點"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見.md",
-      "triggers": [
-        "可以關的 session",
-        "關分頁",
-        "session 名字",
-        "claude-xx",
-        "軌名",
-        "分頁標題",
-        "多 session 回報",
-        "總控台回報"
       ],
       "scope": "global"
     },
@@ -7515,31 +7334,6 @@
       ]
     },
     {
-      "name": "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走.md",
-      "triggers": [
-        "總控台",
-        "被牽著走",
-        "codex 審查",
-        "自檢工具",
-        "主動發掘",
-        "矛盾",
-        "困擾",
-        "工作要求",
-        "品質維持",
-        "裁定",
-        "Codex 建議",
-        "派不派",
-        "邊角問題",
-        "範圍飄移",
-        "不要附和",
-        "快且有效",
-        "成本效益",
-        "矯枉過正"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追",
       "path": "memory/Failures/思考與決策/feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追.md",
       "triggers": [
@@ -7572,42 +7366,6 @@
         "跑偏",
         "退避的縮小版",
         "後段項目"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了.md",
-      "triggers": [
-        "文件類交付",
-        "文件總整理",
-        "checklist 改寫",
-        "接續單改寫",
-        "codex 審文件",
-        "handoff 自檢",
-        "活項對照",
-        "驗收文件",
-        "_staging",
-        "DevHistory",
-        "README 改寫"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義.md",
-      "triggers": [
-        "多軌派工",
-        "worktree 太多",
-        "開枝散葉",
-        "小幅改動不開分支",
-        "合完刪 worktree",
-        "branch -d",
-        "推送積累",
-        "軌名",
-        "總控台合併",
-        "單檔小修",
-        "純文件改動"
       ],
       "scope": "global"
     },
@@ -7650,7 +7408,8 @@
       "scope": "global",
       "related": [
         "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒",
-        "在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1"
+        "在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1",
+        "git-bash的tar解windows絕對路徑報cannot-connect-to-c-resolve-failed-冒號前被當遠端主機-加force-local或改用python-tarfile"
       ]
     },
     {
@@ -7713,24 +7472,6 @@
       "related": [
         "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行"
       ]
-    },
-    {
-      "name": "裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前.md",
-      "triggers": [
-        "裁定帳",
-        "裁定前",
-        "框架來源",
-        "零成本反事實",
-        "被翻率",
-        "判準權重",
-        "側觀視角",
-        "段落批評",
-        "總控台誤判",
-        "審查者角色",
-        "關鍵點"
-      ],
-      "scope": "global"
     },
     {
       "name": "cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook",
@@ -7875,24 +7616,6 @@
       "related": [
         "驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄"
       ]
-    },
-    {
-      "name": "原設計者下班後的夜間授權型態-對人總控台主動開工作session貼開工句-可關分頁留早上並附收錄知識提醒-只能定奪的列待原設計者-授權只給該session",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/原設計者下班後的夜間授權型態-對人總控台主動開工作session貼開工句-可關分頁留早上並附收錄知識提醒-只能定奪的列待原設計者-授權只給該session.md",
-      "triggers": [
-        "下班",
-        "夜間授權",
-        "自己開 session",
-        "空分頁",
-        "開工句",
-        "可關分頁",
-        "早上待辦",
-        "待原設計者",
-        "總控台夜間",
-        "無人值守",
-        "token 用完失效"
-      ],
-      "scope": "global"
     },
     {
       "name": "pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding",
@@ -8282,39 +8005,6 @@
       "scope": "global"
     },
     {
-      "name": "寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著.md",
-      "triggers": [
-        "擋滿等人",
-        "exhausted_block",
-        "收尾放行確認 等人",
-        "每回合再被擋",
-        "子代理被擋 9 次",
-        "走到要問那步停下",
-        "AskUserQuestion 停住"
-      ],
-      "scope": "global",
-      "related": [
-        "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效"
-      ]
-    },
-    {
-      "name": "跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器.md",
-      "triggers": [
-        "跨 session 訊息何時送進來",
-        "等同伴回覆",
-        "結束回合等不到",
-        "背景 sleep 計時器",
-        "被叫回來",
-        "ListAgents 收信"
-      ],
-      "scope": "global",
-      "related": [
-        "跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送"
-      ]
-    },
-    {
       "name": "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效",
       "path": "_AIDocs/_atoms/MemDev/子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效.md",
       "triggers": [
@@ -8412,18 +8102,6 @@
       ]
     },
     {
-      "name": "關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md",
-      "triggers": [
-        "工作軌有沒有收割",
-        "收割代寫",
-        "worktree session 收割",
-        "關分頁前",
-        "可關四項"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "feedback-帶版本名的臨時工作資料夾不得變成永久程式的依賴-派工寫路徑預設值前先問這路徑是不是通用的",
       "path": "memory/Failures/設計通則/feedback-帶版本名的臨時工作資料夾不得變成永久程式的依賴-派工寫路徑預設值前先問這路徑是不是通用的.md",
       "triggers": [
@@ -8486,23 +8164,6 @@
       ]
     },
     {
-      "name": "跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送.md",
-      "triggers": [
-        "跨 session 訊息被扣住",
-        "Cross-session delivery notice",
-        "held by that session",
-        "not approved before expiry",
-        "計畫模式 收不到訊息",
-        "權限模式不同",
-        "開工句補充"
-      ],
-      "scope": "global",
-      "related": [
-        "跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器"
-      ]
-    },
-    {
       "name": "改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去",
       "path": "memory/版控/Git/改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去.md",
       "triggers": [
@@ -8527,21 +8188,6 @@
         "目標樹結案",
         "evidence 必須是物件",
         "完整對照"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-交給使用者的開工句與計畫交出前要自審-對得上最新計畫嗎-每條指示這裡真的需要嗎-剛改的東西影響哪些已給出的內容",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-交給使用者的開工句與計畫交出前要自審-對得上最新計畫嗎-每條指示這裡真的需要嗎-剛改的東西影響哪些已給出的內容.md",
-      "triggers": [
-        "開工句",
-        "新 session prompt",
-        "給使用者的 prompt",
-        "計畫交出",
-        "交接",
-        "為啥都要我提問才會改",
-        "沿用範本",
-        "要不要進計畫模式"
       ],
       "scope": "global"
     },
@@ -8574,20 +8220,6 @@
         "功能越修腦袋越縮",
         "拐彎處",
         "LLM 下判斷的切入點"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句.md",
-      "triggers": [
-        "開工句更新",
-        "下一階段 session",
-        "新版開工句",
-        "轉給工作 session",
-        "已經開工",
-        "ListAgents",
-        "SendMessage"
       ],
       "scope": "global"
     },
@@ -8904,25 +8536,6 @@
       "scope": "global"
     },
     {
-      "name": "共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md",
-      "triggers": [
-        "ff-only",
-        "讓路",
-        "git apply --3way",
-        "暫存區",
-        "共用工作樹",
-        "同伴合併",
-        "patch 收回",
-        "未提交改動擋住合併"
-      ],
-      "scope": "global",
-      "related": [
-        "共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾",
-        "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
-      ]
-    },
-    {
       "name": "feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修",
       "path": "_AIDocs/_atoms/MemDev/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md",
       "triggers": [
@@ -9007,39 +8620,6 @@
       "related": [
         "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定"
       ]
-    },
-    {
-      "name": "feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆.md",
-      "triggers": [
-        "轉告",
-        "SendMessage",
-        "ListAgents",
-        "同伴 session",
-        "跨 session 訊息",
-        "哪個 session",
-        "session id 對不上",
-        "請使用者轉告"
-      ],
-      "scope": "global",
-      "related": [
-        "自己flag的維護動作直接做完不要反問"
-      ]
-    },
-    {
-      "name": "feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai.md",
-      "triggers": [
-        "接續單",
-        "next-phase",
-        "checklist",
-        "給使用者看",
-        "待決",
-        "編號對照",
-        "交接文件",
-        "人讀"
-      ],
-      "scope": "global"
     },
     {
       "name": "量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況",
@@ -9304,42 +8884,6 @@
       "scope": "global"
     },
     {
-      "name": "claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收.md",
-      "triggers": [
-        "claude --bg",
-        "claude agents",
-        "claude attach",
-        "claude stop",
-        "背景 session",
-        "自動開 session",
-        "G16",
-        "Workspace not trusted",
-        "信任鍵",
-        "Rewind",
-        "native-binary claude.exe",
-        "2.1.304"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/閘本體的案例綠不等於真實任務裡會動-三個真洞都是工作軌照自己用法測-合併前每軌先用無頭claude跑一個真實小任務再合.md",
-      "triggers": [
-        "聯合驗收",
-        "案例綠",
-        "真實任務",
-        "無頭 claude -p",
-        "合併前",
-        "dogfood",
-        "閘本體",
-        "時程不確定",
-        "驗收翻盤",
-        "工作軌交付"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath",
       "path": "_AIDocs/_atoms/MemDev/commit指令拆解要照shell解引號跳脫與here-string-拆不準要擋不能無聲-git不收黏接的-cpath.md",
       "triggers": [
@@ -9371,19 +8915,6 @@
         "收尾自動匯出",
         "預設有下個 session",
         "不內建"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台不得挪用原設計者自己開的其他分頁-回報分做了什麼與等你的與等機器的三行-要他決定的題要附白話內容不能只丟數量.md",
-      "triggers": [
-        "閲置分頁",
-        "MR 審查分頁",
-        "待你裁",
-        "分歧五條",
-        "推卸責任",
-        "驗收腳本代打的句子"
       ],
       "scope": "global"
     },
@@ -9576,26 +9107,6 @@
       ]
     },
     {
-      "name": "工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/工作軌交付常漏tech與changelog-總控台對帳加第六項文件同步-合併前grep規則名與工具名在tech有沒有-派工單明寫要自己寫文件.md",
-      "triggers": [
-        "交付信對帳",
-        "文件同步",
-        "TECH 沒更新",
-        "CHANGELOG 漏寫",
-        "工作軌交付",
-        "合併對帳五項",
-        "總控台補文件",
-        "派工單 文件",
-        "規則名 grep TECH"
-      ],
-      "scope": "global",
-      "related": [
-        "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
-        "feedback-審查或交付時挖出的問題只有已修或飄移不做兩種寫法-不准推給下一個session"
-      ]
-    },
-    {
       "name": "在worktree驗第二意見修法要直接跑worktree的runpy-mcp跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串",
       "path": "_AIDocs/_atoms/MemDev/在worktree驗第二意見修法要直接跑worktree的runpy-mcp跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串.md",
       "triggers": [
@@ -9614,70 +9125,6 @@
       "related": [
         "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
       ]
-    },
-    {
-      "name": "claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉.md",
-      "triggers": [
-        "claude --bg",
-        "console-spawn",
-        "bg session waiting",
-        "背景工作軌",
-        "claude stop",
-        "ListAgents bg waiting",
-        "收尾放行題沒人答",
-        "工作樹 Permission denied"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-大型多量條列計畫用總控台配靜默cli-session派工-claude-bg起軌不佔分頁-啟動時就設好模型-先決條件是有總控台.md",
-      "triggers": [
-        "靜默 CLI session",
-        "claude --bg 派工",
-        "console-spawn",
-        "大型計畫派工",
-        "多量條列項目",
-        "總控台派工方法",
-        "背景工作軌模型",
-        "--model 派工",
-        "不佔分頁"
-      ],
-      "scope": "global",
-      "related": [
-        "claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉"
-      ]
-    },
-    {
-      "name": "hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep.md",
-      "triggers": [
-        "全機殘留",
-        "session-artifacts",
-        "--all-safe",
-        "不用再確認的",
-        "清掉暫存",
-        "HUD 殘留",
-        "收尾自清",
-        "信箱被刪",
-        "派工單被清"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/文件軌在worktree寫不到live的gitignore文件-派工單叫它寫進worktree同路徑自己mkdir-總控台收件後複製進live-進版控的封存檔走分支合併.md",
-      "triggers": [
-        "文件軌",
-        "memory/_staging 工作樹",
-        "worktree 沒有 _staging",
-        "改 checklist 派工",
-        "接續單派工",
-        "gitignore 文件 工作軌",
-        "文件交付複製"
-      ],
-      "scope": "global"
     },
     {
       "name": "codex-exec的stderr紀錄在user段整份回聲提示詞-replay-guard的指令行判定與整份掃都會把材料裡的git-diff與禁區路徑當codex動作-守門前先剝回聲與回答只判它自己的輸出",
@@ -9777,19 +9224,6 @@
       "related": [
         "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
       ]
-    },
-    {
-      "name": "feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台派工要讓原設計者看得見-每則回報列在跑的軌與做完他會體驗到什麼-暫停因發現問題新增g子項目-發現的問題在既有軌內修或記追蹤項不長樹.md",
-      "triggers": [
-        "黑箱作業",
-        "白話體驗",
-        "無限延展",
-        "新增子目標",
-        "樹上長節點",
-        "體感評分"
-      ],
-      "scope": "global"
     },
     {
       "name": "小模型當文字規格裁判實測-逐條是非題加程式先切範圍才準-一次全判會拿後文湊答案-裁判偏寬鬆先記帳不擋-引用對不到原文就作廢",
@@ -10834,22 +10268,6 @@
       ]
     },
     {
-      "name": "收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/收尾檢核報告的讀者是看hud的人不是總控台-第一行寫哪一軌做哪條g的哪件事給誰看-對總控台的話標給總控台-術語附白話.md",
-      "triggers": [
-        "收尾檢核",
-        "anti_evasion_report",
-        "要你處理",
-        "這輪做了什麼",
-        "下一步要你做",
-        "HUD 報告",
-        "沒頭沒尾",
-        "背景軌收尾",
-        "AEC 白話"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼",
       "path": "_AIDocs/_atoms/MemDev/判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼.md",
       "triggers": [
@@ -10972,20 +10390,6 @@
       ]
     },
     {
-      "name": "無頭驗收實跑期間不要合併進live-受測session的hook程式是live的只有資料根是副本-中途合併會讓同一題前後半段跑不同程式",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/無頭驗收實跑期間不要合併進live-受測session的hook程式是live的只有資料根是副本-中途合併會讓同一題前後半段跑不同程式.md",
-      "triggers": [
-        "無頭實跑",
-        "驗收期間合併",
-        "WG_CLAUDE_DIR",
-        "受測資料根",
-        "claude -p 驗收",
-        "程式是 live 的",
-        "混淆因素"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "靜態分析量尺真打後先抽樣每種解析不到的原因-多數是可修的讀錯或標太寬-遮字串要留記號",
       "path": "memory/驗證與實證/靜態分析量尺真打後先抽樣每種解析不到的原因-多數是可修的讀錯或標太寬-遮字串要留記號.md",
       "triggers": [
@@ -11006,21 +10410,6 @@
       "related": [
         "接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑"
       ]
-    },
-    {
-      "name": "feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台別把能並行的事排成串-每收一件就問還有哪些不衝突的可以同時開-慢的主因是串行等交付不是軌本身慢.md",
-      "triggers": [
-        "有點慢",
-        "多開併行",
-        "串行",
-        "等交付",
-        "一天完工",
-        "總控台排程",
-        "背景 session 上限",
-        "無職工"
-      ],
-      "scope": "global"
     },
     {
       "name": "失敗的工具呼叫cc只送posttoolusefailure-靠posttooluse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記",
@@ -11120,21 +10509,6 @@
       "scope": "global"
     },
     {
-      "name": "feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-多軌總控台有軌收尾就照原則接著開新軌-不等原設計者提醒-只有衝突或先後依賴才等.md",
-      "triggers": [
-        "總控台派工",
-        "並行上限",
-        "持續多開",
-        "有軌收尾",
-        "名額空著",
-        "閒置 session",
-        "派工節奏",
-        "工人模型 Opus"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣",
       "path": "memory/CC與原子記憶契約/切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣.md",
       "triggers": [
@@ -11169,21 +10543,6 @@
       "related": [
         "commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取"
       ]
-    },
-    {
-      "name": "無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/無頭驗收實跑期間同一台機器不跑重測試與判分-並行負載讓受測session的hook逾時被砍-凍結合併不夠還要凍結重負載.md",
-      "triggers": [
-        "無頭驗收",
-        "實跑期間",
-        "hook 逾時",
-        "並行負載",
-        "同機跑測試",
-        "凍結合併",
-        "hook_cancelled",
-        "總控台實跑規矩"
-      ],
-      "scope": "global"
     },
     {
       "name": "判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致",
@@ -11295,48 +10654,6 @@
         "搬回 memory",
         "收割搬卡",
         "E16 退路雜訊"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-驗收條目過不過這類定義題是ai判得了的不准卡等原設計者-自己裁附理由做下去-只有不可逆業務取捨動他的設定才問.md",
-      "triggers": [
-        "等原設計者裁",
-        "算不算過",
-        "定義題",
-        "卡等",
-        "判分分歧",
-        "要你決定的",
-        "總控台裁定",
-        "全推進到全完成"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-總控台對ai判得了的定義題不准卡等原設計者-先自裁附理由做下去-拿不準送對人代理當天回-只有不可逆業務取捨動settings才問他.md",
-      "triggers": [
-        "待原設計者裁",
-        "等他裁",
-        "分歧待裁",
-        "全推進"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-給原設計者的進度回報不要技術臭-每條用他會體驗到的事說-差什麼一句話-被退回重來的前後對照",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-給原設計者的進度回報不要技術臭-每條用他會體驗到的事說-差什麼一句話-被退回重來的前後對照.md",
-      "triggers": [
-        "技術臭",
-        "重來一次",
-        "進度回報",
-        "還剩什麼",
-        "差什麼",
-        "給原設計者看",
-        "四段回報",
-        "checklist 白話",
-        "調度回報"
       ],
       "scope": "global"
     },
@@ -11495,7 +10812,7 @@
       "scope": "global",
       "related": [
         "驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit",
-        "無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀"
+        "綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路"
       ],
       "depends": [
         "path:C:/Users/holylight/.claude/hooks/wg_atoms.py"
@@ -11552,7 +10869,10 @@
         "文字還沒落盤",
         "資料檔宣告"
       ],
-      "scope": "global"
+      "scope": "global",
+      "related": [
+        "擋訊息教的替代管道會被當成替代做法-寫明註解只放在不寫檔的指令上-宣告完照常用edit-write-同類說法全面grep並用掃原始碼的案例守住"
+      ]
     },
     {
       "name": "cc的vscode擴充回覆內檔案連結相對session-cwd解析-井號片段非數字找標題-路徑內的井號與百分號要編碼",
@@ -11662,23 +10982,6 @@
       "scope": "global"
     },
     {
-      "name": "feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-token預算快用盡時減量軌工人用守門全關設定起-重複行為與反覆驗證一律砍-同步提醒這類沒人讀的注入是死重量.md",
-      "triggers": [
-        "token 預算",
-        "減量",
-        "守門全關",
-        "disableAllHooks",
-        "重複行為",
-        "反覆驗證",
-        "同步提醒",
-        "力氣用在刀口上",
-        "耗時上限",
-        "守門代價"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法",
       "path": "_AIDocs/_atoms/MemDev/驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法.md",
       "triggers": [
@@ -11717,21 +11020,6 @@
         "夢工規則進產品",
         "寫進 hook",
         "單人單 session"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "feedback-原設計者裁定只看兩把尺-耦合他的目標嗎-增加耗重嗎-任一不過就降級或拿掉-拿不準就問他附建議",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/feedback-原設計者裁定只看兩把尺-耦合他的目標嗎-增加耗重嗎-任一不過就降級或拿掉-拿不準就問他附建議.md",
-      "triggers": [
-        "兩把尺",
-        "耦合目標",
-        "增加耗重",
-        "要不要留",
-        "裁定判準",
-        "降級或拿掉",
-        "優先去掉",
-        "盤點關卡"
       ],
       "scope": "global"
     },
@@ -11780,22 +11068,6 @@
       "scope": "global"
     },
     {
-      "name": "對人總控台兩次混層-把原設計者給總控台的規矩落成會注入的卡-把產品行為的證明寫成調度對帳儀式-判準是這件事離開總控台還存在嗎",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/對人總控台兩次混層-把原設計者給總控台的規矩落成會注入的卡-把產品行為的證明寫成調度對帳儀式-判準是這件事離開總控台還存在嗎.md",
-      "triggers": [
-        "混層",
-        "開發規矩 vs 實際目標",
-        "總控台裁定",
-        "容易認錯",
-        "對帳儀式",
-        "探針",
-        "落卡",
-        "post-mortem",
-        "v6總控台"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "要求證據晚於最後一次改動的閘-若採納它的意見本身就算改動-就會無限連鎖-要定成每次宣告最多要一次",
       "path": "memory/設計通則/要求證據晚於最後一次改動的閘-若採納它的意見本身就算改動-就會無限連鎖-要定成每次宣告最多要一次.md",
       "triggers": [
@@ -11822,19 +11094,6 @@
         "classify_intent",
         "寫碼意圖",
         "第十四刀"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "裁定改了之後要回頭改派工單上的舊句-接手的總控台讀到舊說法會重開已做完的工作",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/裁定改了之後要回頭改派工單上的舊句-接手的總控台讀到舊說法會重開已做完的工作.md",
-      "triggers": [
-        "派工單舊句",
-        "重開軌",
-        "已經做完",
-        "接手讀錯",
-        "裁定後改單",
-        "補充表已存在"
       ],
       "scope": "global"
     },
@@ -11933,7 +11192,8 @@
         "WG_CLAUDE_DIR",
         "transcript 路徑不存在",
         "--settings 合併不取代",
-        "project,local",
+        "project",
+        "local",
         "--mcp-config",
         "--resume 兩回合",
         "projects slug",
@@ -12001,8 +11261,8 @@
       ],
       "scope": "global",
       "related": [
-        "部位表前綴要含斜線才認得-根目錄單檔當前綴整列被靜默略過",
-        "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過"
+        "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過",
+        "部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的"
       ]
     },
     {
@@ -12358,7 +11618,8 @@
       ],
       "scope": "global",
       "related": [
-        "無頭探針驗skill行為-claude-p加setting-sources-project與strict-mcp-config不載使用者層hook與MCP"
+        "無頭探針驗skill行為-claude-p加setting-sources-project與strict-mcp-config不載使用者層hook與MCP",
+        "重跑驗修補時判分過了不等於每件修補都驗到-逐件核修補路徑這次有沒有走到-沒走到明寫並指回修補時的案例"
       ]
     },
     {
@@ -13281,23 +12542,6 @@
       "scope": "global"
     },
     {
-      "name": "工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝.md",
-      "triggers": [
-        "砍後量法",
-        "無頭重跑量砍後",
-        "事件帳重播",
-        "hook 指向 live",
-        "worktree 量測",
-        "省多少三欄",
-        "減量量測"
-      ],
-      "scope": "global",
-      "related": [
-        "用事件帳重播量改動省多少前先拿舊碼重播跟實跑transcript逐字對帳-對上了才換新碼量-重播輸入要還原到當時"
-      ]
-    },
-    {
       "name": "claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點",
       "path": "memory/CC與原子記憶契約/claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點.md",
       "triggers": [
@@ -13757,23 +13001,6 @@
       "related": [
         "守門只在寫碼回合啟動時-入口要認本回合的實質改碼或本回合宣告-不能認跨回合常駐的目標樹-也不能認關鍵字意圖"
       ]
-    },
-    {
-      "name": "對人總控台三個耗重根因-限制沒寫解除條件讓工人空等-量測沿用8跑規格在結論已知時白燒-分布沒量就先開刀砍到小頭-原設計者裁全關時不得自己再起軌",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/對人總控台三個耗重根因-限制沒寫解除條件讓工人空等-量測沿用8跑規格在結論已知時白燒-分布沒量就先開刀砍到小頭-原設計者裁全關時不得自己再起軌.md",
-      "triggers": [
-        "空等",
-        "限制解除條件",
-        "8 跑",
-        "量測必要性",
-        "刀口沒對準",
-        "先量再砍",
-        "全關重開",
-        "自作主張起軌",
-        "儀式成本",
-        "主腦子代理"
-      ],
-      "scope": "global"
     },
     {
       "name": "feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾",

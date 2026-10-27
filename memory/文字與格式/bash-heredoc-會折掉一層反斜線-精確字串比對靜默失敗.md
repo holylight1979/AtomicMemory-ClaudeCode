@@ -18,6 +18,7 @@
 - [臨] 同環境其他坑：單張 Bash 指令約超過 8KB 會被截斷（heredoc 尾部直接不見，報 unexpected EOF），大檔／大 patch 一律 Write 落地成 .py 再跑；printf 遇 Windows 路徑的 `\U` 會被當成 unicode 跳脫報錯。
 - [臨] 批次改檔也要顧換行：`open()` 預設讀（universal newline）再寫回，CRLF 檔整檔變 LF（diff 1100 行）→ 用 `io.open(p, newline='')` 讀寫、pattern 先 `.replace('\\n', nl)`（nl 由檔內偵測）；改完 `git diff --stat`，行數異常膨脹即換行被改，用 `git show HEAD:` 對照還原。根因不是不知道，是沒把「先查換行格式」當寫批次改檔腳本的固定前置步驟。
 - [臨] 另一例：用 heredoc `cat >> 測試檔` 附加測試碼，碼裡的反斜線同樣被吃掉一層。
+- [臨] 用單引號分隔符 `<<'EOF'` 也一樣折；寫檔尾案例時 `"C:\\proj\\a.py"` 落檔成 `\a`（鯓聲字元）。解法：含反斜線的字串改 Edit 工具寫，或 python -c 配 argv、路徑用正斜線。
 
 ## 行動
 
