@@ -392,9 +392,19 @@ def _critique_cases() -> str:
 CRITIQUE_LINE_HINT = f"定位三行的下面加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_cases()}"
 
 
+def _critique_pointer() -> str:
+    import wg_need_goal as _ng
+    return _ng.CRITIQUE_CASES_POINTER
+
+
+# 三種情況這個 session 送過全文之後（規則 CRITIQUE_CASES_ONCE_PER_SESSION）：定位第五行的格式照送，三種情況換成指回句
+CRITIQUE_LINE_SHORT = f"定位三行的下面加一行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_pointer()}"
+
+
 def _goal_block(session_id: str, cfg: Dict[str, Any], part_key: Optional[str] = None, turn: Optional[int] = None) -> str:
-    """導讀卡開頭附的目標（有目前的樹才附）：樹根一行＋當前節點一行（這個部位掛了節點就是那個），讓「目標」與「這一塊的說明」
-    同時在眼前；同一個使用者回合已附過同一份就只留定位第五行的提醒（給了 turn 才去重）。全樹要看用 need_goal read。讀不到只 stderr。"""
+    """導讀卡開頭附的目標（有目前的樹才附）：brief_for（新送法只一行當前節點，這個部位掛了節點就是那個；樹根與整棵樹在 need_goal
+    寫入的回覆送過），讓「目標」與「這一塊的說明」同時在眼前；同一個使用者回合已附過同一份就只留定位第五行的提醒（給了 turn 才去重）。
+    定位第五行提示裡的三種情況每個 session 只送一次全文（wg_need_goal.critique_once）。全樹要看用 need_goal read。讀不到只 stderr。"""
     ng = cfg.get("need_goal") if isinstance(cfg.get("need_goal"), dict) else {}
     if not session_id or not ng.get("enabled", True):
         return ""
@@ -406,10 +416,11 @@ def _goal_block(session_id: str, cfg: Dict[str, Any], part_key: Optional[str] = 
         return ""
     if not tree:
         return ""
-    b = _ng.brief(tree, part_key) if turn is None else _ng.brief_once(session_id, int(turn), part_key)
+    b = _ng.brief_for(tree, part_key) if turn is None else _ng.brief_once(session_id, int(turn), part_key)
+    hint = CRITIQUE_LINE_HINT if _ng.critique_once(session_id) else CRITIQUE_LINE_SHORT
     if not b:
-        return f"[NeedGoal] 改這個部位的程式檔時，{CRITIQUE_LINE_HINT}（目前的需求目標同本回合前面那則）"
-    return f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，{CRITIQUE_LINE_HINT}）：\n{b}"
+        return f"[NeedGoal] 改這個部位的程式檔時，{hint}（目前的需求目標同本回合前面那則）"
+    return f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，{hint}）：\n{b}"
 
 
 def _goal_tree_for(session_id: str, file_path: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
