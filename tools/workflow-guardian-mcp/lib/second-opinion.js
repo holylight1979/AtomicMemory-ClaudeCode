@@ -134,8 +134,9 @@ async function toolSecondOpinionStart(id, args) {
     crashLog("second_opinion execute spawn", e);
     return sendToolResult(id, lines.concat([`reason: execute 起不來：${e.message}`]).join("\n").replace("status: started", "status: failed"), true);
   }
-  lines.push(`job_dir: ${p.job_dir}`, `下一步：直接呼叫 second_opinion_result({job_id})，它會等到有結果（codex 通常 60～300 s；` +
-             `每次最多等 ${RESULT_WAIT_MS / 1000} s，回 running 就再呼叫一次），不用另開背景等待。`);
+  lines.push(`job_dir: ${p.job_dir}`, `下一步：不用守著等，可以先把收尾其餘的事做完，要結果時呼叫 second_opinion_result({job_id})：` +
+             `跑完了馬上回，還在跑會等到有結果（codex 通常 60～300 s；每次最多等 ${RESULT_WAIT_MS / 1000} s，回 running 就再呼叫一次），` +
+             `不用另開背景等待；收尾時還在跑就寫一行 \`等第二意見｜${p.job_id}\`，那次不算宣告完成。`);
   return sendToolResult(id, lines.join("\n"));
 }
 

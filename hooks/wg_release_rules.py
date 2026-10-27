@@ -3984,3 +3984,38 @@ RULES.update({
                                    "（wg_provenance._subagent_opener），lib/provenance.is_human_record 是才填（isSidechain 一律不算真人）；"
                                    "貼上的內容（lib/harness_text.strip_pasted）不當原話。守門總開關開關都套。",
 })
+
+
+# ─── 收尾只跑一輪、第二意見背景跑（事實與時點在 hooks/wg_closing_round.py、wg_reading_path.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
+RULES.update({
+    "READING_PATH_EARLY_START": "拐彎判斷的背景量測改完程式就起跑，不等第一次收尾：每批工具跑完（PostToolBatch）看本回合改過的程式檔"
+                                "指紋（修改時間、大小，只 stat 不起 git），變了就照收尾那套交背景量（量測中又改了先記 pending、同一批不重量）；"
+                                "量完的結果先存著（wg_reading_path.early_start、EARLY_NOTE），由收尾前的附著點或 Stop 送一次，"
+                                "Stop 收到新的一批就只送新的。開關 reading_path.early_start（缺＝開）；關了照舊在收尾起跑。",
+    "TURN_JUDGMENT_PRE_CLOSE": "交收尾檢核（anti_evasion_report）那批＝收尾前最後一個工具回應：先存著的拐彎判斷結果（到門檻的條目＋那一題）"
+                               "附在那批的回應後面（wg_closing_round.turn_judgment_pre_close），取走後 Stop 不再送；還有一批在量（量完前又改了碼）"
+                               "就不附，留給 Stop。欠項照舊由 Stop 的 TURN_JUDGMENT_REQUIRED 核對收尾文字（不放寬、不改擋次）。",
+    "PICK_ONE_PRE_CLOSE": "交收尾檢核那批就是交付邊界：「順手看到最該修」該問（同 Stop：上次問過或記過之後又改了程式、這個使用者回合還沒問過，"
+                          "連鎖警報後只記錄時不送）就附在那批的回應後面、記問過（guard-pick_one via=pre_close）；Stop 的 pick_due 看到問過"
+                          "就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；沒交收尾檢核或開關關照舊由 Stop 送。",
+    "PICK_ONE_WITH_TURN_JUDGMENT": "Stop 的拐彎判斷擋下時，「順手看到最該修」該問就接在同一則擋訊息後面一起問（記問過）：補一次就兩件都寫，"
+                                   "不再擋完又另讓對話續跑一輪。跟 PICK_ONE_PRE_CLOSE 同一個開關。",
+    "SECOND_OPINION_BACKGROUND": "第二意見背景跑、收尾不等它：開關 second_opinion.auto.background（缺＝開）開時，第二意見閘的擋訊息寫"
+                                 "「start 後不用等結果，先把收尾其餘的事做完；收尾時還在跑就寫等第二意見｜<job_id>（不算宣告完成、不擋）」"
+                                 "（second_opinion_hint_background；判定、門檻、擋次都不變，還在跑照 SECOND_OPINION_WAITING_NOT_DONE）；"
+                                 "MCP 端 second_opinion_start 的下一步與 second_opinion_result 的說明同一個說法。關了照舊寫 start 後直接呼叫 result 等結果。",
+    "SECOND_OPINION_DONE_NOTICE": "本 session 開的第二意見 job（這批有 second_opinion_start、或收尾寫了等第二意見｜<job_id>）記進看守"
+                                  "（state second_opinion_watch）；從在跑變成 done／failed／blocked 而 AI 還沒取回（這批或本回合沒有對那個 job 的 "
+                                  "second_opinion_result）→ 附一次「取回、補四行」：下一批工具回應（PostToolBatch）或收尾（Stop 跟最該修同一則）"
+                                  "先到先送，每個 job 只送一次、留帳 guard-second_opinion event=done_notice。開始看守時已經跑完的 job 不提醒。"
+                                  "跟 SECOND_OPINION_BACKGROUND 同一個開關；取回之後照 SECOND_OPINION_RESULT_ACROSS_TURNS 判跑過。",
+})
+
+SO_BACKGROUND_WAITS = ("start 後不用等結果：先把收尾其餘的事做完（驗證、文件、收尾檢核），跑完了系統會在下一批工具回應或收尾時提醒你取回；"
+                       f"收尾時還在跑就寫一行 `{SO_WAIT_LINE}`（那次不算宣告完成、不擋），跑完了用 second_opinion_result 取回"
+                       "（跑完了馬上回；還在跑它會等，每次最多約 100 秒）、補四行")
+
+
+def second_opinion_hint_background() -> str:
+    """SECOND_OPINION_BACKGROUND：擋訊息末尾的入口，同 second_opinion_hint，只換掉「start 後直接呼叫 result 等結果」那句。"""
+    return second_opinion_hint().replace(SO_RESULT_WAITS, SO_BACKGROUND_WAITS)

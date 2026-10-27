@@ -6,7 +6,8 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 
 職責：把 PostCompact stash 的 atom 復原內文、需求目標樹、部位綜觀「一次性」注入，閉合 mid-turn auto-compact 缺口
 （壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；另把需求目標流程的批次提醒
-（讀入範圍變大、同檔改多次、PreToolUse 沒攔到的提問）合併成同一段送出。
+（讀入範圍變大、同檔改多次、PreToolUse 沒攔到的提問）合併成同一段送出；收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、
+交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）、第二意見跑完接上。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
 """
 
@@ -26,6 +27,17 @@ def _points_module() -> Any:
         return None
 
 
+def _closing_round(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> tuple:
+    """收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、交收尾檢核那批附上收尾要問的、第二意見跑完接上。
+    回 (段落, state 有沒有改)；載入失敗 → stderr 一行、這批不做（收尾照舊在 Stop 送）。"""
+    try:
+        import wg_closing_round
+        return wg_closing_round.on_batch(state, session_id, input_data, config)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:ClosingRound] 收尾一輪的批次處理失敗（收尾照舊送）：{type(e).__name__}: {e}", file=sys.stderr)
+        return [], False
+
+
 def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -35,11 +47,12 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     sub = bool(input_data.get("agent_id"))
     ngp = _points_module() if state and v6 and not sub and coding_turn(state, config) else None   # 規則 CODING_TURN_ONLY
     goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
+    close_parts, close_changed = _closing_round(state, session_id, input_data, config) if state and v6 and not sub else ([], False)
     # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
         or (v6 and (state.get("pending_reinjection_overview") or (state.get("pending_reinjection_goal") and not sub)))
-        or goal_due
+        or goal_due or close_parts or close_changed
     ):
         output_nothing()
         return
@@ -96,6 +109,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             except Exception as e:  # noqa: BLE001
                 print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
 
+        parts.extend(close_parts)     # (4) 收尾一輪：收尾前附的拐彎判斷、最該修，第二意見跑完的提醒
         write_state(session_id, state)
     except Exception as e:
         print(f"[#4] post_tool_batch reinject error: {e}", file=sys.stderr)

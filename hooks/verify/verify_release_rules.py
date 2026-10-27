@@ -2651,3 +2651,11 @@ def test_quote_from_user_opened_turn_registered():
     （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
     assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
     assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()
+
+
+@pytest.mark.parametrize("rule", ["READING_PATH_EARLY_START", "TURN_JUDGMENT_PRE_CLOSE", "PICK_ONE_PRE_CLOSE",
+                                  "PICK_ONE_WITH_TURN_JUDGMENT", "SECOND_OPINION_BACKGROUND", "SECOND_OPINION_DONE_NOTICE"])
+def test_closing_round_rules_cased_in_closing_round(rule):
+    """收尾只跑一輪、第二意見背景跑的規則：端到端案例在 verify_closing_round.py（PostToolBatch→Stop）。"""
+    assert rule in rr.RULES
+    assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")

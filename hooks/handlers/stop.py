@@ -75,9 +75,11 @@ from wg_harvest import (
 )
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note, without_judgment_prompt
 from wg_text_score import on_stop as _text_score_on_stop
-from wg_release_rules import format_hit, second_opinion_hint
+from wg_release_rules import format_hit, second_opinion_hint, second_opinion_hint_background
 from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE, \
     mark_ok as _so_mark_ok
+from wg_closing_round import pick_pre_close_on as _pick_pre_close_on, so_background_on as _so_background_on, \
+    so_done_notice as _so_done_notice, watch_job as _so_watch_job
 from wg_hook_timing import lap as _hook_lap, quiet as _hook_quiet
 from handlers._shared import (
     _hud_alive,
@@ -2339,7 +2341,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _turn_block = None
     if _turn_block:
         reason = _piggyback(_turn_block)
-        write_state(session_id, state)          # 記擋的回合（blocked_turn）與 _piggyback 標的一次性旗標
+        # 規則 PICK_ONE_WITH_TURN_JUDGMENT：拐彎判斷擋下時「順手看到最該修」該問就同一則一起問（記問過），補一次就兩件都寫，
+        # 不再另讓對話續跑一輪（開關 pick_one.pre_close；關了照舊排在所有閘之後另送）
+        _tj_pick = (v6 and not _chain_ro[0] and _pick_pre_close_on(config) and _pick_one_prompt(
+            state, session_id, own_mod_files, _pick_boundary, config, cwd, continuation=bool(input_data.get("stop_hook_active"))))
+        if _tj_pick:
+            reason = f"{reason}\n{with_note(_tj_pick, entry_note(_tj_pick, 'stop_piggyback', session_id=session_id, state=state, config=config))}"
+        write_state(session_id, state)          # 記擋的回合（blocked_turn）、_piggyback 標的一次性旗標與最該修問過
         output_block(reason)
         return
     if _tj_changed:
@@ -2364,6 +2372,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         # 規則 SECOND_OPINION_WAITING_NOT_DONE：還在跑、收尾有「等第二意見｜<job_id>」行 → 不算宣告完成，不擋不吃擋次，只留帳
         append_guard_log(_SO_GATE, {"event": "waiting", "session_id": session_id, "turn_seq": turn_seq,
                                     "job": _sof["waiting"][-1], "code_files": _sof.get("code_files")})
+        if _so_background_on(config):           # 規則 SECOND_OPINION_DONE_NOTICE：在等的 job 記進看守，跑完了下一批工具回應或收尾提醒取回
+            for _so_job in _sof["waiting"]:
+                _so_watch_job(state, session_id, _so_job)
+            write_state(session_id, state)
     elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
         print("[Guardian:SecondOpinion] 使用者已放行這一回合，本次不擋", file=sys.stderr)
     elif _sov is not None and _sov.owed:
@@ -2386,13 +2398,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _so_max = int(_sof["cfg"].get("max_blocks_per_turn", 1))
             _so_full = _so_pend or bool(budget_exhausted(_so_rec, _so_uturn, _so_max, [_SO_LETTER]))
             _so_hit = format_hit(_SO_LETTER, _sov)
+            # 規則 SECOND_OPINION_BACKGROUND：開關 second_opinion.auto.background 開 → 提示寫 start 後不用等、跑完再接上；關照舊
+            _so_hint = second_opinion_hint_background() if _so_background_on(config) else second_opinion_hint()
             if _so_full:
                 set_pending(state, session_id, _SO_GATE, turn_seq, _now_iso(), _so_hit, [code_text])
                 _so_msg = (f"{exhausted_message('SecondOpinion', None if _so_pend else _so_max, _so_hit)}\n原擋訊息：\n"
-                           f"{_so_hit}\n{second_opinion_hint()}")
+                           f"{_so_hit}\n{_so_hint}")
             else:
                 _so_msg = (f"[Guardian:SecondOpinion] 宣告完成前要第二意見（本 session 改了 {_sof.get('code_files')} 個程式檔）\n"
-                           f"{_so_hit}\n{second_opinion_hint()}")
+                           f"{_so_hit}\n{_so_hint}")
             _so_budget[session_id] = budget_tick(_so_rec, _so_uturn, [_SO_LETTER])
             append_guard_log(_SO_GATE, {"event": "exhausted_block" if _so_full else "block", "session_id": session_id,
                                         "turn_seq": turn_seq, "rule": _sov.rule, "why": _sov.why[:200],
@@ -2800,10 +2814,21 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         print("[Guardian:ChainBreaker] 連鎖中止中：這次收尾不送「順手看到最該修」", file=sys.stderr)
     _pick = v6 and not _chain_ro[0] and _pick_one_prompt(
         state, session_id, own_mod_files, _pick_boundary, config, cwd, continuation=bool(input_data.get("stop_hook_active")))
-    if _pick:
+    # 規則 SECOND_OPINION_DONE_NOTICE：看守中的第二意見收尾當下已跑完、本回合還沒取回 → 跟最該修同一則提醒取回（只提醒一次）
+    _so_note = None
+    if v6 and _so_background_on(config) and ((state.get("second_opinion_watch") or {}).get(session_id) or {}).get("on"):
+        try:
+            from wg_second_opinion import turn_events
+            _so_note = _so_done_notice(state, session_id, [r["job_id"] for r in turn_events(transcript_text)[1]
+                                                           if r.get("status") in ("done", "failed", "blocked")])
+        except Exception as e:  # noqa: BLE001
+            print(f"[Guardian:SecondOpinion] 第二意見跑完的提醒出錯（這次不送）：{type(e).__name__}: {e}", file=sys.stderr)
         write_state(session_id, state)
-        _pick = with_note(_pick, entry_note(_pick, "stop_piggyback", session_id=session_id, state=state, config=config))
-        output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _pick}})
+    if _pick or _so_note:
+        write_state(session_id, state)
+        _ctx = "\n".join(with_note(t, entry_note(t, "stop_piggyback", session_id=session_id, state=state, config=config))
+                         for t in (_pick, _so_note) if t)
+        output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _ctx}})
         return
 
     if _timed_out("點出最該修"):

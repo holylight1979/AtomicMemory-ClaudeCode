@@ -505,8 +505,10 @@ def test_wait_in_flight_end_reply_without_job_id_still_blocks(drive, capsys, tmp
 
 
 def test_block_message_says_result_waits(drive, capsys, tmp_path):
-    """第一次擋訊息寫明 start 後直接呼叫 result、它會等到有結果，不用另開背景等待（補題第二版第 4 回合 AI 照一般做法背景等）。"""
-    reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5))
+    """開關 second_opinion.auto.background 關（舊送法）：第一次擋訊息寫明 start 後直接呼叫 result、它會等到有結果，不用另開背景等待
+    （補題第二版第 4 回合 AI 照一般做法背景等）。開關開的寫法見 verify_closing_round.py。"""
+    reason, _state, _logs = drive(DONE, capsys, files=_files(tmp_path, 5),
+                                  config={"second_opinion": {"auto": {"background": False}}})
     assert "直接呼叫 second_opinion_result" in reason and "會等到有結果" in reason and "不用另開背景等待" in reason
     assert reason.split("\n判準卡（")[0].rstrip().endswith(HINT_TAIL)
 

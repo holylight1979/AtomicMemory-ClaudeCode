@@ -2,6 +2,9 @@
 
 做什麼：改了程式碼的回合，Stop 只算出這一批輸入、交給背景行程量（本檔 --job），不等它；背景量完寫結果檔，之後任何一次收尾
 把結果附上一次（stop.py 併進那次擋的訊息與 stderr）。數字是尺不是判決：只量、只附，不擋、不計預算。
+改完程式就起跑（early_start，規則 READING_PATH_EARLY_START，開關 reading_path.early_start）：每批工具跑完（PostToolBatch，
+wg_closing_round）看本回合改過的程式檔有沒有變，變了就照同一套交背景量；量完的結果先存著，收尾前最後一個工具回應（交收尾檢核那批）
+附上（take_early_note），沒附到就由 Stop 照舊送。第一次收尾就有數據，拐彎判斷那一題跟收尾一起出現，不再多擋一輪。
 量的內容：對本 session 改過的檔所在的入口跑量尺的比較模式（before＝本 session 第一次改檔前的 HEAD、after＝工作樹、--scope git），
 組成一段文字：尾行（READING_PATH DONE mode=compare …）、可評級與否（不可評級附原因）、變差／新增最差一條。
 超線才有字：一個根沒有到門檻的條目（見下「拐彎判斷」）→ 它的數據（上面那段與函式級數據表）不進結果文字、不送模型，
@@ -72,6 +75,7 @@ STOP_GIT_BUDGET_S = 1.0    # 收尾當下查「哪些改檔還沒 git add」的�
 GRACE_S = 60.0             # 背景行程超過預算這麼久還沒交結果 → 當它中斷了
 STALE_S = 86400.0          # 沒人收的工作檔與結果檔留這麼久
 JOB_DIR = WORKFLOW_DIR / "reading-path"
+EARLY_NOTE = "early_note"  # 改完程式就起跑（early_start）收下、還沒送出的結果文字（收尾前的附著點或 Stop 送一次）
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "reading-path.py"
 TAG = "[Guardian:ReadingPath]"
 STATUS_LABEL = {"worse": "變差", "new": "新增"}
@@ -641,6 +645,7 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
                       spawn: Optional[Callable[[Path], Any]] = None) -> Tuple[Optional[str], bool]:
     """收尾時呼叫 → (要附在收尾檢核的文字或 None, state 有沒有改)。
     ① 背景量完的結果附上一次；② 這回合改了程式碼（或量測中又改過）而且是新的一批 → 交給背景量，這次不附、不等。
+    改完程式就起跑（early_start）先收下、還沒送出的那份（rec[EARLY_NOTE]）也在這裡送；這次又收到新結果就只送新的（新的一批蓋掉舊的）。
     會更新 state["reading_path"][session_id]（呼叫端負責寫回 state）。spawn：起背景行程的函式（預設 _spawn_worker）。
     run 沒給＝呼叫當下的 subprocess.run（規則 SUBPROCESS_RUN_LOOKED_UP_AT_CALL：測試的 git 錄製重播換掉它時才攔得到）。"""
     run = run or subprocess.run
@@ -649,11 +654,15 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
     own = [m for m in state.get("modified_files") or [] if (m or {}).get("session_id", session_id) == session_id]
     code_turn = bool(code_files(own, exts, int(state.get("turn_seq", 0))))
     rec = (state.get("reading_path") or {}).get(session_id) or {}
-    if not code_turn and not rec.get("job") and not rec.get("pending"):
+    if not code_turn and not rec.get("job") and not rec.get("pending") and not rec.get(EARLY_NOTE):
         return None, False
     rec = state.setdefault("reading_path", {}).setdefault(session_id, {})
     before = json.dumps(rec, sort_keys=True, ensure_ascii=False)
-    note = _collect(rec) if rec.get("job") else None
+    early = rec.pop(EARLY_NOTE, None)
+    had_job = bool(rec.get("job"))
+    note = _collect(rec) if had_job else None
+    if not had_job or rec.get("job"):   # 這次沒收到新的一批 → 送先收下的那份；收到了就算沒超線，舊的那份也作廢
+        note = note or early
     if rec.get("job"):                  # 還在量：這批先記著，量完再量最新的
         if code_turn:
             rec["pending"] = True
@@ -664,6 +673,50 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
         err = _start(job, session_id, rec, spawn or _spawn_worker) if job else None
         note = "\n".join(x for x in (note, err) if x) or None
     return note, json.dumps(rec, sort_keys=True, ensure_ascii=False) != before
+
+
+def early_start_on(config: Dict[str, Any]) -> bool:
+    """開關 reading_path.early_start（缺＝開）：關了只在收尾起跑（舊送法）。"""
+    return ((config or {}).get("reading_path") or {}).get("early_start", True) is not False
+
+
+def _result_ready(job: Optional[Dict[str, Any]]) -> bool:
+    """背景量測交了結果檔，或已超過預算加 GRACE_S（_collect 會當它中斷、回一句原因）。只 stat、不讀檔。"""
+    if not job:
+        return False
+    if Path(str(job.get("out") or "")).is_file():
+        return True
+    return time.time() - float(job.get("at") or 0) >= float(job.get("budget") or WORKER_BUDGET_S) + GRACE_S
+
+
+def early_start(state: Dict[str, Any], session_id: str, config: Dict[str, Any],
+                run: Optional[Callable[..., Any]] = None, spawn: Optional[Callable[[Path], Any]] = None) -> bool:
+    """規則 READING_PATH_EARLY_START：改完程式就起跑，不等第一次收尾。每批工具跑完呼叫（PostToolBatch，wg_closing_round）：
+    本回合改過的程式檔指紋（修改時間、大小）跟上次起跑時不同，或在量的那批已交結果 → 照 reading_path_note 同一套（量測中又改了先記
+    pending、同一批不重量）；收到的結果文字存 rec[EARLY_NOTE]（新的蓋掉舊的），留給收尾前的附著點或 Stop 送一次。
+    指紋只 stat 不起 git：沒改程式、也沒有交了結果的批次，這裡不做事。回 state 有沒有改（呼叫端寫回）。"""
+    exts = reconcile_cfg(config).get("code_exts") or []
+    own = [m for m in state.get("modified_files") or [] if (m or {}).get("session_id", session_id) == session_id]
+    files = code_files(own, exts, int(state.get("turn_seq", 0)))
+    rec = (state.get("reading_path") or {}).get(session_id) or {}
+    fp = json.dumps(_fingerprint(files), ensure_ascii=False) if files else ""
+    if not (files and fp != rec.get("early_fp")) and not _result_ready(rec.get("job")):
+        return False
+    rec = state.setdefault("reading_path", {}).setdefault(session_id, {})
+    rec["early_fp"] = fp
+    note, _ = reading_path_note(state, session_id, config, run=run, spawn=spawn)
+    if note:
+        rec[EARLY_NOTE] = note
+    return True
+
+
+def take_early_note(state: Dict[str, Any], session_id: str) -> Optional[str]:
+    """收尾前的附著點（TURN_JUDGMENT_PRE_CLOSE）取走先收下的結果：還有一批在量（量完前又改了碼，這份可能已經改掉）→ 不取，留給
+    Stop；取走就不再由 Stop 送。不動欠項（rec["owed"]）：拐彎判斷行照舊由 Stop 的 turn_judgment_note 核對。"""
+    rec = ((state.get("reading_path") or {}).get(session_id)) or {}
+    if rec.get("job") or not rec.get(EARLY_NOTE):
+        return None
+    return rec.pop(EARLY_NOTE)
 
 
 def _plan(state: Dict[str, Any], own: List[Dict[str, Any]], exts: List[str], cfg: Dict[str, Any],

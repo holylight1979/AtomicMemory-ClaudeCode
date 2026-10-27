@@ -487,7 +487,7 @@ const TOOL_DEFINITIONS = [
     name: "second_opinion_result",
     description:
       "取第二意見結果：`status: running|done|failed|blocked`＋done 時三段「結論／證據／反例或未解」（超 20KB 截斷並附完整路徑）。" +
-      "會等到有結果再回（每次最多等約 100 秒，還在跑就再呼叫一次），不用另開背景等待。" +
+      "跑完了馬上回；還在跑會等到有結果再回（每次最多等約 100 秒，還在跑就再呼叫一次），所以可以先做收尾其餘的事、要結果時再呼叫，不用另開背景等待。" +
       "running 超過 timeout_s＋90 s 仍無更新 → 回 failed（背景子程序中斷不會永遠 running）。唯讀、不碰 state。",
     inputSchema: {
       type: "object",
