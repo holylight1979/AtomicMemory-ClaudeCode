@@ -232,9 +232,9 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     assert rec["located_via"] == "text" and rec["located_quality"] == "card"
 
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log] == ["inject", "edit", "edit"]
-    assert log[1]["located"] is False and log[1]["deny_reason"] == "evidence"
-    assert log[2]["located"] is True and log[2]["deny_reason"] is None and log[2]["located_quality"] == "card"
+    assert [e["event"] for e in log] == ["inject", "locate_hint", "edit", "edit"]   # 讀到程式檔先提示（LOCATE_HINT_ON_FIRST_READ）
+    assert log[2]["located"] is False and log[2]["deny_reason"] == "evidence"
+    assert log[3]["located"] is True and log[3]["deny_reason"] is None and log[3]["located_quality"] == "card"
 
 
 def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypatch):
