@@ -4142,3 +4142,23 @@ SO_BACKGROUND_WAITS = ("start 後不用等結果：先把收尾其餘的事做�
 def second_opinion_hint_background() -> str:
     """SECOND_OPINION_BACKGROUND：擋訊息末尾的入口，同 second_opinion_hint，只換掉「start 後直接呼叫 result 等結果」那句。"""
     return second_opinion_hint().replace(SO_RESULT_WAITS, SO_BACKGROUND_WAITS)
+
+
+# ─── 第二意見看事實觸發（事實與時點在 hooks/wg_second_opinion.py、wg_closing_round.py、handlers/stop.py，這裡只登錄規則名與說明） ───
+RULES.update({
+    "SECOND_OPINION_FACT_TRIGGER": "第二意見閘進不進門看事實、不看措辭：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，同 "
+                                   "SECOND_OPINION_REQUIRED）的每次收尾都判，不再要 AI 說了完成詞（取代 SECOND_OPINION_REQUIRED 的「宣告完成時」"
+                                   "與 turn_completion_text 往前找）。唯一不判的是中途問使用者的 Stop（wg_second_opinion.mid_question）：收尾這則"
+                                   "最後一行（程式碼區塊外）是問句、這則沒宣告完成、這個使用者回合沒交收尾那批（closing_call）；欠帳不消，下一次收尾照欠。"
+                                   "出口照舊兩條：「不需第二意見｜<理由>」或「等第二意見｜<job_id>」（跑過＋四行也算），都留帳。",
+    "SECOND_OPINION_EXIT_FINGERPRINT": "一組改動只欠一次：交了出口（不需／等第二意見、跑過＋四行）就記出口時的改檔指紋（state "
+                                       "second_opinion_exit：本 session 程式檔的路徑＋最後改的時間與回合；收尾的出口行在所有收尾閘前面先記，"
+                                       "前面的閘擋下、補件那則不重寫出口行也算）；之後的收尾指紋沒變 → 不欠（Verdict 規則名用本條），"
+                                       "本回合取回在等的結果不在此列（要四行）。出口是不需或等第二意見、之後又改了程式（指紋變了，改 1 支也算）"
+                                       "→ 再欠一次；出口是跑過＋四行，之後的修改照 SECOND_OPINION_ONCE_PER_CLAIM（採納意見不再欠）。",
+    "SECOND_OPINION_PRE_CLOSE": "收尾那批（closing_call 認的：收尾檢核或完整對照）照 Stop 同一套事實先判第二意見（"
+                                "wg_closing_round.so_pre_close），欠就把 Stop 會擋的同一段（wg_second_opinion.owed_message）附在那批的回應"
+                                "後面，AI 第一次寫收尾就寫出口行、不再被 Stop 多擋一輪；同一個使用者回合附過、改檔指紋沒變就不重附。"
+                                "那批沒出現（沒交收尾檢核也沒完整對照）→ Stop 照舊擋；附了沒照做 → Stop 照擋（判定、擋次不變）。"
+                                "留帳 guard-second_opinion event=pre_close（owed、sent）。",
+})

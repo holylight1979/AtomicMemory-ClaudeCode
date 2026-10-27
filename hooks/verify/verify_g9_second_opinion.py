@@ -227,11 +227,12 @@ def test_c2_done_then_other_gate_patch_reply_still_blocks_once(drive, capsys, tm
     assert [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
-def test_partial_done_then_final_in_progress_not_required(drive, capsys, tmp_path):
-    """Codex：同回合先說「第一階段完成」、最後一則說「整體仍進行中，等待測試結果」→ 最後一則有狀態詞，照它（不算宣告完成）。"""
+def test_partial_done_then_final_in_progress_still_owed(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_FACT_TRIGGER：最後一則說「整體仍進行中，等待測試結果」也是收尾（不是問使用者）——改了 5 支程式就欠，
+    不看說法（舊判法照狀態詞算沒宣告完成、不判）。"""
     drive.tx.say("第一階段完成：資料表搬好了。")
     reason, _state, logs = drive("整體仍進行中，等待測試結果回來再整理。", capsys, files=_files(tmp_path, 5))
-    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
 def test_done_then_patch_mentioning_solution_still_blocks(drive, capsys, tmp_path):
@@ -251,11 +252,12 @@ def test_done_with_negated_first_sentence_then_patch_reply_still_blocks(drive, c
     assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
-def test_done_then_later_not_done_reply_not_required(drive, capsys, tmp_path):
+def test_done_then_later_not_done_reply_still_owed(drive, capsys, tmp_path):
+    """SECOND_OPINION_FACT_TRIGGER：最後談到「還沒做完」也是收尾，改了 5 支程式照欠（舊判法照否定詞不判）。"""
     drive.tx.say(C2_DONE)
     reason, _state, logs = drive("還沒做完：ERP 合約測試照你說的留紅，另有 8 個檔等你說 commit。", capsys,
                                  files=_files(tmp_path, 5))
-    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)            # 最後談到的是「還沒完成」→ 照舊不算宣告
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
 
 
 def test_block_message_says_any_reply_this_turn_counts(drive, capsys, tmp_path):
@@ -840,3 +842,127 @@ def test_unknown_write_recovered_files_count_for_second_opinion(drive, capsys, t
     reason, _, logs = drive(DONE, capsys, state=state)
     assert "[Guardian:SecondOpinion]" in reason and "程式檔 5 個" in reason, reason
     assert all(m["via"] == "vcs_status" for m in state["modified_files"])
+
+
+# ─── 看事實觸發、出口指紋（減量三輪 A；改動前的 main f45be4ea 回放：標「紅」的那幾段在舊碼不成立）─────────────────
+
+S1_DONE = ("兩件都改好了，測試也補了，全部 4 支測試都通過。\n\n**1. 寄送最後還是失敗時記一行**\n- 新檔 `notify/log.py`：記一行錯誤訊息。")
+C1_DONE = "折扣碼功能已經寫好，但**我還沒 commit**：ERP 對接合約測試紅了，這要你決定。"
+ASK = "改了 5 支檔。匯出格式要用 CSV 還是 JSON？"
+
+
+@pytest.mark.parametrize("text", [S1_DONE, C1_DONE])
+def test_fact_trigger_owed_without_completion_words(drive, capsys, tmp_path, text):
+    """規則 SECOND_OPINION_FACT_TRIGGER（紅）：005 第 0 步兩筆漏擋——補題 S-1 第 4 回合收尾「兩件都改好了…全部 4 支測試都通過」、
+    C-1 第 1 回合「已經寫好，但我還沒 commit」（還沒 commit 不是沒做完），都沒有完成詞表認得的說法；舊碼判成沒宣告完成，
+    改了 5 支程式整個沒進第二意見閘。改後看事實：過門檻的收尾就欠，擋訊息照舊列規則、檔數與兩條出口。"""
+    reason, _state, logs = drive(text, capsys, files=_files(tmp_path, 5))
+    assert "SECOND_OPINION_REQUIRED" in reason and "程式檔 5 個" in reason
+    assert reason.split("\n判準卡")[0].rstrip().endswith(HINT_TAIL) and "等第二意見｜<job_id>" in reason
+    assert [p["event"] for p in _so_logs(logs)] == ["block"]
+
+
+def test_fact_trigger_mid_question_not_owed_but_debt_kept(drive, capsys, tmp_path):
+    """SECOND_OPINION_FACT_TRIGGER 唯一不判的：中途問使用者（最後一行是問句、沒宣告完成、這個使用者回合沒交收尾那批）→ 不欠、不留帳；
+    欠帳不消：使用者回答後的收尾照欠。交過收尾那批（PRE_CLOSE 記了這個使用者回合）再用問句結尾 → 是收尾，照欠（紅：舊碼問句不判）。"""
+    files = _files(tmp_path, 5)
+    reason, state, logs = drive(ASK, capsys, files=files)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+    drive.tx.user("用 CSV")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    reason, state, _ = drive(DONE, capsys, state=state)
+    assert "SECOND_OPINION_REQUIRED" in reason, "問完回來收尾：先前改的 5 支照欠"
+    st2 = {"phase": "working", "modified_files": [_mf(p) for p in files], "failing_tests": [], "recent_user_prompts": [],
+           "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5, "muted": True,
+           so.PRE_CLOSE: {SID: {"uturn": 5, "owed": True}}}                     # 這個使用者回合交過收尾那批
+    reason, _, logs = drive(ASK, capsys, state=st2)
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
+
+
+def test_exit_fingerprint_once_per_change_set(drive, capsys, tmp_path):
+    """規則 SECOND_OPINION_EXIT_FINGERPRINT：「不需第二意見｜理由」放行並留帳；出口之後沒再改程式，下一次收尾（沒重寫出口行）不欠；
+    出口之後又改了 1 支程式 → 再欠一次（紅：舊碼照 ONCE_PER_CLAIM，改 1 支沒過門檻就不再要）。"""
+    files = _files(tmp_path, 5)
+    reason, state, logs = drive(f"{S1_DONE}\n{DECLINE_LINE}", capsys, files=files)
+    assert "[Guardian:SecondOpinion]" not in reason and [p["event"] for p in _so_logs(logs)] == ["declined"]
+    assert state[so.EXIT][SID]["via"] == "declined" and state[so.EXIT][SID]["fp"]
+    reason, state, logs = drive(S1_DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs), "沒再改程式：這組改動交過了"
+    drive.tx.user("cli 再補一個參數")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    state["modified_files"][0]["last_turn_seq"] = 6
+    reason, state, logs = drive(S1_DONE, capsys, state=state)
+    assert "SECOND_OPINION_REQUIRED" in reason and [p["event"] for p in _so_logs(logs)] == ["block"]
+    reason, state, _ = drive(f"補好了。\n{DECLINE_LINE}", capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason, "再交一次出口就放行（不是修了又欠、修不停）"
+
+
+def test_exit_fingerprint_waiting_exit_then_close_again_not_owed(drive, capsys, tmp_path):
+    """SECOND_OPINION_EXIT_FINGERPRINT（紅）：收尾寫「等第二意見｜<job_id>」（job 還在跑）→ 留帳 waiting；同一回合沒再改程式、沒取結果又收尾
+    → 不欠（舊碼照「start 了沒取結果」再擋一輪）。取回在等的結果那一回合照要四行（DONE_NOTICE），寫齊放行。"""
+    drive.tx.opinion(status="")
+    reason, state, logs = drive(WAIT_TEXT, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason and [p["event"] for p in _so_logs(logs)] == ["waiting"]
+    assert state[so.EXIT][SID]["via"] == "waiting"
+    reason, state, logs = drive(DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+    _result(drive, "done")
+    reason, state, _ = drive("看過結果了。", capsys, state=state)
+    assert "[Guardian:SecondOpinion]" in reason and "第二意見與分歧裁決" in reason
+    reason, state, _ = drive(FOUR, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and state[so.EXIT][SID]["via"] == "ran"
+
+
+def test_exit_fingerprint_recorded_even_when_earlier_gate_blocks(drive, capsys, tmp_path):
+    """SECOND_OPINION_EXIT_FINGERPRINT：出口行在所有收尾閘前面就記——紅測閘先擋下、補件那則只寫不做行、沒重寫出口行，
+    第二意見閘不再為同一組改動擋（舊碼宣告行只看收尾最後一則，補件那則沒寫就照擋）。"""
+    state = {"phase": "working", "modified_files": [_mf(p) for p in _files(tmp_path, 5)], "stop_blocked_count": 0,
+             "failing_tests": [{"cmd": "pytest a", "summary": "1 failed", "session_id": SID, "turn_seq": 5}],
+             "recent_user_prompts": [], "turn_seq": 5, "turn_prompts_seq": 5, "muted": True}
+    reason, state, _ = drive(f"{S1_DONE}\n{DECLINE_LINE}", capsys, state=state)
+    assert "[Guardian:TestFailGate]" in reason and state[so.EXIT][SID]["via"] == "declined"
+    state["failing_tests"] = []
+    reason, _, logs = drive("紅測修好了，重跑全綠。", capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs, "block")
+
+
+def test_fact_trigger_v6_off_unchanged(drive, capsys, tmp_path, monkeypatch):
+    """總開關（v6）關：第二意見閘整段不跑，事實觸發與出口指紋都不動 state（同改動前）。"""
+    monkeypatch.setenv("WG_V6", "0")
+    reason, state, logs = drive(S1_DONE, capsys, files=_files(tmp_path, 5))
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
+    assert so.EXIT not in state and "second_opinion_gate_turn" not in state
+
+
+def test_mid_question_and_fingerprint_units():
+    """mid_question：最後一行問句（? ？ 嗎 呢，可帶括號引號）才算；程式碼區塊裡的問句、宣告完成的那則、交過收尾那批的回合都不算。
+    fingerprint：同一組改動相同、改了任一支（時間或回合）就變；沒有程式檔是空字串（不記出口）。"""
+    assert so.mid_question({}, SID, ASK, 5) and so.mid_question({}, SID, "要不要順便清掉（會刪 3 個檔）嗎」", 5)
+    assert not so.mid_question({}, SID, "全部完成了，要上GIT嗎？", 5), "宣告完成的那則是收尾"
+    assert not so.mid_question({}, SID, "改好了。\n```\nok?\n```", 5)
+    assert not so.mid_question({so.PRE_CLOSE: {SID: {"uturn": 5}}}, SID, ASK, 5)
+    assert so.mid_question({so.PRE_CLOSE: {SID: {"uturn": 4}}}, SID, ASK, 5), "上一個使用者回合交的不算這回合"
+    a = [{"path": "C:/p/a.py", "last_turn_seq": 5, "last_at": "t1"}, {"path": "C:/p/b.py", "last_turn_seq": 5}]
+    assert so.fingerprint(a) == so.fingerprint(list(reversed(a))) == so.fingerprint(a + [{**a[0], "path": r"c:\p\A.py"}])
+    assert so.fingerprint(a) != so.fingerprint([{**a[0], "last_at": "t2"}, a[1]]) and so.fingerprint([]) == ""
+
+
+def test_exit_fingerprint_user_release_counts_as_exit(drive, capsys, tmp_path):
+    """SECOND_OPINION_EXIT_FINGERPRINT：使用者放行也記成出口（不再欠的那類）——先前宣告不需、之後又改 1 支被擋到擋滿、使用者放行 →
+    下一回合沒再改程式不欠（沒記的話，指紋跟那次宣告不同、出口又是不需 → 之後每次收尾都欠，修不停）。"""
+    _, state, _ = drive(f"{DECLINE_LINE}\n{DONE}", capsys, files=_files(tmp_path, 5))
+    drive.tx.user("再改一支")
+    state.update(turn_seq=6, turn_prompts_seq=6)
+    state["modified_files"][0]["last_turn_seq"] = 6
+    assert "SECOND_OPINION_REQUIRED" in drive(DONE, capsys, state=state)[0]
+    reason, state, _ = drive(DONE, capsys, state=state)
+    assert RELEASE_TAG in reason
+    q = f"{RELEASE_TAG} 第二意見要放行嗎？"
+    drive.tx.call("AskUserQuestion", {"questions": [{"question": q, "options": []}]}, f'"{q}"="{OPT_RELEASE}"',
+                  extra={"toolUseResult": {"answers": {q: OPT_RELEASE}}})
+    reason, state, logs = drive(DONE, capsys, state=state)
+    assert [p["event"] for p in _so_logs(logs)] == ["user_release"] and state[so.EXIT][SID]["via"] == "released"
+    drive.tx.user("說明一下剛剛改了什麼")
+    state.update(turn_seq=7, turn_prompts_seq=7)
+    reason, _, logs = drive(DONE, capsys, state=state)
+    assert "[Guardian:SecondOpinion]" not in reason and not _so_logs(logs)
