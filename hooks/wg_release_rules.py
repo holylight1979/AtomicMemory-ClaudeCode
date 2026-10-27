@@ -3973,3 +3973,9 @@ RULES.update({
                                   "[Guardian:EphemeralWrite] 說明沒記、收尾閘看不到（_shared.note_ephemeral_skip）；不在暫存根底下、只因快取目錄"
                                   "（__pycache__、.pytest_cache）判成暫存的不是專案，不印。",
 })
+RULES.update({
+    "CHAIN_NO_EDIT_NO_EDGE": "連鎖斷路器：兩次擋之間的動作都沒改到檔（重跑、沒寫入目標的指令、重交報告、改目標樹）不算修補，同一道閘不接邊、"
+                             "不算同閘次數。判定與「改到檔」的清單見 hooks/wg_chain.py 的 RULES 同名條（changes_files）。",
+    "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": "連鎖斷路器警報在哪一次響，那道閘原本的擋訊息（含附註）照附在取代它的中止通知或停手訊息最後（截長留開頭）。"
+                                        "見 hooks/wg_chain.py 的 RULES 同名條（notice_text／halt_text 的 replaced）。",
+})

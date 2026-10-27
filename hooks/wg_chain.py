@@ -1,6 +1,6 @@
 """wg_chain.py：連鎖斷路器的判定（純函式：不讀檔、不跑 git、不改 state）。
 
-做什麼：同一個使用者回合裡，某道閘擋下或記欠 → AI 動手（改檔、重跑、寫卡、改寫回覆、重交定位、加子目標）
+做什麼：同一個使用者回合裡，某道閘擋下或記欠 → AI 動手改了檔（改檔、寫卡、子代理；重跑、改目標樹這類沒改檔的動作照記、不算修補）
 → 又讓任一道閘擋下或記欠，就是一條連鎖邊「閘A→動作→閘B」；同一則回覆裡平行送出的呼叫算同一步（AI 那時還沒看到擋訊息）。
 這裡把一個回合的帳（lib/chain_store.py 寫的 rows）
 摺成連鎖狀態，判：這次觸發接不接上前一步、深度、要不要警報、警報後這一段其餘閘只記錄不擋、使用者三選一怎麼解讀、
@@ -33,10 +33,17 @@ RULES: Dict[str, str] = {
     "CHAIN_GATE_NAME": "閘名取擋訊息裡第一個 [Guardian:名稱] 或 [名稱] 標記；認不出用呼叫端給的預設名。同一道閘每次擋訊息的標記相同，同閘次數才數得準。",
     "CHAIN_ACTION_FACTS": "哪些工具呼叫算 AI 動作：Edit／Write／MultiEdit／NotebookEdit＝改；Bash／PowerShell 有寫入目標（含判不出目標的寫入）＝改，"
                           "跑測試或驗證＝重跑，其餘不是唯讀的指令＝其他動作；atom_write／atom_retire＝寫卡；收尾檢核與收割回報＝重交報告；"
-                          "need_goal＝改目標樹；Agent／Task＝其他動作。讀檔（Read、唯讀指令）不算動作。",
-    "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到動作、A 與 B 是不同的閘時，"
+                          "need_goal＝改目標樹；Agent／Task＝其他動作。讀檔（Read、唯讀指令）不算動作。"
+                          "動作都照記、照列進經過表；接不接成邊、算不算同閘次數只看有沒有改到檔（CHAIN_NO_EDIT_NO_EDGE）。",
+    "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有改到檔的動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到改檔動作、A 與 B 是不同的閘時，"
                              "Stop 接 Stop 算改寫回覆、閘B在工具呼叫上算 AI 接著的那次呼叫。",
-    "CHAIN_SAME_GATE_NO_ACTION": "同一道閘接連觸發、中間沒記到 AI 動作（重試同一個呼叫、只改寫回覆）→ 不接成邊、也不算同閘次數，交回那道閘自己的擋次上限處理。",
+    "CHAIN_SAME_GATE_NO_ACTION": "同一道閘接連觸發、中間沒記到 AI 動作（重試同一個呼叫、只改寫回覆）→ 不接成邊、也不算同閘次數，交回那道閘自己的擋次上限處理。"
+                                 "中間有動作但都沒改到檔，同樣不接（CHAIN_NO_EDIT_NO_EDGE）。",
+    "CHAIN_NO_EDIT_NO_EDGE": "兩次觸發之間 AI 的動作都沒改到檔 → 不算修補：同一道閘不接成邊、不讓同閘次數加 1（帳上記這條規則）；"
+                             "不同的閘照「沒記到動作」那樣判（CHAIN_EDGE_TIME_ORDER 後半、CHAIN_NO_FIX_NO_EDGE）。改到檔（changes_files）＝"
+                             "改（Edit／Write／MultiEdit／NotebookEdit、Bash／PowerShell 有寫入目標，含判不出目標的寫入）、寫卡（atom_write／atom_retire "
+                             "改的是卡片檔）、子代理（Agent／Task：它改了什麼主 session 的帳看不到，照改檔算）；沒改到檔＝重跑測試、其他沒有寫入目標的指令"
+                             "（建刪暫存工作樹這類）、重交收尾報告、改目標樹（只動 session 的 state）。原樣重送被擋的呼叫照 CHAIN_SAME_CALL_RETRY。",
     "CHAIN_SAME_CALL_RETRY": "同一道閘擋同一個對象，這次被擋的工具呼叫跟這道閘這個對象上一次被擋的逐字相同（工具名＋參數，帳上 call）"
                              "→ 原樣重試：不接成邊、不讓同閘次數加 1，中間做了別的動作（回應別的提示）也一樣，交回那道閘自己的擋次上限處理。"
                              "改了內容、補進宣告（呼叫變了）照舊算；有一邊沒記 call（收尾閘、舊帳）照舊只看中間有沒有動作。",
@@ -47,15 +54,16 @@ RULES: Dict[str, str] = {
                         "同一則＝兩筆帳的 batch 相同（chain_store 從 transcript 取這次呼叫所在那則回覆之前最後一則 assistant 的 message.id）。"
                         "這一筆記不出是哪一則（子代理、transcript 讀不到或找不到，帳上記 batch_why）就不跳過任何一步；前面記得出批次的步驟照用"
                         "（跟那一步同一批送出的動作不算反應）。收尾不是工具呼叫、一定在所有工具呼叫那幾則之後，不帶 batch。",
-    "CHAIN_NO_FIX_NO_EDGE": "前一步是工具上的閘、之後 AI 沒有任何動作就收尾 → 收尾的閘不接上前一步。",
+    "CHAIN_NO_FIX_NO_EDGE": "前一步是工具上的閘、之後 AI 沒有改到檔的動作就收尾 → 收尾的閘不接上前一步。",
     "CHAIN_EDGE_PREVIEWED": "閘B已列在閘A擋下時的「後面還會擋」預覽裡（A 擋的時候 B 就欠著）→ 不是 A 之後的動作造成的，不接成邊。",
     "CHAIN_EDGE_FILES_DISJOINT": "閘B說了它看哪些檔、A 之後 AI 的每個動作都說得出改了哪些檔、兩邊沒有交集 → 不接成邊；"
-                                 "B 沒說看哪些檔、或有動作說不出改了哪些檔（重跑、寫卡、判不出目標的 Bash），照接。",
+                                 "B 沒說看哪些檔、或有改檔動作說不出改了哪些檔（寫卡、判不出目標的 Bash、子代理），照接；沒改到檔的動作不算進來。",
     "CHAIN_ALARM_DEPTH": "深度照算、照列進經過表（閘→修→閘→修→第三次閘＝深度 2），預設不警報：要擋的是繞回原點的修不停，"
                          "那是同一道閘第 2 次（CHAIN_ALARM_SAME_GATE）；三道各管各的閘各擋一次不是連鎖。"
                          "設定 depth_alarm=true 才在深度 ≥ max_depth（預設 2）時也警報。",
     "CHAIN_ALARM_SAME_GATE": "同一道閘擋同一個對象（CHAIN_SAME_GATE_PER_OBJECT）同一段第 max_same_gate 次觸發（預設 2）→ 警報；"
-                             "只數跟這道閘這個對象上一次觸發之間 AI 有記到動作的那幾次（中間的動作接在別道閘、別的對象後面也算）。",
+                             "只數跟這道閘這個對象上一次觸發之間 AI 有記到改到檔的動作的那幾次（中間的動作接在別道閘、別的對象後面也算；"
+                             "沒改到檔的不算，CHAIN_NO_EDIT_NO_EDGE）。",
     "CHAIN_SAME_GATE_PER_OBJECT": "同閘次數照「閘＋擋的對象」數：要擋的是修了又欠、繞回原點，繞回同一個對象才算同閘第 2 次；"
                                   "同一道閘擋不同對象，各要各的證據，第 1 次補的沒讓第 2 次多欠什麼，各算各的第 1 次。"
                                   "對象＝呼叫端報的 target（不是檔的對象：定位閘報部位表那一列，表外的檔報同頂層目錄那一組），"
@@ -71,6 +79,9 @@ RULES: Dict[str, str] = {
                                "這不是閘觸發、不進次數，也不逼修補；讓警報響不會換到被擋的動作過關。"
                                "唯讀指令只認白名單裡的讀檔指令、沒有寫檔重導向與指令替換；判不出一律當成會動手。",
     "CHAIN_STOP_NOTICE_ONCE": "警報後 Stop 只擋一次，送連鎖過程表（能互動就附三選項）；使用者在那之前已答就不擋、附結果與表；之後的 Stop 不再擋，只附提醒。",
+    "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": "警報在哪一次響，那道閘原本要送的擋訊息（含附註，例如紅測閘的基底紅缺哪一件）就照附在取代它的中止訊息最後"
+                                        "（收尾的中止通知、工具上的停手訊息），超過 REPLACED_CAP 字留開頭：經過表只列第一行，AI 照原文才知道缺什麼、"
+                                        "該問使用者什麼。之後的停手訊息與提醒不再附（那時沒有被換掉的擋）。",
     "CHAIN_HEADLESS_NO_ASK": "沒人能答（headless／SDK、子代理、裁判子 session；判法 wg_release.non_interactive_reason，警報那一刻判）→ 不叫 AI 問、"
                              "不停手：這一回合其餘閘只記錄、留帳，AI 照常把工作做完；讓警報響的那次工具呼叫照放，收尾擋一次要 AI 把經過表寫進收尾報告。"
                              "不還原也不繼續。會改使用者資料的那幾道閘例外，照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）。",
@@ -277,15 +288,17 @@ def link(prev: Step, row: Dict[str, Any], acts: Sequence[Dict[str, Any]]) -> Lin
     gate, hook = str(row.get("gate") or ""), row.get("hook")
     if gate != prev.row.get("gate") and gate in (prev.row.get("later") or ()):
         return Link(False, "CHAIN_EDGE_PREVIEWED", f"前一步擋的時候 {gate} 就列在後面還會擋")
-    if not acts:
+    edits = [a for a in acts if changes_files(a)]
+    if not edits:
         if gate == prev.row.get("gate"):
-            return Link(False, "CHAIN_SAME_GATE_NO_ACTION", "同一道閘、中間 AI 沒有動作")
+            return (Link(False, "CHAIN_NO_EDIT_NO_EDGE", "同一道閘、中間 AI 的動作都沒改到檔") if acts
+                    else Link(False, "CHAIN_SAME_GATE_NO_ACTION", "同一道閘、中間 AI 沒有動作"))
         if is_stop(hook) and not is_stop(prev.row.get("hook")):
-            return Link(False, "CHAIN_NO_FIX_NO_EDGE", "前一步之後 AI 沒動手就收尾")
+            return Link(False, "CHAIN_NO_FIX_NO_EDGE", "前一步之後 AI 沒改檔就收尾")
         return Link(True, "CHAIN_EDGE_TIME_ORDER", "改寫回覆" if is_stop(hook) else "AI 接著的工具呼叫")
     watched = _watched(row)
-    if watched and all(_files(a) for a in acts):
-        changed = {canon_path(f.get("path")) for a in acts for f in _files(a)}
+    if watched and all(_files(a) for a in edits):
+        changed = {canon_path(f.get("path")) for a in edits for f in _files(a)}
         if not changed & watched:
             return Link(False, "CHAIN_EDGE_FILES_DISJOINT", "前一步之後改的檔不在它看的範圍")
     return Link(True, "CHAIN_EDGE_TIME_ORDER", "前一步之後 AI 動了手")
@@ -293,6 +306,12 @@ def link(prev: Step, row: Dict[str, Any], acts: Sequence[Dict[str, Any]]) -> Lin
 
 def _files(action: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [f for f in action.get("files") or () if isinstance(f, dict) and f.get("path")]
+
+
+def changes_files(action: Dict[str, Any]) -> bool:
+    """CHAIN_NO_EDIT_NO_EDGE：這筆動作有沒有改到檔——改、寫卡、子代理算；重跑、其他沒寫入目標的指令、重交報告、改目標樹不算。"""
+    kind = str(action.get("kind") or "")
+    return kind in ("edit", "card") or (kind == "other" and str(action.get("tool") or "") in ("Agent", "Task"))
 
 
 class Judge(NamedTuple):
@@ -330,8 +349,8 @@ def target_label(row: Dict[str, Any]) -> str:
 
 def same_count(steps: Sequence[Step], row: Dict[str, Any]) -> int:
     """CHAIN_ALARM_SAME_GATE：這一次觸發 row 是這道閘、這個對象這一段第幾次——第一次算 1，之後只在跟這道閘這個對象上一次觸發之間
-    有記到 AI 看過那次擋訊息才送出的動作（跟那次不同一批）、而且這次擋的不是原封不動的同一個呼叫才加 1（CHAIN_SAME_GATE_PER_OBJECT、
-    CHAIN_SAME_GATE_NO_ACTION、CHAIN_SAME_BATCH、CHAIN_SAME_CALL_RETRY）。step 的 actions 是它之後、下一次觸發之前的動作。"""
+    有記到 AI 看過那次擋訊息才送出、改到檔的動作（跟那次不同一批）、而且這次擋的不是原封不動的同一個呼叫才加 1（CHAIN_SAME_GATE_PER_OBJECT、
+    CHAIN_SAME_GATE_NO_ACTION、CHAIN_NO_EDIT_NO_EDGE、CHAIN_SAME_BATCH、CHAIN_SAME_CALL_RETRY）。step 的 actions 是它之後、下一次觸發之前的動作。"""
     gate = row.get("gate")
     n, last, acted = 0, None, False
     for s in steps:
@@ -339,7 +358,7 @@ def same_count(steps: Sequence[Step], row: Dict[str, Any]) -> int:
             if last is None or (acted and not same_call(last, s.row)):
                 n += 1
             last, acted = s.row, False
-        acted = acted or (last is not None and any(not same_batch(last, a) for a in s.actions))
+        acted = acted or (last is not None and any(changes_files(a) and not same_batch(last, a) for a in s.actions))
     return n + 1 if last is None or (acted and not same_call(last, row)) else n
 
 
@@ -564,21 +583,37 @@ def _abort_head(ch: Chain, lead: str) -> str:
     return f"[Guardian:{GATE}] {lead}：{_reason(ch)}。這一回合其餘閘只記錄不擋，不用再修補；{stop}。\n"
 
 
-def notice_text(ch: Chain, now: float) -> str:
-    """CHAIN_STOP_NOTICE_ONCE／CHAIN_HEADLESS_NO_ASK：警報後 Stop 擋那一次的訊息（能不能互動看通知記下的 why）。"""
+REPLACED_CAP = 2000
+
+
+def _replaced_tail(replaced: str) -> str:
+    """CHAIN_ABORT_SHOWS_REPLACED_BLOCK：被中止換掉的那次擋，原擋訊息（含附註）照附在最後；超過 REPLACED_CAP 字留開頭（缺什麼、附註在前段）。"""
+    text = str(replaced or "").strip()
+    if not text:
+        return ""
+    if len(text) > REPLACED_CAP:
+        text = f"{text[:REPLACED_CAP]}…（後面略，原文共 {len(text)} 字）"
+    return f"\n\n這一次讓警報響、被中止訊息換掉的擋，原本說：\n{text}"
+
+
+def notice_text(ch: Chain, now: float, replaced: str = "") -> str:
+    """CHAIN_STOP_NOTICE_ONCE／CHAIN_HEADLESS_NO_ASK：警報後 Stop 擋那一次的訊息（能不能互動看通知記下的 why）。
+    replaced＝讓警報響、被這則換掉的那次擋的原擋訊息（CHAIN_ABORT_SHOWS_REPLACED_BLOCK；警報不在這次響就不給）。"""
     no_ask = (ch.notice or {}).get("why") or ""
-    return _abort_head(ch, "連鎖中止") + report(ch, now) + (_headless_tail(no_ask) if no_ask else _ask_line(ch))
+    return (_abort_head(ch, "連鎖中止") + report(ch, now) + (_headless_tail(no_ask) if no_ask else _ask_line(ch))
+            + _replaced_tail(replaced))
 
 
-def halt_text(ch: Chain, now: float) -> str:
-    """CHAIN_HALT_UNTIL_ANSWER：中止停手中擋下工具呼叫的訊息。"""
+def halt_text(ch: Chain, now: float, replaced: str = "") -> str:
+    """CHAIN_HALT_UNTIL_ANSWER：中止停手中擋下工具呼叫的訊息；replaced 同 notice_text（讓警報響的那次工具呼叫才給）。"""
     no_ask = (ch.notice or {}).get("why") or ""
     choice = (ch.answer or {}).get("choice")
     if choice:
         did = "已選還原" if choice == "restore" else "沒選三選項之一"
         return (f"[Guardian:{GATE}] 連鎖中止：使用者{did}，這一回合不再動手，只能讀檔與回報，等使用者下一則指示。"
                 f"總共連鎖 {ch.count} 次、深度 {ch.depth}")
-    return _abort_head(ch, "連鎖中止中") + report(ch, now) + (_headless_tail(no_ask) if no_ask else _ask_line(ch))
+    return (_abort_head(ch, "連鎖中止中") + report(ch, now) + (_headless_tail(no_ask) if no_ask else _ask_line(ch))
+            + _replaced_tail(replaced))
 
 
 def remind_text(ch: Chain) -> str:

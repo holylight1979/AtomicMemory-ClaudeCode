@@ -78,14 +78,15 @@ class Turn:
         self.now += s
         return self.now
 
-    def gate(self, name, hook="Stop", call=None, **kw):
-        """閘 name 觸發一次；call＝(工具名, 參數) 被擋的那個工具呼叫（CHAIN_SAME_CALL_RETRY 比它；不給＝說不出呼叫長什麼樣）。"""
+    def gate(self, name, hook="Stop", call=None, what=None, **kw):
+        """閘 name 觸發一次；call＝(工具名, 參數) 被擋的那個工具呼叫（CHAIN_SAME_CALL_RETRY 比它；不給＝說不出呼叫長什麼樣）；
+        what＝這道閘的擋訊息全文（不給＝「<閘名>：缺東西」）。"""
         if hook in wc.STOP_HOOKS:
             self.say()
         d = self.inp(hook)
         if call is not None:
             d["tool_name"], d["tool_input"] = call
-        return cs.gate_fired(SID, self.turn, name, f"{name}：缺東西", d, self.cfg, now=self.tick(), **kw)
+        return cs.gate_fired(SID, self.turn, name, what or f"{name}：缺東西", d, self.cfg, now=self.tick(), **kw)
 
     def goal(self, action="set"):
         """AI 改了目標樹（need_goal；CHAIN_ACTION_FACTS 算動作、說不出改了哪些檔）。"""
@@ -116,8 +117,14 @@ class Turn:
         cs.action_done(SID, self.turn, kind, "Bash", list(files), self.inp("PostToolUse"), self.cfg, what=cmd,
                        now=self.tick())
 
-    def act(self, cmd="python -m pytest -q"):
-        """AI 做了一個動作（重跑）：同一道閘兩次之間有動作才算同閘次數（CHAIN_SAME_GATE_NO_ACTION）。"""
+    def act(self, what="atom_write"):
+        """AI 做了一個改到檔、說不出改了哪些檔的動作（寫卡）：同一道閘兩次之間有改到檔的動作才算同閘次數
+        （CHAIN_SAME_GATE_NO_ACTION；重跑這類沒改檔的動作見 rerun，CHAIN_NO_EDIT_NO_EDGE）。"""
+        cs.action_done(SID, self.turn, "card", "mcp__workflow-guardian__atom_write", [], self.inp("PostToolUse"), self.cfg,
+                       what=what, now=self.tick())
+
+    def rerun(self, cmd="python -m pytest -q"):
+        """AI 重跑測試：照記成動作，但沒改到檔（CHAIN_NO_EDIT_NO_EDGE）。"""
         self.bash(cmd, kind="rerun")
 
     def stop(self):
@@ -236,6 +243,62 @@ def test_same_gate_needs_action_between(box):
     u.gate("B", later=["A"])
     u.act()                                                      # 動作接在 B 後面
     assert u.gate("A").notice and "CHAIN_ALARM_SAME_GATE" in _alarm_rules(u)
+
+
+TF = "[Guardian:TestFailGate] 測試未綠（1 項失敗），不得宣告完成。"
+
+
+def test_no_edit_actions_between_same_gate_do_not_link(box):
+    """紅案例（CHAIN_NO_EDIT_NO_EDGE；照一次收尾的實際帳重演：紅測閘擋第 1 次 → 建暫存工作樹、重跑那支測試、刪暫存樹、重交收尾報告，
+    全程沒改檔 → 紅測閘第 2 次）：不接成邊、同閘次數還是 1、不警報，動作照列進經過表；改目標樹也不算改檔。接著改了檔再擋
+    → 照算第 2 次、警報。寫卡、子代理照算改檔；不同的閘中間只有重跑，照「沒記到動作」判。改前第 2 次就判成連鎖中止。"""
+    t = Turn(box)
+    assert t.gate("TestFailGate", what=TF) == cs.PASS
+    t.bash("git worktree add --detach /c/w4/base-red 29180778", kind="other")
+    t.rerun("cd /c/w4/base-red && python -m pytest -q tests/test_a.py")
+    t.bash("git worktree remove --force /c/w4/base-red", kind="other")
+    cs.action_done(SID, 1, "report", "mcp__workflow-guardian__anti_evasion_report", [], t.inp("PostToolUse"), t.cfg,
+                   what="anti_evasion_report", now=t.tick())
+    t.goal("update")
+    assert t.gate("TestFailGate", what=TF) == cs.PASS
+    ch = t.chain()
+    assert ch.steps[1].link.rule == "CHAIN_NO_EDIT_NO_EDGE" and ch.steps[1].row["same"] == 1 and ch.alarm is None
+    assert "重跑 cd /c/w4/base-red" in wc.report(ch, t.now) and "重交報告" in wc.report(ch, t.now)
+    x = box / "proj" / "x.py"
+    x.write_text("x = 1\n", encoding="utf-8")
+    t.edit(x, "x = 1", "x = 2")
+    assert t.gate("TestFailGate", what=TF).notice and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
+    assert t.chain().steps[2].link.rule == "CHAIN_EDGE_TIME_ORDER"
+    for turn, kind, tool in ((2, "card", "mcp__workflow-guardian__atom_write"), (3, "other", "Agent")):
+        u = Turn(box, turn=turn)
+        u.gate("A", hook="PreToolUse")
+        cs.action_done(SID, turn, kind, tool, [], u.inp("PostToolUse"), u.cfg, what=tool, now=u.tick())
+        assert u.gate("A", hook="PreToolUse").halt, tool
+    w = Turn(box, turn=4)
+    w.gate("A", hook="PreToolUse")
+    w.rerun()
+    assert w.gate("B") == cs.PASS and w.chain().steps[1].link.rule == "CHAIN_NO_FIX_NO_EDGE"
+
+
+def test_abort_shows_replaced_block_text(box):
+    """紅案例（CHAIN_ABORT_SHOWS_REPLACED_BLOCK）：收尾閘第 2 次讓警報響 → 中止通知最後附上那次擋的原文，附註（基底紅缺哪一件）看得到；
+    工具閘讓警報響 → 停手訊息附上原擋訊息，超過 REPLACED_CAP 字留開頭、標出原文多長；之後的停手訊息不再附。改前只有經過表那一行。"""
+    note = "! 基底紅｜test_a：追蹤 docs/known.md 沒點名 test_a"
+    tf = f"{TF}\n  - t.py::test_a（指令：python -m pytest -q t.py）\n  {note}\n先看使用者有沒有叫你跳過"
+    t = Turn(box)
+    t.gate("TestFailGate", what=tf)
+    t.act()
+    r = t.gate("TestFailGate", what=tf)
+    assert r.notice and note in r.notice and r.notice.rstrip().endswith("先看使用者有沒有叫你跳過")
+    assert note not in wc.report(t.chain(), t.now)                                 # 經過表只列第一行
+    u = Turn(box, turn=2)
+    df = "[Guardian:DataFileAsk] 動到使用者的資料檔，先寫「動資料檔｜<路徑>：<為什麼>」\n" + "說明" * 2000
+    u.gate("DataFileAsk", hook="PreToolUse", what=df)
+    u.act()
+    h = u.gate("DataFileAsk", hook="PreToolUse", what=df).halt
+    assert h and "動資料檔｜<路徑>：<為什麼>" in h and f"原文共 {len(df)} 字" in h and len(h) < len(df)
+    later = cs.halt(SID, 2, "Write", u.inp("PreToolUse"), ON)
+    assert later and "被中止訊息換掉的擋" not in later
 
 
 def test_alarm_on_tool_gate_notes_then_stop_notices_once(box):
@@ -484,7 +547,8 @@ def test_previewed_gate_does_not_link(box):
 
 
 def test_files_disjoint_does_not_link(box):
-    """CHAIN_EDGE_FILES_DISJOINT：B 說它看 y.py、A 之後只改了 x.py → 不接；看 x.py 就接；中間有說不出檔的動作（重跑）照接。"""
+    """CHAIN_EDGE_FILES_DISJOINT：B 說它看 y.py、A 之後只改了 x.py → 不接；看 x.py 就接；中間的重跑沒改檔、不算進來，照不接
+    （CHAIN_NO_EDIT_NO_EDGE）；中間有改到檔卻說不出哪個檔的動作（寫卡）照接。"""
     proj = box / "proj"
     x, y = proj / "x.py", proj / "y.py"
     x.write_text("x = 1\n", encoding="utf-8")
@@ -501,9 +565,15 @@ def test_files_disjoint_does_not_link(box):
     v = Turn(box, turn=3)
     v.gate("A")
     v.edit(x, "x = 3", "x = 4")
-    v.bash("python -m pytest -q tests", kind="rerun")
+    v.rerun("python -m pytest -q tests")
     v.gate("B", watched=[str(y)])
-    assert v.chain().steps[1].link.linked
+    assert v.chain().steps[1].link.rule == "CHAIN_EDGE_FILES_DISJOINT"
+    w = Turn(box, turn=4)
+    w.gate("A")
+    w.edit(x, "x = 4", "x = 5")
+    w.act()
+    w.gate("B", watched=[str(y)])
+    assert w.chain().steps[1].link.linked
 
 
 def test_count_is_triggers_minus_one_depth_is_run(box):
@@ -1098,10 +1168,10 @@ def test_changed_call_after_action_still_counts_second_trigger(box):
     t.reply("msg_1")
     t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme])
     t.reply("msg_2")
-    t.goal("set")
+    t.act()
     t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme])            # 原樣重試：不算
     t.reply("msg_3")
-    t.goal("add")
+    t.act()
     changed = ("Edit", {**edit[1], "new_string": "新說明（改寫）"})
     r = t.gate("DataFileAsk", hook="PreToolUse", call=changed, watched=[readme])
     assert r.record_only and r.halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
