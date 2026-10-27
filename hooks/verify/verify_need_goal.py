@@ -36,6 +36,13 @@ import hub_config  # noqa: E402
 import overview_hub  # noqa: E402
 import wg_verify_ledger as vl  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    from hub_config import HUB_DEFAULTS
+    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
+
 SID = "sess-goal-0001"
 ON = {"reconcile_gate": {"goal_gate": True}}   # 測閘開著的行為：目標對照閘程式預設是關的
 

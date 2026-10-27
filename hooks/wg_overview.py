@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, DECL_DENY_CAP, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    append_guard_log, assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
+    append_guard_log, assistant_texts_since, deny_cap, org_memory_root, resolve_project_root, transcript_sizes, v6_enabled,
 )
 from wg_verify_ledger import vcs_root_of
 
@@ -46,7 +46,7 @@ import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LAYER_AXIS_RE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
     build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
-    split_card_sections, top_dir, transcript_readable, transcript_size, unread_rows_note,
+    top_dir, transcript_readable, transcript_size, unread_rows_note,
 )
 
 import wg_release_rules as _rr  # noqa: E402  放行／欠帳判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、RUNTIME_DATA_NO_OVERVIEW、TEMP_COPY_NOT_PROJECT）
@@ -133,7 +133,8 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     """四層深合併（hub_config.merge_hub_cfg）：預設 < config.json overview_hub < 公司層 < 專案層 overview-hub.json。
 
     這裡只補呼叫端的事：公司根（行程內快取）、錯誤與退役鍵各警告一次、驗證器內部錯誤進 atom-debug log、
-    `_layer`（root／org／project_mapped／project_unmapped／none）。回傳必帶 `_errors`（非空時 on_edit deny）。
+    `_layer`（root／org／project_mapped／project_unmapped／none）、`_card_mode`（這次實際用的導讀卡送法：v6 總開關關時一律
+    full，維持 v6 以前整張注入的行為）。回傳必帶 `_errors`（非空時 on_edit deny）。
     """
     org = _org_root()
     c = merge_hub_cfg(config, org, root)
@@ -144,6 +145,7 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     for e in c["_errors"]:
         _warn_once(f"error:{root}:{e}", f"設定錯誤（{root or '根層'}）：{e}")
     c["_layer"] = "none" if root is None else _layer_kind_for_root(root, org)
+    c["_card_mode"] = c.get("card_injection") if v6_enabled(config) else "full"
     return c
 
 
@@ -488,7 +490,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     intent = _intent_of(state)
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
     kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
-    mode = cfg["card_injection"]
+    mode = cfg.get("_card_mode", "full")
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
                                     knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""),
@@ -885,7 +887,7 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     card_paths, _miss = _resolve_row_cards(root, row, cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), _locate_template(cfg), extra,
-                                    [], GOAL_VIEW_LENS, "", pointer=cfg["card_injection"] == "pointer")
+                                    [], GOAL_VIEW_LENS, "", pointer=cfg.get("_card_mode") == "pointer")
     _log("goal_view", session_id, part=row["part_short"], path=hit_path, reset_turn=reset, chars=len(text), slices=used)
     return f"{head}\n{text}"
 

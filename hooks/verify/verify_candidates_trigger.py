@@ -25,6 +25,13 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 import overview_hub as oh  # noqa: E402
 import wg_overview as wo  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _whole_card(monkeypatch):
+    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
+    from hub_config import HUB_DEFAULTS
+    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
+
 FIX = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q5"
 
 
