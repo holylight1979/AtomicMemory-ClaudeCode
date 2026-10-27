@@ -507,6 +507,7 @@ def test_stop_pickone_bound_keyword_and_none(stop_run, tmp_path, monkeypatch, lo
     assert ctx1 == ctx0 + "\n判準卡（E04）：bound\n- [臨] 判準：先問分數最高那條的實害。"   # 原訊息逐字不變、卡接在最後
     kw = _card(tmp_path, "kw", triggers=["順手看到最該修"], knowledge=["- [臨] 退路卡的判準。"])
     _pool(monkeypatch, [kw])
+    ep.forget_sent(SID)        # 換卡池當新 session 看：同一 session 拿過卡的切入點不再往下送新卡（CARD_FULL_ONCE_PER_SESSION）
     ctx2 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
     assert ctx2 == ctx0 + "\n判準卡（E04）：kw\n- [臨] 退路卡的判準。"
     asks = [a for a in _ledger(logs) if a["entry"] == "E04"]
@@ -720,6 +721,7 @@ def test_ledger_fields_and_truncated(tmp_path, logs):
     long = [f"- [臨] 第 {i} 條判準：數字只是參考，先看實害、看誰會痛、多快會痛。" for i in range(12)]
     cards = [_card(tmp_path, f"c{i}", triggers=["x"], entry=["E04"], knowledge=long) for i in range(3)]
     budget = int(ep._estimate_tokens("\n".join(long)) * 1.5)
+    ep.forget_sent(SID)        # 同一個 pytest 行程裡前面的案例用過這個 session（CARD_FULL_ONCE_PER_SESSION 會記它拿過卡）
     note = ep.entry_note(PICK_ONE_TEXT, "stop_piggyback", session_id=SID, registry=reg, pool=cards,
                          config={"entrypoint": {"inject_budget_tokens": budget}})
     assert "已截斷" in note

@@ -550,3 +550,70 @@ def test_broken_state_does_not_block_and_logs(world):
     out = _run(world)
     assert not _df_deny(out)
     assert (_log(world)[-1]["event"], _log(world)[-1]["rule"]) == ("error", "GATE_SELF_ERROR")
+
+
+# ─── 擋訊息精簡（DENY_TEXT_SLIM）與讀到就先提示（DATA_FILE_READ_HINT）───
+
+def test_deny_text_slim_rule_fix_and_hit_only(world):
+    """規則 DENY_TEXT_SLIM：擋訊息第一行「[Guardian:DataFileAsk] 修法：<一句>」、下面是 ✗ 條目（規則名＋證據），整段管道說明不再重送；
+    guard.deny_text_slim=false 退回原本的長文字（原處不動）。舊碼只有長文字 → 紅。"""
+    slim = _reason(_run(world))
+    head, hit = slim.splitlines()[:2]
+    assert head.startswith("[Guardian:DataFileAsk] 修法：比這次工具呼叫早一則訊息送出宣告行（入口行範例：動資料檔｜settings.json：")
+    assert hit.startswith(f"✗ (df) {RULE}：") and rr.parse_hit_rules(slim) == [("df", RULE)]
+    assert "先宣告一行再改" not in slim and "留帳給健檢抽查" not in slim
+    old = _reason(_run(world, config={"guard": {"deny_text_slim": False}}))
+    body = lambda t: t.split("\n判準卡")[0]                                            # 判準卡另由 CARD_FULL_ONCE_PER_SESSION 管
+    assert "先宣告一行再改" in old and len(body(slim)) < len(body(old)) * 0.75, (len(body(slim)), len(body(old)))
+
+
+def test_slim_deny_caps_long_evidence():
+    v = rr.Verdict("R_X", True, "現象", ("短證據", "長" * 300))
+    t = rr.slim_deny("Guardian:X", "做某事", [("x", v)])
+    assert t.splitlines()[0] == "[Guardian:X] 修法：做某事" and rr.parse_hits(t) == ["x"]
+    assert "長" * rr.DENY_EVIDENCE_CAP + "…" in t and "長" * (rr.DENY_EVIDENCE_CAP + 1) not in t and "短證據" in t
+
+
+@pytest.fixture
+def post_read(world, monkeypatch):
+    """PostToolUse 讀檔：回這次送給模型的 additionalContext（沒送回空字串）。"""
+    from handlers import post_tool_use as post
+    sent = []
+    monkeypatch.setattr(post, "_emit_post_tool_output", lambda adv, msgs: sent.append("\n".join(adv)))
+
+    def run(tool_input, tool="Read", config=None, **extra):
+        sent.clear()
+        post.handle_post_tool_use({"session_id": SID, "cwd": str(world["proj"]), "tool_name": tool, "tool_input": tool_input,
+                                   "tool_response": {"stdout": "", "stderr": ""} if tool == "Bash" else {},
+                                   "transcript_path": world["tp"], **extra}, config or {})
+        return "\n".join(sent)
+    return run
+
+
+def test_read_hint_on_first_read_of_data_file(world, post_read):
+    """規則 DATA_FILE_READ_HINT：第一次讀到改了會被問的資料檔 → 讀檔結果後附一行宣告格式；同檔再讀不重送；之後的檔只點名「格式同前」；
+    程式檔、子代理讀的不提示。判定不動：沒宣告照擋。舊碼讀檔後什麼都不說、第一次改才被擋 → 紅。"""
+    first = post_read({"file_path": str(world["proj"] / "settings.json")})
+    assert "[Guardian:DataFileAsk] 改 settings.json 要先宣告｜格式：動資料檔｜<路徑>：" in first and "早一則訊息送出" in first
+    assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "settings.json")})
+    assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.py")})
+    assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "README.md")}, agent_id="ag-1")
+    assert "[Guardian:DataFileAsk] 改 README.md 也要先宣告（格式同前一則提示）" in post_read({"command": "cat README.md"}, tool="Bash")
+    assert _df_deny(_run(world))
+    assert [e["event"] for e in _log(world)] == ["read_hint", "read_hint", "denied"]
+
+
+def test_read_hint_skips_named_declared_and_switched_off(world, post_read, monkeypatch):
+    """使用者原話點名的、本 session 宣告過的不提示（改它本來就不會被問）；動資料檔閘關掉、v6 總開關關掉都不提示。"""
+    (world["proj"] / "rates.csv").write_text("a,1\n", encoding="utf-8")
+    (world["proj"] / "app.toml").write_text("x = 1\n", encoding="utf-8")
+    st = wg_core.read_state(SID)
+    wg_core.write_state(SID, {**st, "recent_user_prompts": [B1_PROMPT, "rates.csv 的匯率要更新"],
+                              "data_file_declared": {df._rr.canon_path(str(world["proj"] / "settings.json")): {"line": DECL}}})
+    for name in ("rates.csv", "settings.json"):
+        assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / name)}), name
+    assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.toml")},
+                                                     config={"guard": {"data_file_ask": {"enabled": False}}})
+    monkeypatch.setenv("WG_V6", "0")
+    assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.toml")})
+    assert not [e for e in _log(world) if e["event"] == "read_hint"]

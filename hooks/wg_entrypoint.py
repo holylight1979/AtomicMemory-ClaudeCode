@@ -9,8 +9,9 @@
 - judgment_cards(text, path)    上面三步串起來，只取知識段、總預算內截斷，回要接在問句後面的那段文字
 - entry_note(text, path, …)     問的那一刻的單一入口（Stop 擋訊息與續跑提醒、PreToolUse deny、MCP 回覆、子代理 prompt 都呼叫它）：
                                 挑卡＋每個切入點記一筆帳到 Logs/guard-entry.jsonl，回要接在問句後面的文字；
-                                同一個話題已送過全文的卡只送一行指回（workflow/entry-sent/<sid>.json，規則 CARD_ONCE_PER_TOPIC：
-                                話題＝目前的需求目標樹，換樹才再送；壓縮後清掉重送；子代理 prompt 不套）
+                                一張卡一個 session 只送一次全文，之後併成一行「判準卡：<卡名>、…」，拿過卡的切入點不再往下送新卡
+                                （workflow/entry-sent/<sid>.json，規則 CARD_FULL_ONCE_PER_SESSION；壓縮後清掉重送；子代理 prompt 不套）；
+                                entrypoint.card_once_per_session=false 退回 CARD_ONCE_PER_TOPIC（話題＝目前的需求目標樹，換樹才再送、一張一行指回）
 - resolve_responses(asks, …)    依各閘自己的留帳（登錄表每列的 responses）推每次問之後 AI 的回應型；tools/entry-stats.py 用
 - health_block()                健檢：RULES 裡沒登錄的規則名、登錄表寫錯的規則名、卡片寫了登錄表沒有的代號——只列不擋
 """
@@ -156,9 +157,15 @@ def inject_budget(config: Optional[Dict[str, Any]] = None, key: str = "inject_bu
         return default
 
 
+def card_once_per_session(config: Optional[Dict[str, Any]] = None) -> bool:
+    """entrypoint.card_once_per_session（預設開，規則 CARD_FULL_ONCE_PER_SESSION）；寫 false 退回 CARD_ONCE_PER_TOPIC。"""
+    return ((config or {}).get("entrypoint") or {}).get("card_once_per_session", True) is not False
+
+
 def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = None,
                    config: Optional[Dict[str, Any]] = None, registry: Optional[Dict[str, Any]] = None,
-                   pool: Optional[List[Dict[str, Any]]] = None, seen: Optional[set] = None) -> Dict[str, Any]:
+                   pool: Optional[List[Dict[str, Any]]] = None, seen: Optional[set] = None,
+                   served: Optional[set] = None) -> Dict[str, Any]:
     """問句 → {"entries": [代號], "cards": [{"name", "entries", "via"}], "truncated": bool, "truncated_entries": [代號],
     "note": "<要接在問句後面的文字>"}。沒認出切入點 → entries 空；認出但沒卡 → note 空字串（不接、不印「無」）。
     預算每個切入點各一份＝min(entrypoint.inject_budget_tokens, inject_budget_total ÷ 認出的切入點數)，整則加起來不超過總上限，
@@ -166,12 +173,15 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
     （尾端標「已截斷」）、它後面的卡不送；有卡卻沒送完的切入點都記進 truncated_entries。
     一張卡同時是幾個切入點的判準卡只送一次（算在第一個送它的切入點），標題列出它在這句裡服務的全部代號；
     綁定的那一列算綁定（via=entry）。truncated＝有任何截斷，truncated_entries＝哪幾個切入點被截。
-    seen＝這個回合已送過全文的卡名：只送一行指回、不佔預算，記進 repeated（全文還在前面的對話裡）。"""
+    seen＝已送過全文的卡名：不佔預算，記進 repeated（全文還在前面的對話裡）。
+    served 是 None＝舊樣式（CARD_ONCE_PER_TOPIC）：每張一行指回。served 是集合＝CARD_FULL_ONCE_PER_SESSION：送過的卡併成一行
+    「判準卡：<卡名>、<卡名>」；served 裡的切入點這個 session 已拿過卡，不再往下送新卡（也不記截斷）。"""
     rows = match_entries(text, path, registry)
     out: Dict[str, Any] = {"entries": [str(r["id"]) for r in rows], "cards": [], "truncated": False,
                            "truncated_entries": [], "repeated": [], "note": ""}
     if not rows:
         return out
+    names_only = served is not None
     pool = pool if pool is not None else card_pool(state)
     per_row = [(str(row["id"]), cards_for_entry(row, pool)) for row in rows]
     serves: Dict[str, List[str]] = {}
@@ -185,18 +195,26 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
                 bound_somewhere.add(card["name"])
     left_total, blocks, sent = inject_budget(config, "inject_budget_total"), [], set()
     each = min(inject_budget(config), left_total // len(per_row))      # 總上限平分給認出的切入點，不讓排後面的永遠落空
+    out["partial"], out["squeezed"] = [], each < inject_budget(config)  # 截斷送出的卡；這一問的額度被平分到比單一額度小
     used = {eid: 0 for eid, _ in per_row}
     for eid, card in _send_order(per_row):
         name = card["name"]
-        if left_total < _TRUNCATE_MIN_TOKENS:
-            break
         if name in sent or eid in out["truncated_entries"]:
             continue
+        if names_only and name in (seen or ()):          # 卡名不佔預算，預算用完也照列
+            out["cards"].append({"name": name, "entries": serves[name], "via": "entry" if name in bound_somewhere else "keyword"})
+            out["repeated"].append(name)
+            sent.add(name)
+            continue
+        if left_total < _TRUNCATE_MIN_TOKENS:
+            break
         if name in (seen or ()):
             blocks.append(f"判準卡（{'、'.join(serves[name])}）：{name}（這個話題前面已送過全文，照那張判）")
             out["cards"].append({"name": name, "entries": serves[name], "via": "entry" if name in bound_somewhere else "keyword"})
             out["repeated"].append(name)
             sent.add(name)
+            continue
+        if eid in (served or ()):                        # 這個切入點這個 session 拿過卡：不再往下挖新卡
             continue
         body = _knowledge(card)
         if not body:
@@ -207,6 +225,8 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
             cost = room
             out["truncated"] = True
             out["truncated_entries"].append(eid)        # 這個切入點的預算用完：它後面的卡不送，別的切入點照送
+            if body:
+                out["partial"].append(name)
         if body:
             blocks.append(f"判準卡（{'、'.join(serves[name])}）：{name}\n{body}")
             out["cards"].append({"name": name, "entries": serves[name], "via": "entry" if name in bound_somewhere else "keyword"})
@@ -214,9 +234,13 @@ def judgment_cards(text: str, path: str, *, state: Optional[Dict[str, Any]] = No
             used[eid] += cost
             left_total -= cost
     for eid, cards in per_row:        # 有卡卻一張都沒送到的切入點也記截斷（帳上分得出「沒卡」和「被擠掉」）
+        if eid in (served or ()):
+            continue
         if eid not in out["truncated_entries"] and any(c["name"] not in sent and _knowledge(c) for c, _ in cards):
             out["truncated"] = True
             out["truncated_entries"].append(eid)
+    if names_only and out["repeated"]:
+        blocks.insert(0, f"判準卡：{'、'.join(out['repeated'])}")
     out["note"] = "\n\n".join(blocks)
     return out
 
@@ -252,10 +276,17 @@ def entry_note(text: str, path: str, *, session_id: str = "", state: Optional[Di
             from wg_core import read_state
             state = read_state(session_id)
         turn = (state or {}).get("turn_seq")
-        topic = None if path == "subagent_prompt" else _topic_key(session_id)   # 子代理是另一個 context：照送全文
-        seen = _sent_this_topic(session_id, topic)
-        res = judgment_cards(text, path, state=state, config=config, registry=reg, pool=pool, seen=seen)
-        _remember_sent(session_id, topic, seen | {c["name"] for c in res["cards"]})
+        once = card_once_per_session(config)
+        # 子代理是另一個 context：照送全文；CARD_FULL_ONCE_PER_SESSION 的話題就是整個 session（換樹不重送）
+        topic = None if path == "subagent_prompt" else ("session" if once else _topic_key(session_id))
+        seen, served = _sent_this_topic(session_id, topic)
+        res = judgment_cards(text, path, state=state, config=config, registry=reg, pool=pool, seen=seen,
+                             served=served if once else None)
+        # 額度被平分的那一問：截斷的卡不算送過、被截的切入點不算拿過卡，下次單獨被問照送（卡本身比單一額度大的截斷照算送過）
+        short = set(res.get("partial") or []) if once and res.get("squeezed") else set()
+        kept = [c for c in res["cards"] if c["name"] not in short]
+        got = ({eid for c in kept for eid in c["entries"]} - (set(res["truncated_entries"]) if short else set())) if once else set()
+        _remember_sent(session_id, topic, seen | {c["name"] for c in kept}, served | got)
         from wg_core import append_guard_log
         for eid in res["entries"]:
             append_guard_log(LEDGER, {**(extra or {}), "event": "ask", "session_id": session_id, "turn_seq": turn, "entry": eid, "path": path,
@@ -287,25 +318,27 @@ def _topic_key(session_id: str) -> Optional[str]:
     return f"tree:{tid}" if tid else "session"
 
 
-def _sent_this_topic(session_id: str, topic: Optional[str]) -> set:
-    """這個 session 這個話題已送過全文的卡名。沒有 session 或話題、檔讀不到 → 空集合（照送全文）。"""
+def _sent_this_topic(session_id: str, topic: Optional[str]) -> Tuple[set, set]:
+    """這個 session 這個話題 (已送過全文的卡名, 拿過卡的切入點代號)。沒有 session 或話題、檔讀不到 → 兩個空集合（照送全文）。"""
     if not session_id or topic is None:
-        return set()
+        return set(), set()
     try:
         rec = json.loads(_sent_path(session_id).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return set()
-    return set(rec.get("names") or []) if rec.get("topic") == topic else set()
+        return set(), set()
+    if rec.get("topic") != topic:
+        return set(), set()
+    return set(rec.get("names") or []), set(rec.get("entries") or [])
 
 
-def _remember_sent(session_id: str, topic: Optional[str], names: set) -> None:
+def _remember_sent(session_id: str, topic: Optional[str], names: set, entries: set) -> None:
     if not session_id or topic is None or not names:
         return
     p = _sent_path(session_id)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"topic": topic, "names": sorted(names)}, ensure_ascii=False), encoding="utf-8",
-                     newline="\n")
+        p.write_text(json.dumps({"topic": topic, "names": sorted(names), "entries": sorted(entries)}, ensure_ascii=False),
+                     encoding="utf-8", newline="\n")
     except OSError as e:
         print(f"[Guardian:Entrypoint] 記不下這個話題已送的判準卡（下次照送全文）：{e}", file=sys.stderr)
 
