@@ -3956,3 +3956,14 @@ RULES.update({
     "SUBPROCESS_RUN_LOOKED_UP_AT_CALL": "跑子行程的函式不把 subprocess.run 綁成參數預設值：預設 None、呼叫當下才取 subprocess.run。"
                                         "綁在定義時，測試的 git 錄製重播換掉 subprocess.run 也攔不到，結果看匯入順序、錄製檔對不上。",
 })
+
+
+# ─── 卡片來源自動填：使用者原話（判定在 hooks/wg_provenance.py，這裡只登錄規則名與說明） ───
+RULES.update({
+    "QUOTE_FROM_USER_OPENED_TURN": "卡片的 Quote 只取寫卡那一回合是使用者本人打字開的原話（wg_provenance._turn_quote；回填工具 "
+                                   "atom-provenance-backfill 的 not_user_turn 同一條）：主 session 的 state.turn_typed 是 False"
+                                   "（同伴訊息、背景通知開的續跑回合，turn_prompts 沿用前一回合原話給口令閘用）→ 不填；子代理（hook 帶 "
+                                   "agent_id）不看 state、不拿子代理檔的任務 prompt，改由子代理檔第一筆的 promptId 對主檔開那一回合的紀錄"
+                                   "（wg_provenance._subagent_opener），lib/provenance.is_human_record 是才填（isSidechain 一律不算真人）；"
+                                   "貼上的內容（lib/harness_text.strip_pasted）不當原話。守門總開關開關都套。",
+})

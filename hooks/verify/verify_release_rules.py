@@ -2624,3 +2624,10 @@ def test_008_base_red_tracked_not_owed():
         kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
         assert kept and any(why in n for n in notes), (over, notes)
     assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []
+
+
+def test_quote_from_user_opened_turn_registered():
+    """QUOTE_FROM_USER_OPENED_TURN：判定在 hooks/wg_provenance._turn_quote，案例在 verify_quote_user_turn.py
+    （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
+    assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
+    assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()

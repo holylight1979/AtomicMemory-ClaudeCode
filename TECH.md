@@ -745,7 +745,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.8 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
 
-每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 148 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
+每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。`RULES` 現有 149 條，每條的名字都出現在下表第一欄（相關的幾條併一列，用「／」隔開）；新增規則時表上同步補一列。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
 
 | 規則 | 判什麼 | 不欠／放行的條件 | 照欠／照擋 |
 |---|---|---|---|
@@ -876,6 +876,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | OPENING_NOTICE_NOT_TODO | 開場系統提示的處置句（`session_start._harvest_staged_line`） | 寫清誰決定、要不要現在處理：「要不要現在處理由使用者決定：使用者這回合要的是別的事，只在回覆裡轉述這一行、不動這些檔；使用者說要處理，再由你逐張判斷…」 | 寫成待辦口吻（「…不要的刪掉」）時，使用者說「先告訴我、再等我說要做什麼」AI 仍照提示刪了草稿 |
 | GATE_TEXT_AVOIDS_EVASION_WORDS | 閘的擋訊息、提示與 MCP 回給 AI 的字句用字（§7.2「閘與 MCP 字句不中詞表」列：py 端 `verify_evasion_guard.test_gate_texts_do_not_trip_evasion_detector`、js 端 `verify_mcp_texts_avoid_evasion_words.py`） | hooks／lib 的 Python 字串與 MCP 的 js 字串（各自的排除見 §7.2）逐則跑 `detect_evasion` 判不出退避 | 會中退避詞表的字句（例：DataFileAsk「(c) 非本 session 建」）改說法；退避偵測不開引用豁免，AI 照抄被擋的那則會被記成退避 |
 | SUBPROCESS_RUN_LOOKED_UP_AT_CALL | 跑子行程的函式怎麼收 `run` 參數（守門案例 `verify_subprocess_run_default`） | 預設 None、呼叫當下才取 `subprocess.run` | 綁成參數預設值：測試的 git 錄製重播換掉 subprocess.run 也攔不到，結果看匯入順序 |
+| QUOTE_FROM_USER_OPENED_TURN | 卡片 Quote 自動填與回填取哪則使用者原話（`wg_provenance._turn_quote`、回填的 `not_user_turn`；案例 `verify_quote_user_turn`；細節見 §8「來源自動填」） | 寫卡那一回合是使用者本人打字開的：主 session 取 `turn_prompts` 最後一則；子代理取派它那一回合（子代理檔第一筆 `promptId` 對主檔開回合的紀錄）的真人原話；貼上的內容剔掉 | 同伴訊息、背景通知開的續跑回合（`turn_typed=False`）、子代理派出的回合不是真人開的或對不到、子代理檔裡的任務 prompt、整則是貼上的內容 → 不填 Quote（Source 照補） |
 
 ### 7.9 驗證範圍（verify_scope）
 
