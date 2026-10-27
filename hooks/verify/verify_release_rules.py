@@ -2636,6 +2636,7 @@ _GATE_DESIGN_CASES = {
     "CHAIN_NO_EDIT_NO_EDGE": ("verify_chain_breaker.py", "test_no_edit_actions_between_same_gate_do_not_link"),
     "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": ("verify_chain_wiring.py",
                                          "test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block"),
+    "INJECT_TRIGGER_READ_COUNTED": ("verify_overview_hub.py", "test_inject_trigger_read_counted"),
 }
 
 
@@ -2654,6 +2655,21 @@ def test_quote_from_user_opened_turn_registered():
     （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
     assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
     assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()
+
+
+# ─── 需求目標提示減量：規則名登錄、對照的案例真的在、案例點到規則名 ───
+_GOAL_REMINDER_CASES = {
+    "CRITIQUE_CASES_ONCE_PER_SESSION": ("verify_pull_goal_locate.py", "test_critique_cases_full_once_per_session_then_pointer"),
+    "TREE_LINE_IN_HINTS": ("verify_pull_goal_locate.py", "test_hook_prompts_carry_only_current_node_line"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_GOAL_REMINDER_CASES))
+def test_goal_reminder_rules_registered_with_cases(rule):
+    case_file, fn = _GOAL_REMINDER_CASES[rule]
+    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
+    assert rule in rr.RULES and "v6.slim_reminders" in rr.RULES[rule], rule
+    assert f"def {fn}(" in text and rule in text, (rule, case_file, fn)
 
 
 def test_inject_lean_rules_registered_with_cases():

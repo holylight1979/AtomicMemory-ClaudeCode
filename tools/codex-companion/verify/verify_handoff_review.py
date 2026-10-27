@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest  # noqa: F401
+import pytest
 
 CLAUDE_DIR = Path(__file__).resolve().parents[3]  # verify/ → codex-companion/ → tools/ → .claude/
 COMP_DIR = Path(__file__).resolve().parent.parent  # codex-companion/
@@ -24,6 +24,12 @@ import prompts  # noqa: E402
 
 _ON = {"soft_gate": {"handoff_review": True, "architecture_review": False}}
 _OFF = {"soft_gate": {"handoff_review": False}}
+
+
+@pytest.fixture(autouse=True)
+def _v6_off(monkeypatch):
+    """這支驗 v6 守門關著（出廠預設）時的接續單自檢；v6 開時改看 soft_gate.handoff_review_v6，案例在 hooks/verify/verify_notice_once.py。"""
+    monkeypatch.setenv("WG_V6", "0")
 
 
 # ─── _detect_checkpoint ───────────────────────────────────────────────────────

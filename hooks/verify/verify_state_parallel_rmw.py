@@ -174,15 +174,15 @@ def _part_rec(state: dict) -> dict:
 
 def test_four_parallel_reads_all_recorded(sb):
     _start(sb)
-    r = sb.run(sb.read_event(sb.proj / "orders" / "a.py"))            # 第一個部位檔：注入導讀卡、建部位紀錄（注入那次不算讀）
+    r = sb.run(sb.read_event(sb.proj / "orders" / "a.py"))            # 第一個部位檔：注入導讀卡、建部位紀錄（注入那次也算讀，INJECT_TRIGGER_READ_COUNTED）
     assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
-    assert _part_rec(sb.state())["part_files_read"] == []
+    assert _names(_part_rec(sb.state())["part_files_read"]) == {"a.py"}
     files = [sb.proj / "orders" / f"{n}.py" for n in ("b", "c", "d", "e")]
     results = sb.run_parallel([sb.read_event(f) for f in files])
     assert all(rc == 0 for rc, _, _, _ in results), results
     assert not any("[workflow-guardian] Error" in e for _, _, e, _ in results), results
     rec = _part_rec(sb.state())
-    assert _names(rec["part_files_read"]) == {"b.py", "c.py", "d.py", "e.py"}, rec["part_files_read"]
+    assert _names(rec["part_files_read"]) == {"a.py", "b.py", "c.py", "d.py", "e.py"}, rec["part_files_read"]
     assert {"b.py", "c.py", "d.py", "e.py"} <= _names(rec["reads_after"]), rec["reads_after"]
     assert not list((sb.data / "workflow").glob(f"state-{sb.sid}.*.pending")), "沒撞到期限不該留待併帳"
 
@@ -285,7 +285,7 @@ def test_lock_timeout_leaves_pending_then_next_hook_merges_it(sb):
     r = sb.run(sb.read_event(sb.proj / "orders" / "c.py"))                         # 下一支拿到鎖：先併回再記自己那筆
     err = r.stderr.decode("utf-8", "replace")
     assert r.returncode == 0 and "[state:pending-merged]" in err, err
-    assert _names(_part_rec(sb.state())["part_files_read"]) == {"b.py", "c.py"}
+    assert _names(_part_rec(sb.state())["part_files_read"]) == {"a.py", "b.py", "c.py"}           # a.py 是觸發注入那次
     assert not list(state_file.parent.glob(f"{state_file.stem}.*.pending"))
     log = (sb.logs / "guard-state_lock.jsonl").read_text(encoding="utf-8")
     assert '"kind": "pending_written"' in log and '"kind": "pending_merged"' in log
