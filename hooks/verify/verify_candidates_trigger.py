@@ -81,9 +81,13 @@ def _transcript(tmp_path, texts):
 
 
 def _inject(root, state, tp):
+    """讀到部位檔只建紀錄、送一行定位提示（規則 READ_TOUCH_NO_CARD）；卡在第一次改這個部位的檔時組出來（on_edit 回的判定文字，
+    真入口把它當提醒件隨工具結果送、不擋）。回 (檔, 卡文字)。"""
     f1 = str(root / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(root), tp, {})
-    assert txt
+    hint = wo.on_read(state, "s", "Read", {"file_path": f1}, str(root), tp, {})
+    assert hint and "戰鬥導讀" not in hint
+    txt = wo.on_edit(state, "s", f1, tp, {})[1]
+    assert txt and "導讀卡現在才送" in txt and "戰鬥導讀" in txt
     return f1, txt
 
 

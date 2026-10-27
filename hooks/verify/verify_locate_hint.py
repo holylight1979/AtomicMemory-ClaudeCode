@@ -1,7 +1,9 @@
 """verify_locate_hint.py：定位與立樹「讀到就先提示，沒照做才擋」（規則 LOCATE_HINT_ON_FIRST_READ）。
 
 讀檔走真的 PostToolUse 處理器（handle_post_tool_use），改檔走真的 PreToolUse 處理器（handle_pre_tool_use）：提示要出現在
-第一個 Edit 之前那則讀檔工具結果的 additionalContext 裡；照提示立樹、交四行再改 → 不擋；沒照做 → 照擋（擋的判定與文字不動）。
+第一個 Edit 之前那則讀檔工具結果的 additionalContext 裡（讀檔只送這一行、不送卡，規則 READ_TOUCH_NO_CARD；卡隨第一次 Edit 那則的
+工具結果到、不擋：提醒件 OVERVIEW_CARD_BEFORE_EDIT 進 remind_pending）；照提示立樹、交四行再改 → 不擋；沒照做 → 也不擋、不再提醒
+（規則 GATE_MODE_TABLE；判定與留帳不動）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_locate_hint.py
   （直接跑 python -X utf8 hooks/verify/verify_locate_hint.py 也行：開子行程跑 pytest，尾行印哨兵）
 共用 verify_need_goal 的資料根隔離（env／hooked）與部位世界；不碰 live。
@@ -73,11 +75,15 @@ def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hoo
     assert "先用 need_goal(action=set, goal=…) 立需求目標樹" in hint and "交定位四行" in hint
     assert "候選 A …；候選 B …；選 A 因為 …" in hint and "「合理／不合理，因為 …」" in hint
     assert "回覆文字" in hint and "開頭的 `#` 註解" in hint and "（thinking 讀不到）" in hint and "照常用 Edit／Write" in hint
-    assert "戰鬥導讀" in ctx and ctx.index("戰鬥導讀") < ctx.index(hint)            # 同一則讀檔結果：導讀卡在前、提示在後
+    assert "戰鬥導讀" not in ctx                                                    # 讀檔結果只有提示、沒有卡（READ_TOUCH_NO_CARD）
     assert not [o for o in hooked["outputs"] if o]                                 # 還沒有任何 PreToolUse 輸出：提示在第一個 Edit 之前
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     _say(hooked["tp"], FOUR)
-    assert _edit(hooked, f1) is None
+    assert _edit(hooked, f1) is None                                                # 第一個 Edit：不擋，卡排進提醒、隨這次工具結果到
+    pend = wg_core.read_state(SID)["remind_pending"]
+    assert [h["rule"] for h in pend] == ["OVERVIEW_CARD_BEFORE_EDIT"]
+    assert "戰鬥導讀" in pend[0]["extra"] and "導讀卡現在才送" in pend[0]["what"]
+    assert _edit(hooked, f1) is None                                                # 卡到了、樹與四行都有 → 不擋
     assert [(e["need_tree"], e["four"], e["first"]) for e in _hint_events(hooked)] == [(True, True, True)]
 
 
@@ -88,12 +94,14 @@ def test_locate_hint_ignored_not_blocked_and_not_reminded_twice(hooked, post_rea
     assert "立需求目標樹" in post_read({"file_path": f1})
     assert _edit(hooked, f1) is None
     state = wg_core.read_state(SID)
-    assert not state.get("remind_pending") and any(k.startswith("CODE_EDIT_NEEDS_GOAL_TREE|") for k in state["remind_sent"])
+    pending_rules = lambda st: [h["rule"] for h in st.get("remind_pending") or []]   # noqa: E731
+    assert pending_rules(state) == ["OVERVIEW_CARD_BEFORE_EDIT"]                   # 等著送的只有卡，沒有立樹／定位的第二次提醒
+    assert any(k.startswith("CODE_EDIT_NEEDS_GOAL_TREE|") for k in state["remind_sent"])
     assert any(k.startswith("LOCATE_BEFORE_EDIT|") for k in state["remind_sent"])
     assert [p["why"] for g, p in hooked["guard"] if g == "need_goal" and p["event"] == "edit_blocked"] == ["no_tree"]
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     assert _edit(hooked, f1) is None
-    assert not wg_core.read_state(SID).get("remind_pending")
+    assert pending_rules(wg_core.read_state(SID)) == ["OVERVIEW_CARD_BEFORE_EDIT"]
     assert not [o for o in hooked["outputs"] if o]
 
 
@@ -105,7 +113,7 @@ def test_locate_hint_skips_non_code_second_read_located_and_short_for_next_part(
     notes.write_text("# 筆記", encoding="utf-8")
     _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
     ctx = post_read({"file_path": str(notes)})
-    assert "戰鬥導讀" in ctx and "交定位" not in ctx                                # 非程式檔：卡照注入、不提示
+    assert "戰鬥導讀" not in ctx and "交定位" not in ctx                            # 非程式檔：只建紀錄，卡與提示都不送
     ctx = post_read({"file_path": files["Battle"]})
     assert "改【戰鬥】的程式檔前交定位四行" in ctx and "need_goal(action=set" not in ctx   # 有樹：只講定位
     assert "交定位" not in post_read({"file_path": files["Battle"]})               # 同部位第二次讀

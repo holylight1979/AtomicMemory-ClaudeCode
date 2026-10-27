@@ -164,30 +164,41 @@ def test_tree_hint_once_per_session(hooked, post):
 # ─── P10 定位閘 ─────────────────────────────────────────────────────────
 
 def test_locate_reminded_on_read_not_denied_on_edit(hooked, post):
-    """P10：第一次讀到部位程式檔的讀檔結果已提醒交定位 → 立了樹沒交定位就改：不擋、留帳 edit_remind、不送第二次。"""
+    """P10：第一次讀到部位程式檔的讀檔結果已提醒交定位 → 立了樹沒交定位就改：不擋、留帳 edit_remind、不送第二次。
+    第一個 Edit 那則工具結果只帶卡（OVERVIEW_CARD_BEFORE_EDIT 一行＋卡，P10b），沒有定位的第二次提醒；第二個 Edit 什麼都不附。"""
     f1 = _mapped_world(hooked)
     assert "交定位四行" in post("Read", {"file_path": f1})
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     deny, out = _pre(hooked, "Edit", _edit_input(f1))
     assert deny is None, deny
-    assert [e["rule"] for e in _hub_events(hooked, "edit_remind")] == ["LOCATE_BEFORE_EDIT"]
+    ctx = post("Edit", _edit_input(f1))
+    assert _lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT") and "戰鬥導讀" in ctx and not _lines(ctx, "LOCATE_BEFORE_EDIT"), ctx
+    assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
+    assert [e["rule"] for e in _hub_events(hooked, "edit_remind")] == ["OVERVIEW_CARD_BEFORE_EDIT", "LOCATE_BEFORE_EDIT"]
     assert REMIND not in post("Edit", _edit_input(f1))
     assert not [o for o in hooked["outputs"] if o]                  # PreToolUse 全程沒輸出（沒擋、沒提醒）
 
 
 def test_locate_remind_once_per_part(hooked, post):
-    """P10：每部位每 session 一次：戰鬥提醒過再改兩次不提醒；介面第一次讀時點名一次，之後改介面也不提醒。"""
+    """P10：每部位每 session 一次：戰鬥提醒過再改兩次不再提醒定位；介面第一次讀時點名一次，之後改介面也不提醒。
+    每部位第一個 Edit 的工具結果只帶卡（OVERVIEW_CARD_BEFORE_EDIT），之後的 Edit 什麼都不附。"""
     files = _two_part_world(hooked)
     _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
     assert "改【戰鬥】的程式檔前交定位四行" in post("Read", {"file_path": files["Battle"]})
-    for _ in range(2):
+    for i in range(2):
         assert _pre(hooked, "Edit", _edit_input(files["Battle"]))[0] is None
-        assert REMIND not in post("Edit", _edit_input(files["Battle"]))
+        ctx = post("Edit", _edit_input(files["Battle"]))
+        assert not _lines(ctx, "LOCATE_BEFORE_EDIT") and bool(_lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT")) == (i == 0), ctx
     ui = post("Read", {"file_path": files["UI"]})
     assert "改【介面】的程式檔前交定位四行（格式同前一則提示）" in ui
     assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0] is None
+    ctx = post("Edit", _edit_input(files["UI"]))
+    assert not _lines(ctx, "LOCATE_BEFORE_EDIT") and _lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT"), ctx
+    assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0] is None
     assert REMIND not in post("Edit", _edit_input(files["UI"]))
-    assert [e["part"] for e in _hub_events(hooked, "edit_remind")][:2] == ["戰鬥", "戰鬥"]
+    # 介面第二個 Edit 同一使用者回合定位閘已對戰鬥判過一次 → LOCATE_BLOCK_ONCE_PER_USER_TURN：只放行留帳，不再出提醒件
+    assert [(e["part"], e["rule"]) for e in _hub_events(hooked, "edit_remind")] == [
+        ("戰鬥", "OVERVIEW_CARD_BEFORE_EDIT"), ("戰鬥", "LOCATE_BEFORE_EDIT"), ("介面", "OVERVIEW_CARD_BEFORE_EDIT")]
     assert not [o for o in hooked["outputs"] if _deny_text(o)]
 
 

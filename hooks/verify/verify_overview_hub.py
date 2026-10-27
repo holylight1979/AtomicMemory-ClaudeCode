@@ -1,4 +1,4 @@
-"""verify_overview_hub.py — OverviewHub（第一次改某部位前整張注入導讀卡、Edit 前查定位三行）。
+"""verify_overview_hub.py — OverviewHub（讀檔只建紀錄、第一次改某部位的檔那則整張注入導讀卡、Edit 前查定位三行）。
 
 純函式：lib/overview_hub（讀表、最長前綴命中、定位三行、Bash 讀檔擷取）；
 state 層：wg_overview.on_read / on_prompt / on_edit（用 tmp_path 造一個假專案與假 transcript）。
@@ -207,6 +207,13 @@ def _transcript(tmp_path, texts):
     return str(tp)
 
 
+def _card(state, f, tp, cfg=None, sid="s"):
+    """讀檔只建紀錄不送卡（規則 READ_TOUCH_NO_CARD）：卡在第一次改這個部位的檔那則送到、擋一次；回那則訊息。"""
+    deny = wo.on_edit(state, sid, f, tp, cfg or {})[1]
+    assert deny and "導讀卡現在才送" in deny, deny
+    return deny
+
+
 def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     cfg = {"overview_hub": {"enabled": True}}
@@ -216,12 +223,14 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     Path(f1).write_text("x", encoding="utf-8")                                     # Bash cat 讀的要是實檔才算（BASH_READONLY_COUNTS_AS_READ）
 
     txt = wo.on_read(state, "sess", "Read", {"file_path": f1}, str(proj), tp, cfg)
-    assert txt and "整張" not in txt and "戰鬥導讀" in txt and "定位｜部位：戰鬥" in txt   # 第一次讀 → 注入整張
+    assert txt and "戰鬥導讀" not in txt and txt.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前")   # 第一次讀 → 只一行提示，卡不送
     assert wo.on_read(state, "sess", "Read", {"file_path": f2}, str(proj), tp, cfg) is None  # 第二次不再注入
     assert wo.on_read(state, "sess", "Bash", {"command": f'cat "{f1}"'}, str(proj), tp, cfg) is None
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
     assert rec["part_files_read"] == [f1, f2] and rec["reads_after"] == [f1, f2]       # 觸發注入的 f1 也算（INJECT_TRIGGER_READ_COUNTED）
 
+    card = _card(state, f1, tp, cfg, sid="sess")                        # 第一次改 → 卡這時才送（整張）、擋一次
+    assert "整張" not in card and "戰鬥導讀" in card and "定位｜部位：戰鬥" in card
     warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 沒交定位 → 一律擋（A4.1 沒有不擋的模式）
     assert deny and "定位三行" in deny and "讀了 2 個檔" in deny and warn == deny and changed
 
@@ -232,9 +241,10 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     assert rec["located_via"] == "text" and rec["located_quality"] == "card"
 
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log] == ["inject", "locate_hint", "edit", "edit"]   # 讀到程式檔先提示（LOCATE_HINT_ON_FIRST_READ）
-    assert log[2]["located"] is False and log[2]["deny_reason"] == "evidence"
-    assert log[3]["located"] is True and log[3]["deny_reason"] is None and log[3]["located_quality"] == "card"
+    assert [e["event"] for e in log] == ["inject", "locate_hint", "card", "edit_card_delivered", "edit", "edit"]   # 讀到程式檔先提示；卡隨第一次改檔送
+    assert log[0]["chars"] == 0 and log[0]["card_pending"] is True and log[2]["chars"] == len(card.split("\n", 1)[1])
+    assert log[4]["located"] is False and log[4]["deny_reason"] == "evidence"
+    assert log[5]["located"] is True and log[5]["deny_reason"] is None and log[5]["located_quality"] == "card"
 
 
 def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypatch):
@@ -251,8 +261,10 @@ def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypa
 def test_no_card_row_still_asks_for_locate(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     state = {}
-    txt = wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "x.cs")}, str(proj), "", {})
-    assert txt and "沒有可注入的導讀卡" in txt and "定位｜前例" in txt
+    f = str(proj / "Vendor" / "x.cs")
+    assert "沒有可注入的導讀卡" not in (wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), "", {}) or "")
+    txt = _card(state, f, "")
+    assert "沒有可注入的導讀卡" in txt and "定位｜前例" in txt
 
 
 def test_prompt_mention_injects(proj, tmp_path, monkeypatch):
@@ -344,8 +356,8 @@ def test_project_locate_template_override(proj, tmp_path, monkeypatch):   # 專�
         '{"locate_template": ["改哪一塊", "根因在哪層", "對得上規格書哪個 R 編號或 §3 第幾列"]}', encoding="utf-8")
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert "定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列" in txt
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列" in _card(state, f1, tp)
     with open(tp, "a", encoding="utf-8") as f:                              # 照抄專案自訂範本也不算交
         f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
                 "text": "定位｜部位：戰鬥——改哪一塊\n定位｜根因層：根因在哪層\n定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列"}]}}, ensure_ascii=False) + "\n")
@@ -363,7 +375,8 @@ def test_row_with_two_cards_injects_both_and_locate_extra(proj, tmp_path, monkey
         '{"locate_extra": {"戰鬥": "跑的是哪份 DLL"}}', encoding="utf-8")
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    txt = _card(state, f1, tp)
     assert "戰鬥導讀" in txt and "共用字典" in txt and "定位｜加問：跑的是哪份 DLL" in txt
     rec = next(iter(state["overview_hub"].values()))
     assert len(rec["card_paths"]) == 2
@@ -382,6 +395,7 @@ def test_locate_accepted_from_tool_input_and_thinking(proj, tmp_path, monkeypatc
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), str(tp), {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), str(tp), {})   # 部位檔 ≥1
+    _card(state, f1, str(tp))
     with open(tp, "a", encoding="utf-8") as f:                                    # 三行只在 Bash 參數裡
         f.write(entry({"type": "tool_use", "name": "Bash", "input": {"command": "# " + lines.replace("\n", "\n# ") + "\nsed -n 1,5p A.cs"}}))
     assert wo.on_edit(state, "s", f1, str(tp), {}) == (None, None, True)
@@ -403,6 +417,7 @@ def test_missing_transcript_is_gate_self_error_and_passes(proj, tmp_path, monkey
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), "", {})
+    _card(state, f1, "")
     for tp in (str(tmp_path / "nope.jsonl"), ""):
         warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
         assert deny is None and changed
@@ -609,8 +624,9 @@ def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
     import wg_core
     monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
     assert wo._cfg({}, fake)["_layer"] == "root"
-    txt = wo.on_read({}, "s", "Read", {"file_path": str(fake / "hooks" / "x.py")}, str(fake), "", {})
-    assert txt and "pythonw 無 stdio" in txt
+    state, f = {}, str(fake / "hooks" / "x.py")
+    assert "pythonw 無 stdio" not in (wo.on_read(state, "s", "Read", {"file_path": f}, str(fake), "", {}) or "")
+    assert "pythonw 無 stdio" in _card(state, f, "")
     assert oh.resolve_card(fake, "hooks導讀") is None                   # 預設位置找不到
     assert oh.resolve_card(fake, "hooks導讀", fake / "memory").name == "hooks導讀.md"
 
@@ -698,8 +714,10 @@ def test_inject_end_to_end_in_root_worktree_has_card_text(tmp_path, monkeypatch)
     target = str(wt / "hooks" / "wg_x.py")
     warn, deny, changed = wo.on_edit({}, "s", target, tp, {})                          # 改檔觸發注入（沒先讀 → 擋，理由帶整張卡）
     assert deny and "pythonw 無 stdio" in deny and "沒有可注入的導讀卡" not in deny and changed   # live 那張
-    txt = wo.on_read({}, "s", "Read", {"file_path": target}, str(wt), tp, {})
-    assert txt and "pythonw 無 stdio" in txt and "HOME 覆寫指錯" not in txt and "沒有可注入的導讀卡" not in txt   # 反例：不是 worktree 的舊副本
+    state = {}
+    assert "pythonw 無 stdio" not in (wo.on_read(state, "s", "Read", {"file_path": target}, str(wt), tp, {}) or "")
+    txt = _card(state, target, tp)
+    assert "pythonw 無 stdio" in txt and "HOME 覆寫指錯" not in txt and "沒有可注入的導讀卡" not in txt   # 反例：不是 worktree 的舊副本
 
 
 # ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
@@ -957,6 +975,7 @@ def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(pr
     for i in range(20):                                                            # ② 讀 20 個表外檔不算部位檔
         wo.on_read(state, "s", "Read", {"file_path": str(proj / f"note{i}.md")}, str(proj), tp, {})
     _locate(tp)
+    _card(state, f1, tp, two)
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, two)
     assert deny and "目前 1 個" in deny and "表外檔讀了 20 個不算" in deny and "定位三行" not in deny
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
@@ -965,6 +984,7 @@ def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(pr
     state2 = {}
     wo.on_read(state2, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state2, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _card(state2, f1, tp)
     warn, deny, _ = wo.on_edit(state2, "s", f1, tp, {})
     assert deny and "要 ≥3 個，目前 2 個" in deny                                   # 專案可調數字
 
@@ -1055,7 +1075,9 @@ def _move_card(proj, dest_dir):
 def test_card_in_default_dir_unchanged(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     tp = _transcript(tmp_path, ["x"])
-    txt = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), tp, {})
+    state, f1 = {}, str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    txt = _card(state, f1, tp)
     assert "戰鬥導讀" in txt and "不在預設目錄" not in txt and "在 repo 裡找不到" not in txt
 
 
@@ -1065,7 +1087,8 @@ def test_card_only_in_aidocs_atoms_is_found_and_flagged(proj, tmp_path, monkeypa
     tp = _transcript(tmp_path, ["x"])
     state = {}
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    txt = _card(state, f1, tp)
     assert "戰鬥導讀" in txt and f"表上的卡在 {moved}，不在預設目錄；請更新表或搬卡" in txt
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
@@ -1078,8 +1101,8 @@ def test_card_missing_everywhere_denies_even_after_reads_and_locate(proj, tmp_pa
     tp = _transcript(tmp_path, ["x"])
     state = {}
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert f"`{_CARD}` 在 repo 裡找不到" in txt
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert next(iter(state["overview_hub"].values()))["cards_missing"]["missing"]       # 讀檔只建紀錄；缺卡在改檔那則擋
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})                             # 反例：讀過檔＋交三行也擋
@@ -1104,6 +1127,7 @@ def test_status_none_row_unchanged(proj, tmp_path, monkeypatch):
     wo.on_read(state, "s", "Read", {"file_path": v1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "b.cs")}, str(proj), tp, {})
     _locate(tp, part="框架")
+    assert "沒有可注入的導讀卡" in _card(state, v1, tp)
     assert wo.on_edit(state, "s", v1, tp, {}) == (None, None, True)                 # 狀態「無」不要求卡
 
 
@@ -1130,7 +1154,8 @@ def test_two_cards_both_present_unchanged(proj, tmp_path, monkeypatch):
     (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    txt = _card(state, f1, tp)
     assert "在 repo 裡找不到" not in txt and "不在預設目錄" not in txt
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
@@ -1143,8 +1168,8 @@ def test_two_cards_one_missing_denies_listing_only_that_one(proj, tmp_path, monk
     _two_card_table(proj)
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert "戰鬥導讀" in txt and "表上寫的導讀卡 `戰鬥根因層` 在 repo 裡找不到" in txt
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert next(iter(state["overview_hub"].values()))["cards_missing"]["missing"] == ["戰鬥根因層"]
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
@@ -1165,7 +1190,8 @@ def test_006_8_wildcard_card_found_by_glob(proj, tmp_path, monkeypatch):
     _wild_table(proj, "戰鬥*")
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    txt = _card(state, f1, tp)
     assert "戰鬥導讀" in txt and "在 repo 裡找不到" not in txt
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
@@ -1238,6 +1264,7 @@ def test_thinking_channel_allows_with_reminder(proj, tmp_path, monkeypatch):
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp, block="thinking", precedent="無")
+    _card(state, f1, tp)
     warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
     assert deny is None and changed and warn and "thinking" in warn and "放行" in warn
     rec = next(iter(state["overview_hub"].values()))
@@ -1273,6 +1300,7 @@ def test_wrong_layer_then_corrected_passes(proj, tmp_path, monkeypatch):       #
     state = {}
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _card(state, f1, tp)
     with open(tp, "a", encoding="utf-8") as f:
         f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
                 "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：Demo 區\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
@@ -1293,6 +1321,7 @@ def test_wrong_layer_then_corrected_passes(proj, tmp_path, monkeypatch):       #
     state2 = {}
     wo.on_read(state2, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state2, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _card(state2, f1, tp)
     off = next(iter(state2["overview_hub"].values()))["transcript_offset"]
     with open(tp, "a", encoding="utf-8") as f:
         f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
@@ -1348,6 +1377,7 @@ def test_transcript_unreadable_is_self_error_even_if_located(proj, tmp_path, mon
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _locate(tp)
+    _card(state, f1, tp)
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
     rec = next(iter(state["overview_hub"].values()))
     assert rec["located"] is True
@@ -1372,12 +1402,16 @@ def test_inject_record_and_log_carry_intent_slices_layer(proj, tmp_path, monkeyp
     (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥知識導讀-hub索引.md").write_text(FIVE_CARD, encoding="utf-8")
     state = {"turn_intent": "debug"}
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
-    assert txt.index("[已知病灶]") < txt.index("[驗法]")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
     rec = next(iter(state["overview_hub"].values()))
-    assert rec["intent"] == "debug" and rec["slices"] == ["defects", "verify", "authority"]
-    log = json.loads((tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()[0])
-    assert log["intent"] == "debug" and log["slices"] == ["defects", "verify", "authority"] and log["layer"] == "project_mapped"
+    assert rec["intent"] == "debug" and rec["slices"] == []                        # 片在送卡那刻才選
+    txt = _card(state, f1, "")
+    assert txt.index("[已知病灶]") < txt.index("[驗法]")
+    assert rec["slices"] == ["defects", "verify", "authority"]
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert log[0]["intent"] == "debug" and log[0]["slices"] == [] and log[0]["layer"] == "project_mapped"
+    card_ev = next(e for e in log if e["event"] == "card")
+    assert card_ev["slices"] == ["defects", "verify", "authority"] and card_ev["layer"] == "project_mapped"
     state2 = {}
     assert wo.on_prompt(state2, "s", f"看 {f1}", "", {}, intent="perf")
     assert state2["turn_intent"] == "perf" and next(iter(state2["overview_hub"].values()))["slices"] == ["verify", "defects", "what"]
@@ -1668,8 +1702,10 @@ def test_know_edit_before_inject_still_denies_once_without_locate_demand(kproj, 
 def test_know_injection_text_asks_locate_only_for_code_parts(kproj, tmp_path):
     """注入文字：知識部位不要求定位三行（卡照注）；寫碼部位照舊要。"""
     state: dict = {}
-    k = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "workflow" / "inbox" / "to-x" / "a.md")}, str(kproj), "", {})
-    c = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "tools" / "a.py")}, str(kproj), "", {})
+    fk, fc = str(kproj / "workflow" / "inbox" / "to-x" / "a.md"), str(kproj / "tools" / "a.py")
+    assert wo.on_read(state, "s", "Read", {"file_path": fk}, str(kproj), "", {}) is None   # 知識類部位的檔：讀檔零增量（也沒定位提示）
+    wo.on_read(state, "s", "Read", {"file_path": fc}, str(kproj), "", {})
+    k, c = _card(state, fk, ""), _card(state, fc, "")
     assert "信箱導讀" in k and "知識類部位" in k and "定位｜部位" not in k
     assert "工具導讀" in c and "定位｜部位：工具" in c
     assert {key.rsplit("|", 1)[1]: rec.get("kind") for key, rec in state["overview_hub"].items()} == {
@@ -2043,7 +2079,7 @@ def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
         wo.on_read(by_read, "s", "Read", {"file_path": f[n]}, str(proj), tp, cfg)
     by_cat = {"turn_seq": 1}
     txt = wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
-    assert txt and "戰鬥導讀" in txt
+    assert txt and "戰鬥導讀" not in txt and "交定位" in txt                       # 讀檔只一行提示，卡不送（READ_TOUCH_NO_CARD）
     rec = _battle(by_cat)
     assert len(rec["part_files_read"]) == 3 and _same_files(rec["part_files_read"], _battle(by_read)["part_files_read"])
     forms = [("Bash", f"grep foo {f['E']}"), ("PowerShell", f"Get-Content '{f['G']}' -TotalCount 5")]
@@ -2100,7 +2136,7 @@ def test_inject_trigger_read_counted(proj, tmp_path, monkeypatch):
         (battle / f"{n}.cs").write_text("x", encoding="utf-8")
         f[n] = (battle / f"{n}.cs").as_posix()
     by_cat = {"turn_seq": 1}
-    assert "戰鬥導讀" in wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
+    assert "戰鬥導讀" not in wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
     assert _battle(by_cat)["part_files_read"] == [f["A"], f["B"], f["C"]]
     assert wo.on_read(by_cat, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg) is None      # 已注入：一般讀，不重記
     wo.on_read(by_cat, "s", "Read", {"file_path": f["D"]}, str(proj), tp, cfg)
@@ -2108,6 +2144,7 @@ def test_inject_trigger_read_counted(proj, tmp_path, monkeypatch):
     by_read = {"turn_seq": 1}
     assert wo.on_read(by_read, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg)
     assert _battle(by_read)["part_files_read"] == [f["A"]]
+    _card(by_read, f["A"], tp, cfg)
     warn, deny, _ = wo.on_edit(by_read, "s", f["A"], tp, cfg)
     assert deny and "注入導讀卡後還沒讀過" not in deny and "定位" in deny                           # 讀檔證據夠了，還要交定位
     by_edit = {"turn_seq": 1}
@@ -2143,6 +2180,7 @@ def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
     state = {"turn_seq": 3, "turn_prompts_seq": 3}
     for f in (battle, ui):
         wo.on_read(state, "s", "Read", {"file_path": f}, str(root), tp, {})
+        _card(state, f, tp)                                                        # 卡隨第一次改檔送，那一刀不算定位閘擋
     warn, deny, _ = wo.on_edit(state, "s", battle, tp, {})
     assert deny and "還沒交出定位" in deny
     warn, deny, changed = wo.on_edit(state, "s", ui, tp, {})
@@ -2167,6 +2205,7 @@ def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
     Path(f1).write_text("x", encoding="utf-8")
     state = {}
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    _card(state, f1, tp)
     deny = wo.on_edit(state, "s", f1, tp, {})[1]
     assert "不要寫在 thinking：thinking 預設不寫進 transcript，hook 讀不到" in deny and "可能讀不到" not in deny
     assert "寫在回覆文字" in deny and "開頭的 `#` 註解" in deny

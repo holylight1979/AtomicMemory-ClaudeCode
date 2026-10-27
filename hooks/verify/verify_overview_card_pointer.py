@@ -1,8 +1,8 @@
 """verify_overview_card_pointer.py — 導讀卡指標制（overview_hub.card_injection）。
 
-第一次碰到部位只送「已知病灶一句＋卡路徑」兩行，定位要求照送；改程式部位之前要本 session Read 過卡，沒讀照定位閘的方式擋
-（擋訊息附卡路徑），知識類部位沒讀只提醒、留帳；card_injection=full 回到整張注入、不要求讀卡；v6 總開關關時一律整張；
-沒有卡的部位兩種送法逐字相同。
+讀檔碰到部位只建紀錄（READ_TOUCH_NO_CARD），卡在第一次改這個部位的檔那則送：pointer 只送「已知病灶一句＋卡路徑」兩行，定位要求照送；
+改程式部位之前要本 session Read 過卡，沒讀照定位閘的方式擋（擋訊息附卡路徑），知識類部位沒讀只提醒、留帳；card_injection=full
+回到整張注入、不要求讀卡；v6 總開關關時也照 card_injection（預設 pointer）；沒有卡的部位兩種送法逐字相同。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_overview_card_pointer.py
 """
 
@@ -88,17 +88,19 @@ def _rec(state, part):
 
 
 def test_pointer_first_touch_sends_defect_line_and_card_path(proj, tmp_path):
-    """第一刀：第一次碰到部位只送病灶一句＋卡路徑，卡的其他段不進 context；定位要求照送。"""
+    """第一刀：讀檔只一行定位提示；第一次改這個部位的檔那則只送病灶一句＋卡路徑，卡的其他段不進 context；定位要求照送。"""
     state: dict = {}
-    txt = wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game/Battle/A.cs")}, str(proj), _transcript(tmp_path, "x"), {})
+    f1, tp = str(proj / "Game/Battle/A.cs"), _transcript(tmp_path, "x")
+    hint = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert hint.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前") and "已知病灶" not in hint and _card(proj) not in hint
+    txt = wo.on_edit(state, "s", f1, tp, {})[1]
     assert "已知病灶：共用字典跨場次沒清，第二場數值帶前一場" in txt
     assert _card(proj) in txt and "先 Read" in txt
     assert "結算傷害" not in txt and "浮點比較" not in txt and "pytest tests/battle" not in txt
     assert "定位｜部位：戰鬥" in txt
     assert _rec(state, "戰鬥")["card_mode"] == "pointer"
-    card_txt, hint = txt.split("\n\n[Guardian:OverviewHub] 改【戰鬥】的程式檔前", 1)   # 程式檔：注入之後接 LOCATE_HINT_ON_FIRST_READ 一行
-    inj = next(e for e in reversed(_log(tmp_path)) if e["event"] == "inject")
-    assert inj["card_mode"] == "pointer" and inj["chars"] == len(card_txt) and "交定位" in hint
+    card_ev = next(e for e in reversed(_log(tmp_path)) if e["event"] == "card")
+    assert card_ev["card_mode"] == "pointer" and card_ev["chars"] == len(txt.split("\n", 1)[1]) and "交定位" in hint
 
 
 def test_pointer_edit_denied_until_card_read_then_passes(proj, tmp_path):
@@ -109,6 +111,7 @@ def test_pointer_edit_denied_until_card_read_then_passes(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
+    assert "導讀卡現在才送" in wo.on_edit(state, "s", f1, tp, {})[1]               # 第一刀：卡隨第一次改檔到
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert deny and "還沒 Read 這個部位的導讀卡" in deny and _card(proj) in deny
     assert "還沒交出定位" not in deny and "還沒讀過這個部位的檔" not in deny        # 缺的只有讀卡
@@ -124,9 +127,10 @@ def test_card_read_hint_says_read_edit_files_with_the_card(proj, tmp_path):
     state: dict = {}
     tp = _transcript(tmp_path, "先看看。")
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
+    txt = wo.on_edit(state, "s", f1, tp, {})[1]                                  # 卡（指標行）隨第一次改檔到
     deny = wo.on_edit(state, "s", f1, tp, {})[1]
     for text in (txt, deny):
         assert "下一則讀卡時順便讀要改的檔" in text and "同一則送" not in text
@@ -139,6 +143,7 @@ def test_pointer_card_read_in_same_bash_command_counts(proj, tmp_path):
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
     assert wo.on_read(state, "s", "Bash", {"command": f'cat "{f1}" "{f2}" "{_card(proj)}"'}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
+    assert "先讀完再改" in wo.on_edit(state, "s", f1, tp, {})[1]                   # 卡隨第一次改檔到；卡已讀過，不要求再 Read
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
 
 
@@ -151,6 +156,7 @@ def test_pointer_failed_card_read_does_not_count(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     wo.on_read(state, "s", "Bash", {"command": f'cat "{_card(proj)}"'}, str(proj), tp, {}, exit_code=1)
     _transcript(tmp_path, LOCATE)
+    assert "導讀卡現在才送" in wo.on_edit(state, "s", f1, tp, {})[1]
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert deny and "還沒 Read 這個部位的導讀卡" in deny
 
@@ -169,6 +175,7 @@ def test_pointer_two_cards_one_unread_still_denied(proj, tmp_path):
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": _card(proj)}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
+    assert "導讀卡現在才送" in wo.on_edit(state, "s", f1, tp, {})[1]
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     unread_line = next(l for l in deny.splitlines() if "還沒 Read 這個部位的導讀卡" in l)
     assert str(second) in unread_line and _card(proj) not in unread_line
@@ -233,7 +240,8 @@ def test_full_switch_restores_whole_card_without_read_requirement(proj, tmp_path
     state: dict = {}
     tp = _transcript(tmp_path, "x")
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "結算傷害" not in wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    txt = wo.on_edit(state, "s", f1, tp, {})[1]                                  # 整張隨第一次改檔到
     assert "結算傷害" in txt and "浮點比較" in txt and "先把下面的導讀卡讀完" in txt
     assert _rec(state, "戰鬥")["card_mode"] == "full"
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
@@ -241,17 +249,21 @@ def test_full_switch_restores_whole_card_without_read_requirement(proj, tmp_path
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
 
 
-def test_v6_off_keeps_whole_card(proj, tmp_path, monkeypatch):
-    """總開關關時行為不變：預設 pointer 也照整張注入，改檔不要求 Read 卡。"""
+def test_v6_off_uses_card_injection_value(proj, tmp_path, monkeypatch):
+    """總開關關（規則 OVERVIEW_HUB_UNDER_V6）：_card_mode 仍照 card_injection 算（預設 pointer），但 OverviewHub 整道不動——
+    讀檔零增量、不建紀錄，改檔不送指標行、不要求 Read 卡、不擋。"""
     monkeypatch.setenv("WG_V6", "0")
+    assert wo._cfg({}, proj)["_card_mode"] == "pointer" and wo._cfg({}, proj)["enabled"] is False
     state: dict = {}
     tp = _transcript(tmp_path, "x")
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
-    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert "結算傷害" in txt and "已知病灶：" not in txt
-    wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
+    assert wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}) is None
+    assert wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {}) is None
+    assert "overview_hub" not in state
     _transcript(tmp_path, LOCATE)
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, False)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, False)
+    assert "overview_hub" not in state and not (tmp_path / "hub.log").exists()
 
 
 def test_no_card_part_identical_in_both_modes(proj, tmp_path):
@@ -261,7 +273,9 @@ def test_no_card_part_identical_in_both_modes(proj, tmp_path):
     for mode in ("pointer", "full"):
         (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"card_injection": mode}), encoding="utf-8")
         state: dict = {}
-        texts[mode] = wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), _transcript(tmp_path, "x"), {})
+        tp = _transcript(tmp_path, "x")
+        wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), tp, {})
+        texts[mode] = wo.on_edit(state, "s", f, tp, {})[1]
         assert _rec(state, "框架")["card_paths"] == []
     assert texts["pointer"] == texts["full"] and "沒有可注入的導讀卡" in texts["pointer"]
 

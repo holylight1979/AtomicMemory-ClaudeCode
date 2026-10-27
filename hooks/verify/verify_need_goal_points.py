@@ -851,7 +851,8 @@ def test_post_tool_use_read_records_parts_and_dirs_with_hub_on(proj, tmp_path, m
     cfg = {"overview_hub": {"enabled": True}}
     state = {"turn_seq": 2, "need_goal_code_decl_turn": 2, "session": {"id": SID, "cwd": str(proj)}}
     ctx = _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Battle/A.cs"), str(proj), cfg)
-    assert ctx and "戰鬥導讀" in ctx and not state.get("need_goal_batch")   # 第一個部位、第一個目錄：不排
+    assert ctx and "改【戰鬥】的程式檔前" in ctx and "戰鬥導讀" not in ctx   # 讀檔只一行定位提示、不送卡（READ_TOUCH_NO_CARD）
+    assert any(k.endswith("|戰鬥") for k in state["overview_hub"]) and not state.get("need_goal_batch")   # 第一個部位、第一個目錄：不排
     _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Net/B.cs"), str(proj), cfg)
     assert state.get("need_goal_batch")                                        # 第二個部位：排進待送
     for f in ("Tools/x.py", "Docs/y.md"):
@@ -898,7 +899,8 @@ def test_goal_change_resends_card_in_goal_view_once(proj, tmp_path):
     state = {"turn_seq": 2}
     tp = _tp(tmp_path)
     f = str(proj / "Game/Battle/A.cs")
-    assert "戰鬥導讀" in wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
+    first = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
+    assert "改【戰鬥】的程式檔前" in first and "戰鬥導讀" not in first          # 讀檔只一行提示、不送卡（READ_TOUCH_NO_CARD）
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None
     rec["goal_reset_turn"] = 4                                                # b2 on_goal_changed 記的
@@ -918,12 +920,12 @@ def test_goal_view_resend_is_one_line_read_first_then_tree(proj, tmp_path):
     tp = _tp(tmp_path)
     f = str(proj / "Game/Battle/A.cs")
     first = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
-    assert "戰鬥導讀" in first                                                   # 第一次注入照送整張卡
+    assert "改【戰鬥】的程式檔前" in first and "戰鬥導讀" not in first          # 第一次讀只一行定位提示（READ_TOUCH_NO_CARD）
     make_tree()
     assert wo.on_goal_changed(state, tp, 3) == 1                              # 先讀後立樹：第一次 set 也算目標改了
     view = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
     assert view.startswith("[NeedGoal] 目標改了，用目標視角重看【戰鬥】") and "當前節點 T1." in view
-    assert "\n" not in view and "戰鬥導讀" not in view and "定位｜部位：" not in view and len(view) < len(first)
+    assert "\n" not in view and "戰鬥導讀" not in view and "定位｜部位：" not in view
     assert wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg) is None
     wo.on_goal_changed(state, tp, 5)                                          # 目標真的又改了
     again = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)

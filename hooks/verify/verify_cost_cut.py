@@ -163,6 +163,7 @@ def hub(tmp_path, monkeypatch):
     state = {"turn_seq": 3}
     for f in files:
         wo.on_read(state, "s", "Read", {"file_path": f}, str(root), str(tp), {})
+    assert "導讀卡現在才送" in wo.on_edit(state, "s", files[0], str(tp), {})[1]   # 卡隨第一次改檔到（真入口當提醒件送、不擋）
     return wo, state, files, str(tp)
 
 

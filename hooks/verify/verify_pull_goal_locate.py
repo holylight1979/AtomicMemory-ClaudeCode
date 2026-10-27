@@ -300,8 +300,8 @@ def test_unreadable_transcript_is_gate_self_error_not_a_block(env, monkeypatch):
     f1 = _mapped_world(env)                                                    # 有部位表：定位行也一樣
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     hub_state = {"turn_seq": 3}
-    for _ in range(2):                                                         # 第一次注入導讀卡、第二次才算讀過部位檔
-        wo.on_read(hub_state, SID, "Read", {"file_path": f1}, str(env["proj"]), "", {})
+    wo.on_read(hub_state, SID, "Read", {"file_path": f1}, str(env["proj"]), "", {})   # 讀檔建紀錄、記讀過，卡等第一次改檔
+    assert "導讀卡現在才送" in wo.on_edit(hub_state, SID, f1, "", {})[1]        # 第一刀：卡（真入口當提醒件送，不擋）
     for _ in range(3):
         assert wo.on_edit(hub_state, SID, f1, "", {})[1] is None
     assert guard[-1]["check"] == "定位行" and "decl_deny_counts" not in hub_state

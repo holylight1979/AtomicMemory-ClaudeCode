@@ -1,6 +1,7 @@
 """verify_tracking_readback.py：AEC (k) 追蹤項的帳本命名、結案、讀回注入與 SessionStart 一次性提示。
 
-正例：子目錄 cwd 與部位表根同一本帳本；有 open 項的部位第一次注入時附「【未結追蹤項】」；超過 5 筆附「另有 N 筆」；
+正例：子目錄 cwd 與部位表根同一本帳本；有 open 項的部位送卡時（第一次改檔那則）尾附一行「未結追蹤項 N 筆」＋帳本路徑，
+      不列內容（規則 TRACKING_COUNT_LINE_ONLY；讀檔那則連這一行也沒有）；
       `[部位] 結案：<開頭≥8 字>` 補 closes 後該項不再列；未標部位的項目只在全新 session 的 SessionStart 列一次（compact 不再列）。
 反例：已結案的不列；別部位的不列；未標部位的不進部位注入；結案前綴不足 8 字或找不到對象 → stderr、不寫；
       帳本壞行跳過並 stderr、注入照常；cwd 空 → _no-cwd 並 stderr；疑似分裂的舊帳本只 stderr、不合併。
@@ -161,25 +162,32 @@ def test_first_injection_lists_open_items_for_that_part_only(world):
     wh.append_tracking(slug, _k("[戰鬥] 傷害公式在暴擊時溢位要再查\n[戰鬥] 技能冷卻表讀錯欄位\n"
                                 "[介面] 按鈕文字被截斷\n未標部位的雜項追蹤一則", "2026-10-01T00:00:00"))
     wh.append_tracking(slug, _k("[戰鬥] 結案：技能冷卻表讀錯欄位", "2026-10-02T00:00:00"))
-    state = {}
-    txt = wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), "", {})
-    assert "戰鬥導讀" in txt and "【未結追蹤項】" in txt and "傷害公式在暴擊時溢位要再查" in txt
-    assert "技能冷卻表讀錯欄位" not in txt                                                # 反例：已結案
+    state, f = {}, str(proj / "Game" / "Battle" / "A.cs")
+    assert "未結追蹤項" not in (wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), "", {}) or "")   # 讀檔那則不帶
+    txt = wo.on_edit(state, "s", f, "", {})[1]                                             # 卡隨第一次改檔送，尾附一行筆數
+    assert "戰鬥導讀" in txt and "未結追蹤項 1 筆" in txt and str(wh.tracking_path(slug)) in txt and "【未結追蹤項】" not in txt
+    assert "傷害公式在暴擊時溢位要再查" not in txt                                        # 內容不列，只有筆數（TRACKING_COUNT_LINE_ONLY）
+    assert "技能冷卻表讀錯欄位" not in txt                                                # 反例：已結案（不算進筆數：1 筆）
     assert "按鈕文字被截斷" not in txt                                                    # 反例：別部位
     assert "未標部位的雜項追蹤一則" not in txt                                            # 反例：未標部位不進部位注入
     assert wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), "", {}) is None
-    txt2 = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "UI" / "x.cs")}, str(proj), "", {})
-    assert "按鈕文字被截斷" in txt2 and "傷害公式" not in txt2                              # part_short 不分大小寫對上
+    state2, f2 = {}, str(proj / "Game" / "UI" / "x.cs")
+    wo.on_read(state2, "s", "Read", {"file_path": f2}, str(proj), "", {})
+    txt2 = wo.on_edit(state2, "s", f2, "", {})[1]
+    assert "未結追蹤項 1 筆" in txt2 and "[介面] 結案：" in txt2 and "按鈕文字被截斷" not in txt2   # part_short 不分大小寫對上：介面那筆算進介面
 
 
-def test_more_than_five_items_shows_rest_count_and_part_case_insensitive(world):
+def test_more_than_five_items_only_count_line_no_rest_count(world):
+    """7 筆 open：只一行「未結追蹤項 7 筆」，沒有逐筆、沒有「另有 N 筆」（以前最多列 5 筆＋另有）。"""
     proj, _ = world
     slug = wh.tracking_slug(str(proj))
     wh.append_tracking(slug, _k("\n".join(f"[戰鬥] 第{i}項追蹤" + "長" * 300 for i in range(7)), "2026-10-01T00:00:00"))
-    txt = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), "", {})
-    block = txt[txt.index("【未結追蹤項】"):]
-    assert block.count("\n- 第") == 5 and "- 另有 2 筆" in block
-    assert all(len(l) <= 2 + wh.TRACK_INJECT_ITEM_CHARS + 14 for l in block.splitlines()[1:6])   # 每筆截 200 字（＋日期括號）
+    state, f = {}, str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), "", {})
+    txt = wo.on_edit(state, "s", f, "", {})[1]
+    line = next(l for l in txt.splitlines() if l.startswith("未結追蹤項"))
+    assert line.startswith("未結追蹤項 7 筆") and "另有" not in txt and "第0項追蹤" not in txt and "長長長" not in txt
+    assert txt.count("未結追蹤項") == 1
 
 
 def test_bad_ledger_line_skipped_with_stderr_injection_still_works(world, capsys):
@@ -188,8 +196,10 @@ def test_bad_ledger_line_skipped_with_stderr_injection_still_works(world, capsys
     wh.append_tracking(slug, _k("[戰鬥] 傷害公式在暴擊時溢位要再查", "2026-10-01T00:00:00"))
     with open(wf / "tracking" / f"{slug}.jsonl", "a", encoding="utf-8", newline="\n") as fh:
         fh.write("{not json\n[1, 2]\n")
-    txt = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), "", {})
-    assert "傷害公式在暴擊時溢位要再查" in txt and "戰鬥導讀" in txt
+    state, f = {}, str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), "", {})
+    txt = wo.on_edit(state, "s", f, "", {})[1]
+    assert "未結追蹤項 1 筆" in txt and "戰鬥導讀" in txt
     assert "追蹤帳本有 2 行壞掉已跳過" in capsys.readouterr().err
 
 
@@ -199,8 +209,10 @@ def test_unreadable_ledger_does_not_block_injection(world, monkeypatch, capsys):
     def boom(*a, **kw):
         raise OSError("disk gone")
     monkeypatch.setattr(wh, "read_tracking", boom)
-    txt = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), "", {})
-    assert "戰鬥導讀" in txt and "【未結追蹤項】" not in txt
+    state, f = {}, str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), "", {})
+    txt = wo.on_edit(state, "s", f, "", {})[1]
+    assert "戰鬥導讀" in txt and "未結追蹤項" not in txt
     assert "讀追蹤項失敗" in capsys.readouterr().err
 
 

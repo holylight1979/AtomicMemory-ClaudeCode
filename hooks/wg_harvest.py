@@ -474,11 +474,16 @@ def _valid_tracking_row(row: Any) -> bool:
     return row["status"] == "open" or (isinstance(closes, dict) and isinstance(closes.get("id"), str))
 
 
+def tracking_path(slug: str, base_dir: Optional[Path] = None) -> Path:
+    """追蹤帳本的檔：workflow/tracking/<slug>.jsonl（讀回、注入一行的「查法」指的就是這個檔）。"""
+    return (base_dir or WORKFLOW_DIR) / "tracking" / f"{slug}.jsonl"
+
+
 def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """讀 workflow/tracking/<slug>.jsonl；沒有檔回 []；壞行（非 JSON、非物件或結構不對，見 _valid_tracking_row）
     跳過並 stderr 一行（列行號）；逐行嚴格 UTF-8 解碼，失敗的行改用 replace 解碼照收，另一行 stderr 列「第 N 行編碼損壞」；
     讀檔失敗 stderr 回 []。"""
-    p = (base_dir or WORKFLOW_DIR) / "tracking" / f"{slug}.jsonl"
+    p = tracking_path(slug, base_dir)
     try:
         if not p.is_file():
             return []
@@ -631,7 +636,8 @@ TRACK_INJECT_MAX_ITEMS, TRACK_INJECT_ITEM_CHARS = 5, 200
 
 
 def tracking_block(items: List[Dict[str, Any]], budget: int) -> str:
-    """注入文字末段「【未結追蹤項】」：最多 5 筆、每筆截 200 字、整段不超過 budget 字；超過附「另有 N 筆」。沒有項目回空字串。"""
+    """「【未結追蹤項】」整段：最多 5 筆、每筆截 200 字、整段不超過 budget 字；超過附「另有 N 筆」。沒有項目回空字串。
+    導讀卡注入已不再附這段（wg_overview._tracking_line 只留筆數一行，規則 TRACKING_COUNT_LINE_ONLY）；留著給要整段的讀法。"""
     if not items:
         return ""
     head = "【未結追蹤項】（這個部位以前記下、還沒結案的問題；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」）"

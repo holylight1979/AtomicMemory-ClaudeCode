@@ -1,9 +1,10 @@
 """wg_overview — OverviewHub 的 state 層：三個 hook 各呼叫一個函式。
 
-做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就注入定位要求與該部位導讀卡，一個 session
-一個部位只注入一次。卡怎麼送看 card_injection：pointer（預設）只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；
-full 依本回合意圖（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；v6 總開關關時一律 full。
-之後記「注入後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制的程式部位另要 Read 過卡）、
+做什麼：第一次碰到某部位就建部位紀錄，一個 session 一個部位一次。唯讀碰到（Read／唯讀 Bash／PowerShell／Grep）只建紀錄、
+讀檔結果最多多一行定位提示，卡不送（規則 READ_TOUCH_NO_CARD）；卡在第一次改這個部位的檔（on_edit）或提示詞點名路徑時才送。
+卡怎麼送看 card_injection：pointer（預設）只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；full 依本回合意圖
+（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；v6 總開關開關都照這個值。卡尾的未結追蹤項只留筆數一行。
+之後記「碰到後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制的程式部位另要 Read 過卡）、
 讀過部位檔 ≥N、交了定位三行（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項（指標制沒 Read 過卡只提醒、留帳）。
 readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
 沒有部位表的專案（或表上沒列的檔）改前要求本 session 讀過同頂層目錄 ≥N 個檔；往上找不到任何部位表的專案，第一次改
@@ -496,33 +497,51 @@ def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> i
     return n
 
 
-def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
-            hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
-    card_paths, miss = _resolve_row_cards(root, row, cfg)
-    card_path = card_paths[0] if card_paths else None
+def _tracking_line(root: Path, row: Dict[str, Any], tracked: List[Dict[str, Any]]) -> str:
+    """導讀卡尾的追蹤項只留一行（規則 TRACKING_COUNT_LINE_ONLY）：筆數＋帳本路徑＋結案寫法，不列內容——以前「最多 5 筆＋另有 N 筆」
+    整段跟著卡進 context，查資料的 session 碰十個部位就吃掉幾千 token。沒有查詢工具，查法就是讀帳本。"""
+    from wg_harvest import tracking_path, tracking_slug
+    return (f"未結追蹤項 {len(tracked)} 筆（這個部位以前記下、還沒結案的問題；要看就讀帳本 {tracking_path(tracking_slug(str(root)))}，"
+            f"處理完在 AEC (k) 寫「[{row['part_short']}] 結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」）")
+
+
+def _card_text(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], hit_path: str, cfg: Dict[str, Any],
+               card_paths: List[Path], miss: Optional[Dict[str, Any]], kind: str) -> Tuple[str, List[str]]:
+    """這個部位送到眼前的那段文字：目標一行（有樹才有）＋定位要求＋卡（照 _card_mode：pointer 兩行／full 整張選片）＋
+    卡不在預設目錄的提醒＋追蹤項一行。回 (文字, 實際送出的片名)。注入當下（on_prompt／on_edit 補注入）與延後送（讀檔時只記、
+    第一次改檔才送）都走這一支，兩邊字面相同。"""
     template = _locate_template(cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
-    intent = _intent_of(state)
-    gw = (cfg.get("goal_weights") or {}).get(intent) or {}
-    kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
-    mode = cfg.get("_card_mode", "full")
+    gw = (cfg.get("goal_weights") or {}).get(_intent_of(state)) or {}
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
                                     knowledge=kind == _oh.KIND_KNOWLEDGE, extra=str(gw.get("extra") or ""),
-                                    pointer=mode == "pointer")
+                                    pointer=cfg.get("_card_mode") == "pointer")
     if miss:
         text += "".join(f"\n表上的卡在 {p}，不在預設目錄；請更新表或搬卡" for p in miss["found"])
         if miss["missing"]:
             text += "\n" + _missing_card_msg(row, miss)
     tracked = _tracking_for(root, row)
     if tracked:
-        from wg_harvest import tracking_block
-        text = f"{text}\n{tracking_block(tracked, int(cfg['max_card_chars']))}"
+        text = f"{text}\n{_tracking_line(root, row, tracked)}"
     goal = _goal_block(session_id, cfg, _key(root, row), int(state.get("turn_seq", 0) or 0))
-    if goal:
-        text = f"{goal}\n{text}"
+    return (f"{goal}\n{text}" if goal else text), used
+
+
+def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
+            hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any], deliver: bool = True) -> str:
+    """第一次碰到部位：建部位紀錄（證據從這一刻起算）。deliver＝True 連卡一起回（提示詞點名、改檔時補注入）；
+    False＝唯讀碰到（規則 READ_TOUCH_NO_CARD）：只記紀錄、標 card_pending，回空字串，卡等第一次改這個部位的檔時由
+    _deliver_card 送——AI 只查資料時不吃卡、候選、追蹤項。"""
+    card_paths, miss = _resolve_row_cards(root, row, cfg)
+    card_path = card_paths[0] if card_paths else None
+    intent = _intent_of(state)
+    kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
+    mode = cfg.get("_card_mode", "full")
+    text, used = _card_text(state, session_id, root, row, hit_path, cfg, card_paths, miss, kind) if deliver else ("", [])
     hub = state.setdefault("overview_hub", {})
     hub[_key(root, row)] = {
+        "card_pending": not deliver,      # 讀檔時只記、沒送卡：第一次改這個部位的檔時 on_edit 補送（_deliver_card）
         "injected_turn": int(state.get("turn_seq", 0)),
         "injected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "transcript_offset": transcript_size(transcript_path),
@@ -542,13 +561,31 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "part": row["part"] or row["part_short"],
         "layer": row.get("layer") or "",
         "kind": kind,                     # knowledge 部位不要求定位三行；scorecard 的 S3 只算 code 部位
-        "locate_template": template,
+        "locate_template": _locate_template(cfg),
         "cards_missing": ({k: miss[k] for k in ("missing", "searched", "timed_out")}
                           if miss and miss["missing"] else None),
     }
     _log("inject", session_id, part=row["part_short"], status=row["status"], via=via, path=hit_path,
          card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"),
-         card_mode=mode)
+         card_mode=mode, card_pending=not deliver)
+    return text
+
+
+def _deliver_card(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], hit_path: str,
+                  cfg: Dict[str, Any]) -> str:
+    """讀檔時只記沒送的卡（rec.card_pending）在第一次改這個部位的檔時組出來：卡重新解析（中間可能補了卡）、送法照現在的 _card_mode、
+    片照現在的意圖；紀錄的起點（transcript_offset、讀檔帳）不動——讀檔後交的定位行與讀過的部位檔照算。一個部位一 session 一次。
+    文字由 edit_check 放進提醒件 OVERVIEW_CARD_BEFORE_EDIT 的 extra：v6 開時不擋，隨那次改檔的工具結果送到。"""
+    key = _key(root, row)
+    rec = state["overview_hub"][key]
+    card_paths, miss = _resolve_row_cards(root, row, cfg)
+    kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
+    text, used = _card_text(state, session_id, root, row, hit_path, cfg, card_paths, miss, kind)
+    rec.update(card_pending=False, card_paths=[str(cp) for cp in card_paths], card_mode=cfg.get("_card_mode", "full"),
+               slices=used, cards_missing=({k: miss[k] for k in ("missing", "searched", "timed_out")}
+                                           if miss and miss["missing"] else None))
+    _log("card", session_id, part=row["part_short"], via="edit", path=hit_path, chars=len(text), slices=used,
+         card_mode=rec["card_mode"], layer=cfg.get("_layer"))
     return text
 
 
@@ -987,7 +1024,8 @@ def read_targets(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code
 def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
             cwd: str, transcript_path: str, config: Dict[str, Any], exit_code: Optional[int] = None,
             agent_id: str = "") -> Optional[str]:
-    """PostToolUse（Read／Bash／PowerShell／Grep）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read；
+    """PostToolUse（Read／Bash／PowerShell／Grep）：第一次讀到某部位 → 建部位紀錄、不送卡（規則 READ_TOUCH_NO_CARD，卡等第一次改檔
+    由 on_edit 送），讀檔結果最多只多 LOCATE_HINT_ON_FIRST_READ 一行；已有紀錄 → 記 reads_after／part_files_read；
     目標改了以後又讀到已碰過的部位 → 回目標視角的導讀卡。暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）不找表、不注入、不記；
     Bash／PowerShell 指令失敗（exit_code≠0）讀到的不算（規則 BASH_READONLY_COUNTS_AS_READ）。
     agent_id＝子代理讀的：讀檔照記、第一次讀到照注入（子代理自己改檔時的定位閘要用），目標視角重看不送（那是問主 session 的樹）、
@@ -1020,7 +1058,8 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
         if not root_cfg["enabled"]:
             continue
         if rec is None:
-            text = _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg)
+            # 規則 READ_TOUCH_NO_CARD：唯讀碰到部位只建紀錄、不送卡（卡等第一次改檔），讀檔結果只多 LOCATE_HINT_ON_FIRST_READ 那一行
+            text = _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, root_cfg, deliver=False)
             _record_read(state, p, hit)          # INJECT_TRIGGER_READ_COUNTED：注入前那筆記不進還沒建的部位紀錄，注入後補記
             state["overview_hub"][_key(root, row)]["locate_hint"] = "due"   # LOCATE_HINT_ON_FIRST_READ：讀到這部位的程式檔時提示
         else:
@@ -1069,8 +1108,8 @@ def _unmapped_read_hint(state: Dict[str, Any], session_id: str, path: str, confi
 
 def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any], path: str,
                       config: Dict[str, Any], agent_id: str = "") -> Optional[str]:
-    """規則 LOCATE_HINT_ON_FIRST_READ：讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（可以就是觸發注入的那次）→ 讀檔結果後
-    附一行，講改之前 on_edit 與 wg_need_goal.edit_gate 要的東西：沒目標樹就先 need_goal set（判式同 edit_gate：tree_owed_for_edit）、
+    """規則 LOCATE_HINT_ON_FIRST_READ：讀檔時碰到的部位（READ_TOUCH_NO_CARD：讀檔只建紀錄不送卡，這一行就是讀檔結果多出來的全部），
+    本 session 第一次讀到它的程式檔（可以就是建紀錄的那次）→ 讀檔結果後附一行，講改之前 on_edit 與 wg_need_goal.edit_gate 要的東西：沒目標樹就先 need_goal set（判式同 edit_gate：tree_owed_for_edit）、
     定位行幾行（有樹或要立樹＝四行，同擋訊息 LOCATE_ASK_ONCE；need_goal 關＝三行）、寫在哪（回覆文字或不寫檔指令開頭的 # 註解，
     thinking 讀不到）。一部位一 session 一次（rec.locate_hint：注入時 due、送了 sent）；改檔時才補注入的部位（擋訊息已講過）、
     已交過定位、非程式檔（含知識類部位）、子代理讀的不送（不消耗主 session 的那一次）；v6 總開關關著不送（注入本身是 v6 以前就有的，
@@ -1653,8 +1692,13 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
             rec["card_paths"] = [str(p) for p in paths]   # 升級前的舊紀錄：卡都在預設目錄，照常判定
         else:
             rec = None                              # 缺的卡出現了（或只在別處）：照第一次碰到這個部位重新注入
-    if rec is None:
-        text = _inject(state, session_id, root, row, file_path, "edit", transcript_path, cfg)
+    pending = rec is not None and bool(rec.get("card_pending"))
+    if rec is None or pending:
+        # 沒碰過就改：建紀錄＋送卡；讀過但卡還沒送（READ_TOUCH_NO_CARD）：這一刀送卡，證據起點不動。兩種都回判定文字＋提醒件
+        # OVERVIEW_CARD_BEFORE_EDIT（extra＝卡）：呼叫端照 RULE_MODE 送——v6 開是提醒、不擋，卡隨這次改檔的工具結果到（remind_flush）；
+        # 釘成 block 的呼叫端才真擋
+        text = (_deliver_card(state, session_id, root, row, file_path, cfg) if pending
+                else _inject(state, session_id, root, row, file_path, "edit", transcript_path, cfg))
         cm = state["overview_hub"][key].get("cards_missing")
         if cm:
             mm = _missing_card_msg(row, cm)
@@ -1664,6 +1708,14 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
             return (msg, msg, True, remind_hit("OVERVIEW_CARD_MISSING", part, f"【{part}】的導讀卡找不到：{'、'.join(cm['missing'])}",
                                                "補卡檔或修部位表的導讀卡欄"))
         first = "先 Read 導讀卡" if _unread_cards(state, state["overview_hub"][key]) else "先讀完"
+        if pending:
+            todo = f"{first}再改" + ("（知識類部位不要求讀部位檔與定位三行）。" if knowledge else "；讀過的部位檔與交過的定位行照算。")
+            msg = (f"[Guardian:OverviewHub] 第一次改【{row['part_short']}】部位的檔；讀檔時只送了一行，導讀卡現在才送（下面）。"
+                   f"{todo}\n{text}")
+            _log("edit_card_delivered", session_id, part=row["part_short"], path=file_path, deny_reason="card_pending",
+                 intent=_intent_of(state), layer=cfg.get("_layer"), kind=_oh.KIND_KNOWLEDGE if knowledge else _oh.KIND_CODE)
+            return (msg, msg, True, remind_hit("OVERVIEW_CARD_BEFORE_EDIT", part,
+                                               f"第一次改【{part}】部位的檔；讀檔時只送了一行，導讀卡現在才送（下面）", todo, extra=text))
         todo = (f"{first}再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge
                 else f"{first}、讀過部位檔、在回覆交出定位三行，再改。")
         msg = (f"[Guardian:OverviewHub] 要改【{row['part_short']}】部位的檔但本 session 還沒看過這個部位的導讀卡；"
