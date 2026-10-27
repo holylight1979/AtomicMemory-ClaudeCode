@@ -1,12 +1,12 @@
-# heredoc反斜線三連踩post-mortem-含反斜線的腳本一律Write成檔再跑
+# heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑
 
 - Scope: global
 - Author: holylight
+- Source: commit:a8f5122 2026-09-03（原對話已逾保留期）
 - Confidence: [臨]
-- Trigger: heredoc, 反斜線, python - <<EOF, replace 沒中, SyntaxError unterminated, assert old in s, post-mortem, Write 工具
+- Trigger: heredoc, 反斜線, python - <<EOF, replace 沒中, SyntaxError unterminated, assert old in s, post-mortem, Write 工具, python -X utf8 -c, PowerShell python -c
 - Created-at: 2026-09-03
 - Related: bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗, hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定
-- Source: commit:a8f5122 2026-09-03（原對話已逾保留期）
 
 ## 知識
 
@@ -15,7 +15,9 @@
 - [臨] 防再犯：腳本含任何反斜線（\\n \\r \\t regex Windows 路徑）→一律 Write 成檔再跑，禁 heredoc；取代腳本先 assert 再印成功；改完 .py 立刻 ast.parse 或跑該測試。
 - [臨] 四連踩補的運作邏輯：Bash tool 在交給 bash 前有一層轉送先解一次反斜線，`<<'EOF'` 擋不住那一層，所以「多加一層逃脫」永遠被同一層再吃掉——同一修法失敗兩次就該改走不含反斜線的路（chr(92)、Edit），且改 .py 後立刻 ast.parse，不等測試收集階段。
 - [臨] 第四踩：用 heredoc 重現「`\\?\` 前綴被 deny」，送進去的是少一層的 `\?\`，重現是假的、修後驗證也看起來沒修；測試資料含反斜線一律 `B=chr(92)` 組字串，下結論前先 `print(repr(輸入))`。
+- [臨] PowerShell 裡 `python -X utf8 -c "…"` 內嵌含雙引號或 \n 的程式碼一樣被吃跳脫，報 unterminated string literal（連踩 3 次）；同樣改 Write 成 .py 再跑。
 
 ## 行動
 
 - 含反斜線的 Python 一律 Write 成檔再執行；取代腳本先 assert 再印成功；改 .py 後立刻 ast.parse
+- PowerShell 下程式碼含雙引號或反斜線就不用 python -c，Write 成檔再跑
