@@ -1600,12 +1600,15 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
         if "/_AIDocs/" in normalized or "/_aidocs/" in normalized.lower():
             fname = normalized.rsplit("/", 1)[-1]
-            if is_plan_filename(fname):
+            once = v6 and config.get("aidocs", {}).get("advisory_v6_once", True)   # v6 守門開著時同一個檔一個 session 只提醒一次
+            if is_plan_filename(fname) and not (once and normalized in state.get("aidocs_advisory_sent", [])):
                 state["_aidocs_advisory"] = (
                     f"⚠ {fname} 看起來是暫時性文件，"
                     f"建議放 memory/_staging/ 而非 _AIDocs/。"
                     f"判斷基準：實作完成後是否仍有長期參考價值？"
                 )
+                if once:
+                    state["aidocs_advisory_sent"] = [*state.get("aidocs_advisory_sent", []), normalized]
                 print(f"AIDocs gate triggered: {fname}", file=sys.stderr)
 
         if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):

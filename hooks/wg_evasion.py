@@ -997,7 +997,7 @@ from datetime import datetime, timezone
 from wg_core import (
     MEMORY_DIR, WORKFLOW_DIR, EPISODIC_DIR,
     discover_all_project_memory_dirs, get_project_memory_dir, resolve_staging_dir,
-    _now_iso, _atom_debug_log, is_rut_whitelisted,
+    _now_iso, _atom_debug_log, is_rut_whitelisted, v6_enabled,
 )
 
 REFLECTION_METRICS_PATH = MEMORY_DIR / "wisdom" / "reflection_metrics.json"
@@ -1377,15 +1377,32 @@ def _save_oscillation_state(
             pass
 
 
-def _load_oscillation_warnings(state: Dict[str, Any]) -> Optional[str]:
+def _notice_new_items(
+    state: Dict[str, Any], config: Optional[Dict[str, Any]], switch: str, sent_key: str, items: List[str]
+) -> List[str]:
+    """開場提示的清單同一項一個 session 只列一次：v6 守門開著、self_iteration.<switch> 沒寫＝開時，拿掉 state[sent_key]
+    已列過的項、把這次要列的記進去（中段又開場時只列新出現的）；v6 關原樣回傳、不記（每次開場都列全部，含 resume／compact）。"""
+    cfg = config or {}
+    if not (v6_enabled(cfg) and cfg.get("self_iteration", {}).get(switch, True)):
+        return list(items)
+    sent = state.get(sent_key) or []
+    new = [x for x in items if x not in sent]
+    if new:
+        state[sent_key] = [*sent, *new]
+    return new
+
+
+def _load_oscillation_warnings(state: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Optional[str]:
     key = _osc_pool_key(state)
     if key is None:
         return None
     entry = _read_osc_pools(WORKFLOW_DIR / "oscillation_state.json").get(key) or {}
     oscillations = entry.get("oscillations", [])
-    if not oscillations:
+    names = _notice_new_items(state, config, "oscillation_v6_once", "oscillation_notice_sent",
+                              [o["atom"] for o in oscillations])
+    if not names:
         return None
-    atoms = ", ".join(o["atom"] for o in oscillations)
+    atoms = ", ".join(names)
     return (
         f"[Guardian:Oscillation] 以下 atoms 近期被反覆修改：{atoms}。"
         f"行動：1) 暫停修改 2) Read 該 atom 確認前次意圖 3) 收集更多證據再評估"
@@ -1448,7 +1465,8 @@ def _detect_rut_patterns(
                     continue
                 signal_sessions[sig] = signal_sessions.get(sig, 0) + 1
 
-    repeated = [s for s, c in signal_sessions.items() if c >= 2]
+    repeated = _notice_new_items(state, config, "rut_v6_once", "rut_notice_sent",
+                                 [s for s, c in signal_sessions.items() if c >= 2])
     if not repeated:
         return None
 
