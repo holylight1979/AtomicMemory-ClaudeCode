@@ -7,7 +7,7 @@
   PICK_ONE_WITH_TURN_JUDGMENT  Stop 的拐彎判斷擋下時，最該修同一則一起問；下一次收尾不再另送。
   SECOND_OPINION_BACKGROUND    第二意見閘的擋訊息寫 start 後不用等；MCP 端 start 的下一步與 result 的說明同一個說法。
   SECOND_OPINION_DONE_NOTICE   開了的 job 跑完、AI 還沒取回 → 下一批工具回應或收尾提醒一次；取過、開始看守前就跑完的不提醒。
-每一案拿派工時的 main（5ccf44d2／e39061a0）回放都是紅：舊碼 PostToolBatch 不做這些事、Stop 照舊兩輪、擋訊息寫直接呼叫 result 等結果。
+每一案拿改動前的 main（5ccf44d2／e39061a0）回放都是紅：舊碼 PostToolBatch 不做這些事、Stop 照舊兩輪、擋訊息寫直接呼叫 result 等結果。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_closing_round.py
 """
 from __future__ import annotations
