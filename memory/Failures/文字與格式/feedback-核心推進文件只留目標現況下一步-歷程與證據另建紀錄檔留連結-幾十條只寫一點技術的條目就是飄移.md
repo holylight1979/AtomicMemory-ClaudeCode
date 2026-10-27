@@ -4,7 +4,7 @@
 - Author: holylight
 - Quote: 嚴禁把核心推進文件搞成這種 會造成嚴重飄移 的狀態；鉅細靡遺不是問題，但是紀錄必須要找到合適的位置建立檔案或歸納檔案，為的是要讓自己有60%以上的精神能夠高度的維持目標
 - Confidence: [臨]
-- Trigger: checklist, 追蹤表, 接續單, 推進文件, 飄移, 廢話, 紀錄檔, 總整理, 歷程, next-phase, 文件膨脹, codex 壞臭味
+- Trigger: checklist, 追蹤表, 推進文件, 飄移, 廢話, 紀錄檔, 總整理, 歷程, 文件膨脹, codex 壞臭味
 - Created-at: 2026-10-13
 
 ## 知識

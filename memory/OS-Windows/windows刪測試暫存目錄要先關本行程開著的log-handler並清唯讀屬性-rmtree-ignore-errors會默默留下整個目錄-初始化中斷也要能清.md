@@ -6,13 +6,13 @@
 - Confidence: [臨]
 - Trigger: rmtree ignore_errors, 暫存目錄刪不掉, log handler 佔用, 唯讀 git 物件, 測試殘留目錄, KeyboardInterrupt 清理, pytest_unconfigure, wg-iso 殘留, WinError 5, onexc, .git/objects 唯讀
 - Created-at: 2026-10-13
-- Quote: 「你是 v6.0 的「調度」總控台（新任，接 claude-aa；對人總控台見接續單「現任」行）。職責：派工、對帳、快照複跑、合併、推送、刪樹刪分支、與各工作 session 通訊；不改碼、不開子代理、不回答原設計者。第一步 ToolSearch 載入 SendMessage 與 ListAgents，ListAgents 看自己的名字，SendMessage claude-aa 與對人總控台各一…」
 
 ## 知識
 
 - [臨] 實踩：測試收尾用 shutil.rmtree(ignore_errors=True) 刪暫存資料根，默默留下 19 個目錄。兩個原因：①本行程裡有 logging handler 整個行程開著暫存目錄內的檔（向量觀測紀錄），Windows 不讓刪；②測試建的 git 物件是唯讀檔。正解：刪前先找出指向該目錄的 handler 關掉並移除、對唯讀檔先清屬性（onerror 裡 chmod 再刪），仍刪不掉就在 stderr 列路徑，不靜默。
 - [臨] 初始化中斷也要能清：mkdtemp 後立刻登記清理資訊（不要等種子資料拷完才記）；收尾函式依狀態做（環境改過才還原、目錄建了才刪）、可重複呼叫；配置階段包 try/except BaseException 收尾後再拋，Ctrl+C 在拷檔中間也不留殘留。
 - [臨] 唯讀 git 物件實例：git repo 的 .git/objects 底下的檔是唯讀，shutil.rmtree 直接 PermissionError [WinError 5]；用 `shutil.rmtree(p, onexc=lambda fn, path, exc: (os.chmod(path, 0o666), fn(path)))` 解（Python 3.12 起用 onexc，舊版用 onerror，同一個 lambda 可直接用）。
+
 
 ## 行動
 

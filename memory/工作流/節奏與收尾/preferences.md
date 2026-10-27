@@ -5,7 +5,7 @@
 - Source: commit:7deb043 2026-09-04（原對話已逾保留期）
 - Quote: 「你寫 preferences.md 內，看起來像是 針對 "在~/.claude 內的改動".. 你是不是搞錯了什麼? 原子記憶系統 記憶相關的，不論是在專案層、根層，都應該是自動上傳的範疇。 這部分如果我有漏掉什麼分類、細節沒設定到，也查不到過去相關規則或記憶，就請你直接發問。」
 - Confidence: [固]
-- Trigger: 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, 上SVN, commit, push, 直上版控, 記憶相關不用問
+- Trigger: 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, 上SVN, 直上版控, 記憶相關不用問
 - Created-at: 2026-09-04
 
 - Related: feedback-workflow-discipline, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, feedback-rigor-standards, feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, workflow-rules, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 專案等級-mcpskillhookslog-不放全域根層, a執p-自執驗上p-自動完工協議

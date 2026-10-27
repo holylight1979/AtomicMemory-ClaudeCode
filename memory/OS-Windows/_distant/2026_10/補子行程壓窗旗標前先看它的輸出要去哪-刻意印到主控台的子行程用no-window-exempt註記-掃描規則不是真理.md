@@ -18,3 +18,10 @@
 
 - 補任何子行程旗標前先看它的 stdout／stderr 去向
 - verify_no_window_spawn 紅時先看那行是不是該豁免，不先改旗標
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-27 | 退役移入 _distant/：與 shelltrue子行程帶create-no-window輸出整個不見 卡講同一件事（壓窗守門紅了先看輸出去哪、用 no-window-exempt），獨有的「第一次紅就查機制不靠重跑」與觸發詞已併入該卡 | memory-audit --delete |

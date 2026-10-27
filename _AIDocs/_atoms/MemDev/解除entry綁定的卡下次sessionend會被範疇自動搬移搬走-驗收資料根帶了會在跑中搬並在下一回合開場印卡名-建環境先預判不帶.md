@@ -7,7 +7,7 @@
 - Trigger: 解除綁定, 解綁 Entry, 範疇自動搬移, 已自動歸 local, realm_move, 驗收資料根, 建環境, 卡集比對 刪掉, _sweep_realm_auto_migrate, ENTRY_BOUND_STAYS_CORE
 - Created-at: 2026-10-22
 - Depends: path:C:/Users/holylight/.claude/hooks/wg_atoms.py
-- Related: 驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit, 無頭驗收受測ai會改資料根裡判它的判準卡-第三跑改措辭第五跑改卡-量尺被受測者改-受測環境的記憶區要對受測唯讀
+- Related: 驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit, 綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路
 
 ## 知識
 

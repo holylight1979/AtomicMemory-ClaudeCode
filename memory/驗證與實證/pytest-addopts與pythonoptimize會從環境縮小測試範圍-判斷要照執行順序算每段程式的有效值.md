@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: PYTEST_ADDOPTS, PYTHONOPTIMIZE, 環境變數縮小範圍, 整體驗證, pytest 子集, 有效環境, env 前綴, run_verify 自寫收據
 - Created-at: 2026-10-13
-- Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
 ## 知識
 
@@ -14,6 +13,7 @@
 - [臨] 判斷時只算「真的進子程式環境、值非空」的設定：bash 行內前綴（只給它接的那段）、`export`、單獨一段的 `X=值`（若變數本來就在繼承環境裡會傳下去，收據看不出來，fail-closed 照算）；PowerShell 只有 `$env:X=`，`$X`、`$global:X` 是 PowerShell 變數不進子程式；沒加引號的 `$null` 算空，`'$null'`、`' '` 都是值，值不修剪。
 - [臨] 要照執行順序算每一段程式啟動當下的有效值：後面的指定蓋前面的（`$env:X='-k x'; $env:X=''` 到程式時已清空，照算）；`||` 右邊與管線裡的指定不一定生效，前置設定彼此只准 `;`／`&&` 串。量尺比對逐段連值比（表上帶同名設定時要同值），名稱照受執行平台比（Windows 不分大小寫，bash 的 `pytest_addopts=` 在 Windows Python 就是它）。
 - [臨] 每一條採認路徑都要接同一個判斷（一般證據、整體驗證、精確量尺、根層 worktree 的 pytest DONE、程式自寫的收據）；自寫收據要記下自己行程環境裡這些變數，沒記的舊收據一律不算。平台旗標的真實預設要有不經 monkeypatch 的測試守著，否則被改成永遠關閉時其他測試照綠。
+
 
 ## 行動
 

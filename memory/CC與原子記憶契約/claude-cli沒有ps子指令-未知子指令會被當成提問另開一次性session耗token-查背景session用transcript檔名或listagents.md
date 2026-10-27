@@ -6,11 +6,11 @@
 - Confidence: [臨]
 - Trigger: claude ps, claude 子指令, 背景 session id, claude stop, 未知子指令, 一次性 session
 - Created-at: 2026-10-22
-- Quote: 「<pasted_content id="e02d"> 調度總控台：你是 v6.0 的調度總控台，執行 /console 調度，接替 claude-ba（token 快乾）。專案根 C:\Users\holylight\.claude（main）；接續單 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md；信箱…」
 
 ## 知識
 
 - [臨] `claude.exe ps`（CC 2.1.304）不是子指令：「ps」被當成一句提問，另開一個一次性 session 回答（會耗 token、還會跑 hook）。要查背景 session 的 id 去 `claude stop <短 id>`：讀 `~/.claude/projects/<cwd 編碼>/<session-id>.jsonl` 的檔名，或用 ListAgents；不確定有沒有某個子指令先跑 `claude --help`。
+
 
 ## 行動
 
