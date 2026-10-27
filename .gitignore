@@ -215,3 +215,11 @@ workflow/scorecard/
 workflow/tracking/
 !.claude/overview-map.md
 !.claude/overview-hub.json
+
+# 本機狀態與產物（不進版控）
+.oauth_refresh.lock*
+lib/cs_roslyn/obj/
+lib/cs_roslyn/bin/
+workflow/harvest-bg/
+workflow/judge-card-snap/
+workflow/vcs-ignore.json
