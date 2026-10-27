@@ -2633,6 +2633,9 @@ _GATE_DESIGN_CASES = {
     "SHELL_READ_COUNTS_LIKE_READ": ("verify_overview_hub.py", "test_shell_read_counts_like_read"),
     "SHELL_WRITE_COMMAND_NOT_A_READ": ("verify_overview_hub.py", "test_shell_write_command_not_a_read"),
     "EPHEMERAL_WRITE_NOTED_ONCE": ("verify_ephemeral_path.py", "test_temp_project_write_not_noted_but_said_once_per_root"),
+    "CHAIN_NO_EDIT_NO_EDGE": ("verify_chain_breaker.py", "test_no_edit_actions_between_same_gate_do_not_link"),
+    "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": ("verify_chain_wiring.py",
+                                         "test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block"),
 }
 
 

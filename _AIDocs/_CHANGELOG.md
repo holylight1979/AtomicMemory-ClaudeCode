@@ -4,6 +4,12 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-27 連鎖斷路器只在「修了又欠」時響：兩次擋之間沒改檔不算連鎖；中止時看得到被換掉那次擋原本說缺什麼
+- **AI 寫程式時會看到的**（守門總開關 v6 開、chain_breaker 開時）：
+  - **兩次擋之間只重跑測試、建刪暫存工作樹、重交收尾報告、改目標樹，同一道閘再擋不再判成連鎖中止**（規則 CHAIN_NO_EDIT_NO_EDGE，`hooks/wg_chain.py` 的 `changes_files`／`link`／`same_count`）：這些動作照記、照列進經過表，但沒改到檔不算修補——同一道閘不接成邊、不讓同閘次數加 1，照那道閘原本的擋訊息擋。改到檔＝改檔（Edit／Write…、Bash／PowerShell 有寫入目標，含判不出目標的寫入）、寫卡、子代理（它改了什麼主 session 看不到）。實例：紅測閘擋第 1 次 → 建暫存樹、重跑那支測試、刪暫存樹、重交報告，全程沒改檔 → 第 2 次被判成連鎖中止。不同的閘之間只有這類動作，照「沒記到動作」那樣判。
+  - **中止訊息附上被換掉那次擋的原文**（規則 CHAIN_ABORT_SHOWS_REPLACED_BLOCK，`wg_chain.notice_text`／`halt_text` 的 replaced，`lib/chain_store.gate_fired` 傳原擋訊息全文）：警報在哪一次響，那道閘原本的擋訊息（含附註，例如紅測閘的基底紅缺哪一件）照附在收尾的中止通知或工具上的停手訊息最後，超過 2000 字留開頭並標原文長度；原本只有經過表那一行，AI 不知道該補什麼。`hooks/handlers/stop.py` 沒動（它原樣送 chain_store 回的通知）。
+- **誤響少了幾種情境**：同一道閘兩次擋之間只有（1）重跑測試（2）沒寫入目標的其他指令（3）重交收尾報告（4）改目標樹——四種動作單獨或混著出現，原本都會讓同閘第 2 次警報，現在都不響；中間有改檔、寫卡、子代理照響。
+- **驗證**：新案例 `verify_chain_breaker::test_no_edit_actions_between_same_gate_do_not_link`（照實際帳重演）、`test_abort_shows_replaced_block_text`，`verify_chain_wiring::test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block`（走真 Stop／PreToolUse／PostToolUse 入口）；案例助手 `Turn.act` 從「重跑」改成「寫卡」，`test_files_disjoint_does_not_link`、`test_changed_call_after_action_still_counts_second_trigger` 照新規則改前提。拿 main 的程式回放，新案全紅。
 ## 2026-10-27 卡片的 Quote 不再被填成沿用的舊原話、貼上的開工句；子代理寫卡改看派它的那一回合
 - **使用者會看到的**：子代理代寫的卡、或同伴訊息／背景通知開的回合裡寫的卡，`- Quote:` 不再出現一句跟這張卡無關的話（實例：10-27 一個背景子代理寫的 5 張卡，Quote 全被填成主 session 開場貼上的那則開工句，連 `<pasted_content id=…>` 標籤一起）。使用者打字開的回合照填原話；子代理是在使用者打字開的回合派出的，照填那則原話。
 - **根因**：PostToolUse 自動填（`hooks/wg_provenance.autofill_from_receipt`）的 Quote 取 `state.turn_prompts`。子代理的 hook 帶的是主 session 的 session_id，讀到的是主 session 的 state；`turn_prompts` 在同伴訊息、背景通知開的續跑回合照設計沿用前一個使用者回合的原話（口令閘要它跨過背景等待）。那個 session 唯一一則真人訊息是貼上的開工句，`is_kickoff_prompt` 認不出（貼上標籤＋角色句不是「工作 session／工作軌」），就被填進每張卡。子代理 transcript 裡的任務 prompt 沒被拿來用（派工單的推測不成立）；回填工具早就有「寫卡那回合不是使用者開的不填」（`not_user_turn`），自動填這一側漏了。
