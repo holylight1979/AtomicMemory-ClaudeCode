@@ -22,7 +22,8 @@ from typing import Optional
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-UNDER_TEST = ("tools/install.py", "hooks/user-init.sh", "tools/fix-hook-python.py", "lib/project_root.py")
+UNDER_TEST = ("tools/install.py", "hooks/user-init.sh", "tools/fix-hook-python.py", "lib/project_root.py",
+              "lib/config_local.py")
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.longpaths=true"]
 
@@ -707,3 +708,19 @@ def test_verify_overview_map_three_states(tmp_path, monkeypatch):
                      encoding="utf-8", newline="\n")
     assert install.verify_overview_map()[0] == "FAIL"
     assert any(name == "根層部位表" and fn is install.verify_overview_map for name, fn in install.VERIFY_ITEMS)
+
+
+def test_upgrade_hints_v6_off_unless_local_enables(fake_target, monkeypatch, capsys):
+    """升級結尾：上游 v6.enabled=false 且本機 config.local.json 沒開 → 印一行怎麼開；本機開了 → 不印。"""
+    monkeypatch.delenv("WG_V6", raising=False)
+    (fake_target / "lib").mkdir()
+    shutil.copyfile(REPO / "lib" / "config_local.py", fake_target / "lib" / "config_local.py")
+    workflow = fake_target / "workflow"
+    workflow.mkdir()
+    install.write_json(workflow / "config.json", {"v6": {"enabled": False}})
+    install.v6_hint()
+    assert capsys.readouterr().out.strip() == install.V6_HINT
+    install.write_json(workflow / "config.local.json", {"v6": {"enabled": True}})
+    install.v6_hint()
+    assert capsys.readouterr().out == ""
+    assert "v6_hint" in install.cmd_upgrade.__code__.co_names     # 升級結尾真的有叫

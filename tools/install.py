@@ -690,8 +690,34 @@ def cmd_upgrade() -> int:
     except InstallError as e:
         print(f"\n升級已完成，但 hook 直譯器校正失敗：{e}", file=sys.stderr)
         return 1
+    v6_hint()
     print("升級完成。請重開 Claude Code。")
     return 0
+
+
+V6_HINT = ("v6 守門（寫程式時的定位提示與三道照擋）目前是關的；要開請在 workflow/config.local.json 加 "
+           "{\"v6\": {\"enabled\": true}} 後 Reload Window")
+
+
+def v6_hint() -> None:
+    """上游 workflow/config.json 的 v6.enabled 出廠是 false；本機沒在 config.local.json（或 WG_V6=1）打開就提醒一行。
+    開沒開照 hook 的同一套規則算：config.json 疊 config.local.json（lib/config_local.merge_local），再看 WG_V6。"""
+    if os.environ.get("WG_V6", "").strip() == "1":
+        return
+    workflow = TARGET / "workflow"
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("config_local_for_install", TARGET / "lib" / "config_local.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        config = json.loads((workflow / "config.json").read_text(encoding="utf-8"))
+        config = mod.merge_local(config, workflow / "config.local.json", "install")
+    except Exception as e:  # 查不到就說查不到，不裝沒事
+        print(f"v6 守門開沒開查不出來（{e}），照 hooks/wg_core.v6_enabled 的規則自行確認。")
+        return
+    sec = config.get("v6")
+    if not (isinstance(sec, dict) and sec.get("enabled") is True):
+        print(V6_HINT)
 
 
 # ─── --verify ───────────────────────────────────────────────────────────────
