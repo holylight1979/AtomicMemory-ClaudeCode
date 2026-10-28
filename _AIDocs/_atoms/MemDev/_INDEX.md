@@ -92,6 +92,7 @@
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 |
 | 使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接 | 使用者放行的判定要防偽造-只認tool_use_id對到AskUserQuestion的答案-打字放行要整句嚴格比對-跨回合要承接 |
+| 修剪必載檔前先對always-load-contracts的must-contain-章節標題字樣也算契約句 | 修剪必載檔前先對always-load-contracts的must_contain-章節標題字樣也算契約句 |
 | 健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層 | 健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層 |
 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve_responses-entry-stats只給計數且預設只看7天 |
 | 判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 | 判準卡Entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼 |

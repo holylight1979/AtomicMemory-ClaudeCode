@@ -13049,6 +13049,23 @@
         "重生的報告"
       ],
       "scope": "global"
+    },
+    {
+      "name": "修剪必載檔前先對always-load-contracts的must-contain-章節標題字樣也算契約句",
+      "path": "_AIDocs/_atoms/MemDev/修剪必載檔前先對always-load-contracts的must-contain-章節標題字樣也算契約句.md",
+      "triggers": [
+        "IDENTITY.md 修剪",
+        "USER.md 修剪",
+        "core.md 修剪",
+        "必載檔",
+        "Guardian:Contract",
+        "always-load-contracts",
+        "缺硬契約"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/memory/_meta/always-load-contracts.json"
+      ]
     }
   ]
 }
