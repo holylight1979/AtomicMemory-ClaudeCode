@@ -220,8 +220,8 @@ def check_read_branches(src: str) -> None:
 
 def test_post_tool_use_calls_depends_after_hub():
     src = POST_TOOL_USE.read_text(encoding="utf-8")
-    assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("advisories.append(dep_ctx)")
-    assert src.index("advisories.append(hub_ctx)") < src.index("advisories.append(dep_ctx)")   # hub 文字先、召回後
+    assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("ctx.append(dep_ctx)")
+    assert src.index("ctx.append(hub_ctx)") < src.index("ctx.append(dep_ctx)")   # hub 文字先、召回後（同一個 ctx 清單）
     check_read_branches(src)
 
 

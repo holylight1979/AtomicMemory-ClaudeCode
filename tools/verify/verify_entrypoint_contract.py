@@ -491,28 +491,27 @@ def stop_run(tmp_path, monkeypatch, capsys, logs):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": SID, "cwd": str(proj), "last_assistant_message": message}, cfg)
-        out = capsys.readouterr().out.strip()
-        assert out, "Stop 沒輸出"
-        return json.loads(out.splitlines()[-1])
+        cap = capsys.readouterr()
+        run.err = cap.err                    # 斷言失敗時印出來看是哪道閘先走了
+        out = cap.out.strip()
+        return json.loads(out.splitlines()[-1]) if out else None   # 沒輸出＝放行（v6 提醒類的閘只留帳）
     return run
 
 
-def test_stop_pickone_bound_keyword_and_none(stop_run, tmp_path, monkeypatch, logs):
-    _pool(monkeypatch, [])
-    ctx0 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
-    assert ctx0.startswith("[Guardian:PickOne]") and "判準卡" not in ctx0           # 都沒有 → 訊息原樣
+def test_stop_pickone_is_ledger_only_no_piggyback_card(stop_run, tmp_path, monkeypatch, logs):
+    """規則 STOP_REMIND_LEDGER_ONLY：v6 開著「順手看到最該修」在 Stop 是提醒不是擋（GATE_MODE_TABLE 的 PICK_ONE_PRE_CLOSE＝remind）：
+    Stop 不送文字（不 block、不 additionalContext），只在 guard-pick_one 留一筆 event=remind；
+    因此 stop_piggyback 這條路不再問句、E04 的判準卡在 Stop 不會送、guard-entry 也不記帳（卡池有沒有對得上的卡都一樣）。"""
     bound = _card(tmp_path, "bound", triggers=["無關詞"], entry=["E04"], knowledge=["- [臨] 判準：先問分數最高那條的實害。"])
-    _pool(monkeypatch, [bound])
-    ctx1 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
-    assert ctx1 == ctx0 + "\n判準卡（E04）：bound\n- [臨] 判準：先問分數最高那條的實害。"   # 原訊息逐字不變、卡接在最後
     kw = _card(tmp_path, "kw", triggers=["順手看到最該修"], knowledge=["- [臨] 退路卡的判準。"])
-    _pool(monkeypatch, [kw])
-    ep.forget_sent(SID)        # 換卡池當新 session 看：同一 session 拿過卡的切入點不再往下送新卡（CARD_FULL_ONCE_PER_SESSION）
-    ctx2 = stop_run("改好了，全部完成。")["hookSpecificOutput"]["additionalContext"]
-    assert ctx2 == ctx0 + "\n判準卡（E04）：kw\n- [臨] 退路卡的判準。"
-    asks = [a for a in _ledger(logs) if a["entry"] == "E04"]
-    assert [a["cards"] for a in asks] == [[], ["bound"], ["kw"]]
-    assert all(a["path"] == "stop_piggyback" and a["session_id"] == SID for a in asks)
+    for pool in ([], [bound], [kw]):
+        _pool(monkeypatch, pool)
+        ep.forget_sent(SID)
+        assert stop_run("改好了，全部完成。") is None, stop_run.err
+    rem = [r for r in _ledger(logs, "pick_one") if r.get("event") == "remind"]
+    assert rem and all(r["rule"] == "PICK_ONE_PRE_CLOSE" and r["session_id"] == SID for r in rem), _ledger(logs, "pick_one")
+    assert rem[0]["excerpt"].startswith("[Guardian:PickOne]")
+    assert not [a for a in _ledger(logs) if a["path"] == "stop_piggyback"]      # 沒問句就沒切入點帳
 
 
 def test_stop_block_via_piggyback_gets_card_after_previews(stop_run, tmp_path, monkeypatch, logs):
@@ -576,8 +575,10 @@ def ptu_world(tmp_path, monkeypatch, logs):
         raise SystemExit(0)
     monkeypatch.setattr(ptu, "output_json", _out)
     monkeypatch.setattr(ptu, "output_nothing", _nothing)
+    # DataFileAsk 只管寫過程式的 session（wg_data_file.coding_session）：state 先放一筆本 session 改過的 .py
     wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(proj)}, "turn_seq": 1,
-                              "recent_user_prompts": [prompt], "turn_prompts": [prompt]})
+                              "recent_user_prompts": [prompt], "turn_prompts": [prompt],
+                              "modified_files": [{"path": str(proj / "app.py"), "session_id": SID, "turn_seq": 1}]})
     tp = tmp_path / "t.jsonl"
 
     def run(assistant_text="先看設定怎麼讀"):
@@ -609,28 +610,43 @@ def test_pretool_deny_data_file_gets_e20_card(ptu_world, tmp_path, monkeypatch, 
     assert [a["entry"] for a in asks] == ["E20", "E20"] and asks[-1]["cards"] == ["data-card"]
 
 
-def test_pretool_hint_ask_overview_gets_e05_card(tmp_path, monkeypatch, logs):
-    """提問只提醒、不擋（ASK_OVERVIEW_BEFORE_DECISION）那條路也接卡（Codex 002：E05 登的就是這條路）；擋不擋不變。"""
+def test_pretool_hint_ask_overview_is_remind_not_card(tmp_path, monkeypatch, logs):
+    """提問只提醒、不擋（ASK_OVERVIEW_BEFORE_DECISION）那條路：v6 開著改掛下一個工具結果（REMIND_ON_PRIOR_RESULT）——
+    PreToolUse 什麼都不送（不 deny、不 additionalContext），guard-need_goal 留 event=remind；判準卡（E05）不在這裡接、
+    guard-entry 也不記。v6 關時提示照舊從 PreToolUse 送，原文逐字、不接卡（判準卡是 v6 才有）。"""
     import wg_need_goal
     import wg_need_goal_points
     from handlers import pre_tool_use as ptu
     hint = "[NeedGoal] ✗ (提問) ASK_OVERVIEW_BEFORE_DECISION：題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問"
+    hits = [{"rule": "ASK_OVERVIEW_BEFORE_DECISION", "what": "題目提到的部位還沒讀過檔", "fix": "先讀過部位檔再問", "block": False}]
     outputs = []
 
     def _out(d):
         outputs.append(d)
         raise SystemExit(0)
+
+    def _nothing():
+        outputs.append(None)
+        raise SystemExit(0)
     monkeypatch.setattr(ptu, "output_json", _out)
+    monkeypatch.setattr(ptu, "output_nothing", _nothing)
     monkeypatch.setattr(ptu, "read_state_status", lambda sid: ({"turn_seq": 4}, "missing"))
     monkeypatch.setattr(wg_need_goal, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
-    monkeypatch.setattr(wg_need_goal_points, "on_ask", lambda *a, **k: (None, hint))
+    monkeypatch.setattr(wg_need_goal_points, "on_ask_full", lambda *a, **k: (None, hint, hits))
     _pool(monkeypatch, [_card(tmp_path, "ask-card", triggers=["x"], entry=["E05"], knowledge=["- [臨] 改法選擇先讀部位再問。"])])
+    ask = {"session_id": SID, "tool_name": "AskUserQuestion", "tool_input": {"questions": []}}
     with pytest.raises(SystemExit):
-        ptu.handle_pre_tool_use({"session_id": SID, "tool_name": "AskUserQuestion", "tool_input": {"questions": []}}, {})
+        ptu.handle_pre_tool_use(ask, {})
+    assert outputs[-1] is None                                                        # v6 開：PreToolUse 不送
+    rem = [r for r in _ledger(logs, "need_goal") if r.get("event") == "remind"]
+    assert [r["rule"] for r in rem] == ["ASK_OVERVIEW_BEFORE_DECISION"] and rem[0]["session_id"] == SID
+    assert not _ledger(logs)                                                          # 卡沒送就沒切入點帳
+    monkeypatch.setenv("WG_V6", "0")
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use(ask, {})
     hso = outputs[-1]["hookSpecificOutput"]
-    assert "permissionDecision" not in hso                                           # 照樣只提醒、不擋
-    assert hso["additionalContext"] == hint + "\n判準卡（E05）：ask-card\n- [臨] 改法選擇先讀部位再問。"
-    assert [(a["entry"], a["path"]) for a in _ledger(logs)] == [("E05", "pretool_hint")]
+    assert "permissionDecision" not in hso and hso["additionalContext"] == hint     # v6 關：提示原文、不接卡
+    assert not _ledger(logs)
 
 
 def test_shared_fallbacks_are_independent(monkeypatch):
