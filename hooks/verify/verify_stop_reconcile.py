@@ -622,7 +622,7 @@ def test_failing_tests_isolated_between_sibling_sessions(driven, capsys):
     assert "TestFailGate" not in out
     red_b = {**red_a, "session_id": _SID}
     out, _, _ = driven("全部完成了。", capsys, failing_tests=[red_a, red_b], modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out and "還有 1 支沒跑綠（0 支已綠）" in out
+    assert "TestFailGate" in out and "還有 1 支沒跑綠，不得宣告完成" in out and "支已綠" not in out
 
 
 def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven, capsys):
@@ -631,7 +631,7 @@ def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven
     red = {"cmd": "python -m pytest tests -q", "summary": "FAILED tests/test_report.py::test_legacy_report", "turn_seq": 5,
            "session_id": _SID, "pytest": True}
     out, _, _ = driven("全部完成了。", capsys, failing_tests=[red], modified_files=[_mf(_CASE, 5)])
-    assert "[Guardian:TestFailGate] 測試未綠：還有 1 支沒跑綠（0 支已綠），不得宣告完成。" in out
+    assert "[Guardian:TestFailGate] 測試未綠：還有 1 支沒跑綠，不得宣告完成。" in out
     assert "先看使用者有沒有叫你跳過或先不管這支" in out and "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」" in out
     assert "不准加 skip／xfail、不准只為了變綠改斷言" in out and "收尾別說完成" in out
     # 需求變了、舊斷言不再對是正常情況：指去改舊測試的宣告，不一律禁改斷言（codex 審：跟改舊測試提示矛盾）
