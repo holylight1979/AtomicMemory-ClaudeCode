@@ -191,12 +191,12 @@
           {
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
-            "timeout": 10
+            "timeout": 20
           },
           {
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
-            "timeout": 150
+            "timeout": 20
           },
           {
             "type": "command",
@@ -212,7 +212,7 @@
           {
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
-            "timeout": 10
+            "timeout": 20
           }
         ]
       }
