@@ -17,7 +17,7 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_gate_mode_pre import (  # noqa: E402,F401
-    NG_TOOL, REMIND, _edit_input, _hub_events, _lines, _pre, _state_seed, _v6_on_full_card, post,
+    NG_TOOL, REMIND, _code_intent, _edit_input, _hub_events, _lines, _pre, _state_seed, _v6_on_full_card, post,
 )
 from verify_need_goal import (  # noqa: E402,F401
     CRIT, SID, THREE, THREE2, _mapped_world, _two_part_world, env, hooked, ng, wg_core, wo,
@@ -98,6 +98,7 @@ def test_locate_via_tree_missing_lines_not_counted(hooked, post):
 def test_read_hint_mentions_need_goal_option(hooked, post):
     """讀檔提示那一行與缺定位的擋訊息都補了「可在 need_goal set／update 的 locate 欄一起交」；提示仍是一行。"""
     f1 = _mapped_world(hooked)
+    _code_intent(hooked)                                                              # 使用者要改程式：讀檔才附定位提示
     hint = next(ln for ln in post("Read", {"file_path": f1}).splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
     assert "need_goal set／update 的 locate 欄一起交" in hint and "不必另發註解指令" in hint
     assert wo.locate_read_hint("戰鬥", True, True, True).count("\n") == 0

@@ -221,12 +221,12 @@ def test_candidates_block_not_sent_on_read(proj, tmp_path):
 
 
 def test_non_coding_turn_read_sends_no_hint_and_keeps_quota(proj, tmp_path):
-    """規則 NON_CODING_TURN_NO_NUDGE：純問答回合（本回合沒改過程式、沒宣告寫碼樹；關鍵字意圖是 debug 也一樣）讀部位的程式檔：
-    只建紀錄、一行都不送，一部位一次的額度不消耗（locate_hint 留在 due、沒有 locate_hint 事件）；同回合改了碼再讀 → 提示照送。
+    """規則 NON_CODING_TURN_NO_NUDGE：純問答回合（本回合沒改過程式、沒宣告寫碼樹、這則 prompt 的關鍵字也不是寫碼類：turn_intent general）
+    讀部位的程式檔：只建紀錄、一行都不送，一部位一次的額度不消耗（locate_hint 留在 due、沒有 locate_hint 事件）；同回合改了碼再讀 → 提示照送。
     舊碼不看回合、讀到就送 → 紅。"""
     tp = _transcript(tmp_path, "先看看。")
     f1 = str(proj / "Game/Battle/A.cs")
-    state: dict = {"turn_seq": 1, "turn_intent": "debug"}
+    state: dict = {"turn_seq": 1, "turn_intent": "general"}
     assert wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}) is None
     rec = _rec(state)
     assert rec["locate_hint"] == "due" and rec["part_files_read"] == [f1] and not state.get("overview_locate_hint_sent")

@@ -68,6 +68,13 @@ def post_tool(hooked, monkeypatch):
     return run
 
 
+def _code_intent(intent="debug"):
+    """使用者這則 prompt 的關鍵字判成寫碼類（state turn_intent）：補帳出來的定位提示只在有改程式意圖時送（LOCATE_HINT_ON_FIRST_READ）。"""
+    st = wg_core.read_state(SID) or {}
+    st["turn_intent"] = intent
+    wg_core.write_state(SID, st)
+
+
 def _part_reads(part="戰鬥"):
     state = wg_core.read_state(SID) or {}
     rec = next((v for k, v in (state.get("overview_hub") or {}).items() if k.endswith(f"|{part}")), None)
@@ -118,6 +125,7 @@ def test_read_log_appended_per_read(fast):
 
 def test_next_event_replays_read_log_into_on_read(fast, hooked):
     f1 = _mapped_world(fast)
+    _code_intent()
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     assert _part_reads() is None                                                 # 還沒補帳：state 沒有這個部位
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
@@ -137,6 +145,7 @@ def test_next_event_replays_read_log_into_on_read(fast, hooked):
 
 def test_first_read_hint_arrives_on_next_tool_result(fast, hooked, post_tool):
     f1 = _mapped_world(fast)
+    _code_intent()
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     ctx = post_tool()                                                            # 下一個非 Read 事件：Bash 的 PostToolUse
     hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
@@ -173,6 +182,7 @@ def test_scope_on_read_counts_after_replay(fast, hooked, post_tool):
 def test_bash_readonly_path_unchanged(fast, hooked, post_tool, monkeypatch):
     import dispatcher
     f1 = _mapped_world(fast)
+    _code_intent()
     assert not rf.is_fast_read({"hook_event_name": "PostToolUse", "session_id": SID, "tool_name": "Bash",
                                 "tool_input": {"command": f'cat "{f1}"'}})
     assert not rf.is_fast_read({"hook_event_name": "PreToolUse", "session_id": SID, "tool_name": "Read"})

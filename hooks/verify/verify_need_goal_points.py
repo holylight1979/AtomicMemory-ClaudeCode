@@ -896,7 +896,7 @@ def test_scope_on_read_without_goal_file_skips_work(proj, tmp_path, monkeypatch)
 def test_goal_change_resends_card_in_goal_view_once(proj, tmp_path):
     make_tree()
     cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 2}
+    state = {"turn_seq": 2, "turn_intent": "debug"}                              # 使用者要改程式（關鍵字意圖）：讀檔才附定位提示
     tp = _tp(tmp_path)
     f = str(proj / "Game/Battle/A.cs")
     first = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)
@@ -916,7 +916,7 @@ def test_goal_view_resend_is_one_line_read_first_then_tree(proj, tmp_path):
     → 照樣觸發目標視角重看，但只送一行（目標視角提問＋當前節點），不重貼導讀卡、定位範本與部位表原文；目標真的改了
     （再一次 on_goal_changed）→ 照樣再重看一次、也只一行。改前每次重看都附整張卡。"""
     cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 2}
+    state = {"turn_seq": 2, "turn_intent": "debug"}                              # 使用者要改程式（關鍵字意圖）：讀檔才附定位提示
     tp = _tp(tmp_path)
     f = str(proj / "Game/Battle/A.cs")
     first = wo.on_read(state, SID, "Read", {"file_path": f}, str(proj), tp, cfg)

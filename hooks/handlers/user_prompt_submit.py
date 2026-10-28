@@ -118,7 +118,7 @@ def evasion_ask(ev: Dict[str, Any]) -> str:
 
 
 # 關鍵字分類（classify_intent）判成要改程式的意圖：只用來送「先立樹」提示與記憶選片，不當守門開關
-_CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
+from wg_core import CODE_INTENTS as _CODE_INTENTS     # 寫碼類意圖的唯一真源在 wg_core（coding_turn 旁）
 
 
 def handle_user_prompt_submit(

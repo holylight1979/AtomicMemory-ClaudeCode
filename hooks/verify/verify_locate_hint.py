@@ -177,13 +177,13 @@ def test_locate_hint_subagent_and_switches_off_unchanged(hooked, post_read, monk
 
 
 def test_locate_hint_not_sent_in_non_coding_turn_and_quota_kept(hooked, post_read):
-    """規則 NON_CODING_TURN_NO_NUDGE：這個回合還沒改過程式、也沒宣告寫碼樹（純問答、只改文件）→ 讀部位的程式檔不送定位提示，
-    一部位一次的額度不消耗（部位紀錄 locate_hint 留在 due、沒有 locate_hint 事件）；之後同回合改了碼再讀 → 提示照送、額度這時才用掉。
-    走真的 PostToolUse。舊碼讀到就送 → 紅。"""
+    """規則 NON_CODING_TURN_NO_NUDGE：純問答回合——沒改過程式（只改文件）、沒宣告寫碼樹、這則 prompt 的關鍵字也不是寫碼類（turn_intent
+    general）→ 讀部位的程式檔不送定位提示，一部位一次的額度不消耗（部位紀錄 locate_hint 留在 due、沒有 locate_hint 事件）；
+    之後同回合改了碼再讀 → 提示照送、額度這時才用掉。走真的 PostToolUse。舊碼讀到就送 → 紅。"""
     f1 = _mapped_world(hooked)
     st = wg_core.read_state(SID) or {}
     st["modified_files"] = [{"path": str(hooked["proj"] / "README.md"), "last_turn_seq": 9}]   # 只改過文件
-    st["turn_intent"] = "debug"                                                              # 關鍵字意圖不算
+    st["turn_intent"] = "general"                                                            # 關鍵字也不是寫碼類
     wg_core.write_state(SID, st)
     ctx = post_read({"file_path": f1})
     assert "交定位" not in ctx and "戰鬥導讀" not in ctx

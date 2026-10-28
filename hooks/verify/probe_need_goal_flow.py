@@ -1,7 +1,8 @@
 """probe_need_goal_flow.py：用真的 hook 入口（hooks/workflow-guardian.py，一個事件一個行程、stdin 餵 JSON）走一遍需求目標流程。
 
-情境：使用者提需求 → 沒目標樹改程式被擋 → need_goal set／add → 第一次碰部位（導讀卡附樹）→ 讀部位檔 → 定位四行 → 放行 →
-改檔欠對照 → Stop 擋 (f1) → update 交一句進度 → 跑驗證印哨兵（收據蓋號）→ reconcile 完整對照 → 宣告完成時 (f1)(f2) 都不再擋。
+情境：使用者提需求 → 沒目標樹第一次改部位檔：導讀卡那一刀擋一次（立樹本身只提醒）→ need_goal set／add → 有樹後再改只提醒不擋 →
+讀部位檔 → 定位四行 → 放行 → 改檔欠對照 → Stop 不擋 (f1)（goal_gate=false，程式代填進度）→ update 收下 → 跑驗證印哨兵（收據蓋號）→
+reconcile 完整對照 → 宣告完成時 (f1)(f2) 都不擋。
 資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄（USERPROFILE／HOME）與探針專案都放在
 <本樹>/workflow/need-goal/_probe/（不進版控、不在系統暫存目錄，所以改檔不會被當暫存檔），向量檢索關掉；每次跑前清空；
 程式碼用本檔所在的樹。不碰 live：跑完用尾行的 sid 搜 live 的 Logs／workflow 應該搜不到。
@@ -91,7 +92,8 @@ def main() -> int:
     step("UPS 第一則訊息提醒先寫目標", "need_goal(action=set" in ctx(out), ctx(out))
     edit = {"file_path": str(target), "old_string": "return []", "new_string": "return ['csv']"}
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
-    step("沒樹改程式被擋", deny(out).startswith("[NeedGoal]"), json.dumps(out, ensure_ascii=False))
+    step("沒樹第一次改部位檔：導讀卡那一刀擋一次（立樹只提醒）", deny(out).startswith("[Guardian:OverviewHub]") and "【匯出】" in deny(out),
+         json.dumps(out, ensure_ascii=False))
     say("先寫目標")
     out = hook("PostToolUse", tool_name=NG, tool_input={"action": "set", "goal": "匯出能出 CSV，JSON 照舊"},
                tool_response={"content": [{"type": "text", "text": "[NeedGoal] set 已收到"}]})
@@ -101,11 +103,11 @@ def main() -> int:
                tool_response={"content": [{"type": "text", "text": "[NeedGoal] add 已收到"}]})
     step("add 收下 T1.1 T1.2", "T1.1" in ctx(out) and "T1.2" in ctx(out), ctx(out))
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
-    step("第一次碰部位：導讀卡注入並附目標樹", "[NeedGoal] 目前的需求目標" in deny(out) and "匯出導讀" in deny(out), deny(out))
+    step("有樹後再改：擋過一次之後定位缺件只提醒不擋", not deny(out), json.dumps(out, ensure_ascii=False))
     hook("PostToolUse", tool_name="Read", tool_input={"file_path": str(target)}, tool_response={"type": "text"})
     say("定位｜部位：匯出：export.py\n定位｜根因層：欄位定義層\n定位｜前例：欄位順序寫死在兩處")
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
-    step("只交三行：要第四行並列出節點", "沒交第四行" in deny(out) and "T1.1" in deny(out), deny(out))
+    step("只交三行：不擋（第四行只記錄、批判缺件提醒）", not deny(out), json.dumps(out, ensure_ascii=False))
     say("定位｜部位：匯出：export.py\n定位｜根因層：候選 A 欄位定義層；候選 B 輸出格式層；選 A 因為欄位順序寫死在兩處才是分歧源頭\n"
         "定位｜前例：欄位順序寫死在兩處\n定位｜目標：T1.1（欄位定義只留一份）\n"
         "定位｜批判：不合理，因為欄位順序寫死在兩處，更好的做法是只留一份欄位定義；同類還可能在哪：匯入那一側")
@@ -115,11 +117,11 @@ def main() -> int:
     hook("PostToolUse", tool_name="Edit", tool_input=edit, tool_response={"filePath": str(target)})
     say("改好了一半，先停")
     out = hook("Stop", last_assistant_message="改好了一半，先停", stop_hook_active=False)
-    step("Stop 擋 (f1) 改了程式還沒回頭對照（不看措辭）", "(f1)" in (out.get("reason") or ""), json.dumps(out, ensure_ascii=False))
+    step("Stop 不擋 (f1)（goal_gate=false，待對照由程式代填）", not out.get("reason"), json.dumps(out, ensure_ascii=False))
     out = hook("PostToolUse", tool_name=NG, tool_input={"action": "update", "items": [
         {"id": "T1.1", "status": "doing", "why": "export.py 改成同一份欄位定義，CSV 更接近了"}]},
                tool_response={"content": [{"type": "text", "text": "[NeedGoal] update 已收到"}]})
-    step("update 清掉待對照", "清掉 1 筆待對照" in ctx(out), ctx(out))
+    step("update 收下", "update 收下" in ctx(out), ctx(out))
     user("繼續")
     hook("UserPromptSubmit", prompt="繼續")
     cmd = "python -X utf8 -m pytest -q tests"

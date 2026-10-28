@@ -208,7 +208,9 @@ def v6_enabled(config: Dict[str, Any]) -> bool:
     return isinstance(sec, dict) and sec.get("enabled") is True
 
 
-# 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算
+# 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算。
+# 只當提示的開關（第一則「先立樹」一行、讀程式檔附的定位提示），不當守門開關（coding_turn 不看它）
+CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
 def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> bool:
     """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合，三層：
     ① 實質行為（最高位）：這個使用者回合已經有改程式檔的工具行為——Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔

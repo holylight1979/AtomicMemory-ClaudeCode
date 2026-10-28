@@ -24,7 +24,7 @@ from verify_need_goal import (  # noqa: E402,F401
     ptu, wg_core, wo,
 )
 from verify_pull_tool_gates import (  # noqa: E402,F401
-    DATA_EDIT, OT_HIT, TEST_EDIT, _pre as _pull_pre, world as pull_world,
+    DATA_EDIT, OT_HIT, SID as PULL_SID, TEST_EDIT, _pre as _pull_pre, world as pull_world,
 )
 import wg_release_rules as _rr  # noqa: E402
 
@@ -76,6 +76,14 @@ def _ask(labels, question="要用哪個做法？"):
 
 def _state_seed(hooked):
     wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(hooked["proj"])}, "turn_seq": 1})
+
+
+def _code_intent(hooked, intent="debug"):
+    """使用者這則 prompt 的關鍵字判成寫碼類（state turn_intent ∈ wg_core.CODE_INTENTS）：讀檔的定位提示（LOCATE_HINT_ON_FIRST_READ）
+    要趕在第一次改檔前到，那時還沒改過碼，只有這個訊號；純問答（general）不送。"""
+    st = wg_core.read_state(SID) or {}
+    st["turn_intent"] = intent
+    wg_core.write_state(SID, st)
 
 
 def _hub_events(hooked, event):
@@ -158,6 +166,7 @@ def test_first_edit_without_tree_denied_once_then_reminded(hooked, post):
 def test_tree_hint_once_per_session(hooked, post):
     """P9：讀檔結果已經講過「先 need_goal set」（LOCATE_HINT_ON_FIRST_READ）→ 之後沒樹就改，不擋也不再提醒立樹。"""
     f1 = _mapped_world(hooked)
+    _code_intent(hooked)
     assert "立需求目標樹" in post("Read", {"file_path": f1})
     assert _pre(hooked, "Edit", _edit_input(f1))[0]                   # 第一次改缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
@@ -172,6 +181,7 @@ def test_locate_reminded_on_read_then_first_edit_denied_once(hooked, post):
     第一次擋（訊息＝卡＋定位要求，卡同時排進提醒）；第二次同部位仍沒交定位：不擋、留帳 edit_remind，那則工具結果只帶卡（P10b）；
     之後的 Edit 什麼都不附（留帳照記，提醒已送過不再排）。"""
     f1 = _mapped_world(hooked)
+    _code_intent(hooked)
     assert "交定位四行" in post("Read", {"file_path": f1})
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     deny, out = _pre(hooked, "Edit", _edit_input(f1))
@@ -192,6 +202,7 @@ def test_locate_remind_once_per_part(hooked, post):
     每部位第一個 Edit 的工具結果只帶卡（OVERVIEW_CARD_BEFORE_EDIT），之後的 Edit 什麼都不附。"""
     files = _two_part_world(hooked)
     _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
+    _code_intent(hooked)
     assert "改【戰鬥】的程式檔前交定位四行" in post("Read", {"file_path": files["Battle"]})
     assert _pre(hooked, "Edit", _edit_input(files["Battle"]))[0]      # 每部位第一次缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
     for i in range(2):
@@ -267,6 +278,10 @@ def test_hub_self_error_not_denied(hooked, post, monkeypatch):
 # ─── 照擋三類不動 ───────────────────────────────────────────────────────
 
 def test_block_data_file_has_rule_and_fix(pull_world):
+    """動資料檔閘只管寫過程式的 session（wg_data_file.coding_session）：state 先記一筆改過的程式檔，再改資料檔沒宣告 → 照擋。"""
+    st = wg_core.read_state(PULL_SID) or {}                                     # pull_world 的 state 用它自己的 session id
+    st["modified_files"] = [{"path": str(pull_world["proj"] / "calc.py"), "last_turn_seq": 1}]
+    wg_core.write_state(PULL_SID, st)
     r = _pull_pre(pull_world, "Edit", {"file_path": str(pull_world["proj"] / "settings.json"), **DATA_EDIT})
     assert "USER_DATA_FILE_NEEDS_DECLARATION" in r and "修法" in r and "動資料檔｜" in r, r
     assert _rr.gate_mode("USER_DATA_FILE_NEEDS_DECLARATION", True) == _rr.BLOCK

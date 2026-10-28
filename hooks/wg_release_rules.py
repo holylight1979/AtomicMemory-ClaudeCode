@@ -4176,8 +4176,8 @@ RULES.update({
                                  "_edit_gate_applies＋目前的樹），交定位四行（根因層兩候選＋選擇理由、批判先下判斷；need_goal 關＝三行，"
                                  "同缺定位擋訊息 LOCATE_ASK_ONCE），寫在比改檔早一則的回覆文字或不寫檔指令開頭的 # 註解、thinking 讀不到"
                                  "（DECL_HINT_KEEPS_EDIT_TOOLS）；立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
-                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送；不是寫碼回合（wg_core.coding_turn："
-                                 "本回合還沒改過程式、也沒宣告寫碼樹）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
+                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送；沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，"
+                                 "這則 prompt 的關鍵字也沒判成寫碼類 wg_core.CODE_INTENTS；提示要趕在第一次改檔前到，所以關鍵字意圖算數）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
                                  "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
                                  "要立樹時 CODE_EDIT_NEEDS_GOAL_TREE），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
 })
@@ -4369,7 +4369,7 @@ RULES.update({
     "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的四個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或宣告了"
                                 "寫碼樹；prompt 關鍵字意圖不算）。① 沒樹改記憶知識類檔只記 untreed（之後立樹自動掛進去）、不再送「知識類也要一棵輕樹」；"
                                 "② 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；③ 讀程式檔附的定位提示"
-                                "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合送，不送時額度不消耗；④ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
+                                "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合或 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時送，純問答不送、額度不消耗；④ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
                                 "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session），"
                                 "否則放行、留帳 skipped_non_coding。第一則訊息的「要改碼先立樹」一行（CODE_TREE_HINT）仍看關鍵字，不在此列。",
 })

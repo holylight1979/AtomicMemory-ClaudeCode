@@ -217,7 +217,7 @@ def _card(state, f, tp, cfg=None, sid="s"):
 def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 3}
+    state = {"turn_seq": 3, "turn_intent": "debug"}                                     # 使用者要改程式（關鍵字意圖）：讀檔才附定位提示
     tp = _transcript(tmp_path, ["先看看。"])
     f1, f2 = str(proj / "Game" / "Battle" / "A.cs"), str(proj / "Game" / "Battle" / "B.cs")
     Path(f1).write_text("x", encoding="utf-8")                                     # Bash cat 讀的要是實檔才算（BASH_READONLY_COUNTS_AS_READ）
@@ -540,7 +540,7 @@ def test_cfg_errors_make_on_edit_deny(proj, tmp_path, monkeypatch, capsys):
     assert "設定錯誤" in capsys.readouterr().err
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert log[-1]["event"] == "edit_cfg_error"
-    assert wo.on_read({}, "s", "Read", {"file_path": f1}, str(proj), tp, {})   # 讀仍注入（錯誤只擋改）
+    assert wo.on_read({"turn_intent": "debug"}, "s", "Read", {"file_path": f1}, str(proj), tp, {})   # 讀仍注入、寫碼意圖下照附提示（錯誤只擋改）
 
 
 def test_bad_company_file_is_loud_and_skipped(proj, tmp_path, monkeypatch, capsys):
@@ -2078,10 +2078,10 @@ def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
     for n in "ABCDEFGH":
         (battle / f"{n}.cs").write_text("foo = 1", encoding="utf-8")
         f[n] = (battle / f"{n}.cs").as_posix()
-    by_read = {"turn_seq": 1}
+    by_read = {"turn_seq": 1, "turn_intent": "debug"}                                   # 使用者要改程式：讀檔才附定位提示
     for n in "ABC":
         wo.on_read(by_read, "s", "Read", {"file_path": f[n]}, str(proj), tp, cfg)
-    by_cat = {"turn_seq": 1}
+    by_cat = {"turn_seq": 1, "turn_intent": "debug"}
     txt = wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
     assert txt and "戰鬥導讀" not in txt and "交定位" in txt                       # 讀檔只一行提示，卡不送（READ_TOUCH_NO_CARD）
     rec = _battle(by_cat)
@@ -2112,10 +2112,10 @@ def test_shell_write_command_not_a_read(proj, tmp_path, monkeypatch):
     a, b, out = (battle / "A.cs").as_posix(), (battle / "B.cs").as_posix(), (proj / "out.txt").as_posix()
     for p in (a, b):
         Path(p).write_text("x", encoding="utf-8")
-    fresh = {"turn_seq": 1}
+    fresh = {"turn_seq": 1, "turn_intent": "debug"}                                     # 使用者要改程式：真讀到才附定位提示
     assert wo.on_read(fresh, "s", "Bash", {"command": f"cat {a} > {out}"}, str(proj), tp, cfg) is None
     assert not fresh.get("overview_hub")
-    state = {"turn_seq": 1}
+    state = {"turn_seq": 1, "turn_intent": "debug"}
     assert wo.on_read(state, "s", "Read", {"file_path": a}, str(proj), tp, cfg)
     rec = _battle(state)
     for tool, cmd in (("Bash", f"cat {b} > {out}"), ("Bash", f"cat {b} | tee {out}"), ("Bash", f"sed -i 's/x/y/' {b}"),
@@ -2139,13 +2139,13 @@ def test_inject_trigger_read_counted(proj, tmp_path, monkeypatch):
     for n in "ABCD":
         (battle / f"{n}.cs").write_text("x", encoding="utf-8")
         f[n] = (battle / f"{n}.cs").as_posix()
-    by_cat = {"turn_seq": 1}
+    by_cat = {"turn_seq": 1, "turn_intent": "debug"}                                    # 使用者要改程式：讀檔才附定位提示
     assert "戰鬥導讀" not in wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
     assert _battle(by_cat)["part_files_read"] == [f["A"], f["B"], f["C"]]
     assert wo.on_read(by_cat, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg) is None      # 已注入：一般讀，不重記
     wo.on_read(by_cat, "s", "Read", {"file_path": f["D"]}, str(proj), tp, cfg)
     assert len(_battle(by_cat)["part_files_read"]) == 4 and _battle(by_cat)["reads_after"][0] == f["A"]
-    by_read = {"turn_seq": 1}
+    by_read = {"turn_seq": 1, "turn_intent": "debug"}
     assert wo.on_read(by_read, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg)
     assert _battle(by_read)["part_files_read"] == [f["A"]]
     _card(by_read, f["A"], tp, cfg)

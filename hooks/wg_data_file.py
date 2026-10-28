@@ -276,10 +276,13 @@ def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
 
 
 def coding_session(state: Dict[str, Any], config: Optional[Dict[str, Any]], now_targets: Sequence[str] = ()) -> bool:
-    """這個 session 寫過程式沒：state modified_files 任一筆是程式檔（wg_need_goal.writes_code），或這次指令的寫入目標 now_targets
+    """這個 session 寫過程式沒：state modified_files 或 agent_modified_files（子代理改的）任一筆是程式檔（wg_need_goal.writes_code），或這次指令的寫入目標 now_targets
     裡有程式檔（同一條指令同時寫程式與設定）。都沒有＝純文件／設定的 session，動資料檔閘不問、讀檔也不提示。"""
     from wg_need_goal import writes_code
-    paths = [str(m.get("path") or "") for m in (state or {}).get("modified_files") or [] if isinstance(m, dict)]
+    st = state or {}
+    agent_mods = [m for lst in (st.get("agent_modified_files") or {}).values() for m in (lst or [])]   # 子代理改的碼也算（依 agent_id 分桶）
+    mods = list(st.get("modified_files") or []) + agent_mods
+    paths = [str(m.get("path") or "") for m in mods if isinstance(m, dict)]
     return any(writes_code(p, config) for p in list(paths) + [str(t) for t in now_targets])
 
 

@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, DECL_DENY_CAP, _atom_debug_error, _layer_kind_for_root, _map_path_of,
-    append_guard_log, assistant_texts_since, coding_turn, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
+    CODE_INTENTS, append_guard_log, assistant_texts_since, coding_turn, deny_cap, org_memory_root, resolve_project_root, transcript_sizes,
     v6_enabled,
 )
 from wg_verify_ledger import vcs_root_of
@@ -1114,14 +1114,16 @@ def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: D
     定位行幾行（有樹或要立樹＝四行，同擋訊息 LOCATE_ASK_ONCE；need_goal 關＝三行）、寫在哪（回覆文字或不寫檔指令開頭的 # 註解，
     thinking 讀不到）。一部位一 session 一次（rec.locate_hint：注入時 due、送了 sent）；改檔時才補注入的部位（擋訊息已講過）、
     已交過定位、非程式檔（含知識類部位）、子代理讀的不送（不消耗主 session 的那一次）；v6 總開關關著不送（注入本身是 v6 以前就有的，
-    關時照舊）。不是寫碼回合（wg_core.coding_turn：本回合還沒改過程式、也沒宣告寫碼樹）也不送、額度不消耗（locate_hint 留在 due，
+    關時照舊）。沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，這則 prompt 的關鍵字也沒判成寫碼類 CODE_INTENTS）也不送、額度不消耗（locate_hint 留在 due，
     之後成了寫碼回合再讀到照送）：純問答讀程式檔不該被催交定位行。判定不動：沒照做照擋。"""
     rec = (state.get("overview_hub") or {}).get(_key(root, row))
     if (agent_id or not rec or rec.get("locate_hint") != "due" or rec.get("located") or not v6_enabled(config)
             or not _cfg(config, root)["enabled"]):
         return None
     import wg_need_goal as _ng
-    if not _ng.is_code_path(path, config) or not coding_turn(state, config):
+    # 有改程式的意圖才送：本回合已是寫碼回合（coding_turn），或這則 prompt 的關鍵字判成寫碼類（state turn_intent）——
+    # 提示要趕在第一次改檔前到，而寫碼回合多半要到第一次改檔才成立，所以關鍵字意圖在這裡算數（純問答判成 general 不送）
+    if not _ng.is_code_path(path, config) or not (coding_turn(state, config) or state.get("turn_intent") in CODE_INTENTS):
         return None
     need_tree = _ng.tree_owed_for_edit(session_id, path, config)
     try:
