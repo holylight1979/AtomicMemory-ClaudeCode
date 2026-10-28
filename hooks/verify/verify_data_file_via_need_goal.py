@@ -65,7 +65,8 @@ def world(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(post, "_emit_post_tool_output", lambda adv, msgs: sent.append("\n".join(adv)))
     wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(proj)}, "turn_seq": 1,
-                              "recent_user_prompts": [PROMPT], "turn_prompts": [PROMPT]})
+                              "recent_user_prompts": [PROMPT], "turn_prompts": [PROMPT],
+                              "modified_files": [{"path": str(proj / "app.py"), "last_turn_seq": 1}]})   # 寫過程式的 session 才問
     tp = tmp_path / "t.jsonl"
     tp.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": PROMPT}}, ensure_ascii=False) + "\n",
                   encoding="utf-8")

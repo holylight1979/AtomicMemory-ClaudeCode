@@ -86,6 +86,11 @@ def _rec(state):
     return next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
 
 
+def _coding(proj, turn=1):
+    """寫碼回合的 state（規則 NON_CODING_TURN_NO_NUDGE：讀檔的定位提示只在寫碼回合送）：本回合改過一個程式檔。"""
+    return {"turn_seq": turn, "modified_files": [{"path": str(proj / "tools" / "x.py"), "last_turn_seq": turn}]}
+
+
 def _assert_one_hint_line_only(txt):
     """讀檔結果多出來的只有 LOCATE_HINT_ON_FIRST_READ 那一行：沒有卡、沒有候選、沒有追蹤項。"""
     assert txt and "\n" not in txt and txt.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"), txt
@@ -98,7 +103,7 @@ def test_readonly_bash_first_touch_sends_one_line_no_card(proj, tmp_path):
     inject 事件 chars＝0。同部位之後的唯讀指令什麼都不送、讀檔照記。"""
     tp = _transcript(tmp_path, "先看看。")
     f1, f2 = (proj / "Game/Battle/A.cs").as_posix(), (proj / "Game/Battle/B.cs").as_posix()
-    state: dict = {}
+    state = _coding(proj)
     txt = wo.on_read(state, "s", "Bash", {"command": f"grep -n foo {f1}"}, str(proj), tp, {})
     _assert_one_hint_line_only(txt)
     rec = _rec(state)
@@ -114,7 +119,7 @@ def test_read_tool_first_touch_sends_one_line_no_card(proj, tmp_path):
     """Read 工具第一次碰到部位：同樣只一行；對照改前（卡隨讀檔結果到）：那一行不到 300 字，卡（pointer 兩行＋定位要求）要 500 字以上。"""
     tp = _transcript(tmp_path, "先看看。")
     f1 = str(proj / "Game/Battle/A.cs")
-    state: dict = {}
+    state = _coding(proj)
     txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     _assert_one_hint_line_only(txt)
     assert len(txt) < 300
@@ -129,7 +134,7 @@ def test_first_edit_sends_card_once(proj, tmp_path):
     （pointer 送法：第二次只缺 Read 卡，Read 了就放行）。log：inject（讀檔、chars 0）→ card（改檔、有字數）→ edit。"""
     tp = _transcript(tmp_path, "先看看。")
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
-    state: dict = {}
+    state = _coding(proj)
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
@@ -156,7 +161,7 @@ def test_first_edit_full_mode_sends_whole_card_then_passes(proj, tmp_path):
     (proj / ".claude" / "overview-hub.json").write_text('{"card_injection": "full"}', encoding="utf-8")
     tp = _transcript(tmp_path, "先看看。")
     f1, f2 = str(proj / "Game/Battle/A.cs"), str(proj / "Game/Battle/B.cs")
-    state: dict = {}
+    state = _coding(proj)
     _assert_one_hint_line_only(wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}))
     wo.on_read(state, "s", "Read", {"file_path": f2}, str(proj), tp, {})
     _transcript(tmp_path, LOCATE)
@@ -191,7 +196,7 @@ def test_tracking_items_not_appended_only_count_line(proj, tmp_path):
                                                  at="2026-10-01T00:00:00"))
     tp = _transcript(tmp_path, "x")
     f1 = str(proj / "Game/Battle/A.cs")
-    state: dict = {}
+    state = _coding(proj)
     _assert_one_hint_line_only(wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}))
     deny = wo.on_edit(state, "s", f1, tp, {})[1]
     line = next(l for l in deny.splitlines() if l.startswith("未結追蹤項"))
@@ -207,12 +212,28 @@ def test_candidates_block_not_sent_on_read(proj, tmp_path):
     """讀檔結果不帶候選（候選前 N／根因卡／先答兩問）：debug 意圖、卡有病灶段，讀到部位檔還是只有那一行；候選只在觸發詞與第 2 次 Edit。"""
     tp = _transcript(tmp_path, "先看看。")
     f1 = str(proj / "Game/Battle/A.cs")
-    state: dict = {"turn_intent": "debug", "turn_seq": 2}
+    state = {**_coding(proj, turn=2), "turn_intent": "debug"}
     txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     _assert_one_hint_line_only(txt)
     assert "候選前" not in txt and "根因卡" not in txt and "先問" not in txt and "視角" not in txt and "分數" not in txt
     assert not state.get("candidates_sent")
     assert _rec(state)["slices"] == []                                            # 片在送卡那刻才選
+
+
+def test_non_coding_turn_read_sends_no_hint_and_keeps_quota(proj, tmp_path):
+    """規則 NON_CODING_TURN_NO_NUDGE：純問答回合（本回合沒改過程式、沒宣告寫碼樹；關鍵字意圖是 debug 也一樣）讀部位的程式檔：
+    只建紀錄、一行都不送，一部位一次的額度不消耗（locate_hint 留在 due、沒有 locate_hint 事件）；同回合改了碼再讀 → 提示照送。
+    舊碼不看回合、讀到就送 → 紅。"""
+    tp = _transcript(tmp_path, "先看看。")
+    f1 = str(proj / "Game/Battle/A.cs")
+    state: dict = {"turn_seq": 1, "turn_intent": "debug"}
+    assert wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}) is None
+    rec = _rec(state)
+    assert rec["locate_hint"] == "due" and rec["part_files_read"] == [f1] and not state.get("overview_locate_hint_sent")
+    assert [e["event"] for e in _log(tmp_path)] == ["inject"]
+    state["modified_files"] = [{"path": str(proj / "tools" / "x.py"), "last_turn_seq": 1}]
+    _assert_one_hint_line_only(wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}))
+    assert rec["locate_hint"] == "sent" and [e["event"] for e in _log(tmp_path)] == ["inject", "locate_hint"]
 
 
 if __name__ == "__main__":

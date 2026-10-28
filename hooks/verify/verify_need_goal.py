@@ -1282,7 +1282,13 @@ def _kfile(proj, name):
     return str(p)
 
 
-def test_untreed_knowledge_write_hints_once_per_turn_and_is_adopted_by_new_tree(env):
+def _no_tree_events(env):
+    return [p["turn_seq"] for g, p in env["guard"] if g == "need_goal" and p["event"] == "knowledge_no_tree"]
+
+
+def test_untreed_knowledge_write_logged_not_nudged_and_is_adopted_by_new_tree(env):
+    """規則 NON_CODING_TURN_NO_NUDGE：沒樹改記憶知識類的檔只記 untreed（一回合一筆守門紀錄 knowledge_no_tree），不再回「知識類也要
+    一棵輕樹」的提示（舊碼第一筆回 KNOWLEDGE_TREE_LINE → 紅）；之後立樹照樣自動掛進去。"""
     proj = env["proj"]
     assert ng.stamp_edit(SID, _kfile(proj, "a.py"), "", 2, {}) is None     # 程式檔沒樹：不記（改之前 edit_gate 已擋）
     _kfile(proj, "pkg/b.py")
@@ -1292,10 +1298,11 @@ def test_untreed_knowledge_write_hints_once_per_turn_and_is_adopted_by_new_tree(
     (proj / "_AIDocs").mkdir()                                             # 專案根標記：執行期資料目錄相對專案根判
     assert ng.stamp_edit(SID, _kfile(proj, "Logs/run.jsonl"), "", 2, {}) is None   # 執行期資料（RUNTIME_DATA_NO_OVERVIEW）
     assert not ng.goal_path(SID).exists()
-    line = ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 2, {})
-    assert line and "notes.md" in line and "need_goal(action=set" in line and "不擋寫檔" in line
-    assert ng.stamp_edit(SID, _kfile(proj, "plan.md"), "", 2, {}) is None  # 同一回合只送一次
-    assert ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})         # 下一回合還沒寫樹：再送
+    assert ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 2, {}) is None   # 記 untreed、不送提示
+    assert [Path(e["path"]).name for e in _doc()["untreed"]] == ["notes.md"] and _no_tree_events(env) == [2]
+    assert ng.stamp_edit(SID, _kfile(proj, "plan.md"), "", 2, {}) is None    # 同一回合第二筆：守門紀錄不重複
+    assert ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {}) is None   # 下一回合還沒寫樹：再記一筆紀錄，仍不送
+    assert _no_tree_events(env) == [2, 3]
     assert [Path(e["path"]).name for e in _doc()["untreed"]] == ["notes.md", "plan.md"]   # 同一檔一筆
     assert _doc()["untreed"][0]["turn"] == 3                                # 同一檔再改：回合更新
     assert ng.stamp_edit(SID, _kfile(proj, "x.md"), "", 3, {"overview_hub": {"need_goal": {"enabled": False}}}) is None
@@ -1309,10 +1316,11 @@ def test_untreed_knowledge_write_hints_once_per_turn_and_is_adopted_by_new_tree(
 def test_untreed_counts_deleted_docs_and_moved_doc_dirs(env):
     """沒樹時刪掉文件、搬文件目錄也是知識類的工作（Codex BLOCK 2）：已不在但副檔名不是程式的檔、裡面沒有程式的目錄都算。"""
     proj = env["proj"]
-    assert ng.stamp_edit(SID, str(proj / "old.md"), "", 2, {})              # rm old.md 之後
+    assert ng.stamp_edit(SID, str(proj / "old.md"), "", 2, {}) is None      # rm old.md 之後
     _kfile(proj, "old-docs/a.md")
-    assert ng.stamp_edit(SID, str(proj / "old-docs"), "", 2, {}) is None    # mv docs old-docs（同回合不重送）
+    assert ng.stamp_edit(SID, str(proj / "old-docs"), "", 2, {}) is None    # mv docs old-docs
     assert [Path(e["path"]).name for e in _doc()["untreed"]] == ["old.md", "old-docs"]
+    assert _no_tree_events(env) == [2]
 
 
 def test_untreed_overflow_drops_oldest_with_signal(env, monkeypatch):
@@ -1331,7 +1339,8 @@ def test_untreed_overflow_drops_oldest_with_signal(env, monkeypatch):
 def test_import_adopts_untreed_knowledge_writes(env):
     proj = _code_tree(env)
     block = ng.handoff_block(SID)
-    assert ng.stamp_edit("sess-k", _kfile(proj, "notes.md"), "", 1, {})    # 讀續接單之前先改了文件
+    ng.stamp_edit("sess-k", _kfile(proj, "notes.md"), "", 1, {})           # 讀續接單之前先改了文件
+    assert [Path(e["path"]).name for e in ng.load("sess-k")["untreed"]] == ["notes.md"]
     ng.import_handoff("sess-k", block, str(proj / "next-phase-k.md"), 1)
     t = ng.active_tree(ng.load("sess-k"))
     assert [Path(e["path"]).name for e in t["edits"]] == ["notes.md"] and "untreed" not in ng.load("sess-k")
@@ -1343,7 +1352,8 @@ def test_multi_tree_import_adopts_untreed_into_the_continued_tree(env):
     _op("set", goal="A")
     _op("set", goal="B", new_task=True, why="換題", turn=2)
     block = ng.handoff_block(SID)
-    assert ng.stamp_edit("sess-m", _kfile(proj, "notes.md"), "", 1, {})
+    ng.stamp_edit("sess-m", _kfile(proj, "notes.md"), "", 1, {})
+    assert [Path(e["path"]).name for e in ng.load("sess-m")["untreed"]] == ["notes.md"]
     res = ng.import_handoff("sess-m", block, str(proj / "next-phase-m.md"), 1)
     d = ng.load("sess-m")
     active = d["trees"][d["active"]]
@@ -1598,15 +1608,18 @@ def test_post_tool_use_stamps_edits_and_receipts(env):
     assert [Path(e["path"]).name for e in t["edits"]] == ["a.py", "b.py"] and len(_doc()["receipts"]) == 1
 
 
-def test_post_tool_use_untreed_knowledge_write_sends_light_tree_line(env):
+def test_post_tool_use_untreed_knowledge_write_records_without_nudge(env):
+    """走真的 PostToolUse 蓋號入口（規則 NON_CODING_TURN_NO_NUDGE）：沒樹改知識類檔只記 untreed、工具結果不附任何提示（舊碼附「輕樹」那句 → 紅）；
+    暫存檔連記都不記。"""
     proj = env["proj"]
     ctx, _ = pt._need_goal_after_tool({"turn_seq": 2}, "sess-k2", "Write", {"file_path": _kfile(proj, "notes.md")}, {}, {})
-    assert ctx and "notes.md" in ctx and "need_goal(action=set" in ctx
+    assert ctx is None
     staging = _kfile(proj, ".claude/memory/_staging/next-phase-k.md")
     ctx, _ = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": staging}, {}, {})
-    assert "need_goal(action=set" in ctx
+    assert ctx is None
+    assert [Path(e["path"]).name for e in ng.load("sess-k2")["untreed"]] == ["notes.md", "next-phase-k.md"]
     ctx, _ = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": _kfile(proj, "eph/x.md")}, {}, {})
-    assert ctx is None                                                      # 暫存檔不管
+    assert ctx is None and len(ng.load("sess-k2")["untreed"]) == 2          # 暫存檔不管
 
 
 def test_hub_config_need_goal_section():

@@ -5,7 +5,7 @@ need_goal reconcile／verify_scope（實測 006：這兩步各一個模型回合
   改程式檔那批的提醒（handlers/post_tool_batch.closing_reminders）只剩不點名 reconcile／verify_scope 的條目；
   PostToolUse 改程式檔不再問驗證範圍（SCOPE_ASK_ONCE_PER_CODE_TURN 拿掉）；
   Stop 的 (f2)／SCOPE_* 判定照跑、只留帳（event=remind），不送 additionalContext、不擋；
-  need_goal set 的回覆、沒樹改知識類檔的提示、MCP 工具說明都不寫「接著 reconcile／verify_scope」；
+  need_goal set 的回覆、MCP 工具說明都不寫「接著 reconcile／verify_scope」；
   v6 關：Stop 照舊擋 (f2)、批次一行都不送（行為不動）。
 會紅：拿改動前的 main（4bc9243e）回放，前五案紅（舊碼提醒 SCOPE_*、GOAL_RECONCILE_AT_DELIVERY、問驗證範圍、提示寫 reconcile）；
   v6 關那案守舊行為、舊碼本來就綠。
@@ -104,10 +104,10 @@ def test_stop_logs_reconcile_but_sends_nothing(drive, monkeypatch):
 
 
 def test_need_goal_set_reply_has_no_follow_up_call_prompt(env):
-    """need_goal set 的回覆、沒樹改知識類檔的提示、第一則訊息的立樹提示、MCP 工具說明：都不寫「接著 reconcile／verify_scope」。"""
+    """need_goal set 的回覆、第一則訊息的立樹提示、MCP 工具說明：都不寫「接著 reconcile／verify_scope」。"""
     text = _op("set", goal="讓目標樹只立一次", cwd=str(env["proj"]))["text"]
     assert text.startswith("[NeedGoal] set 收下") and _follow_up_calls(text) <= {"set", "add"}, text
-    for line in (ng.KNOWLEDGE_TREE_LINE, ng.HINT_LINE, ng.SUBGOAL_LINE):
+    for line in (ng.HINT_LINE, ng.SUBGOAL_LINE):
         assert _follow_up_calls(line) <= {"set", "add"}, line
     mcp = (MCP_DIR / "mcp.js").read_text(encoding="utf-8")
     assert "會問一次" not in mcp and "目標對照放 reconcile" not in mcp

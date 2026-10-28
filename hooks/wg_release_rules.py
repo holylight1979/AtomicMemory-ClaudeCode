@@ -1903,8 +1903,8 @@ def ask_audit_note(kind: Optional[str], linked: Optional[str]) -> Optional[str]:
 # ─── 記憶知識類的輕樹（(f4)；wg_need_goal.knowledge_gate_reason 收事實、這裡判）────────────────────────
 
 RULES.update({
-    "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE": "本使用者回合在還沒有任何需求目標樹時改了記憶知識類的檔（不是程式檔、不是暫存檔；寫入當下已送過一次"
-                                       "「寫一棵輕樹」）→ 回合結束要補一棵輕樹（一個節點即可，之前改的檔寫樹時自動掛進去）。不看措辭；"
+    "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE": "本使用者回合在還沒有任何需求目標樹時改了記憶知識類的檔（不是程式檔、不是暫存檔；寫入當下只記 untreed 與"
+                                       "守門紀錄 knowledge_no_tree，不送「寫一棵輕樹」的催促）→ 回合結束要補一棵輕樹（一個節點即可，之前改的檔寫樹時自動掛進去）。不看措辭；"
                                        "屬記憶與報告類：併進收尾報告那一份擋，本回合第 3 次放行並記 reconcile_overflow，不問使用者。",
     "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY": "交付邊界（宣告完成、本回合交了收尾檢核、擋滿待查的原宣稱）時，目前的樹是記憶知識類，而且最後一次"
                                             "對得上目標版本的完整對照之後還有改檔（沒對照過＝全部改檔）→ 要交 need_goal reconcile；達成不要求"
@@ -2999,7 +2999,9 @@ RULES.update({
                                         "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
                                         "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
                                         "（路徑檔名對得上這次要改的檔、冒號後的理由過 reason_present）→ 擋。宣告過記 state data_file_declared，"
-                                        "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。",
+                                        "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。"
+                                        "只在寫過程式的 session 管（wg_data_file.coding_session）：state modified_files 沒有任何程式檔、這次指令也沒"
+                                        "同時寫程式檔 → 放行、不留宣告帳，只留 skipped_non_coding（純文件／設定的回合不問；使用者裁定）。",
 })
 
 _DATA_FILE_DECL_RE = lazy_re(r"動資料檔\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)")
@@ -4055,11 +4057,13 @@ RULES.update({
 
 # ─── 寫碼回合的記憶注入只送該到的（判定在 hooks/handlers/ups_inject.assemble_injection，這裡只登錄規則名與說明） ───
 RULES.update({
-    "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、這則判成寫碼意圖：ups_inject._lean_turn）記憶卡只有 trigger 命中的給整段"
+    "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、而且這個使用者回合已經改過程式檔或宣告了寫碼樹：wg_core.coding_turn，"
+                                        "ups_inject._lean_turn 看它；prompt 關鍵字判成的寫碼意圖不算，所以使用者打字開的第一則永遠不瘦身、"
+                                        "同回合排隊進來的後續 prompt 在改過碼之後才瘦身）記憶卡只有 trigger 命中的給整段"
                                         "（含原有的同題節錄、塞不下時的印象節錄）；bm25／vector／related 命中的不看 hot／cold 一律走 cold 一行"
                                         "（form＝cold，取用端稽核只追 trigger 命中的，不受影響）。一行送過的卡照舊進 injected_atoms"
                                         "（搜尋段不再給它當候選、失念偵測當它注入過），之後的寫碼回合被 trigger 命中時從全池補回候選給整段"
-                                        "（ups_inject._line_upgrades，來源記 trigger）。總開關關、或不是寫碼意圖照舊。",
+                                        "（ups_inject._line_upgrades，來源記 trigger）。總開關關、或不是寫碼回合照舊。",
     "POINTER_NO_NAME_ECHO": "寫碼回合的一行指標（cold 行、budget 塞不下退的路標）摘要或標題只是卡名再寫一次時不重印，只留卡名＋路徑"
                             "（wg_atoms.title_echoes_name：去掉標點、空白、大小寫與截斷的 … 後是卡名的開頭）；摘要是印象行、或比卡名多資訊的照留。",
     "NO_RESEND_AFTER_RESUME": "寫碼回合同一張卡在這個 session 最近一次壓縮之後已整段送出過（injection_log 的 form_final＝ok、不是只抽了"
@@ -4094,7 +4098,8 @@ RULES.update({
     "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
                            "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
-                           "子代理讀的不提示），讓第一次改就帶宣告。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：沒宣告照擋。",
+                           "子代理讀的不提示），讓第一次改就帶宣告。這個 session 沒改過程式檔（wg_data_file.coding_session）閘不會問，"
+                           "也就不提示。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：閘會問的沒宣告照擋。",
 })
 RULES.update({
     "LOCATE_EXAMPLE_ONCE_PER_SESSION": "有目標樹時缺定位行的擋訊息（LOCATE_ASK_ONCE 那條完整範例）每個 session 只給一次完整範例：擋訊息精簡"
@@ -4171,7 +4176,9 @@ RULES.update({
                                  "_edit_gate_applies＋目前的樹），交定位四行（根因層兩候選＋選擇理由、批判先下判斷；need_goal 關＝三行，"
                                  "同缺定位擋訊息 LOCATE_ASK_ONCE），寫在比改檔早一則的回覆文字或不寫檔指令開頭的 # 註解、thinking 讀不到"
                                  "（DECL_HINT_KEEPS_EDIT_TOOLS）；立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
-                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送。判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
+                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送；不是寫碼回合（wg_core.coding_turn："
+                                 "本回合還沒改過程式、也沒宣告寫碼樹）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
+                                 "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
                                  "要立樹時 CODE_EDIT_NEEDS_GOAL_TREE），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
 })
 
@@ -4266,7 +4273,7 @@ RULES.update({
     "GOAL_TREE_SET_ONCE": "目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（CODE_EDIT_NEEDS_GOAL_TREE），之後不再送任何會促使 AI 去呼叫"
                           "need_goal reconcile／verify_scope 的文字：改程式檔那則工具結果不附 SCOPE_*、(f2)(f3)(f4)（post_tool_batch.closing_reminders），"
                           "PostToolUse 改程式檔不問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN 拿掉），收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，"
-                          "need_goal set 的回覆、沒樹改知識類檔的提示、MCP 工具說明都不寫接著對照。判定不動：Stop 照判、只留帳（STOP_REMIND_LEDGER_ONLY）；"
+                          "need_goal set 的回覆、MCP 工具說明都不寫接著對照（沒樹改知識類檔已不送提示，見 NON_CODING_TURN_NO_NUDGE）。判定不動：Stop 照判、只留帳（STOP_REMIND_LEDGER_ONLY）；"
                           "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile／verify_scope 照收。v6 關整道不動（照擋）。"
                           "為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。",
     "STOP_REMIND_LEDGER_ONLY": "Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log "
@@ -4355,3 +4362,15 @@ def remind_key(rule: str, obj: Any = "") -> str:
 def remind_due(sent: Iterable[str], rule: str, obj: Any = "") -> bool:
     """這件提醒這個 session 送過沒（sent＝呼叫端存在 state 的提醒鍵）；沒送過才送，送了由呼叫端把 remind_key 加進去。"""
     return remind_key(rule, obj) not in set(sent or ())
+
+
+# ─── 非寫碼回合不介入（判定在各自的模組：wg_need_goal.stamp_edit、ups_inject._lean_turn、wg_overview._locate_read_hint、wg_data_file.gate／read_hint；這裡只登錄） ───
+RULES.update({
+    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的四個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或宣告了"
+                                "寫碼樹；prompt 關鍵字意圖不算）。① 沒樹改記憶知識類檔只記 untreed（之後立樹自動掛進去）、不再送「知識類也要一棵輕樹」；"
+                                "② 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；③ 讀程式檔附的定位提示"
+                                "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合送，不送時額度不消耗；④ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
+                                "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session），"
+                                "否則放行、留帳 skipped_non_coding。第一則訊息的「要改碼先立樹」一行（CODE_TREE_HINT）仍看關鍵字，不在此列。",
+})
+RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE 建表之後：說明型規則，不是擋點（GATE_MODE_TABLE 要每條都有送法）

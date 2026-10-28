@@ -9,6 +9,9 @@ declare_via_need_goal 直接記帳、不經文字比對。判定在 wg_release_r
 wg_core.deny_cap；error：閘自己出錯，這次不擋）。本 session 新建的檔記進 state created_files：Write 由
 handlers/post_tool_use.py 呼叫 note_created；Bash／PowerShell 由這裡記下呼叫前不存在的目標、post_tool_use 呼叫
 confirm_shell_created 確認存在後轉進去。
+只在寫過程式的 session 管（coding_session）：這個 session 的 state modified_files 裡沒有任何程式檔、這次指令也沒同時寫程式檔
+→ 直接放行、不留宣告帳（只留一筆 event=skipped_non_coding）；讀檔提示 read_hint 用同一條件，閘不會問的就不提示。
+純改文件、設定的回合不被問（使用者裁定；代價是純設定回合改使用者的設定檔沒人攔）。
 開關與清單：workflow/config.json 的 guard.data_file_ask（enabled 預設 True；extensions 給了就整份取代預設清單）。
 .md 也算（README、病灶清單這類團隊共有文件）；_AIDocs／memory／.claude 底下的 .md 是系統文件，照舊不問（SYSTEM_DOC_DIRS）。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_data_file_ask.py
@@ -19,7 +22,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (append_guard_log, deny_cap, read_state_status, transcripts_of, user_typed_prompts, user_typed_text,
                      write_state)
@@ -197,7 +200,7 @@ def read_hint(state: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
     沒宣告過、state 裡的使用者原話沒點名——而且這個 session 還沒提示過的，回一行宣告格式；提示過的記進 state data_file_hinted。
     判定（gate）不動：沒宣告照擋。炸了印 stderr、留帳 error、回 None，讀檔照常。"""
     enabled, exts = cfg_of(config)
-    if not enabled:
+    if not enabled or not coding_session(state, config):
         return None
     try:
         from wg_need_goal import writes_code
@@ -272,8 +275,17 @@ def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
     return [p for p in write_paths_from_tool(tool_name, tool_input, cwd or None) if not p.startswith("UNKNOWN:")]
 
 
+def coding_session(state: Dict[str, Any], config: Optional[Dict[str, Any]], now_targets: Sequence[str] = ()) -> bool:
+    """這個 session 寫過程式沒：state modified_files 任一筆是程式檔（wg_need_goal.writes_code），或這次指令的寫入目標 now_targets
+    裡有程式檔（同一條指令同時寫程式與設定）。都沒有＝純文件／設定的 session，動資料檔閘不問、讀檔也不提示。"""
+    from wg_need_goal import writes_code
+    paths = [str(m.get("path") or "") for m in (state or {}).get("modified_files") or [] if isinstance(m, dict)]
+    return any(writes_code(p, config) for p in list(paths) + [str(t) for t in now_targets])
+
+
 def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Optional[str]:
     """PreToolUse：回擋訊息或 None。一條指令寫好幾個資料檔，每個都要對到宣告或各自豁免，沒對到的全列出來。
+    這個 session 沒寫過程式、這次也沒同時寫程式檔（coding_session）→ 放行，只留帳 skipped_non_coding。
     閘自己出錯（state 讀壞、例外）＝判不了 → 這次不擋，寫 stderr 與守門紀錄 error。"""
     enabled, exts = cfg_of(config)
     if not enabled or tool_name not in TOOLS + SHELL_TOOLS:
@@ -281,9 +293,18 @@ def gate(tool_name: str, tool_input: Dict[str, Any], input_data: Dict[str, Any],
     sid = str(input_data.get("session_id") or "")
     paths: List[str] = []
     try:
-        paths = [p for p in dict.fromkeys(_targets(tool_name, tool_input, str(input_data.get("cwd") or "")))
-                 if _ext_of(p) in exts and not _system_doc_md(p)]
-        return _judge(tool_name, paths, sid, input_data, config) if paths else None
+        targets = list(dict.fromkeys(_targets(tool_name, tool_input, str(input_data.get("cwd") or ""))))
+        paths = [p for p in targets if _ext_of(p) in exts and not _system_doc_md(p)]
+        if not paths:
+            return None
+        state, status = read_state_status(sid) if sid else (None, "missing")
+        if status == "error":
+            raise RuntimeError(f"state 檔讀不到（workflow/state-{sid[:8]}….json），判不了這個 session 有沒有新建過它")
+        if not coding_session(state or {}, config, targets):
+            append_guard_log(GUARD, {"session_id": sid, "tool": tool_name, "paths": paths, "event": "skipped_non_coding",
+                                     "why": "這個 session 沒改過程式檔、這次也沒同時寫程式檔"})
+            return None
+        return _judge(tool_name, paths, sid, input_data, config, state or {}, status)
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         sys.stderr.write(f"[Guardian:DataFileAsk] 閘內部錯誤，判不了是不是使用者既有的資料檔（這次不擋，已留帳）：{err}\n")
@@ -326,12 +347,10 @@ def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any]
     return v, via, ""
 
 
-def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any], config: Optional[Dict[str, Any]]) -> Optional[str]:
+def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any], config: Optional[Dict[str, Any]],
+           state: Dict[str, Any], status: str) -> Optional[str]:
+    """state／status＝gate 讀好的這個 session 的 state（status ok 才寫回）。"""
     cwd = str(input_data.get("cwd") or "")
-    state, status = read_state_status(sid) if sid else (None, "missing")
-    if status == "error":
-        raise RuntimeError(f"state 檔讀不到（workflow/state-{sid[:8]}….json），判不了這個 session 有沒有新建過它")
-    state = state or {}
     main_tp, decl_tps = transcripts_of(str(input_data.get("transcript_path") or ""), str(input_data.get("agent_id") or ""))
     ctx: Dict[str, Any] = {"main_tp": main_tp, "decl_tps": decl_tps,
                            "cmd": str((input_data.get("tool_input") or {}).get("command") or "") if tool_name in SHELL_TOOLS else ""}

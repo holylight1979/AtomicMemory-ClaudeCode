@@ -59,7 +59,21 @@ def _edit(hooked, f, config=None):
 
 def _hint_events(hooked):
     p = hooked["tmp"] / "hub.log"
+    if not p.exists():
+        return []
     return [e for e in (json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()) if e["event"] == "locate_hint"]
+
+
+def _coding(hooked):
+    """把這個 session 標成寫碼回合（規則 NON_CODING_TURN_NO_NUDGE：定位提示只在寫碼回合送）：state 記一筆本回合改過的程式檔。"""
+    st = wg_core.read_state(SID) or {}
+    turn = max(int(st.get("turn_seq", 0) or 0), int(st.get("turn_prompts_seq", 0) or 0))
+    st["modified_files"] = [{"path": str(hooked["proj"] / "tools" / "x.py"), "last_turn_seq": turn}]
+    wg_core.write_state(SID, st)
+
+
+def _rec_of(part):
+    return next(v for k, v in wg_core.read_state(SID)["overview_hub"].items() if k.endswith(f"|{part}"))
 
 
 FOUR = THREE2 + CRIT
@@ -68,8 +82,10 @@ FOUR = THREE2 + CRIT
 def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hooked, post_read):
     """規則 LOCATE_HINT_ON_FIRST_READ：還沒有目標樹時第一次讀到部位的程式檔 → 那則讀檔工具結果（PostToolUse，不是改檔的
     PreToolUse）附一行：先 need_goal set 立樹、交定位四行（根因層兩候選、批判先下判斷）、寫在回覆文字或不寫檔指令的 # 註解、
-    thinking 讀不到。AI 照做（立樹、回覆文字交四行）→ 第一個 Edit 兩道閘都不擋。改前讀檔結果只有導讀卡 → 紅。"""
+    thinking 讀不到。AI 照做（立樹、回覆文字交四行）→ 第一個 Edit 兩道閘都不擋。改前讀檔結果只有導讀卡 → 紅。
+    提示只在寫碼回合送（本回合已改過別的程式檔）。"""
     f1 = _mapped_world(hooked)
+    _coding(hooked)
     ctx = post_read({"file_path": f1})
     hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
     assert "先用 need_goal(action=set, goal=…) 立需求目標樹" in hint and "交定位四行" in hint
@@ -91,6 +107,7 @@ def test_locate_hint_ignored_not_blocked_and_not_reminded_twice(hooked, post_rea
     """先讀、沒照做就改（規則 GATE_MODE_TABLE）：讀檔提示就是那一次提醒——沒樹就改不擋、不再提醒立樹；立了樹沒交定位也不擋、
     不再提醒定位（提醒帳 remind_sent 已有這兩件；判定照舊留帳 edit_blocked／edit_remind）。"""
     f1 = _mapped_world(hooked)
+    _coding(hooked)
     assert "立需求目標樹" in post_read({"file_path": f1})
     assert _edit(hooked, f1)                                              # 第一次缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
     assert _edit(hooked, f1) is None                                      # 第二次：不擋
@@ -113,6 +130,7 @@ def test_locate_hint_skips_non_code_second_read_located_and_short_for_next_part(
     notes = Path(files["Battle"]).with_name("notes.md")
     notes.write_text("# 筆記", encoding="utf-8")
     _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
+    _coding(hooked)
     ctx = post_read({"file_path": str(notes)})
     assert "戰鬥導讀" not in ctx and "交定位" not in ctx                            # 非程式檔：只建紀錄，卡與提示都不送
     ctx = post_read({"file_path": files["Battle"]})
@@ -134,6 +152,7 @@ def test_locate_hint_not_sent_when_edit_injected_first(hooked, post_read):
     """改檔時才補注入的部位（第一次碰就是 Edit）：那則擋訊息已經講了要交什麼，之後再讀它的程式檔不另送提示。"""
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
+    _coding(hooked)
     assert _edit(hooked, f1)                                                        # 補注入導讀卡；第一次改缺定位擋一次，卡排進提醒隨下個工具結果送
     assert [h["rule"] for h in wg_core.read_state(SID)["remind_pending"]] == ["OVERVIEW_CARD_BEFORE_EDIT"]
     assert "交定位" not in post_read({"file_path": f1})
@@ -144,6 +163,7 @@ def test_locate_hint_subagent_and_switches_off_unchanged(hooked, post_read, monk
     """子代理讀的不送、也不吃掉主 session 那一次；v6 總開關關、OverviewHub 關 → 讀檔結果跟改前一樣（沒有提示）；
     need_goal 關 → 只要定位三行、不提立樹（同那時的擋訊息）。"""
     f1 = _mapped_world(hooked)
+    _coding(hooked)
     assert "交定位" not in post_read({"file_path": f1}, agent_id="ag-1")
     monkeypatch.setenv("WG_V6", "0")
     off = post_read({"file_path": f1})
@@ -154,6 +174,25 @@ def test_locate_hint_subagent_and_switches_off_unchanged(hooked, post_read, monk
     hint = next(ln for ln in three.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
     assert "交定位三行：定位｜部位、定位｜根因層、定位｜前例" in hint and "need_goal" not in hint and "定位｜批判" not in hint
     assert [e["four"] for e in _hint_events(hooked)] == [False]
+
+
+def test_locate_hint_not_sent_in_non_coding_turn_and_quota_kept(hooked, post_read):
+    """規則 NON_CODING_TURN_NO_NUDGE：這個回合還沒改過程式、也沒宣告寫碼樹（純問答、只改文件）→ 讀部位的程式檔不送定位提示，
+    一部位一次的額度不消耗（部位紀錄 locate_hint 留在 due、沒有 locate_hint 事件）；之後同回合改了碼再讀 → 提示照送、額度這時才用掉。
+    走真的 PostToolUse。舊碼讀到就送 → 紅。"""
+    f1 = _mapped_world(hooked)
+    st = wg_core.read_state(SID) or {}
+    st["modified_files"] = [{"path": str(hooked["proj"] / "README.md"), "last_turn_seq": 9}]   # 只改過文件
+    st["turn_intent"] = "debug"                                                              # 關鍵字意圖不算
+    wg_core.write_state(SID, st)
+    ctx = post_read({"file_path": f1})
+    assert "交定位" not in ctx and "戰鬥導讀" not in ctx
+    assert _rec_of("戰鬥")["locate_hint"] == "due" and not _hint_events(hooked)
+    assert "交定位" not in post_read({"file_path": f1})                               # 再讀還是不送、額度仍在
+    _coding(hooked)
+    hint = post_read({"file_path": f1})
+    assert "立需求目標樹" in hint and "交定位四行" in hint
+    assert _rec_of("戰鬥")["locate_hint"] == "sent" and [e["first"] for e in _hint_events(hooked)] == [True]
 
 
 def test_locate_hint_text_matches_what_gates_check():
