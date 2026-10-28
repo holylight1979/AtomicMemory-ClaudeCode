@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-28 根層閘門修一批：壓縮重建不歸零、樹外判準腳本收據算數、同追蹤項認部位寫細、他機路徑不是壞滅緣
+- **緣由**：本地一場 SGI session（compact 重建後）回報 8 條；逐條對 reflog 與現行碼查證，4 條是拉上游前的舊碼現象（PickOne 不看 stop_hook_active、NO_CASE 放行不記、MCP schema 缺 (j)(k)、counts 亂碼）現行碼已修或只是顯示問題，4 條現行碼仍有缺口。
+- **做法**：`handlers/session_start.floor_turn_seq`／`carry_on_rebuild`——重建 state 時 turn_seq 以 modified_files 最大回合墊底、`_CARRY_ON_REBUILD` 補 event_seq 與各閘帳本（pick_one、user_released、no_case_approved、verify_receipts、verify_scope、reconcile／cleanup／second_opinion）；`wg_verify_ledger._in_tree`／`run_targets` 加 allow——宣告在專案樹外的檔案項目，收據指到它自己或它的 inputs 不算別棵樹（SCOPE_ITEM_RECEIPT_AFTER_EDIT 文字同步）；`wg_harvest._part_compat`——同追蹤項合併認「一邊是另一邊開頭」的部位（戰鬥／介面仍不併），PickOne 問句把 source=pick 的留在榜上；`lib/atom_spec.classify_depends_path`——path 型 Depends 分 ok／missing／foreign，別人 `<家目錄>/.claude/<rel>` 換本機資料根再驗，錨點本機沒有的絕對路徑只列資訊；`atom-health-check`／`memory-audit`／`health-weekly` 改用它並以卡片所在層的根解析相對路徑；`org-memory` 工具卡 Depends 改寫可攜路徑（`~/.claude/<rel>`／專案相對）、退役只認 missing。
+- **驗證**：新案 10 筆在舊碼紅、新碼綠（verify_user_turn_key、verify_verify_scope、verify_pick_one、verify_stale_deps、verify_atom_spec_depends_evidence、verify_tool_cards）；實跑健檢全層壞滅緣 66 → 1（console-spawn 搬到 skills/console/scripts/ 是真的不見）＋ 25 筆他機路徑資訊級。
+
 ## 2026-10-27 第二意見看事實觸發：改了夠多的程式，收尾一定處理第二意見；一組改動只欠一次；欠的在收尾那批先講
 - **AI 寫程式時會看到的**（守門總開關 v6 開；關時整段不跑，行為同改動前）：
   - **進不進門看事實、不看措辭**（規則 SECOND_OPINION_FACT_TRIGGER；`hooks/wg_second_opinion.check` 的 `closing` 參數取代原本的完成詞判法，`handlers/stop.py` 改傳 `not not_closing(...)`）：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，門檻不變）的每次收尾都判。只有還沒到收尾的不判（這個使用者回合沒交收尾那批才算）：中途問使用者（最後一行是問句、沒宣告完成），或寫明之後工作還在繼續（直接用 `wg_evasion` 判完成的排除詞第一類：仍在等、等待…回報、尚未開始）；留帳 event=deferred，欠帳不消，下一次收尾照欠。
