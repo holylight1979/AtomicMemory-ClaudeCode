@@ -642,19 +642,23 @@ def _cwd_of(receipt: Dict[str, Any]) -> str:
     return str(receipt.get("cwd") or receipt.get("project_root") or "")
 
 
-def _in_tree(receipt: Dict[str, Any]) -> bool:
+def _in_tree(receipt: Dict[str, Any], allow: Iterable[str] = ()) -> bool:
     """跑程式的指令沒有指到收據根以外（`python ../live/run_verify.py`、`python C:\\…\\.claude\\run_verify.py`、`../live/verify.sh`、
-    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析）。收據沒根資訊 → 不比（同 _root_ok）。"""
+    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析）。收據沒根資訊 → 不比（同 _root_ok）。
+    allow＝宣告在專案樹外的檔案項目自己與它宣告的 inputs（桌面的一次性判準腳本）：指令指到這些不算別棵樹。"""
     root = str(receipt.get("project_root") or receipt.get("cwd") or "")
-    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, _cwd_of(receipt))
+    base = _cwd_of(receipt)
+    words = _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, base)
+    allowed = [a for a in allow if a]
+    return not [w for w in words if not any(_under(_abs_target(base, w).partition("::")[0], a) for a in allowed)]
 
 
-def _clean(receipt: Dict[str, Any]) -> bool:
-    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、記了啟動環境、沒指到收據根以外。
-    跑程式的那幾段啟動時沒有縮範圍的環境設定（PYTEST_ADDOPTS、PYTHONOPTIMIZE…：跑的是子集）。不查語法白名單、指令形狀與指令裡
-    寫的哨兵字樣（規則 RECEIPT_NO_FORGERY_CHECK：不防偽造）。"""
+def _clean(receipt: Dict[str, Any], allow: Iterable[str] = ()) -> bool:
+    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、記了啟動環境、沒指到收據根以外
+    （allow 的除外，見 _in_tree）。跑程式的那幾段啟動時沒有縮範圍的環境設定（PYTEST_ADDOPTS、PYTHONOPTIMIZE…：跑的是子集）。
+    不查語法白名單、指令形狀與指令裡寫的哨兵字樣（規則 RECEIPT_NO_FORGERY_CHECK：不防偽造）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return _usable(receipt) and _in_tree(receipt) and not _self_receipt.program_scope_env(raw, sh, _env_of(receipt))
+    return _usable(receipt) and _in_tree(receipt, allow) and not _self_receipt.program_scope_env(raw, sh, _env_of(receipt))
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -> bool:
@@ -2530,12 +2534,12 @@ def _step_targets(st: Any, base: str) -> Tuple[List[str], bool]:
     return [], False
 
 
-def run_targets(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def run_targets(receipt: Dict[str, Any], allow: Iterable[str] = ()) -> Optional[Dict[str, Any]]:
     """收據實際跑了什麼：{whole: 整體驗證（涵蓋執行根之下全部）, base: 執行根, paths: 完整跑過的路徑（可帶 ::節點）,
     narrowed: 有一段可能只跑一部分}。可能只跑一部分的那段點名的路徑不進 paths（命令列點名不等於實際執行）。
-    指令不完整、不能當一般證據（環境縮範圍、指到別棵樹）、解析不了 → None。"""
+    指令不完整、不能當一般證據（環境縮範圍、指到別棵樹——allow 的路徑除外）、解析不了 → None。"""
     r = _trusted(receipt)
-    if r is None or not _clean(r):
+    if r is None or not _clean(r, allow):
         return None
     base = _cwd_of(r)
     if _whole_run(r):
@@ -2576,6 +2580,12 @@ def _red_case_under(item: Dict[str, Any], case: str, base: str) -> bool:
     return not cn or cn == tn or cn.startswith(tn + "::") or cn.startswith(tn + "[")
 
 
+def _item_allow(item: Dict[str, Any]) -> List[str]:
+    """檔案／資料夾／節點項目自己（去掉 ::節點）與它宣告的 inputs：收據指到這些不算指到別棵樹（項目在專案樹外時才有差）。"""
+    own = str(item.get("abs") or "").partition("::")[0]
+    return [p for p in [own, *(item.get("inputs") or [])] if p]
+
+
 def _green_for_item(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
     """規則 SCOPE_RED_ONLY_ITS_CASES：這筆收據對這一項算不算綠。整條綠就是綠；有紅時，紅案清單完整（red_known）、不是指令項目、
     不是暫存目錄的收據、exit 是 0／1／沒記，而且沒有紅案落在這一項底下 → 對這一項照算綠。"""
@@ -2584,7 +2594,7 @@ def _green_for_item(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
     if (item.get("kind") == "cmd" or _temp_receipt(receipt) or not receipt.get("red_known")
             or receipt.get("exit_code") not in (None, 0, 1)):
         return False
-    t = run_targets(receipt)
+    t = run_targets(receipt, _item_allow(item))
     if t is None:
         return False
     return not any(_red_case_under(item, c, t["base"]) for c in receipt.get("red_cases") or [])
@@ -2607,7 +2617,7 @@ def _item_ran(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
         trusted = _trusted(receipt)                           # 只有開頭 `cd <絕對路徑> &&` 認得出根；其他換目錄看不出跑在哪
         return (trusted is not None and _ruler_ran(str(item.get("target") or ""), receipt, str(item.get("base") or ""))
                 and _root_ok(trusted, item.get("root")) and _same_exec_dir(item, receipt))
-    t = run_targets(receipt)
+    t = run_targets(receipt, _item_allow(item))                # 樹外的檔案項目：指到它自己／它的 inputs 不算別棵樹
     if t is None:
         return False
     tf, _, tn = str(item.get("abs") or "").partition("::")

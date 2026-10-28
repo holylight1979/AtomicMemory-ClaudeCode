@@ -285,6 +285,60 @@ def test_receipt_from_other_tree_does_not_count(proj, lookup, tmp_path):
     assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason, reason
 
 
+def _desk_script(tmp_path):
+    """專案樹外的一次性判準腳本（桌面那種）。"""
+    desk = tmp_path / "desk"
+    desk.mkdir()
+    (desk / "chk.py").write_text("print('CHK_CHECK PASS')\n", encoding="utf-8")
+    return desk
+
+
+def test_outside_tree_script_item_counts_when_run_by_its_own_path(proj, lookup, tmp_path):
+    """宣告的項目本身在專案樹外（桌面判準腳本）：從專案根用絕對路徑跑它，收據照算（項目自己不是別棵樹）。"""
+    desk = _desk_script(tmp_path)
+    state = _state()
+    _declare(state, proj, [{"target": str(desk / "chk.py"), "why": "桌面判準腳本"}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+    cmd = f'python -X utf8 "{(desk / "chk.py").as_posix()}"'
+    assert _gates(state, mods, [_rcpt(proj, cmd, T2, 4, name="CHK_CHECK")])[0] is None
+
+
+def test_outside_tree_script_item_with_cd_still_counts(proj, lookup, tmp_path):
+    """鎖住現況：先 `cd <桌面> &&` 再跑相對路徑，本來就算（_trusted 把收據根換成那個目錄）。"""
+    desk = _desk_script(tmp_path)
+    state = _state()
+    _declare(state, proj, [{"target": str(desk / "chk.py"), "why": "桌面判準腳本"}])
+    cmd = f'cd "{desk.as_posix()}" && python -X utf8 chk.py'
+    assert _gates(state, [_mf(proj / "hooks" / "x.py", T1, 3)], [_rcpt(proj, cmd, T2, 4, name="CHK_CHECK")])[0] is None
+
+
+def test_outside_tree_script_item_undeclared_outside_data_blocked_until_declared_as_input(proj, lookup, tmp_path):
+    """樹外項目的指令還帶了另一個樹外路徑：沒宣告 → 照擋（別棵樹）；把它加進 inputs → 放行。"""
+    desk = _desk_script(tmp_path)
+    (desk / "data.csv").write_text("a,b\n", encoding="utf-8")
+    cmd = f'python -X utf8 "{(desk / "chk.py").as_posix()}" "{(desk / "data.csv").as_posix()}"'
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+    state = _state()
+    _declare(state, proj, [{"target": str(desk / "chk.py"), "why": "桌面判準腳本"}])
+    reason, _ = _gates(state, mods, [_rcpt(proj, cmd, T2, 4, name="CHK_CHECK")])
+    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason, reason
+    state = _state()
+    _declare(state, proj, [{"target": str(desk / "chk.py"), "why": "桌面判準腳本", "inputs": [str(desk / "data.csv")]}])
+    assert _gates(state, mods, [_rcpt(proj, cmd, T2, 4, name="CHK_CHECK")])[0] is None
+
+
+def test_inside_tree_item_receipt_running_same_name_file_in_other_tree_blocked(proj, lookup, tmp_path):
+    """反例：樹內項目的收據跑的是別棵樹的同名檔 → 照擋（放行只給宣告為樹外的項目自己）。"""
+    other = tmp_path / "elsewhere" / "hooks" / "verify"
+    other.mkdir(parents=True)
+    (other / "verify_x.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測"}])
+    cmd = f'python -m pytest -q "{(other / "verify_x.py").as_posix()}"'
+    reason, _ = _gates(state, [_mf(proj / "hooks" / "x.py", T1, 3)], [_rcpt(proj, cmd, T2, 4)])
+    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason, reason
+
+
 @pytest.mark.parametrize("target, cmd", [
     ("hooks/verify/verify_x.py", "python -m pytest -q hooks/verify"),                     # 跑整個資料夾涵蓋其中一支
     ("hooks/verify/verify_x.py::test_a", _X_RUN),                                        # 跑整支涵蓋其中一個節點
