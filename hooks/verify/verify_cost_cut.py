@@ -163,7 +163,8 @@ def hub(tmp_path, monkeypatch):
     state = {"turn_seq": 3}
     for f in files:
         wo.on_read(state, "s", "Read", {"file_path": f}, str(root), str(tp), {})
-    assert "導讀卡現在才送" in wo.on_edit(state, "s", files[0], str(tp), {})[1]   # 卡隨第一次改檔到（真入口當提醒件送、不擋）
+    assert "導讀卡現在才送" in wo.on_edit(state, "s", files[0], str(tp), {})[1]   # 卡隨第一次改檔到；那一刀擋這一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    state["turn_seq"] = 4                                                        # 下一個使用者回合：這一輪結束，缺定位走一般判定（擋訊息、擋次上限）
     return wo, state, files, str(tp)
 
 
@@ -202,10 +203,10 @@ def test_locate_new_turn_gets_full_ask_again(hub):
     已送過，那一條換成指回第一則的短句（LOCATE_EXAMPLE_ONCE_PER_SESSION），擋訊息精簡關掉才再給範本行。"""
     wo, state, files, tp = hub
     wo.on_edit(state, "s", files[0], tp, {})
-    state["turn_seq"] = 4
+    state["turn_seq"] = 5
     _, again, _ = wo.on_edit(state, "s", files[1], tp, {})
     assert "還沒交出定位行" in again and "四行格式同本 session 第一則定位擋訊息" in again and "同樣被擋" not in again
-    state["turn_seq"] = 5
+    state["turn_seq"] = 6
     _, full, _ = wo.on_edit(state, "s", files[1], tp, {"guard": {"deny_text_slim": False}})
     assert "定位｜根因層" in full and "同樣被擋" not in full
 

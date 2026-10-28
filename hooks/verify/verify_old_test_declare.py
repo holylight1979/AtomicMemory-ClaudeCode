@@ -1313,6 +1313,7 @@ def test_hint_keeps_edit_write_not_bash_writes():
     （寫入判不出目標，改檔紀錄漏記）。改後寫明註解只放在不寫檔的指令上、宣告完照常用 Edit／Write。"""
     import wg_oldtest as ot
     h = ot.hint("test_old")
-    assert h.startswith("宣告行要比這次工具呼叫早一則訊息送出") and "`#` 註解" in h.split("。", 1)[0]
+    assert h.startswith("宣告行放哪：同一則回覆裡先發一條不寫檔的") and "`#` 註解" in h.split("。", 1)[0]
+    assert h.index("`#` 註解") < h.index("早一則")                          # 先 # 註解、其次早一則的回覆文字（DECL_HINT_KEEPS_EDIT_TOOLS）
     assert "不寫檔的 Bash／PowerShell 指令" in h and "照常用 Edit／Write" in h and "不要改用 Bash／PowerShell 寫檔" in h
     assert "或寫成下一個 Bash／PowerShell 指令開頭的" not in h

@@ -595,7 +595,7 @@ def test_deny_text_slim_rule_fix_and_hit_only(world):
     guard.deny_text_slim=false 退回原本的長文字（原處不動）。舊碼只有長文字 → 紅。"""
     slim = _reason(_run(world))
     head, hit = slim.splitlines()[:2]
-    assert head.startswith("[Guardian:DataFileAsk] 修法：比這次呼叫早一則訊息送出 動資料檔｜settings.json：")
+    assert head.startswith("[Guardian:DataFileAsk] 修法：先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫 動資料檔｜settings.json：")
     assert hit.startswith(f"✗ (df) {RULE}：") and rr.parse_hit_rules(slim) == [("df", RULE)]
     assert "先宣告一行再改" not in slim and "留帳給健檢抽查" not in slim
     old = _reason(_run(world, config={"guard": {"deny_text_slim": False}}))
@@ -630,7 +630,8 @@ def test_read_hint_on_first_read_of_data_file(world, post_read):
     """規則 DATA_FILE_READ_HINT：第一次讀到改了會被問的資料檔 → 讀檔結果後附一行宣告格式；同檔再讀不重送；之後的檔只點名「格式同前」；
     程式檔、子代理讀的不提示。判定不動：沒宣告照擋。舊碼讀檔後什麼都不說、第一次改才被擋 → 紅。"""
     first = post_read({"file_path": str(world["proj"] / "settings.json")})
-    assert "[Guardian:DataFileAsk] 改 settings.json 前先宣告：動資料檔｜<路徑>：" in first and "早一則訊息送出" in first
+    assert "[Guardian:DataFileAsk] 改 settings.json 前先宣告：動資料檔｜<路徑>：" in first
+    assert first.index("`#` 註解") < first.index("早一則")                 # 管道順位：先 # 註解、其次早一則的回覆文字（DECL_HINT_KEEPS_EDIT_TOOLS）
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "settings.json")})
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.py")})
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "README.md")}, agent_id="ag-1")

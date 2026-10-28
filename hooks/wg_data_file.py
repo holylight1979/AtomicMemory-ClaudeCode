@@ -396,8 +396,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
         return _rr.slim_deny("Guardian:DataFileAsk", _rr.data_file_fix([rel for _, rel, _ in hits]),
                              [("df", v) for _, _, v in hits])
     # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：宣告的管道講清楚，宣告完照常用 Edit／Write，不把 AI 引去用 Bash 寫檔
-    return ("[Guardian:DataFileAsk] 要改使用者既有的資料檔／設定檔，先宣告一行再改：宣告行要比這次工具呼叫早一則訊息送出"
-            f"（跟工具呼叫同一則送出的文字，這裡還看不到），或寫在{_rr.DECL_VIA_COMMENT}。{_rr.DECL_KEEP_EDIT}。"
+    return (f"[Guardian:DataFileAsk] 要改使用者既有的資料檔／設定檔，先宣告一行再改。宣告行放哪：{_rr.DECL_WHERE}。{_rr.DECL_KEEP_EDIT}。"
             "拿不準要不要動就先問使用者。一次改好幾個資料檔，每個都要各自宣告（留帳給健檢抽查）。\n"
             + "\n".join(_rr.format_hit("df", v) for _, _, v in hits) + "\n"
             + "\n".join(_rr.data_file_hint(rel) for _, rel, _ in hits))

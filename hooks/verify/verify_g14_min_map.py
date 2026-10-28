@@ -78,10 +78,10 @@ def test_first_code_edit_blocks_with_rule_entry_and_preview(tmp_path):
     _read(state, root, "src/b.py")
     warn, deny, changed = wo.on_edit(state, "s", str(root / "src" / "a.py"), tp, FAST)
     assert deny and RULE in deny and changed is True
-    for s in ("地圖｜讀了：", "地圖｜上游：", "地圖｜下游：", "放在回覆文字或一條不寫檔的 Bash／PowerShell 指令", "照常用 Edit／Write",
+    for s in ("地圖｜讀了：", "地圖｜上游：", "地圖｜下游：", "同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令", "照常用 Edit／Write",
               "掃表預覽（", "`src/` 檔 2", "`lib/` 檔 2", "路徑前綴用反引號包", "病灶清單欄填病灶文件路徑"):
         assert s in deny, s
-    assert deny.rstrip().splitlines()[-1].startswith("放在回覆文字")                  # 入口在訊息末尾
+    assert deny.rstrip().splitlines()[-1].startswith("同一則回覆裡先發")              # 入口在訊息末尾；先 # 註解、其次早一則的回覆文字
     assert "下一個 Bash 開頭" not in deny            # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：不把 AI 引去用 Bash 寫檔
     slot = state["min_map"][wo._root_key(root)]
     assert slot["preview_ok"] is True and "掃表預覽（" in slot["preview"]
@@ -222,7 +222,7 @@ def test_both_owed_listed_in_one_message(tmp_path):
     root, tp = _bare(tmp_path), _transcript(tmp_path)
     _, deny, _ = wo.on_edit({}, "s", str(root / "src" / "a.py"), tp, FAST)
     assert "UNMAPPED_EDIT_NEEDS_READABLE_FILES" in deny and RULE in deny
-    assert deny.rstrip().splitlines()[-1].startswith("放在回覆文字")
+    assert deny.rstrip().splitlines()[-1].startswith("同一則回覆裡先發")
 
 
 def test_bash_comment_channel_and_thinking_warns(tmp_path):

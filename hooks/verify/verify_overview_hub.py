@@ -231,7 +231,11 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
 
     warn, card, _, hit = wo.edit_check(state, "sess", f1, tp, cfg)     # 第一次改 → 卡這時才送（整張）；沒交定位 → 擋這一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
     assert card and "導讀卡現在才送" in card and "整張" not in card and "戰鬥導讀" in card and "定位｜部位：戰鬥" in card
-    assert "這一次擋" in card and hit["rule"] == "OVERVIEW_CARD_BEFORE_EDIT" and hit["block_once"] is True
+    assert "這一輪擋" in card and hit["rule"] == "OVERVIEW_CARD_BEFORE_EDIT" and hit["block_once"] is True
+    warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 同一輪（同一個使用者回合）、一行都沒交 → 一句照擋、不帶提醒件
+    assert deny == f"[Guardian:OverviewHub] 同一輪，定位交齊前照擋：{f1}" and warn == deny and changed
+    assert state["locate_first_deny"]["sess"]["戰鬥"] == {"turn": 3, "done": False}
+    state["turn_seq"] = 4                                                # 下一個使用者回合：這一輪結束，缺定位走一般判定
     warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 沒交定位 → 一律擋（A4.1 沒有不擋的模式）
     assert deny and "定位三行" in deny and "讀了 2 個檔" in deny and warn == deny and changed
 
@@ -240,13 +244,16 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
                 "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
     assert wo.on_edit(state, "sess", f1, tp, cfg) == (None, None, True)
     assert rec["located_via"] == "text" and rec["located_quality"] == "card"
+    assert state["locate_first_deny"]["sess"]["戰鬥"]["done"] is True     # 交齊：這一輪記成結束
 
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log] == ["inject", "locate_hint", "card", "edit_card_delivered", "edit_blocked_once", "edit", "edit"]   # 讀到程式檔先提示；卡隨第一次改檔送、那一刀擋一次
+    assert [e["event"] for e in log] == ["inject", "locate_hint", "card", "edit_card_delivered", "edit_blocked_once", "edit_blocked_round",
+                                         "edit", "edit"]   # 讀到程式檔先提示；卡隨第一次改檔送、那一刀擋；同一輪再改照擋
     assert log[0]["chars"] == 0 and log[0]["card_pending"] is True and log[2]["chars"] == len(hit["extra"])
     assert log[4]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE" and log[4]["part"] == "戰鬥"
-    assert log[5]["located"] is False and log[5]["deny_reason"] == "evidence"
-    assert log[6]["located"] is True and log[6]["deny_reason"] is None and log[6]["located_quality"] == "card"
+    assert log[5]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE" and log[5]["deny_reason"] == "locate_round"
+    assert log[6]["located"] is False and log[6]["deny_reason"] == "evidence"
+    assert log[7]["located"] is True and log[7]["deny_reason"] is None and log[7]["located_quality"] == "card"
 
 
 def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypatch):
@@ -364,6 +371,7 @@ def test_project_locate_template_override(proj, tmp_path, monkeypatch):   # 專�
     with open(tp, "a", encoding="utf-8") as f:                              # 照抄專案自訂範本也不算交
         f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
                 "text": "定位｜部位：戰鬥——改哪一塊\n定位｜根因層：根因在哪層\n定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列"}]}}, ensure_ascii=False) + "\n")
+    state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）：缺定位走一般判定
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert warn and "定位三行" in warn
 
@@ -383,6 +391,7 @@ def test_row_with_two_cards_injects_both_and_locate_extra(proj, tmp_path, monkey
     assert "戰鬥導讀" in txt and "共用字典" in txt and "定位｜加問：跑的是哪份 DLL" in txt
     rec = next(iter(state["overview_hub"].values()))
     assert len(rec["card_paths"]) == 2
+    state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert deny and "定位三行" in deny
 
@@ -988,6 +997,7 @@ def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(pr
     wo.on_read(state2, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     wo.on_read(state2, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
     _card(state2, f1, tp)
+    state2["turn_seq"] = 1                                                        # 下一個使用者回合（第一刀那一輪已過）
     warn, deny, _ = wo.on_edit(state2, "s", f1, tp, {})
     assert deny and "要 ≥3 個，目前 2 個" in deny                                   # 專案可調數字
 
@@ -2184,16 +2194,17 @@ def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
     state = {"turn_seq": 3, "turn_prompts_seq": 3}
     for f in (battle, ui):
         wo.on_read(state, "s", "Read", {"file_path": f}, str(root), tp, {})
-        _card(state, f, tp)                                                        # 卡隨第一次改檔送，那一刀不算定位閘擋
+        _card(state, f, tp)                                                        # 卡隨第一次改檔送，那一刀是第一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE），不算這裡的擋
+    state.update(turn_seq=4, turn_prompts_seq=4)                                   # 下一個使用者回合：第一輪結束，本條才開始管
     warn, deny, _ = wo.on_edit(state, "s", battle, tp, {})
     assert deny and "還沒交出定位" in deny
     warn, deny, changed = wo.on_edit(state, "s", ui, tp, {})
     assert deny is None and changed and warn.startswith("[Guardian:OverviewHub] 【介面】定位缺") and "\n" not in warn
-    state["turn_seq"] = 4                                                          # 同伴訊息續跑：不是使用者打字開的回合
+    state["turn_seq"] = 5                                                          # 同伴訊息續跑：不是使用者打字開的回合
     assert wo.on_edit(state, "s", ui, tp, {})[1] is None
     assert wo.on_edit(state, "s", battle, tp, {})[1]                               # 擋過的部位再缺：照擋
     assert wo.on_edit(state, "s", cfgf, tp, {})[1]                                 # 還沒讀過、卡才注入：照擋
-    state.update(turn_seq=5, turn_prompts_seq=5)                                   # 下一個使用者回合
+    state.update(turn_seq=6, turn_prompts_seq=6)                                   # 下一個使用者回合
     assert wo.on_edit(state, "s", ui, tp, {})[1]
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     reminded = [e for e in log if e["event"] == "edit_locate_reminded"]
@@ -2202,7 +2213,7 @@ def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
 
 def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
     """規則 LOCATE_NOT_IN_THINKING：缺定位行的擋訊息講死——thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，
-    要寫在回覆文字或不寫檔指令開頭的 # 註解；不再說「可能讀不到」。"""
+    要放先發的不寫檔指令開頭的 # 註解、其次早一則的回覆文字；不再說「可能讀不到」。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
@@ -2210,9 +2221,10 @@ def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
     state = {}
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     _card(state, f1, tp)
+    state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）：一般擋訊息
     deny = wo.on_edit(state, "s", f1, tp, {})[1]
     assert "不要寫在 thinking：thinking 預設不寫進 transcript，hook 讀不到" in deny and "可能讀不到" not in deny
-    assert "寫在回覆文字" in deny and "開頭的 `#` 註解" in deny
+    assert "開頭的 `#` 註解" in deny and deny.index("開頭的 `#` 註解") < deny.index("早一則")   # 先 # 註解、其次早一則的回覆文字
 
 
 @pytest.fixture(autouse=True)

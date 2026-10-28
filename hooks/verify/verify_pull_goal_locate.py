@@ -154,20 +154,28 @@ def test_program_progress_does_not_reset_cross_dir_count(env):
 
 # ─── 定位閘同缺件擋次上限（盤查第 5 列） ──────────────────────────────────────
 
+def _next_user_turn():
+    """下一個使用者回合（turn_prompts_seq 跟著進）：第一次改部位那一刀開的那一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）只管那個使用者回合，
+    一般判定（缺件全文、擋次上限）從下一個回合起算。"""
+    state = _state()
+    state["turn_seq"] = int(state.get("turn_seq", 0) or 0) + 1
+    state["turn_prompts_seq"] = state["turn_seq"]
+    wg_core.write_state(SID, state)
+
+
 def test_locate_gate_same_gap_blocks_twice_then_passes_with_log(hooked, block_mode):
     """同回合同部位同缺件：擋第 1、2 次，第 3 次放行並留帳（edit_deny_capped）；換回合重給 2 次。舊碼第 3 次照擋。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡（不算進缺件次數）
+    _next_user_turn()
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     out = _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
     assert _deny_text(out) is None and "放行並留帳" in json.dumps(out, ensure_ascii=False)
     assert "edit_deny_capped" in _hub_events(hooked)
-    state = _state()
-    state["turn_seq"] = int(state.get("turn_seq", 0) or 0) + 1                # 下一個使用者回合
-    wg_core.write_state(SID, state)
+    _next_user_turn()                                                         # 下一個使用者回合：重給 2 次
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
 
 
@@ -179,6 +187,7 @@ def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked, block_mode):
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
+    _next_user_turn()
     _read_part(f1, proj, tp)
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert deny and "一次交齊四行" in deny
@@ -204,13 +213,11 @@ def test_locate_example_full_once_per_session_then_short(hooked, block_mode):
     f1 = _mapped_world(hooked)
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
+    _next_user_turn()
     _read_part(f1, proj, tp)
     first = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert first and "一次交齊四行" in first and "定位｜批判" in first
-    state = _state()
-    state["turn_seq"] = int(state.get("turn_seq", 0) or 0) + 1                # 下一個使用者回合
-    state["turn_prompts_seq"] = state["turn_seq"]
-    wg_core.write_state(SID, state)
+    _next_user_turn()
     again = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert again and "四行格式同本 session 第一則定位擋訊息" in again and "（thinking 讀不到）" in again
     assert "一次交齊四行" not in again and len(again) < len(first)

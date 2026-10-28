@@ -180,7 +180,7 @@ def test_data_file_gate_releases_after_two_denies_in_same_turn(world):
     assert "[Guardian:DataFileAsk]" not in reasons[2]
     assert [e["event"] for e in _events(world, "data_file")] == ["denied", "denied", "cap_released"]
     first = reasons[0].splitlines()[0]
-    assert "早一則訊息送出" in first and "`#` 註解" in first
+    assert "`#` 註解" in first and first.index("`#` 註解") < first.index("早一則")   # 先 # 註解、其次早一則的回覆文字
     _next_user_turn()
     assert "[Guardian:DataFileAsk]" in _pre(world, "Edit", ti)            # 換回合重算
 
@@ -193,7 +193,7 @@ def test_old_test_gate_releases_after_two_denies_in_same_turn(world):
     assert [e["event"] for e in _events(world, "old_test") if e["event"] in ("denied", "cap_released")] == \
         ["denied", "denied", "cap_released"]
     tag, hit, hint = reasons[0].split("\n", 2)
-    assert hint.startswith("宣告行要比這次工具呼叫早一則訊息送出") and "`#` 註解" in hint.split("。", 1)[0]
+    assert hint.startswith("宣告行放哪：同一則回覆裡先發一條不寫檔的") and "`#` 註解" in hint.split("。", 1)[0]
     assert wg_chain.gate_name(tag, "PreToolUse") == "OldTestDeclare"   # 連鎖斷路器認得出閘名（CHAIN_GATE_NAME），標記自成一行
     assert hit.startswith(OT_HIT)                                       # ✗ 條目照舊在行首（parse_hits 這類行首解析認得到）
 

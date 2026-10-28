@@ -88,7 +88,7 @@ def test_locate_via_tree_missing_lines_not_counted(hooked, post):
     assert "【戰鬥】的 locate 沒收" in ctx and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in ctx, ctx
     assert [e["why"] for e in _hub_events(hooked, "locate_via_need_goal_rejected")] == ["missing_lines", "no_part", "content"]
     deny, _ = _pre(hooked, "Edit", _edit_input(f1))
-    assert deny and "還沒交定位行，這一次擋" in deny, deny                      # 沒交到就跟以前一樣：第一次擋
+    assert deny and "還沒交定位行，這一輪擋" in deny, deny                      # 沒交到就跟以前一樣：第一次擋
     ctx = post(NG_TOOL, {"action": "update", "items": [{"id": "T1", "text": "戰鬥不卡"}], "locate": [{"part": "戰鬥", "lines": FOUR}]},
                tool_response=OK_RESP)
     assert "定位已收" in ctx and _rec("戰鬥")["located"] is True

@@ -93,12 +93,12 @@ _RETRY_S = 0.02
 _RETRIES = 10
 STALE_DAYS = 30
 
-# 立樹走文字管道（規則 TREE_SET_VIA_TEXT）：這兩行寫在回覆文字或不寫檔指令開頭的 # 註解，改程式檔前的 PreToolUse 照它立寫碼樹；
-# 工具 need_goal(action=set) 只當備援（多一個模型回合）
+# 立樹走文字管道（規則 TREE_SET_VIA_TEXT）：這兩行放同一則先發的不寫檔指令開頭的 # 註解（其次早一則的回覆文字，rr.DECL_WHERE），
+# 改程式檔前的 PreToolUse 照它立寫碼樹；工具 need_goal(action=set) 只當備援（多一個模型回合）
 TEXT_SET_FORMAT = "目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>"
 TEXT_SET_SUB_FORMAT = "子目標｜<一件子目標>"
-TEXT_SET_HOWTO = (f"在回覆文字寫一行「{TEXT_SET_FORMAT}」，看得出的子目標每件一行「{TEXT_SET_SUB_FORMAT}」"
-                  f"（寫在比改檔早一則的回覆文字，或{rr.DECL_VIA_COMMENT}；thinking 讀不到），改程式檔前 hook 照它立樹；"
+TEXT_SET_HOWTO = (f"寫一行「{TEXT_SET_FORMAT}」，看得出的子目標每件一行「{TEXT_SET_SUB_FORMAT}」"
+                  f"（{rr.DECL_WHERE}；thinking 讀不到），改程式檔前 hook 照它立樹；"
                   "備援才用 need_goal(action=set, kind=code, goal=…, items=[…])")
 HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先寫下它真正要達成什麼"
              f"（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段）：{TEXT_SET_HOWTO}；純問答可以不寫。")
@@ -1716,7 +1716,7 @@ def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: An
         return f"[NeedGoal] 判定改 {path} 前有沒有需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
     _guard("edit_blocked", sid, path=path, why="no_tree")
     return (f"[NeedGoal] 改程式檔 {path} 前：這個需求還沒有目標樹。先寫下這個需求真正要達成什麼："
-            f"{TEXT_SET_HOWTO}（寫完下一則再改程式）。" + NO_TOOL_HINT)
+            f"{TEXT_SET_HOWTO}。" + NO_TOOL_HINT)
 
 
 # ─── 4.2 立樹走文字管道（規則 TREE_SET_VIA_TEXT）──────────────────────────

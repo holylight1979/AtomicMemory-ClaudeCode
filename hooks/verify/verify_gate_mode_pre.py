@@ -20,8 +20,8 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_need_goal import (  # noqa: E402,F401
-    CRIT, ON, SID, THREE2, _code_tree, _deny_text, _mapped_world, _op, _ptu_run, _say, _two_part_world, env, hooked, ng, pt,
-    ptu, wg_core, wo,
+    CRIT, ON, SID, THREE2, _code_tree, _deny_text, _mapped_world, _op, _ptu_run, _say, _tool_call, _two_part_world, env, hooked, ng,
+    pt, ptu, wg_core, wo,
 )
 from verify_pull_tool_gates import (  # noqa: E402,F401
     DATA_EDIT, OT_HIT, SID as PULL_SID, TEST_EDIT, _pre as _pull_pre, world as pull_world,
@@ -92,6 +92,15 @@ def _hub_events(hooked, event):
     return [e for e in rows if e["event"] == event]
 
 
+def _next_user_turn():
+    """下一個使用者回合（turn_prompts_seq 跟著進）：LOCATE_FIRST_EDIT_BLOCKS_ONCE 的那一輪只管第一次改檔的那個使用者回合，
+    之後同部位缺定位才是「只提醒」。"""
+    st = wg_core.read_state(SID) or {}
+    st["turn_seq"] = int(st.get("turn_seq", 0) or 0) + 1
+    st["turn_prompts_seq"] = st["turn_seq"]
+    wg_core.write_state(SID, st)
+
+
 def _lines(ctx, rule):
     return [ln for ln in ctx.splitlines() if ln.startswith(REMIND) and rule in ln]
 
@@ -153,6 +162,7 @@ def test_first_edit_without_tree_denied_once_then_reminded(hooked, post):
     f1 = _mapped_world(hooked)
     deny, out = _pre(hooked, "Edit", _edit_input(f1))
     assert deny and "定位" in deny and "戰鬥導讀" in deny, out
+    _next_user_turn()                                                  # 第一刀那一輪只管那個使用者回合
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
     ctx = post("Edit", _edit_input(f1))
     assert len(_lines(ctx, "CODE_EDIT_NEEDS_GOAL_TREE")) == 1 and "need_goal(action=set" in ctx
@@ -168,7 +178,8 @@ def test_tree_hint_once_per_session(hooked, post):
     f1 = _mapped_world(hooked)
     _code_intent(hooked)
     assert "立需求目標樹" in post("Read", {"file_path": f1})
-    assert _pre(hooked, "Edit", _edit_input(f1))[0]                   # 第一次改缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    assert _pre(hooked, "Edit", _edit_input(f1))[0]                   # 第一次改缺定位：擋這一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    _next_user_turn()
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
     ctx = post("Edit", _edit_input(f1))
     assert not _lines(ctx, "CODE_EDIT_NEEDS_GOAL_TREE") and "need_goal(action=set" not in ctx, ctx
@@ -177,17 +188,18 @@ def test_tree_hint_once_per_session(hooked, post):
 # ─── P10 定位閘 ─────────────────────────────────────────────────────────
 
 def test_locate_reminded_on_read_then_first_edit_denied_once(hooked, post):
-    """P10＋LOCATE_FIRST_EDIT_BLOCKS_ONCE（使用者裁「只擋第一次」）：讀檔結果已提醒交定位 → 立了樹沒交定位就改：
-    第一次擋（訊息＝卡＋定位要求，卡同時排進提醒）；第二次同部位仍沒交定位：不擋、留帳 edit_remind，那則工具結果只帶卡（P10b）；
-    之後的 Edit 什麼都不附（留帳照記，提醒已送過不再排）。"""
+    """P10＋LOCATE_FIRST_EDIT_BLOCKS_ONCE（使用者裁「第一次改檔前沒說清楚就攔一次」）：讀檔結果已提醒交定位 → 立了樹沒交定位就改：
+    第一次擋（訊息＝卡＋定位要求，卡同時排進提醒），這一輪開著；下一個使用者回合同部位仍沒交定位：不擋、留帳 edit_remind，
+    那則工具結果只帶卡（P10b）；之後的 Edit 什麼都不附（留帳照記，提醒已送過不再排）。"""
     f1 = _mapped_world(hooked)
     _code_intent(hooked)
     assert "交定位四行" in post("Read", {"file_path": f1})
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     deny, out = _pre(hooked, "Edit", _edit_input(f1))
-    assert deny and "定位" in deny, deny                                  # 第一次：擋這一次
+    assert deny and "定位" in deny, deny                                  # 第一次：擋這一輪
+    _next_user_turn()
     deny2, _ = _pre(hooked, "Edit", _edit_input(f1))
-    assert deny2 is None, deny2                                          # 第二次：不擋
+    assert deny2 is None, deny2                                          # 下一個使用者回合：不擋
     ctx = post("Edit", _edit_input(f1))
     assert _lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT") and "戰鬥導讀" in ctx and not _lines(ctx, "LOCATE_BEFORE_EDIT"), ctx
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
@@ -204,23 +216,26 @@ def test_locate_remind_once_per_part(hooked, post):
     _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
     _code_intent(hooked)
     assert "改【戰鬥】的程式檔前交定位四行" in post("Read", {"file_path": files["Battle"]})
-    assert _pre(hooked, "Edit", _edit_input(files["Battle"]))[0]      # 每部位第一次缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    assert _pre(hooked, "Edit", _edit_input(files["Battle"]))[0]      # 每部位第一次缺定位：擋這一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    _next_user_turn()                                                  # 這一輪只管那個使用者回合：之後缺定位只提醒
     for i in range(2):
         assert _pre(hooked, "Edit", _edit_input(files["Battle"]))[0] is None
         ctx = post("Edit", _edit_input(files["Battle"]))
         assert not _lines(ctx, "LOCATE_BEFORE_EDIT") and bool(_lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT")) == (i == 0), ctx
     ui = post("Read", {"file_path": files["UI"]})
     assert "改【介面】的程式檔前交定位四行（格式同前一則提示）" in ui
-    assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0]           # 介面部位第一次也擋一次
+    assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0]           # 介面部位第一次也擋這一輪
+    _next_user_turn()
     assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0] is None
     ctx = post("Edit", _edit_input(files["UI"]))
     assert not _lines(ctx, "LOCATE_BEFORE_EDIT") and _lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT"), ctx
     assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0] is None
     assert REMIND not in post("Edit", _edit_input(files["UI"]))
-    # 介面第二個 Edit 同一使用者回合定位閘已對戰鬥判過一次 → LOCATE_BLOCK_ONCE_PER_USER_TURN：只放行留帳，不再出提醒件
+    # 每部位的定位提醒讀檔時就送過（remind_sent），之後缺定位只留帳 edit_remind、不再出提醒行
     assert [(e["part"], e["rule"]) for e in _hub_events(hooked, "edit_remind")] == [
-        ("戰鬥", "OVERVIEW_CARD_BEFORE_EDIT"), ("戰鬥", "LOCATE_BEFORE_EDIT"), ("戰鬥", "LOCATE_BEFORE_EDIT"), ("介面", "OVERVIEW_CARD_BEFORE_EDIT")]
-    assert len([o for o in hooked["outputs"] if _deny_text(o)]) == 2          # 兩個部位各擋一次，其餘全放行
+        ("戰鬥", "OVERVIEW_CARD_BEFORE_EDIT"), ("戰鬥", "LOCATE_BEFORE_EDIT"), ("戰鬥", "LOCATE_BEFORE_EDIT"),
+        ("介面", "OVERVIEW_CARD_BEFORE_EDIT"), ("介面", "LOCATE_BEFORE_EDIT"), ("介面", "LOCATE_BEFORE_EDIT")]
+    assert len([o for o in hooked["outputs"] if _deny_text(o)]) == 2          # 兩個部位各擋一輪（各一刀），其餘全放行
 
 
 def test_card_injected_after_edit_denied_once_card_follows(hooked, post):
@@ -233,9 +248,39 @@ def test_card_injected_after_edit_denied_once_card_follows(hooked, post):
     ctx = post("Edit", _edit_input(f1))
     assert _lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT") and "戰鬥導讀" in ctx and "已知病灶" in ctx
     assert [e["deny_reason"] for e in _hub_events(hooked, "edit_before_inject")] == ["not_injected"]
+    _next_user_turn()
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
     again = post("Edit", _edit_input(f1))
     assert "戰鬥導讀" not in again and not _lines(again, "OVERVIEW_CARD_BEFORE_EDIT")
+
+
+def test_locate_first_round_blocks_parallel_edits_until_declared(hooked):
+    """LOCATE_FIRST_EDIT_BLOCKS_ONCE 的「一次＝一輪」：同一則回覆平行送三個同部位的 Edit、定位沒交 → 三個都擋：第一個卡＋一次交齊四行的要求，
+    後兩個只一句「同一輪，定位交齊前照擋：<檔>」（不走 GATE_DENY_CAP，第 3 個不放行；帳 edit_blocked_round）；同一則先發一條不寫檔 Bash、
+    四行放它開頭的 # 註解 → 同部位放行（帳 edit_round_located via=tool_input）；另一部位第一刀擋過後換使用者回合仍缺定位 → 只提醒不擋。
+    改前：同部位第 2 個起只提醒放行（帳 edit_deny_repeat），檔在定位交出前就改了。"""
+    files = _two_part_world(hooked)
+    battle = Path(files["Battle"])
+    extra = [str(battle.with_name(n)) for n in ("B.cs", "C.cs")]
+    for p in extra:
+        Path(p).write_text("x", encoding="utf-8")
+    _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
+    first, _ = _pre(hooked, "Edit", _edit_input(files["Battle"]))
+    assert first and "這一輪擋" in first and "一次交齊四行" in first and "戰鬥導讀" in first, first
+    for p in extra:
+        assert _pre(hooked, "Edit", _edit_input(p))[0] == f"[Guardian:OverviewHub] 同一輪，定位交齊前照擋：{p}"
+    assert [e["path"] for e in _hub_events(hooked, "edit_blocked_round")] == extra
+    assert not _hub_events(hooked, "edit_deny_capped") and not _hub_events(hooked, "edit_deny_repeat")
+    assert wg_core.read_state(SID)["locate_first_deny"][SID]["戰鬥"]["done"] is False
+    _tool_call(hooked["tp"], "Bash", {"command": "\n".join(f"# {ln}" for ln in (THREE2 + CRIT).split("\n")) + "\ngit diff --stat"})
+    assert _pre(hooked, "Edit", _edit_input(files["Battle"]))[0] is None             # 交齊：這一輪結束、放行（讀檔證據缺只提醒）
+    assert [e["located_via"] for e in _hub_events(hooked, "edit_round_located")] == ["tool_input"]
+    assert wg_core.read_state(SID)["locate_first_deny"][SID]["戰鬥"]["done"] is True
+    assert _pre(hooked, "Edit", _edit_input(extra[0]))[0] is None                    # 同部位其他檔也放行
+    assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0]                         # 另一部位：第一刀擋、開輪
+    _next_user_turn()
+    assert _pre(hooked, "Edit", _edit_input(files["UI"]))[0] is None                 # 下一個使用者回合還缺：只提醒
+    assert [e["part"] for e in _hub_events(hooked, "edit_blocked_once")] == ["戰鬥", "介面"]
 
 
 # ─── P10c 沒部位表 ─────────────────────────────────────────────────────
