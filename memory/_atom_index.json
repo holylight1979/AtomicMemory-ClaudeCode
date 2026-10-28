@@ -13082,6 +13082,21 @@
         "重跑綠了還擋"
       ],
       "scope": "global"
+    },
+    {
+      "name": "案例造的state要帶真實形狀的鍵-缺鍵時程式setdefault自建成另一種形狀會假綠-實跑三次都炸而案例全綠",
+      "path": "_AIDocs/_atoms/MemDev/案例造的state要帶真實形狀的鍵-缺鍵時程式setdefault自建成另一種形狀會假綠-實跑三次都炸而案例全綠.md",
+      "triggers": [
+        "假綠",
+        "setdefault",
+        "state 形狀",
+        "remind_sent",
+        "案例沒抓到",
+        "list object has no attribute",
+        "造 state",
+        "收尾類提醒算不出"
+      ],
+      "scope": "global"
     }
   ]
 }
