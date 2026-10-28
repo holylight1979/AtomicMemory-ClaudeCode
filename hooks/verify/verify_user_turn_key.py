@@ -54,20 +54,18 @@ def _ups(monkeypatch, state, prompt):
 
 
 def _rebuilt(existing):
-    """照 session_start 專案根指紋變了的重建分支（compact／resume）做一份新 state：new_state、_CARRY_ON_REBUILD 照搬、phase 沿用。"""
+    """照 session_start 專案根指紋變了的重建分支（compact／resume）做一份新 state：new_state 後走真的 carry_on_rebuild。"""
     new = wg_core.new_state(_SID, existing["session"]["cwd"], "compact")
-    for key in ss._CARRY_ON_REBUILD:
-        if key in existing:
-            new[key] = existing[key]
-    new["phase"] = existing.get("phase", "working")
+    ss.carry_on_rebuild(existing, new)
     return new
 
 
 def _before_rebuild(cwd):
-    """重建前：使用者第 37 回合打字開工，之後同伴訊息讓 turn_seq 走到 40；PickOne 在第 37 回合問過。"""
+    """重建前：使用者第 37 回合打字開工，之後同伴訊息讓 turn_seq 走到 40；PickOne 上次是第 30 個使用者回合問的
+    （帳本現在會照搬：第 37 回合還沒問過，重建後才該問一次）。"""
     return {"session": {"id": _SID, "cwd": str(cwd)}, "phase": "working", "turn_seq": 40, "turn_prompts_seq": 37,
             "user_turn_count": 5, "turn_open": False, "turn_typed": False, "turn_prompts": [],
-            "pick_one": {_SID: {"asked_turn": 37, "asked_uturn": 37}}}
+            "pick_one": {_SID: {"asked_turn": 30, "asked_uturn": 30}}}
 
 
 @pytest.fixture
@@ -100,6 +98,36 @@ def test_rebuild_keeps_turn_key_and_numbering():
     assert {k: new.get(k) for k in ("turn_seq", "turn_prompts_seq", "user_turn_count", "turn_open", "turn_typed")} == \
            {"turn_seq": 40, "turn_prompts_seq": 37, "user_turn_count": 5, "turn_open": False, "turn_typed": False}
     assert user_turn(new, new["turn_seq"]) == 37
+
+
+def test_rebuild_floors_turn_seq_to_modified_files_turns():
+    """重建前的 state 沒有 turn_seq（更舊版本沒搬），modified_files 的 last_turn_seq 到 11 → 重建後 turn_seq 墊到 11
+    （舊碼：0，各閘的問過／放行全記第 0 回合，PickOne 同一批改動連問）。有 turn_seq 且比改檔回合大 → 照舊不動。"""
+    mods = [{"path": "c:/proj/a.py", "last_turn_seq": 2}, {"path": "c:/proj/b.py", "last_turn_seq": 11, "turn_seq": 11},
+            {"path": "c:/proj/c.py", "last_turn_seq": "junk"}]
+    old = {"session": {"id": _SID, "cwd": "c:/proj"}, "phase": "working", "modified_files": mods}
+    assert _rebuilt(old)["turn_seq"] == 11
+    reuse = {"turn_seq": 1, "modified_files": mods}
+    ss.floor_turn_seq(reuse)
+    assert reuse["turn_seq"] == 11
+    bigger = {"turn_seq": 40, "modified_files": mods}
+    ss.floor_turn_seq(bigger)
+    assert bigger["turn_seq"] == 40
+
+
+def test_rebuild_carries_event_seq_and_gate_ledgers():
+    """重建後收據序號接著走（event_seq），各閘的問過／放行／擋過帳本照搬：使用者剛選的「放行這一回合」、無案例裁定、驗證範圍與收據
+    不因壓縮重建消失（舊碼：只搬回合鍵，這些全部重來）。"""
+    old = _before_rebuild(Path("c:/proj"))
+    ledgers = {"event_seq": 95, "no_case_approved": {_SID: {"c:/proj/x.py": {"at": "t", "seq": 9}}},
+               "user_released": {_SID: {"reconcile": 37}}, "pending_release": {_SID: {"reconcile": {"turn": 37}}},
+               "verify_receipts": {_SID: [{"seq": 90, "cmd": "pytest -q"}]}, "verify_scope": {_SID: [{"items": []}]},
+               "reconcile_gate_turn": {_SID: {"turn": 37, "count": 1}}, "cleanup_gate_turn": {_SID: 37},
+               "second_opinion_gate_turn": {_SID: {"turn": 37, "counts": {"第二意見": 1}, "count": 1}},
+               "second_opinion_declared": {_SID: True}}
+    new = _rebuilt({**old, **ledgers})
+    assert {k: new.get(k) for k in ledgers} == ledgers
+    assert new["pick_one"] == old["pick_one"]
 
 
 def test_missing_key_anchored_at_first_peer_message_then_typing_opens_new_turn(monkeypatch):

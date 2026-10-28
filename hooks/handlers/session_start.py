@@ -1015,8 +1015,40 @@ _CARRY_ON_REBUILD = (
     # 回合編號與使用者回合鍵（規則 USER_TURN_KEY_KEPT）：只搬鍵的話 turn_seq 歸零、鍵比 turn_seq 還大；不搬的話之後只進同伴訊息時
     # user_turn 退回 turn_seq、每則同伴訊息都當成新使用者回合（PickOne 每則重問、各閘每回合的擋次重來）。照搬的 modified_files
     # 也帶著舊的 turn_seq，編號接著走才對得上
-    "turn_seq", "turn_prompts_seq", "user_turn_count", "turn_open", "turn_typed",
+    "turn_seq", "turn_prompts_seq", "user_turn_count", "turn_open", "turn_typed", "exec_turn_seq",
+    # 事件序號：modified_files 的 last_seq 照搬了，event_seq 不搬就從頭算，壓縮後的收據 seq 全小於舊的 last_seq、等值證法閘整批略過
+    "event_seq",
+    # 各閘的「問過／放行／擋過」帳本（鍵都是 session id，compact 不換 session）：不搬的話重建後 PickOne、對帳閘、清理閘、第二意見、
+    # 無案例放行、驗證範圍與收據全部重來，使用者剛選的「放行這一回合」當場失效
+    "pick_one", "user_released", "pending_release", "last_block", "no_case_approved", "verify_receipts", "verify_scope",
+    "reconcile_gate_turn", "cleanup_gate_turn", "second_opinion_gate_turn", "second_opinion_declared", "second_opinion_ok",
+    "second_opinion_ran", "second_opinion_cover", "second_opinion_watch",
 )
+
+
+def _mod_turn_of(m: Dict[str, Any]) -> int:
+    try:
+        return int(m.get("last_turn_seq") or m.get("turn_seq") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def floor_turn_seq(state: Dict[str, Any]) -> None:
+    """規則 USER_TURN_KEY_KEPT 的底線：回合編號不倒退。更舊版本寫的 state 沒有 turn_seq，照搬的 modified_files 卻帶著 2..11，
+    各閘的「問過／放行」會記在第 0 回合、pick_due 的「改檔回合 > 問過的回合」永遠成立（實測一場 PickOne 連問 12 次）。
+    以 modified_files 最大的回合墊底；turn_prompts_seq 不動，下一則 UserPromptSubmit 會自己錨定。"""
+    floor = max((_mod_turn_of(m) for m in state.get("modified_files") or [] if isinstance(m, dict)), default=0)
+    if floor > int(state.get("turn_seq") or 0):
+        state["turn_seq"] = floor
+
+
+def carry_on_rebuild(existing: Dict[str, Any], state: Dict[str, Any]) -> None:
+    """專案根指紋變了重建 state：_CARRY_ON_REBUILD 的鍵照搬、phase 沿用，回合編號墊到不倒退。"""
+    for key in _CARRY_ON_REBUILD:
+        if key in existing:
+            state[key] = existing[key]
+    state["phase"] = existing.get("phase", "working")
+    floor_turn_seq(state)
 
 
 def _harvest_staged_line(n: int) -> str:
@@ -1189,6 +1221,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if existing and source in ("compact", "resume") and not root_rebuilt:
         # compact/resume 複用舊 state 的 atom_index 快取（指紋相同才走到這裡）
         state = existing
+        floor_turn_seq(state)
         prev_atoms = state.get("injected_atoms", [])
         state["injected_atoms"] = []
         mod_count = len(state.get("modified_files", []))
@@ -1229,10 +1262,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     else:
         state = new_state(session_id, cwd, source)
         if root_rebuilt and existing:
-            for key in _CARRY_ON_REBUILD:
-                if key in existing:
-                    state[key] = existing[key]
-            state["phase"] = existing.get("phase", "working")
+            carry_on_rebuild(existing, state)
         if sibling and source == "startup":
             state["_skip_vector_init"] = True
 
