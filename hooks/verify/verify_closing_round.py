@@ -3,7 +3,8 @@
 做什麼：
   READING_PATH_EARLY_START     改了程式檔的那批跑完就交背景量；同一批不重量、量測中又改先記 pending；開關關不起跑。
   TURN_JUDGMENT_PRE_CLOSE      量好的拐彎判斷結果在交收尾檢核那批附上，Stop 不再送；還有一批在量就不附。
-  PICK_ONE_PRE_CLOSE           交收尾檢核那批附「順手看到最該修」並記問過，Stop 不再送（不再續跑一輪）；開關關照舊由 Stop 送。
+  PICK_ONE_PRE_CLOSE           交收尾檢核那批、或改過程式之後測試跑綠那批附「順手看到最該修」並記問過，Stop 不再送（不再續跑一輪）；
+                               同回合第二批綠不重問、沒改程式只跑測試不問；開關關照舊由 Stop 送。
   PICK_ONE_WITH_TURN_JUDGMENT  Stop 的拐彎判斷擋下時，最該修同一則一起問；下一次收尾不再另送。
   SECOND_OPINION_BACKGROUND    第二意見閘的擋訊息寫 start 後不用等；MCP 端 start 的下一步與 result 的說明同一個說法。
   SECOND_OPINION_DONE_NOTICE   開了的 job 跑完、AI 還沒取回 → 下一批工具回應或收尾提醒一次；取過、開始看守前就跑完的不提醒。
@@ -177,11 +178,54 @@ def test_reconcile_batch_is_pre_close_too(batch_env, stop_run, tmp_path, capsys)
 
 
 def test_pick_one_not_on_ordinary_batch(batch_env, stop_run, capsys):
-    """沒交收尾檢核的批次不附（還在工作中，交付邊界還沒到）。"""
+    """沒交收尾檢核、也沒有跑綠收據的批次不附（還在工作中，交付邊界還沒到）。"""
     proj, _ = stop_run
     state = {"modified_files": [_mod(proj / "Game" / "Battle" / "Damage.cs")], "turn_seq": 5, "session": {"cwd": str(proj)}}
     assert "PickOne" not in _batch(state, [{"tool_name": "Bash", "tool_input": {"command": "pytest"}}], _PASS_CFG, capsys)
     assert not (state.get("pick_one") or {}).get(_SID, {}).get("asked_uturn")
+
+
+PYTEST_CALL = [{"tool_name": "Bash", "tool_input": {"command": "python -m pytest -q tests"}}]
+
+
+def _receipt(seq, verdict="PASS", exit_code=0, cmd="python -m pytest -q tests"):
+    """post_tool_use 記進 state verify_receipts 的一筆（seq＝session 內事件序號）。"""
+    return {"seq": seq, "turn_seq": 5, "tool": "Bash", "cmd": cmd, "exit_code": exit_code,
+            "sentinels": [{"name": "PYTEST", "verdict": verdict, "kv": {}}]}
+
+
+def test_pick_one_on_test_green_batch_then_stop_ledger_silent(batch_env, stop_run, monkeypatch, capsys):
+    """規則 PICK_ONE_PRE_CLOSE 的另一個交付邊界（實測 010：收尾檢核提醒關著、AI 從不交收尾檢核，那一問結構上送不到）：
+    改了程式之後測試跑綠那批 → 附「順手看到最該修」、記問過（via=test_green）；同一個使用者回合再來一批綠不重問；
+    之後 Stop 看到問過，不送也不留帳第二次。紅的那批不問。"""
+    proj, run = stop_run
+    damage = proj / "Game" / "Battle" / "Damage.cs"
+    logs: list = []
+    import wg_harvest as wh
+    monkeypatch.setattr(wh, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
+    state = {"modified_files": [_mod(damage)], "turn_seq": 5, "turn_prompts_seq": 5, "session": {"cwd": str(proj)},
+             "verify_receipts": {_SID: [_receipt(1, "FAIL", 1)]}}
+    assert "PickOne" not in _batch(state, PYTEST_CALL, _PASS_CFG, capsys), "紅的那批：還沒到交付邊界"
+    state["verify_receipts"][_SID].append(_receipt(2))
+    ctx = _batch(state, PYTEST_CALL, _PASS_CFG, capsys)
+    assert "[Guardian:PickOne]" in ctx and "【戰鬥】" in ctx and "為什麼不是數字最高的那個：" in ctx
+    assert state["pick_one"][_SID]["asked_uturn"] == 5 and state["remind_receipt_seq"][_SID] == 2
+    asked = [p for g, p in logs if g == "pick_one" and p.get("event") == "asked"]
+    assert len(asked) == 1 and asked[0]["via"] == "test_green"
+    state["verify_receipts"][_SID].append(_receipt(3))
+    assert "PickOne" not in _batch(state, PYTEST_CALL, _PASS_CFG, capsys), "同一回合第二批綠：不重問"
+    assert len([p for g, p in logs if g == "pick_one" and p.get("event") == "asked"]) == 1
+    out, _, ev = run("改好了，全部完成。", [_mod(damage)], pick_one=state["pick_one"], turn_prompts_seq=5)
+    assert "PickOne" not in out and not [p for p in ev if p.get("event") in ("asked", "remind")], (out, run.err)
+
+
+def test_pick_one_not_on_green_without_code_change(batch_env, stop_run, capsys):
+    """沒改程式只跑測試（或改的是文件）→ 跑綠那批不問；收據序號照記，下次不重判同一批。"""
+    proj, _ = stop_run
+    state = {"modified_files": [_mod(proj / "docs" / "readme.md")], "turn_seq": 5, "session": {"cwd": str(proj)},
+             "verify_receipts": {_SID: [_receipt(1)]}}
+    assert "PickOne" not in _batch(state, PYTEST_CALL, _PASS_CFG, capsys)
+    assert not (state.get("pick_one") or {}).get(_SID, {}).get("asked_uturn") and state["remind_receipt_seq"][_SID] == 1
 
 
 # ─── PICK_ONE_WITH_TURN_JUDGMENT ────────────────────────────────────────────────

@@ -76,7 +76,7 @@ from wg_handoff import token_warn_payload, estimate_context_usage
 from wg_bg_harvest import background_on, on_stop as bg_harvest
 from wg_harvest import (
     harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
-    record_pick, pick_due, mark_pick_asked, pick_material, pick_prompt, session_open_tracking,
+    record_pick, pick_due, pick_code_mods, pick_ask,
 )
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note, without_judgment_prompt
 from wg_text_score import on_stop as _text_score_on_stop
@@ -1420,7 +1420,7 @@ def _pick_boundary_seen(state: Dict[str, Any], session_id: str, turn_seq: int, b
 def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List[Dict[str, Any]], boundary: bool,
                      config: Dict[str, Any], cwd: str = "", continuation: bool = False) -> Optional[str]:
     """到了交付邊界、本 session 在上次問過或記過之後又改了程式 → 回要送的那一問（並記下問過）；不到時候回 None。
-    程式檔照 wg_need_goal.is_code_path（寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。判斷出錯只 stderr、不送。
+    組問句＋記問過與收尾前附著點、測試綠那批同一段（wg_harvest.pick_ask）。判斷出錯只 stderr、不送。
     問句附本 session 還沒結的追蹤項，點的是同一件就寫「同追蹤項：」（TRACKING_SAME_ITEM_NOT_REWRITTEN）。
     continuation＝這次收尾是 Stop hook 讓對話續跑出來的：一般不當條件（PICK_ONCE_PER_USER_TURN 看使用者回合）；只有 state 沒有
     使用者回合鍵（turn_prompts_seq）時，使用者回合會退回 turn_seq、續跑一回合就前進，這時續跑收尾不重問已經問過的。"""
@@ -1430,20 +1430,14 @@ def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List
     if (continuation and not (isinstance(turn_key, int) and not isinstance(turn_key, bool) and turn_key > 0)
             and ((state.get("pick_one") or {}).get(session_id) or {}).get("asked_turn")):
         return None
-    turn_seq = int(state.get("turn_seq", 0))
     try:
-        from wg_need_goal import is_code_path
-        code = [m for m in own_mod_files if (m or {}).get("path") and is_code_path(m["path"], config)]
+        code = pick_code_mods(own_mod_files, config)
         if not pick_due(state, session_id, code, boundary):
             return None
-        text = pick_prompt(pick_material(list(dict.fromkeys(m["path"] for m in code)), config),
-                           session_open_tracking(cwd, session_id) if cwd else [])
+        return pick_ask(state, session_id, code, config, cwd)
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:PickOne] 交付時「最該修」那一問判斷出錯（這次不送）：{type(e).__name__}: {e}", file=sys.stderr)
         return None
-    mark_pick_asked(state, session_id, turn_seq)
-    append_guard_log("pick_one", {"session_id": session_id, "turn_seq": turn_seq, "event": "asked", "files": len(code)})
-    return text
 
 
 _DEFERRAL_SENTENCE_RE = re.compile(r"「(.+?)」（退縮語：")

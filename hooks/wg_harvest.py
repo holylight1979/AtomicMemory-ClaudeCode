@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from wg_core import _is_under_claude_dir, _now_iso, WORKFLOW_DIR, user_typed_prompts
+from wg_core import _is_under_claude_dir, _now_iso, WORKFLOW_DIR, append_guard_log, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
 from wg_release_rules import in_user_turn
@@ -834,6 +834,25 @@ def pick_due(state: Dict[str, Any], sid: str, code_mods: List[Dict[str, Any]], b
 def mark_pick_asked(state: Dict[str, Any], sid: str, turn_seq: int) -> None:
     sec = _pick_sec(state, sid)
     sec["asked_turn"], sec["asked_uturn"] = int(turn_seq or 0), _pick_uturn(state, turn_seq)
+
+
+def pick_code_mods(own_mods: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """本 session 改檔紀錄裡的程式檔（wg_need_goal.is_code_path，寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。"""
+    from wg_need_goal import is_code_path
+    return [m for m in own_mods if (m or {}).get("path") and is_code_path(m["path"], config)]
+
+
+def pick_ask(state: Dict[str, Any], sid: str, code: List[Dict[str, Any]], config: Dict[str, Any], cwd: str, via: str = "") -> str:
+    """組「順手看到最該修」那一問並記問過（mark_pick_asked＋guard log pick_one event=asked）：Stop、收尾前附著點、測試綠那批
+    （wg_closing_round）共用這一段，呼叫端先用 pick_due 判過該問。via＝從哪條路送（pre_close／test_green；空＝Stop）。
+    組問句出錯就不記問過（例外交呼叫端）。"""
+    turn_seq = int(state.get("turn_seq", 0) or 0)
+    text = pick_prompt(pick_material(list(dict.fromkeys(m["path"] for m in code)), config),
+                       session_open_tracking(cwd, sid) if cwd else [])
+    mark_pick_asked(state, sid, turn_seq)
+    append_guard_log("pick_one", {"session_id": sid, "turn_seq": turn_seq, "event": "asked", "files": len(code),
+                                  **({"via": via} if via else {})})
+    return text
 
 
 CALLSITE_BUDGET_S = 2.0          # 一次 pick_material 算呼叫點的總時間（每條壞味道一次 git grep）
