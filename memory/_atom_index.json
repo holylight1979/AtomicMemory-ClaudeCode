@@ -13066,6 +13066,22 @@
       "depends": [
         "path:C:/Users/holylight/.claude/memory/_meta/always-load-contracts.json"
       ]
+    },
+    {
+      "name": "紅測閘的紅帳以複合指令裡的pytest段為鍵-單獨重跑那支node案例綠了不清帳-要把當初整條指令原樣再跑一次",
+      "path": "_AIDocs/_atoms/MemDev/紅測閘的紅帳以複合指令裡的pytest段為鍵-單獨重跑那支node案例綠了不清帳-要把當初整條指令原樣再跑一次.md",
+      "triggers": [
+        "TestFailGate",
+        "測試未綠",
+        "紅帳不清",
+        "failing_tests",
+        "test_scope",
+        "複合指令",
+        "for 迴圈跑 verify",
+        "node verify 紅",
+        "重跑綠了還擋"
+      ],
+      "scope": "global"
     }
   ]
 }
