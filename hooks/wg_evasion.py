@@ -901,7 +901,8 @@ def get_current_turn_visible_text(
     transcript_path: Optional[Path], *, max_chars: int = 12000,
     text: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    """擷取「本 turn」使用者可見文字 + turn 診斷 probe（PAN 預告閘門用）。
+    """擷取「本 turn」使用者可見文字 + turn 診斷 probe（handlers/stop.py 收尾閘用：拐彎／截錄否決看可見文字，
+    說修好的閘看 probe 的 turn_tool_names）。
 
     與 get_current_turn_text 的差異：只收 assistant 的 type=="text" block——
     tool_use input 完全跳過（防 tool_input 字串冒充預告；thinking 白名單制
