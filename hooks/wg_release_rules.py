@@ -181,8 +181,9 @@ RULES: Dict[str, str] = {
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
     "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」：有驗證範圍宣告（need_goal verify_scope）→ 認宣告範圍內任一項在跟它有關的最後一次改動之後"
                               "跑綠的收據（SCOPE_EDIT_RELATED_TO_ITEM；session 收據或背景自寫收據，不看回合、不比檔名），"
-                              "該測哪些已經由 LLM 宣告，(a) 不再用另一套答案；沒宣告才退回檔名對應：本回合對得上改檔、"
-                              "晚於最後一次修改、同一棵樹的 PASS，或改檔部位的合格自寫收據。",
+                              "該測哪些已經由 LLM 宣告，(a) 不再用另一套答案；沒宣告才退回檔名對應：對得上改檔、晚於每個對上的改檔"
+                              "最後一次修改、同一棵樹的 PASS（不限本回合：舊回合的只要之後本 session 沒再改任何程式檔就算，子代理改的與"
+                              "判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔），或改檔部位的合格自寫收據。",
     "CLAIM_MEASURED_NEEDS_DONE": "(b) 說「量了」要有本回合能當證據的 DONE，或改檔部位的合格自寫收據。",
     "CLAIM_TRIED_NEEDS_EXEC": "(c) 說「試過／跑了」要有本回合的 Bash／PowerShell 執行。",
     "GATE_SELF_ERROR": "閘自己判定時出錯（例外、設定讀不到），不讓 AI 一直付代價：收尾閘（有擋次預算）同一個使用者回合因這個錯"
@@ -233,8 +234,8 @@ RULES: Dict[str, str] = {
                                      "照算一般證據（(a)(b) 的指令提到改檔、(c) 有執行），不擋；本回合帶 PASS／DONE 的這種收據每次 Stop "
                                      "stderr 一行並留帳 guard-reconcile event=receipt_unparsed。量尺與整體驗證只看跑了哪支、在哪棵樹、"
                                      "exit／哨兵，不看前後接了什麼、用什麼串、輸出導去哪。",
-    "CARRIED_CLAIM_ANY_TURN_RECEIPT":"擋滿待放行承接到新回合的「修好」宣稱，(a) 不限本回合：任一回合、晚於對上改檔最後一次修改、同根的"
-                                      "合格 PASS 就算；碼沒動就不必為了換回合重跑。新回合自己說的修好照舊只認本回合的收據。",
+    "CARRIED_CLAIM_ANY_TURN_RECEIPT":"擋滿待放行承接到新回合的「修好」宣稱，(a) 與新回合自己說的同一個判法：任一回合、晚於對上改檔"
+                                      "最後一次修改、之後本 session 沒再改程式檔、同根的合格 PASS 就算；碼沒動就不必為了換回合重跑。",
     "AEC_EVIDENCE_PATH": "(e) 收尾檢核 (j) 證據路徑缺或不存在，但本 session 有驗證收據。",
     "AEC_FOLLOWUPS_EMPTY": "(e) 收尾檢核 (k) 追蹤項是空字串（「無」才放）。",
     "RECONCILE_BLOCK_LETTERS": "寫碼查核只擋 reconcile_gate.block_letters 列出的條目字母（沒設＝全擋）；沒列的條目照判、改印 stderr "

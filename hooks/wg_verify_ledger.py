@@ -1129,29 +1129,37 @@ def reconcile_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
     return c
 
 
-def _pass_why(this_turn: List[Dict[str, Any]], all_receipts: List[Dict[str, Any]], unrelated: List[Dict[str, Any]],
-              mod_paths: List[str]) -> str:
+def _pass_why(this_turn: List[Dict[str, Any]], unrelated: List[Dict[str, Any]], mod_paths: List[str],
+              edited_after: Iterable[Tuple[Dict[str, Any], List[str]]] = ()) -> str:
+    """(a) 擋訊息的「為什麼沒有能用的 PASS」一句。unrelated＝拿去對檔名但對不上的合格 PASS（本回合的與之後沒改程式的舊回合的）；
+    edited_after＝舊回合的合格 PASS 與它之後又改過的程式檔。"""
     bad_exit = [r for r in this_turn if "PASS" in _verdicts(r) and r.get("exit_code") not in (None, 0)]
-    stale = pass_receipts(all_receipts)
     before = [r for r in unrelated if r.get("before_edit")]
     if before:
         names = "、".join(Path(p).name for p in before[0]["before_edit"][:3])
-        return f"本回合的 PASS（{str(before[0].get('cmd', ''))[:50]}）跑在 {names} 最後一次修改之前，改完沒重跑"
+        return f"PASS（{_receipt_tag(before[0])}）跑在 {names} 最後一次修改之前，改完沒重跑"
     foreign = [r for r in unrelated if r.get("other_root")]
     if foreign:
         r0 = foreign[0]
-        return (f"本回合的 PASS（{str(r0.get('cmd', ''))[:50]}）是在 {r0.get('project_root') or r0.get('cwd')} 跑的，"
-                "不是改檔所屬的專案根")
+        return f"PASS（{_receipt_tag(r0)}）是在 {r0.get('project_root') or r0.get('cwd')} 跑的，不是改檔所屬的專案根"
     if unrelated:
         verified = "、".join(str(r.get("cmd", ""))[:50] for r in unrelated[:2])
-        changed = "、".join(Path(p).name for p in mod_paths[:3]) or "（本回合沒改檔）"
-        return f"本回合有 PASS 但驗的是「{verified}」，改的是 {changed}，對不上"
+        changed = "、".join(Path(p).name for p in mod_paths[:3]) or "（本 session 沒改檔）"
+        return f"有 PASS 但驗的是「{verified}」，改的是 {changed}，對不上"
     if bad_exit:
         return "本回合有 PASS 但 exit≠0（" + "、".join(
             f"{str(r.get('cmd', ''))[:40]} exit={r.get('exit_code')}" for r in bad_exit[:2]) + "）"
+    stale = list(edited_after)
     if stale:
-        return "只有舊回合的 PASS（turn " + "、".join(str(r.get("turn_seq")) for r in stale[-2:]) + "）"
+        r0, paths = stale[-1]
+        names = "、".join(Path(p).name if p != "判不出目標的寫入" else p for p in paths[:3])
+        return f"PASS（{_receipt_tag(r0)}）之後又改了 {names}，要重跑"
     return "本回合沒有任何 PASS 收據"
+
+
+def _receipt_tag(r: Dict[str, Any]) -> str:
+    """擋訊息裡指一張收據：指令前 50 字＋回合。"""
+    return f"{str(r.get('cmd', ''))[:50]}，turn {r.get('turn_seq')}"
 
 
 def _has_time(m: Dict[str, Any]) -> bool:
@@ -2101,6 +2109,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          case_for: Optional[Callable[[str], Iterable[str]]] = None,
                          audit: Optional[List[Dict[str, Any]]] = None,
                          remind: Optional[List[str]] = None,
+                         session_edits: Iterable[Dict[str, Any]] = (),
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     audit＝(a)(b)(c) 命中但被 last_text 裡的宣稱行解掉的那幾筆（規則 CLAIM_WORDS_ARE_HINTS：「非本回合宣稱，因為…」或
@@ -2115,8 +2124,10 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     （同伴訊息、背景通知讓 turn_seq 前進，剛跑完的驗證仍算本回合）；沒給只認 turn_seq 那一個。
     exec_this_turn＝本回合跑過 Bash／PowerShell（PostToolUse 記的 exec_turn_seq 落在本回合）：(c) 不再只靠 transcript 這一段的工具名。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
-    寫碼查核：(a) 說修好：有驗證範圍宣告（scope_fix）而範圍內沒有一項改完之後跑綠；沒宣告時本 turn 無對得上改檔的合格 PASS、
-    也沒有改檔所在部位的合格自寫收據（self_covered）；
+    寫碼查核：(a) 說修好：有驗證範圍宣告（scope_fix）而範圍內沒有一項改完之後跑綠；沒宣告時沒有對得上改檔的合格 PASS、
+    也沒有改檔所在部位的合格自寫收據（self_covered）。(a) 的 PASS 不限本回合：舊回合的合格 PASS 只要之後本 session 沒再改任何
+    程式檔就照認（session_edits＝own_mod_files 之外本 session 所有改檔紀錄：子代理改的 agent_modified_files，加上判不出目標的
+    寫入 unknown_writes，沒有 path 的一律當改了程式）；PASS 之後又改過程式檔就要新的 PASS，擋訊息點名改了哪個檔；
     (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或能當一般證據）、也沒有改檔部位的合格自寫收據；
     (c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
     換一句話不能讓它消失）裡宣告完成的那幾段；pending 時 (b)(c) 只叫人補證據、不叫人改措辭；
@@ -2124,7 +2135,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     程式檔要有本 session 改過、仍存在、同根的案例覆蓋它（不比先後）。不看措辭，有改碼紀錄就判。
     收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
     (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後；claims 裡承接來的
-    「修好」宣稱不限本回合，認任一回合晚於最後一次改動的合格 PASS（CARRIED_CLAIM_ANY_TURN_RECEIPT）。"""
+    「修好」宣稱與本回合新說的同一個判法（CARRIED_CLAIM_ANY_TURN_RECEIPT）。"""
     texts = [t for t in (*claims, last_text) if t and claims_completion(t)]
     moves = collapse_move_chain([m for m in moves or () if isinstance(m, dict) and m.get("new")])
     if not texts and not own_mod_files and not moves:
@@ -2142,11 +2153,21 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     root_of: Callable[[str], Optional[str]] = root if callable(root) else (lambda p, _r=root: _r)
     globs = cfg.get("verify_case_globs") or []
     measure_cmds = list(measure_cmds or [])
-    # 規則 CARRIED_CLAIM_ANY_TURN_RECEIPT：擋滿待放行承接來的「修好」宣稱，認晚於最後一次改動的合格 PASS，不限回合（碼沒動不必重跑）
-    carried_fixed = any(t and claims_completion(t) and claims_fixed(t, phrases) for t in claims) and not (
-        last_text and claims_completion(last_text) and claims_fixed(last_text, phrases))    # 本回合自己又說修好：照舊只認本回合
+    exts = cfg.get("code_exts") or []
+    # (a) 不限本回合：舊回合的合格 PASS，之後本 session 沒再改任何程式檔（自己改的、子代理改的、判不出目標的寫入）就和本回合的
+    # 一樣拿去對檔名；之後改過的不算，記下改了哪些檔給擋訊息（碼沒動不必為了換回合重跑）
+    code_edits = [m for m in (*(own_mod_files or ()), *(session_edits or ()))
+                  if isinstance(m, dict) and (not m.get("path") or is_code_file(str(m["path"]), exts))]
+    edited_after: List[Tuple[Dict[str, Any], List[str]]] = []
+    old_ok: List[Dict[str, Any]] = []
+    for r in pass_receipts([r for r in receipts if r not in this_turn]):
+        later = [m for m in code_edits if not _after_last_edit(r, m)]
+        if later:
+            edited_after.append((r, list(dict.fromkeys(str(m.get("path") or "判不出目標的寫入") for m in later))))
+        else:
+            old_ok.append(r)
     related, unrelated = ([], []) if not texts else related_pass_receipts(
-        receipts if carried_fixed else this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
+        [*this_turn, *old_ok], None, relate_paths, globs, measure_cmds, root, mod_records)
     _cov: List[bool] = []
 
     def covered() -> bool:
@@ -2218,10 +2239,11 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                             "範圍不對就重新宣告（need_goal verify_scope）" + note("PASS"))))
     elif scope is None and fixed and not related and not covered():
         settle("a", "fixed", Verdict(
-            "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}",
+            "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, unrelated, relate_paths, edited_after)}",
             (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆" + turn_rule,
-             "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
-             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景跑的整組 pytest）" + note("PASS"))))
+             "修好的證據是改完之後跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0"
+             "（舊回合的也算，只要那之後沒再改程式檔），或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景跑的整組 pytest）"
+             + note("PASS"))))
     measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
                    for r in this_turn)
     if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():
@@ -2234,7 +2256,6 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
             "CLAIM_TRIED_NEEDS_EXEC", True, "說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行",
             (f"本回合工具呼叫：{'、'.join(sorted(set(str(n) for n in turn_tool_names))[:6]) or '（無）'}" + turn_rule,
              "現在跑出收據" if pending else "沒跑就寫沒跑，或現在跑")))
-    exts = cfg.get("code_exts") or []
     absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p) and not is_excluded(p, cfg, root_of(p))]
     why: Dict[str, Verdict] = {}
     last_sha = {canon_path(p): m.get("sha") for p, m in mod_records.items()}

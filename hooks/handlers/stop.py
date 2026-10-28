@@ -957,13 +957,19 @@ def _verify_gates(
     # 判不出來照算改了。同根乾淨看 session 全部改過的程式檔（主 session＋所有子代理；文件等不算，EXEMPTION_PEERS_CODE_ONLY），
     # 剔除只套在這次受查的 own_mod_files
     sid = str(session_id).split("#agent:", 1)[0]
-    session_paths = [m["path"] for m in state.get("modified_files") or []
-                     if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
+    session_mods = [m for m in state.get("modified_files") or []
+                    if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
     for _agent_mods in (state.get("agent_modified_files") or {}).values():
-        session_paths += [m["path"] for m in _agent_mods or [] if isinstance(m, dict) and m.get("path")]
+        session_mods += [m for m in _agent_mods or [] if isinstance(m, dict) and m.get("path")]
     # worktree 根的一次性 git 啟動器（寫入時就認好、記了標記）建、改、刪都不算改碼：不讓收據作廢、不欠案例（LAUNCHER_NOT_CODE）
     launchers = [m["path"] for m in own_mod_files if (m or {}).get("path") and git_launcher(str(m["path"]))]
-    session_paths = [p for p in session_paths if not git_launcher(str(p))]
+    session_mods = [m for m in session_mods if not git_launcher(str(m["path"]))]
+    session_paths = [m["path"] for m in session_mods]
+    # (a) 舊回合的 PASS 能不能沿用，看它之後本 session 有沒有再改程式檔：主 session 與所有子代理的改檔紀錄，加上判不出目標的寫入
+    session_edits = session_mods + [u for u in state.get("unknown_writes") or []
+                                    if isinstance(u, dict) and u.get("session_id", sid) == sid]
+    for _agent_unknown in (state.get("agent_unknown_writes") or {}).values():
+        session_edits += [u for u in _agent_unknown or [] if isinstance(u, dict)]
     if launchers:
         own_mod_files = [m for m in own_mod_files if (m or {}).get("path") not in set(launchers)]
         print("[Guardian:ReconcileGate] 規則 LAUNCHER_NOT_CODE：一次性 git 啟動器不算改碼："
@@ -1030,6 +1036,7 @@ def _verify_gates(
                 case_check=_scope_case_check(state, session_id, own_mod_files, receipts, rg_cfg, _lk, _self_runs())
                 if _lk and sg_cfg.get("enabled", True) else None,
                 audit=_claim_audit, remind=_rem_hits if reminds is not None else None,
+                session_edits=session_edits,
             )
             kind = "reconcile" if reason or report else ""
         except Exception as e:
