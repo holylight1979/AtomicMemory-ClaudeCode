@@ -13113,6 +13113,38 @@
         "定位先交了還是擋"
       ],
       "scope": "global"
+    },
+    {
+      "name": "windows-git-worktree放進claude暫存scratchpad會filename-too-long-一堆檔建不出來-worktree一律放短路徑如c根下",
+      "path": "memory/OS-Windows/windows-git-worktree放進claude暫存scratchpad會filename-too-long-一堆檔建不出來-worktree一律放短路徑如c根下.md",
+      "triggers": [
+        "Filename too long",
+        "worktree add",
+        "git worktree",
+        "scratchpad worktree",
+        "unable to create file",
+        "套 patch 試跑",
+        "git am 試套",
+        "長路徑"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "關閘時擋與提醒綁同一開關-掛在那次呼叫後面的下游功能會一起消失-關擋要留提醒並查誰搭這班車",
+      "path": "_AIDocs/_atoms/MemDev/關閘時擋與提醒綁同一開關-掛在那次呼叫後面的下游功能會一起消失-關擋要留提醒並查誰搭這班車.md",
+      "triggers": [
+        "scan_report_gate",
+        "關閘",
+        "收尾檢核不送",
+        "PickOne 送不到",
+        "pick_one 沒出現",
+        "HUD 空的",
+        "提醒也不送",
+        "搭便車",
+        "piggyback",
+        "關掉擋"
+      ],
+      "scope": "global"
     }
   ]
 }

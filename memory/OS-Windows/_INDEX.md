@@ -17,6 +17,7 @@
 | unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫 | unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫 |
 | unity-editor崩潰鑑識三路徑-事件檔1000先看故障模組-edr注入dll可能是真兇 | Unity-Editor崩潰鑑識三路徑-事件檔1000先看故障模組-EDR注入DLL可能是真兇 |
 | whoami-輸出走-oem-碼頁-cp950-非-utf-8-中文群組名用-utf-8-解碼會靜默變亂碼 | whoami 輸出走 OEM 碼頁 cp950 非 utf-8-中文群組名用 utf-8 解碼會靜默變亂碼 |
+| windows-git-worktree放進claude暫存scratchpad會filename-too-long-一堆檔建不出來-worktree一律放短路徑如c根下 | windows-git-worktree放進claude暫存scratchpad會filename-too-long-一堆檔建不出來-worktree一律放短路徑如c根下 |
 | windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑 | Windows 新機 PATH 的 WindowsApps python.exe 是 Store 佔位程式-零輸出 exit 9009-子程序裸 spawn python 必用絕對路徑 |
 | windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn | windows上node測試chdir進暫存夾後rmSync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn |
 | windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完 | Windows上Python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完 |
