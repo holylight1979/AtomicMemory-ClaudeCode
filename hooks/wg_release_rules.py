@@ -3702,11 +3702,11 @@ def judgment_names(target: str, keys: Sequence[str]) -> bool:
     """判斷行的對象欄指得到這一條數據：對象（去空白、不分大小寫）等於某個鍵，或以「<邊界>鍵」結尾（邊界＝::、.、/、\\、→，
     例：hooks/y.py::b 對 y.py::b、Cls.m 對 m）。不做子字串比對：y.py::load_config 對不到 y.py::load。
     鍵＝函式限定名、檔::名、入口與落點的寫法；同名不同檔的短名會同時對到（程式只核對結構，不猜是哪個）。"""
-    t = _nows(target)
+    t = _nows(target).replace("`", "").replace("**", "")     # AI 常把對象名包在 Markdown 反引號或粗體裡，比對前剝掉
     if len(t) < 2:
         return False
     for k in keys or ():
-        kn = _nows(k)
+        kn = _nows(k).replace("`", "").replace("**", "")
         if len(kn) >= 2 and (t == kn or any(t.endswith(b + kn) for b in _NAME_BOUNDARY)):
             return True
     return False

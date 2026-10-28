@@ -333,6 +333,8 @@ def test_judgment_target_matches_whole_names_not_substrings():
     assert v.owed and "svc.py::load｜" in "".join(v.evidence) and "load_config｜" not in "".join(v.evidence)
     assert rr.judgment_names("hooks/svc.py::load", ["svc.py::load"]) and rr.judgment_names("Cls.load", ["load"])
     assert not rr.judgment_names("reload", ["load"]) and not rr.judgment_names("svc.py::loader", ["svc.py::load"])
+    assert rr.judgment_names("`cli.main` → `periods.taipei_month_of`", ["cli.main → periods.taipei_month_of"]), "Markdown 反引號包住的對象名要認（010 實跑誤判成缺）"
+    assert rr.judgment_names("**sales/cli.py::main**", ["cli.py::main"])
 
 
 def test_quoted_or_fenced_judgment_lines_do_not_count():
