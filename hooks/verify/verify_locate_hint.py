@@ -72,7 +72,7 @@ def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hoo
     f1 = _mapped_world(hooked)
     ctx = post_read({"file_path": f1})
     hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
-    assert "先用 need_goal(action=set, goal=…) 立需求目標樹" in hint and "交定位四行" in hint
+    assert "先立需求目標樹（回覆文字寫一行「目標｜" in hint and "交定位四行" in hint
     assert "候選 A …；候選 B …；選 A 因為 …" in hint and "合不合理、為什麼" in hint
     assert "回覆文字" in hint and "開頭的 `#` 註解" in hint and "（thinking 讀不到）" in hint and "照常用 Edit／Write" in hint
     assert "戰鬥導讀" not in ctx                                                    # 讀檔結果只有提示、沒有卡（READ_TOUCH_NO_CARD）

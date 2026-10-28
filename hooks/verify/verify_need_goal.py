@@ -163,9 +163,9 @@ def test_t13_new_tree_note_asks_for_subgoals_and_whole_need(env):
     """B5 缺口①：AI 懂了子目標，樹上卻只有樹根；q5：一句話兩件事只寫進「這回合先做的」那件。開樹收下時送一次：樹根寫整個需求、
     看得出的子目標現在就 add。第一則提示也寫明寫整個需求。"""
     r = _op("set", goal="登入要能用")
-    assert r["ok"] and ng.SUBGOAL_LINE in r["text"] and "不只這回合先做的那段" in ng.SUBGOAL_LINE
-    assert "不只這回合先做的那段" in ng.HINT_LINE
-    assert ng.SUBGOAL_LINE not in _op("set", goal="登入與註冊都要能用", why="使用者補充註冊")["text"]   # 改寫樹根不重送
+    assert r["ok"] and "開了新樹 T1：登入要能用" in r["text"].splitlines()[0]           # 開樹只回一行：樹號＋樹根一句
+    assert "不只這回合先做的那段" in ng.HINT_LINE and "子目標｜" in ng.HINT_LINE       # 子目標的要求在第一則提示裡講
+    assert "樹根改寫" in _op("set", goal="登入與註冊都要能用", why="使用者補充註冊")["text"]
 
 
 def test_t13_on_prompt_offers_amend_and_correct_paths_not_only_new_task(env):
@@ -173,7 +173,7 @@ def test_t13_on_prompt_offers_amend_and_correct_paths_not_only_new_task(env):
     換成另一件事才 new_task 附 why，三條路並列。"""
     _op("set", goal="登入要能用", turn=1)
     line = ng.on_prompt(SID, "不對，是要記住登入狀態", 2, {})
-    assert ng.TREE_PATHS in line and "不開新樹" in line and "add" in line and "new_task=true" in line, line
+    assert line.startswith("[NeedGoal] 目前需求目標") and "\n" not in line, line     # 有樹只回一行，不附三條路
 
 
 def test_t13_correction_after_closed_tree_kept_when_old_tree_reopened(env):
@@ -734,7 +734,7 @@ def test_on_prompt_first_hint_only_once_and_header_with_tree(env):
     assert ng.on_prompt(SID, "還有這個", 2, {}) is None
     _op("set", goal="登入要能用", turn=2)
     line = ng.on_prompt(SID, "順便看一下", 3, {})
-    assert line.startswith("[NeedGoal] 目前需求目標 當前節點 T1 [進行中]：登入要能用") and "new_task=true" in line   # 沒有子節點：當前節點就是樹根
+    assert line == "[NeedGoal] 目前需求目標 當前節點 T1 [進行中]：登入要能用"   # 沒有子節點：當前節點就是樹根；有樹只回這一行
     assert "寫或整併文件" in ng.HINT_LINE                                     # 第一則提醒寫明文件類也算要動手
     said = [s["text"] for s in _tree()["user_said"]]
     assert said == ["幫我修登入", "還有這個", "順便看一下"]                 # 沒樹時收的話開樹時搬進去（首則＝原始需求），之後的話照記
@@ -874,6 +874,80 @@ def test_pretool_write_code_without_tree_denied_then_allowed(hooked, block_mode)
     assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs, config=off))  # OverviewHub 關掉照查
     _op("set", goal="G")
     assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)) is None
+
+
+def _user_says(tp, text):
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "user", "message": {"role": "user", "content": text}}, ensure_ascii=False) + "\n")
+
+
+def _tool_call(tp, name, inp):
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}},
+                           ensure_ascii=False) + "\n")
+
+
+def _count_scans(monkeypatch):
+    calls = []
+    orig = ng.goal_lines_in_transcript
+    monkeypatch.setattr(ng, "goal_lines_in_transcript", lambda *a: (calls.append(a) or orig(*a)))
+    return calls
+
+
+def test_pretool_tree_set_via_text_lines(hooked, block_mode, monkeypatch):
+    """規則 TREE_SET_VIA_TEXT：回覆文字有「目標｜」行（子目標每件一行、程式碼區塊裡的不算）→ 第一次改程式檔前樹已立（kind=code、
+    子目標成節點、state 判成寫碼回合、留帳 set_via_text、放行訊息附一行）；同一回合樹立好之後不再解析 transcript。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    target = str(proj / "src" / "a.py")
+    _user_says(tp, "幫我讓匯出變快")
+    _say(tp, "目標｜匯出變快\n子目標｜欄位定義只留一份\n子目標｜介面跟著共用\n```\n目標｜程式碼區塊裡的範例不算\n```")
+    calls = _count_scans(monkeypatch)
+    out = _ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)
+    assert _deny_text(out) is None and "已照回覆裡的「目標｜」立樹 T1：匯出變快" in (out or {}).get("systemMessage", ""), out
+    t = _tree()
+    assert t["kind"] == "code" and t["nodes"]["T1"]["text"] == "匯出變快" and len(t["nodes"]) == 3
+    assert [t["nodes"][n]["text"] for n in ("T1.1", "T1.2")] == ["欄位定義只留一份", "介面跟著共用"]
+    state = json.loads(wg_core.state_file_path(SID).read_text(encoding="utf-8"))
+    assert state["need_goal_code_decl_turn"] == int(state.get("turn_seq", 0)) and wg_core.coding_turn(state, {})
+    assert state["need_goal_text_scan"]["found"] is True
+    assert any(g == "need_goal" and p.get("event") == "set_via_text" and p.get("tree") == "T1" and p.get("via") == "text"
+               for g, p in hooked["guard"])
+    assert len(calls) == 1
+    assert _deny_text(_ptu_run("Edit", {"file_path": target}, proj, tp, outputs)) is None
+    assert len(calls) == 1                                                  # 樹已立：同回合不再讀 transcript
+
+
+def test_pretool_without_goal_line_unchanged_and_scan_cached(hooked, block_mode, monkeypatch):
+    """沒有「目標｜」行：行為同現況（沒樹擋，擋訊息教文字格式）；同一回合 transcript 沒長不重讀；補交那一行之後再改才重讀並立樹。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    target = str(proj / "src" / "a.py")
+    _user_says(tp, "幫我修匯出")
+    _say(tp, "我先看一下")
+    calls = _count_scans(monkeypatch)
+    deny = _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs))
+    assert deny and deny.startswith("[NeedGoal]") and "目標樹" in deny and "目標｜" in deny and "need_goal(action=set" in deny
+    assert _tree() is None and len(calls) == 1
+    assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)) and len(calls) == 1
+    _say(tp, "目標｜匯出不再報錯")
+    assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)) is None
+    assert len(calls) == 2 and _tree()["nodes"]["T1"]["text"] == "匯出不再報錯" and _tree()["kind"] == "code"
+
+
+def test_goal_lines_channels_turn_boundary_and_placeholders(hooked):
+    """解析邊界：只看最後一則使用者本人訊息之後；回覆文字先、不寫檔指令開頭的 # 註解後；thinking 不讀；佔位句不算。"""
+    tp = hooked["tp"]
+    _say(tp, "目標｜上一回合的舊目標")
+    _user_says(tp, "換一件事")
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "目標｜想的不算"}]}},
+                           ensure_ascii=False) + "\n")
+    since = ng._turn_offset(tp)
+    assert since > 0 and ng.goal_lines_in_transcript(tp, "", since) is None
+    _tool_call(tp, "Bash", {"command": "# 目標｜用註解交的目標\n# 子目標｜一件\ngit diff"})
+    assert ng.goal_lines_in_transcript(tp, "", since) == ("用註解交的目標", ["一件"], "tool_input")
+    assert ng.goal_lines_in_transcript(tp, "", 0) == ("上一回合的舊目標", [], "text")
+    assert ng.parse_goal_lines(f"{ng.TEXT_SET_FORMAT}\n{ng.TEXT_SET_SUB_FORMAT}") is None
+    assert ng.parse_goal_lines("目標｜A\n子目標｜a1\n目標｜B\n子目標｜b1") == ("B", ["b1"])   # 最後一組算現行
 
 
 def test_pretool_move_code_dir_and_new_shebang_script_need_tree(hooked, block_mode):
