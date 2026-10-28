@@ -202,12 +202,17 @@ def test_subagent_same_modes(monkeypatch, capsys):
 # ─── 提醒掛在改程式檔那則工具結果（PostToolBatch） ─────────────────────────────
 
 def _batch(monkeypatch, capsys, state, calls, config, sid=SID):
+    """跑一批 PostToolBatch。state 走真實形狀：remind_sent 是清單（實跑裡讀檔的定位提示 wg_overview.remind_mark 早就寫成清單；
+    造 state 不給它，舊碼 setdefault 成 dict 就測不到「清單上 .setdefault 炸」那條路）。"""
+    state.setdefault("remind_sent", [])
     monkeypatch.setattr(ptb, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(ptb, "write_state", lambda *a, **k: None)
     capsys.readouterr()
     with pytest.raises(SystemExit):
         ptb.handle_post_tool_batch({"session_id": sid, "tool_calls": calls, "cwd": r"c:\proj"}, config)
-    out = capsys.readouterr().out.strip()
+    got = capsys.readouterr()
+    _batch.err = got.err          # 這批的 stderr（案例要看有沒有「算不出」那類吞錯訊號）
+    out = got.out.strip()
     return json.loads(out.splitlines()[-1])["hookSpecificOutput"]["additionalContext"] if out else ""
 
 
@@ -239,6 +244,50 @@ def test_code_edit_batch_reminds_case_debt_once_per_file(monkeypatch, capsys):
     state["modified_files"][0]["last_seq"] = 4
     ctx2 = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}, "verify_scope": OFF})
     assert "CASE_COVERS_CHANGE" not in ctx2
+
+
+# ─── 提醒帳本一份清單（state remind_sent；工具前守門 remind_flush 與這裡的 closing_reminders 同一份） ─────────
+
+_SENT_CFG = {"reconcile_gate": OFF, "verify_scope": OFF}
+
+
+def _edit_batch(monkeypatch, capsys, state):
+    return _batch(monkeypatch, capsys, state, [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}], _SENT_CFG)
+
+
+def test_remind_sent_list_from_locate_hint_does_not_crash_and_sends(monkeypatch, capsys):
+    """實跑形狀：讀檔定位提示已把 remind_sent 寫成清單（元素 remind_key）→ 改程式那批照送提醒、不炸、stderr 沒有「算不出」；
+    新鍵 append 進同一份清單（不另開第二種形狀）。"""
+    sent = ["LOCATE_BEFORE_EDIT|銷售報表", "CODE_EDIT_NEEDS_GOAL_TREE|"]
+    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)], "remind_sent": list(sent)}
+    ctx = _edit_batch(monkeypatch, capsys, state)
+    assert "[Guardian:提醒] DEFERRAL_OF_DOABLE_WORK：" in ctx, ctx
+    assert "收尾類提醒算不出" not in _batch.err, _batch.err
+    assert isinstance(state["remind_sent"], list) and state["remind_sent"][:2] == sent
+    assert rr.remind_key("DEFERRAL_OF_DOABLE_WORK") in state["remind_sent"]
+
+
+def test_remind_sent_same_object_not_resent(monkeypatch, capsys):
+    """同規則同對象本 session 只送一次：第一批送了、第二批（又改程式）同一份清單判成送過，一行都不重送。"""
+    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)], "remind_sent": []}
+    first = _edit_batch(monkeypatch, capsys, state)
+    assert "SYNC_REMINDER_UNSYNCED" in first, first
+    n = len(state["remind_sent"])
+    state["modified_files"][0]["last_seq"] = 7
+    second = _edit_batch(monkeypatch, capsys, state)
+    assert "[Guardian:提醒]" not in second, second
+    assert len(state["remind_sent"]) == n
+
+
+def test_remind_sent_legacy_dict_tolerated(monkeypatch, capsys):
+    """舊寫法殘留 {sid: [鍵]}：不炸、攤平成清單；攤平後舊鍵仍算送過（同對象不重送），新提醒照送。"""
+    legacy = {SID: [rr.remind_key("SYNC_REMINDER_UNSYNCED")], "other": [rr.remind_key("LOCATE_BEFORE_EDIT", "x")]}
+    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)], "remind_sent": legacy}
+    ctx = _edit_batch(monkeypatch, capsys, state)
+    assert "收尾類提醒算不出" not in _batch.err, _batch.err
+    assert isinstance(state["remind_sent"], list), state["remind_sent"]
+    assert "SYNC_REMINDER_UNSYNCED" not in ctx and "DEFERRAL_OF_DOABLE_WORK" in ctx, ctx
+    assert {rr.remind_key("SYNC_REMINDER_UNSYNCED"), rr.remind_key("LOCATE_BEFORE_EDIT", "x")} <= set(state["remind_sent"])
 
 
 # ─── 順手一併改的兩件 ─────────────────────────────────────────────────────────

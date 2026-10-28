@@ -1258,9 +1258,21 @@ def locate_first_deny_due(state: Dict[str, Any], session_id: str, part: Any) -> 
     return True
 
 
+def remind_sent_list(state: Dict[str, Any]) -> List[str]:
+    """state 的提醒帳本：**一份清單**（元素 remind_key；state 一 session 一檔，不再按 session 分桶）。
+    舊寫法殘留的 dict（{sid: [鍵]}）攤平成清單、其他形狀重置，寫回 state 後回傳同一個物件（呼叫端 append 直接生效）。"""
+    sent = state.get(REMIND_SENT_KEY)
+    if isinstance(sent, dict):
+        sent = [str(k) for v in sent.values() if isinstance(v, list) for k in v]
+    elif not isinstance(sent, list):
+        sent = []
+    state[REMIND_SENT_KEY] = sent
+    return sent
+
+
 def remind_mark(state: Dict[str, Any], rule: str, obj: Any = "") -> bool:
     """記「這件提醒送過了」；本來沒送過回 True（呼叫端這時才送），送過回 False。"""
-    sent = state.setdefault(REMIND_SENT_KEY, [])
+    sent = remind_sent_list(state)
     if not _rr.remind_due(sent, rule, obj):
         return False
     sent.append(_rr.remind_key(rule, obj))
