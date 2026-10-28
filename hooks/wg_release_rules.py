@@ -4234,9 +4234,11 @@ RULES.update({
     "TURN_JUDGMENT_PRE_CLOSE": "交收尾檢核（anti_evasion_report）或完整對照（need_goal action=reconcile）那批＝收尾前最後一個工具回應：先存著的拐彎判斷結果（到門檻的條目＋那一題）"
                                "附在那批的回應後面（wg_closing_round.turn_judgment_pre_close），取走後 Stop 不再送；還有一批在量（量完前又改了碼）"
                                "就不附，留給 Stop。欠項照舊由 Stop 的 TURN_JUDGMENT_REQUIRED 核對收尾文字（不放寬、不改擋次）。",
-    "PICK_ONE_PRE_CLOSE": "交收尾檢核或完整對照（need_goal reconcile，交付時的對照）那批就是交付邊界：「順手看到最該修」該問（同 Stop：上次問過或記過之後又改了程式、這個使用者回合還沒問過，"
-                          "連鎖警報後只記錄時不送）就附在那批的回應後面、記問過（guard-pick_one via=pre_close）；Stop 的 pick_due 看到問過"
-                          "就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；兩樣都沒交或開關關照舊由 Stop 送。",
+    "PICK_ONE_PRE_CLOSE": "交付邊界那批就附「順手看到最該修」：本 session 改過程式之後測試跑綠的那批（post_tool_batch.closing_reminders 判綠，與其他收尾提醒"
+                          "同一條路；guard-pick_one via=test_green），或交收尾檢核／完整對照（need_goal reconcile）那批（via=pre_close）。該問的判法同 Stop"
+                          "（上次問過或記過之後又改了程式、這個使用者回合還沒問過，連鎖警報後只記錄時不送），問句與記問過同一段（wg_harvest.pick_ask）；"
+                          "Stop 的 pick_due 看到問過就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；沒跑測試也沒交收尾檢核就收尾、"
+                          "或開關關 → 照舊由 Stop 判（v6 下只留帳）。",
     "PICK_ONE_WITH_TURN_JUDGMENT": "Stop 的拐彎判斷擋下時，「順手看到最該修」該問就接在同一則擋訊息後面一起問（記問過）：補一次就兩件都寫，"
                                    "不再擋完又另讓對話續跑一輪。跟 PICK_ONE_PRE_CLOSE 同一個開關。",
     "SECOND_OPINION_BACKGROUND": "第二意見背景跑、收尾不等它：開關 second_opinion.auto.background（缺＝開）開時，第二意見閘的擋訊息寫"

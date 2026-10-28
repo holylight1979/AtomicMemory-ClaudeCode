@@ -10,6 +10,7 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）、第二意見跑完接上。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
 各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、取用稽核；
+改過程式之後測試跑綠的那批＝交付邊界，「順手看到最該修」那一問也掛這裡（PICK_ONE_PRE_CLOSE，wg_closing_round.pick_on_test_green）；
 目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：驗證範圍 SCOPE_*、目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
 reconcile／verify_scope，各一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
 只提醒一次（state remind_sent 清單，wg_overview.remind_mark）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
@@ -114,7 +115,9 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     if new_move:
         seen_moves[sid] = len(moved)
         changed = True
-    if not (new_code or closing or git_cmds or tj_due or new_move):
+    green, green_changed = _test_green_batch(state, sid)
+    changed = changed or green_changed
+    if not (new_code or closing or git_cmds or tj_due or new_move or green):
         return [], changed
     from wg_overview import remind_mark   # 提醒帳本只有一份（state remind_sent 清單），與 remind_flush 同一支記法
     lines: List[str] = []
@@ -154,7 +157,33 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         say("TURN_JUDGMENT_REQUIRED", f"背景量完，{len(items)} 條到門檻：{names}{more}", FIX_TJ, tj_owed.get("at") or tj_owed.get("turn"))
     if closing:
         part("知識收割", lambda: _closing_batch_reminders(state, sid, own, config, turn_seq, say))
+    if green:   # 改過程式之後測試跑綠＝交付邊界（PICK_ONE_PRE_CLOSE）：該問就附那一問（該不該問、記問過在 wg_closing_round）
+        part("最該修", lambda: _pick_on_green(cr, state, sid, config, input_data, lines))
     return lines, changed or bool(lines)
+
+
+def _pick_on_green(cr, state, sid, config, input_data, lines: List[str]) -> None:
+    text = cr.pick_on_test_green(state, sid, config, input_data)
+    if text:
+        lines.append(text)
+
+
+def _test_green_batch(state: Dict[str, Any], sid: str) -> Tuple[bool, bool]:
+    """這批有沒有跑綠的測試：post_tool_use 記的收據（state verify_receipts，事件序號 seq 比上次看到的大＝這批新落的），
+    是測試指令或帶 PASS 哨兵、且跑綠（wg_verify_batch.receipt_green：沒有 FAIL 哨兵、結束碼 0）。回 (綠, state 改了)；
+    看過的序號記 state remind_receipt_seq[sid]。"""
+    from wg_verify_ledger import receipts_of
+    seen = state.setdefault("remind_receipt_seq", {})
+    mark = int(seen.get(sid) or 0)
+    new = [r for r in receipts_of(state, sid) if int(r.get("seq") or 0) > mark]
+    if not new:
+        return False, False
+    seen[sid] = max(int(r.get("seq") or 0) for r in new)
+    from wg_evasion import is_test_command
+    from wg_verify_batch import receipt_green
+    return any(receipt_green(r) and (is_test_command(str(r.get("cmd") or ""))
+                                     or any(str(s.get("verdict")) == "PASS" for s in r.get("sentinels") or [] if isinstance(s, dict)))
+               for r in new), True
 
 
 def _code_check_reminders(state, sid, own, config, say) -> None:

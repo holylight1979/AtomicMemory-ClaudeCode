@@ -6,7 +6,8 @@
      （need_goal reconcile：交付時的對照）、知識收割回報（knowledge_harvest_report）＝收尾前最後一個工具回應（closing_call），附上：
      - 量好的拐彎判斷結果（到門檻的條目＋那一題；TURN_JUDGMENT_PRE_CLOSE，跟 ① 同一個開關）。還有一批在量就不附，留給 Stop；
      - 「順手看到最該修」該問就附材料、記問過（PICK_ONE_PRE_CLOSE，開關 pick_one.pre_close）：Stop 的 pick_due 看到問過就不再送、
-       不再讓對話續跑一輪。
+       不再讓對話續跑一輪。交付邊界還有一種：本 session 改過程式之後測試跑綠的那批（pick_on_test_green，post_tool_batch.closing_reminders
+       判綠後呼叫、與其他收尾提醒同一條路）——收尾檢核提醒關著（aec.scan_report_gate=false）時 AI 多半不交收尾檢核，那一問就靠這條路送到。
      - 第二意見照 Stop 同一套事實判欠不欠，欠就把 Stop 會擋的那段先附上（SECOND_OPINION_PRE_CLOSE；so_pre_close），並記「這個使用者回合
        交過收尾那批」（wg_second_opinion.not_closing 據此把這次 Stop 當收尾）。
   ③ 本 session 開的第二意見 job（start 自己回的 job_id，或收尾等待行寫明的；不掃 job 目錄）從在跑變成跑完 → 附一次「取回、補四行」（SECOND_OPINION_DONE_NOTICE，開關
@@ -77,32 +78,38 @@ def _note(text: str, state: Dict[str, Any], sid: str, config: Dict[str, Any]) ->
 
 # ─── ② 收尾前附著：拐彎判斷結果、最該修 ─────────────────────────────────────────
 
-def pick_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
-    """規則 PICK_ONE_PRE_CLOSE：交收尾檢核或完整對照那批＝交付邊界，「順手看到最該修」該問（wg_harvest.pick_due：上次問過或記過之後又改了程式、
-    這個使用者回合還沒問過）就回那一問並記問過；不該問、靜音、連鎖警報後只記錄 → None。判斷出錯只 stderr、不送（Stop 照舊會問）。"""
+def pick_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any], input_data: Dict[str, Any],
+                   via: str = "pre_close") -> Optional[str]:
+    """規則 PICK_ONE_PRE_CLOSE：到了交付邊界那批（via=pre_close：交收尾檢核或完整對照；via=test_green：改過程式之後測試跑綠），
+    「順手看到最該修」該問（wg_harvest.pick_due：上次問過或記過之後又改了程式、這個使用者回合還沒問過）就回那一問並記問過
+    （wg_harvest.pick_ask，與 Stop 同一段）；不該問、靜音、連鎖警報後只記錄 → None。判斷出錯只 stderr、不送（Stop 照舊會問）。"""
     if not pick_pre_close_on(config) or state.get("muted"):
         return None
-    turn_seq = int(state.get("turn_seq", 0) or 0)
     try:
         import chain_store
-        from wg_harvest import mark_pick_asked, pick_due, pick_material, pick_prompt, session_open_tracking
-        from wg_need_goal import is_code_path
+        from wg_harvest import pick_ask, pick_code_mods, pick_due
         from wg_release_rules import user_turn
-        code = [m for m in _own(state, sid) if (m or {}).get("path") and is_code_path(m["path"], config)]
+        code = pick_code_mods(_own(state, sid), config)
         if not pick_due(state, sid, code, True):
             return None
-        if chain_store.record_only(sid, user_turn(state, turn_seq), input_data, config):
-            print("[Guardian:ChainBreaker] 連鎖中止中：收尾前不送「順手看到最該修」", file=sys.stderr)
+        if chain_store.record_only(sid, user_turn(state, int(state.get("turn_seq", 0) or 0)), input_data, config):
+            print("[Guardian:ChainBreaker] 連鎖中止中：交付邊界不送「順手看到最該修」", file=sys.stderr)
             return None
         cwd = str((state.get("session") or {}).get("cwd") or input_data.get("cwd") or "")
-        text = pick_prompt(pick_material(list(dict.fromkeys(m["path"] for m in code)), config),
-                           session_open_tracking(cwd, sid) if cwd else [])
+        return pick_ask(state, sid, code, config, cwd, via)
     except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:PickOne] 收尾前「最該修」那一問判斷出錯（這次不送，收尾照舊問）：{type(e).__name__}: {e}", file=sys.stderr)
+        print(f"[Guardian:PickOne] 交付邊界「最該修」那一問判斷出錯（這次不送，收尾照舊問）：{type(e).__name__}: {e}", file=sys.stderr)
         return None
-    mark_pick_asked(state, sid, turn_seq)
-    append_guard_log("pick_one", {"session_id": sid, "turn_seq": turn_seq, "event": "asked", "files": len(code), "via": "pre_close"})
-    return text
+
+
+def pick_on_test_green(state: Dict[str, Any], sid: str, config: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
+    """規則 PICK_ONE_PRE_CLOSE 的另一個交付邊界：本 session 改過程式之後測試跑綠那批（post_tool_batch.closing_reminders 判綠）
+    → 同一問、判準卡接上（與收尾那批同一條路）。該不該問、記問過都在 pick_pre_close。"""
+    text = pick_pre_close(state, sid, config, input_data, via="test_green")
+    if text:
+        print(text.splitlines()[0], file=sys.stderr)
+        return _note(text, state, sid, config)
+    return None
 
 
 def turn_judgment_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any]) -> Optional[str]:

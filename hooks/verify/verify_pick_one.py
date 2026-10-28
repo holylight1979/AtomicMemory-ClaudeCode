@@ -409,6 +409,7 @@ def stop_run(world, monkeypatch, capsys):
                      ("_should_deep_postmortem", lambda *a, **k: False), ("reading_path_note", lambda *a, **k: ("", False)),
                      ("append_guard_log", lambda guard, payload: logs.append((guard, payload)))):
         monkeypatch.setattr(st, name, fn)
+    monkeypatch.setattr(wh, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))   # 問過的帳在 wh.pick_ask 記
 
     def run(message, mods, config=None, hook=None, **extra):
         """hook＝收尾 hook 輸入多帶的欄位（例：stop_hook_active）；extra 蓋進 state。"""
