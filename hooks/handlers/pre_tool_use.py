@@ -2222,7 +2222,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,
                                  write_state as _ws)
             from wg_overview import edit_check as _hub_edit_check, remind_hit as _remind_hit
-            from wg_need_goal import edit_gate as _ng_edit_gate
+            from wg_need_goal import TEXT_SET_FORMAT as _ng_fmt, edit_gate as _ng_edit_gate, set_via_text as _ng_set_via_text
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
                 # 需求目標判「是不是改程式」另看 cp／mv 的來源與 Write 要寫的內容（目的地還不存在、新建的腳本沒副檔名）
@@ -2239,7 +2239,14 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 _once = False
                 for _hub_fp in _hub_targets:
                     # 需求目標第一層（4.2）：寫碼類檔沒有目標樹，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）；
-                    # 送法照 RULE_MODE（CODE_EDIT_NEEDS_GOAL_TREE 提醒；目標檔損毀／判定出錯＝GATE_SELF_ERROR）
+                    # 送法照 RULE_MODE（CODE_EDIT_NEEDS_GOAL_TREE 提醒；目標檔損毀／判定出錯＝GATE_SELF_ERROR）。
+                    # 先看 transcript 本回合有沒有「目標｜」行（規則 TREE_SET_VIA_TEXT）：有就照它立樹，不必多一個 need_goal 工具回合
+                    _ng_line, _ng_changed = _ng_set_via_text(
+                        _co_sid, _hub_state, _hub_fp, config, input_data.get("transcript_path", "") or "",
+                        str(input_data.get("agent_id") or ""), _cwd, _ng_sources.get(_hub_fp, ()), _ng_content)
+                    hub_changed = hub_changed or _ng_changed
+                    if _ng_line:
+                        _hub_warns.append(_ng_line)
                     _ng_deny = _ng_edit_gate(_co_sid, _hub_fp, config, _ng_sources.get(_hub_fp, ()), _ng_content)
                     if _ng_deny:
                         _ng_rule = "GATE_SELF_ERROR" if ("目標檔損毀" in _ng_deny or "時出錯" in _ng_deny) else "CODE_EDIT_NEEDS_GOAL_TREE"
@@ -2249,7 +2256,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         _ng_hit = (_remind_hit(_ng_rule, "need_goal_edit", _ng_deny.splitlines()[0], "need_goal(action=set, goal=…) 重寫樹")
                                    if _ng_rule == "GATE_SELF_ERROR" else
                                    _remind_hit(_ng_rule, "", "改程式檔前這個需求還沒有目標樹",
-                                               "先 need_goal(action=set, goal=…) 一句寫下真正要達成什麼（用使用者的話、只寫目標不寫手段）"))
+                                               f"回覆文字寫一行「{_ng_fmt}」（子目標每件一行「子目標｜…」），下一則再改，hook 照它立樹；"
+                                               "備援 need_goal(action=set, goal=…)"))
                         hub_changed = _remind_later(input_data, _hub_state, _ng_hit, "need_goal", path=_hub_fp) or hub_changed
                     _w, _d, _c, _hit = _hub_edit_check(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,

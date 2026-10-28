@@ -4374,3 +4374,21 @@ RULES.update({
                                 "否則放行、留帳 skipped_non_coding。第一則訊息的「要改碼先立樹」一行（CODE_TREE_HINT）仍看關鍵字，不在此列。",
 })
 RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE 建表之後：說明型規則，不是擋點（GATE_MODE_TABLE 要每條都有送法）
+
+# ─── 立樹走文字管道（T2 成本：need_goal set 多一個模型回合、ToolSearch 載工具再一回合）───────────────────────────
+RULES.update({
+    "TREE_SET_VIA_TEXT": "立需求目標樹走文字管道，工具 need_goal(action=set) 只當備援。格式：「目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>」"
+                         "一行，之後可多行「子目標｜<一件子目標>」（一行一件；沒有可省）。管道與定位行相同：比改檔早一則的回覆文字、或"
+                         + DECL_VIA_COMMENT + "；thinking 不讀、程式碼區塊裡的不算、含 <…> 的佔位句不算；同一段文字最後一個「目標｜」那組算現行。"
+                         "套用點：改程式檔的 PreToolUse（handlers/pre_tool_use 需求目標第一層，wg_need_goal.set_via_text 在 edit_gate 之前）："
+                         "這個 session 還沒有進行中的樹、主 transcript 本使用者回合（最後一則使用者本人打字之後）或子代理檔裡有「目標｜」"
+                         "→ 組成與 need_goal(action=set, kind=code, goal, items=[{text}]) 等價的輸入呼叫 apply_op，state 效果與 PostToolUse 收工具"
+                         "呼叫相同（need_goal_code_decl_turn＝本回合、已交定位作廢 on_goal_changed）；同一使用者回合 transcript 沒長就不重讀"
+                         "（state need_goal_text_scan）。留帳 Logs/guard-need_goal.jsonl event=set_via_text（拒收 set_via_text_rejected、"
+                         "出錯 set_via_text_error 不擋，沒樹照舊由 edit_gate 判）。同一則回覆裡的定位四行與「動資料檔｜」各走自己的解析器。",
+})
+RULES["GOAL_TREE_SET_ONCE"] += ("｜立樹本身走文字管道（TREE_SET_VIA_TEXT）：提醒 set 那一行教的是「目標｜」行，need_goal(action=set) 只當備援，"
+                                "照做的成本是零個模型回合。")
+RULES["CODE_EDIT_NEEDS_GOAL_TREE"] += ("｜擋／提醒訊息教的是在回覆文字寫「目標｜…」（子目標每件一行「子目標｜…」），下一則改檔時 hook 照它立樹"
+                                       "（TREE_SET_VIA_TEXT）；need_goal(action=set) 只當備援。")
+RULE_MODE["TREE_SET_VIA_TEXT"] = REMIND     # 不是閘（立樹成功只附一行、失敗留帳不擋）；RULE_MODE 在上面算完，這裡補登

@@ -1141,7 +1141,8 @@ def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: D
 def locate_read_hint(part: str, need_tree: bool, four: bool, first: bool) -> str:
     """LOCATE_HINT_ON_FIRST_READ 那一行：立樹＋定位併成一行。first＝本 session 第一則，給格式與管道（同缺定位擋訊息的要求）；
     之後的部位只點名、說格式同前。"""
-    tree = "先用 need_goal(action=set, goal=…) 立需求目標樹，再" if need_tree else ""
+    tree = ("先立需求目標樹（回覆文字寫一行「目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>」，子目標每件一行「子目標｜…」，"
+            "hook 照它立樹；備援 need_goal(action=set, goal=…)），再" if need_tree else "")
     if not first:
         return f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}交定位{'四' if four else '三'}行（格式同前一則提示）。"
     lines = ("交定位四行：定位｜部位、定位｜根因層（候選 A …；候選 B …；選 A 因為 …，只找到一個就寫「第二個不存在因為 …」）、定位｜前例、"

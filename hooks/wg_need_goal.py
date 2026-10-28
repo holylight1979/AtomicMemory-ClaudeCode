@@ -93,16 +93,15 @@ _RETRY_S = 0.02
 _RETRIES = 10
 STALE_DAYS = 30
 
-HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先用 need_goal(action=set, goal=…, items=[…]) "
-             "寫下它真正要達成什麼（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段），看得出的子目標同一次放 items；"
-             "純問答可以不寫。")
-# 開新樹收下時附的一句（B5 缺口①：AI 懂了子目標，樹上卻永遠只有樹根）：只送題，有沒有子目標由 AI 判斷
-SUBGOAL_LINE = ("樹根寫的是整個需求（使用者這次要的全部，不只這回合先做的那段）；已經看得出的子目標（使用者同一句話裡的其他要求、"
-                "要先達成的前提）下次在 set 同一次放 items 一起寫（這次沒帶就用 need_goal(action=add) 補），說不清的 clarity=open；"
-                "看不出就不用加。")
-# 使用者又說話時樹怎麼長（B5 缺口②：只提換題那條路，AI 被糾正也開新樹、舊樹不收）；每則訊息與糾正提醒共用
-TREE_PATHS = ("這則若是補充（多要一件事、新的條件）→ need_goal add 長成子目標；若是糾正 → 改這棵樹（update 改節點、"
-              "作廢的標放棄，set 改寫樹根），不開新樹；換成另一件事才 set new_task=true。")
+# 立樹走文字管道（規則 TREE_SET_VIA_TEXT）：這兩行寫在回覆文字或不寫檔指令開頭的 # 註解，改程式檔前的 PreToolUse 照它立寫碼樹；
+# 工具 need_goal(action=set) 只當備援（多一個模型回合）
+TEXT_SET_FORMAT = "目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>"
+TEXT_SET_SUB_FORMAT = "子目標｜<一件子目標>"
+TEXT_SET_HOWTO = (f"在回覆文字寫一行「{TEXT_SET_FORMAT}」，看得出的子目標每件一行「{TEXT_SET_SUB_FORMAT}」"
+                  f"（寫在比改檔早一則的回覆文字，或{rr.DECL_VIA_COMMENT}；thinking 讀不到），改程式檔前 hook 照它立樹；"
+                  "備援才用 need_goal(action=set, kind=code, goal=…, items=[…])")
+HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先寫下它真正要達成什麼"
+             f"（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段）：{TEXT_SET_HOWTO}；純問答可以不寫。")
 # 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；
 # 定位第五行的提示與「用目標視角重看」的兩問共用；只送題，適不適用由 LLM 判斷
 CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷（選替身）→ 替身和真正要判的事之間有沒有落差、同類情況會不會被誤判？"
@@ -1213,8 +1212,7 @@ _NO_TREE = "還沒有目標樹，先用 need_goal(action=set, goal=…) 寫樹�
 
 KINDS = ("code", "knowledge")
 # 規則 CODING_TURN_ONLY 第三層：關鍵字分類判成寫碼、但還沒宣告寫碼樹也還沒改程式時，只送這一行（不啟動守門）
-CODE_TREE_HINT = ("[NeedGoal] 這則看起來要改程式：動手前先 need_goal(action=set, kind=code, goal=<整個需求>, items=[看得出的子目標])"
-                  " 立寫碼樹；沒立樹直接改程式，守門從第一次改程式檔才起跑。")
+CODE_TREE_HINT = (f"[NeedGoal] 這則看起來要改程式：動手前{TEXT_SET_HOWTO}；沒寫就直接改程式，守門從第一次改程式檔才起跑。")
 
 
 def _declare_kind(tree: Dict[str, Any], inp: Dict[str, Any]) -> None:
@@ -1237,7 +1235,7 @@ def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, An
         add_checkpoint(doc, tree, turn, "set", tree["id"])
         events: List[Tuple[str, Dict[str, Any]]] = []
         root_line = _check_root(doc, tree, turn, events)
-        note = f"開了新樹 {tree['id']}。{SUBGOAL_LINE}" + (f"\n{root_line}" if root_line else "")
+        note = f"開了新樹 {tree['id']}：{_clip(goal, 200)}" + (f"\n{root_line}" if root_line else "")
         left = [n for n, v in (old or {}).get("nodes", {}).items() if v.get("status") in ("todo", "doing")]
         if left:
             note += (f"\n舊樹 {old['id']} 還有 {len(left)} 個沒結束的節點（{'、'.join(sorted(left, key=_sort_key)[:6])}）："
@@ -1621,7 +1619,7 @@ def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]]
                 sent["first"] = True
                 return HINT_LINE, True
             return None, False
-        lines = [f"[NeedGoal] 目前需求目標 {brief_for(tree, config=config)}", TREE_PATHS, *_origin_reminder(doc)]
+        lines = [f"[NeedGoal] 目前需求目標 {brief_for(tree, config=config)}", *_origin_reminder(doc)]
         hinted = False
         if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
             sent["after"].append(tree["id"])
@@ -1717,8 +1715,101 @@ def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: An
         _guard("edit_blocked", sid, path=path, why="error", error=f"{type(e).__name__}: {e}")
         return f"[NeedGoal] 判定改 {path} 前有沒有需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
     _guard("edit_blocked", sid, path=path, why="no_tree")
-    return (f"[NeedGoal] 改程式檔 {path} 前：這個需求還沒有目標樹。先用 need_goal(action=set, goal=…) 寫下"
-            "這個需求真正要達成什麼（一句、用使用者的話、只寫目標不寫手段），再改程式。" + NO_TOOL_HINT)
+    return (f"[NeedGoal] 改程式檔 {path} 前：這個需求還沒有目標樹。先寫下這個需求真正要達成什麼："
+            f"{TEXT_SET_HOWTO}（寫完下一則再改程式）。" + NO_TOOL_HINT)
+
+
+# ─── 4.2 立樹走文字管道（規則 TREE_SET_VIA_TEXT）──────────────────────────
+
+GOAL_LINE_RE = lazy_re(r"^[ \t]*#?[ \t]*(目標|子目標)｜[ \t]*(.+?)[ \t]*$", re.M)
+_FENCE_RE = lazy_re(r"```.*?(?:```|\Z)", re.S)     # 程式碼區塊外才算宣告（區塊裡的是範例或檔案內容）
+TEXT_SET_CHANNELS = ("text", "tool_input")           # 回覆文字、指令開頭的 # 註解；thinking 不讀（與定位行的放行條件一致）
+
+
+def parse_goal_lines(text: str) -> Optional[Tuple[str, List[str]]]:
+    """文字裡的「目標｜…」與其後的「子目標｜…」行 → (樹根一句, [子目標])；最後一個「目標｜」那組算現行（被擋後改寫的才是現行）。
+    程式碼區塊裡的不算；照抄範本的佔位句（含 <…>）不算；沒有「目標｜」回 None。"""
+    goal: Optional[str] = None
+    items: List[str] = []
+    for m in GOAL_LINE_RE.finditer(_FENCE_RE.sub("", text or "")):
+        key, val = m.group(1), m.group(2).strip()
+        if not val or ("<" in val and ">" in val):
+            continue
+        if key == "目標":
+            goal, items = val, []
+        elif goal is not None and val not in items:
+            items.append(val)
+    return (goal, items) if goal else None
+
+
+def goal_lines_in_transcript(transcript_path: str, agent_id: str, since: int) -> Optional[Tuple[str, List[str], str]]:
+    """主 transcript 從 since（本使用者回合起點的位元組位置）之後、子代理檔整份，AI 寫的「目標｜」組；回覆文字先、# 註解後。
+    回 (樹根, 子目標, 管道) 或 None。"""
+    main, _ = wg_core.transcripts_of(transcript_path, agent_id)
+    offsets = {main.replace("\\", "/").lower(): int(since)}
+    for ch in TEXT_SET_CHANNELS:
+        text = wg_core.assistant_texts_since(transcript_path, agent_id, ch, offsets)
+        if ch == "tool_input":
+            text = "\n".join(ln for ln in text.splitlines() if ln.lstrip().startswith("#"))
+        got = parse_goal_lines(text)
+        if got:
+            return got[0], got[1], ch
+    return None
+
+
+def _turn_offset(main_tp: str) -> int:
+    """本使用者回合在主 transcript 的起點：最後一則使用者本人打的訊息結束的位元組位置（工具結果、通知不算）；沒有從頭。"""
+    from wg_data_file import _transcript_user_entries
+    entries = _transcript_user_entries(main_tp)
+    return entries[-1][0] if entries else 0
+
+
+def set_via_text(sid: Any, state: Dict[str, Any], path: str, config: Optional[Dict[str, Any]], transcript_path: str,
+                 agent_id: str = "", cwd: str = "", sources: Any = (), content: Optional[str] = None) -> Tuple[Optional[str], bool]:
+    """規則 TREE_SET_VIA_TEXT：改程式檔前（edit_gate 之前）這個 session 還沒有進行中的樹、而 transcript 本使用者回合裡有「目標｜」行
+    → 組成與 need_goal(action=set, kind=code, goal, items) 等價的輸入呼叫 apply_op 立樹，state 標本回合宣告了寫碼樹
+    （need_goal_code_decl_turn，wg_core.coding_turn 第二層）、已交的定位作廢（wg_overview.on_goal_changed），留帳 set_via_text。
+    同一個使用者回合 transcript 沒長就不重讀（state need_goal_text_scan 記回合與大小）。回 (要附給 AI 的一行, state 改了沒)；
+    立樹失敗只留帳、回一行，沒樹照舊由 edit_gate 判。"""
+    if not sid or not path or str(path).startswith("UNKNOWN:") or not transcript_path or state is None:
+        return None, False
+    try:
+        if not _edit_gate_applies(path, config, sources, content) or active_tree(load(sid)) is not None:
+            return None, False
+    except Exception:  # noqa: BLE001  目標檔損毀、判不了：交 edit_gate 那一道報
+        return None, False
+    from overview_hub import transcript_size
+    turn = int(state.get("turn_seq", 0) or 0)
+    user_turn = rr.user_turn(state, turn)
+    main, files = wg_core.transcripts_of(transcript_path, agent_id)
+    size = sum(transcript_size(f) for f in files)
+    scan = state.get("need_goal_text_scan") or {}
+    if scan.get("turn") == user_turn and scan.get("size") == size:
+        return None, False
+    state["need_goal_text_scan"] = {"turn": user_turn, "size": size, "found": False}
+    got = goal_lines_in_transcript(transcript_path, agent_id, _turn_offset(main))
+    if not got:
+        return None, True
+    goal, items, via = got
+    try:
+        res = apply_op(sid, turn, {"action": "set", "kind": "code", "goal": goal, "items": [{"text": t} for t in items]}, cwd)
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+        print(f"[NeedGoal] 照回覆裡的「目標｜」立樹失敗（沒樹照舊判）：{err}", file=sys.stderr)
+        _guard("set_via_text_error", sid, path=path, via=via, error=err)
+        return f"[NeedGoal] 照回覆裡的「目標｜」立樹失敗：{err}", True
+    if not res["ok"]:
+        _guard("set_via_text_rejected", sid, path=path, via=via, rejected=res["rejected"])
+        return "[NeedGoal] 回覆裡的「目標｜」沒立成樹：" + "；".join(res["rejected"]), True
+    state["need_goal_text_scan"]["found"] = True
+    state["need_goal_code_decl_turn"] = turn        # 與 PostToolUse 收 need_goal set 的 state 效果一致（規則 CODING_TURN_ONLY 第二層）
+    if res["goal_changed"]:
+        from wg_overview import on_goal_changed
+        on_goal_changed(state, transcript_path, turn)
+    _guard("set_via_text", sid, tree=res["tree"], goal=_clip(goal, 200), items=len(items), via=via, turn_seq=turn, path=path)
+    extra = "".join(f"\n{ln}" for ln in res["text"].splitlines()[1:2] if ln.startswith("[NeedGoal] 樹根這幾句原話裡沒有"))
+    return (f"[NeedGoal] 已照回覆裡的「目標｜」立樹 {res['tree']}：{_clip(goal, 200)}"
+            + (f"（子目標 {len(items)} 件）" if items else "") + extra), True
 
 
 def tree_owed_for_edit(sid: Any, path: str, config: Optional[Dict[str, Any]]) -> bool:

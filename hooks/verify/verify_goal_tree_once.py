@@ -107,7 +107,7 @@ def test_need_goal_set_reply_has_no_follow_up_call_prompt(env):
     """need_goal set 的回覆、第一則訊息的立樹提示、MCP 工具說明：都不寫「接著 reconcile／verify_scope」。"""
     text = _op("set", goal="讓目標樹只立一次", cwd=str(env["proj"]))["text"]
     assert text.startswith("[NeedGoal] set 收下") and _follow_up_calls(text) <= {"set", "add"}, text
-    for line in (ng.HINT_LINE, ng.SUBGOAL_LINE):
+    for line in (ng.HINT_LINE, ng.CODE_TREE_HINT):
         assert _follow_up_calls(line) <= {"set", "add"}, line
     mcp = (MCP_DIR / "mcp.js").read_text(encoding="utf-8")
     assert "會問一次" not in mcp and "目標對照放 reconcile" not in mcp
