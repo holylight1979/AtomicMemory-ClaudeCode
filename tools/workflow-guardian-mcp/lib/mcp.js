@@ -527,137 +527,67 @@ const TOOL_DEFINITIONS = [
   {
     name: "need_goal",
     description:
-      "需求目標樹：每個要動手的需求先抓「真正要達成什麼」，工作中長出子目標，回頭對照做法有沒有更接近。" +
-      "set＝寫樹根（任務開始，寫整個需求、不只這回合先做的那段；要改程式帶 kind=code；被糾正或補充時改這棵樹、不開新樹；" +
-      "真的換成另一件事才帶 new_task=true 開新樹；import_from＝從續接單匯入；" +
-      "看得出的子目標同一次放 items，不必再叫 add）；" +
-      "add＝工作中再長出的子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
-      "update＝改節點文字／狀態／清楚度（改了程式之後的進度收尾時程式自動記，不必為此呼叫；要寫自己的判斷再用，why 選填）；" +
-      "reconcile＝完整對照（選用、不要求：交付時程式照收據代填，改動之後有綠收據的節點標達成、沒有的標部分；只有要寫自己的判斷或替「部分／沒有」補 followup 才交，" +
-      "交的話放進 anti_evasion_report 的 reconcile 欄一次交（同一套 items／turns），不必另呼叫本 tool。" +
-      "每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
-      "寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案／卡片／推論不算試過），" +
-      "實測只能配收據（ref 寫 latest 由程式填最近一筆綠的，不必先 read 查號碼；之後改了程式又跑綠會自動換新）且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note；" +
-      "達成可附 same_class：同類別處還有沒有）；" +
-      "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
-      "verify_scope＝宣告這次的驗證範圍（選用、hook 不會問）：由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
-      "items=[{target, why, inputs?, depends?}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關；" +
-      "inputs 是這一項還讀的非程式檔或資料夾，改了它們這一項要重跑；depends 是這一項用到的程式檔或資料夾，" +
-      "宣告了就只有改到它們（或這一項自己、case_for 列的、conftest）才要重跑，沒宣告則任何程式改動都要重跑）；每次宣告是完整範圍，" +
-      "收尾前範圍內每一項都要在最後一次改動之後跑綠（部位表整把量尺只當參考）；有待檢討的範圍漏判時附 reviews 逐筆檢討。" +
-      "每個改過的程式檔要由你宣告由哪個案例驗：驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for 列它；" +
-      "真的不需要新案例就寫進 no_case=[{path, reason}]，收尾時照【收尾放行確認】問使用者、題目帶理由。" +
-      "寫碼類任務沒有樹不能改程式。" +
-      "本 tool 只驗參數回 chip、不寫檔（one-writer：目標檔、編號、送回的樹由 Python PostToolUse 獨佔）。",
+      "需求目標樹：先寫「真正要達成什麼」，工作中長子目標，收尾對照；action＝set｜add｜update｜reconcile｜read｜verify_scope。" +
+      "set＝任務開始寫樹根 goal（整個需求一句、使用者的語言、只寫目標不寫手段），子目標同次放 items，要改程式帶 kind=code；被糾正時改這棵樹，真的換事才 new_task=true。" +
+      "set／update 可一起交 locate=[{part, lines}]（改程式前的定位四行）與 data_files=[{path, why}]（改使用者資料檔前的宣告）。" +
+      "樹也可以不呼叫本工具，直接在回覆文字寫 `目標｜<整個需求一句>` 與 `子目標｜<一件>` 行，hook 會在第一次改檔前讀走。" +
+      "add＝再長的子目標；update＝改節點；reconcile＝完整對照（選用，每個活著的節點交終點結論＋證據，可放進 anti_evasion_report 的 reconcile 欄一次交）；read＝送回目前的樹；verify_scope＝宣告驗證範圍（選用）。" +
+      "寫碼類任務沒有樹不能改程式；本 tool 只驗參數、不寫檔。",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read", "verify_scope"], description: "動作（必填）" },
-        goal: { type: "string", description: "set：一句、使用者的語言、只寫目標不寫手段（沒給 import_from 時必填）" },
-        new_task: { type: "boolean", description: "set：換成另一件事，開新樹" },
-        kind: { type: "string", enum: ["code", "knowledge"], description: "set：這件事要不要改程式（code＝寫碼類，宣告後本回合動手前的守門就起跑；knowledge＝記憶知識類）。沒給就等第一次改程式檔才標寫碼類" },
-        why: { type: "string", description: "set／update：選填，為什麼改（有寫就記進節點歷史）" },
-        import_from: { type: "string", description: "set：續接單路徑（從【需求目標樹】區塊匯入）" },
+        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read", "verify_scope"] },
+        goal: { type: "string", description: "set：樹根一句" },
+        new_task: { type: "boolean" },
+        kind: { type: "string", enum: ["code", "knowledge"] },
+        why: { type: "string" },
+        import_from: { type: "string", description: "set：續接單路徑" },
         locate: {
           type: "array",
-          description: "set／update 選填：改程式前的定位四行可以在這裡一起交，不必另發註解指令。每項一個部位：" +
-            "part＝部位名或該部位的檔路徑；lines＝[\"定位｜部位：…\",\"定位｜根因層：候選 A …；候選 B …；選 A 因為 …\"," +
-            "\"定位｜前例：…\",\"定位｜批判：合理／不合理，因為 …\"]（判法同改檔前；通過的部位改檔時不再要求定位行，沒過回覆說缺什麼）",
+          description: "定位四行隨樹一起交，不必另發註解指令；lines＝定位｜部位／根因層／前例／批判",
           items: {
             type: "object",
-            properties: {
-              part: { type: "string", description: "部位名（部位表的部位欄）或該部位底下的檔路徑" },
-              lines: { type: "array", items: { type: "string" }, description: "定位四行，一行一個元素" },
-            },
+            properties: { part: { type: "string" }, lines: { type: "array", items: { type: "string" } } },
             required: ["part", "lines"],
           },
         },
-        parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },
+        parent: { type: "string", description: "add：父節點，省略＝樹根" },
         items: {
           type: "array",
           description: "set／add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why?}]；" +
-            "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, depends?, case_for?}]",
+            "reconcile：[{id, status(終點), evidence?, followup?, note?, same_class?}]；" +
+            "verify_scope：[{target(測試檔／節點／資料夾／指令), why, inputs?(還讀的非程式檔), depends?(用到的程式檔), case_for?(驗的改過程式檔)}]",
           items: {
             type: "object",
             properties: {
-              target: { type: "string", description: "verify_scope：要驗的測試檔、測試節點（檔::名）、資料夾或指令" },
-              id: { type: "string", description: "update／reconcile：節點編號" },
-              text: { type: "string", description: "add／update：目標文字" },
-              status: { type: "string", enum: ["todo", "doing", "done", "partial", "none", "dropped"],
-                description: "update：任一狀態；reconcile：只收終點 done|partial|none|dropped" },
-              clarity: { type: "string", enum: ["clear", "open"], description: "明確／待展開" },
-              origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add／update：使用者說的／推出來的／工作中長出的（add 預設 grown）" },
-              quote: { type: "string", description: "add／update：標 origin=user 時引用使用者原話的字面子句（至少 6 字，或某則原話的整句如「要有測試。」；對不到原話會被改成 inferred）" },
-              why: { type: "string", description: "update 選填：這次改動讓它更接近了沒、為什麼；verify_scope 必填：為什麼和這次改動有關、會受什麼影響" },
+              status: { type: "string", enum: ["todo", "doing", "done", "partial", "none", "dropped"] },
+              clarity: { type: "string", enum: ["clear", "open"] },
+              origin: { type: "string", enum: ["user", "inferred", "grown"] },
+              quote: { type: "string", description: "標 origin=user 時引用的使用者原話子句（至少 6 字，或整句）" },
               evidence: {
                 type: "array",
-                description: "reconcile：證據",
-                items: {
-                  type: "object",
-                  properties: {
-                    kind: { type: "string", enum: ["receipt", "case", "file", "atom"], description: "收據／驗證案例檔／檔:行／卡名" },
-                    ref: { type: "string", description: "receipt 寫 latest（程式填最近一筆綠的）或 R<號>；case／file 寫路徑（可帶 :行），也可寫 pytest 節點 id（檔::測試名，要查得到那個 def 才收）；atom 寫卡名" },
-                    level: { type: "string", enum: ["measured", "read", "inferred"], description: "實測（只配收據）／讀碼／推論" },
-                    covers: { type: "array", items: { type: "string" }, description: "這筆證據支持哪幾個節點，省略＝所在節點" },
-                    unaffected: { type: "string", description: "選填：第二意見之後的修補只重跑碰到的 verify；這筆收據沒被碰到就寫為什麼後來改的檔不影響它（留帳）" },
-                  },
-                  required: ["kind", "ref", "level"],
-                },
+                description: "[{kind: receipt|case|file|atom, ref(receipt 寫 latest 或 R<號>), level: measured|read|inferred, covers?}]",
+                items: { type: "object" },
               },
-              followup: { type: "string", description: "reconcile：部分／沒有時接下來要追什麼" },
-              note: { type: "string", description: "reconcile：附註（放棄的理由寫這裡）" },
-              same_class: { type: "string", description: "reconcile：達成的節點可附——同類別處還有沒有：找到的位置，或為什麼沒有（只記錄、不擋）" },
-              inputs: { type: "array", items: { type: "string" },
-                description: "verify_scope（選填）：這一項還讀哪些不是程式的檔或資料夾（資料、文件、索引）；改了它們，這一項要重跑" },
-              depends: { type: "array", items: { type: "string" },
-                description: "verify_scope（選填）：這一項用到的程式檔或資料夾（它 import 的、它用子行程跑的）。宣告了，改到依賴以外的程式" +
-                  "不作廢這一項的收據（這一項自己、case_for 列的、conftest 照算）；沒宣告就任何程式改動都要重跑。漏列就漏驗，拿不準就多列或不填" },
-              case_for: { type: "array", items: { type: "string" },
-                description: "verify_scope（選填，只掛在測試檔或測試節點那一項）：這支案例驗的是哪些改過的程式檔（寫碼查核 (d) 認這裡的宣告，" +
-                  "改了別支測試不會替它清帳）" },
+              same_class: { type: "string" },
+              inputs: { type: "array", items: { type: "string" } },
+              depends: { type: "array", items: { type: "string" } },
+              case_for: { type: "array", items: { type: "string" } },
             },
           },
         },
-        no_case: {
-          type: "array",
-          description: "verify_scope（選填）：不需要新案例的改過程式檔與理由；收尾仍會擋，要照【收尾放行確認】問使用者、題目帶這個理由",
-          items: {
-            type: "object",
-            properties: {
-              path: { type: "string", description: "改過的程式檔" },
-              reason: { type: "string", description: "為什麼不需要新案例（例：只改訊息字串、既有案例 X 已經驗到）" },
-            },
-            required: ["path", "reason"],
-          },
-        },
+        no_case: { type: "array", description: "verify_scope：[{path, reason}] 不需要新案例的改過程式檔", items: { type: "object" } },
         reviews: {
           type: "array",
-          description: "verify_scope：待檢討的範圍漏判逐筆檢討（有待檢討的才要給）",
-          items: {
-            type: "object",
-            properties: {
-              leak: { type: "string", description: "範圍漏判編號 L…" },
-              verdict: { type: "string", enum: ["missed", "unrelated"], description: "missed＝該驗的沒驗到；unrelated＝與那次改動無關" },
-              root_cause: { type: "string", description: "missed 必填：沒驗到的根因（當初判斷範圍時漏看了什麼、為什麼漏看）" },
-              next_time: { type: "string", description: "missed 必填：下次判斷範圍時要怎麼改" },
-              reason: { type: "string", description: "unrelated 必填：查明的理由" },
-            },
-            required: ["leak", "verdict"],
-          },
+          description: "verify_scope：[{leak, verdict: missed|unrelated, root_cause?, next_time?, reason?}] 範圍漏判逐筆檢討",
+          items: { type: "object" },
         },
-        turns: { type: "integer", description: "reconcile：這次拐了幾個彎（選填）" },
-        form: { type: "string", enum: ["full", "compact", "handoff"], description: "read：顯示形式，預設 full" },
+        turns: { type: "integer" },
+        form: { type: "string", enum: ["full", "compact", "handoff"] },
         data_files: {
           type: "array",
-          description: "set／update（選填）：改使用者資料檔前的宣告可在這裡一起交，不必另發註解指令；每檔一項 {path, why}，why 空的那項不算宣告",
-          items: {
-            type: "object",
-            properties: {
-              path: { type: "string", description: "要動的使用者資料檔路徑（相對專案或絕對）" },
-              why: { type: "string", description: "為什麼要動、改完使用者會看到什麼不同" },
-            },
-            required: ["path", "why"],
-          },
+          description: "資料檔宣告隨樹一起交，不必另發註解指令",
+          items: { type: "object", properties: { path: { type: "string" }, why: { type: "string" } }, required: ["path", "why"] },
         },
       },
       required: ["action"],
