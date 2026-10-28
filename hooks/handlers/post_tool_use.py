@@ -1092,8 +1092,8 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         lines: List[str] = []
         for p in targets or []:
             if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
-                line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 沒樹時改了知識類：要寫輕樹（一回合一次）
-                if line and not agent_id:        # 子代理改的照記帳，「去寫樹」的提示不送給它（樹是主 session 的）
+                line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 蓋號；沒樹改知識類只記 untreed、目前不回提示（NON_CODING_TURN_NO_NUDGE）
+                if line and not agent_id:        # 子代理改的照記帳，提示（若有）不送給它（樹是主 session 的）
                     lines.append(line)
         if tool_name in ("Bash", "PowerShell"):
             ng.stamp_receipts(session_id, state, turn)

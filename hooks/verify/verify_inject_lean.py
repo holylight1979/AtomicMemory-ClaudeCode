@@ -1,7 +1,8 @@
 """verify_inject_lean.py — 寫碼回合的記憶注入只送該到的：trigger 命中給整段，其餘一行，已整段送過的只指回。
 
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_inject_lean.py
-守住（v6 開、這則判成寫碼意圖才生效；v6 關或不是寫碼意圖照舊）：
+守住（v6 開、而且這個使用者回合已是寫碼回合才生效——wg_core.coding_turn：本回合改過程式檔或宣告了寫碼樹，prompt 關鍵字意圖不算
+（規則 NON_CODING_TURN_NO_NUDGE）；v6 關或不是寫碼回合照舊）：
 1. CODING_TURN_FULL_ONLY_ON_TRIGGER：bm25／vector／related 命中的卡就算 hot（7 天內讀過 ≥3 次）也只給一行；trigger 命中的照樣整段。
 2. POINTER_NO_NAME_ECHO：一行指標的摘要／標題只是卡名再寫一次時不重印（cold 行、budget skip 路標都是）。
 3. NO_RESEND_AFTER_RESUME：本 session 最近一次壓縮之後整段送過的卡，resume 清空 injected_atoms 後再命中只給一行指回；
@@ -74,8 +75,12 @@ def v6_on(monkeypatch):
     monkeypatch.setenv("WG_V6", "1")
 
 
+CODE_EDIT = {"path": "C:/proj/app.py", "last_turn_seq": 9}     # 本回合（含案例裡 turn_seq 往前推到的回合）改過程式檔
+
+
 def _coding_state(**extra):
-    return {"turn_seq": 0, "turn_intent": "feature", **extra}
+    """寫碼回合的 state：實質行為（改過程式檔），不靠 turn_intent。"""
+    return {"turn_seq": 0, "modified_files": [dict(CODE_EDIT)], **extra}
 
 
 # ─── 1. CODING_TURN_FULL_ONLY_ON_TRIGGER ─────────────────────────────────────
@@ -154,16 +159,51 @@ def test_trigger_card_full_text_same_as_before(mem, v6_on, monkeypatch):
     assert "## 知識" in _block(lean_lines, TRIGGER_CARD)
 
 
-@pytest.mark.parametrize("env,intent", [("0", "feature"), ("1", "general"), ("1", None)])
-def test_off_or_not_coding_keeps_hot_full(mem, monkeypatch, env, intent):
-    """v6 關、或這則不是寫碼意圖：hot 的 bm25 卡照舊給整段，一行指標照舊重印標題。"""
+@pytest.mark.parametrize("env,state", [
+    ("0", {"turn_seq": 0, "modified_files": [dict(CODE_EDIT)]}),                 # v6 關：改過碼也照舊
+    ("1", {"turn_seq": 0}),                                                       # 沒改碼、沒宣告樹
+    ("1", {"turn_seq": 0, "turn_intent": "refactor"}),                            # 關鍵字判成寫碼意圖但沒改碼、沒宣告樹：不瘦身
+    ("1", {"turn_seq": 3, "turn_prompts_seq": 3, "modified_files": [{"path": "C:/proj/app.py", "last_turn_seq": 2}]}),   # 改碼是上一回合的事
+    ("1", {"turn_seq": 0, "modified_files": [{"path": "C:/proj/notes.md", "last_turn_seq": 9}]}),                        # 只改了文件
+])
+def test_off_or_not_coding_keeps_hot_full(mem, monkeypatch, env, state):
+    """v6 關、或這個回合還不是寫碼回合（規則 NON_CODING_TURN_NO_NUDGE：關鍵字意圖不算、上一回合改的碼不算、只改文件不算）：
+    hot 的 bm25 卡照舊給整段，一行指標照舊重印標題。舊碼看 turn_intent → refactor 那組瘦身 → 紅。"""
     monkeypatch.setenv("WG_V6", env)
     _mk(mem, BM25_CARD, hot=True)
     _mk(mem, "cold-card")
-    state = {"turn_seq": 0, **({"turn_intent": intent} if intent else {})}
     lines, forms = _run(mem.parent, state, [BM25_CARD, "cold-card"], ["bm25", "bm25"])
     assert forms == {BM25_CARD: "ok", "cold-card": "cold"}
     assert _block(lines, "cold-card").startswith("[Atom:cold-card] (cold) cold-card (full: Read ")
+
+
+@pytest.mark.parametrize("state", [
+    {"turn_seq": 3, "turn_prompts_seq": 3, "turn_intent": "refactor", "modified_files": [{"path": "C:/proj/app.py", "last_turn_seq": 3}]},
+    {"turn_seq": 3, "turn_prompts_seq": 3, "turn_intent": "general", "need_goal_code_decl_turn": 3},   # 宣告了寫碼樹、意圖字樣無關
+    {"turn_seq": 3, "turn_prompts_seq": 3, "unknown_writes": [{"turn_seq": 3}]},                         # 判不出寫了什麼：保守算
+])
+def test_lean_follows_actual_coding_behaviour(mem, v6_on, state):
+    """同一回合改過碼（或宣告了寫碼樹、有判不出目標的寫入）之後的 prompt：瘦身——hot 的 bm25 卡只給一行。"""
+    _mk(mem, BM25_CARD, hot=True)
+    lines, forms = _run(mem.parent, state, [BM25_CARD], ["bm25"])
+    assert forms == {BM25_CARD: "cold"} and "## 知識" not in _block(lines, BM25_CARD)
+
+
+def test_first_prompt_of_new_turn_is_never_lean(mem, v6_on):
+    """走真的 UPS 回合推進（ups_gates.track_turn_prompts）：上一回合改了碼，使用者再打字開新回合 → 注入前 turn_prompts_seq 已前進，
+    coding_turn 為假、第一則不瘦身；同回合排隊進來的後續 prompt（回合沒關、已改碼）才瘦身。"""
+    from handlers.ups_gates import track_turn_prompts
+    _mk(mem, BM25_CARD, hot=True)
+    state = {"turn_seq": 4, "turn_prompts_seq": 3, "turn_open": False, "turn_prompts": ["上一則"], "turn_typed": True,
+             "modified_files": [{"path": "C:/proj/app.py", "last_turn_seq": 4}]}
+    track_turn_prompts(state, "再改一處", v6=True)           # Stop 關過回合 → 使用者打字開新回合：turn_prompts_seq＝5
+    assert state["turn_prompts_seq"] == 5 and not ups_inject._lean_turn(state, {})
+    _, forms = _run(mem.parent, state, [BM25_CARD], ["bm25"])
+    assert forms == {BM25_CARD: "ok"}
+    state["turn_seq"] = 5
+    state["modified_files"].append({"path": "C:/proj/cli.py", "last_turn_seq": 5})   # 這回合改了碼
+    track_turn_prompts(state, "順便補測試", v6=True)        # 同回合排隊進來的後續 prompt：序號不動
+    assert state["turn_prompts_seq"] == 5 and ups_inject._lean_turn(state, {})
 
 
 # ─── 2. POINTER_NO_NAME_ECHO ────────────────────────────────────────────────

@@ -110,11 +110,6 @@ CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷�
                   "還是因為什麼都沒發生（先斷言前置狀態成立）？")
 # 同一個 session 送過全文之後的那句指回（規則 CRITIQUE_CASES_ONCE_PER_SESSION）
 CRITIQUE_CASES_POINTER = "遇到選替身、換前提、寫「期望不發生」的案例這三種情況，照前面那則全文再多問一句。"
-# 沒有目標樹時改了記憶知識類的檔（寫入當下，一回合一次）：知識類也要一棵輕樹；不擋寫檔，收尾還沒補由 (f4) 要
-KNOWLEDGE_TREE_LINE = ("[NeedGoal] 改了 {name}（記憶知識類），這個 session 還沒有需求目標樹：文件、記憶、設定這類任務也要一棵輕樹——"
-                       "用 need_goal(action=set, goal=…) 寫下這次真正要達成什麼（一句、用使用者的話、只寫目標不寫手段；一個節點就夠，"
-                       "不要求定位行），沒樹時改的檔會自動掛進樹；做完自己核一下該保留的內容都還在嗎（不必另呼叫工具）。"
-                       "這一步不擋寫檔；收尾時還沒寫樹由 (f4) 處理（記憶知識類，不問使用者）。")
 UNTREED_MAX = 200            # 沒樹時改的記憶知識類檔最多記幾個（同一檔只記一筆；超過丟最舊的並記 untreed_dropped）
 
 
@@ -1788,8 +1783,8 @@ def _hub_part_of(path: str, config: Optional[Dict[str, Any]]) -> Optional[Tuple[
 def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[Dict[str, Any]]) -> Optional[str]:
     """改檔蓋號：掛到部位連到的節點（沒有就樹根）；程式檔記待對照、記改到的部位（parts_edited，收尾 (f3) 查它掛了目標沒）、
     樹升寫碼類、已對照或結束的樹退回進行中（記憶知識類的樹改了知識類檔也退回）。沒有樹：程式檔不記（改之前 edit_gate 已擋）；
-    算記憶知識類寫入的（_knowledge_write）記進 untreed（寫樹時掛進新樹），這個回合第一筆回 KNOWLEDGE_TREE_LINE 給呼叫端送回 AI。
-    其餘回 None。"""
+    算記憶知識類寫入的（_knowledge_write）只記進 untreed（之後寫樹時掛進新樹、收尾 (f4) 讀它），不催 AI 立樹——純改文件、記憶、
+    設定的回合不跑守門（規則 CODING_TURN_ONLY）。一律回 None；回傳位留給呼叫端的提示管道。"""
     if not sid or not path or not cfg_of(config, _root_of(path))["enabled"]:
         return None
     from wg_verify_ledger import git_launcher
@@ -1797,7 +1792,9 @@ def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[D
         return None
     code = is_code_path(path, config)
     if active_tree(load(sid)) is None:
-        return _note_untreed(sid, path, turn) if not code and _knowledge_write(path, config) else None
+        if not code and _knowledge_write(path, config):
+            _note_untreed(sid, path, turn)
+        return None
     hub_key = _hub_key_of(path)
     part = _hub_part_of(path, config) if code else None
 
@@ -1850,12 +1847,12 @@ def _knowledge_write(path: str, config: Optional[Dict[str, Any]]) -> bool:
     return bool(Path(p).suffix) and not is_code_path(p, config)
 
 
-def _note_untreed(sid: Any, path: str, turn: int) -> Optional[str]:
+def _note_untreed(sid: Any, path: str, turn: int) -> None:
     """沒有目標樹時改了記憶知識類的檔：記進 doc["untreed"]（同一檔一筆、更新回合；收尾 (f4) 與寫樹掛進樹都讀它），
-    這個回合第一筆回 KNOWLEDGE_TREE_LINE。上鎖後發現樹已經在了就不記（並行的 set 先到）。"""
-    def fn(doc: Dict[str, Any]) -> Optional[str]:
+    這個回合第一筆留守門紀錄 knowledge_no_tree（只記帳，不送提示）。上鎖後發現樹已經在了就不記（並行的 set 先到）。"""
+    def fn(doc: Dict[str, Any]) -> bool:
         if active_tree(doc) is not None:
-            return None
+            return False
         log = doc.setdefault("untreed", [])
         seq = next_seq(doc)
         hit = next((e for e in log if rr.same_file(str(e.get("path") or ""), str(path))), None)
@@ -1869,14 +1866,12 @@ def _note_untreed(sid: Any, path: str, turn: int) -> Optional[str]:
             doc["untreed_dropped"] = int(doc.get("untreed_dropped") or 0) + len(dropped)
             _guard("untreed_dropped", sid, dropped=dropped[:5], total=doc["untreed_dropped"], turn_seq=turn)
         if doc.get("untreed_hint_turn") == turn:
-            return None
+            return False
         doc["untreed_hint_turn"] = turn
-        return KNOWLEDGE_TREE_LINE.format(name=Path(str(path)).name)
+        return True
 
-    line = update_locked(sid, fn)
-    if line:
+    if update_locked(sid, fn):
         _guard("knowledge_no_tree", sid, path=str(path), turn_seq=turn)
-    return line
 
 
 def _receipt_ident(key: str, receipt_seq: Any, at: Any) -> str:

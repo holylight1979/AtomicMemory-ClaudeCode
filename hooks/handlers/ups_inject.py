@@ -20,7 +20,7 @@ import json as _json_mod
 import os
 from datetime import datetime
 
-from wg_core import CLAUDE_DIR, log_promotion_audit, _atom_debug_log, _estimate_tokens, v6_enabled
+from wg_core import CLAUDE_DIR, coding_turn, log_promotion_audit, _atom_debug_log, _estimate_tokens, v6_enabled
 from wg_atoms import (
     AtomEntry,
     _strip_atom_for_injection,
@@ -110,17 +110,16 @@ def redundant_with(triggers, full_seen: List[Tuple[str, set]], min_shared: int) 
 
 
 def _lean_turn(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """寫碼回合精簡注入：v6 開、而且這則判成寫碼意圖（state turn_intent，UPS 在檢索前就判好；規則 CODING_TURN_ONLY 第三層的記憶選片）。
+    """寫碼回合精簡注入：v6 開、而且這個使用者回合已經是寫碼回合（wg_core.coding_turn：本回合改過程式檔或宣告了寫碼類目標樹；
+    prompt 關鍵字判成的寫碼意圖不算）。UPS 的 track_turn_prompts 在注入之前就把新回合的 turn_prompts_seq 往前推，所以使用者
+    打字開的第一則永遠不瘦身（上一回合改的碼不算這一回合的）；同一回合排隊進來的後續 prompt，前面已改過碼才瘦身。
     成立時三條規則一起生效，不成立照舊：
     - CODING_TURN_FULL_ONLY_ON_TRIGGER：只有 trigger 命中的卡給整段；bm25／vector／related 命中的一律走一行（不看 hot／cold）。
     - POINTER_NO_NAME_ECHO：一行指標的摘要只是把卡名再寫一次時不重印，只留卡名＋路徑。
     - NO_RESEND_AFTER_RESUME：本 session 最近一次壓縮之後已整段送過的卡，再命中只給一行指回（resume 會清空 injected_atoms，
       但對話還在 context 裡）。
     一行送過的卡照舊進 injected_atoms（搜尋段排除它、失念偵測當它注入過），這則被 trigger 命中時由 _line_upgrades 補回整段。"""
-    if not v6_enabled(config or {}):
-        return False
-    from handlers.user_prompt_submit import _CODE_INTENTS   # 呼叫端已載入；放函式內免循環匯入
-    return (state or {}).get("turn_intent") in _CODE_INTENTS
+    return v6_enabled(config or {}) and coding_turn(state or {}, config or {})
 
 
 def _iso_ts(value: Any) -> float:

@@ -65,7 +65,8 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(ptu, "output_json", _out)
     monkeypatch.setattr(ptu, "output_nothing", _nothing)
     wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(proj)}, "turn_seq": 1,
-                              "recent_user_prompts": [B1_PROMPT], "turn_prompts": [B1_PROMPT]})
+                              "recent_user_prompts": [B1_PROMPT], "turn_prompts": [B1_PROMPT],
+                              "modified_files": [{"path": str(proj / "app.py"), "last_turn_seq": 1}]})   # 寫過程式的 session 才問
     tp = tmp_path / "t.jsonl"
     _transcript(tp, [_user(B1_PROMPT), _assistant("text", "先看 report 的設定怎麼讀")])
     return {"proj": proj, "tp": str(tp), "outputs": outputs, "logs": logs}
@@ -542,6 +543,41 @@ def test_subagent_declaration_seen_when_hook_gives_agent_transcript(world):
     _transcript(main, [_user(B1_PROMPT)])
     _transcript(agent, [_user("改 report"), _assistant("text", DECL)])
     assert not _df_deny(_agent_run(world, agent))
+
+
+def _non_coding(w):
+    """這個 session 只改過文件、沒改過程式檔。"""
+    st = wg_core.read_state(SID)
+    st["modified_files"] = [{"path": str(w["proj"] / "README.md"), "last_turn_seq": 1}]
+    wg_core.write_state(SID, st)
+
+
+def test_session_without_code_edits_is_not_asked_until_code_is_touched(world, post_read):
+    """規則 NON_CODING_TURN_NO_NUDGE：這個 session 沒改過程式檔（只改過文件）→ 改使用者既有的 settings.json 不擋、不留宣告帳，
+    只留 skipped_non_coding；讀到它也不提示（閘不會問的不提示）。之後改了程式檔再改 .json → 提示與擋照舊。舊碼不看 session 寫沒寫碼 → 紅。"""
+    _non_coding(world)
+    assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "settings.json")})
+    assert not _df_deny(_run(world))
+    assert [e["event"] for e in _log(world)] == ["skipped_non_coding"]
+    st = wg_core.read_state(SID)
+    assert not st.get("data_file_declared") and not st.get("data_file_hinted")
+    st["modified_files"].append({"path": str(world["proj"] / "app.py"), "last_turn_seq": 2})
+    wg_core.write_state(SID, st)
+    assert "改 settings.json 前先宣告" in post_read({"file_path": str(world["proj"] / "settings.json")})
+    assert _df_deny(_run(world))
+    assert [e["event"] for e in _log(world)] == ["skipped_non_coding", "read_hint", "denied"]
+
+
+def test_command_writing_code_and_data_together_is_asked_in_non_coding_session(world):
+    """session 還沒改過程式，但這一條指令同時寫程式檔與設定檔 → 設定檔那個照問（這次指令本身就在寫程式）。"""
+    _non_coding(world)
+    from wg_core import write_paths_from_tool
+    cmd = "echo x > app.py; sed -i 's/,}/}/' settings.json"
+    assert set(write_paths_from_tool("Bash", {"command": cmd}, str(world["proj"]))) == \
+        {str(world["proj"] / "app.py"), str(world["proj"] / "settings.json")}, "前置：兩個目標都算得出"
+    out = _shell(world, cmd)
+    assert _df_deny(out) and "settings.json" in _reason(out)
+    assert _log(world)[-1]["event"] == "denied"
 
 
 def test_broken_state_does_not_block_and_logs(world):

@@ -52,6 +52,10 @@ def test_044_every_rule_has_a_case():
     ("DECL_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
     ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
+    ("NON_CODING_TURN_NO_NUDGE", "verify_need_goal.py"),
+    ("NON_CODING_TURN_NO_NUDGE", "verify_inject_lean.py"),
+    ("NON_CODING_TURN_NO_NUDGE", "verify_locate_hint.py"),
+    ("NON_CODING_TURN_NO_NUDGE", "verify_data_file_ask.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""

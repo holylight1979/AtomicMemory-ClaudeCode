@@ -494,7 +494,7 @@
   },
   "guard": {
     "data_file_ask": {
-      "_doc": "AI 改使用者既有的資料檔／設定檔（非程式、非本 session 建、原話沒點名）要先宣告「動資料檔｜路徑：為什麼」或先問；Edit／Write／NotebookEdit 與 Bash／PowerShell 寫入目標都管（hooks/wg_data_file.py；規則 USER_DATA_FILE_NEEDS_DECLARATION）。extensions 給了就整份取代預設 .json .jsonc .yaml .yml .toml .ini .cfg .conf .env .csv .tsv .xml .properties .plist。enabled=false 整條不擋。",
+      "_doc": "AI 改使用者既有的資料檔／設定檔（非程式、非本 session 建、原話沒點名）要先宣告「動資料檔｜路徑：為什麼」或先問；Edit／Write／NotebookEdit 與 Bash／PowerShell 寫入目標都管（hooks/wg_data_file.py；規則 USER_DATA_FILE_NEEDS_DECLARATION）。只在這個 session 改過程式檔（state modified_files 有程式檔）或這次指令同時寫程式檔時才問，純文件／設定的回合放行、留帳 skipped_non_coding。extensions 給了就整份取代預設 .json .jsonc .yaml .yml .toml .ini .cfg .conf .env .csv .tsv .xml .properties .plist。enabled=false 整條不擋。",
       "enabled": true
     },
     "old_test_declare": {
