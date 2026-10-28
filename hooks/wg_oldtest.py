@@ -403,8 +403,7 @@ def _log(event: str, sid: str, path: str, **kw: Any) -> None:
 def hint(first: str) -> str:
     # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：宣告的管道講清楚，宣告完照常用 Edit／Write，不把 AI 引去用 Bash 寫檔
     import wg_release_rules as rr
-    return ("宣告行要比這次工具呼叫早一則訊息送出（跟工具呼叫同一則送出的文字，這裡還看不到），或寫在"
-            f"{rr.DECL_VIA_COMMENT}。{rr.DECL_KEEP_EDIT}。"
+    return (f"宣告行放哪：{rr.DECL_WHERE}。{rr.DECL_KEEP_EDIT}。"
             f"真的要改這幾支舊測試 → 先分是哪一種：使用者要的新行為讓舊斷言不再對（例：使用者要千分位、舊斷言沒有千分位）"
             f"→ 先寫一行「改舊測試｜{first}：<為什麼舊斷言不再對；使用者原話>」再改，多支用「、」分隔、每支都要列到（改名寫舊的名字）；"
             "使用者只說「跳過／先不管」某支紅測＝這件不做、不是讓它不紅 → 別加 skip、別改斷言，"

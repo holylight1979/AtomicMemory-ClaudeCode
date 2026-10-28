@@ -529,9 +529,9 @@ const TOOL_DEFINITIONS = [
     description:
       "需求目標樹：先寫「真正要達成什麼」，工作中長子目標，收尾對照；action＝set｜add｜update｜reconcile｜read｜verify_scope。" +
       "set＝任務開始寫樹根 goal（整個需求一句、使用者的語言、只寫目標不寫手段），子目標同次放 items，要改程式帶 kind=code；被糾正時改這棵樹，真的換事才 new_task=true。" +
-      "set／update 可一起交 locate=[{part, lines}]（改程式前的定位四行）與 data_files=[{path, why}]（改使用者資料檔前的宣告）。" +
-      "樹也可以不呼叫本工具，直接在回覆文字寫 `目標｜<整個需求一句>` 與 `子目標｜<一件>` 行，hook 會在第一次改檔前讀走。" +
-      "add＝再長的子目標；update＝改節點；reconcile＝完整對照（選用，每個活著的節點交終點結論＋證據，可放進 anti_evasion_report 的 reconcile 欄一次交）；read＝送回目前的樹；verify_scope＝宣告驗證範圍（選用）。" +
+      "set／update 可一起交 locate=[{part, lines}]（定位行）與 data_files=[{path, why}]（改資料檔的宣告）。" +
+      "也可不呼叫工具：先發不寫檔的 Bash，`目標｜<整個需求一句>`、`子目標｜<一件>` 行放它開頭的 `#` 註解，接著改檔，hook 讀走；回覆文字要早一則（同一則接著呼叫工具的文字 hook 讀不到）。" +
+      "add＝再長的子目標；update＝改節點；reconcile＝完整對照（選用，每個活著的節點交終點結論＋證據，可放 anti_evasion_report 的 reconcile 欄）；read＝回目前的樹；verify_scope＝宣告驗證範圍。" +
       "寫碼類任務沒有樹不能改程式；本 tool 只驗參數、不寫檔。",
     inputSchema: {
       type: "object",

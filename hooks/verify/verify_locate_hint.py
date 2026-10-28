@@ -76,6 +76,14 @@ def _rec_of(part):
     return next(v for k, v in wg_core.read_state(SID)["overview_hub"].items() if k.endswith(f"|{part}"))
 
 
+def _next_user_turn():
+    """下一個使用者回合（turn_prompts_seq 跟著進）：LOCATE_FIRST_EDIT_BLOCKS_ONCE 的那一輪只管第一次改檔的那個使用者回合。"""
+    st = wg_core.read_state(SID) or {}
+    st["turn_seq"] = int(st.get("turn_seq", 0) or 0) + 1
+    st["turn_prompts_seq"] = st["turn_seq"]
+    wg_core.write_state(SID, st)
+
+
 FOUR = THREE2 + CRIT
 
 
@@ -88,9 +96,10 @@ def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hoo
     _coding(hooked)
     ctx = post_read({"file_path": f1})
     hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
-    assert "先立需求目標樹（回覆文字寫一行「目標｜" in hint and "交定位四行" in hint
+    assert "先立需求目標樹（寫一行「目標｜" in hint and "交定位四行" in hint
     assert "候選 A …；候選 B …；選 A 因為 …" in hint and "合不合理、為什麼" in hint
-    assert "回覆文字" in hint and "開頭的 `#` 註解" in hint and "（thinking 讀不到）" in hint and "照常用 Edit／Write" in hint
+    assert "開頭的 `#` 註解" in hint and "（thinking 讀不到）" in hint and "照常用 Edit／Write" in hint
+    assert hint.index("開頭的 `#` 註解") < hint.index("早一則")           # 先同一則先發指令的 # 註解、其次早一則的回覆文字（DECL_WHERE）
     assert "戰鬥導讀" not in ctx                                                    # 讀檔結果只有提示、沒有卡（READ_TOUCH_NO_CARD）
     assert not [o for o in hooked["outputs"] if o]                                 # 還沒有任何 PreToolUse 輸出：提示在第一個 Edit 之前
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
@@ -109,8 +118,9 @@ def test_locate_hint_ignored_not_blocked_and_not_reminded_twice(hooked, post_rea
     f1 = _mapped_world(hooked)
     _coding(hooked)
     assert "立需求目標樹" in post_read({"file_path": f1})
-    assert _edit(hooked, f1)                                              # 第一次缺定位：擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
-    assert _edit(hooked, f1) is None                                      # 第二次：不擋
+    assert _edit(hooked, f1)                                              # 第一次缺定位：擋這一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
+    _next_user_turn()                                                     # 這一輪只管第一次改檔的那個使用者回合
+    assert _edit(hooked, f1) is None                                      # 下一個使用者回合：不擋
     state = wg_core.read_state(SID)
     pending_rules = lambda st: [h["rule"] for h in st.get("remind_pending") or []]   # noqa: E731
     assert pending_rules(state) == ["OVERVIEW_CARD_BEFORE_EDIT"]                   # 等著送的只有卡，沒有立樹／定位的第二次提醒

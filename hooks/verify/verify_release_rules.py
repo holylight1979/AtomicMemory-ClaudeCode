@@ -2538,6 +2538,26 @@ def test_decl_hints_do_not_steer_to_bash_writes():
     assert "照常用 Edit／Write" in rr.DECL_KEEP_EDIT and "不寫檔" in rr.DECL_VIA_COMMENT
 
 
+def test_decl_where_puts_comment_channel_first():
+    """DECL_HINT_KEEPS_EDIT_TOOLS 的順位：每句教宣告放哪的字（目標｜、定位四行、動資料檔｜、改舊測試｜、地圖三行、MCP need_goal 說明）
+    一律先講「同一則先發不寫檔指令的 `#` 註解」、其次「早一則的回覆文字」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）。
+    改前全部把回覆文字排第一，AI 照第一順位做就白寫（同一則接著 Edit，hook 當下讀不到那段文字）。"""
+    import wg_need_goal as ng
+    import wg_oldtest as ot
+    import wg_overview as wo
+    assert rr.DECL_WHERE.startswith("同一則回覆裡先發一條不寫檔的") and "hook 當下讀不到" in rr.DECL_WHERE
+    mcp = (HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
+    need_goal_desc = mcp.split('name: "need_goal"', 1)[1].split("inputSchema", 1)[0]
+    texts = {"DECL_WHERE": rr.DECL_WHERE, "DECL_WHERE_SHORT": rr.DECL_WHERE_SHORT, "TEXT_SET_HOWTO": ng.TEXT_SET_HOWTO,
+             "locate_read_hint": wo.locate_read_hint("戰鬥", True, True, True), "LOCATE_EXAMPLE_AGAIN": wo.LOCATE_EXAMPLE_AGAIN,
+             "MIN_MAP_ENTRY": "\n".join(wo.MIN_MAP_ENTRY), "_locate_ask": wo._locate_ask({"part_short": "戰鬥"}, None, 0, 0)[0],
+             "data_file_hint": rr.data_file_hint("a.json"), "data_file_fix": rr.data_file_fix(["a.json"]),
+             "data_file_read_hint": rr.data_file_read_hint(["a.json"], True), "oldtest.hint": ot.hint("test_x"),
+             "mcp need_goal": need_goal_desc}
+    for name, t in texts.items():
+        assert "`#` 註解" in t and "早一則" in t and t.index("`#` 註解") < t.index("早一則"), name
+
+
 # ─── 閘小修 008 A：規則名登錄、對照的案例真的在、案例點到規則名 ───
 _008A_CASES = {
     "OLD_TEST_COMPARED_ON_FAILED_COMMAND": ("verify_old_test_declare.py",

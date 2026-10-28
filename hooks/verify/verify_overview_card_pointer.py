@@ -94,7 +94,7 @@ def test_pointer_first_touch_sends_defect_line_and_card_path(proj, tmp_path):
     hint = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
     assert hint.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前") and "已知病灶" not in hint and _card(proj) not in hint
     _, txt, _, hit = wo.edit_check(state, "s", f1, tp, {})                       # 沒交定位：擋這一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE），訊息＝卡＋定位要求
-    assert "已知病灶：共用字典跨場次沒清，第二場數值帶前一場" in txt and "這一次擋" in txt
+    assert "已知病灶：共用字典跨場次沒清，第二場數值帶前一場" in txt and "這一輪擋" in txt
     assert _card(proj) in txt and "先 Read" in txt
     assert "結算傷害" not in txt and "浮點比較" not in txt and "pytest tests/battle" not in txt
     assert "定位｜部位：戰鬥" in txt
