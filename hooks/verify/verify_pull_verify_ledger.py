@@ -4,7 +4,7 @@
   (d) CASE_COVERS_CHANGE：改程式 P → 改覆蓋 P 的案例 → 案例紅 → 回頭修 P → 跑綠 → 不欠（不比先後）；沒有案例覆蓋的 Q 照欠。
   SECOND_OPINION_RAN_BEFORE：前一回合跑完第二意見、沒宣告完成 → 下一回合沒改程式或照意見改了審過的檔 → 不欠；之後改到新的高風險檔才欠；
     四行寫在前一則、收尾那則補別的閘要的行 → 不擋。
-  CARRIED_CLAIM_ANY_TURN_RECEIPT：擋滿待放行承接到新回合的「修好」，認前一回合晚於最後改動的綠收據，不要求重跑。
+  CARRIED_CLAIM_ANY_TURN_RECEIPT：承接到新回合的「修好」與新說的同一個判法，認前一回合晚於最後改動、之後沒再改程式的綠收據，不要求重跑。
   RECEIPT_UNPARSED_GENERAL_ONLY：量尺前面多一段指令照認量尺；解析不了的收據不算量尺、照算一般證據、不擋、留一筆帳。
   CONFLICT_DECLARED_BY_AI：衝突宣告多寫一張不在候選裡的卡不判錯。
   流程級：被別的閘逼出的改碼 → 跑綠一次 → 收尾，(d) 與第二意見都不因這次改動重欠。
@@ -183,15 +183,19 @@ def test_carried_fixed_claim_accepts_green_from_earlier_turn_after_last_edit(tmp
     assert "CLAIM_FIXED_NEEDS_PASS" in out, out
 
 
-def test_fresh_fixed_claim_this_turn_still_needs_this_turn_receipt(tmp_path):
-    """承接的宣稱之外，本回合自己又說「修好了」→ 照舊只認本回合的收據（前一回合的綠收據不替新宣稱解帳）。"""
+def test_fresh_fixed_claim_also_accepts_earlier_green_when_code_untouched(tmp_path):
+    """承接的宣稱之外，本回合自己又說「修好了」→ 同一個判法：前一回合晚於最後改動的綠收據照認（碼沒動）。
+    配對：綠收據之後又改了 widget.py → 擋，訊息點名 widget.py 要重跑。"""
     code = _put(tmp_path, "src/widget.py", "W = 1\n")
     case = _put(tmp_path, "tests/test_widget.py", "from widget import W\n")
     mods = [_mf(code, 4, T1, 1), _mf(case, 4, T1, 2)]
     green = _rcpt(tmp_path, "python -m pytest -q tests/test_widget.py", 4, T2, 3)
     out = _reconcile(tmp_path, "widget.py 修好了，完成。", mods, [green], turn=6, claims=["widget.py 修好了，完成。"],
                      pending=True, user_turn=6)
-    assert "CLAIM_FIXED_NEEDS_PASS" in out, out
+    assert "CLAIM_FIXED_NEEDS_PASS" not in out, out
+    again = [{**_mf(code, 4, T3, 4), "last_turn_seq": 6}, mods[1]]
+    out = _reconcile(tmp_path, "widget.py 修好了，完成。", again, [green], turn=6, pending=True, user_turn=6)
+    assert "CLAIM_FIXED_NEEDS_PASS" in out and "之後又改了 widget.py，要重跑" in out, out
 
 
 def test_second_opinion_risky_file_edited_after_result_is_not_reviewed(tmp_path):

@@ -189,9 +189,46 @@ def test_unrelated_pass_in_same_session_does_not_count(driven, capsys):
 
 
 def test_stale_turn_pass_blocks(driven, capsys):
-    """反例二：改完後的舊 PASS（turn 3）不算本回合證據。"""
+    """反例二：舊 PASS（turn 3）不限回合照拿去對檔名，驗的是 verify_x.py、本 session 沒改檔 → 對不上，照擋。"""
     out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(3)]})
-    assert "ReconcileGate" in out and "舊回合的 PASS" in out
+    assert "ReconcileGate" in out and "對不上" in out and "只有舊回合的 PASS" not in out
+
+
+_T_LATER = "2026-10-12T10:10:00+08:00"       # 晚於 _T2（PASS 那一刻）的改檔時間
+
+
+def test_a_old_turn_pass_counts_when_no_code_edit_since(driven, capsys):
+    """① 上回合（turn 3）改 x.py、補案例、跑綠；本回合（turn 5）一行程式都沒改、說修好 → (a) 認那筆 PASS，不擋
+    （跑名 2026-10-28-008 實踩的誤擋：舊碼只認本回合的收據，逼它重跑同一組測試）。"""
+    mods = [_mf(_CODE, 3, last_at=_T1, last_seq=1), _mf(_CASE, 3, last_at=_T1, last_seq=2)]
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=mods, need_goal_code_decl_turn=5,
+                       verify_receipts={_SID: [_rcpt(3, at=_T2, seq=3)]})
+    assert _A_HIT not in out, out
+
+
+def test_a_old_turn_pass_then_code_edited_again_blocks_and_names_file(driven, capsys):
+    """② 上回合跑綠之後又改了程式、說修好 → 擋，訊息點名改了哪個檔、要重跑（不再說「舊回合的 PASS」）。
+    三種「之後又改」都算：本回合自己改 x.py、子代理改 x.py（agent_modified_files）、判不出目標的寫入（unknown_writes）。"""
+    green = {_SID: [_rcpt(3, at=_T2, seq=3)]}
+    old = [_mf(_CODE, 3, last_at=_T1, last_seq=1), _mf(_CASE, 3, last_at=_T1, last_seq=2)]
+    again = [{**_mf(_CODE, 3, last_at=_T_LATER, last_seq=4), "last_turn_seq": 5}, old[1]]
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=again, need_goal_code_decl_turn=5, verify_receipts=green)
+    assert _A_HIT in out and "之後又改了 x.py，要重跑" in out and "只有舊回合的 PASS" not in out, out
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=old, need_goal_code_decl_turn=5, verify_receipts=green,
+                       agent_modified_files={"ag1": [_mf(_CODE, 5, last_at=_T_LATER, last_seq=4)]})
+    assert _A_HIT in out and "之後又改了 x.py，要重跑" in out, out
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=old, need_goal_code_decl_turn=5, verify_receipts=green,
+                       unknown_writes=[{"cmd": "python -c ...", "target": "UNKNOWN:inline", "session_id": _SID,
+                                        "turn_seq": 5, "at": _T_LATER}])
+    assert _A_HIT in out and "之後又改了 判不出目標的寫入，要重跑" in out, out
+
+
+def test_a_this_turn_pass_after_edit_still_passes(driven, capsys):
+    """③ 本回合改 x.py、補案例、跑綠、說修好 → 照舊放行。"""
+    mods = [_mf(_CODE, 5, last_at=_T1, last_seq=1), _mf(_CASE, 5, last_at=_T1, last_seq=2)]
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=mods, need_goal_code_decl_turn=5,
+                       verify_receipts={_SID: [_rcpt(5, at=_T2, seq=3)]})
+    assert _A_HIT not in out, out
 
 
 def test_pass_with_nonzero_exit_blocks(driven, capsys):
