@@ -626,3 +626,25 @@ def test_006_pick_prompt_lists_session_opens(world):
     text = wh.pick_prompt([], opens)
     assert "同追蹤項：<那筆裡連續至少 8 個字>" in text and "- [銷售報表] monthly 用 UTC" in text
     assert "同追蹤項" not in wh.pick_prompt([]) and wh.session_open_tracking(str(proj), "other-sid") == []
+
+
+def test_006_same_as_merges_when_part_is_refined(world):
+    """AI 把部位寫細（「合服」→「合服工具 DataHandler」）又明寫「同追蹤項」且唯一命中 → 換成新說法、只留 1 筆、部位用新的
+    （舊碼：部位不等就對不到，照記第二筆——實跑同一件記成 4 筆的根因之一）。部位不相干（戰鬥／介面）仍不併，見 other-part 案。"""
+    proj, _ = world
+    _append_k(proj, "[合服] ClientDataHandlerEx.InitOp 對 Hero、Bag 四個模組用 get-or-new，來源沒有的角色被長出空模組")
+    _append_k(proj, "[合服工具 DataHandler] ClientDataHandlerEx.cs 的 InitOp 缺席模組補空模組｜同追蹤項：InitOp 對 Hero、Bag 四個模組")
+    opens = _opens(proj)
+    assert len(opens) == 1 and opens[0]["part"] == "合服工具 DataHandler" and opens[0].get("supersedes")
+
+
+def test_006_pick_prompt_keeps_pick_item_when_newer_opens_exceed_max(world):
+    """PickOne 點過的那件之後又記了超過 PICK_OPENS_MAX 筆 followup／(k) 項：問句仍列出它（舊碼：只取最後 5 筆，被擠掉、
+    AI 看不到就再記一筆）。"""
+    proj, _ = world
+    assert wh.record_pick({}, _SID, 1, _B5_PICK_HEAD + _B5_PICK_TAIL, str(proj))[0] == "recorded"
+    for i in range(wh.PICK_OPENS_MAX + 1):
+        _append_k(proj, f"[銷售報表] 後來記的第 {i} 件要追的事")
+    opens = wh.session_open_tracking(str(proj), _SID)
+    assert opens[-1].startswith("[銷售報表] `sales/periods.py` 的 `month_of`")
+    assert "`sales/periods.py` 的 `month_of`" in wh.pick_prompt([], opens)

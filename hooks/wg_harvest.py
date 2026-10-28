@@ -456,6 +456,13 @@ def _part_eq(a: Any, b: Any) -> bool:
     return str(a or "").strip().casefold() == str(b or "").strip().casefold()
 
 
+def _part_compat(a: Any, b: Any) -> bool:
+    """部位相容（同追蹤項合併用）：相同、一邊沒寫、或一邊是另一邊的開頭——同一區塊後來寫細了（「合服」→「合服工具 DataHandler」）
+    仍算同一件；「戰鬥」對「介面」不算。"""
+    x, y = str(a or "").strip().casefold(), str(b or "").strip().casefold()
+    return not x or not y or x.startswith(y) or y.startswith(x)
+
+
 def open_tracking_items(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """帳本列 → 仍 open 的項目（依帳本順序）：被任一 closed 列的 closes.id 指到的那一筆不算 open（一筆結案只消除一筆）。"""
     closed_ids = {str((e.get("closes") or {}).get("id")) for e in entries
@@ -556,7 +563,8 @@ def _supersede_rows(new: Dict[str, Any], old: Dict[str, Any]) -> List[Dict[str, 
 
 
 def _merge_same(existing: List[Dict[str, Any]], entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """規則 TRACKING_SAME_ITEM_NOT_REWRITTEN：open 列寫進帳本前，對「既有帳本＋本批較早的列」裡部位相容（相同或一邊沒寫）的未結項：
+    """規則 TRACKING_SAME_ITEM_NOT_REWRITTEN：open 列寫進帳本前，對「既有帳本＋本批較早的列」裡部位相容（相同、一邊沒寫、或一邊是
+    另一邊的開頭，見 _part_compat）的未結項：
     ① 帶 same_as（AI 宣告「同追蹤項：<那筆裡至少 TRACK_CLOSE_MIN_CHARS 字>」，去標點空白後是那筆的一段）→ 恰好對到一筆就換成新說法
     （_supersede_rows）；對不到或對到不只一筆 → 不合併、照記新的、stderr 說原因（不悄悄關掉別件）；
     ② 沒宣告：跟某筆部位相同（嚴格相等，一邊沒寫不算）而且原文相同（不分 session，同 PickOne 的 repeat）→ 不重記、stderr。
@@ -568,8 +576,7 @@ def _merge_same(existing: List[Dict[str, Any]], entries: List[Dict[str, Any]]) -
             out.append(e)
             continue
         part = str(e.get("part") or "").strip()
-        opens = [o for o in open_tracking_items(existing + out)
-                 if not part or not str(o.get("part") or "").strip() or _part_eq(o.get("part"), part)]
+        opens = [o for o in open_tracking_items(existing + out) if _part_compat(o.get("part"), part)]
         snippet = _pick_summary(str(e.get("same_as") or ""))
         if e.get("same_as"):
             hits = [o for o in opens if len(snippet) >= TRACK_CLOSE_MIN_CHARS and snippet in _pick_summary(str(o.get("text") or ""))]
@@ -1013,9 +1020,11 @@ PICK_OPENS_MAX = 5
 
 
 def session_open_tracking(cwd: str, sid: str) -> List[str]:
-    """本專案追蹤帳本裡本 session 記的、還沒結的項目「[部位] 原文」（帳本順序）。讀不到回空。"""
-    return [f"[{o.get('part') or ''}] {o.get('text')}" for o in open_tracking_items(read_tracking(tracking_slug(cwd)))
-            if o.get("session_id") == sid]
+    """本專案追蹤帳本裡本 session 記的、還沒結的項目「[部位] 原文」。PickOne 記的排最後：問句只列最後 PICK_OPENS_MAX 筆，
+    後來的 followup／(k) 項不該把早先點過的那件擠出去（實測擠掉後 AI 看不到、同一件又記一筆）；兩組各照帳本順序。讀不到回空。"""
+    mine = [o for o in open_tracking_items(read_tracking(tracking_slug(cwd))) if o.get("session_id") == sid]
+    ordered = [o for o in mine if o.get("source") != "pick"] + [o for o in mine if o.get("source") == "pick"]
+    return [f"[{o.get('part') or ''}] {o.get('text')}" for o in ordered]
 
 
 def pick_prompt(material: List[str], opens: Sequence[str] = ()) -> str:
