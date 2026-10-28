@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: IDENTITY.md 修剪, USER.md 修剪, core.md 修剪, 必載檔, Guardian:Contract, always-load-contracts, 缺硬契約
 - Created-at: 2026-10-28
-- Depends: path:C:/Users/holylight/.claude/memory/_meta/always-load-contracts.json
+- Depends: path:~/.claude/memory/_meta/always-load-contracts.json
 
 ## 知識
 

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 連鎖斷路器, wg_chain, same_count, link, CHAIN_ALARM_SAME_GATE, 什麼算修補, 警報沒少響
 - Created-at: 2026-10-27
-- Depends: path:C:/Users/holylight/.claude/hooks/wg_chain.py
+- Depends: path:~/.claude/hooks/wg_chain.py
 - Related: 斷路器判原樣重試要比被擋呼叫的逐字指紋-跟同閘同對象上一次被擋比-不能只看中間有沒有ai動作或只比前一步
 - Source: session:17c8cd5c 2026-10-27
 

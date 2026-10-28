@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: note_git_launcher, _note_launcher, LAUNCHER_NOT_CODE, UnicodeDecodeError, 非 UTF-8 的 .py, 一次性 git 啟動器, 漏記改檔
 - Created-at: 2026-10-23
-- Depends: path:C:/Users/holylight/.claude/hooks/wg_verify_ledger.py, path:C:/Users/holylight/.claude/hooks/handlers/post_tool_use.py
+- Depends: path:~/.claude/hooks/wg_verify_ledger.py, path:~/.claude/hooks/handlers/post_tool_use.py
 
 ## 知識
 

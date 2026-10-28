@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: codex exec stderr, 提示詞回聲, replay-guard post, command_lines, 無指令行但整份紀錄命中, 第二意見 failed, second_opinion_result failed, _AIDocs/_atoms 命中, git diff 命中, strip_prompt_echo
 - Created-at: 2026-10-21
-- Depends: path:C:/Users/holylight/.claude/tools/second-opinion/run.py, path:C:/Users/holylight/.claude/tools/replay-guard.py
+- Depends: path:~/.claude/tools/second-opinion/run.py, path:~/.claude/tools/replay-guard.py
 - Quote: 「接著也可派工，checklist 文件需要更新 (我要看最新進度狀態)，完工的項目如果不必留在文件內，可以搬去DevHistory或者刪除。並且請你給我白話說明最新狀況(不要技術細節臭味兒)。」
 
 ## 知識

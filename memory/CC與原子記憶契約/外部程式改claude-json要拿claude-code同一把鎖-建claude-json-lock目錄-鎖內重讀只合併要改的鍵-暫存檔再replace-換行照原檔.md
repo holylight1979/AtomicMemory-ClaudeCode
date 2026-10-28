@@ -7,7 +7,7 @@
 - Confidence: [臨]
 - Trigger: ~/.claude.json, claude.json 寫入, hasTrustDialogAccepted, 信任鍵, proper-lockfile, .claude.json.lock, saveConfigWithLock, 原子寫入 config, 整份覆寫設定檔, console-spawn ensure_trust
 - Created-at: 2026-10-21
-- Depends: path:C:/Users/holylight/.claude/tools/console-spawn.py
+- Depends: path:~/.claude/skills/console/scripts/console-spawn.py
 
 ## 知識
 

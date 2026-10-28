@@ -5308,8 +5308,8 @@
         "ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測"
       ],
       "depends": [
-        "path:C:/Users/holylight/.claude/tools/meeting-transcribe.py",
-        "path:C:/Users/holylight/.claude/skills/meeting/SKILL.md"
+        "path:~/.claude/tools/meeting-transcribe.py",
+        "path:~/.claude/skills/meeting/SKILL.md"
       ]
     },
     {
@@ -5942,7 +5942,7 @@
         "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地"
       ],
       "depends": [
-        "path:C:/Users/holylight/.claude/tools/replay-guard.py"
+        "path:~/.claude/tools/replay-guard.py"
       ]
     },
     {
@@ -6354,7 +6354,7 @@
         "平行hook讀改寫session-state要整段握鎖-寫時重讀再合併只當拿不到鎖的退路-鎖內只有50到80ms"
       ],
       "depends": [
-        "path:C:/Users/holylight/.claude/hooks/wg_core.py"
+        "path:~/.claude/hooks/wg_core.py"
       ]
     },
     {
@@ -8656,7 +8656,7 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/lib/git_cassette.py"
+        "path:~/.claude/lib/git_cassette.py"
       ]
     },
     {
@@ -9143,8 +9143,8 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/tools/second-opinion/run.py",
-        "path:C:/Users/holylight/.claude/tools/replay-guard.py"
+        "path:~/.claude/tools/second-opinion/run.py",
+        "path:~/.claude/tools/replay-guard.py"
       ]
     },
     {
@@ -9180,7 +9180,7 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/tools/console-spawn.py"
+        "path:~/.claude/skills/console/scripts/console-spawn.py"
       ]
     },
     {
@@ -10263,8 +10263,8 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py",
-        "path:C:/Users/holylight/.claude/tools/entry-stats.py"
+        "path:~/.claude/hooks/wg_entrypoint.py",
+        "path:~/.claude/tools/entry-stats.py"
       ]
     },
     {
@@ -10753,7 +10753,7 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py"
+        "path:~/.claude/hooks/wg_entrypoint.py"
       ]
     },
     {
@@ -10815,7 +10815,7 @@
         "綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路"
       ],
       "depends": [
-        "path:C:/Users/holylight/.claude/hooks/wg_atoms.py"
+        "path:~/.claude/hooks/wg_atoms.py"
       ]
     },
     {
@@ -12186,8 +12186,8 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/hooks/wg_verify_ledger.py",
-        "path:C:/Users/holylight/.claude/hooks/handlers/post_tool_use.py"
+        "path:~/.claude/hooks/wg_verify_ledger.py",
+        "path:~/.claude/hooks/handlers/post_tool_use.py"
       ]
     },
     {
@@ -12799,7 +12799,7 @@
         "第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔"
       ],
       "depends": [
-        "path:C:/Users/holylight/.claude/tools/second-opinion/pack.py"
+        "path:~/.claude/tools/second-opinion/pack.py"
       ]
     },
     {
@@ -12838,7 +12838,7 @@
         "斷路器判原樣重試要比被擋呼叫的逐字指紋-跟同閘同對象上一次被擋比-不能只看中間有沒有ai動作或只比前一步"
       ],
       "depends": [
-        "path:C:/Users/holylight/.claude/hooks/wg_chain.py"
+        "path:~/.claude/hooks/wg_chain.py"
       ]
     },
     {
@@ -13064,7 +13064,7 @@
       ],
       "scope": "global",
       "depends": [
-        "path:C:/Users/holylight/.claude/memory/_meta/always-load-contracts.json"
+        "path:~/.claude/memory/_meta/always-load-contracts.json"
       ]
     },
     {
