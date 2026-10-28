@@ -1,7 +1,7 @@
 // verify_aec_reconcile.js：收尾三段一次交齊的 Node 面（lib/anti-evasion.js aecArgErrors／toolAntiEvasionReport、lib/mcp.js 說明與 schema）。
 // 案例：reconcile 欄合格 → 不拒收、chip 寫目標對照已收到；不是物件、items 缺、status 不是終點值 → 拒收且前綴「reconcile：」；
-// 守門關閉時不驗這欄（同改動前）；schema 有 reconcile、不列必填；anti_evasion_report 說明寫 reconcile 欄選填、need_goal 說明寫可放進 reconcile 欄一次交、
-// knowledge_harvest_report 說明寫 harvest_items 一次交（目標對照不再被要求：規則 GOAL_TREE_SET_ONCE，verify_goal_tree_once.py 禁「目標對照放 reconcile」字樣）。
+// 守門關閉時不驗這欄（同改動前）；schema 有 reconcile、不列必填；anti_evasion_report 說明寫 reconcile 欄選填、knowledge_harvest_report 說明寫 harvest_items 一次交
+// （need_goal 的說明受 1,800 tok 預算限制，不再要求它提這條路）（目標對照不再被要求：規則 GOAL_TREE_SET_ONCE，verify_goal_tree_once.py 禁「目標對照放 reconcile」字樣）。
 // 跑：node tools/workflow-guardian-mcp/verify/verify_aec_reconcile.js（自己帶 WG_V6=1；結尾印 AEC_RECONCILE_CHECK PASS／FAIL）
 process.env.WG_V6 = "1";
 let ok = true;
@@ -24,8 +24,6 @@ const fail = (m) => { ok = false; console.error("FAIL: " + m); };
     const t = mcp.TOOL_DEFINITIONS.find((x) => x.name === "anti_evasion_report");
     if (!t.inputSchema.properties.reconcile || t.inputSchema.required.includes("reconcile")) fail("schema 沒有選填的 reconcile");
     if (!/reconcile 欄選填/.test(t.description)) fail("收尾檢核說明沒寫 reconcile 欄選填");
-    const ng = mcp.TOOL_DEFINITIONS.find((x) => x.name === "need_goal").description;
-    if (!/anti_evasion_report 的 reconcile 欄一次交/.test(ng)) fail("need_goal 說明沒寫可放進 reconcile 欄一次交");
     const hv = mcp.TOOL_DEFINITIONS.find((x) => x.name === "knowledge_harvest_report").description;
     if (!/anti_evasion_report 的 harvest_items 一次交/.test(hv)) fail("收割報告說明沒寫一次交齊");
 

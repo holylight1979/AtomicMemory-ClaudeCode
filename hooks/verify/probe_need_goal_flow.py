@@ -1,6 +1,6 @@
 """probe_need_goal_flow.py：用真的 hook 入口（hooks/workflow-guardian.py，一個事件一個行程、stdin 餵 JSON）走一遍需求目標流程。
 
-情境：使用者提需求 → 沒目標樹第一次改部位檔：導讀卡那一刀擋一次（立樹本身只提醒）→ need_goal set／add → 有樹後再改只提醒不擋 →
+情境：使用者提需求 → 沒目標樹第一次改部位檔：導讀卡那一刀擋一次（立樹本身只提醒）→ need_goal set／add → 有樹後再改、定位還沒交齊同一輪照擋 →
 讀部位檔 → 定位四行 → 放行 → 改檔欠對照 → Stop 不擋 (f1)（goal_gate=false，程式代填進度）→ update 收下 → 跑驗證印哨兵（收據蓋號）→
 reconcile 完整對照 → 宣告完成時 (f1)(f2) 都不擋。
 資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄（USERPROFILE／HOME）與探針專案都放在
@@ -103,7 +103,7 @@ def main() -> int:
                tool_response={"content": [{"type": "text", "text": "[NeedGoal] add 已收到"}]})
     step("add 收下 T1.1 T1.2", "T1.1" in ctx(out) and "T1.2" in ctx(out), ctx(out))
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
-    step("有樹後再改：擋過一次之後定位缺件只提醒不擋", not deny(out), json.dumps(out, ensure_ascii=False))
+    step("有樹後再改：定位還沒交齊、同一輪照擋", "同一輪，定位交齊前照擋" in deny(out), json.dumps(out, ensure_ascii=False))
     hook("PostToolUse", tool_name="Read", tool_input={"file_path": str(target)}, tool_response={"type": "text"})
     say("定位｜部位：匯出：export.py\n定位｜根因層：欄位定義層\n定位｜前例：欄位順序寫死在兩處")
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
