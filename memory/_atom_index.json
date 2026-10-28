@@ -13097,6 +13097,22 @@
         "收尾類提醒算不出"
       ],
       "scope": "global"
+    },
+    {
+      "name": "定位閘的掃描起點被目標改了重設-樹到第一次改檔才落地時改檔前交的定位會被作廢-新樹不該作廢也不該推起點",
+      "path": "_AIDocs/_atoms/MemDev/定位閘的掃描起點被目標改了重設-樹到第一次改檔才落地時改檔前交的定位會被作廢-新樹不該作廢也不該推起點.md",
+      "triggers": [
+        "on_goal_changed",
+        "transcript_offset",
+        "掃描起點",
+        "定位被作廢",
+        "edit_blocked_round",
+        "還沒交出定位行",
+        "set_via_text",
+        "樹晚落地",
+        "定位先交了還是擋"
+      ],
+      "scope": "global"
     }
   ]
 }
