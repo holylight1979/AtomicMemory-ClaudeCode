@@ -2538,24 +2538,26 @@ def test_decl_hints_do_not_steer_to_bash_writes():
     assert "照常用 Edit／Write" in rr.DECL_KEEP_EDIT and "不寫檔" in rr.DECL_VIA_COMMENT
 
 
-def test_decl_where_puts_comment_channel_first():
-    """DECL_HINT_KEEPS_EDIT_TOOLS 的順位：每句教宣告放哪的字（目標｜、定位四行、動資料檔｜、改舊測試｜、地圖三行、MCP need_goal 說明）
-    一律先講「同一則先發不寫檔指令的 `#` 註解」、其次「早一則的回覆文字」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）。
-    改前全部把回覆文字排第一，AI 照第一順位做就白寫（同一則接著 Edit，hook 當下讀不到那段文字）。"""
+def test_decl_where_teaches_only_comment_channel():
+    """DECL_HINT_KEEPS_EDIT_TOOLS：每句教宣告放哪的字（目標｜、定位四行、動資料檔｜、改舊測試｜、地圖三行）只教一條路——
+    「同一則先發不寫檔指令的 `#` 註解」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）；早一則的回覆文字、need_goal 的
+    locate 欄／data_files、備援工具都不出現（程式照認，只在規則表講）。009 實跑擋訊息同時教三條路，AI 挑了最貴的那條多 4 個模型回合。
+    MCP need_goal 說明（工具端）不在此列，照舊可交 locate／data_files。"""
     import wg_need_goal as ng
     import wg_oldtest as ot
     import wg_overview as wo
     assert rr.DECL_WHERE.startswith("同一則回覆裡先發一條不寫檔的") and "hook 當下讀不到" in rr.DECL_WHERE
-    mcp = (HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
-    need_goal_desc = mcp.split('name: "need_goal"', 1)[1].split("inputSchema", 1)[0]
     texts = {"DECL_WHERE": rr.DECL_WHERE, "DECL_WHERE_SHORT": rr.DECL_WHERE_SHORT, "TEXT_SET_HOWTO": ng.TEXT_SET_HOWTO,
              "locate_read_hint": wo.locate_read_hint("戰鬥", True, True, True), "LOCATE_EXAMPLE_AGAIN": wo.LOCATE_EXAMPLE_AGAIN,
              "MIN_MAP_ENTRY": "\n".join(wo.MIN_MAP_ENTRY), "_locate_ask": wo._locate_ask({"part_short": "戰鬥"}, None, 0, 0)[0],
              "data_file_hint": rr.data_file_hint("a.json"), "data_file_fix": rr.data_file_fix(["a.json"]),
-             "data_file_read_hint": rr.data_file_read_hint(["a.json"], True), "oldtest.hint": ot.hint("test_x"),
-             "mcp need_goal": need_goal_desc}
+             "data_file_read_hint": rr.data_file_read_hint(["a.json"], True), "oldtest.hint": ot.hint("test_x")}
     for name, t in texts.items():
-        assert "`#` 註解" in t and "早一則" in t and t.index("`#` 註解") < t.index("早一則"), name
+        assert "`#` 註解" in t, name
+        for other in ("早一則", "回覆文字", "locate 欄", "data_files", "need_goal(action=set", "備援"):
+            assert other not in t, (name, other)
+    mcp = (HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
+    assert "locate: {" in mcp and "data_files" in mcp                         # 工具端照舊收 locate／data_files（程式不動）
 
 
 # ─── 閘小修 008 A：規則名登錄、對照的案例真的在、案例點到規則名 ───

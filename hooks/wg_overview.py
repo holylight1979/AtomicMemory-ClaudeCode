@@ -1113,8 +1113,9 @@ def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: D
                       config: Dict[str, Any], agent_id: str = "") -> Optional[str]:
     """規則 LOCATE_HINT_ON_FIRST_READ：讀檔時碰到的部位（READ_TOUCH_NO_CARD：讀檔只建紀錄不送卡，這一行就是讀檔結果多出來的全部），
     本 session 第一次讀到它的程式檔（可以就是建紀錄的那次）→ 讀檔結果後附一行，講改之前 on_edit 與 wg_need_goal.edit_gate 要的東西：沒目標樹就先 need_goal set（判式同 edit_gate：tree_owed_for_edit）、
-    定位行幾行（有樹或要立樹＝四行，同擋訊息 LOCATE_ASK_ONCE；need_goal 關＝三行）、寫在哪（先放同一則先發的不寫檔指令開頭的 # 註解，
-    其次早一則的回覆文字，_rr.DECL_WHERE；thinking 讀不到）。一部位一 session 一次（rec.locate_hint：注入時 due、送了 sent）；改檔時才補注入的部位（擋訊息已講過）、
+    定位行幾行（有樹或要立樹＝四行，同擋訊息 LOCATE_ASK_ONCE；need_goal 關＝三行）、寫在哪（只教一條路：同一則先發的不寫檔指令開頭的 # 註解，
+    _rr.DECL_WHERE；thinking 讀不到；早一則的回覆文字與 need_goal 的 locate 欄程式照認、不提，DECL_HINT_KEEPS_EDIT_TOOLS）。
+    一部位一 session 一次（rec.locate_hint：注入時 due、送了 sent）；改檔時才補注入的部位（擋訊息已講過）、
     已交過定位、非程式檔（含知識類部位）、子代理讀的不送（不消耗主 session 的那一次）；v6 總開關關著不送（注入本身是 v6 以前就有的，
     關時照舊）。沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，這則 prompt 的關鍵字也沒判成寫碼類 CODE_INTENTS）也不送、額度不消耗（locate_hint 留在 due，
     之後成了寫碼回合再讀到照送）：純問答讀程式檔不該被催交定位行。判定不動：沒照做照擋。"""
@@ -1146,15 +1147,15 @@ def locate_read_hint(part: str, need_tree: bool, four: bool, first: bool) -> str
     """LOCATE_HINT_ON_FIRST_READ 那一行：立樹＋定位併成一行。first＝本 session 第一則，給格式與管道（同缺定位擋訊息的要求）；
     之後的部位只點名、說格式同前。"""
     tree = ("先立需求目標樹（寫一行「目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>」，子目標每件一行「子目標｜…」，管道同定位行，"
-            "hook 照它立樹；備援 need_goal(action=set, goal=…)），再" if need_tree else "")
+            "hook 照它立樹），再" if need_tree else "")
     if not first:
         return f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}交定位{'四' if four else '三'}行（格式同前一則提示）。"
     lines = ("交定位四行：定位｜部位、定位｜根因層（候選 A …；候選 B …；選 A 因為 …，只找到一個就寫「第二個不存在因為 …」）、定位｜前例、"
              "定位｜批判（這段寫法合不合理、為什麼；看得出更好的做法就寫，同類在哪也寫；只查有沒有內容）" if four
              else "交定位三行：定位｜部位、定位｜根因層、定位｜前例")
-    via_tree = "，或在 need_goal set／update 的 locate 欄一起交（不必另發註解指令）" if four else ""   # 三行版＝need_goal 關，沒這條路
+    # 只教 # 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）：need_goal 的 locate 欄程式照認、這裡不提
     return (f"[Guardian:OverviewHub] 改【{part}】的程式檔前{tree}{lines}；{_rr.DECL_WHERE}"
-            f"（thinking 讀不到）{via_tree}；宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔。")
+            f"（thinking 讀不到）；宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔。")
 
 
 def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_path: str,
@@ -1410,15 +1411,16 @@ def _goal_line_check(tree: Dict[str, Any], vals: Dict[str, str], session_id: str
 
 
 def _locate_example(row: Dict[str, Any], tree: Dict[str, Any], node: Optional[str]) -> str:
-    """擋訊息附的範例五行：部位名、這一部位要指明的層、要指的節點都填好；角括號是要換成自己判斷的地方，照抄不換不算交
-    （規則 LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER）。"""
+    """擋訊息附的範例：四行 `#` 註解加一行不寫檔的指令，整段可以照抄進一條 Bash／PowerShell 指令（DECL_HINT_KEEPS_EDIT_TOOLS 只教這一條路）；
+    部位名、這一部位要指明的層都填好；角括號是要換成自己判斷的地方，照抄不換不算交（規則 LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER）。"""
     layers = _row_layers(row)
     return "\n".join((
-        f"  定位｜部位：{row['part_short']}——<這次改哪個檔、哪一段>",
-        f"  定位｜根因層：候選 A <第一個根因>{f'（{layers[0]}）' if layers else ''}；候選 B <第二個根因>；選 A 因為 <為什麼不是 B>",
-        "  定位｜前例：<卡名>／無",
-        "  定位｜批判：<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>",
-        "  （合理就明說合理與原因；只查有沒有寫、有沒有內容，不認固定字樣）",
+        f"  # 定位｜部位：{row['part_short']}——<這次改哪個檔、哪一段>",
+        f"  # 定位｜根因層：候選 A <第一個根因>{f'（{layers[0]}）' if layers else ''}；候選 B <第二個根因>；選 A 因為 <為什麼不是 B>",
+        "  # 定位｜前例：<卡名>／無",
+        "  # 定位｜批判：<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>",
+        "  git diff --stat",
+        "  （整段貼成一條指令：四行 # 註解，最後一行就是那條不寫檔的指令；合理就明說合理與原因；只查有沒有寫、有沒有內容，不認固定字樣）",
     ))
 
 
@@ -1477,12 +1479,13 @@ def _readable_existing(root: Path, top: str, need: int) -> int:
 
 
 # ─── G14 最小地圖（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP；判定在 wg_release_rules，這裡收事實與組擋訊息） ───
-MIN_MAP_ENTRY = (
-    "  地圖｜讀了：<檔清單，相對專案根，用「、」分隔，至少 1 個本 session 讀過的檔>",
-    "  地圖｜上游：<誰餵這一塊（檔或模組）／無，因為…>",
-    "  地圖｜下游：<誰吃這一塊／無，因為…>",
-    f"{_rr.DECL_WHERE}（角括號換成你的判斷；可和定位行同一條指令或同一則交）；"
-    f"{_rr.DECL_KEEP_EDIT}。",          # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
+MIN_MAP_ENTRY = (                       # 可照抄進一條不寫檔指令：三行 # 註解＋那條指令（規則 DECL_HINT_KEEPS_EDIT_TOOLS 只教這一條路）
+    "  # 地圖｜讀了：<檔清單，相對專案根，用「、」分隔，至少 1 個本 session 讀過的檔>",
+    "  # 地圖｜上游：<誰餵這一塊（檔或模組）／無，因為…>",
+    "  # 地圖｜下游：<誰吃這一塊／無，因為…>",
+    "  git diff --stat",
+    f"{_rr.DECL_WHERE}（角括號換成你的判斷；可和定位行同一條指令交）；"
+    f"{_rr.DECL_KEEP_EDIT}。",
 )
 # 掃表預覽跑在子程序（逾時砍得掉）：lib/overview_scaffold.preview_lines，參數＝程式碼根、專案根、overview_scaffold 段、refix_churn 段
 _PREVIEW_CODE = ("import json, sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
@@ -1576,7 +1579,7 @@ def _min_map_preview(state: Dict[str, Any], root: Path, config: Dict[str, Any], 
 def _min_map_lines(top: str, v: _rr.Verdict, preview: str) -> List[str]:
     return [f"最小地圖：這是本 session 第一次改「{top}」的程式檔，先寫出跟這次需求相關的最小地圖（讀了哪些檔、上游誰餵、"
             f"下游誰吃；地圖有缺塊隨時補讀）。程式只核對三行在不在、列的檔讀過沒，內容由你判斷。",
-            _rr.format_hit("o", v), preview, "入口（照這個格式交三行）：", *MIN_MAP_ENTRY]
+            _rr.format_hit("o", v), preview, "入口（照抄、角括號換成你的判斷）：", *MIN_MAP_ENTRY]
 
 
 def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str, cfg: Dict[str, Any],
@@ -1645,7 +1648,7 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
         state.setdefault("min_map", {}).setdefault(_root_key(root), {})["offset"] = transcript_size(transcript_path)
         if via == "thinking":
             notes.append("[Guardian:OverviewHub] 最小地圖三行只在 thinking 裡，模型下回合與人都看不到；這次放行，"
-                         f"請改{_rr.DECL_WHERE_SHORT}，改檔照常用 Edit／Write。")
+                         f"請改成{_rr.DECL_WHERE_SHORT}，改檔照常用 Edit／Write。")
     if unread:
         notes.append(f"[Guardian:OverviewHub] 注意：{unread}")
     _log("edit_unmapped", session_id, rule=v.rule, edits=rec["edits"], deny_reason=None, capped=bool(capped), **log_kw)
@@ -1999,7 +2002,7 @@ def _mark_located(state: Dict[str, Any], session_id: str, key: str, row: Dict[st
         _ng.link_part(session_id, key, node, int(state.get("turn_seq", 0)))
     if found_ch == "thinking":
         return (f"[Guardian:OverviewHub] 【{row['part_short']}】的定位三行只在 thinking 裡，模型下回合與人都看不到；"
-                f"這次放行，請改{_rr.DECL_WHERE_SHORT}，改檔照常用 Edit／Write。")
+                f"這次放行，請改成{_rr.DECL_WHERE_SHORT}，改檔照常用 Edit／Write。")
     return None
 
 
@@ -2170,10 +2173,9 @@ def _locate_ask(row: Dict[str, Any], goal_tree: Optional[Dict[str, Any]], n_read
     """擋訊息裡「還沒交定位行」那一條。規則 LOCATE_ASK_ONCE：第一次擋就把內容要求（兩個候選＋選擇理由、節點與角色、批判的判斷）
     與填好部位、節點的範例一起給，一次交齊；不先只給骨架、交了再擋一輪說格式不對。規則 LOCATE_NOT_IN_THINKING：thinking 那條路講死
     （受測設定 thinking 不落盤，AI 寫了還被擋第二次）。回 (完整那一條, 第二則起換上的短句)；沒有樹是三行版、沒有短句。"""
-    where = (f"{_rr.DECL_WHERE}；也可在 need_goal(action=set／update) 的 locate 欄一起交"
-             f"（[{{part, lines}}]，不必另發註解指令）；不要寫在 thinking：thinking 預設不寫進 transcript，"
+    where = (f"{_rr.DECL_WHERE}；不要寫在 thinking：thinking 預設不寫進 transcript，"
              f"hook 讀不到，只寫在那裡照樣會再擋一次；"
-             f"{_rr.DECL_KEEP_EDIT}")         # 規則 DECL_HINT_KEEPS_EDIT_TOOLS
+             f"{_rr.DECL_KEEP_EDIT}")         # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：只教 # 註解一條路（need_goal 的 locate 欄程式照認、不提）
     if goal_tree is None:
         return (f"還沒交出定位三行（注入導讀卡後讀了 {n_reads} 個檔、跨 {n_dirs} 個目錄）。{where}："
                 "定位｜部位：…／定位｜根因層：…／定位｜前例：…", None)
@@ -2181,7 +2183,7 @@ def _locate_ask(row: Dict[str, Any], goal_tree: Optional[Dict[str, Any]], n_read
     item = (f"{head}{where}。"
             "一次交齊四行：定位三行（根因層寫兩個候選與選擇理由：候選 A …；候選 B …；選 A 因為 …，只找到一個就寫"
             "「第二個不存在因為 …」），加一行批判——這段寫法合不合理、為什麼，看得出更好的做法就寫，同類在哪也寫（只查有沒有內容）。"
-            "範例（角括號換成你的判斷，句子順序不限）：\n"
+            "照抄下面這段當一條 Bash／PowerShell 指令（角括號換成你的判斷，句子順序不限），接著就可以改檔：\n"
             + _locate_example(row, goal_tree, None))
     return (item, f"{head}{LOCATE_EXAMPLE_AGAIN}")
 

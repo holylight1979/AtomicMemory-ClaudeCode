@@ -2213,7 +2213,7 @@ def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
 
 def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
     """規則 LOCATE_NOT_IN_THINKING：缺定位行的擋訊息講死——thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，
-    要放先發的不寫檔指令開頭的 # 註解、其次早一則的回覆文字；不再說「可能讀不到」。"""
+    要放同一則先發的不寫檔指令開頭的 # 註解（只教這一條路）；不再說「可能讀不到」。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
@@ -2224,7 +2224,7 @@ def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
     state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）：一般擋訊息
     deny = wo.on_edit(state, "s", f1, tp, {})[1]
     assert "不要寫在 thinking：thinking 預設不寫進 transcript，hook 讀不到" in deny and "可能讀不到" not in deny
-    assert "開頭的 `#` 註解" in deny and deny.index("開頭的 `#` 註解") < deny.index("早一則")   # 先 # 註解、其次早一則的回覆文字
+    assert "開頭的 `#` 註解" in deny and "早一則" not in deny and "locate 欄" not in deny   # 只教 # 註解一條路
 
 
 @pytest.fixture(autouse=True)

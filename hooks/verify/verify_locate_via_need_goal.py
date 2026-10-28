@@ -95,16 +95,17 @@ def test_locate_via_tree_missing_lines_not_counted(hooked, post):
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
 
 
-def test_read_hint_mentions_need_goal_option(hooked, post):
-    """讀檔提示那一行與缺定位的擋訊息都補了「可在 need_goal set／update 的 locate 欄一起交」；提示仍是一行。"""
+def test_read_hint_does_not_mention_need_goal_option(hooked, post):
+    """讀檔提示那一行與缺定位的擋訊息只教 `#` 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）：locate 欄程式照認、訊息不提
+    （009 實跑三條路並列，AI 挑了 need_goal update 那條多 4 個模型回合）；提示仍是一行。"""
     f1 = _mapped_world(hooked)
     _code_intent(hooked)                                                              # 使用者要改程式：讀檔才附定位提示
     hint = next(ln for ln in post("Read", {"file_path": f1}).splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
-    assert "need_goal set／update 的 locate 欄一起交" in hint and "不必另發註解指令" in hint
+    assert "`#` 註解" in hint and "locate 欄" not in hint and "不必另發註解指令" not in hint
     assert wo.locate_read_hint("戰鬥", True, True, True).count("\n") == 0
     _set(post, [])
     deny, _ = _pre(hooked, "Edit", _edit_input(f1))
-    assert deny and "need_goal(action=set／update) 的 locate 欄一起交" in deny, deny
+    assert deny and "`#` 註解" in deny and "locate 欄" not in deny, deny
     mcp_js = Path(__file__).resolve().parents[2].joinpath("tools", "workflow-guardian-mcp", "lib", "mcp.js").read_text(encoding="utf-8")
     assert "locate: {" in mcp_js and "不必另發註解指令" in mcp_js                   # schema 有 locate 欄（形狀由 js 案例驗）
 

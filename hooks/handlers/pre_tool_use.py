@@ -2256,8 +2256,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         _ng_hit = (_remind_hit(_ng_rule, "need_goal_edit", _ng_deny.splitlines()[0], "need_goal(action=set, goal=…) 重寫樹")
                                    if _ng_rule == "GATE_SELF_ERROR" else
                                    _remind_hit(_ng_rule, "", "改程式檔前這個需求還沒有目標樹",
-                                               f"寫一行「{_ng_fmt}」（子目標每件一行「子目標｜…」），{_rr.DECL_WHERE_SHORT}，hook 照它立樹；"
-                                               "備援 need_goal(action=set, goal=…)"))
+                                               f"寫一行「{_ng_fmt}」（子目標每件一行「子目標｜…」），{_rr.DECL_WHERE_SHORT}，hook 照它立樹"))
                         hub_changed = _remind_later(input_data, _hub_state, _ng_hit, "need_goal", path=_hub_fp) or hub_changed
                     _w, _d, _c, _hit = _hub_edit_check(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,

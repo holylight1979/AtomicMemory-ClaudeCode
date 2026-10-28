@@ -3057,20 +3057,22 @@ RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但�
                                           "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
                                           "裡另有沒被否定的提及照算點名（prompt_names_file）。")
 RULES["DECL_HINT_KEEPS_EDIT_TOOLS"] = ("擋 Edit／Write 要先交宣告行的閘（改資料檔宣告 wg_data_file._judge／data_file_hint、改舊測試宣告 "
-                                       "wg_oldtest.hint、定位與最小地圖 wg_overview、立樹 wg_need_goal），擋訊息與提示講清楚宣告放哪，順位固定："
-                                       "第一、同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令、宣告放它開頭的 `#` 註解（DECL_VIA_COMMENT），"
-                                       "接著就可以改檔；第二、寫在早一則只有文字的回覆（那一則不呼叫工具，下一則再改檔）。原因要講：同一則裡"
-                                       "接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫。"
+                                       "wg_oldtest.hint、定位與最小地圖 wg_overview、立樹 wg_need_goal），擋訊息與提示只教一條路、而且是零模型回合的那條："
+                                       "同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`）、宣告行放它開頭的 `#` 註解（DECL_VIA_COMMENT），"
+                                       "接著就可以改檔；範例寫成能照抄的樣子（`# 定位｜…` 幾行加一行 `git diff --stat`）。原因要講：同一則裡"
+                                       "接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫。其他管道（早一則只有文字的回覆、"
+                                       "need_goal set／update 的 locate 欄與 data_files）程式照認、不出現在擋訊息與提示裡，只在這張規則表與 TECH.md 講："
+                                       "009 實跑擋訊息同時教三條路，AI 挑了最貴的（ToolSearch 載工具、need_goal update 被拒、read、再 update）多 4 個模型回合。"
                                        "共用句 DECL_WHERE（整句）／DECL_WHERE_SHORT（一行提示用）。並寫明宣告完照常用 "
                                        "Edit／Write 改、不要改用 Bash／PowerShell 寫檔（DECL_KEEP_EDIT：指令寫的檔常判不出目標，"
                                        "modified_files 漏記，對帳、第二意見、同步提醒都看不到）。不准出現「或寫成 Bash 指令開頭的 # 註解」"
                                        "「放在下一條 Bash 的註解」這類會被讀成改用 Bash 寫檔的說法。擋的本來就是那條 Bash 指令的閘"
                                        "（繞閘宣告 wg_gate_bypass）不在此列：宣告寫在那條指令的註解是對的。")
-DECL_VIA_COMMENT = "一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`）開頭的 `#` 註解"
-# 宣告放哪（規則 DECL_HINT_KEEPS_EDIT_TOOLS 的順位）：先 `#` 註解、其次早一則的回覆文字；同一則裡接著呼叫工具的文字 hook 當下讀不到
-DECL_WHERE = (f"同一則回覆裡先發{DECL_VIA_COMMENT}、接著就可以改檔；或寫在早一則只有文字的回覆（那一則不呼叫工具，下一則再改檔；"
-              "同一則裡接著呼叫工具的文字，hook 當下讀不到）")
-DECL_WHERE_SHORT = f"放在同一則先發的{DECL_VIA_COMMENT}（接著就可以改檔），或早一則只有文字的回覆"
+DECL_VIA_COMMENT = "一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`），宣告行放在它開頭的 `#` 註解"
+# 宣告放哪（規則 DECL_HINT_KEEPS_EDIT_TOOLS）：只教 `#` 註解這一條路；早一則的回覆文字程式照認、訊息不教（同一則裡接著呼叫工具的文字 hook 當下讀不到）
+DECL_WHERE = (f"同一則回覆裡先發{DECL_VIA_COMMENT}，接著就可以改檔"
+              "（同一則裡接著呼叫工具的文字，hook 當下讀不到）")
+DECL_WHERE_SHORT = f"同一則先發{DECL_VIA_COMMENT}（接著就可以改檔）"
 DECL_KEEP_EDIT = ("宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔：指令裡寫的檔 hook 常判不出是哪個，"
                   "改檔紀錄會漏掉，之後對帳、第二意見、同步提醒都看不到這次改動")
 
@@ -3117,15 +3119,15 @@ def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
 
 def data_file_hint(rel: str) -> str:
     return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
-            f"{DECL_WHERE}；也可在 need_goal set 的 data_files 一起交；"
+            f"{DECL_WHERE}；照抄：# 動資料檔｜{rel}：<為什麼…>（下一行 git diff --stat）；"
             "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
 
 
 def data_file_fix(rels: Sequence[str]) -> str:
     """DENY_TEXT_SLIM 的動資料檔修法句，一行：宣告怎麼寫（每個檔一行範例）＋放哪＋宣告完照常用 Edit／Write
     （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH §7.5 DataFileAsk 與判準卡，不放訊息裡。"""
-    lines = "；".join(f"動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
-    return (f"先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫 {lines}（接著改檔；或早一則只有文字的回覆，或 need_goal set 的 data_files）；"
+    lines = "；".join(f"# 動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
+    return (f"先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫宣告，接著就可以改檔；照抄：{lines}（下一行 git diff --stat）；"
             "改檔照常用 Edit／Write，不要改用 Bash／PowerShell 寫檔。")
 
 
@@ -3139,7 +3141,7 @@ def data_file_read_hint(rels: Sequence[str], first: bool) -> str:
     if not first:
         return f"[Guardian:DataFileAsk] 改 {names} 也要先宣告（格式同前一則提示）。"
     return (f"[Guardian:DataFileAsk] 改 {names} 前先宣告：動資料檔｜<路徑>：<為什麼要動它、動了使用者會看到什麼>"
-            "（放先發的不寫檔指令開頭的 `#` 註解再改檔，或早一則只有文字的回覆，或 need_goal set 的 data_files）。")
+            "（放同一則先發的不寫檔指令開頭的 `#` 註解，接著就可以改檔）。")
 
 
 def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
@@ -4090,7 +4092,7 @@ RULES.update({
                                        "（wg_overview.on_edit、_blocked_parts／_note_block，state overview_locate_blocked）。本條管的是第一輪"
                                        "（LOCATE_FIRST_EDIT_BLOCKS_ONCE：每部位第一次改的那個使用者回合）之後的擋；第一輪的擋不記進 overview_locate_blocked。",
     "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要放"
-                              "先發的不寫檔指令開頭的 # 註解或早一則的回覆文字（DECL_WHERE；wg_overview._locate_ask 的 where）。",
+                              "同一則先發的不寫檔指令開頭的 # 註解（DECL_WHERE；wg_overview._locate_ask 的 where；只教這一條路，DECL_HINT_KEEPS_EDIT_TOOLS）。",
     "GOAL_VIEW_ONE_LINE": "目標視角重看（目標改了之後已碰過的部位再讀到，第一次 need_goal set 也算）只送一行：目標視角提問＋當前節點"
                           "（wg_need_goal_points.goal_view_text 併成一行），不重貼導讀卡、定位範本與部位表原文（wg_overview._goal_view）。",
 })
@@ -4108,13 +4110,15 @@ RULES.update({
     "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
                            "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
-                           "子代理讀的不提示），讓第一次改就帶宣告。這個 session 沒改過程式檔（wg_data_file.coding_session）閘不會問，"
+                           "子代理讀的不提示），讓第一次改就帶宣告。提示只教「放同一則先發的不寫檔指令開頭的 `#` 註解」一條路"
+                           "（DECL_HINT_KEEPS_EDIT_TOOLS）；早一則的回覆文字、need_goal set／update 的 data_files 程式照認，訊息不提。"
+                           "這個 session 沒改過程式檔（wg_data_file.coding_session）閘不會問，"
                            "也就不提示。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：閘會問的沒宣告照擋。",
 })
 RULES.update({
     "LOCATE_EXAMPLE_ONCE_PER_SESSION": "有目標樹時缺定位行的擋訊息（LOCATE_ASK_ONCE 那條完整範例）每個 session 只給一次完整範例：擋訊息精簡"
                                        "（guard.deny_text_slim）開、本 session 已送過（state overview_locate_example_sent）→ 那一條換成短句"
-                                       "（wg_overview.LOCATE_EXAMPLE_AGAIN：四行格式同第一則、先放 # 註解其次早一則回覆文字、thinking 讀不到）；"
+                                       "（wg_overview.LOCATE_EXAMPLE_AGAIN：四行格式同第一則、放同一則先發的不寫檔指令開頭的 # 註解、thinking 讀不到）；"
                                        "缺件清單照原文比（擋次上限、同批短訊息不因換字重新計次）；精簡關掉每則照給完整範例。",
 })
 RULES.update({
@@ -4184,8 +4188,9 @@ RULES.update({
     "LOCATE_HINT_ON_FIRST_READ": "讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（Read／唯讀 Bash／PowerShell／Grep，PostToolUse 的"
                                  "讀檔結果，不掛在改檔的 PreToolUse）→ 附一行：還沒有目標樹就先 need_goal set（判式與 edit_gate 同一支"
                                  "_edit_gate_applies＋目前的樹），交定位四行（根因層兩候選＋選擇理由、批判先下判斷；need_goal 關＝三行，"
-                                 "同缺定位擋訊息 LOCATE_ASK_ONCE），放同一則先發的不寫檔指令開頭的 # 註解、其次早一則的回覆文字、thinking 讀不到"
-                                 "（DECL_HINT_KEEPS_EDIT_TOOLS 的 DECL_WHERE）；立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
+                                 "同缺定位擋訊息 LOCATE_ASK_ONCE），放同一則先發的不寫檔指令開頭的 # 註解、thinking 讀不到"
+                                 "（DECL_HINT_KEEPS_EDIT_TOOLS 的 DECL_WHERE；只教這一條路，need_goal 的 locate 欄與早一則的回覆文字程式照認、訊息不提）；"
+                                 "立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
                                  "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送；沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，"
                                  "這則 prompt 的關鍵字也沒判成寫碼類 wg_core.CODE_INTENTS；提示要趕在第一次改檔前到，所以關鍵字意圖算數）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
                                  "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
@@ -4396,9 +4401,11 @@ RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE �
 
 # ─── 立樹走文字管道（T2 成本：need_goal set 多一個模型回合、ToolSearch 載工具再一回合）───────────────────────────
 RULES.update({
-    "TREE_SET_VIA_TEXT": "立需求目標樹走文字管道，工具 need_goal(action=set) 只當備援。格式：「目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>」"
+    "TREE_SET_VIA_TEXT": "立需求目標樹走文字管道。格式：「目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>」"
                          "一行，之後可多行「子目標｜<一件子目標>」（一行一件；沒有可省）。管道與定位行相同（DECL_WHERE）："
-                         + DECL_WHERE + "；thinking 不讀、程式碼區塊裡的不算、含 <…> 的佔位句不算；同一段文字最後一個「目標｜」那組算現行。"
+                         + DECL_WHERE + "；擋訊息與提示只教 # 註解這一條路（DECL_HINT_KEEPS_EDIT_TOOLS），早一則只有文字的回覆程式照認、"
+                         "工具 need_goal(action=set) 照收，兩者都不出現在訊息裡；thinking 不讀、程式碼區塊裡的不算、含 <…> 的佔位句不算；"
+                         "同一段文字最後一個「目標｜」那組算現行。"
                          "套用點：改程式檔的 PreToolUse（handlers/pre_tool_use 需求目標第一層，wg_need_goal.set_via_text 在 edit_gate 之前）："
                          "這個 session 還沒有進行中的樹、主 transcript 本使用者回合（最後一則使用者本人打字之後）或子代理檔裡有「目標｜」"
                          "→ 組成與 need_goal(action=set, kind=code, goal, items=[{text}]) 等價的輸入呼叫 apply_op，state 效果與 PostToolUse 收工具"
@@ -4406,8 +4413,8 @@ RULES.update({
                          "（state need_goal_text_scan）。留帳 Logs/guard-need_goal.jsonl event=set_via_text（拒收 set_via_text_rejected、"
                          "出錯 set_via_text_error 不擋，沒樹照舊由 edit_gate 判）。同一則回覆裡的定位四行與「動資料檔｜」各走自己的解析器。",
 })
-RULES["GOAL_TREE_SET_ONCE"] += ("｜立樹本身走文字管道（TREE_SET_VIA_TEXT）：提醒 set 那一行教的是「目標｜」行，need_goal(action=set) 只當備援，"
-                                "照做的成本是零個模型回合。")
-RULES["CODE_EDIT_NEEDS_GOAL_TREE"] += ("｜擋／提醒訊息教的是寫「目標｜…」行（子目標每件一行「子目標｜…」），先放同一則先發的不寫檔指令開頭的 # 註解、"
-                                       "其次早一則的回覆文字（DECL_WHERE），改檔時 hook 照它立樹（TREE_SET_VIA_TEXT）；need_goal(action=set) 只當備援。")
+RULES["GOAL_TREE_SET_ONCE"] += ("｜立樹本身走文字管道（TREE_SET_VIA_TEXT）：提醒 set 那一行教的是「目標｜」行，照做的成本是零個模型回合；"
+                                "need_goal(action=set) 程式照收、訊息不提。")
+RULES["CODE_EDIT_NEEDS_GOAL_TREE"] += ("｜擋／提醒訊息教的是寫「目標｜…」行（子目標每件一行「子目標｜…」），放同一則先發的不寫檔指令開頭的 # 註解"
+                                       "（DECL_WHERE；只教這一條路），改檔時 hook 照它立樹（TREE_SET_VIA_TEXT）；need_goal(action=set) 程式照收、訊息不提。")
 RULE_MODE["TREE_SET_VIA_TEXT"] = REMIND     # 不是閘（立樹成功只附一行、失敗留帳不擋）；RULE_MODE 在上面算完，這裡補登

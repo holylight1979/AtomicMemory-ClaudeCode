@@ -595,7 +595,7 @@ def test_deny_text_slim_rule_fix_and_hit_only(world):
     guard.deny_text_slim=false 退回原本的長文字（原處不動）。舊碼只有長文字 → 紅。"""
     slim = _reason(_run(world))
     head, hit = slim.splitlines()[:2]
-    assert head.startswith("[Guardian:DataFileAsk] 修法：先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫 動資料檔｜settings.json：")
+    assert head.startswith("[Guardian:DataFileAsk] 修法：先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫宣告，接著就可以改檔；照抄：# 動資料檔｜settings.json：")
     assert hit.startswith(f"✗ (df) {RULE}：") and rr.parse_hit_rules(slim) == [("df", RULE)]
     assert "先宣告一行再改" not in slim and "留帳給健檢抽查" not in slim
     old = _reason(_run(world, config={"guard": {"deny_text_slim": False}}))
@@ -631,7 +631,7 @@ def test_read_hint_on_first_read_of_data_file(world, post_read):
     程式檔、子代理讀的不提示。判定不動：沒宣告照擋。舊碼讀檔後什麼都不說、第一次改才被擋 → 紅。"""
     first = post_read({"file_path": str(world["proj"] / "settings.json")})
     assert "[Guardian:DataFileAsk] 改 settings.json 前先宣告：動資料檔｜<路徑>：" in first
-    assert first.index("`#` 註解") < first.index("早一則")                 # 管道順位：先 # 註解、其次早一則的回覆文字（DECL_HINT_KEEPS_EDIT_TOOLS）
+    assert "`#` 註解" in first and "早一則" not in first and "data_files" not in first   # 只教 # 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "settings.json")})
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "app.py")})
     assert "[Guardian:DataFileAsk]" not in post_read({"file_path": str(world["proj"] / "README.md")}, agent_id="ag-1")
@@ -670,7 +670,9 @@ def test_block_message_is_two_lines_with_rule_and_howto(world):
     assert rr.parse_hits(r) == ["df"]
     for gone in ("入口行範例", "AskUserQuestion", "每個檔各一行", "例如 `git diff`", "本 session 的新建紀錄"):
         assert gone not in fix + hit, gone                      # 後面接的判準卡是卡池文字，不算擋訊息
-    assert len(fix) <= 195 and len(hit) <= 180 and len("\n".join(lines)) <= 375, (len(fix), len(hit))   # 舊版 191＋252＝444；含「可在 need_goal data_files 一起交」半句
+    assert len(fix) <= 195 and len(hit) <= 180 and len("\n".join(lines)) <= 375, (len(fix), len(hit))   # 舊版 191＋252＝444
+    assert "# 動資料檔｜settings.json：" in fix and "git diff --stat" in fix                     # 範例能照抄：# 註解＋一條不寫檔指令
+    assert "早一則" not in fix and "data_files" not in fix                                       # 只教一條路（DECL_HINT_KEEPS_EDIT_TOOLS）
 
 
 def test_read_hint_is_one_line(world, post_read):
@@ -678,7 +680,7 @@ def test_read_hint_is_one_line(world, post_read):
     first = post_read({"file_path": str(world["proj"] / "settings.json")})
     assert first.startswith("[Guardian:DataFileAsk] 改 settings.json 前先宣告：動資料檔｜<路徑>：<") and "\n" not in first
     assert len(first) <= 160 and "這裡看不到" not in first, (len(first), first)
-    assert "`#` 註解" in first and "早一則" in first
+    assert "`#` 註解" in first and "早一則" not in first
 
 
 def test_declaration_format_unchanged_still_accepted(world):

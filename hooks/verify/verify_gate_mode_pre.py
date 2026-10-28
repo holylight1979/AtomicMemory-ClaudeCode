@@ -165,7 +165,7 @@ def test_first_edit_without_tree_denied_once_then_reminded(hooked, post):
     _next_user_turn()                                                  # 第一刀那一輪只管那個使用者回合
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None
     ctx = post("Edit", _edit_input(f1))
-    assert len(_lines(ctx, "CODE_EDIT_NEEDS_GOAL_TREE")) == 1 and "need_goal(action=set" in ctx
+    assert len(_lines(ctx, "CODE_EDIT_NEEDS_GOAL_TREE")) == 1 and "目標｜" in ctx and "need_goal(action=set" not in ctx   # 只教「目標｜」行
     assert "戰鬥導讀" in ctx and _lines(ctx, "OVERVIEW_CARD_BEFORE_EDIT")
     assert ctx.index(REMIND) < ctx.index("戰鬥導讀")                # 提醒一行在前、卡在後
     assert _pre(hooked, "Edit", _edit_input(f1))[0] is None

@@ -93,13 +93,12 @@ _RETRY_S = 0.02
 _RETRIES = 10
 STALE_DAYS = 30
 
-# 立樹走文字管道（規則 TREE_SET_VIA_TEXT）：這兩行放同一則先發的不寫檔指令開頭的 # 註解（其次早一則的回覆文字，rr.DECL_WHERE），
-# 改程式檔前的 PreToolUse 照它立寫碼樹；工具 need_goal(action=set) 只當備援（多一個模型回合）
+# 立樹走文字管道（規則 TREE_SET_VIA_TEXT）：這兩行放同一則先發的不寫檔指令開頭的 # 註解（rr.DECL_WHERE；訊息只教這一條路，
+# 早一則的回覆文字與工具 need_goal(action=set) 程式照認、不提——多一個模型回合，DECL_HINT_KEEPS_EDIT_TOOLS），改程式檔前的 PreToolUse 照它立寫碼樹
 TEXT_SET_FORMAT = "目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>"
 TEXT_SET_SUB_FORMAT = "子目標｜<一件子目標>"
 TEXT_SET_HOWTO = (f"寫一行「{TEXT_SET_FORMAT}」，看得出的子目標每件一行「{TEXT_SET_SUB_FORMAT}」"
-                  f"（{rr.DECL_WHERE}；thinking 讀不到），改程式檔前 hook 照它立樹；"
-                  "備援才用 need_goal(action=set, kind=code, goal=…, items=[…])")
+                  f"（{rr.DECL_WHERE}；thinking 讀不到），改程式檔前 hook 照它立樹")
 HINT_LINE = ("[NeedGoal] 若這是要動手的需求（改程式、寫或整併文件、整理記憶或設定都算），先寫下它真正要達成什麼"
              f"（一句、用使用者的話、不寫手段；寫整個需求，不只這回合先做的那段）：{TEXT_SET_HOWTO}；純問答可以不寫。")
 # 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；

@@ -99,7 +99,7 @@ def test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block(hoo
     assert "先立需求目標樹（寫一行「目標｜" in hint and "交定位四行" in hint
     assert "候選 A …；候選 B …；選 A 因為 …" in hint and "合不合理、為什麼" in hint
     assert "開頭的 `#` 註解" in hint and "（thinking 讀不到）" in hint and "照常用 Edit／Write" in hint
-    assert hint.index("開頭的 `#` 註解") < hint.index("早一則")           # 先同一則先發指令的 # 註解、其次早一則的回覆文字（DECL_WHERE）
+    assert "早一則" not in hint and "locate 欄" not in hint and "備援" not in hint   # 只教 # 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）
     assert "戰鬥導讀" not in ctx                                                    # 讀檔結果只有提示、沒有卡（READ_TOUCH_NO_CARD）
     assert not [o for o in hooked["outputs"] if o]                                 # 還沒有任何 PreToolUse 輸出：提示在第一個 Edit 之前
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
@@ -212,7 +212,8 @@ def test_locate_hint_text_matches_what_gates_check():
     for piece in ("定位｜部位", "定位｜根因層", "候選 A", "候選 B", "選 A 因為", "第二個不存在因為", "定位｜前例", "定位｜批判",
                   "合不合理、為什麼", wo._rr.DECL_VIA_COMMENT, "thinking 讀不到", "照常用 Edit／Write"):
         assert piece in four, piece
-    assert "\n" not in four and four.index("need_goal(action=set") < four.index("定位四行")   # 立樹與定位併成同一行、先立樹
+    assert "\n" not in four and four.index("目標｜") < four.index("定位四行")   # 立樹與定位併成同一行、先立樹
+    assert "need_goal(action=set" not in four                                 # 立樹也只教「目標｜」行，備援工具不提
     three = wo.locate_read_hint("戰鬥", False, False, True)
     assert "定位三行" in three and "定位｜批判" not in three and "need_goal" not in three
     assert wo.locate_read_hint("介面", False, True, False) == "[Guardian:OverviewHub] 改【介面】的程式檔前交定位四行（格式同前一則提示）。"

@@ -81,7 +81,8 @@ def test_first_code_edit_blocks_with_rule_entry_and_preview(tmp_path):
     for s in ("地圖｜讀了：", "地圖｜上游：", "地圖｜下游：", "同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令", "照常用 Edit／Write",
               "掃表預覽（", "`src/` 檔 2", "`lib/` 檔 2", "路徑前綴用反引號包", "病灶清單欄填病灶文件路徑"):
         assert s in deny, s
-    assert deny.rstrip().splitlines()[-1].startswith("同一則回覆裡先發")              # 入口在訊息末尾；先 # 註解、其次早一則的回覆文字
+    assert deny.rstrip().splitlines()[-1].startswith("同一則回覆裡先發")              # 入口在訊息末尾；只教 # 註解一條路
+    assert "  # 地圖｜讀了：" in deny and "  git diff --stat" in deny and "早一則" not in deny   # 範例能照抄成一條不寫檔指令
     assert "下一個 Bash 開頭" not in deny            # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：不把 AI 引去用 Bash 寫檔
     slot = state["min_map"][wo._root_key(root)]
     assert slot["preview_ok"] is True and "掃表預覽（" in slot["preview"]

@@ -797,7 +797,7 @@ def test_ups_handler_puts_goal_line_before_hub(env, monkeypatch):
 def test_edit_gate_layers(env, monkeypatch):
     proj = env["proj"]
     py = str(proj / "a.py")
-    assert "need_goal(action=set" in ng.edit_gate(SID, py, {})
+    assert "目標｜" in ng.edit_gate(SID, py, {}) and "need_goal(action=set" not in ng.edit_gate(SID, py, {})   # 只教「目標｜」行
     assert ng.edit_gate(SID, str(proj / "README.md"), {}) is None           # 知識類不擋
     assert ng.edit_gate(SID, str(proj / "eph" / "x.py"), {}) is None        # 暫存檔不管
     assert ng.edit_gate(SID, "UNKNOWN:echo", {}) is None                    # 交給 OverviewHub
@@ -939,7 +939,7 @@ def test_pretool_without_goal_line_unchanged_and_scan_cached(hooked, block_mode,
     _say(tp, "我先看一下")
     calls = _count_scans(monkeypatch)
     deny = _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs))
-    assert deny and deny.startswith("[NeedGoal]") and "目標樹" in deny and "目標｜" in deny and "need_goal(action=set" in deny
+    assert deny and deny.startswith("[NeedGoal]") and "目標樹" in deny and "目標｜" in deny and "need_goal(action=set" not in deny
     assert _tree() is None and len(calls) == 1
     assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)) and len(calls) == 1
     _say(tp, "目標｜匯出不再報錯")
@@ -1099,7 +1099,7 @@ def test_cg0_locate_two_candidates_asked_once_per_user_turn(hooked, block_mode):
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "只辨識出 0 個" in deny
     assert "還沒" not in deny.split("\n判準卡（")[0]                          # 只擋內容，不是說沒交（後面接的判準卡內文不算）
-    example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
+    example = [ln.strip().lstrip("# ") for ln in deny.splitlines() if ln.strip().lstrip("# ").startswith("定位｜")]   # 範例是 # 註解行
     assert len(example) == 4 and example[1].startswith("定位｜根因層：候選 A") and example[3].startswith("定位｜批判："), example
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None   # 同一回合不再問
     assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"

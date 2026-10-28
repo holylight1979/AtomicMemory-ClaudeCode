@@ -3,7 +3,7 @@
 為什麼：AI 改資料檔前本來就會呼叫 need_goal set 立樹；宣告另發一條只有註解的 Bash 多一個模型回合（006／007 實測）。
 正例：set 帶 data_files=[{path, why}] → state data_file_declared 記 via=need_goal、留帳 declared_via_need_goal、回覆點名收下；
 接著第一次 Edit 不擋（帳記 declared via=state）；why 空或只有佔位的那項不算（回覆點名沒收，改它照擋）；
-讀檔提示與擋訊息提到「need_goal set 的 data_files」；v6 關：need_goal 分支整個不跑、state 不記、不留帳。
+讀檔提示與擋訊息不提「need_goal set 的 data_files」（只教 # 註解一條路）；v6 關：need_goal 分支整個不跑、state 不記、不留帳。
 live 檔全 monkeypatch：WORKFLOW_DIR（state、目標檔落 tmp）、GUARD_LOG_DIR。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_data_file_via_need_goal.py
 """
@@ -157,11 +157,12 @@ def test_shape_errors_rejected_in_python_mirror():
     assert ng.validate_input({"action": "update", "items": [{"id": "T1", "status": "doing"}], "data_files": [{"path": "a.json"}]}) == []
 
 
-def test_hint_mentions_need_goal_option(world):
+def test_hint_does_not_mention_need_goal_option(world):
+    """讀檔提示與擋訊息只教 `#` 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）；data_files 程式照認（上面的案例）、訊息不提。"""
     hint = _post(world, "Read", {"file_path": str(world["proj"] / "settings.json")})
-    assert "[Guardian:DataFileAsk] 改 settings.json 前先宣告" in hint and "need_goal set 的 data_files" in hint
+    assert "[Guardian:DataFileAsk] 改 settings.json 前先宣告" in hint and "data_files" not in hint
     out = _edit(world)
-    assert _df_deny(out) and "need_goal set 的 data_files" in (out["hookSpecificOutput"]["permissionDecisionReason"])
+    assert _df_deny(out) and "data_files" not in (out["hookSpecificOutput"]["permissionDecisionReason"])
 
 
 def test_v6_off_unchanged(world, monkeypatch):

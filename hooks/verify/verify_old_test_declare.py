@@ -1314,6 +1314,6 @@ def test_hint_keeps_edit_write_not_bash_writes():
     import wg_oldtest as ot
     h = ot.hint("test_old")
     assert h.startswith("宣告行放哪：同一則回覆裡先發一條不寫檔的") and "`#` 註解" in h.split("。", 1)[0]
-    assert h.index("`#` 註解") < h.index("早一則")                          # 先 # 註解、其次早一則的回覆文字（DECL_HINT_KEEPS_EDIT_TOOLS）
+    assert "早一則" not in h                                                # 只教 # 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）
     assert "不寫檔的 Bash／PowerShell 指令" in h and "照常用 Edit／Write" in h and "不要改用 Bash／PowerShell 寫檔" in h
     assert "或寫成下一個 Bash／PowerShell 指令開頭的" not in h

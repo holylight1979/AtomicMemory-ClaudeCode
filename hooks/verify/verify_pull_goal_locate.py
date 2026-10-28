@@ -191,8 +191,9 @@ def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked, block_mode):
     _read_part(f1, proj, tp)
     deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
     assert deny and "一次交齊四行" in deny
-    example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
+    example = [ln.strip().lstrip("# ") for ln in deny.splitlines() if ln.strip().lstrip("# ").startswith("定位｜")]   # 範例是 # 註解行
     assert [ln.split("：", 1)[0] for ln in example] == ["定位｜部位", "定位｜根因層", "定位｜前例", "定位｜批判"]
+    assert "  git diff --stat" in deny and "照抄下面這段當一條 Bash／PowerShell 指令" in deny     # 四行 # 註解＋一條不寫檔指令，能照抄
     text = "\n".join(example)
     for k, v in (("<這次改哪個檔、哪一段>", "A.cs 的暴擊分支"), ("<第一個根因>", "邏輯層寫字典"), ("<第二個根因>", "存檔時序"),
                  ("<為什麼不是 B>", "存檔只讀字典"), ("<卡名>／無", "共用字典"),
@@ -207,7 +208,7 @@ def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked, block_mode):
 
 def test_locate_example_full_once_per_session_then_short(hooked, block_mode):
     """規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：有目標樹、擋訊息精簡開（guard.deny_text_slim 預設開）——本 session 第一則缺定位的擋訊息
-    照給完整範例；之後的回合再擋，那一條換成短句（四行格式同第一則、寫在回覆文字或 # 註解、thinking 讀不到），擋照擋；
+    照給完整範例；之後的回合再擋，那一條換成短句（四行格式同第一則、放先發的不寫檔指令開頭的 # 註解、thinking 讀不到），擋照擋；
     精簡關掉照舊每則完整範例。改前每則都附完整範例。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     f1 = _mapped_world(hooked)
