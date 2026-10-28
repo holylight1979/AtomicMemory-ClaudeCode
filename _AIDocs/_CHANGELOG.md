@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-28 「順手看到最該修」改掛測試綠那批；卡片 Depends 全改可攜路徑；升級結尾提示 v6 開關
+- **緣由**：量測 010 判分發現 PickOne 結構上送不到——它只掛在收尾檢核／完整對照那次呼叫後面，而 10-20 關掉收尾檢核的擋時提醒也一併不送，AI 不再呼叫 anti_evasion_report。另：同事回報 43 張卡 Depends 是作者機絕對路徑、5 支驗證過期、`--upgrade` 後不知 v6 預設關。
+- **做法**：`post_tool_batch.closing_reminders` 多一個「這批改過程式且測試收據綠」的時點（`_test_green_batch` 看 verify_receipts 新序號＋`receipt_green`＋測試指令或 PASS 哨兵），經 `wg_closing_round.pick_on_test_green` 附問句；組句與記帳抽成 `wg_harvest.pick_code_mods`／`pick_ask` 三路共用（Stop、收尾檢核批、測試綠批）；規則 PICK_ONE_PRE_CLOSE 與 `pick_one._doc` 改現況。43 張卡（全域 13、公司層 24、SGI 6）Depends 以 `portable_depends_path` 改寫、console-spawn 壞卡修正、mcp.js 範例改教可攜寫法。`tools/install.py` `cmd_upgrade` 結尾用 `lib/config_local.merge_local` 判 v6 沒開就印一行怎麼開。五支過期案例改對現況（depends ctx 變數名、PickOne 提醒模式、DataFileAsk 與讀檔提示的寫碼門檻）。
+- **驗證**：verify_closing_round 新案 2（紅批不問→綠批問→同回合不重問→Stop 不留帳；只改文件跑綠不問）、verify_install 新案 1；相關 7＋5 支 645／614 passed；健檢 `--deps-check` 全域 missing 1→0、三層 foreign 0。未做：`C:\TSLG` 專案記憶另有 28 張絕對路徑 Depends 待裁。
+
 ## 2026-10-28 根層閘門修一批：壓縮重建不歸零、樹外判準腳本收據算數、同追蹤項認部位寫細、他機路徑不是壞滅緣
 - **緣由**：本地一場 SGI session（compact 重建後）回報 8 條；逐條對 reflog 與現行碼查證，4 條是拉上游前的舊碼現象（PickOne 不看 stop_hook_active、NO_CASE 放行不記、MCP schema 缺 (j)(k)、counts 亂碼）現行碼已修或只是顯示問題，4 條現行碼仍有缺口。
 - **做法**：`handlers/session_start.floor_turn_seq`／`carry_on_rebuild`——重建 state 時 turn_seq 以 modified_files 最大回合墊底、`_CARRY_ON_REBUILD` 補 event_seq 與各閘帳本（pick_one、user_released、no_case_approved、verify_receipts、verify_scope、reconcile／cleanup／second_opinion）；`wg_verify_ledger._in_tree`／`run_targets` 加 allow——宣告在專案樹外的檔案項目，收據指到它自己或它的 inputs 不算別棵樹（SCOPE_ITEM_RECEIPT_AFTER_EDIT 文字同步）；`wg_harvest._part_compat`——同追蹤項合併認「一邊是另一邊開頭」的部位（戰鬥／介面仍不併），PickOne 問句把 source=pick 的留在榜上；`lib/atom_spec.classify_depends_path`——path 型 Depends 分 ok／missing／foreign，別人 `<家目錄>/.claude/<rel>` 換本機資料根再驗，錨點本機沒有的絕對路徑只列資訊；`atom-health-check`／`memory-audit`／`health-weekly` 改用它並以卡片所在層的根解析相對路徑；`org-memory` 工具卡 Depends 改寫可攜路徑（`~/.claude/<rel>`／專案相對）、退役只認 missing。
