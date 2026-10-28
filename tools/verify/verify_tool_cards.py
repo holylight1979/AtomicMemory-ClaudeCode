@@ -186,6 +186,26 @@ def test_manual_edit_survives_rescan(world):
 
 # ─── ③ 進入點消失 → 該卡 deprecated、其餘不變；health-check 標 stale_deps ──────
 
+def test_project_tool_card_depends_is_project_relative(world):
+    """專案層工具卡的 Depends 寫專案相對路徑（卡跨機共享，作者機的絕對路徑別台機器驗不到）。"""
+    assert _scan(world) == 0
+    text = _cards(world)["zzqtool"].read_text(encoding="utf-8")
+    assert "- Depends: path:.claude/tools/zzqtool.py" in text
+
+
+def test_foreign_machine_entry_is_not_deprecated(world, capsys):
+    """進入點是別台機器的絕對路徑（錨點本機沒有）→ 本機驗不到，不退役（舊碼：公司層 24 張他機卡一掃全退役）。"""
+    assert _scan(world) == 0
+    card = _cards(world)["zzqlocal"]
+    foreign = ("C:/zzq-no-such-root-9f3a" if sys.platform == "win32" else "/zzq-no-such-root-9f3a") + "/Users/holylight/srv.js"
+    text = card.read_text(encoding="utf-8")
+    assert "- Depends: path:" in text
+    _lf(card, "\n".join(f"- Depends: path:{foreign}" if l.startswith("- Depends:") else l for l in text.splitlines()) + "\n")
+    capsys.readouterr()
+    assert _scan(world) == 0
+    assert "退役：mcp-zzqlocal" not in capsys.readouterr().out
+    assert _status(card) == "production"
+
 def test_missing_entry_marks_deprecated_only_that_card(world, capsys):
     assert _scan(world) == 0
     cards = _cards(world)

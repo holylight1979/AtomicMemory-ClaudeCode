@@ -19,11 +19,72 @@ if str(LIB_PARENT) not in sys.path:
 
 from lib.atom_spec import (  # noqa: E402
     OPTIONAL_METADATA, VALID_EVIDENCE,
-    build_atom_content, depends_warnings, evidence_rank, evidence_warning,
-    parse_depends, parse_evidence, parse_frontmatter, resolve_depends_path,
+    build_atom_content, classify_depends_path, depends_base_for_file, depends_warnings, evidence_rank, evidence_warning,
+    parse_depends, parse_evidence, parse_frontmatter, portable_depends_path, resolve_depends_path,
     validate_atom_content,
 )
 from lib.project_root import claude_data_dir  # noqa: E402
+
+
+# ─── Depends 存在性分級（跨機共享的卡：他機路徑不是壞滅緣）────────────────────
+
+_FOREIGN_ROOT = "C:/zzq-no-such-root-9f3a" if sys.platform == "win32" else "/zzq-no-such-root-9f3a"
+
+
+def test_classify_local_existing_is_ok(tmp_path):
+    f = tmp_path / "x.py"
+    f.write_text("1", encoding="utf-8")
+    assert classify_depends_path(str(f), claude_dir=tmp_path) == ("ok", f)
+
+
+def test_classify_local_missing_under_existing_anchor_is_missing(tmp_path):
+    """本機路徑、最上層錨點存在、檔不在 → missing（真的壞滅緣）。"""
+    level, _ = classify_depends_path(str(tmp_path / "gone" / "x.py"), claude_dir=tmp_path)
+    assert level == "missing"
+
+
+def test_classify_other_home_claude_rebased_to_local_data_root(tmp_path):
+    """別人 `<家目錄>/.claude/<rel>`：換成本機資料根再查——在就 ok、不在才 missing（作者機的 .claude 對應本機的 .claude）。"""
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "t.py").write_text("1", encoding="utf-8")
+    for other in ("C:/Users/holylight/.claude/tools/t.py", "C:\\Users\\holylight\\.claude\\tools\\t.py", "/home/holylight/.claude/tools/t.py"):
+        level, used = classify_depends_path(other, claude_dir=tmp_path)
+        assert (level, used) == ("ok", tmp_path / "tools" / "t.py"), other
+    level, used = classify_depends_path("C:/Users/holylight/.claude/tools/gone.py", claude_dir=tmp_path)
+    assert level == "missing" and used == tmp_path / "tools" / "gone.py"
+
+
+def test_classify_foreign_anchor_is_foreign_not_missing(tmp_path):
+    """最上層錨點本機沒有（C:/Projects/…、C:/Users/<別人>/<非 .claude>）→ foreign：本機驗不到，不算壞滅緣。"""
+    assert classify_depends_path(f"{_FOREIGN_ROOT}/Projects/SGI/tools/x.py", claude_dir=tmp_path)[0] == "foreign"
+    assert classify_depends_path(f"{_FOREIGN_ROOT}/Users/holylight/other/x.py", claude_dir=tmp_path)[0] == "foreign"
+
+
+def test_classify_relative_resolves_with_base(tmp_path):
+    proj = tmp_path / "proj"
+    (proj / "tools").mkdir(parents=True)
+    (proj / "tools" / "t.py").write_text("1", encoding="utf-8")
+    assert classify_depends_path("tools/t.py", claude_dir=tmp_path, base=proj)[0] == "ok"
+    assert classify_depends_path("tools/t.py", claude_dir=tmp_path)[0] == "missing"
+
+
+def test_depends_base_for_file_project_and_root(tmp_path):
+    proj = tmp_path / "proj"
+    card = proj / ".claude" / "memory" / "shared" / "x" / "c.md"
+    card.parent.mkdir(parents=True)
+    assert depends_base_for_file(card) == proj
+    assert depends_base_for_file(tmp_path / "loose.md") is None
+
+
+def test_portable_depends_path_project_then_data_root_then_absolute(tmp_path):
+    proj = tmp_path / "proj"
+    data = tmp_path / "claude"
+    for p in (proj / ".claude" / "tools" / "t.py", data / "tools" / "u.py", tmp_path / "elsewhere" / "v.py"):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("1", encoding="utf-8")
+    assert portable_depends_path(proj / ".claude" / "tools" / "t.py", project_root=proj, claude_dir=data) == ".claude/tools/t.py"
+    assert portable_depends_path(data / "tools" / "u.py", project_root=proj, claude_dir=data) == "~/.claude/tools/u.py"
+    assert portable_depends_path(tmp_path / "elsewhere" / "v.py", project_root=proj, claude_dir=data) == (tmp_path / "elsewhere" / "v.py").as_posix()
 
 
 # ─── Depends 解析 ────────────────────────────────────────────────────────────

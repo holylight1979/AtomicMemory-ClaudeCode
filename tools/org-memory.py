@@ -45,7 +45,8 @@ from lib.atom_io import (  # noqa: E402
     card_body_lines, edit_metadata, locate_atom, narrative_date_error, write_index, write_raw,
 )
 from lib.atom_spec import (  # noqa: E402
-    TRIGGER_MIN, build_atom_content, parse_depends, resolve_depends_path, slugify, validate_atom_content,
+    TRIGGER_MIN, build_atom_content, classify_depends_path, depends_base_for, parse_depends, portable_depends_path,
+    slugify, validate_atom_content,
 )
 from lib.atom_index_json import load_atom_index_json, upsert_atom  # noqa: E402
 
@@ -129,7 +130,7 @@ def init_tree(root: Path, user: str) -> List[str]:
                 "新機初始化：python ~/.claude/tools/org-memory.py --init <公司記憶 repo 的本機 checkout 路徑>",
                 "查公司知識：python ~/.claude/tools/memory-search.py \"關鍵字\"",
             ],
-            author=user, status="production", provenance=entry, depends=[f"path:{entry}"],
+            author=user, status="production", provenance=entry, depends=[f"path:{portable_depends_path(Path(entry))}"],
         )
         err = validate_atom_content(content)
         if err:
@@ -201,13 +202,14 @@ def _card_triggers(name: str, kind: str) -> List[str]:
     return [f"{kind}-{name}", f"{name} {kind}", f"工具卡 {name}"]
 
 
-def _card(name: str, kind: str, desc: str, *, entry: str, has_path: bool, run: str) -> Dict[str, object]:
-    """卡名＝kind 前綴＋名稱（kind 為「工具」的專案腳本不加前綴）。"""
+def _card(name: str, kind: str, desc: str, *, entry: str, has_path: bool, run: str, dep: str = "") -> Dict[str, object]:
+    """卡名＝kind 前綴＋名稱（kind 為「工具」的專案腳本不加前綴）。dep＝寫進 Depends 的可攜路徑（`~/.claude/<rel>`／專案相對），
+    沒給就用 entry；卡片跨機共享，作者機的絕對路徑別台機器驗不到。"""
     card_name = name if kind == TOOL_DOMAIN else f"{kind}-{name}"
     triggers = _card_triggers(name, kind)
     assert len(triggers) >= TRIGGER_MIN
     return {
-        "name": card_name, "entry": entry, "has_path": has_path, "triggers": triggers,
+        "name": card_name, "entry": entry, "dep": dep or entry, "has_path": has_path, "triggers": triggers,
         "desc": desc or "（來源未附說明）", "run": run, "kind": kind,
     }
 
@@ -232,7 +234,7 @@ def collect_skill_cards() -> List[Dict[str, object]]:
             continue
         entry = (SKILLS_DIR / (s.get("dir") or name) / "SKILL.md").resolve().as_posix()
         cards.append(_card(name, "skill", s.get("description", ""), entry=entry, has_path=True,
-                           run=f"Claude Code 內呼叫 /{name}"))
+                           run=f"Claude Code 內呼叫 /{name}", dep=portable_depends_path(Path(entry))))
     return cards
 
 
@@ -249,7 +251,8 @@ def collect_mcp_cards() -> List[Dict[str, object]]:
         else:
             entry = d.get("npm_package") or name
         cards.append(_card(name, "mcp", d.get("description", ""), entry=entry, has_path=bool(abs_entry),
-                           run=f"MCP server「{name}」由 hooks/ensure-mcp.py 依 mcp-servers.template.json 註冊，Claude Code 啟動即載入"))
+                           run=f"MCP server「{name}」由 hooks/ensure-mcp.py 依 mcp-servers.template.json 註冊，Claude Code 啟動即載入",
+                           dep=portable_depends_path(Path(entry)) if abs_entry else ""))
     return cards
 
 
@@ -269,7 +272,7 @@ def collect_project_cards(root: Path) -> List[Dict[str, object]]:
     for py in sorted((root / ".claude" / "tools").glob("*.py")):
         entry = py.resolve().as_posix()
         cards.append(_card(py.stem, TOOL_DOMAIN, _first_doc_paragraph(py), entry=entry, has_path=True,
-                           run=f"python {entry} --help"))
+                           run=f"python {entry} --help", dep=portable_depends_path(py, project_root=root)))
     return cards
 
 
@@ -294,7 +297,7 @@ def write_card(card: Dict[str, object], *, project_cwd: Path, owner: str, dry_ru
         title=name, scope="shared", confidence="[臨]", triggers=triggers,
         knowledge=[f"[臨] {card['desc']}"], actions=[str(card["run"])],
         author=owner, status="production", provenance=entry,
-        depends=[f"path:{entry}"] if card["has_path"] else None,
+        depends=[f"path:{card.get('dep') or entry}"] if card["has_path"] else None,
     )
     # 工具說明整句進知識行：帶敘事日期就不建卡（寫入閘 KNOWLEDGE_LINE_NO_NARRATIVE_DATE，與 write_atom 同一份判式）
     err = validate_atom_content(content) or narrative_date_error(card_body_lines(content))
@@ -315,8 +318,10 @@ def write_card(card: Dict[str, object], *, project_cwd: Path, owner: str, dry_ru
 
 
 def deprecate_missing(mem_dir: Path, *, dry_run: bool) -> List[str]:
-    """shared/工具/ 下 path 型 Depends 任一不存在的卡 → Status: deprecated（不刪卡；已 deprecated 不重寫）。"""
+    """shared/工具/ 下 path 型 Depends 任一「本機該在卻不在」的卡 → Status: deprecated（不刪卡；已 deprecated 不重寫）。
+    別台機器的絕對路徑（classify_depends_path 判 foreign）本機驗不到，不退役：公司層的卡是作者機寫的，在別台機器掃不能把它們全退役。"""
     msgs: List[str] = []
+    base = depends_base_for(mem_dir)
     for e in load_atom_index_json(mem_dir).get("atoms", []):
         rel = str(e.get("path") or "").replace("\\", "/")
         if f"/{TOOL_DOMAIN}/" not in rel:
@@ -329,7 +334,7 @@ def deprecate_missing(mem_dir: Path, *, dry_run: bool) -> List[str]:
         if not dm:
             continue
         missing = [d["value"] for d in parse_depends(dm.group(1))
-                   if d["type"] == "path" and d["value"] and not resolve_depends_path(d["value"]).exists()]
+                   if d["type"] == "path" and d["value"] and classify_depends_path(d["value"], base=base)[0] == "missing"]
         if not missing:
             continue
         sm = _STATUS_RE.search(text)

@@ -326,6 +326,9 @@ def _depends_block(hc: dict, coverage_min: float) -> tuple[list[str], list[str]]
     n_stale = len(hc.get("stale_deps") or [])
     if n_stale:
         yellow.append(f"stale_deps {n_stale} 筆：Depends 指向的路徑已不存在（atom-health-check.py --deps-check）")
+    n_foreign = len(hc.get("foreign_deps") or [])
+    if n_foreign:
+        info.append(f"他機路徑的 Depends {n_foreign} 筆（作者機的絕對路徑，本機不可驗、不算壞滅緣；atom-health-check.py --deps-check）")
     mt = hc.get("stale_mtime_deps") or []
     if mt:
         names = ", ".join(f"{d.get('atom')}←{Path(str(d.get('dep', ''))).name}" for d in mt[:5])

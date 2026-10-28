@@ -92,6 +92,29 @@ def test_hc_mixed_deps_only_missing_flagged(tmp_path):
     assert [i["dep"] for i in issues] == [str(missing)]
 
 
+_FOREIGN = ("C:/zzq-no-such-root-9f3a" if sys.platform == "win32" else "/zzq-no-such-root-9f3a") + "/Projects/SGI/tools/x.py"
+
+
+def test_hc_foreign_machine_path_is_info_not_stale(tmp_path):
+    """卡片跨機共享：別台機器的絕對路徑（錨點本機沒有）不算壞滅緣，另列 foreign_deps（舊碼：66 筆全報壞滅緣）。"""
+    atom = _write_atom(tmp_path, "a", f"- Depends: path:{_FOREIGN}\n")
+    assert HC.check_stale_deps({"a": atom}) == []
+    assert [d["dep"] for d in HC.check_foreign_deps({"a": atom})] == [_FOREIGN]
+
+
+def test_hc_project_card_relative_dep_resolves_with_project_root(tmp_path):
+    """專案層的卡寫專案相對路徑：以專案根解析（舊碼不帶根、照資料根解 → 永遠報壞滅緣）。"""
+    proj = tmp_path / "proj"
+    (proj / "tools").mkdir(parents=True)
+    (proj / "tools" / "t.py").write_text("1", encoding="utf-8")
+    card_dir = proj / ".claude" / "memory" / "shared" / "x"
+    card_dir.mkdir(parents=True)
+    atom = _write_atom(card_dir, "a", "- Depends: path:tools/t.py\n")
+    assert HC.check_stale_deps({"a": atom}) == [] and HC.check_foreign_deps({"a": atom}) == []
+    gone = _write_atom(card_dir, "b", "- Depends: path:tools/gone.py\n")
+    assert [d["dep"] for d in HC.check_stale_deps({"b": gone})] == ["tools/gone.py"]
+
+
 def test_hc_full_report_contains_stale_deps_key(tmp_path, monkeypatch):
     monkeypatch.setattr(HC, "MEMORY_ROOT", tmp_path)  # per-atom rel-path 需以掃描根為基準
     atom = _write_atom(tmp_path, "a", f"- Depends: path:{tmp_path / 'gone.md'}\n")
@@ -110,6 +133,13 @@ def test_ma_missing_path_dep_triggers(tmp_path):
     atom = MA.parse_atom_file(p, "global")
     out = MA.check_stale_deps(atom)
     assert len(out) == 1 and out[0]["dep"] == str(missing)
+
+
+def test_ma_foreign_machine_path_not_stale(tmp_path):
+    p = _write_atom(tmp_path, "a", f"- Depends: path:{_FOREIGN}\n")
+    atom = MA.parse_atom_file(p, "global")
+    assert MA.check_stale_deps(atom) == []
+    assert [d["dep"] for d in MA.check_foreign_deps(atom)] == [_FOREIGN]
 
 
 def test_ma_no_depends_silent_and_no_new_issues(tmp_path):

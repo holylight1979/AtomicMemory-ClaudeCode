@@ -48,7 +48,7 @@ from lib.atom_spec import (
     REQUIRED_SECTIONS, KNOWLEDGE_SECTIONS, VALID_CONFIDENCE,
     INDEX_MAX_LINES, PROJECT_INDEX_MAX_LINES, ATOM_MAX_LINES, TRIGGER_MIN, TRIGGER_MAX,
     MEMORY_INDEX,
-    parse_depends, resolve_depends_path, depends_warnings, evidence_warning,
+    parse_depends, resolve_depends_path, classify_depends_path, depends_base_for_file, depends_warnings, evidence_warning,
 )
 from lib.atom_locations import (
     GLOBAL_MEMORY_DIR, FAILURES_DIR, LEGACY_FAILURES_DIR, LOCAL_ATOMS_DIR,
@@ -195,6 +195,8 @@ class HealthReport:
     audit_stats: Dict[str, Any] = field(default_factory=dict)
     # 壞滅緣（validity conditions）：path 型 Depends 指向已消失路徑的 atoms
     stale_deps: List[Dict[str, str]] = field(default_factory=list)
+    # 他機路徑：path 型 Depends 是別台機器的絕對路徑（本機不可驗，資訊級、不算壞滅緣）
+    foreign_deps: List[Dict[str, str]] = field(default_factory=list)
 
 
 # ─── Parsing ─────────────────────────────────────────────────────────────────
@@ -506,26 +508,31 @@ def validate_format(atom: AtomMetadata) -> List[Issue]:
     return issues
 
 
-def check_stale_deps(atom: AtomMetadata) -> List[Dict[str, str]]:
-    """壞滅緣檢查：path 型 Depends 條目指向不存在的路徑（warning 級）。
-
-    無 Depends 欄一律靜默（optional，向後相容）；自由文字型條目不可驗、跳過。
-    """
+def _depends_by_level(atom: AtomMetadata) -> Dict[str, List[Dict[str, str]]]:
+    """path 型 Depends 分級（atom_spec.classify_depends_path；相對路徑以卡片所在層的根解析）：missing＝壞滅緣、
+    foreign＝別台機器的絕對路徑。無 Depends 欄一律靜默（optional，向後相容）；自由文字型條目不可驗、跳過。"""
+    out: Dict[str, List[Dict[str, str]]] = {"missing": [], "foreign": []}
     raw = atom.raw_metadata.get("Depends", "")
     if not raw or atom.is_claude_native:
-        return []
-    out: List[Dict[str, str]] = []
+        return out
+    base = depends_base_for_file(atom.file_path)
     for e in parse_depends(raw):
         if e["type"] != "path" or not e["value"]:
             continue
-        resolved = resolve_depends_path(e["value"])
-        if not resolved.exists():
-            out.append({
-                "file": _rel_path(atom.file_path),
-                "dep": e["value"],
-                "resolved": str(resolved),
-            })
+        level, resolved = classify_depends_path(e["value"], base=base)
+        if level in out:
+            out[level].append({"file": _rel_path(atom.file_path), "dep": e["value"], "resolved": str(resolved)})
     return out
+
+
+def check_stale_deps(atom: AtomMetadata) -> List[Dict[str, str]]:
+    """壞滅緣檢查：path 型 Depends 條目指向本機該在卻不在的路徑（warning 級）。他機絕對路徑歸 check_foreign_deps。"""
+    return _depends_by_level(atom)["missing"]
+
+
+def check_foreign_deps(atom: AtomMetadata) -> List[Dict[str, str]]:
+    """path 型 Depends 是別台機器的絕對路徑（作者機寫進卡片、跨機共享後本機驗不到）：資訊級，不是壞滅緣。"""
+    return _depends_by_level(atom)["foreign"]
 
 
 def _forget_config() -> Dict[str, Any]:
@@ -1652,6 +1659,8 @@ def generate_markdown_report(report: HealthReport) -> str:
         lines.append(f"- Duplicate suspects: {len(report.duplicates)}")
     if report.stale_deps:
         lines.append(f"- Stale depends（壞滅緣觸發）: {len(report.stale_deps)}")
+    if report.foreign_deps:
+        lines.append(f"- Foreign depends（他機路徑、本機不可驗、不算壞滅緣）: {len(report.foreign_deps)}")
     lines.append("")
 
     # Issues
@@ -1749,6 +1758,7 @@ def generate_json_report(report: HealthReport) -> str:
         ],
         "audit_stats": report.audit_stats,
         "stale_deps": report.stale_deps,
+        "foreign_deps": report.foreign_deps,
     }
     return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -1910,6 +1920,7 @@ def run_audit(args: argparse.Namespace) -> HealthReport:
 
             # 壞滅緣（path 型 Depends 存在性）
             report.stale_deps.extend(check_stale_deps(atom))
+            report.foreign_deps.extend(check_foreign_deps(atom))
 
     # Detect cross-layer duplicates
     report.duplicates.extend(detect_duplicates(all_atoms))

@@ -314,6 +314,61 @@ def depends_base_for(mem_dir: Path) -> Path:
     return mem_dir.parent
 
 
+def depends_base_for_file(atom_path: Path) -> Optional[Path]:
+    """卡片檔 → 它 `path:` 相對路徑的解析根：往上找名為 memory 的索引目錄交 depends_base_for；找不到回 None（退資料根）。"""
+    for anc in Path(atom_path).parents:
+        if anc.name == "memory":
+            return depends_base_for(anc)
+    return None
+
+
+_OTHER_HOME_CLAUDE_RE = re.compile(r"^(?:[A-Za-z]:[\\/]Users[\\/][^\\/]+|/home/[^/]+|/Users/[^/]+)[\\/]\.claude(?P<rest>[\\/].*)?$", re.I)
+
+
+def _anchor_missing(p: Path) -> bool:
+    """絕對路徑的最上層錨點本機不存在（C:/Projects、C:/Users/<別人>）→ 這是別台機器的路徑。家目錄多看一層到 <名>。"""
+    if not p.is_absolute() or len(p.parts) < 2:
+        return False
+    anchor = Path(p.parts[0]) / p.parts[1]
+    if p.parts[1].lower() in ("users", "home") and len(p.parts) >= 3:
+        anchor = anchor / p.parts[2]
+    return not anchor.exists()
+
+
+def classify_depends_path(value: str, claude_dir: Optional[Path] = None,
+                          base: Optional[Path] = None) -> Tuple[str, Path]:
+    """path 型 Depends 的存在性分級，回 (級別, 判定用的路徑)：
+    ok      — 解析後存在
+    missing — 本機該在卻不在：本機路徑；或別人 `<家目錄>/.claude/<rest>` 換到本機資料根後也不在（卡片跨機共享，作者機的
+              .claude 對應本機的 .claude，例：tools/x.py 搬走了）
+    foreign — 別台機器的絕對路徑（最上層錨點本機沒有：C:/Projects/…、C:/Users/<別人>/<非 .claude>）：本機驗不到，不算壞滅緣。
+    健檢只把 missing 當壞滅緣；foreign 另列資訊。"""
+    resolved = resolve_depends_path(value, claude_dir, base)
+    if resolved.exists():
+        return "ok", resolved
+    m = _OTHER_HOME_CLAUDE_RE.match(str(value).strip())
+    if m:
+        local = (claude_dir or claude_data_dir()) / (m.group("rest") or "").lstrip("\\/")
+        return ("ok" if local.exists() else "missing"), local
+    if _anchor_missing(resolved):
+        return "foreign", resolved
+    return "missing", resolved
+
+
+def portable_depends_path(p: Path, project_root: Optional[Path] = None, claude_dir: Optional[Path] = None) -> str:
+    """寫 `path:` 時用能跨機器的寫法：在專案根下 → 專案相對（專案卡的解析根就是專案根）；在資料根下 → `~/.claude/<rel>`；
+    其他照絕對路徑（posix）。作者機的絕對路徑寫進卡片，別台機器的健檢會判成他機路徑、召回也對不到。"""
+    p = Path(p)
+    for root, head in ((project_root, ""), (claude_dir or claude_data_dir(), "~/.claude/")):
+        if root is None:
+            continue
+        try:
+            return head + p.resolve().relative_to(Path(root).resolve()).as_posix()
+        except (ValueError, OSError):
+            continue
+    return p.as_posix()
+
+
 def _norm_fs_path(p: Path) -> str:
     """路徑比對鍵：resolve（不要求存在）→ 剝 `\\\\?\\`／`\\\\?\\UNC\\` → 正斜線 → Windows 不分大小寫。"""
     try:

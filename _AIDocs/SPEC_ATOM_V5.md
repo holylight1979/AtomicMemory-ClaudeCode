@@ -459,7 +459,7 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 
 | 型 | 格式 | 驗證 |
 |---|---|---|
-| path 型 | `path:<相對或~路徑>`（相對路徑以 `~/.claude` 為根） | 機器可驗存在性：`tools/atom-health-check.py` `check_stale_deps` 掃 path 型指向已消失路徑 → 報 `stale_deps`（壞滅緣觸發，主動標 stale） |
+| path 型 | `path:<相對或~路徑>`（相對路徑以卡片所在層的根解析：根層卡＝`~/.claude`、專案卡＝專案根；跨機共享的卡用 `~/.claude/<rel>` 或專案相對，不寫作者機的絕對路徑） | 機器可驗存在性：`tools/atom-health-check.py` `check_stale_deps` 掃 path 型指向本機該在卻不在的路徑 → 報 `stale_deps`；別台機器的絕對路徑（`C:/Projects/…`、`C:/Users/<別人>/…`，`classify_depends_path` 判 foreign）只列資訊 `foreign_deps`、不算壞滅緣；別人 `<家目錄>/.claude/<rel>` 先換成本機 `~/.claude/<rel>` 再驗 |
 | 自由文字型 | 如 `decision:xxx`、版本描述 | 不可驗，僅展示 |
 
 - 實作：`atom_spec.parse_depends` / `resolve_depends_path` / `depends_warnings`（缺路徑值等格式警告）。

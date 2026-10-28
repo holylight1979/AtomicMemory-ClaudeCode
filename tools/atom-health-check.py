@@ -30,7 +30,7 @@ CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從�
 sys.path.insert(0, str(CODE_DIR))
 from lib.project_root import claude_data_dir  # noqa: E402
 from lib.atom_spec import (  # noqa: E402
-    is_atom_file, REQUIRED_METADATA, parse_depends, resolve_depends_path,
+    is_atom_file, REQUIRED_METADATA, parse_depends, resolve_depends_path, classify_depends_path, depends_base_for_file,
     find_related_line, split_related, has_conflict_markers,
 )
 from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa: E402
@@ -268,31 +268,38 @@ def stale_check(atoms: dict[str, Path], days: int = 60) -> list[dict]:
     return stale
 
 
-def check_stale_deps(atoms: dict[str, Path]) -> list[dict]:
-    """壞滅緣（validity conditions）檢查：path 型 Depends 指向不存在的路徑。
-
-    只驗 path 型條目（自由文字型不可驗，僅展示）。warning 級：
-    知識失效是真值問題，非時間問題 — 依賴的路徑消失 = 該 atom 知識可能已壞滅。
-    無 Depends 欄的 atom 一律靜默（欄位 optional，向後相容）。
-    """
-    issues = []
+def _depends_by_level(atoms: dict[str, Path]) -> dict[str, list[dict]]:
+    """每張卡的 path 型 Depends 分級（atom_spec.classify_depends_path；相對路徑以卡片所在層的根解析）：
+    missing＝壞滅緣、foreign＝別台機器的絕對路徑（本機不可驗，只列資訊）。無 Depends 欄的 atom 一律靜默（向後相容）。"""
+    out: dict[str, list[dict]] = {"missing": [], "foreign": []}
     for name, path in sorted(atoms.items()):
         fm = parse_frontmatter(path)
         raw = fm.get("Depends", "")
         if not raw:
             continue
+        base = depends_base_for_file(path)
         for e in parse_depends(raw):
             if e["type"] != "path" or not e["value"]:
                 continue
-            resolved = resolve_depends_path(e["value"])
-            if not resolved.exists():
-                issues.append({
-                    "atom": name,
-                    "dep": e["value"],
-                    "resolved": str(resolved),
-                    "file": str(path),
-                })
-    return issues
+            level, resolved = classify_depends_path(e["value"], base=base)
+            if level in out:
+                out[level].append({"atom": name, "dep": e["value"], "resolved": str(resolved), "file": str(path)})
+    return out
+
+
+def check_stale_deps(atoms: dict[str, Path]) -> list[dict]:
+    """壞滅緣（validity conditions）檢查：path 型 Depends 指向本機該在卻不在的路徑。
+
+    只驗 path 型條目（自由文字型不可驗，僅展示）。warning 級：
+    知識失效是真值問題，非時間問題 — 依賴的路徑消失 = 該 atom 知識可能已壞滅。
+    別台機器的絕對路徑（C:/Projects/…、C:/Users/<別人>/…）不算：本機驗不到，歸 check_foreign_deps。
+    """
+    return _depends_by_level(atoms)["missing"]
+
+
+def check_foreign_deps(atoms: dict[str, Path]) -> list[dict]:
+    """path 型 Depends 是別台機器的絕對路徑（作者機寫進卡片、跨機共享後本機驗不到）：資訊級，不是壞滅緣。"""
+    return _depends_by_level(atoms)["foreign"]
 
 
 _VERIFIED_FIELDS = ("Verified-at", "Last-verified", "驗證日期", "Created-at")
@@ -325,10 +332,11 @@ def check_depends_mtime(atoms: dict[str, Path]) -> list[dict]:
         if not raw:
             continue
         verified, src = _atom_verified_date(fm, path)
+        base = depends_base_for_file(path)
         for e in parse_depends(raw):
             if e["type"] != "path" or not e["value"]:
                 continue
-            resolved = resolve_depends_path(e["value"])
+            resolved = resolve_depends_path(e["value"], base=base)
             try:
                 dep_mtime = datetime.fromtimestamp(resolved.stat().st_mtime)
             except OSError:
@@ -490,6 +498,7 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
         "missing_reverse_refs": check_reverse_refs(atoms, aliases),
         "stale_atoms": stale_check(atoms),
         "stale_deps": check_stale_deps(atoms),
+        "foreign_deps": check_foreign_deps(atoms),
         "stale_mtime_deps": check_depends_mtime(atoms),
         "depends_coverage": depends_coverage(atoms),
         "shadow_atoms": shadow_atoms or [],
@@ -624,6 +633,8 @@ def print_text_report(report: dict):
         for d in report["stale_deps"]:
             print(f"  ⚠️ 壞滅緣觸發：atom {d['atom']} 依賴 {d['dep']} 已不存在")
         print()
+    if report.get("foreign_deps"):
+        print(f"── 他機路徑的 Depends（本機不可驗、不算壞滅緣）：{len(report['foreign_deps'])} 筆 ──\n")
     else:
         print("── 壞滅緣（Stale Depends）: None ✅ ──\n")
 
@@ -796,13 +807,16 @@ def main():
 
     elif args.deps_check:
         deps = check_stale_deps(atoms)
+        foreign = check_foreign_deps(atoms)
         mtime_deps = check_depends_mtime(atoms)
         if args.json:
-            print(json.dumps({"stale_deps": deps, "stale_mtime_deps": mtime_deps,
+            print(json.dumps({"stale_deps": deps, "foreign_deps": foreign, "stale_mtime_deps": mtime_deps,
                               "depends_coverage": depends_coverage(atoms)}, indent=2, ensure_ascii=False))
         else:
             for d in deps:
                 print(f"⚠️ 壞滅緣觸發：atom {d['atom']} 依賴 {d['dep']} 已不存在")
+            for d in foreign:
+                print(f"ℹ️ 他機路徑（本機不可驗、不算壞滅緣）：atom {d['atom']} 依賴 {d['dep']}")
             for d in mtime_deps:
                 print(f"🕐 依賴比卡新：atom {d['atom']} 依賴 {d['dep']} 改於 {d['dep_mtime']}，卡最近驗證 {d['verified_at']}（{d['verified_source']}）")
             cov = depends_coverage(atoms)
