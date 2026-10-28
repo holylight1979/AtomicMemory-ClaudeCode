@@ -178,7 +178,7 @@ def test_late_collision_bypasses_cache(tmp_path, monkeypatch):
 
 def test_warning_texts_carry_alert_emoji_prefix(tmp_path, monkeypatch):
     """三處預警文字開頭固定 ⚠️——systemMessage 樣式不可控（字級顏色無 API），
-    辨識度只能靠內容；⚠️ 與 PAN 閘門的 ⛔ 分流，一眼區分警告類型。"""
+    辨識度只能靠內容；⚠️ 與 deny 類閘門的 ⛔ 分流，一眼區分警告類型。"""
     _patch_dirs(tmp_path, monkeypatch)
     t = str(tmp_path / "emoji.py")
     _mk_state(tmp_path, "peer-7777-ffff", [(t, _iso(-3))], cwd="C:/w")
