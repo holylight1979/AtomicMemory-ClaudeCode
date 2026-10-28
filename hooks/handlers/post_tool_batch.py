@@ -12,7 +12,7 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、取用稽核；
 目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：驗證範圍 SCOPE_*、目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
 reconcile／verify_scope，各一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
-只提醒一次（state remind_sent[sid]）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
+只提醒一次（state remind_sent 清單，wg_overview.remind_mark）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
 """
 
@@ -21,7 +21,7 @@ import sys
 from typing import Any, Dict, List, Tuple
 
 from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled, coding_turn
-from wg_release_rules import remind_due, remind_key, remind_line
+from wg_release_rules import remind_line
 
 
 def _points_module() -> Any:
@@ -83,7 +83,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 欠案例 (d)、搬目錄 (v)、等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見（事實成立）、深度檢討、取用稽核；
     這批有 git 建東西的 Bash → 收尾自清；搬了含程式檔的目錄（moved_code_dirs 多一筆）→ (v)；背景量完有欠項 → 拐彎判斷；
     這批是收尾那批（closing_call）→ 知識收割、收割對帳、報告待寫。
-    每條規則每個對象每 session 一次（remind_due／remind_key，已送鍵存 state remind_sent[sid]）。判定重用各閘的純函式，不另複製；
+    每條規則每個對象每 session 一次（wg_overview.remind_mark：已送鍵存 state remind_sent 清單，與工具前守門的提醒帳同一份）。判定重用各閘的純函式，不另複製；
     一段判不出只少那一段、浮 stderr。沒有任何時點成立就不做事（idle 極輕）。"""
     import wg_closing_round as cr
     own = [m for m in state.get("modified_files") or [] if isinstance(m, dict) and m.get("path")
@@ -116,14 +116,13 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         changed = True
     if not (new_code or closing or git_cmds or tj_due or new_move):
         return [], changed
-    sent = state.setdefault("remind_sent", {}).setdefault(sid, [])
+    from wg_overview import remind_mark   # 提醒帳本只有一份（state remind_sent 清單），與 remind_flush 同一支記法
     lines: List[str] = []
     turn_seq = int(state.get("turn_seq", 0) or 0)
     cwd = str(input_data.get("cwd") or (state.get("session") or {}).get("cwd") or "")
 
     def say(rule: str, what: str, fix: str, obj: Any = "") -> None:
-        if remind_due(sent, rule, obj):
-            sent.append(remind_key(rule, obj))
+        if remind_mark(state, rule, obj):
             lines.append(remind_line(rule, what, fix))
 
     def part(name: str, fn) -> None:
