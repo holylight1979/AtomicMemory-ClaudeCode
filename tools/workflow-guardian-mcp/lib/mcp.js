@@ -172,7 +172,7 @@ const TOOL_DEFINITIONS = [
         },
         depends: {
           type: "array", items: { type: "string" },
-          description: "Optional validity dependencies, e.g. [\"path:C:/abs/entrypoint.py\"]. Rendered as `- Depends:`; path: entries are machine-checked by health-check (missing → stale). replace: omit=keep, []=clear.",
+          description: "Optional validity dependencies, e.g. [\"path:~/.claude/tools/entrypoint.py\"] (root-layer card) or [\"path:src/entrypoint.py\"] (project card, relative to project root). Cards are shared across machines: never write this machine's absolute path (C:/Users/<me>/...). Rendered as `- Depends:`; path: entries are machine-checked by health-check (missing → stale). replace: omit=keep, []=clear.",
         },
         entry: {
           type: "array", items: { type: "string" },

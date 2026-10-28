@@ -7,7 +7,7 @@
 - Confidence: [臨]
 - Trigger: state:unreadable, state 檔存在但讀不到, Extra data, write_state, state-<sid>.json 壞, hook 跳過, part_files_read 歸零, 導讀卡沒讀過, 鎖住或 JSON 壞, 並行工具呼叫 hook 競寫, LK_NBLCK, repair_state, state:lock-timeout, state:pending-written
 - Created-at: 2026-10-12
-- Depends: path:C:/Users/holylight/.claude/hooks/wg_core.py
+- Depends: path:~/.claude/hooks/wg_core.py
 - Related: 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞, 平行hook讀改寫session-state要整段握鎖-寫時重讀再合併只當拿不到鎖的退路-鎖內只有50到80ms
 
 ## 知識

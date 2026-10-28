@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: guard-entry.jsonl, entry-stats, 切入點帳, resolve_responses, 回應型, response none, 判分出處, --days
 - Created-at: 2026-10-21
-- Depends: path:C:/Users/holylight/.claude/hooks/wg_entrypoint.py, path:C:/Users/holylight/.claude/tools/entry-stats.py
+- Depends: path:~/.claude/hooks/wg_entrypoint.py, path:~/.claude/tools/entry-stats.py
 
 ## 知識
 

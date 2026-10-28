@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: second_opinion_start, 第二意見 材料, collect_diff, pack.py, main...HEAD, 未追蹤檔打包, 分段 commit 送審, diff 為空
 - Created-at: 2026-10-27
-- Depends: path:C:/Users/holylight/.claude/tools/second-opinion/pack.py
+- Depends: path:~/.claude/tools/second-opinion/pack.py
 - Related: 第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔
 - Supersedes: 第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組, 第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷
 - Source: session:17c8cd5c 2026-10-27
