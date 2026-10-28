@@ -293,6 +293,7 @@ def test_unmapped_reminded_once_per_top(hooked, post):
     for n in ("a.py", "b.py"):
         (proj / "src" / n).write_text("x = 1\n", encoding="utf-8")
     _op("set", goal="G")
+    _code_intent(hooked)                       # 讀檔提示只在有改程式意圖時送（寫碼回合或 prompt 關鍵字判成寫碼類）
     ctx = post("Read", {"file_path": str(proj / "src" / "a.py")})
     assert len(_lines(ctx, "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP")) == 1 and "地圖｜讀了" in ctx, ctx
     assert REMIND not in post("Read", {"file_path": str(proj / "src" / "b.py")})

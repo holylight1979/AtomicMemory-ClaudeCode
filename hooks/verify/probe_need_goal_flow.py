@@ -89,7 +89,7 @@ def main() -> int:
     prompt = "幫我讓匯出功能支援 CSV，舊的 JSON 匯出不能壞"
     user(prompt)
     out = hook("UserPromptSubmit", prompt=prompt)
-    step("UPS 第一則訊息提醒先寫目標", "need_goal(action=set" in ctx(out), ctx(out))
+    step("UPS 第一則訊息提醒先寫目標（教「目標｜」行）", "目標｜" in ctx(out), ctx(out))
     edit = {"file_path": str(target), "old_string": "return []", "new_string": "return ['csv']"}
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
     step("沒樹第一次改部位檔：導讀卡那一刀擋一次（立樹只提醒）", deny(out).startswith("[Guardian:OverviewHub]") and "【匯出】" in deny(out),
