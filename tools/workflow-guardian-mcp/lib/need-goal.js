@@ -145,8 +145,9 @@ function validateArgs(args) {
   if (a.action === "read") {
     return given(a.form) && !READ_FORMS.includes(a.form) ? [`form 無效（${a.form}），允許：${READ_FORMS.join("|")}`] : [];
   }
-  if (!Array.isArray(a.items) || !a.items.length) return [`${a.action} 要給 items（非空陣列）`];
-  const errs = validateItems(a.action, a.items);
+  const onlyDecl = a.action === "update" && !(Array.isArray(a.items) && a.items.length) && (given(a.locate) || given(a.data_files));   // 只交定位／資料檔宣告，不改節點
+  if (!onlyDecl && (!Array.isArray(a.items) || !a.items.length)) return [`${a.action} 要給 items（非空陣列）`];
+  const errs = validateItems(a.action, a.items || []);
   if (a.action === "update") { errs.push(...validateLocate(a)); errs.push(...validateDataFiles(a)); }
   if (a.action === "reconcile" && given(a.turns) && !(Number.isInteger(a.turns) && a.turns >= 0)) errs.push("turns 必須是 ≥0 的整數");
   return errs;

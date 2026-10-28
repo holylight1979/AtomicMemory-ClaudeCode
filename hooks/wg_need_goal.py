@@ -925,9 +925,10 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
     if action == "verify_scope":
         return _validate_verify_scope(inp)
     items = inp.get("items")
-    if not isinstance(items, list) or not items:
+    only_decl = action == "update" and not items and (inp.get("locate") or inp.get("data_files"))   # 只交定位／資料檔宣告，不改節點
+    if not only_decl and (not isinstance(items, list) or not items):
         return [f"{action} 要給 items（非空陣列）"]
-    errs += _validate_items(action, items)
+    errs += _validate_items(action, items or [])
     if action == "update":
         errs += _validate_locate(inp) + _validate_data_files(inp)
     t = inp.get("turns")
@@ -1353,7 +1354,7 @@ def _unknown_nodes(doc: Dict[str, Any], ids: List[str]) -> List[str]:
 
 def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, Any]:
     """每一項依節點編號找它所屬的樹（不限目前的樹）：換題後舊樹欠的對照照樣交得進去。"""
-    bad = _unknown_nodes(doc, [it["id"] for it in inp["items"]])
+    bad = _unknown_nodes(doc, [it["id"] for it in (inp.get("items") or [])])
     if bad:
         return {"ok": False, "tree": None, "rejected": bad}
     bumped: Dict[str, Dict[str, Any]] = {}
@@ -1362,7 +1363,7 @@ def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str,
     check = origin_check_on()
     events: List[Tuple[str, Dict[str, Any]]] = []
     downs: List[str] = []
-    for it in inp["items"]:
+    for it in inp.get("items") or []:
         nid, why = it["id"], _s(it.get("why"))
         tree = tree_of(doc, nid)
         node = tree["nodes"][nid]
@@ -1768,7 +1769,7 @@ def set_via_text(sid: Any, state: Dict[str, Any], path: str, config: Optional[Di
                  agent_id: str = "", cwd: str = "", sources: Any = (), content: Optional[str] = None) -> Tuple[Optional[str], bool]:
     """規則 TREE_SET_VIA_TEXT：改程式檔前（edit_gate 之前）這個 session 還沒有進行中的樹、而 transcript 本使用者回合裡有「目標｜」行
     → 組成與 need_goal(action=set, kind=code, goal, items) 等價的輸入呼叫 apply_op 立樹，state 標本回合宣告了寫碼樹
-    （need_goal_code_decl_turn，wg_core.coding_turn 第二層）、已交的定位作廢（wg_overview.on_goal_changed），留帳 set_via_text。
+    （need_goal_code_decl_turn，wg_core.coding_turn 第二層）；新樹不作廢之前交的定位（不呼叫 wg_overview.on_goal_changed），留帳 set_via_text。
     同一個使用者回合 transcript 沒長就不重讀（state need_goal_text_scan 記回合與大小）。回 (要附給 AI 的一行, state 改了沒)；
     立樹失敗只留帳、回一行，沒樹照舊由 edit_gate 判。"""
     if not sid or not path or str(path).startswith("UNKNOWN:") or not transcript_path or state is None:
@@ -1803,9 +1804,8 @@ def set_via_text(sid: Any, state: Dict[str, Any], path: str, config: Optional[Di
         return "[NeedGoal] 回覆裡的「目標｜」沒立成樹：" + "；".join(res["rejected"]), True
     state["need_goal_text_scan"]["found"] = True
     state["need_goal_code_decl_turn"] = turn        # 與 PostToolUse 收 need_goal set 的 state 效果一致（規則 CODING_TURN_ONLY 第二層）
-    if res["goal_changed"]:
-        from wg_overview import on_goal_changed
-        on_goal_changed(state, transcript_path, turn)
+    # 這裡一定是新樹（上面已確認沒有進行中的樹）：不呼叫 on_goal_changed——AI 多半先寫目標行、再交定位、才第一次改檔，
+    # 樹到第一次改檔才落地，若此時把定位作廢並把掃描起點推到現在，改檔前交的定位行就永遠讀不到（009 跑實測）
     _guard("set_via_text", sid, tree=res["tree"], goal=_clip(goal, 200), items=len(items), via=via, turn_seq=turn, path=path)
     extra = "".join(f"\n{ln}" for ln in res["text"].splitlines()[1:2] if ln.startswith("[NeedGoal] 樹根這幾句原話裡沒有"))
     return (f"[NeedGoal] 已照回覆裡的「目標｜」立樹 {res['tree']}：{_clip(goal, 200)}"

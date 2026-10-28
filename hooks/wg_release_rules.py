@@ -4389,7 +4389,7 @@ RULES.update({
                                 "寫碼樹；prompt 關鍵字意圖不算）。① 沒樹改記憶知識類檔只記 untreed（之後立樹自動掛進去）、不再送「知識類也要一棵輕樹」；"
                                 "② 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；③ 讀程式檔附的定位提示"
                                 "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合或 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時送，純問答不送、額度不消耗；④ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
-                                "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session），"
+                                "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session；讀檔提示另外在 prompt 關鍵字判成寫碼類時也先送，提示要趕在第一次改檔前），"
                                 "否則放行、留帳 skipped_non_coding。第一則訊息的「要改碼先立樹」一行（CODE_TREE_HINT）仍看關鍵字，不在此列。",
 })
 RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE 建表之後：說明型規則，不是擋點（GATE_MODE_TABLE 要每條都有送法）
@@ -4402,7 +4402,7 @@ RULES.update({
                          "套用點：改程式檔的 PreToolUse（handlers/pre_tool_use 需求目標第一層，wg_need_goal.set_via_text 在 edit_gate 之前）："
                          "這個 session 還沒有進行中的樹、主 transcript 本使用者回合（最後一則使用者本人打字之後）或子代理檔裡有「目標｜」"
                          "→ 組成與 need_goal(action=set, kind=code, goal, items=[{text}]) 等價的輸入呼叫 apply_op，state 效果與 PostToolUse 收工具"
-                         "呼叫相同（need_goal_code_decl_turn＝本回合、已交定位作廢 on_goal_changed）；同一使用者回合 transcript 沒長就不重讀"
+                         "呼叫相同（need_goal_code_decl_turn＝本回合）；這裡立的一定是新樹，不作廢之前交的定位、不動掃描起點（AI 多半先寫目標行、再交定位、才第一次改檔）；同一使用者回合 transcript 沒長就不重讀"
                          "（state need_goal_text_scan）。留帳 Logs/guard-need_goal.jsonl event=set_via_text（拒收 set_via_text_rejected、"
                          "出錯 set_via_text_error 不擋，沒樹照舊由 edit_gate 判）。同一則回覆裡的定位四行與「動資料檔｜」各走自己的解析器。",
 })

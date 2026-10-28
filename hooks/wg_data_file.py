@@ -200,8 +200,9 @@ def read_hint(state: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
     沒宣告過、state 裡的使用者原話沒點名——而且這個 session 還沒提示過的，回一行宣告格式；提示過的記進 state data_file_hinted。
     判定（gate）不動：沒宣告照擋。炸了印 stderr、留帳 error、回 None，讀檔照常。"""
     enabled, exts = cfg_of(config)
-    if not enabled or not coding_session(state, config):
-        return None
+    from wg_core import CODE_INTENTS
+    if not enabled or not (coding_session(state, config) or (state or {}).get("turn_intent") in CODE_INTENTS):
+        return None            # 閘只管寫過程式的 session；提示要趕在第一次改檔前到，所以 prompt 關鍵字判成寫碼類也先提示
     try:
         from wg_need_goal import writes_code
         from wg_overview import read_targets

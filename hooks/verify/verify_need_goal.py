@@ -917,6 +917,20 @@ def test_pretool_tree_set_via_text_lines(hooked, block_mode, monkeypatch):
     assert len(calls) == 1                                                  # 樹已立：同回合不再讀 transcript
 
 
+def test_set_via_text_new_tree_keeps_earlier_locate(hooked, block_mode):
+    """文字立樹立的是新樹：之前交的定位不作廢、部位紀錄的掃描起點不動（AI 先寫目標行、再交定位、才第一次改檔；
+    若此時作廢，改檔前交的定位行永遠讀不到）。"""
+    proj, tp = hooked["proj"], hooked["tp"]
+    target = str(proj / "src" / "a.py")
+    _user_says(tp, "幫我修匯出")
+    _say(tp, "目標｜匯出不再報錯")
+    rec = {"located": True, "located_via": "tool_input", "transcript_offset": 7, "transcript_offsets": {tp.lower(): 7}, "goal_node": "T0"}
+    state = {"turn_seq": 1, "turn_prompts_seq": 1, "overview_hub": {"k|部位": rec}}
+    line, changed = ng.set_via_text(SID, state, target, {}, tp, cwd=str(proj))
+    assert changed and line and "立樹 T1" in line and _tree()["nodes"]["T1"]["text"] == "匯出不再報錯"
+    assert rec["located"] is True and rec["transcript_offset"] == 7 and rec["transcript_offsets"] == {tp.lower(): 7}
+
+
 def test_pretool_without_goal_line_unchanged_and_scan_cached(hooked, block_mode, monkeypatch):
     """沒有「目標｜」行：行為同現況（沒樹擋，擋訊息教文字格式）；同一回合 transcript 沒長不重讀；補交那一行之後再改才重讀並立樹。"""
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]

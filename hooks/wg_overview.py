@@ -1091,6 +1091,8 @@ def _unmapped_read_hint(state: Dict[str, Any], session_id: str, path: str, confi
     import wg_need_goal as _ng
     if not _ng.is_code_path(path, config) or not _rr.runtime_data_verdict(path, str(root), None).owed:   # 讀檔不多跑 git
         return None
+    if not (coding_turn(state, config) or state.get("turn_intent") in CODE_INTENTS):   # 同定位提示：沒有改程式的意圖（純問答、只改文件）不送
+        return None
     key, top = _unmapped_key(root, path), top_dir(path, root)
     rec = (state.get("overview_hub") or {}).get(key)
     have = len(rec["part_files_read"]) if rec else 0
