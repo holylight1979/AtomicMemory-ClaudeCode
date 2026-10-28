@@ -63,6 +63,7 @@ from wg_release_rules import (
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
     cmd_run_line, second_opinion_decline, second_opinion_decline_ok, second_opinion_waiting, parse_equivalence_lines,
     reason_present, red_units, failure_lines, red_count_label, red_rerun_files_label,
+    negative_control_verdict, parse_negative_controls,
 )
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_release import (
@@ -1634,8 +1635,8 @@ def testfail_message(failing: List[Dict[str, Any]], notes: Sequence[str] = ()) -
             + "\n先看使用者有沒有叫你跳過或先不管這支：(a) 有 → 不動測試檔、讓它照紅，收尾寫一行"
             "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」，程式對到這筆紅測就留帳放行 "
             "(b) 沒有 → 修到綠：程式錯就修程式；是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」"
-            "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言；刻意拿舊碼跑新測試的負向對照 → 重跑那條指令、開頭加 "
-            "`# 負向對照｜<指令裡的路徑>：<理由>`，那次紅就不記 "
+            "再改斷言；不准加 skip／xfail、不准只為了變綠改斷言；刻意拿舊碼跑新測試的負向對照 → 收尾回覆寫一行"
+            "「負向對照｜<上面指令裡的路徑或字樣>：<理由>」（或重跑那條指令、開頭加同一行 `#` 註解），那筆紅就不算、不必重跑 "
             "(c) 修不了、使用者也沒叫跳過 → 收尾別說完成，照實寫哪支還紅、為什麼。不得籠統帶過。"
             "改動前的基底 commit 上就紅、追蹤文件也記了這一支 → 在基底 commit 的乾淨工作樹跑一次那支（要紅），收尾寫"
             "「基底紅｜<紅的那支測試名>：<基底 commit> 也紅；追蹤 <文件路徑>」，程式核對得上就留帳放行。")
@@ -2139,6 +2140,29 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         for _e in _voided:
             append_guard_log("testfail_waiver_voided", {"session_id": session_id, "turn_seq": turn_seq,
                                                         "item": str(_e.get("item", ""))[:80], "said": str(_e.get("said", ""))[:120]})
+    # 規則 NEGATIVE_CONTROL_DECLARED 的收尾入口：紅記了之後才在本回合回覆寫「負向對照｜<指令裡的字樣>：<理由>」、點到的字樣在那筆紅的
+    # 指令裡 → 那筆從 failing_tests 搬到 deliberate_reds（判過不算就落帳，之後的收尾不再拿它擋）、留帳；不管這則有沒有宣告完成都判
+    if v6 and failing:
+        from wg_second_opinion import turn_texts
+        _nc_decls = parse_negative_controls("\n".join([*turn_texts(transcript_text), code_text]))
+        _nc_moved = [(f, negative_control_verdict(str(f.get("cmd") or ""), _nc_decls)) for f in failing] if _nc_decls else []
+        _nc_moved = [(f, v) for f, v in _nc_moved if not v.owed]
+        if _nc_moved:
+            from handlers.post_tool_use import DELIBERATE_REDS_CAP
+            _nc_ids = {id(f) for f, _ in _nc_moved}
+            failing = [f for f in failing if id(f) not in _nc_ids]
+            state["failing_tests"] = [f for f in state.get("failing_tests") or [] if id(f) not in _nc_ids]
+            _nc_lst = state.setdefault("deliberate_reds", [])
+            for _f, _v in _nc_moved:
+                _nc_lst.append({"cmd": str(_f.get("cmd") or "")[:200], "session_id": session_id, "turn_seq": turn_seq, "at": _now_iso(),
+                                "rule": _v.rule, "evidence": list(_v.evidence)[:3], "red_turn_seq": _f.get("turn_seq")})
+                append_guard_log("testfail_scope", {"event": "negative_control_declared", "session_id": session_id, "turn_seq": turn_seq,
+                                                    "rule": _v.rule, "failing_cmd": str(_f.get("cmd") or "")[:120],
+                                                    "failing_turn": _f.get("turn_seq"), "line": (_v.evidence or [""])[0][:200]})
+                print(f"[Guardian:TestFailGate] 規則 {_v.rule}：{_v.why}，那筆紅（{cmd_run_line(_f.get('cmd', ''))[:50]}）搬到 deliberate_reds、"
+                      f"之後不再拿它擋（已留帳）", file=sys.stderr)
+            del _nc_lst[:-DELIBERATE_REDS_CAP]
+            write_state(session_id, state)
     if v6 and failing:
         _recent = _history[-3:]
         _ledger = state.get("testfail_waivers") or []

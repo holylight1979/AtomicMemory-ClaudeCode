@@ -44,6 +44,7 @@ from wg_verify_ledger import (
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_ran_cases_verdict,
                               negative_control_verdict, parse_negative_controls,
                               red_case_facts, red_case_names, retry_round_verdict, same_test_run,
+                              command_test_runs, red_units_last_result, strip_heredoc_bodies, test_segments,
                               _CMD_SEG_SPLIT_RE, _TEST_RUNNER_RE)   # 測試子命令的切段與認法，紅測範圍跟涵蓋判法用同一份
 try:
     # Bash／PowerShell 改檔目標擷取（wg_core）；載不進來就只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -508,8 +509,9 @@ def _test_scope(command: str) -> Dict[str, Any]:
     """規則 RED_SCOPE_FROM_FULL_COMMAND 的事實：從整條指令解析出的測試目標，不存原字串。steps＝依序每一段測試子命令
     （pytest／unittest／jest／vitest，切段與認法跟涵蓋判法 wg_release_rules 同一份）的「子命令＋之後的參數」——點名的檔、目錄、
     節點、-k 這類篩選都在裡面——與它前面換到的目錄（cd／pushd／Set-Location）；續行先併。大小只跟點名了多少目標有關，跟指令多長無關，
-    不截斷。認不出任何測試子命令 → unparsed，只記整條指令的雜湊（認「原樣重跑」用），不拿片段當路徑。"""
-    text = _CONTINUATION_RE.sub(" ", str(command or ""))
+    不截斷。認不出任何測試子命令 → unparsed，只記整條指令的雜湊（認「原樣重跑」用），不拿片段當路徑。
+    heredoc 內文先剝掉（strip_heredoc_bodies）：餵給直譯器的 `import pytest` 是程式字，不是一段測試子命令。"""
+    text = _CONTINUATION_RE.sub(" ", strip_heredoc_bodies(str(command or "")))
     steps: List[str] = []
     for seg in _CMD_SEG_SPLIT_RE.split(text):
         m = _TEST_RUNNER_RE.search(seg)
@@ -681,6 +683,27 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
                         "rule": verdict.rule, "evidence": list(verdict.evidence)[:3]})
             del lst[:-DELIBERATE_REDS_CAP]
             return True
+        # 規則 RED_LAST_RESULT_IN_COMMAND：同一條指令跑了不只一次測試 → 每支紅案以最後一次看得出範圍的結果為準；
+        # 看得出範圍的綠那幾段照常清舊紅（整條判成失敗時原本一支舊紅都清不到）
+        segments = test_segments(command)
+        runs = command_test_runs(stdout + "\n" + stderr)
+        last = red_units_last_result(segments, runs)
+        pre_cleared: List[str] = []
+        if last is not None and last[1]:
+            kept_u, dropped_u, why = last
+            append_guard_log("testfail_scope", {"event": "red_last_result", "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)),
+                                                "kept": kept_u[:10], "dropped": dropped_u[:10], "why": why, "cmd": command[:300]})
+            print(f"[Guardian:TestFail] 規則 RED_LAST_RESULT_IN_COMMAND：{why}｜不記：{'、'.join(dropped_u[:3])}", file=sys.stderr)
+            for (seg, visible), (_, green) in zip(segments, runs):
+                if visible and green:
+                    _green_clears(state, sid, seg, str(input_data.get("cwd") or ""))
+            if not kept_u:
+                lst = state.setdefault("deliberate_reds", [])
+                lst.append({"cmd": command[:200], "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso(),
+                            "rule": "RED_LAST_RESULT_IN_COMMAND", "evidence": [why, *dropped_u[:2]]})
+                del lst[:-DELIBERATE_REDS_CAP]
+                return True
+            pre_cleared = dropped_u
         _note_retry_round(state, sid, command, failure, str(input_data.get("cwd") or ""))
         _supersede_reds(state, sid, command, failure)
         scope = _test_scope(command)          # 規則 RED_SCOPE_FROM_FULL_COMMAND：判範圍用解析後的目標，不用截過的 cmd
@@ -688,6 +711,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             append_guard_log("testfail_scope", {"event": "scope_unparsed", "session_id": sid,
                                                 "turn_seq": int(state.get("turn_seq", 0)), "cmd": command[:300]})
         state.setdefault("failing_tests", []).append({
+            **({"cleared_units": pre_cleared} if pre_cleared else {}),
             "tool": tool,
             "session_id": sid,
             "agent_id": str(input_data.get("agent_id") or ""),
@@ -705,6 +729,11 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             "cwd": str(input_data.get("cwd") or ""),          # GREEN_SAME_CASE_CLEARS 比絕對路徑用（同名不同目錄的案例不互清）
         })
         return True
+    return _green_clears(state, sid, command, str(input_data.get("cwd") or ""))
+
+
+def _green_clears(state: Dict[str, Any], sid: str, command: str, cwd: str) -> bool:
+    """綠的測試指令清掉本 session 它跑到的紅（整條綠的指令，或 RED_LAST_RESULT_IN_COMMAND 裡看得出範圍、跑綠的那一段）；回有沒有動到 state。"""
     if not state.get("failing_tests"):
         return False
     cmd_prefix = command[:80].strip()
@@ -719,8 +748,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             return True
         red_cmd, green_cmd = _red_pair(f, command)
         matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
-                   or green_clears_red(red_cmd, green_cmd, f.get("cwd") or None,
-                                       str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
+                   or green_clears_red(red_cmd, green_cmd, f.get("cwd") or None, cwd or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
                    or (is_pytest_success and (f.get("pytest") or "pytest" in f.get("cmd", "").lower()
                                               or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
         if not matched:

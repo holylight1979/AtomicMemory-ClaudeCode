@@ -1203,7 +1203,10 @@ RULES["PROJECT_RULE_WORDS_ARE_HINTS"] = ("背景自動萃取（user-extract-work
 RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）跑測試、預期它紅＝負向對照：宣告行「負向對照｜<這條指令裡出現的路徑或字樣>："
                                       "<理由>」（回覆文字／工具參數／thinking 三管道，主檔與子代理檔，含這次指令自己的 `#` 註解）點到的字樣"
                                       "是這條指令的一段、理由有文字內容 → 這次紅記 deliberate_reds（rule＝本規則、附宣告行），不進 failing_tests、"
-                                      "不計重試；點到的字樣不在指令裡、沒寫理由、沒宣告 → 照記紅。宣告只綁出現那段字樣的指令，蓋不到別的紅。")
+                                      "不計重試；點到的字樣不在指令裡、沒寫理由、沒宣告 → 照記紅。宣告只綁出現那段字樣的指令，蓋不到別的紅。"
+                                      "收尾入口（handlers/stop.py 紅測閘之前）：紅記了之後才在本回合回覆寫這一行、點到的字樣在那筆紅存的指令（前 200 字）裡 → "
+                                      "那筆從 failing_tests 搬到 deliberate_reds、留帳 guard-testfail_scope event=negative_control_declared，不必重跑；"
+                                      "搬過就不會再被拿來擋。")
 _NEG_CONTROL_RE = lazy_re(r"負向對照\s*[｜|]\s*(.+)")
 
 
@@ -1506,6 +1509,100 @@ def green_clears_red(red_cmd: str, green_cmd: str, red_cwd: Optional[str] = None
     a = set(case_files_in_cmd(red_cmd, red_cwd if both else None))
     b = set(case_files_in_cmd(green_cmd, green_cwd if both else None))
     return bool(a and b and (a & b))
+
+
+# ─── 同一條指令跑了不只一次測試：每支紅案以最後一次看得出範圍的結果為準 ─────────────────────────────
+# heredoc 內文不是 shell 指令（文件補丁／內嵌 python 常含「git commit」「pytest」字樣）；剝掉再拆段：口令閘不把文字當 commit 段、
+# 紅測記帳不把內文的「import pytest」當成一段測試。只剝內文（起始行 delimiter 之後到第一個結束行，零行內文也算）：起始行 delimiter
+# 後面的字（`cat > msg <<'EOF' && git commit -F msg` 的 commit 在那裡）是真命令，照留。逐行掃不用 regex 跨行比對，所以空 heredoc
+# 後面接同名 heredoc 不會把中間的命令一起剝掉。沒有結束行的 heredoc 不動，內文會被當命令段檢查（寧多擋）。
+HEREDOC_MARK = "<<HEREDOC_STRIPPED"
+_HEREDOC_START_RE = lazy_re(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1(.*)$")
+
+
+def strip_heredoc_bodies(command: str) -> str:
+    lines = (command or "").split("\n")
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        m = _HEREDOC_START_RE.search(lines[i])
+        end = next((k for k in range(i + 1, len(lines)) if lines[k].strip() == m.group(2)), None) if m else None
+        if end is None:
+            out.append(lines[i])
+            i += 1
+            continue
+        out.append(lines[i][:m.start()] + HEREDOC_MARK + m.group(3))
+        i = end + 1
+    return "\n".join(out)
+
+
+RULES["RED_LAST_RESULT_IN_COMMAND"] = ("同一條指令跑了不只一次測試（輸出有多個 pytest 結算行）：每支紅案以這條指令裡最後一次「看得出範圍」的結果為準。"
+                                        "看得出範圍的段＝解析得出測試子命令與點名範圍的段；heredoc 內文餵給直譯器的那段（`python - <<EOF`）看不出跑了哪支。"
+                                        "紅之後同一指令裡看得出範圍的綠跑到它 → 不記；紅來自看不出範圍的段、而同一指令裡看得出範圍的綠跑過它（不分先後）→ 不記"
+                                        "（看不出來源的紅蓋不掉看得出來源的綠，比照 RECEIPT_UNPARSED_GENERAL_ONLY）；看得出範圍的紅之後只有看不出範圍的綠 → 照記；"
+                                        "段數對不上結算數、哪次紅沒逐支列出 → 判不了，照舊整筆記。全部不記 → 這次紅記 deliberate_reds（rule＝本規則）、不進 failing_tests、"
+                                        "不計重試，同指令看得出範圍的綠照常清舊紅；部分不記 → 不記的那幾支預先記進那筆紅的 cleared_units。只跑一次的指令不在此列"
+                                        "（heredoc 裡單跑一次紅照記）。判定 wg_release_rules.red_units_last_result（事實 test_segments／command_test_runs），"
+                                        "套用點 handlers/post_tool_use._track_test_result（負向對照之後、重試計數之前），留帳 guard-testfail_scope event=red_last_result。")
+_CONTINUATION_RE = lazy_re(r"[\\`]\r?\n")
+# heredoc 餵給直譯器的那段：會跑東西（可能跑測試）但看不出跑了哪支；`cat > 檔 <<EOF` 只是寫檔，不算一段
+_INTERPRETER_HEREDOC_RE = lazy_re(r"(?:^|[\s/\\])(?:python[0-9.]*|py|node|bash|sh|zsh|pwsh|powershell|ruby|perl)(?:\.exe)?\b[^\n]*<<HEREDOC_STRIPPED",
+                                  re.IGNORECASE)
+
+
+def test_segments(command: str) -> List[Tuple[str, bool]]:
+    """指令裡依序會跑測試的段 [(段文字, 看得出範圍)]：heredoc 內文先剝掉、續行先併，再照 ; && || | 換行切段；認得出測試子命令的段
+    看得出範圍（點名的檔、目錄、節點、篩選都在段裡）；heredoc 餵給直譯器的段看不出範圍。"""
+    text = _CONTINUATION_RE.sub(" ", strip_heredoc_bodies(str(command or "")))
+    out: List[Tuple[str, bool]] = []
+    for seg in _CMD_SEG_SPLIT_RE.split(text):
+        if _TEST_RUNNER_RE.search(seg):
+            out.append((" ".join(seg.split()), True))
+        elif _INTERPRETER_HEREDOC_RE.search(seg):
+            out.append((" ".join(seg.split()), False))
+    return out
+
+
+def command_test_runs(output: str) -> List[Tuple[List[str], bool]]:
+    """輸出裡每一次 pytest 結算（結算行）依序 → (這一次之前逐支列出的 FAILED／ERROR 節點, 這一次綠不綠)；結算行上沒有非零的 failed／error 就是綠。"""
+    runs: List[Tuple[List[str], bool]] = []
+    pending: List[str] = []
+    for raw in str(output or "").splitlines():
+        line = raw.strip()
+        m = _FAILED_UNIT_RE.match(line)
+        if m:
+            pending.append(m.group(1).replace("\\", "/").lower())
+            continue
+        if _PYTEST_TALLY_RE.match(line):
+            green = not re.search(r"\b[1-9]\d* (?:failed|errors?)\b", line.lower())
+            runs.append((list(dict.fromkeys(pending)), green))
+            pending = []
+    return runs
+
+
+def red_units_last_result(segments: Sequence[Tuple[str, bool]],
+                          runs: Sequence[Tuple[List[str], bool]]) -> Optional[Tuple[List[str], List[str], str]]:
+    """RED_LAST_RESULT_IN_COMMAND：segments＝test_segments、runs＝command_test_runs，依序一一對應。回 (照記的紅案, 不記的紅案, 一句原因)；
+    只跑一次、段數對不上結算數、哪次紅沒逐支列出 → None（判不了，照舊整筆記）。"""
+    if len(runs) < 2 or len(segments) != len(runs) or any(not units and not green for units, green in runs):
+        return None
+
+    def covers(unit: str, seg: str) -> bool:
+        v, ran = green_ran_cases_verdict("", f"FAILED {unit}", seg)
+        return (not v.owed) or unit in ran
+
+    keep: List[str] = []
+    drop: List[str] = []
+    for u in dict.fromkeys(u for units, _ in runs for u in units):
+        last_red = max(i for i, (units, _) in enumerate(runs) if u in units)
+        greens = [j for j, (_, green) in enumerate(runs) if green and segments[j][1] and covers(u, segments[j][0])]
+        if any(j > last_red for j in greens) or (not segments[last_red][1] and greens):
+            drop.append(u)
+        else:
+            keep.append(u)
+    why = (f"同一條指令跑了 {len(runs)} 次測試，每支以最後一次看得出範圍的結果為準："
+           f"{len(drop)} 支之後（或紅來自看不出範圍的段時，不分先後）有看得出範圍的綠跑過、不記；{len(keep)} 支還紅")
+    return keep, drop, why
 
 
 # ─── 需求目標樹的完整對照：GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL／CASE_RED_THEN_GREEN ───
@@ -2768,10 +2865,11 @@ def red_unit_files(units: Sequence[str]) -> List[str]:
 
 
 def red_count_label(failing: Sequence[Dict[str, Any]]) -> str:
-    """擋訊息抬頭的數字：還沒跑綠的支數（逐支列出的扣掉已清；沒列出的整筆算 1 支）與已經綠的支數，不是幾筆紀錄。"""
+    """擋訊息抬頭的數字：還沒跑綠的支數（逐支列出的扣掉已清；沒列出的整筆算 1 支），不是幾筆紀錄；真的有綠掉幾支才附「（M 支已綠）」
+    （「0 支已綠」讀起來像清過帳卻一支沒綠，實跑誤導過 AI）。"""
     left = sum(len(red_units(f or {})) or 1 for f in failing)
     done = sum(len(cleared_units(f or {})) for f in failing)
-    return f"還有 {left} 支沒跑綠（{done} 支已綠）"
+    return f"還有 {left} 支沒跑綠" + (f"（{done} 支已綠）" if done else "")
 
 
 RERUN_FILES_SHOWN_MAX = 600
@@ -4249,7 +4347,12 @@ RULES.update({
                                "→ 擋；拆不出要提交什麼（包在 bash -c、--git-dir、查不到的別名）判不了也擋。舊碼原本就有的只列出、不擋。"
                                "判法在 handlers/pre_tool_use.check_smell_gate。",
     "RED_TEST_BLOCKS_COMPLETION": "本 session 自己跑紅、還沒綠的測試在，收尾宣告完成 → 擋（紅測閘，handlers/stop._testfail_gate）；"
-                                  "預算、放行、豁免照 BLOCK_BUDGET_SHARED、USER_WAIVER_NEEDS_CITATION、BASE_RED_TRACKED_NOT_OWED。",
+                                  "預算、放行、豁免照 BLOCK_BUDGET_SHARED、USER_WAIVER_NEEDS_CITATION、BASE_RED_TRACKED_NOT_OWED。"
+                                  "紅只在宣告完成的收尾才被拿出來判：沒宣告完成的回合不判、也不算判過不算，那筆紅照留，之後哪個回合宣告完成就擋"
+                                  "（改完程式跑紅、之後沒再跑綠，不管隔幾回合照擋）。判過不算的一律落帳、之後的收尾不再拿它擋：使用者放行記 user_released"
+                                  "（RELEASE_COVERS_SHOWN_ITEMS）、不做行記 testfail_waivers（USER_WAIVER_NEEDS_CITATION）、收尾寫的負向對照宣告把那筆搬到"
+                                  " deliberate_reds（NEGATIVE_CONTROL_DECLARED 收尾入口）。同一條指令跑了不只一次測試的紅在記帳時就定案（RED_LAST_RESULT_IN_COMMAND），"
+                                  "不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
     "CODE_EDIT_NEEDS_GOAL_TREE": "改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：v6 開時提醒一行 need_goal set，不擋。",
     "OVERVIEW_CARD_BEFORE_EDIT": "改某部位的檔時本 session 還沒看過這個部位的導讀卡（wg_overview.on_edit 的 not_injected）：提醒、卡隨改檔結果送到。",
     "OVERVIEW_CARD_MISSING": "部位表列了導讀卡、卡檔卻找不到（wg_overview.on_edit 的 card_missing）：提醒列出找過哪裡。",
@@ -4318,7 +4421,7 @@ RULE_CLASS: Dict[str, str] = {
     **dict.fromkeys(("RED_TEST_BLOCKS_COMPLETION", "RED_ITEMS_ONLY_FROM_FAILURE_LINES", "RED_SCOPE_FROM_FULL_COMMAND",
                      "GREEN_CLEARS_ONLY_CASES_IT_RAN", "GREEN_NARROWED_KEEPS_UNCOVERED_RED", "GREEN_SAME_CASE_CLEARS",
                      "USER_WAIVER_NEEDS_CITATION", "BASE_RED_TRACKED_NOT_OWED", "NEGATIVE_CONTROL_DECLARED",
-                     "RED_WHILE_REVERTED", "BLOCK_BUDGET_SHARED", "RELEASE_COVERS_SHOWN_ITEMS", "PENDING_SAME_USER_TURN",
+                     "RED_LAST_RESULT_IN_COMMAND", "RED_WHILE_REVERTED", "BLOCK_BUDGET_SHARED", "RELEASE_COVERS_SHOWN_ITEMS", "PENDING_SAME_USER_TURN",
                      "NONINTERACTIVE_RELEASE_AT_BUDGET", "CLAIM_FIXED_NEEDS_PASS", "CARRIED_CLAIM_ANY_TURN_RECEIPT",
                      "CLAIM_WORDS_ARE_HINTS", "CLAIM_RECEIPT_REF_MATCH", "CLAIM_DISCLAIM_NEEDS_REASON",
                      "CLAIM_CONDITIONAL_NOT_CLAIM", "CLAIM_MODIFIER_NOT_OWN", "COMPLETION_CLAIM_PER_SENTENCE"), "紅測"),

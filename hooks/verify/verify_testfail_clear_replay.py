@@ -144,7 +144,8 @@ def test_message_counts_remaining_units_not_entries(quiet):
              "test_scope": {"steps": ["python -m pytest tests -q"]}}
     msg2 = st.testfail_message([red, plain])
     assert "還有 17 支沒跑綠（4 支已綠）" in msg2 and "重跑這個範圍" in msg2 and "輸出沒列出" in msg2, msg2
-    assert st.pre_v6_testfail_message([plain]).count("還有 1 支沒跑綠（0 支已綠）") == 1
+    solo = st.pre_v6_testfail_message([plain])
+    assert solo.count("還有 1 支沒跑綠，不得宣告完成") == 1 and "支已綠" not in solo, solo     # 一支都沒綠過：不附「（0 支已綠）」
 
 
 def test_summary_keeps_all_failed_lines_beyond_20():

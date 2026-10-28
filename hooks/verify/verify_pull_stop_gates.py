@@ -326,6 +326,104 @@ def test_8_released_red_tests_do_not_cover_a_new_failure(driven, capsys):
     assert "TestFailGate" in out                                                   # 換了一支紅：照擋
 
 
+# ─── 8b 紅測閘前後一致：判過不算的不再擋、同一條指令的紅以最後一次看得出範圍的結果為準、真紅照擋 ─────────────────
+# 實跑 2026-10-28-009-CCon-1：一條 Bash 先跑整組 pytest tests（5 passed），尾段 heredoc python 把切月函式換回 UTC 再跑兩支（刻意紅，FF）。
+# 第 1 回合收尾沒宣告完成 → 紅測閘根本沒判、紅留著；第 2 回合「交材料」宣告完成 → 擋「還有 2 支沒跑綠（0 支已綠）」，多兩個模型回合。
+
+_MIX_CMD = ("export PYTHONDONTWRITEBYTECODE=1 && python -m pytest tests -q -p no:cacheprovider; echo \"--- 實跑 by-product 2026-10\"; "
+            "python -m sales.cli by-product 2026-10; echo \"exit=$?\"; echo \"--- 反證：切月換回 UTC，邊界測試應該紅\"; python - <<'EOF'\n"
+            "import sys, pytest\nfrom sales import periods\nperiods.taipei_month_of = periods.month_of\n"
+            "rc = pytest.main([\"-q\", \"-p\", \"no:cacheprovider\", \"tests/test_report.py::test_product_totals_uses_taipei_month_boundary\", "
+            "\"tests/test_cli.py::test_by_product_cli_output\"])\nprint(\"MUTANT_CHECK PASS\" if rc != 0 else \"MUTANT_CHECK FAIL\")\nEOF")
+_MIX_UNITS = ["tests/test_report.py::test_product_totals_uses_taipei_month_boundary", "tests/test_cli.py::test_by_product_cli_output"]
+_MIX_OUT = (".....                                                                    [100%]\n5 passed in 0.03s\n--- 實跑 by-product 2026-10\n"
+            "product=cake qty=2 amount=180.00\nexit=0\n--- 反證：切月換回 UTC，邊界測試應該紅\nFF                                       [100%]\n"
+            "================================== FAILURES ===================================\n"
+            "_______________ test_product_totals_uses_taipei_month_boundary ________________\n"
+            ">       assert report.product_totals(rows, \"2026-10\") == {\"cake\": (1, 90.0), \"tea\": (3, 180.5)}\nE       AssertionError\n"
+            "=========================== short test summary info ===========================\n"
+            f"FAILED {_MIX_UNITS[0]}\nFAILED {_MIX_UNITS[1]} - AssertionError: assert...\n2 failed in 0.12s\nMUTANT_CHECK PASS\n")
+_A, _B = "tests/test_a.py::test_a", "tests/test_b.py::test_b"
+
+
+def _track(state, cmd, out, ok=False):
+    """跑一次測試指令的 PostToolUse 記帳／清帳（輸出照 Bash 工具的 dict 回應）；回 state。"""
+    from handlers import post_tool_use as ptu
+    state.setdefault("session", {"id": _SID})
+    ptu._track_test_result(state, {"session_id": _SID, "cwd": "", "tool_response": {"stdout": out, "stderr": "", "interrupted": False,
+                                                                                    **({} if ok else {"exit_code": 1})}}, cmd, "Bash", {})
+    return state
+
+
+def _own_reds(state):
+    import wg_release_rules as rr
+    return [rr.red_units(f) for f in state.get("failing_tests") or [] if f.get("session_id") == _SID]
+
+
+@pytest.fixture(autouse=True)
+def _ptu_quiet(monkeypatch):
+    """8b 的記帳走真的 PostToolUse 函式：守門帳不寫進本機 Logs。"""
+    from handlers import post_tool_use as ptu
+    monkeypatch.setattr(ptu, "append_guard_log", lambda *a, **k: None)
+
+
+def test_8b_1_red_judged_not_owed_at_one_stop_is_never_used_to_block_later(driven, capsys):
+    """規則：NEGATIVE_CONTROL_DECLARED（收尾入口）× RED_TEST_BLOCKS_COMPLETION。同一筆紅：第 5 回合收尾（沒宣告完成）回覆寫了
+    「負向對照｜<指令裡的字樣>：<理由>」→ 判不算、搬到 deliberate_reds 並留帳；第 6 回合宣告完成 → 不擋。反例：第 5 回合只說「反證結果如上」
+    沒寫宣告 → 紅照留（沒宣告完成不算判過），第 6 回合宣告完成照擋、擋訊息不寫「0 支已綠」。"""
+    decl = "反證結果如上。\n負向對照｜verify_x.py：拿舊碼跑新測試，預期這支紅，證明新測試抓得到舊行為"
+    out, s5, logs = driven(decl, capsys, turn_seq=5, need_goal_code_decl_turn=5, failing_tests=[dict(_RED)])
+    assert "TestFailGate" not in out
+    assert s5["failing_tests"] == [] and [d["rule"] for d in s5["deliberate_reds"]] == ["NEGATIVE_CONTROL_DECLARED"]
+    assert any(g == "testfail_scope" and p.get("event") == "negative_control_declared" and p.get("failing_turn") == 5 for g, p in logs), logs
+    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5,
+                       failing_tests=copy.deepcopy(s5["failing_tests"]), deliberate_reds=copy.deepcopy(s5["deliberate_reds"]))
+    assert "TestFailGate" not in out, out[:300]
+    out, s5b, _ = driven("反證結果如上。", capsys, turn_seq=5, need_goal_code_decl_turn=5, failing_tests=[dict(_RED)])
+    assert "TestFailGate" not in out and len(s5b["failing_tests"]) == 1 and "deliberate_reds" not in s5b   # 沒宣告完成：不判、不算判過
+    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5, failing_tests=copy.deepcopy(s5b["failing_tests"]))
+    assert "TestFailGate" in out and "還有 1 支沒跑綠，不得宣告完成" in out and "支已綠" not in out, out[:300]
+
+
+def test_8b_2_same_command_later_or_scoped_green_outweighs_red_so_nothing_is_owed(driven, capsys):
+    """規則：RED_LAST_RESULT_IN_COMMAND。(1) 實跑那條：看得出範圍的 `pytest tests` 綠在前、heredoc 裡看不出範圍的兩支紅在後 → 不記紅
+    （記 deliberate_reds），下一回合宣告完成不擋；同條指令裡看得出範圍的綠照常清舊紅。(2) 同一條指令先紅後綠（都看得出範圍）→ 不記。
+    (3) 部分：紅 a、b 之後只重跑 a 綠 → 記那筆紅時 a 已在 cleared_units，只剩 b。"""
+    import wg_release_rules as rr
+    segs, runs = rr.test_segments(_MIX_CMD), rr.command_test_runs(_MIX_OUT)
+    assert [v for _, v in segs] == [True, False] and [(len(u), g) for u, g in runs] == [(0, True), (2, False)]
+    assert rr.red_units_last_result(segs, runs) == ([], _MIX_UNITS, rr.red_units_last_result(segs, runs)[2])
+    old = {**_RED, "cmd": "python -m pytest tests/test_report.py -q", "summary": f"FAILED {_MIX_UNITS[0]} - x\n1 failed in 0.1s"}
+    state = _track({"turn_seq": 5, "failing_tests": [dict(old)]}, _MIX_CMD, _MIX_OUT)
+    assert _own_reds(state) == [] and [d["rule"] for d in state["deliberate_reds"]] == ["RED_LAST_RESULT_IN_COMMAND"]   # 舊紅也被綠那段清掉
+    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5,
+                       failing_tests=copy.deepcopy(state["failing_tests"]), deliberate_reds=copy.deepcopy(state["deliberate_reds"]))
+    assert "TestFailGate" not in out, out[:300]
+    state = _track({"turn_seq": 5}, "python -m pytest tests/test_a.py -q; python -m pytest tests/test_a.py -q",
+                   f"FAILED {_A} - x\n1 failed in 0.1s\n1 passed in 0.1s")
+    assert _own_reds(state) == [] and state["deliberate_reds"][0]["rule"] == "RED_LAST_RESULT_IN_COMMAND"
+    state = _track({"turn_seq": 5}, "python -m pytest tests -q; python -m pytest tests/test_a.py -q",
+                   f"FAILED {_A} - x\nFAILED {_B} - y\n2 failed, 3 passed in 1s\n1 passed in 0.1s")
+    assert _own_reds(state) == [[_B]] and state["failing_tests"][0]["cleared_units"] == [_A] and "deliberate_reds" not in state
+
+
+def test_8b_3_true_red_still_blocks(driven, capsys):
+    """規則：RED_TEST_BLOCKS_COMPLETION 不放寬。(1) heredoc 裡單跑一次紅 → 照記；(2) 同一條指令先綠後紅（都看得出範圍）→ 最後一次是紅，照記；
+    (3) 紅 a 之後只跑 b 綠 → a 照記；(4) 看得出範圍的紅之後只有看不出範圍的綠 → 照記。都記了、下一回合宣告完成 → 照擋。"""
+    heredoc = "python - <<'EOF'\nimport pytest\nraise SystemExit(pytest.main([\"-q\", \"tests/test_a.py\"]))\nEOF"
+    cases = [
+        (heredoc, f"FAILED {_A} - x\n1 failed in 0.1s"),
+        ("python -m pytest tests/test_a.py -q; python -m pytest tests/test_a.py -q", f"1 passed in 0.1s\nFAILED {_A} - x\n1 failed in 0.1s"),
+        ("python -m pytest tests/test_a.py -q; python -m pytest tests/test_b.py -q", f"FAILED {_A} - x\n1 failed in 0.1s\n1 passed in 0.1s"),
+        ("python -m pytest tests/test_a.py -q; " + heredoc, f"FAILED {_A} - x\n1 failed in 0.1s\n1 passed in 0.1s"),
+    ]
+    for cmd, out_text in cases:
+        state = _track({"turn_seq": 5}, cmd, out_text)
+        assert _own_reds(state) == [[_A]] and "deliberate_reds" not in state, (cmd, state.get("failing_tests"))
+        out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5, failing_tests=copy.deepcopy(state["failing_tests"]))
+        assert "TestFailGate" in out and _A in out and "支已綠" not in out, (cmd, out[:300])
+
+
 # ─── 放行只放使用者看過的、沒有 ✗ 條目的新原因不被吞 ─────────────────────────────────────
 
 _TWO = "閘修好了，我量了，完成。"

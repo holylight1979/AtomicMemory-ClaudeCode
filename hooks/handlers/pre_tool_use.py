@@ -509,27 +509,8 @@ def _quoted_authorization(command: str, turn_prompts: List[str]) -> Optional[str
 
 # heredoc 內文不是 shell 指令（文件補丁／內嵌 python 常含「git commit」字樣）；剝掉再拆段，
 # 否則口令閘會把文字當成 commit 段誤擋。隱私閘不需要：它接著查 staged，無檔即靜默。
-# 只剝內文（起始行 delimiter 之後到第一個結束行，零行內文也算）：起始行 delimiter 後面的字（`cat > msg <<'EOF' && git commit -F msg`
-# 的 commit 在那裡）是真命令，照留。逐行掃不用 regex 跨行比對，所以空 heredoc 後面接同名 heredoc 不會把中間的命令一起剝掉。
-# 沒有結束行的 heredoc 不動，內文會被當命令段檢查（寧多擋）。
-_HEREDOC_MARK = "<<HEREDOC_STRIPPED"
-_HEREDOC_START_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1(.*)$")
-
-
-def _strip_heredoc_bodies(command: str) -> str:
-    lines = (command or "").split("\n")
-    out: List[str] = []
-    i = 0
-    while i < len(lines):
-        m = _HEREDOC_START_RE.search(lines[i])
-        end = next((k for k in range(i + 1, len(lines)) if lines[k].strip() == m.group(2)), None) if m else None
-        if end is None:
-            out.append(lines[i])
-            i += 1
-            continue
-        out.append(lines[i][:m.start()] + _HEREDOC_MARK + m.group(3))
-        i = end + 1
-    return "\n".join(out)
+# 剝法與紅測記帳的切段共用一份（wg_release_rules.strip_heredoc_bodies；只剝內文、起始行 delimiter 後面的真命令照留）。
+from wg_release_rules import HEREDOC_MARK as _HEREDOC_MARK, strip_heredoc_bodies as _strip_heredoc_bodies  # noqa: E402
 
 
 def _git_commits_to_run(command: str, cwd: str = "",
