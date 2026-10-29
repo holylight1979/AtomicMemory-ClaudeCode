@@ -15,7 +15,7 @@
 record_only（只問這一回合是不是只記錄）、before_write（工具改檔之前）、action_done（AI 動作完成之後）、on_stop（收尾、各閘之前）、
 session_cleanup（SessionEnd）。
 這裡出錯一律照原本的閘行為（不中止、不只記錄、不停手），stderr 印一行；快照存不了照放行改動、帳上記原因。
-v6 守門總開關關著整個不跑（_ctx 回 None）：v6 關只跑 v6 以前就有的處理，chain_breaker.enabled 寫開也一樣；SessionEnd 清快照照做。
+寫碼守門總開關關著整個不跑（_ctx 回 None）：寫碼守門關只跑寫碼守門關時也跑的處理，chain_breaker.enabled 寫開也一樣；SessionEnd 清快照照做。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_chain_breaker.py
 """
 from __future__ import annotations
@@ -148,7 +148,7 @@ class _Ctx(NamedTuple):
 
 def _ctx(sid: str, turn: int, input_data: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]],
          now: Optional[float]) -> Optional[_Ctx]:
-    """斷路器這一次要不要跑：v6 守門總開關關著（wg_core.v6_enabled，以它為準）或 chain_breaker.enabled 沒開 → None，
+    """斷路器這一次要不要跑：寫碼守門總開關關著（wg_core.v6_enabled，以它為準）或 chain_breaker.enabled 沒開 → None，
     每個公開函式都照「沒事」回。"""
     from wg_core import v6_enabled
     cfg = wc.settings(config)

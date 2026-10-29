@@ -2144,7 +2144,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     退回下面的檔名對應；回 (有沒有, 說明行)＝有宣告，(a) 只認它。
     case_check＝(d)「由哪個案例驗」的判定（wg_verify_scope.case_check；驗證範圍閘開著時 stop 傳入）：給了就照 LLM 的案例宣告判，
     沒給看覆蓋（CASE_COVERS_CHANGE；case_for＝驗證範圍宣告的「程式檔 → 驗它的案例檔」，declared_cases 建，沒給只看案例內容）。
-    remind＝給了（v6 開著）就照規則 GATE_MODE_TABLE 分流：hit_mode 判成提醒的條目（(b)(c)(d)(v)(e)）不進擋訊息、原行 append 進這個清單
+    remind＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：hit_mode 判成提醒的條目（(b)(c)(d)(v)(e)）不進擋訊息、原行 append 進這個清單
     交呼叫端留帳；None＝全部照擋（總開關關）。
     「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
     （同伴訊息、背景通知讓 turn_seq 前進，剛跑完的驗證仍算本回合）；沒給只認 turn_seq 那一個。

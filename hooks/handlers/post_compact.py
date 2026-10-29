@@ -169,7 +169,7 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         # atom 名單空不 return（A2.2）：只注入過導讀卡的 session 也要 stash 綜觀；需求目標樹不看部位照送；三樣都空才什麼都不留
         atom_blob, injected, unresolved = _atom_blob(state, config, trigger)
         sent_at, goal, overview_blob, parts = None, "", "", []
-        if v6_enabled(config):      # v6 守門關閉時只復原 atom 內文（9e476fd0 的行為）
+        if v6_enabled(config):      # 寫碼守門關閉時只復原 atom 內文（9e476fd0 的行為）
             sent_at = state.pop("need_goal_recovery_sent", None)
             goal_sent = isinstance(sent_at, (int, float)) and time.time() - sent_at < _GOAL_SENT_WINDOW_S
             goal = "" if goal_sent else goal_blob(session_id, config, input_data, state)

@@ -471,7 +471,7 @@ def check_global_write(
     return "\n".join(lines)
 
 
-# ─── 公司層（org）寫入閘與去專案細節（v6 M2）─────────────────────────────────
+# ─── 公司層（org）寫入閘與去專案細節─────────────────────────────────
 
 def scrub_project_details(text: str) -> str:
     """去專案細節：已登記專案根底下的絕對路徑 → 「<專案路徑>」、專案名 → 「某專案」（包 anonymize_projects），

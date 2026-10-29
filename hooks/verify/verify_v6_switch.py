@@ -1,11 +1,11 @@
-"""verify_v6_switch.py — v6 守門總開關（wg_core.v6_enabled，預設關）的案例。
+"""verify_v6_switch.py — 寫碼守門總開關（wg_core.v6_enabled，預設關）的案例。
 
 做什麼：
-1. 開關三態：預設關、環境變數 WG_V6=1 開、workflow/config.local.json 寫 v6.enabled=true 開（WG_V6=0 蓋過 local）；
-   MCP 端 lib/paths.js v6Enabled 同三態（沒裝 node 跳過）。
-2. 關閉時 v6 閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 動資料檔宣告閘、
+1. 開關三態：預設關、環境變數 WG_CODING_GUARD=1 開、workflow/config.local.json 寫 coding_guard.enabled=true 開
+   （WG_CODING_GUARD=0 蓋過 local）；舊名 WG_V6／舊鍵 v6.enabled 仍認、新名優先；MCP 端 lib/paths.js v6Enabled 同三態（沒裝 node 跳過）。
+2. 關閉時寫碼守門的閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 動資料檔宣告閘、
    改舊測試閘，Stop 對帳閘、拐彎判斷閘，PostToolUse 需求目標提示；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
-3. 關閉時 v6 以前的處理照跑：子代理記憶注入、知識收割擋（不走背景收割）、收割驗過後 vcs-sync、語言守門。
+3. 關閉時寫碼守門關時也跑的處理照跑：子代理記憶注入、知識收割擋（不走背景收割）、收割驗過後 vcs-sync、語言守門。
 怎麼跑：
   python -X utf8 -m pytest -q hooks/verify/verify_v6_switch.py
   python -X utf8 hooks/verify/verify_v6_switch.py          # 尾行 V6_SWITCH_CHECK PASS|FAIL
@@ -43,13 +43,14 @@ def _set_v6(monkeypatch, on):
 
 @pytest.fixture
 def cfg_root(monkeypatch, tmp_path):
-    """load_config 改讀 tmp 的 config.json／config.local.json；WG_V6 清掉。"""
+    """load_config 改讀 tmp 的 config.json／config.local.json；WG_CODING_GUARD／WG_V6 清掉。"""
     wf = tmp_path / "workflow"
     wf.mkdir()
     (wf / "config.json").write_text(json.dumps({"enabled": True}), encoding="utf-8")
     monkeypatch.setattr(wg_core, "CONFIG_PATH", wf / "config.json")
     monkeypatch.setattr(wg_core, "CONFIG_LOCAL_PATH", wf / "config.local.json")
     monkeypatch.delenv("WG_V6", raising=False)
+    monkeypatch.delenv("WG_CODING_GUARD", raising=False)
     return wf
 
 
@@ -59,14 +60,38 @@ def test_default_is_off(cfg_root):
 
 def test_repo_config_ships_off():
     shipped = json.loads((REPO / "workflow" / "config.json").read_text(encoding="utf-8"))
-    assert shipped["v6"]["enabled"] is False
+    assert shipped["coding_guard"]["enabled"] is False
+    assert "v6" not in shipped, "出廠設定只留新鍵 coding_guard；舊鍵 v6 只在讀取端相容"
     ignored = subprocess.run(["git", "-C", str(REPO), "check-ignore", "-q", "workflow/config.local.json"])
     assert ignored.returncode == 0, "workflow/config.local.json 要進 .gitignore"
 
 
-def test_env_turns_on(cfg_root, monkeypatch):
-    monkeypatch.setenv("WG_V6", "1")
+@pytest.mark.parametrize("name", ["WG_CODING_GUARD", "WG_V6"])
+def test_env_turns_on(cfg_root, monkeypatch, name):
+    monkeypatch.setenv(name, "1")
     assert wg_core.v6_enabled(wg_core.load_config()) is True
+
+
+def test_new_key_turns_on_and_new_env_zero_overrides(cfg_root, monkeypatch):
+    """新鍵 coding_guard.enabled=true 開；WG_CODING_GUARD=0 壓過 config 關，也壓過舊名 WG_V6=1。"""
+    (cfg_root / "config.local.json").write_text(json.dumps({"coding_guard": {"enabled": True}}), encoding="utf-8")
+    cfg = wg_core.load_config()
+    assert cfg["coding_guard"]["enabled"] is True and wg_core.v6_enabled(cfg) is True
+    monkeypatch.setenv("WG_V6", "1")
+    monkeypatch.setenv("WG_CODING_GUARD", "0")
+    assert wg_core.v6_enabled(cfg) is False
+
+
+def test_old_key_still_turns_on_beside_shipped_new_key(cfg_root):
+    """出廠 config.json 已改成 coding_guard.enabled=false；舊的 config.local.json 只寫 v6.enabled=true 照樣能開（相容）。
+    子鍵 coding_turn_only／slim_reminders：coding_guard 有寫就用它、沒寫才讀 v6。"""
+    (cfg_root / "config.json").write_text(json.dumps({"coding_guard": {"enabled": False}}), encoding="utf-8")
+    (cfg_root / "config.local.json").write_text(json.dumps({"v6": {"enabled": True, "coding_turn_only": False}}), encoding="utf-8")
+    cfg = wg_core.load_config()
+    assert wg_core.v6_enabled(cfg) is True
+    assert wg_core.coding_guard_opt(cfg, "coding_turn_only", True) is False
+    assert wg_core.coding_guard_opt({"coding_guard": {"coding_turn_only": True}, "v6": {"coding_turn_only": False}}, "coding_turn_only") is True
+    assert wg_core.coding_turn({"turn_seq": 5}, {"coding_guard": {"coding_turn_only": False}})
 
 
 def test_local_file_turns_on_and_env_zero_wins(cfg_root, monkeypatch):
@@ -93,19 +118,21 @@ def test_only_json_true_turns_on(cfg_root, local):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="沒有 node")
-@pytest.mark.parametrize("env, local, want", [(None, None, "false"), ("1", None, "true"),
-                                              (None, {"v6": {"enabled": True}}, "true"), ("0", {"v6": {"enabled": True}}, "false"),
-                                              (None, {"v6": True}, "false"), (None, {"v6": {"enabled": "false"}}, "false")])
+@pytest.mark.parametrize("env, local, want", [
+    ({}, None, "false"), ({"WG_CODING_GUARD": "1"}, None, "true"), ({"WG_V6": "1"}, None, "true"),
+    ({"WG_CODING_GUARD": "0", "WG_V6": "1"}, {"coding_guard": {"enabled": True}}, "false"),
+    ({}, {"coding_guard": {"enabled": True}}, "true"), ({}, {"v6": {"enabled": True}}, "true"),
+    ({"WG_CODING_GUARD": "0"}, {"v6": {"enabled": True}}, "false"),
+    ({}, {"v6": True}, "false"), ({}, {"coding_guard": {"enabled": "false"}}, "false")])
 def test_mcp_mirror_same_three_states(tmp_path, env, local, want):
     wf = tmp_path / "workflow"
     wf.mkdir()
-    (wf / "config.json").write_text(json.dumps({"v6": {"enabled": False}}), encoding="utf-8")
+    (wf / "config.json").write_text(json.dumps({"coding_guard": {"enabled": False}}), encoding="utf-8")
     if local:
         (wf / "config.local.json").write_text(json.dumps(local), encoding="utf-8")
-    e = {k: v for k, v in os.environ.items() if k != "WG_V6"}
+    e = {k: v for k, v in os.environ.items() if k not in ("WG_V6", "WG_CODING_GUARD")}
     e["WG_CLAUDE_DIR"] = str(tmp_path)
-    if env:
-        e["WG_V6"] = env
+    e.update(env)
     paths_js = (REPO / "tools" / "workflow-guardian-mcp" / "lib" / "paths.js").as_posix()
     r = subprocess.run(["node", "-e", f"process.stdout.write(String(require({json.dumps(paths_js)}).v6Enabled()))"],
                        env=e, capture_output=True, text=True, timeout=60)
@@ -284,7 +311,7 @@ def test_write_gate_dedupe_declaration_follows_switch(monkeypatch, on):
     assert mwg.load_config()["dedupe_declaration"] is on
 
 
-# ─── 3. 關閉時 v6 以前的處理照跑 ─────────────────────────────────
+# ─── 3. 關閉時寫碼守門關時也跑的處理照跑 ─────────────────────────────────
 
 def test_off_subagent_memory_injection_still_runs(monkeypatch, capsys):
     _set_v6(monkeypatch, False)

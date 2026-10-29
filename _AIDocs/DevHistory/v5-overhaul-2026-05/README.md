@@ -177,7 +177,7 @@ Wave 5 期間 17 個 atom 與審計用 atom 都還是 [臨]，依「Confirmation
 
 - 規格主檔：[`../../SPEC_ATOM_V5.md`](../../SPEC_ATOM_V5.md)
 - V4 對照證物：[`../../SPEC_ATOM_V4.md`](../../SPEC_ATOM_V4.md)
-- V4.1 開發歷程：[`../v41-journey.md`](../v41-journey.md)
+- V4.1 開發歷程：[`../v41-journey.md`](../v4-archive/v41-journey.md)
 - Wave 1-5 commits：`09ec026` / `f1e0cbc` / `b0f98c1` `f3854c8` / `04b35b4` `a7e5be4` / `d76bba1` `651be4a` `f937589`
 - 計畫檔：`plans/wondrous-humming-spark.md`（Wave 5 Session 2 退役 → 已歸檔）
 - 歸檔 audit atom：[`../../../memory/_distant/2026_05_v5_overhaul/v5-overhaul-audit-2026-05.md`](../../../memory/_distant/2026_05_v5_overhaul/v5-overhaul-audit-2026-05.md)

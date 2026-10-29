@@ -193,7 +193,7 @@ Codex 透過 cat/head/grep/wc 讀檔（**不要用 PowerShell**，sandbox 易出
 
 | 來源 | 判定 | 目標 |
 |------|------|------|
-| `multi_agent_protocol.md` | **歸檔** — 多 agent 協作協議是可重複使用的方法論 | `_AIDocs/DevHistory/multi-agent-cleanup-protocol.md`（重命名為通用名） |
+| `multi_agent_protocol.md` | **歸檔** — 多 agent 協作協議是可重複使用的方法論 | `_AIDocs/DevHistory/工作流與協調/multi-agent-cleanup-protocol.md`（重命名為通用名） |
 | `synthesis_and_plan_v2.md`（最終版） | **歸檔** — 完整決策史 + 矛盾仲裁 + Codex/CC 5 大師 + 3 稽核 + 2 預測席意見 | `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/synthesis.md` |
 | `follow_up_issues.md` | **歸檔** — vector 失效根因 + 精密化議題 + atom 注入重構 + hook 萃取重複，全是後續 session 起點 | `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/follow-up-issues.md`（同步加入 `_AIDocs/known-regressions.md` 索引） |
 | `outputs/cc-architect.md` `outputs/cc-archaeologist.md` `outputs/codex-auditor-*.md` | **濃縮歸檔** — 8 份報告壓縮成 1 份「大師意見摘要」（每位 200-300 字精華） | `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/master-review-digest.md` |

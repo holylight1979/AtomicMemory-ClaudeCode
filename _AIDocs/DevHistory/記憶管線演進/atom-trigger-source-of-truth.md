@@ -9,10 +9,10 @@
 | 源 | 檔案 / 位置 | 寫入時機 | 讀取者 | 角色 |
 |----|-----------|----------|--------|------|
 | **A. frontmatter `Trigger:`** | 每 atom 開頭（如 `memory/decisions-architecture.md:5`） | atom_write MCP 建立時 / 使用者手動編輯 | **無程式碼讀取**（純展示給 AI 看） | 註記性質 |
-| **B. `_ATOM_INDEX.md` 表格** | `memory/_ATOM_INDEX.md` | atom_write MCP 同步寫入（[server.js:828](../../tools/workflow-guardian-mcp/server.js#L828) `resolveMemoryIndex` 偏好此檔） | **`wg_atoms.py:36-43` 唯一機器讀取點** | **真相源（事實上）** |
+| **B. `_ATOM_INDEX.md` 表格** | `memory/_ATOM_INDEX.md` | atom_write MCP 同步寫入（[server.js:828](../../../tools/workflow-guardian-mcp/server.js#L828) `resolveMemoryIndex` 偏好此檔） | **`wg_atoms.py:36-43` 唯一機器讀取點** | **真相源（事實上）** |
 | **C. `MEMORY.md` 索引列表** | `memory/MEMORY.md` | 純手寫維護 | `@import` always-loaded 進 LLM context（每 turn ~150 tokens） | 給 LLM 看的目錄（介紹性） |
 
-### 1.1 hook 實際讀取路徑（[wg_atoms.py:27-63](../../hooks/wg_atoms.py#L27-L63)）
+### 1.1 hook 實際讀取路徑（[wg_atoms.py:27-63](../../../hooks/wg_atoms.py#L27-L63)）
 
 ```
 parse_memory_index(memory_dir):
@@ -24,7 +24,7 @@ parse_memory_index(memory_dir):
 
 → 結論：**frontmatter `Trigger:` 完全沒有任何 hook 讀取**。它只是給 AI 看的「自我宣告」，不會被注入機制使用。
 
-### 1.2 atom_write MCP 寫入路徑（[server.js:952-1014](../../tools/workflow-guardian-mcp/server.js#L952-L1014)）
+### 1.2 atom_write MCP 寫入路徑（[server.js:952-1014](../../../tools/workflow-guardian-mcp/server.js#L952-L1014)）
 
 ```
 atom_write(triggers=[...], ...):
@@ -186,7 +186,7 @@ atom_write(triggers=[...], ...):
 
 ### Step 3：選擇性 — atom_write MCP 整合
 
-[server.js:1181](../../tools/workflow-guardian-mcp/server.js#L1181) `appendToIndex` 後追加呼叫 sync-memory-index.py --write，讓建立 atom 時 MEMORY.md 也自動更新。
+[server.js:1181](../../../tools/workflow-guardian-mcp/server.js#L1181) `appendToIndex` 後追加呼叫 sync-memory-index.py --write，讓建立 atom 時 MEMORY.md 也自動更新。
 
 ### Step 4：選擇性 — PreCommit hook 校驗
 

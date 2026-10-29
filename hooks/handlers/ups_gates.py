@@ -149,7 +149,7 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str, v6: Optional[bo
 
     turn_prompts_seq＝使用者本人打字開的回合（寫碼查核的預算與放行看它）。回合關閉後先進來的通知只開「續跑回合」
     （turn_typed=False）；這個續跑回合裡使用者打的第一則字算使用者開的新回合：序號前進、清單重開（先前的口令失效）。
-    v6＝守門總開關（沒給就照環境變數 WG_V6 判）。關時照 9e476fd0：口令 commit 過就用掉（last_commit_turn_seq），
+    v6＝寫碼守門總開關（沒給就照環境變數 WG_CODING_GUARD／舊名 WG_V6 判）。關時照 9e476fd0：口令 commit 過就用掉（last_commit_turn_seq），
     續跑回合裡使用者打的字照舊追加、口令沿用。"""
     has_list = isinstance(state.get("turn_prompts"), list)
     typed = user_typed_text(clean_prompt)[:500]
@@ -180,7 +180,7 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str, v6: Optional[bo
     seq = state.get("turn_prompts_seq")
     if v6 and not (isinstance(seq, int) and not isinstance(seq, bool) and seq > 0):
         # 規則 USER_TURN_KEY_KEPT：state 從零建（遺失重建、舊 state）沒有回合鍵，之後只進同伴訊息、背景通知就一直補不上，
-        # user_turn 會退回逐則前進的 turn_seq、每則都當成新使用者回合。錨在這一則；之後照上面的規則前進（v6 關照 9e476fd0，不錨）
+        # user_turn 會退回逐則前進的 turn_seq、每則都當成新使用者回合。錨在這一則；之後照上面的規則前進（寫碼守門關照 9e476fd0，不錨）
         state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1
     if typed:
         state["turn_typed"] = True
@@ -209,8 +209,8 @@ def run_pre_gates(
     v6 = v6_enabled(config)
     track_turn_prompts(state, clean_prompt, v6)
     if not v6 and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
-        state["failing_tests"] = []   # v6 守門關閉：照 9e476fd0，使用者說「先這樣／跳過」就清掉紅測清單
-    # v6：使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，
+        state["failing_tests"] = []   # 寫碼守門關閉：照 9e476fd0，使用者說「先這樣／跳過」就清掉紅測清單
+    # 寫碼守門開：使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，
     # Stop 的 TestFailGate 只豁免對得上的那幾筆（規則 USER_WAIVER_NEEDS_CITATION，wg_release_rules.waived_failures）。
 
     # ─── User Decision Detector gate ────────────────────────────
@@ -240,7 +240,7 @@ def run_pre_gates(
         settle_pending_veto(state, session_id)
     confirmed = state.get("confirmed_extractions", [])
     if confirmed and not v6 and any(kw in prompt_lower for kw in ("否", "不要記", "別記", "取消記憶")):
-        for ext in confirmed:   # v6 守門關閉：照 9e476fd0，否決詞直接丟掉這批萃取結果（v6 改成問 AI 再撤卡）
+        for ext in confirmed:   # 寫碼守門關閉：照 9e476fd0，否決詞直接丟掉這批萃取結果（寫碼守門改成問 AI 再撤卡）
             _atom_debug_log("user-extract:rejected", f"User vetoed: {ext.get('statement', '')[:80]}", config)
         state["confirmed_extractions"] = []
         confirmed = []

@@ -148,7 +148,7 @@ def build_context(
 
     # ─── _AIDocs keyword matching ──────────────────
     # 只在命中明顯（關鍵字命中數 ≥ aidocs.min_prompt_hits，預設 2）才指、最多 aidocs.max_prompt_matches（預設 1）條、
-    # 命中最多的優先；同一份文件一個 session 只指一次（aidocs.v6_once 沒寫＝開，不看 v6 總開關）；超過 5 份命中不送照舊判
+    # 命中最多的優先；同一份文件一個 session 只指一次（aidocs.v6_once 沒寫＝開，不看寫碼守門總開關）；超過 5 份命中不送照舊判
     aidocs_cfg = config.get("aidocs", {})
     aidocs_state = state.get("aidocs", {})
     aidocs_kw_map = aidocs_state.get("keywords", {})
@@ -178,7 +178,7 @@ def build_context(
             lines.extend(pointer_lines)
 
     # ── JIT load internal pipeline reference for memory system dev ──
-    # v6 守門開著時一個 session 只送一次（jit_internal_pipeline.v6_once，沒寫＝開）；判不判記憶系統開發照舊
+    # 寫碼守門開著時一個 session 只送一次（jit_internal_pipeline.v6_once，沒寫＝開）；判不判記憶系統開發照舊
     jit_once = v6 and config.get("jit_internal_pipeline", {}).get("v6_once", True)
     if (_is_memory_system_dev(prompt_lower, state.get("session", {}).get("cwd", ""))
             and not (jit_once and state.get("jit_pipeline_sent"))):

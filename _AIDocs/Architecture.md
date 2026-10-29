@@ -5,7 +5,7 @@
 
 ## Hooks 系統
 
-9 個 hook 事件掛哪些腳本、timeout、職責：TECH §3.1；一個回合的序列圖：TECH §3.2。入口鏈：`settings.json` → `hooks/workflow-guardian.py`（薄 shim）→ `dispatcher.py`（純路由、惰性 import）→ `handlers/<event>.py`。每道 v6 守門擋還是提醒，送法照 `hooks/wg_release_rules.RULE_MODE`（呼叫端經 `gate_mode(rule, v6)` 問；照擋只有病形、宣告、紅測三類，其餘提醒一行掛前一個動作的工具結果；安全邊界閘不讀表、照擋；v6 關一律照舊）：TECH §7 開頭「擋或提醒」。
+9 個 hook 事件掛哪些腳本、timeout、職責：TECH §3.1；一個回合的序列圖：TECH §3.2。入口鏈：`settings.json` → `hooks/workflow-guardian.py`（薄 shim）→ `dispatcher.py`（純路由、惰性 import）→ `handlers/<event>.py`。每道 寫碼守門擋還是提醒，送法照 `hooks/wg_release_rules.RULE_MODE`（呼叫端經 `gate_mode(rule, v6)` 問；照擋只有病形、宣告、紅測三類，其餘提醒一行掛前一個動作的工具結果；安全邊界閘不讀表、照擋；寫碼守門關一律照舊）：TECH §7 開頭「擋或提醒」。
 
 ### 事件 × handler 入口表
 
@@ -41,7 +41,7 @@
 | `wg_recall_miss.py` | 失念偵測：失敗證據 × 庫中未注入 atom trigger |
 | `wg_friction.py` | 工具結果體積 + 使用者糾正訊號 → Deep Post-Mortem |
 | `wg_release_rules.py` | 放行／欠帳判定規則（純函式：不讀檔、不跑 git、不改 state）：每一種情境一條有名字的規則（`RULES` 表）＋`Verdict(rule, owed, why, evidence)`；擋訊息統一 `format_hit` → `✗ (<字母>) <規則名>：<一句現象>｜證據：…`，`parse_hits` 反解字母給擋次預算（每條規則各自計次 `budget_tick`／`budget_exhausted`）。呼叫端只蒐集事實：`wg_verify_ledger`（欠案例、先紅後綠、內容等於另一方已提交版本、只改註解、刻意紅、暫存收據）、`stop`（預算、worktree 不要求 push、DPM 交付信版）、`post_tool_use`（刻意紅不進 failing_tests、同案例綠清帳）、`pre_tool_use`（暫存 repo commit 免口令）、`wg_core`（python -c 只讀、唯讀 git）、`wg_overview`／`lib/overview_hub`（Grep content 算讀檔、Bash 註解行剝除、執行期資料免綜觀、暫存副本不當專案）、`ups_gates`／`wg_evasion`／`wg_harvest`（派工訊息開回合）、`wisdom_engine`（重試只數紅後的編輯）、`wg_need_goal`（目標樹完整對照：達成要指到案例或收據、推論最多部分、案例先紅後綠紀錄）、`wg_verify_scope`（要宣告驗證範圍、範圍項目要有收據、範圍漏判、先檢討再宣告）。規則表 TECH §7.8；案例 `hooks/verify/verify_release_rules.py`、探針 `hooks/verify/probe_release_rules.py` |
-| `wg_chain.py`＋`lib/chain_store.py` | 連鎖斷路器（v6）：`wg_chain` 是純函式判定（規則表 `RULES` 每條 `CHAIN_*` 一案，案例 `hooks/verify/verify_chain_breaker.py`）——帳摺成連鎖、邊怎麼接、警報門檻、只記錄、停手時哪些指令算唯讀、哪些工具呼叫算 AI 動作、三選一答案只認 AskUserQuestion、經過表；`chain_store` 管 I/O——帳 `Logs/chain-<session>.jsonl`、改檔前快照 `workflow/chain-snap/<session>/`、還原與重讀比對。接線：`stop`（各閘之前 `on_stop`、每道閘擋或記欠之前 `_chain_hold`、子代理收尾）、`pre_tool_use`（開頭停手 `_chain_halt`、`_deny` 記觸發、放行出口存快照）、`post_tool_use`（成功與失敗的工具呼叫記動作）、`session_end`（清快照）；接線案例 `hooks/verify/verify_chain_wiring.py`；本檔「連鎖斷路器」節 |
+| `wg_chain.py`＋`lib/chain_store.py` | 連鎖斷路器：`wg_chain` 是純函式判定（規則表 `RULES` 每條 `CHAIN_*` 一案，案例 `hooks/verify/verify_chain_breaker.py`）——帳摺成連鎖、邊怎麼接、警報門檻、只記錄、停手時哪些指令算唯讀、哪些工具呼叫算 AI 動作、三選一答案只認 AskUserQuestion、經過表；`chain_store` 管 I/O——帳 `Logs/chain-<session>.jsonl`、改檔前快照 `workflow/chain-snap/<session>/`、還原與重讀比對。接線：`stop`（各閘之前 `on_stop`、每道閘擋或記欠之前 `_chain_hold`、子代理收尾）、`pre_tool_use`（開頭停手 `_chain_halt`、`_deny` 記觸發、放行出口存快照）、`post_tool_use`（成功與失敗的工具呼叫記動作）、`session_end`（清快照）；接線案例 `hooks/verify/verify_chain_wiring.py`；本檔「連鎖斷路器」節 |
 | `wg_second_opinion.py` | G9 自動第二意見的事實收集（Stop 的 SecondOpinion 段用；判定在 `wg_release_rules` 的 G9 段）：`second_opinion.auto` 設定與預設、本回合 transcript 的 `second_opinion_start`／`result` 呼叫與回傳、程式檔對 HEAD 的改動行數（numstat＋未追蹤新檔；session 暫存區的一次性腳本不數，規則 SESSION_SCRATCH_NOT_CODE）、高風險部位（`risky_prefixes`、部位表類別欄原字 gate）；TECH §7.1、§7.8 |
 | `wg_harvest.py` | 階段收割純函式：`harvest_gate_reason`／`pending_gate_reason`（Stop）、`parse_receipt`／`record_atom_op`／`validate_items`／`append_ledger`（PostToolUse one-writer）、`vcs_sync_lock_active`；state 按 session_id 分區、不落盤 |
 | `wg_vcs_sync.py` | 記憶庫上版控：`collect_sync_targets`（根層 + 專案、各找最近 VCS root）、OS 互斥鎖＋`.req/` 請求檔合併、`.unpushed`／`.behind` 標記（`write_behind`／`clear_behind`／`read_behind_record`）、`roots.json`（推側 `last_sync`／`last_error`、拉側 `last_pull`／`pulled_commits`／`pull_error`）、`spawn_vcs_sync`；主邏輯 `sync_targets_inline` worker 與測試共用；git 拉段 `_git_pull`（fetch 固定 H／U、incoming 分類、ref＋pathspec restore、整樹乾淨 ff-only）＋ `_git_isolated_rebase`（隔離 worktree、索引檔衝突交 merge driver resolver）；svn `svn_update_targets`（退役 missing 先 delete、其他 missing 不 update、只解索引檔 text 衝突）；行為表 TECH §6.3／§8、`MultiMachineMemorySync.md` 自動拉取節；目標集含 config org 根；`_Svn.run` 對 ANSI code page 編不出的 argv 直接 `_Stop`（不呼叫 svn，防 best-fit 亂碼目錄；TECH §7.5） |
@@ -115,7 +115,7 @@ statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／g
 
 ### 連鎖斷路器（`hooks/wg_chain.py`、`lib/chain_store.py`；本段為唯一來源）
 
-要解的事：閘擋下 → AI 修 → 修的動作又讓別道（或同一道）閘擋下……這種間接連鎖靠逐道閘修判斷條件拔不乾淨，所以在所有閘外面加一層只記錄與中止的斷路器。v6 守門總開關開著、`config.chain_breaker.enabled` 才跑；總開關關著時 `chain_store` 每個公開函式都照「沒事」回（以總開關為準）。
+要解的事：閘擋下 → AI 修 → 修的動作又讓別道（或同一道）閘擋下……這種間接連鎖靠逐道閘修判斷條件拔不乾淨，所以在所有閘外面加一層只記錄與中止的斷路器。寫碼守門總開關開著、`config.chain_breaker.enabled` 才跑；總開關關著時 `chain_store` 每個公開函式都照「沒事」回（以總開關為準）。
 
 - **一筆觸發**：閘真的要擋下或記欠的那一刻（收尾閘在擋的分支開頭問 `_chain_hold`；工具前閘走 `_deny`）。工具後只提示的、只記錄的不算。PostToolUse 記下的欠帳不另算一次，到它真的擋下（收尾或下一個工具前）才算——否則同一筆欠帳記一次、擋一次就被當成同一道閘第 2 次。閘名取擋訊息的 `[Guardian:名稱]` 標記，收尾閘由呼叫端給（跟「後面還會擋」預覽用同一套名字）。
 - **一條邊**：同一使用者回合、同一對話者（主 session 或同一個子代理）裡，閘B 接在閘A 之後觸發、中間 AI 有動作就接上（判法與排除見 `wg_chain.RULES` 的 `CHAIN_EDGE_*`、`CHAIN_SAME_EVENT`、`CHAIN_NO_FIX_NO_EDGE`）。閘A 擋下時預覽已列出的閘B 不接（它本來就欠著）。同一道閘接連觸發、中間沒記到 AI 動作（原樣重試、只改寫回覆）不接、也不算同閘次數，交回那道閘自己的擋次上限（CHAIN_SAME_GATE_NO_ACTION）。`watched`（閘看哪些檔）模組支援，目前沒有呼叫端給。
@@ -145,16 +145,16 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 
 | 主題 | 詳情文件 | keywords |
 |---|---|---|
-| Dual-Backend Ollama 退避 | [DevHistory/ollama-backend.md](DevHistory/ollama-backend.md) | 退避, DIE, rdchat, failover |
-| 記憶檢索管線 + 回應知識捕獲（含已除役 hot cache／quick-extract） | [DevHistory/memory-pipeline.md](DevHistory/memory-pipeline.md) | pipeline, JIT, vector, hot_cache |
-| V4.1 使用者決策萃取 + P4 Session 評價 | [DevHistory/v41-journey.md](DevHistory/v41-journey.md) §10 | user-extract, L0, L1, L2, gemma4, session_score |
-| SessionStart 去重 + Merge self-heal | [DevHistory/session-mgmt.md](DevHistory/session-mgmt.md) | dedup, merge_into, orphan cleanup |
-| 專案自治層 + V4 三層 Scope + JIT | [DevHistory/v4-layers.md](DevHistory/v4-layers.md) | scope, personal, shared, role, vector layer |
-| V4 三時段衝突偵測 | [DevHistory/v4-conflict.md](DevHistory/v4-conflict.md) | conflict, pending_review, CONTRADICT, EXTEND |
-| Wisdom Engine + Fix Escalation + 跨 Session 鞏固 | [DevHistory/wisdom-engine.md](DevHistory/wisdom-engine.md) | wisdom, reflection, fix_escalation |
-| settings.json 權限 + 工具鏈 | [DevHistory/settings-config.md](DevHistory/settings-config.md) | permissions, 權限, tools |
-| 核心記憶分類階層化（範疇資料夾、寫入閘、realm） | [DevHistory/核心記憶分類階層化-2026-08.md](DevHistory/核心記憶分類階層化-2026-08.md) | taxonomy, domain, realm |
-| 注入變弱調查（根因鏈、五次修正） | [DevHistory/injection-budget-investigation-2026-08.md](DevHistory/injection-budget-investigation-2026-08.md) | budget, 回填, 1200 |
+| Dual-Backend Ollama 退避 | [DevHistory/向量與模型評測/ollama-backend.md](DevHistory/向量與模型評測/ollama-backend.md) | 退避, DIE, rdchat, failover |
+| 記憶檢索管線 + 回應知識捕獲（含已除役 hot cache／quick-extract） | [DevHistory/記憶管線演進/memory-pipeline.md](DevHistory/記憶管線演進/memory-pipeline.md) | pipeline, JIT, vector, hot_cache |
+| V4.1 使用者決策萃取 + P4 Session 評價 | [DevHistory/v4-archive/v41-journey.md](DevHistory/v4-archive/v41-journey.md) §10 | user-extract, L0, L1, L2, gemma4, session_score |
+| SessionStart 去重 + Merge self-heal | [DevHistory/工作流與協調/session-mgmt.md](DevHistory/工作流與協調/session-mgmt.md) | dedup, merge_into, orphan cleanup |
+| 專案自治層 + V4 三層 Scope + JIT | [DevHistory/v4-archive/v4-layers.md](DevHistory/v4-archive/v4-layers.md) | scope, personal, shared, role, vector layer |
+| V4 三時段衝突偵測 | [DevHistory/v4-archive/v4-conflict.md](DevHistory/v4-archive/v4-conflict.md) | conflict, pending_review, CONTRADICT, EXTEND |
+| Wisdom Engine + Fix Escalation + 跨 Session 鞏固 | [DevHistory/記憶管線演進/wisdom-engine.md](DevHistory/記憶管線演進/wisdom-engine.md) | wisdom, reflection, fix_escalation |
+| settings.json 權限 + 工具鏈 | [DevHistory/設定與遷移/settings-config.md](DevHistory/設定與遷移/settings-config.md) | permissions, 權限, tools |
+| 核心記憶分類階層化（範疇資料夾、寫入閘、realm） | [DevHistory/記憶管線演進/核心記憶分類階層化-2026-08.md](DevHistory/記憶管線演進/核心記憶分類階層化-2026-08.md) | taxonomy, domain, realm |
+| 注入變弱調查（根因鏈、五次修正） | [DevHistory/記憶管線演進/injection-budget-investigation-2026-08.md](DevHistory/記憶管線演進/injection-budget-investigation-2026-08.md) | budget, 回填, 1200 |
 | V5 升版全紀錄 | [DevHistory/v5-overhaul-2026-05/](DevHistory/v5-overhaul-2026-05/) | JSON SoT, BM25, subprocess, tests-archive |
 
 ### Atom 寫入 funnel — 檔案地圖與 caller 接線
@@ -199,7 +199,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 
 ### Realm 範疇分區（core vs local）
 
-對照表與判定三問：TECH §4.3；全貌（兩根、realm 由 index path 推導、注入閘、分類器與詞庫單一來源 `memory/_meta/realm-lexicon.json`、詞庫污染護欄、階層 domain、LLM fallback 預設關）：SPEC §2.2；決策脈絡：`DevHistory/核心記憶分類階層化-2026-08.md`。
+對照表與判定三問：TECH §4.3；全貌（兩根、realm 由 index path 推導、注入閘、分類器與詞庫單一來源 `memory/_meta/realm-lexicon.json`、詞庫污染護欄、階層 domain、LLM fallback 預設關）：SPEC §2.2；決策脈絡：`DevHistory/記憶管線演進/核心記憶分類階層化-2026-08.md`。
 
 檔案地圖：`lib/atom_locations.classify_realm`（+ server.js mirror，base-only 保 parity）、`tools/atom-set-realm.py`（`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆，不走 `atom-move`）、`tools/realm_llm_classify.py`（SessionEnd sweep 用，`realm.llm_fallback.enabled` 預設 false）、`memory/_local_catalog.md`（local 目錄，僅 `~/.claude` 注入）、`skills/refile/`（手動歸檔前端）。守門：`lib/verify/verify_atom_io_equivalence.py`（分類器零誤判／py↔js parity／canon／深度閘／自學）、`lib/verify/verify_realm_injection_gate.py`、`tools/verify/verify_realm_llm_classify.py`、`hooks/verify/verify_realm_sweep.py`、`tools/verify/verify_local_catalog_split.py`。
 

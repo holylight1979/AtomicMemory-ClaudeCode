@@ -2,7 +2,7 @@
 
 > 收尾報告 · 2026-05-04 · verdict = **KEEP**
 > 設計與 handoff：見本檔末尾「設計歸檔」節（原暫存檔 `memory/_staging/reg-005-atom-injection-refactor.md` 整檔搬入）
-> 連動：[known-regressions.md REG-005 ✅](../known-regressions.md) / [vector-threshold-calibration-2026-04.md](vector-threshold-calibration-2026-04.md)（前置）
+> 連動：[known-regressions.md REG-005 ✅](../../known-regressions.md) / [vector-threshold-calibration-2026-04.md](../向量與模型評測/vector-threshold-calibration-2026-04.md)（前置）
 
 ---
 
@@ -339,8 +339,8 @@ atom trigger 命中時 `wg_atoms.py:_strip_atom_for_injection` 把整檔注入 p
 - 觀察 hook：`hooks/wg_atom_observation.py`
 - 自動判定：`tools/atom-injection-summary.py`
 - ROLLBACK 清理：`tools/reg005-rollback-cleanup.py`
-- 設計依據：`_AIDocs/DevHistory/atom-trigger-source-of-truth.md`（前置 1）
-- 校準紀錄：`_AIDocs/DevHistory/vector-threshold-calibration-2026-04.md`（前置 2）
+- 設計依據：`_AIDocs/DevHistory/記憶管線演進/atom-trigger-source-of-truth.md`（前置 1）
+- 校準紀錄：`_AIDocs/DevHistory/向量與模型評測/vector-threshold-calibration-2026-04.md`（前置 2）
 
 ---
 

@@ -3,7 +3,7 @@
 做什麼：第一次碰到某部位就建部位紀錄，一個 session 一個部位一次。唯讀碰到（Read／唯讀 Bash／PowerShell／Grep）只建紀錄、
 讀檔結果最多多一行定位提示，卡不送（規則 READ_TOUCH_NO_CARD）；卡在第一次改這個部位的檔（on_edit）或提示詞點名路徑時才送。
 卡怎麼送看 card_injection：pointer（預設）只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；full 依本回合意圖
-（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；v6 總開關開關都照這個值。卡尾的未結追蹤項只留筆數一行。
+（state["turn_intent"]）查 goal_weights 選片整張注入（沒片命中退整卡）；寫碼守門總開關開關都照這個值。卡尾的未結追蹤項只留筆數一行。
 之後記「碰到後讀了哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關；指標制的程式部位另要 Read 過卡）、
 讀過部位檔 ≥N、交了定位三行（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、信件匣）只要第一項（指標制沒 Read 過卡只提醒、留帳）。
 readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
@@ -137,7 +137,7 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
 
     這裡只補呼叫端的事：公司根（行程內快取）、錯誤與退役鍵各警告一次、驗證器內部錯誤進 atom-debug log、
     `_layer`（root／org／project_mapped／project_unmapped／none）、`_card_mode`（這次實際用的導讀卡送法）。
-    OverviewHub 整道（導讀卡注入、候選、讀檔記錄、定位）綁 v6 總開關：v6 關時 `enabled` 一律 False，什麼都不送、不記
+    OverviewHub 整道（導讀卡注入、候選、讀檔記錄、定位）綁寫碼守門總開關：寫碼守門關時 `enabled` 一律 False，什麼都不送、不記
     （規則 OVERVIEW_HUB_UNDER_V6）。回傳必帶 `_errors`（非空時 on_edit deny）。
     """
     org = _org_root()
@@ -576,7 +576,7 @@ def _deliver_card(state: Dict[str, Any], session_id: str, root: Path, row: Dict[
                   cfg: Dict[str, Any]) -> str:
     """讀檔時只記沒送的卡（rec.card_pending）在第一次改這個部位的檔時組出來：卡重新解析（中間可能補了卡）、送法照現在的 _card_mode、
     片照現在的意圖；紀錄的起點（transcript_offset、讀檔帳）不動——讀檔後交的定位行與讀過的部位檔照算。一個部位一 session 一次。
-    文字由 edit_check 放進提醒件 OVERVIEW_CARD_BEFORE_EDIT 的 extra：v6 開時不擋，隨那次改檔的工具結果送到。"""
+    文字由 edit_check 放進提醒件 OVERVIEW_CARD_BEFORE_EDIT 的 extra：寫碼守門開時不擋，隨那次改檔的工具結果送到。"""
     key = _key(root, row)
     rec = state["overview_hub"][key]
     card_paths, miss = _resolve_row_cards(root, row, cfg)
@@ -1078,7 +1078,7 @@ _LOCATE_HINT_KEY = "overview_locate_hint_sent"     # 本 session 送過完整那
 
 def _unmapped_read_hint(state: Dict[str, Any], session_id: str, path: str, config: Dict[str, Any], agent_id: str = "") -> Optional[str]:
     """沒有部位表（或表上沒列）的程式檔第一次被讀到：_unmapped_edit 改檔時會欠的那兩件（同頂層目錄讀夠檔、最小地圖三行）
-    先各提醒一行，每頂層目錄每 session 一次（remind_once；改檔那邊同鍵，提醒過就不再提醒）。v6 關、子代理讀的、非程式檔、
+    先各提醒一行，每頂層目錄每 session 一次（remind_once；改檔那邊同鍵，提醒過就不再提醒）。寫碼守門關、子代理讀的、非程式檔、
     執行期資料不送。判定不動。"""
     if agent_id or not path or not v6_enabled(config):
         return None
@@ -1116,7 +1116,7 @@ def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: D
     定位行幾行（有樹或要立樹＝四行，同擋訊息 LOCATE_ASK_ONCE；need_goal 關＝三行）、寫在哪（只教一條路：同一則先發的不寫檔指令開頭的 # 註解，
     _rr.DECL_WHERE；thinking 讀不到；早一則的回覆文字與 need_goal 的 locate 欄程式照認、不提，DECL_HINT_KEEPS_EDIT_TOOLS）。
     一部位一 session 一次（rec.locate_hint：注入時 due、送了 sent）；改檔時才補注入的部位（擋訊息已講過）、
-    已交過定位、非程式檔（含知識類部位）、子代理讀的不送（不消耗主 session 的那一次）；v6 總開關關著不送（注入本身是 v6 以前就有的，
+    已交過定位、非程式檔（含知識類部位）、子代理讀的不送（不消耗主 session 的那一次）；寫碼守門總開關關著不送（注入本身是寫碼守門關時也跑的，
     關時照舊）。沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，這則 prompt 的關鍵字也沒判成寫碼類 CODE_INTENTS）也不送、額度不消耗（locate_hint 留在 due，
     之後成了寫碼回合再讀到照送）：純問答讀程式檔不該被催交定位行。判定不動：沒照做照擋。"""
     rec = (state.get("overview_hub") or {}).get(_key(root, row))
@@ -1762,7 +1762,7 @@ def edit_check(state: Dict[str, Any], session_id: str, file_path: str, transcrip
     pending = rec is not None and bool(rec.get("card_pending"))
     if rec is None or pending:
         # 沒碰過就改：建紀錄＋送卡；讀過但卡還沒送（READ_TOUCH_NO_CARD）：這一刀送卡，證據起點不動。兩種都回判定文字＋提醒件
-        # OVERVIEW_CARD_BEFORE_EDIT（extra＝卡）：呼叫端照 RULE_MODE 送——v6 開是提醒、不擋，卡隨這次改檔的工具結果到（remind_flush）；
+        # OVERVIEW_CARD_BEFORE_EDIT（extra＝卡）：呼叫端照 RULE_MODE 送——寫碼守門開是提醒、不擋，卡隨這次改檔的工具結果到（remind_flush）；
         # 釘成 block 的呼叫端才真擋
         text = (_deliver_card(state, session_id, root, row, file_path, cfg) if pending
                 else _inject(state, session_id, root, row, file_path, "edit", transcript_path, cfg))
@@ -2032,13 +2032,13 @@ def locate_from_goal(state: Dict[str, Any], session_id: str, cwd: str, transcrip
     檔路徑）對到部位表列；lines 併成文字走改檔時同一套判定——locate_values 取組、_layer_mismatch 層、有樹時 _goal_line_check
     第四／五行內容（兩候選、批判；不計 two_candidates 擋次）；通過 → rec 標 located（_mark_located，via=need_goal）並掛節點，
     沒紀錄的部位先建紀錄（_inject deliver=False，卡等第一次改檔才送）；不過 → 不算交、回一行說缺什麼（改檔前照舊補交）。
-    OverviewHub／v6 關：整道不動，回一行說沒套用。回要附在 need_goal 回覆之後的行；帳 located_via_need_goal／locate_via_need_goal_rejected。"""
+    OverviewHub／寫碼守門關：整道不動，回一行說沒套用。回要附在 need_goal 回覆之後的行；帳 located_via_need_goal／locate_via_need_goal_rejected。"""
     import wg_need_goal as _ng
     items = locate if isinstance(locate, list) else []
     if not items:
         return []
     if not _cfg(config)["enabled"]:
-        return ["[Guardian:OverviewHub] locate 欄沒套用（OverviewHub／v6 關著），定位照舊在改檔前交"]
+        return ["[Guardian:OverviewHub] locate 欄沒套用（OverviewHub／寫碼守門關著），定位照舊在改檔前交"]
     try:
         tree = _ng.active_tree(_ng.load(session_id))
     except Exception:  # noqa: BLE001  目標檔壞了由 edit_gate 那一道報；這裡當沒樹（三行版）

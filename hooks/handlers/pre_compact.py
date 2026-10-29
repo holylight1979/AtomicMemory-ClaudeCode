@@ -37,7 +37,7 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     # 清空 injected_atoms 的順序影響）。見 handlers/post_compact.py。
     state["pre_compact_injected_atoms"] = list(dict.fromkeys(state.get("injected_atoms", []) or []))
     # A2.1：OverviewHub 已注入部位的摘要與本回合意圖也快照，PostCompact 據此組每部位綜觀 blob（主目標／部位／層／卡／病灶／三行已交否）
-    if v6_enabled(config):      # v6 守門關閉時不做綜觀快照（9e476fd0 沒有）
+    if v6_enabled(config):      # 寫碼守門關閉時不做綜觀快照（9e476fd0 沒有）
         state["pre_compact_overview_hub"] = _overview_summary(state.get("overview_hub") or {})
         state["pre_compact_turn_intent"] = state.get("turn_intent") or "general"
         from wg_entrypoint import forget_sent

@@ -1573,7 +1573,7 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
 def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, Any], v6: bool) -> Tuple[List[str], bool]:
     """規則 READ_FAST_PATH：Read 的 PostToolUse 走 dispatcher 快路徑只落 read-log；這裡在下一個非 Read 事件把累積的 Read
     逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub on_read、動資料檔讀提示、讀入範圍、Depends 召回、
-    讀到續接單匯入目標樹）——結果一樣、晚一個事件出現。v6 關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
+    讀到續接單匯入目標樹）——結果一樣、晚一個事件出現。寫碼守門關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
     回（要附進這則工具結果的提示＝上一個 PreToolUse 補出來存在 state 的＋這次補出來的、state 有沒有變）。"""
     ctx: List[str] = list(state.pop(wg_read_fast.HINTS_KEY, None) or [])
     dirty = bool(ctx)
@@ -1659,7 +1659,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _maybe_sync_skill_index(file_path, config)
 
     if not v6 and tool_name in ("Edit", "Write", "NotebookEdit") and file_path:
-        try:   # v6 以前的殘檔帳本：只收寫進系統 tempdir 的檔
+        try:   # 寫碼守門關時的殘檔帳本：只收寫進系統 tempdir 的檔
             aec_ledger.record_temp_write(session_id, file_path, int(state.get("turn_seq", 0)))
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
@@ -1767,7 +1767,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
         if "/_AIDocs/" in normalized or "/_aidocs/" in normalized.lower():
             fname = normalized.rsplit("/", 1)[-1]
-            once = v6 and config.get("aidocs", {}).get("advisory_v6_once", True)   # v6 守門開著時同一個檔一個 session 只提醒一次
+            once = v6 and config.get("aidocs", {}).get("advisory_v6_once", True)   # 寫碼守門開著時同一個檔一個 session 只提醒一次
             if is_plan_filename(fname) and not (once and normalized in state.get("aidocs_advisory_sent", [])):
                 state["_aidocs_advisory"] = (
                     f"⚠ {fname} 看起來是暫時性文件，"
@@ -1839,7 +1839,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:  # noqa: BLE001
                 print(f"[Guardian:ReconcileGate] 記搬目錄事實失敗（不影響這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
 
-        if not v6 and _VCS_COMMIT_RE.search(command):   # v6 以前只記本回合有 commit（ScanReport 閘豁免收尾檢核）
+        if not v6 and _VCS_COMMIT_RE.search(command):   # 寫碼守門關時只記本回合有 commit（ScanReport 閘豁免收尾檢核）
             state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
             dirty = True
         elif v6:

@@ -121,7 +121,7 @@ def is_rut_whitelisted(filename: str, config: Optional[Dict[str, Any]] = None) -
 # Defaults（可被 config.json 覆寫）
 DEFAULTS = {
     "enabled": True,
-    "v6": {"enabled": False},             # v6 守門總開關（v6_enabled）
+    "coding_guard": {"enabled": False},    # 寫碼守門總開關（v6_enabled；舊鍵 v6 仍認，見 coding_guard_opt）
     "stop_gate_max_blocks": 2,
     "min_files_to_block": 2,
     "sync_keywords": ["同步", "sync", "commit", "提交", "結束", "收工"],
@@ -195,17 +195,38 @@ def load_config() -> Dict[str, Any]:
     return merge_local(config, CONFIG_LOCAL_PATH, "workflow-guardian")
 
 
-def v6_enabled(config: Dict[str, Any]) -> bool:
-    """v6 守門總開關，預設關：關時 hook 只跑 v6 以前（9e476fd0）就有的處理。
+def coding_guard_env() -> Optional[str]:
+    """寫碼守門的環境變數開關值："1"開、"0"關、None 沒設。WG_CODING_GUARD 優先，沒設（或不是 0/1）才看舊名 WG_V6。"""
+    for name in ("WG_CODING_GUARD", "WG_V6"):
+        v = os.environ.get(name, "").strip()
+        if v in ("0", "1"):
+            return v
+    return None
 
-    環境變數 WG_V6=1 開、WG_V6=0 關（優先）；沒設看 config 的 v6.enabled（workflow/config.local.json 可在本機打開）。
-    只認 JSON 的 true：寫成字串 "false"、v6 段不是物件，一律當關。
+
+def coding_guard_opt(config: Optional[Dict[str, Any]], key: str, default: Any = None) -> Any:
+    """寫碼守門設定的子鍵（coding_turn_only、slim_reminders…）：coding_guard 段有寫這個鍵就用它，沒寫才讀舊鍵 v6 段
+    （相容還寫 {"v6": {...}} 的 config.local.json）；兩段都沒寫回 default。段不是物件當沒寫。"""
+    for name in ("coding_guard", "v6"):
+        sec = (config or {}).get(name)
+        if isinstance(sec, dict) and key in sec:
+            return sec[key]
+    return default
+
+
+def v6_enabled(config: Dict[str, Any]) -> bool:
+    """寫碼守門總開關，預設關：關時 hook 只跑寫碼守門關時也跑的（9e476fd0 就有的）處理。函式名沿用、不改。
+
+    判法（先到先贏）：
+    1. 環境變數 WG_CODING_GUARD=1 開、=0 關；沒設才看舊名 WG_V6（同義，coding_guard_env）。
+    2. config：coding_guard.enabled 是 JSON true 就開；不是（出廠 false）再看舊鍵 v6.enabled 是 JSON true 也開——
+       舊的 workflow/config.local.json 寫 {"v6": {"enabled": true}} 照樣能開，不必改鍵。要強制關用環境變數 =0。
+    只認 JSON 的 true：寫成字串 "false"、段不是物件，一律當關。
     """
-    env = os.environ.get("WG_V6", "").strip()
-    if env in ("0", "1"):
+    env = coding_guard_env()
+    if env is not None:
         return env == "1"
-    sec = config.get("v6")
-    return isinstance(sec, dict) and sec.get("enabled") is True
+    return any(isinstance(config.get(k), dict) and config[k].get("enabled") is True for k in ("coding_guard", "v6"))
 
 
 # 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算。
@@ -220,10 +241,10 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
        樹只是前幾回合留著、本回合沒宣告不算。
     ③ 使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定要不要送一行「要改碼先立樹」（wg_need_goal.CODE_TREE_HINT）與記憶選片。
     判錯會漏的：LLM 沒立樹就直接改碼，動手前的守門晚到第一次改程式檔才啟動（由 ① 補上）。
-    v6 的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；v6 以前就有的
-    處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config v6.coding_turn_only=false 退回每回合都啟動。"""
+    寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
+    處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
     st = state or {}
-    if ((config or {}).get("v6") or {}).get("coding_turn_only", True) is False:
+    if coding_guard_opt(config, "coding_turn_only", True) is False:
         return True
     v = st.get("turn_prompts_seq")
     since = int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(st.get("turn_seq", 0) or 0)

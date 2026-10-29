@@ -1,8 +1,8 @@
 {
   "atom_debug": false,
   "enabled": true,
-  "v6": {
-    "_doc": "v6 守門總開關，預設關：關時只跑 v6 守門以外的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_V6=1，或在 workflow/config.local.json（不進版控）寫 {\"v6\": {\"enabled\": true}}；WG_V6=0 強制關。coding_turn_only（沒寫＝true）：v6 每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或本回合 need_goal 宣告了寫碼樹（set kind=code／add／update）；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算、只送一行先立樹，只改文件、純問答不算；非寫碼回合也不寫 hook 計時帳），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
+  "coding_guard": {
+    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或本回合 need_goal 宣告了寫碼樹（set kind=code／add／update）；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算、只送一行先立樹，只改文件、純問答不算；非寫碼回合也不寫 hook 計時帳），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
     "enabled": false
   },
   "stop_gate_max_blocks": 2,
@@ -301,7 +301,7 @@
       "acceptance_review_max": 8
     },
     "acceptance_review": {
-      "_doc": "驗收裁判（hooks/codex_companion.py）：歸 v6 守門總開關管，關時兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。宣稱完成且綁到本 session 唯一 open 規格 → 組案卷（需求原話+驗收清單+diff 採樣+測試輸出）在背景子程序（audit.py）發 codex 回 verdict；Stop 不等、永不 block。結果落 companion-assessment 檔，下一則 UserPromptSubmit 一律附一行（verdict／severity／摘要）；fail 且 severity≥max_inject_severity 才附完整說明（摘要＋事證＋建議）。全部判定寫 acceptance-audit.jsonl。綁定契約：唯一 open 規格才審，否則 uncertain（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同規格每 session 審計上限。全關=enabled:false。",
+      "_doc": "驗收裁判（hooks/codex_companion.py）：歸 寫碼守門總開關管，關時兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。宣稱完成且綁到本 session 唯一 open 規格 → 組案卷（需求原話+驗收清單+diff 採樣+測試輸出）在背景子程序（audit.py）發 codex 回 verdict；Stop 不等、永不 block。結果落 companion-assessment 檔，下一則 UserPromptSubmit 一律附一行（verdict／severity／摘要）；fail 且 severity≥max_inject_severity 才附完整說明（摘要＋事證＋建議）。全部判定寫 acceptance-audit.jsonl。綁定契約：唯一 open 規格才審，否則 uncertain（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同規格每 session 審計上限。全關=enabled:false。",
       "enabled": true,
       "max_per_spec": 2,
       "max_prompt_chars": 22000
@@ -463,7 +463,7 @@
     "max_scan_files": 20
   },
   "acceptance_spec": {
-    "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，由 guardian PostToolUse 同程序呼叫 run()）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。兩種提示歸 v6 守門總開關管（規格只給驗收裁判用，裁判也歸同一個開關），關時不提示、規格檔落盤照記。一鍵關=enabled:false。",
+    "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，由 guardian PostToolUse 同程序呼叫 run()）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。兩種提示歸 寫碼守門總開關管（規格只給驗收裁判用，裁判也歸同一個開關），關時不提示、規格檔落盤照記。一鍵關=enabled:false。",
     "enabled": true,
     "min_files_trigger": 3,
     "count_exclude_substrings": [
@@ -538,7 +538,7 @@
       ]
     },
     "verify_batch": {
-      "_doc": "PreToolUse 驗證批次閘（hooks/wg_verify_batch.py；不歸 v6 開關管）：Bash／PowerShell 跑 pytest（含 python -m pytest）、run_verify.py、verify_*.py／test_*.py 時判兩件事。① 會拖時間的整組驗證（run_verify.py 不帶參數、pytest 沒點名檔或只給目錄、沒縮範圍選項；且 同一組指令最近一筆收據耗時 ≥ slow_run_s 秒〔只有自寫收據記了 started_at 能算，算不出當不知道〕或 指令跑的樹底下符合 reconcile_gate.verify_case_globs 的測試檔 ≥ large_suite_files 支〔數到門檻就停，state.verify_batch_suite_files 每根快取一筆〕）要本回合使用者原話含 full_run_keywords 任一字（取法同 commit_order：turn_prompts，背景通知與子代理回報不算）→ 沒有就擋；不拖時間（含不知道）的整組沒口令也放行、留帳 reason=small（006 實測小專案 pytest 幾秒就完被攔＝誤傷）。② 同一組指令上次收據綠、之後本 session 沒改檔 → 擋「這批改動已驛證過」（收據：state verify_receipts 與 workflow/verify-ledger/_runs/ 自寫收據；指紋：收據 seq 對 modified_files.last_seq）；上次紅或之後有改檔放行。每回合每條規則最多擋 1 次、第 2 次放行留帳；擋下與放行都記 Logs/guard-verify_batch.jsonl。解析不了的指令（heredoc、eval、bash -c）不管。一鍵關＝enabled:false。",
+      "_doc": "PreToolUse 驗證批次閘（hooks/wg_verify_batch.py；不歸 寫碼守門開關管）：Bash／PowerShell 跑 pytest（含 python -m pytest）、run_verify.py、verify_*.py／test_*.py 時判兩件事。① 會拖時間的整組驗證（run_verify.py 不帶參數、pytest 沒點名檔或只給目錄、沒縮範圍選項；且 同一組指令最近一筆收據耗時 ≥ slow_run_s 秒〔只有自寫收據記了 started_at 能算，算不出當不知道〕或 指令跑的樹底下符合 reconcile_gate.verify_case_globs 的測試檔 ≥ large_suite_files 支〔數到門檻就停，state.verify_batch_suite_files 每根快取一筆〕）要本回合使用者原話含 full_run_keywords 任一字（取法同 commit_order：turn_prompts，背景通知與子代理回報不算）→ 沒有就擋；不拖時間（含不知道）的整組沒口令也放行、留帳 reason=small（006 實測小專案 pytest 幾秒就完被攔＝誤傷）。② 同一組指令上次收據綠、之後本 session 沒改檔 → 擋「這批改動已驛證過」（收據：state verify_receipts 與 workflow/verify-ledger/_runs/ 自寫收據；指紋：收據 seq 對 modified_files.last_seq）；上次紅或之後有改檔放行。每回合每條規則最多擋 1 次、第 2 次放行留帳；擋下與放行都記 Logs/guard-verify_batch.jsonl。解析不了的指令（heredoc、eval、bash -c）不管。一鍵關＝enabled:false。",
       "enabled": true,
       "full_run_keywords": [
         "整組",
@@ -850,7 +850,7 @@
   "reconcile_gate": {
     "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；主 session、SubagentStop、裁判 Stop 共用 _verify_gates）：拿收尾宣稱對驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令）。宣稱看最後一句（優先 hook 輸入的 last_assistant_message）、以子句判（轉折詞另起子句、否定／疑問排除、第三方轉述不算）。(a) 說修好要有晚於每個對上的改檔、同一棵樹的 PASS，不限本回合（舊回合的只要之後本 session 沒再改任何程式檔就算，子代理改的與判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔；對上＝指令含改檔檔名、對應的 test_／verify_ 檔、整體驗證或部位量尺，或該部位合格的自寫收據）；(b) 說量了要有能當證據的 DONE 或合格自寫收據；(c) 說試過要本回合有 exec_tools 呼叫；(d) 改了 code_exts 檔要有驗它的案例（need_goal verify_scope 的 case_for，或不需要新案例的 no_case 宣告；判法以 hooks/wg_verify_ledger.py 為準）；(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比）；改過又原樣還原的檔不算改碼；部位表類別 knowledge 的部位下的檔兩邊都不算。max_blocks_per_turn＝(a)～(d)＋量尺閘共用的每回合預算（不吃 stop_gate_max_blocks）；擋滿之後怎麼放行、子代理與 headless 怎麼收尾，以 hooks/handlers/stop.py、hooks/wg_release.py 為準。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
     "enabled": true,
-    "_doc_block_letters": "v6 關時寫碼查核擋哪些條目字母（規則 RECONCILE_BLOCK_LETTERS；沒列的照判、只印 stderr）。v6 開時送法只看 hooks/wg_release_rules.py 的 RULE_MODE（(a) 照擋、(d) 提醒），本欄不再決定；兩處不要各寫一套。",
+    "_doc_block_letters": "寫碼守門關時寫碼查核擋哪些條目字母（規則 RECONCILE_BLOCK_LETTERS；沒列的照判、只印 stderr）。寫碼守門開時送法只看 hooks/wg_release_rules.py 的 RULE_MODE（(a) 照擋、(d) 提醒），本欄不再決定；兩處不要各寫一套。",
     "block_letters": [
       "a",
       "d"
@@ -929,7 +929,7 @@
     "runtime_gate_timeout_s": 2
   },
   "chain_breaker": {
-    "_doc": "連鎖斷路器（v6 守門總開關開著才跑，關時以總開關為準；判定 hooks/wg_chain.py，帳與快照還原 lib/chain_store.py）：同一個使用者回合裡閘擋下或記欠 → AI 動手 → 又讓閘擋下或記欠，記成連鎖；同一道閘第 max_same_gate 次觸發（只數兩次之間 AI 看過擋訊息後有動手的；同一則回覆裡平行送出的呼叫算同一步；原樣重試交回那道閘自己的擋次上限）就中止；深度（閘→修→閘→修→第三次閘）照算、照列進經過表，depth_alarm 開了才在深度到 max_depth 時也中止（預設關：三道各管各的閘各擋一次不是連鎖）。中止後這一回合其餘閘只記錄不擋；能互動的 session 讀與問以外的工具先停手，收尾送連鎖過程表、請 AI 用 AskUserQuestion 問使用者三選一（還原連鎖改動／信任後續 AI 審查繼續／放行這一回合）；沒人能答（headless、子代理）不停手、照常做完、收尾報告附表。帳在 Logs/chain-<session>.jsonl；連鎖段每個要改的檔改之前存快照到 workflow/chain-snap/<session>/（超過 snapshot_max_bytes、這一段已存 snapshot_max_files 個就不存、記原因），選還原就逐檔寫回、每檔最多試 restore_retries 次；SessionEnd 刪這個 session 的快照與 7 天沒動的別 session 快照與帳。設定沒寫 enabled＝不開；一鍵關＝enabled:false。",
+    "_doc": "連鎖斷路器（寫碼守門總開關開著才跑，關時以總開關為準；判定 hooks/wg_chain.py，帳與快照還原 lib/chain_store.py）：同一個使用者回合裡閘擋下或記欠 → AI 動手 → 又讓閘擋下或記欠，記成連鎖；同一道閘第 max_same_gate 次觸發（只數兩次之間 AI 看過擋訊息後有動手的；同一則回覆裡平行送出的呼叫算同一步；原樣重試交回那道閘自己的擋次上限）就中止；深度（閘→修→閘→修→第三次閘）照算、照列進經過表，depth_alarm 開了才在深度到 max_depth 時也中止（預設關：三道各管各的閘各擋一次不是連鎖）。中止後這一回合其餘閘只記錄不擋；能互動的 session 讀與問以外的工具先停手，收尾送連鎖過程表、請 AI 用 AskUserQuestion 問使用者三選一（還原連鎖改動／信任後續 AI 審查繼續／放行這一回合）；沒人能答（headless、子代理）不停手、照常做完、收尾報告附表。帳在 Logs/chain-<session>.jsonl；連鎖段每個要改的檔改之前存快照到 workflow/chain-snap/<session>/（超過 snapshot_max_bytes、這一段已存 snapshot_max_files 個就不存、記原因），選還原就逐檔寫回、每檔最多試 restore_retries 次；SessionEnd 刪這個 session 的快照與 7 天沒動的別 session 快照與帳。設定沒寫 enabled＝不開；一鍵關＝enabled:false。",
     "enabled": true,
     "depth_alarm": false,
     "max_depth": 2,

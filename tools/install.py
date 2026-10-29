@@ -695,14 +695,17 @@ def cmd_upgrade() -> int:
     return 0
 
 
-V6_HINT = ("v6 守門（寫程式時的定位提示與三道照擋）目前是關的；要開請在 workflow/config.local.json 加 "
-           "{\"v6\": {\"enabled\": true}} 後 Reload Window")
+V6_HINT = ("寫碼守門（寫程式時的定位提示與三道照擋）目前是關的；要開請在 workflow/config.local.json 加 "
+           "{\"coding_guard\": {\"enabled\": true}} 後 Reload Window，或設環境變數 WG_CODING_GUARD=1")
 
 
 def v6_hint() -> None:
-    """上游 workflow/config.json 的 v6.enabled 出廠是 false；本機沒在 config.local.json（或 WG_V6=1）打開就提醒一行。
-    開沒開照 hook 的同一套規則算：config.json 疊 config.local.json（lib/config_local.merge_local），再看 WG_V6。"""
-    if os.environ.get("WG_V6", "").strip() == "1":
+    """上游 workflow/config.json 的 coding_guard.enabled 出廠是 false；本機沒在 config.local.json（或 WG_CODING_GUARD=1）打開就提醒一行。
+    開沒開照 hook 的同一套規則算（hooks/wg_core.v6_enabled）：環境變數 WG_CODING_GUARD（沒設看舊名 WG_V6）先；
+    再 config.json 疊 config.local.json（lib/config_local.merge_local），coding_guard.enabled 或舊鍵 v6.enabled 是 true 就算開。"""
+    env = next((os.environ.get(n, "").strip() for n in ("WG_CODING_GUARD", "WG_V6")
+                if os.environ.get(n, "").strip() in ("0", "1")), None)
+    if env == "1":
         return
     workflow = TARGET / "workflow"
     try:
@@ -713,10 +716,10 @@ def v6_hint() -> None:
         config = json.loads((workflow / "config.json").read_text(encoding="utf-8"))
         config = mod.merge_local(config, workflow / "config.local.json", "install")
     except Exception as e:  # 查不到就說查不到，不裝沒事
-        print(f"v6 守門開沒開查不出來（{e}），照 hooks/wg_core.v6_enabled 的規則自行確認。")
+        print(f"寫碼守門開沒開查不出來（{e}），照 hooks/wg_core.v6_enabled 的規則自行確認。")
         return
-    sec = config.get("v6")
-    if not (isinstance(sec, dict) and sec.get("enabled") is True):
+    on = any(isinstance(config.get(k), dict) and config[k].get("enabled") is True for k in ("coding_guard", "v6"))
+    if not on:
         print(V6_HINT)
 
 

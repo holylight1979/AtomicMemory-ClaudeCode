@@ -16,7 +16,7 @@ Config (workflow/config.json `parallel_agents`):
   - max_per_session: int (default 2) — 同類建議一個 session 最多出幾次（state.parallel_suggest_count）
   - cooldown_turns: int (default 3)
   - min_prompt_chars: int (default 15)
-  - v6_once: bool (default true) — v6 守門開著時一個 session 只送一次；v6 關照 cooldown_turns 冷卻
+  - v6_once: bool (default true) — 寫碼守門開著時一個 session 只送一次；寫碼守門關照 cooldown_turns 冷卻
 """
 
 from __future__ import annotations

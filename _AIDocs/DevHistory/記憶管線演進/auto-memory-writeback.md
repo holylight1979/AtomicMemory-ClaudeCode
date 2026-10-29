@@ -2,7 +2,7 @@
 
 > 從 MemDev atom「對談結束自動記憶與錯誤加權深記」精簡移出的開發脈絡（gap-fix / 演化 / verify wiring）。
 > 現況機制（timeless）留該 atom；本檔存「怎麼演化到現況」的編年敘事，按需查閱、不自動注入。
-> 開發期：2026-06 起（版本演進見 [_CHANGELOG.md](../_CHANGELOG.md)）。
+> 開發期：2026-06 起（版本演進見 [_CHANGELOG.md](../../_CHANGELOG.md)）。
 > keywords: session_end flush, 落點路由, 失敗骨架, deep post-mortem, writeback, extract-worker, stop gate, _drafts, edit-count proxy
 
 ## 定位

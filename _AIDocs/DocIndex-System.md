@@ -154,7 +154,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /heal-review | skills/heal-review/SKILL.md | 管理職裁決記憶自癒失敗佇列（`_heal_review/` resolve/dismiss；腦內世界 P3） | wg_roles + atom-health-check |
 | /refile | skills/refile/SKILL.md | **V6 手動歸檔**：拖入非 `_AIDocs/_atoms/` 的 `.md` → 核心檔辨識護欄 + realm 分類提議 + 互動移檔 + doc-ref 掃描（sweep 的手動鏡像） | Ollama（分類 fallback） |
 | /karpathy-guidelines | skills/karpathy-guidelines/SKILL.md | **外部 skill（MIT，源 multica-ai）**：寫/審/重構碼的行為準則（Think Before / Simplicity / Surgical / Goal-Driven）。on-demand 被動觸發，非 always-on；唯一加值的 verify-loop 另萃成 atom `goal-driven-verify-loop` | 無 |
-| /behavior-preservation | skills/behavior-preservation/SKILL.md | **v6.0**：行為保持重構的等值證法——`scripts/preserve-check.py` 以舊碼（Python 走 ast）或 `.json` 表當預期、新產物實跑當實際，三類變異 order／side_effect／boundary 各自抓；解析不到全枚舉一律拒收 exit 2 | 無 |
+| /behavior-preservation | skills/behavior-preservation/SKILL.md | 行為保持重構的等值證法——`scripts/preserve-check.py` 以舊碼（Python 走 ast）或 `.json` 表當預期、新產物實跑當實際，三類變異 order／side_effect／boundary 各自抓；解析不到全枚舉一律拒收 exit 2 | 無 |
 | /console | skills/console/SKILL.md | 雙總控台＋工作軌協作：`對人`／`調度`／`開工句 <軌名>` 三種用法；references 放開工句、派工單、交付信、交接備忘、裁定帳範本與給人讀的一頁說明；只能手動叫；scripts/ 放 console-spawn.py、console-status.py、selfscore.py（設定 spawn.json） | skills/console/scripts/console-status.py |
 | /atom-source | skills/atom-source/SKILL.md | 卡片來源回看：讀 atom 的 Source／Quote，原對話還在就撈原句與前後文，不在就報落檔時留的原句或「已逾保留期」 | tools/atom-source.py |
 | /meeting | skills/meeting/SKILL.md | 會議錄音 → 逐字稿 → 決議／待辦／未決三段摘要 → 決議寫進專案記憶（shared）；機制見 TECH §6.6 | tools/meeting-transcribe.py、ffmpeg、Ollama 音訊模型 |
@@ -173,8 +173,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
   - `anti_evasion_report`（收尾檢核十欄 (a)(b)(d)–(k) emit（回條一行、報告不進聊天）→ Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
     - 產出物帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：工具呼叫（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支）/ (i) 一行一路徑 / Stop 掃 scratchpad 進帳）；HUD「這個 session 留下的東西」面板走 `GET /api/aec/tempfiles/<sid>`（Node 轉呼叫 `tools/session-artifacts.py list`，Python 現場查檔案系統與 git、快取 10 秒、不做 TTL）；保留／刪除走 `POST /api/aec/decision` → `session-artifacts.py act` 當場執行、結果寫回帳本；「全機殘留」分頁走 `GET /api/aec/tempfiles-all` → `list --all`（快取 30 秒），每組「清掉不用再確認的」走同一端點帶 `all_safe` → `act --all-safe`；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）兩道拒收：(i) 解析拒收並 additionalContext 回告、`ledger_append` 末道
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
-  - `second_opinion_start` / `second_opinion_result`（v6.0 第二意見：打包部位卡＋病灶＋diff＋帳本尾成 job，replay-guard pre 守門後分離子程序叫 codex，result 純讀 `workflow/second-opinion/<job>/`；handler `lib/second-opinion.js` → py `tools/second-opinion/run.py`；規格 `tools/second-opinion/README.md`）
-  - `project_smells`（v6.0 候選池：讀 `<專案根>/.claude/overview-hub.json` 的 `smells_report`／`smells_cmd`，都沒有走內建熱點＋大小；七類別白名單、無理由列丟棄；handler `lib/project-smells.js` → py `tools/project-smells.py`）
+  - `second_opinion_start` / `second_opinion_result`（第二意見：打包部位卡＋病灶＋diff＋帳本尾成 job，replay-guard pre 守門後分離子程序叫 codex，result 純讀 `workflow/second-opinion/<job>/`；handler `lib/second-opinion.js` → py `tools/second-opinion/run.py`；規格 `tools/second-opinion/README.md`）
+  - `project_smells`（候選池：讀 `<專案根>/.claude/overview-hub.json` 的 `smells_report`／`smells_cmd`，都沒有走內建熱點＋大小；七類別白名單、無理由列丟棄；handler `lib/project-smells.js` → py `tools/project-smells.py`）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
 ### 發布
@@ -279,7 +279,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
 - **_by_language/_INDEX.md**（`memory/`，`_` 前綴非 atom，自動生成）— 依程式語言（Python、C#／.NET、JavaScript／Node、PowerShell、Bash／Shell）篩選的跨範疇視圖，只列卡片路徑不搬檔、一張可屬多個語言；詞庫 `memory/_meta/taxonomy.json` 的 `languages` 段；MEMORY.md 末尾有一行指標
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->688<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->681<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

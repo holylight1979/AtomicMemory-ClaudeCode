@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 「v6 守門」改名「寫碼守門」、開發期 checklist 與追蹤項封存進 DevHistory
+- **緣由**：v6（針對寫程式碼的進化）開發期結束、守門併進產品，現況文件（TECH、README、Architecture、DocIndex）還滿是「v6 開時／v6 關時／v6 守門」這種開發期代稱，同事看不懂 v6 是什麼；`memory/_staging/` 還留著開發期的 checklist 與追蹤項兩份接續單。
+- **做法**：現況文件統一叫「寫碼守門」，各道守門用具體功能名；設定鍵 `v6.enabled` → `coding_guard.enabled`（含 `coding_turn_only`、`slim_reminders` 子鍵）、環境變數 `WG_V6` → `WG_CODING_GUARD`，舊名程式仍相容、文件各註一句。`v6-G0-G16需求目標分析與checklist.md`、`v6-開發期追蹤項-保留.md` 從 `memory/_staging/` 搬到 `DevHistory/v6.0-寫程式碼的進化-2026-10/`（checklist 檔頭標已封存、相對連結改同目錄），README 內容表加兩列，DevHistory 裡七處舊路徑引用改指新位置。程式識別字（`wg_core.v6_enabled`、`gate_mode(rule, v6)`、`*.v6_once`、`handoff_review_v6`、fixtures `v6/`）照程式現名寫。
+- **驗證**：`grep -rn v6 TECH.md README.md Install.md _AIDocs/*.md` 剩下的只有程式識別字、DevHistory 路徑、SPEC_ATOM_V5 的 realm V6（另一件事）與本條；兩份搬走的檔 `git status` 為 A、`memory/_staging/` 不再有 v6-*。
+
 ## 2026-10-29 專案層只有自動卡、沒 MEMORY.md 時 atom_retire 退役不了（C′ 實跑受測 AI 回報）
 - **緣由**：013 跑 C′ 時 hook 在專案層自動寫了一張 personal 卡，使用者隨後改了決定、AI 想撤卡：`atom_retire` 與 `atom_write(supersedes)` 都回「not found in layer 'project'」，但回傳的 old_path 就是那個檔。根因：`memory-audit.discover_layers` 只認有 MEMORY.md 的目錄是一層，自動寫卡的專案層只有 `_atom_index.json`。
 - **做法**：`delete_atom` 在 caller 已給 atom_path（atom_io_cli retire 定位過）且 project_dir 存在時，直接拿 project_dir 當這一層；atom_path 要落在 project_dir 之下的檢查照做；CLI 沒給 atom_path 的路不變。

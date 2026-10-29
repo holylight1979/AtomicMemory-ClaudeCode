@@ -998,7 +998,7 @@ def _commit_order_decide(
         # 讀取端再濾一次：舊版曾把其他 session 的訊息記進 turn_prompts；濾完是空清單照樣擋（不走 fail-open）
         turn_prompts = user_typed_prompts(state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:])
         from handlers.ups_gates import order_spent
-        spent = v6_enabled(config) and order_spent(state)   # v6：這批 commit→push 已做完＝口令用掉了，原話不再算授權
+        spent = v6_enabled(config) and order_spent(state)   # 寫碼守門開：這批 commit→push 已做完＝口令用掉了，原話不再算授權
         if spent:
             turn_prompts = []
         keyword = next((k for k in (_commit_order_keyword_hit(p, keywords) for p in turn_prompts) if k), None)
@@ -1646,7 +1646,7 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
 def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, path: str) -> str:
     """切入點契約（TECH §7.10）：text 原樣在前，認出切入點就接判準卡並留帳。只在真的要送訊息（deny 或提醒）時才呼叫，
     一般工具什麼都不送的放行路徑不匯入、不讀登錄表。"""
-    if not v6_enabled(config):      # 判準卡是 v6 才有
+    if not v6_enabled(config):      # 判準卡是寫碼守門開著才有
         return text
     from handlers._shared import entry_note, with_note
     return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
@@ -1678,7 +1678,7 @@ def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], h
 def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = (),
           target: str = "") -> None:
     """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。
-    v6 先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。
+    寫碼守門開時先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。
     watched／target＝這次擋的對象（擋的檔／定位閘的部位，規則 CHAIN_SAME_GATE_PER_OBJECT）：每個部位、每個檔各要各的證據的閘才報，
     說不出擋什麼的閘（版控口令、病形閘這類看整批提交的）不報，斷路器照舊只看閘名。"""
     try:
@@ -1703,7 +1703,7 @@ def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watch
 
 
 def _chain_ctx(input_data: Dict[str, Any], config: Dict[str, Any], need_ledger: bool = True) -> Optional[Tuple[str, int]]:
-    """連鎖斷路器要用的 (session_id, 使用者回合)；v6 關、沒 session、（need_ledger）這個 session 還沒有連鎖帳 → None。
+    """連鎖斷路器要用的 (session_id, 使用者回合)；寫碼守門關、沒 session、（need_ledger）這個 session 還沒有連鎖帳 → None。
     沒有帳就不可能在中止中、也沒開連鎖段，先看帳在不在，免得每次工具呼叫都讀 state。"""
     sid = str(input_data.get("session_id") or "")
     if not sid or not v6_enabled(config) or (need_ledger and not chain_store.ledger_path(sid).exists()):
@@ -1869,7 +1869,7 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
 
 def _pre_v6_hub_warn(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
                      sid: str, state: Optional[Dict[str, Any]]) -> Optional[str]:
-    """v6 守門關閉時的 OverviewHub（9e476fd0 的行為）：只看 Write／Edit／NotebookEdit、只管有部位表且命中表列的檔，
+    """寫碼守門關閉時的 OverviewHub（9e476fd0 的行為）：只看 Write／Edit／NotebookEdit、只管有部位表且命中表列的檔，
     當時 dry_run＝只提醒不擋——on_edit 的 deny 一律降成提醒。閘自己炸只 stderr、不擋（當時 fail-open）。"""
     fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
     if tool_name not in ("Write", "Edit", "NotebookEdit") or not fp:
@@ -1883,7 +1883,7 @@ def _pre_v6_hub_warn(input_data: Dict[str, Any], config: Dict[str, Any], tool_na
         if sid and state is not None and changed:
             from wg_core import write_state as _ws
             _ws(sid, state)
-        return (deny or warn) and f"{deny or warn}（v6 守門關閉：只提醒不擋）"
+        return (deny or warn) and f"{deny or warn}（寫碼守門關閉：只提醒不擋）"
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 檢查異常（fail-open）：{type(e).__name__}: {e}\n")
         return None
@@ -1892,7 +1892,7 @@ def _pre_v6_hub_warn(input_data: Dict[str, Any], config: Dict[str, Any], tool_na
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉 v6 才掛的工具）
+    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉寫碼守門才掛的工具）
 
     # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log；要讀檔證據的閘（OverviewHub、動資料檔、無表專案、提問前讀過部位檔）
     # 之前先把累積的 Read 補帳（沒累積只多一次 stat）
@@ -2125,7 +2125,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # 驗證批次閘（整組驗證要使用者口令；同一組指令同一批改動只驗一次 → deny；不歸 v6 管；判定在 hooks/wg_verify_batch.py，fail-open）
+    # 驗證批次閘（整組驗證要使用者口令；同一組指令同一批改動只驗一次 → deny；不歸寫碼守門管；判定在 hooks/wg_verify_batch.py，fail-open）
     if tool_name in ("Bash", "PowerShell"):
         import wg_verify_batch
         deny_reason = wg_verify_batch.check(tool_name, tool_input, config, _co_state, _cwd, _co_sid,
@@ -2281,7 +2281,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                                                               "修好 workflow/ 目錄的寫入"))
                 hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
-            # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝判不了：送法照 RULE_MODE（GATE_SELF_ERROR：v6 開提醒、關照擋）；traceback 進 stderr 與 hub log
+            # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝判不了：送法照 RULE_MODE（GATE_SELF_ERROR：寫碼守門開提醒、關照擋）；traceback 進 stderr 與 hub log
             hub_file = ""
             err = f"{type(e).__name__}: {e}"
             if _rr.gate_mode("GATE_SELF_ERROR", v6) == _rr.BLOCK:

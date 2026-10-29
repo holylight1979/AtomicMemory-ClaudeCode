@@ -7,7 +7,7 @@
 
 - **目的**：使用者 2026-08-28 質疑「記憶注入變弱」，查證修復後，回頭問一個更大的問題——這套自製系統的**核心設計理念**放在 2026 年的 Claude Code 原生記憶與業界做法旁邊，哪些站得住、哪些該補、哪些該改。
 - **範圍**：`~/.claude` 原子記憶系統的檢索／注入／積累／回饋四段；CC 原生 auto-memory 與 hooks 接點；業界公開研究與產品（Zep、Mem0、Mastra、claude-mem 等）。
-- **不在範圍**：PAN 閘門（已有 [pan-deny-judgement-2026-08-06.md](pan-deny-judgement-2026-08-06.md) 終局判讀）、多使用者治理（USER.md 明示當前非此狀態）。
+- **不在範圍**：PAN 閘門（已有 [pan-deny-judgement-2026-08-06.md](../工作流與協調/pan-deny-judgement-2026-08-06.md) 終局判讀）、多使用者治理（USER.md 明示當前非此狀態）。
 - **證據等級**：本機事實＝實證（Read/Grep 核對）；業界數據＝引述（來源見 §6）；「待確認」項＝推測，明標。
 - **判讀方法**：先把系統自述（`TECH.md`）逐條對到實碼，確認「說的」與「做的」一致，再拿一致的部分去比原生與業界；自述與實碼不符者直接列進 §4.4「該修正」，不拿來比。三方比對只比**同一面向**（真源、跨專案、檢索、新鮮度、注入、積累、信任、回饋、可觀測、部署），避免拿自家強項比別人弱項。
 
@@ -93,7 +93,7 @@ atom 只住 `memory/<範疇>/[Lv2]`，Lv1 閉合清單在 `memory/_meta/taxonomy
 | 1 | 橋接檔 `projects/<slug>/memory/atom-index-bridge.md` 13/13 路徑失效 7 週 | **已修**（`db899d2`，接上 `sync-memory-index --write` 尾端重產） |
 | 2 | 預算三閘：硬頂 500→1200、裁切改回填、分級改依 token | **已修**（`3a4809c`、`fc1a888`） |
 | 3 | 新鮮度／supersedes 必須決定性（業界 82% vs 18%）：本機 `_SUPERSEDES_RE` 為規則式，符合；但 `memory-conflict-detector` 裁決含 Evidence 等級→recency，是否有 LLM 介入待確認 | 待確認 |
-| 4 | JIT 參考文件 `memory/_reference/internal-pipeline.md` 寫「Intent→Trigger→Vector Search→Ranked Merge」、`DevHistory/memory-pipeline.md` 同；實碼為 trigger→BM25→vector→RRF。此檔每輪注入 250 tok，錯的管線描述會誤導模型 | 待更新（本檔不改） |
+| 4 | JIT 參考文件 `memory/_reference/internal-pipeline.md` 寫「Intent→Trigger→Vector Search→Ranked Merge」、`DevHistory/記憶管線演進/memory-pipeline.md` 同；實碼為 trigger→BM25→vector→RRF。此檔每輪注入 250 tok，錯的管線描述會誤導模型 | 待更新（本檔不改） |
 | 5 | prompt cache 批評：每輪 additionalContext 變動使該輪不在 cache——但新回合內容本就不在 cache，前綴仍命中，影響有限 | 不需改 |
 
 ### 4.5 收束
@@ -115,8 +115,8 @@ atom 只住 `memory/<範疇>/[Lv2]`，Lv1 閉合清單在 `memory/_meta/taxonomy
 
 ## 6. 參考
 
-1. 業界調查：[_AIDocs/Research/agent-memory-industry-survey.md](../Research/agent-memory-industry-survey.md)
-2. CC 原生記憶／hooks／MCP 查證：[_AIDocs/ClaudeCodeInternals/cc-native-memory-hooks-mcp.md](../ClaudeCodeInternals/cc-native-memory-hooks-mcp.md)
-3. 注入預算調查：[injection-budget-investigation-2026-08.md](injection-budget-investigation-2026-08.md)
-4. 本機規格：[TECH.md](../../TECH.md)、[_AIDocs/Architecture.md](../Architecture.md)
+1. 業界調查：[_AIDocs/Research/agent-memory-industry-survey.md](../../Research/agent-memory-industry-survey.md)
+2. CC 原生記憶／hooks／MCP 查證：[_AIDocs/ClaudeCodeInternals/cc-native-memory-hooks-mcp.md](../../ClaudeCodeInternals/cc-native-memory-hooks-mcp.md)
+3. 注入預算調查：[injection-budget-investigation-2026-08.md](../記憶管線演進/injection-budget-investigation-2026-08.md)
+4. 本機規格：[TECH.md](../../../TECH.md)、[_AIDocs/Architecture.md](../../Architecture.md)
 5. 相關 atom：`_AIDocs/_atoms/MemDev/注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產.md`、`activation負值不是負相關-…`、`檢索融合與回歸集調參-rrf-min-score-定案`

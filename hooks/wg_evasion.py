@@ -1398,8 +1398,8 @@ def _save_oscillation_state(
 def _notice_new_items(
     state: Dict[str, Any], config: Optional[Dict[str, Any]], switch: str, sent_key: str, items: List[str]
 ) -> List[str]:
-    """開場提示的清單同一項一個 session 只列一次：v6 守門開著、self_iteration.<switch> 沒寫＝開時，拿掉 state[sent_key]
-    已列過的項、把這次要列的記進去（中段又開場時只列新出現的）；v6 關原樣回傳、不記（每次開場都列全部，含 resume／compact）。"""
+    """開場提示的清單同一項一個 session 只列一次：寫碼守門開著、self_iteration.<switch> 沒寫＝開時，拿掉 state[sent_key]
+    已列過的項、把這次要列的記進去（中段又開場時只列新出現的）；寫碼守門關原樣回傳、不記（每次開場都列全部，含 resume／compact）。"""
     cfg = config or {}
     if not (v6_enabled(cfg) and cfg.get("self_iteration", {}).get(switch, True)):
         return list(items)

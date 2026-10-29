@@ -110,7 +110,7 @@ def redundant_with(triggers, full_seen: List[Tuple[str, set]], min_shared: int) 
 
 
 def _lean_turn(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """寫碼回合精簡注入：v6 開、而且這個使用者回合已經是寫碼回合（wg_core.coding_turn：本回合改過程式檔或宣告了寫碼類目標樹；
+    """寫碼回合精簡注入：寫碼守門開、而且這個使用者回合已經是寫碼回合（wg_core.coding_turn：本回合改過程式檔或宣告了寫碼類目標樹；
     prompt 關鍵字判成的寫碼意圖不算）。UPS 的 track_turn_prompts 在注入之前就把新回合的 turn_prompts_seq 往前推，所以使用者
     打字開的第一則永遠不瘦身（上一回合改的碼不算這一回合的）；同一回合排隊進來的後續 prompt，前面已改過碼才瘦身。
     成立時三條規則一起生效，不成立照舊：
@@ -289,7 +289,7 @@ def assemble_injection(
     inject_records: List[Dict[str, Any]] = []
 
     _atom_scopes: Dict[str, str] = (state.get("atom_index") or {}).get("scopes") or {}
-    stamp = v6_enabled(config or {})          # 送出時間、只抽章節：NO_RESEND_AFTER_RESUME 的帳（v6 關不記，照舊）
+    stamp = v6_enabled(config or {})          # 送出時間、只抽章節：NO_RESEND_AFTER_RESUME 的帳（寫碼守門關不記，照舊）
 
     def _record(name_: str, path_: Path, rel_: str, source_: str, form_: str) -> None:
         rec = {

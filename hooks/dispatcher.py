@@ -61,11 +61,11 @@ JUDGE_HANDLERS = {
     "Stop": ("handlers.stop", "handle_judge_stop"),
 }
 
-# v6 守門總開關關閉（wg_core.v6_enabled）時：只分派 v6 以前（9e476fd0）就有的事件與工具；
-# 裁判子 session、hook 分段計時也是 v6 才有，關閉時照舊一律早退／不計時。
+# 寫碼守門總開關關閉（wg_core.v6_enabled）時：只分派寫碼守門關時也跑的（9e476fd0 就有的）事件與工具；
+# 裁判子 session、hook 分段計時也是寫碼守門開著才有，關閉時照舊一律早退／不計時。
 PRE_V6_EVENTS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
                  "PreCompact", "PostCompact", "PostToolBatch", "Stop", "SessionEnd"}
-PRE_V6_TOOLS = {   # 9e476fd0 settings.json 的 matcher；v6 加掛的工具（Read、PowerShell 後記、AskUserQuestion…）關閉時不進 handler
+PRE_V6_TOOLS = {   # 9e476fd0 settings.json 的 matcher；寫碼守門加掛的工具（Read、PowerShell 後記、AskUserQuestion…）關閉時不進 handler
     "PreToolUse": {"Write", "Edit", "NotebookEdit", "Bash", "PowerShell", "Agent", "Task"},
     "PostToolUse": {"Edit", "Write", "MultiEdit", "NotebookEdit", "ExitPlanMode", "Bash", "Agent", "Task",
                     "mcp__workflow-guardian__anti_evasion_report", "mcp__workflow-guardian__atom_write",
@@ -110,7 +110,7 @@ def main():
         sys.exit(0)
 
     # 規則 READ_FAST_PATH：Read 的 PostToolUse 只追加一行 read-log 就走（不載 wg_core、不讀 config／state、不計時）；
-    # 下一個非 Read 事件（handlers/post_tool_use.replay_read_log）補帳，v6 關／守門關在那裡照原判法丟掉
+    # 下一個非 Read 事件（handlers/post_tool_use.replay_read_log）補帳，寫碼守門關、導讀守門關在那裡照原判法丟掉
     if wg_read_fast.is_fast_read(input_data):
         wg_read_fast.log_read(input_data)
         return

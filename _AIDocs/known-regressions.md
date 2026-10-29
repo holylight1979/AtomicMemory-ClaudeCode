@@ -166,7 +166,7 @@ tests/test_heuristics.py::test_max_severity_high_only_from_confident_completion
 | 首次提案 | 2026-04-28（memory cleanup follow_up #3，從 plan v1 §二 矛盾 #4 帶過來） |
 | 範圍 | `wg_atoms.py:_strip_atom_for_injection` 改寫為「摘要優先 + token budget + hot/cold 分級」；`SECTION_INJECT_THRESHOLD` 從 300 降至 200；Related 擴散加 activation-aware 過濾 |
 | 處理結果 | **KEEP**（觀察期 A=290 / B=24 / wall=5.43d，四標準達標；自動止血未觸發） |
-| 收尾報告 | [_AIDocs/DevHistory/atom-injection-refactor-2026-04.md](DevHistory/atom-injection-refactor-2026-04.md) |
+| 收尾報告 | [_AIDocs/DevHistory/記憶管線演進/atom-injection-refactor-2026-04.md](DevHistory/記憶管線演進/atom-injection-refactor-2026-04.md) |
 
 ### 落地 commit
 

@@ -32,8 +32,11 @@
 | `v6.0的代價-守門改提醒後.md` | 守門改提醒之後的最終量測（010：寫程式題 token +15% 進線、時間 +91%、零擋零誤擋；文件題 +45%）與六項改成提醒的守門重驗（011：G3／G7／G11／G13／G14 AI 照做、G9 拿「不需」出口沒過），加四處「AI 照做了、程式沒認帳」與「收尾提醒 AI 看不到」的 bug 清單 |
 | `checklist已完成項封存-2026-10-21.md` | checklist 改版時搬出的段落（逐條 G 分析、已完成的列、10-20 舊狀態、第四節已定的段），原文照搬並附達成證據 | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
 | `v6-開發期紀錄-checklist搬出.md` | checklist 改成只寫「交 AI 寫程式時會體驗到什麼」時搬出的開發期段落（驗收題組與各跑、受測環境、各軌與閘小修編號、卡片搬層、裁定來龍去脈、改版前的總表與證據 commit），原文照搬，每個原本沒結的行註明現況與去向 | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
+| `v6-G0-G16需求目標分析與checklist.md` | 開發期 G0～G16 進度 checklist（每列：交 AI 寫程式時會體驗到什麼、自評、證據或還差什麼），開發期結束時封存；守門現況看 `TECH.md` | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
+| `v6-開發期追蹤項-保留.md` | 10-22 清本機追蹤帳本時判為「產品真問題、但原文帶開發期字樣」的 165 筆，原文照抄＋每筆一句問題與建議；要修哪筆照它立項 | `memory/_staging/v6-開發期追蹤項-保留.md` |
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |
+| `staging封存-2026-10-27/` | 開發期 10-27 從 `memory/_staging/` 清出的接續單、計畫草案與量測腳本（有自己的 `_INDEX.md`） | `memory/_staging/` |
 
 ## 路徑變更說明
 
@@ -43,4 +46,4 @@
 
 ## 接續
 
-- 接續單（仍在 `memory/_staging/next-phase-v6.0-寫程式碼的進化.md`）：下一步是 Plan Mode 定執行細節，再以「執P」分階段 session 實作，每階段驗證綠、上版、給下一階段 prompt。
+- 開發期已結束（2026-10-29），守門併入產品、文件統一叫「寫碼守門」。接續單封存在 `staging封存-2026-10-27/接續單-v6.0-寫程式碼的進化-封存.md`；守門怎麼運作看 `TECH.md` §7。

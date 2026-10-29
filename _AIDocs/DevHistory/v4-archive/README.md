@@ -6,6 +6,14 @@ V5 Wave 2 把 `hooks/wg_*.py` 16 個模組整併為 6 主模組 + 2 shim，並�
 
 本目錄保留 V4.1 終態的 19 個檔案為「升版前」基準對照，供後續架構討論、回滾參考、或迴歸分析使用。**不被任何 import path 引用**。
 
+## V4 設計文件（2026-10-29 自上一層歸入）
+
+| 檔 | 一句話 |
+|---|---|
+| `v4-layers.md` | V4 專案自治層 + 三層 scope（global／shared／personal）+ Role-filtered JIT 設計 |
+| `v4-conflict.md` | V4 三時段衝突偵測完整流程（write-check／pull-audit／conflict-review） |
+| `v41-journey.md` | V4.1 開發歷程：使用者決策語句偵測 → 三層 gating → atom 自動寫入，含 §10 runtime 架構 |
+
 ## 內容索引（V4.1 hook 模組組成 → V5 去處）
 
 | 檔案 | V4.1 行數 | V5 去處 |

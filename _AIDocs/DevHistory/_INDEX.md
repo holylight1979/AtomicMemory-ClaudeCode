@@ -1,48 +1,18 @@
 # DevHistory — 開發紀錄索引
 
-> 從各 atom / Architecture.md 精簡移出的版本演進、遷移紀錄、實測數據、穩定子系統細節。
-> 供需要查閱歷史脈絡時按需閱讀，不自動注入 session context。
+> 從 atom／Architecture.md／memory/_staging 移出的版本演進、遷移紀錄、實測數據、計畫與審查紀錄。按需閱讀、不自動注入 session context。
+> 每個資料夾自己有 `_INDEX.md`（或 `README.md`），一檔一行白話說明；這一層只列資料夾。
 
-| # | 文件名稱 | 說明 | keywords |
-|---|---------|------|----------|
-| 1 | atom-evolution.md | 各 atom 演化日誌彙整 | 演化, 版本, changelog, 日期, 變更記錄 |
-| 2 | version-migrations.md | 原子記憶版本遷移敘述：V2.18~V2.21 遷移 + 4.x→5.1 升級後確認清單 | V2.18, V2.19, V2.20, V2.21, 4.x, 5.1, 升級清單, 遷移, migration, Phase |
-| 3 | ab-test-ollama.md | Ollama Dual-Backend A/B 萃取品質實測數據（qwen3.5 vs qwen3:1.7b） | A/B, 萃取品質, qwen3, rdchat, 實測, benchmark |
-| 4 | ab-test-gemma4.md | Gemma 4 vs Qwen 3.5 三輪 A/B 測試（V3.4 模型切換決策依據） | gemma4, qwen3.5, A/B, 萃取, 溫度, format bug |
-| 5 | v41-journey.md | V4.1 圓桌設計與 GA 歷程 + §10 Runtime 架構（user-extract + P4 評價） | V4.1, user-extract, L0, L1, L2, session_score, evaluator |
-| 6 | ollama-backend.md | Dual-Backend Ollama 退避機制（三階段 DIE + failover） | ollama, 退避, DIE, rdchat, failover |
-| 7 | memory-pipeline.md | 記憶檢索管線 + 回應知識捕獲 + V3 三層即時管線 | pipeline, JIT, vector, hot_cache, 萃取, V3 |
-| 8 | session-mgmt.md | SessionStart 去重 + 孤兒清理 + Merge self-heal | sessionstart, dedup, merge_into, orphan, self-heal |
-| 9 | v4-layers.md | V4 專案自治層 + 三層 scope + Role-filtered JIT | scope, personal, shared, role, project-registry, JIT |
-| 10 | v4-conflict.md | V4 三時段衝突偵測完整流程（Phase 5+6） | conflict, pending_review, CONTRADICT, EXTEND, write-check, pull-audit |
-| 11 | wisdom-engine.md | Wisdom Engine + Fix Escalation + 跨 Session 鞏固 | wisdom, reflection, fix_escalation, 鞏固 |
-| 12 | settings-config.md | settings.json 權限 + 工具鏈總覽 | settings, permissions, 權限, 工具鏈, tools |
-| 13 | multi-agent-cleanup-protocol.md | 多大師協作流程通用版（CC ≥ Codex 席次設計、防 Codex 幻覺、Windows sandbox 修復、Phase 4 audit 重派、收尾 checklist） | multi-agent, codex, 大師, 協作, sandbox, audit, 監督執行 |
-| 14 | atom-trigger-source-of-truth.md | Atom Trigger 三源（frontmatter / _ATOM_INDEX / MEMORY.md）真相規格化設計（待拍板） | atom trigger, source of truth, _ATOM_INDEX, frontmatter, MEMORY.md, drift, sync 工具 |
-| 15 | vector-threshold-calibration-2026-04.md | Wave 3b probe-burst 數據驅動的 ranked-sections min_score 校準（90 query x 6 threshold 矩陣 + 決策） | vector, threshold, calibration, ranked-sections, min_score, probe-burst, 議題 #6, REG-005 |
-| 16 | atom-injection-refactor-2026-04.md | REG-005 atom 注入機制重構收尾（A+B+C+D 4 層 + 觀察期 KEEP 判定 + 設計歸檔） | REG-005, atom, injection, summary-first, budget, hot-cold, related, 4-layer, KEEP, 觀察期 |
-| 17 | v4-archive/ | Wave 4 hooks/_v4_archive 19 檔對照證物（V4 hook 模組退役前最後一版） | v4-archive, hooks, 證物, V4 退役 |
-| 19 | pan-deny-judgement-2026-08-06.md | PAN 預告閘門 warn→deny 終局判讀（四門檻逐筆證據 + 漏偵決定性反證 + 判讀方法學踩坑） | PAN, 預告閘門, pre_action_notice, 翻 deny, 漏偵率, 假陰性, text_blocks, fail_open_no_transcript |
-| 18 | v5-overhaul-2026-05/ | V5 升版完整紀錄（起因 + 4-Wave + Wave 5 全面汰舊 + GA Checklist 驗收 + Session α/β feedback-aidocs 遷移）— 取代原 audit atom | V5, GA, 升版, overhaul, Wave, 全面汰舊, BM25, JSON SoT, Codex subprocess, 114GB, feedback-aidocs, atom_locations |
-| 19 | session-coordination-bus.md | 跨 session 衝突預警多大師計畫紀錄（CC 原生無跨 session 管道查證 + 七席共議仲裁 + PreToolUse additionalContext probe 實測 + Stage 2/3 defer 條件） | session 協調, 衝突預警, coordination, 多大師, CoordWarn, probe, Agent Teams, add -A |
-| 19 | auto-memory-writeback.md | 對談結束自動記憶 writeback 三 stage 開發脈絡（session_end flush 落點路由 + 失敗五區塊骨架 + Deep Post-Mortem Gate；含 edit-count proxy 拔除、獨立預算演化） | session_end flush, 失敗骨架, deep post-mortem, writeback, 落點路由, extract-worker, stop gate, edit-count proxy |
-| 20 | 核心記憶分類階層化-2026-08.md | 核心記憶分類階層化 S1–S5 編年（起因與使用者原則原文 + 兩根／11 個 Lv1 目標形狀 + 被否決方案與理由 + 五階段 commit／驗證數字 + 附帶修掉的 bug + 遺留議題 + 總管模式協作） | 分類階層化, taxonomy, 範疇資料夾, memory/Failures, MEMORY.md 目錄, 寫入閘, domain 必填, atom-categorize, 兩根, 使用面 開發面, 總管模式, S1–S5 |
-| 20 | memory-system-review-2026-08.md | 原子記憶系統 × CC 原生記憶 × 業界主流三方比對評估（as-built 管線逐檔核對＋優缺點／可補強／該修正各標已處理／待辦＋修前後數據＋單一決策點：積累端 provenance＋週期整併） | 三方比對, 記憶系統評估, RRF, ACT-R, 注入預算, provenance, cross-encoder, 積累端, CC auto-memory, 業界主流, 2026-08 |
-| 21 | injection-budget-investigation-2026-08.md | 注入變弱調查編年（三假設證偽：MEMORY.md 瘦身／分類閘／中文檔名 → 根因 TURN_BUDGET_LIMIT 縮量未回調 → 五次修正各附證據／修法／驗證／commit → 未做與理由 → 回訪四指標 → 教訓） | 注入變弱, TURN_BUDGET_LIMIT, 裁切回填, compute_token_budget, token 分級, 同題去冗, redundancy_gate, 橋接檔 slug, 回訪機制, followup-check, injection-turns.jsonl, 全文率 |
-| 22 | taxonomy-engine-半統一設計-2026-06.md | 分類／去蕪統一引擎設計與執行紀錄（半統一裁決：`score_by_lexicon` 單一計分源 + Realm／Taxonomy adapter 並存；Phase A 核心落地、晉升閘與跨 realm 逃逸閘；DedupStage 已於 `755ce07` 停產；Phase B/C 專案端 thin shim 未執行） | taxonomy, classify, score_by_lexicon, atom_classify, 半統一, adapter, RealmStrategy, TaxonomyStrategy, 逃逸閘, DedupStage, Phase B, thin shim, classify-project-atoms |
-| 23 | 全面檢視-2026-09-21/ | 2026-09-21 對照 CC 生態的全面檢視證據：共同簡報、5 支 Claude 審查摘要、5 支 Codex 摘要＋全文、兩輪 Codex 計畫審查與拍板全文、遙測統計腳本與輸出、[AI] 獨立評分稿；定案、§1b 為什麼會寫成這樣、§11 提交清單與剩餘三項在同資料夾 plan-and-decisions.md | 全面檢視, 審查, codex, 記帳失真, activation, 效用歸因, Supersedes, 評估器, episodic, hint, 精簡 |
+| 資料夾 | 是什麼 | 檔數 |
+|---|---|---|
+| [向量與模型評測/](向量與模型評測/_INDEX.md) | Ollama 模型 A/B 實測、向量門檻校準、cross-encoder rerank 評估 | 5 |
+| [記憶管線演進/](記憶管線演進/_INDEX.md) | atom 寫入／分類／注入／預算機制每次改版的為什麼與數字（含 2026-08 分類階層化、注入變弱調查） | 9 |
+| [檢視與審查/](檢視與審查/_INDEX.md) | 三方比對評估（2026-08）、同伴 MR 審查（2026-10） | 2 |
+| [工作流與協調/](工作流與協調/_INDEX.md) | 多 agent 協作協議、跨 session 衝突預警、session 管理、PAN 預告閘門終局判讀 | 4 |
+| [設定與遷移/](設定與遷移/_INDEX.md) | settings.json 權限總覽（2026-04）、版本遷移表 | 2 |
+| [v4-archive/](v4-archive/README.md) | V4 設計文件（三層 scope、衝突偵測、V4.1 開發歷程）＋ V4.1 hook 模組退役前最後一版 19 檔證物 | 3 md + 19 py |
+| [v5-overhaul-2026-05/](v5-overhaul-2026-05/README.md) | V5 升版完整紀錄（起因、4-Wave、全面汰舊、GA 驗收）＋ 封存的 tests／tools／scripts | 2 md + 封存程式 |
+| [全面檢視-2026-09-21/](全面檢視-2026-09-21/plan-and-decisions.md) | 2026-09-21 對照 CC 生態的全面檢視：共同簡報、Claude／Codex 審查摘要與全文、遙測統計、拍板 | 15 md + 腳本與輸出 |
+| [v6.0-寫程式碼的進化-2026-10/](v6.0-寫程式碼的進化-2026-10/README.md) | v6.0（寫碼守門）開發期全紀錄：預計畫、三方討論、原話輯、工作紀錄、裁定帳、代價量測、checklist 與追蹤項封存、信箱全文；含 `staging封存-2026-10-27/`（開發期從 memory/_staging 清出的接續單與計畫） | 40+ md + 實測夾 |
 
-| 24 | rerank-cross-encoder-evaluation-2026-10.md | cross-encoder rerank／sentence-transformers 要不要進注入鏈：本機回歸集對照實驗（bge-base R@1 +3.4、R@3 −0.6、每句 +1.2 s）＋外部文獻＋Codex 審；判定不進 hook、讀取端可選 | rerank, cross-encoder, fastembed, bge-reranker, memory-eval, 檢索精度 |
-| 25 | v6.0-寫程式碼的進化-2026-10/ | v6.0（針對寫程式碼的進化）開發歷史：原設計者認可的預計畫（G0～G16、分片加權模型、機制／題組／變量）、前一波三方討論全貌、原設計者原話輯、三槽信箱全文與附件（兩專案輸入、三份 Codex 審查）、前一波第二視角綱要 | v6.0, 寫程式碼, 守門, 綜觀, 預計畫, 三方討論, tri-link, 原話, OverviewHub, 分片加權, 題組, 變量 |
-| 26 | v6.0-寫程式碼的進化-2026-10/工作紀錄.md | v6.0 各工作軌（a3、track-e、g12、track-verify、track-goal、a4、b3、a6、a2c）與總控台的完整歷程：session、commit、codex 輪次、退件單、快照數字、證據 log；核心推進文件只留現況並連到這裡 | v6.0, 工作紀錄, 歷程, 工作軌, track-e, a3, g12, 寫碼查核閘, codex 輪次, 退件單, 快照複跑, live 補驗, 總控台 |
-| 27 | v6.0-寫程式碼的進化-2026-10/總控台裁定帳與誤判清冊.md | v6.0 兩個總控台的裁定（對人 #1～#43、調度帳）與寫碼查核閘誤判清冊（A／B／C 組），每筆一行：裁了什麼、為什麼、結果／現象、根因、去向 | v6.0, 裁定帳, 誤判清冊, 總控台, 被翻, 回放, wg_release_rules, 規則名 |
-| 28 | v6.0-寫程式碼的進化-2026-10/B5-需求目標效果驗收-結論.md | B5 五題（受測 need_goal 開／對照關）驗收結論、三條效果缺口、真測逼出的閘缺陷；不含答案，工具組留本機 | v6.0, B5, need_goal, 驗收, 效果缺口, 子目標, 對照組 |
-| 30 | 同伴MR審查-2026-10-20.md | 同事在 GitLab 開的 8 個 MR 逐一評估：合／部分取用／暫不合的決定與白話理由、驗法、給原作者的建議 | MR, merge request, GitLab, 審查, 合併, 同伴, ccjh20741, todo-ledger, memory_names, 反向連結, vcs_ignore |
-| 29 | v6.0-寫程式碼的進化-2026-10/工作軌總表與暫停狀態.md | v6.0 各工作軌做了什麼與合進 main 的 commit、暫停狀態、沒進 /console skill 的流程段落、本機留存工具（b5-kit、merge-scripts） | v6.0, 工作軌, 軌表, 暫停, 恢復, 流程, console, merge-scripts, b5-kit |
-> 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
-
-> 2026-05-28 Session α/β（commits `082f791` / `89ccb2d` / `6772049`）：feedback-* atoms 5 個 + cognitive-patterns + memory-pipeline-silent-failure-2026-05 物理搬遷至 `_AIDocs/Failures/`，`lib/atom_locations.py` 為單一規則來源；sync-atom-index / vector indexer 多根掃描；SPEC_ATOM_V5 §2.1 章節記錄。完整紀錄詳見上方 v5-overhaul-2026-05/ 及主 [_AIDocs/_CHANGELOG.md](../_CHANGELOG.md) 對應條目。
-
-> 2026-06-03 Realm S3 Phase 5 雞肋稽核：本目錄為「按需閱讀、**不自動注入**」歷史歸檔區（注入成本＝0）。內容已結案/被 V5 超越但**仍被活引用為證物**者——`v4-layers.md`·`v4-conflict.md`（V4 設計，[Architecture.md](../Architecture.md) 引）、`version-migrations.md`（V2.18~21）、`ab-test-ollama.md`·`ab-test-gemma4.md`（核心 atom `toolchain-ollama` + [TECH.md](../../TECH.md) 引）、`vector-threshold-calibration-2026-04.md`（活躍檔 `atom-injection-refactor-2026-04.md` 當「前置」引）——**一律保留原位不再下沉**（歸檔區內再開歸檔零收益、且會斷同層相對連結）。已驗證 [`known-regressions.md`](../known-regressions.md) 仍準確；REG-006 三萃取管線（`quick-extract`/`extract-worker`/`user-extract-worker`）經查**確仍並存**，屬 open 合併研究項、非 stale。
-
-- [staging封存-2026-10-27/](staging封存-2026-10-27/) — 2026-10-27 從 memory/_staging 清出的已完成／已取代計畫與接續單（含 v6 總控台時代的接續單）
+> 2026-05-27 已移到 `memory/_distant/2026_05_v5_overhaul/`（git 不追蹤）的舊子夾：`session-logs/`、`memory-cleanup-2026-04/`、`atomic-memory-evolution/`、`ab-test-gemma4/`、`atom-v4/`、`atom-v4-phases/`、`changelog-roll/`、`v41-handoffs/`、`v41-p4-simulation/`、`wg-docdrift/`。文件裡指到 `memory-cleanup-2026-04/` 的連結在本機才解得開。

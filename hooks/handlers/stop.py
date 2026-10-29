@@ -19,11 +19,11 @@ handlers/stop.py — Stop hook handler
 guard-reconcile.jsonl user_release，放行的那幾件之後的回合原因還在也不再要求放行。擋滿的待放行只在同一個使用者回合有效。
 無法互動（headless／SDK、子代理、裁判子 session）不叫它問：擋滿就放行並留帳。查核自己判定出錯：同一個錯誤每個使用者回合
 擋一次，之後放行並留帳。其餘共用 stop_gate_max_blocks 的閘每個使用者回合重新計次，同一回合第 3 次放行。
-擋或提醒（v6；規則 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY，表在 wg_release_rules 檔尾）：每道閘拿到擋訊息後先問 gate_mode／hit_mode：
+擋或提醒（寫碼守門；規則 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY，表在 wg_release_rules 檔尾）：每道閘拿到擋訊息後先問 gate_mode／hit_mode：
 照擋的只有紅測閘、對帳 (a) 說修好要有 PASS（子代理同一套）；其餘判成提醒的閘判定照跑、一回合一次的記號照記，但只留帳（_remind_logged：
 guard log event=remind＋stderr 一行），不擋、不續跑、不開放行題、不吃擋滿預算；提醒本身掛在改程式檔那則工具結果（handlers/post_tool_batch）。
 總開關關時 gate_mode 一律回 block，行為同 9e476fd0。
-連鎖斷路器（v6；判定 hooks/wg_chain.py、帳與還原 lib/chain_store.py）：各閘之前問 chain_store.on_stop 一次；每道閘要擋或記欠之前
+連鎖斷路器（寫碼守門；判定 hooks/wg_chain.py、帳與還原 lib/chain_store.py）：各閘之前問 chain_store.on_stop 一次；每道閘要擋或記欠之前
 問 _chain_hold——警報後只記錄（跳過那道閘的擋與記欠、往下走），讓警報響的那一次改送中止通知。沒有警報時各閘照原樣擋。
 """
 
@@ -919,7 +919,7 @@ def _remind_logged(log_name: str, gate: str, rule: str, text: str, session_id: s
 
 CLOSING_ONE_CALL = ("收尾三段一次交齊：目標對照放 anti_evasion_report 的 reconcile 欄（同 need_goal reconcile 的 items／turns）、"
                     "知識收割放 harvest_items，跟收尾檢核同一次交，不必另呼叫 need_goal reconcile、knowledge_harvest_report；已分開交過的不用重交。")
-# v6 開時「後面還會擋」預覽與改檔那則提醒用的做法（GOAL_TREE_SET_ONCE：不寫目標對照，寫了 AI 就多叫一次 need_goal reconcile）
+# 寫碼守門開時「後面還會擋」預覽與改檔那則提醒用的做法（GOAL_TREE_SET_ONCE：不寫目標對照，寫了 AI 就多叫一次 need_goal reconcile）
 CLOSING_CHECK_FIX = "最後呼叫 anti_evasion_report（知識收割放 harvest_items，一次交齊）"
 
 
@@ -940,7 +940,7 @@ def _verify_gates(
 ) -> tuple:
     """對帳閘＋驗證範圍閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／scope／"",
     提醒或 None：背景全量新記的範圍漏判)。
-    reminds＝給了（v6 開著）就照規則 GATE_MODE_TABLE 分流：判成提醒的條目（(b)(c)(d)(v)(e)、驗證範圍 SCOPE_*、(f2)(f3)(f4)、
+    reminds＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：判成提醒的條目（(b)(c)(d)(v)(e)、驗證範圍 SCOPE_*、(f2)(f3)(f4)、
     這幾類自己的判定錯誤）不進擋訊息，(規則名, 原文) append 進來交呼叫端留帳；(a) 與它的判定錯誤照擋。None＝全部照擋（總開關關）。寫碼查核＝對帳 (a)～(d)＋驗證範圍；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
     goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)(f3)，併進寫碼查核；記憶知識類的輕樹 (f4) 併進 (e) 那一份；
     子代理與裁判不跑目標對照。coding＝False（不是寫碼回合，也不是本 session 改過程式後交收尾檢核）：(f2)(f3) 不判（規則 CLOSING_GOAL_CODING_ONLY），(f1)(f4) 照判。
@@ -1324,7 +1324,7 @@ def _mcp_load_facts(boot_dir: Optional[Path] = None, code_dir: Optional[Path] = 
     return records, disk
 
 
-# ─── 交付時順手點出最該修的一件（v6 G4／G5／G13）：只提醒、不擋 ─────────────────────
+# ─── 交付時順手點出最該修的一件（G4／G5／G13）：只提醒、不擋 ─────────────────────
 # 判斷交 AI、程式只管時點與記帳（wg_harvest）。缺 config pick_one 區段或 enabled 不是 true＝整個關。
 
 def _pick_on(config: Dict[str, Any]) -> bool:
@@ -1537,7 +1537,7 @@ def _equivalence_gate(state: Dict[str, Any], session_id: str, config: Dict[str, 
                       reminds: Optional[List[Tuple[str, str]]] = None) -> Optional[str]:
     """事實收集＋預算＋留帳，判定在 wg_release_rules。回擋訊息；None＝不關事或放行。改了 state（預算、擋的位置、已留帳的行），
     由呼叫端 write_state。hold＝連鎖斷路器的問法（handle_stop 的 _chain_hold）：要擋之前問，只記錄就不擋、不吃預算。
-    reminds＝給了（v6 開著）就照 GATE_MODE_TABLE 分流：判成提醒的條目 (規則名, 那一條) append 進來、不進擋訊息、不吃預算、不開放行題。
+    reminds＝給了（寫碼守門開著）就照 GATE_MODE_TABLE 分流：判成提醒的條目 (規則名, 那一條) append 進來、不進擋訊息、不吃預算、不開放行題。
     事實：意圖（state turn_intent，只由使用者本人打的字判）、本回合改過的程式檔、它們最後一次修改之後的收據（指令完整、記了環境、
     指令沒自己寫哨兵字樣）、收尾文字的入口行。等值沒證齊、熱路徑答了缺東西 → 照寫碼查核預算擋、擋滿問使用者（無法互動 → 擋滿放行並留帳）；
     熱路徑沒答每個使用者回合擋一次。"""
@@ -1766,8 +1766,8 @@ def _red_item_lines(f: Dict[str, Any], v6: bool = True) -> str:
 
 
 def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
-    """v6 守門關閉時的 TestFailGate 擋訊息：出路照 9e476fd0 原文（關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口），
-    但列的失敗項跟 v6 開同一份——只列還沒跑綠的那幾支、算支數。舊寫法印摘要第一行、不看 cleared_units，已經綠的那支會一直
+    """寫碼守門關閉時的 TestFailGate 擋訊息：出路照 9e476fd0 原文（關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口），
+    但列的失敗項跟寫碼守門開同一份——只列還沒跑綠的那幾支、算支數。舊寫法印摘要第一行、不看 cleared_units，已經綠的那支會一直
     被列成失敗（實踩：多支檔一批紅、幾支綠了之後 Stop 仍列已綠的那支，AI 被帶去重跑整個範圍）。"""
     return (f"[Guardian:TestFailGate] 測試未綠：{red_count_label(failing)}，不得宣告完成。\n"
             + "\n".join(_red_item_lines(f, v6=False) for f in failing[-3:])
@@ -1790,12 +1790,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     max_blocks = config.get("stop_gate_max_blocks", 2)
-    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（各 v6 閘的分派點各自看它）
+    v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（各寫碼守門閘的分派點各自看它）
     # 「本回合」照規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起到現在（同伴訊息、背景通知不另開回合）。
     turn_seq = int(state.get("turn_seq", 0))
     _since = _user_turn(state, turn_seq)
-    # 共用擋次（stop_gate_max_blocks 那份）：v6 開＝每個使用者回合重新計次（同一回合擋滿後放行，換了使用者回合歸零）；
-    # v6 關＝照 9e476fd0，整個 session 累計
+    # 共用擋次（stop_gate_max_blocks 那份）：寫碼守門開＝每個使用者回合重新計次（同一回合擋滿後放行，換了使用者回合歸零）；
+    # 寫碼守門關＝照 9e476fd0，整個 session 累計
     if v6 and state.get("stop_blocked_turn") != _since:
         state["stop_blocked_count"], state["stop_blocked_turn"] = 0, _since
     stop_count = int(state.get("stop_blocked_count", 0) or 0)
@@ -1835,8 +1835,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # accessed_files 回收（取代 per-Read PostToolUse hook）——先寫進 state，
     # 後續任何 gate 的 write_state 也會一併固化；此處立即寫防走到不寫 state 的路徑。
     # 關回合：下一則 UserPromptSubmit 才是新回合的第一句（turn_prompts 重開，見 ups_gates.track_turn_prompts）。
-    # v6 開：版控口令用到這批 push 完成為止，上次收尾之後跑成功的 push 記下來（ups_gates.order_spent 據此判口令用掉了）；
-    # v6 關照 9e476fd0，口令 commit 過就用掉，不掃
+    # 寫碼守門開：版控口令用到這批 push 完成為止，上次收尾之後跑成功的 push 記下來（ups_gates.order_spent 據此判口令用掉了）；
+    # 寫碼守門關照 9e476fd0，口令 commit 過就用掉，不掃
     turn_was_open = bool(state.get("turn_open"))
     state["turn_open"] = False
     _pushed = False
@@ -2197,7 +2197,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                                                        "line": _rows[0]["line"]})
                 print(f"[Guardian:TestFailGate] 基底就紅、有追蹤項：{'、'.join(r['unit'][:60] for r in _rows[:3])}"
                       f"（基底 {'、'.join(sorted({r['base'] for r in _rows}))}，已留帳）", file=sys.stderr)
-    # ── 連鎖斷路器（判定 hooks/wg_chain.py，帳與還原 lib/chain_store.py；v6 才有）─────────────
+    # ── 連鎖斷路器（判定 hooks/wg_chain.py，帳與還原 lib/chain_store.py；寫碼守門開著才有）─────────────
     # 各閘之前問一次：警報後還沒送經過表 → 擋這一次送表；使用者答了三選一 → 照答案做（還原／歸零／放行），結果附在這次收尾的出口。
     # 之後每道閘要擋或記欠之前問 _chain_hold：警報後只記錄（跳過那道閘的擋與記欠、往下走），這一次讓警報響就送中止通知取代原擋訊息。
     _chain_ro = [False]

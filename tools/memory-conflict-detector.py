@@ -641,12 +641,12 @@ def _needs_declaration(m: Dict[str, Any], threshold: float) -> bool:
 
 
 def _v6_on(out: Dict[str, Any]) -> bool:
-    """守門總開關（判法只在 hooks/wg_core.v6_enabled：WG_V6 環境變數、config.local.json 覆寫）；載不進來當關（出廠預設），warning 浮出。"""
+    """守門總開關（判法只在 hooks/wg_core.v6_enabled：WG_CODING_GUARD 環境變數、config.local.json 覆寫）；載不進來當關（出廠預設），warning 浮出。"""
     try:
         wg = _hooks_module("wg_core")
         return wg.v6_enabled(wg.load_config())
     except Exception as e:  # noqa: BLE001
-        out["warnings"].append(f"v6 switch unreadable ({type(e).__name__}: {e}) — treated as off: "
+        out["warnings"].append(f"coding-guard switch unreadable ({type(e).__name__}: {e}) — treated as off: "
                                "threshold verdict applies, no conflict declaration asked")
         return False
 

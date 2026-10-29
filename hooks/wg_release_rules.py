@@ -52,7 +52,7 @@ RULES: Dict[str, str] = {
                            "每個使用者回合共用一份擋次預算（reconcile_gate.max_blocks_per_turn，預設 2，鍵 *，"
                            "不分是哪幾條規則）：同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。"
                            "吃 stop_gate_max_blocks 的那份共用擋次（退縮閘、收尾檢核推遲寫卡、Reload 建議、取用稽核、"
-                           "一般同步擋）每個使用者回合歸零、同一回合第 3 次放行（v6 開時；v6 關照舊，整個 session 累計）。"
+                           "一般同步擋）每個使用者回合歸零、同一回合第 3 次放行（寫碼守門開時；寫碼守門關照舊，整個 session 累計）。"
                            "判法在 handlers/stop.py。",
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同，"
                            "同根其他程式檔也等於 HEAD 或只差註解 → 不算改碼；非 Python、解析不了、基準拿不到 → 照算。",
@@ -149,7 +149,7 @@ RULES: Dict[str, str] = {
                                        "exit／return 之後全部 → 不算。"
                                        "前段是一般指令的 && 後段照算（它失敗整條結束碼非零，交結束碼篩）；heredoc 內文原樣、不套這幾條。",
     "UNMAPPED_EDIT_NEEDS_READABLE_FILES":"表外檔改檔前要讀的同頂層目錄檔數＝min(設定的 part_files, 該目錄非執行期資料的既有檔數)："
-                                          "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀算欠（送法照 GATE_MODE_TABLE：v6 開提醒一次、關照擋）。",
+                                          "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀算欠（送法照 GATE_MODE_TABLE：寫碼守門開提醒一次、關照擋）。",
     "TEMP_REPO_COMMIT_EXEMPT": "git commit 落在暫存目錄（系統 TEMP／TMP、scratchpad、/tmp）下的 repo → 不要求版控口令。",
     "TEMP_COPY_NOT_PROJECT": "寫入目標或跑的腳本在暫存目錄下 → 不當專案：不找部位表、不注入、不要求綜觀；量尺與對帳也不把它當收據。",
     "RED_WHILE_REVERTED": "跑紅時，受測根裡有本 session 改過的程式檔內容等於非 HEAD 的已提交版本（退回舊碼反證）→ 刻意紅：不算失敗、不計重試。",
@@ -174,9 +174,9 @@ RULES: Dict[str, str] = {
                                    "兩邊都用解析後的目標比。認不出測試子命令＝判不出目標（舊條目 cmd 剛好 200 字也算）：不拿片段當路徑、留帳"
                                    " guard-testfail_scope，只認原樣重跑或列得出名字的紅被跑到；擋訊息（handlers/stop._rerun_scope）對看不出是哪一支的紅"
                                    "列出解析出的每段照抄重跑，判不出或太長就給「原指令完整照跑或跑整套」。",
-    "CODING_TURN_ONLY": "v6 的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑、hook 計時帳）只在寫碼回合跑"
+    "CODING_TURN_ONLY": "寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑、hook 計時帳）只在寫碼回合跑"
                         "（wg_core.coding_turn）：這個使用者回合已經改了程式檔或有判不出目標的寫入，或本回合 need_goal 宣告了寫碼樹；"
-                        "prompt 的關鍵字意圖不當開關。v6 以前就有的處理（記憶注入、導讀卡、收割）照舊每回合跑；v6.coding_turn_only=false 退回每回合都跑。",
+                        "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、導讀卡、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
     "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」：有驗證範圍宣告（need_goal verify_scope）→ 認宣告範圍內任一項在跟它有關的最後一次改動之後"
@@ -219,7 +219,7 @@ RULES: Dict[str, str] = {
     "NONINTERACTIVE_RELEASE_AT_BUDGET": "沒有人能回答放行詢問（headless／SDK 主 session、子代理、裁判子 session）：寫碼查核、紅測、"
                                         "等值證法照預算擋，擋滿就放行並留帳（主 session event=noninteractive_released，"
                                         "子代理與裁判 *_released），不叫它問、不擋到底；擋訊息不說「不能放行」。",
-    "ORDER_UNTIL_PUSH": "版控口令（上GIT 等）在該批作業 push 完、或使用者打字開新回合之前持續有效（v6 開時；v6 關照舊："
+    "ORDER_UNTIL_PUSH": "版控口令（上GIT 等）在該批作業 push 完、或使用者打字開新回合之前持續有效（寫碼守門開時；寫碼守門關照舊："
                         "commit 過就用掉）。只 commit、背景通知開的續跑回合、收尾閘逼出的補修 commit 都不讓它失效；"
                         "續跑回合裡使用者打的第一則字算新回合、口令失效；使用者自己的回合還沒結束時排隊補打的話照舊追加。"
                         "push 完成＝Bash／PowerShell 指令有一段子命令真的是 git push（不帶 --dry-run／-n）"
@@ -230,7 +230,7 @@ RULES: Dict[str, str] = {
                                     "就不判 Reload 建議、不列程序表（RELOAD_ADVICE_ALREADY_LOADED 不查）。",
     "DEFERRAL_COVERS_EVASION_SENTENCE": "退縮閘這次擋下的那一句，若這次收尾新記的退避旗標命中的詞就在那一句裡，"
                                         "就拿掉旗標（留帳 evasion event=covered_by_deferral；退避事件照留給收尾檢核對照），"
-                                        "下一則使用者訊息不再為同一句追問；不是同一句的旗標照留（v6 開時；v6 關照舊）。",
+                                        "下一則使用者訊息不再為同一句追問；不是同一句的旗標照留（寫碼守門開時；寫碼守門關照舊）。",
     "RECEIPT_UNPARSED_GENERAL_ONLY":"收據指令含解析不了的語法（heredoc、$( )、反引號、eval…）→ 看不出跑了哪支：不算部位量尺、不算整體驗證，"
                                      "照算一般證據（(a)(b) 的指令提到改檔、(c) 有執行），不擋；本回合帶 PASS／DONE 的這種收據每次 Stop "
                                      "stderr 一行並留帳 guard-reconcile event=receipt_unparsed。量尺與整體驗證只看跑了哪支、在哪棵樹、"
@@ -4112,7 +4112,7 @@ RULES.update({
     "USER_TURN_KEY_KEPT": "使用者回合鍵（turn_prompts_seq）不掉：state 在 compact／resume 重建時回合編號與回合鍵照搬"
                           "（session_start._CARRY_ON_REBUILD：turn_seq、turn_prompts_seq、user_turn_count、turn_open、turn_typed）；"
                           "鍵還是不在（state 從零建）時，UserPromptSubmit 第一則進來的訊息就算是同伴訊息、背景通知也把鍵錨在這一則"
-                          "（ups_gates.track_turn_prompts；不加 user_turn_count；v6 關照舊不錨），之後照 TURN_SINCE_USER_PROMPT 前進。鍵不在時 user_turn "
+                          "（ups_gates.track_turn_prompts；不加 user_turn_count；寫碼守門關照舊不錨），之後照 TURN_SINCE_USER_PROMPT 前進。鍵不在時 user_turn "
                           "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（PickOne 每則重問、各閘每回合的擋次與預算重來）。",
     "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）：最後 2000 字裡有「這則之後工作還在繼續」的話（仍在等、"
                                      "等待…回報、尚未開始）整則不算；否則逐句看，有一句有完成詞、而那一句本身沒有其餘排除詞（還沒／尚未…完成、"
@@ -4178,11 +4178,11 @@ RULES.update({
                                        "（CRITIQUE_CASES_POINTER）；兩問與定位第五行格式照送。已送記在目標檔 critique_sent"
                                        "（wg_need_goal.critique_mark／critique_once；還沒有目標檔就照送全文、不建檔；讀寫失敗照送全文），"
                                        "壓縮後重送目標樹時清掉（wg_need_goal_points.recovery_text 呼叫 forget_reminders），下一則再送一次全文。"
-                                       "設定 v6.slim_reminders=false 退回每則全文。",
+                                       "設定 coding_guard.slim_reminders=false 退回每則全文。",
     "TREE_LINE_IN_HINTS": "need_goal 以外的 hook 提示（導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、交付對照）附的目標樹"
                           "只一行當前節點（wg_need_goal.brief_line；沒有子節點就是樹根自己）；樹根與整棵樹只在 need_goal "
                           "set／add／update／reconcile 的回覆送（TREE_ONCE_PER_CALL）。壓縮後重送照附樹根一行＋當前節點"
-                          "（recovery_blob，context 裡已沒有寫入回覆的樹）。設定 v6.slim_reminders=false 退回每則附樹根一行。",
+                          "（recovery_blob，context 裡已沒有寫入回覆的樹）。設定 coding_guard.slim_reminders=false 退回每則附樹根一行。",
 })
 
 
@@ -4208,7 +4208,7 @@ RULES.update({
 RULES.update({
     "LOCATE_BLOCK_ONCE_PER_USER_TURN": "同一個使用者回合（user_turn：使用者本人打字開的回合，同伴訊息、背景通知續跑不算新回合）定位閘已經擋過"
                                        "某個部位之後，別的部位只缺定位行 → 一行提醒、放行、留帳（_overview-hub.log event=edit_locate_reminded）；"
-                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來；本條只在送法是 block 時有意義（v6 關）"
+                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來；本條只在送法是 block 時有意義（寫碼守門關）"
                                        "（wg_overview.on_edit、_blocked_parts／_note_block，state overview_locate_blocked）。本條管的是第一輪"
                                        "（LOCATE_FIRST_EDIT_BLOCKS_ONCE：每部位第一次改的那個使用者回合）之後的擋；第一輪的擋不記進 overview_locate_blocked。",
     "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要放"
@@ -4260,7 +4260,7 @@ RULES.update({
                           "同一條路；guard-pick_one via=test_green），或交收尾檢核／完整對照（need_goal reconcile）那批（via=pre_close）。該問的判法同 Stop"
                           "（上次問過或記過之後又改了程式、這個使用者回合還沒問過，連鎖警報後只記錄時不送），問句與記問過同一段（wg_harvest.pick_ask）；"
                           "Stop 的 pick_due 看到問過就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；沒跑測試也沒交收尾檢核就收尾、"
-                          "或開關關 → 照舊由 Stop 判（v6 下只留帳）。",
+                          "或開關關 → 照舊由 Stop 判（寫碼守門下只留帳）。",
     "PICK_ONE_WITH_TURN_JUDGMENT": "Stop 的拐彎判斷擋下時，「順手看到最該修」該問就接在同一則擋訊息後面一起問（記問過）：補一次就兩件都寫，"
                                    "不再擋完又另讓對話續跑一輪。跟 PICK_ONE_PRE_CLOSE 同一個開關。",
     "SECOND_OPINION_BACKGROUND": "第二意見背景跑、收尾不等它：開關 second_opinion.auto.background（缺＝開）開時，第二意見閘的擋訊息寫"
@@ -4313,7 +4313,7 @@ RULES.update({
                                  "同缺定位擋訊息 LOCATE_ASK_ONCE），放同一則先發的不寫檔指令開頭的 # 註解、thinking 讀不到"
                                  "（DECL_HINT_KEEPS_EDIT_TOOLS 的 DECL_WHERE；只教這一條路，need_goal 的 locate 欄與早一則的回覆文字程式照認、訊息不提）；"
                                  "立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
-                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、v6 總開關關都不送；沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，"
+                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、寫碼守門總開關關都不送；沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，"
                                  "這則 prompt 的關鍵字也沒判成寫碼類 wg_core.CODE_INTENTS；提示要趕在第一次改檔前到，所以關鍵字意圖算數）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
                                  "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
                                  "要立樹時 CODE_EDIT_NEEDS_GOAL_TREE），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
@@ -4342,7 +4342,7 @@ RULES.update({
 })
 
 
-# ─── 驗證批次閘（PreToolUse Bash／PowerShell；事實與擋次在 hooks/wg_verify_batch.py，這裡只登錄規則名與說明；不歸 v6 開關管） ───
+# ─── 驗證批次閘（PreToolUse Bash／PowerShell；事實與擋次在 hooks/wg_verify_batch.py，這裡只登錄規則名與說明；不歸寫碼守門開關管） ───
 RULES.update({
     "VERIFY_FULL_RUN_NEEDS_USER_ORDER": "會拖時間的整組驗證（run_verify.py 不帶參數；pytest 沒點名檔，即沒有位置參數或只有目錄，也沒 -k／-m／--lf 這類縮範圍選項；"
                                         "PYTEST_ADDOPTS 縮了範圍不算整組；會拖時間＝同一組指令最近一筆收據耗時 ≥ guard.verify_batch.slow_run_s〔只有自寫收據記了"
@@ -4362,9 +4362,9 @@ RULES.update({
 })
 
 
-# ─── 擋或提醒（RULE_MODE）：v6 守門每條規則照擋（block）還是提醒（remind），判定與送法只讀這一處 ───
-# 照擋只三類：病形閘（含防繞）、改使用者資料檔／改舊測試沒先宣告、測試沒過卻說修好；其餘 v6 守門一律提醒。
-# 「不在範圍」是不屬於 v6 的安全與權限邊界（版控口令、記憶寫入、svn 測試路徑），照擋、不讀本表。
+# ─── 擋或提醒（RULE_MODE）：寫碼守門每條規則照擋（block）還是提醒（remind），判定與送法只讀這一處 ───
+# 照擋只三類：病形閘（含防繞）、改使用者資料檔／改舊測試沒先宣告、測試沒過卻說修好；其餘寫碼守門一律提醒。
+# 「不在範圍」是不屬於寫碼守門的安全與權限邊界（版控口令、記憶寫入、svn 測試路徑），照擋、不讀本表。
 # 本段放在檔尾、最後算 RULE_MODE：之後再加規則的段落要同時把它登進本表（verify_release_rules 掃表案會紅）。
 RULES.update({
     "COMMIT_SMELL_NEW_BLOCKS": "commit／svn commit 那刻，這次提交新寫進的病形（巢狀過深、匿名區塊過長…，判法在 tools/project-smells.py check_commit）"
@@ -4377,7 +4377,7 @@ RULES.update({
                                   "（RELEASE_COVERS_SHOWN_ITEMS）、不做行記 testfail_waivers（USER_WAIVER_NEEDS_CITATION）、收尾寫的負向對照宣告把那筆搬到"
                                   " deliberate_reds（NEGATIVE_CONTROL_DECLARED 收尾入口）。同一條指令跑了不只一次測試的紅在記帳時就定案（RED_LAST_RESULT_IN_COMMAND），"
                                   "不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
-    "CODE_EDIT_NEEDS_GOAL_TREE": "改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：v6 開時提醒一行 need_goal set，不擋。",
+    "CODE_EDIT_NEEDS_GOAL_TREE": "改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：寫碼守門開時提醒一行 need_goal set，不擋。",
     "OVERVIEW_CARD_BEFORE_EDIT": "改某部位的檔時本 session 還沒看過這個部位的導讀卡（wg_overview.on_edit 的 not_injected）：提醒、卡隨改檔結果送到。",
     "OVERVIEW_CARD_MISSING": "部位表列了導讀卡、卡檔卻找不到（wg_overview.on_edit 的 card_missing）：提醒列出找過哪裡。",
     "OVERVIEW_PART_FILES_READ": "改某部位的檔前要讀過這個部位的檔與卡指到的檔（min_overview_evidence，wg_overview.on_edit 的 evidence）：提醒、不擋。",
@@ -4395,14 +4395,14 @@ RULES.update({
     "REMIND_ON_PRIOR_RESULT": "提醒掛在前一個動作的工具結果（PostToolUse），不掛 PreToolUse 的 additionalContext；收尾類的要求掛在改程式檔那則"
                               "工具結果，Stop 只留帳、不續跑、不開放行題。提醒一行內：規則名＋現象＋做法（remind_line），不附卡全文；"
                               "同一條規則同一個對象同一個 session 只提醒一次（remind_due）。",
-    "GATE_MODE_TABLE": "v6 守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘 v6 守門是 remind；"
+    "GATE_MODE_TABLE": "寫碼守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘寫碼守門是 remind；"
                        "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
-    "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer／locate_content 缺件）：v6 開時提醒一行、不擋；"
+    "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer／locate_content 缺件）：寫碼守門開時提醒一行、不擋；"
                           "第一次讀到該部位程式檔的讀檔結果（LOCATE_HINT_ON_FIRST_READ）送過就算提醒過，之後沒交不再提醒也不擋；"
                           "唯一例外：每部位本 session 第一次改程式檔的那個使用者回合、定位沒交齊 → 整輪照擋（LOCATE_FIRST_EDIT_BLOCKS_ONCE）。",
-    "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在 v6 守門範圍，照擋、不注入（wg_overview.on_edit 的 readonly）。",
-    "OVERVIEW_HUB_UNDER_V6": "OverviewHub 整道（導讀卡注入、候選前 N、讀檔記錄、定位）綁 v6 總開關：v6 關時 wg_overview._cfg 的 enabled 一律 False，"
-                             "不注入、不記、不擋；同事預設關 v6 就完全不會收到導讀卡。",
+    "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋、不注入（wg_overview.on_edit 的 readonly）。",
+    "OVERVIEW_HUB_UNDER_V6": "OverviewHub 整道（導讀卡注入、候選前 N、讀檔記錄、定位）綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，"
+                             "不注入、不記、不擋；同事預設關寫碼守門就完全不會收到導讀卡。",
     "LOCATE_FIRST_EDIT_BLOCKS_ONCE": "定位閘在提醒模式下的例外（使用者裁「第一次改檔前沒先說清楚就攔一次」，一次＝一輪）：同一 session 第一次改某部位的程式檔"
                                      "（送卡那一刀；子代理同主 session）先驗定位行：交了就放、卡照舊當提醒件送；沒交 → 擋，訊息＝卡＋定位要求（一次交齊四行），"
                                      "卡同時排進提醒，這一輪開始。這一輪＝第一次改它的那個使用者回合、定位交齊之前：同部位之後每個改檔（同一則回覆平行送的也是）"
@@ -4419,13 +4419,13 @@ RULES.update({
                                "remind_sent 是**一份清單**（元素 remind_key(規則, 對象)；state 本來就一 session 一檔，不按 session 分桶），"
                                "工具前守門與改程式檔那批的收尾類提醒（post_tool_batch.closing_reminders）都走 wg_overview.remind_mark 記同一份；"
                                "讀到舊寫法的 dict 由 remind_sent_list 攤平，不炸。",
-    "GOAL_RECONCILE_AT_DELIVERY": "(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：v6 開時提醒，"
+    "GOAL_RECONCILE_AT_DELIVERY": "(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：寫碼守門開時提醒，"
                                   "Stop 只留帳；commit 前那份歸 COMMIT_GOAL_RECONCILED。",
     "GOAL_TREE_SET_ONCE": "目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（CODE_EDIT_NEEDS_GOAL_TREE），之後不再送任何會促使 AI 去呼叫"
                           "need_goal reconcile／verify_scope 的文字：改程式檔那則工具結果不附 SCOPE_*、(f2)(f3)(f4)（post_tool_batch.closing_reminders），"
                           "PostToolUse 改程式檔不問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN 拿掉），收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，"
                           "need_goal set 的回覆、MCP 工具說明都不寫接著對照（沒樹改知識類檔已不送提示，見 NON_CODING_TURN_NO_NUDGE）。判定不動：Stop 照判、只留帳（STOP_REMIND_LEDGER_ONLY）；"
-                          "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile／verify_scope 照收。v6 關整道不動（照擋）。"
+                          "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile／verify_scope 照收。寫碼守門關整道不動（照擋）。"
                           "為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。",
     "STOP_REMIND_LEDGER_ONLY": "Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log "
                                "event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、"
@@ -4465,7 +4465,7 @@ LETTER_RULE: Dict[str, str] = {
 REMIND_LINE_CAP = 240
 
 
-# Stop 原本會擋、v6 開時改成提醒的規則：說明文字補一句現況（判定與原文不動；送法見 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY）
+# Stop 原本會擋、寫碼守門開時改成提醒的規則：說明文字補一句現況（判定與原文不動；送法見 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY）
 for _name in ("CASE_COVERS_CHANGE", "CASE_DECLARED_FOR_CHANGE", "NO_CASE_NEEDS_USER", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
               "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY", "SCOPE_DECLARED_FOR_CHANGE",
               "SCOPE_ITEM_RECEIPT_AFTER_EDIT", "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
@@ -4474,9 +4474,9 @@ for _name in ("CASE_COVERS_CHANGE", "CASE_DECLARED_FOR_CHANGE", "NO_CASE_NEEDS_U
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
               "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE", "SECOND_OPINION_DONE_NOTICE"):
-    RULES[_name] += "｜v6 開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；v6 關照舊擋。"
+    RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
 
-# 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條 v6 開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile／verify_scope），Stop 照判只留帳
+# 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條寫碼守門開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile／verify_scope），Stop 照判只留帳
 for _name in ("SCOPE_DECLARED_FOR_CHANGE", "SCOPE_ITEM_RECEIPT_AFTER_EDIT", "GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
               "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
     RULES[_name] += "｜目標樹只立一次（GOAL_TREE_SET_ONCE）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile／verify_scope，收尾檢核的提醒不寫目標對照。"
@@ -4488,7 +4488,7 @@ def mode_of(rule: str) -> str:
 
 
 def gate_mode(rule: str, v6: bool) -> str:
-    """呼叫端決定送法的唯一入口：總開關關（v6=False）一律 block＝照舊；開時照 RULE_MODE。"""
+    """呼叫端決定送法的唯一入口：總開關關（寫碼守門=False）一律 block＝照舊；開時照 RULE_MODE。"""
     return mode_of(rule) if v6 else BLOCK
 
 

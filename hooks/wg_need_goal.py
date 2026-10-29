@@ -335,11 +335,11 @@ def cfg_for_cwd(config: Optional[Dict[str, Any]], cwd: str) -> Dict[str, Any]:
 
 
 def slim_reminders(config: Optional[Dict[str, Any]] = None) -> bool:
-    """設定 v6.slim_reminders（沒寫＝開）：開＝批判題每個 session 送一次全文、之後一句指回（CRITIQUE_CASES_ONCE_PER_SESSION），
+    """設定 coding_guard.slim_reminders（沒寫＝開）：開＝批判題每個 session 送一次全文、之後一句指回（CRITIQUE_CASES_ONCE_PER_SESSION），
     hook 提示附樹只一行當前節點（TREE_LINE_IN_HINTS）；寫 false 退回每則提示照附批判題全文與樹根一行。
     config＝整份設定，沒給就讀 wg_core.load_config()。只認 JSON 的 false 關。"""
-    sec = (wg_core.load_config() if config is None else config).get("v6")
-    return not (isinstance(sec, dict) and sec.get("slim_reminders") is False)
+    cfg = wg_core.load_config() if config is None else config
+    return wg_core.coding_guard_opt(cfg, "slim_reminders") is not False
 
 
 def goal_gate_on(config: Optional[Dict[str, Any]]) -> bool:

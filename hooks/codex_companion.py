@@ -132,8 +132,8 @@ def _resolve_plan_artifact(tool_input: Any, tool_trace: list) -> tuple[str, str]
 
 
 def _handoff_review_on(config: Dict[str, Any]) -> bool:
-    """接續單自檢開不開：v6 守門開著時看 soft_gate.handoff_review_v6（沒寫＝關），v6 關照 soft_gate.handoff_review（沒寫＝開）。
-    要讀 wg_core（約 70 ms），呼叫端先比完檔名再叫；讀不進來當 v6 關。"""
+    """接續單自檢開不開：寫碼守門開著時看 soft_gate.handoff_review_v6（沒寫＝關），寫碼守門關照 soft_gate.handoff_review（沒寫＝開）。
+    要讀 wg_core（約 70 ms），呼叫端先比完檔名再叫；讀不進來當寫碼守門關。"""
     sg = config.get("soft_gate", {})
     try:
         from wg_core import load_config as _wg_load_config, v6_enabled
@@ -578,7 +578,7 @@ def _within_audit_cap(
 
 
 def _acceptance_enabled(config: Dict[str, Any]) -> bool:
-    """驗收裁判開不開：acceptance_review.enabled，且 v6 守門總開關開著（關時兩個觸發處都不跑）。
+    """驗收裁判開不開：acceptance_review.enabled，且寫碼守門總開關開著（關時兩個觸發處都不跑）。
     要讀 wg_core（約 70 ms），呼叫端先判完便宜的條件再叫。"""
     if not config.get("acceptance_review", {}).get("enabled", True):
         return False
@@ -892,7 +892,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
             pass  # Heuristics failure → degrade gracefully
 
     # ── acceptance_review（一律背景審，Stop 不等、不 block）──────────────────
-    # 觸發條件：完成宣稱 + 本 turn 真有改動 + 裁判開著（含 v6 開關）+ 綁得到本 session 唯一 open 規格。
+    # 觸發條件：完成宣稱 + 本 turn 真有改動 + 裁判開著（含寫碼守門開關）+ 綁得到本 session 唯一 open 規格。
     # 結果由 audit.py 落 assessment 檔，下一則 UserPromptSubmit 附一行（fail 且 high 才完整說明）。
     if config.get("acceptance_review", {}).get("enabled", True):
         try:

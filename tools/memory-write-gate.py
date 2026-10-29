@@ -10,7 +10,7 @@ Usage:
     python memory-write-gate.py --batch items.jsonl
 
 Output: JSON {action, quality_score, reason, dedup_match?, kind, route_to, budget, missing_sections, depends_missing, how}
-stdin JSON 另收 mode/existing_path/actions/depends/kind_hint/skip_gate（v6 分型；舊呼叫端不給＝create 全檢）
+stdin JSON 另收 mode/existing_path/actions/depends/kind_hint/skip_gate（分型；舊呼叫端不給＝create 全檢）
 與 dedupe（去重宣告 {verdict, of, why}：相似度達門檻時不再直接拒寫，回要宣告（need_declaration）＋候選卡，
 等 AI 宣告同一條／取代／不同；config write_gate.dedupe_declaration=false 退回舊行為）
 
@@ -203,7 +203,7 @@ def regenerable_signals(content: str) -> List[str]:
     return signals
 
 
-# ─── 分型（v6 M1：寫進去的東西要有用）─────────────────────────────────────────
+# ─── 分型（寫進去的東西要有用）─────────────────────────────────────────
 # kind ∈ pointer（指標卡：只留一行指標）／complement（互補：append 前算預算）／
 # ledger（現況帳：放文件）／hub（導讀卡：五段齊＋Depends、預算 4096）／plain（一般）。
 # 超預算不截斷內容，改告訴寫入者該去哪（route_to）、缺哪段（missing_sections）。
@@ -312,15 +312,16 @@ def load_config() -> Dict[str, Any]:
         except (json.JSONDecodeError, OSError):
             pass
     if not _v6_on():
-        defaults["dedupe_declaration"] = False   # v6 守門關閉：相似不要求宣告，回 9e476fd0 的 skip／suggest update
+        defaults["dedupe_declaration"] = False   # 寫碼守門關閉：相似不要求宣告，回 9e476fd0 的 skip／suggest update
     return defaults
 
 
 def _v6_on() -> bool:
-    """v6 守門總開關（判法只在 hooks/wg_core.v6_enabled：WG_V6 環境變數、config.local.json 覆寫）；載不進來當關（出廠預設）並 stderr。"""
-    env = os.environ.get("WG_V6", "").strip()
-    if env in ("0", "1"):
-        return env == "1"
+    """寫碼守門總開關（判法只在 hooks/wg_core.v6_enabled：WG_CODING_GUARD／舊名 WG_V6 環境變數、config.local.json 覆寫）；載不進來當關（出廠預設）並 stderr。"""
+    for name in ("WG_CODING_GUARD", "WG_V6"):   # 同 wg_core.coding_guard_env：新名優先、舊名仍認
+        env = os.environ.get(name, "").strip()
+        if env in ("0", "1"):
+            return env == "1"
     try:
         hooks_dir = str(_SELF_ROOT / "hooks")
         if hooks_dir not in sys.path:
@@ -328,7 +329,7 @@ def _v6_on() -> bool:
         from wg_core import load_config as _wg_load_config, v6_enabled
         return v6_enabled(_wg_load_config())
     except Exception as e:  # noqa: BLE001
-        print(f"[write-gate] 讀 v6 開關失敗，當成關（相似不要求宣告）：{type(e).__name__}: {e}", file=sys.stderr)
+        print(f"[write-gate] 讀寫碼守門開關失敗，當成關（相似不要求宣告）：{type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 

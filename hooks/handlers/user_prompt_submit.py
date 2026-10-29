@@ -172,7 +172,7 @@ def handle_user_prompt_submit(
 
     v6 = v6_enabled(config)     # 關＝只送 9e476fd0 就有的注入與提示
 
-    # v6：版控口令判「這批 push 完了沒」要掃 transcript（ups_gates.order_spent）：記下路徑，口令閘與下一則訊息用
+    # 寫碼守門開：版控口令判「這批 push 完了沒」要掃 transcript（ups_gates.order_spent）：記下路徑，口令閘與下一則訊息用
     if v6 and input_data.get("transcript_path"):
         state["order_transcript"] = str(input_data["transcript_path"])
 
@@ -200,7 +200,7 @@ def handle_user_prompt_submit(
     typed = user_typed_text(prompt)
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
-    coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合 v6 守門不送（記憶注入、導讀卡照舊）
+    coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入、導讀卡照舊）
     if not coding:
         _hook_timing.quiet()                       # 不寫計時帳；新的使用者回合起點：拿掉寫碼回合標記
         _hook_timing.mark_coding(session_id, False)
@@ -229,7 +229,7 @@ def handle_user_prompt_submit(
             from wg_overview import on_prompt as _hub_on_prompt
             _hub_txt = _hub_on_prompt(
                 state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
-                **({"intent": turn_intent} if v6 else {}),   # 依意圖選片是 v6 加的；關閉時照舊整張注入
+                **({"intent": turn_intent} if v6 else {}),   # 依意圖選片是寫碼守門加的；關閉時照舊整張注入
             )
             if _hub_txt:
                 lines.append(_hub_txt)

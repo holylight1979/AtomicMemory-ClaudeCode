@@ -6,7 +6,7 @@
 第一次讀該部位的一行定位提示、動資料檔讀提示、需求目標讀入範圍、Depends 召回、工具結果體積、救援命中、讀到續接單匯入目標樹）
 改在下一個非 Read 事件（任何工具的 PreToolUse、非 Read 的 PostToolUse、SessionEnd）先 drain 這份 log、逐筆交給既有函式補帳——
 結果一樣、晚一個事件出現；提示隨那個事件的工具結果附上（PreToolUse 補出來的先存 state["read_replay_hints"]，下一個 PostToolUse 送）。
-Bash／PowerShell／Grep 的唯讀照走原路徑。v6 關、守門整個關：補帳端照 dispatcher 原本的判法丟掉（Read 本來就不進 handler）。
+Bash／PowerShell／Grep 的唯讀照走原路徑。寫碼守門關、守門整個關：補帳端照 dispatcher 原本的判法丟掉（Read 本來就不進 handler）。
 本檔只准 import 標準庫與 lib/project_root（資料根的唯一算法）；快路徑的門檻就是「不載 wg_core」。
 """
 from __future__ import annotations

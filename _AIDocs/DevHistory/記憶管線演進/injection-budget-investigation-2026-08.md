@@ -2,7 +2,7 @@
 
 > **期間**：2026-08-28 單日，1 個主力 session 貫穿查證 → 修正 → 實機驗證 → 回訪登記；5 個主力 commit（`3a4809c` / `fc1a888` / `db899d2`+`ce91132` / `6cd4353` / `8a89f65`）；run_verify 1561 → 1582 → 1588。
 > **核心交付**：每回合 atom 注入硬頂 `TURN_BUDGET_LIMIT` 500 → 1200；總額裁切改「回填」；總額分級改依估算 token；降級版保留知識節錄；同題去冗；原生記憶橋接檔 13/13 壞 → 78/78；效果量測落 `Logs/injection-turns.jsonl` + `memory-effect-report.py` 週趨勢；回訪機制 `tools/followup-check.py`。
-> **現況文件**（只寫現況、不留脈絡）：[TECH.md](../../TECH.md) §7 token budget 表、[Architecture.md](../Architecture.md)、操作面 [Tools/hook-injection-probe.md](../Tools/hook-injection-probe.md)、[_CHANGELOG.md](../_CHANGELOG.md) 2026-08-28 對應條目。本檔只留**為什麼**、**證據鏈**與**被否決的路**。
+> **現況文件**（只寫現況、不留脈絡）：[TECH.md](../../../TECH.md) §7 token budget 表、[Architecture.md](../../Architecture.md)、操作面 [Tools/hook-injection-probe.md](../../Tools/hook-injection-probe.md)、[_CHANGELOG.md](../../_CHANGELOG.md) 2026-08-28 對應條目。本檔只留**為什麼**、**證據鏈**與**被否決的路**。
 
 ---
 
@@ -64,7 +64,7 @@
 - **驗證**：run_verify 1561 綠；統計檔跑完 0 行（遙測守衛生效）。
 
 ### 修 2：Reload 後實機驗證抓到兩個新問題（commit `fc1a888`）
-離線測試只證邏輯，注入效果必須用**真 hook 進程**驗（做法見 [Tools/hook-injection-probe.md](../Tools/hook-injection-probe.md)）。短／中／長 prompt 各 3 次，發現：
+離線測試只證邏輯，注入效果必須用**真 hook 進程**驗（做法見 [Tools/hook-injection-probe.md](../../Tools/hook-injection-probe.md)）。短／中／長 prompt 各 3 次，發現：
 - **問題 ①**：`_truncate_context_by_activation` Phase B 只留 `truncated_pointer_max`（3）顆指標，其餘整塊丟；整塊移除省的比 Phase A 估算的多 → 尾行顯示 **359/1000 卻 dropped 5 顆**。
   - **修法**：Phase B 改由 activation 高到低**回填**——塞得下全文就恢復全文，否則留一行指標（未達上限時），再否則才丟。
   - **驗證**：實測 998/1000、799/800、1786/1800，預算用滿、犧牲最少。
