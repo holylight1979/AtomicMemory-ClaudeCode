@@ -1953,14 +1953,17 @@ pip install -r tools/memory-vector-service/requirements.txt
 
 不需手動常駐：每次 SessionStart 背景 spawn [`tools/memory-vector-service/starter.py --phase sessionstart`](tools/memory-vector-service/starter.py)（職責見 [§8](#8-可觀測與自我維護)「vector 啟動器」）。
 
-- 就緒後寫 `workflow/vector_ready.flag`。
+- 就緒後寫 `workflow/vector_ready.flag`，並自動跑一次增量索引：內容或路徑變了的卡才重新嵌入（搬了位置的卡也會更新路徑，`indexer._incremental_unchanged`）。
 - 結果一行 JSON 落 `Logs/vector-observation-probe.log`。
+- 索引結果與錯誤在 `/status` 的 `index_job`；上次失敗時 SessionStart 出 `[Guardian:Vector]`。
 
 手動：
 
 ```bash
-curl -s http://127.0.0.1:3849/health        # 預期 {"status":"ok", ...}
-curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N, "chunks":M}
+curl -s http://127.0.0.1:3849/health                    # 預期 {"status":"ok", ...}
+curl -s -X POST http://127.0.0.1:3849/index/incremental # 增量索引（背景跑），預期 {"status":"started", ...}
+curl -s -X POST http://127.0.0.1:3849/index             # 全量重建（背景跑，整表重寫）
+curl -s http://127.0.0.1:3849/status                    # index_job：running／result／error
 ```
 
 或在 Claude Code 內用 `/vector`。

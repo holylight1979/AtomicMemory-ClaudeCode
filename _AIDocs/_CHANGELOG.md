@@ -6,7 +6,7 @@
 ---
 ## 2026-10-29 [觀]→[固] 要 10 筆效用證據、Confirmations 退出晉升；向量索引不再因 cp950 中止並會浮警告
 - **緣由**：`atom_promote` 的 [觀]→[固] 跟 [臨]→[觀] 同一條門檻（下界 0.6、n≥3），全庫 39 張 [觀] 有 16 張一呼叫就能升 [固]；Confirmations 資料源已停產卻仍是晉升條件之一（decisions 卡早寫已除役）。向量服務增量索引印卡名時遇 cp950 編不出的字整輪中止，716 張卡有 348 張不在向量庫、150 筆指向已搬走的路徑，statusline 照亮 vec✓、沒人知道。
-- **做法**：`atom-tools.js toolAtomPromote` 只看效用下界，[固] 讀 `usefulness.fix_min_n`（10）；`wg_atoms._self_iterate_atoms` 拿掉 confirmations 條件、config 刪 `self_iteration.promote_confirmations_threshold`。`memory-vector-service/service.py` 啟動時 stdout／stderr 改 UTF-8（backslashreplace）；SessionStart 加 `_vector_index_advisory`：/status 的 index_job 有 error 就浮一行 `[Guardian:Vector]`。重啟向量服務（發現同時有兩支在跑）並跑增量索引。
+- **做法**：`atom-tools.js toolAtomPromote` 只看效用下界，[固] 讀 `usefulness.fix_min_n`（10）；`wg_atoms._self_iterate_atoms` 拿掉 confirmations 條件、config 刪 `self_iteration.promote_confirmations_threshold`。`memory-vector-service/service.py` 啟動時 stdout／stderr 改 UTF-8（backslashreplace）；SessionStart 加 `_vector_index_advisory`：/status 的 index_job 有 error 就浮一行 `[Guardian:Vector]`。重啟向量服務（發現同時有兩支在跑）並跑增量索引。增量索引原本只比內容雜湊，搬了位置的卡 file_path 一直指舊址：`indexer._incremental_unchanged` 改成雜湊與路徑都沒變才略過（第二輪重索引 83 張，向量庫 887 筆全域／local 卡路徑全對得上，索引 716 張全查得到）。TECH §9.4 手動指令改成實際路由（POST /index、/index/incremental）。
 - **驗證**：verify_promotion_gate_phase0（新 2 案：confirmations 不算、[固] 要 10 筆）、verify_promotion_gate_autocapture、verify_promotion_heartbeat、verify_config_consistency、verify_vector_flag_refresh（新 2 案）綠；MCP smoke PASS。
 
 ## 2026-10-29 背景同步不再代上人改到一半的 TECH.md；驗收裁判拔掉沒接線的擋收尾開關；Python 下限統一 3.10

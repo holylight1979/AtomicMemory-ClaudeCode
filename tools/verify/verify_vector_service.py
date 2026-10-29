@@ -268,6 +268,16 @@ def test_build_index_incremental_wires_stale_cleanup():
     assert "_delete_stale_keys" in src, "增量索引須順帶清 stale"
 
 
+def test_incremental_reindexes_moved_atom_with_same_content():
+    """內容沒變但搬了位置 → 不可略過（重索引才會把 file_path 換成新址）；斜線寫法不同不算搬。"""
+    existing = {"extra:local-atoms:x": ("h1", "MemDev/x.md")}
+    assert indexer._incremental_unchanged(existing, "extra:local-atoms:x", "h1", "MemDev\\x.md") is True
+    assert indexer._incremental_unchanged(existing, "extra:local-atoms:x", "h1", "MemDev/sub/x.md") is False
+    assert indexer._incremental_unchanged(existing, "extra:local-atoms:x", "h2", "MemDev/x.md") is False
+    assert indexer._incremental_unchanged(existing, "extra:local-atoms:y", "h1", "MemDev/y.md") is False
+    assert "_incremental_unchanged" in inspect.getsource(indexer.build_index)
+
+
 class _FakeDB:
     def __init__(self, names, table=None):
         self._names = list(names)

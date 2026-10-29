@@ -249,6 +249,16 @@ def file_hash(path: Path) -> str:
         return ""
 
 
+def _norm_rel(p: Any) -> str:
+    return str(p or "").replace("\\", "/")
+
+
+def _incremental_unchanged(existing: Dict[str, Tuple[str, str]], key: str, fhash: str, rel_path: Any) -> bool:
+    """增量索引可略過這顆 atom：內容雜湊與存的路徑都沒變。
+    內容沒改、只搬了位置的 atom 也要重索引，否則向量庫的 file_path 一直指舊址。"""
+    return existing.get(key) == (fhash, _norm_rel(rel_path))
+
+
 def parse_and_chunk(
     layer_name: str, file_path: Path, rel_path: str
 ) -> List[Dict[str, Any]]:
@@ -601,15 +611,16 @@ def build_index(
 
     db = _get_db()
 
-    # For incremental: load existing hashes
-    existing_hashes: Dict[str, str] = {}
+    # For incremental: load existing (hash, path)
+    existing: Dict[str, Tuple[str, str]] = {}
     if incremental:
         try:
             table = db.open_table(TABLE_NAME)
-            rows = table.search().select(["layer", "atom_name", "file_hash"]).limit(table.count_rows()).to_list()
+            rows = (table.search().select(["layer", "atom_name", "file_hash", "file_path"])
+                    .limit(table.count_rows()).to_list())
             for row in rows:
                 key = f"{row.get('layer', '')}:{row.get('atom_name', '')}"
-                existing_hashes[key] = row.get("file_hash", "")
+                existing[key] = (row.get("file_hash", ""), _norm_rel(row.get("file_path", "")))
         except Exception:
             pass
 
@@ -623,7 +634,7 @@ def build_index(
         fhash = file_hash(file_path)
         atom_key = f"{layer_name}:{atom_name}"
 
-        if incremental and existing_hashes.get(atom_key) == fhash:
+        if incremental and _incremental_unchanged(existing, atom_key, fhash, rel_path):
             skipped += 1
             continue
 
