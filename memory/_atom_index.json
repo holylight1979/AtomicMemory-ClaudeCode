@@ -13837,6 +13837,29 @@
         "v6 拔掉"
       ],
       "scope": "global"
+    },
+    {
+      "name": "守門文件寫的擋滿第3次放行與續跑一回合是照擋送法-寫碼守門開時提醒規則stop只留帳-照擋分支是rule-mode換送法用的不是死碼",
+      "path": "_AIDocs/_atoms/MemDev/守門文件寫的擋滿第3次放行與續跑一回合是照擋送法-寫碼守門開時提醒規則stop只留帳-照擋分支是rule-mode換送法用的不是死碼.md",
+      "triggers": [
+        "RULE_MODE",
+        "gate_mode",
+        "照擋",
+        "提醒",
+        "第 3 次放行",
+        "續跑一回合",
+        "STOP_REMIND_LEDGER_ONLY",
+        "PickOne",
+        "reconcile_overflow",
+        "死碼",
+        "守門文件矛盾",
+        "擋或提醒"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:~/.claude/hooks/wg_release_rules.py",
+        "path:~/.claude/hooks/handlers/stop.py"
+      ]
     }
   ]
 }
