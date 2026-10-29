@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 寫碼守門關著時，AI 的工具清單不再列守門專用的四個工具
+- **緣由**：守門關著（同事出廠預設）時，`need_goal`、`second_opinion_start`、`second_opinion_result`、`project_smells` 仍列在 AI 的工具清單上；沒有任何提示會叫它用，列著只會讓 AI 誤叫、多讀說明。壞設計帶歪量測裡守門關的受測 session 實際看得到這四個。
+- **做法**：`tools/workflow-guardian-mcp/lib/mcp.js` 的 tools/list 改回 `listedTools(v6Enabled())`：守門關只列守門之前就有的 9 個記憶工具，開著照列 13 個；呼叫照樣處理。
+- **驗證**：新 `verify/verify_tools_list_guard_off.js`（純函式＋真起 server 以 `WG_CODING_GUARD=0` 打 tools/list，尾行 TOOLS_LIST_GUARD_OFF_CHECK PASS）；smoke_mcp_stdio（守門開，13 個）與五支依賴工具定義的案例全 PASS。新開 session 才會載到新清單。
+
 ## 2026-10-29 IDENTITY「綜觀＋側觀」改成先問需求、再讀現況
 - **緣由**：原本四問「是這裡嗎、合理嗎、有沒有更好的做法、同類別處有沒有」都以現有程式為參照，AI 讀了大量既有程式後會被帶著照抄壞設計。壞設計帶歪量測：加「先問需求、再讀現況」三問的兩場盲判 4/5，守門關與守門全開四場 2/5（`DevHistory/v6.0-寫程式碼的進化-2026-10/壞設計帶歪量測-三問對照-2026-10-29.md`）。
 - **做法**：`templates/IDENTITY.template.md` 與實例改成：讀程式前先寫需求與最簡形狀、讀完現況逐條比多出來的部分、寫不出需求就問、交付前回頭對有沒有照抄；同義的判準卡綁 E02（側觀批判行），模擬送出排在 E02 第一張、三問完整不截斷。

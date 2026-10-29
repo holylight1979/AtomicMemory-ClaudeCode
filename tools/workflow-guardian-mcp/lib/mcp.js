@@ -1,6 +1,6 @@
 // mcp.js — MCP stdio JSON-RPC transport。buffer 私有於本檔（stdin loop + handleMessage 同檔）。
 // handleToolCall lazy-require atom-tools 以化解 mcp<->atom-tools 循環相依。
-const { VERSIONS } = require("./paths");
+const { VERSIONS, v6Enabled } = require("./paths");
 const { crashLog } = require("./log");
 
 // ─── MCP Protocol ───────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ function handleMessage(msg) {
       break;
 
     case "tools/list":
-      sendResponse(id, { tools: TOOL_DEFINITIONS });
+      sendResponse(id, { tools: listedTools(v6Enabled()) });
       break;
 
     case "tools/call":
@@ -82,6 +82,14 @@ function handleMessage(msg) {
 }
 
 // ─── Tool Definitions ───────────────────────────────────────────────────────
+
+// 寫碼守門專用的工具：守門關著時不列給 AI（沒有任何提示會叫它用，列著只會讓 AI 誤叫、多讀說明）；
+// 守門之前就有的記憶工具照列。呼叫照樣處理，開關打開就全部回來。
+const GUARD_ONLY_TOOLS = new Set(["need_goal", "second_opinion_start", "second_opinion_result", "project_smells"]);
+
+function listedTools(guardOn) {
+  return guardOn ? TOOL_DEFINITIONS : TOOL_DEFINITIONS.filter((t) => !GUARD_ONLY_TOOLS.has(t.name));
+}
 
 const TOOL_DEFINITIONS = [
   {
@@ -641,5 +649,5 @@ function sendToolResult(id, text, isError = false) {
 }
 
 module.exports = {
-  sendResponse, sendError, sendToolResult, handleMessage, handleToolCall, TOOL_DEFINITIONS,
+  sendResponse, sendError, sendToolResult, handleMessage, handleToolCall, TOOL_DEFINITIONS, GUARD_ONLY_TOOLS, listedTools,
 };
