@@ -7,7 +7,7 @@
 ## 2026-10-29 依賴比卡新改看版控最後變更日：update 刷新的 mtime 不再誤報、同日比版號分先後
 - **緣由**：TSLG 專案層回報「依賴比卡新」58 條裡 12 條是 svn update 把 mtime 設成更新當下造成的誤報；同一天改動的卡片與程式也分不出誰先誰後。
 - **做法**：`atom-health-check.check_depends_mtime` 改經 `_ChangeClock` 取依賴改動時刻：在 svn／git 且乾淨 → 版控最後變更；本機有未提交修改或沒進版控 → mtime。同日 → 比卡片驗證日當天起第一次進版（同 svn repo 比版號，其餘比 commit 時間；當天沒進過版用本機修改的 mtime），依賴較晚才報、分不出也報並寫原因。svn 合成一批（info＋status 同時跑，巢狀工作副本可混批）、git 每 repo 一批（status＋log 同時跑，log 順帶取卡片進版紀錄），svn 卡片 log 只在同日時並行查；報表欄 `dep_mtime` 改 `dep_changed`＋`dep_source`＋`same_day`；`single_atom_report` 只查該卡。
-- **驗證**：verify_health_selftests 新 4 案＋改 1 案（svn／git 各一：mtime 新但版控舊不報、同日以版號／commit 時間分先後；非版控、未提交、未進版控退 mtime），舊碼 5 紅、新碼綠；相關 3 支 52 passed。TSLG 實跑 0 條（改以 Created-at 回推：舊 54 → 新 42，正好少 12 條）；全域 10 → 12（多 2 條同日依賴晚於卡片）。耗時中位 TSLG 0.68 → 1.23s、全域 0.86 → 1.27s。
+- **驗證**：verify_health_selftests 新 4 案＋改 1 案（svn／git 各一：mtime 新但版控舊不報、同日以版號／commit 時間分先後；非版控、未提交、未進版控退 mtime），舊碼 5 紅、新碼綠；相關 3 支 52 passed。TSLG 實跑 0 條；真實資料驗收 `tools/verify/deps_mtime_svn_acceptance.py`（卡片日期只看 Created-at、逐條直問 svn 獨立算預期）PASS：70 條依賴，新版 49 條＝預期 49 條，舊 mtime 判法 54 條裡 5 條是同日依賴版號在卡片第一次進版之前（含 codereview 二期卡 r5156／r5157），新版都不報。全域 10 → 12（多 2 條同日依賴晚於卡片）。耗時中位 TSLG 0.68 → 1.23s、全域 0.86 → 1.27s。
 
 ## 2026-10-28 「順手看到最該修」改掛測試綠那批；卡片 Depends 全改可攜路徑；升級結尾提示 v6 開關
 - **緣由**：量測 010 判分發現 PickOne 結構上送不到——它只掛在收尾檢核／完整對照那次呼叫後面，而 10-20 關掉收尾檢核的擋時提醒也一併不送，AI 不再呼叫 anti_evasion_report。另：同事回報 43 張卡 Depends 是作者機絕對路徑、5 支驗證過期、`--upgrade` 後不知 v6 預設關。
