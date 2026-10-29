@@ -1,6 +1,6 @@
 """verify_config_consistency.py：tools/config-consistency.py 的四類各抓得到、動態鍵進「判不了」不進 (a)、尾行格式。
 
-做法：在 pytest 的 tmp 建一棵假樹（workflow/config.json、TECH.md §12、lib/hub_config.py、幾支假 .py／.js），
+做法：在 pytest 的 tmp 建一棵假樹（workflow/config.json、TECH/config.md、lib/hub_config.py、幾支假 .py／.js），
 以子程序跑工具（--root 假樹 --config 假 config），讀 --json 輸出與尾行斷言。真實的 ~/.claude 不碰。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_config_consistency.py
 """
@@ -20,7 +20,7 @@ DONE_RE = re.compile(r"^[A-Z][A-Z0-9_]* DONE( \w+=\S+)*$")
 
 FILES = {
     "workflow/config.json": json.dumps({"bar": 1, "baz": {"enabled": True}, "known": {"x": 1}, "_doc": "不算"}),
-    "TECH.md": "# t\n\n## 12. 設定總表\n\n| 鍵 | 預設 | 意義 |\n|----|------|------|\n| `techkey.a` / `b` | 1 / 2 | 文件定義 |\n\n## 13. 其他\n",
+    "TECH/config.md": "# t\n\n## 設定總表\n\n| 鍵 | 預設 | 意義 |\n|----|------|------|\n| `techkey.a` / `b` | 1 / 2 | 文件定義 |\n",
     "lib/hub_config.py": 'HUB_DEFAULTS = {"enabled": True}\n',
     "hooks/x.py": (
         "def f(config):\n"
@@ -69,7 +69,7 @@ def result(tree):
 
 def test_a_read_not_defined_only_foo(result):
     res, _ = result
-    assert [row["key"] for row in res["a"]] == ["foo"]          # techkey（TECH.md）、overview_hub（HUB_DEFAULTS）、known 都算有定義
+    assert [row["key"] for row in res["a"]] == ["foo"]          # techkey（TECH/config.md）、overview_hub（HUB_DEFAULTS）、known 都算有定義
 
 
 def test_b_defined_not_read(result):

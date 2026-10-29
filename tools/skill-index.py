@@ -33,6 +33,7 @@ SKILLS_DIR = CODE_DIR / "skills"
 # 其餘策展文字（「19 遷移自…」「含外部 karpathy」）保持人工維護、工具不動。
 MARKED_DOCS = [
     "TECH.md",
+    "TECH/file-tree.md",
     "Install-forAI.md",
     "_AIDocs/Architecture.md",
     "_AIDocs/_INDEX.md",

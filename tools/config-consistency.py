@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """config-consistency.py：設定鍵一致性量測（G8）——每個設定鍵在每個執行端是否一致生效。只量不改。
 
-做什麼：讀鍵的定義來源（workflow/config.json；lib/hub_config.HUB_DEFAULTS，掛在 overview_hub 底下；TECH.md §12 設定總表），
+做什麼：讀鍵的定義來源（workflow/config.json；lib/hub_config.HUB_DEFAULTS，掛在 overview_hub 底下；TECH/config.md 設定總表），
 掃讀取端（hooks/、lib/、tools/ 的 .py 用 ast；.js 用 regex＋行號，標「近似」），列四類：
   (a) 程式讀了、三個定義來源都沒有的鍵（同一段整段沒定義時併成一列）
   (b) config.json 定義了、沒有任何讀取端讀的鍵（整段沒人讀只列最上層）
@@ -222,14 +222,11 @@ def _cell_tokens(cell: str) -> List[str]:
 
 
 def tech_keys(text: str, top: Set[str]) -> Tuple[Set[KeyPath], Set[KeyPath]]:
-    """TECH.md「## 12. 設定總表」與 12.1 兩張表第一欄的反引號鍵 → (精確鍵含各層上層, 萬用前綴)。
+    """TECH/config.md 每張表第一欄的反引號鍵 → (精確鍵含各層上層, 萬用前綴)。
     同一格後續的鍵：第一段不是頂層鍵 → 掛在第一個鍵的上一層（`a.b` / `c` → a.c）；`a.*` 當前綴。"""
     exact: Set[KeyPath] = set()
     wild: Set[KeyPath] = set()
-    m = re.search(r"^## 12\..*?$(.*?)(?=^## 13\.|\Z)", text, re.S | re.M)
-    if not m:
-        return exact, wild
-    for line in m.group(1).splitlines():
+    for line in text.splitlines():
         cells = line.split("|")
         if not line.startswith("|") or len(cells) < 3:
             continue
@@ -1317,7 +1314,7 @@ def run(root: Path, config_path: Path) -> Dict[str, Any]:
         raise ValueError("config.json 頂層不是物件")
     cfg_flat = flatten_config(cfg)
     hub, hub_src = hub_defaults(root)
-    tech_file = root / "TECH.md"
+    tech_file = root / "TECH" / "config.md"
     top = set(cfg) | {p[0] for p in hub}
     tech = tech_keys(tech_file.read_text(encoding="utf-8"), top) if tech_file.is_file() else (set(), set())
 
@@ -1376,18 +1373,18 @@ def render_md(res: Dict[str, Any]) -> str:
          "> 只量不改。四類各一表；「建議」欄是 AI 初判，使用者裁定。數字是尺不是判決。", "",
          "## 摘要", "",
          f"- 定義來源：config.json `{s['config']}`（{s['config_keys']} 鍵，含中間段）；HUB_DEFAULTS `{s['hub']}`"
-         f"（{s['hub_keys']} 鍵，掛 overview_hub 下）；TECH.md §12（{s['tech_keys']} 鍵）",
+         f"（{s['hub_keys']} 鍵，掛 overview_hub 下）；TECH/config.md（{s['tech_keys']} 鍵）",
          f"- 讀取端：Python {s['py_files']} 檔（ast）、JS {s['js_files']} 檔（regex，近似）；讀取點 {res['reads']} 處；鍵總數 {res['keys']}",
          f"- (a) 讀了沒定義 {len(res['a'])}｜(b) 定義了沒人讀 {len(res['b'])}｜(c) 預設值不同 {len(res['c'])}｜(d) 自己算資料根 {len(res['d'])}"
          + (f"（{'、'.join(f'{k} {v}' for k, v in sorted(kinds.items()))}）" if kinds else ""),
          f"- 判不了：動態鍵 {len(u['dynamic'])}｜整段外流 {len(u['escape'])} 段｜定義了沒直接讀但上層外流 {len(u['b_held'])}"
          f"｜疑似同鍵不同寫法 {len(u['alias'])} 組",
-         "", "## (a) 程式讀了、config.json／HUB_DEFAULTS／TECH.md 都沒定義", ""]
+         "", "## (a) 程式讀了、config.json／HUB_DEFAULTS／TECH/config.md 都沒定義", ""]
     L += _table(["鍵", "子鍵", "哪裡讀", "各端預設", "程式內預設表", "建議"],
                 [[f"`{r['key']}`", "、".join(r["sub_keys"]) or "—", r["where"], "；".join(r["defaults"]) or "—",
                   "、".join(r["tables"]) or "—", r.get("note", "")] for r in res["a"]])
     L += ["## (b) config.json 定義了、沒有讀取端讀（整段沒人讀只列最上層）", ""]
-    L += _table(["鍵", "config.json 值", "子鍵數", "TECH.md 有", "建議"],
+    L += _table(["鍵", "config.json 值", "子鍵數", "TECH/config.md 有", "建議"],
                 [[f"`{r['key']}`", r["value"], r["children"], "有" if r["in_tech"] else "—", r.get("note", "")] for r in res["b"]])
     L += ["## (c) 同一個鍵在不同讀取處的預設值不同", ""]
     L += _table(["鍵", "config.json 值", "各處預設", "建議"],
@@ -1411,7 +1408,7 @@ def render_md(res: Dict[str, Any]) -> str:
           "- 沒有更準的來源時，名叫 config／_config／full_config／full_cfg／wg_config 的變數當整份設定（自有設定檔的工具不套用）；"
           "名字對但內容不是 config.json 的會誤列進 (a)。",
           "- JS 是 regex：只認 loadConfig() 起頭、或綁到它的變數與函式回傳；作用域用大括號深度近似。",
-          "- TECH.md 的預設值欄不比對（格式不一，拆不準）；只用第一欄判「有沒有定義」。", "",
+          "- TECH/config.md 的預設值欄不比對（格式不一，拆不準）；只用第一欄判「有沒有定義」。", "",
           done_line(res)]
     return "\n".join(L) + "\n"
 

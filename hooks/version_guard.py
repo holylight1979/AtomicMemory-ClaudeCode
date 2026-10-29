@@ -10,7 +10,7 @@ warn-only advisory（systemMessage + stderr，可觀測不阻斷）。**寧漏�
 高精度 pattern，模糊者（裸 Phase N / 日期 / v2.x）不納入，避免噪音。
 
 範圍：只掃 ~/.claude 內的檔（政策針對本系統自身）；正位/歸檔檔（DevHistory /
-_CHANGELOG / TECH / Architecture / SPEC / plans / verify / _staging）豁免。
+_CHANGELOG / TECH 與 TECH/ 細節檔 / Architecture / SPEC / plans / verify / _staging）豁免。
 
 規則：rules/core.md「版本與文件治理」；pattern/KEEP 邊界 single source＝atom
 [[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]。config: workflow/config.json
@@ -70,7 +70,7 @@ _WHITELIST_TOKENS = (
 
 # 路徑含這些片段 → 整檔豁免（版本正位 / 歸檔 / 測試 fixture / 規劃）
 _WHITELIST_PATH_PARTS = (
-    "_aidocs/devhistory/", "_changelog", "/tech.md", "tech.md",
+    "_aidocs/devhistory/", "_changelog", "/tech.md", "tech.md", "/tech/",
     "architecture.md", "readme.md", "spec_atom", "/plans/",
     "/verify/", "_staging/", "/.git/", "__pycache__",
     # atom 本身列舉 pattern 作範例 → 豁免自身與本 hook/測試

@@ -220,7 +220,7 @@ def classify(path_arg: str) -> dict:
 
 
 def _doc_scan_targets() -> list[Path]:
-    """人面向說明文件：_AIDocs/（排除 atom 物理區：舊址 Failures/ 與 _atoms/）＋根 README/TECH。"""
+    """人面向說明文件：_AIDocs/（排除 atom 物理區：舊址 Failures/ 與 _atoms/）＋根 README/TECH 與 TECH/ 細節檔。"""
     docs: list[Path] = []
     aidocs = CLAUDE_DIR / "_AIDocs"
     if aidocs.is_dir():
@@ -233,6 +233,7 @@ def _doc_scan_targets() -> list[Path]:
         p = CLAUDE_DIR / fn
         if p.exists():
             docs.append(p)
+    docs.extend(sorted((CLAUDE_DIR / "TECH").glob("*.md")))
     return docs
 
 

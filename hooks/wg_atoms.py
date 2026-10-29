@@ -2917,7 +2917,7 @@ def _scan_doc_refs(moved: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     """搬移後掃**人面向說明文件**是否仍含舊 path/檔名引用（移檔非建檔特有；user 補充）。
 
     回 {slug: [需同步的 rel 文件...]}。只掃 _AIDocs/（排除 atom 物理區：舊址 Failures/ 與 _atoms/，
-    那裡的 slug 引用是 atom-atom Related、搬 path 不斷）＋根層 README/TECH。advisory only。
+    那裡的 slug 引用是 atom-atom Related、搬 path 不斷）＋根層 README/TECH 與 TECH/ 細節檔。advisory only。
     """
     docs: List[Path] = []
     aidocs = CLAUDE_DIR / "_AIDocs"
@@ -2931,6 +2931,7 @@ def _scan_doc_refs(moved: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         p = CLAUDE_DIR / fn
         if p.exists():
             docs.append(p)
+    docs.extend(sorted((CLAUDE_DIR / "TECH").glob("*.md")))
     cache = {}
     for p in docs:
         try:

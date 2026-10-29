@@ -1,5 +1,5 @@
 # Claude Code 全域設定 — 目錄角色說明
-> 路徑 `~/.claude/`；只列頂層目錄角色；詳細跑 `tree -L 3` 或查各子目錄 `_INDEX.md`；完整架構目錄樹見 `../TECH.md`「架構目錄樹」章
+> 路徑 `~/.claude/`；只列頂層目錄角色；詳細跑 `tree -L 3` 或查各子目錄 `_INDEX.md`；完整架構目錄樹見 [`../TECH/file-tree.md`](../TECH/file-tree.md)
 
 ## 頂層目錄角色
 | 路徑 | 角色 | 維護來源 |

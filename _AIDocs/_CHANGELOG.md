@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 TECH.md 重整：主文精簡＋底部附錄，四個大單元拆進 TECH/，路徑與 §、規則名可點
+- **緣由**：TECH.md 48 萬字元，表格格子塞整段長句，網頁上欄位被擠成細條；一段話用「；」串十幾件事，人與 AI 都抓不到重點。
+- **做法**：§編號與標題不動；每節主文改「這節解決什麼 → 要點條列／箭頭流程圖 → 一句為什麼 → 細節連結」，細節移到底部附錄；§7 細節、§7.8 規則全表、§10 目錄樹、§12 設定表拆成 `TECH/guards.md`、`release-rules.md`、`file-tree.md`、`config.md`。反引號裡 repo 內存在的路徑、§x.y、規則名都轉成 GitHub／GitLab 都能點的相對連結。順手補齊文件與程式不符處：`RULES` 217 條（文件寫 214），補 26 條只在程式有的規則；目錄樹補漏列檔、事件數 11；§12 補 5 組只在 §5.3 出現的鍵。`config-consistency.py` 改讀 `TECH/config.md`，`skill-index.py` 標記檔加 `TECH/file-tree.md`，`version_guard` 白名單與兩支搬卡掃描（`wg_atoms._scan_doc_refs`、refile `docrefs`）納入 `TECH/`。
+- **驗證**：原稿反引號內容、規則名、計數標記、267 個數字、442 段「」引語在新文件全數找得到（214 為刻意更正）；所有內部錨點以 GitHub、GitLab 兩套錨點規則都解得到、檔案連結目標都存在；`config-consistency` 改讀新檔前後解析出的鍵完全相同（305＋7）；verify_config_consistency／verify_version_guard／verify_skill_index／verify_realm_sweep 71 案綠；SKILL_INDEX_CHECK、DOC_COUNTS_CHECK PASS。
+
 ## 2026-10-29 記憶背景同步一次改太多檔時 git add 失敗（WinError 206 指令列太長）
 - **緣由**：MemDev 分子夾一次異動約 300 張卡，背景同步把每個變更檔逐一當 pathspec 放進 `git add`／`git commit` 指令列，中文長檔名加總超過 Windows 單條指令列上限，整輪同步 `FileNotFoundError: [WinError 206]`，記憶卡卡在工作樹沒上版。
 - **做法**：`wg_vcs_sync._git_with_paths`：逐檔清單超過 8000 字就寫成 NUL 分隔暫存檔、改用 `--pathspec-from-file`＋`--pathspec-file-nul`；短清單照舊放指令列，既有錄製檔參數不變。

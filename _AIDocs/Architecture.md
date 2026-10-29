@@ -217,7 +217,7 @@ TECH 未收的行為（本段為唯一來源）：
 - `atom_promote merge_to_preferences=true`（global only，[觀]→[固] 時）：把「## 知識」合併到 `preferences.md`、原 atom 搬 `memory/_archived/`。
 - 改 `server.js` 或全域 MCP 設定需重啟才生效；重啟 SOP 見 atom `guardian-dashboard-孤兒佔埠與新碼重啟`。孤兒 server 由 **stdin-EOF 自行退出**預防（父 CC client 一斷線即隨之退出、釋放埠），協作式交棒為 abrupt-kill／新舊碼升級的兜底。
 
-## Testing & Verify（本段為唯一來源；TECH §10 只有入口一行）
+## Testing & Verify（本段為唯一來源；TECH §10 的 `TECH/file-tree.md` 只有入口一行）
 
 **四原則**（決定砍／留）：
 
