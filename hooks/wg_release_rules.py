@@ -3114,6 +3114,25 @@ def parse_data_file_decls(text: str) -> List[Tuple[str, str, str]]:
             for m in _DATA_FILE_DECL_RE.finditer(str(text or ""))]
 
 
+# 「case_for｜<程式檔>：<案例檔或 pytest 節點，「、」分隔>」：AI 宣告某支程式由哪支案例驗（CASE_COVERS_CHANGE 的 case_for 第二個來源，
+# 與 need_goal verify_scope 的 case_for 同義；三管道都認，與動資料檔宣告同一種寫法）
+_CASE_FOR_DECL_RE = lazy_re(r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?case_for\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)", re.MULTILINE | re.IGNORECASE)
+_CASE_FOR_SPLIT_RE = lazy_re(r"[、，,；;\s]+")
+
+
+def parse_case_for_decls(text: str) -> List[Tuple[str, List[str]]]:
+    """文字裡每一行「case_for｜<程式檔>：<案例…>」→ [(程式檔, [案例檔])]；案例寫 pytest 節點（tests/t.py::test_x）只取檔那段，
+    尾巴的括號說明去掉。"""
+    out: List[Tuple[str, List[str]]] = []
+    for m in _CASE_FOR_DECL_RE.finditer(str(text or "")):
+        value = re.sub(r"[（(][^（）()\n]*[）)]", " ", m.group(2))
+        cases = [tok.split("::", 1)[0].strip(_DECL_PATH_TRIM) for tok in _CASE_FOR_SPLIT_RE.split(value) if tok.strip()]
+        cases = [c for c in cases if c and re.search(r"[A-Za-z0-9]", c)]
+        if cases:
+            out.append((m.group(1).strip().strip(_DECL_PATH_TRIM), cases))
+    return out
+
+
 def decl_names_file(decl_path: str, target: str) -> bool:
     """SAME_FILE 的宣告版：宣告的路徑就是要改的檔，或是它的路徑尾段（`settings.json`、`config/settings.json` 對得到
     `C:\\proj\\config\\settings.json`；`other.json`、`ettings.json` 對不到）。"""

@@ -459,3 +459,45 @@ def test_reminders_ask_judgment_cards_once_per_batch(monkeypatch, capsys):
     rows = {r["id"]: r for r in reg["entrypoints"]}
     for eid in ("E03", "E13", "E14", "E15", "E16"):
         assert "post_tool_hint" in rows[eid]["paths"], eid
+
+
+def test_case_for_line_is_a_case_declaration(monkeypatch, capsys):
+    """011 重驗 C′：AI 在 # 註解裡寫「case_for｜receipt.py：test_cli.py::test_x」說明哪支案例驗它，閘以前只收 need_goal 的宣告。
+    現在三管道的這一行都算 case_for：對得到的程式檔不再提醒欠案例；對不到的照提醒。"""
+    import overview_hub as oh
+    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
+    monkeypatch.setattr(vl, "file_root_of", lambda p: r"c:\proj", raising=False)
+    monkeypatch.setattr(vl, "_case_text", lambda p: "", raising=False)
+    monkeypatch.setattr(oh, "assistant_text_after", lambda tp, off, ch="text":
+                        "# case_for｜hooks/x.py：tests/test_other.py::test_a（整張收據）\ngit diff --stat" if ch == "tool_input" else "")
+    assert rr.parse_case_for_decls("case_for｜a.py：t/test_b.py::test_1、t/test_c.py\n# case_for | b.py: x") == \
+        [("a.py", ["t/test_b.py", "t/test_c.py"]), ("b.py", ["x"])]
+    files = [_mf(seq=3), _mf(r"c:\proj\tests\test_other.py", seq=4)]
+    calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
+    cfg = {"reconcile_gate": {"enabled": True}, "verify_scope": OFF}
+    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [dict(f) for f in files], "remind_sent": []}
+    monkeypatch.setattr(ptb, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(ptb, "write_state", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        ptb.handle_post_tool_batch({"session_id": SID, "tool_calls": calls, "cwd": r"c:\proj", "transcript_path": "x.jsonl"}, cfg)
+    assert "CASE_COVERS_CHANGE" not in capsys.readouterr().out, "寫了 case_for 行：不欠"
+    state2 = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [dict(f) for f in files]}
+    ctx = _batch(monkeypatch, capsys, state2, calls, cfg)          # 沒給 transcript：讀不到那行，照提醒
+    assert "CASE_COVERS_CHANGE" in ctx and "case_for｜" in ctx, ctx
+
+
+def test_waived_red_tests_count_as_delivery_boundary():
+    """011 重驗 C′：使用者叫跳過的那支永遠紅，「順手看到最該修」只認全綠永遠到不了。還紅的每一支都在豁免帳上 → 這批算到交付邊界；
+    有一支不在帳上、或帳是空的 → 不算。"""
+    red = {"seq": 1, "cmd": "python -m pytest -q tests", "exit_code": 1, "sentinels": []}
+    base = {"failing_tests": [{"session_id": SID, "summary": "FAILED tests/test_erp.py::test_contract", "pytest": True}]}
+    state = {**base, "verify_receipts": {SID: [red]}, "testfail_waivers": [{"item": "test_contract", "units": ["tests/test_erp.py::test_contract"]}]}
+    assert ptb._test_green_batch(state, SID) == (True, True)
+    state = {**base, "verify_receipts": {SID: [red]}}
+    assert ptb._test_green_batch(state, SID) == (False, True)
+    two = {"session_id": SID, "summary": "FAILED tests/test_erp.py::test_contract\nFAILED tests/test_a.py::test_b", "pytest": True}
+    state = {"failing_tests": [two], "verify_receipts": {SID: [red]}, "testfail_waivers": [{"units": ["tests/test_erp.py::test_contract"]}]}
+    assert ptb._test_green_batch(state, SID) == (False, True)
+    state = {"failing_tests": [], "verify_receipts": {SID: [dict(red, exit_code=0)]}}
+    assert ptb._test_green_batch(state, SID) == (True, True)

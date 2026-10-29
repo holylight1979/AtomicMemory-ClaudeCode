@@ -513,7 +513,7 @@ def test_pick_one_still_sent_when_stop_hook_active(driven, capsys, monkeypatch):
 def test_declared_cases_wired_into_reconcile(driven, capsys, monkeypatch):
     seen, marker = [], (lambda path: ["verify_x.py"])
     calls = []
-    monkeypatch.setattr(st, "declared_cases", lambda state, sid, cfg: calls.append(sid) or marker)
+    monkeypatch.setattr(st, "declared_cases", lambda state, sid, cfg, tp="": calls.append(sid) or marker)   # 第 4 個參數＝transcript 路徑（case_for｜ 行從它讀）
     real = st.reconcile_gate_parts
     monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: seen.append(k) or real(*a, **k))
     driven(_CLAIM, capsys)

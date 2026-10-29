@@ -1451,15 +1451,37 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     return owed
 
 
-def declared_cases(state: Dict[str, Any], key: str, cfg: Dict[str, Any]) -> Callable[[str], List[str]]:
-    """驗證範圍宣告的「程式檔 → 驗它的案例檔」（CASE_COVERS_CHANGE 的 case_for）：最新那份宣告裡 case_for 列到這個程式檔的每一項，
-    那一項點得到的案例檔（wg_verify_scope._case_files）。宣告閘關著也照收照記（need_goal verify_scope），沒宣告回空。"""
+def declared_cases(state: Dict[str, Any], key: str, cfg: Dict[str, Any], transcript_path: str = "") -> Callable[[str], List[str]]:
+    """「程式檔 → 驗它的案例檔」（CASE_COVERS_CHANGE 的 case_for），兩個來源：驗證範圍宣告最新那份裡 case_for 列到這個程式檔的每一項
+    點得到的案例檔（wg_verify_scope._case_files；宣告閘關著也照收照記）；AI 在回覆文字、`#` 註解指令、thinking 寫的
+    「case_for｜<程式檔>：<案例檔或節點>」行（wg_release_rules.parse_case_for_decls，整個 session 都認；transcript_path 給了才讀），
+    案例相對該程式檔的專案根解析、要是案例檔（is_case_file）。沒宣告回空。"""
     import wg_verify_scope as vs                                  # 延後匯入：wg_verify_scope 匯入本檔
     items = (vs.current_decl(state, key) or {}).get("items") or []
+    lines: List[Tuple[str, List[str]]] = []
+    if transcript_path:
+        from overview_hub import LOCATE_CHANNELS, assistant_text_after
+        from wg_release_rules import parse_case_for_decls
+        for ch in LOCATE_CHANNELS:
+            lines.extend(parse_case_for_decls(assistant_text_after(transcript_path, 0, ch)))
+
+    def from_lines(path: str) -> List[str]:
+        from wg_release_rules import decl_names_file
+        root = file_root_of(path) or os.path.dirname(path)
+        out: List[str] = []
+        for code, cases in lines:
+            if not decl_names_file(code, path):
+                continue
+            for c in cases:
+                p = c if os.path.isabs(c) else os.path.join(root, c)
+                if is_case_file(p, cfg, root):
+                    out.append(os.path.normpath(p))
+        return out
 
     def cases_for(path: str) -> List[str]:
         k = canon_path(path)
-        return [c for it in items if k in {canon_path(x) for x in it.get("case_for") or []} for c in vs._case_files(it, cfg)]
+        got = [c for it in items if k in {canon_path(x) for x in it.get("case_for") or []} for c in vs._case_files(it, cfg)]
+        return got + from_lines(path)
     return cases_for
 
 
@@ -2292,7 +2314,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
             f"改了程式碼（{names}），本 session 新寫或改過的案例都沒有覆蓋它（案例檔要和程式同根、現在還在；義務跨回合，不看收尾措辭）",
             (*[f"{v.rule}：{v.why}" for v in per_file],
              f"本 session 改過的案例檔：{'、'.join(cases_touched[:4]) or '（無）'}",
-             "覆蓋＝案例檔名照它取（test_／verify_<模組名>、<模組名>_test）、內容提到它（檔名或模組名），或驗證範圍宣告的 case_for 列了它；不比改動先後，改完程式不必再去碰案例",
+             "覆蓋＝案例檔名照它取（test_／verify_<模組名>、<模組名>_test）、內容提到它（檔名或模組名），或你寫一行「case_for｜<程式檔>：<案例檔或節點>」（驗證範圍宣告的 case_for 同義）列了它；不比改動先後，改完程式不必再去碰案例",
              "改了碼沒驗證 case 覆蓋（PASS 不能代替）：補一個會紅的 case；真的不需要補案例，就照【收尾放行確認】問使用者"))))
     # (v) 規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：搬了含程式檔的目錄，欠搬之後的路徑掃描與抽樣兩張收據（不看措辭、跨回合）
     for mv in moves:

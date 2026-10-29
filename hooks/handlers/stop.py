@@ -1022,7 +1022,7 @@ def _verify_gates(
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
                 # 驗證範圍閘關著時，verify_scope 照收的 case_for 宣告也算案例覆蓋
-                case_for=declared_cases(state, session_id, rg_cfg),
+                case_for=declared_cases(state, session_id, rg_cfg, str(transcript) if transcript else ""),
                 case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
                                                                   deadline=git_dl, cfg=rg_cfg),
                 committed_new=state.get("committed_new_code"), user_turn=since,

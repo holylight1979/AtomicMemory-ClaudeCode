@@ -50,7 +50,7 @@ def _closing_round(state: Dict[str, Any], session_id: str, input_data: Dict[str,
 
 _HIT_ROW_RE = re.compile(r"^\s*✗ \(([^)]+)\) ([A-Z][A-Z0-9_]*)：(.*?)(?:｜證據：|$)")
 _MCP_SEGMENT = "/tools/workflow-guardian-mcp/"
-FIX_CASE = "補一支會紅的案例（檔名照它取或內容提到它）"
+FIX_CASE = "補一支會紅的案例（檔名照它取或內容提到它）；已有案例在驗它就寫一行「case_for｜<程式檔>：<案例檔或節點>」"
 FIX_MOVE = "掃一次舊路徑的引用、跑一支搬過去的抽樣，兩張收據都要在"
 FIX_EQUIV = "最後一次改程式之後跑 order／side_effect／boundary 三類變異、各印 PRESERVE_CHECK PASS；不適用寫「等值證法｜不適用｜<理由>」"
 FIX_HOT = "收尾答一題「這次改動碰到熱路徑或大量配置嗎」：是→量、附 DONE 收據；否→一句為什麼"
@@ -135,7 +135,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
             print(f"[Guardian:提醒] {name}判不出（這批少這一段）：{type(e).__name__}: {e}", file=sys.stderr)
 
     if new_code:
-        part("欠案例", lambda: _code_check_reminders(state, sid, own, config, say))
+        part("欠案例", lambda: _code_check_reminders(state, sid, own, config, say, str(input_data.get("transcript_path") or "")))
         part("等值意圖", lambda: _equivalence_reminders(state, config, cwd, say))
         if any(_MCP_SEGMENT in str(m["path"]).replace("\\", "/").lower() for m in new_code):
             say("RELOAD_ADVICE_ALREADY_LOADED", "改了 tools/workflow-guardian-mcp/ 的檔", FIX_RELOAD)
@@ -183,7 +183,9 @@ def _pick_on_green(cr, state, sid, config, input_data, lines: List[str]) -> None
 def _test_green_batch(state: Dict[str, Any], sid: str) -> Tuple[bool, bool]:
     """這批有沒有跑綠的測試：post_tool_use 記的收據（state verify_receipts，事件序號 seq 比上次看到的大＝這批新落的），
     是測試指令或帶 PASS 哨兵、且跑綠（wg_verify_batch.receipt_green：沒有 FAIL 哨兵、結束碼 0）。回 (綠, state 改了)；
-    看過的序號記 state remind_receipt_seq[sid]。"""
+    看過的序號記 state remind_receipt_seq[sid]。
+    紅的測試指令也算到交付邊界，條件是還紅的每一支都在使用者豁免帳上（state testfail_waivers，USER_WAIVER_NEEDS_CITATION 記的）：
+    使用者叫跳過的那支永遠不會綠，只認「全綠」那一問永遠到不了（011 實跑 C′）。"""
     from wg_verify_ledger import receipts_of
     seen = state.setdefault("remind_receipt_seq", {})
     mark = int(seen.get(sid) or 0)
@@ -193,12 +195,26 @@ def _test_green_batch(state: Dict[str, Any], sid: str) -> Tuple[bool, bool]:
     seen[sid] = max(int(r.get("seq") or 0) for r in new)
     from wg_evasion import is_test_command
     from wg_verify_batch import receipt_green
-    return any(receipt_green(r) and (is_test_command(str(r.get("cmd") or ""))
-                                     or any(str(s.get("verdict")) == "PASS" for s in r.get("sentinels") or [] if isinstance(s, dict)))
-               for r in new), True
+
+    def is_test(r: Dict[str, Any]) -> bool:
+        return is_test_command(str(r.get("cmd") or "")) or any(
+            str(s.get("verdict")) == "PASS" for s in r.get("sentinels") or [] if isinstance(s, dict))
+    if any(receipt_green(r) and is_test(r) for r in new):
+        return True, True
+    return any(is_test(r) for r in new) and _reds_all_waived(state, sid), True
 
 
-def _code_check_reminders(state, sid, own, config, say) -> None:
+def _reds_all_waived(state: Dict[str, Any], sid: str) -> bool:
+    """本 session 還紅的測試（state failing_tests）每一支都在豁免帳上（testfail_waivers 的 units）→ True；沒有紅、或有一支不在帳上 → False。"""
+    from wg_release_rules import red_units
+    reds = [f for f in state.get("failing_tests") or [] if isinstance(f, dict) and f.get("session_id", sid) == sid]
+    waived = {u for e in state.get("testfail_waivers") or [] if isinstance(e, dict) for u in e.get("units") or []}
+    if not reds or not waived:
+        return False
+    return all(red_units(f) and set(red_units(f)) <= waived for f in reds)
+
+
+def _code_check_reminders(state, sid, own, config, say, tpath: str = "") -> None:
     """(d) 每個改過的程式檔一次（wg_verify_ledger.case_debt，同 Stop 的判法）。驗證範圍 SCOPE_* 不提醒（GOAL_TREE_SET_ONCE：
     提醒了 AI 就多叫一次 need_goal verify_scope），Stop 照判、只留帳；案例覆蓋仍認 verify_scope 收過的宣告（有才用）。"""
     import wg_verify_ledger as vl
@@ -215,7 +231,7 @@ def _code_check_reminders(state, sid, own, config, say) -> None:
     why: Dict[str, Any] = {}
     case_check = vs.case_check(state, sid, own, receipts, rg, _lookup) if (_lookup and sg.get("enabled", True)) else None
     for p in vl.case_debt(own, int(state.get("turn_seq", 0) or 0), rg, vl.file_root_of, evidence=why,
-                          case_check=case_check, case_for=vl.declared_cases(state, sid, rg)):
+                          case_check=case_check, case_for=vl.declared_cases(state, sid, rg, tpath)):
         v = why.get(p)
         say(v.rule if v else "CASE_COVERS_CHANGE", f"改了 {Path(p).name}，{v.why if v else '還沒有案例覆蓋它'}", FIX_CASE, p)
 

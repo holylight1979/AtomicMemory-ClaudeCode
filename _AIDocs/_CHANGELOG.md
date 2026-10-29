@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 「case_for｜」行算案例宣告；紅測全被豁免也算交付邊界（011 重驗剩下的兩件）
+- **緣由**：011 重驗 C′：AI 寫「case_for｜receipt.py：test_cli.py::test_x」說明哪支案例驗它，閘只收 need_goal verify_scope 的 case_for、照樣提醒欠案例；使用者叫跳過的 ERP 合約測試永遠紅，「順手看到最該修」只認測試全綠那批，整跑沒送到 AI。
+- **做法**：`wg_release_rules.parse_case_for_decls` 讀三管道的 `case_for｜<程式檔>：<案例…>` 行（節點只取檔那段）；`wg_verify_ledger.declared_cases` 多收 transcript_path、把這些行併進 case_for（Stop 與 post_tool_batch 兩處呼叫端都傳）；欠案例的提醒與擋訊息教這一行。`post_tool_batch._test_green_batch`：這批有測試指令、沒綠、但 state failing_tests 還紅的每一支都在 testfail_waivers 的 units 裡 → 也算交付邊界（`_reds_all_waived`）。
+- **驗證**：verify_gate_mode_stop 新 2 案（case_for 行清帳、豁免紅算邊界）、verify_pull_stop_gates 接線案改 4 參數、verify_closing_round、verify_g14_min_map、verify_stop_reconcile 全綠。
+
 ## 2026-10-29 提醒附判準卡、最小地圖認只寫檔名的檔（011 重驗抓到的兩處）
 - **緣由**：011 六項提醒重驗：G9 第二意見提醒送到 4 次 AI 仍兩次寫「不需」跳過——改成提醒的守門不經切入點契約，提醒那刻一張判準卡都沒送；G14 的 AI 把地圖「讀了」列寫成「api.py service.py…」只有檔名，閘照相對專案根比對判沒讀過，8 筆改檔全記缺地圖。
 - **做法**：`post_tool_batch.closing_reminders` 末尾把這批提醒行整批問一次 `entry_note(path="post_tool_hint")`、卡接在提醒後面（`_remind_cards`）；登錄表 E03／E13／E14／E15／E16 的 paths 加 post_tool_hint，path_values 說明改成「接改程式檔那批的收尾類提醒」；`min_map_verdict` 的「讀了」清單裡沒帶目錄的檔名，本 session 讀過同名檔就算讀過。
