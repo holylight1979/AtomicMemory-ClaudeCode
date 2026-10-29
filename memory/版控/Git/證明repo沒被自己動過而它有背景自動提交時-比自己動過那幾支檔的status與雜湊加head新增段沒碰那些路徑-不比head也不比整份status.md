@@ -6,7 +6,6 @@
 - Confidence: [臨]
 - Trigger: 證明沒動過, repo 未動, HEAD 變了, 背景自動提交, git status 比對, 雜湊比對, 誤判有人動過, 自動 commit 干擾, 開工前基準
 - Created-at: 2026-10-27
-- Related: 無頭實跑證明正式環境沒被動到不能只比前後相同-期間可能有別的並行工作寫入-要逐檔歸屬看卡片來源欄並grep自己的session-id
 
 ## 知識
 

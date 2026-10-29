@@ -6315,21 +6315,6 @@
       "scope": "global"
     },
     {
-      "name": "vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type",
-      "path": "_AIDocs/_atoms/Tools/vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type.md",
-      "triggers": [
-        "開新 session",
-        "空分頁",
-        "貼 prompt",
-        "Set-Clipboard",
-        "MCPControl",
-        "總控台派工",
-        "多 session 啟動",
-        "VS Code Claude Code 分頁"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過",
       "path": "_AIDocs/_atoms/MemDev/hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過.md",
       "triggers": [
@@ -6699,20 +6684,6 @@
       "related": [
         "子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它"
       ]
-    },
-    {
-      "name": "驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外",
-      "path": "memory/驗證與實證/驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外.md",
-      "triggers": [
-        "沒有預填答案",
-        "驗收題",
-        "盲測",
-        "受測 session",
-        "對照組",
-        "設計單驗法",
-        "洩題"
-      ],
-      "scope": "global"
     },
     {
       "name": "反轉驗證換回舊版會同時改暫存區要restore-staged-新案走舊碼就有的入口才紅在斷言",
@@ -7366,25 +7337,6 @@
         "跑偏",
         "退避的縮小版",
         "後段項目"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "調度總控台合併候選驗證sop-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree",
-      "path": "_AIDocs/_atoms/MemDev/調度總控台合併候選驗證sop-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree.md",
-      "triggers": [
-        "總控台對帳",
-        "合併候選",
-        "快照樹",
-        "console-verify",
-        "snapshot-running",
-        "退回舊碼紅",
-        "探針抽查",
-        "計時案假紅",
-        "並行負載",
-        "工作軌交付",
-        "調度總控台",
-        "合完推"
       ],
       "scope": "global"
     },
@@ -8958,25 +8910,6 @@
       "related": [
         "同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾"
       ]
-    },
-    {
-      "name": "閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現",
-      "path": "_AIDocs/_atoms/MemDev/閘本體合併後的真實任務驗收-無頭claude-p重放第一波題組-證據看受測根的guard-log-ai一開始就用pathspec會讓病形閘情境不出現.md",
-      "triggers": [
-        "無頭驗收",
-        "claude -p",
-        "真實任務實跑",
-        "根治驗收",
-        "合併後驗收",
-        "wave1-kit",
-        "run_headless",
-        "受測根",
-        "guard log 證據",
-        "--resume",
-        "閘沒被逼出來",
-        "pathspec 排除"
-      ],
-      "scope": "global"
     },
     {
       "name": "純函式的舊碼對照用git-show取舊版exec成模組-不動工作樹",
@@ -10702,15 +10635,12 @@
       "path": "memory/CC與原子記憶契約/綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路.md",
       "triggers": [
         "判準卡被改",
-        "受測 AI 改卡",
         "量尺被改",
         "Entry 卡唯讀",
         "改判準卡｜",
         "判錯當天落卡",
         "評分規格卡",
-        "資料根唯讀",
-        "無頭驗收",
-        "受測環境 memory"
+        "改到會評自己的東西"
       ],
       "scope": "global"
     },
@@ -10922,21 +10852,6 @@
         "v6.0 的代價",
         "hook 全關",
         "免費模型代寫"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境",
-      "path": "_AIDocs/_atoms/MemDev/多跑對照實驗串跑時live一直長新卡-各跑卡集會不同-要用第一跑的卡集清單重建受測環境.md",
-      "triggers": [
-        "多跑對照",
-        "卡集一致",
-        "w2_build_env",
-        "重建受測環境",
-        "洩題卡",
-        "selfcheck",
-        "--cards-from",
-        "實跑對照"
       ],
       "scope": "global"
     },
@@ -11608,23 +11523,6 @@
       ]
     },
     {
-      "name": "重現多步驟形狀的無頭題目要逼出分開的步驟-一句話題目常被一條指令寫完-兩次擋之間沒動作新舊判法分不出",
-      "path": "memory/驗證與實證/重現多步驟形狀的無頭題目要逼出分開的步驟-一句話題目常被一條指令寫完-兩次擋之間沒動作新舊判法分不出.md",
-      "triggers": [
-        "無頭題目",
-        "重現擋修又擋",
-        "多步驟形狀",
-        "分兩步做",
-        "新舊判法分不出",
-        "無頭實跑重現"
-      ],
-      "scope": "global",
-      "related": [
-        "無頭探針驗skill行為-claude-p加setting-sources-project與strict-mcp-config不載使用者層hook與MCP",
-        "重跑驗修補時判分過了不等於每件修補都驗到-逐件核修補路徑這次有沒有走到-沒走到明寫並指回修補時的案例"
-      ]
-    },
-    {
       "name": "測試隔離的這次執行記號要在開子行程前就存在-用root-conftest每次換的暫存目錄當記號-第一次用到才產生的環境變數記號會分帳或共用",
       "path": "memory/驗證與實證/測試隔離的這次執行記號要在開子行程前就存在-用root-conftest每次換的暫存目錄當記號-第一次用到才產生的環境變數記號會分帳或共用.md",
       "triggers": [
@@ -12193,24 +12091,6 @@
       ]
     },
     {
-      "name": "無頭實跑證明正式環境沒被動到不能只比前後相同-期間可能有別的並行工作寫入-要逐檔歸屬看卡片來源欄並grep自己的session-id",
-      "path": "memory/驗證與實證/無頭實跑證明正式環境沒被動到不能只比前後相同-期間可能有別的並行工作寫入-要逐檔歸屬看卡片來源欄並grep自己的session-id.md",
-      "triggers": [
-        "live 未動",
-        "正式環境沒被動到",
-        "無頭實跑",
-        "claude -p 驗收",
-        "前後比對",
-        "並行寫入",
-        "逐檔歸屬",
-        "session id grep"
-      ],
-      "scope": "global",
-      "related": [
-        "無頭探針驗skill行為-claude-p加setting-sources-project與strict-mcp-config不載使用者層hook與mcp"
-      ]
-    },
-    {
       "name": "指令寫入目標有一部分判不出時多記一筆判不出-看得懂的目標照列照判-整條只回判不出會把明確的寫入藏起來",
       "path": "memory/設計通則/指令寫入目標有一部分判不出時多記一筆判不出-看得懂的目標照列照判-整條只回判不出會把明確的寫入藏起來.md",
       "triggers": [
@@ -12677,25 +12557,6 @@
       "scope": "global",
       "related": [
         "claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置"
-      ]
-    },
-    {
-      "name": "量某處改動省多少前先核實那筆花費在受測題的實跑帳上出現過-沒出現改前改後必然一樣-砍前數字要出自同一題同一版",
-      "path": "memory/驗證與實證/量某處改動省多少前先核實那筆花費在受測題的實跑帳上出現過-沒出現改前改後必然一樣-砍前數字要出自同一題同一版.md",
-      "triggers": [
-        "量省多少",
-        "減量量測",
-        "受測題目",
-        "量不到",
-        "砍前數字",
-        "花費來源",
-        "注入 0 段",
-        "改前改後一樣"
-      ],
-      "scope": "global",
-      "related": [
-        "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
-        "改程式題第一回合的無頭量尺量不到日常注入噪音-受測專案沒有aidocs也不是記憶系統開發-量注入減量要用真實session事件帳重播"
       ]
     },
     {
@@ -13323,6 +13184,38 @@
         "跑一次要多少",
         "報價",
         "成本回報"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "換資料根跑時要帶memory-meta三個詞表-缺檔守門靜默退回程式寫死的舊詞表-repo內任何memory資料夾都會被背景同步當記憶卡自動commit",
+      "path": "_AIDocs/_atoms/MemDev/換資料根跑時要帶memory-meta三個詞表-缺檔守門靜默退回程式寫死的舊詞表-repo內任何memory資料夾都會被背景同步當記憶卡自動commit.md",
+      "triggers": [
+        "WG_CLAUDE_DIR",
+        "換資料根",
+        "forbidden-phrases.json",
+        "realm-lexicon.json",
+        "taxonomy.json",
+        "詞表退回",
+        "索引 0 筆",
+        "試跑資料根",
+        "背景同步自動 commit",
+        "memory 資料夾被 commit"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "記憶系統repo上版免口令只認純git串-把python改檔或heredoc跟git寫在同一條指令整條被commit-order閘擋-先跑改檔再單獨下git串",
+      "path": "_AIDocs/_atoms/MemDev/記憶系統repo上版免口令只認純git串-把python改檔或heredoc跟git寫在同一條指令整條被commit-order閘擋-先跑改檔再單獨下git串.md",
+      "triggers": [
+        "CommitOrder 擋",
+        "無版控口令",
+        "純 git 串",
+        "heredoc 跟 git",
+        "python 改檔後 commit",
+        "貁免只認",
+        "記憶系統 repo 上版",
+        "git 串分兩次"
       ],
       "scope": "global"
     }

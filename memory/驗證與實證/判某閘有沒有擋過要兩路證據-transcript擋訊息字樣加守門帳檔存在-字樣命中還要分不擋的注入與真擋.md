@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 擋次, 有沒有擋過, 閘擋幾次, hook_success, hook_blocking_error, 守門帳, grep 擋訊息, 擋次誤算
 - Created-at: 2026-10-27
-- Related: 量某處改動省多少前先核實那筆花費在受測題的實跑帳上出現過-沒出現改前改後必然一樣-砍前數字要出自同一題同一版, claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點
+- Related: claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點
 - Source: session:17c8cd5c 2026-10-27
 
 ## 知識
