@@ -109,7 +109,6 @@
   },
   "self_iteration": {
     "decay_half_life_days": 30,
-    "promote_confirmations_threshold": 4,
     "archive_score_threshold": 0.3,
     "_doc_auto_commit": "舊鍵 auto_commit_promotions / auto_push_promotions 已由 vcs_sync.enabled / vcs_sync.push 接管（晉升 sweep 後改 spawn vcs-sync worker）；鍵保留供相容讀取，實際開關以 vcs_sync 為準。",
     "auto_commit_promotions": true,
@@ -147,6 +146,7 @@
     "demote_lb": 0.35,
     "demote_min_n": 5,
     "min_n": 3,
+    "fix_min_n": 10,
     "decay_lambda": 0.97,
     "distraction_enabled": true,
     "distraction_weight": 0.5,

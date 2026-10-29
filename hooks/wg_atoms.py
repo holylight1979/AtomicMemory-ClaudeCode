@@ -3133,14 +3133,12 @@ def _self_iterate_atoms(
 
     效用驅動：
       - 慢衰減：每顆 atom α←1+λ(α−1); β←1+λ(β−1)（λ≈0.97），把效用證據往 prior 拉。
-      - 晉升閘改由「真實 Confirmations 主軌 + 效用 Wilson 下界」驅動；
-        ReadHits 降為純曝光計數，不再單獨觸發晉升。
+      - 晉升只看效用 Wilson 下界；Confirmations 與 ReadHits 都不參與晉升。
       - Wilson 下界 ≤ demote_lb 且 n≥min_n → 列降級候選（不自動降，留裁決）。
     """
     si_config = config.get("self_iteration", {})
     u_config = config.get("usefulness", {}) or {}
     decay_half_life = si_config.get("decay_half_life_days", 30)
-    promote_conf_threshold = si_config.get("promote_confirmations_threshold", 4)
     archive_threshold = si_config.get("archive_score_threshold", 0.3)
     # 效用旋鈕（py↔js 鏡像：server.js）
     decay_lambda = float(u_config.get("decay_lambda", 0.97))
@@ -3214,22 +3212,20 @@ def _self_iterate_atoms(
                 "confirmations": confirmations,
             })
 
-        # 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界（升≥promote_lb 且 n≥min_n）。
-        # ReadHits 降為純曝光，不再參與晉升。
+        # 晉升只看效用 Wilson 下界（升≥promote_lb 且 n≥min_n）；Confirmations、ReadHits 都不參與。
         # py↔js 鏡像：server.js toolAtomPromote usefulness gate。
         util_eligible = bool(
             usefulness_promote_eligible
             and usefulness_promote_eligible(
                 acc, promote_lb=promote_lb, min_n=min_n, z=wilson_z)
         )
-        promote_method = "confirmations" if confirmations >= promote_conf_threshold else "usefulness"
+        promote_method = "usefulness"
         # INV-PROMOTION-GATE-ON-SCAN-FACE：未確認 auto-capture 碎片不得自動晉升（與 realm sweep
         # 路徑 _sweep_realm_auto_migrate:1768 同源規則：碎片是未經人確認的 [臨] 萃取，confirmations
         # 達標也不算數，待人工確認/晉升後才算）。斷『佔位符碎片被當穩定 atom 自動晉升』漏洞——
         # 該過濾原僅在 realm sweep，晉升掃描面缺，故碎片曾被算晉升。手動 atom_promote（js）為
         # 人工確認路徑、不受此限。
-        if (confirmations >= promote_conf_threshold or util_eligible) \
-                and not _autocapture_unconfirmed_from_text(text):
+        if util_eligible and not _autocapture_unconfirmed_from_text(text):
             lines = text.split("\n")
             promoted_in_file = []
             changed = False

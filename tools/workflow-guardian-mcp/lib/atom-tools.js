@@ -713,43 +713,28 @@ async function toolAtomPromote(id, args) {
     return sendToolResult(id, `Cannot parse confidence from ${atom_name}.md`, true);
   }
 
-  // Determine promotion path (v3 dual-field)
-  // SYNC: memory/decisions.md — promotion thresholds
-  const THRESHOLDS = {
-    "[臨]": { next: "[觀]", confirmations: 4, readhits: 20 },
-    "[觀]": { next: "[固]", confirmations: 10, readhits: 50 },
-    "[固]": null, // already max
-  };
-
-  const path_info = THRESHOLDS[meta.confidence];
-  if (!path_info) {
+  // 晉升只看效用 Wilson 下界（Confirmations、ReadHits 都不參與）；[觀]→[固] 同一條下界、證據數要 fix_min_n。
+  // SYNC: lib/atom_access.py usefulness_promote_eligible + wg_atoms.py:_self_iterate_atoms。
+  const NEXT_LEVEL = { "[臨]": "[觀]", "[觀]": "[固]", "[固]": null };
+  const next = NEXT_LEVEL[meta.confidence];
+  if (!next) {
     return sendToolResult(id,
       `${atom_name} is already at ${meta.confidence} — no promotion available.`
     );
   }
 
-  const { next, confirmations: reqConf, readhits: reqRH } = path_info;
   // 計數從 <atom>.access.json 讀，不走 parseAtomMeta（meta.confidence 仍從 .md 抽）
   const access = readAtomAccess(filePath);
-  const confirmations = access.confirmations || 0;
   const readhits = access.readhits || 0;
-
-  // 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界。
-  // ReadHits 為純曝光計數，不參與晉升。
-  // SYNC: lib/atom_access.py usefulness_promote_eligible + wg_atoms.py:_self_iterate_atoms。
   const uconf = (loadConfig().usefulness) || {};
   const promoteLb = Number(uconf.promote_lb != null ? uconf.promote_lb : 0.6);
-  const minN = Number(uconf.min_n != null ? uconf.min_n : 3);
+  const minN = next === "[固]"
+    ? Number(uconf.fix_min_n != null ? uconf.fix_min_n : 10)
+    : Number(uconf.min_n != null ? uconf.min_n : 3);
   const wilsonZ = Number(uconf.wilson_z != null ? uconf.wilson_z : 1.28);
   const ustat = usefulnessStats(access, wilsonZ);
-  const utilEligible = ustat.n >= minN && ustat.lowerBound >= promoteLb;
-
-  let eligible = confirmations >= reqConf;
-  let method = "confirmations";
-  if (!eligible && utilEligible) {
-    eligible = true;
-    method = "usefulness";
-  }
+  const eligible = ustat.n >= minN && ustat.lowerBound >= promoteLb;
+  const method = "usefulness";
 
   const utilLine =
     `  Usefulness: lb=${ustat.lowerBound.toFixed(3)} (α=${ustat.alpha}, β=${ustat.beta}, n=${ustat.n})` +
@@ -759,11 +744,10 @@ async function toolAtomPromote(id, args) {
     return sendToolResult(id,
       `## Dry-run: ${atom_name}\n` +
       `Current: ${meta.confidence}\n` +
-      `  Confirmations: ${confirmations}/${reqConf}\n` +
       utilLine +
       `  ReadHits: ${readhits} (純曝光，不參與晉升)\n` +
-      `Required: Confirmations ≥ ${reqConf} OR (Usefulness lb ≥ ${promoteLb} AND n ≥ ${minN})\n` +
-      `Deficit: ${Math.max(0, reqConf - confirmations)} conf / lb ${Math.max(0, promoteLb - ustat.lowerBound).toFixed(3)}`
+      `Required: Usefulness lb ≥ ${promoteLb} AND n ≥ ${minN}\n` +
+      `Deficit: n ${Math.max(0, minN - ustat.n)} / lb ${Math.max(0, promoteLb - ustat.lowerBound).toFixed(3)}`
     );
   }
 
@@ -772,7 +756,6 @@ async function toolAtomPromote(id, args) {
     return sendToolResult(id,
       `## Dry-run: ${atom_name}\n` +
       `Current: ${meta.confidence}\n` +
-      `  Confirmations: ${confirmations}/${reqConf}\n` +
       utilLine +
       `Eligible via: ${method} → ${next}\n` +
       `Set execute=true to apply.`
@@ -822,7 +805,6 @@ async function toolAtomPromote(id, args) {
       atom: atom_name,
       from: meta.confidence,
       to: next,
-      confirmations,
       readhits,
       method,
       scope,

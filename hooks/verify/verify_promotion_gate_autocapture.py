@@ -75,13 +75,9 @@ def test_text_vs_index_adapter_equivalence():
 
 def test_promotion_face_wires_autocapture_filter():
     src = (CLAUDE / "hooks" / "wg_atoms.py").read_text(encoding="utf-8")
-    needle = "and not _autocapture_unconfirmed_from_text(text)"
-    assert needle in src, "晉升掃描面未串 _autocapture_unconfirmed_from_text 過濾"
-    # 且過濾與晉升條件（confirmations/util_eligible）同段——非孤立死碼
-    idx = src.index(needle)
-    window = src[max(0, idx - 220):idx]
-    assert "confirmations >= promote_conf_threshold or util_eligible" in window, \
-        "過濾未掛在晉升條件上"
+    # 過濾與晉升條件（util_eligible）在同一個 if——非孤立死碼
+    needle = "if util_eligible and not _autocapture_unconfirmed_from_text(text):"
+    assert needle in src, "晉升掃描面未串 _autocapture_unconfirmed_from_text 過濾，或沒掛在晉升條件上"
 
 
 # ─── 4. relocate freeze 不變式：搬移不動 body（→ Confidence 凍結）──────────────

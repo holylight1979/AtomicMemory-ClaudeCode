@@ -722,6 +722,7 @@ SessionStart（session_start._org_advisory）
 | Ollama 不在 | 全域 trigger+BM25 照常；向量改本地 embedder |
 | Vector Service 掛 | trigger+BM25 照常；UPS 自癒 re-kick |
 | lancedb 裝不起來（無 AVX2） | 同 Vector Service 掛 |
+| 服務活著但索引重建失敗 | 新卡、搬過的卡語意搜不到；SessionStart 浮 `[Guardian:Vector]` 一行 |
 | 索引檔壞／空 | log + 顯著 advisory，不自動重建 |
 | UPS 快逾時 | 累計到 8s 的 80% 降級；95% 由背景鬧鐘代送 |
 | UPS 被 timeout 砍 | 下輪偵測哨兵殘留 → 告警 |
@@ -1044,7 +1045,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
         新卡（atom_write／萃取）
               │
               ▼
-           [臨] ──Wilson 下界 ≥0.6 且 n ≥3──▶ [觀] ──（手動呼叫 MCP atom_promote）──▶ [固]
+           [臨] ──Wilson 下界 ≥0.6 且 n ≥3──▶ [觀] ──下界 ≥0.6 且 n ≥10，手動 MCP atom_promote──▶ [固]
               │                                  │
               └──下界 ≤0.35 且 n ≥5──▶ 降級候選 ◀─┘
   
@@ -1061,6 +1062,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 |------|------|------|
 | 效用歸因 | Stop 時記「有幫助／誤導」 | `usefulness.attribution_policy` |
 | 自動晉升 [臨]→[觀] | Wilson 下界 ≥0.6 且 n ≥3 | `wilson_z` 1.28、`promote_lb` 0.6、`min_n` 3 |
+| 手動晉升 [觀]→[固] | 同一條下界、證據 n ≥10 | `fix_min_n` 10（MCP `atom_promote`） |
 | 降級候選 | Wilson 下界 ≤0.35 且 n ≥5 | `demote_lb` 0.35、`demote_min_n` 5 |
 | decay | λ=0.97，每日至多一次 | `decay_lambda`、`last_decay_date` |
 | 晉升審計 | `memory/_promotion_audit.jsonl` | `vcs_sync.enabled` / `push` |
@@ -1078,7 +1080,8 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 #### 為什麼晉升實際只走 Wilson 軌
 
-- Confirmations 的資料源（per-turn 萃取）停產，全庫 confirmation_events=0，等於沒作用。
+- Confirmations（同一條知識在不同 session 被自動萃取器重複抽到的次數）不參與任何晉升：資料源（每輪萃取）停產，數字不會再長。
+- `[固]` 跟 `[觀]` 用同一條下界、但要 10 筆證據：常用卡的有用率集中在 0.6～0.8，拉高下界會變成沒人升得上；差在證據量，`[固]` 才是長期被證明有用。
 - 效用軌看「注入後真的有幫助」，證據品質高得多。
 - z 從 1.96 改 1.28，否則 3 連勝 lb 只有 0.516 過不了 0.6。
 - 降級 n≥5 比晉升嚴，因為誤殺真實高效 atom 成本高。
@@ -1914,6 +1917,7 @@ pip install -r tools/memory-vector-service/requirements.txt
 降級的可見訊號：
 
 - statusline：`WG:?` 紅字＝Guardian state 壞；`vec✗`＝向量服務未就緒。
+- `vec✓` 只代表服務活著；上次索引重建失敗（/status 的 `index_job.error`）由 SessionStart 的 `[Guardian:Vector]` 告知（`hooks/handlers/session_start._vector_index_advisory`）。
 - SessionStart 的 `[Guardian:*]`／`[Codex Companion]`／`[MCP]` advisory。
 - `Logs/vector-service.log`。
 
@@ -3928,7 +3932,7 @@ svn：svn_update_targets
 #### 自動晉升 [臨]→[觀]
 
 - 條件：Wilson 下界 ≥0.6 且 n ≥3。
-- 常數：`wilson_z` 1.28、`promote_lb` 0.6、`min_n` 3。
+- 常數：`wilson_z` 1.28、`promote_lb` 0.6、`min_n` 3；`[觀]→[固]` 另看 `fix_min_n` 10。
 
 #### 降級候選
 
@@ -3992,8 +3996,8 @@ svn：svn_update_targets
 #### 為什麼晉升實際只走 Wilson 軌（完整論證）
 
 - 本來有兩條路：Confirmations（跨 session 重複萃取到就 +1）和效用統計。
-- Confirmations 的程式路徑還在：SessionEnd ≥4 次、`atom_promote` 4→[觀]／10→[固]。
-- 但資料源（per-turn 萃取）停產後，全庫 confirmation_events=0，等於沒作用。
+- Confirmations 已從晉升判定拿掉（SessionEnd 掃描與 `atom_promote` 都不看）：資料源（per-turn 萃取）停產，數字不會再長；計數本身仍記在 sidecar，只用在封存分數。
+- `[觀]→[固]` 只能手動 `atom_promote`，下界同 `promote_lb`、證據數要 `usefulness.fix_min_n`（10）。
 - SessionEnd 自動晉升另排除未確認的 auto-capture 碎片。
 - 效用軌看的是「注入後真的有幫助」，證據品質高得多。
 - z 從 1.96 改 1.28：舊值下 3 連勝 lb 只有 0.516 過不了 0.6，`min_n=3` 形同虛設。

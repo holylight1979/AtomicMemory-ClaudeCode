@@ -512,6 +512,11 @@ def run_server(port: int = 3849):
 
 
 if __name__ == "__main__":
+    # stdout／stderr 接到 vector-service.log：Windows 子行程預設用系統編碼（cp950），
+    # 卡名有它編不出的字時 indexer 的 print 會丟例外、整輪索引中止。
+    for _stream in (sys.stdout, sys.stderr):
+        if _stream is not None and hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     port = 3849
     if len(sys.argv) > 1:
         try:

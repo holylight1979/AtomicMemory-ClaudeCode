@@ -78,3 +78,34 @@ def test_default_port_when_config_empty(tmp_path, monkeypatch):
     flag = tmp_path / "vector_ready.flag"
     assert session_start._refresh_vector_flag({}, flag_path=flag) == "kept"
     assert "3849" in captured["url"]
+
+
+class _Resp:
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_index_error_surfaces_advisory(monkeypatch):
+    """服務活著但上次索引失敗（/status 的 index_job.error）→ 一行 [Guardian:Vector]，帶錯誤原文。"""
+    body = '{"index_job": {"running": false, "error": "\'cp950\' codec can\'t encode character"}}'.encode("utf-8")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(body))
+    out = session_start._vector_index_advisory(CONFIG)
+    assert len(out) == 1 and out[0].startswith("[Guardian:Vector]") and "cp950" in out[0]
+
+
+def test_index_ok_or_service_down_no_advisory(monkeypatch):
+    """上次索引成功 → 不出；服務沒回應 → 不出（那是 vec✗ 的事）。"""
+    ok = b'{"index_job": {"running": false, "result": {"chunks": 10}}}'
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(ok))
+    assert session_start._vector_index_advisory(CONFIG) == []
+    monkeypatch.setattr(urllib.request, "urlopen", _mock_fail)
+    assert session_start._vector_index_advisory(CONFIG) == []

@@ -240,8 +240,8 @@ const TOOL_DEFINITIONS = [
     name: "atom_promote",
     description:
       "Promote an atom's confidence level. " +
-      "Eligible when Confirmations (cross-session) ≥4→[觀] / ≥10→[固], OR usefulness Wilson " +
-      "lower-bound ≥ promote_lb with n ≥ min_n. ReadHits is exposure-only, not a promotion gate. " +
+      "Eligible only by usefulness: Wilson lower-bound ≥ promote_lb with n ≥ min_n for [臨]→[觀], " +
+      "n ≥ fix_min_n for [觀]→[固]. Confirmations and ReadHits are not promotion gates. " +
       "Use execute=false for dry-run. " +
       "When promoting to [固], pass merge_to_preferences=true to append knowledge " +
       "into preferences.md and archive the source atom (global scope only).",

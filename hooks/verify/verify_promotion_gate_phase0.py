@@ -41,10 +41,16 @@ def test_wg_episodic_cross_session_dead_code_gone():
     )
 
 
-def test_config_has_promote_confirmations_threshold():
-    si = json.loads(_read("workflow/config.json")).get("self_iteration", {})
-    assert "promote_confirmations_threshold" in si, "config 缺 promote_confirmations_threshold"
-    assert isinstance(si["promote_confirmations_threshold"], int)
+def test_confirmations_not_a_promotion_gate():
+    """Confirmations 不參與任何晉升判定：py 掃描、js atom_promote、config 都不再有它的門檻。"""
+    cfg = json.loads(_read("workflow/config.json"))
+    assert "promote_confirmations_threshold" not in cfg.get("self_iteration", {})
+    assert "promote_conf_threshold" not in _read("hooks/wg_atoms.py")
+    tools_src = _read("tools/workflow-guardian-mcp/lib/atom-tools.js")
+    assert "reqConf" not in tools_src and "access.confirmations" not in tools_src
+    assert cfg.get("usefulness", {}).get("fix_min_n") == 10, "[觀]→[固] 證據數門檻 usefulness.fix_min_n 應為 10"
+    assert re.search(r"uconf\.fix_min_n\s*!=\s*null\s*\?\s*uconf\.fix_min_n\s*:\s*10", tools_src), \
+        "atom-tools.js 的 [固] 門檻要讀 usefulness.fix_min_n（預設 10）"
 
 
 def test_py_gate_usefulness_driven():
@@ -74,11 +80,10 @@ def test_readhits_alone_not_promotion_trigger():
     assert A.usefulness_promote_eligible({"useful_hits": 1, "used_fail": 1}) is False
 
 
-def _eligible(confirmations, access, req_conf=4, promote_lb=0.6, min_n=3):
-    """複刻 Phase 2 晉升判定（py↔js 共同語義）：Confirmations 主軌 OR 效用 Wilson 下界。"""
+def _eligible(access, promote_lb=0.6, min_n=3):
+    """複刻晉升判定（py↔js 共同語義）：只看效用 Wilson 下界；[觀]→[固] 傳 min_n=fix_min_n。"""
     from lib import atom_access as A
-    return confirmations >= req_conf or A.usefulness_promote_eligible(
-        access, promote_lb=promote_lb, min_n=min_n)
+    return A.usefulness_promote_eligible(access, promote_lb=promote_lb, min_n=min_n)
 
 
 def _wilson_lb(successes: int, n: int, z: float) -> float:
@@ -120,13 +125,20 @@ def test_js_promote_replace_scoped_to_knowledge_section():
 
 
 def test_gate_semantics():
-    # 純曝光（無 confirmations、無效用證據）不得晉升
-    assert _eligible(0, {"useful_hits": 1, "used_fail": 1}) is False
-    # primary confirmations 達標應晉升
-    assert _eligible(4, {"useful_hits": 1, "used_fail": 1}) is True
-    # 效用 Wilson 達標（z=1.28 下 3 連勝 lb≈0.647）應晉升
-    assert _eligible(0, {"useful_hits": 4, "used_fail": 1}) is True
+    # 純曝光（無效用證據）不得晉升；confirmations 再多也不算
+    assert _eligible({"useful_hits": 1, "used_fail": 1, "confirmations": 38}) is False
+    # 效用 Wilson 達標（z=1.28 下 3 連勝 lb≈0.647）可升 [觀]
+    assert _eligible({"useful_hits": 4, "used_fail": 1}) is True
     # 效用未達下界（2 勝 1 敗，lb≈0.32<0.6）不得晉升
-    assert _eligible(0, {"useful_hits": 3, "used_fail": 2}) is False
+    assert _eligible({"useful_hits": 3, "used_fail": 2}) is False
     # 樣本不足（n=2<3）不得晉升——即使 2 連勝
-    assert _eligible(0, {"useful_hits": 3, "used_fail": 1}) is False
+    assert _eligible({"useful_hits": 3, "used_fail": 1}) is False
+
+
+def test_fix_level_needs_ten_observations():
+    """[觀]→[固]：下界同 0.6，證據數要 10——3 連勝夠升 [觀]、不夠升 [固]；10 筆裡 9 有用才過。"""
+    three_wins = {"useful_hits": 4, "used_fail": 1}
+    assert _eligible(three_wins, min_n=3) is True
+    assert _eligible(three_wins, min_n=10) is False
+    assert _eligible({"useful_hits": 10, "used_fail": 2}, min_n=10) is True      # 9/10，lb≈0.68
+    assert _eligible({"useful_hits": 8, "used_fail": 4}, min_n=10) is False      # 7/10，lb≈0.48

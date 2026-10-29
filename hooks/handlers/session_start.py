@@ -389,6 +389,28 @@ def _refresh_vector_flag(
     return "kept"
 
 
+def _vector_index_advisory(config: Dict[str, Any]) -> list:
+    """向量服務活著、但上次索引重建失敗 → 一行 advisory；其餘回 []。
+
+    服務活著時 statusline 照亮 vec✓，重建失敗只寫在 /status 的 index_job.error，
+    不浮出就是新卡與搬過的卡長期搜不到卻沒人知道。服務沒回應不在這裡報（flag 會拆、statusline 顯示 vec✗）。
+    """
+    port = config.get("vector_search", {}).get("service_port", 3849)
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=1.0) as resp:
+            job = (json.loads(resp.read().decode("utf-8")) or {}).get("index_job") or {}
+    except Exception:
+        return []
+    err = job.get("error")
+    if not err:
+        return []
+    return [
+        f"[Guardian:Vector] ⚠ 向量索引上次重建失敗：{str(err)[:120]}——新卡與搬過的卡語意搜不到；"
+        "修好原因後重建索引（/vector），細節看 Logs/vector-service.log。"
+    ]
+
+
 HEALTH_RUN_STALE_DAYS = 10  # 週排程 + 3 天寬限；超過 = 排程器本身死了
 
 
@@ -1461,6 +1483,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 缺檔/逾期 = 排程器本身死了；red>0 = 上次健檢有待處理項。兩者都必須
         # 在 session 內浮出（fail-open 必告知）——「靜默死 27 天」的最後防線。
         lines.extend(_health_advisory(WORKFLOW_DIR / "health-last-run.json"))
+        lines.extend(_vector_index_advisory(config))
         if _hook_lap("健檢"):
             _degraded_exit(session_id, state, lines)
 

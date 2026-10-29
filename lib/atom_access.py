@@ -11,7 +11,7 @@ Schema v3（<atom>.access.json）:
     "schema": "atom-access-v3",
     "read_hits": int,             # 純曝光計數（注入次數）— v3 後不再單獨晉升
     "last_used": "YYYY-MM-DD",
-    "confirmations": int,         # 跨 session 萃取命中（真實確認，主軌）
+    "confirmations": int,         # 跨 session 萃取命中；不參與晉升，只進封存分數
     "useful_hits": number,        # α — Beta-Bernoulli「被用且成功」累積（預設 1，Laplace prior）
     "used_fail": number,          # β — Beta-Bernoulli「被用但失敗」累積（預設 1）
     "last_promoted_at": "YYYY-MM-DD" 或 None,
@@ -92,7 +92,7 @@ TIMESTAMPS_MAX = 50
 USEFULNESS_PRIOR = 1
 # Wilson 下界預設參數（py↔js 鏡像，SYNC: tools/workflow-guardian-mcp/server.js usefulnessStats）。
 # z=1.28（80% 單尾信賴）：小樣本場景 z=1.96 過度保守——3 連勝 lb 僅 0.44 遠不及升門 0.6，
-# 6 連勝才達標，晉升軌實質凍結；1.28 下 3 連勝 lb≈0.647 即過門，與 confirmations 主軌步調相稱。
+# 6 連勝才達標，晉升軌實質凍結；1.28 下 3 連勝 lb≈0.647 即過 [臨]→[觀]（[觀]→[固] 另要 n≥fix_min_n）。
 WILSON_Z_DEFAULT = 1.28
 PROMOTE_LB_DEFAULT = 0.6
 DEMOTE_LB_DEFAULT = 0.35

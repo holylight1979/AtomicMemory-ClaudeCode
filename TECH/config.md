@@ -155,6 +155,7 @@
 |----|------|------|
 | `write_gate.quality_floor` / `dedup_score` / `dedupe_declaration` | 0.3 / 0.8 / true | 寫入品質閘 |
 | `usefulness.wilson_z` / `promote_lb` / `min_n` / `demote_lb` / `demote_min_n` / `decay_lambda` / `stability_gamma` | 1.28 / 0.6 / 3 / 0.35 / 5 / 0.97 / 0.3 | 效用晉升軌 |
+| `usefulness.fix_min_n` | 10 | `[觀]→[固]`（手動 `atom_promote`）要的證據數；下界同 `promote_lb` |
 | `usefulness.distraction_enabled` / `distraction_weight` | true / 0.5 | 分心懲罰 |
 | `response_capture.session_end_max_chars` / `session_end_max_items` | 20000 / 5 | SessionEnd 全量萃取 |
 | `response_capture.failure_extraction.cooldown_seconds` / `max_items` | 180 / 2 | 失敗萃取 |
