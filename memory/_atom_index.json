@@ -9504,7 +9504,9 @@
         "SECOND_OPINION_REQUIRED",
         "second_opinion_result",
         "second_opinion_start",
-        "diff 為空"
+        "diff 為空",
+        "改動很小",
+        "有測試就不用第二意見"
       ],
       "scope": "global",
       "entry": [
@@ -13289,6 +13291,38 @@
         "提醒文字設計",
         "守門訊息寫法",
         "連鎖誤判"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "比多跑token差異先比模型呼叫次數-一次呼叫重讀整個上下文約4萬token-單跑對平均的差距小於一次呼叫就不算超線",
+      "path": "memory/驗證與實證/量測/比多跑token差異先比模型呼叫次數-一次呼叫重讀整個上下文約4萬token-單跑對平均的差距小於一次呼叫就不算超線.md",
+      "triggers": [
+        "token 超線",
+        "模型呼叫次數",
+        "num_turns",
+        "cache_read",
+        "多跑比較",
+        "單跑對平均",
+        "量測變異",
+        "上下文重讀",
+        "文件題 token",
+        "減量量測"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-開發期回報不要報美金花費-花費是產品上線後所有使用者疊起來才算的事-量測只講token與時間",
+      "path": "memory/Failures/行為契約/feedback-開發期回報不要報美金花費-花費是產品上線後所有使用者疊起來才算的事-量測只講token與時間.md",
+      "triggers": [
+        "美金",
+        "花費",
+        "cost_usd",
+        "多少錢",
+        "量測回報",
+        "跑一次要多少",
+        "報價",
+        "成本回報"
       ],
       "scope": "global"
     }

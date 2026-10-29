@@ -468,7 +468,7 @@
 | 被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套 | memory/驗證與實證/被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套.md | 非本回合宣稱, 不是退避｜, 宣稱｜試過, CLAIM_TRIED_NEEDS_EXEC, 轉述, 說明句誤擋, 已驗過, 下個 session | global |  |
 | 拐彎判斷先問這一層拿掉後誰會壞-沒人壞就是空層-巢狀三層各守獨立條件就要壓平 | memory/設計通則/拐彎判斷先問這一層拿掉後誰會壞-沒人壞就是空層-巢狀三層各守獨立條件就要壓平.md | 拐彎判斷｜, TURN_JUDGMENT_REQUIRED, 空層, 只轉手, 繼承鏈, 巢狀, 這一層沒有作用, 抄舊架構, 間接層 | global |  |
 | 熱路徑看呼叫頻率乘資料量與時間預算-每事件每筆都跑就是熱-一次性離線工具不是 | memory/驗證與實證/熱路徑看呼叫頻率乘資料量與時間預算-每事件每筆都跑就是熱-一次性離線工具不是.md | 熱路徑｜, PERF_HOT_PATH_NEEDS_MEASURE, 熱路徑, 大量配置, 量測｜不做, DONE k=v, 效能 | global |  |
-| 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 | memory/驗證與實證/第二意見/第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由.md | 第二意見與分歧裁決, Codex 結論, 裁決與理由, 分歧點, 不需第二意見｜, SECOND_OPINION_REQUIRED, second_opinion_result, second_opinion_start, diff 為空 | global |  |
+| 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由 | memory/驗證與實證/第二意見/第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由.md | 第二意見與分歧裁決, Codex 結論, 裁決與理由, 分歧點, 不需第二意見｜, SECOND_OPINION_REQUIRED, second_opinion_result, second_opinion_start, diff 為空, 改動很小, 有測試就不用第二意見 | global |  |
 | 動使用者資料檔先看改完使用者會看到什麼-行為會變或不在需求裡就先問-修語法也可能改了全部輸出 | memory/行為契約/動使用者資料檔先看改完使用者會看到什麼-行為會變或不在需求裡就先問-修語法也可能改了全部輸出.md | DataFileAsk, 動資料檔, USER_DATA_FILE_NEEDS, 使用者既有的資料檔, 先問使用者, 需求沒點名, 設定檔, settings.json | global |  |
 | 病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修 | memory/版控/病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修.md | SmellGate, 病形閘, GateBypass, 不是繞閘, 繞閘嫌疑, 移出暫存, 暫存區, 別人的改動, 上GIT, commit | global |  |
 | origin標使用者說的要那句原話說出這個動作-只提到同一物件不算-做法與延伸標推出來的 | memory/思考與決策/origin標使用者說的要那句原話說出這個動作-只提到同一物件不算-做法與延伸標推出來的.md | origin, 使用者說的, 推出來的, quote, 對不到原話, 標使用者說的但對不到原話, 目標樹, need_goal | global |  |
@@ -691,3 +691,5 @@
 | 測試要假造版控提交時間-svn用svnadmin-setrevprop改svn-date後重新checkout-git用author與committer-date-幾版設同一刻可證明比的是版號 | memory/驗證與實證/測試要假造版控提交時間-svn用svnadmin-setrevprop改svn-date後重新checkout-git用author與committer-date-幾版設同一刻可證明比的是版號.md | svnadmin, setrevprop, svn:date, GIT_COMMITTER_DATE, 提交時間, fixture, 假造日期, 測試 repo | global |  |
 | 拿自己算的數字對上別人回報的數字前先對口徑-只用部分規則湊出相等不算吻合 | memory/驗證與實證/拿自己算的數字對上別人回報的數字前先對口徑-只用部分規則湊出相等不算吻合.md | 吻合, 對得上, 正好, 數字一致, 口徑, 回推, 對帳, 驗收 | global |  |
 | 擋訊息或提醒裡提到的名詞ai會當成可用的宣告管道-提到case-for就會寫case-for行-訊息點名的每個名詞都要有程式真的收-收不了就別提 | _AIDocs/_atoms/MemDev/擋訊息或提醒裡提到的名詞ai會當成可用的宣告管道-提到case-for就會寫case-for行-訊息點名的每個名詞都要有程式真的收-收不了就別提.md | 擋訊息提到的名詞, AI 自創宣告格式, case_for｜, 宣告管道, 訊息教的路要收得到, 提醒文字設計, 守門訊息寫法, 連鎖誤判 | global |  |
+| 比多跑token差異先比模型呼叫次數-一次呼叫重讀整個上下文約4萬token-單跑對平均的差距小於一次呼叫就不算超線 | memory/驗證與實證/量測/比多跑token差異先比模型呼叫次數-一次呼叫重讀整個上下文約4萬token-單跑對平均的差距小於一次呼叫就不算超線.md | token 超線, 模型呼叫次數, num_turns, cache_read, 多跑比較, 單跑對平均, 量測變異, 上下文重讀, 文件題 token, 減量量測 | global |  |
+| feedback-開發期回報不要報美金花費-花費是產品上線後所有使用者疊起來才算的事-量測只講token與時間 | memory/Failures/行為契約/feedback-開發期回報不要報美金花費-花費是產品上線後所有使用者疊起來才算的事-量測只講token與時間.md | 美金, 花費, cost_usd, 多少錢, 量測回報, 跑一次要多少, 報價, 成本回報 | global |  |
