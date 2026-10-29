@@ -4,10 +4,10 @@
 
 | 範疇 | atom 數 | 深入 |
 |------|---------|------|
-| 版控 | 37 | `memory/版控/_INDEX.md` |
+| 版控 | 39 | `memory/版控/_INDEX.md` |
 | 工作流 | 25 | `memory/工作流/_INDEX.md` |
 | 思考與決策 | 23 | `memory/思考與決策/_INDEX.md` |
-| 驗證與實證 | 85 | `memory/驗證與實證/_INDEX.md` |
+| 驗證與實證 | 87 | `memory/驗證與實證/_INDEX.md` |
 | dotnet | 16 | `memory/dotnet/_INDEX.md` |
 | OS-Windows | 25 | `memory/OS-Windows/_INDEX.md` |
 | 文字與格式 | 10 | `memory/文字與格式/_INDEX.md` |

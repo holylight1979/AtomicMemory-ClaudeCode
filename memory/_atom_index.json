@@ -13201,6 +13201,81 @@
         "PickOne 沒送到"
       ],
       "scope": "global"
+    },
+    {
+      "name": "判斷檔案在某日之後真的改過要看版控最後變更不看mtime-update與checkout會把mtime設成當下-本機未提交才看mtime-commit不動mtime不能當跨次快取鍵",
+      "path": "memory/版控/判斷檔案在某日之後真的改過要看版控最後變更不看mtime-update與checkout會把mtime設成當下-本機未提交才看mtime-commit不動mtime不能當跨次快取鍵.md",
+      "triggers": [
+        "mtime",
+        "最後變更",
+        "last-changed",
+        "改過沒",
+        "比卡新",
+        "svn update",
+        "git checkout",
+        "誤報",
+        "快取失效"
+      ],
+      "scope": "global",
+      "related": [
+        "大型svn工作副本整棵svn-status很慢-每檔約45微秒-hook裡查svn狀態要設時間上限-逾時改查點名的檔並記住這個根很慢"
+      ],
+      "depends": [
+        "path:~/.claude/tools/atom-health-check.py"
+      ]
+    },
+    {
+      "name": "svn一次查多檔-info與status帶多條路徑可跨巢狀工作副本一次查-有未進版控的目標exit1但xml照樣完整-log要連伺服器要並行",
+      "path": "memory/版控/SVN/svn一次查多檔-info與status帶多條路徑可跨巢狀工作副本一次查-有未進版控的目標exit1但xml照樣完整-log要連伺服器要並行.md",
+      "triggers": [
+        "svn info",
+        "svn status",
+        "svn log",
+        "批次",
+        "多個路徑",
+        "巢狀工作副本",
+        "W155010",
+        "mbcs",
+        "ANSI 碼頁"
+      ],
+      "scope": "global",
+      "related": [
+        "判斷檔案在某日之後真的改過要看版控最後變更不看mtime-update與checkout會把mtime設成當下-本機未提交才看mtime-commit不動mtime不能當跨次快取鍵",
+        "取svn工作副本的base版-先用status-xml挑出本地改過的檔只對它們svn-cat-r-base-沒改過的base就是工作樹內容"
+      ]
+    },
+    {
+      "name": "測試要假造版控提交時間-svn用svnadmin-setrevprop改svn-date後重新checkout-git用author與committer-date-幾版設同一刻可證明比的是版號",
+      "path": "memory/驗證與實證/測試要假造版控提交時間-svn用svnadmin-setrevprop改svn-date後重新checkout-git用author與committer-date-幾版設同一刻可證明比的是版號.md",
+      "triggers": [
+        "svnadmin",
+        "setrevprop",
+        "svn:date",
+        "GIT_COMMITTER_DATE",
+        "提交時間",
+        "fixture",
+        "假造日期",
+        "測試 repo"
+      ],
+      "scope": "global",
+      "related": [
+        "svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出"
+      ]
+    },
+    {
+      "name": "拿自己算的數字對上別人回報的數字前先對口徑-只用部分規則湊出相等不算吻合",
+      "path": "memory/驗證與實證/拿自己算的數字對上別人回報的數字前先對口徑-只用部分規則湊出相等不算吻合.md",
+      "triggers": [
+        "吻合",
+        "對得上",
+        "正好",
+        "數字一致",
+        "口徑",
+        "回推",
+        "對帳",
+        "驗收"
+      ],
+      "scope": "global"
     }
   ]
 }
