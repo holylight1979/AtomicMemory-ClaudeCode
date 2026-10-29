@@ -275,7 +275,7 @@
     - 沒列出失敗項就說沒列出、要不截斷重跑。
     - 不做行對到了某支，但引用不在近 3 則、帳上也沒有 → 說出是哪一支、引了哪句。
     - 帳上有那支的豁免、收尾卻沒寫不做行 → 給那一行照抄。
-- **照欠／照擋**：指令裡 AI 自己寫的不做註解、git status 列出的檔、Exit code 行都不當失敗項，不拿來對不做行（第四跑 C-1 擋訊息印 `Untracked files:`、`Exit code 1`、註解行當失敗項）
+- **照欠／照擋**：指令裡 AI 自己寫的不做註解、git status 列出的檔、Exit code 行都不當失敗項，不拿來對不做行（曾把 `Untracked files:`、`Exit code 1`、註解行當成失敗項印進擋訊息）
 
 ### 收尾儀式與寫碼查核案例
 
@@ -793,7 +793,7 @@
     - 新的一次紅完整列出失敗（列出的支數等於結算 failed＋error）時，舊紅裡這次也跑到的那幾支以這次為準（`post_tool_use._supersede_reds`）。
     - 截斷沒列的紅不動舊紅。
 - **照欠／照擋**：跑別的測試檔變綠 → 那筆紅照留，stderr 印規則名與沒跑到的那幾支。
-  - 例：第四跑 C-1，使用者說跳過 ERP 合約測試後，只跑另外 3 支檔變綠。
+  - 例：使用者說跳過某支測試後，只跑另外幾支檔變綠，被跳過那支的紅照留。
 
 #### RED_LAST_RESULT_IN_COMMAND
 **判什麼**：同一條指令跑了不只一次測試時，哪幾支算紅
@@ -906,7 +906,7 @@
   - 選擇理由照 [LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES](#locate_lines_need_role_and_two_candidates) 區塊要寫。
 - **照欠／照擋**：
   - 只有一個列舉或一層照舊算 0 個。
-  - 固定字樣只是建議寫法（第四跑 B-1：第一版「①邏輯層…；②測試層…」被判 0 個，第三版改成「候選 A」才過）。
+  - 固定字樣只是建議寫法（曾有「①邏輯層…；②測試層…」這種列舉被判 0 個，改寫成「候選 A」才過）。
 
 #### EDITED_PART_NEEDS_GOAL_NODE
 **判什麼**：(f3) 改到的部位都掛到目標（`wg_need_goal` 收事實）
@@ -986,7 +986,7 @@
 - **不欠／放行**：
   - 有「定位｜批判：…」，且去掉標點空白後 ≥ 8 字（`wg_release_rules.CRITIQUE_MIN_CHARS`）就算交。
   - 合不合理、為什麼、更好的做法、同類在哪怎麼寫是 AI 的判斷，閘不認固定字樣。
-  - 原設計者 G6：需要判斷的事不寫成固定規則；007 實測真批判被「更好的做法」字樣判沒交。
+  - 需要判斷的事不寫成固定規則（G6）：認固定字樣時，真的批判曾因沒寫「更好的做法」被判沒交。
 - **照欠／照擋**：
   - 沒交、照抄範本、太短。
   - 缺的與四行的缺項一起列。
@@ -1235,7 +1235,7 @@
   - job_id 裡的 session 前 8 碼不是本 session（job 目錄是資料根共用的）→ foreign 不算
   - 開 job 之後（job_id 開頭的時間）本 session 又改過程式檔 → 沒審到後來的改動，stale 不算
   - 結果是這回合才拿到的，四行照要
-  - 補題第二版第 5 回合：第 4 回合 start、第 5 回合取回 done、沒改程式仍被要求重跑
+  - 這條的來由：前一回合 start、這回合取回 done、中間沒改程式，曾被要求重跑
 
 #### SECOND_OPINION_WAITING_NOT_DONE
 **判什麼**：第二意見還在跑時結束回覆算不算宣告完成
@@ -1251,7 +1251,7 @@
   - 沒有這行 → 照擋（擋訊息教「直接呼叫 result 會等」與這行寫法）
   - 散文裡提到 job_id、job_id 後面多接字、程式碼區塊裡的都不算
   - `second_opinion_result` 本身等到有結果才回（每次最多 100 s，低於 Claude Code 互動模式 MCP 呼叫 120 s 轉背景），通常用不到這條
-  - 補題第二版第 4 回合：start → 背景等 → 結束回覆被當宣告完成再擋，斷路器警報
+  - 這條的來由：start 之後背景等，結束回覆曾被當成宣告完成再擋，連鎖斷路器跟著警報
 
 #### SECOND_OPINION_BACKGROUND／SECOND_OPINION_DONE_NOTICE
 **判什麼**：第二意見要不要守著等（`second_opinion_hint_background`、`wg_closing_round.so_done_notice`）
@@ -1271,13 +1271,13 @@
 **判什麼**：AI 宣告不需第二意見
 - **不欠／放行**：
   - 收尾一行「不需第二意見｜<理由>」（行首、程式碼區塊外），理由有文字內容、不是佔位、不是「不需要／不用／無」這類空話 → 放行
-  - 留帳 `guard-second_opinion.jsonl`（event=declined、理由、程式檔數），週健檢列筆數與理由（只列不判）
-  - 宣告行只看收尾最後一則（跟 [SECOND_OPINION_DECLARED_ALWAYS_LOGGED](#second_opinion_declared_always_logged) 留帳的同一則）
+  - 留帳照 [SECOND_OPINION_DECLARED_ALWAYS_LOGGED](#second_opinion_declared_always_logged)；週健檢列筆數與理由（只列不判）
+  - 宣告行只看收尾最後一則（跟留帳的同一則）
   - 被收下就不擋、也不走擋滿那條路
   - 四行可以在本回合較早那則，但不拿那則蓋掉收尾的宣告行
 - **照欠／照擋**：
   - 理由空、佔位或空話 → 照擋
-  - 補題第二版第 5 回合帳上同一秒記 declined 又記 exhausted_block：判宣告行時拿的是較早那則四行齊的回覆
+  - 曾在同一秒記了 declined 又記 exhausted_block：判宣告行時拿的是較早那則四行齊的回覆（所以只看收尾最後一則）
 
 #### SECOND_OPINION_DECLARED_ALWAYS_LOGGED
 **判什麼**：「不需第二意見」宣告什麼時候留帳（[`handlers/stop.py`](../hooks/handlers/stop.py)，排在所有收尾閘前面）
@@ -1292,7 +1292,7 @@
   - 同一個使用者回合同一句理由只記一筆（state `second_opinion_declared` 記這回合記過的每一句全文）
 - **照欠／照擋**：
   - 理由空、佔位或空話不記（照上一列擋）
-  - 第四跑 C-1 第 2～5 回合的宣告因閘不要或前面的閘先擋而沒帳
+  - 這條的來由：宣告曾因第二意見閘那回合不要、或前面的閘先擋下而沒留帳
 
 #### SECOND_OPINION_FACT_TRIGGER
 **判什麼**：第二意見閘進不進門（取代 [SECOND_OPINION_REQUIRED](#second_opinion_required) 的「宣告完成時」）
@@ -1600,10 +1600,10 @@
     - 早一則只有文字的回覆
     - need_goal set／update 的 `locate` 欄與 `data_files`
     - 程式照認
-  - 009 實跑三條路並列，AI 挑了最貴的（ToolSearch 載工具、need_goal update 被拒、read、再 update）多 4 個模型回合
+  - 理由：三條路並列時 AI 曾挑最貴的那條（ToolSearch 載工具、need_goal update 被拒、read、再 update），多 4 個模型回合
 - **照欠／照擋**：
   - 不准出現「或寫成 Bash 指令開頭的 # 註解」「下一條 Bash 的註解」這類會被讀成改用 Bash 寫檔的說法（`verify_release_rules` 掃 hooks 全部原始碼）
-  - 補題第一版 AI 照舊訊息全程用 python -c 改檔：
+  - 曾有 AI 照舊訊息全程用 python -c 改檔：
     - 寫入判不出目標
     - modified_files 整個 session 是空的
     - 對帳、第二意見、同步提醒都看不到改動

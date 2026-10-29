@@ -1723,7 +1723,7 @@ def _red_item_lines(f: Dict[str, Any], v6: bool = True) -> str:
 
 
 def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
-    """寫碼守門關閉時的 TestFailGate 擋訊息：出路照 9e476fd0 原文（關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口），
+    """寫碼守門關閉時的 TestFailGate 擋訊息：出路照這套守門加進來以前的原文（關閉時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口），
     但列的失敗項跟寫碼守門開同一份——只列還沒跑綠的那幾支、算支數。舊寫法印摘要第一行、不看 cleared_units，已經綠的那支會一直
     被列成失敗（實踩：多支檔一批紅、幾支綠了之後 Stop 仍列已綠的那支，AI 被帶去重跑整個範圍）。"""
     return (f"[Guardian:TestFailGate] 測試未綠：{red_count_label(failing)}，不得宣告完成。\n"

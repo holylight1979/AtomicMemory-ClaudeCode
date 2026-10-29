@@ -66,6 +66,10 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 表上沒登的規則名當照擋。
 - 寫碼守門關時 `gate_mode` 一律回 block，行為同這套守門加進來以前。
 - 下面各表每道閘前面標的「照擋」「提醒」就是這張表的現況；標「照擋（不在範圍）」的是安全邊界。
+- 下面各節寫的「擋滿 N 次、第 N+1 次放行」「Stop 回 additionalContext 讓對話續跑一回合」是照擋時的送法（寫碼守門關，或 `RULE_MODE` 把那條規則列成照擋）：
+  - 寫碼守門開著時，判成提醒的規則在 Stop 只留帳，不續跑、不吃擋次（[STOP_REMIND_LEDGER_ONLY](../TECH/release-rules.md#stop_remind_ledger_only)）。
+  - 例：PickOne、寫碼查核 (e)。程式裡照擋那條分支留著，`RULE_MODE` 改表就換送法。
+  - 不屬寫碼守門的 [lang_guard](#lang_guard) 不讀本表：照舊在 Stop 回 additionalContext、續跑一回合。
 
 ### 代號（完整）
 
@@ -198,10 +202,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 知識收割。
   - 清掉自己建的工作樹與暫存。
   - 同步提醒。
-- **擋滿的處理**：
-  - 紅測與寫碼查核同一個使用者回合擋滿兩次，不自己放行，改問使用者【收尾放行確認】。
-  - 待放行只在同一個使用者回合有效。
-  - headless、子代理沒人能回答，擋滿就放行並留帳。
+- **擋滿的處理**：紅測與寫碼查核擋滿不自己放行，改問使用者【收尾放行確認】；各閘預算與沒人能回答時怎麼放見 [擋次預算](#擋次預算完整)。
 - **連鎖斷路器**：閘擋→修→又擋連成一串時，由連鎖斷路器中止、交使用者三選一（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）。
 - **擋不擋**：擋只紅測與 (a)；其餘提醒。
 - **見**：[§7.1](../TECH.md#71-stop-閘序)、[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)。
@@ -294,7 +295,8 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 真的有綠掉幾支才附「（M 支已綠）」。
   - 每筆只列還沒跑綠的那幾支（最多 3 支＋等 N 支；已清的絕不列）。
   - 附「重跑這幾支檔就夠：<那幾支所在的檔，去重>」。
-  - 寫碼守門開關兩種訊息的失敗項同一份（`stop._red_item_lines`），關時只有出路文字照 9e476fd0。
+  - 寫碼守門開關兩種訊息的失敗項同一份（`stop._red_item_lines`）。
+  - 關時的出路文字是舊版三選一（修復／說明不修並標已知 regression／降級任務定義，`stop.pre_v6_testfail_message`）：關時沒有「不做｜」豁免與負向對照，不能叫 AI 走那兩條出口。
 - **block 要求**：修到綠，或寫「不做｜<哪一支>：使用者說「…」」。
   - 原句不再比對（[USER_WAIVER_NEEDS_CITATION](../TECH/release-rules.md#not_doing_declareduser_waiver_needs_citation)）。
 - **基底紅**：
@@ -360,7 +362,8 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 使用者要在最後一次擋之後選放行，或打字「放行」，才放這一回合，並記 user_release（健檢列 red）。
   - 之後的回合只沿用擋訊息列過的那幾件（[RELEASE_COVERS_SHOWN_ITEMS](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)，[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)）。
   - 子代理、裁判、headless／SDK 沒有人能回答：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
-- **(e) 例外**：屬於記憶與報告類，照舊第 3 次放行，並寫 guard-reconcile_overflow（健檢列 red）。
+- **(e) 的送法**：寫碼守門開時是提醒，只留帳。
+  - 照擋時（`RULE_MODE` 把它列成照擋）屬記憶與報告類：不走放行詢問，擋滿後第 3 次放行並寫 guard-reconcile_overflow（健檢列 red）。
 
 ### ReadingPath／TurnJudgment（閱讀路徑與拐彎判斷，G12＋G11）
 
@@ -720,11 +723,12 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 先在交收尾檢核或完整對照那批附上（[PICK_ONE_PRE_CLOSE](../TECH/release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)，開關 `pick_one.pre_close`）。
   - 附了就記問過，Stop 不再送、不再讓對話續跑一輪。
 - Stop 的拐彎判斷擋下時同一則一起問（[PICK_ONE_WITH_TURN_JUDGMENT](../TECH/release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)）。
-- 兩處都沒走到才排在所有閘之後。
+- 兩處都沒走到才排在所有閘之後（寫碼守門開時這裡只留帳，見下）。
 
 #### 動作
 
-- **不擋**：回 `hookSpecificOutput.additionalContext`（對話續跑一回合，不是 block）。
+- **不擋**：寫碼守門開時是提醒，問句只在上面兩處附上，Stop 這裡只留帳（[STOP_REMIND_LEDGER_ONLY](../TECH/release-rules.md#stop_remind_ledger_only)）。
+  - `RULE_MODE` 把 PICK_ONE_PRE_CLOSE 改成照擋時，才改在 Stop 回 `hookSpecificOutput.additionalContext`（對話續跑一回合，不是 block）。
 - 送一次的內容：「這次看到的鄰近問題裡哪一件最該修、為什麼、為什麼不是數字最高的那個、建議怎麼解、該誰解」。
 - **材料依部位分組**（數字都標參考、不排名）：
   - 表上「下游」
@@ -748,7 +752,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 只問一次
 
 - 同一批改動只問一次，同一個使用者回合也只問一次（`pick_one[sid].asked_uturn`／`covered_uturn`）。
-  - 照使用者回合比：這一問讓對話續跑一回合，續跑回合不算新的一批。
+  - 照使用者回合比：照擋送法下這一問讓對話續跑一回合，續跑回合不算新的一批。
 - 這次收尾是不是 Stop hook 續跑出來的（輸入帶 `stop_hook_active`）不當條件（[PICK_ONCE_PER_USER_TURN](../TECH/release-rules.md#pick_once_per_user_turn)）。
   - 第一次收尾先被別的閘（例：紅測閘）擋下、修完續跑收尾，照樣問這一次。
 - 交付邊界也記整個使用者回合（`pick_one[sid].boundary_uturn`，各閘之前先記）。
@@ -1278,8 +1282,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 訊息裡不再重述的規矩
 - 宣告放哪只教一條路：同一則先發的不寫檔指令開頭的 `#` 註解
   - 跟工具呼叫同一則送出的文字、thinking 預設不進 transcript，hook 看不到
-  - 早一則只有文字的回覆與 need_goal set／update 的 `data_files` 程式照認、訊息不提（[DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
-  - 原因：009 實跑三條路並列，AI 挑了最貴的，多 4 個模型回合
+  - 早一則只有文字的回覆與 need_goal set／update 的 `data_files` 程式照認、訊息不提（理由見 [DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
 - 宣告完照常用 Edit／Write 改，不改用 Bash／PowerShell 寫檔
 - 拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）
 - 每個檔各自宣告，帳留給健檢抽查
@@ -1916,11 +1919,8 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 通過：標 located_via=need_goal、掛節點、沒紀錄的部位先建紀錄
   - 沒過：回一行說缺什麼，改檔前照舊補交
   - 帳：`located_via_need_goal`／`locate_via_need_goal_rejected`
-- **007 實測**：AI 為交四行多發一條只有 `#` 註解的指令，每部位多一個模型回合；這條路省掉那一回合
-- **009 實測**：
-  - 擋訊息同時教三條路，AI 挑了 need_goal update 那條（ToolSearch 載工具、update 被拒、read、再 update），多 4 個回合
-  - 所以擋訊息與提示現在只教「同一則先發不寫檔指令的 `#` 註解」一條路
-  - locate 欄只在這裡與 MCP 工具說明講（[DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
+- **為什麼有這個欄**：沒有它的話，AI 為交四行要多發一條只有 `#` 註解的指令，每部位多一個模型回合
+- **擋訊息不教這條路**：擋訊息與提示只教「同一則先發不寫檔指令的 `#` 註解」一條路，locate 欄只在這裡與 MCP 工具說明講（理由見 [DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
 
 #### 只立一次與送回
 - **目標樹只立一次**（[GOAL_TREE_SET_ONCE](../TECH/release-rules.md#goal_tree_set_once)）：
@@ -2213,7 +2213,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 ### 部件
 
 #### 登錄表
-- **位置**：[`workflow/entrypoints.json`](../workflow/entrypoints.json)（程式碼根，版控資料；現有 39 列、`not_entrypoints` 44 條）。
+- **位置**：[`workflow/entrypoints.json`](../workflow/entrypoints.json)（程式碼根，版控資料）。
 - **每個切入點一列**，欄位：
   - 代號
   - 名稱
@@ -2227,9 +2227,9 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 例：E38～E41 是 G6 階段 5 的糾正詞、否決記憶、衝突宣告、範疇宣告。
   - E36、E37 已撤：自檢評分不是切入點、上則評分只留帳。
 - **`path_values`**：
-  - 本契約接的路：stop_piggyback／pretool_deny／pretool_hint／mcp_reply／subagent_prompt／tool_cli。
+  - 本契約接的路：stop_piggyback／pretool_deny／pretool_hint／mcp_reply／post_tool_hint／subagent_prompt。
   - user_prompt 只接程式自己組的問句，目前有 E38、E39。
-  - session_start／post_tool_hint／local_llm 只登記不接。
+  - session_start／local_llm／tool_cli 只登記不接（tool_cli 目前沒有程式送）。
 - **`not_entrypoints`**：列 RULES 裡確定不是問 LLM 的規則與一句理由。
 - 加切入點只改這份檔；程式不寫死任何代號，沒登錄的切入點沒有卡也沒有帳。
 - **現況**：
@@ -2277,12 +2277,11 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 問的那一刻注入
 - **單一入口**：`wg_entrypoint.entry_note(問句, 路)`。
 - **保護匯入**：[`handlers/_shared`](../hooks/handlers/_shared.py) 保護匯入（模組壞了退成不接卡＋stderr，不拖垮 handler）。
-- **例外**：[`stop.py`](../hooks/handlers/stop.py) 直接匯入 `wg_text_score`、它又直接匯入 `wg_entrypoint`，這條鏈沒有保護，`wg_entrypoint` 載不起來時 Stop handler 整支載不起來。
 - **各路接在哪**：
   - stop_piggyback：
     - Stop 的 `_piggyback`（只拿這道閘自己的擋訊息認切入點，卡接在後面所有預覽與提示之後）。
     - 子代理收尾 `_code_gate_no_ask` 的擋訊息（裁判子 session 走同一支但不接）。
-    - PickOne 續跑提醒。
+    - PickOne 照擋送法時的續跑提醒。
   - pretool_deny：PreToolUse 的 deny 全走 `_deny()`（裁判子 session 的 JudgeWrite 除外：裁判不注入）。
   - pretool_hint：提問前提醒與一般警告段的 additionalContext（systemMessage 給使用者看的那份不接）。
   - 上面三者共用 `_with_cards()`：

@@ -2344,10 +2344,9 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
     exit 0 且 failed 0；記下的行程環境沒有縮小驗證範圍的設定（scope_env，與 session 收據同一個判斷；沒記 env 的舊收據看不出來，
     不算）；started_at 晚於該部位最後一次修改；收據根（受測樹 project_root）與部位根同一棵樹（_root_ok）。
     不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
-    # 防線邊界：hook 擋得住 AI 直接手寫收據（PreToolUse 對 verify-ledger/ 的 Edit／Write／重導向／PowerShell 寫檔別名一律 deny）、
-    # 靠措辭避開查核（補案例義務與量尺每次 Stop 都判）、把目標不明的寫入當成沒寫（未知寫入欠帳）、舊收據或別棵樹的收據冒充
-    # （started_at 要晚於最後一次修改、project_root 要同一棵樹）。擋不住 AI 刻意寫一支程式去產生假收據：AI 能執行任意程式，
-    # 它讀得到的任何識別都能複製，這一層不是程式能保證的，不再為它加機制。
+    # 防線邊界：擋得住靠措辭避開查核（補案例義務與量尺每次 Stop 都判）、把目標不明的寫入當成沒寫（未知寫入欠帳）、舊收據或
+    # 別棵樹的收據冒充（started_at 要晚於最後一次修改、project_root 要同一棵樹）。擋不住手寫收據或 AI 刻意寫一支程式去產生假收據
+    # （RECEIPT_NO_FORGERY_CHECK）：AI 能執行任意程式，它讀得到的任何識別都能複製，這一層不是程式能保證的，不再為它加機制。
     for r in runs or []:
         argv = r.get("argv") if isinstance(r, dict) else None
         if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(

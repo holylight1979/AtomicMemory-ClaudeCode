@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 TECH 待裁 C～F 讀碼裁定、G～I 文件整理（一事一處正本、跑次原文搬 DevHistory、數字改標記）
+- **緣由**：TECH 重整留下的待裁清單：C～F 原本只是從文件推論，使用者要求看得到程式就先查證再裁；G～I 是同一件事寫在多處、規則表夾著開發期跑次代號、手寫數字會漂。
+- **做法**：C（子代理路）使用者裁留著；D 讀碼確認去重與衝突分兩輪問、衝突宣告本機從沒發生，不合併只補一句；E 收據規則附錄已齊，補連結並更正 `wg_verify_ledger` 還說「擋得住手寫收據」的註解（擋的程式在 `7f12e93e` 已拔，RECEIPT_NO_FORGERY_CHECK）；F 讀碼確認提醒沒有例外、是文件寫了照擋時的送法，§7 與附錄補分界；G 每組指定正本、其他處一句加連結；H 跑次原文搬 `DevHistory/v6.0-寫程式碼的進化-2026-10/TECH-規則表開發期跑次原文-2026-10.md`；I 現況計數改分項標記、題數與列數不寫死；順手更正切入點接線、MCP 工具清單兩處現況。待裁清單結案搬 DevHistory，剩 J 留 `memory/_staging/v6代號設定鍵改名-待做.md`。
+- **驗證**：連結錨點檢查（GitHub／GitLab 兩套規則）1977 條 0 錯、反例抓得到；sync_doc_counts --check、verify_config_consistency、vcs_sync marker／config 相關、verify_verify_ledger 全綠；新 session 實跑 atom_promote 試算確認 [固] 門檻生效。
+
 ## 2026-10-29 寫碼守門關著時，AI 的工具清單不再列守門專用的四個工具
 - **緣由**：守門關著（同事出廠預設）時，`need_goal`、`second_opinion_start`、`second_opinion_result`、`project_smells` 仍列在 AI 的工具清單上；沒有任何提示會叫它用，列著只會讓 AI 誤叫、多讀說明。壞設計帶歪量測裡守門關的受測 session 實際看得到這四個。
 - **做法**：`tools/workflow-guardian-mcp/lib/mcp.js` 的 tools/list 改回 `listedTools(v6Enabled())`：守門關只列守門之前就有的 9 個記憶工具，開著照列 13 個；呼叫照樣處理。

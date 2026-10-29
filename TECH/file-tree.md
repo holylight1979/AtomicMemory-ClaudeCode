@@ -362,7 +362,7 @@
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`tools/memory-eval/`](../tools/memory-eval/) | 回歸集：231 條（34 條已封存） |
+| [`tools/memory-eval/`](../tools/memory-eval/) | 回歸集（[`queries.jsonl`](../tools/memory-eval/queries.jsonl) 一行一題）與線上基線 |
 | [`tools/memory-vector-service/`](../tools/memory-vector-service/) | 向量服務 |
 | [`tools/codex-companion/`](../tools/codex-companion/) | Codex 評估夥伴 |
 | [`tools/second-opinion/`](../tools/second-opinion/) | 第二意見 job（MCP `second_opinion_start`／`second_opinion_result`） |
@@ -549,7 +549,7 @@ runtime state（多數 gitignored）。
 - `--help` 只印用法不跑。
 - 結尾印哨兵 `VERIFY_CHECK DONE cases=<n> failed=0`；有紅印 FAIL 且 exit 1。
 - 自寫收據記紅掉的測試名 `failed_cases`。
-- 基線約 2950 案。
+- 案數看哨兵行的 `cases=`。
 - git／svn e2e 族在全量或有其他 git 活動並行時，偶發單案紅、單跑穩定。
   - 涉及案例：`verify_vcs_sync_worker`、`verify_merge_driver_gate`、`verify_merge_atom_index` 內各一案。
   - 推論：工具內 git 子行程 5 秒逾時在負載下觸發。

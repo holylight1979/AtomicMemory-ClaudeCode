@@ -284,19 +284,19 @@
 
 [↑ 主文 §12.1](../TECH.md#121-功能開關不想要某個功能時逐鍵關)
 
-除另註明外，值設 `false` 即關。
+除另註明外，值設 `false` 即關。預設值與完整意義以上方[設定總表](#設定總表)為準，本表只寫關掉（或打開出廠就關的）會少或多什麼。
 
 ### 總開關與守門
 
 | 鍵 | 關了少什麼 |
 |----|-----------|
 | `enabled` | 整個 Guardian（所有 hook 直接放行） |
-| `coding_guard.enabled` | 出廠 false：寫碼守門全不跑（[§7](../TECH.md#7-守門與收尾) 開頭） |
+| `coding_guard.enabled` | 寫碼守門全不跑（[§7](../TECH.md#7-守門與收尾) 開頭） |
 | `chain_breaker.enabled` | 連鎖斷路器（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）；一鍵關就寫 false |
 | `chain_breaker.depth_alarm` | 連鎖深度到 `max_depth` 也警報（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
 | `reconcile_gate.enabled` | 整個寫碼查核對帳閘（[§7.1](../TECH.md#71-stop-閘序)） |
-| `aec.scan_report_gate` | 沒交收尾檢核就擋收尾（目前 false） |
-| `atom_audit.enabled` | 卡片表態閘（目前 false） |
+| `aec.scan_report_gate` | 開了才會沒交收尾檢核就擋收尾 |
+| `atom_audit.enabled` | 開了才有卡片表態閘 |
 | `second_opinion.auto.enabled` | 大任務收尾自動要求第二意見 |
 | `pick_one.enabled` | 交付時順手點出最該修的一件 |
 | `overview_hub.enabled` / `overview_hub.min_map.enabled` / `overview_hub.equivalence.enabled` | 部位導讀卡與寫入閘 / 無表專案最小地圖 / 等值與熱路徑閘 |
@@ -313,8 +313,8 @@
 | `codex_companion.fallback.enabled` | 無 codex 時不退 `claude -p`，直接 heuristics-only |
 | `text_score.enabled` | G15 文字規格自動評（見下方補充） |
 
-- **`coding_guard.enabled`**：要開設 true 或 `WG_CODING_GUARD=1`（舊鍵 `v6`／舊變數 `WG_V6` 仍可用）。
-- **`chain_breaker.depth_alarm`**：出廠 false，只有同一道閘第 2 次警報。
+- **`coding_guard.enabled`**：開法與舊名相容見 [§7 守門總開關](../TECH.md#守門總開關)。
+- **`chain_breaker.depth_alarm`**：沒開時只有同一道閘第 2 次警報。
 - **`guard.cross_realm_write.enabled`**：
   - 核心層指 hooks/lib/tools/skills/rules 與根層設定檔。
   - 「專案專屬內容不得落 global」的 realm 閘在 [`lib/realm_gate.py`](../lib/realm_gate.py)，無開關。
@@ -334,10 +334,10 @@
 | `injection.redundancy_gate.enabled` | 同題去冗 |
 | `injection.related_gate.enabled` | related atom 擴散注入 |
 | `taxonomy.gate_enabled` | atom 必須帶範疇才能寫入的閘 |
-| `realm.llm_fallback.enabled` | 預設 false；開了用本地 LLM 判 unknown atom 的 realm |
+| `realm.llm_fallback.enabled` | 開了用本地 LLM 判 unknown atom 的 realm |
 | `response_capture.enabled` | 全部自動萃取（SessionEnd 全量、失敗萃取） |
 | `response_capture.failure_extraction.enabled` | 只關失敗關鍵字萃取 |
-| `response_capture.per_turn.enabled` / `response_capture.session_end_flush.enabled` | 預設 false，已停產（[§14.2](../TECH.md#142-已停產除役機制)） |
+| `response_capture.per_turn.enabled` / `response_capture.session_end_flush.enabled` | 已停產（[§14.2](../TECH.md#142-已停產除役機制)） |
 | `userExtraction.enabled` | 使用者決策萃取（L0→L1→L2） |
 | `episodic.auto_generate` | session 結束自動生成 episodic 摘要 |
 

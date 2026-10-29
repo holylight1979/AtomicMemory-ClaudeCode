@@ -545,7 +545,7 @@ SessionStart（session_start._org_advisory）
 - 三個根（[`lib/project_root.py`](lib/project_root.py)）：資料根、程式碼根、Claude Code 設定目錄；工具讀資料一律問資料根，不寫死 `~/.claude`。
 - 寫入 funnel：[`lib/atom_io.py write_atom`](lib/atom_io.py) → upsert index → [`tools/sync-memory-index.py --write`](tools/sync-memory-index.py) 重生各層 `_INDEX.md`、[`MEMORY.md`](memory/MEMORY.md)、[`_local_catalog.md`](memory/_local_catalog.md)、[`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md) → 尾端自動重產原生橋接檔並同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分，語言是跨範疇視圖 [`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md)，一張卡可屬多個語言。
-- 現況計數：<!-- atom-breakdown -->718 atoms：core 401 + feedback 75 + 失敗模式 2 + local 240〔Tools25/MemDev198/OS2/CC與原子記憶契約7/Vision1/工作流4/驗證與實證3〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：共 <!-- atom-total -->718<!-- /atom-total --> 張＝core <!-- atom-core -->401<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->75<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->240<!-- /atom-local -->（數字由標記自動同步，勿手改）。
 
 #### 多機合併的三層防線
 
@@ -652,7 +652,7 @@ SessionStart（session_start._org_advisory）
   → 三路並行：trigger ／ BM25 ／ vector（vector 只在條件成立時打）
   → supersedes（剔除被取代的舊 atom）
   → RRF（把三路排名合成一個排名的公式）
-  → 活化調節（activation，gain 現為 0）
+  → 活化調節（activation）
   → hot/cold（全文 或 一行摘要）
   → 同題去冗
   → per-turn 三態（ok 全文／fallback 節錄／skip 一行指標）
@@ -671,7 +671,7 @@ SessionStart（session_start._org_advisory）
 | 5 | vector | 兩種情況才打 :3849，且帶 `layers` 白名單 | top_k 5、min_score 0.65、timeout 3500ms |
 | 6 | supersedes | 候選池先剔除被 `Supersedes` 指到的舊 atom | 明確要看舊做法才放行 |
 | 7 | RRF 融合 | 三路各自排名 → `Σ 1/(60+rank)` | `RRF_K_DEFAULT` 60 |
-| 8 | 活化調節 | `final = rrf × exp(gain × activation_rank)`，再減分心懲罰 | gain 現為 0 |
+| 8 | 活化調節 | `final = rrf × exp(gain × activation_rank)`，再減分心懲罰 | gain 0（[為什麼](#為什麼活化增益歸零)） |
 | 9 | hot/cold | trigger 命中恆 hot；其餘看近期性；cold → 一行摘要 | `hot_recent_threshold` 3 |
 | 10 | 同題去冗 | 與已全文注入者 trigger 精確重疊 ≥3 → 只送節錄 | `min_shared_triggers` 3 |
 | 11 | per-turn 三態 | 累計 vs 硬頂：全文／節錄／一行指標 | `TURN_BUDGET_LIMIT` 1200 |
@@ -744,9 +744,9 @@ SessionStart（session_start._org_advisory）
 
 ### 5.6 回歸評估集
 
-- 位置：[`tools/memory-eval/`](tools/memory-eval/)；每顆 atom 由本地 LLM 離線生成「應命中 prompt」＋負例，共 231 條。
+- 位置：[`tools/memory-eval/`](tools/memory-eval/)；每顆 atom 由本地 LLM 離線生成「應命中 prompt」＋負例，題目在 [`queries.jsonl`](tools/memory-eval/queries.jsonl)（一行一題）。
 - 主用 `run.py --online`：呼叫線上同一條管線，凍結時鐘、vector 替身、零副作用。
-- 現行線上基線：R@1 81.1%、R@3 93.1%、MRR 0.870、全文送達 88.0%、負例 4.5%。
+- 現行線上基線存在 [`baseline_online.json`](tools/memory-eval/baseline_online.json)，量哪幾項與現在的數字見附錄 [A5.6](#現行線上基線)。
 
 細節 → [附錄 A5.6](#a56-回歸評估集)
 
@@ -1112,6 +1112,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - atom_write 回「衝突待宣告（這次不寫檔）」→ AI 帶 `conflict=[{of, verdict: conflict|not_conflict, why}]` 重送。
   - 任一 conflict → pending 報告、不寫 shared；全部 not_conflict → 照寫。
   - 都留帳 `guard-conflict_declared`（規則 [CONFLICT_DECLARED_BY_AI](TECH/release-rules.md#conflict_declared_by_ai)）。
+  - 衝突偵測只在 create 寫 shared 時跑、排在去重之後：兩邊都要宣告時分兩輪問（先帶 `dedupe` 重送，再帶 `conflict` 重送）。
 - **裁決優先序**：證據等級 → recency，取代純「新勝舊」。
 - **fast-refute**：新側實證、舊側 [固]／[觀] → 置頂裁決，不等 Wilson 統計窗。
 - 偵測器三種模式：write-check（atom_write 時）、pull-audit（[`hooks/post-git-pull.sh --mode=pull-audit`](hooks/post-git-pull.sh)）、full-scan（手動全掃）。
@@ -1214,6 +1215,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 收尾類的要求掛最後一次改程式檔那批的工具結果，Stop 只留帳。
 - 表上沒登的規則名當照擋；寫碼守門關時 `gate_mode` 一律回 block。
 - 下面各表每道閘前面標的「照擋」「提醒」就是這張表的現況；標「照擋（不在範圍）」的是安全邊界。
+- 各節寫的「擋滿第 3 次放行」「Stop 回 additionalContext 讓對話續跑一回合」只在照擋時成立；寫碼守門開著、判成提醒的規則（例：PickOne、寫碼查核 (e)）在 Stop 只留帳（[A7 擋或提醒](TECH/guards.md#擋或提醒完整)）。
 
 ### 代號
 
@@ -1521,7 +1523,7 @@ AI 第一次改該部位的檔（PreToolUse）
 - 知識類（knowledge）部位只要求「卡已注入」，不要求讀部位檔與定位三行
 - 沒有部位表的專案：改程式檔前要交「地圖｜讀了／上游／下游」三行（最小地圖，G14）
 - 提示命中根因詞（`root_cause_triggers`）時，已注入的部位各送一次候選填空
-- 改完後的驗證靠收據：Bash／PowerShell 輸出的哨兵連同指令、exit code 進 `workflow/verify-ledger/<sid>.jsonl`，超過 10 分鐘的驗證背景跑並自寫收據
+- 改完後的驗證靠收據：Bash／PowerShell 輸出的哨兵連同指令、exit code 進 `workflow/verify-ledger/<sid>.jsonl`，超過 10 分鐘的驗證背景跑並自寫收據；哪些收據算數見 [附錄 A7.6 收據列](TECH/guards.md#收據收據列)（收據不防偽造）
 - 專案用 `<專案根>/.claude/overview-hub.json` 只寫要改的鍵來覆蓋設定（合併順序：程式預設 < config < 公司根 < 專案根；未知鍵報錯）
 
 **為什麼是 pointer**：卡只送兩行指標，省 token，同時用「要先 Read 卡」逼 AI 真的讀過。
@@ -1803,7 +1805,7 @@ Stop（交付「改了程式」的那則回覆；本回合改了程式、這則�
 
 | 服務 | 位址／入口 | 職責 | 不在時 |
 |------|-----------|------|--------|
-| MCP server | [`tools/workflow-guardian-mcp/server.js`](tools/workflow-guardian-mcp/server.js)（stdio；Node 18+，零 npm deps） | 13 個 tool：寫／搬／退役 atom、收尾回報、檢索、第二意見 | hooks 照常；atom 可經 [`python lib/atom_io_cli.py`](lib/atom_io_cli.py) 寫 |
+| MCP server | [`tools/workflow-guardian-mcp/server.js`](tools/workflow-guardian-mcp/server.js)（stdio；Node 18+，零 npm deps） | 13 個 tool：寫／搬／退役 atom、收尾回報、檢索、第二意見（寫碼守門關時清單只列 9 個記憶工具） | hooks 照常；atom 可經 [`python lib/atom_io_cli.py`](lib/atom_io_cli.py) 寫 |
 | Dashboard | `http://127.0.0.1:3848/` | session 狀態、記憶自癒、API | — |
 | AEC HUD | `http://127.0.0.1:3848/aec/hud` | 反退避收尾報告、session 留下的東西、全機殘留 | — |
 | 腦內世界 | [`tools/workflow-guardian-mcp/world.html`](tools/workflow-guardian-mcp/world.html) | 記憶可視化（靜態檔，瀏覽器直接開） | — |
@@ -2176,7 +2178,7 @@ workflow/config.local.json      這台機器專屬，不進版控
 
 ### 最常需要動的鍵
 
-- `coding_guard.enabled`：寫碼守門總開關，出廠 false；本機開用 `WG_CODING_GUARD=1` 或 `config.local.json`。
+- `coding_guard.enabled`：寫碼守門總開關，出廠 false；開法見 [§7 守門總開關](#守門總開關)。
 - `stop_gate_max_blocks`：Stop 閘一個使用者回合最多擋幾次，預設 2。
 - `org_memory.enabled` / `roots`：公司層記憶，實際值寫在 `workflow/org-memory.local.json`，用 [`tools/org-memory.py --join`](tools/org-memory.py) 填。
 - `vector_search.enabled`：語意搜尋總開關，預設 true；關了仍保留 trigger 與 BM25。
@@ -2192,7 +2194,7 @@ workflow/config.local.json      這台機器專屬，不進版控
 - **怎麼關**：除另註明外，把該鍵設成 `false` 即關；共用的關寫 [`workflow/config.json`](workflow/config.json)，只想關這台就寫 `workflow/config.local.json`。
 - **一次全關**：頂層 `enabled` 設 false，整個 Guardian（所有 hook）直接放行。
 - **最常關的幾個**：
-  - `coding_guard.enabled`：寫碼守門，出廠就是 false。
+  - `coding_guard.enabled`：寫碼守門，出廠就關（開法見 [§7 守門總開關](#守門總開關)）。
   - `vector_search.enabled`：語意搜尋，關了仍保留 trigger 與 BM25。
   - `response_capture.enabled`：全部自動萃取。
   - `codex_companion.enabled`：AI 裁判。
@@ -3154,10 +3156,9 @@ flowchart TD
 - `RRF_K_DEFAULT` 60；`fusion:"legacy"` 可回退。
 
 #### 第 8 段：活化調節
-- `final = rrf × exp(gain × activation_rank)`。
-- **gain 現為 0**：activation 只在 hot/cold 與最終裁切起作用，不再左右相關性排序。
-- 再減分心懲罰。
-- ACT-R `ln(Σ t^-d)`；`vector_search.rrf_activation_gain` 0（程式預設常數 0.25 保留為回滾值）。
+- `final = rrf × exp(gain × activation_rank)`，再減分心懲罰。
+- activation 用 ACT-R `ln(Σ t^-d)`。
+- gain 現為 0：設定值與回滾值見 [A5.3](#a53-關鍵常數總表)，為什麼歸零見 [A5.2](#為什麼活化增益歸零)。
 
 #### 第 9 段：hot/cold
 - trigger 命中恆 hot；其餘看 access 近期性；cold → 一行摘要。`hot_recent_threshold` 3。
@@ -3372,8 +3373,8 @@ flowchart TD
 
 #### 題庫
 - 位置：[`tools/memory-eval/`](tools/memory-eval/)。
-- 每顆 atom 由本地 LLM 離線生成「應命中 prompt」＋負例，共 231 條（[`queries.jsonl`](tools/memory-eval/queries.jsonl)）。
-- 其中 34 條的 expect 已被 selective forget 封存，跑時自動跳過並標 archived。
+- 每顆 atom 由本地 LLM 離線生成「應命中 prompt」＋負例，一行一題（[`queries.jsonl`](tools/memory-eval/queries.jsonl)）。
+- expect 指到的卡已被 selective forget 封存的題，跑時自動跳過並標 archived。
 
 #### 主用 `run.py --online`
 - `online_replay.Replayer` 呼叫線上同一條管線：collect_matched_atoms → assemble_injection → 最終裁切 → 送達結算。
@@ -3390,8 +3391,8 @@ flowchart TD
 - 不帶 `--online` 的舊路徑只驗 trigger／BM25 層，保留為診斷欄（[`baseline.json`](tools/memory-eval/baseline.json)）。
 
 #### 現行線上基線
-- 日期 2026-09-21；設定為 gain 0＋BM25 每輪＋停用詞。
-- R@1 81.1%、R@3 93.1%、MRR 0.870、全文送達 88.0%、負例 4.5%。
+- 正本是 [`baseline_online.json`](tools/memory-eval/baseline_online.json)（`generated_at` 記量測時間）；量的設定是 gain 0＋BM25 每輪＋停用詞。
+- R@1 81.1%、R@3 93.1%、MRR 0.870、全文送達 88.0%、負例 4.5%（重量之後以檔案為準）。
 
 ### A5.7 其他注入來源（同一 additionalContext）
 
@@ -3870,7 +3871,7 @@ svn：svn_update_targets
 - **何時用**：舊 atom 被證錯但仍有歷史價值。
 - **做法**：新顆 `atom_write(supersedes=[舊])`，或 replace 帶 `supersedes`。
 - **效果**：被取代者不再注入（SessionStart 算 `atom_index.superseded` 集合），檔案保留。
-- **三態**：未給＝replace 保留原行；`[]`＝清除；非空＝替換。
+- **三態**：replace 時分未給／清除／替換三種，跟 [§4.1](#41-atom-卡片格式) Source／Quote／Depends 那張表相同。
 - **寫前檢查**：[`lib/atom_io.check_supersedes`](lib/atom_io.py)——目標可解析、非自指、沿鏈無循環、非核心保護名。
 - **格式**：內容 `- Supersedes:` 列 Related 之後；缺省 byte 不變（py `atom_spec.build_atom_content` ↔ js [`atom-render.js`](tools/workflow-guardian-mcp/lib/atom-render.js) parity）。
 - 依據：SPEC §3.5。
@@ -4372,6 +4373,7 @@ svn：svn_update_targets
 #### MCP server
 - **入口**：[`tools/workflow-guardian-mcp/server.js`](tools/workflow-guardian-mcp/server.js)（stdio；Node 18+，零 npm deps）
 - **13 個 tool**：
+  - 寫碼守門關著時，工具清單只列守門之前就有的 9 個記憶工具，不列 `need_goal`、`second_opinion_start`、`second_opinion_result`、`project_smells`；呼叫照樣處理（[`lib/mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js) `listedTools`，案例 [`verify_tools_list_guard_off.js`](tools/workflow-guardian-mcp/verify/verify_tools_list_guard_off.js)）
   - 寫入類：`atom_write`／`atom_promote`／`atom_move`／`atom_edit_meta`／`atom_retire`
   - 收尾回報類：`anti_evasion_report`／`knowledge_harvest_report`／`need_goal`
     - 這三者只驗參數回 chip，state 與目標檔由 Python PostToolUse 寫（[§7.7](#77-需求目標樹need_goal)）
