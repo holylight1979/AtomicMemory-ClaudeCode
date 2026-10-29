@@ -1292,6 +1292,10 @@ def delete_atom(
     # ① 護欄（全部在任何異動之前）
     layers = discover_layers(project_dir=project_dir)
     mem_dir: Optional[Path] = next((mdir for name, mdir in layers if name == layer), None)
+    if mem_dir is None and layer == "project" and atom_path is not None and project_dir and Path(project_dir).is_dir():
+        # caller 已定位到檔（atom_io_cli retire）：專案記憶層只有 hook 自動寫的卡、還沒生 MEMORY.md 時 discover_layers
+        # 不認它是一層；atom_path 要落在 project_dir 之下的檢查照做，所以直接拿 project_dir 當這一層
+        mem_dir = Path(project_dir)
     if mem_dir is None:
         hint = " (layer=project requires project_dir)" if layer == "project" and not project_dir else ""
         return _fail("locate", f"Atom '{atom_name}' not found in layer '{layer}'{hint}")

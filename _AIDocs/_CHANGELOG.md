@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 專案層只有自動卡、沒 MEMORY.md 時 atom_retire 退役不了（C′ 實跑受測 AI 回報）
+- **緣由**：013 跑 C′ 時 hook 在專案層自動寫了一張 personal 卡，使用者隨後改了決定、AI 想撤卡：`atom_retire` 與 `atom_write(supersedes)` 都回「not found in layer 'project'」，但回傳的 old_path 就是那個檔。根因：`memory-audit.discover_layers` 只認有 MEMORY.md 的目錄是一層，自動寫卡的專案層只有 `_atom_index.json`。
+- **做法**：`delete_atom` 在 caller 已給 atom_path（atom_io_cli retire 定位過）且 project_dir 存在時，直接拿 project_dir 當這一層；atom_path 要落在 project_dir 之下的檢查照做；CLI 沒給 atom_path 的路不變。
+- **驗證**：verify_atom_retire 新案 `test_project_layer_without_memory_md_still_retires_located_atom`（沒 MEMORY.md：CLI 路照舊拒、定位路退役成功）；該檔 35 案綠。
+
 ## 2026-10-29 「case_for｜」行算案例宣告；紅測全被豁免也算交付邊界（011 重驗剩下的兩件）
 - **緣由**：011 重驗 C′：AI 寫「case_for｜receipt.py：test_cli.py::test_x」說明哪支案例驗它，閘只收 need_goal verify_scope 的 case_for、照樣提醒欠案例；使用者叫跳過的 ERP 合約測試永遠紅，「順手看到最該修」只認測試全綠那批，整跑沒送到 AI。
 - **做法**：`wg_release_rules.parse_case_for_decls` 讀三管道的 `case_for｜<程式檔>：<案例…>` 行（節點只取檔那段）；`wg_verify_ledger.declared_cases` 多收 transcript_path、把這些行併進 case_for（Stop 與 post_tool_batch 兩處呼叫端都傳）；欠案例的提醒與擋訊息教這一行。`post_tool_batch._test_green_batch`：這批有測試指令、沒綠、但 state failing_tests 還紅的每一支都在 testfail_waivers 的 units 裡 → 也算交付邊界（`_reds_all_waived`）。

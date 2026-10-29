@@ -731,3 +731,21 @@ def test_remove_index_entries_refuses_on_corrupt_index_json(tmp_path):
     (mem_dir / "_atom_index.json").write_text("{not json", encoding="utf-8")
     ok, msg = MA._remove_index_entries(mem_dir, "x", atom, name_unique=True)
     assert ok is False and "unreadable" in msg
+
+
+def test_project_layer_without_memory_md_still_retires_located_atom(tmp_path, monkeypatch):
+    """實跑（011 題 C′）：hook 在專案層自動寫了一張 personal 卡，專案記憶目錄只有 _atom_index.json、沒有 MEMORY.md；
+    discover_layers 不認它是一層，retire 回「not found in layer 'project'」但 old_path 就是那個檔。caller 已給 atom_path
+    且 project_dir 存在 → 直接拿 project_dir 當這一層，照退役；沒給 atom_path 的 CLI 路照舊要有 MEMORY.md。"""
+    proj_mem = tmp_path / "proj" / ".claude" / "memory"
+    proj_mem.mkdir(parents=True)                      # 刻意不寫 MEMORY.md
+    md = _mk_atom(proj_mem, "auto-card", subdir="personal/u", scope="personal:u")
+    monkeypatch.setattr(MA, "CLAUDE_DIR", tmp_path)
+    monkeypatch.setattr(MA, "AUDIT_LOG_PATH", tmp_path / "audit.log")
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("no service")))
+    ok, msg, info = MA.delete_atom("auto-card", "project", project_dir=proj_mem, reason="t")
+    assert not ok and "not found in layer 'project'" in msg      # CLI 路（沒 atom_path）照舊
+    ok, msg, info = MA.delete_atom("auto-card", "project", project_dir=proj_mem, reason="t", atom_path=md)
+    assert ok, msg
+    assert not md.exists() and not _index_has(proj_mem, "auto-card") and info["old_path"] == str(md)
