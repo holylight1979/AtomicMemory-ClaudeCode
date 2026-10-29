@@ -10,7 +10,7 @@
 | 驗證與實證 | 86 | `memory/驗證與實證/_INDEX.md` |
 | dotnet | 16 | `memory/dotnet/_INDEX.md` |
 | OS-Windows | 25 | `memory/OS-Windows/_INDEX.md` |
-| 文字與格式 | 11 | `memory/文字與格式/_INDEX.md` |
+| 文字與格式 | 12 | `memory/文字與格式/_INDEX.md` |
 | 設計通則 | 60 | `memory/設計通則/_INDEX.md` |
 | 行為契約 | 17 | `memory/行為契約/_INDEX.md` |
 | CC與原子記憶契約 | 63 | `memory/CC與原子記憶契約/_INDEX.md` |
