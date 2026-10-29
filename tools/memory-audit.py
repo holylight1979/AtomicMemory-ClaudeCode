@@ -60,7 +60,7 @@ from lib.atom_access import read_access, usefulness_promote_eligible, move_atom_
 # _atom_index.json 為索引唯一機器源：delete/restore 必同步（含 _ATOM_INDEX.md mirror regen）
 from lib.atom_index_json import (
     delete_atom as index_delete_atom,
-    upsert_atom as index_upsert_atom,
+    upsert_atom as index_upsert_atom, find_index_dir,
     load_atom_index_json,
 )
 # 範疇資料夾硬規則：memory/ 根下散檔須歸入 memory/<範疇>/。gate 由 workflow/config.json
@@ -793,6 +793,18 @@ def search_distant(memory_dir: Path, keyword: str) -> List[Tuple[Path, str]]:
     return results
 
 
+def _restore_index_home(dest: Path, fallback_mem: Path) -> Tuple[Path, Path]:
+    """還原卡登進哪份索引 (index_dir, index_root)：在資料根下一律全域 memory/_atom_index.json
+    （範疇子夾與 _AIDocs/_atoms 的 _distant 上一層不是索引根，拿它會在子夾生一份假索引）；
+    專案層上溯最近的 _atom_index.json；都找不到才退回 _distant 的上一層。"""
+    if _is_under(dest, CLAUDE_DIR):
+        return GLOBAL_MEMORY_DIR, CLAUDE_DIR
+    found = find_index_dir(dest.parent)
+    if found is not None:
+        return found, found.parent
+    return fallback_mem, fallback_mem.parent
+
+
 def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
     """Move atom from _distant/ back to active area, reset Confidence to [臨]."""
     if not atom_path.exists():
@@ -875,8 +887,9 @@ def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
             fm = parse_frontmatter(text)
             triggers = [t.strip() for t in re.split(r"[,，]", fm.get("Trigger", ""))
                         if t.strip()]
-            rel = dest.relative_to(memory_dir.parent).as_posix()
-            index_upsert_atom(memory_dir, dest.stem, rel, triggers,
+            idx_dir, idx_root = _restore_index_home(dest, memory_dir)
+            rel = dest.relative_to(idx_root).as_posix()
+            index_upsert_atom(idx_dir, dest.stem, rel, triggers,
                               scope=fm.get("Scope", "global") or "global")
         except (OSError, ValueError) as e:
             index_note = f"；_atom_index.json 更新失敗: {e}"

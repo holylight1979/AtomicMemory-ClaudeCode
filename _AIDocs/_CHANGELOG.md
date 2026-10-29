@@ -4,6 +4,16 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 MemDev 卡池分 11 個子夾；local 卡可換子夾、從子夾 _distant 還原不再生假索引
+- **緣由**：`_AIDocs/_atoms/MemDev/` 根層平鋪 191 張卡難以瀏覽；動手時發現兩個工具缺口：`atom-set-realm`／`atom-categorize` 把「已在 local 的卡換子夾」當 noop 或錯誤，沒有工具能搬；`memory-audit --restore` 從範疇子夾的 `_distant` 拉回卡時，把 `_distant` 的上一層當索引根，在子夾裡生出一份假 `_atom_index.json`、全域索引沒登。
+- **做法**：`set_realm` 只在同夾才 noop、不同夾照搬（realm 不變）；`atom-categorize` 對應改成 realm 動作。`restore_from_distant` 改用 `_restore_index_home`：資料根下一律登全域 `memory/_atom_index.json`，專案層上溯最近索引。MemDev 188 張分進 11 個主題子夾（MemoryIndex 併入 atom工具與索引），3 張改到 local 的 CC與原子記憶契約／驗證與實證；兩張使用者偏好卡改 personal。
+- **驗證**：verify_atom_categorize 新 2 案、verify_memory_audit_sot 新 1 案（子夾 _distant 還原登全域索引）；`sync-memory-index.py --check` MEMORY_INDEX_CHECK PASS、`sync-atom-index.py --check` exit 0、健檢 Errors 0。
+
+## 2026-10-29 新增 MultiSessionCollaboration.md；v6總控台卡池 51 張逐張判定補進封存文件
+- **緣由**：`_AIDocs/_atoms/MemDev/v6總控台/` 46 張卡在 10-27 整批退役時沒逐張判，裡面混著「只有總控台才成立的規矩」與「任何主持 session 派工給多個工作 session 都成立的經驗」；後者退役等於記了但送不到。
+- **做法**：逐張判成三類——維持退役 15 張、復活到多 session 協作等範疇 24 張、復活到通用程式／CC 機制知識 12 張（含 5 張活卡），表寫進 `DevHistory/v6.0-寫程式碼的進化-2026-10/開發期記憶卡封存-2026-10-29.md` 第五節；36 張通用卡的知識匯整成 `_AIDocs/MultiSessionCollaboration.md` 十節（角色與邊界、派工單、調度節奏、跨 session 通訊機制、worktree 與共用工作樹、合併與驗收、交接文件、對人回報、裁定者校準），每節附出處卡名；`_INDEX.md` 加第 16 列。卡片搬移由主會另做、以索引為準。
+- **驗證**：文件每節 5～10 條、出處卡名全部用 `ls` 取自卡池實際檔名；封存表 (a)+(b)+(c)＝15+24+12＝51 與卡池 5 活＋46 退役對上。
+
 ## 2026-10-29 「v6 守門」改名「寫碼守門」、開發期 checklist 與追蹤項封存進 DevHistory
 - **緣由**：v6（針對寫程式碼的進化）開發期結束、守門併進產品，現況文件（TECH、README、Architecture、DocIndex）還滿是「v6 開時／v6 關時／v6 守門」這種開發期代稱，同事看不懂 v6 是什麼；`memory/_staging/` 還留著開發期的 checklist 與追蹤項兩份接續單。
 - **做法**：現況文件統一叫「寫碼守門」，各道守門用具體功能名；設定鍵 `v6.enabled` → `coding_guard.enabled`（含 `coding_turn_only`、`slim_reminders` 子鍵）、環境變數 `WG_V6` → `WG_CODING_GUARD`，舊名程式仍相容、文件各註一句。`v6-G0-G16需求目標分析與checklist.md`、`v6-開發期追蹤項-保留.md` 從 `memory/_staging/` 搬到 `DevHistory/v6.0-寫程式碼的進化-2026-10/`（checklist 檔頭標已封存、相對連結改同目錄），README 內容表加兩列，DevHistory 裡七處舊路徑引用改指新位置。程式識別字（`wg_core.v6_enabled`、`gate_mode(rule, v6)`、`*.v6_once`、`handoff_review_v6`、fixtures `v6/`）照程式現名寫。

@@ -1,7 +1,7 @@
 # MyClaudeCode (.claude) — AI 分析文件索引
 
 > 本資料夾記錄 `~/.claude` 自訂擴充系統的架構與演進。
-> 最近更新：2026-10-29（寫碼守門併入產品：文件統一叫「寫碼守門」、設定鍵 `coding_guard.enabled`、環境變數 `WG_CODING_GUARD`；開發期 checklist 與追蹤項封存到 DevHistory）
+> 最近更新：2026-10-29（新增 MultiSessionCollaboration.md：多 session 協作通則十節，自 v6總控台卡池 36 張通用卡匯整；寫碼守門併入產品：文件統一叫「寫碼守門」、設定鍵 `coding_guard.enabled`、環境變數 `WG_CODING_GUARD`；開發期 checklist 與追蹤項封存到 DevHistory）
 > 前次：2026-10-12（寫程式碼的進化：部位導讀卡注入＋寫入閘、驗證帳本與對帳／量尺閘、Depends 讀檔召回、候選填空、壓縮後綜觀重注、第二意見與候選池、從零掃表；TECH §7.6、DocIndex 補 v6 hooks 模組、README 補使用者會遇到的兩點）
 > 前次：2026-10-06（atom 來源回看閉環：`- Quote:` 欄、PostToolUse 自動填 Source／Quote、`atom_source` MCP／CLI／skill、舊 atom 回填與週健檢防腐；README／Install 改純使用者視角三層；TECH 現況對帳、§14.1 版本表移 DevHistory）
 > 前次：2026-08-31（對外四文件全面改寫：README 人讀化、TECH 按現況重排、Install-forAI 前置需求＋降級邏輯、version.json 加網頁位置欄）
@@ -21,7 +21,7 @@
 | 5d | ../Install.md | 人讀安裝指南：版控庫網址 + 在 ~/.claude 貼 prompt 由 AI 代跑 + 驗證 + 專案 3 步 + 啟動檔維護 | 安裝, 人讀, prompt, 專案初始化, 啟動檔 |
 | 5c | ../Install-forAI.md | AI 安裝 runbook：執行守則 → `tools/install.py` 指令序（`--check` → `--apply` → 重開 → `--verify`）與每步判讀 → 回報方式 → 選配項指向 → 升級（`--upgrade`）→ 移除。依賴降級、MCP 註冊、功能開關、疑難排解在 TECH.md §9／§12 | 安裝, install.py, runbook, 升級, 移除, 驗證 |
 | 5b | ../TECH.md | 技術深度文件（按現況排章）：設計理念 / 與原生・業界差異 / 一回合流程 / 記憶資料層 / 檢索與注入 / 寫入與積累 / 守門與收尾 / 可觀測 / 背景服務與網頁（含外部依賴降級對照、MCP 註冊、安裝器、疑難排解）/ 目錄樹 / 設定總表與功能開關 / 版本歷史（以代碼為真源） | 前置需求, 降級, fail-open, FAQ, Ollama, codex, Node, 設計哲學, 流程圖, ACT-R, RRF, BM25, Write Gate, scope, realm, 注入預算, 核心子系統, 版本歷史 |
-| 6 | DocIndex-System.md | 全檔系統索引（啟動鏈 + Hook 模組 + <!-- skill-count -->28<!-- /skill-count --> Skills + Tools + Memory <!-- atom-breakdown -->682 atoms：core 370 + feedback 74 + 失敗模式 2 + local 236〔Tools24/MemDev198/OS2/CC與原子記憶契約5/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->） | 啟動鏈, lifecycle, 全檔索引, 檔案清單, 系統索引, realm, local atom |
+| 6 | DocIndex-System.md | 全檔系統索引（啟動鏈 + Hook 模組 + <!-- skill-count -->28<!-- /skill-count --> Skills + Tools + Memory <!-- atom-breakdown -->712 atoms：core 398 + feedback 74 + 失敗模式 2 + local 238〔Tools25/MemDev196/OS2/CC與原子記憶契約7/Vision1/工作流4/驗證與實證3〕<!-- /atom-breakdown -->） | 啟動鏈, lifecycle, 全檔索引, 檔案清單, 系統索引, realm, local atom |
 | 7 | ClaudeCodeInternals/_INDEX.md | Claude Code 原生架構深度分析（14 章：Harness Engineering 全書） | claude code 架構, harness engineering, tool system, hook system, agent, permission, prompt, MCP, skill, plugin, feature flag, query loop, context, state |
 | 8 | Tools/_INDEX.md | 工具與領域知識（Excel 操作、Unity YAML/Prefab、記憶系統檔案索引、BM25 全域檢索層） | Excel, xlsx, openpyxl, Unity YAML, fileID, GUID, prefab, WndForm, 記憶系統架構, BM25 |
 | 9 | ../memory/Failures/_reference/_INDEX.md | 踩坑記錄與失敗模式參考文件（環境陷阱、假設錯誤、靜默失敗、誤診、codex/vector 案例）；失敗家族 atom（feedback-* + cognitive-patterns）住 `memory/Failures/<主題>/`，索引 `memory/Failures/_INDEX.md`（生成器產） | 環境陷阱, Windows, MSYS2, npx, Ollama, 假設錯誤, 靜默, 過度工程, 誤診, 驗證優先, feedback atoms, cognitive-patterns |
@@ -31,9 +31,10 @@
 | 14 | Research/_INDEX.md | 外部調查與業界比對（論文／廠商／社群專案查證整理，附來源 URL）；LLM agent 長期記憶業界調查 2025–2026；寫碼風格出處（rules/coding-style.md 依據） | research, 業界調查, agent memory, Mem0, Letta, Zep, LongMemEval, context rot, 社群專案 |
 | 13 | Vision/_INDEX.md | 發想與前瞻設計（尚未開工、「說不定某天做成成品」的平台設計與現有應用比對）；首個主題：JARVIS 式企業 AI 開發協作平台（README + 9 子檔，記憶服務化/編排核心/模型路由/工具註冊/攝取/多模態/作業紀錄/安全治理/演進路線）。read-on-demand、非 atom、零注入成本 | 發想, 願景, vision, 前瞻設計, jarvis, 企業平台, 編排, 多模型路由, 工具註冊, 演進路線圖 |
 | 15 | MultiMachineMemorySync.md | 多機記憶同步（AI 讀）：索引三檔三層防線（全 repo LF → 合併驅動 hook 自動裝 → `--resolve` 備案自動觸發）、config、CLI 契約（exit code／JSON 欄位）、stage 方向矩陣、支援的 shell 語法、Windows 約束、失敗模式 SOP、手動最後手段、不在保證範圍、設計取捨、驗證方法 | 多機, 多人, 合併, merge driver, atomindex, --resolve, 索引三檔, 索引衝突, LF, CRLF, gitattributes, rebase 衝突, stage, ours theirs, IndexConflict, MergeDriver |
+| 16 | MultiSessionCollaboration.md | 多 session 協作（AI 讀）：一個主持 session 派工給多個工作 session 的通則十節——角色與邊界、派工單寫法、調度節奏、跨 session 通訊機制（SendMessage 送達時機／計畫模式扣留／背景 session 起停）、worktree 與共用工作樹、合併與驗收、交接文件、對人回報、裁定者自我校準；每節附出處卡名。v6 專用儀式不在此，見 DevHistory v6.0 夾 | 多 session, 派工, 主持端, 工作 session, 子代理, SendMessage, ListAgents, claude --bg, attach, worktree, EnterWorktree, 共用工作樹, 合併, 接續單, 開工句, 回報, 裁定, 兩把尺 |
 
 ---
 
 ## 架構一句話摘要
 
-基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。全域 BM25 / 專案層 Vector + RRF 融合 + `_atom_index.json` JSON SoT（<!-- atom-total -->682<!-- /atom-total --> atoms：core <!-- atom-core -->370<!-- /atom-core --> 住 `memory/<範疇>/`（Lv1 閉合清單 `memory/_meta/taxonomy.json`）+ <!-- atom-feedback -->74<!-- /atom-feedback --> feedback-* + 失敗模式 atom 住 `memory/Failures/<主題>/` + <!-- atom-local -->236<!-- /atom-local --> local 範疇 atom 物理在 `_AIDocs/_atoms/<domain>/`、realm 由 path 推導、只在 ~/.claude 注入；`CROSS_PROJECT_LOCAL_DOMAINS` 空集合、機制保留）+ Codex Companion subprocess（無 daemon @ 3850）+ Hook（1 行 shim → dispatcher → 每個事件一支 handler，功能模組 `hooks/wg_*.py`；清單以 `settings.json` 與 TECH.md「架構目錄樹」為準）+ <!-- skill-count -->28<!-- /skill-count --> Skills + MCP server（tool 清單見 TECH.md §9）+ `lib/atom_io.locate_atom` atom 落點單一裁決。
+基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。全域 BM25 / 專案層 Vector + RRF 融合 + `_atom_index.json` JSON SoT（<!-- atom-total -->712<!-- /atom-total --> atoms：core <!-- atom-core -->398<!-- /atom-core --> 住 `memory/<範疇>/`（Lv1 閉合清單 `memory/_meta/taxonomy.json`）+ <!-- atom-feedback -->74<!-- /atom-feedback --> feedback-* + 失敗模式 atom 住 `memory/Failures/<主題>/` + <!-- atom-local -->238<!-- /atom-local --> local 範疇 atom 物理在 `_AIDocs/_atoms/<domain>/`、realm 由 path 推導、只在 ~/.claude 注入；`CROSS_PROJECT_LOCAL_DOMAINS` 空集合、機制保留）+ Codex Companion subprocess（無 daemon @ 3850）+ Hook（1 行 shim → dispatcher → 每個事件一支 handler，功能模組 `hooks/wg_*.py`；清單以 `settings.json` 與 TECH.md「架構目錄樹」為準）+ <!-- skill-count -->28<!-- /skill-count --> Skills + MCP server（tool 清單見 TECH.md §9）+ `lib/atom_io.locate_atom` atom 落點單一裁決。
