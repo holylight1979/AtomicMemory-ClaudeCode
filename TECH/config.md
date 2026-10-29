@@ -213,6 +213,7 @@
 - **`vcs_sync.*`**（[§8](../TECH.md#8-可觀測與自我維護)）：
   - 根層 pathspec 相對 ~/.claude，專案相對專案根。
   - `root_extra_pathspecs`（atom 寫入連動的文件計數標記檔）與 `org_extra_pathspecs`（公司層 repo 根，如週用量截圖）是非記憶但一起自動推拉的路徑，只進 pathspec 不進 mem_dirs。
+  - `root_extra_pathspecs` 的單檔文件只代上計數標記的變動：跟 HEAD 比、拿掉 `<!-- x -->…<!-- /x -->` 標記內的數字後要一模一樣才收；人手改到一半的文件留在工作樹、log 印 `EXTRA_DOC_MARKER_ONLY`，等上GIT（[`hooks/wg_vcs_sync._marker_only_change`](../hooks/wg_vcs_sync.py)）。
   - `timeout_s`＝每步 git／svn 指令逾時。
 - **`vcs_sync.pull.*`**（[§6.3](../TECH.md#63-自動萃取在跑-vs-已停產) 拉段）：
   - SessionStart 的拉取請求在 `last_pull` 冷卻內且記憶路徑沒有本地變更就跳過。
@@ -254,7 +255,7 @@
 | 鍵 | 預設 | 意義 |
 |----|------|------|
 | `codex_companion.enabled` / `score_threshold` / `max_audits_per_session` | true / 7 / 30 | Codex Companion |
-| `codex_companion.fallback.model` / `allow_block` / `reprobe_hours` | sonnet / false / 24 | 裁判備援 |
+| `codex_companion.fallback.model` / `reprobe_hours` | sonnet / 24 | 裁判備援（只發 advisory、不擋） |
 | `codex_companion.max_inject_severity` | high | 驗收裁判（[§7.4](../TECH.md#74-驗收裁判ai-審查-ai-產出四段閉環)）的附說明嚴重度門檻 |
 | `codex_companion.codex_extra_args` / `codex_binary` | [] / 不設（只在程式預設：從 PATH 找） | codex exec 的額外旗標／執行檔路徑 |
 | `codex_companion.audit_quota.acceptance_review_min/max` | 6 / 8 | 配額分桶 |

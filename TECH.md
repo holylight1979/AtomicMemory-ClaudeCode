@@ -1272,7 +1272,6 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 | 目標樹對照 | `reconcile_gate.goal_gate` | 不擋，目標樹照記 |
 | 收尾檢核報告 | `aec.scan_report_gate` | 沒交不擋，報告照收 |
 | 卡片表態 | `atom_audit.enabled` | 不擋 |
-| 驗收裁判 | `codex_companion.acceptance_review.enforce` | 只記錄不擋 |
 | svn 提交測試路徑閘 | `overview_hub.svn_test_block.enabled` | 要的專案在自己的 [`.claude/overview-hub.json`](.claude/overview-hub.json) 開 |
 
 - 目標樹對照關著時，改程式前要有樹與提問掛節點照擋。
@@ -1420,12 +1419,12 @@ AI 最後一段文字
 ```
 
 - **整段歸守門總開關**：寫碼守門關著（出廠）時，兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。
-- 寫碼守門開著時，出廠 `codex_companion.acceptance_review.enforce=false`。
-  - 裁判只在背景審、記 `workflow/acceptance-audit.jsonl`、advisory 照注，不擋收尾。
-  - 改成 true 才有硬閘。
+- 寫碼守門開著時：裁判只在背景審、記 `workflow/acceptance-audit.jsonl`、advisory 照注，**一律不擋收尾**，沒有改成硬閘的開關。
+  - 為什麼不擋：擋收尾會讓「改 → 驗收 → 再改 → 再驗收」無限擴張，所以裁判只記錄、結果交人看。
 - **裁判後端鏈**（[`tools/codex-companion/judge_backend.py`](tools/codex-companion/judge_backend.py)）：
-  - codex（跨廠、有 block 權）
-  - → headless `claude -p --model sonnet`（預設只有 advisory 權）
+  - codex（跨廠）
+  - → headless `claude -p --model sonnet`（同廠不同模型）
+  - 不論哪個後端，結果都只當 advisory。
   - → 皆無則退 heuristics-only，SessionStart 揭露一次。
 - **殺閘寫死在程式**（`promotion_stats()`）：fail ≥10 筆且 precision <50% → 收掉。
 
@@ -4220,6 +4219,7 @@ svn：svn_update_targets
 - **git 路線**：
   - 真 index pathspec add＋commit
   - 會把同 repo 其他 session 對記憶路徑的未提交改動一起帶上；記憶目錄由系統擁有，屬可接受
+  - 根層的計數標記文件（`root_extra_pathspecs`：TECH.md、[`_AIDocs/_INDEX.md`](_AIDocs/_INDEX.md)、[`_AIDocs/DocIndex-System.md`](_AIDocs/DocIndex-System.md)）只代上標記數字的變動；別處也改了就留在工作樹等上GIT，log 印 `EXTRA_DOC_MARKER_ONLY`
   - **push 守門**：待推歷史任一 commit 觸及記憶 pathspec 以外路徑 → 不 push，留 `.unpushed`（程式碼等使用者上GIT）
   - 每輪 commit → **拉** → push；拉段見 [§6.3](#63-自動萃取在跑-vs-已停產)：`_git_pull`／`_git_isolated_rebase`／svn `svn_update_targets`
 - **svn 路線**：
@@ -4535,8 +4535,7 @@ svn：svn_update_targets
 #### Python 3.10+（hook 純標準函式庫）
 - **系統哪部分靠它**：全部 hook、[`lib/`](lib/)、[`tools/`](tools/)、statusline
 - **替代**：無，唯一硬依賴
-  - [`tools/fix-hook-python.py`](tools/fix-hook-python.py) 實跑候選直譯器驗版本，下限 3.9（`MIN_VERSION`）
-  - 安裝門檻以 3.10 為準
+  - [`tools/fix-hook-python.py`](tools/fix-hook-python.py) 實跑候選直譯器驗版本，下限 3.10（`MIN_VERSION`），與安裝器同一條
 - **完全沒有時**：
   - hook 指令執行失敗 → Claude Code 視為 hook 錯誤放行，原生功能不受影響
   - 記憶系統整個不啟動

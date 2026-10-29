@@ -247,7 +247,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 改程式前要有樹與提問掛節點照擋。
 - **沒交收尾檢核不擋**（`aec.scan_report_gate`）：報告照收。
 - **卡片表態不擋**（`atom_audit.enabled`）。
-- **驗收裁判只記錄不擋**（`codex_companion.acceptance_review.enforce`）。
 - **svn 提交測試路徑閘**（`overview_hub.svn_test_block.enabled`）：要的專案在自己的 [`.claude/overview-hub.json`](../.claude/overview-hub.json) 開。
 - 下面各表寫的是閘開著時的完整行為。
 
@@ -1101,15 +1100,15 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 先給裁判**案卷**（任務專屬驗收標準）再談能力——通用直覺審必然低精度。
 
-### 總開關與 enforce
+### 總開關與只記錄
 
 - 整段歸守門總開關：寫碼守門關著（出廠）時，兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。
 - 規格工件的兩種提示也不送（規格檔落盤照記）。
-- 寫碼守門開著時，出廠 `codex_companion.acceptance_review.enforce=false`：
+- 寫碼守門開著時：
   - 裁判只在背景審。
   - 記 `workflow/acceptance-audit.jsonl`。
-  - advisory 照注，不擋收尾。
-- 改成 true 才有下面 ③ 的硬閘。
+  - advisory 照注，**一律不擋收尾**；沒有改成硬閘的開關（[`hooks/verify/verify_acceptance_review.py`](../hooks/verify/verify_acceptance_review.py) 的 `test_no_sync_gate_left_in_hook` 守著擋收尾的程式路徑不再長回來）。
+- 為什麼不擋：擋收尾會讓「改 → 驗收 → 再改 → 再驗收」無限擴張，裁判只記錄、結果交人看。
 
 ### ① 規格工件
 
@@ -1146,8 +1145,9 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - 位置：[`tools/codex-companion/judge_backend.py`](../tools/codex-companion/judge_backend.py)。
 - 順序：
-  - codex：跨廠、**有** block 權。
-  - → headless `claude -p --model sonnet`：同廠不同模型、預設**只有** advisory 權，`fallback.allow_block` 才升硬閘。
+  - codex：跨廠。
+  - → headless `claude -p --model sonnet`：同廠不同模型，獨立性較低。
+  - 不論哪個後端，結果都只當 advisory。
   - → 皆無退 heuristics-only，並 SessionStart 揭露一次。
 - 授權類失敗（未登入/401/429）：
   - 當輪切備援。

@@ -820,6 +820,27 @@ def _git_changed_files(git, t: SyncTarget, exclude: Sequence[str]) -> List[Tuple
     return entries
 
 
+_COUNT_MARKER_RE = re.compile(r"(<!-- ([a-z][a-z0-9-]*) -->).*?(<!-- /\2 -->)", re.S)
+
+
+def _strip_count_markers(text: str) -> str:
+    return _COUNT_MARKER_RE.sub(r"\1\3", text.replace("\r\n", "\n"))
+
+
+def _marker_only_change(git, t: SyncTarget, path: str) -> bool:
+    """單檔 pathspec（root_extra_pathspecs 的 TECH.md 等文件）只代上計數標記的變動（規則 EXTRA_DOC_MARKER_ONLY）：
+    跟 HEAD 比、拿掉 `<!-- x -->…<!-- /x -->` 標記內的數字後要一模一樣；HEAD 沒有、檔已刪或讀不到都不算。
+    人手改到一半的文件不會被當成記憶自動提交。"""
+    r = git("show", f"HEAD:{path}")
+    if r.returncode != 0:
+        return False
+    try:
+        new = (t.root / path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return _strip_count_markers(r.stdout or "") == _strip_count_markers(new)
+
+
 # Windows 單條指令列上限 32767 字；逐檔 pathspec 超過這個量就改走 --pathspec-from-file（短清單照舊放指令列，
 # 讓既有錄製檔的參數不變）。
 _PATHSPEC_ARGV_MAX = 8000
@@ -1325,6 +1346,10 @@ def _git_sync_body(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: 
     exclude = vs.get("exclude", DEFAULTS["exclude"])
     # ── add + commit：同一份允許路徑集合（`:(literal)` 防路徑被當 glob）──
     entries = _git_changed_files(git, t, exclude)
+    held = [path for _, path in entries if path in t.pathspecs and not _marker_only_change(git, t, path)]
+    for path in held:
+        log(f"[git] {root}: {path} 除了計數標記還有別的改動，不代上（EXTRA_DOC_MARKER_ONLY，留給上GIT）")
+    entries = [(xy, path) for xy, path in entries if path not in held]
     files = [path for _, path in entries]
     specs = [f":(literal){f}" for f in files]
     # 只 add 工作樹仍與 index 不同的項（Y 欄非空白）；已 staged 的直接進 commit pathspec

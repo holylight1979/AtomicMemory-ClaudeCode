@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 背景同步不再代上人改到一半的 TECH.md；驗收裁判拔掉沒接線的擋收尾開關；Python 下限統一 3.10
+- **緣由**：TECH 重整時背景記憶同步把改寫中的 TECH.md 併進「knowledge harvest」自動 commit 推上遠端（`root_extra_pathspecs` 本來只為計數標記）；TECH 寫驗收裁判有 `acceptance_review.enforce`／`fallback.allow_block` 可升硬閘，實際 config 沒有 enforce、`fallback_can_block` 沒人呼叫、`verify_judge_backend` 3 案測的 `_judge_may_block` 早已拔掉而一直紅；`install.py` 要 3.10、`fix-hook-python.py` 寫 3.9。
+- **做法**：`wg_vcs_sync._marker_only_change`：單檔 pathspec 的文件跟 HEAD 比、拿掉計數標記內數字後一樣才收，否則留工作樹、log 印 EXTRA_DOC_MARKER_ONLY；刪 `fallback_can_block`、config `fallback.allow_block`、state 的 enforce 計數與 3 個過時測試，TECH §7.0／§7.4 改寫成「只記錄、不擋，沒有硬閘開關」；`fix-hook-python.MIN_VERSION` 改 (3, 10)。
+- **驗證**：verify_vcs_sync_worker 新案 `test_git_extra_doc_only_marker_change_committed_other_edits_held`（錄製檔已錄）＋全檔 84 案綠；codex-companion verify 全部＋verify_codex_stop_async 170 案綠；verify_acceptance_review、verify_config_consistency、verify_fix_hook_python、verify_install 綠。
+
 ## 2026-10-29 TECH.md 重整：主文精簡＋底部附錄，四個大單元拆進 TECH/，路徑與 §、規則名可點
 - **緣由**：TECH.md 48 萬字元，表格格子塞整段長句，網頁上欄位被擠成細條；一段話用「；」串十幾件事，人與 AI 都抓不到重點。
 - **做法**：§編號與標題不動；每節主文改「這節解決什麼 → 要點條列／箭頭流程圖 → 一句為什麼 → 細節連結」，細節移到底部附錄；§7 細節、§7.8 規則全表、§10 目錄樹、§12 設定表拆成 `TECH/guards.md`、`release-rules.md`、`file-tree.md`、`config.md`。反引號裡 repo 內存在的路徑、§x.y、規則名都轉成 GitHub／GitLab 都能點的相對連結。順手補齊文件與程式不符處：`RULES` 217 條（文件寫 214），補 26 條只在程式有的規則；目錄樹補漏列檔、事件數 11；§12 補 5 組只在 §5.3 出現的鍵。`config-consistency.py` 改讀 `TECH/config.md`，`skill-index.py` 標記檔加 `TECH/file-tree.md`，`version_guard` 白名單與兩支搬卡掃描（`wg_atoms._scan_doc_refs`、refile `docrefs`）納入 `TECH/`。

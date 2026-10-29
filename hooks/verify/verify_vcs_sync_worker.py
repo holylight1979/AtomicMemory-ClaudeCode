@@ -285,6 +285,29 @@ def test_git_nothing_to_commit(repo):
     assert _git(repo, "rev-parse", "HEAD").stdout == before
 
 
+def test_git_extra_doc_only_marker_change_committed_other_edits_held(repo):
+    """EXTRA_DOC_MARKER_ONLY：單檔 pathspec 的文件（TECH.md）只代上計數標記的變動；別處也改了 → 不進 commit、留在工作樹、
+    log 印規則名，同輪的記憶檔照常 commit。"""
+    doc = repo / "TECH.md"
+    doc.write_text("# T\n\n共 <!-- atom-total -->10<!-- /atom-total --> 顆\n\n本文\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", "TECH.md")
+    _git(repo, "commit", "-q", "-m", "doc")
+    target = _target(repo, specs=("memory", "TECH.md"))
+    doc.write_text("# T\n\n共 <!-- atom-total -->11<!-- /atom-total --> 顆\n\n本文\n", encoding="utf-8", newline="\n")
+    res = vs.sync_targets_inline([target], CFG_NOPUSH, log=lambda m: None)
+    assert res[0]["status"] == "ok" and res[0]["committed"] == 1, res
+    assert _head_files(repo) == {"TECH.md"}
+
+    doc.write_text("# T\n\n共 <!-- atom-total -->12<!-- /atom-total --> 顆\n\n改寫中的本文\n", encoding="utf-8", newline="\n")
+    (repo / "memory" / "new.md").write_text("# new\n", encoding="utf-8")
+    logs, log = _logs()
+    res = vs.sync_targets_inline([target], CFG_NOPUSH, log=log)
+    assert res[0]["status"] == "ok" and res[0]["committed"] == 1, (res, logs)
+    assert _head_files(repo) == {"memory/new.md"}
+    assert _git(repo, "status", "--porcelain").stdout.rstrip() == " M TECH.md"
+    assert any("TECH.md" in m and "EXTRA_DOC_MARKER_ONLY" in m for m in logs), logs
+
+
 def test_git_push_when_pending_all_memory(repo_with_remote):
     repo, bare = repo_with_remote
     (repo / "memory" / "new.md").write_text("# new\n", encoding="utf-8")

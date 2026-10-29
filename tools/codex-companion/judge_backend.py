@@ -2,9 +2,11 @@
 
 「AI 審查 AI」的裁判鏈，由本檔單一決定：
 
-  1. codex        跨廠獨立 → 獨立性滿血，擁有 block 權
-  2. claude -p    同廠不同模型（預設 Sonnet）→ 獨立性降級，預設**無** block 權
+  1. codex        跨廠獨立 → 獨立性最高
+  2. claude -p    同廠不同模型（預設 Sonnet）→ 獨立性降級
   3. 皆不可用     回 BACKEND_NONE，上層退回 heuristics-only
+
+不論哪個後端，裁判結果都只當 advisory、不擋收尾。
 
 codex 未安裝、或裝了但未開通授權（未登入 / 401 / 額度用盡）→ 自動退 (2)。
 授權類失敗會落 `workflow/companion-backend.json` 抑制標記，`reprobe_hours`
@@ -76,15 +78,6 @@ def fallback_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
 
 def fallback_enabled(config: Dict[str, Any]) -> bool:
     return bool(fallback_cfg(config).get("enabled", True))
-
-
-def fallback_can_block(config: Dict[str, Any]) -> bool:
-    """備援裁判是否有 block 權。預設 False。
-
-    同廠同家族的模型盲點相關，獨立性低於跨廠的 codex；預設只發 advisory，
-    要升級成硬閘是使用者的明示選擇（config `fallback.allow_block`）。
-    """
-    return bool(fallback_cfg(config).get("allow_block", False))
 
 
 # ─── binary 解析 ─────────────────────────────────────────────────────────────
