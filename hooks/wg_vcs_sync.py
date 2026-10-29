@@ -820,6 +820,27 @@ def _git_changed_files(git, t: SyncTarget, exclude: Sequence[str]) -> List[Tuple
     return entries
 
 
+# Windows 單條指令列上限 32767 字；逐檔 pathspec 超過這個量就改走 --pathspec-from-file（短清單照舊放指令列，
+# 讓既有錄製檔的參數不變）。
+_PATHSPEC_ARGV_MAX = 8000
+
+
+def _git_with_paths(git_retry_lock, args: Sequence[str], specs: Sequence[str]) -> subprocess.CompletedProcess:
+    """`git <args> -- <specs>`；specs 太長時寫成 NUL 分隔暫存檔用 --pathspec-from-file 傳（WinError 206 檔名太長）。"""
+    if sum(len(x) + 1 for x in specs) <= _PATHSPEC_ARGV_MAX:
+        return git_retry_lock(*args, "--", *specs)
+    fd, tmp = tempfile.mkstemp(prefix="wg-pathspec-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(b"\0".join(x.encode("utf-8") for x in specs))
+        return git_retry_lock(*args, f"--pathspec-from-file={tmp}", "--pathspec-file-nul")
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def _git_retry_lock(git):
     def git_retry_lock(*args: str) -> subprocess.CompletedProcess:
         """index.lock 競態（他 session 正在 commit）→ 重試 ≤3，每次 sleep 1。"""
@@ -1314,12 +1335,12 @@ def _git_sync_body(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: 
         # -f：已追蹤但路徑被 .gitignore 蓋到的檔（如 memory/personal/ 下的 role.md）被刪除時，
         # 沒有 -f 的 add 會 rc≠0「paths are ignored」；add_specs 只含 status 列出的變更檔（!! 已濾），
         # 不會順手把被忽略的未追蹤檔加進來。
-        r = git_retry_lock("add", "-A", "-f", "--", *add_specs)
+        r = _git_with_paths(git_retry_lock, ("add", "-A", "-f"), add_specs)
         if r.returncode != 0:
             raise _Stop(f"git add 失敗: {(r.stderr or r.stdout).strip()[:200]}")
     if files:
         msg = f"chore(memory): knowledge harvest {date.today().isoformat()}（{len(files)} 檔）"
-        r = git_retry_lock("commit", "-q", "-m", msg, "--", *specs)
+        r = _git_with_paths(git_retry_lock, ("commit", "-q", "-m", msg), specs)
         if r.returncode != 0:
             raise _Stop(f"git commit 失敗: {(r.stderr or r.stdout).strip()[:200]}")
         result["committed"] = len(files)

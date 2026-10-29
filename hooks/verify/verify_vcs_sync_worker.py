@@ -1660,3 +1660,21 @@ def test_pull_restore_exception_after_rebase_also_skips_push(tmp_path, repo_with
     assert any("本輪不 push" in m for m in logs), logs
     assert vs.recover_path(repo).exists()
     assert _git(bare, "rev-parse", "main").stdout.strip() == upstream
+
+
+def test_git_many_long_paths_use_pathspec_file(repo):
+    """變更檔多到逐檔 pathspec 超過 Windows 指令列上限（WinError 206）時仍要 add＋commit 成功：
+    改走 --pathspec-from-file。300 個長中文檔名 ≈ 4 萬字，舊寫法整輪同步失敗。"""
+    stem = "整理卡池換位置的工具路徑-local卡換子夾用categorize的local冒號範疇斜線子夾-改personal要mv加reconcile"
+    for i in range(300):
+        (repo / "memory" / f"{stem}-{i:03d}.md").write_text(f"# {i}\n", encoding="utf-8")
+    res = vs.sync_targets_inline([_target(repo)], CFG_NOPUSH, log=lambda m: None)
+    assert res[0]["status"] == "ok" and res[0]["committed"] == 300, res
+    assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+
+def test_short_pathspec_list_stays_on_command_line():
+    """短清單照舊放指令列（既有錄製檔的參數不變）。"""
+    calls = []
+    vs._git_with_paths(lambda *a: calls.append(a) or None, ("add", "-A"), [":(literal)memory/a.md"])
+    assert calls == [("add", "-A", "--", ":(literal)memory/a.md")]

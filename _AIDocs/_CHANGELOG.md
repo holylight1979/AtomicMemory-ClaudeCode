@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 記憶背景同步一次改太多檔時 git add 失敗（WinError 206 指令列太長）
+- **緣由**：MemDev 分子夾一次異動約 300 張卡，背景同步把每個變更檔逐一當 pathspec 放進 `git add`／`git commit` 指令列，中文長檔名加總超過 Windows 單條指令列上限，整輪同步 `FileNotFoundError: [WinError 206]`，記憶卡卡在工作樹沒上版。
+- **做法**：`wg_vcs_sync._git_with_paths`：逐檔清單超過 8000 字就寫成 NUL 分隔暫存檔、改用 `--pathspec-from-file`＋`--pathspec-file-nul`；短清單照舊放指令列，既有錄製檔參數不變。
+- **驗證**：verify_vcs_sync_worker 新 2 案（300 個長中文檔名一次 add＋commit 成功；短清單參數不變），整支 83 案綠。
+
 ## 2026-10-29 MemDev 卡池分 11 個子夾；local 卡可換子夾、從子夾 _distant 還原不再生假索引
 - **緣由**：`_AIDocs/_atoms/MemDev/` 根層平鋪 191 張卡難以瀏覽；動手時發現兩個工具缺口：`atom-set-realm`／`atom-categorize` 把「已在 local 的卡換子夾」當 noop 或錯誤，沒有工具能搬；`memory-audit --restore` 從範疇子夾的 `_distant` 拉回卡時，把 `_distant` 的上一層當索引根，在子夾裡生出一份假 `_atom_index.json`、全域索引沒登。
 - **做法**：`set_realm` 只在同夾才 noop、不同夾照搬（realm 不變）；`atom-categorize` 對應改成 realm 動作。`restore_from_distant` 改用 `_restore_index_home`：資料根下一律登全域 `memory/_atom_index.json`，專案層上溯最近索引。MemDev 188 張分進 11 個主題子夾（MemoryIndex 併入 atom工具與索引），3 張改到 local 的 CC與原子記憶契約／驗證與實證；兩張使用者偏好卡改 personal。
