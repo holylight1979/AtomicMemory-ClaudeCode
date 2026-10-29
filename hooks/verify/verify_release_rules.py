@@ -2557,7 +2557,7 @@ _GOAL_REMINDER_CASES = {
 def test_goal_reminder_rules_registered_with_cases(rule):
     case_file, fn = _GOAL_REMINDER_CASES[rule]
     text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
-    assert rule in rr.RULES and "v6.slim_reminders" in rr.RULES[rule], rule
+    assert rule in rr.RULES and "coding_guard.slim_reminders" in rr.RULES[rule], rule
     assert f"def {fn}(" in text and rule in text, (rule, case_file, fn)
 
 
