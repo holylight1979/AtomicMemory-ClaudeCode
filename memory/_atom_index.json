@@ -13166,6 +13166,24 @@
         "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
         "feedback-checklist給人綜觀進度要勾選清單-完工項搬走的是長篇分析不是勾選行-達成也留一行打勾-部分達成拆子項分開勾-檔頭放程式數的計數"
       ]
+    },
+    {
+      "name": "改既有記憶卡的depends與標題要走對的入口-depends只能write-raw-改標題用新卡取代-相似度過高被拒要先清引用再退役舊卡",
+      "path": "memory/CC與原子記憶契約/改既有記憶卡的depends與標題要走對的入口-depends只能write-raw-改標題用新卡取代-相似度過高被拒要先清引用再退役舊卡.md",
+      "triggers": [
+        "Depends 修正",
+        "改 Depends",
+        "卡片改標題",
+        "改卡名",
+        "依賴重驗",
+        "Verified-at",
+        "atom_retire 被擋",
+        "write-gate similar",
+        "suggest update",
+        "被取代的卡",
+        "AtomFunnelBlock"
+      ],
+      "scope": "global"
     }
   ]
 }
