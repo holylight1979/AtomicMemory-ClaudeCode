@@ -121,13 +121,6 @@ def test_verify_ledger_dir_writable():
     assert not hasattr(pt, "check_verify_ledger_write")
 
 
-# ─── 驗證範圍不再在改程式那一回合問（目標樹只立一次 GOAL_TREE_SET_ONCE；案例在 verify_goal_tree_once.py） ─────
-
-def test_scope_not_asked_on_code_edit():
-    from handlers import post_tool_use as pt
-    assert not hasattr(pt, "_scope_ask_once") and not hasattr(pt, "SCOPE_ASK")
-
-
 # ─── 定位：兩候選保留判斷、一回合問一次；第四行節點只記錄 ──────────────
 
 def test_two_candidates_asked_once_goal_node_only_logged(monkeypatch):
@@ -236,7 +229,7 @@ def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda name, rec: logs.append(rec))
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile", None))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile"))
     monkeypatch.setattr(st, "entry_note", lambda *a, **k: "")
     outs = []
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append("block"))
@@ -371,7 +364,7 @@ def stop_drive(monkeypatch):
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: last_text)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": "s-ct", "cwd": ""}, {"verify_scope": {"enabled": False}})
+            st.handle_stop({"session_id": "s-ct", "cwd": ""}, {})
         drive.state = state
         return capsys.readouterr().out
     return drive

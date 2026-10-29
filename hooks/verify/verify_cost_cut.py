@@ -479,20 +479,6 @@ def test_bg_worker_model_down_is_logged_not_silent(tmp_path, monkeypatch):
     assert logs[-1]["event"] == "failed" and "沒回" in logs[-1]["why"]
 
 
-# ─── 刀5：反覆驗證（第一次跑就算數） ─────────────────────────────────────
-
-def test_scope_declare_says_which_run_shape_counts(tmp_path):
-    """宣告驗證範圍的回應先講怎樣跑才算收據（測試自己一條或只用 && 串；; 串 echo／比對整條不算）。
-    B′ 實測：AI 用 ; 把測試和輸出比對串一起跑，整條不算，只好同一組測試再跑一次。"""
-    import wg_verify_scope as vs
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "test_a.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
-    text = vs.declare({"turn_seq": 5, "modified_files": []}, _SID,
-                      {"action": "verify_scope", "items": [{"target": "tests/test_a.py", "why": "直接測"}]},
-                      str(tmp_path), {}, lookup=lambda p: None)
-    assert "收下" in text and "用 ; 串別的指令" in text and "&&" in text
-
-
 if __name__ == "__main__":
     rc = pytest.main([__file__, "-q", "-p", "no:cacheprovider"])
     print("COST_CUT_CHECK PASS" if rc == 0 else "COST_CUT_CHECK FAIL")

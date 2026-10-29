@@ -577,28 +577,24 @@ _RUN_ROW = {"part_short": "hook 共用模組層", "measure": {"method": "全量 
 _DONE_OUT = {"stdout": "VERIFY_CHECK DONE cases=1 failed=0\n", "stderr": ""}
 
 
-def _measure_gate_on(receipts, tmp_path):
-    """驗證範圍閘：宣告的項目是表上那把尺 `python -X utf8 run_verify.py`（指令項目，照原字串比）；回擋訊息或 None。"""
-    import wg_verify_scope as vs
-    mod = {"path": str(tmp_path / "hooks" / "x.py"), "session_id": _SID, "turn_seq": 4, "last_turn_seq": 4,
-           "last_at": "2020-01-01T00:00:00+00:00", "last_seq": 0}
-    lookup = lambda p: (tmp_path, _RUN_ROW)                                                      # noqa: E731
-    state = {"turn_seq": 4, "modified_files": []}
-    text = vs.declare(state, _SID, {"action": "verify_scope", "items": [{"target": _RUN_ROW["measure"]["cmd"], "why": "原量尺閘案例"}]},
-                      str(tmp_path), {}, lookup=lookup)
-    assert "收下" in text, text
-    return vs.gate_reason(state, _SID, [mod], receipts, vl.reconcile_cfg({}), lookup, vs.DEFAULTS, chains_of=lambda r: {})[0]
+def _ruler_note(receipts):
+    """收據算不算跑了表上那把尺 `python -X utf8 run_verify.py`（對帳 (a)(b) 認部位量尺的判法 _ruler_ran，照原字串比）：
+    算 → None；不算 → 說明行（_syntax_note，擋訊息附的那一句）。"""
+    cmd = _RUN_ROW["measure"]["cmd"]
+    if any(vl._ruler_ran(cmd, r) for r in receipts):
+        return None
+    return vl._syntax_note(receipts, "DONE", [cmd]) or "沒有跑這把尺的收據"
 
 
 def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
-    """超過 200 字的指令經 PostToolUse 落帳整條存下（cmd_full）、照完整指令比對：宣告的那條指令出現在裡面就認，
+    """超過 200 字的指令經 PostToolUse 落帳整條存下（cmd_full）、照完整指令比對：量尺那條指令出現在裡面就認，
     輸出丟進 $null 再另印一行也認（RECEIPT_UNPARSED_GENERAL_ONLY：不看形狀、不防偽）。"""
     head = "python -X utf8 run_verify.py > $null 2>&1"
     fake = head + " " * (200 - len(head)) + '; Write-Output "VERIFY_CHECK DONE cases=1 failed=0"'
     honest = '$env:WG_CLAUDE_DIR="C:\\' + "x" * 190 + '"; python -X utf8 run_verify.py'
     for cmd, blocked in ((fake, False), (honest, False)):          # 跑了那支就算，前後接什麼不看（收據不防偽）
         state = _drive(monkeypatch, tmp_path, "PowerShell", cmd, _DONE_OUT)
-        reason = _measure_gate_on(state["verify_receipts"][_SID], tmp_path)
+        reason = _ruler_note(state["verify_receipts"][_SID])
         assert (reason is not None) is blocked, (cmd[:40], reason)
         rec = state["verify_receipts"][_SID][-1]
         assert len(cmd) > 200 and rec["cmd"] == cmd and rec["cmd_full"] is True
@@ -609,7 +605,7 @@ def test_017_legacy_truncated_receipt_is_not_evidence(tmp_path):
     base = {"turn_seq": 4, "tool": "Bash", "exit_code": 0, "at": "2026-10-12T02:00:00+00:00", "cwd": str(tmp_path), "env": {},
             "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "1", "failed": "0"}}]}
     full = ("python -X utf8 run_verify.py" + " " * 200)[:200]
-    reason = _measure_gate_on([{**base, "cmd": full}], tmp_path)
+    reason = _ruler_note([{**base, "cmd": full}])
     assert reason and "只存前 200 字" in reason
-    assert _measure_gate_on([{**base, "cmd": full[:199]}], tmp_path) is None
-    assert _measure_gate_on([{**base, "cmd": full, "cmd_full": True}], tmp_path) is None
+    assert _ruler_note([{**base, "cmd": full[:199]}]) is None
+    assert _ruler_note([{**base, "cmd": full, "cmd_full": True}]) is None

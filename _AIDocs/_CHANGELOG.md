@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 拔掉驗證範圍閘（verify_scope）：收尾寫碼查核 (a)(d) 只留關著時的判法
+- **緣由**：驗證範圍閘早由使用者關掉（`verify_scope.enabled=false`，帳本 10-20 後沒再寫），使用者拍板整套拔掉；它還留著約 1000 行主模組、12 條只在開著時用的規則、MCP `need_goal` 的 `verify_scope` 動作，開場還照印漏判統計行。
+- **做法**：刪 `hooks/wg_verify_scope.py` 與兩支專屬測試；Stop（主 session、子代理、裁判）、PostToolUse、PostToolBatch、SessionStart 拿掉驗證範圍分支，(a) 只認對得上改檔的 PASS 或部位自寫收據、(d) 只看案例覆蓋與「case_for｜…」宣告行；`wg_verify_ledger` 刪只給它用的函式（含 `load_verify_chains`、`run_runtime_gate`）；`wg_release_rules` 刪 SCOPE_* 9 條與 CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER／CASE_DECL_WELL_FORMED；config、entrypoints（E24）、MCP schema 跟著清；TECH §7.9／A7.9 留標題指向封存檔 `DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md`。
+- **驗證**：改動前後跑同一組 30 支測試檔：基底 8 紅（verify_release_rules 2、verify_red_scope_full_command 6）改後仍是同樣 8 紅、其餘 1839 綠；另跑驅動 Stop／PostToolUse 入口的 47 支測試檔 1174 綠、4 紅（verify_state_parallel_rmw 2 支在 HEAD 也紅；verify_sys_path_file_relative 1 支在 HEAD 也紅、1 支只因工作樹放在 live `~/.claude` 底下才紅，搬到別處跑綠）；MCP stdio 煙霧測試與 need_goal 三支 JS 驗證 PASS；`config-consistency` 跑完；`import handlers.stop／post_tool_use／post_tool_batch／session_start` 不壞；3 支錄製檔因 git 呼叫變少重錄。
+
 ## 2026-10-29 背景同步不再代上人改到一半的 TECH.md；驗收裁判拔掉沒接線的擋收尾開關；Python 下限統一 3.10
 - **緣由**：TECH 重整時背景記憶同步把改寫中的 TECH.md 併進「knowledge harvest」自動 commit 推上遠端（`root_extra_pathspecs` 本來只為計數標記）；TECH 寫驗收裁判有 `acceptance_review.enforce`／`fallback.allow_block` 可升硬閘，實際 config 沒有 enforce、`fallback_can_block` 沒人呼叫、`verify_judge_backend` 3 案測的 `_judge_may_block` 早已拔掉而一直紅；`install.py` 要 3.10、`fix-hook-python.py` 寫 3.9。
 - **做法**：`wg_vcs_sync._marker_only_change`：單檔 pathspec 的文件跟 HEAD 比、拿掉計數標記內數字後一樣才收，否則留工作樹、log 印 EXTRA_DOC_MARKER_ONLY；刪 `fallback_can_block`、config `fallback.allow_block`、state 的 enforce 計數與 3 個過時測試，TECH §7.0／§7.4 改寫成「只記錄、不擋，沒有硬閘開關」；`fix-hook-python.MIN_VERSION` 改 (3, 10)。

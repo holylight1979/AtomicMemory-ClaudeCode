@@ -240,7 +240,7 @@ def test_stop_reconcile_gate_skipped_when_off(stop_run, monkeypatch, on):
 
     def gates(*a, **k):
         called.append(1)
-        return "[Guardian:ReconcileGate] (a) 必擋替身", None, "reconcile", None
+        return "[Guardian:ReconcileGate] (a) 必擋替身", None, "reconcile"
 
     monkeypatch.setattr(st, "_verify_gates", gates)
     monkeypatch.setattr(st, "non_interactive_reason", lambda *a, **k: None)
@@ -256,7 +256,7 @@ def test_stop_turn_judgment_gate_skipped_when_off(stop_run, monkeypatch, on):
     _set_v6(monkeypatch, on)
     logs = []
     monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None, None))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None))
     monkeypatch.setattr(st, "turn_judgment_note", lambda *a, **k: ("[Guardian:TurnJudgment] 必擋替身", False))
     out = stop_run(_stop_state())
     assert "TurnJudgment" not in out
@@ -329,7 +329,7 @@ def test_off_harvest_gate_blocks_instead_of_background(stop_run, monkeypatch, on
     """收割擋是 v6 以前就有的：關閉時照擋；背景收割（wg_bg_harvest）是 v6 新增，只在打開時接手、不擋。"""
     _set_v6(monkeypatch, on)
     sent = []
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None, None))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None))
     monkeypatch.setattr(st, "turn_judgment_note", lambda *a, **k: (None, False))
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 收割替身")
     monkeypatch.setattr(st, "bg_harvest", lambda *a, **k: sent.append(1) or True)

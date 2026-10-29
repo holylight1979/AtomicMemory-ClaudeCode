@@ -1218,7 +1218,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - **提醒**＝只多送一段文字、不擋。
 
 ```text
-① 開場（SessionStart）          列未結追蹤項、待檢討範圍漏判、公司層與週健檢狀態        提醒
+① 開場（SessionStart）          列未結追蹤項、公司層與週健檢狀態                        提醒
    ↓
 ② 收到需求（UserPromptSubmit）   注入記憶卡；沒有需求目標樹就提醒先寫                    提醒
    ↓
@@ -1267,7 +1267,6 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 | 閘 | 設定鍵 | 關著時改成 |
 |---|---|---|
-| 驗證範圍閘 | `verify_scope.enabled` | 收尾不要求宣告範圍；(a)(d) 走退路判法 |
 | 寫碼查核 | `reconcile_gate.block_letters` | 只擋 (a)(d)，其餘照判、只印 stderr |
 | 目標樹對照 | `reconcile_gate.goal_gate` | 不擋，目標樹照記 |
 | 收尾檢核報告 | `aec.scan_report_gate` | 沒交不擋，報告照收 |
@@ -1290,7 +1289,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 ```text
 評分與斷路器
   → 紅測（TestFailGate）
-  → 寫碼查核（ReconcileGate／VerifyScope）
+  → 寫碼查核（ReconcileGate）
   → 拐彎判斷（ReadingPath／TurnJudgment）
   → 第二意見（SecondOpinion）
   → 等值與熱路徑（Equivalence）
@@ -1309,7 +1308,6 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 |---|---|---|
 | TestFailGate | 本 session 有未轉綠的失敗測試 | 照擋 |
 | ReconcileGate | 說修好沒有綠收據等四條 | 只 (a) 照擋 |
-| VerifyScope | 沒宣告驗證範圍或收據不夠 | 目前關 |
 | ReadingPath／TurnJudgment | 函式拐彎超線沒寫判斷 | 提醒 |
 | SecondOpinion | 大改動沒跑第二意見 | 提醒 |
 | Equivalence | refactor／perf 缺等值證法與熱路徑答覆 | 提醒 |
@@ -1389,7 +1387,7 @@ AI 最後一段文字
 
 ### 7.3 擋滿之後怎麼放行（`hooks/wg_release.py`）
 
-這節解決：寫碼類查核閘擋滿次數後，AI 不能自己放行、也不能改寫措辭繞過，決定權交回使用者。用在紅測閘、寫碼查核（ReconcileGate／VerifyScope）、第二意見、等值閘。
+這節解決：寫碼類查核閘擋滿次數後，AI 不能自己放行、也不能改寫措辭繞過，決定權交回使用者。用在紅測閘、寫碼查核（ReconcileGate）、第二意見、等值閘。
 
 ```text
 擋滿 → 記 pending_release → 擋訊息要 AI 用 AskUserQuestion 問【收尾放行確認】
@@ -1500,7 +1498,7 @@ AI 第一次改該部位的檔（PreToolUse）
    └─ 交了定位三行：部位／根因層／前例
    │
    ▼
-放行改檔 → 收尾對帳（收據、驗證範圍，§7.1、§7.9）
+放行改檔 → 收尾對帳（收據，§7.1）
 ```
 
 **要點**：
@@ -1532,7 +1530,7 @@ AI 第一次改該部位的檔（PreToolUse）
 
 **怎麼立樹**（兩條路，效果相同）：
 - 文字管道（優先）：同一則先發的不寫檔指令開頭的 `#` 註解寫「目標｜<整個需求一句>」＋多行「子目標｜<一件>」
-- MCP `need_goal` 的 `set`／`add`／`update`／`reconcile`／`read`／`verify_scope`
+- MCP `need_goal` 的 `set`／`add`／`update`／`reconcile`／`read`
 - 目標樹只立一次（[GOAL_TREE_SET_ONCE](TECH/release-rules.md#goal_tree_set_once)）；交付時的對照由程式代填
 
 **樹在哪些時刻被用到**：
@@ -1596,7 +1594,7 @@ UserPromptSubmit（新需求開始）
 - **回合與檔案同一性**：「本回合」從哪裡算起、兩種寫法是不是同一個檔、寫碼檢查這回合要不要跑。
 - **宣稱與提示詞**：宣稱詞、糾正詞、否決詞只是提示，語意交 AI 用一行宣告回答。
 - **退避例外與紅測**：「追蹤」「不做」宣告怎麼放行；紅測的失敗項怎麼取、哪次綠能清哪次紅。
-- **寫碼查核與驗證範圍**：改了程式要有案例、驗證範圍宣告要跑過，哪些改檔作廢哪些收據。
+- **寫碼查核**：改了程式要有案例、說修好要有改完之後的收據，哪些改檔作廢哪些收據。
 - **改檔事實判定**：檔被刪、搬走、改回原樣、只改註解時算不算改過。
 - **擋次預算與放行**：每回合擋幾次、擋滿後怎麼問使用者、閘自己出錯時怎麼辦。
 - **指令怎麼讀**：Bash／PowerShell 指令的寫入目標、刪除、唯讀、讀檔證據怎麼認。
@@ -1612,39 +1610,9 @@ UserPromptSubmit（新需求開始）
 
 ### 7.9 驗證範圍（verify_scope）
 
-**這節解決什麼**：改完程式後「該測哪些」由 LLM 判斷並對範圍負責，程式只管流程（要宣告、要有收據、事後對帳）。
-
-**目前關**（`verify_scope.enabled=false`，使用者拍板）：
-- 收尾不要求宣告範圍、範圍每項改完重跑。
-- 寫碼查核 (a) 退回「指令對得上改檔的 PASS」。
-- 寫碼查核 (d) 改看「本 session 改過的案例有沒有覆蓋它」（規則 [CASE_COVERS_CHANGE](TECH/release-rules.md#case_covers_change)，不比先後）。
-- `need_goal verify_scope` 照收、測試帳與範圍漏判照記、不擋。
-
-下面是開著時的行為：
-
-```text
-改完程式
-  → LLM 宣告範圍（need_goal verify_scope：測試檔／節點／資料夾／指令，附為什麼相關）
-  → 範圍內每項重跑，拿到「改完之後」的收據
-  → Stop 收尾閘檢查（每項有收據、每個改檔有案例或 no_case 理由）
-      否 → 擋，列缺哪項
-      是 → close 記結案
-  → 測試帳記每輪涵蓋與紅名單（runs.jsonl）
-  → 之後某支範圍外的測試紅了
-      → 對帳：它上次綠之後、這次紅之前結案、範圍沒涵蓋它的宣告 → 記一筆「範圍漏判」
-      → 下一次宣告前先逐筆檢討（missed／unrelated）
-```
-
-- **LLM 負責範圍**：範圍外的測試事後紅了，要回頭檢討沒驗到的根因。
-- **程式只管流程**：要宣告、每項要有改完之後的收據、事後對帳；部位表的整把量尺降成候選材料。
-- **每次宣告是完整範圍**：最新那份算數，存在 state `verify_scope[收據鍵]`。
-- **數字是尺不是門檻**：開場與每次宣告印「結案 N｜疑似漏判 M｜漏判率」，不拿來擋。
-- **刻意不做**：程式不替 LLM 列該測哪些（不做檔名對應、不搜呼叫方湊清單）。
-- **全量改增量待補**：全量 [`run_verify.py`](run_verify.py) 已從流程拔掉，之後改成「收尾跑 LLM 適度擴展過的可能相關清單」。
-
-**為什麼拔掉全量**：太慢、多 session 同機時拖慢所有人，紅了也指不出該誰修。
-
-細節 → [附錄 A7.9](TECH/guards.md#a79-驗證範圍verify_scope)
+這道閘（改完程式由 LLM 宣告該測哪些、收尾查範圍內每項改完之後跑綠、事後記範圍漏判）已移除，`need_goal` 也沒有 `verify_scope` 動作。
+收尾寫碼查核的 (a) 說修好認對得上改檔的 PASS 或改檔部位的合格自寫收據（[CLAIM_FIXED_NEEDS_PASS](TECH/release-rules.md#claim_fixed_needs_passclaim_measured_needs_doneclaim_tried_needs_exec)），(d) 補案例看本 session 改過的案例有沒有覆蓋改過的程式檔、「case_for｜<程式檔>：<案例…>」宣告行也算（[CASE_COVERS_CHANGE](TECH/release-rules.md#case_covers_change)）；閘序見 [§7.1](#71-stop-閘序)。
+原本的設計與部件見 [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md`](_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md)。
 
 ### 7.10 切入點契約（程式問→卡教→LLM 判→留帳回看）
 
@@ -2192,7 +2160,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | 守門只在寫碼回合 | 三層判是否寫碼回合，非寫碼回合不跑 | 純問答、改文件回合的守門與計時帳 |
 | 完整對照程式代填 | 閘關著時程式依改動與收據代填 | 交付前逐節點交對照 |
 | 收據不看形狀 | 收據在範圍內、用得到就算 | 指令形狀不對而作廢 |
-| 目標樹只立一次 | 只留改程式前沒樹提醒 set 一次 | 為 reconcile／verify_scope 多叫的模型回合 |
+| 目標樹只立一次 | 只留改程式前沒樹提醒 set 一次 | 為 reconcile 多叫的模型回合 |
 | 定位四行放寬 | 第四行與佔位只記錄，兩候選只擋一次 | 每次都擋的第四行與兩候選 |
 | 收尾只問一句 | 問「剩下沒做的，哪些改得快又有效？」 | 逐項引用原話 |
 | 拿掉交出前一問 | 整個拿掉 | 「還對得上最新計畫嗎」 |
@@ -2279,7 +2247,7 @@ workflow/config.local.json      這台機器專屬，不進版控
   - `text_score.enabled`：文字規格自動評。
   - `privacy.enabled`：git commit 前隱私檔硬閘。
 - **只想降負擔不想全關**：例如使用者決策萃取，改 `userExtraction.tokenBudget` 而非關 `userExtraction.enabled`。
-- **目前出廠為 false 的閘**：`verify_scope.enabled`、`aec.scan_report_gate`、`atom_audit.enabled`；要用才開。
+- **目前出廠為 false 的閘**：`aec.scan_report_gate`、`atom_audit.enabled`；要用才開。
 
 完整開關表（每個功能一列）見下方連結。
 
@@ -2626,8 +2594,7 @@ flowchart TD
     - 收割回報 items ↔ receipt 核對（[§6.3](#63-自動萃取在跑-vs-已停產) 階段收割）。
   - **目標樹相關**：
     - `need_goal` 套用到目標樹。
-    - `verify_scope` 收件。
-    - Read 到續接單時匯入目標樹（[§7.7](#77-需求目標樹need_goal)、[§7.9](#79-驗證範圍verify_scope)）。
+    - Read 到續接單時匯入目標樹（[§7.7](#77-需求目標樹need_goal)）。
   - **one-writer**：MCP 只回 chip，state／ledger 由此寫。
   - **連鎖斷路器**：連鎖段開著時記這次的 AI 動作（[§7.12](#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）。
   - **合併呼叫**：write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`；原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms。
@@ -2688,8 +2655,8 @@ flowchart TD
     - 改了程式檔那批跑完就起跑拐彎判斷量測。
     - 交收尾檢核或完整對照（need_goal reconcile）那批，附上量好的拐彎判斷與「最該修」。
     - 第二意見 job 跑完提醒取回（[§7.1](#71-stop-閘序) ReadingPath／PickOne／SecondOpinion）。
-    - 改程式檔那批的收尾類提醒只剩不點名 reconcile／verify_scope 的條目。
-    - 目標樹只立一次（規則 [GOAL_TREE_SET_ONCE](TECH/release-rules.md#goal_tree_set_once)）：SCOPE_*、(f2)(f3)(f4) 不提醒，Stop 照判只留帳。
+    - 改程式檔那批的收尾類提醒只剩不點名 reconcile 的條目。
+    - 目標樹只立一次（規則 [GOAL_TREE_SET_ONCE](TECH/release-rules.md#goal_tree_set_once)）：(f2)(f3)(f4) 不提醒，Stop 照判只留帳。
 
 #### Stop
 - **matcher**：—
@@ -2707,8 +2674,8 @@ flowchart TD
 - **matcher**：—
 - **掛的 hook**：guardian（20 秒）。
 - **職責**：
-  - 子代理收尾只跑寫碼查核：對帳 (a)～(d)＋驗證範圍＋寫入目標不明。
-  - 用該 agent 自己的改檔與收據帳；自己沒宣告就沿用主 session 的範圍。
+  - 子代理收尾只跑寫碼查核：對帳 (a)～(d)＋寫入目標不明。
+  - 用該 agent 自己的改檔與收據帳。
   - 沒人能回答放行詢問：跟主 session 同一份預算，擋滿就放行並留帳（[§7.1](#71-stop-閘序)、[§7.3](#73-擋滿之後怎麼放行hookswg_releasepy)）。
 
 #### SessionEnd
@@ -4434,8 +4401,7 @@ svn：svn_update_targets
 - **表的內容**：[`workflow/`](workflow/) 每類執行紀錄一列：資料夾、檔名樣式、保留多久、為什麼刪了不會壞事
 - **規則**：
   - 檔名含目前 session id 的不動
-  - 在表上登記、由原程式清：`state-*.json` 分級、`verify-ledger/_runs`、`verify-scope/runs.jsonl`（超過 4 MB 砍舊的一半）、`tool-results`、`health-reports`、`se-sentinel`
-  - `verify-scope/scope.jsonl`（結案、範圍漏判、檢討）永久留
+  - 在表上登記、由原程式清：`state-*.json` 分級、`verify-ledger/_runs`、`tool-results`、`health-reports`、`se-sentinel`
   - 另有 episodic TTL 24d
 - **訊號出口**：刪不掉的檔列進回傳 `failed`，並寫 atom-debug 一行
 
@@ -4942,14 +4908,6 @@ svn：svn_update_targets
   - 底部一般擋只剩待記知識或文件漂移才擋，改檔數只印 stderr（SYNC_BLOCK_NOT_REPEATED）。
   - 「還會擋」預覽：收尾檢核還欠時不列同步，背景收割開著時不列收割。
 
-#### 第一批：第一次跑就算數
-
-- **程式在哪**：`wg_verify_scope._accept_text`。
-- **以前**：宣告範圍的回應沒講跑法，AI 用 `;` 把測試和輸出比對串一起跑，整條不算收據，只好再跑一次。
-- **現在**：宣告回應直接講怎樣跑才算（RUN_COUNTS_FIRST_TIME）。
-  - 測試自己一條，或只用 `&&` 串。
-  - 後面只准 `| tail`。
-
 #### 第二批：啟動器不算改程式
 
 - **程式在哪**：`wg_release_rules.is_git_launcher_source`、`wg_verify_ledger.note_git_launcher`／`git_launcher`、`stop._verify_gates`、`wg_need_goal.stamp_edit`、`wg_second_opinion.check`。
@@ -5112,13 +5070,12 @@ svn：svn_update_targets
 - **程式在哪**：`post_tool_batch.closing_reminders`、`post_tool_use`（原 `_scope_ask_once` 拿掉）、`stop.CLOSING_CHECK_FIX`、`wg_need_goal.stamp_edit`、[`mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js) need_goal／anti_evasion_report 說明。
   - `stamp_edit` 裡沒樹改知識類檔的提示已整條拿掉（[NON_CODING_TURN_NO_NUDGE](TECH/release-rules.md#non_coding_turn_no_nudge)）。
 - **以前**：
-  - 改程式那回合問一次驗證範圍。
-  - 改檔那則提醒 SCOPE_*／(f2)(f3)(f4)。
+  - 改檔那則提醒 (f2)(f3)(f4)。
   - 收尾檢核提醒寫「目標對照放 reconcile」。
-  - 一提醒 AI 就各叫一次 need_goal verify_scope／reconcile（各一個模型回合＋載一次工具定義）。
+  - 一提醒 AI 就叫一次 need_goal reconcile（一個模型回合＋載一次工具定義）。
 - **現在**：
   - 只留改程式前沒樹提醒 set 一次（[CODE_EDIT_NEEDS_GOAL_TREE](TECH/release-rules.md#code_edit_needs_goal_tree)）。
-  - 其餘促使 reconcile／verify_scope 的文字全拿掉。
+  - 其餘促使 reconcile 的文字全拿掉。
   - 判定不動、Stop 只留帳，交付對照由程式代填（[GOAL_TREE_SET_ONCE](TECH/release-rules.md#goal_tree_set_once)）。
 
 #### 第二批：定位四行放寬

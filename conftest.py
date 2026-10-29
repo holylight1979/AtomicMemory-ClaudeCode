@@ -246,7 +246,7 @@ def pytest_runtest_logreport(report):
     if report.when == "teardown":
         SESSION["finished"] += 1                        # 每個案最後都有 teardown（setup 就跳過的也有）
     if report.failed and report.nodeid not in SESSION.setdefault("failed_cases", []):
-        SESSION["failed_cases"].append(report.nodeid)   # 收據記紅掉的測試名（驗證範圍拿去找範圍漏判）
+        SESSION["failed_cases"].append(report.nodeid)   # 收據記紅掉的測試名
 
 
 def _narrowed(session) -> bool:

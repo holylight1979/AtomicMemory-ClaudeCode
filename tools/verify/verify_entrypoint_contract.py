@@ -481,7 +481,7 @@ def stop_run(tmp_path, monkeypatch, capsys, logs):
                      ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {})),
                      ("_should_deep_postmortem", lambda *a, **k: False), ("reading_path_note", lambda *a, **k: ("", False))):
         monkeypatch.setattr(st, name, fn)
-    cfg = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, "sync_reminder": {"enabled": False},
+    cfg = {"reconcile_gate": {"enabled": False}, "sync_reminder": {"enabled": False},
            "atom_audit": {"enabled": False}, "aec": {"scan_report_gate": False}, "pick_one": {"enabled": True}}
     mods = [{"path": str(proj / "Game" / "Damage.cs"), "session_id": SID, "turn_seq": 5, "last_turn_seq": 5}]
 
@@ -534,7 +534,7 @@ def test_subagent_stop_gets_card_but_judge_does_not(tmp_path, monkeypatch, logs)
     from handlers import stop as st
     reason = "[Guardian:ReconcileGate] 寫碼查核\n✗ (a) CLAIM_FIXED_NEEDS_PASS：說修好但沒有改後跑綠的收據"
     blocks = []
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (reason, None, "reconcile", None))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (reason, None, "reconcile"))
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(st, "output_block", blocks.append)

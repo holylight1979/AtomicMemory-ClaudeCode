@@ -34,7 +34,6 @@
 | 鍵 | 預設 | 意義 |
 |----|------|------|
 | `reconcile_gate.block_letters` / `goal_gate` / `max_blocks_per_turn` | ["a","d"] / false / 2 | 寫碼查核（[§7.1](../TECH.md#71-stop-閘序)）的擋收尾範圍 |
-| `verify_scope.enabled` | false | 驗證範圍閘（[§7.9](../TECH.md#79-驗證範圍verify_scope)）；false 時 (a)(d) 走退路判法 |
 | `aec.scan_report_gate` / `hud_stale_s` | false / 75 | 沒交收尾檢核擋不擋收尾／HUD 幾秒沒更新算死 |
 | `atom_audit.enabled` | false | 卡片表態閘（[§7.1](../TECH.md#71-stop-閘序) AtomAudit） |
 | `second_opinion.auto.enabled` / `min_code_files` / `min_changed_lines` / `risky_prefixes` / `max_blocks_per_turn` / `background` | true / 4 / 150 / [] / 1 / true | 大任務收尾自動要求第二意見（[§7.1](../TECH.md#71-stop-閘序) SecondOpinion） |
@@ -295,7 +294,6 @@
 | `chain_breaker.enabled` | 連鎖斷路器（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）；一鍵關就寫 false |
 | `chain_breaker.depth_alarm` | 連鎖深度到 `max_depth` 也警報（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
 | `reconcile_gate.enabled` | 整個寫碼查核對帳閘（[§7.1](../TECH.md#71-stop-閘序)） |
-| `verify_scope.enabled` | 驗證範圍閘（目前 false） |
 | `aec.scan_report_gate` | 沒交收尾檢核就擋收尾（目前 false） |
 | `atom_audit.enabled` | 卡片表態閘（目前 false） |
 | `second_opinion.auto.enabled` | 大任務收尾自動要求第二意見 |

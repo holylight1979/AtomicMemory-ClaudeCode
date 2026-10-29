@@ -6,7 +6,7 @@
 - **[檔案與回合的基礎判定](#檔案與回合的基礎判定)**：[SAME_FILE](#same_file)・[TURN_SINCE_USER_PROMPT](#turn_since_user_prompt)・[CODING_TURN_ONLY](#coding_turn_only)・[GATE_MODE_TABLE／REMIND_ON_PRIOR_RESULT（RULE_MODE）](#gate_mode_tableremind_on_prior_resultrule_mode)
 - **[宣稱詞、糾正詞與其他「詞表只是提示」的判斷入口](#宣稱詞糾正詞與其他詞表只是提示的判斷入口)**：[CLAIM_MODIFIER_NOT_OWN](#claim_modifier_not_own)・[CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC](#claim_fixed_needs_passclaim_measured_needs_doneclaim_tried_needs_exec)・[CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH](#claim_words_are_hintsclaim_disclaim_needs_reasonclaim_receipt_ref_match)・[CLAIM_CONDITIONAL_NOT_CLAIM](#claim_conditional_not_claim)・[CORRECTION_WORDS_ARE_HINTS](#correction_words_are_hints)・[EXTRACT_VETO_NEEDS_JUDGMENT](#extract_veto_needs_judgment)・[收割與收尾檢核的 dismiss](#收割與收尾檢核的-dismiss)・[CONFLICT_DECLARED_BY_AI](#conflict_declared_by_ai)・[PROJECT_LITERAL_IS_HINT](#project_literal_is_hint)・[PROJECT_RULE_WORDS_ARE_HINTS](#project_rule_words_are_hints)
 - **[退避例外與紅測豁免](#退避例外與紅測豁免)**：[NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION](#not_doing_declareduser_waiver_needs_citation)・[BASE_RED_TRACKED_NOT_OWED](#base_red_tracked_not_owed)・[RED_ITEMS_ONLY_FROM_FAILURE_LINES](#red_items_only_from_failure_lines)
-- **[收尾儀式與寫碼查核案例](#收尾儀式與寫碼查核案例)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)・[CASE_DECLARED_FOR_CHANGE](#case_declared_for_change)・[NO_CASE_NEEDS_USER](#no_case_needs_user)・[CASE_COVERS_CHANGE](#case_covers_change)
+- **[收尾儀式與寫碼查核案例](#收尾儀式與寫碼查核案例)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)・[CASE_COVERS_CHANGE](#case_covers_change)
 - **[已不存在、還原與等同的改檔](#已不存在還原與等同的改檔)**：[GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW](#gone_outside_vcsgone_in_git_nothing_new)・[MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE](#moved_new_code_seengone_unverifiablevcs_root_unreadable)・[EXCLUDED_REGION](#excluded_region)・[NET_UNCHANGED／SNAPSHOT_SETTLED](#net_unchangedsnapshot_settled)・[EXEMPTION_PEERS_CODE_ONLY](#exemption_peers_code_only)・[CONTENT_EQUALS_COMMITTED](#content_equals_committed)・[COMMENT_ONLY_CHANGE](#comment_only_change)
 - **[擋次預算與放行](#擋次預算與放行)**：[BLOCK_BUDGET_SHARED](#block_budget_shared)・[PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)・[GATE_SELF_ERROR](#gate_self_error)・[GATE_DENY_CAP](#gate_deny_cap)・[DENY_CAP_PER_REPLY](#deny_cap_per_reply)・[PICK_ONCE_PER_USER_TURN](#pick_once_per_user_turn)・[PICK_ONE_PRE_CLOSE／PICK_ONE_WITH_TURN_JUDGMENT](#pick_one_pre_closepick_one_with_turn_judgment)
 - **[Bash／PowerShell 指令怎麼讀（寫入目標、唯讀、讀檔證據）](#bashpowershell-指令怎麼讀寫入目標唯讀讀檔證據)**：[INLINE_PY_READONLY](#inline_py_readonly)・[UNKNOWN_WRITE_RECOVERED](#unknown_write_recovered)・[INLINE_FLAG_BEFORE_PROGRAM](#inline_flag_before_program)・[SHELL_LITERAL_VAR_EXPANDED](#shell_literal_var_expanded)・[GIT_READONLY_SUBCMD](#git_readonly_subcmd)・[DOT_GIT_PATH_NOT_GIT_CALL／SEGMENTS_SPLIT_LIKE_SHELL／SHELL_KEYWORD_PREFIX_STRIPPED](#dot_git_path_not_git_callsegments_split_like_shellshell_keyword_prefix_stripped)・[DELETE_FORMS_SAME_ACROSS_SHELLS](#delete_forms_same_across_shells)・[UNKNOWN_PART_KEEPS_KNOWN_TARGETS](#unknown_part_keeps_known_targets)・[DIR_TARGET_JUDGED_BY_CONTAINER](#dir_target_judged_by_container)・[GREP_CONTENT_IS_READ／BASH_COMMENT_LINES_STRIPPED](#grep_content_is_readbash_comment_lines_stripped)・[BASH_READONLY_COUNTS_AS_READ](#bash_readonly_counts_as_read)
@@ -15,10 +15,8 @@
 - **[搬程式目錄](#搬程式目錄)**：[MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE](#move_code_dir_needs_scan_and_sample)
 - **[紅測清帳：篩選、範圍與最後結果](#紅測清帳篩選範圍與最後結果)**：[GREEN_NARROWED_KEEPS_UNCOVERED_RED](#green_narrowed_keeps_uncovered_red)・[GREEN_CLEARS_ONLY_CASES_IT_RAN](#green_clears_only_cases_it_ran)・[RED_LAST_RESULT_IN_COMMAND](#red_last_result_in_command)・[RED_SCOPE_FROM_FULL_COMMAND](#red_scope_from_full_command)
 - **[目標樹：達成、定位與提問](#目標樹達成定位與提問)**：[GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL](#goal_done_needs_case_or_receiptgoal_inferred_max_partial)・[CASE_RED_THEN_GREEN](#case_red_then_green)・[LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES](#locate_lines_need_role_and_two_candidates)・[LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS](#locate_candidates_without_fixed_labels)・[EDITED_PART_NEEDS_GOAL_NODE](#edited_part_needs_goal_node)・[KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE／KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY](#knowledge_edit_needs_light_treeknowledge_tree_reconcile_at_delivery)・[ASK_NEEDS_RECOMMENDATION](#ask_needs_recommendation)・[ASK_LINKED_TO_GOAL](#ask_linked_to_goal)・[ASK_OVERVIEW_BEFORE_DECISION](#ask_overview_before_decision)・[LOCATE_LINES_NEED_CRITIQUE](#locate_lines_need_critique)・[LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER](#locate_lines_no_example_placeholder)
-- **[驗證範圍：哪些改檔作廢收據](#驗證範圍哪些改檔作廢收據)**：[SCOPE_EDIT_RELATED_TO_ITEM](#scope_edit_related_to_item)・[SCOPE_CASE_EDIT_ONLY_ITS_ITEM](#scope_case_edit_only_its_item)・[SCOPE_EDIT_IN_DECLARED_DEPENDS](#scope_edit_in_declared_depends)・[SCOPE_RED_ONLY_ITS_CASES](#scope_red_only_its_cases)
 - **[Stop 底部的同步擋（sync block）](#stop-底部的同步擋sync-block)**：[SYNC_BLOCK_SKIPS_SYNCED](#sync_block_skips_synced)・[SYNC_SKIPS_VANISHED_OUTSIDE_VCS](#sync_skips_vanished_outside_vcs)・[BLOCK_LISTS_LATER_GATES](#block_lists_later_gates)・[PROMPT_REOPENS_DONE](#prompt_reopens_done)・[SYNC_BLOCK_NEW_ITEMS_ONLY](#sync_block_new_items_only)
-- **[驗證範圍宣告](#驗證範圍宣告)**：[SCOPE_DECLARED_FOR_CHANGE](#scope_declared_for_change)・[SCOPE_ITEM_WELL_FORMED](#scope_item_well_formed)
-- **[案例宣告與收據證據](#案例宣告與收據證據)**：[CASE_DECL_WELL_FORMED](#case_decl_well_formed)・[SCOPE_ITEM_RECEIPT_AFTER_EDIT](#scope_item_receipt_after_edit)・[RECEIPT_UNPARSED_GENERAL_ONLY](#receipt_unparsed_general_only)・[CARRIED_CLAIM_ANY_TURN_RECEIPT](#carried_claim_any_turn_receipt)・[LAUNCHER_NOT_CODE](#launcher_not_code)
+- **[收據證據](#收據證據)**：[RECEIPT_UNPARSED_GENERAL_ONLY](#receipt_unparsed_general_only)・[CARRIED_CLAIM_ANY_TURN_RECEIPT](#carried_claim_any_turn_receipt)・[LAUNCHER_NOT_CODE](#launcher_not_code)
 - **[收尾提醒與自清](#收尾提醒與自清)**：[RELOAD_ADVICE_ALREADY_LOADED／RELOAD_ADVICE_MCP_EDITS_ONLY](#reload_advice_already_loadedreload_advice_mcp_edits_only)・[LEFTOVER_NEEDS_CLEANUP](#leftover_needs_cleanup)
 - **[退避偵測](#退避偵測)**：[EVASION_CONTEXT_EXEMPT](#evasion_context_exempt)・[DEFERRAL_COVERS_EVASION_SENTENCE](#deferral_covers_evasion_sentence)
 - **[第二意見](#第二意見)**：[SECOND_OPINION_REQUIRED](#second_opinion_required)・[SECOND_OPINION_RAN_BEFORE](#second_opinion_ran_before)・[SECOND_OPINION_RESULT_ACROSS_TURNS](#second_opinion_result_across_turns)・[SECOND_OPINION_WAITING_NOT_DONE](#second_opinion_waiting_not_done)・[SECOND_OPINION_BACKGROUND／SECOND_OPINION_DONE_NOTICE](#second_opinion_backgroundsecond_opinion_done_notice)・[SECOND_OPINION_DECLINED／SECOND_OPINION_DECLINE_ACCEPTED](#second_opinion_declinedsecond_opinion_decline_accepted)・[SECOND_OPINION_DECLARED_ALWAYS_LOGGED](#second_opinion_declared_always_logged)・[SECOND_OPINION_FACT_TRIGGER](#second_opinion_fact_trigger)・[SECOND_OPINION_EXIT_FINGERPRINT](#second_opinion_exit_fingerprint)・[SECOND_OPINION_PRE_CLOSE](#second_opinion_pre_close)
@@ -26,7 +24,7 @@
 - **[重構等值與效能](#重構等值與效能)**：[REFACTOR_NEEDS_EQUIVALENCE](#refactor_needs_equivalence)・[PERF_HOT_PATH_NEEDS_MEASURE](#perf_hot_path_needs_measure)・[EQUIVALENCE_LOOP_EXPANDED](#equivalence_loop_expanded)・[EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED](#equivalence_na_declared_always_logged)・[NEGATIVE_CONTROL_DECLARED](#negative_control_declared)
 - **[Bash 讀檔判定](#bash-讀檔判定)**：[BASH_UNREACHED_READ_NOT_COUNTED](#bash_unreached_read_not_counted)
 - **[判準卡、口令閘與驗證批次](#判準卡口令閘與驗證批次)**：[JUDGE_CARD_HASH_CATCHES_INTERPRETER](#judge_card_hash_catches_interpreter)・[COMMIT_ORDER_DECISION_ALWAYS_LOGGED](#commit_order_decision_always_logged)・[VERIFY_FULL_RUN_NEEDS_USER_ORDER／VERIFY_SAME_BATCH_ALREADY_GREEN／VERIFY_BATCH_BLOCK_ONCE_PER_TURN](#verify_full_run_needs_user_orderverify_same_batch_already_greenverify_batch_block_once_per_turn)・[ORDER_UNTIL_PUSH](#order_until_push)・[SVN_TEST_BLOCK_OPT_IN](#svn_test_block_opt_in)
-- **[點名判定與漏判記錄](#點名判定與漏判記錄)**：[NEGATED_MENTION_IS_NOT_NAMING／DATA_FILE_DECL_VOIDED_BY_LATER_MENTION](#negated_mention_is_not_namingdata_file_decl_voided_by_later_mention)・[CHOICE_REASON_BELONGS_TO_CHOICE](#choice_reason_belongs_to_choice)・[OWN_COMMIT_CHANGES_STILL_COMPARED](#own_commit_changes_still_compared)・[SCOPE_LEAK_OUTSIDE_SCOPE](#scope_leak_outside_scope)・[SCOPE_LEAK_REVIEW_BEFORE_DECLARE](#scope_leak_review_before_declare)
+- **[點名判定](#點名判定)**：[NEGATED_MENTION_IS_NOT_NAMING／DATA_FILE_DECL_VOIDED_BY_LATER_MENTION](#negated_mention_is_not_namingdata_file_decl_voided_by_later_mention)・[CHOICE_REASON_BELONGS_TO_CHOICE](#choice_reason_belongs_to_choice)・[OWN_COMMIT_CHANGES_STILL_COMPARED](#own_commit_changes_still_compared)
 - **[收尾檢核欄位](#收尾檢核欄位)**：[AEC_EVIDENCE_PATH](#aec_evidence_path)・[AEC_FOLLOWUPS_EMPTY](#aec_followups_empty)
 - **[宣告類閘與追蹤帳](#宣告類閘與追蹤帳)**：[USER_DATA_FILE_NEEDS_DECLARATION](#user_data_file_needs_declaration)・[DECL_HINT_KEEPS_EDIT_TOOLS](#decl_hint_keeps_edit_tools)・[ORIGIN_USER_NEEDS_QUOTE](#origin_user_needs_quote)・[ORIGIN_SAID_INCLUDES_UNATTACHED](#origin_said_includes_unattached)・[OLD_TEST_CHANGE_NEEDS_DECLARATION](#old_test_change_needs_declaration)・[GATE_BYPASS_NEEDS_DECLARATION／GATE_BYPASS_NAMED_FILES_MERGED](#gate_bypass_needs_declarationgate_bypass_named_files_merged)・[ATOM_BYPASS_HOWTO_REFUSED](#atom_bypass_howto_refused)・[JUDGE_CARD_CHANGE_NEEDS_DECLARATION](#judge_card_change_needs_declaration)・[TRACKING_SAME_ITEM_NOT_REWRITTEN](#tracking_same_item_not_rewritten)
 - **[連鎖斷路器與 state 鎖](#連鎖斷路器與-state-鎖)**：[CHAIN_SAME_GATE_PER_OBJECT](#chain_same_gate_per_object)・[STATE_RMW_LOCKED／STATE_PENDING_MERGED](#state_rmw_lockedstate_pending_merged)・[OLD_TEST_COMPARED_ON_FAILED_COMMAND](#old_test_compared_on_failed_command)
@@ -109,11 +107,8 @@
 #### CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC
 **判什麼**：(a)(b)(c) 宣稱對帳
 - **不欠／放行**：
-  - (a) 修好，有驗證範圍宣告時：
-    - 範圍內任一項，在跟它有關的最後一次改動之後跑綠。
-    - 不看回合、不比檔名。
-  - (a) 修好，沒宣告時：
-    - 任一回合對得上、晚於每個對上的改檔、同一棵樹的 PASS。
+  - (a) 修好：
+    - 任一回合對得上、晚於每個對上的改檔、同一棵樹的 PASS，或改檔部位的合格自寫收據。
     - 舊回合的收據要之後本 session 沒再改程式檔才算（子代理改的、判不出目標的寫入都算改）。
   - (b)(c)：本回合有 DONE／執行。
 - **照欠／照擋**：
@@ -121,7 +116,6 @@
   - 收據對不上。
   - 收據跑在改檔之前。
   - PASS 之後又改了程式檔（訊息點名那個檔）。
-  - 有宣告時，本回合檔名對得上但不在範圍內的收據不算。
 
 #### CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH
 **判什麼**：宣稱詞表只是提示，語意交 LLM（G6 判斷入口盤點 P6）
@@ -305,45 +299,14 @@
   - `goal_gate` 沒設＝不擋（要擋明寫 true）。
   - 其餘兩個沒設＝照擋。
 
-#### CASE_DECLARED_FOR_CHANGE
-**判什麼**：(d) 補案例：由哪個案例驗（驗證範圍閘開著時）
-- 補充：`wg_verify_scope.case_check` 收事實。
-- **不欠／放行**：驗證範圍宣告裡有一項的 `case_for` 列到這個程式檔，而且下面四件都成立。
-  - 那一項點得到案例檔（測試檔、測試節點，或只跑特定測試檔的指令）。
-  - 案例檔仍存在。
-  - 案例檔本 session 新寫或改過。
-  - 那一項在最後一次改動之後跑綠（與 [SCOPE_ITEM_RECEIPT_AFTER_EDIT](#scope_item_receipt_after_edit) 同一個判斷）。
-  - 先紅後綠只記錄（[CASE_RED_THEN_GREEN](#case_red_then_green)）。
-- **照欠／照擋**：
-  - 沒宣告。
-  - 宣告的案例不在。
-  - 本 session 沒改過（既有案例已經驗到要走 no_case）。
-  - 沒跑或跑紅。
-  - 改了別支測試不替它清帳。
-  - 擋訊息逐檔列哪一項哪裡不成立，並列本 session 改過的案例檔當宣告候選。
-
-#### NO_CASE_NEEDS_USER
-**判什麼**：宣告不需要新案例
-- **不欠／放行**：
-  - 使用者放行那一刻（`wg_verify_scope.approve_no_case`），把宣告裡的 no_case 檔記成已裁定。
-  - 裁定綁在它當時的最後一次修改（state `no_case_approved`，user_release 紀錄列出檔名）。
-  - 之後沒再改就不再擋、不每回合重問。
-- **照欠／照擋**：
-  - 宣告了 `no_case: [{path, reason}]` → 照擋。
-    - 擋訊息帶理由與【收尾放行確認】的問法（題目寫「<檔> 不需要新案例：<理由>」並掛目標節點）。
-    - 要不要補由使用者裁。
-  - 裁定之後檔又改了 → 重裁。
-
 #### CASE_COVERS_CHANGE
-**判什麼**：(d) 驗證範圍閘關掉時的判法
+**判什麼**：(d) 補案例：改過的程式檔有沒有案例覆蓋
 - **不欠／放行**：
   - 本 session 改過的程式檔，有一個本 session 新寫或改過、仍存在、同根的案例覆蓋它。
   - 覆蓋的認法（任一）：
     - 案例檔名是 test_／verify_<模組名>、<模組名>_test。
     - 案例內容提到它（檔名，或至少 3 字的模組名，整詞）。
-    - case_for 列它，來源有兩種：
-      - 驗證範圍宣告的 case_for。
-      - AI 在回覆文字、`#` 註解指令或 thinking 寫的「case_for｜<程式檔>：<案例檔或節點>」行（`wg_release_rules.parse_case_for_decls`，整個 session 都認，案例相對該程式檔的專案根解析）。
+    - case_for 列它：AI 在回覆文字、`#` 註解指令或 thinking 寫的「case_for｜<程式檔>：<案例檔或節點>」行（`wg_release_rules.parse_case_for_decls`，整個 session 都認，案例相對該程式檔的專案根解析）。
   - 不比改動先後、不看有沒有跑綠。
 - **照欠／照擋**：
   - 本 session 改過的案例都沒提到它，也沒有 case_for 宣告。
@@ -421,7 +384,7 @@
 #### BLOCK_BUDGET_SHARED
 **判什麼**：擋次預算
 - **不欠／放行**：
-  - 紅測與寫碼查核（對帳 (a)～(d)＋驗證範圍）每個使用者回合共用一份：
+  - 紅測與寫碼查核（對帳 (a)～(d)）每個使用者回合共用一份：
     - 設定 `reconcile_gate.max_blocks_per_turn`，鍵 `*`，不分哪一條規則。
     - 擋滿才問放行。
     - 擋滿訊息列全部條目。
@@ -728,7 +691,6 @@
   - 一次性腳本的待遇：
     - 第二意見門檻不數。
     - 寫碼查核補案例不數。
-    - 驗證範圍不數。
     - 不能拿來清帳。
   - 判法 `wg_verify_ledger.session_scratch`，兩側先展 8.3 短路徑。
 - **照欠／照擋**：repo 裡自己取名 jobs/<x>/tmp、Temp/claude/…/scratchpad 的目錄（不在暫存根底下）
@@ -1040,61 +1002,6 @@
   - 程式的泛型角括號（`List<int>`）不算。
 - **照欠／照擋**：照抄範例不換佔位 → 當沒填，只記錄不擋（guard-need_goal locate_soft）
 
-### 驗證範圍：哪些改檔作廢收據
-
-#### SCOPE_EDIT_RELATED_TO_ITEM
-**判什麼**：驗證範圍一項的收據要晚於哪些改檔
-- **不欠／放行**：
-  - 程式檔一律算（測試案例檔、宣告了 `depends` 的項目例外，見下兩個區塊）。
-  - 不是程式檔的，只有跟這一項有關才算：
-    - 同部位。
-    - 在它點名的路徑或宣告的 `inputs` 底下。
-    - 它就是那部位量尺。
-    - 整體驗證或看不出跑了什麼。
-- **照欠／照擋**：不是程式檔、也跟這一項無關的改檔，不作廢它的收據（改 `_staging` 的計畫文件不必重跑程式測試）
-
-#### SCOPE_CASE_EDIT_ONLY_ITS_ITEM
-**判什麼**：改了測試案例檔要重跑哪幾項
-- **不欠／放行**：
-  - 案例檔是量具不是受測物。成立條件：
-    - 符合 `verify_case_globs`。
-    - 不是 conftest／`__init__`。
-    - 同資料夾沒有別的程式 import 它（`wg_verify_scope._standalone_case`）。
-  - 成立時，只作廢這些項目：
-    - 點名它的（在它點名的路徑底下）。
-    - 它所在部位的量尺。
-    - 整體驗證或看不出跑了什麼的項目。
-- **照欠／照擋**：
-  - 被同資料夾 import 的案例檔（共用 Sandbox、fixture）與 conftest 照程式檔算，每一項都要重跑。
-  - 跨資料夾 import 案例檔不偵測。
-
-#### SCOPE_EDIT_IN_DECLARED_DEPENDS
-**判什麼**：宣告了 `depends` 的項目，改了程式要不要重跑
-- **不欠／放行**：
-  - 項目宣告 `depends`（這一項用到的程式檔或資料夾，LLM 判斷）。
-  - 只有下列改動才作廢：
-    - 改到依賴裡的。
-    - 改到它點名的路徑底下的。
-    - 改到它 `case_for` 列的。
-    - 改到共用測試設施（conftest／`__init__`／被 import 的案例檔）。
-- **照欠／照擋**：
-  - 依賴以外的程式改動不作廢它。
-  - 沒宣告 `depends` 照 [SCOPE_EDIT_RELATED_TO_ITEM](#scope_edit_related_to_item) 區塊一律算（「改完要重跑」的訊息會提示可以宣告）。
-  - 漏列就漏驗，之後紅了由範圍漏判記下。
-
-#### SCOPE_RED_ONLY_ITS_CASES
-**判什麼**：一條指令跑好幾項、其中有紅
-- **不欠／放行**：
-  - 收據記下紅案（FAILED／ERROR 那幾行）與清單完不完整。
-    - 完整＝紅案數等於最後結算行的 failed＋error（`wg_release_rules.red_case_facts`）。
-  - 完整時，檔案／資料夾／測試節點項目只看紅案有沒有落在它底下，沒有就照算綠。
-  - 背景自寫收據的 `failed_cases` 同判法。
-- **照欠／照擋**：整條照算紅，當下列任一成立。
-  - 清單不完整（輸出被截、不是 pytest）。
-  - 指令項目。
-  - exit 不是 0／1。
-  - 紅案對不到存在的檔（pytest 的根不是執行目錄）。
-
 ### Stop 底部的同步擋（sync block）
 
 #### SYNC_BLOCK_SKIPS_SYNCED
@@ -1160,63 +1067,7 @@
   - 有新的一筆照擋。
   - 同一個使用者回合照舊可再擋（擋幾次歸 `stop_gate_max_blocks` 共用預算）。
 
-### 驗證範圍宣告
-
-#### SCOPE_DECLARED_FOR_CHANGE
-**判什麼**：要不要宣告驗證範圍（規則；驗哪些交 LLM）
-- **不欠／放行**：以下任一。
-  - 沒有要宣告的改檔：只改沒量尺的知識素材、改過又還原。
-  - 最新那份宣告在每個有改動的 repo 都有項目（判不出 repo 的改檔不要求）。
-- **照欠／照擋**：
-  - 改了程式檔或有量尺部位的檔卻沒宣告。
-  - 某個有改動的 repo 沒有項目。
-  - 擋訊息：列改到的檔、叫 LLM 判斷哪些有關聯會受影響、附參考量尺。
-
-#### SCOPE_ITEM_WELL_FORMED
-**判什麼**：宣告收件
-- **不欠／放行**：
-  - 每項目標與理由都非空。
-  - 路徑樣子的目標：存在、節點查得到 def。
-  - 不是路徑就當指令，且解析得了。
-- **照欠／照擋**：一項不合格整份退回
-
-### 案例宣告與收據證據
-
-#### CASE_DECL_WELL_FORMED
-**判什麼**：案例宣告收件
-- **不欠／放行**：
-  - `case_for` 掛在點得到案例檔的項目
-  - `case_for` 列的每個路徑是程式檔，而且存在或本 session 改過（搬走的舊路徑也還欠著，要能宣告）
-  - `no_case` 每筆同樣的路徑加非空理由
-  - 同一個檔沒有兩邊都列
-- **照欠／照擋**：整份退回
-  - 掛在資料夾、整體驗證或產品檔那一項
-  - 列了不存在又沒改過的檔，或不是程式的檔
-  - 同檔兩邊都列
-
-#### SCOPE_ITEM_RECEIPT_AFTER_EDIT
-**判什麼**：範圍內每一項有沒有跑過
-- **不欠／放行**：有一筆收據同時符合下列全部條件，或符合背景跑的自寫收據那一組
-  - 一般收據：
-    - 跑了這一項、對這一項綠（[SCOPE_RED_ONLY_ITS_CASES](#scope_red_only_its_cases)）
-    - 晚於每個跟它有關的改檔的最後一次修改
-    - 同一棵樹
-    - 指令可信
-  - 背景跑的自寫收據：
-    - 改完才開始
-    - 全綠
-    - 環境沒縮範圍
-    - 涵蓋這一項
-- **照欠／照擋**：
-  - 沒跑
-  - 跑在改動之前
-  - 跑紅
-  - 只跑一部分
-  - 換目錄
-  - 環境縮範圍
-  - 指令解析不了
-  - 別棵樹
-  - 擋訊息說最近那筆為什麼不算（不看前後接了什麼、用什麼串）
+### 收據證據
 
 #### RECEIPT_UNPARSED_GENERAL_ONLY
 **判什麼**：收據指令解析不了（heredoc、`$( )`、反引號、eval…）
@@ -1673,7 +1524,7 @@
   - 有一行「測試上 svn 原句：「…」」，原句逐字在使用者本回合原話裡、子句沒被否定（留帳 user_quote）
 - **照欠／照擋**：開了、路徑含測試檔、沒有對得上的原句 → 擋（「不要提交測試」引了也不算）
 
-### 點名判定與漏判記錄
+### 點名判定
 
 #### NEGATED_MENTION_IS_NOT_NAMING／DATA_FILE_DECL_VOIDED_BY_LATER_MENTION
 **判什麼**：資料檔點名與宣告帳（`wg_release_rules.prompt_names_file`／`mention_negated`、[`hooks/wg_data_file`](../hooks/wg_data_file.py)）
@@ -1699,34 +1550,6 @@
 - **照欠／照擋**：
   - 合併提交不算自己的
   - 讀不到 reflog 整段比
-
-#### SCOPE_LEAK_OUTSIDE_SCOPE
-**判什麼**：範圍漏判（只記錄）
-- **不欠／放行**：下列任一成立就不記
-  - 紅的測試在範圍內（退化不是漏判）
-  - 它從沒綠過
-  - 那次宣告不是在它上次綠之後、這次紅之前結案
-  - 它是看到紅的 session 在它上次綠之後新寫或改過、還沒結案的案例：
-    - 比上次綠那時的 git 版本：沒有這個案例或定義不同
-    - 算它進行中的工作，告訴它、紅照樣進紅測清單
-    - 只改同檔別的案例、判不出照記
-- **照欠／照擋**：
-  - 以上都不成立 → 記一筆疑似漏判，連回那次宣告
-  - 看到紅的 session 自己還有沒結案的改動也照記，但標出來
-  - 檢討時先查明是不是它自己造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化）
-
-#### SCOPE_LEAK_REVIEW_BEFORE_DECLARE
-**判什麼**：先檢討再宣告
-- **不欠／放行**：下列任一
-  - 該 repo 沒有待檢討的漏判
-  - 宣告附的 reviews 逐筆交了：
-    - missed 有 root_cause 與 next_time
-    - unrelated 有 reason
-- **照欠／照擋**：整份宣告退回
-  - 有一筆沒交
-  - missed 沒寫根因或下次怎麼改
-  - unrelated 沒寫理由
-  - verdict 不是兩種之一
 
 ### 收尾檢核欄位
 
@@ -2255,7 +2078,7 @@
 **程式原文**：本 session 自己跑紅、還沒綠的測試在，收尾宣告完成 → 擋（紅測閘，handlers/stop._testfail_gate）；預算、放行、豁免照 [BLOCK_BUDGET_SHARED](#block_budget_shared)、[USER_WAIVER_NEEDS_CITATION](#not_doing_declareduser_waiver_needs_citation)、[BASE_RED_TRACKED_NOT_OWED](#base_red_tracked_not_owed)。紅只在宣告完成的收尾才被拿出來判：沒宣告完成的回合不判、也不算判過不算，那筆紅照留，之後哪個回合宣告完成就擋（改完程式跑紅、之後沒再跑綠，不管隔幾回合照擋）。判過不算的一律落帳、之後的收尾不再拿它擋：使用者放行記 user_released（[RELEASE_COVERS_SHOWN_ITEMS](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）、不做行記 testfail_waivers（[USER_WAIVER_NEEDS_CITATION](#not_doing_declareduser_waiver_needs_citation)）、收尾寫的負向對照宣告把那筆搬到 deliberate_reds（[NEGATIVE_CONTROL_DECLARED](#negative_control_declared) 收尾入口）。同一條指令跑了不只一次測試的紅在記帳時就定案（[RED_LAST_RESULT_IN_COMMAND](#red_last_result_in_command)），不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。
 
 #### CODE_EDIT_NEEDS_GOAL_TREE
-**程式原文**：改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：寫碼守門開時提醒一行 need_goal set，不擋。｜目標樹只立一次（[GOAL_TREE_SET_ONCE](#goal_tree_set_once)）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile／verify_scope，收尾檢核的提醒不寫目標對照。｜擋／提醒訊息教的是寫「目標｜…」行（子目標每件一行「子目標｜…」），放同一則先發的不寫檔指令開頭的 # 註解（DECL_WHERE；只教這一條路），改檔時 hook 照它立樹（[TREE_SET_VIA_TEXT](#tree_set_via_text)）；need_goal(action=set) 程式照收、訊息不提。
+**程式原文**：改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：寫碼守門開時提醒一行 need_goal set，不擋。｜目標樹只立一次（[GOAL_TREE_SET_ONCE](#goal_tree_set_once)）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile，收尾檢核的提醒不寫目標對照。｜擋／提醒訊息教的是寫「目標｜…」行（子目標每件一行「子目標｜…」），放同一則先發的不寫檔指令開頭的 # 註解（DECL_WHERE；只教這一條路），改檔時 hook 照它立樹（[TREE_SET_VIA_TEXT](#tree_set_via_text)）；need_goal(action=set) 程式照收、訊息不提。
 
 #### OVERVIEW_CARD_BEFORE_EDIT
 **程式原文**：改某部位的檔時本 session 還沒看過這個部位的導讀卡（wg_overview.on_edit 的 not_injected）：提醒、卡隨改檔結果送到。
@@ -2279,7 +2102,7 @@
 **程式原文**：收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。
 
 #### CLOSING_CHECK_REQUIRED
-**程式原文**：動到 core 檔或多檔、宣告完成，本回合要交收尾檢核 anti_evasion_report（handlers/stop.py ScanReport 段）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。｜目標樹只立一次（[GOAL_TREE_SET_ONCE](#goal_tree_set_once)）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile／verify_scope，收尾檢核的提醒不寫目標對照。
+**程式原文**：動到 core 檔或多檔、宣告完成，本回合要交收尾檢核 anti_evasion_report（handlers/stop.py ScanReport 段）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。｜目標樹只立一次（[GOAL_TREE_SET_ONCE](#goal_tree_set_once)）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile，收尾檢核的提醒不寫目標對照。
 
 #### CLOSING_CHECK_MEMORY_NOT_DEFERRED
 **程式原文**：收尾檢核 (d)／(h) 不得把寫 atom 推到之後（post_tool_use 判 d_pending，handlers/stop.py AEC-Pending 段）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。
@@ -2312,10 +2135,10 @@
 **程式原文**：工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法、順帶要注入的卡），下一個工具結果（PostToolUse）取走：該提醒的併進 additionalContext、記進 remind_sent；送過的只留帳不重送（wg_overview.remind_queue／remind_flush）。state 寫不進去就只 stderr＋留帳，不改用 PreToolUse 送。remind_sent 是**一份清單**（元素 remind_key(規則, 對象)；state 本來就一 session 一檔，不按 session 分桶），工具前守門與改程式檔那批的收尾類提醒（post_tool_batch.closing_reminders）都走 wg_overview.remind_mark 記同一份；讀到舊寫法的 dict 由 remind_sent_list 攤平，不炸。
 
 #### GOAL_RECONCILE_AT_DELIVERY
-**程式原文**：(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：寫碼守門開時提醒，Stop 只留帳；commit 前那份歸 [COMMIT_GOAL_RECONCILED](#commit_goal_reconciled)。｜目標樹只立一次（[GOAL_TREE_SET_ONCE](#goal_tree_set_once)）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile／verify_scope，收尾檢核的提醒不寫目標對照。
+**程式原文**：(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：寫碼守門開時提醒，Stop 只留帳；commit 前那份歸 [COMMIT_GOAL_RECONCILED](#commit_goal_reconciled)。｜目標樹只立一次（[GOAL_TREE_SET_ONCE](#goal_tree_set_once)）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile，收尾檢核的提醒不寫目標對照。
 
 #### GOAL_TREE_SET_ONCE
-**程式原文**：目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（[CODE_EDIT_NEEDS_GOAL_TREE](#code_edit_needs_goal_tree)），之後不再送任何會促使 AI 去呼叫need_goal reconcile／verify_scope 的文字：改程式檔那則工具結果不附 SCOPE_*、(f2)(f3)(f4)（post_tool_batch.closing_reminders），PostToolUse 改程式檔不問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN 拿掉），收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，need_goal set 的回覆、MCP 工具說明都不寫接著對照（沒樹改知識類檔已不送提示，見 [NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)）。判定不動：Stop 照判、只留帳（[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)）；交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile／verify_scope 照收。寫碼守門關整道不動（照擋）。為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。｜立樹本身走文字管道（[TREE_SET_VIA_TEXT](#tree_set_via_text)）：提醒 set 那一行教的是「目標｜」行，照做的成本是零個模型回合；need_goal(action=set) 程式照收、訊息不提。
+**程式原文**：目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（[CODE_EDIT_NEEDS_GOAL_TREE](#code_edit_needs_goal_tree)），之後不再送任何會促使 AI 去呼叫need_goal reconcile 的文字：改程式檔那則工具結果不附 (f2)(f3)(f4)（post_tool_batch.closing_reminders），收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，need_goal set 的回覆、MCP 工具說明都不寫接著對照（沒樹改知識類檔已不送提示，見 [NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)）。判定不動：Stop 照判、只留帳（[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)）；交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile 照收。寫碼守門關整道不動（照擋）。為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。｜立樹本身走文字管道（[TREE_SET_VIA_TEXT](#tree_set_via_text)）：提醒 set 那一行教的是「目標｜」行，照做的成本是零個模型回合；need_goal(action=set) 程式照收、訊息不提。
 
 #### STOP_REMIND_LEDGER_ONLY
 **程式原文**：Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、不記 pending_release、不吃擋滿預算、不算進連鎖斷路器的觸發；寫碼查核一批條目混了照擋與提醒的，只有照擋條目進擋訊息（handlers/stop._remind_logged；子代理與裁判收尾同一套）。

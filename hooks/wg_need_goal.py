@@ -30,8 +30,7 @@ from harness_text import user_typed_text
 from wg_verify_ledger import has_cd, is_code_file, reconcile_cfg
 
 # ─── 列舉值（MIRROR: tools/workflow-guardian-mcp/lib/need-goal.js，兩邊同一組）────────────────
-ACTIONS = ("set", "add", "update", "reconcile", "read", "verify_scope")
-REVIEW_VERDICTS = ("missed", "unrelated")       # verify_scope 的漏判檢討：該驗的沒驗到／與那次改動無關
+ACTIONS = ("set", "add", "update", "reconcile", "read")
 TREE_STATUS = ("doing", "reconciled", "closed")
 NODE_STATUS = ("todo", "doing", "done", "partial", "none", "dropped")
 TERMINAL = ("done", "partial", "none", "dropped")
@@ -801,48 +800,6 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
     return errs
 
 
-def _validate_verify_scope(inp: Dict[str, Any]) -> List[str]:
-    """verify_scope 的形狀：items 每項 {target, why} 都非空、case_for（選填）是非空字串陣列；reviews（選填）每筆
-    {leak, verdict∈missed|unrelated}；no_case（選填）每筆 {path, reason} 都非空。
-    內容（檔在不在、是不是案例檔、待檢討的漏判有沒有逐筆檢討、該寫的根因有沒有寫）由 wg_verify_scope 收件時照規則判。"""
-    items = inp.get("items")
-    if not isinstance(items, list) or not items:
-        return ["verify_scope 要給 items（非空陣列，每項 {target, why}）"]
-    errs: List[str] = []
-    for i, it in enumerate(items):
-        if not isinstance(it, dict):
-            errs.append(f"items[{i}] 必須是物件")
-            continue
-        if not _s(it.get("target")):
-            errs.append(f"items[{i}].target 必填（測試檔、測試節點、資料夾或指令）")
-        if not _s(it.get("why")):
-            errs.append(f"items[{i}].why 必填（為什麼和這次改動有關、會受什麼影響）")
-        ins = it.get("inputs")
-        if ins is not None and (not isinstance(ins, list) or not all(_s(x) for x in ins)):
-            errs.append(f"items[{i}].inputs 必須是非空字串陣列（這一項還讀的檔或資料夾）")
-        cf = it.get("case_for")
-        if cf is not None and (not isinstance(cf, list) or not cf or not all(_s(x) for x in cf)):
-            errs.append(f"items[{i}].case_for 必須是非空字串陣列（這支案例驗的程式檔）")
-    nc = inp.get("no_case")
-    if nc is not None and not isinstance(nc, list):
-        errs.append("no_case 必須是陣列（[{path, reason}]：不需要新案例的程式檔與理由）")
-    for j, n in enumerate(nc if isinstance(nc, list) else []):
-        if not isinstance(n, dict) or not _s(n.get("path")) or not _s(n.get("reason")):
-            errs.append(f"no_case[{j}] 要有 path（改過的程式檔）與 reason（為什麼不需要新案例）")
-    rv = inp.get("reviews")
-    if rv is not None and not isinstance(rv, list):
-        return errs + ["reviews 必須是陣列"]
-    for j, r in enumerate(rv or []):
-        if not isinstance(r, dict):
-            errs.append(f"reviews[{j}] 必須是物件")
-            continue
-        if not _s(r.get("leak")):
-            errs.append(f"reviews[{j}].leak 必填（範圍漏判編號 L…）")
-        if r.get("verdict") not in REVIEW_VERDICTS:
-            errs.append(f"reviews[{j}].verdict 無效（{r.get('verdict')}），允許：{'|'.join(REVIEW_VERDICTS)}")
-    return errs
-
-
 def _validate_locate(inp: Dict[str, Any]) -> List[str]:
     """set／update 選填 locate=[{part, lines}]（規則 LOCATE_VIA_NEED_GOAL）：只驗形狀，內容由 wg_overview.locate_from_goal 照改檔時的判法。"""
     loc = inp.get("locate")
@@ -921,8 +878,6 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
         if inp.get("form") is not None and inp.get("form") not in READ_FORMS:
             errs.append(f"form 無效（{inp.get('form')}），允許：{'|'.join(READ_FORMS)}")
         return errs
-    if action == "verify_scope":
-        return _validate_verify_scope(inp)
     items = inp.get("items")
     only_decl = action == "update" and not items and (inp.get("locate") or inp.get("data_files"))   # 只交定位／資料檔宣告，不改節點
     if not only_decl and (not isinstance(items, list) or not items):
@@ -1488,9 +1443,6 @@ def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> 
     errs = validate_input(inp)
     if errs:
         return _result(sid, action, {"ok": False, "tree": None, "rejected": errs}, None)
-    if action == "verify_scope":                 # 驗證範圍不進目標檔：PostToolUse 轉交 wg_verify_scope.declare
-        return {"ok": False, "action": action, "tree": None, "rejected": [], "goal_changed": False,
-                "text": "[NeedGoal] verify_scope 由驗證範圍收件（wg_verify_scope），這裡不套用"}
     if action == "read":
         doc = load(sid)
         tree = active_tree(doc)

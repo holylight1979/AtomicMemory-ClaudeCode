@@ -9,8 +9,8 @@
                                  #    outcome, duration_s, message}]}
 
 印完量尺哨兵後自寫一份驗證收據到資料根（WG_CLAUDE_DIR 或 ~/.claude）的 workflow/verify-ledger/_runs/（lib/self_receipt.py）：全量常要背景跑，
-PostToolUse 看不到結尾哨兵：對帳閘靠這份收據認「改完之後跑過、全綠、同根」，驗證範圍靠收據裡紅掉的測試名（failed_cases）
-找範圍漏判。--help 不寫。
+PostToolUse 看不到結尾哨兵：對帳閘靠這份收據認「改完之後跑過、全綠、同根」；收據也記紅掉的測試名（failed_cases）。
+--help 不寫。
 """
 # 全量改增量待補：這支是全量，已從流程拔掉（部位表不再拿它當量尺；收尾、合併、發版都不跑），只留給手動排查。
 import os

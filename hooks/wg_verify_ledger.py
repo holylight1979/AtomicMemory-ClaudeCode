@@ -7,7 +7,7 @@
   Stop 對「宣告完成」的話拿收據對帳：說「修好」要有本 turn 且對得上改檔的 PASS（exit 0 或無 exit）或部位量尺的合格自寫收據、
   說「量了」要有 DONE、說「試過」要有執行類工具呼叫、AEC 要有證據路徑（j）與追蹤項（k）。
   不看措辭、每次 Stop 都判：改了程式碼要有仍存在的驗證 case 被新增或修改（PASS 不代替）；改到有量尺的部位要有那把尺在
-  最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE（先過 runtime_gate）。
+  最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE。
   指令解析只有一套（lib/self_receipt）：量尺比對 cmd_matches、整體驗證 is_whole_run、「提到改檔」evidence_words（只看實際
   跑程式那幾段的參數）。量尺與整體驗證只看跑了哪支、在哪棵樹、exit／哨兵，不看指令形狀；解析不了的指令不算量尺、不算整體驗證，
   照算一般證據並留帳（RECEIPT_UNPARSED_GENERAL_ONLY）。收據的 cmd 存完整字串（升級前只存 200 字的舊收據不算）；不防偽造。
@@ -27,7 +27,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -642,23 +641,19 @@ def _cwd_of(receipt: Dict[str, Any]) -> str:
     return str(receipt.get("cwd") or receipt.get("project_root") or "")
 
 
-def _in_tree(receipt: Dict[str, Any], allow: Iterable[str] = ()) -> bool:
+def _in_tree(receipt: Dict[str, Any]) -> bool:
     """跑程式的指令沒有指到收據根以外（`python ../live/run_verify.py`、`python C:\\…\\.claude\\run_verify.py`、`../live/verify.sh`、
-    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析）。收據沒根資訊 → 不比（同 _root_ok）。
-    allow＝宣告在專案樹外的檔案項目自己與它宣告的 inputs（桌面的一次性判準腳本）：指令指到這些不算別棵樹。"""
+    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析）。收據沒根資訊 → 不比（同 _root_ok）。"""
     root = str(receipt.get("project_root") or receipt.get("cwd") or "")
-    base = _cwd_of(receipt)
-    words = _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, base)
-    allowed = [a for a in allow if a]
-    return not [w for w in words if not any(_under(_abs_target(base, w).partition("::")[0], a) for a in allowed)]
+    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, _cwd_of(receipt))
 
 
-def _clean(receipt: Dict[str, Any], allow: Iterable[str] = ()) -> bool:
+def _clean(receipt: Dict[str, Any]) -> bool:
     """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、記了啟動環境、沒指到收據根以外
-    （allow 的除外，見 _in_tree）。跑程式的那幾段啟動時沒有縮範圍的環境設定（PYTEST_ADDOPTS、PYTHONOPTIMIZE…：跑的是子集）。
+    （見 _in_tree）。跑程式的那幾段啟動時沒有縮範圍的環境設定（PYTEST_ADDOPTS、PYTHONOPTIMIZE…：跑的是子集）。
     不查語法白名單、指令形狀與指令裡寫的哨兵字樣（規則 RECEIPT_NO_FORGERY_CHECK：不防偽造）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return _usable(receipt) and _in_tree(receipt, allow) and not _self_receipt.program_scope_env(raw, sh, _env_of(receipt))
+    return _usable(receipt) and _in_tree(receipt) and not _self_receipt.program_scope_env(raw, sh, _env_of(receipt))
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -> bool:
@@ -1399,14 +1394,12 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
 def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
               root_of: Callable[[str], Optional[str]], gone: Iterable[str] = (),
               evidence: Optional[Dict[str, Verdict]] = None,
-              case_check: Optional[Callable[[str], Verdict]] = None,
               case_for: Optional[Callable[[str], Iterable[str]]] = None) -> List[str]:
     """補案例的義務（跨回合）：回欠補案例的程式檔；evidence 給了就填每個欠的檔的 Verdict，擋訊息照印。
-    case_check 給了（驗證範圍閘開著：wg_verify_scope.case_check）→ 規則 CASE_DECLARED_FOR_CHANGE：每個改過的程式檔問它一次，
-    「由哪個案例驗」看 LLM 的宣告，這裡不猜；沒給 → 規則 CASE_COVERS_CHANGE：同根、本 session 改過、Stop 當下仍存在的案例檔
-    （刪除也會記一筆修改，不能拿它清帳）有一支覆蓋它就不欠——檔名照它取或內容提到它（case_covers_code），或 case_for（程式檔 → 宣告驗它的
-    案例檔，呼叫端從驗證範圍宣告給；沒給就只看內容）列了它。不比改動先後。
-    兩條共用的事實：案例檔本身不欠；gone 裡的程式檔（vanished_code_paths 判成刪除的）不欠，搬走的照欠，量尺閘照舊看所有改檔；
+    規則 CASE_COVERS_CHANGE：同根、本 session 改過、Stop 當下仍存在的案例檔（刪除也會記一筆修改，不能拿它清帳）有一支覆蓋它就不欠——
+    檔名照它取或內容提到它（case_covers_code），或 case_for（程式檔 → 宣告驗它的案例檔，呼叫端從「case_for｜…」宣告行給
+    （declared_cases）；沒給就只看內容）列了它。不比改動先後。
+    共用的事實：案例檔本身不欠；gone 裡的程式檔（vanished_code_paths 判成刪除的）不欠，搬走的照欠，量尺閘照舊看所有改檔；
     同一個檔不同寫法、同一個根不同寫法都用 canon_path 比（SAME_FILE）；屬知識類部位、或被 .gitignore 忽略／屬執行期資料的檔
     （is_excluded）不算程式，也不能拿來清帳。git 忽略事實每個根一次查一批。案例判定用相對該根的路徑；拿不到根的程式檔退回
     絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。修改紀錄沒有 at／seq 的 legacy entry 只在本回合改過時算。"""
@@ -1436,14 +1429,11 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
             t = m.get("last_turn_seq", m.get("turn_seq"))
             if not _has_time(m) and not (t is not None and int(t) == int(turn_seq)):
                 continue                                              # legacy entry：只在本回合改過時算
-            if case_check is not None:
-                v: Optional[Verdict] = case_check(p)
-            else:
-                declared = {canon_path(c) for c in (case_for(p) if case_for else ())}
-                covering = [Path(c).name for ck, c in case_keys.items()
-                            if ck in declared or case_covers_code(c, texts.setdefault(c, _case_text(c)), p)]
-                v = case_cover_verdict(Path(p).name, covering, [Path(c).name for c in cases])
-            if v is not None and v.owed:
+            declared = {canon_path(c) for c in (case_for(p) if case_for else ())}
+            covering = [Path(c).name for ck, c in case_keys.items()
+                        if ck in declared or case_covers_code(c, texts.setdefault(c, _case_text(c)), p)]
+            v = case_cover_verdict(Path(p).name, covering, [Path(c).name for c in cases])
+            if v.owed:
                 owed.append(p)
                 owed_keys.add(k)
                 if evidence is not None:
@@ -1451,13 +1441,10 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     return owed
 
 
-def declared_cases(state: Dict[str, Any], key: str, cfg: Dict[str, Any], transcript_path: str = "") -> Callable[[str], List[str]]:
-    """「程式檔 → 驗它的案例檔」（CASE_COVERS_CHANGE 的 case_for），兩個來源：驗證範圍宣告最新那份裡 case_for 列到這個程式檔的每一項
-    點得到的案例檔（wg_verify_scope._case_files；宣告閘關著也照收照記）；AI 在回覆文字、`#` 註解指令、thinking 寫的
+def declared_cases(cfg: Dict[str, Any], transcript_path: str = "") -> Callable[[str], List[str]]:
+    """「程式檔 → 驗它的案例檔」（CASE_COVERS_CHANGE 的 case_for）：AI 在回覆文字、`#` 註解指令、thinking 寫的
     「case_for｜<程式檔>：<案例檔或節點>」行（wg_release_rules.parse_case_for_decls，整個 session 都認；transcript_path 給了才讀），
     案例相對該程式檔的專案根解析、要是案例檔（is_case_file）。沒宣告回空。"""
-    import wg_verify_scope as vs                                  # 延後匯入：wg_verify_scope 匯入本檔
-    items = (vs.current_decl(state, key) or {}).get("items") or []
     lines: List[Tuple[str, List[str]]] = []
     if transcript_path:
         from overview_hub import LOCATE_CHANNELS, assistant_text_after
@@ -1465,7 +1452,7 @@ def declared_cases(state: Dict[str, Any], key: str, cfg: Dict[str, Any], transcr
         for ch in LOCATE_CHANNELS:
             lines.extend(parse_case_for_decls(assistant_text_after(transcript_path, 0, ch)))
 
-    def from_lines(path: str) -> List[str]:
+    def cases_for(path: str) -> List[str]:
         from wg_release_rules import decl_names_file
         root = file_root_of(path) or os.path.dirname(path)
         out: List[str] = []
@@ -1477,11 +1464,6 @@ def declared_cases(state: Dict[str, Any], key: str, cfg: Dict[str, Any], transcr
                 if is_case_file(p, cfg, root):
                     out.append(os.path.normpath(p))
         return out
-
-    def cases_for(path: str) -> List[str]:
-        k = canon_path(path)
-        got = [c for it in items if k in {canon_path(x) for x in it.get("case_for") or []} for c in vs._case_files(it, cfg)]
-        return got + from_lines(path)
     return cases_for
 
 
@@ -1510,17 +1492,16 @@ def small_content_sha(path: str) -> Optional[str]:
 def commit_snapshot(mods: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
                     root_of: Optional[Callable[[str], Optional[str]]] = None, prev: Any = None,
                     session_paths: Optional[Iterable[str]] = None,
-                    case_check: Optional[Callable[[str], Verdict]] = None,
                     case_for: Optional[Callable[[str], Iterable[str]]] = None) -> Dict[str, Any]:
     """commit 那一刻（PostToolUse 看到 git／svn commit）本 session 改過的每個檔的內容雜湊，與當時不欠案例的程式檔
-    （case_debt 照當時的修改紀錄與案例宣告算；case_check 與 Stop 同一份，驗證範圍閘關掉時不給）。
+    （case_debt 照當時的修改紀錄與案例宣告算）。
     Stop 拿它判 commit 之後的改動有沒有回到這個不欠案例的狀態（committed_settled_paths）。
     prev＝上一份快照：照修改時間算是欠、但對 prev 已經成立「回到不欠案例的狀態」的程式檔（committed_settled_paths；session_paths
     是同根要一起比的改檔，沒給就用 mods），新快照照算不欠：反證還原後又 commit（例：--amend 只改訊息），有效的豁免不被蓋掉。
     files／settled 的鍵是 canon_path（keys="canon"）：同一個檔被不同寫法記下也是同一筆；任一種寫法欠案例，這個檔就不算不欠。"""
     root_of = root_of or file_root_of
     paths = list(dict.fromkeys(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path")))
-    owed = set(case_debt(mods, turn_seq, cfg, root_of, case_check=case_check, case_for=case_for))
+    owed = set(case_debt(mods, turn_seq, cfg, root_of, case_for=case_for))
     if owed and prev:
         owed -= set(committed_settled_paths(prev, owed, paths if session_paths is None else session_paths, root_of, cfg=cfg))
     owed_keys = {canon_path(p) for p in owed}
@@ -2130,8 +2111,6 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          moves: Iterable[Dict[str, Any]] = (),
                          move_scan_hits: Optional[Dict[str, List[str]]] = None,
                          move_receipts: Optional[List[Dict[str, Any]]] = None,
-                         scope_fix: Optional[Callable[[], Optional[Tuple[bool, List[str]]]]] = None,
-                         case_check: Optional[Callable[[str], Verdict]] = None,
                          case_for: Optional[Callable[[str], Iterable[str]]] = None,
                          audit: Optional[List[Dict[str, Any]]] = None,
                          remind: Optional[List[str]] = None,
@@ -2140,25 +2119,21 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     audit＝(a)(b)(c) 命中但被 last_text 裡的宣稱行解掉的那幾筆（規則 CLAIM_WORDS_ARE_HINTS：「非本回合宣稱，因為…」或
     「收據 <ref>」對上），caller 落 guard log 留帳；None＝不收。
-    scope_fix＝驗證範圍宣告給 (a) 的證據（wg_verify_scope.fix_evidence；stop 傳入，避免反向 import）：回 None＝沒宣告，
-    退回下面的檔名對應；回 (有沒有, 說明行)＝有宣告，(a) 只認它。
-    case_check＝(d)「由哪個案例驗」的判定（wg_verify_scope.case_check；驗證範圍閘開著時 stop 傳入）：給了就照 LLM 的案例宣告判，
-    沒給看覆蓋（CASE_COVERS_CHANGE；case_for＝驗證範圍宣告的「程式檔 → 驗它的案例檔」，declared_cases 建，沒給只看案例內容）。
+    case_for＝(d) 覆蓋判定（CASE_COVERS_CHANGE）另認的「程式檔 → 驗它的案例檔」宣告（declared_cases 建，沒給只看案例內容）。
     remind＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：hit_mode 判成提醒的條目（(b)(c)(d)(v)(e)）不進擋訊息、原行 append 進這個清單
     交呼叫端留帳；None＝全部照擋（總開關關）。
     「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
     （同伴訊息、背景通知讓 turn_seq 前進，剛跑完的驗證仍算本回合）；沒給只認 turn_seq 那一個。
     exec_this_turn＝本回合跑過 Bash／PowerShell（PostToolUse 記的 exec_turn_seq 落在本回合）：(c) 不再只靠 transcript 這一段的工具名。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
-    寫碼查核：(a) 說修好：有驗證範圍宣告（scope_fix）而範圍內沒有一項改完之後跑綠；沒宣告時沒有對得上改檔的合格 PASS、
-    也沒有改檔所在部位的合格自寫收據（self_covered）。(a) 的 PASS 不限本回合：舊回合的合格 PASS 只要之後本 session 沒再改任何
+    寫碼查核：(a) 說修好：沒有對得上改檔的合格 PASS、也沒有改檔所在部位的合格自寫收據（self_covered）。(a) 的 PASS 不限本回合：舊回合的合格 PASS 只要之後本 session 沒再改任何
     程式檔就照認（session_edits＝own_mod_files 之外本 session 所有改檔紀錄：子代理改的 agent_modified_files，加上判不出目標的
     寫入 unknown_writes，沒有 path 的一律當改了程式）；PASS 之後又改過程式檔就要新的 PASS，擋訊息點名改了哪個檔；
     (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或能當一般證據）、也沒有改檔部位的合格自寫收據；
     (c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
     換一句話不能讓它消失）裡宣告完成的那幾段；pending 時 (b)(c) 只叫人補證據、不叫人改措辭；
-    (d) 補案例的義務（case_debt，跨回合；PASS 不代替）：有 case_check → 每個改過的程式檔要有成立的案例宣告；沒有 → 每個改過的
-    程式檔要有本 session 改過、仍存在、同根的案例覆蓋它（不比先後）。不看措辭，有改碼紀錄就判。
+    (d) 補案例的義務（case_debt，跨回合；PASS 不代替）：每個改過的程式檔要有本 session 改過、仍存在、同根的案例覆蓋它
+    （不比先後）。不看措辭，有改碼紀錄就判。
     收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
     (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後；claims 裡承接來的
     「修好」宣稱與本回合新說的同一個判法（CARRIED_CLAIM_ANY_TURN_RECEIPT）。"""
@@ -2257,13 +2232,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                           "line": dv.evidence[0] if dv.evidence else ""})
 
     fixed = any(claims_fixed(t, phrases) for t in texts)
-    scope = scope_fix() if fixed and scope_fix else None
-    if scope is not None and not scope[0]:
-        settle("a", "fixed", Verdict(
-            "CLAIM_FIXED_NEEDS_PASS", True, "說「修好」但驗證範圍宣告裡沒有一項在跟它有關的最後一次改動之後跑綠",
-            (*scope[1][:4], "修好的證據認你宣告的驗證範圍：範圍內任一項改完之後跑綠就算（不看回合、不比檔名）；"
-                            "範圍不對就重新宣告（need_goal verify_scope）" + note("PASS"))))
-    elif scope is None and fixed and not related and not covered():
+    if fixed and not related and not covered():
         settle("a", "fixed", Verdict(
             "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, unrelated, relate_paths, edited_after)}",
             (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆" + turn_rule,
@@ -2287,7 +2256,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     last_sha = {canon_path(p): m.get("sha") for p, m in mod_records.items()}
     gone = vanished_code_paths(absent, cfg, committed_new=committed_new, verdicts=why, last_sha=last_sha) if absent else ()
     debt_why: Dict[str, Verdict] = {}
-    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone, evidence=debt_why, case_check=case_check, case_for=case_for)
+    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone, evidence=debt_why, case_for=case_for)
     if owed and case_settled:
         done = set(case_settled(owed))
         if done:
@@ -2299,22 +2268,13 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         per_file = [v for v in (why.get(p) or debt_why.get(p) for p in owed[:4]) if v]
         cases_touched = [Path(m["path"]).name for m in own_mod_files or []
                          if isinstance(m, dict) and m.get("path") and is_case_file(m["path"], cfg, root_of(m["path"]))]
-    if owed and case_check is not None:
-        # 規則 CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER：由哪個案例驗是 LLM 的宣告，這裡只列哪一個檔哪裡不成立
-        lines = list(dict.fromkeys(ln for v in per_file for ln in (f"{v.rule}：{v.why}", *v.evidence)))
-        hits.append(format_hit("d", Verdict(
-            per_file[0].rule if per_file else "CASE_DECLARED_FOR_CHANGE", True,
-            f"改了程式碼（{names}），還沒有成立的「由哪個案例驗」宣告（義務跨回合，不看收尾措辭）",
-            (*lines,
-             f"本 session 新寫或改過的案例檔（宣告時可選的）：{'、'.join(dict.fromkeys(cases_touched[:6])) or '（無）'}",
-             "由哪個案例驗由你判斷：改了別支測試不會替它清帳；案例跑紅再修到綠的過程只記錄、不擋"))))
-    elif owed:
+    if owed:
         hits.append(format_hit("d", Verdict(
             per_file[0].rule if per_file else "CASE_COVERS_CHANGE", True,
             f"改了程式碼（{names}），本 session 新寫或改過的案例都沒有覆蓋它（案例檔要和程式同根、現在還在；義務跨回合，不看收尾措辭）",
             (*[f"{v.rule}：{v.why}" for v in per_file],
              f"本 session 改過的案例檔：{'、'.join(cases_touched[:4]) or '（無）'}",
-             "覆蓋＝案例檔名照它取（test_／verify_<模組名>、<模組名>_test）、內容提到它（檔名或模組名），或你寫一行「case_for｜<程式檔>：<案例檔或節點>」（驗證範圍宣告的 case_for 同義）列了它；不比改動先後，改完程式不必再去碰案例",
+             "覆蓋＝案例檔名照它取（test_／verify_<模組名>、<模組名>_test）、內容提到它（檔名或模組名），或你寫一行「case_for｜<程式檔>：<案例檔或節點>」列了它；不比改動先後，改完程式不必再去碰案例",
              "改了碼沒驗證 case 覆蓋（PASS 不能代替）：補一個會紅的 case；真的不需要補案例，就照【收尾放行確認】問使用者"))))
     # (v) 規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：搬了含程式檔的目錄，欠搬之後的路徑掃描與抽樣兩張收據（不看措辭、跨回合）
     for mv in moves:
@@ -2355,42 +2315,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     return code_reason, report_reason
 
 
-# ─── 部位量尺（候選材料）、驗證環境、自寫收據 ─────────────────────────────────
-# 部位表的整把量尺不再是收尾必跑的門檻（該測哪些由 LLM 宣告驗證範圍，見 wg_verify_scope）：這裡留的是對帳 (a)(b) 認「跑了部位量尺」
-# 與背景全量自寫收據的事實，以及驗證範圍閘要用的執行環境就緒檢查（verify_chains[部位].runtime_gate）。
-
-def load_verify_chains(root: Path) -> Dict[str, Dict[str, str]]:
-    """合併後設定（hub_config 四層：預設 < config.json overview_hub < 公司根 < 專案根 overview-hub.json，經 wg_overview._cfg）
-    的 `verify_chains{part:{runtime_gate,pre,run,collect,cleanup}}`；沒有回 {}。
-    設定有錯（與導讀卡端同一套驗證）→ 拋 ValueError：驗證範圍閘的判定錯誤一律擋（stop._verify_gates），不當作沒設。"""
-    from wg_core import load_config
-    from wg_overview import _cfg
-    c = _cfg(load_config(), Path(root))
-    if c["_errors"]:
-        raise ValueError(f"overview-hub 設定錯誤（{root}）：" + "；".join(c["_errors"][:3]))
-    vc = c.get("verify_chains")
-    return {str(k): v for k, v in vc.items() if isinstance(v, dict)} if isinstance(vc, dict) else {}
-
-
-def run_runtime_gate(cmd: str, timeout_s: float, cwd: Optional[str] = None) -> Tuple[bool, str]:
-    """跑 runtime_gate 指令（exit 0＝環境就緒）。回 (就緒, 原因)。逾時／找不到／非零都算未就緒。"""
-    try:
-        argv = shlex.split(cmd.replace("\\", "/"))
-    except ValueError as e:
-        return False, f"runtime_gate 指令解析失敗：{e}"
-    if not argv:
-        return False, "runtime_gate 指令為空"
-    try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_s, cwd=cwd or None,
-                           creationflags=_NO_WINDOW)
-    except subprocess.TimeoutExpired:
-        return False, f"runtime_gate 逾時 {timeout_s}s：{cmd}"
-    except (FileNotFoundError, OSError) as e:
-        return False, f"runtime_gate 無法啟動：{e}"
-    if r.returncode != 0:
-        tail = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
-        return False, f"runtime_gate exit {r.returncode}：{(tail[-1] if tail else '')[:120]}"
-    return True, ""
+# ─── 部位量尺（候選材料）、自寫收據 ─────────────────────────────────
+# 部位表的整把量尺不是收尾必跑的門檻：這裡留的是對帳 (a)(b) 認「跑了部位量尺」與背景全量自寫收據的事實。
 
 
 def measure_cmds_of(own_mod_files: List[Dict[str, Any]],
@@ -2477,293 +2403,3 @@ def self_run_covered(parts: Dict[str, Dict[str, Any]], runs: Iterable[Dict[str, 
         if cmd and self_run_ok(runs, cmd, str(rec["root"]), rec["edit_at"], rec["edit_turn"]):
             out.extend(rec["files"])
     return out
-
-
-# ─── 驗證範圍：收據跑了哪些、對不對得上宣告的一項（判定在 wg_release_rules.SCOPE_ITEM_RECEIPT_AFTER_EDIT） ───
-_PY_RE = lazy_re(r"^python(?:\d+(?:\.\d+)*)?w?(?:\.exe)?$", re.IGNORECASE)
-_PYTEST_PROGS = frozenset({"pytest", "py.test"})
-_SCRIPT_RUNNERS = frozenset({"node", "bash", "sh", "pwsh", "powershell", "deno", "bun", "ruby", "perl"})
-# 不改變跑哪些案的 pytest 帶值選項（值可接在 = 後或下一個字）；沒列在這裡、也不在整體驗證白名單的選項一律當「只跑一部分」
-_PYTEST_SAFE_VALUE_OPTS = frozenset({"--tb", "--color", "-r", "--basetemp", "--rootdir", "-n", "--maxfail", "--durations",
-                                     "--junitxml", "--timeout"})
-
-
-def _abs_target(base: str, word: str) -> str:
-    """指令裡的路徑字（可帶 ::節點）→ 正規化絕對路徑（照 base 解相對路徑；節點段原樣接回）。"""
-    f, sep, node = str(word).partition("::")
-    p = f if (os.path.isabs(f) or re.match(r"^[A-Za-z]:[\\/]", f)) else os.path.join(base or "", f)
-    return canon_path(p) + (sep + node.lower() if sep else "")
-
-
-def _pytest_targets(args: List[str], base: str) -> Tuple[List[str], bool]:
-    """pytest 的參數 → (點名的路徑或節點, 有沒有可能只跑一部分)。選項走白名單：整體驗證准帶的（-q -v -s -x、-r…、--tb=…）、
-    `-p no:…`、不改變跑哪些案的帶值選項；其他（-k、-m、-o、--deselect、--lf、連寫的 -kfoo…）一律當只跑一部分（fail-closed）。"""
-    out: List[str] = []
-    narrowed, i = False, 0
-    while i < len(args):
-        a = args[i]
-        if a == "-p" and i + 1 < len(args) and args[i + 1].startswith("no:"):
-            i += 2
-            continue
-        if not a.startswith("-"):
-            out.append(_abs_target(base, a))
-            i += 1
-            continue
-        name = a.split("=", 1)[0]
-        if name in _PYTEST_SAFE_VALUE_OPTS:
-            i += 1 if "=" in a else 2
-            continue
-        if not _self_receipt._PYTEST_WHOLE_OPT_RE.match(a):
-            narrowed = True
-        i += 1
-    return out, narrowed
-
-
-def _step_targets(st: Any, base: str) -> Tuple[List[str], bool]:
-    """一段跑程式的指令真的執行了哪些路徑，以及有沒有可能只跑一部分：pytest 點名的檔、資料夾、節點；python／node 等直接執行的
-    腳本檔本身；寫成路徑的程式本身。其他程式（`python -m compileall`、`-m unittest`…）的參數不算跑過的測試，要宣告成指令項目。
-    python 直譯器選項只准 `-X utf8`、`-u`、`-B`（`-O` 會拿掉 assert，當只跑一部分）。"""
-    words = list(st.words)
-    if not words:
-        return [], False
-    head = Path(words[0].replace("\\", "/")).name.lower()
-    head = head[:-4] if head.endswith(".exe") else head
-    if _PY_RE.match(head):
-        i, odd = 1, False
-        while i < len(words) and words[i].startswith("-") and words[i] not in ("-m", "-c"):
-            w = words[i]
-            if w in ("-X", "-W"):
-                odd = odd or not (w == "-X" and i + 1 < len(words) and words[i + 1] == "utf8")
-                i += 2
-                continue
-            odd = odd or w not in ("-u", "-B", "-Xutf8")
-            i += 1
-        if i >= len(words) or words[i] == "-c":
-            return [], odd                                    # 內嵌碼沒有路徑目標
-        if words[i] == "-m":
-            if i + 1 < len(words) and words[i + 1] in _PYTEST_PROGS:
-                paths, narrowed = _pytest_targets(words[i + 2:], base)
-                return paths, narrowed or odd
-            return [], odd                                    # 別的模組：參數不是跑過的測試
-        return [_abs_target(base, words[i])], odd             # python 跑腳本：腳本本身跑過，參數不算
-    if head in _PYTEST_PROGS:
-        return _pytest_targets(words[1:], base)
-    if head in _SCRIPT_RUNNERS:
-        script = next((w for w in words[1:] if not w.startswith("-")), "")
-        return ([_abs_target(base, script)] if script else []), False
-    if "/" in words[0] or "\\" in words[0]:
-        return [_abs_target(base, words[0])], False           # 程式本身寫成路徑（./verify.sh）
-    return [], False
-
-
-def run_targets(receipt: Dict[str, Any], allow: Iterable[str] = ()) -> Optional[Dict[str, Any]]:
-    """收據實際跑了什麼：{whole: 整體驗證（涵蓋執行根之下全部）, base: 執行根, paths: 完整跑過的路徑（可帶 ::節點）,
-    narrowed: 有一段可能只跑一部分}。可能只跑一部分的那段點名的路徑不進 paths（命令列點名不等於實際執行）。
-    指令不完整、不能當一般證據（環境縮範圍、指到別棵樹——allow 的路徑除外）、解析不了 → None。"""
-    r = _trusted(receipt)
-    if r is None or not _clean(r, allow):
-        return None
-    base = _cwd_of(r)
-    if _whole_run(r):
-        return {"whole": True, "base": base, "paths": [], "narrowed": False}
-    paths: List[str] = []
-    narrowed = False
-    for st in _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r), _env_of(r)) or []:
-        p, n = _step_targets(st, base)
-        narrowed = narrowed or n
-        if not n:
-            paths += [x for x in p if x not in paths]
-    return {"whole": False, "base": base, "paths": paths, "narrowed": narrowed}
-
-
-def receipt_is_red(receipt: Dict[str, Any]) -> bool:
-    """一輪跑紅：有 FAIL 哨兵、exit 不是 0（沒記 exit 不算）、或哨兵帶 failed=<k> 且 k 不是 0。"""
-    return ("FAIL" in _verdicts(receipt) or receipt.get("exit_code") not in (None, 0) or not _failed_kv_ok(receipt))
-
-
-def _scope_green(receipt: Dict[str, Any]) -> bool:
-    """驗證範圍認的綠：不是暫存目錄的收據、有 PASS 或 DONE、沒跑紅。"""
-    v = _verdicts(receipt)
-    return not _temp_receipt(receipt) and ("PASS" in v or "DONE" in v) and not receipt_is_red(receipt)
-
-
-def _red_case_under(item: Dict[str, Any], case: str, base: str) -> bool:
-    """紅案（pytest 節點 id，相對 base）落在這一項底下嗎：檔案／資料夾項目看路徑包含；測試節點項目要同一檔，而且紅案就是那個節點、
-    在它底下（參數化、類別裡的方法），或紅案只寫到檔（整檔收集錯誤）。紅案對不到存在的檔（pytest 的根不是 base）→ 歸不了，當落在底下。"""
-    cf, _, cn = str(case).partition("::")
-    red_file = os.path.join(base, cf) if base and not os.path.isabs(cf) else cf
-    if not os.path.exists(red_file):
-        return True
-    tf, _, tn = str(item.get("abs") or "").partition("::")
-    if not tn:
-        return _under(red_file, tf)
-    if _norm_path(red_file) != _norm_path(tf):
-        return False
-    return not cn or cn == tn or cn.startswith(tn + "::") or cn.startswith(tn + "[")
-
-
-def _item_allow(item: Dict[str, Any]) -> List[str]:
-    """檔案／資料夾／節點項目自己（去掉 ::節點）與它宣告的 inputs：收據指到這些不算指到別棵樹（項目在專案樹外時才有差）。"""
-    own = str(item.get("abs") or "").partition("::")[0]
-    return [p for p in [own, *(item.get("inputs") or [])] if p]
-
-
-def _green_for_item(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
-    """規則 SCOPE_RED_ONLY_ITS_CASES：這筆收據對這一項算不算綠。整條綠就是綠；有紅時，紅案清單完整（red_known）、不是指令項目、
-    不是暫存目錄的收據、exit 是 0／1／沒記，而且沒有紅案落在這一項底下 → 對這一項照算綠。"""
-    if _scope_green(receipt):
-        return True
-    if (item.get("kind") == "cmd" or _temp_receipt(receipt) or not receipt.get("red_known")
-            or receipt.get("exit_code") not in (None, 0, 1)):
-        return False
-    t = run_targets(receipt, _item_allow(item))
-    if t is None:
-        return False
-    return not any(_red_case_under(item, c, t["base"]) for c in receipt.get("red_cases") or [])
-
-
-def _exec_dir(receipt: Dict[str, Any]) -> str:
-    """收據實際從哪個目錄跑（開頭 `cd <絕對路徑> &&` 換過的算換過之後）。"""
-    return _cwd_of(_trusted(receipt) or receipt)
-
-
-def _same_exec_dir(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
-    """指令項目要在宣告時的目錄跑：同一條 `pytest -q` 換到子目錄跑的是另一組。宣告或收據沒記目錄 → 不比。"""
-    base, ran = _norm_path(str(item.get("base") or "")), _norm_path(_exec_dir(receipt))
-    return not base or not ran or base == ran
-
-
-def _item_ran(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
-    """收據跑了宣告的這一項（不看先後與紅綠）。指令項目照原字串比（_ruler_ran）且同一棵樹；路徑項目看 run_targets。"""
-    if item.get("kind") == "cmd":
-        trusted = _trusted(receipt)                           # 只有開頭 `cd <絕對路徑> &&` 認得出根；其他換目錄看不出跑在哪
-        return (trusted is not None and _ruler_ran(str(item.get("target") or ""), receipt, str(item.get("base") or ""))
-                and _root_ok(trusted, item.get("root")) and _same_exec_dir(item, receipt))
-    t = run_targets(receipt, _item_allow(item))                # 樹外的檔案項目：指到它自己／它的 inputs 不算別棵樹
-    if t is None:
-        return False
-    tf, _, tn = str(item.get("abs") or "").partition("::")
-    if t["whole"]:
-        return _under(tf, t["base"])
-    for p in t["paths"]:                                      # 只有完整跑過的那幾段（可能只跑一部分的段不進 paths）
-        pf, _, pn = p.partition("::")
-        if pn:
-            if tn and pf == tf and (tn == pn or tn.startswith(pn + "::") or tn.startswith(pn + "[")):
-                return True                                   # 點名節點（或它的上層節點）
-            continue
-        if _under(tf, pf):
-            return True                                       # 跑了該檔、它所在的資料夾
-    return False
-
-
-def self_run_targets(run: Dict[str, Any]) -> List[str]:
-    """自寫收據（run_verify／根 conftest）跑了哪些路徑：argv 點名的路徑（照收據 cwd 解成正規化絕對路徑；測試節點保留
-    `::節點`；看起來是路徑卻不存在的也照列，免得變成「沒點名＝全部」）；沒點名（`python run_verify.py` 整體）回 []＝受測樹全部。"""
-    argv = run.get("argv") if isinstance(run.get("argv"), list) else []
-    cwd = str(run.get("cwd") or run.get("project_root") or "")
-    out: List[str] = []
-    for w in [str(x) for x in argv[1:]]:
-        if w.startswith("-") or Path(w.replace("\\", "/")).name.lower() in ("run_verify.py", "pytest", "utf8"):
-            continue
-        f, sep, node = w.partition("::")
-        p = f if (os.path.isabs(f) or re.match(r"^[A-Za-z]:[\\/]", f)) else os.path.join(cwd, f)
-        looks_path = bool(sep) or "/" in f or "\\" in f or bool(re.search(r"\.\w{1,6}$", f))
-        t = canon_path(p) + (sep + node.lower() if sep else "")
-        if (os.path.exists(p) or looks_path) and t not in out:
-            out.append(t)
-    return out
-
-
-def _self_run_item_ok(item: Dict[str, Any], run: Dict[str, Any], mods: List[Dict[str, Any]]) -> bool:
-    """背景跑的自寫收據算不算這一項：全綠（exit 0、failed=0）、記了環境且沒縮範圍、改完之後才開始跑、同一棵樹，
-    而且跑的是這一項（指令項目 argv 照原字串比；路徑項目在它點名的路徑之下，沒點名＝整棵樹）。不綁 session。
-    有紅時照 SCOPE_RED_ONLY_ITS_CASES：failed_cases 筆數等於 failed（清單完整）、exit 1、不是指令項目、沒有紅案落在這一項底下 → 照算。"""
-    if not isinstance(run, dict):
-        return False
-    if run.get("exit_code") != 0 or str(run.get("failed")) != "0":
-        reds = [str(x) for x in run.get("failed_cases") or []]
-        complete = run.get("exit_code") == 1 and bool(reds) and str(run.get("failed")) == str(len(reds))
-        base = str(run.get("project_root") or run.get("cwd") or "")
-        if not complete or item.get("kind") == "cmd" or any(_red_case_under(item, c, base) for c in reds):
-            return False
-    if not isinstance(run.get("env"), dict) or _self_receipt.scope_env(run["env"].items()):
-        return False
-    if not all(_receipt_after({"at": run.get("started_at") or ""}, (m.get("last_at") or m.get("at")) or None, None,
-                              int(m.get("last_turn_seq", m.get("turn_seq", 0)) or 0)) for m in mods):
-        return False
-    if not _root_ok(run, item.get("root")):
-        return False
-    if item.get("kind") == "cmd":
-        argv = run.get("argv")
-        return cmd_matches(str(item.get("target") or ""), argv if isinstance(argv, list) and argv else str(run.get("cmd", "")),
-                           root=str(run.get("project_root") or ""), measure_root=str(item.get("base") or ""))
-    tf, sep, tn = str(item.get("abs") or "").partition("::")
-    targets = self_run_targets(run)
-    if not targets:
-        return _under(tf, str(run.get("project_root") or ""))
-    for t in targets:
-        f, tsep, n = t.partition("::")
-        if not tsep and _under(tf, f):
-            return True                              # 這一輪整支（或整個資料夾）跑過
-        if tsep and sep and canon_path(f) == canon_path(tf) and (tn == n or tn.startswith(n + "::") or tn.startswith(n + "[")):
-            return True                              # 這一輪只跑某個節點：只涵蓋那個節點（含它的參數化與子節點）
-    return False
-
-
-def _scope_after(receipt: Dict[str, Any], mod: Dict[str, Any]) -> bool:
-    """收據在這個改檔最後一次修改之後：比 at，同秒比序號，都沒有比 turn（修改紀錄連 turn 都沒有才不比）。"""
-    turn = mod.get("last_turn_seq", mod.get("turn_seq"))
-    return _receipt_after(receipt, mod.get("last_at") or mod.get("at") or None, mod.get("last_seq"),
-                          int(turn) if turn is not None else -1)
-
-
-def _mentions(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
-    """收據指令字面上提到這一項（給「為什麼不算」的說明挑收據用，不是判定）。"""
-    raw = str(receipt.get("cmd") or "").replace("\\", "/").lower()
-    if item.get("kind") == "cmd":
-        return True
-    name = Path(str(item.get("abs") or "").partition("::")[0]).name.lower()
-    return bool(name) and name in raw
-
-
-def scope_item_status(item: Dict[str, Any], receipts: Iterable[Dict[str, Any]],
-                      mods: Iterable[Dict[str, Any]], self_runs: Iterable[Dict[str, Any]] = ()) -> Tuple[bool, str]:
-    """宣告的一項有沒有合格收據：跑了這一項、綠、晚於每個要宣告的改檔最後一次修改（session 收據，或背景跑的自寫收據）。
-    回 (有沒有, 沒有時的理由)。"""
-    mods = list(mods or [])
-    receipts = [r for r in receipts or [] if isinstance(r, dict)]
-    hits = [r for r in receipts if _item_ran(item, r)]
-    for r in hits:
-        if _green_for_item(item, r) and all(_scope_after(r, m) for m in mods):
-            return True, ""
-    self_runs = [run for run in self_runs or [] if isinstance(run, dict)]
-    if any(_self_run_item_ok(item, run, mods) for run in self_runs):
-        return True, ""
-    narrowed = [n for run in self_runs if isinstance(run.get("env"), dict) and _self_run_item_ok(item, {**run, "env": {}}, mods)
-                for n in _self_receipt.scope_env(run["env"].items())]
-    env_note = (f"。背景跑的自寫收據對上了這一項，但跑的時候{_scope_env_why([(n, '', '') for n in dict.fromkeys(narrowed)])}"
-                if narrowed else "")
-    if not hits:
-        near = [r for r in receipts if _mentions(item, r)]
-        rulers = [str(item.get("target") or "")] if item.get("kind") == "cmd" else []
-        ran = [r for r in near if rulers and _ruler_ran(rulers[0], r, str(item.get("base") or ""))]
-        if any(_trusted(r) is None for r in ran):
-            note = ("指令含 cd：前面只准 `cd <絕對路徑> &&`（才認得出根），其他換目錄看不出跑在哪，不算；"
-                    "請在宣告時的目錄直接跑")
-        elif any(not _same_exec_dir(item, r) for r in ran):
-            moved = [r for r in ran if not _same_exec_dir(item, r)]
-            note = (f"執行根是 {_exec_dir(moved[-1]).replace(chr(92), '/')}，宣告時在 "
-                    f"{str(item.get('base') or '').replace(chr(92), '/')}：同一條指令換了目錄跑的是另一組，請在宣告時的目錄跑")
-        else:
-            note = _syntax_note(near, "DONE", rulers) or _syntax_note(near, "PASS", rulers)
-        return False, ("沒有跑這一項的收據（只跑一部分如 -k、指令換目錄、環境縮範圍、解析不了的語法、在別棵樹跑的都不算；"
-                       "背景跑的要等它寫完自寫收據）" + (f"。{note}" if note else "") + env_note)
-    last = hits[-1]
-    if not _green_for_item(item, last):
-        return False, f"最近一次跑紅（exit={last.get('exit_code')}，結論 {'、'.join(_verdicts(last)) or '無哨兵'}）" + env_note
-    stale = next((m for m in mods if not _scope_after(last, m)), None)
-    name = Path(str((stale or {}).get("path") or "")).name or "改檔"
-    hint = ("（這一項沒宣告 depends：任何程式改動都作廢它；宣告它用到的程式檔或資料夾，改到別的就不作廢）"
-            if "depends" not in item else "")
-    return False, f"最近一次跑在最後一次改動（{name}）之前：改完要重跑{hint}" + env_note
-

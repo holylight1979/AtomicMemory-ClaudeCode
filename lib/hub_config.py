@@ -2,8 +2,8 @@
 
 做什麼：根層預設 HUB_DEFAULTS < workflow/config.json 的 overview_hub 段 < <公司根>/.claude/overview-hub.json
   < <專案根>/.claude/overview-hub.json，巢狀 dict 深合併、list 整個取覆蓋方；合併後驗證（未知鍵、型別、編碼、路徑基準）。
-  導讀卡（hooks/wg_overview._cfg）、量尺閘讀 verify_chains（hooks/wg_verify_ledger.load_verify_chains）、
-  壞味道候選池 CLI（tools/project-smells.py）都走 merge_hub_cfg，三方看到的設定一致。
+  導讀卡與各守門（hooks/wg_overview._cfg）、壞味道候選池 CLI（tools/project-smells.py）都走 merge_hub_cfg，
+  兩邊看到的設定一致。
   純函式：不讀 config.json、不判公司根（呼叫端傳入），不碰 state；警告只回清單，由呼叫端決定怎麼浮出。
 怎麼跑：hooks 以 sys.path 的 lib/ 頂層匯入；tools 以檔案相對路徑把 lib/ 放進 sys.path 後匯入。
   verify 在 hooks/verify/verify_overview_hub.py、verify_intent_goal_weights.py、tools/verify/verify_project_smells.py。
@@ -80,7 +80,7 @@ HUB_DEFAULTS: Dict[str, Any] = {
         "handoff": {"slices": [], "lens": "", "ask_first": ""},
         "general": {"slices": [], "lens": "", "ask_first": ""},
     },
-    # 量尺閘（wg_verify_ledger）讀合併後的 verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}
+    # verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}：只驗形狀（dict），目前沒有程式讀；留著讓既有 overview-hub.json 不報未知鍵
     "verify_chains": {},
     # 需求目標流程（hooks/wg_need_goal）：enabled 整個流程的開關；scope_growth_dirs 讀入範圍變大的頂層目錄門檻；
     # render_chars 精簡版目標樹的字數上限

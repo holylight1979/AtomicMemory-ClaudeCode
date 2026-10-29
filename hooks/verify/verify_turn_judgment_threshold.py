@@ -25,7 +25,7 @@ import wg_reading_path as rph  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 
 _SID = "sid-tj-threshold"
-_V6 = {"v6": {"enabled": True}, "reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False},
+_V6 = {"v6": {"enabled": True}, "reconcile_gate": {"enabled": False},
        "sync_reminder": {"enabled": False}, "deferral_gate": {"enabled": False}, "atom_audit": {"enabled": False},
        "aec": {"scan_report_gate": False}, "pick_one": {"enabled": False}, "second_opinion": {"auto": {"enabled": False}}}
 HEAD = "[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完；尺不是判決，只量不擋）："

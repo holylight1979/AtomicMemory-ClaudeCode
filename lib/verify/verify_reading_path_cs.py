@@ -191,7 +191,7 @@ def test_v6_switch_off_skips_reading_path_at_stop(tmp_path, monkeypatch):
                  "modified_files": [{"path": cs, "tool": "Edit", "session_id": _SID, "turn_seq": 5, "last_turn_seq": 5}]}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         try:
-            st.handle_stop({"session_id": _SID, "cwd": ""}, {"verify_scope": {"enabled": False}})
+            st.handle_stop({"session_id": _SID, "cwd": ""}, {})
         except SystemExit:
             pass
         assert len(seen) == (0 if v6 == "0" else 1), f"WG_V6={v6}：閱讀路徑量測 {'不該' if v6 == '0' else '要'}跑"

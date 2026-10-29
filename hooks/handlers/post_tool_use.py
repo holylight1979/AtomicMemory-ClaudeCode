@@ -795,15 +795,7 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
         every += [m["path"] for m in _mods or [] if isinstance(m, dict) and m.get("path")]
     try:
         rg = reconcile_cfg(config or {})
-        check = None
-        import wg_verify_scope as vs
-        if vs.scope_cfg(config or {}).get("enabled", True):
-            # 「當時不欠案例」與 Stop 的 (d) 同一個判法：照 LLM 的案例宣告（case_for）判，驗證範圍閘關掉才退回時序判法
-            from wg_overview import _lookup
-            from wg_verify_ledger import load_self_runs
-            check = vs.case_check(state, session_id, own, receipts_of(state, session_id), rg, _lookup, load_self_runs())
-        state["commit_snapshot"] = commit_snapshot(own, turn, rg, prev=state.get("commit_snapshot"), session_paths=every,
-                                                   case_check=check)
+        state["commit_snapshot"] = commit_snapshot(own, turn, rg, prev=state.get("commit_snapshot"), session_paths=every)
     except Exception as e:  # noqa: BLE001
         state.pop("commit_snapshot", None)
         print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
@@ -1021,7 +1013,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         project_root = ""
     exit_code = exit_code_of(tr)
     env = env_snapshot()          # 指令啟動當下繼承的縮限變數（hook 與工具子 shell 同一個父行程）：採認時與指令內的指定合併
-    red_cases, red_known = red_case_facts(response_text(tr))     # 紅了哪幾支、清單完不完整（SCOPE_RED_ONLY_ITS_CASES 逐項判紅綠）
+    red_cases, red_known = red_case_facts(response_text(tr))     # 紅了哪幾支、清單完不完整（紅案數對得上結算行）
     record = {
         "at": _now_iso(),
         "session_id": session_id,
@@ -1077,8 +1069,6 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         return None, False
     if is_ng and is_error_response(input_data.get("tool_response")):
         return None, False                       # MCP 已拒收：不套用
-    if is_ng and (tool_input or {}).get("action") == "verify_scope":
-        return _verify_scope_declare(state, session_id, tool_input, input_data, config), True
     turn = int(state.get("turn_seq", 0))
     cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
     transcript_path = input_data.get("transcript_path", "") or ""
@@ -1133,41 +1123,6 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         if is_ng:
             return f"[NeedGoal] 這次 need_goal 沒寫進目標檔（{type(e).__name__}: {e}），請重新呼叫一次。", False
     return None, False
-
-
-def _scope_key(session_id: str, input_data: Dict[str, Any]) -> str:
-    agent_id = str(input_data.get("agent_id") or "")
-    return agent_receipt_key(session_id, agent_id) if agent_id else session_id
-
-
-def _verify_scope_declare(state: Dict[str, Any], session_id: str, tool_input: Dict[str, Any],
-                          input_data: Dict[str, Any], config: Dict[str, Any]) -> str:
-    """need_goal(action=verify_scope)：LLM 判斷的驗證範圍交 wg_verify_scope 收件（存在 state，不經目標檔、不受 need_goal 開關影響）。"""
-    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
-    try:
-        import wg_verify_scope as vs
-        return vs.declare(state, _scope_key(session_id, input_data), tool_input, cwd, config)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:VerifyScope] 收件失敗：{type(e).__name__}: {e}", file=sys.stderr)
-        return f"[Guardian:VerifyScope] 這次 verify_scope 沒收下（{type(e).__name__}: {e}），請重新呼叫一次。"
-
-
-def _observe_scope_run(state: Dict[str, Any], input_data: Dict[str, Any], session_id: str, config: Dict[str, Any]) -> None:
-    """剛落帳的這輪測試記進驗證範圍的測試帳（跑了哪些、哪些紅）；紅的測試找範圍漏判，新記的放 _verify_scope_advisory 送回。"""
-    key = _scope_key(session_id, input_data)
-    receipts = receipts_of(state, key)
-    if not receipts:
-        return
-    try:
-        import wg_verify_scope as vs
-        if not vs.scope_cfg(config)["enabled"]:
-            return
-        note = vs.observe_run(state, key, receipts[-1], response_text(input_data.get("tool_response")), reconcile_cfg(config))
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:VerifyScope] 記測試帳失敗（不影響這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
-        return
-    if note:
-        state["_verify_scope_advisory"] = note
 
 
 def _need_goal_import(ng: Any, state: Dict[str, Any], session_id: str, fp: str, turn: int,
@@ -1245,12 +1200,7 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
             elif p and not _is_ephemeral_path(p):
                 _note_modified(state, session_id, p, tool_name)
         _note_commit(state, command, config, session_id)
-        if _track_sentinels(state, input_data, command, tool_name, config, session_id):
-            _observe_scope_run(state, input_data, session_id, config)
-            state.pop("_verify_scope_advisory", None)        # 裁判不注入；漏判已入帳，下次宣告時送回
-    elif tool_name.endswith("need_goal") and (tool_input or {}).get("action") == "verify_scope":
-        if not is_error_response(input_data.get("tool_response")):
-            _verify_scope_declare(state, session_id, tool_input, input_data, config)
+        _track_sentinels(state, input_data, command, tool_name, config, session_id)
     write_state(session_id, state)
     output_nothing()
 
@@ -1292,14 +1242,10 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
         try:
             if _track_sentinels(state, event, command, tool_name, config, session_id):
                 dirty = True
-                _observe_scope_run(state, event, session_id, config)
         except Exception as e:  # noqa: BLE001
             print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
             _atom_debug_error("post_tool_use_failure:verify_ledger", e)
     advisories = [] if judge else _need_goal_stamp_failed(state, session_id, noted, aid, cwd, config)
-    note = state.pop("_verify_scope_advisory", None)                 # 裁判不注入；漏判已入帳，下次宣告時送回
-    if note and not judge:
-        advisories.append(str(note))
     if dirty:
         write_state(session_id, state)
     if not judge and v6_enabled(config) and exit_code_of(event["tool_response"]) is not None:
@@ -1691,8 +1637,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
         if v6:
             _note_launcher(file_path)       # LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器記標記，收尾不當程式算
-            # 目標樹只立一次（GOAL_TREE_SET_ONCE）：改程式檔不再問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN，問一次 AI 就多叫一次
-            # need_goal verify_scope）；宣告來了照收（_verify_scope_declare），Stop 的 SCOPE_* 照判只留帳
 
         edit_counts = state.setdefault("edit_counts", {})
         edit_counts[file_path] = edit_counts.get(file_path, 0) + 1
@@ -1854,7 +1798,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             try:
                 if _track_sentinels(state, input_data, command, tool_name, config, session_id):
                     dirty = True
-                    _observe_scope_run(state, input_data, session_id, config)
             except Exception as e:
                 print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
                 _atom_debug_error("post_tool_use:verify_ledger", e)
@@ -2076,7 +2019,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             ("_staging_advisory", "[Guardian:StagingName]"),
             ("_docdrift_advisory", "[Guardian:DocDrift]"),
             ("_tool_result_advisory", "[Guardian:ToolResultSize]"),
-            ("_verify_scope_advisory", ""),                  # 自帶 [Guardian:VerifyScope] 開頭
         ]:
             val = state.get(key)
             if val:

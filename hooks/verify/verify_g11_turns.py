@@ -401,7 +401,7 @@ def driven(monkeypatch):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": ""}, {"verify_scope": {"enabled": False}})
+            st.handle_stop({"session_id": _SID, "cwd": ""}, {})
         return capsys.readouterr().out, state, list(logs)
 
     return drive
@@ -411,7 +411,7 @@ def test_real_stop_blocks_with_the_data_until_judgment_lines_arrive(driven, caps
     """改碼回合交給背景量；量完那次收尾缺拐彎判斷行 → 擋（規則名、數據、那一題、範例行都在訊息裡）；補五欄行 → 不再擋、留帳 judged。"""
     monkeypatch.setattr(ev, "get_last_assistant_text", lambda *a, **k: "", raising=False)
     # 拐彎判斷排在寫碼查核之後：這案真的改了 y.py，(d) 會先擋；本案只看拐彎判斷這條路，寫碼查核換成全過
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, "", None))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, ""))
     root = _repo(tmp_path / "rp")
     _write(root, {"y.py": NESTED_B})
     mods = [_mf(str(root / "y.py"), 5)]
@@ -537,7 +537,7 @@ def test_subagent_stop_entry_does_not_check_turn_judgment(capsys, monkeypatch):
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     with pytest.raises(SystemExit):
         st.handle_subagent_stop({"session_id": _SID, "agent_id": "ag1", "hook_event_name": "SubagentStop",
-                                 "last_assistant_message": "全部完成了。"}, {"verify_scope": {"enabled": False}})
+                                 "last_assistant_message": "全部完成了。"}, {})
     out = capsys.readouterr().out
     assert "[Guardian:ReconcileGate]" in out, "前置：子代理收尾的寫碼查核有跑到"
     assert "TURN_JUDGMENT_REQUIRED" not in out and "拐彎判斷" not in out

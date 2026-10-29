@@ -90,7 +90,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 列「之前交付時點出、還沒解的問題」。
     - 即未結追蹤項，附建議怎麼解。
     - 要 AI 第一則回覆先轉述。
-  - 列待檢討的範圍漏判。
   - 列公司層與週健檢狀態。
 - **擋不擋**：提醒。
 - **見**：[§3.1](../TECH.md#31-settingsjson-十一個事件)、[§8](../TECH.md#8-可觀測與自我維護)。
@@ -237,10 +236,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 ### 目前關著的閘（完整）
 
 - 設定在 [`workflow/config.json`](../workflow/config.json)，使用者拍板；開關改回 true、`block_letters` 拿掉即恢復。
-- **驗證範圍閘**（`verify_scope.enabled`）：
-  - 收尾不要求宣告驗證範圍。
-  - (a) 退回「指令對得上改檔的 PASS」。
-  - (d) 改看「本 session 改過的案例有沒有覆蓋這個程式檔」，規則 [CASE_COVERS_CHANGE](../TECH/release-rules.md#case_covers_change)。
 - **寫碼查核只擋 (a)(d)**（`reconcile_gate.block_letters`）：(b)(c)(e) 照判、只印 stderr。
 - **目標樹對照不擋**（`reconcile_gate.goal_gate`）：
   - 目標樹照記。
@@ -268,7 +263,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 第 3 次放行（放行時不另印訊息）。
   - 寫碼守門開時每個使用者回合重新計次；寫碼守門關時整個 session 累計。
   - 規則 [BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)。
-- **紅測閘與寫碼查核**（ReconcileGate (a)～(d)／VerifyScope）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`。
+- **紅測閘與寫碼查核**（ReconcileGate (a)～(d)）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`。
 - **拐彎判斷**每個使用者回合最多擋一次。
 - **第二意見、等值閘**各有自己的預算。
 - **擋滿只認使用者放行**（[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)）；沒人能回答（headless／SDK、子代理、裁判）擋滿就放行並留帳。
@@ -325,29 +320,19 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **目前只有 (a)(d) 擋**：
   - `reconcile_gate.block_letters`：(b)(c)(e) 照判、只印 stderr。
   - (f1)(f2) 因 `goal_gate=false` 不擋。
-  - 驗證範圍閘關著時 (a)(d) 走下面寫的退路判法。
-- **(a) 說修好**：
-  - 有驗證範圍宣告（[§7.9](../TECH.md#79-驗證範圍verify_scope)）：
-    - 只認宣告範圍內任一項，在跟它有關的最後一次改動之後跑綠的收據。
-    - 收據是 session 收據或背景自寫收據，不看回合、不比檔名。
-    - 沒有就擋並列每一項為什麼不算。
-  - 沒宣告：看有沒有對得上改檔的 PASS。
-    - 收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據。
-    - 不限本回合：舊回合的只要之後本 session 沒再改任何程式檔就算。
-    - 子代理改的與判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔。
-    - 改檔所在部位也沒有合格的自寫收據。
+- **(a) 說修好**：看有沒有對得上改檔的 PASS。
+  - 收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據。
+  - 不限本回合：舊回合的只要之後本 session 沒再改任何程式檔就算。
+  - 子代理改的與判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔。
+  - 改檔所在部位也沒有合格的自寫收據。
 - **(b) 說量了**：本回合沒有能當證據的 DONE，也沒有合格的自寫收據。
 - **(c) 說試過**：本回合沒有任何 Bash／PowerShell 執行。
-- **(d) 改了程式碼**，卻沒有成立的「由哪個案例驗」宣告：
-  - 驗證範圍項目的 `case_for`：案例本 session 新寫或改過、改完之後跑綠。
-  - 改了別支測試不替它清帳。
-  - 宣告 `no_case` 不需要新案例也照擋、要問使用者。
+- **(d) 改了程式碼**，卻沒有本 session 新寫或改過、仍存在、同根的案例覆蓋它（規則 [CASE_COVERS_CHANGE](../TECH/release-rules.md#case_covers_change)）：
+  - 覆蓋＝案例檔名 test_／verify_<模組名>、<模組名>_test。
+  - 或內容提到它。
+  - 或 AI 寫的「case_for｜<程式檔>：<案例…>」宣告行列了它。
+  - 不比先後、不看跑綠。
   - PASS 不能代替；跨回合，不看措辭。
-  - 驗證範圍閘關掉時，改看本 session 新寫或改過、仍存在、同根的案例有沒有覆蓋它（規則 [CASE_COVERS_CHANGE](../TECH/release-rules.md#case_covers_change)）：
-    - 案例檔名 test_／verify_<模組名>、<模組名>_test。
-    - 或內容提到它。
-    - 或 `case_for` 宣告列了它。
-    - 不比先後、不看跑綠。
 - **案例檔的定義**：
   - 符合 `verify_case_globs` 的程式檔（測試目錄或 test_／_test／.test／.spec 這類檔名，相對專案根比）。
   - 檔名剛好含 test 的產品檔不算。
@@ -358,7 +343,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **改過又原樣還原的檔不算改碼**：
   - 條件：git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit。
   - 例：反證暫改再 `git checkout` 還原。
-  - 補案例與驗證範圍都不欠；判不出來照算改了。
+  - 補案例不欠；判不出來照算改了。
 - **(e) 收尾報告欄**：AEC (j) 證據路徑缺或不存在、(k) 是空字串。
 - **(a)(b)(c) 看什麼**：
   - 最後一句話（優先用 hook 輸入的 last_assistant_message，不套 30 字下限）。
@@ -368,7 +353,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）。
 - **模式**：照擋只 (a)（紅測類）；(d) 與其餘字母提醒。
 - **預算**：
-  - 紅測與寫碼查核（(a)～(d)＋驗證範圍）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`（2，不分哪一條規則，[BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)）。
+  - 紅測與寫碼查核（(a)～(d)）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`（2，不分哪一條規則，[BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)）。
 - **擋滿的放行**：
   - 不自行放行：記 pending，要用 AskUserQuestion 照【收尾放行確認】問使用者。
   - pending 只在同一個使用者回合有效，使用者打字開新回合就失效、預算重給（[PENDING_SAME_USER_TURN](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
@@ -376,47 +361,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 之後的回合只沿用擋訊息列過的那幾件（[RELEASE_COVERS_SHOWN_ITEMS](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)，[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)）。
   - 子代理、裁判、headless／SDK 沒有人能回答：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
 - **(e) 例外**：屬於記憶與報告類，照舊第 3 次放行，並寫 guard-reconcile_overflow（健檢列 red）。
-
-### VerifyScope（驗證範圍）
-
-- **目前關**：`verify_scope.enabled=false`；`need_goal verify_scope` 照收、不擋。
-- **開著時的分工**：該測哪些由 LLM 判斷，閘只管流程（[`hooks/wg_verify_scope.py`](../hooks/wg_verify_scope.py)，[§7.9](../TECH.md#79-驗證範圍verify_scope)）。
-- **何時判**：
-  - 改了程式檔、或改到部位表上有量尺的部位（例：[`_AIDocs/`](../_AIDocs/)、[`memory/`](../memory/)）就判。
-  - 不看收尾措辭，每次 Stop 都判。
-- **要求**：
-  - 要有 `need_goal(action="verify_scope")` 的宣告，每個有改動的 repo 至少一項落在裡面。
-  - 最新那份宣告的每一項，都要有晚於跟它有關的最後一次改動、跑綠、同一棵樹、指令可信的收據。
-  - 收據可以是 session 收據，或背景跑的 run_verify／整組 pytest 自寫收據。
-- **「跟它有關的改動」怎麼算**：
-  - 程式檔一律算。
-  - 測試案例檔只算點名它的項目（規則 [SCOPE_CASE_EDIT_ONLY_ITS_ITEM](../TECH/release-rules.md#scope_case_edit_only_its_item)）：案例檔是量具，改它不必重跑範圍裡別的測試。
-  - 不是程式檔的（文件、記憶）只有下列情況才算（規則 [SCOPE_EDIT_RELATED_TO_ITEM](../TECH/release-rules.md#scope_edit_related_to_item)）：
-    - 和這一項點名的檔同部位。
-    - 在它點名的路徑或它宣告的 `inputs`（這一項還讀的檔或資料夾；跨部位的資料由 LLM 宣告）底下。
-    - 這一項就是那個部位的量尺指令。
-    - 這一項是整體驗證／看不出跑了什麼。
-  - 這幾條都是查得到的事實；「測試讀了哪份資料」是判斷，只認 `inputs`，沒有別的對應表。
-  - 例：改 `memory/_staging` 的計畫文件不會讓程式測試的收據作廢。
-  - 宣告回應列出「不算進任何一項的文件改動」，有測試讀它們就加 `inputs` 再宣告。
-- **各種項目怎麼認**：
-  - 檔案／資料夾項目：pytest 點名該檔或它所在資料夾、直接執行的腳本就是它、或整體驗證。
-  - pytest 選項走白名單：`-k`、`-m`、`-o`、`--deselect`、連寫的 `-kfoo` 等一律當只跑一部分，那一段點名的都不算。
-  - python 直譯器只准 `-X utf8`、`-u`、`-B`；別的程式（compileall 等）的參數不算跑過。
-  - 節點項目：認點名那個節點或它的檔。
-  - 指令項目：照宣告原字串、在宣告時的目錄跑（比對規則同 [§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub) 收據列的量尺比對）。
-  - 部位表的整把量尺只在宣告回應與擋訊息當參考。
-- **其他**：
-  - 還欠收據時，改到的部位有 `verify_chains[部位].runtime_gate` 就探一次。
-  - 子代理沒宣告就沿用主 session 的，收據用自己的。
-  - 目標樹只立一次（[GOAL_TREE_SET_ONCE](../TECH/release-rules.md#goal_tree_set_once)）：改程式檔時不問驗證範圍、改檔那則不提醒 SCOPE_*，宣告是 AI 自己要交才交。
-- **模式**：提醒（只留帳）。
-  - block 列 `✗ (s) SCOPE_DECLARED_FOR_CHANGE`（改了哪些檔、叫它判斷並宣告）。
-  - 或 `✗ (s) SCOPE_ITEM_RECEIPT_AFTER_EDIT`（哪一項、最近那筆收據為什麼不算）。
-    - 不算的原因：跑在改動之前、跑紅、換目錄、環境縮範圍、指令解析不了、在別棵樹跑。
-  - 附參考量尺。
-  - 擋滿不准自行放行，照 ReconcileGate 的放行規則。
-  - 寫碼查核整個過了 → 這份宣告記成結案（之後找範圍漏判用）。
 
 ### ReadingPath／TurnJudgment（閱讀路徑與拐彎判斷，G12＋G11）
 
@@ -508,7 +452,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 收尾要有一行「拐彎判斷｜<函式、類別或入口>｜<這一層存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」，五欄齊。
   - 規則 [TURN_JUDGMENT_REQUIRED](../TECH/release-rules.md#turn_judgment_required)（[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）；`turn_judgment_note` 核對。
 - **擋點**在 Stop 的 TurnJudgment 段：
-  - 寫碼查核（Reconcile＋驗證範圍）之後、SecondOpinion 之前。
+  - 寫碼查核（Reconcile）之後、SecondOpinion 之前。
   - ReadingPath 段只量不擋。
 - **只問改到的**：
   - 答過的條目記名字＋內容指紋（函式比本體文字、類別比繼承結構、入口比實際路徑與數據）。
@@ -1045,7 +989,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 [↑ 主文 §7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)
 
-目的：寫碼類的查核閘擋滿次數後，AI 不能自己放行、也不能改寫措辭繞過，決定權交回使用者。用在紅測閘、寫碼查核（ReconcileGate／VerifyScope）、第二意見、等值閘。
+目的：寫碼類的查核閘擋滿次數後，AI 不能自己放行、也不能改寫措辭繞過，決定權交回使用者。用在紅測閘、寫碼查核（ReconcileGate）、第二意見、等值閘。
 
 ### 擋滿訊息
 
@@ -1755,11 +1699,11 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 壓縮後每部位綜觀隨 atom 一起重注（atom 先）
 - **綜觀內容**：部位／層／三行已交否／主目標／卡／病灶前 N（`post_compact_chars` 截）
 
-### 收據與驗證範圍（收據列）
+### 收據（收據列）
 - **位置**：
-  - [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py)：採認、對帳、收據對不對得上宣告的一項
+  - [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py)：採認、對帳
   - [`lib/self_receipt.py`](../lib/self_receipt.py)：指令解析、自寫收據
-  - Stop 的 ReconcileGate／VerifyScope（[§7.1](../TECH.md#71-stop-閘序)、[§7.9](../TECH.md#79-驗證範圍verify_scope)）
+  - Stop 的 ReconcileGate（[§7.1](../TECH.md#71-stop-閘序)）
 
 #### 帳本
 - Bash／PowerShell 輸出的哨兵連同完整指令、exit code、cwd、根，進 `workflow/verify-ledger/<sid>.jsonl` 與 state
@@ -1814,7 +1758,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 一般證據
 - 用於對帳：(a) 指令提到改檔、(b) 量了、(c) 試過
 - 只比實際跑程式那幾段的參數；前置設定、cd、環境指定、echo 印的字都不算
-- 驗證範圍的指令項目要照宣告原字串、在宣告時的目錄跑（換到子目錄跑的是另一組）
 
 ### 第二意見與候選池
 - **位置**：
@@ -1903,14 +1846,13 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 預設：空
 - 這種專案才改：專案有權威文件（規格書、介面表）→ 檔名樣式對到地圖檔
 
-#### 部位表「量尺」欄＋`verify_chains`
+#### 部位表「量尺」欄
 - 預設：無
 - 這種專案才改：部位有整組的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`
 - 量尺的定位：
-  - 候選材料：宣告驗證範圍時送到眼前參考，不是收尾必跑
+  - 候選材料，不是收尾必跑；對帳 (a)(b) 認「跑了部位量尺」的收據與自寫收據
   - 整包全量（[`run_verify.py`](../run_verify.py)）不能填成量尺（全量改增量待補）
-  - 有量尺的知識部位改了也要宣告範圍
-- 驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查；範圍還欠收據時探一次，沒就緒就說原因
+- `verify_chains`（`{部位: {runtime_gate, pre, run, collect, cleanup}}`）照驗形狀，目前沒有程式讀
 
 #### `path_bases`、`eol_policy`、`source_encodings`、`commit_encoding`
 - 預設：單根／依檔頭／utf-8
@@ -1958,7 +1900,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **update**：改節點，也是改了程式之後的一句進度；why 選填
 - **reconcile**：完整對照，每個還活著的節點交終點結論＋證據
 - **read**：form=handoff 取續接單區塊
-- **verify_scope**：宣告這次的驗證範圍，交 [§7.9](../TECH.md#79-驗證範圍verify_scope) 收件；不進目標檔、不受 need_goal 開關影響
 
 #### 立樹走文字管道（TREE_SET_VIA_TEXT）
 - 立寫碼樹優先走文字管道
@@ -1984,7 +1925,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 只立一次與送回
 - **目標樹只立一次**（[GOAL_TREE_SET_ONCE](../TECH/release-rules.md#goal_tree_set_once)）：
   - hook 只在改程式前沒樹時提醒 set 一次
-  - reconcile／verify_scope 不再被任何提醒或回覆促使
+  - reconcile 不再被任何提醒或回覆促使
   - 交付時對照由程式代填（RECONCILE_BY_PROGRAM）；AI 自己交照收
 - **寫入的回覆送回樹**：
   - set 送全樹；add／update／reconcile 送精簡樹，不截節點
@@ -2257,78 +2198,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 [↑ 主文 §7.9](../TECH.md#79-驗證範圍verify_scope)
 
-### 關閉時的行為與目的（完整）
-
-- **目前關**（`verify_scope.enabled=false`，使用者拍板）。
-  - 收尾不要求宣告範圍、範圍每項改完重跑。
-  - 寫碼查核 (a) 退回「指令對得上改檔的 PASS」。
-  - 寫碼查核 (d) 改看「本 session 改過的案例有沒有覆蓋它」（規則 [CASE_COVERS_CHANGE](../TECH/release-rules.md#case_covers_change)，不比先後）。
-  - `need_goal verify_scope` 照收、測試帳與範圍漏判照記、不擋。
-  - 下面寫的是開著時的行為。
-- **目的**：
-  - 改完程式後該測哪些，由 LLM 看這次改了什麼、哪些測試有關聯、哪些地方會受影響來判斷，只驗這個範圍。
-  - LLM 對範圍負責；範圍外的測試事後因此紅了，要回頭檢討沒驗到的根因。
-  - 程式只管流程：要它宣告、範圍內每項要有改完之後的收據、事後對帳範圍外有沒有壞。
-  - 部位表的整把量尺降成候選材料。
-- **全量改增量待補**：
-  - 全量 [`run_verify.py`](../run_verify.py) 已從流程拔掉，合併進 main、發版前都不跑。
-  - 原因：太慢、多 session 同機時拖慢所有人，紅了也指不出該誰修。
-  - 之後改成「收尾跑 LLM 適度擴展過的可能相關清單」的增量做法。
-  - 全量拔掉後，範圍漏判只在之後有人跑到那支測試時才記得到。
-
-### 部件
-
-#### 宣告
-- **位置**：MCP `need_goal(action="verify_scope", items=[{target, why, inputs?, depends?, case_for?}], no_case=[{path, reason}], reviews=[…])`；PostToolUse 轉 `wg_verify_scope.declare`（裁判 session 也收）。
-- **每項**：
-  - 是測試檔、測試節點（`檔::名`）、資料夾或指令，附一句為什麼相關。
-  - `depends`＝這一項用到的程式檔或資料夾；宣告了就只有改到它們才作廢這一項（規則 [SCOPE_EDIT_IN_DECLARED_DEPENDS](../TECH/release-rules.md#scope_edit_in_declared_depends)）。
-  - 驗某個改過程式檔的那支案例，那一項帶 `case_for` 列它（寫碼查核 (d) 認這裡，見 [§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) [CASE_DECLARED_FOR_CHANGE](../TECH/release-rules.md#case_declared_for_change)）。
-  - 不需要新案例的程式檔寫進 `no_case` 附理由。
-- **存放**：每次宣告是完整範圍，最新那份算數，存在 state `verify_scope[收據鍵]`。
-- **回應附**：
-  - 這次要宣告的改檔
-  - 每項目前有沒有收據
-  - 每個改過的程式檔由哪個案例驗（成立沒）
-  - 改到的部位整把量尺（只當參考）
-  - 待檢討的漏判與累計數字
-- commit 快照的「當時不欠案例」用同一份宣告判。
-
-#### 收尾閘
-- **位置**：Stop `_verify_gates` → `gate_reason`（主 session、子代理、裁判都跑）。
-- **規則**：見 [§7.1](../TECH.md#71-stop-閘序) VerifyScope 列與 [§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) SCOPE_* 規則。
-- 整個寫碼查核過了 → `close` 記結案（範圍、理由、改了哪些檔、時間），同一批改動只記一次。
-
-#### 測試帳
-- **位置**：PostToolUse 每筆測試收據 → `observe_run`；Stop／SessionStart → `sync_runs`（run_verify 與根 conftest 的自寫收據）。
-- **記到哪**：每輪記進 `workflow/verify-scope/runs.jsonl`，欄位：
-  - repo、時間
-  - 涵蓋哪些：完整跑過的路徑，整體驗證記 `*`；可能只跑一部分的那段不算涵蓋，免得把沒跑的測試記成又綠過
-  - 紅名單：pytest 的 `FAILED`／`ERROR` 行、自寫收據的 `failed_cases`；非 pytest 的紅記點名的檔
-- **repo 鍵**：worktree 與主工作樹用同一個 repo 鍵（`.git` 檔指到 `<主>/.git/worktrees/` 就換成主工作樹）。
-
-#### 範圍漏判
-- **位置**：`_attribute`（規則 [SCOPE_LEAK_OUTSIDE_SCOPE](../TECH/release-rules.md#scope_leak_outside_scope)）。
-- **判法**：
-  - 紅的測試 T：找「T 上次綠（涵蓋它、沒紅它的那一輪）之後、這次紅之前結案、範圍沒涵蓋 T」的宣告。
-  - 各記一筆漏判進 `scope.jsonl`；編號 `L` 加六碼，同一 repo 同一宣告同一測試只記一次。
-  - 看到紅的 session 當時自己還有沒結案的改動就標 `observer_open`，檢討時先查明是不是它自己造成的。
-- 當下回應送回；SessionStart 列出待檢討。
-
-#### 檢討與數字
-- **位置**：下一次宣告（規則 [SCOPE_LEAK_REVIEW_BEFORE_DECLARE](../TECH/release-rules.md#scope_leak_review_before_declare)）；`stats_line`。
-- **逐筆交**：
-  - missed（該驗的沒驗到）寫 root_cause 與 next_time
-  - unrelated（與那次改動無關）寫 reason
-  - 哪一種由 LLM 判斷
-- **數字**：開場與每次宣告印「結案 N｜疑似漏判 M（該驗沒驗到、與改動無關、待檢討）｜漏判率」。數字是尺，不是擋的門檻。
-
-### 刻意不做與開關
-
-- 程式不替 LLM 列該測哪些（不做檔名對應、不搜呼叫方湊清單）。
-- 不要求每個改檔都被某一項點名。
-- 不追改動進了哪條分支（漏判先記「疑似」，檢討時查明）。
-- 開關：[`workflow/config.json`](../workflow/config.json) 的 `verify_scope.enabled`（目前 false）。
+這道閘已移除；原本的設計與部件見 [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md)。
 
 ## A7.10 切入點契約（程式問→卡教→LLM 判→留帳回看）
 

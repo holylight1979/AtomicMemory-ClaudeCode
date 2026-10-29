@@ -135,8 +135,7 @@
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py) | 哨兵收據帳本與對帳、量尺閘（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.9](../TECH.md#79-驗證範圍verify_scope)） |
-| [`hooks/wg_verify_scope.py`](../hooks/wg_verify_scope.py) | 驗證範圍收件與收尾閘（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.9](../TECH.md#79-驗證範圍verify_scope)） |
+| [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py) | 哨兵收據帳本與對帳、量尺閘（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.1](../TECH.md#71-stop-閘序)） |
 | [`hooks/wg_unknown_write.py`](../hooks/wg_unknown_write.py) | 寫入目標判不出的指令跑完後，從版控狀態補算改了哪些檔 |
 | [`hooks/wg_release_rules.py`](../hooks/wg_release_rules.py) | 放行／欠帳具名規則（純函式，[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)） |
 | [`hooks/wg_release.py`](../hooks/wg_release.py) | 擋滿後改問使用者（[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)） |
@@ -210,7 +209,6 @@
 | [`hooks/verify/probe_release_rules.py`](../hooks/verify/probe_release_rules.py) | 真 hook 入口探針：放行／欠帳判定規則情境 |
 | [`hooks/verify/probe_retry_cycles.py`](../hooks/verify/probe_retry_cycles.py) | 真 hook 入口探針：[RETRY_COUNTS_RERUN_CYCLES](../TECH/release-rules.md#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears) |
 | [`hooks/verify/probe_state_parallel_perf.py`](../hooks/verify/probe_state_parallel_perf.py) | 量測：平行 N 支 hook 改同一份 state 的耗時與掉帳（[STATE_RMW_LOCKED](../TECH/release-rules.md#state_rmw_lockedstate_pending_merged)） |
-| [`hooks/verify/probe_verify_scope.py`](../hooks/verify/probe_verify_scope.py) | 真 hook 入口探針：驗證範圍情境 |
 
 - **hooks/verify/fixtures/**：`gate005`、`gate006`、`v6` 目錄放寫碼守門樣本；`gate006` 放條件句宣稱文字與 C-1 改卡事件。
 
@@ -510,7 +508,6 @@ runtime state（多數 gitignored）。
 | `workflow/health-reports/` | 健康報告 |
 | `workflow/need-goal/` | 目標樹 |
 | `workflow/verify-ledger/` | 收據帳本 |
-| `workflow/verify-scope/` | 驗證範圍帳 |
 | `workflow/tracking/` | 追蹤項 |
 | `workflow/scorecard/` | 過程量 |
 | `workflow/second-opinion/` | 第二意見 job |
@@ -545,13 +542,13 @@ runtime state（多數 gitignored）。
 
 ## 全量驗證入口
 
-收尾只跑 [§7.9](../TECH.md#79-驗證範圍verify_scope) 宣告的驗證範圍。
+收尾不跑全量：該跑哪些由 AI 判斷，說修好要有改完之後的收據（[§7.1](../TECH.md#71-stop-閘序)）。
 
 - 全量入口 [`python run_verify.py`](../run_verify.py) 已從流程拔掉，只留手動排查（全量改增量待補）。
 - 掃描範圍：[`hooks/`](../hooks/)、[`lib/`](../lib/)、[`tools/`](../tools/)、`codex-companion`、`auto-continue` 及 skills 各 [`verify/`](../verify/)。
 - `--help` 只印用法不跑。
 - 結尾印哨兵 `VERIFY_CHECK DONE cases=<n> failed=0`；有紅印 FAIL 且 exit 1。
-- 自寫收據記紅掉的測試名 `failed_cases`，驗證範圍拿去找範圍漏判。
+- 自寫收據記紅掉的測試名 `failed_cases`。
 - 基線約 2950 案。
 - git／svn e2e 族在全量或有其他 git 活動並行時，偶發單案紅、單跑穩定。
   - 涉及案例：`verify_vcs_sync_worker`、`verify_merge_driver_gate`、`verify_merge_atom_index` 內各一案。

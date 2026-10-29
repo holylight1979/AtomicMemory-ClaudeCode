@@ -147,29 +147,11 @@ function check(cond, label, detail) {
   check(!ngq.result.isError && /update 已收到/.test(textOf(ngq)), "need_goal update origin-only with quote accepted", textOf(ngq));
   const ngq2 = await callTool("need_goal", { action: "add", items: [{ text: "x", origin: "user", quote: 3 }] });
   check(ngq2.result.isError === true && /quote/.test(textOf(ngq2)), "need_goal add non-string quote rejected", textOf(ngq2));
-  // verify_scope：驗證範圍的宣告（該測哪些由 LLM 判斷）；js 只驗形狀
-  check(ngDef && ngDef.inputSchema.properties.action.enum.includes("verify_scope") && ngDef.inputSchema.properties.reviews,
-        "need_goal schema has verify_scope and reviews");
-  const ng7 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "hooks/verify/verify_x.py" }] });
-  check(ng7.result.isError === true && /why/.test(textOf(ng7)), "need_goal verify_scope w/o why rejected", textOf(ng7));
-  const ng8 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w" }],
-    reviews: [{ leak: "L1", verdict: "maybe" }] });
-  check(ng8.result.isError === true && /verdict/.test(textOf(ng8)), "need_goal verify_scope bad review verdict rejected", textOf(ng8));
-  const ng9 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "直接測 a" }] });
-  check(!ng9.result.isError && /verify_scope 已收到/.test(textOf(ng9)), "need_goal verify_scope chip", textOf(ng9));
-  // (d) 由哪個案例驗：case_for（項目）、no_case（頂層）只驗形狀
-  check(ngDef && ngDef.inputSchema.properties.no_case && ngDef.inputSchema.properties.items.items.properties.case_for,
-        "need_goal schema has case_for and no_case");
-  check(ngDef && ngDef.inputSchema.properties.items.items.properties.depends, "need_goal schema has depends");
-  const ngDep = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", depends: "b.py" }] });
-  check(ngDep.result.isError === true && /depends/.test(textOf(ngDep)), "need_goal verify_scope bad depends rejected", textOf(ngDep));
-  const ng9b = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", case_for: [] }],
-    no_case: [{ path: "b.py" }] });
-  check(ng9b.result.isError === true && /case_for/.test(textOf(ng9b)) && /no_case\[0\]/.test(textOf(ng9b)),
-        "need_goal verify_scope bad case_for／no_case rejected", textOf(ng9b));
-  const ng9c = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", case_for: ["b.py"] }],
-    no_case: [{ path: "c.py", reason: "只改字串" }] });
-  check(!ng9c.result.isError, "need_goal verify_scope case_for／no_case accepted", textOf(ng9c));
+  // need_goal 沒有 verify_scope 動作：schema 沒有它的欄位，呼叫照未知動作拒收
+  check(ngDef && !ngDef.inputSchema.properties.action.enum.includes("verify_scope") && !ngDef.inputSchema.properties.reviews
+        && !ngDef.inputSchema.properties.no_case, "need_goal schema has no verify_scope fields");
+  const ng7 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w" }] });
+  check(ng7.result.isError === true && /action/.test(textOf(ng7)), "need_goal verify_scope rejected as unknown action", textOf(ng7));
   // same_class：達成節點可附同類別處（只驗形狀：字串）
   const itemProps = ngDef && ngDef.inputSchema.properties.items.items.properties;
   check(itemProps && itemProps.same_class && itemProps.same_class.type === "string", "need_goal schema has same_class");
@@ -177,10 +159,6 @@ function check(cond, label, detail) {
   check(ng10.result.isError === true && /same_class/.test(textOf(ng10)), "need_goal reconcile non-string same_class rejected", textOf(ng10));
   const ng11 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "done", same_class: "別處也用檔名猜" }] });
   check(!ng11.result.isError && /reconcile 已收到/.test(textOf(ng11)), "need_goal reconcile with same_class chip", textOf(ng11));
-  // inputs：驗證範圍一項還讀的檔或資料夾（只驗形狀：非空字串陣列）
-  check(itemProps && itemProps.inputs && itemProps.inputs.type === "array", "need_goal schema has inputs");
-  const ng12 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", inputs: "x.md" }] });
-  check(ng12.result.isError === true && /inputs/.test(textOf(ng12)), "need_goal verify_scope non-array inputs rejected", textOf(ng12));
 
   // 2. knowledge_harvest_report
   const h0 = await callTool("knowledge_harvest_report", { items: [] });
