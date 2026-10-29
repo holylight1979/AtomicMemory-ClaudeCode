@@ -4,9 +4,8 @@
 - Author: holylight
 - Source: _AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md E24
 - Confidence: [臨]
-- Trigger: 驗證範圍, verify_scope, 該測哪些, 哪些測試有關聯, 範圍漏判, SCOPE_LEAK_REVIEW, root_cause, 漏判率, case_for, no_case
+- Trigger: 該測哪些, 哪些測試有關聯, 測試範圍, 漏測, 改訊息字樣, 改標籤, 驗證哪些測試
 - Created-at: 2026-10-21
-- Entry: E24
 
 ## 知識
 

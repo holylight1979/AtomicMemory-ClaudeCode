@@ -19,10 +19,10 @@
 | hook與MCP執行期 | 19 | `_AIDocs/_atoms/MemDev/hook與MCP執行期/_INDEX.md` |
 | v6總控台 | 3 | `_AIDocs/_atoms/MemDev/v6總控台/_INDEX.md` |
 | vcs-sync與版控 | 10 | `_AIDocs/_atoms/MemDev/vcs-sync與版控/_INDEX.md` |
-| worktree與隔離資料根 | 14 | `_AIDocs/_atoms/MemDev/worktree與隔離資料根/_INDEX.md` |
+| worktree與隔離資料根 | 13 | `_AIDocs/_atoms/MemDev/worktree與隔離資料根/_INDEX.md` |
 | 寫碼守門閘 | 23 | `_AIDocs/_atoms/MemDev/寫碼守門閘/_INDEX.md` |
 | 擋訊息與放行判定 | 15 | `_AIDocs/_atoms/MemDev/擋訊息與放行判定/_INDEX.md` |
-| 收尾閘與收據 | 19 | `_AIDocs/_atoms/MemDev/收尾閘與收據/_INDEX.md` |
+| 收尾閘與收據 | 18 | `_AIDocs/_atoms/MemDev/收尾閘與收據/_INDEX.md` |
 | 架構決策與規則檔 | 18 | `_AIDocs/_atoms/MemDev/架構決策與規則檔/_INDEX.md` |
 | 檢索排序與注入量測 | 21 | `_AIDocs/_atoms/MemDev/檢索排序與注入量測/_INDEX.md` |
 | 測試框架與探針 | 16 | `_AIDocs/_atoms/MemDev/測試框架與探針/_INDEX.md` |

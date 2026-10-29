@@ -8176,20 +8176,6 @@
       "scope": "global"
     },
     {
-      "name": "驗證範圍的收據要在前景直接跑那一項-指令尾只接tail不夾grep-背景跑與超過十分鐘的不算-改檔排在跑範圍之前",
-      "path": "memory/CC與原子記憶契約/驗證範圍的收據要在前景直接跑那一項-指令尾只接tail不夾grep-背景跑與超過十分鐘的不算-改檔排在跑範圍之前.md",
-      "triggers": [
-        "驗證範圍",
-        "verify_scope",
-        "收據不算",
-        "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
-        "收尾被擋",
-        "跑綠了還擋",
-        "背景跑測試"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠",
       "path": "_AIDocs/_atoms/MemDev/測試框架與探針/範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠.md",
       "triggers": [
@@ -8474,20 +8460,6 @@
       "scope": "global"
     },
     {
-      "name": "工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑",
-      "path": "_AIDocs/_atoms/MemDev/worktree與隔離資料根/工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑.md",
-      "triggers": [
-        "驗證範圍",
-        "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
-        "工作樹",
-        "worktree",
-        "_staging",
-        "指令換目錄",
-        "別棵樹"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修",
       "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md",
       "triggers": [
@@ -8498,21 +8470,6 @@
         "收尾空轉",
         "量具",
         "驗證範圍作廢"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項",
-      "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項.md",
-      "triggers": [
-        "verify_scope",
-        "驗證範圍宣告",
-        "宣告沒存",
-        "宣告沒回應",
-        "CASE_DECLARED_FOR_CHANGE",
-        "還沒宣告由哪個案例驗",
-        "PostToolUse 逾時",
-        "need_goal 沒回應"
       ],
       "scope": "global"
     },
@@ -9733,21 +9690,15 @@
       "name": "驗證範圍除了-import-它的測試還要列抄了這次改動字樣的測試與讀了改過資料的測試",
       "path": "memory/驗證與實證/驗證範圍除了-import-它的測試還要列抄了這次改動字樣的測試與讀了改過資料的測試.md",
       "triggers": [
-        "驗證範圍",
-        "verify_scope",
         "該測哪些",
         "哪些測試有關聯",
-        "範圍漏判",
-        "SCOPE_LEAK_REVIEW",
-        "root_cause",
-        "漏判率",
-        "case_for",
-        "no_case"
+        "測試範圍",
+        "漏測",
+        "改訊息字樣",
+        "改標籤",
+        "驗證哪些測試"
       ],
-      "scope": "global",
-      "entry": [
-        "E24"
-      ]
+      "scope": "global"
     },
     {
       "name": "提問掛節點要看這題在決定哪件事不照擋訊息建議的編號抄判斷得了的不問",
@@ -13815,7 +13766,10 @@
         "壞設計",
         "模仿既有寫法"
       ],
-      "scope": "global"
+      "scope": "global",
+      "entry": [
+        "E02"
+      ]
     },
     {
       "name": "背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉",

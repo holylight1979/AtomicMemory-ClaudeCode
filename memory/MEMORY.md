@@ -13,7 +13,7 @@
 | 文字與格式 | 12 | `memory/文字與格式/_INDEX.md` |
 | 設計通則 | 60 | `memory/設計通則/_INDEX.md` |
 | 行為契約 | 17 | `memory/行為契約/_INDEX.md` |
-| CC與原子記憶契約 | 63 | `memory/CC與原子記憶契約/_INDEX.md` |
+| CC與原子記憶契約 | 62 | `memory/CC與原子記憶契約/_INDEX.md` |
 | Failures | 77 | `memory/Failures/_INDEX.md` |
 
 > 本地範疇（僅 ~/.claude 注入）Lv1 根索引見 `_local_catalog.md`，深層 drill 各層 `_INDEX.md`。

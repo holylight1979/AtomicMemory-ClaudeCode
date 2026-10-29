@@ -13,7 +13,6 @@
 | 在worktree驗第二意見修法要直接跑worktree的runpy-mcp跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串 | 在worktree驗第二意見修法要直接跑worktree的run.py-MCP跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串 |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
 | 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上 | 工作session切進worktree後被隔離寫不到worktree外-交付改用SendMessage回全文-cwd不在worktree時收據根對不上 |
-| 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 | 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 |
 | 工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝 | 工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝 |
 | 已在worktree裡的session不能直接enterworktree到外部路徑-先exitworktree-keep回啟動目錄再進 | 已在worktree裡的session不能直接EnterWorktree到外部路徑-先ExitWorktree-keep回啟動目錄再進 |
 | 換資料根跑時要帶memory-meta三個詞表-缺檔守門靜默退回程式寫死的舊詞表-repo內任何memory資料夾都會被背景同步當記憶卡自動commit | 換資料根跑時要帶memory-meta三個詞表-缺檔守門靜默退回程式寫死的舊詞表-repo內任何memory資料夾都會被背景同步當記憶卡自動commit |
