@@ -165,7 +165,7 @@ def drive(monkeypatch, tmp_path):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         tx.say(text)
         logs.clear()
-        cfg = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, "aec": {"scan_report_gate": False},
+        cfg = {"reconcile_gate": {"enabled": False}, "aec": {"scan_report_gate": False},
                "atom_audit": {"enabled": False}, "sync_reminder": {"enabled": False}, **(config or {})}
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": SID, "cwd": "", "transcript_path": str(tx.path), "last_assistant_message": text,

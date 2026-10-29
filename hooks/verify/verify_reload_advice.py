@@ -18,7 +18,7 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_stop_reconcile import (  # noqa: E402,F401
-    _git_budget_generous, _scope_ledger_isolated, _temp_rules_off, driven, st,
+    _git_budget_generous, _temp_rules_off, driven, st,
 )
 
 

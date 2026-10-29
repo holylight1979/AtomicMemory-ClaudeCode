@@ -1257,11 +1257,11 @@ def test_cg0_stop_verify_gates_passes_transcript_for_relink(hooked):
     _op("add", items=[{"text": "a"}, {"text": "介面跟著刷新"}])
     ng.stamp_edit(SID, files["UI"], "", 2, {})
     off = {"enabled": False}
-    reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", None, "", [], off, off, {}, False,
+    reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", None, "", [], off, {}, False,
                                   goal=True, goal_cfg=ON)
     assert "(f3)" in reason
     _say(tp, FOUR_UI)
-    reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", Path(tp), "", [], off, off, {}, False,
+    reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", Path(tp), "", [], off, {}, False,
                                   goal=True, goal_cfg=ON)
     assert "(f3)" not in (reason or "")
 
@@ -1288,13 +1288,13 @@ def test_stop_verify_gates_merges_goal_only_for_main_session(env):
     _code_tree(env)
     off = {"enabled": False}
     state = {"turn_seq": 3}
-    reason, report, kind, _ = st._verify_gates(state, SID, 3, "好了", None, "", [], off, off, {}, False,
+    reason, report, kind = st._verify_gates(state, SID, 3, "好了", None, "", [], off, {}, False,
                                                goal=True, goal_cfg=ON)
     assert reason is None                                                   # 不在交付邊界：待對照由程式記進度、不擋
-    reason, _, kind, _ = st._verify_gates(state, SID, 3, "全部完成。", None, "", [], off, off, {}, False,
+    reason, _, kind = st._verify_gates(state, SID, 3, "全部完成。", None, "", [], off, {}, False,
                                           goal=True, goal_cfg=ON)
     assert "(f2)" in reason                                                 # 宣告完成＝交付邊界
-    reason, _, kind, _ = st._verify_gates(state, f"{SID}#agent:x", 3, "全部完成。", None, "", [], off, off, {}, False)
+    reason, _, kind = st._verify_gates(state, f"{SID}#agent:x", 3, "全部完成。", None, "", [], off, {}, False)
     assert reason is None                                                   # 子代理、裁判不傳 goal
 
 
@@ -1308,7 +1308,7 @@ def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, cap
         monkeypatch.setattr(st, name, val)
     monkeypatch.setattr(st, "_gate_mode", lambda rule, v6: st._BLOCK)   # 測判定與擋訊息內容，送法固定成擋
     with pytest.raises(SystemExit):
-        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {"reconcile_gate": {"goal_gate": True}, "verify_scope": {}})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "全部完成。"}, {"reconcile_gate": {"goal_gate": True}})
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out.get("decision") == "block" and "(f2)" in out.get("reason", "") and "(f1)" not in out.get("reason", "")
     assert state["reconcile_gate_turn"][SID]["count"] == 1                  # 吃寫碼查核同一個預算
@@ -1500,10 +1500,10 @@ def test_stop_verify_gates_puts_f4_in_report_not_code_check(env):
     ng.stamp_edit(SID, _kfile(env["proj"], "notes.md"), "", 3, {})
     off = {"enabled": False}
     state = {"turn_seq": 3, "turn_prompts_seq": 3}
-    reason, report, kind, _ = st._verify_gates(state, SID, 3, "好了", None, "", [], off, off, {}, False,
+    reason, report, kind = st._verify_gates(state, SID, 3, "好了", None, "", [], off, {}, False,
                                                goal=True, goal_cfg=ON)
     assert reason is None and report and "(f4)" in report and kind == "reconcile"   # 記憶與報告類：不進寫碼查核
-    reason, report, _, _ = st._verify_gates(state, f"{SID}#agent:x", 3, "好了", None, "", [], off, off, {}, False)
+    reason, report, _ = st._verify_gates(state, f"{SID}#agent:x", 3, "好了", None, "", [], off, {}, False)
     assert reason is None and report is None                                # 子代理不跑
 
 

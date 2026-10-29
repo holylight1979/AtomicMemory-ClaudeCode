@@ -2,7 +2,7 @@
 
 做什麼：CC 單次工具呼叫上限 10 分鐘，全量 run_verify 要跑 18～25 分鐘只能背景跑，PostToolUse 只看得到「已啟動」、
   看不到結尾的量尺哨兵 → session 帳本永遠沒有這把尺的 DONE。所以 run_verify 印完哨兵後自己寫一份收據到
-  <CLAUDE_DIR>/workflow/verify-ledger/_runs/<UTC 時間戳>-<pid>.json，對帳閘與驗證範圍閘再讀它（hooks/wg_verify_ledger、wg_verify_scope）。
+  <CLAUDE_DIR>/workflow/verify-ledger/_runs/<UTC 時間戳>-<pid>.json，對帳閘再讀它（hooks/wg_verify_ledger）。
 怎麼跑：run_verify.py 呼叫 write_self_receipt；hooks 呼叫 load_self_receipts、cmd_matches、is_whole_run、unsupported_syntax。
   verify 在 lib/verify/verify_self_receipt.py、hooks/verify/verify_stop_reconcile.py（自寫收據段）。
 指令解析只有一套（split_shell → parse_cmds）：量尺比對、自寫收據比對、對帳閘的「整體驗證」與「提到改檔」都經過它。

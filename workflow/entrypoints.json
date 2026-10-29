@@ -268,16 +268,6 @@
      "code_refs": ["hooks/wg_need_goal.py", "hooks/handlers/post_tool_use.py"],
      "notes": "need_goal 的回覆由 PostToolUse 組出，算 mcp_reply。這一點不擋，是事後降級＋提醒。",
      "responses": [{"guard": "need_goal", "event": "origin_quoted", "type": "declared"}, {"guard": "need_goal", "event": "origin_downgraded", "type": "denied"}]},
-    {"id": "E24", "name": "驗證範圍宣告 need_goal(action=verify_scope)",
-     "rules": ["SCOPE_DECLARED_FOR_CHANGE", "CASE_DECLARED_FOR_CHANGE", "SCOPE_LEAK_REVIEW_BEFORE_DECLARE", "NO_CASE_NEEDS_USER"],
-     "markers": ["[Guardian:VerifyScope]", "verify_scope 拒收，沒有套用", "還沒宣告由哪個案例驗"],
-     "paths": ["stop_piggyback", "mcp_reply"],
-     "feeds": "收尾閘：改檔檔名、缺什麼、量尺參考；宣告回應：每項現況、案例對應判定；漏判拒收：每筆漏判細節；都不含 diff 與依賴關係",
-     "asks": "該測哪些由你判斷，用 verify_scope 宣告；先逐筆檢討漏判；每個改過的程式檔由哪個案例驗，或給 no_case",
-     "expects": "這次改動會影響哪些測試、由哪支案例驗",
-     "code_refs": ["hooks/wg_verify_scope.py", "hooks/wg_release_rules.py", "hooks/handlers/post_tool_use.py"],
-     "notes": "宣告回應與拒收走 PostToolUse 的 need_goal 分支，算 mcp_reply。no_case 一律照擋、交使用者裁。",
-     "responses": [{"guard": "reconcile", "event": "user_release", "type": "released"}]},
     {"id": "E25", "name": "提問附推薦＋每題掛目標節點",
      "rules": ["ASK_NEEDS_RECOMMENDATION", "ASK_LINKED_TO_GOAL"],
      "markers": ["提問前要寫出這題掛在目標樹哪個節點"],
@@ -455,14 +445,6 @@
     "WORKTREE_NO_PUSH": "同步判定：worktree 不要求 push",
     "SYNC_BLOCK_SKIPS_SYNCED": "同步判定：已同步的檔不再提醒",
     "SYNC_SKIPS_VANISHED_OUTSIDE_VCS": "同步判定：消失的檔不算未同步",
-    "TEMP_REPO_COMMIT_EXEMPT": "同步判定：暫存 repo 的 commit 不要口令",
-    "SCOPE_ITEM_WELL_FORMED": "收件檢查：驗證範圍宣告的格式（判斷在 E24）",
-    "CASE_DECL_WELL_FORMED": "收件檢查：case_for 的格式（判斷在 E24）",
-    "SCOPE_CASE_EDIT_ONLY_ITS_ITEM": "對帳檢查：案例檔只清自己那一項（判斷在 E24）",
-    "SCOPE_EDIT_RELATED_TO_ITEM": "對帳檢查：收據要晚於相關改檔（判斷在 E24）",
-    "SCOPE_EDIT_IN_DECLARED_DEPENDS": "對帳檢查：只有改到宣告的依賴才作廢收據（判斷在 E24）",
-    "SCOPE_RED_ONLY_ITS_CASES": "對帳檢查：紅只算它自己的案例（判斷在 E24）",
-    "SCOPE_ITEM_RECEIPT_AFTER_EDIT": "對帳檢查：每項要有改後的收據（判斷在 E24）",
-    "SCOPE_LEAK_OUTSIDE_SCOPE": "偵測規則：記範圍漏判（問句是 SCOPE_LEAK_REVIEW_BEFORE_DECLARE，在 E24）"
+    "TEMP_REPO_COMMIT_EXEMPT": "同步判定：暫存 repo 的 commit 不要口令"
   }
 }

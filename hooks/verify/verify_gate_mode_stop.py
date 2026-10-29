@@ -21,7 +21,6 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 import wg_release_rules as rr  # noqa: E402
 import wg_reading_path as rph  # noqa: E402
 import wg_verify_ledger as vl  # noqa: E402
-import wg_verify_scope as vs  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 from handlers import stop as st  # noqa: E402
 
@@ -69,7 +68,7 @@ def drive(monkeypatch, capsys):
         state = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": [],
                  "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5, **extra}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
-        cfg = {"reconcile_gate": OFF, "verify_scope": OFF, "aec": {"scan_report_gate": False}, "atom_audit": OFF,
+        cfg = {"reconcile_gate": OFF, "aec": {"scan_report_gate": False}, "atom_audit": OFF,
                "sync_reminder": OFF, "deferral_gate": OFF, "pick_one": OFF, "second_opinion": {"auto": OFF},
                "knowledge_harvest": OFF, **(config or {})}
         logs.clear()
@@ -117,16 +116,10 @@ def test_case_debt_reminded_not_blocked(drive):
 
 
 def test_self_error_follows_rule_mode(drive, monkeypatch):
-    """S9 寫碼查核自己出錯跟所屬條目：對帳（含 (a)）判定炸了照擋；驗證範圍閘判定炸了只留帳。"""
+    """S9 寫碼查核自己出錯跟所屬條目：對帳（含 (a)）判定炸了照擋。"""
     monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom-a")))
     out, _, logs = drive(DONE, config={"reconcile_gate": {"enabled": True}}, modified_files=[_mf()])
     assert out.get("decision") == "block" and "GATE_SELF_ERROR" in out["reason"] and "boom-a" in out["reason"]
-    monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: (None, None))
-    monkeypatch.setattr(vs, "gate_reason", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom-s")))
-    out, _, logs = drive(DONE, config={"reconcile_gate": {"enabled": True}, "verify_scope": {"enabled": True}},
-                         modified_files=[_mf()])
-    assert "decision" not in out, out
-    assert any(p["rule"] == "GATE_SELF_ERROR" and "boom-s" in p["excerpt"] for p in _reminds(logs, "reconcile"))
 
 
 def test_turn_judgment_reminded_not_blocked(drive):
@@ -178,7 +171,7 @@ def test_subagent_same_modes(monkeypatch, capsys):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
     monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
-    cfg = {"reconcile_gate": {"enabled": True}, "verify_scope": OFF}
+    cfg = {"reconcile_gate": {"enabled": True}}
 
     def run(text):
         state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [],
@@ -238,17 +231,17 @@ def test_code_edit_batch_reminds_case_debt_once_per_file(monkeypatch, capsys):
     monkeypatch.setattr(vl, "file_root_of", lambda p: r"c:\proj", raising=False)
     state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
     calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
-    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}, "verify_scope": OFF})
+    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}})
     line = next((ln for ln in ctx.splitlines() if "CASE_COVERS_CHANGE" in ln), "")
     assert line.startswith("[Guardian:提醒] CASE_COVERS_CHANGE") and "x.py" in line and "做法：" in line, ctx
     state["modified_files"][0]["last_seq"] = 4
-    ctx2 = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}, "verify_scope": OFF})
+    ctx2 = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}})
     assert "CASE_COVERS_CHANGE" not in ctx2
 
 
 # ─── 提醒帳本一份清單（state remind_sent；工具前守門 remind_flush 與這裡的 closing_reminders 同一份） ─────────
 
-_SENT_CFG = {"reconcile_gate": OFF, "verify_scope": OFF}
+_SENT_CFG = {"reconcile_gate": OFF}
 
 
 def _edit_batch(monkeypatch, capsys, state):
@@ -427,15 +420,15 @@ def test_code_edit_batch_reminds_deferral_sync_closing_once(monkeypatch, capsys)
     files = [_mf(seq=3), _mf(r"c:\proj\hooks\y.py", seq=4)]
     state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": files}
     calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
-    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF, "verify_scope": OFF})
+    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF})
     for rule in ("DEFERRAL_OF_DOABLE_WORK", "SYNC_REMINDER_UNSYNCED", "CLOSING_CHECK_REQUIRED"):
         assert f"[Guardian:提醒] {rule}：" in ctx, (rule, ctx)
     assert all(len(ln) <= rr.REMIND_LINE_CAP for ln in ctx.splitlines() if ln.startswith("[Guardian:提醒]"))
     state["modified_files"][0]["last_seq"] = 9
-    assert "[Guardian:提醒]" not in _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF, "verify_scope": OFF})
+    assert "[Guardian:提醒]" not in _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF})
     monkeypatch.setenv("WG_V6", "0")
     fresh = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
-    assert _batch(monkeypatch, capsys, fresh, calls, {"reconcile_gate": OFF, "verify_scope": OFF}) == ""
+    assert _batch(monkeypatch, capsys, fresh, calls, {"reconcile_gate": OFF}) == ""
 
 
 def test_reminders_ask_judgment_cards_once_per_batch(monkeypatch, capsys):
@@ -452,7 +445,7 @@ def test_reminders_ask_judgment_cards_once_per_batch(monkeypatch, capsys):
     monkeypatch.setattr(ep, "entry_note", fake_note)
     state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
     calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
-    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF, "verify_scope": OFF})
+    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF})
     assert len(asked) == 1 and asked[0][1] == "post_tool_hint" and "[Guardian:提醒]" in asked[0][0], asked
     assert ctx.rstrip().endswith("判準卡（E16）：第二意見分歧裁決"), ctx
     reg = json.loads((HOOKS_DIR.parent / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))
@@ -475,7 +468,7 @@ def test_case_for_line_is_a_case_declaration(monkeypatch, capsys):
         [("a.py", ["t/test_b.py", "t/test_c.py"]), ("b.py", ["x"])]
     files = [_mf(seq=3), _mf(r"c:\proj\tests\test_other.py", seq=4)]
     calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
-    cfg = {"reconcile_gate": {"enabled": True}, "verify_scope": OFF}
+    cfg = {"reconcile_gate": {"enabled": True}}
     state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [dict(f) for f in files], "remind_sent": []}
     monkeypatch.setattr(ptb, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(ptb, "write_state", lambda *a, **k: None)

@@ -116,12 +116,12 @@ def test_rebuild_floors_turn_seq_to_modified_files_turns():
 
 
 def test_rebuild_carries_event_seq_and_gate_ledgers():
-    """重建後收據序號接著走（event_seq），各閘的問過／放行／擋過帳本照搬：使用者剛選的「放行這一回合」、無案例裁定、驗證範圍與收據
+    """重建後收據序號接著走（event_seq），各閘的問過／放行／擋過帳本照搬：使用者剛選的「放行這一回合」與收據
     不因壓縮重建消失（舊碼：只搬回合鍵，這些全部重來）。"""
     old = _before_rebuild(Path("c:/proj"))
-    ledgers = {"event_seq": 95, "no_case_approved": {_SID: {"c:/proj/x.py": {"at": "t", "seq": 9}}},
+    ledgers = {"event_seq": 95,
                "user_released": {_SID: {"reconcile": 37}}, "pending_release": {_SID: {"reconcile": {"turn": 37}}},
-               "verify_receipts": {_SID: [{"seq": 90, "cmd": "pytest -q"}]}, "verify_scope": {_SID: [{"items": []}]},
+               "verify_receipts": {_SID: [{"seq": 90, "cmd": "pytest -q"}]},
                "reconcile_gate_turn": {_SID: {"turn": 37, "count": 1}}, "cleanup_gate_turn": {_SID: 37},
                "second_opinion_gate_turn": {_SID: {"turn": 37, "counts": {"第二意見": 1}, "count": 1}},
                "second_opinion_declared": {_SID: True}}

@@ -189,7 +189,7 @@ def drive(monkeypatch, capsys):
         logs.clear()
         results.clear()
         capsys.readouterr()
-        cfg = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, **(config or {})}
+        cfg = {"reconcile_gate": {"enabled": False}, **(config or {})}
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": ""}, cfg)
         return capsys.readouterr().out, state, [p for g, p in logs if g == "equivalence"]

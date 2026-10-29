@@ -87,7 +87,7 @@ def test_one_call_carries_reconcile_and_harvest_then_stop_asks_nothing_else(env,
     assert "reconcile 收下" in ctx and state["anti_evasion_report"]["reconcile"] == "applied"
     assert state["anti_evasion_report"]["need_goal"]["reconcile"]["turn"] == 3, "HUD 附的樹是這次對照後的"
     assert wg_harvest.validated_this_turn(state, SID, 3) and "d_pending" not in state["anti_evasion_report"]
-    cfg = {**ON, **HARVEST_ON, "aec": {"scan_report_gate": True}, "verify_scope": {}}
+    cfg = {**ON, **HARVEST_ON, "aec": {"scan_report_gate": True}}
     out = _stop(monkeypatch, capsys, state, cfg)
     reason = out.get("reason", "")
     assert "(f2)" not in reason and "[Guardian:KnowledgeHarvest]" not in reason and "[Guardian:ScanReport]" not in reason, reason
@@ -112,7 +112,7 @@ def test_bad_reconcile_only_loses_that_part(env, monkeypatch, capsys):
     ctx = _aec(monkeypatch, capsys, state, proj, reconcile={"items": [{"id": "T9", "status": "none", "followup": "x"}]})
     assert state["anti_evasion_report"]["reconcile"] == "rejected" and pt.AEC_RECONCILE_RETRY in ctx
     assert _tree()["last_reconcile"] is None
-    assert "(f2)" in _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {}}).get("reason", "")
+    assert "(f2)" in _stop(monkeypatch, capsys, state, {**ON}).get("reason", "")
 
 
 # ─── CLOSING_MISSING_PART_HINT ──────────────────────────────────────────────────
@@ -123,7 +123,7 @@ def test_only_closing_check_then_f2_names_missing_part(env, monkeypatch, capsys)
     proj = _code_tree(env)
     state = _state(proj)
     _aec(monkeypatch, capsys, state, proj)
-    reason = _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {}}).get("reason", "")
+    reason = _stop(monkeypatch, capsys, state, {**ON}).get("reason", "")
     assert "(f2)" in reason and "收尾檢核本回合已交，缺目標對照" in reason and "收尾檢核不用重交" in reason
     assert "缺目標對照。" + st.CLOSING_ONE_CALL == st.closing_reconcile_hint(False).split("收尾三段：", 1)[1]
 
@@ -149,10 +149,10 @@ def test_imported_tree_not_asked_outside_coding_turn(env, monkeypatch, capsys):
     assert _tree()["kind"] == "code"
     state = _state(proj)
     state.pop("need_goal_code_decl_turn")
-    reason = _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {}}).get("reason", "")
+    reason = _stop(monkeypatch, capsys, state, {**ON}).get("reason", "")
     assert "(f2)" not in reason and "(f3)" not in reason, reason
     state = _state(proj)
-    assert "(f2)" in _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {}}).get("reason", "")
+    assert "(f2)" in _stop(monkeypatch, capsys, state, {**ON}).get("reason", "")
 
 
 def test_closing_check_after_earlier_code_edit_still_asks(env, monkeypatch, capsys):
@@ -162,7 +162,7 @@ def test_closing_check_after_earlier_code_edit_still_asks(env, monkeypatch, caps
     state = _state(proj, modified_files=[{"path": str(proj / "a.py"), "session_id": SID, "turn_seq": 2, "last_turn_seq": 2}])
     state.pop("need_goal_code_decl_turn")
     _aec(monkeypatch, capsys, state, proj)
-    reason = _stop(monkeypatch, capsys, state, {**ON, "verify_scope": {"enabled": False}},
+    reason = _stop(monkeypatch, capsys, state, {**ON},
                    text="變更內容見收尾檢核報告。").get("reason", "")
     assert "(f2)" in reason and "收尾檢核本回合已交，缺目標對照" in reason, reason
 
@@ -194,7 +194,7 @@ def test_old_three_calls_still_accepted(env, monkeypatch, capsys):
     capsys.readouterr()
     _aec(monkeypatch, capsys, state, proj, d="見收割報告")
     assert "reconcile" not in state["anti_evasion_report"] and "d_pending" not in state["anti_evasion_report"]
-    reason = _stop(monkeypatch, capsys, state, {**ON, **HARVEST_ON, "aec": {"scan_report_gate": True}, "verify_scope": {}}).get("reason", "")
+    reason = _stop(monkeypatch, capsys, state, {**ON, **HARVEST_ON, "aec": {"scan_report_gate": True}}).get("reason", "")
     assert "(f2)" not in reason and "[Guardian:KnowledgeHarvest]" not in reason, reason
 
 

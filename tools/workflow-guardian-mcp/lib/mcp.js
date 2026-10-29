@@ -527,16 +527,16 @@ const TOOL_DEFINITIONS = [
   {
     name: "need_goal",
     description:
-      "需求目標樹：先寫「真正要達成什麼」，工作中長子目標，收尾對照；action＝set｜add｜update｜reconcile｜read｜verify_scope。" +
+      "需求目標樹：先寫「真正要達成什麼」，工作中長子目標，收尾對照；action＝set｜add｜update｜reconcile｜read。" +
       "set＝任務開始寫樹根 goal（整個需求一句、使用者的語言、只寫目標不寫手段），子目標同次放 items，要改程式帶 kind=code；被糾正時改這棵樹，真的換事才 new_task=true。" +
       "set／update 可一起交 locate=[{part, lines}]（定位行）與 data_files=[{path, why}]（改資料檔的宣告）。" +
       "也可不呼叫工具：先發不寫檔的 Bash，`目標｜<整個需求一句>`、`子目標｜<一件>` 行放它開頭的 `#` 註解，接著改檔，hook 讀走；回覆文字要早一則（同一則接著呼叫工具的文字 hook 讀不到）。" +
-      "add＝再長的子目標；update＝改節點；reconcile＝完整對照（選用，每個活著的節點交終點結論＋證據，可放 anti_evasion_report 的 reconcile 欄）；read＝回目前的樹；verify_scope＝宣告驗證範圍。" +
+      "add＝再長的子目標；update＝改節點；reconcile＝完整對照（選用，每個活著的節點交終點結論＋證據，可放 anti_evasion_report 的 reconcile 欄）；read＝回目前的樹。" +
       "寫碼類任務沒有樹不能改程式；本 tool 只驗參數、不寫檔。",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read", "verify_scope"] },
+        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read"] },
         goal: { type: "string", description: "set：樹根一句" },
         new_task: { type: "boolean" },
         kind: { type: "string", enum: ["code", "knowledge"] },
@@ -555,8 +555,7 @@ const TOOL_DEFINITIONS = [
         items: {
           type: "array",
           description: "set／add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why?}]；" +
-            "reconcile：[{id, status(終點), evidence?, followup?, note?, same_class?}]；" +
-            "verify_scope：[{target(測試檔／節點／資料夾／指令), why, inputs?(還讀的非程式檔), depends?(用到的程式檔), case_for?(驗的改過程式檔)}]",
+            "reconcile：[{id, status(終點), evidence?, followup?, note?, same_class?}]",
           items: {
             type: "object",
             properties: {
@@ -570,17 +569,8 @@ const TOOL_DEFINITIONS = [
                 items: { type: "object" },
               },
               same_class: { type: "string" },
-              inputs: { type: "array", items: { type: "string" } },
-              depends: { type: "array", items: { type: "string" } },
-              case_for: { type: "array", items: { type: "string" } },
             },
           },
-        },
-        no_case: { type: "array", description: "verify_scope：[{path, reason}] 不需要新案例的改過程式檔", items: { type: "object" } },
-        reviews: {
-          type: "array",
-          description: "verify_scope：[{leak, verdict: missed|unrelated, root_cause?, next_time?, reason?}] 範圍漏判逐筆檢討",
-          items: { type: "object" },
         },
         turns: { type: "integer" },
         form: { type: "string", enum: ["full", "compact", "handoff"] },

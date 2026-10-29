@@ -393,7 +393,7 @@ def test_unknown_write_recovered_gets_sync_reminder(flow, capsys, tmp_path, monk
     out, _, _ = stop_run(capsys, uncommitted=None)
     assert "改了程式碼（sender.py）" in out and "同步：1 個改過的檔還沒 commit" in out, out
     out, _, _ = stop_run(capsys, uncommitted=None,
-                         config={"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}})
+                         config={"reconcile_gate": {"enabled": False}})
     assert "[Guardian:SyncReminder]" in out and "偵測到 1 個" in out, out
 
 

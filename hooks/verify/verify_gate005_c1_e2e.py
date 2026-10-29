@@ -75,7 +75,7 @@ def replay(monkeypatch, tmp_path):
                  "stop_blocked_count": 0, "turn_seq": 0, "muted": True, "session": {"id": SID, "cwd": ""}}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         stops, turn, last = [], 0, ""
-        cfg = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, "aec": {"scan_report_gate": False},
+        cfg = {"reconcile_gate": {"enabled": False}, "aec": {"scan_report_gate": False},
                "atom_audit": {"enabled": False}, "sync_reminder": {"enabled": False}}
         for ev in events:
             if ev["kind"] == "prompt":

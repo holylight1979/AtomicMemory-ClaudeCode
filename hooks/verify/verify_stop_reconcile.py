@@ -1,13 +1,12 @@
-"""verify_stop_reconcile.py：Stop 對帳閘（Q6）、收尾欄 j／k（Q13）、驗證範圍閘裡「收據對不對得上宣告的指令」（Q8，原量尺閘案例）、
+"""verify_stop_reconcile.py：Stop 對帳閘（Q6）、收尾欄 j／k（Q13）、收據對不對得上部位量尺（Q8，原量尺閘案例）、
 獨立預算與 overflow。
 
 怎麼跑：set WG_CLAUDE_DIR=<worktree> && python -X utf8 -m pytest -q hooks/verify/verify_stop_reconcile.py
 固定輸入：hooks/verify/fixtures/v6/q6/（Bash 輸出、詞表、含量尺欄的表）、q13/（AEC 五檔）。
 Q6 反例：無關 PASS（隔壁 session）、舊 turn PASS、非零 exit 的 PASS、標試過沒跑 → 各擋；正例各放。
 Q13：缺 j 擋、j 路徑不存在擋、k 空字串擋、k「無」放。
-Q8：宣告的範圍項目是一條指令（原本表上的量尺）→ 收據要照原字串、改完之後、同根、跑綠；白名單語法、假哨兵、環境縮範圍、
-自寫收據、runtime_gate 未就緒的案例都在這裡（驗證範圍其餘案例在 verify_verify_scope.py）。driven 預設關掉驗證範圍閘
-（對帳閘的案例不受它影響），要測它的案帶 scope=True。
+Q8：表上的量尺是一條指令 → 收據要照原字串跑才算跑了那把尺（對帳 (a)(b) 認部位量尺的同一個判法）；白名單語法、假哨兵、
+環境縮範圍、自寫收據的案例都在這裡。
 預算：同 turn 第 3 次放行並寫 guard_log reconcile_overflow＋state reconcile_overflow[sid]。
 """
 from __future__ import annotations
@@ -24,7 +23,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_verify_ledger as vl  # noqa: E402
-import wg_verify_scope as vs  # noqa: E402
 import wg_evasion as ev  # noqa: E402
 import wg_overview as wo  # noqa: E402
 from overview_hub import parse_map, match_row  # noqa: E402
@@ -39,12 +37,6 @@ PHRASES = ev.compile_claim_phrases(FIX / "q6" / "phrases.json")
 
 ROOT = Path(r"c:\proj")
 _RELATED_CMD = "python -m pytest hooks/verify/verify_x.py"
-
-
-@pytest.fixture(autouse=True)
-def _scope_ledger_isolated(monkeypatch, tmp_path):
-    """驗證範圍的帳本（結案、漏判）每案各用一份，不讓前一案記的漏判擋到下一案的宣告。"""
-    monkeypatch.setattr(vs, "SCOPE_DIR", tmp_path / "verify-scope")
 
 
 @pytest.fixture(autouse=True)
@@ -88,21 +80,6 @@ def _mf(path, turn, session_id=_SID, last_at="", last_seq=None):
     return m
 
 
-def _declared(cmd, root=ROOT, key=_SID, lookup=None):
-    """宣告驗證範圍＝這一條指令（原量尺閘案例改成「範圍項目是表上那把尺」：收據要照原字串跑），回 state 的 verify_scope 欄。"""
-    s = {"turn_seq": 5, "modified_files": []}
-    text = vs.declare(s, key, {"action": "verify_scope", "items": [{"target": cmd, "why": "原量尺閘案例：範圍就是這條指令"}]},
-                      str(root), {}, lookup=lookup or (lambda p: None))
-    assert "收下" in text, text
-    return s["verify_scope"]
-
-
-def _with_case_for(decls, *codes, key=_SID):
-    """在最新那份宣告的第一項掛 case_for（(d) 由哪個案例驗的宣告）：fixture 路徑是虛構的，不走收件的存在檢查。"""
-    decls[key][-1]["items"][0]["case_for"] = list(codes)
-    return decls
-
-
 @pytest.fixture()
 def driven(monkeypatch):
     """驅動 handle_stop：只留閘控制流；回 drive(text, capsys, state 欄位…) → (stdout, state, guard_log 事件)。"""
@@ -122,10 +99,9 @@ def driven(monkeypatch):
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)   # 案例路徑是虛構的；存在與否由 009 段用真檔測
     monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)   # 程式檔路徑也是虛構的；已刪除的程式檔由 040 段用真檔測
 
-    def drive(text, capsys, tool_names=(), hook_input=None, config=None, scope=False, **extra):
-        """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位；config：handle_stop 的設定；
-        scope：開驗證範圍閘（預設關，對帳閘的案例不受它影響）。"""
-        config = {"verify_scope": {"enabled": bool(scope)}, **(config or {})}
+    def drive(text, capsys, tool_names=(), hook_input=None, config=None, **extra):
+        """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位；config：handle_stop 的設定。"""
+        config = dict(config or {})
         monkeypatch.setattr(st, "get_last_assistant_text",
                             ev.get_last_assistant_text if text is None else (lambda *a, **k: text))
         monkeypatch.setattr(st, "get_current_turn_visible_text",
@@ -472,18 +448,6 @@ def test_reconcile_judge_exception_blocks(driven, capsys, monkeypatch):
     assert any(g == "reconcile" and "boom" in p.get("error", "") for g, p in logs)
 
 
-def test_scope_judge_exception_blocks(driven, capsys, monkeypatch):
-    kw = dict(modified_files=[_mf(_CODE, 5), _mf(_CASE, 5)], verify_receipts={_SID: [_rcpt(5)]},
-              anti_evasion_report=_aec(5, j=__file__, k="無"), verify_scope=_with_case_for(_declared(_RELATED_CMD), _CODE),
-              scope=True)
-    out, _, _ = driven("全部完成了。", capsys, **kw)
-    assert "ReconcileGate" not in out and "VerifyScope" not in out                          # 正例
-    monkeypatch.setattr(vs, "gate_reason", _boom)
-    out, state, _ = driven("全部完成了。", capsys, **kw)
-    assert "[Guardian:VerifyScope] 判定錯誤：RuntimeError: boom" in out
-    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
-
-
 def test_judge_exception_third_block_asks_user(driven, capsys, monkeypatch):
     """判定錯誤也吃預算；擋滿後照件一改問使用者（不再 overflow 放行）。"""
     monkeypatch.setattr(st, "reconcile_gate_parts", _boom)
@@ -659,177 +623,6 @@ def test_fixture_table_has_measure_column():
     assert ROWS[1]["measure"] == {}
 
 
-@pytest.fixture()
-def scoped(driven, monkeypatch):
-    """改到有量尺的部位（hook 共用模組層）、宣告範圍＝表上那把尺，經 handle_stop 端到端。"""
-    monkeypatch.setattr(wo, "_lookup", _lookup)
-
-    def run(capsys, mods, receipts=(), text="全部完成了。", declared=True, **extra):
-        kw = dict(modified_files=mods, verify_receipts={_SID: list(receipts)}, anti_evasion_report=_aec(5, "無", "無"),
-                  scope=True, **extra)
-        if declared:
-            kw["verify_scope"] = _declared(MEASURE_CMD, lookup=_lookup)
-        return driven(text, capsys, **kw)[0]
-
-    return run
-
-
-def test_ruler_part_change_without_declaration_offers_ruler_as_reference(scoped, capsys):
-    """改到有量尺的部位、沒宣告 → 擋；表上的尺只當參考出現在訊息裡，不是門檻。"""
-    out = scoped(capsys, [_mf(_CASE, 5)], declared=False)
-    assert "[Guardian:VerifyScope]" in out and "SCOPE_DECLARED_FOR_CHANGE" in out
-    assert "參考（不必全跑）" in out and MEASURE_CMD in out and "hook 共用模組層" in out
-
-
-def test_declared_command_run_verbatim_after_edit_passes(scoped, capsys):
-    """013：宣告的指令要原樣跑（多帶 --json 不算）。"""
-    assert "VerifyScope" not in scoped(capsys, [_mf(_CASE, 3)], [_rcpt(4, "DONE", 0, cmd=MEASURE_CMD)])
-    out = scoped(capsys, [_mf(_CASE, 3)], [_rcpt(4, "DONE", 0, cmd=MEASURE_CMD + " --json")])
-    assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in out and "沒有跑這一項的收據" in out
-
-
-def test_declared_command_run_before_last_edit_blocks(scoped, capsys):
-    """反例：跑過但之後又改了（收據 turn 2、改在 turn 4）→ 擋。"""
-    out = scoped(capsys, [_mf(_CASE, 4)], [_rcpt(2, "DONE", 0, cmd=MEASURE_CMD)])
-    assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in out and "之前" in out
-
-
-def test_declared_command_before_edit_in_same_turn_blocks(scoped, capsys):
-    """BLOCK 4：同回合先跑後改：收據 at 早於最後修改 at → 擋；at 缺時比 session 內序號；順序對了才放。"""
-    early, late = "2026-10-08T10:00:00+08:00", "2026-10-08T10:00:05+08:00"
-    out = scoped(capsys, [_mf(_CASE, 5, last_at=late)], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=early)])
-    assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in out and "之前" in out
-    assert "VerifyScope" in scoped(capsys, [_mf(_CASE, 5, last_seq=2)], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, seq=1)])
-    assert "VerifyScope" not in scoped(capsys, [_mf(_CASE, 5, last_at=early)],
-                                       [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=late)])
-
-
-def test_declared_command_same_second_receipt_uses_seq(scoped, capsys):
-    """003-3：at 同秒：收據 seq 大於修改 seq → 放；小於 → 擋。"""
-    same = "2026-10-08T10:00:05+08:00"
-    assert "VerifyScope" not in scoped(capsys, [_mf(_CASE, 5, last_at=same, last_seq=3)],
-                                       [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=same, seq=4)])
-    out = scoped(capsys, [_mf(_CASE, 5, last_at=same, last_seq=4)], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=same, seq=3)])
-    assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in out and "之前" in out
-
-
-def test_declared_command_receipt_with_cd(scoped, capsys):
-    """開頭單一絕對路徑的 `cd <根> && 指令` 認得出根：是宣告的根就算、別的根不算。`;` 串的絕對路徑 cd
-    也算（RECEIPT_NO_FORGERY_CHECK）；真的換到別的目錄跑（相對路徑 cd、cd 在後面）就不是宣告那一項。"""
-    mods = [_mf(_CASE, 3)]
-    assert "VerifyScope" not in scoped(capsys, mods, [_rcpt(5, "DONE", 0, cmd="cd c:/proj; " + MEASURE_CMD)])
-    for moved in ("cd sub && " + MEASURE_CMD, "cd c:/proj && cd sub && " + MEASURE_CMD):    # 真的換到別處跑：不是宣告那一項
-        assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in scoped(capsys, mods, [_rcpt(5, "DONE", 0, cmd=moved)]), moved
-    assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in scoped(capsys, mods, [_rcpt(5, "DONE", 0, cmd="cd c:/other && " + MEASURE_CMD)])
-    for ok in (MEASURE_CMD, "cd c:\\proj && " + MEASURE_CMD, "cd /c/proj && " + MEASURE_CMD + " 2>&1 | tail -5"):
-        assert "VerifyScope" not in scoped(capsys, mods, [_rcpt(5, "DONE", 0, cmd=ok)]), ok
-
-
-def test_declared_command_receipt_from_other_root_blocks(scoped, capsys):
-    """BLOCK 4：收據的 cwd／project_root 不是宣告那棵樹 → 不算。"""
-    r = _rcpt(5, "DONE", 0, cmd=MEASURE_CMD)
-    r["project_root"], r["cwd"] = r"c:\other", r"c:\other"
-    assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in scoped(capsys, [_mf(_CASE, 3)], [r])
-
-
-def test_declared_command_failed_run_blocks(scoped, capsys):
-    """BLOCK 5：失敗輸出（FAIL、DONE failed=2、exit 1）不算。"""
-    for r in (_rcpt(5, "FAIL", 1, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "2"}),
-              _rcpt(5, "DONE", 0, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "2"}),
-              _rcpt(5, "DONE", 1, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "0"})):
-        out = scoped(capsys, [_mf(_CASE, 3)], [r])
-        assert "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in out and "紅" in out, r
-    assert "VerifyScope" not in scoped(capsys, [_mf(_CASE, 3)],
-                                       [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "0"})])
-
-
-def test_scope_gate_judged_without_completion_claim(scoped, capsys):
-    """009-4.1：驗證範圍不看措辭：改了沒跑，回覆不宣告完成也擋。"""
-    out = scoped(capsys, [_mf(_CASE, 5)], text="繼續看下一段。")
-    assert "VerifyScope" in out and st.ASK_HINT in out
-    assert "VerifyScope" not in scoped(capsys, [_mf(_CASE, 3)], [_rcpt(4, "DONE", 0, cmd=MEASURE_CMD)], text="繼續看下一段。")
-
-
-def _scope_gate(mods, receipts=(), cmd=MEASURE_CMD, lookup=_lookup, self_runs=(), **kw):
-    """直接呼叫驗證範圍閘（宣告＝cmd 這條指令）；回擋訊息或 None。"""
-    state = {"turn_seq": 5, "modified_files": [], "verify_scope": _declared(cmd, lookup=lookup)}
-    reason, _ = vs.gate_reason(state, _SID, list(mods), list(receipts), vl.reconcile_cfg({}), lookup, vs.DEFAULTS,
-                               self_runs=self_runs, **kw)
-    return reason
-
-
-def test_runtime_gate_not_ready_blocks_with_reason():
-    """還欠收據時才探環境（已有合格收據就不跑 runtime_gate，見 test_013_w2）；量不了 → 擋並說原因。"""
-    chains = {"hook 共用模組層": {"runtime_gate": "unity-is-playing --check"}}
-    reason = _scope_gate([_mf(_CASE, 5)], chains_of=lambda root: chains,
-                         runner=lambda cmd, t, cwd: (False, "runtime_gate exit 1：Editor 不在 Play Mode"))
-    assert reason and "未就緒" in reason and "Play Mode" in reason
-
-
-def test_runtime_gate_ready_then_done_passes():
-    chains = {"hook 共用模組層": {"runtime_gate": "echo ok"}}
-    assert _scope_gate([_mf(_CASE, 5)], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD)], chains_of=lambda root: chains,
-                       runner=lambda cmd, t, cwd: (True, "")) is None
-
-
-def test_run_runtime_gate_real_timeout_and_exit():
-    ok, why = vl.run_runtime_gate(f'"{sys.executable}" -c "import sys; sys.exit(3)"', 5)
-    assert ok is False and "exit 3" in why
-    ok, _ = vl.run_runtime_gate(f'"{sys.executable}" -c "print(1)"', 5)
-    assert ok is True
-    ok, why = vl.run_runtime_gate(f'"{sys.executable}" -c "import time; time.sleep(3)"', 0.5)
-    assert ok is False and "逾時" in why
-
-
-def test_load_verify_chains_reads_hub_json(tmp_path):
-    d = tmp_path / ".claude"
-    d.mkdir()
-    (d / "overview-hub.json").write_text(json.dumps({"verify_chains": {"p": {"runtime_gate": "x", "run": "y"}}}),
-                                         encoding="utf-8", newline="\n")
-    assert vl.load_verify_chains(tmp_path) == {"p": {"runtime_gate": "x", "run": "y"}}
-    assert vl.load_verify_chains(tmp_path / "nope") == {}
-
-
-@pytest.fixture()
-def hub_layers(tmp_path, monkeypatch):
-    """005：verify_chains 走四層合併；回 (公司根, 專案根, 設定 config.json 段的函式)。不吃本機 config 與公司根。"""
-    import wg_core
-    org, proj = tmp_path / "org", tmp_path / "proj"
-    for d in (org, proj):
-        (d / ".claude").mkdir(parents=True)
-    cfg = {}
-    monkeypatch.setattr(wg_core, "load_config", lambda: cfg)
-    monkeypatch.setattr(wo, "org_memory_root", lambda: org)
-    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
-    monkeypatch.setattr(wo, "_WARNED", set())
-    return org, proj, cfg
-
-
-def _hub_json(root, data):
-    (root / ".claude" / "overview-hub.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-
-
-def test_verify_chains_from_company_root_used_by_scope_gate(hub_layers):
-    org, proj, _ = hub_layers
-    _hub_json(org, {"verify_chains": {"hook 共用模組層": {"runtime_gate": "python org-gate.py"}}})
-    assert vl.load_verify_chains(proj) == {"hook 共用模組層": {"runtime_gate": "python org-gate.py"}}   # 專案沒設 → 公司的
-    ran = []
-    reason = _scope_gate([_mf(str(proj / "hooks" / "x.py"), 5)], lookup=_lookup_at(proj),
-                         runner=lambda g, t, c: (ran.append(g), (False, "未就緒"))[1])
-    assert ran == ["python org-gate.py"] and "驗證環境未就緒：未就緒" in reason                          # 驗證範圍閘用公司的
-    _hub_json(proj, {"verify_chains": {"hook 共用模組層": {"runtime_gate": "python proj-gate.py"}}})
-    assert vl.load_verify_chains(proj)["hook 共用模組層"]["runtime_gate"] == "python proj-gate.py"     # 專案覆蓋
-
-
-def test_verify_chains_config_root_value_and_errors(hub_layers):
-    org, proj, cfg = hub_layers
-    cfg["overview_hub"] = {"verify_chains": {"p": {"runtime_gate": "cfg-gate"}}}
-    assert vl.load_verify_chains(proj) == {"p": {"runtime_gate": "cfg-gate"}}                     # config.json 根層值生效
-    _hub_json(proj, {"verify_chain": {}})                                                          # 打錯鍵
-    with pytest.raises(ValueError, match="未知的設定鍵「verify_chain」"):
-        vl.load_verify_chains(proj)                                                                # 反例：與導讀卡端同樣報錯
-
-
 # ─── Q8 檔案項目：pytest 收據要真的跑過那支、在它那棵樹（原根層 worktree 量尺案例） ──────────────
 
 _MAP_BYTES = (FIX / "q6" / "overview-map.md").read_bytes()
@@ -844,42 +637,11 @@ def _pytest_done(turn, root, exit_code=0, cmd=_PYTEST_CMD):
                           {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
 
 
-def _two_roots(tmp_path, same_map=True):
-    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（工作 session 改了部位表）。"""
-    live, wt = tmp_path / "live", tmp_path / "wt"
-    for d in (live, wt):
-        (d / ".claude").mkdir(parents=True)
-    (live / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
-    extra = "\n| `x/` | 其他 | 無 | 無 | 無 | 無 | 無 |\n".encode("utf-8")
-    (wt / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES if same_map else _MAP_BYTES + extra)
-    adm = live / ".git" / "worktrees" / "wt"                                       # 結構同真 worktree（git worktree add 寫的同一組檔）
-    adm.mkdir(parents=True)
-    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
-    (adm / "commondir").write_text("../..\n", encoding="utf-8")
-    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
-    return live, wt
-
-
 def _lookup_at(root):
     def lookup(path):
         row = match_row(path, root, ROWS)
         return (root, row) if row else None
     return lookup
-
-
-def _path_scope_gate(tree):
-    """tree 底下放 hooks/x.py 與 hooks/verify/verify_x.py，宣告範圍＝hooks/verify/verify_x.py（檔案項目），改了 hooks/x.py；
-    回 gate(收據們) → 驗證範圍閘的擋訊息或 None（原「根層 worktree 認 pytest DONE」案例改成檔案項目要真的跑過那支）。"""
-    (tree / "hooks" / "verify").mkdir(parents=True, exist_ok=True)
-    (tree / "hooks" / "x.py").write_text("X = 1\n", encoding="utf-8")
-    (tree / "hooks" / "verify" / "verify_x.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
-    s = {"turn_seq": 5, "modified_files": []}
-    text = vs.declare(s, _SID, {"action": "verify_scope", "items": [{"target": "hooks/verify/verify_x.py", "why": "直接測 x.py"}]},
-                      str(tree), {}, lookup=_lookup_at(tree))
-    assert "收下" in text, text
-    mods = [_mf(str(tree / "hooks" / "x.py"), 5)]
-    return lambda receipts: vs.gate_reason(s, _SID, mods, list(receipts), vl.reconcile_cfg({}), _lookup_at(tree),
-                                           vs.DEFAULTS)[0]
 
 
 def test_done_receipts_sentinel_name_filter():
@@ -888,15 +650,6 @@ def test_done_receipts_sentinel_name_filter():
     assert vl.done_receipts([pt, plain], sentinel_name="PYTEST_MEASURE") == [pt]
     assert vl.done_receipts([pt, plain]) == [pt, plain]             # 預設＝舊行為
 
-
-def test_file_item_takes_pytest_run_of_that_file_in_its_own_tree(tmp_path):
-    """檔案項目：在它那棵樹（worktree 也一樣）改完之後跑那支 pytest 且綠 → 算；跑在改之前、跑紅、在別棵樹跑 → 不算。"""
-    live, wt = _two_roots(tmp_path)
-    gate = _path_scope_gate(wt)
-    assert gate([_pytest_done(5, wt)]) is None
-    assert gate([_pytest_done(5, wt, exit_code=1)]) is not None
-    assert gate([_pytest_done(5, live)]) is not None
-    assert gate([]) is not None
 
 # ─── 件一：擋滿後只認使用者放行（AskUserQuestion【收尾放行確認】或使用者打「放行」，都要在最後一次擋之後） ───
 
@@ -1066,7 +819,7 @@ def test_headless_before_exhausted_is_ordinary_block(driven, capsys, monkeypatch
     assert "收尾宣稱對不上" in out and "無法互動" not in out                                 # 還沒擋滿：照一般擋訊息
 
 
-# ─── 004：驗證範圍認 run_verify 自寫收據（_runs/；範圍大到要背景跑時） ───────────────────────────────
+# ─── 004：部位量尺認 run_verify 自寫收據（_runs/；要背景跑時） ───────────────────────────────
 
 _EDIT_AT = "2026-10-12T10:00:00+08:00"          # ＝UTC 02:00:00
 
@@ -1078,9 +831,10 @@ def _self_run(started="2026-10-12T02:00:01+00:00", exit_code=0, failed=0, root=s
             "env": {} if env is None else env}
 
 
-def _mg(runs, mods=None):
-    """宣告範圍＝run_verify 整體（指令項目），只有背景跑的自寫收據。"""
-    return _scope_gate(mods or [_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], self_runs=runs)
+def _mg(runs):
+    """背景跑的自寫收據算不算改完之後跑了 run_verify 這把尺（對帳 (a)(b) 認自寫收據的判法 self_run_ok；改檔最後一次修改在
+    _EDIT_AT、turn 5）：認 → None；不認 → 一句說明。"""
+    return None if vl.self_run_ok(runs, MEASURE_CMD, str(ROOT), _EDIT_AT, 5) else "自寫收據不認"
 
 
 def test_self_run_started_after_edit_passes():
@@ -1093,34 +847,20 @@ def test_self_run_started_after_edit_passes():
     (_self_run(failed=3), "failed=3"),
     (_self_run(exit_code=1), "exit 1"),
     (_self_run(root="c:/other"), "別的根"),
-    (_self_run(cmd="python -m pytest -q hooks/verify"), "不是宣告的那條指令"),
+    (_self_run(cmd="python -m pytest -q hooks/verify"), "不是表上的那把尺"),
 ])
 def test_self_run_counterexamples_block(run, why):
-    reason = _mg([run])
-    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason and "背景跑的要等它寫完自寫收據" in reason, why
+    assert _mg([run]) is not None, why
 
 
-def test_self_run_covers_file_items_under_its_tree(tmp_path):
-    """路徑項目：run_verify 整體的自寫收據涵蓋受測樹全部；只跑某一組（argv 點名 tools/verify）只涵蓋那一組。"""
-    _, wt = _two_roots(tmp_path)
-    (wt / "tools" / "verify").mkdir(parents=True)
-    gate = _path_scope_gate(wt)                                                             # 宣告 hooks/verify/verify_x.py
-    later = "2099-01-01T00:00:00+00:00"                                                     # 晚於任何修改
-    whole = {**_self_run(root=str(wt), started=later), "argv": ["python", "-X", "utf8", "run_verify.py"]}
-    tools_only = {**_self_run(root=str(wt), started=later), "argv": ["python", "-m", "pytest", "-q", "tools/verify"]}
-    mods = [_mf(str(wt / "hooks" / "x.py"), 5, last_at=_EDIT_AT, last_seq=7)]
-    item = {"kind": "file", "abs": vl._abs_target("", str(wt / "hooks" / "verify" / "verify_x.py")), "root": str(wt)}
-    assert vl.scope_item_status(item, [], mods, [whole])[0] is True
-    assert vl.scope_item_status(item, [], mods, [tools_only])[0] is False
-    assert gate([]) is not None                                                             # 沒有 session 收據 → 擋
-
-
-def test_self_run_from_sibling_session_counts_and_wraps_through_stop(scoped, capsys, monkeypatch):
-    """不綁 session：收據沒有 session 欄也算；Stop 端到端走 load_self_runs。"""
+def test_self_run_from_sibling_session_counts_and_wraps_through_stop(driven, capsys, monkeypatch):
+    """不綁 session：收據沒有 session 欄也算；Stop 端到端走 load_self_runs（(a) 說修好認改檔部位的合格自寫收據）。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    kw = dict(modified_files=[_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], anti_evasion_report=_aec(5, "無", "無"))
     monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()], raising=False)
-    assert "VerifyScope" not in scoped(capsys, [_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)])
+    assert "CLAIM_FIXED_NEEDS_PASS" not in driven("閘修好了，全部完成了。", capsys, **kw)[0]
     monkeypatch.setattr(st, "load_self_runs", lambda: [], raising=False)
-    assert "VerifyScope" in scoped(capsys, [_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)])        # 反例：沒收據
+    assert "CLAIM_FIXED_NEEDS_PASS" in driven("閘修好了，全部完成了。", capsys, **kw)[0]          # 反例：沒收據
 
 
 # ─── 005：SubagentStop 只跑寫碼查核閘、擋到底 ───────────────────────────────────────
@@ -1135,12 +875,12 @@ def sub_stop(monkeypatch):
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
     monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
 
-    def run(capsys, state, last="全部完成了。", agent_id="ag1", scope=False):
+    def run(capsys, state, last="全部完成了。", agent_id="ag1"):
         monkeypatch.setattr(st, "read_state", lambda sid: state)
         logs.clear()
         with pytest.raises(SystemExit):
             st.handle_subagent_stop({"session_id": _SID, "agent_id": agent_id, "hook_event_name": "SubagentStop",
-                                     "last_assistant_message": last}, {"verify_scope": {"enabled": scope}})
+                                     "last_assistant_message": last}, {})
         return capsys.readouterr().out, list(logs)
 
     return run
@@ -1494,14 +1234,13 @@ def test_009_3_real_receipt_with_abs_script_path(run, blocked):
     assert (_mg([run]) is not None) is blocked
 
 
-def test_009_3_session_receipt_uses_same_normalization(scoped, capsys):
-    """前景跑的 session 收據也走同一套比對：絕對腳本路徑、`-Xutf8` 寫法都對得上宣告的指令；017b 規則 7：多帶 `-u` 不算。
+def test_009_3_session_receipt_uses_same_normalization():
+    """前景跑的 session 收據也走同一套比對：絕對腳本路徑、`-Xutf8` 寫法都對得上表上的量尺；017b 規則 7：多帶 `-u` 不算。
     017：只比腳本檔名，所以絕對路徑的腳本要在收據根底下；別棵樹的 run_verify（例：從 worktree 跑 live 的）量的不是這裡。"""
     for cmd, blocked in (('python -X utf8 "c:\\proj\\run_verify.py"', False), ("python -Xutf8 run_verify.py", False),
                          ("python -u -X utf8 run_verify.py", True), (_ABS_CMD, True),
                          ("python -X utf8 C:\\Users\\holylight\\.claude\\run_verify.py", True)):
-        out = scoped(capsys, [_mf(_CASE, 3)], [_rcpt(4, "DONE", 0, cmd=cmd)])
-        assert ("VerifyScope" in out) is blocked, cmd
+        assert (_gate(cmd) is not None) is blocked, cmd
 
 
 def test_009_4_background_self_receipt_satisfies_fixed_claim(driven, capsys, monkeypatch):
@@ -1586,82 +1325,38 @@ def test_013_3_compound_ruler_from_root_table_is_satisfiable(part):
     row = _root_row(part)
     cmd = row["measure"]["cmd"]
     assert "echo" not in cmd                                                               # 直接讀表上字串當輸入
-    mod = _mf(r"c:\proj\x.md", 5, last_at=_T1, last_seq=3)
-    assert _gate(cmd, row=row, mod=mod) is None
-    assert _gate(cmd + "; echo FAKE_CHECK DONE", row=row, mod=mod) is None
+    assert _gate(cmd, row=row) is None
+    assert _gate(cmd + "; echo FAKE_CHECK DONE", row=row) is None
 
 
-def test_013_2_quoted_ruler_text_is_not_a_run(scoped, capsys, monkeypatch):
-    """013 BLOCK 2：指令字樣在 echo 的引號裡、成功行是另一個 echo 印的 → 驗證範圍不認、對帳 (a) 不認 PASS。"""
+def test_013_2_quoted_ruler_text_is_not_a_run(driven, capsys, monkeypatch):
+    """013 BLOCK 2：指令字樣在 echo 的引號裡、成功行是另一個 echo 印的 → 不算跑了量尺、對帳 (a) 不認 PASS。"""
     monkeypatch.setattr(st, "load_self_runs", lambda: [], raising=False)
+    monkeypatch.setattr(wo, "_lookup", _lookup)
     fake = "echo 'dummy;py -3 -Xutf8 run_verify.py;'; echo VERIFY_CHECK PASS; echo VERIFY_CHECK DONE cases=1 failed=0"
     r = _rcpt(5, "PASS", 0, cmd=fake, at=_T2)
     r["sentinels"].append({"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "1", "failed": "0"}})
     mods = [_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)]
-    out = scoped(capsys, mods, [r], text="修好了，全部完成了。")
-    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and "[Guardian:VerifyScope]" in out
-
-
-# ─── 盤點 P5：(a)「說修好」有宣告就認宣告範圍的收據，沒宣告才退回檔名對應 ─────────────────
-
-_P5_MODS = [_mf(_CODE, 3, last_at="2026-10-12T10:00:00+08:00", last_seq=3),
-            _mf(_CASE, 3, last_at="2026-10-12T10:00:00+08:00", last_seq=4)]
-
-
-def test_p5_fixed_claim_accepts_declared_scope_receipt_from_earlier_turn(scoped, capsys):
-    """宣告範圍＝表上那把尺；改完之後（上一回合）跑綠、指令沒提到改的檔 → (a) 認（同一個判斷只有一份答案）。
-    舊碼只認本回合、檔名對得上的 PASS → 擋（紅）。"""
-    r = _rcpt(4, "PASS", 0, cmd=MEASURE_CMD, at="2026-10-12T10:05:00+08:00", seq=5)
-    out = scoped(capsys, _P5_MODS, [r], text="閘修好了，全部完成了。")
-    assert "(a) CLAIM_FIXED_NEEDS_PASS" not in out and "VerifyScope" not in out, out
-
-
-def test_p5_fixed_claim_with_declaration_ignores_file_name_match(scoped, capsys):
-    """有宣告時檔名對應不再算數：本回合跑了提到 x.py 的測試，但它不在宣告範圍 → (a) 擋，證據列宣告的項目為什麼沒收據。
-    舊碼檔名對上就放 (a)（紅）。"""
-    r = _rcpt(5, "PASS", 0, cmd=_RELATED_CMD, at="2026-10-12T10:05:00+08:00", seq=5)
-    out = scoped(capsys, _P5_MODS, [r], text="閘修好了，全部完成了。")
-    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」但驗證範圍" in out and MEASURE_CMD in out, out
-
-
-def test_p5_fixed_claim_without_declaration_falls_back_to_file_names(scoped, capsys):
-    """沒宣告：退回檔名對應（本回合提到 x.py 的 PASS 就算），(a) 不擋；驗證範圍閘另外要宣告。"""
-    r = _rcpt(5, "PASS", 0, cmd=_RELATED_CMD, at="2026-10-12T10:05:00+08:00", seq=5)
-    out = scoped(capsys, _P5_MODS, [r], text="閘修好了，全部完成了。", declared=False)
-    assert "(a) CLAIM_FIXED_NEEDS_PASS" not in out and "SCOPE_DECLARED_FOR_CHANGE" in out, out
+    out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [r]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and _gate(fake) is not None
 
 
 def test_013_2_subset_run_is_not_the_ruler():
-    """013 BLOCK 2：宣告 `pytest -q lib/verify`，實跑多帶 `-k 某案` 或多一個檔名 → 不是宣告的那條指令。"""
+    """013 BLOCK 2：表上 `pytest -q lib/verify`，實跑多帶 `-k 某案` 或多一個檔名 → 不是表上的那把尺。"""
     row = {"part_short": "純函式與資料層", "measure": {"method": "lib verify", "cmd": "pytest -q lib/verify", "threshold": "全綠"}}
-    mod = _mf(r"c:\proj\lib\x.py", 5, last_at=_T1, last_seq=3)
-    assert _gate("pytest -q lib/verify", row=row, mod=mod) is None
-    assert _gate("pytest lib/verify -q", row=row, mod=mod) is not None                       # 017：照順序比，換位置不算
-    assert _gate("pytest -q lib/verify -k test_cmd_of", row=row, mod=mod) is not None
-    assert _gate("pytest -q lib/verify lib/verify/verify_self_receipt.py", row=row, mod=mod) is not None
+    assert _gate("pytest -q lib/verify", row=row) is None
+    assert _gate("pytest lib/verify -q", row=row) is not None                       # 017：照順序比，換位置不算
+    assert _gate("pytest -q lib/verify -k test_cmd_of", row=row) is not None
+    assert _gate("pytest -q lib/verify lib/verify/verify_self_receipt.py", row=row) is not None
 
 
-def test_013_w2_runtime_gate_skipped_when_part_already_measured():
-    """013 WARN 2：範圍已有合格收據 → 不跑 runtime_gate；還欠收據才跑，量不了的訊息不叫人寫原因來解帳。"""
-    calls: list = []
-    runner = lambda g, t, c: (calls.append(g), (False, "未就緒"))[1]                          # noqa: E731
-    chains = lambda r: {"hook 共用模組層": {"runtime_gate": "probe --check"}}                 # noqa: E731
-    mod = _mf(_CASE, 5, last_at=_T1, last_seq=3)
-    assert _scope_gate([mod], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2)], chains_of=chains, runner=runner) is None
-    assert calls == []
-    reason = _scope_gate([mod], [], chains_of=chains, runner=runner)
-    assert calls == ["probe --check"] and "驗證環境未就緒" in reason and "【收尾放行確認】" in reason
-    assert "寫明量不了的原因與何時能量，或讓環境就緒後跑尺" not in reason
-
-
-def test_013_w1_messages_list_evidence_not_rewording(driven, scoped, capsys):
-    """013 WARN 1：沒 pending 的 (a) 第一次擋照舊可說「沒跑就說沒跑」；欠補案例 (d) 或驗證範圍欠帳時只列證據與放行問法。"""
+def test_013_w1_messages_list_evidence_not_rewording(driven, capsys):
+    """013 WARN 1：沒 pending 的 (a) 第一次擋照舊可說「沒跑就說沒跑」；欠補案例 (d) 時只列證據與放行問法。"""
     out, _, _ = driven("閘修好了，完成。", capsys)
     assert "沒跑就說沒跑" in out
     out, _, _ = driven("變更內容如上。", capsys, modified_files=[_mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3)])
     assert "(d)" in out and "改成事實句" not in out and "改寫收尾文字不會解帳" in out
-    out = scoped(capsys, [_mf(_CASE, 5)], text="變更內容如上。")
-    assert "[Guardian:VerifyScope]" in out and "改寫收尾文字不會解帳" in out
 
 
 def _judge_dispatch(tool_name, tool_input, cwd):
@@ -1691,15 +1386,23 @@ def test_013_4_judge_pre_tool_use_allows_unknown_write_target(tmp_path):
 _WIDGET = r"c:\proj\src\widget.py"
 
 
-# ─── 017／017b：白名單語法、解析不了就不算（宣告的指令項目照原字串比；經驗證範圍閘或 handle_stop 入口） ──────────────
+# ─── 017／017b：白名單語法、解析不了就不算（表上的量尺照原字串比；經部位量尺的認法或 handle_stop 入口） ──────────────
 
-def _gate(cmd, tool="Bash", row=None, mod=None):
-    """驗證範圍閘入口：宣告範圍＝表上那把尺（row 給了用它的，否則 MEASURE_CMD）；一筆同根、改完之後、exit 0、failed=0 的
-    DONE 收據，指令是 cmd（tool 決定依哪種 shell 解析）。回擋訊息或 None。"""
+def _ruler_reason(receipt, ruler=MEASURE_CMD):
+    """這筆收據算不算跑了部位量尺 ruler（對帳 (a)(b) 認「跑了部位量尺」的判法：_trusted 換根後 _ruler_any）：
+    認 → None；不認 → 擋訊息附的那句說明（_syntax_note；沒有說明就回「沒跑這把尺」）。"""
+    r = vl._trusted(receipt)
+    if r is not None and vl._ruler_any(r, [ruler]):
+        return None
+    return vl._syntax_note([receipt], "DONE", [ruler]) or "沒跑這把尺"
+
+
+def _gate(cmd, tool="Bash", row=None):
+    """部位量尺（row 給了用它的，否則 MEASURE_CMD）認不認一筆同根、改完之後、exit 0、failed=0 的 DONE 收據，
+    指令是 cmd（tool 決定依哪種 shell 解析）。認 → None；不認 → 說明（_ruler_reason）。"""
     ruler = ((row or {}).get("measure") or {}).get("cmd") or MEASURE_CMD
     r = {**_rcpt(5, "DONE", 0, cmd=cmd, at=_T2, kv={"cases": "1", "failed": "0"}), "tool": tool}
-    return _scope_gate([mod or _mf(_CASE, 5, last_at=_T1, last_seq=3)], [r], cmd=ruler,
-                       lookup=(lambda p: (ROOT, row)) if row else _lookup, chains_of=lambda r: {})
+    return _ruler_reason(r, ruler)
 
 
 _HERE_STRING = "Write-Output @'\nVERIFY_CHECK DONE cases=1 failed=0\n';\npython -X utf8 run_verify.py\nX='\n'@"
@@ -1718,17 +1421,6 @@ def test_017_root_table_rulers_still_runnable_as_declared_commands():
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)
             assert _gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None, (row["part_short"], tool)
             assert _gate("python -h " + row["measure"]["cmd"][len("python "):], tool, row) is not None   # 規則 7
-
-
-def test_017_declared_command_itself_unparseable_is_rejected():
-    """G6 (b)：宣告的指令本身含白名單外語法，任何收據都對不上 → 收件就退回並說是哪一種；跑腳本檔的 `pwsh -File` 是白名單內
-    → 收下、原樣跑會過。"""
-    s = {"turn_seq": 5}
-    text = vs.declare(s, _SID, {"action": "verify_scope", "items": [{"target": "pwsh -Command ./verify.ps1", "why": "w"}]},
-                      str(ROOT), {}, lookup=lambda p: None)
-    assert "SCOPE_ITEM_WELL_FORMED" in text and "解析不了的語法（另起一層 shell" in text and not s.get("verify_scope")
-    ok = {"part_short": "工具層", "measure": {"method": "verify", "cmd": "pwsh -NoProfile -File ./verify.ps1", "threshold": "全綠"}}
-    assert _gate(ok["measure"]["cmd"], "PowerShell", ok) is None
 
 
 def test_017_warn_pending_b_c_ask_for_evidence_not_rewording(driven, capsys):
@@ -1773,61 +1465,15 @@ def test_017b_11_ruler_own_echo_still_counts():
     assert _gate("echo MEMORY_INDEX_CHECK DONE; " + m, row=row) is None
 
 
-def test_017_file_item_pytest_done_must_come_from_pytest(tmp_path):
-    """檔案項目認 pytest 摘要行映射的收據：要真的跑了 pytest（前後夾了別的指令也照算，不看形狀）；只有 echo／cat 舊 log、
-    沒跑 pytest 的不算。"""
-    _, wt = _two_roots(tmp_path)
-    path_gate = _path_scope_gate(wt)
-    gate = lambda cmd: path_gate([_pytest_done(5, wt, cmd=cmd)])                                 # noqa: E731
-    assert gate(_PYTEST_CMD) is None and gate(f"WG=1 {_PYTEST_CMD} 2>&1 | tail -3") is None
-    for fake in ('echo "=== 5 passed in 0.1s ==="', "cat old-pytest.log"):
-        assert gate(fake) is not None, fake
-    for ran in (f"cat old-pytest.log; {_PYTEST_CMD} | tail -3", f"{_PYTEST_CMD}; echo '5 passed'"):
-        assert gate(ran) is None, ran
-
-
 # ─── 017 codex 初審：指定式藏假哨兵、讀舊輸出檔冒充、done_receipts 預設也 fail-closed ─────────────────────
 
-_PYTEST_RULE = {"regex": "^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed))", "name": "PYTEST_MEASURE",
-                "verdict_map": {"failed": "FAIL", "passed": "DONE"}}
 
-
-def test_017_codex1_powershell_assignment_cannot_print_fake_pytest_summary(tmp_path, monkeypatch):
-    """codex 初審 BLOCK 1：`$env:S="5 passed"; $x=Write-Host $env:S; python -m pytest --version`（PowerShell 實跑會印出假摘要）
-    經 PostToolUse 落帳 → 驗證範圍的檔案項目不認；真的跑 pytest 印的摘要 → 認。"""
-    from handlers import post_tool_use as pt
-    _, wt = _two_roots(tmp_path)
-    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")
-    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
-    path_gate = _path_scope_gate(wt)
-
-    def gate(cmd, stdout):
-        state = {"turn_seq": 5, "session": {"cwd": str(wt)}}
-        assert pt._track_sentinels(state, {"tool_response": {"stdout": stdout}, "cwd": str(wt)}, cmd, "PowerShell",
-                                   {"verify_ledger": {"sentinel_regex": [_PYTEST_RULE]}}, _SID)
-        return path_gate(state["verify_receipts"][_SID])
-
-    fake = '$env:S="5 passed"; $x=Write-Host $env:S; python -m pytest --version'
-    assert gate(fake, "5 passed\npytest 8.3.0\n") is not None
-    assert gate("$x = Write-Host '=== 5 passed ==='; python -m pytest --version", "=== 5 passed ===\npytest 8.3.0\n") is not None
-    assert gate(_PYTEST_CMD, "1 passed in 0.10s\n") is None
-
-
-def test_017_codex_r2_3_other_tree_paths_do_not_count(tmp_path, monkeypatch):
-    """codex 二審 BLOCK 3：`../live/run_verify.py`、`C:/proj/../live/run_verify.py` 量的是別棵樹 → 指令項目不認；worktree 的
-    檔案項目拿 pytest 跑別棵樹的同名測試也不認。codex 二審 BLOCK 4：`pytest x && pytest b` 誠實串接 → 認。"""
+def test_017_codex_r2_3_other_tree_paths_do_not_count():
+    """codex 二審 BLOCK 3：`../live/run_verify.py`、`C:/proj/../live/run_verify.py` 量的是別棵樹 → 量尺不認，訊息講收據根以外。"""
     for bad in ("python -X utf8 ../live/run_verify.py", "python -X utf8 C:/proj/../live/run_verify.py"):
         reason = _gate(bad)
         assert reason and "收據根以外" in reason, bad
     assert _gate("python -X utf8 c:/proj/sub/../run_verify.py") is None
-    live, wt = _two_roots(tmp_path)
-    path_gate = _path_scope_gate(wt)
-    gate = lambda cmd: path_gate([_pytest_done(5, wt, cmd=cmd)])                                 # noqa: E731
-    assert gate(f"python -m pytest -q {live}/hooks/verify/verify_x.py") is not None
-    assert gate("python -m pytest -q ../live/hooks/verify/verify_x.py") is not None
-    assert gate("python -m pytest -q hooks/verify/verify_x.py && python -m pytest -q hooks/verify/verify_b.py") is None
-    # 跑了那支就算、不看形狀（收據不防偽）：後一段接 | tail 也照認
-    assert gate("python -m pytest hooks/verify/verify_x.py && python -m pytest missing.py | tail -5") is None
 
 
 @pytest.mark.parametrize("cmd, ok", [(f"git status; {MEASURE_CMD}", True), (f"{MEASURE_CMD} | head -5", True),
@@ -1838,11 +1484,8 @@ def test_017_ruler_with_extra_commands_counts_unless_tree_unknown(cmd, ok):
     assert (_gate(cmd) is None) is ok, cmd
 
 
-def test_017_codex_r4_scope_gate_identity_and_tail():
-    """codex 四審（經驗證範圍閘的指令項目）：從 archive/ 跑 `python -X utf8 run_verify.py`（cwd 不是宣告時的目錄）跑的是另一支
-    → 不認；`../live/verify.sh` 不是宣告的 `./verify.sh` → 不認；多段指令後面接 `| tail` → 照認（不看形狀）。"""
-    archive = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2, kv={"cases": "1", "failed": "0"}), "cwd": r"c:\proj\archive"}
-    assert _scope_gate([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [archive], chains_of=lambda r: {}) is not None
+def test_017_codex_r4_ruler_identity_and_tail():
+    """codex 四審（部位量尺照原字串比）：`../live/verify.sh` 不是表上的 `./verify.sh` → 不認；多段指令後面接 `| tail` → 照認（不看形狀）。"""
     sh_row = {"part_short": "腳本層", "measure": {"method": "verify", "cmd": "./verify.sh --all", "threshold": "全綠"}}
     assert _gate("../live/verify.sh --all", row=sh_row) is not None and _gate("./verify.sh --all", row=sh_row) is None
     two = {"part_short": "兩段", "measure": {"method": "v", "cmd": "python -X utf8 run_verify.py && python check.py", "threshold": "全綠"}}
@@ -1850,9 +1493,9 @@ def test_017_codex_r4_scope_gate_identity_and_tail():
     assert _gate(two["measure"]["cmd"], row=two) is None
 
 
-def test_017_codex_r3_scope_gate_follows_real_execution():
+def test_017_codex_r3_ruler_follows_real_execution():
     """跑了哪支照指令內容認、不追 shell 短路與管線（收據不防偽：真的沒跑就印不出哨兵）：`X=1 || 指令`、`$x = Set-Location; 指令`、
-    `cd C:/repo | … && 指令` → 指令項目照認；`archive/run_verify.py`（另一支同名腳本）→ 不認；
+    `cd C:/repo | … && 指令` → 量尺照認；`archive/run_verify.py`（另一支同名腳本）→ 不認；
     `指令 # cd C:/repo`（cd 只在註解裡，PostToolUse 用原字串標了 root_uncertain）→ 認。"""
     row = _root_row("記憶資料層")
     mem = row["measure"]["cmd"]
@@ -1863,7 +1506,7 @@ def test_017_codex_r3_scope_gate_follows_real_execution():
     assert _gate("python -X utf8 archive/run_verify.py") is not None
     r = {**_rcpt(5, "DONE", 0, cmd=f"{MEASURE_CMD} # cd C:/repo", at=_T2, kv={"cases": "1", "failed": "0"}),
          "root_uncertain": True}
-    assert _scope_gate([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [r], chains_of=lambda r: {}) is None
+    assert _ruler_reason(r) is None
 
 
 def test_017d_rescue_map_error_is_logged_not_swallowed_by_name_error(monkeypatch, capsys):
@@ -1910,16 +1553,6 @@ def test_022_codex_pre_honest_forms_still_count():
                 MEASURE_CMD + " 2>&1 | tail -5", "WG_CLAUDE_DIR='C:/x' " + MEASURE_CMD):
         assert _gate(cmd) is None, cmd
     assert _gate(f"$note='it''s'; {MEASURE_CMD}", "PowerShell") is None                       # PowerShell '' 是字面引號
-
-
-def test_022_codex_pre_declared_command_runs_in_its_own_dir():
-    """022 規則 4（驗證範圍的指令項目）：宣告 `python -m pytest -q` 時，`cd 根/tests && 同一條指令` 跑的是 tests 之下那一組，
-    不算；擋訊息說執行根在哪；在宣告時的目錄跑、或開頭 cd 到那個目錄照算。"""
-    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q"}}
-    reason = _gate("cd c:/proj/tests && python -m pytest -q", row=row)
-    assert reason and "執行根是 c:/proj/tests" in reason
-    assert _gate("python -m pytest -q", row=row) is None
-    assert _gate("cd c:/proj && python -m pytest -q", row=row) is None
 
 
 def test_022_codex_pre_drop_anchors_keeps_classes_and_escapes():
@@ -2043,20 +1676,9 @@ def test_026_general_evidence_checks_scope_env_at_every_program_step(driven, cap
         assert "改了驗證選項" in out and ("PYTEST_ADDOPTS" in out or "PYTHONOPTIMIZE" in out), cmd
 
 
-def test_026_file_item_pytest_run_checks_scope_env(tmp_path):
-    """026：檔案項目認 pytest 收據也查環境：縮限設定跑出來的不算，訊息講變數；清空照算。"""
-    _, wt = _two_roots(tmp_path)
-    gate = _path_scope_gate(wt)
-    narrowed = _pytest_done(5, wt, cmd="PYTEST_ADDOPTS='-k other' python -X utf8 -m pytest -q hooks/verify/verify_x.py")
-    reason = gate([narrowed])
-    assert reason and "PYTEST_ADDOPTS" in reason
-    cleared = _pytest_done(5, wt, cmd="PYTEST_ADDOPTS='' python -X utf8 -m pytest -q hooks/verify/verify_x.py")
-    assert gate([cleared]) is None
-
-
 def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkeypatch):
     """024 規則 2：`PYTEST_ADDOPTS='-k x' python -X utf8 run_verify.py` 的自寫收據（用真的 write_self_receipt 序列化）不能替部位
-    解帳，擋訊息說是哪個環境設定；配對正例：環境裡沒有或是空值時，同樣寫出的收據照算。"""
+    解帳；配對正例：環境裡沒有或是空值時，同樣寫出的收據照算。"""
     from datetime import datetime, timezone
     started = datetime(2026, 10, 12, 2, 0, 1, tzinfo=timezone.utc).timestamp()
 
@@ -2069,8 +1691,7 @@ def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkey
                                                 "VERIFY_CHECK DONE cases=1 failed=0", 0, 1, 0, str(ROOT), str(ROOT),
                                                 started, started + 60)
         return json.loads(p.read_text(encoding="utf-8"))
-    reason = _mg([written("subset", "-k test_x")])
-    assert reason and "PYTEST_ADDOPTS" in reason and "自寫收據" in reason
+    assert _mg([written("subset", "-k test_x")]) is not None
     assert _mg([written("clean", None)]) is None and _mg([written("empty", "")]) is None
     legacy = {k: v for k, v in _self_run().items() if k != "env"}
     assert _mg([legacy]) is not None                                                      # 沒記 env 的舊收據看不出來，不算
@@ -2194,26 +1815,18 @@ def test_035_1_inherited_scope_env_is_part_of_effective_env(driven, capsys, monk
             assert "父行程繼承" in out and "在指令內清空繼承值" in out
 
 
-def test_035_1_inherited_env_also_gates_file_items_and_declared_commands(tmp_path):
-    """035 ①：檔案項目認 pytest 收據與指令項目照原字串比，都從收據 env 起算：繼承 `-k smoke` 的收據不算，訊息講變數；
-    行內清空的照算；宣告的指令自帶 PYTEST_ADDOPTS 值時，繼承來的同值也算對上。"""
-    _, wt = _two_roots(tmp_path)
-    gate = _path_scope_gate(wt)
-    inherited = {**_pytest_done(5, wt), "env": {"PYTEST_ADDOPTS": "-k smoke"}}
-    reason = gate([inherited])
-    assert reason and "PYTEST_ADDOPTS" in reason and "父行程繼承" in reason
-    cleared = {**_pytest_done(5, wt, cmd="PYTEST_ADDOPTS='' " + _PYTEST_CMD), "env": {"PYTEST_ADDOPTS": "-k smoke"}}
-    assert gate([cleared]) is None
-    mod = _mf(_CASE, 5, last_at=_T1, last_seq=3)
+def test_035_1_inherited_env_also_gates_ruler_receipts():
+    """035 ①：部位量尺照原字串比也從收據 env 起算：繼承 `-k smoke` 的收據不算，訊息講變數；表上量尺自帶 PYTEST_ADDOPTS 值時，
+    繼承來的同值也算對上。"""
     r = {**_rcpt(5, "DONE", 0, cmd="python -m pytest -q", at=_T2), "env": {"PYTEST_ADDOPTS": "-k smoke"}}
-    reason = _scope_gate([mod], [r], cmd="python -m pytest -q", chains_of=lambda r: {})
+    reason = _ruler_reason(r, "python -m pytest -q")
     assert reason and "PYTEST_ADDOPTS" in reason
     r2 = {**_rcpt(5, "DONE", 0, cmd="python -m pytest -q", at=_T2), "env": {"PYTEST_ADDOPTS": "--tb=short"}}
-    assert _scope_gate([mod], [r2], cmd="PYTEST_ADDOPTS='--tb=short' python -m pytest -q", chains_of=lambda r: {}) is None
+    assert _ruler_reason(r2, "PYTEST_ADDOPTS='--tb=short' python -m pytest -q") is None
 
 
 def test_035_1_receipt_without_env_is_not_evidence(driven, capsys):
-    """035 ①（照 025 規則 2）：升級前沒記 env 欄的收據看不出範圍有沒有被縮小，(a) 與驗證範圍都不採認，訊息說是沒記啟動環境、
+    """035 ①（照 025 規則 2）：升級前沒記 env 欄的收據看不出範圍有沒有被縮小，(a) 與部位量尺都不採認，訊息說是沒記啟動環境、
     請重跑；配對：同一筆加上 env={} 就認。"""
     legacy = {k: v for k, v in _rcpt(5, at=_T2).items() if k != "env"}
     out, _, _ = driven("x 修好了，完成。", capsys, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)],
@@ -2223,9 +1836,9 @@ def test_035_1_receipt_without_env_is_not_evidence(driven, capsys):
                        verify_receipts={_SID: [{**legacy, "env": {}}]})
     assert "ReconcileGate" not in out
     done = {k: v for k, v in _rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2, kv={"failed": "0"}).items() if k != "env"}
-    reason = _scope_gate([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [done], chains_of=lambda r: {})
+    reason = _ruler_reason(done)
     assert reason and "沒記啟動環境" in reason
-    assert _scope_gate([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [{**done, "env": {}}], chains_of=lambda r: {}) is None
+    assert _ruler_reason({**done, "env": {}}) is None
 
 
 @pytest.mark.parametrize("line, verdicts", [
@@ -2352,7 +1965,7 @@ def test_036b_unsupported_env_clearing_syntax_is_not_accepted(driven, capsys, mo
 ])
 def test_035_2_pytest_error_is_fail_through_post_tool_use_and_stop(driven, capsys, monkeypatch, tmp_path, out, resp_kind):
     """035 ②：經 PostToolUse 落帳的 pytest error 摘要是 FAIL 收據（兩個哨兵都 FAIL），也進 failing_tests；
-    Stop：(a) 不採認、TestFailGate 擋、驗證範圍的檔案項目也不認。配對：同形狀全綠照常 PASS／DONE。"""
+    Stop：(a) 不採認、TestFailGate 擋。配對：同形狀全綠照常 PASS／DONE。"""
     cmd = "python -X utf8 -m pytest -q lib/verify | tail -n 1"
     state = _post(monkeypatch, tmp_path, cmd, out, resp=(out if resp_kind == "noexit" else None))
     rec = state["verify_receipts"][_SID][0]
@@ -2364,16 +1977,13 @@ def test_035_2_pytest_error_is_fail_through_post_tool_use_and_stop(driven, capsy
     assert "TestFailGate" in o
     o, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS), verify_receipts=state["verify_receipts"])
     assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in o and "沒有任何 PASS 收據" in o
-    _, wt = _two_roots(tmp_path)
-    red = {**rec, "project_root": str(wt), "cwd": str(wt), "cmd": _PYTEST_CMD}
-    assert _path_scope_gate(wt)([red])
     green = _post(monkeypatch, tmp_path, cmd, "3 passed in 0.10s\n")["verify_receipts"][_SID][0]
     assert [s["verdict"] for s in green["sentinels"]] == ["PASS", "DONE"]
 
 
 def test_receipt_keeps_red_cases_and_whether_the_list_is_complete(monkeypatch, tmp_path):
-    """規則 SCOPE_RED_ONLY_ITS_CASES：PostToolUse 落的收據記下紅掉的案例與清單完不完整（紅案數對得上結算行）；綠的不加欄位。
-    輸出被 tail 截掉結算行 → red_known=False（Stop 照整條算紅）。"""
+    """PostToolUse 落的收據記下紅掉的案例與清單完不完整（red_cases／red_known：紅案數對得上結算行）；綠的不加欄位。
+    輸出被 tail 截掉結算行 → red_known=False。"""
     cmd = "python -X utf8 -m pytest -q hooks/verify/verify_a.py hooks/verify/verify_b.py"
     out = "F.\nFAILED hooks/verify/verify_a.py::test_x - assert 0\n1 failed, 1 passed in 0.10s\n"
     rec = _post(monkeypatch, tmp_path, cmd, out, resp={"stdout": out, "stderr": "", "exit_code": 1})["verify_receipts"][_SID][0]
@@ -2387,14 +1997,13 @@ def test_receipt_keeps_red_cases_and_whether_the_list_is_complete(monkeypatch, t
 
 def test_035_3_unreadable_map_blocks_as_judge_error_not_silent_skip(driven, capsys, monkeypatch, tmp_path):
     """035 ③：部位表存在但讀不到（PermissionError）→ _lookup 拋 MapReadError，Stop 走判定錯誤路徑一律擋＋stderr＋guard_log，
-    不是「沒有量尺」靜默跳過；配對：表讀得到時驗證範圍閘正常擋「改了沒宣告範圍」。"""
+    不是「沒有量尺」靜默跳過；配對：表讀得到時不出判定錯誤。"""
     proj = tmp_path / "proj"
     (proj / ".claude").mkdir(parents=True)
     (proj / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
     mods = [_mf(str(proj / "hooks" / "x.py"), 5, last_at=_T1, last_seq=3), _mf(str(proj / "hooks" / "verify" / "verify_x.py"), 5, last_at=_T1, last_seq=4)]
-    out, _, _ = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"),
-                       scope=True)
-    assert "VerifyScope" in out and "SCOPE_DECLARED_FOR_CHANGE" in out and "判定錯誤" not in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"))
+    assert "判定錯誤" not in out
     orig = Path.read_text
 
     def denied(self, *a, **k):
@@ -2408,11 +2017,9 @@ def test_035_3_unreadable_map_blocks_as_judge_error_not_silent_skip(driven, caps
     capsys.readouterr()
     assert wo._lookup_quiet(str(proj / "hooks" / "x.py")) is None                      # 注入那幾條路：當沒命中，但 stderr 說一聲
     assert "存在但讀不到" in capsys.readouterr().err
-    out, _, logs = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"),
-                          scope=True)
+    out, _, logs = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"))
     assert "判定錯誤：MapReadError" in out and "存在但讀不到" in out
-    assert "SCOPE_DECLARED_FOR_CHANGE" not in out
-    assert any(g in ("scope", "reconcile") and "MapReadError" in str(p.get("error")) for g, p in logs)
+    assert any(g == "reconcile" and "MapReadError" in str(p.get("error")) for g, p in logs)
 
 
 def _win_long_short():
@@ -2507,15 +2114,15 @@ def clean_repo(tmp_path, monkeypatch):
     return repo, str(repo / "hooks" / "x.py")
 
 
-def test_reverted_edit_is_not_code_debt_nor_scope_debt(driven, capsys, clean_repo):
-    """反證時暫改、又 git checkout 還原的程式檔：內容與 HEAD 相同、本 session 之後沒 commit → (d) 與驗證範圍都不擋；
-    配對：檔還改著 → (d) 與驗證範圍照擋。"""
+def test_reverted_edit_is_not_code_debt(driven, capsys, clean_repo):
+    """反證時暫改、又 git checkout 還原的程式檔：內容與 HEAD 相同、本 session 之後沒 commit → (d) 不擋；
+    配對：檔還改著 → (d) 照擋。"""
     repo, x = clean_repo
-    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)], scope=True)
-    assert _DEBT_X not in out and "VerifyScope" not in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X not in out
     (repo / "hooks" / "x.py").write_text("x = 2\n", encoding="utf-8", newline="\n")
-    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)], scope=True)
-    assert _DEBT_X in out and "VerifyScope" in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X in out
 
 
 def test_clean_but_committed_since_first_edit_still_owes(driven, capsys, clean_repo):
@@ -2540,8 +2147,8 @@ def test_subagent_reverted_edit_is_not_code_debt(sub_stop, capsys, clean_repo):
 
 @pytest.mark.parametrize("kind", ["untracked", "ignored", "staged", "deleted"])
 def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
-    """未追蹤、被忽略、已暫存、刪除都算有差（判不出原樣就照算改了）：改到有量尺的部位，驗證範圍照要宣告。(d) 欠案例除了被忽略
-    那種都照欠；被 .gitignore 忽略的檔不是本專案程式（EXCLUDED_REGION），不欠案例。"""
+    """未追蹤、被忽略、已暫存、刪除都算有差（判不出原樣就照算改了）：(d) 欠案例除了被忽略那種都照欠；
+    被 .gitignore 忽略的檔不是本專案程式（EXCLUDED_REGION），不欠案例。"""
     repo, x = clean_repo
     path = x
     if kind == "untracked":
@@ -2557,9 +2164,8 @@ def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
         _git(repo, "add", "hooks/x.py")
     else:
         Path(x).unlink()
-    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(path, 5)], scope=True)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(path, 5)])
     assert (f"改了程式碼（{Path(path).name}）" in out) is (kind != "ignored"), kind
-    assert "VerifyScope" in out, kind                                                     # 不是原樣：驗證範圍也照要宣告
 
 
 def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys, chain, monkeypatch):
@@ -2731,8 +2337,7 @@ def chain(monkeypatch, tmp_path):
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
     monkeypatch.setattr(aec_ledger, "record_temp_write", lambda *a, **k: None)
     monkeypatch.setattr(wg_core, "read_state", lambda sid: state)                  # 裁判入口自己讀 state
-    # PostToolUse 與 Stop 吃同一份設定：driven 預設關驗證範圍閘，commit 快照也照關（要測宣告判法的案把 cfg 打開）
-    cfg = {"docdrift": {"enabled": False}, "verify_scope": {"enabled": False}}
+    cfg = {"docdrift": {"enabled": False}}
 
     def post(tool, tool_input, agent_id="", judge=False):
         inp = {"session_id": _SID, "tool_name": tool, "tool_input": tool_input, "cwd": str(repo),
@@ -2776,8 +2381,8 @@ def test_037_git_restoring_everything_back_is_not_code_debt(driven, capsys, chai
     state, _, git, _, _, _ = chain
     git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_suite.py")
     git("checkout", "HEAD", "--", "src/a.py", "tests/test_suite.py")
-    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), scope=True, **state)
-    assert "ReconcileGate" not in out and "VerifyScope" not in out
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "ReconcileGate" not in out
 
 
 def _others_merge(repo, code, case, v):
@@ -3030,40 +2635,6 @@ def test_040_1_release_answer_after_first_block_releases(gate_run, capsys):
     assert "(d)" in out and "y.py" in out                                                   # 新改的檔是新的一件：照擋
 
 
-def test_no_case_user_release_is_remembered_until_the_file_changes(driven, capsys, tmp_path, monkeypatch):
-    """NO_CASE_NEEDS_USER 端到端：宣告 no_case → (d) 擋並帶理由 → 使用者在【收尾放行確認】放行 → 下一個使用者回合沒再改就不重問
-    （舊碼沒有這筆紀錄，每回合都要再問）；檔再改了 → 又要裁。guard log 的 user_release 記下裁定了哪些檔。"""
-    tp = tmp_path / "t.jsonl"
-    tp.write_text("", encoding="utf-8")
-    monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
-    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
-    monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
-    decl = _declared(_RELATED_CMD)
-    decl[_SID][-1]["no_case"] = [{"path": _CODE, "reason": "只改擋訊息字串"}]
-    state = {"turn_seq": 4, "session": {"cwd": str(tmp_path)}, "modified_files": [_mf(_CODE, 5, last_at=_T1, last_seq=3)],
-             "verify_scope": decl, "verify_receipts": {_SID: [_rcpt(5, at=_T2, seq=4)]}}
-    _ups_turn(monkeypatch, state, "改 hooks/x.py 的擋訊息")
-
-    def stop():
-        out, after, logs = driven("全部完成了。", capsys, scope=True, **copy.deepcopy(state))
-        state.clear()
-        state.update(after)
-        return out, logs
-
-    out, _ = stop()
-    assert "NO_CASE_NEEDS_USER" in out and "只改擋訊息字串" in out, out
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_ask_line(rl.OPT_RELEASE))
-    out, logs = stop()
-    assert "ReconcileGate" not in out and any(p.get("no_case_approved") == ["x.py"] for p in _released(logs)), logs
-    _ups_turn(monkeypatch, state, "繼續")                                                  # 使用者真打字：新回合
-    out, _ = stop()
-    assert "NO_CASE_NEEDS_USER" not in out and "ReconcileGate" not in out, out
-    state["modified_files"] = [_mf(_CODE, 6, last_at=_T3, last_seq=9)]                     # 又改了 x.py
-    out, _ = stop()
-    assert "NO_CASE_NEEDS_USER" in out, out
-
-
 def test_040_2_release_answer_before_block_does_not_count(gate_run, capsys):
     """040 規則 (a) 配對（新舊都綠）：擋之前就答過放行、擋之後沒再答 → 仍擋。"""
     state, stop, ups, ask, ref = gate_run
@@ -3287,8 +2858,8 @@ def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_rep
 
 
 def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys, tmp_path):
-    """知識部位只移出 (d) 與定位三行：表上有量尺的知識部位改了，照樣要宣告驗證範圍（量尺當參考出現）；commit 快照照記
-    知識部位的改檔內容。codex 審 a6323cb 新案缺口（契約 3、5 的直接斷言）。"""
+    """知識部位只移出 (d) 與定位三行：表上有量尺的知識部位改了不欠案例；commit 快照照記知識部位的改檔內容。
+    codex 審 a6323cb 新案缺口（契約 3、5 的直接斷言）。"""
     repo = tmp_path / "mrepo"
     (repo / ".claude").mkdir(parents=True)
     (repo / ".claude" / "overview-map.md").write_text(
@@ -3298,8 +2869,7 @@ def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys,
     p = repo / "memory" / "_staging" / "a.py"
     p.parent.mkdir(parents=True)
     p.write_text(_KNOW_SRC, encoding="utf-8")
-    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)], scope=True)
-    assert "[Guardian:VerifyScope]" in out and "SCOPE_DECLARED_FOR_CHANGE" in out and "部位【記憶】`python -X utf8 tools/check.py`" in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
     assert _know_debt("a.py") not in out
     snap = vl.commit_snapshot([_mf(str(p), 5)], 5, vl.reconcile_cfg({}), lambda _p: str(repo))
     key = vl.canon_path(str(p))                                                             # 快照鍵用 canon_path（SAME_FILE）
@@ -4690,11 +4260,10 @@ def test_trim_report_letter_e_unlisted_does_not_block(driven, capsys):
 
 
 def test_trim_live_config_blocks_only_two_things():
-    """live 設定照使用者拍板：寫碼查核只擋 a、d；需求目標對照、驗證範圍宣告、收尾檢核、卡片表態都不擋收尾。"""
+    """live 設定照使用者拍板：寫碼查核只擋 a、d；需求目標對照、收尾檢核、卡片表態都不擋收尾。"""
     cfg = json.loads((HOOKS_DIR.parent / "workflow" / "config.json").read_text(encoding="utf-8"))
     assert cfg["reconcile_gate"]["block_letters"] == ["a", "d"]
     assert cfg["reconcile_gate"]["goal_gate"] is False
-    assert cfg["verify_scope"]["enabled"] is False
     assert cfg["aec"]["scan_report_gate"] is False
     assert cfg["atom_audit"]["enabled"] is False
 

@@ -11,8 +11,8 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
 各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、取用稽核；
 改過程式之後測試跑綠的那批＝交付邊界，「順手看到最該修」那一問也掛這裡（PICK_ONE_PRE_CLOSE，wg_closing_round.pick_on_test_green）；
-目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：驗證範圍 SCOPE_*、目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
-reconcile／verify_scope，各一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
+目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
+reconcile，多一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
 只提醒一次（state remind_sent 清單，wg_overview.remind_mark）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
 """
@@ -135,7 +135,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
             print(f"[Guardian:提醒] {name}判不出（這批少這一段）：{type(e).__name__}: {e}", file=sys.stderr)
 
     if new_code:
-        part("欠案例", lambda: _code_check_reminders(state, sid, own, config, say, str(input_data.get("transcript_path") or "")))
+        part("欠案例", lambda: _code_check_reminders(state, own, config, say, str(input_data.get("transcript_path") or "")))
         part("等值意圖", lambda: _equivalence_reminders(state, config, cwd, say))
         if any(_MCP_SEGMENT in str(m["path"]).replace("\\", "/").lower() for m in new_code):
             say("RELOAD_ADVICE_ALREADY_LOADED", "改了 tools/workflow-guardian-mcp/ 的檔", FIX_RELOAD)
@@ -214,24 +214,16 @@ def _reds_all_waived(state: Dict[str, Any], sid: str) -> bool:
     return all(red_units(f) and set(red_units(f)) <= waived for f in reds)
 
 
-def _code_check_reminders(state, sid, own, config, say, tpath: str = "") -> None:
-    """(d) 每個改過的程式檔一次（wg_verify_ledger.case_debt，同 Stop 的判法）。驗證範圍 SCOPE_* 不提醒（GOAL_TREE_SET_ONCE：
-    提醒了 AI 就多叫一次 need_goal verify_scope），Stop 照判、只留帳；案例覆蓋仍認 verify_scope 收過的宣告（有才用）。"""
+def _code_check_reminders(state, own, config, say, tpath: str = "") -> None:
+    """(d) 每個改過的程式檔一次（wg_verify_ledger.case_debt，同 Stop 的判法；案例覆蓋也認 transcript 裡的「case_for｜…」宣告行）。"""
     import wg_verify_ledger as vl
-    import wg_verify_scope as vs
     from pathlib import Path
-    rg, sg = vl.reconcile_cfg(config), vs.scope_cfg(config)
+    rg = vl.reconcile_cfg(config)
     if not rg.get("enabled", True):
         return
-    receipts = vl.receipts_of(state, sid)
-    try:
-        from wg_overview import _lookup
-    except ImportError:
-        _lookup = None
     why: Dict[str, Any] = {}
-    case_check = vs.case_check(state, sid, own, receipts, rg, _lookup) if (_lookup and sg.get("enabled", True)) else None
     for p in vl.case_debt(own, int(state.get("turn_seq", 0) or 0), rg, vl.file_root_of, evidence=why,
-                          case_check=case_check, case_for=vl.declared_cases(state, sid, rg, tpath)):
+                          case_for=vl.declared_cases(rg, tpath)):
         v = why.get(p)
         say(v.rule if v else "CASE_COVERS_CHANGE", f"改了 {Path(p).name}，{v.why if v else '還沒有案例覆蓋它'}", FIX_CASE, p)
 

@@ -409,7 +409,7 @@ def test_subagent_stop_second_block_is_notice(monkeypatch, tmp_path):
     state ={"turn_seq": 4, "turn_prompts_seq": 4, "agent_modified_files": {"ag": [{"path": "c:/p/a.py", "session_id": "s-sub"}]}}
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile", None))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile"))
     monkeypatch.setattr(st, "entry_note", lambda *a, **k: "")
     outs = []
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append(("block", msg)))

@@ -28,11 +28,11 @@ RULES: Dict[str, str] = {
     "TURN_SINCE_USER_PROMPT": "本回合＝使用者打字開的那一回合到現在的每個 turn_seq；同伴 session 訊息、背景通知不另開回合"
                               "（收據、改檔、commit、收尾報告、收割、注入都照這個窗口算）。",
     "CLAIM_MODIFIER_NOT_OWN": "宣稱詞後面直接接「的＋名詞」（修好的 X、跑過的測試）是形容後面的東西、常是轉述，不算自己宣告完成。",
-    "CASE_COVERS_CHANGE": "驗證範圍閘關掉（verify_scope.enabled=false）時的 (d)：本 session 改過的每個程式檔，要有本 session 新寫或改過、"
+    "CASE_COVERS_CHANGE": "(d) 補案例：本 session 改過的每個程式檔，要有本 session 新寫或改過、"
                           "仍存在、同根的案例檔覆蓋它：案例檔名是 test_<模組名>／verify_<模組名>／<模組名>_test，或內容提到它（檔名，"
-                          "或至少 3 字的模組名，整詞、不分大小寫），或驗證範圍宣告裡"
-                          "那支案例那一項的 case_for 列了它（呼叫端有給宣告時）。不比改動先後（案例紅了回頭修程式、修完不必再碰案例），"
-                          "也不看有沒有跑綠（說修好要的 PASS 歸 (a)）；沒有覆蓋 → 欠補案例。開著時改看 CASE_DECLARED_FOR_CHANGE。",
+                          "或至少 3 字的模組名，整詞、不分大小寫），或 AI 寫的「case_for｜<程式檔>：<案例…>」宣告行"
+                          "列了它（呼叫端有給宣告時）。不比改動先後（案例紅了回頭修程式、修完不必再碰案例），"
+                          "也不看有沒有跑綠（說修好要的 PASS 歸 (a)）；沒有覆蓋 → 欠補案例。",
     "GONE_OUTSIDE_VCS": "改過的程式檔已不存在、也不在任何版控根內（打錯路徑寫到 worktree 外又刪、worktree 被移除整根消失）"
                         "→ 算刪除、不欠：同根的案例無從補，也沒有 status 可查搬去哪。",
     "GONE_IN_GIT_NOTHING_NEW": "改過的程式檔已不存在、在 git 根內、同根 status 與本 session 提交都沒有它的副本（沒有新出現的程式檔，"
@@ -48,7 +48,7 @@ RULES: Dict[str, str] = {
     "EXEMPTION_PEERS_CODE_ONLY": "SNAPSHOT_SETTLED、NET_UNCHANGED、COMMENT_ONLY_CHANGE 要一起比的同根改檔只看程式檔（案例檔也是程式檔）："
                                  "文件、紀錄檔、設定、資料改了或正被別的 session 改著，不擋豁免；程式檔或案例檔本身沒回到那個狀態照擋"
                                  "（wg_verify_ledger.exemption_peers）。",
-    "BLOCK_BUDGET_SHARED": "寫碼查核（紅測、對帳 (a)～(d)＋驗證範圍）"
+    "BLOCK_BUDGET_SHARED": "寫碼查核（紅測、對帳 (a)～(d)）"
                            "每個使用者回合共用一份擋次預算（reconcile_gate.max_blocks_per_turn，預設 2，鍵 *，"
                            "不分是哪幾條規則）：同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。"
                            "吃 stop_gate_max_blocks 的那份共用擋次（退縮閘、收尾檢核推遲寫卡、Reload 建議、取用稽核、"
@@ -179,9 +179,7 @@ RULES: Dict[str, str] = {
                         "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、導讀卡、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
-    "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」：有驗證範圍宣告（need_goal verify_scope）→ 認宣告範圍內任一項在跟它有關的最後一次改動之後"
-                              "跑綠的收據（SCOPE_EDIT_RELATED_TO_ITEM；session 收據或背景自寫收據，不看回合、不比檔名），"
-                              "該測哪些已經由 LLM 宣告，(a) 不再用另一套答案；沒宣告才退回檔名對應：對得上改檔、晚於每個對上的改檔"
+    "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」：要有對得上改檔、晚於每個對上的改檔"
                               "最後一次修改、同一棵樹的 PASS（不限本回合：舊回合的只要之後本 session 沒再改任何程式檔就算，子代理改的與"
                               "判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔），或改檔部位的合格自寫收據。",
     "CLAIM_MEASURED_NEEDS_DONE": "(b) 說「量了」要有本回合能當證據的 DONE，或改檔部位的合格自寫收據。",
@@ -1055,7 +1053,7 @@ def temp_copy_verdict(path: str, roots: Iterable[str]) -> Verdict:
 RULES.update({
     "SESSION_SCRATCH_NOT_CODE": "session 暫存區的檔是一次性腳本，不算本 session 改的程式檔：Claude Code 背景工作的 "
                                 "`<CC 設定目錄>/jobs/<id>/tmp/`（設定目錄＝CLAUDE_CONFIG_DIR 與 ~/.claude）與 session scratchpad"
-                                "（`<系統暫存根>/claude/…/scratchpad/`）。第二意見門檻（wg_second_opinion.check）、寫碼查核的補案例與驗證範圍"
+                                "（`<系統暫存根>/claude/…/scratchpad/`）。第二意見門檻（wg_second_opinion.check）、寫碼查核的補案例"
                                 "（wg_verify_ledger.is_excluded）都不數、也不能拿來清帳。只認錨在這兩個根底下的形狀：repo 裡自己取名 "
                                 "jobs/<x>/tmp、Temp/claude/…/scratchpad 的目錄照算程式。",
 })
@@ -1260,7 +1258,7 @@ RED_CASES_CAP = 200     # 收據最多記這麼多支紅案；超過就當清單
 
 
 def red_case_facts(output: str) -> Tuple[List[str], bool]:
-    """SCOPE_RED_ONLY_ITS_CASES 的事實：pytest 輸出裡紅掉的案例（red_case_names）與這份清單完不完整：最後一行 pytest 結算
+    """收據的紅案欄（red_cases／red_known）的事實：pytest 輸出裡紅掉的案例（red_case_names）與這份清單完不完整：最後一行 pytest 結算
     （「N failed, M passed … in Xs」）的 failed＋error 數要等於列出的紅案數。沒有結算行（輸出被截、不是 pytest）、數不合、
     超過 RED_CASES_CAP → 不完整。"""
     names = red_case_names(output)
@@ -2101,205 +2099,6 @@ def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int,
                    ("題目沒提到部位表上的路徑；OverviewHub 的 part_files_read 全空",))
 
 
-# ─── 驗證範圍：要不要驗是規則，驗哪些由 LLM 判斷（wg_verify_scope 收事實、這裡判） ───
-RULES.update({
-    "SCOPE_DECLARED_FOR_CHANGE": "改了程式檔、或改到部位表上有量尺的部位（不看措辭、每次收尾都判）→ 要有 need_goal(action=verify_scope) 的宣告，"
-                                 "而且每個有改動的 repo 至少一項落在裡面。宣告是 LLM 對「哪些有關聯、會受影響」的判斷，程式不替它列；"
-                                 "部位表的整把量尺只在宣告回應與擋訊息當參考。子代理沒有自己的宣告時沿用主 session 的。",
-    "SCOPE_ITEM_WELL_FORMED": "宣告收件：每項的目標與理由都不能空；看起來是路徑的目標要存在，測試節點（檔::名）要查得到那個 def；"
-                              "不是路徑的目標當指令。有一項不合格整份退回。",
-    "SCOPE_CASE_EDIT_ONLY_ITS_ITEM": "測試案例檔是量具不是受測物：改了它（符合 verify_case_globs 的程式檔、不是 conftest／__init__、同資料夾"
-                                     "沒有別的程式 import 它）只作廢點名它（就在這一項點名的路徑底下）、它所在部位的量尺指令、整體驗證或看不出"
-                                     "跑了什麼的項目，範圍裡其他測試不必重跑。被同資料夾別的程式 import 的案例檔（共用的 Sandbox、fixture）"
-                                     "與 conftest 照程式檔算。判法在 wg_verify_scope._standalone_case。",
-    "SCOPE_EDIT_RELATED_TO_ITEM": "宣告的一項要晚於哪些改檔的最後一次修改：程式檔一律算（測試案例檔例外，見 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；"
-                                  "不是程式檔的（文件、記憶，落在有量尺的部位才要宣告）"
-                                  "只有跟這一項有關才算：和這一項點名的檔同一個部位、就在它點名的路徑或它宣告的 inputs（這一項還讀的檔或"
-                                  "資料夾，跨部位的資料由 LLM 宣告）底下、這一項就是那個部位的量尺指令，或這一項是整體驗證／看不出跑了什麼（照算）。"
-                                  "這四個條件都是查得到的事實（部位表同一列、路徑包含、量尺逐字相同、指令涵蓋），不是替 LLM 判斷關聯；"
-                                  "「測試讀了哪份資料」是判斷，只認 LLM 在項目宣告的 inputs，沒有別的對應表、不看檔名規則。"
-                                  "改 _staging 的計畫文件不作廢程式測試的收據；宣告回應列出不算進任何一項的文件改動，讓 LLM 判斷要不要加 inputs。",
-    "SCOPE_EDIT_IN_DECLARED_DEPENDS": "項目宣告了 depends（這一項用到的程式檔或資料夾，LLM 判斷）→ 程式檔改動只作廢依賴裡的、它點名的路徑底下的、"
-                                      "它 case_for 列的，以及共用的測試設施（conftest／__init__／被同資料夾 import 的案例檔）；"
-                                      "依賴以外的程式改動不作廢它。沒宣告 depends 的項目照 SCOPE_EDIT_RELATED_TO_ITEM（程式檔一律算）。"
-                                      "宣告漏列就漏驗：之後那支測試紅了由 SCOPE_LEAK_OUTSIDE_SCOPE 記下。",
-    "SCOPE_RED_ONLY_ITS_CASES": "一條指令跑了好幾項、其中有紅：收據記下紅掉的案例（FAILED／ERROR 那幾行），紅案數和 pytest 結尾的 "
-                                "「N failed、M error」對得上（清單完整）時，檔案／資料夾／測試節點項目只看紅案有沒有落在它底下，沒有就照算綠；"
-                                "清單不完整（輸出被截、不是 pytest）、指令項目、exit 不是 0／1 → 整條照算紅。背景自寫收據的 failed_cases 同一個判法。",
-    "SCOPE_ITEM_RECEIPT_AFTER_EDIT": "最新那份宣告的每一項都要有一筆收據：晚於跟這一項有關的改檔（SCOPE_EDIT_RELATED_TO_ITEM）最後一次修改、綠（有 PASS／DONE、沒有 FAIL、"
-                                     "exit 0 或未知、failed=0）、同一棵樹（宣告在專案樹外的檔案項目：指令指到它自己或它宣告的 inputs 不算別棵樹）、"
-                                     "指令完整可信（解析得了、沒有換目錄、環境沒縮範圍；不看前後接了什麼、用什麼串）。"
-                                     "檔案／資料夾項目：pytest 點名該檔或它所在的資料夾、直接執行的腳本就是它、或整體驗證；pytest 選項走白名單"
-                                     "（-k、-m、-o、--deselect、連寫的 -kfoo 等其他選項一律當只跑一部分，那一段點名的都不算），python 直譯器"
-                                     "只准 -X utf8、-u、-B；別的程式（compileall 等）的參數不算跑過。測試節點項目：點名那個節點，或照檔案項目的"
-                                     "條件跑了它的檔；指令項目：照宣告的原字串、在宣告時的目錄跑（cmd_matches）。",
-    "SCOPE_LEAK_OUTSIDE_SCOPE": "測試 T 紅了 → 在 T 上次綠之後、這次紅之前結案、範圍沒涵蓋 T 的宣告，各記一筆疑似範圍漏判（連回那次宣告）。"
-                                "T 從沒綠過、T 在範圍內 → 不記。看到紅的 session（或子代理）在這個 repo 還有沒結案的改動 → 照記但標出來，"
-                                "檢討時先查明是不是它自己這次改動造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化）。"
-                                "例外：T 這個案例是它在 T 上次綠之後新寫或改過、還沒結案的（上次綠那時的 git 版本沒有它、或定義不同；"
-                                "先紅後綠的新案例、改了案例）→ 是它進行中的工作，不記，告訴它（紅照樣進紅測清單）。只改同檔別的案例、"
-                                "判不出（查不了 git、解析不了）照記。只記錄，不擋。",
-    "SCOPE_LEAK_REVIEW_BEFORE_DECLARE": "該 repo 有還沒檢討的範圍漏判 → 新的宣告要逐筆附檢討才收：missed（該驗的沒驗到）要寫沒驗到的根因"
-                                        "（root_cause）與下次判斷範圍時怎麼改（next_time）；unrelated（與那次改動無關）要寫查明的理由（reason）。"
-                                        "哪一種、根因是什麼由 LLM 判斷，程式只要求交出來。",
-})
-
-
-def _rel_key(p: Any) -> str:
-    """repo 相對路徑的比對鍵：斜線統一、去頭尾斜線與 ./、小寫（節點 id 的 :: 原樣保留）。"""
-    s = str(p or "").replace("\\", "/").strip().strip("/")
-    while s.startswith("./"):
-        s = s[2:]
-    return s.lower()
-
-
-def scope_covers(covers: Iterable[str], test: str) -> bool:
-    """範圍（repo 相對路徑；`*`＝整個 repo；節點寫 `檔::名`）有沒有涵蓋測試 test（檔或節點）。資料夾涵蓋底下所有檔；
-    節點項目只涵蓋它自己（含它的參數化與子節點）。"""
-    tf, _, tn = _rel_key(test).partition("::")
-    for c in covers or ():
-        if c == "*":
-            return True
-        cf, _, cn = _rel_key(c).partition("::")
-        if cn:
-            if cf == tf and tn and (tn == cn or tn.startswith(cn + "::") or tn.startswith(cn + "[")):
-                return True
-        elif cf and (tf == cf or tf.startswith(cf + "/")):
-            return True
-    return False
-
-
-def scope_failed_in(failed: Iterable[str], test: str) -> bool:
-    """一輪測試的紅名單 failed 裡有沒有 test：同一個節點，或同一支檔而其中一邊只寫到檔。"""
-    tf, _, tn = _rel_key(test).partition("::")
-    for f in failed or ():
-        ff, _, fn = _rel_key(f).partition("::")
-        if ff == tf and (not tn or not fn or tn == fn):
-            return True
-    return False
-
-
-def _base(p: Any) -> str:
-    return os.path.basename(str(p).replace("\\", "/"))
-
-
-def scope_declared_verdict(changed: Sequence[str], declared: bool,
-                           repos_without_item: Sequence[Tuple[str, Sequence[str]]] = ()) -> Verdict:
-    """SCOPE_DECLARED_FOR_CHANGE：changed＝要宣告的改檔；declared＝有宣告；repos_without_item＝(repo, 那裡的改檔) 宣告裡沒有項目落在那。"""
-    rule = "SCOPE_DECLARED_FOR_CHANGE"
-    names = [_base(p) for p in changed]
-    if not changed:
-        return Verdict(rule, False, "沒有要宣告驗證範圍的改動")
-    if not declared:
-        return Verdict(rule, True, f"改了 {'、'.join(names[:5])}{'…' if len(names) > 5 else ''}，但還沒宣告驗證範圍",
-                       ("該測哪些由你判斷：看這次改了什麼、哪些測試有關聯、哪些地方會受影響，"
-                        "用 need_goal(action=\"verify_scope\", items=[{target, why}…]) 宣告",))
-    if repos_without_item:
-        return Verdict(rule, True, "宣告裡沒有落在這些 repo 的項目：" + "、".join(r for r, _ in repos_without_item),
-                       tuple(f"{r} 改了 {'、'.join(_base(p) for p in fs[:4])}" for r, fs in repos_without_item))
-    return Verdict(rule, False, "每個有改動的 repo 都有宣告項目")
-
-
-def scope_item_form_verdict(target: str, why: str, problem: str = "") -> Verdict:
-    """SCOPE_ITEM_WELL_FORMED：problem＝呼叫端查到的事實問題（檔不存在、節點查不到 def）；空＝目標存在或是指令。"""
-    rule = "SCOPE_ITEM_WELL_FORMED"
-    if not str(target or "").strip():
-        return Verdict(rule, True, "有一項沒寫目標（target）")
-    if not str(why or "").strip():
-        return Verdict(rule, True, f"「{target}」沒寫理由（why：為什麼和這次改動有關、會受什麼影響）")
-    if problem:
-        return Verdict(rule, True, f"「{target}」{problem}")
-    return Verdict(rule, False, f"「{target}」收下")
-
-
-def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False, under_item: bool = False,
-                               runs_part_ruler: bool = False, whole_or_unknown: bool = False,
-                               standalone_case: bool = False, declares_deps: bool = False, in_deps: bool = False,
-                               shared_case: bool = False) -> Verdict:
-    """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。
-    standalone_case＝它是測試案例檔、不是 conftest／__init__、同資料夾沒有別的程式 import 它：只作廢點名它的項目（規則 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）。
-    declares_deps＝這一項宣告了 depends；in_deps＝改檔在依賴裡或它的 case_for 列了它；shared_case＝改檔是共用的測試設施
-    （conftest／__init__／被 import 的案例檔）：宣告了 depends 的項目，程式改動只算這三種與它點名的路徑底下（規則 SCOPE_EDIT_IN_DECLARED_DEPENDS）。"""
-    rule = "SCOPE_EDIT_RELATED_TO_ITEM"
-    if is_code and standalone_case:
-        rule = "SCOPE_CASE_EDIT_ONLY_ITS_ITEM"
-        why = ("就在這一項點名的路徑底下" if under_item else "這一項就是它所在部位的量尺指令" if runs_part_ruler
-               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown
-               else "在這一項宣告的依賴裡" if in_deps else "")   # 檔名像案例（wg_old_test.py）的模組，宣告了依賴就要算
-        if why:
-            return Verdict(rule, True, f"{name} 是測試案例檔，{why}")
-        return Verdict(rule, False, f"{name} 是測試案例檔、沒有別的程式 import 它，這一項沒點名它：改它不作廢這一項的收據")
-    if is_code and declares_deps:
-        rule = "SCOPE_EDIT_IN_DECLARED_DEPENDS"
-        why = ("在這一項宣告的依賴裡" if in_deps else "就在這一項點名的路徑底下" if under_item
-               else "是共用的測試設施（conftest／__init__／被 import 的案例檔）" if shared_case else "")
-        if why:
-            return Verdict(rule, True, f"{name} 是程式檔，{why}")
-        return Verdict(rule, False, f"{name} 是程式檔，但不在這一項宣告的依賴裡：改它不作廢這一項的收據")
-    if is_code:
-        return Verdict(rule, True, f"{name} 是程式檔：每一項的收據都要晚於它（這一項沒宣告 depends）")
-    why = ("和這一項點名的檔同一個部位" if same_part else "就在這一項點名的路徑底下" if under_item
-           else "這一項就是它所在部位的量尺指令" if runs_part_ruler else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
-    if why:
-        return Verdict(rule, True, f"{name} 不是程式檔，但{why}")
-    return Verdict(rule, False, f"{name} 不是程式檔，也跟這一項無關：改它不作廢這一項的收據")
-
-
-def scope_item_verdict(scope_id: str, target: str, ok: bool, why_not: str = "") -> Verdict:
-    """SCOPE_ITEM_RECEIPT_AFTER_EDIT：一項有沒有合格收據（事實由 wg_verify_ledger.scope_item_status 查）。"""
-    rule = "SCOPE_ITEM_RECEIPT_AFTER_EDIT"
-    if ok:
-        return Verdict(rule, False, f"{scope_id} 的「{target}」有改完之後跑綠的收據")
-    return Verdict(rule, True, f"{scope_id} 的「{target}」沒有改完之後跑綠的收據", (why_not or "沒有跑這一項的收據",))
-
-
-def scope_leak_verdict(test: str, scope_id: str, in_scope: bool, observer_open: bool, last_green: Optional[str],
-                       closed_between: bool, observer_changed_case: bool = False) -> Verdict:
-    """SCOPE_LEAK_OUTSIDE_SCOPE：owed＝要記一筆疑似漏判。closed_between＝那次宣告在 T 上次綠（last_green）之後、這次紅之前結案。
-    observer_open＝看到紅的 session 自己還有沒結案的改動：照記，證據多一行叫檢討時先查明是不是它自己造成的。
-    observer_changed_case＝T 這個案例是看到紅的 session 在 T 上次綠之後新寫或改過、還沒結案的（比上次綠那時的 git 版本）：
-    是它進行中的工作，不記（紅照樣進紅測清單、收尾前要綠）。只改了同檔別的案例不算。"""
-    rule = "SCOPE_LEAK_OUTSIDE_SCOPE"
-    if in_scope:
-        return Verdict(rule, False, f"{test} 在 {scope_id} 的範圍內（那是退化，不是漏判）")
-    if not last_green:
-        return Verdict(rule, False, f"{test} 沒有綠過的紀錄，無從歸因")
-    if observer_changed_case:
-        return Verdict(rule, False, f"{test} 是看到紅的 session 在它上次綠之後新寫或改過、還沒結案的案例：算它進行中的工作")
-    if not closed_between:
-        return Verdict(rule, False, f"{scope_id} 不是在 {test} 上次綠之後、這次紅之前結案的")
-    ev = (f"{test} 上次綠：{last_green}",)
-    if observer_open:
-        ev += ("看到紅的 session 當時自己還有沒結案的改動：檢討時先查明是不是它自己這次改動造成的",)
-    return Verdict(rule, True, f"{test} 紅了，{scope_id} 結案時的範圍沒涵蓋它", ev)
-
-
-def scope_review_verdict(pending: Sequence[str], reviews: Any) -> Verdict:
-    """SCOPE_LEAK_REVIEW_BEFORE_DECLARE：pending＝這次宣告涉及的 repo 裡還沒檢討的漏判編號；reviews＝宣告附的檢討。"""
-    rule = "SCOPE_LEAK_REVIEW_BEFORE_DECLARE"
-    by = {str(r.get("leak") or "").strip(): r for r in (reviews or []) if isinstance(r, dict)}
-    probs: List[str] = []
-    for lid in pending:
-        r = by.get(lid)
-        if not r:
-            probs.append(f"{lid} 還沒檢討")
-            continue
-        v = str(r.get("verdict") or "")
-        if v == "missed":
-            if not str(r.get("root_cause") or "").strip():
-                probs.append(f"{lid} 判「該驗的沒驗到」要寫沒驗到的根因（root_cause：當初判斷範圍時漏看了什麼、為什麼漏看）")
-            if not str(r.get("next_time") or "").strip():
-                probs.append(f"{lid} 判「該驗的沒驗到」要寫下次判斷範圍時要怎麼改（next_time）")
-        elif v == "unrelated":
-            if not str(r.get("reason") or "").strip():
-                probs.append(f"{lid} 判「與那次改動無關」要寫查明的理由（reason）")
-        else:
-            probs.append(f"{lid} 的 verdict 只收 missed（該驗的沒驗到）或 unrelated（與那次改動無關）")
-    if probs:
-        return Verdict(rule, True, f"還有 {len(pending)} 筆範圍漏判待檢討，先逐筆檢討才收新的宣告", tuple(probs))
-    return Verdict(rule, False, f"{len(pending)} 筆待檢討的漏判都交了檢討")
-
-
 # ─── RELOAD_ADVICE_ALREADY_LOADED ──────────────────────────────────────────────
 
 RELOAD_ADVICE_RE = lazy_re(r"reload\s*window|重新載入視窗|重載視窗|重新載入\s*vs\s*code", re.IGNORECASE)
@@ -2330,57 +2129,6 @@ def reload_advice_verdict(text: str, records: Sequence[Tuple[Optional[float], fl
         return Verdict(rule, False, "有工具服務還在跑舊程式，叫使用者重載是對的")
     return Verdict(rule, True, f"叫使用者 Reload Window，但正在跑的 {len(records)} 個工具服務都已載入磁碟上最新的程式",
                    (f"磁碟程式版本 {_ms_text(disk_mtime)}；服務載入版本 {'、'.join(_ms_text(m) for m, _ in records[:3])}",))
-
-
-# ─── (d) 補案例：由哪個案例驗交 LLM 宣告（判斷入口盤點 P4；wg_verify_scope 收事實、這裡判） ───
-RULES.update({
-    "CASE_DECLARED_FOR_CHANGE": "(d) 補案例（驗證範圍閘開著時）：每個改過的程式檔（案例檔本身、EXCLUDED_REGION、判成刪除的除外）要由 LLM 在"
-                                "驗證範圍宣告「由哪個案例驗」：宣告那支案例的那一項帶 case_for，列它驗的程式檔。程式只核對事實：那一項"
-                                "點得到案例檔（測試檔、測試節點，或只跑特定測試檔的指令）、案例檔仍存在而且本 session 新寫或改過、"
-                                "那一項在最後一次改動之後跑綠（和 "
-                                "SCOPE_ITEM_RECEIPT_AFTER_EDIT 同一個判斷）。改了哪支案例檔不再替別的程式清帳；先紅後綠只記錄"
-                                "（CASE_RED_THEN_GREEN），不在這裡擋。",
-    "NO_CASE_NEEDS_USER": "LLM 宣告某個改過的程式檔不需要新案例（verify_scope 的 no_case：[{path, reason}]，理由必填；既有案例已經驗到也走這條）"
-                          "→ 照擋：要不要補案例由使用者裁，照【收尾放行確認】問、題目帶上這個理由（擋滿不准自行放行的裁定不變）。"
-                          "使用者放行那一刻把宣告裡的 no_case 檔記成已裁定（綁在它當時的最後一次修改）：之後沒再改就不再為它擋、"
-                          "不每回合重問；再改了要重新裁。",
-    "CASE_DECL_WELL_FORMED": "宣告收件：case_for 只能掛在點得到案例檔的項目（測試檔、測試節點，或只跑特定測試檔的指令；案例檔＝符合 "
-                             "verify_case_globs 的程式檔；資料夾與整體驗證不算），列的每個路徑都要是程式檔、存在或本 session 改過（搬走的"
-                             "舊路徑也還欠著）；no_case 每筆同樣的 path 加非空 reason；同一個檔不能同時列在 case_for 與 no_case。"
-                             "有一處不合格整份退回。",
-})
-
-
-def case_decl_form_verdict(problems: Sequence[str]) -> Verdict:
-    """CASE_DECL_WELL_FORMED：problems＝收件時查到的事實問題（wg_verify_scope.declare 查：項目種類、是不是案例檔、路徑在不在）。"""
-    rule = "CASE_DECL_WELL_FORMED"
-    if problems:
-        return Verdict(rule, True, "案例宣告（case_for／no_case）不合格，整份退回", tuple(problems))
-    return Verdict(rule, False, "案例宣告收下")
-
-
-def case_for_change_verdict(name: str, checks: Sequence[Tuple[str, str]], no_case_reason: str = "",
-                            user_approved: bool = False) -> Verdict:
-    """CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER：name＝改過的程式檔；checks＝宣告驗它的每個案例 (案例, 問題)，問題空＝成立
-    （事實由 wg_verify_scope.case_check 查：案例在不在、本 session 新寫或改過沒、那一項改完之後跑綠沒）；no_case_reason＝宣告
-    不需要新案例的理由；user_approved＝使用者放行時記下的裁定還對得上它現在的最後一次修改。有一個案例成立就不欠；宣告的案例
-    都不成立照欠（不退去看 no_case）。"""
-    rule = "CASE_DECLARED_FOR_CHANGE"
-    ok = [c for c, problem in checks if not problem]
-    if ok:
-        return Verdict(rule, False, f"{name} 由 {ok[0]} 驗：本 session 新寫或改過、改完之後跑綠")
-    if checks:
-        return Verdict(rule, True, f"{name} 宣告由 {'、'.join(c for c, _ in checks[:3])} 驗，還不成立",
-                       tuple(f"{c}：{p}" for c, p in checks[:3]))
-    reason = " ".join(str(no_case_reason or "").split())[:160]
-    if reason and user_approved:
-        return Verdict("NO_CASE_NEEDS_USER", False, f"{name} 宣告不需要新案例（理由：{reason}），使用者已放行，之後沒再改")
-    if reason:
-        return Verdict("NO_CASE_NEEDS_USER", True, f"{name} 宣告不需要新案例（理由：{reason}）：要不要補由使用者裁",
-                       (f"用 AskUserQuestion 照【收尾放行確認】問，題目寫「{name} 不需要新案例：{reason}」並掛目標節點",))
-    return Verdict(rule, True, f"{name} 改過，還沒宣告由哪個案例驗",
-                   ("在 verify_scope 宣告驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for: [\"<程式檔>\"]；"
-                    "真的不需要新案例就加 no_case: [{path, reason}]，再照【收尾放行確認】問使用者",))
 
 
 # ─── 收尾自清：本 session 建的東西用完要清（事實由 handlers/aec_ledger.cleanup_facts 現場查，閘在 handlers/stop.py） ───
@@ -3114,8 +2862,8 @@ def parse_data_file_decls(text: str) -> List[Tuple[str, str, str]]:
             for m in _DATA_FILE_DECL_RE.finditer(str(text or ""))]
 
 
-# 「case_for｜<程式檔>：<案例檔或 pytest 節點，「、」分隔>」：AI 宣告某支程式由哪支案例驗（CASE_COVERS_CHANGE 的 case_for 第二個來源，
-# 與 need_goal verify_scope 的 case_for 同義；三管道都認，與動資料檔宣告同一種寫法）
+# 「case_for｜<程式檔>：<案例檔或 pytest 節點，「、」分隔>」：AI 宣告某支程式由哪支案例驗（CASE_COVERS_CHANGE 的 case_for；
+# 三管道都認，與動資料檔宣告同一種寫法）
 _CASE_FOR_DECL_RE = lazy_re(r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?case_for\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)", re.MULTILINE | re.IGNORECASE)
 _CASE_FOR_SPLIT_RE = lazy_re(r"[、，,；;\s]+")
 
@@ -4422,10 +4170,10 @@ RULES.update({
     "GOAL_RECONCILE_AT_DELIVERY": "(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：寫碼守門開時提醒，"
                                   "Stop 只留帳；commit 前那份歸 COMMIT_GOAL_RECONCILED。",
     "GOAL_TREE_SET_ONCE": "目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（CODE_EDIT_NEEDS_GOAL_TREE），之後不再送任何會促使 AI 去呼叫"
-                          "need_goal reconcile／verify_scope 的文字：改程式檔那則工具結果不附 SCOPE_*、(f2)(f3)(f4)（post_tool_batch.closing_reminders），"
-                          "PostToolUse 改程式檔不問驗證範圍（原 SCOPE_ASK_ONCE_PER_CODE_TURN 拿掉），收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，"
+                          "need_goal reconcile 的文字：改程式檔那則工具結果不附 (f2)(f3)(f4)（post_tool_batch.closing_reminders），"
+                          "收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，"
                           "need_goal set 的回覆、MCP 工具說明都不寫接著對照（沒樹改知識類檔已不送提示，見 NON_CODING_TURN_NO_NUDGE）。判定不動：Stop 照判、只留帳（STOP_REMIND_LEDGER_ONLY）；"
-                          "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile／verify_scope 照收。寫碼守門關整道不動（照擋）。"
+                          "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile 照收。寫碼守門關整道不動（照擋）。"
                           "為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。",
     "STOP_REMIND_LEDGER_ONLY": "Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log "
                                "event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、"
@@ -4466,9 +4214,9 @@ REMIND_LINE_CAP = 240
 
 
 # Stop 原本會擋、寫碼守門開時改成提醒的規則：說明文字補一句現況（判定與原文不動；送法見 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY）
-for _name in ("CASE_COVERS_CHANGE", "CASE_DECLARED_FOR_CHANGE", "NO_CASE_NEEDS_USER", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
-              "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY", "SCOPE_DECLARED_FOR_CHANGE",
-              "SCOPE_ITEM_RECEIPT_AFTER_EDIT", "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
+for _name in ("CASE_COVERS_CHANGE", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
+              "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY",
+              "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
               "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED", "SECOND_OPINION_REQUIRED", "SECOND_OPINION_DECLINED",
               "REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE", "LEFTOVER_NEEDS_CLEANUP", "RELOAD_ADVICE_ALREADY_LOADED",
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
@@ -4476,10 +4224,10 @@ for _name in ("CASE_COVERS_CHANGE", "CASE_DECLARED_FOR_CHANGE", "NO_CASE_NEEDS_U
               "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE", "SECOND_OPINION_DONE_NOTICE"):
     RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
 
-# 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條寫碼守門開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile／verify_scope），Stop 照判只留帳
-for _name in ("SCOPE_DECLARED_FOR_CHANGE", "SCOPE_ITEM_RECEIPT_AFTER_EDIT", "GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
+# 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條寫碼守門開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile），Stop 照判只留帳
+for _name in ("GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
               "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
-    RULES[_name] += "｜目標樹只立一次（GOAL_TREE_SET_ONCE）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile／verify_scope，收尾檢核的提醒不寫目標對照。"
+    RULES[_name] += "｜目標樹只立一次（GOAL_TREE_SET_ONCE）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile，收尾檢核的提醒不寫目標對照。"
 
 
 def mode_of(rule: str) -> str:

@@ -393,7 +393,7 @@ def test_003_imports_stem(text, stem, lang, hit):
 
 # ─── Stop 真流程：送一次、不是 block；記帳 ─────────────────────────────────────
 
-_PASS_CFG = {"reconcile_gate": {"enabled": False}, "verify_scope": {"enabled": False}, "sync_reminder": {"enabled": False},
+_PASS_CFG = {"reconcile_gate": {"enabled": False}, "sync_reminder": {"enabled": False},
              "atom_audit": {"enabled": False}, "aec": {"scan_report_gate": False}, "pick_one": {"enabled": True}}
 
 

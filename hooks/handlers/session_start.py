@@ -533,19 +533,6 @@ def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     return out + ["\n".join(lines)]
 
 
-def _verify_scope_advisory(cwd: str) -> list:
-    """驗證範圍：背景全量的自寫收據先入帳（紅掉的測試名拿去找範圍漏判），再列這個 repo 待檢討的漏判與累計數字。
-    送回給 LLM 檢討；讀不到只 stderr，回 []。"""
-    try:
-        import wg_verify_scope as vs
-        from wg_verify_ledger import load_self_runs
-        vs.sync_runs(load_self_runs())
-        return vs.advisory(cwd)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:VerifyScope] 開場列範圍漏判失敗：{type(e).__name__}: {e}", file=sys.stderr)
-        return []
-
-
 def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
@@ -1041,8 +1028,8 @@ _CARRY_ON_REBUILD = (
     # 事件序號：modified_files 的 last_seq 照搬了，event_seq 不搬就從頭算，壓縮後的收據 seq 全小於舊的 last_seq、等值證法閘整批略過
     "event_seq",
     # 各閘的「問過／放行／擋過」帳本（鍵都是 session id，compact 不換 session）：不搬的話重建後 PickOne、對帳閘、清理閘、第二意見、
-    # 無案例放行、驗證範圍與收據全部重來，使用者剛選的「放行這一回合」當場失效
-    "pick_one", "user_released", "pending_release", "last_block", "no_case_approved", "verify_receipts", "verify_scope",
+    # 收據全部重來，使用者剛選的「放行這一回合」當場失效
+    "pick_one", "user_released", "pending_release", "last_block", "verify_receipts",
     "reconcile_gate_turn", "cleanup_gate_turn", "second_opinion_gate_turn", "second_opinion_declared", "second_opinion_ok",
     "second_opinion_ran", "second_opinion_cover", "second_opinion_watch",
 )
@@ -1496,12 +1483,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_followup_advisory())
         if _hook_lap("回訪"):
             _degraded_exit(session_id, state, lines)
-        if v6:
-            lines.extend(_verify_scope_advisory(cwd))
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_vcs_ignore_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
-        if _hook_lap("範圍、分層與同步"):
+        if _hook_lap("分層與同步"):
             _degraded_exit(session_id, state, lines)
         lines.extend(_org_advisory(org_root, pool))
         _maybe_spawn_provenance_backfill(config)

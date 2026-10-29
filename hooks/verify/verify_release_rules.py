@@ -316,26 +316,14 @@ def test_exemption_peers_code_only_keeps_code_and_cases():
     assert got == ["a/x.py", "t/test_x.py"]
 
 
-def test_scope_red_only_its_cases_needs_a_complete_red_list():
-    """SCOPE_RED_ONLY_ITS_CASES 的事實（red_case_facts）：紅案數等於最後結算行的 failed＋error 才算清單完整；
-    輸出被截（沒有結算行）、數不合、不是 pytest → 不完整。端到端案例見 verify_verify_scope 的 SCOPE_RED_ONLY_ITS_CASES 段。"""
+def test_red_case_facts_needs_a_complete_red_list():
+    """收據紅案欄的事實（red_case_facts）：紅案數等於最後結算行的 failed＋error 才算清單完整；
+    輸出被截（沒有結算行）、數不合、不是 pytest → 不完整。落帳案例見 verify_stop_reconcile 的紅案欄段。"""
     full = "F.\nFAILED a/test_x.py::t1 - assert 0\nERROR a/test_y.py::t2\n1 failed, 3 passed, 1 error in 0.5s\n"
     assert rr.red_case_facts(full) == (["a/test_x.py::t1", "a/test_y.py::t2"], True)
     assert rr.red_case_facts("FAILED a/test_x.py::t1 - x\n=== 2 failed, 1 passed in 0.1s ===\n")[1] is False   # 少列一支
     assert rr.red_case_facts("FAILED a/test_x.py::t1 - x\n")[1] is False                                       # 結算行被截掉
     assert rr.red_case_facts("3 passed in 0.1s\n") == ([], False)                                              # 綠：沒有紅案
-
-
-def test_scope_edit_in_declared_depends_verdict():
-    """SCOPE_EDIT_IN_DECLARED_DEPENDS：宣告了 depends 的項目，程式改動只算依賴裡、點名路徑底下、共用測試設施；
-    沒宣告照 SCOPE_EDIT_RELATED_TO_ITEM 一律算。"""
-    v = rr.scope_edit_related_verdict
-    assert v("x.py", True).owed and "沒宣告 depends" in v("x.py", True).why
-    assert not v("x.py", True, declares_deps=True).owed
-    assert v("x.py", True, declares_deps=True, in_deps=True).rule == "SCOPE_EDIT_IN_DECLARED_DEPENDS"
-    assert v("x.py", True, declares_deps=True, in_deps=True).owed
-    assert v("conftest.py", True, declares_deps=True, shared_case=True).owed
-    assert v("test_y.py", True, declares_deps=True, under_item=True).owed
 
 
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的案例 ═══
@@ -358,7 +346,7 @@ def test_045_format_hit_without_evidence_uses_why():
 
 def test_045_legacy_letters_have_rule_names():
     for n in ("CLAIM_FIXED_NEEDS_PASS", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC", "AEC_EVIDENCE_PATH",
-              "AEC_FOLLOWUPS_EMPTY", "SCOPE_DECLARED_FOR_CHANGE", "SCOPE_ITEM_RECEIPT_AFTER_EDIT"):
+              "AEC_FOLLOWUPS_EMPTY"):
         assert n in rr.RULES and rr.RULES[n]
         assert rr.parse_hits(rr.format_hit("x", rr.Verdict(n, True, "w"))) == ["x"]
 
@@ -1478,23 +1466,6 @@ def test_cg1_locate_lines_no_example_placeholder(vals, owed):
         assert any("<" in e for e in v.evidence)
 
 
-# ─── C-判斷入口盤點 階段 2：SCOPE_EDIT_RELATED_TO_ITEM（收據只被跟這一項有關的改動作廢） ───
-
-@pytest.mark.parametrize("kw, owed", [
-    (dict(is_code=True), True),                                   # 程式檔：每一項都要晚於它
-    (dict(is_code=False), False),                                 # 文件、記憶：跟這一項無關 → 不作廢
-    (dict(is_code=False, same_part=True), True),                  # 同部位的文件（測試讀的資料、部位自己的文件）
-    (dict(is_code=False, under_item=True), True),                 # 文件就在這一項點名的路徑底下（含它宣告的 inputs）
-    (dict(is_code=False, runs_part_ruler=True), True),            # 這一項就是那個部位的量尺指令
-    (dict(is_code=False, whole_or_unknown=True), True),           # 整體驗證、或看不出指令跑了什麼 → 照算
-])
-def test_scope_edit_related_to_item(kw, owed):
-    v = rr.scope_edit_related_verdict("doc.md", **kw)
-    assert v.rule == "SCOPE_EDIT_RELATED_TO_ITEM" and v.owed is owed, v
-
-
-
-
 # ═══ C-G16（track-c-g16）：提問附推薦、掛目標、全貌先於拍板 ═══
 
 REL_TAG, REL_OPTS = "【收尾放行確認】", ("放行這一回合", "繼續擋，先修好")
@@ -1713,74 +1684,6 @@ def test_c_g16_ask_paths_cjk_quoted_and_bare(question, want):
     assert rr.ask_paths(_ask((question, ["A (Recommended)"]))) == want
 
 
-# ─── 驗證範圍：要不要驗是規則，驗哪些由 LLM 判斷（端到端案例在 verify_verify_scope.py） ───
-
-def test_scope_declared_for_change_needs_declaration_and_every_repo():
-    """SCOPE_DECLARED_FOR_CHANGE：改了程式沒宣告 → 欠（訊息叫 LLM 判斷並指路 verify_scope）；宣告了但某個 repo 沒項目 → 欠；
-    都有 → 不欠；沒改 → 不欠。"""
-    v = rr.scope_declared_verdict([r"c:\p\hooks\x.py"], False)
-    assert v.rule == "SCOPE_DECLARED_FOR_CHANGE" and v.owed and "x.py" in v.why and "verify_scope" in v.evidence[0]
-    v = rr.scope_declared_verdict([r"c:\p\a.py", r"c:\q\b.py"], True, [("c:/q", [r"c:\q\b.py"])])
-    assert v.owed and "c:/q" in v.why and "b.py" in v.evidence[0]
-    assert not rr.scope_declared_verdict([r"c:\p\a.py"], True).owed
-    assert not rr.scope_declared_verdict([], False).owed
-
-
-def test_scope_item_well_formed_target_why_and_facts():
-    """SCOPE_ITEM_WELL_FORMED：目標或理由空 → 退；呼叫端查到檔不存在、節點查不到 → 退；都好 → 收。"""
-    assert rr.scope_item_form_verdict("", "w").owed
-    assert rr.scope_item_form_verdict("a.py", "  ").owed and "理由" in rr.scope_item_form_verdict("a.py", "").why
-    v = rr.scope_item_form_verdict("a.py", "w", "不存在（c:/p/a.py）")
-    assert v.owed and v.rule == "SCOPE_ITEM_WELL_FORMED" and "不存在" in v.why
-    assert not rr.scope_item_form_verdict("a.py", "直接測 a").owed
-
-
-def test_scope_item_receipt_after_edit_carries_reason():
-    """SCOPE_ITEM_RECEIPT_AFTER_EDIT：沒合格收據 → 欠，證據是查到的理由（沒給就說沒有收據）；有 → 不欠。"""
-    v = rr.scope_item_verdict("ab-S2", "hooks/verify/verify_x.py", False, "最近一次跑紅")
-    assert v.owed and "ab-S2" in v.why and v.evidence == ("最近一次跑紅",)
-    assert rr.scope_item_verdict("ab-S2", "t", False).evidence == ("沒有跑這一項的收據",)
-    assert not rr.scope_item_verdict("ab-S2", "t", True).owed
-
-
-def test_scope_leak_outside_scope_only_when_closed_between_green_and_red():
-    """SCOPE_LEAK_OUTSIDE_SCOPE：範圍外、T 綠過、宣告在上次綠之後這次紅之前結案 → 記；任一不成立 → 不記。
-    看到紅的 session 自己還有沒結案的改動 → 照記，證據多一行叫檢討時先查明（不憑 session 狀態丟掉）。"""
-    base = dict(test="h/v/verify_y.py::test_q", scope_id="S1", in_scope=False, observer_open=False,
-                last_green="2026-10-14T01:00:00Z", closed_between=True)
-    assert rr.scope_leak_verdict(**base).owed
-    for k, v in (("in_scope", True), ("last_green", None), ("closed_between", False)):
-        assert not rr.scope_leak_verdict(**{**base, k: v}).owed, k
-    busy = rr.scope_leak_verdict(**{**base, "observer_open": True})
-    assert busy.owed and any("先查明" in e for e in busy.evidence)
-
-
-def test_scope_covers_and_failed_in_path_logic():
-    """範圍涵蓋：整個 repo、資料夾、同一支檔、節點（含參數化）；節點項目不涵蓋同檔的別的節點。紅名單：同節點或其中一邊只寫到檔。"""
-    assert rr.scope_covers(["*"], "a/b.py::t")
-    assert rr.scope_covers(["hooks/verify"], r"hooks\verify\verify_y.py::test_q")
-    assert rr.scope_covers(["hooks/verify/verify_y.py"], "hooks/verify/verify_y.py::test_q")
-    assert rr.scope_covers(["hooks/verify/verify_y.py::test_q"], "hooks/verify/verify_y.py::test_q[1]")
-    assert not rr.scope_covers(["hooks/verify/verify_y.py::test_q"], "hooks/verify/verify_y.py::test_r")
-    assert not rr.scope_covers(["hooks/verify/verify_x.py"], "hooks/verify/verify_y.py")
-    assert not rr.scope_covers(["hooks/ver"], "hooks/verify/verify_y.py")                 # 前綴要到資料夾邊界
-    assert rr.scope_failed_in(["a.py::t"], "a.py") and rr.scope_failed_in(["a.py"], "a.py::t")
-    assert not rr.scope_failed_in(["a.py::t"], "a.py::u") and not rr.scope_failed_in(["b.py"], "a.py")
-
-
-def test_scope_leak_review_before_declare_needs_root_cause_or_reason():
-    """SCOPE_LEAK_REVIEW_BEFORE_DECLARE：每筆待檢討都要交；missed 要根因與下次怎麼改，unrelated 要理由；verdict 只收兩種。"""
-    v = rr.scope_review_verdict(["L1", "L2"], [{"leak": "L1", "verdict": "unrelated", "reason": "環境壞了"}])
-    assert v.owed and "L2 還沒檢討" in v.evidence
-    v = rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "missed", "next_time": "看呼叫方"}])
-    assert v.owed and "根因" in v.evidence[0]
-    v = rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "missed", "root_cause": "只看了自己的測試"}])
-    assert v.owed and "next_time" in v.evidence[0]
-    assert rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "maybe"}]).owed
-    ok = [{"leak": "L1", "verdict": "missed", "root_cause": "沒查誰讀這個常數", "next_time": "改常數先搜讀它的地方"}]
-    assert not rr.scope_review_verdict(["L1"], ok).owed and not rr.scope_review_verdict([], []).owed
-
-
 # ─── RELOAD_ADVICE_ALREADY_LOADED ──────────────────────────────────────
 
 _RELOAD_NOW = 1_800_000_000.0
@@ -1807,55 +1710,7 @@ def test_reload_advice_already_loaded(text, records, disk, owed):
     assert v.rule == "RELOAD_ADVICE_ALREADY_LOADED" and v.owed is owed, (text, records, disk)
 
 
-# ─── (d) 補案例：由哪個案例驗交 LLM 宣告（判斷入口盤點 P4） ─────────────────────
-
-def test_case_declared_for_change_needs_a_holding_case():
-    """CASE_DECLARED_FOR_CHANGE：沒宣告 → 欠並指路 case_for／no_case；宣告的案例都不成立 → 欠並列每個案例的問題；
-    有一個成立 → 不欠（不看其他不成立的那幾個）。宣告了不成立的案例時不退去看 no_case。"""
-    v = rr.case_for_change_verdict("x.py", [])
-    assert v.rule == "CASE_DECLARED_FOR_CHANGE" and v.owed and "還沒宣告" in v.why and "case_for" in v.evidence[0]
-    v = rr.case_for_change_verdict("x.py", [("verify_x.py", "最近一次跑紅")], "只改字串")
-    assert v.rule == "CASE_DECLARED_FOR_CHANGE" and v.owed and v.evidence == ("verify_x.py：最近一次跑紅",)
-    v = rr.case_for_change_verdict("x.py", [("verify_a.py", "本 session 沒有新寫或改過這支案例"), ("verify_x.py::t", "")])
-    assert not v.owed and "verify_x.py::t" in v.why
-
-
-def test_no_case_needs_user_carries_reason_into_question():
-    """NO_CASE_NEEDS_USER：宣告不需要新案例照擋，擋訊息把理由與【收尾放行確認】的問法帶出來；理由空白不算宣告。"""
-    v = rr.case_for_change_verdict("x.py", [], "  只改了擋訊息\n的字串  ")
-    assert v.rule == "NO_CASE_NEEDS_USER" and v.owed and "只改了擋訊息 的字串" in v.why
-    assert "【收尾放行確認】" in v.evidence[0] and "x.py 不需要新案例" in v.evidence[0]
-    assert rr.case_for_change_verdict("x.py", [], "   ").rule == "CASE_DECLARED_FOR_CHANGE"
-    v = rr.case_for_change_verdict("x.py", [], "只改字串", user_approved=True)          # 使用者放行過、之後沒再改 → 不欠
-    assert v.rule == "NO_CASE_NEEDS_USER" and not v.owed and "使用者已放行" in v.why
-    assert rr.case_for_change_verdict("x.py", [], "", user_approved=True).owed            # 沒有 no_case 理由，記錄不算數
-
-
-def test_case_decl_well_formed_lists_every_problem():
-    """CASE_DECL_WELL_FORMED：有問題就整份退回並逐條列；沒問題收下。"""
-    v = rr.case_decl_form_verdict(["「a」不是測試檔", "no_case 的 b.py 不存在"])
-    assert v.owed and v.evidence == ("「a」不是測試檔", "no_case 的 b.py 不存在")
-    assert not rr.case_decl_form_verdict([]).owed
-
-
 # ─── 收尾少空轉：測試案例檔只作廢自己那一項、已同步的檔不再提醒、擋一次就列出後面還欠的閘 ───
-
-@pytest.mark.parametrize("kw, owed", [
-    (dict(is_code=True, standalone_case=True), False),                          # 獨立案例檔、這一項沒點名它 → 不作廢
-    (dict(is_code=True, standalone_case=True, same_part=True), False),          # 同部位也不算：同資料夾別支測試不受影響
-    (dict(is_code=True, standalone_case=True, under_item=True), True),          # 這一項點名的就是它
-    (dict(is_code=True, standalone_case=True, runs_part_ruler=True), True),     # 部位量尺會跑到它
-    (dict(is_code=True, standalone_case=True, whole_or_unknown=True), True),    # 整體驗證、或看不出跑了什麼
-])
-def test_044_scope_case_edit_only_its_item(kw, owed):
-    v = rr.scope_edit_related_verdict("verify_a.py", **kw)
-    assert v.rule == "SCOPE_CASE_EDIT_ONLY_ITS_ITEM" and v.owed is owed, v
-
-
-def test_044_shared_case_is_still_code():
-    """被同資料夾 import 的案例檔、conftest（standalone_case=False）照程式檔算：每一項都要晚於它。"""
-    v = rr.scope_edit_related_verdict("probe_release_rules.py", True, standalone_case=False)
-    assert v.rule == "SCOPE_EDIT_RELATED_TO_ITEM" and v.owed
 
 
 def test_044_stop_flow_rules_point_to_stop_handler():
@@ -2841,7 +2696,7 @@ def test_pre_gate_remind_rules_registered_with_mode():
 # ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）、(f2) 交付前對照（GOAL_RECONCILE_AT_DELIVERY）；入口案例在 verify_gate_mode_stop.py ───
 @pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "GOAL_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED",
                                   "SECOND_OPINION_REQUIRED", "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
-                                  "RELOAD_ADVICE_ALREADY_LOADED", "SCOPE_DECLARED_FOR_CHANGE", "AEC_EVIDENCE_PATH",
+                                  "RELOAD_ADVICE_ALREADY_LOADED", "AEC_EVIDENCE_PATH",
                                   "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "GATE_SELF_ERROR"))
 def test_stop_remind_rules_are_remind_when_v6_on(rule):
     """Stop 改提醒的那幾道閘：規則名在表上、v6 開是 remind、關是 block（照舊）；(a)（CLAIM_FIXED_NEEDS_PASS）照擋見上面的三類案。"""
@@ -2861,7 +2716,7 @@ def test_goal_tree_set_once_registered_and_noted():
     """規則登在表上、v6 開是 remind、關是 block；被它改掉送法的那幾條說明都補了現況，而且是在 RULE_MODE 算完之後補（不影響送法表）。"""
     assert "GOAL_TREE_SET_ONCE" in rr.RULES and rr.gate_mode("GOAL_TREE_SET_ONCE", True) == rr.REMIND
     assert rr.gate_mode("GOAL_TREE_SET_ONCE", False) == rr.BLOCK
-    for rule in ("SCOPE_DECLARED_FOR_CHANGE", "GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
+    for rule in ("GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
                  "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
         assert "GOAL_TREE_SET_ONCE" in rr.RULES[rule], rule
         assert rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK, rule

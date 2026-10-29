@@ -28,7 +28,7 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_stop_reconcile import (  # noqa: E402,F401
-    _SID, _CODE, _CASE, _RELATED_CMD, _T1, _T2, _aec, _ask_line, _git_budget_generous, _mf, _rcpt, _scope_ledger_isolated,
+    _SID, _CODE, _CASE, _RELATED_CMD, _T1, _T2, _aec, _ask_line, _git_budget_generous, _mf, _rcpt,
     _sub_state, _temp_rules_off, driven, exhausted, rl, st, sub_stop, track_turn_prompts,
 )
 import verify_g7_equivalence as g7  # noqa: E402
@@ -513,11 +513,11 @@ def test_pick_one_still_sent_when_stop_hook_active(driven, capsys, monkeypatch):
 def test_declared_cases_wired_into_reconcile(driven, capsys, monkeypatch):
     seen, marker = [], (lambda path: ["verify_x.py"])
     calls = []
-    monkeypatch.setattr(st, "declared_cases", lambda state, sid, cfg, tp="": calls.append(sid) or marker)   # 第 4 個參數＝transcript 路徑（case_for｜ 行從它讀）
+    monkeypatch.setattr(st, "declared_cases", lambda cfg, tp="": calls.append(tp) or marker)   # 第 2 個參數＝transcript 路徑（case_for｜ 行從它讀）
     real = st.reconcile_gate_parts
     monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: seen.append(k) or real(*a, **k))
     driven(_CLAIM, capsys)
-    assert calls == [_SID] and seen and seen[-1].get("case_for") is marker
+    assert len(calls) == 1 and seen and seen[-1].get("case_for") is marker
 
 
 # ─── v6 守門總開關關時照 9e476fd0：共用擋次整個 session 累計、口令 commit 過就用掉 ─────────────────

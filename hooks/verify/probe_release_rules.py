@@ -33,8 +33,6 @@ CONFIG_OFF = {
     "response_capture": {"enabled": False},
     # 需求目標流程（改程式前要有目標樹）不是本探針的對象：沙箱裡關掉，免得 P3 的 checkout --theirs 被它擋
     "overview_hub": {"need_goal": {"enabled": False}},
-    # 驗證範圍（改了程式要宣告範圍）也不是本探針的對象：情境判的是對帳與放行規則
-    "verify_scope": {"enabled": False},
 }
 SIMPLE_MAP = """# 部位表（探針用）
 
@@ -226,7 +224,7 @@ class Checks:
         self.rows.append({"what": what, "actual": actual, "rule": rule, "ok": actual == rule, "note": note})
 
 
-CODE_TAGS = ("[Guardian:ReconcileGate]", "[Guardian:VerifyScope]", "[Guardian:TestFailGate]")
+CODE_TAGS = ("[Guardian:ReconcileGate]", "[Guardian:TestFailGate]")
 
 
 def _d(step: dict) -> str:

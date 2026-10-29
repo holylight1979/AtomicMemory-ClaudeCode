@@ -21,7 +21,7 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_stop_reconcile import (  # noqa: E402,F401
-    _SID, _CASE, _aec, _mf, _scope_ledger_isolated, _temp_rules_off, driven,
+    _SID, _CASE, _aec, _mf, _temp_rules_off, driven,
 )
 from handlers import post_tool_use as pt  # noqa: E402
 

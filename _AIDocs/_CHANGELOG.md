@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 拔掉驗證範圍閘（verify_scope）：收尾寫碼查核 (a)(d) 只留關著時的判法
+- **緣由**：驗證範圍閘早由使用者關掉（`verify_scope.enabled=false`，帳本 10-20 後沒再寫），使用者拍板整套拔掉；它還留著約 1000 行主模組、12 條只在開著時用的規則、MCP `need_goal` 的 `verify_scope` 動作，開場還照印漏判統計行。
+- **做法**：刪 `hooks/wg_verify_scope.py` 與兩支專屬測試；Stop（主 session、子代理、裁判）、PostToolUse、PostToolBatch、SessionStart 拿掉驗證範圍分支，(a) 只認對得上改檔的 PASS 或部位自寫收據、(d) 只看案例覆蓋與「case_for｜…」宣告行；`wg_verify_ledger` 刪只給它用的函式（含 `load_verify_chains`、`run_runtime_gate`）；`wg_release_rules` 刪 SCOPE_* 9 條與 CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER／CASE_DECL_WELL_FORMED；config、entrypoints（E24）、MCP schema 跟著清；TECH §7.9／A7.9 留標題指向封存檔 `DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md`。
+- **驗證**：改動前後跑同一組 30 支測試檔：基底 8 紅（verify_release_rules 2、verify_red_scope_full_command 6）改後仍是同樣 8 紅、其餘 1839 綠；另跑驅動 Stop／PostToolUse 入口的 47 支測試檔 1174 綠、4 紅（verify_state_parallel_rmw 2 支在 HEAD 也紅；verify_sys_path_file_relative 1 支在 HEAD 也紅、1 支只因工作樹放在 live `~/.claude` 底下才紅，搬到別處跑綠）；MCP stdio 煙霧測試與 need_goal 三支 JS 驗證 PASS；`config-consistency` 跑完；`import handlers.stop／post_tool_use／post_tool_batch／session_start` 不壞；3 支錄製檔因 git 呼叫變少重錄。
+
 ## 2026-10-29 [觀]→[固] 要 10 筆效用證據、Confirmations 退出晉升；向量索引不再因 cp950 中止並會浮警告
 - **緣由**：`atom_promote` 的 [觀]→[固] 跟 [臨]→[觀] 同一條門檻（下界 0.6、n≥3），全庫 39 張 [觀] 有 16 張一呼叫就能升 [固]；Confirmations 資料源已停產卻仍是晉升條件之一（decisions 卡早寫已除役）。向量服務增量索引印卡名時遇 cp950 編不出的字整輪中止，716 張卡有 348 張不在向量庫、150 筆指向已搬走的路徑，statusline 照亮 vec✓、沒人知道。
 - **做法**：`atom-tools.js toolAtomPromote` 只看效用下界，[固] 讀 `usefulness.fix_min_n`（10）；`wg_atoms._self_iterate_atoms` 拿掉 confirmations 條件、config 刪 `self_iteration.promote_confirmations_threshold`。`memory-vector-service/service.py` 啟動時 stdout／stderr 改 UTF-8（backslashreplace）；SessionStart 加 `_vector_index_advisory`：/status 的 index_job 有 error 就浮一行 `[Guardian:Vector]`。重啟向量服務（發現同時有兩支在跑）並跑增量索引。增量索引原本只比內容雜湊，搬了位置的卡 file_path 一直指舊址：`indexer._incremental_unchanged` 改成雜湊與路徑都沒變才略過（第二輪重索引 83 張，向量庫 887 筆全域／local 卡路徑全對得上，索引 716 張全查得到）。TECH §9.4 手動指令改成實際路由（POST /index、/index/incremental）。

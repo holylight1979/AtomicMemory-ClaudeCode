@@ -164,12 +164,12 @@ def test_pick_one_pre_close_then_stop_does_not_resend(batch_env, stop_run, monke
 
 def test_reconcile_batch_is_pre_close_too(batch_env, stop_run, tmp_path, capsys):
     """PICK_ONE_PRE_CLOSE／TURN_JUDGMENT_PRE_CLOSE：完整對照（need_goal action=reconcile）那批也是收尾前的附著點（無頭實跑兩跑 AI 都沒交
-    收尾檢核，最後一個收尾類工具是 reconcile）；need_goal 其他動作（set、verify_scope）不是。"""
+    收尾檢核，最後一個收尾類工具是 reconcile）；need_goal 其他動作（set、add）不是。"""
     proj, _ = stop_run
     damage = proj / "Game" / "Battle" / "Damage.cs"
     state = {"modified_files": [_mod(damage)], "turn_seq": 5, "session": {"cwd": str(proj)}}
     _measured(state, damage)
-    for action in ("set", "verify_scope"):
+    for action in ("set", "add"):
         ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": action}}], _PASS_CFG, capsys)
         # 不是收尾那批：不附最該修、不附量好的結果本文；背景量完的欠項一行提醒（TURN_JUDGMENT_REQUIRED，REMIND_ON_PRIOR_RESULT）照送
         assert "PickOne" not in ctx and TJ_NOTE.splitlines()[0] not in ctx, action
@@ -323,7 +323,7 @@ def test_second_opinion_waiting_close_then_stop_notices(drive, capsys, tmp_path,
     with pytest.raises(SystemExit):
         st.handle_stop({"session_id": SO_SID, "cwd": "", "transcript_path": str(drive.tx.path),
                         "last_assistant_message": "看過了。"}, {"reconcile_gate": {"enabled": False},
-                                                              "verify_scope": {"enabled": False}, "sync_reminder": {"enabled": False},
+                                                              "sync_reminder": {"enabled": False},
                                                               "atom_audit": {"enabled": False}, "aec": {"scan_report_gate": False}})
     out = capsys.readouterr().out.strip()
     ctx = json.loads(out.splitlines()[-1])["hookSpecificOutput"]["additionalContext"]
@@ -392,7 +392,7 @@ def test_so_pre_close_follows_closing_call(batch_env, drive, capsys, tmp_path):
     import wg_closing_round as cr
     calls = [AEC, {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}},
              {"tool_name": "mcp__workflow-guardian__knowledge_harvest_report", "tool_input": {}},
-             {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "verify_scope"}},
+             {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "read"}},
              {"tool_name": "Bash", "tool_input": {"command": "pytest"}}]
     for c in calls:
         ctx = _batch(_so_state(_files(tmp_path, 5)), [c], _PASS_CFG, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
