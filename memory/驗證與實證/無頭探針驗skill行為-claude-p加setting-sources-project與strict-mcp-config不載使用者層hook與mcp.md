@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 無頭探針, claude -p, --setting-sources project, --strict-mcp-config, skill 行為實測, stream-json, 探針不寫 live, 無頭實跑工作樹 hook, --no-session-persistence, Not logged in, WG_CLAUDE_DIR, transcript 路徑不存在, --settings 合併不取代, project,local, --mcp-config, --resume 兩回合, projects slug, enabled=false, 包裝 hook, 受測 AI 不呼叫工具就收尾, ensure-mcp.py, user-init.sh, rmtree 唯讀, 排除詞判不出完成, CLAUDE_EFFORT, 子行程繼承環境變數, ListAgents
 - Created-at: 2026-10-22
-- Related: 無頭受測要關掉全部hook用claude--settings的disableAllHooks旗標-hooks只來自使用者層settings-資料根放空settings不生效, Git-Bash傳斜線開頭參數給Windows原生程式會被轉成路徑-例claude-p的slash指令-MSYS_NO_PATHCONV只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑
+- Related: 無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效, git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑
 
 ## 知識
 

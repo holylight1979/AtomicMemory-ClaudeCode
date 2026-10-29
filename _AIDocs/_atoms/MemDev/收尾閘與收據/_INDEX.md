@@ -1,0 +1,27 @@
+# _AIDocs/_atoms/MemDev/收尾閘與收據 — 範疇索引
+
+> 階層範疇索引（自動生成，`_` 前綴非 atom）。機制見 [[realm-範疇分區機制-v5]]。
+
+## 本層 atom
+
+| Atom | 說明 |
+|------|------|
+| feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 | feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 |
+| need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred | need_goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred |
+| need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 | need_goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 |
+| need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 | need_goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 |
+| testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
+| text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列 | text-score的auto_targets空清單是不比路徑不是關掉-要某種類不評就整個不列 |
+| verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項 | verify_scope宣告項目太多時PostToolUse逾時被砍-宣告靜默遺失-只列改檔必要的項 |
+| 主腦在live樹上跑測試探子代理進度會留假紅帳-紅測閘逼主腦重跑整個範圖-子代理改live檔時主腦只等通知不跑它的案例 | 主腦在live樹上跑測試探子代理進度會留假紅帳-紅測閘逼主腦重跑整個範圖-子代理改live檔時主腦只等通知不跑它的案例 |
+| 專案工作驗收裁判的分級啟動與殺閘設計 | 專案工作驗收裁判的分級啟動與殺閘設計 |
+| 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 |
+| 收尾閘的驗證收據只認本回合的bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例 | 收尾閘的驗證收據只認本回合的Bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例 |
+| 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 | 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 |
+| 紅測閘的紅帳以複合指令裡的pytest段為鍵-單獨重跑那支node案例綠了不清帳-要把當初整條指令原樣再跑一次 | 紅測閘的紅帳以複合指令裡的pytest段為鍵-單獨重跑那支node案例綠了不清帳-要把當初整條指令原樣再跑一次 |
+| 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 |
+| 解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到 | 解析哨兵k=v用\s+會跨行吃下一行-改成空白tab後行尾要容許\r否則CRLF輸出的DONE哨兵認不到 |
+| 量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 | 量測收據要認DONE帶k=v-sentinel_regex會把普通pytest統計行也轉成PYTEST_MEASURE-DONE-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 |
+| 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase |
+| 驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法 | 驗證收據只認and串接的指令-用分號串pytest與echo-cmp整條不算收據-同一組測試要再跑一次-宣告範圍時先講跑法 |
+| 驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄 | 驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄 |

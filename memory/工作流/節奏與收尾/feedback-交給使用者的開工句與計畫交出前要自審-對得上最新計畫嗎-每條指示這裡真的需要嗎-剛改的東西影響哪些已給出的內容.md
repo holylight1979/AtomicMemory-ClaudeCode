@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Confidence: [觀]
+- Confidence: [臨]
 - Trigger: 開工句, 新 session prompt, 給使用者的 prompt, 計畫交出, 交接, 為啥都要我提問才會改, 沿用範本, 要不要進計畫模式
 - Created-at: 2026-10-15
 - Source: session:242d1f2a#a8cbeed8 2026-10-15

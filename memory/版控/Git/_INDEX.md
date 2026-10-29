@@ -8,6 +8,7 @@
 |------|------|
 | commit-前必須核對-staged-清單而非只信自己-add-了什麼 | commit 前必須核對 staged 清單而非只信自己 add 了什麼 |
 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 | commit前閘要查這次真的會提交的內容-同一條指令裡的git-add還沒跑-檔名用-z取 |
+| feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義 | feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義 |
 | git-apply-check-過但-git-am-失敗-crlf-檔案的-patch-用-git-apply-index-加-git-am-continue-保留原作者 | git apply --check 過但 git am 失敗-CRLF 檔案的 patch 用 git apply --index 加 git am --continue 保留原作者 |
 | git-pathspec短魔法把非英數字元都當魔法字-排除底線開頭的檔要寫exclude | git-pathspec短魔法把非英數字元都當魔法字-排除底線開頭的檔要寫:(exclude) |
 | git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 | git-stash-push帶路徑時別的已staged檔仍被記進stash-pop-index會衝突-退回單檔看紅改用git-show存舊版或在worktree測 |
@@ -19,6 +20,7 @@
 | 兩分支各自把文件裡的計數改成同一個數-合併不衝突但總數已錯-合併後計數用程式重算不信合併結果 | 兩分支各自把文件裡的計數改成同一個數-合併不衝突但總數已錯-合併後計數用程式重算不信合併結果 |
 | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index | 共用工作樹只stage自己的hunk-別用unidiff-zero-換回HEAD原文再update-index |
 | 共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 | 共用工作樹有MERGE_HEAD時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 |
+| 共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存 | 共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存 |
 | 合併停在衝突又有功能改動時先只交解衝突的合併commit-功能改動另開commit-不混成暗改的合併 | 合併停在衝突又有功能改動時先只交解衝突的合併commit-功能改動另開commit-不混成暗改的合併 |
 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout--conflict=diff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 |
 | 在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1 | 在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1 |
@@ -31,3 +33,4 @@
 | 解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile | 解合併衝突兩側都留只對純加法段成立-hunk切在函式中段會吃掉共用尾行-改用main版加分支尾段重建-解完必跑該檔verify不只py-compile |
 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 |
 | 證明repo沒被自己動過而它有背景自動提交時-比自己動過那幾支檔的status與雜湊加head新增段沒碰那些路徑-不比head也不比整份status | 證明repo沒被自己動過而它有背景自動提交時-比自己動過那幾支檔的status與雜湊加HEAD新增段沒碰那些路徑-不比HEAD也不比整份status |
+| 退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼 | 退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼 |

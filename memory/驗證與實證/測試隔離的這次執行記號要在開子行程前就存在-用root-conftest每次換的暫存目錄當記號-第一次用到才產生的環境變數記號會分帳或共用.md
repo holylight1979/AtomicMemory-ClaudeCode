@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 這次執行記號, 測試隔離記號, run id, pytest.main 兩次, 子行程分帳, root conftest 暫存目錄, TMPDIR 當記號
 - Created-at: 2026-10-22
-- Related: 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它, conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離
+- Related: 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它, conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離
 
 ## 知識
 

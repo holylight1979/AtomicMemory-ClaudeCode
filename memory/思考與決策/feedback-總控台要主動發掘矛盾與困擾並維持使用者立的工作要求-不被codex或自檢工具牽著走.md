@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Quote: 你要維持住我告訴你的這些工作要求與品質，並且要主動去發掘出矛盾或困擾之處，不要只是單純被 Codex 牽著鼻子走
-- Confidence: [觀]
+- Confidence: [臨]
 - Trigger: 總控台, 被牽著走, codex 審查, 自檢工具, 主動發掘, 矛盾, 困擾, 工作要求, 品質維持, 裁定, Codex 建議, 派不派, 邊角問題, 範圍飄移, 不要附和, 快且有效, 成本效益, 矯枉過正
 - Created-at: 2026-10-13
 

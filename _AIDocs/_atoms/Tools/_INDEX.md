@@ -16,6 +16,7 @@
 | g9-評分規格兩家模型各自想分歧寫下來 | G9 評分規格：兩家模型各自想、分歧寫下來 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律Write成檔再跑 |
+| hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep | hud全機殘留的不用再確認標籤把gitignore的派工信箱檔也算可刪-整組清前先list逐項判-信箱是總控台的帳要記keep |
 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 |
 | sync-doc-counts的-root預設是資料根不是cwd-在worktree不帶-root量的是live文件-worktree軌要加-root指自己 | sync-doc-counts的--root預設是資料根不是cwd-在worktree不帶--root量的是live文件-worktree軌要加--root指自己 |
 | sync-memory-indexpy-在-windows-直接跑會-cp950-unicodeencodeerror-前綴-pythonioencodingutf-8 | sync-memory-index.py 在 Windows 直接跑會 cp950 UnicodeEncodeError — 前綴 PYTHONIOENCODING=utf-8 |

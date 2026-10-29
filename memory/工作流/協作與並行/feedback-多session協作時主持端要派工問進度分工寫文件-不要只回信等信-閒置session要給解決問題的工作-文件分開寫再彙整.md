@@ -3,7 +3,7 @@
 - Scope: global
 - Author: holylight
 - Quote: 你有沒有發現你是這三session會議與出文件的總控端? 適度的要請他們利用他們沒事幹的時間做解決問題的事情啊，還要問他們有沒有新進展啊，或者是叫他們跟你分工寫文件啊
-- Confidence: [觀]
+- Confidence: [臨]
 - Trigger: 總控端, 主持, 派工, 問進度, 分工寫文件, 多 session, 三方討論, 信箱, 待命, 無待答項, 彙整
 - Created-at: 2026-10-07
 - Related: feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌, 並行llm即時通訊-inbox機制
