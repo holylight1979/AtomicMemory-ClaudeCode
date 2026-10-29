@@ -226,10 +226,8 @@ def build_plan(layout: Layout, atoms_map: Dict[str, str], refs: Dict[str, str]) 
                 if cur_dom.casefold() == dom.casefold():
                     items.append({"action": "noop", "slug": slug, "from": cur_rel, "to": cur_rel,
                                   "target": resolved["canon"]})
-                else:
-                    errors.append(f"{slug}: already local at {cur_dom!r}, target {dom!r} "
-                                  "(re-home with tools/atom-set-realm.py)")
-                continue
+                    continue
+                # local 內換子夾：也走 realm 動作（委派 set_realm，realm 不變、只換夾）
             items.append({"action": "realm", "slug": slug, "from": cur_rel, "domain": dom,
                           "target": resolved["canon"], "sidecar": sidecar})
             continue

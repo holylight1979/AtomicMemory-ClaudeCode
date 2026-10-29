@@ -43,7 +43,7 @@ from lib.atom_locations import (  # noqa: E402
     CLAUDE_DIR, CLAUDE_DIR as _CLAUDE_ROOT, FAILURES_ROOT_NAME,
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_DIR, LOCAL_ATOMS_REL, LOCAL_REALM_DOMAINS,
     core_write_target, enumerate_local_paths, failures_write_target,
-    is_local_realm_path, normalize_domain_path, unclassified_error,
+    is_local_realm_path, local_realm_path_segments, normalize_domain_path, unclassified_error,
     ENTRY_BOUND_STAYS_CORE, entry_bound_ids,
 )
 try:
@@ -174,8 +174,9 @@ def set_realm(
             return {"ok": False, "error": "empty domain (need --domain <path> or --to-core)"}
         # 多段階層路徑：canon（對既有樹 snap）取代舊 allow-list 驗證
         dom_path = normalize_domain_path(domain, enumerate_local_paths())
-        if cur_is_local:
-            return {"ok": True, "noop": True, "msg": f"{slug} already local ({cur_path})"}
+        # 已在 local 的卡：同一夾 → noop；不同夾 → 照搬（local 內換子夾，realm 不變）
+        if cur_is_local and "/".join(local_realm_path_segments(cur_path)).casefold() == dom_path.casefold():
+            return {"ok": True, "noop": True, "msg": f"{slug} already local at {cur_path}"}
         segs = [s for s in dom_path.split("/") if s]
         dst_md = LOCAL_ATOMS_DIR.joinpath(*segs, f"{slug}.md")
         new_rel = f"{LOCAL_ATOMS_REL}/{dom_path}/{slug}.md"

@@ -306,3 +306,36 @@ def test_cli_plan_project_layer_exit0_no_traceback(ptree, tmp_path):
     out = json.loads(r.stdout)
     assert out["mode"] == "PLAN" and out["layer"] == "project" and out["errors"] == []
     assert (mem / "shared" / "pa.md").exists()   # plan 不落地
+
+
+# ─── local 內換子夾（已在 local 的卡搬進同範疇子夾） ─────────────────────────────
+
+
+def test_plan_local_atom_to_subfolder_is_realm_action_not_error(gtree):
+    layout = MOD.Layout(gtree / "memory")
+    plan = MOD.build_plan(layout, {"dev-note": "local:MemDev/子夾"}, {})
+    assert plan["errors"] == [], plan["errors"]
+    it = plan["items"][0]
+    assert it["action"] == "realm" and it["domain"] == "MemDev/子夾"
+    assert it["from"] == "_AIDocs/_atoms/MemDev/dev-note.md"
+
+
+def test_set_realm_moves_local_atom_between_subfolders(gtree, monkeypatch):
+    sr = MOD._load_set_realm()
+    root = gtree
+    monkeypatch.setattr(sr, "CLAUDE_DIR", root)
+    monkeypatch.setattr(sr, "GLOBAL_MEMORY_DIR", root / "memory")
+    monkeypatch.setattr(sr, "LOCAL_ATOMS_DIR", root / "_AIDocs" / "_atoms")
+    monkeypatch.setattr(sr, "_audit_log", lambda *a, **k: None)
+    monkeypatch.setattr(sr, "enumerate_local_paths", lambda *a, **k: ["MemDev"])
+    # 同夾 → noop
+    same = sr.set_realm("dev-note", domain="MemDev")
+    assert same["ok"] and same.get("noop")
+    # 換子夾 → 實體與 sidecar 搬、index path 跟著改、realm 仍 local
+    res = sr.set_realm("dev-note", domain="MemDev/子夾")
+    assert res["ok"] and not res.get("noop"), res
+    assert res["to"] == "_AIDocs/_atoms/MemDev/子夾/dev-note.md"
+    assert (root / "_AIDocs/_atoms/MemDev/子夾/dev-note.md").exists()
+    assert (root / "_AIDocs/_atoms/MemDev/子夾/dev-note.access.json").exists()
+    assert not (root / "_AIDocs/_atoms/MemDev/dev-note.md").exists()
+    assert _entry(root / "memory", "dev-note")["path"] == "_AIDocs/_atoms/MemDev/子夾/dev-note.md"
