@@ -213,7 +213,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ### 記憶品質
 - memory-audit.py — 格式驗證 + staleness + 晉升建議（對齊線上 usefulness Wilson 閘）；索引 parser 認 CC 原生清單格式 `- [題](檔.md)`（projects 層誤報歸零）；`delete_atom(..., project_dir=, reason=) -> (ok, msg, info)` 退役單一實作（①護欄②向量③Related④索引⑤搬 `_distant/`，①–④ 冪等、失敗不搬檔；CLI `--delete --reason --project-dir`、`--restore` 還原）
-- atom-health-check.py — 參照完整性（含 `_` 前綴豁免 / project→global up-ref / `--shadow-check` 與 _AIDocs 子段相似度偵測 / `--atom <name>` 單顆健康過濾，供 atom-heal 重用）+ **`check_stale_deps` 壞滅緣檢查**（atom `Depends:` path 型指向消失 → 報 stale_deps）+ `mojibake_names`（名稱含 U+0080–U+00FF → stderr `⚠ 疑似亂碼名稱:` 一行、跳過、不計 issues）
+- atom-health-check.py — 參照完整性（含 `_` 前綴豁免 / project→global up-ref / `--shadow-check` 與 _AIDocs 子段相似度偵測 / `--atom <name>` 單顆健康過濾，供 atom-heal 重用）+ **`check_stale_deps` 壞滅緣檢查**（atom `Depends:` path 型指向消失 → 報 stale_deps）+ `check_depends_mtime` 依賴比卡新（依賴改動日看版控最後變更、未提交或非版控才看 mtime，同日比版號 → 報 stale_mtime_deps）+ `mojibake_names`（名稱含 U+0080–U+00FF → stderr `⚠ 疑似亂碼名稱:` 一行、跳過、不計 issues）
 - atom-health-audit.py — atom 體質審視（七類分類：歸檔 / 晉升 / 冷凍 / 缺欄 / trigger 補強 / 保留）
 - atom-heal.py — 記憶自癒單一來源（腦內世界 P3）：L1 機械補反向連結(免 LLM) / L2 broken_refs 呼本地 Ollama 出結構化提案經 funnel 套用 / L3 stale 喚醒；後端可插拔（config `heal.backend`，預設 ollama 免費序列、cloud 選配並行）；修不好 → `_heal_review/<atom>.json` 退人工
 - heal-review.py — `/heal-review` skill 後端：列 `_heal_review/` 失敗診斷卡，management resolve(重掃確認健康)/dismiss

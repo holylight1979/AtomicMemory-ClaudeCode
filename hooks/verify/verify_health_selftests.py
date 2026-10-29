@@ -9,9 +9,11 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -114,7 +116,7 @@ def test_collect_has_selftests_section_and_last_run_counts_failed(hw, monkeypatc
 
 def test_collect_reports_mtime_deps_and_low_coverage(hw, monkeypatch):
     hc = {"stale_deps": [{"atom": "a", "dep": "x"}],
-          "stale_mtime_deps": [{"atom": "b", "dep": "C:/x/y.py", "dep_mtime": "2026-10-01", "verified_at": "2026-09-01"}],
+          "stale_mtime_deps": [{"atom": "b", "dep": "C:/x/y.py", "dep_changed": "2026-10-01", "verified_at": "2026-09-01"}],
           "depends_coverage": {"with_depends": 0, "total": 3, "ratio": 0.0}}
     _stub_collect_deps(hw, monkeypatch, [], hc=hc)
     monkeypatch.setattr(hw, "_load_config", lambda: {"tool_selftests": [], "depends_coverage_min": 0.5,
@@ -181,7 +183,14 @@ def test_depends_mtime_flags_dep_newer_than_verified_date(tmp_path):
     issues = HC.check_depends_mtime({"old": old, "fresh": fresh, "created": created, "nodep": nodep})
     assert sorted(i["atom"] for i in issues) == ["created", "old"]
     hit = next(i for i in issues if i["atom"] == "old")
-    assert hit["verified_at"] == "2026-01-01" and hit["verified_source"] == "Verified-at" and hit["dep_mtime"] == f"{datetime.now():%Y-%m-%d}"
+    assert hit["verified_at"] == "2026-01-01" and hit["verified_source"] == "Verified-at"
+    assert hit["dep_changed"] == f"{datetime.now():%Y-%m-%d}" and hit["dep_source"] == "mtime"   # 不在版控 → mtime
+    # 同一天：依賴在卡片之後才改 → 報，並寫明是同日比出來的
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    os.utime(fresh, ((today + timedelta(hours=1)).timestamp(),) * 2)
+    os.utime(dep, ((today + timedelta(hours=2)).timestamp(),) * 2)
+    same = HC.check_depends_mtime({"fresh": fresh})
+    assert len(same) == 1 and same[0]["same_day"].startswith("同日，依賴晚於卡片 mtime")
 
 
 def test_depends_mtime_missing_path_left_to_stale_deps(tmp_path):
@@ -198,6 +207,104 @@ def test_depends_mtime_falls_back_to_atom_file_mtime(tmp_path):
     os.utime(a, (old_ts, old_ts))
     issues = HC.check_depends_mtime({"a": a})
     assert len(issues) == 1 and issues[0]["verified_source"] == "mtime"
+
+
+# ─── 依賴比卡新：依賴在版控裡看版控的最後變更，不看 update 時被刷新的 mtime ──────────
+
+def _sh(*cmd, cwd=None, env=None):
+    subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, check=True, capture_output=True)
+
+
+def _svn_repo(tmp_path):
+    if not (shutil.which("svn") and shutil.which("svnadmin")):
+        pytest.skip("沒裝 svn／svnadmin")
+    repo = tmp_path / "repo"
+    _sh("svnadmin", "create", repo)
+    _sh("svn", "checkout", "-q", repo.as_uri(), tmp_path / "wc")
+    return repo, tmp_path / "wc"
+
+
+def _svn_commit(wc, *names):
+    _sh("svn", "add", "-q", *[wc / n for n in names])
+    _sh("svn", "commit", "-q", "-m", "m", wc)
+
+
+def _svn_set_date(repo, rev, when):
+    """把第 rev 版的提交時間改成 when（本地時間）；svnadmin 直接改，不需要 pre-revprop-change hook。"""
+    f = repo.parent / f"date-r{rev}.txt"
+    f.write_text(when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000Z"), encoding="ascii", newline="")
+    _sh("svnadmin", "setrevprop", repo, "-r", rev, "svn:date", f)
+
+
+def _git_commit(root, name, when):
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_AUTHOR_DATE": when.astimezone().isoformat(),
+           "GIT_COMMITTER_DATE": when.astimezone().isoformat()}
+    _sh("git", "-C", root, "add", name, env=env)
+    _sh("git", "-C", root, "-c", "commit.gpgsign=false", "commit", "-q", "-m", name, env=env)
+
+
+def test_depends_vcs_date_beats_fresh_mtime_svn(tmp_path):
+    """svn：剛 checkout／update 的檔 mtime 是今天，但版控最後變更在卡片驗證日之前 → 不報；本機改了沒提交、沒進版控 → 回到 mtime。"""
+    repo, wc = _svn_repo(tmp_path)
+    (wc / "dep.py").write_text("x", encoding="utf-8", newline="\n")
+    _svn_commit(wc, "dep.py")
+    _svn_set_date(repo, 1, datetime(2026, 1, 1, 12))
+    fresh = tmp_path / "fresh"                                   # 新 checkout＝「這台剛 update」
+    _sh("svn", "checkout", "-q", repo.as_uri(), fresh)
+    dep = fresh / "dep.py"
+    card = _atom(tmp_path, "card", f"- Verified-at: 2026-03-01\n- Depends: path:{dep}\n")
+    assert datetime.fromtimestamp(dep.stat().st_mtime).date() > datetime(2026, 3, 1).date()   # 只看 mtime 會報
+    assert HC.check_depends_mtime({"card": card}) == []
+    dep.write_text("y", encoding="utf-8", newline="\n")          # 本機改了沒提交：版控日期不代表現況
+    (fresh / "new.py").write_text("z", encoding="utf-8", newline="\n")
+    both = _atom(tmp_path, "both", f"- Verified-at: 2026-03-01\n- Depends: path:{dep}, path:{fresh / 'new.py'}\n")
+    got = {Path(i["dep"]).name: i["dep_source"] for i in HC.check_depends_mtime({"both": both})}
+    assert got == {"dep.py": "mtime（本機未提交修改）", "new.py": "mtime（未進版控）"}
+
+
+def test_depends_vcs_date_beats_fresh_mtime_git(tmp_path):
+    root = tmp_path / "g"
+    root.mkdir()
+    _sh("git", "init", "-q", root)
+    dep = root / "dep.py"
+    dep.write_text("x", encoding="utf-8", newline="\n")
+    _git_commit(root, "dep.py", datetime(2026, 1, 1, 12))
+    os.utime(dep, None)                                          # mtime＝現在（像 pull／checkout 後）
+    card = _atom(tmp_path, "card", f"- Verified-at: 2026-03-01\n- Depends: path:{dep}\n")
+    assert HC.check_depends_mtime({"card": card}) == []
+    old = _atom(tmp_path, "old", f"- Verified-at: 2025-12-01\n- Depends: path:{dep}\n")
+    hit = HC.check_depends_mtime({"old": old})
+    assert len(hit) == 1 and hit[0]["dep_changed"] == "2026-01-01" and hit[0]["dep_source"].startswith("git ")
+
+
+def test_depends_same_day_ordered_by_svn_revision(tmp_path):
+    """同一天：比卡片當天第一次進版的版號與依賴的最後變更版號。三版提交時間設成同一刻，只剩版號分得出先後。"""
+    repo, wc = _svn_repo(tmp_path)
+    fresh = tmp_path / "fresh"
+    dep_line = f"- Verified-at: 2026-05-05\n- Depends: path:{fresh / 'dep.py'}\n"
+    for rev, name in enumerate(("before.md", "dep.py", "after.md"), start=1):   # r1 卡 → r2 依賴 → r3 卡
+        (wc / name).write_text(ATOM.format(name=name, extra=dep_line) if name.endswith(".md") else "x",
+                               encoding="utf-8", newline="\n")
+        _svn_commit(wc, name)
+        _svn_set_date(repo, rev, datetime(2026, 5, 5, 12))
+    _sh("svn", "checkout", "-q", repo.as_uri(), fresh)
+    issues = HC.check_depends_mtime({"before": fresh / "before.md", "after": fresh / "after.md"})
+    assert [i["atom"] for i in issues] == ["before"]
+    assert issues[0]["dep_source"] == "svn r2" and issues[0]["same_day"] == "同日，依賴晚於卡片 svn r1"
+
+
+def test_depends_same_day_ordered_by_git_commit_time(tmp_path):
+    root = tmp_path / "g"
+    root.mkdir()
+    _sh("git", "init", "-q", root)
+    dep_line = f"- Verified-at: 2026-05-05\n- Depends: path:{root / 'dep.py'}\n"
+    for hour, name in ((10, "before.md"), (11, "dep.py"), (12, "after.md")):
+        (root / name).write_text(ATOM.format(name=name, extra=dep_line) if name.endswith(".md") else "x",
+                                 encoding="utf-8", newline="\n")
+        _git_commit(root, name, datetime(2026, 5, 5, hour))
+    issues = HC.check_depends_mtime({"before": root / "before.md", "after": root / "after.md"})
+    assert [i["atom"] for i in issues] == ["before"] and issues[0]["same_day"].startswith("同日，依賴晚於卡片 git ")
 
 
 def test_depends_coverage_and_full_report_keys(tmp_path, monkeypatch):

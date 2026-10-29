@@ -136,7 +136,7 @@ def test_recall_miss_counts_missing_log_zero(hw, tmp_path, monkeypatch):
 
 def test_depends_block_yellow_and_info(hw):
     hc = {"stale_deps": [{"atom": "a", "dep": "x"}, {"atom": "b", "dep": "y"}],
-          "stale_mtime_deps": [{"atom": "c", "dep": "C:/p/q.py", "dep_mtime": "2026-10-02", "verified_at": "2026-09-01"}],
+          "stale_mtime_deps": [{"atom": "c", "dep": "C:/p/q.py", "dep_changed": "2026-10-02", "verified_at": "2026-09-01"}],
           "depends_coverage": {"with_depends": 3, "total": 10, "ratio": 0.3}}
     yellow, info = hw._depends_block(hc, 0.0)
     assert any("stale_deps 2 筆" in y for y in yellow) and any("依賴比卡新 1 筆" in y and "c←q.py" in y for y in yellow)

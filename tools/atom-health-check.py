@@ -5,7 +5,7 @@ Usage:
   python atom-health-check.py --validate-refs   檢查 Related 完整性
   python atom-health-check.py --fix-refs        （已無動作，反向連結由索引計算）
   python atom-health-check.py --stale-check     列出 Last-used > 60 天的 atoms
-  python atom-health-check.py --deps-check      壞滅緣檢查（path 型 Depends 存在性）
+  python atom-health-check.py --deps-check      壞滅緣檢查（path 型 Depends 存在性＋依賴比卡新：依賴改動時刻看版控，非版控才看 mtime）
   python atom-health-check.py --report          生成完整健康報告
   python atom-health-check.py --report --json   JSON 格式輸出
 """
@@ -19,9 +19,14 @@ if sys.stderr.encoding != 'utf-8':
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
-from datetime import datetime, timedelta
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -322,10 +327,257 @@ def _atom_verified_date(fm: dict, path: Path) -> tuple[datetime, str]:
         return datetime.now(), "now"
 
 
+# ─── 依賴「最後一次真的改動」：版控優先，本機有未提交修改或沒進版控才看 mtime ─────────────────────
+# svn／git 的 update、checkout 會把檔案 mtime 設成當下：只看 mtime，「程式沒改、只是這台剛 update」也會被報過期。
+
+_VCS_TIMEOUT = 20
+_VCS_BATCH = 100      # 一次 svn／git 呼叫最多帶幾條路徑（Windows 命令列上限 32K 字元）
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_SVN_UNCHANGED = {"normal", "external", "none", "unversioned", "ignored"}
+
+
+@dataclass(frozen=True)
+class _Moment:
+    """檔案改動的時刻。at＝本地時間；vcs／rev／repo 只在讀到版控時有。
+    比先後：同一個 svn repo 比版號，其餘（git、跨 repo、mtime）比時間。"""
+    at: datetime
+    source: str
+    vcs: str | None = None
+    rev: int | None = None
+    repo: str | None = None
+
+    def later_than(self, other: "_Moment") -> bool:
+        if self.rev is not None and other.rev is not None and self.repo == other.repo:
+            return self.rev > other.rev
+        return self.at > other.at
+
+
+def _key(p) -> str:
+    return os.path.normcase(os.path.abspath(str(p)))
+
+
+def _mtime_moment(path: Path, why: str = "") -> _Moment | None:
+    try:
+        at = datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return None
+    return _Moment(at, f"mtime（{why}）" if why else "mtime")
+
+
+def _svn_time(text: str) -> datetime:
+    """svn 的 UTC ISO 時間 → 本地 naive datetime（和 Verified-at、mtime 同一個口徑）。"""
+    return datetime.fromisoformat(text.strip().replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+
+
+def _svn_argv_ok(s: str) -> bool:
+    """svn.exe 以 ANSI 碼頁收 argv，碼頁外的字會被 best-fit 成別的路徑 → 這種路徑不交給 svn（mbcs 嚴格模式不做 best-fit）。"""
+    if sys.platform != "win32":
+        return True
+    try:
+        s.encode("mbcs")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
+def _run_vcs(cmd: list[str]) -> tuple[int, str, str]:
+    """跑 svn／git，回 (exit code, stdout, stderr)；沒裝或逾時丟 OSError，由呼叫端退 mtime 並報原因。"""
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=_VCS_TIMEOUT, creationflags=_NO_WINDOW)
+    except subprocess.TimeoutExpired as e:
+        raise OSError(f"{cmd[0]} 逾時 {_VCS_TIMEOUT}s") from e
+    return r.returncode, r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace").strip()
+
+
+def _run_vcs_all(cmds: list[list[str]]) -> list[tuple[int, str, str]]:
+    """幾條互不相依的 svn／git 指令同時跑（各開子行程，等待時間疊在一起）；任一條丟 OSError 就整組丟。"""
+    with ThreadPoolExecutor(max_workers=min(8, len(cmds))) as ex:
+        return list(ex.map(_run_vcs, cmds))
+
+
+class _ChangeClock:
+    """一次 check_depends_mtime 內的版控查詢。建構時把路徑按 VCS 分批一次查完：svn 全部合成一批（info＋status 同時跑，
+    巢狀工作副本可混在同一批）、git 每個 repo 一批（status＋log 同時跑，log 順便留下卡片的進版紀錄）；
+    同日分先後要的 svn 卡片進版紀錄（svn log 要連伺服器）由 preload_histories 一次同時查，查過記住。
+    讀不到版控的退 mtime、原因寫進 source；整批讀不到在 stderr 印一行，不靜默。"""
+
+    def __init__(self, paths: list[Path]):
+        self._roots: dict[Path, tuple[str, Path] | None] = {}
+        self._last: dict[str, _Moment] = {}      # 最後一次進版
+        self._edit: dict[str, _Moment] = {}      # 本機未提交修改（取修改中最新的 mtime）
+        self._why: dict[str, str] = {}           # 退 mtime 的原因
+        self._histories: dict[str, list[_Moment] | str] = {}
+        svn: list[Path] = []
+        git: dict[Path, list[Path]] = {}
+        for p in dict.fromkeys(paths):
+            hit = self._root_of(p)
+            if hit is None:
+                continue
+            kind, root = hit
+            if kind == "git":
+                git.setdefault(root, []).append(p)
+            elif _svn_argv_ok(str(p)):
+                svn.append(p)
+            else:
+                self._why[_key(p)] = "路徑含 ANSI 碼頁外字元，svn 收不到"
+        for i in range(0, len(svn), _VCS_BATCH):
+            self._load_svn(svn[i:i + _VCS_BATCH])
+        for root, ps in git.items():
+            for i in range(0, len(ps), _VCS_BATCH):
+                self._load_git(root, ps[i:i + _VCS_BATCH])
+
+    def moment(self, path: Path) -> _Moment | None:
+        """path 最後一次改動：本機有未提交修改 → 該 mtime；版控乾淨 → 最後變更的版號／commit；沒進版控或讀不到 → mtime（附原因）。"""
+        k = _key(path)
+        return self._edit.get(k) or self._last.get(k) or _mtime_moment(path, self._why.get(k, ""))
+
+    def card_anchor(self, card: Path, day: date) -> tuple[_Moment | None, str]:
+        """同日分先後時卡片那一端＝驗證日當天起卡片第一次被記下的時刻：先找進版紀錄（卡片新建當天驗證＝第一次進版），
+        當天起沒進過版才用本機未提交修改／沒進版控的 mtime。查不到回 (None, 原因)。"""
+        k = _key(card)
+        last = self._last.get(k)
+        hist = self._history(card) if last else []
+        if isinstance(hist, str):
+            return None, hist
+        local = self._edit.get(k) or (None if last else _mtime_moment(card, self._why.get(k, "")))
+        for m in [*hist, local]:
+            if m is not None and m.at.date() >= day:
+                return m, ""
+        return None, f"卡片在 {day} 起沒有進版或本機修改紀錄"
+
+    def _root_of(self, path: Path) -> tuple[str, Path] | None:
+        """離 path 最近、含 .svn 或 .git 的上層目錄；同一層兩個都有取 svn（git overlay 疊在 svn 上時 svn 才是團隊正本）。"""
+        d = path if path.is_dir() else path.parent
+        walked = []
+        while d not in self._roots:
+            walked.append(d)
+            if (d / ".svn").is_dir():
+                self._roots[d] = ("svn", d)
+            elif (d / ".git").exists():
+                self._roots[d] = ("git", d)
+            elif d.parent == d:
+                self._roots[d] = None
+            else:
+                d = d.parent
+        for w in walked:
+            self._roots[w] = self._roots[d]
+        return self._roots[d]
+
+    def _load_svn(self, paths: list[Path]) -> None:
+        """一次 svn info（最後變更版號、日期、repo uuid）＋一次 svn status -q（本機未提交修改）。"""
+        args = [str(p) for p in paths]
+        try:
+            (_, info_out, info_err), (_, st_out, st_err) = _run_vcs_all([
+                ["svn", "info", "--xml", "--non-interactive", *args],
+                ["svn", "status", "-q", "--xml", "--non-interactive", *args]])
+            info, status = ET.fromstring(info_out), ET.fromstring(st_out)
+        except OSError as e:
+            return self._fail("svn", paths, str(e))
+        except ET.ParseError:
+            return self._fail("svn", paths, (info_err or st_err)[:200])
+        edited = {}
+        for e in status.iter("entry"):
+            st = e.find("wc-status")
+            if st is not None and (st.get("item") not in _SVN_UNCHANGED or st.get("props") == "modified"):
+                edited[_key(e.get("path"))] = e.get("path")
+        committed = {}
+        for e in info.iter("entry"):
+            c = e.find("commit")
+            when = c.findtext("date") if c is not None else None
+            if when:
+                rev = int(c.get("revision"))
+                committed[_key(e.get("path"))] = _Moment(_svn_time(when), f"svn r{rev}", "svn", rev,
+                                                         e.findtext("repository/uuid"))
+        self._settle(paths, edited, committed)
+
+    def _load_git(self, root: Path, paths: list[Path]) -> None:
+        """一次 git status（本機未提交修改）＋一次 git log --name-only（各路徑全部 commit，新→舊；目錄看底下任一檔）。"""
+        rels = {_key(p): p.relative_to(root).as_posix() for p in paths}
+        git = ["git", "-C", str(root), "-c", "core.quotepath=off", "--literal-pathspecs"]
+        try:
+            (rc1, st_out, err1), (rc2, log_out, err2) = _run_vcs_all([
+                [*git, "status", "--porcelain=v1", "-z", "--", *rels.values()],
+                [*git, "log", "--pretty=format:%x1e%ct%x1f%h", "--name-only", "--", *rels.values()]])
+        except OSError as e:
+            return self._fail("git", paths, str(e))
+        if rc1 or rc2:
+            return self._fail("git", paths, (err1 or err2)[:200])
+        edited = {}
+        tokens = iter(st_out.split("\0"))
+        for tok in tokens:
+            if len(tok) < 4 or tok.startswith("??"):
+                continue
+            edited[_key(root / tok[3:])] = str(root / tok[3:])
+            if tok[0] in "RC":
+                next(tokens, None)    # 改名／複製時下一段是原路徑
+        want = {k: rel.casefold() for k, rel in rels.items()}
+        hist: dict[str, list[_Moment]] = {k: [] for k in want}
+        for block in log_out.split("\x1e"):
+            head, _, files = block.partition("\n")
+            ct, _, sha = head.partition("\x1f")
+            if not ct.isdigit():
+                continue
+            names = {f.strip().casefold() for f in files.splitlines() if f.strip()}
+            for k, rel in want.items():
+                if any(n == rel or n.startswith(rel + "/") for n in names):
+                    hist[k].append(_Moment(datetime.fromtimestamp(int(ct)), f"git {sha.strip()}", "git"))
+        for k, h in hist.items():
+            if h:
+                self._histories[k] = h[::-1]
+        self._settle(paths, edited, {k: h[0] for k, h in hist.items() if h})
+
+    def _settle(self, paths: list[Path], edited: dict[str, str], committed: dict[str, _Moment]) -> None:
+        """每條路徑定案：底下有未提交修改 → 記修改中最新的 mtime；有進版紀錄 → 記最後一筆；兩者都沒有 → 未進版控。"""
+        for p in paths:
+            k = _key(p)
+            t = k + os.sep
+            hits = [Path(raw) for ek, raw in edited.items() if ek == k or ek.startswith(t)]
+            moments = [m for m in (_mtime_moment(h, "本機未提交修改") for h in hits) if m is not None]
+            if moments:
+                self._edit[k] = max(moments, key=lambda m: m.at)
+            elif hits:
+                self._edit[k] = _mtime_moment(p, "本機未提交修改")
+            if k in committed:
+                self._last[k] = committed[k]
+            elif not hits:
+                self._why[k] = "未進版控"
+
+    def _fail(self, vcs: str, paths: list[Path], why: str) -> None:
+        print(f"⚠ 依賴比卡新：{vcs} 讀不到（{why}），{len(paths)} 條改看 mtime", file=sys.stderr)
+        for p in paths:
+            self._why[_key(p)] = f"{vcs} 讀不到"
+
+    def preload_histories(self, cards: list[Path]) -> None:
+        """同日分先後要用的卡片進版紀錄：git 的批次 log 已填好；svn log 要連伺服器，這裡一次同時查完。"""
+        todo = [c for c in dict.fromkeys(cards) if _key(c) in self._last and _key(c) not in self._histories]
+        if todo:
+            with ThreadPoolExecutor(max_workers=min(8, len(todo))) as ex:
+                list(ex.map(self._history, todo))
+
+    def _history(self, card: Path) -> list[_Moment] | str:
+        """卡片的進版紀錄（舊→新）；git 的在 _load_git 已填好，走到查詢的只有 svn。讀不到回原因字串。"""
+        k = _key(card)
+        if k not in self._histories:
+            repo = self._last[k].repo
+            try:
+                rc, out, err = _run_vcs(["svn", "log", "-q", "--xml", "--non-interactive", str(card)])
+                if rc:
+                    raise OSError(err)
+                hist = [_Moment(_svn_time(e.findtext("date")), f"svn r{e.get('revision')}", "svn",
+                                int(e.get("revision")), repo)
+                        for e in ET.fromstring(out).iter("logentry") if e.findtext("date")]
+                self._histories[k] = sorted(hist, key=lambda m: m.rev)
+            except (OSError, ET.ParseError, ValueError) as e:
+                self._histories[k] = f"svn log 讀不到：{str(e)[:200]}"
+        return self._histories[k]
+
+
 def check_depends_mtime(atoms: dict[str, Path]) -> list[dict]:
-    """壞滅緣第二型：path 型 Depends 指向的檔比 atom 最近驗證日期還新 → 這張卡可能過期（依賴改了、卡沒重驗）。
-    只看存在的路徑（不存在的歸 check_stale_deps）；目錄取目錄本身 mtime；無 Depends 靜默。"""
-    issues = []
+    """壞滅緣第二型：path 型 Depends 指向的檔在 atom 最近驗證之後改過 → 這張卡可能過期（依賴改了、卡沒重驗）。
+    依賴的改動時刻見 _ChangeClock（版控乾淨看最後變更、本機有未提交修改或沒進版控看 mtime）。改動日晚於驗證日 → 報；
+    同一天 → 比卡片驗證日當天起第一次進版（或本機修改）的版號／時間，依賴較晚才報，分不出也報並寫原因。
+    只看存在的路徑（不存在的歸 check_stale_deps）；無 Depends 靜默。"""
+    rows = []   # (atom 名, 卡片路徑, 驗證日, 驗證日來源欄, Depends 原值, 解析後路徑)
     for name, path in sorted(atoms.items()):
         fm = parse_frontmatter(path)
         raw = fm.get("Depends", "")
@@ -337,20 +589,32 @@ def check_depends_mtime(atoms: dict[str, Path]) -> list[dict]:
             if e["type"] != "path" or not e["value"]:
                 continue
             resolved = resolve_depends_path(e["value"], base=base)
-            try:
-                dep_mtime = datetime.fromtimestamp(resolved.stat().st_mtime)
-            except OSError:
+            if resolved.exists():
+                rows.append((name, path, verified, src, e["value"], resolved))
+    clock = _ChangeClock([r[5] for r in rows] + [r[1] for r in rows])
+    moments = [clock.moment(r[5]) for r in rows]
+    clock.preload_histories([r[1] for r, m in zip(rows, moments) if m and m.at.date() == r[2].date()])
+    issues = []
+    for (name, path, verified, src, dep, resolved), changed in zip(rows, moments):
+        if changed is None or changed.at.date() < verified.date():
+            continue
+        same_day = ""
+        if changed.at.date() == verified.date():
+            anchor, why = clock.card_anchor(path, verified.date())
+            if anchor is not None and not changed.later_than(anchor):
                 continue
-            if dep_mtime.date() > verified.date():
-                issues.append({
-                    "atom": name,
-                    "dep": e["value"],
-                    "resolved": str(resolved),
-                    "dep_mtime": dep_mtime.strftime("%Y-%m-%d"),
-                    "verified_at": verified.strftime("%Y-%m-%d"),
-                    "verified_source": src,
-                    "file": str(path),
-                })
+            same_day = f"同日，依賴晚於卡片 {anchor.source}" if anchor else f"同日分不出先後（{why}）"
+        issues.append({
+            "atom": name,
+            "dep": dep,
+            "resolved": str(resolved),
+            "dep_changed": changed.at.strftime("%Y-%m-%d"),
+            "dep_source": changed.source,
+            "verified_at": verified.strftime("%Y-%m-%d"),
+            "verified_source": src,
+            "same_day": same_day,
+            "file": str(path),
+        })
     return issues
 
 
@@ -568,7 +832,8 @@ def single_atom_report(name: str, atoms: dict[str, Path],
 
     # stale_deps: NAME 的壞滅緣觸發（path 型 Depends 指向已消失路徑）
     deps = [d for d in check_stale_deps(atoms) if d["atom"] == name]
-    mtime_deps = [d for d in check_depends_mtime(atoms) if d["atom"] == name]
+    # 依賴比卡新只看這張卡自己的 Depends：不必為一張卡去查全庫的版控（atom-heal 會逐張重掃）
+    mtime_deps = check_depends_mtime({name: atoms[name]}) if name in atoms else []
 
     return {
         "generated": datetime.now().isoformat(),
@@ -679,7 +944,7 @@ def main():
     parser.add_argument("--auto-fix-broken", action="store_true", help="Auto-remove broken Related refs from source atoms (unresolvable targets)")
     parser.add_argument("--stale-check", action="store_true", help="List atoms with Last-used > 60 days")
     parser.add_argument("--deps-check", action="store_true",
-                        help="壞滅緣檢查：path 型 Depends 指向不存在路徑的 atoms")
+                        help="壞滅緣檢查：path 型 Depends 指向不存在路徑的 atoms＋依賴比卡新（版控最後變更日，非版控退 mtime）")
     parser.add_argument("--stale-days", type=int, default=60, help="Stale threshold in days (default: 60)")
     parser.add_argument("--shadow-check", action="store_true",
                         help="Detect atom sections (## 印象 / ## 知識) shadowing _AIDocs md subsections")
@@ -818,7 +1083,9 @@ def main():
             for d in foreign:
                 print(f"ℹ️ 他機路徑（本機不可驗、不算壞滅緣）：atom {d['atom']} 依賴 {d['dep']}")
             for d in mtime_deps:
-                print(f"🕐 依賴比卡新：atom {d['atom']} 依賴 {d['dep']} 改於 {d['dep_mtime']}，卡最近驗證 {d['verified_at']}（{d['verified_source']}）")
+                tie = f"；{d['same_day']}" if d["same_day"] else ""
+                print(f"🕐 依賴比卡新：atom {d['atom']} 依賴 {d['dep']} 改於 {d['dep_changed']}（{d['dep_source']}），"
+                      f"卡最近驗證 {d['verified_at']}（{d['verified_source']}）{tie}")
             cov = depends_coverage(atoms)
             print(f"Depends 覆蓋率 {cov['with_depends']}/{cov['total']} = {cov['ratio']:.1%}")
             if not deps and not mtime_deps:

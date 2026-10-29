@@ -463,6 +463,7 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 | 自由文字型 | 如 `decision:xxx`、版本描述 | 不可驗，僅展示 |
 
 - 實作：`atom_spec.parse_depends` / `resolve_depends_path` / `depends_warnings`（缺路徑值等格式警告）。
+- 依賴比卡新：`atom-health-check.check_depends_mtime` → `stale_mtime_deps`。path 型依賴的改動日晚於卡片最近驗證日（Verified-at → Last-verified → 驗證日期 → Created-at）就報。改動日看版控：檔在 svn／git 且乾淨 → 最後變更（svn last-changed、git 最近一筆 commit）；本機有未提交修改或沒進版控 → mtime。update／checkout 刷新的 mtime 不算改動。同一天 → 比卡片驗證日當天起第一次進版的版號（同一個 svn repo）或 commit 時間，依賴較晚才報；分不出先後也報並寫原因（`same_day`）。
 - 寫入：`atom_write(depends=["path:<絕對路徑>", …])` → `build_atom_content(depends=)` 渲染 `- Depends:`（Created-at 後、Related 前；js `atom-render.js` byte parity）；replace 三態：未給＝保留原行、`[]`＝清除、非空＝替換；append 不動檔頭。工具卡用絕對路徑（相對路徑以 `~/.claude` 為根）。
 
 ### 13.2 `- Evidence:` — 證據等級（了義裁決）
