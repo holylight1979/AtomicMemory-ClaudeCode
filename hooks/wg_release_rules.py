@@ -3644,7 +3644,10 @@ def min_map_verdict(group: Optional[Dict[str, str]], root: str, read: Iterable[s
     if not files and not _map_line_problem("讀了", group.get("讀了")):
         problems.append("「地圖｜讀了」沒列任何檔")
     seen = {canon_path(p) for p in read}
-    unread = [f for f in files if canon_path(os.path.join(root, f)) not in seen]
+    # 只寫檔名沒帶目錄（「api.py service.py」）：本 session 讀過的檔裡有同名的就算讀過（實跑 AI 常把同目錄的檔只列檔名）
+    bare_names = {os.path.basename(p).lower() for p in seen}
+    unread = [f for f in files if canon_path(os.path.join(root, f)) not in seen
+              and not ("/" not in f and "\\" not in f and f.lower() in bare_names)]
     if unread:
         shown = "、".join(unread[:_MAP_UNREAD_SHOWN]) + (f" 等 {len(unread)} 個" if len(unread) > _MAP_UNREAD_SHOWN else "")
         problems.append(f"「地圖｜讀了」列的 {shown} 本 session 沒讀過（先讀再列，或從清單拿掉）")

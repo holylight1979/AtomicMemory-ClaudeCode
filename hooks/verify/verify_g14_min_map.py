@@ -277,6 +277,10 @@ def test_pure_group_files_and_verdict():
     assert rr.min_map_files(g["讀了"]) == ["src/b.py", "lib/c.py", "README.md"]
     read = [os.path.join("C:/p", f) for f in ("src/b.py", "LIB/C.PY", "README.md")]
     assert rr.min_map_verdict(g, "C:/p", read).owed is False                         # 大小寫、斜線同一檔
+    bare = {"讀了": "src/b.py c.py README.md", "上游": "x", "下游": "y"}             # 同目錄的檔只列檔名（011 實跑 AI 的寫法）
+    assert rr.min_map_verdict(bare, "C:/p", read).owed is False
+    v = rr.min_map_verdict({**bare, "讀了": "src/b.py nothere.py"}, "C:/p", read)
+    assert v.owed and "nothere.py" in "；".join(v.evidence)                          # 沒讀過的檔名照樣點名
     v = rr.min_map_verdict(None, "C:/p", [], "transcript 讀不到（missing）")
     assert v.owed and v.rule == RULE and "transcript 讀不到" in v.evidence[0]
     v = rr.min_map_verdict({"讀了": "（只有附註）", "上游": "a", "下游": "b"}, "C:/p", [])

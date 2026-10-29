@@ -159,7 +159,19 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         part("知識收割", lambda: _closing_batch_reminders(state, sid, own, config, turn_seq, say))
     if green:   # 改過程式之後測試跑綠＝交付邊界（PICK_ONE_PRE_CLOSE）：該問就附那一問（該不該問、記問過在 wg_closing_round）
         part("最該修", lambda: _pick_on_green(cr, state, sid, config, input_data, lines))
+    part("判準卡", lambda: _remind_cards(lines, state, sid, config))
     return lines, changed or bool(lines)
+
+
+def _remind_cards(lines: List[str], state: Dict[str, Any], sid: str, config: Dict[str, Any]) -> None:
+    """提醒也是切入點（登錄表 paths 有 post_tool_hint 的列，例：第二意見、拐彎判斷、等值、最小地圖）：這批的提醒行一起問一次
+    判準卡，接在提醒後面；同一張卡每 session 只送一次全文（wg_entrypoint）。沒認出或沒卡就不加行。"""
+    if not lines:
+        return
+    from wg_entrypoint import entry_note
+    note = entry_note("\n".join(lines), "post_tool_hint", session_id=sid, state=state, config=config)
+    if note:
+        lines.append(note)
 
 
 def _pick_on_green(cr, state, sid, config, input_data, lines: List[str]) -> None:

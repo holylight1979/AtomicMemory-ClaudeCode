@@ -4,6 +4,12 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 提醒附判準卡、最小地圖認只寫檔名的檔（011 重驗抓到的兩處）
+- **緣由**：011 六項提醒重驗：G9 第二意見提醒送到 4 次 AI 仍兩次寫「不需」跳過——改成提醒的守門不經切入點契約，提醒那刻一張判準卡都沒送；G14 的 AI 把地圖「讀了」列寫成「api.py service.py…」只有檔名，閘照相對專案根比對判沒讀過，8 筆改檔全記缺地圖。
+- **做法**：`post_tool_batch.closing_reminders` 末尾把這批提醒行整批問一次 `entry_note(path="post_tool_hint")`、卡接在提醒後面（`_remind_cards`）；登錄表 E03／E13／E14／E15／E16 的 paths 加 post_tool_hint，path_values 說明改成「接改程式檔那批的收尾類提醒」；`min_map_verdict` 的「讀了」清單裡沒帶目錄的檔名，本 session 讀過同名檔就算讀過。
+- **沒修、留追蹤**：G3 的 C′ 寫 `case_for｜<程式檔>：<案例>` 行當宣告，閘只收 need_goal verify_scope 的 case_for（估 30 分，要動 declared_cases 與兩處呼叫端）；PickOne 的交付邊界只有「測試綠」與「交收尾檢核」，紅測全被不做行豁免時沒邊界（估 40 分，要讀 TestFailGate 豁免帳）；根治①在沒改過程式的 session 不問是原設計者裁的設計。
+- **驗證**：verify_gate_mode_stop（新案 test_reminders_ask_judgment_cards_once_per_batch）、verify_g14_min_map（補兩個斷言）、verify_entry_wording、verify_gate_trim 共 91 案綠；live 煙測：SECOND_OPINION_REQUIRED＋TURN_JUDGMENT_REQUIRED 兩行提醒接到 E16、E13 各一張卡。
+
 ## 2026-10-29 守門改提醒後的最終量測報告與六項提醒重驗（011）
 - **緣由**：010 量到寫程式題 token 進線、G0 打勾後，六個改成提醒的守門（G3／G7／G9／G11／G13／G14）AI 收到提醒照不照做沒驗過；010 的判分也只留在對話裡沒落檔。
 - **做法**：三題平行跑一次（A′／B′／C′，約 6.8 美元）、Opus 單家判分；報告 `DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-守門改提醒後.md` 八節（結論／體驗／代價表／品質／花在哪／改了什麼／重現／沒做）；checklist 六列改成重驗結果、G9 退回 🔄。

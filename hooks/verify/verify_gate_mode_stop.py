@@ -436,3 +436,26 @@ def test_code_edit_batch_reminds_deferral_sync_closing_once(monkeypatch, capsys)
     monkeypatch.setenv("WG_V6", "0")
     fresh = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
     assert _batch(monkeypatch, capsys, fresh, calls, {"reconcile_gate": OFF, "verify_scope": OFF}) == ""
+
+
+def test_reminders_ask_judgment_cards_once_per_batch(monkeypatch, capsys):
+    """提醒也是切入點（011 重驗：第二意見提醒送到 4 次卻沒附卡，AI 走「不需」出口）：這批的提醒行整批問一次判準卡、
+    路是 post_tool_hint、卡接在提醒後面；沒卡就不多一行。"""
+    import wg_entrypoint as ep
+    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
+    asked: list = []
+
+    def fake_note(text, path, **kw):
+        asked.append((text, path))
+        return "判準卡（E16）：第二意見分歧裁決" if "DEFERRAL_OF_DOABLE_WORK" in text else ""
+    monkeypatch.setattr(ep, "entry_note", fake_note)
+    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
+    calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
+    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": OFF, "verify_scope": OFF})
+    assert len(asked) == 1 and asked[0][1] == "post_tool_hint" and "[Guardian:提醒]" in asked[0][0], asked
+    assert ctx.rstrip().endswith("判準卡（E16）：第二意見分歧裁決"), ctx
+    reg = json.loads((HOOKS_DIR.parent / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))
+    rows = {r["id"]: r for r in reg["entrypoints"]}
+    for eid in ("E03", "E13", "E14", "E15", "E16"):
+        assert "post_tool_hint" in rows[eid]["paths"], eid

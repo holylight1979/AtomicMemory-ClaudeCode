@@ -953,7 +953,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 統計 | `tools/entry-stats.py`（唯讀；`--days`（預設 7）、`--logs`、`--registry`、`--json`、`--asks`） | 每個切入點：問幾次、有卡幾次、送幾張、截斷幾次、各回應型幾筆、同一問句也認出哪些代號；`--asks` 另列每次問一筆（at、session、turn_seq、entry、path、cards、truncated、response、response_by、with；回應型就是 `resolve_responses` 判的，不另寫判法）；尾行 `ENTRY_STATS DONE entries= asks= cards= truncated=`，給了 `--asks` 再加 `asks_listed=`。驗收判分讀它（文字評分週彙總不讀，見 §7.11） |
 | 自檢評分（開發期工具，不是切入點） | `skills/console/scripts/selfscore.py`：`--ask --g G8` 問、`--g --score --basis（可重複）--why --rater` 答一筆、`--summary [--days --json --logs]` 統計；session 預設取 Claude Code 給工具子行程的 `CLAUDE_CODE_SESSION_ID` | 總控台、checklist 軌、驗收判分打「這個 G 幾分」時用。`--ask`：印 G 名、評分規格卡 `g<N>-評分規格*.md` 知識段三句、可用證據清單與要答的三件事（不接判準卡、不記 guard-entry）。答的一筆記 `Logs/guard-selfscore.jsonl`（event=score：g、score、basis、why、rater、unanswered）；缺欄位或分數不是 0～10 的整數照記「沒答」（原字留 score_raw），stderr 一行、不擋。帳本不是卡：不注入、不過期。分數只收 ASCII 0～10（「²」、負數、小數都記沒答）；寫帳失敗 stderr 說沒記到、尾行 recorded=0、exit 1。`--summary` 每個 G 最近一筆、最近五個分數走勢、比上次差多少。尾行 `SELFSCORE DONE asked=1`／`recorded=1 unanswered=`／`gs= records= unanswered=` |
 
-刻意不做：不加閘、不放寬既有閘、不加例外清單；擋訊息既有格式與規則名不動。session_start、post_tool_hint、local_llm 這幾條路只登記不接，user_prompt 只接程式自己組的問句（糾正問句 E38、否決問句 E39）；另一支 Stop hook `hooks/codex_companion.py` 自己的擋訊息沒接。識別字樣是子字串比對，訊息裡當範例出現的字樣也會認到，靠帳上的 with 欄回頭調字樣。
+刻意不做：不加閘、不放寬既有閘、不加例外清單；擋訊息既有格式與規則名不動。session_start、local_llm 這兩條路只登記不接；post_tool_hint 只接改程式檔那批的收尾類提醒（post_tool_batch.closing_reminders 把整批提醒行當一句問、卡接在後面，讀檔導讀不接），user_prompt 只接程式自己組的問句（糾正問句 E38、否決問句 E39）；另一支 Stop hook `hooks/codex_companion.py` 自己的擋訊息沒接。識別字樣是子字串比對，訊息裡當範例出現的字樣也會認到，靠帳上的 with 欄回頭調字樣。
 
 ### 7.11 文字規格評分（G15，`tools/text-score.py`）
 
