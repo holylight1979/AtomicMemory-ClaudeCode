@@ -35,6 +35,7 @@
 | `v6-開發期紀錄-checklist搬出.md` | checklist 改成只寫「交 AI 寫程式時會體驗到什麼」時搬出的開發期段落（驗收題組與各跑、受測環境、各軌與閘小修編號、卡片搬層、裁定來龍去脈、改版前的總表與證據 commit），原文照搬，每個原本沒結的行註明現況與去向 | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
 | `v6-G0-G16需求目標分析與checklist.md` | 開發期 G0～G16 進度 checklist（每列：交 AI 寫程式時會體驗到什麼、自評、證據或還差什麼），開發期結束時封存；守門現況看 `TECH.md` | `memory/_staging/v6-G0-G16需求目標分析與checklist.md` |
 | `v6-開發期追蹤項-保留.md` | 10-22 清本機追蹤帳本時判為「產品真問題、但原文帶開發期字樣」的 165 筆，原文照抄＋每筆一句問題與建議；要修哪筆照它立項 | `memory/_staging/v6-開發期追蹤項-保留.md` |
+| `TECH-§11開發期量測與守門減量清單-2026-10.md` | TECH.md §11 改寫成現況前的原文：10-22 題 B′ 減量前實測（hook 全開 4.4 倍 token、多 8.6 分）與分兩批的 37 項守門減量（以前／現在、程式位置、規則名、退回開關），含原附錄 A11.1、A11.2 | `TECH.md` §11 |
 | `驗證範圍閘封存-2026-10-29.md` | 驗證範圍閘（`verify_scope`：改完程式由 LLM 宣告該測哪些、收尾查範圍內每項改完之後跑綠、事後記範圍漏判）從程式拔掉時的文件原文（`TECH.md` §7.9、`TECH/guards.md` A7.9）；拔之前已由使用者拍板關著 | `TECH.md` §7.9、`TECH/guards.md` A7.9 |
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |

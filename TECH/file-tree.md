@@ -157,8 +157,8 @@
 | [`hooks/wg_scorecard.py`](../hooks/wg_scorecard.py) | 過程量（[§7.1](../TECH.md#71-stop-閘序)、[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
 | [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[§7.1](../TECH.md#71-stop-閘序)） |
 | [`hooks/wg_text_score.py`](../hooks/wg_text_score.py) | 文字評分接收尾（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
-| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 收割與目標樹進度草稿交背景免費模型（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型)） |
-| [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式第一次用到才編譯（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型)） |
+| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 收割與目標樹進度草稿交背景免費模型（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
+| [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式第一次用到才編譯（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
 | [`hooks/wg_chain.py`](../hooks/wg_chain.py) | 連鎖斷路器判定（純函式，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
 | [`hooks/plan_bash_guard.py`](../hooks/plan_bash_guard.py) | Plan Mode 必彈窗的 Bash 寫法 deny＋改寫提示（[§7.5](../TECH.md#75-其他守門)） |
 

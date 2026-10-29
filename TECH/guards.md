@@ -17,7 +17,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 關著時本節大部分的守門都不跑：
   - 需求目標樹
   - 寫碼查核
-  - 紅測閘
   - 第二意見
   - 拐彎判斷
   - 等值閘
@@ -28,7 +27,8 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 驗收裁判
   - 背景收割
 - 關著時只留這套守門加進來以前就有的處理：記憶注入、導讀卡、收割、同步提醒、隱私與口令閘、語言守門…
-- 開著時，每回合的守門只在寫碼回合啟動（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）：
+  - 紅測閘改跑舊版（[`hooks/handlers/stop.pre_v6_testfail_message`](../hooks/handlers/stop.py)）：還有沒轉綠的測試又說完成就擋，沒有放行詢問、`不做｜` 豁免與基底紅判定。
+- 開著時，每回合的守門只在寫碼回合啟動（[§11.2](../TECH.md#112-寫碼守門的減量原則) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）：
   - 目標樹提示
   - 目標視角重看
   - 退避偵測
@@ -584,7 +584,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - **條件**：宣告完成 ∧ 有實質活動 ∧ 冷卻已過（[§6.3](../TECH.md#63-自動萃取在跑-vs-已停產) 階段收割；`wg_harvest.harvest_gate_reason`）。
 - **模式**：提醒。
-- **預設**：`harvest.background=true` 時不擋，改送背景收割（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型)）。
+- **預設**：`harvest.background=true` 時不擋，改送背景收割（[§11.2](../TECH.md#112-寫碼守門的減量原則)）。
 - **關掉或背景起不來時**：
   - 要求先 `atom_write`／`atom_retire`，再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）。
   - **不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`）。
@@ -1989,7 +1989,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **有樹時**：每則只送回當前節點一行（[TREE_LINE_IN_HINTS](../TECH/release-rules.md#tree_line_in_hints)）
   - `coding_guard.slim_reminders=false` 時另附樹根一行與子目標、待展開、待對照的改動數
   - 原話對不上的提醒只在真有降級時附
-- 目標樹提示只在寫碼回合送（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）；原話每則照記
+- 目標樹提示只在寫碼回合送（[§11.2](../TECH.md#112-寫碼守門的減量原則) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）；原話每則照記
 - 樹對照完或結束後再提醒一次
 
 #### 換題與糾正
@@ -2072,7 +2072,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 改了程式檔就欠一筆「待對照」
 - 收尾時程式照改到的檔與最近收據替那個節點記一筆進度（`auto_progress`，`by=program`）並清掉
   - 不擋；`goal_gate=false` 也照做
-  - 背景本地模型另草擬一句（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型)）
+  - 背景本地模型另草擬一句（[§11.2](../TECH.md#112-寫碼守門的減量原則)）
 - AI 要寫自己的判斷照樣 update（update／reconcile 依節點編號找所屬的樹，換題後舊樹欠的也交得進去）
 
 #### (f2) 交付邊界查七條
@@ -2169,7 +2169,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 子代理用主 session 的目標檔，誰先收到全文就算送過
   - 壓縮後重送目標樹時清掉
 - `coding_guard.slim_reminders=false` 退回每則全文
-- 「交出前一問」已拿掉（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型)）
+- 「交出前一問」已拿掉（[§11.2](../TECH.md#112-寫碼守門的減量原則)）
 
 #### same_class
 - 完整對照的達成節點可附 `same_class`（同類別處：找到的位置，或為什麼沒有）

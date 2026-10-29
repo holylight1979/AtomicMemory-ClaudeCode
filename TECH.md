@@ -15,6 +15,18 @@
 - **只想知道 AI 寫程式時一路會被問什麼、擋什麼** → 直接讀 [§7.0](#70-寫程式時一路會遇到什麼總覽)。
 - **路徑可以點**：反引號裡的 repo 路徑都連到檔案本身（GitHub、GitLab 都適用）。執行期才產生、不進版控的路徑（`Logs/`、`workflow/state-<sid>.json` 這類）與帶佔位符的路徑（`{project}/…`、`<sid>`）沒有連結。
 
+### 系統的兩層
+
+這套系統分兩層，開關各自獨立。把「寫碼守門」關掉不會關掉記憶系統。
+
+| 層 | 做什麼 | 開關 | 關掉會怎樣 |
+|---|---|---|---|
+| 記憶系統本體與基本守門 | 記憶注入、寫入、收割、晉升、版控同步、向量檢索；口令、隱私、同步提醒、舊版紅測閘 | `enabled`，出廠開 | 整個 Guardian 停，所有 hook 直接放行 |
+| 寫碼守門 | 寫程式時的檢查：目標樹、定位與導讀卡、宣告閘、寫碼查核、第二意見、等值證法、連鎖斷路器 | `coding_guard.enabled`，出廠關；開了也只在寫碼回合啟動 | 只少這一層，記憶系統照跑 |
+
+- 守門關著時哪些照跑、哪些不跑的逐項清單：[§7](#7-守門與收尾) 開頭〈守門總開關〉。
+- 開發期文件與程式裡的「v6」就是寫碼守門的舊代稱（舊鍵 `v6`、環境變數 `WG_V6` 仍相容）。
+
 ## 目錄
 
 - [1. 設計理念](#1-設計理念)
@@ -75,8 +87,8 @@
   - [9.6 疑難排解與手動抽查](#96-疑難排解與手動抽查)
 - [10. 架構目錄樹](#10-架構目錄樹)
 - [11. 流程與耗損（Token 與延遲）](#11-流程與耗損token-與延遲)
-  - [11.1 hook 全關 vs 現況（題 B′ 實測）](#111-hook-全關-vs-現況題-b-實測)
-  - [11.2 守門減量：同一件事只問一次、記帳交程式或免費模型](#112-守門減量同一件事只問一次記帳交程式或免費模型)
+  - [11.1 實測紀錄：hook 全關對全開](#111-實測紀錄hook-全關對全開)
+  - [11.2 寫碼守門的減量原則](#112-寫碼守門的減量原則)
   - [11.3 Token Budget（wg_core.compute_token_budget）](#113-token-budgetwg_corecompute_token_budget)
 - [12. 設定總表（workflow/config.json）](#12-設定總表workflowconfigjson)
   - [12.1 功能開關（不想要某個功能時逐鍵關）](#121-功能開關不想要某個功能時逐鍵關)
@@ -533,7 +545,7 @@ SessionStart（session_start._org_advisory）
 - 三個根（[`lib/project_root.py`](lib/project_root.py)）：資料根、程式碼根、Claude Code 設定目錄；工具讀資料一律問資料根，不寫死 `~/.claude`。
 - 寫入 funnel：[`lib/atom_io.py write_atom`](lib/atom_io.py) → upsert index → [`tools/sync-memory-index.py --write`](tools/sync-memory-index.py) 重生各層 `_INDEX.md`、[`MEMORY.md`](memory/MEMORY.md)、[`_local_catalog.md`](memory/_local_catalog.md)、[`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md) → 尾端自動重產原生橋接檔並同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分，語言是跨範疇視圖 [`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md)，一張卡可屬多個語言。
-- 現況計數：<!-- atom-breakdown -->720 atoms：core 402 + feedback 75 + 失敗模式 2 + local 241〔Tools25/MemDev199/OS2/CC與原子記憶契約7/Vision1/工作流4/驗證與實證3〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->717 atoms：core 401 + feedback 75 + 失敗模式 2 + local 239〔Tools25/MemDev197/OS2/CC與原子記憶契約7/Vision1/工作流4/驗證與實證3〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 #### 多機合併的三層防線
 
@@ -675,7 +687,7 @@ SessionStart（session_start._org_advisory）
 
 ### 5.2 深度解說：每個設計的意義
 
-- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->720<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
+- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->717<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
 - **為什麼 BM25 改成每輪跑**：BM25 提供獨立排序證據，R@1 再 +1.2pp；剔除請求框架 bigram 後負例誤注入 31.8% → 4.5%。
 - **為什麼 RRF 而不是序列 fallback**：三路都出排名再融合，後段路才有機會補前段漏的；Recall@1 34 → 53.6%、MRR 0.584 → 0.709。
 - **為什麼活化增益歸零**：activation 乘進 RRF 會壓過相關性；gain 0.25 → 0 讓 R@1 45.1% → 81.1%、MRR 0.639 → 0.870。
@@ -1155,7 +1167,6 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - **不跑**：
   - 需求目標樹
   - 寫碼查核
-  - 紅測閘
   - 第二意見
   - 拐彎判斷
   - 等值閘
@@ -1167,6 +1178,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 背景收割
 - **照跑**（這套守門加進來以前就有的處理）：
   - 記憶注入
+  - 舊版紅測閘：還有沒轉綠的測試又說完成就擋（沒有放行詢問、豁免與基底紅判定）
   - 導讀卡
   - 收割
   - 同步提醒
@@ -1175,7 +1187,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 開著時：
 
-- 每回合的守門只在寫碼回合啟動（[§11.2](#112-守門減量同一件事只問一次記帳交程式或免費模型) [CODING_TURN_ONLY](TECH/release-rules.md#coding_turn_only)）。
+- 每回合的守門只在寫碼回合啟動（[§11.2](#112-寫碼守門的減量原則) [CODING_TURN_ONLY](TECH/release-rules.md#coding_turn_only)）。
   - 涵蓋目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑。
 - 下面各節寫的是開著時的行為；寫「寫碼守門開時」的條目，寫碼守門關時照舊做法。
 
@@ -1885,7 +1897,7 @@ pip install -r tools/memory-vector-service/requirements.txt
 降級的可見訊號：
 
 - statusline：`WG:?` 紅字＝Guardian state 壞；`vec✗`＝向量服務未就緒。
-- `vec✓` 只代表服務活著；上次索引重建失敗（/status 的 `index_job.error`）由 SessionStart 的 `[Guardian:Vector]` 告知（`hooks/handlers/session_start._vector_index_advisory`）。
+- `vec✓` 只代表服務活著；上次索引重建失敗（/status 的 `index_job.error`）由 SessionStart 的 `[Guardian:Vector]` 告知（[`hooks/handlers/session_start._vector_index_advisory`](hooks/handlers/session_start.py)）。
 - SessionStart 的 `[Guardian:*]`／`[Codex Companion]`／`[MCP]` advisory。
 - `Logs/vector-service.log`。
 
@@ -1996,7 +2008,7 @@ git init
 | hook 有跑但 atom 沒注入 | [`memory/_atom_index.json`](memory/_atom_index.json) 的 triggers、`/atom-debug` | 補 trigger 關鍵字 |
 | MCP `atom_write` 回 `cli parse fail` | [§9.3](#93-mcp-註冊hooksensure-mcppy) | 設 `WG_PYTHON` |
 | 問卡片來源回 `unrecoverable` | `source` 欄日期與 `warnings` | 正常結果；要補須人工 |
-| 啟動或每句變慢 | [§11.1](#111-hook-全關-vs-現況題-b-實測) 預期值；[`python tools/hook-timing.py`](tools/hook-timing.py) | 比對預期再逐事件看耗時 |
+| 啟動或每句變慢 | [§11.1](#111-實測紀錄hook-全關對全開) 預期值；[`python tools/hook-timing.py`](tools/hook-timing.py) | 比對預期再逐事件看耗時 |
 
 手動驗 hook（預期輸出 JSON 含 `hookSpecificOutput.additionalContext`）：
 
@@ -2050,12 +2062,15 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 
 ## 11. 流程與耗損（Token 與延遲）
 
-這一節回答：裝了這套系統，每個 session、每句話、每次工具呼叫多花多少時間與 token，又從哪裡量到真實數字。
+這一節回答：裝了這套系統，每句話、每次工具呼叫多花多少時間與 token，又從哪裡量到真實數字。
 
-- **數字從哪來**：[§11.1](#111-hook-全關-vs-現況題-b-實測) 的數字是 2026-10-22 用同一題寫程式驗收題（題 B′）量的。
-  - hook 全部關掉、和照常開著各跑兩次。
-  - 報告全文：[`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md`](_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md)。
-  - 逐跑原始數字在同目錄 `v6.0的代價-實測/`。
+**先分兩層看**（兩層的定義見開頭〈系統的兩層〉）：
+
+| 層 | 什麼時候有代價 | 代價大概多少 |
+|---|---|---|
+| 記憶系統本體與基本守門（一直開） | 每句話、每次工具呼叫 | 記憶卡段硬頂 1200 tok、整包注入 1000～3000 tok（[§11.3](#113-token-budgetwg_corecompute_token_budget)）；hook 程式本身每次數十到數百毫秒 |
+| 寫碼守門（出廠關；開了只在寫碼回合啟動） | 改程式的回合 | 大頭是 AI 收到提醒後多想多寫的輸出，見 [§11.1](#111-實測紀錄hook-全關對全開) |
+
 - **看本機真實耗時**：跑 [`python tools/hook-timing.py`](tools/hook-timing.py)，印每個事件跑幾次、降級幾次、各段中位數與最長。
 - **每個事件跑哪些段落**：見 [§3.1](#31-settingsjson-十一個事件)。
 
@@ -2064,130 +2079,60 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 ```text
 每句話      UserPromptSubmit（上限 8s）
             ├─ 記憶檢索與注入（§5）
-            ├─ 需求目標樹兩行（樹根＋當前節點，只在寫碼回合）
-            ├─ 導讀卡
+            ├─ ［寫碼守門］需求目標樹兩行（樹根＋當前節點，只在寫碼回合）
+            ├─ ［寫碼守門］導讀卡
             └─ 快逾時 → 降級，跳過檢索與注入（§7.1 表下）
 
 每次改檔、跑指令   PreToolUse／PostToolUse（上限各 5s）
-            └─ 寫入目標解析 → 導讀卡與定位行核對 → 宣告閘 → 收據入帳
+            ├─ 寫入目標解析、口令與隱私閘、收據入帳
+            └─ ［寫碼守門］導讀卡與定位行核對、宣告閘
 
 每次收尾    Stop（上限 20s；另有 codex_companion 150s）
-            ├─ §7.1 的閘依序跑
+            ├─ 同步提醒、知識收割、紅測閘（守門關時跑舊版）
+            ├─ ［寫碼守門］§7.1 的其餘閘依序跑
             └─ 文字評分與閱讀路徑丟背景行程，不佔 hook 時間
 
 背景行程（不佔 hook 時間）
             └─ 萃取 worker、vcs-sync worker、文字評分、閱讀路徑量測、向量服務啟動器
 ```
 
-### 11.1 hook 全關 vs 現況（題 B′ 實測）
+### 11.1 實測紀錄：hook 全關對全開
 
-這張表回答：同一題寫程式任務（給 sales 專案加一個子命令，再開新 session 問「有什麼該注意的」，共三回合），hook 開著比全關多花多少、換到什麼。
+這節回答：寫碼守門開著時，寫一題程式比「hook 全部關掉」多花多少。
 
-- 兩組的 CLAUDE.md、規則檔、記憶工具都一樣，量到的是 hook 與 hook 注入文字的代價，不是整套記憶系統。
-- 數字是兩跑平均。
-- 「實測」＝帳上直接讀到的數；「推論」＝換算或估計出來的數。
+- **量法**：同一題任務，「hook 全關」（連記憶系統本體一起關）對「全開（寫碼守門開）」，比 token（輸入＋輸出）與牆鐘。
+  - 量到的是 hook 與 hook 注入的代價，**不是**「守門開 vs 守門關」；出廠狀態（守門關）沒有獨立量過。
+- **最新一次**：2026-10-29 跑 010，題 B′（給 sales 專案加一個子命令），全關取 005 那三跑的平均。
 
-| 指標 | hook 全關 | 現況 | 差多少（實測／推論） |
-|------|-----------|------|--------|
-| 輸入 token（含重讀快取） | 90 萬 | 398 萬 | ＋340%（實測） |
-| 輸出 token | 2.0 萬 | 6.2 萬 | ＋212%（實測） |
-| 輸入＋輸出合計 | 92 萬 | 404 萬 | 4.4 倍，多 312 萬（實測） |
-| 牆鐘時間（三回合） | 5.5 分 | 14.0 分 | 多 8.6 分（實測） |
-| 其中 hook 程式本身 | 0 | 約 108 秒 | 約佔多等時間兩成（實測） |
-| 模型呼叫次數 | 19 | 43 | ＋24（實測） |
-| 被 hook 擋下次數 | 0 | 12.5 | 兩跑各 12、13（實測） |
-| hook 注入的文字 | 0 | 約 6.0 萬 token | 推論 |
-| 通過線（4 張判分表） | 0/4 | 3/4 | 實測 |
+| 指標 | hook 全關 | 全開 | 差多少 |
+|---|---|---|---|
+| token（輸入＋輸出） | 72 萬 | 83 萬 | +15%（線 ≤+40%） |
+| 牆鐘 | 3.28 分 | 6.28 分 | +91%（線：不超過約 1 倍） |
+| 工具被拒 | 0 | 0 | — |
 
-- **結論一**：token 約 4.4 倍、時間多 8.6 分；多出的時間只有約兩成是 hook 程式本身在跑。
-- **結論二**：多出的 312 萬 token 大頭不在 hook 程式，而在 hook 提醒或擋下之後 AI 多跑的模型呼叫，以及擋訊息在之後每次呼叫被重讀（推論）。
-- **結論三**：hook 換到的是「把判斷說出來、記下來、下次接得上」，不是「看得到問題」；全關的 AI 也自己找到題目埋的 UTC 切月錯誤（推論）。
+- **時間多在哪**：AI 多想多寫，回覆字數約全關的 3 倍；hook 程式本身只佔幾秒。
+- **文件任務**（整併三份文件）：token +45%／+5%（跑 010、013），時間 +49%／+59%；這類回合寫碼守門什麼都不做，多出的是記憶卡注入與 AI 多寫。
+- **品質**：寫程式題「修到根因」「動手前定位」都過，零擋零誤擋。
+- **完整報告**：[`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-守門改提醒後.md`](_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-守門改提醒後.md)；更早每一輪（減量前 4.4 倍、減量後、005、006…）在同目錄 `v6.0的代價-*.md`。
 
-**多出的 token 前三大塊**（推論）：
+**固定成本**（估算，未用供應商 tokenizer 實測）：
 
-| 塊 | token | 占比 |
-|----|-------|------|
-| AI 照規則呼叫系統工具 | 120.8 萬 | 38.7% |
-| 擋訊息與被擋重做 | 76.7 萬 | 24.6% |
-| 收尾擋下與多跑的回合 | 51.5 萬 | 16.5% |
+- always-load（每個 session 都載入的檔）約 4,000～4,500 tok。
+- 每輪記憶注入：記憶卡段 ≤1200 硬頂；整包依 prompt 分級（[§11.3](#113-token-budgetwg_corecompute_token_budget)）。
+- 磁碟約 5～20MB；背景 RAM 約 100～200MB。
 
-**為什麼要減量**：多出的 token 與時間要砍到原設計者定的線內（token ≤ 全關的 40%、時間 ≤ 50%），做法見 [§11.2](#112-守門減量同一件事只問一次記帳交程式或免費模型)。
+### 11.2 寫碼守門的減量原則
 
-**這次沒量到的固定成本**（舊估算，推論）：
+這節回答：寫碼守門為了不拖慢寫程式，目前照哪幾條原則運作。只在寫碼守門開著時適用。
 
-- always-load（每個 session 都載入的檔）實務約 4,000–4,500 tok（估算，未以供應商 tokenizer 實測）。
-- 每輪記憶注入：atom 段 ≤1200 硬頂；整包 additionalContext 依 prompt 分級（[§11.3](#113-token-budgetwg_corecompute_token_budget)）。
-- 磁碟約 5–20MB；背景 RAM 約 100–200MB。
+- **只在寫碼回合啟動**：這個使用者回合改過程式檔、或宣告了寫碼目標樹才跑；純問答、改文件的回合不跑（規則 [CODING_TURN_ONLY](TECH/release-rules.md#coding_turn_only)，`coding_guard.coding_turn_only`）。
+- **只擋三類，其餘提醒一次**：病形、改資料檔／舊測試沒宣告、紅測與「說修好要有綠收據」照擋，其他只提醒一行（[§7](#7-守門與收尾) 開頭「擋或提醒」）。
+- **同一件事只問一次**：判準卡、提醒、擋訊息同一 session 或回合只送一次全文，之後併成一行。
+- **記帳交程式或背景免費模型**：進度、收據號碼、收割候選由程式或內網模型做，不叫寫碼 AI 做。
+- **要判斷的事入口還在**：定位、完整對照、同步交代仍由 AI 宣告，只拿掉重複與記帳。
+- **能退回的做成開關**：各開關見 [TECH/config.md](TECH/config.md) 的〈功能開關〉。
 
-細節 → [附錄 A11.1](#a111-hook-全關-vs-現況題-b-實測)
-
-### 11.2 守門減量：同一件事只問一次、記帳交程式或免費模型
-
-為了把 [§11.1](#111-hook-全關-vs-現況題-b-實測) 多出的 token 與時間砍進線內（token ≤ 全關的 40%、時間 ≤ 50%，B′ 通過線不低於現況 3/4），分兩批共 37 項減量。
-
-**原則**：
-
-- **同一件事只問一次**：重複的擋訊息、判準卡、提醒、回頭問，合併成一次。
-- **記帳交程式或免費模型**：進度、收據號碼、對照、收割這類記帳，不叫寫碼 AI 做。
-- **要判斷的事入口還在**：定位、完整對照、同步交代都還能由 AI 宣告，只拿掉重複與記帳。
-- **能退回的做成開關**：多數減量有設定鍵可關（見附錄各項）。
-- **數字要重量**：[§11.1](#111-hook-全關-vs-現況題-b-實測) 的數字是減量之前量的；減量後的整體數字要用同一套跑法重量。
-
-**為什麼這樣減**：大頭是 AI 被提醒後多跑的模型呼叫與擋訊息被重讀，不是 hook 程式；改用免費模型（內網 gemma4:e4b，約兩成會判錯）約可省回多出部分的 33%（推論）。
-
-#### 第一批（7 項）
-
-| 減量項 | 做法 | 省掉什麼 |
-|--------|------|---------|
-| 目標樹一次寫好 | `set` 同一次帶子目標，回精簡樹 | 兩次呼叫各送整棵樹 |
-| 收據不用先查號碼 | 收據寫 `latest`，程式填最近綠的 | 先 `read` 整棵樹查號碼 |
-| 進度由程式記 | 程式依改檔與收據記進度，本地模型草擬一句 | AI 為進度呼叫 `update` |
-| 定位一次收 | 第一次擋就給內容要求與範例 | 多擋一輪格式、重複判準卡 |
-| 收割改背景 | 背景行程問內網模型產待審候選卡 | 收尾擋一回合要 AI 盤點 |
-| 同步提醒不重複 | 收尾檢核已交就不再擋同步 | 同一件事擋兩次 |
-| 第一次跑就算數 | 宣告回應直接講怎樣跑才算 | 因串法不算收據而重跑 |
-
-#### 第二批（30 項）
-
-| 減量項 | 做法 | 省掉什麼 |
-|--------|------|---------|
-| 啟動器不算改程式 | 只跑 git 的一次性啟動器記標記，不算改碼 | 收據作廢、重跑 verify |
-| 審完只重跑碰到的 | 審查點之後只重跑碰到的 verify | 全部收據重跑 |
-| 快轉不補驗、不跑第三次 | 可快轉直接推，落後才補驗一次 | 解衝突後的補驗、第三次驗 |
-| hook 只載要用的 | 模組與正規表示式用到才載 | PostToolUse 每次少約 135～150 ms |
-| state 讀寫收斂 | 緊湊 JSON，沒改就不重寫 | 每次 hook 重寫幾百 KB |
-| CHANGELOG 各軌寫片段 | 各軌寫 [`_AIDocs/_changelog.d/`](_AIDocs/_changelog.d/) 片段，總控台收 | 合併必撞的檔頭 |
-| 判準卡一 session 一次 | 每張只送一次全文，之後併成一行 | 每個回合整張重送 |
-| 擋訊息只給修法 | 一句修法＋✗ 條目＋卡名 | 一整段管道說明與範例 |
-| 資料檔讀到就提示 | 第一次讀到就附宣告格式 | 先擋一次再補宣告 |
-| 文字評分只評交付那則 | 只評改程式、宣告完成那則 | 每則夠長的回覆都評 |
-| 收尾一份報告 | `report` 同時是交付信，收割與對照同一次交 | 收尾檢核、收割、交付信各寫一份 |
-| 派工單四樣 | 做什麼、怎麼驗、不准碰什麼＋一句原始目標 | 五段與每張重抄的做法 |
-| 目標樹 why 選填 | update、改樹根、換題的 why 改選填 | 沒附 why 被拒收 |
-| 守門只在寫碼回合 | 三層判是否寫碼回合，非寫碼回合不跑 | 純問答、改文件回合的守門與計時帳 |
-| 完整對照程式代填 | 閘關著時程式依改動與收據代填 | 交付前逐節點交對照 |
-| 收據不看形狀 | 收據在範圍內、用得到就算 | 指令形狀不對而作廢 |
-| 目標樹只立一次 | 只留改程式前沒樹提醒 set 一次 | 為 reconcile 多叫的模型回合 |
-| 定位四行放寬 | 第四行與佔位只記錄，兩候選只擋一次 | 每次都擋的第四行與兩候選 |
-| 收尾只問一句 | 問「剩下沒做的，哪些改得快又有效？」 | 逐項引用原話 |
-| 拿掉交出前一問 | 整個拿掉 | 「還對得上最新計畫嗎」 |
-| 評分、提問、讀不懂、改判準卡只留帳 | 都放行並留帳 | 注入評分、無節點提問擋、判不出擋 |
-| 擋次預算 | 寫碼查核每回合共用一份，子代理同一份 | 每條規則各擋 2 次 |
-| 開發期規矩不進產品 | 外部主張只認審查結果與報告檔等 | 同伴訊息當主張、開新回合 |
-| 文字評分對目標 | 規格帶 `{{goal}}`，不適用不進分母 | 通用題把不適用算進分母 |
-| 第二意見一次為限 | 每組改動最多要一次 | 採納意見再改碼的連鎖欠債 |
-| 紅測豁免不比對原話 | 寫了就放行留帳 | 原句比對 |
-| 跨層判不出目標放行 | 放行並留帳 `guard-crossrealm` | 判不出的 Bash 寫入被擋 |
-| 文件評分跟著改碼那則 | 只在交付改程式那則一起評 | 每個改過的 .md 都送評 |
-| 自檢評分搬走 | 整支搬進總控台 skill | 產品不呼叫的 `tools/selfscore.py` |
-| 目標樹提醒一次全文 | 三種情況每 session 一次全文，附樹只一行 | 004 兩跑第一回合每跑省 6,780 token |
-
-**規則名**：是程式註解與留帳用的標籤。
-
-- [LAUNCHER_NOT_CODE](TECH/release-rules.md#launcher_not_code)、[BLOCK_BUDGET_SHARED](TECH/release-rules.md#block_budget_shared)、[DENY_TEXT_SLIM](TECH/release-rules.md#deny_text_slim)、[CARD_FULL_ONCE_PER_SESSION](TECH/release-rules.md#card_full_once_per_session)、[DATA_FILE_READ_HINT](TECH/release-rules.md#data_file_read_hint) 進 [§7.8](#78-放行欠帳判定規則hookswg_release_rulespy) 的 `wg_release_rules.RULES`（是判定式）。
-- 其餘不進。
-
-每項的程式位置、以前／現在、規則名與退回開關 → [附錄 A11.2](#a112-守門減量同一件事只問一次記帳交程式或免費模型)
+開發期每一項減量（以前／現在、程式位置、規則名、退回開關）與 2026-10-22 的減量前實測 → [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/TECH-§11開發期量測與守門減量清單-2026-10.md`](_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/TECH-§11開發期量測與守門減量清單-2026-10.md)
 
 ### 11.3 Token Budget（`wg_core.compute_token_budget`）
 
@@ -3718,7 +3663,7 @@ flowchart TD
   - 距上次 validated 收割 ≥`min_turns_between`。
   - 判定函式 [`hooks/wg_harvest.harvest_gate_reason`](hooks/wg_harvest.py)。
 - **執行者**：
-  - `harvest.background=true`（預設）：交背景的內網免費模型產待審候選卡，不擋（[§11.2](#112-守門減量同一件事只問一次記帳交程式或免費模型)，[`hooks/wg_bg_harvest.py`](hooks/wg_bg_harvest.py)）。
+  - `harvest.background=true`（預設）：交背景的內網免費模型產待審候選卡，不擋（[§11.2](#112-寫碼守門的減量原則)，[`hooks/wg_bg_harvest.py`](hooks/wg_bg_harvest.py)）。
   - 關掉或背景起不來：由**模型本人**盤點六來源，再 `atom_write`／`atom_retire` → MCP `knowledge_harvest_report(items)`。
   - 六來源：指正／機制坑／外查事實／取捨契約／舊 atom 補正或 Supersedes／無用 atom 退役。
   - PostToolUse 逐 item 核對 receipt（`validate_items`），不符落 `pending`，由 Harvest-Pending 閘擋。
@@ -4739,491 +4684,9 @@ svn：svn_update_targets
   - 查 `Logs/guard-provenance.jsonl` 有無當時的自動填失敗
 
 #### 啟動或每句變慢
-- 預期值見 [§11.1](#111-hook-全關-vs-現況題-b-實測)：同一題寫程式任務，現況比 hook 全關多等約 8.6 分。
+- 預期值見 [§11.1](#111-實測紀錄hook-全關對全開)：同一題寫程式任務，現況比 hook 全關多等約 8.6 分。
 - hook 程式本身只佔約兩成；其餘是被提醒或擋下後多跑的模型呼叫。
 - 本機逐事件耗時：[`python tools/hook-timing.py`](tools/hook-timing.py)。
-
-### A11.1 hook 全關 vs 現況（題 B′ 實測）
-
-[↑ 主文 §11.1](#111-hook-全關-vs-現況題-b-實測)
-
-#### 量測方法與口徑
-
-- **日期與題目**：2026-10-22，同一題寫程式驗收題（題 B′）。
-  - 內容：給 sales 專案加一個子命令，再開新 session 問「有什麼該注意的」，共三回合。
-  - 做法：hook 全部關掉、和照常開著各跑兩次。
-- **兩組相同**：CLAUDE.md、規則檔、記憶工具都一樣。
-  - 所以量到的是 hook 與 hook 注入文字的代價，不是整套記憶系統。
-- **數字口徑**：兩跑平均。
-  - 「實測」＝帳上直接讀到的數。
-  - 「推論」＝換算或估計出來的數。
-- **報告**：[`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md`](_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-hook全關對現況.md)；逐跑原始數字在同目錄 `v6.0的代價-實測/`。
-
-#### 完整數據
-
-| 指標 | hook 全關 | 現況 | 差多少 |
-|------|-----------|------|--------|
-| 輸入 token | 90 萬 | 398 萬 | ＋340% |
-| 其中第一回合（加子命令） | 35 萬 | 351 萬 | 約 10 倍 |
-| 輸出 token | 2.0 萬 | 6.2 萬 | ＋212% |
-| 輸入＋輸出合計 | 92 萬 | 404 萬 | 多 312 萬，4.4 倍（＋337%） |
-| 牆鐘時間（三回合） | 5.5 分 | 14.0 分 | 多 8.6 分 |
-| 其中 hook 程式本身 | 0 | 約 108 秒 | 約佔多等時間的兩成 |
-| 模型呼叫次數 | 19 | 43 | ＋24 |
-| 被 hook 擋下次數 | 0 | 12.5 | 兩跑各 12、13 |
-| hook 注入的文字 | 0 | 約 6.0 萬 token | — |
-| 通過線 | 0/4 | 3/4 | — |
-| 美金（只當參考） | 1.26／1.02 | 2.78／3.80 | — |
-
-各欄註記：
-
-- **輸入 token**：模型實際讀過的量，含重讀快取（實測）。第一回合同為實測。
-- **輸出 token、合計**：實測。
-- **牆鐘時間**：實測；受同機負載影響，看大小不看小數。
-- **hook 程式本身時間**：實測。
-- **模型呼叫次數、被擋次數**：實測。
-- **hook 注入的文字**：推論，用系統自己的估算口徑。
-- **通過線**：4 張判分表＝兩跑 × Opus／Codex 兩位判分（實測）。
-  - 現況有一張 Codex 判「新 session 先講未結項」沒過。
-- **美金**：實測；第一跑要付建快取的錢，比大小看 token 不看美金。
-
-#### 換到什麼（推論，報告③）
-
-- 全關兩跑的 AI 也自己找到題目埋的 UTC 切月錯誤。
-- 全關兩跑的 AI 沒被高分誘餌帶走。
-- 它缺的是：
-  - 交付時點名誘餌說理由
-  - 把這件記進追蹤帳本
-  - 動手前寫定位與批判
-  - 新 session 先講未結項
-- hook 換到的是「把判斷說出來、記下來、下次接得上」，不是「看得到問題」。
-
-#### 多出的消耗花在哪
-
-多出的 312 萬 token 大頭不在 hook 程式本身，而在 hook 提醒或擋下之後 AI 多跑的模型呼叫，以及擋訊息在之後每次呼叫被重讀（推論，拆帳規則與全表見報告④）。前三大塊：
-
-- **AI 照規則呼叫系統工具，120.8 萬（38.7%）**：
-  - hook 每次提醒「先寫／更新需求目標樹」，AI 就去呼叫目標樹工具。
-  - 現況每跑 10.5 次、全關 1 次（實測）。
-  - 光目標樹就約 89 萬。
-- **擋訊息與被擋重做，76.7 萬（24.6%）**：
-  - 最大是動手前定位三行與導讀卡，約 70 萬。
-  - 其中被擋後重寫的呼叫約 25 萬。
-  - 其餘約 45 萬是擋訊息附的導讀卡與判準卡在之後每次呼叫被重讀。
-- **收尾擋下與多跑的回合，51.5 萬（16.5%）**：
-  - 收尾被擋後多跑的回合，以知識收割約 25 萬為主。
-
-**改用免費模型的上限**（推論，報告⑤）：
-
-- 內網 gemma4:e4b，約兩成會判錯。
-- 約可省回多出部分的 33%。
-- 只交錯了救得回來的記帳類工作：
-  - 目標樹的進度更新與交付對照
-  - 收尾後掃對話產候選知識卡
-- 定位三行是寫碼 AI 自己的綜觀，不能代寫。
-- 要省定位三行，得改成同一回合擋訊息只送一次。
-
-#### 這次量測沒涵蓋的固定成本
-
-兩組都有、所以沒進上表差額的部分；數字是舊估算、這次沒重量（推論）。
-
-- **always-load token**：
-  - 範圍：IDENTITY + USER + rules/core.md + rules/coding-style.md + [`memory/MEMORY.md`](memory/MEMORY.md)。
-  - 本機估算器（CJK 1.5 tok/字）五檔合計約 5,459 tok：IDENTITY 1,919／coding-style 1,542／core 1,206／USER 803／MEMORY 322。
-  - 真 tokenizer 約 1–1.3 tok/字 → 實務約 4,000–4,500 tok（估算，未以供應商 tokenizer 實測）。
-  - `~/.claude` 內另 [`_local_catalog.md`](memory/_local_catalog.md) ~180 tok。
-- **每輪記憶注入上限**：atom 段 ≤1200 硬頂；整包 additionalContext ≤1000/2000/3000 依 prompt 分級（[§11.3](#113-token-budgetwg_corecompute_token_budget)）。
-- **磁碟**：~5–20MB（atoms + LanceDB + state）。
-- **背景 RAM**：~100–200MB（LanceDB + Ollama 常駐模型）。
-
----
-
-### A11.2 守門減量：同一件事只問一次、記帳交程式或免費模型
-
-[↑ 主文 §11.2](#112-守門減量同一件事只問一次記帳交程式或免費模型)
-
-目標：把 [§11.1](#111-hook-全關-vs-現況題-b-實測) 多出的 token 與時間砍到原設計者定的線內（多出的 token ≤ 全關的 40%、多出的時間 ≤ 50%，B′ 通過線不低於現況 3/4）。
-
-- 第一批 7 項：「同一件事只問一次、記帳不叫寫碼 AI」。要判斷的事（定位、完整對照、同步交代）入口都還在，只拿掉重複與記帳。
-- 第二批 30 項：要判斷的事一樣留宣告入口或改成程式代記、只留帳；能退回的做成開關。
-- 以下每項格式：程式在哪／以前／現在／規則名與退回開關。
-
-#### 第一批：目標樹一次寫好
-
-- **程式在哪**：`wg_need_goal`（`set` 收 `items`；MCP [`need-goal.js`](tools/workflow-guardian-mcp/lib/need-goal.js)／[`mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js) 同規則）。
-- **以前**：`set` 寫樹根、再 `add` 長子目標，兩次呼叫各送回整棵樹。
-- **現在**：
-  - `set` 同一次帶子目標（規則 SET_WITH_SUBGOALS）。
-  - `add`／`update`／`reconcile` 送回精簡樹（樹頭＋一行一節點，不截）。
-  - `set` 照送全樹，讓原話與解讀並排。
-  - need_goal 以外的 hook 提示只附當前節點一行（TREE_ONCE_PER_CALL、[TREE_LINE_IN_HINTS](TECH/release-rules.md#tree_line_in_hints)）。
-
-#### 第一批：收據不用先查號碼
-
-- **程式在哪**：`wg_need_goal._fill_latest`、`refresh_auto_evidence`。
-- **以前**：
-  - `reconcile` 要寫 R<號>，AI 先 `read` 整棵樹查。
-  - 改了程式又跑綠，要重交一次對照。
-- **現在**：
-  - 收據寫 `latest`，由程式填最近一筆綠的。
-  - 之後改了又跑綠，收尾與收尾檢核附樹時自動換成新的（RECEIPT_LATEST_AUTO）。
-  - 沒重跑照算「改完沒重跑」。
-
-#### 第一批：進度由程式記
-
-- **程式在哪**：`wg_need_goal.auto_progress`（Stop 每次都跑，`goal_gate=false` 也跑）。
-- **以前**：改了程式欠「待對照」，提示叫 AI 呼叫 `update` 交一句進度。
-- **現在**：
-  - 程式照改到的檔與最近收據記一筆（history `by=program`）。
-  - 背景本地模型再草擬一句（`by=local_llm`）。
-  - AI 要寫自己的判斷照樣可以 `update`（PROGRESS_LINE_BY_PROGRAM）。
-
-#### 第一批：定位一次收
-
-- **程式在哪**：`wg_overview.on_edit`、`wg_entrypoint.entry_note`。
-- **以前**：
-  - 擋訊息先只給骨架，交了再擋一輪格式。
-  - 平行四個改檔各擋一次、各附全套判準卡。
-- **現在**：
-  - 第一次擋就給內容要求與填好部位、節點的範例（LOCATE_ASK_ONCE）。
-  - 同一回合同一部位缺的一樣只回一行（DENY_SAME_BATCH_SHORT）。
-  - 判準卡一個 session 只送一次全文，之後併成一行卡名（[CARD_FULL_ONCE_PER_SESSION](TECH/release-rules.md#card_full_once_per_session)）。
-  - 壓縮前清掉；子代理 prompt 照送。
-  - 記在 `workflow/entry-sent/<sid>.json`，帳上標 `repeated`。
-
-#### 第一批：收割改背景
-
-- **程式在哪**：[`hooks/wg_bg_harvest.py`](hooks/wg_bg_harvest.py)、[`stop.py`](hooks/handlers/stop.py) KnowledgeHarvest 段。
-- **以前**：宣告完成就擋一回合，要 AI 盤點、`atom_write`、`knowledge_harvest_report`。
-- **現在**（`harvest.background=true`，預設）：
-  - 起背景行程問內網 `gemma4:e4b`，產最多 3 張待審候選卡。
-  - 候選卡位置：專案 `shared/_pending_review/`；沒專案層落 `memory/_staging/harvest-candidates/`。
-  - 開場一行提示；不擋（HARVEST_IN_BACKGROUND）。
-  - 起不了背景照舊擋。
-  - AI 自己要記照樣 `knowledge_harvest_report`，Harvest-Pending 照核對。
-  - 留帳 `Logs/guard-harvest_bg.jsonl`。
-
-#### 第一批：同步提醒不重複
-
-- **程式在哪**：[`user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py)、[`stop.py`](hooks/handlers/stop.py) SyncReminder 與底部一般擋。
-- **以前**：
-  - 每則含「commit／同步」字樣的話注入 Sync context。
-  - 收尾 SyncReminder 擋一回合，用完額度後底部一般擋再擋一次同一件事。
-- **現在**：
-  - Sync context 只印 stderr。
-  - 本回合交了收尾檢核（(g) 版控收尾必填）就不再擋同步（SYNC_COVERED_BY_CLOSING_CHECK）。
-  - 底部一般擋只剩待記知識或文件漂移才擋，改檔數只印 stderr（SYNC_BLOCK_NOT_REPEATED）。
-  - 「還會擋」預覽：收尾檢核還欠時不列同步，背景收割開著時不列收割。
-
-#### 第二批：啟動器不算改程式
-
-- **程式在哪**：`wg_release_rules.is_git_launcher_source`、`wg_verify_ledger.note_git_launcher`／`git_launcher`、`stop._verify_gates`、`wg_need_goal.stamp_edit`、`wg_second_opinion.check`。
-- **以前**：
-  - worktree 裡為了跑 git 寫的一次性 python 啟動器，建、刪都算改程式。
-  - 收據作廢、欠案例，收尾要「刪啟動器 → 再跑一次 verify」。
-- **現在**：
-  - 放在版控根、沒進版控、整支只用 subprocess 跑 git 的檔，寫入時就記標記（`workflow/git-launchers/`）。
-  - 建、改、刪都不算改碼、不蓋到目標樹、不數進第二意見門檻。
-  - 多寫了別的事照算程式（[LAUNCHER_NOT_CODE](TECH/release-rules.md#launcher_not_code)）。
-
-#### 第二批：審完只重跑碰到的
-
-- **程式在哪**：`wg_need_goal.mark_review`／`_review_fix_unaffected`、`pre_tool_use` second_opinion_start 段。
-- **以前**：codex 審完修一個檔，目標樹每筆收據都算「改完沒重跑」，全部重跑。
-- **現在**：
-  - 材料打包那刻記審查點。
-  - 之後的修補只重跑碰到的 verify。
-  - 沒碰到的收據，在證據寫 `unaffected`（為什麼不受影響）就照算，留帳 `guard-need_goal.jsonl` event=unaffected_declared。
-  - 審查前就過期、沒宣告照舊（REVIEW_FIX_RERUN_TOUCHED_ONLY）。
-
-#### 第二批：快轉不補驗、不跑第三次
-
-- **程式在哪**：[`skills/console/SKILL.md`](skills/console/SKILL.md) Step 4、[`references/delivery.md`](skills/console/references/delivery.md)。
-- **以前**：
-  - 解過衝突就要總控台補驗。
-  - 兩軌碰同一大檔，後合那軌驗過、總控台再驗一次。
-- **現在**：
-  - 可快轉直接推；落後才補驗一次。
-  - 碰同一大檔由後合那軌在分支合 main、解衝突、驗完，可快轉就直接推。
-
-#### 第二批：hook 只載要用的
-
-- **程式在哪**：
-  - `wg_lazy_re`（模組層樣式第一次用才編譯）
-  - `wg_episodic`／`wg_reading_path`／`post_tool_use`／`ups_gates`／`wg_extraction` 惰性入口
-  - [`lib/project_root`](lib/project_root.py) 不用 dataclasses
-  - `wg_core`／`wg_atoms`／`atom_locations` 拿掉沒用或晚用的 import
-- **以前**：每個事件新起的行程都把上百條正規表示式全編，把 ollama_client（連帶 urllib／ssl）、logging、dataclasses 全載。
-- **現在**：用到才載（HOOK_IMPORT_ON_USE）。
-- **實測**（同一組事件）：PostToolUse 每次少約 135～150 ms、PreToolUse 少約 70 ms、UserPromptSubmit 少約 35 ms。
-
-#### 第二批：state 讀寫收斂
-
-- **程式在哪**：`wg_core.read_state_status`／`write_state`。
-- **以前**：每次 hook 都把幾百 KB 的 state 縮排重寫。
-- **現在**：
-  - 緊湊 JSON。
-  - 讀進來沒改就不重寫，只在快過跨 session 協調窗口時碰一下 mtime（STATE_WRITE_SKIP_UNCHANGED）。
-
-#### 第二批：CHANGELOG 各軌寫片段
-
-- **程式在哪**：[`skills/console/scripts/changelog-fold.py`](skills/console/scripts/changelog-fold.py)、[`rules/core.md`](rules/core.md)、開工句、SKILL Step 4。
-- **以前**：每軌都插 [`_CHANGELOG.md`](_AIDocs/_CHANGELOG.md) 檔頭，合併必撞。
-- **現在**：工作軌寫 `_AIDocs/_changelog.d/<軌>-<NNN>.md`；總控台合完 `--write` 依日期收進主檔、刪片段（CHANGELOG_PER_TRACK）。
-
-#### 第二批：判準卡一 session 一次
-
-- **程式在哪**：`wg_entrypoint.entry_note`、`pre_compact`。
-- **以前**：
-  - 一個使用者回合送一次全文，下一則訊息（含同伴、通知）又整張重送。
-  - 換一棵需求目標樹又送全文。
-  - 送過的每張各一行「這個話題前面已送過全文」。
-- **現在**：
-  - 一個 session 每張只送一次全文，之後併成一行「判準卡：<卡名>、…」。
-  - 拿過卡的切入點不再往下送新卡。
-  - 壓縮後才重送、子代理照送（[CARD_FULL_ONCE_PER_SESSION](TECH/release-rules.md#card_full_once_per_session)）。
-- **退回**：`entrypoint.card_once_per_session=false` 退回同一棵樹一次的 CARD_ONCE_PER_TOPIC。
-
-#### 第二批：擋訊息只給修法
-
-- **程式在哪**：`wg_release_rules.slim_deny`、`wg_data_file._judge`。
-- **以前**：動資料檔擋訊息是一整段管道說明＋條目＋入口行範例。
-- **現在**：「[閘] 修法：<一句>」＋✗ 條目（證據照留、過長截短）＋判準卡名（[DENY_TEXT_SLIM](TECH/release-rules.md#deny_text_slim)）。
-- **退回**：`guard.deny_text_slim=false`。
-
-#### 第二批：資料檔讀到就提示
-
-- **程式在哪**：`wg_data_file.read_hint`、`post_tool_use`。
-- **以前**：改 README、設定檔先被擋一次，再補一則宣告、重送一次改檔。
-- **現在**：
-  - 第一次讀到它就附一行宣告格式，改檔前一則照格式寫就不擋（[DATA_FILE_READ_HINT](TECH/release-rules.md#data_file_read_hint)；判定不變）。
-  - 這個 session 沒改過程式檔的閘不問、也不提示（[NON_CODING_TURN_NO_NUDGE](TECH/release-rules.md#non_coding_turn_no_nudge)）。
-
-#### 第二批：文字評分只評交付那則
-
-- **程式在哪**：`wg_text_score._reply_in_scope`、[`stop.py`](hooks/handlers/stop.py) 文字評分段、skill `text-score`。
-- **以前**：每則夠長的回覆都送評。
-- **現在**：
-  - 只評本使用者回合改了程式、宣告完成的那一則，一回合一則。
-  - 其他用 skill 叫（TEXT_SCORE_CODE_REPLY_ONLY）。
-- **退回**：`reply_scope=all`。
-
-#### 第二批：收尾一份報告
-
-- **程式在哪**：`post_tool_use._apply_harvest`／`_aec_reconcile`、[`anti-evasion.js`](tools/workflow-guardian-mcp/lib/anti-evasion.js) `aecArgErrors`、[`mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js) schema、[`delivery.md`](skills/console/references/delivery.md)。
-- **以前**：收尾檢核十欄、收割報告、交付信各寫一份。
-- **現在**：
-  - `report` 白話全文同時是交付信，e／f／g 可省。
-  - `harvest_items`（知識收割，CLOSING_REPORT_ONE_CALL）與 `reconcile`（目標對照，[CLOSING_RECONCILE_IN_REPORT](TECH/release-rules.md#closing_reconcile_in_report)）跟收尾檢核同一次交。
-  - 其餘欄位（a、b、d、h、i、j、k）待裁定前照舊必填。
-
-#### 第二批：派工單四樣
-
-- **程式在哪**：[`skills/console/references/dispatch.md`](skills/console/references/dispatch.md)、[`kickoff.md`](skills/console/references/kickoff.md)。
-- **以前**：原話目標、定死、判斷入口、紅案例、做法五段，做法每張抄一遍。
-- **現在**：
-  - 做什麼、怎麼驗、不准碰什麼＋一句原始目標。
-  - 開工不讀歷史快照（DISPATCH_FOUR_PARTS）。
-
-#### 第二批：目標樹 why 選填
-
-- **程式在哪**：`wg_need_goal._validate_items`／`_op_set`、[`need-goal.js`](tools/workflow-guardian-mcp/lib/need-goal.js)、[`mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js)。
-- **以前**：update、改寫樹根、換題都要 why，沒附拒收。
-- **現在**：
-  - 都選填、不擋、提示不再叫寫。
-  - 換題時舊樹還在進行中，改成列出沒結束的節點、提醒是糾正就改回舊樹（WHY_OPTIONAL）。
-  - reconcile 證據與「使用者說的」原話核對照舊。
-
-#### 第二批：守門只在寫碼回合
-
-- **程式在哪**：`wg_core.coding_turn`、[`user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py)、[`post_tool_batch.py`](hooks/handlers/post_tool_batch.py)、[`post_tool_use.py`](hooks/handlers/post_tool_use.py)、[`stop.py`](hooks/handlers/stop.py) 的 `_coding`、`wg_hook_timing.quiet`／`mark_coding`。
-- **以前**：
-  - 每個回合（純問答、只改文件也一樣）都跑目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑。
-  - 每次 hook 都寫計時帳。
-- **現在**：三層判（[CODING_TURN_ONLY](TECH/release-rules.md#coding_turn_only)）。
-  - ① 這個使用者回合已經有改程式檔的工具行為，或判不出目標的寫入（最高位）。
-    - 工具行為：Edit／Write／NotebookEdit，或 Bash 寫進程式檔（`wg_need_goal.writes_code`，.bat／.cmd 也算）。
-  - ② 改碼之前的入口：本使用者回合 LLM 呼叫 need_goal set（`kind=code`）／add／update，而且樹是寫碼類。
-    - 記在 state `need_goal_code_decl_turn`；樹只是前幾回合留著不算。
-  - ③ prompt 的關鍵字分類（`turn_intent`）不當開關。
-    - 只決定要不要送一行「要改碼先立樹」（`wg_need_goal.CODE_TREE_HINT`）與記憶選片。
-  - 本 session 前幾回合改過程式、這則宣告完成也算（收尾檢核照查）。
-- **判錯會漏的**：LLM 沒立樹就直接改碼，動手前的守門晚到第一次改程式檔才啟動。
-- **非寫碼回合的行為**：
-  - 還沒宣告也還沒改碼時，UserPromptSubmit 不送目標樹提示與糾正後回頭看樹的提醒。
-  - 不寫 hook 計時帳（降級保護照跑）。
-  - 記憶注入、導讀卡、收割、vcs-sync、語言守門照舊每回合。
-- **退回**：`coding_guard.coding_turn_only=false`。
-
-#### 第二批：完整對照程式代填
-
-- **程式在哪**：`wg_need_goal.auto_reconcile`（`goal_gate_reason` 在 `goal_gate=false` 且到交付邊界時呼叫）。
-- **以前**：交付前叫 AI 逐節點交完整對照。
-- **現在**：
-  - 閘關著時，程式照改動、收據代填一份（節點 `filled_by=program`）。
-  - AI 自己交的不覆蓋；AI 再交就拿掉標記。
-  - 樹上印「程式代填」（RECONCILE_BY_PROGRAM）。
-
-#### 第二批：收據不看形狀
-
-- **程式在哪**：`wg_verify_ledger._clean`／`_trusted`、`pre_tool_use`、[`stop.py`](hooks/handlers/stop.py) 等值段。
-- **以前**：收據要指令形狀對（不能帶 cd、要印哨兵、ledger 檔不准手寫），不合就作廢。
-- **現在**：
-  - 收據只要在目標樹範圍、用得到、不是程式自己造的環境就算。
-  - 不查哨兵、不擋 cd、不擋寫 verify-ledger（RECEIPT_NO_FORGERY_CHECK）。
-
-#### 第二批：目標樹只立一次
-
-- **程式在哪**：`post_tool_batch.closing_reminders`、`post_tool_use`（原 `_scope_ask_once` 拿掉）、`stop.CLOSING_CHECK_FIX`、`wg_need_goal.stamp_edit`、[`mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js) need_goal／anti_evasion_report 說明。
-  - `stamp_edit` 裡沒樹改知識類檔的提示已整條拿掉（[NON_CODING_TURN_NO_NUDGE](TECH/release-rules.md#non_coding_turn_no_nudge)）。
-- **以前**：
-  - 改檔那則提醒 (f2)(f3)(f4)。
-  - 收尾檢核提醒寫「目標對照放 reconcile」。
-  - 一提醒 AI 就叫一次 need_goal reconcile（一個模型回合＋載一次工具定義）。
-- **現在**：
-  - 只留改程式前沒樹提醒 set 一次（[CODE_EDIT_NEEDS_GOAL_TREE](TECH/release-rules.md#code_edit_needs_goal_tree)）。
-  - 其餘促使 reconcile 的文字全拿掉。
-  - 判定不動、Stop 只留帳，交付對照由程式代填（[GOAL_TREE_SET_ONCE](TECH/release-rules.md#goal_tree_set_once)）。
-
-#### 第二批：定位四行放寬
-
-- **程式在哪**：`wg_overview._goal_line_check`、`wg_release_rules.locate_candidates_verdict`。
-- **以前**：
-  - 第四行沒寫節點、沒寫角色、照抄範例佔位都擋。
-  - 根因層兩候選每次都擋。
-- **現在**：
-  - 第四行與佔位只記錄（`guard-need_goal` event=locate_soft，沒寫節點掛樹根）。
-  - 兩候選一個使用者回合只擋一次（TWO_CANDIDATES_ASK_ONCE）。
-  - 第五行批判照擋。
-
-#### 第二批：收尾只問一句
-
-- **程式在哪**：`wg_release_rules.CLOSING_ASK`／`not_doing_verdict`、`wg_evasion`、`wg_harvest._dismissed`、`stop._record_tracking_lines`。
-- **以前**：
-  - 退避、退縮語要寫「不做｜<哪一件>：使用者說「<原句>」」，且原句要對得上。
-  - 收割、收尾檢核要逐項引用。
-- **現在**：
-  - 問「剩下沒做的，哪些改得快又有效？」。
-  - 快又有效的現在做；其餘每件寫一行「追蹤｜<哪一件>：<原因>」（記進追蹤帳本）。
-  - 「不做｜」行不再比對原話。
-  - 收割、收割待補、收尾檢核遇使用者說先這樣／跳過，整批放行、留帳。
-  - [USER_WAIVER_NEEDS_CITATION](TECH/release-rules.md#not_doing_declareduser_waiver_needs_citation) 只剩紅測清單。
-
-#### 第二批：拿掉交出前一問
-
-- **程式在哪**：`wg_need_goal`、`wg_need_goal_points`、[`entrypoints.json`](workflow/entrypoints.json)。
-- **以前**：改計畫類文件、交完整對照、收尾檢核前都送「還對得上最新計畫嗎」。
-- **現在**：拿掉。
-
-#### 第二批：評分、提問、讀不懂、改判準卡只留帳
-
-- **程式在哪**：`wg_text_score.tail_note`、`wg_need_goal_points._judge_ask`、`wg_overview.on_edit`／`pre_tool_use` 裁判段／[`stop.py`](hooks/handlers/stop.py)、`wg_judge_card`。
-- **以前**：
-  - 下一回合注入「上則評分」，叫 AI 照抄。
-  - 提問沒掛目標樹節點就擋。
-  - 判不出寫入目標就擋。
-  - 改綁 Entry 的判準卡沒宣告就擋（直譯器改的擋下一個呼叫）。
-- **現在**：都放行並留帳。
-  - `guard-text_score_tail` recorded
-  - `guard-need_goal` ask_unlinked
-  - OverviewHub log edit_unknown_target（UNKNOWN_TARGET_LOGGED）
-  - `guard-judge_card` undeclared
-
-#### 第二批：擋次預算
-
-- **程式在哪**：[`stop.py`](hooks/handlers/stop.py) ReconcileGate、`_code_gate_no_ask`。
-- **以前**：每條規則各擋 2 次；子代理收尾擋到底。
-- **現在**：
-  - 寫碼查核每個使用者回合共用一份（[BLOCK_BUDGET_SHARED](TECH/release-rules.md#block_budget_shared)）。
-  - 子代理與主 session 同一份預算，擋滿放行留帳 `*_released`（SUBAGENT_SAME_BUDGET）。
-
-#### 第二批：開發期規矩不進產品
-
-- **程式在哪**：`wg_need_goal_points`、`ups_gates`、`wg_evasion`、`wg_release_rules`、[`entrypoints.json`](workflow/entrypoints.json)、[`anti-evasion.js`](tools/workflow-guardian-mcp/lib/anti-evasion.js)／[`aec-hud-html.js`](tools/workflow-guardian-mcp/lib/aec-hud-html.js)、`tools/selfscore.py`。
-- **以前**：
-  - 同伴訊息與信箱裡的信算外部主張、工作中途掃同伴訊息。
-  - 帶派工字樣的同伴訊息開新回合。
-  - worktree 裡的事後檢討寫交付信。
-  - 自檢評分是切入點 E36。
-  - HUD 標「給總控台」。
-- **現在**：
-  - 外部主張只認審查結果與審查報告檔。
-  - 同伴訊息一律不開回合。
-  - 事後檢討不分在不在 worktree 都叫 atom_write。
-  - 自檢評分不進切入點登錄表。
-  - HUD 只標哪個 session 寫的。
-  - 辨認、剝掉同伴訊息與開工句的程式照留（[`lib/harness_text`](lib/harness_text.py)）。
-
-#### 第二批：文字評分對目標
-
-- **程式在哪**：[`tools/text-score.py`](tools/text-score.py)（`--goal`、`needs_goal`、`with_goal`）、[`text-specs/reader-designer.md`](text-specs/reader-designer.md)、`wg_text_score.current_goal`。
-- **以前**：每條通用可讀性題；不適用算過、進分母。
-- **現在**：
-  - 規格目標欄 `{{goal}}` 由程式填當下的需求目標：目標樹樹根；沒樹用本回合使用者原話；都沒有就不評。
-  - 裁判先拿到目標，再逐條問「針對這個目標，這條過不過」，可答不適用。
-  - 不適用不算沒過、不進分母。
-  - 多一條 G1「有沒有命中當下目標」。
-
-#### 第二批：第二意見一次為限
-
-- **程式在哪**：`wg_second_opinion.check`／`mark_ok`、[`stop.py`](hooks/handlers/stop.py) SecondOpinion 段。
-- **以前**：上次滿足之後又改了程式就再要一輪；採納意見再改碼 → 又欠一次，連鎖。
-- **現在**：
-  - 每組改動最多要一次。
-  - 跑過之後的修改，只在改到新的高風險檔、或之後新改的程式檔數再過門檻時才算新一輪（SECOND_OPINION_ONCE_PER_CLAIM）。
-  - 前面回合跑完的第二意見也算審過（[SECOND_OPINION_RAN_BEFORE](TECH/release-rules.md#second_opinion_ran_before)）。
-  - 宣告不需／等第二意見之後又改了程式，只再欠一次出口行，交了就停（[SECOND_OPINION_EXIT_FINGERPRINT](TECH/release-rules.md#second_opinion_exit_fingerprint)）。
-
-#### 第二批：紅測豁免不比對原話
-
-- **程式在哪**：`wg_release_rules.waived_failures`／`waiver_miss_notes`。
-- **以前**：「不做｜<哪一支>：使用者說「…」」的原句要在近 3 則使用者原話裡。
-- **現在**：
-  - 寫了就放行留帳，原句不再比對（規則名 [USER_WAIVER_NEEDS_CITATION](TECH/release-rules.md#not_doing_declareduser_waiver_needs_citation) 沿用）。
-  - 只寫 AI 自己理由的照算紅。
-
-#### 第二批：跨層判不出目標放行
-
-- **程式在哪**：`wg_core.check_cross_realm_bash`。
-- **以前**：專案 session 的 Bash 寫入目標判不出（UNKNOWN、PowerShell 換過目錄的相對目標）就擋。
-- **現在**：
-  - 放行並留帳 `guard-crossrealm` event=unknown_allowed（UNKNOWN_TARGET_LOGGED）。
-  - 算得出落在根層、根層 repo 的 git 寫入照擋。
-
-#### 第二批：文件評分跟著改碼那則
-
-- **程式在哪**：`wg_text_score.on_stop`。
-- **以前**：本回合改過的 .md 都送評。
-- **現在**：
-  - 只在交付改程式那則（code_reply）一起評。
-  - 純文件回合不評。
-- **退回**：`reply_scope=all`。
-
-#### 第二批：自檢評分搬走
-
-- **程式在哪**：[`skills/console/scripts/selfscore.py`](skills/console/scripts/selfscore.py)。
-- **以前**：`tools/selfscore.py`。
-- **現在**：產品沒有呼叫它，整支搬進總控台 skill。
-
-#### 第二批：目標樹提醒一次全文
-
-- **程式在哪**：`wg_need_goal.brief_line`／`critique_once`／`forget_reminders`、`wg_need_goal_points`（讀入範圍、外部主張、糾正、目標視角重看、壓縮後重送）、`wg_overview._goal_block`。
-- **以前**：
-  - 每則讀入範圍、目標視角重看、外部主張、導讀卡附樹，都帶三種情況全文。
-  - 附樹帶樹根一行＋當前節點。
-- **現在**：
-  - 三種情況每個 session 一次全文，之後一句指回（[CRITIQUE_CASES_ONCE_PER_SESSION](TECH/release-rules.md#critique_cases_once_per_session)，壓縮後重送一次）。
-  - 附樹只一行當前節點（[TREE_LINE_IN_HINTS](TECH/release-rules.md#tree_line_in_hints)，樹根在 need_goal 寫入的回覆送）。
-- **退回**：`coding_guard.slim_reminders=false`。
-- **實測**：004 兩跑第一回合重播，每跑省 6,780 token（[`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-目標樹提醒瘦身-實測/goal_reminder_replay.py`](_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-目標樹提醒瘦身-實測/goal_reminder_replay.py)）。
-
-#### 規則名與整體數字
-
-- 規則名是程式註解與留帳用的標籤。
-- [LAUNCHER_NOT_CODE](TECH/release-rules.md#launcher_not_code)、[BLOCK_BUDGET_SHARED](TECH/release-rules.md#block_budget_shared)、[DENY_TEXT_SLIM](TECH/release-rules.md#deny_text_slim)、[CARD_FULL_ONCE_PER_SESSION](TECH/release-rules.md#card_full_once_per_session)、[DATA_FILE_READ_HINT](TECH/release-rules.md#data_file_read_hint) 進 [§7.8](#78-放行欠帳判定規則hookswg_release_rulespy) 的 `wg_release_rules.RULES`（是判定式），其餘不進。
-- [§11.1](#111-hook-全關-vs-現況題-b-實測) 的數字是這些減量之前量的；減量後的整體數字要用 [§11.1](#111-hook-全關-vs-現況題-b-實測) 同一套跑法重量。
-
----
 
 ### A13.1 USER／IDENTITY 分離
 

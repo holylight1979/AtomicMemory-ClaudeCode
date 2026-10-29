@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-29 TECH §11 改寫成現況、開頭補「系統的兩層」、§7 守門關著時的清單照程式更正
+- **緣由**：使用者指出 §11 寫的是寫碼守門開發期的改版過程（10-22 減量前實測、37 項「以前／現在」清單），沒標明範疇，讀起來像「守門開關關掉＝整個系統關掉」；查證 §11.1 的 4.4 倍是四輪優化前的數字（最新 10-29 跑 010 是 token +15%、時間 +91%），§7 開頭又寫錯「守門關著時紅測閘不跑」（實際跑舊版紅測閘，`stop.pre_v6_testfail_message`）。
+- **做法**：TECH.md 開頭加〈系統的兩層〉表（記憶系統本體與基本守門／寫碼守門，各自開關與關掉的後果）；§11 改成兩層代價表、最新實測（標明量法是 hook 全關對全開、不是守門開對關）、目前有效的減量原則；原 §11.1、§11.2 主文與附錄 A11.1、A11.2 原文搬到 `DevHistory/v6.0-寫程式碼的進化-2026-10/TECH-§11開發期量測與守門減量清單-2026-10.md`；§7 開頭與 guards.md A7 的「照跑／不跑」清單改正；舊錨點全部換新。驗證範圍閘拔除後退役 3 張只描述它的記憶卡，E24 判準卡拿掉已不存在的切入點綁定。
+- **驗證**：TECH 五份文件站內錨點與檔案連結以 GitHub、GitLab 兩套規則重驗 0 錯；守門關著時的紅測閘行為對照 `hooks/handlers/stop.py`（`if not v6 and failing and claims_completion`）。
+
 ## 2026-10-29 拔掉驗證範圍閘（verify_scope）：收尾寫碼查核 (a)(d) 只留關著時的判法
 - **緣由**：驗證範圍閘早由使用者關掉（`verify_scope.enabled=false`，帳本 10-20 後沒再寫），使用者拍板整套拔掉；它還留著約 1000 行主模組、12 條只在開著時用的規則、MCP `need_goal` 的 `verify_scope` 動作，開場還照印漏判統計行。
 - **做法**：刪 `hooks/wg_verify_scope.py` 與兩支專屬測試；Stop（主 session、子代理、裁判）、PostToolUse、PostToolBatch、SessionStart 拿掉驗證範圍分支，(a) 只認對得上改檔的 PASS 或部位自寫收據、(d) 只看案例覆蓋與「case_for｜…」宣告行；`wg_verify_ledger` 刪只給它用的函式（含 `load_verify_chains`、`run_runtime_gate`）；`wg_release_rules` 刪 SCOPE_* 9 條與 CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER／CASE_DECL_WELL_FORMED；config、entrypoints（E24）、MCP schema 跟著清；TECH §7.9／A7.9 留標題指向封存檔 `DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md`。

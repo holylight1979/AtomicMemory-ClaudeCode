@@ -18,7 +18,7 @@
 
 - **`coding_guard.enabled` / `coding_turn_only` / `slim_reminders`**：
   - 守門總開關見 [§7](../TECH.md#7-守門與收尾) 開頭；`WG_CODING_GUARD=1`／`0` 優先。
-  - `coding_turn_only=false`：退回每回合都啟動寫碼守門（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）。
+  - `coding_turn_only=false`：退回每回合都啟動寫碼守門（[§11.2](../TECH.md#112-寫碼守門的減量原則) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）。
   - `slim_reminders=false`：退回需求目標提示每則附三種情況全文與樹根一行（[§7.7](../TECH.md#77-需求目標樹need_goal)「重看」、[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) [CRITIQUE_CASES_ONCE_PER_SESSION](../TECH/release-rules.md#critique_cases_once_per_session)／[TREE_LINE_IN_HINTS](../TECH/release-rules.md#tree_line_in_hints)）。
 - **`stop_gate_max_blocks` / `min_files_to_block`**：
   - 這是共用擋次的 Stop 閘：一個使用者回合最多擋幾次／幾檔以上才擋。
@@ -162,7 +162,7 @@
 | `userExtraction.tokenBudget` | 240 | 使用者決策萃取每 session 預算 |
 | `episodic.auto_generate` / `min_files` / `min_duration_seconds` | true / 1 / 120 | episodic 生成 |
 | `harvest.enabled` / `min_turns` / `min_accessed` / `min_turns_between` | true / 3 / 5 / 3 | 階段收割 Stop 閘（[§6.3](../TECH.md#63-自動萃取在跑-vs-已停產)） |
-| `harvest.background` / `background_model` / `background_max_cards` / `background_timeout_sec` | true / gemma4:e4b / 3 / 180 | 收割交背景免費模型（[§11.2](../TECH.md#112-守門減量同一件事只問一次記帳交程式或免費模型)） |
+| `harvest.background` / `background_model` / `background_max_cards` / `background_timeout_sec` | true / gemma4:e4b / 3 / 180 | 收割交背景免費模型（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
 | `self_iteration.forget.enabled` / `dry_run` | false / true | selective forgetting |
 | `provenance.enabled` / `quote_max_chars` / `anti_rot_days` / `backfill.enabled` | true / 200 / 25 / true | 卡片來源（[§4.1](../TECH.md#41-atom-卡片格式) Source／Quote） |
 | `atom_debug` | false | 檢索除錯 log |
