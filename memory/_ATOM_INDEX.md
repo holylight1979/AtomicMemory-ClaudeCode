@@ -690,3 +690,4 @@
 | svn一次查多檔-info與status帶多條路徑可跨巢狀工作副本一次查-有未進版控的目標exit1但xml照樣完整-log要連伺服器要並行 | memory/版控/SVN/svn一次查多檔-info與status帶多條路徑可跨巢狀工作副本一次查-有未進版控的目標exit1但xml照樣完整-log要連伺服器要並行.md | svn info, svn status, svn log, 批次, 多個路徑, 巢狀工作副本, W155010, mbcs, ANSI 碼頁 | global |  |
 | 測試要假造版控提交時間-svn用svnadmin-setrevprop改svn-date後重新checkout-git用author與committer-date-幾版設同一刻可證明比的是版號 | memory/驗證與實證/測試要假造版控提交時間-svn用svnadmin-setrevprop改svn-date後重新checkout-git用author與committer-date-幾版設同一刻可證明比的是版號.md | svnadmin, setrevprop, svn:date, GIT_COMMITTER_DATE, 提交時間, fixture, 假造日期, 測試 repo | global |  |
 | 拿自己算的數字對上別人回報的數字前先對口徑-只用部分規則湊出相等不算吻合 | memory/驗證與實證/拿自己算的數字對上別人回報的數字前先對口徑-只用部分規則湊出相等不算吻合.md | 吻合, 對得上, 正好, 數字一致, 口徑, 回推, 對帳, 驗收 | global |  |
+| 擋訊息或提醒裡提到的名詞ai會當成可用的宣告管道-提到case-for就會寫case-for行-訊息點名的每個名詞都要有程式真的收-收不了就別提 | _AIDocs/_atoms/MemDev/擋訊息或提醒裡提到的名詞ai會當成可用的宣告管道-提到case-for就會寫case-for行-訊息點名的每個名詞都要有程式真的收-收不了就別提.md | 擋訊息提到的名詞, AI 自創宣告格式, case_for｜, 宣告管道, 訊息教的路要收得到, 提醒文字設計, 守門訊息寫法, 連鎖誤判 | global |  |
