@@ -14,4 +14,5 @@
 | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add |
 | 改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控 | 改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控 |
 | 本repo公開有同事使用者-外部pr審查與docindex衝突解法 | 本repo公開有同事使用者-外部PR審查與DocIndex衝突解法 |
+| 背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉 | 背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉 |
 | 記憶系統repo上版免口令只認純git串-把python改檔或heredoc跟git寫在同一條指令整條被commit-order閘擋-先跑改檔再單獨下git串 | 記憶系統repo上版免口令只認純git串-把python改檔或heredoc跟git寫在同一條指令整條被commit-order閘擋-先跑改檔再單獨下git串 |

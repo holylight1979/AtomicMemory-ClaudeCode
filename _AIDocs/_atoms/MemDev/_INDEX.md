@@ -17,7 +17,7 @@
 | atom工具與索引 | 31 | `_AIDocs/_atoms/MemDev/atom工具與索引/_INDEX.md` |
 | hook與MCP執行期 | 19 | `_AIDocs/_atoms/MemDev/hook與MCP執行期/_INDEX.md` |
 | v6總控台 | 3 | `_AIDocs/_atoms/MemDev/v6總控台/_INDEX.md` |
-| vcs-sync與版控 | 9 | `_AIDocs/_atoms/MemDev/vcs-sync與版控/_INDEX.md` |
+| vcs-sync與版控 | 10 | `_AIDocs/_atoms/MemDev/vcs-sync與版控/_INDEX.md` |
 | worktree與隔離資料根 | 14 | `_AIDocs/_atoms/MemDev/worktree與隔離資料根/_INDEX.md` |
 | 寫碼守門閘 | 23 | `_AIDocs/_atoms/MemDev/寫碼守門閘/_INDEX.md` |
 | 擋訊息與放行判定 | 15 | `_AIDocs/_atoms/MemDev/擋訊息與放行判定/_INDEX.md` |

@@ -18,6 +18,7 @@
 - [固] 同一問題修正第 2 次起 → 6 Agent 精確修正會議
 - [固] Guardian 自動偵測 retry_count ≥ 2 → 注入信號
 - [臨] 放行／欠帳判定契約（SYNC: hooks/wg_release_rules.py）：所有「這回合算不算改碼／欠不欠案例／算不算開回合／要不要擋」的判定集中在一支純函式模組，每個情境一條有名字的規則（RULES 表）＋至少一個會紅的案例＋一個反例；呼叫端（stop／post_tool_use／pre_tool_use／wg_core／wg_overview／wisdom_engine／ups_gates／wg_evasion／wg_harvest）只蒐集事實交給模組判、不自己判；擋訊息固定格式 `✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`，擋次預算每條規則各自計次、擋滿訊息列全部條目。閘誤判的修法是在這支模組加規則與紅案例，不加例外清單、不放寬、不整輪不擋（原設計者裁定）。
+- [固] [觀]→[固]（使用者拍板）：只能手動 MCP atom_promote，下界同 promote_lb(0.6)、證據數要 usefulness.fix_min_n(10)；Confirmations 不參與任何晉升判定（SessionEnd 掃描與 atom_promote 都不看，計數只進封存分數）。理由：常用卡有用率集中 0.6～0.8，拉高下界會沒人升得上，[固] 差在證據量。
 
 ## 行動
 

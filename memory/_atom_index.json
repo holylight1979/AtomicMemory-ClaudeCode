@@ -13800,6 +13800,36 @@
       "related": [
         "並行agent產出併入交付物必須標驗證強度分層"
       ]
+    },
+    {
+      "name": "feedback-現有程式只證明現況不證明應然-讀碼前先寫需求與最簡形狀-批判要對理想形狀不對現況-否則會被大量既有程式帶歪去模仿",
+      "path": "memory/Failures/思考與決策/feedback-現有程式只證明現況不證明應然-讀碼前先寫需求與最簡形狀-批判要對理想形狀不對現況-否則會被大量既有程式帶歪去模仿.md",
+      "triggers": [
+        "被既有程式帶歪",
+        "照抄樣板",
+        "真正的需求",
+        "理想形狀",
+        "綜觀側寫",
+        "設計缺陷看不見",
+        "重構前判斷",
+        "壞設計",
+        "模仿既有寫法"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉",
+      "path": "_AIDocs/_atoms/MemDev/vcs-sync與版控/背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉.md",
+      "triggers": [
+        "vcs-sync",
+        "root_extra_pathspecs",
+        "TECH.md 被同步",
+        "併發 session",
+        "手動跑同步",
+        "vcs-sync-worker",
+        "記憶同步帶到別人的檔"
+      ],
+      "scope": "global"
     }
   ]
 }
