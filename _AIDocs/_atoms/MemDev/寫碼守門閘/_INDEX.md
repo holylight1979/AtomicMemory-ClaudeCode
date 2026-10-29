@@ -11,6 +11,7 @@
 | note-git-launcher遇非utf8的py會丟unicodedecodeerror-呼叫端沒包會漏記同批後面的改檔-新呼叫點一律走post-tool-use的note-launcher | note-git-launcher遇非utf8的py會丟unicodedecodeerror-呼叫端沒包會漏記同批後面的改檔-新呼叫點一律走post-tool-use的note-launcher |
 | 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊none被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 | 一次性啟動器刪掉被寫碼查核d當搬走的根因-副本候選收了已不在磁碟的提交檔-雜湊None被當判不出-濾掉不在的候選-從沒進git就不欠不能用會開新建檔改名繞過 |
 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天 | 切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve_responses-entry-stats只給計數且預設只看7天 |
+| 判準卡在對的時刻送出只在寫碼守門開時有-守門關時常駐路徑只剩identity-綁entry的卡對守門關的人等於不存在 | 判準卡在對的時刻送出只在寫碼守門開時有-守門關時常駐路徑只剩IDENTITY-綁entry的卡對守門關的人等於不存在 |
 | 回合意圖分類吃到同伴訊息正文-clean-prompt只剔ide區塊-重構意圖會被派工信觸發-所有吃turn-intent的閘與選片都受影響 | 回合意圖分類吃到同伴訊息正文-clean_prompt只剔IDE區塊-重構意圖會被派工信觸發-所有吃turn_intent的閘與選片都受影響 |
 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 | 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效 |
 | 守門只在寫碼回合啟動時-入口要認本回合的實質改碼或本回合宣告-不能認跨回合常駐的目標樹-也不能認關鍵字意圖 | 守門只在寫碼回合啟動時-入口要認本回合的實質改碼或本回合宣告-不能認跨回合常駐的目標樹-也不能認關鍵字意圖 |

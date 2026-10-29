@@ -722,3 +722,4 @@
 | 背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉 | _AIDocs/_atoms/MemDev/vcs-sync與版控/背景記憶同步預設連tech-md一起上版-別的session正在改tech-md時會被當記憶同步推上去-手動跑同步要把它從pathspec拿掉.md | vcs-sync, root_extra_pathspecs, TECH.md 被同步, 併發 session, 手動跑同步, vcs-sync-worker, 記憶同步帶到別人的檔 | global |  |
 | 向量服務查修-vec綠燈只代表服務活著-索引失敗看status的index-job-重啟要確認埠上只剩一支-各層file-path基準目錄不同 | _AIDocs/_atoms/MemDev/向量服務查修-vec綠燈只代表服務活著-索引失敗看status的index-job-重啟要確認埠上只剩一支-各層file-path基準目錄不同.md | 向量服務, 向量庫, vector service, index_job, 增量索引, 向量重建, 3849, vec✓, 向量庫缺卡, 向量庫路徑 | global |  |
 | 技術文件寫到開關或量測要標明範疇與量測條件-否則局部開關會被讀成整個系統的開關 | memory/文字與格式/技術文件寫到開關或量測要標明範疇與量測條件-否則局部開關會被讀成整個系統的開關.md | 技術文件, 現況文件, 開關說明, 實測數字, 量測表, 減量清單, 範疇說明, 整個系統關掉 | global |  |
+| 判準卡在對的時刻送出只在寫碼守門開時有-守門關時常駐路徑只剩identity-綁entry的卡對守門關的人等於不存在 | _AIDocs/_atoms/MemDev/寫碼守門閘/判準卡在對的時刻送出只在寫碼守門開時有-守門關時常駐路徑只剩identity-綁entry的卡對守門關的人等於不存在.md | 判準卡, entry_note, 切入點, 綁 Entry, 寫碼守門關, 對的時刻送卡, 守門關時有沒有作用, v6 拔掉 | global |  |
