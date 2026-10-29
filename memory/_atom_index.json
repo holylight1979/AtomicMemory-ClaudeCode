@@ -13184,6 +13184,23 @@
         "AtomFunnelBlock"
       ],
       "scope": "global"
+    },
+    {
+      "name": "守門改成提醒後只在stop寫stderr的提醒ai看不到-提醒要掛posttooluse或posttoolbatch才進ai眼前-提醒句若自帶不需出口又沒附判準卡ai會直接走出口",
+      "path": "_AIDocs/_atoms/MemDev/守門改成提醒後只在stop寫stderr的提醒ai看不到-提醒要掛posttooluse或posttoolbatch才進ai眼前-提醒句若自帶不需出口又沒附判準卡ai會直接走出口.md",
+      "triggers": [
+        "守門改提醒",
+        "提醒沒送到",
+        "Stop stderr",
+        "PostToolBatch 提醒",
+        "只留帳",
+        "不需第二意見出口",
+        "提醒重驗",
+        "AI 照做程式沒認帳",
+        "SECOND_OPINION_REQUIRED 提醒",
+        "PickOne 沒送到"
+      ],
+      "scope": "global"
     }
   ]
 }
