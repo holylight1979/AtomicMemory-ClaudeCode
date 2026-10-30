@@ -2,7 +2,7 @@
 
 Read 的 PostToolUse 在 dispatcher 一進門就只追加一行 read-log（不載 wg_core 等重模組）；原本靠它做的事（OverviewHub 讀檔帳…）
 改在下一個非 Read 事件（Edit 的 PreToolUse、Bash 的 PostToolUse）補帳，
-結果一樣、提示晚一個事件出現；Bash 唯讀照走原路徑。
+結果一樣、提示晚一個事件出現；Bash 唯讀照走原路徑；平行追加與補帳同時跑一筆都不掉。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_read_fast_path.py
 共用 hub_world 的資料根隔離（env／hooked）與部位世界；不碰 live。
 """
@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -180,3 +181,46 @@ def test_session_end_replays_leftover_reads(fast, hooked, monkeypatch):
         se.handle_session_end({"session_id": SID, "hook_event_name": "SessionEnd", "cwd": str(hooked["proj"]),
                                "transcript_path": hooked["tp"]}, {"docdrift": {"enabled": False}, "userExtraction": {"enabled": False}})
     assert _part_reads() and not rf.pending(SID)                                 # 讀過算讀過、log 清掉
+
+
+# ─── 8. 平行的 Read 同時追加、補帳端同時取走：一筆都不掉（read-log 的鎖） ─────────────────
+
+_APPENDER = r'''
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+import wg_read_fast as rf
+tag, n, go, sid = sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
+open(go + "." + tag, "w").close()
+while not os.path.exists(go):
+    time.sleep(0.001)
+for i in range(n):
+    rf.log_read({"session_id": sid, "hook_event_name": "PostToolUse", "tool_name": "Read", "cwd": "C:/x",
+                 "tool_input": {"file_path": f"C:/x/{tag}/{i}.py"}, "tool_response": {"file": {"content": "x"}}})
+'''
+
+
+def test_parallel_appends_and_drain_lose_nothing(tmp_path, monkeypatch, capsys):
+    """8 支行程各追加 200 筆、同時這邊一直 drain：取走的加上最後留下的剛好 1600 筆、不重複、沒有壞行。
+    不握鎖時 Windows 的 append 是「移到檔尾、再寫」兩步，平行追加會寫到同一個位置互蓋（掉三成），drain 截斷時也會丟。"""
+    root = tmp_path / "root"
+    (root / "workflow").mkdir(parents=True)
+    monkeypatch.setattr(rf, "WORKFLOW_DIR", root / "workflow")
+    env_ = {k: v for k, v in os.environ.items() if k != "CLAUDE_COMPANION_JUDGE"}
+    env_["WG_CLAUDE_DIR"] = str(root)
+    go = str(tmp_path / "go")
+    procs = [subprocess.Popen([sys.executable, "-X", "utf8", "-c", _APPENDER, str(HOOKS_DIR), f"p{k}", "200", go, SID],
+                              env=env_, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for k in range(8)]
+    deadline = time.time() + 60
+    while not all(os.path.exists(f"{go}.p{k}") for k in range(8)):
+        assert time.time() < deadline, "appenders never got ready"
+        time.sleep(0.005)
+    open(go, "w").close()
+    got = []
+    while any(p.poll() is None for p in procs):
+        got.extend(rf.drain(SID))
+    errs = [p.communicate(timeout=120)[1].decode("utf-8", "replace") for p in procs]
+    got.extend(rf.drain(SID))
+    assert all(p.returncode == 0 for p in procs) and not any(e.strip() for e in errs), errs
+    paths = [e["tool_input"]["file_path"] for e in got]
+    assert len(paths) == len(set(paths)) == 1600, (len(paths), len(set(paths)))
+    assert "[Guardian:ReadFastPath]" not in capsys.readouterr().err

@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-30 平行 Read 的讀檔紀錄不再互蓋（read-log 加鎖）；兩支舊紅案例跟上現行行為
+- **緣由**：`verify_state_parallel_rmw` 2 紅、`verify_red_scope_full_command` 6 紅（55c748cc 就紅）。前者是 READ_FAST_PATH 之後 Read 只落 read-log、案例沒觸發補帳；追下去量到 read-log 本身並行不安全：8 支行程各追加 300 筆掉 766 筆（Windows append 是移到檔尾再寫兩步），補帳截斷時也會丟。後者是摘要改收全部 FAILED 行之後，案例造「看不出是哪一支」的輸出不再成立。
+- **做法**：`hooks/wg_read_fast.py` 追加與 drain 都握 `read-log-<sid>.lock`，drain 在鎖裡讀完刪檔、拿不到鎖整份留給下一個事件；兩支案例改成觸發補帳、混入同時補帳，red_scope 的輸出改成真的沒印 FAILED 行，原前置斷言改寫成正向案例。
+- **驗證**：新案例 `verify_read_fast_path::test_parallel_appends_and_drain_lose_nothing` 舊碼 3 次都紅（1047/1600）、新碼綠；針對性 5 支案例檔 108 綠。
+
 ## 2026-10-30 寫碼守門拔留改：只管格式的關卡拔掉，擋真傷害的留著（守門開關照舊）
 - **緣由**：SGI 真題兩場加壞設計小題，守門開與關的結論相同；只在改檔、提交、宣告完成時出手、只管格式的關卡沒換到效果，卻佔回合與 context。使用者裁：拔、留、改分開做，開關旗標照留、不改常駐；Codex 收成單一支腳本給要用的地方叫；G0／G8 評分規格改寫、13 張舊機制名的卡開新卡取代、EphemeralWrite 訊息拿掉「第二意見」三項照建議做。
 - **做法**：拔掉需求目標樹（need_goal 模組、MCP 工具、收尾對照、沒樹不准改）、定位三行與 OverviewHub 寫入閘／導讀卡注入／最小地圖、判準卡送卡與 JudgeCardDeclare、收尾背景文字評分、Codex 第二意見閘、MCP project_smells 與候選池 CLI、scorecard；MCP 工具清單守門開關都是同一份 9 個。搬家後留著用：`hooks/wg_code_path.py`（判程式檔）、`hooks/wg_ask_gate.py`（問你附推薦，守門開時提醒，帳 `Logs/guard-ask.jsonl`）、收尾共用的本回合文字 helper 進 `wg_evasion`、`wg_overview` 只剩讀檔帳與 readonly_paths 寫入檢查。新 `tools/codex-call.py` 是叫 Codex 的唯一入口（驗收裁判改走它，組出的指令與舊版等值）；手動 `/text-score` 改成傳 `--goal`。主腦自定：標了部位的未結追蹤項開場另列一段（導讀卡拿掉後只剩這裡看得到）；連鎖斷路器 `gate_fired` 拿掉沒人報的 `target`；問你附推薦的說明以程式實際送法（提醒）為準統一。設定：沒人讀的 overview_hub 鍵退役（hub_config.RETIRED_KEYS，舊檔有這些鍵只警告一次），`need_goal` 也在內。守門關時的輸出只有 EphemeralWrite 那句不同。逐列處置見 `DevHistory/v6.0-寫程式碼的進化-2026-10/v6新增關卡盤點.md`。

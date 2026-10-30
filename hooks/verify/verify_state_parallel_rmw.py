@@ -3,13 +3,14 @@
 背景：同一則回覆平行送出幾個工具呼叫時，每支 hook 行程都「讀 state → 加上自己那筆 → 寫回」。以前鎖只包寫檔那一下，
 平行的 hook 各自讀到同一份舊 state，最後寫的蓋掉其他人加的那筆：平行讀了 4 個部位檔，部位紀錄只剩 1 筆，定位閘照擋。
 案例 1～4 用真的子行程並行（不在同一個行程裡模擬）：
-1. 真 hook 入口 hooks/workflow-guardian.py：先讀一個部位檔讓導讀卡注入，再同時起 4 支 PostToolUse（Read 4 個不同的部位檔）
-   → 部位紀錄 part_files_read、reads_after 4 筆都在。
+1. 真 hook 入口 hooks/workflow-guardian.py：Read 的 PostToolUse 只落 read-log、下一個非 Read 事件才補進 state（規則 READ_FAST_PATH）。
+   先讀一個部位檔再起一支 Bash 補帳，再同時起 4 支 Read（4 個不同的部位檔）＋1 支 Bash（補帳跟追加撞在一起），最後一支 Bash 補完
+   → 部位紀錄 part_files_read 5 筆都在、read-log 清空。
 2. 同時起 4 支 PostToolUse（Write 4 個不同的檔）→ modified_files 4 筆都在，event_seq 配的 last_seq 不重號。
 3. 兩個子行程直接用 wg_core 對同一個 sid 各做 30 次「讀 → 加一筆 → 寫回」：一種走 hook 模式（begin_state_rmw，
    讀到寫整段握鎖），一種不進 hook 模式（寫回時在鎖裡發現檔被別人改過 → 照欄位分型併進去）→ 60 筆都在。
-4. 拿不到鎖不准無鎖寫：父行程握著鎖，子行程等到期限 → 不改 state 檔、留一份待併帳＋stderr [state:lock-timeout]；
-   鎖放掉之後下一支 hook 讀 state 時把待併帳併回、刪帳。
+4. 拿不到鎖不准無鎖寫：父行程握著鎖，補帳的 Bash 子行程等到期限 → 不改 state 檔、取走的 Read 記進一份待併帳＋stderr
+   [state:lock-timeout]；鎖放掉之後下一支 hook 讀 state 時把待併帳併回、刪帳。
 5～8 在同一個行程裡用另一個 handle 握同一個 byte 當「別支 hook 握著鎖」，排出退路的交錯（子規則 STATE_PENDING_MERGED）：
 5. 三方合併分型：一次性鍵消費後不復活、清單聯集、modified_files 逐筆併 count 相加、計數歸零不變負、分版本整組、判不出留磁碟那份。
 6. 讀不到不等於遺失：fallback 重建的 state 不蓋掉已存在的檔、fallback 的整份帳遇到已存在的 state 丟掉。
@@ -111,6 +112,14 @@ class Sandbox:
                 "tool_input": {"file_path": str(path)},
                 "tool_response": {"type": "text", "file": {"filePath": str(path), "content": "…"}}}
 
+    def bash_event(self) -> dict:
+        """非 Read 的事件（不讀任何檔的 Bash）：規則 READ_FAST_PATH 下 Read 只落 read-log，這支才把累積的 Read 補進 state。"""
+        return {"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_use_id": self._tid(),
+                "tool_input": {"command": "echo hi"}, "tool_response": {"stdout": "hi", "stderr": "", "interrupted": False}}
+
+    def read_log(self) -> Path:
+        return self.data / "workflow" / f"read-log-{self.sid}.jsonl"
+
     def write_event(self, path: Path) -> dict:
         content = f"# {path.stem}\nx = 2\n"
         path.write_text(content, encoding="utf-8", newline="\n")
@@ -174,16 +183,18 @@ def _part_rec(state: dict) -> dict:
 
 def test_four_parallel_reads_all_recorded(sb):
     _start(sb)
-    r = sb.run(sb.read_event(sb.proj / "orders" / "a.py"))            # 第一個部位檔：注入導讀卡、建部位紀錄（注入那次也算讀，INJECT_TRIGGER_READ_COUNTED）
-    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    for ev in (sb.read_event(sb.proj / "orders" / "a.py"), sb.bash_event()):   # 第一個部位檔：Read 落 read-log，Bash 補帳建部位紀錄
+        r = sb.run(ev)
+        assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
     assert _names(_part_rec(sb.state())["part_files_read"]) == {"a.py"}
     files = [sb.proj / "orders" / f"{n}.py" for n in ("b", "c", "d", "e")]
-    results = sb.run_parallel([sb.read_event(f) for f in files])
+    results = sb.run_parallel([sb.read_event(f) for f in files] + [sb.bash_event()])   # 補帳跟追加同時跑
+    results.append((sb.run(sb.bash_event()).returncode, "", "", 0))                  # 補完同一批裡晚落 read-log 的
     assert all(rc == 0 for rc, _, _, _ in results), results
-    assert not any("[workflow-guardian] Error" in e for _, _, e, _ in results), results
+    assert not any("[workflow-guardian] Error" in e or "[Guardian:ReadFastPath]" in e for _, _, e, _ in results), results
     rec = _part_rec(sb.state())
     assert _names(rec["part_files_read"]) == {"a.py", "b.py", "c.py", "d.py", "e.py"}, rec["part_files_read"]
-    assert {"b.py", "c.py", "d.py", "e.py"} <= _names(rec["reads_after"]), rec["reads_after"]
+    assert not sb.read_log().exists() or not sb.read_log().read_text(encoding="utf-8").strip(), "read-log 該補完清空"
     assert not list((sb.data / "workflow").glob(f"state-{sb.sid}.*.pending")), "沒撞到期限不該留待併帳"
 
 
@@ -263,14 +274,16 @@ def test_two_processes_read_modify_write_same_sid_keep_every_append(tmp_path, mo
 def test_lock_timeout_leaves_pending_then_next_hook_merges_it(sb):
     import msvcrt
     _start(sb)
-    assert sb.run(sb.read_event(sb.proj / "orders" / "a.py")).returncode == 0      # 注入導讀卡
+    for ev in (sb.read_event(sb.proj / "orders" / "a.py"), sb.bash_event()):       # 建部位紀錄
+        assert sb.run(ev).returncode == 0
     state_file = sb.data / "workflow" / f"state-{sb.sid}.json"
     before = state_file.read_text(encoding="utf-8")
+    assert sb.run(sb.read_event(sb.proj / "orders" / "b.py")).returncode == 0     # Read 只落 read-log，不碰 state 鎖
     fh = open(state_file.with_suffix(".lock"), "ab")
     msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)                                  # 別人握著鎖不放
     try:
         t0 = time.time()
-        r = sb.run(sb.read_event(sb.proj / "orders" / "b.py"))
+        r = sb.run(sb.bash_event())                                                  # 補帳：取走 b.py 那筆，寫 state 要鎖
         waited = time.time() - t0
     finally:
         msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
@@ -282,10 +295,11 @@ def test_lock_timeout_leaves_pending_then_next_hook_merges_it(sb):
     assert state_file.read_text(encoding="utf-8") == before                         # 沒有無鎖寫
     pend = list(state_file.parent.glob(f"{state_file.stem}.*.pending"))
     assert len(pend) == 1, pend
-    r = sb.run(sb.read_event(sb.proj / "orders" / "c.py"))                         # 下一支拿到鎖：先併回再記自己那筆
+    assert sb.run(sb.read_event(sb.proj / "orders" / "c.py")).returncode == 0
+    r = sb.run(sb.bash_event())                                                      # 下一支拿到鎖：先併回待併帳再補 c.py
     err = r.stderr.decode("utf-8", "replace")
     assert r.returncode == 0 and "[state:pending-merged]" in err, err
-    assert _names(_part_rec(sb.state())["part_files_read"]) == {"a.py", "b.py", "c.py"}           # a.py 是觸發注入那次
+    assert _names(_part_rec(sb.state())["part_files_read"]) == {"a.py", "b.py", "c.py"}
     assert not list(state_file.parent.glob(f"{state_file.stem}.*.pending"))
     log = (sb.logs / "guard-state_lock.jsonl").read_text(encoding="utf-8")
     assert '"kind": "pending_written"' in log and '"kind": "pending_merged"' in log
