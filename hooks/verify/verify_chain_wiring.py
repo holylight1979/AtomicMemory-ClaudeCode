@@ -599,13 +599,13 @@ def test_old_test_gate_reports_owed_and_written_files(hk, monkeypatch):
     monkeypatch.setattr(wg_oldtest, "gate", lambda *a, **k: "[Guardian:OldTestDeclare] 動到既有測試、沒先宣告：\n✗ (ot) …")
     assert _deny_text(s.write(x, "x = 1\n")).startswith("[Guardian:OldTestDeclare]")
     row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
-    assert row["gate"] == "OldTestDeclare" and row["target"] == ""
+    assert row["gate"] == "OldTestDeclare" and "target" not in row
     assert {wc.canon_path(p) for p in row["watched"]} == {wc.canon_path(owed), wc.canon_path(x)}
     monkeypatch.setattr(wg_oldtest, "gate", lambda *a, **k: None)
     monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: "[Guardian:CommitOrder] 本回合沒有版控口令")
     assert _deny_text(s.pre("Bash", {"command": "git commit -m x"})).startswith("[Guardian:CommitOrder]")
     row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
-    assert row["gate"] == "CommitOrder" and row["watched"] == [] and row["target"] == ""
+    assert row["gate"] == "CommitOrder" and row["watched"] == [] and "target" not in row
 
 
 if __name__ == "__main__":

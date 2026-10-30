@@ -10,7 +10,7 @@
 中止停手中擋下讀與問以外的工具呼叫（CHAIN_HALT_UNTIL_ANSWER）；兩者都不算閘觸發。
 帳的一筆（row）：type＝gate｜action｜alarm｜notice｜answer｜reset｜snapshot｜restore，另帶 turn、agent（子代理 id，主 session 空字串）、
 seq（同回合第幾筆）、ts（epoch 秒）、at（本地時間）；工具呼叫上的 gate／action 另帶 batch（哪一則回覆，CHAIN_SAME_BATCH）；
-gate 另帶這次擋的對象：watched（擋的檔）、target（不是檔的對象，例如定位閘的部位），說不出就空（CHAIN_SAME_GATE_PER_OBJECT）；
+gate 另帶這次擋的對象：watched（擋的檔），說不出就空（CHAIN_SAME_GATE_PER_OBJECT）；
 工具呼叫上的 gate 再帶 call（被擋的呼叫逐字的雜湊，CHAIN_SAME_CALL_RETRY）。
 怎麼跑案例：python -X utf8 -m pytest -q hooks/verify/verify_chain_breaker.py
 """
@@ -66,10 +66,8 @@ RULES: Dict[str, str] = {
                              "沒改到檔的不算，CHAIN_NO_EDIT_NO_EDGE）。",
     "CHAIN_SAME_GATE_PER_OBJECT": "同閘次數照「閘＋擋的對象」數：要擋的是修了又欠、繞回原點，繞回同一個對象才算同閘第 2 次；"
                                   "同一道閘擋不同對象，各要各的證據，第 1 次補的沒讓第 2 次多欠什麼，各算各的第 1 次。"
-                                  "對象＝呼叫端報的 target（不是檔的對象：定位閘報部位表那一列，表外的檔報同頂層目錄那一組），"
-                                  "沒報 target 就看 watched（擋的檔：動資料檔、改舊測試報這次要寫的檔）；兩次都報 target 比 target、"
-                                  "都只報檔就有交集算同一個；有一邊說不出對象（收尾閘、版控口令這類只看閘名的、判不出的），"
-                                  "或一邊報 target 一邊只報檔，照舊只看閘名。中間沒動作不算（CHAIN_SAME_GATE_NO_ACTION）、"
+                                  "對象＝呼叫端報的 watched（擋的檔：動資料檔、改舊測試報這次要寫的檔）；兩次都報檔就有交集算同一個；"
+                                  "有一邊說不出對象（收尾閘、版控口令這類只看閘名的、判不出的），照舊只看閘名。中間沒動作不算（CHAIN_SAME_GATE_NO_ACTION）、"
                                   "同一則回覆算一步（CHAIN_SAME_BATCH）照舊疊在上面；經過表每一筆列出擋的對象。",
     "CHAIN_ABORT_RECORD_ONLY": "警報一響（含讓它響的那一次），這一段其餘所有閘只記錄、不擋、不記欠（同一道閘這一段只記一筆）；"
                                "使用者選之前不逼任何修補。呼叫端在閘擋或記欠之前問，只記錄就跳過那道閘的擋與記欠、照往下走。"
@@ -328,22 +326,16 @@ def _watched(row: Dict[str, Any]) -> set:
 
 
 def same_object(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-    """CHAIN_SAME_GATE_PER_OBJECT：同一道閘的兩次觸發擋的是不是同一個對象。都報 target 比 target；都只報檔，有交集就是同一個；
-    有一邊說不出對象、或一邊報 target 一邊只報檔 → 比不了，照舊算同一個（只看閘名）。"""
-    ta, tb = str(a.get("target") or ""), str(b.get("target") or "")
-    if ta and tb:
-        return ta == tb
+    """CHAIN_SAME_GATE_PER_OBJECT：同一道閘的兩次觸發擋的是不是同一個對象。都報了擋的檔，有交集就是同一個；
+    有一邊說不出對象 → 比不了，照舊算同一個（只看閘名）。"""
     fa, fb = _watched(a), _watched(b)
-    if ta or tb or not fa or not fb:
+    if not fa or not fb:
         return True
     return bool(fa & fb)
 
 
 def target_label(row: Dict[str, Any]) -> str:
-    """經過表與警報句裡的「擋的對象」：target 取最後一個 | 之後（定位閘的部位名）；只報檔列檔名；說不出回空字串。"""
-    t = str(row.get("target") or "")
-    if t:
-        return t.rsplit("|", 1)[-1]
+    """經過表與警報句裡的「擋的對象」：列擋的檔名；說不出回空字串。"""
     files = [short_path(p) for p in dict.fromkeys(str(p) for p in row.get("watched") or () if p)]
     return "、".join(files[:3]) + (f" 等 {len(files)} 個檔" if len(files) > 3 else "")
 

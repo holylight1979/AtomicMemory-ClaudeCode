@@ -251,11 +251,11 @@ def _call_fields(input_data: Dict[str, Any]) -> Dict[str, str]:
 # ─── 閘觸發、停手、只記錄 ─────────────────────────────────────────────────
 
 def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, Any], config: Dict[str, Any], *,
-               watched: Iterable[str] = (), target: str = "", later: Iterable[str] = (),
+               watched: Iterable[str] = (), later: Iterable[str] = (),
                now: Optional[float] = None) -> GateResult:
     """閘要擋下或記欠之前呼叫：記一筆觸發，回這次照擋（record_only=False）還是只記錄。
     watched＝這次擋的檔（CHAIN_EDGE_FILES_DISJOINT 與 CHAIN_SAME_GATE_PER_OBJECT 都用；說不出就不給）；
-    target＝擋的對象不是檔時的對象鍵（定位閘的部位；說不出就不給）；later＝收尾閘擋下時「後面還會擋」預覽裡的閘名（CHAIN_EDGE_PREVIEWED）。
+    later＝收尾閘擋下時「後面還會擋」預覽裡的閘名（CHAIN_EDGE_PREVIEWED）。
     警報在這一次響：記通知（答案從這之後算、題目定下來、能不能互動）；收尾上回 notice、工具上回 halt，呼叫端用它取代原擋訊息。
     沒人能答時，警報後（含讓它響的那一次）會改使用者資料的閘回照擋、照原擋訊息擋（wg_chain.keeps_blocking），帳上那筆帶 kept。"""
     try:
@@ -268,7 +268,7 @@ def gate_fired(sid: str, turn: int, gate: str, what: str, input_data: Dict[str, 
         if not kept and wc.muted_again(ch, str(gate)):
             return GateResult(True)
         row = {"gate": str(gate), "what": wc.one_line(what), "hook": hook, "event": _event(input_data),
-               "watched": [str(p) for p in watched], "target": str(target or ""), "later": [str(g) for g in later],
+               "watched": [str(p) for p in watched], "later": [str(g) for g in later],
                **_batch_fields(input_data), **_call_fields(input_data)}
         j = wc.judge(ch, row, cx.cfg)
         new = [cx.row("gate", **row, record_only=j.record_only and not kept, depth=j.depth, same=j.same,

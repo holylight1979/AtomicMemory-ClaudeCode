@@ -1286,57 +1286,31 @@ def test_batch_key_from_transcript(box):
 
 # ─── 同一道閘照擋的對象計數 ───────────────────────────────────────────────
 
-ORD, TST, CLI = "c:/w/shop|訂單結帳", "c:/w/shop|測試", "c:/w/shop|命令列"
-
-
-def test_same_gate_three_parts_each_once_no_alarm(box):
-    """紅案例（CHAIN_SAME_GATE_PER_OBJECT）：定位閘先後擋三個不同部位、每次之間 AI 都改了檔 → 不響：每個部位各要一份定位，
-    第 1 次補的沒讓後面多欠什麼，三次都是各自部位的第 1 次；經過表每一筆列出擋的部位。改前第 2 次就判同閘第 2 次警報。"""
+def test_object_a_b_back_to_a_alarms_on_a(box):
+    """紅案例（CHAIN_SAME_GATE_PER_OBJECT × CHAIN_ALARM_SAME_GATE）：擋 a.json → 改檔 → 擋 b.json → 改檔 → 又擋 a.json
+    → a.json 第 2 次響（中間的動作接在別的對象後面也算）；警報句寫出擋的檔。"""
     t, proj = Turn(box), box / "proj"
-    for k, part in enumerate((ORD, TST, CLI)):
-        assert t.gate("OverviewHub", hook="PreToolUse", target=part, watched=[str(proj / f"f{k}.py")]) == cs.PASS
-        t.write(proj / f"f{k}.py", "x = 1\n")
-    ch = t.chain()
-    assert ch.alarm is None and [s.row["same"] for s in ch.steps] == [1, 1, 1]
-    table = wc.report(ch, t.now)
-    for k, part in enumerate(("訂單結帳", "測試", "命令列")):
-        assert f"| {k + 1} | OverviewHub | {part} |" in table
-
-
-def test_same_gate_same_part_twice_alarms(box):
-    """紅案例（CHAIN_SAME_GATE_PER_OBJECT × CHAIN_ALARM_SAME_GATE）：定位閘擋同一個部位兩次、中間 AI 改了檔 → 響（繞回原點）；
-    兩次擋的檔不同也一樣（對象是部位）。警報句寫出擋的部位。"""
-    t, proj = Turn(box), box / "proj"
-    t.gate("OverviewHub", hook="PreToolUse", target=ORD, watched=[str(proj / "pricing.py")])
-    t.write(proj / "notes.py", "x = 1\n")
-    r = t.gate("OverviewHub", hook="PreToolUse", target=ORD, watched=[str(proj / "checkout.py")])
-    assert r.halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
-    assert "OverviewHub（擋 訂單結帳）這一段第 2 次觸發" in r.halt
-
-
-def test_part_a_b_back_to_a_alarms_on_a(box):
-    """紅案例：部位 A → 改檔 → 部位 B → 改檔 → 又回到部位 A → A 第 2 次響（中間的動作接在別的對象後面也算）。"""
-    t, proj = Turn(box), box / "proj"
-    assert t.gate("OverviewHub", hook="PreToolUse", target=ORD) == cs.PASS
-    t.write(proj / "a.py", "a = 1\n")
-    assert t.gate("OverviewHub", hook="PreToolUse", target=TST) == cs.PASS
-    t.write(proj / "b.py", "b = 1\n")
-    assert t.gate("OverviewHub", hook="PreToolUse", target=ORD).halt
-    assert [s.row["same"] for s in t.chain().steps] == [1, 1, 2]
+    a, b = proj / "a.json", proj / "b.json"
+    assert t.gate("DataFileAsk", hook="PreToolUse", watched=[str(a)]) == cs.PASS
+    t.write(proj / "x.py", "x = 1\n")
+    assert t.gate("DataFileAsk", hook="PreToolUse", watched=[str(b)]) == cs.PASS
+    t.write(proj / "y.py", "y = 1\n")
+    r = t.gate("DataFileAsk", hook="PreToolUse", watched=[str(a)])
+    assert r.halt and [s.row["same"] for s in t.chain().steps] == [1, 1, 2]
+    assert "DataFileAsk（擋 " in r.halt and "a.json）這一段第 2 次觸發" in r.halt
 
 
 def test_gate_without_object_still_counts_by_name(box):
-    """紅案例：說不出對象的閘（版控口令、收尾閘這類）擋兩次、中間有動作 → 照舊響；同一道閘一次報了部位、一次沒報（例如閘環境出錯），
-    或一次報部位、一次只報檔，比不了 → 照閘名算第 2 次。"""
+    """紅案例：說不出對象的閘（版控口令、收尾閘這類）擋兩次、中間有動作 → 照舊響；同一道閘一次報了擋的檔、一次沒報（例如閘環境出錯），
+    比不了 → 照閘名算第 2 次。"""
     t = Turn(box)
     t.gate("CommitOrder", hook="PreToolUse")
     t.act()
     assert t.gate("CommitOrder", hook="PreToolUse").halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
-    for turn, last in ((2, {}), (3, {"watched": [str(box / "proj" / "x.py")]})):
-        u = Turn(box, turn=turn)
-        u.gate("OverviewHub", hook="PreToolUse", target=ORD)
-        u.act()
-        assert u.gate("OverviewHub", hook="PreToolUse", **last).halt
+    u = Turn(box, turn=2)
+    u.gate("OverviewHub", hook="PreToolUse", watched=[str(box / "proj" / "x.py")])
+    u.act()
+    assert u.gate("OverviewHub", hook="PreToolUse").halt
     v = Turn(box, turn=4)
     v.gate("TestFailGate")
     v.act()
@@ -1356,43 +1330,6 @@ def test_blocked_files_as_object(box):
     assert [s.row["same"] for s in t.chain().steps] == [1, 1, 2]
     row1 = next(ln for ln in wc.report(t.chain(), t.now).splitlines() if ln.startswith("| 1 | DataFileAsk | "))
     assert "/proj/a.json | DataFileAsk：缺東西 |" in row1
-
-
-def test_redo_first_turn_replay_parts_no_alarm(box):
-    """紅案例（照一般改碼任務第 1 回合的實際帳重演，CHAIN_SAME_GATE_PER_OBJECT）：第 1 則一次寫 pricing／checkout（定位閘擋
-    【訂單結帳】兩筆）、receipt／cli 放行、shop.json 被動資料檔閘擋；第 2 則只讀檔；第 3 則原樣重寫（定位閘【訂單結帳】又擋兩筆、
-    動資料檔閘再擋）；第 4 則 Bash 交定位；第 5 則改 pricing／checkout／shop.json 放行；第 6 則改三支舊測試（改舊測試閘各擋一支）、
-    新增 test_receipt.py 被定位閘擋【測試】。改前最後那筆判 OverviewHub 同閘第 2 次警報、之後的工具停手；
-    改後【測試】是這個部位的第 1 次 → 不響、不停手。"""
-    t, proj = Turn(box), box / "proj"
-    o, ts, shop = proj / "orders", proj / "tests", proj / "config" / "shop.json"
-
-    def hub(part, f):
-        return t.gate("OverviewHub", hook="PreToolUse", target=part, watched=[str(f)])
-
-    def data():
-        return t.gate("DataFileAsk", hook="PreToolUse", watched=[str(shop)])
-    t.reply("m0")
-    t.reply("m1")
-    assert hub(ORD, o / "pricing.py") == cs.PASS and hub(ORD, o / "checkout.py") == cs.PASS
-    t.write(o / "receipt.py", "r = 1\n")
-    t.write(o / "cli.py", "c = 1\n")
-    assert data() == cs.PASS
-    t.reply("m2")                                                   # 只讀檔：不是動作
-    t.reply("m3")
-    assert hub(ORD, o / "pricing.py") == cs.PASS and hub(ORD, o / "checkout.py") == cs.PASS and data() == cs.PASS
-    t.reply("m4")
-    t.bash("# 定位｜部位：訂單結帳——pricing.py 加 discount()", kind="other")
-    t.reply("m5")
-    for f in (o / "pricing.py", o / "checkout.py", shop):
-        t.write(f, "x = 2\n")
-    t.reply("m6")
-    for name in ("test_pricing.py", "test_checkout.py", "test_erp_contract.py"):
-        assert t.gate("OldTestDeclare", hook="PreToolUse", watched=[str(ts / name)]) == cs.PASS
-    assert hub(TST, ts / "test_receipt.py") == cs.PASS
-    assert cs.halt(SID, 1, "Write", t.inp("PreToolUse"), t.cfg) is None
-    assert not {"alarm", "notice", "halted"} & set(_kinds(cs.read_rows(SID)))
-    assert max(s.row["same"] for s in t.chain().steps) == 1
 
 
 def _run_temp(monkeypatch, path: Path) -> None:

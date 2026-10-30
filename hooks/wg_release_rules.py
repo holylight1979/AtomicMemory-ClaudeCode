@@ -1568,8 +1568,9 @@ def receipt_green(verdicts: Iterable[str], exit_code: Any) -> bool:
 RULES.update({
     "ASK_NEEDS_RECOMMENDATION": "AskUserQuestion 每一題至少一個選項 label 標 (Recommended)，或題目文字含「建議：」一句；"
                                 "【收尾放行確認】固定兩選項（放行這一回合／繼續擋，先修好）的放行題不是決策題、豁免；含標記但選項走樣"
-                                "（多了、少了、加了 (Recommended)）照擋並指路照抄兩個選項；工具輸入判不了不擋。"
-                                "沒有就擋，擋訊息列缺的題目與照抄可過的寫法。",
+                                "（多了、少了、加了 (Recommended)）照欠並指路照抄兩個選項；工具輸入判不了不欠。"
+                                "沒有就欠，訊息列缺的題目與照抄可過的寫法；送法照 GATE_MODE_TABLE（這道閘只在寫碼守門開時跑，開時是提醒："
+                                "提問照放行，下一個工具結果附一行）。",
     "ASK_OVERVIEW_BEFORE_DECISION": "提問涉及改法選擇（ExitPlanMode，或題目含改法／做法／方案／寫法／實作／架構／重構／設計）時："
                                     "題目與選項 label／描述提到的路徑對得上部位表 → 只看那些部位，有部位的 part_files_read 是 0 檔就提醒"
                                     "（讀了別的部位不算），證據行「題目提到 <路徑>→部位 <名>，本回合該部位讀過 0 檔」；題目沒提路徑或提的"
@@ -2611,7 +2612,7 @@ def data_file_hint(rel: str) -> str:
 
 def data_file_fix(rels: Sequence[str]) -> str:
     """DENY_TEXT_SLIM 的動資料檔修法句，一行：宣告怎麼寫（每個檔一行範例）＋放哪＋宣告完照常用 Edit／Write
-    （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH §7.5 DataFileAsk 與判準卡，不放訊息裡。"""
+    （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH §7.5 DataFileAsk，不放訊息裡。"""
     lines = "；".join(f"# 動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
     return (f"先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫宣告，接著就可以改檔；照抄：{lines}（下一行 git diff --stat）；"
             "改檔照常用 Edit／Write，不要改用 Bash／PowerShell 寫檔。")

@@ -1,7 +1,8 @@
 """verify_tracking_readback.py：AEC (k) 追蹤項的帳本命名、結案、依部位讀回與 SessionStart 一次性提示。
 
 正例：子目錄 cwd 與部位表根同一本帳本；依部位讀回只列那個部位還 open 的項目（wg_harvest.tracking_items_for_part）；
-      `[部位] 結案：<開頭≥8 字>` 補 closes 後該項不再列；未標部位的項目只在全新 session 的 SessionStart 列一次（compact 不再列）。
+      `[部位] 結案：<開頭≥8 字>` 補 closes 後該項不再列；未標部位、標了部位的未結項各一段，只在全新 session 的 SessionStart
+      列一次（compact 不再列）。
 反例：已結案的不列；別部位的不列；未標部位的不進部位讀回；結案前綴不足 8 字或找不到對象 → stderr、不寫；
       帳本壞行跳過並 stderr、讀回照常；cwd 空 → _no-cwd 並 stderr；疑似分裂的舊帳本只 stderr、不合併。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_tracking_readback.py
@@ -181,6 +182,7 @@ def _run_hook(home: Path, payload: dict) -> subprocess.CompletedProcess:
 
 
 def test_session_start_lists_unparted_items_once_and_flags_split_ledgers(world, tmp_path):
+    """開場：未標部位的最舊 3 筆一段、標了部位的另一段（導讀卡拿掉後部位項只在這裡看得到）；壓縮後不再列；疑似分裂帳本只 stderr。"""
     proj, _ = world
     home = tmp_path / "home"
     tdir = home / ".claude" / "workflow" / "tracking"
@@ -196,7 +198,10 @@ def test_session_start_lists_unparted_items_once_and_flags_split_ledgers(world, 
     ctx = json.loads(r.stdout.strip().splitlines()[-1])["hookSpecificOutput"]["additionalContext"]
     assert "本專案未結追蹤項 4 筆" in ctx and "未標部位的雜項追蹤第一則" in ctx and "未標部位的雜項追蹤最新一則" in ctx
     assert "未標部位的雜項追蹤再新一則" not in ctx                                        # 只列最舊 3 筆
-    assert "有部位的不在這裡列" not in ctx                                                # 反例：有部位的不在這裡
+    unparted = ctx[ctx.index("本專案未結追蹤項 4 筆"):]
+    unparted = unparted[:unparted.index("系統換成新說法")]
+    assert "有部位的不在這裡列" not in unparted                                           # 反例：有部位的不混進未標部位那段
+    assert "本專案標了部位的未結追蹤項 1 筆（戰鬥 1）" in ctx and "- [戰鬥] 有部位的不在這裡列" in ctx   # 標了部位的另列一段
     assert f"{slug}-game-battle.jsonl" in r.stderr and "不自動合併" in r.stderr           # 疑似分裂只 stderr
     assert f"{slug}-game-battle.jsonl" not in ctx
     r2 = _run_hook(home, {**base, "hook_event_name": "SessionStart", "source": "compact"})

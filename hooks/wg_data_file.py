@@ -355,7 +355,7 @@ def _judge(tool_name: str, paths: List[str], sid: str, input_data: Dict[str, Any
     if not denied:
         return None
     hits = [owed[k] for k in denied]
-    if _rr.deny_slim_enabled(config):       # 規則 DENY_TEXT_SLIM：規則名＋一句修法，判準卡名由接卡處接
+    if _rr.deny_slim_enabled(config):       # 規則 DENY_TEXT_SLIM：規則名＋一句修法
         return _rr.slim_deny("Guardian:DataFileAsk", _rr.data_file_fix([rel for _, rel, _ in hits]),
                              [("df", v) for _, _, v in hits])
     # 規則 DECL_HINT_KEEPS_EDIT_TOOLS：宣告的管道講清楚，宣告完照常用 Edit／Write，不把 AI 引去用 Bash 寫檔

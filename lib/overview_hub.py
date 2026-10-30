@@ -627,13 +627,6 @@ def _string_values(obj: Any) -> List[str]:
     return []
 
 
-def transcript_size(transcript_path: str) -> int:
-    try:
-        return Path(transcript_path).stat().st_size if transcript_path else 0
-    except OSError:
-        return 0
-
-
 # ─── 工具呼叫裡的讀檔路徑 ──────────────────────────────────────────
 
 def _ps_read_args(cmdlet: str, args: str) -> List[str]:

@@ -82,7 +82,7 @@ _LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
 # 裸 URL
 _URL_RE = re.compile(r"https?://\S+")
 # 沒包反引號的碼樣字（只認 ASCII，緊鄰的中文不吃）：路徑（含 / 或 \）、檔名與帶點名稱（rates.py、api.quote）、
-# 底線識別字（need_goal、OLD_TEST_CHANGE_NEEDS_DECLARATION）、指令旗標（--plain、-m；前面緊接字母的連字號詞不算）。
+# 底線識別字（atom_write、OLD_TEST_CHANGE_NEEDS_DECLARATION）、指令旗標（--plain、-m；前面緊接字母的連字號詞不算）。
 # 每條都從字的開頭才起算（lookbehind），很長的連續英數字串才不會每個位置重試、變成平方時間。
 # 含斜線的字要「像路徑」才剝（_is_path）：input/output、and/or 這種英文斜線詞照算英文。
 _PATH_RE = re.compile(r"(?<![A-Za-z0-9_.~$:+-])[A-Za-z0-9_.~$:+-]*(?:[/\\][A-Za-z0-9_.~$:+-]+)+[/\\]?")

@@ -520,11 +520,6 @@ def remind_mark(state: Dict[str, Any], rule: str, obj: Any = "") -> bool:
     return True
 
 
-def remind_once(state: Dict[str, Any], rule: str, obj: Any, what: str, fix: str) -> Optional[str]:
-    """該提醒就組一行（remind_line）並記送過；送過回 None。給讀檔結果這類當場就能送的用。"""
-    return _rr.remind_line(rule, what, fix) if remind_mark(state, rule, obj) else None
-
-
 def remind_queue(state: Dict[str, Any], hit: Dict[str, Any]) -> None:
     """工具前守門：這件判成提醒、不擋，先記進 state，等下一個工具結果（PostToolUse）送。"""
     pend = state.setdefault(REMIND_PENDING_KEY, [])

@@ -500,13 +500,13 @@ def _local_catalog_lines(cwd: str) -> List[str]:
 def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     """本專案追蹤帳本（AEC (k) 與交付時「順手看到最該修」寫的）：一個 session 只列一次（state["tracking_advisory_sent"]，
     重建 state 時照搬）。先列附了建議、還沒解的項目（不分部位，最新 3 筆＋要 AI 第一則回覆告訴使用者）；再列沒標部位、
-    沒附建議的未結項筆數＋最舊 3 筆（標了部位的由交付時「順手看到最該修」的材料按部位帶筆數）。
+    沒附建議的未結項筆數＋最舊 3 筆；最後列標了部位、沒附建議的未結項（各部位筆數＋最舊 3 筆＋帳本路徑）。
     同專案疑似由舊算法（子目錄 cwd）分裂出的帳本只在 stderr 列，不自動合併。讀不到只 stderr，回 []。"""
     if not cwd or state.get("tracking_advisory_sent"):
         return []
     state["tracking_advisory_sent"] = True
     try:
-        from wg_harvest import open_tracking_items, proposal_lines, read_tracking, tracking_slug
+        from wg_harvest import open_tracking_items, proposal_lines, read_tracking, tracking_path, tracking_slug
         slug = tracking_slug(cwd)
         tdir = WORKFLOW_DIR / "tracking"
         split = sorted(p.name for p in tdir.glob(f"{slug}-*.jsonl")) if tdir.is_dir() else []
@@ -515,21 +515,39 @@ def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
                   f"本專案帳本＝{slug}.jsonl", file=sys.stderr)
         open_items = open_tracking_items(read_tracking(slug))
         proposals = proposal_lines(open_items)
-        items = [e for e in open_items
-                 if not str(e.get("part") or "").strip() and not str(e.get("proposal") or "").strip()]
+        unproposed = [e for e in open_items if not str(e.get("proposal") or "").strip()]
+        items = [e for e in unproposed if not str(e.get("part") or "").strip()]
+        parted = [e for e in unproposed if str(e.get("part") or "").strip()]
+        ledger = tracking_path(slug)
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:Tracking] 讀追蹤項失敗：{type(e).__name__}: {e}", file=sys.stderr)
         return []
     out = ["\n".join(proposals)] if proposals else []
+    tail = [_parted_tracking_block(parted, ledger)] if parted else []
     if not items:
-        return out
+        return out + tail
     oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
     lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位）；最舊 3 筆："]
     lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
     lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）；"
                  "新記的追蹤項可在行尾加「｜建議：<怎麼解>｜該誰解：<誰>」；跟帳上某一筆是同一件就加「｜同追蹤項：<那筆裡連續至少 8 字>」，"
                  "系統換成新說法、不另記一筆。")
-    return out + ["\n".join(lines)]
+    return out + ["\n".join(lines)] + tail
+
+
+def _parted_tracking_block(items: List[Dict[str, Any]], ledger: Path) -> str:
+    """標了部位、沒附建議的未結追蹤項：各部位筆數＋最舊 3 筆＋帳本路徑＋帶部位的結案寫法。"""
+    counts: Dict[str, int] = {}
+    for e in items:
+        part = str(e.get("part") or "").strip()
+        counts[part] = counts.get(part, 0) + 1
+    oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
+    lines = [f"[Guardian:Tracking] 本專案標了部位的未結追蹤項 {len(items)} 筆（"
+             + "、".join(f"{part} {n}" for part, n in counts.items()) + "）；最舊 3 筆："]
+    lines += [f"- [{str(e.get('part') or '').strip()}] {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）"
+              for e in oldest]
+    lines.append(f"全部的帳在 {ledger}；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」。")
+    return "\n".join(lines)
 
 
 def _followup_advisory() -> list:

@@ -1,8 +1,8 @@
 """wg_ask_gate：問使用者之前（AskUserQuestion／ExitPlanMode）的提問閘。
 
 做什麼：蒐集事實（題目、OverviewHub 各部位讀過幾個檔、題目點名的部位）交 wg_release_rules 的兩條規則判——
-  ASK_NEEDS_RECOMMENDATION 每一題要附推薦，沒有就擋；ASK_OVERVIEW_BEFORE_DECISION 問改法而還沒讀過部位檔，擋訊息或提示多一句
-  （不單獨擋）。題目全是【收尾放行確認】而且真有待放行紀錄整次豁免。
+  ASK_NEEDS_RECOMMENDATION 每一題要附推薦，沒有就欠；ASK_OVERVIEW_BEFORE_DECISION 問改法而還沒讀過部位檔，多一句（不單獨擋）。
+  送法照 RULE_MODE：這道閘只在寫碼守門開時跑，開時兩條都是提醒——提問照放行，下一個工具結果附一行（列缺的題目與照抄可過的寫法）。題目全是【收尾放行確認】而且真有待放行紀錄整次豁免。
 兩條路：PreToolUse（handlers/pre_tool_use._ask_gate 呼叫 on_ask_full）事前判，處理過的提問記進 state["ask_handled"]；
   PreToolUse 沒處理到的，PostToolBatch（batch_lines）照同一套判斷事後提醒、不擋，並對這批每次提問記一筆審計（擋過幾次）。
 開關跟寫碼守門總開關：守門關時 dispatcher 不把這兩個工具送進 PreToolUse（PRE_V6_TOOLS），PostToolBatch 也不跑這段。

@@ -190,7 +190,7 @@ def note_ephemeral_skip(state: Dict[str, Any], path: str) -> bool:
         return False
     state[EPHEMERAL_NOTED_KEY] = (seen + [root.lower()])[-EPHEMERAL_NOTED_CAP:]
     print(f"[Guardian:EphemeralWrite] {root} 在系統暫存目錄底下，這個專案的寫入照暫存檔處理、不記進改檔清單："
-          "收尾的對帳、第二意見、同步提醒都看不到這些改動。要讓閘照看，把專案放到暫存目錄以外。本 session 這個專案只說這一次。",
+          "收尾的對帳、同步提醒都看不到這些改動。要讓閘照看，把專案放到暫存目錄以外。本 session 這個專案只說這一次。",
           file=sys.stderr)
     return True
 
