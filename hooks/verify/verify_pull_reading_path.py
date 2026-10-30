@@ -6,7 +6,8 @@
    不再擋；下一個使用者回合只問新的 f 一次，同回合不問第二次，答完清掉。
 ③ 反例：新增函式 h 過門檻 → 要問 h；f、g 被擠到後面的行號、內容沒變，不算改到。
 ④ 同一個使用者回合擋過一次 → AI 改碼 → 同回合不再擋（「後面還會擋」的預覽也不列）；下一個使用者回合才問。
-⑤ 同名的兩個函式（property 的 getter／setter）一行答完兩個都記住，改別處後不互相擠掉再問。
+⑤ 同名的兩個函式（property 的 getter／setter）一行答完兩個都記住，改別處後不互相擠掉再問：量完沒有一條要問 → 整段不送
+   （reading_path.remind_only_over_threshold 缺＝開），留帳 under_threshold 記兩條都量到、都扣掉。
 ⑥ 每行文字一樣、只改相對縮排（換了巢狀層）→ 算改到、要再問；入口數字一樣但換了經過的函式、類別在顯示上限外多了成員 → 指紋不同；
    函式讀不到本體 → 沒有指紋、一律照問。
 ⑦ 結果文字去掉那一題（without_judgment_prompt）：數據與條目照留，接在拐彎判斷擋訊息後面那一題只出現一次。
@@ -171,7 +172,7 @@ def test_blocked_once_then_code_change_does_not_block_again_in_the_same_user_tur
     assert msg and "y.py::f" in msg and "y.py::g" in msg, "下一個使用者回合才問"
 
 
-def test_same_name_getter_and_setter_both_remembered(tmp_path):
+def test_same_name_getter_and_setter_both_remembered(tmp_path, monkeypatch):
     root = _repo(tmp_path / "r", "class C:\n    pass\n")
     state: dict = {}
     _edit(state, root, PROP, 5)
@@ -179,8 +180,14 @@ def test_same_name_getter_and_setter_both_remembered(tmp_path):
     assert _owed_funcs(state) == ["y.py::C.x", "y.py::C.x"], "前置：getter、setter 同名都到門檻"
     assert rph.turn_judgment_note(state, _SID, "完成。\n" + _line("y.py::C.x"), 1, 5) == (None, True)
     _edit(state, root, PROP + "\n\ndef z(n):\n    return n\n", 6)            # 只改別處
-    _note(state)
+    logs: list = []
+    monkeypatch.setattr(rph, "append_guard_log", lambda guard, payload: logs.append(payload))
+    assert rph.reading_path_note(state, _SID, {}, spawn=_inline)[0] is None and _rec(state).get("job")
+    note, _ = rph.reading_path_note(state, _SID, {}, spawn=_inline)
+    assert note is None and not _rec(state).get("job"), "沒有一條要問：整段不送模型（remind_only_over_threshold 缺＝開）"
     assert _owed_funcs(state) == [], "兩個同名的都記住了，不互相擠掉再問"
+    under = [p for p in logs if p.get("event") == "under_threshold"]
+    assert under and (under[0]["hits"], under[0]["skipped"]) == (2, 2), "兩個 C.x 都量到、都因判過被扣掉（不是沒量到）"
 
 
 def test_moving_a_line_to_another_nesting_level_counts_as_changed(tmp_path):

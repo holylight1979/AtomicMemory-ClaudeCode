@@ -8,7 +8,9 @@
 - 反例：家目錄放一份假的 `.claude/lib/atom_access.py`，本樹的檔仍要勝出。
 - codex_companion 起 audit 子行程時 argv 指本樹的 audit.py（Popen 換成假的，不真的 spawn）。
 - hook 進程探針：假 HOME、不設 WG_CLAUDE_DIR，以 hooks/workflow-guardian.py 跑 SessionStart／UserPromptSubmit／PreToolUse／Stop 各一次，
-  不拋例外、載入的 hook 模組都在本樹、沒有模組來自 tmp 家或 live ~/.claude（本樹不是 live 時）。
+  不拋例外、載入的 hook 模組都在本樹、沒有模組來自 tmp 家或 live ~/.claude（在 live 底下、不在本樹的才算，本樹放在
+  ~/.claude/.claude/worktrees/ 也照判；判法自己的反例見 test_from_live_*）；每個事件都要看得到成效
+  （PreToolUse：假專案把 src/*.py 列進 readonly_paths，改它照擋；conftest 預設開寫碼守門）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_sys_path_file_relative.py
 """
 from __future__ import annotations
@@ -63,6 +65,12 @@ def _norm(p: str) -> str:
 def _under(p: str, root: Path) -> bool:
     a, r = _norm(p), _norm(str(root))
     return a == r or a.startswith(r + os.sep)
+
+
+def _from_live(p: str, tree: Path = TREE, live: Path = LIVE) -> bool:
+    """從正式安裝載入＝在 live ~/.claude 底下、但不在本樹裡：本樹放在 ~/.claude/.claude/worktrees/ 時本樹的檔不算，
+    live 那份與別棵工作樹照算；本樹就是 live 時恆 False。"""
+    return _under(p, live) and not _under(p, tree)
 
 
 def _env(home: Path) -> dict:
@@ -138,8 +146,7 @@ def test_codex_companion_spawns_this_trees_audit_script(tmp_path, monkeypatch):
     monkeypatch.setattr(cc.subprocess, "Popen", fake_popen)
     cc._spawn_audit_subprocess({"turn": 1})
     assert calls and _norm(calls[0][1]) == _norm(str(TREE / "tools" / "codex-companion" / "audit.py"))
-    if _norm(str(TREE)) != _norm(str(LIVE)):
-        assert not _under(calls[0][1], LIVE)                                            # 反例：不得跑 live 的 audit.py
+    assert not _from_live(calls[0][1])                                                  # 反例：不得跑 live 的 audit.py
 
 
 HOOK_SID = "probe-a3-syspath"
@@ -169,9 +176,10 @@ def _assert_effect(event: str, stdout: str, home: Path) -> None:
         assert "[Workflow Guardian] Active." in ctx and st.get("phase") == "working", ctx[:300]
     elif event == "UserPromptSubmit":
         assert st.get("turn_seq") == 1 and st.get("turn_intent"), {k: st.get(k) for k in ("turn_seq", "turn_intent")}
-    elif event == "PreToolUse":                                                        # OverviewHub：沒看過部位就改 → 擋
+    elif event == "PreToolUse":                                                        # OverviewHub：改 readonly_paths 的檔 → 照擋
         out = json.loads(stdout.strip().splitlines()[-1])["hookSpecificOutput"]
-        assert out.get("permissionDecision") == "deny" and "[Guardian:OverviewHub]" in out.get("permissionDecisionReason", "")
+        reason = out.get("permissionDecisionReason", "")
+        assert out.get("permissionDecision") == "deny" and "[Guardian:OverviewHub]" in reason and "readonly_paths" in reason, out
     elif event == "Stop":
         assert st.get("phase") == "done", st.get("phase")
 
@@ -183,6 +191,7 @@ def test_hook_process_events_load_code_only_from_this_tree(tmp_path, empty_home)
     (proj / ".claude").mkdir()
     (proj / ".claude" / "overview-map.md").write_text(
         "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8")
+    (proj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["src/*.py"]}', encoding="utf-8")   # PreToolUse 的成效：照擋
     transcript = tmp_path / "t.jsonl"
     transcript.write_text("", encoding="utf-8")
     guardian = TREE / "hooks" / "workflow-guardian.py"
@@ -197,12 +206,25 @@ def test_hook_process_events_load_code_only_from_this_tree(tmp_path, empty_home)
         _assert_effect(event, r.stdout, empty_home)
         files = json.loads(dump.read_text(encoding="utf-8"))
         assert not [f for f in files if _under(f, empty_home)], event                    # 沒有模組來自 tmp 家
-        if _norm(str(TREE)) != _norm(str(LIVE)):
-            from_live = [f for f in files if _under(f, LIVE)]
-            assert from_live == [], f"{event}: {from_live[:5]}"                         # 沒有模組來自 live ~/.claude
+        from_live = [f for f in files if _from_live(f)]
+        assert from_live == [], f"{event}: {from_live[:5]}"                             # 沒有模組來自 live ~/.claude
         for name in ("dispatcher.py", "wg_core.py"):
             hit = [f for f in files if Path(f).name == name]
             assert hit and all(_under(f, TREE / "hooks") for f in hit), (event, name, hit)
+
+
+def test_from_live_counts_live_copy_not_this_nested_tree(tmp_path):
+    """反例：本樹放在 live 底下（~/.claude/.claude/worktrees/wt）→ 本樹的檔不算 live，live 那份、名字前綴相同的別棵工作樹照算；
+    本樹在 live 外、本樹就是 live，判法照舊。"""
+    live = tmp_path / "home" / ".claude"
+    wt = live / ".claude" / "worktrees" / "wt"
+    mod = Path("lib") / "project_root.py"
+    assert not _from_live(str(wt / mod), wt, live)
+    assert _from_live(str(live / mod), wt, live)                                        # 工作樹的程式載了 live 那份 → 抓到
+    assert _from_live(str(live / ".claude" / "worktrees" / "wt2" / mod), wt, live)
+    outside = tmp_path / "wt"
+    assert not _from_live(str(outside / mod), outside, live) and _from_live(str(live / mod), outside, live)
+    assert not _from_live(str(live / mod), live, live)
 
 
 def test_effect_assertion_catches_disabled_guardian(tmp_path, empty_home):

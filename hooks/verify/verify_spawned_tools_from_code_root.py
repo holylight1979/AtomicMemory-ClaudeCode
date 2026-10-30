@@ -4,7 +4,8 @@
 cwd／--memory-dir 這類資料參數仍是 CLAUDE_DIR（資料根）。資料根在測試裡指到 tmp，所以「腳本在本樹、資料在 tmp」兩者能分開驗。
 涵蓋：wg_atoms._trigger_sync_memory_index、wg_atoms._load_tool_module、wg_extraction._spawn_extract_worker、
 handlers.session_start._followup_advisory、wg_vcs_sync._run_index_tools。其餘位置由 verify_code_paths_from_code_root 靜態守門。
-反例：本樹不是 live 時，腳本路徑不得落在 live ~/.claude；資料參數不得落在本樹。
+反例：腳本路徑不得來自 live ~/.claude（在 live 底下、不在本樹的才算，本樹放在 ~/.claude/.claude/worktrees/ 也照判；
+判法自己的反例見 test_not_live_*）；資料參數不得落在本樹。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_spawned_tools_from_code_root.py
 """
 from __future__ import annotations
@@ -38,8 +39,11 @@ def _in_tree(p) -> bool:
     return _n(p).startswith(_n(TREE) + os.sep)
 
 
-def _not_live(p) -> bool:
-    return _n(TREE) == _n(LIVE) or not _n(p).startswith(_n(LIVE) + os.sep)
+def _not_live(p, tree: Path = TREE, live: Path = LIVE) -> bool:
+    """不是從正式安裝載入：不在 live ~/.claude 底下，或在本樹裡（本樹放在 ~/.claude/.claude/worktrees/ 時本樹的檔不算 live，
+    live 那份與別棵工作樹照算；本樹就是 live 時恆真）。"""
+    n = _n(p)
+    return n.startswith(_n(tree) + os.sep) or not n.startswith(_n(live) + os.sep)
 
 
 class _Proc:
@@ -114,6 +118,20 @@ def test_run_index_tools_script_in_tree_memory_dir_and_cwd_are_data(tmp_path, mo
     assert _n(argv[1]) == _n(TREE / "tools" / "sync-memory-index.py") and _not_live(argv[1])
     assert argv[-2:] == ["--memory-dir", str(mem)] and _n(cwd) == _n(tmp_path / "data")
     assert not _in_tree(cwd)                                                            # 反例：cwd（資料）不得變成本樹
+
+
+def test_not_live_catches_live_copy_but_not_this_nested_tree(tmp_path):
+    """反例：本樹放在 live 底下（~/.claude/.claude/worktrees/wt）→ 本樹的腳本不算 live，live 那份、名字前綴相同的別棵工作樹照算；
+    本樹在 live 外、本樹就是 live，判法照舊。"""
+    live = tmp_path / "home" / ".claude"
+    wt = live / ".claude" / "worktrees" / "wt"
+    script = Path("tools") / "sync-memory-index.py"
+    assert _not_live(wt / script, wt, live)
+    assert not _not_live(live / script, wt, live)                                       # 工作樹的程式起了 live 那份 → 抓到
+    assert not _not_live(live / ".claude" / "worktrees" / "wt2" / script, wt, live)
+    outside = tmp_path / "wt"
+    assert _not_live(outside / script, outside, live) and not _not_live(live / script, outside, live)
+    assert _not_live(live / script, live, live)
 
 
 def test_code_dir_equals_home_claude_in_live_layout():
