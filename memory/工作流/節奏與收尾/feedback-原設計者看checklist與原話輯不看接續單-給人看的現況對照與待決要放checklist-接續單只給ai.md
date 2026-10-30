@@ -3,10 +3,10 @@
 - Scope: global
 - Author: holylight
 - Source: v6 T1.4 session 31aa0da5（2026-10-20）
+- Quote: 「我可以去開工，但提醒你：我沒有在看 staging\next-phase-v6.0..，因為這看起來過度龐雜、適合的是AI閱讀 (你應該要有與我相同的理解認知)」
 - Confidence: [臨]
 - Trigger: 接續單, next-phase, checklist, 給使用者看, 待決, 編號對照, 交接文件, 人讀
 - Created-at: 2026-10-20
-- Quote: 「我可以去開工，但提醒你：我沒有在看 staging\next-phase-v6.0..，因為這看起來過度龐雜、適合的是AI閱讀 (你應該要有與我相同的理解認知)」
 
 ## 知識
 
@@ -16,4 +16,4 @@
 ## 行動
 
 - 給原設計者的說明引用 checklist 與原話輯，不引接續單
-- 新增待決或範圍變更時先寫進 checklist，再同步接續單與目標樹
+- 新增待決或範圍變更時先寫進 checklist，再同步接續單

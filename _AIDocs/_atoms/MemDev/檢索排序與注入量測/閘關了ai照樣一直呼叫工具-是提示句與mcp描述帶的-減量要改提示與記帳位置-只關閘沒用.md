@@ -4,12 +4,13 @@
 - Author: holylight
 - Source: track-cost-cut 001 交付（a322b3e1）
 - Confidence: [臨]
-- Trigger: goal_gate, need_goal update, 提示句, MCP 描述, 減量, token 消耗, 關閘沒用
+- Trigger: 提示句, MCP 描述, 減量, token 消耗, 關閘沒用, 工具呼叫多
 - Created-at: 2026-10-22
+- Quote: 「施工agent若能多開就多開，提速吧」
 
 ## 知識
 
-- [臨] live 的 reconcile_gate.goal_gate=false，目標樹那兩道檢查本來就不擋；但 AI 每跑仍呼叫 need_goal 約 10.5 次（update×3、reconcile×4 等），是注入的提示句與 MCP 工具描述帶的。要減這塊消耗，改提示句與記帳位置（進度由程式記），只關閘沒用。
+- [臨] 閘設成不擋，AI 仍會照注入的提示句與 MCP 工具描述一直呼叫那個工具（實測：目標檢查設成不擋時，AI 每跑仍呼叫該 MCP 工具約 10.5 次）；要減這塊消耗，改提示句與記帳位置（進度由程式記），只關閘沒用。
 
 ## 行動
 

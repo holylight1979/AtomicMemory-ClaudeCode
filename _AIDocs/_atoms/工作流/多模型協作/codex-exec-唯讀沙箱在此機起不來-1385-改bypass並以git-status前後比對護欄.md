@@ -4,9 +4,10 @@
 - Author: holylight
 - Source: commit:0ef3546 2026-09-03（原對話已逾保留期）；2026-10-23 同步提醒修補實測
 - Confidence: [臨]
-- Trigger: codex exec, codex 沙箱, read-only sandbox, unelevated, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message, 材料不足, replay-guard pre, unelevated 仍 1385, codex 讀實檔, 無法完成審查, 差異內嵌提示
+- Trigger: codex exec, codex 沙箱, read-only sandbox, unelevated, CreateProcessWithLogonW, 1385, 獨立掃碼, codex 報告, --output-last-message, 材料不足, unelevated 仍 1385, codex 讀實檔, 無法完成審查, 差異內嵌提示
 - Created-at: 2026-09-03
 - Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空, 審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔
+- Quote: 「施工agent若能多開就多開，提速吧」
 
 ## 知識
 
@@ -15,11 +16,10 @@
 - [臨] 路徑寫字面絕對路徑；不在 git 目錄（含 SVN）必加 `--skip-git-repo-check`（否則 stderr 一行就退出、輸出空檔）；提示一律經 stdin（當參數傳，codex.cmd 只送第一行且 exit 0）；最後訊息以 -o 檔為準；背景跑。
 - [臨] 跟別的 session 共用工作樹時：prompt 要求讀檔用 git show <commit>:<路徑>、diff 用 git diff <起> <迄>，結論固定在指定 commit。
 - [臨] 審查 prompt 結構：原話目標 → 交付方自述（逐條核實）→ 兼看能不能被繞過／誠實流程能不能過 → 已知不必再報 → VERDICT＋每條檔:行＋重現。BLOCK 要親自讀碼重現才退件；價值在正確性與邊界反例。純推理用法：prompt＋完整檔＋diff 組成一份 md，明寫不要跑指令。
-- [臨] `tools/second-opinion/run.py` 的 `_sandbox_args` 在 Windows 加 `-c windows.sandbox="unelevated"`（不放共用 codex_extra_args，裁判不傳 -s）。少了它每個指令都 1385、只看得到提示內嵌材料（超過 material_max_chars 截斷），job 照樣 done。認法：`<job>/codex.stderr.log` 有 `exec_command failed … 1385`（只 grep 1385 會撞到材料內文）。
-- [臨] 審查材料不能含工作目錄外的絕對路徑（replay-guard pre 擋），測試假路徑也算；它的「字母＋冒號＋斜線」規則也會把 `Author:\s` 這類 regex 片段誤認成路徑。自己產 diff、那幾段換代稱寫明原意再以 materials.diff 餵入。
+- [臨] 自己組 codex 指令時 Windows 要帶 `-c windows.sandbox="unelevated"`：少了它每個指令都 1385、只看得到提示內嵌材料，卻照樣回答、不報錯。認法：codex 的 stderr 紀錄有 `exec_command failed … 1385`（只 grep 1385 會撞到材料內文）。
 
 ## 行動
 
 - 要 codex 唯讀審碼：照第一條指令跑；仍 1385 就把差異與函式全文內嵌進提示，或 commit 後 bypass＋git status 前後比對
 - 審別的 session 正在改的樹：prompt 要求用 git 讀固定 commit
-- 用 second_opinion 審完先 grep codex.stderr.log 的 exec_command failed；Codex 的 bug 斷言逐條讀碼核實再寫進報告
+- Codex 審完先 grep 它的 stderr 紀錄有沒有 exec_command failed；Codex 的 bug 斷言逐條讀碼核實再寫進報告

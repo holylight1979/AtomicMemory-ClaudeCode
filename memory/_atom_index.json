@@ -3828,12 +3828,10 @@
         "unelevated",
         "CreateProcessWithLogonW",
         "1385",
-        "第二意見",
         "獨立掃碼",
         "codex 報告",
         "--output-last-message",
         "材料不足",
-        "replay-guard pre",
         "unelevated 仍 1385",
         "codex 讀實檔",
         "無法完成審查",
@@ -6942,22 +6940,18 @@
       "name": "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒",
       "path": "_AIDocs/_atoms/MemDev/worktree與隔離資料根/worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒.md",
       "triggers": [
-        "定位三行被擋",
-        "Edit 被擋 證據不足",
-        "還沒讀過這個部位的檔",
-        "fix-escalation",
         "worktree 隔離",
         "python - heredoc 被擋",
         "變數路徑 被擋",
         "git -C live 被擋",
         "反轉驗證 worktree",
-        "live 未動證明"
+        "live 未動證明",
+        "隔離 session 硬擋"
       ],
       "scope": "global",
       "related": [
         "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上",
-        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑",
-        "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效"
+        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑"
       ]
     },
     {
@@ -6995,11 +6989,8 @@
         "worktree 分支",
         "背景記憶同步",
         "knowledge harvest commit",
-        "git archive 快照",
-        "OverviewHub 擋刪",
         "設 HOME",
-        "驗證 session",
-        "反證快照"
+        "驗證 session"
       ],
       "scope": "global",
       "related": [
@@ -7348,8 +7339,6 @@
         "git archive",
         "tar --force-local",
         "Cannot connect to C",
-        "replay-guard",
-        "提示詞指到暫存目錄以外的路徑",
         "舊版檔跑新測試",
         "舊碼回放樹",
         "回放樹位置",
@@ -7668,7 +7657,6 @@
         "cfg_for_cwd",
         "hook_cwd",
         "peer_offset",
-        "建樹閘漏擋",
         "閘被繞過"
       ],
       "scope": "global",
@@ -7934,11 +7922,9 @@
         "run_in_background",
         "收據",
         "無哨兵",
-        "need_goal reconcile",
-        "measured",
-        "完整對照",
         "背景驗證",
-        "receipt"
+        "receipt",
+        "manually backgrounded"
       ],
       "scope": "global"
     },
@@ -8888,8 +8874,6 @@
         "replay-guard post",
         "command_lines",
         "無指令行但整份紀錄命中",
-        "第二意見 failed",
-        "second_opinion_result failed",
         "_AIDocs/_atoms 命中",
         "git diff 命中",
         "strip_prompt_echo"
@@ -9161,9 +9145,6 @@
       "path": "memory/工作流/最小地圖的上下游要寫這次改動會碰到的呼叫者-grep看到卻沒讀的就是缺塊-先補讀再改.md",
       "triggers": [
         "最小地圖",
-        "地圖｜讀了",
-        "地圖｜上游",
-        "地圖｜下游",
         "上游",
         "下游",
         "缺塊",
@@ -9551,14 +9532,12 @@
       "name": "提問掛節點要看這題在決定哪件事不照擋訊息建議的編號抄判斷得了的不問",
       "path": "memory/行為契約/提問掛節點要看這題在決定哪件事不照擋訊息建議的編號抄判斷得了的不問.md",
       "triggers": [
-        "提問前要寫出這題掛在目標樹哪個節點",
-        "目前最可能的是",
-        "ASK_LINKED_TO_GOAL",
         "ASK_NEEDS_RECOMMENDATION",
         "沒附推薦",
         "(Recommended)",
         "建議：",
-        "自己判斷得了的不推給人"
+        "自己判斷得了的不推給人",
+        "該不該問"
       ],
       "scope": "global",
       "entry": [
@@ -9589,8 +9568,7 @@
       "path": "memory/驗證與實證/交付對照的達成要有改完之後真的跑過的證據只讀過程式就標部分並寫接下來怎麼驗.md",
       "triggers": [
         "交付前的目標對照",
-        "完整對照",
-        "need_goal(action=reconcile",
+        "交付對照",
         "標「達成」",
         "沒試過不算達成",
         "推論最多標部分",
@@ -10537,12 +10515,10 @@
       "triggers": [
         "hook 代價",
         "token 消耗",
-        "定位閘",
         "擋訊息重讀",
-        "填目標樹",
         "v6.0 的代價",
         "hook 全關",
-        "免費模型代寫"
+        "只為交宣告的回合"
       ],
       "scope": "global"
     },
@@ -10594,13 +10570,12 @@
       "name": "閘關了ai照樣一直呼叫工具-是提示句與mcp描述帶的-減量要改提示與記帳位置-只關閘沒用",
       "path": "_AIDocs/_atoms/MemDev/檢索排序與注入量測/閘關了ai照樣一直呼叫工具-是提示句與mcp描述帶的-減量要改提示與記帳位置-只關閘沒用.md",
       "triggers": [
-        "goal_gate",
-        "need_goal update",
         "提示句",
         "MCP 描述",
         "減量",
         "token 消耗",
-        "關閘沒用"
+        "關閘沒用",
+        "工具呼叫多"
       ],
       "scope": "global"
     },
@@ -10787,8 +10762,7 @@
         "WG_CLAUDE_DIR",
         "transcript 路徑不存在",
         "--settings 合併不取代",
-        "project",
-        "local",
+        "project,local",
         "--mcp-config",
         "--resume 兩回合",
         "projects slug",
@@ -10805,8 +10779,8 @@
       ],
       "scope": "global",
       "related": [
-        "無頭受測要關掉全部hook用claude--settings的disableAllHooks旗標-hooks只來自使用者層settings-資料根放空settings不生效",
-        "Git-Bash傳斜線開頭參數給Windows原生程式會被轉成路徑-例claude-p的slash指令-MSYS_NO_PATHCONV只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑"
+        "無頭受測要關掉全部hook用claude-settings的disableallhooks旗標-hooks只來自使用者層settings-資料根放空settings不生效",
+        "git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑"
       ]
     },
     {
@@ -11859,7 +11833,6 @@
         "仍在等",
         "中途狀態句",
         "收割中途判定",
-        "第二意見往前找",
         "切句",
         "claims_completion"
       ],
@@ -12640,11 +12613,10 @@
         "Stop stderr",
         "PostToolBatch 提醒",
         "只留帳",
-        "不需第二意見出口",
         "提醒重驗",
         "AI 照做程式沒認帳",
-        "SECOND_OPINION_REQUIRED 提醒",
-        "PickOne 沒送到"
+        "PickOne 沒送到",
+        "放行出口"
       ],
       "scope": "global"
     },
