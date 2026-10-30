@@ -310,34 +310,12 @@ function detailHtml(r) {
         sectionHtml("i", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.i) +
         (jOf(r) == null ? "" :
           sectionHtml("j", "證據持久路徑" + (r.j_missing ? ' <span class="badge real">缺或不存在</span>' : ""), jOf(r)) +
-          sectionHtml("k", "追蹤項" + (r.k_missing ? ' <span class="badge real">空字串</span>' : ""), kOf(r)))) +
-    (r.need_goal ? renderGoal(r.need_goal) : "");
+          sectionHtml("k", "追蹤項" + (r.k_missing ? ' <span class="badge real">空字串</span>' : ""), kOf(r))));
   return html;
 }
 // 報告檔存的是 j_evidence_path／k_followups（tool 參數原名）；早期測試資料用 j／k，兩種都認
 function jOf(r) { return r.j != null ? r.j : r.j_evidence_path; }
 function kOf(r) { return r.k != null ? r.k : r.k_followups; }
-
-// 目標對照（Python 收尾檢核分支附的 need_goal：原話摘要＋目標樹＋完整對照結果）；只有寫碼類樹才有這一塊
-var GOAL_STATUS = { todo: "未開始", doing: "進行中", done: "達成", partial: "部分", none: "沒有", dropped: "放棄" };
-function renderGoal(g) {
-  var rc = g.reconcile || {};
-  var badge = rc.ok ? '<span class="badge routine">完整對照通過</span>' : '<span class="badge real">完整對照未過</span>';
-  var said = (g.user_said || []).map(function (s) {
-    return "第 " + esc(s.turn) + " 回合" + (s.prior ? "（前一個 session）" : "") + "：「" + esc(s.text) + "」";
-  }).join("<br>");
-  var nodes = (g.nodes || []).map(function (n) {
-    var pad = new Array((n.depth || 0) + 1).join("　　");
-    return pad + esc(n.id) + " [" + esc(GOAL_STATUS[n.status] || n.status) + "] " + esc(n.text) +
-      (n.evidence && n.evidence.length ? " · 證據：" + esc(n.evidence.join("、")) : "") +
-      (n.followup ? " · 未完：" + esc(n.followup) : "");
-  }).join("<br>");
-  var probs = (rc.problems || []).map(function (p) { return "✗ " + esc(p); }).join("<br>");
-  return '<div class="sec"><div class="sec-h">目標對照 ' + badge + ' <span class="k">' + esc(g.tree) +
-         " · 目標版本 " + esc(g.goal_rev) + (g.owed ? " · 待對照的改動 " + esc(g.owed) : "") + "</span></div>" +
-         '<div class="sec-body">使用者原話（權威）：<br>' + (said || "（沒有記到）") +
-         "<br><br>目標樹（AI 的解讀）：<br>" + nodes + (probs ? "<br><br>" + probs : "") + "</div></div>";
-}
 
 var gridHtml = "";
 function renderGrid() {

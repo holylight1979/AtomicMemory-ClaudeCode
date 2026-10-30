@@ -85,7 +85,7 @@ function handleMessage(msg) {
 
 // 寫碼守門專用的工具：守門關著時不列給 AI（沒有任何提示會叫它用，列著只會讓 AI 誤叫、多讀說明）；
 // 守門之前就有的記憶工具照列。呼叫照樣處理，開關打開就全部回來。
-const GUARD_ONLY_TOOLS = new Set(["need_goal", "second_opinion_start", "second_opinion_result", "project_smells"]);
+const GUARD_ONLY_TOOLS = new Set(["second_opinion_start", "second_opinion_result", "project_smells"]);
 
 function listedTools(guardOn) {
   return guardOn ? TOOL_DEFINITIONS : TOOL_DEFINITIONS.filter((t) => !GUARD_ONLY_TOOLS.has(t.name));
@@ -333,7 +333,7 @@ const TOOL_DEFINITIONS = [
       "結構化提交收尾檢核 (a)–(k)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
       "動 core 檔並宣告完成時由 Stop 閘要求。收尾只交這一份：report 寫給讀者的白話全文（做了什麼／驗了什麼／沒做什麼／追蹤項，" +
       "以讀者看得懂為先），給了 report 時 e／f／g 可省；收尾一次交齊：要記的知識放 harvest_items（同 knowledge_harvest_report 的 items），" +
-      "不必另呼叫那支；目標對照不要求（交付時程式照收據代填，reconcile 欄選填、有自己的判斷才帶）。其餘欄必填（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
+      "不必另呼叫那支。其餘欄必填（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
       "順序：先把值得留的知識 atom_write 寫完、再呼叫本 tool——報告是收尾檢核不是待辦清單，" +
       "(d)「尚未寫／見下一動」或 (h)「下一動＝寫 atom」會被 Stop 擋回、要求補寫後重新提交。" +
       "本 tool 只回 chip、不寫 state（one-writer：state/持久化由 Python PostToolUse 獨佔）。",
@@ -342,15 +342,6 @@ const TOOL_DEFINITIONS = [
       properties: {
         report: { type: "string", description: "收尾全文，寫給沒看執行過程的讀者：做了什麼、驗了什麼（附數字或收據）、沒做什麼、追蹤項；白話、不預設欄位。給了它 e／f／g 可省（寫進這份裡）" },
         harvest_items: { type: "array", description: "知識收割清單（選填，格式同 knowledge_harvest_report 的 items；交了就不必另呼叫那支，(d) 可寫「見收割報告」）", items: { type: "object" } },
-        reconcile: {
-          type: "object",
-          description: "目標對照（選填、不要求：交付時程式照收據代填；有自己的判斷才帶。格式同 need_goal action=reconcile：items 每個還活著的節點 {id, status, evidence?, followup?, note?, same_class?}、turns 選填）；" +
-            "判法與回覆跟那支相同",
-          properties: {
-            items: { type: "array", items: { type: "object" }, description: "同 need_goal reconcile 的 items" },
-            turns: { type: "integer", description: "這次拐了幾個彎（選填）" },
-          },
-        },
         a: { type: "string", description: "缺失發現與修補清單（`- 檔:行 — 改了什麼`）；無則「無」。必寫" },
         b: { type: "string", description: "AI 逃避通報（忽略/偷埋現象）；僅發生時填、否則「無」" },
         d: { type: "string", description: "記憶收錄帳：填之前先掃五個來源——①使用者指正/退回/重申的話（→ feedback）②重試≥2 次或查了才懂的機制/踩坑 ③外查來的事實（帶日期）④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的。逐項 `- <項目> → 已寫入 atom <名>`（atom_write 已完成）或 `- <項目> → 不寫（一句理由）`；判定不寫也要留痕。⛔ 不接受「尚未寫／待補／見下一動」——那是把記憶推給下一回合，會被拒收並擋 Stop；值得寫就在呼叫本 tool 之前寫完。本回合已交過收割報告（knowledge_harvest_report）可只填「見收割報告」。無則「無」。必寫" },
@@ -360,7 +351,7 @@ const TOOL_DEFINITIONS = [
         h: { type: "string", description: "收尾判定：單句——「可關閉」或「下一動＝…」。下一動只列使用者要做的事（重啟驗證、拍板）；寫 atom／補測試／commit 是你自己能做的，先做完再提交。必寫" },
         i: { type: "string", description: "衍生暫存清單：一行一路徑 `<路徑> — <備註>`（絕對或相對 cwd，可 glob）。只列「你自己產生的暫存／中間產物、此刻尚存、留給使用者裁決」的（scratchpad 腳本、.bak、一次性 log、undo 檔）；已刪的不列、純說明不列（預設完工即刪）。⛔ 絕不列正式產出：改了還沒 commit 的 code／doc／atom／索引／CHANGELOG 屬 (a)(b)/(g) 未同步事項，不是暫存——這些路徑會被拒收並回警。Python 端解析進 per-session 殘檔帳本，HUD 以 exists() 列尚存者供保留/刪除。無則「無」。必寫" },
         j_evidence_path: { type: "string", description: "證據持久路徑：本回合驗證收據的持久位置，一行一路徑（絕對路徑）。本 session 跑過哨兵驗證（Bash／PowerShell 輸出 `<NAME>_CHECK PASS|FAIL|DONE`）時填「無」或留空即可：系統自動帶入本 session 收據帳本的絕對路徑（帳本在資料根，不必自己找）；要另附驗證輸出檔／報告檔才填它們，填了就用你填的，Stop 對帳閘會查 exists()，不存在會擋。沒有收據填「無」。必寫" },
-        k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端只寫進追蹤帳本 workflow/tracking/<slug>.jsonl，不寫病灶文件；有部位的，之後碰到那個部位時接在導讀卡末段【未結追蹤項】送出，沒部位的在開場列出）。跟帳上已記的（本 session 的 need_goal followup、PickOne、先前的 k）是同一件 → 行尾加「｜同追蹤項：<那筆裡連續至少 8 字>」，系統換成新說法、不另記一筆；字面相同的自動不重記。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
+        k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端只寫進追蹤帳本 workflow/tracking/<slug>.jsonl，不寫病灶文件；有部位的，之後碰到那個部位時接在導讀卡末段【未結追蹤項】送出，沒部位的在開場列出）。跟帳上已記的（本 session 的 PickOne、先前的 k）是同一件 → 行尾加「｜同追蹤項：<那筆裡連續至少 8 字>」，系統換成新說法、不另記一筆；字面相同的自動不重記。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
       },
       required: ["a", "b", "d", "h", "i", "j_evidence_path", "k_followups"],
     },
@@ -532,65 +523,6 @@ const TOOL_DEFINITIONS = [
       required: ["part", "cwd"],
     },
   },
-  {
-    name: "need_goal",
-    description:
-      "需求目標樹：先寫「真正要達成什麼」，工作中長子目標，收尾對照；action＝set｜add｜update｜reconcile｜read。" +
-      "set＝任務開始寫樹根 goal（整個需求一句、使用者的語言、只寫目標不寫手段），子目標同次放 items，要改程式帶 kind=code；被糾正時改這棵樹，真的換事才 new_task=true。" +
-      "set／update 可一起交 locate=[{part, lines}]（定位行）與 data_files=[{path, why}]（改資料檔的宣告）。" +
-      "也可不呼叫工具：先發不寫檔的 Bash，`目標｜<整個需求一句>`、`子目標｜<一件>` 行放它開頭的 `#` 註解，接著改檔，hook 讀走；回覆文字要早一則（同一則接著呼叫工具的文字 hook 讀不到）。" +
-      "add＝再長的子目標；update＝改節點；reconcile＝完整對照（選用，每個活著的節點交終點結論＋證據，可放 anti_evasion_report 的 reconcile 欄）；read＝回目前的樹。" +
-      "寫碼類任務沒有樹不能改程式；本 tool 只驗參數、不寫檔。",
-    inputSchema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read"] },
-        goal: { type: "string", description: "set：樹根一句" },
-        new_task: { type: "boolean" },
-        kind: { type: "string", enum: ["code", "knowledge"] },
-        why: { type: "string" },
-        import_from: { type: "string", description: "set：續接單路徑" },
-        locate: {
-          type: "array",
-          description: "定位四行隨樹一起交，不必另發註解指令；lines＝定位｜部位／根因層／前例／批判",
-          items: {
-            type: "object",
-            properties: { part: { type: "string" }, lines: { type: "array", items: { type: "string" } } },
-            required: ["part", "lines"],
-          },
-        },
-        parent: { type: "string", description: "add：父節點，省略＝樹根" },
-        items: {
-          type: "array",
-          description: "set／add：[{text, clarity?, origin?, quote?}]；update：[{id, text?, status?, clarity?, origin?, quote?, why?}]；" +
-            "reconcile：[{id, status(終點), evidence?, followup?, note?, same_class?}]",
-          items: {
-            type: "object",
-            properties: {
-              status: { type: "string", enum: ["todo", "doing", "done", "partial", "none", "dropped"] },
-              clarity: { type: "string", enum: ["clear", "open"] },
-              origin: { type: "string", enum: ["user", "inferred", "grown"] },
-              quote: { type: "string", description: "標 origin=user 時引用的使用者原話子句（至少 6 字，或整句）" },
-              evidence: {
-                type: "array",
-                description: "[{kind: receipt|case|file|atom, ref(receipt 寫 latest 或 R<號>), level: measured|read|inferred, covers?}]",
-                items: { type: "object" },
-              },
-              same_class: { type: "string" },
-            },
-          },
-        },
-        turns: { type: "integer" },
-        form: { type: "string", enum: ["full", "compact", "handoff"] },
-        data_files: {
-          type: "array",
-          description: "資料檔宣告隨樹一起交，不必另發註解指令",
-          items: { type: "object", properties: { path: { type: "string" }, why: { type: "string" } }, required: ["path", "why"] },
-        },
-      },
-      required: ["action"],
-    },
-  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
@@ -619,10 +551,6 @@ function handleToolCall(id, toolName, args) {
       // 唯讀：spawn tools/project-smells.py --json（25 s timeout+kill）。
       return require("./project-smells").toolProjectSmells(id, args)
         .catch(e => sendToolResult(id, `project_smells error: ${e.message}`, true));
-    case "need_goal":
-      // one-writer：只驗參數、回 chip；目標檔與編號由 Python PostToolUse（wg_need_goal.apply_op）獨佔。
-      return require("./need-goal").toolNeedGoal(id, args)
-        .catch(e => sendToolResult(id, `need_goal error: ${e.message}`, true));
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":

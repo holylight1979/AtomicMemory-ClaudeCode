@@ -1,5 +1,5 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
-//   tools/list 含 13 個 tool；need_goal 參數拒收與 chip（不寫檔）；atom_source 缺 atom 拒（不 spawn py）；
+//   tools/list 含 12 個 tool；atom_source 缺 atom 拒（不 spawn py）；
 //   second_opinion_start independent 帶 draft 拒、second_opinion_result 缺 job_id 拒、project_smells 缺 part 拒（都不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
 //   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_write schema 有 dedupe{verdict,of,why}（去重宣告；路由見 verify_atom_write_dedupe.js）；atom_retire 缺 reason 拒；
 //   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
@@ -28,7 +28,7 @@ const PORT = process.env.WG_SMOKE_PORT || "38499";
 const EXPECTED_TOOLS = [
   "atom_write", "atom_promote", "atom_move", "atom_edit_meta",
   "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search", "atom_source",
-  "second_opinion_start", "second_opinion_result", "project_smells", "need_goal",
+  "second_opinion_start", "second_opinion_result", "project_smells",
 ];
 
 const cp = spawn(process.execPath, [SERVER], {
@@ -82,7 +82,7 @@ function check(cond, label, detail) {
   // 1. tools/list
   const list = await rpc("tools/list", {});
   const names = (list.result.tools || []).map((t) => t.name);
-  check(names.length === 13, `tools/list has 13 tools (got ${names.length})`, names.join(","));
+  check(names.length === 12, `tools/list has 12 tools (got ${names.length})`, names.join(","));
   for (const n of EXPECTED_TOOLS) check(names.includes(n), `tools/list includes ${n}`);
   const sos = (list.result.tools || []).find((t) => t.name === "second_opinion_start");
   check(sos && sos.inputSchema.required.includes("mode") && sos.inputSchema.properties.mode.enum.includes("independent"),
@@ -116,49 +116,6 @@ function check(cond, label, detail) {
         && dd.properties.of && dd.properties.why, "atom_write schema has dedupe{verdict,of,why}");
   const ar = (list.result.tools || []).find((t) => t.name === "atom_retire");
   check(ar && ar.inputSchema.required.includes("reason"), "atom_retire schema requires reason");
-
-  // 1c. need_goal：js 只驗參數回 chip（不寫檔）；schema 的 action 列舉五個動作
-  const ngDef = (list.result.tools || []).find((t) => t.name === "need_goal");
-  check(ngDef && ngDef.inputSchema.required.includes("action")
-        && ["set", "add", "update", "reconcile", "read"].every((a) => ngDef.inputSchema.properties.action.enum.includes(a)),
-        "need_goal schema requires action with five actions");
-  const ng0 = await callTool("need_goal", { action: "set" });
-  check(ng0.result.isError === true && /goal/.test(textOf(ng0)), "need_goal set w/o goal rejected", textOf(ng0));
-  const ng1 = await callTool("need_goal", { action: "set", goal: "讓使用者改完設定不用重開" });
-  check(!ng1.result.isError && /\[NeedGoal\] set 已收到/.test(textOf(ng1)), "need_goal set chip", textOf(ng1));
-  const ng2 = await callTool("need_goal", { action: "update", items: [{ id: "T1.1", status: "done" }] });
-  check(!ng2.result.isError && /update 已收到/.test(textOf(ng2)), "need_goal update w/o why accepted (WHY_OPTIONAL)", textOf(ng2));
-  const ng3 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "doing" }] });
-  check(ng3.result.isError === true && /終點/.test(textOf(ng3)), "need_goal reconcile non-terminal status rejected", textOf(ng3));
-  const ng4 = await callTool("need_goal", { action: "reconcile", items: [
-    { id: "T1", status: "done", evidence: [{ kind: "receipt", ref: "R3", level: "measured", covers: ["T1"] }] },
-  ] });
-  check(!ng4.result.isError && /reconcile 已收到/.test(textOf(ng4)), "need_goal reconcile chip", textOf(ng4));
-  const ng5 = await callTool("need_goal", { action: "reconcile", items: [
-    { id: "T1", status: "done", evidence: [{ kind: "proof", ref: "x", level: "sure" }] },
-  ] });
-  check(ng5.result.isError === true && /kind/.test(textOf(ng5)) && /level/.test(textOf(ng5)),
-        "need_goal reconcile bad evidence enums rejected", textOf(ng5));
-  const ng6 = await callTool("need_goal", { action: "explode" });
-  check(ng6.result.isError === true && /action/.test(textOf(ng6)), "need_goal unknown action rejected", textOf(ng6));
-  // T2.18：標 origin=user 要引用原話（quote）；update 也能只改 origin
-  check(ngDef && ngDef.inputSchema.properties.items.items.properties.quote, "need_goal schema has items.quote");
-  const ngq = await callTool("need_goal", { action: "update", items: [{ id: "T1.1", origin: "user", quote: "把 audit 寫進 log 檔", why: "引用原話" }] });
-  check(!ngq.result.isError && /update 已收到/.test(textOf(ngq)), "need_goal update origin-only with quote accepted", textOf(ngq));
-  const ngq2 = await callTool("need_goal", { action: "add", items: [{ text: "x", origin: "user", quote: 3 }] });
-  check(ngq2.result.isError === true && /quote/.test(textOf(ngq2)), "need_goal add non-string quote rejected", textOf(ngq2));
-  // need_goal 沒有 verify_scope 動作：schema 沒有它的欄位，呼叫照未知動作拒收
-  check(ngDef && !ngDef.inputSchema.properties.action.enum.includes("verify_scope") && !ngDef.inputSchema.properties.reviews
-        && !ngDef.inputSchema.properties.no_case, "need_goal schema has no verify_scope fields");
-  const ng7 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w" }] });
-  check(ng7.result.isError === true && /action/.test(textOf(ng7)), "need_goal verify_scope rejected as unknown action", textOf(ng7));
-  // same_class：達成節點可附同類別處（只驗形狀：字串）
-  const itemProps = ngDef && ngDef.inputSchema.properties.items.items.properties;
-  check(itemProps && itemProps.same_class && itemProps.same_class.type === "string", "need_goal schema has same_class");
-  const ng10 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "done", same_class: ["x"] }] });
-  check(ng10.result.isError === true && /same_class/.test(textOf(ng10)), "need_goal reconcile non-string same_class rejected", textOf(ng10));
-  const ng11 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "done", same_class: "別處也用檔名猜" }] });
-  check(!ng11.result.isError && /reconcile 已收到/.test(textOf(ng11)), "need_goal reconcile with same_class chip", textOf(ng11));
 
   // 2. knowledge_harvest_report
   const h0 = await callTool("knowledge_harvest_report", { items: [] });
