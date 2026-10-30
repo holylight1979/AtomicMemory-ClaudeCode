@@ -191,17 +191,6 @@ def test_text_score_tail_not_injected(monkeypatch):
     assert logs and logs[-1]["event"] == "recorded"
 
 
-def test_ask_unlinked_to_goal_not_blocked(monkeypatch):
-    import wg_need_goal as ng
-    import wg_need_goal_points as ngp
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": "T1", "trees": {"T1": {"id": "T1", "kind": "code", "status": "doing",
-                                                 "nodes": {"T1": {"text": "改 a", "status": "doing", "parent": None}}}}})
-    monkeypatch.setattr(ngp, "_guard", lambda *a, **k: None)
-    deny, hint = ngp.on_ask("s", "AskUserQuestion", {"questions": [{"question": "要用哪個資料庫？", "options": [
-        {"label": "SQLite (Recommended)", "description": "x"}, {"label": "PG", "description": "y"}]}]}, {"turn_seq": 2})
-    assert deny is None
-
-
 def test_unknown_write_target_allowed_and_logged(monkeypatch):
     import wg_overview as wo
     logs = []

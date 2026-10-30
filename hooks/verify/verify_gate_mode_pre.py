@@ -116,7 +116,7 @@ def test_ask_no_recommendation_reminded_not_denied(hooked, post):
     ctx = post("AskUserQuestion", bad)
     line = _lines(ctx, "ASK_NEEDS_RECOMMENDATION")
     assert len(line) == 1 and "做法：" in line[0] and "(Recommended)" in line[0], ctx
-    assert [p["rule"] for g, p in hooked["guard"] if g == "need_goal" and p["event"] == "remind"
+    assert [p["rule"] for g, p in hooked["guard"] if g == "ask" and p["event"] == "remind"
             and p["rule"] == "ASK_NEEDS_RECOMMENDATION"] == ["ASK_NEEDS_RECOMMENDATION"]
     deny, _ = _pre(hooked, "AskUserQuestion", _ask(["C", "D"], "再問一題？"))
     assert deny is None
@@ -126,12 +126,12 @@ def test_ask_no_recommendation_reminded_not_denied(hooked, post):
 def test_ask_gate_error_not_denied(hooked, post, monkeypatch):
     """P2c：提問前檢查自己壞了 → 不擋、stderr＋留帳 ask_error（GATE_SELF_ERROR），下一個工具結果附一行提醒。"""
     _state_seed(hooked)
-    monkeypatch.setitem(sys.modules, "wg_need_goal_points", None)
+    monkeypatch.setitem(sys.modules, "wg_ask_gate", None)
     deny, out = _pre(hooked, "AskUserQuestion", _ask(["A", "B"]))
     assert deny is None and out is None, out
-    assert [(p["event"], p.get("rule")) for g, p in hooked["guard"] if g == "need_goal" and p["event"] == "ask_error"] \
+    assert [(p["event"], p.get("rule")) for g, p in hooked["guard"] if g == "ask" and p["event"] == "ask_error"] \
         == [("ask_error", "GATE_SELF_ERROR")]
-    monkeypatch.delitem(sys.modules, "wg_need_goal_points")
+    monkeypatch.delitem(sys.modules, "wg_ask_gate")
     ctx = post("AskUserQuestion", _ask(["A", "B"]))
     assert _lines(ctx, "GATE_SELF_ERROR") and "提問前檢查" in _lines(ctx, "GATE_SELF_ERROR")[0], ctx
 

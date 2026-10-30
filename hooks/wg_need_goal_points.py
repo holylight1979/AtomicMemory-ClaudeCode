@@ -1,11 +1,8 @@
-"""wg_need_goal_points — 需求目標流程的 4.3、4.4 與軌五：讀入範圍變大、被使用者糾正、同檔改多次的提醒，
-問使用者之前要掛節點，壓縮後重送與續接單的目標樹，session 結束時記下沒對照的樹。
+"""wg_need_goal_points — 需求目標流程的 4.3 與軌五：讀入範圍變大、被使用者糾正、同檔改多次的提醒，
+壓縮後重送與續接單的目標樹，session 結束時記下沒對照的樹。提問閘在 wg_ask_gate。
 只透過 wg_need_goal 的公開函式讀寫目標檔（契約第八節）。
 
 三個提醒都不擋：讀入範圍與同檔多次由 PostToolBatch 合併成一則送（batch_lines）；糾正在 UserPromptSubmit 當場送。
-提問（AskUserQuestion／ExitPlanMode）兩種模式，看 settings.json 的 PreToolUse matcher 有沒有掛這兩個工具：
-  擋：PreToolUse 呼叫 on_ask，寫碼類沒掛節點就 deny；處理過的提問記進 state["need_goal_asks"]。
-  事後記錄＋提醒：PreToolUse 沒掛（或沒觸發）時，PostToolBatch 從 tool_calls 找出沒處理過的提問，照同一套判斷記錄並提醒。
 
 樹上 `points`（本模組獨有，契約第十二節）：
   scope_parts      [部位鍵…]             這棵樹開了之後碰過的部位
@@ -17,27 +14,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import wg_core
 import wg_need_goal as ng
-import wg_release
-import wg_release_rules as rr
 
-ASK_TOOLS = ("AskUserQuestion", "ExitPlanMode")
-RELEASE_LABELS = (wg_release.OPT_RELEASE, wg_release.OPT_KEEP)
 MULTI_EDIT_MIN = 3
-ASK_IDS_MAX = 20
-PLAN_CHARS = 50000
-_PLAN_FILE_RE = re.compile(r"[\\/]plans[\\/][^\\/]+\.md$", re.IGNORECASE)
-
-NO_TREE_HINT = ("[NeedGoal] 還沒有需求目標樹：這題問完，把使用者的答案寫進 need_goal"
-                "（action=set 寫下這個需求真正要達成什麼；純問答可以不寫）。")
 
 
 # ─── 共用 ────────────────────────────────────────────────────────────────
@@ -283,259 +268,10 @@ def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Opti
             "set 不帶 new_task 改寫樹根；糾正裡多出的要求用 add 長成子目標）。\n" + ng.brief_for(tree))
 
 
-# ─── 4.4 問使用者之前 ─────────────────────────────────────────────────────
-
-def _strings(x: Any) -> Iterator[str]:
-    if isinstance(x, str):
-        yield x
-    elif isinstance(x, dict):
-        for v in x.values():
-            yield from _strings(v)
-    elif isinstance(x, list):
-        for v in x:
-            yield from _strings(v)
-
-
-def _plan_file(tool_input: Any, state: Dict[str, Any]) -> Optional[Path]:
-    """ExitPlanMode 的計畫檔：工具輸入裡指到的 .md，否則本 session 最近改過（last_seq 最大）的 plans/*.md。
-    modified_files 改到既有的檔只更新 last_seq、不換位置，清單順序不是改檔順序。"""
-    for s in _strings(tool_input):
-        if len(s) < 400 and s.lower().endswith(".md") and Path(s).is_file():
-            return Path(s)
-    plans = [m for m in state.get("modified_files") or [] if isinstance(m, dict)
-             and _PLAN_FILE_RE.search(str(m.get("path") or "")) and Path(str(m["path"])).is_file()]
-    newest = max(plans, key=lambda m: int(m.get("last_seq") or 0), default=None)
-    return Path(str(newest["path"])) if newest else None
-
-
-def ask_text(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> str:
-    """提問的全文：工具輸入裡所有字串；ExitPlanMode 另加計畫檔內容（計畫正文可能不在工具輸入裡）。"""
-    text = "\n".join(_strings(tool_input))
-    if tool_name == "ExitPlanMode":
-        pf = _plan_file(tool_input, state)
-        if pf:
-            try:
-                text += "\n" + pf.read_text(encoding="utf-8", errors="replace")[:PLAN_CHARS]
-            except OSError:
-                pass
-    return text
-
-
-def _node_order(nid: str) -> Tuple[int, ...]:
-    return tuple(int(x) for x in re.findall(r"\d+", nid))
-
-
-def _node_texts(tree: Dict[str, Any]) -> Dict[str, str]:
-    """沒放棄的節點 {編號: 原文}，依編號排（原文片段命中多個時取編號最前的）。"""
-    nodes = tree.get("nodes") or {}
-    return {nid: str(nodes[nid].get("text") or "") for nid in sorted(nodes, key=_node_order)
-            if isinstance(nodes[nid], dict) and nodes[nid].get("status") != "dropped"}
-
-
-def _linked(tree: Optional[Dict[str, Any]], text: str) -> Optional[str]:
-    """一段文字指到的節點：先認編號（wg_need_goal.node_ref），再認原文片段（規則 ASK_LINKED_TO_GOAL）。"""
-    return (ng.node_ref(tree, text) or rr.node_fragment_ref(_node_texts(tree), text)) if tree else None
-
-
-def _links(tree: Optional[Dict[str, Any]], tool_name: str, tool_input: Any, state: Dict[str, Any], pending: bool
-           ) -> List[Tuple[str, Optional[str]]]:
-    """每個要掛節點的單位 (標籤, 指到的節點或 None)：AskUserQuestion 每一題一個（rr.ask_link_units，不含 header；pending 時
-    放行題不算）；ExitPlanMode 或題目判不了 → 整份 ask_text 一個。沒有樹、或真有待放行紀錄而整次全是放行題 → []。"""
-    if not tree:
-        return []
-    if tool_name == "AskUserQuestion":
-        if pending and rr.ask_release_only(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS):
-            return []
-        units = rr.ask_link_units(tool_input, pending, wg_release.RELEASE_TAG, RELEASE_LABELS)
-        if units:
-            return [(lab, _linked(tree, text)) for lab, text in units]
-    label = "整份計畫" if tool_name == "ExitPlanMode" else "這次提問"
-    return [(label, _linked(tree, ask_text(tool_name, tool_input, state)))]
-
-
-def _all_linked(links: List[Tuple[str, Optional[str]]]) -> Optional[str]:
-    """每個單位都指到節點 → 第一個節點；有單位沒指到（或沒有單位）→ None。"""
-    return links[0][1] if links and all(n for _l, n in links) else None
-
-
-def _part_reads(state: Dict[str, Any]) -> int:
-    """OverviewHub 各部位（含表外目錄）記下的 part_files_read 總數：規則 ASK_OVERVIEW_BEFORE_DECISION 退回判定的事實。"""
-    hub = state.get("overview_hub") if isinstance(state, dict) else None
-    return sum(len(r.get("part_files_read") or []) for r in (hub or {}).values() if isinstance(r, dict))
-
-
-def _named_parts(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> List[Tuple[str, str, int]]:
-    """題目提到的路徑（rr.ask_paths；相對路徑照 session cwd 解，沒記就用行程 cwd）經 wg_overview.read_scope_keys 對到部位（跟讀檔紀錄同一套鍵），
-    每個部位一筆 (題目裡的寫法, 部位名, 該部位 part_files_read 檔數)：規則 ASK_OVERVIEW_BEFORE_DECISION 的事實。
-    只看 AskUserQuestion；對不到部位的路徑不列（規則退回總數判定）。"""
-    if tool_name != "AskUserQuestion":
-        return []
-    import os
-    import wg_overview
-    cwd = ng.hook_cwd({}, state) or os.getcwd()     # state 沒記 session cwd：hook 行程就開在 session 的 cwd
-    hub = state.get("overview_hub") if isinstance(state.get("overview_hub"), dict) else {}
-    try:
-        config = wg_core.load_config()
-    except Exception as e:  # noqa: BLE001
-        print(f"[NeedGoal] 讀設定失敗，部位對映照預設開關：{type(e).__name__}: {e}", file=sys.stderr)
-        config = {}
-    out: List[Tuple[str, str, int]] = []
-    seen: List[str] = []
-    for raw in rr.ask_paths(tool_input):
-        p = raw if os.path.isabs(raw) else (os.path.join(cwd, raw) if cwd else "")
-        try:   # 這條只是提醒：對映炸了不能讓整個提問被 PreToolUse 外層一律擋，這個路徑當沒對到（規則退回總數判定）
-            key = wg_overview.read_scope_keys(os.path.normpath(p), config)[1] if p else None
-        except Exception as e:  # noqa: BLE001
-            print(f"[NeedGoal] 題目路徑對部位失敗（{raw}，當沒對到）：{type(e).__name__}: {e}", file=sys.stderr)
-            key = None
-        if not key or key in seen:
-            continue
-        seen.append(key)
-        rec = hub.get(key) if isinstance(hub.get(key), dict) else {}
-        out.append((raw, str(rec.get("part") or key.rpartition("|")[2]), len(rec.get("part_files_read") or [])))
-    return out
-
-
-def note_ask_blocked(state: Dict[str, Any], deny: Optional[str]) -> None:
-    """PreToolUse 擋了一次提問：累計次數（PostToolBatch 的審計看這個，掛上節點後歸零）。"""
-    if deny:
-        state["need_goal_ask_blocks"] = int(state.get("need_goal_ask_blocks") or 0) + 1
-
-
-def _ask_audit(sid: Any, state: Dict[str, Any], tool_calls: Any, turn: int) -> None:
-    """PostToolBatch：這批每一次提問記一筆審計（擋過幾次、最後掛上哪個節點、沒掛上的備註）；這題已過得了提問閘
-    （附了推薦，而且掛上節點或不是寫碼類）就把擋的次數歸零。"""
-    doc = None
-    for c in tool_calls if isinstance(tool_calls, list) else []:
-        name, inp, tid = _call_parts(c)
-        if name not in ASK_TOOLS:
-            continue
-        doc = doc or _load(sid, "ask_audit", turn)
-        tree = _live(doc) if doc else None
-        kind = tree.get("kind") if tree else None
-        links = _links(tree, name, inp, state, wg_release.pending_any(state, str(sid)))
-        release_only = bool(tree) and not links          # 真有待放行紀錄、整次全是放行題：不用掛節點
-        linked = _all_linked(links)
-        _guard("ask_audit", sid, turn, tool=name, tool_use_id=tid, tree=tree["id"] if tree else None,
-               blocked=int(state.get("need_goal_ask_blocks") or 0), linked=linked,
-               note=None if release_only else rr.ask_audit_note(kind, linked))
-        rec_ok = name != "AskUserQuestion" or not rr.ask_recommendation_verdict(
-            inp, wg_release.RELEASE_TAG, RELEASE_LABELS).owed
-        if rec_ok and (linked or release_only or kind != "code"):
-            state["need_goal_ask_blocks"] = 0
-
-
-def _ask_checkpoint(doc: Dict[str, Any], turn: int, nid: str) -> None:
-    t = _live(doc)
-    if t:
-        ng.add_checkpoint(doc, t, turn, "ask", nid)
-
-
-def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any], after: bool
-               ) -> Tuple[Optional[str], Optional[str], List[Dict[str, Any]]]:
-    """蒐集事實（題目全文、目標樹、部位檔讀了幾個）交 wg_release_rules 的三條提問規則判，組成擋訊息或提示。
-    有任何一條要擋（事前模式）→ 所有句子併成一則擋訊息；否則併成一則提示。事後模式只提示。
-    第三個回傳值＝提醒件清單（規則名、現象、做法、block＝這條本來是擋）：PreToolUse 拿規則名查 gate_mode 決定照擋還是改提醒
-    （規則 GATE_MODE_TABLE）；判定與文字不因送法而變。"""
-    turn = int(state.get("turn_seq", 0) or 0)
-    mode = "after" if after else "pre"
-    pending = wg_release.pending_any(state, str(sid))
-    if (tool_name == "AskUserQuestion" and pending
-            and rr.ask_release_only(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)):
-        return None, None, []
-    blocks: List[str] = []
-    hints: List[str] = []
-    hits: List[Dict[str, Any]] = []
-    if tool_name == "AskUserQuestion":
-        rec = rr.ask_recommendation_verdict(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)
-        if rec.owed:
-            fix = rr.ask_recommendation_fix(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)
-            blocks.append(f"[NeedGoal] {rr.format_hit('提問', rec)}\n" + fix)
-            hits.append({"rule": rec.rule, "what": rec.why, "fix": fix, "block": True})
-            _guard("ask_no_recommendation", sid, turn, tool=tool_name, missing=len(rec.evidence), mode=mode)
-    view = rr.ask_overview_verdict(tool_name, tool_input, _part_reads(state), _named_parts(tool_name, tool_input, state))
-    try:
-        doc = ng.load(sid)
-    except ng.NeedGoalCorrupt as e:
-        _guard("corrupt", sid, turn, where="on_ask", error=str(e))
-        blocks.append(f"[NeedGoal] 目標檔壞了，判不了這題掛哪個節點（{e}）：先用 need_goal(action=set, goal=…) 重寫樹根"
-                      "（壞檔會自動備份），再問。" + ng.NO_TOOL_HINT)
-        hits.append({"rule": "GATE_SELF_ERROR", "what": f"目標檔壞了，判不了這題掛哪個節點（{e}）",
-                     "fix": "need_goal(action=set, goal=…) 重寫樹根（壞檔會自動備份）", "block": True})
-        doc = None
-    tree = _live(doc) if doc else None
-    if doc is not None and not tree:
-        _guard("ask_hint", sid, turn, tool=tool_name, reason="no_tree", mode=mode)
-        hints.append(NO_TREE_HINT)
-        hits.append({"rule": "ASK_LINKED_TO_GOAL", "what": "還沒有需求目標樹", "fix": "這題問完把使用者的答案寫進 need_goal(action=set, goal=…)",
-                     "block": False})
-    links = _links(tree, tool_name, tool_input, state, pending)
-    nid = _all_linked(links)
-    if tree and nid:
-        _update(sid, lambda d: _ask_checkpoint(d, turn, nid), "on_ask", turn)
-    elif tree:
-        # ASK_LINKED_TO_GOAL 只記錄不擋、不送：掛節點是記帳不是判斷，問句看得懂全貌靠推薦與理由
-        link = rr.ask_goal_link_verdict(tree.get("kind"), links)
-        _guard("ask_unlinked", sid, turn, tool=tool_name, tree=tree["id"], kind=tree.get("kind"), mode=mode,
-               owed=link.owed)
-    if view.owed:
-        hints.append(f"[NeedGoal] {rr.format_hit('提問', view)}")
-        hits.append({"rule": view.rule, "what": view.why, "fix": "先 Read 題目點名的部位的檔再問改法", "block": False})
-    if blocks and not after:
-        return "\n\n".join(blocks + hints), None, hits
-    return None, "\n\n".join(blocks + hints) or None, hits
-
-
-def on_ask_full(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any]
-                ) -> Tuple[Optional[str], Optional[str], List[Dict[str, Any]]]:
-    """on_ask 加第三個值：提醒件清單（PreToolUse 查 gate_mode 用，見 _judge_ask）。"""
-    return _judge_ask(sid, tool_name, tool_input, state, after=False)
-
-
-def on_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    """4.4（PreToolUse）：回（擋的理由或 None、提示或 None）。三條規則（wg_release_rules）：
-    ASK_NEEDS_RECOMMENDATION 每一題要附推薦（不分有沒有樹）；ASK_LINKED_TO_GOAL 有樹就要指到節點（編號或原文片段），
-    寫碼類沒指到擋並列節點、知識類只提示、還沒有樹送「問完把答案寫進 need_goal」；ASK_OVERVIEW_BEFORE_DECISION 問改法而
-    還沒讀過部位檔，擋訊息或提示多一句（不單獨擋）。題目含【收尾放行確認】且真有待放行紀錄整題豁免。通過記 checkpoint ask。"""
-    return _judge_ask(sid, tool_name, tool_input, state, after=False)[:2]
-
-
-def ask_key(tool_input: Any) -> str:
-    """沒有 tool_use_id 時用工具輸入的雜湊對應同一次提問（PreToolUse 與 PostToolBatch 兩邊都算得出來）。"""
-    raw = json.dumps(tool_input, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    return "h:" + hashlib.sha1(raw).hexdigest()[:12]
-
-
-def mark_asked(state: Dict[str, Any], tool_use_id: str, tool_input: Any) -> None:
-    """記下這次提問已處理過（tool_use_id 與輸入雜湊），PreToolUse 處理過的 PostToolBatch 不再事後處理。"""
-    seen = [k for k in state.get("need_goal_asks") or [] if isinstance(k, str)]
-    seen += [k for k in (tool_use_id, ask_key(tool_input)) if k and k not in seen]
-    state["need_goal_asks"] = seen[-ASK_IDS_MAX:]
-
-
 def _call_parts(c: Any) -> Tuple[str, Any, str]:
     c = c if isinstance(c, dict) else {}
     return (str(c.get("tool_name") or c.get("name") or ""), c.get("tool_input", c.get("input")) or {},
             str(c.get("tool_use_id") or c.get("id") or ""))
-
-
-def has_ask_calls(tool_calls: Any) -> bool:
-    return any(_call_parts(c)[0] in ASK_TOOLS for c in (tool_calls if isinstance(tool_calls, list) else []))
-
-
-def asks_after(sid: Any, state: Dict[str, Any], tool_calls: Any) -> List[str]:
-    """事後記錄＋提醒（PostToolBatch）：這批裡 PreToolUse 沒處理過的提問，照 on_ask 同一套判斷，只提醒不擋。"""
-    out: List[str] = []
-    for c in tool_calls if isinstance(tool_calls, list) else []:
-        name, inp, tid = _call_parts(c)
-        seen = set(state.get("need_goal_asks") or [])
-        if name not in ASK_TOOLS or (tid and tid in seen) or ask_key(inp) in seen:
-            continue
-        mark_asked(state, tid, inp)
-        _deny, hint, _hits = _judge_ask(sid, name, inp, state, after=True)
-        if hint:
-            out.append(hint)
-    return out
 
 
 # ─── PostToolBatch：合併送出 ───────────────────────────────────────────────
@@ -581,13 +317,12 @@ def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> Tuple[List[str], bool]:
 
 
 def batch_due(state: Dict[str, Any], tool_calls: Any) -> bool:
-    """PostToolBatch 要不要跑 batch_lines：讀檔標了待送、同檔改多次到門檻、這批有提問或外部主張（不讀目標檔）。"""
-    return (bool(state.get("need_goal_batch")) or multi_edit_due(state) or has_ask_calls(tool_calls)
-            or bool(claim_calls(tool_calls)))
+    """PostToolBatch 要不要跑 batch_lines：讀檔標了待送、同檔改多次到門檻、這批有外部主張（不讀目標檔）。"""
+    return bool(state.get("need_goal_batch")) or multi_edit_due(state) or bool(claim_calls(tool_calls))
 
 
 def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str, Any]) -> List[str]:
-    """PostToolBatch：讀入範圍待送的合併成一則（一回合最多一則，留下的下一回合第一批送）、同檔改多次提醒、事後的提問提醒。"""
+    """PostToolBatch：讀入範圍待送的合併成一則（一回合最多一則，留下的下一回合第一批送）、同檔改多次提醒、外部主張。"""
     if not cfg.get("enabled", True):
         return []
     turn = int(state.get("turn_seq", 0) or 0)
@@ -606,9 +341,6 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
             lines += sent
         if left:
             state["need_goal_batch"] = True   # 這回合送過了：留到下一回合第一批
-    if has_ask_calls(tool_calls):
-        lines += asks_after(sid, state, tool_calls)
-        _ask_audit(sid, state, tool_calls, turn)
     claims = claim_calls(tool_calls)
     if claims:
         kinds = "、".join(dict.fromkeys(k for k, _s in claims))

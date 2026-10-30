@@ -35,6 +35,16 @@ def _points_module() -> Any:
         return None
 
 
+def _ask_module() -> Any:
+    """提問閘模組（事後提醒與審計）；載不進來 → stderr 一行、回 None（這批的提問提醒停）。"""
+    try:
+        import wg_ask_gate
+        return wg_ask_gate
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Ask] 提問閘模組載入失敗，事後提醒停用：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
 def _closing_round(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> tuple:
     """收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、交收尾檢核那批附上收尾要問的、第二意見跑完接上。
     回 (段落, state 有沒有改)；載入失敗 → stderr 一行、這批不做（收尾照舊在 Stop 送）。"""
@@ -333,8 +343,11 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     # 子代理的工具批次（hook 輸入帶 agent_id）：目標樹是主 session 的——不送讀入範圍、同檔多次、提問、外部主張的提醒，
     # 壓縮後要重送的樹也留給主 session
     sub = bool(input_data.get("agent_id"))
-    ngp = _points_module() if state and v6 and not sub and coding_turn(state, config) else None   # 規則 CODING_TURN_ONLY
+    coding = bool(state) and v6 and not sub and coding_turn(state, config)    # 規則 CODING_TURN_ONLY
+    ngp = _points_module() if coding else None
     goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
+    ask = _ask_module() if coding else None
+    ask_due = bool(ask) and ask.has_ask_calls(input_data.get("tool_calls"))
     close_parts, close_changed = _closing_round(state, session_id, input_data, config) if state and v6 and not sub else ([], False)
     remind_lines, remind_changed = ([], False)
     if state and v6 and not sub:
@@ -346,7 +359,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
         or (v6 and (state.get("pending_reinjection_overview") or (state.get("pending_reinjection_goal") and not sub)))
-        or goal_due or close_parts or close_changed or remind_lines or remind_changed
+        or goal_due or ask_due or close_parts or close_changed or remind_lines or remind_changed
     ):
         output_nothing()
         return
@@ -402,6 +415,13 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                                              _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state))))
             except Exception as e:  # noqa: BLE001
                 print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+
+        # (3a) 提問的事後提醒與審計（PreToolUse 沒處理到的提問）：判不了只寫 stderr，不擋其他段
+        if ask_due:
+            try:
+                parts.extend(ask.batch_lines(session_id, state, input_data.get("tool_calls")))
+            except Exception as e:  # noqa: BLE001
+                print(f"[Guardian:Ask] post_tool_batch 提問提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
 
         parts.extend(close_parts)     # (4) 收尾一輪：收尾前附的拐彎判斷、最該修，第二意見跑完的提醒
         parts.extend(remind_lines)    # (5) 收尾類守門的提醒（REMIND_ON_PRIOR_RESULT）：每規則每對象每 session 一行

@@ -612,12 +612,11 @@ def test_pretool_deny_data_file_gets_e20_card(ptu_world, tmp_path, monkeypatch, 
 
 def test_pretool_hint_ask_overview_is_remind_not_card(tmp_path, monkeypatch, logs):
     """提問只提醒、不擋（ASK_OVERVIEW_BEFORE_DECISION）那條路：v6 開著改掛下一個工具結果（REMIND_ON_PRIOR_RESULT）——
-    PreToolUse 什麼都不送（不 deny、不 additionalContext），guard-need_goal 留 event=remind；判準卡（E05）不在這裡接、
+    PreToolUse 什麼都不送（不 deny、不 additionalContext），guard-ask 留 event=remind；判準卡（E05）不在這裡接、
     guard-entry 也不記。v6 關時提示照舊從 PreToolUse 送，原文逐字、不接卡（判準卡是 v6 才有）。"""
-    import wg_need_goal
-    import wg_need_goal_points
+    import wg_ask_gate
     from handlers import pre_tool_use as ptu
-    hint = "[NeedGoal] ✗ (提問) ASK_OVERVIEW_BEFORE_DECISION：題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問"
+    hint = "[Guardian:Ask] ✗ (提問) ASK_OVERVIEW_BEFORE_DECISION：題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問"
     hits = [{"rule": "ASK_OVERVIEW_BEFORE_DECISION", "what": "題目提到的部位還沒讀過檔", "fix": "先讀過部位檔再問", "block": False}]
     outputs = []
 
@@ -631,14 +630,13 @@ def test_pretool_hint_ask_overview_is_remind_not_card(tmp_path, monkeypatch, log
     monkeypatch.setattr(ptu, "output_json", _out)
     monkeypatch.setattr(ptu, "output_nothing", _nothing)
     monkeypatch.setattr(ptu, "read_state_status", lambda sid: ({"turn_seq": 4}, "missing"))
-    monkeypatch.setattr(wg_need_goal, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
-    monkeypatch.setattr(wg_need_goal_points, "on_ask_full", lambda *a, **k: (None, hint, hits))
+    monkeypatch.setattr(wg_ask_gate, "on_ask_full", lambda *a, **k: (None, hint, hits))
     _pool(monkeypatch, [_card(tmp_path, "ask-card", triggers=["x"], entry=["E05"], knowledge=["- [臨] 改法選擇先讀部位再問。"])])
     ask = {"session_id": SID, "tool_name": "AskUserQuestion", "tool_input": {"questions": []}}
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use(ask, {})
     assert outputs[-1] is None                                                        # v6 開：PreToolUse 不送
-    rem = [r for r in _ledger(logs, "need_goal") if r.get("event") == "remind"]
+    rem = [r for r in _ledger(logs, "ask") if r.get("event") == "remind"]
     assert [r["rule"] for r in rem] == ["ASK_OVERVIEW_BEFORE_DECISION"] and rem[0]["session_id"] == SID
     assert not _ledger(logs)                                                          # 卡沒送就沒切入點帳
     monkeypatch.setenv("WG_V6", "0")

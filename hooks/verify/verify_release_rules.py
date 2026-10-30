@@ -1503,26 +1503,6 @@ def test_c_g16_ask_recommendation_message_names_missing_question_and_example():
     assert '"label": "甲 (Recommended)"' in fix and "建議：選 甲" in fix
 
 
-def test_c_g16_ask_linked_to_goal_by_id_or_fragment():
-    """ASK_LINKED_TO_GOAL：節點原文連續 8 字以上算指到（編號由 wg_need_goal.node_ref 判）；短於 8 字的節點只能寫編號。"""
-    nodes = {"T1": "人只做真正的決定", "T1.1": "提問的每一題都附推薦選項或建議句", "T1.2": "短節點"}
-    assert rr.node_fragment_ref(nodes, "這題是為了「每一題都附推薦選項」那件事") == "T1.1"
-    assert rr.node_fragment_ref(nodes, "人只做真正的決定") == "T1"               # 剛好 8 字
-    assert rr.node_fragment_ref(nodes, "每一題都附推薦") is None                     # 7 字不夠
-    assert rr.node_fragment_ref(nodes, "短節點相關") is None                         # 節點本身不到 8 字
-    assert rr.node_fragment_ref(nodes, "人只做 真正的決定") == "T1"                 # 空白不算字
-    assert not rr.ask_goal_link_verdict("code", [("第 1 題", "T1.1")]).owed
-    assert rr.ask_goal_link_verdict("code", [("第 1 題", None)]).owed
-    assert not rr.ask_goal_link_verdict("knowledge", [("第 1 題", None)]).owed
-    assert not rr.ask_goal_link_verdict(None, [("第 1 題", None)]).owed             # 沒樹不擋
-    v = rr.ask_goal_link_verdict("code", [("第 1 題", "T1"), ("第 2 題「保留多久？」", None)])
-    assert v.owed and "第 2 題「保留多久？」" in rr.format_hit("提問", v) and "第 1 題" not in rr.format_hit("提問", v)
-    assert rr.ask_audit_note(None, None) == "提問未掛目標（知識類）"
-    assert rr.ask_audit_note("knowledge", None) == "提問未掛目標（知識類）"
-    assert rr.ask_audit_note("code", None) == "提問未掛目標（寫碼類）"
-    assert rr.ask_audit_note("code", "T1") is None
-
-
 def test_knowledge_light_tree_and_reconcile_rules():
     """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE／KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：各一個會紅的案例＋反例。"""
     v = rr.knowledge_light_tree_verdict(["C:/p/notes.md", "C:/p/plan.md"])
@@ -1534,19 +1514,6 @@ def test_knowledge_light_tree_and_reconcile_rules():
     assert not rr.knowledge_reconcile_verdict("code", ["C:/p/a.py"]).owed               # 寫碼類歸 (f2)
     assert not rr.knowledge_reconcile_verdict(None, ["C:/p/notes.md"]).owed
     assert {"KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"} <= set(rr.RULES)
-
-
-def test_c_g16_ask_linked_to_goal_units_per_question_without_header():
-    """codex BLOCK 1／WARN：每一題各自一個單位（題目＋選項 label 與描述，不含 header）；待放行時放行題不算單位。"""
-    ti = {"questions": [{"question": "要哪種格式？", "header": "T1", "options": [{"label": "CSV", "description": "掛 T1.1"}]},
-                        {"question": "保留多久？", "header": "h", "options": [{"label": "7 天", "description": "x"}]}]}
-    units = rr.ask_link_units(ti, False, REL_TAG, REL_OPTS)
-    assert [u[0] for u in units] == ["第 1 題「要哪種格式？」", "第 2 題「保留多久？」"]
-    assert "T1.1" in units[0][1] and "T1" not in units[1][1]                     # header 的 T1 不算
-    rel = _ask((f"{REL_TAG} 要放行這一回合嗎？", list(REL_OPTS)), ("要哪種格式？", ["CSV"]))
-    assert [u[0] for u in rr.ask_link_units(rel, True, REL_TAG, REL_OPTS)] == ["第 2 題「要哪種格式？」"]
-    assert len(rr.ask_link_units(rel, False, REL_TAG, REL_OPTS)) == 2
-    assert rr.ask_link_units({"questions": "壞掉"}, False, REL_TAG, REL_OPTS) == []
 
 
 def test_c_g16_ask_release_only_is_structural():

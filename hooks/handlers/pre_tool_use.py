@@ -1785,10 +1785,10 @@ def _chain_halt(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: s
     return chain_store.halt(chain[0], chain[1], tool_name, input_data, config, readonly=readonly)
 
 
-def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """需求目標 4.4（AskUserQuestion／ExitPlanMode 前）：有目標樹就要題目或計畫裡寫節點編號；寫碼類沒寫 deny 並列節點，
-    知識類與還沒有樹只補提示（wg_need_goal_points.on_ask）。子代理不跑（裁判子 session 由 dispatcher 分去
-    handle_judge_pre_tool_use，到不了這裡）。處理過的提問記進 state["need_goal_asks"]，PostToolBatch 就不再事後處理。
+def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """提問閘（AskUserQuestion／ExitPlanMode 前，wg_ask_gate.on_ask_full）：沒附推薦照 GATE_MODE_TABLE 擋或改提醒，
+    問改法而還沒讀過部位檔附一句。子代理不跑（裁判子 session 由 dispatcher 分去 handle_judge_pre_tool_use，到不了這裡）。
+    處理過的提問記進 state["ask_handled"]，PostToolBatch 就不再事後處理。
     這支本身炸了 → 照契約擋＋stderr＋守門紀錄 ask_error；只放過【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目
     （放行題問不出去，收尾就死鎖）。"""
     sid = input_data.get("session_id", "") or ""
@@ -1797,13 +1797,9 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
         return
     import wg_release
     try:
-        import wg_need_goal as _ng
-        from wg_need_goal_points import mark_asked, note_ask_blocked, on_ask_full
+        from wg_ask_gate import mark_asked, note_ask_blocked, on_ask_full
         from wg_core import write_state
         state, status = read_state_status(sid)
-        if not _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
-            output_nothing()
-            return
         tool_input = input_data.get("tool_input") or {}
         deny, hint, hits = on_ask_full(sid, tool_name, tool_input, state or {})
         v6 = v6_enabled(config)
@@ -1816,11 +1812,11 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
             if remind:
                 from wg_overview import remind_hit
                 for h in hits:
-                    _remind_later(input_data, state, remind_hit(h["rule"], "", h["what"], h["fix"]), "need_goal")
+                    _remind_later(input_data, state, remind_hit(h["rule"], "", h["what"], h["fix"]), "ask")
             write_state(sid, state)
         elif remind:                              # state 讀不到：只留帳＋stderr（提醒送不出去）
             from wg_overview import remind_hit
-            _remind_later(input_data, None, remind_hit(hits[0]["rule"], "", hits[0]["what"], hits[0]["fix"]), "need_goal")
+            _remind_later(input_data, None, remind_hit(hits[0]["rule"], "", hits[0]["what"], hits[0]["fix"]), "ask")
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         state = read_state(sid) or {}
@@ -1829,27 +1825,27 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
             release_only = _rr.ask_release_only(raw_input, wg_release.RELEASE_TAG,
                                                 (wg_release.OPT_RELEASE, wg_release.OPT_KEEP))
         except Exception as rr_err:  # noqa: BLE001
-            sys.stderr.write(f"[NeedGoal] 放行題判定也壞了，退回只看標記：{type(rr_err).__name__}: {rr_err}\n")
+            sys.stderr.write(f"[Guardian:Ask] 放行題判定也壞了，退回只看標記：{type(rr_err).__name__}: {rr_err}\n")
             release_only = wg_release.RELEASE_TAG in json.dumps(raw_input, ensure_ascii=False)
         release = tool_name == "AskUserQuestion" and release_only and wg_release.pending_any(state, sid)
-        sys.stderr.write(f"[NeedGoal] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
+        sys.stderr.write(f"[Guardian:Ask] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
         try:
             from wg_core import append_guard_log
-            append_guard_log("need_goal", {"event": "ask_error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name,
+            append_guard_log("ask", {"event": "ask_error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name,
                                            "error": err, "released": release})
         except Exception as log_err:  # noqa: BLE001
-            sys.stderr.write(f"[NeedGoal] ask_error 守門紀錄寫不進去：{type(log_err).__name__}: {log_err}\n")
+            sys.stderr.write(f"[Guardian:Ask] ask_error 守門紀錄寫不進去：{type(log_err).__name__}: {log_err}\n")
         if release:
             output_nothing()
             return
         if _rr.gate_mode("GATE_SELF_ERROR", v6_enabled(config)) == _rr.BLOCK:
-            _deny(input_data, config, (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
-                                       "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
+            _deny(input_data, config, (f"[Guardian:Ask] 提問前檢查壞了，判不了這題有沒有附推薦，一律擋（{err}）。"
+                                       "修好 hooks/wg_ask_gate.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
             return
         # 規則 GATE_SELF_ERROR：閘自己壞＝判不了 → 不擋，下一個工具結果附一行、stderr 與 ask_error 留帳已在上面
-        hit = {"rule": "GATE_SELF_ERROR", "obj": "need_goal_ask", "what": f"提問前檢查壞了，判不了這題掛哪個節點（{err}）",
-               "fix": "修好 hooks/wg_need_goal*.py；這題照問", "extra": ""}
-        if _remind_later(input_data, state if state.get("session") else None, hit, "need_goal"):
+        hit = {"rule": "GATE_SELF_ERROR", "obj": "ask", "what": f"提問前檢查壞了，判不了這題有沒有附推薦（{err}）",
+               "fix": "修好 hooks/wg_ask_gate.py；這題照問", "extra": ""}
+        if _remind_later(input_data, state if state.get("session") else None, hit, "ask"):
             from wg_core import write_state as _ws_err
             _ws_err(sid, state)
         output_nothing()
@@ -1907,9 +1903,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                                             "permissionDecisionReason": _halt}})
         return
 
-    # 需求目標 4.4：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
+    # 提問閘：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
     if tool_name in ("AskUserQuestion", "ExitPlanMode"):
-        _need_goal_ask(tool_name, input_data, config)
+        _ask_gate(tool_name, input_data, config)
         return
 
     # G9：MCP 進程沒有 session 身份，second_opinion_start 由這裡補上 hook 輸入的 session_id（updatedInput），pack 才找得到
