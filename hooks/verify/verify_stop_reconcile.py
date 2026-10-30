@@ -863,7 +863,7 @@ def test_self_run_from_sibling_session_counts_and_wraps_through_stop(driven, cap
     assert "CLAIM_FIXED_NEEDS_PASS" in driven("閘修好了，全部完成了。", capsys, **kw)[0]          # 反例：沒收據
 
 
-# ─── 005：SubagentStop 只跑寫碼查核閘、擋到底 ───────────────────────────────────────
+# ─── 005：SubagentStop 只跑寫碼查核閘、擋滿放行留帳（NONINTERACTIVE_RELEASE_AT_BUDGET） ───────────────────────────────────────
 
 @pytest.fixture()
 def sub_stop(monkeypatch):

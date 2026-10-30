@@ -1105,7 +1105,7 @@ def _code_gate_no_ask(input_data: Dict[str, Any], config: Dict[str, Any], state:
                       receipt_key: str, own: List[Dict[str, Any]], transcript_path: str, why: str,
                       log_extra: Dict[str, Any], unknown: Optional[List[Dict[str, Any]]] = None) -> None:
     """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)～(d)），
-    跟主 session 同一份預算（每個使用者回合 reconcile_gate.max_blocks_per_turn 次，規則 SUBAGENT_SAME_BUDGET）：擋滿就放行、
+    跟主 session 同樣形狀的預算（每個使用者回合 reconcile_gate.max_blocks_per_turn 次，規則 NONINTERACTIVE_RELEASE_AT_BUDGET）：擋滿就放行、
     留帳 event=*_released，主 session 收尾照看這些改檔。未知寫入只留帳不擋（UNKNOWN_TARGET_LOGGED）。(e) 與其他 Stop 閘不跑。
     (d) 不看措辭：沒有收尾文字（transcript 讀不到）也照判。headless 主 session 走 handle_stop，擋滿同樣放行留帳。"""
     session_id = input_data.get("session_id", "") or ""

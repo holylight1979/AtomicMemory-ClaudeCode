@@ -558,7 +558,7 @@ def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
     assert own == [], f"hook 模組各自留了 pythonw→python.exe 的對應：{own}（一律呼叫 wg_core.hook_python_exe）"
 
 
-# ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
+# ─── ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
 
 def test_045_vcs_root_unreadable_is_owed_not_outside_vcs():
     v = rr.vcs_unreadable_verdict("a.py", "PermissionError: [WinError 5]")
@@ -664,7 +664,7 @@ def test_003_session_scratch_not_code_excluded_from_case_debt(tmp_path, monkeypa
     assert vl.case_debt(mods, 3, cfg, lambda p: None) == []
 
 
-# ─── B10 DPM_WORKTREE_DELIVERY ─────────────────────────────────────────────────
+# ─── B10 DeepPostMortem 指令不分在不在 worktree ─────────────────────────────────────────────────
 
 def test_045_dpm_instruction_text_same_for_every_session():
     """DeepPostMortem 指令不分在不在 worktree：一律叫 atom_write 補 post-mortem；證據行接在標頭下一行。"""
