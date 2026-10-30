@@ -722,3 +722,4 @@
 | 寫碼守門開關會改記憶系統的收尾閘-關時九道記憶收尾閘照擋-開時反而只提醒且只在寫碼回合-背景收割與hook計時降級只在開時有 | _AIDocs/_atoms/MemDev/寫碼守門閘/寫碼守門開關會改記憶系統的收尾閘-關時九道記憶收尾閘照擋-開時反而只提醒且只在寫碼回合-背景收割與hook計時降級只在開時有.md | 守門開關, 兩層, 收尾擋, KnowledgeHarvest 擋, gate_mode, 背景收割, hook 計時, 跨層 | global |  |
 | feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移 | memory/Failures/思考與決策/feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移.md | 轉述, 子代理回報, agent 回報, 離題, 飄移, 瞎猜 | global |  |
 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 | memory/CC與原子記憶契約/claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐.md | rules 檔, paths:, 條件載入, 常駐 token, 必載檔瘦身, path-scoped rule, CLAUDE.md import | global |  |
+| feedback-開發期驗證要下在刀口上不是能免則免-決定品質的次數不減-要快就拆工並行 | memory/Failures/驗證與實證/feedback-開發期驗證要下在刀口上不是能免則免-決定品質的次數不減-要快就拆工並行.md | 驗證刀口, 刀口, 能免則免, 量測次數, 減少次數, 拆工, 開發期驗證 | global |  |
