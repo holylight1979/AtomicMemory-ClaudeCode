@@ -2424,6 +2424,7 @@ flowchart TD
       - Edit／Write／Bash／PowerShell 的 PreToolUse 先補：閘要讀檔證據；提示存 `state.read_replay_hints`。
       - 任何非 Read 的 PostToolUse 再補，並把提示附在那則工具結果。
     - Bash／PowerShell／Grep 的唯讀照走完整路徑。
+    - 平行的 Read 同時追加、補帳同時取走：兩邊都握 `workflow/read-log-<sid>.lock`（Windows msvcrt 鎖 1 byte、其他平台 flock，等不到 2 秒照寫並 stderr）；補帳在鎖裡讀完再刪檔，等不到鎖或清不掉就整份留給下一個事件。不鎖時 Windows 的 append（移到檔尾、再寫兩步）會互蓋。
 
 ##### matcher `Edit|Write|Bash|ExitPlanMode|EnterPlanMode`
 - **掛的 hook**：codex（3 秒）。

@@ -7,6 +7,7 @@
 改在下一個非 Read 事件（任何工具的 PreToolUse、非 Read 的 PostToolUse、SessionEnd）先 drain 這份 log、逐筆交給既有函式補帳——
 結果一樣、晚一個事件出現；提示隨那個事件的工具結果附上（PreToolUse 補出來的先存 state["read_replay_hints"]，下一個 PostToolUse 送）。
 Bash／PowerShell／Grep 的唯讀照走原路徑。寫碼守門關、守門整個關：補帳端照 dispatcher 原本的判法丟掉（Read 本來就不進 handler）。
+平行的 Read 同時追加、drain 同時取走：兩邊都握 read-log 的鎖（`read-log-<sid>.lock`），一筆都不互蓋、不漏補。
 本檔只准 import 標準庫與 lib/project_root（資料根的唯一算法）；快路徑的門檻就是「不載 wg_core」。
 """
 from __future__ import annotations
@@ -25,10 +26,55 @@ WORKFLOW_DIR = claude_data_dir() / "workflow"          # 與 wg_core.WORKFLOW_DI
 FAST_TOOLS = ("Read",)
 HINTS_KEY = "read_replay_hints"                         # PreToolUse 補帳補出來的提示，等下一個 PostToolUse 送
 _ERR_HEAD = 200                                        # 讀失敗的回應只留開頭（補帳時只看有沒有錯）
+_LOCK_POLL_S = 0.002                                   # read-log 鎖拿不到每 2 ms 再試（握鎖只有追加一行、讀完清檔那一下）
+_LOCK_WAIT_S = 2.0                                     # 最多等幾秒
 
 
 def log_path(session_id: str) -> Path:
     return WORKFLOW_DIR / f"read-log-{session_id}.jsonl"
+
+
+def _lock(session_id: str):
+    """read-log 的鎖（Windows msvcrt 鎖 1 byte、其他平台 fcntl.flock，同 wg_core 的 state 鎖；行程結束系統自動放）。
+    要鎖的原因：Windows 的 append 是「移到檔尾、再寫」兩步，平行的 Read 會寫到同一個位置互蓋（8 支行程各追加 300 筆掉三成）；
+    drain 改名或清檔時有人正開著檔在寫，那幾筆也會丟。拿不到每 2 ms 再試到 _LOCK_WAIT_S，仍拿不到回 None。"""
+    path = log_path(session_id).with_suffix(".lock")
+    deadline = time.time() + _LOCK_WAIT_S
+    while True:
+        fh = None
+        try:
+            fh = open(path, "ab")
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fh
+        except OSError:
+            if fh is not None:
+                fh.close()
+        if time.time() >= deadline:
+            return None
+        time.sleep(_LOCK_POLL_S)
+
+
+def _unlock(fh, session_id: str) -> None:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    fh.close()
+    if sys.platform == "win32":    # 同 state 鎖：有人開著就刪不掉＝有人在等；其他平台刪了會讓等的人鎖到另一個檔，留著
+        try:
+            log_path(session_id).with_suffix(".lock").unlink()
+        except OSError:
+            pass
 
 
 def is_fast_read(input_data: Dict[str, Any]) -> bool:
@@ -80,13 +126,22 @@ def event_of(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def log_read(input_data: Dict[str, Any]) -> None:
-    """快路徑本體：追加一行就走。裁判子 session 不記。寫不進去只 stderr（可觀測性鐵律），不阻斷。"""
+    """快路徑本體：握 read-log 的鎖追加一行就走。裁判子 session 不記。鎖等不到照樣追加、寫不進去，都只 stderr（可觀測性鐵律），不阻斷。"""
     if os.environ.get("CLAUDE_COMPANION_JUDGE"):
         return
+    sid = str(input_data["session_id"])
+    line = json.dumps(entry_of(input_data), ensure_ascii=False) + "\n"
     try:
         WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
-        with open(log_path(str(input_data["session_id"])), "a", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps(entry_of(input_data), ensure_ascii=False) + "\n")
+        fh = _lock(sid)
+        if fh is None:
+            print("[Guardian:ReadFastPath] read-log 的鎖等不到，這筆照樣追加（同時落檔的 Read 可能互蓋）", file=sys.stderr)
+        try:
+            with open(log_path(sid), "a", encoding="utf-8", newline="\n") as f:
+                f.write(line)
+        finally:
+            if fh is not None:
+                _unlock(fh, sid)
     except OSError as e:
         print(f"[Guardian:ReadFastPath] read-log 寫不進去（這次讀檔不會被補帳）：{e}", file=sys.stderr)
 
@@ -100,33 +155,31 @@ def pending(session_id: str) -> bool:
 
 
 def drain(session_id: str) -> List[Dict[str, Any]]:
-    """取走並清掉這個 session 累積的 Read（照落檔順序）。先把檔改名再讀：改名之後才來的 Read 會寫進新檔、下次再補；
-    平行的 Read 正握著檔在 append 時改名會失敗（Windows 不共享刪除），重試幾次，仍不行就讀完截斷（中間落進來的那幾筆會丟，stderr 說一聲）。"""
+    """取走並清掉這個 session 累積的 Read（照落檔順序）。握著 read-log 的鎖讀完再刪檔：追加也握同一把鎖，讀到刪之間沒人寫得進來，
+    之後才來的 Read 寫進新檔、下次再補；刪不掉（別的程式開著）就截斷。鎖等不到、讀不到或清不掉 → 這次回空、stderr 說一聲，
+    帳整份留在檔裡給下一個事件補（不丟、也不重補）。"""
     src = log_path(session_id)
     if not pending(session_id):
         return []
-    tmp = src.with_suffix(f".{os.getpid()}.replaying")
-    moved = False
-    for _ in range(5):
-        try:
-            os.replace(src, tmp)
-            moved = True
-            break
-        except FileNotFoundError:
-            return []
-        except OSError:
-            time.sleep(0.01)
-    try:
-        if moved:
-            text = tmp.read_text(encoding="utf-8")
-            tmp.unlink(missing_ok=True)
-        else:
-            text = src.read_text(encoding="utf-8")
-            open(src, "w", encoding="utf-8").close()
-            print("[Guardian:ReadFastPath] read-log 改名不了（平行 Read 握著），改成讀完截斷；這一瞬落進來的 Read 可能沒補到帳", file=sys.stderr)
-    except OSError as e:
-        print(f"[Guardian:ReadFastPath] read-log 讀不到（這批 Read 沒補帳）：{e}", file=sys.stderr)
+    fh = _lock(session_id)
+    if fh is None:
+        print("[Guardian:ReadFastPath] read-log 的鎖等不到，這批 Read 留到下一個事件再補帳", file=sys.stderr)
         return []
+    try:
+        text = src.read_text(encoding="utf-8")
+        try:
+            src.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            open(src, "w", encoding="utf-8").close()
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        print(f"[Guardian:ReadFastPath] read-log 讀不到或清不掉（這批 Read 留到下一個事件再補帳）：{e}", file=sys.stderr)
+        return []
+    finally:
+        _unlock(fh, session_id)
     out: List[Dict[str, Any]] = []
     for line in text.splitlines():
         line = line.strip()
