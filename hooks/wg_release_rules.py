@@ -3187,7 +3187,7 @@ RULES.update({
     "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋（wg_overview.write_check）。",
     "OVERVIEW_HUB_UNDER_V6": "OverviewHub 的讀檔帳、唯讀路徑檢查與讀它設定的閘綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，"
                              "不記、不擋。",
-    "REMIND_PENDING_IN_STATE": "工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法、順帶要送的全文），"
+    "REMIND_PENDING_IN_STATE": "工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法），"
                                "下一個工具結果（PostToolUse）取走：該提醒的併進 additionalContext、記進 remind_sent；送過的只留帳不重送"
                                "（wg_overview.remind_queue／remind_flush）。state 寫不進去就只 stderr＋留帳，不改用 PreToolUse 送。"
                                "remind_sent 是**一份清單**（元素 remind_key(規則, 對象)；state 本來就一 session 一檔，不按 session 分桶），"
@@ -3275,9 +3275,9 @@ def remind_due(sent: Iterable[str], rule: str, obj: Any = "") -> bool:
 
 # ─── 非寫碼回合不介入（判定在各自的模組：ups_inject._lean_turn、wg_data_file.gate／read_hint；這裡只登錄） ───
 RULES.update({
-    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的兩個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔；"
+    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的兩個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或有判不出目標的寫入；"
                                 "prompt 關鍵字意圖不算）。① 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；② 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
-                                "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session；讀檔提示另外在 prompt 關鍵字判成寫碼類時也先送，提示要趕在第一次改檔前），"
+                                "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session；讀檔提示另外在 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時也先送，提示要趕在第一次改檔前），"
                                 "否則放行、留帳 skipped_non_coding。",
 })
 RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE 建表之後：說明型規則，不是擋點（GATE_MODE_TABLE 要每條都有送法）

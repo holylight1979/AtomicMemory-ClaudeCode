@@ -73,7 +73,7 @@ VALID_SOURCES = frozenset({
     "tool:quote-cleanup",  # 刪掉被回填成一兩個字回覆的 Quote 行（tools/quote-cleanup.py）
     "tool:migrate",
     "tool:overview-map-scaffold",  # 從零掃表：產 <專案>/.claude/overview-map.md 草稿與導讀卡骨架
-    "tool:scorecard",  # scorecard：每 session 一行過程量、榜單候選卡
+    "tool:scorecard",  # 舊稽核帳裡有這個來源值，留著讓舊帳照讀；目前沒有工具用它寫
     "tool:sync-atom-index",
     "tool:sync-memory-index",
     "tool:atom-io-audit",  # 稽核帳壞行修復（tools/atom-io-audit.py --repair 改寫的那幾行標這個來源）

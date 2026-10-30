@@ -76,7 +76,7 @@
 | `guard.smell_gate.anon_body_block_lines` / `anon_body_list_lines` / `nesting_block_depth` | 20 / 10 / 4 | 病形閘門檻（[§7.5](../TECH.md#75-其他守門) SmellGate） |
 | `verify_ledger.enabled` / `sentinel_regex` | true / PASS／FAIL／DONE 兩條＋pytest 映射 | 哨兵收據入帳（[§7.1 收據](../TECH.md#收據)） |
 | `overview_hub.*` | 見下方補充 | 部位表設定：權威地圖、等值與熱路徑閘、svn 提交測試路徑閘（合併順序見[附錄 設定來源](../TECH/guards.md#設定來源)） |
-| `scorecard.*` / `refix_churn.*` / `overview_scaffold.*` | — | 過程量報表、反覆修熱點、部位表掃骨架的參數（[§8](../TECH.md#8-可觀測與自我維護)） |
+| `refix_churn.*` / `overview_scaffold.*` | — | 反覆修熱點、部位表掃骨架的參數（[§8](../TECH.md#8-可觀測與自我維護)） |
 
 - **`guard.commit_order.*`：口令判定**
   - 本回合使用者原話（`state.turn_prompts`，含 mid-turn 排隊訊息；Stop 關回合）無任一口令 → deny。

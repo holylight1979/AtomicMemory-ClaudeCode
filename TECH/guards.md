@@ -1182,7 +1182,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 #### 四件事實全成立才管
 - **(a) 副檔名**：
-  - 不是程式檔（`wg_code_path.writes_code`），且副檔名在 `guard.data_file_ask.extensions`
+  - 不是程式檔（`wg_code_path.is_code_path`），且副檔名在 `guard.data_file_ask.extensions`
   - 預設 `.json .jsonc .yaml .yml .toml .ini .cfg .conf .env .csv .tsv .xml .properties .plist .md`
   - `_AIDocs`／`memory`／`.claude` 目錄底下的 `.md` 是系統文件，不問
   - 設定給了就整份取代；清單只決定要不要問，該不該改由 AI 判
@@ -1359,6 +1359,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 沒攔到的由 PostToolBatch 事後提醒
 - **性質**：提醒（照 `RULE_MODE`；事後那條路只提醒）
 - **開關**：跟守門總開關；寫碼守門關時 dispatcher 不把這兩個工具送進 PreToolUse，PostToolBatch 也不跑這段
+- **閘自己出錯**：判不了這題，提問照放；stderr 一行、帳記 `ask_error`，下一個工具結果附一行（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）；【收尾放行確認】而且真有待放行紀錄的題目照放、不附提醒
 - **原則**：人只做真正的決定，而且看懂全貌才拍板
 
 #### 兩條規則（§7.8）

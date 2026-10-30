@@ -1958,7 +1958,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
             ├─ 寫入目標解析、口令與隱私閘、收據入帳
             └─ ［寫碼守門］宣告閘、Depends 召回
 
-每次收尾    Stop（上限 20s；另有 codex_companion 150s）
+每次收尾    Stop（上限 20s；另有 codex_companion 20s）
             ├─ 同步提醒、知識收割、紅測閘（守門關時跑舊版）
             ├─ ［寫碼守門］§7.1 的其餘閘依序跑
             └─ 閱讀路徑丟背景行程，不佔 hook 時間
@@ -2469,7 +2469,7 @@ flowchart TD
 
 #### Stop
 - **matcher**：—
-- **掛的 hook**：guardian（20 秒）、codex（150 秒）、[`lang_guard.py`](hooks/lang_guard.py)（5 秒）。
+- **掛的 hook**：guardian（20 秒）、codex（20 秒）、[`lang_guard.py`](hooks/lang_guard.py)（5 秒）。
 - **職責**：
   - **先做**：問連鎖斷路器（[§7.12](#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）。
   - **再依序跑**：紅測、寫碼查核、拐彎判斷、等值與熱路徑、退縮歸屬、知識收割、收尾自清、收尾檢核、Reload 建議、同步閘、卡片表態、深度檢討、順手點出最該修。
@@ -3885,7 +3885,6 @@ svn：svn_update_targets
   - 效果報表
   - 工具自測：`tool_selftests` 列的指令每週跑一次，例：[`tools/config-consistency.py`](tools/config-consistency.py) 量設定鍵在各執行端是否一致
   - 寫碼查核擋滿與使用者放行（列紅）
-  - 過程量 scorecard
   - 換行殘留
   - Depends 覆蓋率（`depends_coverage_min`）
   - 來源防腐
@@ -4153,7 +4152,6 @@ svn：svn_update_targets
 - **清單**：
   - [`skills/console/scripts/selfscore.py --summary`](skills/console/scripts/selfscore.py)：自檢評分走勢
   - [`tools/text-score-weekly.py`](tools/text-score-weekly.py)：文字評分週彙總（[§7.11](#711-文字規格評分g15toolstext-scorepy)）
-  - [`tools/scorecard-report.py`](tools/scorecard-report.py)：過程量
   - [`tools/hook-timing.py`](tools/hook-timing.py)：hook 耗時
   - [`tools/config-consistency.py`](tools/config-consistency.py)：設定鍵一致性
 - **輸出約定**：尾行一律 `<NAME> DONE k=v`，數字是尺，不是判決
