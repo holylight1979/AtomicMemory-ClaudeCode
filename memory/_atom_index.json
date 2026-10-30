@@ -13860,6 +13860,24 @@
         "path:~/.claude/hooks/wg_release_rules.py",
         "path:~/.claude/hooks/handlers/stop.py"
       ]
+    },
+    {
+      "name": "feedback-評ai分析先看結論有沒有服務原題目標不看格式-轉交題目只放使用者原話不夾自己的限制-退版紀錄先讀理由不當禁令",
+      "path": "memory/Failures/思考與決策/feedback-評ai分析先看結論有沒有服務原題目標不看格式-轉交題目只放使用者原話不夾自己的限制-退版紀錄先讀理由不當禁令.md",
+      "triggers": [
+        "評估分析",
+        "判分",
+        "轉交 prompt",
+        "出題",
+        "改目標",
+        "退版",
+        "否決紀錄",
+        "被帶歪"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-現有程式只證明現況不證明應然-讀碼前先寫需求與最簡形狀-批判要對理想形狀不對現況-否則會被大量既有程式帶歪去模仿"
+      ]
     }
   ]
 }
