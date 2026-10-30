@@ -12,14 +12,13 @@
 
 | 鍵 | 預設 | 意義 |
 |----|------|------|
-| `coding_guard.enabled` / `coding_turn_only` / `slim_reminders` | false / true / true（後兩個沒寫＝true） | 寫碼守門總開關與兩個退回開關 |
+| `coding_guard.enabled` / `coding_turn_only` | false / true（後者沒寫＝true） | 寫碼守門總開關與退回開關 |
 | `stop_gate_max_blocks` / `min_files_to_block` | 2 / 2 | Stop 閘每使用者回合最多擋幾次／幾檔以上才擋 |
 | `chain_breaker.enabled` / `depth_alarm` / `max_depth` / `max_same_gate` / `snapshot_max_bytes` / `snapshot_max_files` / `restore_retries` | true / false / 2 / 2 / 5000000 / 200 / 3 | 連鎖斷路器（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)），寫碼守門開才跑 |
 
-- **`coding_guard.enabled` / `coding_turn_only` / `slim_reminders`**：
+- **`coding_guard.enabled` / `coding_turn_only`**：
   - 守門總開關見 [§7](../TECH.md#7-守門與收尾) 開頭；`WG_CODING_GUARD=1`／`0` 優先。
   - `coding_turn_only=false`：退回每回合都啟動寫碼守門（[§11.2](../TECH.md#112-寫碼守門的減量原則) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）。
-  - `slim_reminders=false`：退回需求目標提示每則附三種情況全文與樹根一行（[§7.7](../TECH.md#77-需求目標樹need_goal)「重看」、[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) [CRITIQUE_CASES_ONCE_PER_SESSION](../TECH/release-rules.md#critique_cases_once_per_session)／[TREE_LINE_IN_HINTS](../TECH/release-rules.md#tree_line_in_hints)）。
 - **`stop_gate_max_blocks` / `min_files_to_block`**：
   - 這是共用擋次的 Stop 閘：一個使用者回合最多擋幾次／幾檔以上才擋。
   - 寫碼守門開時每個使用者回合重新計次；寫碼守門關時整個 session 累計。
@@ -33,10 +32,9 @@
 
 | 鍵 | 預設 | 意義 |
 |----|------|------|
-| `reconcile_gate.block_letters` / `goal_gate` / `max_blocks_per_turn` | ["a","d"] / false / 2 | 寫碼查核（[§7.1](../TECH.md#71-stop-閘序)）的擋收尾範圍 |
+| `reconcile_gate.block_letters` / `max_blocks_per_turn` | ["a","d"] / 2 | 寫碼查核（[§7.1](../TECH.md#71-stop-閘序)）的擋收尾範圍 |
 | `aec.scan_report_gate` / `hud_stale_s` | false / 75 | 沒交收尾檢核擋不擋收尾／HUD 幾秒沒更新算死 |
 | `atom_audit.enabled` | false | 卡片表態閘（[§7.1](../TECH.md#71-stop-閘序) AtomAudit） |
-| `second_opinion.auto.enabled` / `min_code_files` / `min_changed_lines` / `risky_prefixes` / `max_blocks_per_turn` / `background` | true / 4 / 150 / [] / 1 / true | 大任務收尾自動要求第二意見（[§7.1](../TECH.md#71-stop-閘序) SecondOpinion） |
 | `pick_one.enabled` / `pre_close` | true / true | 交付時順手點出最該修的一件（[§7.1](../TECH.md#71-stop-閘序) PickOne） |
 | `acceptance_regression_hint.enabled` | true | 驗收真命中後建議補測試（[§7.1](../TECH.md#71-stop-閘序) 迴歸提示） |
 | `reading_path.early_start` | true | 改程式檔那批跑完就起跑拐彎判斷量測（[§7.1](../TECH.md#71-stop-閘序) ReadingPath） |
@@ -49,14 +47,11 @@
 | `docdrift.path_mappings` / `self_path_mappings` | 空 / hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移（[§7.5](../TECH.md#75-其他守門) DocDrift）的路徑對應 |
 | `codex_companion.soft_gate.handoff_review` / `handoff_review_v6` | true / false（後者只在程式預設） | Codex 接續單自檢（[§5.7](../TECH.md#57-其他注入來源同一-additionalcontext)） |
 
-- **`reconcile_gate.block_letters` / `goal_gate` / `max_blocks_per_turn`**（[§7.1](../TECH.md#71-stop-閘序)）：
+- **`reconcile_gate.block_letters` / `max_blocks_per_turn`**（[§7.1](../TECH.md#71-stop-閘序)）：
   - 只有列出的條目字母擋收尾，其餘照判、只印 stderr（規則 [RECONCILE_BLOCK_LETTERS](../TECH/release-rules.md#reconcile_block_letters)）。
-  - `goal_gate=false`（沒寫也一樣）時，目標樹對照 (f1)～(f4) 與 commit 前的目標對照不擋（[§7.7](../TECH.md#77-需求目標樹need_goal)）。
   - `max_blocks_per_turn`＝紅測與寫碼查核每個使用者回合共用的擋次，不分哪一條規則（[BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)）。
+  - 子代理與裁判子 session 的收尾也用這個擋次（各自計次）：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
   - 另有 `code_exts`（程式檔副檔名）、`verify_case_globs`（案例檔樣式）。
-- **`second_opinion.auto.*`**：
-  - 高風險部位改在部位表標類別 gate；`risky_prefixes` 只給要另列路徑的專案。
-  - `second_opinion` 其餘鍵（model、timeout_s…）管 job 本身。
 - **`pick_one.enabled` / `pre_close`**：`pre_close` 在交收尾檢核那批先附。
 - **`reading_path.early_start`**：改了程式檔那批跑完就起跑拐彎判斷量測，交收尾檢核那批附結果。
 - **`reading_path.remind_only_over_threshold`**：
@@ -77,11 +72,11 @@
 | `sync_reminder.{enabled,max_reminders,unpushed}` | true / 1 / true | Stop 同步閘；unpushed=true 時已 commit 未 push 也擋 |
 | `sync_keywords` | 同步、sync、commit、提交、結束、收工 | 使用者說這些字時注入同步提醒 |
 | `privacy.enabled` / `deny_globs` | true / []（追加；只在程式預設） | git commit 隱私硬閘 |
-| `guard.data_file_ask.enabled` / `old_test_declare.enabled` / `gate_bypass.enabled` / `origin_user_check.enabled` | true / true / true / true | 改資料檔、改舊測試、繞閘的宣告閘（[§7.5](../TECH.md#75-其他守門)）／目標樹「使用者說的」要對得上原話（[§7.7](../TECH.md#77-需求目標樹need_goal)） |
+| `guard.data_file_ask.enabled` / `old_test_declare.enabled` / `gate_bypass.enabled` | true / true / true | 改資料檔、改舊測試、繞閘的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
 | `guard.smell_gate.anon_body_block_lines` / `anon_body_list_lines` / `nesting_block_depth` | 20 / 10 / 4 | 病形閘門檻（[§7.5](../TECH.md#75-其他守門) SmellGate） |
-| `verify_ledger.enabled` / `sentinel_regex` | true / PASS／FAIL／DONE 兩條＋pytest 映射 | 哨兵收據入帳（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| `overview_hub.*` | 見 [§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub) | 部位導讀卡與寫入閘 |
-| `scorecard.*` / `refix_churn.*` / `overview_scaffold.*` | — | 過程量報表、反覆修熱點、部位表掃骨架的參數（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
+| `verify_ledger.enabled` / `sentinel_regex` | true / PASS／FAIL／DONE 兩條＋pytest 映射 | 哨兵收據入帳（[§7.1 收據](../TECH.md#收據)） |
+| `overview_hub.*` | 見下方補充 | 部位表設定：權威地圖、等值與熱路徑閘、svn 提交測試路徑閘（合併順序見[附錄 設定來源](../TECH/guards.md#設定來源)） |
+| `scorecard.*` / `refix_churn.*` / `overview_scaffold.*` | — | 過程量報表、反覆修熱點、部位表掃骨架的參數（[§8](../TECH.md#8-可觀測與自我維護)） |
 
 - **`guard.commit_order.*`：口令判定**
   - 本回合使用者原話（`state.turn_prompts`，含 mid-turn 排隊訊息；Stop 關回合）無任一口令 → deny。
@@ -121,7 +116,7 @@
   - `Git`／`GIT.EXE` 大小寫同判。
   - Bash 工具的 `cd /c/…`、`-C /c/…` 轉成 `C:/…` 再找落點（PowerShell 工具不轉）。
 - **`overview_hub.*`**：
-  - 另有 `overview_hub.min_map.enabled`（無表專案的最小地圖）、`overview_hub.equivalence.enabled`（等值與熱路徑閘）。
+  - `overview_hub.enabled` 管讀到文件檔時的權威地圖注入（`authority_map`，[附錄 Depends 召回](../TECH/guards.md#depends-召回)）；`overview_hub.equivalence.enabled` 管等值與熱路徑閘（[§7.1](../TECH.md#71-stop-閘序) Equivalence）。
   - `overview_hub.svn_test_block.enabled`（svn 提交測試路徑閘，預設關，[§7.5](../TECH.md#75-其他守門)）也在這段。
   - 專案可用 [`.claude/overview-hub.json`](../.claude/overview-hub.json) 覆蓋。
 
@@ -130,8 +125,6 @@
 | 鍵 | 預設 | 意義 |
 |----|------|------|
 | `taxonomy.gate_enabled` | true | create 缺 domain 拒寫 |
-| `entrypoint.inject_budget_tokens` | 400 | 切入點契約（[§7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)）每個切入點各自的判準卡知識段預算 |
-| `entrypoint.inject_budget_total` | 1200 | 同一則問句所有切入點加起來的上限 |
 | `taxonomy.llm_fallback.enabled` / `realm.llm_fallback.enabled` | false / false | 分類只跑決定性詞庫 |
 | `vector_search.enabled` / `service_port` | true / 3849 | 向量服務 |
 | `vector_search.global_layer` / `fusion` | bm25 / rrf | 全域層演算法／融合策略（legacy 回退） |
@@ -174,7 +167,7 @@
   - session_end_flush 仍由 [`session_end.py`](../hooks/handlers/session_end.py) 讀，改 true 會恢復 SessionEnd 全量萃取寫 [臨] atom。
 - **`harvest.enabled` / …**：活動門檻與冷卻；缺整段＝機制關。
 - **`harvest.background` / …**：
-  - true 不擋，產待審候選卡與目標樹進度草稿（[`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py)）。
+  - true 不擋，產待審候選卡（[`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py)）。
   - 模型不在只記 failed、不改用付費模型。
   - false 照舊擋。
 - **`provenance.*`**（[§4.1](../TECH.md#41-atom-卡片格式) Source／Quote、[§8](../TECH.md#8-可觀測與自我維護) 來源自動填與回填 worker）：
@@ -250,7 +243,7 @@
   - 只讀 `roots[0].root`，>1 停用並 stderr。
   - 本機檔另有 `declined`（使用者答過先不接，啟動不再問；舊鍵 `advised` 已不讀）。
 
-### 評分與第二意見
+### 驗收裁判與文字評分
 
 | 鍵 | 預設 | 意義 |
 |----|------|------|
@@ -261,13 +254,12 @@
 | `codex_companion.audit_quota.acceptance_review_min/max` | 6 / 8 | 配額分桶 |
 | `text_score.judge_model_by_backend` / `judge_model` | {rdchat-direct: gemma4:e4b, local: qwen3:4b-instruct-2507-q4_K_M} / gemma4:e4b | G15 文字規格評分（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)）裁判模型 |
 | `text_score.default_spec` / `timeout_sec` / `num_ctx` | reader-designer / 120 / 8192 | 預設規格、裁判逾時、context 長度 |
-| `text_score.enabled` / `min_chars` / `auto_targets` | true / 300 / {final_reply: []} | 只管自動評 |
 
 - **`codex_companion.max_inject_severity`**：
   - 整段歸寫碼守門開關。
   - Stop 永不擋；審查結果 fail 且嚴重度 ≥ 此值才在下一則附完整說明，其餘只附一行。
 - **`codex_companion.codex_extra_args` / `codex_binary`**：
-  - `codex_extra_args` 原樣附加到 codex exec 的旗標，裁判與第二意見共用。
+  - `codex_extra_args` 原樣附加到 codex exec 的旗標；叫 codex 一律經 [`tools/codex-call.py`](../tools/codex-call.py)，由它附加。
   - `codex_binary` 是 codex 執行檔路徑。
   - 只有某台機器要的旗標或路徑，寫在 `workflow/config.local.json` 的 `codex_companion` 段；設定的路徑找不到檔也退 PATH。
 - **`text_score.judge_model_by_backend` / `judge_model`**：
@@ -275,10 +267,6 @@
   - 沒列到的 backend 用 `judge_model`；`--model` 全部覆蓋。
   - 跨機同標籤要比 digest。
 - **`text_score.default_spec` / `timeout_sec` / `num_ctx`**：預設規格、每次問裁判的逾時、每次明帶的 context 長度。
-- **`text_score.enabled` / `min_chars` / `auto_targets`**：
-  - 只管自動評：收尾接線 [`hooks/wg_text_score.py`](../hooks/wg_text_score.py) 與 `--auto-kind`；收尾接線要這段存在且 enabled 為 true。
-  - `auto_targets` 是種類 → 來源路徑樣式：空清單不比路徑；沒列的種類不自動評，出廠不評文件。
-  - 要跟規格檔「適用」欄一起改；手動指令照跑。
 
 ## 功能開關
 
@@ -297,9 +285,8 @@
 | `reconcile_gate.enabled` | 整個寫碼查核對帳閘（[§7.1](../TECH.md#71-stop-閘序)） |
 | `aec.scan_report_gate` | 開了才會沒交收尾檢核就擋收尾 |
 | `atom_audit.enabled` | 開了才有卡片表態閘 |
-| `second_opinion.auto.enabled` | 大任務收尾自動要求第二意見 |
 | `pick_one.enabled` | 交付時順手點出最該修的一件 |
-| `overview_hub.enabled` / `overview_hub.min_map.enabled` / `overview_hub.equivalence.enabled` | 部位導讀卡與寫入閘 / 無表專案最小地圖 / 等值與熱路徑閘 |
+| `overview_hub.enabled` / `overview_hub.equivalence.enabled` | 讀文件檔時的權威地圖注入 / 等值與熱路徑閘 |
 | `guard.data_file_ask.enabled` / `guard.old_test_declare.enabled` / `guard.gate_bypass.enabled` / `guard.smell_gate.enabled` | 改資料檔、改舊測試、繞閘、commit 前病形的閘 |
 | `guard.cross_realm_write.enabled` | 外部專案 session 寫 `~/.claude` 核心層的 deny 閘 |
 | `guard.cross_realm_bash.enabled` | 同上，管經 Bash／PowerShell 改核心層 |
@@ -311,7 +298,6 @@
 | `docdrift.enabled` | 改碼後提醒對應文件的漂移偵測 |
 | `codex_companion.enabled` | AI 裁判（驗收審查／計畫審查／handoff 自檢） |
 | `codex_companion.fallback.enabled` | 無 codex 時不退 `claude -p`，直接 heuristics-only |
-| `text_score.enabled` | G15 文字規格自動評（見下方補充） |
 
 - **`coding_guard.enabled`**：開法與舊名相容見 [§7 守門總開關](../TECH.md#守門總開關)。
 - **`chain_breaker.depth_alarm`**：沒開時只有同一道閘第 2 次警報。
@@ -319,9 +305,6 @@
   - 核心層指 hooks/lib/tools/skills/rules 與根層設定檔。
   - 「專案專屬內容不得落 global」的 realm 閘在 [`lib/realm_gate.py`](../lib/realm_gate.py)，無開關。
 - **`guard.cross_realm_bash.enabled`**：config 沒寫、預設開。
-- **`text_score.enabled`**：
-  - 管收尾接線與 `--auto-kind`；收尾接線要這段存在且為 true。
-  - 手動 [`tools/text-score.py`](../tools/text-score.py) 照跑。
 - **`version_guard.enabled`**：`mode` 可設 warn／off。
 
 ### 檢索、注入與萃取

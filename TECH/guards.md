@@ -15,26 +15,22 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - `WG_CODING_GUARD=0` 強制關。
 - 舊鍵 `v6` 與舊環境變數 `WG_V6` 仍可用。
 - 關著時本節大部分的守門都不跑：
-  - 需求目標樹
   - 寫碼查核
-  - 第二意見
   - 拐彎判斷
   - 等值閘
-  - 文字評分
-  - 判準卡留帳
   - 動資料檔／改舊測試／病形閘／繞閘宣告
+  - 問使用者附推薦
+  - Depends 召回
   - 連鎖斷路器
   - 驗收裁判
   - 背景收割
-- 關著時只留這套守門加進來以前就有的處理：記憶注入、導讀卡、收割、同步提醒、隱私與口令閘、語言守門…
+- 關著時只留這套守門加進來以前就有的處理：記憶注入、收割、同步提醒、隱私與口令閘、語言守門…
   - 紅測閘改跑舊版（[`hooks/handlers/stop.pre_v6_testfail_message`](../hooks/handlers/stop.py)）：還有沒轉綠的測試又說完成就擋，沒有放行詢問、`不做｜` 豁免與基底紅判定。
+- 手動 `/text-score` 不看這個開關（[A7.11](#a711-文字規格評分g15toolstext-scorepy)）。
 - 開著時，每回合的守門只在寫碼回合啟動（[§11.2](../TECH.md#112-寫碼守門的減量原則) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）：
-  - 目標樹提示
-  - 目標視角重看
   - 退避偵測
   - 退縮閘
   - 收尾檢核
-  - 文字評分
   - 閱讀路徑
 - 下面各表寫的是開著時的行為；寫「寫碼守門開時」的條目，寫碼守門關時照舊做法。
 
@@ -51,7 +47,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 不擋、不讓對話續跑。
   - 同一條規則同一個對象同一個 session 只提醒一次（`remind_due`）。
 - 提醒掛在前一個動作的工具結果上（PostToolUse），不掛 PreToolUse 的 additionalContext：
-  - 工具前的閘（定位、目標樹、導讀卡）掛第一次讀該部位程式檔或第一次改檔那則工具結果。
   - 收尾類的要求掛最後一次改程式檔那批的工具結果。
   - Stop 只留帳、不續跑、不開放行題。
   - 規則名 REMIND_ON_PRIOR_RESULT。
@@ -73,11 +68,30 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 ### 代號（完整）
 
-- `E<N>`：切入點（[§7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)）。
+- `E<N>`：切入點（程式停下來要 AI 判斷的位置）的編號；記憶卡的 `Entry` 欄用這套號標記判準卡（[§4.1](../TECH.md#41-atom-卡片格式)）。
 - `G<N>`：「寫程式碼」這組需求目標的第 N 條。
   - 評分規格卡 `g<N>-評分規格*.md` 與 [`skills/console/scripts/selfscore.py`](../skills/console/scripts/selfscore.py) 用同一套號。
 - `T2.<N>`：其中一條目標底下的子項。
 - 程式裡的註解與設定說明也用這些號，所以表上保留，方便對照。
+
+### 自檢評分（`skills/console/scripts/selfscore.py`）
+
+- **位置**：[`skills/console/scripts/selfscore.py`](../skills/console/scripts/selfscore.py)；開發期工具，不是閘。
+- **用法**：
+  - `--ask --g G8` 問。
+  - `--g --score --basis（可重複）--why --rater` 答一筆。
+  - `--summary [--days --json --logs]` 統計。
+  - session 預設取 Claude Code 給工具子行程的 `CLAUDE_CODE_SESSION_ID`。
+- **何時用**：總控台、checklist 軌、驗收判分打「這個 G 幾分」時。
+- **`--ask`**：印 G 名、評分規格卡 `g<N>-評分規格*.md` 知識段三句、可用證據清單與要答的三件事。
+- **帳本**：
+  - 答的一筆記 `Logs/guard-selfscore.jsonl`（event=score：g、score、basis、why、rater、unanswered）。
+  - 缺欄位或分數不是 0～10 的整數照記「沒答」（原字留 score_raw），stderr 一行、不擋。
+  - 帳本不是卡：不注入、不過期。
+  - 分數只收 ASCII 0～10（「²」、負數、小數都記沒答）。
+  - 寫帳失敗 stderr 說沒記到、尾行 recorded=0、exit 1。
+- **`--summary`**：每個 G 最近一筆、最近五個分數走勢、比上次差多少。
+- **尾行**：`SELFSCORE DONE asked=1`／`recorded=1 unanswered=`／`gs= records= unanswered=`。
 
 ## A7.0 寫程式時一路會遇到什麼（總覽）
 
@@ -102,84 +116,43 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - **系統做什麼**：
   - 注入相關記憶卡。
-  - 還沒有**需求目標樹**就提醒先寫。
-    - 需求目標樹＝把這件事真正要達成什麼寫成樹根＋子目標。
-  - 有樹就每則送回樹根一行＋當前節點一行。
-  - 目標樹提示只在寫碼回合送。
-- **擋不擋**：提醒。
-- **見**：[§5](../TECH.md#5-檢索與注入每-prompt)、[§7.7](../TECH.md#77-需求目標樹need_goal)。
+- **擋不擋**：不擋。
+- **見**：[§5](../TECH.md#5-檢索與注入每-prompt)。
 
-### ③ 動手前定位（改檔前的 PreToolUse）
-
-- **沒有目標樹要先立樹**：
-  - 寫「目標｜<整個需求一句>」。
-  - 子目標每件一行「子目標｜…」。
-  - 放在同一則先發的不寫檔指令開頭的 `#` 註解。
-  - 改程式檔前 hook 照它立樹（[TREE_SET_VIA_TEXT](../TECH/release-rules.md#tree_set_via_text)，零工具回合）。
-  - 缺了，寫碼守門開時提醒一行，不擋。
-- **立樹路徑的細節**：
-  - 訊息只教「同一則先發的不寫檔指令開頭的 `#` 註解」這一條路。
-  - 早一則只有文字的回覆程式照認、不教。
-  - 原因：同一則裡接著呼叫工具的文字，hook 當下讀不到（[DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）。
-- **改部位表上的程式檔**（部位表＝把專案切成幾個部位、每個部位一張導讀卡的對照表）要先：
-  - 注入那個部位的導讀卡。
-    - 預設只送病灶一句＋卡路徑，要自己 Read 過卡。
-  - 讀過部位裡的檔。
-  - 交「定位」五行：
-    - 部位
-    - 根因層（兩個候選＋為什麼選這個）
-    - 前例
-    - 這塊在目標樹哪個節點
-    - 批判（這段寫法合不合理、同類問題還在哪）
-- **沒有部位表的專案**：第一次改某個頂層目錄前交「地圖」三行（讀了／上游／下游）。
-- **放行規則**：
-  - 同一個使用者回合同樣的缺件擋 2 次，第 3 次放行並留帳（[GATE_DENY_CAP](../TECH/release-rules.md#gate_deny_cap)）。
-  - 讀不到對話紀錄＝閘判不了，這次不要求定位行與地圖三行（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）。
-- **提醒模式的唯一例外**（[LOCATE_FIRST_EDIT_BLOCKS_ONCE](../TECH/release-rules.md#locate_first_edit_blocks_once)）：
-  - 每部位本 session 第一次改程式檔的那個使用者回合，定位交齊之前，同部位每個改檔都擋。
-  - 同一則平行送的也擋，不計 [GATE_DENY_CAP](../TECH/release-rules.md#gate_deny_cap)。
-  - 交齊才放；下一個使用者回合還缺只提醒。
-- **擋不擋**：提醒。
-- **見**：[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.7](../TECH.md#77-需求目標樹need_goal)。
-
-### ④ 改檔當下
+### ③ 改檔當下（PreToolUse）
 
 - **動資料檔**：
   - 改使用者既有的資料檔或設定檔，要先寫「動資料檔｜<路徑>：<為什麼>」。
   - 只在這個 session 改過程式檔、或這條指令同時寫程式檔時才問。
   - 純文件／設定的回合放行、留帳 skipped_non_coding。
+  - 第一次讀到改了會被問的檔，讀檔結果先附一行宣告格式（[DataFileAsk](#datafileask) 讀檔提示）。
 - **改舊測試**：
   - 改既有測試（刪、改名、改斷言、加 skip）要先寫「改舊測試｜<哪支>：<理由>」。
 - **兩道的放行**：
   - 同一個使用者回合同一件缺件擋 2 次後放行並留帳（[GATE_DENY_CAP](../TECH/release-rules.md#gate_deny_cap)）。
   - 閘自己出錯不擋、留帳（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）。
-- **改判準卡**：
-  - 改到綁了切入點的判準卡（檔頭 `- Entry:` 非空）只留帳不擋。
-  - 涵蓋經 MCP `atom_write` append／replace、`atom_edit_meta`、`atom_retire` 改。
-  - 寫了「改判準卡｜<卡名>：<理由>」就連理由一起記下。
 - **寫入目標判不出的指令**（例：`python -c` 內嵌碼裡開檔寫）放行並留帳。
 - **擋不擋**：擋（動資料檔、改舊測試）。
-- **見**：[§7.5](../TECH.md#75-其他守門)、[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)。
+- **見**：[§7.5](../TECH.md#75-其他守門)。
 
-### ⑤ 改完之後（PostToolUse）
+### ④ 改完之後（PostToolUse）
 
 - **系統做什麼**：
-  - 記下改了哪些檔、蓋到目標樹。
-  - 讀到某張卡 `Depends` 指著的檔就召回那張卡。
-  - 本 session 第一次碰到的部位注入導讀卡。
+  - 記下改了哪些檔（收尾的寫碼查核看這份帳）。
+  - 讀到某張卡 `Depends` 指著的檔，附一行「改它前先讀卡」，同卡一 session 一次（[Depends 召回](#depends-召回)）。
+  - 改了程式檔那批跑完，在背景起閱讀路徑量測。
 - **擋不擋**：提醒。
-- **見**：[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.7](../TECH.md#77-需求目標樹need_goal)。
+- **見**：[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.1](../TECH.md#71-stop-閘序) ReadingPath。
 
-### ⑥ 問使用者之前（AskUserQuestion）
+### ⑤ 問使用者之前（AskUserQuestion）
 
 - **系統做什麼**：
   - 每題要附推薦選項（缺了提醒）。
-  - 有樹時每題掛到哪個目標節點只記錄，沒掛不擋。
   - 問改法前先讀過題目提到的部位（只提醒）。
 - **擋不擋**：提醒。
-- **見**：[§7.7](../TECH.md#77-需求目標樹need_goal)。
+- **見**：[§7.5](../TECH.md#75-其他守門)、[問使用者附推薦](#問使用者附推薦askuserquestion)。
 
-### ⑦ 跑測試
+### ⑥ 跑測試
 
 - **系統做什麼**：
   - 驗證程式印的**哨兵行**（`<名>_CHECK PASS／FAIL`、`<名> DONE k=v`）連同完整指令收成「收據」。
@@ -188,15 +161,14 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 收據不防偽造：不看指令形狀、不查指令裡寫的哨兵字樣。
   - 指令解析不了（heredoc、`$( )`…）只當一般證據，不算部位量尺與整體驗證。
 - **擋不擋**：只記帳。
-- **見**：[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub) 收據列。
+- **見**：[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[收據列](#收據收據列)。
 
-### ⑧ 宣告完成（Stop）
+### ⑦ 宣告完成（Stop）
 
-- **查核順序**（先把回覆丟背景評分，再依序）：
+- **查核順序**：
   - 紅測沒修好不准說完成。
   - 寫碼查核：說修好要有改動之後的綠收據 (a)、改了程式要有測試案例 (d)。
   - 函式拐彎過多要逐條寫判斷。
-  - 大改動要跑第二意見。
   - refactor／perf 要等值證法、答熱路徑。
   - 不准把可做的事推給下個 session。
   - 知識收割。
@@ -207,16 +179,15 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **擋不擋**：擋只紅測與 (a)；其餘提醒。
 - **見**：[§7.1](../TECH.md#71-stop-閘序)、[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)。
 
-### ⑨ 交付
+### ⑧ 交付
 
 - **系統做什麼**：
   - 收尾檢核報告（`anti_evasion_report` 十欄）送 HUD 給人看。
-  - 目標樹的「完整對照」（對照閘關著時由程式代填）。
   - 順手點出這次看到最該修的一件，記進追蹤帳本，下個 session 開場列出。
 - **擋不擋**：提醒。
-- **見**：[§7.2](../TECH.md#72-反退避anti-evasion)、[§7.7](../TECH.md#77-需求目標樹need_goal)、[§7.1](../TECH.md#71-stop-閘序) PickOne。
+- **見**：[§7.2](../TECH.md#72-反退避anti-evasion)、[§7.1](../TECH.md#71-stop-閘序) PickOne。
 
-### ⑩ commit 與合併
+### ⑨ commit 與合併
 
 - **口令**：要使用者下過口令（上GIT 等）。
   - 寫碼守門開時口令撐到這批 push 完或使用者打字開新回合。
@@ -228,19 +199,10 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **擋不擋**：擋（口令、隱私、病形、繞閘不在範圍）。
 - **見**：[§7.5](../TECH.md#75-其他守門)、[§7.1](../TECH.md#71-stop-閘序) 同步閘、[§13.4](../TECH.md#134-多-session-協作雙總控台與工作軌)。
 
-### 切入點（完整）
-
-- 擋點與提醒點大多登記成**切入點**（程式停下來要 AI 判斷的位置，代號 E01～E41，登錄在 [`workflow/entrypoints.json`](../workflow/entrypoints.json)）。
-- 問的那一刻，系統把綁在那個切入點的**判準卡**（教 AI 這種情況怎麼判的記憶卡）接在訊息後面。
-- 並留帳給人事後回看判得準不準（[§7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)）。
-
 ### 目前關著的閘（完整）
 
 - 設定在 [`workflow/config.json`](../workflow/config.json)，使用者拍板；開關改回 true、`block_letters` 拿掉即恢復。
 - **寫碼查核只擋 (a)(d)**（`reconcile_gate.block_letters`）：(b)(c)(e) 照判、只印 stderr。
-- **目標樹對照不擋**（`reconcile_gate.goal_gate`）：
-  - 目標樹照記。
-  - 改程式前要有樹與提問掛節點照擋。
 - **沒交收尾檢核不擋**（`aec.scan_report_gate`）：報告照收。
 - **卡片表態不擋**（`atom_audit.enabled`）。
 - **svn 提交測試路徑閘**（`overview_hub.svn_test_block.enabled`）：要的專案在自己的 [`.claude/overview-hub.json`](../.claude/overview-hub.json) 開。
@@ -253,7 +215,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 入口：[`hooks/handlers/stop.py handle_stop`](../hooks/handlers/stop.py)。
 
 - 一開頭（任何閘之前）：
-  - 先把交付改程式的那則回覆丟背景文字評分（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)）。
   - 把最後一句裡「順手看到最該修：…」段記進追蹤帳本（PickOne 列）。
   - 問一次連鎖斷路器（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）：中止中這一回合其餘閘只記錄不擋。
 - 之後依序查（前者優先）。
@@ -266,7 +227,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 規則 [BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)。
 - **紅測閘與寫碼查核**（ReconcileGate (a)～(d)）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`。
 - **拐彎判斷**每個使用者回合最多擋一次。
-- **第二意見、等值閘**各有自己的預算。
+- **等值閘**有自己的預算。
 - **擋滿只認使用者放行**（[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)）；沒人能回答（headless／SDK、子代理、裁判）擋滿就放行並留帳。
 - **閘自己判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）。
 
@@ -321,7 +282,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - **目前只有 (a)(d) 擋**：
   - `reconcile_gate.block_letters`：(b)(c)(e) 照判、只印 stderr。
-  - (f1)(f2) 因 `goal_gate=false` 不擋。
 - **(a) 說修好**：看有沒有對得上改檔的 PASS。
   - 收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據。
   - 不限本回合：舊回合的只要之後本 session 沒再改任何程式檔就算。
@@ -351,7 +311,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 最後一句話（優先用 hook 輸入的 last_assistant_message，不套 30 字下限）。
   - 以及擋滿時記下的原宣稱（同一個使用者回合的續跑回合裡照查）。
   - 這時 (a) 認任一回合晚於改檔的合格 PASS（規則 [CARRIED_CLAIM_ANY_TURN_RECEIPT](../TECH/release-rules.md#carried_claim_any_turn_receipt)）。
-- **主 session 另併需求目標的 (f2)**：交付邊界的完整對照（[§7.7](../TECH.md#77-需求目標樹need_goal)）；(f1) 改成程式記進度、不擋。
 - **判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）。
 - **模式**：照擋只 (a)（紅測類）；(d) 與其餘字母提醒。
 - **預算**：
@@ -374,7 +333,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - PostToolBatch 看本回合改過的程式檔指紋，變了就起。
   - 量測中又改先記 pending。
   - 規則 [READING_PATH_EARLY_START](../TECH/release-rules.md#reading_path_early_startturn_judgment_pre_close)，開關 `reading_path.early_start`，關了照舊在收尾起。
-- 量完的結果先存著，交收尾檢核或完整對照（need_goal reconcile）那批附上（[TURN_JUDGMENT_PRE_CLOSE](../TECH/release-rules.md#reading_path_early_startturn_judgment_pre_close)）。
+- 量完的結果先存著，交收尾檢核那批附上（[TURN_JUDGMENT_PRE_CLOSE](../TECH/release-rules.md#reading_path_early_startturn_judgment_pre_close)）。
   - 還有一批在量就不附。
   - 沒附到才由 Stop 送。
 
@@ -455,7 +414,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 收尾要有一行「拐彎判斷｜<函式、類別或入口>｜<這一層存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」，五欄齊。
   - 規則 [TURN_JUDGMENT_REQUIRED](../TECH/release-rules.md#turn_judgment_required)（[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）；`turn_judgment_note` 核對。
 - **擋點**在 Stop 的 TurnJudgment 段：
-  - 寫碼查核（Reconcile）之後、SecondOpinion 之前。
+  - 寫碼查核（Reconcile）之後、等值閘（Equivalence）之前。
   - ReadingPath 段只量不擋。
 - **只問改到的**：
   - 答過的條目記名字＋內容指紋（函式比本體文字、類別比繼承結構、入口比實際路徑與數據）。
@@ -468,67 +427,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 擋下時尾段的閱讀路徑結果不再重複那一題。
   - 前面的閘擋下時 `[Guardian:AlsoOwed]` 預告「拐彎判斷：缺 N 條」（只報條數；`turn_judgment_missing` 只讀，不吃那一次）。
 - **齊**：`Logs/guard-reading_path.jsonl` 記 judged。
-- need_goal reconcile 沒給 turns 提醒一句；turns ≥4 要 note 寫「重找最短路：」。
-
-### SecondOpinion（自動第二意見，G9）
-
-#### 觸發條件
-
-- **時點**（[SECOND_OPINION_FACT_TRIGGER](../TECH/release-rules.md#second_opinion_fact_trigger)，看事實不看措辭）：收尾。
-  - 只有「還沒到收尾」不判：
-    - 中途問使用者（最後一行是問句、沒宣告完成）。
-    - 或寫明之後工作還在繼續（`wg_evasion` 判完成的排除詞第一類：仍在等、等待…回報、尚未開始）。
-  - 而且這個使用者回合沒交收尾那批（`wg_second_opinion.not_closing`），留帳 event=deferred；欠帳留到下一次收尾。
-- **規模**：本 session 改過的程式檔達大任務門檻：
-  - ≥`second_opinion.auto.min_code_files` 4 檔。
-  - 或對 HEAD 改動 ≥`min_changed_lines` 150 行。
-  - 或改到高風險部位：部位表類別 gate 的列。
-    - config 另列的 `risky_prefixes` 出廠空。
-    - 記憶系統自己的高風險部位在 [`~/.claude/.claude/overview-map.md`](../.claude/overview-map.md) 標 gate。
-- **出口指紋**（[SECOND_OPINION_EXIT_FINGERPRINT](../TECH/release-rules.md#second_opinion_exit_fingerprint)）：這組改動還沒交過出口。
-  - 交了不需／等第二意見或跑過＋四行，就記出口時的改檔指紋（state `second_opinion_exit`），指紋沒變不再欠。
-  - 出口是不需或等第二意見、之後又改了程式（改 1 支也算）再欠一次。
-- **一輪了結**（SECOND_OPINION_ONCE_PER_CLAIM）：這一輪還沒了結。
-  - 跑過、宣告不需或使用者放行之後，為採納意見做的修改不再要求。
-  - 只有之後改到新的高風險檔、或之後新改的程式檔數再過門檻才算新一輪。
-  - state `second_opinion_cover` 記已審過的高風險檔。
-  - 前面回合跑完的第二意見也算基準（[SECOND_OPINION_RAN_BEFORE](../TECH/release-rules.md#second_opinion_ran_before)）：判的是跑完之後有沒有再改程式，不是有沒有換回合。
-- **不觸發**：子代理、裁判、headless。
-- 規則 [SECOND_OPINION_REQUIRED](../TECH/release-rules.md#second_opinion_required)／[SECOND_OPINION_DECLINED](../TECH/release-rules.md#second_opinion_declinedsecond_opinion_decline_accepted)（[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）；事實 [`hooks/wg_second_opinion.py`](../hooks/wg_second_opinion.py)。
-
-#### 要做什麼
-
-- **模式**：提醒。
-- 要本回合真的跑過 `second_opinion_start`（independent＋stage-review／evaluate）。
-  - 且 `second_opinion_result` 回 done／failed／blocked。
-  - session 有需求目標樹時，材料要帶到樹。
-  - start 在前面回合、本回合才取回也算（[SECOND_OPINION_RESULT_ACROSS_TURNS](../TECH/release-rules.md#second_opinion_result_across_turns)）。
-- 本回合任一則回覆有「第二意見與分歧裁決」段四行：Codex 結論／我方結論／分歧點／裁決與理由。
-  - 被別的閘擋下後補件那則不必重抄。
-- 或寫一行「不需第二意見｜<理由>」。
-  - 留帳 `Logs/guard-second_opinion.jsonl`，週健檢列出。
-  - 宣告行只看收尾最後一則，被收下就不擋（[SECOND_OPINION_DECLINE_ACCEPTED](../TECH/release-rules.md#second_opinion_declinedsecond_opinion_decline_accepted)）。
-
-#### 背景模式
-
-- 開關 `second_opinion.auto.background`（缺＝開）開時：
-  - 擋訊息寫 start 後不用等結果、先把收尾其餘的事做完。
-  - 收尾時還在跑，寫一行「等第二意見｜<job_id>」。
-    - 那次不算宣告完成，只留帳 waiting（[SECOND_OPINION_BACKGROUND](../TECH/release-rules.md#second_opinion_backgroundsecond_opinion_done_notice)／[SECOND_OPINION_WAITING_NOT_DONE](../TECH/release-rules.md#second_opinion_waiting_not_done)）。
-  - 開了的 job 跑完而 AI 還沒取回 → 下一批工具回應或收尾提醒一次（[SECOND_OPINION_DONE_NOTICE](../TECH/release-rules.md#second_opinion_backgroundsecond_opinion_done_notice)，state `second_opinion_watch`）。
-  - `second_opinion_result` 跑完了馬上回、還在跑會等（每次最多 100 s，回 running 就再呼叫一次）。
-  - MCP 端兩處說明同一個說法。
-- 開關關：照舊，擋訊息寫 start 後直接呼叫 result、它會等到有結果。
-
-#### 預附與預算
-
-- 欠的那段先在收尾那批（收尾檢核或完整對照，`closing_call` 認）附上、跟 Stop 擋同一段。
-  - 規則 [SECOND_OPINION_PRE_CLOSE](../TECH/release-rules.md#second_opinion_pre_close)（`wg_closing_round.so_pre_close`、`wg_second_opinion.owed_message`）。
-  - 同回合指紋沒變不重附。
-  - 那批沒出現或附了沒照做才由 Stop 擋。
-- 每使用者回合擋 `max_blocks_per_turn`（1）次後擋滿。
-  - 照 ReconcileGate 的放行規則問使用者（閘名 second_opinion，user_release 健檢列 red）。
-  - 了結之後採納意見的修改不再要求。
 
 ### Equivalence（等值與熱路徑，G7）
 
@@ -541,7 +439,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **開關**：`overview_hub.equivalence.enabled`（hub 設定，[`lib/hub_config.py`](../lib/hub_config.py)）。
 - **規則與位置**：
   - 規則 [REFACTOR_NEEDS_EQUIVALENCE](../TECH/release-rules.md#refactor_needs_equivalence)／[PERF_HOT_PATH_NEEDS_MEASURE](../TECH/release-rules.md#perf_hot_path_needs_measure)（[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）。
-  - 事實在 [`handlers/stop.py _equivalence_gate`](../hooks/handlers/stop.py)，排在 SecondOpinion 之後、Deferral 之前。
+  - 事實在 [`handlers/stop.py _equivalence_gate`](../hooks/handlers/stop.py)，排在拐彎判斷（TurnJudgment）之後、Deferral 之前。
 - **模式**：提醒。
 - **refactor 要有**：
   - 最後一次改程式檔之後要有三筆 `PRESERVE_CHECK PASS` 收據。
@@ -557,7 +455,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 等值沒證齊、熱路徑答了缺東西 → 吃寫碼查核的預算擋，擋滿問使用者（沒人能回答的擋滿放行留帳）。
   - 熱路徑沒答每個使用者回合擋一次。
 - 留帳 `Logs/guard-equivalence.jsonl`。
-- **導讀卡端**：`goal_weights.refactor／perf.extra` 在視角／先問之後多送一段（等值三類、熱路徑一問、間接層一問）。
 
 ### Evasion 偵測／DeferralGate
 
@@ -565,7 +462,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 退避詞命中（軟糾正）。
   - 主任務已完工：完成宣告 ∨ 本 turn 已 commit。
     - 完成宣告看整回合，別的閘擋下後補件那則不重說也算。
-    - stop.py 以 `wg_second_opinion.turn_completion_text` 找本回合宣告完成的那一則。
+    - stop.py 以 `wg_evasion.turn_completion_text` 找本回合宣告完成的那一則。
     - 紅測、寫碼查核、收割、收尾檢核、自清、深度檢討、等值閘同一套。
   - context 用量 ≤0.75（讀 transcript 真實 usage）。
   - 收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」。
@@ -716,11 +613,11 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - `pick_one.enabled` 開。
 - 到交付邊界：最後一句或 >30 字段落宣告完成、本回合交了收尾檢核、本回合 commit。
-- 本 session 在上次問過或記過之後又改了程式檔（寫碼類判準 `wg_need_goal.is_code_path`）。
+- 本 session 在上次問過或記過之後又改了程式檔（寫碼類判準 `wg_code_path.is_code_path`）。
 
 #### 何時送
 
-- 先在交收尾檢核或完整對照那批附上（[PICK_ONE_PRE_CLOSE](../TECH/release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)，開關 `pick_one.pre_close`）。
+- 先在交收尾檢核那批附上（[PICK_ONE_PRE_CLOSE](../TECH/release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)，開關 `pick_one.pre_close`）。
   - 附了就記問過，Stop 不再送、不再讓對話續跑一輪。
 - Stop 的拐彎判斷擋下時同一則一起問（[PICK_ONE_WITH_TURN_JUDGMENT](../TECH/release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)）。
 - 兩處都沒走到才排在所有閘之後（寫碼守門開時這裡只留帳，見下）。
@@ -776,7 +673,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 #### 同一件不重記（TRACKING_SAME_ITEM_NOT_REWRITTEN）
 
-- 唯一寫入口 `append_tracking`；k 欄、need_goal followup、PickOne 都過。
+- 唯一寫入口 `append_tracking`；k 欄、PickOne 都過。
 - 部位相同且原文相同 → 不重記（字面相近不併，併錯會吞掉一件）。
 - 換句話說的同一件，由 AI 在行尾寫「｜同追蹤項：<那筆裡連續至少 8 字>」。
   - PickOne 段多一行「同追蹤項：」，問句列出本 session 還開著的項目。
@@ -814,10 +711,10 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - SessionStart：
     - 追蹤提示一開場就算好排在表頭後，降級時送出已備好的提示（追蹤提示在前）並附一行說明。
     - 選配提示、開場 git 快照、清舊 state、向量服務這次不跑。
-  - UserPromptSubmit：跳過脈絡、導讀卡、檢索與注入組裝；前置閘、記原話、寫 state 照做，附一行說明。
+  - UserPromptSubmit：跳過脈絡、檢索與注入組裝；前置閘、記原話、寫 state 照做，附一行說明。
   - PostToolUse：
-    - 只跳過提示類段落（導讀卡、depends 召回、跨 session 碰撞、同伴檢查、MCP 切入點註記）。
-    - 改檔記帳、目標樹蓋號、寫 state 照做。
+    - 只跳過提示類段落（depends 召回、跨 session 碰撞、同伴檢查）。
+    - 改檔記帳、寫 state 照做。
   - PreToolUse：只打點不改判定（逾時被取消本來就放行，提早放行只會少查）。
 - **單一段落跑過上限**：
   - 打點只在段落之間，單一段落一路跑過上限打不到點，所以起表時另排背景鬧鐘。
@@ -831,6 +728,52 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 格式：`✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。
 - 擋次預算每個使用者回合共用一份、不分是哪一條規則（[BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)），擋滿訊息列出全部命中條目。
 - 「回合」＝使用者打字開的回合；同伴訊息、背景通知都不開回合（[TURN_SINCE_USER_PROMPT](../TECH/release-rules.md#turn_since_user_prompt)）。
+
+### 擋訊息的問法
+
+- 擋訊息的字句會把 AI 帶到哪裡，跟判斷本身一樣要調。
+- 下面幾處的字句都是「先分辨是哪種情況，再給那種情況的處置」。
+- 字句的實測（內網 gemma4:e4b 比對兩種寫法）紀錄在 [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/)（[`cases_003.json`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/cases_003.json)、[`results_003.jsonl`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/results_003.jsonl)、README 判定表）。
+- 字句由 [`hooks/verify/verify_entry_wording.py`](../hooks/verify/verify_entry_wording.py) 守。
+
+#### 紅測閘
+- **字句在哪**：[`handlers/stop.testfail_message`](../hooks/handlers/stop.py)
+- **怎麼問**：先看使用者有沒有叫跳過這支。
+  - 有 → 測試照紅、寫引原話的不做行（程式只收這種豁免）。
+  - 沒有 → 修到綠：
+    - 程式錯修程式。
+    - 使用者要的新行為讓舊斷言不再對，就先宣告改舊測試再改斷言。
+    - 不准加 skip／xfail、不准只為變綠改斷言。
+  - 都不成 → 收尾別說完成。
+
+#### 改舊測試提示
+- **字句在哪**：`wg_oldtest.hint`
+- **怎麼問**：先分是哪一種。
+  - 使用者要的新行為讓舊斷言不再對 → 宣告引原話再改。
+  - 使用者只說跳過 → 撤回、照紅、寫不做行。
+  - 兩種都對不上才問。
+
+#### 繞閘卡片拒寫訊息
+- **字句在哪**：`wg_gate_bypass.atom_refusal`
+- **怎麼問**：先問讀者能不能照著做讓閘擋下的內容不經修正就過關。
+  - 能 → 是教繞法（即使自認誤擋）。
+  - 不能 → 才宣告「不是教繞閘｜…」。
+
+#### 提問前先讀部位
+- **字句在哪**：`wg_release_rules.ask_overview_verdict`
+- **怎麼問**：這條不單獨擋；但被別條擋下要重組時，先讀題目提到、還沒讀的部位檔，讀完再定推薦或判斷不必問。
+
+#### 退避舉證
+- **字句在哪**：[`handlers/user_prompt_submit.evasion_ask`](../hooks/handlers/user_prompt_submit.py)
+- **怎麼問**：
+  - 排在那一則注入最前面。
+  - 先處理這件再做新請求：寫成本、小就先做掉；真的不做或只是描述就寫不做行／不是退避行。
+
+#### SmellGate 處置句
+- **字句在哪**：[`tools/project-smells.render_commit_report`](../tools/project-smells.py)
+- **怎麼問**：先分被點名的檔是不是你這次改的。
+  - 是 → 修或 smell-ok。
+  - 不是 → 不修、不動它的暫存，只提交自己的檔。
 
 ### 定死規則（寫碼查核相關，改法不得放寬）
 
@@ -993,7 +936,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 [↑ 主文 §7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)
 
-目的：寫碼類的查核閘擋滿次數後，AI 不能自己放行、也不能改寫措辭繞過，決定權交回使用者。用在紅測閘、寫碼查核（ReconcileGate）、第二意見、等值閘。
+目的：寫碼類的查核閘擋滿次數後，AI 不能自己放行、也不能改寫措辭繞過，決定權交回使用者。用在紅測閘、寫碼查核（ReconcileGate）、等值閘。
 
 ### 擋滿訊息
 
@@ -1039,8 +982,8 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 ### 與提問閘的關係
 
-- 提問閘（[§7.7](../TECH.md#77-需求目標樹need_goal)「問使用者之前」）認得這種放行題。
-- 真有擋滿待放行紀錄時，放行題不必掛目標節點。
+- 提問閘（[問使用者附推薦](#問使用者附推薦askuserquestion)）認得這種放行題。
+- 真有擋滿待放行紀錄時，放行題不必附推薦。
 
 ## A7.4 驗收裁判：AI 審查 AI 產出（四段閉環）
 
@@ -1060,7 +1003,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 ### ① 規格工件
 
-- **切入點**：[`hooks/acceptance_spec.py`](../hooks/acceptance_spec.py)（由 guardian PostToolUse 同程序呼叫 `run()`）。
+- **入口**：[`hooks/acceptance_spec.py`](../hooks/acceptance_spec.py)（由 guardian PostToolUse 同程序呼叫 `run()`）。
 - **機制**：
   - ExitPlanMode → 從 plan 落 `<專案根>/.claude/verify/acceptance-<slug>.md`（必須發生／禁止發生／驗證指令）。
   - 無 plan 但改 ≥3 檔 → 一次性建議。
@@ -1068,7 +1011,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 ### ② 影子裁判
 
-- **切入點**：[`tools/codex-companion/acceptance.py`](../tools/codex-companion/acceptance.py)。
+- **入口**：[`tools/codex-companion/acceptance.py`](../tools/codex-companion/acceptance.py)。
 - **機制**：
   - Stop 完成宣稱觸發。
   - 任務↔規格**四分流**：bound 才審；ambiguous / other_session / none → uncertain 不發。
@@ -1077,7 +1020,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 ### ③ 背景審
 
-- **切入點**：`codex_companion.py` Stop。
+- **入口**：`codex_companion.py` Stop。
 - **機制**：
   - Stop 不等：起背景審查、立即放行。
   - 結果落 assessment 檔，下一則 UserPromptSubmit 附一行。
@@ -1086,14 +1029,14 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 ### ④ 迴歸提示
 
-- **切入點**：[`stop.py _acceptance_regression_hint`](../hooks/handlers/stop.py)。
+- **入口**：[`stop.py _acceptance_regression_hint`](../hooks/handlers/stop.py)。
 - **機制**：見 7.1（迴歸提示列）。
 
 ### 裁判後端鏈
 
 - 位置：[`tools/codex-companion/judge_backend.py`](../tools/codex-companion/judge_backend.py)。
 - 順序：
-  - codex：跨廠。
+  - codex：跨廠；一律經 [`tools/codex-call.py`](../tools/codex-call.py) 叫（叫不起來回非 0 並印原因，不報成功）。
   - → headless `claude -p --model sonnet`：同廠不同模型，獨立性較低。
   - 不論哪個後端，結果都只當 advisory。
   - → 皆無退 heuristics-only，並 SessionStart 揭露一次。
@@ -1169,7 +1112,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 同一條指令前面 `git add` 要加進來的檔
   - svn 工作副本改動
 - **比對方式**：
-  - 每個程式檔（`wg_need_goal.is_code_path`）取舊版（HEAD／BASE，改名取舊名）與新版比對
+  - 每個程式檔（`wg_code_path.is_code_path`）取舊版（HEAD／BASE，改名取舊名）與新版比對
   - 檔名一律 `-z` 取，中文檔名不被跳脫
   - 「這次會提交哪些檔」由 `commit_entries` 一處判，隱私閘共用
 
@@ -1190,8 +1133,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 #### 病灶清單與部位表
 - 部位表「病灶清單」欄指的病灶文件，每條 `shape:` 也納入
-- 檔對不到任何部位、而部位表裡有資料列因前綴沒用反引號包（或是沒有 / 的根目錄單檔）被整列略過 → 列「注意：部位表…整列沒被讀到」
-- OverviewHub 表外檔的擋訊息與放行警告也附同一句；只提醒，不改認法
+- 檔對不到任何部位、而部位表裡有資料列因前綴沒用反引號包（或是沒有 / 的根目錄單檔）被整列略過 → 列「注意：部位表…整列沒被讀到」；只提醒，不改認法
 
 #### 判定與放行
 - **剝不乾淨**：大括號語言的字串、註解剝不乾淨（大括號或小括號對不上）→ 那個檔的內建病形一律只提醒不擋
@@ -1212,7 +1154,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 程式檔超過 2000 個
 - git 查詢失敗、檢查出錯
 - git 別名（`git config alias.*`、別名接別名、行內 `-c alias.<名>=…`）先展開成 git 實際會跑的子命令再判；跟 git 自己指令同名的別名不認
-- 下列情形就算同一條指令另有直接寫的 commit 也判不了、一律擋（隱私閘、口令閘、需求目標 commit 閘共用同一份拆段）：
+- 下列情形就算同一條指令另有直接寫的 commit 也判不了、一律擋（隱私閘、口令閘共用同一份拆段）：
   - `!` 開頭的 shell 別名
   - commit 落點查不到別名表時不是 git 指令的子命令
   - bash -c 之類的包裝、eval
@@ -1235,12 +1177,12 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 #### 管哪些目標
 - Edit／Write／NotebookEdit（含 MultiEdit）要動的檔
-- Bash／PowerShell 指令的每個寫入目標（`wg_core.write_paths_from_tool`；算不出的 UNKNOWN 交 OverviewHub）
+- Bash／PowerShell 指令的每個寫入目標（`wg_core.write_paths_from_tool`；算不出的 UNKNOWN 本閘不管，照 UNKNOWN_TARGET_LOGGED 放行並留帳）
 - 每個目標各自判
 
 #### 四件事實全成立才管
 - **(a) 副檔名**：
-  - 不是程式檔（`wg_need_goal.writes_code`），且副檔名在 `guard.data_file_ask.extensions`
+  - 不是程式檔（`wg_code_path.writes_code`），且副檔名在 `guard.data_file_ask.extensions`
   - 預設 `.json .jsonc .yaml .yml .toml .ini .cfg .conf .env .csv .tsv .xml .properties .plist .md`
   - `_AIDocs`／`memory`／`.claude` 目錄底下的 `.md` 是系統文件，不問
   - 設定給了就整份取代；清單只決定要不要問，該不該改由 AI 判
@@ -1282,14 +1224,14 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 訊息裡不再重述的規矩
 - 宣告放哪只教一條路：同一則先發的不寫檔指令開頭的 `#` 註解
   - 跟工具呼叫同一則送出的文字、thinking 預設不進 transcript，hook 看不到
-  - 早一則只有文字的回覆與 need_goal set／update 的 `data_files` 程式照認、訊息不提（理由見 [DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
+  - 早一則只有文字的回覆程式照認、訊息不提（理由見 [DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
 - 宣告完照常用 Edit／Write 改，不改用 Bash／PowerShell 寫檔
 - 拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）
 - 每個檔各自宣告，帳留給健檢抽查
 - 一條指令寫好幾個資料檔，沒對上宣告的每個都列出來
 
 #### 讀檔提示（DATA_FILE_READ_HINT）
-- 第一次讀到改了會被問的檔（Read／唯讀 Bash／PowerShell／Grep；讀了什麼跟定位閘同一支 `wg_overview.read_targets`），PostToolUse 先附一行約 100 字的宣告格式
+- 第一次讀到改了會被問的檔（Read／唯讀 Bash／PowerShell／Grep；讀了什麼由 `wg_overview.read_targets` 判），PostToolUse 先附一行約 100 字的宣告格式
 - 內容：「[Guardian:DataFileAsk] 改 <檔> 前先宣告：動資料檔｜<路徑>：<為什麼…>（放同一則先發的不寫檔指令開頭的 `#` 註解，接著就可以改檔）」
 - 由 `wg_data_file.read_hint` 產生
 - 一個檔一個 session 一次，第二個檔起只點名；記 state `data_file_hinted`
@@ -1309,35 +1251,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 留帳與開關
 - `Logs/guard-data_file.jsonl` 事件：denied／declared／exempt（只記副檔名在清單內的）／cap_released／read_hint／skipped_non_coding／error
 - 停用：`guard.data_file_ask.enabled=false`
-
-### JudgeCardDeclare
-- **名稱**：JudgeCardDeclare（改判準卡留帳）
-- **位置**：
-  - [`hooks/handlers/pre_tool_use.py`](../hooks/handlers/pre_tool_use.py) JudgeCardDeclare 段（檔案類出口）與開頭的 MCP 分流
-  - → [`hooks/wg_judge_card.gate`](../hooks/wg_judge_card.py)（收事實）
-  - → `wg_release_rules.judge_card_verdict`（規則 [JUDGE_CARD_CHANGE_NEEDS_DECLARATION](../TECH/release-rules.md#judge_card_change_needs_declaration)）
-- **性質**：只記錄不擋
-- **管什麼**：要改的檔是綁了 Entry 的判準卡＝判 AI 做得對不對的量尺。判定只用 [`lib/atom_locations.entry_bound_ids`](../lib/atom_locations.py)，三件事實全成立：
-  - memory／_atoms 目錄底下的 .md（`_` 開頭除外）
-  - 磁碟上已存在
-  - 檔頭 `- Entry:` 非空
-- **看哪些出口**：
-  - Edit／MultiEdit／Write
-  - Bash／PowerShell 解析得出的寫入目標（`wg_core.write_paths_from_tool`）
-  - MCP `atom_write` 的 append／replace、`atom_edit_meta`、`atom_retire`
-  - MCP 呼叫經 settings.json PreToolUse 的 guardian matcher 先到這裡；卡在哪個檔照 MCP 自己用的 [`lib/atom_io.locate_atom`](../lib/atom_io.py) 定位
-- **管不到**：直譯器自己開檔寫卡（寫入目標解析不到）不管，不記雜湊、不事後比對（規則 [JUDGE_CARD_HASH_CATCHES_INTERPRETER](../TECH/release-rules.md#judge_card_hash_catches_interpreter)）
-- **宣告行**：「改判準卡｜<卡名>：<理由>」
-  - 三管道：回覆文字／工具參數裡 `#` 開頭的註解行／thinking，主檔與子代理檔都找
-  - Bash／PowerShell 另認這次指令的 `#` 註解行
-  - 有沒有宣告都放行
-- **留帳**：
-  - 每次改動每張卡留一筆 `Logs/guard-judge_card.jsonl`
-  - 事件：undeclared／declared／error
-  - 欄位：card、entry、path、line、via、session_id、allowed
-  - 判分材料 w2_collect 照 `guard-*.jsonl` 帶上
-- **出錯**：只 stderr＋留帳
-- **開關與守門**：`guard.judge_card_declare.enabled=false` 停用；守門 [`hooks/verify/verify_judge_card_declare.py`](../hooks/verify/verify_judge_card_declare.py)
 
 ### OldTestDeclare
 - **名稱**：OldTestDeclare（T2.17），改舊測試要先宣告
@@ -1440,6 +1353,31 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 停用：`guard.old_test_declare.enabled=false`
 - 守門：[`hooks/verify/verify_old_test_declare.py`](../hooks/verify/verify_old_test_declare.py)
 
+### 問使用者附推薦（AskUserQuestion）
+- **位置**：[`hooks/wg_ask_gate.py`](../hooks/wg_ask_gate.py)
+  - PreToolUse：settings.json matcher 掛 `AskUserQuestion|ExitPlanMode`
+  - 沒攔到的由 PostToolBatch 事後提醒
+- **性質**：提醒（照 `RULE_MODE`；事後那條路只提醒）
+- **開關**：跟守門總開關；寫碼守門關時 dispatcher 不把這兩個工具送進 PreToolUse，PostToolBatch 也不跑這段
+- **原則**：人只做真正的決定，而且看懂全貌才拍板
+
+#### 兩條規則（§7.8）
+- **每一題要附推薦**（[ASK_NEEDS_RECOMMENDATION](../TECH/release-rules.md#ask_needs_recommendation)）：選項 label 標 `(Recommended)` 或題目含「建議：」；【收尾放行確認】固定兩選項的放行題豁免
+- **問改法而題目提到的部位還沒讀過檔**（[ASK_OVERVIEW_BEFORE_DECISION](../TECH/release-rules.md#ask_overview_before_decision)）：
+  - 題目沒提部位表上的路徑時，看本 session 有沒有讀過任何部位檔
+  - 提醒多一句「先讀過部位檔再問」（不單獨擋）
+
+#### 提醒與放行題
+- 提醒印規則名、缺哪一題、照抄可過的寫法，所有句子併成一則
+- 放行題看結構：題目含【收尾放行確認】、選項正好固定兩個
+  - 真有擋滿待放行紀錄時，整次全是放行題才整次豁免
+  - 夾一般題或把標記塞進一般題，照查推薦
+
+#### 留帳
+- `Logs/guard-ask.jsonl`
+- PostToolBatch 每次提問記一筆審計 `ask_audit`（擋過幾次）
+- 訊息標記 `[Guardian:Ask]`
+
 ### GateBypass
 - **名稱**：GateBypass（T2.19），病形防繞
 - **位置**：[`hooks/wg_gate_bypass.py`](../hooks/wg_gate_bypass.py)
@@ -1489,7 +1427,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 拒寫條件（兩者同時成立）
 - ① 內容提到 Guardian 的閘：
   - `[Guardian:` 標籤
-  - SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder／NeedGoal
+  - SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder
   - `wg_release_rules.RULES` 規則名
 - ② 含改暫存區／改提交範圍的做法字樣：
   - 設定鍵 `guard.gate_bypass.staging_words`
@@ -1538,6 +1476,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - architecture_review：預設關
   - handoff_review：交接文件第二意見；寫碼守門開時預設不觸發（`soft_gate.handoff_review_v6`）
   - acceptance_review：驗收裁判（[§7.4](../TECH.md#74-驗收裁判ai-審查-ai-產出四段閉環)）
+- **叫 Codex**：審計類的 codex 呼叫走單一入口 [`tools/codex-call.py`](../tools/codex-call.py)（`--help` 列參數）；後端怎麼選見 [裁判後端鏈](#裁判後端鏈)
 - **案例**：[`hooks/verify/verify_codex_stop_async.py`](../hooks/verify/verify_codex_stop_async.py)
 
 ### Wisdom Engine
@@ -1592,101 +1531,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 類別：code／knowledge，沒欄或沒標＝code
 - **新專案**：用 [`tools/overview-map-scaffold.py`](../tools/overview-map-scaffold.py) 掃出骨架；預設 dry-run，`--write` 落檔、不撤回可重入
 
-### 注入
-- **位置**：
-  - UPS（提示提到部位檔）
-  - PostToolUse（Read／唯讀 Bash／PowerShell／Grep 讀到部位檔只建紀錄）
-  - PreToolUse `on_edit`（第一次改該部位的檔時送卡）
-  - 程式：[`hooks/wg_overview.py`](../hooks/wg_overview.py)、[`lib/overview_hub.build_injection_ex`](../lib/overview_hub.py)
-- **第一次唯讀碰到某部位**：
-  - 「唯讀」＝Read、cat／sed -n／head／grep -n／git diff 這類不寫檔的指令，判法同讀檔證據 `read_targets`
-  - 只建部位紀錄、標 `card_pending`
-  - 讀檔結果最多多 [LOCATE_HINT_ON_FIRST_READ](../TECH/release-rules.md#locate_hint_on_first_read) 一行；寫碼守門關時連這一行都沒有
-  - 卡、候選、追蹤項都不送（規則 READ_TOUCH_NO_CARD）
-- **卡什麼時候送**：
-  - 在第一次改這個部位的檔那則送（`_deliver_card`，log event `card`）
-  - A 包把這個 deny 降成提醒後，就是「卡隨改檔結果到」
-  - 或提示詞點名路徑時立刻送
-  - 紀錄起點（transcript_offset、讀檔帳）不動，讀檔後交的定位行與讀過的部位檔照算
-
-#### 卡怎麼送（`card_injection`）
-- **`pointer`（預設）**：
-  - 只送兩行：卡上「已知病灶」第一條（截 160 字）與卡路徑
-  - 叫 AI 改這塊之前自己 Read
-  - 指標行與讀卡缺件行都寫「下一則讀卡時順便讀要改的檔」（規則 [CARD_READ_WITH_EDIT_FILES](../TECH/release-rules.md#card_read_with_edit_files)）
-- **`full`**：
-  - 整張注入
-  - 依本回合意圖（`turn_intent` 十類）用 `goal_weights` 選先送哪幾片
-- **開關關態**：寫碼守門總開關開關都照這個值（關態不再退回 `full`）
-- **沒有卡的部位**：兩種送法逐字相同
-- **卡尾追蹤項**：只留一行「未結追蹤項 N 筆＋帳本路徑＋結案寫法」，不列內容（規則 TRACKING_COUNT_LINE_ONLY，`wg_overview._tracking_line`）
-- **目標改了之後的目標視角重送**：只一行（[GOAL_VIEW_ONE_LINE](../TECH/release-rules.md#goal_view_one_line)）
-
-### 最小地圖（G14）
-- **名稱**：最小地圖，無表專案
-- **時機**：PreToolUse，同寫入閘的入口
-- **條件**：只在往上找不到任何部位表、改的是程式檔時查
-- **要求**：本 session 第一次改某頂層目錄的程式檔前，要交「地圖｜讀了／上游／下游」三行（規則 [UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP](../TECH/release-rules.md#unmapped_first_edit_needs_min_map)，[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）
-- **擋訊息**：附掃表預覽與落表格式，引導先落一張部位表
-- **設定**：`overview_hub.min_map`（enabled、preview_timeout_s）
-
-### 寫入閘
-- **位置**：PreToolUse（Edit／Write／NotebookEdit，以及 Bash／PowerShell 解析出的寫入目標）
-- **性質**：提醒
-  - 寫碼守門開時，缺件只提醒一行、留帳，不 deny
-  - 寫碼守門關時照下面寫的 deny
-
-#### 三項證據（缺一）
-- 卡已注入
-- 注入後讀過該部位檔 ≥`min_overview_evidence.part_files`（觸發注入的那次讀也算，[INJECT_TRIGGER_READ_COUNTED](../TECH/release-rules.md#inject_trigger_read_counted)）
-- 交了定位三行：部位／根因層／前例
-  - 前例填存在的卡名、「無」或「待規格：<理由>」
-  - 光禿「待規格」與照抄範本不算
-- 指標制送卡的程式部位另要：本 session Read 過表上每張卡
-  - 讀檔帳同讀檔證據，`wg_overview._unread_cards`
-  - 沒讀的跟其他缺件列在同一則擋訊息、附卡路徑
-  - 改檔 log 記 `card_mode`、`card_unread`
-
-#### 三行從哪裡認
-- 回覆文字、工具參數（Bash 開頭 `#` 註解）、thinking 三處都認
-- 子代理的對話在 `<sid>/subagents/agent-<agent_id>.jsonl`，主檔與子代理檔都讀（`wg_core.assistant_texts_since`）
-- 起點在注入或目標改的那刻各檔各記（`transcript_offsets`）
-- 之後才出現的子代理檔整份都算
-
-#### 擋與放行的細節
-- `readonly_paths` 一律擋
-- transcript 讀不到＝閘判不了：這次不要求定位行與地圖三行（讀檔數照查），記守門紀錄 error（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)）
-- 閘自己出例外也擋（不 fail-open）
-- **擋滿放行**：同回合同缺件擋 2 則回覆後放行留帳（[GATE_DENY_CAP](../TECH/release-rules.md#gate_deny_cap)）；同一則回覆平行送出的幾個改檔算一則（[DENY_CAP_PER_REPLY](../TECH/release-rules.md#deny_cap_per_reply)）
-- **別的部位**：同一個使用者回合擋過某個部位之後，別的部位只缺定位行改成一行提醒、放行、留帳；缺讀檔或卡還沒注入照擋（[LOCATE_BLOCK_ONCE_PER_USER_TURN](../TECH/release-rules.md#locate_block_once_per_user_turn)）
-- **訊息內容**：
-  - 缺定位的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到（[LOCATE_NOT_IN_THINKING](../TECH/release-rules.md#locate_not_in_thinking)）
-  - 有目標樹時完整範例每個 session 只給一次，之後換短句（[LOCATE_EXAMPLE_ONCE_PER_SESSION](../TECH/release-rules.md#locate_example_once_per_session)）
-- **沒表或表外檔**：只要求同頂層目錄讀過檔；該目錄沒有可讀既有檔就不要求（[UNMAPPED_EDIT_NEEDS_READABLE_FILES](../TECH/release-rules.md#unmapped_edit_needs_readable_files)）
-- **整個資料夾當目標**（rm -rf、Remove-Item -Recurse）：看它所在的上一層屬於哪個專案（[DIR_TARGET_JUDGED_BY_CONTAINER](../TECH/release-rules.md#dir_target_judged_by_container)）
-- **第一次讀程式檔的提示**：讀檔時注入的部位，第一次讀到它的程式檔那則讀檔結果另附一行「改之前先立樹（沒樹時）、交定位四行、寫在哪」，讓第一次改就帶齊（[LOCATE_HINT_ON_FIRST_READ](../TECH/release-rules.md#locate_hint_on_first_read)，[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)；判定不動）
-
-#### 知識類部位
-- 部位表類別 knowledge 的部位（錨在專案根的最長前綴命中，[`lib/overview_hub.part_kind`](../lib/overview_hub.py)）
-- 三項只要「卡已注入」
-- 指標制下沒 Read 過卡，只附一行提醒、帳上記 `card_unread`，不擋
-- 不要求讀部位檔與定位三行，注入文字也不叫人交三行
-
-### 候選填空
-- **位置**：`wg_overview._candidates_on_trigger`／`on_edit`
-- **觸發**：提示命中 `root_cause_triggers`
-  - 已注入部位各送一次「候選前 N＋根因卡＋兩問」
-  - 一個都沒注入時，以 cwd 專案表送全專案一次
-  - 放行的同檔第二次 Edit 也附，但與觸發詞共用 `candidates_sent`，一部位一 session 只送一次
-- **候選來源順序**：`smells_report` → 導讀卡「已知病灶」段 → 明說無候選
-  - 改檔路徑沒內容時只送一行，不附根因卡與兩問
-  - 候選產生失敗只附一行，不改變閘判定
-- **排序**：
-  - smells 候選照報告原順序取、不按分數重排
-  - 全專案時各部位輪流取、依部位分組列
-  - 每列附「分數 X（參考）」
-  - 根因那一問要求：挑的不是分數最高的就說為什麼（G5：數字只當參考）
-
 ### Depends 召回
 - **位置**：[`hooks/wg_depends.py`](../hooks/wg_depends.py)（PostToolUse）
 - **觸發**：讀到某張卡 `- Depends: path:<檔>` 指的檔（或其目錄之下）
@@ -1694,13 +1538,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **相關**：
   - `authority_map` 命中文件檔一次性注入地圖
   - 索引欄由 [`sync-atom-index.py --sync-depends`](../tools/sync-atom-index.py) 以 frontmatter 為真相同步
-
-### 壓縮後重注
-- **位置**：PreCompact／PostCompact／PostToolBatch
-- **做法**：
-  - 壓縮前存 OverviewHub 摘要
-  - 壓縮後每部位綜觀隨 atom 一起重注（atom 先）
-- **綜觀內容**：部位／層／三行已交否／主目標／卡／病灶前 N（`post_compact_chars` 截）
 
 ### 收據（收據列）
 - **位置**：
@@ -1762,51 +1599,9 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 用於對帳：(a) 指令提到改檔、(b) 量了、(c) 試過
 - 只比實際跑程式那幾段的參數；前置設定、cd、環境指定、echo 印的字都不算
 
-### 第二意見與候選池
-- **位置**：
-  - MCP `second_opinion_start`／`second_opinion_result`（[`tools/second-opinion/`](../tools/second-opinion/)）
-  - `project_smells`（[`tools/project-smells.py`](../tools/project-smells.py)）：把專案壞味道候選排成表
-- **打包給 codex 獨立審的材料**：部位卡、病灶文件、diff、帳本尾、需求目標樹（goal.md）
-- **自動要求**：大任務或高風險部位收尾由 Stop 的 SecondOpinion 閘自動要求（[§7.1](../TECH.md#71-stop-閘序)）
-
-#### diff 怎麼取
-- `git diff HEAD`，空則 `main...HEAD`，或 `svn diff`
-- 後面接未追蹤的新檔：`git ls-files --others --exclude-standard`／`svn status` 的 `?` 檔
-  - `?` 的目錄只列名、不展開：svn 不列目錄裡的檔、忽略規則判不了
-  - 寫成 new file patch 段：沒有尾換行標 `\ No newline at end of file`、空檔只留檔頭
-  - 二進位與超過 `NEW_FILES_BUDGET`（200000）字的只列檔名；累計不超過它，放不下的那個起只報個數
-  - 被 ignore 的不帶
-  - 原因：以前新建的程式與測試審查者看不到
-
-#### 沙箱外路徑與守門
-- 材料裡指到沙箱外的絕對路徑（磁碟代號、Git Bash 的 /c/…、UNC）全部遮成「…/<最後一段>」
-  - 提示詞才過得了 replay-guard pre
-  - 也不把真工作副本的位置交給審查者
-- **post 守門只判 codex 自己的輸出**：
-  - stderr 先剝掉 `user` 段回聲的整份提示詞（prompt.md 全文當精確子字串）與回答全文（reply.raw.md，stdout 一併剝）
-  - 剝完寫成 codex.stderr.own.log 交給 replay-guard post
-  - codex 沒跑任何指令時（guard 只因找不到指令行而 FAIL），退路掃同一份輸出的禁區樣式與出界路徑
-  - 帳本裡的 `git diff`、帶指令樣字樣的材料行、回答裡引述的禁區字樣都不算它讀出界；它自己 exec 的指令與輸出照判
-  - 剝不到的照舊掃，理由與 note 寫明哪些未剝
-- **有目標樹時**：question 要含樹根那句，否則 blocked
-
-#### second_opinion_result 等待
-- 等到 done／failed／blocked 才回
-- job 還在跑就每 2 s 再讀 status.json，每次呼叫最多等 100 s（[`second-opinion.js`](../tools/workflow-guardian-mcp/lib/second-opinion.js) RESULT_WAIT_MS）
-- 等滿仍在跑回 running 並附「再呼叫一次」
-- **為什麼 100 s**（照 Claude Code 2.1.308 實查）：
-  - 工具呼叫硬上限 `MCP_TOOL_TIMEOUT` 預設 1e8 ms 不是瓶頸
-  - 但互動模式 MCP 呼叫滿 120 s 會被自動轉成背景工作（`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` 預設，`-p` 無頭不轉）
-  - 轉了 AI 就可能先結束回覆，所以每次等待要短於 120 s
-- job 目錄在而 status.json 一時讀不到或沒寫完（run.py 寫檔不是原子替換）照等，等滿才回 failed
-- 結果標頭帶 status.json 的 notes（`note:` 行）
-
 ### 過程量
-- **位置**：[`hooks/wg_scorecard.py`](../hooks/wg_scorecard.py)、[`tools/scorecard-report.py`](../tools/scorecard-report.py)、[`tools/refix-churn.py`](../tools/refix-churn.py)
-- **每 session 一行**：
-  - 改過的部位裡注入後讀過檔的比例
-  - 交三行的比例（knowledge 部位不計）
-  - 同檔反覆修的熱點
+- **位置**：[`tools/refix-churn.py`](../tools/refix-churn.py)（手動跑，git／svn 自動判）
+- **量什麼**：同檔反覆修的熱點：版控歷史裡 fix 類提交按檔排名
 
 ### 專案覆蓋表
 寫在 `<專案根>/.claude/overview-hub.json`，只寫要改的鍵。
@@ -1815,35 +1610,10 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 預設：空
 - 這種專案才改：有生成碼、打包產物、第三方原始碼不准手改 → 列 glob，命中一律擋
 
-#### `min_overview_evidence.part_files`
-- 預設：1
-- 這種專案才改：部位很大、讀一個檔看不出全貌 → 調高
-
-#### `goal_weights`
-- 預設：十類意圖各有片序
-- 這種專案才改：導讀卡段落名跟預設不同，或某類任務該先看別的片 → 只覆蓋那個意圖
-
-#### `locate_template`／`locate_extra`
-- 預設：三句預設問法
-- 這種專案才改：團隊要換問法，或某部位要加第四問（第四問只提醒、不納入三行檢查）
-
-#### `root_cause_triggers`／`idle_triggers`
-- 預設：內建詞表
-- 這種專案才改：團隊口語不同（例「又出現」「接著呢」）→ 換詞
-
 #### `smells_report`／`smells_max_age_days`
 - 預設：空／7
 - 這種專案才改：專案有自己的壞味道報告產生器 → 指過去，天數照報告更新頻率
-
-#### `card_injection`
-- 預設：`pointer`
-- 這種專案才改：卡很短、幾乎每次碰到都會改，想省掉讀卡那一步 → `full`（整張注入，不要求 Read 卡）
-- 只收 `pointer`／`full`
-
-#### `candidate_top_n`／`post_compact_chars`／`max_card_chars`
-- 預設：5／1500／6000
-- 這種專案才改：病灶段很長、部位很多、壓縮後要更多綜觀 → 調整字數與條數
-- `max_card_chars` 只管整張注入
+- 誰讀：病形閘（報告列的檔整檔算舊病）、PickOne 材料（部位的報告前 2 名）
 
 #### `authority_map`
 - 預設：空
@@ -1869,552 +1639,17 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - 預設：false
 - 這種專案才改：專案規定測試／練習檔不上 svn → 開，svn commit 的路徑含測試檔就擋（[§7.5](../TECH.md#75-其他守門) SvnTestBlock）
 
-#### `need_goal.enabled`／`render_chars`／`scope_growth_dirs`
-- 預設：true／1200／3
-- 這種專案才改：對照組實驗要關掉需求目標流程；壓縮後重送的目標樹長度上限（兩倍 render_chars）（[§7.7](../TECH.md#77-需求目標樹need_goal)）
-
-## A7.7 需求目標樹（need_goal）
-
-[↑ 主文 §7.7](../TECH.md#77-需求目標樹need_goal)
-
-### 分工與契約
-- 程式只管：時機、留存、送回、有沒有做（有沒有寫、掛到存在的節點、引用的東西在不在、先後對不對）
-- 目標內容與證據是否真的證明了什麼，由 AI 判斷
-- 欄位、狀態轉換、身份、介面的契約：[`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md)
-- 流程開關照這次事件的 cwd 所在專案解四層設定（專案層 [`.claude/overview-hub.json`](../.claude/overview-hub.json) 的 `need_goal` 也算），每個 hook 入口同一套
-
-### 目標檔
-- **位置**：`workflow/need-goal/<sid>.json`（本機資料，不進版控）；[`hooks/wg_need_goal.py`](../hooks/wg_need_goal.py)
-- **內容**：一個 session 一份
-  - 多棵樹（`T1`、`T2`…）、節點（`T1.2.1`）
-  - 使用者原話（權威）與同伴轉述分開記
-  - 改檔與收據各蓋一個本檔自己的序號
-- **每次修改整段上鎖**：取鎖 → 讀 → 改 → 寫暫存檔換名 → 放鎖；拿不到鎖不降級成無鎖寫
-- 子代理用主 session 的 sid 寫同一份
-
-### 工具
-- **介面**：
-  - MCP `need_goal`（[`tools/workflow-guardian-mcp/lib/need-goal.js`](../tools/workflow-guardian-mcp/lib/need-goal.js) 只驗參數回 chip）
-  - ＋ PostToolUse 套用（`apply_op`）
-
-#### 動作清單
-- **set**：寫樹根、換題開新樹、改寫樹根、從續接單匯入；why 選填；開樹只回「開了新樹 T1：<樹根一句>」
-- **add**：子目標，可待展開
-- **update**：改節點，也是改了程式之後的一句進度；why 選填
-- **reconcile**：完整對照，每個還活著的節點交終點結論＋證據
-- **read**：form=handoff 取續接單區塊
-
-#### 立樹走文字管道（TREE_SET_VIA_TEXT）
-- 立寫碼樹優先走文字管道
-- 寫法：同一則先發的不寫檔指令開頭的 `#` 註解
-  - 「目標｜<整個需求一句>」
-  - 多行「子目標｜<一件>」
-- 改程式檔的 PreToolUse（`set_via_text`，`edit_gate` 之前）照它呼叫 `apply_op`（set, kind=code）
-- state 效果同工具呼叫，留帳 `set_via_text`
-- 早一則只有文字的回覆程式照認、工具照收，但擋訊息與提示只教 `#` 註解這一條路（[DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
-
-#### 定位欄 `locate`（LOCATE_VIA_NEED_GOAL）
-- set／update 可帶 `locate=[{part, lines}]`：改程式前的定位四行隨樹那一次呼叫一起交
-- js 只驗形狀；`wg_overview.locate_from_goal` 照改檔時同一套判法
-  - 通過：標 located_via=need_goal、掛節點、沒紀錄的部位先建紀錄
-  - 沒過：回一行說缺什麼，改檔前照舊補交
-  - 帳：`located_via_need_goal`／`locate_via_need_goal_rejected`
-- **為什麼有這個欄**：沒有它的話，AI 為交四行要多發一條只有 `#` 註解的指令，每部位多一個模型回合
-- **擋訊息不教這條路**：擋訊息與提示只教「同一則先發不寫檔指令的 `#` 註解」一條路，locate 欄只在這裡與 MCP 工具說明講（理由見 [DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
-
-#### 只立一次與送回
-- **目標樹只立一次**（[GOAL_TREE_SET_ONCE](../TECH/release-rules.md#goal_tree_set_once)）：
-  - hook 只在改程式前沒樹時提醒 set 一次
-  - reconcile 不再被任何提醒或回覆促使
-  - 交付時對照由程式代填（RECONCILE_BY_PROGRAM）；AI 自己交照收
-- **寫入的回覆送回樹**：
-  - set 送全樹；add／update／reconcile 送精簡樹，不截節點
-  - 拒收的項目附原因
-- **其他 hook 提示**（[TREE_LINE_IN_HINTS](../TECH/release-rules.md#tree_line_in_hints)）：
-  - 只附一行當前節點（`wg_need_goal.brief_line`）；沒有子節點就是樹根自己
-  - 導讀卡與讀入範圍提示同一回合內容沒變只附一次
-- **壓縮後重送**：照附樹根一行＋當前節點（`brief`）
-- **退路**：`coding_guard.slim_reminders=false` 退回每則附樹根一行
-
-#### 工具定義預算
-- 工具定義（[`mcp.js`](../tools/workflow-guardian-mcp/lib/mcp.js) description＋inputSchema）估 ≤1,800 tok；每次模型呼叫都重讀
-- schema 只留型別、enum 與必要欄位；拒收規則在 [`need-goal.js`](../tools/workflow-guardian-mcp/lib/need-goal.js)
-- 案例：[`verify/verify_need_goal_schema_budget.js`](../tools/workflow-guardian-mcp/verify/verify_need_goal_schema_budget.js)
-
-### 使用者說的要對得到原話
-- **位置**：`wg_need_goal._check_origin` ＋ `wg_release_rules.origin_user_verdict`（規則 [ORIGIN_USER_NEEDS_QUOTE](../TECH/release-rules.md#origin_user_needs_quote)）
-- **開關**：`guard.origin_user_check.enabled`（預設開）
-
-#### 核對規則
-- 時機：add／update 把子節點標 `origin=user`
-- 選填 `quote`（或節點文字本身）要是樹上某則使用者原話的字面子串，至少 6 字
-  - 樹上原話含匯入的前一個 session 原話
-- 不到 6 字：要是某則原話的整句
-  - 前後是句首、句末標點或換行；逗號不算句界
-  - 去掉句末標點至少 2 個字
-  - 引用自帶句末標點時要跟原話那個標點一樣，「要有測試。」對不到問句「要有測試？」
-- **對上**：保持 user，節點存 `quote`、`said_seq`，history 記「引用第 N 回合」
-- **對不到或只出現在同伴轉述**：
-  - 強制改 inferred
-  - 回傳附提醒；下一則訊息的樹提示再帶一次就清
-  - `Logs/guard-need_goal.jsonl` 記 `origin_quoted`／`origin_downgraded`（節點文字與 quote 並列給人抽查語意）
-
-#### 重核與原話來源
-- 之後只改「使用者說的」子節點文字（含匯入的）也重核
-  - 沒附新 quote 就拿節點存的 quote 核
-  - 存的是當初節點文字對上的就不拿（`quote_by=text`）
-- 核對用的原話另存在樹的 `said_all`：本 session 最多 200 則、單則 4000 字，不進續接單；不受顯示用 `user_said` 的 20 則／1000 字裁切影響
-- 樹結束期間收的原話（`said_log` 還沒掛上任何樹）也算核對來源（[ORIGIN_SAID_INCLUDES_UNATTACHED](../TECH/release-rules.md#origin_said_includes_unattached)）
-  - 原因：對照完樹結束後使用者再糾正，那則要等樹重開才掛回去，而重開排在同一次 update 的核對之後
-- 匯入當下子節點不核；不擋工具呼叫
-
-#### 樹根
-- 樹根 origin 不動（契約：AI 對原話的解讀）；顯示一律「AI 的解讀」（續接單也是）
-- set 開樹、改寫樹根、匯入時把樹根切句（。；，、——，≥6 字）
-- 原話裡沒有的句子列一行「樹根這幾句原話裡沒有：…」，在當下回傳與下一則訊息各提醒一次，log 記 `root_unquoted`
-
-### 新需求開始
-- **位置**：UserPromptSubmit（`on_prompt`，排在導讀卡之前）
-
-#### 記什麼原話
-- 只認使用者本人打的字（`harness_text.user_typed_text`）
-- 跨 session 訊息記成同伴轉述
-- 系統通知不記，含沒有標籤包住的純文字通知：行首 `[SYSTEM NOTIFICATION - NOT USER INPUT]`、`[Cross-session idle notice]`、`[Cross-session delivery notice]` 那行起到訊息尾
-
-#### 提醒
-- **沒樹時**：第一則訊息提醒一次先寫目標
-  - 寫明改程式、寫或整併文件、整理記憶或設定都算要動手
-  - 寫整個需求，不只這回合先做的那段
-  - 第一則提示寫明子目標每件一行「子目標｜…」，開新樹收下時不再另送題
-- **有樹時**：每則只送回當前節點一行（[TREE_LINE_IN_HINTS](../TECH/release-rules.md#tree_line_in_hints)）
-  - `coding_guard.slim_reminders=false` 時另附樹根一行與子目標、待展開、待對照的改動數
-  - 原話對不上的提醒只在真有降級時附
-- 目標樹提示只在寫碼回合送（[§11.2](../TECH.md#112-寫碼守門的減量原則) [CODING_TURN_ONLY](../TECH/release-rules.md#coding_turn_only)）；原話每則照記
-- 樹對照完或結束後再提醒一次
-
-#### 換題與糾正
-- `set new_task=true` 在目前的樹還是進行中時要附 why（為什麼是另一件事、不是糾正或補充）
-  - 與改寫樹根同成本
-  - 收下時列舊樹沒結束的節點，叫它把被取代的標放棄
-  - 已對照或結束的樹之後換題不用 why
-- 糾正提醒（`on_correction`）寫明改這棵樹、不開新樹
-
-#### 原話掛樹
-- 從續接單匯入時，本 session 匯入前收到的使用者原話（常是開工句）掛進接續的那一棵
-- 已對照或結束的樹重新打開（改寫樹根、增改節點、節點退回非終點、又改了檔）時，結束期間收的原話（例如對它的糾正）掛回來
-
-### 沒樹時改了記憶知識類
-- **位置**：PostToolUse 改檔蓋號（`stamp_edit`、`_knowledge_write`）
-- **算不算記憶知識類**：只看查得到的事實
-  - 還在的檔不是程式
-  - 還在的目錄裡沒有程式檔（搬過去的目的地）
-  - 已經不在的路徑有副檔名而且不是程式（刪掉或搬走的文件）
-- **不算**：
-  - 沒副檔名又不在的路徑（分不出）
-  - 執行期資料（[RUNTIME_DATA_NO_OVERVIEW](../TECH/release-rules.md#runtime_data_no_overview)，不查 .gitignore）
-- **算的**：
-  - 記進目標檔 `untreed`：同一檔一筆，上限 200，超過丟最舊的並記 `untreed_dropped` 與守門紀錄
-  - 這個回合第一筆只留守門紀錄 `knowledge_no_tree`，不送任何催立樹的提示（[NON_CODING_TURN_NO_NUDGE](../TECH/release-rules.md#non_coding_turn_no_nudge)：只改文件、記憶、設定的回合不跑守門）
-  - 之後寫樹或從續接單匯入時，這些改檔掛進新樹（匯入時掛進接續的那一棵）
-- 已對照或結束的知識類樹又改了知識類檔 → 退回進行中
-
-### 改程式前
-- **位置**：PreToolUse
-  - 第一層 `edit_gate` 在 OverviewHub 之前
-  - 第二層在 `wg_overview.on_edit`
-
-#### 第一層：沒樹就擋
-- **哪些檔算寫碼類**：
-  - 部位類別不是知識類
-  - 副檔名在 `reconcile_gate.code_exts` 聯集清單，或沒副檔名但第一行 `#!`
-  - 搬移或複製（mv／cp／Move-Item／Copy-Item…）時來源含程式檔也算；來源是目錄就往下找
-  - Write 新建沒副檔名而內容以 `#!` 開頭也算
-- **沒有目標樹就擋**：
-  - 擋之前先看 transcript 本使用者回合有沒有「目標｜」行，有就照它立樹再判（[TREE_SET_VIA_TEXT](../TECH/release-rules.md#tree_set_via_text)）
-  - OverviewHub 關掉、沒專案根、表外檔都照查
-  - 暫存檔不管
-- **讀檔時的提示**：讀到部位的程式檔，沒樹就在定位提示那一行先講立樹（只教「目標｜」行；工具照收、不提）（[LOCATE_HINT_ON_FIRST_READ](../TECH/release-rules.md#locate_hint_on_first_read)，判式同一支 `_edit_gate_applies`）
-
-#### 第二層：定位行
-- **有樹時**，部位表上的程式檔，定位三行之後加第四行 `定位｜目標：<節點編號>（這一塊在目標裡的角色）`
-  - 第四行（節點、括號內的角色）與範例佔位只記錄不擋
-  - 沒寫或指錯節點就掛樹根；收尾 (f3) 從 transcript 補掛
-  - 缺的記 `guard-need_goal` event=locate_soft（[LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER](../TECH/release-rules.md#locate_lines_no_example_placeholder)）
-- **根因層那行**：
-  - 要兩個根因候選＋選擇理由，或「第二個不存在因為 …」
-  - 一個使用者回合只擋一次，之後只留帳（[LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES](../TECH/release-rules.md#locate_lines_need_role_and_two_candidates)、TWO_CANDIDATES_ASK_ONCE，[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）
-- **第五行 `定位｜批判：…`**（照擋，[LOCATE_LINES_NEED_CRITIQUE](../TECH/release-rules.md#locate_lines_need_critique)）：
-  - 與四行同一支判定，缺的一起列
-  - 內容：這段現在的寫法合理嗎（合理＋理由，或不合理＋理由＋更好的做法）、同類還可能在哪（或「無，因為 …」）
-  - 照抄範本不算
-- 擋訊息附範例五行
-- **定位帳**：核對通過記「部位 → 節點」，之後這個部位的改動掛到那個節點
-- **隨樹交**：四行也可以在 need_goal set／update 的 `locate` 欄隨樹一起交（LOCATE_VIA_NEED_GOAL）
-  - 程式照認；讀檔提示與擋訊息不提這條路、只教 `#` 註解（[DECL_HINT_KEEPS_EDIT_TOOLS](../TECH/release-rules.md#decl_hint_keeps_edit_tools)）
-  - 交過的部位第一次改檔不擋、不掃 transcript（`_first_edit_once` 開頭確認 located）
-- **目標改了**：開新樹、改樹根、改節點文字、匯入續接單（加子節點不算）→ 各部位的「已定位」清掉，只認之後交的那一組
-- **擋滿放行**：同一個使用者回合、同一部位、同樣的缺件擋 2 次後第 3 次放行並留帳
-  - 事件 `edit_deny_capped`，規則 [GATE_DENY_CAP](../TECH/release-rules.md#gate_deny_cap)，共用 `wg_core.deny_cap`
-  - 沒在部位表上的改檔閘同樣，事件 `edit_unmapped_capped`
-- **判不了**：讀不到 transcript＝閘判不了，這次不要求定位行（讀檔數照查）並記守門紀錄 error（[GATE_SELF_ERROR](../TECH/release-rules.md#gate_self_error)，不計次）
-- **導讀卡開頭**：
-  - 附當前節點一行（部位掛了節點就是那個；同一回合內容沒變只附一次）
-  - 附定位第五行的格式提示
-  - 三種情況同一個 session 只送一次全文（[CRITIQUE_CASES_ONCE_PER_SESSION](../TECH/release-rules.md#critique_cases_once_per_session)）
-
-### 改了之後、交付之前
-- **位置**：Stop `_verify_gates`（只有主 session）、PreToolUse commit 指令
-- **目前狀態**：(f1)～(f4) 與 commit 前的目標對照都不擋
-  - `reconcile_gate.goal_gate=false`（規則 [CLOSING_RITUAL_SWITCHES](../TECH/release-rules.md#closing_ritual_switches)）
-  - 目標樹照記、帳照算
-
-#### (f1) 待對照
-- 改了程式檔就欠一筆「待對照」
-- 收尾時程式照改到的檔與最近收據替那個節點記一筆進度（`auto_progress`，`by=program`）並清掉
-  - 不擋；`goal_gate=false` 也照做
-  - 背景本地模型另草擬一句（[§11.2](../TECH.md#112-寫碼守門的減量原則)）
-- AI 要寫自己的判斷照樣 update（update／reconcile 依節點編號找所屬的樹，換題後舊樹欠的也交得進去）
-
-#### (f2) 交付邊界查七條
-- 開著時才查；交付邊界＝宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核
-- 查目前的寫碼類樹：
-  - 交過完整對照
-  - 目標版本沒變
-  - 每個還活著的節點是終點
-  - 達成／部分有證據且指標在
-  - 收據晚於它支持的節點（含子孫與祖先）的最後一次改動
-  - 達成不能只有推論；寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案、卡片、推論不算試過），且實測只配收據
-  - 部分／沒有寫 followup
-- 擋訊息印規則名、節點與現有每一筆證據（規則 [§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)）
-- **先紅後綠**：完整對照收下時，每筆案例證據對目標檔收據找「同一案例檔先紅、之後綠」
-  - 對上記 `red_then_green` 並印在對照摘要
-  - 對不上印「案例未見先紅」
-  - 只記錄不擋
-
-#### (f3) 改過程式檔的部位要掛節點
-- 交付邊界另查改過程式檔的每個部位都在定位帳掛到活著的節點（改檔蓋號時記 `parts_edited`）
-- 沒掛的先從 transcript 找補交的四行補掛；仍沒掛就擋，並列「<部位>：<改的檔> 沒掛目標」（規則 [EDITED_PART_NEEDS_GOAL_NODE](../TECH/release-rules.md#edited_part_needs_goal_node)）
-- (f1)(f2)(f3) 三條都併進寫碼查核的擋訊息，同一個擋滿問使用者流程
-- (f3) 帶規則行，擋次預算單獨計次
-
-#### commit 前
-- commit 指令執行前查 (f1)＋(f2)＋(f3)，缺了 deny
-- 是不是 commit 與口令閘同一支判定：heredoc 本文裡的 commit 範例不算，heredoc 結束後真的執行的照算
-
-#### (f4) 記憶知識類
-- 記憶知識類（沒改過程式檔的樹）不進寫碼查核、commit 不擋
-- 兩種情形算 (f4)：
-  - 本使用者回合沒樹時改了記憶知識類的檔（不看措辭，規則 [KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE](../TECH/release-rules.md#knowledge_edit_needs_light_treeknowledge_tree_reconcile_at_delivery)）
-  - 交付邊界時任何一棵沒結束的知識類樹（換題後的舊樹也算）在最後一次完整對照之後還有改檔（規則 [KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY](../TECH/release-rules.md#knowledge_edit_needs_light_treeknowledge_tree_reconcile_at_delivery)；樹上沒改檔的純問答樹不要求）
-- 併進收尾報告欄 (e) 那一份擋，屬記憶與報告類：不問使用者
-  - 這一份只數自己的次數（寫碼規則先擋過幾次不吃掉它）
-  - 本回合第 3 次放行並記 `reconcile_overflow`（健檢列 red）
-- 判不了不擋，寫 stderr 與守門紀錄
-- 知識類的「達成」不要求案例或收據，可指到改過的檔（讀碼級）；推論最多標部分
-
-### 問使用者之前
-- **位置**：PreToolUse（settings.json matcher 掛 `AskUserQuestion|ExitPlanMode`，`wg_need_goal_points.on_ask`）；沒攔到的由 PostToolBatch 事後提醒
-- **原則**：人只做真正的決定，而且看懂全貌才拍板
-
-#### 三條規則（§7.8）
-- **每一題要附推薦**：選項 label 標 `(Recommended)` 或題目含「建議：」；不分有沒有樹；【收尾放行確認】固定兩選項的放行題豁免
-- **有樹時每一題各自指到節點**（[ASK_LINKED_TO_GOAL](../TECH/release-rules.md#ask_linked_to_goal) 只記錄）：
-  - 比對範圍：題目＋選項 label 與描述，不含 header
-  - 指到的方式：編號，或節點原文連續 8 字以上
-  - 一題掛上不帶過同批其他題
-  - 指到就記 checkpoint；沒指到只記 `ask_unlinked`，不擋不送
-- **問改法而題目提到的部位還沒讀過檔**：
-  - 題目沒提部位表上的路徑時，看本 session 有沒有讀過任何部位檔
-  - 擋訊息或提示多一句「先讀過部位檔再問」（不單獨擋）
-
-#### 擋訊息與放行題
-- 擋訊息印規則名、缺哪一題、照抄可過的寫法，所有句子併成一則
-- 放行題看結構：題目含【收尾放行確認】、選項正好固定兩個
-  - 真有擋滿待放行紀錄時，整次全是放行題才整次豁免
-  - 夾一般題或把標記塞進一般題，照查推薦
-- 閘自己壞了照擋，只放整次全是放行題且真有待放行紀錄的
-
-#### 審計
-- PostToolBatch 每次提問記一筆審計 `ask_audit`
-- 內容：擋過幾次、掛上哪個節點、沒掛上記「提問未掛目標（知識類／寫碼類）」
-
-### 收尾與審查
-- **位置**：PostToolUse 收尾檢核分支、HUD、`codex_companion` 驗收審查
-- 收尾檢核報告自動附目前寫碼類樹（原話摘要、節點、對照結果）
-- HUD 多一塊「目標對照」；收尾檢核本身不多欄
-- 完整對照的部分／沒有寫進 `workflow/tracking/<slug>.jsonl`
-- 驗收審查的「使用者目標」改給三段：使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）；沒有同伴轉述就不印那段
-
-### 重看
-- **位置**：`wg_need_goal_points`（CRITIQUE_QUESTIONS）、`wg_need_goal`（完整對照的 same_class）
-- **性質**：只送題不擋
-
-#### 三個觸發
-- 讀入範圍變大：子代理讀的檔不算進主 session 的讀入範圍，子代理也不收要它改主樹的提示
-- 收到外部主張：審查結果、審查報告檔
-- 目標改了重看部位：第一次 set 也算；只送一行（目標視角提問＋當前節點），不重貼導讀卡與定位範本（[GOAL_VIEW_ONE_LINE](../TECH/release-rules.md#goal_view_one_line)）
-
-#### 送什麼
-- 三個「用目標視角重看」的提示都多問兩句：這段寫法（或主張）合不合理、不合理的更好做法；同類別處還有沒有
-- 再附三個具體情況題（`CRITIQUE_CASES`，定位第五行的提示也帶）：
-  - 選替身時：替身和真正要判的事有沒有落差
-  - 換測試環境或前提時：舊前置步驟還成立嗎
-  - 寫「期望不發生」的案例時：它通過是因為規則對還是什麼都沒發生
-- 回答寫進目標樹（update 的 why）
-
-#### 每 session 送一次全文
-- 三種情況每個 session 送一次全文，之後（含定位第五行的提示）換成一句指回（`CRITIQUE_CASES_POINTER`，規則 [CRITIQUE_CASES_ONCE_PER_SESSION](../TECH/release-rules.md#critique_cases_once_per_session)）
-- 已送記在目標檔 `critique_sent`
-  - 還沒有目標檔就照送全文、不建檔
-  - 子代理用主 session 的目標檔，誰先收到全文就算送過
-  - 壓縮後重送目標樹時清掉
-- `coding_guard.slim_reminders=false` 退回每則全文
-- 「交出前一問」已拿掉（[§11.2](../TECH.md#112-寫碼守門的減量原則)）
-
-#### same_class
-- 完整對照的達成節點可附 `same_class`（同類別處：找到的位置，或為什麼沒有）
-- 沒附只提醒一句
-
-### 續接
-- **位置**：`handoff_block`／`import_handoff`／`recovery_blob`
-- 續接單帶【需求目標樹】區塊：人讀段＋機讀 JSON
-- 新 session 讀到 `_staging/next-phase*.md`：
-  - 還沒有樹 → 自動匯入（新編號、舊證據標前一個 session、只供閱讀）
-  - 已有樹 → 提示用 `import_from` 接續
-  - 本 session 自己匯出的不重複匯入
-- 壓縮後的目標樹獨立重送，不依附部位綜觀
-
-### 紀錄
-- **檔案**：`Logs/guard-need_goal.jsonl`
-- **記什麼**：
-  - 每次動作、擋改檔、擋定位（內容不夠時帶規則名）、提醒、匯入
-  - (f1)(f2)(f3)(f4)
-  - 沒樹改知識類（`knowledge_no_tree`）
-  - commit 擋、鎖逾時、壞檔留證
-  - session 結束記沒對照的樹（知識類對照後又改了檔也算）與沒樹改的知識類檔（`silent_unreconciled`）
-- **收尾補掛**：記在 OverviewHub log（`relink`）
-
-## A7.9 驗證範圍（verify_scope）
-
-[↑ 主文 §7.9](../TECH.md#79-驗證範圍verify_scope)
-
-這道閘已移除；原本的設計與部件見 [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/驗證範圍閘封存-2026-10-29.md)。
-
-## A7.10 切入點契約（程式問→卡教→LLM 判→留帳回看）
-
-[↑ 主文 §7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)
-
-### 目的
-
-- 程式停下來要 LLM 判斷的每個位置（切入點），判得準不準取決於那一刻注入的卡。
-- 卡能加、改、退役，判斷力就能持續調。閘與案例守流程，卡守判斷。
-- 本契約不加閘、不改任何閘的放行結果，只補「問的那一刻把判準卡送到」與「留帳回看」。
-
-### 部件
-
-#### 登錄表
-- **位置**：[`workflow/entrypoints.json`](../workflow/entrypoints.json)（程式碼根，版控資料）。
-- **每個切入點一列**，欄位：
-  - 代號
-  - 名稱
-  - 對應 RULES 規則名
-  - 擋訊息裡穩定的識別字樣
-  - 哪條路問（`path_values`）
-  - 餵什麼、問什麼、期望判什麼
-  - 回應型（`responses`）
-- **代號**：
-  - E01～E35 沿用 [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md) 的 E 號，之後新增的接著編。
-  - 例：E38～E41 是 G6 階段 5 的糾正詞、否決記憶、衝突宣告、範疇宣告。
-  - E36、E37 已撤：自檢評分不是切入點、上則評分只留帳。
-- **`path_values`**：
-  - 本契約接的路：stop_piggyback／pretool_deny／pretool_hint／mcp_reply／post_tool_hint／subagent_prompt。
-  - user_prompt 只接程式自己組的問句，目前有 E38、E39。
-  - session_start／local_llm／tool_cli 只登記不接（tool_cli 目前沒有程式送）。
-- **`not_entrypoints`**：列 RULES 裡確定不是問 LLM 的規則與一句理由。
-- 加切入點只改這份檔；程式不寫死任何代號，沒登錄的切入點沒有卡也沒有帳。
-- **現況**：
-  - E06、E30 沒登記任何路。
-  - E31～E35 走不接的路。
-  - 這 7 列拿不到卡。
-  - subagent_prompt 路程式已接，但還沒有任何一列登記它。
-
-#### 查表
-- **位置**：[`hooks/wg_entrypoint.match_entries`](../hooks/wg_entrypoint.py)。
-- 問句裡出現某列的規則名或識別字樣、而且那列登記了這條路 → 算這個切入點（可同時多列）。
-- 登錄表讀不到或格式壞了 → 空表＋stderr，問句照原樣送。
-
-#### 卡綁切入點
-- **位置**：卡片 `- Entry:` 欄（[§4.1](../TECH.md#41-atom-卡片格式)）＋索引 `entry` 欄。
-- **`cards_for_entry`**：
-  - 先取 Entry 寫了這個代號的卡（知識段短的在前）。
-  - 再拿那列的規則名＋識別字樣當查詢比卡的 trigger（與 UPS 同一支比對）當退路，命中數多的在前、同分短的在前。
-  - 給裁判用的規格卡不綁 Entry（不另加白名單）。
-- **候選池**：
-  - 全域索引＋state 記的專案層／公司層索引。
-  - scope 可見性與被取代的卡照 SessionStart 同一套。
-  - 沒有 state 時沒有身份，personal／role 卡不給。
-
-#### 預算
-- **設定**：
-  - `entrypoint.inject_budget_tokens`（每個切入點各一份，預設 400）。
-  - `entrypoint.inject_budget_total`（同一則問句總上限，預設 1200；`wg_core.DEFAULTS`）。
-- **`judgment_cards`**：只取知識段，標「判準卡（E04）：<卡名>」。
-- **額度**：每個切入點實際可用＝min(各自預算, 總上限÷認出的切入點數)，切入點多時每個都分得到、整則不超過總上限。
-- **送的順序**：先送每個切入點的綁定卡、再送每個切入點的退路卡。
-- **共用卡**：一張卡同時是幾個切入點的判準卡只送一次（算在第一個送它的切入點）、標題列全部代號。
-- **超額**：某個切入點超過它自己的額度就截斷最後一張（尾端「已截斷」）、它後面的卡不送；有卡卻沒送完的切入點帳上都記 truncated。
-- 標題列不計入預算。沒卡就什麼都不接、不印「無」。
-
-#### 健檢
-- **位置**：`wg_entrypoint.health_block` → [`tools/health-weekly.py`](../tools/health-weekly.py) 2f 段（只進 info）。
-- **列出**：
-  - RULES 裡既沒登錄也不在 `not_entrypoints` 的規則名
-  - 登錄表寫了但 RULES 沒有的規則名
-  - 卡片 Entry 寫了但登錄表沒有的代號
-  - 重複代號
-- 只列不擋。
-
-#### 問的那一刻注入
-- **單一入口**：`wg_entrypoint.entry_note(問句, 路)`。
-- **保護匯入**：[`handlers/_shared`](../hooks/handlers/_shared.py) 保護匯入（模組壞了退成不接卡＋stderr，不拖垮 handler）。
-- **各路接在哪**：
-  - stop_piggyback：
-    - Stop 的 `_piggyback`（只拿這道閘自己的擋訊息認切入點，卡接在後面所有預覽與提示之後）。
-    - 子代理收尾 `_code_gate_no_ask` 的擋訊息（裁判子 session 走同一支但不接）。
-    - PickOne 照擋送法時的續跑提醒。
-  - pretool_deny：PreToolUse 的 deny 全走 `_deny()`（裁判子 session 的 JudgeWrite 除外：裁判不注入）。
-  - pretool_hint：提問前提醒與一般警告段的 additionalContext（systemMessage 給使用者看的那份不接）。
-  - 上面三者共用 `_with_cards()`：
-    - 只在真的要送訊息時才匯入與讀登錄表。
-    - 什麼都不送的放行路徑零成本。
-    - 派子代理時每次多讀一次登錄表。
-  - mcp_reply：PostToolUse 對 `mcp__` 工具的單一出口，拿工具本體回覆＋同一次補的提醒認切入點，卡多接一段 additionalContext。
-  - subagent_prompt：派子代理時，卡接在記憶 blob 之後、原 prompt 之前。
-  - tool_cli：AI 自己跑的本系統命令列工具印給它的問題（目前沒有接卡的）。
-- 原訊息逐字不變，卡一律接在最後。
-
-#### 留帳
-- **位置**：`Logs/guard-entry.jsonl`（`append_guard_log("entry")`）。
-- **每個認出的切入點一筆**，欄位：
-  - at、event=ask
-  - session_id、turn_seq（沒有 state 記 null）
-  - entry、path
-  - cards（這個切入點送了哪幾張）、truncated
-  - with（同一問句還認出哪些代號，調識別字樣用）
-  - response（問的當下記 none）
-  - 另附呼叫端給的標的鍵
-- 沒認出的問句不記。
-
-#### 回應型
-- **位置**：`wg_entrypoint.resolve_responses`；登錄表每列 `responses` [{guard, event, type, match?}]；`entry_note(extra=…)` 把這次問的標的寫進問的帳。
-- **判法**：照各閘自己的留帳推 AI 被問之後怎麼回。
-  - 窗口＝這筆問之後到同 session 同代號下一次問（含）。
-  - 窗口裡第一筆對上的閘紀錄給 declared／denied／judged／released。
-  - 沒對上但同一回合又被問一次 → denied。
-  - 換回合才又被問或不知道回合 → none。
-- 只列「AI 回應之後」才寫的紀錄。
-- E01／E02／E03／E05／E17／E19／E24（宣告收下）／E28／E29 的閘沒有可用留帳，只能靠「同回合又被問」推 denied。
-- 規則寫了 match（鍵名清單）就還要問的帳與閘紀錄這些鍵相同。
-- **限制**：
-  - 時間戳只到秒，與問同一秒的紀錄不算（閘紀錄自己記到微秒就不受影響）。
-  - 沒寫 match 的列帳上沒有標的，同 session 同代號別件事的回應會算進來。
-
-#### 統計
-- **位置**：[`tools/entry-stats.py`](../tools/entry-stats.py)（唯讀）。
-- **參數**：`--days`（預設 7）、`--logs`、`--registry`、`--json`、`--asks`。
-- **每個切入點**：問幾次、有卡幾次、送幾張、截斷幾次、各回應型幾筆、同一問句也認出哪些代號。
-- **`--asks`**：另列每次問一筆（at、session、turn_seq、entry、path、cards、truncated、response、response_by、with）；回應型就是 `resolve_responses` 判的，不另寫判法。
-- **尾行**：`ENTRY_STATS DONE entries= asks= cards= truncated=`，給了 `--asks` 再加 `asks_listed=`。
-- 驗收判分讀它（文字評分週彙總不讀，見 [§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)）。
-
-#### 自檢評分（開發期工具，不是切入點）
-- **位置**：[`skills/console/scripts/selfscore.py`](../skills/console/scripts/selfscore.py)。
-- **用法**：
-  - `--ask --g G8` 問。
-  - `--g --score --basis（可重複）--why --rater` 答一筆。
-  - `--summary [--days --json --logs]` 統計。
-  - session 預設取 Claude Code 給工具子行程的 `CLAUDE_CODE_SESSION_ID`。
-- **何時用**：總控台、checklist 軌、驗收判分打「這個 G 幾分」時。
-- **`--ask`**：印 G 名、評分規格卡 `g<N>-評分規格*.md` 知識段三句、可用證據清單與要答的三件事（不接判準卡、不記 guard-entry）。
-- **帳本**：
-  - 答的一筆記 `Logs/guard-selfscore.jsonl`（event=score：g、score、basis、why、rater、unanswered）。
-  - 缺欄位或分數不是 0～10 的整數照記「沒答」（原字留 score_raw），stderr 一行、不擋。
-  - 帳本不是卡：不注入、不過期。
-  - 分數只收 ASCII 0～10（「²」、負數、小數都記沒答）。
-  - 寫帳失敗 stderr 說沒記到、尾行 recorded=0、exit 1。
-- **`--summary`**：每個 G 最近一筆、最近五個分數走勢、比上次差多少。
-- **尾行**：`SELFSCORE DONE asked=1`／`recorded=1 unanswered=`／`gs= records= unanswered=`。
-
-### 刻意不做
-
-- 不加閘、不放寬既有閘、不加例外清單；擋訊息既有格式與規則名不動。
-- session_start、local_llm 這兩條路只登記不接。
-- post_tool_hint 只接改程式檔那批的收尾類提醒（`post_tool_batch.closing_reminders` 把整批提醒行當一句問、卡接在後面，讀檔導讀不接）。
-- user_prompt 只接程式自己組的問句（糾正問句 E38、否決問句 E39）。
-- 另一支 Stop hook [`hooks/codex_companion.py`](../hooks/codex_companion.py) 自己的擋訊息沒接。
-- 識別字樣是子字串比對，訊息裡當範例出現的字樣也會認到，靠帳上的 with 欄回頭調字樣。
-
-### 問法調校：六處擋訊息字句
-
-- 問法本身也是調校點：擋訊息字句會把 AI 帶到哪裡，跟注入的卡一樣影響判斷。
-- 下面幾處的字句照切入點自評的實測改成「先分辨情況再給處置」（擋的條件不變）。
-- 改前改後用內網 gemma4:e4b 實測，紀錄在 [`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/)（[`cases_003.json`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/cases_003.json)、[`results_003.jsonl`](../_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-實測/results_003.jsonl)、README 判定表）。
-- 字句由 [`hooks/verify/verify_entry_wording.py`](../hooks/verify/verify_entry_wording.py) 守。
-
-#### E08 TestFailGate
-- **字句在哪**：[`handlers/stop.testfail_message`](../hooks/handlers/stop.py)
-- **現在怎麼問**：先看使用者有沒有叫跳過這支。
-  - 有 → 測試照紅、寫引原話的不做行（程式只收這種豁免，所以同一句也認得出 E09）。
-  - 沒有 → 修到綠：
-    - 程式錯修程式。
-    - 使用者要的新行為讓舊斷言不再對，就先宣告改舊測試再改斷言。
-    - 不准加 skip／xfail、不准只為變綠改斷言。
-  - 都不成 → 收尾別說完成。
-
-#### E21 改舊測試提示
-- **字句在哪**：`wg_oldtest.hint`
-- **現在怎麼問**：先分是哪一種。
-  - 使用者要的新行為讓舊斷言不再對 → 宣告引原話再改。
-  - 使用者只說跳過 → 撤回、照紅、寫不做行。
-  - 兩種都對不上才問。
-
-#### E22 卡片版拒寫
-- **字句在哪**：`wg_gate_bypass.atom_refusal`
-- **現在怎麼問**：先問讀者能不能照著做讓閘擋下的內容不經修正就過關。
-  - 能 → 是教繞法（即使自認誤擋）。
-  - 不能 → 才宣告「不是教繞閘｜…」。
-
-#### E05 提問前先讀部位
-- **字句在哪**：`wg_release_rules.ask_overview_verdict`
-- **現在怎麼問**：這條不單獨擋；但被別條擋下要重組時，先讀題目提到、還沒讀的部位檔，讀完再定推薦或判斷不必問。
-
-#### E11 退避舉證
-- **字句在哪**：[`handlers/user_prompt_submit.evasion_ask`](../hooks/handlers/user_prompt_submit.py)
-- **現在怎麼問**：
-  - 排在那一則注入最前面。
-  - 先處理這件再做新請求：寫成本、小就先做掉；真的不做或只是描述就寫不做行／不是退避行。
-  - 不點卡名。
-
-#### SmellGate 處置句
-- **字句在哪**：[`tools/project-smells.render_commit_report`](../tools/project-smells.py)
-- **現在怎麼問**：先分被點名的檔是不是你這次改的。
-  - 是 → 修或 smell-ok。
-  - 不是 → 不修、不動它的暫存，只提交自己的檔。
-
 ## A7.11 文字規格評分（G15，`tools/text-score.py`）
 
 [↑ 主文 §7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)
 
-### 目的與自動評範圍
+### 目的與用法
 
 - 照一份「規格」對任何文字逐條判是非、產出評分表；裁判只用開源免費模型（Ollama），付費模型 0 token。
-- 手動指令之外，收尾自動評：
-  - Stop 把交付「改了哪些程式」的那則回覆丟背景評、留帳。
-  - 條件：本使用者回合改了程式、這則宣告完成，一回合一則（規則 TEXT_SCORE_CODE_REPLY_ONLY）。
-  - `text_score.reply_scope=all` 退回每則都評。
-  - 其他回覆由使用者叫 skill `text-score`。
-- 文件只在 `text_score.auto_targets` 列了 `docs` 樣式時才跟著那則一起評（出廠沒列＝不評文件）。
-- 下一則使用者訊息只記一筆「上則評完了」，不注入、不叫 AI 照抄；不擋。
+- 只在手動叫時評：使用者叫 skill `text-score`（評某一則回覆或某份文件）。
+  - skill 帶 `--goal "<當下的需求一句>"` 跑 [`tools/text-score.py`](../tools/text-score.py)。
+  - 預設規格 [`text-specs/reader-designer.md`](../text-specs/reader-designer.md) 用 `{{goal}}`；沒給 `--goal` 就印「不評：沒有當下的需求目標」、不問裁判、不留帳。
+- 不擋、不注入；結果看評分表、留帳與週彙總。
 
 ### 部件
 
@@ -2496,7 +1731,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **位置**：`Logs/guard-text_score.jsonl`。
 - 寫不進去不擋（exit 0），stderr 說原因、尾行 `logged=0`。
 - **一則一行**，欄位：
-  - ts、session（`--session`）、kind（manual 或自動評的種類）
+  - ts、session、kind
   - spec、spec_sha、source、text_sha、chars
   - model（排定的裁判，不重複）、judges（backend → 裁判）、models_used（實際回答的）、backends
   - secs、prompt_tokens、answer_tokens
@@ -2504,70 +1739,12 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - items（每條 status、verdict、quote、reason、why、secs、token）
 - 不存原文。
 
-#### 自動評入口
-- **參數**：`--auto-kind <種類>`／`path_matches`。
-- **不評的情況**（印「不評：<理由>」、不問裁判、不留帳）：
-  - `text_score.enabled=false`。
-  - 種類不在 `auto_targets`。
-  - 來源路徑不符該種類的路徑樣式。
-  - 去掉檔頭與 code 與網址後的非空白字少於 `min_chars`。
-- **路徑樣式**：
-  - `auto_targets` 是 `{種類: 樣式清單}`。
-  - 樣式從任何一層資料夾起算。
-  - `*`／`?` 不跨資料夾、`**/` 零或多層、其他字元照字面、不分大小寫。
-  - 空清單不比路徑。
-  - stdin 沒有路徑，有樣式就不評。
-  - 寫成種類清單的舊設定照舊只比種類。
-- 收尾接線（下面「收尾接線」）用它。
-
-#### 尾巴一行
-- **參數**：`--tail-line`。
-- stdout 只印摘要一行，不印評分表與尾行；照樣留帳。
-- 摘要同留帳的 summary：
-  - `評分 N/M｜沒過：…`
-  - `評分 N/M｜全過`
-  - 有作廢就帶 `｜作廢：…`
-  - 裁判不在 `評分 未評｜裁判不在`
-- 不評時 stdout 空、原因寫 stderr。
-- 收尾背景評用它（輸出不讀，回覆尾巴那行取自留帳的 summary）。
-
-#### 收尾接線
-- **位置**：[`hooks/wg_text_score.py`](../hooks/wg_text_score.py)（Stop `on_stop`、UserPromptSubmit `tail_note`、背景入口 `--job`）。
-- **前提**：config 要有 `text_score` 段且 `enabled` 為 true 才做事。
-- **Stop**（各閘之前，被擋的回合也送）：
-  - 回覆只送交付改程式那則：
-    - [`stop.py`](../hooks/handlers/stop.py) 判 code_reply＝本使用者回合改了程式檔、這則宣告完成，`_reply_in_scope` 一使用者回合一則。
-    - `reply_scope=all` 才每則都看。
-  - 去空白後 ≥ `min_chars`（粗篩，精確字數由 `--auto-kind` 判）且跟送過的不同 → `final_reply`。
-  - 本 session 本回合改過、還在的 `.md` → `docs`：
-    - 只在 `auto_targets` 列了 docs 樣式時才送，出廠沒列。
-    - 路徑樣式由 `--auto-kind docs` 判，不符不評。
-  - 同一則、同一版文件不重送。
-- **背景行程**：
-  - 只寫工作檔 `workflow/text-score/<session>-<亂碼>.json`、起一個沒有視窗、脫離 hook 的背景行程就回。
-  - 背景在自己的行程裡逐份呼叫 text-score 的 main：final_reply 從 stdin、docs 給路徑，`--session` 帶本 session。
-  - 一份出錯只記那份，錯誤落 `workflow/text-score/worker.log`。
-  - 評完刪工作檔、超過一天沒人收的清掉。
-- **需求目標**：
-  - 回覆與文件都要有當下的需求目標（`current_goal`：目標樹樹根，沒樹用本回合使用者原話）。
-  - 都沒有這次不評。
-  - 任務帶 `goal` 給 `--goal`。
-- **UserPromptSubmit**：
-  - 上一回合送評那則評完（留帳同 session、同 text_sha、kind=final_reply）→ `Logs/guard-text_score_tail.jsonl` 記 recorded 一次，不注入、不叫 AI 照抄。
-  - 還沒評完記 pending，之後不補記。
-  - docs 不記。
-  - 要看分數叫 skill text-score 或查留帳、週彙總。
-- **細節**：
-  - 「上一則」指本回合最後一則夠長的回覆（最後是短碎句時指它前面那則）。
-  - 文件評的是背景讀到時的內容。
-  - 背景起成功後才失敗的那一則不重送（失敗記在 worker.log）。
-
 #### 週彙總
 - **位置**：[`tools/text-score-weekly.py`](../tools/text-score-weekly.py)（唯讀；`--weeks`、`--log`、`--json`）。
 - **內容**：最近 N 個 ISO 週，每份規格：
   - 則數、裁判不在數
   - 實際回答的裁判各幾則（models_used；沒有這欄的舊紀錄記「沒記」、裁判都不在記「沒回答」）
-  - 種類各幾則（final_reply／docs／manual）
+  - 種類各幾則（照留帳的 kind 欄）
   - 每條每週過率（是 ÷（是＋否））
   - 最近兩週趨勢（百分點）
   - 作廢數
@@ -2578,7 +1755,6 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - **案例**：
   - [`tools/verify/verify_text_score.py`](../tools/verify/verify_text_score.py)（假 Ollama 伺服器，回應形狀錄自真回應）。
-  - 收尾接線 [`hooks/verify/verify_text_score_stop.py`](../hooks/verify/verify_text_score_stop.py)。
   - 真打量尺 [`tools/verify/probe_text_score_real.py`](../tools/verify/probe_text_score_real.py)（5 份樣本印對答率與秒數，`TEXT_SCORE_REAL DONE …`，不當閘）。
 - **已知限制**：
   - 裁判的判定與理由會自相矛盾，「找得到…就答否」這類反向問法最常見，所以條目一律正面問（通過＝答「是」），程式驗不出矛盾本身。
@@ -2603,7 +1779,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - **什麼記一條邊**：
   - 同一個使用者回合、同一個對話者（主 session 或同一個子代理）裡：閘擋下或記欠 → AI 動手 → 又讓任一道閘擋下或記欠。
-  - AI 動手＝改檔、重跑、寫卡、重交報告、改目標樹；讀檔不算（CHAIN_ACTION_FACTS）。
+  - AI 動手＝改檔、重跑、寫卡、重交報告；讀檔不算（CHAIN_ACTION_FACTS）。
 - **閘名**：
   - 取擋訊息第一個 `[Guardian:名稱]` 標記，認不出才用呼叫端的預設名（工具前是 `PreToolUse`）。
   - 不同的閘混成同一個名字會讓同閘次數算錯，所以每道閘的擋訊息都要帶標記。
@@ -2611,7 +1787,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 - **不算連鎖、不接邊**：
   - 原樣重試、只改寫回覆就又撞同一道閘：交回那道閘自己的擋次上限（CHAIN_SAME_GATE_NO_ACTION）。
   - 兩次之間的動作都沒改到檔：
-    - 例：重跑測試、建刪暫存工作樹這類沒寫入目標的指令、重交收尾報告、改目標樹。
+    - 例：重跑測試、建刪暫存工作樹這類沒寫入目標的指令、重交收尾報告。
     - 同一道閘不接邊、不算同閘次數，動作照列進經過表。
     - 改到檔＝改檔、寫卡、子代理（`wg_chain.changes_files`，[CHAIN_NO_EDIT_NO_EDGE](../TECH/release-rules.md#chain_no_edit_no_edge)）。
   - 中間做了別的動作（回應別的提示）之後原封不動重送上一次被擋的同一個呼叫（CHAIN_SAME_CALL_RETRY）：
@@ -2649,26 +1825,19 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 #### 同閘照對象計數（CHAIN_SAME_GATE_PER_OBJECT）
 - **原則**：同一道閘擋不同對象，各要各的證據，第 1 次補的沒讓第 2 次多欠什麼，各算各的第 1 次。
 - **例**：
-  - 定位閘先擋【訂單結帳】、AI 交定位改完，再擋【測試】：兩個部位各自的第 1 次，不響。
-  - 部位 A → B → 又回到 A，A 第 2 次照響。
-- **對象由誰報**：工具前閘擋下時報給斷路器（`pre_tool_use._deny` 的 `watched`／`target`，帳上記在觸發那筆）。
-- **各閘怎麼報**：
-  - 定位閘因為「這個部位欠證據」擋下時：
-    - 報部位與擋的檔。
-    - `target`＝它累積證據用的同一把鍵：專案根與部位名，表外的檔是專案根與頂層目錄。
-    - 設定有錯（整層壞了，換部位也一樣擋）、唯讀路徑的擋不報。
-    - 判不出部位（部位表讀不到、查表出錯）連檔也不報，免得同部位換個檔被算成別的對象。
-  - 動資料檔、改舊測試：
-    - 報這次要寫的檔。
-    - 改舊測試另加呼叫前還欠宣告的那幾支。
-    - 寧可多報、不可漏報。
-    - 判不出部位或檔就不報。
+  - 動資料檔閘先擋 `a.json`、AI 宣告後改完，再擋 `b.json`：兩個檔各自的第 1 次，不響。
+  - 檔 A → B → 又回到 A，A 第 2 次照響。
+- **對象由誰報**：工具前閘擋下時報給斷路器（`pre_tool_use._deny` 的 `watched`，帳上記在觸發那筆）。
+- **各閘怎麼報**（動資料檔、改舊測試）：
+  - 報這次要寫的檔。
+  - 改舊測試另加呼叫前還欠宣告的那幾支。
+  - 寧可多報、不可漏報。
+  - 判不出檔就不報。
 - **比法**：
-  - 兩次都報部位 → 比部位。
-  - 都只報檔 → 有交集算同一個。
-  - 有一邊沒報、或一邊報部位一邊只報檔 → 照閘名算。
+  - 兩次都報檔 → 有交集算同一個。
+  - 有一邊沒報 → 照閘名算。
 - **說不出擋什麼的閘不報、照閘名**：
-  - 版控口令、提交隱私、病形閘、繞閘、目標樹、svn 測試路徑這些看整批提交或整個 session 的。
+  - 版控口令、提交隱私、病形閘、繞閘、svn 測試路徑這些看整批提交或整個 session 的。
   - 跨層寫入這類禁區（換個檔再撞也算繞回原點）。
   - 收尾各閘。
 - 中間沒動作不算、同一則回覆算一步照舊疊在上面。
@@ -2731,7 +1900,7 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
   - 經過表標「會改使用者資料照擋」。
 - **判法**：`wg_release.non_interactive_reason`、警報那一刻判。
   - 入口（環境變數 `CLAUDE_CODE_ENTRYPOINT`，沒有再看 transcript 的 entrypoint 欄）是 `sdk-*` 才算 headless。
-  - `claude -p` 卻把入口設成 `claude-vscode` 的跑法（驗收工具為了讓第二意見照常觸發會這樣設）照能互動算、會停手。
+  - `claude -p` 卻把入口設成 `claude-vscode` 的跑法（有的驗收工具會這樣設）照能互動算、會停手。
 - **已知限制**：這種 session 底下沒有 AskUserQuestion、沒人能答三選一，警報後讀與問以外的工具會停手到換回合（使用者下一則話）為止。
 
 ### 快照
@@ -2754,8 +1923,8 @@ TECH.md [§7](../TECH.md#7-守門與收尾) 主文的細節。每一節對應主
 
 - **接線**：
   - Stop 各閘之前 `chain_store.on_stop`，每道閘擋或記欠之前問 `stop._chain_hold`。
-  - PreToolUse 開頭 `_chain_halt`、擋下時記觸發（定位閘、動資料檔、改舊測試帶擋的對象）、放行出口存快照。
-  - MCP 的寫卡、搬卡、目標樹工具也掛在 PreToolUse matcher 上（[§3.1](../TECH.md#31-settingsjson-十一個事件)）。
+  - PreToolUse 開頭 `_chain_halt`、擋下時記觸發（動資料檔、改舊測試帶擋的對象）、放行出口存快照。
+  - 掛在 PreToolUse matcher 上的 MCP 工具（例：搬卡）也先過 `_chain_halt`（[§3.1](../TECH.md#31-settingsjson-十一個事件)）。
   - PostToolUse／PostToolUseFailure 記 AI 動作。
   - SessionEnd `chain_store.session_cleanup`。
 - **案例**：

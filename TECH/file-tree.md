@@ -11,10 +11,10 @@
 ├── settings.json / mcp-servers.template.json / version.json
 ├── run_verify.py / conftest.py / pytest.ini           ← 全量驗證入口（只留手動排查）
 ├── rules/ text-specs/ templates/ prompts/ verify/     ← 規則、評分規格、樣板、萃取提示詞、已結案驗收規格
-├── .claude/                                           ← 根層自己的部位表與導讀卡設定
+├── .claude/                                           ← 根層自己的部位表與 OverviewHub 設定
 ├── hooks/                                             ← hook 本體：dispatcher、handlers、wg_* 模組、workers
 ├── lib/                                               ← 共用函式庫：atom 寫入／讀取、部位表、收據、錄製重播
-├── tools/                                             ← 命令列工具與子系統（向量服務、MCP server、第二意見…）
+├── tools/                                             ← 命令列工具與子系統（向量服務、MCP server、驗收裁判…）
 ├── skills/                                            ← active skill（另有 _archived/）
 ├── memory/                                            ← 全域記憶層（core realm）
 ├── _AIDocs/                                           ← 長期知識庫（local realm atom、規格、變更紀錄）
@@ -51,8 +51,8 @@
 | [`templates/`](../templates/) | IDENTITY／USER 還原源、部位病灶清單樣板、打包前檢查樣板 |
 | [`prompts/`](../prompts/) | `user-extract-worker` 的決策萃取提示詞（L1／L2） |
 | [`verify/done/`](../verify/done/) | 根層已結案的驗收規格 |
-| [`.claude/overview-map.md`](../.claude/overview-map.md) | 根層自己的部位表（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`.claude/overview-hub.json`](../.claude/overview-hub.json) | 根層自己的導讀卡設定（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
+| [`.claude/overview-map.md`](../.claude/overview-map.md) | 根層自己的部位表（[附錄 部位表](../TECH/guards.md#部位表)） |
+| [`.claude/overview-hub.json`](../.claude/overview-hub.json) | 根層自己的 OverviewHub 設定覆蓋（[附錄 設定來源](../TECH/guards.md#設定來源)） |
 
 - **text-specs/**：不放 [`rules/`](../rules/)，免得每個 session 都載入。
 
@@ -122,25 +122,23 @@
   - 另管 `roots.json` 與 spawn。
 - **hooks/wg_roles.py**：職能三層解析順序為 `role.md` → AD 群組 → 空。
 
-### hooks/ 部位導讀與需求目標
+### hooks/ 部位表與程式檔判準
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`hooks/wg_overview.py`](../hooks/wg_overview.py) | 部位導讀卡注入、定位行核對、讀檔紀錄（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`hooks/wg_depends.py`](../hooks/wg_depends.py) | 讀到 Depends 指的檔時召回卡（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`hooks/wg_need_goal.py`](../hooks/wg_need_goal.py) | 需求目標樹資料層（[§7.7](../TECH.md#77-需求目標樹need_goal)） |
-| [`hooks/wg_need_goal_points.py`](../hooks/wg_need_goal_points.py) | 需求目標樹各關鍵點判定：讀入範圍、糾正、提問掛節點、續接單（[§7.7](../TECH.md#77-需求目標樹need_goal)） |
+| [`hooks/wg_overview.py`](../hooks/wg_overview.py) | 部位設定與查表、讀檔擷取、提醒帳等各守門共用的工具 |
+| [`hooks/wg_depends.py`](../hooks/wg_depends.py) | 讀到 Depends 指的檔時召回卡（[附錄 Depends 召回](../TECH/guards.md#depends-召回)） |
+| [`hooks/wg_code_path.py`](../hooks/wg_code_path.py) | 判斷一次寫入算不算改程式（寫碼類判準，各閘共用同一份） |
 
 ### hooks/ 驗證與放行
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py) | 哨兵收據帳本與對帳、量尺閘（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)、[§7.1](../TECH.md#71-stop-閘序)） |
+| [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py) | 哨兵收據帳本與對帳、量尺閘（[§7.1 收據](../TECH.md#收據)） |
 | [`hooks/wg_unknown_write.py`](../hooks/wg_unknown_write.py) | 寫入目標判不出的指令跑完後，從版控狀態補算改了哪些檔 |
 | [`hooks/wg_release_rules.py`](../hooks/wg_release_rules.py) | 放行／欠帳具名規則（純函式，[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)） |
 | [`hooks/wg_release.py`](../hooks/wg_release.py) | 擋滿後改問使用者（[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)） |
 | [`hooks/wg_verify_batch.py`](../hooks/wg_verify_batch.py) | 驗證批次閘：同一批改動只驗一次、整組驗證要使用者口令 |
-| [`hooks/wg_entrypoint.py`](../hooks/wg_entrypoint.py) | 切入點契約：查登錄表、挑判準卡、留帳、推回應型、健檢（[§7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)） |
 
 - **hooks/wg_unknown_write.py**：處理的是寫入目標判不出的 Bash／PowerShell 指令，對應 [§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) `UNKNOWN_WRITE_RECOVERED`。
 
@@ -151,23 +149,19 @@
 | [`hooks/wg_data_file.py`](../hooks/wg_data_file.py) | 改資料檔的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
 | [`hooks/wg_oldtest.py`](../hooks/wg_oldtest.py) | 改舊測試的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
 | [`hooks/wg_gate_bypass.py`](../hooks/wg_gate_bypass.py) | 繞閘的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
-| [`hooks/wg_judge_card.py`](../hooks/wg_judge_card.py) | 改判準卡留帳：收事實、找宣告行、留帳，不擋 |
-| [`hooks/wg_second_opinion.py`](../hooks/wg_second_opinion.py) | 自動第二意見事實（[§7.1](../TECH.md#71-stop-閘序)、[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[§7.1](../TECH.md#71-stop-閘序)、[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`hooks/wg_scorecard.py`](../hooks/wg_scorecard.py) | 過程量（[§7.1](../TECH.md#71-stop-閘序)、[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
+| [`hooks/wg_ask_gate.py`](../hooks/wg_ask_gate.py) | 問使用者前每題要附推薦（AskUserQuestion／ExitPlanMode），帳寫 `Logs/guard-ask.jsonl` |
+| [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[§7.1](../TECH.md#71-stop-閘序)） |
+| [`hooks/wg_scorecard.py`](../hooks/wg_scorecard.py) | 過程量（[§7.1](../TECH.md#71-stop-閘序)） |
 | [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[§7.1](../TECH.md#71-stop-閘序)） |
-| [`hooks/wg_text_score.py`](../hooks/wg_text_score.py) | 文字評分接收尾（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
-| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 收割與目標樹進度草稿交背景免費模型（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
+| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 收割交背景免費模型（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
 | [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式第一次用到才編譯（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
 | [`hooks/wg_chain.py`](../hooks/wg_chain.py) | 連鎖斷路器判定（純函式，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
 | [`hooks/plan_bash_guard.py`](../hooks/plan_bash_guard.py) | Plan Mode 必彈窗的 Bash 寫法 deny＋改寫提示（[§7.5](../TECH.md#75-其他守門)） |
 
-- **hooks/wg_judge_card.py**：對應 [§7.5](../TECH.md#75-其他守門) JudgeCardDeclare。
+- **hooks/wg_ask_gate.py**：開關跟寫碼守門總開關；沒附推薦的提問提醒補上（ASK_NEEDS_RECOMMENDATION），提問涉及改法選擇時另提醒先讀部位檔（ASK_OVERVIEW_BEFORE_DECISION）。
 - **hooks/wg_closing_round.py**：
   - PostToolBatch 起跑拐彎判斷量測。
-  - 交收尾檢核那批附結果與最該修。
-  - 第二意見跑完提醒（[§7.1](../TECH.md#71-stop-閘序)）。
-- **hooks/wg_text_score.py**：Stop 丟背景評、下一則附上則評分。
+  - 交收尾檢核那批附結果與最該修（[§7.1](../TECH.md#71-stop-閘序)）。
 - **hooks/wg_bg_harvest.py**：Stop 丟背景、產待審候選卡。
 - **hooks/wg_lazy_re.py**：每個 hook 事件少編上百條。
 - **hooks/wg_chain.py**：涵蓋連鎖狀態、警報、三選一、還原計畫、經過表。
@@ -200,17 +194,14 @@
 | 檔案 | 負責什麼 |
 |------|----------|
 | [`hooks/verify/`](../hooks/verify/) | `verify_*.py` 驗證案例 |
-| [`hooks/verify/verify_judge_card_declare.py`](../hooks/verify/verify_judge_card_declare.py) | 改判準卡閘，含 C-1 改卡真事件重播 |
 | [`hooks/verify/fixtures/`](../hooks/verify/fixtures/) | 案例用的真事件與文字樣本 |
-| [`hooks/verify/probe_c_g0.py`](../hooks/verify/probe_c_g0.py) | 真 hook 入口探針：G0 綜觀的兩道閘 |
 | [`hooks/verify/probe_c_g16.py`](../hooks/verify/probe_c_g16.py) | 真 hook 入口探針：提問閘（C-G16） |
 | [`hooks/verify/probe_move_dir.py`](../hooks/verify/probe_move_dir.py) | 真 hook 入口探針：[MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE](../TECH/release-rules.md#move_code_dir_needs_scan_and_sample) |
-| [`hooks/verify/probe_need_goal_flow.py`](../hooks/verify/probe_need_goal_flow.py) | 真 hook 入口探針：需求目標流程 |
 | [`hooks/verify/probe_release_rules.py`](../hooks/verify/probe_release_rules.py) | 真 hook 入口探針：放行／欠帳判定規則情境 |
 | [`hooks/verify/probe_retry_cycles.py`](../hooks/verify/probe_retry_cycles.py) | 真 hook 入口探針：[RETRY_COUNTS_RERUN_CYCLES](../TECH/release-rules.md#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears) |
 | [`hooks/verify/probe_state_parallel_perf.py`](../hooks/verify/probe_state_parallel_perf.py) | 量測：平行 N 支 hook 改同一份 state 的耗時與掉帳（[STATE_RMW_LOCKED](../TECH/release-rules.md#state_rmw_lockedstate_pending_merged)） |
 
-- **hooks/verify/fixtures/**：`gate005`、`gate006`、`v6` 目錄放寫碼守門樣本；`gate006` 放條件句宣稱文字與 C-1 改卡事件。
+- **hooks/verify/fixtures/**：`gate005`、`gate006`、`v6` 目錄放寫碼守門樣本；`gate006` 放條件句宣稱文字。
 
 ## lib/
 
@@ -237,14 +228,14 @@
 - **lib/memory_search.py**：MCP `memory_search`、cli `search`、[`tools/memory-search.py`](../tools/memory-search.py) 共用。
 - **lib/provenance.py**：函式有 `sanitize_quote`、`format_source_session`、`parse_source`、`find_transcript`、`resolve_context`、`atom_source`（三態）。
 
-### lib/ 部位導讀與閱讀路徑
+### lib/ 部位表與閱讀路徑
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`lib/overview_hub.py`](../lib/overview_hub.py) | 部位表查表（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`lib/hub_config.py`](../lib/hub_config.py) | [`overview-hub.json`](../.claude/overview-hub.json) 四層合併（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`lib/hub_card.py`](../lib/hub_card.py) | 導讀卡五段與預算（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| [`lib/overview_scaffold.py`](../lib/overview_scaffold.py) | 從零掃表（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
+| [`lib/overview_hub.py`](../lib/overview_hub.py) | 部位表查表（[附錄 部位表](../TECH/guards.md#部位表)） |
+| [`lib/hub_config.py`](../lib/hub_config.py) | [`overview-hub.json`](../.claude/overview-hub.json) 四層合併（[附錄 設定來源](../TECH/guards.md#設定來源)） |
+| [`lib/hub_card.py`](../lib/hub_card.py) | 導讀卡五段與寫卡預算 |
+| [`lib/overview_scaffold.py`](../lib/overview_scaffold.py) | 從零掃表（[附錄 部位表](../TECH/guards.md#部位表)） |
 | [`lib/turn_metrics.py`](../lib/turn_metrics.py) | Python 函式與類別的側面數據（只量不判，[§7.1](../TECH.md#71-stop-閘序)） |
 | [`lib/turn_metrics_cs.py`](../lib/turn_metrics_cs.py) | C# 函式與類別的側面數據（只量不判，[§7.1](../TECH.md#71-stop-閘序)） |
 | [`lib/reading_path_cs.py`](../lib/reading_path_cs.py) | C# 改動的一跳範圍閱讀路徑（[§7.1](../TECH.md#71-stop-閘序) ReadingPath） |
@@ -329,17 +320,18 @@
 | [`tools/fix-hook-python.py`](../tools/fix-hook-python.py) | 校正 hook 直譯器路徑（[`install.py`](../tools/install.py) 會呼叫） |
 | [`tools/ai-client-setup.py`](../tools/ai-client-setup.py) | 其他 AI 客戶端輕量安裝：只註冊 MCP、不裝 hooks（[§5.8](../TECH.md#58-讀取端-memory_search-與-atom_source給其他-ai-與腳本)） |
 | [`tools/meeting-transcribe.py`](../tools/meeting-transcribe.py) | 會議錄音 → 逐字稿 → 摘要 → 決議入專案 shared（[§6.6](../TECH.md#66-會議轉錄入庫toolsmeeting-transcribepy)） |
+| [`tools/codex-call.py`](../tools/codex-call.py) | 叫 Codex 的唯一入口：把提示詞交給 `codex exec`，回答案或明確失敗（驗收裁判經它叫） |
 
 - **tools/install.py**：操作步驟見 [`Install-forAI.md`](../Install-forAI.md)。
+- **tools/codex-call.py**：可當函式 import，也可命令列跑（`--help`）；叫不起來或逾時回非 0 並印原因，不報成功。
 
-### tools/ 切入點、評分與閱讀路徑
+### tools/ 評分、閱讀路徑與量測
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`tools/entry-stats.py`](../tools/entry-stats.py) | 切入點留帳統計（[§7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)） |
 | [`tools/text-score.py`](../tools/text-score.py) | 文字規格評分（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
 | [`tools/text-score-weekly.py`](../tools/text-score-weekly.py) | 文字評分週彙總（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
-| [`tools/project-smells.py`](../tools/project-smells.py) | 壞味道候選池與 commit 前病形檢查（[§7.5](../TECH.md#75-其他守門)） |
+| [`tools/project-smells.py`](../tools/project-smells.py) | commit 前病形檢查（[§7.5](../TECH.md#75-其他守門) SmellGate） |
 | [`tools/reading-path.py`](../tools/reading-path.py) | 閱讀路徑量尺 |
 | [`tools/reading_path_lang.py`](../tools/reading_path_lang.py) | 閱讀路徑語言解析 |
 | [`tools/overview-map-scaffold.py`](../tools/overview-map-scaffold.py) | 部位表骨架 |
@@ -365,7 +357,6 @@
 | [`tools/memory-eval/`](../tools/memory-eval/) | 回歸集（[`queries.jsonl`](../tools/memory-eval/queries.jsonl) 一行一題）與線上基線 |
 | [`tools/memory-vector-service/`](../tools/memory-vector-service/) | 向量服務 |
 | [`tools/codex-companion/`](../tools/codex-companion/) | Codex 評估夥伴 |
-| [`tools/second-opinion/`](../tools/second-opinion/) | 第二意見 job（MCP `second_opinion_start`／`second_opinion_result`） |
 | [`tools/workflow-guardian-mcp/`](../tools/workflow-guardian-mcp/) | MCP server（Node.js） |
 | [`tools/auto-continue/`](../tools/auto-continue/) | 自動續接 |
 | [`tools/gdoc-harvester/`](../tools/gdoc-harvester/) | Google 文件收割 |
@@ -374,7 +365,7 @@
 | [`tools/verify/`](../tools/verify/) | tools 的驗證案例 |
 
 - **tools/memory-vector-service/**：含 [`service.py`](../tools/memory-vector-service/service.py)、[`starter.py`](../tools/memory-vector-service/starter.py)、[`indexer.py`](../tools/memory-vector-service/indexer.py)、[`searcher.py`](../tools/memory-vector-service/searcher.py)、[`reranker.py`](../tools/memory-vector-service/reranker.py)。
-- **tools/codex-companion/**：含 `assessor`、`acceptance`、`judge_backend`、[`audit.py`](../tools/codex-companion/audit.py)、`backtest`。
+- **tools/codex-companion/**：含 `assessor`、`acceptance`、`judge_backend`、[`audit.py`](../tools/codex-companion/audit.py)、`backtest`；`assessor` 經 [`tools/codex-call.py`](../tools/codex-call.py) 叫 codex，codex 不在時退 `claude -p` 由 `judge_backend` 選。
 - **tools/workflow-guardian-mcp/**：
   - [`server.js`](../tools/workflow-guardian-mcp/server.js)
   - [`lib/`](../lib/)（[`mcp.js`](../tools/workflow-guardian-mcp/lib/mcp.js)、[`atom-tools.js`](../tools/workflow-guardian-mcp/lib/atom-tools.js)、[`harvest.js`](../tools/workflow-guardian-mcp/lib/harvest.js)、[`funnel.js`](../tools/workflow-guardian-mcp/lib/funnel.js)、[`anti-evasion.js`](../tools/workflow-guardian-mcp/lib/anti-evasion.js) 等）
@@ -488,7 +479,6 @@ runtime state（多數 gitignored）。
 | [`workflow/config.json`](../workflow/config.json) | 統一設定（tracked） |
 | `workflow/config.local.json` | 本機專屬設定覆寫（gitignore） |
 | `workflow/followups.local.json` | 回訪表本機旁檔：每次跑的結果、提醒日（gitignore） |
-| [`workflow/entrypoints.json`](../workflow/entrypoints.json) | 切入點登錄表（tracked，[§7.10](../TECH.md#710-切入點契約程式問卡教llm-判留帳回看)） |
 | [`workflow/config-consistency-notes.json`](../workflow/config-consistency-notes.json) | 設定一致性量測的備註（tracked） |
 | `workflow/state-{sid}.json` | session state |
 | [`workflow/followups.json`](../workflow/followups.json) | 回訪表 |
@@ -506,12 +496,9 @@ runtime state（多數 gitignored）。
 | `workflow/aec-tempfiles/` | AEC 暫存 |
 | `workflow/ups-sentinel/` | UPS 哨兵 |
 | `workflow/health-reports/` | 健康報告 |
-| `workflow/need-goal/` | 目標樹 |
 | `workflow/verify-ledger/` | 收據帳本 |
 | `workflow/tracking/` | 追蹤項 |
 | `workflow/scorecard/` | 過程量 |
-| `workflow/second-opinion/` | 第二意見 job |
-| `workflow/text-score/` | 文字評分工作檔 |
 | `workflow/old-test-snap/` | 改舊測試快照 |
 | `workflow/reading-path/` | 閱讀路徑 |
 | `workflow/chain-snap/<session>/` | 連鎖斷路器的改檔前快照（gitignore，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
@@ -531,8 +518,8 @@ runtime state（多數 gitignored）。
 | `{project_root}/.claude/` | 專案自治層 |
 | `{project_root}/.claude/memory/` | 專案記憶 |
 | `{project_root}/.claude/project-tree.json` | 根層列 subs／子層指 root |
-| `{project_root}/.claude/overview-map.md` | 部位表（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
-| `{project_root}/.claude/overview-hub.json` | 導讀卡設定覆蓋（[§7.6](../TECH.md#76-寫碼守門部位導讀卡overviewhub)） |
+| `{project_root}/.claude/overview-map.md` | 部位表（[附錄 部位表](../TECH/guards.md#部位表)） |
+| `{project_root}/.claude/overview-hub.json` | OverviewHub 設定覆蓋（[附錄 設定來源](../TECH/guards.md#設定來源)） |
 | `{project_root}/.claude/verify/acceptance-<slug>.md` | 專案驗收規格 |
 | `{project_root}/.claude/hooks/project_hooks.py` | delegate |
 
@@ -570,7 +557,7 @@ runtime state（多數 gitignored）。
 
 - 逐筆核對指令、目錄、呼叫前受測目錄內容。
   - 不比：git 的 index、svn 的 `wc.db`、受測程式的 `.log`。
-  - 排除：hook 在測試沒導走資料根時寫的守門紀錄與需求目標檔 `_tmp/wg-test-logs`、`_tmp/wg-test-need-goal`，由根 conftest 的 `RUNTIME_EXCLUDE` 排除。
+  - 排除：hook 在測試沒導走資料根時寫的守門紀錄 `_tmp/wg-test-logs`，由根 conftest 的 `RUNTIME_EXCLUDE` 排除。
 - 全對才交回當時輸出、寫回當時的檔案變化。
 - 任何一項不同 → 測試失敗並要求 `pytest --git-record`（或 `WG_GIT_CASSETTE=record`）重錄；那次才跑真 git、照舊驗斷言。
 - `WG_GIT_CASSETTE=off`：直接跑真 git，不錄不播。

@@ -74,7 +74,7 @@ git -C ~/.claude log --cherry-mark --oneline HEAD...devsrc/main | grep -c '^='  
 3. 執行：`git merge --no-edit devsrc/main`（索引三檔由 merge-atom-index 驅動自動合）→ 逐檔解衝突（計數 marker 取任一側後跑 `tools/sync_doc_counts.py --write`；兩側各自新增的段落都留）→ `sync-memory-index.py --write` → 跑這次合併動到的測試。
 4. 已知卡點：
    - `git status` 乾淨但 merge 說檔案「would be overwritten」→ 那檔有 skip-worktree 標記（`git ls-files -v` 顯示 `S`，install.py 設的）；確認只差排版後，同一條指令裡 `update-index --no-skip-worktree` + `checkout --` + merge，分開下會被 hook 設回去。
-   - 衝突卡在 hook 檔（例 `hooks/handlers/post_tool_use.py`）時 hook 本身跑不起來，靠它寫入的閘（目標樹等）會連帶失效；先解那個檔。
+   - 衝突卡在 hook 檔（例 `hooks/handlers/post_tool_use.py`）時 hook 本身跑不起來，靠它記帳的閘（改檔紀錄、收據、寫碼查核等）會連帶失效；先解那個檔。
    - 宣告測試範圍前先 `git diff --cached --name-status HEAD | grep ^D`，來源刪掉的測試檔不要列（pytest 遇到不存在的檔整批 exit 4）。
 
 **不相通**（來源不是 git、沒有共同祖先、或 `=` 不為 0）→ 照下面 2.1～2.8 逐維度比對。
