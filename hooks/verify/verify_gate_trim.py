@@ -76,7 +76,7 @@ def test_tracking_lines_recorded(monkeypatch):
     assert got and "README 補充" in json.dumps(got, ensure_ascii=False)
 
 
-# ─── 定位不重抄、提問不掛節點、未知寫入、改判準卡、子代理預算 ─────────────────────────────────────
+# ─── 定位不重抄、提問不掛節點、未知寫入、子代理預算 ─────────────────────────────────────
 
 def test_locate_lines_not_duplicated_into_tool_args():
     src = (ROOT / "lib" / "overview_hub.py").read_text(encoding="utf-8")
@@ -87,18 +87,8 @@ def test_unknown_write_target_allowed_and_logged(monkeypatch):
     import wg_overview as wo
     logs = []
     monkeypatch.setattr(wo, "_log", lambda event, sid, **kw: logs.append((event, kw)))
-    out = wo.on_edit({}, "s", "UNKNOWN:echo x > $P", "", {})
-    assert out[0] is None and logs[-1][0] == "edit_unknown_target" and logs[-1][1]["allowed"] is True
-
-
-def test_judge_card_change_logged_not_blocked(monkeypatch):
-    import wg_judge_card as jc
-    logs = []
-    monkeypatch.setattr(jc, "bound_cards", lambda *a, **k: [("c:/m/card.md", ["E01"])])
-    monkeypatch.setattr(jc, "declarations", lambda *a, **k: [])
-    monkeypatch.setattr(jc, "append_guard_log", lambda name, rec: logs.append(rec))
-    assert jc.gate("Edit", {"file_path": "c:/m/card.md"}, {"session_id": "s"}, {}) is None
-    assert logs and logs[-1]["event"] == "undeclared" and logs[-1]["allowed"] is True
+    out = wo.write_check("s", "UNKNOWN:echo x > $P", {})
+    assert out == (None, None, None) and logs[-1][0] == "edit_unknown_target" and logs[-1][1]["allowed"] is True
 
 
 def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
@@ -111,7 +101,6 @@ def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda name, rec: logs.append(rec))
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile"))
-    monkeypatch.setattr(st, "entry_note", lambda *a, **k: "")
     outs = []
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append("block"))
     monkeypatch.setattr(st, "output_nothing", lambda: outs.append("pass"))
@@ -144,10 +133,8 @@ def test_reconcile_budget_shared_per_user_turn():
     assert 'budget_exhausted(_rec, _uturn, _max, ["*"] if _code else [])' in src     # 寫碼查核整份共用鍵 "*"
 
 
-def test_selfscore_not_an_entrypoint_and_lives_in_console_skill():
-    """自檢評分是總控台用的開發期工具：不在切入點登錄表、整支在 skills/console/scripts/，產品 tools/ 底下沒有（舊碼在 tools/ → 紅）。"""
-    reg = json.loads((ROOT / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))
-    assert "E36" not in {e.get("id") for e in reg["entrypoints"]}
+def test_selfscore_lives_in_console_skill():
+    """自檢評分是總控台用的開發期工具：整支在 skills/console/scripts/，產品 tools/ 底下沒有（舊碼在 tools/ → 紅）。"""
     assert (ROOT / "skills" / "console" / "scripts" / "selfscore.py").is_file() and not (ROOT / "tools" / "selfscore.py").exists()
 
 
@@ -244,36 +231,6 @@ def test_docs_only_turn_skips_closing_check_unless_done_claimed(stop_drive, caps
              "last_turn_seq": 5}]
     assert "[Guardian:ScanReport]" not in stop_drive(capsys, "文件補好了，接著看下一段。", mods)
     assert "[Guardian:ScanReport]" in stop_drive(capsys, "全部完成了", mods)
-
-
-def test_non_coding_turn_ups_keeps_cards(monkeypatch, tmp_path, capsys):
-    """UPS：使用者剛打字時還沒改程式，不是寫碼回合；導讀卡是 v6 以前就有的記憶注入，問答與寫碼關鍵字的 prompt 都照舊送。"""
-    from handlers import user_prompt_submit as ups
-    import wg_overview
-    seen = {"hub": 0}
-
-    def hub_on_prompt(*a, **k):
-        seen["hub"] += 1
-        return "[Guardian:OverviewHub] 卡"
-    monkeypatch.setattr(wg_overview, "on_prompt", hub_on_prompt)
-    for name, fn in (("run_pre_gates", lambda *a: None), ("build_context", lambda *a, **k: None),
-                     ("collect_matched_atoms", lambda *a, **k: ([], {}, [], [], {}, set(), "general", {})),
-                     ("assemble_injection", lambda *a, **k: ([], {})), ("write_state", lambda *a, **k: None),
-                     ("_maybe_spawn_failure_extraction", lambda *a, **k: None), ("_update_topic_tracker", lambda *a, **k: None),
-                     ("reconcile_injection_after_trim", lambda *a, **k: []), ("_truncate_context_by_activation", lambda l, *a, **k: l),
-                     ("_hook_lap", lambda seg: False), ("WORKFLOW_DIR", tmp_path)):
-        monkeypatch.setattr(ups, name, fn)
-    out = {}
-    for prompt in ("之前那個決定是什麼？", "幫我新增一個 by-product 子命令"):
-        state = {"turn_seq": 4, "session": {"cwd": str(tmp_path)}, "injected_atoms": [], "modified_files": [], "knowledge_queue": []}
-        monkeypatch.setattr(ups, "_ensure_state", lambda *a, _s=state, **k: _s)
-        with pytest.raises(SystemExit):
-            ups.handle_user_prompt_submit({"session_id": "s", "prompt": prompt, "cwd": str(tmp_path)}, {})
-        cap = capsys.readouterr().out
-        out[prompt] = json.loads(cap)["hookSpecificOutput"]["additionalContext"] if cap.strip() else ""
-    qa, code = out["之前那個決定是什麼？"], out["幫我新增一個 by-product 子命令"]
-    assert "OverviewHub" in qa and "OverviewHub" in code
-    assert seen["hub"] == 2                                                       # 導讀卡兩則都判
 
 
 # ─── 文字評分 ──────────────────────────────────────────────────────

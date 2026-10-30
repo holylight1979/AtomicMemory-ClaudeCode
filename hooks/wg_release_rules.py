@@ -107,12 +107,12 @@ RULES: Dict[str, str] = {
                                         "只多記一筆 UNKNOWN，同段與別段看得懂的目標照列：`rm <核心檔> '[IO.File]::'`、"
                                         "`rm <核心檔>; echo x > \"$VAR/out\"` 舊碼只回 UNKNOWN、跨層閘放過，現在照擋。"
                                         "判定在 hooks/wg_core._scan_segment 與 _shell_write_paths。",
-    "DIR_TARGET_JUDGED_BY_CONTAINER":"改檔閘逐目標判時，整個資料夾當目標（rm -rf、Remove-Item -Recurse、搬走）看它所在的上一層屬於哪個專案，"
-                                      "不拿資料夾自己的專案標記（.git、_AIDocs、部位表）：刪掉整個專案資料夾不是在改那個專案的檔，拿它自己當根只會要求"
-                                      "讀「(outside)」的檔、永遠讀不到。上一層是專案就照它的規則；資料夾裡的單一檔照舊。cwd 這類「我在哪」的目錄不走這條。"
+    "DIR_TARGET_JUDGED_BY_CONTAINER":"寫入檢查逐目標判時，整個資料夾當目標（rm -rf、Remove-Item -Recurse、搬走）看它所在的上一層屬於哪個專案，"
+                                      "不拿資料夾自己的專案標記（.git、_AIDocs、部位表）：刪掉整個專案資料夾不是在改那個專案的檔。"
+                                      "上一層是專案就照它的規則；資料夾裡的單一檔照舊。cwd 這類「我在哪」的目錄不走這條。"
                                       "判定在 hooks/wg_overview.write_target_root。",
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
-    "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
+    "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（宣告行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
     "SYNC_BLOCK_SKIPS_SYNCED": "Stop 底部的一般 sync block 先剔除已同步的改檔再判門檻：在 git／svn 工作區、status 乾淨、所在 git 根"
                                "沒有已 commit 未 push 的（WORKTREE_NO_PUSH 不要求 push 的也算）。查不了版控的照算未同步。"
@@ -134,9 +134,9 @@ RULES: Dict[str, str] = {
     "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",
-    "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
+    "RUNTIME_DATA_NO_OVERVIEW": "路徑被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
                                 "或路徑含快取目錄（__pycache__、.pytest_cache、.mypy_cache、.ruff_cache；沒有 .gitignore 也算）"
-                                "→ 不要求先讀同目錄的檔。",
+                                "→ 是執行期資料，不算本專案程式（EXCLUDED_REGION、需求目標判改程式共用這一支判式）。",
     "BASH_READONLY_COUNTS_AS_READ": "Bash／PowerShell 唯讀讀檔指令（cat、head、tail、less、more、sed -n、grep -n、svn cat、git show、"
                                     "Get-Content…；一段裡每個路徑參數都算）執行成功後，字面路徑且是實檔的算讀過，與 Read 同效；"
                                     "Bash 沒加引號的 glob 照 cwd 展開成實檔再算（展不出東西不算）；`for V in 清單; do …\"$V\"…; done` 清單每項都是字面"
@@ -148,10 +148,8 @@ RULES: Dict[str, str] = {
                                        "command -v）接 && 之後到串尾、break／continue 開頭到 done、exit／return 開頭或串裡會跑到的"
                                        "exit／return 之後全部 → 不算。"
                                        "前段是一般指令的 && 後段照算（它失敗整條結束碼非零，交結束碼篩）；heredoc 內文原樣、不套這幾條。",
-    "UNMAPPED_EDIT_NEEDS_READABLE_FILES":"表外檔改檔前要讀的同頂層目錄檔數＝min(設定的 part_files, 該目錄非執行期資料的既有檔數)："
-                                          "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀算欠（送法照 GATE_MODE_TABLE：寫碼守門開提醒一次、關照擋）。",
     "TEMP_REPO_COMMIT_EXEMPT": "git commit 落在暫存目錄（系統 TEMP／TMP、scratchpad、/tmp）下的 repo → 不要求版控口令。",
-    "TEMP_COPY_NOT_PROJECT": "寫入目標或跑的腳本在暫存目錄下 → 不當專案：不找部位表、不注入、不要求綜觀；量尺與對帳也不把它當收據。",
+    "TEMP_COPY_NOT_PROJECT": "寫入目標或跑的腳本在暫存目錄下 → 不當專案：不找部位表、不查唯讀路徑；量尺與對帳也不把它當收據。",
     "RED_WHILE_REVERTED": "跑紅時，受測根裡有本 session 改過的程式檔內容等於非 HEAD 的已提交版本（退回舊碼反證）→ 刻意紅：不算失敗、不計重試。",
     "RETRY_COUNTS_RERUN_CYCLES": "重試只數「同一組測試上次跑之後碼有改過、再跑仍紅」的輪數：兩次重跑之間不論改幾次、幾個檔只算一輪；"
                                  "紅之後第一次重跑就綠＝0；第一次跑別組紅不算；plan 與 direct 同門檻，兩輪升級 FixEscalation；"
@@ -176,7 +174,7 @@ RULES: Dict[str, str] = {
                                    "列出解析出的每段照抄重跑，判不出或太長就給「原指令完整照跑或跑整套」。",
     "CODING_TURN_ONLY": "寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳）只在寫碼回合跑"
                         "（wg_core.coding_turn）：這個使用者回合已經改了程式檔或有判不出目標的寫入；"
-                        "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、導讀卡、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
+                        "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
     "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」：要有對得上改檔、晚於每個對上的改檔"
@@ -188,10 +186,8 @@ RULES: Dict[str, str] = {
                        "擋 1 次後放行；工具前閘（出錯時常讀不到 state、無從計次）直接放行。兩者都要 stderr 一行＋guard log 記一筆"
                        " event=error（閘名、錯誤種類與訊息）。判法在 gate_self_error_verdict。",
     "GATE_DENY_CAP": "宣告類閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 2 則回覆（wg_core.DECL_DENY_CAP；怎麼數則見 "
-                     "DENY_CAP_PER_REPLY）後下一則放行並留帳，換使用者回合歸零（判法 wg_core.deny_cap）。定位閘第一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）"
-                     "一行都沒交的擋不計次。適用定位閘、最小地圖三行、動資料檔、"
-                     "改舊測試、不是繞閘五處；留帳事件：動資料檔／改舊測試／不是繞閘 cap_released，定位閘 edit_deny_capped，最小地圖 "
-                     "edit_unmapped_capped。舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
+                     "DENY_CAP_PER_REPLY）後下一則放行並留帳，換使用者回合歸零（判法 wg_core.deny_cap）。適用動資料檔、"
+                     "改舊測試、不是繞閘三處；留帳事件 cap_released。舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
     "DENY_CAP_PER_REPLY": "擋次上限照「則」數，不照工具呼叫數：同一則回覆裡平行送出的呼叫是送出前就決定好的，AI 還沒看到第一則擋訊息。"
                           "同一件缺件在同一則裡只算一次，那一則的其他呼叫照第一次的結果（擋就照擋）、不加次數；下一則回覆的呼叫才加。"
                           "哪一則＝這次呼叫之前最後一則 assistant 的 message.id（同 CHAIN_SAME_BATCH，lib/chain_store.batch_of）。"
@@ -241,36 +237,11 @@ RULES: Dict[str, str] = {
                                "只提示不擋。live 設定只列 a（測試沒過不准說修好）與 d（改了程式要有測試），使用者拍板。",
     "CLOSING_RITUAL_SWITCHES": "收尾儀式各有開關，關掉就不擋收尾：aec.scan_report_gate=false → 沒交收尾檢核不擋；atom_audit.enabled=false → "
                                "卡片表態不擋。兩個開關沒設＝照擋。",
-    # G0 綜觀：動手前說出角色與兩個根因候選（wg_overview 收事實、這裡判）
-    "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES": "有需求目標樹時改寫碼部位的定位四行：第四行「定位｜目標：<節點>（<角色>）」括號內要寫"
-                                                 "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄；幾個節點串寫「T1.1/T1.4（…）」也認）；"
-                                                 "第二行「定位｜根因層」要辨識得出"
-                                                 "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
-                                                 "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。"
-                                                 "角色那半只記錄不擋（guard-need_goal locate_soft）；根因層兩候選不夠時每個使用者"
-                                                 "回合擋一則回覆（wg_core.deny_cap 上限 1；同一則回覆平行送出的改檔一起擋，"
-                                                 "DENY_CAP_PER_REPLY），同回合之後只記錄。",
-    "LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS": "根因層那行完全沒寫「候選 A／第一根因」這類標記時，兩個以上的列舉（①②、⑴⑵、(1)(2)）、"
-                                              "或寫到兩個以上不同的「<名稱>層」（這層、每層、第二層這類泛稱不算）也算候選；只有一個列舉或一層"
-                                              "照舊算 0 個。有標記就只看標記。固定字樣只是建議寫法，選擇理由照樣要寫。",
-    "CHOICE_REASON_BELONGS_TO_CHOICE": "根因層那行的「因為／理由／原因／由於／所以」要屬於選擇才算選擇理由：只以「；;。」切句（逗號不切），"
-                                       "同一句裡理由詞前面有「選／採」（「候選」的選不算）就算；否則要同一句裡理由詞前面沒有候選標記、"
-                                       "且在整行第一個候選標記之後（沒有固定標記從頭算）。「候選 A 快取層，因為沒清」是候選描述，"
-                                       "第一個候選前面的「新功能，所以…」是前言，都不算；「選候選 A 因為…」「採用候選 A 的理由是…」算。",
-    # G1 側觀：定位之後的批判與舉一反三（原話輯 G1 2026-10-15）
     "RELOAD_ADVICE_ALREADY_LOADED": "收尾文字叫使用者 Reload Window（重新載入視窗）→ 查這個 session 的工具服務程序（每個 session 的 claude"
                                     "程序底下各有自己的服務；找不到所屬 claude 程序就看全機）啟動時載入的程式版本：全部有紀錄、心跳 3 分鐘內、"
                                     "不舊於磁碟上的版本 → 這個建議多餘，每個使用者回合擋一次並附兩邊版本；列不出、讀不到、有服務沒紀錄或心跳過期、"
                                     "有任何一個還是舊的 → 放行；AI 寫明「重載原因：…」（程式更新以外的理由）照它的判斷。依據是程序樹與服務自己"
                                     "記的版本，不是 session 名稱（Claude Code 沒寫進文件的命名行為）；「有沒有叫人重載」用字詞找，只當觸發點。",
-    "LOCATE_LINES_NEED_CRITIQUE": "有需求目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判：…」：只查有沒有寫、有沒有內容"
-                                  "（去掉標點空白後至少 CRITIQUE_MIN_CHARS＝8 個字），不認固定字樣：寫「合理」附原因、寫哪裡不合理、"
-                                  "寫更好的做法、寫同類在哪，怎麼判是 AI 的事（原設計者 G6：需要判斷的事不寫成固定規則）。"
-                                  "照抄範本不算交（lib/overview_hub.locate_values 丟掉範本句）。與定位四行同一支判定、每個部位交一次；"
-                                  "知識類部位不查。",
-    "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER": "有需求目標樹時改寫碼部位，定位各行（部位／根因／前例／目標／批判）還留著擋訊息範例的角括號佔位"
-                                           "（角括號裡有中文說明，如 <第一個根因>）→ 當沒填，只記錄不擋（guard-need_goal locate_soft）；"
-                                           "程式的泛型角括號（List<int>）不算。查的是有沒有填，不評內容。",
     # G6 階段 5：其餘固定規則改交 AI 判（字詞表與門檻只篩候選，判斷由 AI 宣告附理由、程式只核對有沒有理由並留帳）
     "CORRECTION_WORDS_ARE_HINTS": "糾正詞表（wg_friction）只是提示：使用者本人打的字命中時不直接計糾正，記成待判、UserPromptSubmit 問 AI"
                                   "「他是在糾正你嗎」；AI 在那一回合寫一行「糾正｜是：<理由>」→ 計一次；「糾正｜不是：<理由>」→ 不計"
@@ -457,7 +428,7 @@ def deny_slim_enabled(config: Any) -> bool:
 
 def slim_deny(tag: str, fix: str, hits: Sequence[Tuple[str, Verdict]], cap: int = DENY_EVIDENCE_CAP) -> str:
     """DENY_TEXT_SLIM 的擋訊息：第一行 `[<閘>] 修法：<一句>`，下面每條命中一行 format_hit（parse_hits 照認，
-    每項證據超過 cap 字截短）。判準卡名由接卡處（wg_entrypoint.entry_note）接在後面。"""
+    每項證據超過 cap 字截短）。"""
     rows = [format_hit(letter, v._replace(evidence=tuple(e if len(e) <= cap else e[:cap] + "…" for e in v.evidence)))
             for letter, v in hits]
     return "\n".join([f"[{tag}] 修法：{fix}", *rows])
@@ -961,18 +932,6 @@ def bash_read_counts(paths: Iterable[str], exit_code: Optional[int], is_file: An
     return [p for p in paths if "$" not in p and not (_GLOB_CHARS & set(p)) and is_file(p)]
 
 
-def unmapped_edit_verdict(need: int, readable: int, have: int) -> Verdict:
-    """UNMAPPED_EDIT_NEEDS_READABLE_FILES：要讀數＝min(need, readable)；have（本 session 讀過同頂層目錄的檔數）不到就欠。
-    readable＝呼叫端數到的非執行期資料既有檔數（數到 need 就可停，所以 readable ≥ need 只代表「至少這麼多」）。"""
-    want = max(0, min(need, readable))
-    pool = f"至少 {readable} 個" if readable >= need else f"只有 {readable} 個"
-    ev = (f"設定要讀 {need} 個", f"該目錄既有可讀檔 {pool}", f"本 session 讀過 {have} 個")
-    if have >= want:
-        why = "該目錄沒有可讀的既有檔，不要求先讀" if want == 0 else f"已讀 {have} 個，夠 {want} 個"
-        return Verdict("UNMAPPED_EDIT_NEEDS_READABLE_FILES", False, why, ev)
-    return Verdict("UNMAPPED_EDIT_NEEDS_READABLE_FILES", True, f"至少 {want} 個檔（目前 {have} 個）", ev)
-
-
 # ─── B9／B14 暫存目錄 ─────────────────────────────────────────────────────────
 # 暫存目錄特徵片段：只認系統暫存下才會出現的形狀（pytest 的 tmp 根、CC 的 Temp/claude/…/scratchpad）；
 # 專案裡一個普通目錄取名 scratchpad 不算（正式 repo 的子目錄不能靠名字拿暫存豁免）
@@ -1194,6 +1153,7 @@ RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）�
                                       "那筆從 failing_tests 搬到 deliberate_reds、留帳 guard-testfail_scope event=negative_control_declared，不必重跑；"
                                       "搬過就不會再被拿來擋。")
 _NEG_CONTROL_RE = lazy_re(r"負向對照\s*[｜|]\s*(.+)")
+_ASCII_SEP_NOT_PATH_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
 
 
 def parse_negative_controls(text: str) -> List[Dict[str, str]]:
@@ -1206,7 +1166,7 @@ def parse_negative_controls(text: str) -> List[Dict[str, str]]:
         rest = m.group(1)
         sep = rest.find("：")
         if sep < 0:
-            ascii_sep = _JUDGE_CARD_ASCII_SEP_RE.search(rest)
+            ascii_sep = _ASCII_SEP_NOT_PATH_RE.search(rest)
             subject, reason = (rest[:ascii_sep.start()], rest[ascii_sep.end():]) if ascii_sep else (rest, "")
         else:
             subject, reason = rest[:sep], rest[sep + 1:]
@@ -1601,191 +1561,6 @@ def receipt_red(verdicts: Iterable[str], exit_code: Any) -> bool:
 def receipt_green(verdicts: Iterable[str], exit_code: Any) -> bool:
     """收據綠不綠：有 PASS 而且沒紅（只有 DONE 的量測收據不算綠）。"""
     return any(str(v).upper().endswith(":PASS") for v in verdicts or ()) and not receipt_red(verdicts, exit_code)
-
-
-# ─── G0 綜觀：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES ───
-
-_LABEL_NO = {**{c: 1 for c in "Aa1一甲Ａ１①"}, **{c: 2 for c in "Bb2二乙Ｂ２②"}, **{c: 3 for c in "Cc3三丙Ｃ３③"},
-             **{c: 4 for c in "Dd4四丁Ｄ４④"}, **{c: 5 for c in "Ee5五戊Ｅ５⑤"}}
-_LABELS = "".join(_LABEL_NO)
-# 候選標記：「候選 A／候選一／候選（B）」或「第一根因／第 2 個根因」
-_CANDIDATE_RE = lazy_re(rf"候選\s*[（(]?\s*([{_LABELS}])|第\s*([{_LABELS}])\s*個?\s*根因")
-_REASON_WORDS = r"(?:(?<!根)因為|理由|原因|由於|所以|because)"
-_REASON_RE = lazy_re(_REASON_WORDS, re.IGNORECASE)
-# 「不存在／沒有／無」後面接標點、理由詞或行尾才算「這個候選不存在」（「候選 A 無鎖競爭」是描述）
-_ABSENT_WORD = rf"(?:不存在|沒有|找不到|無)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))"
-_ABSENT_RE = lazy_re(rf"\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}", re.IGNORECASE)
-# 「第二個不存在，因為…」「第二根因不存在：…」「候選 B 不存在因為…」：要寫出為什麼
-_SECOND_ABSENT_RE = lazy_re(
-    rf"(?:第\s*[二2]\s*個?\s*(?:根因|候選)?|候選\s*[（(]?\s*[Bb二乙Ｂ２②])\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}"
-    rf"[^；;。]*?(?:{_REASON_WORDS}|[:：])\s*\S{{2,}}", re.IGNORECASE)
-_ROLE_PLACEHOLDERS = {"", "角色", "這一塊在目標裡的角色", "這一塊的角色", "…", "...", "略", "無"}
-_ROLE_STRIP_RE = lazy_re(r"[\s，。、；;:：,.!！?？「」『』（）()【】\[\]<>《》—－\-~～*_`'\"]+")
-
-
-_ENUM_NO = {**{c: i for i, c in enumerate("①②③④⑤", 1)}, **{c: i for i, c in enumerate("⑴⑵⑶⑷⑸", 1)},
-            **{c: i for i, c in enumerate("12345", 1)}, **{c: i for i, c in enumerate("一二三四五", 1)}}
-# 列舉：①②、⑴⑵、(1)(2)／（一）（二）；括號數字前面接英數字的是函式呼叫，不算
-_ENUM_RE = lazy_re(r"([①-⑤⑴-⑸])|(?<![A-Za-z0-9_])[（(]\s*([1-5一二三四五])\s*[)）]")
-_LAYER_RE = lazy_re(r"([A-Za-z][A-Za-z0-9_\-]*|[一-鿿]+)\s*層")
-# 「這層、每層、第二層、第四層、跨層」這類泛稱（層前一個字）與「根因層」不是一層的名字
-_LAYER_GENERIC_TAIL = set("這那哪每同各一二兩三四五六七八九十百幾多上下本該底表外內深單雙其此某任跨分0123456789")
-_LAYER_LEAD_RE = lazy_re(r"^.*[在是於從到修改看查的為由和與及或往向把將先再都只就也跟]")
-
-
-def _absent_after(text: str, end: int) -> bool:
-    return bool(_ABSENT_RE.match(text, end))
-
-
-def _unlabeled_candidates(text: str) -> List[int]:
-    """LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS：沒寫固定標記時，兩個以上的列舉、或兩個以上不同名稱的「<名稱>層」當候選。"""
-    enums: List[int] = []
-    for m in _ENUM_RE.finditer(text):
-        n = _ENUM_NO[m.group(1) or m.group(2)]
-        if not _absent_after(text, m.end()) and n not in enums:
-            enums.append(n)
-    if len(enums) >= 2:
-        return enums
-    layers: List[str] = []
-    for m in _LAYER_RE.finditer(text):
-        name = m.group(1).lower()
-        if name[-1] in _LAYER_GENERIC_TAIL or name.endswith("根因"):
-            continue
-        # 中文前面常黏著動詞與介詞（「根因在邏輯」「先修邏輯」）：切到最後一個這種字之後；一個名字是另一個的尾段也算同一層，留短的
-        name = _LAYER_LEAD_RE.sub("", name) or name
-        same = next((i for i, k in enumerate(layers) if k.endswith(name) or name.endswith(k)), None)
-        if same is None:
-            layers.append(name)
-        elif len(name) < len(layers[same]):
-            layers[same] = name
-    return list(range(1, len(layers) + 1)) if len(layers) >= 2 else []
-
-
-def root_candidates(root_line: str) -> List[int]:
-    """根因層那行辨識出的候選編號（去重保序）；標記後面緊接「不存在／沒有」的是「第二個不存在」說明，不算候選。
-    一個標記都沒有時看列舉與跨層（_unlabeled_candidates）。"""
-    text = str(root_line or "")
-    out: List[int] = []
-    marked = False
-    for m in _CANDIDATE_RE.finditer(text):
-        marked = True
-        if _absent_after(text, m.end()):
-            continue
-        n = _LABEL_NO[m.group(1) or m.group(2)]
-        if n not in out:
-            out.append(n)
-    return out if marked else _unlabeled_candidates(text)
-
-
-_CHAINED_NODES_RE = lazy_re(r"^(?:\s*[/／、,，+＋]\s*T\d+(?:\.\d+)*)+")
-def goal_role(goal_line: str, node_id: str) -> str:
-    """第四行節點編號後面括號（全形或半形）裡的角色；編號後面先接著別的節點編號（T1.1/T1.4、T1.2、T1.3）就跳過去再找括號。
-    沒有括號回空字串（角色要寫在括號裡）。"""
-    v = str(goal_line or "")
-    i = v.find(node_id) if node_id else -1
-    rest = _CHAINED_NODES_RE.sub("", v[i + len(node_id):] if i >= 0 else v, count=1)
-    m = re.match(r"\s*[（(](.*?)[）)]", rest)
-    return m.group(1).strip() if m else ""
-
-
-def _role_core(text: str) -> str:
-    return _ROLE_STRIP_RE.sub("", str(text or ""))
-
-
-# 選擇動詞：「選 A／選候選 A／採用／採取／採納」；「候選」裡的選、候選描述裡的「採集」不算
-_CHOICE_VERB_RE = lazy_re(r"(?<!候)選|採(?:用|取|納)")
-
-
-def _has_choice_reason(root_line: str) -> bool:
-    """CHOICE_REASON_BELONGS_TO_CHOICE：只以「；;。」切句（逗號不切，候選描述被逗號拆開後的「因為…」仍屬那個候選）。
-    理由詞符合任一條才算選擇理由：同一句裡它前面有選擇動詞；或同一句裡它前面沒有候選標記、且位置在整行第一個候選標記之後
-    （沒有固定標記從 0 起算；「候選 A 的原因是 …」是候選描述，第一個候選前面的「所以…」是前言）。"""
-    text = str(root_line or "")
-    first = _CANDIDATE_RE.search(text)
-    floor = first.start() if first else 0
-    for r in _REASON_RE.finditer(text):
-        before = re.split(r"[；;。]", text[:r.start()])[-1]     # 同一句裡理由詞前面那段
-        if _CHOICE_VERB_RE.search(before):
-            return True
-        if r.start() >= floor and not _CANDIDATE_RE.search(before):
-            return True
-    return False
-
-
-def _second_absent(root_line: str, cands: List[int]) -> bool:
-    """「第二個不存在因為 …」有理由，而且前面真的寫了第一個（有候選標記，或那句之前有內容）。"""
-    text = str(root_line or "")
-    m = _SECOND_ABSENT_RE.search(text)
-    return bool(m) and (bool(cands) or len(_role_core(text[:m.start()])) >= 2)
-
-
-def locate_lines_verdict(root_line: str, goal_line: str, node_id: str, node_text: str) -> Verdict:
-    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：定位四行的根因層（第二行）與目標（第四行）結構夠不夠；缺的項一起列。
-    node_id／node_text＝第四行指到、已核對存在的節點與它的文字。"""
-    rule = "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"
-    missing: List[str] = []
-    role, node_core = _role_core(goal_role(goal_line, node_id)), _role_core(node_text)
-    if role in _ROLE_PLACEHOLDERS:
-        missing.append(f"第四行 {node_id} 後面括號裡沒寫這一塊在目標裡的角色（{node_id}（這一塊替 {node_id} 做什麼））")
-    elif node_core and (role == node_core or (role in node_core and len(role) * 5 >= len(node_core) * 4)):
-        missing.append(f"第四行的角色是 {node_id} 節點原文照抄，要寫這一塊替 {node_id} 做什麼")
-    cand = _candidates_missing(root_line)
-    if cand:
-        missing.append(cand)
-    if not missing:
-        return Verdict(rule, False, "定位四行有角色、有兩個候選或第二個不存在的理由")
-    return Verdict(rule, True, "；".join(missing), (f"定位｜根因層：{root_line}", f"定位｜目標：{goal_line}"))
-
-
-def _candidates_missing(root_line: str) -> str:
-    cands = root_candidates(root_line)
-    if len(cands) >= 2:
-        return "" if _has_choice_reason(root_line) else f"根因層辨識出 {len(cands)} 個候選，但沒寫選擇理由（「選 A 因為 …」）"
-    if _second_absent(root_line, cands):
-        return ""
-    return (f"根因層只辨識出 {len(cands)} 個候選，也沒寫「第二個不存在因為 …」"
-            "（寫法：候選 A …；候選 B …；選 A 因為 …）")
-
-
-def locate_candidates_verdict(root_line: str) -> Verdict:
-    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES 的根因層那半：至少兩個候選加選擇理由，或寫「第二個不存在因為 …」。
-    第四行的角色那半只記錄（呼叫端另用 locate_lines_verdict 留帳）。"""
-    rule = "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"
-    miss = _candidates_missing(root_line)
-    if not miss:
-        return Verdict(rule, False, "根因層有兩個候選與選擇理由，或第二個不存在的理由")
-    return Verdict(rule, True, miss, (f"定位｜根因層：{root_line}",))
-
-
-# 「無／沒有」後面接標點、理由詞或行尾才算「沒有」（「無鎖佇列」是位置的名字）
-_SAME_NONE_RE = lazy_re(rf"^(?:無|沒有|不存在|找不到)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))", re.IGNORECASE)
-CRITIQUE_MIN_CHARS = 8   # 批判行去掉標點空白後至少幾個字才算有內容（「合理」「無」這種不算批判）
-
-
-def locate_critique_verdict(line: str) -> Verdict:
-    """LOCATE_LINES_NEED_CRITIQUE：定位第五行「定位｜批判」只查有沒有寫、有沒有內容（≥ CRITIQUE_MIN_CHARS 字）。
-    合不合理、更好的做法、同類在哪都是 AI 的判斷，不認固定字樣（原設計者 G6：需要判斷的事不寫成固定規則）。"""
-    rule = "LOCATE_LINES_NEED_CRITIQUE"
-    text = str(line or "").strip()
-    if not text:
-        return Verdict(rule, True, "沒交第五行「定位｜批判：…」（這段寫法合不合理：合理寫原因、不合理寫哪裡與更好的做法；同類還可能在哪）")
-    if len(_role_core(text)) < CRITIQUE_MIN_CHARS:
-        return Verdict(rule, True, f"第五行「定位｜批判」太短（去掉標點不到 {CRITIQUE_MIN_CHARS} 字），寫出你對這段寫法的判斷與原因",
-                       (f"定位｜批判：{text}",))
-    return Verdict(rule, False, "批判那行有內容")
-
-
-# 擋訊息範例的佔位：角括號裡有中文說明（`<第一個根因>`）；程式的泛型角括號（List<int>）不算
-_EXAMPLE_PLACEHOLDER_RE = lazy_re(r"<[^<>\n]*[一-鿿][^<>\n]*>")
-
-
-def locate_placeholder_verdict(vals: Dict[str, str]) -> Verdict:
-    """LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER：定位各行（部位／根因／前例／目標／批判）還留著擋訊息範例的角括號佔位 → 當沒填。"""
-    rule = "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER"
-    left = [f"定位｜{k}：{v}" for k, v in (vals or {}).items() if _EXAMPLE_PLACEHOLDER_RE.search(str(v or ""))]
-    if not left:
-        return Verdict(rule, False, "定位各行沒有留著範例佔位")
-    return Verdict(rule, True, "定位行還留著範例的角括號佔位（<…>），換成你對這一塊的判斷才算交", tuple(left))
 
 
 # ─── 提問（AskUserQuestion／ExitPlanMode 前）：附推薦、全貌先於拍板（wg_ask_gate 收事實、這裡判） ───
@@ -2768,9 +2543,9 @@ RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但�
                                           "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
                                           "裡另有沒被否定的提及照算點名（prompt_names_file）。")
 RULES["DECL_HINT_KEEPS_EDIT_TOOLS"] = ("擋 Edit／Write 要先交宣告行的閘（改資料檔宣告 wg_data_file._judge／data_file_hint、改舊測試宣告 "
-                                       "wg_oldtest.hint、定位與最小地圖 wg_overview），擋訊息與提示只教一條路、而且是零模型回合的那條："
+                                       "wg_oldtest.hint），擋訊息與提示只教一條路、而且是零模型回合的那條："
                                        "同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`）、宣告行放它開頭的 `#` 註解（DECL_VIA_COMMENT），"
-                                       "接著就可以改檔；範例寫成能照抄的樣子（`# 定位｜…` 幾行加一行 `git diff --stat`）。原因要講：同一則裡"
+                                       "接著就可以改檔；範例寫成能照抄的樣子（`# 動資料檔｜…` 一行加一行 `git diff --stat`）。原因要講：同一則裡"
                                        "接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫。其他管道（早一則只有文字的回覆）"
                                        "程式照認、不出現在擋訊息與提示裡，只在這張規則表與 TECH.md 講："
                                        "擋訊息同時教好幾條路時 AI 會挑最貴的那條，多出模型回合。"
@@ -3002,68 +2777,6 @@ RULES.update({
                                         "換句話說的同一件程式不判，交 ①；"
                                         "PickOne 問句列出本 session 還開著的項目。",
 })
-# ─── 改判準卡留帳 ───
-RULES.update({
-    "JUDGE_CARD_CHANGE_NEEDS_DECLARATION": "要改的檔是綁了 Entry 的判準卡（memory／_atoms 目錄底下的 .md，磁碟上那份檔頭 metadata 的 `- Entry:` "
-                                           "非空，判定只用 lib/atom_locations.entry_bound_ids）＝判 AI 做得對不對的量尺：要先有宣告行"
-                                           "「改判準卡｜<卡名>：<理由>」（回覆文字／工具參數裡 `#` 開頭的註解行／thinking 三管道，主檔與子代理檔都找；"
-                                           "Bash／PowerShell 另認這次指令自己的 `#` 註解行）；卡名＝檔名去 .md（寫路徑也行，取最後一段比；只寫 Entry 代號不算），"
-                                           "多張以「、，,」分隔；理由要有文字內容、不是佔位；有沒有宣告都放行，只記錄不擋。出口：Edit／MultiEdit／Write、"
-                                           "Bash／PowerShell 的寫入目標、MCP atom_write 的 append／replace、atom_edit_meta、atom_retire（MCP 由 PreToolUse "
-                                           "matcher 掛工具名、Python 判，MCP 端照 locate_atom 同一份定位）。不分 session，每個 session 都一樣。"
-                                           "每次改動都留帳 Logs/guard-judge_card.jsonl（卡名、entry、宣告行、session、allowed）；"
-                                           "事實由 hooks/wg_judge_card.py 收。沒綁 Entry 的卡、新建的卡不觸發。",
-    "JUDGE_CARD_HASH_CATCHES_INTERPRETER": "直譯器自己開檔寫卡（Bash／PowerShell 跑 python／node／perl…，寫入目標解析不到）：不記雜湊、"
-                                           "不事後比對、不擋；改到綁 Entry 的判準卡最多留一筆帳（guard-judge_card），寫入目標解析得到的照 "
-                                           "JUDGE_CARD_CHANGE_NEEDS_DECLARATION 留帳。送法 remind（RULE_MODE）：本來就只留帳不擋，標 mode 不改行為。",
-})
-_JUDGE_CARD_DECL_RE = lazy_re(r"改判準卡\s*[｜|]\s*(.+)")
-_JUDGE_CARD_ASCII_SEP_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
-_JUDGE_CARD_NAME_SPLIT_RE = lazy_re(r"\s*[、，,]\s*")
-
-
-def parse_judge_card_decls(text: str) -> List[Dict[str, Any]]:
-    """宣告行 →[{names, reason, line}]。卡名與理由用第一個「：」分；沒有全形冒號才找不接路徑分隔的「:」。
-    names 是「、，,」切開的每一段（去反引號、引號、書名號）。"""
-    out: List[Dict[str, Any]] = []
-    for raw in str(text or "").splitlines():
-        m = _JUDGE_CARD_DECL_RE.search(raw)
-        if not m:
-            continue
-        rest = m.group(1)
-        if "：" in rest:
-            names, reason = rest.split("：", 1)
-        else:
-            sep = _JUDGE_CARD_ASCII_SEP_RE.search(rest)
-            names, reason = (rest[:sep.start()], rest[sep.end():]) if sep else (rest, "")
-        parts = [p.strip("`'\"「」『』 ") for p in _JUDGE_CARD_NAME_SPLIT_RE.split(names)]
-        out.append({"names": [p for p in parts if p], "reason": reason.strip(), "line": raw.strip()[:240]})
-    return out
-
-
-def judge_card_name_hits(name: str, stem: str) -> bool:
-    """宣告的卡名點到這張卡（stem＝檔名去 .md）：取路徑最後一段、去 .md 後與 stem 相同，不分大小寫。
-    擋訊息印的就是 stem，照抄一定對得上；只寫 Entry 代號（E29）不算，因為一個 Entry 綁好幾張卡，要點名是哪一張。"""
-    n = str(name or "").strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
-    n = n[:-3] if n.endswith(".md") else n
-    return bool(n) and n == str(stem or "").lower()
-
-
-def judge_card_verdict(stem: str, entry: Sequence[str], decls: Sequence[Dict[str, Any]]) -> Verdict:
-    """JUDGE_CARD_CHANGE_NEEDS_DECLARATION：owed＝要改的是綁 Entry 的卡、而且沒有點到它又附理由的宣告行。
-    entry 來自 entry_bound_ids（空＝不是判準卡）；decls 來自 parse_judge_card_decls。放行時證據第一筆是那一行宣告。"""
-    rule = "JUDGE_CARD_CHANGE_NEEDS_DECLARATION"
-    if not entry:
-        return Verdict(rule, False, f"{stem} 沒綁 Entry，不是判準卡")
-    for d in decls:
-        if reason_present(d.get("reason", "")) and any(judge_card_name_hits(n, stem) for n in d["names"]):
-            return Verdict(rule, False, f"宣告過改判準卡 {stem}", (d["line"],))
-    ev = [f"{stem}：綁 Entry {'、'.join(entry)}"]
-    ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls
-           if any(judge_card_name_hits(n, stem) for n in d["names"]) and not reason_present(d.get("reason", ""))][:2]
-    return Verdict(rule, True, "要改綁了 Entry 的判準卡，沒先宣告「改判準卡｜哪張：理由」", tuple(ev))
-
-
 # ─── 繞閘嫌疑 ───
 RULES.update({
     "GATE_BYPASS_NEEDS_DECLARATION": "被病形閘擋過之後（state smell_deny_last；同一個 repo 根、還沒成功 commit），這條指令把被點名的檔"
@@ -3103,84 +2816,6 @@ def atom_bypass_verdict(gates: Sequence[str], words: Sequence[str], reason: str 
                        (f"提到的閘：{'、'.join(gates)}", f"做法字樣：{'、'.join(words)}"))
     return Verdict("ATOM_BYPASS_HOWTO_REFUSED", False, "只命中一個訊號（或都沒有），照寫",
                    (f"提到的閘：{'、'.join(gates) or '無'}", f"做法字樣：{'、'.join(words) or '無'}"))
-# ─── G14 最小地圖 ───
-# 沒有部位表的專案第一次改程式檔前要 AI 先寫出跟需求相關的最小地圖（wg_overview._unmapped_edit 收事實、這裡判）
-RULES.update({
-    "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP": "往上找不到任何部位表的專案，本 session 第一次改某頂層目錄的程式檔前（state 鍵 <根>|(unmapped)<頂層目錄>"
-                                         " 為單位），要交最小地圖三行「地圖｜讀了：<檔清單>」「地圖｜上游：…」「地圖｜下游：…」"
-                                         "（回覆文字、工具參數、thinking 三管道都認，取最後一組三行齊的）：讀了至少列 1 個檔、每個都是"
-                                         "本 session 讀過的（與 part_files_read 同源）；上下游非空，真的沒有寫「無，因為…」；留著範例角括號"
-                                         "佔位當沒填。只看有沒有、讀過沒，不評內容；交過同鍵不再擋，同根下一個頂層目錄只認之後交的地圖。"
-                                         "執行期資料、知識類、非程式檔、有部位表的專案不查；min_map.enabled=false 整條不觸發。",
-})
-
-MIN_MAP_KEYS = ("讀了", "上游", "下游")
-MIN_MAP_RE = lazy_re(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；值可空（空的要點名擋）
-    r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?地圖[ \t]*[｜|][ \t]*(讀了|上游|下游)[ \t]*[:：][ \t]*(.*?)[ \t]*[\"']?,?$", re.MULTILINE
-)
-_MAP_NOTE_RE = lazy_re(r"[（(][^（）()\n]*[）)]")        # 檔名後的括號附註（入口、主程式）不當檔名
-_MAP_SPLIT_RE = lazy_re(r"[、，,；;\s]+")
-_MAP_TOKEN_TRIM = "`'\"「」『』"
-_MAP_UNREAD_SHOWN = 5
-
-
-def min_map_group(text: str) -> Optional[Dict[str, str]]:
-    """text 裡的最小地圖：每遇「讀了」行開一組；回最後一組三行齊的（被擋後補交的那組才是現行），都不齊回最後一組，沒有地圖行回 None。"""
-    groups: List[Dict[str, str]] = []
-    for m in MIN_MAP_RE.finditer(text or ""):
-        if m.group(1) == "讀了" or not groups:
-            groups.append({})
-        groups[-1][m.group(1)] = m.group(2).strip()
-    complete = [g for g in groups if all(k in g for k in MIN_MAP_KEYS)]
-    if complete:
-        return complete[-1]
-    return groups[-1] if groups else None
-
-
-def min_map_files(value: str) -> List[str]:
-    """「讀了」那行的檔清單：先去掉括號附註，再以「、，,；;」與空白切開，剝反引號與引號。"""
-    out: List[str] = []
-    for tok in _MAP_SPLIT_RE.split(_MAP_NOTE_RE.sub(" ", value or "")):
-        tok = tok.strip(_MAP_TOKEN_TRIM)
-        if tok:
-            out.append(tok)
-    return out
-
-
-def _map_line_problem(key: str, value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return f"缺「地圖｜{key}」那行"
-    if not value.strip():
-        return f"「地圖｜{key}」是空的" + ("" if key == "讀了" else "（真的沒有就寫「無，因為…」）")
-    if _EXAMPLE_PLACEHOLDER_RE.search(value):
-        return f"「地圖｜{key}」還留著範例的角括號佔位（<…>）"
-    if key != "讀了" and _SAME_NONE_RE.match(value) and not _REASON_RE.search(value):
-        return f"「地圖｜{key}」寫了無但沒附理由（寫「無，因為…」）"
-    return None
-
-
-def min_map_verdict(group: Optional[Dict[str, str]], root: str, read: Iterable[str], transcript_problem: str = "") -> Verdict:
-    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：group＝min_map_group 的結果；root＝專案根（「讀了」的相對路徑以它為基準）；
-    read＝本 session 讀過的檔（canon_path 或原樣皆可）；transcript_problem＝transcript 讀不到時的原因（放進證據）。"""
-    rule = "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP"
-    if group is None:
-        ev = transcript_problem or "回覆文字、工具參數、thinking 都找不到「地圖｜讀了：」那行"
-        return Verdict(rule, True, "還沒交最小地圖三行（讀了／上游／下游）", (ev,))
-    problems = [p for p in (_map_line_problem(k, group.get(k)) for k in MIN_MAP_KEYS) if p]
-    files = [] if _map_line_problem("讀了", group.get("讀了")) else min_map_files(group["讀了"])
-    if not files and not _map_line_problem("讀了", group.get("讀了")):
-        problems.append("「地圖｜讀了」沒列任何檔")
-    seen = {canon_path(p) for p in read}
-    # 只寫檔名沒帶目錄（「api.py service.py」）：本 session 讀過的檔裡有同名的就算讀過（實跑 AI 常把同目錄的檔只列檔名）
-    bare_names = {os.path.basename(p).lower() for p in seen}
-    unread = [f for f in files if canon_path(os.path.join(root, f)) not in seen
-              and not ("/" not in f and "\\" not in f and f.lower() in bare_names)]
-    if unread:
-        shown = "、".join(unread[:_MAP_UNREAD_SHOWN]) + (f" 等 {len(unread)} 個" if len(unread) > _MAP_UNREAD_SHOWN else "")
-        problems.append(f"「地圖｜讀了」列的 {shown} 本 session 沒讀過（先讀再列，或從清單拿掉）")
-    if problems:
-        return Verdict(rule, True, "最小地圖不完整", tuple(problems))
-    return Verdict(rule, False, f"最小地圖三行齊，讀了列的 {len(files)} 個檔本 session 都讀過", tuple(files))
 # ─── G11 拐彎判斷（程式只算側面數據、只核對五欄齊；這一層有沒有作用、會不會讓人拐超過三個彎由 AI 判並寫理由。事實由 wg_reading_path 收，這裡判結構） ───
 RULES.update({
     "TURN_JUDGMENT_REQUIRED": "收尾附的側面數據（入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈層數與空層）到了"
@@ -3293,6 +2928,7 @@ _MUTATION_ARG_RE = lazy_re(r"--mutation(?:\s+|=)[\"']?(order|side_effect|boundar
 _EQ_NA_RE = lazy_re(r"等值證法\s*[｜|]\s*不適用\s*(?:[｜|]\s*(.*))?$")
 _HOT_RE = lazy_re(r"熱路徑\s*[｜|]\s*(是|否)\s*(?:[｜|]\s*(.*))?$")
 _MEASURE_SKIP_RE = lazy_re(r"量測\s*[｜|]\s*不做\s*(?:[｜|]\s*(.*))?$")
+_EXAMPLE_PLACEHOLDER_RE = lazy_re(r"<[^<>\n]*[一-鿿][^<>\n]*>")   # 擋訊息範例的角括號佔位（角括號裡有中文說明）；程式的泛型 List<int> 不算
 
 
 def proved_mutations(receipts: Iterable[Tuple[Any, ...]]) -> List[str]:
@@ -3409,12 +3045,12 @@ RULES.update({
 RULES.update({
     "CHAIN_HEADLESS_KEEPS_DATA_GATES": "沒人能答（無頭、子代理）時連鎖斷路器警報之後，會改使用者資料的閘照擋（含讓警報響的那一次），其餘閘照舊只記錄。"
                                        "哪幾道與理由見 hooks/wg_chain.py 的 RULES 同名條與 KEEP_BLOCKING（判定 keeps_blocking）。",
-    "SHELL_READ_COUNTS_LIKE_READ": "唯讀 Bash／PowerShell 讀檔跟 Read 同效（定位閘的讀過部位檔用 wg_overview.read_targets）："
-                                   "一條指令讀好幾個檔、第一次碰到部位時，注入導讀卡之後的檔照記（跟送幾個 Read 一樣）；MSYS 寫法 /c/x 當 C:/x"
+    "SHELL_READ_COUNTS_LIKE_READ": "唯讀 Bash／PowerShell 讀檔跟 Read 同效（讀檔帳的讀過部位檔用 wg_overview.read_targets）："
+                                   "一條指令讀好幾個檔每個都照記（跟送幾個 Read 一樣）；MSYS 寫法 /c/x 當 C:/x"
                                    "（跟寫檔判定 wg_core._write_target_abs 同一個檔）；會印出命中行的 grep 不帶 -n 也算（只印檔名、筆數或不印的 -l、-L、-c、-q 帶了 -n 也不算）；"
                                    "開頭 `cd <目錄> &&` 之後的相對路徑照那個目錄補（中間的 cd 不追）。其餘照 BASH_READONLY_COUNTS_AS_READ。",
     "SHELL_WRITE_COMMAND_NOT_A_READ": "Bash／PowerShell 指令有寫檔目標（wg_core.write_paths_from_tool 判出任何目標，含判不出的；重導向 >、tee、"
-                                      "sed -i、Out-File…）就不是唯讀：整條讀到的檔都不算讀過、也不注入導讀卡；`2>&1`、`> /dev/null` 不是寫檔目標。",
+                                      "sed -i、Out-File…）就不是唯讀：整條讀到的檔都不算讀過；`2>&1`、`> /dev/null` 不是寫檔目標。",
     "EPHEMERAL_WRITE_NOTED_ONCE": "專案放在系統暫存目錄底下（handlers/_shared._is_ephemeral_path 的暫存根那一支），寫入照舊不記進改檔清單；"
                                   "同一 session、同一個專案根（版控根，沒有就 cwd，再沒有就暫存根底下第一層）第一次印一行 stderr "
                                   "[Guardian:EphemeralWrite] 說明沒記、收尾閘看不到（_shared.note_ephemeral_skip）；不在暫存根底下、只因快取目錄"
@@ -3439,14 +3075,6 @@ RULES.update({
 })
 
 
-# ─── 觸發導讀卡注入那次讀也算讀過（判定在 hooks/wg_overview.on_read，這裡只登錄規則名與說明） ───
-RULES.update({
-    "INJECT_TRIGGER_READ_COUNTED": "觸發導讀卡注入的那次讀就是真讀：Read 或唯讀 Bash／PowerShell 第一次讀到某部位，觸發注入的那個檔本身"
-                                   "也記進讀過部位檔（part_files_read、reads_after），一條指令讀到的同部位其他檔照 SHELL_READ_COUNTS_LIKE_READ"
-                                   "全記；改檔前才補注入（on_edit）沒有讀檔，不記。「看過全貌才改」靠注入後還要交的定位三行守。",
-})
-
-
 # ─── 寫碼回合的記憶注入只送該到的（判定在 hooks/handlers/ups_inject.assemble_injection，這裡只登錄規則名與說明） ───
 RULES.update({
     "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、而且這個使用者回合已經改過程式檔：wg_core.coding_turn，"
@@ -3465,38 +3093,18 @@ RULES.update({
 })
 
 
-# ─── 定位閘每個使用者回合最多擋一次、thinking 那條路講死（判定在 hooks/wg_overview.py，這裡只登錄） ───
-RULES.update({
-    "LOCATE_BLOCK_ONCE_PER_USER_TURN": "同一個使用者回合（user_turn：使用者本人打字開的回合，同伴訊息、背景通知續跑不算新回合）定位閘已經擋過"
-                                       "某個部位之後，別的部位只缺定位行 → 一行提醒、放行、留帳（_overview-hub.log event=edit_locate_reminded）；"
-                                       "缺讀檔證據、導讀卡還沒注入照擋，擋過的那個部位再缺照擋（照 GATE_DENY_CAP），下一個使用者回合重來；本條只在送法是 block 時有意義（寫碼守門關）"
-                                       "（wg_overview.on_edit、_blocked_parts／_note_block，state overview_locate_blocked）。本條管的是第一輪"
-                                       "（LOCATE_FIRST_EDIT_BLOCKS_ONCE：每部位第一次改的那個使用者回合）之後的擋；第一輪的擋不記進 overview_locate_blocked。",
-    "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要放"
-                              "同一則先發的不寫檔指令開頭的 # 註解（DECL_WHERE；wg_overview._locate_ask 的 where；只教這一條路，DECL_HINT_KEEPS_EDIT_TOOLS）。",
-})
-
-
-# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
+# ─── 擋訊息瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
 RULES.update({
     "DENY_TEXT_SLIM": "擋訊息精簡格式（guard.deny_text_slim，預設開）：第一行「[<閘>] 修法：<一句>」，下面每條命中一行 format_hit"
-                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認），判準卡名由接卡處接在後面；"
+                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認）；"
                       "共用組裝 slim_deny，採用的閘交規則名與一句修法（動資料檔閘：data_file_fix）。寫 false 退回各閘原本的長文字（原處不動）。",
-    "CARD_FULL_ONCE_PER_SESSION": "判準卡一個 session 每張最多送一次全文（entrypoint.card_once_per_session，預設開；hooks/wg_entrypoint）："
-                                  "之後換回合也只併成一行「判準卡：<卡名>、…」，不印「這個話題前面已送過全文」；"
-                                  "同一個切入點這個 session 拿過卡，再被問就不往下送新卡、帳上不記截斷；同一則認出好幾個切入點、額度被平分到比單一額度小時，截斷送出的卡不算送過、被截的切入點不算拿過卡（下次單獨被問照送）。壓縮前清掉紀錄（之後重送）、"
-                                  "子代理開工句照送全文也不佔主對話；寫 false 退回 CARD_ONCE_PER_TOPIC。",
-    "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
+    "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟讀檔帳同一支 read_targets；"
                            "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
                            "子代理讀的不提示），讓第一次改就帶宣告。提示只教「放同一則先發的不寫檔指令開頭的 `#` 註解」一條路"
                            "（DECL_HINT_KEEPS_EDIT_TOOLS）；早一則的回覆文字程式照認，訊息不提。"
                            "這個 session 沒改過程式檔（wg_data_file.coding_session）閘不會問，"
                            "也就不提示。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：閘會問的沒宣告照擋。",
-})
-RULES.update({
-    "CARD_READ_WITH_EDIT_FILES": "指標制送卡時，指標行（lib/overview_hub._pointer_body）與讀卡缺件行（wg_overview._card_unread_line）"
-                                 "直接講下一步：「下一則讀卡時順便讀要改的檔」，讓讀卡跟讀要改的檔併在同一則送、不為讀卡多停一次。只改文字，判定不變。",
 })
 
 
@@ -3522,18 +3130,6 @@ RULES.update({
 RULES.update({
     "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點靠它）認兩支：收尾檢核（一次交齊時知識收割也在裡面）、"
                               "knowledge_harvest_report；任一支所在的那批就是收尾前最後一個工具回應。",
-})
-
-
-# ─── 定位先提示後擋（提示在 hooks/wg_overview._locate_read_hint） ───
-RULES.update({
-    "LOCATE_HINT_ON_FIRST_READ": "讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（Read／唯讀 Bash／PowerShell／Grep，PostToolUse 的"
-                                 "讀檔結果，不掛在改檔的 PreToolUse）→ 附一行：交定位三行（同缺定位擋訊息），放同一則先發的不寫檔指令開頭的 # 註解、"
-                                 "thinking 讀不到（DECL_HINT_KEEPS_EDIT_TOOLS 的 DECL_WHERE；只教這一條路，早一則的回覆文字程式照認、訊息不提）。"
-                                 "一部位一 session 一次，第二個部位起只點名、說格式同前；"
-                                 "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、寫碼守門總開關關都不送；沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，"
-                                 "這則 prompt 的關鍵字也沒判成寫碼類 wg_core.CODE_INTENTS；提示要趕在第一次改檔前到，所以關鍵字意圖算數）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
-                                 "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
 })
 
 
@@ -3572,9 +3168,6 @@ RULES.update({
                                   "（RELEASE_COVERS_SHOWN_ITEMS）、不做行記 testfail_waivers（USER_WAIVER_NEEDS_CITATION）、收尾寫的負向對照宣告把那筆搬到"
                                   " deliberate_reds（NEGATIVE_CONTROL_DECLARED 收尾入口）。同一條指令跑了不只一次測試的紅在記帳時就定案（RED_LAST_RESULT_IN_COMMAND），"
                                   "不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
-    "OVERVIEW_CARD_BEFORE_EDIT": "改某部位的檔時本 session 還沒看過這個部位的導讀卡（wg_overview.on_edit 的 not_injected）：提醒、卡隨改檔結果送到。",
-    "OVERVIEW_CARD_MISSING": "部位表列了導讀卡、卡檔卻找不到（wg_overview.on_edit 的 card_missing）：提醒列出找過哪裡。",
-    "OVERVIEW_PART_FILES_READ": "改某部位的檔前要讀過這個部位的檔與卡指到的檔（min_overview_evidence，wg_overview.on_edit 的 evidence）：提醒、不擋。",
     "DEFERRAL_OF_DOABLE_WORK": "主任務完工、context 還夠，收尾把帶受詞、可做的事推給下個 session／獨立議題／非我造成（wg_evasion.deferral_gate_reason）。",
     "HARVEST_AT_PHASE_DONE": "階段完工要交知識收割清單（wg_harvest.harvest_gate_reason；背景收割開著就交背景）。",
     "HARVEST_ITEM_NEEDS_RECEIPT": "收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。",
@@ -3590,23 +3183,10 @@ RULES.update({
                               "同一條規則同一個對象同一個 session 只提醒一次（remind_due）。",
     "GATE_MODE_TABLE": "寫碼守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘寫碼守門是 remind；"
                        "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
-    "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer 缺件）：寫碼守門開時提醒一行、不擋；"
-                          "第一次讀到該部位程式檔的讀檔結果（LOCATE_HINT_ON_FIRST_READ）送過就算提醒過，之後沒交不再提醒也不擋；"
-                          "唯一例外：每部位本 session 第一次改程式檔的那個使用者回合、定位沒交齊 → 整輪照擋（LOCATE_FIRST_EDIT_BLOCKS_ONCE）。",
-    "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋、不注入（wg_overview.on_edit 的 readonly）。",
-    "OVERVIEW_HUB_UNDER_V6": "OverviewHub 整道（導讀卡注入、候選前 N、讀檔記錄、定位）綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，"
-                             "不注入、不記、不擋；同事預設關寫碼守門就完全不會收到導讀卡。",
-    "LOCATE_FIRST_EDIT_BLOCKS_ONCE": "定位閘在提醒模式下的例外（使用者裁「第一次改檔前沒先說清楚就攔一次」，一次＝一輪）：同一 session 第一次改某部位的程式檔"
-                                     "（送卡那一刀；子代理同主 session）先驗定位行：交了就放、卡照舊當提醒件送；沒交 → 擋，訊息＝卡＋定位要求（定位三行），"
-                                     "卡同時排進提醒，這一輪開始。這一輪＝第一次改它的那個使用者回合、定位交齊之前：同部位之後每個改檔（同一則回覆平行送的也是）"
-                                     "一行都沒交就照擋，訊息只一句「同一輪，定位交齊前照擋：<檔>」，不計 GATE_DENY_CAP、不記進 overview_locate_blocked；"
-                                     "交齊（transcript 三管道）就結束這一輪、放行，之後只看讀檔證據；交了但層不對走一般判定"
-                                     "（有詳細缺件、計 GATE_DENY_CAP、送法照 GATE_MODE_TABLE）。下一個使用者回合還缺只提醒不擋。"
-                                     "判定 wg_overview._first_edit_once（第一刀）與 _locate_round_check（同一輪後續），state.locate_first_deny[session][部位]＝"
-                                     "{turn: 第一次改的使用者回合, done: 交齊了沒}（locate_first_deny_due 開輪、locate_round_open 判、_mark_located 結輪）；"
-                                     "送法 pre_tool_use（第一刀提醒件帶 block_once，後續 deny 不帶提醒件；state 記不住就只提醒），"
-                                     "留帳 hub log event=edit_blocked_once（第一刀）／edit_blocked_round（後續）／edit_round_located（交齊那一刀）。",
-    "REMIND_PENDING_IN_STATE": "工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法、順帶要注入的卡），"
+    "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋（wg_overview.write_check）。",
+    "OVERVIEW_HUB_UNDER_V6": "OverviewHub 的讀檔帳、唯讀路徑檢查與讀它設定的閘綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，"
+                             "不記、不擋。",
+    "REMIND_PENDING_IN_STATE": "工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法、順帶要送的全文），"
                                "下一個工具結果（PostToolUse）取走：該提醒的併進 additionalContext、記進 remind_sent；送過的只留帳不重送"
                                "（wg_overview.remind_queue／remind_flush）。state 寫不進去就只 stderr＋留帳，不改用 PreToolUse 送。"
                                "remind_sent 是**一份清單**（元素 remind_key(規則, 對象)；state 本來就一 session 一檔，不按 session 分桶），"
@@ -3637,7 +3217,7 @@ RULE_CLASS: Dict[str, str] = {
     **dict.fromkeys(("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "ORDER_UNTIL_PUSH", "TEMP_REPO_COMMIT_EXEMPT",
                      "SVN_TEST_BLOCK_OPT_IN", "ATOM_BYPASS_HOWTO_REFUSED", "CONFLICT_DECLARED_BY_AI",
                      "OVERVIEW_READONLY_PATHS", "VERIFY_FULL_RUN_NEEDS_USER_ORDER", "VERIFY_SAME_BATCH_ALREADY_GREEN",
-                     "VERIFY_BATCH_BLOCK_ONCE_PER_TURN", "LOCATE_FIRST_EDIT_BLOCKS_ONCE"), "不在範圍"),
+                     "VERIFY_BATCH_BLOCK_ONCE_PER_TURN"), "不在範圍"),
 }
 RULE_MODE: Dict[str, str] = {name: BLOCK if name in RULE_CLASS else REMIND for name in RULES}
 
@@ -3692,11 +3272,10 @@ def remind_due(sent: Iterable[str], rule: str, obj: Any = "") -> bool:
     return remind_key(rule, obj) not in set(sent or ())
 
 
-# ─── 非寫碼回合不介入（判定在各自的模組：ups_inject._lean_turn、wg_overview._locate_read_hint、wg_data_file.gate／read_hint；這裡只登錄） ───
+# ─── 非寫碼回合不介入（判定在各自的模組：ups_inject._lean_turn、wg_data_file.gate／read_hint；這裡只登錄） ───
 RULES.update({
-    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的三個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔；"
-                                "prompt 關鍵字意圖不算）。① 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；② 讀程式檔附的定位提示"
-                                "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合或 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時送，純問答不送、額度不消耗；③ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
+    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的兩個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔；"
+                                "prompt 關鍵字意圖不算）。① 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；② 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
                                 "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session；讀檔提示另外在 prompt 關鍵字判成寫碼類時也先送，提示要趕在第一次改檔前），"
                                 "否則放行、留帳 skipped_non_coding。",
 })

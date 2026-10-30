@@ -1,6 +1,6 @@
 """wg_depends：路徑→卡片召回（H3／A3.5）：讀到某個檔時，把索引 depends 有 `path:` 指到它（或它所在目錄）的卡列成一行一卡指標。
 
-做什麼：PostToolUse（Read／Bash 讀檔）在 OverviewHub 的 on_read 之後呼叫 on_read_depends；對每個讀到的路徑查
+做什麼：PostToolUse（Read／Bash 讀檔）在 OverviewHub 讀檔帳之後呼叫 on_read_depends；對每個讀到的路徑查
 lib.atom_spec.atoms_depending_on（全域索引以 ~/.claude 為根、專案索引以專案根為根），命中的卡一行一條
 「[Guardian:Depends] 讀到 <檔> → 卡 `<卡名>`（<卡路徑>）：<條目>」；同一張卡一個 session 只提一次（state["depends_hints"]）。
 讀到文件／計畫檔（authority_map 的樣式命中）且 authority_map 非空 → 一次性注入該部位權威地圖（state["authority_map_injected"]）。

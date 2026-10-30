@@ -500,7 +500,7 @@ def _local_catalog_lines(cwd: str) -> List[str]:
 def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     """本專案追蹤帳本（AEC (k) 與交付時「順手看到最該修」寫的）：一個 session 只列一次（state["tracking_advisory_sent"]，
     重建 state 時照搬）。先列附了建議、還沒解的項目（不分部位，最新 3 筆＋要 AI 第一則回覆告訴使用者）；再列沒標部位、
-    沒附建議的未結項筆數＋最舊 3 筆（標了部位的改在第一次碰到該部位時隨導讀卡注入）。
+    沒附建議的未結項筆數＋最舊 3 筆（標了部位的由交付時「順手看到最該修」的材料按部位帶筆數）。
     同專案疑似由舊算法（子目錄 cwd）分裂出的帳本只在 stderr 列，不自動合併。讀不到只 stderr，回 []。"""
     if not cwd or state.get("tracking_advisory_sent"):
         return []
@@ -524,7 +524,7 @@ def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     if not items:
         return out
     oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
-    lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位，不會隨部位導讀卡注入）；最舊 3 筆："]
+    lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位）；最舊 3 筆："]
     lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
     lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）；"
                  "新記的追蹤項可在行尾加「｜建議：<怎麼解>｜該誰解：<誰>」；跟帳上某一筆是同一件就加「｜同追蹤項：<那筆裡連續至少 8 字>」，"
@@ -1014,10 +1014,10 @@ def _root_fingerprint_matches(existing: Dict[str, Any], res) -> bool:
 _CARRY_ON_REBUILD = (
     "modified_files", "accessed_files", "vcs_queries", "knowledge_queue", "sync_pending",
     "stop_blocked_count", "topic_tracker", "session_context_injected",
-    # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的注入紀錄／意圖／Depends 已提示的卡／已送過候選的部位照搬，不重注不重送
-    "overview_hub", "turn_intent", "depends_hints", "candidates_sent",
-    # 一 session 一次的旗標也要照搬，否則重建後 idle 一行、權威地圖、未結追蹤項提示會重送
-    "idle_scan_sent", "authority_map_injected", "tracking_advisory_sent",
+    # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的讀檔帳／意圖／Depends 已提示的卡照搬，不重送
+    "overview_hub", "turn_intent", "depends_hints",
+    # 一 session 一次的旗標也要照搬，否則重建後權威地圖、未結追蹤項提示會重送
+    "authority_map_injected", "tracking_advisory_sent",
     # 收尾同步提醒的額度與底部一般擋擋過的項目（一 session 一次／同一筆不重擋），不搬的話重建後同一個 session 又提醒一次
     "sync_reminder_count", "sync_block_shown",
     # 回合編號與使用者回合鍵（規則 USER_TURN_KEY_KEPT）：只搬鍵的話 turn_seq 歸零、鍵比 turn_seq 還大；不搬的話之後只進同伴訊息時

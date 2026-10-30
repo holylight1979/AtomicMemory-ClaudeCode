@@ -72,7 +72,6 @@ from handlers._shared import (
     _is_ephemeral_path, note_ephemeral_skip,
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
-    entry_note,
 )
 import wg_oldtest
 
@@ -1323,29 +1322,24 @@ def _note_tool_result(state: Dict[str, Any], session_id: str, tool_name: str, to
 def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
                    input_data: Dict[str, Any], config: Dict[str, Any], v6: bool, degraded: bool,
                    lap: Any) -> Tuple[List[str], bool, bool]:
-    """讀檔事件的三段（Read／Bash／PowerShell／Grep；非讀檔工具只打「導讀卡」那個點）：OverviewHub on_read、動資料檔讀提示、
+    """讀檔事件的三段（Read／Bash／PowerShell／Grep；非讀檔工具只打「讀檔帳」那個點）：OverviewHub 讀檔帳、動資料檔讀提示、
     Depends 召回。主流程傳 _hook_lap；read-log 補帳（replay_read_log）傳不打點的 lap。
     回（要附進工具結果的提示、state 有沒有變、打完點後的 degraded）。"""
     ctx: List[str] = []
     dirty = False
     cwd = input_data.get("cwd", "") or ""
     agent_id = str(input_data.get("agent_id") or "")
-    # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
+    # OverviewHub 讀檔帳：讀到的檔記進各部位的 part_files_read（提問前先讀過部位檔照這筆判；fail-open）
     if not degraded and tool_name in (("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash")):   # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
         try:
-            from wg_overview import on_read as _hub_on_read
-            hub_ctx = _hub_on_read(
-                state, session_id, tool_name, tool_input, cwd, input_data.get("transcript_path", "") or "", config,
-                **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
-                agent_id=agent_id,
-            )
-            if hub_ctx:
-                ctx.append(hub_ctx)
-            dirty = True   # reads_after 也要落盤
+            from wg_overview import record_reads
+            record_reads(state, tool_name, tool_input, cwd, config,
+                         **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}))   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
+            dirty = True
         except Exception as e:
             print(f"overview hub read error: {e}", file=sys.stderr)
 
-    degraded = lap("導讀卡")
+    degraded = lap("讀檔帳")
 
     # 動資料檔閘：第一次讀到改了會被問的資料檔 → 一行宣告格式（規則 DATA_FILE_READ_HINT；判定不動，read_hint 炸了自己吞並出聲）
     if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
@@ -1369,7 +1363,7 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
 
 def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, Any], v6: bool) -> Tuple[List[str], bool]:
     """規則 READ_FAST_PATH：Read 的 PostToolUse 走 dispatcher 快路徑只落 read-log；這裡在下一個非 Read 事件把累積的 Read
-    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub on_read、動資料檔讀提示、Depends 召回）
+    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub 讀檔帳、動資料檔讀提示、Depends 召回）
     ——結果一樣、晚一個事件出現。寫碼守門關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
     回（要附進這則工具結果的提示＝上一個 PreToolUse 補出來存在 state 的＋這次補出來的、state 有沒有變）。"""
     ctx: List[str] = list(state.pop(wg_read_fast.HINTS_KEY, None) or [])
@@ -1803,8 +1797,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                            "knowledge_harvest_report")
             dirty = True
 
-    # 分段計時（wg_hook_timing）：累計過 hook 上限的 80% → degraded，後面只記不問——提示類段落（導讀卡、depends 召回、
-    # 跨 session 碰撞、同伴檢查、MCP 切入點註記）不跑；docdrift 清帳、寫 state 照做
+    # 分段計時（wg_hook_timing）：累計過 hook 上限的 80% → degraded，後面只記不問——提示類段落（depends 召回、
+    # 跨 session 碰撞、同伴檢查）不跑；docdrift 清帳、寫 state 照做
     degraded = _hook_lap("工具記帳")
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:
@@ -1892,11 +1886,5 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     degraded = _hook_lap("跨 session 碰撞")
     sys_msgs, ctx_msgs = ([], []) if degraded else _run_companion_hooks(input_data, config)
     advisories.extend(ctx_msgs)
-    degraded = _hook_lap("同伴檢查")
-    # 切入點契約（TECH §7.10）：MCP 工具的回覆（工具本體回的文字＋上面補的提醒）認得出切入點就接判準卡並留帳
-    if v6 and not degraded and tool_name.startswith("mcp__"):
-        _mcp_text = "\n".join([response_text(input_data.get("tool_response")), *advisories])
-        _note = entry_note(_mcp_text, "mcp_reply", session_id=session_id, state=state, config=config)
-        if _note:
-            advisories.append(_note)
+    _hook_lap("同伴檢查")
     _emit_post_tool_output(advisories, sys_msgs)

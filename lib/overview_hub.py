@@ -1,16 +1,12 @@
-"""overview_hub — 「第一次改某部位的檔之前，整張注入該部位導讀卡」的查表與判定（純函式）。
+"""overview_hub — 部位表（`<專案根>/.claude/overview-map.md`）的查表、導讀卡位置、transcript 三管道與讀檔路徑解析（純函式）。
 
-做什麼：專案在 `<專案根>/.claude/overview-map.md` 放一張「路徑前綴 → 部位 → 導讀卡」表（專案自己寫，
-根層只讀）。hook 碰到 Read／Edit／提示詞裡的路徑時，往上找最近的那張表，用最長前綴命中決定部位，
-把導讀卡整張原文組成注入文字；Edit 前再查 AI 有沒有在回覆裡交出「定位三行」。
+做什麼：專案在 `<專案根>/.claude/overview-map.md` 放一張「路徑前綴 → 部位 → 導讀卡」表（專案自己寫，根層只讀）。
+往上找最近的那張表（find_map），用最長前綴命中決定部位（match_row）；導讀卡在哪（card_mem_dir／resolve_card）、
+卡的「已知病灶」段（defect_bullets）；AI 寫的內容分三管道讀（LOCATE_CHANNELS／assistant_text_after，宣告行共用）；
+工具呼叫讀了哪些檔（read_paths_from_tool）。
 
 表格式（兩個專案各自的寫法都吃）：markdown 表格，每列至少有一格含反引號路徑（前綴）、緊接的一格是部位名、
 某格含反引號的卡名（無路徑分隔符）、某格以「有／部分／索引／無」開頭當狀態；「同上」「同第 N 列」沿用別列的卡。
-
-定位三行（AI 在回覆裡寫的）：
-    定位｜部位：<部位>——這次改的是哪一塊
-    定位｜根因層：修根因還是症狀；根因在哪層
-    定位｜前例：這個部位以前摔過什麼
 """
 
 from __future__ import annotations
@@ -23,20 +19,14 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 MAP_REL = ".claude/overview-map.md"
-LOCATE_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；「目標」「批判」是有需求目標樹時的第四、五行
-    r"^\s*(?:#+\s*|//\s*)?定位\s*[｜|]\s*(部位|根因層?|前例|目標|批判)\s*[:：]\s*(.+?)\s*[\"']?,?$", re.MULTILINE
-)
-GOAL_NODE_PLACEHOLDER = "<節點編號>"
-# 第五行的問法（照抄這句不算交）：批判＝這段寫法合不合理、更好的做法；舉一反三＝同類還可能在哪（原話輯 G1 2026-10-15）
-CRITIQUE_TEMPLATE = "這段現在的寫法合理嗎：合理，因為…／不合理，因為…，更好的做法是…；同類還可能在哪：…（或「無，因為…」）"
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
 _TWO_CHAR_STATUS = ("部分", "索引", "骨架")
-# 部位類別：code＝寫碼部位（改了要定位三行、欠 (d) 案例）；knowledge＝知識部位（文件、記憶、信件匣：只要卡已注入、不欠案例）
+# 部位類別：code＝寫碼部位（欠 (d) 案例）；knowledge＝知識部位（文件、記憶、信件匣：不欠案例）
 KIND_CODE = "code"
 KIND_KNOWLEDGE = "knowledge"
 _KNOWLEDGE_WORDS = ("knowledge", "知識")
@@ -57,7 +47,7 @@ _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
 # bypass 模式下讀檔走 Bash：讀檔指令開頭；參數到本段結束（; | & ) 換行）為止，一段裡的每個路徑參數都算 Read
 _BASH_READ_RE = re.compile(
     r'(?:^|[;&|(]\s*)(cat|head|tail|less|more|grep|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)(?=\s)',
-    re.MULTILINE,            # 每一行行首都算指令開頭（定位三行放 # 註解後，下一行的 head 照認；註解行由 hooks 層先剝掉）
+    re.MULTILINE,            # 每一行行首都算指令開頭（宣告行放 # 註解後，下一行的 head 照認；註解行由 hooks 層先剝掉）
 )
 _BASH_SEG_END_RE = re.compile(r"[;|&)\n]")
 _BASH_REDIRECT_RE = re.compile(r"^\d*(?:<<?|>>?)")     # > >> < << 2> 開頭的 token：本身或下一個是重導向目標，不是讀的檔
@@ -75,9 +65,7 @@ _PS_VALUE_PARAMS = ("-encoding", "-totalcount", "-head", "-first", "-tail", "-la
                     "-erroraction", "-ea", "-errorvariable", "-ev", "-outvariable", "-ov")
 
 
-# 分片（預計畫第二節）：導讀卡五片；標籤同義詞依優先序 authority > ask > defects > verify > what 映射
-SLICE_NAMES = ("what", "authority", "ask", "defects", "verify")
-SLICE_LABELS = {"what": "做什麼與上下游", "authority": "權威在哪", "ask": "動手前必問", "defects": "已知病灶", "verify": "驗法"}
+# 分片：導讀卡五片（what／authority／ask／defects／verify）；標籤同義詞依優先序 authority > ask > defects > verify > what 映射
 _SLICE_SYNONYMS = (
     ("authority", ("權威", "真相", "正本", "存哪", "誰說了算", "資料源")),
     ("ask", ("必問", "先問", "動手前", "第四問", "改前")),
@@ -89,7 +77,6 @@ _SLICE_SYNONYMS = (
 _STRUCTURAL_HEADINGS = ("知識", "印象", "知識（節錄）")      # atom 結構標題，不是卡片的段
 _HEADING_RE = re.compile(r"^(#{2,4})\s+(.+?)\s*$")
 _BULLET_RE = re.compile(r"^- (?:\[[臨觀固]\]\s*)?(?:\*\*(.+?)\*\*)?(.*)$")
-ROOT_CAUSE_SENTENCE = "找到第一個根因後再找第二個；找不到就寫為什麼不存在"
 
 
 def _norm(p: str) -> str:
@@ -534,13 +521,6 @@ def resolve_card(root: Path, card: Optional[str], mem_dir: Optional[Path] = None
     return None
 
 
-DEFAULT_LOCATE_TEMPLATE = [
-    "這次改的是哪一塊",
-    "修根因還是症狀；根因在哪層",
-    "這個部位以前摔過什麼（卡片病灶段對得上哪條）",
-]
-
-
 # ─── 分片 ───────────────────────────────────────────────────────────
 
 def slice_of_label(label: str) -> Optional[str]:
@@ -591,162 +571,10 @@ def split_card_sections(body: str) -> Dict[str, Any]:
     return {"head": "\n".join(head).strip(), "slices": slices, "others": others}
 
 
-def _card_body_for(parsed: Dict[str, Any], used: List[str], cp: Path) -> str:
-    """選中的片全文、其餘段只列標題（整張路徑附上），讓模型知道還有什麼沒送。"""
-    rest = [SLICE_LABELS[s] for s in SLICE_NAMES if s in parsed["slices"] and s not in used] + list(parsed["others"])
-    out = [parsed["head"]] + [f"[{SLICE_LABELS[s]}]\n{parsed['slices'][s]}" for s in used]
-    if rest:
-        out.append(f"其餘段落只列標題（整張見 {cp}）：" + "；".join(rest))
-    return "\n".join(x for x in out if x)
-
-
-POINTER_DEFECT_CAP = 160   # 指標制那句已知病灶的字數上限
-
-
 def defect_bullets(body: str) -> List[str]:
     """導讀卡「已知病灶」片裡的頂層 bullet（`- ` 開頭的行，原樣含 `- `）；沒有這片回 []。"""
     sec = split_card_sections(body)["slices"].get("defects") or ""
     return [s for s in (line.strip() for line in sec.splitlines()) if s.startswith("- ")]
-
-
-def _pointer_body(card_paths: List[Path], note: str) -> str:
-    """指標制（card_injection=pointer）的卡片部分：已知病灶一句（照卡序取第一條）＋卡路徑，共兩行；卡讀不到另列一行。"""
-    defect, failed = "", []
-    for cp in card_paths:
-        try:
-            body = cp.read_text(encoding="utf-8", errors="replace")
-        except OSError as e:
-            failed.append(f"---- 導讀卡讀取失敗：{cp}（{e}）----")
-            continue
-        defect = defect or next(iter(defect_bullets(body)), "")
-    defect = defect[2:].strip()
-    if len(defect) > POINTER_DEFECT_CAP:
-        defect = defect[:POINTER_DEFECT_CAP] + "…"
-    paths = "、".join(str(cp) for cp in card_paths)
-    return "\n".join([f"已知病灶：{defect or '卡上沒有「已知病灶」段'}",
-                      f"導讀卡{note}：{paths}（整張沒有注入；改這個部位的檔之前先 Read：下一則讀卡時順便讀要改的檔）", *failed])
-
-
-def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
-                       locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
-                       slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "",
-                       knowledge: bool = False, extra: str = "", pointer: bool = False) -> Tuple[str, List[str]]:
-    """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
-
-    slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
-    lens／ask_first：視角與先問的那一題，加在 head；extra：意圖帶的一段話（goal_weights.<意圖>.extra），接在它們之後。max_chars 只截**每張卡的正文**（選片後或整卡），
-    head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
-    knowledge：知識類部位（part_kind）：head 不要求定位三行，卡照注。
-    pointer：卡不整張送，head 照送、卡片部分換成 _pointer_body 兩行（不選片、片名回 []）；沒卡的部位兩種輸出逐字相同。
-    """
-    part = row["part"] or row["part_short"]
-    t = list(locate_template or [])
-    t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
-    if knowledge:
-        head = (f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-                f"這是知識類部位（部位表類別 knowledge）：不要求定位三行，"
-                + ("Read 下面的導讀卡後即可改。" if pointer and card_paths else "下面的導讀卡讀完即可改。"))
-    else:
-        head = (
-            f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-            f"改這個部位的檔之前{'先 Read 下面的導讀卡' if pointer and card_paths else '先把下面的導讀卡讀完'}，"
-            f"並交出定位三行（三行都要，格式照抄；寫在回覆文字）：\n"
-            f"定位｜部位：{row['part_short']}——{t[0]}\n"
-            f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
-            f"定位｜前例：{t[2]}"
-            + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
-        )
-    head += (f"\n視角：{lens}" if lens else "") + (f"\n先問：{ask_first}" if ask_first else "") + (f"\n{extra}" if extra else "")
-    if not card_paths:
-        why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
-        return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----", []
-    note = "" if row["status"] == "有" else f"（注意：表上標此卡狀態「{row['status']}」，不是完整導讀，注入前專案要求先補驗）"
-    if pointer:
-        return f"{head}\n{_pointer_body(card_paths, note)}", []
-    parts = [head]
-    used_all: List[str] = []
-    for cp in card_paths:
-        try:
-            body = cp.read_text(encoding="utf-8", errors="replace")
-        except OSError as e:
-            parts.append(f"---- 導讀卡讀取失敗：{cp}（{e}）----")
-            continue
-        used: List[str] = []
-        if slices:
-            parsed = split_card_sections(body)
-            used = [s for s in slices if s in parsed["slices"]]
-            if used:
-                body = _card_body_for(parsed, used, cp)
-                used_all.extend(s for s in used if s not in used_all)
-        if len(body) > max_chars:
-            body = body[:max_chars] + f"\n…（超過 {max_chars} 字截斷，整張見 {cp}）"
-        tag = f"（依意圖先送：{'、'.join(SLICE_LABELS[s] for s in used)}）" if used else ""
-        parts.append(f"---- 導讀卡{note}{tag}：{cp.stem}（{cp}）----\n{body}")
-    return "\n".join(parts), used_all
-
-
-def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
-                    locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
-                    slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "") -> str:
-    """card_paths：該列所有找得到的卡（可多張，全注）。locate_template：專案換定位三行問法（順序＝部位／根因層／前例）。
-    locate_extra：專案對這個部位的第四問（只提醒，不納入三行檢查）。slices／lens／ask_first 見 build_injection_ex。"""
-    return build_injection_ex(row, card_paths, hit_path, max_chars, locate_template, locate_extra, slices, lens, ask_first)[0]
-
-
-# ─── 定位三行 ───────────────────────────────────────────────────────
-
-_TEMPLATE_PHRASES = ("這次改的是哪一塊", "修根因還是症狀；根因在哪層", "這個部位以前摔過什麼", ROOT_CAUSE_SENTENCE,
-                     GOAL_NODE_PLACEHOLDER, CRITIQUE_TEMPLATE)
-# 「待規格：<理由>」是合法填法（規格不存在、要人拍板）；只有光禿的「待規格」沒理由才當沒填
-_BARE_PENDING_SPEC_RE = re.compile(r"^待規格\s*[:：]?\s*$")
-_NONE_PRECEDENT_RE = re.compile(r"^(?:無|沒有|none|n/?a)(?:[\s，。；;,:：（(].*)?$", re.IGNORECASE | re.DOTALL)
-_PRECEDENT_SPLIT_RE = re.compile(r"[\s，。；、,;:：()（）\[\]【】「」『』→/／-]+")
-
-
-def locate_groups(text: str, template: Optional[List[str]] = None) -> List[Dict[str, str]]:
-    """text 裡的定位三行分組：每遇到「部位」行就開一組，同一回覆交兩個部位各一組都算；
-    照抄注入範本的佔位句（預設、固定句或專案自訂）那一行不算交。鍵＝部位／根因／前例，有交第四、五行時另有「目標」「批判」。"""
-    phrases = tuple(_TEMPLATE_PHRASES) + tuple(s for s in (template or []) if s)
-    groups: List[Dict[str, str]] = []
-    for m in LOCATE_RE.finditer(text):
-        key, val = m.group(1)[:2], m.group(2).strip()
-        if any(t in val for t in phrases) or _BARE_PENDING_SPEC_RE.match(val):
-            continue
-        if key == "部位" or not groups:
-            groups.append({})
-        groups[-1][key] = val
-    return groups
-
-
-def locate_values(text: str, part_short: str, template: Optional[List[str]] = None,
-                  exclude: Sequence[str] = ()) -> Optional[Dict[str, str]]:
-    """這個部位**最後一組**完整定位三行（部位行提到 part_short；被擋後補交的那組才是現行）；沒交或缺行回 None。
-    exclude：同表裡包含 part_short 的更長部位名（UI 之於 UI 設定），部位行提到它們的那組屬於別的部位，不算。"""
-    for g in reversed(locate_groups(text, template)):
-        where = g.get("部位", "").lower()
-        if ({"部位", "根因", "前例"} <= set(g) and part_short.lower() in where
-                and not any(x.lower() in where for x in exclude)):
-            return g
-    return None
-
-
-def locate_present(text: str, part_short: str, template: Optional[List[str]] = None) -> bool:
-    """text 裡有沒有完整的定位三行（部位／根因／前例），且部位那行提到這個部位。"""
-    return locate_values(text, part_short, template) is not None
-
-
-def locate_quality(text: str, part_short: str, cards: List[str], template: Optional[List[str]] = None) -> str:
-    """前例那行填的品質：none＝寫「無」；card＝對得上卡片原文（值裡任一 ≥4 字片段出現在任一張卡）；free＝自由文字。沒交也回 free。"""
-    g = locate_values(text, part_short, template)
-    if not g:
-        return "free"
-    val = g["前例"].strip()
-    if _NONE_PRECEDENT_RE.match(val):
-        return "none"
-    chunks = [c for c in _PRECEDENT_SPLIT_RE.split(val) if len(c) >= 4]
-    if any(c in card for c in chunks for card in cards):
-        return "card"
-    return "free"
 
 
 LOCATE_CHANNELS = ("text", "tool_input", "thinking")
@@ -757,7 +585,7 @@ def assistant_text_after(transcript_path: str, byte_offset: int, channel: str = 
 
     channel：text＝回覆文字塊；tool_input＝工具呼叫的參數（字串化）；thinking＝思考塊。
     harness 偶爾不把「先文字、再呼叫工具」那段文字寫進 transcript（根層與某專案各自驗到），
-    所以定位三行要三個管道都認，記下是哪個管道。
+    所以宣告行要三個管道都認。
     """
     if not transcript_path:
         return ""
@@ -799,36 +627,11 @@ def _string_values(obj: Any) -> List[str]:
     return []
 
 
-def locate_channel(transcript_path: str, byte_offset: int, part_short: str,
-                   template: Optional[List[str]] = None) -> Optional[str]:
-    """定位三行在哪個管道交的：依 LOCATE_CHANNELS 順序找，找到回管道名，都沒有回 None。"""
-    for ch in LOCATE_CHANNELS:
-        if locate_present(assistant_text_after(transcript_path, byte_offset, ch), part_short, template):
-            return ch
-    return None
-
-
 def transcript_size(transcript_path: str) -> int:
     try:
         return Path(transcript_path).stat().st_size if transcript_path else 0
     except OSError:
         return 0
-
-
-def transcript_readable(transcript_path: str) -> Tuple[bool, str]:
-    """transcript 真的讀得到嗎：真開檔讀 1 byte。回 (讀得到, 原因)；原因 ∈ empty_path／missing／unreadable／empty。
-    只 stat 不夠：檔在但被鎖或無權限時 stat 正常、open 才炸。"""
-    if not transcript_path:
-        return False, "empty_path"
-    p = Path(transcript_path)
-    try:
-        if not p.exists():
-            return False, "missing"
-        with open(p, "rb") as f:
-            head = f.read(1)
-    except OSError:
-        return False, "unreadable"
-    return (True, "") if head else (False, "empty")
 
 
 # ─── 工具呼叫裡的讀檔路徑 ──────────────────────────────────────────

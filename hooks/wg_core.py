@@ -161,10 +161,6 @@ DEFAULTS = {
             "allowlist": [],
         },
     },
-    "entrypoint": {
-        "inject_budget_tokens": 400,      # 每個認出的切入點各一份
-        "inject_budget_total": 1200,      # 同一則問句所有切入點加起來的上限
-    },
     "hook_timing": {                      # wg_hook_timing：分段計時；累計過上限的 degrade_ratio 就降級（後面的段落不跑）
         "enabled": True,
         "degrade_ratio": 0.8,
@@ -236,9 +232,9 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
     """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合——看實質行為：這個使用者回合已經有改程式檔的工具行為
     （Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔：modified_files 有一筆，程式照 wg_code_path.is_code_path 判，
     .bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令（unknown_writes，不知道寫了什麼，保守算）。
-    使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定讀程式檔時送不送定位提示與記憶選片。
-    寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
-    處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
+    使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定記憶選片，與讀到資料檔時要不要提早送宣告提示。
+    寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
+    處理（記憶注入、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
     st = state or {}
     if coding_guard_opt(config, "coding_turn_only", True) is False:
         return True
@@ -1955,7 +1951,7 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         _atom_debug_error(f"guard_log:{guard}", e)
 
 
-# ─── 宣告閘擋次上限（定位閘、最小地圖、動資料檔、改舊測試、不是繞閘共用）───────────
+# ─── 宣告閘擋次上限（動資料檔、改舊測試、不是繞閘共用）───────────
 DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾則回覆；再來就放行、由呼叫端留帳
 _DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋則數}, "batch": {同鍵: 上次算次的那則}}
 
@@ -2328,7 +2324,7 @@ _BASH_WRITE_OP_RE = lazy_re(
 #   R4 UNKNOWN 只在「有寫入訊號但算不出目標」：目標含展不開的變數（$HOME／~ 除外）、$(…)／反引號／eval 裡含寫入、
 #      直譯器內嵌碼（python -c／python -／node -e／pwsh -Command／[IO.File]::／open(…,'w')／fs.writeFile）、
 #      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。算得出的目標照列、再加一筆 "UNKNOWN:<該段前 40 字>"
-#      （UNKNOWN_PART_KEEPS_KNOWN_TARGETS），on_edit 對那一筆照 UNKNOWN_TARGET_LOGGED 放行留帳。
+#      （UNKNOWN_PART_KEEPS_KNOWN_TARGETS），write_check 對那一筆照 UNKNOWN_TARGET_LOGGED 放行留帳。
 #   R5 `;`／`&&`／換行的 cd 生效到後段；||／| 右側的 cd 不外溢；(…) 子 shell 的 cd 不外溢，裡面的目標照算。
 _WRITE_CMDS = frozenset({
     "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "rmdir", "truncate", "sed", "sort",

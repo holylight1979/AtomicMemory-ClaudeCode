@@ -31,7 +31,6 @@ import chain_store  # 連鎖斷路器的帳、停手、快照（lib/；判定在
 import wg_chain
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
 import wg_read_fast  # 規則 READ_FAST_PATH：改檔前先把累積的 Read 補帳
-import wg_judge_card  # 改判準卡留帳（JUDGE_CARD_CHANGE_NEEDS_DECLARATION）
 import wg_oldtest
 import wg_gate_bypass
 import wg_release_rules as _rr   # 擋或提醒（gate_mode／RULE_MODE，規則 GATE_MODE_TABLE）
@@ -1643,15 +1642,6 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
     output_nothing()
 
 
-def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, path: str) -> str:
-    """切入點契約（TECH §7.10）：text 原樣在前，認出切入點就接判準卡並留帳。只在真的要送訊息（deny 或提醒）時才呼叫，
-    一般工具什麼都不送的放行路徑不匯入、不讀登錄表。"""
-    if not v6_enabled(config):      # 判準卡是寫碼守門開著才有
-        return text
-    from handlers._shared import entry_note, with_note
-    return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
-
-
 def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], hit: Dict[str, Any], guard: str, **kw: Any) -> bool:
     """PreToolUse 的提醒出口（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：這一件判成 remind、不擋 → 留帳 event=remind
     （guard＝哪一道閘的守門紀錄；overview_hub 走 hub log）、記進 state 的待提醒，由下一個工具結果（PostToolUse）送一行。
@@ -1675,16 +1665,15 @@ def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], h
     return True
 
 
-def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = (),
-          target: str = "") -> None:
-    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。
+def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = ()) -> None:
+    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去。
     寫碼守門開時先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。
-    watched／target＝這次擋的對象（擋的檔／定位閘的部位，規則 CHAIN_SAME_GATE_PER_OBJECT）：每個部位、每個檔各要各的證據的閘才報，
+    watched＝這次擋的檔（規則 CHAIN_SAME_GATE_PER_OBJECT）：每個檔各要各的證據的閘才報，
     說不出擋什麼的閘（版控口令、病形閘這類看整批提交的）不報，斷路器照舊只看閘名。"""
     try:
         chain = _chain_ctx(input_data, config, need_ledger=False)
         r = chain_store.gate_fired(chain[0], chain[1], wg_chain.gate_name(reason, "PreToolUse"), reason, input_data,
-                                   config, watched=watched, target=target) if chain else chain_store.PASS
+                                   config, watched=watched) if chain else chain_store.PASS
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的擋
         sys.stderr.write(f"[chain-breaker] 工具前記觸發出錯，照原本的閘行為：{type(e).__name__}: {e}\n")
         chain, r = None, chain_store.PASS
@@ -1699,7 +1688,7 @@ def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watch
             output_nothing()
             return
     output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                        "permissionDecisionReason": _with_cards(input_data, config, reason, "pretool_deny")}})
+                                        "permissionDecisionReason": reason}})
 
 
 def _chain_ctx(input_data: Dict[str, Any], config: Dict[str, Any], need_ledger: bool = True) -> Optional[Tuple[str, int]]:
@@ -1747,28 +1736,6 @@ def _blocked_files(tool_name: str, tool_input: Dict[str, Any], cwd: str, owed: S
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"[chain-breaker] 算不出這次擋的檔（照閘名計數）：{type(e).__name__}: {e}\n")
         return []
-
-
-def _hub_part(file_path: str, config: Dict[str, Any]) -> str:
-    """CHAIN_SAME_GATE_PER_OBJECT：定位閘因「這個部位欠證據」擋這個檔時報給斷路器的部位鍵——跟定位閘累積證據用的是同一把鍵
-    （wg_overview 的 state 鍵：專案根|部位表那一列的部位名；表外的檔＝專案根|(unmapped)頂層目錄）。
-    不是欠這個部位證據的擋回空字串＝照閘名計數：設定有錯（整層設定壞了，換哪個部位都一樣擋）、唯讀路徑（禁區）；判定順序跟 on_edit 相同。
-    判不出（部位表讀不到、查表例外）也回空字串，不當成表外的檔，stderr 說一聲。"""
-    try:
-        from wg_overview import _cfg, _is_readonly, _key, _lookup, _unmapped_key, write_target_root
-        if _cfg(config)["_errors"]:
-            return ""
-        hit = _lookup(file_path)
-        root = hit[0] if hit else write_target_root(file_path)      # 跟 on_edit 同一支判根（資料夾目標看上一層）
-        if root is None:
-            return ""
-        cfg = _cfg(config, root)
-        if cfg["_errors"] or _is_readonly(file_path, root, cfg):
-            return ""
-        return _key(*hit) if hit else _unmapped_key(root, file_path)
-    except Exception as e:  # noqa: BLE001
-        sys.stderr.write(f"[chain-breaker] 判不出 {file_path} 的部位（照閘名計數）：{type(e).__name__}: {e}\n")
-        return ""
 
 
 def _chain_halt(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
@@ -1858,27 +1825,22 @@ def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]
         return
     if hint:
         output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                            "additionalContext": _with_cards(input_data, config, hint, "pretool_hint")}})
+                                            "additionalContext": hint}})
         return
     output_nothing()
 
 
-def _pre_v6_hub_warn(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
-                     sid: str, state: Optional[Dict[str, Any]]) -> Optional[str]:
-    """寫碼守門關閉時的 OverviewHub（9e476fd0 的行為）：只看 Write／Edit／NotebookEdit、只管有部位表且命中表列的檔，
-    當時 dry_run＝只提醒不擋——on_edit 的 deny 一律降成提醒。閘自己炸只 stderr、不擋（當時 fail-open）。"""
+def _pre_v6_hub_warn(tool_name: str, tool_input: Dict[str, Any], sid: str, config: Dict[str, Any]) -> Optional[str]:
+    """寫碼守門關閉時的 OverviewHub：只看 Write／Edit／NotebookEdit、只管有部位表且命中表列的檔，write_check 的 deny
+    一律降成提醒（寫碼守門關時 enabled 一律 False，實際只剩設定錯誤那一行）。閘自己炸只 stderr、不擋（fail-open）。"""
     fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
     if tool_name not in ("Write", "Edit", "NotebookEdit") or not fp:
         return None
     try:
-        from wg_overview import _lookup_quiet, on_edit as _hub_on_edit
+        from wg_overview import _lookup_quiet, write_check
         if not _lookup_quiet(fp):
             return None
-        hub_state = state if state is not None else {}
-        warn, deny, changed = _hub_on_edit(hub_state, sid, fp, input_data.get("transcript_path", "") or "", config)
-        if sid and state is not None and changed:
-            from wg_core import write_state as _ws
-            _ws(sid, state)
+        warn, deny, _hit = write_check(sid, fp, config)
         return (deny or warn) and f"{deny or warn}（寫碼守門關閉：只提醒不擋）"
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 檢查異常（fail-open）：{type(e).__name__}: {e}\n")
@@ -1890,7 +1852,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     tool_input = input_data.get("tool_input", {})
     v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉寫碼守門才掛的工具）
 
-    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log；要讀檔證據的閘（OverviewHub、動資料檔、無表專案、提問前讀過部位檔）
+    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log；要讀檔證據的閘（動資料檔、提問前讀過部位檔）
     # 之前先把累積的 Read 補帳（沒累積只多一次 stat）
     if v6 and wg_read_fast.pending(str(input_data.get("session_id") or "")):
         from handlers.post_tool_use import replay_reads_before_tool
@@ -1908,12 +1870,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _ask_gate(tool_name, input_data, config)
         return
 
-    # 改判準卡：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
-    if tool_name.endswith(wg_judge_card.MCP_TOOLS):
-        deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)
-        if deny_reason:
-            _deny(input_data, config, deny_reason)
-            return
+    # MCP 改卡的三個工具（settings.json PreToolUse matcher 有掛）：只過上面的讀檔補帳與連鎖停手，不走寫檔閘
+    if tool_name.endswith(("__atom_write", "__atom_edit_meta", "__atom_retire")):
         output_nothing()
         return
 
@@ -1940,13 +1898,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             )
             if not (blob and injected):
                 blob = ""
-            # 切入點契約（TECH §7.10）：開工句認得出登錄表 subagent_prompt 路的切入點，判準卡接在記憶 blob 後面
-            from handlers._shared import entry_note
-            note = entry_note(orig_prompt, "subagent_prompt", session_id=str(input_data.get("session_id") or ""),
-                              config=config) if v6 else ""
-            if blob or note:
+            if blob:
                 new_input = dict(tool_input)
-                new_input["prompt"] = "\n\n".join(p for p in (blob, note, orig_prompt) if p)
+                new_input["prompt"] = "\n\n".join(p for p in (blob, orig_prompt) if p)
                 _atom_debug_log(
                     "SubagentInject",
                     f"tool={tool_name} type={subagent_type or '-'} injected={injected} "
@@ -2045,12 +1999,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason, watched=_blocked_files(tool_name, tool_input, _cwd))
         return
 
-    # ── JudgeCardDeclare（改判準卡留帳）── 綁了 Entry 的卡有沒有「改判準卡｜哪張：理由」都放行、記帳（wg_judge_card）
-    deny_reason = v6 and wg_judge_card.gate(tool_name, tool_input, input_data, config)
-    if deny_reason:
-        _deny(input_data, config, deny_reason)
-        return
-
     # state 這裡讀一次（動資料檔閘自己讀寫過之後）：svn 測試路徑閘、改舊測試閘與後面的口令閘、繞閘閘、OverviewHub 共用同一份
     # （改舊測試閘就地改、有改自己寫回）
     _co_sid = input_data.get("session_id", "") or ""
@@ -2137,17 +2085,17 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足照 RULE_MODE 擋或提醒（規則 GATE_MODE_TABLE）。
-    # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
-    # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
+    # OverviewHub 寫入檢查：寫入目標命中 readonly_paths 就擋（規則 OVERVIEW_READONLY_PATHS），設定有錯照 RULE_MODE 擋或提醒
+    # （規則 GATE_MODE_TABLE）。五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 write_check。
+    # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，待提醒才落得了盤；
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
-    hub_warn = None if v6 else _pre_v6_hub_warn(input_data, config, tool_name, tool_input, _co_sid, _co_state)
+    hub_warn = None if v6 else _pre_v6_hub_warn(tool_name, tool_input, _co_sid, config)
     if v6 and tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
-        hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；state、環境的擋不報
+        hub_deny = None
         _hub_state = _co_state
         try:
             from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
-            from wg_overview import edit_check as _hub_edit_check
+            from wg_overview import write_check as _hub_write_check
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
                 _hub_state = _co_state
@@ -2158,36 +2106,24 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                     _hub_state = {}
                 _hub_warns: List[str] = []
                 hub_changed = False
-                _once = False
                 for _hub_fp in _hub_targets:
-                    _w, _d, _c, _hit = _hub_edit_check(
-                        _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
-                        agent_id=str(input_data.get("agent_id") or ""), tool_use_id=str(input_data.get("tool_use_id") or ""),
-                    )
-                    hub_changed = hub_changed or _c
+                    _w, _d, _hit = _hub_write_check(_co_sid, _hub_fp, config)
                     if _w and not _d:              # 有 deny 理由時警告文字就是擋訊息本身，不當警告送
                         _hub_warns.append(_w)
-                    _once = bool(_d and _hit and _hit.get("block_once"))   # 規則 LOCATE_FIRST_EDIT_BLOCKS_ONCE：第一次改、缺定位，擋這一次
                     if _d and (_hit is None or _rr.gate_mode(_hit["rule"], v6) == _rr.BLOCK):
-                        hub_deny, hub_file = _d, _hub_fp
+                        hub_deny = _d
                         break
                     if _hit:
-                        # 規則 GATE_MODE_TABLE：定位閘、導讀卡、無表專案、設定壞 → 不擋，下一個工具結果附一行（導讀卡順帶注入）；
-                        # 第一次改就交了定位（_d 空）卡也走這裡當提醒件送
+                        # 規則 GATE_MODE_TABLE：設定壞 → 不擋，下一個工具結果附一行
                         hub_changed = _remind_later(input_data, _hub_state, _hit, "overview_hub", path=_hub_fp) or hub_changed
-                    if _once and _hub_persist:
-                        # 卡已排進提醒（隨下一個工具結果到），這一次照擋、訊息＝卡＋定位要求；state 記不住「擋過了」（沒 session）就只提醒
-                        hub_deny, hub_file = _d, _hub_fp
-                        break
-                if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
+                if _hub_persist and hub_changed:   # 放行也要落盤（待提醒）
                     _ws(_co_sid, _hub_state)
-                    # write_state 失敗只吞 OSError 不回報：回讀磁碟核對，寫不進去就擋（否則下一次 Edit 又被當第一次）
+                    # write_state 失敗只吞 OSError 不回報：回讀磁碟核對，寫不進去就照 GATE_SELF_ERROR 報
                     _cid = (_hub_state.get("session") or {}).get("id") or _co_sid
-                    _disk, _dst = read_state_status(_cid)
-                    if _dst != "ok" or (_disk or {}).get("overview_hub") != _hub_state.get("overview_hub"):
-                        hub_file = ""
+                    _dst = read_state_status(_cid)[1]
+                    if _dst != "ok":
                         _persist_msg = (f"[Guardian:OverviewHub] state 無法持久化（{_dst}；workflow/state-{_cid[:8]}….json）："
-                                        f"注入與定位紀錄寫不進 state 檔，閘無法累積證據。修好 workflow/ 目錄的寫入再改。")
+                                        f"待提醒寫不進 state 檔，閘無法累積證據。修好 workflow/ 目錄的寫入再改。")
                         from wg_overview import _log as _hub_log
                         if _rr.gate_mode("GATE_SELF_ERROR", v6) == _rr.BLOCK:
                             hub_deny = _persist_msg.replace("閘無法累積證據。", "閘無法累積證據，一律擋。")
@@ -2195,15 +2131,12 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         else:
                             # 規則 GATE_SELF_ERROR（remind）：state 寫不進去，待提醒也存不住 → 這一行只能跟著這次放行的警告走、stderr＋留帳
                             _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, rule="GATE_SELF_ERROR", allowed=True)
-                            if hub_deny and _once:                        # 「只擋第一次」的擋要靠 state 記住；記不住就放行（否則每次 Edit 都被當第一次）
-                                hub_deny = None
                             sys.stderr.write(_persist_msg + "\n")
                             _hub_warns.append(_rr.remind_line("GATE_SELF_ERROR", f"state 無法持久化（{_dst}），閘判不了",
                                                               "修好 workflow/ 目錄的寫入"))
                 hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
             # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝判不了：送法照 RULE_MODE（GATE_SELF_ERROR：寫碼守門開提醒、關照擋）；traceback 進 stderr 與 hub log
-            hub_file = ""
             err = f"{type(e).__name__}: {e}"
             if _rr.gate_mode("GATE_SELF_ERROR", v6) == _rr.BLOCK:
                 hub_deny = (f"[Guardian:OverviewHub] 閘環境異常，無法判定，一律擋：{err}。"
@@ -2229,8 +2162,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 except Exception as e2:  # noqa: BLE001
                     sys.stderr.write(f"[Guardian:OverviewHub] 閘內部錯誤的留帳也失敗：{type(e2).__name__}: {e2}\n")
         if hub_deny:
-            part = _hub_part(hub_file, config) if hub_file else ""   # 說不出部位就連檔也不報：同部位換個檔不能算成別的對象
-            _deny(input_data, config, hub_deny, watched=[hub_file] if part else (), target=part)
+            _deny(input_data, config, hub_deny)
             return
 
     # 放行：連鎖段開著就先存要改的檔的快照（連鎖斷路器選「還原」時用）
@@ -2252,7 +2184,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             "systemMessage": combined,
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": _with_cards(input_data, config, combined, "pretool_hint"),   # 判準卡只給模型
+                "additionalContext": combined,
             },
         })
         return

@@ -162,7 +162,7 @@ def handle_user_prompt_submit(
             "DEFAULTS 運行——請修復 JSON（詳 Logs/atom-debug）。"
         )
 
-    # 分段計時（wg_hook_timing）：累計過上限 80% → 降級，脈絡、導讀卡、檢索與注入組裝這次不跑；
+    # 分段計時（wg_hook_timing）：累計過上限 80% → 降級，脈絡、檢索與注入組裝這次不跑；
     # 前置閘、收尾記帳與寫 state 照做。到 95% 還沒送出 → 背景鬧鐘代送已備好的 lines。
     _hook_timing.set_fallback(lambda: _fallback_output(lines))
 
@@ -190,29 +190,15 @@ def handle_user_prompt_submit(
         )
         _hook_lap("脈絡")
 
-    # 意圖前移（A0.1）：注入前就知道這回合要做什麼，OverviewHub 依 goal_weights 選片；十鍵見 wg_atoms.INTENT_PATTERNS。
+    # 意圖前移（A0.1）：注入前就知道這回合要做什麼；十鍵見 wg_atoms.INTENT_PATTERNS。
     # 意圖是「使用者要做什麼」的權威判斷，只吃使用者本人打的字（user_typed_text：剔掉同伴訊息、背景通知等 harness 區塊）；
     # 整則沒有使用者的字 → 沿用上一則判的意圖（同伴信、通知正文裡的「重構」不改意圖；G7 等值閘據此擋）
     typed = user_typed_text(prompt)
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
-    if not (v6 and coding_turn(state, config)):    # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入、導讀卡照舊）
+    if not (v6 and coding_turn(state, config)):    # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入照舊）
         _hook_timing.quiet()                       # 不寫計時帳；新的使用者回合起點：拿掉寫碼回合標記
         _hook_timing.mark_coding(session_id, False)
-
-    # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
-    if not _hook_degraded():
-        try:
-            from wg_overview import on_prompt as _hub_on_prompt
-            _hub_txt = _hub_on_prompt(
-                state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
-                **({"intent": turn_intent} if v6 else {}),   # 依意圖選片是寫碼守門加的；關閉時照舊整張注入
-            )
-            if _hub_txt:
-                lines.append(_hub_txt)
-        except Exception as e:
-            _atom_debug_error("ups:overview_hub", e)
-        _hook_lap("導讀卡")
 
     # ─── Search pipeline 段：候選收集（trigger/BM25/vector）+ supersedes + ACT-R 排序
     # ─── Injection assemble 段：hot/cold + budget + related spread + 效用晉升提示
@@ -272,10 +258,8 @@ def handle_user_prompt_submit(
     try:
         from wg_friction import correction_question, record_correction
         correction_hits = record_correction(state, session_id, clean_prompt, config)
-        if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」，問的那一刻接判準卡、記 guard-entry（規則 CORRECTION_WORDS_ARE_HINTS）
-            from handlers._shared import entry_note, with_note
-            _cq = correction_question(correction_hits)
-            lines.append(with_note(_cq, entry_note(_cq, "user_prompt", session_id=session_id, state=state, config=config)))
+        if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」（規則 CORRECTION_WORDS_ARE_HINTS）
+            lines.append(correction_question(correction_hits))
     except Exception as e:
         _atom_debug_error("ups:friction", e)
         print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)

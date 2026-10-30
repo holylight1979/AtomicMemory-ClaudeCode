@@ -11,8 +11,8 @@ Schema:
 
 depends（optional）：卡片 frontmatter `- Depends:` 的條目（`path:<檔或目錄>` 或自由文字），frontmatter 為真相；
 讀到 path: 指到的檔時由 hooks/wg_depends 召回一行指標（lib.atom_spec.atoms_depending_on）。
-entry（optional）：卡片 frontmatter `- Entry:` 的切入點代號（workflow/entrypoints.json），frontmatter 為真相；
-程式在那個切入點問 LLM 時先送 entry 命中的卡（hooks/wg_entrypoint.cards_for_entry）。
+entry（optional）：卡片 frontmatter `- Entry:` 的切入點代號標記，frontmatter 為真相；
+realm 自動搬移照它擋（lib/atom_locations.ENTRY_BOUND_STAYS_CORE）。
 
 責任：
 - load_atom_index_json(mem_dir, strict=False) -> {atoms: [...]}（strict：檔在卻讀不到 → OSError，整份寫回的呼叫端用）

@@ -2,7 +2,7 @@
 
 驗 handlers/_shared.prune_workflow_records(wf, current_sid, now, dry_run)：
   - 表上每列都有理由與已知的規則種類
-  - 新管的資料夾：舊檔刪、新檔留（acceptance-spec、harvest-ledger、verify-ledger、usage-snapshots、scorecard）
+  - 新管的資料夾：舊檔刪、新檔留（acceptance-spec、harvest-ledger、verify-ledger、usage-snapshots）
   - 搬進表的既有規則照舊（根目錄殘檔、companion、session-coordination、dpm-done、ups-sentinel、aec-report 補 .tmp）
   - 目前 session 的檔不動；「不清」清單與「另由別支程式清」的列不動
   - need-goal 鎖檔只在同名目標檔不在、且夠舊時才刪
@@ -112,16 +112,6 @@ def test_need_goal_leftovers_age_out(wf):
     run(wf)
     assert [p.name for p in old if p.exists()] == []
     assert all(p.exists() for p in young)
-
-
-def test_scorecard_keeps_current_and_two_previous_months(wf):
-    sc = wf / "scorecard"
-    keep = [put(sc / f"{m}.jsonl", 1) for m in ("202610", "202609", "202608")]
-    drop = [put(sc / f"{m}.jsonl", 1) for m in ("202607", "202512")]
-    cand = put(sc / "candidates.json", 400)
-    run(wf)
-    assert all(p.exists() for p in keep) and cand.exists()
-    assert [p.name for p in drop if p.exists()] == []
 
 
 def _row(**kw):

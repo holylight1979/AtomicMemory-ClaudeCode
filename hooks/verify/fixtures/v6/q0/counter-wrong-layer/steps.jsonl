@@ -1,3 +1,0 @@
-{"op": "read", "path": "Server/Save/SaveModule.cs"}
-{"op": "reply", "text": "定位｜部位：存檔：SaveModule 加 lastLogin 欄位\n定位｜根因層：在 Demo 區加欄位就好；根因不適用\n定位｜前例：加欄位沒給預設值"}
-{"op": "edit", "path": "Server/Save/SaveModule.cs", "expect": {"deny": true, "contains": ["主程式集／熱修", "填錯層"]}}

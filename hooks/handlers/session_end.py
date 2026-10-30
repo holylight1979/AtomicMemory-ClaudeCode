@@ -82,14 +82,6 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     _se_sentinel_arm(session_id)
     v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的收尾
 
-    # scorecard：只從 state 算 S1／S3／S5、單次 append 一行（<100 ms），放哨兵之後第一位；失敗只記 debug 不影響收尾
-    try:
-        if v6:
-            from wg_scorecard import append_scorecard_line
-            append_scorecard_line(state, session_id)
-    except Exception as e:
-        _atom_debug_error("session_end:scorecard", e)
-
     state["ended_at"] = _now_iso()
     state["phase"] = "done"
 

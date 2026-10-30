@@ -1,1 +1,0 @@
-{"intent": "refactor", "inject_order": ["[做什麼與上下游]", "[驗法]"], "inject_rest_contains": ["權威在哪"], "final": {"located": true, "located_quality": "none"}}

@@ -1,5 +1,5 @@
 """verify_selfscore.py：skills/console/scripts/selfscore.py（自檢評分，總控台用的開發期工具）——答一筆讀得回來、缺欄位記「沒答」不擋、
-summary 算得對、--ask 印評分尺、不在產品切入點登錄表。
+summary 算得對、--ask 印評分尺。
 
 怎麼跑：python -X utf8 -m pytest -q skills/console/verify/verify_selfscore.py
 """
@@ -16,7 +16,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "hooks"))
 
-import wg_entrypoint as ep  # noqa: E402
+import wg_core  # noqa: E402
+
 
 TAIL = re.compile(r"^SELFSCORE DONE( \w+=\S+)+$")
 
@@ -32,7 +33,7 @@ def _tool():
 def logs(monkeypatch, tmp_path):
     monkeypatch.setenv("WG_TEST_LOGS_DIR", str(tmp_path))
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
-    monkeypatch.setattr(ep, "MEMORY_DIR", ROOT / "memory")                  # 評分規格卡讀本樹的 memory
+    monkeypatch.setattr(wg_core, "MEMORY_DIR", ROOT / "memory")             # 評分規格卡讀本樹的 memory（_tool() 載入時取值）
     return tmp_path
 
 
@@ -116,26 +117,23 @@ def test_summary_without_ledger_says_so(logs, capsys):
     assert "沒有自檢評分帳" in lines[0] and lines[-1] == "SELFSCORE DONE gs=0 records=0 unanswered=0"
 
 
-def test_ask_prints_rubric_without_entry_card(logs, capsys):
-    """--ask：印 G 名、評分規格卡的三句、可用證據與要答的三件事；不是產品切入點，不記 guard-entry。找不到卡照樣問。"""
+def test_ask_prints_rubric(logs, capsys):
+    """--ask：印 G 名、評分規格卡的三句、可用證據與要答的三件事。找不到卡照樣問。"""
     tool = _tool()
     card = next((ROOT / "memory").rglob("g3-評分規格*.md"))
-    rubric = [ln.strip()[2:] for ln in ep._knowledge({"file": str(card)}).splitlines() if ln.strip().startswith("- ")]
+    rubric = [ln.strip()[2:] for ln in tool._knowledge(card.read_text(encoding="utf-8-sig")).splitlines()
+              if ln.strip().startswith("- ")]
     assert len(rubric) == 3                                                    # 前置：規格卡就是三句
     assert tool.main(["--ask", "--g", "g3", "--session", "s2"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("[SELFSCORE_ASK] 自檢評分｜G3：") and all(r in out for r in rubric)
     assert "可用證據：" in out and "--score <0～10>" in out and out.strip().splitlines()[-1].startswith("SELFSCORE DONE asked=1")
-    assert [r for r in _rows(logs, "entry") if r.get("event") == "ask"] == []
     tool.main(["--ask", "--g", "G99"])
     assert "找不到這個 G 的評分規格卡" in capsys.readouterr().out
 
 
-def test_not_in_entry_registry_and_score_still_logged(logs):
-    """自檢評分是開發期量 AI 的工具，不在產品切入點登錄表（沒有 E36）；答分照樣留帳 selfscore。"""
-    reg = ep.load_registry()
-    assert not any(r["id"] == "E36" for r in reg["entrypoints"])
-    assert ep.match_entries("[SELFSCORE_ASK] 自檢評分｜G8：…", "tool_cli", reg) == []
+def test_score_logged(logs):
+    """答分留帳 selfscore。"""
     tool = _tool()
     tool.main(["--g", "G8", "--session", "s3"])
     assert [r.get("g") for r in _rows(logs, "selfscore")][-1:] == ["G8"]

@@ -1,1 +1,0 @@
-{"intent": "feature", "inject_order": ["[做什麼與上下游]", "[權威在哪]", "[驗法]"], "inject_rest_contains": ["動手前必問", "已知病灶"], "inject_contains": ["先問：上游誰餵下游誰吃"], "final": {"located": true, "located_quality": "free", "slices": ["what", "authority", "verify"]}}

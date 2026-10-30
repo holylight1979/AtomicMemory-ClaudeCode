@@ -599,8 +599,7 @@ def test_deny_text_slim_rule_fix_and_hit_only(world):
     assert hit.startswith(f"✗ (df) {RULE}：") and rr.parse_hit_rules(slim) == [("df", RULE)]
     assert "先宣告一行再改" not in slim and "留帳給健檢抽查" not in slim
     old = _reason(_run(world, config={"guard": {"deny_text_slim": False}}))
-    body = lambda t: t.split("\n判準卡")[0]                                            # 判準卡另由 CARD_FULL_ONCE_PER_SESSION 管
-    assert "先宣告一行再改" in old and len(body(slim)) < len(body(old)) * 0.75, (len(body(slim)), len(body(old)))
+    assert "先宣告一行再改" in old and len(slim) < len(old) * 0.75, (len(slim), len(old))
 
 
 def test_slim_deny_caps_long_evidence():

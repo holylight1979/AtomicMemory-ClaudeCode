@@ -31,7 +31,6 @@ _B = "c:/p/docs/b.md"
 def ups_run(monkeypatch, tmp_path):
     """跑 UserPromptSubmit 到底，其餘生產者都關掉；回 run(prompt) → (additionalContext, stderr)。"""
     import wg_friction
-    import wg_overview
     import wg_release_rules
     state = {"turn_seq": 4, "session": {"cwd": str(tmp_path)}, "injected_atoms": [],
              "modified_files": [{"path": _A, "session_id": _SID}], "knowledge_queue": []}
@@ -42,7 +41,6 @@ def ups_run(monkeypatch, tmp_path):
     monkeypatch.setattr(ups, "build_context", lambda *a, **k: None)
     monkeypatch.setattr(ups, "collect_matched_atoms", lambda *a, **k: ([], {}, [], [], {}, set(), "general", {}))
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: ([], {}))
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a, **k: [])
     monkeypatch.setattr(wg_release_rules, "fix_escalation_text", lambda s: "")
     monkeypatch.setattr(ups, "_maybe_spawn_failure_extraction", lambda *a, **k: None)
@@ -134,54 +132,6 @@ def test_generic_block_kept_for_pending_knowledge(stop_run, capsys):
     out, _, _ = stop_run(capsys, uncommitted=False, sync_reminder_count=1,
                          knowledge_queue=[{"content": "某個坑", "classification": "[臨]"}])
     assert "[Workflow Guardian]" in out
-
-
-# ─── 刀2：定位三行同一次動作就收 ───────────────────────────────────────
-
-@pytest.fixture()
-def hub(tmp_path, monkeypatch):
-    """假專案（一個部位【報表】、有導讀卡）＋讀過部位檔、還沒交定位行的 state。"""
-    import wg_overview as wo
-    root = tmp_path / "proj"
-    (root / ".claude" / "memory" / "shared").mkdir(parents=True)
-    (root / ".claude" / "overview-map.md").write_text(
-        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `src/` | 報表 | `報表導讀` | 有 |\n", encoding="utf-8")
-    (root / ".claude" / "memory" / "shared" / "報表導讀.md").write_text("# 報表導讀\n月份歸屬在 periods", encoding="utf-8")
-    (root / "src").mkdir()
-    files = [str(root / "src" / n) for n in ("a.py", "b.py")]
-    for f in files:
-        Path(f).write_text("x = 1\n", encoding="utf-8")
-    tp = tmp_path / "t.jsonl"
-    tp.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "先看看。"}]}},
-                             ensure_ascii=False) + "\n", encoding="utf-8")
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    state = {"turn_seq": 3}
-    for f in files:
-        wo.on_read(state, "s", "Read", {"file_path": f}, str(root), str(tp), {})
-    assert "導讀卡現在才送" in wo.on_edit(state, "s", files[0], str(tp), {})[1]   # 卡隨第一次改檔到；那一刀擋這一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
-    state["turn_seq"] = 4                                                        # 下一個使用者回合：這一輪結束，缺定位走一般判定（擋訊息、擋次上限）
-    return wo, state, files, str(tp)
-
-
-def test_locate_same_batch_deny_is_one_line(hub):
-    """同一回合、同一部位、缺的一樣（平行送出的第二個改檔）：只回一行指回上一則，不重送整段要求。"""
-    wo, state, files, tp = hub
-    _, first, _ = wo.on_edit(state, "s", files[0], tp, {})
-    _, second, _ = wo.on_edit(state, "s", files[1], tp, {})
-    assert "定位｜根因層" in first
-    assert "同樣被擋" in second and "定位｜根因層" not in second and len(second) - len(files[1]) < 200
-
-
-def test_locate_new_turn_gets_full_ask_again(hub):
-    """換了使用者回合：照送整則擋訊息、不是「同樣被擋」那一行（入口不變成永遠只有一行）。"""
-    wo, state, files, tp = hub
-    wo.on_edit(state, "s", files[0], tp, {})
-    state["turn_seq"] = 5
-    _, again, _ = wo.on_edit(state, "s", files[1], tp, {})
-    assert "還沒交出定位三行" in again and "定位｜根因層" in again and "同樣被擋" not in again
-
-
-# 判準卡一話題一次（原 CARD_ONCE_PER_TURN）的案例在 verify_gate_slimming.py
 
 
 # ─── 刀3＋刀7：知識收割交背景的免費模型 ─────────────────────────

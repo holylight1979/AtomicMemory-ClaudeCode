@@ -9,7 +9,6 @@
        不再讓對話續跑一輪。交付邊界還有一種：本 session 改過程式之後測試跑綠的那批（pick_on_test_green，post_tool_batch.closing_reminders
        判綠後呼叫、與其他收尾提醒同一條路）——收尾檢核提醒關著（aec.scan_report_gate=false）時 AI 多半不交收尾檢核，那一問就靠這條路送到。
 沒走到附著點（沒交收尾檢核、量測還沒好、開關關）→ Stop 照舊送（舊送法原處不動）。寫碼守門總開關關、子代理的批次 → 呼叫端不呼叫。
-判準卡照舊接：附著點在 MCP 工具（收尾檢核）回覆之後，路是 mcp_reply（workflow/entrypoints.json 的 E04、E13 登錄了這條路）。
 怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_closing_round.py
 """
 from __future__ import annotations
@@ -21,7 +20,6 @@ from wg_core import append_guard_log, coding_turn
 
 CLOSING_TOOL_SUFFIX = "__anti_evasion_report"
 HARVEST_SUFFIX = "__knowledge_harvest_report"
-ENTRY_PATH = "mcp_reply"
 
 
 def pick_pre_close_on(config: Dict[str, Any]) -> bool:
@@ -47,12 +45,6 @@ def closing_call(name: str) -> bool:
 
 def _own(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:
     return [m for m in state.get("modified_files") or [] if (m or {}).get("session_id", sid) == sid]
-
-
-def _note(text: str, state: Dict[str, Any], sid: str, config: Dict[str, Any]) -> str:
-    """判準卡（切入點契約 §7.10）：照舊送法同一套，問句後面接卡；接不上只少卡、問句照送。"""
-    from wg_entrypoint import entry_note, with_note
-    return with_note(text, entry_note(text, ENTRY_PATH, session_id=sid, state=state, config=config))
 
 
 # ─── ② 收尾前附著：拐彎判斷結果、最該修 ─────────────────────────────────────────
@@ -83,11 +75,11 @@ def pick_pre_close(state: Dict[str, Any], sid: str, config: Dict[str, Any], inpu
 
 def pick_on_test_green(state: Dict[str, Any], sid: str, config: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
     """規則 PICK_ONE_PRE_CLOSE 的另一個交付邊界：本 session 改過程式之後測試跑綠那批（post_tool_batch.closing_reminders 判綠）
-    → 同一問、判準卡接上（與收尾那批同一條路）。該不該問、記問過都在 pick_pre_close。"""
+    → 同一問。該不該問、記問過都在 pick_pre_close。"""
     text = pick_pre_close(state, sid, config, input_data, via="test_green")
     if text:
         print(text.splitlines()[0], file=sys.stderr)
-        return _note(text, state, sid, config)
+        return text
     return None
 
 
@@ -132,5 +124,5 @@ def on_batch(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config
         for text in (tj, pick):
             if text:
                 print(text.splitlines()[0], file=sys.stderr)
-                parts.append(_note(text, state, sid, config))
+                parts.append(text)
     return parts, changed

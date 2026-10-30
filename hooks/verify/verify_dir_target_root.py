@@ -1,8 +1,8 @@
-"""verify_dir_target_root.py：刪整個資料夾時改檔閘看它所在的位置（DIR_TARGET_JUDGED_BY_CONTAINER），
+"""verify_dir_target_root.py：刪整個資料夾時寫入檢查看它所在的位置（DIR_TARGET_JUDGED_BY_CONTAINER），
 Bash 與 PowerShell 的刪除寫法認得一樣（DELETE_FORMS_SAME_ACROSS_SHELLS）。
 
-實際誤擋：工作樹已除名、資料夾刪不乾淨的殘留（裡面還有 .git 檔、_AIDocs、部位表），`rm -rf <殘留>` 被當成改那個「專案」的檔，
-要求先讀「(outside)」目錄的檔（永遠讀不到）；換 PowerShell 的 rd／ri／del 寫法則整條沒被認成寫入、閘看不到。
+實際誤擋：工作樹已除名、資料夾刪不乾淨的殘留（裡面還有 .git 檔、_AIDocs、部位表），`rm -rf <殘留>` 被當成改那個「專案」的檔；
+換 PowerShell 的 rd／ri／del 寫法則整條沒被認成寫入、閘看不到。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_dir_target_root.py
 """
 from __future__ import annotations
@@ -20,8 +20,6 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
 import wg_overview as wo  # noqa: E402
-
-_NO_MIN_MAP = {"overview_hub": {"min_map": {"enabled": False}}}
 
 
 @pytest.fixture(autouse=True)
@@ -44,28 +42,25 @@ def _leftover(base: Path) -> Path:
 
 
 def test_dir_target_judged_by_container(tmp_path):
-    """殘留資料夾整個刪掉 → 看它所在的上一層（沒有專案）→ 放行；裡面的單一檔照舊看殘留自己的標記（還是要先讀）。
+    """殘留資料夾整個刪掉 → 看它所在的上一層（沒有專案）→ 寫入檢查沒有可判的根、放行；裡面的單一檔照舊看殘留自己的標記。
     cwd 這類「我在哪」的目錄照舊拿目錄自己當根。"""
     d = _leftover(tmp_path)
-    assert wo.on_edit({}, "s", str(d), "", _NO_MIN_MAP) == (None, None, False)
-    warn, deny, _ = wo.on_edit({}, "s", str(d / "src" / "new.py"), "", _NO_MIN_MAP)
-    assert deny and "「src」至少 1 個檔" in deny
+    assert wo.write_check("s", str(d), {}) == (None, None, None)
+    assert wo.write_target_root(str(d / "src" / "new.py")) == d
     assert wo._unmapped_root_of(str(d)) == d and wo.write_target_root(str(d)) is None
 
 
-def test_dir_target_inside_real_project_still_gated(tmp_path):
-    """反例：專案裡的子資料夾（自己也帶 _AIDocs 標記）整個刪 → 根是外面那個專案，照無表規則要先讀過根目錄一檔；讀了才放行。"""
+def test_dir_target_inside_real_project_judged_by_project_rules(tmp_path):
+    """反例：專案裡的子資料夾（自己也帶 _AIDocs 標記）整個刪 → 根是外面那個專案，照它的 readonly_paths 判。"""
     proj = tmp_path / "proj"
     (proj / ".git").mkdir(parents=True)
-    (proj / "README.md").write_text("# p\n", encoding="utf-8")
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["sub"]}', encoding="utf-8")
     sub = proj / "sub"
     (sub / "_AIDocs").mkdir(parents=True)
     assert wo.write_target_root(str(sub)) == proj
-    state: dict = {}
-    warn, deny, _ = wo.on_edit(state, "s", str(sub), "", _NO_MIN_MAP)
-    assert deny and str(proj) in deny and "「(root)」至少 1 個檔" in deny
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), "", {})
-    assert wo.on_edit(state, "s", str(sub), "", _NO_MIN_MAP)[1] is None
+    warn, deny, hit = wo.write_check("s", str(sub), {})
+    assert deny and "readonly_paths（樣式「sub」）" in deny and hit["rule"] == "OVERVIEW_READONLY_PATHS"
 
 
 def test_delete_forms_same_across_shells(tmp_path):
@@ -86,18 +81,3 @@ def test_delete_forms_same_across_shells(tmp_path):
         assert len(t) == 1 and t[0].startswith("UNKNOWN:"), (c, t)
 
 
-def test_chain_object_key_matches_gate_for_dir_target(tmp_path):
-    """斷路器的對象鍵（pre_tool_use._hub_part）跟改檔閘記帳用的鍵同一把：資料夾目標、上一層也是專案時，鍵的根是上一層。
-    舊碼 _hub_part 拿資料夾自己當根，鍵變成「子資料夾|(unmapped)(outside)」，跟閘的鍵對不上。"""
-    from handlers import pre_tool_use as ptu
-    proj = tmp_path / "proj"
-    (proj / ".git").mkdir(parents=True)
-    (proj / "README.md").write_text("# p\n", encoding="utf-8")
-    sub = proj / "sub"
-    (sub / "_AIDocs").mkdir(parents=True)
-    state: dict = {}
-    assert wo.on_edit(state, "s", str(sub), "", _NO_MIN_MAP)[1]                      # 前置：上一層是專案，先擋
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), "", {})
-    assert wo.on_edit(state, "s", str(sub), "", _NO_MIN_MAP)[1] is None
-    key = ptu._hub_part(str(sub), _NO_MIN_MAP)
-    assert key == wo._unmapped_key(proj, str(sub)) and key in state["overview_hub"], (key, list(state["overview_hub"]))

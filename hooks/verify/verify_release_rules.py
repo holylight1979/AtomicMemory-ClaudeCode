@@ -29,7 +29,6 @@ def test_044_every_rule_has_a_case():
 
 
 @pytest.mark.parametrize("rule, case_file", [
-    ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
     ("CARRIED_CLAIM_ANY_TURN_RECEIPT", "verify_pull_verify_ledger.py"),
     ("RECEIPT_UNPARSED_GENERAL_ONLY", "verify_pull_verify_ledger.py"),
     ("BASH_UNREACHED_READ_NOT_COUNTED", "verify_overview_hub.py"),
@@ -52,19 +51,12 @@ def test_044_every_rule_has_a_case():
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
     ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_inject_lean.py"),
-    ("NON_CODING_TURN_NO_NUDGE", "verify_locate_hint.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_data_file_ask.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
     assert rule in rr.RULES
     assert rule in (Path(__file__).parent / case_file).read_text(encoding="utf-8"), case_file
-
-
-def test_choice_verb_is_not_a_character_inside_candidate_words():
-    """codex 007：候選描述裡的「採集」不是選擇動詞，「選 B」後面沒寫理由照判沒理由；「採用候選 A 的理由是…」照判有。"""
-    assert rr._has_choice_reason("候選 A 採集層，因為來源重複而出錯；候選 B 快取層；選 B") is False
-    assert rr._has_choice_reason("候選 A 快取層；候選 B 索引層；採用候選 A 的理由是快取先壞") is True
 
 
 def test_negative_control_declared_verdict():
@@ -1299,108 +1291,7 @@ def test_case_files_in_cmd_quoted_path_with_space():
     assert not rr.green_clears_red('pytest "my tests/test_a.py"', "pytest tests/test_a.py", "C:/p", "C:/p")
 
 
-# ─── C-G0：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES ───
-
-_CG0_NODE = "共用字典不再被兩邊改"
-_CG0_TWO = "候選 A 邏輯層；候選 B 存檔時序；選 A 因為字典只在邏輯層被寫"
-
-
-@pytest.mark.parametrize("root, goal, owed, want", [
-    (_CG0_TWO, "T1.1（共用字典的唯一寫入點）", False, ""),
-    ("第一根因 共用字典被兩邊改，第二根因 存檔時序；先修第一個因為第二個是它的結果", "T1.1（唯一寫入點）", False, ""),
-    ("根因在邏輯層；第二個不存在，因為只有這一處寫入", "T1.1（唯一寫入點）", False, ""),
-    ("候選 A 邏輯層；候選 B 不存在因為資料層只讀", "T1.1（唯一寫入點）", False, ""),
-    ("候選一 邏輯層；候選二 資料層；理由：資料層只讀", "T1.1 (唯一寫入點)", False, ""),
-    ("候選 A 邏輯層，候選 B 資料層，選 A 因為只有邏輯層寫", "T1.1（唯一寫入點）", False, ""),        # 逗號分隔
-    ("候選 A 快取；候選 B 時序；選 A 因為比候選 B 好重現", "T1.1（唯一寫入點）", False, ""),        # 理由裡提到候選
-    ("候選 A 無鎖競爭；候選 B 沒有重試；選 A 因為只有它重現", "T1.1（唯一寫入點）", False, ""),    # 描述以「無／沒有」開頭不是不存在
-    # codex BLOCK：括號外的角色、零候選只寫第二個不存在、候選描述自己的「原因」不是選擇理由
-    ("候選 A 快取；候選 B 時序；選 A 因為可重現", "T1.1 —— 負責同步畫面", True, "角色"),
-    ("第二個不存在因為目前只有這條線索", "T1.1（負責同步畫面）", True, "只辨識出 0 個"),
-    ("候選 A 的原因是快取失效；候選 B 是寫入時序", "T1.1（負責同步畫面）", True, "選擇理由"),
-    ("邏輯層", "T1.1（唯一寫入點）", True, "只辨識出 0 個"),
-    ("候選 A 邏輯層", "T1.1（唯一寫入點）", True, "只辨識出 1 個"),
-    ("候選 A 邏輯層；候選 B 資料層", "T1.1（唯一寫入點）", True, "選擇理由"),
-    ("候選 A 根因為邏輯層；候選 B 根因為資料層", "T1.1（唯一寫入點）", True, "選擇理由"),   # 「根因為」不是理由
-    ("根因在邏輯層；第二根因不存在", "T1.1（唯一寫入點）", True, "只辨識出 0 個"),          # 不存在沒寫為什麼
-    (_CG0_TWO, "T1.1", True, "角色"),
-    (_CG0_TWO, "T1.1（）", True, "角色"),
-    (_CG0_TWO, "T1.1（這一塊在目標裡的角色）", True, "角色"),
-    (_CG0_TWO, "T1.1（共用字典不再被兩邊改）", True, "照抄"),
-    ("邏輯層", "T1.1", True, "角色"),
-])
-def test_cg0_locate_lines_need_role_and_two_candidates(root, goal, owed, want):
-    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：第四行括號內要有角色（非空、非佔位、非節點原文照抄）；根因層要兩個候選＋
-    選擇理由，或一個候選＋「第二個不存在因為…」。只看結構。"""
-    v = rr.locate_lines_verdict(root, goal, "T1.1", _CG0_NODE)
-    assert v.rule == "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" and v.owed is owed, v
-    assert want in v.why
-    if owed:
-        assert any(e.startswith("定位｜根因層：") for e in v.evidence) and any(e.startswith("定位｜目標：") for e in v.evidence)
-
-
-_B1_GOAL = "T1.1/T1.4（by-product 輸出、用台北時間歸月）、T1.2（不碰 monthly 路徑）、T1.3（測試）"
-_B1_CRIT = ("month_of 用 UTC 不合理，更好的做法是改台北時間，但需財務拍板；同類還可能在哪：month_of 唯一呼叫點是 "
-            "report.monthly_totals（grep 已確認），無其他")
-
-
-def test_004_locate_semantic_role_after_chained_nodes_and_reason_anywhere():
-    """第三跑 B-1（擋 4 次）：第四行「T1.1/T1.4（角色）」幾個節點串在一起也認得角色；第五行把被批判的對象寫在「不合理」前面
-    也算有理由。語意判：有候選、有理由、有節點與角色、有更好的做法與同類就放行，句型只當建議。"""
-    assert rr.goal_role(_B1_GOAL, "T1.1") == "by-product 輸出、用台北時間歸月"
-    assert rr.goal_role("T1.2、T1.3（測試）", "T1.2") == "測試"
-    assert not rr.locate_lines_verdict(_CG0_TWO, _B1_GOAL, "T1.1", _CG0_NODE).owed
-    assert not rr.locate_critique_verdict(_B1_CRIT).owed
-    # 改造包 Q：批判行只查有沒有內容，「這段寫法不合理」這種沒指出哪裡的也放（寫得好不好是 AI 的判斷，不是閘的）
-    assert not rr.locate_critique_verdict("這段寫法不合理，更好的做法是改台北時間；同類還可能在哪：無，因為只有一處").owed
-
-
-def test_cg0_locate_lines_both_missing_listed_together():
-    """角色與候選都缺 → 一條擋訊息列兩項（不必擋兩輪才知道）。"""
-    v = rr.locate_lines_verdict("邏輯層", "T1.1", "T1.1", _CG0_NODE)
-    assert v.owed and "角色" in v.why and "候選" in v.why
-
-
-# ─── C-G1：LOCATE_LINES_NEED_CRITIQUE（定位第五行「批判」只查有沒有寫、有沒有內容） ───
-
-@pytest.mark.parametrize("line, owed, want", [
-    ("不合理，因為字典兩邊都寫，更好的做法是只留邏輯層一個寫入點；同類還可能在哪：存檔流程也兩邊寫", False, ""),
-    ("合理，因為這段只轉送事件；同類還可能在哪：無，因為只有這一個入口", False, ""),
-    ("不合理，原因是用檔名猜關聯，改成直接認宣告範圍；同類別處：(b) 的 covered()", False, ""),
-    # 改造包 Q（007 實測）：真批判沒有「不合理／更好的做法／同類」字樣也算交——寫得對不對是 AI 的判斷，閘只查有沒有內容
-    ("README 規定月份歸屬以台北時間為準，periods.month_of 卻轉 UTC，10/01 凌晨兩筆落到 9 月", False, ""),
-    ("合理，因為只轉送事件；同類還可能在哪：無。", False, ""),                                          # 同類寫「無」沒理由也不擋
-    ("不合理，因為字典兩邊都寫；同類還可能在哪：存檔流程", False, ""),                                 # 不合理沒替代做法也不擋
-    ("合理，這段只做一件事", False, ""),                                                                # 剛好 8 字
-    ("", True, "沒交"),
-    ("合理", True, "太短"),                                                                              # 兩個字不是批判
-    ("還好；同類：無", True, "太短"),
-])
-def test_cg1_locate_lines_need_critique(line, owed, want):
-    """LOCATE_LINES_NEED_CRITIQUE：第五行只查有沒有寫、去掉標點後有沒有 ≥ CRITIQUE_MIN_CHARS（8）字；不認固定字樣。
-    舊碼要「合理／不合理」＋理由＋更好的做法＋同類，007 的真批判被判沒交（紅）。"""
-    v = rr.locate_critique_verdict(line)
-    assert v.rule == "LOCATE_LINES_NEED_CRITIQUE" and v.owed is owed, v
-    assert want in v.why, v
-    if owed and line:
-        assert any(e.startswith("定位｜批判：") for e in v.evidence)
-
-
-@pytest.mark.parametrize("vals, owed", [
-    ({"部位": "戰鬥——A.cs 結算段", "根因": "候選 A 邏輯層；候選 B 存檔；選 A 因為只有它寫", "目標": "T1.1（唯一寫入點）"}, False),
-    ({"部位": "UI——List<int> 排序", "根因": "Dictionary<string, int> 沒鎖"}, False),           # 程式的泛型角括號不是佔位
-    ({"部位": "戰鬥——<這次改哪個檔、哪一段>"}, True),
-    ({"批判": "<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>"}, True),
-])
-def test_cg1_locate_lines_no_example_placeholder(vals, owed):
-    """LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER：擋訊息附的範例照抄（角括號裡的中文說明沒換掉）不算交；程式的泛型角括號不算佔位。"""
-    v = rr.locate_placeholder_verdict(vals)
-    assert v.rule == "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER" and v.owed is owed, v
-    if owed:
-        assert any("<" in e for e in v.evidence)
-
-
-# ═══ C-G16（track-c-g16）：提問附推薦、掛目標、全貌先於拍板 ═══
+# ═══ C-G16（track-c-g16）：提問附推薦、全貌先於拍板 ═══
 
 REL_TAG, REL_OPTS = "【收尾放行確認】", ("放行這一回合", "繼續擋，先修好")
 
@@ -1478,20 +1369,6 @@ def test_b5_runtime_data_no_overview_cache_dirs(path, root, owed):
     """RUNTIME_DATA_NO_OVERVIEW：路徑含快取目錄 → 免綜觀（gitignored=False 也算，B5 對照組 rm tests/__pycache__ 被擋的那種）。"""
     v = rr.runtime_data_verdict(path, root, False)
     assert v.rule == "RUNTIME_DATA_NO_OVERVIEW" and v.owed is owed
-
-
-@pytest.mark.parametrize("need, readable, have, owed, text", [
-    (1, 0, 0, False, "沒有可讀的既有檔"),          # B5：專案根只有子目錄，新建 .gitignore
-    (1, 1, 0, True, "至少 1 個檔（目前 0 個）"),   # 根目錄有 README 沒讀 → 照擋，不放寬
-    (1, 1, 1, False, "夠 1 個"),
-    (3, 2, 1, True, "至少 2 個檔（目前 1 個）"),   # 可讀檔比設定少：要讀數降成可讀檔數
-    (3, 2, 2, False, "夠 2 個"),
-])
-def test_b5_unmapped_edit_needs_readable_files(need, readable, have, owed, text):
-    """UNMAPPED_EDIT_NEEDS_READABLE_FILES：要讀數＝min(設定, 該目錄可讀既有檔數)；擋訊息帶「該目錄既有可讀檔」。"""
-    v = rr.unmapped_edit_verdict(need, readable, have)
-    assert v.rule == "UNMAPPED_EDIT_NEEDS_READABLE_FILES" and v.owed is owed and text in v.why
-    assert any("該目錄既有可讀檔" in e for e in v.evidence)
 
 
 def test_b5_bash_readonly_counts_as_read(tmp_path):
@@ -1851,17 +1728,8 @@ def test_t219_gate_bypass_verdicts():
     assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed
     assert not rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "這張卡寫的是禁止規避").owed     # 宣告了不是教繞閘
     assert rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "<理由：這張卡在教什麼>").owed      # 佔位照拒
-# ─── G14 最小地圖 ───
-# 完整案例（閘、掃表預覽、快取、開關）在 hooks/verify/verify_g14_min_map.py；這裡只守 test_044「每條規則有案例」與判定骨架
 
-def test_g14_unmapped_first_edit_needs_min_map():
-    """UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP：三行齊、讀了的檔都讀過才不欠；沒交、上游空、列了沒讀的檔 → 欠。"""
-    g = rr.min_map_group("地圖｜讀了：src/a.py\n地圖｜上游：無，因為是入口\n地圖｜下游：lib/b.py")
-    assert rr.min_map_verdict(g, "C:/p", ["C:/p/src/a.py"]).owed is False
-    v = rr.min_map_verdict(g, "C:/p", [])
-    assert v.rule == "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP" and v.owed and "src/a.py" in "；".join(v.evidence)
-    assert rr.min_map_verdict(None, "C:/p", ["C:/p/src/a.py"]).owed
-    assert rr.min_map_verdict({**g, "上游": ""}, "C:/p", ["C:/p/src/a.py"]).owed
+
 # ─── G11 拐彎判斷 ─────────────────────────────────────────────────────────────
 
 def test_g11_turn_judgment_required_needs_five_columns():
@@ -2018,68 +1886,7 @@ def test_005_codex_miss_notes_skip_tests_already_waived_by_ledger():
     assert kept and rr.waiver_miss_notes(kept, decls, ["好"], led) == []
 
 
-# 第四跑 B-1 第一版根因層：兩個跨層候選用 ①② 列，沒寫「候選 A」
-_B1_V1 = ("新功能非修 bug；附帶根因①邏輯層 periods.month_of 以 UTC 切月違反 README 台北時間；②測試層 monthly 期望值照 UTC 算鎖住錯誤；"
-          "資料讀入層 ts 保留 +08:00 沒壞")
-
-
-def test_005_locate_candidates_without_fixed_labels():
-    """LOCATE_CANDIDATES_WITHOUT_FIXED_LABELS：沒寫「候選 A」時，①② 列舉或兩個以上不同的「X 層」也算候選（第四跑 B-1 第一版判成
-    0 個、第三版改成固定字樣才過）；選擇理由照樣要寫。"""
-    assert rr.root_candidates(_B1_V1) == [1, 2]
-    v = rr.locate_lines_verdict(_B1_V1, _B1_GOAL, "T1.1", _CG0_NODE)
-    assert v.owed and "辨識出 2 個候選，但沒寫選擇理由" in v.why, v
-    assert not rr.locate_lines_verdict(_B1_V1 + "；選①因為②只是照①的輸出寫的", _B1_GOAL, "T1.1", _CG0_NODE).owed
-    layers = "month_of 在邏輯層用 UTC 切月；測試層期望值照 UTC 鎖住；先修邏輯層因為測試只是照輸出寫"
-    assert len(rr.root_candidates(layers)) == 2 and not rr.locate_lines_verdict(layers, _B1_GOAL, "T1.1", _CG0_NODE).owed
-    # 反例：只有一層、一個列舉、泛稱、函式呼叫的括號數字 → 照舊 0 個
-    for one in ("根因在邏輯層；這層以外沒問題", "①邏輯層 month_of 用 UTC", "第二層、每層都看過", "f(1) 與 g(2) 都呼叫 month_of",
-                "根因層在邏輯層", "根因在邏輯層；先修邏輯層因為只有這一處寫", "第四層、第五層；先修第四層因為錯誤從這裡開始"):
-        assert rr.root_candidates(one) == [], one
-    # codex 005：名稱尾段相同的兩層（資料讀取／設定讀取）是兩層
-    assert len(rr.root_candidates("資料讀取層解析錯誤；設定讀取層覆蓋錯誤；先修資料讀取層因為設定沿用其輸出")) == 2
-    assert rr.root_candidates("候選 A 邏輯層；候選 B 不存在因為資料層只讀") == [1], "有固定標記就只看標記"
-
-
-@pytest.mark.parametrize("root, want", [
-    # 修前判反的四句：逗號拆開的候選描述、第一個候選前的前言 → 不算；「選候選 A」「採用候選 A」→ 算
-    ("候選 A 快取層，因為重啟後沒清所以失效；候選 B 索引層；選 A", False),
-    ("新功能，所以不算修壞；候選 A 快取層；候選 B 索引層；選 A", False),
-    ("候選 A 快取層；候選 B 索引層；選候選 A 因為 B 只是症狀", True),
-    ("候選 A 快取層；候選 B 索引層；採用候選 A 的理由是 B 只讀", True),
-    # 反例保持原判
-    ("候選 A 壞在快取層因為沒清；候選 B 索引層；選 A", False),
-    ("候選 A 的原因是快取失效；候選 B 是寫入時序", False),
-    ("第一根因 共用字典被兩邊改；第二根因 存檔時序；先修第一個因為第二個是它的結果", True),
-    ("候選一 邏輯層；候選二 資料層；理由：資料層只讀", True),
-    ("理由：資料層只讀", True),
-    ("候選 A 邏輯層，候選 B 資料層，選 A 因為只有邏輯層寫", True),        # 逗號分隔的選擇句照算
-    ("候選 A 快取層，因為沒清；候選 B 索引層，選它因為好重現", True),     # 同句裡後面那個因為前面有「選」
-])
-def test_007_choice_reason_belongs_to_choice(root, want):
-    """CHOICE_REASON_BELONGS_TO_CHOICE：理由詞要屬於選擇才算選擇理由——只以「；;。」切句，句裡前面有選／採，或句裡前面沒有候選標記
-    且在第一個候選標記之後。修前逗號也切段（描述的「因為」被當理由）、「選候選 A 因為」被當描述擋下。"""
-    assert "CHOICE_REASON_BELONGS_TO_CHOICE" in rr.RULES
-    if not want:          # 前置：判「沒理由」的句子真的有兩個候選，擋下是因為判到理由這一步、不是候選不夠
-        assert len(rr.root_candidates(root)) >= 2, root
-    assert rr._has_choice_reason(root) is want, root
-    v = rr.locate_lines_verdict(root, "T1.1（唯一寫入點）", "T1.1", _CG0_NODE)
-    assert ("沒寫選擇理由" in v.why) is (not want and len(rr.root_candidates(root)) >= 2), v
-
-
 # ─── 閘小修 006 ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_006_judge_card_change_needs_declaration():
-    """JUDGE_CARD_CHANGE_NEEDS_DECLARATION（裁定 #53）：綁 Entry 的卡要有點名這張、附理由的宣告；沒綁 Entry 不管。
-    四條出口與留帳的端到端案例在 verify_judge_card_declare.py。"""
-    decls = rr.parse_judge_card_decls("改判準卡｜卡-a：使用者說判準錯了\n改判準卡｜卡-b：<為什麼要改這張量尺>")
-    assert not rr.judge_card_verdict("卡-a", ["E29"], decls).owed
-    v = rr.judge_card_verdict("卡-b", ["E29"], decls)
-    assert v.owed and any("沒附理由" in e for e in v.evidence), v
-    assert rr.judge_card_verdict("卡-c", ["E29"], decls).owed
-    assert not rr.judge_card_verdict("卡-c", [], decls).owed
-    assert "JUDGE_CARD_CHANGE_NEEDS_DECLARATION" in rr.RULES
 
 
 def test_006_inline_flag_before_program():
@@ -2147,9 +1954,7 @@ _ELSEWHERE_CASES = {
                       ("verify_pull_goal_locate.py", "test_locate_gate_same_gap_blocks_twice_then_passes_with_log"),
                       ("verify_pull_goal_locate.py", "test_unmapped_gate_same_gap_blocks_twice_then_passes_with_log")],
     "DENY_CAP_PER_REPLY": [("verify_pull_tool_gates.py", "test_deny_cap_per_reply_counts_one_reply_once"),
-                           ("verify_pull_tool_gates.py", "test_data_file_gate_parallel_edits_in_one_reply_count_once"),
-                           ("verify_pre_tool_use_overview_gate.py", "test_parallel_edits_in_one_reply_all_denied_then_locate_passes"),
-                           ("verify_g14_min_map.py", "test_parallel_unmapped_edits_in_one_reply_count_once")],
+                           ("verify_pull_tool_gates.py", "test_data_file_gate_parallel_edits_in_one_reply_count_once")],
     "PICK_ONCE_PER_USER_TURN": [("verify_pick_one.py", "test_stop_continuation_after_red_test_block_still_asks_once")],
     "SVN_TEST_BLOCK_OPT_IN": [("verify_pull_tool_gates.py", "test_svn_test_block_off_by_default"),
                               ("verify_pull_tool_gates.py", "test_svn_test_block_on_looks_only_at_commit_paths"),
@@ -2236,15 +2041,12 @@ def test_decl_hints_do_not_steer_to_bash_writes():
 
 
 def test_decl_where_teaches_only_comment_channel():
-    """DECL_HINT_KEEPS_EDIT_TOOLS：每句教宣告放哪的字（定位三行、動資料檔｜、改舊測試｜、地圖三行）只教一條路——
+    """DECL_HINT_KEEPS_EDIT_TOOLS：每句教宣告放哪的字（動資料檔｜、改舊測試｜）只教一條路——
     「同一則先發不寫檔指令的 `#` 註解」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）；早一則的回覆文字、備援工具都不出現
     （程式照認，只在規則表講）。009 實跑擋訊息同時教三條路，AI 挑了最貴的那條多 4 個模型回合。"""
     import wg_oldtest as ot
-    import wg_overview as wo
     assert rr.DECL_WHERE.startswith("同一則回覆裡先發一條不寫檔的") and "hook 當下讀不到" in rr.DECL_WHERE
     texts = {"DECL_WHERE": rr.DECL_WHERE, "DECL_WHERE_SHORT": rr.DECL_WHERE_SHORT,
-             "locate_read_hint": wo.locate_read_hint("戰鬥", True),
-             "MIN_MAP_ENTRY": "\n".join(wo.MIN_MAP_ENTRY), "_locate_ask": wo._locate_ask(0, 0),
              "data_file_hint": rr.data_file_hint("a.json"), "data_file_fix": rr.data_file_fix(["a.json"]),
              "data_file_read_hint": rr.data_file_read_hint(["a.json"], True), "oldtest.hint": ot.hint("test_x")}
     for name, t in texts.items():
@@ -2355,10 +2157,6 @@ _GATE_DESIGN_CASES = {
     "CHAIN_NO_EDIT_NO_EDGE": ("verify_chain_breaker.py", "test_no_edit_actions_between_same_gate_do_not_link"),
     "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": ("verify_chain_wiring.py",
                                          "test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block"),
-    "INJECT_TRIGGER_READ_COUNTED": ("verify_overview_hub.py", "test_inject_trigger_read_counted"),
-    "LOCATE_BLOCK_ONCE_PER_USER_TURN": ("verify_overview_hub.py", "test_locate_block_once_per_user_turn"),
-    "LOCATE_NOT_IN_THINKING": ("verify_overview_hub.py", "test_locate_deny_says_thinking_is_not_read"),
-    "CARD_READ_WITH_EDIT_FILES": ("verify_overview_card_pointer.py", "test_card_read_hint_says_read_edit_files_with_the_card"),
 }
 
 
@@ -2389,10 +2187,9 @@ def test_inject_lean_rules_registered_with_cases():
         assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
 
 
-# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
+# ─── 擋訊息瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
 _SLIM_CASES = {
     "DENY_TEXT_SLIM": ("verify_data_file_ask.py", "test_deny_text_slim_rule_fix_and_hit_only"),
-    "CARD_FULL_ONCE_PER_SESSION": ("verify_gate_slimming.py", "test_card_full_once_per_session_then_names_only"),
     "DATA_FILE_READ_HINT": ("verify_data_file_ask.py", "test_read_hint_on_first_read_of_data_file"),
 }
 
@@ -2418,18 +2215,10 @@ def test_closing_call_rule_cased_in_closing_round():
     assert "CLOSING_CALL_ALL_THREE" in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
 
-# ─── 定位與立樹先提示後擋：規則名登錄、對照的案例真的在、案例點到規則名 ───
-def test_locate_hint_rule_registered_with_case():
-    text = (Path(__file__).parent / "verify_locate_hint.py").read_text(encoding="utf-8")
-    fn = "test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block"
-    assert "LOCATE_HINT_ON_FIRST_READ" in rr.RULES and f"def {fn}(" in text and "LOCATE_HINT_ON_FIRST_READ" in text
-
-
 # ─── 擋或提醒（RULE_MODE）：每條規則有 mode、三類照擋、其餘提醒、總開關關一律照舊 ───
 _BLOCK_RULES = ("COMMIT_SMELL_NEW_BLOCKS", "GATE_BYPASS_NEEDS_DECLARATION", "USER_DATA_FILE_NEEDS_DECLARATION",
                 "OLD_TEST_CHANGE_NEEDS_DECLARATION", "RED_TEST_BLOCKS_COMPLETION", "CLAIM_FIXED_NEEDS_PASS")
-_REMIND_RULES = ("OVERVIEW_CARD_BEFORE_EDIT", "OVERVIEW_CARD_MISSING", "OVERVIEW_PART_FILES_READ",
-                 "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT",
+_REMIND_RULES = ("DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT",
                  "CLOSING_CHECK_REQUIRED", "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED",
                  "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE", "ATOM_CONSUMPTION_AUDIT",
                  "EVASION_FLAG_NEXT_PROMPT", "CASE_COVERS_CHANGE", "ASK_NEEDS_RECOMMENDATION",
@@ -2487,13 +2276,11 @@ def test_remind_key_and_due_once_per_object():
 # ─── 工具前守門改提醒（P2～P10d）登的規則名：送法在表上、對象鍵一 session 一次（送法案例在 verify_gate_mode_pre.py） ───
 
 def test_pre_gate_remind_rules_registered_with_mode():
-    """LOCATE_BEFORE_EDIT 與 REMIND_PENDING_IN_STATE 是 v6 守門（remind）；OVERVIEW_READONLY_PATHS 不在範圍（block）；
-    v6 關全部 block。"""
-    for rule in ("LOCATE_BEFORE_EDIT", "REMIND_PENDING_IN_STATE", "OVERVIEW_CARD_BEFORE_EDIT",
-                 "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP", "ASK_NEEDS_RECOMMENDATION", "GATE_SELF_ERROR"):
+    """REMIND_PENDING_IN_STATE 是 v6 守門（remind）；OVERVIEW_READONLY_PATHS 不在範圍（block）；v6 關全部 block。"""
+    for rule in ("REMIND_PENDING_IN_STATE", "ASK_NEEDS_RECOMMENDATION", "GATE_SELF_ERROR"):
         assert rule in rr.RULES and rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK, rule
     assert rr.RULE_CLASS["OVERVIEW_READONLY_PATHS"] == "不在範圍" and rr.gate_mode("OVERVIEW_READONLY_PATHS", True) == rr.BLOCK
-    assert rr.remind_key("LOCATE_BEFORE_EDIT", "戰鬥") == "LOCATE_BEFORE_EDIT|戰鬥"
+    assert rr.remind_key("GATE_SELF_ERROR", "戰鬥") == "GATE_SELF_ERROR|戰鬥"
 # ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）；入口案例在 verify_gate_mode_stop.py ───
 @pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "TURN_JUDGMENT_REQUIRED",
                                   "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
@@ -2508,6 +2295,3 @@ def test_overview_hub_under_v6_rule_registered():
     assert "OVERVIEW_HUB_UNDER_V6" in rr.RULES and rr.gate_mode("OVERVIEW_HUB_UNDER_V6", True) == rr.REMIND
 
 
-def test_locate_first_edit_blocks_once_rule_registered():
-    """第一次改擋一次：規則登了、v6 開仍是 block（不在三類，但也不是提醒）。"""
-    assert "LOCATE_FIRST_EDIT_BLOCKS_ONCE" in rr.RULES and rr.gate_mode("LOCATE_FIRST_EDIT_BLOCKS_ONCE", True) == rr.BLOCK

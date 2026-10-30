@@ -1,7 +1,7 @@
-"""verify_intent_goal_weights.py：A0.2 十個 intent 鍵與 A0.3 goal_weights 預設表／驗證。
+"""verify_intent_goal_weights.py：A0.2 十個 intent 鍵。
 
-正例：十類各兩句命中；十鍵與 wg_overview.INTENT_KEYS、_DEFAULT.goal_weights 三方對拍；每個 intent 的預設 slices 都在 SLICE_NAMES 內。
-反例：空字串 → general；同時含 debug 與 feature 詞且平手 → debug（最前鍵）；未知 slice／未知 intent／card:false 進 _errors。
+正例：十類各兩句命中；十鍵與 hub_config.INTENT_KEYS 對拍；UPS 把算出的意圖存進 state["turn_intent"]。
+反例：空字串 → general；同時含 debug 與 feature 詞且平手 → debug（最前鍵）；不在十鍵的意圖當 general。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_intent_goal_weights.py
 """
 from __future__ import annotations
@@ -17,8 +17,8 @@ os.environ.setdefault("WG_CLAUDE_DIR", str(HOOKS_DIR.parent))
 sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
-import overview_hub as oh  # noqa: E402
 import wg_overview as wo  # noqa: E402
+from hub_config import INTENT_KEYS  # noqa: E402
 from wg_atoms import INTENT_PATTERNS, classify_intent  # noqa: E402
 
 SENTENCES = {
@@ -40,17 +40,10 @@ def test_each_intent_two_sentences(intent, sentence):
     assert classify_intent(sentence) == intent
 
 
-def test_ten_keys_frozen_and_three_way_aligned():
-    assert tuple(INTENT_PATTERNS) == wo.INTENT_KEYS[:-1] and wo.INTENT_KEYS[-1] == "general"
-    assert set(wo._DEFAULT["goal_weights"]) == set(wo.INTENT_KEYS)
+def test_ten_keys_frozen_and_aligned():
+    assert tuple(INTENT_PATTERNS) == INTENT_KEYS[:-1] and INTENT_KEYS[-1] == "general"
     assert next(iter(INTENT_PATTERNS)) == "debug"                              # debug 最前：平手取先鍵
-    for intent, spec in wo._DEFAULT["goal_weights"].items():
-        assert {"slices", "lens", "ask_first"} <= set(spec) <= {"slices", "lens", "ask_first", "extra"}, intent   # extra 選填（G7）
-        assert set(spec["slices"]) <= set(oh.SLICE_NAMES), intent
-    assert wo._DEFAULT["goal_weights"]["debug"]["slices"][0] == "defects"
-    assert wo._DEFAULT["goal_weights"]["new_project"]["slices"][0] == "authority"
-    assert wo._DEFAULT["goal_weights"]["refactor"]["lens"] == "數彎視角"
-    assert all(wo._DEFAULT["goal_weights"][k]["slices"] == [] for k in ("recall", "handoff", "general"))
+    assert wo._intent_of({"turn_intent": "perf"}) == "perf" and wo._intent_of({"turn_intent": "bogus"}) == "general"
 
 
 def test_counterexamples_empty_and_tie():
@@ -59,28 +52,11 @@ def test_counterexamples_empty_and_tie():
     assert classify_intent("重構後 crash") == "debug"
 
 
-def test_unknown_slice_or_intent_or_card_false_are_errors():
-    errs = wo._validate_cfg(dict(wo._DEFAULT, goal_weights={"debug": {"slices": ["defects", "bogus"]}}), None)
-    assert len(errs) == 1 and "未知的片「bogus」" in errs[0]
-    errs = wo._validate_cfg(dict(wo._DEFAULT, goal_weights={"hotfix": {"slices": []}}), None)
-    assert len(errs) == 1 and "hotfix" in errs[0] and "十鍵" in errs[0]
-    errs = wo._validate_cfg(dict(wo._DEFAULT, goal_weights={"debug": {"slices": [], "foo": 1}}), None)
-    assert len(errs) == 1 and "未知鍵「foo」" in errs[0]
-    errs = wo._validate_cfg(dict(wo._DEFAULT, min_overview_evidence={"card": False, "part_files": 1, "depends_files": 0}), None)
-    assert len(errs) == 1 and "不可關" in errs[0]
-    errs = wo._validate_cfg(dict(wo._DEFAULT, min_overview_evidence={"card": True, "part_files": -1, "depends_files": 0}), None)
-    assert len(errs) == 1 and "part_files" in errs[0]
-    assert wo._validate_cfg(dict(wo._DEFAULT), None) == []
-
-
-def test_ups_wiring_intent_is_computed_before_hub_and_passed_in(monkeypatch):
-    """A0.1：user_prompt_submit 在 OverviewHub 段前算 classify_intent 存 state["turn_intent"]，on_prompt 收到同一個 intent。"""
+def test_ups_wiring_intent_is_computed_and_stored(monkeypatch):
+    """A0.1：user_prompt_submit 用使用者本人打的字算 classify_intent，存進 state["turn_intent"]。"""
     import wg_friction
     from handlers import user_prompt_submit as ups
-    src = (HOOKS_DIR / "handlers" / "user_prompt_submit.py").read_text(encoding="utf-8")
-    assert src.index('state["turn_intent"] = turn_intent') < src.index("_hub_on_prompt(")          # 原始碼順序
     state = {"turn_seq": 0}
-    seen = {}
     monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
     monkeypatch.setattr(ups, "_ups_sentinel_check_and_arm", lambda *a: None)
     monkeypatch.setattr(ups, "_ups_sentinel_clear", lambda sid: None)
@@ -96,22 +72,7 @@ def test_ups_wiring_intent_is_computed_before_hub_and_passed_in(monkeypatch):
     monkeypatch.setattr(ups, "output_json", lambda d: None)
     monkeypatch.setattr(ups, "output_nothing", lambda: None)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
-
-    def _hub(st, sid, prompt, tp, cfg, intent=None):
-        seen["intent"] = intent
-        seen["state_intent"] = st.get("turn_intent")
-        return None
-    monkeypatch.setattr(wo, "on_prompt", _hub)
     ups.handle_user_prompt_submit({"session_id": "s", "prompt": "列表捲動很慢，幫我優化效能", "transcript_path": ""}, {"sync_keywords": []})
-    assert seen == {"intent": "perf", "state_intent": "perf"} and state["turn_intent"] == "perf"
+    assert state["turn_intent"] == "perf"
 
 
-def test_project_override_deep_merges_goal_weights(tmp_path):
-    (tmp_path / ".claude").mkdir()
-    (tmp_path / ".claude" / "overview-hub.json").write_text(
-        '{"goal_weights": {"debug": {"slices": ["verify"]}}}', encoding="utf-8")
-    c = wo._cfg({}, tmp_path)
-    assert c["_errors"] == []
-    assert c["goal_weights"]["debug"]["slices"] == ["verify"]                   # list 整個取覆蓋方
-    assert c["goal_weights"]["debug"]["ask_first"] == "幾份存法、有無訊號"      # 巢狀其他鍵保留
-    assert c["goal_weights"]["feature"]["slices"] == ["what", "authority", "verify"]

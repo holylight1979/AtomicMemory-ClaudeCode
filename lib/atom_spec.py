@@ -63,8 +63,7 @@ OPTIONAL_METADATA = frozenset({
     "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
     "Quote",  # 觸發這張卡片的使用者原話引述（單行 ≤200 字）；PostToolUse 自動填、回填腳本補
                # 只寫現況，禁歷史敘事/版本脈絡（feedback-live-檔與記憶不留版本操作脈絡）
-    "Entry",  # 這張卡是哪幾個切入點的判準卡（逗號分隔代號，如 E04, E08；代號查 workflow/entrypoints.json）；
-              # 程式在那個切入點問 LLM 時先送 Entry 命中的卡（hooks/wg_entrypoint）
+    "Entry",  # 切入點代號標記（逗號分隔，如 E04, E08）；沒有程式依它送卡，realm 自動搬移照它擋（ENTRY_BOUND_STAYS_CORE）
 })
 
 # 行動 always required; 知識 or 印象（指標型 atom 變體）二選一
@@ -639,7 +638,7 @@ def build_atom_content(
     Status → Last-used → Confirmations → ReadHits → Pending-review-by →
     Merge-strategy → Created-at → Depends → Entry → Related → Supersedes。空值欄位省略（status /
     supersedes / provenance / depends / entry 未給時輸出與既有 parity fixture byte-identical）。
-    entry：這張卡是哪幾個切入點的判準卡（workflow/entrypoints.json 的代號），渲染為 `- Entry:`。
+    entry：切入點代號標記，渲染為 `- Entry:`。
     supersedes：本顆取代的舊 atom（被取代者不再注入、檔案保留）；None 或空 → 不輸出。
     provenance：來源（路徑／URL／commit），渲染為 `- Source:`（write_atom 的 source 是稽核白名單，故另名）。
     depends：壞滅緣條目（`path:<路徑>` 或自由文字），渲染為逗號清單 `- Depends:`。

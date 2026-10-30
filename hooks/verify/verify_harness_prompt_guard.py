@@ -68,7 +68,7 @@ def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 否決問句接判準卡會記 guard-entry，不落真 Logs
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 守門紀錄不落真 Logs
     cfg = {"userExtraction": {"enabled": True}}
     said = "先這樣。記住：一律使用 UTF-8。不要記。停用"
 
@@ -145,7 +145,7 @@ def _seven(prompt: str, monkeypatch) -> dict:
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 否決問句接判準卡會記 guard-entry，不落真 Logs
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 守門紀錄不落真 Logs
     st = {"failing_tests": [{"cmd": "pytest t_x.py"}], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
     lines = []
     g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, prompt, prompt.lower(), lines)
@@ -226,7 +226,6 @@ def test_mixed_messages_through_entry_order_gate(monkeypatch):
 
 def test_ups_entry_ide_preprocessing_keeps_nested_blocks_out(monkeypatch):
     import wg_friction
-    import wg_overview
     from handlers import user_prompt_submit as ups
     state, seen = {"turn_seq": 0}, []
     fakes = {
@@ -242,7 +241,6 @@ def test_ups_entry_ide_preprocessing_keeps_nested_blocks_out(monkeypatch):
     for name, fake in fakes.items():
         monkeypatch.setattr(ups, name, fake)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
     for raw in ("<ide_selection>a<ide_selection>b</ide_selection>上GIT</ide_selection>",          # 同名巢狀
                 "<ide_selection><cross-session-message>x</ide_selection>上GIT</cross-session-message>"):   # 和同伴標籤交錯
         seen.clear()

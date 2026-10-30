@@ -24,7 +24,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(CODE_ROOT))
 
 import wg_core  # noqa: E402
-import wg_entrypoint as ep  # noqa: E402
 import wg_evasion as wev  # noqa: E402
 import wg_extraction as wex  # noqa: E402
 import wg_friction as wf  # noqa: E402
@@ -45,7 +44,7 @@ DONE = "全部完成了"
 
 @pytest.fixture
 def logs(monkeypatch):
-    """guard log 收進 list：[(guard, payload)]。wg_core 那支給 import 時才取的呼叫端（entry_note、否決、realm、偵測器）。"""
+    """guard log 收進 list：[(guard, payload)]。wg_core 那支給 import 時才取的呼叫端（否決、realm、偵測器）。"""
     got = []
 
     def _log(guard, payload):
@@ -113,24 +112,9 @@ def test_quoted_declaration_in_prose_is_not_an_answer(logs):
     assert rr.yes_no_declaration("他說「糾正｜是：x」", "糾正") is None
 
 
-def test_question_moment_logs_guard_entry_for_each_new_entry(logs):
-    """問的那一刻（entry_note）認得出切入點、記 guard-entry ask：E38、E39、E40、E41。"""
-    asks = {
-        "user_prompt": [wf.correction_question(["不對"]), wex.extract_veto_question(["否"], [{"statement": "s"}])],
-        "stop_piggyback": [wh.harvest_block_message()],
-        "mcp_reply": ["衝突待宣告（這次不寫檔）：x", "atom_write: realm gate …\n" + rg.LITERAL_HINT],
-    }
-    for path, texts in asks.items():
-        for t in texts:
-            ep.entry_note(t, path, session_id=SID, state={}, pool=[])
-    got = {p["entry"] for g, p in logs if g == "entry" and p.get("event") == "ask"}
-    assert {"E38", "E39", "E40", "E41"} <= got
-
-
-def test_correction_question_is_entrypoint_e38():
+def test_correction_question_offers_both_declarations():
     q = wf.correction_question(["不對"])
     assert "糾正｜是：" in q and "糾正｜不是：" in q
-    assert [r["id"] for r in ep.match_entries(q, "user_prompt")] == ["E38"]
 
 
 def _transcript(user: str, assistant: str) -> str:
@@ -174,7 +158,6 @@ def test_veto_word_inside_question_keeps_notice_and_asks(logs, monkeypatch):
     assert state["extract_veto_pending"]["statements"] == ["表格一律用 UTF-8"]
     assert state["extract_veto_pending"]["atoms"] == ["/m/utf8.md"]
     assert state["confirmed_extractions"] == []
-    assert [r["id"] for r in ep.match_entries(q[0], "user_prompt")] == ["E39"]
 
 
 def test_veto_pending_keeps_every_written_card(logs, monkeypatch):
@@ -416,9 +399,8 @@ def test_pull_audit_llm_error_is_candidate_not_contradict(logs, monkeypatch, tmp
     assert "- Verdict: candidate" in report and "只是相似度候選" in report
 
 
-def test_conflict_rule_registered_as_entrypoint():
+def test_conflict_rule_registered():
     assert "CONFLICT_DECLARED_BY_AI" in rr.RULES
-    assert [r["id"] for r in ep.match_entries("衝突待宣告（這次不寫檔）：x", "mcp_reply")] == ["E40"]
 
 
 # ─── 5. PROJECT_LITERAL_IS_HINT ──────────────────────────────────────────────
@@ -436,7 +418,6 @@ def test_org_literal_only_rejects_with_hint_then_declared_passes(logs, no_regist
     """會紅：舊碼字面「此專案」一律擋、沒有宣告入口。現在擋訊息附寫法，帶 scope_reason 就照寫並留帳。"""
     errs = rg.check_org_write({"title": "scope-分界", "knowledge": [LITERAL]})
     assert errs and "PROJECT_LITERAL_IS_HINT" in "\n".join(errs)
-    assert [r["id"] for r in ep.match_entries("\n".join(errs), "mcp_reply")] == ["E41"]
     assert rg.check_org_write({"title": "scope-分界", "knowledge": [LITERAL]},
                               scope_reason="在講「此專案」這個詞本身怎麼判 scope，任何專案都適用") == []
     led = _events(logs, "realm_declared")
@@ -465,13 +446,11 @@ def test_global_gate_from_project_cwd(logs, no_registry, tmp_path):
     assert _events(logs, "realm_declared")[-1]["gate"] == "global"
 
 
-# ─── 規則表與登錄表 ─────────────────────────────────────────────────────────
+# ─── 規則表 ─────────────────────────────────────────────────────────
 
 def test_four_rules_registered_and_named():
     names = ("CORRECTION_WORDS_ARE_HINTS", "EXTRACT_VETO_NEEDS_JUDGMENT", "CONFLICT_DECLARED_BY_AI", "PROJECT_LITERAL_IS_HINT")
-    reg = ep.load_registry()
-    registered = {s for r in reg["entrypoints"] for s in r.get("rules") or []}
-    assert all(n in rr.RULES and n in registered for n in names)
+    assert all(n in rr.RULES for n in names)
 
 
 def test_conflict_declaration_verdict_pure():

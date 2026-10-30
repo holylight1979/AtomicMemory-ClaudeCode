@@ -4,7 +4,7 @@ handlers/post_tool_batch.py — PostToolBatch hook handler（選配 #4：壓縮�
 PostToolBatch：一批（含並行）工具呼叫全解析後觸發一次，於下個 model request 前（CC 2.1.159+；
 payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalContext）。
 
-職責：把 PostCompact stash 的 atom 復原內文、部位綜觀「一次性」注入，閉合 mid-turn auto-compact 缺口
+職責：把 PostCompact stash 的 atom 復原內文「一次性」注入，閉合 mid-turn auto-compact 缺口
 （壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；PreToolUse 沒攔到的提問事後提醒
 （wg_ask_gate）併進同一段送出；收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、
 交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）。
@@ -156,19 +156,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         part("知識收割", lambda: _closing_batch_reminders(state, sid, own, config, turn_seq, say))
     if green:   # 改過程式之後測試跑綠＝交付邊界（PICK_ONE_PRE_CLOSE）：該問就附那一問（該不該問、記問過在 wg_closing_round）
         part("最該修", lambda: _pick_on_green(cr, state, sid, config, input_data, lines))
-    part("判準卡", lambda: _remind_cards(lines, state, sid, config))
     return lines, changed or bool(lines)
-
-
-def _remind_cards(lines: List[str], state: Dict[str, Any], sid: str, config: Dict[str, Any]) -> None:
-    """提醒也是切入點（登錄表 paths 有 post_tool_hint 的列，例：第二意見、拐彎判斷、等值、最小地圖）：這批的提醒行一起問一次
-    判準卡，接在提醒後面；同一張卡每 session 只送一次全文（wg_entrypoint）。沒認出或沒卡就不加行。"""
-    if not lines:
-        return
-    from wg_entrypoint import entry_note
-    note = entry_note("\n".join(lines), "post_tool_hint", session_id=sid, state=state, config=config)
-    if note:
-        lines.append(note)
 
 
 def _pick_on_green(cr, state, sid, config, input_data, lines: List[str]) -> None:
@@ -325,7 +313,6 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     # idle 極輕路徑：pending 皆無、這批也沒有提問立即退出（每批觸發，杜絕常態開銷）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
-        or (v6 and state.get("pending_reinjection_overview"))
         or ask_due or close_parts or close_changed or remind_lines or remind_changed
     ):
         output_nothing()
@@ -349,13 +336,6 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                 state["injected_atoms"] = merged
             if blob:
                 parts.append(blob)
-
-        # (1b) 壓縮後 OverviewHub 綜觀重注（A2.2／A2.3）：順序 atom 內文先、綜觀後；一次性 pop
-        overview = state.pop("pending_reinjection_overview", None) if v6 else None
-        if v6:
-            state.pop("pending_reinjection_parts", None)
-        if overview:
-            parts.append(overview)
 
         # (2) Auto-Handoff 補全提示（Layer 3，與 (1) 合流同一 additionalContext）
         if state.get("pending_handoff_emit"):

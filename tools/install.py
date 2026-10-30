@@ -810,7 +810,7 @@ def verify_overview_map() -> Tuple[str, str]:
     TARGET 固定 Path.home()/.claude、不看 WG_CLAUDE_DIR：這是「已安裝版本」的驗證，worktree 的表由 verify 自己建假家測。"""
     path = TARGET / ".claude" / "overview-map.md"
     if not path.is_file():
-        return "DEGRADED", (f"根層部位表不存在（{path}），改根層的檔不會先注入導讀卡 → "
+        return "DEGRADED", (f"根層部位表不存在（{path}），量尺閘與讀檔帳認不出根層的部位 → "
                             "python ~/.claude/tools/overview-map-scaffold.py --cwd ~/.claude --write（預覽先不帶 --write）")
     try:
         import importlib.util

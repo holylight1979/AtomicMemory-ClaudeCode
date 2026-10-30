@@ -4,7 +4,6 @@ handlers/_shared.py — module-level state + 跨 handler 共用 helper
 共用：
 - regex 常數（_SUPERSEDES_RE / _V4_TRIGGER_LINE_RE / _MEMORY_MD_AUTO_HEADER）
 - lazy import flag（WISDOM_AVAILABLE / DOCDRIFT_AVAILABLE）
-- entry_note / with_note（切入點契約 hooks/wg_entrypoint；模組壞了退成不接卡，不拖垮閘）
 - _call_project_hook（subprocess invoke project hook）
 - _cleanup_old_states（state 檔 TTL 清理）
 - _is_ephemeral_path（路徑過濾）／note_ephemeral_skip（暫存目錄專案的寫入不記帳時，一個專案根說一次）
@@ -75,20 +74,6 @@ except ImportError:
     resolve_doc_update = None
     build_drift_advisory = None
     prune_committed_entries = None
-
-# 切入點契約（TECH §7.10）：Stop 擋訊息、PreToolUse deny、MCP 回覆、子代理 prompt 在問的那一刻接判準卡並留帳。
-# 這支壞了只能讓問句沒有卡，不能讓 handler 匯入失敗（那會讓整支 handler 的閘一起失效）→ 退成不接卡、浮 stderr。
-try:
-    from wg_entrypoint import entry_note, with_note
-except Exception as _entry_err:  # noqa: BLE001
-    print(f"[Guardian:Entrypoint] 載入失敗，這次不接判準卡：{type(_entry_err).__name__}: {_entry_err}", file=sys.stderr)
-
-    def entry_note(text: str, path: str, **_kw: Any) -> str:
-        return ""
-
-    def with_note(text: str, note: str) -> str:
-        return text
-
 
 # ─── AEC HUD 活性判定（post_tool_use 標旗 / stop 再查一次，兩端共用）─────────────
 
@@ -311,10 +296,10 @@ def _cleanup_old_states() -> None:
 # ─── workflow/ 執行紀錄保留規則表（SessionStart 照表清一次）─────────────────────
 # 每列：dir（相對 workflow/；"../Logs/…" 是 workflow 的上一層）｜patterns（只看該層，不往下找）｜kind＋param｜keep（保留多久，給人讀）｜why（為什麼刪了不會壞事）。
 # 依據：每類在 session 結束後還有沒有讀者、讀者看多久以前的資料。檔名含目前 session id 的一律不動（resume 回來還要用）。
-# kind：age＝mtime 超過 param 天就刪；aec_tempfiles／months／tracking_pairs＝下面同名的判斷；
+# kind：age＝mtime 超過 param 天就刪；aec_tempfiles／tracking_pairs＝下面同名的判斷；
 # rotate＝超過大小輪替；elsewhere＝規則在別支程式（param 寫在哪），表上只登記；keep＝永久保留。
 
-RETENTION_KINDS = ("age", "aec_tempfiles", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
+RETENTION_KINDS = ("age", "aec_tempfiles", "tracking_pairs", "rotate", "elsewhere", "keep")
 OVERVIEW_LOG_MAX_MB = 10
 
 WORKFLOW_RETENTION: List[Dict[str, Any]] = [
@@ -339,8 +324,6 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "keep": "7 天", "why": "只防同一 session 重複要求 post-mortem"},
     {"dir": "need-goal", "patterns": ("*.json", "*.tmp", "*.lock"), "kind": "age", "param": 30,
      "keep": "30 天", "why": "沒有程式寫入也沒有讀者，只清各機留下的舊檔"},
-    {"dir": "entry-sent", "patterns": ("*.json",), "kind": "age", "param": 7,
-     "keep": "7 天", "why": "只給同一 session 同一個話題判「這張判準卡送過全文了沒」用（wg_entrypoint CARD_ONCE_PER_TOPIC）"},
     {"dir": "git-launchers", "patterns": ("*.json",), "kind": "age", "param": 7,
      "keep": "7 天", "why": "只給同一 session 收尾判「這支是一次性 git 啟動器、不算改程式」用（wg_verify_ledger LAUNCHER_NOT_CODE）"},
     {"dir": "ups-sentinel", "patterns": ("*.json",), "kind": "age", "param": 7,
@@ -358,8 +341,6 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "keep": "留最新 200 份、超過 30 天也刪", "why": "對帳閘只讀最新 50 份"},
     {"dir": "usage-snapshots", "patterns": ("*-FAILED.png",), "kind": "age", "param": 30,
      "keep": "30 天", "why": "失敗診斷圖只看當次；用量 log 與成功截圖是成品，不刪"},
-    {"dir": "scorecard", "patterns": ("<YYYYMM>.jsonl",), "kind": "months", "param": 3,
-     "keep": "當月加前 2 個月", "why": "報表只讀近 4 週；candidates.json 不動"},
     {"dir": "tracking", "patterns": ("*.jsonl",), "kind": "tracking_pairs", "param": 90,
      "keep": "已結案的一對（開項＋結案）結案超過 90 天就拿掉；沒結案的永遠留",
      "why": "沒結案的就是這本帳存在的目的；結案的一對沒有程式再讀"},
@@ -373,7 +354,7 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "keep": "超過 10 MB 輪替成 .1～.3", "why": "沒有程式讀，只會一直長"},
     {"dir": "", "patterns": ("config.json", "followups.json", "org-memory.local.json", "health-last-run.json", "world-dev.json"),
      "kind": "keep", "param": None, "keep": "永久", "why": "設定與本機狀態"},
-    {"dir": "", "patterns": ("inbox/", "vcs-sync/", "usage-snapshots/usage-log.jsonl", "usage-snapshots/<成功截圖>", "scorecard/candidates.json"),
+    {"dir": "", "patterns": ("inbox/", "vcs-sync/", "usage-snapshots/usage-log.jsonl", "usage-snapshots/<成功截圖>"),
      "kind": "keep", "param": None, "keep": "永久", "why": "信件匣、版控同步佇列（鎖刻意不刪）、使用者的成品"},
 ]
 
@@ -443,16 +424,6 @@ def _prune_aec_tempfiles(d: Path, days: float, now: float, dry_run: bool, res: D
                 break
         if not alive:
             _rm(p, dry_run, res)
-
-
-def _prune_months(d: Path, months: int, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
-    """<YYYYMM>.jsonl 只留當月與前 months-1 個月（依檔名，不看 mtime）。"""
-    t = datetime.fromtimestamp(now)
-    idx = t.year * 12 + t.month - 1
-    keep = {f"{(i // 12):04d}{(i % 12) + 1:02d}" for i in range(idx - months + 1, idx + 1)}
-    for f in d.glob("*.jsonl"):
-        if re.fullmatch(r"\d{6}", f.stem) and f.stem not in keep:
-            _rm(f, dry_run, res)
 
 
 def _prune_tracking_pairs(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
@@ -542,8 +513,6 @@ def prune_workflow_records(wf: Optional[Path] = None, current_sid: str = "", now
                 _prune_age(d, row["patterns"], row["param"], now, current_sid, dry_run, res)
             elif kind == "aec_tempfiles":
                 _prune_aec_tempfiles(d, row["param"], now, dry_run, res)
-            elif kind == "months":
-                _prune_months(d, row["param"], now, dry_run, res)
             elif kind == "tracking_pairs":
                 _prune_tracking_pairs(d, row["param"], now, dry_run, res)
             elif kind == "rotate":

@@ -27,7 +27,6 @@
   "b:overview_hub.PYTHONIOENCODING": "HUB_DEFAULTS 變量（預計畫附錄 D）只被 hub_config 驗證、沒有使用端 → 決定要接（commit／子程序編碼）或從 HUB_DEFAULTS 與 config 刪。中（設了不生效）",
   "b:overview_hub.commit_encoding": "同 PYTHONIOENCODING：只被驗證、沒有使用端 → 接或刪。中",
   "b:overview_hub.eol_policy": "同上：只被驗證、沒有使用端 → 接或刪。中",
-  "b:overview_hub.min_overview_evidence.card": "刻意：驗證器強制必為 true（讀導讀卡不可關），程式本來就不讀 → 免修（可在 TECH 註明「只驗不讀」）",
   "b:overview_hub.path_bases": "只被驗證（validate_path_bases）、沒有使用端 → 接或刪。中",
   "b:overview_hub.source_encodings": "只被驗證、沒有使用端 → 接或刪。中",
   "b:overview_hub.vcs_roots": "只被驗證、沒有使用端 → 接或刪。中",

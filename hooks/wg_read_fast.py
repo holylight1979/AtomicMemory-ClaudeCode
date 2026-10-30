@@ -2,8 +2,8 @@
 
 做什麼：settings.json 的 PostToolUse matcher 掛了 Read，AI 每讀一個檔就起一支 hook 行程；走完整 handler 要載 wg_core 等一整串
 模組（約 0.3～0.5 秒）。dispatcher 一進門看到 PostToolUse＋Read 就只做這裡的事：把這次讀檔（session、路徑、cwd、時間、結果大小）
-追加到 `workflow/read-log-<sid>.jsonl` 就結束，一個重模組都不載。原本靠 Read 的 PostToolUse 做的事（OverviewHub on_read 記讀過與
-第一次讀該部位的一行定位提示、動資料檔讀提示、Depends 召回、工具結果體積、救援命中）
+追加到 `workflow/read-log-<sid>.jsonl` 就結束，一個重模組都不載。原本靠 Read 的 PostToolUse 做的事（OverviewHub 讀檔帳、
+動資料檔讀提示、Depends 召回、工具結果體積、救援命中）
 改在下一個非 Read 事件（任何工具的 PreToolUse、非 Read 的 PostToolUse、SessionEnd）先 drain 這份 log、逐筆交給既有函式補帳——
 結果一樣、晚一個事件出現；提示隨那個事件的工具結果附上（PreToolUse 補出來的先存 state["read_replay_hints"]，下一個 PostToolUse 送）。
 Bash／PowerShell／Grep 的唯讀照走原路徑。寫碼守門關、守門整個關：補帳端照 dispatcher 原本的判法丟掉（Read 本來就不進 handler）。

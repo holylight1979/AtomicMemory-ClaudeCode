@@ -163,7 +163,7 @@ DEPENDS_BRANCH = 'if v6 and not degraded and tool_name in ("Read", "Bash", "Powe
 HUB_V6_TOOLS = '(("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash"))'   # 導讀卡那支：v6 關時照舊只收 Read／Bash
 
 
-READ_HANDLERS = ("_hub_on_read", "_on_read_depends")   # 導讀卡、Depends 召回
+READ_HANDLERS = ("record_reads", "_on_read_depends")   # 讀檔帳、Depends 召回
 
 
 def _module_consts(tree: ast.Module) -> dict:
@@ -218,10 +218,9 @@ def check_read_branches(src: str) -> None:
     assert not unguarded, f"這些讀檔處理器不在讀檔分支裡（分支被改寫成抓不到的寫法？）：{unguarded}"
 
 
-def test_post_tool_use_calls_depends_after_hub():
+def test_post_tool_use_calls_depends_after_read_ledger():
     src = POST_TOOL_USE.read_text(encoding="utf-8")
-    assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("ctx.append(dep_ctx)")
-    assert src.index("ctx.append(hub_ctx)") < src.index("ctx.append(dep_ctx)")   # hub 文字先、召回後（同一個 ctx 清單）
+    assert src.index("record_reads(") < src.index("on_read_depends(") < src.index("ctx.append(dep_ctx)")   # 讀檔帳先記、召回後
     check_read_branches(src)
 
 

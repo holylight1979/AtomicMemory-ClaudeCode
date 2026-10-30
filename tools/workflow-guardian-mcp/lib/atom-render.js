@@ -92,7 +92,7 @@ function buildAtomContent({
   if (depends && depends.length > 0) {
     lines.push(`- Depends: ${depends.join(", ")}`);
   }
-  // Entry：這張卡是哪幾個切入點的判準卡（workflow/entrypoints.json 的代號）；未給／空陣列不輸出。
+  // Entry：切入點代號標記；未給／空陣列不輸出。
   if (entry && entry.length > 0) {
     lines.push(`- Entry: ${entry.join(", ")}`);
   }
