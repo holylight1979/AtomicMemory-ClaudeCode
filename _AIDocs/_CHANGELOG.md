@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-30 程式需求的思考細則改成碰到程式檔才載入
+- **緣由**：IDENTITY 的設定衝突處置與綜觀細則、coding-style 全檔每場都載入（必載約 8,000 tok，比 10/8 多 30%），一般對談也在付；使用者指出它們本來只針對程式需求。
+- **做法**：IDENTITY 那段縮成兩句（使用者目標是定點、衝突問改不改那一條；程式需求讀程式前先寫目標原話與最簡形狀）；細則搬到新的 `rules/code-thinking.md`，它與 `rules/coding-style.md` 都加 `paths:`（程式檔副檔名），由 Claude Code 在讀改程式檔時才載入。新檔登記進必載硬契約。每場常駐約 8,000 → 4,850 tok；碰到程式檔時再加約 3,560。
+- **驗證**：verify_always_load_contracts、verify_rules_sentinel 23 案綠、本機契約檢查無告警；條件載入要重載後實測（讀 .py 有載入、一般問答沒有）。
+
 ## 2026-10-30 新 skill `/token`：量 session 實際處理了多少 token（含子代理、不換美金）
 - **緣由**：比較兩場（例如守門開／關）要看實際用了多少 token；`skill-cost-measure.py` 逐行加總 usage，同一則回覆拆成多行會重複算，也不含子代理。
 - **做法**：新共用模組 `lib/transcript_tokens.py`（session id 前綴或 .jsonl 找 transcript、收 `subagents/`、按 message.id 只算一次、首末時間→分鐘）；`skills/token/scripts/token_usage.py` 預設量目前 session（`CLAUDE_CODE_SESSION_ID`，沒有就用 cwd 對應資料夾最近一份），可多目標列表、`--json`，尾行 `TOKENS DONE sessions=<n>`。`skill-cost-measure.py` 改用同一套去重（輸出形狀與 before／after 桶不變），數字會比以前低——以前是重複計算：守門關那場 assistant_turns 77→22、cache_read 6,152,840→1,807,972；`--latest` 不再挑到子代理檔。
