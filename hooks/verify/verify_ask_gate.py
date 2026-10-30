@@ -341,17 +341,22 @@ def test_pre_tool_use_entry_reminds_missing_recommendation_blocks_when_v6_off(wo
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ok, "r2"), {}) is None
 
 
-def test_pre_tool_use_broken_gate_reminds_normal_question(world, monkeypatch):
-    """提問前檢查自己壞了（規則 GATE_SELF_ERROR，v6 開）→ 不擋：stderr＋守門紀錄 ask_error、記一件待提醒；v6 關照契約擋（fail-closed）。"""
+def test_pre_tool_use_broken_gate_reminds_normal_question(world, monkeypatch, capsys):
+    """提問前檢查自己壞了（規則 GATE_SELF_ERROR，v6 開）→ 不擋：stderr 照實說照問＋守門紀錄 ask_error、記一件待提醒；
+    v6 關照契約擋（fail-closed），stderr 說擋。"""
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
     _broken_gate(monkeypatch)
+    capsys.readouterr()
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), {}) is None
+    err_on = capsys.readouterr().err
+    assert "提問前檢查失敗（不擋，這題照問" in err_on and "（擋）" not in err_on, err_on
     assert [(g["event"], g["rule"]) for g in guard(world) if g["event"] == "ask_error"] == [("ask_error", "GATE_SELF_ERROR")]
     assert _pending_rules() == ["GATE_SELF_ERROR"]
     monkeypatch.setenv("WG_V6", "0")
     out = run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), {})
     assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "提問前檢查壞了" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "提問前檢查失敗（擋）" in capsys.readouterr().err
 
 
 def test_pre_tool_use_broken_gate_still_lets_real_release_question_through(world, monkeypatch):

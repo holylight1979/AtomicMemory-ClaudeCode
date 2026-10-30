@@ -1796,7 +1796,9 @@ def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]
             sys.stderr.write(f"[Guardian:Ask] 放行題判定也壞了，退回只看標記：{type(rr_err).__name__}: {rr_err}\n")
             release_only = wg_release.RELEASE_TAG in json.dumps(raw_input, ensure_ascii=False)
         release = tool_name == "AskUserQuestion" and release_only and wg_release.pending_any(state, sid)
-        sys.stderr.write(f"[Guardian:Ask] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
+        self_block = _rr.gate_mode("GATE_SELF_ERROR", v6_enabled(config)) == _rr.BLOCK
+        outcome = "放行題照放" if release else ("擋" if self_block else "不擋，這題照問，下一個工具結果附一行提醒")
+        sys.stderr.write(f"[Guardian:Ask] 提問前檢查失敗（{outcome}）：{err}\n")
         try:
             from wg_core import append_guard_log
             append_guard_log("ask", {"event": "ask_error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name,
@@ -1806,7 +1808,7 @@ def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]
         if release:
             output_nothing()
             return
-        if _rr.gate_mode("GATE_SELF_ERROR", v6_enabled(config)) == _rr.BLOCK:
+        if self_block:
             _deny(input_data, config, (f"[Guardian:Ask] 提問前檢查壞了，判不了這題有沒有附推薦，一律擋（{err}）。"
                                        "修好 hooks/wg_ask_gate.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
             return
