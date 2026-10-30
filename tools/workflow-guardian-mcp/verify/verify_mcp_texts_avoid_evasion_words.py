@@ -205,7 +205,7 @@ def test_extractor_sees_known_ai_facing_texts():
     texts = _counted_texts()
     assert len(texts) > 1000, len(texts)
     joined = "\n".join(t for _r, _l, t in texts)
-    for needle in ("階段完工知識收割回報", "add＝再長的子目標","項是搬移前就有的（這次搬移沒造成；",
+    for needle in ("階段完工知識收割回報", "收尾檢核已提交", "項是搬移前就有的（這次搬移沒造成；",
                    "Atom not found: ", "不寫病灶文件"):
         assert needle in joined, f"切分器沒切到已知會回給 AI 的字串：{needle}"
 

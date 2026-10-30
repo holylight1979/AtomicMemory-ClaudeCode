@@ -515,7 +515,7 @@ from wg_release_rules import HEREDOC_MARK as _HEREDOC_MARK, strip_heredoc_bodies
 
 def _git_commits_to_run(command: str, cwd: str = "",
                         shell: str = "") -> Tuple[str, List[Tuple[str, List[str]]], bool]:
-    """命令裡真的會執行的 git commit（CommitOrder、病形閘與需求目標 commit_gate 共用這一支）：先剝 heredoc 本文，寫在
+    """命令裡真的會執行的 git commit（CommitOrder 與病形閘共用這一支）：先剝 heredoc 本文，寫在
     文件裡的 commit 範例不算、heredoc 結束後真的執行的照算。回（剝過的命令、直接拆得出的 commit 段（git 別名展開後是
     commit 的也算）、有沒有 commit：拆得出段，或 `!` shell 別名、包裝／展開裡可能有）。快篩只看 git 字樣（別名的
     命令裡沒有 commit 字樣），與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。cwd＝tool cwd，
@@ -1785,10 +1785,10 @@ def _chain_halt(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: s
     return chain_store.halt(chain[0], chain[1], tool_name, input_data, config, readonly=readonly)
 
 
-def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """需求目標 4.4（AskUserQuestion／ExitPlanMode 前）：有目標樹就要題目或計畫裡寫節點編號；寫碼類沒寫 deny 並列節點，
-    知識類與還沒有樹只補提示（wg_need_goal_points.on_ask）。子代理不跑（裁判子 session 由 dispatcher 分去
-    handle_judge_pre_tool_use，到不了這裡）。處理過的提問記進 state["need_goal_asks"]，PostToolBatch 就不再事後處理。
+def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """提問閘（AskUserQuestion／ExitPlanMode 前，wg_ask_gate.on_ask_full）：沒附推薦照 GATE_MODE_TABLE 擋或改提醒，
+    問改法而還沒讀過部位檔附一句。子代理不跑（裁判子 session 由 dispatcher 分去 handle_judge_pre_tool_use，到不了這裡）。
+    處理過的提問記進 state["ask_handled"]，PostToolBatch 就不再事後處理。
     這支本身炸了 → 照契約擋＋stderr＋守門紀錄 ask_error；只放過【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目
     （放行題問不出去，收尾就死鎖）。"""
     sid = input_data.get("session_id", "") or ""
@@ -1797,13 +1797,9 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
         return
     import wg_release
     try:
-        import wg_need_goal as _ng
-        from wg_need_goal_points import mark_asked, note_ask_blocked, on_ask_full
+        from wg_ask_gate import mark_asked, note_ask_blocked, on_ask_full
         from wg_core import write_state
         state, status = read_state_status(sid)
-        if not _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
-            output_nothing()
-            return
         tool_input = input_data.get("tool_input") or {}
         deny, hint, hits = on_ask_full(sid, tool_name, tool_input, state or {})
         v6 = v6_enabled(config)
@@ -1816,11 +1812,11 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
             if remind:
                 from wg_overview import remind_hit
                 for h in hits:
-                    _remind_later(input_data, state, remind_hit(h["rule"], "", h["what"], h["fix"]), "need_goal")
+                    _remind_later(input_data, state, remind_hit(h["rule"], "", h["what"], h["fix"]), "ask")
             write_state(sid, state)
         elif remind:                              # state 讀不到：只留帳＋stderr（提醒送不出去）
             from wg_overview import remind_hit
-            _remind_later(input_data, None, remind_hit(hits[0]["rule"], "", hits[0]["what"], hits[0]["fix"]), "need_goal")
+            _remind_later(input_data, None, remind_hit(hits[0]["rule"], "", hits[0]["what"], hits[0]["fix"]), "ask")
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         state = read_state(sid) or {}
@@ -1829,27 +1825,27 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
             release_only = _rr.ask_release_only(raw_input, wg_release.RELEASE_TAG,
                                                 (wg_release.OPT_RELEASE, wg_release.OPT_KEEP))
         except Exception as rr_err:  # noqa: BLE001
-            sys.stderr.write(f"[NeedGoal] 放行題判定也壞了，退回只看標記：{type(rr_err).__name__}: {rr_err}\n")
+            sys.stderr.write(f"[Guardian:Ask] 放行題判定也壞了，退回只看標記：{type(rr_err).__name__}: {rr_err}\n")
             release_only = wg_release.RELEASE_TAG in json.dumps(raw_input, ensure_ascii=False)
         release = tool_name == "AskUserQuestion" and release_only and wg_release.pending_any(state, sid)
-        sys.stderr.write(f"[NeedGoal] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
+        sys.stderr.write(f"[Guardian:Ask] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
         try:
             from wg_core import append_guard_log
-            append_guard_log("need_goal", {"event": "ask_error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name,
+            append_guard_log("ask", {"event": "ask_error", "rule": "GATE_SELF_ERROR", "session_id": sid, "tool": tool_name,
                                            "error": err, "released": release})
         except Exception as log_err:  # noqa: BLE001
-            sys.stderr.write(f"[NeedGoal] ask_error 守門紀錄寫不進去：{type(log_err).__name__}: {log_err}\n")
+            sys.stderr.write(f"[Guardian:Ask] ask_error 守門紀錄寫不進去：{type(log_err).__name__}: {log_err}\n")
         if release:
             output_nothing()
             return
         if _rr.gate_mode("GATE_SELF_ERROR", v6_enabled(config)) == _rr.BLOCK:
-            _deny(input_data, config, (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
-                                       "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
+            _deny(input_data, config, (f"[Guardian:Ask] 提問前檢查壞了，判不了這題有沒有附推薦，一律擋（{err}）。"
+                                       "修好 hooks/wg_ask_gate.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。"))
             return
         # 規則 GATE_SELF_ERROR：閘自己壞＝判不了 → 不擋，下一個工具結果附一行、stderr 與 ask_error 留帳已在上面
-        hit = {"rule": "GATE_SELF_ERROR", "obj": "need_goal_ask", "what": f"提問前檢查壞了，判不了這題掛哪個節點（{err}）",
-               "fix": "修好 hooks/wg_need_goal*.py；這題照問", "extra": ""}
-        if _remind_later(input_data, state if state.get("session") else None, hit, "need_goal"):
+        hit = {"rule": "GATE_SELF_ERROR", "obj": "ask", "what": f"提問前檢查壞了，判不了這題有沒有附推薦（{err}）",
+               "fix": "修好 hooks/wg_ask_gate.py；這題照問", "extra": ""}
+        if _remind_later(input_data, state if state.get("session") else None, hit, "ask"):
             from wg_core import write_state as _ws_err
             _ws_err(sid, state)
         output_nothing()
@@ -1907,9 +1903,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                                             "permissionDecisionReason": _halt}})
         return
 
-    # 需求目標 4.4：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
+    # 提問閘：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
     if tool_name in ("AskUserQuestion", "ExitPlanMode"):
-        _need_goal_ask(tool_name, input_data, config)
+        _ask_gate(tool_name, input_data, config)
         return
 
     # 改判準卡：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
@@ -2141,57 +2137,19 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
-    # 缺了就擋；核對本身出錯不擋（stderr＋留帳 commit_gate_error，規則 GATE_SELF_ERROR）。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
-    if v6 and tool_name in ("Bash", "PowerShell"):
-        _ng_cmd = tool_input.get("command", "") or ""
-        if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
-                or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"})):
-            try:
-                from wg_need_goal import commit_gate
-                deny_reason = commit_gate(_co_sid, config, _co_state, input_data.get("transcript_path", "") or "")
-            except Exception as e:
-                deny_reason = None
-                err = f"{type(e).__name__}: {e}"
-                sys.stderr.write(f"[NeedGoal] commit 前核對需求目標時出錯（這次不擋，已留帳）：{err}\n")
-                append_guard_log("need_goal", {"event": "commit_gate_error", "rule": "GATE_SELF_ERROR", "session_id": _co_sid,
-                                               "tool": tool_name, "command": _ng_cmd[:300], "error": err})
-            if deny_reason and _rr.gate_mode("COMMIT_GOAL_RECONCILED", v6) == _rr.BLOCK:
-                _deny(input_data, config, deny_reason)
-                return
-            if deny_reason:
-                # 規則 COMMIT_GOAL_RECONCILED（remind）：commit 照跑，那則 Bash 的工具結果附一行；每棵樹一次
-                try:
-                    from wg_need_goal import load as _ng_load
-                    _tree = str(_ng_load(_co_sid).get("active") or "")
-                except Exception:  # noqa: BLE001
-                    _tree = ""
-                from wg_overview import remind_hit
-                _what = " ".join(ln.strip() for ln in deny_reason.splitlines()[1:3] if ln.strip()) or deny_reason.splitlines()[0]
-                if _remind_later(input_data, _co_state, remind_hit("COMMIT_GOAL_RECONCILED", _tree, f"commit 前的目標對照沒過：{_what}",
-                                                                   "改到的部位補定位第四行（目標對照由程式代填，不必呼叫 reconcile）"),
-                                 "need_goal", command=_ng_cmd[:300]):
-                    from wg_core import write_state as _ws_cg
-                    _ws_cg(_co_sid, _co_state)
-
     # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足照 RULE_MODE 擋或提醒（規則 GATE_MODE_TABLE）。
     # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
     # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
     hub_warn = None if v6 else _pre_v6_hub_warn(input_data, config, tool_name, tool_input, _co_sid, _co_state)
     if v6 and tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
-        hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；目標樹、state、環境的擋不報
+        hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；state、環境的擋不報
         _hub_state = _co_state
         try:
-            from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,
-                                 write_state as _ws)
-            from wg_overview import edit_check as _hub_edit_check, remind_hit as _remind_hit
-            from wg_need_goal import TEXT_SET_FORMAT as _ng_fmt, edit_gate as _ng_edit_gate, set_via_text as _ng_set_via_text
+            from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
+            from wg_overview import edit_check as _hub_edit_check
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
-                # 需求目標判「是不是改程式」另看 cp／mv 的來源與 Write 要寫的內容（目的地還不存在、新建的腳本沒副檔名）
-                _ng_sources = write_sources_from_tool(tool_name, tool_input, _cwd)
-                _ng_content = tool_input.get("content") if tool_name == "Write" else None
                 _hub_state = _co_state
                 if _hub_state is None and _co_sid and _co_status == "missing":
                     _hub_state = _hub_ensure_state(_co_sid, input_data, config)
@@ -2202,26 +2160,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 hub_changed = False
                 _once = False
                 for _hub_fp in _hub_targets:
-                    # 需求目標第一層（4.2）：寫碼類檔沒有目標樹，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）；
-                    # 送法照 RULE_MODE（CODE_EDIT_NEEDS_GOAL_TREE 提醒；目標檔損毀／判定出錯＝GATE_SELF_ERROR）。
-                    # 先看 transcript 本回合有沒有「目標｜」行（規則 TREE_SET_VIA_TEXT）：有就照它立樹，不必多一個 need_goal 工具回合
-                    _ng_line, _ng_changed = _ng_set_via_text(
-                        _co_sid, _hub_state, _hub_fp, config, input_data.get("transcript_path", "") or "",
-                        str(input_data.get("agent_id") or ""), _cwd, _ng_sources.get(_hub_fp, ()), _ng_content)
-                    hub_changed = hub_changed or _ng_changed
-                    if _ng_line:
-                        _hub_warns.append(_ng_line)
-                    _ng_deny = _ng_edit_gate(_co_sid, _hub_fp, config, _ng_sources.get(_hub_fp, ()), _ng_content)
-                    if _ng_deny:
-                        _ng_rule = "GATE_SELF_ERROR" if ("目標檔損毀" in _ng_deny or "時出錯" in _ng_deny) else "CODE_EDIT_NEEDS_GOAL_TREE"
-                        if _rr.gate_mode(_ng_rule, v6) == _rr.BLOCK:
-                            hub_deny = _ng_deny
-                            break
-                        _ng_hit = (_remind_hit(_ng_rule, "need_goal_edit", _ng_deny.splitlines()[0], "need_goal(action=set, goal=…) 重寫樹")
-                                   if _ng_rule == "GATE_SELF_ERROR" else
-                                   _remind_hit(_ng_rule, "", "改程式檔前這個需求還沒有目標樹",
-                                               f"寫一行「{_ng_fmt}」（子目標每件一行「子目標｜…」），{_rr.DECL_WHERE_SHORT}，hook 照它立樹"))
-                        hub_changed = _remind_later(input_data, _hub_state, _ng_hit, "need_goal", path=_hub_fp) or hub_changed
                     _w, _d, _c, _hit = _hub_edit_check(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
                         agent_id=str(input_data.get("agent_id") or ""), tool_use_id=str(input_data.get("tool_use_id") or ""),

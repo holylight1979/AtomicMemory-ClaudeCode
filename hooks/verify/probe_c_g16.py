@@ -3,8 +3,6 @@
 情境：
   P1 沒推薦的提問被 PreToolUse 擋（印 ASK_NEEDS_RECOMMENDATION 與照抄範例）→ 照抄加 (Recommended) 放行
   P2 【收尾放行確認】固定兩選項的放行題不因推薦被擋
-  P3 還沒有目標樹（記憶知識類）提問不擋，PostToolBatch 審計記「提問未掛目標（知識類）」
-  P4 寫碼類目標樹：題目沒指節點被擋（印 ASK_LINKED_TO_GOAL）→ 引用節點原文 8 字以上放行
   P5 部位表兩部位：讀了 A 部位的檔、問 B 部位某檔的改法 → 提醒句點名 B 讀過 0 檔；讀過 B 再問 → 不提醒（裁定 #39）
 資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄與探針專案都放在 <本樹>/workflow/need-goal/_probe_c_g16/
 （不進版控），每次跑前清空；程式碼用本檔所在的樹，不碰 live。
@@ -28,7 +26,6 @@ PROJ = BASE / "proj"
 SID = f"probe-cg16-{uuid.uuid4().hex[:8]}"
 TP = BASE / "transcript.jsonl"
 FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-NG = "mcp__workflow-guardian__need_goal"
 RELEASE_TAG, OPT_RELEASE, OPT_KEEP = "【收尾放行確認】", "放行這一回合", "繼續擋，先修好"
 
 
@@ -57,12 +54,6 @@ def deny(out: dict) -> str:
 def ask(question: str, labels) -> dict:
     return {"questions": [{"question": question, "header": "選擇", "multiSelect": False,
                            "options": [{"label": l, "description": f"{l} 的說明"} for l in labels]}]}
-
-
-def audits() -> list:
-    p = BASE / "logs" / "guard-need_goal.jsonl"
-    rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
-    return [r for r in rows if r.get("event") == "ask_audit" and r.get("session_id") == SID]
 
 
 def main() -> int:
@@ -101,30 +92,12 @@ def main() -> int:
     out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=rel, tool_use_id="p2")
     step("P2 放行確認題不因推薦被擋", not deny(out), json.dumps(out, ensure_ascii=False))
 
-    hook("PostToolBatch", tool_calls=[{"tool_name": "AskUserQuestion", "tool_input": ok_ask, "tool_use_id": "p1b"}])
-    notes = [a.get("note") for a in audits()]
-    step("P3 沒樹提問不擋、審計記「提問未掛目標（知識類）」", notes == ["提問未掛目標（知識類）"], json.dumps(audits(), ensure_ascii=False))
-
-    hook("PostToolUse", tool_name=NG, tool_input={"action": "set", "goal": "匯出能出 CSV，舊的 JSON 匯出不能壞"},
-         tool_response={"content": [{"type": "text", "text": "[NeedGoal] set 已收到"}]})
-    hook("PostToolUse", tool_name=NG, tool_input={"action": "add", "items": [{"text": "CSV 欄位跟 JSON 用同一份欄位定義"}]},
-         tool_response={"content": [{"type": "text", "text": "[NeedGoal] add 已收到"}]})
-    goal = ROOT / "workflow" / "need-goal" / f"{SID}.json"
-    doc = json.loads(goal.read_text(encoding="utf-8"))
-    doc["trees"][doc["active"]]["kind"] = "code"          # 改過程式檔的樹（探針直接標，不走改檔流程）
-    goal.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
-    out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=ask("欄位要放哪？", ["A (Recommended)", "B"]), tool_use_id="p4a")
-    step("P4 寫碼類題目沒指節點被擋、印 ASK_LINKED_TO_GOAL", "ASK_LINKED_TO_GOAL" in deny(out), json.dumps(out, ensure_ascii=False))
-    out = hook("PreToolUse", tool_name="AskUserQuestion",
-               tool_input=ask("為了「欄位跟 JSON 用同一份」，欄位要放哪？", ["A (Recommended)", "B"]), tool_use_id="p4b")
-    step("P4 引用節點原文 8 字以上放行", not deny(out), json.dumps(out, ensure_ascii=False))
-
     def read(rel: str) -> None:
         hook("PostToolUse", tool_name="Read", tool_input={"file_path": str(PROJ / rel)}, tool_response={"type": "text"})
 
     for rel in ("src/a/one.py", "src/a/two.py"):          # 第一次讀注入導讀卡，第二次才記進 part_files_read
         read(rel)
-    q5 = ask(f"T1.1 {PROJ / 'src' / 'b' / 'x.py'} 要用哪個改法？", ["A (Recommended)", "B"])
+    q5 = ask(f"{PROJ / 'src' / 'b' / 'x.py'} 要用哪個改法？", ["A (Recommended)", "B"])
     out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=q5, tool_use_id="p5a")
     step("P5 讀 A 問 B：提醒句點名乙部位讀過 0 檔、不擋",
          not deny(out) and "先讀過部位檔再問" in ctx(out) and "→部位 乙部位，本回合該部位讀過 0 檔" in ctx(out),

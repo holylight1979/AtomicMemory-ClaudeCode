@@ -21,89 +21,6 @@ import wg_core  # noqa: E402
 import wg_release_rules as rr  # noqa: E402
 
 
-@pytest.fixture()
-def ng_env(tmp_path, monkeypatch):
-    """tmp 資料根的目標檔；回 (ng, op, receipt, edit, logs)。"""
-    import wg_need_goal as ng
-    logs = []
-    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append((name, rec)))
-    proj = tmp_path / "proj"
-    proj.mkdir()
-
-    def op(action, turn=1, **kw):
-        return ng.apply_op("s", turn, {"action": action, **kw}, str(proj))
-
-    def receipt(green=True):
-        def fn(doc):
-            seq = ng.next_seq(doc)
-            doc.setdefault("receipts", []).append({"seq": seq, "cmd": "pytest tests", "cases": [],
-                                                   "verdicts": [f"pytest:{'PASS' if green else 'FAIL'}"],
-                                                   "exit": 0 if green else 1, "turn": 1})
-            return seq
-        return ng.update_locked("s", fn)
-
-    def edit(name="a.py"):
-        ng.stamp_edit("s", str(proj / name), "", 1, {})
-    return ng, op, receipt, edit, logs
-
-
-# ─── 交出前先對原話（拿掉） ─────────────────────────────────────
-
-def test_handout_check_removed_everywhere(ng_env):
-    """每則訊息、完整對照收下、改計畫類文件、收尾檢核收下都不再送「交出前先對原話」。"""
-    ng, op, receipt, edit, _ = ng_env
-    import wg_need_goal_points as ngp
-    assert not hasattr(ng, "HANDOUT_CHECK") and not hasattr(ng, "handout_check_text")
-    assert not hasattr(ngp, "handout_edit_line")
-    op("set", goal="改 a")
-    line = ng.on_prompt("s", "再改一下", 2, {}, cwd="")
-    assert "交出計畫" not in str(line)
-    r = op("reconcile", items=[{"id": "T1", "status": "none", "followup": "下次"}])
-    assert "交出計畫" not in r["text"]
-
-
-# ─── 完整對照降成只記錄（程式照收據代填） ───────────────────────────
-
-def test_reconcile_filled_by_program_when_gate_off(ng_env):
-    """閘關著（goal_gate=false）時交付邊界由程式代填：改動之後有綠收據 → 達成；沒有 → 部分＋followup 等 AI 補（舊碼不代填 → 紅）。"""
-    ng, op, receipt, edit, _ = ng_env
-    op("set", goal="改 a 跟 b", items=[{"text": "a 改好"}, {"text": "b 改好"}])
-    ng.update_locked("s", lambda d: d["trees"]["T1"].setdefault("kind", "code"))
-    edit("a.py")
-    receipt(True)
-    assert ng.goal_gate_reason("s", True, {"reconcile_gate": {"goal_gate": False}}) is None
-    tree = ng.active_tree(ng.load("s"))
-    assert tree["last_reconcile"]["by"] == "program"
-    assert tree["nodes"]["T1"]["status"] == "done" and tree["nodes"]["T1"]["evidence"][0]["by"] == "program"
-    edit("b.py")                                   # 改了又沒重跑：下一次代填標部分、等 AI 補 followup
-    ng.goal_gate_reason("s", True, {"reconcile_gate": {"goal_gate": False}})
-    node = ng.active_tree(ng.load("s"))["nodes"]["T1"]
-    assert node["status"] == "partial" and node["followup"] == ng.AUTO_FOLLOWUP
-
-
-def test_program_fill_does_not_override_ai_reconcile(ng_env):
-    """反例：AI 自己交了「部分」與 followup，之後程式代填不蓋它。"""
-    ng, op, receipt, edit, _ = ng_env
-    op("set", goal="改 a")
-    ng.update_locked("s", lambda d: d["trees"]["T1"].setdefault("kind", "code"))
-    edit("a.py")
-    receipt(True)
-    r = op("reconcile", items=[{"id": "T1", "status": "partial", "followup": "等使用者給格式",
-                                "evidence": [{"kind": "receipt", "ref": "latest", "level": "measured"}]}])
-    assert r["ok"], r.get("rejected")
-    edit("a.py")
-    receipt(True)
-    ng.goal_gate_reason("s", True, {"reconcile_gate": {"goal_gate": False}})
-    node = ng.active_tree(ng.load("s"))["nodes"]["T1"]
-    assert node["status"] == "partial" and node["followup"] == "等使用者給格式"
-
-
-def test_reconcile_description_no_longer_demands_it():
-    js = (ROOT / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
-    assert "宣告完成、交收尾檢核、commit 前要有完整對照" not in js and "交付時程式照收據代填" in js
-
-
 # ─── 收據防偽造（拿掉） ──────────────────────────────────────────
 
 def test_receipt_shape_no_longer_disqualifies():
@@ -119,21 +36,6 @@ def test_receipt_shape_no_longer_disqualifies():
 def test_verify_ledger_dir_writable():
     from handlers import pre_tool_use as pt
     assert not hasattr(pt, "check_verify_ledger_write")
-
-
-# ─── 定位：兩候選保留判斷、一回合問一次；第四行節點只記錄 ──────────────
-
-def test_two_candidates_asked_once_goal_node_only_logged(monkeypatch):
-    import wg_need_goal as ng
-    import wg_overview as wo
-    monkeypatch.setattr(ng, "_guard", lambda *a, **k: None)
-    tree = {"id": "T1", "nodes": {"T1": {"text": "列出產品", "status": "doing"}}}
-    good = "合理，因為這段只做一件事；同類還可能在哪：無，因為只有這一處"
-    state = {"turn_seq": 3, "turn_prompts_seq": 3}
-    node, owed = wo._goal_line_check(tree, {"根因": "在 cli 層", "批判": good}, "s", state)
-    assert node == "T1" and owed and owed[0].rule == "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"     # 沒第四行：掛樹根、兩候選照問
-    assert wo._goal_line_check(tree, {"根因": "在 cli 層", "批判": good}, "s", state)[1] is None    # 同一回合第二次：只記
-    assert wo._goal_line_check(tree, {"根因": "候選 A cli；候選 B report；選 A 因為入口在 cli", "批判": "x"}, "s", state)[1]  # 批判照擋
 
 
 # ─── 收尾問一句；拿掉逐件引原句 ────────────────────────────────
@@ -181,17 +83,6 @@ def test_locate_lines_not_duplicated_into_tool_args():
     assert "保險做法" not in src
 
 
-def test_ask_unlinked_to_goal_not_blocked(monkeypatch):
-    import wg_need_goal as ng
-    import wg_need_goal_points as ngp
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": "T1", "trees": {"T1": {"id": "T1", "kind": "code", "status": "doing",
-                                                 "nodes": {"T1": {"text": "改 a", "status": "doing", "parent": None}}}}})
-    monkeypatch.setattr(ngp, "_guard", lambda *a, **k: None)
-    deny, hint = ngp.on_ask("s", "AskUserQuestion", {"questions": [{"question": "要用哪個資料庫？", "options": [
-        {"label": "SQLite (Recommended)", "description": "x"}, {"label": "PG", "description": "y"}]}]}, {"turn_seq": 2})
-    assert deny is None
-
-
 def test_unknown_write_target_allowed_and_logged(monkeypatch):
     import wg_overview as wo
     logs = []
@@ -231,15 +122,6 @@ def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
 
 
 # ─── 單人單 session 也成立的形狀（目標視角觸發、回合起點、事後檢討、擋次預算、自檢評分） ──────────────
-
-def test_external_claims_only_review_results():
-    import wg_need_goal_points as ngp
-    calls = [{"tool_name": "Read", "tool_input": {"file_path": "C:/x/workflow/inbox/to-track-a/001.md"}},
-             {"tool_name": "Read", "tool_input": {"file_path": "C:/x/codex-review.md"}},
-             {"tool_name": "mcp__workflow-guardian__second_opinion_result", "tool_input": {}}]
-    assert [k for k, _ in ngp.claim_calls(calls)] == ["審查報告", "審查報告"]
-    assert not hasattr(ngp, "peer_of_prompt")
-
 
 def test_dispatch_message_does_not_open_turn():
     from handlers import ups_gates
@@ -296,30 +178,8 @@ def test_coding_turn_layer1_tool_writes_code():
 
 
 def test_coding_turn_keyword_intent_is_not_a_switch():
-    """第三層：關鍵字分類判成寫碼（turn_intent）不當開關——沒宣告、沒改檔就不是寫碼回合（舊碼吃意圖 → 紅）。"""
+    """關鍵字分類判成寫碼（turn_intent）不當開關——沒改檔就不是寫碼回合（舊碼吃意圖 → 紅）。"""
     assert not wg_core.coding_turn({"turn_intent": "feature", "turn_seq": 5, "turn_prompts_seq": 5})
-
-
-def test_coding_turn_layer2_need_goal_declares_code_tree(ng_env):
-    """第二層：本使用者回合 need_goal set（kind=code）、add、update 寫碼樹 → 還沒改檔也算寫碼回合；
-    樹是前幾回合留的、本回合沒宣告 → 不算；知識類樹的宣告不算。"""
-    from handlers import post_tool_use as pt
-    ng = ng_env[0]
-
-    def call(state, action, **kw):
-        ti = {"action": action, **kw}
-        pt._need_goal_after_tool(state, "s", "mcp__workflow-guardian__need_goal", ti, {"tool_response": {}}, {})
-        return state
-
-    st = call({"turn_seq": 3, "turn_prompts_seq": 3}, "set", goal="加匯出", kind="code")
-    assert st.get("need_goal_code_decl_turn") == 3 and wg_core.coding_turn(st)           # 本回合 set 寫碼樹、還沒改檔
-    later = {"turn_seq": 4, "turn_prompts_seq": 4, "need_goal_code_decl_turn": 3}
-    assert not wg_core.coding_turn(later)                                                # 前幾回合留的樹、本回合沒宣告
-    tid = ng.active_tree(ng.load("s"))["id"]
-    assert wg_core.coding_turn(call(dict(later), "update", items=[{"id": tid, "text": "加匯出（CSV）"}]))   # 只 update
-    assert wg_core.coding_turn(call(dict(later), "add", items=[{"text": "舊 JSON 不能壞"}]))           # add
-    k = call({"turn_seq": 7, "turn_prompts_seq": 7}, "set", goal="整理筆記", kind="knowledge", new_task=True)
-    assert not wg_core.coding_turn(k)                                                    # 知識類樹不算
 
 
 def test_non_coding_turn_skips_v6_gates_at_stop():
@@ -358,6 +218,13 @@ def stop_drive(monkeypatch):
     return drive
 
 
+def test_closing_check_block_says_one_call(stop_drive, capsys):
+    """收尾檢核閘擋下時寫一次交齊的走法（stop.CLOSING_ONE_CALL：知識收割放 harvest_items，不必另呼叫 knowledge_harvest_report）。"""
+    mods = [{"path": r"c:\a\.claude\hooks\x.py", "tool": "Edit", "session_id": "s-ct", "turn_seq": 5, "last_turn_seq": 5}]
+    out = stop_drive(capsys, "全部完成了", mods)
+    assert "[Guardian:ScanReport]" in out and "harvest_items" in out and "reconcile" not in out
+
+
 def test_docs_only_turn_skips_evasion_detection(stop_drive, capsys):
     """只改文件、沒宣告完成的回合：退避偵測不跑（舊碼照標 evasion_flag → 紅）；改了程式的回合照標（反例）。"""
     text = "文件補好了。剩下那段之後再處理。"
@@ -379,22 +246,15 @@ def test_docs_only_turn_skips_closing_check_unless_done_claimed(stop_drive, caps
     assert "[Guardian:ScanReport]" in stop_drive(capsys, "全部完成了", mods)
 
 
-def test_non_coding_turn_ups_skips_goal_tree_keeps_cards(monkeypatch, tmp_path, capsys):
-    """UPS：使用者剛打字時還沒宣告、還沒改程式，目標樹提示不送（原話照記）；關鍵字判寫碼的只多送一行「先立樹」、不啟動守門；
-    導讀卡是 v6 以前就有的記憶注入，照舊送。"""
+def test_non_coding_turn_ups_keeps_cards(monkeypatch, tmp_path, capsys):
+    """UPS：使用者剛打字時還沒改程式，不是寫碼回合；導讀卡是 v6 以前就有的記憶注入，問答與寫碼關鍵字的 prompt 都照舊送。"""
     from handlers import user_prompt_submit as ups
-    import wg_need_goal
     import wg_overview
-    seen = {"ng": 0, "hub": 0}
-
-    def ng_on_prompt(*a, **k):
-        seen["ng"] += 1
-        return "[NeedGoal] 提示行"
+    seen = {"hub": 0}
 
     def hub_on_prompt(*a, **k):
         seen["hub"] += 1
         return "[Guardian:OverviewHub] 卡"
-    monkeypatch.setattr(wg_need_goal, "on_prompt", ng_on_prompt)
     monkeypatch.setattr(wg_overview, "on_prompt", hub_on_prompt)
     for name, fn in (("run_pre_gates", lambda *a: None), ("build_context", lambda *a, **k: None),
                      ("collect_matched_atoms", lambda *a, **k: ([], {}, [], [], {}, set(), "general", {})),
@@ -411,11 +271,9 @@ def test_non_coding_turn_ups_skips_goal_tree_keeps_cards(monkeypatch, tmp_path, 
             ups.handle_user_prompt_submit({"session_id": "s", "prompt": prompt, "cwd": str(tmp_path)}, {})
         cap = capsys.readouterr().out
         out[prompt] = json.loads(cap)["hookSpecificOutput"]["additionalContext"] if cap.strip() else ""
-    import wg_need_goal as ng
     qa, code = out["之前那個決定是什麼？"], out["幫我新增一個 by-product 子命令"]
-    assert "提示行" not in qa and ng.CODE_TREE_HINT not in qa and "OverviewHub" in qa
-    assert "提示行" not in code and ng.CODE_TREE_HINT in code                   # 關鍵字判寫碼：只送先立樹一行
-    assert seen["ng"] == 2 and seen["hub"] == 2                                   # 原話兩則都照記、導讀卡兩則都判
+    assert "OverviewHub" in qa and "OverviewHub" in code
+    assert seen["hub"] == 2                                                       # 導讀卡兩則都判
 
 
 # ─── 文字評分 ──────────────────────────────────────────────────────

@@ -1,6 +1,5 @@
-// verify_tools_list_guard_off.js：寫碼守門關著時，工具清單不列守門專用的工具；開著時 10 個全列。
-// 案例：listedTools(true) 10 個；listedTools(false) 9 個、守門工具都不在、守門之前就有的記憶工具都在；
-//      真起 server.js（WG_CODING_GUARD=0）打 tools/list，回來的清單同 listedTools(false)。
+// verify_tools_list_guard_off.js：寫碼守門開或關，工具清單都是同一份 9 個記憶工具。
+// 案例：真起 server.js 兩次（WG_V6=1 守門開；WG_CODING_GUARD=0 守門關）打 tools/list，兩次都回這 9 個、順序相同。
 // 跑：node tools/workflow-guardian-mcp/verify/verify_tools_list_guard_off.js（尾行 TOOLS_LIST_GUARD_OFF_CHECK PASS／FAIL）
 const os = require("os");
 const fs = require("fs");
@@ -35,19 +34,14 @@ function listOverStdio(env) {
 
 (async () => {
   try {
-    const mcp = require("../lib/mcp");
-    const on = mcp.listedTools(true).map((t) => t.name);
-    const off = mcp.listedTools(false).map((t) => t.name);
-    if (on.length !== mcp.TOOL_DEFINITIONS.length || on.length !== 10) fail(`守門開著應列 10 個，實際 ${on.length}`);
-    if (off.length !== 9) fail(`守門關著應列 9 個，實際 ${off.length}：${off.join(",")}`);
-    for (const n of mcp.GUARD_ONLY_TOOLS) if (off.includes(n)) fail(`守門關著還列了 ${n}`);
-    for (const n of MEMORY_TOOLS) if (!off.includes(n)) fail(`守門關著少了記憶工具 ${n}`);
-
-    // 真起 server：資料根放暫存（啟動紀錄不寫進 live），守門明關
+    // 資料根放暫存（啟動紀錄不寫進 live）
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "wg-toolslist-"));
-    const env = { ...process.env, WG_CLAUDE_DIR: root, WG_CODING_GUARD: "0", WG_V6: "", WG_DASHBOARD_PORT: "38498" };
-    const names = await listOverStdio(env);
-    if (JSON.stringify(names) !== JSON.stringify(off)) fail(`server 回的清單與 listedTools(false) 不同：${names.join(",")}`);
+    const base = { ...process.env, WG_CLAUDE_DIR: root, WG_DASHBOARD_PORT: "38498" };
+    const on = await listOverStdio({ ...base, WG_V6: "1", WG_CODING_GUARD: "" });
+    const off = await listOverStdio({ ...base, WG_V6: "", WG_CODING_GUARD: "0" });
+    const want = JSON.stringify(MEMORY_TOOLS);
+    if (JSON.stringify(on) !== want) fail(`守門開著的清單不是那 9 個：${on.join(",")}`);
+    if (JSON.stringify(off) !== want) fail(`守門關著的清單不是那 9 個：${off.join(",")}`);
     fs.rmSync(root, { recursive: true, force: true });
   } catch (e) {
     fail(`例外：${e && e.stack || e}`);

@@ -284,20 +284,6 @@ def test_no_card_part_identical_in_both_modes(proj, tmp_path):
     assert texts["pointer"] == texts["full"] and "沒有可注入的導讀卡" in texts["pointer"]
 
 
-def test_goal_view_resend_is_pointer_too(proj, tmp_path, monkeypatch):
-    """目標改了之後的目標視角重看不重送導讀卡：整張不送、指標行也不送，只一行目標視角提問（規則 GOAL_VIEW_ONE_LINE；
-    卡在第一次碰到部位時已經送過指標）。"""
-    import wg_need_goal_points as ngp
-    monkeypatch.setattr(ngp, "goal_view_text", lambda *a, **k: "[NeedGoal] 目標視角：測試")
-    state: dict = {}
-    tp = _transcript(tmp_path, "x")
-    f = str(proj / "Game/Battle/A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), tp, {})
-    _rec(state, "戰鬥")["goal_reset_turn"] = 4
-    view = wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), tp, {})
-    assert view == "[NeedGoal] 目標視角：測試" and "已知病灶" not in view and "結算傷害" not in view
-
-
 def test_card_injection_value_validated(proj, tmp_path):
     """開關只收 pointer／full，寫錯值是設定錯誤（改檔一律擋，訊息點名這個鍵）。"""
     (proj / ".claude" / "overview-hub.json").write_text('{"card_injection": "half"}', encoding="utf-8")

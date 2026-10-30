@@ -23,7 +23,6 @@ HUB_REL = Path(".claude") / "overview-hub.json"
 INTENT_KEYS = ("debug", "feature", "refactor", "perf", "new_project", "build", "design", "recall", "handoff", "general")
 _GOAL_WEIGHT_KEYS = ("slices", "lens", "ask_first", "extra")
 _EVIDENCE_KEYS = ("card", "part_files", "depends_files")
-_NEED_GOAL_KEYS = ("enabled", "scope_growth_dirs", "render_chars")
 _MIN_MAP_KEYS = ("enabled", "preview_timeout_s")
 _HOOK_BUDGET_S = 5
 
@@ -82,9 +81,6 @@ HUB_DEFAULTS: Dict[str, Any] = {
     },
     # verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}：只驗形狀（dict），目前沒有程式讀；留著讓既有 overview-hub.json 不報未知鍵
     "verify_chains": {},
-    # 需求目標流程（hooks/wg_need_goal）：enabled 整個流程的開關；scope_growth_dirs 讀入範圍變大的頂層目錄門檻；
-    # render_chars 精簡版目標樹的字數上限
-    "need_goal": {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200},
     # 無表專案第一次改程式檔前要最小地圖三行（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）：enabled 開關；
     # preview_timeout_s 擋訊息附的掃表預覽子程序上限（hook 整體預算 5 秒）
     "min_map": {"enabled": True, "preview_timeout_s": 2},
@@ -95,7 +91,7 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "svn_test_block": {"enabled": False},
 }
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
-RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
+RETIRED_KEYS = ("dry_run", "deny_parts", "need_goal")   # 退役：出現只警告，不報錯（dry_run、deny_parts：閘一律擋；need_goal：沒有程式讀）
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
 CARD_INJECTION_MODES = ("pointer", "full")
 _LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings", "idle_triggers")
@@ -234,19 +230,6 @@ def validate_smells(c: Dict[str, Any]) -> List[str]:
     return errors
 
 
-def validate_need_goal(ng: Any) -> List[str]:
-    """need_goal：enabled 是 true／false；scope_growth_dirs、render_chars 是正整數；無其他鍵。"""
-    if not isinstance(ng, dict):
-        return ["need_goal 必須是物件"]
-    errors = [f"need_goal 有未知鍵「{k}」" for k in sorted(ng) if k not in _NEED_GOAL_KEYS and not k.startswith("_")]
-    if not isinstance(ng.get("enabled"), bool):
-        errors.append("need_goal.enabled 必須是 true／false")
-    for k in ("scope_growth_dirs", "render_chars"):
-        if not _is_nonneg_int(ng.get(k)) or ng.get(k) == 0:
-            errors.append(f"need_goal.{k} 必須是正整數")
-    return errors
-
-
 def validate_min_map(mm: Any) -> List[str]:
     """min_map：enabled 是 true／false；preview_timeout_s 是大於 0、不超過 hook 整體預算的秒數；無其他鍵。"""
     if not isinstance(mm, dict):
@@ -317,7 +300,6 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
     errors.extend(validate_goal_weights(c.get("goal_weights")))
     errors.extend(validate_evidence(c.get("min_overview_evidence")))
     errors.extend(validate_smells(c))
-    errors.extend(validate_need_goal(c.get("need_goal")))
     errors.extend(validate_min_map(c.get("min_map")))
     errors.extend(validate_equivalence(c.get("equivalence")))
     errors.extend(validate_switch("svn_test_block", c.get("svn_test_block")))

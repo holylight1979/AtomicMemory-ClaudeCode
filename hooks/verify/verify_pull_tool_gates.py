@@ -369,22 +369,6 @@ def test_interpreter_bash_takes_no_judge_card_snapshot(world, monkeypatch):
     assert "[Guardian:JudgeCardDeclare]" not in _pre(world, "Edit", edit)
 
 
-# ─── commit 前目標對照核對出錯 ───────────────────────────────────────────
-
-def test_commit_gate_exception_does_not_block(world, monkeypatch):
-    import wg_need_goal
-
-    def boom(*a, **k):
-        raise RuntimeError("目標檔讀壞了")
-    monkeypatch.setattr(wg_need_goal, "commit_gate", boom)
-    for name in ("check_git_commit_order", "check_git_privacy", "check_merge_driver"):
-        monkeypatch.setattr(ptu, name, lambda *a, **k: None)
-    monkeypatch.setattr(ptu, "check_smell_gate", lambda *a, **k: (None, None))
-    assert "[NeedGoal]" not in _pre(world, "Bash", {"command": 'svn commit src/Foo.cs -m "x"'})
-    assert [(e["event"], e.get("rule"), "目標檔讀壞了" in e["error"]) for e in _events(world, "need_goal")
-            if e["event"] == "commit_gate_error"] == [("commit_gate_error", "GATE_SELF_ERROR", True)]
-
-
 # ─── 閘自己出錯（GATE_SELF_ERROR）：不擋、留帳 ─────────────────────────────
 
 def _boom(*a, **k):

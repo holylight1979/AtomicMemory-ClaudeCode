@@ -194,7 +194,7 @@ def test_post_tool_use_degraded_skips_prompts_keeps_ledger(ptu_driven, capsys):
     state, run = ptu_driven
     out, laps, wrote, called = run(capsys)
     assert called == 1 and "同伴提示" in out                                  # 前置：不降級時同伴檢查有跑、提示有送
-    assert laps == ["讀 state", "工具記帳", "導讀卡", "綜觀與召回", "目標樹", "寫 state", "跨 session 碰撞", "同伴檢查"]
+    assert laps == ["讀 state", "工具記帳", "導讀卡", "綜觀與召回", "寫 state", "跨 session 碰撞", "同伴檢查"]
     state.pop("modified_files", None)
     out, laps, wrote, called = run(capsys, degrade_at="工具記帳")
     assert called == 0 and "同伴提示" not in out                              # 降級：提示類不跑
@@ -372,12 +372,11 @@ def test_pre_tool_use_overrun_records_stuck_gate_without_fallback(ledger, exits,
     assert exits == [] and capsys.readouterr().out == ""
 
 
-# ─── UserPromptSubmit：降級後脈絡、導讀卡、檢索注入不跑；前置閘、記原話、寫 state 照做 ─────────
+# ─── UserPromptSubmit：降級後脈絡、導讀卡、檢索注入不跑；前置閘、寫 state 照做 ─────────
 
 @pytest.fixture()
 def ups_driven(monkeypatch, tmp_path):
     import wg_friction
-    import wg_need_goal
     import wg_overview
     import wg_release_rules
     calls, wrote = [], []
@@ -390,7 +389,6 @@ def ups_driven(monkeypatch, tmp_path):
     monkeypatch.setattr(ups, "collect_matched_atoms",
                         lambda *a, **k: calls.append("檢索") or ([], {}, [], [], {}, set(), "general", {}))
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: calls.append("注入組裝") or ([], {}))
-    monkeypatch.setattr(wg_need_goal, "on_prompt", lambda *a, **k: calls.append("目標樹") or "[NeedGoal] 記下原話")
     monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: calls.append("導讀卡") or "")
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a, **k: [])
     monkeypatch.setattr(wg_release_rules, "fix_escalation_text", lambda s: "")
@@ -420,20 +418,20 @@ def ups_driven(monkeypatch, tmp_path):
     return run
 
 
-def test_ups_degraded_skips_retrieval_keeps_gates_goal_and_state(ups_driven, capsys):
+def test_ups_degraded_skips_retrieval_keeps_gates_and_state(ups_driven, capsys):
     out, calls, wrote, segs, emitted = ups_driven(capsys)
-    assert calls == ["前置閘", "脈絡", "目標樹", "導讀卡", "檢索", "注入組裝"] and wrote == [5]   # 前置：不降級全段都跑
+    assert calls == ["前置閘", "脈絡", "導讀卡", "檢索", "注入組裝"] and wrote == [5]   # 前置：不降級全段都跑
     assert "HookTiming" not in out and emitted is True
     out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="前置閘")
-    assert calls == ["前置閘", "目標樹"] and wrote == [5]                         # 降級：脈絡／導讀卡／檢索注入不跑，記原話與寫 state 照做
-    assert segs == ["前置閘", "目標樹", "收尾提示"] and emitted is True
+    assert calls == ["前置閘"] and wrote == [5]                                   # 降級：脈絡／導讀卡／檢索注入不跑，寫 state 照做
+    assert segs == ["前置閘", "收尾提示"] and emitted is True
     ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert "閘的提示" in ctx and "這則看起來要改程式" in ctx            # 還沒改碼：目標樹提示不送，只送先立樹一行
+    assert "閘的提示" in ctx
     assert "[Guardian:HookTiming] 這次 UserPromptSubmit hook 超時降級（跑完「前置閘」" in ctx.splitlines()[-1]
-    out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="目標樹")
-    assert calls == ["前置閘", "脈絡", "目標樹"] and wrote == [5]
+    out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="脈絡")
+    assert calls == ["前置閘", "脈絡"] and wrote == [5]
     out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="檢索")         # 檢索跑完才過線：注入組裝不跑
-    assert calls == ["前置閘", "脈絡", "目標樹", "導讀卡", "檢索"] and wrote == [5] and "注入組裝" not in segs
+    assert calls == ["前置閘", "脈絡", "導讀卡", "檢索"] and wrote == [5] and "注入組裝" not in segs
 
 
 # ─── PreToolUse：只打點，降級不改判定 ────────────────────────────────────
@@ -534,10 +532,11 @@ def test_dispatcher_writes_one_timing_record_per_hook(tmp_path):
         {"type": "command", "command": "x/.claude/hooks/workflow-guardian.py", "timeout": 7}]}]}}), encoding="utf-8")
     env = {**os.environ, "WG_CLAUDE_DIR": str(root), "WG_TEST_LOGS_DIR": str(logs)}
     env.pop("CLAUDE_COMPANION_JUDGE", None)
-    # 寫碼回合（本回合宣告了寫碼樹）才寫計時帳（CODING_TURN_ONLY；非寫碼回合不寫的案在 verify_gate_trim）
+    # 寫碼回合（本回合改過程式檔）才寫計時帳（CODING_TURN_ONLY；非寫碼回合不寫的案在 verify_gate_trim）
     (root / "workflow").mkdir()
     (root / "workflow" / "state-sid-timing.json").write_text(json.dumps(
-        {"session": {"id": "sid-timing"}, "turn_seq": 0, "need_goal_code_decl_turn": 0}), encoding="utf-8")
+        {"session": {"id": "sid-timing"}, "turn_seq": 0,
+         "modified_files": [{"path": str(tmp_path / "a.py"), "last_turn_seq": 0}]}), encoding="utf-8")
     # 唯讀 Bash 走完整路徑（Read 的 PostToolUse 走快路徑只落 read-log、不計時，規則 READ_FAST_PATH）
     inp = {"hook_event_name": "PostToolUse", "session_id": "sid-timing", "tool_name": "Bash",
            "tool_input": {"command": f'cat "{tmp_path / "x.txt"}"'}, "tool_response": {"stdout": "", "stderr": "", "exit_code": 0},

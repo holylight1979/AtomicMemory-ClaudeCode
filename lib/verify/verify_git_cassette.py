@@ -205,7 +205,7 @@ def test_excluded_dir_is_not_compared(tmp_path, monkeypatch):
 
 
 def test_conftest_excludes_every_hook_runtime_fallback_dir():
-    """根 conftest 的 git_cassette 預設不比對 hook 在測試沒導走資料根時寫的暫存去處（守門紀錄、需求目標檔：帶時間戳與這次的
+    """根 conftest 的 git_cassette 預設不比對 hook 在測試沒導走資料根時寫的暫存去處（守門紀錄：帶時間戳與這次的
     暫存路徑，git 不讀）。清單是字面名字：hooks 裡的暫存去處改名或多一個，這裡會紅。"""
     import re
     spec = importlib.util.spec_from_file_location("_ut_root_conftest", ROOT / "conftest.py")
@@ -214,7 +214,7 @@ def test_conftest_excludes_every_hook_runtime_fallback_dir():
     used = set()
     for f in (ROOT / "hooks").glob("*.py"):
         used |= set(re.findall(r'"(wg-test-[\w-]+)"', f.read_text(encoding="utf-8")))
-    assert "wg-test-need-goal" in used and "wg-test-logs" in used, used       # 前置：真的掃到 hooks 的去處
+    assert "wg-test-logs" in used, used       # 前置：真的掃到 hooks 的去處
     assert {e.rsplit("/", 1)[-1] for e in conftest.RUNTIME_EXCLUDE} == used
     assert all(e.startswith("_tmp/") for e in conftest.RUNTIME_EXCLUDE)       # 暫存目錄已改到 tmp_path/_tmp
 

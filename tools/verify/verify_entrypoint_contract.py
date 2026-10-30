@@ -19,13 +19,12 @@ cases：
    13. Stop PickOne：Entry=E04 的卡 → 接「判準卡（E04）」；只有關鍵字命中的卡 → 退路也接；都沒有 → 訊息原樣
    14. Stop 擋訊息（TestFailGate 經 _piggyback）→ 接 E08 的卡；後面附加的預覽不拿來認切入點
    15. PreToolUse deny（USER_DATA_FILE_NEEDS_DECLARATION）→ reason 後接 E20 的卡
-   16. MCP need_goal 回覆（樹根對不到原話）→ 回覆後接 E23 的卡
-   17. 子代理 prompt：登錄表有 subagent_prompt 路的列 → 卡接在原 prompt 前；沒認出 → 照舊不改 prompt
+   16. 子代理 prompt：登錄表有 subagent_prompt 路的列 → 卡接在原 prompt 前；沒認出 → 照舊不改 prompt
   ④ 切入點留帳
-   18. 每次問 guard-entry.jsonl 多一筆、欄位齊；三張卡超預算 → 帳記 truncated
-   19. AI 隨後宣告 → 回應型 declared；又被擋 → denied；沒下文 → none（真跑資料檔閘兩次，照它自己的留帳推）
-   20. entry-stats 對假帳算出正確計數、尾行格式對
-   21. 入口炸了 → 回空字串＋stderr，問句照原樣送
+   17. 每次問 guard-entry.jsonl 多一筆、欄位齊；三張卡超預算 → 帳記 truncated
+   18. AI 隨後宣告 → 回應型 declared；又被擋 → denied；沒下文 → none（真跑資料檔閘兩次，照它自己的留帳推）
+   19. entry-stats 對假帳算出正確計數、尾行格式對
+   20. 入口炸了 → 回空字串＋stderr，問句照原樣送
 怎麼跑：pytest -q tools/verify/verify_entrypoint_contract.py，或 python tools/verify/verify_entrypoint_contract.py（尾行 ENTRYPOINT_CONTRACT_CHECK PASS|FAIL）
 """
 from __future__ import annotations
@@ -612,12 +611,11 @@ def test_pretool_deny_data_file_gets_e20_card(ptu_world, tmp_path, monkeypatch, 
 
 def test_pretool_hint_ask_overview_is_remind_not_card(tmp_path, monkeypatch, logs):
     """提問只提醒、不擋（ASK_OVERVIEW_BEFORE_DECISION）那條路：v6 開著改掛下一個工具結果（REMIND_ON_PRIOR_RESULT）——
-    PreToolUse 什麼都不送（不 deny、不 additionalContext），guard-need_goal 留 event=remind；判準卡（E05）不在這裡接、
+    PreToolUse 什麼都不送（不 deny、不 additionalContext），guard-ask 留 event=remind；判準卡（E05）不在這裡接、
     guard-entry 也不記。v6 關時提示照舊從 PreToolUse 送，原文逐字、不接卡（判準卡是 v6 才有）。"""
-    import wg_need_goal
-    import wg_need_goal_points
+    import wg_ask_gate
     from handlers import pre_tool_use as ptu
-    hint = "[NeedGoal] ✗ (提問) ASK_OVERVIEW_BEFORE_DECISION：題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問"
+    hint = "[Guardian:Ask] ✗ (提問) ASK_OVERVIEW_BEFORE_DECISION：題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問"
     hits = [{"rule": "ASK_OVERVIEW_BEFORE_DECISION", "what": "題目提到的部位還沒讀過檔", "fix": "先讀過部位檔再問", "block": False}]
     outputs = []
 
@@ -631,14 +629,13 @@ def test_pretool_hint_ask_overview_is_remind_not_card(tmp_path, monkeypatch, log
     monkeypatch.setattr(ptu, "output_json", _out)
     monkeypatch.setattr(ptu, "output_nothing", _nothing)
     monkeypatch.setattr(ptu, "read_state_status", lambda sid: ({"turn_seq": 4}, "missing"))
-    monkeypatch.setattr(wg_need_goal, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
-    monkeypatch.setattr(wg_need_goal_points, "on_ask_full", lambda *a, **k: (None, hint, hits))
+    monkeypatch.setattr(wg_ask_gate, "on_ask_full", lambda *a, **k: (None, hint, hits))
     _pool(monkeypatch, [_card(tmp_path, "ask-card", triggers=["x"], entry=["E05"], knowledge=["- [臨] 改法選擇先讀部位再問。"])])
     ask = {"session_id": SID, "tool_name": "AskUserQuestion", "tool_input": {"questions": []}}
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use(ask, {})
     assert outputs[-1] is None                                                        # v6 開：PreToolUse 不送
-    rem = [r for r in _ledger(logs, "need_goal") if r.get("event") == "remind"]
+    rem = [r for r in _ledger(logs, "ask") if r.get("event") == "remind"]
     assert [r["rule"] for r in rem] == ["ASK_OVERVIEW_BEFORE_DECISION"] and rem[0]["session_id"] == SID
     assert not _ledger(logs)                                                          # 卡沒送就沒切入點帳
     monkeypatch.setenv("WG_V6", "0")
@@ -666,38 +663,6 @@ def test_shared_fallbacks_are_independent(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(_shared)
-
-
-def test_mcp_need_goal_reply_gets_e23_card(tmp_path, monkeypatch, capsys, logs):
-    import wg_need_goal as ng
-    import wg_overview as wo
-    from handlers import post_tool_use as pt
-    monkeypatch.setenv("WG_TEMP_RULES", "off")
-    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
-    (tmp_path / "wf").mkdir()
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    monkeypatch.setattr(wo, "org_memory_root", lambda: None)
-    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
-    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a: ([], []))
-    ng.on_prompt(SID, "讓匯出變快", 1, {})
-
-    def post(goal, cards):
-        _pool(monkeypatch, cards)
-        state = {"turn_seq": 2}
-        monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
-        with pytest.raises(SystemExit):
-            pt.handle_post_tool_use({"session_id": SID, "tool_name": "mcp__workflow-guardian__need_goal",
-                                     "tool_input": {"action": "set", "goal": goal, "new_task": True, "why": "測試換題"},
-                                     "tool_response": {}}, {"docdrift": {"enabled": False}})
-        return json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
-    base = post("把稽核紀錄全部留下來給週報", [])
-    assert "[NeedGoal] 樹根這幾句原話裡沒有" in base and "判準卡" not in base
-    card = _card(tmp_path, "origin-card", triggers=["x"], entry=["E23"], knowledge=["- [臨] 使用者親口說的才標 user。"])
-    got = post("把稽核紀錄全部留下來給月報", [card])
-    assert "[NeedGoal] 樹根這幾句原話裡沒有" in got
-    assert got.endswith("\n判準卡（E23）：origin-card\n- [臨] 使用者親口說的才標 user。")
-    assert any(a["entry"] == "E23" and a["path"] == "mcp_reply" and a["cards"] == ["origin-card"] for a in _ledger(logs))
 
 
 def test_subagent_prompt_path(tmp_path, monkeypatch, logs):

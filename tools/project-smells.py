@@ -835,11 +835,11 @@ def add_specs(tokens: List[str]) -> Tuple[List[str], bool]:
 
 
 def _is_code(abs_path: str, config: Dict[str, Any]) -> bool:
-    """跟寫碼查核同一份判法（hooks/wg_need_goal.is_code_path：程式副檔名清單＋知識類部位不算）。"""
+    """跟寫碼查核同一份判法（hooks/wg_code_path.is_code_path：程式副檔名清單＋知識類部位不算）。"""
     hooks = str(_CODE_DIR / "hooks")
     if hooks not in sys.path:
         sys.path.insert(0, hooks)
-    from wg_need_goal import is_code_path
+    from wg_code_path import is_code_path
     return is_code_path(abs_path, config)
 
 

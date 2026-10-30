@@ -103,20 +103,15 @@ def test_current_session_files_untouched(wf):
     assert all(p.exists() for p in mine)
 
 
-def test_need_goal_json_corrupt_and_lock(wf):
+def test_need_goal_leftovers_age_out(wf):
+    """need-goal 資料夾沒有程式寫入：各機留下的舊檔（目標檔、壞檔備份、殘檔、鎖）照年齡 30 天清，新的照留。"""
     ng = wf / "need-goal"
-    old_goal = put(ng / "s1.json", 31)
-    old_goal_lock = put(ng / "s1.lock", 31, "")
-    live_goal, live_lock = put(ng / "s2.json", 1), put(ng / "s2.lock", 60, "")
-    orphan_lock = put(ng / "s3.lock", 31, "")
-    young_orphan_lock = put(ng / "s4.lock", 5, "")
-    corrupt_old = put(ng / "s5.corrupt-20260901-101010.json", 31)
-    corrupt_new = put(ng / "s6.corrupt-20261010-101010.json", 3)
+    old = [put(ng / "s1.json", 31), put(ng / "s1.lock", 31, ""), put(ng / "s5.corrupt-20260901-101010.json", 31),
+           put(ng / "s7.tmp", 31)]
+    young = [put(ng / "s2.json", 1), put(ng / "s4.lock", 5, ""), put(ng / "s6.corrupt-20261010-101010.json", 3)]
     run(wf)
-    assert not old_goal.exists() and not old_goal_lock.exists()   # 目標檔過期清掉，鎖也跟著清
-    assert live_goal.exists() and live_lock.exists()              # 目標檔還在：鎖多舊都不動
-    assert not orphan_lock.exists() and young_orphan_lock.exists()
-    assert not corrupt_old.exists() and corrupt_new.exists()
+    assert [p.name for p in old if p.exists()] == []
+    assert all(p.exists() for p in young)
 
 
 def test_scorecard_keeps_current_and_two_previous_months(wf):

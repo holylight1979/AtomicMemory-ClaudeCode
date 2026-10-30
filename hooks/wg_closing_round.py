@@ -2,8 +2,8 @@
 
 做什麼（每批工具跑完，hooks/handlers/post_tool_batch.py 呼叫 on_batch；判斷交 AI，程式只管時點）：
   ① 改完程式就起跑：拐彎判斷的背景量測（wg_reading_path.early_start；規則 READING_PATH_EARLY_START，開關 reading_path.early_start）。
-  ② 這批有收尾檢核（anti_evasion_report；收尾檢核放最後，交了就是交付邊界，一次交齊時目標對照與知識收割也在裡面）或分開交的完整對照
-     （need_goal reconcile：交付時的對照）、知識收割回報（knowledge_harvest_report）＝收尾前最後一個工具回應（closing_call），附上：
+  ② 這批有收尾檢核（anti_evasion_report；收尾檢核放最後，交了就是交付邊界，一次交齊時知識收割也在裡面）或分開交的
+     知識收割回報（knowledge_harvest_report）＝收尾前最後一個工具回應（closing_call），附上：
      - 量好的拐彎判斷結果（到門檻的條目＋那一題；TURN_JUDGMENT_PRE_CLOSE，跟 ① 同一個開關）。還有一批在量就不附，留給 Stop；
      - 「順手看到最該修」該問就附材料、記問過（PICK_ONE_PRE_CLOSE，開關 pick_one.pre_close）：Stop 的 pick_due 看到問過就不再送、
        不再讓對話續跑一輪。交付邊界還有一種：本 session 改過程式之後測試跑綠的那批（pick_on_test_green，post_tool_batch.closing_reminders
@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import append_guard_log, coding_turn
 
 CLOSING_TOOL_SUFFIX = "__anti_evasion_report"
-NEED_GOAL_SUFFIX = "__need_goal"
 HARVEST_SUFFIX = "__knowledge_harvest_report"
 ENTRY_PATH = "mcp_reply"
 
@@ -40,12 +39,10 @@ def _calls(tool_calls: Any) -> List[Tuple[str, Dict[str, Any]]]:
     return out
 
 
-def closing_call(name: str, inp: Dict[str, Any]) -> bool:
-    """收尾前最後一個工具回應的認法（規則 CLOSING_CALL_ALL_THREE）：收尾三段一次交齊的收尾檢核（anti_evasion_report，
-    reconcile、harvest_items 欄帶著目標對照與知識收割），或分開交的任一支——需求目標樹的完整對照（need_goal action=reconcile）、
-    知識收割回報（knowledge_harvest_report）。"""
-    return (name.endswith(CLOSING_TOOL_SUFFIX) or name.endswith(HARVEST_SUFFIX)
-            or (name.endswith(NEED_GOAL_SUFFIX) and inp.get("action") == "reconcile"))
+def closing_call(name: str) -> bool:
+    """收尾前最後一個工具回應的認法（規則 CLOSING_CALL_ALL_THREE）：收尾檢核（anti_evasion_report，harvest_items 欄帶著知識收割），
+    或分開交的知識收割回報（knowledge_harvest_report）。"""
+    return name.endswith(CLOSING_TOOL_SUFFIX) or name.endswith(HARVEST_SUFFIX)
 
 
 def _own(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:
@@ -124,7 +121,7 @@ def on_batch(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config
                 changed = early_start(state, sid, config) or changed
             except Exception as e:  # noqa: BLE001
                 print(f"[Guardian:ReadingPath] 改完程式就起跑的量測出錯（收尾照舊起跑）：{type(e).__name__}: {e}", file=sys.stderr)
-    if coding and any(closing_call(n, inp) for n, inp in calls):
+    if coding and any(closing_call(n) for n, _inp in calls):
         try:
             tj = turn_judgment_pre_close(state, sid, config)
         except Exception as e:  # noqa: BLE001

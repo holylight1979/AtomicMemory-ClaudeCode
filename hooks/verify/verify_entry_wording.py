@@ -91,7 +91,7 @@ def test_ask_overview_says_read_before_regrouping_not_only_reminder():
     assert v.owed and "先讀過部位檔再問（這條不單獨擋；但這題被別條擋下要重組時，先讀題目提到、還沒讀的部位檔" in hit
     assert "讀完再定推薦，或判斷根本不必問" in hit
     assert "只提醒，不因這條擋" not in hit                          # 反例：舊括號等於叫模型略過
-    assert "E05" in _entries("[NeedGoal] " + hit, "pretool_hint")
+    assert "E05" in _entries("[Guardian:Ask] " + hit, "pretool_hint")
     v2 = rr.ask_overview_verdict("AskUserQuestion", ASK, 0)
     assert v2.owed and "這條不單獨擋" in v2.why
 

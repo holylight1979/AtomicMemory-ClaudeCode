@@ -1,6 +1,6 @@
 """wg_chain.py：連鎖斷路器的判定（純函式：不讀檔、不跑 git、不改 state）。
 
-做什麼：同一個使用者回合裡，某道閘擋下或記欠 → AI 動手改了檔（改檔、寫卡、子代理；重跑、改目標樹這類沒改檔的動作照記、不算修補）
+做什麼：同一個使用者回合裡，某道閘擋下或記欠 → AI 動手改了檔（改檔、寫卡、子代理；重跑這類沒改檔的動作照記、不算修補）
 → 又讓任一道閘擋下或記欠，就是一條連鎖邊「閘A→動作→閘B」；同一則回覆裡平行送出的呼叫算同一步（AI 那時還沒看到擋訊息）。
 這裡把一個回合的帳（lib/chain_store.py 寫的 rows）
 摺成連鎖狀態，判：這次觸發接不接上前一步、深度、要不要警報、警報後這一段其餘閘只記錄不擋、使用者三選一怎麼解讀、
@@ -33,7 +33,7 @@ RULES: Dict[str, str] = {
     "CHAIN_GATE_NAME": "閘名取擋訊息裡第一個 [Guardian:名稱] 或 [名稱] 標記；認不出用呼叫端給的預設名。同一道閘每次擋訊息的標記相同，同閘次數才數得準。",
     "CHAIN_ACTION_FACTS": "哪些工具呼叫算 AI 動作：Edit／Write／MultiEdit／NotebookEdit＝改；Bash／PowerShell 有寫入目標（含判不出目標的寫入）＝改，"
                           "跑測試或驗證＝重跑，其餘不是唯讀的指令＝其他動作；atom_write／atom_retire＝寫卡；收尾檢核與收割回報＝重交報告；"
-                          "need_goal＝改目標樹；Agent／Task＝其他動作。讀檔（Read、唯讀指令）不算動作。"
+                          "Agent／Task＝其他動作。讀檔（Read、唯讀指令）不算動作。"
                           "動作都照記、照列進經過表；接不接成邊、算不算同閘次數只看有沒有改到檔（CHAIN_NO_EDIT_NO_EDGE）。",
     "CHAIN_EDGE_TIME_ORDER": "同一段裡閘B接在閘A之後觸發、中間 AI 有改到檔的動作 → 記一條邊 A→B；深度＝連續邊的長度。沒記到改檔動作、A 與 B 是不同的閘時，"
                              "Stop 接 Stop 算改寫回覆、閘B在工具呼叫上算 AI 接著的那次呼叫。",
@@ -43,7 +43,7 @@ RULES: Dict[str, str] = {
                              "不同的閘照「沒記到動作」那樣判（CHAIN_EDGE_TIME_ORDER 後半、CHAIN_NO_FIX_NO_EDGE）。改到檔（changes_files）＝"
                              "改（Edit／Write／MultiEdit／NotebookEdit、Bash／PowerShell 有寫入目標，含判不出目標的寫入）、寫卡（atom_write／atom_retire "
                              "改的是卡片檔）、子代理（Agent／Task：它改了什麼主 session 的帳看不到，照改檔算）；沒改到檔＝重跑測試、其他沒有寫入目標的指令"
-                             "（建刪暫存工作樹這類）、重交收尾報告、改目標樹（只動 session 的 state）。原樣重送被擋的呼叫照 CHAIN_SAME_CALL_RETRY。",
+                             "（建刪暫存工作樹這類）、重交收尾報告。原樣重送被擋的呼叫照 CHAIN_SAME_CALL_RETRY。",
     "CHAIN_SAME_CALL_RETRY": "同一道閘擋同一個對象，這次被擋的工具呼叫跟這道閘這個對象上一次被擋的逐字相同（工具名＋參數，帳上 call）"
                              "→ 原樣重試：不接成邊、不讓同閘次數加 1，中間做了別的動作（回應別的提示）也一樣，交回那道閘自己的擋次上限處理。"
                              "改了內容、補進宣告（呼叫變了）照舊算；有一邊沒記 call（收尾閘、舊帳）照舊只看中間有沒有動作。",
@@ -91,7 +91,7 @@ RULES: Dict[str, str] = {
                                        "（GitPrivacy）與 svn 測試路徑（SvnTestBlock）、專案 session 改根層核心或全域 MCP 設定"
                                        "（CrossRealmWriteBlock／CrossRealmBashBlock／CrossRealmMcpBlock）——這些放掉就是沒人看著改了使用者的資料檔、"
                                        "既有測試、版本庫歷史或根層設定，事後看帳也收不回。讓警報響的那一次也照擋；每一次都記一筆（帳上 kept），"
-                                       "不算進次數與深度、不再警報。其餘閘（定位、目標樹、對帳、病形、繞閘、記憶寫入路徑這類管做法與品質的）照"
+                                       "不算進次數與深度、不再警報。其餘閘（定位、對帳、病形、繞閘、記憶寫入路徑這類管做法與品質的）照"
                                        "CHAIN_ABORT_RECORD_ONLY 只記錄。能互動的 session 不變：警報後本來就停手到使用者選，選「放行這一回合」照放。",
     "CHAIN_ANSWER_BY_TOOL_USE_ID": "使用者答案只認中止通知之後、tool_use_id 對得上 AskUserQuestion 的結果（wg_release._answers_after），"
                                    "題目逐字等於通知記下的那一題（含【收尾放行確認】【連鎖中止】；NFKC、空白正規化後比）、答案逐字是三選項之一；"
@@ -310,7 +310,7 @@ def _files(action: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def changes_files(action: Dict[str, Any]) -> bool:
-    """CHAIN_NO_EDIT_NO_EDGE：這筆動作有沒有改到檔——改、寫卡、子代理算；重跑、其他沒寫入目標的指令、重交報告、改目標樹不算。"""
+    """CHAIN_NO_EDIT_NO_EDGE：這筆動作有沒有改到檔——改、寫卡、子代理算；重跑、其他沒寫入目標的指令、重交報告不算。"""
     kind = str(action.get("kind") or "")
     return kind in ("edit", "card") or (kind == "other" and str(action.get("tool") or "") in ("Agent", "Task"))
 
@@ -481,7 +481,7 @@ def restore_plan(ch: Chain) -> Tuple[List[RestoreItem], List[Dict[str, str]]]:
 
 # ─── 給人看的經過表與訊息 ──────────────────────────────────────────────────
 
-_KIND = {"edit": "改", "rerun": "重跑", "card": "寫卡", "relocate": "重交定位", "goal": "改目標樹", "report": "重交報告"}
+_KIND = {"edit": "改", "rerun": "重跑", "card": "寫卡", "relocate": "重交定位", "report": "重交報告"}
 
 
 def short_path(path: Any) -> str:
@@ -675,8 +675,6 @@ def action_of(tool_name: Any, tool_input: Any, tool_response: Any, writes: Seque
         return "card", [], tool.rsplit("__", 1)[-1]
     if tool.endswith(("anti_evasion_report", "knowledge_harvest_report")):
         return "report", [], tool.rsplit("__", 1)[-1]
-    if tool.endswith("need_goal"):
-        return "goal", [], f"need_goal {ti.get('action') or ''}".strip()
     if tool in ("Agent", "Task"):
         return "other", [], f"{tool}：{one_line(ti.get('description') or ti.get('prompt'), 60)}"
     return None

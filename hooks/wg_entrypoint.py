@@ -11,7 +11,7 @@
                                 挑卡＋每個切入點記一筆帳到 Logs/guard-entry.jsonl，回要接在問句後面的文字；
                                 一張卡一個 session 只送一次全文，之後併成一行「判準卡：<卡名>、…」，拿過卡的切入點不再往下送新卡
                                 （workflow/entry-sent/<sid>.json，規則 CARD_FULL_ONCE_PER_SESSION；壓縮後清掉重送；子代理 prompt 不套）；
-                                entrypoint.card_once_per_session=false 退回 CARD_ONCE_PER_TOPIC（話題＝目前的需求目標樹，換樹才再送、一張一行指回）
+                                entrypoint.card_once_per_session=false 退回 CARD_ONCE_PER_TOPIC（話題＝整個 session、一張一行指回）
 - resolve_responses(asks, …)    依各閘自己的留帳（登錄表每列的 responses）推每次問之後 AI 的回應型；tools/entry-stats.py 用
 - health_block()                健檢：RULES 裡沒登錄的規則名、登錄表寫錯的規則名、卡片寫了登錄表沒有的代號——只列不擋
 """
@@ -306,16 +306,8 @@ def _sent_path(session_id: str) -> Path:
 
 
 def _topic_key(session_id: str) -> Optional[str]:
-    """規則 CARD_ONCE_PER_TOPIC 的話題：目前的需求目標樹（換題＝need_goal set new_task 開新樹）；還沒有樹就是整個 session。
-    樹檔讀不到也當整個 session（最多少送一次重複的卡，不擋任何事）。"""
-    if not session_id:
-        return None
-    try:
-        import wg_need_goal as ng
-        tid = ng.load(session_id).get("active")
-    except Exception:  # noqa: BLE001
-        tid = None
-    return f"tree:{tid}" if tid else "session"
+    """規則 CARD_ONCE_PER_TOPIC 的話題：整個 session。"""
+    return "session" if session_id else None
 
 
 def _sent_this_topic(session_id: str, topic: Optional[str]) -> Tuple[set, set]:

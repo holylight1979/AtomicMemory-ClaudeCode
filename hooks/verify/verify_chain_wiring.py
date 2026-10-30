@@ -425,13 +425,13 @@ def test_subagent_stop_second_block_is_notice(monkeypatch, tmp_path):
 
 
 def test_halt_covers_mcp_write_tools(hk):
-    """settings.json 的 PreToolUse 補掛 MCP 寫入工具之後，停手也擋得到：警報後 atom_write／need_goal 先停手；警報前照常放行。"""
+    """settings.json 的 PreToolUse 補掛 MCP 寫入工具之後，停手也擋得到：警報後 atom_write 這類寫入工具先停手；警報前照常放行。"""
     s = hk()
     ti = {"title": "x", "knowledge": "y"}
     assert not _denied(s.pre("mcp__workflow-guardian__atom_write", ti))
     _abort_by_kh(s)
     for tool in ("mcp__workflow-guardian__atom_write", "mcp__workflow-guardian__atom_retire",
-                 "mcp__workflow-guardian__atom_edit_meta", "mcp__workflow-guardian__atom_move", "mcp__workflow-guardian__need_goal"):
+                 "mcp__workflow-guardian__atom_edit_meta", "mcp__workflow-guardian__atom_move"):
         out = s.pre(tool, ti)
         assert _denied(out) and _deny_text(out).startswith("[Guardian:ChainBreaker] 連鎖中止中"), tool
 
@@ -556,9 +556,7 @@ MAP = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
 
 
 def _hub_switch(s: Session, monkeypatch) -> set:
-    """定位閘的判定換成開關：回的集合裡的檔照定位閘的口氣擋；部位照專案裡真的部位表查（pre_tool_use._hub_part）。
-    寫碼類檔要目標樹那道（需求目標）換成不擋，只看定位閘。"""
-    import wg_need_goal
+    """定位閘的判定換成開關：回的集合裡的檔照定位閘的口氣擋；部位照專案裡真的部位表查（pre_tool_use._hub_part）。"""
     import wg_overview
     (s.proj / ".claude").mkdir(exist_ok=True)
     (s.proj / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8")
@@ -570,7 +568,6 @@ def _hub_switch(s: Session, monkeypatch) -> set:
         msg = f"[Guardian:OverviewHub] 改 {fp} 前的證據不足，一律擋"
         return msg, msg, False, wg_overview.remind_hit("OVERVIEW_PART_FILES_READ", "", "證據不足", "先讀")
     monkeypatch.setattr(wg_overview, "edit_check", edit_check)
-    monkeypatch.setattr(wg_need_goal, "edit_gate", lambda *a, **k: None)
     monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)   # 接線測擋下那一刻的斷路器記帳：送法固定成擋
     return blocked
 

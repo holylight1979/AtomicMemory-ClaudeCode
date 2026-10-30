@@ -311,10 +311,10 @@ def _cleanup_old_states() -> None:
 # ─── workflow/ 執行紀錄保留規則表（SessionStart 照表清一次）─────────────────────
 # 每列：dir（相對 workflow/；"../Logs/…" 是 workflow 的上一層）｜patterns（只看該層，不往下找）｜kind＋param｜keep（保留多久，給人讀）｜why（為什麼刪了不會壞事）。
 # 依據：每類在 session 結束後還有沒有讀者、讀者看多久以前的資料。檔名含目前 session id 的一律不動（resume 回來還要用）。
-# kind：age＝mtime 超過 param 天就刪；need_goal／aec_tempfiles／months／tracking_pairs＝下面同名的判斷；
+# kind：age＝mtime 超過 param 天就刪；aec_tempfiles／months／tracking_pairs＝下面同名的判斷；
 # rotate＝超過大小輪替；elsewhere＝規則在別支程式（param 寫在哪），表上只登記；keep＝永久保留。
 
-RETENTION_KINDS = ("age", "need_goal", "aec_tempfiles", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
+RETENTION_KINDS = ("age", "aec_tempfiles", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
 OVERVIEW_LOG_MAX_MB = 10
 
 WORKFLOW_RETENTION: List[Dict[str, Any]] = [
@@ -337,9 +337,8 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "why": "session 留下的東西還在，HUD 就要一直列出來讓使用者處置（原設計者拒絕「放 N 天就刪」）"},
     {"dir": "dpm-done", "patterns": ("*.flag",), "kind": "age", "param": 7,
      "keep": "7 天", "why": "只防同一 session 重複要求 post-mortem"},
-    {"dir": "need-goal", "patterns": ("*.json", "*.tmp", "*.lock"), "kind": "need_goal", "param": "wg_need_goal.STALE_DAYS",
-     "keep": "目標檔與殘檔 30 天；壞檔備份 30 天；鎖檔在同名目標檔已不在、而且超過 30 天才刪",
-     "why": "只有該 session 讀（從續接單接手讀的是續接單）；目標檔都清掉的鎖不會再有人鎖"},
+    {"dir": "need-goal", "patterns": ("*.json", "*.tmp", "*.lock"), "kind": "age", "param": 30,
+     "keep": "30 天", "why": "沒有程式寫入也沒有讀者，只清各機留下的舊檔"},
     {"dir": "entry-sent", "patterns": ("*.json",), "kind": "age", "param": 7,
      "keep": "7 天", "why": "只給同一 session 同一個話題判「這張判準卡送過全文了沒」用（wg_entrypoint CARD_ONCE_PER_TOPIC）"},
     {"dir": "git-launchers", "patterns": ("*.json",), "kind": "age", "param": 7,
@@ -419,27 +418,6 @@ def _prune_age(d: Path, patterns, days: float, now: float, sid: str, dry_run: bo
         for f in d.glob(pattern):
             if f.is_file() and not (sid and sid in f.name) and _older(f, cutoff):
                 _rm(f, dry_run, res)
-
-
-def _prune_need_goal(d: Path, now: float, sid: str, dry_run: bool, res: Dict[str, Any]) -> None:
-    """目標檔（<sid>.json）與殘檔（*.tmp）、壞檔備份（*.corrupt-*.json）超過 STALE_DAYS 刪；
-    鎖檔只在同名目標檔已不在（或這一輪剛清掉）、而且本身也超過 STALE_DAYS 才刪——目標檔還在就可能有人要鎖它。"""
-    try:
-        from wg_need_goal import STALE_DAYS as days
-    except Exception:  # noqa: BLE001
-        days = 30
-    cutoff = now - days * _DAY
-    gone = set()
-    for f in list(d.glob("*.json")) + list(d.glob("*.tmp")):
-        if not f.is_file() or (sid and sid in f.name) or not _older(f, cutoff):
-            continue
-        if _rm(f, dry_run, res) and f.suffix == ".json":
-            gone.add(f.stem)
-    for lock in d.glob("*.lock"):
-        if (sid and sid in lock.name) or not _older(lock, cutoff):
-            continue
-        if lock.stem in gone or not lock.with_suffix(".json").exists():
-            _rm(lock, dry_run, res)
 
 
 def _prune_aec_tempfiles(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
@@ -562,8 +540,6 @@ def prune_workflow_records(wf: Optional[Path] = None, current_sid: str = "", now
         try:
             if kind == "age":
                 _prune_age(d, row["patterns"], row["param"], now, current_sid, dry_run, res)
-            elif kind == "need_goal":
-                _prune_need_goal(d, now, current_sid, dry_run, res)
             elif kind == "aec_tempfiles":
                 _prune_aec_tempfiles(d, row["param"], now, dry_run, res)
             elif kind == "months":

@@ -230,18 +230,14 @@ def v6_enabled(config: Dict[str, Any]) -> bool:
 
 
 # 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算。
-# 只當提示的開關（第一則「先立樹」一行、讀程式檔附的定位提示），不當守門開關（coding_turn 不看它）
+# 只當提示的開關（讀程式檔附的定位提示），不當守門開關（coding_turn 不看它）
 CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
 def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> bool:
-    """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合，三層：
-    ① 實質行為（最高位）：這個使用者回合已經有改程式檔的工具行為——Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔
-       （modified_files 有一筆，程式照 wg_need_goal.writes_code 判，.bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令
-       （unknown_writes，不知道寫了什麼，保守算）。
-    ② 改碼之前的入口：本使用者回合 LLM 呼叫了 need_goal set／add／update，而且那棵樹是寫碼類（state need_goal_code_decl_turn）。
-       樹只是前幾回合留著、本回合沒宣告不算。
-    ③ 使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定要不要送一行「要改碼先立樹」（wg_need_goal.CODE_TREE_HINT）與記憶選片。
-    判錯會漏的：LLM 沒立樹就直接改碼，動手前的守門晚到第一次改程式檔才啟動（由 ① 補上）。
-    寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
+    """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合——看實質行為：這個使用者回合已經有改程式檔的工具行為
+    （Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔：modified_files 有一筆，程式照 wg_code_path.is_code_path 判，
+    .bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令（unknown_writes，不知道寫了什麼，保守算）。
+    使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定讀程式檔時送不送定位提示與記憶選片。
+    寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
     處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
     st = state or {}
     if coding_guard_opt(config, "coding_turn_only", True) is False:
@@ -250,12 +246,9 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
     since = int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(st.get("turn_seq", 0) or 0)
     if any(isinstance(u, dict) and int(u.get("turn_seq") or 0) >= since for u in st.get("unknown_writes") or []):
         return True
-    d = st.get("need_goal_code_decl_turn")
-    if isinstance(d, int) and not isinstance(d, bool) and d >= since:
-        return True
-    from wg_need_goal import writes_code
+    from wg_code_path import is_code_path
     return any(isinstance(m, dict) and int(m.get("last_turn_seq") or m.get("turn_seq") or 0) >= since
-               and writes_code(str(m.get("path") or ""), config)
+               and is_code_path(str(m.get("path") or ""), config)
                for m in st.get("modified_files") or [])
 
 

@@ -270,7 +270,7 @@ _DEFER = "全部完成了。log 清理下次再處理，留到下個 session 做
 def test_7_deferral_block_clears_evasion_flag_for_same_sentence(driven, capsys, monkeypatch):
     """規則：DEFERRAL_COVERS_EVASION_SENTENCE。"""
     monkeypatch.setattr(st, "detect_evasion", wg_evasion.detect_evasion)
-    out, state, logs = driven(_DEFER, capsys, need_goal_code_decl_turn=5)
+    out, state, logs = driven(_DEFER, capsys, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])   # 本回合有判不出目標的寫入＝寫碼回合
     assert "[Guardian:DeferralGate]" in out, out[:300]
     assert not state.get("evasion_flag"), state.get("evasion_flag")               # 下一則使用者訊息不再注入「先處理這件」
     assert state.get("evasion_events")                                             # 事件照留（收尾檢核對照用）
@@ -280,7 +280,7 @@ def test_7_other_sentence_keeps_evasion_flag(driven, capsys, monkeypatch):
     """規則：DEFERRAL_COVERS_EVASION_SENTENCE。"""
     monkeypatch.setattr(st, "detect_evasion", wg_evasion.detect_evasion)
     text = "全部完成了。測試那段先跳過。另外 log 清理留到下個 session 做。"
-    out, state, _ = driven(text, capsys, need_goal_code_decl_turn=5)
+    out, state, _ = driven(text, capsys, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])
     assert "[Guardian:DeferralGate]" in out
     assert state.get("evasion_flag") and state["evasion_flag"]["phrase"] == "先跳過"   # 不是同一句：旗標照留
 
@@ -371,16 +371,16 @@ def test_8b_1_red_judged_not_owed_at_one_stop_is_never_used_to_block_later(drive
     「負向對照｜<指令裡的字樣>：<理由>」→ 判不算、搬到 deliberate_reds 並留帳；第 6 回合宣告完成 → 不擋。反例：第 5 回合只說「反證結果如上」
     沒寫宣告 → 紅照留（沒宣告完成不算判過），第 6 回合宣告完成照擋、擋訊息不寫「0 支已綠」。"""
     decl = "反證結果如上。\n負向對照｜verify_x.py：拿舊碼跑新測試，預期這支紅，證明新測試抓得到舊行為"
-    out, s5, logs = driven(decl, capsys, turn_seq=5, need_goal_code_decl_turn=5, failing_tests=[dict(_RED)])
+    out, s5, logs = driven(decl, capsys, turn_seq=5, failing_tests=[dict(_RED)])
     assert "TestFailGate" not in out
     assert s5["failing_tests"] == [] and [d["rule"] for d in s5["deliberate_reds"]] == ["NEGATIVE_CONTROL_DECLARED"]
     assert any(g == "testfail_scope" and p.get("event") == "negative_control_declared" and p.get("failing_turn") == 5 for g, p in logs), logs
-    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5,
+    out, _, _ = driven("全部完成了。", capsys, turn_seq=6,
                        failing_tests=copy.deepcopy(s5["failing_tests"]), deliberate_reds=copy.deepcopy(s5["deliberate_reds"]))
     assert "TestFailGate" not in out, out[:300]
-    out, s5b, _ = driven("反證結果如上。", capsys, turn_seq=5, need_goal_code_decl_turn=5, failing_tests=[dict(_RED)])
+    out, s5b, _ = driven("反證結果如上。", capsys, turn_seq=5, failing_tests=[dict(_RED)])
     assert "TestFailGate" not in out and len(s5b["failing_tests"]) == 1 and "deliberate_reds" not in s5b   # 沒宣告完成：不判、不算判過
-    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5, failing_tests=copy.deepcopy(s5b["failing_tests"]))
+    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, failing_tests=copy.deepcopy(s5b["failing_tests"]))
     assert "TestFailGate" in out and "還有 1 支沒跑綠，不得宣告完成" in out and "支已綠" not in out, out[:300]
 
 
@@ -395,7 +395,7 @@ def test_8b_2_same_command_later_or_scoped_green_outweighs_red_so_nothing_is_owe
     old = {**_RED, "cmd": "python -m pytest tests/test_report.py -q", "summary": f"FAILED {_MIX_UNITS[0]} - x\n1 failed in 0.1s"}
     state = _track({"turn_seq": 5, "failing_tests": [dict(old)]}, _MIX_CMD, _MIX_OUT)
     assert _own_reds(state) == [] and [d["rule"] for d in state["deliberate_reds"]] == ["RED_LAST_RESULT_IN_COMMAND"]   # 舊紅也被綠那段清掉
-    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5,
+    out, _, _ = driven("全部完成了。", capsys, turn_seq=6,
                        failing_tests=copy.deepcopy(state["failing_tests"]), deliberate_reds=copy.deepcopy(state["deliberate_reds"]))
     assert "TestFailGate" not in out, out[:300]
     state = _track({"turn_seq": 5}, "python -m pytest tests/test_a.py -q; python -m pytest tests/test_a.py -q",
@@ -419,7 +419,7 @@ def test_8b_3_true_red_still_blocks(driven, capsys):
     for cmd, out_text in cases:
         state = _track({"turn_seq": 5}, cmd, out_text)
         assert _own_reds(state) == [[_A]] and "deliberate_reds" not in state, (cmd, state.get("failing_tests"))
-        out, _, _ = driven("全部完成了。", capsys, turn_seq=6, need_goal_code_decl_turn=5, failing_tests=copy.deepcopy(state["failing_tests"]))
+        out, _, _ = driven("全部完成了。", capsys, turn_seq=6, failing_tests=copy.deepcopy(state["failing_tests"]))
         assert "TestFailGate" in out and _A in out and "支已綠" not in out, (cmd, out[:300])
 
 
@@ -446,10 +446,9 @@ def test_unformatted_new_reason_is_not_swallowed_by_released_item(driven, capsys
     """規則：RELEASE_COVERS_SHOWN_ITEMS。先前放行了 (a)；這次 (a) 還在、另多一段沒有 ✗ 條目的判定錯誤 → 照擋那段錯誤，不因 (a) 已放行就整份清空。"""
     out, _, _ = driven(_CLAIM, capsys)
     key_a = [k for k in rl.release_items(json.loads(out)["reason"]) if "(a)" in k]
-    import wg_need_goal
-    monkeypatch.setattr(wg_need_goal, "goal_gate_reason", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("goal boom")))
+    monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("judge boom")))
     out, _, _ = driven(_CLAIM, capsys, turn_seq=6, user_released={_SID: {"reconcile": {"turn": 5, "items": key_a}}})
-    assert "goal boom" in out and "GATE_SELF_ERROR" in out, out[:300]
+    assert "judge boom" in out and "GATE_SELF_ERROR" in out, out[:300]
 
 
 # ─── 共用擋次每個使用者回合歸零 ───────────────────────────────────────────────
@@ -457,9 +456,9 @@ def test_unformatted_new_reason_is_not_swallowed_by_released_item(driven, capsys
 def test_shared_budget_resets_per_user_turn(driven, capsys, monkeypatch):
     """規則：BLOCK_BUDGET_SHARED。"""
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
-    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, stop_blocked_turn=5, need_goal_code_decl_turn=5)
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, stop_blocked_turn=5, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])
     assert "DeferralGate" not in out                                               # 同一回合擋滿 2 次 → 第 3 次放行（照舊）
-    out, state, _ = driven("好了。", capsys, turn_seq=6, stop_blocked_count=2, stop_blocked_turn=5, need_goal_code_decl_turn=6)
+    out, state, _ = driven("好了。", capsys, turn_seq=6, stop_blocked_count=2, stop_blocked_turn=5, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 6}])
     assert "DeferralGate" in out and state["stop_blocked_count"] == 1              # 新的使用者回合：退縮閘照樣擋一次
 
 

@@ -293,14 +293,6 @@ def ptu_run(monkeypatch, tmp_path, capsys):
 
 
 @pytest.mark.parametrize("on", [False, True])
-def test_posttool_need_goal_hint_skipped_when_off(ptu_run, monkeypatch, on):
-    _set_v6(monkeypatch, on)
-    monkeypatch.setattr(ptu, "_need_goal_after_tool", lambda *a, **k: ("[NeedGoal] 必送替身", False))
-    out, _ = ptu_run({"turn_seq": 1}, "Bash", {"command": "echo hi"})
-    assert ("[NeedGoal] 必送替身" in out) is on
-
-
-@pytest.mark.parametrize("on", [False, True])
 def test_write_gate_dedupe_declaration_follows_switch(monkeypatch, on):
     """MCP atom_write 的寫入閘（tools/memory-write-gate.py）：「相似要 AI 宣告」是 v6 加的擋，關閉時退回舊行為（>0.95 skip、其餘建議 update）。"""
     import importlib.util

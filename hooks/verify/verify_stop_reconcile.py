@@ -177,7 +177,7 @@ def test_a_old_turn_pass_counts_when_no_code_edit_since(driven, capsys):
     """① 上回合（turn 3）改 x.py、補案例、跑綠；本回合（turn 5）一行程式都沒改、說修好 → (a) 認那筆 PASS，不擋
     （跑名 2026-10-28-008 實踩的誤擋：舊碼只認本回合的收據，逼它重跑同一組測試）。"""
     mods = [_mf(_CODE, 3, last_at=_T1, last_seq=1), _mf(_CASE, 3, last_at=_T1, last_seq=2)]
-    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=mods, need_goal_code_decl_turn=5,
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=mods,
                        verify_receipts={_SID: [_rcpt(3, at=_T2, seq=3)]})
     assert _A_HIT not in out, out
 
@@ -188,12 +188,12 @@ def test_a_old_turn_pass_then_code_edited_again_blocks_and_names_file(driven, ca
     green = {_SID: [_rcpt(3, at=_T2, seq=3)]}
     old = [_mf(_CODE, 3, last_at=_T1, last_seq=1), _mf(_CASE, 3, last_at=_T1, last_seq=2)]
     again = [{**_mf(_CODE, 3, last_at=_T_LATER, last_seq=4), "last_turn_seq": 5}, old[1]]
-    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=again, need_goal_code_decl_turn=5, verify_receipts=green)
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=again, verify_receipts=green)
     assert _A_HIT in out and "之後又改了 x.py，要重跑" in out and "只有舊回合的 PASS" not in out, out
-    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=old, need_goal_code_decl_turn=5, verify_receipts=green,
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=old, verify_receipts=green,
                        agent_modified_files={"ag1": [_mf(_CODE, 5, last_at=_T_LATER, last_seq=4)]})
     assert _A_HIT in out and "之後又改了 x.py，要重跑" in out, out
-    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=old, need_goal_code_decl_turn=5, verify_receipts=green,
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=old, verify_receipts=green,
                        unknown_writes=[{"cmd": "python -c ...", "target": "UNKNOWN:inline", "session_id": _SID,
                                         "turn_seq": 5, "at": _T_LATER}])
     assert _A_HIT in out and "之後又改了 判不出目標的寫入，要重跑" in out, out
@@ -202,7 +202,7 @@ def test_a_old_turn_pass_then_code_edited_again_blocks_and_names_file(driven, ca
 def test_a_this_turn_pass_after_edit_still_passes(driven, capsys):
     """③ 本回合改 x.py、補案例、跑綠、說修好 → 照舊放行。"""
     mods = [_mf(_CODE, 5, last_at=_T1, last_seq=1), _mf(_CASE, 5, last_at=_T1, last_seq=2)]
-    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=mods, need_goal_code_decl_turn=5,
+    out, _, _ = driven("x.py 修好了，完成。", capsys, modified_files=mods,
                        verify_receipts={_SID: [_rcpt(5, at=_T2, seq=3)]})
     assert _A_HIT not in out, out
 
@@ -781,9 +781,9 @@ def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatc
 
 def test_shared_budget_deferral_gate_keeps_skipping_when_exhausted(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
-    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, stop_blocked_turn=5, need_goal_code_decl_turn=5)   # 本回合宣告了寫碼樹
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=2, stop_blocked_turn=5, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])   # 本回合有判不出目標的寫入＝寫碼回合
     assert "DeferralGate" not in out and "【收尾放行確認】" not in out                         # 擋滿：照舊跳過
-    out, _, _ = driven("好了。", capsys, stop_blocked_count=0, need_goal_code_decl_turn=5)
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=0, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])
     assert "DeferralGate" in out and "本回合已擋" not in out                                # 沒擋滿：照原本的擋
 
 
@@ -3753,7 +3753,7 @@ def test_044_6_commit_before_peer_message_exempts_scan_report(driven, capsys, mo
 def test_044_6_commit_before_peer_message_counts_as_task_done_for_deferral(driven, capsys, monkeypatch):
     """stop.py 傳給 DeferralGate 的「本回合已 commit」：turn 5 commit → 同伴訊息（turn 6）→ 收尾把可做的事推給下個 session（沒寫完成）
     → 主任務已完工（本回合 commit 了），DeferralGate 照擋。舊碼只認 turn_seq==6，判沒完工、漏擋。"""
-    state = _user_then_peers(monkeypatch, peers=1, last_commit_turn_seq=5, need_goal_code_decl_turn=5)
+    state = _user_then_peers(monkeypatch, peers=1, last_commit_turn_seq=5, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])
     out, _, _ = driven("要不要下個 session 再把 realm atom 瘦身？", capsys, **state)
     assert "[Guardian:DeferralGate]" in out
 
@@ -4204,13 +4204,13 @@ def test_046_block_lists_later_gates(driven, capsys, monkeypatch, tmp_path):
         (docs / n).write_text("x\n", encoding="utf-8", newline="\n")
     assert st._find_vcs_root(docs) is None
     mf = [_mf(str(docs / "a.md"), 5), _mf(str(docs / "b.md"), 5)]   # 還在、不在版控：照算未同步（不存在的假路徑會被 SYNC_SKIPS_VANISHED_OUTSIDE_VCS 剔掉）
-    out, _, _ = driven("好了。", capsys, modified_files=mf, need_goal_code_decl_turn=5)   # 寫碼回合才查退縮語
+    out, _, _ = driven("好了。", capsys, modified_files=mf, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])   # 寫碼回合才查退縮語
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" in out, out
     later = out.split("[Guardian:AlsoOwed]", 1)[1]
     assert "knowledge_harvest_report" in later and "anti_evasion_report" in later, later
     assert "同步：" not in later, later      # 後面還欠收尾檢核：(g) 會交代版控，同步不重列（SYNC_COVERED_BY_CLOSING_CHECK）
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: None)
-    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    out, _, _ = driven("好了。", capsys, modified_files=mf, unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])
     assert "[Guardian:KnowledgeHarvest] 先收割" in out and "[Guardian:AlsoOwed]" in out, out
     later = out.split("[Guardian:AlsoOwed]", 1)[1]
     assert "knowledge_harvest_report" not in later and "anti_evasion_report" in later, later
@@ -4220,7 +4220,7 @@ def test_046_block_lists_nothing_when_nothing_else_owed(driven, capsys, monkeypa
     """期望不發生要先斷言前置：退縮閘真的擋了；後面三道都不欠 → 不附預覽段。"""
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
     monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: False)
-    out, _, _ = driven("好了。", capsys, modified_files=[], need_goal_code_decl_turn=5)
+    out, _, _ = driven("好了。", capsys, modified_files=[], unknown_writes=[{"cmd": "python gen.py > $OUT", "target": "UNKNOWN:redirect", "turn_seq": 5}])
     assert "DeferralGate" in out and "[Guardian:AlsoOwed]" not in out, out
 
 
@@ -4260,10 +4260,9 @@ def test_trim_report_letter_e_unlisted_does_not_block(driven, capsys):
 
 
 def test_trim_live_config_blocks_only_two_things():
-    """live 設定照使用者拍板：寫碼查核只擋 a、d；需求目標對照、收尾檢核、卡片表態都不擋收尾。"""
+    """live 設定照使用者拍板：寫碼查核只擋 a、d；收尾檢核、卡片表態都不擋收尾。"""
     cfg = json.loads((HOOKS_DIR.parent / "workflow" / "config.json").read_text(encoding="utf-8"))
     assert cfg["reconcile_gate"]["block_letters"] == ["a", "d"]
-    assert cfg["reconcile_gate"]["goal_gate"] is False
     assert cfg["aec"]["scan_report_gate"] is False
     assert cfg["atom_audit"]["enabled"] is False
 

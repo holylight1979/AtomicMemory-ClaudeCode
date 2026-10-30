@@ -117,10 +117,6 @@ def evasion_ask(ev: Dict[str, Any]) -> str:
             f"  {ev.get('hint') or ''}")
 
 
-# 關鍵字分類（classify_intent）判成要改程式的意圖：只用來送「先立樹」提示與記憶選片，不當守門開關
-from wg_core import CODE_INTENTS as _CODE_INTENTS     # 寫碼類意圖的唯一真源在 wg_core（coding_turn 旁）
-
-
 def handle_user_prompt_submit(
     input_data: Dict[str, Any], config: Dict[str, Any]
 ) -> None:
@@ -167,7 +163,7 @@ def handle_user_prompt_submit(
         )
 
     # 分段計時（wg_hook_timing）：累計過上限 80% → 降級，脈絡、導讀卡、檢索與注入組裝這次不跑；
-    # 前置閘、記原話（目標樹）、收尾記帳與寫 state 照做。到 95% 還沒送出 → 背景鬧鐘代送已備好的 lines。
+    # 前置閘、收尾記帳與寫 state 照做。到 95% 還沒送出 → 背景鬧鐘代送已備好的 lines。
     _hook_timing.set_fallback(lambda: _fallback_output(lines))
 
     v6 = v6_enabled(config)     # 關＝只送 9e476fd0 就有的注入與提示
@@ -200,28 +196,9 @@ def handle_user_prompt_submit(
     typed = user_typed_text(prompt)
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
-    coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入、導讀卡照舊）
-    if not coding:
+    if not (v6 and coding_turn(state, config)):    # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入、導讀卡照舊）
         _hook_timing.quiet()                       # 不寫計時帳；新的使用者回合起點：拿掉寫碼回合標記
         _hook_timing.mark_coding(session_id, False)
-
-    # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
-    # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
-    try:
-        _ng_txt = None
-        if v6:
-            from wg_need_goal import on_prompt as _ng_on_prompt
-            _ng_txt = _ng_on_prompt(session_id, clean_prompt, int(state.get("turn_seq", 0)) + 1, config,
-                                    cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
-        if _ng_txt and coding:                   # 原話照記；提示只在寫碼回合送
-            lines.append(_ng_txt)
-        elif v6 and turn_intent in _CODE_INTENTS:   # 規則 CODING_TURN_ONLY 第三層：關鍵字判寫碼只送一行「先立樹」，不啟動守門
-            from wg_need_goal import CODE_TREE_HINT
-            lines.append(CODE_TREE_HINT)
-    except Exception as e:
-        _atom_debug_error("ups:need_goal", e)
-        print(f"[NeedGoal] UserPromptSubmit 記原話失敗：{type(e).__name__}: {e}", file=sys.stderr)
-    _hook_lap("目標樹")
 
     # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
     if not _hook_degraded():
@@ -290,8 +267,7 @@ def handle_user_prompt_submit(
         session_id, state, config, clean_prompt, lines
     )
 
-    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費；
-    # 命中（只算使用者本人打的字）且有需求目標樹 → 提醒回頭看樹（4.3，不擋）
+    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費
     correction_hits: List[str] = []
     try:
         from wg_friction import correction_question, record_correction
@@ -303,19 +279,6 @@ def handle_user_prompt_submit(
     except Exception as e:
         _atom_debug_error("ups:friction", e)
         print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)
-    # 使用者糾正：提醒回頭看目標樹（4.3）
-    if coding and correction_hits:
-        try:
-            import wg_need_goal as _ng
-            from wg_need_goal_points import on_correction
-            if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
-                _ng_line = on_correction(session_id, correction_hits, int(state.get("turn_seq", 0) or 0) + 1)
-                if _ng_line:
-                    lines.append(_ng_line)
-        except Exception as e:
-            print(f"[NeedGoal] 糾正或外部主張提醒失敗（不送）：{type(e).__name__}: {e}", file=sys.stderr)
-            _atom_debug_error("ups:need_goal_correction", e)
-
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
 

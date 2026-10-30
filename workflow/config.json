@@ -2,7 +2,7 @@
   "atom_debug": false,
   "enabled": true,
   "coding_guard": {
-    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或本回合 need_goal 宣告了寫碼樹（set kind=code／add／update）；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算、只送一行先立樹，只改文件、純問答不算；非寫碼回合也不寫 hook 計時帳），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
+    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算，只改文件、純問答不算；非寫碼回合也不寫 hook 計時帳），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
     "enabled": false
   },
   "stop_gate_max_blocks": 2,
@@ -477,10 +477,6 @@
       "_doc": "改舊測試要先宣告「改舊測試｜哪支：理由」（hooks/wg_oldtest.py；規則 OLD_TEST_CHANGE_NEEDS_DECLARATION）：刪、改名、改斷言、加 skip、改說明五種動作；Edit／Write 當場擋，Bash／PowerShell／NotebookEdit 事後比對、擋下一個工具呼叫。false＝整條不擋。",
       "enabled": true
     },
-    "origin_user_check": {
-      "_doc": "目標樹子節點標 origin=user 要用 quote 引用使用者原話字面子句，對不到強制改 inferred 並提醒一次；樹根一律顯示「AI 的解讀」並列出原話裡沒有的句子（hooks/wg_need_goal._check_origin／_check_root；規則 ORIGIN_USER_NEEDS_QUOTE）。false＝不核。",
-      "enabled": true
-    },
     "gate_bypass": {
       "_doc": "繞閘嫌疑：病形閘擋過之後，把被點名的檔移出暫存、改提交範圍、--no-verify 而病還在 → 要「不是繞閘｜理由」否則擋（hooks/wg_gate_bypass.py；規則 GATE_BYPASS_NEEDS_DECLARATION）；atom 內容同時提到 Guardian 閘與改暫存區做法 → 拒寫，知識段第一行寫「不是教繞閘｜理由」才寫入（ATOM_BYPASS_HOWTO_REFUSED）。staging_words 不設＝程式預設。false＝整條不擋。",
       "enabled": true
@@ -553,7 +549,7 @@
     "min_turns": 3,
     "min_accessed": 5,
     "min_turns_between": 3,
-    "_doc_background": "background＝true（預設）：觸發條件同上時不擋寫碼 AI，改起背景行程（hooks/wg_bg_harvest.py）問 vector_search.ollama_backends 的開源免費模型 background_model，從 transcript 尾段產最多 background_max_cards 張待審候選卡（專案 shared/_pending_review/，沒專案層落 memory/_staging/harvest-candidates/），順手替程式記過進度的目標樹節點草擬一句進度；留帳 Logs/guard-harvest_bg.jsonl。模型不在只記 failed、不改用付費模型。false＝照舊擋下要 AI 呼叫 knowledge_harvest_report。",
+    "_doc_background": "background＝true（預設）：觸發條件同上時不擋寫碼 AI，改起背景行程（hooks/wg_bg_harvest.py）問 vector_search.ollama_backends 的開源免費模型 background_model，從 transcript 尾段產最多 background_max_cards 張待審候選卡（專案 shared/_pending_review/，沒專案層落 memory/_staging/harvest-candidates/）；留帳 Logs/guard-harvest_bg.jsonl。模型不在只記 failed、不改用付費模型。false＝照舊擋下要 AI 呼叫 knowledge_harvest_report。",
     "background": true,
     "background_model": "gemma4:e4b",
     "background_max_cards": 3,
@@ -831,8 +827,6 @@
       "a",
       "d"
     ],
-    "_doc_goal_gate": "false＝需求目標對照 (f1)～(f4) 與 commit 前的目標對照不擋（目標樹照記；改檔前要有樹、提問掛節點不歸這裡）（規則 CLOSING_RITUAL_SWITCHES）。",
-    "goal_gate": false,
     "max_blocks_per_turn": 2,
     "exec_tools": [
       "Bash",

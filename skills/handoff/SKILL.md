@@ -56,11 +56,6 @@ description: 跨 Session Handoff Prompt Builder — 強制 6 區塊 self-suffici
 - 拒絕了哪些 alternatives 與原因
 - 已知限制 / 已知坑
 
-### 附加：【需求目標樹】（本 session 有還沒結束的樹才附）
-- 呼叫 `need_goal(action=read, form=handoff)`，把回傳的整段原樣貼在 6 區塊之後。整段包含 `<!-- need-goal:begin v1 -->` 到 `<!-- need-goal:end -->` 那塊 JSON，**不改寫、不刪減**。回傳空字串就不附。
-- 下個 session Read 這份續接單時：還沒有樹會自動匯入（配新編號；前一個 session 的證據標成「只供閱讀」，之後改到的節點要交新證據）；已經有樹的話，就用 `need_goal(action=set, import_from=<續接單路徑>)` 接續。
-- 6 區塊裡的 why 照樣寫。目標樹是 AI 的解讀，區塊裡的使用者原話才是權威，兩者都留。
-
 ---
 
 ## 輸出格式

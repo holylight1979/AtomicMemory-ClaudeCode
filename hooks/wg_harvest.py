@@ -837,8 +837,8 @@ def mark_pick_asked(state: Dict[str, Any], sid: str, turn_seq: int) -> None:
 
 
 def pick_code_mods(own_mods: List[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """本 session 改檔紀錄裡的程式檔（wg_need_goal.is_code_path，寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。"""
-    from wg_need_goal import is_code_path
+    """本 session 改檔紀錄裡的程式檔（wg_code_path.is_code_path，寫碼類判準同一份；暫存檔在 post_tool_use 記改檔時就不進帳）。"""
+    from wg_code_path import is_code_path
     return [m for m in own_mods if (m or {}).get("path") and is_code_path(m["path"], config)]
 
 

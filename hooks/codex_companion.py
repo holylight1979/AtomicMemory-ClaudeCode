@@ -61,17 +61,6 @@ def _log_err(source: str, exc: Exception) -> None:
         pass
 
 
-def _review_goal(session_id: str, first_prompt: str) -> str:
-    """驗收審查的「使用者目標」：有需求目標樹時給「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段分開標示的材料，
-    沒有樹（或讀不到）沿用這個 session 第一則訊息。"""
-    try:
-        from wg_need_goal import review_material
-        return review_material(session_id) or first_prompt
-    except Exception as e:  # noqa: BLE001
-        _log_err("codex:need_goal_material", e)
-        return first_prompt
-
-
 # ─── Output helpers (same protocol as workflow-guardian) ──────────────────────
 
 

@@ -563,7 +563,7 @@ def note_commit_done(state: Dict[str, Any], session_id: str, command: str, tool_
 
 # ─── (b) 教怎麼繞閘的知識卡拒寫 ───────────────────────────────────────────────
 
-GATE_WORDS = ("SmellGate", "病形閘", "隱私閘", "PrivacyGate", "CommitOrder", "NeedGoal")
+GATE_WORDS = ("SmellGate", "病形閘", "隱私閘", "PrivacyGate", "CommitOrder")
 _GUARDIAN_TAG_RE = re.compile(r"\[Guardian:([A-Za-z0-9_-]+)")
 # 做法字樣：改暫存區、改提交範圍、跳過 hook 的寫法。只提「pathspec」「暫存區」「reset」這種名詞不算（記閘的機制、
 # 記 git 用法都會用到），要帶動作或指令形

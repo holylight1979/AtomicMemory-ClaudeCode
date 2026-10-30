@@ -24,7 +24,6 @@
   "b:guard.data_file_ask": "live config.json 今天（10-20 18:58 後）新加（T2.16）；讀取端在別軌、未合進本樹 → 該軌合併後重跑本工具確認，暫不算問題",
   "b:guard.gate_bypass": "live config.json 今天新加；讀取端在別軌、未合進本樹 → 該軌合併後重跑確認，暫不算問題",
   "b:guard.old_test_declare": "live config.json 今天新加（T2.17）；讀取端在別軌、未合進本樹 → 該軌合併後重跑確認，暫不算問題",
-  "b:guard.origin_user_check": "live config.json 今天新加（T2.18）；讀取端在別軌、未合進本樹 → 該軌合併後重跑確認，暫不算問題",
   "b:overview_hub.PYTHONIOENCODING": "HUB_DEFAULTS 變量（預計畫附錄 D）只被 hub_config 驗證、沒有使用端 → 決定要接（commit／子程序編碼）或從 HUB_DEFAULTS 與 config 刪。中（設了不生效）",
   "b:overview_hub.commit_encoding": "同 PYTHONIOENCODING：只被驗證、沒有使用端 → 接或刪。中",
   "b:overview_hub.eol_policy": "同上：只被驗證、沒有使用端 → 接或刪。中",
