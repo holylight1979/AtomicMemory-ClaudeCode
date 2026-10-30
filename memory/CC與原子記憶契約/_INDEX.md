@@ -17,6 +17,7 @@
 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 |
 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 |
 | claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置 | claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置 |
+| claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 |
 | claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點 | Claude Code的Stop擋訊息在transcript是兩份-使用者訊息與hook_blocking_error-量重讀或重播時算同一次問要共用起點 |
 | claude-code的transcript跨檔不重複-resume不會把舊列複製進新檔-逐檔加總不重複計數-子代理檔在subagents底下要排除 | claude-code的transcript跨檔不重複-resume不會把舊列複製進新檔-逐檔加總不重複計數-子代理檔在subagents底下要排除 |
 | claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事 | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |

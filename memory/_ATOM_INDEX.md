@@ -720,3 +720,5 @@
 | g8-評分規格三層設定在每個工具端都一致 | memory/思考與決策/g8-評分規格三層設定在每個工具端都一致.md | G8, G8 評分, 三層變量, 三層設定一致, 根層 公司層 專案層, 設定讀錯層 | global |  |
 | feedback-評估守門或系統價值要回到使用者原話-ai整理出的機制與目標樹節點不是使用者的目標 | memory/Failures/思考與決策/feedback-評估守門或系統價值要回到使用者原話-ai整理出的機制與目標樹節點不是使用者的目標.md | 守門價值, 雞肋, 驗證題, 根治, 原話, 目標樹節點, 想法根, 評估機制 | global |  |
 | 寫碼守門開關會改記憶系統的收尾閘-關時九道記憶收尾閘照擋-開時反而只提醒且只在寫碼回合-背景收割與hook計時降級只在開時有 | _AIDocs/_atoms/MemDev/寫碼守門閘/寫碼守門開關會改記憶系統的收尾閘-關時九道記憶收尾閘照擋-開時反而只提醒且只在寫碼回合-背景收割與hook計時降級只在開時有.md | 守門開關, 兩層, 收尾擋, KnowledgeHarvest 擋, gate_mode, 背景收割, hook 計時, 跨層 | global |  |
+| feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移 | memory/Failures/思考與決策/feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移.md | 轉述, 子代理回報, agent 回報, 離題, 飄移, 瞎猜 | global |  |
+| claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 | memory/CC與原子記憶契約/claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐.md | rules 檔, paths:, 條件載入, 常駐 token, 必載檔瘦身, path-scoped rule, CLAUDE.md import | global |  |

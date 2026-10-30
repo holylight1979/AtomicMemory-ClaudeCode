@@ -13776,6 +13776,33 @@
         "跨層"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移",
+      "path": "memory/Failures/思考與決策/feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移.md",
+      "triggers": [
+        "轉述",
+        "子代理回報",
+        "agent 回報",
+        "離題",
+        "飄移",
+        "瞎猜"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐",
+      "path": "memory/CC與原子記憶契約/claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐.md",
+      "triggers": [
+        "rules 檔",
+        "paths:",
+        "條件載入",
+        "常駐 token",
+        "必載檔瘦身",
+        "path-scoped rule",
+        "CLAUDE.md import"
+      ],
+      "scope": "global"
     }
   ]
 }
