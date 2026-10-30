@@ -20,12 +20,9 @@
 - [臨] **上線 gotcha**：Node 面(anti-evasion.js/aec-hud-html.js/mcp.js schema)改動需新 node 進程才 live(見 [[guardian-dashboard-孤兒佔埠與新碼重啟]])；Python hook 即時生效；Edge `--app` 窗 Ctrl+F5 不 hard-reload → 改 HUD 頁要關窗重開。
 - [臨] **原設計者裁定：彈窗必留，報告任何理由都不准貼進聊天**（HUD 開不起來時 Stop 只印一行報告檔位置、不擋）；彈窗時機維持看 severity（notable／real-evasion），是使用者選的。HUD 卡片白話三段、欄位字母收進「細節」，紅燈叫「疑似偷懶（待核對）」（字面比對會誤判，不先判有罪）。
 - [臨] **原設計者裁定：暫存的「保留／刪除」鈕要保留**；帳本要收整個 session 的額外產出（專案外或規格外的測試資料夾、git 工作樹、工作分支、臨時 repo），不能只收系統暫存區。
-- [臨] 收尾自清閘別拿掉 busy（別的 session 正在用的工作樹不列刪除候選）；邊界見 TECH §7.1 Cleanup。
+- [臨] 收尾自清閘別拿掉 busy（別的 session 正在用的工作樹不列刪除候選）；邊界見 `TECH/coding-guard.md` 乙3（收尾閘序）的 Cleanup。
 - [臨] server.js 啟動時 require 的 lib 模組（anti-evasion、aec-hud-html、dashboard-html）沒有 require.cache 失效：改完 Ctrl+F5 看不到，要重開佔港口的 MCP 行程；交付信寫明，用真報告實看。
 
 ## 行動
 
-- 改/強化 AEC 前先讀本 atom + Architecture.md(ScanReport 列)+ lib/_MAP.md
-- 守 one-writer(MCP 不碰 state)+ Stop 閘雙鍵 + py↔js MIRROR 兩組(aecBlank/aecSeverity 改一邊同步另一邊)
-- Node 面改動後需新 node 進程才 live；改 HUD 頁要關窗重開
-- 改 HUD 前先問：這行是給人看的白話嗎？會不會把報告推進聊天？殘留物是不是只收了暫存區？
+- （依知識內容判斷）

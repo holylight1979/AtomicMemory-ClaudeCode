@@ -10,7 +10,7 @@
 ## 知識
 
 - [臨] tools/config-consistency.py 把 TECH.md「## 12. 設定總表」與 12.1 兩張表第一欄的反引號鍵當成定義來源；改 §12 要保留標題字樣與第一欄格式。
-- [臨] pre_tool_use.py、post_tool_use.py、_shared.py、overview-map.md 的註解引用 TECH §7.x 節號，TECH 不能重編節號；要刪的節改成原位改寫。
+- [臨] 程式註解引用 TECH 節號的只剩 hooks/extract-worker.py（TECH §12.1）；重編 TECH 節號前先 grep hooks、tools、lib、.claude/overview-map.md 裡的「TECH §」引用，一起改。
 
 ## 行動
 
