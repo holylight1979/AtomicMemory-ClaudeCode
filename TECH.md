@@ -1921,7 +1921,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | [`hooks/`](hooks/) | hook 本體：dispatcher、handlers、`wg_*` 模組、背景 worker |
 | [`lib/`](lib/) | 共用函式庫：atom 寫入讀取、部位表、收據、git 錄製重播 |
 | [`tools/`](tools/) | 命令列工具與子系統（向量服務、MCP server、Codex 呼叫入口 [`codex-call.py`](tools/codex-call.py)…） |
-| [`skills/`](skills/) | <!-- skill-count -->28<!-- /skill-count --> 個 active skill（另有 `_archived/`） |
+| [`skills/`](skills/) | <!-- skill-count -->29<!-- /skill-count --> 個 active skill（另有 `_archived/`） |
 | [`memory/`](memory/) | 全域記憶層（core realm）：atom、索引、詞庫 |
 | [`_AIDocs/`](_AIDocs/) | 長期知識庫：規格、變更紀錄、local realm atom |
 | [`workflow/`](workflow/) | 設定與 runtime state（多數 gitignored） |
