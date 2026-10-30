@@ -27,13 +27,15 @@ from wg_core import (
     find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
-import chain_store  # 連鎖斷路器的帳、停手、快照（lib/；判定在 hooks/wg_chain.py）
-import wg_chain
-import wg_data_file  # T2.16 動使用者資料檔要先宣告
 import wg_read_fast  # 規則 READ_FAST_PATH：改檔前先把累積的 Read 補帳
-import wg_oldtest
-import wg_gate_bypass
-import wg_release_rules as _rr   # 擋或提醒（gate_mode／RULE_MODE，規則 GATE_MODE_TABLE）
+from wg_lazy_re import lazy_module
+# 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關、或這次工具呼叫走不到那道閘，就一行都不載
+chain_store = lazy_module("chain_store")    # 連鎖斷路器的帳、停手、快照（lib/；判定在 hooks/wg_chain.py）
+wg_chain = lazy_module("wg_chain")
+wg_data_file = lazy_module("wg_data_file")  # T2.16 動使用者資料檔要先宣告
+wg_oldtest = lazy_module("wg_oldtest")
+wg_gate_bypass = lazy_module("wg_gate_bypass")
+_rr = lazy_module("wg_release_rules")       # 擋或提醒（gate_mode／RULE_MODE，規則 GATE_MODE_TABLE）；口令閘的子句切法也在這裡
 # 分段計時只打點、不看回傳：逾時被 Claude Code 取消本來就放行，提早放行只會少查（降級不改判定）
 from wg_hook_timing import lap as _hook_lap
 
@@ -468,7 +470,7 @@ _AUTH_QUOTE_RE = re.compile(r"授權原句\s*[:：]\s*「([^」]+)」")
 _COMMIT_WORD_RE = re.compile(r"commit|提交|上傳|送出|上版|上\s*git|push|推送", re.IGNORECASE)
 # 口令或授權動作字有沒有被否定，逐個看它在原話裡的位置。否定詞表只會多擋不會多放：判錯的代價是請使用者再說一次，
 # 放錯的代價是推出去收不回。子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉。
-from wg_release_rules import CLAUSE_END_RE as _ORDER_CLAUSE_END_RE, NEG_WORD_RE as _ORDER_NEG_RE  # noqa: E402  資料檔點名共用
+# 子句界線與否定字跟動資料檔閘的點名共用一份：_rr.CLAUSE_END_RE、_rr.NEG_WORD_RE
 _ORDER_WAIT_RE = re.compile(r"(?:等我|我看完|我確認|我說|我同意)[^，,。！？!?；;\n]*$")     # 延後到使用者自己確認之後
 _ORDER_WAIT_PHRASE_RE = re.compile(r"等我|我看完|我確認|我先看|晚點|稍後再")             # 整則原話裡有延後
 _ORDER_RIGHT_NEG_RE = re.compile(r"^\s*(?:先不要|不要|先別|別|先不|暫不|不用)\s*(?:了|啦|吧|喔)?\s*$")
@@ -477,11 +479,11 @@ _ORDER_RIGHT_NEG_RE = re.compile(r"^\s*(?:先不要|不要|先別|別|先不|暫
 def _order_negated(text: str, start: int, end: int) -> bool:
     """text[start:end]（口令或授權動作字）被否定或延後：同一子句裡它左邊有否定字或「等我…」，或右邊只剩一個不帶對象的
     否定（「上GIT 先不要」）。「上GIT 別碰 X」「commit 吧，但不要 push」的否定各有自己的對象，不算否定這個口令。"""
-    seps = [m.end() for m in _ORDER_CLAUSE_END_RE.finditer(text, 0, start)]
+    seps = [m.end() for m in _rr.CLAUSE_END_RE.finditer(text, 0, start)]
     left = text[seps[-1] if seps else 0:start]
-    m = _ORDER_CLAUSE_END_RE.search(text, end)
+    m = _rr.CLAUSE_END_RE.search(text, end)
     right = text[end:m.start() if m else len(text)]
-    return bool(_ORDER_NEG_RE.search(left) or _ORDER_WAIT_RE.search(left) or _ORDER_RIGHT_NEG_RE.match(right))
+    return bool(_rr.NEG_WORD_RE.search(left) or _ORDER_WAIT_RE.search(left) or _ORDER_RIGHT_NEG_RE.match(right))
 
 
 def _quote_authorizes(p: str, i: int, q: str) -> bool:
@@ -491,7 +493,7 @@ def _quote_authorizes(p: str, i: int, q: str) -> bool:
     words = list(_COMMIT_WORD_RE.finditer(q))
     if words:
         return any(not _order_negated(p, i + m.start(), i + m.end()) for m in words)
-    return not (_ORDER_NEG_RE.search(q) or _order_negated(p, i, i + len(q)) or _ORDER_WAIT_PHRASE_RE.search(p)
+    return not (_rr.NEG_WORD_RE.search(q) or _order_negated(p, i, i + len(q)) or _ORDER_WAIT_PHRASE_RE.search(p)
                 or any(_order_negated(p, m.start(), m.end()) for m in _COMMIT_WORD_RE.finditer(p)))
 
 
@@ -509,7 +511,9 @@ def _quoted_authorization(command: str, turn_prompts: List[str]) -> Optional[str
 # heredoc 內文不是 shell 指令（文件補丁／內嵌 python 常含「git commit」字樣）；剝掉再拆段，
 # 否則口令閘會把文字當成 commit 段誤擋。隱私閘不需要：它接著查 staged，無檔即靜默。
 # 剝法與紅測記帳的切段共用一份（wg_release_rules.strip_heredoc_bodies；只剝內文、起始行 delimiter 後面的真命令照留）。
-from wg_release_rules import HEREDOC_MARK as _HEREDOC_MARK, strip_heredoc_bodies as _strip_heredoc_bodies  # noqa: E402
+# 剝掉的內文換成 _rr.HEREDOC_MARK。
+def _strip_heredoc_bodies(command: str) -> str:
+    return _rr.strip_heredoc_bodies(command)
 
 
 def _git_commits_to_run(command: str, cwd: str = "",
@@ -831,12 +835,12 @@ def _exempt_run_dirs(raw: str, base: str, msys_paths: bool = False) -> Optional[
     command = _strip_heredoc_bodies(raw)
     if _expands_outside_single_quotes(command):
         return None
-    if re.search(r"[;|()<>\n]|(?<!&)&(?!&)", _unquoted(command).replace(_HEREDOC_MARK, "")):
+    if re.search(r"[;|()<>\n]|(?<!&)&(?!&)", _unquoted(command).replace(_rr.HEREDOC_MARK, "")):
         return None
     run_base, out = base, []
     fix_path = _drive_path if msys_paths else (lambda t: t)
     for idx, seg in enumerate(_split_and(command)):
-        tokens = [t for t in _shell_tokens(seg) if t != _HEREDOC_MARK]
+        tokens = [t for t in _shell_tokens(seg) if t != _rr.HEREDOC_MARK]
         if not tokens:
             return None
         if tokens[0].lower() == "cd":
@@ -1673,10 +1677,10 @@ def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watch
     try:
         chain = _chain_ctx(input_data, config, need_ledger=False)
         r = chain_store.gate_fired(chain[0], chain[1], wg_chain.gate_name(reason, "PreToolUse"), reason, input_data,
-                                   config, watched=watched) if chain else chain_store.PASS
+                                   config, watched=watched) if chain else None   # 沒有連鎖段（含守門關）：不碰斷路器
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的擋
         sys.stderr.write(f"[chain-breaker] 工具前記觸發出錯，照原本的閘行為：{type(e).__name__}: {e}\n")
-        chain, r = None, chain_store.PASS
+        chain, r = None, None
     if chain is not None:
         if r.halt:
             output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
@@ -2016,7 +2020,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # ── OldTestDeclare（改舊測試要先宣告）──
     # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，不擋（stderr＋留帳 error，規則 GATE_SELF_ERROR）
     # 閘會就地改 state（補了宣告的欠帳拿掉）：擋下時報給斷路器的檔要含呼叫前還欠著的那幾支
-    _ot_pending = _co_state.get(wg_oldtest.PENDING_KEY) if isinstance(_co_state, dict) else None
+    _ot_pending = _co_state.get(wg_oldtest.PENDING_KEY) if v6 and isinstance(_co_state, dict) else None   # 只有守門開時的擋下要用
     _ot_owed = [str(e.get("file") or "") for e in _ot_pending if isinstance(e, dict)] if isinstance(_ot_pending, list) else []
     try:
         deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd, _co_state)

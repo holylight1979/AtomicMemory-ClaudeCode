@@ -21,7 +21,9 @@ import sys
 from typing import Any, Dict, List, Tuple
 
 from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled, coding_turn
-from wg_release_rules import remind_line
+from wg_lazy_re import lazy_module
+
+_rr = lazy_module("wg_release_rules")   # 提醒一行的寫法（remind_line）；寫碼守門關時這支 handler 用不到，第一次用到才載
 
 
 def _ask_module() -> Any:
@@ -124,7 +126,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
 
     def say(rule: str, what: str, fix: str, obj: Any = "") -> None:
         if remind_mark(state, rule, obj):
-            lines.append(remind_line(rule, what, fix))
+            lines.append(_rr.remind_line(rule, what, fix))
 
     def part(name: str, fn) -> None:
         try:
