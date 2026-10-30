@@ -1,7 +1,7 @@
 """assessor.py — 裁判執行器（Codex 為主、claude headless 為備援）。
 
 Builds review prompts from accumulated events, invokes the judge backend
-(`codex exec`；缺席或未開通授權時退 `claude -p`)，parses structured JSON output.
+(`codex exec`，經 tools/codex-call.py；缺席或未開通授權時退 `claude -p`)，parses structured JSON output.
 後端選擇規則集中在 judge_backend.py，本檔不自行判斷可用性。
 
 Sandbox: 不傳 -s 旗標，沿用 ~/.codex/config.toml 預設（通常 danger-full-access）。
@@ -11,12 +11,10 @@ Windows 上 -s read-only 會踩 CreateProcessWithLogonW 1385 spawn 失敗導致 
 
 from __future__ import annotations
 
+import importlib.util
 import json
-import os
 import re
-import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,6 +25,20 @@ sys.path.insert(0, str(SERVICE_DIR))
 import artifact_io
 import judge_backend
 import prompts
+
+
+def _load_codex_call():
+    """tools/codex-call.py（檔名有連字號，不能直接 import）；載過就重用同一份。"""
+    mod = sys.modules.get("codex_call")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("codex_call", SERVICE_DIR.parent / "codex-call.py")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["codex_call"] = mod
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+codex_call = _load_codex_call()
 
 # artifact 採樣預算：主審對象（plan_review 的計畫檔）給大預算；
 # handoff 維持既有預算。原則見 artifact_io module docstring。
@@ -41,12 +53,6 @@ DEFAULT_MAX_PROMPT_CHARS = 16000
 BUDGET_TRACE_MAX_ITEMS = 8
 # acceptance_review 案卷總量（config acceptance_review.max_prompt_chars 同步）
 ACCEPTANCE_MAX_PROMPT_CHARS = 22000
-
-# Windows: detached 父進程（codex_companion hook spawn audit.py 帶 DETACHED_PROCESS）
-# 沒 console 時呼叫 codex.cmd batch wrapper → Windows 會新開 cmd.exe 視窗。
-# CREATE_NO_WINDOW (0x08000000) 防此踩坑。POSIX 不需要。
-_CODEX_FLAGS = 0x08000000 if sys.platform == "win32" else 0
-
 
 def _log(msg: str):
     ts = time.strftime("%H:%M:%S")
@@ -211,87 +217,19 @@ def _extract_verification_evidence(trace: List[Dict[str, Any]]) -> str:
 
 
 def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str, str]:
-    """Run `codex exec` and return (stdout_text, stderr_text).
+    """Run `codex exec`（tools/codex-call.py）and return (stdout_text, stderr_text).
 
     stderr（剝掉提示詞回聲）回傳給上層做 sandbox 失敗識別。
-    無論成功失敗都把 stderr（含 timeout/spawn 錯誤的合成訊息）一併送出。
+    codex 沒跑完（逾時、找不到執行檔、例外）→ ("", "[assessor] <原因>")，原因交給失敗分類。
+    模型名不比對 models_cache：名字錯由 codex 自己報、_classify_failure 接手。
     """
-    codex_bin = judge_backend.resolve_codex_bin(config) or config.get("codex_binary", "codex")
-    model = config.get("model", "")
-    timeout = config.get("assessment_timeout", 60)
-
-    # Write prompt to temp file to avoid shell escaping issues
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    , newline="\n") as f:
-        f.write(prompt_text)
-        prompt_file = f.name
-
-    # Write output to temp file
-    output_file = prompt_file + ".out"
-
-    try:
-        cmd = [codex_bin, "exec"]
-        if model:
-            cmd += ["-m", model]
-        cmd += [
-            "--ephemeral",
-            "--ignore-rules",
-            "--skip-git-repo-check",
-            "-o", output_file,
-        ]
-        # 機器層附加旗標（如停用裁判用不到的 MCP server，免每次啟動連線重試）
-        cmd += [str(a) for a in (config.get("codex_extra_args") or [])]
-
-        # Read prompt from stdin (via file)
-        _log(f"Running: {' '.join(cmd[:6])}... (timeout={timeout}s)")
-
-        with open(prompt_file, "r", encoding="utf-8") as pf:
-            result = subprocess.run(
-                cmd,
-                stdin=pf,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                cwd=cwd if cwd and os.path.isdir(cwd) else None,
-                env={**os.environ, "NO_COLOR": "1"},
-                creationflags=_CODEX_FLAGS,
-            )
-
-        _log(f"codex exec exit code: {result.returncode}")
-        # codex exec 的 stderr 在 `user` 段把整份提示詞回聲一次；工具軌跡裡的 1385、sandbox 字樣是我方材料，
-        # 失敗分類與額度判定只看 codex 自己的輸出
-        stderr_text = (result.stderr or "")
-        if prompt_text.strip():
-            stderr_text = stderr_text.replace(prompt_text.strip(), "", 1)
-
-        # Prefer -o output file
-        if os.path.exists(output_file):
-            text = Path(output_file).read_text(encoding="utf-8").strip()
-            if text:
-                return text, stderr_text
-
-        # Fallback to stdout
-        return result.stdout.strip(), stderr_text
-
-    except subprocess.TimeoutExpired:
-        _log(f"codex exec timed out after {timeout}s")
-        return "", f"[assessor] timeout after {timeout}s"
-    except FileNotFoundError:
-        _log(f"codex binary not found: {codex_bin}")
-        return "", f"[assessor] codex binary not found: {codex_bin}"
-    except Exception as e:
-        _log(f"codex exec error: {e}")
-        return "", f"[assessor] exception: {e}"
-    finally:
-        # Cleanup temp files
-        for f in (prompt_file, output_file):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
+    res = codex_call.run_codex(
+        prompt_text, config=config, cwd=cwd, model=config.get("model", ""),
+        timeout_s=config.get("assessment_timeout", 60), ignore_rules=True, validate_model=False, log=_log,
+    )
+    if res.returncode is None:
+        return "", f"[assessor] {res.reason}"
+    return res.text, res.stderr
 
 
 # 沙箱起不來的訊號：Windows 登入型別未授權（CreateProcessWithLogon），或同一行 sandbox 與 error／denied／failed／failure 並列。

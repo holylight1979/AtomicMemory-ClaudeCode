@@ -1252,7 +1252,7 @@ def git_launcher(path: str) -> bool:
 
 def session_scratch(path: str) -> bool:
     """規則 SESSION_SCRATCH_NOT_CODE 的事實端：設定目錄與系統暫存根（temp_roots；WG_TEMP_RULES=off 時只認 jobs）兩側都展開
-    8.3 短路徑（_norm_long）再交給 is_session_scratch。第二意見閘（wg_second_opinion.check）與 is_excluded 共用。"""
+    8.3 短路徑（_norm_long）再交給 is_session_scratch。is_excluded 用它。"""
     import tempfile
     return is_session_scratch(_norm_long(path), [_norm_long(d) for d in cc_config_dirs()],
                               [_norm_long(r) for r in temp_roots(tempdir=tempfile.gettempdir())])

@@ -6,17 +6,15 @@
   → 去掉開頭 --- 檔頭、code 區塊與網址 → 每條檢核項各問裁判一次；判法欄寫了「程式切出…」「抓候選詞」的先由程式切範圍
   → 裁判回 {quote, reason, verdict}；程式校驗引用逐字在送去的那段原文裡，對不到、判否沒附引用、輸入被截斷 → 該條作廢
   → 分數由程式算（是＝過；不適用不算沒過、不進分母），印評分表與一行摘要 `評分 N/M｜沒過：…`，留帳 Logs/guard-text_score.jsonl。
-  規格的 `- 目標: {{goal}}` 與條目問題裡的 {{goal}} 由 --goal 填當下的需求目標（收尾自動評時 hooks/wg_text_score 給：
-  目標樹樹根，沒樹用本回合使用者原話）；規格用了 {{goal}} 卻沒給目標 → 印「不評」、不留帳。
+  規格的 `- 目標: {{goal}}` 與條目問題裡的 {{goal}} 由 --goal 填當下的需求目標（skill text-score 給：使用者這次要的那一句）；
+  規格用了 {{goal}} 卻沒給目標 → 印「不評」、不留帳。
 裁判：照 tools/ollama_client 的 backend 優先序（內網 rdchat → 本地 ollama），每台用自己的裁判模型
   （text_score.judge_model_by_backend，沒列到的用 judge_model；--model 給了全部用它；那台沒裝就算不在，不換成別的模型）。
   都不在或逾時 → 印「裁判不在，未評」、記一筆未評，exit 0；不擋、不改用付費模型。
 怎麼跑：
-  python tools/text-score.py <檔> --spec reader-designer
-  python tools/text-score.py - --json < 回覆.txt                 # 讀 stdin；--json 印一行 JSON（再接尾行）
-  python tools/text-score.py <檔> --auto-kind docs               # 自動評的入口：enabled／auto_targets（種類與路徑樣式）／min_chars 不符就印「不評」
-  python tools/text-score.py - --tail-line --auto-kind final_reply < 回覆.txt   # stdout 只有摘要一行（每則尾巴取用）；不評時什麼都不印
-尾行（--tail-line 不印）：`TEXT_SCORE DONE spec=<代號> pass=<n> fail=<n> na=<n> void=<n> unscored=<n> secs=<秒> logged=<0|1>`（數字是尺不是判決；
+  python tools/text-score.py <檔> --goal "<需求一句>" --spec reader-designer
+  python tools/text-score.py - --goal "<需求一句>" --json < 回覆.txt   # 讀 stdin；--json 印一行 JSON（再接尾行）
+尾行：`TEXT_SCORE DONE spec=<代號> pass=<n> fail=<n> na=<n> void=<n> unscored=<n> secs=<秒> logged=<0|1>`（數字是尺不是判決；
   logged=0＝留帳沒寫進去，原因在 stderr）。
 exit：0 完成（含裁判不在、不評）；2 規格或原文讀不到、規格格式錯、原文是空的。完整參數以 --help 為準；規格寫法見 text-specs/README.md。
 """
@@ -48,7 +46,6 @@ LOG_PATH = CLAUDE_DIR / "Logs" / "guard-text_score.jsonl"
 SPEC_DIR = CODE_DIR / "text-specs"
 
 DEFAULTS: Dict[str, Any] = {
-    "enabled": True,                  # 只管 --auto-kind（自動評）；手動指令照跑
     "default_spec": "reader-designer",
     "judge_model": "gemma4:e4b",      # judge_model_by_backend 沒列到的 backend 用它
     "judge_model_by_backend": {       # 每台 backend 各自的裁判（各台裝得下、判得準的那個）
@@ -57,11 +54,6 @@ DEFAULTS: Dict[str, Any] = {
     },
     "timeout_sec": 120,               # 每次問裁判的逾時
     "num_ctx": 8192,                  # 每次明帶；Ollama 預設 4096 會從前面靜默截掉
-    "min_chars": 300,                 # 自動評的最短字數（去掉檔頭、code 與網址，不算空白）
-    "reply_scope": "code_change",     # 收尾自動評哪些回覆（hooks/wg_text_score._reply_in_scope 讀；本工具不用）
-    "auto_targets": {                 # 自動評的種類 → 來源路徑樣式；空清單＝不比路徑；沒列的種類不評（出廠不評文件 docs）
-        "final_reply": [],
-    },
 }
 
 NUM_PREDICT = 512        # 一條的回答（引用＋一句理由）用不到這麼多；防裁判停不下來
@@ -656,38 +648,6 @@ def load_config() -> Dict[str, Any]:
     return config if isinstance(config, dict) else {}
 
 
-def path_matches(path: str, patterns: List[str]) -> bool:
-    """路徑樣式從任何一層資料夾起算都可以（樣式寫相對路徑，不管資料根或專案在哪）；
-    `*`、`?` 不跨資料夾，`**/` 是零或多層資料夾，其他字元照字面；不分大小寫（樣式判的是命名慣例）。"""
-    posix = path.replace("\\", "/")
-    for pat in patterns:
-        rx = (re.escape(pat.replace("\\", "/")).replace(r"\*\*/", "\0").replace(r"\*", "[^/]*")
-              .replace(r"\?", "[^/]").replace("\0", "(?:.*/)?"))
-        if re.search(rf"(?:^|/){rx}$", posix, re.I):
-            return True
-    return False
-
-
-def auto_skip_reason(kind: str, text: str, section: Dict[str, Any], path: Optional[str]) -> str:
-    """自動評（之後由收尾背景呼叫）要不要評這段：回空字串＝要評。path＝來源檔路徑，stdin 是 None。
-    auto_targets 是 {種類: 路徑樣式清單}，清單空的種類不比路徑（例 final_reply 從 stdin 進來）；
-    寫成種類清單的舊設定照舊只比種類。"""
-    if not section.get("enabled", DEFAULTS["enabled"]):
-        return "text_score.enabled=false"
-    targets = section.get("auto_targets", DEFAULTS["auto_targets"])
-    if kind not in targets:
-        return f"{kind} 不在 text_score.auto_targets"
-    patterns = targets[kind] if isinstance(targets, dict) else []
-    rule = f"text_score.auto_targets.{kind} 的路徑樣式（{'、'.join(patterns)}）"
-    if patterns and path is None:
-        return f"來源是 stdin、沒有路徑，不符 {rule}"
-    if patterns and not path_matches(path, patterns):
-        return f"來源 {path} 不符 {rule}"
-    n = len(re.sub(r"\s", "", clean_text(text)))
-    floor = int(section.get("min_chars", DEFAULTS["min_chars"]))
-    return f"文字 {n} 字，少於 text_score.min_chars={floor}" if n < floor else ""
-
-
 def read_source(src: str) -> Tuple[str, str]:
     if src == "-":
         return sys.stdin.buffer.read().decode("utf-8-sig", errors="replace"), "stdin"
@@ -707,11 +667,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--json", action="store_true", help="改印一行 JSON（留帳同一筆），再接尾行")
     ap.add_argument("--session", help="留帳記的 session id（有的話）")
     ap.add_argument("--goal", default="", help="當下的需求目標（填規格裡的 {{goal}}）；規格用了 {{goal}} 卻沒給 → 不評")
-    ap.add_argument("--auto-kind", help="自動評的文字種類（final_reply／docs）：照 enabled、auto_targets（種類與路徑樣式）、"
-                                        "min_chars 決定評不評")
-    ap.add_argument("--tail-line", action="store_true",
-                    help="stdout 只印一行摘要（評分 N/M｜沒過：…，或「全過」），給每則回覆的尾巴取用；照樣留帳；"
-                         "不評時 stdout 什麼都不印、原因寫 stderr")
     args = ap.parse_args(argv)
 
     config = load_config()
@@ -725,30 +680,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not clean_text(text).strip():
         print("text-score：原文是空的（去掉 code 與網址之後）", file=sys.stderr)
         return 2
-    if args.auto_kind:
-        why = auto_skip_reason(args.auto_kind, text, section, None if args.source == "-" else source)
-        if why and args.tail_line:
-            print(f"不評：{why}", file=sys.stderr)
-            return 0
-        if why:
-            print(f"不評：{why}")
-            print(done_line(spec.code, None))
-            return 0
-
     if needs_goal(spec):
         goal = " ".join(str(args.goal or "").split())
         if not goal:
-            print("不評：沒有當下的需求目標（目標樹樹根或本回合使用者原話）可以對", file=sys.stderr if args.tail_line else sys.stdout)
-            if not args.tail_line:
-                print(done_line(spec.code, None))
+            print("不評：沒有當下的需求目標可以對（用 --goal 給使用者這次要的那一句）")
+            print(done_line(spec.code, None))
             return 0
         spec = with_goal(spec, goal[:300])
     rec = score(spec, text, config=config, section=section, override=args.model, source=source,
-                session=args.session, kind=args.auto_kind or "manual")
+                session=args.session, kind="manual")
     logged = write_log(rec)
-    if args.tail_line:   # 尾巴就這一行，不接評分表與尾行
-        print(rec["summary"])
-        return 0
     if args.json:
         print(json.dumps(rec, ensure_ascii=False))
     elif rec["overall"] == "未評":

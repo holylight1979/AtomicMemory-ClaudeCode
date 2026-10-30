@@ -6,9 +6,7 @@
 2. 文件漂移：別的專案改 tools/x.py 不記；改 ~/.claude 自己的 tools/x.py 照記。
 3. 回訪表：host 存電腦代號（電腦名小寫後 sha256 前 12 碼），對不上的機器不跑不顯示、那台照顯示；登記表找不到電腦名原文；
    開場跑一次回訪檢查後登記表內容不變（執行期紀錄寫本機 followups.local.json）。
-4. 第二意見：共用設定沒有高風險清單，改到記憶系統自己的收尾閘檔不算高風險。
-5. 文字評分：出廠不列 docs，改 checklist 類文件不起背景評分；工具端直接叫 --auto-kind docs 也不評。
-6. codex 本機路徑與旗標不在共用設定；config.local.json 有 codex_extra_args 時，裁判與第二意見都讀得到，沒有就是空。
+6. codex 本機路徑與旗標不在共用設定；config.local.json 有 codex_extra_args 時，裁判與 tools/codex-call.py 都讀得到，沒有就是空。
 7. 收割擋訊息的「記憶系統開發面 → realm=local」只在 ~/.claude 之下附。
 8. HUD 不再從對話紀錄推名字：一律 session 前 8 碼，API 不帶 track 欄。
 9. console skill 只能手動叫；console.spawn 不在共用設定。
@@ -40,8 +38,6 @@ import acceptance_spec as asp  # noqa: E402
 import wg_core  # noqa: E402
 import wg_docdrift  # noqa: E402
 import wg_harvest  # noqa: E402
-import wg_second_opinion as so  # noqa: E402
-from verify_text_score_stop import spawned, world, wts  # noqa: E402,F401  文字評分沿用那支的資料根與 Popen 替身
 
 CONFIG = json.loads((ROOT / "workflow" / "config.json").read_text(encoding="utf-8"))
 NODE = shutil.which("node")
@@ -176,44 +172,6 @@ def test_followup_owner_mismatch_hidden(fc):
     assert fc.for_me({"owner": "ME", "host": "H"}, {"owner": "me", "host": "h"}) is True
 
 
-# ─── 4. 第二意見高風險清單 ───────────────────────────────────────────────────
-
-GATE_FILES = ["hooks/wg_release_rules.py", "hooks/handlers/stop.py", "hooks/handlers/pre_tool_use.py",
-              "hooks/wg_overview.py", "hooks/wg_second_opinion.py", "tools/workflow-guardian-mcp/lib/mcp.js"]
-
-
-def test_no_risky_prefixes_in_shared_config_colleague_project_not_risky(tmp_path):
-    cfg = so.auto_cfg(CONFIG)
-    assert cfg["risky_prefixes"] == []                   # 舊設定：寫死記憶系統自己的六個路徑
-    assert so.risky_paths([str(tmp_path / "proj" / f) for f in GATE_FILES], cfg["risky_prefixes"]) == []
-
-
-def test_memory_system_part_table_marks_risky_parts_gate():
-    paths = [str(ROOT / f) for f in GATE_FILES + ["hooks/wg_core.py", "hooks/handlers/post_tool_use.py", "tools/text-score.py"]]
-    assert so.risky_paths(paths, []) == paths[:len(GATE_FILES)]   # 舊部位表沒有 gate 列：一個都不中
-
-
-# ─── 5. 文字評分 docs 出廠不評 ───────────────────────────────────────────────
-
-def test_text_score_docs_default_not_scored(world, tmp_path, spawned):  # noqa: F811
-    assert "docs" not in CONFIG["text_score"]["auto_targets"]
-    doc = tmp_path / "proj" / "memory" / "_staging" / "x-checklist.md"
-    doc.parent.mkdir(parents=True)
-    doc.write_text("清單\n" * 200, encoding="utf-8")
-    mods = [{"path": str(doc), "session_id": SID, "last_turn_seq": 2}]
-    cfg = {"text_score": {**CONFIG["text_score"], "reply_scope": "all"}}
-    wts.on_stop({"turn_seq": 2}, SID, "短", mods, 2, cfg)
-    assert spawned == []                                 # 舊碼／舊設定：checklist 文件起背景評分
-
-
-def test_text_score_tool_docs_off_by_default():
-    ts = _load("text_score_residue", ROOT / "tools" / "text-score.py")
-    long = "說明文字。" * 200
-    for section in (CONFIG["text_score"], {}):           # 共用設定、工具預設都不評文件
-        assert ts.auto_skip_reason("docs", long, section, "C:/project/README.md") == "docs 不在 text_score.auto_targets"
-    assert ts.auto_skip_reason("final_reply", long, CONFIG["text_score"], None) == ""
-
-
 # ─── 6. codex 本機設定搬 config.local ────────────────────────────────────────
 
 def test_no_machine_paths_in_shared_codex_config():
@@ -224,8 +182,7 @@ def test_no_machine_paths_in_shared_codex_config():
 
 def _write_cfg(d: Path, local: dict | None) -> Path:
     d.mkdir(parents=True, exist_ok=True)
-    (d / "config.json").write_text(json.dumps({"codex_companion": {"codex_extra_args": [], "model": "m"},
-                                               "second_opinion": {}}), encoding="utf-8")
+    (d / "config.json").write_text(json.dumps({"codex_companion": {"codex_extra_args": [], "model": "m"}}), encoding="utf-8")
     if local is not None:
         (d / "config.local.json").write_text(json.dumps(local), encoding="utf-8")
     return d / "config.json"
@@ -235,11 +192,11 @@ LOCAL = {"codex_companion": {"codex_extra_args": ["-c", "mcp_servers.x.enabled=f
 
 
 @pytest.mark.parametrize("local,expect", [(LOCAL, ["-c", "mcp_servers.x.enabled=false"]), (None, [])])
-def test_judge_and_second_opinion_read_config_local(tmp_path, monkeypatch, local, expect):
+def test_judge_and_codex_call_read_config_local(tmp_path, monkeypatch, local, expect):
     cfg = _write_cfg(tmp_path / "wf", local)
-    run = _load("so_run_residue", ROOT / "tools" / "second-opinion" / "run.py")
-    monkeypatch.setattr(run, "CONFIG_PATH", cfg)
-    assert run.load_config()[1]["codex_extra_args"] == expect        # 舊碼：不讀 config.local
+    call = _load("codex_call_residue", ROOT / "tools" / "codex-call.py")
+    monkeypatch.setattr(call, "CONFIG_PATH", cfg)
+    assert call.load_config()["codex_extra_args"] == expect
     sys.path.insert(0, str(ROOT / "tools" / "codex-companion"))
     audit = _load("audit_residue", ROOT / "tools" / "codex-companion" / "audit.py")
     monkeypatch.setattr(audit, "CONFIG_PATH", cfg)

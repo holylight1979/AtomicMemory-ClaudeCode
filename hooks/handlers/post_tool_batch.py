@@ -7,9 +7,9 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 職責：把 PostCompact stash 的 atom 復原內文、需求目標樹、部位綜觀「一次性」注入，閉合 mid-turn auto-compact 缺口
 （壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；另把需求目標流程的批次提醒
 （讀入範圍變大、同檔改多次、PreToolUse 沒攔到的提問）合併成同一段送出；收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、
-交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）、第二意見跑完接上。
+交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
-各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、取用稽核；
+各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核；
 改過程式之後測試跑綠的那批＝交付邊界，「順手看到最該修」那一問也掛這裡（PICK_ONE_PRE_CLOSE，wg_closing_round.pick_on_test_green）；
 目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
 reconcile，多一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
@@ -36,7 +36,7 @@ def _points_module() -> Any:
 
 
 def _closing_round(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> tuple:
-    """收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、交收尾檢核那批附上收尾要問的、第二意見跑完接上。
+    """收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、交收尾檢核那批附上收尾要問的。
     回 (段落, state 有沒有改)；載入失敗 → stderr 一行、這批不做（收尾照舊在 Stop 送）。"""
     try:
         import wg_closing_round
@@ -58,7 +58,6 @@ FIX_RELOAD = "服務要重載才生效；收尾叫使用者 Reload 前先查它�
 FIX_DEFER = "收尾不把帶受詞、可做的事往後推或推給別人；當場做掉，或寫「不做｜<事>：<理由>」（理由只准寫做了會怎樣）"
 FIX_CLOSING = "收尾最後呼叫 anti_evasion_report（知識收割放 harvest_items，一次交齊）"
 FIX_SYNC = "收尾照口令規則交代：有「上GIT」口令就 commit＋push 一氣，沒口令就列改了哪些檔等口令、不先 commit"
-FIX_SO = "second_opinion_start→second_opinion_result，收尾寫分歧裁決四行；或寫「不需第二意見｜<理由>」"
 FIX_DPM = "結束前用 atom_write 補一張完整檢討卡（為什麼失敗、怎麼找到根因、下次怎麼避）"
 FIX_AUDIT = "收尾一行交代每張注入的指標卡有沒有用到、用在哪"
 FIX_CLEANUP = "用完的刪掉（git worktree remove／branch -d／刪暫存 repo）；要留的在收尾檢核 (i) 寫理由"
@@ -81,7 +80,7 @@ def _hit_rows(text: str) -> List[Tuple[str, str, str]]:
 
 def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> Tuple[List[str], bool]:
     """這一批之後欠的收尾類守門，各一行（remind_line）→ (要附的行, state 有沒有改)。
-    時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 欠案例 (d)、搬目錄 (v)、等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見（事實成立）、深度檢討、取用稽核；
+    時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 欠案例 (d)、搬目錄 (v)、等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核；
     這批有 git 建東西的 Bash → 收尾自清；搬了含程式檔的目錄（moved_code_dirs 多一筆）→ (v)；背景量完有欠項 → 拐彎判斷；
     這批是收尾那批（closing_call）→ 知識收割、收割對帳、報告待寫。
     每條規則每個對象每 session 一次（wg_overview.remind_mark：已送鍵存 state remind_sent 清單，與工具前守門的提醒帳同一份）。判定重用各閘的純函式，不另複製；
@@ -144,7 +143,6 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         part("收尾檢核", lambda: _closing_check_reminder(own, config, say))
         if (config.get("sync_reminder") or {}).get("enabled", True):
             say("SYNC_REMINDER_UNSYNCED", f"本 session 改了 {len({str(m['path']) for m in own})} 個檔", FIX_SYNC)
-        part("第二意見", lambda: _second_opinion_reminder(state, sid, own, input_data, config, say))
         part("深度檢討與取用稽核", lambda: _postmortem_audit_reminders(state, sid, config, say))
     if new_move:
         part("搬目錄", lambda: _move_reminder(state, sid, config, say))
@@ -264,23 +262,6 @@ def _closing_check_reminder(own, config, say) -> None:
         return
     if completion_threshold_met("", own, int(config.get("min_files_to_block", 2)), claimed=True):
         say("CLOSING_CHECK_REQUIRED", "本 session 動到 core 檔或多檔（達收尾檢核門檻）", FIX_CLOSING)
-
-
-def _second_opinion_reminder(state, sid, own, input_data, config, say) -> None:
-    """規則 SECOND_OPINION_REQUIRED 的事實（wg_second_opinion.check，同 Stop 一套）成立那則改檔就提醒；改檔指紋沒變不重判（不多跑 git）。"""
-    import wg_second_opinion as so
-    from wg_release import non_interactive_reason
-    cfg = so.auto_cfg(config)
-    if not cfg.get("enabled", True) or non_interactive_reason(input_data, str(input_data.get("transcript_path") or "") or None):
-        return
-    fp = so.fingerprint(so._code_entries(own, config))
-    seen = state.setdefault("remind_so_fp", {})
-    if not fp or seen.get(sid) == fp:
-        return
-    seen[sid] = fp
-    v, facts = so.check(state, sid, own, "", "", config, cfg, True)
-    if v.owed:
-        say(v.rule, f"{v.why}（程式檔 {facts.get('code_files')} 個）", FIX_SO, fp)
 
 
 def _postmortem_audit_reminders(state, sid, config, say) -> None:
@@ -403,7 +384,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             except Exception as e:  # noqa: BLE001
                 print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
 
-        parts.extend(close_parts)     # (4) 收尾一輪：收尾前附的拐彎判斷、最該修，第二意見跑完的提醒
+        parts.extend(close_parts)     # (4) 收尾一輪：收尾前附的拐彎判斷、最該修
         parts.extend(remind_lines)    # (5) 收尾類守門的提醒（REMIND_ON_PRIOR_RESULT）：每規則每對象每 session 一行
         write_state(session_id, state)
     except Exception as e:

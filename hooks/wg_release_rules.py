@@ -66,7 +66,7 @@ RULES: Dict[str, str] = {
                           "寫入目標，放行並留帳（UNKNOWN_TARGET_LOGGED）。",
     "UNKNOWN_WRITE_RECOVERED": "Bash／PowerShell 寫入目標判不出（UNKNOWN_TARGET_LOGGED 那一筆）的指令跑完後（PostToolUse 與"
                                "結束碼非 0 的 PostToolUseFailure 都算），從版控狀態補出它真的改了哪些檔、記進 modified_files（via=vcs_status），"
-                               "對帳、第二意見、同步提醒照常判。真的改了＝git status／svn status 列為改動或未納管，而且 mtime 不早於"
+                               "對帳、同步提醒照常判。真的改了＝git status／svn status 列為改動或未納管，而且 mtime 不早於"
                                "這次指令的開始時間減 0.05 秒、也不晚於現在加 2 秒（開始時間＝transcript 裡那筆 tool_use 的時戳；"
                                "同則平行送出的第一個工具常常還沒落盤，找不到就用已落盤的最後一筆紀錄的時間）：快照前就髒、"
                                "這次沒動的檔不算；本 session 已經記過的檔，內容雜湊跟上次一樣、或沒有雜湊（超過 2 MiB）而 mtime 不晚於"
@@ -131,7 +131,7 @@ RULES: Dict[str, str] = {
                                  "來源→文件加記下的時間（解決後又漂移算新的）。擋過的記在 state.sync_block_shown（項目 → 第一次擋的回合記號＝開場時間＋"
                                  "使用者回合序號，開場重建 state 回合序號從頭算也不撞；只留還欠的），重建時連同同步提醒次數一起照搬；「還會擋」預覽用同一個判定，收尾檢核 (g) 已交代只免同步提醒、不免這段。"
                                  "判法在 handlers/stop.py 的 _sync_block_keys／_sync_block_items。",
-    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、第二意見、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
+    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",
     "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
@@ -174,7 +174,7 @@ RULES: Dict[str, str] = {
                                    "兩邊都用解析後的目標比。認不出測試子命令＝判不出目標（舊條目 cmd 剛好 200 字也算）：不拿片段當路徑、留帳"
                                    " guard-testfail_scope，只認原樣重跑或列得出名字的紅被跑到；擋訊息（handlers/stop._rerun_scope）對看不出是哪一支的紅"
                                    "列出解析出的每段照抄重跑，判不出或太長就給「原指令完整照跑或跑整套」。",
-    "CODING_TURN_ONLY": "寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑、hook 計時帳）只在寫碼回合跑"
+    "CODING_TURN_ONLY": "寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳）只在寫碼回合跑"
                         "（wg_core.coding_turn）：這個使用者回合已經改了程式檔或有判不出目標的寫入，或本回合 need_goal 宣告了寫碼樹；"
                         "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、導讀卡、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
@@ -207,7 +207,7 @@ RULES: Dict[str, str] = {
                              "原話裡、而且那個子句沒被否定（「不要提交測試」引了也不算），留帳 user_quote。",
     "GATE_BYPASS_NAMED_FILES_MERGED": "同一個 repo 還沒 commit 成功又被病形閘擋下時，這次點名的檔與先前點名的合併成一份；「不是繞閘｜」宣告要寫在"
                                       "該檔被點名之後才替它算數（先寫的宣告不替後來才點名的檔放行）。",
-    "PENDING_SAME_USER_TURN": "擋滿留下的待放行（寫碼查核、紅測、第二意見）只在記下它的那個使用者回合有效：使用者打字開了新回合就失效，預算重給、"
+    "PENDING_SAME_USER_TURN": "擋滿留下的待放行（寫碼查核、紅測）只在記下它的那個使用者回合有效：使用者打字開了新回合就失效，預算重給、"
                               "不拿原宣稱重查；背景通知、同伴訊息開的續跑回合不算換回合，同一回合裡照第一次擋滿時的宣稱原話重查。"
                               "判法在 wg_release.pending_of。",
     "RELEASE_COVERS_SHOWN_ITEMS": "使用者放行：同一個使用者回合照選項字面「放行這一回合」整個放；之後的回合只沿用擋訊息列過、"
@@ -1053,8 +1053,8 @@ def temp_copy_verdict(path: str, roots: Iterable[str]) -> Verdict:
 RULES.update({
     "SESSION_SCRATCH_NOT_CODE": "session 暫存區的檔是一次性腳本，不算本 session 改的程式檔：Claude Code 背景工作的 "
                                 "`<CC 設定目錄>/jobs/<id>/tmp/`（設定目錄＝CLAUDE_CONFIG_DIR 與 ~/.claude）與 session scratchpad"
-                                "（`<系統暫存根>/claude/…/scratchpad/`）。第二意見門檻（wg_second_opinion.check）、寫碼查核的補案例"
-                                "（wg_verify_ledger.is_excluded）都不數、也不能拿來清帳。只認錨在這兩個根底下的形狀：repo 裡自己取名 "
+                                "（`<系統暫存根>/claude/…/scratchpad/`）。寫碼查核的補案例"
+                                "（wg_verify_ledger.is_excluded）不數、也不能拿來清帳。只認錨在這兩個根底下的形狀：repo 裡自己取名 "
                                 "jobs/<x>/tmp、Temp/claude/…/scratchpad 的目錄照算程式。",
 })
 
@@ -1062,7 +1062,7 @@ RULES.update({
 RULES.update({
     "LAUNCHER_NOT_CODE": "worktree 根目錄的一次性 git 啟動器不算本 session 改的程式檔：放在版控根、沒進版控、整支只用 subprocess 跑 git"
                          "（第一個參數是 git 開頭的清單字面值，或 for 迴圈走過的這種清單），其他呼叫只准 print、exit、sys.exit、os.chdir，"
-                         "import 只准 subprocess／sys／os／pathlib／shlex。建、改、刪都不讓收據作廢、不欠案例、不數進第二意見門檻、"
+                         "import 只准 subprocess／sys／os／pathlib／shlex。建、改、刪都不讓收據作廢、不欠案例、"
                          "不蓋到需求目標樹（判定 is_git_launcher_source、事實 wg_verify_ledger.note_git_launcher）；有一處不合就照算程式。"
                          "啟動器跑的 git 改到的檔照 python 啟動器那套快照比對記帳。",
 })
@@ -2930,7 +2930,7 @@ RULES["DECL_HINT_KEEPS_EDIT_TOOLS"] = ("擋 Edit／Write 要先交宣告行的�
                                        "009 實跑擋訊息同時教三條路，AI 挑了最貴的（ToolSearch 載工具、need_goal update 被拒、read、再 update）多 4 個模型回合。"
                                        "共用句 DECL_WHERE（整句）／DECL_WHERE_SHORT（一行提示用）。並寫明宣告完照常用 "
                                        "Edit／Write 改、不要改用 Bash／PowerShell 寫檔（DECL_KEEP_EDIT：指令寫的檔常判不出目標，"
-                                       "modified_files 漏記，對帳、第二意見、同步提醒都看不到）。不准出現「或寫成 Bash 指令開頭的 # 註解」"
+                                       "modified_files 漏記，對帳、同步提醒都看不到）。不准出現「或寫成 Bash 指令開頭的 # 註解」"
                                        "「放在下一條 Bash 的註解」這類會被讀成改用 Bash 寫檔的說法。擋的本來就是那條 Bash 指令的閘"
                                        "（繞閘宣告 wg_gate_bypass）不在此列：宣告寫在那條指令的註解是對的。")
 DECL_VIA_COMMENT = "一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`），宣告行放在它開頭的 `#` 註解"
@@ -2939,7 +2939,7 @@ DECL_WHERE = (f"同一則回覆裡先發{DECL_VIA_COMMENT}，接著就可以改�
               "（同一則裡接著呼叫工具的文字，hook 當下讀不到）")
 DECL_WHERE_SHORT = f"同一則先發{DECL_VIA_COMMENT}（接著就可以改檔）"
 DECL_KEEP_EDIT = ("宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔：指令裡寫的檔 hook 常判不出是哪個，"
-                  "改檔紀錄會漏掉，之後對帳、第二意見、同步提醒都看不到這次改動")
+                  "改檔紀錄會漏掉，之後對帳、同步提醒都看不到這次改動")
 
 
 def _file_mentions(text: str, base: str) -> Iterable["re.Match"]:
@@ -3500,238 +3500,6 @@ def turn_judgment_verdict(items: Sequence[Dict[str, Any]], judgments: Sequence[D
     return Verdict("TURN_JUDGMENT_REQUIRED", True,
                    f"側面數據到門檻的 {len(items)} 條裡 {len(missing)} 條沒有五欄齊的「拐彎判斷｜」行（程式只核對五欄，不評內容）",
                    tuple(missing + partial))
-# ─── G9 第二意見 ───
-# 事實由 hooks/wg_second_opinion.py 收（本回合 transcript 的 start／result、git numstat、高風險部位），閘在 handlers/stop.py 的
-# SecondOpinion 段；material 端（tools/second-opinion/pack.py）引用 SO_QUESTION_ROOT_MISSING 當 blocked 原因的開頭。
-RULES.update({
-    "SECOND_OPINION_REQUIRED": "收尾時（看事實不看措辭，中途問使用者與寫明還在等的不算：SECOND_OPINION_FACT_TRIGGER），本 session 改過的程式檔（寫碼類判準）達大任務門檻（檔數 ≥ second_opinion.auto.min_code_files，"
-                               "或對 HEAD 的程式改動行數 ≥ min_changed_lines：git diff --numstat HEAD，未追蹤的新檔算整檔行數，查不到 git "
-                               "只看檔數）或路徑命中高風險部位（部位表該列類別是 gate，或 config 另列的 risky_prefixes，預設空），而且上次審過"
-                               "（滿足、使用者放行，或前面回合跑完的第二意見：SECOND_OPINION_RAN_BEFORE）之後的修改改到新的高風險檔、或新改的程式檔數"
-                               "再過門檻（SECOND_OPINION_ONCE_PER_CLAIM）→ 本回合（TURN_SINCE_USER_PROMPT）要真的跑過第二意見：second_opinion_start"
-                               "（mode=independent，kind=stage-review 或 evaluate）由 second_opinion_result 回 done／failed／blocked（start 在前面"
-                               "回合、本回合才取回也算：SECOND_OPINION_RESULT_ACROSS_TURNS；running、"
-                               "只 start 沒取結果、start 沒開出 job、question 沒含樹根被擋、session 有樹而材料沒帶到樹都不算，還在跑時收尾寫明在等的"
-                               " job_id 不算宣告完成：SECOND_OPINION_WAITING_NOT_DONE），而且本回合任一則回覆"
-                               "有「第二意見與分歧裁決」段與四行（被別的閘擋下後補件那則不必重抄；行首、程式碼區塊外；Codex 結論／我方結論／分歧點／裁決與理由，標籤後要有字）。門檻是事實核對；"
-                               "程式只核對有沒有跑、標籤在不在，不評內容。擋 max_blocks_per_turn 次（預設 1）後擋滿，不自行放行、改問使用者"
-                               "（wg_release）；子代理、裁判 session、headless 不觸發；前面的閘擋下時列進 BLOCK_LISTS_LATER_GATES 預覽。",
-    "SECOND_OPINION_RAN_BEFORE": "本回合跑完第二意見（result 回 done／failed／blocked）就記下 job、回合與那時改過的高風險檔，不管有沒有"
-                                 "宣告完成；之後的回合宣告完成時，把它當成上次審過的基準：之後沒再改程式、或之後的修改沒改到新的高風險檔、"
-                                 "新改的程式檔數也沒再過門檻 → 不再要第二意見，也不再要四行（判的是跑完之後有沒有再改程式，不是有沒有換回合）。",
-    "SECOND_OPINION_DECLINED": "收尾寫一行「不需第二意見｜<理由>」→ 不擋、留帳 Logs/guard-second_opinion.jsonl（event=declined、理由、"
-                               "程式檔數），週健檢列筆數與理由（只列不判）；理由空、只有佔位、或只寫「不需要」這類空話 → 照擋。",
-    "SECOND_OPINION_DECLARED_ALWAYS_LOGGED": "收尾最後一則有「不需第二意見｜<理由>」（行首、程式碼區塊外、理由過 second_opinion_decline_ok）"
-                                             "就留帳 event=declined，不管第二意見閘這回合要不要、前面的閘有沒有先擋下；needed 記閘當下"
-                                             "要不要第二意見（null＝設定關或無法互動沒判）。同一個使用者回合同一句理由只記一筆（被擋後重寫"
-                                             "同一句不重記）。",
-    "SECOND_OPINION_DECLINE_ACCEPTED": "宣告行只看收尾最後一則（跟 SECOND_OPINION_DECLARED_ALWAYS_LOGGED 留帳的是同一則）：理由成立就判"
-                                       "SECOND_OPINION_DECLINED 不擋，也不走擋滿那條路。四行可以寫在本回合較早那則（section_text 往前找），"
-                                       "但不能拿那則蓋掉收尾的宣告行。",
-    "SECOND_OPINION_RESULT_ACROSS_TURNS": "本回合 second_opinion_result 回 done／failed／blocked 就算本回合跑過、記 SECOND_OPINION_RAN_BEFORE"
-                                          "的基準，不管 start 在哪一回合。start 不在本回合時照 result 自己帶的判：mode 行要是 independent、"
-                                          "job_id 的類別要是 stage-review／evaluate、note 行（材料有沒有帶到樹）同 start；沒有 mode 行"
-                                          "（找不到 job）不列、不算；job_id 裡的 session 前 8 碼不是本 session → foreign 不算；開 job 之後"
-                                          "（job_id 開頭的時間）本 session 又改過程式檔 → 沒審到後來的改動，判 stale 不算（這兩項在 "
-                                          "wg_second_opinion.check 判）。前面回合已記成基準的 job，這一回合再取一次結果"
-                                          "仍是前面回合的基準。",
-    "SECOND_OPINION_WAITING_NOT_DONE": "本回合開出（或本回合才取結果）的 job 還在跑（result 回 running，或 start 了還沒取結果），收尾最後一則"
-                                       "有一行「等第二意見｜<job_id>」（行首、程式碼區塊外、完整的那個 job_id，後面不接 job_id 用的字元）"
-                                       " → 這次結束回覆不算宣告完成：不擋、不吃擋次、不算滿足，留帳 event=waiting；"
-                                       "之後取到 done／failed／blocked 再照 SECOND_OPINION_REQUIRED 判（回合中背景通知叫回來、或下一回合"
-                                       "取回都算：SECOND_OPINION_RESULT_ACROSS_TURNS）。沒有這行（散文裡提到 job_id 不算）→ 照擋。second_opinion_result "
-                                       "本身會等到有結果（每次最多 second-opinion.js RESULT_WAIT_MS，低於 Claude Code 互動模式 MCP 呼叫"
-                                       "120 s 轉背景），所以通常用不到這條。",
-})
-
-SO_SECTION = "第二意見與分歧裁決"
-SO_LABELS: Tuple[str, ...] = ("Codex 結論", "我方結論", "分歧點", "裁決與理由")
-SO_KINDS: Tuple[str, ...] = ("stage-review", "evaluate")
-SO_RAN: Tuple[str, ...] = ("done", "failed", "blocked")
-SO_QUESTION_ROOT_MISSING = "question 沒含需求目標樹的樹根那句"
-SO_NO_GOAL_NOTE = "材料沒有需求目標樹"      # pack 的 note 開頭（start 回傳的 `note:` 行）；session 有樹時這種 run 不算跑過
-SO_WAIT_LINE = "等第二意見｜<job_id>"
-SO_RESULT_WAITS = ("start 後直接呼叫 second_opinion_result，它會等到有結果（回 running 就再呼叫一次），不用另開背景等待；"
-                   f"要先結束回覆就在收尾寫一行 `{SO_WAIT_LINE}`，那次不算宣告完成")
-SO_WAITING = "SECOND_OPINION_WAITING_NOT_DONE"
-_SO_JOB_KIND_RE = lazy_re(r"-(diagnose|evaluate|stage-review)$")     # job_id 尾的類別（second-opinion.js JOB_ID_RE）
-# 等待宣告行：行首（可帶空白、清單符號）、程式碼區塊外，｜後是完整 job_id（後面不能再接 job_id 用的字元）
-_SO_WAIT_RE = lazy_re(r"^[\s*\-]*等第二意見(?:\*\*)?\s*[｜|]\s*`?(\d{8}-\d{6}-[0-9a-z]{8}-(?:diagnose|evaluate|stage-review))"
-                      r"(?![0-9A-Za-z_-])")
-# 宣告行與四行只認行首（可帶空白、清單符號、粗體）、不在程式碼區塊裡：散文裡引用的範例、引用區塊（>）不算
-_SO_DECLINE_RE = lazy_re(r"^[\s*\-]*不需第二意見(?:\*\*)?\s*[｜|]\s*(.*)$")
-_SO_FENCE_RE = lazy_re(r"^\s*(?:```|~~~)")
-_SO_EMPTY_REASONS = frozenset({"不需要", "不需", "不用", "沒必要", "不必", "無", "略", "沒有", "na", "none"})
-
-
-def _so_label_re(label: str) -> "re.Pattern[str]":
-    return re.compile(rf"^[\s*\-#]*(?:\*\*)?{re.escape(label)}(?:\*\*)?\s*[：:｜|]\s*(.*)$")
-
-
-_SO_LABEL_RES = tuple((lb, _so_label_re(lb)) for lb in SO_LABELS)
-
-
-def _so_lines(text: str) -> List[str]:
-    """收尾文字裡不在程式碼區塊（``` 或 ~~~ 圍起來）的行。"""
-    out: List[str] = []
-    fenced = False
-    for ln in str(text or "").splitlines():
-        if _SO_FENCE_RE.match(ln):
-            fenced = not fenced
-            continue
-        if not fenced:
-            out.append(ln)
-    return out
-
-
-def second_opinion_hint() -> str:
-    """擋訊息末尾的入口（G6 樣式：擋的同時告訴 AI 入口在哪）。"""
-    return (f"跑完在收尾最後一則寫「{SO_SECTION}」段，四行：" + "／".join(f"{lb}：…" for lb in SO_LABELS)
-            + "（failed／blocked 也要寫明狀態與自己的結論）；寫在本回合任一則回覆都算，被別的閘擋下後補件那則不必重抄。\n"
-            "要跑：second_opinion_start(mode=independent, kind=stage-review, question=<含樹根那句>)→second_opinion_result；"
-            f"{SO_RESULT_WAITS}；或宣告 `不需第二意見｜<理由>`")
-
-
-def second_opinion_decline(text: str) -> Optional[str]:
-    """收尾文字裡最後一行「不需第二意見｜<理由>」的理由（可能是空字串）；沒有這行回 None。只認行首、程式碼區塊外。"""
-    found: Optional[str] = None
-    for line in _so_lines(text):
-        m = _SO_DECLINE_RE.match(line)
-        if m:
-            found = m.group(1).strip()
-    return found
-
-
-def second_opinion_decline_ok(reason: str) -> bool:
-    """SECOND_OPINION_DECLINED：理由有文字內容、不是佔位、不是「不需要」這類空話。不評理由充不充分。"""
-    core = _ITEM_STRIP_RE.sub("", str(reason or "")).lower()
-    return reason_present(reason) and core not in _SO_EMPTY_REASONS
-
-
-def second_opinion_waiting(text: str) -> List[str]:
-    """SECOND_OPINION_WAITING_NOT_DONE：收尾裡每一行「等第二意見｜<job_id>」的 job_id（行首、程式碼區塊外、完整 job_id）。"""
-    return [m.group(1) for m in (_SO_WAIT_RE.match(ln) for ln in _so_lines(text)) if m]
-
-
-def second_opinion_section_missing(text: str) -> List[str]:
-    """收尾缺的項目：段標題、四行標籤（行首、標籤後要有至少 2 個中文或英數字）。全在回 []。程式碼區塊裡的不算。"""
-    lines = _so_lines(text)
-    missing = [] if any(SO_SECTION in ln for ln in lines) else [f"段標題「{SO_SECTION}」"]
-    for label, rx in _SO_LABEL_RES:
-        filled = [m for m in (rx.match(ln) for ln in lines) if m and has_text(m.group(1))]
-        if not filled:
-            missing.append(f"「{label}：」行")
-    return missing
-
-
-def second_opinion_triggers(n_code: int, changed_lines: Optional[int], risky: Sequence[str],
-                            min_files: int, min_lines: int) -> List[str]:
-    """SECOND_OPINION_REQUIRED 的門檻事實 → 命中的觸發原因（空＝沒過門檻）。changed_lines=None＝查不到 git，只看檔數。"""
-    out: List[str] = []
-    if n_code >= min_files:
-        out.append(f"程式檔 {n_code} 個 ≥ {min_files}")
-    if changed_lines is not None and changed_lines >= min_lines:
-        out.append(f"對 HEAD 的程式改動 {changed_lines} 行 ≥ {min_lines}")
-    if risky:
-        out.append("改到高風險部位：" + "、".join(_base_name(p) for p in list(risky)[:5]))
-    return out
-
-
-def second_opinion_runs(starts: Sequence[Dict[str, Any]], results: Sequence[Dict[str, Any]],
-                        has_tree: bool = False) -> List[Tuple[str, str]]:
-    """本回合每個 job 的最終狀態 [(job_id, 狀態)]：先列本回合每次 start，再列本回合只有 result、start 在前面回合的 job
-    （SECOND_OPINION_RESULT_ACROSS_TURNS：mode 照 result 的 mode 行、kind 照 job_id 尾、notes 照 result 的 note 行；沒有 mode 行＝
-    找不到 job，不列）。starts／results＝transcript 依序收的 {mode, kind, job_id, status, reason, notes}／
-    {job_id, status, reason, mode, notes}；has_tree＝這個 session 有需求目標樹。只認 second_opinion_result 回的狀態（result 回
-    done／failed／blocked 才算跑過）。狀態：done／failed／blocked（算跑過）、running、started（start 了沒取結果）、
-    rejected（question 沒含樹根被擋）、no-goal（session 有樹但材料沒帶到：note 以 SO_NO_GOAL_NOTE 開頭）、
-    invalid（start 沒開出 job：被拒收或 prepare 失敗，job_id 是 -）、off-mode（不是 independent 或 kind 不對）。"""
-    last: Dict[str, Dict[str, Any]] = {}
-    for r in results:
-        last[str(r.get("job_id") or "")] = r
-    started = {str(s.get("job_id") or "-") for s in starts}
-    only_result = []
-    for jid, r in last.items():
-        if jid and jid not in started and r.get("mode"):
-            m = _SO_JOB_KIND_RE.search(jid)
-            only_result.append({"job_id": jid, "mode": r.get("mode"), "kind": m.group(1) if m else "",
-                                "notes": r.get("notes") or ()})
-    out: List[Tuple[str, str]] = []
-    for s in [*starts, *only_result]:
-        jid = str(s.get("job_id") or "-")
-        no_goal = has_tree and any(str(n).startswith(SO_NO_GOAL_NOTE) for n in s.get("notes") or ())
-        if s.get("mode") != "independent" or s.get("kind") not in SO_KINDS:
-            out.append((jid, "off-mode"))
-            continue
-        if jid == "-" or no_goal:
-            out.append((jid, "invalid" if jid == "-" else "no-goal"))
-            continue
-        fin = last.get(jid) or {}
-        st = str(fin.get("status") or "")
-        why = str(fin.get("reason") or s.get("reason") or "")
-        if SO_QUESTION_ROOT_MISSING in why:
-            out.append((jid, "rejected"))
-        elif st in SO_RAN or st == "running":
-            out.append((jid, st))
-        else:
-            out.append((jid, "started"))
-    return out
-
-
-_SO_WAIT = {
-    "running": "第二意見還在跑（result=running）：再呼叫一次 second_opinion_result({job_id})，它會等到有結果；"
-               f"要先結束回覆就在收尾寫一行 `{SO_WAIT_LINE}`",
-    "started": "start 了但還沒取結果：直接呼叫 second_opinion_result({job_id})，它會等到 done／failed／blocked；"
-               f"要先結束回覆就在收尾寫一行 `{SO_WAIT_LINE}`",
-    "stale": "取回的 job 是前面回合開的，開了之後又改過程式檔，沒審到後來的改動：重跑 second_opinion_start",
-    "foreign": "取回的 job 不是這個 session 開的（job_id 裡的 session 前 8 碼對不上），不算：本 session 自己跑 second_opinion_start",
-    "rejected": f"start 被擋：{SO_QUESTION_ROOT_MISSING}，照 reason 把那句抄進 question 重跑",
-    "no-goal": f"這次的材料沒有需求目標樹（start 的 note：{SO_NO_GOAL_NOTE}…），不算跑過：確認 start 帶到 session_id"
-               "（PreToolUse 補）後重跑",
-    "invalid": "start 沒開出 job（被拒收或 prepare 失敗，job_id 是 -），照 reason 修正後重跑；修不好就宣告不需並寫明原因，或問使用者",
-    "off-mode": "本回合跑的不是 mode=independent＋kind=stage-review／evaluate，不算",
-}
-
-
-def second_opinion_verdict(claims_done: bool, triggers: Sequence[str], edited_since_ok: bool,
-                           runs: Sequence[Tuple[str, str]], text: str, closing: Optional[str] = None) -> Verdict:
-    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED／SECOND_OPINION_WAITING_NOT_DONE：owed＝要擋。triggers＝
-    second_opinion_triggers 的結果；edited_since_ok＝上次滿足之後又改過程式；runs＝second_opinion_runs 的結果；text＝看四行的那則
-    （wg_second_opinion.section_text）；closing＝收尾最後一則（宣告行與在等哪個 job 只看它：SECOND_OPINION_DECLINE_ACCEPTED），
-    沒給就同 text。"""
-    rule = "SECOND_OPINION_REQUIRED"
-    closing = text if closing is None else closing
-    if not claims_done:
-        return Verdict(rule, False, "沒有宣告完成")
-    if not triggers:
-        return Verdict(rule, False, "改動沒過大任務門檻、也沒改到高風險部位")
-    if not edited_since_ok:
-        return Verdict(rule, False, "上次第二意見之後的修改沒改到新的高風險部位、新改的程式檔也沒過門檻（採納意見的修改不再要一輪）")
-    ran = [(j, s) for j, s in runs if s in SO_RAN]
-    missing = second_opinion_section_missing(text)
-    if ran and not missing:
-        return Verdict(rule, False, f"本回合跑過第二意見（{ran[-1][0]} {ran[-1][1]}），收尾有分歧裁決四行")
-    reason = second_opinion_decline(closing)
-    if reason is not None:
-        if second_opinion_decline_ok(reason):
-            return Verdict("SECOND_OPINION_DECLINED", False, f"AI 宣告不需第二意見：{reason[:120]}")
-        return Verdict("SECOND_OPINION_DECLINED", True, "宣告「不需第二意見」但理由空、只有佔位或只寫不需要",
-                       tuple(triggers) + (f"理由：「{reason[:60]}」",))
-    declared = set(second_opinion_waiting(closing))
-    waiting = [j for j, s in runs if s in ("running", "started") and j in declared]
-    if waiting:
-        return Verdict(SO_WAITING, False, f"第二意見 {waiting[-1]} 還在跑、收尾寫明在等它：這次結束回覆不算宣告完成",
-                       tuple(waiting))
-    if ran:
-        return Verdict(rule, True, "跑過第二意見，但收尾缺：" + "、".join(missing),
-                       tuple(triggers) + tuple(f"{j} {s}" for j, s in ran[-3:]))
-    seen = [s for _j, s in runs]
-    wait = next((_SO_WAIT[k] for k in ("running", "started", "stale", "foreign", "rejected", "no-goal", "invalid", "off-mode")
-                 if k in seen), "")
-    return Verdict(rule, True, wait or "大任務或高風險部位收尾，本回合沒有跑第二意見",
-                   tuple(triggers) + tuple(f"{j} {s}" for j, s in runs[-3:]))
-
-
 # ─── G7 等值與熱路徑 ───
 # 重構意圖收尾要有等值證法三類收據（或附理由的不適用宣告），熱路徑答「是」要有量測收據。事實（意圖、改檔、收據、收尾文字）
 # 由 handlers/stop.py 的 Equivalence Gate 收，這裡只判；判斷（適不適用、是不是熱路徑、量法）交 AI 宣告並附理由，程式只核對有沒有答、
@@ -3754,8 +3522,8 @@ RULES["EQUIVALENCE_LOOP_EXPANDED"] = ("三類變異寫在一條 for 迴圈裡跑
                                       "收據，條件是那筆收據的 PRESERVE_CHECK PASS 行數（哨兵帳 n）不少於展開份數、沒有 FAIL、沒紅；"
                                       "展開在 handlers/stop._loop_mutation_receipts（lib/overview_hub.bash_for_bodies），判類別照 proved_mutations。")
 RULES["EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED"] = ("收尾文字有「等值證法｜不適用｜<理由>」（理由有文字內容、不是佔位）→ 每次都留帳 guard-equivalence.jsonl "
-                                                  "not_applicable（行、理由、needed＝等值閘這回合管不管），排在所有收尾閘前面（比照 "
-                                                  "SECOND_OPINION_DECLARED_ALWAYS_LOGGED）：意圖不是重構、本回合沒改程式、前面的閘先擋下都照記；"
+                                                  "not_applicable（行、理由、needed＝等值閘這回合管不管），排在所有收尾閘前面："
+                                                  "意圖不是重構、本回合沒改程式、前面的閘先擋下都照記；"
                                                   "同一個使用者回合同一行只記一筆（handlers/stop._declared_once）。")
 EQUIVALENCE_MUTATIONS = ("order", "side_effect", "boundary")
 EQUIVALENCE_SENTINEL = "PRESERVE_CHECK"
@@ -3864,7 +3632,7 @@ RULES.update({
                           "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（PickOne 每則重問、各閘每回合的擋次與預算重來）。",
     "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）：最後 2000 字裡有「這則之後工作還在繼續」的話（仍在等、"
                                      "等待…回報、尚未開始）整則不算；否則逐句看，有一句有完成詞、而那一句本身沒有其餘排除詞（還沒／尚未…完成、"
-                                     "待補、中途、進行中）就算，這幾個只取消它自己那一句；收尾閘往前找宣告完成的那則（wg_second_opinion.turn_completion_text）同一套（第二意見閘進不進門不靠它：SECOND_OPINION_FACT_TRIGGER，只借第一類「還在繼續」的詞判這則還沒到收尾）；"
+                                     "待補、中途、進行中）就算，這幾個只取消它自己那一句；收尾閘往前找宣告完成的那則（wg_evasion.turn_completion_text）同一套；"
                                      "句界＝句號、驚嘆號、問號、換行，逗號、分號不切（「A2 已完成，仍在等 A1 回報」仍是中途）。"
                                      "收割待補閘的「中途狀態句不擋」（wg_harvest.in_progress_text）同源：另有一句宣告完成就不算中途。",
     "OPENING_NOTICE_NOT_TODO": "開場的系統提示不寫成待辦口吻：處置句寫清誰決定、要不要現在處理；使用者這回合要的是別的事時只轉述、不動手"
@@ -3995,7 +3763,7 @@ RULES.update({
 })
 
 
-# ─── 收尾只跑一輪、第二意見背景跑（事實與時點在 hooks/wg_closing_round.py、wg_reading_path.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
+# ─── 收尾只跑一輪（事實與時點在 hooks/wg_closing_round.py、wg_reading_path.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
 RULES.update({
     "READING_PATH_EARLY_START": "拐彎判斷的背景量測改完程式就起跑，不等第一次收尾：每批工具跑完（PostToolBatch）看本回合改過的程式檔"
                                 "指紋（修改時間、大小，只 stat 不起 git），變了就照收尾那套交背景量（量測中又改了先記 pending、同一批不重量）；"
@@ -4011,29 +3779,7 @@ RULES.update({
                           "或開關關 → 照舊由 Stop 判（寫碼守門下只留帳）。",
     "PICK_ONE_WITH_TURN_JUDGMENT": "Stop 的拐彎判斷擋下時，「順手看到最該修」該問就接在同一則擋訊息後面一起問（記問過）：補一次就兩件都寫，"
                                    "不再擋完又另讓對話續跑一輪。跟 PICK_ONE_PRE_CLOSE 同一個開關。",
-    "SECOND_OPINION_BACKGROUND": "第二意見背景跑、收尾不等它：開關 second_opinion.auto.background（缺＝開）開時，第二意見閘的擋訊息寫"
-                                 "「start 後不用等結果，先把收尾其餘的事做完；收尾時還在跑就寫等第二意見｜<job_id>（不算宣告完成、不擋）」"
-                                 "（second_opinion_hint_background；判定、門檻、擋次都不變，還在跑照 SECOND_OPINION_WAITING_NOT_DONE）；"
-                                 "MCP 端 second_opinion_start 的下一步與 second_opinion_result 的說明同一個說法。關了照舊寫 start 後直接呼叫 result 等結果。",
-    "SECOND_OPINION_DONE_NOTICE": "本 session 開的第二意見 job（這批 second_opinion_start 自己回的 job_id，或收尾寫了等第二意見｜<job_id>；"
-                                  "不掃 job 目錄：job_id 裡只有 session 前 8 碼，掃目錄會收進別的 session 的 job）記進看守"
-                                  "（state second_opinion_watch）；從在跑變成 done／failed／blocked 而 AI 還沒取回（這批或本回合沒有對那個 job 的 "
-                                  "second_opinion_result）→ 附一次「取回、補四行」：下一批工具回應（PostToolBatch）或收尾（Stop 跟最該修同一則）"
-                                  "先到先送，每個 job 只送一次、留帳 guard-second_opinion event=done_notice。開始看守時已經跑完的 job 不提醒。"
-                                  "收尾寫過等第二意見｜<job_id> 的 job，取回它跑完的那一回合照宣告完成判（要四行或宣告不需，不再說完成也要；擋次照 "
-                                  "SECOND_OPINION_REQUIRED）：在等的結果回來就得接上，不能靠之後不說完成跳過。"
-                                  "跟 SECOND_OPINION_BACKGROUND 同一個開關；取回之後照 SECOND_OPINION_RESULT_ACROSS_TURNS 判跑過。",
 })
-
-SO_BACKGROUND_WAITS = ("start 後不用等結果：先把收尾其餘的事做完（驗證、文件、收尾檢核），跑完了系統會在下一批工具回應或收尾時提醒你取回；"
-                       f"收尾時還在跑就寫一行 `{SO_WAIT_LINE}`（那次不算宣告完成、不擋），跑完了用 second_opinion_result 取回"
-                       "（跑完了馬上回；還在跑它會等，每次最多約 100 秒）、補四行")
-
-
-def second_opinion_hint_background() -> str:
-    """SECOND_OPINION_BACKGROUND：擋訊息末尾的入口，同 second_opinion_hint，只換掉「start 後直接呼叫 result 等結果」那句。"""
-    return second_opinion_hint().replace(SO_RESULT_WAITS, SO_BACKGROUND_WAITS)
-
 
 # ─── 收尾三段一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、handlers/stop.py 目標對照段、wg_closing_round.closing_call，這裡只登錄規則名與說明） ───
 RULES.update({
@@ -4048,7 +3794,7 @@ RULES.update({
     "CLOSING_GOAL_CODING_ONLY": "目標對照的 (f2) 完整對照與 (f3) 改到的部位掛目標只在寫碼回合判（stop.py 的 _coding：本回合改了程式或宣告了寫碼樹，"
                                 "或前幾回合改過程式、這則宣告完成或本回合交了收尾檢核）；不是寫碼回合（例：續接單匯入的舊樹、本 session 沒改程式）宣告完成不要求。"
                                 "(f1) 記進度、(f4) 記憶知識類輕樹照舊。",
-    "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點、第二意見接縫都靠它）認三支：收尾檢核（一次交齊時三段都在裡面）、"
+    "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點靠它）認三支：收尾檢核（一次交齊時三段都在裡面）、"
                               "need_goal action=reconcile、knowledge_harvest_report；任一支所在的那批就是收尾前最後一個工具回應。",
 })
 
@@ -4065,28 +3811,6 @@ RULES.update({
                                  "這則 prompt 的關鍵字也沒判成寫碼類 wg_core.CODE_INTENTS；提示要趕在第一次改檔前到，所以關鍵字意圖算數）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
                                  "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
                                  "要立樹時 CODE_EDIT_NEEDS_GOAL_TREE），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
-})
-
-
-# ─── 第二意見看事實觸發（事實與時點在 hooks/wg_second_opinion.py、wg_closing_round.py、handlers/stop.py，這裡只登錄規則名與說明） ───
-RULES.update({
-    "SECOND_OPINION_FACT_TRIGGER": "第二意見閘進不進門看事實、不看措辭：本 session 改過的程式檔過門檻（檔數、行數、高風險部位，同 "
-                                   "SECOND_OPINION_REQUIRED）的每次收尾都判，不再要 AI 說了完成詞（取代原本的「宣告完成時」"
-                                   "與 turn_completion_text 往前找）。只有還沒到收尾的 Stop 不判（wg_second_opinion.not_closing；這個使用者回合"
-                                   "沒交收尾那批（closing_call）才算）：中途問使用者，即收尾這則最後一行（程式碼區塊外）是問句、這則沒宣告完成；"
-                                   "或寫明之後工作還在繼續，即 wg_evasion 判完成的排除詞第一類（仍在等、等待…回報、尚未開始，同一份詞）。"
-                                   "不判時留帳 event=deferred（kind＝question／pending），欠帳不消，下一次收尾照欠。"
-                                   "出口照舊兩條：「不需第二意見｜<理由>」或「等第二意見｜<job_id>」（跑過＋四行也算），都留帳。",
-    "SECOND_OPINION_EXIT_FINGERPRINT": "一組改動只欠一次：交了出口（不需／等第二意見、跑過＋四行）就記出口時的改檔指紋（state "
-                                       "second_opinion_exit：本 session 程式檔的路徑＋最後改的時間與回合；收尾的出口行在所有收尾閘前面先記，"
-                                       "前面的閘擋下、補件那則不重寫出口行也算）；之後的收尾指紋沒變 → 不欠（Verdict 規則名用本條），"
-                                       "本回合取回在等的結果不在此列（要四行；在等的 job 跟指紋一起記在出口帳 jobs，不靠背景看守開關）。出口是不需或等第二意見、之後又改了程式（指紋變了，改 1 支也算）"
-                                       "→ 再欠一次；出口是跑過＋四行，之後的修改照 SECOND_OPINION_ONCE_PER_CLAIM（採納意見不再欠）。",
-    "SECOND_OPINION_PRE_CLOSE": "收尾那批（closing_call 認的：收尾檢核或完整對照）照 Stop 同一套事實先判第二意見（"
-                                "wg_closing_round.so_pre_close），欠就把 Stop 會擋的同一段（wg_second_opinion.owed_message）附在那批的回應"
-                                "後面，AI 第一次寫收尾就寫出口行、不再被 Stop 多擋一輪；同一個使用者回合附過、改檔指紋沒變就不重附。"
-                                "那批沒出現（沒交收尾檢核也沒完整對照）→ Stop 照舊擋；附了沒照做 → Stop 照擋（判定、擋次不變）。"
-                                "留帳 guard-second_opinion event=pre_close（owed、sent）。",
 })
 
 
@@ -4217,11 +3941,11 @@ REMIND_LINE_CAP = 240
 for _name in ("CASE_COVERS_CHANGE", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
               "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY",
               "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
-              "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED", "SECOND_OPINION_REQUIRED", "SECOND_OPINION_DECLINED",
+              "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED",
               "REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE", "LEFTOVER_NEEDS_CLEANUP", "RELOAD_ADVICE_ALREADY_LOADED",
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
-              "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE", "SECOND_OPINION_DONE_NOTICE"):
+              "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE"):
     RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
 
 # 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條寫碼守門開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile），Stop 照判只留帳

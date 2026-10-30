@@ -157,81 +157,14 @@ def test_pre_compact_forgets_sent_cards():
     assert "forget_sent(session_id)" in src[i:i + 600]
 
 
-# ─── 文字評分預設只評交付改程式那則 ─────────────────────────────────
-
-_REPLY = "改了 hooks/x.py 的判斷，跑過 verify 全綠。" + "說明" * 200
-
-
-@pytest.fixture()
-def ts_env(tmp_path, monkeypatch):
-    """背景送評改成記下送了什麼；回 (wts, sent)。"""
-    import wg_text_score as wts
-    sent = []
-    monkeypatch.setattr(wts, "JOB_DIR", tmp_path / "jobs")
-    monkeypatch.setattr(wts, "_spawn_worker", lambda job: sent.append(job))
-    monkeypatch.setattr(wts, "current_goal", lambda state, sid: "sales CLI 能列出每個產品")
-    return wts, sent
-
-
-def test_text_score_skips_reply_that_is_not_code_delivery(ts_env):
-    """預設：不是交付改程式的回覆不評（舊碼每則夠長的都評 → 紅）。"""
-    wts, sent = ts_env
-    cfg = {"text_score": {"enabled": True, "min_chars": 300}}
-    assert wts.on_stop({}, "s", _REPLY, [], 3, cfg) is False and sent == []
-    assert wts.on_stop({}, "s", _REPLY, [], 3, cfg, code_reply=False, user_turn=3) is False and sent == []
-
-
-def test_text_score_code_reply_once_per_user_turn(ts_env):
-    """交付改程式的那則評一次；同一個使用者回合後面的回覆不再評；新的使用者回合照評。"""
-    wts, sent = ts_env
-    cfg = {"text_score": {"enabled": True, "min_chars": 300}}
-    state = {}
-    assert wts.on_stop(state, "s", _REPLY, [], 3, cfg, code_reply=True, user_turn=3) is True and len(sent) == 1
-    assert state["text_score"]["s"]["reply"]["sha"] == wts.text_sha(_REPLY)
-    wts.on_stop(state, "s", _REPLY + "補一句", [], 4, cfg, code_reply=True, user_turn=3)
-    assert len(sent) == 1
-    wts.on_stop(state, "s", _REPLY + "下一回合", [], 5, cfg, code_reply=True, user_turn=5)
-    assert len(sent) == 2
-
-
-def test_text_score_reply_scope_all_rolls_back(ts_env):
-    """退回開關：text_score.reply_scope="all" → 每則夠長的都評（舊行為）。"""
-    wts, sent = ts_env
-    cfg = {"text_score": {"enabled": True, "min_chars": 300, "reply_scope": "all"}}
-    assert wts.on_stop({}, "s", _REPLY, [], 3, cfg) is True and len(sent) == 1
-
-
-def test_stop_marks_code_reply_only_for_code_edits_with_completion(tmp_path, monkeypatch):
-    """Stop 呼叫點：本使用者回合改了程式＋這則宣告完成 → code_reply=True；只改 .md → False。"""
-    from handlers import stop as st
-    seen = []
-
-    class _Halt(Exception):
-        pass
-
-    def fake(state, sid, reply, mods, turn, config, *, code_reply, user_turn):
-        seen.append((code_reply, user_turn))
-        raise _Halt
-    for path, want in (("c:/p/hooks/x.py", True),):           # 只改 .md 的回合不是寫碼回合，文字評分整段不跑（verify_gate_trim）
-        state = {"phase": "working", "turn_seq": 7, "turn_prompts_seq": 6, "failing_tests": [],
-                 "session": {"cwd": str(tmp_path)},
-                 "modified_files": [{"path": path, "session_id": "s", "last_turn_seq": 6}]}
-        for name, fn in (("_ensure_state", lambda *a, **k: state), ("_find_session_transcript", lambda *a, **k: None),
-                         ("_record_pick", lambda *a, **k: None), ("token_warn_payload", lambda *a, **k: ""),
-                         ("reading_path_note", lambda *a, **k: ("", False)), ("_hook_lap", lambda seg: False),
-                         ("write_state", lambda *a, **k: None), ("_text_score_on_stop", fake)):
-            monkeypatch.setattr(st, name, fn)
-        monkeypatch.setattr(st.aec_ledger, "collect_at_completion", lambda *a, **k: None)
-        with pytest.raises(_Halt):
-            st.handle_stop({"session_id": "s", "cwd": str(tmp_path),
-                            "last_assistant_message": "已完成：改了 x 的判斷，驗證全綠。"}, {"text_score": {"enabled": True}})
-        assert seen[-1] == (want, 6), (path, seen)
-
+# ─── 文字評分手動叫 ─────────────────────────────────
 
 def test_text_score_skill_is_callable():
-    """使用者要評其他回覆時叫得出來：skill text-score 存在、可叫、指向 text-score.py。"""
+    """skill text-score 存在、可叫、指向 text-score.py，而且每條指令都帶 --goal（預設規格要 {{goal}}，沒帶就永遠不評）。"""
     md = (HOOKS_DIR.parent / "skills" / "text-score" / "SKILL.md").read_text(encoding="utf-8")
-    assert "user-invocable: true" in md and "tools/text-score.py" in md and "TEXT_SCORE_CODE_REPLY_ONLY" in md
+    assert "user-invocable: true" in md and "tools/text-score.py" in md
+    runs = [ln for ln in md.splitlines() if "python ~/.claude/tools/text-score.py" in ln]
+    assert runs and all("--goal" in ln for ln in runs), runs
 
 
 # ─── 收尾檢核、收割報告、交付信合成一份 ─────────────────────────────
@@ -323,15 +256,12 @@ def test_delivery_letter_is_the_closing_report():
     assert "盤點（改前 → 改後）" not in md
 
 
-# ─── Codex 只審一輪（工作軌規矩：只寫在總控台 skill，不進產品 hook） ─────────────
+# ─── Codex 只審一輪（工作軌規矩：只寫在總控台 skill） ─────────────
 
 def test_codex_one_round_is_console_only():
-    """「Codex 只審一輪、只收弄壞資料／繞閘」是開發期的工作軌規矩：寫在 skills/console，產品的第二意見閘照舊。"""
-    import wg_release_rules as rr
-    import wg_second_opinion as so
+    """「Codex 只審一輪、只收弄壞資料／繞閘」是開發期的工作軌規矩：寫在 skills/console。"""
     md = (HOOKS_DIR.parent / "skills" / "console" / "SKILL.md").read_text(encoding="utf-8")
     assert "Codex 只審一輪" in md and "【弄壞資料】" in md
-    assert "one_round" not in so.DEFAULTS and "只審一輪" not in rr.second_opinion_hint()
 
 
 
@@ -429,8 +359,8 @@ def test_note_git_launcher_edit_into_code_drops_marker_delete_keeps_it(git_repo)
     assert vl.note_git_launcher(str(repo / "run.sh")) is None
 
 
-def test_launcher_skipped_by_goal_tree_and_second_opinion(git_repo, monkeypatch):
-    """目標樹不蓋號、第二意見門檻不數（舊碼兩處都照算 → 紅）。"""
+def test_launcher_skipped_by_goal_tree(git_repo, monkeypatch):
+    """目標樹不蓋號（舊碼照算 → 紅）。"""
     import wg_need_goal as ng
     vl, repo = git_repo
     f = repo / "_once.py"
@@ -438,10 +368,6 @@ def test_launcher_skipped_by_goal_tree_and_second_opinion(git_repo, monkeypatch)
     vl.note_git_launcher(str(f))
     monkeypatch.setattr(ng, "load", lambda sid: (_ for _ in ()).throw(AssertionError("啟動器不該讀目標樹")))
     assert ng.stamp_edit("s", str(f), "", 3, {}) is None
-    import wg_second_opinion as so
-    state = {"modified_files": [{"path": str(f), "session_id": "s", "last_turn_seq": 3}]}
-    _, facts = so.check(state, "s", state["modified_files"], "已完成", "", {}, dict(so.DEFAULTS), True)
-    assert facts["code_files"] == 0
 
 
 def test_console_skill_launcher_order_no_rerun():
@@ -558,13 +484,6 @@ def test_no_review_declaration_ignored(review_env):
     edit("a.py")
     ra = receipt("pytest tests/test_a.py")
     assert not _reconcile(op, ra, rb, unaffected="說不影響")["ok"]
-
-
-def test_second_opinion_start_marks_review():
-    """PreToolUse 的 second_opinion_start 分支記下審查時刻（材料在這一刻打包）。"""
-    src = (HOOKS_DIR / "handlers" / "pre_tool_use.py").read_text(encoding="utf-8")
-    i = src.index('if tool_name.endswith("__second_opinion_start"):')
-    assert "mark_review(sid)" in src[i:i + 700]
 
 
 # ─── hook 每次啟動只載入要用的部分 ─────────────────────────────────

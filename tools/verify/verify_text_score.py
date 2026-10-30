@@ -10,10 +10,7 @@
 - 裁判：假 Ollama（127.0.0.1 的 HTTP 伺服器；回應形狀錄自真 gemma4:e4b 的 /api/chat）；--model 換模型時每台都送那個模型、
   第一台 404 換第二台；都不在 → 「裁判不在，未評」、exit 0、留帳記未評；程式裡沒有付費模型或子行程的路。
 - 留帳欄位：時間、session、規格代號與雜湊、來源、每條結果、模型、秒數、token；prompt_eval_count 貼著 num_ctx → 該條作廢。
-- 自動評入口：enabled=false、種類不在 auto_targets、來源路徑不符該類的路徑樣式（stdin 沒有路徑）、字數不到 min_chars
-  → 「不評」且不問裁判（同案先跑一次會問的對照）。
-- 尾巴一行（--tail-line）：stdout 只有摘要一行、照樣留帳；裁判不在印未評；不評時 stdout 空、原因走 stderr。
-- 週彙總：每條每週過率、趨勢、作廢數、裁判不在數、壞行計數、尾行。
+- 週彙總：每條每週過率、趨勢、作廢數、裁判不在數、壞行計數、尾行；每份規格列實際回答的裁判與種類則數（舊紀錄記「沒記」、裁判不在記「沒回答」）。
 - config：workflow/config.json 的 text_score 段與工具 DEFAULTS 相同。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_text_score.py
 """
@@ -563,104 +560,6 @@ def test_json_output_is_one_line_matching_log(tmp_path, fake):
     assert json.loads(lines[0]) == records(root)[0]
 
 
-@pytest.mark.parametrize("answers,line", [
-    ({}, "評分 8/8｜全過"),
-    ({"R1": {"quote": "全機殘留清理做完了，你不需要動作。", "reason": "", "verdict": "否"},
-      "R4": {"quote": "先不刪。", "reason": "", "verdict": "否"}}, "評分 6/8｜沒過：R1、R4"),
-    ({"R3": {"quote": "不在原文裡的一句話", "reason": "", "verdict": "是"}}, "評分 7/8｜作廢：R3"),   # 作廢不算全過
-])
-def test_tail_line_prints_only_the_summary(tmp_path, fake, answers, line):
-    fake.answers = answers
-    root = data_root(tmp_path, {"a": backend(fake.url)})
-    p = run(root, write(tmp_path, "t.md", GOOD), "--tail-line")
-    assert p.returncode == 0, p.stderr
-    assert p.stdout.splitlines() == [line] and records(root)[0]["summary"] == line   # 照樣留帳
-
-
-def test_tail_line_judge_absent_and_auto_skip(tmp_path, fake):
-    gone = data_root(tmp_path / "gone", {"a": backend(closed_url())})
-    p = run(gone, write(tmp_path, "t.md", GOOD), "--tail-line")
-    assert p.returncode == 0 and p.stdout.splitlines() == ["評分 未評｜裁判不在"]
-    root = data_root(tmp_path / "on", {"a": backend(fake.url)}, {"min_chars": 300})
-    p = run(root, write(tmp_path, "t.md", GOOD), "--tail-line", "--auto-kind", "final_reply")
-    assert p.returncode == 0 and p.stdout == "" and "不評：" in p.stderr   # 不評：尾巴不加東西，原因走 stderr
-    assert fake.requests == [] and records(root) == []
-
-
-# ─── 自動評入口 ───────────────────────────────────────────────────────────────
-
-LONG = GOOD + "\n" + "這一段是補字數用的白話說明，讓文字超過三百字。" * 15 + "\n"
-
-
-@pytest.mark.parametrize("cfg,kind,text,why", [
-    ({"enabled": False}, "final_reply", LONG, "text_score.enabled=false"),
-    ({}, "subagent_reply", LONG, "subagent_reply 不在 text_score.auto_targets"),
-    ({"min_chars": 300}, "final_reply", GOOD + "```\n" + "x" * 500 + "\n```\n", "少於 text_score.min_chars=300"),
-    ({"min_chars": 300}, "final_reply", "---\nnote: " + "很長的檔頭" * 100 + "\n---\n" + GOOD, "少於 text_score.min_chars=300"),
-])
-def test_auto_kind_skips_without_asking(tmp_path, fake, cfg, kind, text, why):
-    on = data_root(tmp_path / "on", {"a": backend(fake.url)}, {"min_chars": 300})
-    assert run(on, write(tmp_path, "long.md", LONG), "--auto-kind", "final_reply").returncode == 0   # 對照：會評
-    assert len(fake.requests) == 8 and records(on)[0]["kind"] == "final_reply"
-    root = data_root(tmp_path / "off", {"a": backend(fake.url)}, cfg)
-    p = run(root, write(tmp_path, "t.md", text), "--auto-kind", kind)
-    assert p.returncode == 0 and "不評：" in p.stdout and why in p.stdout, p.stdout
-    assert len(fake.requests) == 8 and records(root) == []
-    assert tail(p.stdout).startswith("TEXT_SCORE DONE spec=reader-designer pass=0 ") and tail(p.stdout).endswith(" logged=0")
-
-
-DOC_TARGETS = {"final_reply": [], "docs": ["memory/_staging/*checklist*.md", "_AIDocs/DevHistory/**/*提案*.md"]}
-
-
-@pytest.mark.parametrize("rel,kind,scored", [
-    ("memory/_staging/g15-checklist.md", "docs", True),
-    ("_AIDocs/DevHistory/v6.0-x/G15-研究與提案.md", "docs", True),
-    ("_AIDocs/DevHistory/提案.md", "docs", True),                        # ** 也可以是零層
-    ("notes/g15-checklist.md", "docs", False),
-    ("memory/_staging/sub/g15-checklist.md", "docs", False),            # * 不跨資料夾
-    ("xmemory/_staging/g15-checklist.md", "docs", False),               # 資料夾名要整段對上
-    ("notes/隨手記.md", "final_reply", True),                            # 空清單＝這類不比路徑
-])
-def test_auto_kind_filters_by_path_patterns(tmp_path, fake, rel, kind, scored):
-    root = data_root(tmp_path, {"a": backend(fake.url)}, {"auto_targets": DOC_TARGETS})
-    src = tmp_path / "proj" / rel
-    src.parent.mkdir(parents=True)
-    src.write_text(LONG, encoding="utf-8")
-    p = run(root, src, "--auto-kind", kind)
-    assert p.returncode == 0, p.stderr
-    assert (len(fake.requests), len(records(root))) == ((8, 1) if scored else (0, 0)), p.stdout
-    if not scored:
-        assert f"不符 text_score.auto_targets.{kind} 的路徑樣式" in p.stdout
-
-
-@pytest.mark.parametrize("targets", [DOC_TARGETS, {"docs": ["*"]}])   # 「*」也不能比中 stdin
-def test_auto_kind_docs_from_stdin_has_no_path(tmp_path, fake, targets):
-    root = data_root(tmp_path, {"a": backend(fake.url)}, {"auto_targets": targets})
-    env = {**os.environ, "WG_CLAUDE_DIR": str(root)}
-    p = subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "-", "--auto-kind", "docs"], input=LONG,
-                       capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
-    assert p.returncode == 0 and "不評：來源是 stdin、沒有路徑" in p.stdout and fake.requests == []
-
-
-def test_auto_kind_old_list_config_matches_kind_only(tmp_path, fake):
-    root = data_root(tmp_path, {"a": backend(fake.url)}, {"auto_targets": ["final_reply", "docs"]})
-    p = run(root, write(tmp_path, "隨手記.md", LONG), "--auto-kind", "docs")
-    assert p.returncode == 0, p.stderr
-    assert len(fake.requests) == 8 and records(root)[0]["kind"] == "docs"
-
-
-@pytest.mark.parametrize("path,pattern,ok", [
-    (r"C:\Proj\Memory\_Staging\G15-CHECKLIST.MD", "memory/_staging/*checklist*.md", True),   # 不分大小寫
-    ("/a/_AIDocs/DevHistory/x/y/z提案.md", "_AIDocs/DevHistory/**/*提案*.md", True),          # ** 多層
-    ("/a/docs/[x]+.md", "docs/[x]+.md", True),                                                # 方括號、加號照字面
-    ("/a/docs/x.md", "docs/[x].md", False),
-    ("/a/docs/ab.md", "docs/a?.md", True),
-    ("/a/docs/a/b.md", "docs/a?b.md", False),                                                 # ? 不跨資料夾
-])
-def test_path_matches(path, pattern, ok):
-    assert TS.path_matches(path, [pattern]) is ok
-
-
 # ─── 週彙總 ───────────────────────────────────────────────────────────────────
 
 def _rec(ts: datetime, verdicts: Dict[str, str], overall: str = "過", sha: str = "a") -> str:
@@ -696,6 +595,31 @@ def test_weekly_rates_trend_void_and_bad_lines(tmp_path):
     assert "讀不懂" in p.stderr
     md = run(tmp_path, "--log", log, "--weeks", "2", tool=WEEKLY).stdout
     assert "| R1 | 50% | 100% | ↑50 | 0 |" in md and "| R2 | 100% | 50% | ↓50 |" in md and "規格改過" in md
+
+
+def _weekly():
+    return _load("text_score_weekly_under_test", WEEKLY)
+
+
+def test_weekly_counts_judges_and_kinds(tmp_path):
+    now = datetime.now().isoformat(timespec="seconds")
+    base = {"ts": now, "spec": "reader-designer", "spec_sha": "a", "overall": "過",
+            "items": [{"id": "R1", "status": "判定", "verdict": "是"}]}
+    log = tmp_path / "log.jsonl"
+    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in [
+        {**base, "models_used": ["gemma4:e4b"], "judges": {"rdchat-direct": "gemma4:e4b"}, "kind": "final_reply"},
+        {**base, "models_used": ["gemma4:e4b"], "kind": "final_reply"},
+        {**base, "models_used": ["qwen3:4b-instruct-2507-q4_K_M"], "kind": "docs"},
+        {**base, "models_used": [], "overall": "未評", "kind": "final_reply"},
+        dict(base),                                                                           # 舊紀錄：沒這兩欄
+    ]) + "\n", encoding="utf-8")
+    weeks = _weekly().recent_weeks(1, datetime.now().date())
+    s = _weekly().summarize(_weekly().load_records(log)[0], weeks)["reader-designer"]
+    assert s["judges"] == {"gemma4:e4b": 2, "qwen3:4b-instruct-2507-q4_K_M": 1, "沒回答": 1, "沒記": 1}
+    assert s["kinds"] == {"final_reply": 3, "docs": 1, "沒記": 1}
+    md = _weekly().render({"reader-designer": s}, weeks)
+    assert ("裁判（實際回答）：gemma4:e4b 2、qwen3:4b-instruct-2507-q4_K_M 1、沒回答 1、沒記 1｜"
+            "種類：final_reply 3、docs 1、沒記 1") in md.splitlines()
 
 
 # ─── config ───────────────────────────────────────────────────────────────────

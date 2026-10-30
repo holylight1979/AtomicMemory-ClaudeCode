@@ -12,7 +12,7 @@
   放行記成「這一回合＋放行的那幾件」（release_items：擋訊息每條 ✗ 的規則與現象）：同一回合整個放；之後的回合那幾件原因還在
   就不再要求放行（keep_released／drop_items），原因消失就從紀錄拿掉。
   無法互動（non_interactive_reason：裁判子 session、子代理、headless／SDK）→ 不叫它問；擋滿照預算放行並留帳（由呼叫端記）。
-  用在寫程式碼的查核閘（ReconcileGate、TestFailGate）、第二意見、等值證法。
+  用在寫程式碼的查核閘（ReconcileGate、TestFailGate）、等值證法。
 怎麼跑：被 handlers/stop.py 匯入；verify 在 hooks/verify/verify_stop_reconcile.py（件一段）、verify_pull_stop_gates.py。
 """
 from __future__ import annotations

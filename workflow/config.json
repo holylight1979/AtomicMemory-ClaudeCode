@@ -274,7 +274,7 @@
     "assessment_timeout": 120,
     "_doc_assessment_timeout": "背景審查子程序（audit.py）單次 codex 呼叫的秒數上限；Stop hook 不等它，與收尾耗時無關。",
     "codex_extra_args": [],
-    "_doc_codex_extra_args": "原樣附加到 codex exec 的旗標（裁判與第二意見共用）。只有某台機器需要的旗標（例：停用那台 ~/.codex/config.toml 註冊、裁判用不到的 MCP 伺服器）寫在 workflow/config.local.json 的 codex_companion 段。",
+    "_doc_codex_extra_args": "原樣附加到 codex exec 的旗標（tools/codex-call.py 帶上；驗收裁判也走它）。只有某台機器需要的旗標（例：停用那台 ~/.codex/config.toml 註冊、裁判用不到的 MCP 伺服器）寫在 workflow/config.local.json 的 codex_companion 段。",
     "score_threshold": 7,
     "max_audits_per_session": 30,
     "silent_advisory": true,
@@ -306,23 +306,6 @@
       "max_prompt_chars": 22000
     }
   },
-  "second_opinion": {
-    "_doc": "第二意見（tools/second-opinion，MCP second_opinion_start／second_opinion_result）：model 經 ~/.codex/models_cache.json 精確比對；probe_timeout_s 探針（叫 codex 在唯讀沙箱用 shell 讀回 job 目錄裡 probe.txt 的隨機字樣，讀不到即 failed；跑一次 shell 實測約 20 s）、timeout_s codex exec 逾時 kill；defects_top_n 病灶前 N 節、ledger_tail 帳本尾 K 行；allow_claude_fallback 固定 false 不開放。job 落 workflow/second-opinion/<job>/（gitignore）。",
-    "model": "gpt-6-astra",
-    "probe_timeout_s": 60,
-    "timeout_s": 300,
-    "defects_top_n": 5,
-    "ledger_tail": 20,
-    "material_max_chars": 40000,
-    "auto": {
-      "_doc": "自動第二意見（hooks/wg_second_opinion.py 收事實、wg_release_rules 判定、handlers/stop.py SecondOpinion 段擋）：宣告完成時本 session 改過的程式檔 ≥min_code_files 或對 HEAD 改動 ≥min_changed_lines 行、或改到 risky_prefixes（相對版控根；出廠空）／部位表類別 gate 的檔（專案自己的高風險部位在部位表標 gate，記憶系統自己的在 .claude/overview-map.md），要本回合真跑過 second_opinion_start→result 並寫「第二意見與分歧裁決」四行，或宣告一行「不需第二意見｜<理由>」留帳；每使用者回合擋 max_blocks_per_turn 次後擋滿照 ReconcileGate 問人。子代理／裁判／headless 不觸發。enabled:false 整段關。",
-      "enabled": true,
-      "min_code_files": 4,
-      "min_changed_lines": 150,
-      "risky_prefixes": [],
-      "max_blocks_per_turn": 1
-    }
-  },
   "lang_guard": {
     "_doc": "英文回應漂移攔截（hooks/lang_guard.py，standalone Stop hook）。量測 assistant 終版訊息英文語言字元佔比（先剝 code fence/inline/URL/link 目標，只管 user-facing 對話輸出），超門檻→hookSpecificOutput.additionalContext 回饋模型（Stop 事件支援：回合結尾注入、對話續跑一回合用繁中重答；stop_hook_active 回合不再觸發防迴圈）。不用 systemMessage：那只顯示給使用者、模型讀不到。stateless、無 flag。一鍵關=enabled:false；english_ratio_threshold=英文佔比門檻(0~1，英文字母/(英文字母+CJK))；min_lang_chars=低於此語言字元數不判(濾短訊如 Done.)。",
     "enabled": true,
@@ -330,8 +313,7 @@
     "min_lang_chars": 40
   },
   "text_score": {
-    "_doc": "文字規格評分（tools/text-score.py；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序，每台都用 judge_model；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。enabled／min_chars／auto_targets 只管自動評（--auto-kind <種類>：enabled=false、種類不在 auto_targets、來源路徑不符該種類的路徑樣式、去掉檔頭與 code 與網址後不到 min_chars 字，就印「不評」），手動指令照跑。自動評的來源是收尾（hooks/wg_text_score.py）：最終回覆（final_reply；reply_scope=code_change 預設只評本使用者回合改了程式、宣告完成的那一則，一回合一則，其他回覆由使用者叫 skill text-score；all＝每則夠長的都評）與本回合改過、符合 docs 路徑樣式的 .md（出廠沒列 docs＝不評文件，要評自己加 docs 與路徑樣式）交背景評、留帳，不等不擋；規格的 {{goal}} 由收尾填當下的需求目標（目標樹樹根，沒樹用本回合使用者原話；都沒有這次不評）；下一則使用者訊息只記下上一則評完了（guard-text_score_tail recorded），不注入；enabled=false 收尾也不送、不留帳。auto_targets＝{種類: 路徑樣式清單}：樣式從任何一層資料夾起算，* 與 ? 不跨資料夾、**/ 是零或多層、不分大小寫；空清單＝不比路徑（final_reply 從 stdin 進來）；stdin 沒有路徑，有樣式的種類就不評；要跟規格檔「適用」欄一起改。judge_model_by_backend＝{backend 名: 裁判模型}，每台用自己的（正確性為主：內網 e4b 判得較準、本機跑不動 e4b 用 instruct-2507），沒列到的 backend 用 judge_model；--model 給了全部用它；那台沒裝就算不在、不換成它原本的 llm_model；跨機同標籤要比 digest。",
-    "enabled": true,
+    "_doc": "文字規格評分（tools/text-score.py，使用者叫 skill text-score 才跑；規格在程式碼樹 text-specs/<代號>.md，寫法見 text-specs/README.md）：逐條問開源免費的小模型裁判（vector_search.ollama_backends 的優先序；都不在就記未評、不擋、不改用付費模型），分數由程式算，留帳 Logs/guard-text_score.jsonl，週彙總 tools/text-score-weekly.py。規格的 {{goal}} 由 --goal 填（skill 給使用者這次要的那一句；沒給就不評）。default_spec=沒給 --spec 時用的規格；timeout_sec=每次問裁判的逾時；num_ctx=每次明帶的 context 長度（Ollama 預設 4096 會靜默截斷）。judge_model_by_backend＝{backend 名: 裁判模型}，每台用自己的（正確性為主：內網 e4b 判得較準、本機跑不動 e4b 用 instruct-2507），沒列到的 backend 用 judge_model；--model 給了全部用它；那台沒裝就算不在、不換成它原本的 llm_model；跨機同標籤要比 digest。",
     "default_spec": "reader-designer",
     "judge_model": "gemma4:e4b",
     "judge_model_by_backend": {
@@ -339,12 +321,7 @@
       "local": "qwen3:4b-instruct-2507-q4_K_M"
     },
     "timeout_sec": 120,
-    "num_ctx": 8192,
-    "min_chars": 300,
-    "reply_scope": "code_change",
-    "auto_targets": {
-      "final_reply": []
-    }
+    "num_ctx": 8192
   },
   "version_guard": {
     "_doc": "版本操作脈絡殘留 warn hook（hooks/version_guard.py，由 guardian PostToolUse 同程序呼叫 run()）。Write/Edit 後掃剛寫入的 ~/.claude 內檔，命中高精度版本 pattern（V5 Pxx/Sprint/Wave/方案代號/[vN]·[phaseN] 前綴/[Fxx] 錨）→ warn-only(systemMessage+stderr)，不阻斷。寧漏報不誤報：模糊 pattern（裸 Phase N/日期/v2.x/變更敘事）刻意不收。正位檔(DevHistory/_CHANGELOG/TECH/Architecture/SPEC/plans/verify/_staging)+功能 token(_migrate_v/SCHEMA_VERSION/protocolVersion)豁免。規則 rules/core.md「版本與文件治理」；pattern single source＝atom feedback-live-…。一鍵關=enabled:false 或 mode:off；min_matches=命中幾項才提醒。",

@@ -50,8 +50,7 @@ TOOLS = {
     "memory-eval/genqueries.py": (["DEFAULT_MEMORY_DIR"], ["CODE_DIR"]),
     "memory-eval/run.py": (["DEFAULT_MEMORY_DIR", "CONFIG_PATH"], ["CODE_DIR"]),
     "memory-eval/online_replay.py": (["CONFIG_PATH"], ["CODE_DIR"]),
-    "second-opinion/run.py": (["CONFIG_PATH", "JOB_ROOT"], ["COMPANION_DIR", "REPLAY_GUARD", "CODE_DIR"]),
-    "second-opinion/pack.py": (["CLAUDE_DIR"], ["CODE_DIR"]),
+    "codex-call.py": (["CONFIG_PATH"], ["CODE_DIR", "COMPANION_DIR"]),
     "memory-vector-service/config.py": (["CLAUDE_DIR", "CONFIG_PATH", "VECTORDB_DIR"], []),
     "memory-vector-service/starter.py": (
         ["CLAUDE_DIR", "WORKFLOW_DIR", "LOGS_DIR", "SERVICE_LOG", "PROBE_LOG", "FLAG_PATH", "PID_FILE", "SPAWN_LOCK",

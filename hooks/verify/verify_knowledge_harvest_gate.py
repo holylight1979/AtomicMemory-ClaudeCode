@@ -184,7 +184,7 @@ def test_cooldown_only_counts_validated(driven, capsys):
 
 
 def test_045_cooldown_counts_user_turns_not_peer_messages(driven, capsys):
-    """規則 DISPATCH_OPENS_TURN（收割冷卻）：同伴訊息把 turn_seq 推到 9，使用者回合只過了 1 個 → 仍在冷卻；
+    """規則 TURN_SINCE_USER_PROMPT（收割冷卻）：同伴訊息把 turn_seq 推到 9，使用者回合只過了 1 個 → 仍在冷卻；
     使用者回合過了 4 個 → 冷卻已過照擋。舊 state 沒有使用者回合計數 → 退回 turn_seq 差。"""
     kh = {_SID: {"turn_seq": 4, "validated": True, "pending": [], "items": [],
                  "last_valid_harvest_turn": 4, "last_valid_harvest_uturn": 4}}

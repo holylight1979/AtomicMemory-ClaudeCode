@@ -1912,23 +1912,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _need_goal_ask(tool_name, input_data, config)
         return
 
-    # G9：MCP 進程沒有 session 身份，second_opinion_start 由這裡補上 hook 輸入的 session_id（updatedInput），pack 才找得到
-    # 這個 session 的需求目標樹（goal.md）與驗證帳本。settings.json PreToolUse matcher 要掛這個工具才會走到這裡。
-    if tool_name.endswith("__second_opinion_start"):
-        sid = str(input_data.get("session_id") or "")
-        if sid:
-            try:       # REVIEW_FIX_RERUN_TOUCHED_ONLY：材料在這一刻打包，之後的改動算審完的修補（只重跑碰到的 verify）
-                import wg_need_goal as _ng
-                _ng.mark_review(sid)
-            except Exception as e:  # noqa: BLE001
-                print(f"[Guardian:SecondOpinion] 記不下審查時刻（之後的修補照舊要全部重跑）：{type(e).__name__}: {e}", file=sys.stderr)
-        if sid and isinstance(tool_input, dict) and tool_input.get("session_id") != sid:
-            output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                "updatedInput": {**tool_input, "session_id": sid}}})
-            return
-        output_nothing()
-        return
-
     # 改判準卡：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
     if tool_name.endswith(wg_judge_card.MCP_TOOLS):
         deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)

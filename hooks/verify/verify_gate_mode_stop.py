@@ -69,7 +69,7 @@ def drive(monkeypatch, capsys):
                  "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5, **extra}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         cfg = {"reconcile_gate": OFF, "aec": {"scan_report_gate": False}, "atom_audit": OFF,
-               "sync_reminder": OFF, "deferral_gate": OFF, "pick_one": OFF, "second_opinion": {"auto": OFF},
+               "sync_reminder": OFF, "deferral_gate": OFF, "pick_one": OFF,
                "knowledge_harvest": OFF, **(config or {})}
         logs.clear()
         capsys.readouterr()
@@ -322,16 +322,6 @@ def test_turn_judgment_asks_only_changed_functions(tmp_path):
 
 # ─── 其餘改提醒的閘：Stop 只留帳（每個 S 項一案） ─────────────────────────────────
 
-def test_second_opinion_reminded_not_blocked(drive, monkeypatch, tmp_path):
-    """S11 第二意見事實成立（5 個程式檔）、收尾沒跑也沒宣告 → 不擋、不記 pending；guard-second_opinion 留 event=remind。"""
-    files = [_mf(str(tmp_path / "proj" / f"m{i}.py"), seq=10 + i) for i in range(5)]
-    out, state, logs = drive(DONE, config={"second_opinion": {"auto": {"enabled": True}}}, modified_files=files)
-    assert "decision" not in out, out
-    rem = _reminds(logs, "second_opinion")
-    assert rem and rem[0]["rule"] == "SECOND_OPINION_REQUIRED" and rem[0]["code_files"] == 5
-    assert not (state.get("pending_release") or {}).get(SID) and "second_opinion_gate_turn" not in state
-
-
 def test_harvest_and_pending_reminded_not_blocked(drive, monkeypatch):
     """S17 知識收割、收割對帳：欠就留帳，不擋；一回合一次的記號照記。"""
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 階段完工要交收割清單")
@@ -389,11 +379,11 @@ def test_sync_block_pending_items_reminded_not_blocked(drive):
 
 
 def test_later_gates_preview_lists_only_block_gates(drive, monkeypatch):
-    """BLOCK_LISTS_LATER_GATES 的預覽：照擋的紅測閘擋下時，後面判成提醒的閘（第二意見、收尾檢核、同步…）不列進「還會擋」。"""
+    """BLOCK_LISTS_LATER_GATES 的預覽：照擋的紅測閘擋下時，後面判成提醒的閘（收尾檢核、同步…）不列進「還會擋」。"""
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 要交收割")
     red = [{"session_id": SID, "cmd": "python -m pytest -q t", "summary": "1 failed", "turn_seq": 5}]
     files = [_mf(str(Path(r"c:\proj\hooks") / f"m{i}.py"), seq=10 + i) for i in range(5)]
-    out, _, _ = drive(DONE, config={"aec": {"scan_report_gate": True}, "second_opinion": {"auto": {"enabled": True}}},
+    out, _, _ = drive(DONE, config={"aec": {"scan_report_gate": True}},
                       failing_tests=red, modified_files=files)
     assert out.get("decision") == "block" and "[Guardian:TestFailGate]" in out["reason"]
     assert "[Guardian:AlsoOwed]" not in out["reason"], out["reason"]
@@ -450,7 +440,7 @@ def test_reminders_ask_judgment_cards_once_per_batch(monkeypatch, capsys):
     assert ctx.rstrip().endswith("判準卡（E16）：第二意見分歧裁決"), ctx
     reg = json.loads((HOOKS_DIR.parent / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))
     rows = {r["id"]: r for r in reg["entrypoints"]}
-    for eid in ("E03", "E13", "E14", "E15", "E16"):
+    for eid in ("E03", "E13", "E14", "E15"):
         assert "post_tool_hint" in rows[eid]["paths"], eid
 
 

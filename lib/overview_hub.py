@@ -506,7 +506,7 @@ def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
 
 
 def card_mem_dir(root: Path, claude_dir: Path) -> Path:
-    """某個根的導讀卡住在哪個 memory 目錄（hook 注入與第二意見工具共用這一份）：
+    """某個根的導讀卡住在哪個 memory 目錄（hook 注入用這一份）：
     root 就是 claude_dir，或 root 是根層 worktree → `claude_dir/memory`（卡片是資料，由 atom_write 寫進 live；
     worktree 的 memory/ 只是開分支當時的副本）；其他 → `root/.claude/memory`。
     root 是網路路徑 → 直接 `root/.claude/memory`，不呼叫 realpath。"""

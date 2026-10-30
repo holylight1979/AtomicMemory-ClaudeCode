@@ -2,7 +2,7 @@
 
 驗 handlers/_shared.prune_workflow_records(wf, current_sid, now, dry_run)：
   - 表上每列都有理由與已知的規則種類
-  - 新管的資料夾：舊檔刪、新檔留（acceptance-spec、harvest-ledger、verify-ledger、second-opinion、usage-snapshots、scorecard）
+  - 新管的資料夾：舊檔刪、新檔留（acceptance-spec、harvest-ledger、verify-ledger、usage-snapshots、scorecard）
   - 搬進表的既有規則照舊（根目錄殘檔、companion、session-coordination、dpm-done、ups-sentinel、aec-report 補 .tmp）
   - 目前 session 的檔不動；「不清」清單與「另由別支程式清」的列不動
   - need-goal 鎖檔只在同名目標檔不在、且夠舊時才刪
@@ -117,30 +117,6 @@ def test_need_goal_json_corrupt_and_lock(wf):
     assert live_goal.exists() and live_lock.exists()              # 目標檔還在：鎖多舊都不動
     assert not orphan_lock.exists() and young_orphan_lock.exists()
     assert not corrupt_old.exists() and corrupt_new.exists()
-
-
-def test_second_opinion_job_dirs(wf):
-    so = wf / "second-opinion"
-    old_job = so / "20260920-101010-aaaaaaaa-review"
-    for n in ("request.json", "reply.md"):
-        put(old_job / n, 15)
-    os.utime(old_job, (NOW - 15 * DAY, NOW - 15 * DAY))
-    sealed_old = put(so / "_sealed" / f"{old_job.name}.txt", 15)
-    new_job = so / "20261013-101010-bbbbbbbb-review"
-    put(new_job / "reply.md", 1)
-    probe = put(so / "_probe" / "probe.log", 100)
-    run(wf)
-    assert not old_job.exists() and not sealed_old.exists()
-    assert new_job.exists() and probe.exists()
-
-
-def test_second_opinion_dir_with_recent_file_kept(wf):
-    job = wf / "second-opinion" / "20260920-101010-cccccccc-review"
-    put(job / "request.json", 30)
-    put(job / "reply.md", 2)  # 最近才寫完的回覆：整個 job 還新
-    os.utime(job, (NOW - 30 * DAY, NOW - 30 * DAY))
-    run(wf)
-    assert job.exists()
 
 
 def test_scorecard_keeps_current_and_two_previous_months(wf):

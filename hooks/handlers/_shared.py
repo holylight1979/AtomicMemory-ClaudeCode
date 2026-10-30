@@ -311,10 +311,10 @@ def _cleanup_old_states() -> None:
 # ─── workflow/ 執行紀錄保留規則表（SessionStart 照表清一次）─────────────────────
 # 每列：dir（相對 workflow/；"../Logs/…" 是 workflow 的上一層）｜patterns（只看該層，不往下找）｜kind＋param｜keep（保留多久，給人讀）｜why（為什麼刪了不會壞事）。
 # 依據：每類在 session 結束後還有沒有讀者、讀者看多久以前的資料。檔名含目前 session id 的一律不動（resume 回來還要用）。
-# kind：age＝mtime 超過 param 天就刪；need_goal／aec_tempfiles／job_dirs／months／tracking_pairs＝下面同名的判斷；
+# kind：age＝mtime 超過 param 天就刪；need_goal／aec_tempfiles／months／tracking_pairs＝下面同名的判斷；
 # rotate＝超過大小輪替；elsewhere＝規則在別支程式（param 寫在哪），表上只登記；keep＝永久保留。
 
-RETENTION_KINDS = ("age", "need_goal", "aec_tempfiles", "job_dirs", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
+RETENTION_KINDS = ("age", "need_goal", "aec_tempfiles", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
 OVERVIEW_LOG_MAX_MB = 10
 
 WORKFLOW_RETENTION: List[Dict[str, Any]] = [
@@ -354,11 +354,9 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "keep": "30 天", "why": "SessionEnd 同步時已交接到 vcs-sync 佇列；只有 resume 同一 session 才會再讀"},
     {"dir": "verify-ledger", "patterns": ("*.jsonl",), "kind": "age", "param": 14,
      "keep": "14 天（含 .agents.jsonl；_runs/ 另列）",
-     "why": "查核閘看 state 裡的收據、不讀這檔；第二意見只讀最後 20 行；收尾報告 7 天就清"},
+     "why": "查核閘看 state 裡的收據、不讀這檔；收尾報告 7 天就清"},
     {"dir": "verify-ledger/_runs", "patterns": ("*.json",), "kind": "elsewhere", "param": "lib/self_receipt.prune_self_runs（SessionEnd）",
      "keep": "留最新 200 份、超過 30 天也刪", "why": "對帳閘只讀最新 50 份"},
-    {"dir": "second-opinion", "patterns": ("<job 目錄>", "_sealed/<job>.txt"), "kind": "job_dirs", "param": 14,
-     "keep": "14 天（看目錄裡最新的檔）", "why": "結果在發起的 session 裡幾分鐘內就取走；_probe/ 會自己覆寫，不動"},
     {"dir": "usage-snapshots", "patterns": ("*-FAILED.png",), "kind": "age", "param": 30,
      "keep": "30 天", "why": "失敗診斷圖只看當次；用量 log 與成功截圖是成品，不刪"},
     {"dir": "scorecard", "patterns": ("<YYYYMM>.jsonl",), "kind": "months", "param": 3,
@@ -469,27 +467,6 @@ def _prune_aec_tempfiles(d: Path, days: float, now: float, dry_run: bool, res: D
             _rm(p, dry_run, res)
 
 
-def _prune_job_dirs(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
-    """第二意見 job 目錄：目錄與裡面最新的檔都超過期限才整個刪，連同 _sealed/<job>.txt；_ 開頭的（_probe、_sealed）不當 job。"""
-    cutoff = now - days * _DAY
-    for job in d.iterdir():
-        if not job.is_dir() or job.name.startswith("_"):
-            continue
-        try:
-            newest = max([job.stat().st_mtime] + [f.stat().st_mtime for f in job.rglob("*")])
-        except OSError:
-            continue
-        if newest < cutoff and _rm(job, dry_run, res):
-            sealed = d / "_sealed" / f"{job.name}.txt"
-            if sealed.exists():
-                _rm(sealed, dry_run, res)
-    sealed_dir = d / "_sealed"
-    if sealed_dir.is_dir():
-        for s in sealed_dir.glob("*.txt"):
-            if str(s) not in res["deleted"] and _older(s, cutoff):
-                _rm(s, dry_run, res)
-
-
 def _prune_months(d: Path, months: int, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
     """<YYYYMM>.jsonl 只留當月與前 months-1 個月（依檔名，不看 mtime）。"""
     t = datetime.fromtimestamp(now)
@@ -589,8 +566,6 @@ def prune_workflow_records(wf: Optional[Path] = None, current_sid: str = "", now
                 _prune_need_goal(d, now, current_sid, dry_run, res)
             elif kind == "aec_tempfiles":
                 _prune_aec_tempfiles(d, row["param"], now, dry_run, res)
-            elif kind == "job_dirs":
-                _prune_job_dirs(d, row["param"], now, dry_run, res)
             elif kind == "months":
                 _prune_months(d, row["param"], now, dry_run, res)
             elif kind == "tracking_pairs":

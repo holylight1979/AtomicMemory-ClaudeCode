@@ -7,7 +7,7 @@
 - 不在版控、找不到指令開始時間 → 不補，那一筆寫明 unrecovered；裁判子 session 一樣補；補到的檔交目標樹蓋號；
 - 整棵 status 逾時 → 只查指令點名的檔，同 session 之後該根直接走點名；svn（真 svn 工作副本＋--xml 解析，未納管目錄往下展開）。
 三道收尾閘吃補進來的檔，案例在各閘自己的檔（都用本檔的 init_repo／bash_unknown_write 產 state）：
-對帳 verify_stop_reconcile.py、第二意見 verify_g9_second_opinion.py、同步提醒 verify_sync_reminder_later_turn.py。
+對帳 verify_stop_reconcile.py、同步提醒 verify_sync_reminder_later_turn.py。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_unknown_write_recover.py
 """
 from __future__ import annotations
