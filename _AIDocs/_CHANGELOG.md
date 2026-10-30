@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-30 寫碼守門模組改成用到才載入
+- **緣由**：守門關時 hook 照樣在頂端載入守門模組（chain_store、wg_chain、wg_oldtest、wg_gate_bypass、wg_release_rules 等），什麼都沒做卻讓每次工具呼叫多等；使用者要求守門關不載、守門開也只在用到時才載。
+- **做法**：新增 `wg_lazy_re.lazy_module`（標準庫延後載入，回傳同一模組、第一次取屬性才載），pre_tool_use、post_tool_use、stop、post_tool_batch、wg_overview、wg_harvest、wg_data_file、wg_verify_batch、chain_store、session_start、wg_core 的守門 import 改成用到才載。不另寫「是不是程式」的統一判斷：動資料檔閘管的是非程式檔，改成每道閘照自己最便宜的前提先判。settings.json 不動。
+- **驗證**：守門關新舊各 56 事件兩輪、守門開 116 事件（含動資料檔、readonly、改舊測試、Bash 寫碼、帶病 commit、提問無推薦、紅測說修好等邊界），輸出、擋放、資料根檔案逐字相同；相關 13 支測試 550 案綠；計時 5 輪交錯：守門關改檔前 328→250ms（10/8 為 226ms）、執行指令前與收尾約快 45～75ms，守門開無可量差異。
+
 ## 2026-10-30 程式需求的思考細則改成碰到程式檔才載入
 - **緣由**：IDENTITY 的設定衝突處置與綜觀細則、coding-style 全檔每場都載入（必載約 8,000 tok，比 10/8 多 30%），一般對談也在付；使用者指出它們本來只針對程式需求。
 - **做法**：IDENTITY 那段縮成兩句（使用者目標是定點、衝突問改不改那一條；程式需求讀程式前先寫目標原話與最簡形狀）；細則搬到新的 `rules/code-thinking.md`，它與 `rules/coding-style.md` 都加 `paths:`（程式檔副檔名），由 Claude Code 在讀改程式檔時才載入。新檔登記進必載硬契約。每場常駐約 8,000 → 4,850 tok；碰到程式檔時再加約 3,560。
