@@ -718,3 +718,5 @@
 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log | _AIDocs/_atoms/MemDev/收尾閘與收據/背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log.md | run_in_background, 收據, 無哨兵, 背景驗證, receipt, manually backgrounded | global |  |
 | userpromptsubmit路的判斷入口形狀-詞表命中先記待判問一句-stop在所有閘前收行首標籤取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | _AIDocs/_atoms/MemDev/擋訊息與放行判定/userpromptsubmit路的判斷入口形狀-詞表命中先記待判問一句-stop在所有閘前收行首標籤取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md | 判斷入口, UPS 問一句, 糾正｜, 否決記憶｜, 詞表只提示, undeclared | global |  |
 | g8-評分規格三層設定在每個工具端都一致 | memory/思考與決策/g8-評分規格三層設定在每個工具端都一致.md | G8, G8 評分, 三層變量, 三層設定一致, 根層 公司層 專案層, 設定讀錯層 | global |  |
+| feedback-評估守門或系統價值要回到使用者原話-ai整理出的機制與目標樹節點不是使用者的目標 | memory/Failures/思考與決策/feedback-評估守門或系統價值要回到使用者原話-ai整理出的機制與目標樹節點不是使用者的目標.md | 守門價值, 雞肋, 驗證題, 根治, 原話, 目標樹節點, 想法根, 評估機制 | global |  |
+| 寫碼守門開關會改記憶系統的收尾閘-關時九道記憶收尾閘照擋-開時反而只提醒且只在寫碼回合-背景收割與hook計時降級只在開時有 | _AIDocs/_atoms/MemDev/寫碼守門閘/寫碼守門開關會改記憶系統的收尾閘-關時九道記憶收尾閘照擋-開時反而只提醒且只在寫碼回合-背景收割與hook計時降級只在開時有.md | 守門開關, 兩層, 收尾擋, KnowledgeHarvest 擋, gate_mode, 背景收割, hook 計時, 跨層 | global |  |
