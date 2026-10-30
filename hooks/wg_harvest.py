@@ -29,7 +29,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from wg_core import _is_under_claude_dir, _now_iso, WORKFLOW_DIR, append_guard_log, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
-from wg_release_rules import in_user_turn
+from wg_lazy_re import lazy_module
+
+_rr = lazy_module("wg_release_rules")   # 「同一個使用者回合」的判法（in_user_turn）；收割帳沒有本回合紀錄時用不到，第一次用到才載
 
 _ATOM_OPS_CAP = 200
 _RECEIPT_OPS = ("create", "append", "replace", "retire")
@@ -78,12 +80,12 @@ def section(state: Dict[str, Any], sid: str) -> Dict[str, Any]:
 def validated_this_turn(state: Dict[str, Any], sid: str, turn_seq: int) -> bool:
     """本回合（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）收割回報已核過。"""
     sec = section(state, sid)
-    return bool(turn_seq) and in_user_turn(sec.get("turn_seq"), state, turn_seq) and bool(sec.get("validated"))
+    return bool(turn_seq) and _rr.in_user_turn(sec.get("turn_seq"), state, turn_seq) and bool(sec.get("validated"))
 
 
 def reported_this_turn(state: Dict[str, Any], sid: str, turn_seq: int) -> bool:
     """本回合（同上）已經回報過收割。"""
-    return bool(turn_seq) and in_user_turn(section(state, sid).get("turn_seq"), state, turn_seq)
+    return bool(turn_seq) and _rr.in_user_turn(section(state, sid).get("turn_seq"), state, turn_seq)
 
 
 def atom_ops(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:

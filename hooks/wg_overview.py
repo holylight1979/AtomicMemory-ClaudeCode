@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _layer_kind_for_root, org_memory_root, resolve_project_root, v6_enabled,
 )
-from wg_verify_ledger import vcs_root_of
+from wg_lazy_re import lazy_module
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 from hub_config import HUB_REL, INTENT_KEYS, RETIRED_KEYS, merge_hub_cfg, same_dir  # noqa: E402
@@ -40,7 +40,9 @@ from overview_hub import (  # noqa: E402
     MAP_REL, card_mem_dir, find_map, match_row, parse_map, read_paths_from_tool, resolve_card, top_dir,
 )
 
-import wg_release_rules as _rr  # noqa: E402  判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、TEMP_COPY_NOT_PROJECT…）
+# 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關時改檔前的部位表查表只要知道有沒有部位表，不付這兩份
+_rr = lazy_module("wg_release_rules")   # 判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、TEMP_COPY_NOT_PROJECT…）
+_vl = lazy_module("wg_verify_ledger")   # VCS 根（無表那條路的退路）
 
 LOG_PATH = CLAUDE_DIR / "workflow" / "_overview-hub.log"   # _*.log 不進版控
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -224,7 +226,7 @@ def _unmapped_root_of(path: str) -> Optional[Path]:
     root = _project_root_of(path)
     if root is not None or not path or find_map(path):
         return root
-    return vcs_root_of(path)
+    return _vl.vcs_root_of(path)
 
 
 def write_target_root(path: str) -> Optional[Path]:

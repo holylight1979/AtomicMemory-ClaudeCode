@@ -242,10 +242,15 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
     since = int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(st.get("turn_seq", 0) or 0)
     if any(isinstance(u, dict) and int(u.get("turn_seq") or 0) >= since for u in st.get("unknown_writes") or []):
         return True
-    from wg_code_path import is_code_path
     return any(isinstance(m, dict) and int(m.get("last_turn_seq") or m.get("turn_seq") or 0) >= since
-               and is_code_path(str(m.get("path") or ""), config)
+               and _is_code_path(str(m.get("path") or ""), config)
                for m in st.get("modified_files") or [])
+
+
+def _is_code_path(path: str, config: Optional[Dict[str, Any]]) -> bool:
+    """wg_code_path.is_code_path，第一次真的有本回合改過的檔要判才載（它帶著 wg_verify_ledger；本回合沒改檔的回合不付）。"""
+    from wg_code_path import is_code_path
+    return is_code_path(path, config)
 
 
 ORG_LOCAL_NAME = "org-memory.local.json"

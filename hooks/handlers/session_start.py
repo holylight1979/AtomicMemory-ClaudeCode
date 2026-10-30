@@ -1496,9 +1496,11 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             pending = _count_pending_review(project_mem_dir)
             if pending > 0:
                 lines.append(f"[Pending Review] {pending} 件待裁決（shared/_pending_review/）")
-        try:   # 背景收割（wg_bg_harvest）落在資料根的待審候選：有才提一行，讓它有人看（不看就是死路）
-            from wg_bg_harvest import staged_count
-            _staged = v6 and staged_count()
+        try:   # 背景收割（wg_bg_harvest）落在資料根的待審候選：有才提一行，讓它有人看（不看就是死路）；寫碼守門關不載
+            _staged = 0
+            if v6:
+                from wg_bg_harvest import staged_count
+                _staged = staged_count()
             if _staged:
                 lines.append(_harvest_staged_line(_staged))
         except Exception as e:  # noqa: BLE001

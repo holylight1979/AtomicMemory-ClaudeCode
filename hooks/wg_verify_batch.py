@@ -20,7 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
-from wg_release_rules import Verdict, format_hit
+from wg_lazy_re import lazy_module
+
+_rr = lazy_module("wg_release_rules")   # 判定結果與擋訊息格式；這條指令不是驗證指令就用不到，第一次用到才載（HOOK_IMPORT_ON_USE）
 
 RULE_FULL = "VERIFY_FULL_RUN_NEEDS_USER_ORDER"
 RULE_SAME = "VERIFY_SAME_BATCH_ALREADY_GREEN"
@@ -263,7 +265,7 @@ def keyword_hit(prompts: Iterable[str], keywords: Iterable[str]) -> Optional[str
 
 def decide(cmd: VerifyCmd, prompts: Sequence[str], keywords: Sequence[str],
            receipts: Iterable[Dict[str, Any]], mods: Iterable[Dict[str, Any]], shell: str = "bash",
-           slow: Optional[Tuple[str, ...]] = None) -> Verdict:
+           slow: Optional[Tuple[str, ...]] = None) -> _rr.Verdict:
     """純判定：owed=True 要擋。先看這批是不是已驗過（SAME），再看整組要不要口令（FULL）。
     slow＝這組整組指令會拖時間的證據（slow_reason）；None＝不會拖（含不知道）→ 整組沒口令也放行（why=WHY_SMALL）。"""
     mods = list(mods)
@@ -272,17 +274,17 @@ def decide(cmd: VerifyCmd, prompts: Sequence[str], keywords: Sequence[str],
         changed = edits_after(green, mods)
         if not changed:
             shown = " && ".join(" ".join((c[0], *c[1])) for c in cmd.key)
-            return Verdict(RULE_SAME, True, "這批改動已驗證過",
+            return _rr.Verdict(RULE_SAME, True, "這批改動已驗證過",
                            (f"收據 {green.get('at')}", f"指令 {shown[:120]}", "結果 綠", f"之後改檔 0（本 session 改檔 {len(mods)}）"))
     if cmd.full:
         kw = keyword_hit(prompts, keywords)
         if kw:
-            return Verdict(RULE_FULL, False, f"使用者口令「{kw}」")
+            return _rr.Verdict(RULE_FULL, False, f"使用者口令「{kw}」")
         if slow is None:
-            return Verdict(RULE_FULL, False, WHY_SMALL)
-        return Verdict(RULE_FULL, True, "會拖時間的整組驗證要使用者本回合原話的口令",
+            return _rr.Verdict(RULE_FULL, False, WHY_SMALL)
+        return _rr.Verdict(RULE_FULL, True, "會拖時間的整組驗證要使用者本回合原話的口令",
                        (*slow, "本回合使用者原話沒有 " + "／".join(keywords), f"使用者原話 {len(prompts)} 則"))
-    return Verdict(RULE_SAME, False, "第一次跑或上次之後有改檔" if green is None else "上次綠之後有改檔")
+    return _rr.Verdict(RULE_SAME, False, "第一次跑或上次之後有改檔" if green is None else "上次綠之後有改檔")
 
 
 def _own_mods(state: Dict[str, Any], sid: str, agent_id: str) -> List[Dict[str, Any]]:
@@ -301,8 +303,8 @@ def _prompts(state: Dict[str, Any]) -> List[str]:
     return user_typed_prompts([str(p) for p in raw])
 
 
-def deny_message(v: Verdict, released: bool) -> str:
-    line = format_hit(LETTER, v)
+def deny_message(v: _rr.Verdict, released: bool) -> str:
+    line = _rr.format_hit(LETTER, v)
     if released:
         return f"{TAG} {line}\n本回合這條規則已擋過一次，這次放行、留帳（規則 {RULE_ONCE}）。"
     fix = ("會拖時間的整組驗證（上次耗時 ≥ slow_run_s 或測試檔 ≥ large_suite_files）只在使用者本回合原話有口令"

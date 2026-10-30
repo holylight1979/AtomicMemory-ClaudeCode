@@ -25,7 +25,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (append_guard_log, deny_cap, read_state_status, transcripts_of, user_typed_prompts, user_typed_text,
                      write_state)
-import wg_release_rules as _rr
+from wg_lazy_re import lazy_module
+
+_rr = lazy_module("wg_release_rules")   # 點名與宣告的判法；這次工具呼叫沒碰到資料檔就用不到，第一次用到才載（HOOK_IMPORT_ON_USE）
 
 GUARD = "data_file"
 TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")

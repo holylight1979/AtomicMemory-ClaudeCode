@@ -25,7 +25,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,8 +33,10 @@ from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
 _HOOKS = str(Path(__file__).resolve().parents[1] / "hooks")
 if _HOOKS not in sys.path:
     sys.path.insert(0, _HOOKS)
-import wg_chain as wc  # noqa: E402
-import wg_release  # noqa: E402
+from wg_lazy_re import lazy_module  # noqa: E402
+# 判定與放行答案第一次用到才載（HOOK_IMPORT_ON_USE）：只問「這個 session 有沒有連鎖帳」的呼叫端（每個工具前）不付這一份
+wc = lazy_module("wg_chain")
+wg_release = lazy_module("wg_release")
 
 
 class GateResult(NamedTuple):
@@ -464,6 +465,7 @@ def _take(ap: Path, root: Path, cx: _Ctx, segment: int) -> Dict[str, Any]:
 def _place_once(root: Path, name: str, data: bytes) -> bytes:
     """快照檔只建一次、建了不覆寫：先寫暫存檔再硬連結成正式名（正式名一出現就是完整內容）；正式名已在（並行的另一個 hook
     先存了）→ 以已在的那份為準。硬連結不支援的磁碟退回排他建立。回正式名實際的內容。"""
+    import tempfile
     root.mkdir(parents=True, exist_ok=True)
     target = root / name
     fd, tmp = tempfile.mkstemp(prefix=".snap-", dir=root)
@@ -584,6 +586,7 @@ def _restore_one(it: wc.RestoreItem, root: Path, cfg: Dict[str, Any]) -> Tuple[b
         return False, f"快照讀不到：{e}"
     if _sha(data) != target:
         return False, "快照雜湊對不上，不寫回"
+    import tempfile
     dest = Path(os.path.realpath(str(p)))
     tmp = ""
     try:

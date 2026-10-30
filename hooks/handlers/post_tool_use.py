@@ -21,7 +21,6 @@ from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
     _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled,
 )
-import chain_store  # 連鎖斷路器的帳（lib/；判定在 hooks/wg_chain.py）：工具後記 AI 動作
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
 from wg_hook_timing import lap as _hook_lap
@@ -34,18 +33,13 @@ from wg_harvest import (
     parse_receipt, record_atom_op, apply_report, append_ledger, validated_this_turn,
     is_error_response,
 )
-from wg_verify_ledger import (
-    compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
-    append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
-    aec_evidence_missing, aec_evidence_autofill, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
-    commit_snapshot, reconcile_cfg, head_new_code, copied_glob_source, _git_root_of, reverted_code_files, is_code_file, ledger_path,
-    small_content_sha, note_git_launcher,
-)
-from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_ran_cases_verdict,
-                              negative_control_verdict, parse_negative_controls,
-                              red_case_facts, red_case_names, retry_round_verdict, same_test_run,
-                              command_test_runs, red_units_last_result, strip_heredoc_bodies, test_segments,
-                              _CMD_SEG_SPLIT_RE, _TEST_RUNNER_RE)   # 測試子命令的切段與認法，紅測範圍跟涵蓋判法用同一份
+from wg_lazy_re import lazy_module
+# 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關、或這次工具結果走不到那段記帳，就一行都不載
+chain_store = lazy_module("chain_store")    # 連鎖斷路器的帳（lib/；判定在 hooks/wg_chain.py）：工具後記 AI 動作
+_vl = lazy_module("wg_verify_ledger")       # 驗證收據、哨兵、改檔內容雜湊
+_rr = lazy_module("wg_release_rules")       # 測試子命令的切段與認法，紅測範圍跟涵蓋判法用同一份
+wg_data_file = lazy_module("wg_data_file")  # T2.16 動使用者資料檔要先宣告：記本 session 新建的檔
+wg_oldtest = lazy_module("wg_oldtest")
 try:
     # Bash／PowerShell 改檔目標擷取（wg_core）；載不進來就只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -65,7 +59,6 @@ def spawn_vcs_sync(*a: Any, **k: Any) -> Any:
     from wg_vcs_sync import spawn_vcs_sync as _f
     return _f(*a, **k)
 from handlers import aec_ledger
-import wg_data_file  # T2.16 動使用者資料檔要先宣告：記本 session 新建的檔
 import wg_read_fast  # 規則 READ_FAST_PATH：Read 事件只落 read-log，下一個事件在這裡補帳
 from handlers._shared import (
     _hud_alive,
@@ -73,7 +66,6 @@ from handlers._shared import (
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
 )
-import wg_oldtest
 
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
@@ -438,7 +430,7 @@ def _has_code(d: Path, exts: Any) -> bool:
     for dirpath, _dirs, files in os.walk(d):
         for name in files:
             n += 1
-            if is_code_file(os.path.join(dirpath, name), exts):
+            if _vl.is_code_file(os.path.join(dirpath, name), exts):
                 return True
             if n >= _MOVE_SCAN_FILES:
                 return False
@@ -457,7 +449,7 @@ def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_
     for target, sources in write_sources_from_tool(tool_name, tool_input, cwd).items():
         pairs += [(target, s) for s in sources]
     pairs += _move_pairs(str(tool_input.get("command") or ""), cwd, posix=tool_name != "PowerShell")
-    exts = reconcile_cfg(config or {}).get("code_exts") or []
+    exts = _vl.reconcile_cfg(config or {}).get("code_exts") or []
     seen = set()
     for new, old in pairs:
         dest, src = Path(new), Path(old)
@@ -465,12 +457,12 @@ def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_
             dest = dest.parent            # 搬完才看：write_sources_from_tool 照「搬進既有目錄」推成 <目的地>/<名字>，那個路徑不存在
         elif dest.is_dir() and (dest / src.name).exists():
             dest = dest / src.name        # 搬進既有目錄：實際落點是 <目的地>/<名字>（搬單一檔案時這裡就是那個檔，下面不記）
-        key = (canon_path(str(src)), canon_path(str(dest)))
-        if key in seen or src.exists() or copied_glob_source(str(src)) or not dest.is_dir() or not _has_code(dest, exts):
+        key = (_rr.canon_path(str(src)), _rr.canon_path(str(dest)))
+        if key in seen or src.exists() or _vl.copied_glob_source(str(src)) or not dest.is_dir() or not _has_code(dest, exts):
             continue
         seen.add(key)
         lst = state.setdefault("moved_code_dirs", [])
-        lst.append({"old": str(src), "new": str(dest), "at": _now_iso(), "seq": next_event_seq(state),
+        lst.append({"old": str(src), "new": str(dest), "at": _now_iso(), "seq": _vl.next_event_seq(state),
                     "session_id": sid, "agent_id": agent_id, "turn_seq": int(state.get("turn_seq", 0))})
         del lst[:-MOVED_DIRS_CAP]
     return bool(seen)
@@ -480,8 +472,8 @@ def _read_exit_code(tool_response: Any) -> Optional[int]:
     """讀檔用的結束碼：dict 回應只信 exit_code／returncode 欄（stdout 是被讀的檔內容，裡面一行「Exit code 1」不能當失敗）；
     字串回應（實機非零 exit 時整包是 "Error: Exit code N…"）照 exit_code_of 看文字。"""
     if isinstance(tool_response, dict):
-        return exit_code_of({k: tool_response.get(k) for k in ("exit_code", "returncode")})
-    return exit_code_of(tool_response)
+        return _vl.exit_code_of({k: tool_response.get(k) for k in ("exit_code", "returncode")})
+    return _vl.exit_code_of(tool_response)
 
 
 def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any, cwd: str) -> bool:
@@ -493,8 +485,8 @@ def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any
     if not m:
         return False
     old = m.group(1).strip("'\"")
-    key = canon_path(old if os.path.isabs(old) else os.path.join(cwd, old))
-    lines = [ln.strip() for ln in response_text(tool_response).splitlines() if _SCAN_HIT_RE.match(ln.strip())]
+    key = _rr.canon_path(old if os.path.isabs(old) else os.path.join(cwd, old))
+    lines = [ln.strip() for ln in _vl.response_text(tool_response).splitlines() if _SCAN_HIT_RE.match(ln.strip())]
     state.setdefault("move_scan_hits", {})[key] = lines[:5]
     return True
 
@@ -510,10 +502,10 @@ def _test_scope(command: str) -> Dict[str, Any]:
     節點、-k 這類篩選都在裡面——與它前面換到的目錄（cd／pushd／Set-Location）；續行先併。大小只跟點名了多少目標有關，跟指令多長無關，
     不截斷。認不出任何測試子命令 → unparsed，只記整條指令的雜湊（認「原樣重跑」用），不拿片段當路徑。
     heredoc 內文先剝掉（strip_heredoc_bodies）：餵給直譯器的 `import pytest` 是程式字，不是一段測試子命令。"""
-    text = _CONTINUATION_RE.sub(" ", strip_heredoc_bodies(str(command or "")))
+    text = _CONTINUATION_RE.sub(" ", _rr.strip_heredoc_bodies(str(command or "")))
     steps: List[str] = []
-    for seg in _CMD_SEG_SPLIT_RE.split(text):
-        m = _TEST_RUNNER_RE.search(seg)
+    for seg in _rr._CMD_SEG_SPLIT_RE.split(text):
+        m = _rr._TEST_RUNNER_RE.search(seg)
         cd = None if m else _CD_SEG_RE.match(seg)
         if m:
             steps.append(" ".join(seg.split()))
@@ -554,7 +546,7 @@ def _same_group(f: Dict[str, Any], command: str, cwd: str) -> bool:
     """RETRY_COUNTS_RERUN_CYCLES 的「重跑同一組」：兩邊都用解析後的目標比（same_test_run）；紅判不出目標就只認原樣重跑。"""
     if _red_scope(f).get("unparsed"):
         return _same_unparsed_run(f, command)
-    return same_test_run(*_red_pair(f, command), f.get("cwd") or None, cwd or None)
+    return _rr.same_test_run(*_red_pair(f, command), f.get("cwd") or None, cwd or None)
 
 
 def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
@@ -568,9 +560,9 @@ def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: st
     for f in same:
         for path, n in (f.pop("edits_since_run", None) or {}).items():
             edited[path] = edited.get(path, 0) + int(n or 0)
-    red = red_case_names(failure)
+    red = _rr.red_case_names(failure)
     count = int(state.get("wisdom_retry_count", 0) or 0)
-    v = retry_round_verdict(same[-1] if same else None, edited, count + 1, command, red)
+    v = _rr.retry_round_verdict(same[-1] if same else None, edited, count + 1, command, red)
     if not v.owed:
         return
     state["wisdom_retry_count"] = count + 1
@@ -586,7 +578,7 @@ def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str)
     """規則 GREEN_CLEARS_ONLY_CASES_IT_RAN 的紅那一面：這次紅完整列出失敗（red_case_facts：列出的支數等於結算的 failed＋error）→
     本 session 舊紅裡這次也跑到的那幾支以這次為準（還紅的這次照列）：全跑到的整筆拿掉、跑到一部分的記進 cleared_units。
     輸出不完整（截斷、沒列）不動舊紅——不然截過的那筆對不到名字、又沒有綠能清，會一直擋。"""
-    if not red_case_facts(failure)[1]:
+    if not _rr.red_case_facts(failure)[1]:
         return
     keep: List[Dict[str, Any]] = []
     for f in state.get("failing_tests") or []:
@@ -594,7 +586,7 @@ def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str)
             keep.append(f)
             continue
         red_cmd, new_cmd = _red_pair(f, command)
-        v, ran = green_ran_cases_verdict(red_cmd, f.get("summary", ""), new_cmd, f.get("cleared_units") or ())
+        v, ran = _rr.green_ran_cases_verdict(red_cmd, f.get("summary", ""), new_cmd, f.get("cleared_units") or ())
         if not v.owed:
             continue
         if ran:
@@ -656,7 +648,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         interrupted = bool(tr.get("interrupted", False))
     else:
         stdout, stderr, interrupted = str(tr), "", False
-    exit_code = exit_code_of(tr)
+    exit_code = _vl.exit_code_of(tr)
     failure = detect_test_failure(stdout, stderr, interrupted)
     if failure is None and exit_code not in (None, 0):
         failure = tail_lines(stdout + "\n" + stderr, 20) or f"(exit code {exit_code}, no output)"
@@ -668,11 +660,11 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         # 不進 failing_tests（TestFailGate、重試計數、DPM 都不吃），另記 deliberate_reds 留痕
         own_mods = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", sid) == sid]
         try:
-            reverted, pending_code = reverted_code_files(own_mods, reconcile_cfg(config or {}))
+            reverted, pending_code = _vl.reverted_code_files(own_mods, _vl.reconcile_cfg(config or {}))
         except Exception as e:  # noqa: BLE001
             reverted, pending_code = [], ["?"]
             print(f"[verify-ledger] 判斷刻意紅失敗，照算真的紅：{type(e).__name__}: {e}", file=sys.stderr)
-        verdict = deliberate_red_verdict(reverted, pending_code)
+        verdict = _rr.deliberate_red_verdict(reverted, pending_code)
         if verdict.owed:
             verdict = _negative_control(input_data, command)
         if not verdict.owed:
@@ -684,9 +676,9 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             return True
         # 規則 RED_LAST_RESULT_IN_COMMAND：同一條指令跑了不只一次測試 → 每支紅案以最後一次看得出範圍的結果為準；
         # 看得出範圍的綠那幾段照常清舊紅（整條判成失敗時原本一支舊紅都清不到）
-        segments = test_segments(command)
-        runs = command_test_runs(stdout + "\n" + stderr)
-        last = red_units_last_result(segments, runs)
+        segments = _rr.test_segments(command)
+        runs = _rr.command_test_runs(stdout + "\n" + stderr)
+        last = _rr.red_units_last_result(segments, runs)
         pre_cleared: List[str] = []
         if last is not None and last[1]:
             kept_u, dropped_u, why = last
@@ -747,14 +739,14 @@ def _green_clears(state: Dict[str, Any], sid: str, command: str, cwd: str) -> bo
             return True
         red_cmd, green_cmd = _red_pair(f, command)
         matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
-                   or green_clears_red(red_cmd, green_cmd, f.get("cwd") or None, cwd or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
+                   or _rr.green_clears_red(red_cmd, green_cmd, f.get("cwd") or None, cwd or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
                    or (is_pytest_success and (f.get("pytest") or "pytest" in f.get("cmd", "").lower()
                                               or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
         if not matched:
             return False
         # 規則 GREEN_CLEARS_ONLY_CASES_IT_RAN（篩選另見 GREEN_NARROWED_KEEPS_UNCOVERED_RED）：綠只清它跑到的紅案；只跑到一部分 →
         # 跑到的那幾支記進 cleared_units、那筆紅與它的改檔紀錄照留（放行要對那支紅測自己的最後一次執行，不是最後一次任何 pytest）
-        keep, ran = green_ran_cases_verdict(red_cmd, f.get("summary", ""), green_cmd, f.get("cleared_units") or ())
+        keep, ran = _rr.green_ran_cases_verdict(red_cmd, f.get("summary", ""), green_cmd, f.get("cleared_units") or ())
         if keep.owed:
             print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
             append_guard_log("testfail_scope", {"event": "green_kept_red", "rule": keep.rule, "why": keep.why,
@@ -784,7 +776,7 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
     turn = int(state.get("turn_seq", 0))
     state["last_commit_turn_seq"] = turn
     own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
-    _note_committed_new_code(state, own, reconcile_cfg(config or {}))
+    _note_committed_new_code(state, own, _vl.reconcile_cfg(config or {}))
     if not snapshot:                                  # 這條指令的寫入目標沒算出來：不拍快照（可能漏掉同一條指令改的檔）
         state.pop("commit_snapshot", None)
         print("[verify-ledger] commit 指令的寫入目標算不出來，不記內容快照；commit 之後的反證還原照算改碼", file=sys.stderr)
@@ -793,8 +785,8 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
     for _mods in (state.get("agent_modified_files") or {}).values():
         every += [m["path"] for m in _mods or [] if isinstance(m, dict) and m.get("path")]
     try:
-        rg = reconcile_cfg(config or {})
-        state["commit_snapshot"] = commit_snapshot(own, turn, rg, prev=state.get("commit_snapshot"), session_paths=every)
+        rg = _vl.reconcile_cfg(config or {})
+        state["commit_snapshot"] = _vl.commit_snapshot(own, turn, rg, prev=state.get("commit_snapshot"), session_paths=every)
     except Exception as e:  # noqa: BLE001
         state.pop("commit_snapshot", None)
         print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
@@ -808,11 +800,11 @@ def _note_committed_new_code(state: Dict[str, Any], own: List[Dict[str, Any]], c
     rec = state.setdefault("committed_new_code", {})
     seen = set()
     for m in own:
-        hit = _git_root_of(str((m or {}).get("path") or ""))
+        hit = _vl._git_root_of(str((m or {}).get("path") or ""))
         if not hit or hit[0] in seen:
             continue
         seen.add(hit[0])
-        sha, new = head_new_code(hit[1], cfg)
+        sha, new = _vl.head_new_code(hit[1], cfg)
         r = rec.setdefault(hit[0], {"shas": [], "paths": []})
         if sha and sha not in r["shas"]:
             r["shas"] = (r["shas"] + [sha])[-50:]
@@ -829,7 +821,7 @@ def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_
     sha＝寫完之後的內容雜湊（small_content_sha，太大的檔不記）；檔已不存在（rm、搬走）就留上一次的：Stop 判已不存在的檔
     是不是搬到同根新出現的程式檔（規則 MOVED_NEW_CODE_SEEN）要比它最後的內容。
     via＝這一次怎麼知道它被改的：空＝工具輸入就寫明了目標；"vcs_status"＝目標判不出、事後從版控狀態補算（UNKNOWN_WRITE_RECOVERED）。"""
-    sha = small_content_sha(file_path)
+    sha = _vl.small_content_sha(file_path)
     _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name, sha, via)
     if agent_id:
         _upsert_modified(state, state.setdefault("agent_modified_files", {}).setdefault(agent_id, []),
@@ -842,18 +834,18 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
     """同一個檔不論哪種寫法（Edit 的反斜線、Bash 的正斜線、大小寫、`..`）只留一筆，比對用 canon_path；
     path 欄保留第一次記下的原字串。sha 是 None（檔不在、讀不到）不蓋掉舊值。via 跟著最近一次寫入（跟 tool 欄一樣）。"""
     turn = int(state.get("turn_seq", 0))
-    key = canon_path(file_path)
+    key = _rr.canon_path(file_path)
     for m in mods:
         if (
             isinstance(m, dict)
             and m.get("path")
-            and canon_path(m["path"]) == key
+            and _rr.canon_path(m["path"]) == key
             and m.get("session_id", session_id) == session_id
         ):
             m["count"] = int(m.get("count", 1)) + 1
             m["at"] = _now_iso()
             m["last_at"] = m["at"]
-            m["last_seq"] = next_event_seq(state)
+            m["last_seq"] = _vl.next_event_seq(state)
             m["tool"] = tool_name
             m["last_turn_seq"] = turn
             m.setdefault("turn_seq", turn)
@@ -872,7 +864,7 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
             "session_id": session_id,
             "at": now,
             "last_at": now,
-            "last_seq": next_event_seq(state),
+            "last_seq": _vl.next_event_seq(state),
             "count": 1,
             "turn_seq": turn,
             "last_turn_seq": turn,
@@ -933,7 +925,7 @@ def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str,
         return [], f"補算失敗：{type(e).__name__}: {e}"
     if note["slow"]:
         state["unknown_write_slow_roots"] = list(dict.fromkeys(slow + note["slow"]))[-UNKNOWN_SLOW_ROOTS_CAP:]
-    before = {canon_path(m["path"]): m for m in state.get("modified_files") or []
+    before = {_rr.canon_path(m["path"]): m for m in state.get("modified_files") or []
               if isinstance(m, dict) and m.get("path") and m.get("session_id", session_id) == session_id}
     noted: List[str] = []
     why = note["why"]
@@ -942,7 +934,7 @@ def _recover_unknown_write(state: Dict[str, Any], session_id: str, command: str,
             if _is_ephemeral_path(p):
                 note_ephemeral_skip(state, p)      # EPHEMERAL_WRITE_NOTED_ONCE（state 跟著未知寫入一起寫回）
                 continue
-            if _unchanged_since_noted(p, before.get(canon_path(p))):
+            if _unchanged_since_noted(p, before.get(_rr.canon_path(p))):
                 continue
             _note_modified(state, session_id, p, tool_name, agent_id, via=uw.VIA)
             noted.append(p)
@@ -965,7 +957,7 @@ def _unchanged_since_noted(path: str, prev: Optional[Dict[str, Any]]) -> bool:
     （記錄時間只到秒，放寬 1 秒）。沒記過、讀不到 → False（照補）。"""
     if not prev:
         return False
-    sha = small_content_sha(path)
+    sha = _vl.small_content_sha(path)
     if sha:
         return sha == prev.get("sha")
     from datetime import datetime
@@ -979,7 +971,7 @@ def _unchanged_since_noted(path: str, prev: Optional[Dict[str, Any]]) -> bool:
 def _note_launcher(path: str) -> None:
     """note_git_launcher 包一層：讀不了的內容（非 UTF-8 的 .py）、查 git 出錯只 stderr，不讓同一批後面的改檔記不到。"""
     try:
-        note_git_launcher(path)
+        _vl.note_git_launcher(path)
     except Exception as e:  # noqa: BLE001
         print(f"[verify_ledger] 判斷 {Path(path).name} 是不是一次性啟動器失敗，照算程式（LAUNCHER_NOT_CODE）："
               f"{type(e).__name__}: {e}", file=sys.stderr)
@@ -996,23 +988,23 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         return False
     t0 = time.monotonic()
     tr = input_data.get("tool_response")
-    sentinels = parse_sentinels(response_text(tr), compile_sentinel_rules(cfg.get("sentinel_regex")))
+    sentinels = _vl.parse_sentinels(_vl.response_text(tr), _vl.compile_sentinel_rules(cfg.get("sentinel_regex")))
     if not sentinels and not is_test_command(command):
         return False
     turn_seq = int(state.get("turn_seq", 0))
     agent_id = str(input_data.get("agent_id") or "")
     cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
     own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
-    mod_turn = modified_this_turn(own, turn_seq)
+    mod_turn = _vl.modified_this_turn(own, turn_seq)
     project_root = ""
     try:
         from project_root import resolve_project_root
         project_root = str(resolve_project_root(cwd).path or "") if cwd else ""
     except Exception:
         project_root = ""
-    exit_code = exit_code_of(tr)
-    env = env_snapshot()          # 指令啟動當下繼承的縮限變數（hook 與工具子 shell 同一個父行程）：採認時與指令內的指定合併
-    red_cases, red_known = red_case_facts(response_text(tr))     # 紅了哪幾支、清單完不完整（紅案數對得上結算行）
+    exit_code = _vl.exit_code_of(tr)
+    env = _vl.env_snapshot()          # 指令啟動當下繼承的縮限變數（hook 與工具子 shell 同一個父行程）：採認時與指令內的指定合併
+    red_cases, red_known = _rr.red_case_facts(_vl.response_text(tr))     # 紅了哪幾支、清單完不完整（紅案數對得上結算行）
     record = {
         "at": _now_iso(),
         "session_id": session_id,
@@ -1026,16 +1018,16 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "project_root": project_root,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "line": s["line"]} for s in sentinels],
         "exit_code": exit_code,
-        "vcs": vcs_snapshot(cwd, mod_turn, state, float(cfg.get("vcs_budget_s", 1.5))),
+        "vcs": _vl.vcs_snapshot(cwd, mod_turn, state, float(cfg.get("vcs_budget_s", 1.5))),
         "modified_files_turn": mod_turn,
-        "spec": spec_paths_of(session_id, WORKFLOW_DIR),
+        "spec": _vl.spec_paths_of(session_id, WORKFLOW_DIR),
         # 指令裡有 cd／pushd／Set-Location → 真正的 cwd 不是 hook 給的 cwd，量尺閘與「對得上」不採用這筆
-        "root_uncertain": has_cd(command),
+        "root_uncertain": _vl.has_cd(command),
     }
-    append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
+    _vl.append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
     # 子代理的收據不進主 session 的收據（主帳不變），另放 agent_receipt_key(sid, agent_id)，給 SubagentStop 對帳用
-    record_receipt(state, agent_receipt_key(session_id, agent_id) if agent_id else session_id, {
-        "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
+    _vl.record_receipt(state, _vl.agent_receipt_key(session_id, agent_id) if agent_id else session_id, {
+        "at": record["at"], "seq": _vl.next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
         "cmd": command, "cmd_full": True, "env": env,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
         "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
@@ -1071,7 +1063,7 @@ def _chain_action(state: Dict[str, Any], input_data: Dict[str, Any], config: Dic
                     unknown = True
                 elif p:
                     writes.append(p)
-            ran = is_test_command(str(ti.get("command") or "")) or bool(parse_sentinels(response_text(tool_response)))
+            ran = is_test_command(str(ti.get("command") or "")) or bool(_vl.parse_sentinels(_vl.response_text(tool_response)))
         act = wg_chain.action_of(tool, ti, tool_response, writes, unknown, ran)
     except Exception as e:  # noqa: BLE001  判不出這次算不算動作：這筆不記，工具記帳照舊
         print(f"[chain-breaker] 判這次工具呼叫是不是 AI 動作時出錯（這筆不記）：{type(e).__name__}: {e}", file=sys.stderr)
@@ -1143,7 +1135,7 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
     if not judge and v6_enabled(config) and _old_test_after(state, input_data, config):
         dirty = True
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
-    if exit_code_of(event["tool_response"]) is not None:
+    if _vl.exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
             dirty = True
         try:
@@ -1154,7 +1146,7 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
             _atom_debug_error("post_tool_use_failure:verify_ledger", e)
     if dirty:
         write_state(session_id, state)
-    if not judge and v6_enabled(config) and exit_code_of(event["tool_response"]) is not None:
+    if not judge and v6_enabled(config) and _vl.exit_code_of(event["tool_response"]) is not None:
         _chain_action(state, input_data, config, event["tool_response"])     # 指令真的跑了（紅的重跑也是動作）
     output_nothing()
 
@@ -1170,7 +1162,7 @@ def _negative_control(input_data: Dict[str, Any], command: str):
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:TestFail] 找負向對照宣告失敗，照記紅：{type(e).__name__}: {e}", file=sys.stderr)
         text = command
-    return negative_control_verdict(command, parse_negative_controls(text))
+    return _rr.negative_control_verdict(command, _rr.parse_negative_controls(text))
 
 
 def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_name: str, session_id: str,
@@ -1271,7 +1263,7 @@ def _apply_harvest(state: Dict[str, Any], session_id: str, input_data: Dict[str,
         # 本回合（規則 TURN_SINCE_USER_PROMPT，同伴訊息不另開回合）先 emit 的 AEC 報告：(d) 的記憶收錄帳
         # 已由收割核對過 → 用 (h) 重算 d_pending。(d)/(h) 共用 d_pending，整個 pop 會把 (h)「下一動＝寫 atom」一起放掉。
         aec = state.get("anti_evasion_report") or {}
-        if (aec.get("session_id") == session_id and in_user_turn(aec.get("turn_seq"), state, turn_seq)
+        if (aec.get("session_id") == session_id and _rr.in_user_turn(aec.get("turn_seq"), state, turn_seq)
                 and aec.get("d_pending")):
             still = aec_pending_items("", aec.get("h", ""))
             if still:
@@ -1580,7 +1572,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if v6:
             _exec_aid = str(input_data.get("agent_id") or "")
             _exec = state.setdefault("exec_turn_seq", {})
-            _exec_key = agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id
+            _exec_key = _vl.agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id
             _exec.pop(_exec_key, None)                                          # 重新插入排到最後，超量時先丟最久沒執行的
             _exec[_exec_key] = int(state.get("turn_seq", 0))
             for _old in list(_exec)[:-EXEC_TURN_KEYS_CAP]:
@@ -1721,20 +1713,20 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # （帳本在資料根，跟專案 cwd 不同根）。(k) 追蹤項：空字串不收（「無」可）。
         # 判定落 report 供 HUD 標紅；Stop 的對帳閘 (e) 讀 report 裡（帶入後）的 j，以同一對函式擋。
         if "j_evidence_path" in vals:
-            _has_receipts = bool(receipts_of(state, session_id))
-            _ledger = str(ledger_path(session_id, WORKFLOW_DIR))
-            _j = aec_evidence_autofill(vals["j_evidence_path"], _has_receipts, _ledger)
+            _has_receipts = bool(_vl.receipts_of(state, session_id))
+            _ledger = str(_vl.ledger_path(session_id, WORKFLOW_DIR))
+            _j = _vl.aec_evidence_autofill(vals["j_evidence_path"], _has_receipts, _ledger)
             if _j != vals["j_evidence_path"]:
                 vals["j_evidence_path"] = report["j_evidence_path"] = _j
                 report["j_autofilled"] = True
                 aec_reject_msgs.append(f"[Guardian:AEC-Evidence] (j) 已自動帶入 {_j}（本 session 的驗證收據帳本），不必重送。")
-            report["j_missing"] = aec_evidence_missing(_j, _has_receipts)
+            report["j_missing"] = _vl.aec_evidence_missing(_j, _has_receipts)
         if "k_followups" in vals:
-            report["k_missing"] = aec_followups_missing(vals["k_followups"])
+            report["k_missing"] = _vl.aec_followups_missing(vals["k_followups"])
         if report.get("j_missing"):
             aec_reject_msgs.append(
                 "[Guardian:AEC-Evidence] (j) 證據持久路徑缺或不存在，但本 session 有驗證收據。"
-                f"留空讓系統帶入帳本（{ledger_path(session_id, WORKFLOW_DIR)}），或填其他真存在的證據檔絕對路徑，再重新 emit；"
+                f"留空讓系統帶入帳本（{_vl.ledger_path(session_id, WORKFLOW_DIR)}），或填其他真存在的證據檔絕對路徑，再重新 emit；"
                 "否則 Stop 會擋。"
             )
         if report.get("k_missing"):
