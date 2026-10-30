@@ -4,15 +4,14 @@ handlers/post_tool_batch.py — PostToolBatch hook handler（選配 #4：壓縮�
 PostToolBatch：一批（含並行）工具呼叫全解析後觸發一次，於下個 model request 前（CC 2.1.159+；
 payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalContext）。
 
-職責：把 PostCompact stash 的 atom 復原內文、需求目標樹、部位綜觀「一次性」注入，閉合 mid-turn auto-compact 缺口
-（壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；另把需求目標流程的批次提醒
-（讀入範圍變大、同檔改多次、PreToolUse 沒攔到的提問）合併成同一段送出；收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、
+職責：把 PostCompact stash 的 atom 復原內文、部位綜觀「一次性」注入，閉合 mid-turn auto-compact 缺口
+（壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；PreToolUse 沒攔到的提問事後提醒
+（wg_ask_gate）併進同一段送出；收尾只跑一輪（wg_closing_round）：改完程式就起跑拐彎判斷量測、
 交收尾檢核那批附上收尾要問的（拐彎判斷結果、最該修）、第二意見跑完接上。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
 各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、第二意見、深度檢討、取用稽核；
-改過程式之後測試跑綠的那批＝交付邊界，「順手看到最該修」那一問也掛這裡（PICK_ONE_PRE_CLOSE，wg_closing_round.pick_on_test_green）；
-目標樹只立一次（規則 GOAL_TREE_SET_ONCE）：目標對照 (f2)(f3)(f4) 不再提醒——提醒了 AI 就多叫一次 need_goal
-reconcile，多一個模型回合；Stop 照判、只留帳）；建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
+改過程式之後測試跑綠的那批＝交付邊界，「順手看到最該修」那一問也掛這裡（PICK_ONE_PRE_CLOSE，wg_closing_round.pick_on_test_green））；
+建了工作樹那則 Bash 附自清、背景量完附拐彎判斷欠項、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
 只提醒一次（state remind_sent 清單，wg_overview.remind_mark）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
 """
@@ -23,16 +22,6 @@ from typing import Any, Dict, List, Tuple
 
 from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled, coding_turn
 from wg_release_rules import remind_line
-
-
-def _points_module() -> Any:
-    """需求目標的批次模組；載不進來 → stderr 一行、回 None（這批的需求目標提醒全停）。"""
-    try:
-        import wg_need_goal_points
-        return wg_need_goal_points
-    except Exception as e:  # noqa: BLE001
-        print(f"[NeedGoal] 需求目標模組載入失敗，批次提醒停用：{type(e).__name__}: {e}", file=sys.stderr)
-        return None
 
 
 def _ask_module() -> Any:
@@ -107,7 +96,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         marks[sid] = top
         changed = True
     calls = cr._calls(input_data.get("tool_calls"))
-    closing = any(cr.closing_call(n, inp) for n, inp in calls)
+    closing = any(cr.closing_call(n) for n, _inp in calls)
     git_cmds = [str(inp.get("command") or "") for n, inp in calls
                 if n in ("Bash", "PowerShell") and "git" in str(inp.get("command") or "")]
     rp = ((state.get("reading_path") or {}).get(sid)) or {}
@@ -340,12 +329,9 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
     v6 = v6_enabled(config)     # 關＝只做 9e476fd0 就有的壓縮後 atom 復原與 handoff 提示
-    # 子代理的工具批次（hook 輸入帶 agent_id）：目標樹是主 session 的——不送讀入範圍、同檔多次、提問、外部主張的提醒，
-    # 壓縮後要重送的樹也留給主 session
+    # 子代理的工具批次（hook 輸入帶 agent_id）：提問的事後提醒、收尾一輪與收尾類提醒都是主 session 的
     sub = bool(input_data.get("agent_id"))
     coding = bool(state) and v6 and not sub and coding_turn(state, config)    # 規則 CODING_TURN_ONLY
-    ngp = _points_module() if coding else None
-    goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
     ask = _ask_module() if coding else None
     ask_due = bool(ask) and ask.has_ask_calls(input_data.get("tool_calls"))
     close_parts, close_changed = _closing_round(state, session_id, input_data, config) if state and v6 and not sub else ([], False)
@@ -355,11 +341,11 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             remind_lines, remind_changed = closing_reminders(state, session_id, input_data, config)
         except Exception as e:  # noqa: BLE001
             print(f"[Guardian:提醒] 收尾類提醒算不出（這批不送）：{type(e).__name__}: {e}", file=sys.stderr)
-    # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
+    # idle 極輕路徑：pending 皆無、這批也沒有提問立即退出（每批觸發，杜絕常態開銷）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
-        or (v6 and (state.get("pending_reinjection_overview") or (state.get("pending_reinjection_goal") and not sub)))
-        or goal_due or ask_due or close_parts or close_changed or remind_lines or remind_changed
+        or (v6 and state.get("pending_reinjection_overview"))
+        or ask_due or close_parts or close_changed or remind_lines or remind_changed
     ):
         output_nothing()
         return
@@ -383,11 +369,6 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             if blob:
                 parts.append(blob)
 
-        # (1a) 壓縮後需求目標樹獨立重送（不依附部位綜觀）：排在 atom 內文後、綜觀前（綜觀的「主目標」指向它）；一次性 pop
-        goal = state.pop("pending_reinjection_goal", None) if v6 and not sub else None
-        if goal:
-            parts.append(goal)
-
         # (1b) 壓縮後 OverviewHub 綜觀重注（A2.2／A2.3）：順序 atom 內文先、綜觀後；一次性 pop
         overview = state.pop("pending_reinjection_overview", None) if v6 else None
         if v6:
@@ -407,16 +388,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                 )
             state["pending_handoff_emit"] = False  # 一次性，即使 config 關亦清旗標
 
-        # (3) 需求目標的批次提醒（4.3 讀入範圍、同檔多次、外部主張；4.4 提問審計與沒攔到的提問）：判不了只寫 stderr，不擋其他段
-        if goal_due:
-            try:
-                import wg_need_goal as _ng
-                parts.extend(ngp.batch_lines(session_id, state, input_data.get("tool_calls"),
-                                             _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state))))
-            except Exception as e:  # noqa: BLE001
-                print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
-
-        # (3a) 提問的事後提醒與審計（PreToolUse 沒處理到的提問）：判不了只寫 stderr，不擋其他段
+        # (3) 提問的事後提醒與審計（PreToolUse 沒處理到的提問）：判不了只寫 stderr，不擋其他段
         if ask_due:
             try:
                 parts.extend(ask.batch_lines(session_id, state, input_data.get("tool_calls")))

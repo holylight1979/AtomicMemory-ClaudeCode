@@ -22,28 +22,25 @@ TOPIC_MODE = {"entrypoint": {"card_once_per_session": False}}     # 退回 CARD_
 
 @pytest.fixture()
 def card_env(tmp_path, monkeypatch):
-    """一張綁 E01 的判準卡；回 (ask, logs, topic)：ask(turn, path) 問一次，topic["tree"] 換目前的目標樹。
+    """一張綁 E01 的判準卡；回 (ask, logs)：ask(turn, path) 問一次。
     這組驗開關關掉時的 CARD_ONCE_PER_TOPIC（預設的 CARD_FULL_ONCE_PER_SESSION 見下一段）。"""
     import wg_core
     import wg_entrypoint as ep
-    import wg_need_goal as ng
     card = tmp_path / "卡.md"
     card.write_text("# 卡\n\n## 知識\n\n- [臨] 根因候選要跨層找，先往上游追資料從哪壞掉。\n", encoding="utf-8")
     reg = {"entrypoints": [{"id": "E01", "rules": ["LOCATE_X"], "paths": ["pre_tool_use", "subagent_prompt"]}]}
     pool = [{"name": "卡", "file": card, "triggers": [], "entry": ["E01"]}]
-    logs, topic = [], {"tree": None}
+    logs = []
     monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
     monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append(rec))
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": topic["tree"]})
     ask = lambda turn, path="pre_tool_use": ep.entry_note("擋：LOCATE_X", path, session_id="s", state={"turn_seq": turn},
                                                           registry=reg, pool=pool, config=TOPIC_MODE)
-    return ask, logs, topic
+    return ask, logs
 
 
 def test_card_once_per_topic_not_per_turn(card_env):
     """同一個話題換了使用者回合：判準卡只送一行指回、帳標 repeated（舊碼每回合重送全文 → 紅）。"""
-    ask, logs, topic = card_env
-    topic["tree"] = "T1"
+    ask, logs = card_env
     first, same_turn, next_turn = ask(3), ask(3), ask(4)
     assert "往上游追" in first
     assert "往上游追" not in same_turn and "已送過全文" in same_turn
@@ -51,33 +48,27 @@ def test_card_once_per_topic_not_per_turn(card_env):
     assert logs[2]["repeated"] == ["卡"] and logs[2]["cards"] == ["卡"]
 
 
-def test_card_resent_on_topic_change_and_after_compact(card_env):
-    """換題（目標樹換了）照送全文；壓縮前清掉紀錄，壓縮後照送全文；沒樹時整個 session 算一個話題。"""
+def test_card_resent_after_compact(card_env):
+    """整個 session 算一個話題；壓縮前清掉紀錄，壓縮後照送全文。"""
     import wg_entrypoint as ep
-    ask, _, topic = card_env
-    assert "往上游追" in ask(1) and "往上游追" not in ask(2)          # 沒樹：session 一個話題
-    topic["tree"] = "T1"
-    assert "往上游追" in ask(3)                                        # 開了樹＝換話題
-    topic["tree"] = "T2"
-    assert "往上游追" in ask(4) and "往上游追" not in ask(5)
+    ask, _ = card_env
+    assert "往上游追" in ask(1) and "往上游追" not in ask(2)
     ep.forget_sent("s")
-    assert "往上游追" in ask(6)
+    assert "往上游追" in ask(3)
 
 
 def test_card_subagent_prompt_always_full(card_env):
     """子代理是另一個 context：開工句接的判準卡照送全文，也不佔掉主對話的「已送」。"""
-    ask, _, topic = card_env
-    topic["tree"] = "T1"
+    ask, _ = card_env
     assert "往上游追" in ask(1, "subagent_prompt") and "往上游追" in ask(1, "subagent_prompt")
     assert "往上游追" in ask(1)
 
 
 @pytest.fixture()
 def session_cards(tmp_path, monkeypatch):
-    """綁 E01 的「卡」＋關鍵字退路的「退路卡」，預算只夠「卡」；回 (ask, logs, topic)：ask(turn, path, config) 問一次。"""
+    """綁 E01 的「卡」＋關鍵字退路的「退路卡」，預算只夠「卡」；回 (ask, logs)：ask(turn, path, config) 問一次。"""
     import wg_core
     import wg_entrypoint as ep
-    import wg_need_goal as ng
     (tmp_path / "卡.md").write_text("# 卡\n\n## 知識\n\n- [臨] 根因候選要跨層找，先往上游追資料從哪壞掉。\n", encoding="utf-8")
     (tmp_path / "退路卡.md").write_text("# 退路卡\n\n## 知識\n\n" + "- [臨] 歸因早停：找到合理嫌疑機制就停止驗證，要拿實例跑一次確認。\n" * 6,
                                         encoding="utf-8")
@@ -85,28 +76,25 @@ def session_cards(tmp_path, monkeypatch):
     pool = [{"name": "卡", "file": tmp_path / "卡.md", "triggers": [], "entry": ["E01"]},
             {"name": "退路卡", "file": tmp_path / "退路卡.md", "triggers": ["locate_x"], "entry": []}]
     room = {"entrypoint": {"inject_budget_tokens": ep._estimate_tokens(ep._knowledge(pool[0])) + 10}}
-    logs, topic = [], {"tree": None}
+    logs = []
     monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
     monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append(rec))
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": topic["tree"]})
 
     def ask(turn, path="pre_tool_use", config=None):
         cfg = {"entrypoint": {**room["entrypoint"], **((config or {}).get("entrypoint") or {})}}
         return ep.entry_note("擋：LOCATE_X", path, session_id="s", state={"turn_seq": turn}, registry=reg, pool=pool, config=cfg)
-    return ask, logs, topic
+    return ask, logs
 
 
 def test_card_full_once_per_session_then_names_only(session_cards):
-    """規則 CARD_FULL_ONCE_PER_SESSION：一張卡一個 session 只送一次全文，之後（換回合、換目標樹都一樣）只一行「判準卡：<卡名>」，
-    不印「這個話題前面已送過全文」；同一個切入點拿過卡就不再往下送新卡（帳不記截斷）。舊碼換樹重送全文、第二次問把預算讓給退路卡 → 紅。"""
-    ask, logs, topic = session_cards
+    """規則 CARD_FULL_ONCE_PER_SESSION：一張卡一個 session 只送一次全文，之後（換回合也一樣）只一行「判準卡：<卡名>」，
+    不印「這個話題前面已送過全文」；同一個切入點拿過卡就不再往下送新卡（帳不記截斷）。舊碼第二次問把預算讓給退路卡 → 紅。"""
+    ask, logs = session_cards
     first = ask(1)
     assert "往上游追" in first and "歸因早停" not in first and logs[-1]["truncated"]      # 預算只夠綁定卡
-    topic["tree"] = "T1"
     again = ask(2)
-    assert again == "判準卡：卡" and "已送過全文" not in again                              # 換樹也不重送、只給卡名
+    assert again == "判準卡：卡" and "已送過全文" not in again                              # 不重送、只給卡名
     assert (logs[-1]["repeated"], logs[-1]["cards"], logs[-1]["truncated"]) == (["卡"], ["卡"], False)
-    topic["tree"] = "T2"
     assert ask(3) == "判準卡：卡"
 
 
@@ -138,13 +126,12 @@ def test_card_cut_by_shared_budget_is_not_counted_sent(tmp_path, monkeypatch):
 def test_card_full_once_per_session_resend_and_switch(session_cards):
     """壓縮後清掉紀錄重送全文；子代理開工句照送全文、不佔主對話；entrypoint.card_once_per_session=false 退回 CARD_ONCE_PER_TOPIC。"""
     import wg_entrypoint as ep
-    ask, _, topic = session_cards
+    ask, _ = session_cards
     assert "往上游追" in ask(1) and ask(2) == "判準卡：卡"
     assert "往上游追" in ask(2, "subagent_prompt") and ask(3) == "判準卡：卡"
     ep.forget_sent("s")
     assert "往上游追" in ask(4)
     ep.forget_sent("s")
-    topic["tree"] = "T1"
     assert "往上游追" in ask(5, config=TOPIC_MODE)
     old = ask(6, config=TOPIC_MODE)
     assert "已送過全文" in old and "歸因早停" in old                                         # 舊樣式：指回行＋往下送退路卡
@@ -429,15 +416,12 @@ def test_note_git_launcher_edit_into_code_drops_marker_delete_keeps_it(git_repo)
     assert vl.note_git_launcher(str(repo / "run.sh")) is None
 
 
-def test_launcher_skipped_by_goal_tree_and_second_opinion(git_repo, monkeypatch):
-    """目標樹不蓋號、第二意見門檻不數（舊碼兩處都照算 → 紅）。"""
-    import wg_need_goal as ng
+def test_launcher_skipped_by_second_opinion(git_repo):
+    """第二意見門檻不數（舊碼照算 → 紅）。"""
     vl, repo = git_repo
     f = repo / "_once.py"
     f.write_text(_LAUNCH_SRC, encoding="utf-8")
     vl.note_git_launcher(str(f))
-    monkeypatch.setattr(ng, "load", lambda sid: (_ for _ in ()).throw(AssertionError("啟動器不該讀目標樹")))
-    assert ng.stamp_edit("s", str(f), "", 3, {}) is None
     import wg_second_opinion as so
     state = {"modified_files": [{"path": str(f), "session_id": "s", "last_turn_seq": 3}]}
     _, facts = so.check(state, "s", state["modified_files"], "已完成", "", {}, dict(so.DEFAULTS), True)
@@ -448,123 +432,6 @@ def test_console_skill_launcher_order_no_rerun():
     """工作軌守則：啟動器建、刪不算改程式，不再要求「刪啟動器 → 再跑一次 verify」。"""
     md = (HOOKS_DIR.parent / "skills" / "console" / "SKILL.md").read_text(encoding="utf-8")
     assert "LAUNCHER_NOT_CODE" in md and "刪啟動器 → 再跑一次 verify" not in md
-
-
-# ─── Codex 審完只重跑它碰到的檔 ─────────────────────────────────────
-
-@pytest.fixture()
-def review_env(tmp_path, monkeypatch):
-    """目標樹＋兩筆綠收據：R_a（碰到 a.py 的）、R_b（沒碰到的）；回 (ng, op, receipt, edit, logs)。"""
-    import wg_core
-    import wg_need_goal as ng
-    logs = []
-    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda name, rec: logs.append(rec))
-    proj = tmp_path / "proj"
-    proj.mkdir()
-
-    def op(action, turn=1, **kw):
-        return ng.apply_op("s", turn, {"action": action, **kw}, str(proj))
-
-    def receipt(cmd):
-        def fn(doc):
-            seq = ng.next_seq(doc)
-            doc.setdefault("receipts", []).append({"seq": seq, "cmd": cmd, "cases": [], "verdicts": ["pytest:PASS"],
-                                                   "exit": 0, "turn": 1})
-            return seq
-        return ng.update_locked("s", fn)
-
-    def edit(name):
-        ng.stamp_edit("s", str(proj / name), "", 1, {})
-    op("set", goal="改 a 跟 b")
-    return ng, op, receipt, edit, logs
-
-
-def _review_finished(tmp_path, status="done"):
-    """造一個這個 session（sid "s"）跑完的第二意見 job（tools/second-opinion 的 job 目錄格式）。"""
-    import json
-    job = tmp_path / "wf" / "second-opinion" / "20261022-160252-s-stage-review"
-    job.mkdir(parents=True, exist_ok=True)
-    (job / "status.json").write_text(json.dumps({"status": status}), encoding="utf-8")
-
-
-def _reconcile(op, ra, rb, unaffected=None):
-    ev_b = {"kind": "receipt", "ref": f"R{rb}", "level": "measured", **({"unaffected": unaffected} if unaffected else {})}
-    return op("reconcile", items=[{"id": "T1", "status": "done",
-                                   "evidence": [{"kind": "receipt", "ref": f"R{ra}", "level": "measured"}, ev_b]}])
-
-
-def test_review_fix_rerun_touched_only(review_env):
-    """codex 審完後修了 a.py、只重跑碰到 a.py 的 verify：沒碰到的那筆收據宣告 unaffected 就照算、留帳
-    （舊碼審完一改就每筆都算「改完沒重跑」→ 要全部重跑 → 紅）。"""
-    ng, op, receipt, edit, logs = review_env
-    edit("a.py")
-    edit("b.py")
-    rb = receipt("pytest tests/test_b.py")
-    ng.mark_review("s")                    # second_opinion_start 那一刻
-    _review_finished(review_env_tmp(ng))   # codex 跑完
-    edit("a.py")                           # 審完的修補
-    ra = receipt("pytest tests/test_a.py")  # 只重跑碰到的
-    r = _reconcile(op, ra, rb, unaffected="b 的測試沒用到 a.py 這次改的函式")
-    assert r["ok"], r.get("rejected")
-    assert any(x.get("event") == "unaffected_declared" and x.get("receipt") == rb for x in logs)
-    edit("a.py")                           # 宣告之後又改：舊宣告不管新改動
-    assert any("改完沒重跑" in p for p in ng._f2_problems(ng.load("s"), ng.active_tree(ng.load("s")))), "宣告後又改要再對"
-
-
-def review_env_tmp(ng):
-    import wg_core
-    return wg_core.WORKFLOW_DIR.parent
-
-
-def test_review_not_finished_declaration_ignored(review_env):
-    """codex 那次沒跑完（failed）→ 宣告不收，照舊要重跑。"""
-    ng, op, receipt, edit, _ = review_env
-    edit("a.py")
-    rb = receipt("pytest tests/test_b.py")
-    ng.mark_review("s")
-    _review_finished(review_env_tmp(ng), status="failed")
-    edit("a.py")
-    ra = receipt("pytest tests/test_a.py")
-    assert not _reconcile(op, ra, rb, unaffected="說不影響")["ok"]
-
-
-def test_review_fix_without_declaration_still_stale(review_env):
-    """反例：審完的修補後沒宣告 → 照舊算改完沒重跑，擋訊息講明可以只重跑碰到的、其餘寫 unaffected。"""
-    ng, op, receipt, edit, _ = review_env
-    edit("a.py")
-    rb = receipt("pytest tests/test_b.py")
-    ng.mark_review("s")
-    edit("a.py")
-    ra = receipt("pytest tests/test_a.py")
-    r = _reconcile(op, ra, rb)
-    assert not r["ok"] and any("改完沒重跑" in x and "unaffected" in x for x in r["rejected"]), r
-
-
-def test_stale_before_review_cannot_be_declared(review_env):
-    """反例：收據在審查之前就過期了（審查前又改了檔沒重跑）→ 宣告也不收；沒審過也不收。"""
-    ng, op, receipt, edit, _ = review_env
-    rb = receipt("pytest tests/test_b.py")
-    edit("b.py")                           # 審查前的改動，rb 沒重跑
-    ng.mark_review("s")
-    edit("a.py")
-    ra = receipt("pytest tests/test_a.py")
-    assert not _reconcile(op, ra, rb, unaffected="說不影響")["ok"]
-
-
-def test_no_review_declaration_ignored(review_env):
-    ng, op, receipt, edit, _ = review_env
-    rb = receipt("pytest tests/test_b.py")
-    edit("a.py")
-    ra = receipt("pytest tests/test_a.py")
-    assert not _reconcile(op, ra, rb, unaffected="說不影響")["ok"]
-
-
-def test_second_opinion_start_marks_review():
-    """PreToolUse 的 second_opinion_start 分支記下審查時刻（材料在這一刻打包）。"""
-    src = (HOOKS_DIR / "handlers" / "pre_tool_use.py").read_text(encoding="utf-8")
-    i = src.index('if tool_name.endswith("__second_opinion_start"):')
-    assert "mark_review(sid)" in src[i:i + 700]
 
 
 # ─── hook 每次啟動只載入要用的部分 ─────────────────────────────────

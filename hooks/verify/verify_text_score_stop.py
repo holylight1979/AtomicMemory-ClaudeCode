@@ -37,7 +37,6 @@ sys.path.insert(0, str(TREE / "lib"))
 import wg_core  # noqa: E402
 import wg_entrypoint as ep  # noqa: E402
 import wg_friction  # noqa: E402
-import wg_need_goal  # noqa: E402
 import wg_overview  # noqa: E402
 import wg_text_score as wts  # noqa: E402
 from handlers import stop as st  # noqa: E402
@@ -266,7 +265,6 @@ def ups_wired(monkeypatch):
         monkeypatch.setattr(ups, name, fn)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
     monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
-    monkeypatch.setattr(wg_need_goal, "on_prompt", lambda *a, **k: "")                    # 不寫目標樹檔
     return outputs
 
 
@@ -381,7 +379,8 @@ def test_stop_calls_on_stop_before_gates_with_own_files(world, tmp_path, monkeyp
             raise _Stop
         return False
     cfg = {"text_score": {"enabled": True}}
-    state = {"phase": "working", "turn_seq": 7, "failing_tests": [], "session": {"cwd": str(tmp_path)}, "need_goal_code_decl_turn": 7,
+    state = {"phase": "working", "turn_seq": 7, "failing_tests": [], "session": {"cwd": str(tmp_path)},
+             "unknown_writes": [{"cmd": "python gen.py > $OUT", "turn_seq": 7}],
              "modified_files": [{"path": "mine.md", "session_id": SID, "last_turn_seq": 7},
                                 {"path": "peer.md", "session_id": "別的", "last_turn_seq": 7}]}
     for name, fn in (("_ensure_state", lambda *a, **k: state), ("_find_session_transcript", lambda *a, **k: None),

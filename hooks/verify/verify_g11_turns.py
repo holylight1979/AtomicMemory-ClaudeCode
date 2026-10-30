@@ -11,7 +11,6 @@ C#：改了 .cs → 不列函式級數據表，走一跳範圍的閱讀路徑（
       C# 量不出來不牽連同一批的 Python 數據。案例細節見 lib/verify/verify_reading_path_cs.py。
 反例：數據全低於門檻 → 不問、不擋、結果文字沒有那個根的數據（數據只印 stderr、guard log 記 measured）；Python 與 C# 以外的檔
       標不支援、不問（同樣只在 stderr）；還沒 git add 的新檔不列函式級數據（只報個數）。
-思考的彎：reconcile turns ≥4 沒寫「重找最短路：」→ 拒收；turns=2 收下；沒給 turns → 收下並提醒一句。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_g11_turns.py
 """
 from __future__ import annotations
@@ -29,7 +28,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
-import wg_need_goal as ng  # noqa: E402
 import wg_reading_path as rph  # noqa: E402
 import wg_release_rules as rr  # noqa: E402
 import wg_verify_ledger as vl  # noqa: E402
@@ -542,41 +540,6 @@ def test_subagent_stop_entry_does_not_check_turn_judgment(capsys, monkeypatch):
     assert "[Guardian:ReconcileGate]" in out, "前置：子代理收尾的寫碼查核有跑到"
     assert "TURN_JUDGMENT_REQUIRED" not in out and "拐彎判斷" not in out
     assert "blocked_turn" not in state["reading_path"][_SID] and not [g for g, _ in logs if g == "reading_path"]
-
-
-# ─── 思考的彎：reconcile 的 turns ───────────────────────────────────────────────
-
-def test_reconcile_turns_over_three_needs_a_rethink_note():
-    items = [{"id": "T1", "status": "done"}]
-    errs = ng.validate_input({"action": "reconcile", "items": items, "turns": 5})
-    assert any("重找最短路" in e and "turns=5" in e for e in errs), errs
-    assert not ng.validate_input({"action": "reconcile", "items": [{"id": "T1", "status": "done", "note": "重找最短路：改成一支純函式，少兩個檔"}],
-                                  "turns": 5})
-    assert not ng.validate_input({"action": "reconcile", "items": items, "turns": 2})
-    assert not ng.validate_input({"action": "reconcile", "items": items, "turns": 4 - 1}), "三個彎是警戒極限，第四個才要求重找"
-    assert any("重找最短路" in e for e in ng.validate_input({"action": "reconcile", "items": [{"id": "T1", "status": "done", "note": "重找最短路："}],
-                                                             "turns": 4})), "只有標籤沒有結果不算"
-
-
-def test_reconcile_without_turns_is_accepted_with_a_reminder(tmp_path, monkeypatch):
-    wf = tmp_path / "wf"
-    wf.mkdir()
-    monkeypatch.setenv("WG_TEMP_RULES", "off")
-    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", wf)
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda g, p: None)
-    monkeypatch.setattr(wg_core, "_rebuild_min_atom_index", lambda cwd: {})
-    monkeypatch.setattr(wg_core, "_find_active_sibling_state", lambda *a, **k: None)
-    monkeypatch.setattr(wg_core, "_atom_debug_log", lambda *a, **k: None)
-    sid = "sess-g11-turns"
-    assert ng.apply_op(sid, 1, {"action": "set", "goal": "G"}, str(tmp_path))["ok"]
-    note = tmp_path / "n.md"
-    note.write_text("x", encoding="utf-8")
-    ev_ = [{"kind": "file", "ref": str(note), "level": "read"}]
-    r = ng.apply_op(sid, 2, {"action": "reconcile", "items": [{"id": "T1", "status": "done", "evidence": ev_}]}, str(tmp_path))
-    assert r["ok"] and ng.TURNS_HINT in r["text"], r["text"][:600]
-    assert ng.apply_op(sid, 3, {"action": "set", "goal": "G2", "new_task": True, "why": "另一件"}, str(tmp_path))["ok"]
-    r = ng.apply_op(sid, 4, {"action": "reconcile", "items": [{"id": "T2", "status": "done", "evidence": ev_}], "turns": 2}, str(tmp_path))
-    assert r["ok"] and ng.TURNS_HINT not in r["text"] and ng.load(sid)["trees"]["T2"]["last_reconcile"]["turns"] == 2
 
 
 @pytest.fixture(autouse=True)

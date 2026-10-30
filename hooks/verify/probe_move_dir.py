@@ -5,7 +5,6 @@
   M2 跑 tools/move-dir-check.py scan（hits=0）與 sample --for（PASS）後再收尾 → 不再因這條擋
   M3 子代理搬、自己跑收據 → SubagentStop 先擋後過，主 session 收尾也認得
   M4 搬了又搬回原處 → 收尾不因這條擋
-需求目標流程在沙箱關掉（搬程式目錄要先有目標樹，那是另一道閘，不是本探針的對象）。
 不是 pytest 案例（檔名不以 verify_／test_ 開頭）；pytest 案例在 verify_release_rules.py。
 
 怎麼跑：python -X utf8 hooks/verify/probe_move_dir.py --tree <受測樹> [--keep]
@@ -14,7 +13,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
@@ -29,10 +27,6 @@ RULE = "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE"
 
 def run(tree: Path, base: Path) -> list:
     sb = Sandbox(tree, base, "m1")
-    cfg_path = sb.data / "workflow" / "config.json"
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    cfg.setdefault("overview_hub", {}).setdefault("need_goal", {})["enabled"] = False
-    cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     proj = sb.project("proj")
     (proj / "lib" / "pkg").mkdir(parents=True)
     (proj / "lib" / "pkg" / "a.py").write_text("X = 1\n", encoding="utf-8")
@@ -61,10 +55,6 @@ def run(tree: Path, base: Path) -> list:
 
 def _sandbox(tree: Path, base: Path, name: str) -> tuple:
     sb = Sandbox(tree, base, name)
-    cfg_path = sb.data / "workflow" / "config.json"
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    cfg.setdefault("overview_hub", {}).setdefault("need_goal", {})["enabled"] = False
-    cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     proj = sb.project("proj")
     (proj / "lib" / "pkg").mkdir(parents=True)
     (proj / "lib" / "pkg" / "a.py").write_text("X = 1\n", encoding="utf-8")

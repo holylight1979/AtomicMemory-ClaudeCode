@@ -6,7 +6,6 @@
                  mode 與 note 行（start 在前面回合、本回合才取回的 job 照它判：SECOND_OPINION_RESULT_ACROSS_TURNS）。
   changed_lines  本 session 改過的程式檔對 HEAD 的改動行數（git diff --numstat HEAD；未追蹤的新檔算整檔行數；查不到 git 回 None）。
   risky_paths    命中 risky_prefixes（相對版控根，沒有就相對部位表根）或部位表該列類別是 gate 的檔。
-  has_goal_tree  這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的那次 run 不算跑過）。
   not_closing    觸發看事實不看措辭（規則 SECOND_OPINION_FACT_TRIGGER）：每次收尾都判，只有還沒到收尾的 Stop 不判：中途問使用者
                  （最後一行是問句、沒宣告完成）或寫明之後工作還在繼續（仍在等、等待…回報、尚未開始），而且這個使用者回合沒交收尾那批；
                  欠帳不消，下一次收尾照欠。
@@ -341,16 +340,6 @@ def _job_started_at(job_id: str) -> str:
         return ""
 
 
-def has_goal_tree(session_id: str) -> bool:
-    """這個 session 有沒有需求目標樹（有樹時，材料沒帶到樹的 run 不算跑過）。目標檔讀不到或壞了 → 當有（fail-closed）並浮 stderr。"""
-    try:
-        import wg_need_goal as ng
-        return ng.active_tree(ng.load(session_id)) is not None
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:SecondOpinion] 讀不到需求目標樹，當成有樹（材料要帶到樹才算跑過）：{type(e).__name__}: {e}", file=sys.stderr)
-        return True
-
-
 _QUESTION_END_RE = re.compile(r"(?:[?？]|嗎|呢)[\s。.」』）)*]*$")
 
 
@@ -371,9 +360,9 @@ def not_closing(state: Dict[str, Any], session_id: str, text: str, user_turn: in
 
 
 def _code_entries(own_mod_files: Sequence[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    from wg_code_path import writes_code
+    from wg_code_path import is_code_path
     from wg_verify_ledger import git_launcher, session_scratch
-    return [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)
+    return [m for m in own_mod_files if (m or {}).get("path") and is_code_path(str(m["path"]), config)
             and not session_scratch(str(m["path"]))           # 規則 SESSION_SCRATCH_NOT_CODE：暫存區的一次性腳本不數
             and not git_launcher(str(m["path"]))]             # 規則 LAUNCHER_NOT_CODE：worktree 根的一次性 git 啟動器不數
 
@@ -423,7 +412,7 @@ def check(state: Dict[str, Any], session_id: str, own_mod_files: Sequence[Dict[s
     if not paths:
         return rr.second_opinion_verdict(claims_done, [], False, [], text), facts
     starts, results = turn_events(transcript_text)
-    runs_now = rr.second_opinion_runs(starts, results, has_tree=has_goal_tree(session_id)) if (starts or results) else []
+    runs_now = rr.second_opinion_runs(starts, results) if (starts or results) else []
     # 規則 SECOND_OPINION_RESULT_ACROSS_TURNS：start 不在本回合的 job，不是本 session 開的（foreign）、或開 job 之後又改過程式檔
     # （stale：沒審到後來的改動）都不算
     started_now = {str(s.get("job_id")) for s in starts}

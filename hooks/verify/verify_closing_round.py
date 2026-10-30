@@ -162,21 +162,6 @@ def test_pick_one_pre_close_then_stop_does_not_resend(batch_env, stop_run, monke
     assert "[Guardian:PickOne]" in out and ev[-1]["event"] == "asked", "開關關：舊送法照舊"
 
 
-def test_reconcile_batch_is_pre_close_too(batch_env, stop_run, tmp_path, capsys):
-    """PICK_ONE_PRE_CLOSE／TURN_JUDGMENT_PRE_CLOSE：完整對照（need_goal action=reconcile）那批也是收尾前的附著點（無頭實跑兩跑 AI 都沒交
-    收尾檢核，最後一個收尾類工具是 reconcile）；need_goal 其他動作（set、add）不是。"""
-    proj, _ = stop_run
-    damage = proj / "Game" / "Battle" / "Damage.cs"
-    state = {"modified_files": [_mod(damage)], "turn_seq": 5, "session": {"cwd": str(proj)}}
-    _measured(state, damage)
-    for action in ("set", "add"):
-        ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": action}}], _PASS_CFG, capsys)
-        # 不是收尾那批：不附最該修、不附量好的結果本文；背景量完的欠項一行提醒（TURN_JUDGMENT_REQUIRED，REMIND_ON_PRIOR_RESULT）照送
-        assert "PickOne" not in ctx and TJ_NOTE.splitlines()[0] not in ctx, action
-    ctx = _batch(state, [{"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}}], _PASS_CFG, capsys)
-    assert "[Guardian:PickOne]" in ctx and "拐彎判斷｜" in ctx
-
-
 def test_pick_one_not_on_ordinary_batch(batch_env, stop_run, capsys):
     """沒交收尾檢核、也沒有跑綠收據的批次不附（還在工作中，交付邊界還沒到）。"""
     proj, _ = stop_run
@@ -352,7 +337,7 @@ def test_so_pre_close_attaches_same_text_then_stop_passes(batch_env, drive, caps
     留帳 declined；沒照做 → Stop 照擋（判定不放寬）。"""
     import copy
     import wg_closing_round as cr
-    assert cr.closing_call(AEC["tool_name"], AEC["tool_input"]), "前置：造的這批是 closing_call 認得的收尾那批"
+    assert cr.closing_call(AEC["tool_name"]), "前置：造的這批是 closing_call 認得的收尾那批"
     files = _files(tmp_path, 5)
     state = _so_state(files)
     untouched = copy.deepcopy(state)
@@ -386,14 +371,20 @@ def test_so_pre_close_not_owed_or_off_attaches_nothing(batch_env, drive, capsys,
                                                     transcript_path=str(drive.tx.path))
 
 
-def test_so_pre_close_follows_closing_call(batch_env, drive, capsys, tmp_path):
-    """SECOND_OPINION_PRE_CLOSE 的接縫：收尾那批一律照 closing_call 認，closing_call 認得的每一種呼叫（收尾檢核、完整對照、知識收割回報）
-    那批都附第二意見那段；它不認的（need_goal 其他動作、一般工具）不附。案例只問 closing_call，不另寫一份認法。"""
+def test_closing_call_knows_both():
+    """規則 CLOSING_CALL_ALL_THREE：收尾檢核（一次交齊）與 knowledge_harvest_report 都是收尾那批；其他工具不是。"""
     import wg_closing_round as cr
-    calls = [AEC, {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "reconcile"}},
-             {"tool_name": "mcp__workflow-guardian__knowledge_harvest_report", "tool_input": {}},
-             {"tool_name": "mcp__workflow-guardian__need_goal", "tool_input": {"action": "read"}},
+    assert cr.closing_call(AEC["tool_name"])
+    assert cr.closing_call("mcp__workflow-guardian__knowledge_harvest_report")
+    assert not cr.closing_call("Bash") and not cr.closing_call("mcp__workflow-guardian__atom_write")
+
+
+def test_so_pre_close_follows_closing_call(batch_env, drive, capsys, tmp_path):
+    """SECOND_OPINION_PRE_CLOSE 的接縫：收尾那批一律照 closing_call 認，closing_call 認得的每一種呼叫（收尾檢核、知識收割回報）
+    那批都附第二意見那段；它不認的（一般工具）不附。案例只問 closing_call，不另寫一份認法。"""
+    import wg_closing_round as cr
+    calls = [AEC, {"tool_name": "mcp__workflow-guardian__knowledge_harvest_report", "tool_input": {}},
              {"tool_name": "Bash", "tool_input": {"command": "pytest"}}]
     for c in calls:
         ctx = _batch(_so_state(_files(tmp_path, 5)), [c], _PASS_CFG, capsys, sid=SO_SID, transcript_path=str(drive.tx.path))
-        assert ("[Guardian:SecondOpinion]" in ctx) == cr.closing_call(c["tool_name"], c["tool_input"]), c
+        assert ("[Guardian:SecondOpinion]" in ctx) == cr.closing_call(c["tool_name"]), c

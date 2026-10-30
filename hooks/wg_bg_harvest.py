@@ -1,15 +1,13 @@
-"""wg_bg_harvest — 收尾的知識收割與目標樹記帳交給背景的開源免費模型（內網 rdchat 的 gemma4:e4b），不佔寫碼 AI 的回合。
+"""wg_bg_harvest — 收尾的知識收割交給背景的開源免費模型（內網 rdchat 的 gemma4:e4b），不佔寫碼 AI 的回合。
 
 做什麼：
 - Stop（on_stop）：本來 KnowledgeHarvest 閘要擋下、叫寫碼 AI 盤點六個來源再呼叫 knowledge_harvest_report（多跑一整回合）；
-  harvest.background 開著（預設）就改成寫一個工作檔、起一個背景行程（本檔 --job）就回，不擋。背景同一次也找出這個回合程式剛替
-  目標樹記進度的節點（wg_need_goal.auto_progress 寫的 by=program），請本地模型照 transcript 草擬一句「這次改動讓它更接近了沒」。
+  harvest.background 開著（預設）就改成寫一個工作檔、起一個背景行程（本檔 --job）就回，不擋。
 - 背景（run_job）：讀 transcript 尾段（使用者原話與 AI 回覆，不含工具輸出），問本地模型要 JSON：
-  候選卡 [{title, knowledge, why}]（最多 harvest.background_max_cards 張）與進度草稿 [{node, line}]。
+  候選卡 [{title, knowledge, why}]（最多 harvest.background_max_cards 張）。
   候選卡是待審卡、不是卡：專案有 .claude/memory → 寫進專案 shared/_pending_review/（開場「[Pending Review] N 件待裁決」、
   /conflict pending 審）；沒有 → 寫進資料根 memory/_staging/harvest-candidates/（開場一行提示有幾份待審）。判錯只多一張待審卡。
-  進度草稿寫進目標樹節點 history（what=progress_draft、by=local_llm）；目標有沒有更接近仍由寫碼 AI 在完整對照判。
-- 留帳 Logs/guard-harvest_bg.jsonl：queued／done（張數、草稿數、用哪個模型）／failed（為什麼）。模型不在、逾時、回的不是 JSON
+- 留帳 Logs/guard-harvest_bg.jsonl：queued／done（張數、用哪個模型）／failed（為什麼）。模型不在、逾時、回的不是 JSON
   一律記 failed 與 worker.log，不改用付費模型、不回頭擋。
 寫碼 AI 自己要記的照樣可以 atom_write＋knowledge_harvest_report（Harvest-Pending 閘照核對）；這裡只拿掉「每次宣告完成都擋一回合」。
 怎麼跑：Stop 自動呼叫；背景入口 `python hooks/wg_bg_harvest.py --job <工作檔>` 由 Stop 起，不手動跑。
@@ -115,50 +113,27 @@ def transcript_tail(path: str, limit: int = TAIL_CHARS) -> str:
     return "\n".join(reversed(out))
 
 
-def progress_targets(session: str, turn: int) -> List[Dict[str, Any]]:
-    """這個回合程式替目標樹記了進度（history what=progress、by=program）、還沒有草稿的節點：[{node, text, files}]。"""
-    import wg_need_goal as ng
-    try:
-        doc = ng.load(session)
-    except Exception as e:  # noqa: BLE001
-        print(f"{TAG} 讀目標樹失敗（不草擬進度）：{type(e).__name__}: {e}", file=sys.stderr)
-        return []
-    out = []
-    for tree in (doc.get("trees") or {}).values():
-        for nid, node in (tree.get("nodes") or {}).items():
-            hist = node.get("history") or []
-            last = hist[-1] if hist else {}
-            if last.get("what") == "progress" and last.get("by") == "program" and int(last.get("turn") or 0) == turn:
-                out.append({"node": nid, "text": node.get("text") or "", "files": [str(last.get("why") or "")[:120]]})
-    return out
-
-
-def build_prompt(tail: str, progress: List[Dict[str, Any]], max_cards: int) -> str:
-    nodes = "\n".join(f"- {p['node']}：{p.get('text') or ''}（改了 {'、'.join(p.get('files') or [])}）" for p in progress)
+def build_prompt(tail: str, max_cards: int) -> str:
     return (
         "你在幫一個寫程式的 AI 做收尾記帳。下面是這次對話的尾段。只輸出 JSON，不要其他文字。\n"
-        f"1. candidates：最多 {max_cards} 條「從程式碼和文件讀不出來、之後會重查或重犯」的知識（使用者的指正、查了才懂的機制、"
+        f"candidates：最多 {max_cards} 條「從程式碼和文件讀不出來、之後會重查或重犯」的知識（使用者的指正、查了才懂的機制、"
         "做過的取捨）。一次性的事實、照抄程式碼的不要。沒有就給空陣列。每條 {\"title\": 一句話標題, \"knowledge\": 一到三句, "
         "\"why\": 為什麼值得記}。\n"
-        + (f"2. progress：下面每個目標節點寫一句「這次改動讓它更接近了沒、為什麼」，{{\"node\": 節點編號, \"line\": 一句}}。\n{nodes}\n"
-           if progress else "2. progress：給空陣列。\n")
-        + "用繁體中文。\n\n對話尾段：\n" + tail
+        "用繁體中文。\n\n對話尾段：\n" + tail
     )
 
 
-def parse_reply(text: str, max_cards: int) -> Dict[str, List[Dict[str, str]]]:
-    """模型回的 JSON → {candidates, progress}，欄位不齊的丟掉。不是 JSON 往外拋 ValueError。"""
+def parse_reply(text: str, max_cards: int) -> List[Dict[str, str]]:
+    """模型回的 JSON → 候選卡清單，欄位不齊的丟掉。不是 JSON 往外拋 ValueError。"""
     m = re.search(r"\{.*\}", text or "", re.DOTALL)
     if not m:
         raise ValueError("回覆裡沒有 JSON")
     d = json.loads(m.group(0))
-    if not isinstance(d, dict) or not ({"candidates", "progress"} & set(d)):
-        raise ValueError("回覆的 JSON 沒有 candidates／progress（沒照要求作答）")
+    if not isinstance(d, dict) or "candidates" not in d:
+        raise ValueError("回覆的 JSON 沒有 candidates（沒照要求作答）")
     cands = [{"title": str(c.get("title")).strip(), "knowledge": str(c.get("knowledge")).strip(), "why": str(c.get("why") or "").strip()}
              for c in d.get("candidates") or [] if isinstance(c, dict) and c.get("title") and c.get("knowledge")]
-    prog = [{"node": str(p.get("node")).strip(), "line": str(p.get("line")).strip()}
-            for p in d.get("progress") or [] if isinstance(p, dict) and p.get("node") and p.get("line")]
-    return {"candidates": cands[:max_cards], "progress": prog}
+    return cands[:max_cards]
 
 
 def candidate_dir(cwd: str) -> Path:
@@ -188,24 +163,6 @@ def write_candidates(cands: List[Dict[str, str]], cwd: str, session: str, model:
     return written
 
 
-def write_progress(session: str, turn: int, drafts: List[Dict[str, str]], model: str) -> int:
-    if not drafts:
-        return 0
-    import wg_need_goal as ng
-
-    def fn(doc: Dict[str, Any]) -> int:
-        n = 0
-        for dft in drafts:
-            tree = ng.tree_of(doc, dft["node"])
-            if not tree:
-                continue
-            tree["nodes"][dft["node"]]["history"].append({"seq": ng.next_seq(doc), "turn": turn, "what": "progress_draft",
-                                                          "by": "local_llm", "model": model, "why": dft["line"][:300]})
-            n += 1
-        return n
-    return ng.update_locked(session, fn)
-
-
 def ask_model(prompt: str, cfg: Dict[str, Any]) -> str:
     sys.path.insert(0, str(_HOOKS.parent / "tools"))
     from ollama_client import get_client
@@ -224,17 +181,13 @@ def run_job(job_path: Path, ask=ask_model) -> int:
         tail = transcript_tail(str(job.get("transcript") or ""))
         if not tail:
             raise ValueError("transcript 讀不到或是空的")
-        targets = progress_targets(session, turn)
-        reply = ask(build_prompt(tail, targets, max_cards), cfg)
+        reply = ask(build_prompt(tail, max_cards), cfg)
         if not reply:
             raise ValueError(f"本地模型 {cfg.get('background_model')} 沒回（不在、逾時或被停用）")
-        got = parse_reply(reply, max_cards)
-        cards = write_candidates(got["candidates"], str(job.get("cwd") or ""), session, str(cfg.get("background_model")))
-        asked = {t["node"] for t in targets}       # 模型順手多寫的節點不收：只收有問的
-        drafts = write_progress(session, turn, [d for d in got["progress"] if d["node"] in asked],
-                                str(cfg.get("background_model")))
+        cards = write_candidates(parse_reply(reply, max_cards), str(job.get("cwd") or ""), session,
+                                 str(cfg.get("background_model")))
         append_guard_log(LEDGER, {"event": "done", "session_id": session, "turn_seq": turn, "cards": cards,
-                                  "progress_drafts": drafts, "model": cfg.get("background_model")})
+                                  "model": cfg.get("background_model")})
         return 0
     except Exception as e:  # noqa: BLE001
         print(f"{TAG} 背景收割沒做成：{type(e).__name__}: {e}", file=sys.stderr)

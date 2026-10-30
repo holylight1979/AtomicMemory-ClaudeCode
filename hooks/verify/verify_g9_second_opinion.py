@@ -3,11 +3,10 @@
 紅案例（改前紅、改後綠）：改 5 個程式檔宣告完成、本回合沒跑 → 擋（訊息列規則名、檔數、缺什麼，末尾是「要跑：…；或宣告
 `不需第二意見｜<理由>`」）；同情境 start→result done＋收尾四行 → 放行；只改 1 檔但在 hooks/wg_release_rules.py → 擋；2 檔不在
 risky、改 40 行 → 不擋（200 行 → 擋）；「不需第二意見｜只重錄 cassettes」→ 放行並留一筆 declined；「不需第二意見｜不需要」→ 擋；
-result failed＋四行 → 放行；result running → 擋（說等 result）；子代理、headless → 不觸發；pack 有目標樹時 manifest 多 goal.md、
-hash 和沒樹時不同；question 不含樹根那句 → prepare 回 blocked 附原因；收尾缺「裁決與理由」行 → 擋並點名。
+result failed＋四行 → 放行；result running → 擋（說等 result）；子代理、headless → 不觸發；收尾缺「裁決與理由」行 → 擋並點名。
 另守：部位表類別 gate、擋滿改問使用者與放行、滿足後沒再改程式不再要求、question 被擋那次不算跑過、PreToolUse 補 session_id、
 週健檢列 declined、前面的閘擋下時預覽列出第二意見、本回合窗口之前的 start／result 不算；codex 審查後補的：只認 result 回的狀態
-（沒開出 job 的 failed 不算）、session 有樹而材料沒帶到樹不算、散文或程式碼區塊裡的宣告行與四行不算、判定出錯不擋但留帳。
+（沒開出 job 的 failed 不算）、散文或程式碼區塊裡的宣告行與四行不算、判定出錯不擋但留帳。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_g9_second_opinion.py
 """
 from __future__ import annotations
@@ -27,7 +26,6 @@ sys.path.insert(0, str(CODE_DIR / "lib"))
 
 import wg_release_rules as rr  # noqa: E402
 import wg_second_opinion as so  # noqa: E402
-import wg_need_goal as ng  # noqa: E402
 from wg_release import RELEASE_TAG, OPT_RELEASE  # noqa: E402
 from handlers import stop as st  # noqa: E402
 from handlers import pre_tool_use as pt  # noqa: E402
@@ -367,17 +365,6 @@ def test_question_root_blocked_run_does_not_count(drive, capsys, tmp_path):
     assert "[Guardian:SecondOpinion]" in reason and "照 reason 把那句抄進 question 重跑" in reason
 
 
-def test_material_without_goal_tree_does_not_count(drive, capsys, tmp_path, monkeypatch):
-    """session 有需求目標樹，但那次 start 的材料沒帶到（note 以 SO_NO_GOAL_NOTE 開頭）→ 不算跑過；材料帶到樹（沒有那條 note）→ 放行。"""
-    monkeypatch.setattr(so, "has_goal_tree", lambda sid: True)
-    drive.tx.opinion("done", notes=[f"{rr.SO_NO_GOAL_NOTE}：沒帶 session_id，找不到這個 session 的樹"])
-    reason, _, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
-    assert "[Guardian:SecondOpinion]" in reason and "材料沒有需求目標樹" in reason
-    drive.tx.opinion("done", job="20261020-120500-sidg9xxx-stage-review")
-    reason, state, _ = drive(FOUR, capsys, files=_files(tmp_path, 5))
-    assert "[Guardian:SecondOpinion]" not in reason and state["second_opinion_ok"][SID] == 5
-
-
 def test_decline_quoted_in_prose_does_not_bypass(drive, capsys, tmp_path):
     """散文裡引用的範例（不在行首）、程式碼區塊裡的宣告行都不算 AI 宣告不需。"""
     text = "說明：AI 可以寫 `不需第二意見｜只重錄 cassettes` 來免跑。\n```\n不需第二意見｜只重錄 cassettes\n```\n全部完成。"
@@ -573,12 +560,10 @@ def test_result_across_turns_still_needs_four_lines(drive, capsys, tmp_path):
     assert "[Guardian:SecondOpinion]" in reason and "跑過第二意見，但收尾缺" in reason
 
 
-@pytest.mark.parametrize("mode,notes,status", [("review", (), "done"), ("independent", (f"{rr.SO_NO_GOAL_NOTE}：沒帶 session_id",), "done"),
-                                               ("", (), "failed")])
+@pytest.mark.parametrize("mode,notes,status", [("review", (), "done"), ("", (), "failed")])
 def test_result_across_turns_off_mode_no_goal_or_missing_job_not_counted(drive, capsys, tmp_path, monkeypatch,
                                                                          mode, notes, status):
-    """start 不在本回合時照 result 自己帶的 mode、note 判：mode=review、session 有樹而材料沒帶到樹、找不到 job（沒有 mode 行）都不算跑過。"""
-    monkeypatch.setattr(so, "has_goal_tree", lambda sid: True)
+    """start 不在本回合時照 result 自己帶的 mode、note 判：mode=review、找不到 job（沒有 mode 行）都不算跑過。"""
     drive.tx.user("照你的判斷做")
     if mode:
         _result(drive, status, mode=mode, notes=notes)
@@ -707,53 +692,6 @@ def test_triggers_and_decline_units():
     assert rr.second_opinion_section_missing("Codex 結論：\n") == [
         "段標題「第二意見與分歧裁決」", "「Codex 結論：」行", "「我方結論：」行", "「分歧點：」行", "「裁決與理由：」行"]
     assert len(rr.second_opinion_section_missing(f"```\n{FOUR}\n```")) == 5, "整段放在程式碼區塊（範本）不算"
-
-
-# ─── 材料：goal.md 與 question 樹根 ──────────────────────────────────────────
-
-@pytest.fixture()
-def so_run(tmp_path, monkeypatch):
-    monkeypatch.setenv("WG_CLAUDE_DIR", str(tmp_path / "data-root"))
-    run = _load("g9_so_run", CODE_DIR / "tools" / "second-opinion" / "run.py")
-    monkeypatch.setattr(ng, "goal_dir", lambda: tmp_path / "need-goal")
-    monkeypatch.setattr(run, "resolve_model", lambda cfg: ("gpt-test", ""))
-    monkeypatch.setattr(run, "run_guard", lambda args, timeout_s=60: ("PASS", [], "REPLAY_GUARD_CHECK PASS\n"))
-    return run
-
-
-ROOT_GOAL = r"讓 C:\Users\x\proj 的大任務交付自動要第二意見"
-
-
-def test_pack_goal_md_in_manifest_and_hash(so_run, tmp_path):
-    pack = so_run.pack
-    assert ng.apply_op(SID, 1, {"action": "set", "goal": ROOT_GOAL})["ok"]
-    req = {"cwd": "", "part": "", "mode": "independent", "materials": {"diff": {"text": "d\n"}}}
-    with_tree, notes = pack.gather_items({**req, "session_id": SID}, {})
-    no_tree, notes2 = pack.gather_items({**req, "session_id": "nobody"}, {})
-    goal = dict(with_tree)["goal.md"]
-    assert goal.startswith("樹根（T1）：讓 …/proj 的大任務交付自動要第二意見") and "C:\\Users" not in goal
-    assert "【使用者原話（權威）】" in goal and dict(no_tree)["goal.md"] == "無目標樹\n"
-    assert any(n.startswith(rr.SO_NO_GOAL_NOTE) for n in notes2) and not any("目標樹" in n for n in notes)
-    m1 = pack.pack_materials(tmp_path / "a", with_tree, "independent", "m")
-    m2 = pack.pack_materials(tmp_path / "b", no_tree, "independent", "m")
-    assert "goal.md" in [f["rel"] for f in m1["files"]] and "goal.md" in [f["rel"] for f in m2["files"]]
-    assert m1["hash"] != m2["hash"]
-
-
-def test_prepare_blocks_question_without_root(so_run, tmp_path):
-    assert ng.apply_op(SID, 1, {"action": "set", "goal": ROOT_GOAL})["ok"]
-    so_cfg, _ = so_run.load_config()
-    req = {"kind": "stage-review", "part": "p", "cwd": str(tmp_path), "mode": "independent", "session_id": SID,
-           "question": "這樣改對嗎？", "materials": {"diff": {"text": "d\n"}}}
-    res = so_run.prepare(req, so_cfg, tmp_path / "jobs")
-    assert res["status"] == "blocked" and rr.SO_QUESTION_ROOT_MISSING in res["reason"]
-    assert "讓 …/proj 的大任務交付自動要第二意見" in res["reason"]
-    ok = so_run.prepare({**req, "question": "目標：讓 …/proj 的大任務交付自動要第二意見。這樣改對嗎？"}, so_cfg, tmp_path / "jobs")
-    assert ok["status"] == "started", ok
-    prompt = (Path(ok["job_dir"]) / "prompt.md").read_text(encoding="utf-8")
-    assert "materials/goal.md" in prompt and "C:\\Users\\x" not in prompt
-    free = so_run.prepare({**req, "session_id": "nobody"}, so_cfg, tmp_path / "jobs")
-    assert free["status"] == "started", "沒有樹時 question 免核對"
 
 
 # ─── 入口與對帳 ─────────────────────────────────────────────────────────

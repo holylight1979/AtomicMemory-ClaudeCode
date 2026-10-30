@@ -88,10 +88,10 @@ class Turn:
             d["tool_name"], d["tool_input"] = call
         return cs.gate_fired(SID, self.turn, name, what or f"{name}：缺東西", d, self.cfg, now=self.tick(), **kw)
 
-    def goal(self, action="set"):
-        """AI 改了目標樹（need_goal；CHAIN_ACTION_FACTS 算動作、說不出改了哪些檔）。"""
-        cs.action_done(SID, self.turn, "goal", "mcp__workflow-guardian__need_goal", [], self.inp("PostToolUse"), self.cfg,
-                       what=f"need_goal {action}", now=self.tick())
+    def report(self):
+        """AI 重交收尾報告（CHAIN_ACTION_FACTS 算動作、沒改到檔）。"""
+        cs.action_done(SID, self.turn, "report", "mcp__workflow-guardian__anti_evasion_report", [], self.inp("PostToolUse"), self.cfg,
+                       what="anti_evasion_report", now=self.tick())
 
     def _did(self, tool, path, before, after, ti):
         tr = {"originalFile": before} if before is not None else {"type": "create"}
@@ -250,16 +250,14 @@ TF = "[Guardian:TestFailGate] 測試未綠（1 項失敗），不得宣告完成
 
 def test_no_edit_actions_between_same_gate_do_not_link(box):
     """紅案例（CHAIN_NO_EDIT_NO_EDGE；照一次收尾的實際帳重演：紅測閘擋第 1 次 → 建暫存工作樹、重跑那支測試、刪暫存樹、重交收尾報告，
-    全程沒改檔 → 紅測閘第 2 次）：不接成邊、同閘次數還是 1、不警報，動作照列進經過表；改目標樹也不算改檔。接著改了檔再擋
+    全程沒改檔 → 紅測閘第 2 次）：不接成邊、同閘次數還是 1、不警報，動作照列進經過表。接著改了檔再擋
     → 照算第 2 次、警報。寫卡、子代理照算改檔；不同的閘中間只有重跑，照「沒記到動作」判。改前第 2 次就判成連鎖中止。"""
     t = Turn(box)
     assert t.gate("TestFailGate", what=TF) == cs.PASS
     t.bash("git worktree add --detach /c/w4/base-red 29180778", kind="other")
     t.rerun("cd /c/w4/base-red && python -m pytest -q tests/test_a.py")
     t.bash("git worktree remove --force /c/w4/base-red", kind="other")
-    cs.action_done(SID, 1, "report", "mcp__workflow-guardian__anti_evasion_report", [], t.inp("PostToolUse"), t.cfg,
-                   what="anti_evasion_report", now=t.tick())
-    t.goal("update")
+    t.report()
     assert t.gate("TestFailGate", what=TF) == cs.PASS
     ch = t.chain()
     assert ch.steps[1].link.rule == "CHAIN_NO_EDIT_NO_EDGE" and ch.steps[1].row["same"] == 1 and ch.alarm is None
@@ -1001,7 +999,6 @@ def test_gate_name_from_message_tag():
     ("Bash", {"command": "grep -n x a.py | head -5"}, (), False, False, None),          # 唯讀指令不算動作
     ("mcp__workflow-guardian__atom_write", {}, (), False, False, "card"),
     ("mcp__workflow-guardian__anti_evasion_report", {}, (), False, False, "report"),
-    ("mcp__workflow-guardian__need_goal", {"action": "add"}, (), False, False, "goal"),
     ("Agent", {"description": "查 x"}, (), False, False, "other"),
     ("Read", {"file_path": "c:/p/a.py"}, (), False, False, None),
 ])
@@ -1143,7 +1140,7 @@ def test_next_reply_after_block_still_counts_same_gate(box):
 
 
 def test_verbatim_retry_after_other_action_is_not_second_trigger(box):
-    """紅案例（CHAIN_SAME_CALL_RETRY；004 非改 code 題現況1 的形狀）：動資料檔閘擋 Edit README → 下一則 AI 回應別的提示改了目標樹
+    """紅案例（CHAIN_SAME_CALL_RETRY；004 非改 code 題現況1 的形狀）：動資料檔閘擋 Edit README → 下一則 AI 回應別的提示重交了報告
     → 原封不動重送同一個 Edit 又被擋 → 原樣重試：不算同閘第 2 次、不接邊、不警報（交回閘自己的擋次上限）。
     舊碼只看中間有沒有動作，重送那次就警報（無頭情境下警報讓這一回合其餘的閘只記錄，該宣告的改動就沒宣告過了）。"""
     t, readme = Turn(box), str(box / "proj" / "ops" / "README.md")
@@ -1152,7 +1149,7 @@ def test_verbatim_retry_after_other_action_is_not_second_trigger(box):
     t.reply("msg_1")
     assert t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme]) == cs.PASS
     t.reply("msg_2")
-    t.goal("set")
+    t.report()
     assert t.gate("DataFileAsk", hook="PreToolUse", call=edit, watched=[readme]) == cs.PASS
     ch = t.chain()
     assert ch.steps[1].link.rule == "CHAIN_SAME_CALL_RETRY" and ch.alarm is None
@@ -1169,10 +1166,10 @@ def test_verbatim_retry_across_another_gate_does_not_link(box):
     t.reply("m1")
     t.gate("A", hook="PreToolUse", call=x, watched=[f])
     t.reply("m2")
-    t.goal("set")
+    t.report()
     t.gate("B", hook="PreToolUse", call=y, watched=[f])
     t.reply("m3")
-    t.goal("add")
+    t.report()
     assert t.gate("A", hook="PreToolUse", call=x, watched=[f]) == cs.PASS
     ch = t.chain()
     assert ch.steps[2].link.rule == "CHAIN_SAME_CALL_RETRY" and ch.steps[2].depth == 0 and ch.alarm is None

@@ -174,8 +174,8 @@ RULES: Dict[str, str] = {
                                    "兩邊都用解析後的目標比。認不出測試子命令＝判不出目標（舊條目 cmd 剛好 200 字也算）：不拿片段當路徑、留帳"
                                    " guard-testfail_scope，只認原樣重跑或列得出名字的紅被跑到；擋訊息（handlers/stop._rerun_scope）對看不出是哪一支的紅"
                                    "列出解析出的每段照抄重跑，判不出或太長就給「原指令完整照跑或跑整套」。",
-    "CODING_TURN_ONLY": "寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑、hook 計時帳）只在寫碼回合跑"
-                        "（wg_core.coding_turn）：這個使用者回合已經改了程式檔或有判不出目標的寫入，或本回合 need_goal 宣告了寫碼樹；"
+    "CODING_TURN_ONLY": "寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑、hook 計時帳）只在寫碼回合跑"
+                        "（wg_core.coding_turn）：這個使用者回合已經改了程式檔或有判不出目標的寫入；"
                         "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、導讀卡、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
@@ -239,17 +239,9 @@ RULES: Dict[str, str] = {
     "AEC_FOLLOWUPS_EMPTY": "(e) 收尾檢核 (k) 追蹤項是空字串（「無」才放）。",
     "RECONCILE_BLOCK_LETTERS": "寫碼查核只擋 reconcile_gate.block_letters 列出的條目字母（沒設＝全擋）；沒列的條目照判、改印 stderr "
                                "只提示不擋。live 設定只列 a（測試沒過不准說修好）與 d（改了程式要有測試），使用者拍板。",
-    "CLOSING_RITUAL_SWITCHES": "收尾儀式各有開關，關掉就不擋收尾：reconcile_gate.goal_gate=false → 需求目標對照 (f1)～(f4) 與 commit 前的"
-                               "目標對照不擋（目標樹照記）；aec.scan_report_gate=false → 沒交收尾檢核不擋；atom_audit.enabled=false → "
-                               "卡片表態不擋。goal_gate 沒設＝不擋（設 true 才擋）；另兩個開關沒設＝照擋。",
-    # 需求目標樹的完整對照（wg_need_goal 收事實、這裡判）
-    "GOAL_DONE_NEEDS_CASE_OR_RECEIPT": "寫碼類目標樹標「達成」的節點，至少一筆證據是沒紅的收據（實測）或讀碼級的驗證案例；"
-                                       "只有檔案、卡片、推論級案例或紅收據 → 擋，擋訊息列節點與現有每一筆證據。記憶知識類的樹不擋。",
-    "GOAL_INFERRED_MAX_PARTIAL": "標「達成」的節點證據全是推論 → 擋（推論最多標部分），不分寫碼類或記憶知識類。",
-    "CASE_RED_THEN_GREEN": "完整對照的案例證據，對上目標檔收據裡點名同一案例檔「先紅、之後綠」的序列 → 該筆證據記 red_then_green；"
-                           "收據點名哪些案例檔在蓋號時用完整指令與它的 cwd 解成絕對路徑，指令裡換目錄或沒記 cwd 的不比。"
-                           "對不上照收，對照摘要印「案例未見先紅」。只是紀錄，不是閘。",
-    # G0 綜觀：動手前說出角色與兩個根因候選、收尾查改到的部位都掛到目標（wg_overview／wg_need_goal 收事實、這裡判）
+    "CLOSING_RITUAL_SWITCHES": "收尾儀式各有開關，關掉就不擋收尾：aec.scan_report_gate=false → 沒交收尾檢核不擋；atom_audit.enabled=false → "
+                               "卡片表態不擋。兩個開關沒設＝照擋。",
+    # G0 綜觀：動手前說出角色與兩個根因候選（wg_overview 收事實、這裡判）
     "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES": "有需求目標樹時改寫碼部位的定位四行：第四行「定位｜目標：<節點>（<角色>）」括號內要寫"
                                                  "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄；幾個節點串寫「T1.1/T1.4（…）」也認）；"
                                                  "第二行「定位｜根因層」要辨識得出"
@@ -279,10 +271,6 @@ RULES: Dict[str, str] = {
     "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER": "有需求目標樹時改寫碼部位，定位各行（部位／根因／前例／目標／批判）還留著擋訊息範例的角括號佔位"
                                            "（角括號裡有中文說明，如 <第一個根因>）→ 當沒填，只記錄不擋（guard-need_goal locate_soft）；"
                                            "程式的泛型角括號（List<int>）不算。查的是有沒有填，不評內容。",
-    "EDITED_PART_NEEDS_GOAL_NODE": "交付邊界與 commit 前：目前寫碼類目標樹上，本 session 改過程式檔的每個寫碼部位，都要在定位帳"
-                                   "（目標檔 links.parts）掛到樹裡還活著的節點；沒交過、掛的節點已放棄或不在樹 → 擋，列"
-                                   "「<部位>：<改的檔> 沒掛目標」並指路補交定位四行或 need_goal add 子目標。表外的檔、知識類部位、"
-                                   "OverviewHub 在那一層關掉的不算。",
     # G6 階段 5：其餘固定規則改交 AI 判（字詞表與門檻只篩候選，判斷由 AI 宣告附理由、程式只核對有沒有理由並留帳）
     "CORRECTION_WORDS_ARE_HINTS": "糾正詞表（wg_friction）只是提示：使用者本人打的字命中時不直接計糾正，記成待判、UserPromptSubmit 問 AI"
                                   "「他是在糾正你嗎」；AI 在那一回合寫一行「糾正｜是：<理由>」→ 計一次；「糾正｜不是：<理由>」→ 不計"
@@ -1062,8 +1050,8 @@ RULES.update({
 RULES.update({
     "LAUNCHER_NOT_CODE": "worktree 根目錄的一次性 git 啟動器不算本 session 改的程式檔：放在版控根、沒進版控、整支只用 subprocess 跑 git"
                          "（第一個參數是 git 開頭的清單字面值，或 for 迴圈走過的這種清單），其他呼叫只准 print、exit、sys.exit、os.chdir，"
-                         "import 只准 subprocess／sys／os／pathlib／shlex。建、改、刪都不讓收據作廢、不欠案例、不數進第二意見門檻、"
-                         "不蓋到需求目標樹（判定 is_git_launcher_source、事實 wg_verify_ledger.note_git_launcher）；有一處不合就照算程式。"
+                         "import 只准 subprocess／sys／os／pathlib／shlex。建、改、刪都不讓收據作廢、不欠案例、不數進第二意見門檻"
+                         "（判定 is_git_launcher_source、事實 wg_verify_ledger.note_git_launcher）；有一處不合就照算程式。"
                          "啟動器跑的 git 改到的檔照 python 啟動器那套快照比對記帳。",
 })
 
@@ -1603,8 +1591,7 @@ def red_units_last_result(segments: Sequence[Tuple[str, bool]],
     return keep, drop, why
 
 
-# ─── 需求目標樹的完整對照：GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL／CASE_RED_THEN_GREEN ───
-# evidence 一筆＝(種類, 證據級, 收據紅不紅, 顯示字)；種類與證據級用 need_goal 的列舉值（receipt／case／file／atom、measured／read／inferred）
+# ─── 收據紅綠 ───
 
 def receipt_red(verdicts: Iterable[str], exit_code: Any) -> bool:
     """收據紅不紅：任一哨兵 FAIL（verdicts 是「名稱:結論」字串），或 exit 不是 0；沒記 exit 不算紅。"""
@@ -1616,47 +1603,7 @@ def receipt_green(verdicts: Iterable[str], exit_code: Any) -> bool:
     return any(str(v).upper().endswith(":PASS") for v in verdicts or ()) and not receipt_red(verdicts, exit_code)
 
 
-def _evidence_have(node: str, evidence: Sequence[Tuple[str, str, bool, str]]) -> str:
-    return f"{node} 現有證據：" + ("、".join(text + ("（紅）" if red else "") for _, _, red, text in evidence) or "沒有")
-
-
-def goal_done_evidence_verdict(node: str, code_tree: bool, evidence: Sequence[Tuple[str, str, bool, str]]) -> Verdict:
-    """GOAL_DONE_NEEDS_CASE_OR_RECEIPT：標「達成」的節點有沒有試過的證據（沒紅的收據，或讀碼級的驗證案例）。"""
-    rule = "GOAL_DONE_NEEDS_CASE_OR_RECEIPT"
-    if not code_tree:
-        return Verdict(rule, False, f"{node} 在記憶知識類的樹，不要求案例或收據")
-    tried = [text for kind, level, red, text in evidence
-             if (kind == "receipt" and not red) or (kind == "case" and level == "read")]
-    if tried:
-        return Verdict(rule, False, f"{node} 標「達成」有試過的證據", tuple(tried[:2]))
-    return Verdict(rule, True, f"{node} 標「達成」但沒指到試過的驗證案例或沒紅的收據（沒試過不算達成，做不到就標部分＋followup）",
-                   (_evidence_have(node, evidence), "要有：沒紅的收據 R<號>（實測）或驗證案例檔（讀碼）"))
-
-
-def goal_inferred_verdict(node: str, evidence: Sequence[Tuple[str, str, bool, str]]) -> Verdict:
-    """GOAL_INFERRED_MAX_PARTIAL：標「達成」的節點證據全是推論 → 擋。沒附證據不歸這條（另有「沒附證據」）。"""
-    rule = "GOAL_INFERRED_MAX_PARTIAL"
-    if evidence and all(level == "inferred" for _, level, _, _ in evidence):
-        return Verdict(rule, True, f"{node} 標「達成」但證據只有推論（推論最多標部分）", (_evidence_have(node, evidence),))
-    return Verdict(rule, False, f"{node} 的證據不是只有推論")
-
-
-def red_then_green(case_path: str, receipts: Sequence[Tuple[Any, Sequence[str], bool, bool]]) -> Optional[Tuple[Any, Any]]:
-    """CASE_RED_THEN_GREEN：receipts＝依時間排的 [(收據號, 點名的案例檔, 紅, 綠)]，案例檔是 case_files_in_cmd 帶 cwd 解出的
-    絕對正規化路徑（同名不同目錄不算同一個）；點名 case_path 的收據裡第一筆紅之後有綠 → (紅的號, 綠的號)；對不上回 None。"""
-    key = canon_path(case_path)
-    red = None
-    for seq, cases, is_red, is_green in receipts:
-        if key not in cases:
-            continue
-        if is_red and red is None:
-            red = seq
-        elif is_green and red is not None:
-            return red, seq
-    return None
-
-
-# ─── G0 綜觀：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES／EDITED_PART_NEEDS_GOAL_NODE ───
+# ─── G0 綜觀：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES ───
 
 _LABEL_NO = {**{c: 1 for c in "Aa1一甲Ａ１①"}, **{c: 2 for c in "Bb2二乙Ｂ２②"}, **{c: 3 for c in "Cc3三丙Ｃ３③"},
              **{c: 4 for c in "Dd4四丁Ｄ４④"}, **{c: 5 for c in "Ee5五戊Ｅ５⑤"}}
@@ -1841,24 +1788,6 @@ def locate_placeholder_verdict(vals: Dict[str, str]) -> Verdict:
     return Verdict(rule, True, "定位行還留著範例的角括號佔位（<…>），換成你對這一塊的判斷才算交", tuple(left))
 
 
-def edited_part_goal_verdict(parts: Sequence[Tuple[str, Sequence[str], str]]) -> Verdict:
-    """EDITED_PART_NEEDS_GOAL_NODE：parts＝[(部位, 改的檔, 掛的狀態)]，狀態 linked／none（沒交過定位第四行）／
-    dropped:<節點>（掛的節點已放棄）／gone:<節點>（節點不在目前的樹）。沒掛的一部位一行證據。"""
-    rule = "EDITED_PART_NEEDS_GOAL_NODE"
-    why_of = {"none": "沒交過定位第四行", "dropped": "掛的 {} 已放棄", "gone": "掛的 {} 不在目前的樹"}
-    rows: List[str] = []
-    for part, files, link in parts:
-        if link == "linked":
-            continue
-        kind, _, node = str(link).partition(":")
-        rows.append(f"{part}：{'、'.join(files)} 沒掛目標（{why_of.get(kind, kind).format(node)}）")
-    if not rows:
-        return Verdict(rule, False, "改到的寫碼部位都掛到目標節點")
-    return Verdict(rule, True, f"{len(rows)} 個改到的寫碼部位沒掛到目前目標樹裡活著的節點", tuple(rows))
-
-
-
-
 # ─── 提問（AskUserQuestion／ExitPlanMode 前）：附推薦、全貌先於拍板（wg_ask_gate 收事實、這裡判） ───
 
 RULES.update({
@@ -1945,38 +1874,6 @@ def ask_recommendation_fix(tool_input: Any, release_tag: str, release_labels: It
     return (f"照抄可過：把你推薦的選項排第一、label 後面加「 (Recommended)」，例如 "
             f'{{"label": "{label} (Recommended)", "description": "<一句理由>"}}；'
             f"或在題目文字加一句「建議：選 {label}，因為 <一句理由>。」每一題都要。")
-
-
-# ─── 記憶知識類的輕樹（(f4)；wg_need_goal.knowledge_gate_reason 收事實、這裡判）────────────────────────
-
-RULES.update({
-    "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE": "本使用者回合在還沒有任何需求目標樹時改了記憶知識類的檔（不是程式檔、不是暫存檔；寫入當下只記 untreed 與"
-                                       "守門紀錄 knowledge_no_tree，不送「寫一棵輕樹」的催促）→ 回合結束要補一棵輕樹（一個節點即可，之前改的檔寫樹時自動掛進去）。不看措辭；"
-                                       "屬記憶與報告類：併進收尾報告那一份擋，本回合第 3 次放行並記 reconcile_overflow，不問使用者。",
-    "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY": "交付邊界（宣告完成、本回合交了收尾檢核、擋滿待查的原宣稱）時，目前的樹是記憶知識類，而且最後一次"
-                                            "對得上目標版本的完整對照之後還有改檔（沒對照過＝全部改檔）→ 要交 need_goal reconcile；達成不要求"
-                                            "案例或收據，推論最多標部分。樹上沒有改檔（純問答）不要求；寫碼類樹歸 (f2)。同屬記憶與報告類。",
-})
-
-
-def knowledge_light_tree_verdict(untreed: Sequence[str]) -> Verdict:
-    """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE：untreed＝本使用者回合、還沒有目標樹時改的記憶知識類檔（寫樹時會清空並掛進樹）。"""
-    rule = "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE"
-    if not untreed:
-        return Verdict(rule, False, "本回合沒有在沒樹時改記憶知識類的檔")
-    return Verdict(rule, True, f"本回合改了 {len(untreed)} 個記憶知識類的檔，但還沒有需求目標樹", tuple(untreed[:5]))
-
-
-def knowledge_reconcile_verdict(kind: Optional[str], edited: Sequence[str], tree_id: str = "") -> Verdict:
-    """KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：kind＝這棵樹的類別（沒有樹 None）；edited＝最後一次對得上目標版本的完整對照之後
-    改過的檔（沒對照過或對照已作廢＝這棵樹全部改檔）；tree_id 只用來寫進訊息。只在交付邊界問。"""
-    rule = "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"
-    name = f"記憶知識類的樹{(' ' + tree_id) if tree_id else ''}"
-    if kind != "knowledge":
-        return Verdict(rule, False, "這棵樹是寫碼類，交付前的完整對照歸 (f2)" if kind else "沒有目標樹")
-    if not edited:
-        return Verdict(rule, False, f"{name}在最後一次完整對照之後沒有改檔")
-    return Verdict(rule, True, f"{name}在最後一次完整對照之後改了 {len(edited)} 個檔，還沒交收尾對照", tuple(edited[:5]))
 
 
 _CJK ="㐀-鿿豈-﫿"
@@ -2171,8 +2068,7 @@ RULES.update({
                              "中段寫過的宣稱行最後一則不必重寫）要有一行"
                              "「宣稱｜<修好|量了|試過>：收據 <指令片段或哨兵名>」或「宣稱｜<…>：非本回合宣稱，因為 <理由>」："
                              "沒這行 → 照原規則擋並附寫法；「非本回合宣稱」附理由 → 放行、留帳（guard-reconcile.jsonl event=claim_disclaimed，"
-                             "健檢抽查）；「收據」→ 走 CLAIM_RECEIPT_REF_MATCH。結構化的達成＋證據（need_goal 完整對照）仍是寫碼類的正式宣告，"
-                             "宣稱行只處理散文裡的詞。",
+                             "健檢抽查）；「收據」→ 走 CLAIM_RECEIPT_REF_MATCH。",
     "CLAIM_CONDITIONAL_NOT_CLAIM": "(a)(b)(c) 判宣稱時，講以後的條件句不算：如果／假如／要是／一旦／等到／若（若干除外）…<動詞>、緊貼的「等<動詞>」、"
                                    "<動詞>之後／以後…再／一起／才／就／會／要（子句後段有「了／過」＝已經發生，照算宣稱）；宣稱行（宣稱｜…）"
                                    "本身是對閘的回答，整行先拿掉再判。樣式在 memory/_meta/forbidden-phrases.json 三類宣稱的 exclude_patterns"
@@ -2792,7 +2688,7 @@ def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[st
 # ─── 動資料檔 ───
 RULES.update({
     "USER_DATA_FILE_NEEDS_DECLARATION": "Edit／Write／NotebookEdit 動到使用者既有的資料檔或設定檔要先問或先宣告。四件事實全成立才管："
-                                        "(a) 不是程式檔（wg_code_path.writes_code 為 False）且副檔名在 guard.data_file_ask.extensions，"
+                                        "(a) 不是程式檔（wg_code_path.is_code_path 為 False）且副檔名在 guard.data_file_ask.extensions，"
                                         "清單只決定程式要不要把它當資料檔問，該不該改仍是 AI 判；(b) 呼叫前檔已存在；(c) 不是本 session Write 新建的"
                                         "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
                                         "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
@@ -2872,12 +2768,12 @@ RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但�
                                           "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
                                           "裡另有沒被否定的提及照算點名（prompt_names_file）。")
 RULES["DECL_HINT_KEEPS_EDIT_TOOLS"] = ("擋 Edit／Write 要先交宣告行的閘（改資料檔宣告 wg_data_file._judge／data_file_hint、改舊測試宣告 "
-                                       "wg_oldtest.hint、定位與最小地圖 wg_overview、立樹 wg_need_goal），擋訊息與提示只教一條路、而且是零模型回合的那條："
+                                       "wg_oldtest.hint、定位與最小地圖 wg_overview），擋訊息與提示只教一條路、而且是零模型回合的那條："
                                        "同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`）、宣告行放它開頭的 `#` 註解（DECL_VIA_COMMENT），"
                                        "接著就可以改檔；範例寫成能照抄的樣子（`# 定位｜…` 幾行加一行 `git diff --stat`）。原因要講：同一則裡"
-                                       "接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫。其他管道（早一則只有文字的回覆、"
-                                       "need_goal set／update 的 locate 欄與 data_files）程式照認、不出現在擋訊息與提示裡，只在這張規則表與 TECH.md 講："
-                                       "009 實跑擋訊息同時教三條路，AI 挑了最貴的（ToolSearch 載工具、need_goal update 被拒、read、再 update）多 4 個模型回合。"
+                                       "接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫。其他管道（早一則只有文字的回覆）"
+                                       "程式照認、不出現在擋訊息與提示裡，只在這張規則表與 TECH.md 講："
+                                       "擋訊息同時教好幾條路時 AI 會挑最貴的那條，多出模型回合。"
                                        "共用句 DECL_WHERE（整句）／DECL_WHERE_SHORT（一行提示用）。並寫明宣告完照常用 "
                                        "Edit／Write 改、不要改用 Bash／PowerShell 寫檔（DECL_KEEP_EDIT：指令寫的檔常判不出目標，"
                                        "modified_files 漏記，對帳、第二意見、同步提醒都看不到）。不准出現「或寫成 Bash 指令開頭的 # 註解」"
@@ -2988,92 +2884,6 @@ def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Seque
         named = "、".join(dict.fromkeys(d[0] for d in decls))[:120]
         return Verdict(rule, True, f"宣告行的路徑對不上這次要改的檔：宣告的是 {named}，要改的是 {rel}", tuple(ev))
     return Verdict(rule, True, f"要改使用者既有的資料檔 {rel}，沒先問也沒宣告", tuple(ev))
-# ─── origin 核對 ───
-# 目標樹子節點標「使用者說的」要對得到原話（wg_need_goal 的 add／update 收事實、這裡判）。只核字面在不在、是誰說的；
-# 要不要標、引哪一句由 AI 判（引一句不相干的原話硬掛，程式看不出來：quote 與節點文字並列留帳給人抽查）
-RULES.update({
-    "ORIGIN_USER_NEEDS_QUOTE": "目標樹子節點標 origin=user（使用者說的）：quote 或節點文字本身（去頭尾空白、不正規化標點）"
-                               "要是樹上某則使用者原話（user_said，含匯入的前一個 session 原話）的字面子串，至少 6 字；不到 6 字要是某則原話"
-                               "的整句（前後是句首、句末標點或換行，逗號不算句界；去掉句末標點至少 2 個字；引用自帶句末標點時要跟原話"
-                               "那個標點一樣）；對不到、或只出現在同伴轉述"
-                               "（peer_said）裡 → 強制改 inferred（推出來的）並提醒。樹根與匯入的節點不核。",
-    "ORIGIN_SAID_INCLUDES_UNATTACHED": "origin 核對的原話來源包含本 session 還沒掛上任何樹的使用者原話（樹已結束時收的、doc said_log "
-                                       "attached=false）：樹對照完結束後使用者再糾正，那則原話要等樹重開才掛回去，而重開排在同一次 update "
-                                       "的核對之後；不看它的話逐字引用也會被降成推出來的。",
-})
-ORIGIN_QUOTE_MIN = 6
-_SENTENCE_END = "。！？!?；;\n"
-_SENTENCE_TAIL_RE = lazy_re(r"[。！？!?；;\s]+$")
-
-
-def _said_with(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
-    return next((e for e in entries or () if isinstance(e, dict) and s in str(e.get("text") or "")), None)
-
-
-def _said_whole(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
-    """不到 ORIGIN_QUOTE_MIN 字的引用要是某則原話的整句：去掉尾端句末標點後至少 2 個字，在原話裡左邊是開頭或句末標點、
-    右邊是句末標點或結尾（逗號不算句界：「好，」「有測試」這種片段不算）。"""
-    core = _SENTENCE_TAIL_RE.sub("", s)
-    tail = _WS_RE.sub("", s[len(core):])           # 引用自帶的句末標點要跟原話一樣（「要有測試。」對不到「要有測試？」）
-    if len(re.sub(r"[\W_]", "", core)) < 2:
-        return None
-    for e in entries or ():
-        text = str(e.get("text") or "") if isinstance(e, dict) else ""
-        at = text.find(core)
-        while at >= 0:
-            left, right = text[:at].rstrip(" \t"), text[at + len(core):].lstrip(" \t")
-            if (not left or left[-1] in _SENTENCE_END) and (right.startswith(tail) if tail else (not right or right[0] in _SENTENCE_END)):
-                return e
-            at = text.find(core, at + 1)
-    return None
-
-
-def _said_quote(s: str, entries: Sequence[Any]) -> Optional[Dict[str, Any]]:
-    """ORIGIN_USER_NEEDS_QUOTE 的比法：至少 6 字比字面子串，不到 6 字比整句。"""
-    if not s:
-        return None
-    return _said_with(s, entries) if len(s) >= ORIGIN_QUOTE_MIN else _said_whole(s, entries)
-
-
-def origin_user_verdict(text: Any, quote: Any, user_said: Sequence[Any],
-                        peer_said: Sequence[Any] = ()) -> Tuple[str, Verdict, Optional[Dict[str, Any]]]:
-    """ORIGIN_USER_NEEDS_QUOTE：回 (origin, Verdict, 對上的 {"quote": 對上的字串, "said": 那則原話})；對不到第三項是 None、
-    owed＝要降級成 inferred。先核 quote、再核節點文字；兩個都對不到時，原因以 quote（有給的話）為準。"""
-    rule = "ORIGIN_USER_NEEDS_QUOTE"
-    q = quote.strip() if isinstance(quote, str) else ""
-    t = text.strip() if isinstance(text, str) else ""
-    for s, how in ((q, "quote"), (t, "節點文字")):
-        hit = _said_quote(s, user_said)
-        if hit is not None:
-            return ("user", Verdict(rule, False, f"{how}對得到第 {hit.get('turn', '?')} 回合的使用者原話", (f"引用：{s[:120]}",)),
-                    {"quote": s, "said": hit})
-    s = q or t
-    peer = _said_quote(s, peer_said)
-    if peer is not None:
-        why = f"這句是同伴 {peer.get('from') or '?'} 說的，不是使用者"
-    elif q and len(q) < ORIGIN_QUOTE_MIN:
-        why = f"quote 只有 {len(q)} 字：至少要 {ORIGIN_QUOTE_MIN} 字，或是某則使用者原話的整句"
-    elif q:
-        why = "quote 不在任何一則使用者原話裡"
-    elif len(t) < ORIGIN_QUOTE_MIN:
-        why = f"沒給 quote，節點文字只有 {len(t)} 字（不到 {ORIGIN_QUOTE_MIN} 字不拿來比）"
-    else:
-        why = "沒給 quote，節點文字也不是使用者原話的字面子句"
-    return "inferred", Verdict(rule, True, why, (f"節點文字：{t[:120]}", f"quote：{q[:120] or '（沒給）'}")), None
-
-
-_ROOT_SPLIT_RE = lazy_re("[。；，、]|" + chr(0x2014) * 2)   # 第二支是雙破折號（本檔不准出現破折號字面）
-
-
-def root_unquoted_sentences(text: Any, user_said: Sequence[Any]) -> List[str]:
-    """ORIGIN_USER_NEEDS_QUOTE 的樹根版：樹根依契約是 AI 對原話的解讀（不改 origin）。切句（。；，、雙破折號）後至少 6 字的句子，
-    逐句看是不是某則使用者原話的字面子串；回對不到的句子（保序、去重），給提醒列出「這幾句原話裡沒有」。"""
-    out: List[str] = []
-    for s in _ROOT_SPLIT_RE.split(text if isinstance(text, str) else ""):
-        s = s.strip()
-        if len(s) >= ORIGIN_QUOTE_MIN and s not in out and _said_with(s, user_said) is None:
-            out.append(s)
-    return out
 # ─── 改舊測試 ───
 RULES.update({
     "OLD_TEST_CHANGE_NEEDS_DECLARATION": "Edit／MultiEdit／Write 動到測試檔裡既有的測試函式（消失、改名、同名測試的斷言行被刪或改，只加新斷言不算；"
@@ -3185,7 +2995,7 @@ def old_test_change_verdict(path: str, changes: Sequence[Dict[str, str]], decls:
 # ─── 閘小修 006 追蹤帳本同一件 ───
 RULES.update({
     "TRACKING_SAME_ITEM_NOT_REWRITTEN": "追蹤帳本唯一寫入口 wg_harvest.append_tracking：open 列寫進去前，對帳上（含同一批較早的列）部位相容"
-                                        "（相同或一邊沒寫）的未結項：① AI 在那行寫了「｜同追蹤項：<那筆裡連續至少 8 字>」（k 欄、need_goal followup "
+                                        "（相同或一邊沒寫）的未結項：① AI 在那行寫了「｜同追蹤項：<那筆裡連續至少 8 字>」（k 欄"
                                         "行尾；PickOne 多一行「同追蹤項：」）而去標點空白後恰好是一筆的一段 → 換成新說法（新列帶 supersedes、"
                                         "同時寫結案列關掉舊的）；對不到或對到多筆 → 不合併、照記、stderr。② 沒宣告但跟某筆部位相同（嚴格相等）、原文相同"
                                         "（不分 session）→ 不重記、stderr，PickOne 記 repeat；字面相近（只差括號註、開頭相同）程式不併，併錯會吞掉一件。"
@@ -3262,8 +3072,8 @@ RULES.update({
                                      "（這條指令裡、或擋下之後的回覆文字／工具參數／thinking）；沒有就擋，有就放行並留帳"
                                      "（guard-gate_bypass.jsonl declared，含理由全文）、同一組被點名的檔不再問。重掃無病＝病修掉了，清帳不問。"
                                      "是不是繞閘 AI 判，程式只核對序列事實與宣告行在不在；事實由 hooks/wg_gate_bypass.py 收。",
-    "ATOM_BYPASS_HOWTO_REFUSED": "atom 內容同時 ① 提到 Guardian 的閘（[Guardian: 標籤、SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder／"
-                                 "NeedGoal、本表規則名）② 含改暫存區或改提交範圍的做法字樣（guard.gate_bypass.staging_words）→ 拒寫："
+    "ATOM_BYPASS_HOWTO_REFUSED": "atom 內容同時 ① 提到 Guardian 的閘（[Guardian: 標籤、SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder、"
+                                 "本表規則名）② 含改暫存區或改提交範圍的做法字樣（guard.gate_bypass.staging_words）→ 拒寫："
                                  "閘誤擋要修判定（加規則＋紅案例），不寫繞法。只命中一個不拒（記閘的機制、記 git 指令用法照寫）。"
                                  "AI 判斷這張卡不是在教繞法（寫的是禁止怎麼繞、在分析誤擋）→ 知識段第一行寫「不是教繞閘｜<理由>」，"
                                  "理由有文字內容、不是佔位就寫入並留帳（guard-gate_bypass.jsonl atom_declared）；程式不評理由。"
@@ -3831,7 +3641,7 @@ RULES.update({
 RULES.update({
     "CHAIN_HEADLESS_KEEPS_DATA_GATES": "沒人能答（無頭、子代理）時連鎖斷路器警報之後，會改使用者資料的閘照擋（含讓警報響的那一次），其餘閘照舊只記錄。"
                                        "哪幾道與理由見 hooks/wg_chain.py 的 RULES 同名條與 KEEP_BLOCKING（判定 keeps_blocking）。",
-    "SHELL_READ_COUNTS_LIKE_READ": "唯讀 Bash／PowerShell 讀檔跟 Read 同效（定位閘的讀過部位檔、需求目標的讀入範圍共用 wg_overview.read_targets）："
+    "SHELL_READ_COUNTS_LIKE_READ": "唯讀 Bash／PowerShell 讀檔跟 Read 同效（定位閘的讀過部位檔用 wg_overview.read_targets）："
                                    "一條指令讀好幾個檔、第一次碰到部位時，注入導讀卡之後的檔照記（跟送幾個 Read 一樣）；MSYS 寫法 /c/x 當 C:/x"
                                    "（跟寫檔判定 wg_core._write_target_abs 同一個檔）；會印出命中行的 grep 不帶 -n 也算（只印檔名、筆數或不印的 -l、-L、-c、-q 帶了 -n 也不算）；"
                                    "開頭 `cd <目錄> &&` 之後的相對路徑照那個目錄補（中間的 cd 不追）。其餘照 BASH_READONLY_COUNTS_AS_READ。",
@@ -3843,7 +3653,7 @@ RULES.update({
                                   "（__pycache__、.pytest_cache）判成暫存的不是專案，不印。",
 })
 RULES.update({
-    "CHAIN_NO_EDIT_NO_EDGE": "連鎖斷路器：兩次擋之間的動作都沒改到檔（重跑、沒寫入目標的指令、重交報告、改目標樹）不算修補，同一道閘不接邊、"
+    "CHAIN_NO_EDIT_NO_EDGE": "連鎖斷路器：兩次擋之間的動作都沒改到檔（重跑、沒寫入目標的指令、重交報告）不算修補，同一道閘不接邊、"
                              "不算同閘次數。判定與「改到檔」的清單見 hooks/wg_chain.py 的 RULES 同名條（changes_files）。",
     "CHAIN_ABORT_SHOWS_REPLACED_BLOCK": "連鎖斷路器警報在哪一次響，那道閘原本的擋訊息（含附註）照附在取代它的中止通知或停手訊息最後（截長留開頭）。"
                                         "見 hooks/wg_chain.py 的 RULES 同名條（notice_text／halt_text 的 replaced）。",
@@ -3865,28 +3675,13 @@ RULES.update({
 RULES.update({
     "INJECT_TRIGGER_READ_COUNTED": "觸發導讀卡注入的那次讀就是真讀：Read 或唯讀 Bash／PowerShell 第一次讀到某部位，觸發注入的那個檔本身"
                                    "也記進讀過部位檔（part_files_read、reads_after），一條指令讀到的同部位其他檔照 SHELL_READ_COUNTS_LIKE_READ"
-                                   "全記；改檔前才補注入（on_edit）沒有讀檔，不記。「看過全貌才改」靠注入後還要交的定位四行守。",
-})
-
-
-# ─── 需求目標提示減量：三種情況一次全文、提示附樹一行（送法在 hooks/wg_need_goal.py，這裡只登錄規則名與說明） ───
-RULES.update({
-    "CRITIQUE_CASES_ONCE_PER_SESSION": "「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了重看）與導讀卡附樹的定位第五行提示"
-                                       "帶的三種情況（wg_need_goal.CRITIQUE_CASES）每個 session 送一次全文，之後換成一句指回"
-                                       "（CRITIQUE_CASES_POINTER）；兩問與定位第五行格式照送。已送記在目標檔 critique_sent"
-                                       "（wg_need_goal.critique_mark／critique_once；還沒有目標檔就照送全文、不建檔；讀寫失敗照送全文），"
-                                       "壓縮後重送目標樹時清掉（wg_need_goal_points.recovery_text 呼叫 forget_reminders），下一則再送一次全文。"
-                                       "設定 coding_guard.slim_reminders=false 退回每則全文。",
-    "TREE_LINE_IN_HINTS": "need_goal 以外的 hook 提示（導讀卡附樹、目標視角重看、讀入範圍、糾正、外部主張、每則訊息、交付對照）附的目標樹"
-                          "只一行當前節點（wg_need_goal.brief_line；沒有子節點就是樹根自己）；樹根與整棵樹只在 need_goal "
-                          "set／add／update／reconcile 的回覆送（TREE_ONCE_PER_CALL）。壓縮後重送照附樹根一行＋當前節點"
-                          "（recovery_blob，context 裡已沒有寫入回覆的樹）。設定 coding_guard.slim_reminders=false 退回每則附樹根一行。",
+                                   "全記；改檔前才補注入（on_edit）沒有讀檔，不記。「看過全貌才改」靠注入後還要交的定位三行守。",
 })
 
 
 # ─── 寫碼回合的記憶注入只送該到的（判定在 hooks/handlers/ups_inject.assemble_injection，這裡只登錄規則名與說明） ───
 RULES.update({
-    "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、而且這個使用者回合已經改過程式檔或宣告了寫碼樹：wg_core.coding_turn，"
+    "CODING_TURN_FULL_ONLY_ON_TRIGGER": "寫碼回合（守門總開關開、而且這個使用者回合已經改過程式檔：wg_core.coding_turn，"
                                         "ups_inject._lean_turn 看它；prompt 關鍵字判成的寫碼意圖不算，所以使用者打字開的第一則永遠不瘦身、"
                                         "同回合排隊進來的後續 prompt 在改過碼之後才瘦身）記憶卡只有 trigger 命中的給整段"
                                         "（含原有的同題節錄、塞不下時的印象節錄）；bm25／vector／related 命中的不看 hot／cold 一律走 cold 一行"
@@ -3902,7 +3697,7 @@ RULES.update({
 })
 
 
-# ─── 定位閘每個使用者回合最多擋一次、thinking 那條路講死、目標視角重看只一行（判定在 hooks/wg_overview.py，這裡只登錄） ───
+# ─── 定位閘每個使用者回合最多擋一次、thinking 那條路講死（判定在 hooks/wg_overview.py，這裡只登錄） ───
 RULES.update({
     "LOCATE_BLOCK_ONCE_PER_USER_TURN": "同一個使用者回合（user_turn：使用者本人打字開的回合，同伴訊息、背景通知續跑不算新回合）定位閘已經擋過"
                                        "某個部位之後，別的部位只缺定位行 → 一行提醒、放行、留帳（_overview-hub.log event=edit_locate_reminded）；"
@@ -3911,8 +3706,6 @@ RULES.update({
                                        "（LOCATE_FIRST_EDIT_BLOCKS_ONCE：每部位第一次改的那個使用者回合）之後的擋；第一輪的擋不記進 overview_locate_blocked。",
     "LOCATE_NOT_IN_THINKING": "缺定位行的擋訊息明說 thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，要放"
                               "同一則先發的不寫檔指令開頭的 # 註解（DECL_WHERE；wg_overview._locate_ask 的 where；只教這一條路，DECL_HINT_KEEPS_EDIT_TOOLS）。",
-    "GOAL_VIEW_ONE_LINE": "目標視角重看（目標改了之後已碰過的部位再讀到，第一次 need_goal set 也算）只送一行：目標視角提問＋當前節點"
-                          "（wg_need_goal_points.goal_view_text 併成一行），不重貼導讀卡、定位範本與部位表原文（wg_overview._goal_view）。",
 })
 
 
@@ -3922,22 +3715,16 @@ RULES.update({
                       "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認），判準卡名由接卡處接在後面；"
                       "共用組裝 slim_deny，採用的閘交規則名與一句修法（動資料檔閘：data_file_fix）。寫 false 退回各閘原本的長文字（原處不動）。",
     "CARD_FULL_ONCE_PER_SESSION": "判準卡一個 session 每張最多送一次全文（entrypoint.card_once_per_session，預設開；hooks/wg_entrypoint）："
-                                  "之後換回合、換目標樹都只併成一行「判準卡：<卡名>、…」，不印「這個話題前面已送過全文」；"
+                                  "之後換回合也只併成一行「判準卡：<卡名>、…」，不印「這個話題前面已送過全文」；"
                                   "同一個切入點這個 session 拿過卡，再被問就不往下送新卡、帳上不記截斷；同一則認出好幾個切入點、額度被平分到比單一額度小時，截斷送出的卡不算送過、被截的切入點不算拿過卡（下次單獨被問照送）。壓縮前清掉紀錄（之後重送）、"
                                   "子代理開工句照送全文也不佔主對話；寫 false 退回 CARD_ONCE_PER_TOPIC。",
     "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
                            "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
                            "子代理讀的不提示），讓第一次改就帶宣告。提示只教「放同一則先發的不寫檔指令開頭的 `#` 註解」一條路"
-                           "（DECL_HINT_KEEPS_EDIT_TOOLS）；早一則的回覆文字、need_goal set／update 的 data_files 程式照認，訊息不提。"
+                           "（DECL_HINT_KEEPS_EDIT_TOOLS）；早一則的回覆文字程式照認，訊息不提。"
                            "這個 session 沒改過程式檔（wg_data_file.coding_session）閘不會問，"
                            "也就不提示。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：閘會問的沒宣告照擋。",
-})
-RULES.update({
-    "LOCATE_EXAMPLE_ONCE_PER_SESSION": "有目標樹時缺定位行的擋訊息（LOCATE_ASK_ONCE 那條完整範例）每個 session 只給一次完整範例：擋訊息精簡"
-                                       "（guard.deny_text_slim）開、本 session 已送過（state overview_locate_example_sent）→ 那一條換成短句"
-                                       "（wg_overview.LOCATE_EXAMPLE_AGAIN：四行格式同第一則、放同一則先發的不寫檔指令開頭的 # 註解、thinking 讀不到）；"
-                                       "缺件清單照原文比（擋次上限、同批短訊息不因換字重新計次）；精簡關掉每則照給完整範例。",
 })
 RULES.update({
     "CARD_READ_WITH_EDIT_FILES": "指標制送卡時，指標行（lib/overview_hub._pointer_body）與讀卡缺件行（wg_overview._card_unread_line）"
@@ -3951,11 +3738,11 @@ RULES.update({
                                 "指紋（修改時間、大小，只 stat 不起 git），變了就照收尾那套交背景量（量測中又改了先記 pending、同一批不重量）；"
                                 "量完的結果先存著（wg_reading_path.early_start、EARLY_NOTE），由收尾前的附著點或 Stop 送一次，"
                                 "Stop 收到新的一批就只送新的。開關 reading_path.early_start（缺＝開）；關了照舊在收尾起跑。",
-    "TURN_JUDGMENT_PRE_CLOSE": "交收尾檢核（anti_evasion_report）或完整對照（need_goal action=reconcile）那批＝收尾前最後一個工具回應：先存著的拐彎判斷結果（到門檻的條目＋那一題）"
+    "TURN_JUDGMENT_PRE_CLOSE": "交收尾檢核（anti_evasion_report）或知識收割回報（knowledge_harvest_report）那批＝收尾前最後一個工具回應：先存著的拐彎判斷結果（到門檻的條目＋那一題）"
                                "附在那批的回應後面（wg_closing_round.turn_judgment_pre_close），取走後 Stop 不再送；還有一批在量（量完前又改了碼）"
                                "就不附，留給 Stop。欠項照舊由 Stop 的 TURN_JUDGMENT_REQUIRED 核對收尾文字（不放寬、不改擋次）。",
     "PICK_ONE_PRE_CLOSE": "交付邊界那批就附「順手看到最該修」：本 session 改過程式之後測試跑綠的那批（post_tool_batch.closing_reminders 判綠，與其他收尾提醒"
-                          "同一條路；guard-pick_one via=test_green），或交收尾檢核／完整對照（need_goal reconcile）那批（via=pre_close）。該問的判法同 Stop"
+                          "同一條路；guard-pick_one via=test_green），或交收尾檢核／知識收割回報那批（via=pre_close）。該問的判法同 Stop"
                           "（上次問過或記過之後又改了程式、這個使用者回合還沒問過，連鎖警報後只記錄時不送），問句與記問過同一段（wg_harvest.pick_ask）；"
                           "Stop 的 pick_due 看到問過就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；沒跑測試也沒交收尾檢核就收尾、"
                           "或開關關 → 照舊由 Stop 判（寫碼守門下只留帳）。",
@@ -3985,36 +3772,22 @@ def second_opinion_hint_background() -> str:
     return second_opinion_hint().replace(SO_RESULT_WAITS, SO_BACKGROUND_WAITS)
 
 
-# ─── 收尾三段一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、handlers/stop.py 目標對照段、wg_closing_round.closing_call，這裡只登錄規則名與說明） ───
+# ─── 收尾一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、wg_closing_round.closing_call，這裡只登錄規則名與說明） ───
 RULES.update({
-    "CLOSING_RECONCILE_IN_REPORT": "收尾檢核（anti_evasion_report）可帶 reconcile 欄＝need_goal action=reconcile 的 {items, turns?}：MCP 端同一套驗法、"
-                                   "PostToolUse 交給同一個入口 wg_need_goal.apply_op（同一套判法、同一段回覆、同樣記進目標檔，報告記 reconcile="
-                                   "applied／rejected／off／error），先套用再附樹給 HUD。跟 harvest_items（CLOSING_REPORT_ONE_CALL）一起交＝收尾三段"
-                                   "一次交齊，Stop 不再要求另呼叫 need_goal reconcile、knowledge_harvest_report；套不上只少這段，收尾檢核照收，"
-                                   "回覆寫明只要補交對照。分開交的舊走法照收。總開關關時不驗、不套用。",
-    "CLOSING_MISSING_PART_HINT": "收尾段的擋訊息寫明缺哪段、怎麼補，跟工具說明同一個說法：(f2) 擋下時本回合交過收尾檢核 → 只補 need_goal reconcile、"
-                                 "收尾檢核不重交；還沒交 → 目標對照放進收尾檢核的 reconcile 欄一次交。收尾檢核閘擋訊息與「後面還會擋」預覽"
-                                 "（收尾檢核、知識收割兩列）都寫一次交齊的走法。判定不變。",
-    "CLOSING_GOAL_CODING_ONLY": "目標對照的 (f2) 完整對照與 (f3) 改到的部位掛目標只在寫碼回合判（stop.py 的 _coding：本回合改了程式或宣告了寫碼樹，"
-                                "或前幾回合改過程式、這則宣告完成或本回合交了收尾檢核）；不是寫碼回合（例：續接單匯入的舊樹、本 session 沒改程式）宣告完成不要求。"
-                                "(f1) 記進度、(f4) 記憶知識類輕樹照舊。",
-    "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點、第二意見接縫都靠它）認三支：收尾檢核（一次交齊時三段都在裡面）、"
-                              "need_goal action=reconcile、knowledge_harvest_report；任一支所在的那批就是收尾前最後一個工具回應。",
+    "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點、第二意見接縫都靠它）認兩支：收尾檢核（一次交齊時知識收割也在裡面）、"
+                              "knowledge_harvest_report；任一支所在的那批就是收尾前最後一個工具回應。",
 })
 
 
-# ─── 定位與立樹先提示後擋（提示在 hooks/wg_overview._locate_read_hint；立樹判式 wg_need_goal.tree_owed_for_edit 與 edit_gate 共用） ───
+# ─── 定位先提示後擋（提示在 hooks/wg_overview._locate_read_hint） ───
 RULES.update({
     "LOCATE_HINT_ON_FIRST_READ": "讀檔時注入導讀卡的部位，本 session 第一次讀到它的程式檔（Read／唯讀 Bash／PowerShell／Grep，PostToolUse 的"
-                                 "讀檔結果，不掛在改檔的 PreToolUse）→ 附一行：還沒有目標樹就先 need_goal set（判式與 edit_gate 同一支"
-                                 "_edit_gate_applies＋目前的樹），交定位四行（根因層兩候選＋選擇理由、批判先下判斷；need_goal 關＝三行，"
-                                 "同缺定位擋訊息 LOCATE_ASK_ONCE），放同一則先發的不寫檔指令開頭的 # 註解、thinking 讀不到"
-                                 "（DECL_HINT_KEEPS_EDIT_TOOLS 的 DECL_WHERE；只教這一條路，need_goal 的 locate 欄與早一則的回覆文字程式照認、訊息不提）；"
-                                 "立樹與定位併成同一行。一部位一 session 一次，第二個部位起只點名、說格式同前；"
+                                 "讀檔結果，不掛在改檔的 PreToolUse）→ 附一行：交定位三行（同缺定位擋訊息），放同一則先發的不寫檔指令開頭的 # 註解、"
+                                 "thinking 讀不到（DECL_HINT_KEEPS_EDIT_TOOLS 的 DECL_WHERE；只教這一條路，早一則的回覆文字程式照認、訊息不提）。"
+                                 "一部位一 session 一次，第二個部位起只點名、說格式同前；"
                                  "改檔時才補注入的部位、已交過定位、非程式檔、子代理讀的、寫碼守門總開關關都不送；沒有改程式的意圖（既不是寫碼回合 wg_core.coding_turn，"
                                  "這則 prompt 的關鍵字也沒判成寫碼類 wg_core.CODE_INTENTS；提示要趕在第一次改檔前到，所以關鍵字意圖算數）不送、也不消耗一部位一次的額度（locate_hint 留在 due，之後成了寫碼回合再讀到照送）。"
-                                 "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT、"
-                                 "要立樹時 CODE_EDIT_NEEDS_GOAL_TREE），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
+                                 "判定不動；送過就算提醒過（記進 remind_sent：LOCATE_BEFORE_EDIT），之後沒照做不擋、也不再提醒（GATE_MODE_TABLE）。",
 })
 
 
@@ -4075,11 +3848,9 @@ RULES.update({
                                   "（RELEASE_COVERS_SHOWN_ITEMS）、不做行記 testfail_waivers（USER_WAIVER_NEEDS_CITATION）、收尾寫的負向對照宣告把那筆搬到"
                                   " deliberate_reds（NEGATIVE_CONTROL_DECLARED 收尾入口）。同一條指令跑了不只一次測試的紅在記帳時就定案（RED_LAST_RESULT_IN_COMMAND），"
                                   "不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
-    "CODE_EDIT_NEEDS_GOAL_TREE": "改程式檔時這個需求還沒有目標樹（wg_need_goal.edit_gate）：寫碼守門開時提醒一行 need_goal set，不擋。",
     "OVERVIEW_CARD_BEFORE_EDIT": "改某部位的檔時本 session 還沒看過這個部位的導讀卡（wg_overview.on_edit 的 not_injected）：提醒、卡隨改檔結果送到。",
     "OVERVIEW_CARD_MISSING": "部位表列了導讀卡、卡檔卻找不到（wg_overview.on_edit 的 card_missing）：提醒列出找過哪裡。",
     "OVERVIEW_PART_FILES_READ": "改某部位的檔前要讀過這個部位的檔與卡指到的檔（min_overview_evidence，wg_overview.on_edit 的 evidence）：提醒、不擋。",
-    "COMMIT_GOAL_RECONCILED": "commit 前目前寫碼類樹的完整對照 (f2) 與改到的部位掛目標 (f3)（wg_need_goal.commit_gate）：提醒、不擋。",
     "DEFERRAL_OF_DOABLE_WORK": "主任務完工、context 還夠，收尾把帶受詞、可做的事推給下個 session／獨立議題／非我造成（wg_evasion.deferral_gate_reason）。",
     "HARVEST_AT_PHASE_DONE": "階段完工要交知識收割清單（wg_harvest.harvest_gate_reason；背景收割開著就交背景）。",
     "HARVEST_ITEM_NEEDS_RECEIPT": "收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。",
@@ -4095,17 +3866,17 @@ RULES.update({
                               "同一條規則同一個對象同一個 session 只提醒一次（remind_due）。",
     "GATE_MODE_TABLE": "寫碼守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘寫碼守門是 remind；"
                        "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
-    "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer／locate_content 缺件）：寫碼守門開時提醒一行、不擋；"
+    "LOCATE_BEFORE_EDIT": "改某部位的程式檔前要交定位行（wg_overview.on_edit 的 evidence／wrong_layer 缺件）：寫碼守門開時提醒一行、不擋；"
                           "第一次讀到該部位程式檔的讀檔結果（LOCATE_HINT_ON_FIRST_READ）送過就算提醒過，之後沒交不再提醒也不擋；"
                           "唯一例外：每部位本 session 第一次改程式檔的那個使用者回合、定位沒交齊 → 整輪照擋（LOCATE_FIRST_EDIT_BLOCKS_ONCE）。",
     "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋、不注入（wg_overview.on_edit 的 readonly）。",
     "OVERVIEW_HUB_UNDER_V6": "OverviewHub 整道（導讀卡注入、候選前 N、讀檔記錄、定位）綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，"
                              "不注入、不記、不擋；同事預設關寫碼守門就完全不會收到導讀卡。",
     "LOCATE_FIRST_EDIT_BLOCKS_ONCE": "定位閘在提醒模式下的例外（使用者裁「第一次改檔前沒先說清楚就攔一次」，一次＝一輪）：同一 session 第一次改某部位的程式檔"
-                                     "（送卡那一刀；子代理同主 session）先驗定位行：交了就放、卡照舊當提醒件送；沒交 → 擋，訊息＝卡＋定位要求（一次交齊四行），"
+                                     "（送卡那一刀；子代理同主 session）先驗定位行：交了就放、卡照舊當提醒件送；沒交 → 擋，訊息＝卡＋定位要求（定位三行），"
                                      "卡同時排進提醒，這一輪開始。這一輪＝第一次改它的那個使用者回合、定位交齊之前：同部位之後每個改檔（同一則回覆平行送的也是）"
                                      "一行都沒交就照擋，訊息只一句「同一輪，定位交齊前照擋：<檔>」，不計 GATE_DENY_CAP、不記進 overview_locate_blocked；"
-                                     "交齊（transcript 三管道或 need_goal 的 locate 欄）就結束這一輪、放行，之後只看讀檔證據；交了但內容不過走一般判定"
+                                     "交齊（transcript 三管道）就結束這一輪、放行，之後只看讀檔證據；交了但層不對走一般判定"
                                      "（有詳細缺件、計 GATE_DENY_CAP、送法照 GATE_MODE_TABLE）。下一個使用者回合還缺只提醒不擋。"
                                      "判定 wg_overview._first_edit_once（第一刀）與 _locate_round_check（同一輪後續），state.locate_first_deny[session][部位]＝"
                                      "{turn: 第一次改的使用者回合, done: 交齊了沒}（locate_first_deny_due 開輪、locate_round_open 判、_mark_located 結輪）；"
@@ -4117,14 +3888,6 @@ RULES.update({
                                "remind_sent 是**一份清單**（元素 remind_key(規則, 對象)；state 本來就一 session 一檔，不按 session 分桶），"
                                "工具前守門與改程式檔那批的收尾類提醒（post_tool_batch.closing_reminders）都走 wg_overview.remind_mark 記同一份；"
                                "讀到舊寫法的 dict 由 remind_sent_list 攤平，不炸。",
-    "GOAL_RECONCILE_AT_DELIVERY": "(f2) 交付前目前寫碼類樹的完整對照（need_goal reconcile；判法 wg_need_goal._f2_text）：寫碼守門開時提醒，"
-                                  "Stop 只留帳；commit 前那份歸 COMMIT_GOAL_RECONCILED。",
-    "GOAL_TREE_SET_ONCE": "目標樹只立一次：改程式前還沒樹才提醒一行 need_goal set（CODE_EDIT_NEEDS_GOAL_TREE），之後不再送任何會促使 AI 去呼叫"
-                          "need_goal reconcile 的文字：改程式檔那則工具結果不附 (f2)(f3)(f4)（post_tool_batch.closing_reminders），"
-                          "收尾檢核的提醒與預覽不寫「目標對照放 reconcile」，"
-                          "need_goal set 的回覆、MCP 工具說明都不寫接著對照（沒樹改知識類檔已不送提示，見 NON_CODING_TURN_NO_NUDGE）。判定不動：Stop 照判、只留帳（STOP_REMIND_LEDGER_ONLY）；"
-                          "交付時完整對照由程式照收據代填（RECONCILE_BY_PROGRAM）；AI 自己交的 reconcile 照收。寫碼守門關整道不動（照擋）。"
-                          "為什麼：提醒一句 AI 就多呼叫一次工具＝多一個模型回合、多載一次工具定義。",
     "STOP_REMIND_LEDGER_ONLY": "Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log "
                                "event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、"
                                "不記 pending_release、不吃擋滿預算、不算進連鎖斷路器的觸發；寫碼查核一批條目混了照擋與提醒的，只有照擋條目進擋訊息"
@@ -4158,7 +3921,6 @@ RULE_MODE: Dict[str, str] = {name: BLOCK if name in RULE_CLASS else REMIND for n
 LETTER_RULE: Dict[str, str] = {
     "a": "CLAIM_FIXED_NEEDS_PASS", "b": "CLAIM_MEASURED_NEEDS_DONE", "c": "CLAIM_TRIED_NEEDS_EXEC",
     "d": "CASE_COVERS_CHANGE", "v": "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "e": "AEC_EVIDENCE_PATH",
-    "f3": "EDITED_PART_NEEDS_GOAL_NODE", "f4": "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
 }
 REMIND_LINE_CAP = 240
 
@@ -4166,19 +3928,12 @@ REMIND_LINE_CAP = 240
 # Stop 原本會擋、寫碼守門開時改成提醒的規則：說明文字補一句現況（判定與原文不動；送法見 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY）
 for _name in ("CASE_COVERS_CHANGE", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
               "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY",
-              "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE",
-              "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED", "SECOND_OPINION_REQUIRED", "SECOND_OPINION_DECLINED",
+              "TURN_JUDGMENT_REQUIRED", "SECOND_OPINION_REQUIRED", "SECOND_OPINION_DECLINED",
               "REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE", "LEFTOVER_NEEDS_CLEANUP", "RELOAD_ADVICE_ALREADY_LOADED",
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
               "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE", "SECOND_OPINION_DONE_NOTICE"):
     RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
-
-# 目標樹只立一次（GOAL_TREE_SET_ONCE）：這幾條寫碼守門開時連改程式檔那則提醒也不送（提醒了 AI 就多叫一次 need_goal reconcile），Stop 照判只留帳
-for _name in ("GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
-              "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
-    RULES[_name] += "｜目標樹只立一次（GOAL_TREE_SET_ONCE）：need_goal 只在改程式前提醒 set 一次；改程式檔那則不再提醒 reconcile，收尾檢核的提醒不寫目標對照。"
-
 
 def mode_of(rule: str) -> str:
     """規則 GATE_MODE_TABLE：這條規則照擋還是提醒；表上沒登的當 block（沒分類前行為不變）。"""
@@ -4213,33 +3968,12 @@ def remind_due(sent: Iterable[str], rule: str, obj: Any = "") -> bool:
     return remind_key(rule, obj) not in set(sent or ())
 
 
-# ─── 非寫碼回合不介入（判定在各自的模組：wg_need_goal.stamp_edit、ups_inject._lean_turn、wg_overview._locate_read_hint、wg_data_file.gate／read_hint；這裡只登錄） ───
+# ─── 非寫碼回合不介入（判定在各自的模組：ups_inject._lean_turn、wg_overview._locate_read_hint、wg_data_file.gate／read_hint；這裡只登錄） ───
 RULES.update({
-    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的四個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或宣告了"
-                                "寫碼樹；prompt 關鍵字意圖不算）。① 沒樹改記憶知識類檔只記 untreed（之後立樹自動掛進去）、不再送「知識類也要一棵輕樹」；"
-                                "② 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；③ 讀程式檔附的定位提示"
-                                "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合或 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時送，純問答不送、額度不消耗；④ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
+    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的三個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔；"
+                                "prompt 關鍵字意圖不算）。① 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；② 讀程式檔附的定位提示"
+                                "（LOCATE_HINT_ON_FIRST_READ）只在寫碼回合或 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時送，純問答不送、額度不消耗；③ 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
                                 "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session；讀檔提示另外在 prompt 關鍵字判成寫碼類時也先送，提示要趕在第一次改檔前），"
-                                "否則放行、留帳 skipped_non_coding。第一則訊息的「要改碼先立樹」一行（CODE_TREE_HINT）仍看關鍵字，不在此列。",
+                                "否則放行、留帳 skipped_non_coding。",
 })
 RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE 建表之後：說明型規則，不是擋點（GATE_MODE_TABLE 要每條都有送法）
-
-# ─── 立樹走文字管道（T2 成本：need_goal set 多一個模型回合、ToolSearch 載工具再一回合）───────────────────────────
-RULES.update({
-    "TREE_SET_VIA_TEXT": "立需求目標樹走文字管道。格式：「目標｜<整個需求一句，用使用者的話，只寫目標不寫手段>」"
-                         "一行，之後可多行「子目標｜<一件子目標>」（一行一件；沒有可省）。管道與定位行相同（DECL_WHERE）："
-                         + DECL_WHERE + "；擋訊息與提示只教 # 註解這一條路（DECL_HINT_KEEPS_EDIT_TOOLS），早一則只有文字的回覆程式照認、"
-                         "工具 need_goal(action=set) 照收，兩者都不出現在訊息裡；thinking 不讀、程式碼區塊裡的不算、含 <…> 的佔位句不算；"
-                         "同一段文字最後一個「目標｜」那組算現行。"
-                         "套用點：改程式檔的 PreToolUse（handlers/pre_tool_use 需求目標第一層，wg_need_goal.set_via_text 在 edit_gate 之前）："
-                         "這個 session 還沒有進行中的樹、主 transcript 本使用者回合（最後一則使用者本人打字之後）或子代理檔裡有「目標｜」"
-                         "→ 組成與 need_goal(action=set, kind=code, goal, items=[{text}]) 等價的輸入呼叫 apply_op，state 效果與 PostToolUse 收工具"
-                         "呼叫相同（need_goal_code_decl_turn＝本回合）；這裡立的一定是新樹，不作廢之前交的定位、不動掃描起點（AI 多半先寫目標行、再交定位、才第一次改檔）；同一使用者回合 transcript 沒長就不重讀"
-                         "（state need_goal_text_scan）。留帳 Logs/guard-need_goal.jsonl event=set_via_text（拒收 set_via_text_rejected、"
-                         "出錯 set_via_text_error 不擋，沒樹照舊由 edit_gate 判）。同一則回覆裡的定位四行與「動資料檔｜」各走自己的解析器。",
-})
-RULES["GOAL_TREE_SET_ONCE"] += ("｜立樹本身走文字管道（TREE_SET_VIA_TEXT）：提醒 set 那一行教的是「目標｜」行，照做的成本是零個模型回合；"
-                                "need_goal(action=set) 程式照收、訊息不提。")
-RULES["CODE_EDIT_NEEDS_GOAL_TREE"] += ("｜擋／提醒訊息教的是寫「目標｜…」行（子目標每件一行「子目標｜…」），放同一則先發的不寫檔指令開頭的 # 註解"
-                                       "（DECL_WHERE；只教這一條路），改檔時 hook 照它立樹（TREE_SET_VIA_TEXT）；need_goal(action=set) 程式照收、訊息不提。")
-RULE_MODE["TREE_SET_VIA_TEXT"] = REMIND     # 不是閘（立樹成功只附一行、失敗留帳不擋）；RULE_MODE 在上面算完，這裡補登

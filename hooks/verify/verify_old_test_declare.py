@@ -487,8 +487,7 @@ def test_powershell_set_content_dropping_test_blocks_next_call(world):
 
 
 def _post_failed(w, tool, tool_input, monkeypatch):
-    """跑一次 PostToolUseFailure（指令寫完磁碟、整條非零結束：Claude Code 不送 PostToolUse、改送這個）。目標樹蓋號關掉。"""
-    monkeypatch.setattr(pt, "_need_goal_stamp_failed", lambda *a, **k: [], raising=False)
+    """跑一次 PostToolUseFailure（指令寫完磁碟、整條非零結束：Claude Code 不送 PostToolUse、改送這個）。"""
     with pytest.raises(SystemExit):
         pt.handle_post_tool_use_failure({"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(w["proj"]),
                                          "hook_event_name": "PostToolUseFailure", "transcript_path": _transcript(w, "跑一下"),

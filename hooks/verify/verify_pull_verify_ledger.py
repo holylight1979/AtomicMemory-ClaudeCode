@@ -38,7 +38,6 @@ FOUR = ("## 第二意見與分歧裁決\n- Codex 結論：判定正確\n- 我方
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setenv("WG_TEMP_RULES", "off")                    # 假專案在 pytest tmp（系統暫存目錄）底下
-    monkeypatch.setattr(so, "has_goal_tree", lambda sid: False)
 
 
 def _mf(path, turn, at, seq):

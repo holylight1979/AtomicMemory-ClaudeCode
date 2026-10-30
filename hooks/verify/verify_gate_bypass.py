@@ -127,8 +127,6 @@ class Env:
         monkeypatch.setattr(ptu, "read_state_status", lambda sid: (self.state, "ok"))
         for name in ("check_merge_driver", "check_git_commit_order", "check_git_privacy", "check_svn_encoding"):
             monkeypatch.setattr(ptu, name, lambda *a, **k: None)
-        import wg_need_goal
-        monkeypatch.setattr(wg_need_goal, "commit_gate", lambda *a, **k: None)
         monkeypatch.setattr(ptu, "output_json", self.out.append)
         monkeypatch.setattr(ptu, "output_nothing", lambda: self.out.append(None))
 

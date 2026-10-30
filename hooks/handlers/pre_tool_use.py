@@ -515,7 +515,7 @@ from wg_release_rules import HEREDOC_MARK as _HEREDOC_MARK, strip_heredoc_bodies
 
 def _git_commits_to_run(command: str, cwd: str = "",
                         shell: str = "") -> Tuple[str, List[Tuple[str, List[str]]], bool]:
-    """命令裡真的會執行的 git commit（CommitOrder、病形閘與需求目標 commit_gate 共用這一支）：先剝 heredoc 本文，寫在
+    """命令裡真的會執行的 git commit（CommitOrder 與病形閘共用這一支）：先剝 heredoc 本文，寫在
     文件裡的 commit 範例不算、heredoc 結束後真的執行的照算。回（剝過的命令、直接拆得出的 commit 段（git 別名展開後是
     commit 的也算）、有沒有 commit：拆得出段，或 `!` shell 別名、包裝／展開裡可能有）。快篩只看 git 字樣（別名的
     命令裡沒有 commit 字樣），與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。cwd＝tool cwd，
@@ -1909,15 +1909,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     # G9：MCP 進程沒有 session 身份，second_opinion_start 由這裡補上 hook 輸入的 session_id（updatedInput），pack 才找得到
-    # 這個 session 的需求目標樹（goal.md）與驗證帳本。settings.json PreToolUse matcher 要掛這個工具才會走到這裡。
+    # 這個 session 的驗證帳本。settings.json PreToolUse matcher 要掛這個工具才會走到這裡。
     if tool_name.endswith("__second_opinion_start"):
         sid = str(input_data.get("session_id") or "")
-        if sid:
-            try:       # REVIEW_FIX_RERUN_TOUCHED_ONLY：材料在這一刻打包，之後的改動算審完的修補（只重跑碰到的 verify）
-                import wg_need_goal as _ng
-                _ng.mark_review(sid)
-            except Exception as e:  # noqa: BLE001
-                print(f"[Guardian:SecondOpinion] 記不下審查時刻（之後的修補照舊要全部重跑）：{type(e).__name__}: {e}", file=sys.stderr)
         if sid and isinstance(tool_input, dict) and tool_input.get("session_id") != sid:
             output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                 "updatedInput": {**tool_input, "session_id": sid}}})
@@ -2154,57 +2148,19 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
-    # 缺了就擋；核對本身出錯不擋（stderr＋留帳 commit_gate_error，規則 GATE_SELF_ERROR）。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
-    if v6 and tool_name in ("Bash", "PowerShell"):
-        _ng_cmd = tool_input.get("command", "") or ""
-        if (_git_commits_to_run(_ng_cmd, input_data.get("cwd", "") or "", _tool_shell(tool_name))[2]
-                or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"})):
-            try:
-                from wg_need_goal import commit_gate
-                deny_reason = commit_gate(_co_sid, config, _co_state, input_data.get("transcript_path", "") or "")
-            except Exception as e:
-                deny_reason = None
-                err = f"{type(e).__name__}: {e}"
-                sys.stderr.write(f"[NeedGoal] commit 前核對需求目標時出錯（這次不擋，已留帳）：{err}\n")
-                append_guard_log("need_goal", {"event": "commit_gate_error", "rule": "GATE_SELF_ERROR", "session_id": _co_sid,
-                                               "tool": tool_name, "command": _ng_cmd[:300], "error": err})
-            if deny_reason and _rr.gate_mode("COMMIT_GOAL_RECONCILED", v6) == _rr.BLOCK:
-                _deny(input_data, config, deny_reason)
-                return
-            if deny_reason:
-                # 規則 COMMIT_GOAL_RECONCILED（remind）：commit 照跑，那則 Bash 的工具結果附一行；每棵樹一次
-                try:
-                    from wg_need_goal import load as _ng_load
-                    _tree = str(_ng_load(_co_sid).get("active") or "")
-                except Exception:  # noqa: BLE001
-                    _tree = ""
-                from wg_overview import remind_hit
-                _what = " ".join(ln.strip() for ln in deny_reason.splitlines()[1:3] if ln.strip()) or deny_reason.splitlines()[0]
-                if _remind_later(input_data, _co_state, remind_hit("COMMIT_GOAL_RECONCILED", _tree, f"commit 前的目標對照沒過：{_what}",
-                                                                   "改到的部位補定位第四行（目標對照由程式代填，不必呼叫 reconcile）"),
-                                 "need_goal", command=_ng_cmd[:300]):
-                    from wg_core import write_state as _ws_cg
-                    _ws_cg(_co_sid, _co_state)
-
     # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足照 RULE_MODE 擋或提醒（規則 GATE_MODE_TABLE）。
     # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
     # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
     hub_warn = None if v6 else _pre_v6_hub_warn(input_data, config, tool_name, tool_input, _co_sid, _co_state)
     if v6 and tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
-        hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；目標樹、state、環境的擋不報
+        hub_deny, hub_file = None, ""          # hub_file＝定位閘自己擋下的那個檔（報部位給斷路器）；state、環境的擋不報
         _hub_state = _co_state
         try:
-            from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,
-                                 write_state as _ws)
-            from wg_overview import edit_check as _hub_edit_check, remind_hit as _remind_hit
-            from wg_need_goal import TEXT_SET_FORMAT as _ng_fmt, edit_gate as _ng_edit_gate, set_via_text as _ng_set_via_text
+            from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
+            from wg_overview import edit_check as _hub_edit_check
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
-                # 需求目標判「是不是改程式」另看 cp／mv 的來源與 Write 要寫的內容（目的地還不存在、新建的腳本沒副檔名）
-                _ng_sources = write_sources_from_tool(tool_name, tool_input, _cwd)
-                _ng_content = tool_input.get("content") if tool_name == "Write" else None
                 _hub_state = _co_state
                 if _hub_state is None and _co_sid and _co_status == "missing":
                     _hub_state = _hub_ensure_state(_co_sid, input_data, config)
@@ -2215,26 +2171,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 hub_changed = False
                 _once = False
                 for _hub_fp in _hub_targets:
-                    # 需求目標第一層（4.2）：寫碼類檔沒有目標樹，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）；
-                    # 送法照 RULE_MODE（CODE_EDIT_NEEDS_GOAL_TREE 提醒；目標檔損毀／判定出錯＝GATE_SELF_ERROR）。
-                    # 先看 transcript 本回合有沒有「目標｜」行（規則 TREE_SET_VIA_TEXT）：有就照它立樹，不必多一個 need_goal 工具回合
-                    _ng_line, _ng_changed = _ng_set_via_text(
-                        _co_sid, _hub_state, _hub_fp, config, input_data.get("transcript_path", "") or "",
-                        str(input_data.get("agent_id") or ""), _cwd, _ng_sources.get(_hub_fp, ()), _ng_content)
-                    hub_changed = hub_changed or _ng_changed
-                    if _ng_line:
-                        _hub_warns.append(_ng_line)
-                    _ng_deny = _ng_edit_gate(_co_sid, _hub_fp, config, _ng_sources.get(_hub_fp, ()), _ng_content)
-                    if _ng_deny:
-                        _ng_rule = "GATE_SELF_ERROR" if ("目標檔損毀" in _ng_deny or "時出錯" in _ng_deny) else "CODE_EDIT_NEEDS_GOAL_TREE"
-                        if _rr.gate_mode(_ng_rule, v6) == _rr.BLOCK:
-                            hub_deny = _ng_deny
-                            break
-                        _ng_hit = (_remind_hit(_ng_rule, "need_goal_edit", _ng_deny.splitlines()[0], "need_goal(action=set, goal=…) 重寫樹")
-                                   if _ng_rule == "GATE_SELF_ERROR" else
-                                   _remind_hit(_ng_rule, "", "改程式檔前這個需求還沒有目標樹",
-                                               f"寫一行「{_ng_fmt}」（子目標每件一行「子目標｜…」），{_rr.DECL_WHERE_SHORT}，hook 照它立樹"))
-                        hub_changed = _remind_later(input_data, _hub_state, _ng_hit, "need_goal", path=_hub_fp) or hub_changed
                     _w, _d, _c, _hit = _hub_edit_check(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
                         agent_id=str(input_data.get("agent_id") or ""), tool_use_id=str(input_data.get("tool_use_id") or ""),

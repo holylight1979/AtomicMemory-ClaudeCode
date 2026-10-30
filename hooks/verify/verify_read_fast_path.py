@@ -1,10 +1,10 @@
 """verify_read_fast_path.py：Read 事件走快路徑（規則 READ_FAST_PATH，hooks/wg_read_fast.py）。
 
 Read 的 PostToolUse 在 dispatcher 一進門就只追加一行 read-log（不載 wg_core 等重模組）；原本靠它做的事（OverviewHub on_read 記讀過、
-第一次讀該部位的一行定位提示、需求目標讀入範圍…）改在下一個非 Read 事件（Edit 的 PreToolUse、Bash 的 PostToolUse）補帳，
+第一次讀該部位的一行定位提示…）改在下一個非 Read 事件（Edit 的 PreToolUse、Bash 的 PostToolUse）補帳，
 結果一樣、提示晚一個事件出現；Bash 唯讀照走原路徑。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_read_fast_path.py
-共用 verify_need_goal 的資料根隔離（env／hooked）與部位世界；不碰 live。
+共用 hub_world 的資料根隔離（env／hooked）與部位世界；不碰 live。
 """
 from __future__ import annotations
 
@@ -20,12 +20,12 @@ VERIFY = Path(__file__).resolve().parent
 HOOKS_DIR = VERIFY.parent
 sys.path.insert(0, str(VERIFY))
 
-from verify_need_goal import (  # noqa: E402,F401
-    SID, _deny_text, _mapped_world, _op, _ptu_run, _two_part_world, env, hooked, pt, wg_core, wo,
+from hub_world import (  # noqa: E402,F401
+    SID, _deny_text, _mapped_world, _ptu_run, _two_part_world, env, hooked, pt, wg_core, wo,
 )
 import wg_read_fast as rf  # noqa: E402
 
-HEAVY = {"wg_core", "wg_hook_timing", "wg_overview", "wg_need_goal", "handlers.post_tool_use", "handlers.pre_tool_use"}
+HEAVY = {"wg_core", "wg_hook_timing", "wg_overview", "handlers.post_tool_use", "handlers.pre_tool_use"}
 
 
 @pytest.fixture(autouse=True)
@@ -128,7 +128,6 @@ def test_next_event_replays_read_log_into_on_read(fast, hooked):
     _code_intent()
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     assert _part_reads() is None                                                 # 還沒補帳：state 沒有這個部位
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     _ptu_run("Edit", {"file_path": f1, "old_string": "x", "new_string": "y"}, hooked["proj"], hooked["tp"], hooked["outputs"])
     assert len(_part_reads() or []) == 1 and not rf.pending(SID)                 # 讀過算讀過；log 已清
     state = wg_core.read_state(SID)
@@ -149,32 +148,17 @@ def test_first_read_hint_arrives_on_next_tool_result(fast, hooked, post_tool):
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     ctx = post_tool()                                                            # 下一個非 Read 事件：Bash 的 PostToolUse
     hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
-    assert "交定位四行" in hint and "戰鬥導讀" not in ctx                           # 跟原本 Read 當下附的一樣（READ_TOUCH_NO_CARD）
+    assert "交定位三行" in hint and "戰鬥導讀" not in ctx                           # 跟原本 Read 當下附的一樣（READ_TOUCH_NO_CARD）
     assert _part_reads() and not rf.pending(SID)
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     assert "交定位" not in post_tool()                                           # 同部位第二次讀：不重送
     assert len(_part_reads()) == 1                                               # 同一個檔只記一次
     # PreToolUse 補出來的提示也在下一個 PostToolUse 送到、送完就清
     state = wg_core.read_state(SID)
-    state[rf.HINTS_KEY] = ["[Guardian:OverviewHub] 改【介面】的程式檔前交定位四行（格式同前一則提示）。"]
+    state[rf.HINTS_KEY] = ["[Guardian:OverviewHub] 改【介面】的程式檔前交定位三行（格式同前一則提示）。"]
     wg_core.write_state(SID, state)
     assert "改【介面】" in post_tool() and rf.HINTS_KEY not in wg_core.read_state(SID)
     assert "改【介面】" not in post_tool()
-
-
-# ─── 5. 讀入範圍（scope_on_read）補帳後照算 ─────────────────────────────────────────
-
-def test_scope_on_read_counts_after_replay(fast, hooked, post_tool):
-    import wg_need_goal as ng
-    files = _two_part_world(fast)
-    _op("set", goal="戰鬥不卡", kind="code", items=[{"text": "共用字典不再被兩邊改"}])
-    for sub in ("Battle", "UI"):
-        rf.log_read(_read_event(files[sub], fast["proj"], hooked["tp"]))
-    post_tool()
-    state = wg_core.read_state(SID)
-    assert state.get("need_goal_batch") is True                                  # 第二個部位排進待送（舊碼沒補帳 → 紅）
-    parts = (ng.active_tree(ng.load(SID)).get("points") or {}).get("scope_parts") or []
-    assert [p.rsplit("|", 1)[-1] for p in parts] == ["戰鬥", "介面"]
 
 
 # ─── 6. Bash 唯讀照走原路徑；v6 關補帳整批丟掉 ─────────────────────────────────────

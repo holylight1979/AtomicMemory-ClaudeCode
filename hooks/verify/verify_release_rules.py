@@ -55,11 +55,9 @@ def test_044_every_rule_has_a_case():
     ("DECL_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
     ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
-    ("NON_CODING_TURN_NO_NUDGE", "verify_need_goal.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_inject_lean.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_locate_hint.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_data_file_ask.py"),
-    ("TREE_SET_VIA_TEXT", "verify_need_goal.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
@@ -134,12 +132,11 @@ def test_reconcile_block_letters_splits_by_letter():
     assert rr.split_blocking([b], []) == ([], [b])
 
 
-def test_closing_ritual_switches_goal_gate_default_off():
-    """CLOSING_RITUAL_SWITCHES：目標對照開關沒設＝不擋，設 true 才擋（端到端案在 verify_need_goal、verify_pull_goal_locate）。"""
-    import wg_need_goal as ng
-    assert not ng.goal_gate_on({}) and not ng.goal_gate_on({"reconcile_gate": {}})
-    assert not ng.goal_gate_on({"reconcile_gate": {"goal_gate": False}})
-    assert ng.goal_gate_on({"reconcile_gate": {"goal_gate": True}})
+def test_closing_ritual_switches_scan_report_gate():
+    """CLOSING_RITUAL_SWITCHES：aec.scan_report_gate=false → 沒交收尾檢核不擋；沒設＝照擋。"""
+    from handlers import stop as st
+    assert st._scan_report_gate_on({}) and st._scan_report_gate_on({"aec": {}})
+    assert not st._scan_report_gate_on({"aec": {"scan_report_gate": False}})
 
 
 # ─── SAME_FILE ──────────────────────────────────────────────────────────
@@ -1297,50 +1294,8 @@ def test_goal_receipt_red_and_green():
     assert not rr.receipt_green(["X:DONE"], 0) and not rr.receipt_green(["A:PASS", "B:FAIL"], 0)
 
 
-def test_goal_done_needs_case_or_receipt_verdicts():
-    """GOAL_DONE_NEEDS_CASE_OR_RECEIPT：寫碼類樹標達成要有沒紅的收據或讀碼級案例；記憶知識類不擋；擋時證據列出現有的每一筆。"""
-    file_read = ("file", "read", False, "讀碼 檔案 a.py")
-    v = rr.goal_done_evidence_verdict("T1", True, [file_read])
-    assert v.rule == "GOAL_DONE_NEEDS_CASE_OR_RECEIPT" and v.owed and "T1" in v.why
-    assert v.evidence[0] == "T1 現有證據：讀碼 檔案 a.py"
-    assert not rr.goal_done_evidence_verdict("T1", False, [file_read]).owed
-    assert not rr.goal_done_evidence_verdict("T1", True, [file_read, ("case", "read", False, "c")]).owed
-    assert not rr.goal_done_evidence_verdict("T1", True, [("receipt", "measured", False, "R3")]).owed
-    red = rr.goal_done_evidence_verdict("T1", True, [("receipt", "measured", True, "實測 收據 R3")])
-    assert red.owed and "實測 收據 R3（紅）" in red.evidence[0]
-    assert rr.goal_done_evidence_verdict("T1", True, [("case", "inferred", False, "c")]).owed
-
-
-def test_goal_inferred_max_partial_verdicts():
-    """GOAL_INFERRED_MAX_PARTIAL：證據全是推論 → 擋（不分類別）；有一筆不是推論就不歸這條。"""
-    v = rr.goal_inferred_verdict("T2", [("file", "inferred", False, "推論 檔案 a.py")])
-    assert v.rule == "GOAL_INFERRED_MAX_PARTIAL" and v.owed and v.evidence == ("T2 現有證據：推論 檔案 a.py",)
-    assert not rr.goal_inferred_verdict("T2", [("file", "inferred", False, "x"), ("file", "read", False, "y")]).owed
-    assert not rr.goal_inferred_verdict("T2", []).owed                         # 沒證據歸「沒附證據」那條
-
-
-def _cases(cmd, cwd):
-    return rr.case_files_in_cmd(cmd, cwd)
-
-
-@pytest.mark.parametrize("runs, want", [
-    ([(1, "pytest -q verify_a.py", "C:/p/svc", True, False), (2, "pytest -q verify_a.py", "C:/p/svc", False, True)], (1, 2)),
-    ([(1, "pytest -q verify_a.py", "C:/p/svc", False, True)], None),
-    ([(1, "pytest -q verify_a.py", "C:/p/svc", False, True), (2, "pytest -q verify_a.py", "C:/p/svc", True, False)], None),
-    ([(1, "pytest -q verify_b.py", "C:/p/svc", True, False), (2, "pytest -q verify_a.py", "C:/p/svc", False, True)], None),
-    # 比絕對路徑：別的目錄的同名案例紅了不算
-    ([(1, "pytest -q verify_a.py", "C:/p/other", True, False), (2, "pytest -q verify_a.py", "C:/p/svc", False, True)], None),
-    ([(1, "pytest -q verify_a.py::test_x", "C:/p/svc", True, False), (2, r"pytest C:\P\svc\verify_a.py", "C:/x", False, True)],
-     (1, 2)),
-], ids=["red-green", "green-only", "green-red", "other-file", "other-dir-same-name", "abs-and-node-id"])
-def test_goal_case_red_then_green(runs, want):
-    """CASE_RED_THEN_GREEN：點名同一個案例檔的收據裡先有紅、之後有綠 → (紅的號, 綠的號)；對不上 None（只記錄，不擋）。"""
-    rows = [(seq, _cases(cmd, cwd), red, green) for seq, cmd, cwd, red, green in runs]
-    assert rr.red_then_green(r"C:\p\svc\verify_a.py", rows) == want
-
-
-def test_goal_case_files_in_cmd_quoted_path_with_space():
-    """CASE_RED_THEN_GREEN 與 GREEN_SAME_CASE_CLEARS 共用的取檔：引號裡含空白的路徑整段算一個（codex BLOCK 1）。"""
+def test_case_files_in_cmd_quoted_path_with_space():
+    """GREEN_SAME_CASE_CLEARS 用的取檔：引號裡含空白的路徑整段算一個（codex BLOCK 1）。"""
     assert rr.case_files_in_cmd('pytest -q "my tests/test_a.py"', "C:/p") == ["c:/p/my tests/test_a.py"]
     assert rr.case_files_in_cmd("pytest 'my tests/test_a.py::test_x' b.py", "C:/p") == ["c:/p/my tests/test_a.py", "c:/p/b.py"]
     assert rr.case_files_in_cmd('python -c "import x; open(\'a.py\')"') == ["a.py"]          # 引號裡不是單一路徑照舊取
@@ -1348,7 +1303,7 @@ def test_goal_case_files_in_cmd_quoted_path_with_space():
     assert not rr.green_clears_red('pytest "my tests/test_a.py"', "pytest tests/test_a.py", "C:/p", "C:/p")
 
 
-# ─── C-G0：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES／EDITED_PART_NEEDS_GOAL_NODE ───
+# ─── C-G0：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES ───
 
 _CG0_NODE = "共用字典不再被兩邊改"
 _CG0_TWO = "候選 A 邏輯層；候選 B 存檔時序；選 A 因為字典只在邏輯層被寫"
@@ -1408,23 +1363,6 @@ def test_cg0_locate_lines_both_missing_listed_together():
     """角色與候選都缺 → 一條擋訊息列兩項（不必擋兩輪才知道）。"""
     v = rr.locate_lines_verdict("邏輯層", "T1.1", "T1.1", _CG0_NODE)
     assert v.owed and "角色" in v.why and "候選" in v.why
-
-
-def test_cg0_edited_part_needs_goal_node():
-    """EDITED_PART_NEEDS_GOAL_NODE：改過程式檔的部位要掛到樹裡活著的節點；沒掛的列「<部位>：<改的檔> 沒掛目標」。"""
-    v = rr.edited_part_goal_verdict([("戰鬥", ["C:/p/Game/Battle/A.cs"], "linked"),
-                                     ("UI", ["C:/p/Game/UI/B.cs", "C:/p/Game/UI/C.cs"], "none")])
-    assert v.rule == "EDITED_PART_NEEDS_GOAL_NODE" and v.owed and "1 個" in v.why
-    assert v.evidence[0].startswith("UI：C:/p/Game/UI/B.cs、C:/p/Game/UI/C.cs 沒掛目標")
-    assert not any(e.startswith("戰鬥") for e in v.evidence)
-    dropped = rr.edited_part_goal_verdict([("UI", ["b.cs"], "dropped:T1.2")])
-    assert dropped.owed and "T1.2 已放棄" in dropped.evidence[0]
-    gone = rr.edited_part_goal_verdict([("UI", ["b.cs"], "gone:T7")])
-    assert gone.owed and "T7 不在目前的樹" in gone.evidence[0]
-    assert not rr.edited_part_goal_verdict([("戰鬥", ["a.cs"], "linked")]).owed
-    assert not rr.edited_part_goal_verdict([]).owed
-    line = rr.format_hit("f3", v)
-    assert rr.parse_hits(line) == ["f3"]                                     # 擋次預算單獨計次
 
 
 # ─── C-G1：LOCATE_LINES_NEED_CRITIQUE（定位第五行「批判」只查有沒有寫、有沒有內容） ───
@@ -1501,19 +1439,6 @@ def test_c_g16_ask_recommendation_message_names_missing_question_and_example():
     assert "ASK_NEEDS_RECOMMENDATION" in hit and "第 2 題" in hit and "要用哪個寫法" in hit and "第 1 題" not in hit
     fix = rr.ask_recommendation_fix(ti, REL_TAG, REL_OPTS)
     assert '"label": "甲 (Recommended)"' in fix and "建議：選 甲" in fix
-
-
-def test_knowledge_light_tree_and_reconcile_rules():
-    """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE／KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：各一個會紅的案例＋反例。"""
-    v = rr.knowledge_light_tree_verdict(["C:/p/notes.md", "C:/p/plan.md"])
-    assert v.owed and v.rule == "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" and "2 個" in v.why and "C:/p/notes.md" in v.evidence
-    assert not rr.knowledge_light_tree_verdict([]).owed
-    v = rr.knowledge_reconcile_verdict("knowledge", ["C:/p/notes.md"])
-    assert v.owed and v.rule == "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" and rr.parse_hits(rr.format_hit("f4", v)) == ["f4"]
-    assert not rr.knowledge_reconcile_verdict("knowledge", []).owed                     # 純問答樹
-    assert not rr.knowledge_reconcile_verdict("code", ["C:/p/a.py"]).owed               # 寫碼類歸 (f2)
-    assert not rr.knowledge_reconcile_verdict(None, ["C:/p/notes.md"]).owed
-    assert {"KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"} <= set(rr.RULES)
 
 
 def test_c_g16_ask_release_only_is_structural():
@@ -1899,19 +1824,6 @@ def test_reason_quoting_a_tag_is_still_a_reason_on_claim_and_not_doing_lines():
     assert not rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
     line = "不做｜幣別欄位：<理由：風險／為什麼超出>"
     assert rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
-# ─── T2.18 origin 核對 ───
-def test_origin_user_needs_quote():
-    """ORIGIN_USER_NEEDS_QUOTE：完整案例在 verify_origin_user_check.py；這裡守判式——字面子串對得到才算、同伴說的不算。"""
-    said = [{"seq": 3, "turn": 1, "text": "把 audit 寫進 log 檔"}]
-    origin, v, m = rr.origin_user_verdict("audit 要寫進 log 檔", "audit 寫進 log 檔", said)
-    assert origin == "user" and not v.owed and m["said"]["seq"] == 3
-    origin, v, m = rr.origin_user_verdict("舊報表不被弄壞", None, said)
-    assert origin == "inferred" and v.owed and v.rule == "ORIGIN_USER_NEEDS_QUOTE" and m is None
-    _, v, _ = rr.origin_user_verdict("x", "報表格式不能變", said, [{"from": "claude-aa", "text": "報表格式不能變喔"}])
-    assert v.owed and "同伴 claude-aa" in v.why
-    # 樹根版：切句後 ≥6 字、原話裡沒有的句子
-    assert rr.root_unquoted_sentences("把 audit 寫進 log 檔；舊報表不被弄壞，ok", said) == ["舊報表不被弄壞"]
-    assert rr.root_unquoted_sentences("把 audit 寫進 log 檔——舊報表不被弄壞", said) == ["舊報表不被弄壞"]   # 雙破折號也切
 # ─── T2.17 改舊測試 ───
 
 def test_old_test_change_needs_declaration_names_and_reason():
@@ -2121,20 +2033,6 @@ def test_005_codex_miss_notes_skip_tests_already_waived_by_ledger():
     assert kept and rr.waiver_miss_notes(kept, decls, ["好"], led) == []
 
 
-def test_005_origin_said_includes_unattached():
-    """ORIGIN_SAID_INCLUDES_UNATTACHED：樹結束時收的原話（said_log attached=false）也是核對來源；已掛上別棵樹的不重複算。"""
-    import wg_need_goal as ng
-    said = "不對，折扣碼不要放 shop.json，改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動。"
-    tree = {"said_all": [{"seq": 1, "turn": 1, "text": "訂單要支援折扣碼"}], "user_said": []}
-    doc = {"said_log": [{"seq": 88, "turn": 5, "text": said, "attached": False},
-                        {"seq": 2, "turn": 2, "text": "別棵樹的話", "attached": True}]}
-    quote = "改成另外開一個新檔 config/promos.json 放；shop.json 只留門檻那一個改動"
-    assert rr.origin_user_verdict("折扣碼放新檔", quote, ng._said_for_check(tree))[0] == "inferred", "前置：只看樹上的對不到"
-    origin, v, match = rr.origin_user_verdict("折扣碼放新檔", quote, ng._said_for_check(tree, doc))
-    assert origin == "user" and match["said"]["seq"] == 88 and v.rule == "ORIGIN_USER_NEEDS_QUOTE"
-    assert [s["seq"] for s in ng._said_for_check(tree, doc)] == [1, 88]
-
-
 def test_005_second_opinion_declared_always_logged_registered():
     """SECOND_OPINION_DECLARED_ALWAYS_LOGGED：宣告行的判法（行首、理由過 second_opinion_decline_ok）；Stop 端留帳案例在
     verify_g9_second_opinion.py 的 005 段。"""
@@ -2319,7 +2217,6 @@ _ELSEWHERE_CASES = {
     # 寫碼回合才跑 v6 守門：案例在 verify_gate_trim.py
     "CODING_TURN_ONLY": [("verify_gate_trim.py", "test_coding_turn_layer1_tool_writes_code"),
                          ("verify_gate_trim.py", "test_coding_turn_keyword_intent_is_not_a_switch"),
-                         ("verify_gate_trim.py", "test_coding_turn_layer2_need_goal_declares_code_tree"),
                          ("verify_gate_trim.py", "test_non_coding_turn_skips_v6_gates_at_stop")],
 }
 
@@ -2364,25 +2261,21 @@ def test_decl_hints_do_not_steer_to_bash_writes():
 
 
 def test_decl_where_teaches_only_comment_channel():
-    """DECL_HINT_KEEPS_EDIT_TOOLS：每句教宣告放哪的字（目標｜、定位四行、動資料檔｜、改舊測試｜、地圖三行）只教一條路——
-    「同一則先發不寫檔指令的 `#` 註解」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）；早一則的回覆文字、need_goal 的
-    locate 欄／data_files、備援工具都不出現（程式照認，只在規則表講）。009 實跑擋訊息同時教三條路，AI 挑了最貴的那條多 4 個模型回合。
-    MCP need_goal 說明（工具端）不在此列，照舊可交 locate／data_files。"""
-    import wg_need_goal as ng
+    """DECL_HINT_KEEPS_EDIT_TOOLS：每句教宣告放哪的字（定位三行、動資料檔｜、改舊測試｜、地圖三行）只教一條路——
+    「同一則先發不寫檔指令的 `#` 註解」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）；早一則的回覆文字、備援工具都不出現
+    （程式照認，只在規則表講）。009 實跑擋訊息同時教三條路，AI 挑了最貴的那條多 4 個模型回合。"""
     import wg_oldtest as ot
     import wg_overview as wo
     assert rr.DECL_WHERE.startswith("同一則回覆裡先發一條不寫檔的") and "hook 當下讀不到" in rr.DECL_WHERE
-    texts = {"DECL_WHERE": rr.DECL_WHERE, "DECL_WHERE_SHORT": rr.DECL_WHERE_SHORT, "TEXT_SET_HOWTO": ng.TEXT_SET_HOWTO,
-             "locate_read_hint": wo.locate_read_hint("戰鬥", True, True, True), "LOCATE_EXAMPLE_AGAIN": wo.LOCATE_EXAMPLE_AGAIN,
-             "MIN_MAP_ENTRY": "\n".join(wo.MIN_MAP_ENTRY), "_locate_ask": wo._locate_ask({"part_short": "戰鬥"}, None, 0, 0)[0],
+    texts = {"DECL_WHERE": rr.DECL_WHERE, "DECL_WHERE_SHORT": rr.DECL_WHERE_SHORT,
+             "locate_read_hint": wo.locate_read_hint("戰鬥", True),
+             "MIN_MAP_ENTRY": "\n".join(wo.MIN_MAP_ENTRY), "_locate_ask": wo._locate_ask(0, 0),
              "data_file_hint": rr.data_file_hint("a.json"), "data_file_fix": rr.data_file_fix(["a.json"]),
              "data_file_read_hint": rr.data_file_read_hint(["a.json"], True), "oldtest.hint": ot.hint("test_x")}
     for name, t in texts.items():
         assert "`#` 註解" in t, name
         for other in ("早一則", "回覆文字", "locate 欄", "data_files", "need_goal(action=set", "備援"):
             assert other not in t, (name, other)
-    mcp = (HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
-    assert "locate: {" in mcp and "data_files" in mcp                         # 工具端照舊收 locate／data_files（程式不動）
 
 
 # ─── 閘小修 008 A：規則名登錄、對照的案例真的在、案例點到規則名 ───
@@ -2490,8 +2383,6 @@ _GATE_DESIGN_CASES = {
     "INJECT_TRIGGER_READ_COUNTED": ("verify_overview_hub.py", "test_inject_trigger_read_counted"),
     "LOCATE_BLOCK_ONCE_PER_USER_TURN": ("verify_overview_hub.py", "test_locate_block_once_per_user_turn"),
     "LOCATE_NOT_IN_THINKING": ("verify_overview_hub.py", "test_locate_deny_says_thinking_is_not_read"),
-    "GOAL_VIEW_ONE_LINE": ("verify_need_goal_points.py", "test_goal_view_resend_is_one_line_read_first_then_tree"),
-    "LOCATE_EXAMPLE_ONCE_PER_SESSION": ("verify_pull_goal_locate.py", "test_locate_example_full_once_per_session_then_short"),
     "CARD_READ_WITH_EDIT_FILES": ("verify_overview_card_pointer.py", "test_card_read_hint_says_read_edit_files_with_the_card"),
 }
 
@@ -2511,21 +2402,6 @@ def test_quote_from_user_opened_turn_registered():
     （續跑回合、子代理派出的回合、貼上內容、回填同一套）。"""
     assert "wg_provenance._turn_quote" in rr.RULES["QUOTE_FROM_USER_OPENED_TURN"]
     assert (Path(__file__).resolve().parent / "verify_quote_user_turn.py").is_file()
-
-
-# ─── 需求目標提示減量：規則名登錄、對照的案例真的在、案例點到規則名 ───
-_GOAL_REMINDER_CASES = {
-    "CRITIQUE_CASES_ONCE_PER_SESSION": ("verify_pull_goal_locate.py", "test_critique_cases_full_once_per_session_then_pointer"),
-    "TREE_LINE_IN_HINTS": ("verify_pull_goal_locate.py", "test_hook_prompts_carry_only_current_node_line"),
-}
-
-
-@pytest.mark.parametrize("rule", sorted(_GOAL_REMINDER_CASES))
-def test_goal_reminder_rules_registered_with_cases(rule):
-    case_file, fn = _GOAL_REMINDER_CASES[rule]
-    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
-    assert rule in rr.RULES and "coding_guard.slim_reminders" in rr.RULES[rule], rule
-    assert f"def {fn}(" in text and rule in text, (rule, case_file, fn)
 
 
 def test_inject_lean_rules_registered_with_cases():
@@ -2561,12 +2437,10 @@ def test_closing_round_rules_cased_in_closing_round(rule):
     assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("rule", ["CLOSING_RECONCILE_IN_REPORT", "CLOSING_MISSING_PART_HINT", "CLOSING_GOAL_CODING_ONLY",
-                                  "CLOSING_CALL_ALL_THREE"])
-def test_closing_merge_rules_cased_in_closing_merge(rule):
-    """收尾三段一次交齊的規則：端到端案例在 verify_closing_merge.py（PostToolUse→Stop）。"""
-    assert rule in rr.RULES
-    assert rule in (Path(__file__).parent / "verify_closing_merge.py").read_text(encoding="utf-8")
+def test_closing_call_rule_cased_in_closing_round():
+    """收尾那批的認法（CLOSING_CALL_ALL_THREE）：案例在 verify_closing_round.py。"""
+    assert "CLOSING_CALL_ALL_THREE" in rr.RULES
+    assert "CLOSING_CALL_ALL_THREE" in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
 
 # ─── 定位與立樹先提示後擋：規則名登錄、對照的案例真的在、案例點到規則名 ───
@@ -2594,8 +2468,8 @@ def test_so_fact_trigger_rules_registered_with_cases(rule):
 # ─── 擋或提醒（RULE_MODE）：每條規則有 mode、三類照擋、其餘提醒、總開關關一律照舊 ───
 _BLOCK_RULES = ("COMMIT_SMELL_NEW_BLOCKS", "GATE_BYPASS_NEEDS_DECLARATION", "USER_DATA_FILE_NEEDS_DECLARATION",
                 "OLD_TEST_CHANGE_NEEDS_DECLARATION", "RED_TEST_BLOCKS_COMPLETION", "CLAIM_FIXED_NEEDS_PASS")
-_REMIND_RULES = ("CODE_EDIT_NEEDS_GOAL_TREE", "OVERVIEW_CARD_BEFORE_EDIT", "OVERVIEW_CARD_MISSING", "OVERVIEW_PART_FILES_READ",
-                 "COMMIT_GOAL_RECONCILED", "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT",
+_REMIND_RULES = ("OVERVIEW_CARD_BEFORE_EDIT", "OVERVIEW_CARD_MISSING", "OVERVIEW_PART_FILES_READ",
+                 "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT",
                  "CLOSING_CHECK_REQUIRED", "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED",
                  "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE", "ATOM_CONSUMPTION_AUDIT",
                  "EVASION_FLAG_NEXT_PROMPT", "CASE_COVERS_CHANGE", "ASK_NEEDS_RECOMMENDATION",
@@ -2655,16 +2529,15 @@ def test_remind_key_and_due_once_per_object():
 def test_pre_gate_remind_rules_registered_with_mode():
     """LOCATE_BEFORE_EDIT 與 REMIND_PENDING_IN_STATE 是 v6 守門（remind）；OVERVIEW_READONLY_PATHS 不在範圍（block）；
     v6 關全部 block。"""
-    for rule in ("LOCATE_BEFORE_EDIT", "REMIND_PENDING_IN_STATE", "OVERVIEW_CARD_BEFORE_EDIT", "CODE_EDIT_NEEDS_GOAL_TREE",
-                 "COMMIT_GOAL_RECONCILED", "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP", "ASK_NEEDS_RECOMMENDATION", "GATE_SELF_ERROR"):
+    for rule in ("LOCATE_BEFORE_EDIT", "REMIND_PENDING_IN_STATE", "OVERVIEW_CARD_BEFORE_EDIT",
+                 "UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP", "ASK_NEEDS_RECOMMENDATION", "GATE_SELF_ERROR"):
         assert rule in rr.RULES and rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK, rule
     assert rr.RULE_CLASS["OVERVIEW_READONLY_PATHS"] == "不在範圍" and rr.gate_mode("OVERVIEW_READONLY_PATHS", True) == rr.BLOCK
     assert rr.remind_key("LOCATE_BEFORE_EDIT", "戰鬥") == "LOCATE_BEFORE_EDIT|戰鬥"
-# ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）、(f2) 交付前對照（GOAL_RECONCILE_AT_DELIVERY）；入口案例在 verify_gate_mode_stop.py ───
-@pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "GOAL_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED",
+# ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）；入口案例在 verify_gate_mode_stop.py ───
+@pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "TURN_JUDGMENT_REQUIRED",
                                   "SECOND_OPINION_REQUIRED", "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
-                                  "RELOAD_ADVICE_ALREADY_LOADED", "AEC_EVIDENCE_PATH",
-                                  "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "GATE_SELF_ERROR"))
+                                  "RELOAD_ADVICE_ALREADY_LOADED", "AEC_EVIDENCE_PATH", "GATE_SELF_ERROR"))
 def test_stop_remind_rules_are_remind_when_v6_on(rule):
     """Stop 改提醒的那幾道閘：規則名在表上、v6 開是 remind、關是 block（照舊）；(a)（CLAIM_FIXED_NEEDS_PASS）照擋見上面的三類案。"""
     assert rule in rr.RULES and rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK
@@ -2678,13 +2551,3 @@ def test_overview_hub_under_v6_rule_registered():
 def test_locate_first_edit_blocks_once_rule_registered():
     """第一次改擋一次：規則登了、v6 開仍是 block（不在三類，但也不是提醒）。"""
     assert "LOCATE_FIRST_EDIT_BLOCKS_ONCE" in rr.RULES and rr.gate_mode("LOCATE_FIRST_EDIT_BLOCKS_ONCE", True) == rr.BLOCK
-# ─── 目標樹只立一次（GOAL_TREE_SET_ONCE）：v6 守門（remind）、判定不動；改檔那則與 Stop 的行為案例在 verify_goal_tree_once.py ───
-def test_goal_tree_set_once_registered_and_noted():
-    """規則登在表上、v6 開是 remind、關是 block；被它改掉送法的那幾條說明都補了現況，而且是在 RULE_MODE 算完之後補（不影響送法表）。"""
-    assert "GOAL_TREE_SET_ONCE" in rr.RULES and rr.gate_mode("GOAL_TREE_SET_ONCE", True) == rr.REMIND
-    assert rr.gate_mode("GOAL_TREE_SET_ONCE", False) == rr.BLOCK
-    for rule in ("GOAL_RECONCILE_AT_DELIVERY", "EDITED_PART_NEEDS_GOAL_NODE",
-                 "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY", "CODE_EDIT_NEEDS_GOAL_TREE", "CLOSING_CHECK_REQUIRED"):
-        assert "GOAL_TREE_SET_ONCE" in rr.RULES[rule], rule
-        assert rr.gate_mode(rule, True) == rr.REMIND and rr.gate_mode(rule, False) == rr.BLOCK, rule
-    assert (Path(__file__).parent / "verify_goal_tree_once.py").is_file()

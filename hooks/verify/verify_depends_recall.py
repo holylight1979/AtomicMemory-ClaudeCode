@@ -163,7 +163,7 @@ DEPENDS_BRANCH = 'if v6 and not degraded and tool_name in ("Read", "Bash", "Powe
 HUB_V6_TOOLS = '(("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash"))'   # 導讀卡那支：v6 關時照舊只收 Read／Bash
 
 
-READ_HANDLERS = ("_hub_on_read", "scope_on_read", "_on_read_depends")   # 導讀卡、需求目標讀入範圍、Depends 召回
+READ_HANDLERS = ("_hub_on_read", "_on_read_depends")   # 導讀卡、Depends 召回
 
 
 def _module_consts(tree: ast.Module) -> dict:
@@ -198,7 +198,7 @@ def _membership_tools(node: ast.AST, consts: dict):
 def check_read_branches(src: str) -> None:
     """缺口 5：讀檔分支（`tool_name in X` 且 X 含 "Read"）每一支都收 Bash 與 PowerShell，有的另收 Grep（045 規則
     GREP_CONTENT_IS_READ）。不數分支個數（新增讀檔分支不該讓這條紅），改用 AST 抓：tuple、set、list、模組常數都認，
-    解析不到就紅。三個讀檔處理器都要在讀檔分支裡，分支被改寫成抓不到的寫法也會紅。"""
+    解析不到就紅。兩個讀檔處理器都要在讀檔分支裡，分支被改寫成抓不到的寫法也會紅。"""
     tree = ast.parse(src)
     consts = _module_consts(tree)
     reads = {}

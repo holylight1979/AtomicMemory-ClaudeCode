@@ -179,11 +179,11 @@ def test_off_or_not_coding_keeps_hot_full(mem, monkeypatch, env, state):
 
 @pytest.mark.parametrize("state", [
     {"turn_seq": 3, "turn_prompts_seq": 3, "turn_intent": "refactor", "modified_files": [{"path": "C:/proj/app.py", "last_turn_seq": 3}]},
-    {"turn_seq": 3, "turn_prompts_seq": 3, "turn_intent": "general", "need_goal_code_decl_turn": 3},   # 宣告了寫碼樹、意圖字樣無關
+    {"turn_seq": 3, "turn_prompts_seq": 3, "turn_intent": "general", "modified_files": [{"path": "C:/proj/run.bat", "last_turn_seq": 3}]},   # 意圖字樣無關
     {"turn_seq": 3, "turn_prompts_seq": 3, "unknown_writes": [{"turn_seq": 3}]},                         # 判不出寫了什麼：保守算
 ])
 def test_lean_follows_actual_coding_behaviour(mem, v6_on, state):
-    """同一回合改過碼（或宣告了寫碼樹、有判不出目標的寫入）之後的 prompt：瘦身——hot 的 bm25 卡只給一行。"""
+    """同一回合改過碼（或有判不出目標的寫入）之後的 prompt：瘦身——hot 的 bm25 卡只給一行。"""
     _mk(mem, BM25_CARD, hot=True)
     lines, forms = _run(mem.parent, state, [BM25_CARD], ["bm25"])
     assert forms == {BM25_CARD: "cold"} and "## 知識" not in _block(lines, BM25_CARD)

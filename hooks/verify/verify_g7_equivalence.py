@@ -407,7 +407,6 @@ def test_overview_inject_passes_extra(monkeypatch, tmp_path):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     monkeypatch.setattr(wo, "_resolve_row_cards", lambda *a, **k: ([], None))
     monkeypatch.setattr(wo, "_tracking_for", lambda *a, **k: [])
-    monkeypatch.setattr(wo, "_goal_block", lambda *a, **k: "")
     monkeypatch.setattr(wo._oh, "path_kind", lambda *a, **k: None)
     cfg = hc.merge_hub_cfg({}, None, None)
     assert cfg["_errors"] == []

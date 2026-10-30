@@ -15,11 +15,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
-    _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled, transcripts_of,
+    _atom_debug_error, append_guard_log, WORKFLOW_DIR, v6_enabled,
 )
 import chain_store  # 連鎖斷路器的帳（lib/；判定在 hooks/wg_chain.py）：工具後記 AI 動作
 from wg_episodic import _check_output_quality
@@ -1052,98 +1052,6 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
     return True
 
 
-_EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
-
-
-def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
-                          input_data: Dict[str, Any], config: Dict[str, Any],
-                          recovered: Sequence[str] = ()) -> Tuple[Optional[str], bool]:
-    """需求目標樹（wg_need_goal）：need_goal 工具呼叫套用到目標樹並送回整棵樹、目標改了清各部位的「已定位」、
-    改檔與收據蓋號、讀到帶【需求目標樹】區塊的續接單時匯入。回（要送回 AI 的提示, state 有沒有變）。
-    recovered＝Bash／PowerShell 判不出目標、事後從版控狀態補到的檔（UNKNOWN_WRITE_RECOVERED），跟算得出的目標一樣蓋號。
-    目標檔自己整段上鎖；這裡出錯只 stderr＋守門紀錄，不影響工具結果。"""
-    import wg_need_goal as ng
-    is_ng = tool_name.endswith("need_goal")
-    if not (is_ng or tool_name in _EDIT_TOOLS or tool_name in ("Bash", "PowerShell")
-            or (tool_name == "Read" and ng.HANDOFF_NAME_RE.search(str(tool_input.get("file_path") or "")))):
-        return None, False
-    if is_ng and is_error_response(input_data.get("tool_response")):
-        return None, False                       # MCP 已拒收：不套用
-    turn = int(state.get("turn_seq", 0))
-    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
-    transcript_path = input_data.get("transcript_path", "") or ""
-    try:
-        if not ng.cfg_for_cwd(config, cwd)["enabled"]:
-            return ("[NeedGoal] need_goal 在這一層關閉（overview_hub.need_goal.enabled=false），沒有套用" if is_ng else None), False
-        if is_ng:
-            res = ng.apply_op(session_id, turn, tool_input, cwd)
-            changed = False
-            if res["ok"] and res.get("kind") == "code" and (tool_input or {}).get("action") in ("set", "add", "update"):
-                state["need_goal_code_decl_turn"] = turn   # 規則 CODING_TURN_ONLY 第二層：本回合 LLM 宣告了寫碼樹
-                changed = True
-            if res["goal_changed"]:
-                from wg_overview import on_goal_changed
-                changed = on_goal_changed(state, transcript_path, turn) > 0
-            text = res["text"]
-            if res["ok"]:                     # 規則 LOCATE_VIA_NEED_GOAL：定位四行隨樹一起交（目標改了先清、再標這次交的）
-                lines = ng.locate_via_tree(state, session_id, cwd, transcript_path, tool_input or {}, config)
-                if lines:
-                    text, changed = f"{text}\n" + "\n".join(lines), True
-            if res["ok"] and (tool_input or {}).get("data_files") and (tool_input or {}).get("action") in ("set", "update"):
-                # 動資料檔宣告隨目標樹一起交（wg_data_file.declare_via_need_goal）：記進 state，省掉另發註解指令的一個回合
-                df_line, df_changed = wg_data_file.declare_via_need_goal(
-                    state, session_id, tool_input.get("data_files"),
-                    transcripts_of(transcript_path, str(input_data.get("agent_id") or ""))[0], cwd)
-                changed = changed or df_changed
-                if df_line:
-                    text = text + "\n" + df_line
-            return text, changed
-        if tool_name == "Read":
-            return _need_goal_import(ng, state, session_id, str(tool_input.get("file_path")), turn, transcript_path)
-        if tool_name in _EDIT_TOOLS:
-            fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
-            targets = [fp] if fp else []
-        else:
-            targets = list(_write_paths_from_tool(tool_name, tool_input, cwd) or []) if _write_paths_from_tool is not None else []
-            targets += list(recovered)
-        agent_id = str(input_data.get("agent_id") or "")
-        lines: List[str] = []
-        for p in targets or []:
-            if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
-                line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 蓋號；沒樹改知識類只記 untreed、目前不回提示（NON_CODING_TURN_NO_NUDGE）
-                if line and not agent_id:        # 子代理改的照記帳，提示（若有）不送給它（樹是主 session 的）
-                    lines.append(line)
-        if tool_name in ("Bash", "PowerShell"):
-            ng.stamp_receipts(session_id, state, turn)
-        if lines:
-            return "\n".join(lines), False
-    except Exception as e:  # noqa: BLE001
-        print(f"[NeedGoal] PostToolUse 蓋號／套用失敗（{tool_name}）：{type(e).__name__}: {e}", file=sys.stderr)
-        ng._guard("stamp_error", session_id, tool=tool_name, error=f"{type(e).__name__}: {e}")
-        if is_ng:
-            return f"[NeedGoal] 這次 need_goal 沒寫進目標檔（{type(e).__name__}: {e}），請重新呼叫一次。", False
-    return None, False
-
-
-def _need_goal_import(ng: Any, state: Dict[str, Any], session_id: str, fp: str, turn: int,
-                      transcript_path: str) -> Tuple[Optional[str], bool]:
-    """讀到續接單：帶【需求目標樹】區塊而且這個 session 還沒有樹 → 自動匯入並送回；已經有樹 → 提示怎麼接續。"""
-    try:
-        text = Path(fp).read_text(encoding="utf-8")
-    except OSError:
-        return None, False
-    if "need-goal:begin" not in text or ng.handoff_session_of(text) == session_id:
-        return None, False                       # 沒有區塊，或是本 session 自己匯出的（樹還在目標檔裡）
-    if ng.load(session_id).get("trees"):
-        return (f"[NeedGoal] 續接單 {fp} 帶【需求目標樹】區塊，但這個 session 已經有目標樹；要接續請 "
-                f"need_goal(action=set, import_from=\"{fp}\")。"), False
-    res = ng.import_handoff(session_id, text, fp, turn)
-    if not res["imported"]:
-        return (f"[NeedGoal] 續接單的需求目標樹沒有匯入：{res.get('skipped')}" if res.get("skipped") else None), False
-    from wg_overview import on_goal_changed
-    return res["text"], on_goal_changed(state, transcript_path, turn) > 0
-
-
 def _chain_action(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], tool_response: Any) -> None:
     """連鎖斷路器：這次工具呼叫算 AI 動作（判法 wg_chain.action_of）就記進連鎖帳，連鎖段開著才記（chain_store.action_done）。
     這個 session 還沒有連鎖帳就跳過（不可能有開著的連鎖段）。只記錄，不影響這次工具；出錯 chain_store 自己浮 stderr。"""
@@ -1207,13 +1115,13 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
 
 def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """PostToolUseFailure：工具失敗時 Claude Code 不送 PostToolUse、改送這個。Bash／PowerShell 指令非零結束時：
-    - 前段已經寫下去的檔照樣進 modified_files（閱讀路徑量尺、寫碼查核都讀它）與目標樹的待對照改動；例：`cat > a.py <<EOF … && pytest`
+    - 前段已經寫下去的檔照樣進 modified_files（閱讀路徑量尺、寫碼查核都讀它）；例：`cat > a.py <<EOF … && pytest`
       測試紅了，a.py 已經改了。目標用成功路徑同一支 write_paths_from_tool 算；失敗的指令不一定寫到，只記這次開始後改過的現存檔，目標不明的不記。
     - 測試指令紅了記紅測（failing_tests）與驗證收據，跟成功路徑同一套函式；失敗事件沒有 tool_response，錯誤全文（"Exit code N\\n輸出…"）
       在 error 欄，當字串回應餵進去。error 裡讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。
     - 改舊測試的事後比對（_old_test_after，同成功路徑）：`sed -i … tests/x.py && pytest` 紅了，改動已經寫進測試檔，照樣拿 PreToolUse
       拍的快照比，沒宣告的記欠帳、下一個工具呼叫擋（規則 OLD_TEST_COMPARED_ON_FAILED_COMMAND）。
-    只記帳不擋；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測、不比改舊測試（它的 PreToolUse 不拍快照）、不送提示。"""
+    只記帳不擋、不送提示；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測、不比改舊測試（它的 PreToolUse 不拍快照）。"""
     tool_name = input_data.get("tool_name", "") or ""
     session_id = input_data.get("session_id", "") or ""
     if tool_name not in ("Bash", "PowerShell") or not session_id:
@@ -1231,8 +1139,8 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
         return
     aid = str(input_data.get("agent_id") or "")
     command = str((input_data.get("tool_input") or {}).get("command") or "")
-    noted, dirty = (_note_failed_writes(state, input_data, tool_name, session_id, aid, cwd) if _write_paths_from_tool is not None
-                    else ([], False))
+    dirty = (_note_failed_writes(state, input_data, tool_name, session_id, aid, cwd)[1] if _write_paths_from_tool is not None
+             else False)
     if not judge and v6_enabled(config) and _old_test_after(state, input_data, config):
         dirty = True
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
@@ -1245,15 +1153,11 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
         except Exception as e:  # noqa: BLE001
             print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
             _atom_debug_error("post_tool_use_failure:verify_ledger", e)
-    advisories = [] if judge else _need_goal_stamp_failed(state, session_id, noted, aid, cwd, config)
     if dirty:
         write_state(session_id, state)
     if not judge and v6_enabled(config) and exit_code_of(event["tool_response"]) is not None:
         _chain_action(state, input_data, config, event["tool_response"])     # 指令真的跑了（紅的重跑也是動作）
-    if advisories:
-        output_json({"hookSpecificOutput": {"hookEventName": "PostToolUseFailure", "additionalContext": "\n".join(advisories)}})
-    else:
-        output_nothing()
+    output_nothing()
 
 
 def _negative_control(input_data: Dict[str, Any], command: str):
@@ -1300,23 +1204,6 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
     return noted, bool(noted) or unknown or eph or state.get("event_seq") != seq0
-
-
-def _need_goal_stamp_failed(state: Dict[str, Any], session_id: str, noted: List[str], aid: str, cwd: str,
-                            config: Dict[str, Any]) -> List[str]:
-    """失敗指令寫到的檔蓋進目標樹的待對照改動、新收據蓋號（成功路徑 _need_goal_after_tool 的 Bash 段，目標換成真的寫到的檔）。
-    回要送回 AI 的提示；出錯只 stderr，不影響記帳。"""
-    import wg_need_goal as ng
-    turn = int(state.get("turn_seq", 0))
-    try:
-        if not ng.cfg_for_cwd(config, cwd or str((state.get("session") or {}).get("cwd") or ""))["enabled"]:
-            return []
-        lines = [ln for ln in (ng.stamp_edit(session_id, p, aid, turn, config) for p in noted) if ln]
-        ng.stamp_receipts(session_id, state, turn)
-        return lines
-    except Exception as e:  # noqa: BLE001
-        print(f"[NeedGoal] PostToolUseFailure 蓋號失敗：{type(e).__name__}: {e}", file=sys.stderr)
-        return []
 
 
 def _old_test_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
@@ -1408,31 +1295,6 @@ def _apply_harvest(state: Dict[str, Any], session_id: str, input_data: Dict[str,
         )
 
 
-AEC_RECONCILE_RETRY = ("收尾檢核其他欄已收下，只差這段：修好後用 need_goal(action=reconcile, items=…) 補交"
-                       "（或重送 anti_evasion_report 帶 reconcile）。")
-
-
-def _aec_reconcile(state: Dict[str, Any], session_id: str, rec: Dict[str, Any], input_data: Dict[str, Any],
-                   config: Dict[str, Any]) -> Tuple[str, str]:
-    """規則 CLOSING_RECONCILE_IN_REPORT：anti_evasion_report 的 reconcile 欄＝need_goal(action=reconcile)，交給同一個入口
-    wg_need_goal.apply_op（同一套判法、同一段回覆、同樣記進目標檔）。回 (要送回 AI 的那段, 留在報告裡的結果 applied／rejected／off／error)。
-    沒套上只少這段：收尾檢核照收，回覆寫明只要補交對照。"""
-    import wg_need_goal as ng
-    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
-    if not ng.cfg_for_cwd(config, cwd)["enabled"]:
-        return "[NeedGoal] need_goal 在這一層關閉（overview_hub.need_goal.enabled=false），reconcile 欄沒有套用", "off"
-    op = {"action": "reconcile", **{k: rec[k] for k in ("items", "turns") if k in rec}}
-    try:
-        res = ng.apply_op(session_id, int(state.get("turn_seq", 0)), op, cwd)
-    except Exception as e:  # noqa: BLE001
-        print(f"[NeedGoal] anti_evasion_report 的 reconcile 欄套用失敗：{type(e).__name__}: {e}", file=sys.stderr)
-        ng._guard("stamp_error", session_id, tool="anti_evasion_report.reconcile", error=f"{type(e).__name__}: {e}")
-        return f"[NeedGoal] reconcile 欄沒寫進目標檔（{type(e).__name__}: {e}）。{AEC_RECONCILE_RETRY}", "error"
-    if res["ok"]:
-        return res["text"], "applied"
-    return f"{res['text']}\n{AEC_RECONCILE_RETRY}", "rejected"
-
-
 def _note_tool_result(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
                       input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
     """每個工具結果都做的兩筆帳：救援日誌（工具呼叫命中已注入 atom 的高特異 token → rescue-log）、工具結果體積
@@ -1461,8 +1323,8 @@ def _note_tool_result(state: Dict[str, Any], session_id: str, tool_name: str, to
 def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
                    input_data: Dict[str, Any], config: Dict[str, Any], v6: bool, degraded: bool,
                    lap: Any) -> Tuple[List[str], bool, bool]:
-    """讀檔事件的四段（Read／Bash／PowerShell／Grep；非讀檔工具只打「導讀卡」那個點）：OverviewHub on_read、動資料檔讀提示、
-    需求目標讀入範圍、Depends 召回。主流程傳 _hook_lap；read-log 補帳（replay_read_log）傳不打點的 lap。
+    """讀檔事件的三段（Read／Bash／PowerShell／Grep；非讀檔工具只打「導讀卡」那個點）：OverviewHub on_read、動資料檔讀提示、
+    Depends 召回。主流程傳 _hook_lap；read-log 補帳（replay_read_log）傳不打點的 lap。
     回（要附進工具結果的提示、state 有沒有變、打完點後的 degraded）。"""
     ctx: List[str] = []
     dirty = False
@@ -1492,17 +1354,6 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
             ctx.append(df_ctx)
             dirty = True
 
-    # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
-    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同。
-    # 子代理（hook 輸入帶 agent_id）讀的不算：目標樹是主 session 的，子代理讀檔不擴大它的讀入範圍、也不收「要不要長子目標」
-    if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
-        try:
-            from wg_need_goal_points import scope_on_read
-            if scope_on_read(state, session_id, tool_name, tool_input, cwd, config):
-                dirty = True   # need_goal_batch 要落盤
-        except Exception as e:  # noqa: BLE001
-            print(f"[NeedGoal] 讀入範圍記錄失敗（不影響讀檔）：{type(e).__name__}: {e}", file=sys.stderr)
-
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell"):
         try:
@@ -1518,8 +1369,8 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
 
 def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, Any], v6: bool) -> Tuple[List[str], bool]:
     """規則 READ_FAST_PATH：Read 的 PostToolUse 走 dispatcher 快路徑只落 read-log；這裡在下一個非 Read 事件把累積的 Read
-    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub on_read、動資料檔讀提示、讀入範圍、Depends 召回、
-    讀到續接單匯入目標樹）——結果一樣、晚一個事件出現。寫碼守門關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
+    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub on_read、動資料檔讀提示、Depends 召回）
+    ——結果一樣、晚一個事件出現。寫碼守門關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
     回（要附進這則工具結果的提示＝上一個 PreToolUse 補出來存在 state 的＋這次補出來的、state 有沒有變）。"""
     ctx: List[str] = list(state.pop(wg_read_fast.HINTS_KEY, None) or [])
     dirty = bool(ctx)
@@ -1532,11 +1383,8 @@ def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, An
         ti = ev["tool_input"]
         dirty = _note_tool_result(state, session_id, "Read", ti, ev, config) or dirty
         rc, rd, _ = _read_tracking(state, session_id, "Read", ti, ev, config, v6, False, lambda seg: False)
-        ng_ctx, ng_changed = _need_goal_after_tool(state, session_id, "Read", ti, ev, config, [])
         ctx.extend(rc)
-        if ng_ctx:
-            ctx.append(ng_ctx)
-        dirty = dirty or rd or ng_changed
+        dirty = dirty or rd
     return ctx, dirty
 
 
@@ -1580,7 +1428,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # state 鎖（dispatcher 開的 hook 模式，規則 STATE_RMW_LOCKED），別支排隊，不會互相蓋掉。
     dirty = False
     aec_reject_msgs: List[str] = []   # anti_evasion_report 分支填；尾端併入 advisories 回給模型
-    recovered: List[str] = []         # 判不出目標的寫入事後補到的檔（UNKNOWN_WRITE_RECOVERED）：目標樹也要蓋號
     v6 = v6_enabled(config)           # 關＝只跑 9e476fd0 就有的記帳與提示
 
     # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log（dispatcher 快路徑），這裡先把累積的 Read 補帳（提示隨這則工具結果送）
@@ -1760,7 +1607,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 _aid = str(input_data.get("agent_id") or "")
                 for _p in _write_paths_from_tool(tool_name, tool_input, _cwd) or []:
                     if _p and _p.startswith("UNKNOWN:"):    # 目標不明：記未知寫入，再從版控狀態補出真的改了哪些檔
-                        recovered += _note_unknown_write(state, session_id, _p, command, tool_name, _aid, input_data)
+                        _note_unknown_write(state, session_id, _p, command, tool_name, _aid, input_data)
                     elif _p and not _is_ephemeral_path(_p):
                         _note_modified(state, session_id, _p, tool_name, _aid)
                         _note_launcher(_p)        # LAUNCHER_NOT_CODE：用 shell 寫出來的啟動器也認；刪掉時標記不動
@@ -1861,10 +1708,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if v6 and isinstance(tool_input.get("harvest_items"), list):
             _apply_harvest(state, session_id, input_data, tool_input["harvest_items"], "", aec_reject_msgs,
                            "anti_evasion_report（harvest_items）")
-        # 目標對照也同一次交（CLOSING_RECONCILE_IN_REPORT）：先套用再附樹，HUD 的「目標對照」是這次交的結果
-        if v6 and isinstance(tool_input.get("reconcile"), dict):
-            _rc_text, report["reconcile"] = _aec_reconcile(state, session_id, tool_input["reconcile"], input_data, config)
-            aec_reject_msgs.append(_rc_text)
         if v6 and str(tool_input.get("report") or "").strip():
             report["report"] = str(tool_input["report"])
         hv_done = validated_this_turn(state, session_id, turn_seq)
@@ -1913,16 +1756,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     append_tracking(tracking_slug(_k_cwd), _k_entries)
             except Exception as e:
                 _atom_debug_error("post_tool_use:aec_tracking", e)
-            # 目前的寫碼類需求目標樹（原話摘要＋節點＋對照結果）附進報告，HUD 顯示「目標對照」；收尾檢核本身不多欄
-            try:
-                import wg_need_goal as _ng
-                _ng_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "") or ""
-                _ng_on = _ng.cfg_for_cwd(config, _ng_cwd)["enabled"]
-                _ng_snap = _ng.snapshot_for_report(session_id) if _ng_on else None
-                if _ng_snap:
-                    report["need_goal"] = _ng_snap
-            except Exception as e:
-                _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(i) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
@@ -1971,7 +1804,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             dirty = True
 
     # 分段計時（wg_hook_timing）：累計過 hook 上限的 80% → degraded，後面只記不問——提示類段落（導讀卡、depends 召回、
-    # 跨 session 碰撞、同伴檢查、MCP 切入點註記）不跑；docdrift 清帳、讀入範圍、目標樹蓋號、寫 state 照做
+    # 跨 session 碰撞、同伴檢查、MCP 切入點註記）不跑；docdrift 清帳、寫 state 照做
     degraded = _hook_lap("工具記帳")
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:
@@ -1984,31 +1817,17 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     read_ctx, _rd, degraded = _read_tracking(state, session_id, tool_name, tool_input, input_data, config, v6, degraded, _hook_lap)
     dirty = dirty or _rd
     _hook_lap("綜觀與召回")
-    ng_ctx, ng_changed = (_need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config, recovered)
-                          if v6 else (None, False))
-    dirty = dirty or ng_changed
-    _hook_lap("目標樹")
 
     advisories = list(aec_reject_msgs)
     advisories.extend(replay_ctx)       # 補帳的 Read 的提示（含上一個 PreToolUse 補出來、存在 state 裡的）排在這則自己的前面
-    if ng_ctx:
-        advisories.append(ng_ctx)
     advisories.extend(read_ctx)
-    # 提醒（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：工具前守門判成提醒的那幾件，在這則工具結果送一行（同規則同對象一 session 一次）；
-    # need_goal set 那則先提醒「之後提問要附推薦」（ASK_NEEDS_RECOMMENDATION，每 session 一次；漏了在提問那則補一行）
+    # 提醒（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：工具前守門判成提醒的那幾件，在這則工具結果送一行（同規則同對象一 session 一次）
     if v6:
         try:
-            from wg_overview import remind_flush, remind_once
+            from wg_overview import remind_flush
             if state.get("remind_pending"):
                 dirty = True
             remind_lines = remind_flush(state, session_id)
-            if (tool_name.endswith("need_goal") and (tool_input or {}).get("action") == "set"
-                    and not is_error_response(input_data.get("tool_response"))):
-                line = remind_once(state, "ASK_NEEDS_RECOMMENDATION", "", "之後問使用者（AskUserQuestion）每一題都要附推薦",
-                                   "推薦的選項排第一、label 加「 (Recommended)」，或題目加「建議：選 X，因為 …」")
-                if line:
-                    remind_lines.append(line)
-                    dirty = True
             advisories.extend(remind_lines)
         except Exception as e:  # noqa: BLE001
             print(f"[Guardian:提醒] 工具結果附提醒失敗（不影響工具結果）：{type(e).__name__}: {e}", file=sys.stderr)

@@ -121,9 +121,6 @@ def failed(monkeypatch, tmp_path):
     monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")                    # 驗證帳本落 tmp
     monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
-    stamped = []                                                               # 目標樹蓋號：只記呼叫，不碰真的目標檔
-    monkeypatch.setattr(pt, "_need_goal_stamp_failed", lambda st, sid, noted, aid, cwd, cfg: stamped.append(list(noted)) or [],
-                        raising=False)                                         # 退回舊碼看紅時沒有這支，案例照跑到斷言
 
     def run(tool_name, command, transcript=True, error="Exit code 1\n1 failed, 9 passed"):
         inp = {"session_id": _SID, "hook_event_name": "PostToolUseFailure", "tool_name": tool_name,
@@ -144,7 +141,6 @@ def failed(monkeypatch, tmp_path):
         return state
 
     run.ok = run_ok
-    run.stamped = stamped
     return proj, run
 
 
@@ -234,13 +230,6 @@ def test_004_blocked_or_interrupted_command_is_not_a_test_result(failed):
     assert "failing_tests" not in state and not _receipts(state) and wrote == []
 
 
-def test_004_failed_bash_writes_stamped_into_goal_tree(failed):
-    """失敗指令真的寫到的檔才交目標樹蓋號（沒寫出來的不交）；沒寫到任何檔也照樣呼叫（收據蓋號）。"""
-    _, run = failed
-    run("Bash", HEREDOC)
-    assert len(run.stamped) == 1 and [p.rsplit("\\", 1)[-1].rsplit("/", 1)[-1] for p in run.stamped[0]] == ["api.py"]
-
-
 def test_004_failed_powershell_pytest_enters_failing_tests(failed):
     _, run = failed
     state, _ = run("PowerShell", PYTEST, error=RED)
@@ -248,28 +237,8 @@ def test_004_failed_powershell_pytest_enters_failing_tests(failed):
     assert len(reds) == 1 and reds[0]["tool"] == "PowerShell" and [r["tool"] for r in _receipts(state)] == ["PowerShell"]
 
 
-def test_004_stamp_wrapper_stamps_each_written_file_and_receipts(monkeypatch, capsys):
-    """_need_goal_stamp_failed 本體（上面的案例替換掉它）：每個寫到的檔各蓋一次、收據蓋一次、提示行收回；目標樹關掉不蓋；蓋號出錯只 stderr 回空。"""
-    import wg_need_goal as ng
-    calls = []
-    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
-    monkeypatch.setattr(ng, "stamp_edit", lambda sid, p, aid, turn, cfg: calls.append(("edit", sid, p, aid, turn))
-                        or ("提示一行" if p.endswith("a.py") else None))
-    monkeypatch.setattr(ng, "stamp_receipts", lambda sid, st, turn: calls.append(("receipts", sid, turn)))
-    state = {"turn_seq": 9, "session": {"cwd": r"c:\proj"}}
-    lines = pt._need_goal_stamp_failed(state, _SID, [_A, _B], "ag1", r"c:\proj", {})
-    assert lines == ["提示一行"]
-    assert calls == [("edit", _SID, _A, "ag1", 9), ("edit", _SID, _B, "ag1", 9), ("receipts", _SID, 9)]
-    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: {"enabled": False})
-    calls.clear()
-    assert pt._need_goal_stamp_failed(state, _SID, [_A], "", r"c:\proj", {}) == [] and calls == []
-    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: (_ for _ in ()).throw(RuntimeError("壞了")))
-    assert pt._need_goal_stamp_failed(state, _SID, [_A], "", r"c:\proj", {}) == []
-    assert "PostToolUseFailure 蓋號失敗" in capsys.readouterr().err
-
-
 def test_004_judge_failure_records_receipt_but_not_failing_tests(failed, monkeypatch):
-    """裁判子 session：失敗事件照記收據（寫碼查核閘要看），不記紅測、不蓋目標樹。"""
+    """裁判子 session：失敗事件照記收據（寫碼查核閘要看），不記紅測。"""
     import wg_core
     _, run = failed
     monkeypatch.setenv("CLAUDE_COMPANION_JUDGE", "1")
@@ -277,7 +246,6 @@ def test_004_judge_failure_records_receipt_but_not_failing_tests(failed, monkeyp
     monkeypatch.setattr(wg_core, "read_state", lambda sid: judge_state)
     run("Bash", PYTEST, error=RED)
     assert "failing_tests" not in judge_state and [r["exit_code"] for r in _receipts(judge_state)] == [1]
-    assert run.stamped == []
 
 
 def test_004_failure_event_wired_in_dispatcher():

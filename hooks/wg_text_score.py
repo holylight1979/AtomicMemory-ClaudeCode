@@ -85,15 +85,7 @@ def _spawn_worker(job_path: Path) -> None:
 
 
 def current_goal(state: Dict[str, Any], session_id: str) -> str:
-    """評分要對的當下需求目標：目標樹樹根；沒有樹就用本回合使用者原話（ups_gates 記的 turn_prompts）；都沒有回空字串（不評）。"""
-    try:
-        import wg_need_goal as ng
-        tree = ng.active_tree(ng.load(session_id))
-        root = ((tree or {}).get("nodes") or {}).get((tree or {}).get("id")) or {}
-        if str(root.get("text") or "").strip():
-            return str(root["text"]).strip()
-    except Exception as e:  # noqa: BLE001
-        print(f"{TAG} 讀不到目標樹，改用本回合原話當目標：{type(e).__name__}: {e}", file=sys.stderr)
+    """評分要對的當下需求目標：本回合使用者原話（ups_gates 記的 turn_prompts）；沒有回空字串（不評）。"""
     said = [str(p).strip() for p in state.get("turn_prompts") or [] if str(p).strip()]
     return " ".join(said)[:300]
 
@@ -142,7 +134,7 @@ def on_stop(state: Dict[str, Any], session_id: str, reply: str, mods: List[Dict[
         if not tasks:
             return changed
         goal = current_goal(state, session_id)
-        if not goal:                     # 沒有當下的需求目標（沒樹、本回合也沒原話）可對：這次不評（規格用 {{goal}}）
+        if not goal:                     # 沒有當下的需求目標（本回合沒有原話）可對：這次不評（規格用 {{goal}}）
             return changed
         for t in tasks:
             t["goal"] = goal

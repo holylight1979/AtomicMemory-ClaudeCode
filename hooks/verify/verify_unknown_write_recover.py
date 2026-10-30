@@ -246,21 +246,6 @@ def test_judge_session_recovers_too(monkeypatch, repo):
     assert judge_state["unknown_writes"][-1]["recovered"]
 
 
-def test_recovered_files_stamped_into_goal_tree(monkeypatch, repo):
-    """補到的檔跟算得出的目標一樣交目標樹蓋號（成功路徑走 _need_goal_after_tool、失敗路徑走 _need_goal_stamp_failed）。"""
-    import wg_need_goal as ng
-    stamped: List[str] = []
-    monkeypatch.setattr(ng, "cfg_for_cwd", lambda cfg, cwd: {"enabled": True})
-    monkeypatch.setattr(ng, "stamp_edit", lambda sid, p, aid, turn, cfg: stamped.append(canon_path(p)) or None)
-    monkeypatch.setattr(ng, "stamp_receipts", lambda sid, st, turn: None)
-    bash_unknown_write(monkeypatch, repo, _state(), py_c(repo, PY_C_SENDER), PY_C_SENDER)
-    assert stamped == [canon_path(repo / "notify" / "sender.py")]
-    stamped.clear()
-    effect = HEREDOC_EDIT + "raise SystemExit(1)\n"
-    bash_unknown_write(monkeypatch, repo, _state(), heredoc(HEREDOC_EDIT, "exit 1"), effect, failure=True)
-    assert canon_path(repo / "notify" / "log.py") in stamped
-
-
 def test_big_file_without_sha_not_bumped_unless_written_after(monkeypatch, repo):
     """codex BLOCK 2：超過雜湊上限（2 MiB）的檔沒有 sha 可比。本 session 第 2 回合記過 big.py；第 5 回合子代理 B 的腳本沒碰它
     （mtime 不晚於上次記下的時間）→ 不刷成第 5 回合、不記到 B 名下；上次記下之後又被寫過 → 照補。"""

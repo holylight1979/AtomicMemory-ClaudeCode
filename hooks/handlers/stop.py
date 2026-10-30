@@ -916,32 +916,21 @@ def _remind_logged(log_name: str, gate: str, rule: str, text: str, session_id: s
     print(f"[Guardian:{gate}] 規則 {rule} 是提醒不是擋（GATE_MODE_TABLE）：收尾只留帳｜{head[:120]}", file=sys.stderr)
 
 
-CLOSING_ONE_CALL = ("收尾三段一次交齊：目標對照放 anti_evasion_report 的 reconcile 欄（同 need_goal reconcile 的 items／turns）、"
-                    "知識收割放 harvest_items，跟收尾檢核同一次交，不必另呼叫 need_goal reconcile、knowledge_harvest_report；已分開交過的不用重交。")
-# 寫碼守門開時「後面還會擋」預覽與改檔那則提醒用的做法（GOAL_TREE_SET_ONCE：不寫目標對照，寫了 AI 就多叫一次 need_goal reconcile）
+CLOSING_ONE_CALL = ("收尾一次交齊：知識收割放 anti_evasion_report 的 harvest_items，跟收尾檢核同一次交，"
+                    "不必另呼叫 knowledge_harvest_report；已分開交過的不用重交。")
+# 寫碼守門開時「後面還會擋」預覽與改檔那則提醒用的做法
 CLOSING_CHECK_FIX = "最後呼叫 anti_evasion_report（知識收割放 harvest_items，一次交齊）"
-
-
-def closing_reconcile_hint(aec_emitted: bool) -> str:
-    """規則 CLOSING_MISSING_PART_HINT：(f2) 擋下時寫明缺的是目標對照、怎麼補（跟 anti_evasion_report／need_goal 說明同一個說法）：
-    本回合交過收尾檢核 → 只補對照，收尾檢核不重交；還沒交 → 一次交齊。"""
-    if aec_emitted:
-        return "收尾三段：收尾檢核本回合已交，缺目標對照——只補這段：need_goal(action=reconcile, items=…)，收尾檢核不用重交。"
-    return f"收尾三段：缺目標對照。{CLOSING_ONE_CALL}"
 
 
 def _verify_gates(
     state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
     transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
     rg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
-    claims: List[str] = (), pending: bool = False, goal: bool = False, goal_cfg: Optional[Dict[str, Any]] = None,
-    coding: bool = True, reminds: Optional[List[Tuple[str, str]]] = None,
+    claims: List[str] = (), pending: bool = False, reminds: Optional[List[Tuple[str, str]]] = None,
 ) -> tuple:
     """對帳閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／"")。
-    reminds＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：判成提醒的條目（(b)(c)(d)(v)(e)、(f2)(f3)(f4)、
+    reminds＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：判成提醒的條目（(b)(c)(d)(v)(e)、
     這幾類自己的判定錯誤）不進擋訊息，(規則名, 原文) append 進來交呼叫端留帳；(a) 與它的判定錯誤照擋。None＝全部照擋（總開關關）。寫碼查核＝對帳 (a)～(d)；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
-    goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)(f3)，併進寫碼查核；記憶知識類的輕樹 (f4) 併進 (e) 那一份；
-    子代理與裁判不跑目標對照。coding＝False（不是寫碼回合，也不是本 session 改過程式後交收尾檢核）：(f2)(f3) 不判（規則 CLOSING_GOAL_CODING_ONLY），(f1)(f4) 照判。
     (a)(b)(c) 對 last_text 與 claims（pending 承接的本回合先前宣稱）；(d) 不看措辭，有改碼紀錄就判（last_text 空也判）。
     自寫收據（_runs/）只在 (a)(b) 要認部位量尺時讀，只讀一次。
     判定本身出錯 → stderr＋guard_log 每次都記；同一個錯誤每個使用者回合只擋一次（_judge_error），之後放行並留帳。"""
@@ -1047,44 +1036,6 @@ def _verify_gates(
                                            "letter": _ca.get("letter"), "kind": _ca.get("kind"), "why": str(_ca.get("why", ""))[:200],
                                            "line": str(_ca.get("line", ""))[:200]})
             print(f"[Guardian:ReconcileGate] ({_ca.get('letter')}) 宣稱行解掉：{_ca.get('why')}（已留帳）", file=sys.stderr)
-    if goal:
-        # 需求目標（4.5）：(f1) 改了程式還沒回頭對照由程式記進度、不擋（PROGRESS_LINE_BY_PROGRAM）；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界
-        # （宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）判。併進寫碼查核：同一個擋滿問使用者、同一個 pending；
-        # (f3) 擋訊息帶規則行，擋次預算單獨計次。state 與 transcript 交給 (f3) 從對話補掛補交的定位四行
-        boundary = bool(claims_completion(last_text) or claims or aec_emitted)
-        try:
-            from wg_need_goal import goal_gate_reason
-            # 收尾段只在寫碼回合要（CLOSING_GOAL_CODING_ONLY）：不是寫碼回合就不當交付邊界，(f2)(f3) 不判
-            g_reason = goal_gate_reason(session_id, boundary and coding, goal_cfg,
-                                        state=state, transcript_path=str(transcript) if transcript else "")
-        except Exception as e:  # noqa: BLE001
-            g_reason = _judge_error(state, session_id, turn_seq, "ReconcileGate", "需求目標對照", "reconcile", "goal_error", e,
-                                    "修好目標檔（workflow/need-goal/）或回報")
-        if g_reason and "(f2)" in g_reason:
-            g_reason = f"{g_reason}\n{closing_reconcile_hint(aec_emitted)}"
-        if g_reason and reminds is not None and _gate_mode("EDITED_PART_NEEDS_GOAL_NODE", True) == _REMIND:
-            # (f2)(f3) 與目標對照自己的判定錯誤都是提醒（GOAL_RECONCILE_AT_DELIVERY／EDITED_PART_NEEDS_GOAL_NODE／GATE_SELF_ERROR）
-            reminds.append(("GATE_SELF_ERROR" if "判定錯誤" in g_reason.split("\n", 1)[0]
-                            else "GOAL_RECONCILE_AT_DELIVERY" if "(f2)" in g_reason else "EDITED_PART_NEEDS_GOAL_NODE", g_reason))
-            g_reason = None
-        if g_reason:
-            reason = f"{reason}\n{g_reason}" if reason else g_reason
-            kind = "reconcile"
-        # 記憶知識類的輕樹 (f4)：屬記憶與報告類，併進收尾報告那一份（擋滿第 3 次放行並記 reconcile_overflow，不走放行詢問）；
-        # 判不了不擋（stderr＋guard_log），寫碼類那邊照舊一律擋
-        try:
-            from wg_need_goal import knowledge_gate_reason
-            k_reason = knowledge_gate_reason(session_id, boundary, goal_cfg, turn_seq, _user_turn(state, turn_seq))
-        except Exception as e:  # noqa: BLE001
-            k_reason = None
-            print(f"[Guardian:NeedGoal] 記憶知識類輕樹判定錯誤（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
-            append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "knowledge_goal_error": repr(e)[:200]})
-        if k_reason and reminds is not None and _gate_mode("KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", True) == _REMIND:
-            reminds.append(((_parse_hit_rules(k_reason) or [("", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE")])[0][1], k_reason))
-            k_reason = None
-        if k_reason:
-            report = f"{report}\n{k_reason}" if report else k_reason
-            kind = kind or "reconcile"
     return reason, report, kind
 
 
@@ -1733,9 +1684,9 @@ def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
 
 
 def _wrote_code(mods: List[Dict[str, Any]], config: Dict[str, Any]) -> bool:
-    """本 session 改過的檔裡有沒有程式檔（wg_code_path.writes_code）。"""
-    from wg_code_path import writes_code
-    return any(isinstance(m, dict) and writes_code(str(m.get("path") or ""), config) for m in mods)
+    """本 session 改過的檔裡有沒有程式檔（wg_code_path.is_code_path）。"""
+    from wg_code_path import is_code_path
+    return any(isinstance(m, dict) and is_code_path(str(m.get("path") or ""), config) for m in mods)
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -2231,11 +2182,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _code, _report, _vg_kind = _verify_gates(
             state, session_id, turn_seq, code_text, transcript, transcript_text, own_mod_files,
             _rg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
-            # 本 session 改過程式又交了收尾檢核＝交付邊界，不說完成也算（只看措辭會漏）；本 session 沒改過程式才豁免
-            goal=True, goal_cfg=config, coding=_coding or (emitted_this_turn and _wrote_code(own_mod_files, config)),
             reminds=_vg_reminds,
         )
-        for _rule, _text in _vg_reminds:      # 提醒類條目（(b)(c)(d)(v)(e)、(f2)(f3)(f4)）：只留帳（STOP_REMIND_LEDGER_ONLY）
+        for _rule, _text in _vg_reminds:      # 提醒類條目（(b)(c)(d)(v)(e)）：只留帳（STOP_REMIND_LEDGER_ONLY）
             _remind_logged("reconcile", "ReconcileGate", _rule, _text, session_id, turn_seq)
         if _pend is not None and "claims" not in _pend:
             _code = f"{_code}\n{LEGACY_PENDING}" if _code else LEGACY_PENDING
@@ -2295,7 +2244,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 _code = None
             if not _code:
                 _code_full = False
-            # 收尾報告那一份（(e)、(f4)，記憶與報告類）只數自己的「e」：寫碼查核先擋過幾次不吃掉它的次數
+            # 收尾報告那一份（(e)，記憶與報告類）只數自己的「e」：寫碼查核先擋過幾次不吃掉它的次數
             _report_full = bool(budget_exhausted(_rec, _uturn, _max, ["e"]))
             if not _code and _report and _report_full:
                 # 只剩收尾報告那一份：第 3 次放行並記 reconcile_overflow（健檢 red）
