@@ -8,7 +8,8 @@
 - 反例：家目錄放一份假的 `.claude/lib/atom_access.py`，本樹的檔仍要勝出。
 - codex_companion 起 audit 子行程時 argv 指本樹的 audit.py（Popen 換成假的，不真的 spawn）。
 - hook 進程探針：假 HOME、不設 WG_CLAUDE_DIR，以 hooks/workflow-guardian.py 跑 SessionStart／UserPromptSubmit／PreToolUse／Stop 各一次，
-  不拋例外、載入的 hook 模組都在本樹、沒有模組來自 tmp 家或 live ~/.claude（本樹不是 live 時）。
+  不拋例外、載入的 hook 模組都在本樹、沒有模組來自 tmp 家或 live ~/.claude（本樹不是 live 時）；每個事件都要看得到成效
+  （PreToolUse：假專案把 src/*.py 列進 readonly_paths，改它照擋；conftest 預設開寫碼守門）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_sys_path_file_relative.py
 """
 from __future__ import annotations
@@ -169,9 +170,10 @@ def _assert_effect(event: str, stdout: str, home: Path) -> None:
         assert "[Workflow Guardian] Active." in ctx and st.get("phase") == "working", ctx[:300]
     elif event == "UserPromptSubmit":
         assert st.get("turn_seq") == 1 and st.get("turn_intent"), {k: st.get(k) for k in ("turn_seq", "turn_intent")}
-    elif event == "PreToolUse":                                                        # OverviewHub：沒看過部位就改 → 擋
+    elif event == "PreToolUse":                                                        # OverviewHub：改 readonly_paths 的檔 → 照擋
         out = json.loads(stdout.strip().splitlines()[-1])["hookSpecificOutput"]
-        assert out.get("permissionDecision") == "deny" and "[Guardian:OverviewHub]" in out.get("permissionDecisionReason", "")
+        reason = out.get("permissionDecisionReason", "")
+        assert out.get("permissionDecision") == "deny" and "[Guardian:OverviewHub]" in reason and "readonly_paths" in reason, out
     elif event == "Stop":
         assert st.get("phase") == "done", st.get("phase")
 
@@ -183,6 +185,7 @@ def test_hook_process_events_load_code_only_from_this_tree(tmp_path, empty_home)
     (proj / ".claude").mkdir()
     (proj / ".claude" / "overview-map.md").write_text(
         "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8")
+    (proj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["src/*.py"]}', encoding="utf-8")   # PreToolUse 的成效：照擋
     transcript = tmp_path / "t.jsonl"
     transcript.write_text("", encoding="utf-8")
     guardian = TREE / "hooks" / "workflow-guardian.py"
