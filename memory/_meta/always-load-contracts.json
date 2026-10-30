@@ -23,7 +23,9 @@
         "反退避契約",
         "動手前預告",
         "收尾誠實",
-        "退縮歸屬"
+        "退縮歸屬",
+        "設定衝突時的處置",
+        "要不要改目標"
       ],
       "why": "IDENTITY 被覆寫成 stub 或修剪掉契約段時，Stop 閘的三選一失去事前依據",
       "fix": "比對 templates/IDENTITY.template.md 回復"
@@ -44,6 +46,18 @@
       ],
       "why": "沒有程式閘的事前規則只能住必載檔",
       "fix": "git log -S <句子> -- rules/core.md 找回被刪句"
+    },
+    {
+      "id": "coding-style-設計尺與優先序",
+      "live": "rules/coding-style.md",
+      "template": "rules/coding-style.md",
+      "must_contain": [
+        "設計取捨的尺",
+        "使用者這次的目標",
+        "設定衝突時的處置"
+      ],
+      "why": "少了設計尺，AI 用自己的尺判理想形狀；優先序少了使用者目標，專案現有做法會排在目標前面",
+      "fix": "git log -S <句子> -- rules/coding-style.md 找回被刪句"
     }
   ]
 }

@@ -20,6 +20,7 @@
 - 禁憑記憶改碼；斷言嚴重度/blocker/「必爆」前先實證（跑/查/追根源）。細節 [[feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長]]
 - 修改核心結構/新認知/踩坑 → 更新 _AIDocs + _CHANGELOG.md（新增時同步 _INDEX.md）；_AIDocs 只放長期參考，規劃/TODO/進行中 → memory/_staging/。
 - live 檔（code/config/test）與 atom 只寫現況，不埋版本脈絡（版本/階段標記、日期戳、變更敘事）；編年歸 `_AIDocs/DevHistory/` 與 `_CHANGELOG.md`。
+- 寫規則檔、決策卡：現在的做法寫「目前用 X」，不寫「一律」；退版、否決要寫是方向錯，還是時機或資源不夠——只寫結論，下一個 AI 會讀成禁令。
 
 ## 記憶
 - 寫入一律走 atom_write MCP（自動驗證去重索引），禁直接 Edit atom .md；已記錄事實直接引用；不寫臨時嘗試/未確認猜測。**新 atom 一律 [臨] 起跳**（系統拒收新建 [固]/[觀]），晉升靠使用或 append。
