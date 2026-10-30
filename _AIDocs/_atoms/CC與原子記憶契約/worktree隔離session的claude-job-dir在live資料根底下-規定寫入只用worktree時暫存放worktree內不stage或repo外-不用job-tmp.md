@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: CLAUDE_JOB_DIR, jobs tmp, job 暫存, worktree 暫存放哪, 不碰 live, 寫入只用 worktree, worktree 隔離 session
 - Created-at: 2026-10-27
-- Related: 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑
+- Related: 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash
 - Source: session:17c8cd5c#840617df 2026-10-27
 
 ## 知識

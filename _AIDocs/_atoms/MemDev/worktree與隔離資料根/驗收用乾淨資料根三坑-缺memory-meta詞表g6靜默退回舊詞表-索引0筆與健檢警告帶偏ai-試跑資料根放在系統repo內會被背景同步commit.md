@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 乾淨資料根, WG_CLAUDE_DIR, 驗收環境, forbidden-phrases.json, IndexZero, 資料根帶卡, 試跑資料根, knowledge harvest 自動 commit, build_env, 洩題卡
 - Created-at: 2026-10-21
-- Related: claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion
+- Related: claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion
 
 ## 知識
 

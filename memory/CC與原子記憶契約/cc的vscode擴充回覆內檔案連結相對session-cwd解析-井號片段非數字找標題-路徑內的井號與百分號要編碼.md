@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: VS Code 擴充, markdown 連結, 檔案連結, 可點連結, 錨點, heading anchor, #L12, 相對路徑連結, 回覆裡的連結點不開, CLAUDE_CODE_ENTRYPOINT, claude-vscode
 - Created-at: 2026-10-22
-- Related: claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion
+- Related: claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion
 
 ## 知識
 

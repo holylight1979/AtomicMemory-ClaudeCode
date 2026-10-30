@@ -15,6 +15,7 @@
 | 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 | 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 |
 | 紅測閘的紅帳以複合指令裡的pytest段為鍵-單獨重跑那支node案例綠了不清帳-要把當初整條指令原樣再跑一次 | 紅測閘的紅帳以複合指令裡的pytest段為鍵-單獨重跑那支node案例綠了不清帳-要把當初整條指令原樣再跑一次 |
 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內 |
+| 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log | 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log |
 | 解析哨兵kv用s會跨行吃下一行-改成空白tab後行尾要容許r否則crlf輸出的done哨兵認不到 | 解析哨兵k=v用\s+會跨行吃下一行-改成空白tab後行尾要容許\r否則CRLF輸出的DONE哨兵認不到 |
 | 量測收據要認done帶kv-sentinel-regex會把普通pytest統計行也轉成pytest-measure-done-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 | 量測收據要認DONE帶k=v-sentinel_regex會把普通pytest統計行也轉成PYTEST_MEASURE-DONE-閘的反例案例要斷言回傳值不是斷言輸出沒某字樣 |
 | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase |

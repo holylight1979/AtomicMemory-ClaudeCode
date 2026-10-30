@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: sync-memory-index, 索引產生器, vcs-sync, 背景記憶同步, knowledge harvest commit, 產物先進版控, 未提交的程式
 - Created-at: 2026-10-14
-- Related: 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home, knowledge-harvest-階段收割與vcs-sync機制指標與踩坑
+- Related: 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash, knowledge-harvest-階段收割與vcs-sync機制指標與踩坑
 - Source: session:8f368a10#99aa6d5b 2026-10-14
 - Quote: 「再收割一次知識與經驗?」
 

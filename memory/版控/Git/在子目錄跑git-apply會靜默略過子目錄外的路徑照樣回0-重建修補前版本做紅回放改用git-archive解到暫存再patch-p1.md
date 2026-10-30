@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: git apply, 子目錄, 略過路徑, 照樣回 0, git archive, patch -p1, 紅回放, 修補前版本, 舊樹加 patch 重建
 - Created-at: 2026-10-23
-- Related: 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑
+- Related: 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash
 
 ## 知識
 

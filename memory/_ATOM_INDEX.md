@@ -478,7 +478,7 @@
 | smell-ok理由要是外部限制逼的-照舊碼寫法或風格一致不算-改得掉就改 | memory/設計通則/smell-ok理由要是外部限制逼的-照舊碼寫法或風格一致不算-改得掉就改.md | smell-ok, SmellGate, 新寫進了舊碼的病, 外部 API 只收這種寫法, 病形閘, 怎麼改, 過度物件化, lambda 指派給變數 | global |  |
 | realm判core還是local-問換一個不用記憶系統的專案還用不用得上-例子取自記憶系統不算local-拿不準回core | memory/CC與原子記憶契約/realm判core還是local-問換一個不用記憶系統的專案還用不用得上-例子取自記憶系統不算local-拿不準回core.md | realm, core, local, refile, Else, 範疇歸檔, 詞庫 miss, llm_classify_realm, unsure | global |  |
 | 使用者原話算不算長期決策-對這次產出的糾正或指示不算-萃取不准比原話寬 | memory/CC與原子記憶契約/使用者原話算不算長期決策-對這次產出的糾正或指示不算-萃取不准比原話寬.md | 萃取, 使用者決策萃取, _pending.candidates, 長期決策, 擴寫, 一次性指示, user-extract, 萃取宣告 | global |  |
-| g0-評分規格改前地圖要對修到根因 | memory/思考與決策/g0-評分規格改前地圖要對修到根因.md | G0, G0 評分, 定位三行, 修錯層, 根因, 症狀, 讀入範圍 | global |  |
+| g0-評分規格改前地圖要對修到根因 | memory/思考與決策/g0-評分規格改前地圖要對修到根因.md | G0, G0 評分, 綜觀, 從零形狀, 障礙, 設定衝突, 修錯層, 根因, 症狀 | global |  |
 | g1-評分規格兩種立場加批判 | memory/思考與決策/g1-評分規格兩種立場加批判.md | G1, G1 評分, 側觀, 批判, 是這裡, 不是這段, 手段當目標, 舉一反三 | global |  |
 | g2-評分規格帶歪的不上版 | memory/驗證與實證/g2-評分規格帶歪的不上版.md | G2, G2 評分, 病灶, 帶歪, 上版, 繞法, 誤掃, 抄舊寫法 | global |  |
 | g3-評分規格主動補驗證案例 | memory/驗證與實證/g3-評分規格主動補驗證案例.md | G3, G3 評分, 驗證 case, 補案例, 改了碼沒補案例, skip, 先紅後綠 | global |  |
@@ -704,3 +704,17 @@
 | feedback-評ai分析先看結論有沒有服務原題目標不看格式-轉交題目只放使用者原話不夾自己的限制-退版紀錄先讀理由不當禁令 | memory/Failures/思考與決策/feedback-評ai分析先看結論有沒有服務原題目標不看格式-轉交題目只放使用者原話不夾自己的限制-退版紀錄先讀理由不當禁令.md | 評估分析, 判分, 轉交 prompt, 出題, 改目標, 退版, 否決紀錄, 被帶歪 | global |  |
 | feedback-規則檔把現在的做法寫成一律-ai會拿它否決使用者的新目標-衝突要問改不改規則不是改不改目標 | memory/Failures/思考與決策/feedback-規則檔把現在的做法寫成一律-ai會拿它否決使用者的新目標-衝突要問改不改規則不是改不改目標.md | 規則檔, 專案契約, 一律, 不使用, 高風險, 改目標, 重構方向, 被帶歪 | global |  |
 | 並行子代理共用主session的scratchpad-同名暫存檔會互蓋-派工時給每個agent自己的子資料夾 | memory/CC與原子記憶契約/並行子代理共用主session的scratchpad-同名暫存檔會互蓋-派工時給每個agent自己的子資料夾.md | scratchpad, 並行 agent, 多開 agent, 派工, 暫存檔互蓋, 檢查腳本 | global |  |
+| 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據 | memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據.md | 啟動器 commit, worktree commit, 含 git 字樣被擋, commit 前閘, --commit-check, 病形閘沒觸發 | global |  |
+| 守門只在寫碼回合啟動-入口要認本回合實際改了程式檔-不能認跨回合殘留的狀態-也不能認關鍵字意圖 | _AIDocs/_atoms/MemDev/寫碼守門閘/守門只在寫碼回合啟動-入口要認本回合實際改了程式檔-不能認跨回合殘留的狀態-也不能認關鍵字意圖.md | coding_turn, 寫碼回合, 守門啟動, turn_intent, classify_intent, 寫碼意圖, 第十四刀 | global |  |
+| claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion | memory/CC與原子記憶契約/claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion.md | claude -p, 無頭, headless, CLAUDE_CODE_ENTRYPOINT, sdk-cli, non_interactive_reason, 無頭驗收, AskUserQuestion 不存在 | global |  |
+| 部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛depends讓健檢驗過期-配路徑前綴對照表動手前查表先讀 | memory/工作流/部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛depends讓健檢驗過期-配路徑前綴對照表動手前查表先讀.md | 導讀卡, 部位導讀, 綜觀頁, hub 卡, 路徑前綴, Depends, 專案綜觀, 沒東西可綜觀 | global |  |
+| 守門改成提醒後只在stop寫stderr的提醒ai看不到-提醒要掛posttooluse或posttoolbatch才進ai眼前-提醒句給了放行出口就要同時寫什麼時候不能走 | _AIDocs/_atoms/MemDev/擋訊息與放行判定/守門改成提醒後只在stop寫stderr的提醒ai看不到-提醒要掛posttooluse或posttoolbatch才進ai眼前-提醒句給了放行出口就要同時寫什麼時候不能走.md | 守門改提醒, 提醒沒送到, Stop stderr, PostToolBatch 提醒, 只留帳, 提醒重驗, AI 照做程式沒認帳, PickOne 沒送到, 放行出口 | global |  |
+| worktree隔離session的bash硬擋-git-c-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照 | _AIDocs/_atoms/MemDev/worktree與隔離資料根/worktree隔離session的bash硬擋-git-c-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照.md | worktree 隔離, python - heredoc 被擋, 變數路徑 被擋, git -C live 被擋, 反轉驗證 worktree, live 未動證明, 隔離 session 硬擋 | global |  |
+| 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash | _AIDocs/_atoms/MemDev/v6總控台/退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash.md | 退回檢查, 退回紅, 暫存副本, git archive, tar --force-local, Cannot connect to C, 舊版檔跑新測試, 舊碼回放樹, 回放樹位置, 祖先 conftest | global |  |
+| 動手前的上下游要寫這次改動會碰到的真實呼叫者-grep看到卻沒讀的就是缺塊-先補讀再改 | memory/工作流/動手前的上下游要寫這次改動會碰到的真實呼叫者-grep看到卻沒讀的就是缺塊-先補讀再改.md | 上游, 下游, 缺塊, 補讀, 呼叫點 | global |  |
+| 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash | _AIDocs/_atoms/MemDev/worktree與隔離資料根/在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash.md | worktree 分支, 背景記憶同步, knowledge harvest commit, 設 HOME, 驗證 session | global |  |
+| 寫碼類閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份 | _AIDocs/_atoms/MemDev/寫碼守門閘/寫碼類閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份.md | edit_gate, is_code_path, write_paths_from_tool, write_sources_from_tool, commit_gate, _git_commits_to_run, cfg_of, cfg_for_cwd, hook_cwd, peer_offset, 閘被繞過 | global |  |
+| 被擋沒附推薦時先判這題該不該問-判斷得了的不問-推薦選真的最好的並寫對目標的影響 | memory/行為契約/被擋沒附推薦時先判這題該不該問-判斷得了的不問-推薦選真的最好的並寫對目標的影響.md | ASK_NEEDS_RECOMMENDATION, 沒附推薦, (Recommended), 建議：, 自己判斷得了的不推給人, 該不該問 | global |  |
+| 背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log | _AIDocs/_atoms/MemDev/收尾閘與收據/背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log.md | run_in_background, 收據, 無哨兵, 背景驗證, receipt, manually backgrounded | global |  |
+| userpromptsubmit路的判斷入口形狀-詞表命中先記待判問一句-stop在所有閘前收行首標籤取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判 | _AIDocs/_atoms/MemDev/擋訊息與放行判定/userpromptsubmit路的判斷入口形狀-詞表命中先記待判問一句-stop在所有閘前收行首標籤取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md | 判斷入口, UPS 問一句, 糾正｜, 否決記憶｜, 詞表只提示, undeclared | global |  |
+| g8-評分規格三層設定在每個工具端都一致 | memory/思考與決策/g8-評分規格三層設定在每個工具端都一致.md | G8, G8 評分, 三層變量, 三層設定一致, 根層 公司層 專案層, 設定讀錯層 | global |  |

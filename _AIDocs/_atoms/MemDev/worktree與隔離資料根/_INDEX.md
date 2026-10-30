@@ -9,7 +9,9 @@
 | worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變 | worktree測試裡資料根的斷言要對被測模組自己算的CLAUDE_DIR比-對本樹路徑比會隨別支測試先跑的setdefault變 |
 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 |
 | worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒 | worktree隔離session改部位檔被OverviewHub閘連擋-證據只認Read事件與Bash註解三行-git-C-live與python-heredoc與變數路徑一律被拒 |
+| worktree隔離session的bash硬擋-git-c-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照 | worktree隔離session的Bash硬擋-git-C-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照 |
 | 在worktree跑mcp的js測試要設wg-claude-dir指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendtoolresult與syncmemoryindex | 在worktree跑mcp的js測試要設WG-CLAUDE-DIR指暫存資料根-否則server開機紀錄寫進live-要真落檔就同程序require-atom-tools先換掉sendToolResult與syncMemoryIndex |
+| 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-Bash不能設HOME-commit豁免只認磁碟機寫法-合main要指定hash |
 | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
 | 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上 | 工作session切進worktree後被隔離寫不到worktree外-交付改用SendMessage回全文-cwd不在worktree時收據根對不上 |
 | 工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝 | 工作軌量減量砍後不能用同題無頭重跑-hook寫死指向live跑到的是main不是分支-改用事件帳重播交給分支函式組裝 |

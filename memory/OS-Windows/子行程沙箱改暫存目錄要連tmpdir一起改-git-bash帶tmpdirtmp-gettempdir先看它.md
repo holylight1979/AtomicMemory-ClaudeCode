@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: TMPDIR, tempfile.gettempdir, 暫存目錄, 沙箱, 子行程環境, Git Bash, 探針隔離, TEMP TMP, scratchpad
 - Created-at: 2026-10-13
-- Related: windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath, 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home
+- Related: windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath, 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash
 - Source: session:2a7705d4 2026-10-13
 
 ## 知識
