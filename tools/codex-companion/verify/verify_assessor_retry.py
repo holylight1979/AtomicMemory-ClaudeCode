@@ -159,7 +159,7 @@ def test_run_codex_strips_prompt_echo_before_classifying(monkeypatch):
 
     class CP:
         returncode, stdout, stderr = 1, "", JUDGE_HEADER + prompt + "\nERROR: quota exceeded\n"
-    monkeypatch.setattr(assessor.subprocess, "run", lambda *a, **kw: CP())
+    monkeypatch.setattr(assessor.codex_call.subprocess, "run", lambda *a, **kw: CP())
     assert "CreateProcessWithLogon" in CP.stderr, "前置：原始 stderr 真的含回聲裡的 1385"
     _, err = assessor._run_codex(prompt, "", {"codex_binary": "codex"})
     assert "CreateProcessWithLogon" not in err and "ERROR: quota exceeded" in err, err
