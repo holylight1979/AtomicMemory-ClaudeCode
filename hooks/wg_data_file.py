@@ -204,7 +204,7 @@ def read_hint(state: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any],
     if not enabled or not (coding_session(state, config) or (state or {}).get("turn_intent") in CODE_INTENTS):
         return None            # 閘只管寫過程式的 session；提示要趕在第一次改檔前到，所以 prompt 關鍵字判成寫碼類也先提示
     try:
-        from wg_need_goal import writes_code
+        from wg_code_path import writes_code
         from wg_overview import read_targets
         hinted = state.get("data_file_hinted") or []
         skip = set(hinted) | set(state.get("data_file_declared") or {}) | set(state.get("created_files") or [])
@@ -277,9 +277,9 @@ def _targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
 
 
 def coding_session(state: Dict[str, Any], config: Optional[Dict[str, Any]], now_targets: Sequence[str] = ()) -> bool:
-    """這個 session 寫過程式沒：state modified_files 或 agent_modified_files（子代理改的）任一筆是程式檔（wg_need_goal.writes_code），或這次指令的寫入目標 now_targets
+    """這個 session 寫過程式沒：state modified_files 或 agent_modified_files（子代理改的）任一筆是程式檔（wg_code_path.writes_code），或這次指令的寫入目標 now_targets
     裡有程式檔（同一條指令同時寫程式與設定）。都沒有＝純文件／設定的 session，動資料檔閘不問、讀檔也不提示。"""
-    from wg_need_goal import writes_code
+    from wg_code_path import writes_code
     st = state or {}
     agent_mods = [m for lst in (st.get("agent_modified_files") or {}).values() for m in (lst or [])]   # 子代理改的碼也算（依 agent_id 分桶）
     mods = list(st.get("modified_files") or []) + agent_mods
@@ -322,7 +322,7 @@ def _verdict_for(path: str, rel: str, state: Dict[str, Any], ctx: Dict[str, Any]
     """一個寫入目標的四件事實＋宣告 → (Verdict, 對上宣告的管道；state＝本 session 宣告過；沒對上宣告為空, 點名那則原話的片段)。
     使用者點名先判、本 session 宣告過才判：點名是使用者要的，帳要記成點名豁免，不能被 AI 自己的舊宣告蓋過。
     原話與宣告行整次呼叫只讀一次 transcript（ctx 快取）。"""
-    from wg_need_goal import writes_code
+    from wg_code_path import writes_code
     key = _rr.canon_path(path)
     facts = {"code": writes_code(path, config), "ext": _ext_of(path), "ext_listed": True, "existed": os.path.exists(path),
              "created": key in (state.get("created_files") or [])}

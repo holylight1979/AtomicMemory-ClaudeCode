@@ -104,7 +104,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     tj_owed = rp.get("owed") or {}
     tj_due = bool(tj_owed.get("items")) and not tj_owed.get("stale") and not rp.get("job")   # 還有一批在量：等它量完再提
     try:
-        from wg_need_goal import is_code_path
+        from wg_code_path import is_code_path
         new_code = [m for m in own if int(m.get("last_seq") or 0) > mark and is_code_path(str(m["path"]), config)]
     except Exception as e:  # noqa: BLE001
         new_code = []

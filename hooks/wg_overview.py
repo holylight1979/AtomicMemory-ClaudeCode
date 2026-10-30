@@ -1088,8 +1088,8 @@ def _unmapped_read_hint(state: Dict[str, Any], session_id: str, path: str, confi
     cfg = _cfg(config, root)
     if not cfg["enabled"]:
         return None
-    import wg_need_goal as _ng
-    if not _ng.is_code_path(path, config) or not _rr.runtime_data_verdict(path, str(root), None).owed:   # 讀檔不多跑 git
+    from wg_code_path import is_code_path
+    if not is_code_path(path, config) or not _rr.runtime_data_verdict(path, str(root), None).owed:   # 讀檔不多跑 git
         return None
     if not (coding_turn(state, config) or state.get("turn_intent") in CODE_INTENTS):   # 同定位提示：沒有改程式的意圖（純問答、只改文件）不送
         return None
@@ -1126,7 +1126,8 @@ def _locate_read_hint(state: Dict[str, Any], session_id: str, root: Path, row: D
     import wg_need_goal as _ng
     # 有改程式的意圖才送：本回合已是寫碼回合（coding_turn），或這則 prompt 的關鍵字判成寫碼類（state turn_intent）——
     # 提示要趕在第一次改檔前到，而寫碼回合多半要到第一次改檔才成立，所以關鍵字意圖在這裡算數（純問答判成 general 不送）
-    if not _ng.is_code_path(path, config) or not (coding_turn(state, config) or state.get("turn_intent") in CODE_INTENTS):
+    from wg_code_path import is_code_path
+    if not is_code_path(path, config) or not (coding_turn(state, config) or state.get("turn_intent") in CODE_INTENTS):
         return None
     need_tree = _ng.tree_owed_for_edit(session_id, path, config)
     try:
@@ -1496,11 +1497,11 @@ _PREVIEW_MAX_LINES = 15
 
 def _min_map_due(rec: Optional[Dict[str, Any]], file_path: str, cfg: Dict[str, Any], config: Dict[str, Any]) -> bool:
     """規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP 的適用範圍：開關開著、同鍵還沒交過地圖、往上找不到任何部位表（有表專案的表外檔
-    與根層不查）、這次寫入算改程式（wg_need_goal.writes_code，與需求目標閘同一判式）。"""
+    與根層不查）、這次寫入算改程式（wg_code_path.writes_code，與寫碼回合同一判式）。"""
     if not cfg["min_map"]["enabled"] or (rec or {}).get("min_map_done") or find_map(file_path):
         return False
-    import wg_need_goal as _ng
-    return _ng.writes_code(file_path, config)
+    from wg_code_path import writes_code
+    return writes_code(file_path, config)
 
 
 def _session_reads(state: Dict[str, Any]) -> set:

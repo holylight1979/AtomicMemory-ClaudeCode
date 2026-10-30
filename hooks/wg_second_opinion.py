@@ -371,7 +371,7 @@ def not_closing(state: Dict[str, Any], session_id: str, text: str, user_turn: in
 
 
 def _code_entries(own_mod_files: Sequence[Dict[str, Any]], config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    from wg_need_goal import writes_code
+    from wg_code_path import writes_code
     from wg_verify_ledger import git_launcher, session_scratch
     return [m for m in own_mod_files if (m or {}).get("path") and writes_code(str(m["path"]), config)
             and not session_scratch(str(m["path"]))           # 規則 SESSION_SCRATCH_NOT_CODE：暫存區的一次性腳本不數

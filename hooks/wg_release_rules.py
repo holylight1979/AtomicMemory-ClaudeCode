@@ -2842,7 +2842,7 @@ def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[st
 # ─── 動資料檔 ───
 RULES.update({
     "USER_DATA_FILE_NEEDS_DECLARATION": "Edit／Write／NotebookEdit 動到使用者既有的資料檔或設定檔要先問或先宣告。四件事實全成立才管："
-                                        "(a) 不是程式檔（wg_need_goal.writes_code 為 False）且副檔名在 guard.data_file_ask.extensions，"
+                                        "(a) 不是程式檔（wg_code_path.writes_code 為 False）且副檔名在 guard.data_file_ask.extensions，"
                                         "清單只決定程式要不要把它當資料檔問，該不該改仍是 AI 判；(b) 呼叫前檔已存在；(c) 不是本 session Write 新建的"
                                         "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
                                         "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"

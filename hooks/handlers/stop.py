@@ -1733,8 +1733,8 @@ def pre_v6_testfail_message(failing: List[Dict[str, Any]]) -> str:
 
 
 def _wrote_code(mods: List[Dict[str, Any]], config: Dict[str, Any]) -> bool:
-    """本 session 改過的檔裡有沒有程式檔（wg_need_goal.writes_code）。"""
-    from wg_need_goal import writes_code
+    """本 session 改過的檔裡有沒有程式檔（wg_code_path.writes_code）。"""
+    from wg_code_path import writes_code
     return any(isinstance(m, dict) and writes_code(str(m.get("path") or ""), config) for m in mods)
 
 
@@ -1936,7 +1936,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if _coding:
         _ts_since = _user_turn(state, turn_seq)
         try:
-            from wg_need_goal import is_code_path
+            from wg_code_path import is_code_path
             _code_reply = _done(code_text) and any(
                 in_turn(_mod_turn(m), turn_seq, _ts_since) and is_code_path(str(m.get("path") or ""), config)
                 for m in own_mod_files)

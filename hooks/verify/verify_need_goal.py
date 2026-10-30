@@ -811,19 +811,6 @@ def test_edit_gate_layers(env, monkeypatch):
     assert ng.edit_gate(SID, py, {}) is None
 
 
-def test_is_code_path_union_and_shebang(env):
-    proj = env["proj"]
-    script = proj / "deploy"
-    script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
-    plain = proj / "LICENSE"
-    plain.write_text("MIT", encoding="utf-8")
-    assert ng.is_code_path(str(script), {}) and not ng.is_code_path(str(plain), {})
-    assert ng.is_code_path(str(proj / "a.py"), {"reconcile_gate": {"code_exts": []}})      # 設定清空也拿不掉
-    cfg = {"reconcile_gate": {"code_exts": [".tbl"]}}
-    assert ng.is_code_path(str(proj / "x.tbl"), cfg) and ng.is_code_path(str(proj / "a.py"), cfg)
-    assert ".py" in vl.reconcile_cfg({"reconcile_gate": {"code_exts": [".tbl"]}})["code_exts"]
-
-
 def _ptu_run(tool, tool_input, cwd, tp, outputs, sid=SID, config=None):
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use({"tool_name": tool, "tool_input": tool_input, "session_id": sid, "cwd": str(cwd),

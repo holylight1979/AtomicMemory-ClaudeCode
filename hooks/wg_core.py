@@ -235,7 +235,7 @@ CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project",
 def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> bool:
     """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合，三層：
     ① 實質行為（最高位）：這個使用者回合已經有改程式檔的工具行為——Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔
-       （modified_files 有一筆，程式照 wg_need_goal.writes_code 判，.bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令
+       （modified_files 有一筆，程式照 wg_code_path.writes_code 判，.bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令
        （unknown_writes，不知道寫了什麼，保守算）。
     ② 改碼之前的入口：本使用者回合 LLM 呼叫了 need_goal set／add／update，而且那棵樹是寫碼類（state need_goal_code_decl_turn）。
        樹只是前幾回合留著、本回合沒宣告不算。
@@ -253,7 +253,7 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
     d = st.get("need_goal_code_decl_turn")
     if isinstance(d, int) and not isinstance(d, bool) and d >= since:
         return True
-    from wg_need_goal import writes_code
+    from wg_code_path import writes_code
     return any(isinstance(m, dict) and int(m.get("last_turn_seq") or m.get("turn_seq") or 0) >= since
                and writes_code(str(m.get("path") or ""), config)
                for m in st.get("modified_files") or [])
