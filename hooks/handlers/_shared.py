@@ -311,6 +311,9 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
                              "state-*.pending"),
      "kind": "age", "param": 7, "keep": "7 天",
      "why": "寫到一半被砍的殘檔、壞檔備份與協調快取，沒人讀；state 待併帳只有同一個 session 下一支 hook 併，7 天沒併＝session 早結束"},
+    {"dir": "", "patterns": ("read-log-*.jsonl", "read-log-*.lock"), "kind": "age", "param": 7, "keep": "7 天（同 state 檔最長）",
+     "why": "Read 快路徑的待補帳只有同一個 session 下一個事件或 SessionEnd 補進 state，7 天沒補＝session 早結束、state 也已清；"
+            "鎖檔在 Windows 以外刻意不刪（刪了會讓等鎖的人鎖到另一個檔），只能在這裡清"},
     {"dir": "../Logs/session-coordination", "patterns": ("*.jsonl*",), "kind": "age", "param": 30,
      "keep": "30 天", "why": "多 session 協調的觀測紀錄，只拿來查近期"},
     {"dir": "aec-report", "patterns": ("*.json", "*.tmp"), "kind": "age", "param": 7,

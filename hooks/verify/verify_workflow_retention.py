@@ -4,6 +4,7 @@
   - 表上每列都有理由與已知的規則種類
   - 新管的資料夾：舊檔刪、新檔留（acceptance-spec、harvest-ledger、verify-ledger、usage-snapshots）
   - 搬進表的既有規則照舊（根目錄殘檔、companion、session-coordination、dpm-done、ups-sentinel、aec-report 補 .tmp）
+  - Read 快路徑的 read-log 與鎖檔 7 天以上刪
   - 目前 session 的檔不動；「不清」清單與「另由別支程式清」的列不動
   - need-goal 鎖檔只在同名目標檔不在、且夠舊時才刪
   - tracking 只拿掉結案超過 90 天的「開項＋結案」一對；改寫途中檔案被別人改過就這一輪不動
@@ -92,6 +93,16 @@ def test_moved_rules_behave_as_before(wf):
     assert [p.name for p in old if p.exists()] == []
     assert all(p.exists() for p in fresh)
     assert live_state.exists()  # state-*.json 分級由 _cleanup_old_states 管，表上只登記
+
+
+def test_read_log_leftovers_age_out(wf):
+    """Read 快路徑的 read-log 與鎖檔：7 天以上刪、7 天內留、目前 session 的不動（同 state 檔最長保留）。"""
+    old = [put(wf / "read-log-s1.jsonl", 8), put(wf / "read-log-s1.lock", 8)]
+    fresh = [put(wf / "read-log-s2.jsonl", 6), put(wf / "read-log-s2.lock", 6)]
+    mine = [put(wf / f"read-log-{CUR}.jsonl", 60), put(wf / f"read-log-{CUR}.lock", 60)]
+    run(wf)
+    assert [p.name for p in old if p.exists()] == []
+    assert all(p.exists() for p in fresh + mine)
 
 
 def test_current_session_files_untouched(wf):
