@@ -3,7 +3,8 @@ commit 前核對出錯不擋。
 
 每條都是會紅案例（改前的碼跑會紅），除了 deny_cap 單元案都走 handlers/pre_tool_use.handle_pre_tool_use 真入口：
 - 擋次上限（wg_core.deny_cap）：動資料檔、改舊測試（當場擋與事後欠帳兩條路）、不是繞閘三道宣告閘，同一個使用者回合同一件
-  缺宣告擋第 1、2 次，第 3 次放行並留帳 cap_released；換回合重算；擋訊息先講「早一則訊息送出、或指令開頭 `#` 註解」。
+  缺宣告擋第 1、2 次，第 3 次放行並留帳 cap_released；換回合重算；擋訊息只教「同一則先發不寫檔指令、開頭 `#` 註解」。
+  動資料檔閘只在寫過程式的 session 問（NON_CODING_TURN_NO_NUDGE）：它的案例先 _wrote_code 記一筆改過程式檔。
 - 繞閘閘：病形閘擋 A → 只交 B 又被擋 → 修好 B 再交 → 被排除的 A 仍要宣告（同一個 repo 的點名檔合併、不覆蓋）。
 - svn 測試路徑閘：預設關；專案 overview-hub.json 開了之後只看 commit 的路徑參數（-m 訊息不看）、PowerShell 也查、
   使用者本回合原句出口；overview-hub.json 寫 svn_test_block 不是未知鍵。
@@ -105,6 +106,14 @@ def _next_user_turn():
     wg_core.write_state(SID, st)
 
 
+def _wrote_code(w):
+    """這個 session 改過程式檔：動資料檔閘只在寫過程式的 session 問（wg_data_file.coding_session，規則 NON_CODING_TURN_NO_NUDGE）。
+    只給動資料檔案例用；共用 fixture 不放，免得其他閘的案例也變成寫碼回合（wg_core.coding_turn）。"""
+    st = wg_core.read_state(SID)
+    st["modified_files"] = [{"path": str(w["proj"] / "app.py"), "last_turn_seq": 1}]
+    wg_core.write_state(SID, st)
+
+
 # ─── 擋次上限 ─────────────────────────────────────────────────────────────
 
 def test_deny_cap_counts_each_item_per_user_turn():
@@ -158,6 +167,7 @@ def test_deny_cap_per_reply_counts_one_reply_once(world):
 def test_data_file_gate_parallel_edits_in_one_reply_count_once(world):
     """規則 DENY_CAP_PER_REPLY（動資料檔）：同一則回覆平行送出 3 個改同一個資料檔的 Edit、都沒宣告 → 3 個都擋（舊碼第 3 個放行）；
     下一則再擋一次（第 2 則），第三則才放行留帳 cap_released。"""
+    _wrote_code(world)
     ti = {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}
     tp = Path(world["tp"])
     _reply(tp, "msg_1")
@@ -171,13 +181,14 @@ def test_data_file_gate_parallel_edits_in_one_reply_count_once(world):
 
 
 def test_data_file_gate_releases_after_two_denies_in_same_turn(world):
+    _wrote_code(world)
     ti = {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}
     reasons = [_pre(world, "Edit", ti) for _ in range(3)]
     assert all("[Guardian:DataFileAsk]" in r for r in reasons[:2]), reasons
     assert "[Guardian:DataFileAsk]" not in reasons[2]
     assert [e["event"] for e in _events(world, "data_file")] == ["denied", "denied", "cap_released"]
     first = reasons[0].splitlines()[0]
-    assert "`#` 註解" in first and first.index("`#` 註解") < first.index("早一則")   # 先 # 註解、其次早一則的回覆文字
+    assert "`#` 註解" in first and "早一則" not in first   # 只教 # 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）
     _next_user_turn()
     assert "[Guardian:DataFileAsk]" in _pre(world, "Edit", ti)            # 換回合重算
 
@@ -348,6 +359,7 @@ def _boom(*a, **k):
 
 
 def test_data_file_gate_self_error_does_not_block(world, monkeypatch):
+    _wrote_code(world)
     monkeypatch.setattr(df, "_judge", _boom)
     r = _pre(world, "Edit", {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT})
     assert "[Guardian:DataFileAsk]" not in r, r
@@ -366,6 +378,7 @@ def test_old_test_gate_self_error_does_not_block(world, monkeypatch):
 # ─── 耗重 ─────────────────────────────────────────────────────────────
 
 def test_data_file_gate_reads_transcript_once(world, monkeypatch):
+    _wrote_code(world)
     calls = []
     real = df._transcript_user_entries
     monkeypatch.setattr(df, "_transcript_user_entries", lambda tp: calls.append(tp) or real(tp))
