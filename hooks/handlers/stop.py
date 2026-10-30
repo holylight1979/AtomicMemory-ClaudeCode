@@ -1780,11 +1780,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     transcript_text = read_transcript_tail(transcript)
     last_text = get_last_assistant_text(transcript, text=transcript_text)          # 退避偵測等：只看 >30 字的段落
     code_text = _code_check_text(input_data, transcript, transcript_text)          # 寫碼查核：真正的最後一句
-    # 收尾閘的「宣告完成」看整回合：被別的閘擋下後補件那則常不重說完成（wg_second_opinion.turn_completion_text 找出本回合宣告完成的
+    # 收尾閘的「宣告完成」看整回合：被別的閘擋下後補件那則常不重說完成（wg_evasion.turn_completion_text 找出本回合宣告完成的
     # 那一則；最後一則有談到完成與否就照它）。內容檢查（退避詞、宣稱詞）仍看最後一則
     _turn_claim = ""
     if v6:
-        from wg_second_opinion import turn_completion_text
+        from wg_evasion import turn_completion_text
         _turn_claim = turn_completion_text(transcript_text)
 
     def _done(text: str) -> bool:
@@ -2094,7 +2094,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 規則 NEGATIVE_CONTROL_DECLARED 的收尾入口：紅記了之後才在本回合回覆寫「負向對照｜<指令裡的字樣>：<理由>」、點到的字樣在那筆紅的
     # 指令裡 → 那筆從 failing_tests 搬到 deliberate_reds（判過不算就落帳，之後的收尾不再拿它擋）、留帳；不管這則有沒有宣告完成都判
     if v6 and failing:
-        from wg_second_opinion import turn_texts
+        from wg_evasion import turn_texts
         _nc_decls = parse_negative_controls("\n".join([*turn_texts(transcript_text), code_text]))
         _nc_moved = [(f, negative_control_verdict(str(f.get("cmd") or ""), _nc_decls)) for f in failing] if _nc_decls else []
         _nc_moved = [(f, v) for f, v in _nc_moved if not v.owed]

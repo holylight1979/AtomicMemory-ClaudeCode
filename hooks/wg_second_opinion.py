@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import wg_release_rules as rr
 from wg_core import find_vcs_root
+from wg_evasion import _blocks, _turn_records, turn_texts
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 GIT_TIMEOUT_S = 5.0
@@ -68,12 +69,6 @@ def auto_cfg(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 # ─── 本回合的 start／result ─────────────────────────────────────────────
 
-def _blocks(o: Dict[str, Any]) -> List[Dict[str, Any]]:
-    msg = o.get("message") if isinstance(o.get("message"), dict) else {}
-    content = msg.get("content")
-    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
-
-
 def _result_text(block: Dict[str, Any]) -> str:
     c = block.get("content")
     if isinstance(c, str):
@@ -94,59 +89,6 @@ def _field(text: str, key: str) -> str:
 
 def _notes(text: str) -> List[str]:
     return [ln.strip()[len("note:"):].strip() for ln in text.splitlines() if ln.strip().startswith("note:")]
-
-
-def _turn_records(transcript_text: str) -> List[Dict[str, Any]]:
-    """本回合的 transcript 紀錄（規則 TURN_SINCE_USER_PROMPT：最後一則使用者打字之後；尾段切掉起點就整段算）。"""
-    from wg_evasion import is_turn_start
-    recs: List[Dict[str, Any]] = []
-    for raw in str(transcript_text or "").splitlines():
-        try:
-            o = json.loads(raw)
-        except ValueError:
-            continue
-        if isinstance(o, dict):
-            recs.append(o)
-    begin = 0
-    for i, o in enumerate(recs):
-        if is_turn_start(o):
-            begin = i + 1
-    return recs[begin:]
-
-
-# 明說沒完成（「還沒做完」「完成…尚未」）：同 forbidden-phrases.json completion_claim 排除詞的前兩條。
-# 「進行中」「等待結果」這類只在最後一則才算數（前面的回覆常是在講別人的檔或某一步，不是在講這次交付）
-_COMPLETION_NEG_RE = re.compile(r"(?:還沒|還未|尚未|尚待|未|沒有?)[^，。！？\n]{0,8}(?:完成|做完|解決|收尾|搞定|完工|結案)"
-                                r"|(?:完成|做完|解決|收尾|搞定|完工|結案)[^，。！？\n]{0,6}"
-                                r"(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)")
-
-
-def turn_completion_text(transcript_text: str) -> str:
-    """本回合宣告完成的那一則文字；沒宣告回空字串。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
-    完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就是最後說完成的那一則。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
-    只看最後一則會被補件那則蓋掉（例：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 第二意見閘一次都沒擋）。
-    往前看的每一則跟最後一則同一套判法：這則宣告完成（claims_completion，逐句看）就記它；沒宣告、又明說沒完成才清掉
-    （規則 COMPLETION_CLAIM_PER_SENTENCE：「我還沒動git：完成的三件…。全部做完了」是宣告完成，開頭那句的否定不清掉它）。"""
-    from wg_evasion import _COMPLETION_CLAIM_RE, _COMPLETION_EXCLUDE_RE, claims_completion
-    texts = turn_texts(transcript_text)
-    if not texts:
-        return ""
-    last = texts[-1][-2000:]
-    if _COMPLETION_CLAIM_RE.search(last) or _COMPLETION_EXCLUDE_RE.search(last):
-        return texts[-1] if claims_completion(texts[-1]) else ""
-    claimed = ""
-    for t in texts[:-1]:
-        if claims_completion(t):
-            claimed = t
-        elif _COMPLETION_NEG_RE.search(t[-2000:]):
-            claimed = ""
-    return claimed
-
-
-def turn_texts(transcript_text: str) -> List[str]:
-    """本回合每一則 assistant 文字，依出現順序。"""
-    return [str(b.get("text") or "") for o in _turn_records(transcript_text) if o.get("type") == "assistant"
-            for b in _blocks(o) if b.get("type") == "text"]
 
 
 def section_text(text: str, transcript_text: str) -> str:
