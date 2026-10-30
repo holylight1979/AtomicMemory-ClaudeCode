@@ -2,11 +2,11 @@
 
 做什麼：根層預設 HUB_DEFAULTS < workflow/config.json 的 overview_hub 段 < <公司根>/.claude/overview-hub.json
   < <專案根>/.claude/overview-hub.json，巢狀 dict 深合併、list 整個取覆蓋方；合併後驗證（未知鍵、型別、編碼、路徑基準）。
-  導讀卡與各守門（hooks/wg_overview._cfg）、壞味道候選池 CLI（tools/project-smells.py）都走 merge_hub_cfg，
+  各守門（hooks/wg_overview._cfg）、壞味道候選池 CLI（tools/project-smells.py）都走 merge_hub_cfg，
   兩邊看到的設定一致。
   純函式：不讀 config.json、不判公司根（呼叫端傳入），不碰 state；警告只回清單，由呼叫端決定怎麼浮出。
 怎麼跑：hooks 以 sys.path 的 lib/ 頂層匯入；tools 以檔案相對路徑把 lib/ 放進 sys.path 後匯入。
-  verify 在 hooks/verify/verify_overview_hub.py、verify_intent_goal_weights.py、tools/verify/verify_project_smells.py。
+  verify 在 hooks/verify/verify_overview_hub.py、tools/verify/verify_project_smells.py。
 """
 from __future__ import annotations
 
@@ -15,26 +15,17 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from overview_hub import SLICE_NAMES
 
 HUB_REL = Path(".claude") / "overview-hub.json"
 
 # 十個 intent 鍵固定（介面凍結，與 wg_atoms.INTENT_PATTERNS＋general 對拍；verify_intent_goal_weights 驗）
 INTENT_KEYS = ("debug", "feature", "refactor", "perf", "new_project", "build", "design", "recall", "handoff", "general")
-_GOAL_WEIGHT_KEYS = ("slices", "lens", "ask_first", "extra")
-_EVIDENCE_KEYS = ("card", "part_files", "depends_files")
 _NEED_GOAL_KEYS = ("enabled", "scope_growth_dirs", "render_chars")
-_MIN_MAP_KEYS = ("enabled", "preview_timeout_s")
-_HOOK_BUDGET_S = 5
 
 # 變量預設（預計畫附錄 D）
 HUB_DEFAULTS: Dict[str, Any] = {
     "enabled": True,
-    # 第一次碰到部位時導讀卡怎麼送：pointer＝只送已知病灶一句＋卡路徑，改那塊之前要 Read 過卡；full＝整張注入（舊做法）
-    "card_injection": "pointer",
     "max_card_chars": 6000,
-    "locate_template": [],
-    "locate_extra": {},
     "path_bases": [],
     "vcs_roots": [],
     "commit_encoding": "utf-8",
@@ -42,11 +33,8 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "eol_policy": "per-file-head",
     "PYTHONIOENCODING": "utf-8",
     "readonly_paths": [],
-    "min_overview_evidence": {"card": True, "part_files": 1, "depends_files": 0},
     "candidate_top_n": 5,
-    "root_cause_triggers": ["根因", "治本", "為什麼又", "又壞", "重複發生", "老問題", "root cause", "again"],
-    # 候選填空（A5.2）：smells_report（相對專案根或絕對；json／jsonl／md 表）前 N → 沒報告退導讀卡病灶段前 N；
-    # 報告 mtime 超過 smells_max_age_days 附一行「過期仍送」
+    # 壞味道報告：smells_report（相對專案根或絕對；json／jsonl／md 表）；報告 mtime 超過 smells_max_age_days 算過期
     "smells_report": "",
     "smells_max_age_days": 7,
     # 壞味道候選池 CLI（tools/project-smells.py）：沒報告就跑 smells_cmd（陣列或字串），逾時 smells_timeout_s 秒；
@@ -54,40 +42,14 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "smells_cmd": None,
     "smells_timeout_s": 20,
     "smells_category_map": {},
-    # 沒事做提示（A5.4）：general 意圖且提示詞命中 → 一 session 一行「主動掃視」
-    "idle_triggers": ["接下來做什麼", "還有什麼", "沒事了", "下一步"],
-    # 壓縮重注（A2.2）：post_compact 每部位綜觀 blob 的字數上限
-    "post_compact_chars": 1500,
     # 權威地圖（A3.5）：{"<檔名樣式（fnmatch，對檔名或相對專案根路徑）>": "<地圖路徑（相對專案根或絕對）>"}；
     # 讀到文件／計畫檔命中樣式且非空 → 一 session 注入一次該地圖
     "authority_map": {},
-    # 目的加權（預計畫第二節）：意圖 → 先送哪幾片、用哪個視角、先問哪題；空 slices＝整卡原序；extra＝接在視角／先問之後的一段話
-    "goal_weights": {
-        "debug": {"slices": ["defects", "verify", "authority"], "lens": "目標視角", "ask_first": "幾份存法、有無訊號"},
-        "new_project": {"slices": ["authority", "what", "ask"], "lens": "目標視角", "ask_first": "資料到底存哪"},
-        "feature": {"slices": ["what", "authority", "verify"], "lens": "理解視角", "ask_first": "上游誰餵下游誰吃"},
-        "refactor": {"slices": ["what", "verify", "defects"], "lens": "數彎視角", "ask_first": "這條路拐幾個彎",
-                     "extra": "等值證法三類各要證（順序／副作用／邊界）：預期值來自舊碼或舊產物、實際值來自新產物、兩邊來源必不同；"
-                              "跑 `skills/behavior-preservation/scripts/preserve-check.py`，尾行 `PRESERVE_CHECK PASS`。"
-                              "另答一題：這次改動碰到熱路徑或大量配置嗎？是→自建量法、量；否→一句為什麼。"
-                              "再看一眼：這次要動的這塊，有沒有只是抄舊架構長出來、每一層沒有真正作用的間接層"
-                              "（繼承一層沒加東西、包裝只轉手）？有就在重構裡一併收掉並在等值證法裡證。"},
-        "perf": {"slices": ["verify", "defects", "what"], "lens": "目標視角", "ask_first": "量尺在哪門檻多少",
-                 "extra": "答一題：這次改動碰到熱路徑或大量配置嗎？是→自建量法、量；否→一句為什麼。"},
-        "build": {"slices": ["authority", "verify"], "lens": "目標視角", "ask_first": ""},
-        "design": {"slices": ["authority", "what"], "lens": "理解視角", "ask_first": ""},
-        "recall": {"slices": [], "lens": "", "ask_first": ""},
-        "handoff": {"slices": [], "lens": "", "ask_first": ""},
-        "general": {"slices": [], "lens": "", "ask_first": ""},
-    },
     # verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}：只驗形狀（dict），目前沒有程式讀；留著讓既有 overview-hub.json 不報未知鍵
     "verify_chains": {},
     # 需求目標流程（hooks/wg_need_goal）：enabled 整個流程的開關；scope_growth_dirs 讀入範圍變大的頂層目錄門檻；
     # render_chars 精簡版目標樹的字數上限
     "need_goal": {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200},
-    # 無表專案第一次改程式檔前要最小地圖三行（規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）：enabled 開關；
-    # preview_timeout_s 擋訊息附的掃表預覽子程序上限（hook 整體預算 5 秒）
-    "min_map": {"enabled": True, "preview_timeout_s": 2},
     # 等值與熱路徑收尾閘（hooks/handlers/stop.py Equivalence Gate）：enabled 整道閘的開關
     "equivalence": {"enabled": True},
     # svn 測試路徑閘（hooks/handlers/pre_tool_use.check_svn_test_block）：svn commit 的路徑含測試檔就擋；預設關，要的專案在
@@ -95,12 +57,13 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "svn_test_block": {"enabled": False},
 }
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
-RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
+# 退役：沒有程式讀；出現只警告，不報錯（dry_run／deny_parts 明寫也不放行）
+RETIRED_KEYS = ("dry_run", "deny_parts", "card_injection", "locate_template", "locate_extra", "min_overview_evidence",
+                "root_cause_triggers", "idle_triggers", "post_compact_chars", "goal_weights", "min_map")
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
-CARD_INJECTION_MODES = ("pointer", "full")
-_LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings", "idle_triggers")
-_DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights", "verify_chains", "authority_map", "smells_category_map")
-_NONNEG_INT_KEYS = ("candidate_top_n", "smells_max_age_days", "post_compact_chars")
+_LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "source_encodings")
+_DICT_KEYS = ("verify_chains", "authority_map", "smells_category_map")
+_NONNEG_INT_KEYS = ("candidate_top_n", "smells_max_age_days")
 _ENCODING_KEYS = ("commit_encoding", "PYTHONIOENCODING")
 
 
@@ -179,46 +142,6 @@ def validate_path_bases(bases: Any, root: Optional[Path]) -> List[str]:
     return errors
 
 
-def validate_goal_weights(gw: Any) -> List[str]:
-    """goal_weights：鍵 ⊆ 十個 intent；值 {slices ⊆ SLICE_NAMES, lens: str, ask_first: str}。"""
-    if not isinstance(gw, dict):
-        return ["goal_weights 必須是物件"]
-    errors: List[str] = []
-    for intent, spec in sorted(gw.items()):
-        if intent not in INTENT_KEYS:
-            errors.append(f"goal_weights 的意圖「{intent}」不在十鍵內（{'／'.join(INTENT_KEYS)}）")
-            continue
-        if not isinstance(spec, dict):
-            errors.append(f"goal_weights.{intent} 必須是物件")
-            continue
-        for k in sorted(spec):
-            if k not in _GOAL_WEIGHT_KEYS:
-                errors.append(f"goal_weights.{intent} 有未知鍵「{k}」")
-        slices = spec.get("slices", [])
-        if not _is_list_of_str(slices):
-            errors.append(f"goal_weights.{intent}.slices 必須是字串陣列")
-        else:
-            errors.extend(f"goal_weights.{intent}.slices 有未知的片「{s}」（可用：{'／'.join(SLICE_NAMES)}）"
-                          for s in slices if s not in SLICE_NAMES)
-        for k in ("lens", "ask_first", "extra"):
-            if not isinstance(spec.get(k, ""), str):
-                errors.append(f"goal_weights.{intent}.{k} 必須是字串")
-    return errors
-
-
-def validate_evidence(ev: Any) -> List[str]:
-    """min_overview_evidence：card 必為 true（讀卡不可關）；part_files／depends_files 為 0 以上整數；無其他鍵。"""
-    if not isinstance(ev, dict):
-        return ["min_overview_evidence 必須是物件"]
-    errors = [f"min_overview_evidence 有未知鍵「{k}」" for k in sorted(ev) if k not in _EVIDENCE_KEYS]
-    if ev.get("card") is not True:
-        errors.append("min_overview_evidence.card 必須是 true：讀導讀卡不可關")
-    for k in ("part_files", "depends_files"):
-        if not _is_nonneg_int(ev.get(k)):
-            errors.append(f"min_overview_evidence.{k} 必須是 0 以上的整數")
-    return errors
-
-
 def validate_smells(c: Dict[str, Any]) -> List[str]:
     """project-smells 的三個鍵：smells_cmd 是 null／字串／字串陣列；smells_timeout_s 是正數；category_map 的鍵值都是字串。"""
     errors: List[str] = []
@@ -244,19 +167,6 @@ def validate_need_goal(ng: Any) -> List[str]:
     for k in ("scope_growth_dirs", "render_chars"):
         if not _is_nonneg_int(ng.get(k)) or ng.get(k) == 0:
             errors.append(f"need_goal.{k} 必須是正整數")
-    return errors
-
-
-def validate_min_map(mm: Any) -> List[str]:
-    """min_map：enabled 是 true／false；preview_timeout_s 是大於 0、不超過 hook 整體預算的秒數；無其他鍵。"""
-    if not isinstance(mm, dict):
-        return ["min_map 必須是物件"]
-    errors = [f"min_map 有未知鍵「{k}」" for k in sorted(mm) if k not in _MIN_MAP_KEYS and not k.startswith("_")]
-    if not isinstance(mm.get("enabled"), bool):
-        errors.append("min_map.enabled 必須是 true／false")
-    t = mm.get("preview_timeout_s")
-    if isinstance(t, bool) or not isinstance(t, (int, float)) or not 0 < t <= _HOOK_BUDGET_S:
-        errors.append(f"min_map.preview_timeout_s 必須是大於 0、不超過 {_HOOK_BUDGET_S} 的秒數（hook 整體預算）")
     return errors
 
 
@@ -311,14 +221,9 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
         errors.extend(f"source_encodings「{e}」不是 Python 認得的編碼" for e in c["source_encodings"] if not encoding_ok(e))
     if c.get("eol_policy") not in _EOL_POLICIES:
         errors.append(f"eol_policy 必須是 {'／'.join(_EOL_POLICIES)} 之一")
-    if c.get("card_injection") not in CARD_INJECTION_MODES:
-        errors.append(f"card_injection 必須是 {'／'.join(CARD_INJECTION_MODES)} 之一")
     errors.extend(validate_path_bases(c.get("path_bases"), root))
-    errors.extend(validate_goal_weights(c.get("goal_weights")))
-    errors.extend(validate_evidence(c.get("min_overview_evidence")))
     errors.extend(validate_smells(c))
     errors.extend(validate_need_goal(c.get("need_goal")))
-    errors.extend(validate_min_map(c.get("min_map")))
     errors.extend(validate_equivalence(c.get("equivalence")))
     errors.extend(validate_switch("svn_test_block", c.get("svn_test_block")))
     return errors, retired

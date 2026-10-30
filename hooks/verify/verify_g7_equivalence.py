@@ -1,4 +1,4 @@
-"""verify_g7_equivalence.py：G7 等值證法與熱路徑——注入帶出三問、Stop 收尾核對（規則 REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE）、
+"""verify_g7_equivalence.py：G7 等值證法與熱路徑——Stop 收尾核對（規則 REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE）、
 意圖來源核實。
 
 怎麼跑：set WG_CLAUDE_DIR=<worktree> && python -X utf8 -m pytest -q hooks/verify/verify_g7_equivalence.py
@@ -6,7 +6,7 @@
   1. 意圖來源：只看使用者本人打的字（同伴訊息裡的「重構」不算），回合中途只有 UserPromptSubmit 會改 turn_intent，所以等值那條可以擋。
   2. 規則純函式：三類收據、不適用宣告、熱路徑三種答法。
   3. Stop 驅動：等值與熱路徑擋、擋滿問使用者、使用者放行、收據資格（自寫哨兵、改檔之前的不算）、留帳 guard-equivalence。
-  4. 注入：refactor 的 head 含三類、熱路徑、間接層；perf 只有熱路徑；feature 都沒有。
+  4. 設定：equivalence 段驗形狀。
 規則函式在案例裡才取（getattr），退回舊碼時每個案例各自紅，不會整檔匯入失敗。
 """
 from __future__ import annotations
@@ -22,10 +22,8 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
-import wg_overview as wo  # noqa: E402
 import wg_release_rules as rr  # noqa: E402
 import hub_config as hc  # noqa: E402
-import overview_hub as oh  # noqa: E402
 from harness_text import IDE_TAG_NAMES, strip_harness_blocks, user_typed_text  # noqa: E402
 from wg_atoms import classify_intent  # noqa: E402
 from wg_release import RELEASE_TAG  # noqa: E402
@@ -76,18 +74,14 @@ def test_user_own_words_set_refactor_intent():
 
 
 def test_only_prompt_handlers_write_turn_intent():
-    """(b) 成立：state["turn_intent"] 只在 UserPromptSubmit（與它呼叫的 wg_overview.on_prompt）寫；AI 回合中途說「我來重構」
-    不經過這兩處，不改意圖。"""
+    """(b) 成立：state["turn_intent"] 只在 UserPromptSubmit 寫；AI 回合中途說「我來重構」不經過那裡，不改意圖。"""
     writers = set()
     for p in HOOKS_DIR.rglob("*.py"):
         if "verify" in p.parts:
             continue
         if re.search(r"\[\s*[\"']turn_intent[\"']\s*\]\s*=(?!=)", p.read_text(encoding="utf-8", errors="replace")):
             writers.add(p.relative_to(HOOKS_DIR).as_posix())
-    assert writers == {"handlers/user_prompt_submit.py", "wg_overview.py"}, writers
-    src = (HOOKS_DIR / "wg_overview.py").read_text(encoding="utf-8")
-    on_prompt = src[src.index("def on_prompt("):src.index("def _strip_extended(")]
-    assert 'state["turn_intent"] = intent' in on_prompt
+    assert writers == {"handlers/user_prompt_submit.py"}, writers
 
 
 # ─── 2. 規則純函式 ───────────────────────────────────────────────────────
@@ -383,43 +377,11 @@ def test_disabled_by_hub_config(drive):
     assert "[Guardian:Equivalence]" not in out and drive.results == [None]
 
 
-# ─── 4. 注入 ─────────────────────────────────────────────────────────────
-
-_ROW = {"part": "x 部位", "part_short": "x", "status": "無", "cards": [], "line": "| x |", "layer": ""}
-
-
-def _head(intent):
-    gw = hc.HUB_DEFAULTS["goal_weights"][intent]
-    text, _ = oh.build_injection_ex(_ROW, [], r"c:\proj\x.py", 6000, None, None, list(gw.get("slices") or []),
-                                    str(gw.get("lens") or ""), str(gw.get("ask_first") or ""), extra=str(gw.get("extra") or ""))
-    return text
-
-
-def test_inject_head_by_intent():
-    ref, perf, feat = _head("refactor"), _head("perf"), _head("feature")
-    assert all(w in ref for w in ("順序／副作用／邊界", "PRESERVE_CHECK PASS", "熱路徑或大量配置", "間接層"))
-    assert "熱路徑或大量配置" in perf and "等值證法" not in perf and "間接層" not in perf
-    assert "熱路徑" not in feat and "等值證法" not in feat
-
-
-def test_overview_inject_passes_extra(monkeypatch, tmp_path):
-    """wg_overview._inject 依 state 意圖把 goal_weights.<意圖>.extra 接進 head。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    monkeypatch.setattr(wo, "_resolve_row_cards", lambda *a, **k: ([], None))
-    monkeypatch.setattr(wo, "_tracking_for", lambda *a, **k: [])
-    monkeypatch.setattr(wo, "_goal_block", lambda *a, **k: "")
-    monkeypatch.setattr(wo._oh, "path_kind", lambda *a, **k: None)
-    cfg = hc.merge_hub_cfg({}, None, None)
-    assert cfg["_errors"] == []
-    text = wo._inject({"turn_intent": "refactor"}, "s", tmp_path, dict(_ROW), str(tmp_path / "x.py"), "read", "", cfg)
-    assert "等值證法三類" in text and "間接層" in text
-    text2 = wo._inject({"turn_intent": "feature"}, "s", tmp_path, dict(_ROW), str(tmp_path / "x.py"), "read", "", cfg)
-    assert "等值證法" not in text2
+# ─── 4. 設定 ─────────────────────────────────────────────────────────────
 
 
 def test_hub_config_validates_new_keys():
-    bad = hc.merge_hub_cfg({"overview_hub": {"equivalence": {"enabled": "yes", "x": 1},
-                                             "goal_weights": {"refactor": {"extra": 3}}}}, None, None)
+    bad = hc.merge_hub_cfg({"overview_hub": {"equivalence": {"enabled": "yes", "x": 1}}}, None, None)
     errs = "\n".join(bad["_errors"])
-    assert "equivalence.enabled" in errs and "equivalence 有未知鍵「x」" in errs and "goal_weights.refactor.extra" in errs
+    assert "equivalence.enabled" in errs and "equivalence 有未知鍵「x」" in errs
     assert hc.HUB_DEFAULTS["equivalence"] == {"enabled": True}

@@ -1,7 +1,7 @@
 """wg_oldtest.py — 改舊測試要先宣告（規則 OLD_TEST_CHANGE_NEEDS_DECLARATION）：收事實、留帳、組擋訊息。
 
 抓五種「動既有測試」：消失、改名、同名測試的斷言被刪或改、新加跳過標記、說明（docstring）被改或刪；再到 transcript 三管道
-（回覆文字／工具參數／thinking，與定位三行同一套 assistant_text_after）加上這次工具呼叫的參數找宣告行「改舊測試｜<函式名>：<理由>」。
+（回覆文字／工具參數／thinking，與其他宣告行同一套 assistant_text_after）加上這次工具呼叫的參數找宣告行「改舊測試｜<函式名>：<理由>」。
 判定在 wg_release_rules.old_test_change_verdict。兩條路：
 - Edit／MultiEdit／Write：PreToolUse 比對改前（磁碟現檔）與改後（套用 old_string→new_string，或 Write 的新內容），沒宣告當場擋。
 - Bash／PowerShell／NotebookEdit：寫之前看不到改後內容，PreToolUse 把寫入目標裡的測試檔拍快照（workflow/old-test-snap/），

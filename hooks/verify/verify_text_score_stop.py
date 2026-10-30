@@ -37,7 +37,6 @@ sys.path.insert(0, str(TREE / "lib"))
 import wg_core  # noqa: E402
 import wg_friction  # noqa: E402
 import wg_need_goal  # noqa: E402
-import wg_overview  # noqa: E402
 import wg_text_score as wts  # noqa: E402
 from handlers import stop as st  # noqa: E402
 from handlers import user_prompt_submit as ups  # noqa: E402
@@ -263,7 +262,6 @@ def ups_wired(monkeypatch):
                      ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):
         monkeypatch.setattr(ups, name, fn)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
     monkeypatch.setattr(wg_need_goal, "on_prompt", lambda *a, **k: "")                    # 不寫目標樹檔
     return outputs
 

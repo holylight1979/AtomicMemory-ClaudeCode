@@ -1,7 +1,7 @@
 """verify_read_fast_path.py：Read 事件走快路徑（規則 READ_FAST_PATH，hooks/wg_read_fast.py）。
 
-Read 的 PostToolUse 在 dispatcher 一進門就只追加一行 read-log（不載 wg_core 等重模組）；原本靠它做的事（OverviewHub on_read 記讀過、
-第一次讀該部位的一行定位提示、需求目標讀入範圍…）改在下一個非 Read 事件（Edit 的 PreToolUse、Bash 的 PostToolUse）補帳，
+Read 的 PostToolUse 在 dispatcher 一進門就只追加一行 read-log（不載 wg_core 等重模組）；原本靠它做的事（OverviewHub 讀檔帳、
+需求目標讀入範圍…）改在下一個非 Read 事件（Edit 的 PreToolUse、Bash 的 PostToolUse）補帳，
 結果一樣、提示晚一個事件出現；Bash 唯讀照走原路徑。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_read_fast_path.py
 共用 verify_need_goal 的資料根隔離（env／hooked）與部位世界；不碰 live。
@@ -31,8 +31,6 @@ HEAVY = {"wg_core", "wg_hook_timing", "wg_overview", "wg_need_goal", "handlers.p
 @pytest.fixture(autouse=True)
 def _v6_on(monkeypatch):
     monkeypatch.setenv("WG_V6", "1")
-    from hub_config import HUB_DEFAULTS
-    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
 
 
 @pytest.fixture
@@ -66,13 +64,6 @@ def post_tool(hooked, monkeypatch):
             pt.handle_post_tool_use(inp, {"docdrift": {"enabled": False}, **(config or {})})
         return ((got[-1] or {}).get("hookSpecificOutput") or {}).get("additionalContext") or ""
     return run
-
-
-def _code_intent(intent="debug"):
-    """使用者這則 prompt 的關鍵字判成寫碼類（state turn_intent）：補帳出來的定位提示只在有改程式意圖時送（LOCATE_HINT_ON_FIRST_READ）。"""
-    st = wg_core.read_state(SID) or {}
-    st["turn_intent"] = intent
-    wg_core.write_state(SID, st)
 
 
 def _part_reads(part="戰鬥"):
@@ -121,18 +112,15 @@ def test_read_log_appended_per_read(fast):
     assert rf.pending(SID) and rf.drain(SID) == entries and not rf.pending(SID) and rf.drain(SID) == []
 
 
-# ─── 3. 下一個事件把 read-log 交給 on_read：Edit 的 PreToolUse 先補帳（閘要讀檔證據） ────────
+# ─── 3. 下一個事件把 read-log 交給讀檔帳：Edit 的 PreToolUse 先補帳（閘要讀檔證據） ────────
 
-def test_next_event_replays_read_log_into_on_read(fast, hooked):
+def test_next_event_replays_read_log_into_read_ledger(fast, hooked):
     f1 = _mapped_world(fast)
-    _code_intent()
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     assert _part_reads() is None                                                 # 還沒補帳：state 沒有這個部位
     _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
     _ptu_run("Edit", {"file_path": f1, "old_string": "x", "new_string": "y"}, hooked["proj"], hooked["tp"], hooked["outputs"])
     assert len(_part_reads() or []) == 1 and not rf.pending(SID)                 # 讀過算讀過；log 已清
-    state = wg_core.read_state(SID)
-    assert any("改【戰鬥】的程式檔前" in h for h in state[rf.HINTS_KEY])          # 提示存著等下一個 PostToolUse
     # 提問前也補（提問閘看「本回合該部位讀過幾檔」）：任何工具的 PreToolUse 都先 drain
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
     ask = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
@@ -141,25 +129,22 @@ def test_next_event_replays_read_log_into_on_read(fast, hooked):
     assert not rf.pending(SID)
 
 
-# ─── 4. 第一次讀該部位的一行定位提示：隨下一個工具結果到、只一次 ──────────────────────
+# ─── 4. 補帳的讀檔與提示：隨下一個工具結果到、只一次 ──────────────────────
 
-def test_first_read_hint_arrives_on_next_tool_result(fast, hooked, post_tool):
+def test_replayed_reads_and_hints_arrive_on_next_tool_result(fast, hooked, post_tool):
     f1 = _mapped_world(fast)
-    _code_intent()
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
-    ctx = post_tool()                                                            # 下一個非 Read 事件：Bash 的 PostToolUse
-    hint = next(ln for ln in ctx.splitlines() if ln.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前"))
-    assert "交定位四行" in hint and "戰鬥導讀" not in ctx                           # 跟原本 Read 當下附的一樣（READ_TOUCH_NO_CARD）
+    post_tool()                                                                  # 下一個非 Read 事件：Bash 的 PostToolUse
     assert _part_reads() and not rf.pending(SID)
     rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
-    assert "交定位" not in post_tool()                                           # 同部位第二次讀：不重送
+    post_tool()
     assert len(_part_reads()) == 1                                               # 同一個檔只記一次
-    # PreToolUse 補出來的提示也在下一個 PostToolUse 送到、送完就清
+    # PreToolUse 補出來的提示在下一個 PostToolUse 送到、送完就清
     state = wg_core.read_state(SID)
-    state[rf.HINTS_KEY] = ["[Guardian:OverviewHub] 改【介面】的程式檔前交定位四行（格式同前一則提示）。"]
+    state[rf.HINTS_KEY] = ["[Guardian:提醒] 補帳出來的提示"]
     wg_core.write_state(SID, state)
-    assert "改【介面】" in post_tool() and rf.HINTS_KEY not in wg_core.read_state(SID)
-    assert "改【介面】" not in post_tool()
+    assert "補帳出來的提示" in post_tool() and rf.HINTS_KEY not in wg_core.read_state(SID)
+    assert "補帳出來的提示" not in post_tool()
 
 
 # ─── 5. 讀入範圍（scope_on_read）補帳後照算 ─────────────────────────────────────────
@@ -182,17 +167,19 @@ def test_scope_on_read_counts_after_replay(fast, hooked, post_tool):
 def test_bash_readonly_path_unchanged(fast, hooked, post_tool, monkeypatch):
     import dispatcher
     f1 = _mapped_world(fast)
-    _code_intent()
     assert not rf.is_fast_read({"hook_event_name": "PostToolUse", "session_id": SID, "tool_name": "Bash",
                                 "tool_input": {"command": f'cat "{f1}"'}})
     assert not rf.is_fast_read({"hook_event_name": "PreToolUse", "session_id": SID, "tool_name": "Read"})
     assert rf.is_fast_read(_read_event(f1, fast["proj"], ""))
     assert dispatcher._pre_v6_skips("PostToolUse", {"tool_name": "Read"})     # v6 關：Read 本來就不進 handler
-    ctx = post_tool("Bash", {"command": f'cat "{f1}"'})                        # 唯讀 Bash：當下就記讀過、當下附提示
-    assert "改【戰鬥】的程式檔前" in ctx and _part_reads() and not rf.pending(SID)
+    post_tool("Bash", {"command": f'cat "{f1}"'})                              # 唯讀 Bash：當下就記讀過
+    assert _part_reads() and not rf.pending(SID)
     monkeypatch.setenv("WG_V6", "0")
-    rf.log_read(_read_event(f1, fast["proj"], hooked["tp"]))
-    assert "交定位" not in post_tool() and not rf.pending(SID)                   # 關：log 清掉、什麼都不補
+    f2 = str(Path(f1).with_name("B.cs"))
+    Path(f2).write_text("x", encoding="utf-8")
+    rf.log_read(_read_event(f2, fast["proj"], hooked["tp"]))
+    post_tool()
+    assert not rf.pending(SID) and len(_part_reads()) == 1                      # 關：log 清掉、什麼都不補
 
 
 # ─── 7. session 結束前最後幾次 Read：SessionEnd 補完、檔清掉 ─────────────────────────

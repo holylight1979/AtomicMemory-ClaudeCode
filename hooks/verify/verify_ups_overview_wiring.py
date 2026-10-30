@@ -1,9 +1,7 @@
-"""verify_ups_overview_wiring.py：UPS handler 對 OverviewHub 的接線：fail-open 真的 fail-open。
+"""verify_ups_overview_wiring.py：UPS handler 的接線：_atom_debug_error 綁定、退避旗標注入、意圖只認使用者原話。
 
-修的 bug：user_prompt_submit.py 呼叫 _atom_debug_error 但沒 import，on_prompt 一丟例外就 NameError，
-整個 UPS 掛掉。正例：handler 有 _atom_debug_error 且就是 wg_core 的那個；on_prompt raise 時 handler
-不拋、錯誤進 _atom_debug_error、turn_seq 照常推進。對照：on_prompt 回文字時文字進 additionalContext。
-其他依賴全 monkeypatch，不讀寫 live 的 workflow/。
+修的 bug：user_prompt_submit.py 呼叫 _atom_debug_error 但沒 import，段落一丟例外就 NameError，整個 UPS 掛掉。
+正例：handler 有 _atom_debug_error 且就是 wg_core 的那個。其他依賴全 monkeypatch，不讀寫 live 的 workflow/。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_ups_overview_wiring.py
 """
 from __future__ import annotations
@@ -21,7 +19,6 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
 import wg_friction  # noqa: E402
-import wg_overview  # noqa: E402
 from handlers import user_prompt_submit as ups  # noqa: E402
 
 
@@ -57,23 +54,11 @@ def wired(monkeypatch):
 INPUT = {"session_id": "sess-wiring", "prompt": "幫我看 C:/Work/Proj/src/A.cs", "transcript_path": ""}
 
 
-def test_on_prompt_exception_does_not_break_handler(wired, monkeypatch):
-    state, debug_calls, outputs = wired
-
-    def _boom(*a, **k):
-        raise RuntimeError("hub boom")
-    monkeypatch.setattr(wg_overview, "on_prompt", _boom)
-    ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
-    assert debug_calls == [("ups:overview_hub", "RuntimeError('hub boom')")]
-    assert state["turn_seq"] == 1 and len(outputs) == 1              # 走到尾、turn_seq 推進、有輸出
-
-
 def test_p7_evasion_injection_carries_not_doing_hint(wired, monkeypatch):
     """G6 P7：上輪退避旗標注入舉證要求時，附上 Stop 給的不做行寫法（hint），AI 才知道「真的不做」要怎麼回；旗標注入後清空。"""
     state, debug_calls, outputs = wired
     state["evasion_flag"] = {"phrase": "既有的問題", "context_excerpt": "x", "category": "precedent-drift",
                              "hint": "真的不做 → 寫一行「不做｜<哪一件>：<理由：檢測時點 + 不修的實際風險>」"}
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
     ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
     assert debug_calls == []
     text = outputs[0]["hookSpecificOutput"]["additionalContext"]
@@ -85,23 +70,13 @@ def test_003_evasion_ask_comes_first_and_says_handle_it_before_new_request(wired
     state, debug_calls, outputs = wired
     state["evasion_flag"] = {"phrase": "之後再", "context_excerpt": "test_parse_header 我之後再補", "category": "defer",
                              "hint": "真的不做 → 寫一行「不做｜<哪一件>：<理由>」"}
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "[Guardian:OverviewHub] HUB-TEXT")
     ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
     text = outputs[0]["hookSpecificOutput"]["additionalContext"]
     assert text.startswith("[Guardian:Evasion] 你上輪用了退避語『之後再』"), text[:120]
-    assert text.index("[Guardian:Evasion]") < text.index("HUB-TEXT")
     assert "先處理這件，再做使用者這回合的新請求" in text and "成本小（幾行、一支測試）就這一回合先做掉" in text
     assert "真的不做 → 寫一行「不做｜<哪一件>：<理由>」" in text and "使用者換了話題不等於放行" in text
     assert "feedback-rigor-standards" not in text and "feedback atom" not in text            # 反例：點送不到的卡名
     assert state["evasion_flag"] is None
-
-
-def test_on_prompt_text_reaches_additional_context(wired, monkeypatch):
-    state, debug_calls, outputs = wired
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "[Guardian:OverviewHub] HUB-TEXT")
-    ups.handle_user_prompt_submit(dict(INPUT), {"sync_keywords": []})
-    assert debug_calls == []
-    assert "HUB-TEXT" in outputs[0]["hookSpecificOutput"]["additionalContext"]
 
 
 # ─── G7 意圖只認使用者原話：同伴訊息、背景通知不改 turn_intent（REFACTOR_NEEDS_EQUIVALENCE 據此擋） ───
@@ -113,11 +88,8 @@ def _intent_after(wired, monkeypatch, prompt, prev=None):
     state, debug_calls, _ = wired
     if prev is not None:
         state["turn_intent"] = prev
-    seen = {}
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda st, sid, p, tp, cfg, intent=None: seen.update(intent=intent) or "")
     ups.handle_user_prompt_submit({**INPUT, "prompt": prompt}, {"sync_keywords": []})
     assert debug_calls == []
-    assert seen["intent"] == state["turn_intent"]                     # OverviewHub 拿到的就是 state 存的那一個
     return state["turn_intent"]
 
 

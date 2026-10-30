@@ -1,1 +1,0 @@
-{"intent": "debug", "inject_order": ["[已知病灶]", "[驗法]", "[權威在哪]"], "inject_rest_contains": ["做什麼與上下游", "動手前必問"], "inject_contains": ["視角：目標視角", "先問：幾份存法、有無訊號", "找到第一個根因後再找第二個"], "final": {"located": true, "located_via": "text", "located_quality": "card", "slices": ["defects", "verify", "authority"]}}

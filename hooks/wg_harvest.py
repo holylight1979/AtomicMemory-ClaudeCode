@@ -644,7 +644,7 @@ TRACK_INJECT_MAX_ITEMS, TRACK_INJECT_ITEM_CHARS = 5, 200
 
 def tracking_block(items: List[Dict[str, Any]], budget: int) -> str:
     """「【未結追蹤項】」整段：最多 5 筆、每筆截 200 字、整段不超過 budget 字；超過附「另有 N 筆」。沒有項目回空字串。
-    導讀卡注入已不再附這段（wg_overview._tracking_line 只留筆數一行，規則 TRACKING_COUNT_LINE_ONLY）；留著給要整段的讀法。"""
+    目前沒有注入端附這段；留著給要整段的讀法。"""
     if not items:
         return ""
     head = "【未結追蹤項】（這個部位以前記下、還沒結案的問題；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」）"
@@ -1145,7 +1145,7 @@ def harvest_gate_reason(
 
 def harvest_block_message(cwd: str = "") -> str:
     """cwd：session 的工作目錄；在 ~/.claude 之下才附「記憶系統開發面 → realm=local」那句。
-    追蹤項只說「填進收尾檢核 k 欄」：k 欄寫進追蹤帳本（workflow/tracking），碰到部位時接在導讀卡末段，不另寫病灶文件。"""
+    追蹤項只說「填進收尾檢核 k 欄」：k 欄寫進追蹤帳本（workflow/tracking），不另寫病灶文件。"""
     tracking = "追蹤項請填進收尾檢核 k 欄。"
     src = "\n".join(f"  {s}" for s in _HARVEST_SOURCES)
     return (

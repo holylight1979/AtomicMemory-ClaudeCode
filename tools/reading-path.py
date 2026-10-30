@@ -1867,7 +1867,7 @@ def _skipped(rel: str) -> bool:
 
 
 def _overview_hub():
-    """部位表的解析與前綴命中借 lib/overview_hub（導讀卡注入用的同一套規則），要用時才載入。"""
+    """部位表的解析與前綴命中借 lib/overview_hub（hooks 查部位用的同一套規則），要用時才載入。"""
     lib = str(Path(__file__).resolve().parents[1] / "lib")
     if lib not in sys.path:
         sys.path.append(lib)

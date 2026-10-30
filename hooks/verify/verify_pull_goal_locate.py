@@ -1,5 +1,5 @@
-"""verify_pull_goal_locate.py：目標樹與定位不再「修了又欠」——加子節點不清定位、子代理與程式記錄不動主樹的提示、
-定位閘同缺件擋次有上限、目標對照閘預設關、hook 提示只附樹根與當前節點、審查材料不印空段、案例寫入不落正式資料根。
+"""verify_pull_goal_locate.py：目標樹不再「修了又欠」——加子節點不清定位、子代理與程式記錄不動主樹的提示、
+目標對照閘預設關、hook 提示只附樹根與當前節點、審查材料不印空段、案例寫入不落正式資料根。
 
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_pull_goal_locate.py
   （直接跑 python -X utf8 hooks/verify/verify_pull_goal_locate.py 也行：開子行程跑 pytest，尾行印哨兵）
@@ -18,18 +18,12 @@ VERIFY = Path(__file__).resolve().parent
 sys.path.insert(0, str(VERIFY))
 
 from verify_need_goal import (  # noqa: E402,F401
-    CRIT, ON, SID, THREE, THREE2, _code_tree, _deny_text, _mapped_world, _op, _ptu_run, _read_part, _say, _tree,
-    _two_part_world, block_mode, env, hooked, ng, pt, ptu, wg_core, wo,
+    CRIT, ON, SID, THREE, THREE2, _code_tree, _deny_text, _op, _ptu_run, _read_part, _say, _tree,
+    _two_part_world, env, hooked, ng, pt, ptu, wg_core, wo,
 )
 import wg_need_goal_points as ngp  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 
-
-@pytest.fixture(autouse=True)
-def _whole_card(monkeypatch):
-    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
-    from hub_config import HUB_DEFAULTS
-    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
 
 NG_TOOL = "mcp__workflow-guardian__need_goal"
 
@@ -152,84 +146,6 @@ def test_program_progress_does_not_reset_cross_dir_count(env):
     assert line and "跨了 3 個頂層目錄" in line
 
 
-# ─── 定位閘同缺件擋次上限（盤查第 5 列） ──────────────────────────────────────
-
-def _next_user_turn():
-    """下一個使用者回合（turn_prompts_seq 跟著進）：第一次改部位那一刀開的那一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE）只管那個使用者回合，
-    一般判定（缺件全文、擋次上限）從下一個回合起算。"""
-    state = _state()
-    state["turn_seq"] = int(state.get("turn_seq", 0) or 0) + 1
-    state["turn_prompts_seq"] = state["turn_seq"]
-    wg_core.write_state(SID, state)
-
-
-def test_locate_gate_same_gap_blocks_twice_then_passes_with_log(hooked, block_mode):
-    """同回合同部位同缺件：擋第 1、2 次，第 3 次放行並留帳（edit_deny_capped）；換回合重給 2 次。舊碼第 3 次照擋。"""
-    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
-    f1 = _mapped_world(hooked)
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡（不算進缺件次數）
-    _next_user_turn()
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    out = _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
-    assert _deny_text(out) is None and "放行並留帳" in json.dumps(out, ensure_ascii=False)
-    assert "edit_deny_capped" in _hub_events(hooked)
-    _next_user_turn()                                                         # 下一個使用者回合：重給 2 次
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-
-
-def test_locate_deny_asks_exactly_the_lines_the_gate_checks(hooked, block_mode):
-    """擋訊息要的行＝閘判交齊的條件：有目標樹時擋訊息要「一次交齊四行」（部位、根因層兩候選＋理由、前例、批判），範例照填
-    （角括號換成自己的判斷）交上去 → 一次放行、不再擋第二輪。擋訊息沒要的第四行目標節點，閘也只記錄（locate_soft、掛樹根）。
-    擋訊息少要一行、或閘多擋一行，這案就紅。"""
-    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
-    f1 = _mapped_world(hooked)
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
-    _next_user_turn()
-    _read_part(f1, proj, tp)
-    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "一次交齊四行" in deny
-    example = [ln.strip().lstrip("# ") for ln in deny.splitlines() if ln.strip().lstrip("# ").startswith("定位｜")]   # 範例是 # 註解行
-    assert [ln.split("：", 1)[0] for ln in example] == ["定位｜部位", "定位｜根因層", "定位｜前例", "定位｜批判"]
-    assert "  git diff --stat" in deny and "照抄下面這段當一條 Bash／PowerShell 指令" in deny     # 四行 # 註解＋一條不寫檔指令，能照抄
-    text = "\n".join(example)
-    for k, v in (("<這次改哪個檔、哪一段>", "A.cs 的暴擊分支"), ("<第一個根因>", "邏輯層寫字典"), ("<第二個根因>", "存檔時序"),
-                 ("<為什麼不是 B>", "存檔只讀字典"), ("<卡名>／無", "共用字典"),
-                 ("<這段寫法合不合理、為什麼；看得出更好的做法就寫；同類還可能在哪>", "字典兩邊都寫，只留邏輯層一個寫入點；存檔流程同樣")):
-        text = text.replace(k, v)
-    assert "<" not in text, text
-    _say(tp, text)
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
-    soft = [p for g, p in hooked["guard"] if g == "need_goal" and p.get("event") == "locate_soft"]
-    assert soft and "LOCATE_GOAL_NODE" in soft[-1]["rules"]
-
-
-def test_locate_example_full_once_per_session_then_short(hooked, block_mode):
-    """規則 LOCATE_EXAMPLE_ONCE_PER_SESSION：有目標樹、擋訊息精簡開（guard.deny_text_slim 預設開）——本 session 第一則缺定位的擋訊息
-    照給完整範例；之後的回合再擋，那一條換成短句（四行格式同第一則、放先發的不寫檔指令開頭的 # 註解、thinking 讀不到），擋照擋；
-    精簡關掉照舊每則完整範例。改前每則都附完整範例。"""
-    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
-    f1 = _mapped_world(hooked)
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
-    _next_user_turn()
-    _read_part(f1, proj, tp)
-    first = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert first and "一次交齊四行" in first and "定位｜批判" in first
-    _next_user_turn()
-    again = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert again and "四行格式同本 session 第一則定位擋訊息" in again and "（thinking 讀不到）" in again
-    assert "一次交齊四行" not in again and len(again) < len(first)
-    state = _state()
-    state["turn_seq"] += 1
-    state["turn_prompts_seq"] = state["turn_seq"]
-    wg_core.write_state(SID, state)
-    full = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs, config={"guard": {"deny_text_slim": False}}))
-    assert full and "一次交齊四行" in full
-
-
 def _reply(tp, mid, *tids):
     """AI 的一則回覆 mid 整則落進 transcript（含它送出的 tool_use）：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
     blocks = [{"type": "tool_use", "id": t, "name": "Edit", "input": {}} for t in tids] or [{"type": "text", "text": "…"}]
@@ -244,26 +160,6 @@ def _edit_call(f, proj, tp, outputs, tid):
     return outputs[-1]
 
 
-def test_two_candidates_ask_once_counts_one_reply(hooked, block_mode):
-    """規則 DENY_CAP_PER_REPLY（同類：TWO_CANDIDATES_ASK_ONCE，上限 1 則回覆）：定位行根因層只寫一個候選、同一則回覆平行送出
-    3 個改同部位的 Edit → 3 個都擋（是同一次問）；舊碼照呼叫記「這回合問過了」，第 2 個起只記錄、放行。下一則同樣的定位行 → 只記錄、放行。"""
-    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
-    f1 = _mapped_world(hooked)
-    files = [f1] + [str(Path(f1).with_name(n)) for n in ("B.cs", "C.cs")]
-    for f in files[1:]:
-        Path(f).write_text("x", encoding="utf-8")
-    _op("set", goal="戰鬥不卡")
-    _op("add", items=[{"text": "共用字典不再被兩邊改"}])
-    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                  # 注入導讀卡
-    _read_part(f1, proj, tp)
-    _say(tp, THREE + "\n定位｜目標：T1.1（共用字典的唯一寫入點）" + CRIT)    # 根因層只一個候選
-    _reply(tp, "msg_1")
-    denies = [_deny_text(_edit_call(f, proj, tp, outputs, f"tu_{i}")) for i, f in enumerate(files)]
-    assert all(d and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in d for d in denies), denies
-    _reply(tp, "msg_2", "tu_0", "tu_1", "tu_2")
-    assert _deny_text(_edit_call(files[1], proj, tp, outputs, "tu_3")) is None      # 下一則：這回合問過了，只記錄
-
-
 def _bare(base):
     """沒有部位表的專案：有 .git、src 底下兩支既有程式檔。"""
     root = base / "bare"
@@ -276,73 +172,6 @@ def _bare(base):
 
 MIN_MAP_OFF = {"overview_hub": {"min_map": {"enabled": False, "preview_timeout_s": 2}}}
 MIN_MAP_ON = {"overview_hub": {"min_map": {"enabled": True, "preview_timeout_s": 5}}}
-
-
-def test_unmapped_gate_same_gap_blocks_twice_then_passes_with_log(env):
-    """沒在部位表上的改檔閘（讀檔數、最小地圖三行）：同回合同目錄同缺件擋 2 次、第 3 次放行並留帳（edit_unmapped_capped）；
-    換回合重給。舊碼第 3 次照擋（地圖三行交了閘卻看不到時一直擋）。"""
-    root = _bare(env["tmp"])
-    f = str(root / "src" / "a.py")
-    state = {"turn_seq": 3}
-    assert wo.on_edit(state, "s", f, "", MIN_MAP_OFF)[1]
-    assert wo.on_edit(state, "s", f, "", MIN_MAP_OFF)[1]
-    warn, deny, changed = wo.on_edit(state, "s", f, "", MIN_MAP_OFF)
-    assert deny is None and changed and "放行並留帳" in warn
-    assert "edit_unmapped_capped" in _hub_events(env)
-    state["turn_seq"] = 4
-    assert wo.on_edit(state, "s", f, "", MIN_MAP_OFF)[1]
-
-
-def test_unreadable_transcript_is_gate_self_error_not_a_block(env, monkeypatch):
-    """讀不到 transcript＝閘驗不了 AI 交的那幾行（定位行、最小地圖三行）＝閘自己判不了（規則 GATE_SELF_ERROR）：放行、
-    stderr＋守門紀錄 error、不計擋次、地圖不記成交過。舊碼「環境異常一律擋」（第 3 次也擋，因為不計上限）。"""
-    guard = []
-    monkeypatch.setattr(wo, "append_guard_log", lambda g, p: guard.append(p), raising=False)
-    root = _bare(env["tmp"])
-    state = {"turn_seq": 3}
-    wo.on_read(state, "s", "Read", {"file_path": str(root / "src" / "b.py")}, str(root), "", {})   # 讀檔數夠了，只欠地圖
-    for _ in range(3):
-        assert wo.on_edit(state, "s", str(root / "src" / "a.py"), "", MIN_MAP_ON)[1] is None
-    assert [p["rule"] for p in guard] == ["GATE_SELF_ERROR"] * 3 and "decl_deny_counts" not in state
-    assert not any(r.get("min_map_done") for r in state["overview_hub"].values())
-    f1 = _mapped_world(env)                                                    # 有部位表：定位行也一樣
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    hub_state = {"turn_seq": 3}
-    wo.on_read(hub_state, SID, "Read", {"file_path": f1}, str(env["proj"]), "", {})   # 讀檔建紀錄、記讀過，卡等第一次改檔
-    assert "導讀卡現在才送" in wo.on_edit(hub_state, SID, f1, "", {})[1]        # 第一刀：卡（真入口當提醒件送，不擋）
-    for _ in range(3):
-        assert wo.on_edit(hub_state, SID, f1, "", {})[1] is None
-    assert guard[-1]["check"] == "定位行" and "decl_deny_counts" not in hub_state
-
-
-def test_unreadable_transcript_still_checks_part_file_reads(env, monkeypatch):
-    """讀不到 transcript 只免掉驗不了的定位行；「讀過部位檔」不靠 transcript，照查照擋。"""
-    monkeypatch.setattr(wo, "append_guard_log", lambda g, p: None, raising=False)
-    f1 = _mapped_world(env)
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    hub_state = {"turn_seq": 3}
-    assert wo.on_edit(hub_state, SID, f1, "", {})[1]                         # 第一次碰部位：注入導讀卡（擋）
-    deny = wo.on_edit(hub_state, SID, f1, "", {})[1]
-    assert deny and "還沒讀過這個部位的檔" in deny and "還沒交出定位" not in deny
-
-
-def test_unmapped_cap_release_keeps_a_passed_min_map(env):
-    """沒在部位表上的改檔閘擋滿放行時，這次真的通過的最小地圖照記成交過（不因放行走捷徑而漏存）；擋滿放行本身不算交地圖。"""
-    root = _bare(env["tmp"])
-    (root / "lib").mkdir()
-    (root / "lib" / "c.py").write_text("x\n", encoding="utf-8")
-    tp = env["tmp"] / "map.jsonl"
-    tp.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text":
-                  "地圖｜讀了：lib/c.py（設定）\n地圖｜上游：無，因為是入口腳本\n地圖｜下游：lib/c.py"}]}},
-                             ensure_ascii=False) + "\n", encoding="utf-8")
-    state = {"turn_seq": 3}
-    wo.on_read(state, "s", "Read", {"file_path": str(root / "lib" / "c.py")}, str(root), str(tp), {})   # src 一個都沒讀
-    f = str(root / "src" / "a.py")
-    assert wo.on_edit(state, "s", f, str(tp), MIN_MAP_ON)[1] and wo.on_edit(state, "s", f, str(tp), MIN_MAP_ON)[1]
-    warn, deny, _ = wo.on_edit(state, "s", f, str(tp), MIN_MAP_ON)
-    assert deny is None and "放行並留帳" in warn
-    rec = next(v for k, v in state["overview_hub"].items() if "(unmapped)src" in k)
-    assert rec["min_map_done"] is True and rec["edits"] == 1
 
 
 # ─── 目標對照閘程式預設關（盤查第 7 列） ──────────────────────────────────────
@@ -547,55 +376,6 @@ def test_need_goal_cases_never_write_data_root_even_when_modules_preloaded(tmp_p
     left = sorted(str(p.relative_to(fake)) for p in fake.rglob("*") if p.is_file())
     assert left == [], left
 
-
-# ─── 改造包 Q（007 實測）：批判行不認固定字樣；內容不過的帳名；放行訊息不寫「已擋 N 則」 ─────────────
-
-_Q_FOUR = THREE2 + "\n定位｜目標：T1.1（共用字典的唯一寫入點）"
-_Q_CRIT = "\n定位｜批判：README 規定月份歸屬以台北時間為準，periods.month_of 卻轉 UTC，10/01 凌晨兩筆落到 9 月"
-
-
-def _q_locate_content_events(env):
-    """guard-need_goal 裡「定位行內容不過」那筆帳（帶 rule）：[(event, released)]；_goal_line_check 的 locate_soft（帶 rules）不算。"""
-    return [(p.get("event"), p.get("released")) for g, p in env["guard"]
-            if g == "need_goal" and p.get("event") in ("locate_blocked", "locate_soft") and p.get("rule")]
-
-
-def test_q1_critique_line_passes_without_fixed_wording(hooked, block_mode):
-    """Q-1：批判行是真批判、沒有「不合理／更好的做法／同類」字樣 → 放行、掛節點；只寫兩個字 → 擋「太短」。
-    舊碼要固定字樣，007 的這行被判沒交（紅）。"""
-    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
-    f1 = _mapped_world(hooked)
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
-    _read_part(f1, proj, tp)
-    _say(tp, _Q_FOUR + "\n定位｜批判：合理")
-    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert deny and "LOCATE_LINES_NEED_CRITIQUE" in deny and "太短" in deny and "更好的做法是" not in deny, deny
-    _say(tp, _Q_FOUR + _Q_CRIT)
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
-    assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
-    assert all(e == "locate_blocked" for e, _ in _q_locate_content_events(hooked))   # 真的擋才記 locate_blocked
-
-
-def test_q2_q3_release_logs_soft_and_message_has_no_block_count(hooked, block_mode):
-    """Q-2／Q-3：定位行交了但內容不過 → 擋 2 次各記 locate_blocked；第 3 次擋次上限放行 → 記 locate_soft（released=GATE_DENY_CAP），
-    不再記 locate_blocked；放行訊息寫「定位缺 …，這次放行」、不寫「已擋 N 則」。舊碼放行那次也記 locate_blocked、訊息說「已擋 2 則回覆」（紅）。"""
-    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
-    f1 = _mapped_world(hooked)
-    _op("set", goal="戰鬥不卡", items=[{"text": "共用字典不再被兩邊改"}])
-    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                    # 注入導讀卡
-    _read_part(f1, proj, tp)
-    _say(tp, _Q_FOUR + "\n定位｜批判：合理")
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
-    assert _q_locate_content_events(hooked) == [("locate_blocked", None), ("locate_blocked", None)]
-    out = _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
-    text = json.dumps(out, ensure_ascii=False)
-    assert _deny_text(out) is None and "定位缺" in text and "這次放行" in text, text
-    assert "已擋 2 則" not in text and "則回覆" not in text, text
-    assert _q_locate_content_events(hooked)[-1] == ("locate_soft", "GATE_DENY_CAP")
-    assert _q_locate_content_events(hooked).count(("locate_blocked", None)) == 2
-    assert "edit_deny_capped" in _hub_events(hooked)
 
 if __name__ == "__main__":
     rc = subprocess.run([sys.executable, "-X", "utf8", "-m", "pytest", __file__, "-q", "-p", "no:cacheprovider"]).returncode

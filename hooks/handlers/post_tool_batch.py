@@ -333,7 +333,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
-        or (v6 and (state.get("pending_reinjection_overview") or (state.get("pending_reinjection_goal") and not sub)))
+        or (v6 and state.get("pending_reinjection_goal") and not sub)
         or goal_due or close_parts or close_changed or remind_lines or remind_changed
     ):
         output_nothing()
@@ -358,17 +358,10 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             if blob:
                 parts.append(blob)
 
-        # (1a) 壓縮後需求目標樹獨立重送（不依附部位綜觀）：排在 atom 內文後、綜觀前（綜觀的「主目標」指向它）；一次性 pop
+        # (1a) 壓縮後需求目標樹重送：排在 atom 內文後；一次性 pop
         goal = state.pop("pending_reinjection_goal", None) if v6 and not sub else None
         if goal:
             parts.append(goal)
-
-        # (1b) 壓縮後 OverviewHub 綜觀重注（A2.2／A2.3）：順序 atom 內文先、綜觀後；一次性 pop
-        overview = state.pop("pending_reinjection_overview", None) if v6 else None
-        if v6:
-            state.pop("pending_reinjection_parts", None)
-        if overview:
-            parts.append(overview)
 
         # (2) Auto-Handoff 補全提示（Layer 3，與 (1) 合流同一 additionalContext）
         if state.get("pending_handoff_emit"):

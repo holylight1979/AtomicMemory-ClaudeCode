@@ -1,8 +1,7 @@
 """verify_pre_tool_use_overview_gate.py：pre_tool_use 的 OverviewHub 段（A4.5）端到端。
 
-正例：Bash 改部位檔被 deny；PowerShell 同；Edit OverviewHub 自家設定檔放行（track-0 豁免仍有效）；
-state 檔不存在 → 第一次 Edit deny 且 state 檔被建立、注入紀錄落盤；讀過部位檔並交定位三行後第二次 Edit 放行；
-edits 累加不丟（兩次放行後 rec.edits == 2）。
+正例：Bash／PowerShell 寫進 readonly_paths 被 deny、沒命中照放；Edit OverviewHub 自家設定檔放行（track-0 豁免仍有效）；
+閘自己炸、state 寫不進去照 GATE_SELF_ERROR 送法（v6 開提醒、block 照擋）；判不出寫入目標放行留帳。
 live 檔全 monkeypatch：WORKFLOW_DIR（state 落 tmp）、LOG_PATH、公司根、最小索引重建、sibling 認領。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_pre_tool_use_overview_gate.py
 """
@@ -24,12 +23,6 @@ import wg_core  # noqa: E402
 import wg_overview as wo  # noqa: E402
 from handlers import pre_tool_use as ptu  # noqa: E402
 
-
-@pytest.fixture(autouse=True)
-def _whole_card(monkeypatch):
-    """這支照整張注入（card_injection=full）寫的；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
-    from hub_config import HUB_DEFAULTS
-    monkeypatch.setitem(HUB_DEFAULTS, "card_injection", "full")
 
 SID = "sess-gate-0001"
 
@@ -72,13 +65,6 @@ def world(tmp_path, monkeypatch):
     return proj, outputs, str(tp)
 
 
-@pytest.fixture
-def block_mode(monkeypatch):
-    """送法固定成擋（gate_mode 全回 block）：這些案例測的是定位閘的判定與擋訊息內容，不是送法；v6 開時改提醒的送法在
-    verify_gate_mode_pre.py。"""
-    monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)
-
-
 def _run(tool, tool_input, proj, tp, outputs):
     with pytest.raises(SystemExit):
         ptu.handle_pre_tool_use(
@@ -92,29 +78,25 @@ def _deny(out):
     return (out or {}).get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
 
-def _state():
-    return json.loads(wg_core.state_file_path(SID).read_text(encoding="utf-8"))
+def _readonly(proj, pattern="Game/Battle/A.cs"):
+    (proj / ".claude" / "overview-hub.json").write_text(f'{{"readonly_paths": ["{pattern}"]}}', encoding="utf-8")
 
 
-def _rec(state):
-    return next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
-
-
-def test_bash_write_to_part_file_is_denied_and_state_created(world, block_mode):
+def test_bash_write_to_readonly_path_is_denied(world):
     proj, outputs, tp = world
+    _readonly(proj)
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert not wg_core.state_file_path(SID).exists()
     out = _run("Bash", {"command": f'echo x > "{f1}"'}, proj, tp, outputs)
-    assert _deny(out) and "戰鬥" in out["hookSpecificOutput"]["permissionDecisionReason"]
-    assert wg_core.state_file_path(SID).exists()                 # 沒 state 檔 → 建檔，注入紀錄落盤
-    assert _rec(_state())["edits"] == 0
+    assert _deny(out) and "readonly_paths（樣式「Game/Battle/A.cs」）" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
-def test_powershell_write_to_part_file_is_denied(world, block_mode):
+def test_powershell_write_to_readonly_path_is_denied(world):
     proj, outputs, tp = world
+    _readonly(proj)
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     out = _run("PowerShell", {"command": f'Set-Content -Path "{f1}" -Value "x"'}, proj, tp, outputs)
-    assert _deny(out) and "共用字典" in out["hookSpecificOutput"]["permissionDecisionReason"]   # deny 理由帶卡
+    assert _deny(out) and "readonly_paths" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert not _deny(_run("Edit", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, proj, tp, outputs))   # 沒命中照放
 
 
 def test_006_4_bash_sc_is_not_set_content(world):
@@ -176,16 +158,10 @@ def test_gate_internal_error_reminds_v6_on_denies_v6_off(world, monkeypatch):
 
 def test_write_state_failure_reminds_v6_on(world, monkeypatch):
     """寫不進 state（規則 GATE_SELF_ERROR，v6 開）：不擋；待提醒存不住，一行提醒跟著這次放行的警告走（additionalContext），
-    hub log state_persist_failed 帶 rule、allowed；寫得進去就安靜放行。"""
+    hub log state_persist_failed 帶 rule、allowed；寫得進去就安靜放行。觸發待提醒的是設定錯誤那一件（GATE_SELF_ERROR 提醒）。"""
     proj, outputs, tp = world
+    (proj / ".claude" / "overview-hub.json").write_text('{"bogus": 1}', encoding="utf-8")
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))          # 正常：注入＋建檔；第一次改缺定位擋一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
-    state = _state()
-    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), tp, {})
-    wg_core.write_state(SID, state)
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
     with pytest.MonkeyPatch.context() as mp:                                   # 模擬 write_state 吞掉 OSError 沒寫進去
         mp.setattr(wg_core, "write_state", lambda sid, st: None)
         out = _run("Edit", {"file_path": f1}, proj, tp, outputs)
@@ -222,141 +198,12 @@ def test_045_inline_py_readonly_end_to_end_allows_pure_read_and_node(world):
     assert not _deny(out)
 
 
-def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world, block_mode):
-    proj, outputs, tp = world
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))          # 第一次：注入＋deny，state 建檔
-    state = _state()
-    assert "overview_hub" in state and _rec(state)["edits"] == 0
-    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), tp, {})      # 讀部位檔（PostToolUse 走 on_read）
-    wg_core.write_state(SID, state)
-    with open(tp, "a", encoding="utf-8") as f:                                 # 交定位三行
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
-    assert not _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))      # 第二次放行
-    assert _rec(_state())["edits"] == 1 and _rec(_state())["located"] is True
-    assert not _deny(_run("Bash", {"command": f'echo y >> "{f1}"'}, proj, tp, outputs))   # Bash 同目標也放行
-    assert _rec(_state())["edits"] == 2                                        # 累加不丟
-
-
-def _reply(tp, mid, *tids, text=""):
-    """AI 的一則回覆 mid 整則落進 transcript（文字＋它送出的 tool_use）：之後的呼叫屬下一則（批次鍵＝這則的 message.id）。"""
-    blocks = ([{"type": "text", "text": text}] if text else []) + [{"type": "tool_use", "id": t, "name": "Edit", "input": {}}
-                                                                    for t in tids]
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "assistant", "message": {"id": mid, "content": blocks or [{"type": "text", "text": "…"}]}},
-                           ensure_ascii=False) + "\n")
-
-
-def _call(tool, tool_input, proj, tp, outputs, tid):
-    with pytest.raises(SystemExit):
-        ptu.handle_pre_tool_use({"tool_name": tool, "tool_input": tool_input, "session_id": SID, "cwd": str(proj),
-                                 "transcript_path": tp, "tool_use_id": tid}, {})
-    return outputs[-1]
-
-
-def test_parallel_edits_in_one_reply_all_denied_then_locate_passes(world, block_mode):
-    """規則 DENY_CAP_PER_REPLY（004 改 code 題 B6 的根因）：同一則回覆平行送出 4 個 Edit 改同一部位的檔、都沒交定位 → 4 個都擋
-    （擋次照則數，這一則只算一次；舊碼照每個呼叫算，第 3 個起記 edit_deny_capped、沒交定位就放行）；下一則交了定位 → 放行。"""
-    proj, outputs, tp = world
-    files = [str(proj / "Game" / "Battle" / f"{n}.cs") for n in "ABCD"]
-    for f in files[1:]:
-        Path(f).write_text("x", encoding="utf-8")
-    _reply(tp, "msg_0")
-    assert _deny(_call("Edit", {"file_path": files[0]}, proj, tp, outputs, "tu_inject"))     # 注入導讀卡（不算進缺件次數）
-    _reply(tp, "msg_1", "tu_inject")
-    state = _state()
-    wo.on_read(state, SID, "Read", {"file_path": files[0]}, str(proj), tp, {})                 # 讀部位檔
-    wg_core.write_state(SID, state)
-    _reply(tp, "msg_2")
-    outs = [_call("Edit", {"file_path": f, "old_string": "x", "new_string": "y"}, proj, tp, outputs, f"tu_{i}")
-            for i, f in enumerate(files)]
-    assert [_deny(o) for o in outs] == [True] * 4, outs
-    assert "edit_deny_capped" not in (proj.parent / "hub.log").read_text(encoding="utf-8")
-    _reply(tp, "msg_3", "tu_0", "tu_1", "tu_2", "tu_3")
-    _reply(tp, "msg_4", text=LOCATE.replace("A.cs", "A.cs、B.cs、C.cs、D.cs"))
-    assert not _deny(_call("Edit", {"file_path": files[2], "old_string": "x", "new_string": "y"}, proj, tp, outputs, "tu_5"))
-    assert _rec(_state())["located"] is True
-
-
 # ─── 子代理：對話在 <sid>/subagents/agent-<agent_id>.jsonl，主 session 是同層的 <sid>.jsonl ───
 
-AGENT = "ae3c716a6fc9ec36b"
-LOCATE = "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"
 
-
-def _line(text):
-    return json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}, ensure_ascii=False) + "\n"
-
-
-def _agent_layout(tmp_path):
-    """Claude Code 的真實佈局：主檔比子代理檔長（主 session 已經聊了很多），子代理檔才剛開始。"""
-    main = tmp_path / f"{SID}.jsonl"
-    main.write_text("".join(_line(f"主 session 第 {i} 段說明，派子代理去改戰鬥") for i in range(40)), encoding="utf-8")
-    agent = tmp_path / SID / "subagents" / f"agent-{AGENT}.jsonl"
-    agent.parent.mkdir(parents=True)
-    agent.write_text(json.dumps({"type": "user", "message": {"content": "改 A.cs"}}, ensure_ascii=False) + "\n", encoding="utf-8")
-    return main, agent
-
-
-def _agent_edit(proj, outputs, f1, tp):
-    with pytest.raises(SystemExit):
-        ptu.handle_pre_tool_use({"tool_name": "Edit", "tool_input": {"file_path": f1}, "session_id": SID, "agent_id": AGENT,
-                                 "cwd": str(proj), "transcript_path": str(tp)}, {})
-    return outputs[-1]
-
-
-@pytest.mark.parametrize("hook_gives", ["main", "agent"])
-def test_subagent_locate_lines_in_its_own_transcript_allow_edit(world, tmp_path, hook_gives, block_mode):
-    """子代理讀過部位檔、在自己的回覆寫了定位三行 → 放行；hook 給主檔或給子代理檔都要認得到。"""
-    proj, outputs, _ = world
-    main, agent = _agent_layout(tmp_path)
-    tp = main if hook_gives == "main" else agent
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _deny(_agent_edit(proj, outputs, f1, tp))                             # 第一次：注入卡＋擋
-    state = _state()
-    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(tp), {})     # 子代理的 Read 事件
-    wg_core.write_state(SID, state)
-    with open(agent, "a", encoding="utf-8") as f:
-        f.write(_line(LOCATE))
-    out = _agent_edit(proj, outputs, f1, tp)
-    assert not _deny(out), (out or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "")[:400]
-    assert _rec(_state())["located"] is True
-
-
-@pytest.mark.parametrize("hook_gives", ["main", "agent"])
-def test_subagent_without_locate_lines_anywhere_is_denied(world, tmp_path, hook_gives, block_mode):
-    proj, outputs, _ = world
-    main, agent = _agent_layout(tmp_path)
-    tp = main if hook_gives == "main" else agent
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _deny(_agent_edit(proj, outputs, f1, tp))
-    state = _state()
-    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(tp), {})
-    wg_core.write_state(SID, state)
-    with open(agent, "a", encoding="utf-8") as f:
-        f.write(_line("先看 A.cs 的邏輯"))
-    assert _deny(_agent_edit(proj, outputs, f1, tp))
-    assert _rec(_state())["located"] is False
-
-
-def test_locate_lines_written_before_injection_in_subagent_file_do_not_count(world, tmp_path, block_mode):
-    """各檔各記注入當下的大小：子代理在讀卡之前就寫的定位行不算（跟主檔的 offset 規則一致）。"""
-    proj, outputs, _ = world
-    main, agent = _agent_layout(tmp_path)
-    with open(agent, "a", encoding="utf-8") as f:
-        f.write(_line(LOCATE))                                                   # 注入前就寫
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    assert _deny(_agent_edit(proj, outputs, f1, main))
-    state = _state()
-    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), str(main), {})
-    wg_core.write_state(SID, state)
-    assert _deny(_agent_edit(proj, outputs, f1, main))
-
-
-def test_006_scratchpad_written_via_literal_var_is_allowed(world, tmp_path, monkeypatch, block_mode):
+def test_006_scratchpad_written_via_literal_var_is_allowed(world, tmp_path, monkeypatch):
     """閘小修 006 件 5（第五跑 C-1 第 4 回合）：`S='<scratchpad>' && git show … > "$S/old.cs"` 寫進 scratchpad 存舊版做對照。
-    前置：同一個 scratchpad 用字面路徑寫是放行的（暫存區不是部位檔）；修之前加了變數就整條當「判不出寫入目標」擋（edit_unknown_target）。
+    前置：同一個 scratchpad 用字面路徑寫是放行的；修之前加了變數就整條當「判不出寫入目標」。
     規則 SHELL_LITERAL_VAR_EXPANDED：同指令的字面指定代換後算得出目標，照字面路徑同樣判。"""
     proj, outputs, tp = world
     monkeypatch.delenv("WG_TEMP_RULES")                       # 暫存區規則本身要開著
@@ -365,10 +212,11 @@ def test_006_scratchpad_written_via_literal_var_is_allowed(world, tmp_path, monk
     assert not _deny(_run("Bash", {"command": f'git show HEAD:Game/Battle/A.cs > "{scratch}/old0.cs"'}, proj, tp, outputs))
     out = _run("Bash", {"command": f"S='{scratch}' && git show HEAD:Game/Battle/A.cs > \"$S/old_A.cs\""}, proj, tp, outputs)
     assert not _deny(out), out
-    # 對照（codex 006）：同一個變數寫法指到部位檔照擋，而且擋的是部位證據、不是判不出目標——變數代換算出了真目標、閘有跑。
+    # 對照（codex 006）：同一個變數寫法指到唯讀檔照擋——變數代換算出了真目標、閘有跑。
     # 假專案本身也在 pytest 暫存目錄下，暫存規則開著會整個當暫存副本，對照這一步關掉它（專案照專案判）
     monkeypatch.setenv("WG_TEMP_RULES", "off")
+    _readonly(proj)
     battle = proj / "Game" / "Battle"
     out = _run("Bash", {"command": f"S='{battle}' && echo x > \"$S/A.cs\""}, proj, tp, outputs)
     reason = (out or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
-    assert _deny(out) and "戰鬥" in reason and "無法判定" not in reason, out
+    assert _deny(out) and "readonly_paths" in reason and "無法判定" not in reason, out

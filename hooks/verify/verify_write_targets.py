@@ -503,8 +503,8 @@ def test_unknown_target_is_allowed_and_logged(tmp_path, monkeypatch):
     """規則 UNKNOWN_TARGET_LOGGED：判不出寫入目標 → 放行並留帳（不擋）。"""
     import wg_overview as wo
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    warn, deny, changed = wo.on_edit({}, "s", "UNKNOWN:echo x > $OUT/a", "", {})
-    assert deny is None and not changed
+    warn, deny, hit = wo.write_check("s", "UNKNOWN:echo x > $OUT/a", {})
+    assert deny is None and hit is None
     log = (tmp_path / "hub.log").read_text(encoding="utf-8")
     assert '"edit_unknown_target"' in log and '"allowed": true' in log
 

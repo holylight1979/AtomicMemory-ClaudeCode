@@ -226,7 +226,6 @@ def test_mixed_messages_through_entry_order_gate(monkeypatch):
 
 def test_ups_entry_ide_preprocessing_keeps_nested_blocks_out(monkeypatch):
     import wg_friction
-    import wg_overview
     from handlers import user_prompt_submit as ups
     state, seen = {"turn_seq": 0}, []
     fakes = {
@@ -242,7 +241,6 @@ def test_ups_entry_ide_preprocessing_keeps_nested_blocks_out(monkeypatch):
     for name, fake in fakes.items():
         monkeypatch.setattr(ups, name, fake)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
     for raw in ("<ide_selection>a<ide_selection>b</ide_selection>上GIT</ide_selection>",          # 同名巢狀
                 "<ide_selection><cross-session-message>x</ide_selection>上GIT</cross-session-message>"):   # 和同伴標籤交錯
         seen.clear()

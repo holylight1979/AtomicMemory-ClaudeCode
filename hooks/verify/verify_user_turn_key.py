@@ -21,7 +21,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
-import wg_overview as wo  # noqa: E402
 from handlers import session_start as ss  # noqa: E402
 from handlers import stop as st  # noqa: E402
 from handlers.ups_gates import track_turn_prompts  # noqa: E402
@@ -48,7 +47,6 @@ def _ups(monkeypatch, state, prompt):
     monkeypatch.setattr(ups, "collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {}))
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: ([], {}))
     monkeypatch.setattr(ups, "_truncate_context_by_activation", lambda lines, *a: lines)
-    monkeypatch.setattr(wo, "on_prompt", lambda *a, **k: None)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
     ups.handle_user_prompt_submit({"session_id": _SID, "prompt": prompt, "transcript_path": ""}, {"sync_keywords": []})
 

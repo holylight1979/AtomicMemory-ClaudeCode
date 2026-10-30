@@ -1,4 +1,0 @@
-{"op": "read", "path": "Game/Battle/BattleManager.cs"}
-{"op": "read", "path": "Game/Battle/DamageSystem.cs"}
-{"op": "reply", "text": "定位｜部位：戰鬥：DamageSystem 的擊殺幀廣播\n定位｜根因層：根因在 Simulator 層，不是 UI 展演層；第二個根因查無，Entity 清除順序正常\n定位｜前例：最後一擊無訊號（病灶①）"}
-{"op": "edit", "path": "Game/Battle/DamageSystem.cs", "expect": {"deny": false}}

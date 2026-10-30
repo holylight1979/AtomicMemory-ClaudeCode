@@ -1057,7 +1057,7 @@ _EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
                           input_data: Dict[str, Any], config: Dict[str, Any],
                           recovered: Sequence[str] = ()) -> Tuple[Optional[str], bool]:
-    """需求目標樹（wg_need_goal）：need_goal 工具呼叫套用到目標樹並送回整棵樹、目標改了清各部位的「已定位」、
+    """需求目標樹（wg_need_goal）：need_goal 工具呼叫套用到目標樹並送回整棵樹、
     改檔與收據蓋號、讀到帶【需求目標樹】區塊的續接單時匯入。回（要送回 AI 的提示, state 有沒有變）。
     recovered＝Bash／PowerShell 判不出目標、事後從版控狀態補到的檔（UNKNOWN_WRITE_RECOVERED），跟算得出的目標一樣蓋號。
     目標檔自己整段上鎖；這裡出錯只 stderr＋守門紀錄，不影響工具結果。"""
@@ -1080,9 +1080,6 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
             if res["ok"] and res.get("kind") == "code" and (tool_input or {}).get("action") in ("set", "add", "update"):
                 state["need_goal_code_decl_turn"] = turn   # 規則 CODING_TURN_ONLY 第二層：本回合 LLM 宣告了寫碼樹
                 changed = True
-            if res["goal_changed"]:
-                from wg_overview import on_goal_changed
-                changed = on_goal_changed(state, transcript_path, turn) > 0
             text = res["text"]
             if res["ok"]:                     # 規則 LOCATE_VIA_NEED_GOAL：定位四行隨樹一起交（目標改了先清、再標這次交的）
                 lines = ng.locate_via_tree(state, session_id, cwd, transcript_path, tool_input or {}, config)
@@ -1139,8 +1136,7 @@ def _need_goal_import(ng: Any, state: Dict[str, Any], session_id: str, fp: str, 
     res = ng.import_handoff(session_id, text, fp, turn)
     if not res["imported"]:
         return (f"[NeedGoal] 續接單的需求目標樹沒有匯入：{res.get('skipped')}" if res.get("skipped") else None), False
-    from wg_overview import on_goal_changed
-    return res["text"], on_goal_changed(state, transcript_path, turn) > 0
+    return res["text"], False
 
 
 def _chain_action(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any], tool_response: Any) -> None:
@@ -1460,29 +1456,24 @@ def _note_tool_result(state: Dict[str, Any], session_id: str, tool_name: str, to
 def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
                    input_data: Dict[str, Any], config: Dict[str, Any], v6: bool, degraded: bool,
                    lap: Any) -> Tuple[List[str], bool, bool]:
-    """讀檔事件的四段（Read／Bash／PowerShell／Grep；非讀檔工具只打「導讀卡」那個點）：OverviewHub on_read、動資料檔讀提示、
+    """讀檔事件的四段（Read／Bash／PowerShell／Grep；非讀檔工具只打「讀檔帳」那個點）：OverviewHub 讀檔帳、動資料檔讀提示、
     需求目標讀入範圍、Depends 召回。主流程傳 _hook_lap；read-log 補帳（replay_read_log）傳不打點的 lap。
     回（要附進工具結果的提示、state 有沒有變、打完點後的 degraded）。"""
     ctx: List[str] = []
     dirty = False
     cwd = input_data.get("cwd", "") or ""
     agent_id = str(input_data.get("agent_id") or "")
-    # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
+    # OverviewHub 讀檔帳：讀到的檔記進各部位的 part_files_read（提問前先讀過部位檔照這筆判；fail-open）
     if not degraded and tool_name in (("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash")):   # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
         try:
-            from wg_overview import on_read as _hub_on_read
-            hub_ctx = _hub_on_read(
-                state, session_id, tool_name, tool_input, cwd, input_data.get("transcript_path", "") or "", config,
-                **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
-                agent_id=agent_id,
-            )
-            if hub_ctx:
-                ctx.append(hub_ctx)
-            dirty = True   # reads_after 也要落盤
+            from wg_overview import record_reads
+            record_reads(state, tool_name, tool_input, cwd, config,
+                         **({"exit_code": _read_exit_code(input_data.get("tool_response"))} if v6 else {}))   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
+            dirty = True
         except Exception as e:
             print(f"overview hub read error: {e}", file=sys.stderr)
 
-    degraded = lap("導讀卡")
+    degraded = lap("讀檔帳")
 
     # 動資料檔閘：第一次讀到改了會被問的資料檔 → 一行宣告格式（規則 DATA_FILE_READ_HINT；判定不動，read_hint 炸了自己吞並出聲）
     if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
@@ -1492,7 +1483,7 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
             dirty = True
 
     # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
-    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同。
+    # 「讀了什麼」與上面讀檔帳同一支（wg_overview.read_targets），所以工具清單也相同。
     # 子代理（hook 輸入帶 agent_id）讀的不算：目標樹是主 session 的，子代理讀檔不擴大它的讀入範圍、也不收「要不要長子目標」
     if v6 and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
         try:
@@ -1517,7 +1508,7 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
 
 def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, Any], v6: bool) -> Tuple[List[str], bool]:
     """規則 READ_FAST_PATH：Read 的 PostToolUse 走 dispatcher 快路徑只落 read-log；這裡在下一個非 Read 事件把累積的 Read
-    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub on_read、動資料檔讀提示、讀入範圍、Depends 召回、
+    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub 讀檔帳、動資料檔讀提示、讀入範圍、Depends 召回、
     讀到續接單匯入目標樹）——結果一樣、晚一個事件出現。寫碼守門關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
     回（要附進這則工具結果的提示＝上一個 PreToolUse 補出來存在 state 的＋這次補出來的、state 有沒有變）。"""
     ctx: List[str] = list(state.pop(wg_read_fast.HINTS_KEY, None) or [])
@@ -1969,8 +1960,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                            "knowledge_harvest_report")
             dirty = True
 
-    # 分段計時（wg_hook_timing）：累計過 hook 上限的 80% → degraded，後面只記不問——提示類段落（導讀卡、depends 召回、
-    # 跨 session 碰撞、同伴檢查、MCP 切入點註記）不跑；docdrift 清帳、讀入範圍、目標樹蓋號、寫 state 照做
+    # 分段計時（wg_hook_timing）：累計過 hook 上限的 80% → degraded，後面只記不問——提示類段落（depends 召回、
+    # 跨 session 碰撞、同伴檢查）不跑；docdrift 清帳、讀入範圍、目標樹蓋號、寫 state 照做
     degraded = _hook_lap("工具記帳")
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:

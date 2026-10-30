@@ -1,7 +1,7 @@
-"""verify_overview_hub.py — OverviewHub（讀檔只建紀錄、第一次改某部位的檔那則整張注入導讀卡、Edit 前查定位三行）。
+"""verify_overview_hub.py — OverviewHub 的部位表、設定合併與驗證、讀檔帳、寫入檢查（readonly_paths、設定錯誤）。
 
-純函式：lib/overview_hub（讀表、最長前綴命中、定位三行、Bash 讀檔擷取）；
-state 層：wg_overview.on_read / on_prompt / on_edit（用 tmp_path 造一個假專案與假 transcript）。
+純函式：lib/overview_hub（讀表、最長前綴命中、Bash 讀檔擷取、導讀卡分片）；
+state 層：wg_overview.record_reads / write_check（用 tmp_path 造一個假專案）。
 """
 
 from __future__ import annotations
@@ -35,11 +35,6 @@ def _no_org(monkeypatch):
     monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
     monkeypatch.setattr(wo, "_WARNED", set())
 
-
-@pytest.fixture(autouse=True)
-def _whole_card(monkeypatch):
-    """這支測整張注入（card_injection=full）的行為；指標制（預設）的案例在 verify_overview_card_pointer.py。"""
-    monkeypatch.setitem(wo.HUB_DEFAULTS, "card_injection", "full")
 
 APPB_TABLE = """
 | 順序 | 路徑前綴 | 部位 | 導讀卡（atom 名） | 狀態 |
@@ -133,14 +128,7 @@ def test_match_substring_only_below_root(root, path, part):
     assert (m["part_short"] if m else None) == part, (root, path)
 
 
-# ─── 定位三行 / Bash 讀檔 ───────────────────────────────────────────
-
-def test_locate_present_requires_three_lines_and_part():
-    ok = "定位｜部位：戰鬥——改 BattleView\n定位｜根因層：症狀，根因在邏輯層\n定位｜前例：共用字典"
-    assert oh.locate_present(ok, "戰鬥")
-    assert not oh.locate_present(ok, "Server")                 # 部位對不上
-    assert not oh.locate_present(ok.rsplit("\n", 1)[0], "戰鬥")  # 少一行
-    assert oh.locate_present(ok.replace("｜", "|").replace("：", ":"), "戰鬥")  # 半形也收
+# ─── Bash 讀檔 ───────────────────────────────────────────
 
 
 def test_read_paths_from_bash_and_read():
@@ -183,7 +171,7 @@ def test_read_paths_from_powershell():
     assert oh.read_paths_from_tool("Read", {"file_path": "C:/q.cs"}, "C:/w") == ["C:/q.cs"]   # Read 行為不變
 
 
-# ─── state 層：假專案 + 假 transcript ───────────────────────────────
+# ─── state 層：假專案 ───────────────────────────────
 
 @pytest.fixture
 def proj(tmp_path):
@@ -199,133 +187,29 @@ def proj(tmp_path):
     return root
 
 
-def _transcript(tmp_path, texts):
-    tp = tmp_path / "t.jsonl"
-    with open(tp, "w", encoding="utf-8") as f:
-        for t in texts:
-            f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": t}]}}, ensure_ascii=False) + "\n")
-    return str(tp)
-
-
-def _card(state, f, tp, cfg=None, sid="s"):
-    """讀檔只建紀錄不送卡（規則 READ_TOUCH_NO_CARD）：卡在第一次改這個部位的檔那則送到、擋一次；回那則訊息。"""
-    deny = wo.on_edit(state, sid, f, tp, cfg or {})[1]
-    assert deny and "導讀卡現在才送" in deny, deny
-    return deny
-
-
-def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 3, "turn_intent": "debug"}                                     # 使用者要改程式（關鍵字意圖）：讀檔才附定位提示
-    tp = _transcript(tmp_path, ["先看看。"])
-    f1, f2 = str(proj / "Game" / "Battle" / "A.cs"), str(proj / "Game" / "Battle" / "B.cs")
-    Path(f1).write_text("x", encoding="utf-8")                                     # Bash cat 讀的要是實檔才算（BASH_READONLY_COUNTS_AS_READ）
-
-    txt = wo.on_read(state, "sess", "Read", {"file_path": f1}, str(proj), tp, cfg)
-    assert txt and "戰鬥導讀" not in txt and txt.startswith("[Guardian:OverviewHub] 改【戰鬥】的程式檔前")   # 第一次讀 → 只一行提示，卡不送
-    assert wo.on_read(state, "sess", "Read", {"file_path": f2}, str(proj), tp, cfg) is None  # 第二次不再注入
-    assert wo.on_read(state, "sess", "Bash", {"command": f'cat "{f1}"'}, str(proj), tp, cfg) is None
-    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
-    assert rec["part_files_read"] == [f1, f2] and rec["reads_after"] == [f1, f2]       # 觸發注入的 f1 也算（INJECT_TRIGGER_READ_COUNTED）
-
-    warn, card, _, hit = wo.edit_check(state, "sess", f1, tp, cfg)     # 第一次改 → 卡這時才送（整張）；沒交定位 → 擋這一次（LOCATE_FIRST_EDIT_BLOCKS_ONCE）
-    assert card and "導讀卡現在才送" in card and "整張" not in card and "戰鬥導讀" in card and "定位｜部位：戰鬥" in card
-    assert "這一輪擋" in card and hit["rule"] == "OVERVIEW_CARD_BEFORE_EDIT" and hit["block_once"] is True
-    warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 同一輪（同一個使用者回合）、一行都沒交 → 一句照擋、不帶提醒件
-    assert deny == f"[Guardian:OverviewHub] 同一輪，定位交齊前照擋：{f1}" and warn == deny and changed
-    assert state["locate_first_deny"]["sess"]["戰鬥"] == {"turn": 3, "done": False}
-    state["turn_seq"] = 4                                                # 下一個使用者回合：這一輪結束，缺定位走一般判定
-    warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 沒交定位 → 一律擋（A4.1 沒有不擋的模式）
-    assert deny and "定位三行" in deny and "讀了 2 個檔" in deny and warn == deny and changed
-
-    with open(tp, "a", encoding="utf-8") as f:                           # 交了定位三行 → 放行，state 仍標 changed
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
-    assert wo.on_edit(state, "sess", f1, tp, cfg) == (None, None, True)
-    assert rec["located_via"] == "text" and rec["located_quality"] == "card"
-    assert state["locate_first_deny"]["sess"]["戰鬥"]["done"] is True     # 交齊：這一輪記成結束
-
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log] == ["inject", "locate_hint", "card", "edit_card_delivered", "edit_blocked_once", "edit_blocked_round",
-                                         "edit", "edit"]   # 讀到程式檔先提示；卡隨第一次改檔送、那一刀擋；同一輪再改照擋
-    assert log[0]["chars"] == 0 and log[0]["card_pending"] is True and log[2]["chars"] == len(hit["extra"])
-    assert log[4]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE" and log[4]["part"] == "戰鬥"
-    assert log[5]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE" and log[5]["deny_reason"] == "locate_round"
-    assert log[6]["located"] is False and log[6]["deny_reason"] == "evidence"
-    assert log[7]["located"] is True and log[7]["deny_reason"] is None and log[7]["located_quality"] == "card"
-
-
-def test_edit_without_prior_read_injects_now_and_denies(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    for cfg in ({}, {"overview_hub": {"enabled": True}}):
-        warn, deny, changed = wo.on_edit({}, "s", f1, tp, cfg)
-        assert deny and "還沒看過" in deny and "戰鬥導讀" in deny and warn == deny and changed   # B1：deny 理由要帶整張卡，模型才看得到
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert log[-2]["event"] == "edit_before_inject" and log[-2]["deny_reason"] == "not_injected"
-    assert log[-1]["event"] == "edit_blocked_once" and log[-1]["rule"] == "LOCATE_FIRST_EDIT_BLOCKS_ONCE"   # 第一次改缺定位：擋這一次
-
-
-def test_no_card_row_still_asks_for_locate(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    state = {}
-    f = str(proj / "Vendor" / "x.cs")
-    assert "沒有可注入的導讀卡" not in (wo.on_read(state, "s", "Read", {"file_path": f}, str(proj), "", {}) or "")
-    txt = _card(state, f, "")
-    assert "沒有可注入的導讀卡" in txt and "定位｜前例" in txt
-
-
-def test_prompt_mention_injects(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    state = {}
-    p = str(proj / "Game" / "Battle" / "A.cs")
-    assert wo.on_prompt(state, "s", f"幫我看 {p} 為什麼不掉血", "", {})
-    assert wo.on_prompt(state, "s", f"再看 {p}", "", {}) is None
-
-
 def test_outside_any_project_is_silent(tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    assert wo.on_read({}, "s", "Read", {"file_path": str(tmp_path / "lonely.cs")}, "", "", {}) is None
-    assert wo.on_edit({}, "s", str(tmp_path / "lonely.cs"), "", {}) == (None, None, False)
-    assert wo.on_read({}, "s", "Read", {"file_path": "x"}, "", "", {"overview_hub": {"enabled": False}}) is None
+    state = {}
+    wo.record_reads(state, "Read", {"file_path": str(tmp_path / "lonely.cs")}, "", {})
+    assert state == {}
+    assert wo.write_check("s", str(tmp_path / "lonely.cs"), {}) == (None, None, None)
+    wo.record_reads(state, "Read", {"file_path": "x"}, "", {"overview_hub": {"enabled": False}})
+    assert state == {}
 
 
 def test_project_override_file_wins(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    (proj / ".claude" / "overview-hub.json").write_text('{"max_card_chars": 5}', encoding="utf-8")
-    tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"max_card_chars": 6000}})   # 專案層蓋過 config.json
-    assert deny and "超過 5 字截斷" in deny
+    (proj / ".claude" / "overview-hub.json").write_text('{"max_card_chars": 5}', encoding="utf-8")
+    assert wo._cfg({"overview_hub": {"max_card_chars": 6000}}, proj)["max_card_chars"] == 5   # 專案層蓋過 config.json
     (proj / ".claude" / "overview-hub.json").write_text('{"enabled": false}', encoding="utf-8")
-    assert wo.on_edit({}, "s", f1, tp, {}) == (None, None, False)
-    assert wo.on_read({}, "s", "Read", {"file_path": f1}, str(proj), tp, {}) is None
+    state = {}
+    wo.record_reads(state, "Read", {"file_path": f1}, str(proj), {})                         # 專案層關掉：不記
+    assert state == {}
+    assert wo.write_check("s", f1, {}) == (None, None, None)
 
 
 # ─── Codex 審查指出的五點（B1 在上面、B2／B5／W1／W2／B4 在這）────────────
-
-def test_locate_two_parts_in_one_reply_both_count():                    # B2：兩部位各一組，不互相覆蓋
-    text = ("定位｜部位：戰鬥——A\n定位｜根因層：邏輯層\n定位｜前例：共用字典\n"
-            "定位｜部位：UI 演出——B\n定位｜根因層：展演層\n定位｜前例：事件沒解掛")
-    assert oh.locate_present(text, "戰鬥") and oh.locate_present(text, "UI 演出")
-
-
-def test_locate_rejects_copied_template():                                # W1：照抄注入範本的佔位句不算交
-    text = "定位｜部位：戰鬥——這次改的是哪一塊\n定位｜根因層：修根因還是症狀；根因在哪層\n定位｜前例：這個部位以前摔過什麼"
-    assert not oh.locate_present(text, "戰鬥")
-
-
-@pytest.mark.parametrize("precedent, ok", [
-    ("待規格：擊破任務計分時點沒人拍板", True),     # 帶理由＝誠實交出「沒有規格」
-    ("待規格", False),                              # 光禿沒理由＝沒填
-    ("待規格：", False),
-    ("待規格:  ", False),
-])
-def test_locate_accepts_pending_spec(precedent, ok):
-    text = f"定位｜部位：戰鬥\n定位｜根因層：根因層，計分時點與建築生命週期分家\n定位｜前例：{precedent}"
-    assert oh.locate_present(text, "戰鬥") is ok
 
 
 def test_extended_profile_columns_do_not_steal_card_or_status():      # 擴欄（病灶清單、量尺、檢查器…）：骨架列導讀卡空就是空
@@ -344,101 +228,12 @@ def test_glob_anchored_beats_shorter_prefix():                            # B5�
     assert oh.match_row("C:/T/Assets/Game/config/tables/x.bytes", Path("C:/T"), rows)["part_short"] == "設計表"
 
 
-def test_reads_after_counts_cross_part_and_untabled_files(proj, tmp_path, monkeypatch):   # W2
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    state, tp = {}, _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "o.cs")}, str(proj), tp, {})     # 另一部位
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), tp, {})          # 表外檔
-    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
-    assert len(rec["reads_after"]) == 3                                           # 含觸發注入的 A.cs（INJECT_TRIGGER_READ_COUNTED）
-
-
 def test_bash_vcs_reads_count_as_reads():                                 # 專案覆蓋提案 #4
     got = oh.read_paths_from_tool("Bash", {"command": 'svn cat "c:/P/appb_server/A.cs" ; git show HEAD~1:hooks/x.py | head -5'}, "c:/P")
     assert got[0] == "c:/P/appb_server/A.cs" and got[1].replace("\\", "/") == "c:/P/hooks/x.py"
 
 
-def test_project_locate_template_override(proj, tmp_path, monkeypatch):   # 專案覆蓋提案 #3
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    (proj / ".claude" / "overview-hub.json").write_text(
-        '{"locate_template": ["改哪一塊", "根因在哪層", "對得上規格書哪個 R 編號或 §3 第幾列"]}', encoding="utf-8")
-    state, tp = {}, _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert "定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列" in _card(state, f1, tp)
-    with open(tp, "a", encoding="utf-8") as f:                              # 照抄專案自訂範本也不算交
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥——改哪一塊\n定位｜根因層：根因在哪層\n定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列"}]}}, ensure_ascii=False) + "\n")
-    state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）：缺定位走一般判定
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert warn and "定位三行" in warn
-
-
-def test_row_with_two_cards_injects_both_and_locate_extra(proj, tmp_path, monkeypatch):   # 另一專案提案 1、3、4
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
-    (proj / ".claude" / "overview-map.md").write_text(
-        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
-        "| `Game\\Battle\\` | 戰鬥 | `戰鬥知識導讀-hub索引`；根因層另有 `戰鬥根因層` | 有 |\n", encoding="utf-8")
-    (proj / ".claude" / "overview-hub.json").write_text(
-        '{"locate_extra": {"戰鬥": "跑的是哪份 DLL"}}', encoding="utf-8")
-    state, tp = {}, _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    txt = _card(state, f1, tp)
-    assert "戰鬥導讀" in txt and "共用字典" in txt and "定位｜加問：跑的是哪份 DLL" in txt
-    rec = next(iter(state["overview_hub"].values()))
-    assert len(rec["card_paths"]) == 2
-    state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and "定位三行" in deny
-
-
-def test_locate_accepted_from_tool_input_and_thinking(proj, tmp_path, monkeypatch):   # harness 掉字後的三管道
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = tmp_path / "t.jsonl"
-    lines = "定位｜部位：戰鬥——A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"
-    def entry(block):
-        return json.dumps({"type": "assistant", "message": {"content": [block]}}, ensure_ascii=False) + "\n"
-    tp.write_text(entry({"type": "text", "text": "x"}), encoding="utf-8")
-    state = {}
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), str(tp), {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), str(tp), {})   # 部位檔 ≥1
-    _card(state, f1, str(tp))
-    with open(tp, "a", encoding="utf-8") as f:                                    # 三行只在 Bash 參數裡
-        f.write(entry({"type": "tool_use", "name": "Bash", "input": {"command": "# " + lines.replace("\n", "\n# ") + "\nsed -n 1,5p A.cs"}}))
-    assert wo.on_edit(state, "s", f1, str(tp), {}) == (None, None, True)
-    assert list(state["overview_hub"].values())[0]["located_via"] == "tool_input"
-    assert oh.locate_channel(str(tp), 0, "戰鬥") == "tool_input"
-    with open(tp, "a", encoding="utf-8") as f:                                    # 文字塊優先
-        f.write(entry({"type": "text", "text": lines}))
-    assert oh.locate_channel(str(tp), 0, "戰鬥") == "text"
-    tp.write_text(entry({"type": "thinking", "thinking": lines}), encoding="utf-8")
-    assert oh.locate_channel(str(tp), 0, "戰鬥") == "thinking"
-    assert oh.locate_channel(str(tp), 0, "Server") is None
-
-
-def test_missing_transcript_is_gate_self_error_and_passes(proj, tmp_path, monkeypatch):   # GATE_SELF_ERROR：判不了不擋
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    guard = []
-    monkeypatch.setattr(wo, "append_guard_log", lambda g, p: guard.append((g, p)))
-    state = {}
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), "", {})
-    _card(state, f1, "")
-    for tp in (str(tmp_path / "nope.jsonl"), ""):
-        warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
-        assert deny is None and changed
-    log = [e for e in map(json.loads, (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()) if e["event"] == "edit"]
-    assert log[-1]["deny_reason"] is None and log[-1]["self_error"] == "empty_path"   # 讀檔數夠了、定位行驗不了 → 放行
-    assert [p["rule"] for _g, p in guard] == ["GATE_SELF_ERROR"] * 2 and "decl_deny_counts" not in state   # 不計次
-
-
-# ─── 軌 0：四層深合併 / find_map 界線 / _validate_cfg ─────────────────────────
+# ─── 四層深合併 / find_map 界線 / 設定驗證 ─────────────────────────
 
 def _org_world(tmp_path, monkeypatch, hub_json):
     org = tmp_path / "company"
@@ -450,17 +245,17 @@ def _org_world(tmp_path, monkeypatch, hub_json):
 
 
 def test_cfg_org_layer_overrides_config_and_project_wins(proj, tmp_path, monkeypatch):
-    org = _org_world(tmp_path, monkeypatch, {"max_card_chars": 100, "locate_extra": {"戰鬥": "公司問", "UI": "公司UI問"}})
-    config = {"overview_hub": {"max_card_chars": 50, "root_cause_triggers": ["根層詞"]}}
+    org = _org_world(tmp_path, monkeypatch, {"max_card_chars": 100, "authority_map": {"*.md": "公司圖", "*.txt": "公司文字圖"}})
+    config = {"overview_hub": {"max_card_chars": 50, "readonly_paths": ["根層/**"]}}
     c = wo._cfg(config, proj)
     assert c["max_card_chars"] == 100                                   # 公司層蓋過 config.json
-    assert c["locate_extra"] == {"戰鬥": "公司問", "UI": "公司UI問"} and c["_errors"] == []
+    assert c["authority_map"] == {"*.md": "公司圖", "*.txt": "公司文字圖"} and c["_errors"] == []
     (proj / ".claude" / "overview-hub.json").write_text(
-        '{"max_card_chars": 20, "locate_extra": {"戰鬥": "專案問"}, "root_cause_triggers": ["專案詞"]}', encoding="utf-8")
+        '{"max_card_chars": 20, "authority_map": {"*.md": "專案圖"}, "readonly_paths": ["專案/**"]}', encoding="utf-8")
     c = wo._cfg(config, proj)
     assert c["max_card_chars"] == 20                                    # 專案層勝
-    assert c["locate_extra"] == {"戰鬥": "專案問", "UI": "公司UI問"}      # 巢狀 dict 深合併
-    assert c["root_cause_triggers"] == ["專案詞"]                         # list 整個取覆蓋方
+    assert c["authority_map"] == {"*.md": "專案圖", "*.txt": "公司文字圖"}   # 巢狀 dict 深合併
+    assert c["readonly_paths"] == ["專案/**"]                             # list 整個取覆蓋方
     assert c["_layer"] == "project_mapped"
     at_org = wo._cfg(config, org)                                       # root＝公司根 → 第四層跳過，只併一次
     assert at_org["max_card_chars"] == 100 and at_org["_layer"] == "org"
@@ -510,46 +305,50 @@ def test_find_map_never_checks_home_or_drive_root(tmp_path, monkeypatch):
 
 
 def test_validate_cfg_default_passes_and_three_counterexamples(tmp_path):
-    assert wo._validate_cfg(dict(wo._DEFAULT), None) == []
-    assert wo._validate_cfg(dict(wo._DEFAULT), tmp_path) == []
+    from hub_config import HUB_DEFAULTS, validate_hub_cfg
+
+    def errors(c, root):
+        return validate_hub_cfg(c, root)[0]
+    assert errors(dict(HUB_DEFAULTS), None) == []
+    assert errors(dict(HUB_DEFAULTS), tmp_path) == []
     (tmp_path / "src" / "sub").mkdir(parents=True)
-    amb = wo._validate_cfg(dict(wo._DEFAULT, path_bases=["src", "src/sub"]), tmp_path)
+    amb = errors(dict(HUB_DEFAULTS, path_bases=["src", "src/sub"]), tmp_path)
     assert len(amb) == 1 and "歧義" in amb[0]                            # 反例一：互相包含的基準
-    missing = wo._validate_cfg(dict(wo._DEFAULT, path_bases=["nope"]), tmp_path)
+    missing = errors(dict(HUB_DEFAULTS, path_bases=["nope"]), tmp_path)
     assert len(missing) == 1 and "不是存在的目錄" in missing[0]
-    bad_enc = wo._validate_cfg(dict(wo._DEFAULT, commit_encoding="no-such-enc", source_encodings=["utf-8", "x-bogus"]), None)
+    bad_enc = errors(dict(HUB_DEFAULTS, commit_encoding="no-such-enc", source_encodings=["utf-8", "x-bogus"]), None)
     assert len(bad_enc) == 2 and all("編碼" in e for e in bad_enc)       # 反例二：壞編碼
-    unknown = wo._validate_cfg(dict(wo._DEFAULT, foo=1), None)
+    unknown = errors(dict(HUB_DEFAULTS, foo=1), None)
     assert unknown == ["未知的設定鍵「foo」"]                              # 反例三：未知鍵
-    assert wo._validate_cfg(dict(wo._DEFAULT, _doc="說明"), None) == []  # 底線鍵不算未知
-    assert any("eol_policy" in e for e in wo._validate_cfg(dict(wo._DEFAULT, eol_policy="mixed"), None))
+    assert errors(dict(HUB_DEFAULTS, _doc="說明"), None) == []           # 底線鍵不算未知
+    assert any("eol_policy" in e for e in errors(dict(HUB_DEFAULTS, eol_policy="mixed"), None))
 
 
-def test_retired_keys_warn_once_not_error_and_never_relax(proj, tmp_path, monkeypatch, capsys):
+def test_retired_keys_warn_once_not_error(proj, tmp_path, monkeypatch, capsys):
+    from hub_config import RETIRED_KEYS
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    cfg = {"overview_hub": {k: True for k in wo._RETIRED_KEYS}}
+    cfg = {"overview_hub": {k: True for k in RETIRED_KEYS}}
     c = wo._cfg(cfg)
     assert c["_errors"] == []                                           # 退役鍵不報錯
     err = capsys.readouterr().err
-    assert err.count("已退役") == len(wo._RETIRED_KEYS)
+    assert err.count("已退役") == len(RETIRED_KEYS)
     wo._cfg(cfg)
     assert capsys.readouterr().err == ""                                # 第二次不再警告
-    tp = _transcript(tmp_path, ["x"])
-    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, cfg)   # 明寫退役鍵也不放行
-    assert deny and "還沒看過" in deny
 
 
-def test_cfg_errors_make_on_edit_deny(proj, tmp_path, monkeypatch, capsys):
+def test_cfg_errors_make_write_check_deny(proj, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "overview-hub.json").write_text('{"foo": 1, "eol_policy": "mixed"}', encoding="utf-8")
-    tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    warn, deny, changed = wo.on_edit({}, "s", f1, tp, {})
-    assert deny and "設定有錯" in deny and "未知的設定鍵「foo」" in deny and "eol_policy" in deny and not changed
+    warn, deny, hit = wo.write_check("s", f1, {})
+    assert deny and "設定有錯" in deny and "未知的設定鍵「foo」" in deny and "eol_policy" in deny and warn == deny
+    assert hit["rule"] == "GATE_SELF_ERROR"
     assert "設定錯誤" in capsys.readouterr().err
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert log[-1]["event"] == "edit_cfg_error"
-    assert wo.on_read({"turn_intent": "debug"}, "s", "Read", {"file_path": f1}, str(proj), tp, {})   # 讀仍注入、寫碼意圖下照附提示（錯誤只擋改）
+    state = {}
+    wo.record_reads(state, "Read", {"file_path": f1}, str(proj), {})   # 讀仍照記（錯誤只擋改）
+    assert next(iter(state["overview_hub"].values()))["part_files_read"] == [f1]
 
 
 def test_bad_company_file_is_loud_and_skipped(proj, tmp_path, monkeypatch, capsys):
@@ -574,21 +373,20 @@ def _hub(proj, text):
 def test_cfg_errors_deny_even_when_disabled_or_enabled_not_bool(proj, tmp_path, monkeypatch, hub_text):   # BLOCK 1
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     _hub(proj, hub_text)
-    tp = _transcript(tmp_path, ["x"])
-    warn, deny, changed = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})
-    assert deny and "未知的設定鍵「foo」" in deny and not changed
+    warn, deny, _ = wo.write_check("s", str(proj / "Game" / "Battle" / "A.cs"), {})
+    assert deny and "未知的設定鍵「foo」" in deny
     if "null" in hub_text:
         assert "enabled 必須是" in deny
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert log[-1]["event"] == "edit_cfg_error" and log[-1]["layer"] == "project_mapped"
 
 
-def test_root_level_cfg_error_denies_file_outside_any_table(tmp_path, monkeypatch):   # BLOCK 1：沒命中表的檔也擋
+def test_root_level_cfg_error_denies_file_outside_any_table(tmp_path, monkeypatch):   # BLOCK 1：沒命中表的檔也報
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     bad = {"overview_hub": {"enabled": False, "bogus": 1}}
-    warn, deny, changed = wo.on_edit({}, "s", str(tmp_path / "lonely.cs"), "", bad)
-    assert deny and "未知的設定鍵「bogus」" in deny and "none" in deny and not changed
-    assert wo.on_edit({}, "s", "", "", bad) == (None, None, False)      # 沒 file_path 沒東西可擋
+    warn, deny, _ = wo.write_check("s", str(tmp_path / "lonely.cs"), bad)
+    assert deny and "未知的設定鍵「bogus」" in deny and "none" in deny
+    assert wo.write_check("s", "", bad) == (None, None, None)           # 沒 file_path 沒東西可擋
 
 
 def test_invalid_config_shapes_become_errors_not_exceptions(proj):   # BLOCK 2
@@ -605,21 +403,21 @@ def test_invalid_config_shapes_become_errors_not_exceptions(proj):   # BLOCK 2
 
 
 def test_encoding_with_nul_is_error_not_valueerror():   # BLOCK 2
+    from hub_config import HUB_DEFAULTS, encoding_ok, validate_hub_cfg
     for bad in ("utf\u0000-8", "", None, 5, ["utf-8"]):
-        assert wo._encoding_ok(bad) is False
-    errs = wo._validate_cfg(dict(wo._DEFAULT, commit_encoding="utf\u0000-8", source_encodings=["utf\u0000-8"],
-                                PYTHONIOENCODING=["utf-8"]), None)
+        assert encoding_ok(bad) is False
+    errs = validate_hub_cfg(dict(HUB_DEFAULTS, commit_encoding="utf\u0000-8", source_encodings=["utf\u0000-8"],
+                                 PYTHONIOENCODING=["utf-8"]), None)[0]
     assert len(errs) == 3 and all("編碼" in e for e in errs)
 
 
-def test_invalid_shapes_deny_on_edit_instead_of_raising(proj, tmp_path, monkeypatch):   # BLOCK 2 端到端
+def test_invalid_shapes_deny_on_write_instead_of_raising(proj, tmp_path, monkeypatch):   # BLOCK 2 端到端
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": [1]})
+    warn, deny, _ = wo.write_check("s", f1, {"overview_hub": [1]})
     assert deny and "overview_hub 段必須是物件" in deny
     _hub(proj, '{"commit_encoding": "utf\\u0000-8"}')
-    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})
+    warn, deny, _ = wo.write_check("s", f1, {})
     assert deny and "commit_encoding" in deny and "編碼" in deny
 
 
@@ -636,9 +434,8 @@ def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
     import wg_core
     monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
     assert wo._cfg({}, fake)["_layer"] == "root"
-    state, f = {}, str(fake / "hooks" / "x.py")
-    assert "pythonw 無 stdio" not in (wo.on_read(state, "s", "Read", {"file_path": f}, str(fake), "", {}) or "")
-    assert "pythonw 無 stdio" in _card(state, f, "")
+    root, row = wo._lookup(str(fake / "hooks" / "x.py"))
+    assert wo._cards_for(root, row, {}) == [fake / "memory" / "CC" / "hooks導讀.md"]
     assert oh.resolve_card(fake, "hooks導讀") is None                   # 預設位置找不到
     assert oh.resolve_card(fake, "hooks導讀", fake / "memory").name == "hooks導讀.md"
 
@@ -681,20 +478,6 @@ def _root_world(tmp_path, monkeypatch):
     return live, wt, proj
 
 
-def test_024_root_worktree_card_search_uses_data_root_not_worktree_copy(tmp_path, monkeypatch):
-    """024 修正：根層 worktree 的導讀卡補搜也以資料根（card_mem_dir）為準。資料根（live）已沒有這張卡、worktree 的 memory/
-    還留著開分支時的舊副本 → 不撿舊副本、列為 missing，也沒搜 worktree；一般專案在非預設目錄的卡照舊補搜得到。"""
-    live, wt, proj = _root_world(tmp_path, monkeypatch)
-    row = {"status": "部分", "cards": ["hooks導讀"], "part_short": "hook 層", "part": "hooks/"}
-    (live / "memory" / "CC" / "hooks導讀.md").unlink()
-    paths, miss = wo._resolve_row_cards(wt, row, {})
-    assert paths == [] and miss and miss["missing"] == ["hooks導讀"]
-    assert not any(Path(s) == wt or str(wt) in s for s in miss["searched"])
-    (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").unlink()
-    paths, miss = wo._resolve_row_cards(proj, row, {})
-    assert [p.parent.name for p in paths] == ["CC"] and miss and miss["missing"] == []      # 專案根 memory/CC 那張照撿
-
-
 def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     live, wt, proj = _root_world(tmp_path, monkeypatch)
     assert oh.card_mem_dir(live, live) == live / "memory"
@@ -720,18 +503,6 @@ def test_cards_for_root_worktree_live_and_project_same_name_counterexample(tmp_p
     assert got == [proj / ".claude" / "memory" / "shared" / "hooks導讀.md"]
 
 
-def test_inject_end_to_end_in_root_worktree_has_card_text(tmp_path, monkeypatch):
-    live, wt, _ = _root_world(tmp_path, monkeypatch)
-    tp = _transcript(tmp_path, ["x"])
-    target = str(wt / "hooks" / "wg_x.py")
-    warn, deny, changed = wo.on_edit({}, "s", target, tp, {})                          # 改檔觸發注入（沒先讀 → 擋，理由帶整張卡）
-    assert deny and "pythonw 無 stdio" in deny and "沒有可注入的導讀卡" not in deny and changed   # live 那張
-    state = {}
-    assert "pythonw 無 stdio" not in (wo.on_read(state, "s", "Read", {"file_path": target}, str(wt), tp, {}) or "")
-    txt = _card(state, target, tp)
-    assert "pythonw 無 stdio" in txt and "HOME 覆寫指錯" not in txt and "沒有可注入的導讀卡" not in txt   # 反例：不是 worktree 的舊副本
-
-
 # ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
 
 def test_cfg_error_still_allows_editing_the_config_files_themselves(proj, tmp_path, monkeypatch):
@@ -747,31 +518,29 @@ def test_cfg_error_still_allows_editing_the_config_files_themselves(proj, tmp_pa
     monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
     monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
     bad = {"overview_hub": {"enabled": False, "bogus": 1}}
 
-    warn, deny, changed = wo.on_edit({}, "s", str(cfg_path), tp, bad)                  # ① 根層 config.json：放行＋警告
-    assert deny is None and not changed and warn and "放行以便修復" in warn and "未知的設定鍵「bogus」" in warn
-    warn, deny, _ = wo.on_edit({}, "s", str(root_hub), tp, bad)                        # ② 根層 .claude/overview-hub.json
+    warn, deny, _ = wo.write_check("s", str(cfg_path), bad)                            # ① 根層 config.json：放行＋警告
+    assert deny is None and warn and "放行以便修復" in warn and "未知的設定鍵「bogus」" in warn
+    warn, deny, _ = wo.write_check("s", str(root_hub), bad)                            # ② 根層 .claude/overview-hub.json
     assert deny is None and warn and "bogus" in warn
     _hub(proj, '{"foo": 1}')
-    warn, deny, _ = wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {})   # ③ 專案 hub.json
+    warn, deny, _ = wo.write_check("s", str(proj / ".claude" / "overview-hub.json"), {})   # ③ 專案 hub.json
     assert deny is None and warn and "未知的設定鍵「foo」" in warn
 
-    warn, deny, _ = wo.on_edit({}, "s", str(fake / "workflow" / "other.json"), tp, bad)   # 同目錄他檔仍擋（比路徑不比檔名）
+    warn, deny, _ = wo.write_check("s", str(fake / "workflow" / "other.json"), bad)   # 同目錄他檔仍擋（比路徑不比檔名）
     assert deny and "bogus" in deny
-    warn, deny, _ = wo.on_edit({}, "s", str(fake / "workflow" / "config.json.bak"), tp, bad)
+    warn, deny, _ = wo.write_check("s", str(fake / "workflow" / "config.json.bak"), bad)
     assert deny
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})                                      # 專案 hub 壞 → 部位檔仍擋
+    warn, deny, _ = wo.write_check("s", f1, {})                                          # 專案 hub 壞 → 部位檔仍擋
     assert deny and "foo" in deny
 
-    _hub(proj, "{}")                                                                     # 修好 → 下一次 Edit 走正常注入分支
-    warn, deny, changed = wo.on_edit({}, "s", f1, tp, {})
-    assert changed and deny and "還沒看過" in deny and "戰鬥導讀" in deny
-    assert wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {}) == (None, None, False)   # 設定沒錯：自家設定檔靜默放行
+    _hub(proj, "{}")                                                                     # 修好 → 部位檔放行
+    assert wo.write_check("s", f1, {}) == (None, None, None)
+    assert wo.write_check("s", str(proj / ".claude" / "overview-hub.json"), {}) == (None, None, None)   # 設定沒錯：自家設定檔靜默放行
     events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert events.count("edit_own_config") == 3 and "edit_cfg_error" in events and events[-2:] == ["edit_before_inject", "edit_blocked_once"]
+    assert events.count("edit_own_config") == 3 and "edit_cfg_error" in events
 
 
 def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypatch, capsys):   # 退回 002 的 WARN
@@ -797,23 +566,22 @@ def test_cfg_error_still_allows_editing_the_map_itself(proj, tmp_path, monkeypat
     monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
     monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
     bad = {"overview_hub": {"enabled": False, "bogus": 1}}
 
-    warn, deny, changed = wo.on_edit({}, "s", str(root_map), tp, bad)                  # 根層表：放行＋警告
-    assert deny is None and not changed and warn and "放行以便修復" in warn and "bogus" in warn
+    warn, deny, _ = wo.write_check("s", str(root_map), bad)                            # 根層表：放行＋警告
+    assert deny is None and warn and "放行以便修復" in warn and "bogus" in warn
     _hub(proj, '{"foo": 1}')
     proj_map = proj / ".claude" / "overview-map.md"
-    warn, deny, _ = wo.on_edit({}, "s", str(proj_map), tp, {})                         # 專案表：放行＋警告列專案層錯誤
+    warn, deny, _ = wo.write_check("s", str(proj_map), {})                             # 專案表：放行＋警告列專案層錯誤
     assert deny is None and warn and "未知的設定鍵「foo」" in warn
-    warn, deny, _ = wo.on_edit({}, "s", str(fake / ".claude" / "overview-map.md.bak"), tp, bad)   # 同目錄他檔仍擋（比路徑不比檔名）
+    warn, deny, _ = wo.write_check("s", str(fake / ".claude" / "overview-map.md.bak"), bad)   # 同目錄他檔仍擋（比路徑不比檔名）
     assert deny and "bogus" in deny
-    warn, deny, _ = wo.on_edit({}, "s", str(fake / ".claude" / "notes.md"), tp, bad)
+    warn, deny, _ = wo.write_check("s", str(fake / ".claude" / "notes.md"), bad)
     assert deny and "bogus" in deny
-    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})          # 專案表壞設定下部位檔仍擋
+    warn, deny, _ = wo.write_check("s", str(proj / "Game" / "Battle" / "A.cs"), {})          # 專案表壞設定下部位檔仍擋
     assert deny and "foo" in deny
     _hub(proj, "{}")
-    assert wo.on_edit({}, "s", str(proj_map), tp, {}) == (None, None, False)          # 設定沒錯：表靜默放行
+    assert wo.write_check("s", str(proj_map), {}) == (None, None, None)               # 設定沒錯：表靜默放行
     events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert events.count("edit_own_config") == 2 and events.count("edit_cfg_error") == 3
 
@@ -830,7 +598,6 @@ def test_own_config_matches_with_extended_prefix(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
     monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
     bad = {"overview_hub": {"enabled": False, "bogus": 1}}
     assert wo._strip_extended("\\\\?\\C:\\x\\y") == "C:\\x\\y"
     assert wo._strip_extended("\\\\?\\UNC\\srv\\share\\y") == "\\\\srv\\share\\y"
@@ -838,14 +605,14 @@ def test_own_config_matches_with_extended_prefix(proj, tmp_path, monkeypatch):
 
     ext = "\\\\?\\" + str(cfg_path)
     assert wo._own_config_layer(ext) == (True, None)
-    warn, deny, _ = wo.on_edit({}, "s", ext, tp, bad)                                    # 前綴版 config.json：放行＋警告
+    warn, deny, _ = wo.write_check("s", ext, bad)                                         # 前綴版 config.json：放行＋警告
     assert deny is None and warn and "bogus" in warn
     _hub(proj, '{"foo": 1}')
     ext_hub = "\\\\?\\" + str(proj / ".claude" / "overview-hub.json")
     assert wo._own_config_layer(ext_hub) == (True, proj)
-    warn, deny, _ = wo.on_edit({}, "s", ext_hub, tp, {})                                 # 前綴版專案 hub.json
+    warn, deny, _ = wo.write_check("s", ext_hub, {})                                      # 前綴版專案 hub.json
     assert deny is None and warn and "foo" in warn
-    warn, deny, _ = wo.on_edit({}, "s", "\\\\?\\" + str(fake / "workflow" / "other.json"), tp, bad)   # 前綴版他檔仍擋
+    warn, deny, _ = wo.write_check("s", "\\\\?\\" + str(fake / "workflow" / "other.json"), bad)   # 前綴版他檔仍擋
     assert deny and "bogus" in deny
 
 
@@ -859,21 +626,20 @@ def test_own_config_matches_when_dir_case_differs(tmp_path, monkeypatch):
         "| `.claude/` | 設定 | 無 | 無 |\n| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8")
     (root / ".CLAUDE" / "overview-hub.json").write_text('{"foo": 1}', encoding="utf-8")
     (root / "src").mkdir()
-    tp = _transcript(tmp_path, ["x"])
     hub_lower = str(root / ".claude" / "overview-hub.json")                              # 呼叫端給小寫
     assert Path(hub_lower).resolve().parent.name == ".CLAUDE"                            # 前提：resolve 還原磁碟實際大小寫
     assert wo._own_config_layer(hub_lower)[0] is True
-    warn, deny, _ = wo.on_edit({}, "s", hub_lower, tp, {})
+    warn, deny, _ = wo.write_check("s", hub_lower, {})
     assert deny is None and warn and "未知的設定鍵「foo」" in warn
-    warn, deny, _ = wo.on_edit({}, "s", str(root / ".CLAUDE" / "OVERVIEW-MAP.MD"), tp, {})   # 表本身、全大寫寫法
+    warn, deny, _ = wo.write_check("s", str(root / ".CLAUDE" / "OVERVIEW-MAP.MD"), {})    # 表本身、全大寫寫法
     assert deny is None and warn and "foo" in warn
-    warn, deny, _ = wo.on_edit({}, "s", str(root / ".CLAUDE" / "notes.md"), tp, {})      # 同目錄他檔命中「設定」部位 → 仍擋
+    warn, deny, _ = wo.write_check("s", str(root / ".CLAUDE" / "notes.md"), {})          # 同目錄他檔命中「設定」部位 → 仍擋
     assert deny and "foo" in deny
-    warn, deny, _ = wo.on_edit({}, "s", str(root / "src" / "a.py"), tp, {})
+    warn, deny, _ = wo.write_check("s", str(root / "src" / "a.py"), {})
     assert deny and "foo" in deny
 
 
-# ─── 軌 A：分片（A0.4）、選片注入（A0.5）、固定句（A1.1）───────────────────────
+# ─── 導讀卡分片（defect_bullets 靠它取「已知病灶」段）───────────────────────
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "v6"
 FIVE_CARD = (
@@ -903,7 +669,7 @@ def test_split_card_sections_twelve_real_card_label_variants():
 def test_split_card_sections_full_card_shape_and_no_heading_counterexample():
     p = oh.split_card_sections(FIVE_CARD)
     assert p["head"].startswith("# 戰鬥導讀") and "- Trigger: 戰鬥" in p["head"]
-    assert set(p["slices"]) == set(oh.SLICE_NAMES)
+    assert set(p["slices"]) == {"what", "authority", "ask", "defects", "verify"}
     assert "子點跟著上一段" in p["slices"]["what"] and "| a | b |" in p["slices"]["defects"]    # 子 bullet／表格跟上一段
     assert any(k.startswith("2026-10-08 校正") for k in p["others"]) and "行動" in p["others"]
     assert "## 知識" not in FIVE_CARD.replace(p["head"], "") or "知識" not in p["others"]       # 結構標題不算段
@@ -913,125 +679,11 @@ def test_split_card_sections_full_card_shape_and_no_heading_counterexample():
     assert spine["slices"] == {} and len(spine["others"]) == 2
 
 
-@pytest.fixture
-def five_card(tmp_path):
-    cp = tmp_path / "戰鬥導讀.md"
-    cp.write_text(FIVE_CARD, encoding="utf-8")
-    return cp
-
-
-ROW = {"part": "戰鬥", "part_short": "戰鬥", "cards": ["戰鬥導讀"], "status": "有", "line": "| x |", "layer": ""}
-
-
-def test_build_injection_debug_picks_defects_first_and_lists_rest(five_card):
-    txt, used = oh.build_injection_ex(ROW, [five_card], "C:/p/A.cs", 6000, None, None,
-                                      ["defects", "verify", "authority"], "目標視角", "幾份存法、有無訊號")
-    assert used == ["defects", "verify", "authority"]
-    i_d, i_v, i_a = txt.index("[已知病灶]"), txt.index("[驗法]"), txt.index("[權威在哪]")
-    assert i_d < i_v < i_a and txt.index("①最後一擊無訊號") < txt.index("F2 實跑")
-    assert "視角：目標視角" in txt and "先問：幾份存法、有無訊號" in txt and oh.ROOT_CAUSE_SENTENCE in txt   # A1.1 固定句
-    rest = txt.split("其餘段落只列標題")[1]
-    assert "做什麼與上下游" in rest and "動手前必問" in rest and "行動" in rest
-    assert "單人戰鬥。" not in txt                                                 # 沒選的片只列標題，不送全文
-    assert "依意圖先送：已知病灶、驗法、權威在哪" in txt
-
-
-def test_build_injection_falls_back_to_whole_card_and_general_keeps_order(tmp_path, five_card):
-    plain = tmp_path / "平鋪.md"
-    plain.write_text("# 平鋪\n\n沒有標籤的散文卡，病灶與驗法都寫在一起。", encoding="utf-8")
-    txt, used = oh.build_injection_ex(ROW, [plain], "C:/p/A.cs", 6000, None, None, ["defects", "verify"])
-    assert used == [] and "沒有標籤的散文卡" in txt and "其餘段落" not in txt            # 無片命中退整卡，不得注得更少
-    txt, used = oh.build_injection_ex(ROW, [five_card], "C:/p/A.cs", 6000, None, None, [], "", "")
-    assert used == [] and txt.index("單人戰鬥") < txt.index("最後一擊無訊號") < txt.index("F2 實跑")   # general：原序整卡
-    assert "視角：" not in txt and "先問：" not in txt
-    txt, used = oh.build_injection_ex(ROW, [five_card], "C:/p/A.cs", 80, None, None, ["defects"])
-    assert used == ["defects"] and "超過 80 字截斷" in txt                            # max_card_chars 仍上限
-    assert oh.build_injection(ROW, [five_card], "C:/p/A.cs", 6000) == oh.build_injection_ex(ROW, [five_card], "C:/p/A.cs", 6000)[0]
-
-
-def test_locate_present_rejects_copied_root_cause_sentence():
-    text = f"定位｜部位：戰鬥：A\n定位｜根因層：{oh.ROOT_CAUSE_SENTENCE}\n定位｜前例：共用字典"
-    assert not oh.locate_present(text, "戰鬥")
-    assert oh.locate_present(text.replace(oh.ROOT_CAUSE_SENTENCE, "邏輯層"), "戰鬥")
-
-
-def test_locate_quality_three_values():
-    card = ["## 知識\n- **已知病灶**：最後一擊無訊號；結算資料生命期"]
-    base = "定位｜部位：戰鬥：A\n定位｜根因層：邏輯層\n定位｜前例："
-    assert oh.locate_quality(base + "最後一擊無訊號（病灶①）", "戰鬥", card) == "card"
-    assert oh.locate_quality(base + "無", "戰鬥", card) == "none"
-    assert oh.locate_quality(base + "無；這張卡沒寫前例", "戰鬥", card) == "none"
-    assert oh.locate_quality(base + "上次改壞過但卡沒記", "戰鬥", card) == "free"
-    assert oh.locate_quality("沒交", "戰鬥", card) == "free"
-
-
-# ─── 軌 A：三項證據（A4.2）、無表（A4.2）、readonly（A4.3）、thinking 提醒（A4.6）─────────
-
-def _locate(tp, part="戰鬥", block="text", precedent="共用字典"):
-    lines = f"定位｜部位：{part}：A.cs\n定位｜根因層：邏輯層\n定位｜前例：{precedent}"
-    content = {"type": "thinking", "thinking": lines} if block == "thinking" else {"type": "text", "text": lines}
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "assistant", "message": {"content": [content]}}, ensure_ascii=False) + "\n")
-
-
-def test_three_evidence_stages_card_cannot_be_disabled_part_files_then_locate(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    bad = {"overview_hub": {"min_overview_evidence": {"card": False}}}            # ① 讀卡不可關：關了是設定錯誤 → 擋
-    warn, deny, _ = wo.on_edit({}, "s", f1, tp, bad)
-    assert deny and "不可關" in deny
-    two = {"overview_hub": {"min_overview_evidence": {"part_files": 2}}}          # 觸發注入那次讀算 1 個（INJECT_TRIGGER_READ_COUNTED）
-    state = {}
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})          # 注入（f1 算 1 個）
-    for i in range(20):                                                            # ② 讀 20 個表外檔不算部位檔
-        wo.on_read(state, "s", "Read", {"file_path": str(proj / f"note{i}.md")}, str(proj), tp, {})
-    _locate(tp)
-    assert wo.on_edit(state, "s", f1, tp, two)[1] is None                        # 卡隨第一次改檔送；定位已交 → 那一刀放行
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, two)
-    assert deny and "目前 1 個" in deny and "表外檔讀了 20 個不算" in deny and "定位三行" not in deny
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    assert wo.on_edit(state, "s", f1, tp, two) == (None, None, True)             # ③ 部位檔 2 ＋ 已交三行 → 放行
-    (proj / ".claude" / "overview-hub.json").write_text('{"min_overview_evidence": {"part_files": 3}}', encoding="utf-8")
-    state2 = {}
-    wo.on_read(state2, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state2, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _card(state2, f1, tp)
-    state2["turn_seq"] = 1                                                        # 下一個使用者回合（第一刀那一輪已過）
-    warn, deny, _ = wo.on_edit(state2, "s", f1, tp, {})
-    assert deny and "要 ≥3 個，目前 2 個" in deny                                   # 專案可調數字
-
-
-# 讀檔數規則（UNMAPPED_EDIT_NEEDS_READABLE_FILES）與 Bash 讀檔辨識的案，改的是無表專案的程式檔：最小地圖（G14，
-# UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）另在 verify_g14_min_map.py 驗，這幾支關掉它以免兩條規則混判
-_NO_MIN_MAP = {"overview_hub": {"min_map": {"enabled": False}}}
-
-
-def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = tmp_path / "bare"
-    (root / ".git").mkdir(parents=True)                                            # 有四標記、沒部位表
-    (root / "src").mkdir()
-    (root / "docs").mkdir()
-    (root / "src" / "b.py").write_text("x", encoding="utf-8")                     # src 有可讀的既有檔，閘才要求讀（B5：沒檔可讀不要求）
-    f1 = str(root / "src" / "a.py")
-    state = {}
-    warn, deny, changed = wo.on_edit(state, "s", f1, "", _NO_MIN_MAP)
-    assert deny and "沒有部位表" in deny and "「src」至少 1 個檔（目前 0 個）" in deny and changed   # 擋次記在 state
-    wo.on_read(state, "s", "Read", {"file_path": str(root / "docs" / "x.md")}, str(root), "", {})   # 別的頂層目錄不算
-    warn, deny, _ = wo.on_edit(state, "s", f1, "", _NO_MIN_MAP)
-    assert deny and "目前 0 個" in deny
-    wo.on_read(state, "s", "Read", {"file_path": str(root / "src" / "b.py")}, str(root), "", {})
-    assert wo.on_edit(state, "s", f1, "", _NO_MIN_MAP) == (None, None, True)
-    key = next(k for k in state["overview_hub"] if "(unmapped)src" in k)
-    assert state["overview_hub"][key]["edits"] == 1
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log] == ["edit_unmapped"] * 3 and log[-1]["deny_reason"] is None
-    assert wo.on_edit({}, "s", str(tmp_path / "lonely.py"), "", {}) == (None, None, False)   # 無標記目錄不管
+# ─── 無表專案的根（VCS 退路）─────────
 
 
 def test_unmapped_deep_file_falls_back_to_vcs_root(tmp_path, monkeypatch):
-    """缺口 4：只有 .git、無表；第 5 層的檔以前放行，現在退 VCS 根照無表規則（讀過同頂層一檔才放）。"""
+    """缺口 4：只有 .git、無表；第 5 層的檔退 VCS 根，讀檔帳記到那個根的頂層目錄。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = tmp_path / "deep"
     (root / ".git").mkdir(parents=True)
@@ -1039,11 +691,10 @@ def test_unmapped_deep_file_falls_back_to_vcs_root(tmp_path, monkeypatch):
     (root / "src" / "other.py").write_text("x", encoding="utf-8")
     deep = str(root / "src" / "a" / "b" / "c" / "widget.py")
     assert wo._project_root_of(deep) is None                                       # 前提：舊規則最多 4 層找不到
+    assert _n(wo._unmapped_root_of(deep)) == _n(root)
     state = {}
-    warn, deny, changed = wo.on_edit(state, "s", deep, "", _NO_MIN_MAP)
-    assert deny and "沒有部位表" in deny and str(root) in deny and "「src」至少 1 個檔（目前 0 個）" in deny
-    wo.on_read(state, "s", "PowerShell", {"command": "Get-Content src/other.py"}, str(root), "", {})
-    assert wo.on_edit(state, "s", deep, "", _NO_MIN_MAP) == (None, None, True)
+    wo.record_reads(state, "PowerShell", {"command": "Get-Content src/other.py"}, str(root), {})
+    assert _reads_in(state, "src") == {_n(root / "src" / "other.py")}
 
 
 def test_unmapped_vcs_fallback_never_takes_home_or_drive_root(tmp_path, monkeypatch):
@@ -1055,185 +706,23 @@ def test_unmapped_vcs_fallback_never_takes_home_or_drive_root(tmp_path, monkeypa
     deep.parent.mkdir(parents=True)
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     assert wo._project_root_of(str(deep)) is None
-    assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)          # 家目錄不當根
+    assert wo._unmapped_root_of(str(deep)) is None                                 # 家目錄不當根
     monkeypatch.setattr(vl, "find_vcs_root", lambda start: ("git", Path(Path(start).anchor)))
     other = tmp_path / "x" / "a" / "b" / "c" / "d" / "f.py"
-    assert wo.on_edit({}, "s", str(other), "", {}) == (None, None, False)         # 磁碟根不當根
+    assert wo._unmapped_root_of(str(other)) is None                                # 磁碟根不當根
 
 
 def test_unmapped_vcs_fallback_not_used_when_project_has_table(proj, tmp_path, monkeypatch):
-    """有部位表的專案不走退路：表上沒列的深層檔行為不變（照舊放行）。"""
+    """有部位表的專案不走退路：表上沒列的深層檔不歸到 VCS 根。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".git").mkdir()
     deep = proj / "Other" / "a" / "b" / "c" / "x.py"
     deep.parent.mkdir(parents=True)
     assert wo._project_root_of(str(deep)) is None
-    assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)
+    assert wo._unmapped_root_of(str(deep)) is None
 
 
-# ─── 件二：表上有卡、預設目錄找不到 → 搜 repo；確定找不到一律擋 ───────────────────────
-
-_CARD = "戰鬥知識導讀-hub索引"
-
-
-def _move_card(proj, dest_dir):
-    src = proj / ".claude" / "memory" / "shared" / "戰鬥" / f"{_CARD}.md"
-    if dest_dir is None:
-        src.unlink()
-        return None
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    return src.replace(dest_dir / src.name)
-
-
-def test_card_in_default_dir_unchanged(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    state, f1 = {}, str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    txt = _card(state, f1, tp)
-    assert "戰鬥導讀" in txt and "不在預設目錄" not in txt and "在 repo 裡找不到" not in txt
-
-
-def test_card_only_in_aidocs_atoms_is_found_and_flagged(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    moved = _move_card(proj, proj / "_AIDocs" / "_atoms" / "x")
-    tp = _transcript(tmp_path, ["x"])
-    state = {}
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    txt = _card(state, f1, tp)
-    assert "戰鬥導讀" in txt and f"表上的卡在 {moved}，不在預設目錄；請更新表或搬卡" in txt
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp)
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)                 # 找到 → 照正常判定放行
-
-
-def test_card_missing_everywhere_denies_even_after_reads_and_locate(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _move_card(proj, None)
-    tp = _transcript(tmp_path, ["x"])
-    state = {}
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert next(iter(state["overview_hub"].values()))["cards_missing"]["missing"]       # 讀檔只建紀錄；缺卡在改檔那則擋
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp)
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})                             # 反例：讀過檔＋交三行也擋
-    assert deny and f"部位【戰鬥】表上寫的導讀卡 `{_CARD}` 在 repo 裡找不到" in deny
-    assert str(proj / ".claude" / "memory") in deny and str(proj) in deny and "已搜完" in deny
-    assert "不准繞過（不准改寫表、不准改用其他卡、不准用 Bash 寫檔）" in deny and "等使用者補卡或改表" in deny
-    warn, deny2, _ = wo.on_edit({}, "s", f1, tp, {})                               # 沒讀過就改：同樣是找不到卡的擋
-    assert deny2.startswith(f"[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `{_CARD}`")
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["deny_reason"] for e in log if e["event"] == "edit_card_missing"] == ["card_missing", "card_missing"]
-    _move_card_back = proj / "Game" / f"{_CARD}.md"                               # 卡出現後恢復正常判定
-    _move_card_back.write_text("# 戰鬥導讀\n病灶：共用字典", encoding="utf-8")
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and "還沒看過這個部位的導讀卡" in deny and "戰鬥導讀" in deny and "不在預設目錄" in deny
-
-
-def test_status_none_row_unchanged(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    state = {}
-    v1 = str(proj / "Vendor" / "a.cs")
-    wo.on_read(state, "s", "Read", {"file_path": v1}, str(proj), tp, {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "b.cs")}, str(proj), tp, {})
-    _locate(tp, part="框架")
-    _, deny, _, hit = wo.edit_check(state, "s", v1, tp, {})                           # 卡隨第一次改檔送；定位已交 → 放行
-    assert deny is None and "沒有可注入的導讀卡" in hit["extra"]
-    assert wo.on_edit(state, "s", v1, tp, {}) == (None, None, True)                 # 狀態「無」不要求卡
-
-
-def test_card_search_timeout_denies_and_says_so(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _move_card(proj, proj / "deep" / "x")                                           # 卡在 repo 裡，但搜不到那裡就逾時
-    ticks = iter(range(0, 1000, 1))
-    monkeypatch.setattr(wo, "_clock", lambda: next(ticks))                          # 每問一次時間過 1 秒
-    tp = _transcript(tmp_path, ["x"])
-    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})
-    assert deny and f"`{_CARD}` 在 repo 裡找不到" in deny and "搜尋逾時（1.5 秒）沒搜完" in deny
-
-
-def _two_card_table(proj):
-    (proj / ".claude" / "overview-map.md").write_text(
-        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
-        f"| `Game\\Battle\\` | 戰鬥 | `{_CARD}`；根因層另有 `戰鬥根因層` | 有 |\n", encoding="utf-8")
-
-
-def test_two_cards_both_present_unchanged(proj, tmp_path, monkeypatch):
-    """003-4 正例：表上兩張卡都在預設目錄 → 照舊（注入兩張、交三行讀檔後放行）。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _two_card_table(proj)
-    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
-    state, tp = {}, _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    txt = _card(state, f1, tp)
-    assert "在 repo 裡找不到" not in txt and "不在預設目錄" not in txt
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp)
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
-
-
-def test_two_cards_one_missing_denies_listing_only_that_one(proj, tmp_path, monkeypatch):
-    """003-4 反例：一張在、一張哪裡都找不到 → 對該部位 deny，訊息只列缺的那張；讀檔＋交三行也照擋。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _two_card_table(proj)
-    state, tp = {}, _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert next(iter(state["overview_hub"].values()))["cards_missing"]["missing"] == ["戰鬥根因層"]
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp)
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and "表上寫的導讀卡 `戰鬥根因層` 在 repo 裡找不到" in deny and f"`{_CARD}`" not in deny
-    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})                                # 沒讀過就改：同一種擋
-    assert deny.startswith("[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `戰鬥根因層`")
-
-
-def _wild_table(proj, card):
-    (proj / ".claude" / "overview-map.md").write_text(
-        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
-        f"| `Game\\Battle\\` | 戰鬥 | `{card}` | 有 |\n", encoding="utf-8")
-
-
-def test_006_8_wildcard_card_found_by_glob(proj, tmp_path, monkeypatch):
-    """表上卡名 `戰鬥*`：預設目錄有 `戰鬥知識導讀-hub索引.md` → 不報缺卡（沿用 glob 語意）。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _wild_table(proj, "戰鬥*")
-    state, tp = {}, _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    txt = _card(state, f1, tp)
-    assert "戰鬥導讀" in txt and "在 repo 裡找不到" not in txt
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp)
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
-
-
-def test_006_8_wildcard_card_matching_nothing_denies(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _wild_table(proj, "不存在的卡*")
-    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), _transcript(tmp_path, ["x"]), {})
-    assert deny and "`不存在的卡*` 在 repo 裡找不到" in deny
-    (proj / "docs").mkdir()
-    (proj / "docs" / "不存在的卡-其實在這.md").write_text("# x", encoding="utf-8")       # repo 搜尋對含 * 的卡名用 fnmatch
-    assert wo._search_cards(proj, ["不存在的卡*"])["found"] == [proj / "docs" / "不存在的卡-其實在這.md"]
-
-
-@pytest.mark.parametrize("card", ["*Missing", "Missing.v2*"])
-def test_009_7_wildcard_card_leading_star_or_dot_is_still_a_card(proj, tmp_path, monkeypatch, card):
-    """009-4.7：`*Missing`、`Missing.v2*` 是卡名 glob，不在解析時消失：找不到 → 擋；repo 有對得上的卡 → 搜得到。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    _wild_table(proj, card)
-    assert oh.parse_map((proj / ".claude" / "overview-map.md").read_text(encoding="utf-8"))[0]["cards"] == [card]
-    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), _transcript(tmp_path, ["x"]), {})
-    assert deny and f"`{card}` 在 repo 裡找不到" in deny
-    (proj / "docs").mkdir()
-    hit = proj / "docs" / (card.replace("*", "X") + ".md")
-    hit.write_text("# x", encoding="utf-8")
-    assert wo._search_cards(proj, [card])["found"] == [hit]
+# ─── 卡名欄、readonly_paths ───────────────────────
 
 
 def test_009_7_extension_only_glob_is_file_pattern_not_card():
@@ -1243,124 +732,20 @@ def test_009_7_extension_only_glob_is_file_pattern_not_card():
     assert rows[0]["cards"] == ["戰鬥*"]
 
 
-def test_search_cards_skips_git_node_modules_distant_and_worktrees(tmp_path):
-    for d in (".git", "node_modules", "_distant", ".claude/worktrees/wt"):
-        (tmp_path / d).mkdir(parents=True, exist_ok=True)
-        (tmp_path / d / "c-x.md").write_text("x", encoding="utf-8")
-    r = wo._search_cards(tmp_path, ["c_x"])
-    assert r["found"] == [] and r["missing"] == ["c_x"] and not r["timed_out"]
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "c-x.md").write_text("x", encoding="utf-8")                # 底線換連字號的變體
-    assert wo._search_cards(tmp_path, ["c_x"])["found"] == [tmp_path / "docs" / "c-x.md"]
-
-
-def test_readonly_paths_deny_without_inject_and_glob_misses_neighbors(proj, tmp_path, monkeypatch):
+def test_readonly_paths_deny_and_glob_misses_neighbors(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "overview-hub.json").write_text(
         '{"readonly_paths": ["Game/Battle/Gen/**/*.cs", "Game/Battle/_INDEX.md"]}', encoding="utf-8")
-    tp = _transcript(tmp_path, ["x"])
-    state = {}
     for ro in ("Game/Battle/Gen/A.cs", "Game/Battle/Gen/sub/B.cs", "Game/Battle/_INDEX.md"):
-        warn, deny, changed = wo.on_edit(state, "s", str(proj / ro), tp, {})
-        assert deny and "readonly_paths（樣式「" in deny and not changed and state == {}      # 命中 deny、不注入
+        warn, deny, hit = wo.write_check("s", str(proj / ro), {})
+        assert deny and "readonly_paths（樣式「" in deny and hit["rule"] == "OVERVIEW_READONLY_PATHS"
     for nb in ("Game/Battle/Gen2/A.cs", "Game/Battle/_INDEX.md.bak", "Game/Battle/Gen.cs"):
-        warn, deny, _ = wo.on_edit({}, "s", str(proj / nb), tp, {})
-        assert deny and "樣式「" not in deny and "還沒看過" in deny                      # 鄰目錄走一般流程（注入＋擋）
+        assert wo.write_check("s", str(proj / nb), {}) == (None, None, None)          # 鄰目錄不命中
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert [e["event"] for e in log][:3] == ["edit_readonly"] * 3 and log[0]["deny_reason"] == "readonly"
-
-
-def test_thinking_channel_allows_with_reminder(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    state = {}
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp, block="thinking", precedent="無")
-    warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})                    # 卡隨第一次改檔送；定位（thinking）已交 → 放行附提醒
-    assert deny is None and changed and warn and "thinking" in warn and "放行" in warn
-    rec = next(iter(state["overview_hub"].values()))
-    assert rec["located_via"] == "thinking" and rec["located_quality"] == "none"
-    warn2, deny2, changed2 = wo.on_edit(state, "s", f1, tp, {})                 # 已 located，第二次不再提醒 thinking
-    assert deny2 is None and changed2 and "只在 thinking 裡" not in (warn2 or "")
-    warn3, deny3, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny3 is None and "【戰鬥】候選" in warn3                             # A5.3：同檔第 2 次放行的 Edit 附候選（沒內容是一行版；verify_candidates_trigger 驗細節）
+    assert [e["event"] for e in log] == ["edit_readonly"] * 3 and log[0]["deny_reason"] == "readonly"
 
 
 # ─── 退回 001：BLOCK 1／2／3／7 ───────────────────────────────────────────────────
-
-LAYER_TABLE = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 層 |\n|---|---|---|---|---|\n"
-               "| `Game\\Battle\\` | 戰鬥 | `戰鬥知識導讀-hub索引` | 有 | 主程式集／熱修 |\n")
-
-
-def test_reading_path_layer_number_is_not_a_layer_the_root_cause_line_must_name():
-    """層欄的「第 N 層」是閱讀路徑層次軸，由程式依路徑推：根因層那行不用寫它（只有它或配「單層」都不擋）；
-    和要人填的層混寫時，只要求寫出要人填的那幾個。"""
-    vals = {"根因": "邏輯層：判斷式寫反"}
-    assert wo._layer_mismatch({"layer": "第2層"}, vals) is None
-    assert wo._layer_mismatch({"layer": "第 3 層"}, vals) is None
-    mixed = wo._layer_mismatch({"layer": "主程式集／第2層"}, vals)
-    assert mixed and "主程式集" in mixed and "第2層" not in mixed
-    assert wo._layer_mismatch({"layer": "主程式集／第2層"}, {"根因": "主程式集：判斷式寫反"}) is None
-    assert wo._layer_mismatch({"layer": "主程式集／熱修"}, vals), "要人填的層照擋"
-
-
-def test_wrong_layer_then_corrected_passes(proj, tmp_path, monkeypatch):       # BLOCK 1：補正取最後一組
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    (proj / ".claude" / "overview-map.md").write_text(LAYER_TABLE, encoding="utf-8")
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    state = {}
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _card(state, f1, tp)
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：Demo 區\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and "填錯層" in deny and "取最後一組" in deny
-    _locate(tp)                                                                  # 同管道補交：根因層「邏輯層」沒指層 → 仍擋
-    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
-    assert deny and "填錯層" in deny
-    with open(tp, "a", encoding="utf-8") as f:                                   # 再補一組正確的（熱修）→ 放行
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：熱修層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
-    rec = next(iter(state["overview_hub"].values()))
-    assert rec["located"] and rec["located_quality"] == "card" and rec["edits"] == 3
-    with open(tp, "a", encoding="utf-8") as f:                                   # 錯的在 text、對的在 tool_input 也算
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
-                "input": {"command": "# 定位｜部位：戰鬥：A.cs\n# 定位｜根因層：主程式集\n# 定位｜前例：共用字典\ntrue"}}]}}, ensure_ascii=False) + "\n")
-    state2 = {}
-    wo.on_read(state2, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state2, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _card(state2, f1, tp)
-    off = next(iter(state2["overview_hub"].values()))["transcript_offset"]
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：Demo 區\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash",
-                "input": {"command": "# 定位｜部位：戰鬥：A.cs\n# 定位｜根因層：主程式集\n# 定位｜前例：共用字典\ntrue"}}]}}, ensure_ascii=False) + "\n")
-    assert off > 0 and wo.on_edit(state2, "s", f1, tp, {}) == (None, None, True)
-    assert next(iter(state2["overview_hub"].values()))["located_via"] == "tool_input"
-
-
-def test_main_format_rec_is_migrated_not_keyerror(proj, tmp_path, monkeypatch):   # BLOCK 2：舊 state 升級
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    key = f"{str(proj).replace(chr(92), '/').lower()}|戰鬥"
-    state = {"overview_hub": {key: {"injected_turn": 1, "injected_at": "t", "transcript_offset": 0,
-                                    "reads_after": [], "located": False, "edits": 0, "locate_template": []}}}
-    assert wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {}) is None       # 不 KeyError、不重注
-    rec = state["overview_hub"][key]
-    assert rec["part_files_read"] == [f1] and rec["slices"] == [] and rec["intent"] == "general"
-    _locate(tp)
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
-    old = {"overview_hub": {key: {"reads_after": [], "located": False, "edits": 0, "transcript_offset": 0}}}
-    warn, deny, _ = wo.on_edit(old, "s", f1, tp, {})                                          # 直接 on_edit 也不炸
-    assert deny and "目前 0 個" in deny
 
 
 def test_unmapped_project_hub_json_is_own_config(tmp_path, monkeypatch):          # BLOCK 3：無表專案 hub.json 能自救
@@ -1371,67 +756,14 @@ def test_unmapped_project_hub_json_is_own_config(tmp_path, monkeypatch):        
     (root / "src").mkdir()
     hub = root / ".claude" / "overview-hub.json"
     hub.write_text('{"foo": 1}', encoding="utf-8")
-    tp = _transcript(tmp_path, ["x"])
     assert wo._own_config_layer(str(hub)) == (True, root)
-    warn, deny, changed = wo.on_edit({}, "s", str(hub), tp, {})
-    assert deny is None and not changed and warn and "放行以便修復" in warn and "未知的設定鍵「foo」" in warn
-    warn, deny, _ = wo.on_edit({}, "s", str(root / "src" / "a.py"), tp, {})                    # 其他檔仍被設定錯誤擋
+    warn, deny, _ = wo.write_check("s", str(hub), {})
+    assert deny is None and warn and "放行以便修復" in warn and "未知的設定鍵「foo」" in warn
+    warn, deny, _ = wo.write_check("s", str(root / "src" / "a.py"), {})                     # 其他檔仍被設定錯誤擋
     assert deny and "foo" in deny
     hub.write_text("{}", encoding="utf-8")
-    assert wo.on_edit({}, "s", str(hub), tp, {}) == (None, None, False)
+    assert wo.write_check("s", str(hub), {}) == (None, None, None)
     assert wo._own_config_layer(str(tmp_path / "nowhere" / ".claude" / "overview-hub.json")) == (False, None)
-
-
-def test_transcript_unreadable_is_self_error_even_if_located(proj, tmp_path, monkeypatch):   # BLOCK 7：真開檔
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    monkeypatch.setattr(wo, "append_guard_log", lambda g, p: None)
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    state = {}
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
-    _locate(tp)
-    assert wo.on_edit(state, "s", f1, tp, {})[1] is None                          # 卡隨第一次改檔送；定位已交 → 放行
-    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
-    rec = next(iter(state["overview_hub"].values()))
-    assert rec["located"] is True
-    locked = tmp_path / "dir_as_transcript"                                       # 存在但開不了（目錄）
-    locked.mkdir()
-    assert oh.transcript_readable(str(locked)) == (False, "unreadable")
-    assert oh.transcript_readable("") == (False, "empty_path")
-    assert oh.transcript_readable(str(tmp_path / "nope.jsonl")) == (False, "missing")
-    empty = tmp_path / "empty.jsonl"
-    empty.write_text("", encoding="utf-8")
-    assert oh.transcript_readable(str(empty)) == (False, "empty")
-    assert oh.transcript_readable(tp) == (True, "")
-    for bad, word in ((str(locked), "unreadable"), ("", "empty_path"), (str(tmp_path / "nope.jsonl"), "missing")):
-        warn, deny, _ = wo.on_edit(state, "s", f1, bad, {})
-        assert deny is None
-    log = [e for e in map(json.loads, (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()) if e["event"] == "edit"]
-    assert [e.get("self_error") for e in log[-3:]] == ["unreadable", "empty_path", "missing"]
-
-
-def test_inject_record_and_log_carry_intent_slices_layer(proj, tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥知識導讀-hub索引.md").write_text(FIVE_CARD, encoding="utf-8")
-    state = {"turn_intent": "debug"}
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
-    rec = next(iter(state["overview_hub"].values()))
-    assert rec["intent"] == "debug" and rec["slices"] == []                        # 片在送卡那刻才選
-    txt = _card(state, f1, "")
-    assert txt.index("[已知病灶]") < txt.index("[驗法]")
-    assert rec["slices"] == ["defects", "verify", "authority"]
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert log[0]["intent"] == "debug" and log[0]["slices"] == [] and log[0]["layer"] == "project_mapped"
-    card_ev = next(e for e in log if e["event"] == "card")
-    assert card_ev["slices"] == ["defects", "verify", "authority"] and card_ev["layer"] == "project_mapped"
-    state2 = {}
-    assert wo.on_prompt(state2, "s", f"看 {f1}", "", {}, intent="perf")
-    assert state2["turn_intent"] == "perf" and next(iter(state2["overview_hub"].values()))["slices"] == ["verify", "defects", "what"]
-    state3 = {"turn_intent": "bogus"}                                              # 不在十鍵 → 當 general
-    wo.on_read(state3, "s", "Read", {"file_path": f1}, str(proj), "", {})
-    assert next(iter(state3["overview_hub"].values()))["intent"] == "general"
 
 
 # ─── codex 補件：_same_dir 不撞名、長路徑前綴、委派失敗不放行 ─────────────────────
@@ -1652,7 +984,7 @@ def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_
     assert unc_realpath_guard == []
 
 
-# ─── track-know：部位表類別 knowledge 的部位只要卡已注入 ─────────────────────────────────────────
+# ─── track-know：部位表類別 knowledge（lib/overview_hub.part_kind）─────────────────────────────────────────
 # 舊碼不分類別：知識部位（派工信箱）改檔前也要讀部位檔、交定位三行；注入文字也叫人交定位三行。
 
 _KNOW_MAP = (
@@ -1661,69 +993,6 @@ _KNOW_MAP = (
     "| `scripts/` | 腳本 | `工具導讀` | 有 |  |\n"
     "| `workflow/inbox/` | 派工信箱 | `信箱導讀` | 有 | knowledge |\n"
 )
-
-
-@pytest.fixture
-def kproj(tmp_path, monkeypatch):
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = tmp_path / "kproj"
-    cards = root / ".claude" / "memory" / "shared" / "導讀"
-    cards.mkdir(parents=True)
-    (root / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
-    (cards / "工具導讀.md").write_text("# 工具導讀\n病灶：參數名寫錯", encoding="utf-8")
-    (cards / "信箱導讀.md").write_text("# 信箱導讀\n派工單一律 .md", encoding="utf-8")
-    for d in ("tools", "scripts", "workflow/inbox/to-x", "sub/workflow/inbox"):
-        (root / d).mkdir(parents=True)
-    return root
-
-
-def _know_log(tmp_path):
-    return [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-
-
-@pytest.mark.parametrize("rel,knowledge", [
-    ("workflow/inbox/to-x/a.py", True),
-    ("tools/a.py", False),
-    ("scripts/a.py", False),                      # 沒標類別的列＝code
-    ("sub/workflow/inbox/a.py", False),        # 只有子字串撞到信箱列＝code
-])
-def test_know_edit_evidence_depends_on_part_kind(kproj, tmp_path, rel, knowledge):
-    """同一份檔：在知識部位，注入過卡就放行（沒讀部位檔、沒交定位三行也放）；在寫碼部位照擋。"""
-    tp = _transcript(tmp_path, ["先看看。"])
-    f = str(kproj / rel)
-    state: dict = {}
-    assert wo.on_prompt(state, "s", f"看一下 {f}", tp, {})                      # 提到路徑 → 注入，沒讀任何部位檔
-    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
-    if knowledge:
-        assert (warn, deny, changed) == (None, None, True), rel
-        last = _know_log(tmp_path)[-1]
-        assert last["event"] == "edit" and last["kind"] == "knowledge" and last["deny_reason"] is None
-    else:
-        assert deny and "定位三行" in deny, rel
-
-
-def test_know_edit_before_inject_still_denies_once_without_locate_demand(kproj, tmp_path):
-    """知識部位保留「卡已注入」這一項：沒注入過就先注入並擋一次（理由不叫人交定位三行），下一次放行。"""
-    tp = _transcript(tmp_path, ["x"])
-    f = str(kproj / "workflow" / "inbox" / "to-x" / "001-x.md")
-    state: dict = {}
-    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
-    assert deny and "信箱導讀" in deny and "知識類部位" in deny and "定位｜部位" not in deny and changed
-    assert _know_log(tmp_path)[-1]["deny_reason"] == "not_injected"
-    assert wo.on_edit(state, "s", f, tp, {}) == (None, None, True)
-
-
-def test_know_injection_text_asks_locate_only_for_code_parts(kproj, tmp_path):
-    """注入文字：知識部位不要求定位三行（卡照注）；寫碼部位照舊要。"""
-    state: dict = {}
-    fk, fc = str(kproj / "workflow" / "inbox" / "to-x" / "a.md"), str(kproj / "tools" / "a.py")
-    assert wo.on_read(state, "s", "Read", {"file_path": fk}, str(kproj), "", {}) is None   # 知識類部位的檔：讀檔零增量（也沒定位提示）
-    wo.on_read(state, "s", "Read", {"file_path": fc}, str(kproj), "", {})
-    k, c = _card(state, fk, ""), _card(state, fc, "")
-    assert "信箱導讀" in k and "知識類部位" in k and "定位｜部位" not in k
-    assert "工具導讀" in c and "定位｜部位：工具" in c
-    assert {key.rsplit("|", 1)[1]: rec.get("kind") for key, rec in state["overview_hub"].items()} == {
-        "派工信箱": "knowledge", "工具": "code"}                                  # scorecard 的 S3 靠這欄排除知識部位
 
 
 def test_know_part_kind_table(tmp_path):
@@ -1795,31 +1064,7 @@ def test_know_unplaceable_code_row_keeps_knowledge_parents_as_code(child):
     assert kind_of("C:/p/docs/a.md", Path("C:/p"), oh.parse_map(head + f"| `{child}` | 怪列 | 無 | 無 | knowledge |\n")) == "knowledge"
 
 
-def test_know_existing_denies_still_apply_to_knowledge_parts(kproj, tmp_path):
-    """知識部位只省掉讀部位檔與定位三行：表上的卡找不到照擋、readonly_paths 照擋。"""
-    (kproj / ".claude" / "overview-map.md").write_text(
-        _KNOW_MAP + "| `docs/` | 文件 | `不存在的卡` | 有 | knowledge |\n", encoding="utf-8")
-    (kproj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["workflow/inbox/gen/**"]}', encoding="utf-8")
-    tp = _transcript(tmp_path, ["x"])
-    warn, deny, _ = wo.on_edit({}, "s", str(kproj / "docs" / "a.md"), tp, {})
-    assert deny and "`不存在的卡` 在 repo 裡找不到" in deny
-    warn, deny, changed = wo.on_edit({}, "s", str(kproj / "workflow" / "inbox" / "gen" / "x.md"), tp, {})
-    assert deny and "readonly_paths（樣式「" in deny and not changed
-
-
-def test_know_substring_code_hit_marks_part_as_code_for_scorecard(kproj, tmp_path):
-    """同一列先被知識路徑注入（kind=knowledge），之後只撞到子字串的寫碼檔來改 → 照寫碼部位擋，紀錄改成 code（S3 要算）。
-    codex 審 a6323cb W1。"""
-    tp = _transcript(tmp_path, ["x"])
-    state: dict = {}
-    wo.on_prompt(state, "s", f"看 {kproj / 'workflow' / 'inbox' / 'to-x' / 'a.md'}", tp, {})
-    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|派工信箱"))
-    assert rec.get("kind") == "knowledge"
-    warn, deny, _ = wo.on_edit(state, "s", str(kproj / "sub" / "workflow" / "inbox" / "a.py"), tp, {})
-    assert deny and "定位三行" in deny and rec.get("kind") == "code"
-
-
-# ─── B5 真測：表外檔綜觀（UNMAPPED_EDIT_NEEDS_READABLE_FILES）、快取目錄、Bash 唯讀讀檔（BASH_READONLY_COUNTS_AS_READ）──
+# ─── B5 真測：Bash 唯讀讀檔（BASH_READONLY_COUNTS_AS_READ）記進讀檔帳 ──
 
 def _b5_repo(tmp_path, git_init=False):
     """B5 q3 的形狀：專案根只有子目錄（沒有可讀的根層檔），沒有部位表。"""
@@ -1836,86 +1081,38 @@ def _b5_repo(tmp_path, git_init=False):
     return root
 
 
-def test_b5_new_gitignore_in_root_without_readable_files_is_allowed(tmp_path, monkeypatch):
-    """B5 q3 兩組 `printf … > .gitignore` 各被擋 2～3 次：根目錄沒有可讀的既有檔 → 不要求先讀（改前擋「目前 0 個」）。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = _b5_repo(tmp_path)
-    state = {}
-    assert wo.on_edit(state, "s", str(root / ".gitignore"), "", {}) == (None, None, True)
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    assert log[-1]["rule"] == "UNMAPPED_EDIT_NEEDS_READABLE_FILES" and log[-1]["readable"] == 0
-
-
-def test_b5_handoff_into_missing_claude_dir_is_allowed(tmp_path, monkeypatch):
-    """B5 q5 兩組 /handoff 寫 `<專案>/.claude/memory/_staging/next-phase-*.md` 被擋「先讀 .claude 1 檔，目前 0」，
-    專案根本沒有 .claude/：目標頂層目錄不存在 → 不要求先讀（改前擋）；目錄在但空的也一樣。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = _b5_repo(tmp_path)
-    target = str(root / ".claude" / "memory" / "_staging" / "next-phase-x.md")
-    assert wo.on_edit({}, "s", target, "", {}) == (None, None, True)
-    (root / "empty").mkdir()
-    assert wo.on_edit({}, "s", str(root / "empty" / "a.md"), "", {}) == (None, None, True)
-
-
-def test_b5_root_with_unread_readme_still_blocks(tmp_path, monkeypatch):
-    """根目錄有 1 個 README 沒讀 → 照擋（不放寬），擋訊息帶規則名與「該目錄既有可讀檔」；讀了就放。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = _b5_repo(tmp_path)
-    (root / "README.md").write_text("# r\n", encoding="utf-8")
-    state = {}
-    warn, deny, _ = wo.on_edit(state, "s", str(root / ".gitignore"), "", {})
-    assert deny and "「(root)」至少 1 個檔（目前 0 個）" in deny
-    assert "UNMAPPED_EDIT_NEEDS_READABLE_FILES" in deny and "該目錄既有可讀檔 至少 1 個" in deny
-    wo.on_read(state, "s", "Read", {"file_path": str(root / "README.md")}, str(root), "", {})
-    assert wo.on_edit(state, "s", str(root / ".gitignore"), "", {}) == (None, None, True)
-
-
-def test_b5_rm_pycache_is_runtime_data(tmp_path, monkeypatch):
-    """B5 對照組 `rm -rf tests/__pycache__` 被擋（tests 有 test_render.py 沒讀）：快取目錄免綜觀（改前擋）。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = _b5_repo(tmp_path)
-    (root / "tests" / "__pycache__").mkdir()
-    assert wo.on_edit({}, "s", str(root / "tests" / "__pycache__"), "", {}) == (None, None, False)
-    assert wo.on_edit({}, "s", str(root / ".pytest_cache" / "v" / "x"), "", {}) == (None, None, False)
-    warn, deny, _ = wo.on_edit({}, "s", str(root / "tests" / "test_new.py"), "", {})
-    assert deny and "「tests」至少 1 個檔（目前 0 個）" in deny                       # 同目錄一般檔照要求
-
-
-def test_b5_gitignored_and_cache_files_are_not_readable(tmp_path, monkeypatch):
-    """可讀檔不數 gitignored 產物與快取目錄：build/ 只有被忽略的 log 與 __pycache__ → 新建 build/notes.md 不要求先讀。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = _b5_repo(tmp_path, git_init=True)
-    (root / ".gitignore").write_text("build/*.log\n", encoding="utf-8")
-    (root / "build" / "__pycache__").mkdir(parents=True)
-    (root / "build" / "run.log").write_text("x", encoding="utf-8")
-    (root / "build" / "__pycache__" / "a.pyc").write_text("x", encoding="utf-8")
-    assert wo.on_edit({}, "s", str(root / "build" / "notes.md"), "", {}) == (None, None, True)
-    (root / "build" / "keep.md").write_text("x", encoding="utf-8")                  # 有一個沒被忽略的檔 → 照要求
-    warn, deny, _ = wo.on_edit({}, "s", str(root / "build" / "notes.md"), "", {})
-    assert deny and "「build」至少 1 個檔（目前 0 個）" in deny
-
-
 def _bash_read(state, root, command, exit_code=None):
-    return wo.on_read(state, "s", "Bash", {"command": command}, str(root), "", {}, exit_code=exit_code)
+    wo.record_reads(state, "Bash", {"command": command}, str(root), {}, exit_code=exit_code)
+
+
+def _n(p):
+    return os.path.normcase(os.path.normpath(str(p)))
+
+
+def _reads_in(state, top):
+    """表外頂層目錄 top（<根>|(unmapped)<top>）記下的讀檔，正規化成集合。"""
+    recs = [r for k, r in (state.get("overview_hub") or {}).items() if k.endswith(f"|(unmapped){top}")]
+    return {_n(p) for r in recs for p in r.get("part_files_read") or []}
 
 
 def test_b5_bash_cat_counts_as_read(tmp_path, monkeypatch):
-    """派工單補充紅案例①：`cat ops/README.md` 之後寫 ops/docs/x.md → 不擋。"""
+    """派工單補充紅案例①：`cat ops/README.md` 跑成功 → 記成讀過 ops 的檔。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = _b5_repo(tmp_path)
     state = {}
     _bash_read(state, root, "cat ops/README.md", exit_code=0)
-    assert wo.on_edit(state, "s", str(root / "ops" / "docs" / "x.md"), "", {}) == (None, None, True)
+    assert _reads_in(state, "ops") == {_n(root / "ops" / "README.md")}
 
 
 def test_b5_bash_multi_file_cat_counts_every_file(tmp_path, monkeypatch):
-    """B5 q3 兩組 `cat bookings/render.py … tests/test_render.py …` 一次讀多檔，舊 regex 只認第一個 → 寫 tests/ 被擋（改前擋）。"""
+    """B5 q3 兩組 `cat bookings/render.py … tests/test_render.py …` 一次讀多檔，舊 regex 只認第一個：每個檔都要記。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = _b5_repo(tmp_path)
     state = {}
     _bash_read(state, root, "cat bookings/render.py tests/test_render.py && head -c 1500 ops/README.md")
-    assert wo.on_edit(state, "s", str(root / "tests" / "test_render.py"), "", _NO_MIN_MAP) == (None, None, True)
-    assert wo.on_edit(state, "s", str(root / "ops" / "new.md"), "", {}) == (None, None, True)
+    assert _reads_in(state, "bookings") == {_n(root / "bookings" / "render.py")}
+    assert _reads_in(state, "tests") == {_n(root / "tests" / "test_render.py")}
+    assert _reads_in(state, "ops") == {_n(root / "ops" / "README.md")}
 
 
 @pytest.mark.parametrize("command, exit_code", [
@@ -1930,13 +1127,12 @@ def test_b5_bash_multi_file_cat_counts_every_file(tmp_path, monkeypatch):
     ("cat ops/*.txt", 0),                               #   glob 展不出實檔（bash 原樣傳字面）
 ], ids=["echo", "printf-ls-find", "var", "loop-subst", "mid-var", "missing", "exit-1", "redirect", "glob-none"])
 def test_b5_bash_non_reads_do_not_count(tmp_path, monkeypatch, command, exit_code):
-    """派工單補充紅案例②③④：不算讀檔的指令讀完，寫 ops/ 下的檔仍擋。"""
+    """派工單補充紅案例②③④：不算讀檔的指令跑完，ops 底下沒有記成讀過。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = _b5_repo(tmp_path)
     state = {}
     _bash_read(state, root, command, exit_code=exit_code)
-    warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "docs" / "x.md"), "", {})
-    assert deny and "「ops」至少 1 個檔（目前 0 個）" in deny
+    assert _reads_in(state, "ops") == set()
 
 
 # 第二波第五跑 B-1 原指令（transcript 22:00:37）：迴圈讀一批檔，之後改 sales/periods.py 被擋「讀過 0 個」
@@ -1959,17 +1155,15 @@ def _b5w2_repo(tmp_path):
     "cat sales/*.py && head -5 tests/*.py",                                                   # glob 直接給讀檔指令
 ], ids=["w2-b5-loop", "w2-b4-literal-multiline", "glob-direct"])
 def test_006_bash_loop_and_glob_reads_count(tmp_path, monkeypatch, command):
-    """閘小修 006 件 3（規則 BASH_READONLY_COUNTS_AS_READ）：字面清單的 for 迴圈逐項展開、glob 照 cwd 展開成實檔，讀過的算數；
-    前置：同一個專案沒讀之前改 sales/periods.py 是擋的（不然放行不是展開的功勞）。"""
+    """閘小修 006 件 3（規則 BASH_READONLY_COUNTS_AS_READ）：字面清單的 for 迴圈逐項展開、glob 照 cwd 展開成實檔，讀過的都記；
+    前置：沒讀之前讀檔帳是空的。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = _b5w2_repo(tmp_path)
-    target = str(root / "sales" / "periods.py")
-    deny = wo.on_edit({}, "s", target, "", _NO_MIN_MAP)[1]
-    assert deny and "（目前 0 個）" in deny, "前置：沒讀過要擋，而且擋的是讀檔數"
     state = {}
+    assert _reads_in(state, "sales") == set()
     _bash_read(state, root, command, exit_code=0)
-    assert wo.on_edit(state, "s", target, "", _NO_MIN_MAP) == (None, None, True)
-    assert wo.on_edit(state, "s", str(root / "tests" / "test_new.py"), "", _NO_MIN_MAP) == (None, None, True)
+    assert _n(root / "sales" / "periods.py") in _reads_in(state, "sales")
+    assert _reads_in(state, "tests") == {_n(root / "tests" / "test_report.py")}
 
 
 def test_006_loop_expansion_paths_are_exact(tmp_path):
@@ -2039,33 +1233,28 @@ def test_exit_reached_inside_chain_stops_later_reads(tmp_path):
     assert oh.read_paths_from_tool("Bash", {"command": "[ -f defects.md ] || exit 1; cat sales/periods.py"}, str(root))
 
 
-def test_unreached_read_does_not_release_part_gate(tmp_path, monkeypatch):
-    """端到端：`test -f … || cat ops/README.md` 結束碼 0 → 部位檔沒讀過，照擋；直接 cat 之後才放。"""
+def test_unreached_read_is_not_recorded(tmp_path, monkeypatch):
+    """端到端：`test -f … || cat ops/README.md` 結束碼 0 → 沒記讀過；直接 cat 之後才記。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = _b5_repo(tmp_path)
     state = {}
     _bash_read(state, root, "test -f ops/README.md || cat ops/README.md", exit_code=0)
-    warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {})
-    assert deny
+    assert _reads_in(state, "ops") == set()
     _bash_read(state, root, "cat ops/README.md", exit_code=0)
-    assert wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {}) == (None, None, True)
+    assert _reads_in(state, "ops") == {_n(root / "ops" / "README.md")}
 
 
 def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
-    """grep -n（第一個參數是樣式，不算路徑）與 more 算讀檔（改前不認）；grep 沒帶 -n 不算。"""
+    """grep -n（第一個參數是樣式，不算路徑）與 more 算讀檔（改前不認）；只印筆數的 grep -c 不算。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     root = _b5_repo(tmp_path)
     state = {}
     _bash_read(state, root, 'grep -c "x" ops/README.md')
-    warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {})
-    assert deny
+    assert _reads_in(state, "ops") == set()
     _bash_read(state, root, 'grep -n "tests/test_render.py" ops/README.md')       # 樣式長得像路徑也不算
-    assert wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {}) == (None, None, True)
-    warn, deny, _ = wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", _NO_MIN_MAP)
-    assert deny
+    assert _reads_in(state, "ops") == {_n(root / "ops" / "README.md")} and _reads_in(state, "tests") == set()
     _bash_read(state, root, "more tests/test_render.py")
-    assert wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", _NO_MIN_MAP) == (None, None, True)
-
+    assert _reads_in(state, "tests") == {_n(root / "tests" / "test_render.py")}
 
 
 def _battle(state):
@@ -2077,23 +1266,21 @@ def _same_files(a, b):
 
 
 def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
-    """規則 SHELL_READ_COUNTS_LIKE_READ：唯讀 Bash／PowerShell 讀檔跟 Read 同效。第一次碰到部位就用一條 cat 讀三個檔 → 導讀卡照注入、
-    三個檔都算讀過（跟送三個 Read 一樣 3 個，觸發注入的那個也算；改前注入完就停，0 個）；MSYS 寫法 /c/…、不帶 -n 的 grep、開頭 cd 之後的相對路徑、
-    PowerShell Get-Content 都算；只印檔名、筆數或不印的 grep（-l、-c、--count、-q）不算，帶了 -n 也不算（-nl、-n -c 不能灌讀檔證據）。"""
+    """規則 SHELL_READ_COUNTS_LIKE_READ：唯讀 Bash／PowerShell 讀檔跟 Read 同效。一條 cat 讀三個檔 → 三個都記（跟送三個 Read 一樣）；
+    MSYS 寫法 /c/…、不帶 -n 的 grep、開頭 cd 之後的相對路徑、PowerShell Get-Content 都算；只印檔名、筆數或不印的 grep
+    （-l、-c、--count、-q）不算，帶了 -n 也不算（-nl、-n -c 不能灌讀檔證據）。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     cfg = {"overview_hub": {"enabled": True}}
-    tp = _transcript(tmp_path, ["先看看。"])
     battle = proj / "Game" / "Battle"
     f = {}
     for n in "ABCDEFGH":
         (battle / f"{n}.cs").write_text("foo = 1", encoding="utf-8")
         f[n] = (battle / f"{n}.cs").as_posix()
-    by_read = {"turn_seq": 1, "turn_intent": "debug"}                                   # 使用者要改程式：讀檔才附定位提示
+    by_read = {}
     for n in "ABC":
-        wo.on_read(by_read, "s", "Read", {"file_path": f[n]}, str(proj), tp, cfg)
-    by_cat = {"turn_seq": 1, "turn_intent": "debug"}
-    txt = wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
-    assert txt and "戰鬥導讀" not in txt and "交定位" in txt                       # 讀檔只一行提示，卡不送（READ_TOUCH_NO_CARD）
+        wo.record_reads(by_read, "Read", {"file_path": f[n]}, str(proj), cfg)
+    by_cat = {}
+    wo.record_reads(by_cat, "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), cfg)
     rec = _battle(by_cat)
     assert len(rec["part_files_read"]) == 3 and _same_files(rec["part_files_read"], _battle(by_read)["part_files_read"])
     forms = [("Bash", f"grep foo {f['E']}"), ("PowerShell", f"Get-Content '{f['G']}' -TotalCount 5")]
@@ -2102,129 +1289,36 @@ def test_shell_read_counts_like_read(proj, tmp_path, monkeypatch):
         forms += [("Bash", f"cat {msys}/Game/Battle/D.cs"), ("Bash", f"cd {msys}/Game && head -5 Battle/F.cs")]
     for tool, cmd in forms:
         n = len(rec["part_files_read"])
-        wo.on_read(by_cat, "s", tool, {"command": cmd}, str(proj), tp, cfg)
+        wo.record_reads(by_cat, tool, {"command": cmd}, str(proj), cfg)
         assert len(rec["part_files_read"]) == n + 1, cmd
     n = len(rec["part_files_read"])
     for cmd in (f"grep -l foo {f['H']}", f"grep -c foo {f['H']}", f"grep --count foo {f['H']}", f"grep -nl foo {f['H']}",
                 f"grep -n -c foo {f['H']}", f"grep -rnq foo {f['H']}", f"grep --line-number --files-with-matches foo {f['H']}"):
-        wo.on_read(by_cat, "s", "Bash", {"command": cmd}, str(proj), tp, cfg)
+        wo.record_reads(by_cat, "Bash", {"command": cmd}, str(proj), cfg)
         assert len(rec["part_files_read"]) == n, cmd
 
 
 def test_shell_write_command_not_a_read(proj, tmp_path, monkeypatch):
     """規則 SHELL_WRITE_COMMAND_NOT_A_READ：有寫檔目標的指令不是唯讀，讀到的檔不算讀過——重導向 >、tee、sed -i、
-    PowerShell Out-File／> 都不算（改前 `cat x > out`、`cat x | tee out` 算）；`2>&1` 只是併輸出，照算。
-    第一次碰到部位就用會寫檔的指令讀 → 也不注入導讀卡。"""
+    PowerShell Out-File／> 都不算（改前 `cat x > out`、`cat x | tee out` 算）；`2>&1` 只是併輸出，照算。"""
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     cfg = {"overview_hub": {"enabled": True}}
-    tp = _transcript(tmp_path, ["先看看。"])
     battle = proj / "Game" / "Battle"
     a, b, out = (battle / "A.cs").as_posix(), (battle / "B.cs").as_posix(), (proj / "out.txt").as_posix()
     for p in (a, b):
         Path(p).write_text("x", encoding="utf-8")
-    fresh = {"turn_seq": 1, "turn_intent": "debug"}                                     # 使用者要改程式：真讀到才附定位提示
-    assert wo.on_read(fresh, "s", "Bash", {"command": f"cat {a} > {out}"}, str(proj), tp, cfg) is None
+    fresh = {}
+    wo.record_reads(fresh, "Bash", {"command": f"cat {a} > {out}"}, str(proj), cfg)
     assert not fresh.get("overview_hub")
-    state = {"turn_seq": 1, "turn_intent": "debug"}
-    assert wo.on_read(state, "s", "Read", {"file_path": a}, str(proj), tp, cfg)
+    state = {}
+    wo.record_reads(state, "Read", {"file_path": a}, str(proj), cfg)
     rec = _battle(state)
     for tool, cmd in (("Bash", f"cat {b} > {out}"), ("Bash", f"cat {b} | tee {out}"), ("Bash", f"sed -i 's/x/y/' {b}"),
                       ("PowerShell", f"Get-Content '{b}' | Out-File '{out}'"), ("PowerShell", f"Get-Content '{b}' > '{out}'")):
-        wo.on_read(state, "s", tool, {"command": cmd}, str(proj), tp, cfg)
-        assert rec["part_files_read"] == [a], cmd                                # 只有觸發注入那次 Read
-    wo.on_read(state, "s", "Bash", {"command": f"cat {b} 2>&1"}, str(proj), tp, cfg)
+        wo.record_reads(state, tool, {"command": cmd}, str(proj), cfg)
+        assert rec["part_files_read"] == [a], cmd                                # 只有那次 Read
+    wo.record_reads(state, "Bash", {"command": f"cat {b} 2>&1"}, str(proj), cfg)
     assert len(rec["part_files_read"]) == 2
-
-
-
-def test_inject_trigger_read_counted(proj, tmp_path, monkeypatch):
-    """規則 INJECT_TRIGGER_READ_COUNTED：觸發導讀卡注入的那次讀就是真讀——一條指令讀到同部位 3 支檔、第一支觸發注入 → 讀過 3 個；
-    Read 第一次碰到部位 → 讀過 1 個（改前兩種都不算觸發的那支：cat 0 個、Read 0 個）。沒觸發注入的一般讀照舊各算一次、不重記；
-    改檔前才注入（on_edit 補注入）沒有讀檔，照舊 0 個；讀檔證據夠了照樣要交定位。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    cfg = {"overview_hub": {"enabled": True}}
-    tp = _transcript(tmp_path, ["先看看。"])
-    battle = proj / "Game" / "Battle"
-    f = {}
-    for n in "ABCD":
-        (battle / f"{n}.cs").write_text("x", encoding="utf-8")
-        f[n] = (battle / f"{n}.cs").as_posix()
-    by_cat = {"turn_seq": 1, "turn_intent": "debug"}                                    # 使用者要改程式：讀檔才附定位提示
-    assert "戰鬥導讀" not in wo.on_read(by_cat, "s", "Bash", {"command": f"cat {f['A']} {f['B']} {f['C']}"}, str(proj), tp, cfg)
-    assert _battle(by_cat)["part_files_read"] == [f["A"], f["B"], f["C"]]
-    assert wo.on_read(by_cat, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg) is None      # 已注入：一般讀，不重記
-    wo.on_read(by_cat, "s", "Read", {"file_path": f["D"]}, str(proj), tp, cfg)
-    assert len(_battle(by_cat)["part_files_read"]) == 4 and _battle(by_cat)["reads_after"][0] == f["A"]
-    by_read = {"turn_seq": 1, "turn_intent": "debug"}
-    assert wo.on_read(by_read, "s", "Read", {"file_path": f["A"]}, str(proj), tp, cfg)
-    assert _battle(by_read)["part_files_read"] == [f["A"]]
-    _card(by_read, f["A"], tp, cfg)
-    warn, deny, _ = wo.on_edit(by_read, "s", f["A"], tp, cfg)
-    assert deny and "注入導讀卡後還沒讀過" not in deny and "定位" in deny                           # 讀檔證據夠了，還要交定位
-    by_edit = {"turn_seq": 1}
-    wo.on_edit(by_edit, "s", f["A"], tp, cfg)                                                       # 改檔前才補注入：沒有讀
-    assert _battle(by_edit)["part_files_read"] == []
-
-
-
-def _two_part_proj(tmp_path):
-    root = tmp_path / "two"
-    mem = root / ".claude" / "memory" / "shared"
-    rows = (("Game/Battle", "戰鬥"), ("Game/UI", "介面"), ("Game/Cfg", "設定"))
-    (root / ".claude").mkdir(parents=True)
-    (root / ".claude" / "overview-map.md").write_text(
-        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
-        + "".join(f"| `{d}/` | {n} | `{n}導讀` | 有 |\n" for d, n in rows), encoding="utf-8")
-    for d, n in rows:
-        (mem / n).mkdir(parents=True)
-        (mem / n / f"{n}導讀.md").write_text(f"# {n}導讀\n病灶：無", encoding="utf-8")
-        (root / d).mkdir(parents=True)
-        (root / d / "a.py").write_text("x = 1", encoding="utf-8")
-    return root
-
-
-def test_locate_block_once_per_user_turn(tmp_path, monkeypatch):
-    """規則 LOCATE_BLOCK_ONCE_PER_USER_TURN：同一個使用者回合定位閘擋過【戰鬥】之後，【介面】只缺定位行 → 一行提醒、放行、留帳；
-    同伴訊息續跑的回合（turn_seq 前進、turn_prompts_seq 不變）不算新回合，照樣只提醒；擋過的【戰鬥】再缺照擋；【設定】還沒讀過
-    （缺的不只定位）照擋；下一個使用者回合【介面】再缺照擋。改前每個部位各擋一次。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    root = _two_part_proj(tmp_path)
-    tp = _transcript(tmp_path, ["先看看。"])
-    battle, ui, cfgf = (str(root / d / "a.py") for d in ("Game/Battle", "Game/UI", "Game/Cfg"))
-    state = {"turn_seq": 3, "turn_prompts_seq": 3}
-    for f in (battle, ui):
-        wo.on_read(state, "s", "Read", {"file_path": f}, str(root), tp, {})
-        _card(state, f, tp)                                                        # 卡隨第一次改檔送，那一刀是第一輪（LOCATE_FIRST_EDIT_BLOCKS_ONCE），不算這裡的擋
-    state.update(turn_seq=4, turn_prompts_seq=4)                                   # 下一個使用者回合：第一輪結束，本條才開始管
-    warn, deny, _ = wo.on_edit(state, "s", battle, tp, {})
-    assert deny and "還沒交出定位" in deny
-    warn, deny, changed = wo.on_edit(state, "s", ui, tp, {})
-    assert deny is None and changed and warn.startswith("[Guardian:OverviewHub] 【介面】定位缺") and "\n" not in warn
-    state["turn_seq"] = 5                                                          # 同伴訊息續跑：不是使用者打字開的回合
-    assert wo.on_edit(state, "s", ui, tp, {})[1] is None
-    assert wo.on_edit(state, "s", battle, tp, {})[1]                               # 擋過的部位再缺：照擋
-    assert wo.on_edit(state, "s", cfgf, tp, {})[1]                                 # 還沒讀過、卡才注入：照擋
-    state.update(turn_seq=6, turn_prompts_seq=6)                                   # 下一個使用者回合
-    assert wo.on_edit(state, "s", ui, tp, {})[1]
-    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
-    reminded = [e for e in log if e["event"] == "edit_locate_reminded"]
-    assert len(reminded) == 2 and all(e["rule"] == "LOCATE_BLOCK_ONCE_PER_USER_TURN" for e in reminded)
-
-
-def test_locate_deny_says_thinking_is_not_read(proj, tmp_path, monkeypatch):
-    """規則 LOCATE_NOT_IN_THINKING：缺定位行的擋訊息講死——thinking 預設不寫進 transcript、hook 讀不到、只寫那裡會再擋一次，
-    要放同一則先發的不寫檔指令開頭的 # 註解（只教這一條路）；不再說「可能讀不到」。"""
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    tp = _transcript(tmp_path, ["x"])
-    f1 = str(proj / "Game" / "Battle" / "A.cs")
-    Path(f1).write_text("x", encoding="utf-8")
-    state = {}
-    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    _card(state, f1, tp)
-    state["turn_seq"] = 1                                                    # 下一個使用者回合（第一刀那一輪已過）：一般擋訊息
-    deny = wo.on_edit(state, "s", f1, tp, {})[1]
-    assert "不要寫在 thinking：thinking 預設不寫進 transcript，hook 讀不到" in deny and "可能讀不到" not in deny
-    assert "開頭的 `#` 註解" in deny and "早一則" not in deny and "locate 欄" not in deny   # 只教 # 註解一條路
 
 
 @pytest.fixture(autouse=True)

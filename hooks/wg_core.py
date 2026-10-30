@@ -238,7 +238,7 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
     ③ 使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定要不要送一行「要改碼先立樹」（wg_need_goal.CODE_TREE_HINT）與記憶選片。
     判錯會漏的：LLM 沒立樹就直接改碼，動手前的守門晚到第一次改程式檔才啟動（由 ① 補上）。
     寫碼守門的每回合守門（目標樹提示、目標視角重看、退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
-    處理（記憶注入、導讀卡、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
+    處理（記憶注入、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
     st = state or {}
     if coding_guard_opt(config, "coding_turn_only", True) is False:
         return True
@@ -1958,7 +1958,7 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         _atom_debug_error(f"guard_log:{guard}", e)
 
 
-# ─── 宣告閘擋次上限（定位閘、最小地圖、動資料檔、改舊測試、不是繞閘共用）───────────
+# ─── 宣告閘擋次上限（動資料檔、改舊測試、不是繞閘共用）───────────
 DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾則回覆；再來就放行、由呼叫端留帳
 _DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋則數}, "batch": {同鍵: 上次算次的那則}}
 
@@ -2331,7 +2331,7 @@ _BASH_WRITE_OP_RE = lazy_re(
 #   R4 UNKNOWN 只在「有寫入訊號但算不出目標」：目標含展不開的變數（$HOME／~ 除外）、$(…)／反引號／eval 裡含寫入、
 #      直譯器內嵌碼（python -c／python -／node -e／pwsh -Command／[IO.File]::／open(…,'w')／fs.writeFile）、
 #      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。算得出的目標照列、再加一筆 "UNKNOWN:<該段前 40 字>"
-#      （UNKNOWN_PART_KEEPS_KNOWN_TARGETS），on_edit 對那一筆照 UNKNOWN_TARGET_LOGGED 放行留帳。
+#      （UNKNOWN_PART_KEEPS_KNOWN_TARGETS），write_check 對那一筆照 UNKNOWN_TARGET_LOGGED 放行留帳。
 #   R5 `;`／`&&`／換行的 cd 生效到後段；||／| 右側的 cd 不外溢；(…) 子 shell 的 cd 不外溢，裡面的目標照算。
 _WRITE_CMDS = frozenset({
     "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "rmdir", "truncate", "sed", "sort",

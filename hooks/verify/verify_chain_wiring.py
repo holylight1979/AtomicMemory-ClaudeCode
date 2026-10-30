@@ -280,8 +280,8 @@ def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
 
 def test_headless_after_alarm_data_file_blocked_code_file_record_only(hk, monkeypatch):
     """紅案例（CHAIN_HEADLESS_KEEPS_DATA_GATES；004 非改 code 題現況1：無頭量測裡 ops/README.md 沒宣告就改成）：無頭、
-    定位閘擋同一個部位第 2 次讓警報響之後 → 改資料檔沒宣告：照動資料檔閘原擋訊息擋、檔沒寫成，再送一次也照擋；
-    同一情境改一般程式檔被定位閘擋 → 只記錄、照寫。收尾的經過表標出照擋的那幾筆。改前警報後動資料檔閘只記錄、檔沒宣告就改了。"""
+    OverviewHub 寫入檢查第 2 次擋讓警報響之後 → 改資料檔沒宣告：照動資料檔閘原擋訊息擋、檔沒寫成，再送一次也照擋；
+    同一情境改一般程式檔被寫入檢查擋 → 只記錄、照寫。收尾的經過表標出照擋的那幾筆。改前警報後動資料檔閘只記錄、檔沒宣告就改了。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk("sid-keep")
     blocked = _hub_switch(s, monkeypatch)
@@ -290,7 +290,7 @@ def test_headless_after_alarm_data_file_blocked_code_file_record_only(hk, monkey
     assert _deny_text(s.write(pricing, "p = 1\n")).startswith("[Guardian:OverviewHub]")
     assert not _denied(s.write(s.proj / "NOTES.md", "n\n"))                                       # AI 動了手
     blocked.add(wc.canon_path(checkout))
-    assert not _denied(s.write(checkout, "c = 1\n")) and checkout.exists()                          # 同部位第 2 次：警報，無頭照放
+    assert not _denied(s.write(checkout, "c = 1\n")) and checkout.exists()                          # 同一道閘第 2 次：警報，無頭照放
     assert "alarm" in {r.get("type") for r in cs.read_rows(s.sid)}
     readme = s.proj / "ops" / "README.md"
     s.gates["DataFileAsk"] = True
@@ -555,73 +555,23 @@ MAP = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
 
 
 def _hub_switch(s: Session, monkeypatch) -> set:
-    """定位閘的判定換成開關：回的集合裡的檔照定位閘的口氣擋；部位照專案裡真的部位表查（pre_tool_use._hub_part）。
-    寫碼類檔要目標樹那道（需求目標）換成不擋，只看定位閘。"""
+    """OverviewHub 寫入檢查換成開關：回的集合裡的檔照它的口氣擋（斷路器照閘名計數）。
+    寫碼類檔要目標樹那道（需求目標）換成不擋，只看寫入檢查。"""
     import wg_need_goal
     import wg_overview
     (s.proj / ".claude").mkdir(exist_ok=True)
     (s.proj / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8")
     blocked: set = set()
 
-    def edit_check(state, sid, fp, *a, **k):
+    def write_check(sid, fp, *a, **k):
         if wc.canon_path(fp) not in blocked:
-            return None, None, False, None
-        msg = f"[Guardian:OverviewHub] 改 {fp} 前的證據不足，一律擋"
-        return msg, msg, False, wg_overview.remind_hit("OVERVIEW_PART_FILES_READ", "", "證據不足", "先讀")
-    monkeypatch.setattr(wg_overview, "edit_check", edit_check)
+            return None, None, None
+        msg = f"[Guardian:OverviewHub] {fp} 在這一層的 readonly_paths，一律擋"
+        return msg, msg, wg_overview.remind_hit("OVERVIEW_READONLY_PATHS", fp, "命中 readonly_paths", "改來源")
+    monkeypatch.setattr(wg_overview, "write_check", write_check)
     monkeypatch.setattr(wg_need_goal, "edit_gate", lambda *a, **k: None)
     monkeypatch.setattr(ptu._rr, "gate_mode", lambda rule, v6: ptu._rr.BLOCK)   # 接線測擋下那一刻的斷路器記帳：送法固定成擋
     return blocked
-
-
-def test_overview_hub_reports_part_and_counts_per_part(hk, monkeypatch):
-    """接線（CHAIN_SAME_GATE_PER_OBJECT）：定位閘擋【訂單結帳】的 pricing.py → AI 改別的檔 → 擋【測試】的 test_receipt.py
-    → 照定位閘原本的擋訊息擋、不中止（帳上兩筆各帶部位鍵與擋的檔）；AI 再改檔 → 擋【訂單結帳】的 checkout.py → 同一個部位第 2 次
-    → 改送中止停手，警報句寫出部位。改前第二筆就中止。"""
-    s = hk()
-    blocked = _hub_switch(s, monkeypatch)
-    pricing, checkout = s.proj / "orders" / "pricing.py", s.proj / "orders" / "checkout.py"
-    receipt = s.proj / "tests" / "test_receipt.py"
-    blocked.add(wc.canon_path(pricing))
-    assert _deny_text(s.write(pricing, "p = 1\n")).startswith("[Guardian:OverviewHub]")
-    assert not _denied(s.write(s.proj / "README.md", "r\n"))
-    blocked.add(wc.canon_path(receipt))
-    assert _deny_text(s.write(receipt, "def test_r():\n    pass\n")).startswith("[Guardian:OverviewHub]")
-    rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
-    assert [r["target"].rsplit("|", 1)[-1] for r in rows] == ["訂單結帳", "測試"] and [r["same"] for r in rows] == [1, 1]
-    assert [[wc.canon_path(p) for p in r["watched"]] for r in rows] == [[wc.canon_path(pricing)], [wc.canon_path(receipt)]]
-    assert not _denied(s.write(s.proj / "NOTES.md", "n\n"))
-    blocked.add(wc.canon_path(checkout))
-    third = _deny_text(s.write(checkout, "c = 1\n"))
-    assert third.startswith("[Guardian:ChainBreaker] 連鎖中止") and "OverviewHub（擋 訂單結帳）這一段第 2 次觸發" in third
-
-
-def test_hub_part_only_for_part_evidence(hk, monkeypatch, capsys):
-    """CHAIN_SAME_GATE_PER_OBJECT 的部位鍵（pre_tool_use._hub_part，跟定位閘累積證據的鍵相同）：表上的檔回「專案根|部位」，
-    同部位不同檔同一把鍵；不是欠這個部位證據的擋回空（照閘名）——定位閘設定有錯（整層壞了，換部位也一樣擋）、唯讀路徑；
-    部位表讀不到也回空、stderr 說一聲，不當成表外的檔。說不出部位時，擋下那筆連檔也不報（同部位換個檔不能算成別的對象）。"""
-    import wg_overview
-    s = hk()
-    blocked = _hub_switch(s, monkeypatch)
-    a, b = str(s.proj / "orders" / "a.py"), str(s.proj / "orders" / "b.py")
-    assert ptu._hub_part(a, s.cfg).endswith("|訂單結帳") and ptu._hub_part(a, s.cfg) == ptu._hub_part(b, s.cfg)
-    assert ptu._hub_part(str(s.proj / "tests" / "t.py"), s.cfg).endswith("|測試")
-    broken = copy.deepcopy(s.cfg)
-    broken.setdefault("overview_hub", {})["enabled"] = "yes"
-    assert ptu._hub_part(a, broken) == ""
-    ro = copy.deepcopy(s.cfg)
-    ro.setdefault("overview_hub", {})["readonly_paths"] = ["orders/gen.py"]
-    assert ptu._hub_part(str(s.proj / "orders" / "gen.py"), ro) == "" and ptu._hub_part(a, ro).endswith("|訂單結帳")
-    assert "判不出" not in capsys.readouterr().err                # 上面兩個回空是判定的結果，不是出錯
-
-    def unreadable(*_a, **_k):
-        raise wg_overview.MapReadError("部位表讀不到")
-    monkeypatch.setattr(wg_overview, "_lookup", unreadable)
-    assert ptu._hub_part(a, s.cfg) == "" and "判不出" in capsys.readouterr().err
-    blocked.add(wc.canon_path(a))
-    assert _deny_text(s.write(Path(a), "a = 1\n")).startswith("[Guardian:OverviewHub]")
-    row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
-    assert row["gate"] == "OverviewHub" and row["target"] == "" and row["watched"] == []
 
 
 def test_data_file_gate_reports_blocked_file(hk):

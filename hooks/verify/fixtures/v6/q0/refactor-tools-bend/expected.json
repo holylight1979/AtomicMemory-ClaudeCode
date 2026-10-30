@@ -1,1 +1,0 @@
-{"intent": "refactor", "inject_order": ["[做什麼與上下游]", "[驗法]", "[已知病灶]"], "inject_contains": ["視角：數彎視角"], "final": {"located": true, "located_via": "tool_input", "located_quality": "card", "slices": ["what", "verify", "defects"], "edits": 2}}

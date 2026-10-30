@@ -194,7 +194,7 @@ def test_post_tool_use_degraded_skips_prompts_keeps_ledger(ptu_driven, capsys):
     state, run = ptu_driven
     out, laps, wrote, called = run(capsys)
     assert called == 1 and "同伴提示" in out                                  # 前置：不降級時同伴檢查有跑、提示有送
-    assert laps == ["讀 state", "工具記帳", "導讀卡", "綜觀與召回", "目標樹", "寫 state", "跨 session 碰撞", "同伴檢查"]
+    assert laps == ["讀 state", "工具記帳", "讀檔帳", "綜觀與召回", "目標樹", "寫 state", "跨 session 碰撞", "同伴檢查"]
     state.pop("modified_files", None)
     out, laps, wrote, called = run(capsys, degrade_at="工具記帳")
     assert called == 0 and "同伴提示" not in out                              # 降級：提示類不跑
@@ -203,19 +203,19 @@ def test_post_tool_use_degraded_skips_prompts_keeps_ledger(ptu_driven, capsys):
     assert called == 0 and "同伴提示" not in out                              # 碰撞檢查跑完才過線：同伴檢查照樣不跑
 
 
-def test_post_tool_use_degraded_after_overview_card_skips_depends(ptu_driven, capsys, monkeypatch):
-    """導讀卡那段跑完才過線：depends 召回不跑（codex 第三輪：導讀卡後沒重新判時）。前置：不降級時 Read 會跑 depends。"""
+def test_post_tool_use_degraded_after_read_ledger_skips_depends(ptu_driven, capsys, monkeypatch):
+    """讀檔帳那段跑完才過線：depends 召回不跑（codex 第三輪：讀檔帳後沒重新判時）。前置：不降級時 Read 會跑 depends。"""
     import wg_depends
     import wg_overview
     calls = []
-    monkeypatch.setattr(wg_overview, "on_read", lambda *a, **k: None)
+    monkeypatch.setattr(wg_overview, "record_reads", lambda *a, **k: None)
     monkeypatch.setattr(wg_depends, "on_read_depends", lambda *a, **k: calls.append(1) or None)
     _, run = ptu_driven
     run(capsys, tool="Read")
     assert calls == [1]
     calls.clear()
-    _, laps, _, _ = run(capsys, degrade_at="導讀卡", tool="Read")
-    assert calls == [] and "導讀卡" in laps
+    _, laps, _, _ = run(capsys, degrade_at="讀檔帳", tool="Read")
+    assert calls == [] and "讀檔帳" in laps
 
 
 def test_settings_limit_picks_the_group_whose_matcher_fits_the_tool(monkeypatch, tmp_path):
@@ -372,13 +372,12 @@ def test_pre_tool_use_overrun_records_stuck_gate_without_fallback(ledger, exits,
     assert exits == [] and capsys.readouterr().out == ""
 
 
-# ─── UserPromptSubmit：降級後脈絡、導讀卡、檢索注入不跑；前置閘、記原話、寫 state 照做 ─────────
+# ─── UserPromptSubmit：降級後脈絡、檢索注入不跑；前置閘、記原話、寫 state 照做 ─────────
 
 @pytest.fixture()
 def ups_driven(monkeypatch, tmp_path):
     import wg_friction
     import wg_need_goal
-    import wg_overview
     import wg_release_rules
     calls, wrote = [], []
     state = {"turn_seq": 4, "session": {"cwd": str(tmp_path)}, "injected_atoms": []}
@@ -391,7 +390,6 @@ def ups_driven(monkeypatch, tmp_path):
                         lambda *a, **k: calls.append("檢索") or ([], {}, [], [], {}, set(), "general", {}))
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: calls.append("注入組裝") or ([], {}))
     monkeypatch.setattr(wg_need_goal, "on_prompt", lambda *a, **k: calls.append("目標樹") or "[NeedGoal] 記下原話")
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: calls.append("導讀卡") or "")
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a, **k: [])
     monkeypatch.setattr(wg_release_rules, "fix_escalation_text", lambda s: "")
     monkeypatch.setattr(ups, "_maybe_spawn_failure_extraction", lambda *a, **k: None)
@@ -413,7 +411,7 @@ def ups_driven(monkeypatch, tmp_path):
             return bool(timer.degraded_at)
         monkeypatch.setattr(ups, "_hook_lap", fake_lap)
         with pytest.raises(SystemExit):
-            # 寫碼回合（debug）：導讀卡這段才會跑（CODING_TURN_ONLY）
+            # 寫碼意圖（debug）：「先立樹」一行才會送（CODING_TURN_ONLY）
             ups.handle_user_prompt_submit({"session_id": "sid", "prompt": "幫我修好登入的 bug", "cwd": str(tmp_path)}, {})
         return capsys.readouterr().out, list(calls), list(wrote), [s[0] for s in timer.segments], timer.emitted
 
@@ -422,10 +420,10 @@ def ups_driven(monkeypatch, tmp_path):
 
 def test_ups_degraded_skips_retrieval_keeps_gates_goal_and_state(ups_driven, capsys):
     out, calls, wrote, segs, emitted = ups_driven(capsys)
-    assert calls == ["前置閘", "脈絡", "目標樹", "導讀卡", "檢索", "注入組裝"] and wrote == [5]   # 前置：不降級全段都跑
+    assert calls == ["前置閘", "脈絡", "目標樹", "檢索", "注入組裝"] and wrote == [5]   # 前置：不降級全段都跑
     assert "HookTiming" not in out and emitted is True
     out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="前置閘")
-    assert calls == ["前置閘", "目標樹"] and wrote == [5]                         # 降級：脈絡／導讀卡／檢索注入不跑，記原話與寫 state 照做
+    assert calls == ["前置閘", "目標樹"] and wrote == [5]                         # 降級：脈絡／檢索注入不跑，記原話與寫 state 照做
     assert segs == ["前置閘", "目標樹", "收尾提示"] and emitted is True
     ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
     assert "閘的提示" in ctx and "這則看起來要改程式" in ctx            # 還沒改碼：目標樹提示不送，只送先立樹一行
@@ -433,7 +431,7 @@ def test_ups_degraded_skips_retrieval_keeps_gates_goal_and_state(ups_driven, cap
     out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="目標樹")
     assert calls == ["前置閘", "脈絡", "目標樹"] and wrote == [5]
     out, calls, wrote, segs, emitted = ups_driven(capsys, degrade_at="檢索")         # 檢索跑完才過線：注入組裝不跑
-    assert calls == ["前置閘", "脈絡", "目標樹", "導讀卡", "檢索"] and wrote == [5] and "注入組裝" not in segs
+    assert calls == ["前置閘", "脈絡", "目標樹", "檢索"] and wrote == [5] and "注入組裝" not in segs
 
 
 # ─── PreToolUse：只打點，降級不改判定 ────────────────────────────────────
@@ -467,7 +465,6 @@ def test_pre_tool_use_laps_do_not_change_decision(monkeypatch, capsys, tmp_path)
     deny = _ptu_twice(monkeypatch, capsys, {"session_id": "sid-ptu-timing", "tool_name": "AskUserQuestion", "cwd": str(ROOT),
                                              "tool_input": ask})
     assert all('"deny"' in r[0] for r in deny) and deny[0][1:] == deny[1][1:]  # 沒附推薦的提問被擋：降級也照擋
-    # 兩次的判準卡可能一次全文、一次「前面已送過」（同話題只送一次），比擋下理由的第一句
     assert [json.loads(r[0])["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[0] for r in deny] ==         [json.loads(deny[0][0])["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[0]] * 2
 
 

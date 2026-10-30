@@ -626,11 +626,6 @@
     }
   },
   "overview_hub": {
-    "min_map": {
-      "_doc": "無部位表的專案第一次改程式檔前要 AI 先交最小地圖三行（地圖｜讀了／上游／下游；規則 UNMAPPED_FIRST_EDIT_NEEDS_MIN_MAP）；擋訊息附掃表預覽，preview_timeout_s 秒內跑完、每個專案根只跑一次。enabled=false 整條不觸發。",
-      "enabled": true,
-      "preview_timeout_s": 2
-    },
     "equivalence": {
       "_doc": "等值與熱路徑收尾閘（handlers/stop.py Equivalence Gate；規則 REFACTOR_NEEDS_EQUIVALENCE／PERF_HOT_PATH_NEEDS_MEASURE 在 wg_release_rules）：使用者原話意圖是 refactor／perf 且本回合改過程式檔時，宣告完成要有三類等值證法收據（PRESERVE_CHECK PASS，--mutation order／side_effect／boundary）或一行「等值證法｜不適用｜<理由>」，並答「熱路徑｜是／否｜…」；答是要量測收據或「量測｜不做｜<理由>」。留帳 Logs/guard-equivalence.jsonl。enabled=false 整道閘關。",
       "enabled": true
@@ -647,110 +642,10 @@
     "eol_policy": "per-file-head",
     "PYTHONIOENCODING": "utf-8",
     "readonly_paths": [],
-    "min_overview_evidence": {
-      "card": true,
-      "part_files": 1,
-      "depends_files": 0
-    },
     "candidate_top_n": 5,
-    "root_cause_triggers": [
-      "根因",
-      "治本",
-      "為什麼又",
-      "又壞",
-      "重複發生",
-      "老問題",
-      "root cause",
-      "again"
-    ],
     "smells_report": "",
     "smells_max_age_days": 7,
-    "idle_triggers": [
-      "接下來做什麼",
-      "還有什麼",
-      "沒事了",
-      "下一步"
-    ],
-    "post_compact_chars": 1500,
     "authority_map": {},
-    "goal_weights": {
-      "debug": {
-        "slices": [
-          "defects",
-          "verify",
-          "authority"
-        ],
-        "lens": "目標視角",
-        "ask_first": "幾份存法、有無訊號"
-      },
-      "new_project": {
-        "slices": [
-          "authority",
-          "what",
-          "ask"
-        ],
-        "lens": "目標視角",
-        "ask_first": "資料到底存哪"
-      },
-      "feature": {
-        "slices": [
-          "what",
-          "authority",
-          "verify"
-        ],
-        "lens": "理解視角",
-        "ask_first": "上游誰餵下游誰吃"
-      },
-      "refactor": {
-        "slices": [
-          "what",
-          "verify",
-          "defects"
-        ],
-        "lens": "數彎視角",
-        "ask_first": "這條路拐幾個彎"
-      },
-      "perf": {
-        "slices": [
-          "verify",
-          "defects",
-          "what"
-        ],
-        "lens": "目標視角",
-        "ask_first": "量尺在哪門檻多少"
-      },
-      "build": {
-        "slices": [
-          "authority",
-          "verify"
-        ],
-        "lens": "目標視角",
-        "ask_first": ""
-      },
-      "design": {
-        "slices": [
-          "authority",
-          "what"
-        ],
-        "lens": "理解視角",
-        "ask_first": ""
-      },
-      "recall": {
-        "slices": [],
-        "lens": "",
-        "ask_first": ""
-      },
-      "handoff": {
-        "slices": [],
-        "lens": "",
-        "ask_first": ""
-      },
-      "general": {
-        "slices": [],
-        "lens": "",
-        "ask_first": ""
-      }
-    },
     "verify_chains": {}
   },
   "overview_scaffold": {

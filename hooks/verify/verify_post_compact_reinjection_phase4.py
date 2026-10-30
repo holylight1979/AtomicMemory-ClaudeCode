@@ -10,9 +10,7 @@
 4. **端到端 round-trip**：PreCompact→PostCompact→PostToolBatch 後，注入內容含復原 atom 內文。
 5. **接線**：dispatcher.HANDLERS 與 settings.json 皆註冊 PostCompact + PostToolBatch。
 6. **budget 守紅線**：印象式 strip + budget 上限，blob 不爆量。
-7. **A2／Q2 綜觀不丟**：PreCompact 快照 overview_hub 摘要與 turn_intent；PostCompact 無 atom **且**無 hub 才空，否則每部位組
-   「主目標／層／卡／病灶前 N／定位三行已交否」截 post_compact_chars 存 pending_reinjection_overview；PostToolBatch 注入順序
-   atom 先、綜觀後、兩個 pending 都一次性 pop；反例：只剩單一部位（單層視野）＝FAIL；session_start _CARRY_ON_REBUILD 帶四鍵。
+7. **重建 state 照搬**：session_start _CARRY_ON_REBUILD 帶讀檔帳、意圖、Depends 已提示與權威地圖旗標。
 
 受控 tmp 索引 + monkeypatch state I/O，不依賴磁碟既有 atom / 真實 state。
 """
@@ -127,60 +125,19 @@ def test_post_compact_stashes_blob_and_flag(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == "", "PostCompact 不應有 stdout 輸出"
 
 
-def test_post_compact_empty_only_when_no_atoms_and_no_hub(tmp_path, monkeypatch, capsys):
-    """A2.2：無 atom **且**無 OverviewHub 注入紀錄才什麼都不 stash；只注入過導讀卡（atom 名單空）的 session 仍要 stash 綜觀。"""
+def test_post_compact_empty_when_no_atoms(tmp_path, monkeypatch, capsys):
+    """無 atom 就什麼都不 stash；有讀檔帳（overview_hub）也一樣，部位紀錄不重注。"""
     holder = _setup(tmp_path, monkeypatch, [])
     holder["state"]["injected_atoms"] = []
     holder["state"].pop("pre_compact_injected_atoms", None)
+    holder["state"]["overview_hub"] = {"c:/p|戰鬥": {"root": "c:/p", "part": "戰鬥", "part_files_read": ["c:/p/a.cs"]}}
     _run(pc.handle_post_compact, {"session_id": "test-sid", "trigger": "manual"})
     assert holder["state"].get("pending_reinjection") is not True
-    assert "pending_reinjection_overview" not in holder["state"]
-    assert capsys.readouterr().out.strip() == ""
-    # 只有 hub、沒 atom → 仍 stash 綜觀
-    holder = _setup(tmp_path, monkeypatch, [])
-    holder["state"]["injected_atoms"] = []
-    holder["state"]["overview_hub"] = _q2_hub(tmp_path)
-    _run(pc.handle_post_compact, {"session_id": "test-sid", "trigger": "manual"})
-    st = holder["state"]
-    assert st.get("pending_reinjection") is True and "pending_reinjection_blob" not in st
-    assert "[Overview Recovery]" in st["pending_reinjection_overview"]
+    assert not any(k.startswith("pending_reinjection_") for k in holder["state"])
     assert capsys.readouterr().out.strip() == ""
 
 
-# ─── A2（Q2）：壓縮後綜觀不丟 ──────────────────────────────────────────
-
-Q2 = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q2"
-Q2_EXPECTED = json.loads((Q2 / "expected.json").read_text(encoding="utf-8"))
-
-
-def _q2_hub(tmp_path):
-    """兩個部位的 OverviewHub 注入紀錄（照 wg_overview._inject 的欄位），卡檔從 fixture 複製進假專案。"""
-    import shutil
-    root = tmp_path / "proj"
-    cards = root / ".claude" / "memory" / "shared"
-    cards.mkdir(parents=True, exist_ok=True)
-    shutil.copy(Q2 / "overview-map.md", root / ".claude" / "overview-map.md")
-    for c in (Q2 / "cards").glob("*.md"):
-        shutil.copy(c, cards / c.name)
-    rk = str(root).replace("\\", "/").lower()
-    return {
-        f"{rk}|戰鬥": {"injected_turn": 3, "intent": "debug", "slices": ["defects"], "card_paths": [str(cards / "戰鬥導讀.md")],
-                       "reads_after": [], "part_files_read": [], "depends_files_read": [], "located": True, "edits": 2,
-                       "edited_files": {f"{rk}/game/battle/a.cs": 2}, "root": str(root), "part": "戰鬥", "layer": "熱修／主程式集",
-                       "locate_template": []},
-        f"{rk}|UI 演出": {"injected_turn": 5, "intent": "debug", "slices": [], "card_paths": [str(cards / "ui導讀.md")],
-                          "reads_after": [], "part_files_read": [], "depends_files_read": [], "located": False, "edits": 0,
-                          "edited_files": {}, "root": str(root), "part": "UI 演出", "layer": "單層", "locate_template": []},
-        f"{rk}|(unmapped)docs": {"part_files_read": ["x"], "edits": 0},
-    }
-
-
-def _assert_q2_both_parts(blob: str) -> None:
-    """Q2 檢查器：兩部位的部位名、層、病灶都要在；少任何一部位＝只剩單層視野＝FAIL。"""
-    for part, layer, marker in zip(Q2_EXPECTED["parts"], Q2_EXPECTED["layers"], Q2_EXPECTED["defect_markers"]):
-        assert f"【{part}】" in blob, f"壓縮後只剩單層視野：缺部位 {part}"
-        assert f"層：{layer}" in blob, f"缺 {part} 的層"
-        assert marker in blob, f"缺 {part} 的病灶"
+# ─── 重建 state 照搬 ──────────────────────────────────────────
 
 
 @pytest.fixture(autouse=True)
@@ -191,107 +148,23 @@ def _no_org(monkeypatch):
     monkeypatch.setattr(wo, "_WARNED", set())
 
 
-def test_pre_compact_snapshots_overview_and_intent(tmp_path, monkeypatch, capsys):
-    holder = _setup(tmp_path, monkeypatch, ["alpha"])
-    holder["state"]["overview_hub"] = _q2_hub(tmp_path)
-    holder["state"]["turn_intent"] = "debug"
-    _run(prc.handle_pre_compact, {"session_id": "test-sid"})
-    st = holder["state"]
-    assert st["pre_compact_turn_intent"] == "debug"
-    snap = st["pre_compact_overview_hub"]
-    assert set(snap) == {k for k in st["overview_hub"] if "(unmapped)" not in k}          # 無表 key 不帶
-    assert snap[next(k for k in snap if k.endswith("|戰鬥"))]["layer"] == "熱修／主程式集"
-    assert all("reads_after" not in v for v in snap.values())                                 # 只留重注要用的欄
-
-
-def test_q2_post_compact_keeps_both_parts_layers_cards_defects(tmp_path, monkeypatch, capsys):
-    holder = _setup(tmp_path, monkeypatch, [])
-    holder["state"]["injected_atoms"] = []
-    holder["state"]["overview_hub"] = _q2_hub(tmp_path)
-    holder["state"]["turn_intent"] = "debug"
-    _run(prc.handle_pre_compact, {"session_id": "test-sid"})
-    _run(pc.handle_post_compact, {"session_id": "test-sid", "trigger": "auto"})
-    st = holder["state"]
-    blob = st["pending_reinjection_overview"]
-    _assert_q2_both_parts(blob)
-    assert "壓縮前意圖：debug" in blob and "主目標：debug（視角：目標視角；先問：幾份存法、有無訊號）" in blob
-    assert "【戰鬥】層：熱修／主程式集｜定位三行：已交（本 session 改過 2 次）" in blob
-    assert "【UI 演出】層：單層｜定位三行：未交（本 session 改過 0 次）" in blob
-    assert "同檔多次：" in blob and "/game/battle/a.cs" in blob
-    assert "ui導讀.md" in blob and "戰鬥導讀.md" in blob
-    assert st["pending_reinjection_parts"] == ["戰鬥", "UI 演出"]
-    assert all(rec.get("reinjected_after_compact") is True for k, rec in st["overview_hub"].items() if "(unmapped)" not in k)
-    assert "reinjected_after_compact" not in st["overview_hub"][next(k for k in st["overview_hub"] if "(unmapped)" in k)]
-    assert capsys.readouterr().out.strip() == ""
-
-
-def test_q2_counterexample_single_layer_blob_fails_checker(tmp_path, monkeypatch):
-    """反例：壓縮後只剩一個部位（舊行為／只重注單層）→ Q2 檢查器 FAIL。"""
-    holder = _setup(tmp_path, monkeypatch, [])
-    hub = _q2_hub(tmp_path)
-    hub.pop(next(k for k in hub if k.endswith("|UI 演出")))
-    holder["state"]["overview_hub"] = hub
-    _run(pc.handle_post_compact, {"session_id": "test-sid", "trigger": "auto"})
-    single = holder["state"]["pending_reinjection_overview"]
-    assert "【戰鬥】" in single
-    with pytest.raises(AssertionError, match="單層視野"):
-        _assert_q2_both_parts(single)
-
-
-def test_post_compact_chars_truncates_each_part(tmp_path, monkeypatch):
-    holder = _setup(tmp_path, monkeypatch, [])
-    holder["state"]["overview_hub"] = _q2_hub(tmp_path)
-    _run(pc.handle_post_compact, {"session_id": "test-sid", "trigger": "auto"}, {"overview_hub": {"post_compact_chars": 80}})
-    blob = holder["state"]["pending_reinjection_overview"]
-    parts = blob.split("\n\n")[1:]
-    assert len(parts) == 2 and all(len(p) <= 80 + 60 and "post_compact_chars=80 截斷" in p for p in parts)
-    assert "【戰鬥】" in blob and "【UI 演出】" in blob                                        # 截斷也不丟部位
-    # WARN 修：短欄在前，硬切也保住「層」與「三行已交否」
-    assert "層：熱修／主程式集｜定位三行：已交" in blob and "層：單層｜定位三行：未交" in blob
-
-
-def test_post_tool_batch_injects_atoms_before_overview_and_pops_both(tmp_path, monkeypatch, capsys):
-    holder = _setup(tmp_path, monkeypatch, ["alpha"])
-    holder["state"]["pending_reinjection"] = True
-    holder["state"]["pending_reinjection_blob"] = "[Atom:alpha]\nX"
-    holder["state"]["pending_reinjection_atoms"] = ["alpha"]
-    holder["state"]["pending_reinjection_overview"] = "[Overview Recovery] 【戰鬥】…"
-    holder["state"]["pending_reinjection_parts"] = ["戰鬥"]
-    _run(ptb.handle_post_tool_batch, {"session_id": "test-sid", "tool_calls": [{"name": "Read"}]})
-    ctx = json.loads(capsys.readouterr().out.strip())["hookSpecificOutput"]["additionalContext"]
-    assert ctx.index("[Atom:alpha]") < ctx.index("[Overview Recovery]")                      # atom 先、overview 後
-    st = holder["state"]
-    assert "pending_reinjection_overview" not in st and "pending_reinjection_parts" not in st and st["pending_reinjection"] is False
-    _run(ptb.handle_post_tool_batch, {"session_id": "test-sid", "tool_calls": [{"name": "Read"}]})
-    assert capsys.readouterr().out.strip() == ""                                             # 一次性
-    # 只有 overview（沒 atom）也會醒來注入
-    holder["state"]["pending_reinjection"] = True
-    holder["state"]["pending_reinjection_overview"] = "[Overview Recovery] only"
-    _run(ptb.handle_post_tool_batch, {"session_id": "test-sid", "tool_calls": []})
-    assert "[Overview Recovery] only" in json.loads(capsys.readouterr().out.strip())["hookSpecificOutput"]["additionalContext"]
-
-
 def test_rebuild_carry_keeps_one_shot_flags_so_nothing_resends(tmp_path, monkeypatch):   # 退件 BLOCK 8
-    """照 session_start 重建分支的搬法（for key in _CARRY_ON_REBUILD）搬舊 state，idle 一行與權威地圖不得重送。"""
+    """照 session_start 重建分支的搬法（for key in _CARRY_ON_REBUILD）搬舊 state，權威地圖不得重送。"""
     from handlers import session_start as ss
-    import wg_overview as wo
     import wg_depends as wd
-    existing = {"idle_scan_sent": True, "authority_map_injected": True, "candidates_sent": ["k"],
-                "depends_hints": ["c"], "turn_intent": "general", "overview_hub": {}}
+    existing = {"authority_map_injected": True, "depends_hints": ["c"], "turn_intent": "general", "overview_hub": {}}
     rebuilt = {"session": {"cwd": str(tmp_path)}}
     for key in ss._CARRY_ON_REBUILD:
         if key in existing:
             rebuilt[key] = existing[key]
-    assert rebuilt["idle_scan_sent"] is True and rebuilt["authority_map_injected"] is True
-    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
-    assert wo.on_prompt(rebuilt, "s", "接下來做什麼？", "", {}, intent="general") is None
+    assert rebuilt["authority_map_injected"] is True
     assert wd._authority_map_text(rebuilt, "s", str(tmp_path / "a.md"), {"authority_map": {"*.md": "m.md"},
                                                                          "max_card_chars": 100}, tmp_path) is None
 
 
 def test_session_start_carry_on_rebuild_includes_overview_keys():
     from handlers import session_start as ss
-    for key in ("overview_hub", "turn_intent", "depends_hints", "candidates_sent", "idle_scan_sent", "authority_map_injected"):
+    for key in ("overview_hub", "turn_intent", "depends_hints", "authority_map_injected"):
         assert key in ss._CARRY_ON_REBUILD, key
     assert isinstance(ss._CARRY_ON_REBUILD, tuple)
     src = (HOOKS_DIR / "handlers" / "session_start.py").read_text(encoding="utf-8")

@@ -39,7 +39,6 @@ def flow(monkeypatch, tmp_path):
     stop_run(capsys, text=…, uncommitted=True) → (stdout, stderr, guard_log)。改檔用 edit(state, *paths) 記在目前回合。"""
     import wg_friction
     import wg_need_goal
-    import wg_overview
     import wg_release_rules
     state = {"phase": "working", "turn_seq": 0, "session": {"id": _SID, "cwd": str(tmp_path), "source": "startup"},
              "injected_atoms": [], "modified_files": [], "knowledge_queue": [], "failing_tests": [],
@@ -54,7 +53,6 @@ def flow(monkeypatch, tmp_path):
     monkeypatch.setattr(ups, "collect_matched_atoms", lambda *a, **k: ([], {}, [], [], {}, set(), "general", {}))
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: ([], {}))
     monkeypatch.setattr(wg_need_goal, "on_prompt", lambda *a, **k: None)
-    monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a, **k: [])
     monkeypatch.setattr(wg_release_rules, "fix_escalation_text", lambda s: "")
     monkeypatch.setattr(ups, "_maybe_spawn_failure_extraction", lambda *a, **k: None)

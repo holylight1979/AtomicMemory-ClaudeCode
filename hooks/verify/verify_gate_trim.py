@@ -121,21 +121,6 @@ def test_verify_ledger_dir_writable():
     assert not hasattr(pt, "check_verify_ledger_write")
 
 
-# ─── 定位：兩候選保留判斷、一回合問一次；第四行節點只記錄 ──────────────
-
-def test_two_candidates_asked_once_goal_node_only_logged(monkeypatch):
-    import wg_need_goal as ng
-    import wg_overview as wo
-    monkeypatch.setattr(ng, "_guard", lambda *a, **k: None)
-    tree = {"id": "T1", "nodes": {"T1": {"text": "列出產品", "status": "doing"}}}
-    good = "合理，因為這段只做一件事；同類還可能在哪：無，因為只有這一處"
-    state = {"turn_seq": 3, "turn_prompts_seq": 3}
-    node, owed = wo._goal_line_check(tree, {"根因": "在 cli 層", "批判": good}, "s", state)
-    assert node == "T1" and owed and owed[0].rule == "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"     # 沒第四行：掛樹根、兩候選照問
-    assert wo._goal_line_check(tree, {"根因": "在 cli 層", "批判": good}, "s", state)[1] is None    # 同一回合第二次：只記
-    assert wo._goal_line_check(tree, {"根因": "候選 A cli；候選 B report；選 A 因為入口在 cli", "批判": "x"}, "s", state)[1]  # 批判照擋
-
-
 # ─── 收尾問一句；拿掉逐件引原句 ────────────────────────────────
 
 def test_deferral_gate_asks_one_question():
@@ -174,7 +159,7 @@ def test_tracking_lines_recorded(monkeypatch):
     assert got and "README 補充" in json.dumps(got, ensure_ascii=False)
 
 
-# ─── 定位不重抄、評分不注入、提問不掛節點、未知寫入、改判準卡、子代理預算 ─────────────────────────────────────
+# ─── 定位不重抄、評分不注入、提問不掛節點、未知寫入、子代理預算 ─────────────────────────────────────
 
 def test_locate_lines_not_duplicated_into_tool_args():
     src = (ROOT / "lib" / "overview_hub.py").read_text(encoding="utf-8")
@@ -206,8 +191,8 @@ def test_unknown_write_target_allowed_and_logged(monkeypatch):
     import wg_overview as wo
     logs = []
     monkeypatch.setattr(wo, "_log", lambda event, sid, **kw: logs.append((event, kw)))
-    out = wo.on_edit({}, "s", "UNKNOWN:echo x > $P", "", {})
-    assert out[0] is None and logs[-1][0] == "edit_unknown_target" and logs[-1][1]["allowed"] is True
+    out = wo.write_check("s", "UNKNOWN:echo x > $P", {})
+    assert out == (None, None, None) and logs[-1][0] == "edit_unknown_target" and logs[-1][1]["allowed"] is True
 
 
 def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
@@ -378,23 +363,16 @@ def test_docs_only_turn_skips_closing_check_unless_done_claimed(stop_drive, caps
     assert "[Guardian:ScanReport]" in stop_drive(capsys, "全部完成了", mods)
 
 
-def test_non_coding_turn_ups_skips_goal_tree_keeps_cards(monkeypatch, tmp_path, capsys):
-    """UPS：使用者剛打字時還沒宣告、還沒改程式，目標樹提示不送（原話照記）；關鍵字判寫碼的只多送一行「先立樹」、不啟動守門；
-    導讀卡是 v6 以前就有的記憶注入，照舊送。"""
+def test_non_coding_turn_ups_skips_goal_tree(monkeypatch, tmp_path, capsys):
+    """UPS：使用者剛打字時還沒宣告、還沒改程式，目標樹提示不送（原話照記）；關鍵字判寫碼的只多送一行「先立樹」、不啟動守門。"""
     from handlers import user_prompt_submit as ups
     import wg_need_goal
-    import wg_overview
-    seen = {"ng": 0, "hub": 0}
+    seen = {"ng": 0}
 
     def ng_on_prompt(*a, **k):
         seen["ng"] += 1
         return "[NeedGoal] 提示行"
-
-    def hub_on_prompt(*a, **k):
-        seen["hub"] += 1
-        return "[Guardian:OverviewHub] 卡"
     monkeypatch.setattr(wg_need_goal, "on_prompt", ng_on_prompt)
-    monkeypatch.setattr(wg_overview, "on_prompt", hub_on_prompt)
     for name, fn in (("run_pre_gates", lambda *a: None), ("build_context", lambda *a, **k: None),
                      ("collect_matched_atoms", lambda *a, **k: ([], {}, [], [], {}, set(), "general", {})),
                      ("assemble_injection", lambda *a, **k: ([], {})), ("write_state", lambda *a, **k: None),
@@ -412,9 +390,9 @@ def test_non_coding_turn_ups_skips_goal_tree_keeps_cards(monkeypatch, tmp_path, 
         out[prompt] = json.loads(cap)["hookSpecificOutput"]["additionalContext"] if cap.strip() else ""
     import wg_need_goal as ng
     qa, code = out["之前那個決定是什麼？"], out["幫我新增一個 by-product 子命令"]
-    assert "提示行" not in qa and ng.CODE_TREE_HINT not in qa and "OverviewHub" in qa
+    assert "提示行" not in qa and ng.CODE_TREE_HINT not in qa
     assert "提示行" not in code and ng.CODE_TREE_HINT in code                   # 關鍵字判寫碼：只送先立樹一行
-    assert seen["ng"] == 2 and seen["hub"] == 2                                   # 原話兩則都照記、導讀卡兩則都判
+    assert seen["ng"] == 2                                                        # 原話兩則都照記
 
 
 # ─── 文字評分 ──────────────────────────────────────────────────────

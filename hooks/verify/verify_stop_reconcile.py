@@ -981,7 +981,6 @@ def _ups_turn(monkeypatch, state, prompt):
     monkeypatch.setattr(ups, "collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {}))
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: ([], {}))
     monkeypatch.setattr(ups, "_truncate_context_by_activation", lambda lines, *a: lines)
-    monkeypatch.setattr(wo, "on_prompt", lambda *a, **k: None)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
     ups.handle_user_prompt_submit({"session_id": _SID, "prompt": prompt, "transcript_path": ""}, {"sync_keywords": []})
 
@@ -2015,7 +2014,7 @@ def test_035_3_unreadable_map_blocks_as_judge_error_not_silent_skip(driven, caps
         wo._lookup(str(proj / "hooks" / "x.py"))
     assert wo._lookup(str(tmp_path / "nowhere" / "x.py")) is None                      # 沒有表：照舊 None
     capsys.readouterr()
-    assert wo._lookup_quiet(str(proj / "hooks" / "x.py")) is None                      # 注入那幾條路：當沒命中，但 stderr 說一聲
+    assert wo._lookup_quiet(str(proj / "hooks" / "x.py")) is None                      # 讀檔帳那幾條路：當沒命中，但 stderr 說一聲
     assert "存在但讀不到" in capsys.readouterr().err
     out, _, logs = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"))
     assert "判定錯誤：MapReadError" in out and "存在但讀不到" in out

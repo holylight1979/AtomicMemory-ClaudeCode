@@ -166,7 +166,7 @@ def handle_user_prompt_submit(
             "DEFAULTS 運行——請修復 JSON（詳 Logs/atom-debug）。"
         )
 
-    # 分段計時（wg_hook_timing）：累計過上限 80% → 降級，脈絡、導讀卡、檢索與注入組裝這次不跑；
+    # 分段計時（wg_hook_timing）：累計過上限 80% → 降級，脈絡、檢索與注入組裝這次不跑；
     # 前置閘、記原話（目標樹）、收尾記帳與寫 state 照做。到 95% 還沒送出 → 背景鬧鐘代送已備好的 lines。
     _hook_timing.set_fallback(lambda: _fallback_output(lines))
 
@@ -194,19 +194,19 @@ def handle_user_prompt_submit(
         )
         _hook_lap("脈絡")
 
-    # 意圖前移（A0.1）：注入前就知道這回合要做什麼，OverviewHub 依 goal_weights 選片；十鍵見 wg_atoms.INTENT_PATTERNS。
+    # 意圖前移（A0.1）：注入前就知道這回合要做什麼；十鍵見 wg_atoms.INTENT_PATTERNS。
     # 意圖是「使用者要做什麼」的權威判斷，只吃使用者本人打的字（user_typed_text：剔掉同伴訊息、背景通知等 harness 區塊）；
     # 整則沒有使用者的字 → 沿用上一則判的意圖（同伴信、通知正文裡的「重構」不改意圖；G7 等值閘據此擋）
     typed = user_typed_text(prompt)
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
-    coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入、導讀卡照舊）
+    coding = v6 and coding_turn(state, config)     # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入照舊）
     if not coding:
         _hook_timing.quiet()                       # 不寫計時帳；新的使用者回合起點：拿掉寫碼回合標記
         _hook_timing.mark_coding(session_id, False)
 
     # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
-    # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
+    # 排在記憶注入之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
     try:
         _ng_txt = None
         if v6:
@@ -222,20 +222,6 @@ def handle_user_prompt_submit(
         _atom_debug_error("ups:need_goal", e)
         print(f"[NeedGoal] UserPromptSubmit 記原話失敗：{type(e).__name__}: {e}", file=sys.stderr)
     _hook_lap("目標樹")
-
-    # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
-    if not _hook_degraded():
-        try:
-            from wg_overview import on_prompt as _hub_on_prompt
-            _hub_txt = _hub_on_prompt(
-                state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
-                **({"intent": turn_intent} if v6 else {}),   # 依意圖選片是寫碼守門加的；關閉時照舊整張注入
-            )
-            if _hub_txt:
-                lines.append(_hub_txt)
-        except Exception as e:
-            _atom_debug_error("ups:overview_hub", e)
-        _hook_lap("導讀卡")
 
     # ─── Search pipeline 段：候選收集（trigger/BM25/vector）+ supersedes + ACT-R 排序
     # ─── Injection assemble 段：hot/cold + budget + related spread + 效用晉升提示

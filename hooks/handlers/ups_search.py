@@ -256,7 +256,7 @@ def collect_matched_atoms(
             atom_source[name] = "trigger"
             trigger_hits[name] = count_trigger_hits(triggers, prompt_lower)
 
-    # 意圖前移（A0.1）：UPS 在 OverviewHub 注入前已算好存 state["turn_intent"]；直接呼叫本函式（verify）沒有 state 值時自己算
+    # 意圖前移（A0.1）：UPS 在檢索前已算好存 state["turn_intent"]；直接呼叫本函式（verify）沒有 state 值時自己算
     intent = state.get("turn_intent") or classify_intent(prompt)
 
     kw_matched_names = {e[0][0] for e in matched_with_dir}
