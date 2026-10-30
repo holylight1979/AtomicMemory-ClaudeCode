@@ -25,7 +25,8 @@
         "收尾誠實",
         "退縮歸屬",
         "設定衝突時的處置",
-        "要不要改目標"
+        "要不要改目標",
+        "結論先寫終局"
       ],
       "why": "IDENTITY 被覆寫成 stub 或修剪掉契約段時，Stop 閘的三選一失去事前依據",
       "fix": "比對 templates/IDENTITY.template.md 回復"
