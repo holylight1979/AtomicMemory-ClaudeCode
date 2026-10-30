@@ -85,6 +85,3 @@ def test_live_config_model_exists_in_live_cache():
     cc = config.get("codex_companion") or {}
     slug, err = jb.resolve_model_slug(cc, str(LIVE_CACHE))
     assert slug == str(cc.get("model") or "").strip(), f"config.codex_companion.model 不在真 cache：{err}"
-    so_model = str((config.get("second_opinion") or {}).get("model") or "gpt-6-astra")
-    slug2, err2 = jb.resolve_model_slug({"model": so_model}, str(LIVE_CACHE))
-    assert slug2 == so_model, f"second_opinion.model（或預設 gpt-6-astra）不在真 cache：{err2}"

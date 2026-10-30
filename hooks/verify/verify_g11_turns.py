@@ -4,8 +4,8 @@
       填好函式名的範例行；收尾文字沒有拐彎判斷行 → 擋一次（規則 TURN_JUDGMENT_REQUIRED，訊息列缺的那幾條與範例行），同一個
       使用者回合不再擋，下一回合再擋；寫了四欄 → 擋並點名缺哪欄；五欄齊 → 放行、guard log reading_path 記 judged；
       入口拐彎到門檻的變差／新增路徑也是一條；繼承鏈有空層、連續轉手鏈 ≥2 也是一條；真 Stop 入口擋到補齊為止。
-擋點：排在寫碼查核（對帳）之後、SecondOpinion 之前——對帳先擋時尾段「後面還會擋」列拐彎判斷缺幾條（預覽只讀、不吃這回合
-      那一次）；拐彎判斷擋時尾段預告第二意見；同回合第二次收尾不再擋；子代理 Stop 入口不觸發。
+擋點：排在寫碼查核（對帳）之後——對帳先擋時尾段「後面還會擋」列拐彎判斷缺幾條（預覽只讀、不吃這回合
+      那一次）；同回合第二次收尾不再擋；子代理 Stop 入口不觸發。
 C#：改了 .cs → 不列函式級數據表，走一跳範圍的閱讀路徑（lib/reading_path_cs），超線才問（只轉手的一層、繼承鏈有空層；巢狀深不問），
       那一題與五欄核對共用；沒超線、或只有解析不到 → 沒有字（解析不到只進 stderr）；基底的基底在一跳外 → 標接不到、不往上讀；
       C# 量不出來不牽連同一批的 Python 數據。案例細節見 lib/verify/verify_reading_path_cs.py。
@@ -489,23 +489,6 @@ def test_second_stop_in_same_user_turn_still_missing_is_not_blocked_again(driven
     assert not [g for g, _ in logs if g == "reading_path"]
     out, _, _ = driven("全部完成了。", capsys, reading_path=state["reading_path"], turn_seq=7, turn_prompts_seq=7)
     assert "TURN_JUDGMENT_REQUIRED" in _reason(out), "下一個使用者回合還缺 → 再擋一次"
-
-
-def test_turn_judgment_sits_before_second_opinion_and_shares_its_preview(driven, capsys, monkeypatch):
-    """與 G9 同一序列：對帳過、缺判斷行、也還欠第二意見 → 先擋拐彎判斷，尾段預告第二意見（舊碼這裡還沒掛預覽）；
-    同回合再收尾 → 拐彎判斷這回合不會再擋，輪到第二意見擋，它的預覽不再列拐彎判斷。"""
-    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
-    monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
-    so = rr.Verdict("SECOND_OPINION_REQUIRED", True, "本回合沒有跑第二意見", ("程式檔 5 個",))
-    monkeypatch.setattr(st, "_so_facts", lambda *a, **k: (so, {"code_files": 5}))
-    out, state, _ = driven("全部完成了。", capsys, reading_path=_owed())
-    reason = _reason(out)
-    assert reason.startswith("[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED") and "[Guardian:SecondOpinion]" not in reason
-    assert "第二意見：" in _also(reason) and "拐彎判斷" not in _also(reason), reason[-800:]
-    out, state, _ = driven("全部完成了。", capsys, reading_path=state["reading_path"])
-    reason = _reason(out)
-    assert reason.startswith("[Guardian:SecondOpinion]") and "TURN_JUDGMENT_REQUIRED" not in reason, reason[:400]
-    assert "拐彎判斷" not in _also(reason)
 
 
 def test_one_time_piggyback_flags_are_written_with_the_block(driven, capsys, monkeypatch):

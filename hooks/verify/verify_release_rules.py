@@ -30,7 +30,6 @@ def test_044_every_rule_has_a_case():
 
 @pytest.mark.parametrize("rule, case_file", [
     ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
-    ("SECOND_OPINION_RAN_BEFORE", "verify_pull_verify_ledger.py"),
     ("CARRIED_CLAIM_ANY_TURN_RECEIPT", "verify_pull_verify_ledger.py"),
     ("RECEIPT_UNPARSED_GENERAL_ONLY", "verify_pull_verify_ledger.py"),
     ("BASH_UNREACHED_READ_NOT_COUNTED", "verify_overview_hub.py"),
@@ -49,9 +48,6 @@ def test_044_every_rule_has_a_case():
     ("OWN_COMMIT_CHANGES_STILL_COMPARED", "verify_old_test_declare.py"),
     ("BLOCK_BUDGET_SHARED", "verify_gate_trim.py"),
     ("STATE_RMW_LOCKED", "verify_state_parallel_rmw.py"),
-    ("SECOND_OPINION_RESULT_ACROSS_TURNS", "verify_g9_second_opinion.py"),
-    ("SECOND_OPINION_WAITING_NOT_DONE", "verify_g9_second_opinion.py"),
-    ("SECOND_OPINION_DECLINE_ACCEPTED", "verify_g9_second_opinion.py"),
     ("DECL_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
     ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
@@ -1995,17 +1991,6 @@ def test_g11_turn_judgment_required_needs_five_columns():
     assert rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層｜合理，因為短")).owed is False
     v = rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層"))
     assert v.rule == "TURN_JUDGMENT_REQUIRED" and v.owed and "怎麼改直" in "".join(v.evidence)
-# ─── G9 第二意見 ───
-
-def test_g9_second_opinion_rules_registered():
-    """SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED：規則名登記、四行少一行就擋、空話理由照擋（完整案例在 verify_g9_second_opinion.py）。"""
-    four = "## 第二意見與分歧裁決\nCodex 結論：同意\n我方結論：同意\n分歧點：無分歧\n"
-    v = rr.second_opinion_verdict(True, ["程式檔 5 個 ≥ 4"], True, [("j1", "done")], four)
-    assert v.rule == "SECOND_OPINION_REQUIRED" and v.owed and "裁決與理由" in v.why
-    v = rr.second_opinion_verdict(True, ["程式檔 5 個 ≥ 4"], True, [], "不需第二意見｜不需要")
-    assert v.rule == "SECOND_OPINION_DECLINED" and v.owed
-
-
 # ─── G7 等值與熱路徑 ───
 
 def test_g7_equivalence_and_hot_path_rules():
@@ -2168,15 +2153,6 @@ def test_005_origin_said_includes_unattached():
     assert [s["seq"] for s in ng._said_for_check(tree, doc)] == [1, 88]
 
 
-def test_005_second_opinion_declared_always_logged_registered():
-    """SECOND_OPINION_DECLARED_ALWAYS_LOGGED：宣告行的判法（行首、理由過 second_opinion_decline_ok）；Stop 端留帳案例在
-    verify_g9_second_opinion.py 的 005 段。"""
-    assert rr.second_opinion_decline("不需第二意見｜這一輪沒有改任何程式，只做搜尋和實測確認。") == "這一輪沒有改任何程式，只做搜尋和實測確認。"
-    assert rr.second_opinion_decline_ok("這一輪沒有改任何程式，只做搜尋和實測確認。")
-    assert not rr.second_opinion_decline_ok("不需要")
-    assert "SECOND_OPINION_DECLARED_ALWAYS_LOGGED" in rr.RULES
-
-
 # 第四跑 B-1 第一版根因層：兩個跨層候選用 ①② 列，沒寫「候選 A」
 _B1_V1 = ("新功能非修 bug；附帶根因①邏輯層 periods.month_of 以 UTC 切月違反 README 台北時間；②測試層 monthly 期望值照 UTC 算鎖住錯誤；"
           "資料讀入層 ts 保留 +08:00 沒壞")
@@ -2318,8 +2294,7 @@ _ELSEWHERE_CASES = {
         ("verify_pull_tool_gates.py", "test_declaration_after_a_named_still_counts_for_a"),
         ("verify_pull_tool_gates.py", "test_declaration_before_b_named_does_not_cover_b")],
     # 收尾閘那一批：案例在 verify_pull_stop_gates.py，每支 docstring 開頭寫「規則：<名>」
-    "PENDING_SAME_USER_TURN": [("verify_pull_stop_gates.py", "test_1_pending_from_previous_user_turn_gives_fresh_budget"),
-                               ("verify_pull_stop_gates.py", "test_9_second_opinion_pending_from_previous_turn_not_exhausted")],
+    "PENDING_SAME_USER_TURN": [("verify_pull_stop_gates.py", "test_1_pending_from_previous_user_turn_gives_fresh_budget")],
     "RELEASE_COVERS_SHOWN_ITEMS": [
         ("verify_pull_stop_gates.py", "test_1_released_item_not_asked_again_next_turn_until_cause_gone"),
         ("verify_pull_stop_gates.py", "test_release_binds_to_items_the_user_was_shown"),
@@ -2587,9 +2562,9 @@ def test_slim_rules_registered_with_cases(rule):
 
 
 @pytest.mark.parametrize("rule", ["READING_PATH_EARLY_START", "TURN_JUDGMENT_PRE_CLOSE", "PICK_ONE_PRE_CLOSE",
-                                  "PICK_ONE_WITH_TURN_JUDGMENT", "SECOND_OPINION_BACKGROUND", "SECOND_OPINION_DONE_NOTICE"])
+                                  "PICK_ONE_WITH_TURN_JUDGMENT"])
 def test_closing_round_rules_cased_in_closing_round(rule):
-    """收尾只跑一輪、第二意見背景跑的規則：端到端案例在 verify_closing_round.py（PostToolBatch→Stop）。"""
+    """收尾只跑一輪的規則：端到端案例在 verify_closing_round.py（PostToolBatch→Stop）。"""
     assert rule in rr.RULES
     assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
@@ -2607,21 +2582,6 @@ def test_locate_hint_rule_registered_with_case():
     text = (Path(__file__).parent / "verify_locate_hint.py").read_text(encoding="utf-8")
     fn = "test_locate_hint_on_first_read_of_part_code_file_then_follow_it_no_block"
     assert "LOCATE_HINT_ON_FIRST_READ" in rr.RULES and f"def {fn}(" in text and "LOCATE_HINT_ON_FIRST_READ" in text
-
-
-# ─── 第二意見看事實觸發：規則名登錄、案例真的在、案例點到規則名 ───
-_SO_FACT_CASES = {
-    "SECOND_OPINION_FACT_TRIGGER": ("verify_g9_second_opinion.py", "test_fact_trigger_owed_without_completion_words"),
-    "SECOND_OPINION_EXIT_FINGERPRINT": ("verify_g9_second_opinion.py", "test_exit_fingerprint_once_per_change_set"),
-    "SECOND_OPINION_PRE_CLOSE": ("verify_closing_round.py", "test_so_pre_close_attaches_same_text_then_stop_passes"),
-}
-
-
-@pytest.mark.parametrize("rule", sorted(_SO_FACT_CASES))
-def test_so_fact_trigger_rules_registered_with_cases(rule):
-    case_file, fn = _SO_FACT_CASES[rule]
-    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
-    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)
 
 
 # ─── 擋或提醒（RULE_MODE）：每條規則有 mode、三類照擋、其餘提醒、總開關關一律照舊 ───
@@ -2695,7 +2655,7 @@ def test_pre_gate_remind_rules_registered_with_mode():
     assert rr.remind_key("LOCATE_BEFORE_EDIT", "戰鬥") == "LOCATE_BEFORE_EDIT|戰鬥"
 # ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）、(f2) 交付前對照（GOAL_RECONCILE_AT_DELIVERY）；入口案例在 verify_gate_mode_stop.py ───
 @pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "GOAL_RECONCILE_AT_DELIVERY", "TURN_JUDGMENT_REQUIRED",
-                                  "SECOND_OPINION_REQUIRED", "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
+                                  "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
                                   "RELOAD_ADVICE_ALREADY_LOADED", "AEC_EVIDENCE_PATH",
                                   "EDITED_PART_NEEDS_GOAL_NODE", "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "GATE_SELF_ERROR"))
 def test_stop_remind_rules_are_remind_when_v6_on(rule):

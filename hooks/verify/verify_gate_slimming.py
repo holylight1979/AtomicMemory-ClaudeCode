@@ -323,15 +323,12 @@ def test_delivery_letter_is_the_closing_report():
     assert "盤點（改前 → 改後）" not in md
 
 
-# ─── Codex 只審一輪（工作軌規矩：只寫在總控台 skill，不進產品 hook） ─────────────
+# ─── Codex 只審一輪（工作軌規矩：只寫在總控台 skill） ─────────────
 
 def test_codex_one_round_is_console_only():
-    """「Codex 只審一輪、只收弄壞資料／繞閘」是開發期的工作軌規矩：寫在 skills/console，產品的第二意見閘照舊。"""
-    import wg_release_rules as rr
-    import wg_second_opinion as so
+    """「Codex 只審一輪、只收弄壞資料／繞閘」是開發期的工作軌規矩：寫在 skills/console。"""
     md = (HOOKS_DIR.parent / "skills" / "console" / "SKILL.md").read_text(encoding="utf-8")
     assert "Codex 只審一輪" in md and "【弄壞資料】" in md
-    assert "one_round" not in so.DEFAULTS and "只審一輪" not in rr.second_opinion_hint()
 
 
 
@@ -429,8 +426,8 @@ def test_note_git_launcher_edit_into_code_drops_marker_delete_keeps_it(git_repo)
     assert vl.note_git_launcher(str(repo / "run.sh")) is None
 
 
-def test_launcher_skipped_by_goal_tree_and_second_opinion(git_repo, monkeypatch):
-    """目標樹不蓋號、第二意見門檻不數（舊碼兩處都照算 → 紅）。"""
+def test_launcher_skipped_by_goal_tree(git_repo, monkeypatch):
+    """目標樹不蓋號（舊碼照算 → 紅）。"""
     import wg_need_goal as ng
     vl, repo = git_repo
     f = repo / "_once.py"
@@ -438,10 +435,6 @@ def test_launcher_skipped_by_goal_tree_and_second_opinion(git_repo, monkeypatch)
     vl.note_git_launcher(str(f))
     monkeypatch.setattr(ng, "load", lambda sid: (_ for _ in ()).throw(AssertionError("啟動器不該讀目標樹")))
     assert ng.stamp_edit("s", str(f), "", 3, {}) is None
-    import wg_second_opinion as so
-    state = {"modified_files": [{"path": str(f), "session_id": "s", "last_turn_seq": 3}]}
-    _, facts = so.check(state, "s", state["modified_files"], "已完成", "", {}, dict(so.DEFAULTS), True)
-    assert facts["code_files"] == 0
 
 
 def test_console_skill_launcher_order_no_rerun():
@@ -558,13 +551,6 @@ def test_no_review_declaration_ignored(review_env):
     edit("a.py")
     ra = receipt("pytest tests/test_a.py")
     assert not _reconcile(op, ra, rb, unaffected="說不影響")["ok"]
-
-
-def test_second_opinion_start_marks_review():
-    """PreToolUse 的 second_opinion_start 分支記下審查時刻（材料在這一刻打包）。"""
-    src = (HOOKS_DIR / "handlers" / "pre_tool_use.py").read_text(encoding="utf-8")
-    i = src.index('if tool_name.endswith("__second_opinion_start"):')
-    assert "mark_review(sid)" in src[i:i + 700]
 
 
 # ─── hook 每次啟動只載入要用的部分 ─────────────────────────────────

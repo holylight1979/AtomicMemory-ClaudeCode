@@ -27,7 +27,7 @@ from handlers import post_tool_batch as ptb  # noqa: E402
 _SID = "sid-tj-threshold"
 _V6 = {"v6": {"enabled": True}, "reconcile_gate": {"enabled": False},
        "sync_reminder": {"enabled": False}, "deferral_gate": {"enabled": False}, "atom_audit": {"enabled": False},
-       "aec": {"scan_report_gate": False}, "pick_one": {"enabled": False}, "second_opinion": {"auto": {"enabled": False}}}
+       "aec": {"scan_report_gate": False}, "pick_one": {"enabled": False}}
 HEAD = "[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完；尺不是判決，只量不擋）："
 QUIET_TEXT = HEAD + "\n  還沒 git add 的新檔 1 個不在掃描母體（--scope git），沒量到"
 _BODY = "def {0}(n):\n    k = n + 1\n    k *= 2\n    return k\n"

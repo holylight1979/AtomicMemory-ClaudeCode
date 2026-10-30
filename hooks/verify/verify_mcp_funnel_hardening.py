@@ -7,7 +7,7 @@
    不得用 `echo ${手工轉義} | python` shell 管線；fail-open 放行但 crashLog 記
    gate unavailable。
 3. **spawn 皆有 timeout**：spawnAtomCli / spawnAtomAccess / spawnEditMetadata /
-   spawnIndexDelete / execWriteGate / spawnPrepare（second-opinion.js）/ spawnSmells
+   spawnIndexDelete / execWriteGate / spawnSmells
    （project-smells.js）都要有 setTimeout + kill 護欄（無 timeout 的
    python 子程序卡死 = MCP tool call 永久 pending）。
 
@@ -64,7 +64,6 @@ def test_spawn_sites_have_timeout():
     funnel = _read(f"{MCP_LIB}/funnel.js")
     access = _read(f"{MCP_LIB}/atom-access.js")
     tools = _read(f"{MCP_LIB}/atom-tools.js")
-    second = _read(f"{MCP_LIB}/second-opinion.js")
     smells = _read(f"{MCP_LIB}/project-smells.js")
     for src, marker in [
         (funnel, "function spawnAtomCli"),
@@ -72,7 +71,6 @@ def test_spawn_sites_have_timeout():
         (access, "function spawnAtomAccess"),
         (tools, "function spawnEditMetadata"),
         (tools, "function spawnIndexDelete"),
-        (second, "function spawnPrepare"),
         (smells, "function spawnSmells"),
     ]:
         body = _fn_body(src, marker)
@@ -81,11 +79,7 @@ def test_spawn_sites_have_timeout():
 
 
 # 刻意不設 timeout 的 spawn 點（例外清單）：登記理由，並由 test_spawn_exempt_sites_are_detached 驗「真的是 detached 且理由在註解裡」。
-SPAWN_TIMEOUT_EXEMPT = {
-    ("second-opinion.js", "function spawnExecute"):
-        "detached 跑 codex（60～300 s），MCP 回應不等它；上限在 py 側三處（run_guard 60 s、探針與正式 codex 的 "
-        "wait(timeout)+kill）加 js readResult 逾 timeout_s+90 s 回 failed，不會永遠掛",
-}
+SPAWN_TIMEOUT_EXEMPT: dict = {}
 
 
 def test_spawn_exempt_sites_are_detached():
@@ -95,8 +89,8 @@ def test_spawn_exempt_sites_are_detached():
         assert "detached: true" in body and ".unref()" in body, f"{marker} 登記為例外但不是 detached+unref：{why}"
         head = src[max(0, src.index(marker) - 600):src.index(marker)]
         assert "setTimeout" in head and "readResult" in head, f"{marker} 上方註解要寫明為何沒 timeout 與上限在哪"
-    # 兩個新檔的其他 spawn( 呼叫點都要在 timeout 清單或例外清單裡
-    for fname, timed in (("second-opinion.js", {"function spawnPrepare"}), ("project-smells.js", {"function spawnSmells"})):
+    # 新檔的其他 spawn( 呼叫點都要在 timeout 清單或例外清單裡
+    for fname, timed in (("project-smells.js", {"function spawnSmells"}),):
         src = _read(f"{MCP_LIB}/{fname}")
         fn_names = set(re.findall(r"^function (\w+)\(", src, flags=re.M))
         spawning = {n for n in fn_names if "spawn(" in _fn_body(src, f"function {n}")}

@@ -1027,11 +1027,10 @@ _CARRY_ON_REBUILD = (
     "turn_seq", "turn_prompts_seq", "user_turn_count", "turn_open", "turn_typed", "exec_turn_seq",
     # 事件序號：modified_files 的 last_seq 照搬了，event_seq 不搬就從頭算，壓縮後的收據 seq 全小於舊的 last_seq、等值證法閘整批略過
     "event_seq",
-    # 各閘的「問過／放行／擋過」帳本（鍵都是 session id，compact 不換 session）：不搬的話重建後 PickOne、對帳閘、清理閘、第二意見、
+    # 各閘的「問過／放行／擋過」帳本（鍵都是 session id，compact 不換 session）：不搬的話重建後 PickOne、對帳閘、清理閘、
     # 收據全部重來，使用者剛選的「放行這一回合」當場失效
     "pick_one", "user_released", "pending_release", "last_block", "verify_receipts",
-    "reconcile_gate_turn", "cleanup_gate_turn", "second_opinion_gate_turn", "second_opinion_declared", "second_opinion_ok",
-    "second_opinion_ran", "second_opinion_cover", "second_opinion_watch",
+    "reconcile_gate_turn", "cleanup_gate_turn",
 )
 
 

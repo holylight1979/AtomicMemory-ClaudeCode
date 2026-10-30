@@ -274,7 +274,7 @@
     "assessment_timeout": 120,
     "_doc_assessment_timeout": "背景審查子程序（audit.py）單次 codex 呼叫的秒數上限；Stop hook 不等它，與收尾耗時無關。",
     "codex_extra_args": [],
-    "_doc_codex_extra_args": "原樣附加到 codex exec 的旗標（裁判與第二意見共用）。只有某台機器需要的旗標（例：停用那台 ~/.codex/config.toml 註冊、裁判用不到的 MCP 伺服器）寫在 workflow/config.local.json 的 codex_companion 段。",
+    "_doc_codex_extra_args": "原樣附加到 codex exec 的旗標（tools/codex-call.py 帶上；驗收裁判也走它）。只有某台機器需要的旗標（例：停用那台 ~/.codex/config.toml 註冊、裁判用不到的 MCP 伺服器）寫在 workflow/config.local.json 的 codex_companion 段。",
     "score_threshold": 7,
     "max_audits_per_session": 30,
     "silent_advisory": true,
@@ -304,23 +304,6 @@
       "enabled": true,
       "max_per_spec": 2,
       "max_prompt_chars": 22000
-    }
-  },
-  "second_opinion": {
-    "_doc": "第二意見（tools/second-opinion，MCP second_opinion_start／second_opinion_result）：model 經 ~/.codex/models_cache.json 精確比對；probe_timeout_s 探針（叫 codex 在唯讀沙箱用 shell 讀回 job 目錄裡 probe.txt 的隨機字樣，讀不到即 failed；跑一次 shell 實測約 20 s）、timeout_s codex exec 逾時 kill；defects_top_n 病灶前 N 節、ledger_tail 帳本尾 K 行；allow_claude_fallback 固定 false 不開放。job 落 workflow/second-opinion/<job>/（gitignore）。",
-    "model": "gpt-6-astra",
-    "probe_timeout_s": 60,
-    "timeout_s": 300,
-    "defects_top_n": 5,
-    "ledger_tail": 20,
-    "material_max_chars": 40000,
-    "auto": {
-      "_doc": "自動第二意見（hooks/wg_second_opinion.py 收事實、wg_release_rules 判定、handlers/stop.py SecondOpinion 段擋）：宣告完成時本 session 改過的程式檔 ≥min_code_files 或對 HEAD 改動 ≥min_changed_lines 行、或改到 risky_prefixes（相對版控根；出廠空）／部位表類別 gate 的檔（專案自己的高風險部位在部位表標 gate，記憶系統自己的在 .claude/overview-map.md），要本回合真跑過 second_opinion_start→result 並寫「第二意見與分歧裁決」四行，或宣告一行「不需第二意見｜<理由>」留帳；每使用者回合擋 max_blocks_per_turn 次後擋滿照 ReconcileGate 問人。子代理／裁判／headless 不觸發。enabled:false 整段關。",
-      "enabled": true,
-      "min_code_files": 4,
-      "min_changed_lines": 150,
-      "risky_prefixes": [],
-      "max_blocks_per_turn": 1
     }
   },
   "lang_guard": {

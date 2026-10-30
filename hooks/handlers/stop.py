@@ -6,8 +6,6 @@ handlers/stop.py — Stop hook handler
 1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）；
     獨立預算 reconcile_gate.max_blocks_per_turn
 1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；每個使用者回合擋一次；前面的閘擋下時列進預覽）
-1d. SecondOpinion Gate（G9：大任務或改到高風險部位的收尾（看事實不看措辭，中途提問、寫明還在等的不算）→ 本回合跑過第二意見＋分歧裁決四行、
-    「不需第二意見｜理由」或「等第二意見｜<job_id>」（留帳 waiting）；出口之後沒再改程式不再欠；擋一次後問使用者）
 1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
 3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
@@ -60,7 +58,7 @@ from wg_release_rules import (
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
     leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
     parse_not_doing, quote_in_prompts, waived_failures, waiver_mentioned_since, waiver_miss_notes, red_item_label,
-    cmd_run_line, second_opinion_decline, second_opinion_decline_ok, second_opinion_waiting, parse_equivalence_lines,
+    cmd_run_line, parse_equivalence_lines,
     reason_present, red_units, failure_lines, red_count_label, red_rerun_files_label,
     negative_control_verdict, parse_negative_controls,
 )
@@ -79,12 +77,9 @@ from wg_harvest import (
 )
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note, without_judgment_prompt
 from wg_text_score import on_stop as _text_score_on_stop
-from wg_release_rules import format_hit, second_opinion_hint, second_opinion_hint_background
+from wg_release_rules import format_hit
 from wg_release_rules import gate_mode as _gate_mode, parse_hit_rules as _parse_hit_rules, REMIND as _REMIND, BLOCK as _BLOCK
-from wg_second_opinion import auto_cfg as _so_auto_cfg, check as _so_facts, LETTER as _SO_LETTER, GATE as _SO_GATE, \
-    mark_ok as _so_mark_ok, mark_exit as _so_mark_exit, not_closing as _so_not_closing, owed_message as _so_owed_message
-from wg_closing_round import pick_pre_close_on as _pick_pre_close_on, so_background_on as _so_background_on, \
-    so_done_notice as _so_done_notice, watch_job as _so_watch_job
+from wg_closing_round import pick_pre_close_on as _pick_pre_close_on
 from wg_hook_timing import lap as _hook_lap, quiet as _hook_quiet
 from handlers._shared import (
     _hud_alive,
@@ -1964,29 +1959,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _cleanup_memo.append(items)
         return _cleanup_memo[0]
 
-    _so_memo: List[Any] = []
-
-    def _so_check() -> Tuple[Any, Dict[str, Any]]:
-        """SecondOpinion Gate（G9）的判定，一次 Stop 只算一次（_later_gates 預覽與本閘共用）。設定關、無法互動（headless）→ (None, {})；
-        判不出照放行並浮 stderr。規則 SECOND_OPINION_FACT_TRIGGER：每次收尾都判，只有還沒到收尾（not_closing：中途提問、寫明還在等）
-        不判，事實記 not_closing 給閘留帳。"""
-        if not _so_memo:
-            v, facts = None, {}
-            cfg = _so_auto_cfg(config)
-            if cfg.get("enabled", True) and not non_interactive_reason(input_data, _tpath):
-                try:
-                    skip = _so_not_closing(state, session_id, code_text, _user_turn(state, turn_seq))
-                    v, facts = _so_facts(state, session_id, own_mod_files, code_text, transcript_text, config, cfg, not skip)
-                    facts = {**facts, "not_closing": skip}
-                except Exception as e:  # noqa: BLE001  判不出不擋，但浮 stderr 並留帳（健檢可查）
-                    print(f"[Guardian:SecondOpinion] 判不出，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
-                    append_guard_log(_SO_GATE, {"event": "error", "session_id": session_id, "turn_seq": turn_seq,
-                                                "error": f"{type(e).__name__}: {e}"[:300]})
-            _so_memo.append((v, facts, cfg))
-        return _so_memo[0][0], {**_so_memo[0][1], "cfg": _so_memo[0][2]}
-
     def _later_gates(reason: str, names: Optional[List[str]] = None) -> str:
-        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（拐彎判斷、第二意見、知識收割、收尾自清、
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（拐彎判斷、知識收割、收尾自清、
         收尾檢核、同步），讓模型一回合
         補齊，不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。
         names 有給就補上預覽裡的閘名（連鎖斷路器用：預覽裡的閘之後擋下，不算這道閘之後的動作造成的）。"""
@@ -1997,11 +1971,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             later.append((("TurnJudgment",),
                           f"拐彎判斷：缺 {len(_tj_missing)} 條，收尾每條寫一行「{JUDGMENT_EXAMPLE.format(name='<名稱>')}」",
                           "TURN_JUDGMENT_REQUIRED"))
-        _so_v = _so_check()[0] if "[Guardian:SecondOpinion]" not in reason else None
-        if _so_v is not None and _so_v.owed and not released_this_turn(state, session_id, _SO_GATE, _user_turn(state, turn_seq)):
-            later.append((("SecondOpinion",),
-                          "第二意見：跑 second_opinion_start→second_opinion_result 並在收尾寫分歧裁決四行，或宣告「不需第二意見｜理由」",
-                          "SECOND_OPINION_REQUIRED"))
         if "[Guardian:KnowledgeHarvest]" not in reason and not background_on(config) and harvest_gate_reason(
                 state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq),
                 claimed=_done(last_text)):
@@ -2048,28 +2017,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if v6:
         _later.append(_later_gates)
 
-    # 規則 SECOND_OPINION_DECLARED_ALWAYS_LOGGED：收尾有「不需第二意見｜<理由>」就留帳，排在所有收尾閘前面——第二意見閘這回合不要、
-    # 或前面的閘先擋下，宣告照樣記；needed 記閘當下要不要。同一個使用者回合同一句理由只記一筆（被擋後重寫同一句不重記）。
-    _so_reason = second_opinion_decline(code_text)
-    if (v6 and _so_reason is not None and second_opinion_decline_ok(_so_reason)
-            and _declared_once(state, "second_opinion_declared", session_id, _since, _so_reason)):
-        _so_v0, _so_f0 = _so_check()
-        append_guard_log(_SO_GATE, {"event": "declined", "session_id": session_id, "turn_seq": turn_seq,
-                                    "reason": _so_reason[:300], "code_files": _so_f0.get("code_files"),
-                                    "triggers": _so_f0.get("triggers"),
-                                    "needed": None if _so_v0 is None else _so_v0.rule == "SECOND_OPINION_DECLINED"})
-        write_state(session_id, state)
-    # 規則 SECOND_OPINION_EXIT_FINGERPRINT：收尾交了出口（不需／等第二意見，判定收下）就先記出口時的改檔指紋，同樣排在所有收尾閘前面：
-    # 前面的閘擋下、補件那則不重寫出口行，下一次 Stop 指紋沒變照樣認得這組改動交過了
-    if v6 and (_so_reason is not None or second_opinion_waiting(code_text)):
-        _so_f1 = _so_check()[1]
-        if _so_mark_exit(state, session_id, turn_seq, _so_f1):
-            if _so_f1.get("waiting") and _so_background_on(config):   # 在等的 job 一起記進看守（前面的閘擋下也不漏，DONE_NOTICE）
-                for _so_job in _so_f1["waiting"]:
-                    _so_watch_job(state, session_id, _so_job, waited=True)
-            write_state(session_id, state)
-
-    # 規則 EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED：收尾有「等值證法｜不適用｜<理由>」（理由成立）就留帳，同第二意見宣告排在所有收尾閘前面；
+    # 規則 EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED：收尾有「等值證法｜不適用｜<理由>」（理由成立）就留帳，排在所有收尾閘前面；
     # needed＝等值閘這回合管不管（意圖 refactor、宣告完成、改過程式檔、閘開著）。同回合同一行只記一筆。
     for _na in parse_equivalence_lines(code_text)["na"] if v6 else ():
         if reason_present(_na["reason"]) and _declared_once(state, "equivalence_na_declared", session_id, _since, _na["line"]):
@@ -2416,77 +2364,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         write_state(session_id, state)
 
     if _timed_out("拐彎判斷"):
-        return
-
-    # ── SecondOpinion Gate（G9）──────────────────────────────────
-    # 規則 SECOND_OPINION_REQUIRED／SECOND_OPINION_DECLINED（判定在 wg_release_rules 的 G9 段，事實由 wg_second_opinion 收）：大任務或
-    # 改到高風險部位的收尾（SECOND_OPINION_FACT_TRIGGER：不看措辭，只有還沒到收尾的不算，留帳 deferred）→ 本回合要真的跑過第二意見、收尾有分歧裁決四行，
-    # 或宣告「不需第二意見｜理由」（留帳 guard-second_opinion.jsonl）；出口之後沒再改程式不再欠（SECOND_OPINION_EXIT_FINGERPRINT）。
-    # 欠的那段先在收尾那批附過（SECOND_OPINION_PRE_CLOSE，同一段話），沒照做才在這裡擋。
-    # 吃寫碼查核那套（wg_release，閘名 second_opinion）：每個使用者回合擋 second_opinion.auto.max_blocks_per_turn 次（預設 1）後擋滿，
-    # 不自行放行、記 pending、要模型用 AskUserQuestion 問使用者。滿足或使用者放行 mark_ok（記回合與已審的高風險檔）：之後為採納意見做的修改不再要求，改到新的高風險檔或新改的檔數再過門檻才再要（SECOND_OPINION_ONCE_PER_CLAIM）。
-    # 子代理、裁判 session 走別的 Stop 入口；headless 由 _so_check 的 non_interactive_reason 判，都不觸發。
-    _sov, _sof = _so_check() if v6 else (None, {})
-    _so_uturn = _user_turn(state, turn_seq)
-    if _sov is not None and _sof.get("deferred"):
-        # 規則 SECOND_OPINION_FACT_TRIGGER：改過程式、這次還沒到收尾（中途提問／寫明還在等）→ 不判、不擋，留帳；欠帳下一次收尾照判
-        append_guard_log(_SO_GATE, {"event": "deferred", "session_id": session_id, "turn_seq": turn_seq,
-                                    "kind": _sof.get("not_closing"), "code_files": _sof.get("code_files")})
-    elif _sov is not None and _sof.get("satisfied"):
-        _so_mark_ok(state, session_id, turn_seq, _sof)
-        clear_pending(state, session_id, _SO_GATE)
-        write_state(session_id, state)          # 宣告不需的帳在收尾閘前面已記（SECOND_OPINION_DECLARED_ALWAYS_LOGGED）
-    elif _sov is not None and _sof.get("waiting"):
-        # 規則 SECOND_OPINION_WAITING_NOT_DONE：還在跑、收尾有「等第二意見｜<job_id>」行 → 不算宣告完成，不擋不吃擋次，只留帳
-        append_guard_log(_SO_GATE, {"event": "waiting", "session_id": session_id, "turn_seq": turn_seq,
-                                    "job": _sof["waiting"][-1], "code_files": _sof.get("code_files")})
-        if _so_background_on(config):           # 規則 SECOND_OPINION_DONE_NOTICE：在等的 job 記進看守，跑完了下一批工具回應或收尾提醒取回
-            for _so_job in _sof["waiting"]:
-                _so_watch_job(state, session_id, _so_job, waited=True)
-        _so_mark_exit(state, session_id, turn_seq, _sof)
-        write_state(session_id, state)
-    elif _sov is not None and _sov.owed and _gate_mode(_sov.rule, v6) == _REMIND:
-        # 提醒：欠的那段已在收尾那批先附（SECOND_OPINION_PRE_CLOSE）與改檔那則工具結果提醒過；這裡只留帳，不記 pending、不吃預算
-        _remind_logged(_SO_GATE, "SecondOpinion", _sov.rule, format_hit(_SO_LETTER, _sov), session_id, turn_seq,
-                       code_files=_sof.get("code_files"), triggers=_sof.get("triggers"))
-    elif _sov is not None and _sov.owed and released_this_turn(state, session_id, _SO_GATE, _so_uturn):
-        print("[Guardian:SecondOpinion] 使用者已放行這一回合，本次不擋", file=sys.stderr)
-    elif _sov is not None and _sov.owed:
-        _so_how = user_released(state, session_id, _SO_GATE, _tpath)
-        if _so_how:
-            record_release(state, session_id, _SO_GATE, _so_uturn)
-            mark_block(state, session_id, _SO_GATE, _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
-            clear_pending(state, session_id, _SO_GATE)
-            _so_mark_ok(state, session_id, turn_seq, {**_sof, "exit_via": "released"})   # 放行也是出口（不再欠的那類）
-            append_guard_log(_SO_GATE, {"event": "user_release", "session_id": session_id, "turn_seq": turn_seq,
-                                        "via": _so_how, "reason": format_hit(_SO_LETTER, _sov)[:300]})
-            print(f"[Guardian:SecondOpinion] 使用者放行這一回合（{_so_how}），記 user_release", file=sys.stderr)
-            write_state(session_id, state)
-        elif _chain_hold("SecondOpinion", format_hit(_SO_LETTER, _sov)):
-            pass
-        else:
-            _so_budget = state.setdefault("second_opinion_gate_turn", {})
-            _so_rec = _so_budget.get(session_id) if isinstance(_so_budget.get(session_id), dict) else None
-            _so_pend = pending_of(state, session_id, _SO_GATE) is not None
-            _so_max = int(_sof["cfg"].get("max_blocks_per_turn", 1))
-            _so_full = _so_pend or bool(budget_exhausted(_so_rec, _so_uturn, _so_max, [_SO_LETTER]))
-            _so_hit = format_hit(_SO_LETTER, _sov)
-            # 規則 SECOND_OPINION_BACKGROUND：開關 second_opinion.auto.background 開 → 提示寫 start 後不用等、跑完再接上；關照舊
-            _so_hint = second_opinion_hint_background() if _so_background_on(config) else second_opinion_hint()
-            if _so_full:
-                set_pending(state, session_id, _SO_GATE, turn_seq, _now_iso(), _so_hit, [code_text])
-                _so_msg = (f"{exhausted_message('SecondOpinion', None if _so_pend else _so_max, _so_hit)}\n原擋訊息：\n"
-                           f"{_so_hit}\n{_so_hint}")
-            else:
-                _so_msg = _so_owed_message(_sov, _sof, config)
-            _so_budget[session_id] = budget_tick(_so_rec, _so_uturn, [_SO_LETTER])
-            append_guard_log(_SO_GATE, {"event": "exhausted_block" if _so_full else "block", "session_id": session_id,
-                                        "turn_seq": turn_seq, "rule": _sov.rule, "why": _sov.why[:200],
-                                        "code_files": _sof.get("code_files"), "triggers": _sof.get("triggers")})
-            write_state(session_id, state)
-            output_block(_piggyback(_so_msg, _SO_GATE))
-            return
-    if _timed_out("第二意見"):
         return
 
     # ── Equivalence Gate（G7）──
@@ -2944,28 +2821,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         print("[Guardian:ChainBreaker] 連鎖中止中：這次收尾不送「順手看到最該修」", file=sys.stderr)
     _pick = v6 and not _chain_ro[0] and _pick_one_prompt(
         state, session_id, own_mod_files, _pick_boundary, config, cwd, continuation=bool(input_data.get("stop_hook_active")))
-    # 規則 SECOND_OPINION_DONE_NOTICE：看守中的第二意見收尾當下已跑完、本回合還沒取回 → 跟最該修同一則提醒取回（只提醒一次）
-    _so_note = None
-    if v6 and _so_background_on(config) and ((state.get("second_opinion_watch") or {}).get(session_id) or {}).get("on"):
-        try:
-            from wg_second_opinion import turn_events
-            _so_note = _so_done_notice(state, session_id, [r["job_id"] for r in turn_events(transcript_text)[1]
-                                                           if r.get("status") in ("done", "failed", "blocked")])
-        except Exception as e:  # noqa: BLE001
-            print(f"[Guardian:SecondOpinion] 第二意見跑完的提醒出錯（這次不送）：{type(e).__name__}: {e}", file=sys.stderr)
-        write_state(session_id, state)
-    if _pick or _so_note:
+    if _pick:
         write_state(session_id, state)
         if _gate_mode("PICK_ONE_PRE_CLOSE", v6) == _REMIND:
-            # Stop 不續跑（STOP_REMIND_LEDGER_ONLY）：該問的那一問在收尾那批已附過（PICK_ONE_PRE_CLOSE）、跑完的第二意見在下一批工具回應
-            # 提醒（SECOND_OPINION_DONE_NOTICE）；這裡只留帳
-            if _pick:
-                _remind_logged("pick_one", "PickOne", "PICK_ONE_PRE_CLOSE", _pick, session_id, turn_seq)
-            if _so_note:
-                _remind_logged(_SO_GATE, "SecondOpinion", "SECOND_OPINION_DONE_NOTICE", _so_note, session_id, turn_seq)
+            # Stop 不續跑（STOP_REMIND_LEDGER_ONLY）：該問的那一問在收尾那批已附過（PICK_ONE_PRE_CLOSE）；這裡只留帳
+            _remind_logged("pick_one", "PickOne", "PICK_ONE_PRE_CLOSE", _pick, session_id, turn_seq)
         else:
-            _ctx = "\n".join(with_note(t, entry_note(t, "stop_piggyback", session_id=session_id, state=state, config=config))
-                             for t in (_pick, _so_note) if t)
+            _ctx = with_note(_pick, entry_note(_pick, "stop_piggyback", session_id=session_id, state=state, config=config))
             output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _ctx}})
             return
 

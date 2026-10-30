@@ -171,13 +171,15 @@ def test_zero_exit_without_answer_is_not_success(monkeypatch):
 
 
 def test_unknown_model_never_spawns(monkeypatch, tmp_path):
+    import lib.codex_models as cm
     cache = tmp_path / "models_cache.json"
     cache.write_text(json.dumps({"models": [{"slug": "gpt-6-astra"}]}), encoding="utf-8")
+    monkeypatch.setattr(cm, "DEFAULT_CACHE_PATH", cache)
 
     def boom(*a, **k):
         raise AssertionError("模型名不對還叫了 codex")
     monkeypatch.setattr(subprocess, "run", boom)
-    res = codex_call.run_codex("問", config={"models_cache": str(cache)}, model="gpt-6-astra-900K", log=lambda m: None)
+    res = codex_call.run_codex("問", model="gpt-6-astra-900K", log=lambda m: None)
     assert not res.ok and res.returncode is None and "不在 models_cache" in res.reason
 
 

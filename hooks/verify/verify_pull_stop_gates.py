@@ -9,7 +9,6 @@
   6 Reload 建議閘只在本 session 改過工具服務的檔才判
   7 退縮閘擋下的那一句不再記退避旗標（下一則使用者訊息不再追問）
   8 紅測閘吃寫碼查核那份每回合預算：擋滿問使用者（互動）／放行留帳（無頭）
-  9 第二意見的待放行只在同一個使用者回合有效
   共用擋次（stop_gate_max_blocks）每個使用者回合歸零；閱讀路徑尾段在拐彎判斷擋下時不重複那一題
   流程級：紅測擋 → 改碼、跑綠 → 再收尾，除「改完之後跑綠一次」外沒有別的收尾閘重欠
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_pull_stop_gates.py（或直接 python 跑，尾行印 PULL_STOP_GATES_CHECK PASS／FAIL）
@@ -55,7 +54,7 @@ def _carry(state, *keys):
 
 
 _BOOKS = ("reconcile_gate_turn", "pending_release", "last_block", "user_released", "judge_error_blocked",
-          "stop_blocked_count", "stop_blocked_turn", "second_opinion_gate_turn")
+          "stop_blocked_count", "stop_blocked_turn")
 
 
 # ─── 1 待放行只在同一個使用者回合有效 ────────────────────────────────────────────
@@ -451,20 +450,6 @@ def test_unformatted_new_reason_is_not_swallowed_by_released_item(driven, capsys
     monkeypatch.setattr(wg_need_goal, "goal_gate_reason", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("goal boom")))
     out, _, _ = driven(_CLAIM, capsys, turn_seq=6, user_released={_SID: {"reconcile": {"turn": 5, "items": key_a}}})
     assert "goal boom" in out and "GATE_SELF_ERROR" in out, out[:300]
-
-
-# ─── 9 第二意見的待放行只在同一個使用者回合有效 ────────────────────────────────────
-
-def test_9_second_opinion_pending_from_previous_turn_not_exhausted(driven, capsys, monkeypatch):
-    """規則：PENDING_SAME_USER_TURN。"""
-    from wg_release_rules import Verdict
-    monkeypatch.setattr(st, "_so_facts", lambda *a, **k: (Verdict("SECOND_OPINION_REQUIRED", True, "大任務要第二意見"),
-                                                         {"code_files": 6, "triggers": ["files"]}))
-    monkeypatch.setattr(st, "_so_auto_cfg", lambda cfg: {"enabled": True, "max_blocks_per_turn": 1})
-    pend = {_SID: {"second_opinion": {"turn": 4, "at": "x", "reason": "r", "claims": ["全部完成了。"]}}}
-    out, _, _ = driven("全部完成了。", capsys, pending_release=pend, turn_prompts_seq=5,
-                       last_block={_SID: {"second_opinion": {"offset": 0, "prompts": [], "turn": 4}}})
-    assert "[Guardian:SecondOpinion] 收尾要處理第二意見" in out and "已擋滿" not in out, out[:300]
 
 
 # ─── 共用擋次每個使用者回合歸零 ───────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 為什麼有這支：config.json 與卡片各寫各的模型名（`gpt-5.6-sol` vs `gpt-6-astra`），沒人驗；
 帶錯名（例 `gpt-6-astra-900K`）的症狀是 -o 檔不存在、錯因只在 stderr 尾。這裡把「名字在不在 cache 裡」
-變成一個函式，codex-companion 與 second-opinion 都走同一條。
+變成一個函式，叫 Codex 的單一入口 tools/codex-call.py（經 judge_backend.resolve_model_slug）走這條。
 
 怎麼用：
     cache = load_models_cache()            # 缺檔／壞檔 → CodexModelsError，不回預設

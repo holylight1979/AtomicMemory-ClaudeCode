@@ -892,7 +892,7 @@ def _note_unknown_write(state: Dict[str, Any], session_id: str, target: str, com
     不能當成沒寫（規則 UNKNOWN_TARGET_LOGGED：放行並留帳）。主 session 與裁判記 unknown_writes（這個使用者回合有一筆就算寫碼回合，
     wg_core.coding_turn），子代理記 agent_unknown_writes[agent_id]；Stop 只留帳 unknown_writes_logged。每份最多留 UNKNOWN_WRITES_CAP 筆。
     有 hook 輸入（input_data）→ 規則 UNKNOWN_WRITE_RECOVERED：從版控狀態補出這條指令真的改了哪些檔（_recover_unknown_write），
-    記進 modified_files，對帳、第二意見、同步提醒照常判；補到的記在這一筆的 recovered，補不到的原因記 unrecovered。回補到的檔。"""
+    記進 modified_files，對帳、同步提醒照常判；補到的記在這一筆的 recovered，補不到的原因記 unrecovered。回補到的檔。"""
     rec: Dict[str, Any] = {"cmd": " ".join(str(command or "").split())[:120], "target": str(target)[:60], "tool": tool_name,
                            "session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()}
     noted: List[str] = []

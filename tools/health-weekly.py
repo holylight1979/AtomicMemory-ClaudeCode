@@ -434,34 +434,6 @@ def _user_release_block(days: int) -> list[str]:
     return [f"閘擋滿後由使用者放行（近 {days} 天；{detail}；Logs/guard-<閘>.jsonl event=user_release）；閘連續擋滿仍未解"]
 
 
-def _second_opinion_declined_block(days: int, shown: int = 5) -> list[str]:
-    """宣告不需第二意見（Logs/guard-second_opinion.jsonl event=declined，規則 SECOND_OPINION_DECLINED）近 N 天的筆數與理由：
-    只列不判（事後對帳用，理由合不合理由人看）。"""
-    p = CLAUDE_DIR / "Logs" / "guard-second_opinion.jsonl"
-    cut = datetime.now().astimezone() - timedelta(days=days)
-    rows: list[str] = []
-    try:
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    for line in lines:
-        try:
-            rec = json.loads(line)
-            at = datetime.fromisoformat(str(rec.get("at", "")))
-        except (ValueError, TypeError, json.JSONDecodeError):
-            continue
-        if rec.get("event") != "declined":
-            continue
-        if at.tzinfo is None:
-            at = at.astimezone()
-        if at >= cut:
-            rows.append(f"{at:%m-%d} {rec.get('code_files', '?')} 檔：{str(rec.get('reason', ''))[:80]}")
-    if not rows:
-        return []
-    return [f"宣告不需第二意見 {len(rows)} 筆（近 {days} 天；Logs/guard-second_opinion.jsonl event=declined；只列不判）："
-            + "；".join(rows[-shown:])]
-
-
 def collect() -> dict:
     now = datetime.now()
     red: list[str] = []      # 需處理
@@ -502,8 +474,6 @@ def collect() -> dict:
     # 2d. 對帳閘預算用完放行（舊 overflow 紀錄）＋擋滿後使用者放行
     red.extend(_reconcile_overflow_block(FRESH_DAYS))
     red.extend(_user_release_block(FRESH_DAYS))
-    # 2d''. 宣告不需第二意見的筆數與理由（G9：只列不判）
-    info.extend(_second_opinion_declined_block(FRESH_DAYS))
     # 2d'. config 內建 PYTEST／PYTEST_MEASURE regex 停在舊版（只更新 hooks、沒對 config 的機器）
     yellow.extend(_pytest_regex_block(_load_config()))
     # 2e. scorecard（hooks/wg_scorecard.health_block；沒有就印一行跳過）

@@ -75,12 +75,12 @@ def _not_run(reason: str) -> CodexResult:
 def run_codex(prompt: str, *, config: Optional[Dict[str, Any]] = None, cwd: Optional[str] = None, model: str = "",
               timeout_s: Any = DEFAULT_TIMEOUT_S, sandbox: Optional[str] = None, ignore_rules: bool = False,
               validate_model: bool = True, log: Callable[[str], None] = _log) -> CodexResult:
-    """跑一次 `codex exec`。config＝codex_companion 段（codex_binary、codex_extra_args、models_cache）。
+    """跑一次 `codex exec`。config＝codex_companion 段（codex_binary、codex_extra_args）。
     validate_model=False 時模型名不比對 models_cache，原樣交給 codex（驗收裁判沿用它一直以來的做法：名字錯由 codex 自己報、
     失敗分類接手）。"""
     config = config or {}
     if model and validate_model:
-        slug, err = judge_backend.resolve_model_slug({"model": model}, config.get("models_cache"))
+        slug, err = judge_backend.resolve_model_slug({"model": model})
         if not slug:
             return _not_run(err)
         model = slug

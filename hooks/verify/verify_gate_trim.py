@@ -281,10 +281,8 @@ def test_selfscore_not_an_entrypoint_and_lives_in_console_skill():
 
 def test_dev_rules_not_in_product_texts():
     """開發期規矩（工作軌、交付信、工人 codex 一輪）不寫進 hook／MCP 說明；codex 一輪只留在總控台 skill。"""
-    import wg_second_opinion as so
     mcp = (ROOT / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js").read_text(encoding="utf-8")
     assert "交付信" not in mcp and "工作軌" not in mcp
-    assert "one_round" not in so.DEFAULTS and "只審一輪" not in rr.second_opinion_hint()
     assert "_changelog.d" not in (ROOT / "rules" / "core.md").read_text(encoding="utf-8")
     assert (ROOT / "skills" / "console" / "scripts" / "changelog-fold.py").is_file()
     assert "Codex 只審一輪" in (ROOT / "skills" / "console" / "SKILL.md").read_text(encoding="utf-8")
