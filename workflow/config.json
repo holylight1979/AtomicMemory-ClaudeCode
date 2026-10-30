@@ -2,7 +2,7 @@
   "atom_debug": false,
   "enabled": true,
   "coding_guard": {
-    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、導讀卡、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算，只改文件、純問答不算；非寫碼回合也不寫 hook 計時帳），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
+    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算，只改文件、純問答不算），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
     "enabled": false
   },
   "stop_gate_max_blocks": 2,

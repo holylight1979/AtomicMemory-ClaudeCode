@@ -142,7 +142,7 @@
 
 - **hooks/wg_unknown_write.py**：處理的是寫入目標判不出的 Bash／PowerShell 指令，對應 [§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) `UNKNOWN_WRITE_RECOVERED`。
 
-### hooks/ 宣告閘與過程量
+### hooks/ 宣告閘與收尾輔助
 
 | 檔案 | 負責什麼 |
 |------|----------|
@@ -151,7 +151,6 @@
 | [`hooks/wg_gate_bypass.py`](../hooks/wg_gate_bypass.py) | 繞閘的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
 | [`hooks/wg_ask_gate.py`](../hooks/wg_ask_gate.py) | 問使用者前每題要附推薦（AskUserQuestion／ExitPlanMode），帳寫 `Logs/guard-ask.jsonl` |
 | [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[§7.1](../TECH.md#71-stop-閘序)） |
-| [`hooks/wg_scorecard.py`](../hooks/wg_scorecard.py) | 過程量（[§7.1](../TECH.md#71-stop-閘序)） |
 | [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[§7.1](../TECH.md#71-stop-閘序)） |
 | [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 收割交背景免費模型（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
 | [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式第一次用到才編譯（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
@@ -336,7 +335,6 @@
 | [`tools/reading_path_lang.py`](../tools/reading_path_lang.py) | 閱讀路徑語言解析 |
 | [`tools/overview-map-scaffold.py`](../tools/overview-map-scaffold.py) | 部位表骨架 |
 | [`tools/project-tree.py`](../tools/project-tree.py) | `project-tree.json` 增刪改 |
-| [`tools/scorecard-report.py`](../tools/scorecard-report.py) | 過程量報表 |
 | [`tools/refix-churn.py`](../tools/refix-churn.py) | 反覆修熱點 |
 | [`tools/session-artifacts.py`](../tools/session-artifacts.py) | HUD 保留／刪除背後的產出物帳本 |
 | [`tools/move-dir-check.py`](../tools/move-dir-check.py) | 搬程式目錄的兩張收據 |
@@ -498,7 +496,6 @@ runtime state（多數 gitignored）。
 | `workflow/health-reports/` | 健康報告 |
 | `workflow/verify-ledger/` | 收據帳本 |
 | `workflow/tracking/` | 追蹤項 |
-| `workflow/scorecard/` | 過程量 |
 | `workflow/old-test-snap/` | 改舊測試快照 |
 | `workflow/reading-path/` | 閱讀路徑 |
 | `workflow/chain-snap/<session>/` | 連鎖斷路器的改檔前快照（gitignore，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |

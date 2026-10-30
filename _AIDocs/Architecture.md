@@ -33,8 +33,8 @@
 | `wg_docdrift.py` | src → `_AIDocs` 映射 drift 提醒 |
 | `wg_handoff.py` | Auto-Handoff：stub 六區塊 + token 預警純函式 |
 | `wg_coordination.py` | 跨 session 同檔互寫預警 + git 收尾指令預警（純檔案、warn-only） |
-| `wg_overview.py` | OverviewHub 留下的共用工具（被各守門 import）：部位設定四層合併（`_cfg`，專案覆蓋檔 `<專案根>/.claude/overview-hub.json`；退役鍵如 `dry_run`／`deny_parts` 寫了只警告、不報錯）、部位查表（`_lookup`、連鎖斷路器用的 `_hub_part`）、意圖（`_intent_of`）、讀檔擷取（`read_targets`：Bash 的 cat/head/tail/less/more/sed -n/grep -n/svn cat/git show 一段裡每個路徑都算讀檔，算不算由規則 BASH_READONLY_COUNTS_AS_READ 判，指令失敗、變數、glob、非實檔不算）、提醒帳（`remind_*`，同一條規則同一個對象只提醒一次）、本 session 讀過的檔（`_session_reads`）、transcript 裡的自我出錯（`_transcript_self_error`）、gitignore 一次查一批（`_gitignored_set`）；純函式（讀表、最長前綴命中、Bash 讀檔擷取）在 `lib/overview_hub.py`；表由專案寫在 `<專案根>/.claude/overview-map.md` |
-| `wg_code_path.py` | 寫碼類判準（各閘共用同一份）：`is_code_path` 看單一路徑（部位類別 knowledge 不算；其餘看寫碼查核的副檔名清單，沒副檔名看 `#!`）、`writes_code` 再加上 cp／mv 的來源與新建腳本內容；使用者：`wg_core.coding_turn`、`stop`、`post_tool_batch`、`wg_data_file`、`wg_harvest`、`wg_overview`、`tools/project-smells.py` |
+| `wg_overview.py` | OverviewHub 留下的共用工具（被各守門 import）：部位設定四層合併（`_cfg`，專案覆蓋檔 `<專案根>/.claude/overview-hub.json`；退役鍵如 `dry_run`／`deny_parts` 寫了只警告、不報錯）、部位查表（`_lookup`）、意圖（`_intent_of`）、讀檔擷取（`read_targets`：Bash 的 cat/head/tail/less/more/sed -n/grep -n/svn cat/git show 一段裡每個路徑都算讀檔，算不算由規則 BASH_READONLY_COUNTS_AS_READ 判，指令失敗、變數、glob、非實檔不算）、提醒帳（`remind_*`，同一條規則同一個對象只提醒一次）、gitignore 一次查一批（`_gitignored_set`）；純函式（讀表、最長前綴命中、Bash 讀檔擷取）在 `lib/overview_hub.py`；表由專案寫在 `<專案根>/.claude/overview-map.md` |
+| `wg_code_path.py` | 寫碼類判準（各閘共用同一份）：`is_code_path` 看單一路徑（部位類別 knowledge 不算；其餘看寫碼查核的副檔名清單，沒副檔名看 `#!`）；使用者：`wg_core.coding_turn`、`stop`、`post_tool_batch`、`wg_data_file`、`wg_harvest`、`tools/project-smells.py` |
 | `wg_ask_gate.py` | 問使用者前的閘（開關跟寫碼守門總開關）：AskUserQuestion 每題要附推薦，沒有就提醒（ASK_NEEDS_RECOMMENDATION）；提問涉及改法選擇時提醒先讀部位檔（ASK_OVERVIEW_BEFORE_DECISION）；帳 `Logs/guard-ask.jsonl` |
 | `wg_rescue.py` | 救援日誌：注入 atom 高特異 token → 後續工具呼叫命中＝「真被用上」 |
 | `wg_recall_miss.py` | 失念偵測：失敗證據 × 庫中未注入 atom trigger |
@@ -181,7 +181,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 | `hooks/wg_episodic.py`（cross-session confirm） | `hook:episodic-confirm` | `atom_access.increment_confirmation`（資料源停產，TECH §14.2） |
 | 使用者明說「對、記下來」（AI 在 session 內手動記） | `user:confirm` | `python -m lib.atom_access increment-confirmation <path> --source user:confirm --event-json '{"by":"user","note":"原話"}'`：confirmation +1、事件標 by=user；晉升門檻不變（≥4 或 usefulness lb≥0.6），只是讓人為確認有據可查 |
 | `hooks/wg_episodic.py`（episodic atom） | `hook:episodic` | `write_raw` + `atom_access.init_access` |
-| `hooks/user-extract-worker.py` | `hook:user-extract` | L1／L2 決策萃取落地；落點三分：`~/.claude` → global／專案規則（`_is_project_rule`）→ shared＋`Author=使用者`／其餘 → 本人×專案 personal |
+| `hooks/user-extract-worker.py` | `hook:user-extract` | L1／L2 決策萃取落地；落點三分：`~/.claude` → global／專案規則（`project_rule_signal`）→ shared＋`Author=使用者`／其餘 → 本人×專案 personal |
 | `tools/memory-undo.py` | `tool:undo` | `write_raw` reject footer |
 | `tools/atom-move.py` | `tool:atom-move` | `write_raw`（atom）+ `write_index_full`（index） |
 | `tools/memory-audit.py` | `tool:memory-audit` | demote／compact／log_evolution `write_raw` + `atom_access.write_access_field` |

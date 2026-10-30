@@ -124,7 +124,7 @@ pattern: pipeline
 
 - 原話：track-skill-console 派工原話（2026-10-14）；接續單：`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/staging封存-2026-10-27/接續單-v6.0-寫程式碼的進化-封存.md（已封存）` 規則清單與「現任」行
 - #13、#23、#27、#37：`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/總控台裁定帳與誤判清冊.md`
-- A [[feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定]]
+- A [`feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定`](../../_AIDocs/_atoms/MemDev/v6總控台/_distant/2026_10/feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定.md)（封存區）
 - B [[feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見]]
 - C [[vscode-reload-對並行ai-session的影響]]
 - D [[總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件]]
@@ -139,12 +139,12 @@ pattern: pipeline
 - R [[工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上]]
 - S [[跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器]]
 - T [[總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行]]
-- U [[總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據]]
+- U [[背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內]]
 - W [[接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑]]
 - X [[feedback-共用工作樹push前先看待推範圍-git-push推的是整段待推歷史-含別人等口令的commit就只推自己的或先問]]
 - Y [[feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行]]
 - Z1 [[feedback-閘誤判的修法不是加例外清單-把欠帳本回合放行改碼的判定抽成獨立模組-每情境一條有名字的規則加會紅案例-擋訊息印規則名與證據-不准整輪不擋或放寬]]
 - Z2 [[feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整]]
-- Z3 [[feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了]]
+- Z3 [`feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了`](../../_AIDocs/_atoms/MemDev/v6總控台/_distant/2026_10/feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了.md)（封存區）
 - Z4 [[全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑]]
-- Z5 [[關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名]]
+- Z5 [`關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名`](../../_AIDocs/_atoms/MemDev/v6總控台/_distant/2026_10/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md)（封存區）

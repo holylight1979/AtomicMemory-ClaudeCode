@@ -494,9 +494,9 @@ REMIND_PENDING_KEY = "remind_pending"    # state：工具前記下、等下一�
 REMIND_PENDING_CAP = 20
 
 
-def remind_hit(rule: str, obj: Any, what: str, fix: str, extra: str = "") -> Dict[str, Any]:
-    """一件提醒：規則名、對象（部位／頂層目錄鍵／空＝整個 session）、現象、做法、順帶要送的全文（沒有就空）。"""
-    return {"rule": str(rule), "obj": str(obj or ""), "what": str(what or ""), "fix": str(fix or ""), "extra": str(extra or "")}
+def remind_hit(rule: str, obj: Any, what: str, fix: str) -> Dict[str, Any]:
+    """一件提醒：規則名、對象（部位／頂層目錄鍵／空＝整個 session）、現象、做法。"""
+    return {"rule": str(rule), "obj": str(obj or ""), "what": str(what or ""), "fix": str(fix or "")}
 
 
 def remind_sent_list(state: Dict[str, Any]) -> List[str]:
@@ -528,7 +528,7 @@ def remind_queue(state: Dict[str, Any], hit: Dict[str, Any]) -> None:
 
 
 def remind_flush(state: Dict[str, Any], session_id: str) -> List[str]:
-    """PostToolUse：取走等著的提醒；該送的（同規則同對象本 session 第一次）組一行＋順帶全文，送過的只留帳不重送。回要併進
+    """PostToolUse：取走等著的提醒；該送的（同規則同對象本 session 第一次）組一行，送過的只留帳不重送。回要併進
     additionalContext 的段落。"""
     pend = state.pop(REMIND_PENDING_KEY, None) or []
     out: List[str] = []
@@ -538,8 +538,6 @@ def remind_flush(state: Dict[str, Any], session_id: str) -> List[str]:
             _log("remind_skipped", session_id, rule=rule, obj=obj)
             continue
         out.append(_rr.remind_line(rule, str(hit.get("what") or ""), str(hit.get("fix") or "")))
-        if hit.get("extra"):
-            out.append(str(hit["extra"]))
         _log("remind_sent", session_id, rule=rule, obj=obj)
     return out
 

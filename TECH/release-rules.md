@@ -31,7 +31,7 @@
 - **[讀檔證據](#讀檔證據)**：[SHELL_READ_COUNTS_LIKE_READ](#shell_read_counts_like_read)
 - **[寫檔判定與連鎖斷路器](#寫檔判定與連鎖斷路器)**：[SHELL_WRITE_COMMAND_NOT_A_READ](#shell_write_command_not_a_read)・[EPHEMERAL_WRITE_NOTED_ONCE](#ephemeral_write_noted_once)・[CHAIN_NO_EDIT_NO_EDGE](#chain_no_edit_no_edge)・[CHAIN_ABORT_SHOWS_REPLACED_BLOCK](#chain_abort_shows_replaced_block)
 - **[提示、回填與收尾組裝](#提示回填與收尾組裝)**：[QUOTE_FROM_USER_OPENED_TURN](#quote_from_user_opened_turn)・[CODING_TURN_FULL_ONLY_ON_TRIGGER](#coding_turn_full_only_on_trigger)・[POINTER_NO_NAME_ECHO](#pointer_no_name_echo)・[NO_RESEND_AFTER_RESUME](#no_resend_after_resume)・[DENY_TEXT_SLIM](#deny_text_slim)・[DATA_FILE_READ_HINT](#data_file_read_hint)・[CLOSING_CALL_ALL_THREE](#closing_call_all_three)
-- **[各閘的閘級規則（照程式 RULES 原文）](#各閘的閘級規則照程式-rules-原文)**：[COMMIT_SMELL_NEW_BLOCKS](#commit_smell_new_blocks)・[RED_TEST_BLOCKS_COMPLETION](#red_test_blocks_completion)・[DEFERRAL_OF_DOABLE_WORK](#deferral_of_doable_work)・[HARVEST_AT_PHASE_DONE](#harvest_at_phase_done)・[HARVEST_ITEM_NEEDS_RECEIPT](#harvest_item_needs_receipt)・[CLOSING_CHECK_REQUIRED](#closing_check_required)・[CLOSING_CHECK_MEMORY_NOT_DEFERRED](#closing_check_memory_not_deferred)・[SYNC_REMINDER_UNSYNCED](#sync_reminder_unsynced)・[SYNC_BLOCK_PENDING_ITEMS](#sync_block_pending_items)・[DEEP_POSTMORTEM_ON_FAILURE](#deep_postmortem_on_failure)・[ATOM_CONSUMPTION_AUDIT](#atom_consumption_audit)・[EVASION_FLAG_NEXT_PROMPT](#evasion_flag_next_prompt)・[REMIND_PENDING_IN_STATE](#remind_pending_in_state)・[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)・[NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)
+- **[各閘的閘級規則（照程式 RULES 原文）](#各閘的閘級規則照程式-rules-原文)**：[COMMIT_SMELL_NEW_BLOCKS](#commit_smell_new_blocks)・[RED_TEST_BLOCKS_COMPLETION](#red_test_blocks_completion)・[DEFERRAL_OF_DOABLE_WORK](#deferral_of_doable_work)・[HARVEST_AT_PHASE_DONE](#harvest_at_phase_done)・[HARVEST_ITEM_NEEDS_RECEIPT](#harvest_item_needs_receipt)・[CLOSING_CHECK_REQUIRED](#closing_check_required)・[CLOSING_CHECK_MEMORY_NOT_DEFERRED](#closing_check_memory_not_deferred)・[SYNC_REMINDER_UNSYNCED](#sync_reminder_unsynced)・[SYNC_BLOCK_PENDING_ITEMS](#sync_block_pending_items)・[DEEP_POSTMORTEM_ON_FAILURE](#deep_postmortem_on_failure)・[ATOM_CONSUMPTION_AUDIT](#atom_consumption_audit)・[EVASION_FLAG_NEXT_PROMPT](#evasion_flag_next_prompt)・[OVERVIEW_READONLY_PATHS](#overview_readonly_paths)・[OVERVIEW_HUB_UNDER_V6](#overview_hub_under_v6)・[REMIND_PENDING_IN_STATE](#remind_pending_in_state)・[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)・[NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)
 
 
 ## 怎麼讀這份表
@@ -73,7 +73,7 @@
 #### CODING_TURN_ONLY
 **判什麼**：寫碼守門每回合的檢查要不要跑（`wg_core.coding_turn`）
 - **不欠／放行**：
-  - 這個使用者回合已經改了程式檔（`wg_code_path.writes_code`）、或有判不出目標的寫入 → 要跑。
+  - 這個使用者回合已經改了程式檔（`wg_code_path.is_code_path`）、或有判不出目標的寫入 → 要跑。
   - 要跑的檢查：退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳。
 - **照欠／照擋**：
   - 純問答、只改文件的回合不跑（記憶注入、收割照舊每回合）。
@@ -1568,6 +1568,12 @@
 
 #### EVASION_FLAG_NEXT_PROMPT
 **程式原文**：收尾文字有退避語：記旗標、下一則使用者訊息時注入（wg_evasion.detect_evasion），不續跑。
+
+#### OVERVIEW_READONLY_PATHS
+**程式原文**：寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋（wg_overview.write_check）。
+
+#### OVERVIEW_HUB_UNDER_V6
+**程式原文**：OverviewHub 的讀檔帳、唯讀路徑檢查與讀它設定的閘綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，不記、不擋。
 
 #### REMIND_PENDING_IN_STATE
 **程式原文**：工具前守門判成提醒的那一件先記進 state remind_pending（規則名、對象、現象、做法），下一個工具結果（PostToolUse）取走：該提醒的併進 additionalContext、記進 remind_sent；送過的只留帳不重送（wg_overview.remind_queue／remind_flush）。state 寫不進去就只 stderr＋留帳，不改用 PreToolUse 送。remind_sent 是**一份清單**（元素 remind_key(規則, 對象)；state 本來就一 session 一檔，不按 session 分桶），工具前守門與改程式檔那批的收尾類提醒（post_tool_batch.closing_reminders）都走 wg_overview.remind_mark 記同一份；讀到舊寫法的 dict 由 remind_sent_list 攤平，不炸。

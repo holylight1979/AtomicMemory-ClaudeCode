@@ -1756,8 +1756,9 @@ def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]
     """提問閘（AskUserQuestion／ExitPlanMode 前，wg_ask_gate.on_ask_full）：沒附推薦照 GATE_MODE_TABLE 擋或改提醒，
     問改法而還沒讀過部位檔附一句。子代理不跑（裁判子 session 由 dispatcher 分去 handle_judge_pre_tool_use，到不了這裡）。
     處理過的提問記進 state["ask_handled"]，PostToolBatch 就不再事後處理。
-    這支本身炸了 → 照契約擋＋stderr＋守門紀錄 ask_error；只放過【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目
-    （放行題問不出去，收尾就死鎖）。"""
+    這支本身炸了 → stderr＋守門紀錄 ask_error；【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目照放（放行題問不出去，
+    收尾就死鎖）；其餘照 GATE_SELF_ERROR 的送法：寫碼守門開時不擋，下一個工具結果附一行；總開關關照契約擋（dispatcher 在守門關時
+    不送這兩個工具進來，正常走不到）。"""
     sid = input_data.get("session_id", "") or ""
     if not sid or input_data.get("agent_id"):
         output_nothing()
@@ -1811,7 +1812,7 @@ def _ask_gate(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]
             return
         # 規則 GATE_SELF_ERROR：閘自己壞＝判不了 → 不擋，下一個工具結果附一行、stderr 與 ask_error 留帳已在上面
         hit = {"rule": "GATE_SELF_ERROR", "obj": "ask", "what": f"提問前檢查壞了，判不了這題有沒有附推薦（{err}）",
-               "fix": "修好 hooks/wg_ask_gate.py；這題照問", "extra": ""}
+               "fix": "修好 hooks/wg_ask_gate.py；這題照問"}
         if _remind_later(input_data, state if state.get("session") else None, hit, "ask"):
             from wg_core import write_state as _ws_err
             _ws_err(sid, state)

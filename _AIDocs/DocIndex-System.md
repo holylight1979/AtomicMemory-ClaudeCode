@@ -112,12 +112,11 @@ Session Ready
 | wg_provenance.py | — | 來源自動填：PostToolUse 對 atom_write receipt（create／replace）補 `- Source: session:<sid8>#<uuid8> <日期>` 與 `- Quote:`（`state.turn_prompts[-1]` 經 `lib/provenance.sanitize_quote`；已有 Quote 不動、呼叫者已給 Source 只補 Quote、開工句不當原話：`lib/harness_text.is_kickoff_prompt`）；失敗記 `Logs/guard-provenance.jsonl` 不阻斷 |
 | vcs-sync-worker.py | — | detached worker：git pathspec add＋commit → 拉（`vcs_sync.pull.enabled`）→ push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete／update／commit；stderr → `Logs/vcs-sync.log` |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
-| wg_overview.py | — | OverviewHub 留下的共用工具：部位設定四層合併（`_cfg`）、部位查表、讀檔擷取（`read_targets`）、提醒帳（`remind_*`）、本 session 讀過的檔；部位表解析在 `lib/overview_hub.py`（TECH 附錄 A7.6 部位表） |
+| wg_overview.py | — | OverviewHub 留下的共用工具：部位設定四層合併（`_cfg`）、部位查表、讀檔擷取（`read_targets`）、提醒帳（`remind_*`）、各部位讀檔帳（`record_reads`）；部位表解析在 `lib/overview_hub.py`（TECH 附錄 A7.6 部位表） |
 | wg_depends.py | — | Depends 讀檔召回：讀到某卡 `- Depends: path:` 指的檔 → 一行一卡指標（同卡一 session 一次）；`authority_map` 命中文件檔一次性注入地圖 |
-| wg_code_path.py | — | 寫碼類判準：`is_code_path`（單一路徑）／`writes_code`（加上 cp／mv 來源與新建腳本內容）；`wg_core.coding_turn`、收尾、資料檔閘、PickOne、`tools/project-smells.py` 共用 |
+| wg_code_path.py | — | 寫碼類判準：`is_code_path`（單一路徑）；`wg_core.coding_turn`、收尾、資料檔閘、PickOne、`tools/project-smells.py` 共用 |
 | wg_ask_gate.py | — | 問使用者前的閘（寫碼守門開時）：AskUserQuestion 每題要附推薦、改法選擇先讀部位檔；帳 `Logs/guard-ask.jsonl` |
 | wg_verify_ledger.py | — | 驗證帳本：收 Bash／PowerShell 輸出哨兵進 `workflow/verify-ledger/<sid>.jsonl`；Stop 的 ReconcileGate（宣稱對收據）、MeasureGate（量尺 DONE）判定純函式（TECH §7.1） |
-| wg_scorecard.py | — | 每 session 一行過程量（S1／S3／S5）→ `workflow/scorecard/<yyyymm>.jsonl`，報表 `tools/scorecard-report.py` |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
 | extract-worker.py | — | SessionEnd 萃取子程序 |
 | user-extract-worker.py | — | L1/L2 使用者決策萃取 |
@@ -232,10 +231,9 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ### 常駐可觀測
 - statusline.py — settings.json `statusLine` 渲染器：CC status JSON（stdin）+ state/vector flag/aec-report → 一行 ANSI 狀態列（改N 讀M · vec✓ · AEC:sev）；取代 UPS 週期性 Reminder 注入
-- health-weekly.py — 週健檢（Task Scheduler `Claude-Memory-WeeklyHealth`，pythonw 靜默跑）：audit/health-check/索引 --check/vector/注入效果/管線鮮度/工具自測（config `tool_selftests`，尾行哨兵＋exit）/Depends 覆蓋與過期/scorecard 兩行 → `workflow/health-reports/` + `health-last-run.json`（SessionStart `_health_advisory` 死人開關讀取）
+- health-weekly.py — 週健檢（Task Scheduler `Claude-Memory-WeeklyHealth`，pythonw 靜默跑）：audit/health-check/索引 --check/vector/注入效果/管線鮮度/工具自測（config `tool_selftests`，尾行哨兵＋exit）/Depends 覆蓋與過期 → `workflow/health-reports/` + `health-last-run.json`（SessionStart `_health_advisory` 死人開關讀取）
 - overview-map-scaffold.py — 從零掃出 `<專案>/.claude/overview-map.md` 骨架表與五段骨架卡（`lib/overview_scaffold.py`）；預設 dry-run，`--write` 落檔（卡先寫、表最後寫、失敗不撤回、重跑接續補完）、表存在拒覆寫、`--merge-missing` 補列補卡；`check` 對帳表與卡｜`OVERVIEW_SCAFFOLD DONE rows=`
 - refix-churn.py — git／svn 同檔反覆 fix 排名（`lib/refix_churn.py`；主尺 fix 數、副尺 14 天配對），排除記憶與收割提交；`--svn-xml` 吃離線 log｜`REFIX_CHURN DONE vcs= commits= fix= files_refixed=`
-- scorecard-report.py — 彙整每 session 的 S1／S3／S5 行（`hooks/wg_scorecard.py` 在 SessionEnd 寫 `workflow/scorecard/<yyyymm>.jsonl`）：四週中位數基線、低於基線部位、下一張該寫的卡 → `health-reports/scorecard-<date>.md`＋`scorecard/candidates.json`｜`SCORECARD_REPORT DONE lines= candidates=`
 - project-smells.py — commit 前病形檢查（PreToolUse 的 SmellGate 與 GateBypass 載入；TECH §7.5）
 - usage-snapshot/usage_snapshot.py — 週用量截圖（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，用量刷新前）：專屬 Chrome profile（`--login` 一次登入）開 claude.ai/settings/usage → 截圖存公司記憶庫 `usage-snapshots/usage-YYYYMMDD-<帳號>.png` 並自動 commit／push（帳號＝Claude Code 登入信箱 @ 前段；沒接上公司記憶庫退本機 `workflow/usage-snapshots/`）+ 本機 `usage-log.jsonl`（% / Resets 文字）+ `usage-last-run.json`；失敗留 `*-FAILED.png`
 - memory-effect-report.py — 注入效果報表：access.json（曝光+α/β）+ rescue-log + recall-miss.jsonl → 四節（top 有用 / token 稅 / 死重候選 / D 失念聚合）+ 30 天週趨勢；`/memory health` 與週健檢共用

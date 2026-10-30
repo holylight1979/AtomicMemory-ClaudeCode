@@ -99,7 +99,7 @@ git -C ~/.claude log --cherry-mark --oneline HEAD...devsrc/main | grep -c '^='  
 以下檔案屬於**使用者個人化內容**，有異動時必須停下來確認：
 - `IDENTITY.md` — 使用者身份定義
 - `USER.md` — 使用者個人資料
-- `memory/preferences.md` — 使用者偏好（通常確認數很高）
+- `memory/工作流/節奏與收尾/preferences.md` — 使用者偏好（通常確認數很高）
 - 其他 atom 中 Confirmations ≥ 10 且內容有實質差異的
 
 **處理流程**（適用於上述每個檔案）：
@@ -371,14 +371,14 @@ rm -rf ~/.claude/ && cp -r ~/.claude-backup-{版本}-{日期}/ ~/.claude/
 ### 個人化檔案（有異動必須停下確認）
 - `IDENTITY.md` — 使用者身份定義
 - `USER.md` — 使用者個人資料
-- `memory/preferences.md` — 使用者偏好（通常確認數很高）
+- `memory/工作流/節奏與收尾/preferences.md` — 使用者偏好（通常確認數很高）
 - 任何 Confirmations ≥ 10 且內容有實質差異的 atom
 
 **原則**：不是「絕對不動」，而是「有差異就停下來問」。格式升級、結構改進等使用者可能想採納，但必須由使用者決定。
 
 ### 需特別小心的檔案
 - `settings.json` — 只做 surgical edit，不整檔替換
-- `memory/decisions.md` — 保留高確認數版本，追加缺失段落
+- `memory/CC與原子記憶契約/decisions.md` — 保留高確認數版本，追加缺失段落
 - `tools/memory-vector-service/indexer.py` — 可能有本地改進（遞迴掃描、目錄跳過邏輯）
 - `workflow/config.json` — 可能已有使用者新增的 `additional_atom_dirs`
 

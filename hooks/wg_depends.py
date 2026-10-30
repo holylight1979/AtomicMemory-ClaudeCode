@@ -4,7 +4,7 @@
 lib.atom_spec.atoms_depending_on（全域索引以 ~/.claude 為根、專案索引以專案根為根），命中的卡一行一條
 「[Guardian:Depends] 讀到 <檔> → 卡 `<卡名>`（<卡路徑>）：<條目>」；同一張卡一個 session 只提一次（state["depends_hints"]）。
 讀到文件／計畫檔（authority_map 的樣式命中）且 authority_map 非空 → 一次性注入該部位權威地圖（state["authority_map_injected"]）。
-每事件落一行 jsonl 到 workflow/_overview-hub.log（事件 depends_hint／authority_map），量 S5 用。全程 fail-open：索引讀不到就不提。
+每事件落一行 jsonl 到 workflow/_overview-hub.log（事件 depends_hint／authority_map），供事後查帳。全程 fail-open：索引讀不到就不提。
 """
 
 from __future__ import annotations
