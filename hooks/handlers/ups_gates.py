@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional
 from wg_core import _now_iso, _atom_debug_error, _atom_debug_log, user_typed_text, v6_enabled, WORKFLOW_DIR
 from wg_extraction import detect_signal, extract_veto_hints, extract_veto_question, settle_pending_veto
 from wg_evasion import is_dismiss_prompt
-from handlers._shared import entry_note, with_note
 
 # Ollama client（dispatcher 已加 tools/ 到 sys.path）；用本檔位置推樹根，不用 Path.home()
 _TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
@@ -271,7 +270,7 @@ def run_pre_gates(
         written = [e for e in confirmed if e.get("write_result") in ("wrote", "deduped")]
         if v6 and hints and written:
             q = extract_veto_question(hints, written)
-            lines.append(with_note(q, entry_note(q, "user_prompt", session_id=session_id, state=state, config=config)))
+            lines.append(q)
             state["extract_veto_pending"] = {
                 "turn": int(state.get("turn_seq", 0) or 0), "hints": hints,
                 "statements": [str(e.get("statement", ""))[:80] for e in written],

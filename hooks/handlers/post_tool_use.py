@@ -72,7 +72,6 @@ from handlers._shared import (
     _is_ephemeral_path, note_ephemeral_skip,
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
-    entry_note,
 )
 import wg_oldtest
 
@@ -2073,11 +2072,5 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     degraded = _hook_lap("跨 session 碰撞")
     sys_msgs, ctx_msgs = ([], []) if degraded else _run_companion_hooks(input_data, config)
     advisories.extend(ctx_msgs)
-    degraded = _hook_lap("同伴檢查")
-    # 切入點契約（TECH §7.10）：MCP 工具的回覆（工具本體回的文字＋上面補的提醒）認得出切入點就接判準卡並留帳
-    if v6 and not degraded and tool_name.startswith("mcp__"):
-        _mcp_text = "\n".join([response_text(input_data.get("tool_response")), *advisories])
-        _note = entry_note(_mcp_text, "mcp_reply", session_id=session_id, state=state, config=config)
-        if _note:
-            advisories.append(_note)
+    _hook_lap("同伴檢查")
     _emit_post_tool_output(advisories, sys_msgs)

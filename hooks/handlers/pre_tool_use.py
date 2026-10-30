@@ -1643,15 +1643,6 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
     output_nothing()
 
 
-def _with_cards(input_data: Dict[str, Any], config: Dict[str, Any], text: str, path: str) -> str:
-    """切入點契約（TECH §7.10）：text 原樣在前，認出切入點就接判準卡並留帳。只在真的要送訊息（deny 或提醒）時才呼叫，
-    一般工具什麼都不送的放行路徑不匯入、不讀登錄表。"""
-    if not v6_enabled(config):      # 判準卡是寫碼守門開著才有
-        return text
-    from handlers._shared import entry_note, with_note
-    return with_note(text, entry_note(text, path, session_id=str(input_data.get("session_id") or ""), config=config))
-
-
 def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], hit: Dict[str, Any], guard: str, **kw: Any) -> bool:
     """PreToolUse 的提醒出口（規則 REMIND_ON_PRIOR_RESULT、REMIND_PENDING_IN_STATE）：這一件判成 remind、不擋 → 留帳 event=remind
     （guard＝哪一道閘的守門紀錄；overview_hub 走 hub log）、記進 state 的待提醒，由下一個工具結果（PostToolUse）送一行。
@@ -1677,7 +1668,7 @@ def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], h
 
 def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = (),
           target: str = "") -> None:
-    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去、接判準卡。
+    """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去。
     寫碼守門開時先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。
     watched／target＝這次擋的對象（擋的檔／定位閘的部位，規則 CHAIN_SAME_GATE_PER_OBJECT）：每個部位、每個檔各要各的證據的閘才報，
     說不出擋什麼的閘（版控口令、病形閘這類看整批提交的）不報，斷路器照舊只看閘名。"""
@@ -1699,7 +1690,7 @@ def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watch
             output_nothing()
             return
     output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                        "permissionDecisionReason": _with_cards(input_data, config, reason, "pretool_deny")}})
+                                        "permissionDecisionReason": reason}})
 
 
 def _chain_ctx(input_data: Dict[str, Any], config: Dict[str, Any], need_ledger: bool = True) -> Optional[Tuple[str, int]]:
@@ -1862,7 +1853,7 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
         return
     if hint:
         output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                            "additionalContext": _with_cards(input_data, config, hint, "pretool_hint")}})
+                                            "additionalContext": hint}})
         return
     output_nothing()
 
@@ -1961,13 +1952,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             )
             if not (blob and injected):
                 blob = ""
-            # 切入點契約（TECH §7.10）：開工句認得出登錄表 subagent_prompt 路的切入點，判準卡接在記憶 blob 後面
-            from handlers._shared import entry_note
-            note = entry_note(orig_prompt, "subagent_prompt", session_id=str(input_data.get("session_id") or ""),
-                              config=config) if v6 else ""
-            if blob or note:
+            if blob:
                 new_input = dict(tool_input)
-                new_input["prompt"] = "\n\n".join(p for p in (blob, note, orig_prompt) if p)
+                new_input["prompt"] = "\n\n".join(p for p in (blob, orig_prompt) if p)
                 _atom_debug_log(
                     "SubagentInject",
                     f"tool={tool_name} type={subagent_type or '-'} injected={injected} "
@@ -2331,7 +2318,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             "systemMessage": combined,
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": _with_cards(input_data, config, combined, "pretool_hint"),   # 判準卡只給模型
+                "additionalContext": combined,
             },
         })
         return

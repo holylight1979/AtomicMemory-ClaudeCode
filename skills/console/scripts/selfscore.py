@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""selfscore.py — 自檢評分：打「這個 G 幾分」時，問三件事、答完記一筆帳（手動工具，不是切入點、不接判準卡）。
+"""selfscore.py — 自檢評分：打「這個 G 幾分」時，問三件事、答完記一筆帳（手動工具）。
 
 做什麼：
   --ask   問的那一刻：印 G 名、評分規格卡（memory 裡的 g<N>-評分規格*.md）的評分尺三句、可用證據清單與要答的三件事。
@@ -12,7 +12,7 @@
   python skills/console/scripts/selfscore.py --ask --g G8
   python skills/console/scripts/selfscore.py --g G8 --score 7 --basis commit:6e3fced4 --basis "第二波 A′ 判分" --why "…" --rater 總控台
   python skills/console/scripts/selfscore.py --summary [--days 30] [--json] [--logs <Logs 目錄>]
-尾行：問 `SELFSCORE DONE asked=1 cards=<判準卡張數>`；答 `SELFSCORE DONE recorded=1 unanswered=<沒答欄數>`；
+尾行：問 `SELFSCORE DONE asked=1`；答 `SELFSCORE DONE recorded=1 unanswered=<沒答欄數>`；
 統計 `SELFSCORE DONE gs=<有帳的 G 數> records=<筆數> unanswered=<有沒答欄的筆數>`。exit 0（沒資料也 0）。
 完整參數以 --help 為準。
 """
@@ -35,8 +35,7 @@ CODE_DIR = Path(__file__).resolve().parents[3]   # 程式碼根（本檔在 skil
 if str(CODE_DIR / "hooks") not in sys.path:
     sys.path.insert(0, str(CODE_DIR / "hooks"))
 
-import wg_entrypoint as ep  # noqa: E402
-from wg_core import append_guard_log, logs_dir  # noqa: E402
+from wg_core import MEMORY_DIR, append_guard_log, logs_dir  # noqa: E402
 
 GUARD = "selfscore"
 UNANSWERED = "沒答"
@@ -50,12 +49,19 @@ def norm_g(raw: str) -> str:
     return f"G{m.group(1)}" if m else s
 
 
+def _knowledge(content: str) -> str:
+    """卡的知識段本文（不含 `## 知識` 標題）；沒有知識段回空字串。"""
+    from wg_atoms import _extract_named_section
+    sec = _extract_named_section(content, "知識")
+    return sec.split("\n", 1)[1].strip() if sec and "\n" in sec else ""
+
+
 def find_spec(g: str) -> Optional[Dict[str, Any]]:
     """g<N>-評分規格*.md（memory 底下任一層）→ {name, file, title, rubric:[句]}；找不到回 None。"""
     m = re.fullmatch(r"G(\d+)", g)
     if not m:
         return None
-    hits = sorted(ep.MEMORY_DIR.rglob(f"g{m.group(1)}-評分規格*.md"))
+    hits = sorted(MEMORY_DIR.rglob(f"g{m.group(1)}-評分規格*.md"))
     if not hits:
         return None
     path = hits[0]
@@ -64,7 +70,7 @@ def find_spec(g: str) -> Optional[Dict[str, Any]]:
     except (OSError, UnicodeDecodeError):
         return None
     title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), path.stem)
-    knowledge = ep._knowledge({"file": str(path)})
+    knowledge = _knowledge(text)
     rubric = [ln.strip()[2:].strip() for ln in knowledge.splitlines() if ln.strip().startswith("- ")]
     return {"name": path.stem, "file": str(path), "title": title, "rubric": rubric}
 

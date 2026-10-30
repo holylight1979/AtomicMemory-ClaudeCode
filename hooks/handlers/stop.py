@@ -90,8 +90,6 @@ from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
     DOCDRIFT_AVAILABLE,
-    entry_note,
-    with_note,
 )
 
 # Windows: 外呼 git/svn 時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
@@ -1163,10 +1161,7 @@ def _code_gate_no_ask(input_data: Dict[str, Any], config: Dict[str, Any], state:
     summary = reason.split("\n")[1].strip() if "\n" in reason else reason
     append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "kind": kind,
                                    "reason": reason[:300], **log_extra})
-    # 切入點契約（§7.10）：子代理收尾接判準卡；裁判子 session 不注入（與 PreToolUse 的 JudgeWrite 同一條：防裁判觸發裁判）
-    note = "" if log_extra.get("event") == "judge_block" else entry_note(
-        reason, "stop_piggyback", session_id=session_id, state=state, config=config)
-    output_block(with_note(f"{non_interactive_message(gate, None, summary, why)}\n原擋訊息：\n{reason}", note))
+    output_block(f"{non_interactive_message(gate, None, summary, why)}\n原擋訊息：\n{reason}")
 
 
 def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -1847,13 +1842,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _unsynced_memo: List[Any] = []
 
     def _piggyback(reason: str, gate: Optional[str] = None, items: Optional[List[str]] = None) -> str:
-        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響，最後接判準卡（切入點契約 §7.10：只認這道閘自己的擋訊息，
-        後面附加的預覽與提示不拿來認切入點）。gate 有給（對帳閘＝"reconcile"）就記這個閘最後一次擋的位置；
+        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳閘＝"reconcile"）就記這個閘最後一次擋的位置；
         那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。
         閱讀路徑結果：這次擋的是拐彎判斷 → 尾段拿掉那一題（擋訊息自己已經問了，同一則只出現一次）；別的閘擋 → 附原文
         （拐彎判斷這回合擋過、改由別的閘擋時，尾段是這一則唯一看得到那一題的地方）。
         items＝這次列給使用者看的那幾件（沒給就照擋訊息取 release_items）：使用者之後放行只放這幾件。"""
-        card_note = entry_note(reason, "stop_piggyback", session_id=session_id, state=state, config=config) if v6 else ""
         rp_tail = without_judgment_prompt(_reading_path) if "TURN_JUDGMENT_REQUIRED" in reason else _reading_path
         if gate:
             mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)),
@@ -1874,7 +1867,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             reason = reason + _accept_hint
         if rp_tail:
             reason = f"{reason}\n{rp_tail}"
-        reason = with_note(reason, card_note)
         if gate:
             write_state(session_id, state)
         return reason
@@ -2408,7 +2400,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _tj_pick = (v6 and not _chain_ro[0] and _pick_pre_close_on(config) and _pick_one_prompt(
             state, session_id, own_mod_files, _pick_boundary, config, cwd, continuation=bool(input_data.get("stop_hook_active"))))
         if _tj_pick:
-            reason = f"{reason}\n{with_note(_tj_pick, entry_note(_tj_pick, 'stop_piggyback', session_id=session_id, state=state, config=config))}"
+            reason = f"{reason}\n{_tj_pick}"
         write_state(session_id, state)          # 記擋的回合（blocked_turn）、_piggyback 標的一次性旗標與最該修問過
         output_block(reason)
         return
@@ -2964,8 +2956,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             if _so_note:
                 _remind_logged(_SO_GATE, "SecondOpinion", "SECOND_OPINION_DONE_NOTICE", _so_note, session_id, turn_seq)
         else:
-            _ctx = "\n".join(with_note(t, entry_note(t, "stop_piggyback", session_id=session_id, state=state, config=config))
-                             for t in (_pick, _so_note) if t)
+            _ctx = "\n".join(t for t in (_pick, _so_note) if t)
             output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _ctx}})
             return
 

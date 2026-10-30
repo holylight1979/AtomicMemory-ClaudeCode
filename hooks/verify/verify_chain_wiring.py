@@ -410,7 +410,6 @@ def test_subagent_stop_second_block_is_notice(monkeypatch, tmp_path):
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile"))
-    monkeypatch.setattr(st, "entry_note", lambda *a, **k: "")
     outs = []
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append(("block", msg)))
     monkeypatch.setattr(st, "output_nothing", lambda: outs.append(("pass", "")))

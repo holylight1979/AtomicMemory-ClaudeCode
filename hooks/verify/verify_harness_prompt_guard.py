@@ -68,7 +68,7 @@ def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 否決問句接判準卡會記 guard-entry，不落真 Logs
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 守門紀錄不落真 Logs
     cfg = {"userExtraction": {"enabled": True}}
     said = "先這樣。記住：一律使用 UTF-8。不要記。停用"
 
@@ -145,7 +145,7 @@ def _seven(prompt: str, monkeypatch) -> dict:
     monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
     monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
     monkeypatch.setattr(g, "OllamaClient", None)
-    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 否決問句接判準卡會記 guard-entry，不落真 Logs
+    monkeypatch.setattr(wg_core, "append_guard_log", lambda *a, **k: None)          # 守門紀錄不落真 Logs
     st = {"failing_tests": [{"cmd": "pytest t_x.py"}], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
     lines = []
     g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, prompt, prompt.lower(), lines)

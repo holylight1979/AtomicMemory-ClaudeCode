@@ -230,7 +230,6 @@ def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda name, rec: logs.append(rec))
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile"))
-    monkeypatch.setattr(st, "entry_note", lambda *a, **k: "")
     outs = []
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append("block"))
     monkeypatch.setattr(st, "output_nothing", lambda: outs.append("pass"))
@@ -272,10 +271,8 @@ def test_reconcile_budget_shared_per_user_turn():
     assert 'budget_exhausted(_rec, _uturn, _max, ["*"] if _code else [])' in src     # 寫碼查核整份共用鍵 "*"
 
 
-def test_selfscore_not_an_entrypoint_and_lives_in_console_skill():
-    """自檢評分是總控台用的開發期工具：不在切入點登錄表、整支在 skills/console/scripts/，產品 tools/ 底下沒有（舊碼在 tools/ → 紅）。"""
-    reg = json.loads((ROOT / "workflow" / "entrypoints.json").read_text(encoding="utf-8"))
-    assert "E36" not in {e.get("id") for e in reg["entrypoints"]}
+def test_selfscore_lives_in_console_skill():
+    """自檢評分是總控台用的開發期工具：整支在 skills/console/scripts/，產品 tools/ 底下沒有（舊碼在 tools/ → 紅）。"""
     assert (ROOT / "skills" / "console" / "scripts" / "selfscore.py").is_file() and not (ROOT / "tools" / "selfscore.py").exists()
 
 

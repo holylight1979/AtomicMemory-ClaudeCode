@@ -61,7 +61,7 @@ function readSupersedesLine(content) {
 
 /** write-gate 分型欄位轉述：只 echo py 回的 kind／bytes／limit／route_to／missing_sections／how，
  *  不另寫句子（js 轉述與 py reason 同字）。閘 fail-open 時 py 沒回這些欄位 → 回空字串。 */
-/** entry（切入點代號清單，workflow/entrypoints.json）格式：字串陣列、每個非空、不含逗號（`- Entry:` 行以逗號分隔）。 */
+/** entry（切入點代號標記）格式：字串陣列、每個非空、不含逗號（`- Entry:` 行以逗號分隔）。 */
 function entryInvalid(entry) {
   return entry !== undefined
     && (!Array.isArray(entry) || !entry.every((e) => typeof e === "string" && e.trim() && !e.includes(",")));
@@ -124,7 +124,7 @@ async function toolAtomWrite(id, args) {
     return reply("depends must be an array of strings like path:<abs path> (omit to keep, [] to clear)", true);
   }
   if (mode !== "append" && entryInvalid(entry)) {   // append 不動檔頭、忽略 entry，不因它拒收
-    return reply('entry must be an array of entrypoint ids like ["E04", "E08"] (workflow/entrypoints.json; omit to keep, [] to clear)', true);
+    return reply('entry must be an array of entrypoint ids like ["E04", "E08"] (omit to keep, [] to clear)', true);
   }
   if (provenance !== undefined && typeof provenance !== "string") {
     return reply("provenance must be a string (source path / URL / commit)", true);

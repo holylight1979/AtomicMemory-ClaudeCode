@@ -469,7 +469,7 @@ def deny_slim_enabled(config: Any) -> bool:
 
 def slim_deny(tag: str, fix: str, hits: Sequence[Tuple[str, Verdict]], cap: int = DENY_EVIDENCE_CAP) -> str:
     """DENY_TEXT_SLIM 的擋訊息：第一行 `[<閘>] 修法：<一句>`，下面每條命中一行 format_hit（parse_hits 照認，
-    每項證據超過 cap 字截短）。判準卡名由接卡處（wg_entrypoint.entry_note）接在後面。"""
+    每項證據超過 cap 字截短）。"""
     rows = [format_hit(letter, v._replace(evidence=tuple(e if len(e) <= cap else e[:cap] + "…" for e in v.evidence)))
             for letter, v in hits]
     return "\n".join([f"[{tag}] 修法：{fix}", *rows])
@@ -3966,15 +3966,11 @@ RULES.update({
 })
 
 
-# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
+# ─── 擋訊息瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
 RULES.update({
     "DENY_TEXT_SLIM": "擋訊息精簡格式（guard.deny_text_slim，預設開）：第一行「[<閘>] 修法：<一句>」，下面每條命中一行 format_hit"
-                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認），判準卡名由接卡處接在後面；"
+                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認）；"
                       "共用組裝 slim_deny，採用的閘交規則名與一句修法（動資料檔閘：data_file_fix）。寫 false 退回各閘原本的長文字（原處不動）。",
-    "CARD_FULL_ONCE_PER_SESSION": "判準卡一個 session 每張最多送一次全文（entrypoint.card_once_per_session，預設開；hooks/wg_entrypoint）："
-                                  "之後換回合、換目標樹都只併成一行「判準卡：<卡名>、…」，不印「這個話題前面已送過全文」；"
-                                  "同一個切入點這個 session 拿過卡，再被問就不往下送新卡、帳上不記截斷；同一則認出好幾個切入點、額度被平分到比單一額度小時，截斷送出的卡不算送過、被截的切入點不算拿過卡（下次單獨被問照送）。壓縮前清掉紀錄（之後重送）、"
-                                  "子代理開工句照送全文也不佔主對話；寫 false 退回 CARD_ONCE_PER_TOPIC。",
     "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟定位閘同一支 read_targets；"
                            "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
                            "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"

@@ -309,10 +309,8 @@ def handle_user_prompt_submit(
     try:
         from wg_friction import correction_question, record_correction
         correction_hits = record_correction(state, session_id, clean_prompt, config)
-        if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」，問的那一刻接判準卡、記 guard-entry（規則 CORRECTION_WORDS_ARE_HINTS）
-            from handlers._shared import entry_note, with_note
-            _cq = correction_question(correction_hits)
-            lines.append(with_note(_cq, entry_note(_cq, "user_prompt", session_id=session_id, state=state, config=config)))
+        if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」（規則 CORRECTION_WORDS_ARE_HINTS）
+            lines.append(correction_question(correction_hits))
     except Exception as e:
         _atom_debug_error("ups:friction", e)
         print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)

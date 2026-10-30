@@ -90,7 +90,7 @@ class AtomFile:
     depends: Optional[List[str]] = None   # None＝frontmatter 沒有 Depends 行（存量）；[]／清單＝有行
     related: List[str] = field(default_factory=list)  # 作者寫的正向連結；反向由注入端反轉，不存檔
     aka: List[str] = field(default_factory=list)      # 用過的舊檔名；連結以檔名為鍵，改名靠它讓舊連結續存
-    entry: List[str] = field(default_factory=list)    # 是哪幾個切入點的判準卡（workflow/entrypoints.json 的代號）
+    entry: List[str] = field(default_factory=list)    # 切入點代號標記（`- Entry:`）
 
 
 @dataclass

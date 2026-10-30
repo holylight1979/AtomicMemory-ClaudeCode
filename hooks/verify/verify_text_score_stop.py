@@ -35,7 +35,6 @@ sys.path.insert(0, str(HOOKS))
 sys.path.insert(0, str(TREE / "lib"))
 
 import wg_core  # noqa: E402
-import wg_entrypoint as ep  # noqa: E402
 import wg_friction  # noqa: E402
 import wg_need_goal  # noqa: E402
 import wg_overview  # noqa: E402
@@ -79,7 +78,6 @@ def world(tmp_path, monkeypatch):
     tick = itertools.count()
     base = datetime(2026, 10, 21, 9, 0, 0, tzinfo=timezone(timedelta(hours=8)))
     monkeypatch.setattr(wg_core, "_now_iso", lambda: (base + timedelta(seconds=next(tick))).isoformat(timespec="seconds"))
-    monkeypatch.setattr(ep, "card_pool", lambda state=None: [])
     monkeypatch.setattr(wts, "current_goal", lambda state, sid: GOAL)   # 有當下目標才評回覆（沒目標不評的案在 verify_gate_trim）
     return root
 

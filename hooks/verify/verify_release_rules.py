@@ -2571,10 +2571,9 @@ def test_inject_lean_rules_registered_with_cases():
         assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
 
 
-# ─── 擋訊息與判準卡瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
+# ─── 擋訊息瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
 _SLIM_CASES = {
     "DENY_TEXT_SLIM": ("verify_data_file_ask.py", "test_deny_text_slim_rule_fix_and_hit_only"),
-    "CARD_FULL_ONCE_PER_SESSION": ("verify_gate_slimming.py", "test_card_full_once_per_session_then_names_only"),
     "DATA_FILE_READ_HINT": ("verify_data_file_ask.py", "test_read_hint_on_first_read_of_data_file"),
 }
 
