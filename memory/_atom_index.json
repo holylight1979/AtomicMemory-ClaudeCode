@@ -9676,11 +9676,13 @@
       "triggers": [
         "G0",
         "G0 評分",
-        "定位三行",
+        "綜觀",
+        "從零形狀",
+        "障礙",
+        "設定衝突",
         "修錯層",
         "根因",
-        "症狀",
-        "讀入範圍"
+        "症狀"
       ],
       "scope": "global"
     },
@@ -13512,6 +13514,235 @@
       "related": [
         "workflow-parallel-agents"
       ]
+    },
+    {
+      "name": "版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據",
+      "path": "memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據.md",
+      "triggers": [
+        "啟動器 commit",
+        "worktree commit",
+        "含 git 字樣被擋",
+        "commit 前閘",
+        "--commit-check",
+        "病形閘沒觸發"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "守門只在寫碼回合啟動-入口要認本回合實際改了程式檔-不能認跨回合殘留的狀態-也不能認關鍵字意圖",
+      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/守門只在寫碼回合啟動-入口要認本回合實際改了程式檔-不能認跨回合殘留的狀態-也不能認關鍵字意圖.md",
+      "triggers": [
+        "coding_turn",
+        "寫碼回合",
+        "守門啟動",
+        "turn_intent",
+        "classify_intent",
+        "寫碼意圖",
+        "第十四刀"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion",
+      "path": "memory/CC與原子記憶契約/claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion.md",
+      "triggers": [
+        "claude -p",
+        "無頭",
+        "headless",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "sdk-cli",
+        "non_interactive_reason",
+        "無頭驗收",
+        "AskUserQuestion 不存在"
+      ],
+      "scope": "global",
+      "related": [
+        "驗收用乾淨資料根三坑-缺memory-meta詞表g6靜默退回舊詞表-索引0筆與健檢警告帶偏ai-試跑資料根放在系統repo內會被背景同步commit"
+      ]
+    },
+    {
+      "name": "部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛depends讓健檢驗過期-配路徑前綴對照表動手前查表先讀",
+      "path": "memory/工作流/部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛depends讓健檢驗過期-配路徑前綴對照表動手前查表先讀.md",
+      "triggers": [
+        "導讀卡",
+        "部位導讀",
+        "綜觀頁",
+        "hub 卡",
+        "路徑前綴",
+        "Depends",
+        "專案綜觀",
+        "沒東西可綜觀"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住"
+      ]
+    },
+    {
+      "name": "守門改成提醒後只在stop寫stderr的提醒ai看不到-提醒要掛posttooluse或posttoolbatch才進ai眼前-提醒句給了放行出口就要同時寫什麼時候不能走",
+      "path": "_AIDocs/_atoms/MemDev/擋訊息與放行判定/守門改成提醒後只在stop寫stderr的提醒ai看不到-提醒要掛posttooluse或posttoolbatch才進ai眼前-提醒句給了放行出口就要同時寫什麼時候不能走.md",
+      "triggers": [
+        "守門改提醒",
+        "提醒沒送到",
+        "Stop stderr",
+        "PostToolBatch 提醒",
+        "只留帳",
+        "提醒重驗",
+        "AI 照做程式沒認帳",
+        "PickOne 沒送到",
+        "放行出口"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "worktree隔離session的bash硬擋-git-c-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照",
+      "path": "_AIDocs/_atoms/MemDev/worktree與隔離資料根/worktree隔離session的bash硬擋-git-c-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照.md",
+      "triggers": [
+        "worktree 隔離",
+        "python - heredoc 被擋",
+        "變數路徑 被擋",
+        "git -C live 被擋",
+        "反轉驗證 worktree",
+        "live 未動證明",
+        "隔離 session 硬擋"
+      ],
+      "scope": "global",
+      "related": [
+        "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上",
+        "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑"
+      ]
+    },
+    {
+      "name": "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash",
+      "path": "_AIDocs/_atoms/MemDev/v6總控台/退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash.md",
+      "triggers": [
+        "退回檢查",
+        "退回紅",
+        "暫存副本",
+        "git archive",
+        "tar --force-local",
+        "Cannot connect to C",
+        "舊版檔跑新測試",
+        "舊碼回放樹",
+        "回放樹位置",
+        "祖先 conftest"
+      ],
+      "scope": "global",
+      "related": [
+        "worktree隔離session的bash硬擋-git-c-live與python-heredoc與變數路徑一律被拒-live未動證明改用cmp與blob雜湊對照",
+        "在子目錄跑git-apply會靜默略過子目錄外的路徑照樣回0-重建修補前版本做紅回放改用git-archive解到暫存再patch-p1",
+        "git-bash的tar解windows絕對路徑報cannot-connect-to-c-resolve-failed-冒號前被當遠端主機-加force-local或改用python-tarfile"
+      ]
+    },
+    {
+      "name": "動手前的上下游要寫這次改動會碰到的真實呼叫者-grep看到卻沒讀的就是缺塊-先補讀再改",
+      "path": "memory/工作流/動手前的上下游要寫這次改動會碰到的真實呼叫者-grep看到卻沒讀的就是缺塊-先補讀再改.md",
+      "triggers": [
+        "上游",
+        "下游",
+        "缺塊",
+        "補讀",
+        "呼叫點"
+      ],
+      "scope": "global",
+      "entry": [
+        "E03"
+      ]
+    },
+    {
+      "name": "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash",
+      "path": "_AIDocs/_atoms/MemDev/worktree與隔離資料根/在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash.md",
+      "triggers": [
+        "worktree 分支",
+        "背景記憶同步",
+        "knowledge harvest commit",
+        "設 HOME",
+        "驗證 session"
+      ],
+      "scope": "global",
+      "related": [
+        "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+        "子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它",
+        "需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份",
+        "改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控"
+      ]
+    },
+    {
+      "name": "寫碼類閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份",
+      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/寫碼類閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份.md",
+      "triggers": [
+        "edit_gate",
+        "is_code_path",
+        "write_paths_from_tool",
+        "write_sources_from_tool",
+        "commit_gate",
+        "_git_commits_to_run",
+        "cfg_of",
+        "cfg_for_cwd",
+        "hook_cwd",
+        "peer_offset",
+        "閘被繞過"
+      ],
+      "scope": "global",
+      "related": [
+        "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-bash不能設home-commit豁免只認磁碟機寫法-合main要指定hash",
+        "pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因"
+      ]
+    },
+    {
+      "name": "被擋沒附推薦時先判這題該不該問-判斷得了的不問-推薦選真的最好的並寫對目標的影響",
+      "path": "memory/行為契約/被擋沒附推薦時先判這題該不該問-判斷得了的不問-推薦選真的最好的並寫對目標的影響.md",
+      "triggers": [
+        "ASK_NEEDS_RECOMMENDATION",
+        "沒附推薦",
+        "(Recommended)",
+        "建議：",
+        "自己判斷得了的不推給人",
+        "該不該問"
+      ],
+      "scope": "global",
+      "entry": [
+        "E25"
+      ]
+    },
+    {
+      "name": "背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log",
+      "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-收尾閘不認-要收據就前景跑十分鐘內或跑完前景grep-log.md",
+      "triggers": [
+        "run_in_background",
+        "收據",
+        "無哨兵",
+        "背景驗證",
+        "receipt",
+        "manually backgrounded"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "userpromptsubmit路的判斷入口形狀-詞表命中先記待判問一句-stop在所有閘前收行首標籤取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判",
+      "path": "_AIDocs/_atoms/MemDev/擋訊息與放行判定/userpromptsubmit路的判斷入口形狀-詞表命中先記待判問一句-stop在所有閘前收行首標籤取最後一條-到下一則使用者本人訊息沒回只記沒回不照詞表判.md",
+      "triggers": [
+        "判斷入口",
+        "UPS 問一句",
+        "糾正｜",
+        "否決記憶｜",
+        "詞表只提示",
+        "undeclared"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "g8-評分規格三層設定在每個工具端都一致",
+      "path": "memory/思考與決策/g8-評分規格三層設定在每個工具端都一致.md",
+      "triggers": [
+        "G8",
+        "G8 評分",
+        "三層變量",
+        "三層設定一致",
+        "根層 公司層 專案層",
+        "設定讀錯層"
+      ],
+      "scope": "global"
     }
   ]
 }

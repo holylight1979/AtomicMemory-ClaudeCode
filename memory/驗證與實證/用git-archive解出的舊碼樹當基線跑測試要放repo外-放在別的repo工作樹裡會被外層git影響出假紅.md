@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: git archive, 基線樹, 舊碼樹, 基線跑測試, 外層 .git, 假紅, 舊碼對照
 - Created-at: 2026-10-27
-- Related: 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑, 回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror
+- Related: 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-回放樹放repo外-並行工作樹時不用stash, 回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror
 - Source: session:17c8cd5c#840617df 2026-10-27
 
 ## 知識

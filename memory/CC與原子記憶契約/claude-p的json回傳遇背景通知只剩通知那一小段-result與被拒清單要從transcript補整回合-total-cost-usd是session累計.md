@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: claude -p, output-format json, task-notification, 背景通知, permission_denials, total_cost_usd, 串跑腳本, result 收錯, --resume 成本
 - Created-at: 2026-10-21
-- Related: claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion
+- Related: claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion
 
 ## 知識
 
