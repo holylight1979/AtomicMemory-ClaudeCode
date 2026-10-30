@@ -112,8 +112,10 @@ Session Ready
 | wg_provenance.py | — | 來源自動填：PostToolUse 對 atom_write receipt（create／replace）補 `- Source: session:<sid8>#<uuid8> <日期>` 與 `- Quote:`（`state.turn_prompts[-1]` 經 `lib/provenance.sanitize_quote`；已有 Quote 不動、呼叫者已給 Source 只補 Quote、開工句不當原話：`lib/harness_text.is_kickoff_prompt`）；失敗記 `Logs/guard-provenance.jsonl` 不阻斷 |
 | vcs-sync-worker.py | — | detached worker：git pathspec add＋commit → 拉（`vcs_sync.pull.enabled`）→ push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete／update／commit；stderr → `Logs/vcs-sync.log` |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
-| wg_overview.py | — | 部位導讀卡（OverviewHub）：`on_prompt`／`on_read` 第一次碰到部位注入導讀卡（依意圖選片）、`on_edit` 寫入閘（三項證據缺一即 deny、readonly、transcript 讀不到即擋）、候選填空（觸發詞、第二次 Edit、全專案）；部位表解析在 `lib/overview_hub.py`；log `_overview-hub.log`（TECH §7.6） |
+| wg_overview.py | — | OverviewHub 留下的共用工具：部位設定四層合併（`_cfg`）、部位查表、讀檔擷取（`read_targets`）、提醒帳（`remind_*`）、本 session 讀過的檔；部位表解析在 `lib/overview_hub.py`（TECH 附錄 A7.6 部位表） |
 | wg_depends.py | — | Depends 讀檔召回：讀到某卡 `- Depends: path:` 指的檔 → 一行一卡指標（同卡一 session 一次）；`authority_map` 命中文件檔一次性注入地圖 |
+| wg_code_path.py | — | 寫碼類判準：`is_code_path`（單一路徑）／`writes_code`（加上 cp／mv 來源與新建腳本內容）；`wg_core.coding_turn`、收尾、資料檔閘、PickOne、`tools/project-smells.py` 共用 |
+| wg_ask_gate.py | — | 問使用者前的閘（寫碼守門開時）：AskUserQuestion 每題要附推薦、改法選擇先讀部位檔；帳 `Logs/guard-ask.jsonl` |
 | wg_verify_ledger.py | — | 驗證帳本：收 Bash／PowerShell 輸出哨兵進 `workflow/verify-ledger/<sid>.jsonl`；Stop 的 ReconcileGate（宣稱對收據）、MeasureGate（量尺 DONE）判定純函式（TECH §7.1） |
 | wg_scorecard.py | — | 每 session 一行過程量（S1／S3／S5）→ `workflow/scorecard/<yyyymm>.jsonl`，報表 `tools/scorecard-report.py` |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
@@ -165,16 +167,15 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 6. 工具鏈（tools/）
 
-### MCP Server（12 tool）
+### MCP Server（9 tool，寫碼守門開關都列這 9 個）
 - `workflow-guardian-mcp/server.js`（+ 14 lib 模組，原 4394 行單檔純機械拆分；對照 `lib/_MAP.md`）— stdio MCP + dashboard port 3848
   - `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta` / `atom_retire`（5 個 atom 業務 tool；`atom_edit_meta`=元資料外科編輯 → [SPEC_ATOM_V5 §3.4](SPEC_ATOM_V5.md)；`atom_write(supersedes=)` 三態、`atom_retire` 退役步驟與 receipt → [SPEC_ATOM_V5 §3.5](SPEC_ATOM_V5.md)）
   - `knowledge_harvest_report`（階段收割回報：items 結構化、只回 chip `[Harvest] N 寫入／M 退役／K 不寫`；核對與 state／ledger 由 Python `post_tool_use` 寫 → TECH §6.3；`lib/harvest.js`）
   - `memory_search`（唯讀：`query`／`cwd?`／`top_k?`／`format: table|json`；handler `atom-tools.js toolMemorySearch` → py `atom_io_cli search` → `lib/memory_search`；不寫 state、無 receipt；契約 TECH §5.8）
+  - `atom_source`（唯讀：一張卡的 Source／Quote，原對話還在就撈前後文；py `lib/provenance.atom_source`，三態 live／quote_only／unrecoverable；TECH §5.8）
   - `anti_evasion_report`（收尾檢核十欄 (a)(b)(d)–(k) emit（回條一行、報告不進聊天）→ Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
     - 產出物帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：工具呼叫（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支）/ (i) 一行一路徑 / Stop 掃 scratchpad 進帳）；HUD「這個 session 留下的東西」面板走 `GET /api/aec/tempfiles/<sid>`（Node 轉呼叫 `tools/session-artifacts.py list`，Python 現場查檔案系統與 git、快取 10 秒、不做 TTL）；保留／刪除走 `POST /api/aec/decision` → `session-artifacts.py act` 當場執行、結果寫回帳本；「全機殘留」分頁走 `GET /api/aec/tempfiles-all` → `list --all`（快取 30 秒），每組「清掉不用再確認的」走同一端點帶 `all_safe` → `act --all-safe`；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）兩道拒收：(i) 解析拒收並 additionalContext 回告、`ledger_append` 末道
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
-  - `second_opinion_start` / `second_opinion_result`（第二意見：打包部位卡＋病灶＋diff＋帳本尾成 job，replay-guard pre 守門後分離子程序叫 codex，result 純讀 `workflow/second-opinion/<job>/`；handler `lib/second-opinion.js` → py `tools/second-opinion/run.py`；規格 `tools/second-opinion/README.md`）
-  - `project_smells`（候選池：讀 `<專案根>/.claude/overview-hub.json` 的 `smells_report`／`smells_cmd`，都沒有走內建熱點＋大小；七類別白名單、無理由列丟棄；handler `lib/project-smells.js` → py `tools/project-smells.py`）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
 ### 發布
@@ -235,7 +236,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - overview-map-scaffold.py — 從零掃出 `<專案>/.claude/overview-map.md` 骨架表與五段骨架卡（`lib/overview_scaffold.py`）；預設 dry-run，`--write` 落檔（卡先寫、表最後寫、失敗不撤回、重跑接續補完）、表存在拒覆寫、`--merge-missing` 補列補卡；`check` 對帳表與卡｜`OVERVIEW_SCAFFOLD DONE rows=`
 - refix-churn.py — git／svn 同檔反覆 fix 排名（`lib/refix_churn.py`；主尺 fix 數、副尺 14 天配對），排除記憶與收割提交；`--svn-xml` 吃離線 log｜`REFIX_CHURN DONE vcs= commits= fix= files_refixed=`
 - scorecard-report.py — 彙整每 session 的 S1／S3／S5 行（`hooks/wg_scorecard.py` 在 SessionEnd 寫 `workflow/scorecard/<yyyymm>.jsonl`）：四週中位數基線、低於基線部位、下一張該寫的卡 → `health-reports/scorecard-<date>.md`＋`scorecard/candidates.json`｜`SCORECARD_REPORT DONE lines= candidates=`
-- second-opinion/run.py — 第二意見 job（MCP `second_opinion_start`／`second_opinion_result` 的 py 端）：`prepare`（打包＋replay-guard pre）／`execute`（探針→codex→post-guard→三段解析，終態保護、executor lock）／`probe`／`status`／`scan`；`project-smells.py` — 候選池（報告／指令／內建三來源）｜`PROJECT_SMELLS DONE n=`
+- project-smells.py — commit 前病形檢查（PreToolUse 的 SmellGate 與 GateBypass 載入；TECH §7.5）
 - usage-snapshot/usage_snapshot.py — 週用量截圖（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，用量刷新前）：專屬 Chrome profile（`--login` 一次登入）開 claude.ai/settings/usage → 截圖存公司記憶庫 `usage-snapshots/usage-YYYYMMDD-<帳號>.png` 並自動 commit／push（帳號＝Claude Code 登入信箱 @ 前段；沒接上公司記憶庫退本機 `workflow/usage-snapshots/`）+ 本機 `usage-log.jsonl`（% / Resets 文字）+ `usage-last-run.json`；失敗留 `*-FAILED.png`
 - memory-effect-report.py — 注入效果報表：access.json（曝光+α/β）+ rescue-log + recall-miss.jsonl → 四節（top 有用 / token 稅 / 死重候選 / D 失念聚合）+ 30 天週趨勢；`/memory health` 與週健檢共用
 - memory-vector-service/starter.py — Vector 啟動器自癒（SessionStart / UPS re-kick 共用）：stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、120s 等待窗 + spawn lock
@@ -258,8 +259,9 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - meeting-transcribe.py — `/meeting` 後端：音檔 → ffmpeg 轉檔＋靜音切段 → Ollama 音訊模型（`gemma4:e4b`，backend 依 config 優先序挑有 `audio` 能力者）逐字稿 → 文字模型三段摘要 → 每條決議一顆 `[臨]` atom 進專案 `shared/<Lv1>/`（分不出 → `_pending_review`）；`--check`／`--dry-run`／`--no-ingest`／`--glossary`／`--json`；verify `tools/verify/verify_meeting_transcribe.py`（TECH §6.6）
 
 ### Codex Companion（V5 subprocess）
+- `tools/codex-call.py` — 叫 Codex 的唯一入口（附 `--help`；程式內用 `run_codex(...)`）：把提示詞交給 `codex exec`，回答案或明確失敗；執行檔照 `judge_backend.resolve_codex_bin` 找、模型名照 `lib/codex_models` 精確比對、必帶 `--ephemeral`／`--skip-git-repo-check`、提示詞從暫存檔餵 stdin、指定沙箱時 Windows 另帶 `windows.sandbox="unelevated"`、附 `codex_extra_args`、逾時 kill；跑不起來、逾時、exit 非 0、沒回答 → exit 1 並在 stderr 印原因，不報成功
 - audit.py — one-shot subprocess（stdin JSON → assessor.run_assessment → state.write_assessment 落盤）
-- assessor.py — 組 prompt → `codex exec` → parse JSON；retry 1 次；`_classify_failure` 識別 R2-5 級錯誤
+- assessor.py — 組 prompt → 經 `tools/codex-call.py` 叫 codex → parse JSON；retry 1 次；`_classify_failure` 識別 R2-5 級錯誤
 - prompts.py — plan review / turn audit / architecture review / **handoff review**（2026-06-24，交接文件對抗式他評）模板，含 SANDBOX_CONSTRAINT 紅線；`verify/verify_handoff_review.py` 12 測
 - state.py — per-session 狀態 + per-turn assessment cache（含 metric API + 白名單）
 - heuristics.py — 規則式軟閘（< 10ms 無 LLM）；Silent Advisory Mode 預設啟用
