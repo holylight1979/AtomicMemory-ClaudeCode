@@ -174,21 +174,11 @@ def test_tracking_lines_recorded(monkeypatch):
     assert got and "README 補充" in json.dumps(got, ensure_ascii=False)
 
 
-# ─── 定位不重抄、評分不注入、提問不掛節點、未知寫入、改判準卡、子代理預算 ─────────────────────────────────────
+# ─── 定位不重抄、提問不掛節點、未知寫入、改判準卡、子代理預算 ─────────────────────────────────────
 
 def test_locate_lines_not_duplicated_into_tool_args():
     src = (ROOT / "lib" / "overview_hub.py").read_text(encoding="utf-8")
     assert "保險做法" not in src
-
-
-def test_text_score_tail_not_injected(monkeypatch):
-    import wg_text_score as wts
-    monkeypatch.setattr(wts, "find_record", lambda sid, sha: {"summary": "評分 5/7", "spec": "reader-designer"})
-    logs = []
-    monkeypatch.setattr(wts, "append_guard_log", lambda name, rec: logs.append(rec))
-    state = {"turn_seq": 3, "text_score": {"s": {"reply": {"sha": "abc", "turn": 3}}}}
-    assert wts.tail_note(state, "s", {"text_score": {"enabled": True}}) == ""
-    assert logs and logs[-1]["event"] == "recorded"
 
 
 def test_ask_unlinked_to_goal_not_blocked(monkeypatch):
@@ -333,7 +323,7 @@ def test_coding_turn_layer2_need_goal_declares_code_tree(ng_env):
 
 
 def test_non_coding_turn_skips_v6_gates_at_stop():
-    """收尾：不是寫碼回合、也不是「前幾回合改過程式、這則宣告完成」，退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑不跑
+    """收尾：不是寫碼回合、也不是「前幾回合改過程式、這則宣告完成」，退避偵測、退縮閘、收尾檢核、閱讀路徑不跑
     （舊碼照跑 → 紅）；收割、收割待補是 v6 以前就有的，照舊每回合跑。"""
     src = (HOOKS_DIR / "handlers" / "stop.py").read_text(encoding="utf-8")
     assert "_coding = v6 and (coding_turn(state, config) or (_done(last_text) and _wrote_code(own_mod_files, config)))" in src
@@ -469,50 +459,6 @@ def test_prompt_gives_goal_first_then_asks_per_item():
     assert "當下的需求目標：" not in plain
     doc = (ROOT / "text-specs" / "reader-designer-說明.md").read_text(encoding="utf-8")
     assert goal in doc
-
-
-def test_current_goal_tree_then_user_words_then_none(monkeypatch):
-    """評分要對的目標：有樹用樹根；沒樹用本回合使用者原話；都沒有回空（不評）。"""
-    import wg_need_goal as ng
-    import wg_text_score as wts
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": "T1", "trees": {"T1": {"id": "T1", "nodes": {"T1": {"text": "樹根目標"}}}}})
-    assert wts.current_goal({"turn_prompts": ["使用者原話"]}, "s") == "樹根目標"
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": None, "trees": {}})
-    assert wts.current_goal({"turn_prompts": ["使用者原話"]}, "s") == "使用者原話"
-    assert wts.current_goal({}, "s") == ""
-
-
-def test_on_stop_without_goal_does_not_score(tmp_path, monkeypatch):
-    import wg_need_goal as ng
-    import wg_text_score as wts
-    sent = []
-    monkeypatch.setattr(wts, "JOB_DIR", tmp_path / "jobs")
-    monkeypatch.setattr(wts, "_spawn_worker", lambda job: sent.append(json.loads(Path(job).read_text(encoding="utf-8"))))
-    monkeypatch.setattr(ng, "load", lambda sid: {"active": None, "trees": {}})
-    reply = "改了 x.py，跑過 verify。" + "說明" * 200
-    cfg = {"text_score": {"enabled": True, "min_chars": 300}}
-    wts.on_stop({}, "s", reply, [], 3, cfg, code_reply=True, user_turn=3)
-    assert sent == []
-    wts.on_stop({"turn_prompts": ["幫我修 x"]}, "s", reply + "2", [], 4, cfg, code_reply=True, user_turn=4)
-    assert sent and sent[0]["tasks"][0]["goal"] == "幫我修 x"
-
-
-def test_docs_scored_only_with_code_change_reply(tmp_path, monkeypatch):
-    """文件類評分只在交付改程式那則（code_reply）送：純文件回合不評（舊碼本回合改過的 .md 一律送 → 紅）。"""
-    import wg_text_score as wts
-    sent = []
-    monkeypatch.setattr(wts, "JOB_DIR", tmp_path / "jobs")
-    monkeypatch.setattr(wts, "_spawn_worker", lambda job: sent.append(json.loads(Path(job).read_text(encoding="utf-8"))))
-    monkeypatch.setattr(wts, "current_goal", lambda state, sid: "加匯出")
-    doc = tmp_path / "proj" / "memory" / "_staging" / "g15-checklist.md"
-    doc.parent.mkdir(parents=True)
-    doc.write_text("x", encoding="utf-8")
-    mods = [{"path": str(doc), "session_id": "s", "last_turn_seq": 4}]
-    cfg = {"text_score": {"enabled": True, "min_chars": 300,
-                          "auto_targets": {"docs": ["memory/_staging/*checklist*.md"]}}}   # 出廠沒列 docs，案例自己給樣式
-    assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=False, user_turn=4) is False and sent == []
-    assert wts.on_stop({}, "s", "短", mods, 4, cfg, code_reply=True, user_turn=4) is True
-    assert [t["kind"] for t in sent[0]["tasks"]] == ["docs"]
 
 
 def test_hook_timing_not_recorded_in_non_coding_turn(tmp_path, monkeypatch):

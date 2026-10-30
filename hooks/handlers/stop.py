@@ -76,7 +76,6 @@ from wg_harvest import (
     record_pick, pick_due, pick_code_mods, pick_ask,
 )
 from wg_reading_path import reading_path_note, turn_judgment_missing, turn_judgment_note, without_judgment_prompt
-from wg_text_score import on_stop as _text_score_on_stop
 from wg_release_rules import format_hit
 from wg_release_rules import gate_mode as _gate_mode, parse_hit_rules as _parse_hit_rules, REMIND as _REMIND, BLOCK as _BLOCK
 from wg_closing_round import pick_pre_close_on as _pick_pre_close_on
@@ -1886,7 +1885,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         m for m in mod_files_all
         if (m or {}).get("session_id", session_id) == session_id
     ]
-    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核、文字評分、閱讀路徑只在寫碼回合跑（收割、收割待補照舊每回合）；
+    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核、閱讀路徑只在寫碼回合跑（收割、收割待補照舊每回合）；
     # 本 session 前幾回合改過程式、這則宣告完成也算（改碼已經發生過，收尾照查）
     _coding = v6 and (coding_turn(state, config) or (_done(last_text) and _wrote_code(own_mod_files, config)))
     if not _coding:
@@ -1925,24 +1924,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and aec.get("session_id") == session_id
         and all(0 < _mod_turn(m) <= int(aec.get("turn_seq") or 0) for m in own_mod_files)
     )
-
-    # 文字評分（G15）：交付「改了哪些程式」那則回覆與本回合改過的 .md 交背景評、不等不擋；上回合送到眼前的評分一行有沒有照抄記帳
-    # （wg_text_score）。回覆評不評由 wg_text_score 依 code_reply（本使用者回合改了程式、這則宣告完成）判，規則 TEXT_SCORE_CODE_REPLY_ONLY
-    if _coding:
-        _ts_since = _user_turn(state, turn_seq)
-        try:
-            from wg_need_goal import is_code_path
-            _code_reply = _done(code_text) and any(
-                in_turn(_mod_turn(m), turn_seq, _ts_since) and is_code_path(str(m.get("path") or ""), config)
-                for m in own_mod_files)
-        except Exception as e:  # noqa: BLE001
-            print(f"[Guardian:TextScore] 判不出這則是不是交付改程式的回覆（這則不評）：{type(e).__name__}: {e}", file=sys.stderr)
-            _code_reply = False
-        if _text_score_on_stop(state, session_id, code_text, own_mod_files, turn_seq, config, code_reply=_code_reply,
-                               user_turn=_ts_since):
-            write_state(session_id, state)
-    if _timed_out("文字評分"):
-        return
 
     _cleanup_memo: List[Any] = []
 
