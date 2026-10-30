@@ -49,6 +49,7 @@ workflow/read-log-*.lock
 workflow/coord-warn-cache-*.json
 workflow/world-dev.json
 workflow/_*.log
+workflow/_overview-hub-retired-warned.json*
 workflow/guardian-crash.log
 workflow/extract-worker.log
 workflow/tool-results/

@@ -336,6 +336,34 @@ def test_retired_keys_warn_once_not_error(proj, tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().err == ""                                # 第二次不再警告
 
 
+def test_retired_keys_in_files_warn_once_across_hook_processes(proj, tmp_path, monkeypatch, capsys):
+    """退役鍵寫在設定檔裡：每個（檔、鍵組合、mtime）只警告一次，下一支 hook 行程也不再印（標記在 log 旁）；
+    改了哪個檔就只再警告那個檔的鍵，文字照舊。"""
+    wf = tmp_path / "wf"
+    wf.mkdir()
+    monkeypatch.setattr(wo, "LOG_PATH", wf / "hub.log")
+    cfg_path = wf / "config.json"
+    cfg_path.write_text(json.dumps({"overview_hub": {"dry_run": True}}), encoding="utf-8")
+    monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
+    (wf / "config.local.json").write_text(json.dumps({"overview_hub": {"min_map": 1}}), encoding="utf-8")
+    hub = proj / ".claude" / "overview-hub.json"
+    hub.write_text(json.dumps({"need_goal": {}}), encoding="utf-8")
+    cfg = {"overview_hub": {"dry_run": True, "min_map": 1}}
+    line = "[Guardian:OverviewHub] 設定鍵「{}」已退役（沒有程式讀它），請從 overview-hub.json／config.json 移除"
+
+    wo._cfg(cfg, proj)
+    assert capsys.readouterr().err.splitlines() == [line.format(k) for k in ("dry_run", "min_map", "need_goal")]
+    assert (wf / "_overview-hub-retired-warned.json").is_file()
+    monkeypatch.setattr(wo, "_WARNED", set())                           # 下一支 hook 行程
+    wo._cfg(cfg, proj)
+    assert capsys.readouterr().err == ""
+    st = hub.stat()
+    os.utime(hub, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))      # 改了專案層那份
+    monkeypatch.setattr(wo, "_WARNED", set())
+    wo._cfg(cfg, proj)
+    assert capsys.readouterr().err.splitlines() == [line.format("need_goal")]
+
+
 def test_cfg_errors_make_write_check_deny(proj, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "overview-hub.json").write_text('{"foo": 1, "eol_policy": "mixed"}', encoding="utf-8")

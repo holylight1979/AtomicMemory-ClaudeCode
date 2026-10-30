@@ -34,7 +34,7 @@ from wg_core import (
 from wg_verify_ledger import vcs_root_of
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
-from hub_config import HUB_REL, INTENT_KEYS, merge_hub_cfg  # noqa: E402
+from hub_config import HUB_REL, INTENT_KEYS, RETIRED_KEYS, merge_hub_cfg, same_dir  # noqa: E402
 import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     MAP_REL, card_mem_dir, find_map, match_row, parse_map, read_paths_from_tool, resolve_card, top_dir,
@@ -86,15 +86,68 @@ def _warn_once(key: str, msg: str) -> None:
     sys.stderr.write(f"[Guardian:OverviewHub] {msg}\n")
 
 
-def _warn_retired(retired: List[str]) -> None:
+def _retired_sources(org: Optional[Path], root: Optional[Path]) -> List[Tuple[Path, List[str]]]:
+    """退役鍵出自哪個檔：config.json／config.local.json 的 overview_hub 段、公司層與專案層 overview-hub.json
+    （層的取法同 merge_hub_cfg）。讀不到或壞 JSON 的檔跳過——那類錯誤由合併時的 _errors 報。"""
+    files: List[Tuple[Path, bool]] = [(CONFIG_PATH, True), (CONFIG_PATH.with_name("config.local.json"), True)]
+    if org is not None:
+        files.append((org / HUB_REL, False))
+    if root is not None and not (org is not None and same_dir(root, org)):
+        files.append((root / HUB_REL, False))
+    out: List[Tuple[Path, List[str]]] = []
+    for path, in_section in files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except (OSError, ValueError):
+            continue
+        sec = data.get("overview_hub") if in_section and isinstance(data, dict) else data
+        keys = sorted(k for k in sec if k in RETIRED_KEYS) if isinstance(sec, dict) else []
+        if keys:
+            out.append((path, keys))
+    return out
+
+
+def _warn_retired(retired: List[str], org: Optional[Path], root: Optional[Path]) -> None:
+    """退役鍵每個（設定檔路徑、退役鍵組合、檔案 mtime）只警告一次：記在 log 旁的標記檔，各 hook 行程看到同一組就不再印；
+    改了檔（mtime 變）或換了鍵再警告一次。對不到檔的鍵（呼叫端直接傳的設定）照舊每行程一次。標記寫不進去只記 atom-debug。"""
+    if not retired:
+        return
+    marker = LOG_PATH.with_name("_overview-hub-retired-warned.json")   # 跟著 LOG_PATH 走：測試換掉 log 位置，標記一起換
+    try:
+        seen = json.loads(marker.read_text(encoding="utf-8")) if marker.is_file() else {}
+    except (OSError, ValueError):
+        seen = {}
+    seen = seen if isinstance(seen, dict) else {}
+    attributed: set = set()
+    fresh: set = set()
+    for path, keys in _retired_sources(org, root):
+        try:
+            sig = f"{','.join(keys)}|{path.stat().st_mtime_ns}"
+        except OSError:
+            continue
+        attributed.update(keys)
+        if seen.get(str(path)) != sig:
+            fresh.update(keys)
+            seen[str(path)] = sig
     for key in retired:
-        _warn_once(f"retired:{key}", f"設定鍵「{key}」已退役（沒有程式讀它），請從 overview-hub.json／config.json 移除")
+        if key in fresh or key not in attributed:
+            _warn_once(f"retired:{key}", f"設定鍵「{key}」已退役（沒有程式讀它），請從 overview-hub.json／config.json 移除")
+    if not fresh:
+        return
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        tmp = marker.with_name(f"{marker.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(seen, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, marker)
+    except OSError as e:
+        _atom_debug_error("overview_hub:retired_marker", e)
 
 
 def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     """四層深合併（hub_config.merge_hub_cfg）：預設 < config.json overview_hub < 公司層 < 專案層 overview-hub.json。
 
-    這裡只補呼叫端的事：公司根（行程內快取）、錯誤與退役鍵各警告一次、驗證器內部錯誤進 atom-debug log、
+    這裡只補呼叫端的事：公司根（行程內快取）、錯誤每行程警告一次、退役鍵每個設定檔版本警告一次（_warn_retired）、
+    驗證器內部錯誤進 atom-debug log、
     `_layer`（root／org／project_mapped／project_unmapped／none）。
     寫碼守門關時 `enabled` 一律 False（規則 OVERVIEW_HUB_UNDER_V6）。回傳必帶 `_errors`（非空時 write_check 報設定錯）。
     """
@@ -103,7 +156,7 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     internal = c.pop("_internal_error", None)
     if internal is not None:
         _atom_debug_error("overview_hub:validate", internal)
-    _warn_retired(c.get("_retired") or [])
+    _warn_retired(c.get("_retired") or [], org, root)
     for e in c["_errors"]:
         _warn_once(f"error:{root}:{e}", f"設定錯誤（{root or '根層'}）：{e}")
     c["_layer"] = "none" if root is None else _layer_kind_for_root(root, org)
