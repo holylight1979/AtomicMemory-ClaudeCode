@@ -29,7 +29,6 @@ def test_044_every_rule_has_a_case():
 
 
 @pytest.mark.parametrize("rule, case_file", [
-    ("JUDGE_CARD_HASH_CATCHES_INTERPRETER", "verify_judge_card_declare.py"),
     ("SECOND_OPINION_RAN_BEFORE", "verify_pull_verify_ledger.py"),
     ("CARRIED_CLAIM_ANY_TURN_RECEIPT", "verify_pull_verify_ledger.py"),
     ("RECEIPT_UNPARSED_GENERAL_ONLY", "verify_pull_verify_ledger.py"),
@@ -2227,18 +2226,6 @@ def test_007_choice_reason_belongs_to_choice(root, want):
 
 
 # ─── 閘小修 006 ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_006_judge_card_change_needs_declaration():
-    """JUDGE_CARD_CHANGE_NEEDS_DECLARATION（裁定 #53）：綁 Entry 的卡要有點名這張、附理由的宣告；沒綁 Entry 不管。
-    四條出口與留帳的端到端案例在 verify_judge_card_declare.py。"""
-    decls = rr.parse_judge_card_decls("改判準卡｜卡-a：使用者說判準錯了\n改判準卡｜卡-b：<為什麼要改這張量尺>")
-    assert not rr.judge_card_verdict("卡-a", ["E29"], decls).owed
-    v = rr.judge_card_verdict("卡-b", ["E29"], decls)
-    assert v.owed and any("沒附理由" in e for e in v.evidence), v
-    assert rr.judge_card_verdict("卡-c", ["E29"], decls).owed
-    assert not rr.judge_card_verdict("卡-c", [], decls).owed
-    assert "JUDGE_CARD_CHANGE_NEEDS_DECLARATION" in rr.RULES
 
 
 def test_006_inline_flag_before_program():

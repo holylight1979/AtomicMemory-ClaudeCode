@@ -210,16 +210,6 @@ def test_unknown_write_target_allowed_and_logged(monkeypatch):
     assert out[0] is None and logs[-1][0] == "edit_unknown_target" and logs[-1][1]["allowed"] is True
 
 
-def test_judge_card_change_logged_not_blocked(monkeypatch):
-    import wg_judge_card as jc
-    logs = []
-    monkeypatch.setattr(jc, "bound_cards", lambda *a, **k: [("c:/m/card.md", ["E01"])])
-    monkeypatch.setattr(jc, "declarations", lambda *a, **k: [])
-    monkeypatch.setattr(jc, "append_guard_log", lambda name, rec: logs.append(rec))
-    assert jc.gate("Edit", {"file_path": "c:/m/card.md"}, {"session_id": "s"}, {}) is None
-    assert logs and logs[-1]["event"] == "undeclared" and logs[-1]["allowed"] is True
-
-
 def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
     """子代理收尾：擋滿每回合預算就放行並留帳（舊碼擋到底 → 紅）；未知寫入只留帳。"""
     from handlers import stop as st

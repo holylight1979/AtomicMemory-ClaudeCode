@@ -31,7 +31,6 @@ import chain_store  # 連鎖斷路器的帳、停手、快照（lib/；判定在
 import wg_chain
 import wg_data_file  # T2.16 動使用者資料檔要先宣告
 import wg_read_fast  # 規則 READ_FAST_PATH：改檔前先把累積的 Read 補帳
-import wg_judge_card  # 改判準卡留帳（JUDGE_CARD_CHANGE_NEEDS_DECLARATION）
 import wg_oldtest
 import wg_gate_bypass
 import wg_release_rules as _rr   # 擋或提醒（gate_mode／RULE_MODE，規則 GATE_MODE_TABLE）
@@ -1920,12 +1919,8 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         output_nothing()
         return
 
-    # 改判準卡：MCP 改卡的三個工具（settings.json PreToolUse matcher 掛了才會走到這裡）只過改判準卡閘
-    if tool_name.endswith(wg_judge_card.MCP_TOOLS):
-        deny_reason = wg_judge_card.gate(tool_name, tool_input, input_data, config)
-        if deny_reason:
-            _deny(input_data, config, deny_reason)
-            return
+    # MCP 改卡的三個工具（settings.json PreToolUse matcher 有掛）：只過上面的讀檔補帳與連鎖停手，不走寫檔閘
+    if tool_name.endswith(("__atom_write", "__atom_edit_meta", "__atom_retire")):
         output_nothing()
         return
 
@@ -2051,12 +2046,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     deny_reason = v6 and wg_data_file.gate(tool_name, tool_input, input_data, config)
     if deny_reason:
         _deny(input_data, config, deny_reason, watched=_blocked_files(tool_name, tool_input, _cwd))
-        return
-
-    # ── JudgeCardDeclare（改判準卡留帳）── 綁了 Entry 的卡有沒有「改判準卡｜哪張：理由」都放行、記帳（wg_judge_card）
-    deny_reason = v6 and wg_judge_card.gate(tool_name, tool_input, input_data, config)
-    if deny_reason:
-        _deny(input_data, config, deny_reason)
         return
 
     # state 這裡讀一次（動資料檔閘自己讀寫過之後）：svn 測試路徑閘、改舊測試閘與後面的口令閘、繞閘閘、OverviewHub 共用同一份

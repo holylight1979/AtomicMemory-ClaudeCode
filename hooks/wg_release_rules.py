@@ -1206,6 +1206,7 @@ RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）�
                                       "那筆從 failing_tests 搬到 deliberate_reds、留帳 guard-testfail_scope event=negative_control_declared，不必重跑；"
                                       "搬過就不會再被拿來擋。")
 _NEG_CONTROL_RE = lazy_re(r"負向對照\s*[｜|]\s*(.+)")
+_ASCII_SEP_NOT_PATH_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
 
 
 def parse_negative_controls(text: str) -> List[Dict[str, str]]:
@@ -1218,7 +1219,7 @@ def parse_negative_controls(text: str) -> List[Dict[str, str]]:
         rest = m.group(1)
         sep = rest.find("：")
         if sep < 0:
-            ascii_sep = _JUDGE_CARD_ASCII_SEP_RE.search(rest)
+            ascii_sep = _ASCII_SEP_NOT_PATH_RE.search(rest)
             subject, reason = (rest[:ascii_sep.start()], rest[ascii_sep.end():]) if ascii_sep else (rest, "")
         else:
             subject, reason = rest[:sep], rest[sep + 1:]
@@ -3242,68 +3243,6 @@ RULES.update({
                                         "換句話說的同一件程式不判，交 ①；"
                                         "PickOne 問句列出本 session 還開著的項目。",
 })
-# ─── 改判準卡留帳 ───
-RULES.update({
-    "JUDGE_CARD_CHANGE_NEEDS_DECLARATION": "要改的檔是綁了 Entry 的判準卡（memory／_atoms 目錄底下的 .md，磁碟上那份檔頭 metadata 的 `- Entry:` "
-                                           "非空，判定只用 lib/atom_locations.entry_bound_ids）＝判 AI 做得對不對的量尺：要先有宣告行"
-                                           "「改判準卡｜<卡名>：<理由>」（回覆文字／工具參數裡 `#` 開頭的註解行／thinking 三管道，主檔與子代理檔都找；"
-                                           "Bash／PowerShell 另認這次指令自己的 `#` 註解行）；卡名＝檔名去 .md（寫路徑也行，取最後一段比；只寫 Entry 代號不算），"
-                                           "多張以「、，,」分隔；理由要有文字內容、不是佔位；有沒有宣告都放行，只記錄不擋。出口：Edit／MultiEdit／Write、"
-                                           "Bash／PowerShell 的寫入目標、MCP atom_write 的 append／replace、atom_edit_meta、atom_retire（MCP 由 PreToolUse "
-                                           "matcher 掛工具名、Python 判，MCP 端照 locate_atom 同一份定位）。不分 session，每個 session 都一樣。"
-                                           "每次改動都留帳 Logs/guard-judge_card.jsonl（卡名、entry、宣告行、session、allowed）；"
-                                           "事實由 hooks/wg_judge_card.py 收。沒綁 Entry 的卡、新建的卡不觸發。",
-    "JUDGE_CARD_HASH_CATCHES_INTERPRETER": "直譯器自己開檔寫卡（Bash／PowerShell 跑 python／node／perl…，寫入目標解析不到）：不記雜湊、"
-                                           "不事後比對、不擋；改到綁 Entry 的判準卡最多留一筆帳（guard-judge_card），寫入目標解析得到的照 "
-                                           "JUDGE_CARD_CHANGE_NEEDS_DECLARATION 留帳。送法 remind（RULE_MODE）：本來就只留帳不擋，標 mode 不改行為。",
-})
-_JUDGE_CARD_DECL_RE = lazy_re(r"改判準卡\s*[｜|]\s*(.+)")
-_JUDGE_CARD_ASCII_SEP_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
-_JUDGE_CARD_NAME_SPLIT_RE = lazy_re(r"\s*[、，,]\s*")
-
-
-def parse_judge_card_decls(text: str) -> List[Dict[str, Any]]:
-    """宣告行 →[{names, reason, line}]。卡名與理由用第一個「：」分；沒有全形冒號才找不接路徑分隔的「:」。
-    names 是「、，,」切開的每一段（去反引號、引號、書名號）。"""
-    out: List[Dict[str, Any]] = []
-    for raw in str(text or "").splitlines():
-        m = _JUDGE_CARD_DECL_RE.search(raw)
-        if not m:
-            continue
-        rest = m.group(1)
-        if "：" in rest:
-            names, reason = rest.split("：", 1)
-        else:
-            sep = _JUDGE_CARD_ASCII_SEP_RE.search(rest)
-            names, reason = (rest[:sep.start()], rest[sep.end():]) if sep else (rest, "")
-        parts = [p.strip("`'\"「」『』 ") for p in _JUDGE_CARD_NAME_SPLIT_RE.split(names)]
-        out.append({"names": [p for p in parts if p], "reason": reason.strip(), "line": raw.strip()[:240]})
-    return out
-
-
-def judge_card_name_hits(name: str, stem: str) -> bool:
-    """宣告的卡名點到這張卡（stem＝檔名去 .md）：取路徑最後一段、去 .md 後與 stem 相同，不分大小寫。
-    擋訊息印的就是 stem，照抄一定對得上；只寫 Entry 代號（E29）不算，因為一個 Entry 綁好幾張卡，要點名是哪一張。"""
-    n = str(name or "").strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
-    n = n[:-3] if n.endswith(".md") else n
-    return bool(n) and n == str(stem or "").lower()
-
-
-def judge_card_verdict(stem: str, entry: Sequence[str], decls: Sequence[Dict[str, Any]]) -> Verdict:
-    """JUDGE_CARD_CHANGE_NEEDS_DECLARATION：owed＝要改的是綁 Entry 的卡、而且沒有點到它又附理由的宣告行。
-    entry 來自 entry_bound_ids（空＝不是判準卡）；decls 來自 parse_judge_card_decls。放行時證據第一筆是那一行宣告。"""
-    rule = "JUDGE_CARD_CHANGE_NEEDS_DECLARATION"
-    if not entry:
-        return Verdict(rule, False, f"{stem} 沒綁 Entry，不是判準卡")
-    for d in decls:
-        if reason_present(d.get("reason", "")) and any(judge_card_name_hits(n, stem) for n in d["names"]):
-            return Verdict(rule, False, f"宣告過改判準卡 {stem}", (d["line"],))
-    ev = [f"{stem}：綁 Entry {'、'.join(entry)}"]
-    ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls
-           if any(judge_card_name_hits(n, stem) for n in d["names"]) and not reason_present(d.get("reason", ""))][:2]
-    return Verdict(rule, True, "要改綁了 Entry 的判準卡，沒先宣告「改判準卡｜哪張：理由」", tuple(ev))
-
-
 # ─── 繞閘嫌疑 ───
 RULES.update({
     "GATE_BYPASS_NEEDS_DECLARATION": "被病形閘擋過之後（state smell_deny_last；同一個 repo 根、還沒成功 commit），這條指令把被點名的檔"

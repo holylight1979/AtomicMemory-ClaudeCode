@@ -1,4 +1,4 @@
-"""verify_pull_tool_gates.py：工具前的宣告閘不再「交了看不到就一直擋」——擋次上限、svn 測試路徑閘、判準卡不算雜湊、
+"""verify_pull_tool_gates.py：工具前的宣告閘不再「交了看不到就一直擋」——擋次上限、svn 測試路徑閘、
 commit 前核對出錯不擋。
 
 每條都是會紅案例（改前的碼跑會紅），除了 deny_cap 單元案都走 handlers/pre_tool_use.handle_pre_tool_use 真入口：
@@ -7,7 +7,6 @@ commit 前核對出錯不擋。
 - 繞閘閘：病形閘擋 A → 只交 B 又被擋 → 修好 B 再交 → 被排除的 A 仍要宣告（同一個 repo 的點名檔合併、不覆蓋）。
 - svn 測試路徑閘：預設關；專案 overview-hub.json 開了之後只看 commit 的路徑參數（-m 訊息不看）、PowerShell 也查、
   使用者本回合原句出口；overview-hub.json 寫 svn_test_block 不是未知鍵。
-- 判準卡：跑直譯器不記雜湊快照、事後不比對；改判準卡不擋。
 - 閘自己出錯（GATE_SELF_ERROR）：commit 前目標對照核對、動資料檔閘、改舊測試閘拋例外 → 不擋、留帳。
 - 耗重：動資料檔閘整次呼叫只讀一次 transcript；改舊測試閘不另讀 state。
 - config.local 合併：wg_core.load_config 走 lib/config_local.merge_local，跟它結果相同、不再自己合併。
@@ -34,7 +33,6 @@ sys.path.insert(0, str(HOOKS_DIR / "verify"))
 import wg_chain  # noqa: E402
 import wg_core  # noqa: E402
 import wg_data_file as df  # noqa: E402
-import wg_judge_card as jc  # noqa: E402
 import wg_oldtest as ot  # noqa: E402
 import wg_overview as wo  # noqa: E402
 from handlers import pre_tool_use as ptu  # noqa: E402
@@ -45,7 +43,6 @@ PROMPT = "幫 calc 加一個減法，設定檔裡的精度照舊"
 TEST_SRC = "def test_add():\n    assert 1 + 1 == 2\n"
 TEST_EDIT = {"old_string": "assert 1 + 1 == 2", "new_string": "assert 1 + 1 == 3"}
 DATA_EDIT = {"old_string": '"precision": 2', "new_string": '"precision": 3'}
-CARD = "# 卡\n\n- Scope: global\n- Confidence: [臨]\n- Trigger: 測試\n- Entry: E99\n## 知識\n\n- [臨] 原本的判準\n"
 OT_HIT = "✗ (ot) OLD_TEST_CHANGE_NEEDS_DECLARATION"
 
 
@@ -342,31 +339,6 @@ def test_project_hub_cfg_accepts_svn_test_block(tmp_path):
     hub.write_text(json.dumps({"svn_test_block": {"enabled": "yes"}}), encoding="utf-8")
     assert any("svn_test_block.enabled" in e for e in hc.merge_hub_cfg({}, None, root)["_errors"])
     assert hc.HUB_DEFAULTS["svn_test_block"] == {"enabled": False}
-
-
-# ─── 判準卡：不算雜湊 ───────────────────────────────────────────────────
-
-def test_interpreter_bash_takes_no_judge_card_snapshot(world, monkeypatch):
-    """資料根索引裡有綁 Entry 的卡、指令跑直譯器：PreToolUse 不記雜湊快照；腳本改了卡，事後也不比對、不留帳；改卡不擋。"""
-    proj = world["proj"]
-    card = proj / "memory" / "版控" / "測試判準卡-綁e99.md"
-    card.parent.mkdir(parents=True)
-    card.write_text(CARD, encoding="utf-8")
-    (proj / "memory" / "_atom_index.json").write_text(json.dumps({"version": 1, "atoms": [
-        {"name": card.stem, "path": "memory/版控/測試判準卡-綁e99.md", "entry": ["E99"]}]}, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(wg_core, "MEMORY_DIR", proj / "memory")
-    monkeypatch.setattr(wg_core, "CLAUDE_DIR", proj)
-    ti = {"command": "python tools/fix_cards.py"}
-    assert "[Guardian:JudgeCardDeclare]" not in _pre(world, "Bash", ti, "toolu_interp")
-    snap = Path(wg_core.WORKFLOW_DIR) / "judge-card-snap"
-    assert not (snap.is_dir() and any(snap.glob("*.json")))
-    with open(card, "a", encoding="utf-8") as f:
-        f.write("- [臨] 腳本補一條\n")
-    assert jc.after_tool(wg_core.read_state(SID), {"tool_name": "Bash", "tool_input": ti, "session_id": SID,
-                                                   "transcript_path": world["tp"], "tool_use_id": "toolu_interp"}, {}) is False
-    assert [e for e in _events(world, "judge_card") if e.get("channel") == "interpreter"] == []
-    edit = {"file_path": str(card), "old_string": "原本的判準", "new_string": "改過的判準"}
-    assert "[Guardian:JudgeCardDeclare]" not in _pre(world, "Edit", edit)
 
 
 # ─── commit 前目標對照核對出錯 ───────────────────────────────────────────
