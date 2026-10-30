@@ -296,10 +296,10 @@ def _cleanup_old_states() -> None:
 # ─── workflow/ 執行紀錄保留規則表（SessionStart 照表清一次）─────────────────────
 # 每列：dir（相對 workflow/；"../Logs/…" 是 workflow 的上一層）｜patterns（只看該層，不往下找）｜kind＋param｜keep（保留多久，給人讀）｜why（為什麼刪了不會壞事）。
 # 依據：每類在 session 結束後還有沒有讀者、讀者看多久以前的資料。檔名含目前 session id 的一律不動（resume 回來還要用）。
-# kind：age＝mtime 超過 param 天就刪；need_goal／aec_tempfiles／job_dirs／months／tracking_pairs＝下面同名的判斷；
+# kind：age＝mtime 超過 param 天就刪；need_goal／aec_tempfiles／job_dirs／tracking_pairs＝下面同名的判斷；
 # rotate＝超過大小輪替；elsewhere＝規則在別支程式（param 寫在哪），表上只登記；keep＝永久保留。
 
-RETENTION_KINDS = ("age", "need_goal", "aec_tempfiles", "job_dirs", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
+RETENTION_KINDS = ("age", "need_goal", "aec_tempfiles", "job_dirs", "tracking_pairs", "rotate", "elsewhere", "keep")
 OVERVIEW_LOG_MAX_MB = 10
 
 WORKFLOW_RETENTION: List[Dict[str, Any]] = [
@@ -344,8 +344,6 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "keep": "14 天（看目錄裡最新的檔）", "why": "結果在發起的 session 裡幾分鐘內就取走；_probe/ 會自己覆寫，不動"},
     {"dir": "usage-snapshots", "patterns": ("*-FAILED.png",), "kind": "age", "param": 30,
      "keep": "30 天", "why": "失敗診斷圖只看當次；用量 log 與成功截圖是成品，不刪"},
-    {"dir": "scorecard", "patterns": ("<YYYYMM>.jsonl",), "kind": "months", "param": 3,
-     "keep": "當月加前 2 個月", "why": "報表只讀近 4 週；candidates.json 不動"},
     {"dir": "tracking", "patterns": ("*.jsonl",), "kind": "tracking_pairs", "param": 90,
      "keep": "已結案的一對（開項＋結案）結案超過 90 天就拿掉；沒結案的永遠留",
      "why": "沒結案的就是這本帳存在的目的；結案的一對沒有程式再讀"},
@@ -359,7 +357,7 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "keep": "超過 10 MB 輪替成 .1～.3", "why": "沒有程式讀，只會一直長"},
     {"dir": "", "patterns": ("config.json", "followups.json", "org-memory.local.json", "health-last-run.json", "world-dev.json"),
      "kind": "keep", "param": None, "keep": "永久", "why": "設定與本機狀態"},
-    {"dir": "", "patterns": ("inbox/", "vcs-sync/", "usage-snapshots/usage-log.jsonl", "usage-snapshots/<成功截圖>", "scorecard/candidates.json"),
+    {"dir": "", "patterns": ("inbox/", "vcs-sync/", "usage-snapshots/usage-log.jsonl", "usage-snapshots/<成功截圖>"),
      "kind": "keep", "param": None, "keep": "永久", "why": "信件匣、版控同步佇列（鎖刻意不刪）、使用者的成品"},
 ]
 
@@ -473,16 +471,6 @@ def _prune_job_dirs(d: Path, days: float, now: float, dry_run: bool, res: Dict[s
                 _rm(s, dry_run, res)
 
 
-def _prune_months(d: Path, months: int, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
-    """<YYYYMM>.jsonl 只留當月與前 months-1 個月（依檔名，不看 mtime）。"""
-    t = datetime.fromtimestamp(now)
-    idx = t.year * 12 + t.month - 1
-    keep = {f"{(i // 12):04d}{(i % 12) + 1:02d}" for i in range(idx - months + 1, idx + 1)}
-    for f in d.glob("*.jsonl"):
-        if re.fullmatch(r"\d{6}", f.stem) and f.stem not in keep:
-            _rm(f, dry_run, res)
-
-
 def _prune_tracking_pairs(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
     """追蹤帳本：結案列（closed 且 closes.id 指到同本帳的開項）的 at 超過期限 → 那一對一起拿掉；其他列逐字原樣保留。
     帳本會被多個 session 同時追加且沒有鎖：改寫前後各看一次檔案大小與時間，中間有變就這一輪不動。"""
@@ -574,8 +562,6 @@ def prune_workflow_records(wf: Optional[Path] = None, current_sid: str = "", now
                 _prune_aec_tempfiles(d, row["param"], now, dry_run, res)
             elif kind == "job_dirs":
                 _prune_job_dirs(d, row["param"], now, dry_run, res)
-            elif kind == "months":
-                _prune_months(d, row["param"], now, dry_run, res)
             elif kind == "tracking_pairs":
                 _prune_tracking_pairs(d, row["param"], now, dry_run, res)
             elif kind == "rotate":

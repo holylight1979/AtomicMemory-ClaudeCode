@@ -38,7 +38,6 @@ TOOLS = {
     "memory-effect-report.py": (["ATOM_INDEX", "RESCUE_LOG", "RECALL_MISS_LOG", "INJECTION_TURNS_LOG"], ["CODE_DIR"]),
     "atom-date-lint.py": (["INDEX"], ["CODE_DIR"]),
     "atom-heal.py": (["MEMORY"], ["ROOT", "TOOLS"]),
-    "scorecard-report.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "statusline.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "refix-churn.py": (["CONFIG_PATH"], ["CODE_DIR"]),
     "text-score.py": (["CLAUDE_DIR", "CONFIG_PATH", "LOG_PATH"], ["CODE_DIR", "SPEC_DIR"]),

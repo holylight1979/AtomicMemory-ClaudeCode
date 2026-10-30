@@ -506,18 +506,6 @@ def collect() -> dict:
     info.extend(_second_opinion_declined_block(FRESH_DAYS))
     # 2d'. config 內建 PYTEST／PYTEST_MEASURE regex 停在舊版（只更新 hooks、沒對 config 的機器）
     yellow.extend(_pytest_regex_block(_load_config()))
-    # 2e. scorecard（hooks/wg_scorecard.health_block；沒有就印一行跳過）
-    try:
-        _hooks_on_path()
-        from wg_scorecard import health_block  # noqa: WPS433
-        sb = health_block() or {}
-        red.extend(sb.get("red") or [])
-        yellow.extend(sb.get("yellow") or [])
-        info.extend(sb.get("info") or [])
-    except ImportError:
-        info.append("scorecard 區塊跳過：hooks/wg_scorecard.health_block 尚未就緒")
-    except Exception as e:
-        yellow.append(f"scorecard 區塊執行失敗：{type(e).__name__}: {e}"[:200])
 
     # 3/4. 索引一致性
     for name, args in (

@@ -105,8 +105,6 @@ def test_collect_has_selftests_section_and_last_run_counts_failed(hw, monkeypatc
     assert [s["name"] for s in result["selftests"]] == ["ok", "bad"]
     assert any("selftest bad" in r for r in result["red"])
     assert any("Depends 覆蓋率 1/4" in i for i in result["info"])
-    # scorecard 區塊：wg_scorecard.health_block 沒合併時印「跳過」一行；合併後（track-d2）回真行，第一行以「scorecard」開頭
-    assert any("scorecard 區塊跳過" in i or i.startswith("scorecard") for i in result["info"] + result["yellow"] + result["red"])
     monkeypatch.setattr(sys, "argv", ["health-weekly.py", "--json"])
     rc = hw.main()
     assert rc == 1
