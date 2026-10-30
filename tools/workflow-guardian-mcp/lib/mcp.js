@@ -85,7 +85,7 @@ function handleMessage(msg) {
 
 // 寫碼守門專用的工具：守門關著時不列給 AI（沒有任何提示會叫它用，列著只會讓 AI 誤叫、多讀說明）；
 // 守門之前就有的記憶工具照列。呼叫照樣處理，開關打開就全部回來。
-const GUARD_ONLY_TOOLS = new Set(["need_goal", "project_smells"]);
+const GUARD_ONLY_TOOLS = new Set(["need_goal"]);
 
 function listedTools(guardOn) {
   return guardOn ? TOOL_DEFINITIONS : TOOL_DEFINITIONS.filter((t) => !GUARD_ONLY_TOOLS.has(t.name));
@@ -478,24 +478,6 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: "project_smells",
-    description:
-      "專案壞味道候選池：回前 N 筆 [{rank, path, category, reason, source, age_days}]，category 只收 " +
-      "hotspot|size|complexity|duplication|coupling|stale|custom。來源讀 <專案根>/.claude/overview-hub.json：" +
-      "smells_report（報告檔；超過 smells_max_age_days 預設 7 只在表頭加一行 stale、資料照回）→ smells_cmd（逾時 smells_timeout_s 預設 20 回錯誤附指示）" +
-      "→ 都沒有走 builtin（檔案大小＋近 60 天 git fix 熱點，代理量非判決）。無 reason 的列丟棄並回 dropped 數；" +
-      "未知類別要在 smells_category_map 映射，沒映射的列丟棄並列出名稱。唯讀、不碰 state；回應 ≤25KB。",
-    inputSchema: {
-      type: "object",
-      properties: {
-        part: { type: "string", description: "部位名（過濾報告的 part 欄；builtin 以 <root>/<part> 為掃描範圍）（必填）" },
-        cwd: { type: "string", description: "專案內路徑，往上找 .claude/overview-hub.json（必填）" },
-        top_n: { type: "integer", description: "最多回幾筆（預設 overview-hub.json 的 candidate_top_n，再預設 5）" },
-      },
-      required: ["part", "cwd"],
-    },
-  },
-  {
     name: "need_goal",
     description:
       "需求目標樹：先寫「真正要達成什麼」，工作中長子目標，收尾對照；action＝set｜add｜update｜reconcile｜read。" +
@@ -571,10 +553,6 @@ function handleToolCall(id, toolName, args) {
       // one-writer：只驗 schema、回 chip；receipt 核對／state／ledger 由 Python PostToolUse 獨佔。
       return require("./harvest").toolKnowledgeHarvestReport(id, args)
         .catch(e => sendToolResult(id, `knowledge_harvest_report error: ${e.message}`, true));
-    case "project_smells":
-      // 唯讀：spawn tools/project-smells.py --json（25 s timeout+kill）。
-      return require("./project-smells").toolProjectSmells(id, args)
-        .catch(e => sendToolResult(id, `project_smells error: ${e.message}`, true));
     case "need_goal":
       // one-writer：只驗參數、回 chip；目標檔與編號由 Python PostToolUse（wg_need_goal.apply_op）獨佔。
       return require("./need-goal").toolNeedGoal(id, args)

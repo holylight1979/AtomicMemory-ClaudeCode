@@ -1,6 +1,6 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
-//   tools/list 含 11 個 tool；need_goal 參數拒收與 chip（不寫檔）；atom_source 缺 atom 拒（不 spawn py）；
-//   project_smells 缺 part 拒（不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
+//   tools/list 含 10 個 tool；need_goal 參數拒收與 chip（不寫檔）；atom_source 缺 atom 拒（不 spawn py）；
+//   memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
 //   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_write schema 有 dedupe{verdict,of,why}（去重宣告；路由見 verify_atom_write_dedupe.js）；atom_retire 缺 reason 拒；
 //   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js（尾行 MCP_SMOKE_CHECK PASS|FAIL）
@@ -28,7 +28,7 @@ const PORT = process.env.WG_SMOKE_PORT || "38499";
 const EXPECTED_TOOLS = [
   "atom_write", "atom_promote", "atom_move", "atom_edit_meta",
   "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search", "atom_source",
-  "project_smells", "need_goal",
+  "need_goal",
 ];
 
 const cp = spawn(process.execPath, [SERVER], {
@@ -82,15 +82,8 @@ function check(cond, label, detail) {
   // 1. tools/list
   const list = await rpc("tools/list", {});
   const names = (list.result.tools || []).map((t) => t.name);
-  check(names.length === 11, `tools/list has 11 tools (got ${names.length})`, names.join(","));
+  check(names.length === 10, `tools/list has 10 tools (got ${names.length})`, names.join(","));
   for (const n of EXPECTED_TOOLS) check(names.includes(n), `tools/list includes ${n}`);
-  const ps = (list.result.tools || []).find((t) => t.name === "project_smells");
-  check(ps && ps.inputSchema.required.includes("part") && ps.inputSchema.required.includes("cwd"),
-        "project_smells schema requires part+cwd");
-
-  // 1b. 候選池：js 層拒收（不 spawn py）
-  const ps0 = await callTool("project_smells", { cwd: path.resolve(__dirname) });
-  check(ps0.result.isError === true && /part/.test(textOf(ps0)), "project_smells requires part", textOf(ps0));
   const aw = (list.result.tools || []).find((t) => t.name === "atom_write");
   check(aw && aw.inputSchema.properties.supersedes && aw.inputSchema.properties.supersedes.type === "array",
         "atom_write schema has supersedes:array");

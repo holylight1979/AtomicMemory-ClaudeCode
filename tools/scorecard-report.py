@@ -3,7 +3,7 @@
 
 做什麼：讀 `workflow/scorecard/*.jsonl`（hooks/wg_scorecard.py 每 session 收尾 append 一行），算 S1 四週中位數當基線、
 找連續低於基線的部位、按編輯次數與缺卡證據排出前 N 個部位當候選卡；寫
-`workflow/health-reports/scorecard-<yyyymmdd>.md` 與 `workflow/scorecard/candidates.json`（M4 project-smells builtin 讀它）。
+`workflow/health-reports/scorecard-<yyyymmdd>.md` 與 `workflow/scorecard/candidates.json`（週健檢經 hooks/wg_scorecard 讀它）。
 回路單向：本工具讀 scorecard 行、寫候選；wg_scorecard 不讀候選。
 
 怎麼跑：

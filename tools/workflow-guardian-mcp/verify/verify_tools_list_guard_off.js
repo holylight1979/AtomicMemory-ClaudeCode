@@ -1,5 +1,5 @@
-// verify_tools_list_guard_off.js：寫碼守門關著時，工具清單不列守門專用的兩個工具；開著時 11 個全列。
-// 案例：listedTools(true) 11 個；listedTools(false) 9 個、兩個守門工具都不在、守門之前就有的記憶工具都在；
+// verify_tools_list_guard_off.js：寫碼守門關著時，工具清單不列守門專用的工具；開著時 10 個全列。
+// 案例：listedTools(true) 10 個；listedTools(false) 9 個、守門工具都不在、守門之前就有的記憶工具都在；
 //      真起 server.js（WG_CODING_GUARD=0）打 tools/list，回來的清單同 listedTools(false)。
 // 跑：node tools/workflow-guardian-mcp/verify/verify_tools_list_guard_off.js（尾行 TOOLS_LIST_GUARD_OFF_CHECK PASS／FAIL）
 const os = require("os");
@@ -38,7 +38,7 @@ function listOverStdio(env) {
     const mcp = require("../lib/mcp");
     const on = mcp.listedTools(true).map((t) => t.name);
     const off = mcp.listedTools(false).map((t) => t.name);
-    if (on.length !== mcp.TOOL_DEFINITIONS.length || on.length !== 11) fail(`守門開著應列 11 個，實際 ${on.length}`);
+    if (on.length !== mcp.TOOL_DEFINITIONS.length || on.length !== 10) fail(`守門開著應列 10 個，實際 ${on.length}`);
     if (off.length !== 9) fail(`守門關著應列 9 個，實際 ${off.length}：${off.join(",")}`);
     for (const n of mcp.GUARD_ONLY_TOOLS) if (off.includes(n)) fail(`守門關著還列了 ${n}`);
     for (const n of MEMORY_TOOLS) if (!off.includes(n)) fail(`守門關著少了記憶工具 ${n}`);
