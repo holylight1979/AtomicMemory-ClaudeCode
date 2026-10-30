@@ -1,8 +1,9 @@
 """verify_red_scope_full_command.py：紅測的範圍從整條指令取（規則 RED_SCOPE_FROM_FULL_COMMAND；handlers/post_tool_use 記帳清帳、
 handlers/stop 擋訊息）。
 
-做什麼：重演一則實際的多行 Bash（範圍內測試｜tail -3、完整套件｜tail -6、幾次 cli 實跑）——輸出最後 20 行只剩 cli，
-紅測摘要看不出是哪一支；cmd 只存前 200 字，剛好截在 `pytest tests -q 2>&1` 的 `2`，舊碼把 `2` 當成要跑的目錄，什麼重跑都涵蓋不到。
+做什麼：重演一則實際的多行 Bash（範圍內測試｜tail -3、完整套件｜tail -1、幾次 cli 實跑）——完整套件只印出結算行，
+紅測摘要看不出是哪一支（摘要會收整段輸出裡的 FAILED 行，wg_evasion.failure_summary；這裡是 tail 讓它根本沒印出來）；
+cmd 只存前 200 字，剛好截在 `pytest tests -q 2>&1` 的 `2`，舊碼把 `2` 當成要跑的目錄，什麼重跑都涵蓋不到。
 現在記的是解析後的目標（test_scope：每段測試子命令與換目錄），跟指令多長無關、不截斷；解析不出就判不出、不拿片段當路徑。
 驗：照擋訊息重跑、涵蓋那則的範圍而且綠 → 舊紅清掉；完整套件重跑、紅而且逐支列出 → 舊紅改記那幾支（ERP 那支列得出名字，
 「不做｜」才對得到）；反例：重跑沒涵蓋（只跑第一段）或還是紅 → 照留，沒涵蓋的留帳 testfail_scope；擋訊息對看不出是哪一支的紅
@@ -28,13 +29,13 @@ from handlers import stop as st  # noqa: E402
 SID = "sid-red-scope"
 ERP = "tests/test_erp_contract.py::test_checkout_fields_match_erp_contract"
 SCOPED = "python -m pytest tests/test_checkout.py tests/test_pricing.py tests/test_receipt.py tests/test_cli.py -q"
-# 實際那則（前兩行照帳上的 cmd 原字；cli 實跑的幾行照輸出補）
+# 實際那則（前 200 字照帳上的 cmd 原字；完整套件那段在截斷點之後，tail 改 -1 讓輸出真的沒列出是哪一支；cli 實跑的幾行照輸出補）
 GATE0_CMD = (f'echo "== 範圍內測試" && {SCOPED} 2>&1 | tail -3\n'
-             'echo "== 完整套件（預期只有 ERP 合約那支紅）" && python -m pytest tests -q 2>&1 | tail -6\n'
+             'echo "== 完整套件（預期只有 ERP 合約那支紅）" && python -m pytest tests -q 2>&1 | tail -1\n'
              'echo "== 實跑 cli 帶 VIP10" && python -m orders.cli \'[{"price": 500, "qty": 1}]\' --code VIP10; echo "exit=$?"\n'
              'echo "== 實跑 cli 壞 JSON" && python -m orders.cli \'not json\'; echo "exit=$?"\n')
 CLI_TAIL = "\n".join(f"小計 {n} TWD\n運費 80 TWD\nexit=0" for n in range(8)) + "\nusage: python -m orders.cli\nexit=2\n"
-GATE0_OUT = (f"== 範圍內測試\n16 passed in 0.12s\n== 完整套件（預期只有 ERP 合約那支紅）\nFAILED {ERP} - ...\n"
+GATE0_OUT = (f"== 範圍內測試\n16 passed in 0.12s\n== 完整套件（預期只有 ERP 合約那支紅）\n"
              f"1 failed, 16 passed in 0.16s\n{CLI_TAIL}")
 
 
@@ -57,6 +58,17 @@ def _gate0_red():
     (red,) = state["failing_tests"]
     assert red["cmd"].endswith("pytest tests -q 2") and not rr.red_units(red)     # 前置：cmd 截在 `2`、看不出是哪一支
     return state
+
+
+def test_failed_line_beyond_last_20_lines_is_listed():
+    """同一則若完整套件有印出 FAILED 行、後面接 20 行以上的 cli 輸出 → 摘要照樣收到那一行，紅記成 ERP 那支（不走「看不出是哪一支」）；
+    擋訊息不附「重跑這個範圍」。只取尾 20 行時這支會被切掉、整筆變成看不出是哪一支。"""
+    state = {"failing_tests": [], "session": {"id": SID}, "turn_seq": 2}
+    out = GATE0_OUT.replace("1 failed, 16 passed", f"FAILED {ERP} - ...\n1 failed, 16 passed", 1)
+    _track(state, GATE0_CMD.replace("tail -1", "tail -6"), out)
+    (red,) = state["failing_tests"]
+    assert len(out.splitlines()) - out.splitlines().index(f"FAILED {ERP} - ...") > 20 and rr.red_units(red) == [ERP]
+    assert "重跑這個範圍" not in st.testfail_message([red])
 
 
 def test_rerun_covering_scope_green_clears_red(logs):
