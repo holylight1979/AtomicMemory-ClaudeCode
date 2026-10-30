@@ -223,6 +223,7 @@
 | [`lib/taxonomy_jury.py`](../lib/taxonomy_jury.py) | 專案 taxonomy 引擎（最小殼） |
 | [`lib/game_taxonomy.py`](../lib/game_taxonomy.py) | 遊戲開發起手分類種子詞庫 |
 | [`lib/project_root.py`](../lib/project_root.py) | 資料根／設定目錄算法、`project-tree.json` 尋根（[§4.5](../TECH.md#45-索引json-單一真相)、[§4.6](../TECH.md#46-專案層)） |
+| [`lib/transcript_tokens.py`](../lib/transcript_tokens.py) | transcript 找檔＋token 合計（同一則回覆按 message.id 只算一次、含子代理）；`skills/token`、`skill-cost-measure.py` 共用 |
 
 - **lib/memory_search.py**：MCP `memory_search`、cli `search`、[`tools/memory-search.py`](../tools/memory-search.py) 共用。
 - **lib/provenance.py**：函式有 `sanitize_quote`、`format_source_session`、`parse_source`、`find_transcript`、`resolve_context`、`atom_source`（三態）。
@@ -382,7 +383,7 @@
 
 ## skills/
 
-<!-- skill-count -->28<!-- /skill-count --> 個 active skill。
+<!-- skill-count -->29<!-- /skill-count --> 個 active skill。
 
 | 檔案 | 負責什麼 |
 |------|----------|
@@ -412,6 +413,7 @@
 | [`skills/refile/`](../skills/refile/) | active skill |
 | [`skills/skill-creator/`](../skills/skill-creator/) | active skill |
 | [`skills/text-score/`](../skills/text-score/) | active skill：手動叫文字評分（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
+| [`skills/token/`](../skills/token/) | active skill：量 session 實際處理的 token（含子代理、不換美金；共用 [`lib/transcript_tokens.py`](../lib/transcript_tokens.py)） |
 | [`skills/upgrade/`](../skills/upgrade/) | active skill |
 | [`skills/vector/`](../skills/vector/) | active skill |
 | [`skills/_archived/`](../skills/_archived/) | 封存：`init-roles`、`conflict-review`（單人環境 dormant） |

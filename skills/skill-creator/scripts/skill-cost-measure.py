@@ -7,11 +7,13 @@
   python skill-cost-measure.py --latest --skill analyze-spec  # 標記特定 skill 觸發點
 
 輸出 JSON 到 stdout (UTF-8)，錯誤到 stderr。
+
+計數：同一則 assistant 回覆在 transcript 裡拆成好幾行、每行帶同一份 usage，按 message.id 只算一次
+（lib/transcript_tokens.new_usage）；逐行加總會重複計算、數字偏高。assistant_turns＝不重複的回覆數；
+tool_uses 仍逐行數（每行是不同的內容區塊）。只算主 transcript，不含子代理；整場含子代理用 skills/token。
 """
 import argparse
-import glob
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -23,33 +25,16 @@ _CODE_ROOT = Path(__file__).resolve().parents[3]   # 程式碼根（skills/skill
 if str(_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODE_ROOT))
 from lib.project_root import claude_data_dir  # noqa: E402
+from lib.transcript_tokens import iter_rows, new_usage  # noqa: E402
 
 PROJECTS_DIR = claude_data_dir() / "projects"
 
 
 def find_latest_jsonl() -> Path:
-    candidates = list(PROJECTS_DIR.rglob("*.jsonl"))
+    candidates = list(PROJECTS_DIR.glob("*/*.jsonl"))   # 主 transcript；子代理在 <id>/subagents/ 底下不算
     if not candidates:
         raise FileNotFoundError(f"No transcript found under {PROJECTS_DIR}")
     return max(candidates, key=lambda p: p.stat().st_mtime)
-
-
-def iter_messages(path: Path):
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-
-def extract_usage(msg: dict) -> dict | None:
-    if msg.get("type") != "assistant":
-        return None
-    return msg.get("message", {}).get("usage")
 
 
 def extract_tool_uses(msg: dict) -> list[str]:
@@ -88,10 +73,10 @@ def analyze(path: Path, skill_name: str | None) -> dict:
     tool_use_counter: dict[str, int] = {}
     skill_phase = {"before": dict(total), "after": dict(total)}
     skill_triggered = False
-    timeline = []  # [(turn_idx, tokens_summary)]
+    seen: set = set()
 
-    for i, msg in enumerate(iter_messages(path)):
-        usage = extract_usage(msg)
+    for msg in iter_rows(path):
+        usage = new_usage(msg, seen)
         tools = extract_tool_uses(msg)
 
         if skill_name and not skill_triggered and msg_uses_skill_tool(msg, skill_name):

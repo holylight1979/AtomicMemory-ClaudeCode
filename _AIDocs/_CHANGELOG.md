@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-30 新 skill `/token`：量 session 實際處理了多少 token（含子代理、不換美金）
+- **緣由**：比較兩場（例如守門開／關）要看實際用了多少 token；`skill-cost-measure.py` 逐行加總 usage，同一則回覆拆成多行會重複算，也不含子代理。
+- **做法**：新共用模組 `lib/transcript_tokens.py`（session id 前綴或 .jsonl 找 transcript、收 `subagents/`、按 message.id 只算一次、首末時間→分鐘）；`skills/token/scripts/token_usage.py` 預設量目前 session（`CLAUDE_CODE_SESSION_ID`，沒有就用 cwd 對應資料夾最近一份），可多目標列表、`--json`，尾行 `TOKENS DONE sessions=<n>`。`skill-cost-measure.py` 改用同一套去重（輸出形狀與 before／after 桶不變），數字會比以前低——以前是重複計算：守門關那場 assistant_turns 77→22、cache_read 6,152,840→1,807,972；`--latest` 不再挑到子代理檔。
+- **驗證**：`skills/token/verify/verify_token_usage.py` 8 案、`skills/skill-creator/verify/verify_skill_cost_measure.py` 1 案、`verify_tools_data_root.py` 的 skill-cost-measure 案綠；audit 0 fail 0 warning。
+
 ## 2026-10-30 寫碼守門拔留改：只管格式的關卡拔掉，擋真傷害的留著（守門開關照舊）
 - **緣由**：SGI 真題兩場加壞設計小題，守門開與關的結論相同；只在改檔、提交、宣告完成時出手、只管格式的關卡沒換到效果，卻佔回合與 context。使用者裁：拔、留、改分開做，開關旗標照留、不改常駐；Codex 收成單一支腳本給要用的地方叫；G0／G8 評分規格改寫、13 張舊機制名的卡開新卡取代、EphemeralWrite 訊息拿掉「第二意見」三項照建議做。
 - **做法**：拔掉需求目標樹（need_goal 模組、MCP 工具、收尾對照、沒樹不准改）、定位三行與 OverviewHub 寫入閘／導讀卡注入／最小地圖、判準卡送卡與 JudgeCardDeclare、收尾背景文字評分、Codex 第二意見閘、MCP project_smells 與候選池 CLI、scorecard；MCP 工具清單守門開關都是同一份 9 個。搬家後留著用：`hooks/wg_code_path.py`（判程式檔）、`hooks/wg_ask_gate.py`（問你附推薦，守門開時提醒，帳 `Logs/guard-ask.jsonl`）、收尾共用的本回合文字 helper 進 `wg_evasion`、`wg_overview` 只剩讀檔帳與 readonly_paths 寫入檢查。新 `tools/codex-call.py` 是叫 Codex 的唯一入口（驗收裁判改走它，組出的指令與舊版等值）；手動 `/text-score` 改成傳 `--goal`。主腦自定：標了部位的未結追蹤項開場另列一段（導讀卡拿掉後只剩這裡看得到）；連鎖斷路器 `gate_fired` 拿掉沒人報的 `target`；問你附推薦的說明以程式實際送法（提醒）為準統一。設定：沒人讀的 overview_hub 鍵退役（hub_config.RETIRED_KEYS，舊檔有這些鍵每個設定檔版本只警告一次，跨 hook 行程，標記 `workflow/_overview-hub-retired-warned.json`），`need_goal` 也在內。合併後收尾：提問前檢查自己壞了時 stderr 照實說（守門開是照問、下一個工具結果附一行，關時仍說擋）；`read-log-*.jsonl`／`.lock` 進 workflow 保留表（7 天）與 .gitignore。守門關時的輸出只有 EphemeralWrite 那句不同。逐列處置見 `DevHistory/v6.0-寫程式碼的進化-2026-10/v6新增關卡盤點.md`。

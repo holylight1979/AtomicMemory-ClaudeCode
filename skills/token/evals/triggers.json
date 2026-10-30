@@ -1,0 +1,20 @@
+{
+  "_comment": "觸發評估查詢：should_trigger=true 是量實際 token 用量的各種說法；false 是共用 token 字眼但要的是價目、context 大小、tokenizer、帳單或憑證",
+  "skill_name": "token",
+  "queries": [
+    {"query": "/token", "should_trigger": true, "note": "直接叫指令"},
+    {"query": "這場用了多少 token？", "should_trigger": true, "note": "目前 session"},
+    {"query": "幫我看一下剛剛那個 session 消耗了多少 token", "should_trigger": true, "note": "消耗措辭"},
+    {"query": "比較兩場 token：守門開跟守門關各用了多少", "should_trigger": true, "note": "A/B 比較"},
+    {"query": "token 用量給我看一下，子代理也要算進去", "should_trigger": true, "note": "用量＋子代理"},
+    {"query": "fc532850 這個 session 花了多少 token", "should_trigger": true, "note": "給 session id 前綴"},
+    {"query": "量一下這兩個 transcript 的 token，看哪個比較省", "should_trigger": true, "note": "給 transcript 路徑比較"},
+    {"query": "Claude Opus 每百萬 token 多少錢？", "should_trigger": false, "note": "API 價目，不是量用量"},
+    {"query": "Sonnet 的 context window 有多大？", "should_trigger": false, "note": "context 上限"},
+    {"query": "tokenizer 會把一個中文字切成幾個 token？", "should_trigger": false, "note": "tokenizer 原理"},
+    {"query": "幫我用 API 的 count_tokens 算這段 prompt 有幾個 token", "should_trigger": false, "note": "算一段文字，不是量 session"},
+    {"query": "GitHub 的 personal access token 過期了怎麼換", "should_trigger": false, "note": "憑證 token"},
+    {"query": "這個月 Anthropic 帳單花了多少美金", "should_trigger": false, "note": "帳單金額"},
+    {"query": "怎麼開 prompt caching 讓 API 呼叫省錢", "should_trigger": false, "note": "快取設定教學"}
+  ]
+}

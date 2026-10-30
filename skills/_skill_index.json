@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 28,
+  "count": 29,
   "skills": [
     {
       "name": "atom-debug",
@@ -132,6 +132,11 @@
       "name": "text-score",
       "dir": "text-score",
       "description": "文字評分（G15）手動叫：照文字規格逐條問免費小模型裁判，對使用者這次要的需求評一則回覆或一份文件好不好讀。使用者說「評一下這則」「幫我評分」「這段好不好讀」「評分上一則回覆」「text-score」時用。"
+    },
+    {
+      "name": "token",
+      "dir": "token",
+      "description": "量一場或多場 Claude Code session 實際處理了多少 token（輸入分未快取、讀快取、建快取，加輸出與合計，含子代理），不換算美金。使用者說「/token」「這場用了多少 token」「消耗多少 token」「token 用量」「比較兩場 token」時用；預設量目前 session，也可給 session id 前綴或 transcript 路徑一起列表比較。"
     },
     {
       "name": "upgrade",
