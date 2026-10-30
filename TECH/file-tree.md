@@ -10,6 +10,7 @@
 ├── CLAUDE.md / IDENTITY.md / USER.md / BOOTSTRAP.md   ← 啟動設定與行為契約
 ├── settings.json / mcp-servers.template.json / version.json
 ├── run_verify.py / conftest.py / pytest.ini           ← 全量驗證入口（只留手動排查）
+├── TECH.md / TECH/                                    ← 技術文件：甲篇記憶系統、乙篇寫碼守門、附錄
 ├── rules/ text-specs/ templates/ prompts/ verify/     ← 規則、評分規格、樣板、萃取提示詞、已結案驗收規格
 ├── .claude/                                           ← 根層自己的部位表與 OverviewHub 設定
 ├── hooks/                                             ← hook 本體：dispatcher、handlers、wg_* 模組、workers
@@ -45,15 +46,23 @@
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`rules/core.md`](../rules/core.md) | 治理原則、知識庫、記憶、對話規則 |
-| [`rules/coding-style.md`](../rules/coding-style.md) | 寫碼傾向（hook 已強制者不重述） |
-| [`text-specs/`](../text-specs/) | G15 文字評分規格（資料，[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
+| [`TECH.md`](../TECH.md) | 技術文件甲篇：記憶系統（含基本守門） |
+| [`TECH/coding-guard.md`](coding-guard.md) | 技術文件乙篇：寫碼守門 |
+| [`TECH/guards.md`](guards.md) | 寫碼守門的細節（乙篇附錄） |
+| [`TECH/release-rules.md`](release-rules.md) | 全系統有名規則全表 |
+| [`TECH/config.md`](config.md) | 設定總表與功能開關（[`tools/config-consistency.py`](../tools/config-consistency.py) 讀各表第一欄） |
+| [`TECH/file-tree.md`](file-tree.md) | 本檔：完整目錄樹 |
+| [`rules/core.md`](../rules/core.md) | 治理原則、知識庫、記憶、對話規則；每個 session 都載入 |
+| [`rules/code-thinking.md`](../rules/code-thinking.md) | 處理程式需求時怎麼想（設定衝突的處置、結論先寫終局）；讀或改程式檔時才載入 |
+| [`rules/coding-style.md`](../rules/coding-style.md) | 寫碼傾向與設計取捨的尺（hook 已強制者不重述）；讀或改程式檔時才載入 |
+| [`text-specs/`](../text-specs/) | 文字評分規格（資料，[甲 §7.7](../TECH.md#77-文字規格評分toolstext-scorepy)） |
 | [`templates/`](../templates/) | IDENTITY／USER 還原源、部位病灶清單樣板、打包前檢查樣板 |
 | [`prompts/`](../prompts/) | `user-extract-worker` 的決策萃取提示詞（L1／L2） |
 | [`verify/done/`](../verify/done/) | 根層已結案的驗收規格 |
 | [`.claude/overview-map.md`](../.claude/overview-map.md) | 根層自己的部位表（[附錄 部位表](../TECH/guards.md#部位表)） |
 | [`.claude/overview-hub.json`](../.claude/overview-hub.json) | 根層自己的 OverviewHub 設定覆蓋（[附錄 設定來源](../TECH/guards.md#設定來源)） |
 
+- **rules/code-thinking.md、rules/coding-style.md**：開頭的 `paths:` 前置欄位列了程式檔副檔名，由 Claude Code 在讀或改符合的檔時才載入；沒寫 `paths:` 的 `rules/*.md` 每個 session 都載入。每場多少 token 見 [TECH §11.1](../TECH.md#111-每個-session-的固定代價)。
 - **text-specs/**：不放 [`rules/`](../rules/)，免得每個 session 都載入。
 
 ## hooks/
@@ -63,7 +72,7 @@
 | 檔案 | 負責什麼 |
 |------|----------|
 | [`hooks/workflow-guardian.py`](../hooks/workflow-guardian.py) | 1 行 shim → `dispatcher.main()` |
-| [`hooks/dispatcher.py`](../hooks/dispatcher.py) | 純路由（惰性 import handler）＋hook 分段計時起訖 |
+| [`hooks/dispatcher.py`](../hooks/dispatcher.py) | 純路由（惰性 import handler）＋hook 分段計時起訖（守門開才計時） |
 | [`hooks/wg_read_fast.py`](../hooks/wg_read_fast.py) | Read 事件快路徑：只追加讀檔紀錄就結束（READ_FAST_PATH，[§3.1](../TECH.md#31-settingsjson-十一個事件)） |
 
 - **hooks/dispatcher.py**：裁判子 session 走 `JUDGE_HANDLERS`。
@@ -104,7 +113,7 @@
 | [`hooks/wg_rescue.py`](../hooks/wg_rescue.py) | 救援日誌：注入的 atom 是否真被用上的直接證據 |
 | [`hooks/wg_recall_miss.py`](../hooks/wg_recall_miss.py) | 失念偵測：庫裡有可防的 atom、檢索卻沒命中 |
 | [`hooks/wg_friction.py`](../hooks/wg_friction.py) | 工具結果體積（浪費）＋使用者糾正訊號 → DPM |
-| [`hooks/wg_hook_timing.py`](../hooks/wg_hook_timing.py) | hook 分段計時：過上限 80% 降級＋計時帳（[§7.1](../TECH.md#71-stop-閘序)、[§8](../TECH.md#8-可觀測與自我維護)） |
+| [`hooks/wg_hook_timing.py`](../hooks/wg_hook_timing.py) | hook 分段計時：過上限 80% 降級＋計時帳；守門開才起表（[乙11](coding-guard.md#乙11-hook-計時與快逾時降級)） |
 | [`hooks/wg_harvest.py`](../hooks/wg_harvest.py) | 階段收割：閘判定／receipt 入帳／items 核對／ledger |
 | [`hooks/wg_provenance.py`](../hooks/wg_provenance.py) | 來源自動填：`atom_write` receipt → 補 Source／Quote |
 | [`hooks/wg_vcs_sync.py`](../hooks/wg_vcs_sync.py) | 記憶庫上版控的邏輯層（目標集、鎖、請求檔、標記、拉段） |
@@ -134,35 +143,37 @@
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py) | 哨兵收據帳本與對帳、量尺閘（[§7.1 收據](../TECH.md#收據)） |
+| [`hooks/wg_verify_ledger.py`](../hooks/wg_verify_ledger.py) | 哨兵收據帳本與對帳、量尺閘（[乙3 收據](coding-guard.md#收據)） |
 | [`hooks/wg_unknown_write.py`](../hooks/wg_unknown_write.py) | 寫入目標判不出的指令跑完後，從版控狀態補算改了哪些檔 |
-| [`hooks/wg_release_rules.py`](../hooks/wg_release_rules.py) | 放行／欠帳具名規則（純函式，[§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)） |
-| [`hooks/wg_release.py`](../hooks/wg_release.py) | 擋滿後改問使用者（[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)） |
+| [`hooks/wg_release_rules.py`](../hooks/wg_release_rules.py) | 放行／欠帳具名規則（純函式，[乙9](coding-guard.md#乙9-規則全表)） |
+| [`hooks/wg_release.py`](../hooks/wg_release.py) | 擋滿後改問使用者（[乙4](coding-guard.md#乙4-擋滿之後怎麼放行)） |
 | [`hooks/wg_verify_batch.py`](../hooks/wg_verify_batch.py) | 驗證批次閘：同一批改動只驗一次、整組驗證要使用者口令 |
 
-- **hooks/wg_unknown_write.py**：處理的是寫入目標判不出的 Bash／PowerShell 指令，對應 [§7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy) `UNKNOWN_WRITE_RECOVERED`。
+- **hooks/wg_unknown_write.py**：處理的是寫入目標判不出的 Bash／PowerShell 指令，對應 [乙9](coding-guard.md#乙9-規則全表) `UNKNOWN_WRITE_RECOVERED`。
 
 ### hooks/ 宣告閘與收尾輔助
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`hooks/wg_data_file.py`](../hooks/wg_data_file.py) | 改資料檔的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
-| [`hooks/wg_oldtest.py`](../hooks/wg_oldtest.py) | 改舊測試的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
-| [`hooks/wg_gate_bypass.py`](../hooks/wg_gate_bypass.py) | 繞閘的宣告閘（[§7.5](../TECH.md#75-其他守門)） |
+| [`hooks/wg_data_file.py`](../hooks/wg_data_file.py) | 改資料檔的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
+| [`hooks/wg_oldtest.py`](../hooks/wg_oldtest.py) | 改舊測試的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
+| [`hooks/wg_gate_bypass.py`](../hooks/wg_gate_bypass.py) | 繞閘的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
 | [`hooks/wg_ask_gate.py`](../hooks/wg_ask_gate.py) | 問使用者前每題要附推薦（AskUserQuestion／ExitPlanMode），帳寫 `Logs/guard-ask.jsonl` |
-| [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[§7.1](../TECH.md#71-stop-閘序)） |
-| [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[§7.1](../TECH.md#71-stop-閘序)） |
-| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 收割交背景免費模型（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
-| [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式第一次用到才編譯（[§11.2](../TECH.md#112-寫碼守門的減量原則)） |
-| [`hooks/wg_chain.py`](../hooks/wg_chain.py) | 連鎖斷路器判定（純函式，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
-| [`hooks/plan_bash_guard.py`](../hooks/plan_bash_guard.py) | Plan Mode 必彈窗的 Bash 寫法 deny＋改寫提示（[§7.5](../TECH.md#75-其他守門)） |
+| [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
+| [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
+| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 守門開時收割交背景免費模型（[跨層表](../TECH.md#守門開關會改到記憶系統的地方) #25） |
+| [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式與寫碼守門模組第一次用到才編譯／載入（`lazy_re`、`lazy_module`，[§11.2](../TECH.md#112-每句話每次工具呼叫的代價)） |
+| [`hooks/wg_chain.py`](../hooks/wg_chain.py) | 連鎖斷路器判定（純函式，[乙8](coding-guard.md#乙8-連鎖斷路器)） |
+| [`hooks/plan_bash_guard.py`](../hooks/plan_bash_guard.py) | Plan Mode 必彈窗的 Bash 寫法 deny＋改寫提示（[甲 §7.4](../TECH.md#74-改檔前的閘)） |
 
 - **hooks/wg_ask_gate.py**：開關跟寫碼守門總開關；沒附推薦的提問提醒補上（ASK_NEEDS_RECOMMENDATION），提問涉及改法選擇時另提醒先讀部位檔（ASK_OVERVIEW_BEFORE_DECISION）。
 - **hooks/wg_closing_round.py**：
   - PostToolBatch 起跑拐彎判斷量測。
-  - 交收尾檢核那批附結果與最該修（[§7.1](../TECH.md#71-stop-閘序)）。
+  - 交收尾檢核那批附結果與最該修（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）。
 - **hooks/wg_bg_harvest.py**：Stop 丟背景、產待審候選卡。
-- **hooks/wg_lazy_re.py**：每個 hook 事件少編上百條。
+- **hooks/wg_lazy_re.py**：
+  - `lazy_re`：每個 hook 事件少編上百條正規表示式。
+  - `lazy_module`：取代模組層的 `import`，第一次取屬性才真的載入；寫碼守門的模組都經它載，守門關時一行都不載，守門開也只在那道閘真的要判時才載。
 - **hooks/wg_chain.py**：涵蓋連鎖狀態、警報、三選一、還原計畫、經過表。
 
 ### hooks/ 其他模組與 workers
@@ -170,7 +181,7 @@
 | 檔案 | 負責什麼 |
 |------|----------|
 | [`hooks/wisdom_engine.py`](../hooks/wisdom_engine.py) | Wisdom Engine：情境分類（硬規則）＋反思（滑動視窗） |
-| [`hooks/codex_companion.py`](../hooks/codex_companion.py) | Codex Companion hook：審計觸發與驗收裁判（[§7.4](../TECH.md#74-驗收裁判ai-審查-ai-產出四段閉環)） |
+| [`hooks/codex_companion.py`](../hooks/codex_companion.py) | Codex Companion hook：審計觸發與驗收裁判（[乙5](coding-guard.md#乙5-驗收裁判)） |
 | [`hooks/lang_guard.py`](../hooks/lang_guard.py) | 英文回應漂移攔截（獨立 Stop hook） |
 | [`hooks/version_guard.py`](../hooks/version_guard.py) | 版本操作脈絡殘留 warn（PostToolUse 同程序呼叫） |
 | [`hooks/acceptance_spec.py`](../hooks/acceptance_spec.py) | 驗收規格工件（PostToolUse 同程序呼叫） |
@@ -236,11 +247,11 @@
 | [`lib/hub_config.py`](../lib/hub_config.py) | [`overview-hub.json`](../.claude/overview-hub.json) 四層合併（[附錄 設定來源](../TECH/guards.md#設定來源)） |
 | [`lib/hub_card.py`](../lib/hub_card.py) | 導讀卡五段與寫卡預算 |
 | [`lib/overview_scaffold.py`](../lib/overview_scaffold.py) | 從零掃表（[附錄 部位表](../TECH/guards.md#部位表)） |
-| [`lib/turn_metrics.py`](../lib/turn_metrics.py) | Python 函式與類別的側面數據（只量不判，[§7.1](../TECH.md#71-stop-閘序)） |
-| [`lib/turn_metrics_cs.py`](../lib/turn_metrics_cs.py) | C# 函式與類別的側面數據（只量不判，[§7.1](../TECH.md#71-stop-閘序)） |
-| [`lib/reading_path_cs.py`](../lib/reading_path_cs.py) | C# 改動的一跳範圍閱讀路徑（[§7.1](../TECH.md#71-stop-閘序) ReadingPath） |
-| [`lib/cs_roslyn.py`](../lib/cs_roslyn.py) | Roslyn 解析前端（[§7.1](../TECH.md#71-stop-閘序) ReadingPath） |
-| [`lib/cs_roslyn/`](../lib/cs_roslyn/) | Roslyn 解析的小程式（[§7.1](../TECH.md#71-stop-閘序) ReadingPath） |
+| [`lib/turn_metrics.py`](../lib/turn_metrics.py) | Python 函式與類別的側面數據（只量不判，[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
+| [`lib/turn_metrics_cs.py`](../lib/turn_metrics_cs.py) | C# 函式與類別的側面數據（只量不判，[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
+| [`lib/reading_path_cs.py`](../lib/reading_path_cs.py) | C# 改動的一跳範圍閱讀路徑（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) ReadingPath） |
+| [`lib/cs_roslyn.py`](../lib/cs_roslyn.py) | Roslyn 解析前端（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) ReadingPath） |
+| [`lib/cs_roslyn/`](../lib/cs_roslyn/) | Roslyn 解析的小程式（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) ReadingPath） |
 
 ### lib/ 收據、文字與其他
 
@@ -257,7 +268,7 @@
 | [`lib/config_local.py`](../lib/config_local.py) | `workflow/config.local.json` 蓋到 `config.json` 的規則（唯一一份，[§12](../TECH.md#12-設定總表workflowconfigjson)） |
 | [`lib/verify/`](../lib/verify/) | lib 的驗證案例 |
 
-- **lib/chain_store.py**：判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py)（[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）。
+- **lib/chain_store.py**：判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py)（[乙8](coding-guard.md#乙8-連鎖斷路器)）。
 
 ## tools/
 
@@ -329,9 +340,9 @@
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`tools/text-score.py`](../tools/text-score.py) | 文字規格評分（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
-| [`tools/text-score-weekly.py`](../tools/text-score-weekly.py) | 文字評分週彙總（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
-| [`tools/project-smells.py`](../tools/project-smells.py) | commit 前病形檢查（[§7.5](../TECH.md#75-其他守門) SmellGate） |
+| [`tools/text-score.py`](../tools/text-score.py) | 文字規格評分（[甲 §7.7](../TECH.md#77-文字規格評分toolstext-scorepy)） |
+| [`tools/text-score-weekly.py`](../tools/text-score-weekly.py) | 文字評分週彙總（[甲 §7.7](../TECH.md#77-文字規格評分toolstext-scorepy)） |
+| [`tools/project-smells.py`](../tools/project-smells.py) | commit 前病形檢查（[乙6](coding-guard.md#乙6-其他寫碼守門) SmellGate） |
 | [`tools/reading-path.py`](../tools/reading-path.py) | 閱讀路徑量尺 |
 | [`tools/reading_path_lang.py`](../tools/reading_path_lang.py) | 閱讀路徑語言解析 |
 | [`tools/overview-map-scaffold.py`](../tools/overview-map-scaffold.py) | 部位表骨架 |
@@ -412,7 +423,7 @@
 | [`skills/read-project/`](../skills/read-project/) | active skill |
 | [`skills/refile/`](../skills/refile/) | active skill |
 | [`skills/skill-creator/`](../skills/skill-creator/) | active skill |
-| [`skills/text-score/`](../skills/text-score/) | active skill：手動叫文字評分（[§7.11](../TECH.md#711-文字規格評分g15toolstext-scorepy)） |
+| [`skills/text-score/`](../skills/text-score/) | active skill：手動叫文字評分（[甲 §7.7](../TECH.md#77-文字規格評分toolstext-scorepy)） |
 | [`skills/token/`](../skills/token/) | active skill：量 session 實際處理的 token（含子代理、不換美金；共用 [`lib/transcript_tokens.py`](../lib/transcript_tokens.py)） |
 | [`skills/upgrade/`](../skills/upgrade/) | active skill |
 | [`skills/vector/`](../skills/vector/) | active skill |
@@ -500,7 +511,7 @@ runtime state（多數 gitignored）。
 | `workflow/tracking/` | 追蹤項 |
 | `workflow/old-test-snap/` | 改舊測試快照 |
 | `workflow/reading-path/` | 閱讀路徑 |
-| `workflow/chain-snap/<session>/` | 連鎖斷路器的改檔前快照（gitignore，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)） |
+| `workflow/chain-snap/<session>/` | 連鎖斷路器的改檔前快照（gitignore，[乙8](coding-guard.md#乙8-連鎖斷路器)） |
 | `workflow/inbox/` | 多 session 派工信箱 |
 | `workflow/harvest-ledger/<sid>.jsonl` | 收割核對帳本（gitignore） |
 | `workflow/vcs-sync/` | 記憶庫上版控的鎖、標記與請求檔（gitignore） |
@@ -528,7 +539,7 @@ runtime state（多數 gitignored）。
 
 ## 全量驗證入口
 
-收尾不跑全量：該跑哪些由 AI 判斷，說修好要有改完之後的收據（[§7.1](../TECH.md#71-stop-閘序)）。
+收尾不跑全量：該跑哪些由 AI 判斷，說修好要有改完之後的收據（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）。
 
 - 全量入口 [`python run_verify.py`](../run_verify.py) 已從流程拔掉，只留手動排查（全量改增量待補）。
 - 掃描範圍：[`hooks/`](../hooks/)、[`lib/`](../lib/)、[`tools/`](../tools/)、`codex-companion`、`auto-continue` 及 skills 各 [`verify/`](../verify/)。

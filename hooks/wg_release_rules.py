@@ -2612,7 +2612,7 @@ def data_file_hint(rel: str) -> str:
 
 def data_file_fix(rels: Sequence[str]) -> str:
     """DENY_TEXT_SLIM 的動資料檔修法句，一行：宣告怎麼寫（每個檔一行範例）＋放哪＋宣告完照常用 Edit／Write
-    （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH §7.5 DataFileAsk，不放訊息裡。"""
+    （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH/coding-guard.md 乙6 DataFileAsk，不放訊息裡。"""
     lines = "；".join(f"# 動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
     return (f"先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫宣告，接著就可以改檔；照抄：{lines}（下一行 git diff --stat）；"
             "改檔照常用 Edit／Write，不要改用 Bash／PowerShell 寫檔。")

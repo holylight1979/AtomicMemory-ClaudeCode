@@ -1,5 +1,5 @@
-# 放行／欠帳判定規則全表（TECH §7.8）
-[↑ 主文 §7.8](../TECH.md#78-放行欠帳判定規則hookswg_release_rulespy)
+# 全系統有名規則全表（寫碼守門與基本守門共用；導讀見乙9）
+[↑ 導讀：乙9 規則全表](coding-guard.md#乙9-規則全表)
 
 ## 規則索引
 
@@ -36,6 +36,8 @@
 
 ## 怎麼讀這份表
 
+- **範圍**：寫碼守門（[乙篇](coding-guard.md)）與基本守門（[TECH §7](../TECH.md#7-基本守門)）的規則都在這一份，同一個程式檔 [`hooks/wg_release_rules.py`](../hooks/wg_release_rules.py)。
+- **送法**：規則照擋還是提醒，守門開時看 `RULE_MODE`，守門關時一律照擋（[乙1 擋或提醒](coding-guard.md#擋或提醒)）。開關也改到記憶系統的地方 → [跨層表](../TECH.md#守門開關會改到記憶系統的地方)。
 - **規則**：每一種放行或欠帳情境一條有名字的規則。
   - `RULES` 每條的名字都出現在本檔某個區塊標題。
   - 相關的幾條併成一個區塊，標題用「／」隔開。
@@ -82,7 +84,7 @@
 
 #### GATE_MODE_TABLE／REMIND_ON_PRIOR_RESULT（`RULE_MODE`）
 **判什麼**：寫碼守門每條規則照擋還是提醒
-- 補充：`RULE_MODE` 由 `RULE_CLASS` 算出；`gate_mode(rule, v6)` 是呼叫端唯一入口；見 [§7](../TECH.md#7-守門與收尾) 開頭「擋或提醒」。
+- 補充：`RULE_MODE` 由 `RULE_CLASS` 算出；`gate_mode(rule, v6)` 是呼叫端唯一入口；見[乙1〈擋或提醒〉](coding-guard.md#擋或提醒)。
 - **不欠／放行**：
   - 不在 `RULE_CLASS` 三類（病形／宣告／紅測）的寫碼守門規則 → 提醒。
   - 提醒的做法：
@@ -389,7 +391,7 @@
   - 寫碼守門關時，共用擋次整個 session 累計。
 
 #### PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET
-**判什麼**：擋滿之後怎麼放行（[§7.3](../TECH.md#73-擋滿之後怎麼放行hookswg_releasepy)）
+**判什麼**：擋滿之後怎麼放行（[乙4](coding-guard.md#乙4-擋滿之後怎麼放行)）
 - 補充：判法 `wg_release.pending_of`／`release_items`／`keep_released`。
 - **不欠／放行**：
   - 待放行只在記下它的那個使用者回合有效；使用者打字開新回合就失效、預算重給。
@@ -433,7 +435,7 @@
   - 三道閘都從 PreToolUse 帶這次呼叫的 tool_use_id。
 
 #### PICK_ONCE_PER_USER_TURN
-**判什麼**：交付時「點出最該修」什麼時候問（[§7.1](../TECH.md#71-stop-閘序) PickOne）
+**判什麼**：交付時「點出最該修」什麼時候問（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) PickOne）
 - 補充：`wg_harvest.pick_due`。
 - **不欠／放行**：
   - 一個使用者回合問一次（`asked_uturn`／`covered_uturn`）。
@@ -1188,7 +1190,7 @@
     - `git push; true` 這種失敗被後面指令蓋掉的會當成推送完成
 
 #### SVN_TEST_BLOCK_OPT_IN
-**判什麼**：svn 提交測試路徑閘（[§7.5](../TECH.md#75-其他守門) SvnTestBlock）
+**判什麼**：svn 提交測試路徑閘（[§7.3](../TECH.md#73-commit-與驗證前的閘) SvnTestBlock）
 - **不欠／放行**：下列任一
   - 預設關：專案 [`overview-hub.json`](../.claude/overview-hub.json) 的 `svn_test_block.enabled` 沒開
   - 路徑參數沒有測試檔（訊息裡寫 test 不算）
@@ -1231,7 +1233,7 @@
 ### 宣告類閘與追蹤帳
 
 #### USER_DATA_FILE_NEEDS_DECLARATION
-**判什麼**：改使用者既有的資料檔或設定檔（[§7.5](../TECH.md#75-其他守門) DataFileAsk；`data_file_verdict`）
+**判什麼**：改使用者既有的資料檔或設定檔（[乙6](coding-guard.md#乙6-其他寫碼守門) DataFileAsk；`data_file_verdict`）
 - **不欠／放行**：下列任一
   - 這個 session 沒改過程式檔、這條指令也沒同時寫程式檔（`coding_session`，放行留帳 skipped_non_coding）
   - 不是資料檔
@@ -1254,7 +1256,7 @@
   - 範例寫成能照抄的樣子：`# 動資料檔｜…`（或 `# 改舊測試｜…`）一行，加一行 `git diff --stat`
   - 講原因：同一則裡接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫
   - 宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔
-  - 早一則只有文字的回覆程式照認，只在本表與 [§7](../TECH.md#7-守門與收尾) 講，不出現在擋訊息與提示裡
+  - 早一則只有文字的回覆程式照認，只在本表與[乙6](coding-guard.md#乙6-其他寫碼守門)講，不出現在擋訊息與提示裡
   - 理由：幾條路並列時 AI 會挑最貴的那條，多花好幾個模型回合
 - **照欠／照擋**：
   - 不准出現「或寫成 Bash 指令開頭的 # 註解」「下一條 Bash 的註解」這類會被讀成改用 Bash 寫檔的說法（`verify_release_rules` 掃 hooks 全部原始碼）
@@ -1265,7 +1267,7 @@
   - 繞閘宣告擋的就是那條 Bash 指令，宣告寫在那條指令的註解是對的，不在此列
 
 #### OLD_TEST_CHANGE_NEEDS_DECLARATION
-**判什麼**：動既有測試（[§7.5](../TECH.md#75-其他守門) OldTestDeclare；`old_test_change_verdict`）
+**判什麼**：動既有測試（[乙6](coding-guard.md#乙6-其他寫碼守門) OldTestDeclare；`old_test_change_verdict`）
 - **不欠／放行**：下列任一
   - 只加新測試
   - 改 fixture／helper
@@ -1278,7 +1280,7 @@
   - 同一個使用者回合同一件擋滿 2 次後放行（[GATE_DENY_CAP](#gate_deny_cap)）
 
 #### GATE_BYPASS_NEEDS_DECLARATION／GATE_BYPASS_NAMED_FILES_MERGED
-**判什麼**：被病形閘擋過後的繞閘嫌疑（[§7.5](../TECH.md#75-其他守門) GateBypass）
+**判什麼**：被病形閘擋過後的繞閘嫌疑（[乙6](coding-guard.md#乙6-其他寫碼守門) GateBypass）
 - **不欠／放行**：
   - 病修掉了
   - 或有自成一行的「不是繞閘｜<理由>」（同一組檔、同一份內容不再問）
@@ -1289,7 +1291,7 @@
   - 同一組檔同一個使用者回合擋滿 2 次後放行（[GATE_DENY_CAP](#gate_deny_cap)）
 
 #### ATOM_BYPASS_HOWTO_REFUSED
-**判什麼**：教人繞閘的知識卡（[§7.5](../TECH.md#75-其他守門) 繞閘卡片拒寫；`wg_gate_bypass.atom_refusal`）
+**判什麼**：教人繞閘的知識卡（[§7.5](../TECH.md#75-寫卡時的閘) 繞閘卡片拒寫；`wg_gate_bypass.atom_refusal`）
 - **不欠／放行**：下列任一
   - 只命中「提到閘」或「改暫存區做法」其中一個
   - 知識段第一行「不是教繞閘｜<理由>」
@@ -1307,7 +1309,7 @@
 ### 連鎖斷路器與 state 鎖
 
 #### CHAIN_SAME_GATE_PER_OBJECT
-**判什麼**：連鎖斷路器的「同一道閘第 2 次」怎麼數（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 RULES，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)；這一列記各閘要報什麼）
+**判什麼**：連鎖斷路器的「同一道閘第 2 次」怎麼數（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 RULES，[乙8](coding-guard.md#乙8-連鎖斷路器)；這一列記各閘要報什麼）
 - **不欠／放行**：同一道閘擋的是不同對象 → 各算各的第 1 次（各要各的證據）。各閘報的對象：
   - 動資料檔（DataFileAsk）：報這次要寫的檔
   - 改舊測試（OldTestDeclare）：報這次要寫的檔，加上呼叫前還欠宣告的那幾支
@@ -1336,7 +1338,7 @@
   - 待併帳也寫不出去才算真的掉，stderr＋guard log 照記
 
 #### OLD_TEST_COMPARED_ON_FAILED_COMMAND
-**判什麼**：指令非零結束時改舊測試照樣比（[§7.5](../TECH.md#75-其他守門) OldTestDeclare；`post_tool_use._old_test_after`）
+**判什麼**：指令非零結束時改舊測試照樣比（[乙6](coding-guard.md#乙6-其他寫碼守門) OldTestDeclare；`post_tool_use._old_test_after`）
 - **不欠／放行**：—
 - **照欠／照擋**：
   - Bash／PowerShell 非零結束時 Claude Code 只送 PostToolUseFailure：拿 PreToolUse 拍的快照照樣比
@@ -1386,7 +1388,7 @@
 - **照欠／照擋**：綁成參數預設值：測試的 git 錄製重播換掉 subprocess.run 也攔不到，結果看匯入順序
 
 #### CHAIN_HEADLESS_KEEPS_DATA_GATES
-**判什麼**：沒人能答時連鎖斷路器警報之後，哪幾道閘照擋（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 `KEEP_BLOCKING`／`keeps_blocking`，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）
+**判什麼**：沒人能答時連鎖斷路器警報之後，哪幾道閘照擋（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 `KEEP_BLOCKING`／`keeps_blocking`，[乙8](coding-guard.md#乙8-連鎖斷路器)）
 - **不欠／放行**：
   - 其餘閘照 CHAIN_ABORT_RECORD_ONLY 只記錄
     - 指管做法與品質的：對帳、病形、繞閘、記憶寫入路徑這類
@@ -1431,7 +1433,7 @@
   - 不在暫存根底下、只因快取目錄（__pycache__、.pytest_cache）判成暫存的不印
 
 #### CHAIN_NO_EDIT_NO_EDGE
-**判什麼**：連鎖斷路器：兩次擋之間沒改檔算不算修補（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 `changes_files`／`link`／`same_count`，[§7.12](../TECH.md#712-連鎖斷路器hookswg_chainpy-判定libchain_storepy-帳與快照)）
+**判什麼**：連鎖斷路器：兩次擋之間沒改檔算不算修補（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 `changes_files`／`link`／`same_count`，[乙8](coding-guard.md#乙8-連鎖斷路器)）
 - **不欠／放行**：兩次擋之間的動作都沒改到檔 → 同一道閘不接邊、不算同閘次數
   - 沒改檔的動作：重跑、沒寫入目標的指令、重交報告
   - 不同的閘照「沒記到動作」判

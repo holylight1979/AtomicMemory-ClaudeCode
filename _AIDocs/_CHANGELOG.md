@@ -4,6 +4,16 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-30 TECH 拆兩篇：甲篇記憶系統、乙篇寫碼守門
+- **緣由**：TECH 把寫碼守門寫成記憶系統的一部分，開頭的兩層表說關掉守門只是少一層。實際上守門開關還會改掉記憶系統 36 處行為，例如守門關時 9 道記憶收尾閘會擋、守門開時只提醒；其中 22 處文件寫錯或漏寫。§11 也把守門的量測混進記憶系統的代價。
+- **做法**：
+  - `TECH.md` 留甲篇記憶系統。§7 改成「基本守門」：不看開關、一直在跑的閘（收尾閘序、反退避、commit 與驗證前、改檔前、寫卡時、回合結束與背景審查、文字評分），細節搬進新附錄 A7。
+  - 乙篇寫碼守門獨立成 `TECH/coding-guard.md`（乙1～乙11）；`TECH/guards.md` 改當乙篇附錄。
+  - 開頭新增跨層表「守門開關會改到記憶系統的地方」共 36 列，全文只有這一份，別處只連過去。每列都對過程式：補 3 列（用 Bash／PowerShell 改的檔守門開才進改檔帳，所以守門關時同步閘看不到；糾正訊號守門開才問 AI、才計數；判「宣告完成」守門開才看整個回合）；改 3 列（開場覆轍提示守門開或關都不印；守門關時退縮閘的「追蹤｜」行照寫進追蹤帳本；守門關時產出物帳本照收 (i) 宣告與 scratchpad 掃描）。
+  - §11 改成只講記憶系統的代價與怎麼量。舊 §11.1 實測紀錄、§14.2 與 A14.2 停產表、代號對照、selfscore 搬到 `DevHistory/v6.0-寫程式碼的進化-2026-10/TECH-重整搬出-2026-10-30.md`。
+  - 目錄照實際標題重建。Architecture、DocIndex-System、_INDEX、`.claude/overview-map.md` 與 `hooks/wg_release_rules.py` 一行註解裡的舊節號，改指新位置；Architecture 的 rules 載入說法改成 code-thinking、coding-style 只在讀或改程式檔時才載入。
+- **驗證**：自寫連結檢查，GitHub 與 GitLab 兩套「標題轉錨點」規則都要對上。故意放三條壞連結（兩套都錯、只有 GitHub 對、只有 GitLab 對），三條都抓到；拿掉後掃 12 檔、2,133 條站內連結（1,109 條帶錨點），0 錯。`sync_doc_counts --check` PASS；`config-consistency` 跟 live 一樣（478 鍵，四類數字不變）。
+
 ## 2026-10-30 寫碼守門模組改成用到才載入
 - **緣由**：守門關時 hook 照樣在頂端載入守門模組（chain_store、wg_chain、wg_oldtest、wg_gate_bypass、wg_release_rules 等），什麼都沒做卻讓每次工具呼叫多等；使用者要求守門關不載、守門開也只在用到時才載。
 - **做法**：新增 `wg_lazy_re.lazy_module`（標準庫延後載入，回傳同一模組、第一次取屬性才載），pre_tool_use、post_tool_use、stop、post_tool_batch、wg_overview、wg_harvest、wg_data_file、wg_verify_batch、chain_store、session_start、wg_core 的守門 import 改成用到才載。不另寫「是不是程式」的統一判斷：動資料檔閘管的是非程式檔，改成每道閘照自己最便宜的前提先判。settings.json 不動。

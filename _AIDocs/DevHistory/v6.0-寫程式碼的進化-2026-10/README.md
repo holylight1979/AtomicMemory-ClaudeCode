@@ -39,6 +39,7 @@
 | `驗證範圍閘封存-2026-10-29.md` | 驗證範圍閘（`verify_scope`：改完程式由 LLM 宣告該測哪些、收尾查範圍內每項改完之後跑綠、事後記範圍漏判）從程式拔掉時的文件原文（`TECH.md` §7.9、`TECH/guards.md` A7.9）；拔之前已由使用者拍板關著 | `TECH.md` §7.9、`TECH/guards.md` A7.9 |
 | `TECH-規則表開發期跑次原文-2026-10.md` | TECH 文件整理時，規則表與守門附錄裡帶跑次代號（第四跑、補題、007／009 實測）、不相干 commit 雜湊與基線日期的句子改寫成只講行為與理由前的原文，逐條註明屬哪條規則或哪一節 | `TECH/release-rules.md`、`TECH/guards.md`、`TECH.md` §5.6 |
 | `TECH重整待裁-結案-2026-10-29.md` | TECH 重整時找出的設計矛盾與冗餘待裁清單（A～J）結案全文：每項怎麼裁、讀碼或實跑證據、落在哪個 commit、驗證與生效狀態；唯一沒做的 J 留在 `memory/_staging/v6代號設定鍵改名-待做.md` | `memory/_staging/next-phase-TECH-重整待裁.md` |
+| `TECH-重整搬出-2026-10-30.md` | TECH 拆成甲篇（記憶系統）、乙篇（寫碼守門）時剪出的原文：§11.1 hook 全關對全開實測與舊固定成本估算、§14.2 停產表與附錄 A14.2、G／T2／E 代號兩段、自檢評分 selfscore、「裁定 #N」原句；另附 10-30 拔掉而停產表沒列的機制（含 commit）與 §11 引用的守門關 hook 延遲量測 | `TECH.md` §7、§11.1、§14.2、A14.2；`TECH/guards.md` A7 開頭 |
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |
 | `staging封存-2026-10-27/` | 開發期 10-27 從 `memory/_staging/` 清出的接續單、計畫草案與量測腳本（有自己的 `_INDEX.md`） | `memory/_staging/` |
@@ -51,4 +52,4 @@
 
 ## 接續
 
-- 開發期已結束（2026-10-29），守門併入產品、文件統一叫「寫碼守門」。接續單封存在 `staging封存-2026-10-27/接續單-v6.0-寫程式碼的進化-封存.md`；守門怎麼運作看 `TECH.md` §7。
+- 開發期已結束（2026-10-29），守門併入產品、文件統一叫「寫碼守門」。接續單封存在 `staging封存-2026-10-27/接續單-v6.0-寫程式碼的進化-封存.md`；寫碼守門怎麼運作看 `TECH/coding-guard.md`（乙篇）；不看守門開關的基本守門在 `TECH.md` §7。

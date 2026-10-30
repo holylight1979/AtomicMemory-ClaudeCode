@@ -86,7 +86,7 @@ Session Ready
 | handlers/ups_inject.py | — | UPS inject 段：hot/cold + budget + related spread（含 `_filter_related_by_relevance` 最小集裁切，Memory Governance C）+ 效用晉升提示 |
 | handlers/pre_tool_use.py | — | Write/Edit atom format gate + memory path block + cross-realm write block（外部專案 session 禁寫核心層子目錄+根層敏感檔）+ Bash 全域 MCP 變更閘 + SVN test block + 索引三檔合併閘 `check_merge_driver`（合併類 git 指令前自動 `--install`、續行類 git 指令與 `svn commit/resolve` 前自動 `--resolve`，warn-only）+ git commit 隱私閘 + `check_svn_encoding`（`svn add` 非 ASCII 路徑 → `[Guardian:SvnEncoding]` advisory） |
 | handlers/post_tool_use.py | — | file tracking + 增量索引 + read tracking + test-fail + changelog auto-roll + AEC one-writer（emit 收訖 + (b) 欄 cross-check：hook 證據 vs 自評「無」→ 升 real-evasion）+ 收割 one-writer（`atom_write`／`atom_retire` receipt 入帳 `state.atom_ops[sid]`；`knowledge_harvest_report` items ↔ receipt 核對 → `state.knowledge_harvest[sid]` + `workflow/harvest-ledger/<sid>.jsonl`；validated → spawn vcs-sync） |
-| handlers/stop.py | — | TestFailGate + Evasion（觸發落 `Logs/guard-evasion.jsonl` + `evasion_events` 證據暫存）+ DeferralGate + KnowledgeHarvest／Harvest-Pending（階段收割）+ ScanReport + AEC-Pending + sync 閘門（root 有 vcs-sync 活鎖跳過）+ AtomAudit + DPM + outcome 三值計數；閘序 TECH §7.1 |
+| handlers/stop.py | — | TestFailGate + Evasion（觸發落 `Logs/guard-evasion.jsonl` + `evasion_events` 證據暫存）+ DeferralGate + KnowledgeHarvest／Harvest-Pending（階段收割）+ ScanReport + AEC-Pending + sync 閘門（root 有 vcs-sync 活鎖跳過）+ AtomAudit + DPM + outcome 三值計數；閘序 TECH §7.1（基本守門）、TECH/coding-guard.md 乙3（寫碼守門） |
 | handlers/session_end.py | — | Episodic + 萃取 + 衝突偵測 + Wisdom 反思 + selective forgetting（`apply_selective_forget` 隔離 `_distant/`，預設 dry-run，Memory Governance D）+ outcome unknown 比率遙測（`workflow/outcome_stats.jsonl` → 連續偏高 marker → SessionStart advisory）+ 失念偵測（`wg_recall_miss` → `Logs/recall-miss.jsonl`）+ 收尾 `spawn_vcs_sync(reason=promotion|session_end)` 一次（舊 `_auto_commit_promotions` 已移除） |
 | handlers/pre_compact.py | — | state snapshot + injected_atoms 快照 |
 | handlers/post_compact.py | — | 壓縮後 stash 壓縮前 atom 緊湊內文 + pending flag（不注入；選配 #4） |
@@ -116,7 +116,7 @@ Session Ready
 | wg_depends.py | — | Depends 讀檔召回：讀到某卡 `- Depends: path:` 指的檔 → 一行一卡指標（同卡一 session 一次）；`authority_map` 命中文件檔一次性注入地圖 |
 | wg_code_path.py | — | 寫碼類判準：`is_code_path`（單一路徑）；`wg_core.coding_turn`、收尾、資料檔閘、PickOne、`tools/project-smells.py` 共用 |
 | wg_ask_gate.py | — | 問使用者前的閘（寫碼守門開時）：AskUserQuestion 每題要附推薦、改法選擇先讀部位檔；帳 `Logs/guard-ask.jsonl` |
-| wg_verify_ledger.py | — | 驗證帳本：收 Bash／PowerShell 輸出哨兵進 `workflow/verify-ledger/<sid>.jsonl`；Stop 的 ReconcileGate（宣稱對收據）、MeasureGate（量尺 DONE）判定純函式（TECH §7.1） |
+| wg_verify_ledger.py | — | 驗證帳本：收 Bash／PowerShell 輸出哨兵進 `workflow/verify-ledger/<sid>.jsonl`；Stop 的 ReconcileGate（宣稱對收據）、MeasureGate（量尺 DONE）判定純函式（TECH/coding-guard.md 乙3） |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
 | extract-worker.py | — | SessionEnd 萃取子程序 |
 | user-extract-worker.py | — | L1/L2 使用者決策萃取 |
@@ -235,7 +235,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - health-weekly.py — 週健檢（Task Scheduler `Claude-Memory-WeeklyHealth`，pythonw 靜默跑）：audit/health-check/索引 --check/vector/注入效果/管線鮮度/工具自測（config `tool_selftests`，尾行哨兵＋exit）/Depends 覆蓋與過期 → `workflow/health-reports/` + `health-last-run.json`（SessionStart `_health_advisory` 死人開關讀取）
 - overview-map-scaffold.py — 從零掃出 `<專案>/.claude/overview-map.md` 骨架表與五段骨架卡（`lib/overview_scaffold.py`）；預設 dry-run，`--write` 落檔（卡先寫、表最後寫、失敗不撤回、重跑接續補完）、表存在拒覆寫、`--merge-missing` 補列補卡；`check` 對帳表與卡｜`OVERVIEW_SCAFFOLD DONE rows=`
 - refix-churn.py — git／svn 同檔反覆 fix 排名（`lib/refix_churn.py`；主尺 fix 數、副尺 14 天配對），排除記憶與收割提交；`--svn-xml` 吃離線 log｜`REFIX_CHURN DONE vcs= commits= fix= files_refixed=`
-- project-smells.py — commit 前病形檢查（PreToolUse 的 SmellGate 與 GateBypass 載入；TECH §7.5）
+- project-smells.py — commit 前病形檢查（PreToolUse 的 SmellGate 與 GateBypass 載入；TECH/coding-guard.md 乙6）
 - usage-snapshot/usage_snapshot.py — 週用量截圖（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，用量刷新前）：專屬 Chrome profile（`--login` 一次登入）開 claude.ai/settings/usage → 截圖存公司記憶庫 `usage-snapshots/usage-YYYYMMDD-<帳號>.png` 並自動 commit／push（帳號＝Claude Code 登入信箱 @ 前段；沒接上公司記憶庫退本機 `workflow/usage-snapshots/`）+ 本機 `usage-log.jsonl`（% / Resets 文字）+ `usage-last-run.json`；失敗留 `*-FAILED.png`
 - memory-effect-report.py — 注入效果報表：access.json（曝光+α/β）+ rescue-log + recall-miss.jsonl → 四節（top 有用 / token 稅 / 死重候選 / D 失念聚合）+ 30 天週趨勢；`/memory health` 與週健檢共用
 - memory-vector-service/starter.py — Vector 啟動器自癒（SessionStart / UPS re-kick 共用）：stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、120s 等待窗 + spawn lock
@@ -316,7 +316,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - README.md — 人讀入口：是什麼 / 三層記憶表 / 開始用 3 步 / 平常替你做什麼 / 你會對它說的話（口令表）/ 版控三點（卡片自己上、程式碼等口令、多機自動合）/ 看得見的介面 / 不用 CC 的同事（零技術名詞；細節一律指 TECH）
 - Install.md — 人讀安裝指南：只裝根層、版控庫網址、在 ~/.claude 貼 prompt 由 AI 代跑、驗證、更新、接上公司層、專案 3 步（含子專案與 /read-project 一句）、啟動檔維護
 - Install-forAI.md — AI 安裝 runbook：執行守則、`tools/install.py` 指令序與每步判讀、回報方式、選配項指向、升級、移除（依賴降級／MCP 註冊／功能開關／疑難排解在 TECH.md §9、§12）
-- TECH.md — 技術深度文件（按現況排章：理念 / 差異 / 一回合流程 / 資料層 / 檢索注入 / 寫入積累 / 守門收尾 / 可觀測 / 服務與網頁 / 目錄樹 / 設定 / 版本歷史；以代碼為真源）
+- TECH.md — 技術深度文件甲篇：記憶系統（開頭跨層表＝守門開關改到記憶系統的唯一一份；按現況排章：理念 / 差異 / 一回合流程 / 資料層 / 檢索注入 / 寫入積累 / 基本守門 / 可觀測 / 服務與網頁 / 目錄樹 / 記憶系統的代價 / 設定 / 版本歷史；以代碼為真源）
+- TECH/ — 細節分檔：coding-guard.md（乙篇：寫碼守門）、guards.md（乙篇附錄：寫碼守門各閘細節）、release-rules.md（有名規則全表，甲乙共用）、config.md（設定總表）、file-tree.md（架構目錄樹）
 - version.json — 版本標識 + 網頁介面位置
 - _AIDocs/ — 知識庫（Architecture / context-memory-governance / SPEC_ATOM_V5 / SPEC_ATOM_V4 / DevHistory / Research / ClaudeCodeInternals / Tools；失敗家族 atom 在 memory/Failures/）
 - _AIDocs/MultiMachineMemorySync.md — 多機記憶同步（AI 讀）：索引三檔三層防線（全 repo LF → 合併驅動 hook 自動裝 → `--resolve` 備案自動觸發）、config、CLI 契約、stage 方向矩陣、支援的 shell 語法、Windows 約束、失敗模式 SOP、手動最後手段、不在保證範圍、設計取捨、驗證方法
