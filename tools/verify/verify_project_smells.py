@@ -60,7 +60,7 @@ def test_company_root_smells_report_used_when_project_unset(tmp_path, monkeypatc
     rpt = tmp_path / "org-smells.json"
     shutil.copyfile(FIX / "fresh.json", rpt)
     (org / ".claude" / "overview-hub.json").write_text(
-        json.dumps({"smells_report": str(rpt), "smells_category_map": {"god-class": "complexity"}}), encoding="utf-8")
+        json.dumps({"smells_report": str(rpt)}), encoding="utf-8")
     monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, org))
     root = _project(tmp_path, None, None)                                  # 專案沒有 overview-hub.json
     assert ps.load_hub_cfg(root)["smells_report"] == str(rpt)               # 正例：用公司的
@@ -111,7 +111,7 @@ def test_config_errors_fail_like_overview_hub(tmp_path):
     with pytest.raises(ps.SmellsError) as ei:
         ps.load_hub_cfg(root)
     assert "未知的設定鍵「smells_bogus」" in str(ei.value)                    # 反例：未知鍵與導讀卡端同樣報錯
-    root2 = _project(tmp_path / "b", {"smells_timeout_s": "fast"}, None)
+    root2 = _project(tmp_path / "b", {"smells_report": 5}, None)
     with pytest.raises(ps.SmellsError) as ei:
         ps.load_hub_cfg(root2)
-    assert "smells_timeout_s 必須是正數" in str(ei.value)                    # 反例：型別錯
+    assert "smells_report 必須是字串" in str(ei.value)                       # 反例：型別錯

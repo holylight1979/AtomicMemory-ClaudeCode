@@ -2,7 +2,7 @@
 
 做什麼：根層預設 HUB_DEFAULTS < workflow/config.json 的 overview_hub 段 < <公司根>/.claude/overview-hub.json
   < <專案根>/.claude/overview-hub.json，巢狀 dict 深合併、list 整個取覆蓋方；合併後驗證（未知鍵、型別、編碼、路徑基準）。
-  各守門（hooks/wg_overview._cfg）、壞味道候選池 CLI（tools/project-smells.py）都走 merge_hub_cfg，
+  各守門（hooks/wg_overview._cfg）、commit 前病形檢查（tools/project-smells.py）都走 merge_hub_cfg，
   兩邊看到的設定一致。
   純函式：不讀 config.json、不判公司根（呼叫端傳入），不碰 state；警告只回清單，由呼叫端決定怎麼浮出。
 怎麼跑：hooks 以 sys.path 的 lib/ 頂層匯入；tools 以檔案相對路徑把 lib/ 放進 sys.path 後匯入。
@@ -32,15 +32,8 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "eol_policy": "per-file-head",
     "PYTHONIOENCODING": "utf-8",
     "readonly_paths": [],
-    "candidate_top_n": 5,
-    # 壞味道報告：smells_report（相對專案根或絕對；json／jsonl／md 表）；報告 mtime 超過 smells_max_age_days 算過期
+    # 壞味道報告：smells_report（相對專案根或絕對；json／jsonl／md 表）；病形閘與交付時「順手看到最該修」的材料讀它
     "smells_report": "",
-    "smells_max_age_days": 7,
-    # 壞味道候選池 CLI（tools/project-smells.py）：沒報告就跑 smells_cmd（陣列或字串），逾時 smells_timeout_s 秒；
-    # 報告的分類名不在七類內時用 smells_category_map 映射
-    "smells_cmd": None,
-    "smells_timeout_s": 20,
-    "smells_category_map": {},
     # 權威地圖（A3.5）：{"<檔名樣式（fnmatch，對檔名或相對專案根路徑）>": "<地圖路徑（相對專案根或絕對）>"}；
     # 讀到文件／計畫檔命中樣式且非空 → 一 session 注入一次該地圖
     "authority_map": {},
@@ -55,11 +48,11 @@ HUB_DEFAULTS: Dict[str, Any] = {
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
 # 退役：沒有程式讀；出現只警告，不報錯（dry_run／deny_parts 明寫也不放行）
 RETIRED_KEYS = ("dry_run", "deny_parts", "card_injection", "locate_template", "locate_extra", "min_overview_evidence",
-                "root_cause_triggers", "idle_triggers", "post_compact_chars", "goal_weights", "min_map", "need_goal")
+                "root_cause_triggers", "idle_triggers", "post_compact_chars", "goal_weights", "min_map", "need_goal",
+                "candidate_top_n", "smells_max_age_days", "smells_cmd", "smells_timeout_s", "smells_category_map")
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
 _LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "source_encodings")
-_DICT_KEYS = ("verify_chains", "authority_map", "smells_category_map")
-_NONNEG_INT_KEYS = ("candidate_top_n", "smells_max_age_days")
+_DICT_KEYS = ("verify_chains", "authority_map")
 _ENCODING_KEYS = ("commit_encoding", "PYTHONIOENCODING")
 
 
@@ -95,10 +88,6 @@ def same_dir(a: Path, b: Path) -> bool:
 
 def _is_list_of_str(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
-
-
-def _is_nonneg_int(v: Any) -> bool:
-    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
 
 
 def encoding_ok(name: Any) -> bool:
@@ -138,21 +127,6 @@ def validate_path_bases(bases: Any, root: Optional[Path]) -> List[str]:
     return errors
 
 
-def validate_smells(c: Dict[str, Any]) -> List[str]:
-    """project-smells 的三個鍵：smells_cmd 是 null／字串／字串陣列；smells_timeout_s 是正數；category_map 的鍵值都是字串。"""
-    errors: List[str] = []
-    cmd = c.get("smells_cmd")
-    if cmd is not None and not isinstance(cmd, str) and not _is_list_of_str(cmd):
-        errors.append("smells_cmd 必須是 null、字串或字串陣列")
-    t = c.get("smells_timeout_s")
-    if isinstance(t, bool) or not isinstance(t, (int, float)) or t <= 0:
-        errors.append("smells_timeout_s 必須是正數（秒）")
-    cm = c.get("smells_category_map")
-    if isinstance(cm, dict) and not all(isinstance(k, str) and isinstance(v, str) for k, v in cm.items()):
-        errors.append("smells_category_map 的鍵與值都必須是字串（報告分類名 → 七類之一）")
-    return errors
-
-
 def validate_switch(name: str, sec: Any) -> List[str]:
     """只有 enabled 一鍵的開關段（equivalence、svn_test_block）：是物件、沒有別的鍵、enabled 是 true／false。"""
     if not isinstance(sec, dict):
@@ -183,9 +157,6 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
         errors.append("enabled 必須是 true／false")
     if not isinstance(c.get("max_card_chars"), int) or isinstance(c.get("max_card_chars"), bool) or c["max_card_chars"] <= 0:
         errors.append("max_card_chars 必須是正整數")
-    for key in _NONNEG_INT_KEYS:
-        if not _is_nonneg_int(c.get(key)):
-            errors.append(f"{key} 必須是 0 以上的整數")
     if not isinstance(c.get("smells_report"), str):
         errors.append("smells_report 必須是字串（報告路徑；空字串＝沒有報告）")
     am = c.get("authority_map")
@@ -205,7 +176,6 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
     if c.get("eol_policy") not in _EOL_POLICIES:
         errors.append(f"eol_policy 必須是 {'／'.join(_EOL_POLICIES)} 之一")
     errors.extend(validate_path_bases(c.get("path_bases"), root))
-    errors.extend(validate_smells(c))
     errors.extend(validate_equivalence(c.get("equivalence")))
     errors.extend(validate_switch("svn_test_block", c.get("svn_test_block")))
     return errors, retired

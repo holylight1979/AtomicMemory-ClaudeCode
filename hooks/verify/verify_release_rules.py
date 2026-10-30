@@ -1951,8 +1951,7 @@ def test_launcher_not_code_source_shapes():
 
 _ELSEWHERE_CASES = {
     "GATE_DENY_CAP": [("verify_pull_tool_gates.py", "test_deny_cap_counts_each_item_per_user_turn"),
-                      ("verify_pull_goal_locate.py", "test_locate_gate_same_gap_blocks_twice_then_passes_with_log"),
-                      ("verify_pull_goal_locate.py", "test_unmapped_gate_same_gap_blocks_twice_then_passes_with_log")],
+                      ("verify_pull_tool_gates.py", "test_data_file_gate_releases_after_two_denies_in_same_turn")],
     "DENY_CAP_PER_REPLY": [("verify_pull_tool_gates.py", "test_deny_cap_per_reply_counts_one_reply_once"),
                            ("verify_pull_tool_gates.py", "test_data_file_gate_parallel_edits_in_one_reply_count_once")],
     "PICK_ONCE_PER_USER_TURN": [("verify_pick_one.py", "test_stop_continuation_after_red_test_block_still_asks_once")],

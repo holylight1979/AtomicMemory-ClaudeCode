@@ -1,9 +1,10 @@
 """probe_c_g16.py：用真的 hook 入口（hooks/workflow-guardian.py，一個事件一個行程、stdin 餵 JSON）走提問閘（C-G16）。
 
 情境：
-  P1 沒推薦的提問被 PreToolUse 擋（印 ASK_NEEDS_RECOMMENDATION 與照抄範例）→ 照抄加 (Recommended) 放行
+  P1 沒推薦的提問照放行，下一個工具結果附一行提醒（印 ASK_NEEDS_RECOMMENDATION 與照抄範例）；照抄加 (Recommended) 也放行
   P2 【收尾放行確認】固定兩選項的放行題不因推薦被擋
-  P5 部位表兩部位：讀了 A 部位的檔、問 B 部位某檔的改法 → 提醒句點名 B 讀過 0 檔；讀過 B 再問 → 不提醒（裁定 #39）
+  P5 部位表兩部位：讀了 A 部位的檔、問 B 部位某檔的改法 → 下一個工具結果照提醒（讀了別的部位不算）；讀過 B 再問 → 不提醒（裁定 #39）
+寫碼守門明開（WG_V6=1；提問閘只在守門開時跑，送法照 RULE_MODE＝提醒）。
 資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄與探針專案都放在 <本樹>/workflow/need-goal/_probe_c_g16/
 （不進版控），每次跑前清空；程式碼用本檔所在的樹，不碰 live。
 怎麼跑：python -X utf8 hooks/verify/probe_c_g16.py   （尾行 C_G16_PROBE_CHECK PASS|FAIL）
@@ -32,7 +33,7 @@ RELEASE_TAG, OPT_RELEASE, OPT_KEEP = "【收尾放行確認】", "放行這一�
 def hook(event: str, **fields) -> dict:
     payload = {"hook_event_name": event, "session_id": SID, "cwd": str(PROJ), "transcript_path": str(TP), **fields}
     env = {**os.environ, "WG_CLAUDE_DIR": str(ROOT), "WG_TEST_LOGS_DIR": str(BASE / "logs"),
-           "USERPROFILE": str(BASE / "home"), "HOME": str(BASE / "home"), "PYTHONIOENCODING": "utf-8"}
+           "USERPROFILE": str(BASE / "home"), "HOME": str(BASE / "home"), "PYTHONIOENCODING": "utf-8", "WG_V6": "1"}
     env.pop("CLAUDE_COMPANION_JUDGE", None)
     r = subprocess.run([sys.executable, "-X", "utf8", str(GUARDIAN)], input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                        capture_output=True, env=env, cwd=str(PROJ), creationflags=FLAGS, timeout=120)
@@ -49,6 +50,11 @@ def ctx(out: dict) -> str:
 def deny(out: dict) -> str:
     hs = out.get("hookSpecificOutput") or {}
     return hs.get("permissionDecisionReason") or "" if hs.get("permissionDecision") == "deny" else ""
+
+
+def after() -> dict:
+    """提問之後的下一個工具結果（唯讀 Bash 的 PostToolUse）：提問閘的提醒在這裡送。"""
+    return hook("PostToolUse", tool_name="Bash", tool_input={"command": "git status"}, tool_response={"stdout": ""})
 
 
 def ask(question: str, labels) -> dict:
@@ -81,9 +87,10 @@ def main() -> int:
     hook("UserPromptSubmit", prompt="幫我決定匯出要先做哪個格式")
 
     out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=ask("要先做哪個格式？", ["CSV", "XLSX"]), tool_use_id="p1a")
-    d = deny(out)
-    step("P1 沒推薦被擋、印規則名與照抄範例", "ASK_NEEDS_RECOMMENDATION" in d and '"label": "CSV (Recommended)"' in d,
-         json.dumps(out, ensure_ascii=False))
+    nxt = after()
+    step("P1 沒推薦照放行、下一個工具結果提醒規則名與照抄範例",
+         not deny(out) and "ASK_NEEDS_RECOMMENDATION" in ctx(nxt) and '"label": "CSV (Recommended)"' in ctx(nxt),
+         json.dumps([out, nxt], ensure_ascii=False))
     ok_ask = ask("要先做哪個格式？", ["CSV (Recommended)", "XLSX"])
     out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=ok_ask, tool_use_id="p1b")
     step("P1 照抄加 (Recommended) 放行", not deny(out), json.dumps(out, ensure_ascii=False))
@@ -99,13 +106,16 @@ def main() -> int:
         read(rel)
     q5 = ask(f"{PROJ / 'src' / 'b' / 'x.py'} 要用哪個改法？", ["A (Recommended)", "B"])
     out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=q5, tool_use_id="p5a")
-    step("P5 讀 A 問 B：提醒句點名乙部位讀過 0 檔、不擋",
-         not deny(out) and "先讀過部位檔再問" in ctx(out) and "→部位 乙部位，本回合該部位讀過 0 檔" in ctx(out),
-         json.dumps(out, ensure_ascii=False))
+    nxt = after()
+    step("P5 讀 A 問 B：照放行，下一個工具結果照提醒（只讀了別的部位不算讀過）",
+         not deny(out) and "ASK_OVERVIEW_BEFORE_DECISION" in ctx(nxt) and "先讀過部位檔再問" in ctx(nxt),
+         json.dumps([out, nxt], ensure_ascii=False))
     for rel in ("src/b/x.py", "src/b/y.py"):
         read(rel)
     out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=q5, tool_use_id="p5b")
-    step("P5 讀過 B 再問：不提醒", not deny(out) and "先讀過部位檔再問" not in ctx(out), json.dumps(out, ensure_ascii=False))
+    nxt = after()
+    step("P5 讀過 B 再問：不提醒", not deny(out) and "先讀過部位檔再問" not in ctx(out) + ctx(nxt),
+         json.dumps([out, nxt], ensure_ascii=False))
 
     fails = sum(1 for _n, ok in steps if not ok)
     print(f"C_G16_PROBE DONE steps={len(steps)} fail={fails} sid={SID}")
