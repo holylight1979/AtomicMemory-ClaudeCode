@@ -7,7 +7,6 @@
 - Trigger: 擋滿等人, exhausted_block, 收尾放行確認 等人, 每回合再被擋, 子代理被擋 9 次, 走到要問那步停下, AskUserQuestion 停住
 - Created-at: 2026-10-14
 
-- Related: 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效
 
 ## 知識
 

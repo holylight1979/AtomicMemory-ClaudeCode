@@ -24,8 +24,6 @@
 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 |
 | 審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔 | 審查者回沒問題或回得很短時-採用前先看執行紀錄確認真的讀到檔 |
 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與ListAgents啟動時間 |
-| 第二意見材料是工作樹對head-沒差才取mainhead-未追蹤檔也打包-分段commit的工作要先commit乾淨再送-暫存腳本移出repo | 第二意見材料是工作樹對HEAD-沒差才取main...HEAD-未追蹤檔也打包-分段commit的工作要先commit乾淨再送-暫存腳本移出repo |
-| 第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷 | 第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷 |
 
 ## 子層
 

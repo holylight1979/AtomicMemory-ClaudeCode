@@ -19,3 +19,10 @@
 
 - Python 端加 need_goal 選填欄位時：同步 mcp.js schema 與 need-goal.js 驗證，報告提醒 Reload Window；Python 端可先用、不必等 Reload
 - 要在提問或交計畫前送題：放擋訊息、寫計畫檔後的 PostToolUse 或完整對照回應，不放不擋的 PreToolUse 提醒
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（需求目標樹 need_goal 的 MCP 欄位與完整對照送題時機）已從寫碼守門拔除；PreToolUse 提醒時機另有 pretooluse 的 additionalContext 卡記載 | memory-audit --delete |

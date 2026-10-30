@@ -545,7 +545,7 @@ SessionStart（session_start._org_advisory）
 - 三個根（[`lib/project_root.py`](lib/project_root.py)）：資料根、程式碼根、Claude Code 設定目錄；工具讀資料一律問資料根，不寫死 `~/.claude`。
 - 寫入 funnel：[`lib/atom_io.py write_atom`](lib/atom_io.py) → upsert index → [`tools/sync-memory-index.py --write`](tools/sync-memory-index.py) 重生各層 `_INDEX.md`、[`MEMORY.md`](memory/MEMORY.md)、[`_local_catalog.md`](memory/_local_catalog.md)、[`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md) → 尾端自動重產原生橋接檔並同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分，語言是跨範疇視圖 [`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md)，一張卡可屬多個語言。
-- 現況計數：共 <!-- atom-total -->721<!-- /atom-total --> 張＝core <!-- atom-core -->401<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->77<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->241<!-- /atom-local -->（數字由標記自動同步，勿手改）。
+- 現況計數：共 <!-- atom-total -->699<!-- /atom-total --> 張＝core <!-- atom-core -->400<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->77<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->220<!-- /atom-local -->（數字由標記自動同步，勿手改）。
 
 #### 多機合併的三層防線
 
@@ -687,7 +687,7 @@ SessionStart（session_start._org_advisory）
 
 ### 5.2 深度解說：每個設計的意義
 
-- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->721<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
+- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->699<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
 - **為什麼 BM25 改成每輪跑**：BM25 提供獨立排序證據，R@1 再 +1.2pp；剔除請求框架 bigram 後負例誤注入 31.8% → 4.5%。
 - **為什麼 RRF 而不是序列 fallback**：三路都出排名再融合，後段路才有機會補前段漏的；Recall@1 34 → 53.6%、MRR 0.584 → 0.709。
 - **為什麼活化增益歸零**：activation 乘進 RRF 會壓過相關性；gain 0.25 → 0 讓 R@1 45.1% → 81.1%、MRR 0.639 → 0.870。

@@ -17,3 +17,10 @@
 
 - 合併回合第一步 need_goal set，合完先前景跑補驗再 commit
 - 背景跑完的驗證：前景 grep log 的 passed/exit 行取收據，文件尺則單獨重跑原字串
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（需求目標樹 need_goal 閘與驗證範圍 verify_scope）已從寫碼守門拔除；背景跑驗證取收據的做法另有背景 run-in-background 收據卡記載 | memory-audit --delete |

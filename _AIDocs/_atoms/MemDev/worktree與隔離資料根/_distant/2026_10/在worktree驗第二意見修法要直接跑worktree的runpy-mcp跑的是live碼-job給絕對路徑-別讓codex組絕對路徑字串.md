@@ -18,3 +18,10 @@
 
 - 改 tools/second-opinion/ 之後的實測：worktree 直接跑 run.py prepare＋execute（--job 絕對路徑），不要用 MCP 工具
 - 審路徑處理程式時，question 先禁止 codex 在指令裡組磁碟絕對路徑字串
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（Codex 第二意見工具 tools/second-opinion/run.py 與其 MCP 工具）已從寫碼守門拔除 | memory-audit --delete |

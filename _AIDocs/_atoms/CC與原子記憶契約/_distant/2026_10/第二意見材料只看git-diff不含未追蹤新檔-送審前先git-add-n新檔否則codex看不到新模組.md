@@ -14,3 +14,10 @@
 ## 行動
 
 - 跨 second_opinion_start 前：git status 看到 ?? 的新程式檔先 git add -N
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（Codex 第二意見閘 second_opinion_start 的材料打包）已從寫碼守門拔除 | memory-audit --delete |

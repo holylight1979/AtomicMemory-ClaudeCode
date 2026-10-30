@@ -19,3 +19,10 @@
 - 派子代理在部位目錄寫碼：prompt 附定位四行要它先放 Bash 註解，並交代它補案例、跑量尺
 - 查「是不是子代理改的」：看 state 的 agent_modified_files，不看主 session 擋訊息
 - 要刪對照引用過的案例檔：刪完用仍在的證據重交 reconcile
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（OverviewHub 定位行寫入閘與需求目標樹完整對照 f2）已從寫碼守門拔除；SubagentStop 與 agent_modified_files 那段仍有效，已併入「子代理的對話紀錄是獨立檔」卡 | memory-audit --delete |

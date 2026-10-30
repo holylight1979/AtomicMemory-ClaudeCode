@@ -16,3 +16,10 @@
 
 - 要 Codex 判一大批檔：寫 prompt 檔＋codex exec 唯讀跑，不用 second_opinion
 - 第二意見閘要求時：題目照 stage-review 本意問收據有沒有撐住宣稱，交付在 gitignore 路徑就在題目裡寫明
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（Codex 第二意見 MCP 工具 second_opinion_start 的材料入口）已從寫碼守門拔除；直接 codex exec 的用法另有 codex-exec 卡記載 | memory-audit --delete |

@@ -9,7 +9,6 @@
 | conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離 | conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離 |
 | git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用-git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控 | git-cassette錄製檔-測試裡git參數或呼叫次序一改就要用--git-record重錄並進版控-框架判過期會自動重錄-紅著的檔別把錄製進版控 |
 | git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 | git測試慢用錄製重播git_cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用 |
-| stop案例要模擬寫碼回合用state的need-goal-code-decl-turn-補modified-files會連帶觸發補案例檢查與驗證範圍閘-案例因無關原因轉紅 | Stop案例要模擬寫碼回合用state的need_goal_code_decl_turn-補modified_files會連帶觸發補案例檢查與驗證範圍閘-案例因無關原因轉紅 |
 | v6守門出廠預設關-直接跑的js與lib-verify驗證要自己帶wg-v6等於1 | v6守門出廠預設關-直接跑的js與lib-verify驗證要自己帶WG_V6等於1 |
 | verify案例的連鎖帳預設按案例名放且跨次執行不清-第二次跑必紅-案例要把ledger-dir與snap-root指到tmp-path | verify案例的連鎖帳預設按案例名放且跨次執行不清-第二次跑必紅-案例要把ledger-dir與snap-root指到tmp-path |
 | verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple | verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改NamedTuple |

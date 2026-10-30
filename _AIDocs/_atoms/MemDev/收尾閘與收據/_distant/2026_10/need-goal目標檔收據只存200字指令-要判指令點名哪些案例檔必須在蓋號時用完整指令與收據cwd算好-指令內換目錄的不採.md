@@ -19,3 +19,10 @@
 - 新判定要讀收據指令內容：先查目標檔存的是不是截短版，是就改在 stamp_receipts 蓋號時算好結果
 - 相對路徑一律用收據自己的 cwd 解；指令內換目錄（root_uncertain）的收據不採
 - 從指令取案例檔一律走 wg_release_rules.case_files_in_cmd，不另寫 regex
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（需求目標樹 need_goal 目標檔收據蓋號與 CASE_RED_THEN_GREEN）已從寫碼守門拔除；剩下的取檔函式用法 wg_release_rules.case_files_in_cmd 的 docstring 已寫明 | memory-audit --delete |

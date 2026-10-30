@@ -15,3 +15,10 @@
 ## 行動
 
 - 要關掉某種類的自動評分：從 auto_targets 拿掉那個鍵，不要留空清單；改完跑一次工具看回的是「不在 auto_targets → 不評」
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（G15 收尾背景文字評分的 auto_targets 與 hooks/wg_text_score）已從寫碼守門拔除，手動 /text-score 不用它 | memory-audit --delete |

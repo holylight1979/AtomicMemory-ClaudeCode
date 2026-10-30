@@ -6002,8 +6002,6 @@
         "綜觀頁",
         "hub 卡",
         "路徑前綴",
-        "動手前注入",
-        "定位三行",
         "Depends",
         "專案綜觀",
         "沒東西可綜觀"
@@ -7714,24 +7712,6 @@
       "scope": "global"
     },
     {
-      "name": "need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號",
-      "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號.md",
-      "triggers": [
-        "need_goal reconcile",
-        "reconcile 拒收",
-        "不在磁碟上",
-        "case 證據",
-        "pytest 節點 id",
-        "驗證案例證據",
-        "evidence kind case",
-        "CASE_NODE_ID_NEEDS_DEF"
-      ],
-      "scope": "global",
-      "related": [
-        "收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算"
-      ]
-    },
-    {
       "name": "收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算",
       "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算.md",
       "triggers": [
@@ -7820,22 +7800,6 @@
       ]
     },
     {
-      "name": "總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據",
-      "path": "_AIDocs/_atoms/MemDev/v6總控台/總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據.md",
-      "triggers": [
-        "總控台合併被擋",
-        "need_goal 合併",
-        "commit 前的目標對照沒過",
-        "改完沒重跑",
-        "背景驗證沒收據",
-        "收據不入帳",
-        "git checkout HEAD -- 被擋",
-        "合併工作流 閘",
-        "調度總控台 合併"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍",
       "path": "memory/設計通則/搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍.md",
       "triggers": [
@@ -7873,26 +7837,6 @@
         "設定檔跟著搬"
       ],
       "scope": "global"
-    },
-    {
-      "name": "need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採",
-      "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採.md",
-      "triggers": [
-        "need_goal 收據",
-        "stamp_receipts",
-        "receipts cmd 截斷",
-        "先紅後綠",
-        "red_then_green",
-        "CASE_RED_THEN_GREEN",
-        "case_files_in_cmd",
-        "收據比對案例檔",
-        "root_uncertain",
-        "指令點名案例"
-      ],
-      "scope": "global",
-      "related": [
-        "只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯"
-      ]
     },
     {
       "name": "只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯",
@@ -7955,25 +7899,6 @@
         "探針要關的閘"
       ],
       "scope": "global"
-    },
-    {
-      "name": "子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效",
-      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效.md",
-      "triggers": [
-        "子代理改碼",
-        "SubagentStop",
-        "agent_modified_files",
-        "子代理 定位三行",
-        "子代理 Write 被擋",
-        "對照證據失效",
-        "案例檔不在磁碟上",
-        "A8 實走"
-      ],
-      "scope": "global",
-      "related": [
-        "寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著",
-        "worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒"
-      ]
     },
     {
       "name": "claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror",
@@ -8132,18 +8057,6 @@
       ]
     },
     {
-      "name": "need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred",
-      "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred.md",
-      "triggers": [
-        "need_goal reconcile",
-        "reconcile 拒收",
-        "目標樹結案",
-        "evidence 必須是物件",
-        "完整對照"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "測試的前置狀態要先斷言成立-否則期望不發生的案例會空轉通過-真git取代假git時改檔與head相同會被當成沒改",
       "path": "memory/驗證與實證/測試的前置狀態要先斷言成立-否則期望不發生的案例會空轉通過-真git取代假git時改檔與head相同會被當成沒改.md",
       "triggers": [
@@ -8188,24 +8101,6 @@
       "scope": "global",
       "related": [
         "測試的前置狀態要先斷言成立-否則期望不發生的案例會空轉通過-真git取代假git時改檔與head相同會被當成沒改"
-      ]
-    },
-    {
-      "name": "need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到",
-      "path": "_AIDocs/_atoms/MemDev/hook與MCP執行期/need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到.md",
-      "triggers": [
-        "need_goal 新欄位",
-        "MCP Reload",
-        "same_class",
-        "inputs",
-        "未知欄位",
-        "PreToolUse 提醒時機",
-        "AskUserQuestion 提醒",
-        "交出前一問"
-      ],
-      "scope": "global",
-      "related": [
-        "pretooluse的additionalcontext不是寫前攔截-edit-payload已生成-提醒只影響下一次"
       ]
     },
     {
@@ -8747,21 +8642,6 @@
       "scope": "global"
     },
     {
-      "name": "mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹",
-      "path": "_AIDocs/_atoms/MemDev/hook與MCP執行期/mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹.md",
-      "triggers": [
-        "second_opinion_start",
-        "session_id 未給",
-        "updatedInput",
-        "MCP 沒有 session",
-        "材料沒有需求目標樹",
-        "goal.md 無目標樹",
-        "PreToolUse 補參數",
-        "settings.json matcher"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔",
       "path": "_AIDocs/_atoms/MemDev/測試框架與探針/多軌並行共用規則表時-規則名須出現在共用測試檔的守門案會逼每軌改共用測試檔-解法是各軌在檔尾加自己的小案段落-完整案例放各軌新檔.md",
       "triggers": [
@@ -8861,7 +8741,10 @@
         "PreToolUse 子代理",
         "讀 transcript 的閘",
         "使用者原話來源",
-        "promptId"
+        "promptId",
+        "SubagentStop",
+        "agent_modified_files",
+        "子代理改碼"
       ],
       "scope": "global",
       "related": [
@@ -8994,26 +8877,6 @@
       "related": [
         "總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件",
         "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合"
-      ]
-    },
-    {
-      "name": "在worktree驗第二意見修法要直接跑worktree的runpy-mcp跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串",
-      "path": "_AIDocs/_atoms/MemDev/worktree與隔離資料根/在worktree驗第二意見修法要直接跑worktree的runpy-mcp跑的是live碼-job給絕對路徑-別讓codex組絕對路徑字串.md",
-      "triggers": [
-        "second_opinion_start",
-        "第二意見 blocked",
-        "第二意見 failed",
-        "run.py prepare",
-        "run.py execute",
-        "replay-guard post",
-        "replay-guard pre",
-        "探針 os error 3",
-        "worktree 驗第二意見",
-        "提示詞指到暫存目錄以外的路徑"
-      ],
-      "scope": "global",
-      "related": [
-        "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上"
       ]
     },
     {
@@ -9184,7 +9047,6 @@
         "CLAUDE_CODE_ENTRYPOINT",
         "sdk-cli",
         "non_interactive_reason",
-        "第二意見不觸發",
         "無頭驗收",
         "AskUserQuestion 不存在"
       ],
@@ -9273,21 +9135,6 @@
         "_merge_hit",
         "vector_ready.flag",
         "向量庫沒有新卡"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔",
-      "path": "_AIDocs/_atoms/CC與原子記憶契約/第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔.md",
-      "triggers": [
-        "second_opinion_start",
-        "第二意見",
-        "codex 判分",
-        "codex exec",
-        "判分材料",
-        "材料太大",
-        "pack.gather_items",
-        "獨立判分"
       ],
       "scope": "global"
     },
@@ -10095,19 +9942,6 @@
       "scope": "global"
     },
     {
-      "name": "第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組",
-      "path": "_AIDocs/_atoms/CC與原子記憶契約/第二意見材料只看git-diff不含未追蹤新檔-送審前先git-add-n新檔否則codex看不到新模組.md",
-      "triggers": [
-        "second_opinion_start",
-        "第二意見 材料",
-        "codex 看不到新檔",
-        "git add -N",
-        "intent-to-add",
-        "未追蹤新檔"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題",
       "path": "memory/驗證與實證/hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題.md",
       "triggers": [
@@ -10133,43 +9967,6 @@
         "病形閘沒觸發"
       ],
       "scope": "global"
-    },
-    {
-      "name": "切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天",
-      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天.md",
-      "triggers": [
-        "guard-entry.jsonl",
-        "entry-stats",
-        "切入點帳",
-        "resolve_responses",
-        "回應型",
-        "response none",
-        "判分出處",
-        "--days"
-      ],
-      "scope": "global",
-      "depends": [
-        "path:~/.claude/hooks/wg_entrypoint.py",
-        "path:~/.claude/tools/entry-stats.py"
-      ]
-    },
-    {
-      "name": "判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼",
-      "path": "_AIDocs/_atoms/MemDev/檢索排序與注入量測/判準卡entry綁定一張卡只綁主代號-大卡多綁會在預算內排到別代號專卡前面把專卡擠掉-綁完要模擬每個代號第一張送什麼.md",
-      "triggers": [
-        "Entry 綁定",
-        "判準卡",
-        "entry-bind",
-        "cards_for_entry",
-        "judgment_cards",
-        "inject_budget_tokens",
-        "專卡被擠掉",
-        "切入點卡"
-      ],
-      "scope": "global",
-      "related": [
-        "切入點帳guard-entry原始response永遠是none-逐筆回應型要呼叫resolve-responses-entry-stats只給計數且預設只看7天"
-      ]
     },
     {
       "name": "shelltrue子行程帶create-no-window輸出整個不見-要直接印給人看的指令用no-window-exempt-壓窗守門紅了別一律補旗標",
@@ -10395,22 +10192,6 @@
       "scope": "global"
     },
     {
-      "name": "切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣",
-      "path": "memory/CC與原子記憶契約/切入點識別字樣含常見中文詞會被中文trigger子字串誤中無關卡-等淬鍊才綁卡的列用英數字樣.md",
-      "triggers": [
-        "切入點識別字樣",
-        "關鍵字退路",
-        "trigger 子字串",
-        "誤中無關卡",
-        "登錄表新列",
-        "entry_note",
-        "SELFSCORE_ASK",
-        "CLAUDE_CODE_SESSION_ID",
-        "guard log 秒級配對"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出",
       "path": "memory/版控/Git/攔git指令的閘要先照git的規則展開別名-同名指令不認-值可跨行要用-z讀-別名鏈不限層-展開不經shell-有一段拆得出不代表整條拆得出.md",
       "triggers": [
@@ -10570,32 +10351,6 @@
       "scope": "global"
     },
     {
-      "name": "第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷",
-      "path": "_AIDocs/_atoms/Tools/第二意見要在commit前送-已commit時工作樹diff為空-codex只拿到摘要判證據不足指不出缺陷.md",
-      "triggers": [
-        "second_opinion_start",
-        "diff 為空",
-        "證據不足",
-        "commit 後送審",
-        "stage-review"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路",
-      "path": "memory/CC與原子記憶契約/綁了entry的判準卡是量尺-非總控台session要改得先宣告改判準卡哪張理由留帳-不唯讀以保留判錯當天落卡的迴路.md",
-      "triggers": [
-        "判準卡被改",
-        "量尺被改",
-        "Entry 卡唯讀",
-        "改判準卡｜",
-        "判錯當天落卡",
-        "評分規格卡",
-        "改到會評自己的東西"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "模擬對實際的比對基準被被測方在過程中改寫就失準-基準取沒被碰過的副本-豁免差異要有寫入證據不能池裡沒有就放過",
       "path": "memory/驗證與實證/模擬對實際的比對基準被被測方在過程中改寫就失準-基準取沒被碰過的副本-豁免差異要有寫入證據不能池裡沒有就放過.md",
       "triggers": [
@@ -10623,23 +10378,6 @@
       "scope": "global"
     },
     {
-      "name": "同一切入點綁兩張以上判準卡時知識段短的先送-長的專卡會被擠到後面截斷-綁之前先模擬順序與送到哪幾條",
-      "path": "_AIDocs/_atoms/MemDev/檢索排序與注入量測/同一切入點綁兩張以上判準卡時知識段短的先送-長的專卡會被擠到後面截斷-綁之前先模擬順序與送到哪幾條.md",
-      "triggers": [
-        "綁 Entry",
-        "判準卡順序",
-        "第二張判準卡",
-        "截斷",
-        "inject_budget_tokens",
-        "cards_for_entry",
-        "專卡被擠"
-      ],
-      "scope": "global",
-      "depends": [
-        "path:~/.claude/hooks/wg_entrypoint.py"
-      ]
-    },
-    {
       "name": "要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判",
       "path": "memory/CC與原子記憶契約/要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判.md",
       "triggers": [
@@ -10648,7 +10386,9 @@
         "PreToolUse matcher",
         "MCP 沒有 session",
         "宣告行",
-        "mcp__workflow-guardian__"
+        "mcp__workflow-guardian__",
+        "updatedInput",
+        "session_id 補參數"
       ],
       "scope": "global"
     },
@@ -10833,19 +10573,6 @@
         "註解行",
         "字樣比對",
         "NEGATIVE_CONTROL_DECLARED"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次",
-      "path": "_AIDocs/_atoms/CC與原子記憶契約/第二意見收尾段的分歧點與裁決與理由要寫在同一行-寫成下一行條列會被判缺行再擋一次.md",
-      "triggers": [
-        "第二意見收尾",
-        "分歧點",
-        "裁決與理由",
-        "second_opinion",
-        "缺行",
-        "SecondOpinion"
       ],
       "scope": "global"
     },
@@ -11111,38 +10838,6 @@
         "skill 清單看不到",
         "開工句叫 skill",
         "SKILL.md frontmatter"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀",
-      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/部位表單檔前綴列可以只改一兩個檔的類別-最長前綴勝出-類別只認knowledge-gate字樣只有第二意見讀.md",
-      "triggers": [
-        "部位表單檔列",
-        "單檔前綴",
-        "類別欄",
-        "gate 類別",
-        "knowledge 類別",
-        "少數檔變高風險",
-        "wg_second_opinion",
-        "overview-map.md"
-      ],
-      "scope": "global",
-      "related": [
-        "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過",
-        "部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的"
-      ]
-    },
-    {
-      "name": "text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列",
-      "path": "_AIDocs/_atoms/MemDev/收尾閘與收據/text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列.md",
-      "triggers": [
-        "text-score",
-        "auto_targets",
-        "docs: []",
-        "不評文件",
-        "wg_text_score",
-        "文字評分自動目標"
       ],
       "scope": "global"
     },
@@ -12223,10 +11918,11 @@
         "路徑前綴",
         "match_row",
         "最長前綴",
-        "導讀卡沒注入",
         "部位判錯",
         "合併部位表",
-        "量尺"
+        "量尺",
+        "單檔前綴",
+        "類別欄"
       ],
       "scope": "global",
       "related": [
@@ -12590,27 +12286,6 @@
       ]
     },
     {
-      "name": "第二意見材料是工作樹對head-沒差才取mainhead-未追蹤檔也打包-分段commit的工作要先commit乾淨再送-暫存腳本移出repo",
-      "path": "_AIDocs/_atoms/Tools/第二意見材料是工作樹對head-沒差才取mainhead-未追蹤檔也打包-分段commit的工作要先commit乾淨再送-暫存腳本移出repo.md",
-      "triggers": [
-        "second_opinion_start",
-        "第二意見 材料",
-        "collect_diff",
-        "pack.py",
-        "main...HEAD",
-        "未追蹤檔打包",
-        "分段 commit 送審",
-        "diff 為空"
-      ],
-      "scope": "global",
-      "related": [
-        "第二意見工具不適合拿來判大份材料-mcp入口只收cwd的diff帳本與目標樹且全文嵌進提示詞-判分改直接codex-exec讓它讀檔"
-      ],
-      "depends": [
-        "path:~/.claude/tools/second-opinion/pack.py"
-      ]
-    },
-    {
       "name": "用擋訊息原文當比對鍵的計數機制-縮短擋訊息只在組最後那則訊息時替換-改缺件清單的字會重新計次反而多擋",
       "path": "memory/設計通則/用擋訊息原文當比對鍵的計數機制-縮短擋訊息只在組最後那則訊息時替換-改缺件清單的字會重新計次反而多擋.md",
       "triggers": [
@@ -12790,22 +12465,6 @@
       ]
     },
     {
-      "name": "stop案例要模擬寫碼回合用state的need-goal-code-decl-turn-補modified-files會連帶觸發補案例檢查與驗證範圍閘-案例因無關原因轉紅",
-      "path": "_AIDocs/_atoms/MemDev/測試框架與探針/stop案例要模擬寫碼回合用state的need-goal-code-decl-turn-補modified-files會連帶觸發補案例檢查與驗證範圍閘-案例因無關原因轉紅.md",
-      "triggers": [
-        "need_goal_code_decl_turn",
-        "modified_files",
-        "Stop 案例",
-        "模擬寫碼回合",
-        "verify_need_goal",
-        "案例轉紅"
-      ],
-      "scope": "global",
-      "related": [
-        "守門只在寫碼回合啟動時-入口要認本回合的實質改碼或本回合宣告-不能認跨回合常駐的目標樹-也不能認關鍵字意圖"
-      ]
-    },
-    {
       "name": "feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾",
       "path": "memory/Failures/工作流/feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾.md",
       "triggers": [
@@ -12898,22 +12557,6 @@
         "list object has no attribute",
         "造 state",
         "收尾類提醒算不出"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "定位閘的掃描起點被目標改了重設-樹到第一次改檔才落地時改檔前交的定位會被作廢-新樹不該作廢也不該推起點",
-      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/定位閘的掃描起點被目標改了重設-樹到第一次改檔才落地時改檔前交的定位會被作廢-新樹不該作廢也不該推起點.md",
-      "triggers": [
-        "on_goal_changed",
-        "transcript_offset",
-        "掃描起點",
-        "定位被作廢",
-        "edit_blocked_round",
-        "還沒交出定位行",
-        "set_via_text",
-        "樹晚落地",
-        "定位先交了還是擋"
       ],
       "scope": "global"
     },
@@ -13824,21 +13467,6 @@
       ]
     },
     {
-      "name": "判準卡在對的時刻送出只在寫碼守門開時有-守門關時常駐路徑只剩identity-綁entry的卡對守門關的人等於不存在",
-      "path": "_AIDocs/_atoms/MemDev/寫碼守門閘/判準卡在對的時刻送出只在寫碼守門開時有-守門關時常駐路徑只剩identity-綁entry的卡對守門關的人等於不存在.md",
-      "triggers": [
-        "判準卡",
-        "entry_note",
-        "切入點",
-        "綁 Entry",
-        "寫碼守門關",
-        "對的時刻送卡",
-        "守門關時有沒有作用",
-        "v6 拔掉"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "守門文件寫的擋滿第3次放行與續跑一回合是照擋送法-寫碼守門開時提醒規則stop只留帳-照擋分支是rule-mode換送法用的不是死碼",
       "path": "_AIDocs/_atoms/MemDev/守門文件寫的擋滿第3次放行與續跑一回合是照擋送法-寫碼守門開時提醒規則stop只留帳-照擋分支是rule-mode換送法用的不是死碼.md",
       "triggers": [
@@ -13895,6 +13523,22 @@
       "scope": "global",
       "related": [
         "feedback-評ai分析先看結論有沒有服務原題目標不看格式-轉交題目只放使用者原話不夾自己的限制-退版紀錄先讀理由不當禁令"
+      ]
+    },
+    {
+      "name": "並行子代理共用主session的scratchpad-同名暫存檔會互蓋-派工時給每個agent自己的子資料夾",
+      "path": "memory/CC與原子記憶契約/並行子代理共用主session的scratchpad-同名暫存檔會互蓋-派工時給每個agent自己的子資料夾.md",
+      "triggers": [
+        "scratchpad",
+        "並行 agent",
+        "多開 agent",
+        "派工",
+        "暫存檔互蓋",
+        "檢查腳本"
+      ],
+      "scope": "global",
+      "related": [
+        "workflow-parallel-agents"
       ]
     }
   ]

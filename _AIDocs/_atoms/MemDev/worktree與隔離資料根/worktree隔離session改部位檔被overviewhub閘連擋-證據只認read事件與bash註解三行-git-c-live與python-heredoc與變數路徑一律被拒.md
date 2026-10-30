@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 定位三行被擋, Edit 被擋 證據不足, 還沒讀過這個部位的檔, fix-escalation, worktree 隔離, python - heredoc 被擋, 變數路徑 被擋, git -C live 被擋, 反轉驗證 worktree, live 未動證明
 - Created-at: 2026-10-13
-- Related: 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上, 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑, 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效
+- Related: 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上, 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑
 
 ## 知識
 

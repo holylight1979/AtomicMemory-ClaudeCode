@@ -13,9 +13,7 @@
 | hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本 | hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本 |
 | hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定 | hook 內呼叫外部工具的四個坑-HOME覆寫下CLAUDE_DIR指錯-pythonw無stdio-5秒預算-探針要隔離global設定 |
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
-| mcp工具呼叫沒有session身份-要session-id的工具靠pretooluse用updatedinput補-否則材料打包找不到驗證帳本與目標樹 | MCP工具呼叫沒有session身份-要session_id的工具靠PreToolUse用updatedInput補-否則材料打包找不到驗證帳本與目標樹 |
 | mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效 | MCP的node端程式改了要開新session才載到-同機其他session的MCP程序仍跑舊碼-python端每次spawn立即生效 |
-| need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到 | need_goal新增選填欄位在MCP未Reload前Python端就收得到-js只驗已知欄位-但LLM看不到新欄位說明-提問的PreToolUse不擋提醒要到使用者答完才看到 |
 | posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位 | PostToolUse的tool_response不等於模型看到的結果-Edit帶整份originalFile-量context浪費要按工具取可見欄位 |
 | state待併帳退路的不變量-基準記讀到的原文與指紋-自己的帳沒落盤只能再留帳-併過帳名與結果同次落盤-不轉給別的session | state待併帳退路的不變量-基準記讀到的原文與指紋-自己的帳沒落盤只能再留帳-併過帳名與結果同次落盤-不轉給別的session |
 | windows-每支-hook-子程序啟動約-150ms-同事件多支-standalone-hook-先量再併-過-100ms-且等價回放全過才合 | Windows 每支 hook 子程序啟動約 150ms-同事件多支 standalone hook 先量再併-過 100ms 且等價回放全過才合 |

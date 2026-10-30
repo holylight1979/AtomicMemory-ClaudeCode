@@ -7,11 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 | feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 |
-| need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred | need_goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred |
-| need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 | need_goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 |
-| need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 | need_goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 |
 | testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
-| text-score的auto-targets空清單是不比路徑不是關掉-要某種類不評就整個不列 | text-score的auto_targets空清單是不比路徑不是關掉-要某種類不評就整個不列 |
 | 主腦在live樹上跑測試探子代理進度會留假紅帳-紅測閘逼主腦重跑整個範圖-子代理改live檔時主腦只等通知不跑它的案例 | 主腦在live樹上跑測試探子代理進度會留假紅帳-紅測閘逼主腦重跑整個範圖-子代理改live檔時主腦只等通知不跑它的案例 |
 | 專案工作驗收裁判的分級啟動與殺閘設計 | 專案工作驗收裁判的分級啟動與殺閘設計 |
 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 |

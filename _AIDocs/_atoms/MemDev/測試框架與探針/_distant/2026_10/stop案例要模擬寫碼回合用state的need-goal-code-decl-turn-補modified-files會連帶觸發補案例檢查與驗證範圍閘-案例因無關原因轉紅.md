@@ -17,3 +17,10 @@
 
 - 造 Stop 案例的寫碼回合訊號用 need_goal_code_decl_turn，不用 modified_files
 - 案例轉紅先看是不是 state 欄位帶起了別道閘
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（需求目標樹的本回合寫碼宣告 need_goal_code_decl_turn 與驗證範圍閘）已從寫碼守門拔除 | memory-audit --delete |

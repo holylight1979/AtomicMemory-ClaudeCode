@@ -21,3 +21,10 @@
 
 - 拿切入點帳判 AI 怎麼回應：不看原始帳的 response，用 resolve_responses 逐筆推
 - 跑 entry-stats 讀舊材料：帶 --days 大數字
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（判準卡送卡的切入點帳 wg_entrypoint.resolve_responses 與 tools/entry-stats.py）已從寫碼守門拔除 | memory-audit --delete |

@@ -4,7 +4,6 @@
 - Author: holylight
 - Source: commit:c6ce4ad4 2026-10-07（根層與專案對照實測；原出處已隨工作信箱清理）
 - Quote: 「開一個跨session溝通的 inbox monitor.. 我想讓你與根層 直接溝通 看看，那個session也在討論類似的議題，只是 你的似乎更接地氣 (?)。 好了以後給我 prompt 讓我去在根層的CC貼上；僅限 先溝通。」
-- Related: need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到
 - Confidence: [臨]
 - Trigger: PreToolUse, additionalContext, 寫前提醒, 寫碼前注入, 範本提醒, hook 注入時序, PostToolUse 等效
 - Created-at: 2026-10-07

@@ -19,3 +19,10 @@
 
 - 要 codex 看整條分支：在分支上把改動全 commit 乾淨（git diff HEAD 為空）再送
 - 送審前把暫存腳本、量測輸出移出 repo，git status 不留無關的 ??
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（Codex 第二意見閘的材料打包 tools/second-opinion/pack.py）已從寫碼守門拔除 | memory-audit --delete |

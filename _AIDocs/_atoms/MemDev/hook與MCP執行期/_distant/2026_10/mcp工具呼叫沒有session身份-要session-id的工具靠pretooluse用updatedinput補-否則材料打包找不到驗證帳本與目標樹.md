@@ -16,3 +16,10 @@
 ## 行動
 
 - 新增要 session 狀態的 MCP 工具：PreToolUse 補 session_id（updatedInput）＋ settings.json matcher 掛工具名＋合併後真打一次驗
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-30 | 退役移入 _distant/：描述的機制（Codex 第二意見 second_opinion_start 打包驗證帳本與需求目標樹）已從寫碼守門拔除；updatedInput 補 session_id 的通則已併入「要靠transcript宣告判的閘擋MCP工具」卡 | memory-audit --delete |
