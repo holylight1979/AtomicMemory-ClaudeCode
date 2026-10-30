@@ -44,6 +44,8 @@ workflow/state-*.json.bak-*
 workflow/state-*.json.corrupt
 workflow/state-*.json.corrupt-*
 workflow/state-*.tmp
+workflow/read-log-*.jsonl
+workflow/read-log-*.lock
 workflow/coord-warn-cache-*.json
 workflow/world-dev.json
 workflow/_*.log
