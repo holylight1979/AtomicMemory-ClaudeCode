@@ -7,7 +7,8 @@
   - 詞表不把技術事實（「新 session 才會載入」）與驗證範圍自己的用語（「範圍外的測試」）當退避。
   - 報告不進聊天：HUD 開不起來時 Stop 不擋、只印一行指出報告檔；MCP 回條一行。
   - 收尾檢核不再有 (c) Token 警示欄；(d) 寫「見收割報告」要本回合真的交過核對過的收割報告。
-  - HUD 卡片：燈號＋一句話 → 要你處理 → 這輪做了什麼 → 記住了／之後要追；欄位字母收進「細節」。
+  - HUD 卡片（沒有三類的舊格式報告）：燈號＋一句話 → 要你處理 → ① 你這次要的事 → ③ AI 自己做主的 → 之後要追 → 附錄；
+    欄位字母收進附錄。三類新報告的畫法在 verify_aec_report_classes.py。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_hud_stage2.py
 """
 from __future__ import annotations
@@ -253,13 +254,14 @@ def test_hud_card_plain_sections():
     routine, todo, real, old = json.loads(r.stdout.strip().splitlines()[-1])
     assert "可以關了" in routine and "沒有要你處理的事" in routine
     assert "有事要你決定" in todo and "重開 HUD 視窗看新分頁" in todo and "預設選了方案 B" in todo
-    assert todo.index("要你處理") < todo.index("這輪做了什麼") < todo.index("記住了") < todo.index("細節")
+    order = ["要你處理", "① 你這次要的事", "③ AI 自己做主的", "追 X", "附錄", "記住了"]
+    assert [todo.index(x) for x in order] == sorted(todo.index(x) for x in order)
     assert "修了 y" in todo and "已寫入 atom Z" in todo and "追 X" in todo
     assert "疑似偷懶（待核對）" in real and "之後再處理" in real
     for html in (routine, todo, real):
         head = html[:html.index("<details")]
         assert "(a)" not in head and "real-evasion" not in head and "routine" not in head.replace('class="', ""), head
-    assert "細節" in old
+    assert "附錄" in old and "衍生暫存清單（舊格式" in old
 
 
 _NO_REDRAW = r"""

@@ -154,7 +154,7 @@
 ### ⑧ 交付
 
 - **系統做什麼**：
-  - 收尾檢核報告（`anti_evasion_report` 十欄）送 HUD 給人看。
+  - 收尾檢核報告（`anti_evasion_report`：本 session 目標、大原則方向、AI 自己做主三類，加系統帳）送 HUD 給人看。
   - 順手點出這次看到最該修的一件，記進追蹤帳本，下個 session 開場列出。
 - **擋不擋**：提醒。
 - **見**：[TECH §7.2](../TECH.md#72-反退避anti-evasion)、[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) PickOne。

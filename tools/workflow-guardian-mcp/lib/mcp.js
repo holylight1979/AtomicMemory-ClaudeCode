@@ -2,6 +2,7 @@
 // handleToolCall lazy-require atom-tools 以化解 mcp<->atom-tools 循環相依。
 const { VERSIONS } = require("./paths");
 const { crashLog } = require("./log");
+const { AI_DECIDED_KINDS } = require("./anti-evasion");   // anti-evasion 頂層不 require 本檔，無循環
 
 // ─── MCP Protocol ───────────────────────────────────────────────────────────
 
@@ -322,30 +323,78 @@ const TOOL_DEFINITIONS = [
   {
     name: "anti_evasion_report",
     description:
-      "結構化提交收尾檢核 (a)–(k)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
-      "動 core 檔並宣告完成時由 Stop 閘要求。收尾只交這一份：report 寫給讀者的白話全文（做了什麼／驗了什麼／沒做什麼／追蹤項，" +
-      "以讀者看得懂為先），給了 report 時 e／f／g 可省；收尾一次交齊：要記的知識放 harvest_items（同 knowledge_harvest_report 的 items），" +
-      "不必另呼叫那支。其餘欄必填（沒有 (c)）；未發生填「無」（(k) 不接受空字串）。" +
+      "收尾檢核報告；內容上 HUD 給使用者看，chat 只留一行回條。動 core 檔並宣告完成時由 Stop 閘要求。" +
+      "讀者是沒看執行過程的使用者：正文白話、不出現程式內部名詞（非用不可附一句白話），檔:行／commit／路徑／規則碼放各項的 tech 或 a／g。" +
+      "核心是三類，分開寫、都必填：goal＝使用者這次要的事（一件一項，每項掛使用者原話，寫做了什麼、怎麼確認的、沒做什麼與理由）；" +
+      "principles＝碰到使用者長期原則、設計尺、系統方向的地方怎麼取捨；ai_decided＝使用者沒要求、你自己決定的事" +
+      "（取捨、範圍外的改動、沒驗證就依賴的假設、環境變動）。" +
+      "HUD 會把三類的份量攤開比：使用者要的事一句帶過、自己做主的寫一大串，使用者一眼就看得到——力氣與篇幅放在使用者要的事上。" +
+      "其餘欄是系統帳（a、b、d、g、h、i、j_evidence_path、k_followups 必填；未發生填「無」，(k) 不接受空字串）。" +
+      "收尾一次交齊：要記的知識放 harvest_items（同 knowledge_harvest_report 的 items），不必另呼叫那支。" +
       "順序：先把值得留的知識 atom_write 寫完、再呼叫本 tool——報告是收尾檢核不是待辦清單，" +
       "(d)「尚未寫／見下一動」或 (h)「下一動＝寫 atom」會被 Stop 擋回、要求補寫後重新提交。" +
       "本 tool 只回 chip、不寫 state（one-writer：state/持久化由 Python PostToolUse 獨佔）。",
     inputSchema: {
       type: "object",
       properties: {
-        report: { type: "string", description: "收尾全文，寫給沒看執行過程的讀者：做了什麼、驗了什麼（附數字或收據）、沒做什麼、追蹤項；白話、不預設欄位。給了它 e／f／g 可省（寫進這份裡）" },
+        goal: {
+          type: "array",
+          description: "必填，至少一項：使用者這次要的事，一件一項。使用者一次要了幾件就拆幾項；沒做的那件也要列（done 寫「沒做」）。",
+          items: {
+            type: "object",
+            properties: {
+              said: { type: "string", description: "使用者原話，逐字抄那一段（子代理抄派工裡引的使用者原話；派工沒引就抄派工原句並標「派工：」）" },
+              done: { type: "string", description: "做了什麼，白話，讀者沒看過程也懂" },
+              verified: { type: "string", description: "怎麼確認做對了，白話附數字（跑了什麼、結果幾個過）；沒驗就寫「沒驗：理由」" },
+              not_done: { type: "string", description: "這件裡沒做的部分與理由；全做完寫「無」" },
+              tech: { type: "string", description: "選填：技術細節（檔:行、commit、指令），HUD 收進摺疊" },
+            },
+            required: ["said", "done", "verified", "not_done"],
+          },
+        },
+        principles: {
+          type: "array",
+          description: "必填，沒碰到給 []：這次碰到使用者長期原則、設計尺、系統方向的地方，一處一項。",
+          items: {
+            type: "object",
+            properties: {
+              principle: { type: "string", description: "碰到哪條原則／方向，白話（可引原句）" },
+              choice: { type: "string", description: "這次怎麼取捨、為什麼" },
+              tech: { type: "string", description: "選填：技術細節，HUD 收進摺疊" },
+            },
+            required: ["principle", "choice"],
+          },
+        },
+        ai_decided: {
+          type: "array",
+          description: "必填，沒有給 []：使用者沒要求、你自己決定的事，一件一項——使用者沒看執行過程就不會知道的都算。",
+          items: {
+            type: "object",
+            properties: {
+              kind: {
+                type: "string", enum: Object.keys(AI_DECIDED_KINDS),
+                description: "tradeoff＝自己選了方案、跳過步驟；out_of_scope＝動了請求之外的東西；" +
+                  "assumption＝做事時依賴但沒驗證的假設；side_effect＝環境變動（裝套件、改設定、重啟服務、建排程、還在跑的背景程序）",
+              },
+              what: { type: "string", description: "做了／假設了什麼，白話" },
+              why: { type: "string", description: "為什麼這樣定；使用者要不要回頭看" },
+              tech: { type: "string", description: "選填：技術細節，HUD 收進摺疊" },
+            },
+            required: ["kind", "what", "why"],
+          },
+        },
+        report: { type: "string", description: "選填：一兩句開頭（HUD 卡片最上面）——誰在做哪件事、這則給誰看、使用者要不要動手。細節寫進三類，不在這裡重寫" },
         harvest_items: { type: "array", description: "知識收割清單（選填，格式同 knowledge_harvest_report 的 items；交了就不必另呼叫那支，(d) 可寫「見收割報告」）", items: { type: "object" } },
-        a: { type: "string", description: "缺失發現與修補清單（`- 檔:行 — 改了什麼`）；無則「無」。必寫" },
+        a: { type: "string", description: "技術附錄：改了哪些地方（`- 檔:行 — 改了什麼`），HUD 收進附錄；無則「無」。必寫" },
         b: { type: "string", description: "AI 逃避通報（忽略/偷埋現象）；僅發生時填、否則「無」" },
         d: { type: "string", description: "記憶收錄帳：填之前先掃五個來源——①使用者指正/退回/重申的話（→ feedback）②重試≥2 次或查了才懂的機制/踩坑 ③外查來的事實（帶日期）④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的。逐項 `- <項目> → 已寫入 atom <名>`（atom_write 已完成）或 `- <項目> → 不寫（一句理由）`；判定不寫也要留痕。⛔ 不接受「尚未寫／待補／見下一動」——那是把記憶推給下一回合，會被拒收並擋 Stop；值得寫就在呼叫本 tool 之前寫完。本回合已交過收割報告（knowledge_harvest_report）可只填「見收割報告」。無則「無」。必寫" },
-        e: { type: "string", description: "未告知決策＋未驗證假設：擅自的取捨（默默選了方案、跳過步驟、動了請求之外的檔）與做事時依賴但未驗證的假設；使用者沒看執行過程就不會知道的事都算。無則「無」" },
-        f: { type: "string", description: "靜默狀態改變：對話輸出沒交代的環境副作用——安裝套件、改 config、重啟服務、建排程/cron、仍在跑的背景程序或 agent。無則「無」" },
-        g: { type: "string", description: "版控收尾：本 session 改動哪些已 commit（hash 一句）、哪些未上及理由（併發 session 進度／待拍板／隱私）。無改動則「無」" },
+        g: { type: "string", description: "技術附錄，版控收尾：哪些已 commit（hash 一句）、哪些未上及理由（併發 session 進度／待拍板／隱私）；沒上版是你自己決定的，另列一項 ai_decided。無改動則「無」。必寫" },
         h: { type: "string", description: "收尾判定：單句——「可關閉」或「下一動＝…」。下一動只列使用者要做的事（重啟驗證、拍板）；寫 atom／補測試／commit 是你自己能做的，先做完再提交。必寫" },
         i: { type: "string", description: "衍生暫存清單：一行一路徑 `<路徑> — <備註>`（絕對或相對 cwd，可 glob）。只列「你自己產生的暫存／中間產物、此刻尚存、留給使用者裁決」的（scratchpad 腳本、.bak、一次性 log、undo 檔）；已刪的不列、純說明不列（預設完工即刪）。⛔ 絕不列正式產出：改了還沒 commit 的 code／doc／atom／索引／CHANGELOG 屬 (a)(b)/(g) 未同步事項，不是暫存——這些路徑會被拒收並回警。Python 端解析進 per-session 殘檔帳本，HUD 以 exists() 列尚存者供保留/刪除。無則「無」。必寫" },
         j_evidence_path: { type: "string", description: "證據持久路徑：本回合驗證收據的持久位置，一行一路徑（絕對路徑）。本 session 跑過哨兵驗證（Bash／PowerShell 輸出 `<NAME>_CHECK PASS|FAIL|DONE`）時填「無」或留空即可：系統自動帶入本 session 收據帳本的絕對路徑（帳本在資料根，不必自己找）；要另附驗證輸出檔／報告檔才填它們，填了就用你填的，Stop 對帳閘會查 exists()，不存在會擋。沒有收據填「無」。必寫" },
         k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端只寫進追蹤帳本 workflow/tracking/<slug>.jsonl，不寫病灶文件；有部位的，之後碰到那個部位時接在導讀卡末段【未結追蹤項】送出，沒部位的在開場列出）。跟帳上已記的（本 session 的 PickOne、先前的 k）是同一件 → 行尾加「｜同追蹤項：<那筆裡連續至少 8 字>」，系統換成新說法、不另記一筆；字面相同的自動不重記。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
       },
-      required: ["a", "b", "d", "h", "i", "j_evidence_path", "k_followups"],
+      required: ["goal", "principles", "ai_decided", "a", "b", "d", "g", "h", "i", "j_evidence_path", "k_followups"],
     },
   },
   {

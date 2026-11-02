@@ -1359,11 +1359,11 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 命中 → 記 `evasion_flag`，下一則注入舉證要求。
   - 命中的那一行對到有理由的「不做｜<哪一件>：<理由>」→ 這一處不標、記 `evasion_declared`。
   - 守門關時每回合都跑；守門開時只在寫碼回合跑，另有 context 豁免（[跨層表 #22、#23](#守門開關會改到記憶系統的地方)）。
-- **收尾報告**：MCP `anti_evasion_report`，欄位 a、b、d～k（沒有 c），severity 只看 a、b。
-  - 守門關（出廠）時只收 a、b、d～i 八欄；(j)(k) 照樣要填但值不存；不收 `report` 白話全文；收割要另外交 `knowledge_harvest_report`（[跨層表 #28](#守門開關會改到記憶系統的地方)）。
-  - 守門開時十欄全收，可以只交 `report` 全文，收割可以併在同一次交（規則 CLOSING_REPORT_ONE_CALL，[跨層表 #28](#守門開關會改到記憶系統的地方)）。
+- **收尾報告**：MCP `anti_evasion_report`。核心是三類，分開寫、都必填：本 session 目標（`goal`，每件掛使用者原話）、大原則方向（`principles`）、AI 自己做主（`ai_decided`）；其餘是系統帳 a、b、d、g～k（沒有 c、e、f）。severity 只看 a、b，三類不影響。欄位細節見 [收尾報告欄位](#收尾報告欄位)。
+  - 守門開關都收三類與 a、b、d～i；守門關（出廠）時 (j)(k) 照樣要填但值不存、不收 `report`、收割要另外交 `knowledge_harvest_report`（[跨層表 #28](#守門開關會改到記憶系統的地方)）。
+  - 守門開時 (j)(k)、`report`（卡片開頭一兩句）也收，收割可以併在同一次交（規則 CLOSING_REPORT_ONE_CALL，[跨層表 #28](#守門開關會改到記憶系統的地方)）。
   - 目前設定 `aec.scan_report_gate=false`：沒交報告不擋，交了照收（[§7.1](#71-收尾閘序守門關時)）。
-- **HUD**：`http://127.0.0.1:3848/aec/hud` 給人看白話卡片與「這個 session 留下的東西」。
+- **HUD**：`http://127.0.0.1:3848/aec/hud` 給人看三類分開的白話卡片與「這個 session 留下的東西」；三類份量攤開比，目標那類一句帶過、自己做主那類一大串會標黃（[收尾檢核 HUD](#收尾檢核-hud)）。
 - **產出物帳本**：`workflow/aec-tempfiles/<sid>.jsonl`。收尾時一律收 (i) 宣告與 session scratchpad 掃描；工具呼叫的部分，守門關時只記寫進系統暫存目錄的檔，守門開時也記建立的檔、資料夾、工作樹、分支、臨時 repo，開場拍 git 快照（[跨層表 #30](#守門開關會改到記憶系統的地方)）。
 - **保留／刪除**：HUD 按鈕經 [`tools/session-artifacts.py act`](tools/session-artifacts.py) 當場執行。
 - **全機殘留**：HUD 分頁掃全部帳本，依 session 分組列出還在的東西。
@@ -3919,17 +3919,22 @@ svn：svn_update_targets
 
 ##### 收尾報告欄位
 
-- **MCP `anti_evasion_report`**，參數名 a、b、d、e、f、g、h、i、`j_evidence_path`、`k_followups`，共 10 欄；沒有 c。
+- **MCP `anti_evasion_report`**：讀者是沒看執行過程的使用者，正文白話；檔:行、commit、規則碼放各項的 `tech` 或 a／g。
+- **三類**（給人看的分類，也是抓退避的工具；守門開關都必填，MCP 端 `aecArgErrors` 拒收缺的）：
+  - `goal`（本 session 目標）：至少一項，使用者要了幾件就拆幾項，每項 `said`（使用者原話逐字抄）、`done`、`verified`（附數字；沒驗寫「沒驗：理由」）、`not_done`（全做完寫「無」）。
+  - `principles`（大原則方向）：碰到使用者長期原則、設計尺、系統方向的取捨，每項 `principle`、`choice`；沒碰到給 `[]`。
+  - `ai_decided`（AI 自己做主）：使用者沒要求、AI 自己決定的事，每項 `kind`（`tradeoff` 取捨／`out_of_scope` 範圍外的改動／`assumption` 沒驗證就依賴的假設／`side_effect` 環境變動）、`what`、`why`；沒有給 `[]`。
+  - 每項可附 `tech`（技術細節），HUD 收進摺疊。四種 kind 與白話標籤只有一份（[`anti-evasion.js`](tools/workflow-guardian-mcp/lib/anti-evasion.js) `AI_DECIDED_KINDS`），schema、拒收檢查、HUD 共用。
+  - PostToolUse 照收進報告檔（只留認得的鍵、值轉字串），不判、不影響 severity。
+- **系統帳**：a、b、d、g、h、i、`j_evidence_path`、`k_followups` 必填；沒有 c、e、f（e／f 的內容歸 `ai_decided`；舊客戶端送來照存，HUD 照舊格式畫）。
 - **守門開或關收的不一樣**（→ [跨層表 #28](#守門開關會改到記憶系統的地方)）：
-  - 守門關（出廠）：收 a、b、d～i 八欄；(j)(k) 在 MCP schema 照樣必填，但值不存；不收 `report` 白話全文；不收 `harvest_items`，收割要另外交 `knowledge_harvest_report`。
-  - 守門開：十欄全收；可以只交 `report` 全文（給了 `report`，e／f／g 可省）；`harvest_items` 帶收割清單就不必另叫 `knowledge_harvest_report`（規則 CLOSING_REPORT_ONE_CALL）。
-- **各欄**：
-  - a 缺失修補。
+  - 守門關（出廠）：(j)(k) 在 MCP schema 照樣必填，但值不存；不收 `report`；不收 `harvest_items`，收割要另外交 `knowledge_harvest_report`。
+  - 守門開：(j)(k) 也存；`report` 是卡片開頭一兩句（誰在做哪件事、給誰看、要不要動手）；`harvest_items` 帶收割清單就不必另叫 `knowledge_harvest_report`（規則 CLOSING_REPORT_ONE_CALL）。
+- **系統帳各欄**：
+  - a 技術附錄：改了哪些地方（`- 檔:行 — 改了什麼`），決定 severity 的 notable。
   - b 逃避通報。
   - d 記憶收錄帳：本回合已交核對過的收割報告，可只寫「見收割報告」。
-  - e 未告知決策＋假設。
-  - f 靜默狀態改變。
-  - g 版控收尾。
+  - g 版控收尾（Stop 的同步提醒看「收尾檢核交代過版控」就不另擋，所以必填）。
   - h 收尾判定。
   - i 衍生暫存清單（一行一路徑，或 `branch:<名> — 理由`）。
   - j 證據持久路徑（守門開時才存，→ [跨層表 #28](#守門開關會改到記憶系統的地方)）：有驗證收據時須存在；留空或「無」由 PostToolUse 帶入本 session 帳本絕對路徑 `<資料根>/workflow/verify-ledger/<sid>.jsonl`。
@@ -3943,9 +3948,13 @@ svn：svn_update_targets
 
 - **位址**：`http://127.0.0.1:3848/aec/hud`。
 - **「收尾檢核」分頁**：
-  - 白話卡片：燈號＋一句話。✅ 可以關了；🟡 有事要你決定；🔴 疑似偷懶（待核對）→ 要你處理。
-  - 順序：要你處理 → 這輪做了什麼 → 記住了／之後要追。
-  - 欄位字母與原始內容收進「細節」。
+  - 白話卡片：燈號＋一句話。✅ 可以關了；🟡 你要的事寫得少，看一下／有事要你決定；🔴 疑似偷懶（待核對）。
+  - 順序：要你處理 → 開頭一兩句與「份量」→ ① 你這次要的事 → ② 碰到你的長期原則、方向 → ③ AI 自己做主的 → 記下來之後要追的 → 附錄（摺疊）。
+  - ① 每件先列「你說：「原話」」，再列做了、怎麼確認、沒做；「怎麼確認」沒有任何數字又不是「沒驗」→ 標「沒附數字或收據」。③ 每件標種類（取捨、範圍外的改動…）。
+  - 份量：三類各幾件、AI 寫了幾字（使用者原話不算）。目標那類字數比自己做主那類少，或目標那類是空的 → 份量行與燈號標黃、「要你處理」第一條點出來。只是提示，不擋、不改 severity。
+  - 「要你處理」：下一步要你做、份量警告、你要的事有幾件沒做完、AI 自己做主了幾件、記憶寫入被推後、證據路徑缺、追蹤項空。
+  - 附錄：記住了（d）、改了哪些地方（a）、版控（g）、AI 說留下的暫存（i）、驗證收據（j），加原始欄位（欄位字母照 AI 交的原樣）。各項的 `tech` 摺在該項底下。
+  - 沒有三類的舊報告畫進同一個框：①放 `report` 全文與 a、③放 e／f、②寫「舊格式沒有這一類」，不算份量。
   - 「這個 session 留下的東西」面板（保留／刪除鈕）。
 - **「全機殘留」分頁**：全部帳本還在的東西依 session 分組。
 - **彈窗時機**：窗沒開、`aec.hud_autospawn` 開著、severity 為 notable／real-evasion 才開窗。

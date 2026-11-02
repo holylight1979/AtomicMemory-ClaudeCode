@@ -442,7 +442,8 @@ def test_b5_node_chip_does_not_print_j(tmp_path):
               "require.cache[mp]={id:mp,filename:mp,loaded:true,exports:{sendToolResult:(id,t)=>console.log(JSON.stringify(t))}};"
               "const ae=require(js);const c=JSON.parse(process.argv[2]);"
               "console.log(JSON.stringify(c.map(([j,r,l])=>ae.aecEvidenceAutofill(j,r,l))));"
-              "ae.toolAntiEvasionReport(1,{a:'無',b:'無',d:'無',e:'無',f:'無',g:'無',h:'可關閉',j_evidence_path:'',k_followups:'無'});")
+              "ae.toolAntiEvasionReport(1,{goal:[{said:'s',done:'d',verified:'1 個過',not_done:'無'}],principles:[],ai_decided:[],"
+              "a:'無',b:'無',d:'無',g:'無',h:'可關閉',j_evidence_path:'',k_followups:'無'});")
     res = subprocess.run(["node", "-e", script, str(js), json.dumps(cases, ensure_ascii=False)],
                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert res.returncode == 0, res.stderr
@@ -467,7 +468,10 @@ def test_ptu_legacy_emit_without_jk_keys_is_exempt(monkeypatch, tmp_path, driven
 
 def test_scan_report_message_lists_j_and_k(driven, capsys):
     out = driven([_mf(_CORE)], capsys, turn_seq=5)
-    assert "(j) 證據持久路徑" in out and "(k) 追蹤項" in out and "十參" in out and "(c) Token" not in out
+    assert "(j) 證據持久路徑" in out and "(k) 追蹤項" in out and "(c) Token" not in out
+    # 三類是報告的核心：擋訊息先講三類，舊的 (e)(f) 不再要 AI 填
+    assert "goal" in out and "principles" in out and "ai_decided" in out and "使用者原話" in out
+    assert "(e) 未告知決策" not in out and "(f) 靜默狀態改變" not in out
 
 
 def test_ptu_k_followups_tracking_hook(monkeypatch, tmp_path):
@@ -515,8 +519,8 @@ def test_mcp_schema_requires_j_k():
     res = subprocess.run(["node", "-e", script, str(js)], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0, res.stderr
     req = json.loads(res.stdout)
-    # (c) Token 警示欄已刪；e／f／g 只上 HUD，給了 report（白話全文）可省，沒給由 Node 端照擋（CLOSING_REPORT_ONE_CALL）
-    assert req == ["a", "b", "d", "h", "i", "j_evidence_path", "k_followups"]
+    # 沒有 (c)；e／f 不在 schema（內容歸 ai_decided）；三類（goal／principles／ai_decided）與版控 g 必填
+    assert req == ["goal", "principles", "ai_decided", "a", "b", "d", "g", "h", "i", "j_evidence_path", "k_followups"]
 
 
 def test_stop_pending_sibling_not_blocked(driven, capsys):

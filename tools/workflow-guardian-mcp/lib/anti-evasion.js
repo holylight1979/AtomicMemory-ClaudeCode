@@ -67,25 +67,66 @@ function aecFollowupsMissing(k) {
   return String(k == null ? "" : k).trim() === "";
 }
 
+// ─── 收尾報告的三類（給看 HUD 的人分類；抓退避也靠它：目標那類一句帶過、AI 自己做主那類一大串，攤開就看得出來）──
+// goal＝使用者這次要的事（一件一項，掛使用者原話）；principles＝碰到使用者長期原則／方向時怎麼取捨；
+// ai_decided＝使用者沒要求、AI 自己決定的事。每類每項可附 tech（檔:行、commit、規則碼），HUD 收進摺疊。
+// 欄位表是 schema（mcp.js）、拒收檢查（下面）、HUD 標籤（aec-hud-html.js）共用的這一份。
+const REPORT_CLASSES = {
+  goal: { required: ["said", "done", "verified", "not_done"], min: 1 },
+  principles: { required: ["principle", "choice"], min: 0 },
+  ai_decided: { required: ["kind", "what", "why"], min: 0 },
+};
+const AI_DECIDED_KINDS = {
+  tradeoff: "取捨",
+  out_of_scope: "範圍外的改動",
+  assumption: "沒驗證就依賴的假設",
+  side_effect: "環境變動",
+};
+const CLASS_HINT = {
+  goal: "使用者這次要的事，一件一項（至少一項）",
+  principles: "碰到使用者長期原則／方向的取捨，沒碰到給 []",
+  ai_decided: "使用者沒要求、AI 自己決定的事，沒有給 []",
+};
+function filled(v) { return typeof v === "string" && v.trim() !== ""; }
+function classErrors(name, list) {
+  const spec = REPORT_CLASSES[name];
+  if (!Array.isArray(list)) return [`${name} 必填：${CLASS_HINT[name]}`];
+  if (list.length < spec.min) return [`${name} 至少要 ${spec.min} 項：${CLASS_HINT[name]}`];
+  const errs = [];
+  list.forEach((it, i) => {
+    const item = it && typeof it === "object" ? it : {};
+    const missing = spec.required.filter((k) => !filled(item[k]));
+    if (missing.length) errs.push(`${name} 第 ${i + 1} 項缺 ${missing.join("、")}`);
+    if (name === "ai_decided" && filled(item.kind) && !(item.kind in AI_DECIDED_KINDS)) {
+      errs.push(`ai_decided 第 ${i + 1} 項 kind 只能是 ${Object.keys(AI_DECIDED_KINDS).join("／")}`);
+    }
+  });
+  return errs;
+}
+
 // ─── MCP tool handler（結構化 emit 表面；不碰 state）────────────────────────────
 // 回條一行（報告任何理由都不進聊天）。要模型補的事（(k) 空字串、(d)/(h) 把記憶寫入推到之後）
 // 由 Python PostToolUse 用 additionalContext 回告、Stop 擋，判定只留 Python 一份。
 const SEV_WORD = { routine: "例行", notable: "有修補", "real-evasion": "疑似偷懶，待核對" };
 function aecChipText(args) {
-  const sev = aecSeverity(args && args.a, args && args.b);
-  return `收尾檢核已提交（${SEV_WORD[sev] || sev}）— 內容在 HUD`;
+  const a = args || {};
+  const sev = aecSeverity(a.a, a.b);
+  const goal = Array.isArray(a.goal) ? a.goal : null;
+  const open = goal ? goal.filter((x) => x && !aecBlank(x.not_done)).length : 0;
+  const counts = goal
+    ? `｜你要的事 ${goal.length} 件${open ? `（${open} 件沒做完）` : ""}・大原則 ${(a.principles || []).length}・AI 自己做主 ${(a.ai_decided || []).length}`
+    : "";
+  return `收尾檢核已提交（${SEV_WORD[sev] || sev}）${counts} — 內容在 HUD`;
 }
 
-// 收尾一份報告（CLOSING_REPORT_ONE_CALL）：給了 report（白話全文）時 e／f／g 可以不另填（它們只上 HUD，內容寫在 report 裡）；
-// harvest_items 跟 knowledge_harvest_report 的 items 同一套驗法。沒給 report 或守門關閉 → e／f／g 照舊必填。
-const NARRATIVE_FIELDS = ["e", "f", "g"];
+// 三類每次都要交（守門開關都一樣）；e／f 的內容歸 ai_decided，不收也不要求。
+// g（版控收尾）必填：Stop 的同步提醒看「收尾檢核交代過版控」就不再另擋（SYNC_COVERED_BY_CLOSING_CHECK）。
+// harvest_items 跟 knowledge_harvest_report 的 items 同一套驗法（守門開時才收）。
 function aecArgErrors(args, v6) {
   const a = args || {};
   const errs = [];
-  const hasReport = v6 && typeof a.report === "string" && a.report.trim() !== "";
-  if (!hasReport) {
-    NARRATIVE_FIELDS.filter((k) => typeof a[k] !== "string").forEach((k) => errs.push(`${k} 必填（或改給 report 白話全文）`));
-  }
+  for (const name of Object.keys(REPORT_CLASSES)) errs.push(...classErrors(name, a[name]));
+  if (typeof a.g !== "string") errs.push("g 必填：版控收尾（哪些已 commit、哪些沒上與理由；無改動填「無」）");
   if (v6 && a.harvest_items !== undefined) {
     if (!Array.isArray(a.harvest_items)) errs.push("harvest_items 必須是陣列");
     else errs.push(...require("./harvest").validateItems(a.harvest_items).map((e) => `harvest_items：${e}`));
@@ -286,6 +327,7 @@ function apiAecDecisionPost(req, res) {
 
 module.exports = {
   aecBlank, aecSeverity, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
+  REPORT_CLASSES, AI_DECIDED_KINDS,
   aecChipText, aecArgErrors, toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, apiAecTempfilesAll,

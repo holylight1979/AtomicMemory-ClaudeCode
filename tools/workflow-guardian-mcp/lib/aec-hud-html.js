@@ -1,6 +1,9 @@
 // aec-hud-html.js — Anti-Evasion HUD 頁模板。匯出 render()->string（鏡像 dashboard-html.js）。
 //
-// dark HUD 單頁：即時最新收尾檢核卡（(a)–(i) 分區；舊報告僅 a–d）+ 底部近 N 回合 severity 歷史格。
+// dark HUD 單頁：即時最新收尾檢核卡 + 底部近 N 回合 severity 歷史格。
+// 卡片分三類給人看：① 你這次要的事（每件掛使用者原話）② 碰到你的長期原則、方向 ③ AI 自己做主的；
+// 上面一行「份量」把三類字數攤開比（目標那類一句帶過、自己做主那類一大串 → 標黃）；技術細節與系統帳收進附錄。
+// 沒有三類的舊報告照舊欄位放進同一個框。
 // 傳輸＝輪詢（非 SSE）：setInterval 1.5s fetch /api/aec/reports（增量 ?since=）→ 渲染；
 // 格子 click → fetch /api/aec/report/<sid>/<turn> 展開；每 10s fetch /api/aec/beat 送心跳。
 //
@@ -10,6 +13,8 @@
 //
 // ★內層 <script> 為瀏覽器端 JS（非模組 state）：整塊 verbatim、**勿 hoist**（比照 _MAP C7）；
 // 為免 nested-backtick，瀏覽器端一律字串串接、不用 template literal。
+
+const { AI_DECIDED_KINDS } = require("./anti-evasion");   // 「AI 自己做主」四種的白話標籤（與 schema、拒收檢查同一份）
 
 function render() {
   return `<!DOCTYPE html>
@@ -88,6 +93,23 @@ function render() {
   .grp details { margin-top: 4px; }
   .grp summary { font-size: .74em; color: var(--muted); cursor: pointer; }
   .all-sum { font-size: .78em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .lead { font-size: .88em; color: var(--ink); white-space: pre-wrap; line-height: 1.5; margin-bottom: 6px; }
+  .weigh { font-size: .8em; color: var(--muted); }
+  .weigh b { color: var(--ink); font-weight: 600; }
+  .weigh.warn, .weigh.warn b { color: var(--sev-notable); }
+  .gi { margin: 6px 0 10px; padding-left: 10px; border-left: 2px solid #388bfd66; }
+  .gi.pi { border-left-color: #a371f766; }
+  .gi.ai { border-left-color: #8b949e66; }
+  .said { font-size: .86em; color: var(--ink); margin-bottom: 3px; line-height: 1.5; white-space: pre-wrap; }
+  .said.none { color: #ff9a9a; }
+  .kv { font-size: .84em; display: flex; gap: 8px; line-height: 1.55; }
+  .kv .kl { flex-shrink: 0; width: 5em; color: var(--muted); }
+  .kv .kvv { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+  .kv.nd .kvv { color: var(--sev-notable); }
+  .tag { font-size: .8em; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); margin-right: 6px; }
+  .tech { margin-top: 2px; }
+  .tech summary { font-size: .72em; color: var(--muted); cursor: pointer; }
+  .tech .sec-body { font-size: .76em; }
 </style>
 </head>
 <body>
@@ -147,7 +169,11 @@ function esc(s) {
     return ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : "&gt;";
   });
 }
-function isBlank(v) { var s = String(v == null ? "" : v).trim(); return s === "" || s === "無"; }
+// 「無」的認定與 Node aecBlank／Python _aec_blank 同規則：容許結尾標點（「無。」）與「無（說明）」
+function isBlank(v) {
+  var s = String(v == null ? "" : v).trim().replace(/[\\s。．.,，、；;：:!！?？~～\\-—…]+$/, "");
+  return s === "" || /^[無无]\\s*(?:[（(][^）)]*[）)])?$/.test(s);
+}
 function sevOf(r) { return SEV[r && r.severity] || SEV.routine; }
 function keyOf(r) { return (r.session_id || "?") + "|" + (r.turn_seq != null ? r.turn_seq : "?"); }
 // 這則是哪個 session 寫的（session 前 8 碼）
@@ -157,8 +183,9 @@ function tipOf(r) {
     sevOf(r).label + " · " + String(r.at || "").slice(5, 16).replace("T", " ");
 }
 
+// 原始欄位照 AI 交的原樣顯示：只有真的空才寫「無」
 function sectionHtml(letter, name, val) {
-  var blank = isBlank(val);
+  var blank = String(val == null ? "" : val).trim() === "";
   var body = blank
     ? '<div class="sec-body blank">無</div>'
     : '<div class="sec-body">' + esc(val) + "</div>";
@@ -228,7 +255,30 @@ function pollTemp(sid) {
     .catch(function () {});
 }
 
-// 卡片：燈號＋一句話 → 要你處理 → 這輪做了什麼 → 記住了／之後要追；欄位字母與原始內容收進「細節」。
+// 卡片：燈號 → 要你處理 → 份量 → ① 你這次要的事 ② 碰到你的長期原則、方向 ③ AI 自己做主的 → 之後要追 → 附錄（摺疊）。
+// 有 goal／principles／ai_decided 三類的是新報告；沒有的是舊格式，照舊欄位放進同一個框（①放全文與修補、③放 e／f）。
+var AI_KIND = ${JSON.stringify(AI_DECIDED_KINDS)};
+function hasClasses(r) { return Array.isArray(r.goal); }
+function listOf(v) { return Array.isArray(v) ? v : []; }
+function itemChars(it, keys) {
+  var n = 0;
+  for (var j = 0; j < keys.length; j++) { var v = (it || {})[keys[j]]; n += isBlank(v) ? 0 : String(v).trim().length; }
+  return n;
+}
+function charsOf(list, keys) {
+  var n = 0;
+  for (var i = 0; i < list.length; i++) { n += itemChars(list[i], keys); }
+  return n;
+}
+// 三類的份量：件數與 AI 寫的字數（使用者原話不算）。目標那類比自己做主那類少 → 標黃，給人一眼看出力氣花在哪。
+function weightOf(r) {
+  var g = listOf(r.goal), p = listOf(r.principles), a = listOf(r.ai_decided);
+  return { goalN: g.length, goalChars: charsOf(g, ["done", "verified", "not_done"]),
+           prinN: p.length, prinChars: charsOf(p, ["principle", "choice"]),
+           aiN: a.length, aiChars: charsOf(a, ["what", "why"]) };
+}
+function goalIsThin(w) { return !w.goalN || w.aiChars > w.goalChars; }
+function openGoals(r) { return listOf(r.goal).filter(function (x) { return !isBlank((x || {}).not_done); }).length; }
 function nextStep(h) {
   var m = String(h == null ? "" : h).trim().match(/^下一動\\s*[=＝:：]\\s*([\\s\\S]*)$/);
   return m ? m[1].trim() : "";
@@ -236,7 +286,18 @@ function nextStep(h) {
 function todoItems(r) {
   var out = [], ns = nextStep(r.h);
   if (ns) { out.push(["下一步要你做", ns]); }
-  if (!isBlank(r.e) && r.e != null) { out.push(["AI 自己做的決定、沒驗證的假設（看一下對不對）", r.e]); }
+  if (hasClasses(r)) {
+    var w = weightOf(r), open = openGoals(r);
+    if (!w.goalN) { out.push(["AI 沒列你這次要的事", "第一類是空的：看不出這輪對你要的事做了什麼"]); }
+    else if (goalIsThin(w)) {
+      out.push(["你要的事寫得比 AI 自己做主的少", "你要的事 " + w.goalChars + " 字、AI 自己做主 " + w.aiChars +
+                " 字。看看第一類是不是一句帶過、力氣花在別處。"]);
+    }
+    if (open) { out.push(["你要的事有 " + open + " 件沒做完", "看第一類標「沒做」的那幾行，理由站不站得住"]); }
+    if (w.aiN) { out.push(["AI 自己做主了 " + w.aiN + " 件", "看第三類，有沒有該先問你的"]); }
+  } else if (!isBlank(r.e)) {
+    out.push(["AI 自己做的決定、沒驗證的假設", "看第三類，對不對"]);
+  }
   if (r.d_pending && r.d_pending.length) { out.push(["記憶寫入被推到之後（AI 會被擋回去補寫）", r.d_pending.join("\\n")]); }
   if (r.j_missing) { out.push(["驗證證據的路徑缺了或不存在", jOf(r) || "（空）"]); }
   if (r.k_missing) { out.push(["追蹤項是空的", "AI 要一行一項補上，或寫「無」"]); }
@@ -244,6 +305,7 @@ function todoItems(r) {
 }
 function lampOf(r) {
   if (sevOf(r).cls === "real") { return { cls: "real", text: "🔴 疑似偷懶（待核對）" }; }
+  if (hasClasses(r) && goalIsThin(weightOf(r))) { return { cls: "todo", text: "🟡 你要的事寫得少，看一下" }; }
   if (todoItems(r).length) { return { cls: "todo", text: "🟡 有事要你決定" }; }
   return { cls: "ok", text: "✅ 可以關了" };
 }
@@ -257,7 +319,75 @@ function partHtml(title, items, empty) {
   return '<div class="sec"><div class="sec-h">' + title + "</div>" + itemsHtml(items, empty) + "</div>";
 }
 function picked(pairs) {
-  return pairs.filter(function (x) { return !isBlank(x[1]) && x[1] != null; });
+  return pairs.filter(function (x) { return !isBlank(x[1]); });
+}
+// note＝HUD 自己加的提醒（不是 AI 寫的），用灰字接在後面
+function kv(label, val, cls, note) {
+  return '<div class="kv' + (cls ? " " + cls : "") + '"><span class="kl">' + label + '</span><span class="kvv">' +
+         esc(String(val == null ? "" : val).trim()) + (note ? '<span class="k">　' + note + "</span>" : "") + "</span></div>";
+}
+// 「怎麼確認」沒有任何數字、也不是明說「沒驗」→ 多半是「測過了」這種一句帶過
+function vagueCheck(v) {
+  var s = String(v == null ? "" : v);
+  return !isBlank(s) && !/[0-9０-９]/.test(s) && !/^\\s*沒驗/.test(s);
+}
+function techHtml(t) {
+  return isBlank(t) ? "" : '<details class="tech"><summary>技術細節</summary><div class="sec-body">' + esc(t) + "</div></details>";
+}
+function goalItemHtml(x) {
+  x = x || {};
+  var said = isBlank(x.said) ? '<div class="said none">（沒掛你的原話）</div>'
+    : '<div class="said">你說：「' + esc(String(x.said).trim()) + "」</div>";
+  var vague = vagueCheck(x.verified);
+  return '<div class="gi">' + said + kv("做了", x.done) +
+         kv("怎麼確認", x.verified, vague ? "nd" : "", vague ? "（沒附數字或收據）" : "") +
+         (isBlank(x.not_done) ? "" : kv("沒做", x.not_done, "nd")) + techHtml(x.tech) + "</div>";
+}
+function principleItemHtml(x) {
+  x = x || {};
+  return '<div class="gi pi">' + kv("原則", x.principle) + kv("怎麼取捨", x.choice) + techHtml(x.tech) + "</div>";
+}
+function aiItemHtml(x) {
+  x = x || {};
+  return '<div class="gi ai"><div class="said"><span class="tag">' + esc(AI_KIND[x.kind] || x.kind || "沒分種類") + "</span>" +
+         esc(String(x.what == null ? "" : x.what).trim()) + "</div>" + kv("為什麼", x.why) + techHtml(x.tech) + "</div>";
+}
+function classHtml(title, note, list, itemFn, empty) {
+  var body = list.length ? list.map(itemFn).join("") : '<div class="sec-body blank">' + empty + "</div>";
+  return '<div class="sec"><div class="sec-h">' + title + ' <span class="k">' + list.length + " 件　" + note + "</span></div>" + body + "</div>";
+}
+function weighHtml(r) {
+  var w = weightOf(r), thin = goalIsThin(w);
+  return '<div class="weigh' + (thin ? " warn" : "") + '">份量：你要的事 <b>' + w.goalN + " 件・" + w.goalChars + " 字</b>" +
+         "｜碰到大原則 " + w.prinN + " 件・" + w.prinChars + " 字｜AI 自己做主 <b>" + w.aiN + " 件・" + w.aiChars + " 字</b>" +
+         (thin ? "　⚠ 你要的事寫得比較少" : "") + "</div>";
+}
+function classesHtml(r) {
+  var lead = isBlank(r.report) ? "" : '<div class="lead">' + esc(String(r.report).trim()) + "</div>";
+  return '<div class="sec">' + lead + weighHtml(r) + "</div>" +
+    classHtml("① 你這次要的事", "每件對照你的原話", listOf(r.goal), goalItemHtml, "AI 沒列你這次要的事") +
+    classHtml("② 碰到你的長期原則、方向", "怎麼取捨", listOf(r.principles), principleItemHtml, "這輪沒碰到") +
+    classHtml("③ AI 自己做主的", "你沒要求、AI 自己決定的", listOf(r.ai_decided), aiItemHtml, "AI 說這輪沒有自己做主的事");
+}
+// 舊格式（沒有三類）：①放 AI 寫的收尾全文與修補清單、③放 e／f；當時沒有②這一類。
+function legacyClassesHtml(r) {
+  return '<div class="sec"><div class="weigh">舊格式報告：當時還沒分三類，下面照舊欄位放</div></div>' +
+    partHtml("① 你這次要的事", picked([["AI 寫的收尾全文（沒逐件對照你的原話）", r.report], ["修了什麼", r.a]]), "這份舊報告沒寫做了什麼") +
+    partHtml("② 碰到你的長期原則、方向", [], "舊格式沒有這一類") +
+    partHtml("③ AI 自己做主的", picked([["AI 自己做的決定、沒驗證的假設", r.e], ["環境有變動", r.f]]), "這份舊報告沒寫");
+}
+// 附錄：系統帳翻成白話（記住了、改了哪些地方、版控、暫存、驗證收據）＋原始欄位，給要查的時候看
+function appendixHtml(r) {
+  var oldest = r.e == null && !hasClasses(r);   // 最早的格式只有 a～d，d 是暫存清單、不是記憶帳
+  var items = picked([
+    ["記住了（寫進記憶卡的）", oldest ? null : r.d],
+    ["改了哪些地方（檔案:行）", hasClasses(r) ? r.a : null],
+    ["版控", r.g],
+    ["AI 說留下的暫存（還在不在看下面「這個 session 留下的東西」）", r.i],
+    ["驗證收據放在", jOf(r)]
+  ]);
+  return '<details class="detail"><summary>附錄：技術細節與系統帳（要查的時候看）</summary>' +
+    itemsHtml(items, "沒有") + '<div class="item-h">原始欄位（AI 交的原樣）</div>' + detailHtml(r) + "</details>";
 }
 function cardHtml(r) {
   var lamp = lampOf(r);
@@ -270,10 +400,9 @@ function cardHtml(r) {
     html += partHtml("疑似偷懶的地方（hook 只比對字面，可能是誤判，看一下）", picked([["", r.b]]), "");
   }
   html += partHtml("要你處理", todoItems(r), "沒有要你處理的事") +
-    (r.report == null || isBlank(r.report) ? "" : partHtml("收尾全文", [["", r.report]], "")) +   // CLOSING_REPORT_ONE_CALL
-    partHtml("這輪做了什麼", picked([["修了什麼", r.a], ["版控", r.g], ["環境有變動", r.f]]), "這輪沒有修補，也沒有改到環境") +
-    (r.e == null ? "" : partHtml("記住了／之後要追", picked([["記住了", r.d], ["之後要追", kOf(r)]]), "沒有新記住的事，也沒有要追的"));
-  return html + '<details class="detail"><summary>細節（原始欄位，給要查的時候看）</summary>' + detailHtml(r) + "</details></div>";
+    (hasClasses(r) ? classesHtml(r) : legacyClassesHtml(r)) +
+    (isBlank(kOf(r)) ? "" : partHtml("記下來之後要追的", [["", kOf(r)]], ""));
+  return html + appendixHtml(r) + "</div>";
 }
 // 每 1.5 秒輪詢一次：內容沒變就不重畫（重畫會讓畫面跳、把點開的「細節」收回去）；「細節」開合照使用者上次的選擇
 var cardKey = "", detailOpen = false;
@@ -297,8 +426,8 @@ function detailHtml(r) {
     sectionHtml("a", "缺失發現與修補清單", r.a) +
     sectionHtml("b", "AI 逃避通報", r.b) +
     (r.c == null ? "" : sectionHtml("c", "Token 累積警示（舊欄位）", r.c)) +
-    // 舊報告（2026-09 前）只有 a–d 且 d=衍生暫存：無 e 欄視為舊格式，d 以舊標籤渲染。
-    (r.e == null
+    // 最早的格式只有 a–d 且 d=衍生暫存：沒有 e 欄、也沒有三類，d 以舊標籤渲染。
+    (r.e == null && !hasClasses(r)
       ? sectionHtml("d", "衍生暫存清單（舊格式；實際尚存者見下方殘檔面板）", r.d)
       : sectionHtml("d", "記憶收錄帳" + (r.d_pending && r.d_pending.length
             ? ' <span class="badge real">未寫入 ' + r.d_pending.length + " 項（Stop 已擋、待補寫後重提）</span>"

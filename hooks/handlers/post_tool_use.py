@@ -209,6 +209,13 @@ def _maybe_sync_skill_index(file_path: str, config: Dict[str, Any]) -> None:
 
 # ─── Anti-Evasion HUD：one-writer 寫入者（MCP tool 只 emit、此處獨佔寫 state/檔）──
 
+# 收尾報告三類各項認得的鍵（MIRROR tools/workflow-guardian-mcp/lib/anti-evasion.js REPORT_CLASSES ＋ 選填 tech）
+_AEC_CLASS_KEYS = {
+    "goal": ("said", "done", "verified", "not_done", "tech"),
+    "principles": ("principle", "choice", "tech"),
+    "ai_decided": ("kind", "what", "why", "tech"),
+}
+
 
 def _write_aec_report_file(session_id: str, turn_seq: int, report: Dict[str, Any]) -> None:
     """落 per-turn 報告檔 workflow/aec-report/<sid>-t<turn>.json（atomic tmp→rename）。
@@ -1645,7 +1652,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # session_id 用原始 input_data["session_id"]（與 modified_files 的 session_id 戳
         # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
         # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
-        _AEC_KEYS = ("a", "b", "d", "e", "f", "g", "h", "i")   # (c) Token 警示欄已刪（與 85% 預警重複）；舊客戶端送來照收不存
+        # (c) 不收（與 85% 預警重複），舊客戶端送來不存；e／f 不在 schema（內容歸 ai_decided），舊客戶端送來照存、HUD 照舊格式畫
+        _AEC_KEYS = ("a", "b", "d", "e", "f", "g", "h", "i")
         vals = {k: str(tool_input.get(k, "") or "") for k in _AEC_KEYS}
         # (j)(k)：鍵不存在＝舊格式呼叫（MCP 還沒載到新 schema），不寫進報告、Stop 也不拿它擋；明給空字串才擋
         for _k in ("j_evidence_path", "k_followups") if v6 else ():
@@ -1671,6 +1679,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "severity": sev,
             "at": _now_iso(),
         }
+        # 三類（本 session 目標／大原則方向／AI 自己做主）給 HUD 分區畫：形狀由 MCP 端拒收檢查管，這裡只照收
+        # （留 dict 項、只留認得的鍵、值轉字串），不判、不影響 severity。沒給（舊客戶端）就不寫，HUD 照舊格式畫。
+        for _cls, _keys in _AEC_CLASS_KEYS.items():
+            _raw = tool_input.get(_cls)
+            if isinstance(_raw, list):
+                report[_cls] = [{k: str(it.get(k) or "") for k in _keys if k in it} for it in _raw if isinstance(it, dict)]
         if upgraded:
             report["severity_upgraded_by"] = "hook:evasion-crosscheck"
             report["hook_evidence"] = evidence[-5:]

@@ -80,30 +80,35 @@ def test_aec_rejected_by_mcp_is_not_recorded(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not available")
-def test_aec_node_side_report_makes_efg_optional():
-    """Node 端：給了 report → e／f／g 可省；沒給 report → e／f／g 照擋；harvest_items 形狀錯 → 擋；schema 不再把 e／f／g 列必填。"""
+def test_aec_node_side_three_classes_replace_efg():
+    """Node 端：三類（goal／principles／ai_decided）與版控 g 每次都要交、守門開關都一樣；e／f 不必填、schema 不列；
+    只給 report 不夠（三類與 g 各報一條缺）；harvest_items 形狀錯 → 擋。"""
     import json
     import subprocess
     lib = HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib"
     script = ("const p=require('path');const lib=process.argv[1];const ae=require(p.join(lib,'anti-evasion.js'));"
               "const m=require(p.join(lib,'mcp.js'));const t=m.TOOL_DEFINITIONS.find(x=>x.name==='anti_evasion_report');"
+              "const ok={goal:[{said:'s',done:'d',verified:'1 個過',not_done:'無'}],principles:[],ai_decided:[],g:'無'};"
               "console.log(JSON.stringify({req:t.inputSchema.required,props:Object.keys(t.inputSchema.properties),"
-              "withReport:ae.aecArgErrors({report:'r'},true),noReport:ae.aecArgErrors({},true),"
-              "v6off:ae.aecArgErrors({report:'r'},false),badItems:ae.aecArgErrors({report:'r',harvest_items:[{}]},true)}));")
+              "withClasses:ae.aecArgErrors(ok,true),reportOnly:ae.aecArgErrors({report:'r'},true),"
+              "v6off:ae.aecArgErrors(ok,false),badItems:ae.aecArgErrors(Object.assign({harvest_items:[{}]},ok),true)}));"
+              "process.exit(0);")
     res = subprocess.run(["node", "-e", script, str(lib)], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0, res.stderr
     got = json.loads(res.stdout.strip().splitlines()[-1])
-    assert not {"e", "f", "g"} & set(got["req"]) and {"report", "harvest_items"} <= set(got["props"])
-    assert got["withReport"] == [] and len(got["noReport"]) == 3 and len(got["v6off"]) == 3 and got["badItems"]
+    assert not {"e", "f"} & set(got["req"]) and {"goal", "principles", "ai_decided", "g"} <= set(got["req"])
+    assert {"report", "harvest_items"} <= set(got["props"]) and not {"e", "f"} & set(got["props"])
+    assert got["withClasses"] == [] and got["v6off"] == [] and len(got["reportOnly"]) == 4 and got["badItems"]
 
 
 def test_hud_card_shows_report():
-    """HUD 卡片有 report 就顯示「收尾全文」（給了 report 省掉 e／f／g 時，人看得到那段內容；舊碼不顯示 → 紅）。
-    內層瀏覽器 script 的語法由 verify_aec_hud_inner_js 驗。"""
+    """HUD 卡片有 report 就顯示：三類新報告當卡片開頭（lead），舊格式當「收尾全文」放在第一類。
+    實際畫出來的樣子由 verify_aec_report_classes 驗；內層瀏覽器 script 的語法由 verify_aec_hud_inner_js 驗。"""
     js = (HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "aec-hud-html.js").read_text(encoding="utf-8")
-    i = js.index("function cardHtml(r)")
-    body = js[i:js.index("function renderCard", i)]
-    assert "r.report" in body and "收尾全文" in body
+    new = js[js.index("function classesHtml(r)"):js.index("function legacyClassesHtml")]
+    old = js[js.index("function legacyClassesHtml(r)"):js.index("function appendixHtml")]
+    assert "r.report" in new and "lead" in new
+    assert "r.report" in old and "收尾全文" in old
 
 
 def test_delivery_letter_is_the_closing_report():
