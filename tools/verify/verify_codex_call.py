@@ -201,3 +201,25 @@ def test_cli_success_prints_answer_and_flags(monkeypatch, capsys, tmp_path):
     assert cmd[cmd.index("-s") + 1] == "read-only" and cmd[-1] == "--x" and seen["stdin"] == "問題"
     assert ('windows.sandbox="unelevated"' in cmd) == (sys.platform == "win32")
     assert codex_call.sandbox_args(None) == []
+
+
+def test_cli_success_echoes_codex_log_to_stderr(monkeypatch, capsys, tmp_path):
+    """成功時 codex 自己的執行紀錄印到 stderr（剝掉提示詞回聲），答案仍只在 stdout。"""
+    monkeypatch.setattr(codex_call.judge_backend, "resolve_codex_bin", lambda c: "codex-stub")
+    monkeypatch.setattr(codex_call, "load_config", lambda: {})
+
+    def run(cmd, **kw):
+        Path(cmd[cmd.index("-o") + 1]).write_text("答案\n", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="user\n問題\nexec: Get-Content a.py\n")
+    monkeypatch.setattr(subprocess, "run", run)
+    assert codex_call.main(["--prompt", "問題", "--cwd", str(tmp_path)]) == 0
+    out, err = capsys.readouterr()
+    assert out.strip() == "答案"
+    assert "exec: Get-Content a.py" in err and "問題" not in err
+
+
+def test_cli_missing_cwd_fails_without_spawning(monkeypatch, capsys, tmp_path):
+    """--cwd 指到不存在的目錄 → exit 1 說原因，不默默改用目前目錄跑。"""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("不該起 codex"))
+    assert codex_call.main(["--prompt", "問題", "--cwd", str(tmp_path / "nope")]) == 1
+    assert "工作目錄不存在" in capsys.readouterr().err

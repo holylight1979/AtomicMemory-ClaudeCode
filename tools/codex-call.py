@@ -12,7 +12,7 @@
 怎麼跑：
   python tools/codex-call.py --prompt "問題" [--cwd 目錄] [--model gpt-6-astra] [--timeout 300] [--sandbox read-only]
   python tools/codex-call.py --prompt-file 提示詞.md          # --prompt-file - 從 stdin 讀
-  成功：stdout 印答案、exit 0。完整參數以 --help 為準。
+  成功：stdout 印答案（UTF-8）、stderr 印 codex 自己的執行紀錄、exit 0；--cwd 不存在 → exit 1。完整參數以 --help 為準。
   程式內用：run_codex(prompt, config=..., cwd=..., model=..., timeout_s=...) → CodexResult（ok／text／stderr／reason／returncode）。
 設定：workflow/config.json（再蓋 config.local.json）的 codex_companion 段：codex_binary、codex_extra_args、model（--model 沒給時用它）。
 """
@@ -162,6 +162,12 @@ def main(argv: Optional[list] = None) -> int:
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S, help=f"秒數上限，逾時 kill（預設 {DEFAULT_TIMEOUT_S}）")
     ap.add_argument("--sandbox", choices=SANDBOX_MODES, help="沙箱模式（不給＝照 ~/.codex/config.toml 預設）")
     a = ap.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):   # 被管線接走時預設走系統字碼頁（cp950），中文會不可逆地壞掉
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    if a.cwd and not os.path.isdir(a.cwd):
+        print(f"[codex-call] 失敗：工作目錄不存在：{a.cwd}", file=sys.stderr)
+        return 1
 
     try:
         if a.prompt is not None:
@@ -185,6 +191,8 @@ def main(argv: Optional[list] = None) -> int:
         if res.stderr.strip():
             print(f"[codex-call] codex stderr 尾：{res.stderr.strip()[-800:]}", file=sys.stderr)
         return 1
+    if res.stderr.strip():   # codex 自己的執行紀錄：回答很短或說沒問題時，靠它確認真的讀了檔
+        print(res.stderr.strip(), file=sys.stderr)
     print(res.text)
     return 0
 
