@@ -723,3 +723,4 @@
 | feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移 | memory/Failures/思考與決策/feedback-轉述子代理回報前先判跟使用者這題有沒有關-無關的照單轉述就是離題飄移.md | 轉述, 子代理回報, agent 回報, 離題, 飄移, 瞎猜 | global |  |
 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 | memory/CC與原子記憶契約/claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐.md | rules 檔, paths:, 條件載入, 常駐 token, 必載檔瘦身, path-scoped rule, CLAUDE.md import | global |  |
 | feedback-開發期驗證要下在刀口上不是能免則免-決定品質的次數不減-要快就拆工並行 | memory/Failures/驗證與實證/feedback-開發期驗證要下在刀口上不是能免則免-決定品質的次數不減-要快就拆工並行.md | 驗證刀口, 刀口, 能免則免, 量測次數, 減少次數, 拆工, 開發期驗證 | global |  |
+| 把既有行為包進寫碼守門開關時守門關的原功能會一起消失-測試預設守門開所以抓不到-包之前列出守門關原行為並補守門關案例 | _AIDocs/_atoms/MemDev/寫碼守門閘/把既有行為包進寫碼守門開關時守門關的原功能會一起消失-測試預設守門開所以抓不到-包之前列出守門關原行為並補守門關案例.md | 守門開關, if v6, 包進開關, 守門關案例, 糾正計數, DeepPostMortem, 退步, 非 v6 維持原樣 | global |  |
