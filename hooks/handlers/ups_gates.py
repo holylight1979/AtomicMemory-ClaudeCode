@@ -207,10 +207,8 @@ def run_pre_gates(
         state["recent_user_prompts"] = rup[-5:]
     v6 = v6_enabled(config)
     track_turn_prompts(state, clean_prompt, v6)
-    if not v6 and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
-        state["failing_tests"] = []   # 寫碼守門關閉：照 9e476fd0，使用者說「先這樣／跳過」就清掉紅測清單
-    # 寫碼守門開：使用者說「先這樣／跳過」不再在這裡清掉全部紅測清單：要 LLM 在收尾寫「不做｜<哪一支>：使用者說「<原句>」」，
-    # Stop 的 TestFailGate 只豁免對得上的那幾筆（規則 USER_WAIVER_NEEDS_CITATION，wg_release_rules.waived_failures）。
+    if state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
+        state["failing_tests"] = []   # 使用者說「先這樣／跳過」就清掉紅測清單（寫碼守門開或關同一套）
 
     # ─── User Decision Detector gate ────────────────────────────
     ue_config = config.get("userExtraction", {})

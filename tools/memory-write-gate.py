@@ -37,13 +37,6 @@ from typing import Any, Dict, List, Optional, Tuple
 _SELF_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_SELF_ROOT))
 from lib.project_root import claude_data_dir  # noqa: E402
-try:
-    from lib.atom_io import gate_bypass_refusal  # noqa: E402
-except Exception as _e:  # pragma: no cover
-    print(f"[write-gate] 繞閘卡片檢查載不起來（這次不判）：{_e}", file=sys.stderr)
-
-    def gate_bypass_refusal(title, knowledge, actions):
-        return None
 
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
@@ -734,12 +727,6 @@ def evaluate(
         })
         return result
 
-    # 繞閘做法拒寫（T2.19 ATOM_BYPASS_HOWTO_REFUSED）：MCP atom_write 三種 mode 都經過這裡；判式與 lib/atom_io.write_atom 同一支
-    bypass_err = gate_bypass_refusal(title, content.splitlines(), actions)
-    if bypass_err:
-        write_audit_log("skip", content, 0, reason="gate_bypass_howto")
-        return _kinded({"action": "skip", "quality_score": 0, "reason": bypass_err})
-
     # 現況帳：不進 atom，路由到文件（不看預算、不看 explicit_user）
     if kind == "ledger":
         write_audit_log("skip", content, 0, reason="ledger", signals=cls["ledger"], route_to=route_to)
@@ -790,9 +777,9 @@ def evaluate(
             "reason": "導讀卡不合格；" + "；".join(parts) + "；補齊再寫（不截斷、不代填）",
         })
 
-    # write_gate.enabled=false：品質／去重評分整段關（同 skip_gate）；上面的繞閘拒寫、現況帳、預算、導讀卡檢查照做
+    # write_gate.enabled=false：品質／去重評分整段關（同 skip_gate）；上面的現況帳、預算、導讀卡檢查照做
     if not config.get("enabled", True):
-        print("[write-gate] write_gate.enabled=false：不跑品質與去重評分，直接放行（預算、分型、繞閘拒寫照做）",
+        print("[write-gate] write_gate.enabled=false：不跑品質與去重評分，直接放行（預算、分型照做）",
               file=sys.stderr)
         write_audit_log("add", content, 1.0, reason="gate_disabled", kind=kind)
         return _kinded({

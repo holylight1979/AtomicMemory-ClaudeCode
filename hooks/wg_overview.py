@@ -466,8 +466,7 @@ def _read_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code:
 
 
 def read_targets(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code: Optional[int] = None) -> List[str]:
-    """這次工具呼叫讀到的專案檔：_read_paths 去掉暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）。record_reads 與動資料檔的讀提示
-    （wg_data_file）共用這一支，兩邊對「讀了什麼」的認定一致。"""
+    """這次工具呼叫讀到的專案檔：_read_paths 去掉暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）；record_reads 用。"""
     return [p for p in _read_paths(tool_name, tool_input, cwd, exit_code) if not _rr.is_temp_path(_long(p), _temp_roots())]
 
 

@@ -170,9 +170,7 @@ def _pick_on_green(cr, state, sid, config, input_data, lines: List[str]) -> None
 def _test_green_batch(state: Dict[str, Any], sid: str) -> Tuple[bool, bool]:
     """這批有沒有跑綠的測試：post_tool_use 記的收據（state verify_receipts，事件序號 seq 比上次看到的大＝這批新落的），
     是測試指令或帶 PASS 哨兵、且跑綠（wg_verify_batch.receipt_green：沒有 FAIL 哨兵、結束碼 0）。回 (綠, state 改了)；
-    看過的序號記 state remind_receipt_seq[sid]。
-    紅的測試指令也算到交付邊界，條件是還紅的每一支都在使用者豁免帳上（state testfail_waivers，USER_WAIVER_NEEDS_CITATION 記的）：
-    使用者叫跳過的那支永遠不會綠，只認「全綠」那一問永遠到不了（011 實跑 C′）。"""
+    看過的序號記 state remind_receipt_seq[sid]。"""
     from wg_verify_ledger import receipts_of
     seen = state.setdefault("remind_receipt_seq", {})
     mark = int(seen.get(sid) or 0)
@@ -186,19 +184,7 @@ def _test_green_batch(state: Dict[str, Any], sid: str) -> Tuple[bool, bool]:
     def is_test(r: Dict[str, Any]) -> bool:
         return is_test_command(str(r.get("cmd") or "")) or any(
             str(s.get("verdict")) == "PASS" for s in r.get("sentinels") or [] if isinstance(s, dict))
-    if any(receipt_green(r) and is_test(r) for r in new):
-        return True, True
-    return any(is_test(r) for r in new) and _reds_all_waived(state, sid), True
-
-
-def _reds_all_waived(state: Dict[str, Any], sid: str) -> bool:
-    """本 session 還紅的測試（state failing_tests）每一支都在豁免帳上（testfail_waivers 的 units）→ True；沒有紅、或有一支不在帳上 → False。"""
-    from wg_release_rules import red_units
-    reds = [f for f in state.get("failing_tests") or [] if isinstance(f, dict) and f.get("session_id", sid) == sid]
-    waived = {u for e in state.get("testfail_waivers") or [] if isinstance(e, dict) for u in e.get("units") or []}
-    if not reds or not waived:
-        return False
-    return all(red_units(f) and set(red_units(f)) <= waived for f in reds)
+    return any(receipt_green(r) and is_test(r) for r in new), True
 
 
 def _code_check_reminders(state, own, config, say, tpath: str = "") -> None:

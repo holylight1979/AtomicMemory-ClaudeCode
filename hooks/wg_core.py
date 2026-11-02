@@ -225,9 +225,6 @@ def v6_enabled(config: Dict[str, Any]) -> bool:
     return any(isinstance(config.get(k), dict) and config[k].get("enabled") is True for k in ("coding_guard", "v6"))
 
 
-# 規則 CODING_TURN_ONLY：寫碼類意圖（wg_atoms.INTENT_PATTERNS 的鍵）；其餘（general、design、recall、handoff）不算。
-# 只當提示的開關（讀到資料檔時提早送宣告提示：wg_data_file.read_hint），不當守門開關（coding_turn 不看它）
-CODE_INTENTS = frozenset({"debug", "feature", "refactor", "perf", "new_project", "build"})
 def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> bool:
     """規則 CODING_TURN_ONLY：這個使用者回合是不是寫碼回合——看實質行為：這個使用者回合已經有改程式檔的工具行為
     （Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔：modified_files 有一筆，程式照 wg_code_path.is_code_path 判，
@@ -615,34 +612,10 @@ def transcripts_of(transcript_path: str, agent_id: str) -> Tuple[str, List[str]]
     return str(p), [str(p)] + ([str(agent)] if agent is not None and agent.exists() else [])
 
 
-def transcript_sizes(transcript_path: str) -> Dict[str, int]:
-    """主 session transcript 與它底下現在每一份子代理 transcript 的大小（byte），鍵是正斜線小寫路徑。
-    記「從這一刻起才算」的起點用：之後才出現的子代理檔不在裡面，整份都算這一刻之後。"""
-    main, _ = transcripts_of(transcript_path, "")
-    if not main:
-        return {}
-    files = [Path(main)] + sorted((Path(main).with_suffix("") / "subagents").glob("agent-*.jsonl"))
-    out: Dict[str, int] = {}
-    for f in files:
-        try:
-            out[str(f).replace("\\", "/").lower()] = f.stat().st_size
-        except OSError:
-            continue
-    return out
-
-
-def assistant_texts_since(transcript_path: str, agent_id: str, channel: str, offsets: Any = None, legacy_offset: int = 0) -> str:
-    """要找 AI 宣告／定位行的那幾份 transcript（transcripts_of：主檔＋子代理檔）在起點之後的 assistant 內容，主檔在前。
-    起點各檔各算：offsets（transcript_sizes 記下的）有記的照記；沒記的檔＝記的時候還不存在，整份都在起點之後。
-    offsets 不是 dict（只有舊紀錄的單一 byte offset）時，legacy_offset 只套在 hook 給的那一份、其他檔從頭。"""
+def assistant_texts_since(transcript_path: str, agent_id: str, channel: str) -> str:
+    """要找 AI 宣告行的那幾份 transcript（transcripts_of：主檔＋子代理檔）從頭起的 assistant 內容，主檔在前。"""
     from overview_hub import assistant_text_after
-    parts: List[str] = []
-    for f in transcripts_of(transcript_path, agent_id)[1]:
-        if isinstance(offsets, dict):
-            off = int(offsets.get(f.replace("\\", "/").lower(), 0))
-        else:
-            off = int(legacy_offset) if f == transcript_path else 0
-        parts.append(assistant_text_after(f, off, channel))
+    parts = [assistant_text_after(f, 0, channel) for f in transcripts_of(transcript_path, agent_id)[1]]
     return "\n".join(p for p in parts if p)
 
 
@@ -1956,14 +1929,14 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         _atom_debug_error(f"guard_log:{guard}", e)
 
 
-# ─── 宣告閘擋次上限（動資料檔、改舊測試、不是繞閘共用）───────────
+# ─── 工具前閘擋次上限（驗證批次閘用）───────────
 DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾則回覆；再來就放行、由呼叫端留帳
 _DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋則數}, "batch": {同鍵: 上次算次的那則}}
 
 
 def deny_cap(state: Optional[Dict[str, Any]], gate: str, items: List[str],
              cap: int = DECL_DENY_CAP, call: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[str]]:
-    """宣告閘這次缺宣告的每一件（呼叫端給穩定的鍵，例：檔的 canon 路徑）→ (照擋的, 這次起放行的)。
+    """閘這次缺的每一件（呼叫端給穩定的鍵，例：規則名）→ (照擋的, 這次起放行的)。
     同一個使用者回合（wg_release_rules.user_turn）裡同一件已經擋滿 cap 次就放行：越過上限那一次回在「放行」裡給呼叫端
     留帳，同回合之後再遇到既不擋也不重回；照擋的各記一次。換回合整份歸零。state 就地改、寫檔由呼叫端；
     state 是 None（沒有 session 可記）照擋、不計次。

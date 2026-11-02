@@ -1,7 +1,7 @@
 """wg_lazy_re.py — 模組層的正規表示式與模組改成第一次用到才編譯／載入（HOOK_IMPORT_ON_USE）。
 
 為什麼：每個 hook 事件都是新起的 Python 行程，wg_release_rules、wg_evasion 等模組 import 時就把上百條 re.compile 全編一次
-（re 的快取只活在行程裡），一次事件約 50 ms，多數樣式這次事件根本用不到。寫碼守門的模組（連鎖斷路器、改舊測試、動資料檔…）
+（re 的快取只活在行程裡），一次事件約 50 ms，多數樣式這次事件根本用不到。寫碼守門的模組（連鎖斷路器…）
 也一樣：守門關、或這次事件跟寫程式無關時一行都不跑，卻每次在 handler 頂端整包載入。
 怎麼用：
 - `X_RE = lazy_re(r"...", re.I)`，用法同編好的 Pattern（.search／.match／.sub／.finditer…）；.pattern 不編譯就拿得到

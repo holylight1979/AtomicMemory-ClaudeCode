@@ -38,8 +38,6 @@ from wg_lazy_re import lazy_module
 chain_store = lazy_module("chain_store")    # 連鎖斷路器的帳（lib/；判定在 hooks/wg_chain.py）：工具後記 AI 動作
 _vl = lazy_module("wg_verify_ledger")       # 驗證收據、哨兵、改檔內容雜湊
 _rr = lazy_module("wg_release_rules")       # 測試子命令的切段與認法，紅測範圍跟涵蓋判法用同一份
-wg_data_file = lazy_module("wg_data_file")  # T2.16 動使用者資料檔要先宣告：記本 session 新建的檔
-wg_oldtest = lazy_module("wg_oldtest")
 try:
     # Bash／PowerShell 改檔目標擷取（wg_core）；載不進來就只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -602,41 +600,6 @@ def _supersede_reds(state: Dict[str, Any], sid: str, command: str, failure: str)
     state["failing_tests"] = keep
 
 
-RED_RUN_COMMITS_CAP = 50
-
-
-def _note_red_run_commit(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
-    """規則 BASE_RED_TRACKED_NOT_OWED 的事實：這次紅是在哪個 commit、已追蹤檔有沒有改動，連同逐支列出的紅
-    記進 state red_run_commits（收尾核「基底 commit 也紅」只認這份，不從別處推論）。跑測試的目錄＝第一段測試之前換到的目錄
-    （test_scope 的 cd，相對的照前一個目錄解；PowerShell 的 -Path／-LiteralPath 參數名拿掉），沒換就是 hook 的 cwd。
-    沒逐支列出、指令裡不只一段測試（合在一起的輸出分不出哪支紅是哪一段的，基底綠、這次紅會被記成基底紅）、目錄算不出、
-    不在 git 工作樹 → 不記（這次紅不能當基底的證據；目錄算不出 stderr 一行，git 本身跑不了 _run_git 會說）。"""
-    from wg_core import _write_target_abs
-    from wg_release_rules import RED_CASES_CAP, listed_red_units
-    from wg_verify_ledger import _run_git
-    units = listed_red_units(failure)
-    steps = _test_scope(command).get("steps") or []
-    if not units or sum(1 for s in steps if not s.startswith("cd ")) != 1:
-        return
-    run_dir: Optional[str] = cwd
-    for step in steps:
-        if not step.startswith("cd "):
-            break
-        arg = re.sub(r"^-(?:literal)?path\s+", "", step[3:].strip(), flags=re.IGNORECASE).strip("'\"")
-        run_dir = _write_target_abs(arg, run_dir) if run_dir else None
-    if not run_dir or run_dir.startswith("UNKNOWN") or not os.path.isdir(run_dir):
-        print(f"[Guardian:TestFail] 這次紅測在哪個目錄跑算不出（{run_dir or '空'}），不記成基底 commit 的證據", file=sys.stderr)
-        return
-    head = _run_git(Path(run_dir), ["rev-parse", "HEAD"], 3)
-    status = _run_git(Path(run_dir), ["status", "--porcelain", "--untracked-files=no"], 5) if head else None
-    if not head or status is None:
-        return
-    rows = state.setdefault("red_run_commits", [])
-    rows.append({"session_id": sid, "units": units[:RED_CASES_CAP], "head": head.strip(), "clean": not status.strip(),
-                 "dir": run_dir, "cmd": command[:200], "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()})
-    del rows[:-RED_RUN_COMMITS_CAP]
-
-
 def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
                        tool: str = "Bash", config: Optional[Dict[str, Any]] = None) -> bool:
     """Bash／PowerShell 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
@@ -660,11 +623,8 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     if failure is None and exit_code not in (None, 0):
         failure = tail_lines(stdout + "\n" + stderr, 20) or f"(exit code {exit_code}, no output)"
     if failure:
-        if v6_enabled(config or {}):
-            # 規則 BASE_RED_TRACKED_NOT_OWED：每次紅都記在哪個 commit 跑的（在刻意紅判定之前：在基底跑紅本來就是要拿來當證據）
-            _note_red_run_commit(state, sid, command, failure, str(input_data.get("cwd") or ""))
         # 規則 RED_WHILE_REVERTED：跑紅時本 session 改過的程式檔有內容等於非 HEAD 已提交版本（退回舊碼反證）→ 刻意紅：
-        # 不進 failing_tests（TestFailGate、重試計數、DPM 都不吃），另記 deliberate_reds 留痕
+        # 不進 failing_tests（紅測閘、重試計數、DPM 都不吃），另記 deliberate_reds 留痕
         own_mods = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", sid) == sid]
         try:
             reverted, pending_code = _vl.reverted_code_files(own_mods, _vl.reconcile_cfg(config or {}))
@@ -1117,9 +1077,7 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
       測試紅了，a.py 已經改了。目標用成功路徑同一支 write_paths_from_tool 算；失敗的指令不一定寫到，只記這次開始後改過的現存檔，目標不明的不記。
     - 測試指令紅了記紅測（failing_tests）與驗證收據，跟成功路徑同一套函式；失敗事件沒有 tool_response，錯誤全文（"Exit code N\\n輸出…"）
       在 error 欄，當字串回應餵進去。error 裡讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。
-    - 改舊測試的事後比對（_old_test_after，同成功路徑）：`sed -i … tests/x.py && pytest` 紅了，改動已經寫進測試檔，照樣拿 PreToolUse
-      拍的快照比，沒宣告的記欠帳、下一個工具呼叫擋（規則 OLD_TEST_COMPARED_ON_FAILED_COMMAND）。
-    只記帳不擋、不送提示；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測、不比改舊測試（它的 PreToolUse 不拍快照）。"""
+    只記帳不擋、不送提示；裁判子 session 只讀既有 state（不重建 atom index）、不記紅測。"""
     tool_name = input_data.get("tool_name", "") or ""
     session_id = input_data.get("session_id", "") or ""
     if tool_name not in ("Bash", "PowerShell") or not session_id:
@@ -1139,8 +1097,6 @@ def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, A
     command = str((input_data.get("tool_input") or {}).get("command") or "")
     dirty = (_note_failed_writes(state, input_data, tool_name, session_id, aid, cwd)[1] if _write_paths_from_tool is not None
              else False)
-    if not judge and v6_enabled(config) and _old_test_after(state, input_data, config):
-        dirty = True
     event = {**input_data, "tool_response": str(input_data.get("error") or "")}
     if _vl.exit_code_of(event["tool_response"]) is not None:
         if not judge and _track_test_result(state, event, command, tool_name, config):
@@ -1202,18 +1158,6 @@ def _note_failed_writes(state: Dict[str, Any], input_data: Dict[str, Any], tool_
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("post_tool_use_failure:write_paths_from_tool", e)
     return noted, bool(noted) or unknown or eph or state.get("event_seq") != seq0
-
-
-def _old_test_after(state: Dict[str, Any], input_data: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """改舊測試的事後比對（wg_oldtest.after_tool），PostToolUse 與 PostToolUseFailure 共用；回 state 有沒有改。
-    比對失敗只能 stderr＋留帳（事後擋不了這一次）。"""
-    try:
-        return wg_oldtest.after_tool(state, input_data, config)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:OldTestDeclare] 事後比對失敗（這次改測試檔沒核對到）：{type(e).__name__}: {e}", file=sys.stderr)
-        append_guard_log("old_test", {"event": "after_error", "session": input_data.get("session_id", "") or "",
-                                      "tool": input_data.get("tool_name", ""), "error": f"{type(e).__name__}: {e}"})
-        return False
 
 
 def _tool_started_at(transcript_path: str, tool_use_id: str) -> Optional[float]:
@@ -1321,13 +1265,12 @@ def _note_tool_result(state: Dict[str, Any], session_id: str, tool_name: str, to
 def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
                    input_data: Dict[str, Any], config: Dict[str, Any], v6: bool, degraded: bool,
                    lap: Any) -> Tuple[List[str], bool, bool]:
-    """讀檔事件的三段（Read／Bash／PowerShell／Grep；非讀檔工具只打「讀檔帳」那個點）：OverviewHub 讀檔帳、動資料檔讀提示、
+    """讀檔事件的兩段（Read／Bash／PowerShell／Grep；非讀檔工具只打「讀檔帳」那個點）：OverviewHub 讀檔帳、
     Depends 召回。主流程傳 _hook_lap；read-log 補帳（replay_read_log）傳不打點的 lap。
     回（要附進工具結果的提示、state 有沒有變、打完點後的 degraded）。"""
     ctx: List[str] = []
     dirty = False
     cwd = input_data.get("cwd", "") or ""
-    agent_id = str(input_data.get("agent_id") or "")
     # OverviewHub 讀檔帳：讀到的檔記進各部位的 part_files_read（提問前先讀過部位檔照這筆判；fail-open）
     if not degraded and tool_name in (("Read", "Bash", "PowerShell", "Grep") if v6 else ("Read", "Bash")):   # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
         try:
@@ -1339,13 +1282,6 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
             print(f"overview hub read error: {e}", file=sys.stderr)
 
     degraded = lap("讀檔帳")
-
-    # 動資料檔閘：第一次讀到改了會被問的資料檔 → 一行宣告格式（規則 DATA_FILE_READ_HINT；判定不動，read_hint 炸了自己吞並出聲）
-    if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell", "Grep") and not agent_id:
-        df_ctx = wg_data_file.read_hint(state, tool_name, tool_input, cwd, _read_exit_code(input_data.get("tool_response")), config)
-        if df_ctx:
-            ctx.append(df_ctx)
-            dirty = True
 
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     if v6 and not degraded and tool_name in ("Read", "Bash", "PowerShell"):
@@ -1362,7 +1298,7 @@ def _read_tracking(state: Dict[str, Any], session_id: str, tool_name: str, tool_
 
 def replay_read_log(state: Dict[str, Any], session_id: str, config: Dict[str, Any], v6: bool) -> Tuple[List[str], bool]:
     """規則 READ_FAST_PATH：Read 的 PostToolUse 走 dispatcher 快路徑只落 read-log；這裡在下一個非 Read 事件把累積的 Read
-    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub 讀檔帳、動資料檔讀提示、Depends 召回）
+    逐筆交給 Read 原本會跑的那幾段（工具結果體積、救援命中、OverviewHub 讀檔帳、Depends 召回）
     ——結果一樣、晚一個事件出現。寫碼守門關：Read 本來就不進 handler（dispatcher PRE_V6_TOOLS），整批丟掉。
     回（要附進這則工具結果的提示＝上一個 PreToolUse 補出來存在 state 的＋這次補出來的、state 有沒有變）。"""
     ctx: List[str] = list(state.pop(wg_read_fast.HINTS_KEY, None) or [])
@@ -1458,17 +1394,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 int(state.get("turn_seq", 0)))
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
-
-    # 本 session 新建的檔（呼叫前不存在）→ state created_files：動資料檔閘的事實 (c)，暫存檔也記。
-    # Write 看結果 type=create；Bash／PowerShell 看 PreToolUse 記下的呼叫前不存在的目標
-    if v6 and wg_data_file.note_created(state, tool_name, file_path, input_data.get("tool_response")):
-        dirty = True
-    if v6 and wg_data_file.confirm_shell_created(state, str(input_data.get("tool_use_id") or "")):
-        dirty = True
-    # ── OldTestDeclare（T2.17）：Bash／PowerShell／NotebookEdit 改了既有測試 → 拿 PreToolUse 拍的改前快照比，沒宣告的記 state，
-    # 下一個工具呼叫在 PreToolUse 擋；Edit／Write 撤回了欠帳的那一筆就清掉。
-    if v6 and tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell") and _old_test_after(state, input_data, config):
-        dirty = True
 
     _edit_tool = tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit") and bool(file_path)
     if _edit_tool and _is_ephemeral_path(file_path) and note_ephemeral_skip(state, file_path):   # EPHEMERAL_WRITE_NOTED_ONCE
@@ -1629,8 +1554,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         elif v6:
             if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
                 dirty = True
-                import wg_gate_bypass  # T2.19：commit 跑完、落在上次被病形閘擋的 repo → 清掉 smell_deny_last
-                wg_gate_bypass.note_commit_done(state, session_id, command, tool_name, input_data.get("cwd", "") or "")
 
         if _track_test_result(state, input_data, command, tool_name, config):
             dirty = True

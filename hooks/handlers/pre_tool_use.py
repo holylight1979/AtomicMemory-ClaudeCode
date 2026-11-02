@@ -15,7 +15,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR,
@@ -32,9 +32,6 @@ from wg_lazy_re import lazy_module
 # 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關、或這次工具呼叫走不到那道閘，就一行都不載
 chain_store = lazy_module("chain_store")    # 連鎖斷路器的帳、停手、快照（lib/；判定在 hooks/wg_chain.py）
 wg_chain = lazy_module("wg_chain")
-wg_data_file = lazy_module("wg_data_file")  # T2.16 動使用者資料檔要先宣告
-wg_oldtest = lazy_module("wg_oldtest")
-wg_gate_bypass = lazy_module("wg_gate_bypass")
 _rr = lazy_module("wg_release_rules")       # 擋或提醒（gate_mode／RULE_MODE，規則 GATE_MODE_TABLE）；口令閘的子句切法也在這裡
 # 分段計時只打點、不看回傳：逾時被 Claude Code 取消本來就放行，提早放行只會少查（降級不改判定）
 from wg_hook_timing import lap as _hook_lap
@@ -470,7 +467,7 @@ _AUTH_QUOTE_RE = re.compile(r"授權原句\s*[:：]\s*「([^」]+)」")
 _COMMIT_WORD_RE = re.compile(r"commit|提交|上傳|送出|上版|上\s*git|push|推送", re.IGNORECASE)
 # 口令或授權動作字有沒有被否定，逐個看它在原話裡的位置。否定詞表只會多擋不會多放：判錯的代價是請使用者再說一次，
 # 放錯的代價是推出去收不回。子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉。
-# 子句界線與否定字跟動資料檔閘的點名共用一份：_rr.CLAUSE_END_RE、_rr.NEG_WORD_RE
+# 子句界線與否定字的樣式在 wg_release_rules：_rr.CLAUSE_END_RE、_rr.NEG_WORD_RE
 _ORDER_WAIT_RE = re.compile(r"(?:等我|我看完|我確認|我說|我同意)[^，,。！？!?；;\n]*$")     # 延後到使用者自己確認之後
 _ORDER_WAIT_PHRASE_RE = re.compile(r"等我|我看完|我確認|我先看|晚點|稍後再")             # 整則原話裡有延後
 _ORDER_RIGHT_NEG_RE = re.compile(r"^\s*(?:先不要|不要|先別|別|先不|暫不|不用)\s*(?:了|啦|吧|喔)?\s*$")
@@ -1669,15 +1666,13 @@ def _remind_later(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], h
     return True
 
 
-def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str, watched: Sequence[str] = ()) -> None:
+def _deny(input_data: Dict[str, Any], config: Dict[str, Any], reason: str) -> None:
     """PreToolUse 的 deny 出口（裁判子 session 除外）：擋不擋由呼叫端決定，這裡只負責把問句送出去。
-    寫碼守門開時先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。
-    watched＝這次擋的檔（規則 CHAIN_SAME_GATE_PER_OBJECT）：每個檔各要各的證據的閘才報，
-    說不出擋什麼的閘（版控口令、病形閘這類看整批提交的）不報，斷路器照舊只看閘名。"""
+    寫碼守門開時先交連鎖斷路器記一筆觸發（閘名取擋訊息的標記）：警報後只記錄 → 不擋、存快照後放行；這一次讓警報響 → 改送中止停手訊息。"""
     try:
         chain = _chain_ctx(input_data, config, need_ledger=False)
         r = chain_store.gate_fired(chain[0], chain[1], wg_chain.gate_name(reason, "PreToolUse"), reason, input_data,
-                                   config, watched=watched) if chain else None   # 沒有連鎖段（含守門關）：不碰斷路器
+                                   config) if chain else None   # 沒有連鎖段（含守門關）：不碰斷路器
     except Exception as e:  # noqa: BLE001  斷路器壞了不能讓閘跟著壞：照原本的擋
         sys.stderr.write(f"[chain-breaker] 工具前記觸發出錯，照原本的閘行為：{type(e).__name__}: {e}\n")
         chain, r = None, None
@@ -1726,20 +1721,9 @@ def _chain_before_write(input_data: Dict[str, Any], config: Dict[str, Any], chai
 
 
 def _known_write_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
-    """這次工具呼叫算得出的寫入目標（wg_core.write_paths_from_tool；算不出的 UNKNOWN 不列）。改檔前存快照、記閘擋的檔共用。"""
+    """這次工具呼叫算得出的寫入目標（wg_core.write_paths_from_tool；算不出的 UNKNOWN 不列）。改檔前存快照用。"""
     from wg_core import write_paths_from_tool
     return [p for p in write_paths_from_tool(tool_name, tool_input or {}, cwd) if not p.startswith("UNKNOWN:")]
-
-
-def _blocked_files(tool_name: str, tool_input: Dict[str, Any], cwd: str, owed: Sequence[str] = ()) -> List[str]:
-    """CHAIN_SAME_GATE_PER_OBJECT：每個檔各要一行宣告的閘（動資料檔、改舊測試）擋下時報給斷路器的檔＝這次要寫的檔，加上 owed
-    （改舊測試：上一個 Bash 欠著宣告的那幾支，這次任何工具都可能因它們被擋）。多報不少報：寧可多算同一個對象、不可漏算。
-    算不出（例外）回空清單＝照舊只看閘名，stderr 說一聲。"""
-    try:
-        return list(dict.fromkeys([*(str(p) for p in owed if p), *_known_write_paths(tool_name, tool_input, cwd)]))
-    except Exception as e:  # noqa: BLE001
-        sys.stderr.write(f"[chain-breaker] 算不出這次擋的檔（照閘名計數）：{type(e).__name__}: {e}\n")
-        return []
 
 
 def _chain_halt(input_data: Dict[str, Any], config: Dict[str, Any], tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
@@ -1859,7 +1843,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     tool_input = input_data.get("tool_input", {})
     v6 = v6_enabled(config)     # 關＝只跑 9e476fd0 就有的閘（dispatcher 已擋掉寫碼守門才掛的工具）
 
-    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log；要讀檔證據的閘（動資料檔、提問前讀過部位檔）
+    # 規則 READ_FAST_PATH：Read 的 PostToolUse 只落 read-log；要讀檔證據的閘（提問前讀過部位檔）
     # 之前先把累積的 Read 補帳（沒累積只多一次 stat）
     if v6 and wg_read_fast.pending(str(input_data.get("session_id") or "")):
         from handlers.post_tool_use import replay_reads_before_tool
@@ -1999,15 +1983,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # ── DataFileAsk（T2.16 動使用者資料檔要先宣告）──
-    # 使用者既有、非程式、非本 session 建、原話沒點名的資料檔／設定檔，沒有「動資料檔｜<路徑>：<為什麼>」就擋（wg_data_file）
-    deny_reason = v6 and wg_data_file.gate(tool_name, tool_input, input_data, config)
-    if deny_reason:
-        _deny(input_data, config, deny_reason, watched=_blocked_files(tool_name, tool_input, _cwd))
-        return
-
-    # state 這裡讀一次（動資料檔閘自己讀寫過之後）：svn 測試路徑閘、改舊測試閘與後面的口令閘、繞閘閘、OverviewHub 共用同一份
-    # （改舊測試閘就地改、有改自己寫回）
+    # state 這裡讀一次：svn 測試路徑閘與後面的口令閘、OverviewHub 共用同一份
     _co_sid = input_data.get("session_id", "") or ""
     _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
 
@@ -2016,23 +1992,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
     _hook_lap("寫入閘")
-
-    # ── OldTestDeclare（改舊測試要先宣告）──
-    # 動到既有測試（消失、改名、斷言變了、加 skip）沒有「改舊測試｜哪支：理由」就擋；閘自己炸＝判不了，不擋（stderr＋留帳 error，規則 GATE_SELF_ERROR）
-    # 閘會就地改 state（補了宣告的欠帳拿掉）：擋下時報給斷路器的檔要含呼叫前還欠著的那幾支
-    _ot_pending = _co_state.get(wg_oldtest.PENDING_KEY) if v6 and isinstance(_co_state, dict) else None   # 只有守門開時的擋下要用
-    _ot_owed = [str(e.get("file") or "") for e in _ot_pending if isinstance(e, dict)] if isinstance(_ot_pending, list) else []
-    try:
-        deny_reason = v6 and wg_oldtest.gate(tool_name, tool_input, input_data, config, _cwd, _co_state)
-    except Exception as e:
-        deny_reason = None
-        err = f"{type(e).__name__}: {e}"
-        sys.stderr.write(f"[Guardian:OldTestDeclare] 改舊測試閘內部錯誤，判不了有沒有動到既有測試（這次不擋，已留帳）：{err}\n")
-        append_guard_log("old_test", {"event": "error", "rule": "GATE_SELF_ERROR", "session": _co_sid, "tool": tool_name, "error": err})
-    if deny_reason:
-        _deny(input_data, config, deny_reason, watched=_blocked_files(tool_name, tool_input, _cwd, _ot_owed))
-        return
-    _hook_lap("舊測試閘")
 
     # 索引三檔合併驅動閘（advisory-only）——必須在隱私閘之前：resolver 會 git add 索引檔，
     # 隱私檢查要看到它 stage 完的 index。之後 privacy 仍可能 deny；已 stage 的索引檔
@@ -2076,18 +2035,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
     deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config) if v6 else (None, None)
-    if deny_reason:
-        wg_gate_bypass.note_smell_deny(_co_state, _co_sid, _cwd, deny_reason, tool_name, tool_input, input_data.get("transcript_path", "") or "", config)
-        _deny(input_data, config, deny_reason)
-        return
-
-    # ── GateBypass（T2.19 繞閘嫌疑）──
-    # 這個 session 被病形閘擋過之後，unstage／改提交範圍／--no-verify 讓同一批內容過關 → 要宣告「不是繞閘｜理由」，沒宣告就擋；
-    # 事實與判定在 hooks/wg_gate_bypass.py
-    deny_reason = v6 and wg_gate_bypass.check(tool_name, tool_input, _cwd, config, _co_state, _co_sid,
-                                              input_data.get("transcript_path", "") or "",
-                                              agent_id=str(input_data.get("agent_id") or ""),
-                                              tool_use_id=str(input_data.get("tool_use_id") or ""))
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return

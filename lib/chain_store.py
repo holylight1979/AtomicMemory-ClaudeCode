@@ -226,7 +226,7 @@ def _batch(input_data: Dict[str, Any]) -> Tuple[str, str]:
 
 
 def batch_of(input_data: Dict[str, Any]) -> Tuple[str, str]:
-    """這次工具呼叫是哪一則回覆送出的（CHAIN_SAME_BATCH 的批次鍵；宣告閘的擋次上限 DENY_CAP_PER_REPLY 也用這把）→ (鍵, 判不出的原因)。
+    """這次工具呼叫是哪一則回覆送出的（CHAIN_SAME_BATCH 的批次鍵；工具前閘的擋次上限 DENY_CAP_PER_REPLY 也用這把）→ (鍵, 判不出的原因)。
     沒有 tool_use_id（不是工具呼叫）判不出。"""
     if not input_data.get("tool_use_id"):
         return "", "沒有 tool_use_id"

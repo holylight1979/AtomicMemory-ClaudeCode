@@ -48,8 +48,8 @@ RULES: Dict[str, str] = {
     "EXEMPTION_PEERS_CODE_ONLY": "SNAPSHOT_SETTLED、NET_UNCHANGED、COMMENT_ONLY_CHANGE 要一起比的同根改檔只看程式檔（案例檔也是程式檔）："
                                  "文件、紀錄檔、設定、資料改了或正被別的 session 改著，不擋豁免；程式檔或案例檔本身沒回到那個狀態照擋"
                                  "（wg_verify_ledger.exemption_peers）。",
-    "BLOCK_BUDGET_SHARED": "寫碼查核（紅測、對帳 (a)～(d)）"
-                           "每個使用者回合共用一份擋次預算（reconcile_gate.max_blocks_per_turn，預設 2，鍵 *，"
+    "BLOCK_BUDGET_SHARED": "寫碼查核（對帳 (a)～(d)）"
+                           "每個使用者回合一份擋次預算（reconcile_gate.max_blocks_per_turn，預設 2，鍵 *，"
                            "不分是哪幾條規則）：同一個使用者回合擋滿就改問使用者【收尾放行確認】；收尾報告那一份（e）另計。"
                            "吃 stop_gate_max_blocks 的那份共用擋次（退縮閘、收尾檢核推遲寫卡、Reload 建議、取用稽核、"
                            "一般同步擋）每個使用者回合歸零、同一回合第 3 次放行（寫碼守門開時；寫碼守門關照舊，整個 session 累計）。"
@@ -185,9 +185,9 @@ RULES: Dict[str, str] = {
     "GATE_SELF_ERROR": "閘自己判定時出錯（例外、設定讀不到），不讓 AI 一直付代價：收尾閘（有擋次預算）同一個使用者回合因這個錯"
                        "擋 1 次後放行；工具前閘（出錯時常讀不到 state、無從計次）直接放行。兩者都要 stderr 一行＋guard log 記一筆"
                        " event=error（閘名、錯誤種類與訊息）。判法在 gate_self_error_verdict。",
-    "GATE_DENY_CAP": "宣告類閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 2 則回覆（wg_core.DECL_DENY_CAP；怎麼數則見 "
-                     "DENY_CAP_PER_REPLY）後下一則放行並留帳，換使用者回合歸零（判法 wg_core.deny_cap）。適用動資料檔、"
-                     "改舊測試、不是繞閘三處；留帳事件 cap_released。舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
+    "GATE_DENY_CAP": "工具前閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 cap 則回覆（預設 wg_core.DECL_DENY_CAP；怎麼數則見 "
+                     "DENY_CAP_PER_REPLY）後下一則放行並留帳，換使用者回合歸零（判法 wg_core.deny_cap）。目前用它的是驗證批次閘"
+                     "（cap=1，VERIFY_BATCH_BLOCK_ONCE_PER_TURN）。舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
     "DENY_CAP_PER_REPLY": "擋次上限照「則」數，不照工具呼叫數：同一則回覆裡平行送出的呼叫是送出前就決定好的，AI 還沒看到第一則擋訊息。"
                           "同一件缺件在同一則裡只算一次，那一則的其他呼叫照第一次的結果（擋就照擋）、不加次數；下一則回覆的呼叫才加。"
                           "哪一則＝這次呼叫之前最後一則 assistant 的 message.id（同 CHAIN_SAME_BATCH，lib/chain_store.batch_of）。"
@@ -201,16 +201,14 @@ RULES: Dict[str, str] = {
     "SVN_TEST_BLOCK_OPT_IN": "svn 提交測試路徑的閘預設關，專案設定（overview-hub.json 的 svn_test_block.enabled）開了才判；開了只看 "
                              "svn commit 的路徑參數（訊息裡寫 test 不算）；放行要有一行「測試上 svn 原句：「…」」，引的句子逐字在使用者本回合的"
                              "原話裡、而且那個子句沒被否定（「不要提交測試」引了也不算），留帳 user_quote。",
-    "GATE_BYPASS_NAMED_FILES_MERGED": "同一個 repo 還沒 commit 成功又被病形閘擋下時，這次點名的檔與先前點名的合併成一份；「不是繞閘｜」宣告要寫在"
-                                      "該檔被點名之後才替它算數（先寫的宣告不替後來才點名的檔放行）。",
-    "PENDING_SAME_USER_TURN": "擋滿留下的待放行（寫碼查核、紅測）只在記下它的那個使用者回合有效：使用者打字開了新回合就失效，預算重給、"
+    "PENDING_SAME_USER_TURN": "擋滿留下的待放行（寫碼查核）只在記下它的那個使用者回合有效：使用者打字開了新回合就失效，預算重給、"
                               "不拿原宣稱重查；背景通知、同伴訊息開的續跑回合不算換回合，同一回合裡照第一次擋滿時的宣稱原話重查。"
                               "判法在 wg_release.pending_of。",
     "RELEASE_COVERS_SHOWN_ITEMS": "使用者放行：同一個使用者回合照選項字面「放行這一回合」整個放；之後的回合只沿用擋訊息列過、"
-                                  "使用者看過的那幾件（對帳每條 ✗ 的規則與現象，沒有 ✗ 的段（例：判定錯誤）整段算一件；紅測是指令＋全部失敗節點）。"
+                                  "使用者看過的那幾件（對帳每條 ✗ 的規則與現象，沒有 ✗ 的段（例：判定錯誤）整段算一件）。"
                                   "原因還在就不再擋、不再問，原因消失就拿掉那件；寫碼查核在放行之後又改了檔，整份放行不再沿用；新出現的照擋。"
                                   "判法在 wg_release（release_items／keep_released）。",
-    "NONINTERACTIVE_RELEASE_AT_BUDGET": "沒有人能回答放行詢問（headless／SDK 主 session、子代理、裁判子 session）：寫碼查核、紅測、"
+    "NONINTERACTIVE_RELEASE_AT_BUDGET": "沒有人能回答放行詢問（headless／SDK 主 session、子代理、裁判子 session）：寫碼查核、"
                                         "等值證法照預算擋，擋滿就放行並留帳（主 session event=noninteractive_released，"
                                         "子代理與裁判 *_released），不叫它問、不擋到底；擋訊息不說「不能放行」。",
     "ORDER_UNTIL_PUSH": "版控口令（上GIT 等）在該批作業 push 完、或使用者打字開新回合之前持續有效（寫碼守門開時；寫碼守門關照舊："
@@ -284,11 +282,6 @@ class Verdict(NamedTuple):
 def canon_path(path: Any) -> str:
     """SAME_FILE：比對用的路徑鍵。先消掉 `.`／`..`，再統一斜線、去尾斜線、轉小寫（Windows 檔名不分大小寫）。"""
     return os.path.normpath(str(path)).replace("\\", "/").rstrip("/").lower()
-
-
-def same_file(a: Any, b: Any) -> bool:
-    """SAME_FILE：兩種寫法指的是不是同一個檔。"""
-    return canon_path(a) == canon_path(b)
 
 
 def user_turn(state: Dict[str, Any], turn_seq: int) -> int:
@@ -416,22 +409,6 @@ def format_hit(letter: str, v: Verdict) -> str:
     """`✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。沒有證據就印 why 當唯一一行證據。"""
     ev = list(v.evidence) or [v.why]
     return f"{HIT_PREFIX}({letter}) {v.rule}：{v.why}｜證據：" + "；".join(ev)
-
-
-DENY_EVIDENCE_CAP = 160      # DENY_TEXT_SLIM：每項證據最多幾個字，超過截短
-
-
-def deny_slim_enabled(config: Any) -> bool:
-    """guard.deny_text_slim（預設開，規則 DENY_TEXT_SLIM）；寫 false 時採用的閘退回自己原本的長文字（原處不動）。"""
-    return (((config or {}).get("guard") or {}).get("deny_text_slim", True)) is not False
-
-
-def slim_deny(tag: str, fix: str, hits: Sequence[Tuple[str, Verdict]], cap: int = DENY_EVIDENCE_CAP) -> str:
-    """DENY_TEXT_SLIM 的擋訊息：第一行 `[<閘>] 修法：<一句>`，下面每條命中一行 format_hit（parse_hits 照認，
-    每項證據超過 cap 字截短）。"""
-    rows = [format_hit(letter, v._replace(evidence=tuple(e if len(e) <= cap else e[:cap] + "…" for e in v.evidence)))
-            for letter, v in hits]
-    return "\n".join([f"[{tag}] 修法：{fix}", *rows])
 
 
 def split_blocking(hits: List[str], block_letters: Any) -> Tuple[List[str], List[str]]:
@@ -1148,10 +1125,7 @@ RULES["PROJECT_RULE_WORDS_ARE_HINTS"] = ("背景自動萃取（user-extract-work
 RULES["NEGATIVE_CONTROL_DECLARED"] = ("刻意拿舊碼（或別的對照組）跑測試、預期它紅＝負向對照：宣告行「負向對照｜<這條指令裡出現的路徑或字樣>："
                                       "<理由>」（回覆文字／工具參數／thinking 三管道，主檔與子代理檔，含這次指令自己的 `#` 註解）點到的字樣"
                                       "是這條指令的一段、理由有文字內容 → 這次紅記 deliberate_reds（rule＝本規則、附宣告行），不進 failing_tests、"
-                                      "不計重試；點到的字樣不在指令裡、沒寫理由、沒宣告 → 照記紅。宣告只綁出現那段字樣的指令，蓋不到別的紅。"
-                                      "收尾入口（handlers/stop.py 紅測閘之前）：紅記了之後才在本回合回覆寫這一行、點到的字樣在那筆紅存的指令（前 200 字）裡 → "
-                                      "那筆從 failing_tests 搬到 deliberate_reds、留帳 guard-testfail_scope event=negative_control_declared，不必重跑；"
-                                      "搬過就不會再被拿來擋。")
+                                      "不計重試；點到的字樣不在指令裡、沒寫理由、沒宣告 → 照記紅。\1")
 _NEG_CONTROL_RE = lazy_re(r"負向對照\s*[｜|]\s*(.+)")
 _ASCII_SEP_NOT_PATH_RE = lazy_re(r":(?![\\/])")   # 「C:\…」「C:/…」的冒號屬於路徑
 
@@ -1860,18 +1834,11 @@ RULES.update({
                           "出現在命中那一行 → 不標、不擋、留帳（guard log evasion_declared／deferral_declared）；理由要有文字內容、不是佔位。"
                           "說明句被詞表誤命中（「下個 session 開場會列出…」是在描述已驗過的事）→ 寫「不是退避｜<命中的詞或句>：因為 <理由>」"
                           "同樣只查有沒有理由、留帳。詞表各類的 exception 文字（風險、為什麼超出）附在提示裡給 LLM 寫理由用，程式不評理由內容。",
-    "USER_WAIVER_NEEDS_CITATION": "紅測清單的使用者豁免（名稱沿用）：近 3 則使用者原話含「先這樣／跳過／留著」不直接清掉紅測清單；"
-                                  "LLM 寫「不做｜<哪一支>：使用者說「<原句片段>」」就留帳放行，原句不再比對使用者原話（事後抽查）。"
-                                  "只豁免事項指得到那一筆的（事項是失敗指令或摘要的一個完整 token：整個 token、檔名、路徑或節點尾段；"
-                                  "pytest 節點也認函式名、類別名與不帶副檔名的檔名；通用字不算）；摘要逐支列出失敗（FAILED／ERROR 行）時每一支"
-                                  "各自要有豁免，有一支沒有整筆照算紅。豁免一成立就記帳（state testfail_waivers；留帳 testfail_waived 與 "
-                                  "deferral_declared），之後同 session 同一支看帳，但收尾仍要有對到它的不做行；使用者在記帳之後又提到這一支 → 帳不算。",
     "RED_ITEMS_ONLY_FROM_FAILURE_LINES": "紅測的失敗項只從失敗行取：pytest 摘要 FAILED／ERROR 開頭的節點行（扣掉之後的綠已跑到的 "
                                          "cleared_units）；沒有節點行時只認行首 FAIL／FAILED／ERROR 的行（unittest、go、jest）"
-                                         "加上指令點名的案例檔。指令裡 # 開頭的註解行（AI 自己寫的不做行）、git 輸出、Exit code 行都不是失敗項，"
-                                         "不拿來對不做行。擋訊息抬頭算還沒跑綠的支數與已綠的支數（不是幾筆紀錄），逐筆只列還沒跑綠的失敗項（已清的絕不列）與指令實際跑的那行（不是摘要第一行、不是註解），附重跑哪幾支檔就夠（還紅的那幾支所在的檔）；沒列出失敗項就說沒列出、"
-                                         "要不截斷重跑；不做行對到了某支、但引用不在近 3 則使用者原話、帳上也沒有 → 擋訊息說出是哪一支、缺什麼；"
-                                         "帳上有那支的豁免、這次收尾卻沒寫對到它的不做行 → 擋訊息給那一行照抄（帳不自動放）。",
+                                         "加上指令點名的案例檔。指令裡 # 開頭的註解行、git 輸出、Exit code 行都不是失敗項。"
+                                         "擋訊息抬頭算還沒跑綠的支數與已綠的支數（不是幾筆紀錄），逐筆只列還沒跑綠的失敗項（已清的絕不列）與指令實際跑的那行（不是摘要第一行、不是註解），附重跑哪幾支檔就夠（還紅的那幾支所在的檔）；沒列出失敗項就說沒列出、"
+                                         "要不截斷重跑。",
 })
 
 CLAIM_LABELS: Dict[str, str] = {"fixed": "修好", "measured": "量了", "tried": "試過"}
@@ -1888,9 +1855,8 @@ _USER_SAID_RE = lazy_re(r"使用者\s*(?:說|原話|的話|說的)\s*[：:]?\s*[
 _WS_RE = lazy_re(r"\s+")
 _ITEM_STRIP_RE = lazy_re(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。；;]")
 _WORD_CHAR_RE = lazy_re(r"[A-Za-z0-9一-鿿]")
-_LATIN_ONLY_RE = lazy_re(r"^[A-Za-z0-9 _.\-]+$")
 _TOKEN_TRIM = "\"'`「」『』（）()[]{}<>,，;；。:："
-# 指不到特定收據／測試的通用字：直譯器、跑測工具、旗標、純副檔名（規則 CLAIM_RECEIPT_REF_MATCH／USER_WAIVER_NEEDS_CITATION）
+# 指不到特定收據／測試的通用字：直譯器、跑測工具、旗標、純副檔名（規則 CLAIM_RECEIPT_REF_MATCH）
 GENERIC_NAMES = frozenset({"python", "python3", "py", "pytest", "test", "tests", "verify", "run", "node", "npm", "npx", "bash", "sh",
                            "pwsh", "powershell", "cd", "cmd", "exe", "md", "json", "txt", "m", "q", "x", "utf8"})
 
@@ -2042,19 +2008,6 @@ def not_doing_covering(line: str, decls: Sequence[Dict[str, str]]) -> Optional[D
     return None
 
 
-def quote_in_prompts(quote: str, prompts: Sequence[str]) -> bool:
-    """引用的片段有文字內容（至少 2 個中文或英數字，純標點不算）且出現在任一則使用者原話裡：中文片段去空白子字串比對；
-    純英數片段整詞比對（「ok」對不到「broken」）。"""
-    if not has_text(quote):
-        return False
-    q = _WS_RE.sub(" ", str(quote or "")).strip()
-    if _LATIN_ONLY_RE.match(q):
-        rx = re.compile(r"(?<![A-Za-z0-9])" + re.escape(q).replace(r"\ ", r"\s*") + r"(?![A-Za-z0-9])", re.IGNORECASE)
-        return any(rx.search(_WS_RE.sub(" ", str(p or ""))) for p in prompts or ())
-    qn = _nows(q)
-    return any(qn in _nows(p) for p in prompts or ())
-
-
 def not_doing_reason_hint(exception: str = "") -> str:
     """不做行範本裡「<理由：…>」那段說明：詞表那一類的 exception（去掉「除非附」），沒有就用通用的四種理由。"""
     return re.sub(r"^除非附\s*", "", str(exception or "")).strip().strip("「」") or "風險／為什麼超出／不可逆／要使用者拍板"
@@ -2151,26 +2104,6 @@ def conflict_declaration_verdict(candidates: Sequence[str], declared: Any) -> Tu
 _PENDING_ATOM_RE = lazy_re(r"^\s*([^\s:：]+)[:：]")     # 卡名是不含空白的 slug，緊接冒號
 
 
-def names_failed_test(text: str, item: str) -> bool:
-    """USER_WAIVER_NEEDS_CITATION 的事項比對：names_item 之外，紅測摘要裡的 pytest 節點（檔::類::函式[參數]）也認函式名、類別名與
-    不帶副檔名的檔名：擋訊息範本叫 AI 寫「紅的那支測試名」，照寫的就是這些。通用字、含空白的事項不放寬。"""
-    if names_item(text, item):
-        return True
-    it = str(item or "").strip().strip("`").lower()
-    if not it or " " in it or is_generic_name(it):
-        return False
-    for raw in _WS_RE.sub(" ", str(text or "")).lower().split(" "):
-        tok = raw.strip(_TOKEN_TRIM).replace("\\", "/")
-        if "::" not in tok:
-            continue
-        path, *parts = tok.split("::")
-        name = path.rsplit("/", 1)[-1]
-        if (it in (name, name.rsplit(".", 1)[0]) or ("/" in it and (path == it or path.endswith("/" + it)))
-                or any(it in (p, p.split("[", 1)[0]) for p in parts)):
-            return True
-    return False
-
-
 _FAILED_UNIT_RE = lazy_re(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
 
 
@@ -2180,10 +2113,6 @@ def failed_units(summary: Any) -> List[str]:
 
 
 _FAILURE_LINE_RE = lazy_re(r"^\s*(?:-{2,3}\s*)?(?:FAILED|FAIL|ERROR)\b.*$", re.MULTILINE)
-# 一行一支的失敗（沒有 pytest 節點時）：go「--- FAIL: TestX」、unittest「FAIL: test_x (mod.Cls)」、jest「FAIL src/a.test.js」；
-# 「FAIL」「FAILED (failures=2)」「FAIL\t<套件>」這種結算行不是一支
-_TEST_FAIL_LINE_RE = lazy_re(r"^\s*(?:-{2,3}\s*FAIL:\s*([^\s/]+)|(?:FAIL|ERROR):\s*(\S+)\s+\(|FAIL\s+(\S+\.(?:js|jsx|ts|tsx|mjs|cjs|py))\b)",
-                                re.MULTILINE)
 # 註解：行首的 #，或前面是空白的 #（shell 只在字首把 # 當註解開頭）
 _COMMENT_RE = lazy_re(r"(?:^|(?<=\s))#.*$", re.MULTILINE)
 
@@ -2199,28 +2128,9 @@ def failure_lines(summary: Any) -> List[str]:
     return [m.group(0).strip() for m in _FAILURE_LINE_RE.finditer(str(summary or ""))]
 
 
-def failure_units(summary: Any) -> List[str]:
-    """沒有 pytest 節點行時一行一支的失敗名稱（go 子測試只取上層名），去重保序；結算行不算。"""
-    names = (next(g for g in m.groups() if g) for m in _TEST_FAIL_LINE_RE.finditer(str(summary or "")))
-    return list(dict.fromkeys(n.replace("\\", "/") for n in names))
-
-
 def cmd_run_line(cmd: Any) -> str:
     """指令實際跑的部分（去掉 # 註解，多行併成一行）：擋訊息與比對用，AI 寫在指令註解裡的不做行不算指令。"""
     return " ".join(ln.strip() for ln in _COMMENT_RE.sub("", str(cmd or "")).splitlines() if ln.strip())
-
-
-def _unlisted_unit(entry: Dict[str, Any]) -> str:
-    """摘要沒列哪一支時整筆當一支的比對文字：測試子命令那幾段的參數（認不出測試子命令就整條，都去掉註解）＋失敗行；
-    git 輸出、Exit code 行、echo 這類別段、註解都不算。"""
-    return " ".join([_test_runner_args(cmd_run_line(entry.get("cmd", ""))).strip(),
-                     *failure_lines(entry.get("summary", ""))]).strip()
-
-
-def _waiver_units(entry: Dict[str, Any]) -> Tuple[List[str], bool]:
-    """紅測豁免逐支比的單位與「有沒有逐支列出」：pytest 節點（扣掉已清的）→ 一行一支的失敗名稱 → 都沒有就整筆當一支。"""
-    units = red_units(entry) or failure_units(entry.get("summary", ""))
-    return (units, True) if units else ([_unlisted_unit(entry)], False)
 
 
 def cleared_units(entry: Dict[str, Any]) -> List[str]:
@@ -2268,224 +2178,11 @@ def red_item_label(entry: Dict[str, Any], shown: int = 3) -> str:
     return "（輸出沒列出 FAILED／ERROR 那幾行，看不出是哪一支：別截斷輸出、單獨重跑一次）"
 
 
-def waiver_mentioned_since(entry: Dict[str, Any], history: Sequence[str]) -> bool:
-    """帳記下之後使用者又提到這一支：history（近幾則原話，舊到新）裡記帳那則原話之後（那則不在了就整段）出現事項、或帳上那幾支的
-    檔名／不帶副檔名的檔名／函式名（使用者不一定用同一個名字叫它；中文句子不靠空白斷詞，只要前後不是英數字）。通用字不算。"""
-    names = [str(entry.get("item") or "")]
-    for u in entry.get("units") or ():
-        path, *parts = str(u).split("::")
-        base = path.rsplit("/", 1)[-1]
-        names += [base, base.rsplit(".", 1)[0], *(p.split("[", 1)[0] for p in parts)]
-    words = {n.strip().lower() for n in names if n.strip() and not is_generic_name(n)}
-    if not words:
-        return False
-    pat = re.compile("|".join(rf"(?<![a-z0-9_]){re.escape(w)}(?![a-z0-9_])" for w in sorted(words)))
-    said = str(entry.get("said") or "")[:200]
-    at = max((i for i, h in enumerate(history) if said and str(h)[:200] == said), default=-1)
-    return any(pat.search(str(h).lower()) for h in history[at + 1:])
-
-
-def _booked_for(entry: Dict[str, Any], unit: str, listed: bool, cmd: str) -> bool:
-    """帳上這筆是不是同一支：摘要逐支列出時比記帳那時的同一個節點（別檔同名函式不算）；沒列出時比同一條指令＋事項。"""
-    if listed:
-        return unit in (entry.get("units") or ())
-    return not entry.get("units") and entry.get("cmd") == cmd[:200] and names_failed_test(unit, str(entry.get("item") or ""))
-
-
-def _unit_waiver(unit: str, listed: bool, cmd: str, cited: Sequence[Dict[str, str]], lines: Sequence[Dict[str, str]],
-                 ledger: Sequence[Dict[str, Any]]) -> Optional[Dict[str, str]]:
-    hit = next(({**d, "via": "quote"} for d in cited if names_failed_test(unit, d["item"])), None)
-    if hit is not None:
-        return hit
-    booked = next((e for e in ledger if _booked_for(e, unit, listed, cmd)), None)
-    if booked is None:
-        return None
-    return next(({**d, "quote": d["quote"] or str(booked.get("quote") or ""), "via": "ledger"}
-                 for d in lines if names_failed_test(unit, d["item"])), None)
-
-
-def waived_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], prompts: Sequence[str],
-                    ledger: Sequence[Dict[str, Any]] = (), history: Sequence[str] = ()
-                    ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], Dict[str, Any]]]]:
-    """USER_WAIVER_NEEDS_CITATION 套在紅測清單：回 (還算紅的, [(被豁免的那筆, 對上的不做行＋via＋units)])。
-    豁免條件：不做行的事項指得到那支失敗（names_failed_test；通用字不算），而且寫了「使用者說「…」」（via＝quote；原句不再
-    比對近 3 則原話，留帳抽查）；或本 session
-    帳上（ledger＝state testfail_waivers，豁免成立時記的）有同一支的豁免（via＝ledger：引用看帳、不看窗口）。
-    摘要逐支列出失敗（failed_units）時每一支各自要有豁免，有一支沒有整筆照算紅；沒列出就整筆（指令＋摘要）當一支。
-    帳只認記帳那時的同一支（_booked_for），而且使用者在那之後沒再提到這支（waiver_mentioned_since；history＝近幾則原話，預設
-    prompts；提到了就以新的話為準，回到引用窗口判；stop 每次收尾也把這種帳從 state 拿掉，免得那則原話擠出近 5 則後帳又活回來）；
-    帳不自動放：收尾仍要有對到那一支的不做行。"""
-    lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
-    cited = [d for d in lines if d["quote"]]       # 引用不再比對近 3 則原話：寫了就留帳放行（原句照記、事後抽查）
-    hist = list(history or prompts)
-    live = [e for e in ledger or () if not waiver_mentioned_since(e, hist)]
-    kept: List[Dict[str, Any]] = []
-    waived: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
-    for f in failing:
-        cmd = str((f or {}).get("cmd", ""))
-        units, listed = _waiver_units(f or {})
-        hits = [_unit_waiver(u, listed, cmd, cited, lines, live) for u in units]
-        if not all(hits):
-            kept.append(f)
-            continue
-        merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
-        for u, h in zip(units, hits):
-            got = merged.setdefault((h["line"], h["via"]), {**h, "units": []})
-            if listed:
-                got["units"].append(u)
-        waived += [(f, h) for h in merged.values()]
-    return kept, waived
-
-
-def waiver_miss_notes(kept: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], prompts: Sequence[str],
-                      ledger: Sequence[Dict[str, Any]] = ()) -> List[str]:
-    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：還算紅的那幾筆為什麼沒豁免（不說的話 AI 只看到又被擋，會以為是名字沒對上）：
-    不做行對到了某支、卻只寫了 AI 自己的理由（沒有「使用者說「…」」）→ 說是哪一支、要怎麼寫；帳上有這支的豁免、這次收尾卻沒寫
-    對到它的不做行 → 給那一行照抄（帳不自動放）。"""
-    out: List[str] = []
-    lines = [d for d in decls if d.get("mode", "not_doing") == "not_doing"]
-    for f in kept:
-        units, listed = _waiver_units(f or {})
-        for u in units:
-            named = [d for d in lines if names_failed_test(u, d["item"])]
-            e = next((e for e in ledger or () if _booked_for(e, u, listed, str(f.get("cmd", "")))), None)
-            if named and e:
-                continue                         # 這支照帳豁免了，整筆還紅是因為別支
-            d = next((d for d in named if not d.get("quote")), None)
-            line = ""
-            if d:
-                line = (f"不做行「{d['item'][:60]}」對到了 {u[:100]}，但只寫了自己的理由：紅測要使用者說了才豁免，寫成"
-                        f"「不做｜{d['item'][:60]}：使用者說「<原句>」」，或照 (b)(c) 處理")
-            elif not named and e:
-                line = (f"帳上有 {u[:100]} 的豁免（使用者說「{str(e.get('quote') or '')[:40]}」），這次收尾沒寫對到它的不做行："
-                        f"補一行「不做｜{str(e.get('item') or '')[:60]}：使用者說「{str(e.get('quote') or '')[:40]}」」就放行")
-            if line and line not in out:
-                out.append(line)
-    return out
-
-
-# ─── BASE_RED_TRACKED_NOT_OWED：改動前基底就紅、有追蹤項的紅測 ───
-RULES["BASE_RED_TRACKED_NOT_OWED"] = (
-    "改動前的基底 commit 上就紅、而且有追蹤項點名的紅測，不算本回合欠帳：收尾寫「基底紅｜<紅的那支測試名>：<基底 commit> 也紅；"
-    "追蹤 <文件路徑>」，紅的每一支都要三件同時成立才留帳放行（Logs/guard-testfail_base_red.jsonl 記哪一支、哪個基底 commit、"
-    "哪份追蹤文件）：(1) 本 session 真的在那個 commit 的乾淨工作樹跑過、那次紅的就有這一支（跑紅時記下 HEAD 與已追蹤檔有沒有改動，"
-    "state red_run_commits；不從別處推論）；(2) 那個 commit 是現在 HEAD 的祖先、在本 session 開始之前就有（committer 時間；"
-    "本 session 做的 merge、rebase、提交都不算）、不在本 session 的提交紀錄裡；(3) 追蹤文件（.md／.txt）"
-    "在、本 session 沒改過、內文點名這一支（整詞）。缺一照擋：基底綠、這次紅 → 沒有基底的紅可對，照擋；擋訊息說缺哪一件。"
-    "摘要沒逐支列出失敗的不收（看不出基底紅的是不是同一支）；基底那次的指令要只有一段測試，好幾段測試的紅分不出是哪一段的、不記成證據。事實在 handlers/post_tool_use._track_test_result（記）與 "
-    "handlers/stop.py 的 TestFailGate 段（查祖先、讀追蹤文件）蒐集。")
-_BASE_RED_RE = lazy_re(r"基底紅\s*[｜|]\s*([^：:\n]{1,80}?)\s*[：:]\s*(.+)")
-_BASE_SHA_RE = lazy_re(r"(?<![0-9a-fA-F])[0-9a-fA-F]{7,40}(?![0-9a-fA-F])")
-_TRACK_REF_RE = lazy_re(r"追蹤\s*[｜|：:]?\s*(?:`([^`\n]+)`|([^\s，。；;、）)｜|]+))")
-BASE_RED_DOC_EXTS = (".md", ".txt")
-
-
-def parse_base_red(text: str) -> List[Dict[str, str]]:
-    """收尾文字裡的基底紅行 →[{item, base, tracking, line}]：base＝「追蹤」之前第一個 7～40 位十六進位（小寫；沒有＝空字串），
-    tracking＝「追蹤」後面的路徑（反引號包住的可含空白；尾端 :<行號> 拿掉；沒有＝空字串）。"""
-    out: List[Dict[str, str]] = []
-    for raw in str(text or "").splitlines():
-        m = _BASE_RED_RE.search(raw)
-        if not m:
-            continue
-        rest = m.group(2)
-        sha = _BASE_SHA_RE.search(rest.split("追蹤", 1)[0])
-        trk = _TRACK_REF_RE.search(rest)
-        path = re.sub(r":\d+$", "", (trk.group(1) or trk.group(2)).strip()) if trk else ""
-        out.append({"item": m.group(1).strip().strip("`"), "base": sha.group(0).lower() if sha else "",
-                    "tracking": path, "line": raw.strip()[:240]})
-    return out
-
-
-def listed_red_units(summary: Any) -> List[str]:
-    """紅測輸出逐支列出的失敗：pytest 節點，沒有就一行一支的失敗名稱；沒列出回空。跑紅時記基底證據與收尾比對用同一份。"""
-    return failed_units(summary) or failure_units(summary)
-
-
-def _base_red_gap(unit: str, d: Dict[str, str], cwd: str, facts: Dict[str, Any]) -> str:
-    """一支紅測對一條基底紅行：三件都成立回空字串，否則回缺的那一件（擋訊息照印）。facts 見 base_red_failures。"""
-    base = d["base"]
-    if not base:
-        return "沒寫基底 commit（7 位以上的雜湊）"
-    if not any(r.get("clean") is True and str(r.get("head") or "").lower().startswith(base) and unit in (r.get("units") or ())
-               for r in facts.get("runs") or ()):
-        return f"本 session 沒在基底 {base} 的乾淨工作樹跑紅過這一支（基底綠、或沒在基底跑過 → 照算本回合的紅）"
-    if any(str(s).lower().startswith(base) for s in facts.get("own_shas") or ()):
-        return f"基底 {base} 是本 session 自己提交的，不是改動前"
-    born, started = (facts.get("base_times") or {}).get(base), facts.get("started")
-    if born is None or started is None or born >= started:
-        return f"基底 {base} 要早於本 session 開始，這個 commit 沒有（本 session 做的 merge、rebase 之後的 commit 不算；查不到時間也不算）"
-    if (facts.get("ancestry") or {}).get((base, cwd)) is not True:
-        return f"基底 {base} 不是現在 HEAD 的祖先（或查不到）"
-    t = (facts.get("tracking") or {}).get(d["tracking"]) if d["tracking"] else None
-    if t is None:
-        return "沒寫追蹤文件（「追蹤 <路徑>」）"
-    if not t.get("exists"):
-        return f"追蹤文件 {d['tracking']} 不存在"
-    if not t.get("doc"):
-        return f"追蹤文件 {d['tracking']} 不是 {'／'.join(BASE_RED_DOC_EXTS)}（測試檔、程式檔不算追蹤項）"
-    if t.get("own_edit"):
-        return f"追蹤文件 {d['tracking']} 本 session 改過（追蹤項要是改動前就記下的）"
-    if not re.search(rf"(?<!\w){re.escape(d['item'])}(?!\w)", str(t.get("text") or ""), re.IGNORECASE):
-        return f"追蹤文件 {d['tracking']} 沒點名 {d['item']}（要整詞出現，test_x_other 不算點名 test_x）"
-    return ""
-
-
-def base_red_failures(failing: Sequence[Dict[str, Any]], decls: Sequence[Dict[str, str]], facts: Dict[str, Any]
-                      ) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], List[Dict[str, str]]]], List[str]]:
-    """BASE_RED_TRACKED_NOT_OWED 套在紅測清單：回 (還算紅的, [(放行的那筆, 每支一筆 {unit, base, tracking, line})], 擋訊息附註)。
-    facts 由呼叫端蒐集：runs＝state red_run_commits（本 session 的）、ancestry[(基底, 那筆紅的 cwd)]＝是不是 HEAD 的祖先、
-    own_shas＝本 session 提交過的 commit、base_times[基底]＝committer 時間（epoch 秒，查不到 None）、started＝本 session 開始時間、
-    tracking[路徑]＝{exists, doc, own_edit, text}。沒有任何基底紅行對到的紅照原樣留著、不附註。"""
-    kept: List[Dict[str, Any]] = []
-    based: List[Tuple[Dict[str, Any], List[Dict[str, str]]]] = []
-    notes: List[str] = []
-    for f in failing:
-        units, listed = _waiver_units(f or {})
-        named = [(u, next((d for d in decls if names_failed_test(u, d["item"])), None)) for u in units]
-        if not any(d for _, d in named):
-            kept.append(f)
-            continue
-        if not listed:
-            kept.append(f)
-            notes.append("基底紅要逐支列得出是哪一支：這筆紅的輸出沒列 FAILED／ERROR 行，別截斷輸出、單獨重跑一次")
-            continue
-        cwd = str(f.get("cwd") or "")
-        gaps = [(u, _base_red_gap(u, d, cwd, facts) if d else "沒有對到它的基底紅行") for u, d in named]
-        bad = [f"基底紅不成立（{u[:100]}）：{g}" for u, g in gaps if g]
-        if bad:
-            kept.append(f)
-            notes += [n for n in bad if n not in notes]
-            continue
-        based.append((f, [{"unit": u, "base": d["base"], "tracking": d["tracking"], "line": d["line"]} for u, d in named]))
-    return kept, based, notes
-
-
-# ─── 動資料檔 ───
-RULES.update({
-    "USER_DATA_FILE_NEEDS_DECLARATION": "Edit／Write／NotebookEdit 動到使用者既有的資料檔或設定檔要先問或先宣告。四件事實全成立才管："
-                                        "(a) 不是程式檔（wg_code_path.is_code_path 為 False）且副檔名在 guard.data_file_ask.extensions，"
-                                        "清單只決定程式要不要把它當資料檔問，該不該改仍是 AI 判；(b) 呼叫前檔已存在；(c) 不是本 session Write 新建的"
-                                        "（state created_files）；(d) 本 session 使用者原話都沒點名它（檔名含副檔名完整比對，不做模糊）。"
-                                        "成立而且回覆文字／工具呼叫參數裡 # 開頭的註解行／thinking 都找不到「動資料檔｜<路徑>：<為什麼>」"
-                                        "（路徑檔名對得上這次要改的檔、冒號後的理由過 reason_present）→ 擋。宣告過記 state data_file_declared，"
-                                        "同 session 同檔不再擋；換檔要再宣告。一律留帳 Logs/guard-data_file.jsonl（denied／declared／exempt）。"
-                                        "只在寫過程式的 session 管（wg_data_file.coding_session）：state modified_files 沒有任何程式檔、這次指令也沒"
-                                        "同時寫程式檔 → 放行、不留宣告帳，只留 skipped_non_coding（純文件／設定的回合不問；使用者裁定）。",
-})
-
-_DATA_FILE_DECL_RE = lazy_re(r"動資料檔\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)")
 _DECL_PATH_TRIM = "`'\"「」『』<>（）() "
 
 
-def parse_data_file_decls(text: str) -> List[Tuple[str, str, str]]:
-    """文字裡每一行宣告「動資料檔｜<路徑>：<為什麼>」→ [(路徑, 為什麼, 那一行)]。路徑可帶磁碟代號（C:\\…）。"""
-    return [(m.group(1).strip().strip(_DECL_PATH_TRIM), m.group(2).strip(), m.group(0).strip()[:200])
-            for m in _DATA_FILE_DECL_RE.finditer(str(text or ""))]
-
-
 # 「case_for｜<程式檔>：<案例檔或 pytest 節點，「、」分隔>」：AI 宣告某支程式由哪支案例驗（CASE_COVERS_CHANGE 的 case_for；
-# 三管道都認，與動資料檔宣告同一種寫法）
+# 三管道都認）
 _CASE_FOR_DECL_RE = lazy_re(r"^[ \t]*(?:#+[ \t]*|//[ \t]*)?case_for\s*[｜|]\s*((?:[A-Za-z]:[\\/])?[^：:\n]+?)\s*[：:]\s*([^\n]*)", re.MULTILINE | re.IGNORECASE)
 _CASE_FOR_SPLIT_RE = lazy_re(r"[、，,；;\s]+")
 
@@ -2516,258 +2213,13 @@ def decl_names_file(decl_path: str, target: str) -> bool:
     return t == d or t.endswith("/" + d) or (os.path.isabs(d) and canon_path(d) == t)
 
 
-_CJK_CHAR_RE = lazy_re(r"[一-鿿㐀-䶿぀-ヿ가-힯]")
-_QUOTED_NAME_RE = lazy_re(r"[「『\"“`]([^「」『』\"“”`\n]+)[」』\"”`]")
-
-
-def _quoted_other_name(text: str, start: int, end: int, base: str) -> bool:
-    """命中處在引號／反引號裡，而引號裡是另一個更長的檔名（「備份設定.json」裡的 設定.json）。"""
-    for q in _QUOTED_NAME_RE.finditer(text):
-        if q.start(1) <= start and end <= q.end(1):
-            name = q.group(1).strip().replace("\\", "/").lower()
-            return name != base.lower() and not name.endswith("/" + base.lower())
-    return False
-
-
-# 使用者原話的子句與否定字（口令閘 pre_tool_use._order_negated 與資料檔點名共用）。否定詞表只會多擋不會多放：
+# 使用者原話的子句與否定字（口令閘 pre_tool_use._order_negated 用）。否定詞表只會多擋不會多放：
 # 子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉
 CLAUSE_END_RE = lazy_re(r"[，,。！？!?；;\n]")
 NEG_WORD_RE = lazy_re(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
                          r"|\b(?:don'?t|do\s+not|not|never|no)\b", re.IGNORECASE)
-# 檔名右邊緊接著否定（「shop.json 先不要動」「settings.json 別碰」）
-_MENTION_RIGHT_NEG_RE = lazy_re(r"^\s*(?:先|就|也|都|請)?\s*(?:不要|不可以|不能|不用|不必|不准|別|勿|暫不|先不要|先別)")
-RULES["DATA_FILE_DECL_VOIDED_BY_LATER_MENTION"] = ("資料檔宣告帳（state data_file_declared）記下宣告當時主 transcript 寫到的位置 at；之後有使用者原話"
-                                                   "提到這個檔（否定的也算）→ 舊帳作廢（拿掉、留帳 declared_voided），transcript 裡的宣告也只認"
-                                                   "最後一則提到它的原話之後寫的（子代理檔從頭找；這次指令自己的 `#` 註解照認）。後話肯定點名"
-                                                   "走點名豁免；後話沒提到這個檔照用舊帳（hooks/wg_data_file）。")
-RULES["NEGATED_MENTION_IS_NOT_NAMING"] = ("使用者原話提到資料檔、但那一處被否定（同一子句裡檔名左邊有否定字，或右邊緊接否定："
-                                          "「不要放 shop.json」「shop.json 先不要動」）→ 不算點名，照走宣告／問使用者；同一則或別則原話"
-                                          "裡另有沒被否定的提及照算點名（prompt_names_file）。")
-RULES["DECL_HINT_KEEPS_EDIT_TOOLS"] = ("擋 Edit／Write 要先交宣告行的閘（改資料檔宣告 wg_data_file._judge／data_file_hint、改舊測試宣告 "
-                                       "wg_oldtest.hint），擋訊息與提示只教一條路、而且是零模型回合的那條："
-                                       "同一則回覆裡先發一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`）、宣告行放它開頭的 `#` 註解（DECL_VIA_COMMENT），"
-                                       "接著就可以改檔；範例寫成能照抄的樣子（`# 動資料檔｜…` 一行加一行 `git diff --stat`）。原因要講：同一則裡"
-                                       "接著呼叫工具的文字要等那則結束才進 transcript，hook 當下讀不到，寫了白寫。其他管道（早一則只有文字的回覆）"
-                                       "程式照認、不出現在擋訊息與提示裡，只在這張規則表與 TECH.md 講："
-                                       "擋訊息同時教好幾條路時 AI 會挑最貴的那條，多出模型回合。"
-                                       "共用句 DECL_WHERE（整句）／DECL_WHERE_SHORT（一行提示用）。並寫明宣告完照常用 "
-                                       "Edit／Write 改、不要改用 Bash／PowerShell 寫檔（DECL_KEEP_EDIT：指令寫的檔常判不出目標，"
-                                       "modified_files 漏記，對帳、同步提醒都看不到）。不准出現「或寫成 Bash 指令開頭的 # 註解」"
-                                       "「放在下一條 Bash 的註解」這類會被讀成改用 Bash 寫檔的說法。擋的本來就是那條 Bash 指令的閘"
-                                       "（繞閘宣告 wg_gate_bypass）不在此列：宣告寫在那條指令的註解是對的。")
-DECL_VIA_COMMENT = "一條不寫檔的 Bash／PowerShell 指令（例如 `git diff --stat`），宣告行放在它開頭的 `#` 註解"
-# 宣告放哪（規則 DECL_HINT_KEEPS_EDIT_TOOLS）：只教 `#` 註解這一條路；早一則的回覆文字程式照認、訊息不教（同一則裡接著呼叫工具的文字 hook 當下讀不到）
-DECL_WHERE = (f"同一則回覆裡先發{DECL_VIA_COMMENT}，接著就可以改檔"
-              "（同一則裡接著呼叫工具的文字，hook 當下讀不到）")
-DECL_WHERE_SHORT = f"同一則先發{DECL_VIA_COMMENT}（接著就可以改檔）"
-DECL_KEEP_EDIT = ("宣告完照常用 Edit／Write 改，不要改用 Bash／PowerShell 寫檔：指令裡寫的檔 hook 常判不出是哪個，"
-                  "改檔紀錄會漏掉，之後對帳、同步提醒都看不到這次改動")
 
 
-def _file_mentions(text: str, base: str) -> Iterable["re.Match"]:
-    """原話裡提到這個檔名的每一處：前後不接檔名字元；引號裡是更長的檔名、中日韓檔名前接中日韓字的不算。"""
-    rx = re.compile(r"(?<![A-Za-z0-9_.\-])" + re.escape(base) + r"(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])", re.IGNORECASE)
-    cjk_head = bool(_CJK_CHAR_RE.match(base))
-    for m in rx.finditer(text):
-        if _quoted_other_name(text, m.start(), m.end(), base):
-            continue
-        if cjk_head and m.start() > 0 and _CJK_CHAR_RE.match(text[m.start() - 1]):
-            continue
-        yield m
-
-
-def mention_negated(text: str, start: int, end: int) -> bool:
-    """NEGATED_MENTION_IS_NOT_NAMING：text[start:end]（檔名）所在子句裡左邊有否定字，或右邊緊接否定。"""
-    seps = [m.end() for m in CLAUSE_END_RE.finditer(text, 0, start)]
-    return bool(NEG_WORD_RE.search(text[seps[-1] if seps else 0:start]) or _MENTION_RIGHT_NEG_RE.match(text[end:]))
-
-
-def prompt_mentions_file(prompt: str, target: str) -> bool:
-    """這則原話有沒有提到這個檔（否定的也算）：DATA_FILE_DECL_VOIDED_BY_LATER_MENTION 判後話用。"""
-    base = Path(str(target)).name
-    return bool(base) and any(True for _ in _file_mentions(str(prompt or ""), base))
-
-
-def prompt_names_file(prompts: Sequence[str], target: str) -> Optional[str]:
-    """事實 (d)：使用者原話有沒有點名這個檔，檔名含副檔名完整比對，不分大小寫：前後不接檔名字元（前面可接路徑分隔）；
-    引號裡是更長的檔名不算；檔名以中日韓字開頭時前一個字也是中日韓字不算（「備份設定.json」分不出是不是別的檔，寧可多問）；
-    被否定的那一處不算（NEGATED_MENTION_IS_NOT_NAMING）。英文檔名前接中文動詞照算（「把settings.json的逗號修掉」）。
-    回點名那則原話的片段，沒有回 None。"""
-    base = Path(str(target)).name
-    if not base:
-        return None
-    for p in prompts or ():
-        text = str(p or "")
-        for m in _file_mentions(text, base):
-            if not mention_negated(text, m.start(), m.end()):
-                return text[max(0, m.start() - 30):m.end() + 30]
-    return None
-
-
-def data_file_hint(rel: str) -> str:
-    return (f"入口行範例：動資料檔｜{rel}：<為什麼要動它、動了使用者會看到什麼>\n"
-            f"{DECL_WHERE}；照抄：# 動資料檔｜{rel}：<為什麼…>（下一行 git diff --stat）；"
-            "宣告完照常用 Edit／Write 改。拿不準要不要動就用 AskUserQuestion 問使用者（附推薦）。")
-
-
-def data_file_fix(rels: Sequence[str]) -> str:
-    """DENY_TEXT_SLIM 的動資料檔修法句，一行：宣告怎麼寫（每個檔一行範例）＋放哪＋宣告完照常用 Edit／Write
-    （DECL_HINT_KEEPS_EDIT_TOOLS）。其餘說明（拿不準先問、留帳）在 TECH/coding-guard.md 乙6 DataFileAsk，不放訊息裡。"""
-    lines = "；".join(f"# 動資料檔｜{r}：<為什麼要動它、動了使用者會看到什麼>" for r in rels)
-    return (f"先發一條不寫檔的 Bash／PowerShell 指令、開頭的 `#` 註解寫宣告，接著就可以改檔；照抄：{lines}（下一行 git diff --stat）；"
-            "改檔照常用 Edit／Write，不要改用 Bash／PowerShell 寫檔。")
-
-
-DATA_FILE_HINT_SHOWN = 4      # DATA_FILE_READ_HINT 一行最多列幾個檔名
-
-
-def data_file_read_hint(rels: Sequence[str], first: bool) -> str:
-    """DATA_FILE_READ_HINT：第一次讀到會被 DataFileAsk 管的檔時附的一行（判定不動，沒宣告照擋）；
-    first＝這個 session 第一次提示，給格式與管道；之後只點名檔、說格式同前。"""
-    names = "、".join(rels[:DATA_FILE_HINT_SHOWN]) + (f" 等 {len(rels)} 個檔" if len(rels) > DATA_FILE_HINT_SHOWN else "")
-    if not first:
-        return f"[Guardian:DataFileAsk] 改 {names} 也要先宣告（格式同前一則提示）。"
-    return (f"[Guardian:DataFileAsk] 改 {names} 前先宣告：動資料檔｜<路徑>：<為什麼要動它、動了使用者會看到什麼>"
-            "（放同一則先發的不寫檔指令開頭的 `#` 註解，接著就可以改檔）。")
-
-
-def data_file_verdict(target: str, rel: str, facts: Dict[str, Any], decls: Sequence[Tuple[str, str, str]]) -> Verdict:
-    """USER_DATA_FILE_NEEDS_DECLARATION：owed＝擋。facts＝{code, ext, ext_listed, existed, created, named, prompts}
-    （named＝prompt_names_file 的結果，prompts＝原話則數）；decls＝三管道收到的宣告（parse_data_file_decls）。
-    不管的情況回 owed=False，why 寫哪一件事實不成立（留帳 exempt 用）。"""
-    rule = "USER_DATA_FILE_NEEDS_DECLARATION"
-    ext = facts.get("ext") or "（無副檔名）"
-    if facts.get("code") or not facts.get("ext_listed"):
-        return Verdict(rule, False, "(a) 不成立：" + ("是程式檔" if facts.get("code") else f"副檔名 {ext} 不在資料／設定清單"))
-    if not facts.get("existed"):
-        return Verdict(rule, False, "(b) 不成立：呼叫前檔不存在（新建）")
-    if facts.get("created"):
-        return Verdict(rule, False, "(c) 不成立：本 session 新建的檔")
-    if facts.get("named"):
-        return Verdict(rule, False, f"(d) 不成立：使用者原話點名了：「{str(facts['named']).strip()[:80]}」")
-    base = Path(str(target)).name
-    ev = [f"(a) 不是程式檔，副檔名 {ext} 在資料／設定清單",
-          "(b) 呼叫前已存在",
-          "(c) 這個 session 沒建過它",
-          f"(d) 使用者原話（{int(facts.get('prompts') or 0)} 則）找不到「{base}」"]
-    hit = [d for d in decls if decl_names_file(d[0], target)]
-    for _path, why, line in hit:
-        if reason_present(why):
-            return Verdict(rule, False, f"AI 宣告動資料檔 {rel}：{why[:120]}", (line,))
-    if hit:
-        return Verdict(rule, True, f"宣告行冒號後沒有理由（空白、只有標點或角括號佔位）：{rel}", tuple(ev + [hit[-1][2]]))
-    if decls:
-        named = "、".join(dict.fromkeys(d[0] for d in decls))[:120]
-        return Verdict(rule, True, f"宣告行的路徑對不上這次要改的檔：宣告的是 {named}，要改的是 {rel}", tuple(ev))
-    return Verdict(rule, True, f"要改使用者既有的資料檔 {rel}，沒先問也沒宣告", tuple(ev))
-# ─── 改舊測試 ───
-RULES.update({
-    "OLD_TEST_CHANGE_NEEDS_DECLARATION": "Edit／MultiEdit／Write 動到測試檔裡既有的測試函式（消失、改名、同名測試的斷言行被刪或改，只加新斷言不算；"
-                                         "新加跳過標記 skip／skipif／xfail／.skip(／[Ignore]／@Disabled；原本有的說明 docstring 被改或刪，"
-                                         "只加新說明不算），要先有宣告行"
-                                         "「改舊測試｜<函式名或 檔:函式名>：<理由>」（回覆文字／工具參數／thinking 三管道都認；多支以「、」分隔）："
-                                         "名字要點到這次抓到的那一支既有測試（改名寫舊的名字；寫了檔名或類別就要對得上那個檔、那個類別），"
-                                         "理由要有文字內容、不是擋訊息的角括號佔位；沒有 → 擋（字母 ot）。宣告過的那支與本 session 自己新加的"
-                                         "測試記 state，同 session 再動不擋。只加新測試、只改 fixture／helper、只改註解不觸發。改名與消失怎麼標"
-                                         "（本體行相似度）只影響證據寫法，放不放行都要宣告點名舊的那支。Bash／PowerShell／NotebookEdit "
-                                         "寫之前看不到改後內容：PreToolUse 拍改前快照、PostToolUse 比對，沒宣告的記 state，下一個工具呼叫擋到"
-                                         "補宣告（declared_late）或撤回（reverted）為止；只讀、只寫那幾個欠帳檔的呼叫不擋。事實由 wg_oldtest 收，"
-                                         "留帳 Logs/guard-old_test.jsonl（denied／declared／exempt／undeclared／denied_late／declared_late／reverted）。",
-    "OWN_COMMIT_CHANGES_STILL_COMPARED": "執行 python 的指令在同一條裡自己 commit（commit、amend、revert；合併提交不算）、工作樹又乾淨時，"
-                                         "那幾筆 commit 前後有變的測試檔照樣拿執行前的內容比，事後補記的基線取執行前的 HEAD（同指令新加又 commit 的"
-                                         "測試仍算本 session 新加）；讀不到 reflog → 整段都比，git diff 失敗 → stderr＋留帳 own_commit_diff_error"
-                                         "（wg_oldtest._own_commit_tests）。",
-})
-
-OLD_TEST_KIND_LABELS: Dict[str, str] = {"gone": "消失", "renamed": "改名", "assert": "斷言變了", "skip": "加 skip", "doc": "說明變了"}
-_OLD_TEST_FILE_RE = lazy_re(r"\.[a-z]{1,5}$")
-_OLD_TEST_DECL_RE = lazy_re(r"改舊測試\s*[｜|]\s*(.+)")
-_OLD_TEST_ASCII_SEP_RE = lazy_re(r":(?![A-Za-z0-9_\\/:])")
-_OLD_TEST_NAME_SPLIT_RE = lazy_re(r"\s*[、，,；;]\s*")
-# 一行多支各帶理由（「名1：理由1、名2：理由2」）的每一段開頭：行首或分隔符後面接 ASCII 名字（可帶 檔:、::、/），再接冒號
-_OLD_TEST_NAME_LIKE_RE = lazy_re(r"test|::|[._/\\]", re.IGNORECASE)   # 像測試名（不是 ERP、TECH 這種標籤字）
-_OLD_TEST_SEG_RE = lazy_re(r"(?:^|[、，,；;])\s*`?(?P<name>[A-Za-z0-9_./\\-]+(?:::?[A-Za-z0-9_.]+)*)`?\s*(?:：|:(?![A-Za-z0-9_\\/:]))")
-
-
-def parse_old_test_declarations(text: str) -> List[Dict[str, Any]]:
-    """宣告行 → [{names, reason, line}]。名字與理由用第一個「：」分；沒有全形冒號才找後面不接識別字的「:」
-    （`tests/test_a.py:test_x: 理由` 的第一個冒號屬於名字）。names 是去反引號後的整段與「、，,；;」切開的每一段。
-    一行裡出現兩段以上「名字：理由」（「名1：理由1、名2：理由2；名3：理由3」）→ 每段一筆；第一段之前只列名字的
-    （「名0、名1：理由1、名2：理由2」的名0）併進第一段。"""
-    out: List[Dict[str, Any]] = []
-    for raw in str(text or "").splitlines():
-        m = _OLD_TEST_DECL_RE.search(raw)
-        if not m:
-            continue
-        rest = m.group(1)
-        segs = [s for i, s in enumerate(_OLD_TEST_SEG_RE.finditer(rest))
-                if i == 0 or _OLD_TEST_NAME_LIKE_RE.search(s.group("name"))]   # 理由裡的「ERP：」不是新的一段
-        if len(segs) >= 2:
-            lead = [p.strip("` ") for p in _OLD_TEST_NAME_SPLIT_RE.split(rest[:segs[0].start()]) if p.strip("` ")]
-            for i, sg in enumerate(segs):
-                end = segs[i + 1].start() if i + 1 < len(segs) else len(rest)
-                out.append({"names": (lead if i == 0 else []) + [sg.group("name")],
-                            "reason": rest[sg.end():end].strip(" 、，,；;"), "line": raw.strip()[:240]})
-            continue
-        if "：" in rest:
-            names, reason = rest.split("：", 1)
-        else:
-            sep = _OLD_TEST_ASCII_SEP_RE.search(rest)
-            names, reason = (rest[:sep.start()], rest[sep.end():]) if sep else (rest, "")
-        names = names.strip().strip("`")
-        parts = [p.strip("` ") for p in _OLD_TEST_NAME_SPLIT_RE.split(names) if p.strip("` ")]
-        out.append({"names": [names, *parts], "reason": reason.strip(), "line": raw.strip()[:240]})
-    return out
-
-
-def _old_test_name_hits(name: str, key: str, path: str = "") -> bool:
-    """宣告的名字點到這支測試（key＝wg_oldtest 的 key：`類別.函式`、`函式`、`describe:<名>`，尾巴 `#2` 拿掉）：
-    整個相等；或拆成「檔」與「函式」（`檔:函式`、`檔::類別::函式`，檔＝結尾有副檔名的那段）：寫了檔就要是 path 本身或它的路徑尾段，
-    函式寫了類別（`類別.函式`）就要整段對上，只寫函式名比最後一段。不分大小寫。"""
-    n = str(name or "").strip().replace("\\", "/").lower()
-    k = re.sub(r"#\d+$", "", str(key or "").strip().lower())
-    if not n or not k:
-        return False
-    if n == k or (k.startswith(("describe:", "context:")) and n == k.split(":", 1)[1]):
-        return True
-    file_part, func = "", n.replace("::", ".")
-    if "::" in n and _OLD_TEST_FILE_RE.search(n.split("::", 1)[0]):
-        file_part, func = n.split("::", 1)[0], n.split("::", 1)[1].replace("::", ".")
-    elif "::" not in n and ":" in n and _OLD_TEST_FILE_RE.search(n.rsplit(":", 1)[0]):
-        file_part, func = n.rsplit(":", 1)
-    if file_part:
-        p, f = canon_path(path) if path else "", file_part.lstrip("./")
-        if not p or not (p == f or p.endswith("/" + f)):
-            return False
-    if "." in func:
-        return k == func or k.endswith("." + func)
-    return func == k.rsplit(".", 1)[-1]
-
-
-def old_test_declaration_for(change: Dict[str, str], decls: Sequence[Dict[str, Any]], path: str = "") -> Optional[Dict[str, Any]]:
-    """這一筆動作有沒有合格的宣告行：名字點到那支既有測試（改名看舊名；新名不能替舊的那支宣告），理由有文字內容、不是佔位。"""
-    for d in decls:
-        if reason_present(d.get("reason", "")) and any(_old_test_name_hits(n, change.get("key", ""), path) for n in d["names"]):
-            return d
-    return None
-
-
-def old_test_change_verdict(path: str, changes: Sequence[Dict[str, str]], decls: Sequence[Dict[str, Any]]) -> Verdict:
-    """OLD_TEST_CHANGE_NEEDS_DECLARATION：owed＝有動到既有測試、而那一支沒有合格的宣告行。changes 來自 wg_oldtest.diff_tests；
-    decls 來自 parse_old_test_declarations。"""
-    rule = "OLD_TEST_CHANGE_NEEDS_DECLARATION"
-    owed = [c for c in changes if old_test_declaration_for(c, decls, path) is None]
-    if not owed:
-        return Verdict(rule, False, "動到的每一支既有測試都有宣告行" if changes else "沒動到既有測試")
-    name = _base_name(path)
-    ev = []
-    for c in owed:
-        label = OLD_TEST_KIND_LABELS.get(c["kind"], c["kind"])
-        tail = f" → {c['new_key']}" if c.get("new_key") else (f"：{c['detail']}" if c.get("detail") else "")
-        ev.append(f"{name}：{c['key']}（{label}{tail}）")
-    ev += [f"宣告行沒附理由（或只有佔位）：{d['line']}" for d in decls if not reason_present(d.get("reason", ""))][:2]
-    n = len({c["key"] for c in owed})
-    return Verdict(rule, True, f"動到 {n} 支既有測試，沒先宣告「改舊測試｜哪支：理由」", tuple(ev))
 # ─── 閘小修 006 追蹤帳本同一件 ───
 RULES.update({
     "TRACKING_SAME_ITEM_NOT_REWRITTEN": "追蹤帳本唯一寫入口 wg_harvest.append_tracking：open 列寫進去前，對帳上（含同一批較早的列）部位相容"
@@ -2778,45 +2230,6 @@ RULES.update({
                                         "換句話說的同一件程式不判，交 ①；"
                                         "PickOne 問句列出本 session 還開著的項目。",
 })
-# ─── 繞閘嫌疑 ───
-RULES.update({
-    "GATE_BYPASS_NEEDS_DECLARATION": "被病形閘擋過之後（state smell_deny_last；同一個 repo 根、還沒成功 commit），這條指令把被點名的檔"
-                                     "移出暫存（git restore --staged／reset／rm --cached／stash、svn revert／changelist）、commit 的提交範圍"
-                                     "排除了它、或 commit 帶 --no-verify／core.hooksPath，而它重掃仍帶同一條病 → 要有一行「不是繞閘｜<理由>」"
-                                     "（這條指令裡、或擋下之後的回覆文字／工具參數／thinking）；沒有就擋，有就放行並留帳"
-                                     "（guard-gate_bypass.jsonl declared，含理由全文）、同一組被點名的檔不再問。重掃無病＝病修掉了，清帳不問。"
-                                     "是不是繞閘 AI 判，程式只核對序列事實與宣告行在不在；事實由 hooks/wg_gate_bypass.py 收。",
-    "ATOM_BYPASS_HOWTO_REFUSED": "atom 內容同時 ① 提到 Guardian 的閘（[Guardian: 標籤、SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder、"
-                                 "本表規則名）② 含改暫存區或改提交範圍的做法字樣（guard.gate_bypass.staging_words）→ 拒寫："
-                                 "閘誤擋要修判定（加規則＋紅案例），不寫繞法。只命中一個不拒（記閘的機制、記 git 指令用法照寫）。"
-                                 "AI 判斷這張卡不是在教繞法（寫的是禁止怎麼繞、在分析誤擋）→ 知識段第一行寫「不是教繞閘｜<理由>」，"
-                                 "理由有文字內容、不是佔位就寫入並留帳（guard-gate_bypass.jsonl atom_declared）；程式不評理由。"
-                                 "入口 tools/memory-write-gate.py 與 lib/atom_io.write_atom；事實由 hooks/wg_gate_bypass.py 收。",
-})
-
-
-def gate_bypass_verdict(denied: str, facts: Sequence[str], reason: str = "") -> Verdict:
-    """GATE_BYPASS_NEEDS_DECLARATION：denied＝上次擋的檔與病一行；facts＝這條指令動到／排除了哪些檔（空＝不是嫌疑）；
-    reason＝宣告行「不是繞閘｜」後面的理由（沒有＝空字串）。"""
-    if not facts:
-        return Verdict("GATE_BYPASS_NEEDS_DECLARATION", False, "這條指令沒有動到上次被擋的檔", ())
-    if reason_present(reason):
-        return Verdict("GATE_BYPASS_NEEDS_DECLARATION", False, f"AI 宣告不是繞閘：{reason[:160]}", (denied, *facts))
-    return Verdict("GATE_BYPASS_NEEDS_DECLARATION", True, "被病形閘擋過之後，這條指令可能讓同一批內容繞過閘，沒有宣告",
-                   (f"上次擋：{denied}", "這條指令：" + "；".join(facts)))
-
-
-def atom_bypass_verdict(gates: Sequence[str], words: Sequence[str], reason: str = "") -> Verdict:
-    """ATOM_BYPASS_HOWTO_REFUSED：gates＝內容提到的 Guardian 閘、words＝命中的做法字樣；兩個都有才拒。
-    reason＝知識段第一行「不是教繞閘｜」後面的理由：有文字內容、不是佔位 → 放行（AI 判過不是在教繞法）。"""
-    if gates and words and reason_present(reason):
-        return Verdict("ATOM_BYPASS_HOWTO_REFUSED", False, f"AI 宣告不是教繞閘：{reason[:160]}",
-                       (f"提到的閘：{'、'.join(gates)}", f"做法字樣：{'、'.join(words)}"))
-    if gates and words:
-        return Verdict("ATOM_BYPASS_HOWTO_REFUSED", True, f"這張卡在教怎麼繞 {'、'.join(gates[:4])}",
-                       (f"提到的閘：{'、'.join(gates)}", f"做法字樣：{'、'.join(words)}"))
-    return Verdict("ATOM_BYPASS_HOWTO_REFUSED", False, "只命中一個訊號（或都沒有），照寫",
-                   (f"提到的閘：{'、'.join(gates) or '無'}", f"做法字樣：{'、'.join(words) or '無'}"))
 # ─── G11 拐彎判斷（程式只算側面數據、只核對五欄齊；這一層有沒有作用、會不會讓人拐超過三個彎由 AI 判並寫理由。事實由 wg_reading_path 收，這裡判結構） ───
 RULES.update({
     "TURN_JUDGMENT_REQUIRED": "收尾附的側面數據（入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈層數與空層）到了"
@@ -3019,10 +2432,6 @@ def hot_path_verdict(hot: Sequence[Dict[str, str]], skip: Sequence[Dict[str, str
 
 # ─── 閘小修 008 A：閘的判定與提示（事實由各自的模組收，這裡只登錄規則名與說明） ───
 RULES.update({
-    "OLD_TEST_COMPARED_ON_FAILED_COMMAND": "Bash／PowerShell 指令非零結束時 Claude Code 不送 PostToolUse、改送 PostToolUseFailure；"
-                                           "改舊測試的事後比對（wg_oldtest.after_tool）兩個事件都跑（post_tool_use._old_test_after）："
-                                           "`sed -i … tests/x.py && pytest` 紅了，改既有斷言已經寫進檔，照樣比、沒宣告記欠帳、下一個工具呼叫擋；"
-                                           "新加的測試同一刻記進 old_test_added。裁判子 session 不比（它的 PreToolUse 不拍快照）。",
     "USER_TURN_KEY_KEPT": "使用者回合鍵（turn_prompts_seq）不掉：state 在 compact／resume 重建時回合編號與回合鍵照搬"
                           "（session_start._CARRY_ON_REBUILD：turn_seq、turn_prompts_seq、user_turn_count、turn_open、turn_typed）；"
                           "鍵還是不在（state 從零建）時，UserPromptSubmit 第一則進來的訊息就算是同伴訊息、背景通知也把鍵錨在這一則"
@@ -3095,21 +2504,6 @@ RULES.update({
 })
 
 
-# ─── 擋訊息瘦身、讀到資料檔就先提示：判定在各自的模組，這裡登錄規則名與說明 ───
-RULES.update({
-    "DENY_TEXT_SLIM": "擋訊息精簡格式（guard.deny_text_slim，預設開）：第一行「[<閘>] 修法：<一句>」，下面每條命中一行 format_hit"
-                      "（規則名＋現象＋證據，每項證據超過 DENY_EVIDENCE_CAP 字截短，parse_hits 照認）；"
-                      "共用組裝 slim_deny，採用的閘交規則名與一句修法（動資料檔閘：data_file_fix）。寫 false 退回各閘原本的長文字（原處不動）。",
-    "DATA_FILE_READ_HINT": "第一次讀到改了會被動資料檔閘問的檔（Read／唯讀 Bash／PowerShell／Grep，讀了什麼跟讀檔帳同一支 read_targets；"
-                           "副檔名在清單、不是系統文件、不是程式檔、已存在、本 session 沒新建過、本 session 沒宣告過、state 裡的使用者原話沒點名）"
-                           "→ 讀檔結果後附一行宣告格式（wg_data_file.read_hint；一個檔一個 session 一次，第二個檔起只點名、說格式同前；"
-                           "子代理讀的不提示），讓第一次改就帶宣告。提示只教「放同一則先發的不寫檔指令開頭的 `#` 註解」一條路"
-                           "（DECL_HINT_KEEPS_EDIT_TOOLS）；早一則的回覆文字程式照認，訊息不提。"
-                           "這個 session 沒改過程式檔（wg_data_file.coding_session）閘不會問，"
-                           "也就不提示。判定（USER_DATA_FILE_NEEDS_DECLARATION）不動：閘會問的沒宣告照擋。",
-})
-
-
 # ─── 收尾只跑一輪（事實與時點在 hooks/wg_closing_round.py、wg_reading_path.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
 RULES.update({
     "READING_PATH_EARLY_START": "拐彎判斷的背景量測改完程式就起跑，不等第一次收尾：每批工具跑完（PostToolBatch）看本回合改過的程式檔"
@@ -3156,20 +2550,18 @@ RULES.update({
 
 
 # ─── 擋或提醒（RULE_MODE）：寫碼守門每條規則照擋（block）還是提醒（remind），判定與送法只讀這一處 ───
-# 照擋只三類：病形閘（含防繞）、改使用者資料檔／改舊測試沒先宣告、測試沒過卻說修好；其餘寫碼守門一律提醒。
+# 照擋只兩類：病形閘、測試沒過卻說修好；其餘寫碼守門一律提醒。
 # 「不在範圍」是不屬於寫碼守門的安全與權限邊界（版控口令、記憶寫入、svn 測試路徑），照擋、不讀本表。
 # 本段放在檔尾、最後算 RULE_MODE：之後再加規則的段落要同時把它登進本表（verify_release_rules 掃表案會紅）。
 RULES.update({
     "COMMIT_SMELL_NEW_BLOCKS": "commit／svn commit 那刻，這次提交新寫進的病形（巢狀過深、匿名區塊過長…，判法在 tools/project-smells.py check_commit）"
                                "→ 擋；拆不出要提交什麼（包在 bash -c、--git-dir、查不到的別名）判不了也擋。舊碼原本就有的只列出、不擋。"
                                "判法在 handlers/pre_tool_use.check_smell_gate。",
-    "RED_TEST_BLOCKS_COMPLETION": "本 session 自己跑紅、還沒綠的測試在，收尾宣告完成 → 擋（紅測閘，handlers/stop._testfail_gate）；"
-                                  "預算、放行、豁免照 BLOCK_BUDGET_SHARED、USER_WAIVER_NEEDS_CITATION、BASE_RED_TRACKED_NOT_OWED。"
-                                  "紅只在宣告完成的收尾才被拿出來判：沒宣告完成的回合不判、也不算判過不算，那筆紅照留，之後哪個回合宣告完成就擋"
-                                  "（改完程式跑紅、之後沒再跑綠，不管隔幾回合照擋）。判過不算的一律落帳、之後的收尾不再拿它擋：使用者放行記 user_released"
-                                  "（RELEASE_COVERS_SHOWN_ITEMS）、不做行記 testfail_waivers（USER_WAIVER_NEEDS_CITATION）、收尾寫的負向對照宣告把那筆搬到"
-                                  " deliberate_reds（NEGATIVE_CONTROL_DECLARED 收尾入口）。同一條指令跑了不只一次測試的紅在記帳時就定案（RED_LAST_RESULT_IN_COMMAND），"
-                                  "不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
+    "RED_TEST_BLOCKS_COMPLETION": "本 session 自己跑紅、還沒綠的測試在，收尾最後一則宣告完成 → 擋（紅測閘，handlers/stop.handle_stop 的 Test-Fail Gate 段）；"
+                                  "寫碼守門開或關同一套：不讀本表、不看擋次預算、沒有放行詢問。使用者說「先這樣／跳過」時 UserPromptSubmit "
+                                  "整份清掉紅測清單（handlers/ups_gates）。紅只在宣告完成的收尾才被拿出來判：沒宣告完成的回合不判，那筆紅照留，"
+                                  "之後哪個回合宣告完成就擋（改完程式跑紅、之後沒再跑綠，不管隔幾回合照擋）。同一條指令跑了不只一次測試的紅在記帳時就定案"
+                                  "（RED_LAST_RESULT_IN_COMMAND），不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
     "DEFERRAL_OF_DOABLE_WORK": "主任務完工、context 還夠，收尾把帶受詞、可做的事推給下個 session／獨立議題／非我造成（wg_evasion.deferral_gate_reason）。",
     "HARVEST_AT_PHASE_DONE": "階段完工要交知識收割清單（wg_harvest.harvest_gate_reason；背景收割開著就交背景）。",
     "HARVEST_ITEM_NEEDS_RECEIPT": "收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。",
@@ -3183,7 +2575,7 @@ RULES.update({
     "REMIND_ON_PRIOR_RESULT": "提醒掛在前一個動作的工具結果（PostToolUse），不掛 PreToolUse 的 additionalContext；收尾類的要求掛在改程式檔那則"
                               "工具結果，Stop 只留帳、不續跑、不開放行題。提醒一行內：規則名＋現象＋做法（remind_line），不附卡全文；"
                               "同一條規則同一個對象同一個 session 只提醒一次（remind_due）。",
-    "GATE_MODE_TABLE": "寫碼守門照擋或提醒只看 RULE_MODE：三類（RULE_CLASS 標病形／宣告／紅測）是 block，其餘寫碼守門是 remind；"
+    "GATE_MODE_TABLE": "寫碼守門照擋或提醒只看 RULE_MODE：兩類（RULE_CLASS 標病形／紅測）是 block，其餘寫碼守門是 remind；"
                        "表上沒登的規則名當 block（行為不變）。總開關關時一律照舊（gate_mode 回 block），判定不放寬。",
     "OVERVIEW_READONLY_PATHS": "寫入目標命中這一層 readonly_paths（程式產物／索引）：不在寫碼守門範圍，照擋（wg_overview.write_check）。",
     "OVERVIEW_HUB_UNDER_V6": "OverviewHub 的讀檔帳、唯讀路徑檢查與讀它設定的閘綁寫碼守門總開關：寫碼守門關時 wg_overview._cfg 的 enabled 一律 False，"
@@ -3205,19 +2597,16 @@ REMIND = "remind"
 
 # 照擋的規則名 → 屬哪一類（上表三類＋不在範圍）。共用的判事實規則（SAME_FILE、TURN_SINCE_USER_PROMPT…）不決定送法，標 remind 不影響照擋閘使用。
 RULE_CLASS: Dict[str, str] = {
-    **dict.fromkeys(("COMMIT_SMELL_NEW_BLOCKS", "GATE_BYPASS_NEEDS_DECLARATION", "GATE_BYPASS_NAMED_FILES_MERGED"), "病形"),
-    **dict.fromkeys(("USER_DATA_FILE_NEEDS_DECLARATION", "DATA_FILE_DECL_VOIDED_BY_LATER_MENTION",
-                     "OLD_TEST_CHANGE_NEEDS_DECLARATION", "OLD_TEST_COMPARED_ON_FAILED_COMMAND",
-                     "OWN_COMMIT_CHANGES_STILL_COMPARED"), "宣告"),
+    **dict.fromkeys(("COMMIT_SMELL_NEW_BLOCKS",), "病形"),
     **dict.fromkeys(("RED_TEST_BLOCKS_COMPLETION", "RED_ITEMS_ONLY_FROM_FAILURE_LINES", "RED_SCOPE_FROM_FULL_COMMAND",
                      "GREEN_CLEARS_ONLY_CASES_IT_RAN", "GREEN_NARROWED_KEEPS_UNCOVERED_RED", "GREEN_SAME_CASE_CLEARS",
-                     "USER_WAIVER_NEEDS_CITATION", "BASE_RED_TRACKED_NOT_OWED", "NEGATIVE_CONTROL_DECLARED",
+                     "NEGATIVE_CONTROL_DECLARED",
                      "RED_LAST_RESULT_IN_COMMAND", "RED_WHILE_REVERTED", "BLOCK_BUDGET_SHARED", "RELEASE_COVERS_SHOWN_ITEMS", "PENDING_SAME_USER_TURN",
                      "NONINTERACTIVE_RELEASE_AT_BUDGET", "CLAIM_FIXED_NEEDS_PASS", "CARRIED_CLAIM_ANY_TURN_RECEIPT",
                      "CLAIM_WORDS_ARE_HINTS", "CLAIM_RECEIPT_REF_MATCH", "CLAIM_DISCLAIM_NEEDS_REASON",
                      "CLAIM_CONDITIONAL_NOT_CLAIM", "CLAIM_MODIFIER_NOT_OWN", "COMPLETION_CLAIM_PER_SENTENCE"), "紅測"),
     **dict.fromkeys(("COMMIT_ORDER_DECISION_ALWAYS_LOGGED", "ORDER_UNTIL_PUSH", "TEMP_REPO_COMMIT_EXEMPT",
-                     "SVN_TEST_BLOCK_OPT_IN", "ATOM_BYPASS_HOWTO_REFUSED", "CONFLICT_DECLARED_BY_AI",
+                     "SVN_TEST_BLOCK_OPT_IN", "CONFLICT_DECLARED_BY_AI",
                      "OVERVIEW_READONLY_PATHS", "VERIFY_FULL_RUN_NEEDS_USER_ORDER", "VERIFY_SAME_BATCH_ALREADY_GREEN",
                      "VERIFY_BATCH_BLOCK_ONCE_PER_TURN"), "不在範圍"),
 }
@@ -3274,11 +2663,9 @@ def remind_due(sent: Iterable[str], rule: str, obj: Any = "") -> bool:
     return remind_key(rule, obj) not in set(sent or ())
 
 
-# ─── 非寫碼回合不介入（判定在各自的模組：ups_inject._lean_turn、wg_data_file.gate／read_hint；這裡只登錄） ───
+# ─── 非寫碼回合不介入（判定在 ups_inject._lean_turn；這裡只登錄） ───
 RULES.update({
-    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的兩個例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或有判不出目標的寫入；"
-                                "prompt 關鍵字意圖不算）。① 記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖；② 動資料檔閘（USER_DATA_FILE_NEEDS_DECLARATION）與"
-                                "它的讀檔提示（DATA_FILE_READ_HINT）只在這個 session 改過程式檔、或這次指令同時寫程式檔時管（wg_data_file.coding_session；讀檔提示另外在 prompt 關鍵字判成寫碼類（wg_core.CODE_INTENTS）時也先送，提示要趕在第一次改檔前），"
-                                "否則放行、留帳 skipped_non_coding。",
+    "NON_CODING_TURN_NO_NUDGE": "守門「純問答與只改文件的回合不跑」的例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或有判不出目標的寫入；"
+                                "prompt 關鍵字意圖不算）。記憶注入瘦身（CODING_TURN_FULL_ONLY_ON_TRIGGER）看 coding_turn，不看關鍵字意圖。",
 })
 RULE_MODE.setdefault("NON_CODING_TURN_NO_NUDGE", REMIND)   # 登在 RULE_MODE 建表之後：說明型規則，不是擋點（GATE_MODE_TABLE 要每條都有送法）

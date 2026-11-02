@@ -401,7 +401,7 @@ def _suggest_landing(root: Path, title: str, domain: Optional[str]) -> str:
 
 
 def _hooks_module(name: str):
-    """hooks/ 底下的模組（wg_release_rules＝判式正本、wg_core＝留帳）：照 atom_io.gate_bypass_refusal 載 hooks 模組的做法。"""
+    """hooks/ 底下的模組（wg_release_rules＝判式正本、wg_core＝留帳）：把 hooks/ 加進 sys.path 再 import。"""
     import sys
     hooks = str(_CODE_ROOT / "hooks")
     if hooks not in sys.path:
