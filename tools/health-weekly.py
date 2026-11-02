@@ -130,14 +130,31 @@ def _run_check(args: list[str], timeout: int = 120) -> tuple[bool, str]:
     """跑 --check 型工具；回 (通過, 摘要輸出)。"""
     try:
         r = subprocess.run(
-            [PY, *args], capture_output=True, text=True, encoding="utf-8",
+            [PY, "-X", "utf8", *args], capture_output=True, text=True, encoding="utf-8",
             timeout=timeout, cwd=str(CODE_DIR),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
-        return r.returncode == 0, (tail[-1] if tail else "")
+        return r.returncode == 0, _check_summary(((r.stdout or "") + (r.stderr or "")).strip())
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
+
+
+def _check_summary(out: str) -> str:
+    """輸出是 JSON（sync-atom-index --check）就摘成「哪類 幾筆（前兩個名字）」；最後一行只會是 `}`，報告看不出哪張卡。其餘取最後一行。"""
+    try:
+        d = json.loads(out)
+    except ValueError:
+        lines = out.splitlines()
+        return lines[-1] if lines else ""
+    if not isinstance(d, dict):
+        return out[-300:]
+    parts = []
+    for kind, items in d.items():
+        if not isinstance(items, list) or not items:
+            continue
+        names = [str(i.get("atom") or i.get("path") or i) if isinstance(i, dict) else str(i) for i in items[:2]]
+        parts.append(f"{kind} {len(items)} 筆（{'、'.join(names)}）")
+    return "；".join(parts) or out[-300:]
 
 
 def _newest_mtime(pattern_dir: Path, glob: str) -> datetime | None:
