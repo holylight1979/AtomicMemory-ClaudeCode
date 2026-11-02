@@ -155,9 +155,6 @@
 
 | 檔案 | 負責什麼 |
 |------|----------|
-| [`hooks/wg_data_file.py`](../hooks/wg_data_file.py) | 改資料檔的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
-| [`hooks/wg_oldtest.py`](../hooks/wg_oldtest.py) | 改舊測試的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
-| [`hooks/wg_gate_bypass.py`](../hooks/wg_gate_bypass.py) | 繞閘的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
 | [`hooks/wg_ask_gate.py`](../hooks/wg_ask_gate.py) | 問使用者前每題要附推薦（AskUserQuestion／ExitPlanMode），帳寫 `Logs/guard-ask.jsonl` |
 | [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
 | [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
@@ -510,7 +507,6 @@ runtime state（多數 gitignored）。
 | `workflow/health-reports/` | 健康報告 |
 | `workflow/verify-ledger/` | 收據帳本 |
 | `workflow/tracking/` | 追蹤項 |
-| `workflow/old-test-snap/` | 改舊測試快照 |
 | `workflow/reading-path/` | 閱讀路徑 |
 | `workflow/chain-snap/<session>/` | 連鎖斷路器的改檔前快照（gitignore，[乙8](coding-guard.md#乙8-連鎖斷路器)） |
 | `workflow/inbox/` | 多 session 派工信箱 |
@@ -591,10 +587,10 @@ runtime state（多數 gitignored）。
 - 錄製檔在測試模組旁 `cassettes/<模組>/<測試>.json.gz`（隨程式碼上版控）。
 - 限制：受測程式開子程序再叫的 git（例：[`merge-atom-index.py --resolve`](../tools/merge-atom-index.py)）照常真跑。
 
-### 目前套用（共 13 支）
+### 目前套用（共 12 支）
 
 - git 呼叫量最大的一批。
-- hooks/verify：`verify_vcs_sync_worker`、`verify_stop_reconcile`、`verify_merge_driver_gate`、`verify_overview_hub`、`verify_unpushed_advisory`、`verify_sync_reminder_unpushed`、`verify_reading_path_hook`、`verify_personal_sync_advisory`、`verify_gate_bypass`、`verify_smell_gate`。
+- hooks/verify：`verify_vcs_sync_worker`、`verify_stop_reconcile`、`verify_merge_driver_gate`、`verify_overview_hub`、`verify_unpushed_advisory`、`verify_sync_reminder_unpushed`、`verify_reading_path_hook`、`verify_personal_sync_advisory`、`verify_smell_gate`。
 - tools/verify：`verify_reading_path`、`verify_merge_atom_index`、`verify_normalize_eol`。
 - `verify_install` 不適用：repo 建在模組共用目錄、git 在 [`install.py`](../tools/install.py) 子程序裡跑。
 - 其餘 git 呼叫 10 次以下的測試檔照舊跑真 git。

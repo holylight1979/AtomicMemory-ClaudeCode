@@ -75,7 +75,6 @@
 | `sync_keywords` | 同步、sync、commit、提交、結束、收工 | 使用者說這些字時注入同步提醒 |
 | `privacy.enabled` / `deny_globs` | true / []（追加；只在程式預設） | git commit 隱私硬閘 |
 | `guard.verify_batch.enabled` / `full_run_keywords` / `slow_run_s` / `large_suite_files` | true / 整組、全量、全部測試、run_verify / 120 / 50 | 驗證批次閘：整組驗證要使用者口令、同一批改動只驗一次（[甲 §7.3](../TECH.md#73-commit-與驗證前的閘)） |
-| `guard.data_file_ask.enabled` / `old_test_declare.enabled` / `gate_bypass.enabled` | true / true / true | 改資料檔、改舊測試、繞閘的宣告閘（[乙6](coding-guard.md#乙6-其他寫碼守門)） |
 | `guard.smell_gate.anon_body_block_lines` / `anon_body_list_lines` / `nesting_block_depth` | 20 / 10 / 4 | 病形閘門檻（[乙6](coding-guard.md#乙6-其他寫碼守門) SmellGate） |
 | `verify_ledger.enabled` / `sentinel_regex` | true / PASS／FAIL／DONE 兩條＋pytest 映射 | 哨兵收據入帳（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) 收據） |
 | `overview_hub.*` | 見下方補充 | 部位表設定：權威地圖、等值與熱路徑閘、svn 提交測試路徑閘（合併順序見[附錄 設定來源](../TECH/guards.md#設定來源)） |
@@ -299,7 +298,7 @@
 | `atom_audit.enabled` | 開了才有卡片表態閘 |
 | `pick_one.enabled` | 交付時順手點出最該修的一件 |
 | `overview_hub.enabled` / `overview_hub.equivalence.enabled` | 讀文件檔時的權威地圖注入 / 等值與熱路徑閘 |
-| `guard.data_file_ask.enabled` / `guard.old_test_declare.enabled` / `guard.gate_bypass.enabled` / `guard.smell_gate.enabled` | 改資料檔、改舊測試、繞閘、commit 前病形的閘 |
+| `guard.smell_gate.enabled` | commit 前病形的閘 |
 | `guard.cross_realm_write.enabled` | 外部專案 session 寫 `~/.claude` 核心層的 deny 閘 |
 | `guard.cross_realm_bash.enabled` | 同上，管經 Bash／PowerShell 改核心層 |
 | `acceptance_spec.enabled` | 多檔改動要求驗收規格 |

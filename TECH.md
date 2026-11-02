@@ -427,7 +427,7 @@ sequenceDiagram
 
     rect rgba(255,150,150,0.1)
         note over G,F: Stop（handlers/stop.py + codex_companion.py + lang_guard.py）
-        G->>G: 舊版紅測 → 退避偵測 → 退縮歸屬 → 收割 → 收割對帳 → 收尾檢核 → AEC-Pending → 同步閘 → 卡片表態 → 深度檢討（§7.1）
+        G->>G: 紅測閘 → 退避偵測 → 退縮歸屬 → 收割 → 收割對帳 → 收尾檢核 → AEC-Pending → 同步閘 → 卡片表態 → 深度檢討（§7.1）
         G->>F: 效用歸因（useful / used_fail → access sidecar）
         G->>G: 底部同步擋（§7.1）
         G->>G: codex_companion：回合證據、交接自檢（背景）；lang_guard：英文漂移（§7.6）
@@ -984,7 +984,6 @@ SessionStart（session_start._org_advisory）
 | 新卡必須 [臨] | 無 | 有 |
 | trigger 長度上限 | 無 | 有 |
 | 敘事日期閘 | 有 | 有 |
-| 繞閘做法拒寫（[§7.5](#75-寫卡時的閘)） | 有 | 有 |
 
 #### 閘門順序
 
@@ -1264,12 +1263,12 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 - 這些閘出廠就在跑。
 - 收尾那幾道會隨守門開關改變擋法：守門關時擋，守門開時多半改成只提醒（[跨層表 #21～#30](#守門開關會改到記憶系統的地方)）。
-- 寫碼守門另外加的閘（寫碼查核、病形閘、動資料檔要先宣告…）在[乙篇](TECH/coding-guard.md)；AI 寫程式時一路會遇到什麼 → [乙2](TECH/coding-guard.md#乙2-一路會遇到什麼)。
+- 寫碼守門另外加的閘（寫碼查核、病形閘、拐彎判斷…）在[乙篇](TECH/coding-guard.md)；AI 寫程式時一路會遇到什麼 → [乙2](TECH/coding-guard.md#乙2-一路會遇到什麼)。
 - 擋訊息與留帳裡的規則名，全表在 [TECH/release-rules.md](TECH/release-rules.md)，導讀在[乙9](TECH/coding-guard.md#乙9-規則全表)。
 
 **擋還是提醒怎麼定**
 - 收尾閘一律經 [`hooks/wg_release_rules.py`](hooks/wg_release_rules.py) 的 `gate_mode(rule, v6)` 問：守門關一律擋，守門開照 `RULE_MODE` 判（[跨層表](#守門開關會改到記憶系統的地方)）。
-- [§7.3](#73-commit-與驗證前的閘)～[§7.5](#75-寫卡時的閘) 的擋類閘（口令、驗證批次、隱私、SvnTestBlock、根層保護、記憶卡路徑、繞閘卡片拒寫）不經 `gate_mode`，一律照擋。
+- [§7.3](#73-commit-與驗證前的閘)～[§7.4](#74-改檔前的閘) 的擋類閘（口令、驗證批次、隱私、SvnTestBlock、根層保護、記憶卡路徑）與紅測閘不經 `gate_mode`，一律照擋。
 
 ### 7.1 收尾閘序（守門關時）
 
@@ -1278,7 +1277,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 下面寫的是守門關（出廠）時的樣子；守門開時哪裡不同見本節最後與[跨層表](#守門開關會改到記憶系統的地方)。依序查，前面的擋下就不往下：
 
 ```text
-舊版紅測
+紅測閘
   → 退避偵測（只記旗標，不擋）
   → 退縮歸屬（DeferralGate）
   → 收割（KnowledgeHarvest）→ 收割對帳（Harvest-Pending）
@@ -1294,7 +1293,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 | 閘 | 擋什麼 | 有名規則 | 目前擋不擋 |
 |---|---|---|---|
-| 舊版紅測 | 本 session 有還沒轉綠的失敗測試，又說完成 | — | 擋 |
+| 紅測閘 | 本 session 有還沒轉綠的失敗測試，又說完成 | [RED_TEST_BLOCKS_COMPLETION](TECH/release-rules.md#red_test_blocks_completion) | 擋 |
 | 退避偵測 | 最後一段文字有退避語 | — | 不擋；記旗標，下一則注入舉證要求（[§7.2](#72-反退避anti-evasion)） |
 | 退縮歸屬（DeferralGate） | 主任務完工、context 用量還沒過 0.75，卻把帶受詞的可做之事推給下個 session／獨立議題／非我造成 | [DEFERRAL_OF_DOABLE_WORK](TECH/release-rules.md#deferral_of_doable_work) | 擋 |
 | 收割（KnowledgeHarvest） | 宣告完成、有實質活動、過了冷卻，卻沒交 `knowledge_harvest_report` | [HARVEST_AT_PHASE_DONE](TECH/release-rules.md#harvest_at_phase_done) | 擋（每回合一次） |
@@ -1309,15 +1308,15 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 #### 各閘重點
 
-- **舊版紅測**（`stop.pre_v6_testfail_message`）：
+- **紅測閘**（`stop.testfail_message`；寫碼守門開或關同一套）：
   - 擋訊息只列還沒跑綠的那幾支；出路三選一：修到綠、說明不修並標已知 regression、降級任務定義。
-  - 沒有放行詢問、「不做｜」豁免與基底紅判定，也不看擋次預算（[跨層表 #27](#守門開關會改到記憶系統的地方)）。
-  - 使用者送出「先這樣／跳過」的那一則，就清掉全部紅測（[跨層表 #13](#守門開關會改到記憶系統的地方)）。
+  - 沒有放行詢問，也不看擋次預算。
+  - 使用者送出「先這樣／跳過」的那一則，就清掉全部紅測。
   - **推論、待實測**：PostToolUseFailure 不分派，結束碼不是 0 的測試紅可能沒記到（[跨層表 #4](#守門開關會改到記憶系統的地方)）。
 - **退縮歸屬**：
   - 擋回一問：「剩下沒做的，哪些改得快又有效？」快又有效的現在做掉。
   - 其餘每件寫一行「追蹤｜<哪一件>：<現在不做的原因>」，記進追蹤帳本。
-  - 退縮句對到有理由的「追蹤｜」「不做｜」行就不擋、留帳（[NOT_DOING_DECLARED](TECH/release-rules.md#not_doing_declareduser_waiver_needs_citation)）。
+  - 退縮句對到有理由的「追蹤｜」「不做｜」行就不擋、留帳（[NOT_DOING_DECLARED](TECH/release-rules.md#not_doing_declared)）。
 - **收割、收割對帳**：使用者近 3 則說「先這樣／跳過」→ 整批放行並留帳（[收割與收尾檢核的 dismiss](TECH/release-rules.md#收割與收尾檢核的-dismiss)）。
 - **AEC-Pending**：先 `atom_write` 寫完，再重交收尾檢核報告，把那一項改成「已寫入 atom <名>」或「不寫（一句理由）」。
 - **同步閘**：
@@ -1335,8 +1334,8 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 - **共用 `stop_gate_max_blocks` 2**：整個 session 累計，用完之後第 3 次放行（[BLOCK_BUDGET_SHARED](TECH/release-rules.md#block_budget_shared)、[跨層表 #26](#守門開關會改到記憶系統的地方)）。
   - 退縮歸屬、AEC-Pending、卡片表態要預算還沒用完才判；預算用完時底部同步擋直接放行。
-  - 舊版紅測、同步閘、深度檢討擋下時也記一次。
-- **自己管次數**：舊版紅測（宣告完成就擋，不看預算）、收割與收割對帳（每回合一次）、同步閘（每 session 一次）、深度檢討（一次性，獨立預算）。
+  - 紅測閘、同步閘、深度檢討擋下時也記一次。
+- **自己管次數**：紅測閘（宣告完成就擋，不看預算）、收割與收割對帳（每回合一次）、同步閘（每 session 一次）、深度檢討（一次性，獨立預算）。
 
 #### 守門開時哪裡不同
 
@@ -1345,7 +1344,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - 共用擋次每個使用者回合重算（[跨層表 #26](#守門開關會改到記憶系統的地方)）。
 - 判「宣告完成」看整個回合，不只最後一則（[跨層表 #24](#守門開關會改到記憶系統的地方)）。
 - 用 Bash／PowerShell 改的檔也進改檔帳，同步閘看得到（[跨層表 #5](#守門開關會改到記憶系統的地方)）；糾正會問 AI 並累計，餵給深度檢討（[跨層表 #15](#守門開關會改到記憶系統的地方)）。
-- 舊版紅測換成新版 TestFailGate，另加寫碼查核、拐彎判斷、等值、自清、Reload 建議、PickOne 等閘 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)、[跨層表 #27](#守門開關會改到記憶系統的地方)。
+- 另加寫碼查核、拐彎判斷、等值、自清、Reload 建議、PickOne 等閘 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。紅測閘兩種模式同一套。
 
 細節 → [附錄 A7](#a7-基本守門細節)
 
@@ -1449,18 +1448,9 @@ Bash／PowerShell 指令
 
 ### 7.5 寫卡時的閘
 
-這節解決：寫記憶卡時，除了 [§6.1](#61-顯式寫入atom_writemcp) 的寫入閘，還擋哪一種內容。
+這節解決：寫記憶卡時擋哪些內容。
 
-- **繞閘卡片拒寫**（[`hooks/wg_gate_bypass.atom_refusal`](hooks/wg_gate_bypass.py)，規則 [ATOM_BYPASS_HOWTO_REFUSED](TECH/release-rules.md#atom_bypass_howto_refused)）：
-  - 兩件同時成立就拒寫：① 內容提到 Guardian 的閘（`[Guardian:` 標籤、SmellGate、隱私閘、CommitOrder、規則名…）；② 含改暫存區或改提交範圍的做法（`restore --staged`、改 pathspec、移出暫存…）。
-  - 只命中一件 → 照寫。
-  - 入口兩個：MCP `atom_write` 經 [`tools/memory-write-gate.py`](tools/memory-write-gate.py)；程式寫手經 [`lib/atom_io.write_atom`](lib/atom_io.py)。
-  - 內容其實是禁止繞閘的指引或誤擋分析時，知識段第一行寫「不是教繞閘｜<理由>」；理由有內容就寫入並留帳，這行落檔前剝掉。
-- **其他寫入閘**（domain、realm、預算與清單形狀、敘事日期…）→ [§6.1](#61-顯式寫入atom_writemcp)。
-
-**為什麼要擋這種卡**：卡片會注入給之後每個 session；教人繞閘的卡等於把閘拆掉。
-
-細節 → [附錄 A7](#a7-基本守門細節)
+- 寫卡的閘都在寫入路徑上（domain、realm、預算與清單形狀、敘事日期…）→ [§6.1](#61-顯式寫入atom_writemcp)。
 
 ### 7.6 回合結束與背景審查
 
@@ -2298,7 +2288,7 @@ flowchart TD
     - `svn add` 中文路徑 SvnEncoding advisory。
   - **索引三檔合併驅動**：自動安裝與解衝突（[§4.5](#45-索引json-單一真相)）。
   - **派子代理時**：注入記憶（預算 700 tok，`_SUBAGENT_INJECT_BUDGET`）。
-  - **寫碼守門的部分**（屬乙篇）：連鎖斷路器、動資料檔／改舊測試／繞閘宣告、病形閘、`readonly_paths`、問使用者前查推薦 → [乙6](TECH/coding-guard.md#乙6-其他寫碼守門)、[乙7](TECH/coding-guard.md#乙7-部位表與-depends-召回)、[乙8](TECH/coding-guard.md#乙8-連鎖斷路器)。`readonly_paths` 守門關時不擋（→ [跨層表 #36](#守門開關會改到記憶系統的地方)）。
+  - **寫碼守門的部分**（屬乙篇）：連鎖斷路器、病形閘、`readonly_paths`、問使用者前查推薦 → [乙6](TECH/coding-guard.md#乙6-其他寫碼守門)、[乙7](TECH/coding-guard.md#乙7-部位表與-depends-召回)、[乙8](TECH/coding-guard.md#乙8-連鎖斷路器)。`readonly_paths` 守門關時不擋（→ [跨層表 #36](#守門開關會改到記憶系統的地方)）。
 
 #### PostToolUse
 有兩組 matcher。
@@ -2309,7 +2299,7 @@ flowchart TD
 - **職責**：
   - **記錄改檔**：Edit／Write 改的檔進 `modified_files`，同步閘與收尾檢核看這份帳。
   - **驗證與證據**：
-    - 紅測入帳（`failing_tests`，[§7.1](#71-收尾閘序守門關時) 舊版紅測閘看它）。
+    - 紅測入帳（`failing_tests`，[§7.1](#71-收尾閘序守門關時) 紅測閘看它）。
     - docdrift。
     - AEC 證據蒐集：讀 Stop 留下的 evasion_flag 做 cross-check。
     - late-collision。
@@ -2328,7 +2318,6 @@ flowchart TD
     - 不載 wg_core、不讀 state、不計時；一趟 ≈0.07 秒，完整路徑 ≈0.4 秒。
     - 讀檔相關的事改在下一個非 Read 事件補帳，項目有：
       - 記讀過的檔。
-      - 動資料檔讀提示。
       - Depends 召回。
       - 工具結果體積。
       - 救援命中。
@@ -2364,7 +2353,6 @@ flowchart TD
     - 測試指令紅了記紅測（`failing_tests`）與驗證收據，跟成功路徑同一套函式。
     - `error` 讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。
     - 紅的重跑也記成連鎖斷路器的 AI 動作（[乙8](TECH/coding-guard.md#乙8-連鎖斷路器)）。
-  - **改舊測試**：事後比對照成功路徑跑（[乙6](TECH/coding-guard.md#乙6-其他寫碼守門) OldTestDeclare，[OLD_TEST_COMPARED_ON_FAILED_COMMAND](TECH/release-rules.md#old_test_compared_on_failed_command)）。
   - **性質**：只記帳不擋；裁判子 session 只記改檔與收據。
 
 #### PreCompact／PostCompact／PostToolBatch
@@ -2383,7 +2371,7 @@ flowchart TD
 - **matcher**：—
 - **掛的 hook**：guardian（20 秒）、codex（20 秒）、[`lang_guard.py`](hooks/lang_guard.py)（5 秒）。
 - **職責**：
-  - **基本守門的收尾閘**，依序：舊版紅測 → 退避偵測／退縮歸屬 → 收割／收割對帳 → 收尾檢核／AEC-Pending／HUD fallback → 同步閘 → 卡片表態 → 深度檢討 → 底部同步擋（[§7.1](#71-收尾閘序守門關時)）。
+  - **基本守門的收尾閘**，依序：紅測閘 → 退避偵測／退縮歸屬 → 收割／收割對帳 → 收尾檢核／AEC-Pending／HUD fallback → 同步閘 → 卡片表態 → 深度檢討 → 底部同步擋（[§7.1](#71-收尾閘序守門關時)）。
   - **效用歸因**。
   - **收尾自檢**：在 codex_companion 那支，背景跑、不擋（[§7.6](#76-回合結束與背景審查)）。
   - **英文漂移**：在 lang_guard（[§7.6](#76-回合結束與背景審查)）。
@@ -3203,7 +3191,7 @@ flowchart TD
 - 程式寫手（萃取 worker、工具）：呼叫 [`lib/atom_io.py write_atom`](lib/atom_io.py)。
 - 只在 MCP 路徑：write gate（品質評分與去重）、knowledge 預算、清單形狀閘、衝突偵測。
 - 只在 py `write_atom`：規則型樣式閘、新卡必須 [臨]、trigger 長度上限。
-- 兩條路都有：敘事日期閘、繞閘做法拒寫。
+- 兩條路都有：敘事日期閘。
 
 #### 閘：domain 必填
 
@@ -3784,20 +3772,19 @@ svn：svn_update_targets
   - 一行提醒掛在「這批改了程式檔」的工具結果上，收割類掛在交收尾報告那批（[`hooks/handlers/post_tool_batch.py`](hooks/handlers/post_tool_batch.py)）。只改文件的回合連提醒都沒有。
 - 收尾檢核與卡片表態目前在設定裡關著（[`workflow/config.json`](workflow/config.json) 的 `aec.scan_report_gate=false`、`atom_audit.enabled=false`）。擋與提醒看同一個開關，所以守門開或關都不擋也不提醒（`post_tool_batch.py` 的 `_closing_check_reminder`、`_postmortem_audit_reminders`；[跨層表](#守門開關會改到記憶系統的地方) 下方說明）。
 
-##### 舊版紅測閘
+##### 紅測閘
 
-- **條件**：本 session 有還沒轉綠的失敗測試（`failing_tests`），而且最後一則宣告完成（`claims_completion`）。
+- **條件**：本 session 有還沒轉綠的失敗測試（`failing_tests`），而且最後一則宣告完成（`claims_completion`）。寫碼守門開或關同一套。
   - 只認本 session 自己的條目；子代理內的紅測不記主 session。
-- **擋訊息**（`stop.pre_v6_testfail_message`）：
+- **擋訊息**（`stop.testfail_message`）：
   - 抬頭「測試未綠：還有 N 支沒跑綠」，算支數不算筆數；真的有綠掉幾支才附「（M 支已綠）」。
-  - 每筆只列還沒跑綠的那幾支（最多 3 支＋等 N 支），附「重跑這幾支檔就夠：<那幾支所在的檔>」。失敗項跟新版同一份（`stop._red_item_lines`）。
+  - 每筆只列還沒跑綠的那幾支（最多 3 支＋等 N 支），附「重跑這幾支檔就夠：<那幾支所在的檔>」（`stop._red_item_lines`）。
   - 出路三選一：修復；說明不修並標已知 regression；降級任務定義。
-- **沒有的東西**：放行詢問、「不做｜」豁免、負向對照、基底紅判定。擋下記一次 `stop_blocked_count`，但不看擋次預算（→ [跨層表 #27](#守門開關會改到記憶系統的地方)）。
-- **紅測怎麼記**：PostToolUse 看測試指令的輸出記紅、記綠（`post_tool_use._track_test_result`）。紅的範圍怎麼存、綠清哪些紅 → [TECH/guards.md TestFailGate](TECH/guards.md#testfailgate)。
+- **沒有的東西**：放行詢問、「不做｜」豁免、收尾寫的負向對照。擋下記一次 `stop_blocked_count`，但不看擋次預算；連鎖斷路器中止中也照擋。
+- **紅測怎麼記**：PostToolUse 看測試指令的輸出記紅、記綠（`post_tool_use._track_test_result`）。紅的範圍怎麼存、綠清哪些紅、哪些刻意紅不記 → [TECH/guards.md TestFailGate](TECH/guards.md#testfailgate)。
   - 守門關時 PowerShell 之後不分派，PowerShell 跑的測試不記（→ [跨層表 #2](#守門開關會改到記憶系統的地方)）。
   - 守門關時結束碼不是 0 的指令也不分派，紅測可能沒記到（推論、待實測；→ [跨層表 #4](#守門開關會改到記憶系統的地方)）。
-- **使用者說「先這樣／跳過」**：守門關時送出那一則就清掉全部紅測（→ [跨層表 #13](#守門開關會改到記憶系統的地方)）。
-- 守門開時換成新版 TestFailGate（→ [跨層表 #27](#守門開關會改到記憶系統的地方)、[乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)）。
+- **使用者說「先這樣／跳過」**：送出那一則就清掉全部紅測（`handlers/ups_gates`）。
 
 ##### 退縮歸屬（DeferralGate）
 
@@ -3809,7 +3796,7 @@ svn：svn_update_targets
   - 快又有效的現在做掉。
   - 其餘每件寫一行「追蹤｜<哪一件>：<現在不做的原因>」；回覆裡的追蹤行記進追蹤帳本 `workflow/tracking/`（`stop._record_tracking_lines`）。
   - 「不做｜…」是同一種宣告；「不做｜<哪一件>：使用者說「…」」的原句不再比對原話。
-- **不擋**（記 guard log `deferral_declared`；規則 [NOT_DOING_DECLARED](TECH/release-rules.md#not_doing_declareduser_waiver_needs_citation)）：退縮句那一行對到有理由的「追蹤｜」或「不做｜」行。
+- **不擋**（記 guard log `deferral_declared`；規則 [NOT_DOING_DECLARED](TECH/release-rules.md#not_doing_declared)）：退縮句那一行對到有理由的「追蹤｜」或「不做｜」行。
 - **次數**：每個使用者回合最多一次（`deferral_gate_turn`）；吃共用預算，預算用完不判。
 - 使用者只說「先這樣／跳過」不會關掉這道。
 - **守門開時多的**：退縮閘擋下的那一句不再記退避旗標，下一則不再追問同一句（[DEFERRAL_COVERS_EVASION_SENTENCE](TECH/release-rules.md#deferral_covers_evasion_sentence)；→ [跨層表 #23](#守門開關會改到記憶系統的地方)）。
@@ -4070,26 +4057,6 @@ svn：svn_update_targets
 
 - **位置**：[`hooks/webfetch-guard.sh`](hooks/webfetch-guard.sh)（PreToolUse WebFetch）。
 - **做什麼**：WebFetch 前置護欄。
-
-#### 寫卡時的閘細節
-
-[↑ 主文 §7.5](#75-寫卡時的閘)
-
-##### 繞閘卡片拒寫
-
-- **位置**：[`hooks/wg_gate_bypass.py`](hooks/wg_gate_bypass.py) `atom_refusal`；不看守門開關，走寫入路徑（[`lib/atom_io.py`](lib/atom_io.py)）。
-- **入口**：[`tools/memory-write-gate.py`](tools/memory-write-gate.py) `evaluate`（MCP `atom_write` 三種 mode）；[`lib/atom_io.write_atom`](lib/atom_io.py)（程式寫手）。
-- **拒寫條件**（兩者同時成立）：
-  - ① 內容提到 Guardian 的閘：`[Guardian:` 標籤；SmellGate／病形閘／隱私閘／PrivacyGate／CommitOrder；`wg_release_rules.RULES` 規則名。
-  - ② 含改暫存區或改提交範圍的做法字樣：設定鍵 `guard.gate_bypass.staging_words`，預設是帶動作的寫法（restore --staged、改 pathspec、拆三步、移出暫存…）；單獨的「pathspec」「reset」不算。
-  - 只命中一個 → 照寫。
-- **動作**：拒寫 `ATOM_BYPASS_HOWTO_REFUSED`（訊息末尾印宣告入口），留帳 atom_refused。
-- **擋訊息的問法**：先問讀者能不能照著做，讓閘擋下的內容不經修正就過關。能 → 是教繞法（即使自認誤擋）；不能 → 才宣告。
-- **宣告「不是教繞法」**：
-  - 適用：禁止怎麼繞的指引、誤擋分析這類內容。
-  - 寫法：知識段第一行寫「不是教繞閘｜<理由>」，可帶 [臨] 前綴。
-  - 建卡與 append 落檔前由 [`lib/atom_spec.py`](lib/atom_spec.py) `strip_bypass_declaration` 剝掉，卡裡不留，理由只在帳上。
-  - 理由有內容、不是佔位 → 寫入並留帳 atom_declared。
 
 #### 回合結束與背景審查細節
 
@@ -4541,7 +4508,7 @@ svn：svn_update_targets
 #### guard JSONL
 - **位置**：`Logs/guard-<名>.jsonl`（`wg_core.append_guard_log`）
 - **做什麼**：每道閘或護欄一份，每個護欄觸發一筆
-- **已有的名字**：hook_timing、reconcile、ask、selfscore、text_score、equivalence、data_file、old_test、gate_bypass、evasion、harvest_pending、harvest_waived、friction、extract_veto、conflict_declared、realm_declared、provenance
+- **已有的名字**：hook_timing、reconcile、ask、selfscore、text_score、equivalence、evasion、harvest_pending、harvest_waived、friction、extract_veto、conflict_declared、realm_declared、provenance
 - **用途**：誤攔率可量測；週健檢讀
 
 #### 量尺工具（唯讀）
