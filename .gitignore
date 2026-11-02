@@ -196,8 +196,10 @@ chrome/
 history.jsonl
 journals/
 
-# usage-snapshot 專屬 Chrome profile（含 claude.ai 登入 cookie）與截圖產出
+# usage-snapshot 專屬 Chrome profile（含 claude.ai 登入 cookie）、專屬 VS Code 設定資料夾與空工作區、截圖產出
 tools/usage-snapshot/browser-data/
+tools/usage-snapshot/vscode-data/
+tools/usage-snapshot/vscode-workspace/
 workflow/usage-snapshots/
 
 # 知識收割帳本與 vcs-sync worker 執行期檔（鎖/dirty/roots/標記）

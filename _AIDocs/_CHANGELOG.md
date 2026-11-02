@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-02 週用量截圖改截 VS Code 的 Claude Code 用量面板，網頁降為退路
+- **緣由**：使用者要 VS Code `/usage` 叫出的 Account & Usage 面板：比網頁多了帳號、方案，以及「哪些東西吃掉用量」、子代理與 MCP 佔比。
+- **做法**（`tools/usage-snapshot/usage_snapshot.py`）：另開專屬 VS Code（`vscode-data/` 獨立設定資料夾＋隨機偵錯埠＋`--skip-welcome`＋被遮住照常繪製參數），Playwright 接上後畫面撐到 1280×2000，Claude Code 分頁打 `/usage`、切 Week、只截面板，帳號取面板 Email。連試 3 次都失敗才退截網頁，每次原因記進 notes。排程單次上限 10→20 分鐘並重新註冊。踩到的坑：從 VS Code 終端機跑時 `ELECTRON_RUN_AS_NODE` 讓 Code.exe 變成 Node；新設定資料夾跳 Copilot 引導視窗擋畫面；同步版 Playwright 用 `time.sleep` 等時收不到新框架事件。
+- **驗證**：真跑主路徑成功（Fable、Week、MCP 段都在面板文字裡），再連跑兩次各約 20 秒、無殘留程序；VS Code 不在時連試 3 次後退網頁成功；存檔導暫存、推送換空動作。
+
 ## 2026-11-02 週用量截圖修復：認新版用量頁、展開 Fable、檔名照截圖帳號
 - **緣由**：10/20、10/27 兩週排程都失敗。claude.ai 用量頁改成 `/new#settings/usage` 設定彈窗、中文寫「已使用 68%」（字在前），舊判斷式只認「68% used」字序 → 45 秒逾時；「本週」列預設收合，Fable 每週上限沒拍到；檔名取這台 Claude Code 帳號，10/27 那天 CC 登 _3、瀏覽器登 _5，圖會標錯人。
 - **做法**（`tools/usage-snapshot/usage_snapshot.py`）：判斷式兩種字序都認；截圖前點開彈窗內收合的「本週」鈕；檔名用頁面 `/api/account` 的信箱，跟 CC 帳號不同時記進 last-run `notes`，讀不到才退用 CC 帳號。

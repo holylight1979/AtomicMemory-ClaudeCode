@@ -643,7 +643,7 @@ SessionStart（session_start._org_advisory）
 - 三個根（[`lib/project_root.py`](lib/project_root.py)）：資料根、程式碼根、Claude Code 設定目錄；工具讀資料一律問資料根，不寫死 `~/.claude`。
 - 寫入 funnel：[`lib/atom_io.py write_atom`](lib/atom_io.py) → upsert index → [`tools/sync-memory-index.py --write`](tools/sync-memory-index.py) 重生各層 `_INDEX.md`、[`MEMORY.md`](memory/MEMORY.md)、[`_local_catalog.md`](memory/_local_catalog.md)、[`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md) → 尾端自動重產原生橋接檔並同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分，語言是跨範疇視圖 [`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md)，一張卡可屬多個語言。
-- 現況計數：共 <!-- atom-total -->731<!-- /atom-total --> 張＝core <!-- atom-core -->412<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->84<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->233<!-- /atom-local -->（數字由標記自動同步，勿手改）。
+- 現況計數：共 <!-- atom-total -->732<!-- /atom-total --> 張＝core <!-- atom-core -->413<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->84<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->233<!-- /atom-local -->（數字由標記自動同步，勿手改）。
 
 #### 多機合併的三層防線
 
@@ -785,7 +785,7 @@ SessionStart（session_start._org_advisory）
 
 ### 5.2 深度解說：每個設計的意義
 
-- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->731<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
+- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->732<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
 - **為什麼 BM25 改成每輪跑**：BM25 提供獨立排序證據，R@1 再 +1.2pp；剔除請求框架 bigram 後負例誤注入 31.8% → 4.5%。
 - **為什麼 RRF 而不是序列 fallback**：三路都出排名再融合，後段路才有機會補前段漏的；Recall@1 34 → 53.6%、MRR 0.584 → 0.709。
 - **為什麼活化增益歸零**：activation 乘進 RRF 會壓過相關性；gain 0.25 → 0 讓 R@1 45.1% → 81.1%、MRR 0.639 → 0.870。
@@ -4260,13 +4260,19 @@ svn：svn_update_targets
 - **訊號出口**：health-check 報告 `mojibake_names` 項；守門 [`tools/verify/verify_mojibake_detect.py`](tools/verify/verify_mojibake_detect.py)
 
 #### 週用量截圖
-- **位置**：[`tools/usage-snapshot/usage_snapshot.py`](tools/usage-snapshot/usage_snapshot.py)（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，喚醒電腦、錯過補跑）
-- **做什麼**：
+- **位置**：[`tools/usage-snapshot/usage_snapshot.py`](tools/usage-snapshot/usage_snapshot.py)（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，喚醒電腦、錯過補跑、單次上限 20 分鐘）
+- **主路徑：VS Code 的 Claude Code 用量面板**（帳號、方案、每週與 Fable 上限、哪些東西吃掉用量、子代理與 MCP 佔比）：
+  - 另開專屬 VS Code：`--user-data-dir=tools/usage-snapshot/vscode-data`（跟日常那個分開才能帶偵錯埠）＋ `--remote-debugging-port`（隨機空埠）＋ `--skip-welcome`（新設定資料夾會跳登入 Copilot 引導視窗擋畫面）＋ 被遮住照常繪製的 Chromium 參數；開空資料夾 `vscode-workspace/`
+  - 啟動前拿掉 `ELECTRON_RUN_AS_NODE` 與 `VSCODE_*`（從 VS Code 終端機手動跑時帶著，Code.exe 會被當成 Node 執行）
+  - Playwright `connect_over_cdp` → 畫面撐到 1280×2000（面板不必捲動）→ 命令面板開 Claude Code 分頁 → 輸入框打 `/usage` → 等「Loading usage data」消失 → 切 Week → 只截面板；帳號＝面板 Email @ 前段
+  - 登入沿用這台 Claude Code，不用另外登入；開分頁會起一個 CLI 程序，開場 hook 照跑，留一個 `workflow/state-*.json`（約 300KB，`cleanup-old-files` 30 天後清）；結束時 `taskkill /T` 連 CLI 一起收
+  - 連試 3 次都失敗才退網頁；有失敗就在 last-run `notes` 記每次原因，診斷圖 `usage-YYYYMMDD-vscode-FAILED.png`
+- **退路：claude.ai 用量頁**：
   - 專屬 Chrome profile（`--login` 一次登入；headless 會被 Cloudflare 擋）開 claude.ai/settings/usage
   - 等用量文字出現（「68% used」或「已使用 68%」兩種字序都認），點開收合的「本週」列（Fable 等分模型每週上限在裡面）後截全頁
-- **截圖去向**：
-  - 公司記憶庫（`org_memory` repo）`usage-snapshots/usage-YYYYMMDD-<帳號>.png`，隨即走 `wg_vcs_sync` commit／push
   - 帳號＝截圖裡登入 claude.ai 的信箱 @ 前段（頁面 `/api/account`）；跟這台 Claude Code 帳號不同時照截圖命名並在 last-run `notes` 記警告，讀不到才退用 Claude Code 帳號
+- **截圖去向**：
+  - 公司記憶庫（`org_memory` repo）`usage-snapshots/usage-YYYYMMDD-<帳號>.png`，隨即走 `wg_vcs_sync` commit／push；last-run `source` 標 `vscode` 或 `web`
   - 沒接上公司記憶庫退本機 `workflow/usage-snapshots/`
   - 推不上去留在 clone
   - 以上兩種皆在 last-run 標 repo_error

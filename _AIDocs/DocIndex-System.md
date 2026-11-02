@@ -238,7 +238,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - overview-map-scaffold.py — 從零掃出 `<專案>/.claude/overview-map.md` 骨架表與五段骨架卡（`lib/overview_scaffold.py`）；預設 dry-run，`--write` 落檔（卡先寫、表最後寫、失敗不撤回、重跑接續補完）、表存在拒覆寫、`--merge-missing` 補列補卡；`check` 對帳表與卡｜`OVERVIEW_SCAFFOLD DONE rows=`
 - refix-churn.py — git／svn 同檔反覆 fix 排名（`lib/refix_churn.py`；主尺 fix 數、副尺 14 天配對），排除記憶與收割提交；`--svn-xml` 吃離線 log｜`REFIX_CHURN DONE vcs= commits= fix= files_refixed=`
 - project-smells.py — commit 前病形檢查（PreToolUse 的 SmellGate 載入；TECH/coding-guard.md 乙6）
-- usage-snapshot/usage_snapshot.py — 週用量截圖（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，用量刷新前）：專屬 Chrome profile（`--login` 一次登入）開 claude.ai/settings/usage → 截圖存公司記憶庫 `usage-snapshots/usage-YYYYMMDD-<帳號>.png` 並自動 commit／push（帳號＝截圖裡登入 claude.ai 的信箱 @ 前段，跟這台 Claude Code 帳號不同時記警告；沒接上公司記憶庫退本機 `workflow/usage-snapshots/`）+ 本機 `usage-log.jsonl`（% / Resets 文字）+ `usage-last-run.json`；失敗留 `*-FAILED.png`
+- usage-snapshot/usage_snapshot.py — 週用量截圖（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，用量刷新前）：先開專屬 VS Code（獨立設定資料夾＋偵錯埠）在 Claude Code 分頁打 `/usage`、切 Week、截 Account & Usage 面板（帳號＝面板 Email）；連試 3 次失敗才退網頁：專屬 Chrome profile（`--login` 一次登入）開 claude.ai/settings/usage → 截圖存公司記憶庫 `usage-snapshots/usage-YYYYMMDD-<帳號>.png` 並自動 commit／push（帳號＝截圖裡登入 claude.ai 的信箱 @ 前段，跟這台 Claude Code 帳號不同時記警告；沒接上公司記憶庫退本機 `workflow/usage-snapshots/`）+ 本機 `usage-log.jsonl`（% / Resets 文字）+ `usage-last-run.json`；失敗留 `*-FAILED.png`
 - memory-effect-report.py — 注入效果報表：access.json（曝光+α/β）+ rescue-log + recall-miss.jsonl → 四節（top 有用 / token 稅 / 死重候選 / D 失念聚合）+ 30 天週趨勢；`/memory health` 與週健檢共用
 - memory-vector-service/starter.py — Vector 啟動器自癒（SessionStart / UPS re-kick 共用）：stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、120s 等待窗 + spawn lock
 - native-memory-bridge.py — 核心 atom 索引 → CC 原生 memory 指標鏡像（harness 清單格式，掃描不誤納；`--create` 首次建目錄）
@@ -282,7 +282,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
 - **_by_language/_INDEX.md**（`memory/`，`_` 前綴非 atom，自動生成）— 依程式語言（Python、C#／.NET、JavaScript／Node、PowerShell、Bash／Shell）篩選的跨範疇視圖，只列卡片路徑不搬檔、一張可屬多個語言；詞庫 `memory/_meta/taxonomy.json` 的 `languages` 段；MEMORY.md 末尾有一行指標
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->731<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->732<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

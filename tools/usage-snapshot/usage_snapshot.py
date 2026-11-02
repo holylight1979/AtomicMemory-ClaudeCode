@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""usage_snapshot.py — 每週用量刷新前把 claude.ai 用量頁截圖存檔（Windows 工作排程器驅動）。
+"""usage_snapshot.py — 每週用量刷新前把 Claude Code 用量截圖存檔（Windows 工作排程器驅動）。
 
 做什麼：
+  先截 VS Code 裡 Claude Code 的 Account & Usage 面板（帳號、方案、每週與 Fable 上限、哪些東西吃掉用量、子代理與 MCP 佔比）：
+  另開一個專屬 VS Code（vscode-data/，跟日常那個分開才能帶偵錯埠讓 Playwright 接上；登入沿用這台 Claude Code），
+  Claude Code 分頁輸入 /usage、面板切 Week、只截面板。帳號＝面板上的 Email @ 前那段。
+  那條失敗（沒裝 VS Code、擴充套件改版、逾時）才改截 claude.ai 用量頁，原因記進 notes：
   用本工具專屬的 Chrome profile（browser-data/，只登入 claude.ai；日常 Chrome 的 profile 被 Chrome 鎖住、
   且 Chrome 136+ 拒絕在預設 profile 上被自動化，所以不能直接借用）
-  開有頭 Chrome 視窗（headless 會被 Cloudflare 人類驗證擋下）到 https://claude.ai/settings/usage，
-  等用量條渲染完 → 截圖存到公司記憶庫（workflow/config.json org_memory 那個 repo）的 usage-snapshots/usage-YYYYMMDD-<帳號>.png，
-  隨即 commit／push（走記憶庫同一套背景上版控 wg_vcs_sync）。帳號＝截圖裡登入 claude.ai 的那個信箱 @ 前那段（頁面 /api/account）；
-  跟這台 Claude Code 登入帳號（.claude.json，跟 Claude Code 設定目錄）不同時照截圖命名並記警告，讀不到才退用 Claude Code 帳號。
+  開有頭 Chrome 視窗（headless 會被 Cloudflare 人類驗證擋下）到 https://claude.ai/settings/usage，點開收合的「本週」列後截全頁；
+  帳號＝截圖裡登入 claude.ai 的那個信箱 @ 前那段（頁面 /api/account），跟這台 Claude Code 登入帳號
+  （.claude.json，跟 Claude Code 設定目錄）不同時照截圖命名並記警告，讀不到才退用 Claude Code 帳號。
+  兩種截圖都存到公司記憶庫（workflow/config.json org_memory 那個 repo）的 usage-snapshots/usage-YYYYMMDD-<帳號>.png，
+  隨即 commit／push（走記憶庫同一套背景上版控 wg_vcs_sync）。
   這台沒接上公司記憶庫（先跑 tools/org-memory.py --join）或推不上去 → 截圖留本機／留在 clone 內，結果標 repo_error。
-  頁面上的 % / Resets 文字追記到本機 workflow/usage-snapshots/usage-log.jsonl，usage-last-run.json 記最近一次結果（成功／失敗原因）。
-  失敗（未登入、逾時、被擋）也會在本機留一張 usage-YYYYMMDD-<帳號>-FAILED.png 供診斷，不靜默。
+  面板／頁面文字追記到本機 workflow/usage-snapshots/usage-log.jsonl（source 標 vscode 或 web），
+  usage-last-run.json 記最近一次結果（成功／失敗原因）。
+  失敗也會在本機留診斷圖：VS Code 那條 usage-YYYYMMDD-vscode-FAILED.png、網頁那條 usage-YYYYMMDD-<帳號>-FAILED.png，不靜默。
 
 怎麼跑：
-  python tools/usage-snapshot/usage_snapshot.py --login     首次：開有頭視窗，手動登入 claude.ai，登入成功自動關閉
-  python tools/usage-snapshot/usage_snapshot.py             截一張（會彈 Chrome 視窗約 30 秒）
-  python tools/usage-snapshot/usage_snapshot.py --headless  不彈視窗（實測會被 Cloudflare 擋，留作再試）
+  python tools/usage-snapshot/usage_snapshot.py --login     網頁退路首次：開有頭視窗，手動登入 claude.ai，登入成功自動關閉
+  python tools/usage-snapshot/usage_snapshot.py             截一張（會彈 VS Code 視窗約 20 秒；失敗再彈 Chrome 約 30 秒）
+  python tools/usage-snapshot/usage_snapshot.py --headless  網頁退路不彈視窗（實測會被 Cloudflare 擋，留作再試）
   python tools/usage-snapshot/usage_snapshot.py --register  註冊排程：每週二 03:30（喚醒電腦、錯過補跑）
   完整參數：--help
 """
@@ -25,8 +31,10 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -56,6 +64,19 @@ USAGE_URL = "https://claude.ai/settings/usage"
 TASK_NAME = "Claude-Usage-WeeklySnapshot"
 USAGE_TEXT = re.compile(r"\d+%\s*(used|已使用)|(used|已使用)\s*\d+%", re.I)  # 英文「68% used」、中文「已使用 68%」兩種字序
 WEEKLY_TOGGLE = re.compile(r"本週|this week|weekly", re.I)  # 用量彈窗「本週」收合鈕的文字
+
+# VS Code 用量面板：另開一個專屬 VS Code（跟日常那個分開，才能帶偵錯埠讓 Playwright 接上）
+CODE_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Microsoft VS Code" / "Code.exe"
+VSCODE_DATA = PROFILE_DIR.parent / "vscode-data"   # 專屬 VS Code 設定資料夾（使用者資料，跟 Chrome profile 同處）
+VSCODE_WS = PROFILE_DIR.parent / "vscode-workspace"   # 專屬 VS Code 開的空資料夾（Claude Code 分頁要有工作區）
+# 視窗被遮住、螢幕鎖定時 Chromium 照常繪製，不然點擊與截圖會卡在等畫面
+NO_OCCLUSION_ARGS = ["--disable-features=CalculateNativeWinOcclusion", "--disable-backgrounding-occluded-windows",
+                     "--disable-renderer-backgrounding", "--disable-background-timer-throttling"]
+VSCODE_ATTEMPTS = 3   # VS Code 那條連試幾次都失敗才退網頁
+CC_INPUT = '[role=textbox][aria-label="Message input"]'   # Claude Code 分頁的輸入框
+PANEL_LOADED_JS = """s => { const d = [...document.querySelectorAll('[role=dialog]')]
+  .find(x => x.innerText.includes('Account & Usage')); return d && !d.innerText.includes(s) }"""
+PANEL_HAS_JS = "s => [...document.querySelectorAll('[role=dialog]')].some(x => x.innerText.includes(s))"
 
 
 def log(msg: str) -> None:
@@ -158,14 +179,130 @@ def do_login(timeout_min: int) -> int:
     return 0 if ok else 1
 
 
-def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
+def do_snapshot(headed: bool) -> int:
+    """先截 VS Code 裡 Claude Code 的 Account & Usage 面板（資訊多）；那條失敗才改截 claude.ai 用量頁，原因記進 notes。"""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     result = {"at": now.isoformat(timespec="seconds"), "ok": False, "file": None, "error": None}
+    errors = []
+    for _ in range(VSCODE_ATTEMPTS):
+        error = capture_vscode(result, now)
+        if error is None:
+            break
+        errors.append(error)
+    if errors:  # 重試後才成功也記，時序不穩要看得到
+        result["notes"] = [f"VS Code 用量面板失敗 {len(errors)} 次：{'；'.join(errors)}"]
+    if not result["ok"]:
+        result["notes"].append("改截 claude.ai 用量頁")
+        capture_web(result, now, headed)
+    if result["ok"] and not result.get("repo_error"):
+        _push_to_repo(result)
+    _finish(result)
+    return 0 if result["ok"] else 1
+
+
+def poll(fn, timeout_s: float, what: str, page=None):
+    """每秒試一次 fn，拿到真值就回傳；逾時丟 TimeoutError（訊息寫在等什麼）。
+    給 page 就用它等：同步版 Playwright 只在呼叫它時收事件，用 time.sleep 等，新開的框架永遠不會出現在 frames 裡。"""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            got = fn()
+        except Exception:
+            got = None
+        if got:
+            return got
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"{timeout_s:.0f} 秒內沒等到{what}")
+        if page is None:
+            time.sleep(1)
+        else:
+            page.wait_for_timeout(1000)
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def capture_vscode(result: dict, now: datetime) -> str | None:
+    """開專屬 VS Code（獨立設定資料夾＋偵錯埠，不碰日常那個）→ Claude Code 分頁輸入 /usage → 面板切 Week → 只截面板。
+    成功把檔案、帳號、面板文字寫進 result 回 None；失敗回原因（呼叫端改截網頁）。"""
+    if not CODE_EXE.is_file():
+        return f"找不到 VS Code（{CODE_EXE}）"
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError:
+        return f"這個 Python 沒裝 playwright：{sys.executable}"
+    VSCODE_WS.mkdir(parents=True, exist_ok=True)
+    port = free_port()
+    # 從 VS Code 終端機手動跑時帶著這些變數：Code.exe 會被當成 Node 執行、或把視窗轉給日常那個 VS Code
+    env = {k: v for k, v in os.environ.items() if k != "ELECTRON_RUN_AS_NODE" and not k.startswith("VSCODE_")}
+    proc = subprocess.Popen([str(CODE_EXE), f"--user-data-dir={VSCODE_DATA}", f"--remote-debugging-port={port}",
+                             "--new-window", "--disable-workspace-trust", "--skip-release-notes",
+                             "--skip-welcome",  # 新設定資料夾第一次開會跳「登入 Copilot」引導視窗擋住整個畫面
+                             *NO_OCCLUSION_ARGS,
+                             str(VSCODE_WS)], env=env)
+    try:
+        with sync_playwright() as p:
+            _shoot_usage_panel(p, port, result, now)
+        return None
+    except Exception as e:
+        return f"{type(e).__name__}: {(str(e).splitlines() or [''])[0][:200]}"
+    finally:  # /T 連 Claude Code 擴充套件起的 CLI 一起收
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def _shoot_usage_panel(p, port: int, result: dict, now: datetime) -> None:
+    browser = poll(lambda: p.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=3000), 60, "VS Code 偵錯埠")
+    wb = poll(lambda: next((pg for c in browser.contexts for pg in c.pages if "workbench" in pg.url), None),
+              30, "VS Code 主視窗")
+    try:
+        wb.wait_for_selector(".monaco-workbench", timeout=60000)
+        wb.set_viewport_size({"width": 1280, "height": 2000})  # 撐高到面板不必捲動，不受螢幕大小限制
+        wb.wait_for_timeout(5000)  # 等擴充套件啟動（onStartupFinished）
+        wb.keyboard.press("Control+Shift+P")
+        wb.wait_for_timeout(800)
+        wb.keyboard.type("Claude Code: Open in New Tab")
+        wb.wait_for_timeout(800)
+        wb.keyboard.press("Enter")
+        cc = poll(lambda: next((f for f in wb.frames
+                                if "claude-code" in f.url.lower() and f.locator(CC_INPUT).count()), None),
+                  60, "Claude Code 分頁", page=wb)
+        cc.locator(CC_INPUT).focus()  # 不用 click：視窗被遮住時 click 會卡在等畫面穩定
+        wb.keyboard.type("/usage")
+        wb.wait_for_timeout(1000)
+        wb.keyboard.press("Enter")
+        panel = cc.locator("[role=dialog]").filter(has_text="Account & Usage")
+        panel.wait_for(timeout=30000)
+        cc.wait_for_function(PANEL_LOADED_JS, arg="Loading usage data", timeout=90000)
+        week = panel.get_by_text("Week", exact=True)
+        if week.count():  # 「哪些東西吃掉用量」預設看 Day，每週存檔切 Week
+            week.dispatch_event("click")
+            cc.wait_for_function(PANEL_HAS_JS, arg="Last 7d", timeout=15000)
+        cc.wait_for_timeout(1500)
+        text = panel.inner_text()
+        email = re.search(r"Email\s+(\S+@\S+)", text)
+        account = (account_of(email.group(1)) if email else detect_account()) or "unknown"
+        out = _pick_save_dir(result) / f"usage-{now:%Y%m%d}-{account}.png"
+        panel.screenshot(path=str(out))
+    except Exception:
+        try:
+            wb.screenshot(path=str(OUT_DIR / f"usage-{now:%Y%m%d}-vscode-FAILED.png"))
+        except Exception:
+            pass
+        raise
+    result.update(ok=True, file=str(out), source="vscode",
+                  lines=[ln.strip() for ln in text.splitlines() if ln.strip()])
+
+
+def capture_web(result: dict, now: datetime, headed: bool) -> None:  # headed=False 實測被 Cloudflare 擋
+    """claude.ai 用量頁（專屬 Chrome profile）；結果寫進 result。"""
     if not PROFILE_DIR.exists():
         result["error"] = "profile 不存在：先跑 --login"
-        _finish(result)
-        return 1
+        return
 
     p, ctx = launch(headed)
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -182,9 +319,7 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
         expand_note = expand_weekly(page) if result["error"] is None else None
         page.wait_for_timeout(2500)  # 用量條動畫跑完
         account, account_note = resolve_account(page)
-        notes = [n for n in (expand_note, account_note) if n]
-        if notes:
-            result["notes"] = notes
+        result.setdefault("notes", []).extend(n for n in (expand_note, account_note) if n)
         if not account and result["error"] is None:
             result["error"] = "讀不到帳號（claude.ai /api/account 與 ~/.claude.json 都沒有），不知道檔名該標誰"
         stamp = now.strftime("%Y%m%d") + "-" + (account or "unknown")
@@ -196,6 +331,7 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
         result["file"] = str(out)
         if result["error"] is None:
             result["ok"] = True
+            result["source"] = "web"
             body = page.locator("body").inner_text()
             lines = [ln.strip() for ln in body.splitlines()
                      if "%" in ln or "Resets" in ln or "重設" in ln]
@@ -207,10 +343,6 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
             ctx.close()
         finally:
             p.stop()
-    if result["ok"] and not result.get("repo_error"):
-        _push_to_repo(result)
-    _finish(result)
-    return 0 if result["ok"] else 1
 
 
 def _pick_save_dir(result: dict) -> Path:
@@ -264,7 +396,7 @@ def do_register(at: str, day: str) -> int:
     ps = f"""
 $a = New-ScheduledTaskAction -Execute '{pythonw}' -Argument '"{script}"'
 $t = New-ScheduledTaskTrigger -Weekly -DaysOfWeek {day} -At {at}
-$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
 Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Settings $s -Force | Out-Null
 (Get-ScheduledTaskInfo -TaskName '{TASK_NAME}').NextRunTime
 """
