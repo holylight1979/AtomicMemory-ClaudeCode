@@ -187,7 +187,7 @@
   - 守門開時這幾道都照 `RULE_MODE` 判成提醒、不吃預算；哪一條改回照擋才會吃。
   - 規則 [BLOCK_BUDGET_SHARED](release-rules.md#block_budget_shared)。
 - **寫碼查核**（ReconcileGate (a)～(d)）每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`；紅測閘不看擋次預算。
-- **拐彎判斷**每個使用者回合最多擋一次。
+- **拐彎判斷**：寫碼守門開時缺那一行只提醒一次（每個使用者回合最多一次），收尾時只留紀錄、不擋、不吃預算；寫碼守門關時不跑。
 - **等值閘**：等值沒證齊、熱路徑答了缺東西，吃寫碼查核那份預算；熱路徑沒答，每個使用者回合擋一次（[Equivalence](#equivalence等值與熱路徑g7)）。
 - **擋滿只認使用者放行**（[乙4](coding-guard.md#乙4-擋滿之後怎麼放行)）；沒人能回答（headless／SDK、子代理、裁判）擋滿就放行並留帳。
 - **閘自己判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](release-rules.md#gate_self_error)）。
@@ -371,19 +371,20 @@
 
 - 收尾要有一行「拐彎判斷｜<函式、類別或入口>｜<這一層存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」，五欄齊。
   - 規則 [TURN_JUDGMENT_REQUIRED](release-rules.md#turn_judgment_required)（[乙9](coding-guard.md#乙9-規則全表)）；`turn_judgment_note` 核對。
-- **擋點**在 Stop 的 TurnJudgment 段：
+- **核對點**在 Stop 的 TurnJudgment 段：
   - 寫碼查核（Reconcile）之後、等值閘（Equivalence）之前。
   - ReadingPath 段只量不擋。
 - **只問改到的**：
   - 答過的條目記名字＋內容指紋（函式比本體文字、類別比繼承結構、入口比實際路徑與數據）。
   - 之後量到同名同指紋的不再問。
-  - 量完之前又改了碼，舊的那批只收答案、不擋（規則 [TURN_JUDGMENT_REQUIRED](release-rules.md#turn_judgment_required)）。
+  - 量完之前又改了碼，舊的那批只收答案、不提醒（規則 [TURN_JUDGMENT_REQUIRED](release-rules.md#turn_judgment_required)）。
 - **缺的處理**：
-  - 每個使用者回合最多擋一次（改碼也不重開）。
+  - 寫碼守門開：缺那一行只提醒一次（每個使用者回合最多一次，改碼也不重開），收尾時只留紀錄、不擋；寫碼守門關：不跑。
   - 列缺的條目與填好名字的範例行。
   - 一批最多問 `max_items`（8）條。
-  - 擋下時尾段的閱讀路徑結果不再重複那一題。
-  - 前面的閘擋下時 `[Guardian:AlsoOwed]` 預告「拐彎判斷：缺 N 條」（只報條數；`turn_judgment_missing` 只讀，不吃那一次）。
+  - Stop 擋下那段留著沒拆：目前 `RULE_MODE` 表上這條是提醒，走不到；表上改一格成擋就會用到：
+    - 擋下時尾段的閱讀路徑結果不再重複那一題。
+    - 前面的閘擋下時 `[Guardian:AlsoOwed]` 預告「拐彎判斷：缺 N 條」（只報條數；`turn_judgment_missing` 只讀，不吃那一次）；提醒類不列進預覽。
 - **齊**：`Logs/guard-reading_path.jsonl` 記 judged。
 
 ### Equivalence（等值與熱路徑，G7）

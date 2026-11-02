@@ -31,11 +31,12 @@ WORKER_BUDGET_S 秒，逾時附「背景 N 秒內量不完」，逾時過的根�
 （config reading_path.turn_judgment，預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；是「從第幾個彎起要人看」的
 事實門檻，不是判臭）的每一條附進結果文字，連同一題「這一層／這個彎存在的理由是什麼、有沒有真正的作用、是不是抄舊架構長出來的」
 與尺度原文；收尾文字要有對應的「拐彎判斷｜…」五欄行（turn_judgment_note 核對，規則 TURN_JUDGMENT_REQUIRED 在 wg_release_rules），
-缺 → 每個使用者回合擋一次並列缺的那幾條與填好名字的範例行；齊 → 放行、guard-reading_path.jsonl 記 judged。程式只核對五欄，不評內容。
+缺 → 寫碼守門開：只提醒一次並列缺的那幾條與填好名字的範例行，收尾時只留紀錄、不擋（送法照 wg_release_rules 的 RULE_MODE）；
+寫碼守門關：不跑。齊 → 放行、guard-reading_path.jsonl 記 judged。程式只核對五欄，不評內容。
 只問改到的：答過的條目記名字＋內容指紋（state judged；函式比本體文字含相對縮排，類別比繼承結構，入口比實際路徑與數據），
 之後量到同名同指紋的不再問，
-只問這次改到或新到門檻的。擋的記號（blocked_turn）放在欠項外層，改碼起新一批也不清：每個使用者回合最多擋一次。
-量完前又改了碼 → 舊欠項標 stale：只收答案、不擋，新的一批量完換掉。
+只問這次改到或新到門檻的。提醒過的記號（blocked_turn）放在欠項外層，改碼起新一批也不清：每個使用者回合最多提醒一次。
+量完前又改了碼 → 舊欠項標 stale：只收答案、不提醒，新的一批量完換掉。
 C#：不走上面整個專案的量尺與側面數據，改走 lib/reading_path_cs——只量上次交工作以來變過的 .cs（state measured 記每個改檔的指紋）
 加一跳上下游（不掃整個專案）；git 根照上面的 before，svn 工作副本（版控偵測 wg_verify_ledger._vcs_hit）對 BASE 比（svn_plans；
 svn 裡的其他語言只報個數）。本機有 .NET SDK 附的 Roslyn 就用它解析、沒有用輕量解析。超線才問、才有字（_cs_section）：
@@ -582,10 +583,11 @@ def without_judgment_prompt(text: str) -> str:
 
 def turn_judgment_note(state: Dict[str, Any], session_id: str, code_text: str, uturn: int, turn_seq: int
                        ) -> Tuple[Optional[str], bool]:
-    """背景量完附上的到門檻條目（rec["owed"]）要有對應的「拐彎判斷｜」五欄行 → (要擋的訊息或 None, state 有沒有改)。
+    """背景量完附上的到門檻條目（rec["owed"]）要有對應的「拐彎判斷｜」五欄行 → (缺的那幾條的訊息或 None, state 有沒有改)。
+    訊息拿去擋或只提醒由 Stop 照 RULE_MODE 決定：目前是提醒，Stop 只留紀錄、不擋；寫碼守門關時 Stop 不呼叫這裡。
     答了的條目從欠項拿掉、記進 rec["judged"]（[名字, 內容指紋]，之後量到同名同指紋的不再問）、留帳 judged；全答完清掉欠項。
-    還缺 → 每個使用者回合擋一次（記號 rec["blocked_turn"] 在欠項外層，改碼起新一批也不清），同回合再收尾只印 stderr；
-    欠項是 stale（量完前又改了碼，條目可能已經改掉）→ 只收答案、不擋，等新的一批量完。"""
+    還缺 → 每個使用者回合回一次訊息（記號 rec["blocked_turn"] 在欠項外層，改碼起新一批也不清），同回合再收尾只印 stderr；
+    欠項是 stale（量完前又改了碼，條目可能已經改掉）→ 只收答案、不回訊息，等新的一批量完。"""
     rec = (state.get("reading_path") or {}).get(session_id) or {}
     owed = rec.get("owed") or {}
     items = owed.get("items") or []

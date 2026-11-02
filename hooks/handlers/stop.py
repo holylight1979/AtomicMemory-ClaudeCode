@@ -5,7 +5,8 @@ handlers/stop.py — Stop hook handler
 1. Test-Fail Gate（測試未綠 + 宣告完成 → 擋；寫碼守門開或關同一套，不看擋次預算）
 1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）；
     獨立預算 reconcile_gate.max_blocks_per_turn
-1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；每個使用者回合擋一次；前面的閘擋下時列進預覽）
+1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；寫碼守門開：缺那一行只提醒一次，收尾時只留紀錄、不擋；
+    寫碼守門關：不跑）
 1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
 3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
@@ -1694,8 +1695,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     def _piggyback(reason: str, gate: Optional[str] = None, items: Optional[List[str]] = None) -> str:
         """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳閘＝"reconcile"）就記這個閘最後一次擋的位置；
         那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。
-        閱讀路徑結果：這次擋的是拐彎判斷 → 尾段拿掉那一題（擋訊息自己已經問了，同一則只出現一次）；別的閘擋 → 附原文
-        （拐彎判斷這回合擋過、改由別的閘擋時，尾段是這一則唯一看得到那一題的地方）。
+        閱讀路徑結果：這次擋的是拐彎判斷 → 尾段拿掉那一題（擋訊息自己已經問了，同一則只出現一次；目前 RULE_MODE 表上拐彎判斷是提醒，
+        這一支走不到，表上改一格成擋就會用到）；別的閘擋 → 附原文（拐彎判斷只提醒、或這回合擋過改由別的閘擋時，尾段是這一則唯一
+        看得到那一題的地方）。
         items＝這次列給使用者看的那幾件（沒給就照擋訊息取 release_items）：使用者之後放行只放這幾件。"""
         rp_tail = _rp.without_judgment_prompt(_reading_path) if "TURN_JUDGMENT_REQUIRED" in reason else _reading_path
         if gate:
@@ -2077,8 +2079,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── TurnJudgment Gate（G11）──────────────────────────────────
     # 規則 TURN_JUDGMENT_REQUIRED（判定在 wg_release_rules 的 G11 段，核對與留帳在 wg_reading_path.turn_judgment_note）：背景量完附的
-    # 「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行。拐彎判斷是收尾的輔助視角，排在寫碼查核（對帳）之後、與 G9／G7 同序；
-    # 前面的閘擋下時由 _later_gates 預告還缺幾條。缺 → 每個使用者回合擋一次（不吃 stop_gate_max_blocks）；齊 → 留帳 judged。
+    # 「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行。拐彎判斷是收尾的輔助視角，排在寫碼查核（對帳）之後、與 G9／G7 同序。
+    # 寫碼守門開：缺那一行只提醒一次（每個使用者回合一次），收尾時只留紀錄（_remind_logged）、不擋；寫碼守門關：不跑。齊 → 留帳 judged。
+    # 下面 _chain_hold 與「if _turn_block:」擋下那段：目前 RULE_MODE 表上這條是提醒，走不到；表上改一格成擋就會用到（不吃 stop_gate_max_blocks）。
     # 程式只核對五欄不評內容；判不了不擋，浮 stderr。
     _tj_prev = ((state.get("reading_path") or {}).get(session_id) or {}).get("blocked_turn")
     try:

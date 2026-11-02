@@ -2236,12 +2236,13 @@ RULES.update({
                               " reading_path.turn_judgment 的門檻（預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；"
                               "這是「從第幾個彎起要人看」的事實門檻，不是判臭）的每一條，收尾文字都要有一行"
                               "「拐彎判斷｜<函式、類別或入口>｜<這一層／這個彎存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」"
-                              "五欄齊（「不會」「這一層沒有作用」都要理由）；缺 → 每個使用者回合擋一次並列缺的那幾條與填好名字的範例行；"
+                              "五欄齊（「不會」「這一層沒有作用」都要理由）；缺 → 寫碼守門開：只提醒一次並列缺的那幾條與填好名字的範例行，"
+                              "收尾時只留紀錄、不擋；寫碼守門關：不跑；"
                               "齊 → 放行、guard-reading_path.jsonl 記 judged。程式不評內容；量不出（不可評級）只列不問；"
                               "Python 與 C# 以外的語言算不出數字，改到的檔每個算一條、請 AI 自己讀過後判（指紋比整檔文字）；"
                               "一批最多問 max_items 條（預設 8，到門檻的優先、其餘報個數不問）；對象欄只認整名或邊界結尾，不認子字串；"
                               "Markdown 引言與圍欄程式碼裡的行不算回答。答過的條目記名字＋內容指紋，同名同指紋不再問；"
-                              "量完前又改碼的舊條目只收答案、不擋；每個使用者回合最多擋一次。",
+                              "量完前又改碼的舊條目只收答案、不提醒；每個使用者回合最多提醒一次。",
 })
 
 JUDGMENT_LABEL = "拐彎判斷"
@@ -2632,7 +2633,8 @@ for _name in ("CASE_COVERS_CHANGE", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NE
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
               "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE"):
-    RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
+    _off = "寫碼守門關不跑。" if _name == "TURN_JUDGMENT_REQUIRED" else "寫碼守門關照舊擋。"   # 拐彎判斷：守門關時 Stop 根本不核對
+    RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；" + _off
 
 def mode_of(rule: str) -> str:
     """規則 GATE_MODE_TABLE：這條規則照擋還是提醒；表上沒登的當 block（沒分類前行為不變）。"""
