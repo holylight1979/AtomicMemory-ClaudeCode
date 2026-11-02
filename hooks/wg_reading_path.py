@@ -25,7 +25,9 @@ WORKER_BUDGET_S 秒，逾時附「背景 N 秒內量不完」，逾時過的根�
 同一批輸入（根、before、改檔大小與時間、哪些還沒 git add）只量一次、只附一次（state["reading_path"][session_id]）。
 背景行程只寫自己的結果檔（JOB_DIR），不碰 state；超過 STALE_S 沒人收的工作檔與結果檔下次起工作時清掉。
 拐彎判斷：同一個背景 job 再算函式級與類別級側面數據（lib/turn_metrics：這次對 before 的 diff 命中的函式與類別——巢狀深度、
-各自巢狀的條件區塊、認知複雜度、只轉手與連續轉手鏈、繼承鏈每層新增／覆寫了什麼與空層；其他語言標不支援）。到門檻
+各自巢狀的條件區塊、認知複雜度、只轉手與連續轉手鏈、繼承鏈每層新增／覆寫了什麼與空層）。Python 與 C# 以外的語言算不出
+數字：改到的檔每個算一條（kind 檔案，lang OTHER_LANG，指紋比整檔文字），問的是 OTHER_LANG_ASK——請 AI 自己讀過後判讀起來要跳
+幾處、有沒有超過設計尺；之後照下面同一套問、核對、記帳。到門檻
 （config reading_path.turn_judgment，預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；是「從第幾個彎起要人看」的
 事實門檻，不是判臭）的每一條附進結果文字，連同一題「這一層／這個彎存在的理由是什麼、有沒有真正的作用、是不是抄舊架構長出來的」
 與尺度原文；收尾文字要有對應的「拐彎判斷｜…」五欄行（turn_judgment_note 核對，規則 TURN_JUDGMENT_REQUIRED 在 wg_release_rules），
@@ -98,6 +100,9 @@ JUDGMENT_QUESTION = ("這一層／這個彎存在的理由是什麼？它有沒�
                      "會不會讓人的思考拐超過三個彎？")
 JUDGMENT_HOWTO = "收尾文字一條一行回答（五欄用｜隔開；程式只核對有沒有答、不評內容；答「不會」「這一層沒有作用」也要理由）："
 RULE_LETTER = "t"
+OTHER_LANG = "other"       # 條目的 lang：Python 與 C# 以外、程式算不出數字的語言（改到的檔每個都問，AI 自己讀過後判）
+OTHER_LANG_ASK = ("程式只會量 Python 與 C#，這個語言算不出數字：請你自己讀這次改到的段落，判斷讀起來要跳幾處、"
+                  "有沒有超過設計尺（rules/coding-style.md〈設計取捨的尺〉）")
 PROMPT_LINES = (f"  {JUDGMENT_QUESTION}", f"  尺度原文：「{SCALE_QUOTE}」", f"  {JUDGMENT_HOWTO}")   # 那一題、尺度原文、回答寫法
 _EXAMPLE_LEAD = "    " + JUDGMENT_EXAMPLE.split("{name}", 1)[0]   # 範例行開頭（judgment_block 的縮排＋「拐彎判斷｜」）
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -347,13 +352,16 @@ def _layer_text(layer: Dict[str, Any]) -> str:
 def function_rows(rows: List[Dict[str, Any]], root: Path, cfg: Dict[str, int]) -> Tuple[List[str], List[Dict[str, Any]]]:
     """turn_metrics 的結果 → (附在收尾的幾行, 到門檻的條目 [{kind, name, keys, nums, fp}])。純函式。
     fp＝內容指紋：函式用列上的 body_fp（_function_section 補的本體文字指紋，沒有就 None＝一律照問）；類別用繼承結構
-    （每層新增／覆寫的全部成員、接不到的基底、實作）——改方法本體不算改到這一層。"""
+    （每層新增／覆寫的全部成員、接不到的基底、實作）——改方法本體不算改到這一層。
+    程式算不出數字的語言（kind unsupported）：每個檔都是一條（kind 檔案），問 OTHER_LANG_ASK，fp 用列上的 body_fp（整檔文字）。"""
     lines: List[str] = []
     items: List[Dict[str, Any]] = []
     for r in rows:
         rel = _rel(root, r["file"])
         if r["kind"] == "unsupported":
-            lines.append(f"    {rel}：不支援（只算 Python 與 C#）")
+            lines.append(f"    {rel}：程式算不出數字（只算 Python 與 C#）  ← 要人看")
+            items.append({"kind": "檔案", "name": rel, "keys": [rel, Path(rel).name], "nums": OTHER_LANG_ASK,
+                          "fp": r.get("body_fp"), "lang": OTHER_LANG})
             continue
         if r["kind"] == "error":
             lines.append(f"    {rel}：解析不了（{r['error']}）")
@@ -427,6 +435,8 @@ def _function_section(root: Path, base: str, tracked: List[str], deadline: float
     for r in rows:
         if r["kind"] == "func":
             r["body_fp"] = _body_fp(r, texts)
+        elif r["kind"] == "unsupported":   # 程式算不出數字的語言：整檔文字當指紋，沒再改就不再問
+            r["body_fp"] = _body_fp({"file": r["file"], "lineno": 1, "end_lineno": len(texts.get(r["file"]) or [])}, texts)
     lines, items = function_rows(rows, root, cfg)
     if not lines:
         return ["  函式級側面數據：這次的 diff 沒命中任何函式或類別本體"], [], True
@@ -546,10 +556,12 @@ def judgment_block(items: List[Dict[str, Any]], cfg: Dict[str, int], dropped: in
     again = f"  已判過、內容沒變的 {skipped} 條不再問（函式比本體文字，類別比繼承結構，入口比實際路徑）" if skipped else ""
     if not items:
         return [again] if again else []
-    py = sum(1 for it in items if it.get("lang") != "cs")
+    langs = [it.get("lang") for it in items]
+    py = sum(1 for lang in langs if lang not in ("cs", OTHER_LANG))
     rules = ([f"拐彎 ≥{cfg['turns']}／巢狀 ≥{cfg['nesting']}／條件塊 ≥{cfg['bumpy']}／轉手鏈 ≥{cfg['handoff_chain']}"
               f"／繼承 ≥{cfg['inherit_depth']} 層或有空層"] if py else [])
-    rules += ([f"C# 路上拐彎 >{cfg['cs_layers']}、只轉手的一層、繼承鏈有空層或 >{cfg['cs_layers']} 層"] if py < len(items) else [])
+    rules += ([f"C# 路上拐彎 >{cfg['cs_layers']}、只轉手的一層、繼承鏈有空層或 >{cfg['cs_layers']} 層"] if "cs" in langs else [])
+    rules += (["Python 與 C# 以外的語言算不出數字，改到的檔每個都問"] if OTHER_LANG in langs else [])
     lines = [f"  要人看的 {len(items)} 條（門檻：{'；'.join(rules)}；這是從第幾個彎起要人看的事實門檻，不是判臭）："]
     lines += [f"    {it['kind']} {it['name']}｜{it['nums']}" for it in items]
     if again:

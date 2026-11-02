@@ -9,14 +9,17 @@
 C#：改了 .cs → 不列函式級數據表，走一跳範圍的閱讀路徑（lib/reading_path_cs），超線才問（只轉手的一層、繼承鏈有空層；巢狀深不問），
       那一題與五欄核對共用；沒超線、或只有解析不到 → 沒有字（解析不到只進 stderr）；基底的基底在一跳外 → 標接不到、不往上讀；
       C# 量不出來不牽連同一批的 Python 數據。案例細節見 lib/verify/verify_reading_path_cs.py。
-反例：數據全低於門檻 → 不問、不擋、結果文字沒有那個根的數據（數據只印 stderr、guard log 記 measured）；Python 與 C# 以外的檔
-      標不支援、不問（同樣只在 stderr）；還沒 git add 的新檔不列函式級數據（只報個數）。
+其他語言：Python 與 C# 以外的檔算不出數字 → 改到的檔每個算一條，請 AI 自己讀過後判（同一題、同一套五欄核對與留帳），
+      內容沒再改就不再問；守門關時真 Stop 入口整條不跑、不出聲。
+反例：數據全低於門檻 → 不問、不擋、結果文字沒有那個根的數據（數據只印 stderr、guard log 記 measured）；
+      還沒 git add 的新檔不列函式級數據（只報個數）。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_g11_turns.py
 """
 from __future__ import annotations
 
 import copy
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -150,11 +153,28 @@ def test_all_below_threshold_sends_no_text_and_asks_nothing(tmp_path, capsys, lo
     assert measured and measured[0]["lang"] == "py" and measured[0]["items"] == 0 and measured[0]["rows"] > 0, logs
 
 
-def test_other_language_file_is_marked_unsupported_and_not_asked(tmp_path, capsys):
+def test_other_language_file_asks_ai_to_read_it_and_same_content_is_not_asked_again(tmp_path, capsys, logs):
+    """Python 與 C# 以外的語言算不出數字：改到的檔每個算一條，請 AI 自己讀過後判（同一題、同一套五欄核對）；
+    沒回 → 跟支援語言過門檻沒宣告一樣；五欄齊 → 放行、留帳 judged；內容沒再改（只動修改時間）→ 不再問。"""
     root = _repo(tmp_path / "r", {**APP, "a.lua": "local x = 1\n"})
     _write(root, {"a.lua": "local x = 2\n"})
-    err = _quiet(_state(_mf(root / "a.lua")), capsys)
-    assert "a.lua：不支援（只算 Python 與 C#）" in err and rph.JUDGMENT_QUESTION not in err, err
+    state = _state(_mf(root / "a.lua"))
+    note = _note(state)
+    assert f"檔案 a.lua｜{rph.OTHER_LANG_ASK}" in note and rph.JUDGMENT_QUESTION in note, note
+    assert "Python 與 C# 以外的語言算不出數字" in note and "巢狀 ≥" not in note, "門檻行只列這一類，不套 Python 的門檻"
+    assert rr.JUDGMENT_EXAMPLE.format(name="a.lua") in note, "範例行填好檔名"
+    owed = state["reading_path"][_SID]["owed"]["items"]
+    assert [(it["kind"], it["name"], it["lang"]) for it in owed] == [("檔案", "a.lua", rph.OTHER_LANG)] and owed[0]["fp"]
+    msg, _ = rph.turn_judgment_note(state, _SID, "全部完成了。", 1, 6)
+    assert msg and "TURN_JUDGMENT_REQUIRED" in msg and f"- 檔案 a.lua｜{rph.OTHER_LANG_ASK}" in msg, msg
+    answer = "拐彎判斷｜a.lua｜不會：沒有彎｜只改一個常數｜合理，因為直線讀完"
+    assert rph.turn_judgment_note(state, _SID, f"完成。\n{answer}", 2, 7) == (None, True)
+    assert logs[-1][1]["event"] == "judged" and logs[-1][1]["items"] == ["a.lua"], logs[-1]
+    lua = root / "a.lua"
+    st_ns = lua.stat().st_mtime_ns
+    os.utime(lua, ns=(st_ns + 10 ** 9, st_ns + 10 ** 9))   # 新的一批（指紋含修改時間），內容沒變
+    err = _quiet(state, capsys)
+    assert "a.lua：程式算不出數字" in err and "owed" not in state["reading_path"][_SID], "同名同指紋不再問"
 
 
 CS_TURNS = """public abstract class Unit
@@ -424,6 +444,26 @@ def test_real_stop_blocks_with_the_data_until_judgment_lines_arrive(driven, caps
     out, state, logs = driven(f"全部完成了。\n{FIVE}", capsys, modified_files=mods, reading_path=state["reading_path"])
     assert "TURN_JUDGMENT_REQUIRED" not in out and "owed" not in state["reading_path"][_SID]
     assert any(g == "reading_path" and p.get("event") == "judged" for g, p in logs)
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_real_stop_other_language_asks_only_when_coding_guard_on(driven, capsys, tmp_path, monkeypatch, on):
+    """真 Stop 入口改了 .lua：守門開 → 量完那次收尾問 AI 自己讀（欠項是那個檔、留帳 judgment_block）；
+    守門關 → 閱讀路徑整條不跑（state 沒有 reading_path、沒有任何 reading_path 留帳、輸出沒有那一問）。"""
+    monkeypatch.setenv("WG_CODING_GUARD", "1" if on else "0")
+    monkeypatch.setattr(ev, "get_last_assistant_text", lambda *a, **k: "", raising=False)
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, ""))   # 只看閱讀路徑這條（守門關時不會呼叫）
+    root = _repo(tmp_path / "rl", {**APP, "a.lua": "local x = 1\n"})
+    _write(root, {"a.lua": "local x = 2\n"})
+    mods = [_mf(str(root / "a.lua"), 5)]
+    _, state, logs1 = driven("全部完成了。", capsys, modified_files=mods)
+    out, state, logs2 = driven("全部完成了。", capsys, modified_files=mods,
+                               **({"reading_path": state["reading_path"]} if "reading_path" in state else {}))
+    events = [p.get("event") for g, p in logs1 + logs2 if g == "reading_path"]
+    if on:
+        assert "judgment_block" in events and [it["name"] for it in state["reading_path"][_SID]["owed"]["items"]] == ["a.lua"]
+    else:
+        assert "reading_path" not in state and events == [] and rph.OTHER_LANG_ASK not in out, (events, out[:400])
 
 
 # ─── 擋點在寫碼查核（對帳）之後、與 G9／G7 同序同預覽 ─────────────────────────────────────

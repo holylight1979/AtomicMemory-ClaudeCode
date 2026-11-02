@@ -1040,6 +1040,7 @@
   - 列缺的「<kind> <name>｜<nums>」與缺哪幾欄
   - Markdown 引言與圍欄程式碼裡的行不算回答
   - 一批最多問 `max_items` 條，其餘報個數不問
+- **其他語言**：Python 與 C# 以外的語言算不出數字，改到的檔每個算一條（kind `檔案`），請 AI 自己讀過後判；同一套五欄核對，指紋比整檔文字
 
 #### READING_PATH_EARLY_START／TURN_JUDGMENT_PRE_CLOSE
 **判什麼**：拐彎判斷的量測何時起跑、結果何時送（`wg_reading_path.early_start`／`take_early_note`、`wg_closing_round.turn_judgment_pre_close`）
