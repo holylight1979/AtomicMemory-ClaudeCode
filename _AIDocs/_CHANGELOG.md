@@ -4,6 +4,15 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-02 寫碼守門拔五刀、出廠改開
+- **緣由**：使用者定雞肋判準（「有與沒有幾乎一樣甚至更差」是雞肋；「沒用還多耗時間效能、或帶歪」是絕對雞肋），要在守門對所有人開啟前，把開了才有、會送字給 AI 卻沒讓結果變好的拔掉，然後開開關上版。
+- **做法**（五條子代理分支合併，守門關時 hook 輸出逐字不變）：
+  - 拔：糾正詞先問 AI（開關都直接計數）、背景收割（開時收割只剩一句提醒，`wg_bg_harvest.py` 刪）、拐彎判斷與閱讀路徑整套（含 Python／C# 以外語言問一句；`wg_reading_path.py`、`lib/turn_metrics*`、`lib/reading_path_cs.py`、`lib/cs_roslyn*`、`tools/reading-path*` 刪）、「順手看到最該修」PickOne 與開場追蹤項（`pick_one` 設定段刪；退縮閘的「追蹤｜」行照寫帳本）、寫碼查核 (d) 補案例提醒（含 case_for 宣告與十條判定規則；`block_letters` 只留 a）、驗收規格提示（規格檔登記與裁判照留）、收尾自清提醒與 Stop 閘（產出物帳本與 HUD 照舊）。
+  - 兩刀拔完 `hooks/wg_closing_round.py` 只剩空殼，整支刪；收尾那批的認法 `closing_call` 搬進 `handlers/post_tool_batch.py`。
+  - 開關：`workflow/config.json` 的 `coding_guard.enabled` 出廠改 true；本機要關寫 `config.local.json` `{"coding_guard": {"enabled": false}}` 或設 `WG_CODING_GUARD=0`。TECH 甲乙篇、README、config.md、guards.md 的「出廠關」照改；跨層表 34 → 30 列（刪 #15、#25、#29、#33，列號不重編）。
+  - 修錯字：收尾檢核 (k) 的兩處說明（MCP schema、Stop 擋訊息）原寫「會進 workflow/tracking 帳本」，守門關時本來就不存、開時現在也不存，改成「存進收尾報告給 HUD 看」；這段擋訊息在出廠設定（`aec.scan_report_gate=false`）下兩種模式都不送。
+- **驗證**：五刀合併後跑五條分支點名的 32 支測試檔；`verify_stop_reconcile` 錄製檔三條分支都重錄過，合併後用 `--git-record` 重錄一次再重播；出廠開的三態測試新增「local 寫 false 關得掉」。拔前拔後的 token／時間對照 → `DevHistory/v6.0-寫程式碼的進化-2026-10/v6.0的代價-拔留改後上版-2026-11-02.md`。
+
 ## 2026-11-02 週用量截圖改截 VS Code 的 Claude Code 用量面板，網頁降為退路
 - **緣由**：使用者要 VS Code `/usage` 叫出的 Account & Usage 面板：比網頁多了帳號、方案，以及「哪些東西吃掉用量」、子代理與 MCP 佔比。
 - **做法**（`tools/usage-snapshot/usage_snapshot.py`）：另開專屬 VS Code（`vscode-data/` 獨立設定資料夾＋隨機偵錯埠＋`--skip-welcome`＋被遮住照常繪製參數），Playwright 接上後畫面撐到 1280×2000，Claude Code 分頁打 `/usage`、切 Week、只截面板，帳號取面板 Email。連試 3 次都失敗才退截網頁，每次原因記進 notes。排程單次上限 10→20 分鐘並重新註冊。踩到的坑：從 VS Code 終端機跑時 `ELECTRON_RUN_AS_NODE` 讓 Code.exe 變成 Node；新設定資料夾跳 Copilot 引導視窗擋畫面；同步版 Playwright 用 `time.sleep` 等時收不到新框架事件。

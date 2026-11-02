@@ -34,7 +34,7 @@ def _hit(atom, sim, file_path):
 
 def _run(monkeypatch, hits, labels, subdir=None, declared=None):
     """labels: list — 依 ollama_classify 呼叫順序逐次回傳。declared：AI 的衝突宣告（規則 CONFLICT_DECLARED_BY_AI），留帳收掉不落真 Logs。
-    衝突宣告只在守門總開關開時要求（出廠預設關）：外面沒明設 WG_V6 就開。"""
+    衝突宣告只在守門總開關開時要求：外面沒明設 WG_V6 就開。"""
     if "WG_V6" not in os.environ:
         monkeypatch.setenv("WG_V6", "1")
     seq = iter(labels)

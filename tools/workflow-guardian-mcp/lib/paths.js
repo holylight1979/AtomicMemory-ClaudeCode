@@ -52,7 +52,7 @@ function loadConfig() {
   }
 }
 
-// MIRROR: hooks/wg_core.py:v6_enabled — 寫碼守門總開關，預設關：環境變數 WG_CODING_GUARD=1 開、=0 關（優先；沒設看舊名 WG_V6）；
+// MIRROR: hooks/wg_core.py:v6_enabled — 寫碼守門總開關，出廠開：環境變數 WG_CODING_GUARD=1 開、=0 關（優先；沒設看舊名 WG_V6）；
 // 沒設看 config.json 的 coding_guard.enabled，不是 true 再看舊鍵 v6.enabled（相容舊 config.local.json）；
 // workflow/config.local.json（不進版控）同名鍵蓋過。config 每次呼叫重讀；環境變數是 MCP 行程啟動時的，改了要重開 session。
 const CONFIG_LOCAL_PATH = path.join(WORKFLOW_DIR, "config.local.json");

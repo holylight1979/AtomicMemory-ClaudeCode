@@ -4,7 +4,7 @@
 //   same → 改 append 到候選卡、沒有新檔、回覆開頭講改併入哪張；候選卡已滿 → 拒寫並給「壓縮舊卡／改寫進文件」；different → 照常寫；
 //   沒命中給 same → 照宣告併入那張卡（不另建新卡）；分數沒到門檻 → 照寫；向量服務沒起 → 照寫；
 //   write_gate.dedupe_declaration=false → 舊行為（similar → suggest update）。
-// 去重宣告只在守門總開關開時要求（出廠預設關）：外面沒明設 WG_V6 就開（py 寫入閘子行程繼承）。
+// 去重宣告只在守門總開關開時要求：外面沒明設 WG_V6 就開（py 寫入閘子行程繼承）。
 // 隔離：WG_CLAUDE_DIR 指 os.tmpdir() 下的暫存資料根（require 任何 lib 之前設）；process.chdir 到該根（realm 閘視為核心層）；
 //   寫入後的向量重索引照 config 的 service_port 打到假服務（順驗它不再寫死 live 3849）；目錄重產在 require atom-tools 前
 //   換成空函式；sendToolResult 改成收進記憶體。

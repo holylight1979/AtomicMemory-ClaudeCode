@@ -4,11 +4,11 @@
 
 寫碼守門是記憶系統上面另加的一層。AI 改程式時，它在改檔、問人、宣告完成、提交這幾個時刻多查一次。
 
-- **出廠關**：設定鍵 `coding_guard.enabled` 出廠是 false。
-- **開法**：本機設環境變數 `WG_CODING_GUARD=1`，或在不進版控的 `workflow/config.local.json` 寫 `{"coding_guard": {"enabled": true}}`（[乙1](#乙1-開關與減量原則)）。
-- **開了也只在寫碼回合跑**：這個使用者回合用工具改過程式檔，才跑每回合的檢查。純問答、只改文件的回合不跑。
+- **出廠開**：設定鍵 `coding_guard.enabled` 出廠是 true。
+- **關法**：本機設環境變數 `WG_CODING_GUARD=0`，或在不進版控的 `workflow/config.local.json` 寫 `{"coding_guard": {"enabled": false}}`（[乙1](#乙1-開關與減量原則)）。
+- **只在寫碼回合跑**：這個使用者回合用工具改過程式檔，才跑每回合的檢查。純問答、只改文件的回合不跑。
 
-開關不只開關這一層。記憶系統（含基本守門）還有 34 處行為跟著變，例如記憶系統的收尾閘從「擋」變成「只提醒」。這些差異只列在一個地方：[TECH.md〈守門開關會改到記憶系統的地方〉](../TECH.md#守門開關會改到記憶系統的地方)（下文簡稱「跨層表」）。
+開關不只開關這一層。記憶系統（含基本守門）還有 30 處行為跟著變，例如記憶系統的收尾閘從「擋」變成「只提醒」。這些差異只列在一個地方：[TECH.md〈守門開關會改到記憶系統的地方〉](../TECH.md#守門開關會改到記憶系統的地方)（下文簡稱「跨層表」）。
 
 本篇寫的都是**守門開時**的行為。守門關時，本篇各閘都不跑。
 
@@ -18,19 +18,19 @@
 
 ### 開關
 
-- **設定鍵**：[`workflow/config.json`](../workflow/config.json) 的 `coding_guard.enabled`，出廠 false。
+- **設定鍵**：[`workflow/config.json`](../workflow/config.json) 的 `coding_guard.enabled`，出廠 true。
 - **判法**：`wg_core.v6_enabled`（[`hooks/wg_core.py`](../hooks/wg_core.py)）。先看環境變數，沒設才看設定。設定只認 JSON 的 true，寫成字串 `"true"` 也當關。
-- **本機開**：`WG_CODING_GUARD=1`，或 `workflow/config.local.json` 寫 `{"coding_guard": {"enabled": true}}`。
-- **強制關**：`WG_CODING_GUARD=0`。
+- **本機關**：`WG_CODING_GUARD=0`，或 `workflow/config.local.json` 寫 `{"coding_guard": {"enabled": false}}`（local 同名鍵蓋過出廠值）。
+- **強制開**：`WG_CODING_GUARD=1`（環境變數蓋過兩個設定檔）。
 - **舊名照認**：設定鍵 `v6`、環境變數 `WG_V6`。
 - 守門相關的其他鍵（`coding_turn_only`、各閘的 `guard.<名>.enabled`…）→ [TECH §12.1](../TECH.md#121-功能開關不想要某個功能時逐鍵關)、[TECH/config.md](config.md)。
 
 ### 開關改了什麼
 
-| 範圍 | 守門關（出廠） | 守門開 |
+| 範圍 | 守門關 | 守門開（出廠） |
 |---|---|---|
 | 寫碼守門這一層（乙2～乙11） | 整個不跑 | 只在寫碼回合跑 |
-| 記憶系統（含基本守門） | 出廠行為 | 34 處行為改變 → [跨層表](../TECH.md#守門開關會改到記憶系統的地方) |
+| 記憶系統（含基本守門） | 守門關時的行為 | 30 處行為改變 → [跨層表](../TECH.md#守門開關會改到記憶系統的地方) |
 
 守門關時整個不跑、也不算跨層的項目（只在本篇）：
 

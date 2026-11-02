@@ -12,7 +12,7 @@
 
 | 鍵 | 預設 | 意義 |
 |----|------|------|
-| `coding_guard.enabled` / `coding_turn_only` | false / true（後者沒寫＝true） | 寫碼守門總開關與退回開關 |
+| `coding_guard.enabled` / `coding_turn_only` | true / true（後者沒寫＝true） | 寫碼守門總開關與退回開關；本機要關寫 `config.local.json` 或設 `WG_CODING_GUARD=0` |
 | `stop_gate_max_blocks` / `min_files_to_block` | 2 / 2 | 收尾閘共用的擋次／幾檔以上才擋 |
 | `chain_breaker.enabled` / `depth_alarm` / `max_depth` / `max_same_gate` / `snapshot_max_bytes` / `snapshot_max_files` / `restore_retries` | true / false / 2 / 2 / 5000000 / 200 / 3 | 連鎖斷路器（[乙8](coding-guard.md#乙8-連鎖斷路器)），寫碼守門開才跑 |
 

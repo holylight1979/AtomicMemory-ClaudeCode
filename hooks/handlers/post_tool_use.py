@@ -745,8 +745,7 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
 
 def _note_committed_new_code(state: Dict[str, Any], own: List[Dict[str, Any]], cfg: Dict[str, Any]) -> None:
     """commit 之後，本 session 改過的檔所在的每個 git 根，記下 HEAD 那筆提交新增、改名、複製進來的程式檔
-    （state["committed_new_code"][根]＝{shas, paths}）。讀者：閱讀路徑量改動的基準（wg_reading_path.base_spec：本 session
-    在這個根 commit 過就從第一筆的父提交量），寫碼查核判「內容等於已提交版本」（committed_equal_paths）認本 session 自己的提交。
+    （state["committed_new_code"][根]＝{shas, paths}）。讀者：寫碼查核判「內容等於已提交版本」（committed_equal_paths）認本 session 自己的提交。
     讀不到只少這份證據，stderr 由 head_new_code 說。"""
     rec = state.setdefault("committed_new_code", {})
     seen = set()

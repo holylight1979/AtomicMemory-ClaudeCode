@@ -695,12 +695,12 @@ def cmd_upgrade() -> int:
     return 0
 
 
-V6_HINT = ("寫碼守門（寫程式時的定位提示與三道照擋）目前是關的；要開請在 workflow/config.local.json 加 "
-           "{\"coding_guard\": {\"enabled\": true}} 後 Reload Window，或設環境變數 WG_CODING_GUARD=1")
+V6_HINT = ("寫碼守門（出廠開，只在寫程式的回合跑）在這台是關的：本機 workflow/config.local.json 或環境變數把它關了；"
+           "要開回來把 config.local.json 的 coding_guard.enabled 改成 true（或拿掉那段）後 Reload Window，或設環境變數 WG_CODING_GUARD=1")
 
 
 def v6_hint() -> None:
-    """上游 workflow/config.json 的 coding_guard.enabled 出廠是 false；本機沒在 config.local.json（或 WG_CODING_GUARD=1）打開就提醒一行。
+    """上游 workflow/config.json 的 coding_guard.enabled 出廠是 true；這台算出來是關（config.local.json 蓋成 false、或環境變數 =0）就提醒一行。
     開沒開照 hook 的同一套規則算（hooks/wg_core.v6_enabled）：環境變數 WG_CODING_GUARD（沒設看舊名 WG_V6）先；
     再 config.json 疊 config.local.json（lib/config_local.merge_local），coding_guard.enabled 或舊鍵 v6.enabled 是 true 就算開。"""
     env = next((os.environ.get(n, "").strip() for n in ("WG_CODING_GUARD", "WG_V6")

@@ -211,12 +211,13 @@ def coding_guard_opt(config: Optional[Dict[str, Any]], key: str, default: Any = 
 
 
 def v6_enabled(config: Dict[str, Any]) -> bool:
-    """寫碼守門總開關，預設關：關時 hook 只跑寫碼守門關時也跑的（9e476fd0 就有的）處理。函式名沿用、不改。
+    """寫碼守門總開關，出廠開：關時 hook 只跑寫碼守門關時也跑的（9e476fd0 就有的）處理。函式名沿用、不改。
 
     判法（先到先贏）：
     1. 環境變數 WG_CODING_GUARD=1 開、=0 關；沒設才看舊名 WG_V6（同義，coding_guard_env）。
-    2. config：coding_guard.enabled 是 JSON true 就開；不是（出廠 false）再看舊鍵 v6.enabled 是 JSON true 也開——
-       舊的 workflow/config.local.json 寫 {"v6": {"enabled": true}} 照樣能開，不必改鍵。要強制關用環境變數 =0。
+    2. config：coding_guard.enabled 是 JSON true 就開（出廠 true；本機要關在 workflow/config.local.json 寫
+       {"coding_guard": {"enabled": false}}，同名鍵蓋過出廠值）；不是 true 再看舊鍵 v6.enabled 是 JSON true 也開——
+       舊的 config.local.json 寫 {"v6": {"enabled": true}} 照樣能開，不必改鍵。要強制關用環境變數 =0。
     只認 JSON 的 true：寫成字串 "false"、段不是物件，一律當關。
     """
     env = coding_guard_env()

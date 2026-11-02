@@ -1,7 +1,7 @@
-"""verify_v6_switch.py — 寫碼守門總開關（wg_core.v6_enabled，預設關）的案例。
+"""verify_v6_switch.py — 寫碼守門總開關（wg_core.v6_enabled，出廠開；設定段沒寫＝關）的案例。
 
 做什麼：
-1. 開關三態：預設關、環境變數 WG_CODING_GUARD=1 開、workflow/config.local.json 寫 coding_guard.enabled=true 開
+1. 開關三態：設定段沒寫＝關、環境變數 WG_CODING_GUARD=1 開、workflow/config.local.json 寫 coding_guard.enabled=true 開；出廠 config.json 寫 true
    （WG_CODING_GUARD=0 蓋過 local）；舊名 WG_V6／舊鍵 v6.enabled 仍認、新名優先；MCP 端 lib/paths.js v6Enabled 同三態（沒裝 node 跳過）。
 2. 關閉時寫碼守門的閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 病形閘，
    Stop 對帳閘，PostToolUse 需求目標提示；紅測閘開或關同一份舊版擋訊息；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
@@ -58,9 +58,9 @@ def test_default_is_off(cfg_root):
     assert wg_core.v6_enabled(wg_core.load_config()) is False
 
 
-def test_repo_config_ships_off():
+def test_repo_config_ships_on():
     shipped = json.loads((REPO / "workflow" / "config.json").read_text(encoding="utf-8"))
-    assert shipped["coding_guard"]["enabled"] is False
+    assert shipped["coding_guard"]["enabled"] is True, "寫碼守門出廠開；本機要關寫 workflow/config.local.json"
     assert "v6" not in shipped, "出廠設定只留新鍵 coding_guard；舊鍵 v6 只在讀取端相容"
     ignored = subprocess.run(["git", "-C", str(REPO), "check-ignore", "-q", "workflow/config.local.json"])
     assert ignored.returncode == 0, "workflow/config.local.json 要進 .gitignore"
@@ -83,7 +83,7 @@ def test_new_key_turns_on_and_new_env_zero_overrides(cfg_root, monkeypatch):
 
 
 def test_old_key_still_turns_on_beside_shipped_new_key(cfg_root):
-    """出廠 config.json 已改成 coding_guard.enabled=false；舊的 config.local.json 只寫 v6.enabled=true 照樣能開（相容）。
+    """config.json 寫 coding_guard.enabled=false 時，舊的 config.local.json 只寫 v6.enabled=true 照樣能開（相容）。
     子鍵 coding_turn_only／slim_reminders：coding_guard 有寫就用它、沒寫才讀 v6。"""
     (cfg_root / "config.json").write_text(json.dumps({"coding_guard": {"enabled": False}}), encoding="utf-8")
     (cfg_root / "config.local.json").write_text(json.dumps({"v6": {"enabled": True, "coding_turn_only": False}}), encoding="utf-8")
@@ -101,6 +101,16 @@ def test_local_file_turns_on_and_env_zero_wins(cfg_root, monkeypatch):
     assert cfg["enabled"] is True, "local 只蓋同名鍵，其餘照 config.json"
     monkeypatch.setenv("WG_V6", "0")
     assert wg_core.v6_enabled(cfg) is False
+
+
+def test_local_file_turns_shipped_on_off(cfg_root, monkeypatch):
+    """出廠開之後本機的關法：config.local.json 寫 coding_guard.enabled=false 蓋過出廠的 true；WG_CODING_GUARD=1 再蓋回開。"""
+    (cfg_root / "config.json").write_text(json.dumps({"coding_guard": {"enabled": True}}), encoding="utf-8")
+    assert wg_core.v6_enabled(wg_core.load_config()) is True
+    (cfg_root / "config.local.json").write_text(json.dumps({"coding_guard": {"enabled": False}}), encoding="utf-8")
+    assert wg_core.v6_enabled(wg_core.load_config()) is False
+    monkeypatch.setenv("WG_CODING_GUARD", "1")
+    assert wg_core.v6_enabled(wg_core.load_config()) is True
 
 
 @pytest.mark.parametrize("raw", ["{壞".encode("utf-8"), b'{"v6": {"enabled": true}} \xff\xfe'])
