@@ -790,7 +790,7 @@ def hook_python_exe() -> str:
 def find_vcs_root_ex(start: Path) -> Tuple[Optional[Tuple[str, Path]], str]:
     """從 start 往上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。回 (命中, 錯誤原因)：
     命中＝("git"|"svn", root)，不在工作區＝None；檔案系統出錯（權限、網路路徑斷、路徑太長）→ (None, "OSError: …")，
-    讀不到和「不在版控」是兩回事（規則 VCS_ROOT_UNREADABLE：讀不到照欠）。純檔案系統 walk-up、零 subprocess。
+    讀不到和「不在版控」是兩回事。純檔案系統 walk-up、零 subprocess。
     巢狀時取最近的那個（svn WC 住在 git repo 裡，如 svn 工作副本 <repo>/Tools 在 git repo <repo> 之下）。"""
     cur = Path(start)
     while True:
@@ -1510,8 +1510,7 @@ _MERGE_TYPES: Tuple[Tuple[str, str], ...] = (
     ("decl_deny_counts.counts.*", "add"),
     ("overview_hub.*", "version:injected_turn"),   # 分版本整組：版本新的整組勝（重新注入整筆換掉），同版本才逐欄併
     ("decl_deny_counts", "version:turn"),          # 換使用者回合整組歸零
-    ("commit_snapshot", "atomic"),                 # 整組換掉、欄位互相綁定：兩邊都改留磁碟那份
-    ("anti_evasion_report", "atomic"),
+    ("anti_evasion_report", "atomic"),             # 整組換掉、欄位互相綁定：兩邊都改留磁碟那份
     ("knowledge_harvest.*", "atomic"),             # validated 不能跟 items／pending 拆開
 )
 _ISO_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -2900,8 +2899,7 @@ def _git_restore_targets(args: List[str], cwd: Optional[str], seg: List[_Tok], o
     `git restore [--source <rev>] [--worktree] <路徑>…` 會改寫工作樹的檔 → 目標＝那些路徑（照 `-C <目錄>` 或 cwd 解析）。
     寫碼查核靠它記下「最後一次改這個檔」的時間：反證時用 git 把程式與案例退回舊版、最後只還原程式，時間序才查得到。
     只認字面檔案路徑：萬用字元、pathspec 魔術字（`:` 開頭）、目錄、--pathspec-from-file、--git-dir／--work-tree、算不出的 -C → UNKNOWN。
-    `git mv 來源… 目標` 的目標同 mv 算寫入（目標是現存目錄就是目錄/來源檔名）：寫碼查核對「已不存在的程式檔不欠案例」，
-    搬走的程式要在新路徑照算。其他 git 子指令（commit、log、switch…）照舊不算寫入目標。
+    `git mv 來源… 目標` 的目標同 mv 算寫入（目標是現存目錄就是目錄/來源檔名）：搬走的程式在新路徑照算改檔。其他 git 子指令（commit、log、switch…）照舊不算寫入目標。
     每段 git 都記進 out.gits：(repo 目錄＝cwd 照 -C 推，--git-dir／--work-tree 或推不出 → None, git 後的參數)，給跨層閘分哪幾段在根層 repo。"""
     base, tree, i = cwd, False, 0
     while i < len(args) and args[i].startswith("-"):

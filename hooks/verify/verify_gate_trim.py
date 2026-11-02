@@ -100,7 +100,7 @@ def test_subagent_stop_same_budget_then_released(monkeypatch, capsys):
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda name, rec: logs.append(rec))
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (d) OWED", None, "reconcile"))
+    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: ("[Guardian:ReconcileGate] x\n  ✗ (a) OWED", None, "reconcile"))
     outs = []
     monkeypatch.setattr(st, "output_block", lambda msg: outs.append("block"))
     monkeypatch.setattr(st, "output_nothing", lambda: outs.append("pass"))

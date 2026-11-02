@@ -8,8 +8,8 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 （壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；PreToolUse 沒攔到的提問事後提醒
 （wg_ask_gate）併進同一段送出。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
-各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核）；
-建了工作樹那則 Bash 附自清、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
+各一行（closing_reminders：等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核）；
+收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
 只提醒一次（state remind_sent 清單，wg_overview.remind_mark）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
 """
@@ -57,7 +57,6 @@ def closing_call(name: str) -> bool:
 
 _HIT_ROW_RE = re.compile(r"^\s*✗ \(([^)]+)\) ([A-Z][A-Z0-9_]*)：(.*?)(?:｜證據：|$)")
 _MCP_SEGMENT = "/tools/workflow-guardian-mcp/"
-FIX_CASE = "補一支會紅的案例（檔名照它取或內容提到它）；已有案例在驗它就寫一行「case_for｜<程式檔>：<案例檔或節點>」"
 FIX_MOVE = "掃一次舊路徑的引用、跑一支搬過去的抽樣，兩張收據都要在"
 FIX_EQUIV = "最後一次改程式之後跑 order／side_effect／boundary 三類變異、各印 PRESERVE_CHECK PASS；不適用寫「等值證法｜不適用｜<理由>」"
 FIX_HOT = "收尾答一題「這次改動碰到熱路徑或大量配置嗎」：是→量、附 DONE 收據；否→一句為什麼"
@@ -67,7 +66,6 @@ FIX_CLOSING = "收尾最後呼叫 anti_evasion_report（知識收割放 harvest_
 FIX_SYNC = "收尾照口令規則交代：有「上GIT」口令就 commit＋push 一氣，沒口令就列改了哪些檔等口令、不先 commit"
 FIX_DPM = "結束前用 atom_write 補一張完整檢討卡（為什麼失敗、怎麼找到根因、下次怎麼避）"
 FIX_AUDIT = "收尾一行交代每張注入的指標卡有沒有用到、用在哪"
-FIX_CLEANUP = "用完的刪掉（git worktree remove／branch -d／刪暫存 repo）；要留的在收尾檢核 (i) 寫理由"
 FIX_HARVEST = "值得留的先 atom_write，再交收割清單（anti_evasion_report 的 harvest_items 一起交，或 knowledge_harvest_report）"
 FIX_HARVEST_ITEM = "收割清單裡的每一項要對得上寫卡收據：真寫完再重報"
 FIX_AEC_PENDING = "現在就 atom_write 寫完，再重交 anti_evasion_report 把該項改成「→ 已寫入 atom <名>」或「→ 不寫（理由）」"
@@ -85,8 +83,8 @@ def _hit_rows(text: str) -> List[Tuple[str, str, str]]:
 
 def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> Tuple[List[str], bool]:
     """這一批之後欠的收尾類守門，各一行（remind_line）→ (要附的行, state 有沒有改)。
-    時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 欠案例 (d)、搬目錄 (v)、等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核；
-    這批有 git 建東西的 Bash → 收尾自清；搬了含程式檔的目錄（moved_code_dirs 多一筆）→ (v)；
+    時點：這批改了程式檔（modified_files 的 last_seq 比上次看到的大，state remind_mark[sid]）→ 等值意圖、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核；
+    搬了含程式檔的目錄（moved_code_dirs 多一筆）→ (v)；
     這批是收尾那批（closing_call）→ 知識收割、收割對帳、報告待寫。
     每條規則每個對象每 session 一次（wg_overview.remind_mark：已送鍵存 state remind_sent 清單，與工具前守門的提醒帳同一份）。判定重用各閘的純函式，不另複製；
     一段判不出只少那一段、浮 stderr。沒有任何時點成立就不做事（idle 極輕）。"""
@@ -101,8 +99,6 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         changed = True
     calls = _calls(input_data.get("tool_calls"))
     closing = any(closing_call(n) for n, _inp in calls)
-    git_cmds = [str(inp.get("command") or "") for n, inp in calls
-                if n in ("Bash", "PowerShell") and "git" in str(inp.get("command") or "")]
     try:
         from wg_code_path import is_code_path
         new_code = [m for m in own if int(m.get("last_seq") or 0) > mark and is_code_path(str(m["path"]), config)]
@@ -115,7 +111,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     if new_move:
         seen_moves[sid] = len(moved)
         changed = True
-    if not (new_code or closing or git_cmds or new_move):
+    if not (new_code or closing or new_move):
         return [], changed
     from wg_overview import remind_mark   # 提醒帳本只有一份（state remind_sent 清單），與 remind_flush 同一支記法
     lines: List[str] = []
@@ -133,7 +129,6 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
             print(f"[Guardian:提醒] {name}判不出（這批少這一段）：{type(e).__name__}: {e}", file=sys.stderr)
 
     if new_code:
-        part("欠案例", lambda: _code_check_reminders(state, own, config, say, str(input_data.get("transcript_path") or "")))
         part("等值意圖", lambda: _equivalence_reminders(state, config, cwd, say))
         if any(_MCP_SEGMENT in str(m["path"]).replace("\\", "/").lower() for m in new_code):
             say("RELOAD_ADVICE_ALREADY_LOADED", "改了 tools/workflow-guardian-mcp/ 的檔", FIX_RELOAD)
@@ -145,25 +140,11 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         part("深度檢討與取用稽核", lambda: _postmortem_audit_reminders(state, sid, config, say))
     if new_move:
         part("搬目錄", lambda: _move_reminder(state, sid, config, say))
-    if git_cmds:
-        part("收尾自清", lambda: _cleanup_reminder(sid, git_cmds, cwd, say))
     if closing:
         part("知識收割", lambda: _closing_batch_reminders(state, sid, own, config, turn_seq, say))
     return lines, changed or bool(lines)
 
 
-def _code_check_reminders(state, own, config, say, tpath: str = "") -> None:
-    """(d) 每個改過的程式檔一次（wg_verify_ledger.case_debt，同 Stop 的判法；案例覆蓋也認 transcript 裡的「case_for｜…」宣告行）。"""
-    import wg_verify_ledger as vl
-    from pathlib import Path
-    rg = vl.reconcile_cfg(config)
-    if not rg.get("enabled", True):
-        return
-    why: Dict[str, Any] = {}
-    for p in vl.case_debt(own, int(state.get("turn_seq", 0) or 0), rg, vl.file_root_of, evidence=why,
-                          case_for=vl.declared_cases(rg, tpath)):
-        v = why.get(p)
-        say(v.rule if v else "CASE_COVERS_CHANGE", f"改了 {Path(p).name}，{v.why if v else '還沒有案例覆蓋它'}", FIX_CASE, p)
 
 
 def _move_reminder(state, sid, config, say) -> None:
@@ -214,17 +195,6 @@ def _postmortem_audit_reminders(state, sid, config, say) -> None:
             prompted = state.setdefault("atom_audit_prompted", [])
             prompted.extend(n for n in aa[1] if n not in prompted)
             say("ATOM_CONSUMPTION_AUDIT", f"注入的指標卡還沒回報有沒有用到：{'、'.join(aa[1][:3])}", FIX_AUDIT, "|".join(sorted(aa[1])[:5]))
-
-
-def _cleanup_reminder(sid, git_cmds, cwd, say) -> None:
-    """這批的 Bash 有 git 建東西（worktree／branch／init／clone）→ 照收尾自清閘同一套事實（aec_ledger.cleanup_facts）判，欠就提醒。"""
-    from handlers import aec_ledger
-    from wg_release_rules import leftover_cleanup_verdict
-    if not any(aec_ledger.parse_git_artifacts(cmd, cwd) for cmd in git_cmds):
-        return
-    cv = leftover_cleanup_verdict(True, aec_ledger.cleanup_facts(sid))
-    if cv.owed:
-        say(cv.rule, f"這個 session 建的還在：{'；'.join(cv.evidence[:3])}", FIX_CLEANUP, "|".join(sorted(cv.evidence)))
 
 
 def _closing_batch_reminders(state, sid, own, config, turn_seq, say) -> None:

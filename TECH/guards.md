@@ -59,7 +59,7 @@
 - 下面各表每道閘前面標的「照擋」「提醒」就是這張表的現況；標「照擋（不在範圍）」的是安全邊界。
 - 下面各節寫的「擋滿 N 次、第 N+1 次放行」「Stop 回 additionalContext 讓對話續跑一回合」是照擋時的送法（寫碼守門關，或 `RULE_MODE` 把那條規則列成照擋）：
   - 寫碼守門開著時，判成提醒的規則在 Stop 只留帳，不續跑、不吃擋次（[STOP_REMIND_LEDGER_ONLY](release-rules.md#stop_remind_ledger_only)）。
-  - 例：寫碼查核 (d)。程式裡照擋那條分支留著，`RULE_MODE` 改表就換送法。
+  - 例：寫碼查核 (b)。程式裡照擋那條分支留著，`RULE_MODE` 改表就換送法。
   - 不屬寫碼守門的 [lang_guard](#lang_guard) 不讀本表：照舊在 Stop 回 additionalContext、續跑一回合。
 
 ## A7.0 寫程式時一路會遇到什麼（總覽）
@@ -123,7 +123,7 @@
 
 - **查核順序**：
   - 紅測沒修好不准說完成。
-  - 寫碼查核：說修好要有改動之後的綠收據 (a)、改了程式要有測試案例 (d)。
+  - 寫碼查核：說修好要有改動之後的綠收據 (a)。
   - refactor／perf 要等值證法、答熱路徑。
   - 不准把可做的事推給下個 session。
   - 知識收割。
@@ -154,8 +154,7 @@
 
 ### 目前關著的閘（完整）
 
-- **寫碼查核只擋 (a)(d)**（`reconcile_gate.block_letters`，[`workflow/config.json`](../workflow/config.json)）：(b)(c)(e) 照判、只印 stderr。
-  - (d) 再照 `RULE_MODE` 是提醒，所以守門開時實際只有 (a) 擋。
+- **寫碼查核只擋 (a)**（`reconcile_gate.block_letters`，[`workflow/config.json`](../workflow/config.json)）：(b)(c)(v)(e) 照判、只印 stderr。
   - 拿掉這個鍵＝全部字母都進送法判斷。
 - 收尾檢核報告（`aec.scan_report_gate`）、卡片表態（`atom_audit.enabled`）、svn 提交測試路徑閘（`overview_hub.svn_test_block.enabled`）屬基本守門 → [TECH A7](../TECH.md#a7-基本守門細節)。
 - 下面各表寫的是閘開著時的完整行為。
@@ -177,7 +176,7 @@
   - 寫碼守門開時每個使用者回合重新計次；寫碼守門關時整個 session 累計（跨層表 #26）。
   - 守門開時這幾道都照 `RULE_MODE` 判成提醒、不吃預算；哪一條改回照擋才會吃。
   - 規則 [BLOCK_BUDGET_SHARED](release-rules.md#block_budget_shared)。
-- **寫碼查核**（ReconcileGate (a)～(d)）每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`；紅測閘不看擋次預算。
+- **寫碼查核**（ReconcileGate (a)(b)(c)(v)）每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`；紅測閘不看擋次預算。
 - **等值閘**：等值沒證齊、熱路徑答了缺東西，吃寫碼查核那份預算；熱路徑沒答，每個使用者回合擋一次（[Equivalence](#equivalence等值與熱路徑g7)）。
 - **擋滿只認使用者放行**（[乙4](coding-guard.md#乙4-擋滿之後怎麼放行)）；沒人能回答（headless／SDK、子代理、裁判）擋滿就放行並留帳。
 - **閘自己判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](release-rules.md#gate_self_error)）。
@@ -226,8 +225,8 @@
 
 ### ReconcileGate
 
-- **目前只有 (a)(d) 擋**：
-  - `reconcile_gate.block_letters`：(b)(c)(e) 照判、只印 stderr。
+- **目前只有 (a) 擋**：
+  - `reconcile_gate.block_letters`：(b)(c)(v)(e) 照判、只印 stderr。
 - **(a) 說修好**：看有沒有對得上改檔的 PASS。
   - 收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據。
   - 不限本回合：舊回合的只要之後本 session 沒再改任何程式檔就算。
@@ -235,32 +234,23 @@
   - 改檔所在部位也沒有合格的自寫收據。
 - **(b) 說量了**：本回合沒有能當證據的 DONE，也沒有合格的自寫收據。
 - **(c) 說試過**：本回合沒有任何 Bash／PowerShell 執行。
-- **(d) 改了程式碼**，卻沒有本 session 新寫或改過、仍存在、同根的案例覆蓋它（規則 [CASE_COVERS_CHANGE](release-rules.md#case_covers_change)）：
-  - 覆蓋＝案例檔名 test_／verify_<模組名>、<模組名>_test。
-  - 或內容提到它。
-  - 或 AI 寫的「case_for｜<程式檔>：<案例…>」宣告行列了它。
-  - 不比先後、不看跑綠。
-  - PASS 不能代替；跨回合，不看措辭。
-- **案例檔的定義**：
+- **(v) 搬了含程式檔的目錄**：欠搬之後的路徑掃描與抽樣兩張收據（規則 [MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE](release-rules.md#move_code_dir_needs_scan_and_sample)）；跨回合，不看措辭。
+- **案例檔的定義**（驗證批次閘數測試檔支數時用，`wg_verify_batch`）：
   - 符合 `verify_case_globs` 的程式檔（測試目錄或 test_／_test／.test／.spec 這類檔名，相對專案根比）。
   - 檔名剛好含 test 的產品檔不算。
-- **知識類部位不算**：
-  - 部位表類別 knowledge 的部位（文件、記憶、派工信箱）下的檔，兩邊都不算。
-  - 不欠案例，也不能替寫碼部位清帳。
-  - 判法看路徑屬哪一列，不看副檔名（`wg_verify_ledger.is_excluded`）。
-- **改過又原樣還原的檔不算改碼**：
-  - 條件：git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit。
-  - 例：反證暫改再 `git checkout` 還原。
-  - 補案例不欠；判不出來照算改了。
+- **不算改碼的改檔**（剔出 (a) 要對的改檔清單，Stop 的 stderr 印規則名）：
+  - 改過又原樣還原：git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit（[NET_UNCHANGED](release-rules.md#net_unchanged)；例：反證暫改再 `git checkout` 還原）。
+  - 只差註解、內容等於已提交版本、一次性 git 啟動器（COMMENT_ONLY_CHANGE、CONTENT_EQUALS_COMMITTED、LAUNCHER_NOT_CODE）。
+  - 判不出來照算改了。
 - **(e) 收尾報告欄**：AEC (j) 證據路徑缺或不存在、(k) 是空字串。
 - **(a)(b)(c) 看什麼**：
   - 最後一句話（優先用 hook 輸入的 last_assistant_message，不套 30 字下限）。
   - 以及擋滿時記下的原宣稱（同一個使用者回合的續跑回合裡照查）。
   - 這時 (a) 認任一回合晚於改檔的合格 PASS（規則 [CARRIED_CLAIM_ANY_TURN_RECEIPT](release-rules.md#carried_claim_any_turn_receipt)）。
 - **判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](release-rules.md#gate_self_error)）。
-- **模式**：照擋只 (a)（紅測類）；(d) 與其餘字母提醒。
+- **模式**：照擋只 (a)（紅測類）；其餘字母提醒。
 - **預算**：
-  - 紅測與寫碼查核（(a)～(d)）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`（2，不分哪一條規則，[BLOCK_BUDGET_SHARED](release-rules.md#block_budget_shared)）。
+  - 紅測與寫碼查核（(a)(b)(c)(v)）共用每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`（2，不分哪一條規則，[BLOCK_BUDGET_SHARED](release-rules.md#block_budget_shared)）。
 - **擋滿的放行**：
   - 不自行放行：記 pending，要用 AskUserQuestion 照【收尾放行確認】問使用者。
   - pending 只在同一個使用者回合有效，使用者打字開新回合就失效、預算重給（[PENDING_SAME_USER_TURN](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
@@ -307,29 +297,6 @@
 
 ### Harvest-Pending
 → 已搬到 [TECH A7](../TECH.md#a7-基本守門細節)
-
-### Cleanup（收尾自清）
-
-- **條件**：宣告完成，本 session 帳上有建立紀錄、還在、沒說要留的：
-  - 工作樹
-  - 已合併分支（被列出的工作樹用著的也算）
-  - 能刪的臨時 repo
-  - 專案外檔案資料夾
-- 規則 [LEFTOVER_NEEDS_CLEANUP](release-rules.md#leftover_needs_cleanup)；事實 `aec_ledger.cleanup_facts` 現場查，只為可能成為候選的幾筆跑 git，帳再長收尾也不變慢。
-- **不列**：
-  - 沒合併的分支
-  - 暫存區
-  - 專案裡未進版控的新檔
-  - gitignore 的
-  - 遠端分支
-  - 別的開著的 session 正在用的
-  - 開場快照比對出來（來源不明）的
-- 「說要留」＝HUD 按過保留或 (i) 寫過理由。
-- **模式**：提醒。
-- **動作**：
-  - 列每一項與刪除指令（[`session-artifacts.py act --sid … --key …`](../tools/session-artifacts.py)，結果寫回帳本）。
-  - 要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）。
-  - **不增 `stop_blocked_count`**、每 turn 一次（`cleanup_gate_turn[sid]`）。
 
 ### ScanReport
 → 已搬到 [TECH A7](../TECH.md#a7-基本守門細節)
@@ -527,7 +494,6 @@
 ### 總開關與只記錄
 
 - 整段歸守門總開關：寫碼守門關著（出廠）時，兩個觸發處（收尾宣稱完成、規格檔標 done）都不跑。
-- 規格工件的兩種提示也不送（規格檔落盤照記）。
 - 寫碼守門開著時：
   - 裁判只在背景審。
   - 記 `workflow/acceptance-audit.jsonl`。
@@ -538,9 +504,9 @@
 
 - **入口**：[`hooks/acceptance_spec.py`](../hooks/acceptance_spec.py)（由 guardian PostToolUse 同程序呼叫 `run()`）。
 - **機制**：
-  - ExitPlanMode → 從 plan 落 `<專案根>/.claude/verify/acceptance-<slug>.md`（必須發生／禁止發生／驗證指令）。
-  - 無 plan 但改 ≥3 檔 → 一次性建議。
-  - advisory-only。
+  - 不提示 AI 寫規格檔：守門開或關都不送字。
+  - AI 自己寫了 `<專案根>/.claude/verify/acceptance-<slug>.md`（必須發生／禁止發生／驗證指令），PostToolUse 把路徑登記進 `workflow/acceptance-spec/<sid>.json` 的 spec_paths，影子裁判憑它找這個任務的標準。
+  - `acceptance_spec.enabled=false` 連登記都不做。
 
 ### ② 影子裁判
 

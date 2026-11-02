@@ -3,7 +3,7 @@ handlers/stop.py — Stop hook handler
 
 閘序：
 1. Test-Fail Gate（測試未綠 + 宣告完成 → 擋；寫碼守門開或關同一套，不看擋次預算）
-1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）；
+1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、搬程式目錄要有掃描與抽樣、AEC 要 j／k）；
     獨立預算 reconcile_gate.max_blocks_per_turn
 1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
@@ -49,12 +49,12 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source, git_launcher, declared_cases,
+    committed_equal_paths, git_deadline, copied_glob_source, git_launcher,
 )
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
-    leftover_candidates, leftover_cleanup_verdict, evasion_context_exempt_verdict,
+    evasion_context_exempt_verdict,
     red_item_label, cmd_run_line, parse_equivalence_lines,
     reason_present, red_units, failure_lines, red_count_label, red_rerun_files_label,
 )
@@ -923,9 +923,9 @@ def _verify_gates(
     claims: List[str] = (), pending: bool = False, reminds: Optional[List[Tuple[str, str]]] = None,
 ) -> tuple:
     """對帳閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／"")。
-    reminds＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：判成提醒的條目（(b)(c)(d)(v)(e)、
-    這幾類自己的判定錯誤）不進擋訊息，(規則名, 原文) append 進來交呼叫端留帳；(a) 與它的判定錯誤照擋。None＝全部照擋（總開關關）。寫碼查核＝對帳 (a)～(d)；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
-    (a)(b)(c) 對 last_text 與 claims（pending 承接的本回合先前宣稱）；(d) 不看措辭，有改碼紀錄就判（last_text 空也判）。
+    reminds＝給了（寫碼守門開著）就照規則 GATE_MODE_TABLE 分流：判成提醒的條目（(b)(c)(v)(e)、
+    這幾類自己的判定錯誤）不進擋訊息，(規則名, 原文) append 進來交呼叫端留帳；(a) 與它的判定錯誤照擋。None＝全部照擋（總開關關）。寫碼查核＝對帳 (a)(b)(c)(v)；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
+    (a)(b)(c) 對 last_text 與 claims（pending 承接的本回合先前宣稱）；(v) 不看措辭，有搬目錄紀錄就判。
     自寫收據（_runs/）只在 (a)(b) 要認部位量尺時讀，只讀一次。
     判定本身出錯 → stderr＋guard_log 每次都記；同一個錯誤每個使用者回合只擋一次（_judge_error），之後放行並留帳。"""
     receipts = receipts_of(state, session_id)
@@ -934,7 +934,7 @@ def _verify_gates(
     kind = ""
     _runs: List[List[Dict[str, Any]]] = []
     _claim_audit: List[Dict[str, Any]] = []
-    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit、同根本 session 改過的程式檔全都乾淨）不算改碼：補案例不欠；
+    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit、同根本 session 改過的程式檔全都乾淨）不算改碼；
     # 判不出來照算改了。同根乾淨看 session 全部改過的程式檔（主 session＋所有子代理；文件等不算，EXEMPTION_PEERS_CODE_ONLY），
     # 剔除只套在這次受查的 own_mod_files
     sid = str(session_id).split("#agent:", 1)[0]
@@ -942,7 +942,7 @@ def _verify_gates(
                     if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
     for _agent_mods in (state.get("agent_modified_files") or {}).values():
         session_mods += [m for m in _agent_mods or [] if isinstance(m, dict) and m.get("path")]
-    # worktree 根的一次性 git 啟動器（寫入時就認好、記了標記）建、改、刪都不算改碼：不讓收據作廢、不欠案例（LAUNCHER_NOT_CODE）
+    # worktree 根的一次性 git 啟動器（寫入時就認好、記了標記）建、改、刪都不算改碼：不讓收據作廢（LAUNCHER_NOT_CODE）
     launchers = [m["path"] for m in own_mod_files if (m or {}).get("path") and git_launcher(str(m["path"]))]
     session_mods = [m for m in session_mods if not git_launcher(str(m["path"]))]
     session_paths = [m["path"] for m in session_mods]
@@ -955,7 +955,7 @@ def _verify_gates(
         own_mod_files = [m for m in own_mod_files if (m or {}).get("path") not in set(launchers)]
         print("[Guardian:ReconcileGate] 規則 LAUNCHER_NOT_CODE：一次性 git 啟動器不算改碼："
               + "、".join(Path(p).name for p in launchers[:5]), file=sys.stderr)
-    git_dl = git_deadline()           # 兩種「內容回到某狀態」的豁免（這裡與下面 commit 快照）共用一個查 git 的整支預算
+    git_dl = git_deadline()           # 「改過又還原」與「等於已提交版本」兩種豁免共用一個查 git 的整支預算
     try:
         same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"), session_paths=session_paths,
                                    deadline=git_dl, cfg=rg_cfg)
@@ -1000,12 +1000,7 @@ def _verify_gates(
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
-                measure_cmds=mcmds, claims=claims, pending=pending,
-                # AI 寫的「case_for｜<程式檔>：<案例…>」宣告行也算案例覆蓋
-                case_for=declared_cases(rg_cfg, str(transcript) if transcript else ""),
-                case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
-                                                                  deadline=git_dl, cfg=rg_cfg),
-                committed_new=state.get("committed_new_code"), user_turn=since,
+                measure_cmds=mcmds, claims=claims, pending=pending, user_turn=since,
                 exec_this_turn=in_turn((state.get("exec_turn_seq") or {}).get(session_id), turn_seq, since),
                 **dict(zip(("moves", "move_receipts"), _move_inputs(state, session_id))),
                 move_scan_hits=state.get("move_scan_hits") or {},
@@ -1021,7 +1016,7 @@ def _verify_gates(
                 reason = None
             kind = "reconcile" if reason else ""
         for h in _rem_hits:                                      # 提醒類條目：(規則名, 原行) 交呼叫端留帳
-            reminds.append(((_parse_hit_rules(h) or [("", "CASE_COVERS_CHANGE")])[0][1], h))
+            reminds.append(((_parse_hit_rules(h) or [("", "")])[0][1], h))
         # 規則 CLAIM_WORDS_ARE_HINTS：(a)(b)(c) 被宣稱行解掉的留帳（guard-reconcile.jsonl event=claim_disclaimed／claim_receipt_ref），健檢抽查；
         # 判定後段出例外也照記（解掉那一筆已發生）
         for _ca in _claim_audit:
@@ -1055,10 +1050,10 @@ def _code_check_text(input_data: Dict[str, Any], transcript, transcript_text: st
 def _code_gate_no_ask(input_data: Dict[str, Any], config: Dict[str, Any], state: Optional[Dict[str, Any]],
                       receipt_key: str, own: List[Dict[str, Any]], transcript_path: str, why: str,
                       log_extra: Dict[str, Any], unknown: Optional[List[Dict[str, Any]]] = None) -> None:
-    """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)～(d)），
+    """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)(b)(c)(v)），
     跟主 session 同樣形狀的預算（每個使用者回合 reconcile_gate.max_blocks_per_turn 次，規則 NONINTERACTIVE_RELEASE_AT_BUDGET）：擋滿就放行、
     留帳 event=*_released，主 session 收尾照看這些改檔。未知寫入只留帳不擋（UNKNOWN_TARGET_LOGGED）。(e) 與其他 Stop 閘不跑。
-    (d) 不看措辭：沒有收尾文字（transcript 讀不到）也照判。headless 主 session 走 handle_stop，擋滿同樣放行留帳。"""
+    headless 主 session 走 handle_stop，擋滿同樣放行留帳。"""
     session_id = input_data.get("session_id", "") or ""
     unknown = list(unknown or [])
     if not state or not (own or unknown):
@@ -1673,23 +1668,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and all(0 < _mod_turn(m) <= int(aec.get("turn_seq") or 0) for m in own_mod_files)
     )
 
-    _cleanup_memo: List[Any] = []
-
-    def _cleanup_facts() -> List[Dict[str, Any]]:
-        """收尾自清閘的事實：宣告完成時才查，只查可能成為候選的那幾筆（要問 git），一次 Stop 只查一次。查失敗照放行並浮 stderr。"""
-        if not _cleanup_memo:
-            items: List[Dict[str, Any]] = []
-            if _done(last_text):
-                try:
-                    if aec_ledger.ledger_path(session_id).exists():
-                        items = aec_ledger.cleanup_facts(session_id)
-                except Exception as e:  # noqa: BLE001
-                    print(f"[Guardian:Cleanup] 查帳上的東西失敗，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
-            _cleanup_memo.append(items)
-        return _cleanup_memo[0]
-
     def _later_gates(reason: str, names: Optional[List[str]] = None) -> str:
-        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（知識收割、收尾自清、
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（知識收割、
         收尾檢核、同步），讓模型一回合
         補齊，不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。
         names 有給就補上預覽裡的閘名（連鎖斷路器用：預覽裡的閘之後擋下，不算這道閘之後的動作造成的）。"""
@@ -1699,12 +1679,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 claimed=_done(last_text)):
             later.append((("KnowledgeHarvest",), "知識收割：值得留的先 atom_write，再交收割清單（anti_evasion_report 的 harvest_items "
                                                  "跟收尾檢核一次交，或 knowledge_harvest_report）", "HARVEST_AT_PHASE_DONE"))
-        if ("[Guardian:Cleanup]" not in reason
-                and (state.get("cleanup_gate_turn") or {}).get(session_id) != _user_turn(state, turn_seq)):
-            _cv = leftover_cleanup_verdict(True, _cleanup_facts())
-            if _cv.owed:
-                later.append((("Cleanup",), f"收尾自清：這個 session 建的 {len(_cv.evidence)} 樣東西還在（工作樹、分支、臨時 repo、專案外資料夾），"
-                              "用完的刪掉、要留的在 (i) 寫理由", "LEFTOVER_NEEDS_CLEANUP"))
         if ("[Guardian:ScanReport]" not in reason and own_mod_files and not state.get("scan_report_warned")
                 and not committed_this_turn and _scan_report_gate_on(config)
                 and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
@@ -1797,12 +1771,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 緊接 TestFailGate 之後、evasion 偵測之前（correctness 閘優先）。不吃共用 stop_gate_max_blocks：
     # 獨立預算 reconcile_gate.max_blocks_per_turn（state reconcile_gate_turn[sid]={turn,count}）；預算與
     # 放行的「回合」是使用者本人打字開的回合（_user_turn：同伴訊息、背景通知、hook 回饋續跑都不開新回合、不重置次數）。
-    # 寫碼查核（對帳 (a)～(d)）擋滿後不放行：記 pending_release、改送擋滿訊息要模型問使用者；每次擋（不等擋滿）都查
+    # 寫碼查核（對帳 (a)(b)(c)(v)）擋滿後不放行：記 pending_release、改送擋滿訊息要模型問使用者；每次擋（不等擋滿）都查
     # 使用者有沒有在最後一次擋之後放行（wg_release.user_released）→ 放這一回合、清 pending 與計數、guard-reconcile.jsonl
     # 記 user_release（健檢列 red）；擋之前的舊答案不算。放行記「那幾件」（release_items）：之後的回合同一件原因還在就不再擋、
     # 不再問，原因消失就從放行紀錄拿掉；新出現的照判。
     # pending 只在同一個使用者回合有效（wg_release.pending_of）：換了使用者回合預算重給、不拿先前的宣稱重查。
-    # 不看措辭的部分（(d) 補案例）每次 Stop 都判，last_text 空也判；(a)(b)(c) 對宣稱，同一回合的 pending 帶著第一次擋滿時的
+    # 不看措辭的部分（(v) 搬程式目錄）每次 Stop 都判，last_text 空也判；(a)(b)(c) 對宣稱，同一回合的 pending 帶著第一次擋滿時的
     # 宣稱原話（claims，之後的文字不附加也擠不掉），換一句話也拿原話重查。pending 只在兩種情況清：重新查核後原因真的消失，
     # 或使用者合格放行：「沒有執行查核」不等於「查核通過」。沒帶 claims 的 pending → 原宣稱無從重查 → 照擋，只能使用者放行。
     # 無法互動（headless／SDK）：不叫它問，擋滿就放行並留帳 event=noninteractive_released（比照子代理）。
@@ -1820,7 +1794,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _rg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
             reminds=_vg_reminds,
         )
-        for _rule, _text in _vg_reminds:      # 提醒類條目（(b)(c)(d)(v)(e)）：只留帳（STOP_REMIND_LEDGER_ONLY）
+        for _rule, _text in _vg_reminds:      # 提醒類條目（(b)(c)(v)(e)）：只留帳（STOP_REMIND_LEDGER_ONLY）
             _remind_logged("reconcile", "ReconcileGate", _rule, _text, session_id, turn_seq)
         if _pend is not None and "claims" not in _pend:
             _code = f"{_code}\n{LEGACY_PENDING}" if _code else LEGACY_PENDING
@@ -2108,28 +2082,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     if _timed_out("收割對帳"):
-        return
-
-    # ── Cleanup Gate（收尾自清：規則 LEFTOVER_NEEDS_CLEANUP）─────────────
-    # 宣告完成時，這個 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 擋一次，列刪除指令，
-    # 讓 AI 自己清（使用者原話：要提醒 LLM 才會刪用完的工作分支）。事實由 aec_ledger.cleanup_facts 現場查（只查可能成為候選的）、判定在
-    # wg_release_rules；排在收尾檢核之前，AI 寫留的理由才進得了同一份 (i)。不吃 stop_gate_max_blocks、每個使用者回合最多擋一次
-    # （cleanup_gate_turn[sid] 記 _uturn）。
-    if v6 and (state.get("cleanup_gate_turn") or {}).get(session_id) != _uturn:
-        cv = leftover_cleanup_verdict(_done(last_text), _cleanup_facts())
-        if cv.owed and _gate_mode(cv.rule, v6) == _REMIND:
-            state.setdefault("cleanup_gate_turn", {})[session_id] = _uturn
-            _remind_logged("cleanup", "Cleanup", cv.rule, cv.why, session_id, turn_seq, items=list(cv.evidence[:8]))
-            write_state(session_id, state)
-        elif cv.owed and not _chain_hold("Cleanup", cv.why):
-            state.setdefault("cleanup_gate_turn", {})[session_id] = _uturn
-            append_guard_log("cleanup", {"session_id": session_id, "turn_seq": turn_seq, "items": list(cv.evidence[:8])})
-            write_state(session_id, state)
-            output_block(_piggyback(aec_ledger.cleanup_block_message(
-                session_id, leftover_candidates(_cleanup_facts()), cv.why)))
-            return
-
-    if _timed_out("收尾自清"):
         return
 
     # ── Scan-Report Gate ────────────────────────────────────────

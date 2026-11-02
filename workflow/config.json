@@ -439,17 +439,8 @@
     "max_scan_files": 20
   },
   "acceptance_spec": {
-    "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，由 guardian PostToolUse 同程序呼叫 run()）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。兩種提示歸 寫碼守門總開關管（規格只給驗收裁判用，裁判也歸同一個開關），關時不提示、規格檔落盤照記。一鍵關=enabled:false。",
-    "enabled": true,
-    "min_files_trigger": 3,
-    "count_exclude_substrings": [
-      "/memory/",
-      "/_staging/",
-      "/workflow/",
-      "/Logs/",
-      "/Temp/claude/",
-      "/plans/"
-    ]
+    "_doc": "驗收規格檔登記（hooks/acceptance_spec.py，由 guardian PostToolUse 同程序呼叫 run()）：AI 寫入 <專案根>/.claude/verify/acceptance-<slug>.md 時把路徑記進 sidecar workflow/acceptance-spec/<sid>.json，驗收裁判憑它找這個任務的驗收標準。不送任何字給 AI。一鍵關=enabled:false。",
+    "enabled": true
   },
   "acceptance_regression_hint": {
     "_doc": "迴歸累積提示（handlers/stop.py::_acceptance_regression_hint）：本 session 驗收裁判有 fail/high（enforce 級）判定 → 收尾 block 訊息搭車建議 (a) 補測試案例 (b) 模式類落 atom。純 piggyback 不獨立打斷、每 session 一次、不建佇列。一鍵關=enabled:false。",
@@ -669,12 +660,11 @@
     "vcs_budget_s": 1.5
   },
   "reconcile_gate": {
-    "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；主 session、SubagentStop、裁判 Stop 共用 _verify_gates）：拿收尾宣稱對驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令）。宣稱看最後一句（優先 hook 輸入的 last_assistant_message）、以子句判（轉折詞另起子句、否定／疑問排除、第三方轉述不算）。(a) 說修好要有晚於每個對上的改檔、同一棵樹的 PASS，不限本回合（舊回合的只要之後本 session 沒再改任何程式檔就算，子代理改的與判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔；對上＝指令含改檔檔名、對應的 test_／verify_ 檔、整體驗證或部位量尺，或該部位合格的自寫收據）；(b) 說量了要有能當證據的 DONE 或合格自寫收據；(c) 說試過要本回合有 exec_tools 呼叫；(d) 改了 code_exts 檔要有本 session 改過、仍存在、同根的案例覆蓋它（檔名照它取、內容提到它，或「case_for｜<程式檔>：<案例…>」宣告行列了它；不比先後；判法以 hooks/wg_verify_ledger.py 為準）；(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比）；改過又原樣還原的檔不算改碼；部位表類別 knowledge 的部位下的檔兩邊都不算。max_blocks_per_turn＝(a)～(d)＋量尺閘共用的每回合預算（不吃 stop_gate_max_blocks）；擋滿之後怎麼放行、子代理與 headless 怎麼收尾，以 hooks/handlers/stop.py、hooks/wg_release.py 為準。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
+    "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；主 session、SubagentStop、裁判 Stop 共用 _verify_gates）：拿收尾宣稱對驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令）。宣稱看最後一句（優先 hook 輸入的 last_assistant_message）、以子句判（轉折詞另起子句、否定／疑問排除、第三方轉述不算）。(a) 說修好要有晚於每個對上的改檔、同一棵樹的 PASS，不限本回合（舊回合的只要之後本 session 沒再改任何程式檔就算，子代理改的與判不出目標的寫入都算改；改過就要新的 PASS，擋訊息點名改了哪個檔；對上＝指令含改檔檔名、對應的 test_／verify_ 檔、整體驗證或部位量尺，或該部位合格的自寫收據）；(b) 說量了要有能當證據的 DONE 或合格自寫收據；(c) 說試過要本回合有 exec_tools 呼叫；(v) 搬了含程式檔的目錄要有搬之後的掃描與抽樣收據；(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比）；改過又原樣還原的檔不算改碼。max_blocks_per_turn＝(a)(b)(c)(v)＋量尺閘共用的每回合預算（不吃 stop_gate_max_blocks）；擋滿之後怎麼放行、子代理與 headless 怎麼收尾，以 hooks/handlers/stop.py、hooks/wg_release.py 為準。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
     "enabled": true,
-    "_doc_block_letters": "寫碼守門關時寫碼查核擋哪些條目字母（規則 RECONCILE_BLOCK_LETTERS；沒列的照判、只印 stderr）。寫碼守門開時送法只看 hooks/wg_release_rules.py 的 RULE_MODE（(a) 照擋、(d) 提醒），本欄不再決定；兩處不要各寫一套。",
+    "_doc_block_letters": "寫碼守門關時寫碼查核擋哪些條目字母（規則 RECONCILE_BLOCK_LETTERS；沒列的照判、只印 stderr）。寫碼守門開時送法只看 hooks/wg_release_rules.py 的 RULE_MODE（(a) 照擋），本欄不再決定；兩處不要各寫一套。",
     "block_letters": [
-      "a",
-      "d"
+      "a"
     ],
     "max_blocks_per_turn": 2,
     "exec_tools": [

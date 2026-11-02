@@ -1,8 +1,7 @@
 """verify_ephemeral_path.py：暫存路徑判斷（handlers/_shared._is_ephemeral_path）要認得 Windows 8.3 短路徑。
 
 背景：這台機器的暫存目錄同時以長路徑（C:\\Users\\holylight\\AppData\\Local\\Temp）與 8.3 短路徑（C:\\Users\\HOLYLI~1\\…）出現，
-session scratchpad 就是短路徑寫法；只比字面前綴時兩種寫法對不上，scratchpad 裡的一次性腳本被當成改了程式碼，
-寫碼查核 (d) 要求補案例。
+session scratchpad 就是短路徑寫法；只比字面前綴時兩種寫法對不上，scratchpad 裡的一次性腳本被當成改了程式碼。
 正例：長／短 × 長／短（路徑寫法 × gettempdir 回傳寫法）四種組合都判成暫存，檔案還不存在也一樣。
 反例：一般專案路徑、含 `~1` 但不在暫存目錄下的路徑判成非暫存；`<暫存>\\..\\..\\專案\\x.py` 是專案原碼（經 post_tool_use 照常記改檔）。
 暫存目錄底下的專案寫入不記帳時，同一個專案根說一次（規則 EPHEMERAL_WRITE_NOTED_ONCE，_shared.note_ephemeral_skip）。

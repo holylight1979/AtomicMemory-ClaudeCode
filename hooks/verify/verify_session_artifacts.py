@@ -5,8 +5,8 @@
   - 「還在不在、能不能刪」現場查（git 與檔案系統）；進了版控的檔掉出清單；使用中的分支、主分支、session 工作目錄不能刪。
   - 刪除當場執行：要確認的東西（沒合併的分支、有改動的工作樹、遠端分支、整個 repo）沒帶 force 不動手；帳上沒有的 key 不碰。
   - tools/session-artifacts.py 與 Node 端點（anti-evasion.js）照同一份帳本工作。
-  - 收尾自清（Stop 的 LEFTOVER_NEEDS_CLEANUP 閘）：宣告完成時列出本 session 建的、還在、能刪、沒說要留的東西，每個使用者回合擋一次。
-  - (i) 可宣告分支留著（`branch:<名> — 理由`）；別的開著的 session 正在用的不列；開場快照比對出來的標來源不明、不進閘。
+  - Stop 沒有收尾自清閘：帳上還在的東西由 HUD 列給使用者處置，不送字給 AI。
+  - (i) 可宣告分支留著（`branch:<名> — 理由`）；別的開著的 session 正在用的標正在用；開場快照比對出來的標來源不明。
   - 全機殘留：list --all 掃全部帳本、依 session 分組、附 session 還開著沒有；整組清只刪不用再確認的。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_session_artifacts.py
 """
@@ -28,7 +28,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 
 from handlers import aec_ledger as L  # noqa: E402
 from handlers import _shared  # noqa: E402
-import wg_release_rules as rr  # noqa: E402
 
 _SID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 _GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main"]
@@ -318,7 +317,7 @@ def test_node_endpoints_call_python_tool(wdir):
     assert out["ACT"]["ok"] is True and not f.exists(), r.stderr
 
 
-# ─── 收尾自清（Stop 的 LEFTOVER_NEEDS_CLEANUP 閘）：事實端與閘 ─────────────────────
+# ─── 帳上東西的現場事實（HUD 用）；Stop 沒有收尾自清閘 ─────────────────────
 
 
 def _tail(title: str) -> str:
@@ -335,9 +334,9 @@ def _state_file(wdir: Path, sid: str, data: dict, age_s: float = 0) -> Path:
     return p
 
 
-def test_status_facts_and_cleanup_candidates(wdir):
-    """判定吃結構化事實（where／merged／used_by），不讀白話 label。候選＝工作樹、它用著的已合併分支、已合併分支、
-    臨時 repo、專案外資料夾；沒合併的分支、暫存區檔、專案裡還沒進版控的新檔不列。"""
+def test_status_facts(wdir):
+    """帳上每一樣的結構化事實現場查（where／merged／used_by），不讀白話 label：工作樹用著的分支、已合併／沒合併的分支、
+    專案外資料夾、暫存區檔、專案裡還沒進版控的新檔。"""
     repo = make_repo(wdir / "r")
     run_and_record(f"git worktree add -b feat {wdir / 'wt'}", repo)
     run_and_record("git branch topic && git branch idle", repo)
@@ -355,69 +354,29 @@ def test_status_facts_and_cleanup_candidates(wdir):
     assert by["feat"]["merged"] is True and L._key(by["feat"]["used_by"]) == L._key(str(wdir / "wt"))
     assert by["topic"]["merged"] is False and by["idle"]["merged"] is True and by["idle"]["used_by"] == ""
     assert (by["probe_dir"]["where"], by["s.txt"]["where"], by["probe.py"]["where"]) == ("outside", "temp", "untracked")
-    got = {(c["kind"], _tail(c["title"])) for c in rr.leftover_candidates(list(by.values()))}
-    assert got == {("worktree", "wt"), ("branch", "feat"), ("branch", "idle"), ("repo", "scratch-repo"), ("dir", "probe_dir")}
+    assert {"wt", "scratch-repo"} <= set(by)
 
 
-def test_cleanup_facts_only_query_git_for_possible_candidates(wdir, monkeypatch):
-    """帳越長收尾越慢（同伴 session 回報）：收尾自清閘只為可能成為候選的那幾筆查 git——暫存區檔、專案裡的檔
-    （未進版控、已提交、gitignore）、遠端分支一律不跑 ls-files／check-ignore；選出來的候選和完整查法（list_alive）一樣。"""
-    repo = make_repo(wdir / "r")
-    (repo / ".gitignore").write_text("*.log\n", encoding="utf-8")
-    tmp = wdir / "systemp"; tmp.mkdir()
-    for i in range(6):
-        for f in (repo / f"new{i}.py", repo / f"run{i}.log", tmp / f"s{i}.txt", repo / f"done{i}.py"):
-            f.write_text("x", encoding="utf-8")
-            L.record_tool_artifacts(_SID, "Write", {"file_path": str(f)}, str(repo))
-    git(repo, "add", "."); git(repo, "commit", "-q", "-m", "done")   # done*.py、new*.py 進了版控＝正式產出
-    (repo / "fresh.py").write_text("x", encoding="utf-8")
-    L.record_tool_artifacts(_SID, "Write", {"file_path": str(repo / "fresh.py")}, str(repo))
-    out = wdir / "outside" / "probe_dir"; out.mkdir(parents=True)
-    L.ledger_append(_SID, [{"kind": "dir", "path": str(out), "source": "bash", "cwd": str(wdir)}])
-    git(repo, "branch", "merged1")
-    L.record_tool_artifacts(_SID, "Bash", {"command": "git branch merged1"}, str(repo))
-    L.ledger_append(_SID, [{"kind": "remote_branch", "path": str(repo), "repo": str(repo), "remote": "origin",
-                            "name": "merged1", "source": "bash"}])
-
-    cmds: list = []
-    real_run = subprocess.run
-
-    def counting_run(cmd, *a, **k):
-        cmds.append(" ".join(map(str, cmd)))
-        return real_run(cmd, *a, **k)
-
-    monkeypatch.setattr(L.subprocess, "run", counting_run)
-    full = rr.leftover_candidates(L.list_alive(_SID))
-    assert sum(("ls-files" in c or "check-ignore" in c) for c in cmds) >= 6, "前置：完整查法確實逐筆跑 git"
-    cmds.clear()
-    facts = L.cleanup_facts(_SID)
-    assert not [c for c in cmds if "ls-files" in c or "check-ignore" in c], cmds
-    assert len(cmds) <= 5, cmds
-    assert {c["key"] for c in rr.leftover_candidates(facts)} == {c["key"] for c in full}
-    assert {_tail(c["title"]) for c in full} == {"probe_dir", "merged1"}
-
-
-def test_declared_keep_reasons_take_items_out_of_cleanup(wdir):
-    """AI 在 (i) 寫理由＝說要留：路徑照寫、分支寫 `branch:<名> — 理由`；帳上沒有的分支拒收並說原因；使用者按保留也算。"""
+def test_declared_keep_reasons_recorded_on_ledger(wdir):
+    """AI 在 (i) 寫理由＝說要留：路徑照寫、分支寫 `branch:<名> — 理由`，記成帳上那一樣的備註；帳上沒有的分支拒收並說原因；
+    使用者按保留也記回帳本。"""
     repo = make_repo(wdir / "r")
     wt = wdir / "wt"
     run_and_record(f"git worktree add -b feat {wt}", repo)
     run_and_record("git branch done1 && git branch done2", repo)
-    assert len(rr.leftover_candidates(L.list_alive(_SID))) == 4, "前置：工作樹、feat、done1、done2 都是候選"
     rejected: list = []
     L.collect_at_completion(_SID, str(repo), f"{wt} — 下一階段還要用\nbranch:done1 — 等使用者看過再刪\nbranch:nope — 打錯名",
                             7, rejected=rejected)
     by = {_tail(it["title"]): it for it in L.list_alive(_SID)}
     assert by["wt"]["note"] == "下一階段還要用" and by["done1"]["note"] == "等使用者看過再刪" and by["done1"]["source"] == "aec-i"
     assert [r["path"] for r in rejected] == ["branch:nope"] and "帳上沒有" in rejected[0]["reason"]
-    assert {c["title"] for c in rr.leftover_candidates(list(by.values()))} == {"done2"}, "feat 被留著的工作樹用著 → 不列"
     L.act(_SID, by["done2"]["key"], "keep")
-    assert rr.leftover_candidates(L.list_alive(_SID)) == []
+    assert {_tail(it["title"]): it for it in L.list_alive(_SID)}["done2"]["decision"] == "keep"
 
 
 def test_worktree_in_use_by_another_open_session_is_left_alone(wdir):
     """總控台建的工作樹交給工作 session 用：別的開著的 session（30 分鐘內有動靜）改過或讀過裡面的檔、或工作目錄在裡面
-    → 標正在用、刪除要再確認、不進自清閘；自己的工作目錄在裡面不算；那個 session 沒動靜了才回到候選。"""
+    → 標正在用、刪除要再確認；自己的工作目錄在裡面不算；那個 session 沒動靜了就不再標。"""
     repo = make_repo(wdir / "r")
     wt = wdir / "wt"
     run_and_record(f"git worktree add -b feat {wt}", repo)
@@ -426,15 +385,13 @@ def test_worktree_in_use_by_another_open_session_is_left_alone(wdir):
     _state_file(wdir, _SID, {"session": {"id": _SID, "cwd": str(wt)}})
     item = next(it for it in L.list_alive(_SID) if it["kind"] == "worktree")
     assert item["busy"] and "另一個開著的 session" in item["label"] and item["confirm"]
-    assert rr.leftover_candidates(L.list_alive(_SID)) == []
     os.utime(other, (time.time() - 2 * 3600,) * 2)
     item = next(it for it in L.list_alive(_SID) if it["kind"] == "worktree")
     assert not item["busy"] and item["confirm"] is None
-    assert {c["kind"] for c in rr.leftover_candidates(L.list_alive(_SID))} == {"worktree", "branch"}
 
 
 def test_snapshot_catches_what_command_parsing_cannot(wdir):
-    """python 腳本裡開的工作樹與分支，指令解析看不到：開場快照比對補進帳、標來源不明、不進自清閘；
+    """python 腳本裡開的工作樹與分支，指令解析看不到：開場快照比對補進帳、標來源不明；
     本 session 有建立指令的照舊；開場就有的不收；每次 Stop 都比但不重複進帳。"""
     repo = make_repo(wdir / "r")
     git(repo, "branch", "pre")
@@ -449,7 +406,6 @@ def test_snapshot_catches_what_command_parsing_cannot(wdir):
     by = {_tail(it["title"]): it for it in L.list_alive(_SID)}
     assert {k for k, v in by.items() if v["source"] == "snapshot"} == {"wt-script", "byscript", "made"}
     assert "來源不明" in by["made"]["origin"] and by["mine"]["origin"] == "" and "pre" not in by
-    assert {c["title"] for c in rr.leftover_candidates(list(by.values()))} == {"mine"}
 
 
 def test_list_all_groups_sessions_with_liveness(wdir):
@@ -560,23 +516,16 @@ def stop_driven(wdir, monkeypatch):
     return drive
 
 
-def test_stop_cleanup_gate_blocks_once_per_user_turn(stop_driven, wdir, capsys):
-    """收尾自清閘：宣告完成、帳上有該清的 → 擋一次，列每一項與刪除指令（走 session-artifacts.py，結果記回帳本）、
-    教怎麼寫留的理由；不吃 stop_blocked_count、同一個使用者回合不再擋；沒宣告完成不擋；清乾淨就不擋。"""
+def test_stop_has_no_cleanup_gate(stop_driven, wdir, capsys):
+    """收尾自清閘拔了（建好當下送的提醒、收尾時 AI 看不到）：宣告完成、帳上還有這個 session 建的工作樹 → Stop 不擋也不提；
+    帳照記（HUD 照列、照樣能刪）。舊碼：擋一次並列刪除指令。"""
     repo = make_repo(wdir / "r")
     run_and_record(f"git worktree add -b feat {wdir / 'wt'}", repo)
     state = {"phase": "working", "modified_files": [], "failing_tests": [], "recent_user_prompts": [],
              "stop_blocked_count": 0, "turn_seq": 5}
-    assert "[Guardian:Cleanup]" not in stop_driven(capsys, state, last_text="我先查一下工作樹的狀態，查完再回報給你看看。")
     out = stop_driven(capsys, state)
-    assert "[Guardian:Cleanup]" in out and "LEFTOVER_NEEDS_CLEANUP" in out
-    assert "session-artifacts.py" in out and f"--sid {_SID}" in out and "branch:<名>" in out
-    assert state["stop_blocked_count"] == 0 and state["cleanup_gate_turn"][_SID] == 5
-    assert "[Guardian:Cleanup]" not in stop_driven(capsys, state), "同一個使用者回合只擋一次"
-    state["turn_seq"] = 6
-    for it in L.list_alive(_SID):
-        assert L.act(_SID, it["key"], "delete")["ok"] is True, it
-    assert "[Guardian:Cleanup]" not in stop_driven(capsys, state)
+    assert "[Guardian:Cleanup]" not in out and "LEFTOVER_NEEDS_CLEANUP" not in out and "cleanup_gate_turn" not in state
+    assert "worktree" in {it["kind"] for it in L.list_alive(_SID)}
 
 
 def test_server_routes_all_machine_endpoint():

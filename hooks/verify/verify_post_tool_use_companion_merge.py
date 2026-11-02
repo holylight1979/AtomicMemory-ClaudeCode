@@ -1,13 +1,14 @@
 """verify_post_tool_use_companion_merge.py — PostToolUse 兩支 standalone hook 併入 guardian 的等價回放。
 
-GOLDEN 來源：合併前的 hooks/version_guard.py 與 hooks/acceptance_spec.py（各自獨立程序、stdin 餵 JSON）
-對同一事件矩陣實跑所得 stdout／stderr／rc／sidecar 原文，逐 byte 保存。守四件事：
+GOLDEN：version_guard 那欄是合併前的 hooks/version_guard.py（獨立程序、stdin 餵 JSON）對同一事件矩陣實跑所得
+stdout／stderr／rc 原文，逐 byte 保存；acceptance_spec 那欄是它現在的契約：只登記規格檔路徑（sidecar 原文），
+不送任何字（plan 被核可、同 session 改了 3 個檔也一樣）。守四件事：
 1. 新 standalone 入口（main()，子程序）輸出與 GOLDEN 逐 byte 相同 → 回滾路徑（settings.json 加回兩行）等價
 2. guardian 併入路徑（handlers.post_tool_use._run_companion_hooks，同程序）訊息與 sidecar 與 GOLDEN 相同
 3. 隔離：任一支拋例外只進 debug log、另一支照常；輸出封裝 systemMessage／stderr 與 additionalContext 各就其位
 4. settings.json：PostToolUse 不再起兩支獨立程序；guardian matcher 涵蓋原兩支 matcher 聯集
-事件覆蓋：Edit／Write／MultiEdit／NotebookEdit／ExitPlanMode、第三個修改檔、已有驗收規格檔、計畫遭拒、
-各開關關閉（enabled／mode off／min_matches）、whitelist 路徑與 token、排除路徑不計數、缺 session_id。
+事件覆蓋：Edit／Write／MultiEdit／NotebookEdit／ExitPlanMode、第三個修改檔、寫入驗收規格檔、
+各開關關閉（enabled／mode off／min_matches）、whitelist 路徑與 token、缺 session_id。
 """
 from __future__ import annotations
 
@@ -37,8 +38,7 @@ CLAUDE_HOOK_PATH = str(version_guard._CODE_ROOT / "hooks" / "wg_parallel.py")
 CLAUDE_TECH_PATH = str(version_guard._CODE_ROOT / "TECH.md")
 SID = "equiv-sess-0001"
 VG_ON = {"enabled": True, "mode": "warn", "min_matches": 1}
-ASP_ON = {"enabled": True, "min_files_trigger": 3,
-          "count_exclude_substrings": ["/memory/", "/_staging/", "/workflow/"]}
+ASP_ON = {"enabled": True}
 
 
 def ev(tool, tool_input=None, tool_response="", sid=SID, cwd="D:/proj"):
@@ -68,15 +68,9 @@ SCENARIOS = {
         vg=VG_ON, asp=ASP_ON, state=["D:/proj/a.py", "D:/proj/b.py", "D:/proj/c.py"], sidecar=None,
         events=[ev("Edit", {"file_path": "D:/proj/c.py", "old_string": "x", "new_string": "Sprint 9"}),
                 ev("Edit", {"file_path": "D:/proj/c.py", "old_string": "x", "new_string": "y"})]),
-    "exitplan_approved_then_repeat": dict(
+    "exitplan_approved_sends_nothing": dict(
         vg=VG_ON, asp=ASP_ON, state=[], sidecar=None,
-        events=[ev("ExitPlanMode", {}, "approved"), ev("ExitPlanMode", {}, "approved")]),
-    "exitplan_rejected": dict(
-        vg=VG_ON, asp=ASP_ON, state=[], sidecar=None,
-        events=[ev("ExitPlanMode", {}, {"result": "User rejected the plan"})]),
-    "plan_prompted_suppresses_multifile": dict(
-        vg=VG_ON, asp=ASP_ON, state=["D:/proj/a.py", "D:/proj/b.py", "D:/proj/c.py"], sidecar={"plan_prompted": True},
-        events=[ev("Edit", {"file_path": "D:/proj/c.py", "old_string": "x", "new_string": "y"})]),
+        events=[ev("ExitPlanMode", {}, "approved")]),
     "spec_file_written_then_third_file": dict(
         vg=VG_ON, asp=ASP_ON, state=["D:/proj/a.py", "D:/proj/b.py", "D:/proj/c.py"], sidecar=None,
         events=[ev("Write", {"file_path": SPEC_PATH_BACKSLASH, "content": "---\nstatus: open\n---\n"}),
@@ -94,19 +88,16 @@ SCENARIOS = {
         vg=VG_ON, asp=ASP_ON, state=[], sidecar=None,
         events=[ev("Edit", {"file_path": CLAUDE_TECH_PATH, "old_string": "x", "new_string": "V5 P3"}),
                 ev("Edit", {"file_path": CLAUDE_HOOK_PATH, "old_string": "x", "new_string": "SCHEMA_VERSION = 3  # Sprint 2"})]),
-    "asp_disabled_exitplan": dict(
-        vg=VG_ON, asp={"enabled": False, "min_files_trigger": 3, "count_exclude_substrings": []}, state=[], sidecar=None,
-        events=[ev("ExitPlanMode", {}, "approved")]),
+    "asp_disabled_spec_not_recorded": dict(
+        vg=VG_ON, asp={"enabled": False}, state=[], sidecar=None,
+        events=[ev("Write", {"file_path": SPEC_PATH_BACKSLASH, "content": "---\nstatus: open\n---\n"})]),
     "asp_missing_session_id": dict(
         vg=VG_ON, asp=ASP_ON, state=[], sidecar=None,
-        events=[ev("ExitPlanMode", {}, "approved", sid="")]),
-    "asp_excluded_paths_not_counted": dict(
-        vg=VG_ON, asp=ASP_ON, state=["D:/proj/a.py", "D:/proj/memory/x.md", "D:/proj/_staging/y.md", "D:/proj/b.py"], sidecar=None,
-        events=[ev("Edit", {"file_path": "D:/proj/b.py", "old_string": "x", "new_string": "y"})]),
+        events=[ev("Write", {"file_path": SPEC_PATH_BACKSLASH, "content": "---\nstatus: open\n---\n"}, sid="")]),
 }
 
 
-# ─── 合併前實跑所得（逐 byte）────────────────────────────────────────────────
+# ─── version_guard：合併前實跑所得（逐 byte）；acceptance_spec：現行契約（不送字、只登記規格檔）──────
 
 GOLDEN = {'edit_remnant_in_claude': [{'vg': {'stdout': '{"systemMessage": "[版本守衛] `wg_parallel.py` 疑含版本操作脈絡殘留：V5 P3。live '
                                               '檔/atom 只寫 timeless 現況——版本演進歸 _CHANGELOG，非埋進碼。（規則 '
@@ -130,65 +121,17 @@ GOLDEN = {'edit_remnant_in_claude': [{'vg': {'stdout': '{"systemMessage": "[版�
                              'asp': {'stdout': '', 'stderr': '', 'rc': 0},
                              'sidecar': None}],
  'notebookedit_third_file': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                              'asp': {'stdout': '{"hookSpecificOutput": {"hookEventName": "PostToolUse", '
-                                                '"additionalContext": "[Guardian:AcceptanceSpec] 本任務已修改 3 '
-                                                '個檔案且尚無驗收規格檔 → 建議現在補一份（事後補仍有價值：收尾逐項自核 + 跨 session '
-                                                '接手時「做完的定義」不蒸發）。\\n路徑：`<專案根>/.claude/verify/acceptance-<task-slug>.md`（專案根以 '
-                                                'git root 為準；目前 '
-                                                'cwd：D:/proj）\\n格式（極簡三段，勿加章節）：\\n```\\n---\\ntask_slug: <任務主題 '
-                                                'kebab-case>\\nsession_id: equiv-sess-0001\\ncreated_at: <今日 '
-                                                'YYYY-MM-DD>\\nsource: multifile\\nstatus: open\\n---\\n## 必須發生\\n- '
-                                                '<需求的每一項，逐條可核對>\\n## 禁止發生\\n- <紅線，例：不動某檔 / 不翻案已定決策>\\n## 驗證指令\\n- '
-                                                '<可直接執行的指令或檢查步驟>\\n```\\n收尾時逐項自核：全過 → status 改 done 並移入同目錄 done/ '
-                                                '子資料夾；未全過 → 收尾報告誠實列出未過項。\\n本提醒每 session '
-                                                '僅此一次；若當前任務性質不需驗收清單（如批量機械修改），可忽略。"}}\r\n',
-                                      'stderr': '',
-                                      'rc': 0},
-                              'sidecar': '{"multifile_advised": true}'}],
+                              'asp': {'stdout': '', 'stderr': '', 'rc': 0},
+                              'sidecar': None}],
  'edit_third_file_outside_claude': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                                     'asp': {'stdout': '{"hookSpecificOutput": {"hookEventName": "PostToolUse", '
-                                                       '"additionalContext": "[Guardian:AcceptanceSpec] 本任務已修改 3 '
-                                                       '個檔案且尚無驗收規格檔 → 建議現在補一份（事後補仍有價值：收尾逐項自核 + 跨 session '
-                                                       '接手時「做完的定義」不蒸發）。\\n路徑：`<專案根>/.claude/verify/acceptance-<task-slug>.md`（專案根以 '
-                                                       'git root 為準；目前 '
-                                                       'cwd：D:/proj）\\n格式（極簡三段，勿加章節）：\\n```\\n---\\ntask_slug: <任務主題 '
-                                                       'kebab-case>\\nsession_id: equiv-sess-0001\\ncreated_at: <今日 '
-                                                       'YYYY-MM-DD>\\nsource: multifile\\nstatus: open\\n---\\n## '
-                                                       '必須發生\\n- <需求的每一項，逐條可核對>\\n## 禁止發生\\n- <紅線，例：不動某檔 / '
-                                                       '不翻案已定決策>\\n## 驗證指令\\n- <可直接執行的指令或檢查步驟>\\n```\\n收尾時逐項自核：全過 → '
-                                                       'status 改 done 並移入同目錄 done/ 子資料夾；未全過 → 收尾報告誠實列出未過項。\\n本提醒每 '
-                                                       'session 僅此一次；若當前任務性質不需驗收清單（如批量機械修改），可忽略。"}}\r\n',
-                                             'stderr': '',
-                                             'rc': 0},
-                                     'sidecar': '{"multifile_advised": true}'},
+                                     'asp': {'stdout': '', 'stderr': '', 'rc': 0},
+                                     'sidecar': None},
                                     {'vg': {'stdout': '', 'stderr': '', 'rc': 0},
                                      'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                                     'sidecar': '{"multifile_advised": true}'}],
- 'exitplan_approved_then_repeat': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                                    'asp': {'stdout': '{"hookSpecificOutput": {"hookEventName": "PostToolUse", '
-                                                      '"additionalContext": "[Guardian:AcceptanceSpec] 本任務經 '
-                                                      'plan-mode 確認 → 屬分級線以上。動工前先把「做完的定義」落成驗收規格檔（跨 session '
-                                                      '不蒸發、收尾自核依據）：\\n路徑：`<專案根>/.claude/verify/acceptance-<task-slug>.md`（專案根以 '
-                                                      'git root 為準；目前 cwd：D:/proj）\\n內容從剛獲同意的 plan 逐項轉出，不重問 '
-                                                      'user、不加互動輪。\\n格式（極簡三段，勿加章節）：\\n```\\n---\\ntask_slug: <任務主題 '
-                                                      'kebab-case>\\nsession_id: equiv-sess-0001\\ncreated_at: <今日 '
-                                                      'YYYY-MM-DD>\\nsource: plan\\nstatus: open\\n---\\n## 必須發生\\n- '
-                                                      '<需求的每一項，逐條可核對>\\n## 禁止發生\\n- <紅線，例：不動某檔 / 不翻案已定決策>\\n## '
-                                                      '驗證指令\\n- <可直接執行的指令或檢查步驟>\\n```\\n收尾時逐項自核：全過 → status 改 done '
-                                                      '並移入同目錄 done/ 子資料夾；未全過 → 收尾報告誠實列出未過項。\\n例外：純研究/問答型 plan（不產生 '
-                                                      'repo 修改）可不落檔，說明一句即可。"}}\r\n',
-                                            'stderr': '',
-                                            'rc': 0},
-                                    'sidecar': '{"plan_prompted": true}'},
-                                   {'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                                    'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                                    'sidecar': '{"plan_prompted": true}'}],
- 'exitplan_rejected': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                        'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                        'sidecar': None}],
- 'plan_prompted_suppresses_multifile': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                                         'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                                         'sidecar': '{"plan_prompted": true}'}],
+                                     'sidecar': None}],
+ 'exitplan_approved_sends_nothing': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
+                                      'asp': {'stdout': '', 'stderr': '', 'rc': 0},
+                                      'sidecar': None}],
  'spec_file_written_then_third_file': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
                                         'asp': {'stdout': '', 'stderr': '', 'rc': 0},
                                         'sidecar': '{"spec_paths": '
@@ -212,15 +155,12 @@ GOLDEN = {'edit_remnant_in_claude': [{'vg': {'stdout': '{"systemMessage": "[版�
                                    {'vg': {'stdout': '', 'stderr': '', 'rc': 0},
                                     'asp': {'stdout': '', 'stderr': '', 'rc': 0},
                                     'sidecar': None}],
- 'asp_disabled_exitplan': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                            'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                            'sidecar': None}],
+ 'asp_disabled_spec_not_recorded': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
+                                     'asp': {'stdout': '', 'stderr': '', 'rc': 0},
+                                     'sidecar': None}],
  'asp_missing_session_id': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
                              'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                             'sidecar': None}],
- 'asp_excluded_paths_not_counted': [{'vg': {'stdout': '', 'stderr': '', 'rc': 0},
-                                     'asp': {'stdout': '', 'stderr': '', 'rc': 0},
-                                     'sidecar': None}]}
+                             'sidecar': None}]}
 
 
 # ─── standalone 子程序 bootstrap：只換 config 與 sidecar／state 目錄，其餘走真 main() ──
@@ -263,11 +203,6 @@ def _golden_sys_msgs(row: dict) -> list:
     return [json.loads(out)["systemMessage"]] if out.strip() else []
 
 
-def _golden_ctx_msgs(row: dict) -> list:
-    out = row["asp"]["stdout"]
-    return [json.loads(out)["hookSpecificOutput"]["additionalContext"]] if out.strip() else []
-
-
 # ─── 1. 新 standalone 入口 == 合併前 golden（逐 byte）────────────────────────
 
 
@@ -302,10 +237,9 @@ def test_merged_guardian_path_equals_pre_merge_golden(name, asp_sandbox, capsys)
     prepare_sandbox(asp_sandbox, sc)
     config = {"version_guard": sc["vg"], "acceptance_spec": sc["asp"]}
     for i, event in enumerate(sc["events"]):
-        sys_msgs, ctx_msgs = ptu._run_companion_hooks(event, config)
+        sys_msgs = ptu._run_companion_hooks(event, config)
         exp = GOLDEN[name][i]
         assert sys_msgs == _golden_sys_msgs(exp), f"{name}[{i}] version_guard 訊息與合併前不同"
-        assert ctx_msgs == _golden_ctx_msgs(exp), f"{name}[{i}] acceptance_spec 訊息與合併前不同"
         assert read_sidecar_text(asp_sandbox) == exp["sidecar"], f"{name}[{i}] sidecar 內容與合併前不同"
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == "", "_run_companion_hooks 本身不得 print（輸出交 _emit）"
@@ -329,12 +263,12 @@ def test_version_guard_exception_isolated(asp_sandbox, monkeypatch):
     logged = []
     monkeypatch.setattr(version_guard, "run", _boom)
     monkeypatch.setattr(ptu, "_atom_debug_error", lambda src, e: logged.append(src))
-    sc = SCENARIOS["exitplan_approved_then_repeat"]
+    sc = SCENARIOS["spec_file_written_then_third_file"]
     prepare_sandbox(asp_sandbox, sc)
-    sys_msgs, ctx_msgs = ptu._run_companion_hooks(
+    sys_msgs = ptu._run_companion_hooks(
         sc["events"][0], {"version_guard": sc["vg"], "acceptance_spec": sc["asp"]})
     assert sys_msgs == []
-    assert ctx_msgs == _golden_ctx_msgs(GOLDEN["exitplan_approved_then_repeat"][0])
+    assert read_sidecar_text(asp_sandbox) == GOLDEN["spec_file_written_then_third_file"][0]["sidecar"]   # 規格檔照登記
     assert logged == ["post_tool_use:version_guard"]
 
 
@@ -344,22 +278,21 @@ def test_acceptance_spec_exception_isolated(asp_sandbox, monkeypatch):
     monkeypatch.setattr(ptu, "_atom_debug_error", lambda src, e: logged.append(src))
     sc = SCENARIOS["edit_remnant_in_claude"]
     prepare_sandbox(asp_sandbox, sc)
-    sys_msgs, ctx_msgs = ptu._run_companion_hooks(
+    sys_msgs = ptu._run_companion_hooks(
         sc["events"][0], {"version_guard": sc["vg"], "acceptance_spec": sc["asp"]})
     assert sys_msgs == _golden_sys_msgs(GOLDEN["edit_remnant_in_claude"][0])
-    assert ctx_msgs == []
     assert logged == ["post_tool_use:acceptance_spec"]
 
 
 def test_emit_places_system_message_and_additional_context(capsys):
     with pytest.raises(SystemExit) as ei:
-        ptu._emit_post_tool_output(["[Guardian:X] ctx-1", "[Guardian:AcceptanceSpec] ctx-2"], ["[版本守衛] sys-1"])
+        ptu._emit_post_tool_output(["[Guardian:X] ctx-1", "[Guardian:Y] ctx-2"], ["[版本守衛] sys-1"])
     assert ei.value.code == 0
     cap = capsys.readouterr()
     out = json.loads(cap.out)
     assert out["systemMessage"] == "[版本守衛] sys-1"
     assert out["hookSpecificOutput"] == {"hookEventName": "PostToolUse",
-                                         "additionalContext": "[Guardian:X] ctx-1\n[Guardian:AcceptanceSpec] ctx-2"}
+                                         "additionalContext": "[Guardian:X] ctx-1\n[Guardian:Y] ctx-2"}
     assert cap.err == "[版本守衛] sys-1\n"
 
 

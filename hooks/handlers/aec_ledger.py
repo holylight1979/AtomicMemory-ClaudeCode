@@ -10,13 +10,11 @@ remote_branch（推上遠端的分支）、repo（git init／clone 出來的臨�
   aec-i  = anti_evasion_report (i) 欄「一行一路徑」宣告（`<路徑> — <備註>`）；分支寫 `branch:<名> — <備註>`（只認帳上的分支）
   scan   = Stop／收尾時直接 listdir session scratchpad（補模型忘了列的）
   snapshot = Stop 拿開場快照（SessionStart 記的 cwd 所在 repo 工作樹與本地分支）比對多出來、帳上又沒有的（python 腳本裡
-           開的工作樹等指令解析看不到的建立）；歸屬不明（共用工作樹下可能是別的 session 建的），HUD 標來源不明、不進收尾自清
+           開的工作樹等指令解析看不到的建立）；歸屬不明（共用工作樹下可能是別的 session 建的），HUD 標來源不明
 
 帳本只記「進過帳」的東西；「還在不在、能不能刪」不記——由 artifact_status 當下查檔案系統與 git
 （權威在那裡，不信模型自報）。檔案進了版控＝正式產出，自動掉出清單。不做 TTL：帳上有、還在 → HUD 一直列到被處置。
 刪除由 delete_artifact 當場執行（HUD 按鈕 → Node → tools/session-artifacts.py），不經模型、不等下一則訊息。
-收尾自清：Stop 的 LEFTOVER_NEEDS_CLEANUP 閘（判定在 wg_release_rules）吃 cleanup_facts 的結構化事實（只為可能成為候選的
-幾筆查 git，帳再長收尾也不變慢），擋訊息由 cleanup_block_message 組。
 全機殘留：list_all 掃全部帳本、依 session 分組、附 session 還開著沒有（state 檔最近更新時間）；別的開著的 session 正在用的
 資料夾（工作目錄在裡面、改過或讀過裡面的檔）標正在用、刪除要再確認。
 fail-open：記帳路徑上任何 I/O 例外都吞掉，不阻斷 hook。
@@ -41,7 +39,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import CODE_DIR, WORKFLOW_DIR
+from wg_core import WORKFLOW_DIR
 
 LEDGER_DIR_NAME = "aec-tempfiles"
 
@@ -668,7 +666,7 @@ def _busy(path: str, cache: Dict[str, Any]) -> str:
 def artifact_status(rec: Dict[str, Any], cache: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """一筆帳 → {alive, kind, title, label, can_delete, confirm, where, merged, used_by, busy}。alive=False 的不列
     （不在了、或已進版控成正式產出）。label＝白話狀態；can_delete=False 時 label 說為什麼；confirm＝刪之前要再問使用者的
-    一句話（沒有就 None）。後四個是給判定用的結構化事實（收尾自清閘不讀白話）：where＝檔案資料夾在哪（temp／ignored／
+    一句話（沒有就 None）。後四個是結構化事實：where＝檔案資料夾在哪（temp／ignored／
     untracked／outside）；merged＝分支併進主分支沒（判不出 None）；used_by＝用著這個分支的工作樹；busy＝別的開著的
     session 正在用（cache["sid"] 是自己，不算）。"""
     cache = {} if cache is None else cache
@@ -814,27 +812,9 @@ ORIGIN_SNAPSHOT = "來源不明（開場之後才出現、這個 session 沒有�
 
 
 def list_alive(session_id: str, cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """HUD 與收尾自清閘用：這個 session 帳上還在的東西（含現場狀態、結構化事實、上次的保留／刪除結果），依類別排序。
+    """HUD 用：這個 session 帳上還在的東西（含現場狀態、結構化事實、上次的保留／刪除結果），依類別排序。
     cache 可跨 session 共用（list_all：git 查詢依 repo 快取）；cache["sid"] 會設成這個 session。"""
     return _alive_items(session_id, ledger_read(session_id), cache)
-
-
-def _may_be_leftover(rec: Dict[str, Any]) -> bool:
-    """可能成為收尾自清候選嗎（不跑 git 的粗篩；與 wg_release_rules.leftover_candidates 同步：檔案資料夾只收「專案外」、
-    遠端分支不收）。暫存區與任何版控根底下的檔案資料夾一律不是候選，判它們只需看資料夾、不必問 git。"""
-    kind = str(rec.get("kind") or "")
-    if kind in ("worktree", "branch", "repo"):
-        return True
-    if kind in _REF_KINDS:
-        return False
-    path = str(rec.get("path", "") or "")
-    return bool(path) and os.path.exists(path) and not is_under_tempdir(path) and not _vcs_root_kind(path)
-
-
-def cleanup_facts(session_id: str) -> List[Dict[str, Any]]:
-    """收尾自清閘的事實：只為可能成為候選的那幾筆查現場狀態（帳再長，收尾也只為工作樹、分支、臨時 repo、專案外檔案資料夾
-    跑 git），列的格式同 list_alive。"""
-    return _alive_items(session_id, [r for r in ledger_read(session_id) if _may_be_leftover(r)], None)
 
 
 def _alive_items(session_id: str, recs: List[Dict[str, Any]], cache: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -988,27 +968,3 @@ def collect_at_completion(
     if snapshot:
         entries += snapshot_entries(snapshot)
     return ledger_append(session_id, entries, turn_seq)
-
-
-# ─── 收尾自清閘的擋訊息（判定在 wg_release_rules.leftover_cleanup_verdict）────────────────
-
-_KIND_WORD = {"worktree": "工作樹", "branch": "分支", "remote_branch": "遠端分支", "repo": "臨時 repo",
-              "dir": "資料夾", "file": "檔案"}
-CLI_PATH = (CODE_DIR / "tools" / "session-artifacts.py").as_posix()
-
-
-def cleanup_block_message(session_id: str, cands: List[Dict[str, Any]], why: str) -> str:
-    """LEFTOVER_NEEDS_CLEANUP 擋訊息：一項一行＋刪除指令（走 session-artifacts.py：保護規則照判、結果寫回帳本）＋怎麼寫留的理由。"""
-    worktrees = {_key(c["path"]) for c in cands if c["kind"] == "worktree"}
-    lines = [f"[Guardian:Cleanup] 規則 LEFTOVER_NEEDS_CLEANUP：{why}。",
-             "用完的現在刪掉（照下面的指令，結果會記回帳本、HUD 同步）；要留的在收尾檢核 (i) 寫一行理由——"
-             "路徑照寫 `<路徑> — <理由>`，分支寫 `branch:<名> — <理由>`。"]
-    for i, c in enumerate(cands, 1):
-        after = "；先刪上面的工作樹才刪得掉" if c["kind"] == "branch" and c.get("used_by") and _key(c["used_by"]) in worktrees else ""
-        key = str(c["key"]).replace("'", "'\\''")
-        lines.append(f"  {i}. {_KIND_WORD.get(c['kind'], c['kind'])} {c['title']}：{c['label']}{after}")
-        lines.append(f"     python \"{CLI_PATH}\" act --sid {session_id} --action delete --key '{key}'")
-    if any(c["kind"] == "worktree" and c.get("confirm") for c in cands):
-        lines.append("有未提交改動的工作樹要加 --force 才刪得掉，改動會一起丟掉；不確定就留下、寫理由。")
-    lines.append("這道每個使用者回合只擋一次。")
-    return "\n".join(lines)

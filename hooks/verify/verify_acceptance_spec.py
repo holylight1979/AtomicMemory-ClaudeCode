@@ -1,13 +1,8 @@
-"""verify_acceptance_spec.py — 驗收規格工件 hook 契約。
+"""verify_acceptance_spec.py — 驗收規格檔登記契約。
 
 1. is_spec_file_path：規格檔路徑指紋（.claude/verify/acceptance-*.md、反斜線正規化）
-2. count_session_modified_files：只數本 session、排除路徑片段、state 缺 fail-open=0
-3. plan_looks_rejected：否決保守偵測
-4. handle_post_tool_use 分級啟動：
-   - ExitPlanMode → plan advisory（含格式指南 + session_id + frontmatter 欄位），每 session 一次
-   - 多檔達門檻 → 一次性 multifile advisory；plan 已提醒 / 已有規格檔 → 抑制
-   - 規格檔落盤 → sidecar 記路徑、不發 advisory
-   - 小任務（檔數 < 門檻）→ 零輸出零打擾
+2. run：寫入規格檔 → sidecar spec_paths 記路徑（同一路徑只記一次）；enabled=false、非寫入工具、缺 session_id 不記
+3. 不送字給 AI：寫碼守門開著、plan 被核可或同 session 改了很多檔，run 都不回任何東西、不寫提醒記號
 """
 from __future__ import annotations
 
@@ -22,53 +17,23 @@ sys.path.insert(0, str(HOOKS_DIR))
 
 import acceptance_spec as asp  # noqa: E402
 
-
-# ─── helpers ─────────────────────────────────────────────────────────────────
-
 SID = "test-asp-session"
+CFG = {"enabled": True}
 
 
 @pytest.fixture()
 def sandbox(tmp_path, monkeypatch):
-    """隔離 sidecar 與 guardian state 目錄到 tmp_path。"""
+    """隔離 sidecar 與 guardian state 目錄到 tmp_path；寫碼守門開著（conftest 預設 WG_V6=1，這裡明寫）。"""
     workflow = tmp_path / "workflow"
     workflow.mkdir()
     monkeypatch.setattr(asp, "WORKFLOW_DIR", workflow)
     monkeypatch.setattr(asp, "SIDECAR_DIR", workflow / "acceptance-spec")
-    monkeypatch.setenv("WG_V6", "1")   # 提示歸 v6 開關管；關時不提示另見 verify_pull_dev_residue
+    monkeypatch.setenv("WG_V6", "1")
     return workflow
 
 
-def _write_state(workflow: Path, paths, sid=SID):
-    state = {
-        "modified_files": [
-            {"path": p, "session_id": sid, "tool": "Edit", "count": 1}
-            for p in paths
-        ]
-    }
-    (workflow / f"state-{sid}.json").write_text(
-        json.dumps(state), encoding="utf-8"
-    )
-
-
-def _run(input_data, config=None, capsys=None):
-    """跑 run()，回 (0, 模擬 standalone stdout 的 dict 或 None)。
-    run() 不 print 不 exit：有訊息 → 包成 hookSpecificOutput（與 main() 同形），無 → None。"""
-    cfg = {"enabled": True, "min_files_trigger": 3,
-           "count_exclude_substrings": ["/memory/", "/_staging/"]}
-    if config:
-        cfg.update(config)
-    msgs = asp.run(input_data, cfg)
-    if capsys:
-        assert capsys.readouterr().out == "", "run() 不得直接 print"
-    if not msgs:
-        return 0, None
-    return 0, {"hookSpecificOutput": {"hookEventName": "PostToolUse",
-                                      "additionalContext": "\n".join(msgs)}}
-
-
-def _ctx(parsed):
-    return parsed["hookSpecificOutput"]["additionalContext"]
+def _write_ev(path, tool="Write", sid=SID):
+    return {"session_id": sid, "tool_name": tool, "cwd": "D:/p", "tool_input": {"file_path": path}}
 
 
 # ─── 1. is_spec_file_path ────────────────────────────────────────────────────
@@ -85,122 +50,34 @@ def test_spec_path_miss():
     assert not asp.is_spec_file_path("")
 
 
-# ─── 2. count_session_modified_files ─────────────────────────────────────────
+# ─── 2. 登記 ─────────────────────────────────────────────────────────────────
 
-def test_count_distinct_and_excludes(sandbox):
-    _write_state(sandbox, [
-        "D:/p/a.py", "D:/p/b.py",
-        "D:/p/memory/atom.md",      # excluded
-        "D:/p/_staging/plan.md",    # excluded
-    ])
-    n = asp.count_session_modified_files(SID, ["/memory/", "/_staging/"])
-    assert n == 2
+def test_spec_write_records_path_once_normalized(sandbox, capsys):
+    spec = r"D:\p\.claude\verify\acceptance-my-task.md"
+    assert asp.run(_write_ev(spec), CFG) is None
+    asp.run(_write_ev(spec, tool="Edit"), CFG)                      # 同一路徑再改一次不重記
+    assert asp.read_sidecar(SID).get("spec_paths") == ["D:/p/.claude/verify/acceptance-my-task.md"]
+    assert capsys.readouterr().out == "", "run() 不得直接 print"
 
 
-def test_count_other_session_not_counted(sandbox):
-    state = {"modified_files": [
-        {"path": "D:/p/a.py", "session_id": "other"},
-        {"path": "D:/p/b.py", "session_id": SID},
-    ]}
+@pytest.mark.parametrize("ev, cfg", [
+    (_write_ev("D:/p/.claude/verify/acceptance-x.md"), {"enabled": False}),
+    ({"session_id": SID, "tool_name": "Bash", "tool_input": {"command": "echo > D:/p/.claude/verify/acceptance-x.md"}}, CFG),
+    (_write_ev("D:/p/.claude/verify/acceptance-x.md", sid=""), CFG),
+], ids=["disabled", "non_write_tool", "missing_sid"])
+def test_not_recorded(sandbox, ev, cfg):
+    asp.run(ev, cfg)
+    assert not (sandbox / "acceptance-spec").exists()
+
+
+# ─── 3. 不送字給 AI ──────────────────────────────────────────────────────────
+
+def test_plan_approved_and_many_files_send_nothing(sandbox, capsys):
+    """寫碼守門開、plan 被核可、同 session 改了 3 個檔：一個字都不回，也不寫提醒記號（舊碼這兩處各送一份約 550 字的規格提示）。"""
+    state = {"modified_files": [{"path": f"D:/p/{n}.py", "session_id": SID} for n in "abc"]}
     (sandbox / f"state-{SID}.json").write_text(json.dumps(state), encoding="utf-8")
-    assert asp.count_session_modified_files(SID, []) == 1
-
-
-def test_count_missing_state_failopen_zero(sandbox):
-    assert asp.count_session_modified_files("no-such-session", []) == 0
-
-
-# ─── 3. plan_looks_rejected ──────────────────────────────────────────────────
-
-def test_rejected_detection():
-    assert asp.plan_looks_rejected("User rejected the plan")
-    assert asp.plan_looks_rejected({"result": "Plan REJECTED by user"})
-    assert not asp.plan_looks_rejected({"result": "ok, plan approved"})
-    assert not asp.plan_looks_rejected("")
-
-
-# ─── 4. handler 分級啟動 ─────────────────────────────────────────────────────
-
-def _exit_plan_event(sid=SID):
-    return {"session_id": sid, "tool_name": "ExitPlanMode",
-            "cwd": "D:/proj", "tool_input": {}, "tool_response": "approved"}
-
-
-def test_exitplan_emits_advisory_once(sandbox, capsys):
-    code, parsed = _run(_exit_plan_event(), capsys=capsys)
-    assert code == 0 and parsed is not None
-    ctx = _ctx(parsed)
-    assert "AcceptanceSpec" in ctx
-    assert ".claude/verify/acceptance-" in ctx
-    for token in ("必須發生", "禁止發生", "驗證指令",
-                  "task_slug", "status: open", SID):
-        assert token in ctx
-    # 第二次同 session → 靜默
-    code2, parsed2 = _run(_exit_plan_event(), capsys=capsys)
-    assert parsed2 is None
-
-
-def test_exitplan_rejected_silent(sandbox, capsys):
-    ev = _exit_plan_event()
-    ev["tool_response"] = "User rejected the plan"
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is None
-    assert not asp.read_sidecar(SID).get("plan_prompted")
-
-
-def test_multifile_advisory_at_threshold_once(sandbox, capsys):
-    _write_state(sandbox, ["D:/p/a.py", "D:/p/b.py", "D:/p/c.py"])
-    ev = {"session_id": SID, "tool_name": "Edit", "cwd": "D:/p",
-          "tool_input": {"file_path": "D:/p/c.py"}}
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is not None
-    assert "3 個檔案" in _ctx(parsed)
-    # 再編輯 → 不再提醒
-    _, parsed2 = _run(ev, capsys=capsys)
-    assert parsed2 is None
-
-
-def test_small_task_below_threshold_silent(sandbox, capsys):
-    _write_state(sandbox, ["D:/p/a.py", "D:/p/b.py"])
-    ev = {"session_id": SID, "tool_name": "Edit", "cwd": "D:/p",
-          "tool_input": {"file_path": "D:/p/b.py"}}
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is None
-
-
-def test_plan_prompted_suppresses_multifile(sandbox, capsys):
-    _run(_exit_plan_event(), capsys=capsys)  # plan 提醒過
-    _write_state(sandbox, ["D:/p/a.py", "D:/p/b.py", "D:/p/c.py"])
-    ev = {"session_id": SID, "tool_name": "Edit", "cwd": "D:/p",
-          "tool_input": {"file_path": "D:/p/c.py"}}
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is None
-
-
-def test_spec_write_records_and_suppresses(sandbox, capsys):
-    spec = "D:/p/.claude/verify/acceptance-my-task.md"
-    ev = {"session_id": SID, "tool_name": "Write", "cwd": "D:/p",
-          "tool_input": {"file_path": spec}}
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is None
-    assert asp.read_sidecar(SID).get("spec_paths") == [spec]
-    # 之後多檔達門檻也不提醒（已有規格檔）
-    _write_state(sandbox, ["D:/p/a.py", "D:/p/b.py", "D:/p/c.py"])
-    ev2 = {"session_id": SID, "tool_name": "Edit", "cwd": "D:/p",
-           "tool_input": {"file_path": "D:/p/c.py"}}
-    _, parsed2 = _run(ev2, capsys=capsys)
-    assert parsed2 is None
-
-
-def test_non_write_tool_silent(sandbox, capsys):
-    ev = {"session_id": SID, "tool_name": "Bash", "cwd": "D:/p",
-          "tool_input": {"command": "ls"}}
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is None
-
-
-def test_missing_session_id_silent(sandbox, capsys):
-    ev = {"session_id": "", "tool_name": "ExitPlanMode",
-          "tool_input": {}, "tool_response": ""}
-    _, parsed = _run(ev, capsys=capsys)
-    assert parsed is None
+    plan = {"session_id": SID, "tool_name": "ExitPlanMode", "cwd": "D:/p", "tool_input": {}, "tool_response": "approved"}
+    assert asp.run(plan, CFG) is None
+    assert asp.run(_write_ev("D:/p/c.py", tool="Edit"), CFG) is None
+    assert not (sandbox / "acceptance-spec").exists()
+    assert capsys.readouterr().out == ""

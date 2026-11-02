@@ -2,14 +2,13 @@
 
 做什麼：每個情境建自己的 tmp 資料根（WG_CLAUDE_DIR）、tmp 家目錄（HOME／USERPROFILE）、tmp 系統暫存（TEMP／TMP／TMPDIR）、
 tmp Logs（WG_TEST_LOGS_DIR）與專案，用受測樹的真 hook 入口 hooks/workflow-guardian.py 餵造好的事件 JSON，對照「規則」預期：
-  P1 先紅後綠不擋（CASE_COVERS_CHANGE）        P2 worktree 移除後 Stop 不擋（GONE_OUTSIDE_VCS）
-  P3 merge 時 checkout --theirs 不擋（CONTENT_EQUALS_COMMITTED）   P4 python -c 唯讀放行、node -e 擋且指路（INLINE_PY_READONLY）
-  P5 唯讀 git 放行、會寫的擋且留 guard-crossrealm.jsonl（GIT_READONLY_SUBCMD）   P6 擋滿訊息列全部條目（BLOCK_BUDGET_PER_RULE）
+  P3 merge 時 checkout --theirs 不算改碼（CONTENT_EQUALS_COMMITTED）   P4 python -c 唯讀放行、node -e 擋且指路（INLINE_PY_READONLY）
+  P5 唯讀 git 放行、會寫的擋且留 guard-crossrealm.jsonl（GIT_READONLY_SUBCMD）   P6 擋滿改問使用者、摘要列命中條目（BLOCK_BUDGET_SHARED）
   P7 暫存目錄 repo 的 commit 免口令（TEMP_REPO_COMMIT_EXEMPT）   P8 暫存目錄副本不注入不擋（TEMP_COPY_NOT_PROJECT）
   P9 刪執行期資料目錄免綜觀（RUNTIME_DATA_NO_OVERVIEW）
 不是 pytest 案例（檔名不以 verify_／test_ 開頭）；pytest 案例在 verify_release_rules.py 與各閘 verify 檔。
 
-怎麼跑：python -X utf8 hooks/verify/probe_release_rules.py --tree <受測 worktree> [--only P1,P4] [--keep] [--json <輸出檔>]
+怎麼跑（寫碼守門開著才有寫碼查核：先設 WG_CODING_GUARD=1）：python -X utf8 hooks/verify/probe_release_rules.py --tree <受測 worktree> [--only P3,P4] [--keep] [--json <輸出檔>]
 尾行：RELEASE_RULES_PROBE DONE k=v（統計）之後，最後一行 RELEASE_RULES_PROBE_CHECK PASS|FAIL（全部檢查點符合規則才 PASS）。
 """
 from __future__ import annotations
@@ -148,7 +147,8 @@ class Session:
                 except ValueError:
                     continue
         step = {"label": label, "event": event.get("hook_event_name"), "rc": r.returncode, "ms": int((time.monotonic() - t0) * 1000),
-                "json": parsed, "stderr_tail": r.stderr.decode("utf-8", "replace").strip().splitlines()[-8:]}
+                "json": parsed, "stderr_tail": r.stderr.decode("utf-8", "replace").strip().splitlines()[-8:],
+                "stderr_all": r.stderr.decode("utf-8", "replace").splitlines()}
         step["result"] = classify(step)
         self.steps.append(step)
         return step
@@ -225,60 +225,29 @@ class Checks:
 CODE_TAGS = ("[Guardian:ReconcileGate]", "[Guardian:TestFailGate]")
 
 
-def _d(step: dict) -> str:
-    """Stop 的寫碳查核結果：pass（放行，或只被排在寫碼查核後面的閘擋，例：KnowledgeHarvest）／block(d)／block(a)／
+def _code_check(step: dict) -> str:
+    """Stop 的寫碼查核結果：pass（放行，或只被排在寫碼查核後面的閘擋，例：KnowledgeHarvest）／block(a)／
     block(TestFailGate)／deny／hook-error。"""
     r = reason_of(step)
     if step["result"] == "block":
         if not any(t in r for t in CODE_TAGS):
             return "pass"
-        if "CASE_COVERS_CHANGE" in r or "(d)" in r:
-            return "block(d)"
         if "CLAIM_FIXED_NEEDS_PASS" in r:
             return "block(a)"
         return "block(" + r.split("]")[0].strip("[").replace("Guardian:", "") + ")"
     return step["result"]
 
 
+def _not_code(step: dict, rule: str) -> str:
+    """Stop 的 stderr 有沒有這條「不算改碼」規則那一行（寫碼查核認了這個改檔不是本 session 改碼）。"""
+    return "yes" if any(f"規則 {rule}：" in ln for ln in step.get("stderr_all") or []) else "no"
+
+
 # ── 情境 ──
-
-def p1(tree, base):
-    c = Checks("P1", "先紅後綠：加案例跑紅 → 改程式 → 跑綠 → Stop 不擋（CASE_COVERS_CHANGE）；改程式後沒跑 → 照擋")
-    sb = Sandbox(tree, base, "p1")
-    proj = sb.project("proj")
-    s = Session(sb, proj)
-    s.session_start()
-    s.prompt("修 src/a.py 並先寫會紅的案例")
-    s.write(proj / "src" / "a.py", "def f(x):\n    return x\n")
-    s.write(proj / "tests" / "test_a.py", "from src.a import f\n\n\ndef test_f():\n    assert f(1) == 2\n")
-    s.bash("python -X utf8 -m pytest -q tests/test_a.py", "F\nFAILED tests/test_a.py::test_f - assert 1 == 2\n1 failed in 0.02s\n", exit_code=1)
-    s.write(proj / "src" / "a.py", "def f(x):\n    return x + 1\n")
-    st = s.stop(TEXT_DONE)
-    c.add("改程式後還沒跑綠就 Stop（TestFailGate 或 (d) 都算擋）", st["result"], "block", note=_d(st))
-    s.bash("python -X utf8 -m pytest -q tests/test_a.py", ".\n1 passed in 0.01s\n")
-    st = s.stop(TEXT_DONE, active=True)
-    c.add("跑綠後 Stop（案例 mtime 早於程式）", _d(st), "pass", note=reason_of(st)[:100] if st["result"] != "pass" else "")
-    return c, [s]
-
-
-def p2(tree, base):
-    c = Checks("P2", "worktree 移除後 Stop 不擋（GONE_OUTSIDE_VCS）")
-    sb = Sandbox(tree, base, "p2")
-    wt = sb.project("wt")
-    git(wt, "init", "-q")
-    s = Session(sb, wt)
-    s.session_start()
-    s.prompt("改 lib/x.py 並補案例")
-    s.write(wt / "lib" / "x.py", "x = 1\n")
-    s.write(wt / "tools" / "verify" / "verify_x.py", "def test_x():\n    pass\n")
-    shutil.rmtree(wt)
-    st = s.stop(TEXT_DONE)
-    c.add("整根消失後 Stop", _d(st), "pass", note=reason_of(st)[:100] if st["result"] != "pass" else "")
-    return c, [s]
 
 
 def p3(tree, base):
-    c = Checks("P3", "merge main 衝突時 checkout --theirs 取 main 版 → Stop 不擋（CONTENT_EQUALS_COMMITTED）；自己改內容 → 照擋")
+    c = Checks("P3", "merge main 衝突時 checkout --theirs 取 main 版 → 不算本 session 改碼（CONTENT_EQUALS_COMMITTED）；自己改內容 → 照算")
     sb = Sandbox(tree, base, "p3")
     repo = sb.project("repo")
     git(repo, "init", "-q")
@@ -302,10 +271,10 @@ def p3(tree, base):
     st = s.bash("git checkout --theirs -- src/a.py", run=True)
     c.add("checkout --theirs 的 PreToolUse", s.last_pre["result"], "pass")
     st = s.stop(TEXT_DONE)
-    c.add("取 main 版後 Stop", _d(st), "pass", note=reason_of(st)[:100] if st["result"] != "pass" else "")
+    c.add("取 main 版後 Stop 認成不是本 session 改碼", _not_code(st, "CONTENT_EQUALS_COMMITTED"), "yes")
     s.write(repo / "src" / "a.py", "def a():\n    return 'mine'\n")
     st = s.stop(TEXT_DONE, active=True)
-    c.add("改成自己的內容後 Stop", _d(st), "block(d)")
+    c.add("改成自己的內容後 Stop 照算改碼", _not_code(st, "CONTENT_EQUALS_COMMITTED"), "no")
     return c, [s]
 
 
@@ -356,7 +325,7 @@ def p5(tree, base):
 
 
 def p6(tree, base):
-    c = Checks("P6", "擋滿訊息列出全部命中條目（BLOCK_BUDGET_PER_RULE：(a) 與 (d) 各自計次）")
+    c = Checks("P6", "寫碼查核每回合擋 2 次、第 3 次改問使用者，擋滿摘要列命中條目（BLOCK_BUDGET_SHARED）")
     sb = Sandbox(tree, base, "p6")
     proj = sb.project("proj")
     s = Session(sb, proj)
@@ -366,13 +335,12 @@ def p6(tree, base):
     for i in range(1, 3):
         st = s.stop(TEXT_FIXED, active=i > 1)
         r = reason_of(st)
-        c.add(f"第 {i} 次 Stop 命中 (a) 與 (d)", "yes" if "CLAIM_FIXED_NEEDS_PASS" in r and "CASE_COVERS_CHANGE" in r else _d(st), "yes")
+        c.add(f"第 {i} 次 Stop 命中 (a)", "yes" if "CLAIM_FIXED_NEEDS_PASS" in r else _code_check(st), "yes")
     st = s.stop(TEXT_FIXED, active=True)
     r = reason_of(st)
     head = r.split("原擋訊息")[0]
-    c.add("第 3 次擋滿要問使用者", "yes" if "【收尾放行確認】" in r else _d(st), "yes")
-    c.add("擋滿摘要列全部條目", "yes" if "(a) CLAIM_FIXED_NEEDS_PASS" in head and "(d) CASE_COVERS_CHANGE" in head else "no", "yes",
-          note=head[:160])
+    c.add("第 3 次擋滿要問使用者", "yes" if "【收尾放行確認】" in r else _code_check(st), "yes")
+    c.add("擋滿摘要列命中條目", "yes" if "(a) CLAIM_FIXED_NEEDS_PASS" in head else "no", "yes", note=head[:160])
     return c, [s]
 
 
@@ -434,7 +402,7 @@ def p9(tree, base):
     return c, [s]
 
 
-SCENARIOS = {"P1": p1, "P2": p2, "P3": p3, "P4": p4, "P5": p5, "P6": p6, "P7": p7, "P8": p8, "P9": p9}
+SCENARIOS = {"P3": p3, "P4": p4, "P5": p5, "P6": p6, "P7": p7, "P8": p8, "P9": p9}
 
 
 def main() -> int:

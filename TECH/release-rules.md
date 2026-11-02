@@ -6,18 +6,18 @@
 - **[檔案與回合的基礎判定](#檔案與回合的基礎判定)**：[SAME_FILE](#same_file)・[TURN_SINCE_USER_PROMPT](#turn_since_user_prompt)・[CODING_TURN_ONLY](#coding_turn_only)・[GATE_MODE_TABLE／REMIND_ON_PRIOR_RESULT（RULE_MODE）](#gate_mode_tableremind_on_prior_resultrule_mode)
 - **[宣稱詞與其他「詞表只是提示」的判斷入口](#宣稱詞與其他詞表只是提示的判斷入口)**：[CLAIM_MODIFIER_NOT_OWN](#claim_modifier_not_own)・[CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC](#claim_fixed_needs_passclaim_measured_needs_doneclaim_tried_needs_exec)・[CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH](#claim_words_are_hintsclaim_disclaim_needs_reasonclaim_receipt_ref_match)・[CLAIM_CONDITIONAL_NOT_CLAIM](#claim_conditional_not_claim)・[EXTRACT_VETO_NEEDS_JUDGMENT](#extract_veto_needs_judgment)・[收割與收尾檢核的 dismiss](#收割與收尾檢核的-dismiss)・[CONFLICT_DECLARED_BY_AI](#conflict_declared_by_ai)・[PROJECT_LITERAL_IS_HINT](#project_literal_is_hint)・[PROJECT_RULE_WORDS_ARE_HINTS](#project_rule_words_are_hints)
 - **[退避例外與紅測失敗項](#退避例外與紅測失敗項)**：[NOT_DOING_DECLARED](#not_doing_declared)・[RED_ITEMS_ONLY_FROM_FAILURE_LINES](#red_items_only_from_failure_lines)
-- **[收尾儀式與寫碼查核案例](#收尾儀式與寫碼查核案例)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)・[CASE_COVERS_CHANGE](#case_covers_change)
-- **[已不存在、還原與等同的改檔](#已不存在還原與等同的改檔)**：[GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW](#gone_outside_vcsgone_in_git_nothing_new)・[MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE](#moved_new_code_seengone_unverifiablevcs_root_unreadable)・[EXCLUDED_REGION](#excluded_region)・[NET_UNCHANGED／SNAPSHOT_SETTLED](#net_unchangedsnapshot_settled)・[EXEMPTION_PEERS_CODE_ONLY](#exemption_peers_code_only)・[CONTENT_EQUALS_COMMITTED](#content_equals_committed)・[COMMENT_ONLY_CHANGE](#comment_only_change)
+- **[收尾儀式與寫碼查核](#收尾儀式與寫碼查核)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)
+- **[還原與等同的改檔](#還原與等同的改檔)**：[NET_UNCHANGED](#net_unchanged)・[EXEMPTION_PEERS_CODE_ONLY](#exemption_peers_code_only)・[CONTENT_EQUALS_COMMITTED](#content_equals_committed)・[COMMENT_ONLY_CHANGE](#comment_only_change)
 - **[擋次預算與放行](#擋次預算與放行)**：[BLOCK_BUDGET_SHARED](#block_budget_shared)・[PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)・[GATE_SELF_ERROR](#gate_self_error)・[GATE_DENY_CAP](#gate_deny_cap)・[DENY_CAP_PER_REPLY](#deny_cap_per_reply)
 - **[Bash／PowerShell 指令怎麼讀（寫入目標、唯讀、讀檔證據）](#bashpowershell-指令怎麼讀寫入目標唯讀讀檔證據)**：[INLINE_PY_READONLY](#inline_py_readonly)・[UNKNOWN_WRITE_RECOVERED](#unknown_write_recovered)・[INLINE_FLAG_BEFORE_PROGRAM](#inline_flag_before_program)・[SHELL_LITERAL_VAR_EXPANDED](#shell_literal_var_expanded)・[GIT_READONLY_SUBCMD](#git_readonly_subcmd)・[DOT_GIT_PATH_NOT_GIT_CALL／SEGMENTS_SPLIT_LIKE_SHELL／SHELL_KEYWORD_PREFIX_STRIPPED](#dot_git_path_not_git_callsegments_split_like_shellshell_keyword_prefix_stripped)・[DELETE_FORMS_SAME_ACROSS_SHELLS](#delete_forms_same_across_shells)・[UNKNOWN_PART_KEEPS_KNOWN_TARGETS](#unknown_part_keeps_known_targets)・[DIR_TARGET_JUDGED_BY_CONTAINER](#dir_target_judged_by_container)・[GREP_CONTENT_IS_READ／BASH_COMMENT_LINES_STRIPPED](#grep_content_is_readbash_comment_lines_stripped)・[BASH_READONLY_COUNTS_AS_READ](#bash_readonly_counts_as_read)
-- **[同步、執行期資料與暫存目錄](#同步執行期資料與暫存目錄)**：[WORKTREE_NO_PUSH](#worktree_no_push)・[RUNTIME_DATA_NO_OVERVIEW](#runtime_data_no_overview)・[TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT](#temp_repo_commit_exempttemp_copy_not_project)・[SESSION_SCRATCH_NOT_CODE](#session_scratch_not_code)
+- **[同步、執行期資料與暫存目錄](#同步執行期資料與暫存目錄)**：[WORKTREE_NO_PUSH](#worktree_no_push)・[RUNTIME_DATA_NO_OVERVIEW](#runtime_data_no_overview)・[TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT](#temp_repo_commit_exempttemp_copy_not_project)
 - **[紅測與重試](#紅測與重試)**：[RED_WHILE_REVERTED／RETRY_COUNTS_RERUN_CYCLES／GREEN_SAME_CASE_CLEARS](#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears)
 - **[搬程式目錄](#搬程式目錄)**：[MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE](#move_code_dir_needs_scan_and_sample)
 - **[紅測清帳：篩選、範圍與最後結果](#紅測清帳篩選範圍與最後結果)**：[GREEN_NARROWED_KEEPS_UNCOVERED_RED](#green_narrowed_keeps_uncovered_red)・[GREEN_CLEARS_ONLY_CASES_IT_RAN](#green_clears_only_cases_it_ran)・[RED_LAST_RESULT_IN_COMMAND](#red_last_result_in_command)・[RED_SCOPE_FROM_FULL_COMMAND](#red_scope_from_full_command)
 - **[提問](#提問)**：[ASK_NEEDS_RECOMMENDATION](#ask_needs_recommendation)・[ASK_OVERVIEW_BEFORE_DECISION](#ask_overview_before_decision)
 - **[Stop 底部的同步擋（sync block）](#stop-底部的同步擋sync-block)**：[SYNC_BLOCK_SKIPS_SYNCED](#sync_block_skips_synced)・[SYNC_SKIPS_VANISHED_OUTSIDE_VCS](#sync_skips_vanished_outside_vcs)・[BLOCK_LISTS_LATER_GATES](#block_lists_later_gates)・[PROMPT_REOPENS_DONE](#prompt_reopens_done)・[SYNC_BLOCK_NEW_ITEMS_ONLY](#sync_block_new_items_only)
 - **[收據證據](#收據證據)**：[RECEIPT_UNPARSED_GENERAL_ONLY](#receipt_unparsed_general_only)・[CARRIED_CLAIM_ANY_TURN_RECEIPT](#carried_claim_any_turn_receipt)・[LAUNCHER_NOT_CODE](#launcher_not_code)
-- **[收尾提醒與自清](#收尾提醒與自清)**：[RELOAD_ADVICE_ALREADY_LOADED／RELOAD_ADVICE_MCP_EDITS_ONLY](#reload_advice_already_loadedreload_advice_mcp_edits_only)・[LEFTOVER_NEEDS_CLEANUP](#leftover_needs_cleanup)
+- **[收尾提醒](#收尾提醒)**：[RELOAD_ADVICE_ALREADY_LOADED／RELOAD_ADVICE_MCP_EDITS_ONLY](#reload_advice_already_loadedreload_advice_mcp_edits_only)
 - **[退避偵測](#退避偵測)**：[EVASION_CONTEXT_EXEMPT](#evasion_context_exempt)・[DEFERRAL_COVERS_EVASION_SENTENCE](#deferral_covers_evasion_sentence)
 - **[重構等值與效能](#重構等值與效能)**：[REFACTOR_NEEDS_EQUIVALENCE](#refactor_needs_equivalence)・[PERF_HOT_PATH_NEEDS_MEASURE](#perf_hot_path_needs_measure)・[EQUIVALENCE_LOOP_EXPANDED](#equivalence_loop_expanded)・[EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED](#equivalence_na_declared_always_logged)・[NEGATIVE_CONTROL_DECLARED](#negative_control_declared)
 - **[Bash 讀檔判定](#bash-讀檔判定)**：[BASH_UNREACHED_READ_NOT_COUNTED](#bash_unreached_read_not_counted)
@@ -30,7 +30,6 @@
 - **[寫檔判定與連鎖斷路器](#寫檔判定與連鎖斷路器)**：[SHELL_WRITE_COMMAND_NOT_A_READ](#shell_write_command_not_a_read)・[EPHEMERAL_WRITE_NOTED_ONCE](#ephemeral_write_noted_once)・[CHAIN_NO_EDIT_NO_EDGE](#chain_no_edit_no_edge)・[CHAIN_ABORT_SHOWS_REPLACED_BLOCK](#chain_abort_shows_replaced_block)
 - **[提示、回填與收尾組裝](#提示回填與收尾組裝)**：[QUOTE_FROM_USER_OPENED_TURN](#quote_from_user_opened_turn)・[CODING_TURN_FULL_ONLY_ON_TRIGGER](#coding_turn_full_only_on_trigger)・[POINTER_NO_NAME_ECHO](#pointer_no_name_echo)・[NO_RESEND_AFTER_RESUME](#no_resend_after_resume)・[CLOSING_CALL_ALL_THREE](#closing_call_all_three)
 - **[各閘的閘級規則（照程式 RULES 原文）](#各閘的閘級規則照程式-rules-原文)**：[COMMIT_SMELL_NEW_BLOCKS](#commit_smell_new_blocks)・[SMELL_GATE_ONCE_PER_TURN](#smell_gate_once_per_turn)・[RED_TEST_BLOCKS_COMPLETION](#red_test_blocks_completion)・[DEFERRAL_OF_DOABLE_WORK](#deferral_of_doable_work)・[HARVEST_AT_PHASE_DONE](#harvest_at_phase_done)・[HARVEST_ITEM_NEEDS_RECEIPT](#harvest_item_needs_receipt)・[CLOSING_CHECK_REQUIRED](#closing_check_required)・[CLOSING_CHECK_MEMORY_NOT_DEFERRED](#closing_check_memory_not_deferred)・[SYNC_REMINDER_UNSYNCED](#sync_reminder_unsynced)・[SYNC_BLOCK_PENDING_ITEMS](#sync_block_pending_items)・[DEEP_POSTMORTEM_ON_FAILURE](#deep_postmortem_on_failure)・[ATOM_CONSUMPTION_AUDIT](#atom_consumption_audit)・[EVASION_FLAG_NEXT_PROMPT](#evasion_flag_next_prompt)・[OVERVIEW_READONLY_PATHS](#overview_readonly_paths)・[OVERVIEW_HUB_UNDER_V6](#overview_hub_under_v6)・[REMIND_PENDING_IN_STATE](#remind_pending_in_state)・[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)・[NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)
-
 
 ## 怎麼讀這份表
 
@@ -226,13 +225,13 @@
     - 沒列出失敗項就說沒列出、要不截斷重跑。
 - **照欠／照擋**：指令裡 `#` 開頭的註解行、git status 列出的檔、Exit code 行都不當失敗項（曾把 `Untracked files:`、`Exit code 1`、註解行當成失敗項印進擋訊息）
 
-### 收尾儀式與寫碼查核案例
+### 收尾儀式與寫碼查核
 
 #### RECONCILE_BLOCK_LETTERS
 **判什麼**：寫碼查核哪些條目會擋收尾
 - **不欠／放行**：
   - 沒列在 `reconcile_gate.block_letters` 的條目照判，只印 stderr 不擋。
-  - live 只列 a（測試沒過不准說修好）、d（改了程式要有測試），使用者拍板。
+  - live 只列 a（測試沒過不准說修好），使用者拍板。
 - **照欠／照擋**：
   - 列出的字母照擋。
   - 沒設＝全擋。
@@ -245,57 +244,17 @@
     - 卡片表態
 - **照欠／照擋**：兩個開關沒設＝照擋。
 
-#### CASE_COVERS_CHANGE
-**判什麼**：(d) 補案例：改過的程式檔有沒有案例覆蓋
-- **不欠／放行**：
-  - 本 session 改過的程式檔，有一個本 session 新寫或改過、仍存在、同根的案例覆蓋它。
-  - 覆蓋的認法（任一）：
-    - 案例檔名是 test_／verify_<模組名>、<模組名>_test。
-    - 案例內容提到它（檔名，或至少 3 字的模組名，整詞）。
-    - case_for 列它：AI 在回覆文字、`#` 註解指令或 thinking 寫的「case_for｜<程式檔>：<案例檔或節點>」行（`wg_release_rules.parse_case_for_decls`，整個 session 都認，案例相對該程式檔的專案根解析）。
-  - 不比改動先後、不看有沒有跑綠。
-- **照欠／照擋**：
-  - 本 session 改過的案例都沒提到它，也沒有 case_for 宣告。
-  - 沒改過任何同根案例。
+### 還原與等同的改檔
 
-### 已不存在、還原與等同的改檔
+這幾條判「這個改檔算不算本 session 改碼」：不算的剔出寫碼查核 (a) 要對的改檔清單，Stop 的 stderr 印規則名與檔名。
 
-#### GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW
-**判什麼**：已不存在的改檔
-- **不欠／放行**：算刪除，以下任一。
-  - 不在任何版控根內。
-  - 在 git 根內，且同根沒有它的副本：沒有新出現的程式檔，或新出現的檔名與內容都和它最後一次寫入時不同。
-- **照欠／照擋**：—
-
-#### MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE
-**判什麼**：已不存在的改檔
-- **不欠／放行**：—
-- **照欠／照擋**：
-  - 同根出現它的副本＝搬走。副本的認法：
-    - 檔名相同。
-    - 內容等於修改紀錄 `sha` 欄記的最後一次寫入內容。
-    - 沒有內容紀錄、新檔讀不到 → 全算副本。
-  - svn，或查 git 失敗。
-  - 找版控根時 OSError（讀不到 ≠ 不在版控）。
-  - 已知邊界：搬完又用沒記帳的方式（跑腳本改寫）改了內容，判成刪除。
-
-#### EXCLUDED_REGION
-**判什麼**：排除區
-- **不欠／放行**：
-  - 部位表類別 knowledge 的部位（文件、記憶、派工信箱）裡的檔是素材。
-  - 被 .gitignore 忽略或屬執行期資料的檔不是本專案程式（與 [RUNTIME_DATA_NO_OVERVIEW](#runtime_data_no_overview) 同一判式）。
-  - 上面兩種：既不算程式、也不能清帳。
-- **照欠／照擋**：追蹤中的檔、沒標類別、判不出 → 照算程式
-
-#### NET_UNCHANGED／SNAPSHOT_SETTLED
+#### NET_UNCHANGED
 **判什麼**：改過又還原
-- **不欠／放行**：以下任一。
-  - 它自己與 HEAD 相同、同根程式檔乾淨、沒 commit。
-  - 同根程式檔都回到 commit 那刻不欠的狀態。
+- **不欠／放行**：它自己與 HEAD 相同、同根程式檔乾淨、沒 commit。
 - **照欠／照擋**：同根任一程式檔（含案例）不乾淨（程式與案例一起退回、只還原程式）
 
 #### EXEMPTION_PEERS_CODE_ONLY
-**判什麼**：上兩條與 [COMMENT_ONLY_CHANGE](#comment_only_change) 一起比的同根改檔
+**判什麼**：[NET_UNCHANGED](#net_unchanged) 與 [COMMENT_ONLY_CHANGE](#comment_only_change) 一起比的同根改檔
 - **不欠／放行**：
   - 只看程式檔（案例檔也是程式檔，`wg_verify_ledger.exemption_peers`）。
   - 文件、紀錄檔、設定、資料改了，或正被別的 session 改著，不擋豁免。
@@ -330,7 +289,7 @@
 #### BLOCK_BUDGET_SHARED
 **判什麼**：擋次預算
 - **不欠／放行**：
-  - 寫碼查核（對帳 (a)～(d)）每個使用者回合一份（紅測閘不看預算）：
+  - 寫碼查核（對帳 (a)(b)(c)(v)）每個使用者回合一份（紅測閘不看預算）：
     - 設定 `reconcile_gate.max_blocks_per_turn`，鍵 `*`，不分哪一條規則。
     - 擋滿才問放行。
     - 擋滿訊息列全部條目。
@@ -422,7 +381,7 @@
     - 實跑量到指令自己寫的檔 mtime 一律晚於自己的時戳，最少 +31 ms，所以往前只放寬 0.05 秒。
   - 補進哪裡：
     - 記進 `modified_files`（`via=vcs_status`、`tool`＝Bash／PowerShell、本回合）。
-    - 對帳 (d)、同步提醒照常判。
+    - 對帳 (a)、同步提醒照常判。
     - 那一筆 `unknown_writes` 記 `recovered`。
   - 太慢的降級：
     - 整棵 status 超過 1.2 秒 → 改查指令文字裡點名、存在的檔。
@@ -566,7 +525,7 @@
 - **照欠／照擋**：主工作樹且有 upstream
 
 #### RUNTIME_DATA_NO_OVERVIEW
-**判什麼**：寫入目標是不是執行期資料（`wg_release_rules.runtime_data_verdict`；[EXCLUDED_REGION](#excluded_region) 用同一判式）
+**判什麼**：寫入目標是不是執行期資料（`wg_release_rules.runtime_data_verdict`）
 - **不欠／放行**：以下任一 → 算執行期資料。
   - gitignored。
   - 在執行期資料目錄（`workflow/state*`、`workflow/verify-ledger`、`Logs`…）。
@@ -582,18 +541,6 @@
     - 不當收據。
   - 兩側都展成長路徑再比（8.3 短路徑）。
 - **照欠／照擋**：正式 repo（含它裡面叫 scratchpad 的子目錄）、本體
-
-#### SESSION_SCRATCH_NOT_CODE
-**判什麼**：本 session 改的程式檔怎麼數
-- **不欠／放行**：
-  - 這兩處底下的檔是一次性腳本：
-    - Claude Code 背景工作的 `<CC 設定目錄>/jobs/<id>/tmp/`（CLAUDE_CONFIG_DIR 與 ~/.claude）。
-    - `<系統暫存根>/claude/…/scratchpad/`。
-  - 一次性腳本的待遇：
-    - 寫碼查核補案例不數。
-    - 不能拿來清帳。
-  - 判法 `wg_verify_ledger.session_scratch`，兩側先展 8.3 短路徑。
-- **照欠／照擋**：repo 裡自己取名 jobs/<x>/tmp、Temp/claude/…/scratchpad 的目錄（不在暫存根底下）
 
 ### 紅測與重試
 
@@ -658,7 +605,6 @@
 - **照欠／照擋**：
   - 缺任一張。
   - 掃描最後一次 hits>0（擋訊息列命中前幾筆）。
-  - 不欠整組案例，也不放寬 (d)：搬完又改的程式檔照欠案例。
 
 ### 紅測清帳：篩選、範圍與最後結果
 
@@ -794,7 +740,7 @@
 #### BLOCK_LISTS_LATER_GATES
 **判什麼**：擋下時附哪些「後面還會擋」
 - **不欠／放行**：
-  - 任一道閘經 `_piggyback` 擋下時，照目前狀態依閘序預覽這些：知識收割、收尾自清、收尾檢核、同步還欠不欠。
+  - 任一道閘經 `_piggyback` 擋下時，照目前狀態依閘序預覽這些：知識收割、收尾檢核、同步還欠不欠。
   - 欠的附在 `[Guardian:AlsoOwed]` 一段（只報條數、不列檔名），讓模型一回合補齊。
   - 當下這道本身不重複列。
 - **照欠／照擋**：
@@ -859,7 +805,7 @@
 
 #### LAUNCHER_NOT_CODE
 **判什麼**：worktree 根的一次性 git 啟動器算不算改程式（判定 `is_git_launcher_source`、事實 `wg_verify_ledger.note_git_launcher`）
-- **不欠／放行**：同時符合下列條件 → 建、改、刪都不讓收據作廢、不欠案例
+- **不欠／放行**：同時符合下列條件 → 建、改、刪都不讓收據作廢
   - 放在版控根、沒進版控
   - 整支只用 subprocess 跑 git
   - 其他呼叫只准 print、exit、os.chdir
@@ -868,7 +814,7 @@
   - 有一處不合就照算程式
   - 啟動器跑的 git 改到的檔，照 python 啟動器那套快照比對記帳
 
-### 收尾提醒與自清
+### 收尾提醒
 
 #### RELOAD_ADVICE_ALREADY_LOADED／RELOAD_ADVICE_MCP_EDITS_ONLY
 **判什麼**：收尾叫使用者 Reload Window（每回合擋一次）
@@ -895,32 +841,6 @@
     - 程序已不在的紀錄不算
   - 不靠 session 名稱（Claude Code 沒寫進文件的命名行為）
   - 列程序約 1 秒，只在收尾文字提到重載時做
-
-#### LEFTOVER_NEEDS_CLEANUP
-**判什麼**：收尾自清（每回合擋一次）
-- **不欠／放行**：
-  - 沒宣告完成
-  - 帳上的東西屬於下列任一種：
-    - 沒合併的分支
-    - 主工作樹用著的分支
-    - 暫存區檔
-    - 專案裡未進版控的新檔
-    - gitignore 的
-    - 遠端分支
-    - 別的開著的 session 正在用的
-    - HUD 按過保留的
-    - (i)（舊格式 (d)）寫過理由的
-    - 開場快照比對出來的
-- **照欠／照擋**：宣告完成且帳上還有下列任一種 → 擋一次，列每一項與 [`session-artifacts.py act`](../tools/session-artifacts.py) 刪除指令、教 (i) 的 `branch:<名> — 理由` 寫法
-  - 本 session 建的工作樹
-  - 已合併分支（能刪，或被列出的工作樹用著）
-  - 能刪的臨時 repo
-  - 專案外能刪的檔案資料夾
-  - 事實查法：
-    - where／merged／used_by／busy 由 `aec_ledger.cleanup_facts` 現場查
-    - 只在宣告完成時查
-    - 只查可能成為候選的幾筆
-    - 暫存區與版控根底下的檔案資料夾、遠端分支不跑 git
 
 ### 退避偵測
 

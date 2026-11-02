@@ -41,7 +41,7 @@ def post(hooked, monkeypatch):
     monkeypatch.setattr(pt, "output_json", lambda d: (got.append(d), sys.exit(0)))
     monkeypatch.setattr(pt, "output_nothing", lambda: (got.append(None), sys.exit(0)))
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a: ([], []))
+    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a: [])
     monkeypatch.setattr(pt, "_note_commit", lambda *a, **k: None)
 
     def run(tool, tool_input, config=None, tool_response=None, tid="tu-post"):

@@ -447,7 +447,7 @@ def test_run_verify_fail_output_creates_failing_entry(monkeypatch, tmp_path):
 # ─── 案例檔的定義：測試目錄與測試檔名慣例，不是「名字裡有 test」 ─────────────────────
 
 def test_case_globs_follow_test_conventions_not_any_name_containing_test():
-    """舊樣式 `**/*test*` 把產品檔 backtest_acceptance.py、latest_build.py 當案例：改了不欠補案例、還能拿來清帳（舊碼紅）。
+    """舊樣式 `**/*test*` 把產品檔 backtest_acceptance.py、latest_build.py 當案例（舊碼紅）。
     新樣式認測試目錄（verify、tests、test、__tests__、*.Tests）與檔名慣例（test_、_test、_tests、.test、.spec、tests.py、conftest）；
     workflow/config.json 的覆寫與預設同一份。"""
     globs = vl.RECONCILE_DEFAULTS["verify_case_globs"]

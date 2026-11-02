@@ -26,7 +26,7 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
 _TWO_CHAR_STATUS = ("部分", "索引", "骨架")
-# 部位類別：code＝寫碼部位（欠 (d) 案例）；knowledge＝知識部位（文件、記憶、信件匣：不欠案例）
+# 部位類別：code＝寫碼部位；knowledge＝知識部位（文件、記憶、信件匣：不算程式檔，wg_code_path）
 KIND_CODE = "code"
 KIND_KNOWLEDGE = "knowledge"
 _KNOWLEDGE_WORDS = ("knowledge", "知識")
@@ -345,7 +345,7 @@ def part_kind(path: str, root: Path, rows: List[Dict[str, Any]]) -> str:
 
 def path_kind(path: str, stop_at: Optional[Path] = None) -> Optional[str]:
     """從 path 往上找最近的部位表（find_map，停在 stop_at），用整張表回 part_kind；沒有部位表回 None（呼叫端照無表行為）。
-    表存在卻讀不到 → code（fail-closed），stderr 說一聲。寫碼查核（wg_verify_ledger.is_excluded）與 OverviewHub 共用這一份判法。"""
+    表存在卻讀不到 → code（fail-closed），stderr 說一聲。判不判程式檔（wg_code_path）與 OverviewHub 共用這一份判法。"""
     if not path:
         return None
     path = os.path.normpath(str(path))

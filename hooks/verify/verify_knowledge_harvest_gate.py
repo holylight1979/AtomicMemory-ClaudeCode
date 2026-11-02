@@ -76,7 +76,7 @@ def ptu(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(pt, "_hud_alive", lambda *a, **k: (True, {}))
     monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_write_aec_report_file", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a, **k: ([], []))
+    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a, **k: [])
     monkeypatch.setattr(pt.aec_ledger, "collect_at_completion", lambda *a, **k: 0)
     monkeypatch.setattr(
         pt, "spawn_vcs_sync",

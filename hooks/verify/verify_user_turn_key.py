@@ -102,7 +102,7 @@ def test_rebuild_carries_event_seq_and_gate_ledgers():
     ledgers = {"event_seq": 95,
                "user_released": {_SID: {"reconcile": 37}}, "pending_release": {_SID: {"reconcile": {"turn": 37}}},
                "verify_receipts": {_SID: [{"seq": 90, "cmd": "pytest -q"}]},
-               "reconcile_gate_turn": {_SID: {"turn": 37, "count": 1}}, "cleanup_gate_turn": {_SID: 37}}
+               "reconcile_gate_turn": {_SID: {"turn": 37, "count": 1}}}
     new = _rebuilt({**old, **ledgers})
     assert {k: new.get(k) for k in ledgers} == ledgers
 

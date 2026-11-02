@@ -271,7 +271,7 @@ def ptu_run(monkeypatch, tmp_path, capsys):
     for name, val in {
         "write_state": lambda *a, **k: None, "WORKFLOW_DIR": tmp_path, "_hud_alive": lambda *a, **k: (True, {}),
         "append_guard_log": lambda *a, **k: None, "_write_aec_report_file": lambda *a, **k: None,
-        "_run_companion_hooks": lambda *a, **k: ([], []),
+        "_run_companion_hooks": lambda *a, **k: [],
         "spawn_vcs_sync": lambda sid, cwd, reason, retired_paths=None: spawned.append(reason),
     }.items():
         monkeypatch.setattr(ptu, name, val)

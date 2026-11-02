@@ -33,11 +33,10 @@
 
 | 鍵 | 預設 | 意義 |
 |----|------|------|
-| `reconcile_gate.block_letters` / `max_blocks_per_turn` | ["a","d"] / 2 | 寫碼查核（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）的擋收尾範圍 |
+| `reconcile_gate.block_letters` / `max_blocks_per_turn` | ["a"] / 2 | 寫碼查核（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）的擋收尾範圍 |
 | `aec.scan_report_gate` / `hud_stale_s` | false / 75 | 沒交收尾檢核擋不擋收尾（[甲 §7.1](../TECH.md#71-收尾閘序守門關時)）／HUD 幾秒沒更新算死 |
 | `atom_audit.enabled` | false | 卡片表態閘（[甲 §7.1](../TECH.md#71-收尾閘序守門關時)） |
 | `acceptance_regression_hint.enabled` | true | 驗收真命中後建議補測試（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) 迴歸提示） |
-| `acceptance_spec.min_files_trigger` | 3 | 規格工件建議門檻 |
 | `deferral_gate.max_context_ratio` / `min_object_chars` | 0.75 / 6 | DeferralGate |
 | `lang_guard.english_ratio_threshold` / `min_lang_chars` | 0.5 / 40 | 英文漂移 |
 | `version_guard.mode` | warn | 版本脈絡殘留 |
@@ -49,7 +48,7 @@
   - 只有列出的條目字母擋收尾，其餘照判、只印 stderr（規則 [RECONCILE_BLOCK_LETTERS](../TECH/release-rules.md#reconcile_block_letters)）。
   - `max_blocks_per_turn`＝紅測與寫碼查核每個使用者回合共用的擋次，不分哪一條規則（[BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)）。
   - 子代理與裁判子 session 的收尾也用這個擋次（各自計次）：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
-  - 另有 `code_exts`（程式檔副檔名）、`verify_case_globs`（案例檔樣式）。
+  - 另有 `code_exts`（程式檔副檔名）、`verify_case_globs`（案例檔樣式：驗證批次閘數測試檔支數時用，`wg_verify_batch`）。
 - **`docdrift.path_mappings` / `self_path_mappings`**：
   - 前者由專案自己填。
   - 後者是記憶系統自己的對應，只在改的檔落在 `~/.claude` 底下才套。
@@ -286,7 +285,7 @@
 | `guard.smell_gate.enabled` | commit 前病形的閘 |
 | `guard.cross_realm_write.enabled` | 外部專案 session 寫 `~/.claude` 核心層的 deny 閘 |
 | `guard.cross_realm_bash.enabled` | 同上，管經 Bash／PowerShell 改核心層 |
-| `acceptance_spec.enabled` | 多檔改動要求驗收規格 |
+| `acceptance_spec.enabled` | 登記 AI 寫的驗收規格檔路徑（給驗收裁判，不送字） |
 | `deferral_gate.enabled` | Stop 閘攔「推給下個 session」的退縮歸屬 |
 | `privacy.enabled` | git commit 前隱私檔硬閘（staged 比對 `deny_globs`） |
 | `lang_guard.enabled` | 回應英文比例過高時的繁中提醒 |

@@ -170,7 +170,7 @@ def ptu_driven(monkeypatch, tmp_path):
     monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
     monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a, **k: companion.append(1) or ([], ["同伴提示"]))
+    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a, **k: companion.append(1) or ["同伴提示"])
 
     def run(capsys, degrade_at=None, tool="Edit"):
         laps = []

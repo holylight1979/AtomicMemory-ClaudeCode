@@ -54,7 +54,7 @@ def post_tool(hooked, monkeypatch):
     monkeypatch.setattr(pt, "output_json", lambda d: (got.append(d), sys.exit(0)))
     monkeypatch.setattr(pt, "output_nothing", lambda: (got.append(None), sys.exit(0)))
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a: ([], []))
+    monkeypatch.setattr(pt, "_run_companion_hooks", lambda *a: [])
 
     def run(tool="Bash", tool_input=None, config=None):
         inp = {"session_id": SID, "hook_event_name": "PostToolUse", "tool_name": tool,

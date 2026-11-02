@@ -2,7 +2,7 @@
 
 做什麼：v6 開著時 Stop 只照擋三類（紅測閘、對帳 (a) 說修好要有 PASS、子代理同一套），其餘 v6 守門一律提醒：
   提醒掛在最後一次改程式檔那則工具結果（handlers/post_tool_batch），Stop 只留帳（guard log event=remind）、不擋、不續跑、
-  不開放行題；總開關關時行為一字不變。另守一件順手改的：(d) 欠案例不比改動先後。
+  不開放行題；總開關關時行為一字不變。
 每一案拿改動前的 main（016b58b5）回放：改成提醒的那幾案紅（舊碼 Stop 照擋或續跑）、照擋的兩案與 v6 關的那案綠（回歸守門）。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_gate_mode_stop.py
 """
@@ -19,7 +19,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_release_rules as rr  # noqa: E402
-import wg_verify_ledger as vl  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 from handlers import stop as st  # noqa: E402
 
@@ -55,8 +54,6 @@ def drive(monkeypatch, capsys):
                      ("append_guard_log", lambda guard, payload: logs.append((guard, payload)))):
         monkeypatch.setattr(st, name, fn)
     monkeypatch.setattr(st.aec_ledger, "collect_at_completion", lambda *a, **k: None)
-    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
     monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
 
@@ -101,22 +98,23 @@ def test_block_testfail_has_rule_and_fix(drive, monkeypatch):
 
 
 def test_block_claim_fixed_has_rule_and_fix(drive):
-    """S3 對帳 (a) 照擋：說修好、沒有任何 PASS → decision=block，訊息有規則名 CLAIM_FIXED_NEEDS_PASS 與補法。"""
-    out, _, logs = drive("閘修好了，完成。", config={"reconcile_gate": {"enabled": True}}, modified_files=[_mf()])
+    """S3 對帳 (a) 照擋：說修好、沒有任何 PASS → decision=block，訊息有規則名 CLAIM_FIXED_NEEDS_PASS 與補法；
+    同一批條目裡的提醒類（(b) 說量了沒 DONE）不進擋訊息、只留帳。"""
+    out, _, logs = drive("閘修好了，我量了，完成。", config={"reconcile_gate": {"enabled": True}}, modified_files=[_mf()])
     assert out.get("decision") == "block", drive.err
     assert "CLAIM_FIXED_NEEDS_PASS" in out["reason"] and "(a)" in out["reason"] and "收據" in out["reason"]
-    assert "CASE_COVERS_CHANGE" not in out["reason"], "同一批條目裡 (d) 是提醒，不進擋訊息"
-    assert [p["rule"] for p in _reminds(logs, "reconcile")] == ["CASE_COVERS_CHANGE"]
+    assert "CLAIM_MEASURED_NEEDS_DONE" not in out["reason"], "同一批條目裡 (b) 是提醒，不進擋訊息"
+    assert [p["rule"] for p in _reminds(logs, "reconcile")] == ["CLAIM_MEASURED_NEEDS_DONE"]
 
 
 # ─── 改提醒：Stop 只留帳 ─────────────────────────────────────────────────────────
 
-def test_case_debt_reminded_not_blocked(drive):
-    """S5 (d) 改了程式要有案例：沒說修好、只有欠案例 → 不擋；guard-reconcile 留 event=remind、規則 CASE_COVERS_CHANGE。"""
-    out, _, logs = drive(DONE, config={"reconcile_gate": {"enabled": True}}, modified_files=[_mf()])
+def test_measured_claim_reminded_not_blocked(drive):
+    """S5 (b) 說量了要有 DONE：沒說修好、只有 (b) → 不擋；guard-reconcile 留 event=remind、規則 CLAIM_MEASURED_NEEDS_DONE。"""
+    out, _, logs = drive("我量了，完成。", config={"reconcile_gate": {"enabled": True}}, modified_files=[_mf()])
     assert "decision" not in out, (out, drive.err)
     rem = _reminds(logs, "reconcile")
-    assert rem and rem[0]["rule"] == "CASE_COVERS_CHANGE" and "x.py" in rem[0]["excerpt"]
+    assert rem and rem[0]["rule"] == "CLAIM_MEASURED_NEEDS_DONE"
 
 
 def test_self_error_follows_rule_mode(drive, monkeypatch):
@@ -152,12 +150,10 @@ def test_v6_off_stop_gates_unchanged(drive, monkeypatch):
 
 
 def test_subagent_same_modes(monkeypatch, capsys):
-    """S22 子代理收尾同一套：(d) 欠案例只留帳不擋；(a) 說修好沒 PASS 照擋。"""
+    """S22 子代理收尾同一套：(b) 說量了沒 DONE 只留帳不擋；(a) 說修好沒 PASS 照擋。"""
     logs: list = []
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
-    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
     cfg = {"reconcile_gate": {"enabled": True}}
 
     def run(text):
@@ -171,12 +167,11 @@ def test_subagent_same_modes(monkeypatch, capsys):
                                      "last_assistant_message": text}, cfg)
         return _payload(capsys.readouterr().out)
 
-    out = run(DONE)
+    out = run("我量了，完成。")
     assert "decision" not in out, out
-    assert any(p["rule"] == "CASE_COVERS_CHANGE" and p.get("agent_id") == "ag1" for p in _reminds(logs, "reconcile"))
+    assert any(p["rule"] == "CLAIM_MEASURED_NEEDS_DONE" and p.get("agent_id") == "ag1" for p in _reminds(logs, "reconcile"))
     out = run("閘修好了，完成。")
     assert out.get("decision") == "block" and "CLAIM_FIXED_NEEDS_PASS" in out["reason"]
-    assert "CASE_COVERS_CHANGE" not in out["reason"]
 
 
 # ─── 提醒掛在改程式檔那則工具結果（PostToolBatch） ─────────────────────────────
@@ -194,36 +189,6 @@ def _batch(monkeypatch, capsys, state, calls, config, sid=SID):
     _batch.err = got.err          # 這批的 stderr（案例要看有沒有「算不出」那類吞錯訊號）
     out = got.out.strip()
     return json.loads(out.splitlines()[-1])["hookSpecificOutput"]["additionalContext"] if out else ""
-
-
-def test_cleanup_reminded_at_create(monkeypatch, capsys, tmp_path):
-    """S13 收尾自清：建工作樹那則 Bash 的工具結果附一行 LEFTOVER_NEEDS_CLEANUP（含是什麼、做法）；同一樣東西只提醒一次。"""
-    import handlers.aec_ledger as al
-    monkeypatch.setattr(al, "parse_git_artifacts", lambda cmd, cwd: [{"path": str(tmp_path / "wt"), "kind": "worktree"}])
-    monkeypatch.setattr(al, "cleanup_facts", lambda sid: [{"kind": "worktree", "path": str(tmp_path / "wt"), "alive": True}])
-    monkeypatch.setattr(rr, "leftover_candidates", lambda items: [{"title": "工作樹 wt", "label": "還在"}])
-    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": []}
-    calls = [{"tool_name": "Bash", "tool_input": {"command": "git worktree add ../wt -b feat"}}]
-    ctx = _batch(monkeypatch, capsys, state, calls, {})
-    line = next((ln for ln in ctx.splitlines() if "LEFTOVER_NEEDS_CLEANUP" in ln), "")
-    assert line.startswith("[Guardian:提醒]") and "工作樹 wt" in line and "做法：" in line, ctx
-    assert _batch(monkeypatch, capsys, state, calls, {}) == "" or "LEFTOVER_NEEDS_CLEANUP" not in _batch(
-        monkeypatch, capsys, state, calls, {}), "同一樣東西同一個 session 只提醒一次"
-
-
-def test_code_edit_batch_reminds_case_debt_once_per_file(monkeypatch, capsys):
-    """S5 的提醒點：改了程式檔那批的工具結果附一行 (d) 欠案例（每個檔一次），再改同一個檔不重送。"""
-    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "file_root_of", lambda p: r"c:\proj", raising=False)
-    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
-    calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
-    ctx = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}})
-    line = next((ln for ln in ctx.splitlines() if "CASE_COVERS_CHANGE" in ln), "")
-    assert line.startswith("[Guardian:提醒] CASE_COVERS_CHANGE") and "x.py" in line and "做法：" in line, ctx
-    state["modified_files"][0]["last_seq"] = 4
-    ctx2 = _batch(monkeypatch, capsys, state, calls, {"reconcile_gate": {"enabled": True}})
-    assert "CASE_COVERS_CHANGE" not in ctx2
 
 
 # ─── 提醒帳本一份清單（state remind_sent；工具前守門 remind_flush 與這裡的 closing_reminders 同一份） ─────────
@@ -270,24 +235,7 @@ def test_remind_sent_legacy_dict_tolerated(monkeypatch, capsys):
     assert {rr.remind_key("SYNC_REMINDER_UNSYNCED"), rr.remind_key("LOCATE_BEFORE_EDIT", "x")} <= set(state["remind_sent"])
 
 
-# ─── 順手一併改的兩件 ─────────────────────────────────────────────────────────
-
-def test_case_debt_covered_not_by_time_order(monkeypatch, tmp_path):
-    """第 3 列：程式檔比案例檔晚改（last_seq 大）、案例檔內容提到它 → 不欠；只比有沒有覆蓋，不比先後。"""
-    root = tmp_path / "proj"
-    (root / "hooks" / "verify").mkdir(parents=True)
-    code = root / "hooks" / "x.py"
-    case = root / "hooks" / "verify" / "verify_x.py"
-    code.write_text("def f():\n    return 1\n", encoding="utf-8")
-    case.write_text("from hooks import x\n", encoding="utf-8")
-    monkeypatch.setattr(vl, "gitignored_paths", lambda r, ps: set(), raising=False)
-    mods = [_mf(str(case), seq=1), _mf(str(code), seq=9)]            # 案例先改、程式後改
-    owed = vl.case_debt(mods, 5, vl.reconcile_cfg({}), lambda p: str(root))
-    assert owed == [], owed
-    code2 = root / "hooks" / "y.py"
-    code2.write_text("z = 1\n", encoding="utf-8")
-    owed = vl.case_debt(mods + [_mf(str(code2), seq=10)], 5, vl.reconcile_cfg({}), lambda p: str(root))
-    assert [Path(p).name for p in owed] == ["y.py"], "沒被任何案例提到的照欠"
+# ─── 順手一併改的：拐彎判斷只重問改到的函式 ─────────────────────────────────────
 
 
 # ─── 其餘改提醒的閘：Stop 只留帳（每個 S 項一案） ─────────────────────────────────
@@ -302,17 +250,13 @@ def test_harvest_and_pending_reminded_not_blocked(drive, monkeypatch):
     assert state["harvest_gate_turn"][SID] == 5 and state["harvest_pending_gate_turn"][SID] == 5
 
 
-def test_cleanup_scanreport_aec_pending_reminded_not_blocked(drive, monkeypatch):
-    """S13 收尾自清、S18 收尾檢核與報告待寫：都只留帳；one-shot／一回合一次的記號照記、不吃共用擋次。"""
-    monkeypatch.setattr(st, "leftover_cleanup_verdict", lambda *a, **k: rr.Verdict("LEFTOVER_NEEDS_CLEANUP", True, "1 樣還在", ("wt",)))
-    monkeypatch.setattr(st.aec_ledger, "ledger_path", lambda sid: Path(__file__))
-    monkeypatch.setattr(st.aec_ledger, "cleanup_facts", lambda sid: [{"kind": "worktree"}])
+def test_scanreport_aec_pending_reminded_not_blocked(drive):
+    """S18 收尾檢核與報告待寫：都只留帳；one-shot／一回合一次的記號照記、不吃共用擋次。"""
     files = [_mf(), _mf(r"c:\proj\hooks\y.py", seq=11)]
     out, state, logs = drive(DONE, config={"aec": {"scan_report_gate": True}}, modified_files=files)
     assert "decision" not in out, out
-    rules = {p["rule"] for p in _reminds(logs)}
-    assert {"LEFTOVER_NEEDS_CLEANUP", "CLOSING_CHECK_REQUIRED"} <= rules, rules
-    assert state["cleanup_gate_turn"][SID] == 5 and state["scan_report_warned"] is True and state["stop_blocked_count"] == 0
+    assert "CLOSING_CHECK_REQUIRED" in {p["rule"] for p in _reminds(logs)}
+    assert state["scan_report_warned"] is True and state["stop_blocked_count"] == 0
     aec = {"turn_seq": 5, "session_id": SID, "at": "2026-10-27T11:00:00", "d_pending": ["x → 尚未寫"], "j_evidence_path": "無", "k_followups": "無"}
     out, state, logs = drive(DONE, modified_files=files, anti_evasion_report=aec)
     assert "decision" not in out, out
@@ -374,8 +318,6 @@ def test_closing_batch_reminds_harvest(monkeypatch, capsys):
 
 def test_code_edit_batch_reminds_deferral_sync_closing_once(monkeypatch, capsys):
     """S16／S19／S18 的提醒點：第一次改程式檔那批各附一行（退縮歸屬、同步、收尾檢核門檻），再改不重送；v6 關一行都不送。"""
-    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
     files = [_mf(seq=3), _mf(r"c:\proj\hooks\y.py", seq=4)]
     state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": files}
     calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
@@ -388,32 +330,6 @@ def test_code_edit_batch_reminds_deferral_sync_closing_once(monkeypatch, capsys)
     monkeypatch.setenv("WG_V6", "0")
     fresh = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [_mf(seq=3)]}
     assert _batch(monkeypatch, capsys, fresh, calls, {"reconcile_gate": OFF}) == ""
-
-
-def test_case_for_line_is_a_case_declaration(monkeypatch, capsys):
-    """011 重驗 C′：AI 在 # 註解裡寫「case_for｜receipt.py：test_cli.py::test_x」說明哪支案例驗它，閘以前只收 need_goal 的宣告。
-    現在三管道的這一行都算 case_for：對得到的程式檔不再提醒欠案例；對不到的照提醒。"""
-    import overview_hub as oh
-    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
-    monkeypatch.setattr(vl, "file_root_of", lambda p: r"c:\proj", raising=False)
-    monkeypatch.setattr(vl, "_case_text", lambda p: "", raising=False)
-    monkeypatch.setattr(oh, "assistant_text_after", lambda tp, off, ch="text":
-                        "# case_for｜hooks/x.py：tests/test_other.py::test_a（整張收據）\ngit diff --stat" if ch == "tool_input" else "")
-    assert rr.parse_case_for_decls("case_for｜a.py：t/test_b.py::test_1、t/test_c.py\n# case_for | b.py: x") == \
-        [("a.py", ["t/test_b.py", "t/test_c.py"]), ("b.py", ["x"])]
-    files = [_mf(seq=3), _mf(r"c:\proj\tests\test_other.py", seq=4)]
-    calls = [{"tool_name": "Edit", "tool_input": {"file_path": CODE}}]
-    cfg = {"reconcile_gate": {"enabled": True}}
-    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [dict(f) for f in files], "remind_sent": []}
-    monkeypatch.setattr(ptb, "_ensure_state", lambda *a, **k: state)
-    monkeypatch.setattr(ptb, "write_state", lambda *a, **k: None)
-    with pytest.raises(SystemExit):
-        ptb.handle_post_tool_batch({"session_id": SID, "tool_calls": calls, "cwd": r"c:\proj", "transcript_path": "x.jsonl"}, cfg)
-    assert "CASE_COVERS_CHANGE" not in capsys.readouterr().out, "寫了 case_for 行：不欠"
-    state2 = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [dict(f) for f in files]}
-    ctx = _batch(monkeypatch, capsys, state2, calls, cfg)          # 沒給 transcript：讀不到那行，照提醒
-    assert "CASE_COVERS_CHANGE" in ctx and "case_for｜" in ctx, ctx
 
 
 def test_closing_call_knows_both():

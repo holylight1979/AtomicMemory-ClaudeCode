@@ -1,23 +1,9 @@
-"""acceptance_spec.py — 驗收規格工件（PostToolUse；由 guardian handlers/post_tool_use.py
+"""acceptance_spec.py — 驗收規格檔登記（PostToolUse；由 guardian handlers/post_tool_use.py
 呼叫 run()，同程序不另起 Python；保留 __main__ 可獨跑＝回滾路徑）。
 
-問題：任務的「做完的定義」只活在對話與 plan 文字裡，session 結束即蒸發；
-收尾自核與獨立裁判（Codex acceptance_review 接線點）手上沒有這個任務的
-驗收標準可對，只能憑通用直覺。
-
-機制（分級啟動，小任務零打擾）：
-  (1) ExitPlanMode（plan 獲同意）→ additionalContext 指示模型從 plan 內容落
-      驗收規格檔 `<專案根>/.claude/verify/acceptance-<slug>.md`：frontmatter
-      供任務↔規格綁定（task_slug / session_id / created_at / source / status），
-      內文三段列表（必須發生 / 禁止發生 / 驗證指令），不造 schema 巨獸。
-  (2) 無 plan 但同 session 修改檔數 ≥ min_files_trigger（讀 guardian state
-      modified_files——已去重、已濾 ephemeral）→ 一次性建議補規格檔。
-  (3) 規格檔本身被寫入 → sidecar 記路徑，抑制 (2) 的重複提醒。
-
-每 session 每型提醒至多一次（sidecar `workflow/acceptance-spec/<sid>.json`）。
-advisory-only 不阻斷；hook 只發指令，規格內容由模型生成（hook 無 LLM）。
-(1)(2) 的提示歸寫碼守門總開關管：規格只給驗收裁判用，裁判也歸同一個開關（codex_companion），
-關時不叫 AI 寫規格檔；(3) 照記。
+做什麼：AI 寫入驗收規格檔 `<專案根>/.claude/verify/acceptance-<slug>.md` 時，把路徑記進
+sidecar `workflow/acceptance-spec/<sid>.json` 的 spec_paths；驗收裁判（codex_companion）憑它找這個任務的
+驗收標準。不送任何字給 AI：規格檔由 AI 自己決定寫不寫，這裡只記帳。
 裁判無授權副作用；規格檔與任務無法唯一對應時消費端必回 uncertain 不得 block。
 config: workflow/config.json → acceptance_spec；enabled=false 一鍵關。
 never-crash 降級靜默（guardian 端 try/except 隔離、錯誤只進 debug log）。
@@ -30,7 +16,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 _LIB_DIR = str(Path(__file__).resolve().parents[1] / "lib")   # 程式碼：資料根算法從本樹載
 if _LIB_DIR not in sys.path:
@@ -47,27 +33,6 @@ _SPEC_PATH_RE = re.compile(r"/\.claude/verify/acceptance-[^/]+\.md$", re.IGNOREC
 
 _WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
 
-_SPEC_FORMAT_GUIDE = (
-    "格式（極簡三段，勿加章節）：\n"
-    "```\n"
-    "---\n"
-    "task_slug: <任務主題 kebab-case>\n"
-    "session_id: {sid}\n"
-    "created_at: <今日 YYYY-MM-DD>\n"
-    "source: {source}\n"
-    "status: open\n"
-    "---\n"
-    "## 必須發生\n"
-    "- <需求的每一項，逐條可核對>\n"
-    "## 禁止發生\n"
-    "- <紅線，例：不動某檔 / 不翻案已定決策>\n"
-    "## 驗證指令\n"
-    "- <可直接執行的指令或檢查步驟>\n"
-    "```\n"
-    "收尾時逐項自核：全過 → status 改 done 並移入同目錄 done/ 子資料夾；"
-    "未全過 → 收尾報告誠實列出未過項。"
-)
-
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -80,7 +45,7 @@ def _load_config() -> Dict[str, Any]:
         return {}
 
 
-# ─── Sidecar（每 session 每型提醒至多一次）────────────────────────────────────
+# ─── Sidecar（本 session 登記的規格檔路徑）────────────────────────────────────
 
 
 def _sidecar_path(session_id: str) -> Path:
@@ -114,141 +79,37 @@ def is_spec_file_path(file_path: str) -> bool:
     return bool(_SPEC_PATH_RE.search(file_path.replace("\\", "/")))
 
 
-def count_session_modified_files(
-    session_id: str, exclude_substrings: List[str]
-) -> int:
-    """讀 guardian state 的 modified_files（已去重/已濾 ephemeral），
-    數本 session、非排除路徑的相異檔數。state 缺 → 0（fail-open 不提醒）。"""
-    try:
-        state = json.loads(
-            (WORKFLOW_DIR / f"state-{session_id}.json").read_text(encoding="utf-8")
-        )
-    except (json.JSONDecodeError, OSError):
-        return 0
-    seen = set()
-    for m in state.get("modified_files", []):
-        if not isinstance(m, dict):
-            continue
-        if m.get("session_id", session_id) != session_id:
-            continue
-        norm = str(m.get("path", "")).replace("\\", "/")
-        if not norm or any(part in norm for part in exclude_substrings):
-            continue
-        seen.add(norm)
-    return len(seen)
+# ─── PostToolUse 登記（不讀 stdin、不 print、不 exit）──────────────────────────
 
 
-def plan_looks_rejected(tool_response: Any) -> bool:
-    """ExitPlanMode 被否決的保守偵測（正常情況否決不會走到 PostToolUse，防禦性）。"""
-    text = (
-        json.dumps(tool_response, ensure_ascii=False)
-        if isinstance(tool_response, (dict, list))
-        else str(tool_response or "")
-    )
-    return "reject" in text.lower()
-
-
-# ─── Advisory 文案 ────────────────────────────────────────────────────────────
-
-
-def build_plan_advisory(session_id: str, cwd: str) -> str:
-    guide = _SPEC_FORMAT_GUIDE.format(sid=session_id or "<session_id>", source="plan")
-    return (
-        "[Guardian:AcceptanceSpec] 本任務經 plan-mode 確認 → 屬分級線以上。"
-        "動工前先把「做完的定義」落成驗收規格檔（跨 session 不蒸發、收尾自核依據）：\n"
-        f"路徑：`<專案根>/.claude/verify/acceptance-<task-slug>.md`"
-        f"（專案根以 git root 為準；目前 cwd：{cwd or '<未知>'}）\n"
-        "內容從剛獲同意的 plan 逐項轉出，不重問 user、不加互動輪。\n"
-        + guide
-        + "\n例外：純研究/問答型 plan（不產生 repo 修改）可不落檔，說明一句即可。"
-    )
-
-
-def build_multifile_advisory(session_id: str, cwd: str, n_files: int) -> str:
-    guide = _SPEC_FORMAT_GUIDE.format(sid=session_id or "<session_id>", source="multifile")
-    return (
-        f"[Guardian:AcceptanceSpec] 本任務已修改 {n_files} 個檔案且尚無驗收規格檔 → "
-        "建議現在補一份（事後補仍有價值：收尾逐項自核 + 跨 session 接手時「做完的定義」不蒸發）。\n"
-        f"路徑：`<專案根>/.claude/verify/acceptance-<task-slug>.md`"
-        f"（專案根以 git root 為準；目前 cwd：{cwd or '<未知>'}）\n"
-        + guide
-        + "\n本提醒每 session 僅此一次；若當前任務性質不需驗收清單（如批量機械修改），可忽略。"
-    )
-
-
-def _v6_on() -> bool:
-    """寫碼守門總開關（判法只在 wg_core.v6_enabled）；載不進來當關（出廠預設）並 stderr。"""
-    try:
-        from wg_core import load_config as _wg_load_config, v6_enabled
-        return v6_enabled(_wg_load_config())
-    except Exception as e:
-        sys.stderr.write(f"[acceptance_spec] 讀寫碼守門開關失敗，當成關：{type(e).__name__}: {e}\n")
-        return False
-
-
-# ─── PostToolUse 判定（不讀 stdin、不 print、不 exit；sidecar 讀寫順序照舊）─────
-
-
-def run(input_data: Dict[str, Any], config: Dict[str, Any]) -> List[str]:
-    """回傳要注入的 advisory（0 或 1 則）。config＝config.json 的 acceptance_spec 區塊，
-    enabled 開關在此判定，standalone main 與 guardian PostToolUse 併入共用同一路徑。
+def run(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """寫入的是驗收規格檔 → 路徑記進本 session 的 sidecar spec_paths（同一路徑只記一次）。config＝config.json 的
+    acceptance_spec 區塊，enabled 開關在此判定，standalone main 與 guardian PostToolUse 併入共用同一路徑。
     例外不在此攔——由呼叫端隔離（standalone：stderr；guardian：debug log）。"""
     if not config.get("enabled", False):
-        return []
-
+        return
     session_id = input_data.get("session_id", "")
-    tool_name = input_data.get("tool_name", "")
-    cwd = input_data.get("cwd", "")
-    if not session_id:
-        return []
-
-    if tool_name == "ExitPlanMode":
-        if plan_looks_rejected(input_data.get("tool_response", "")):
-            return []
-        sc = read_sidecar(session_id)
-        if sc.get("plan_prompted") or not _v6_on():
-            return []
-        sc["plan_prompted"] = True
-        write_sidecar(session_id, sc)
-        return [build_plan_advisory(session_id, cwd)]
-
-    if tool_name not in _WRITE_TOOLS:
-        return []
-
+    if not session_id or input_data.get("tool_name", "") not in _WRITE_TOOLS:
+        return
     tool_input = input_data.get("tool_input", {})
     file_path = ""
     if isinstance(tool_input, dict):
         file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
-
-    # (3) 規格檔落盤 → 記 sidecar，永久抑制本 session 的 multifile 提醒
-    if is_spec_file_path(file_path):
-        sc = read_sidecar(session_id)
-        paths = sc.setdefault("spec_paths", [])
-        norm = file_path.replace("\\", "/")
-        if norm not in paths:
-            paths.append(norm)
-            write_sidecar(session_id, sc)
-        return []
-
-    # (2) 多檔任務一次性建議（plan 型已提醒過 / 已有規格檔 / 已建議過 → 不再提）
+    if not is_spec_file_path(file_path):
+        return
     sc = read_sidecar(session_id)
-    if sc.get("plan_prompted") or sc.get("multifile_advised") or sc.get("spec_paths"):
-        return []
-    min_files = int(config.get("min_files_trigger", 3))
-    excludes = config.get("count_exclude_substrings", []) or []
-    n = count_session_modified_files(session_id, excludes)
-    if n < min_files or not _v6_on():
-        return []
-    sc["multifile_advised"] = True
-    write_sidecar(session_id, sc)
-    return [build_multifile_advisory(session_id, cwd, n)]
+    paths = sc.setdefault("spec_paths", [])
+    norm = file_path.replace("\\", "/")
+    if norm not in paths:
+        paths.append(norm)
+        write_sidecar(session_id, sc)
 
 
 # ─── Main（standalone 入口；平時由 guardian PostToolUse 呼叫 run()，本入口供獨跑／回滾）──
 
 
 def main() -> None:
-    # 備援裁判子 session（headless claude judge）內不跑任何提示
+    # 備援裁判子 session（headless claude judge）內不登記
     if os.environ.get("CLAUDE_COMPANION_JUDGE"):
         sys.exit(0)
 
@@ -268,18 +129,9 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        msgs = run(input_data, config)
+        run(input_data, config)
     except Exception as e:  # never crash — 降級靜默
         sys.stderr.write(f"[acceptance_spec] {type(e).__name__}: {e}\n")
-        sys.exit(0)
-
-    if msgs:
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": "\n".join(msgs),
-            }
-        }, ensure_ascii=False))
     sys.exit(0)
 
 

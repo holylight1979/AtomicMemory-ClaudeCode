@@ -366,8 +366,9 @@ def test_merge_version_group_newer_wins_whole_and_same_version_merges_fields():
 def test_merge_undecidable_scalar_keeps_disk_and_reports_conflict():
     out, conflicts = _merge({"intent": "a"}, {"intent": "b"}, {"intent": "c"})
     assert out["intent"] == "c" and conflicts == ["intent"]
-    out, conflicts = _merge({"commit_snapshot": {"h": 1}}, {"commit_snapshot": {"h": 2}}, {"commit_snapshot": {"h": 3}})
-    assert out["commit_snapshot"] == {"h": 3} and conflicts == ["commit_snapshot"]   # 整組綁定的不逐欄拼
+    out, conflicts = _merge({"anti_evasion_report": {"h": 1}}, {"anti_evasion_report": {"h": 2}},
+                            {"anti_evasion_report": {"h": 3}})
+    assert out["anti_evasion_report"] == {"h": 3} and conflicts == ["anti_evasion_report"]   # 整組綁定的不逐欄拼
 
 
 # ─── 6. 讀不到不等於遺失：fallback 重建的 state 不蓋掉鎖裡已存在的檔 ─────────────────────────────

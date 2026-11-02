@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""session-artifacts.py：session 產出物帳本的查詢與處置（HUD 的「保留／刪除」鈕由 Node 呼叫這支；收尾自清閘也叫 AI 用它刪）。
+"""session-artifacts.py：session 產出物帳本的查詢與處置（HUD 的「保留／刪除」鈕由 Node 呼叫這支）。
 
 帳本：workflow/aec-tempfiles/<sid>.jsonl（hooks/handlers/aec_ledger.py 寫）。這支只做兩件事：
   list：列出帳上「還在」的東西與白話狀態（檔案、資料夾、git 工作樹、分支、遠端分支、臨時 repo）

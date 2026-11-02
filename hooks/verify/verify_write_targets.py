@@ -114,7 +114,7 @@ def test_039_whole_directory_restore_is_unknown_not_silent(tmp_path):
 
 
 def test_040_git_mv_destination_is_a_write_target(tmp_path):
-    """040：已不存在的程式檔不再欠補案例，所以搬檔的新路徑必須記成寫入：`git mv 來源 目標` 的目標同 mv（目標是現存目錄＝目錄/來源檔名，
+    """040：搬檔的新路徑必須記成寫入：`git mv 來源 目標` 的目標同 mv（目標是現存目錄＝目錄/來源檔名，
     -C 改解析基準）；只有一個參數不算；--git-dir 判不出來。"""
     (tmp_path / "src").mkdir()
     (tmp_path / "pkg").mkdir()

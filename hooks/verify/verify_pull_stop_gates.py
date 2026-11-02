@@ -111,8 +111,8 @@ def test_3_headless_main_session_releases_on_third_and_never_says_cannot_release
 
 def test_3_subagent_block_message_does_not_say_cannot_release(sub_stop, capsys):
     """規則：NONINTERACTIVE_RELEASE_AT_BUDGET。"""
-    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}))
-    assert "(d)" in out and "不能放行" not in out
+    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="修好了，全部完成了。")
+    assert "(a)" in out and "不能放行" not in out
 
 
 def test_3_headless_equivalence_exhausted_releases_and_logs(drive, monkeypatch):
@@ -538,16 +538,6 @@ def test_shared_budget_resets_per_user_turn(driven, capsys, monkeypatch):
     assert "DeferralGate" in out and state["stop_blocked_count"] == 1              # 新的使用者回合：退縮閘照樣擋一次
 
 
-# ─── 案例宣告接線：對帳帶 case_for＝wg_verify_ledger.declared_cases(...) ─────────────────────────────
-
-def test_declared_cases_wired_into_reconcile(driven, capsys, monkeypatch):
-    seen, marker = [], (lambda path: ["verify_x.py"])
-    calls = []
-    monkeypatch.setattr(st, "declared_cases", lambda cfg, tp="": calls.append(tp) or marker)   # 第 2 個參數＝transcript 路徑（case_for｜ 行從它讀）
-    real = st.reconcile_gate_parts
-    monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: seen.append(k) or real(*a, **k))
-    driven(_CLAIM, capsys)
-    assert len(calls) == 1 and seen and seen[-1].get("case_for") is marker
 
 
 # ─── v6 守門總開關關時照 9e476fd0：共用擋次整個 session 累計、口令 commit 過就用掉 ─────────────────
