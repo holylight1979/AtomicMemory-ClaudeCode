@@ -254,5 +254,6 @@
   "skipDangerousModePermissionPrompt": true,
   "theme": "light",
   "switchModelsOnFlag": false,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "idleCompaction": false
 }
