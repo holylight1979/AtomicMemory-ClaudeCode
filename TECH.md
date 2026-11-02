@@ -83,7 +83,6 @@
 | 24 | 收尾閘判「宣告完成」看哪幾則（退縮歸屬、收割、收尾檢核、深度檢討） | 只看最後一段 31 字以上的文字（更短的段落跳過、往前找） | 看整個回合：被別的閘擋下後補件的那則沒重說完成，照本回合宣告完成的那一則算 | `stop.py:1626-1633`（`wg_evasion.get_last_assistant_text`、`turn_completion_text`） |
 | 26 | 共用擋次 `stop_gate_max_blocks` | 整個 session 累計 | 每個使用者回合重算 | `stop.py:1719-1722` |
 | 28 | 收尾檢核報告 anti_evasion_report | 收三類 goal／principles／ai_decided（必填）與 a、b、d、g、h、i；(j)(k) 在 MCP schema 照樣必填，但值不存；`report` 不收；`harvest_items` 不收（收割要另外交） | 三類與 a、b、d、g～k 全收；`report` 當卡片開頭一兩句；收割可以併在同一次交。MCP 退回的那次兩邊都不算交 | `tools/workflow-guardian-mcp/lib/anti-evasion.js:74-148`；`lib/mcp.js:324`；`post_tool_use.py:1568-1573` |
-| 29 | 追蹤帳本 `workflow/tracking/` 與開場列出未結項 | 只收退縮閘那一問的答案：回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」照寫進帳本。收尾報告 (k) 不存、PickOne 不跑、開場不列 | 另收 (k) 追蹤項與 PickOne「順手看到最該修」；開場列出未結項 | `stop.py:1273-1284, 2377`（`_record_tracking_lines`，不看開關）；`post_tool_use.py:1736-1744`；`stop.py:1783-1785`；`session_start.py:1274` |
 | 30 | 產出物帳本（HUD「這個 session 留下的東西」） | 工具呼叫只記 Edit／Write／NotebookEdit 寫進系統暫存目錄的檔；收尾時照收 (i) 宣告與 session scratchpad 掃描；不拍 git 快照 | 工具呼叫另記建立的檔、資料夾、工作樹、分支、臨時 repo；開場拍 git 快照、收尾比對 | `post_tool_use.py:1440-1453, 1753`；`stop.py:1776-1778`；`hooks/handlers/aec_ledger.py:976-990`（`collect_at_completion`）；`session_start.py:1690` |
 
 **E. 開場、結束與維護**
@@ -1329,7 +1328,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - 共用擋次每個使用者回合重算（[跨層表 #26](#守門開關會改到記憶系統的地方)）。
 - 判「宣告完成」看整個回合，不只最後一則（[跨層表 #24](#守門開關會改到記憶系統的地方)）。
 - 用 Bash／PowerShell 改的檔也進改檔帳，同步閘看得到（[跨層表 #5](#守門開關會改到記憶系統的地方)）。
-- 另加寫碼查核、等值、自清、Reload 建議、PickOne 等閘 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。紅測閘兩種模式同一套。
+- 另加寫碼查核、等值、自清、Reload 建議等閘 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。紅測閘兩種模式同一套。
 
 細節 → [附錄 A7](#a7-基本守門細節)
 
@@ -2232,7 +2231,7 @@ flowchart TD
   - 讀索引前 spawn vcs-sync worker 拉取：`_spawn_pull_sync`，`reason=pull`，detached 不等（[§6.3](#63-自動萃取在跑-vs-已停產)）。
   - 索引完整性哨兵與必載檔契約哨兵；IDENTITY 完整性只在守門開時查（→ [跨層表 #32](#守門開關會改到記憶系統的地方)）。
   - vector 啟動器。
-  - 守門開時另有：清 `workflow/` 執行紀錄、列未結追蹤項、拍 git 快照（→ [跨層表 #29～#31](#守門開關會改到記憶系統的地方)）。
+  - 守門開時另有：清 `workflow/` 執行紀錄、拍 git 快照（→ [跨層表 #30～#31](#守門開關會改到記憶系統的地方)）。
   - advisory，含五類：
     - 健檢。
     - 回訪。
@@ -2349,7 +2348,7 @@ flowchart TD
   - **PostToolBatch**：
     - 一次性重注入 atom。
     - 同伴訊息與 handoff 提示。
-    - **寫碼守門的部分**（屬乙篇）：補查提問附推薦、收尾只問一次「最該修」（[`hooks/wg_closing_round.py`](hooks/wg_closing_round.py)）→ [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)、[乙6](TECH/coding-guard.md#乙6-其他寫碼守門)。
+    - **寫碼守門的部分**（屬乙篇）：補查提問附推薦 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)、[乙6](TECH/coding-guard.md#乙6-其他寫碼守門)。
     - 守門開時，基本守門的收尾閘改成在這裡附一行提醒，掛在「這批改了程式檔」的工具結果上（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）。
 
 #### Stop
@@ -2360,7 +2359,7 @@ flowchart TD
   - **效用歸因**。
   - **收尾自檢**：在 codex_companion 那支，背景跑、不擋（[§7.6](#76-回合結束與背景審查)）。
   - **英文漂移**：在 lang_guard（[§7.6](#76-回合結束與背景審查)）。
-  - **寫碼守門的部分**（屬乙篇）：先問連鎖斷路器；紅測改跑新版；另加寫碼查核、等值與熱路徑、收尾自清、Reload 建議、順手點出最該修；驗收裁判在 codex_companion 那支 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。守門開時基本守門那幾道改成提醒、只在寫碼回合跑（→ [跨層表 #21、#22](#守門開關會改到記憶系統的地方)）。
+  - **寫碼守門的部分**（屬乙篇）：先問連鎖斷路器；紅測改跑新版；另加寫碼查核、等值與熱路徑、收尾自清、Reload 建議；驗收裁判在 codex_companion 那支 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。守門開時基本守門那幾道改成提醒、只在寫碼回合跑（→ [跨層表 #21、#22](#守門開關會改到記憶系統的地方)）。
 
 #### SubagentStop
 - **matcher**：—
@@ -3899,7 +3898,7 @@ svn：svn_update_targets
   - h 收尾判定。
   - i 衍生暫存清單（一行一路徑，或 `branch:<名> — 理由`）。
   - j 證據持久路徑（守門開時才存，→ [跨層表 #28](#守門開關會改到記憶系統的地方)）：有驗證收據時須存在；留空或「無」由 PostToolUse 帶入本 session 帳本絕對路徑 `<資料根>/workflow/verify-ledger/<sid>.jsonl`。
-  - k 追蹤項（守門開時才存）：「無」或逐行；≠無 寫 `workflow/tracking/<slug>.jsonl`，開場列出（→ [跨層表 #29](#守門開關會改到記憶系統的地方)）。行尾可寫「｜建議：<怎麼解>｜該誰解：<誰>」。
+  - k 追蹤項（守門開時才存，存進報告給 HUD 看；不寫追蹤帳本、開場不列，→ [跨層表 #28](#守門開關會改到記憶系統的地方)）：「無」或逐行。
 - (j) 缺或不存在、(k) 是空字串，由寫碼查核的 (e) 判（[AEC_EVIDENCE_PATH](TECH/release-rules.md#aec_evidence_path)／[AEC_FOLLOWUPS_EMPTY](TECH/release-rules.md#aec_followups_empty)，乙篇）。
 - severity 只看 a／b，其餘資訊性。
 - MCP 回條一行（`aecChipText`，報告不進聊天）；要模型補的事只由 Python PostToolUse 回告。報告落檔 `workflow/aec-report/<sid>-t<回合>.json`。
