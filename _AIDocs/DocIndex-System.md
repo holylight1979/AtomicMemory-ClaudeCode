@@ -78,6 +78,7 @@ Session Ready
 | dispatcher.py | ~75 | 純路由：讀 stdin event → 找 handler → 呼叫 |
 | handlers/_shared.py | — | 跨 handler 共用 helper |
 | handlers/aec_ledger.py | — | per-session 產出物帳本唯一 writer（`workflow/aec-tempfiles/<sid>.jsonl`）：`record_tool_artifacts`（Write 寫的檔、Bash 寫入目標、`parse_git_artifacts` 解析 git 建的工作樹／分支／臨時 repo／遠端分支）＋ (i) 一行一路徑或 `branch:<名> — 理由` ＋ scratchpad 掃描 ＋ 開場快照比對（`git_snapshot`／`snapshot_entries`，source=snapshot 標來源不明）；`artifact_status` 現場查還在不在、能不能刪（白話狀態＋給判定用的 where／merged／used_by／busy；busy＝別的開著的 session 在用，看 state 檔）；`act`／`delete_artifact` 當場刪並寫回帳本、`act_all_safe` 整組清不用再確認的、`list_all` 全機殘留依 session 分組＋`session_liveness`（CLI `tools/session-artifacts.py`）；`cleanup_facts` 給 Stop 收尾自清閘（LEFTOVER_NEEDS_CLEANUP）只查可能候選的事實、`cleanup_block_message` 組擋訊息。路徑鍵用 realpath（8.3 短檔名與長檔名同一處）。`protected_reason()` 拒收正式檔（VCS 追蹤 / `memory`、`_AIDocs` 下 / 索引、CHANGELOG、核心 md），(i) 拒收回告模型 |
+| handlers/aec_said_check.py | — | 收尾報告「你說」核對（PostToolUse 收 anti_evasion_report 時呼叫 `annotate`）：goal[].said 拿主對話紀錄裡使用者本人打的字比（真人訊息＋中途插話 queued_command；子代理另比派工說明），每項寫 `said_check`、另存本回合原話 `user_said_this_turn` 給 HUD；只加記號、不擋，讀不到紀錄標判不了 |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess + 各式 advisory（含 `_index_conflict_advisory`：repo 卡在 rebase/merge 且索引三檔未合併 → 一行提示） |
 | handlers/user_prompt_submit.py | — | UPS orchestrator：串聯 ups_* 四段 + 收尾（2026-06-12 拆分）+ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留→告警） |
 | handlers/ups_gates.py | — | UPS detect 段：evasion 追蹤 + V4.1 + long_die + atom-write guard |

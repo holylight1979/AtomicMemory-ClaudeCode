@@ -91,7 +91,7 @@ def test_ptu_stores_classes_without_touching_severity(monkeypatch, tmp_path):
                   "principles": [{"principle": "HUD 彈窗必留", "choice": 1}],
                   "ai_decided": []}
     aec = vae._drive_ptu(monkeypatch, tmp_path, tool_input)["anti_evasion_report"]
-    assert aec["goal"] == [{**_GOOD_GOAL, "tech": "x.py:3"}]
+    assert aec["goal"] == [{**_GOOD_GOAL, "tech": "x.py:3", "said_check": "判不了"}]   # 沒給 transcript：核對標判不了（verify_aec_said_check）
     assert aec["principles"] == [{"principle": "HUD 彈窗必留", "choice": "1"}] and aec["ai_decided"] == []
     assert aec["severity"] == "routine"
     on_disk = json.loads((tmp_path / "aec-report" / f"{aec['session_id']}-t7.json").read_text(encoding="utf-8"))

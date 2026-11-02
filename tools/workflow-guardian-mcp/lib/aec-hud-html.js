@@ -3,6 +3,7 @@
 // dark HUD 單頁：即時最新收尾檢核卡 + 底部近 N 回合 severity 歷史格。
 // 卡片分三類給人看：① 你這次要的事（每件掛使用者原話）② 碰到你的長期原則、方向 ③ AI 自己做主的；
 // 上面一行「份量」把三類字數攤開比（目標那類一句帶過、自己做主那類一大串 → 標黃）；技術細節與系統帳收進附錄。
+// 第一類上方摺疊區列你這回合打的原話（Python 從紀錄取）；每件「你說」旁標核對記號（said_check，對不到標警示色）。
 // 沒有三類的舊報告照舊欄位放進同一個框。
 // 傳輸＝輪詢（非 SSE）：setInterval 1.5s fetch /api/aec/reports（增量 ?since=）→ 渲染；
 // 格子 click → fetch /api/aec/report/<sid>/<turn> 展開；每 10s fetch /api/aec/beat 送心跳。
@@ -102,6 +103,13 @@ function render() {
   .gi.ai { border-left-color: #8b949e66; }
   .said { font-size: .86em; color: var(--ink); margin-bottom: 3px; line-height: 1.5; white-space: pre-wrap; }
   .said.none { color: #ff9a9a; }
+  .sc { font-size: .84em; margin-left: 6px; }
+  .sc.ok { color: #3fb950; }
+  .sc.warn { color: #ff9a9a; font-weight: 600; }
+  .sc.src { color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 0 7px; }
+  .sc.gray { color: #545d68; }
+  .usaid summary { font-size: .8em; color: var(--ink); cursor: pointer; }
+  .usaid-msg { font-family: inherit; margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid #3fb95066; }
   .kv { font-size: .84em; display: flex; gap: 8px; line-height: 1.55; }
   .kv .kl { flex-shrink: 0; width: 5em; color: var(--muted); }
   .kv .kvv { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
@@ -334,10 +342,37 @@ function vagueCheck(v) {
 function techHtml(t) {
   return isBlank(t) ? "" : '<details class="tech"><summary>技術細節</summary><div class="sec-body">' + esc(t) + "</div></details>";
 }
+// 「你說」核對記號：Python 收報告時拿主對話紀錄裡你本人打的字比過（said_check）；舊報告沒有這個欄位就不標。
+// 值 → [樣式, 字]；「第 N 回合前」另外組字。
+var SAID_CHECK = {
+  "本回合": ["ok", "✓"],
+  "對不到": ["warn", "⚠ AI 抄的這句在你的訊息裡找不到"],
+  "派工": ["src", "出自派工說明，不是你直接打的字"],
+  "判不了": ["gray", "讀不到對話紀錄，沒核對"],
+  "太短不判": ["gray", "太短，沒核對"]
+};
+function saidCheckHtml(c) {
+  c = String(c == null ? "" : c);
+  var m = SAID_CHECK[c];
+  if (!m && c.indexOf("第 ") === 0 && c.slice(-3) === "回合前") { m = ["src", "出自你 " + c.slice(2, -3).trim() + " 回合前的訊息"]; }
+  return m ? '<span class="sc ' + m[0] + '" title="系統拿你本人打的字核對 AI 抄的這句：' + escAttr(c) + '">' + esc(m[1]) + "</span>" : "";
+}
+// 你這回合說的原話：Python 從主對話紀錄取（不靠 AI 抄），對照 AI 有沒有漏列你要的事；超過 USAID_OPEN_MAX 字預設收起來
+var USAID_OPEN_MAX = 400;
+function userSaidHtml(r) {
+  if (!Array.isArray(r.user_said_this_turn)) { return ""; }
+  var msgs = r.user_said_this_turn, chars = 0;
+  for (var i = 0; i < msgs.length; i++) { chars += String(msgs[i]).length; }
+  var body = msgs.length
+    ? msgs.map(function (m) { return '<div class="sec-body usaid-msg">' + esc(m) + "</div>"; }).join("")
+    : '<div class="sec-body blank">紀錄裡沒找到你這回合打的字</div>';
+  return '<div class="sec"><details class="usaid"' + (chars <= USAID_OPEN_MAX ? " open" : "") + "><summary>你這回合說的原話" +
+    ' <span class="k">' + msgs.length + " 則・" + chars + " 字　對照看 AI 有沒有漏列你要的事</span></summary>" + body + "</details></div>";
+}
 function goalItemHtml(x) {
   x = x || {};
   var said = isBlank(x.said) ? '<div class="said none">（沒掛你的原話）</div>'
-    : '<div class="said">你說：「' + esc(String(x.said).trim()) + "」</div>";
+    : '<div class="said">你說：「' + esc(String(x.said).trim()) + "」" + saidCheckHtml(x.said_check) + "</div>";
   var vague = vagueCheck(x.verified);
   return '<div class="gi">' + said + kv("做了", x.done) +
          kv("怎麼確認", x.verified, vague ? "nd" : "", vague ? "（沒附數字或收據）" : "") +
@@ -364,7 +399,7 @@ function weighHtml(r) {
 }
 function classesHtml(r) {
   var lead = isBlank(r.report) ? "" : '<div class="lead">' + esc(String(r.report).trim()) + "</div>";
-  return '<div class="sec">' + lead + weighHtml(r) + "</div>" +
+  return '<div class="sec">' + lead + weighHtml(r) + "</div>" + userSaidHtml(r) +
     classHtml("① 你這次要的事", "每件對照你的原話", listOf(r.goal), goalItemHtml, "AI 沒列你這次要的事") +
     classHtml("② 碰到你的長期原則、方向", "怎麼取捨", listOf(r.principles), principleItemHtml, "這輪沒碰到") +
     classHtml("③ AI 自己做主的", "你沒要求、AI 自己決定的", listOf(r.ai_decided), aiItemHtml, "AI 說這輪沒有自己做主的事");

@@ -1609,6 +1609,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _raw = tool_input.get(_cls)
             if isinstance(_raw, list):
                 report[_cls] = [{k: str(it.get(k) or "") for k in _keys if k in it} for it in _raw if isinstance(it, dict)]
+        # 「你說」核對：goal[].said 拿主對話紀錄裡使用者本人打的字比，每項加 said_check、另存本回合原話給 HUD 對照。
+        # 只加記號、不擋、不改 severity；守門開關都跑；讀不到紀錄標「判不了」＋ stderr。
+        if isinstance(report.get("goal"), list):
+            from handlers import aec_said_check
+            aec_said_check.annotate(report, input_data)
         if upgraded:
             report["severity_upgraded_by"] = "hook:evasion-crosscheck"
             report["hook_evidence"] = evidence[-5:]
