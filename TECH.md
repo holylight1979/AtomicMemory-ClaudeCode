@@ -59,7 +59,7 @@
 | 8 | 一次性提示：[Parallel:Suggest]、[JIT:InternalPipeline]、開場 [Guardian:Oscillation] | [Parallel:Suggest] 照冷卻（隔 `cooldown_turns` 3 則）送，一個 session 最多 `max_per_session` 2 次；[JIT:InternalPipeline] 達門檻就每次送；Oscillation 每次開場列全部 | 三個都一個 session 一次（Oscillation 只列還沒列過的 atom） | `hooks/wg_parallel.py:163-168, 184-191`；`hooks/handlers/ups_context.py:182`；`hooks/wg_evasion.py:1455-1485`；`session_start.py:1618` |
 | 9 | 跨 session 同檔預警（CoordWarn） | 同一檔 10 分鐘內不重警（`warn_suppress_min`） | 同一檔一個 session 只警一次 | `hooks/wg_coordination.py:229-231` |
 | 10 | 暫時性檔名寫進 `_AIDocs` 的提醒 | 每次寫都提醒 | 同一檔一個 session 一次 | `hooks/handlers/post_tool_use.py:1547-1555` |
-| 11 | Codex 接續單自檢 | 看 `soft_gate.handoff_review`（預設開），**會觸發** | 看 `handoff_review_v6`（預設關），不觸發 | `hooks/codex_companion.py:123-133` |
+| 11 | Codex 接續單自檢 | 看 `soft_gate.handoff_review`（設 false），不觸發 | 看 `handoff_review_v6`（沒寫＝關），不觸發 | `hooks/codex_companion.py:123-133` |
 | 12 | 回合鍵與版控口令能用多久 | 本回合 commit 過，口令就用掉；續跑回合使用者打的字照舊追加、口令沿用；state 從零重建時不補回合鍵 | 口令用到這批 push 完（ORDER_UNTIL_PUSH）；續跑回合裡使用者第一則字開新回合、原話清單重開；回合鍵錨定（USER_TURN_KEY_KEPT） | `hooks/handlers/ups_gates.py:160-182`；`pre_tool_use.py:1004`；`stop.py:1765-1769`；`post_tool_use.py:1619-1627` |
 | 14 | 決策萃取遇到否決詞（否、不要記…） | 直接丟掉這批萃取結果 | 先問 AI 是不是否決；AI 判是才 atom_retire 撤卡、留帳 | `hooks/handlers/ups_gates.py:238-249, 271-278` |
 | 15 | 使用者糾正訊號（命中糾正詞） | 不問 AI：使用者本人打的字命中糾正詞就直接記一次（子代理通知、跨 session 訊息、系統提示區塊不算；留帳 event=keyword）；累計 ≥ `friction.min_hits`（2）算深度檢討的費力＋真失敗 | 問 AI「是不是糾正」；Stop 收「糾正｜是／不是：<理由>」，判是才計一次，沒回不計；累計門檻同左 | `hooks/handlers/user_prompt_submit.py:256-265`；`stop.py:1665`（`_record_prompt_judgments`）；`hooks/wg_friction.py:236-314` |
