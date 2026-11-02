@@ -24,8 +24,8 @@
 
 | 層 | 做什麼 | 開關 | 關掉會怎樣 |
 |---|---|---|---|
-| 記憶系統（含基本守門） | 記憶注入、寫入、收割、晉升、版控同步、向量檢索；口令、隱私、驗證批次、同步提醒、舊版紅測閘、退避與收尾閘（[§7](#7-基本守門)） | `enabled`，出廠開 | 整個 Guardian 停，所有 hook 直接放行 |
-| 寫碼守門 | 寫程式時的檢查：宣告閘、寫碼查核、拐彎判斷、等值證法、病形閘、連鎖斷路器（[乙篇](TECH/coding-guard.md)） | `coding_guard.enabled`，出廠關；開了也只在寫碼回合跑 | 少這一層；另外記憶系統有 36 處行為跟著變，見[下表](#守門開關會改到記憶系統的地方) |
+| 記憶系統（含基本守門） | 記憶注入、寫入、收割、晉升、版控同步、向量檢索；口令、隱私、驗證批次、同步提醒、紅測閘、退避與收尾閘（[§7](#7-基本守門)） | `enabled`，出廠開 | 整個 Guardian 停，所有 hook 直接放行 |
+| 寫碼守門 | 寫程式時的檢查：宣告閘、寫碼查核、拐彎判斷、等值證法、病形閘、連鎖斷路器（[乙篇](TECH/coding-guard.md)） | `coding_guard.enabled`，出廠關；開了也只在寫碼回合跑 | 少這一層；另外記憶系統有 34 處行為跟著變，見[下表](#守門開關會改到記憶系統的地方) |
 
 - 怎麼開、舊名相容 → [乙1](TECH/coding-guard.md#乙1-開關與減量原則)。
 - 寫碼守門裡只認特定語言的工具（拐彎判斷只量 Python 與 C#，病形樣式只認 Python 與 C# Unity）只是給 AI 參考的側資料。沒有工具的語言，由 AI 自己讀程式判斷，不擋；拐彎判斷碰到這類檔，改到的每個檔問 AI 一句、請它讀過後判（[乙1](TECH/coding-guard.md#乙1-開關與減量原則)）。
@@ -33,7 +33,7 @@
 
 ### 守門開關會改到記憶系統的地方
 
-寫碼守門的開關除了開關乙篇那一層，還會改掉記憶系統（含基本守門）36 處行為。這張表是全文唯一一份；別處寫到「守門開」「守門關」都連回這裡。
+寫碼守門的開關除了開關乙篇那一層，還會改掉記憶系統（含基本守門）34 處行為。這張表是全文唯一一份；別處寫到「守門開」「守門關」都連回這裡。
 
 **判法**
 - 開關是 `wg_core.v6_enabled`（`hooks/wg_core.py:213-225`）。
@@ -46,8 +46,8 @@
 |---|---|---|---|---|
 | 1 | 事件分派：PostToolUseFailure、SubagentStop | 不進 handler（hook 行程照起，讀完 config 就退出） | 進 handler | `hooks/dispatcher.py:64-66, 125-127` |
 | 2 | 工具分派：Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前 | 不進 handler（settings.json 照掛，行程照起） | 進 handler | `hooks/dispatcher.py:67-74` |
-| 3 | Read 補帳：讀檔帳、工具結果體積、救援命中、Depends、資料檔讀提示 | read-log 照寫，下一個事件整批丟掉 | 下一個非 Read 事件補帳 | `hooks/dispatcher.py:112-116`；`hooks/handlers/post_tool_use.py:1356-1372` |
-| 4 | 失敗指令（結束碼不是 0）的改檔與紅測 | 不記。**推論、待實測**：舊版紅測閘看不到結束碼非 0 的測試紅 | 跟成功路徑一樣記 | `hooks/dispatcher.py:64-66`；`post_tool_use.handle_post_tool_use_failure` |
+| 3 | Read 補帳：讀檔帳、工具結果體積、救援命中、Depends | read-log 照寫，下一個事件整批丟掉 | 下一個非 Read 事件補帳 | `hooks/dispatcher.py:112-116`；`hooks/handlers/post_tool_use.py:1356-1372` |
+| 4 | 失敗指令（結束碼不是 0）的改檔與紅測 | 不記。已實測（隔離資料根，9e476fd0 與現行各跑一次）：只靠結束碼非 0 才看得出的測試紅，紅測閘兩版都看不到，10/8 本來就沒有 | 跟成功路徑一樣記 | `hooks/dispatcher.py:64-66`；`post_tool_use.handle_post_tool_use_failure` |
 | 5 | Bash／PowerShell 改的檔記進改檔帳（`modified_files`） | 不記：改檔帳只有 Edit／Write／MultiEdit／NotebookEdit 改的檔，所以同步閘、底部同步擋看不到用指令改的檔 | 記（`>`、`tee`、`sed -i`、`cp`、`Set-Content`… 的目標；目標不明就從版控狀態補） | `post_tool_use.py:1586-1606`（Edit／Write 那條 `1466-1470` 不看開關） |
 | 6 | hook 分段計時、快逾時降級、95% 鬧鐘代送輸出 | 不起表：不計時、不降級、不代送（逾時就被 CC 直接取消） | 起表；過上限 80% 降級；非寫碼回合不寫 run 帳，但降級保護照跑 | `hooks/dispatcher.py:130`；`hooks/wg_hook_timing.py:16-19, 159-173` |
 
@@ -61,9 +61,8 @@
 | 10 | 暫時性檔名寫進 `_AIDocs` 的提醒 | 每次寫都提醒 | 同一檔一個 session 一次 | `hooks/handlers/post_tool_use.py:1547-1555` |
 | 11 | Codex 接續單自檢 | 看 `soft_gate.handoff_review`（預設開），**會觸發** | 看 `handoff_review_v6`（預設關），不觸發 | `hooks/codex_companion.py:123-133` |
 | 12 | 回合鍵與版控口令能用多久 | 本回合 commit 過，口令就用掉；續跑回合使用者打的字照舊追加、口令沿用；state 從零重建時不補回合鍵 | 口令用到這批 push 完（ORDER_UNTIL_PUSH）；續跑回合裡使用者第一則字開新回合、原話清單重開；回合鍵錨定（USER_TURN_KEY_KEPT） | `hooks/handlers/ups_gates.py:160-182`；`pre_tool_use.py:1004`；`stop.py:1765-1769`；`post_tool_use.py:1619-1627` |
-| 13 | 使用者說「先這樣／跳過」時的紅測 | 送出那一則就清掉全部紅測 | 只豁免收尾寫了「不做｜<哪一支>：使用者說「…」」的那幾支 | `hooks/handlers/ups_gates.py:210-213` |
 | 14 | 決策萃取遇到否決詞（否、不要記…） | 直接丟掉這批萃取結果 | 先問 AI 是不是否決；AI 判是才 atom_retire 撤卡、留帳 | `hooks/handlers/ups_gates.py:238-249, 271-278` |
-| 15 | 使用者糾正訊號（命中糾正詞） | 只記候選：不問 AI，Stop 也不收「糾正｜」行，下一則使用者訊息就記成沒回。糾正次數永遠不加，深度檢討不會因糾正觸發 | 問 AI「是不是糾正」；Stop 收「糾正｜是／不是：<理由>」，判是才計一次；累計 ≥ `friction.min_hits`（2）算深度檢討的費力＋真失敗 | `hooks/handlers/user_prompt_submit.py:257-262`；`stop.py:1783-1785`（`_record_prompt_judgments`）；`hooks/wg_friction.py:261-305` |
+| 15 | 使用者糾正訊號（命中糾正詞） | 不問 AI：使用者本人打的字命中糾正詞就直接記一次（子代理通知、跨 session 訊息、系統提示區塊不算；留帳 event=keyword）；累計 ≥ `friction.min_hits`（2）算深度檢討的費力＋真失敗 | 問 AI「是不是糾正」；Stop 收「糾正｜是／不是：<理由>」，判是才計一次，沒回不計；累計門檻同左 | `hooks/handlers/user_prompt_submit.py:256-265`；`stop.py:1665`（`_record_prompt_judgments`）；`hooks/wg_friction.py:236-314` |
 
 **C. 寫入（MCP 與寫入閘）**
 
@@ -82,11 +81,10 @@
 | 21 | **9 道記憶系統收尾閘**：退縮歸屬 DEFERRAL_OF_DOABLE_WORK、知識收割 HARVEST_AT_PHASE_DONE、收割對帳 HARVEST_ITEM_NEEDS_RECEIPT、收尾檢核 CLOSING_CHECK_REQUIRED、記憶未寫 CLOSING_CHECK_MEMORY_NOT_DEFERRED、同步 SYNC_REMINDER_UNSYNCED、底部同步擋 SYNC_BLOCK_PENDING_ITEMS、深度檢討 DEEP_POSTMORTEM_ON_FAILURE、卡片表態 ATOM_CONSUMPTION_AUDIT | **擋**：續跑一回合，各吃各的擋次 | **只提醒**：Stop 只留帳（event=remind）；一行提醒掛在「這批改了程式檔」的工具結果上（收割類掛在交收尾報告那批），所以只改文件的回合連提醒都沒有 | `hooks/wg_release_rules.py:3234-3250`；`stop.py:927-933, 2378, 2419, 2445, 2498, 2543, 2646, 2701, 2725, 2844`；`post_tool_batch.py:82-161, 279-296` |
 | 22 | 哪些回合跑退避偵測、退縮閘、收尾檢核、AEC-Pending | 每回合都跑 | 只在寫碼回合跑 | `stop.py:1858, 2240, 2346, 2489, 2541`；`wg_core.py:231-247` |
 | 23 | 退避的 context 豁免（EVASION_CONTEXT_EXEMPT）；退縮閘擋下的同一句不再標退避旗標 | 沒有 | 有 | `stop.py:2249-2259, 2386-2391` |
-| 24 | 收尾閘判「宣告完成」看哪幾則（退縮歸屬、收割、收尾檢核、深度檢討） | 只看最後一則 | 看整個回合：被別的閘擋下後補件的那則沒重說完成，照本回合宣告完成的那一則算 | `stop.py:1746-1756`（`wg_evasion.turn_completion_text`） |
+| 24 | 收尾閘判「宣告完成」看哪幾則（退縮歸屬、收割、收尾檢核、深度檢討） | 只看最後一段 31 字以上的文字（更短的段落跳過、往前找） | 看整個回合：被別的閘擋下後補件的那則沒重說完成，照本回合宣告完成的那一則算 | `stop.py:1626-1633`（`wg_evasion.get_last_assistant_text`、`turn_completion_text`） |
 | 25 | 背景收割 | 不跑；收割閘照擋，要 AI 交 knowledge_harvest_report | 交本地免費模型產待審候選卡，不擋 | `stop.py:2413-2418`；`post_tool_batch.py:284` |
 | 26 | 共用擋次 `stop_gate_max_blocks` | 整個 session 累計 | 每個使用者回合重算 | `stop.py:1719-1722` |
-| 27 | 紅測閘 | 舊版：有紅測又宣稱完成就擋。不看擋次預算（`stop.py:2085` 沒比 `max_blocks`）；沒有放行詢問、豁免、基底紅判定 | 新版 TestFailGate：跟寫碼查核共用每回合預算，擋滿問使用者放不放行 | `stop.py:2085-2090` 對照 `2091-2101` |
-| 28 | 收尾檢核報告 anti_evasion_report | 收 a、b、d～i 八欄；(j)(k) 在 MCP schema 照樣必填，但值不存；不收 `report` 白話全文；不收 `harvest_items`（收割要另外交） | 十欄全收；可以只交 `report` 全文；收割可以併在同一次交 | `tools/workflow-guardian-mcp/lib/anti-evasion.js:81-106`；`lib/mcp.js:348`；`post_tool_use.py:1638-1651, 1694-1702` |
+| 28 | 收尾檢核報告 anti_evasion_report | 收三類 goal／principles／ai_decided（必填）與 a、b、d、g、h、i；(j)(k) 在 MCP schema 照樣必填，但值不存；`report` 不收；`harvest_items` 不收（收割要另外交） | 三類與 a、b、d、g～k 全收；`report` 當卡片開頭一兩句；收割可以併在同一次交。MCP 退回的那次兩邊都不算交 | `tools/workflow-guardian-mcp/lib/anti-evasion.js:74-148`；`lib/mcp.js:324`；`post_tool_use.py:1568-1573` |
 | 29 | 追蹤帳本 `workflow/tracking/` 與開場列出未結項 | 只收退縮閘那一問的答案：回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」照寫進帳本。收尾報告 (k) 不存、PickOne 不跑、開場不列 | 另收 (k) 追蹤項與 PickOne「順手看到最該修」；開場列出未結項 | `stop.py:1273-1284, 2377`（`_record_tracking_lines`，不看開關）；`post_tool_use.py:1736-1744`；`stop.py:1783-1785`；`session_start.py:1274` |
 | 30 | 產出物帳本（HUD「這個 session 留下的東西」） | 工具呼叫只記 Edit／Write／NotebookEdit 寫進系統暫存目錄的檔；收尾時照收 (i) 宣告與 session scratchpad 掃描；不拍 git 快照 | 工具呼叫另記建立的檔、資料夾、工作樹、分支、臨時 repo；開場拍 git 快照、收尾比對 | `post_tool_use.py:1440-1453, 1753`；`stop.py:1776-1778`；`hooks/handlers/aec_ledger.py:976-990`（`collect_at_completion`）；`session_start.py:1690` |
 
@@ -110,7 +108,7 @@
 - **目前設定下 #21 的 9 道剩 7 道**：`aec.scan_report_gate=false`、`atom_audit.enabled=false`，所以 CLOSING_CHECK_REQUIRED 與 ATOM_CONSUMPTION_AUDIT 在守門開或關都不送。擋和提醒看的是同一個開關（`post_tool_batch.py:248-251, 261`）。
 - **開場的覆轍提示 `[Guardian:覆轍]` 守門開或關都不印**：`session_start` 不叫 `wg_evasion._detect_rut_patterns`（`hooks/verify/verify_injection_slim.py:48-52` 鎖住）；`self_iteration.rut_v6_once` 現在沒有作用。
 - **不算跨層**：守門關時整個不跑、只屬寫碼守門的閘（寫碼查核、拐彎判斷、等值閘、病形閘…），清單在[乙1](TECH/coding-guard.md#乙1-開關與減量原則)。
-- **不看開關**：口令閘、隱私閘、驗證批次閘、SvnTestBlock、根層保護、繞閘卡片拒寫等一直在跑，見 [§7 基本守門](#7-基本守門)。
+- **不看開關**：口令閘、隱私閘、驗證批次閘、SvnTestBlock、根層保護等一直在跑，見 [§7 基本守門](#7-基本守門)。
 
 ## 目錄
 
@@ -1311,8 +1309,8 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - **紅測閘**（`stop.testfail_message`；寫碼守門開或關同一套）：
   - 擋訊息只列還沒跑綠的那幾支；出路三選一：修到綠、說明不修並標已知 regression、降級任務定義。
   - 沒有放行詢問，也不看擋次預算。
-  - 使用者送出「先這樣／跳過」的那一則，就清掉全部紅測。
-  - **推論、待實測**：PostToolUseFailure 不分派，結束碼不是 0 的測試紅可能沒記到（[跨層表 #4](#守門開關會改到記憶系統的地方)）。
+  - 使用者本人送出「先這樣／跳過」的那一則，就清掉全部紅測（同伴訊息、背景通知裡的不算）。
+  - PostToolUseFailure 不分派：只靠結束碼不是 0 才看得出的測試紅記不到（已實測，[跨層表 #4](#守門開關會改到記憶系統的地方)）。
 - **退縮歸屬**：
   - 擋回一問：「剩下沒做的，哪些改得快又有效？」快又有效的現在做掉。
   - 其餘每件寫一行「追蹤｜<哪一件>：<現在不做的原因>」，記進追蹤帳本。
@@ -1328,7 +1326,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - **底部同步擋**：
   - 先剔除已 commit 並 push 的檔（[SYNC_BLOCK_SKIPS_SYNCED](TECH/release-rules.md#sync_block_skips_synced)）。
   - 只剩改檔數時只印 stderr；同一筆前面回合擋過就不再擋，有新的一筆才擋（[SYNC_BLOCK_NEW_ITEMS_ONLY](TECH/release-rules.md#sync_block_new_items_only)）。
-- **深度檢討**：重試只數「紅了、改了、再跑仍紅」的輪數；一律叫 `atom_write` 寫到資料根。守門關時糾正次數不累計，「被糾正多」這條觸發不到（[跨層表 #15](#守門開關會改到記憶系統的地方)）。
+- **深度檢討**：重試只數「紅了、改了、再跑仍紅」的輪數；一律叫 `atom_write` 寫到資料根。守門關時糾正詞命中就直接計、不問 AI（[跨層表 #15](#守門開關會改到記憶系統的地方)）。
 
 #### 擋次預算
 
@@ -1508,7 +1506,7 @@ Bash／PowerShell 指令
 
 機制依用途分五組，每組一張「機制｜做什麼｜訊號在哪」對照表；每個機制的完整運作在附錄 A8 的同名小標。
 
-有三個機制只在寫碼守門開時才有：hook 分段計時、GC、IDENTITY 完整性哨兵（→ [跨層表 #6、#31、#32](#守門開關會改到記憶系統的地方)）。表上標「守門開時才有」。使用者糾正訊號在守門關時只記候選、不計數（→ [跨層表 #15](#守門開關會改到記憶系統的地方)）。
+有三個機制只在寫碼守門開時才有：hook 分段計時、GC、IDENTITY 完整性哨兵（→ [跨層表 #6、#31、#32](#守門開關會改到記憶系統的地方)）。表上標「守門開時才有」。使用者糾正訊號在守門關時命中就計、不問 AI（→ [跨層表 #15](#守門開關會改到記憶系統的地方)）。
 
 ### 常駐可見面與定期健檢
 
@@ -1529,7 +1527,7 @@ Bash／PowerShell 指令
 | 救援日誌 | 記錄「注入的記憶後來真的被用上」 | `Logs/rescue-log.jsonl` |
 | 失念偵測 | 找出庫裡有卡可防、卻沒被注入的失敗 | `Logs/recall-miss.jsonl` |
 | 注入回合日誌 | 每回合注入結果計數與 token | `Logs/injection-turns.jsonl` |
-| 使用者糾正訊號 | 偵測「你做錯方向」，問 AI 是不是糾正，判是才累計，餵給收尾檢討；守門關時只記候選、不問不計（→ [跨層表 #15](#守門開關會改到記憶系統的地方)） | `Logs/guard-friction.jsonl` |
+| 使用者糾正訊號 | 偵測「你做錯方向」，守門開時問 AI 是不是糾正、判是才累計，守門關時命中就計，餵給收尾檢討（→ [跨層表 #15](#守門開關會改到記憶系統的地方)） | `Logs/guard-friction.jsonl` |
 
 ### hook 與工具的成本量測
 
@@ -1566,7 +1564,7 @@ Bash／PowerShell 指令
 - 週健檢：Task Scheduler `Claude-Memory-WeeklyHealth`，週一 09:00；報告輪替 12 份；缺檔、逾 10 天或 red>0 時 SessionStart 出 advisory。
 - 週用量截圖：Task Scheduler `Claude-Usage-WeeklySnapshot`，週二 03:30。
 - 工具結果體積：單筆 ≥ `oversized_chars`（20K）出 `[Guardian:ToolResultSize]`，每 session 最多 3 次。
-- 糾正訊號（守門開時才計數，→ [跨層表 #15](#守門開關會改到記憶系統的地方)）：累計 ≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為「費力＋真失敗」同時成立。
+- 糾正訊號（守門開時問 AI 判是才計、守門關時命中就計，→ [跨層表 #15](#守門開關會改到記憶系統的地方)）：累計 ≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為「費力＋真失敗」同時成立。
 - hook 計時（守門開時才有，→ [跨層表 #6](#守門開關會改到記憶系統的地方)）：累計過上限 80% 降級，到 95% 還沒結束記 overrun（[乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級)）。
 - log rotation：預設 10MB 保 3 份；guardian-crash.log 曾爆 114GB，所以必須輪替。
 
@@ -3783,8 +3781,8 @@ svn：svn_update_targets
 - **沒有的東西**：放行詢問、「不做｜」豁免、收尾寫的負向對照。擋下記一次 `stop_blocked_count`，但不看擋次預算；連鎖斷路器中止中也照擋。
 - **紅測怎麼記**：PostToolUse 看測試指令的輸出記紅、記綠（`post_tool_use._track_test_result`）。紅的範圍怎麼存、綠清哪些紅、哪些刻意紅不記 → [TECH/guards.md TestFailGate](TECH/guards.md#testfailgate)。
   - 守門關時 PowerShell 之後不分派，PowerShell 跑的測試不記（→ [跨層表 #2](#守門開關會改到記憶系統的地方)）。
-  - 守門關時結束碼不是 0 的指令也不分派，紅測可能沒記到（推論、待實測；→ [跨層表 #4](#守門開關會改到記憶系統的地方)）。
-- **使用者說「先這樣／跳過」**：送出那一則就清掉全部紅測（`handlers/ups_gates`）。
+  - 守門關時結束碼不是 0 的指令也不分派，只靠結束碼才看得出的紅測記不到（已實測；→ [跨層表 #4](#守門開關會改到記憶系統的地方)）。
+- **使用者說「先這樣／跳過」**：使用者本人送出那一則就清掉全部紅測；同伴訊息、背景通知裡的不算（`handlers/ups_gates`，比的是 `user_typed_text`）。
 
 ##### 退縮歸屬（DeferralGate）
 
@@ -3859,7 +3857,7 @@ svn：svn_update_targets
 
 - **條件**：費力（effort）且真失敗（real_failure），本 session 還沒深寫過。
   - 費力的重試只數「紅了、改了、再跑仍紅」的輪數；刻意紅（退回舊碼反證）不算（[RETRY_COUNTS_RERUN_CYCLES／RED_WHILE_REVERTED](TECH/release-rules.md#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears)）。
-  - 使用者糾正累計 ≥ `friction.min_hits`（2）單獨就算兩者都成立（[A8 使用者糾正訊號](#使用者糾正訊號)）。糾正只在守門開時才計數，守門關時這條觸發不到（→ [跨層表 #15](#守門開關會改到記憶系統的地方)）。
+  - 使用者糾正累計 ≥ `friction.min_hits`（2）單獨就算兩者都成立（[A8 使用者糾正訊號](#使用者糾正訊號)）。守門關時命中就計、守門開時 AI 判是才計（→ [跨層表 #15](#守門開關會改到記憶系統的地方)）。
 - **動作**：要 AI 結束前用 `atom_write` 補完整檢討卡；不分在不在 git 工作樹，一律寫到資料根。
 - **次數**：一次性（`deep_postmortem_done`＋旗標檔），獨立預算、不跟共用預算搶，前面的閘吃光預算也輪得到它。
 - 旗標檔 7 天後由 `workflow/` 執行紀錄清理刪掉；那份清理只在守門開時跑（→ [跨層表 #31](#守門開關會改到記憶系統的地方)）。
@@ -4319,8 +4317,8 @@ svn：svn_update_targets
   - AI 回「糾正｜是：<理由>」才計（Stop 的 `_record_prompt_judgments` 收這一行）
   - 「糾正｜不是：<理由>」不計；沒回也不計，記成沒回
   - `user_correction_count` 跨 turn 累計
-- **守門關（出廠）時**：命中照記待判、留帳 candidate，但 UPS 不問 AI、Stop 不收糾正行；下一則使用者訊息就記成沒回（undeclared）。`user_correction_count` 永遠是 0，下面的效果不會發生。
-- **效果**（守門開時）：
+- **守門關（出廠）時**：不問 AI；使用者本人打的字命中就直接計一次（`_count_correction`，留帳 event=keyword）。子代理通知、跨 session 訊息、系統提示區塊不算。
+- **效果**（守門開關都有）：
   - ≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為 effort＋真失敗同時成立
   - 補上「測試全綠、已宣告完成、但人一路在糾正」這種原本三個訊號都抓不到的失敗
 - **訊號出口**：`Logs/guard-friction.jsonl`；DPM 指令句寫出糾正次數與關鍵字

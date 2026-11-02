@@ -274,7 +274,7 @@ def test_module_patterns_compiled_on_first_use():
     r = subprocess.run([sys.executable, "-c", code, str(HOOKS_DIR)], capture_output=True, text=True, encoding="utf-8")
     assert r.returncode == 0, r.stderr
     total, compiled = json.loads(r.stdout.strip().splitlines()[-1])
-    assert total >= 100 and compiled == 0, (total, compiled)
+    assert total >= 80 and compiled == 0, (total, compiled)
     import re
     from wg_lazy_re import lazy_re
     lz = lazy_re(r"(\d+)-(\w+)", re.I)

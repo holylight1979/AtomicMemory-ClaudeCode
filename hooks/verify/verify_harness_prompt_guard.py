@@ -77,13 +77,14 @@ def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     peer = PEER.replace("不對、重來；先這樣，上GIT", said)
     st, lines = fresh(), []
     g.run_pre_gates("sid", st, cfg, peer, peer.lower(), lines)
+    assert st["failing_tests"] == ["t::x"]                                          # 同伴「先這樣」不清失敗紀錄
     assert not st.get("pending_user_extract")                                       # 同伴「記住…」不算使用者決策
     assert any("已記為 atom" in ln for ln in lines)                                 # 同伴「不要記」不否決
     assert not any(EXTRACT_VETO_MARKER in ln for ln in lines)                       # 同伴「不要記」連問都不問
     assert disabled == []                                                           # 同伴「停用」不停後端
     st, lines = fresh(), []
     g.run_pre_gates("sid", st, cfg, said, said.lower(), lines)                      # 對照：使用者自己打同一段話
-    assert st["failing_tests"] == [], "使用者自己說「先這樣」照 9e476fd0 在入口清掉整份紅測（寫碼守門開或關同一套）"
+    assert st["failing_tests"] == [], "使用者自己說「先這樣」在入口清掉整份紅測（寫碼守門開或關同一套）"
     assert st.get("pending_user_extract") and disabled == ["ollama"]
     # G6 階段 5（EXTRACT_VETO_NEEDS_JUDGMENT）：使用者的「不要記」通知照送，另問 AI 是不是在否決
     assert any("已記為 atom" in ln for ln in lines) and any(EXTRACT_VETO_MARKER in ln for ln in lines)

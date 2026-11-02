@@ -207,8 +207,8 @@ def run_pre_gates(
         state["recent_user_prompts"] = rup[-5:]
     v6 = v6_enabled(config)
     track_turn_prompts(state, clean_prompt, v6)
-    if state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
-        state["failing_tests"] = []   # 使用者說「先這樣／跳過」就清掉紅測清單（寫碼守門開或關同一套）
+    if state.get("failing_tests") and is_dismiss_prompt(typed):
+        state["failing_tests"] = []   # 使用者本人說「先這樣／跳過」就清掉紅測清單（同伴訊息、通知不算；寫碼守門開或關同一套）
 
     # ─── User Decision Detector gate ────────────────────────────
     ue_config = config.get("userExtraction", {})
