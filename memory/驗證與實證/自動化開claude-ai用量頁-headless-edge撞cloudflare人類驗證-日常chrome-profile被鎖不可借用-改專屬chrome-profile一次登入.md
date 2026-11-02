@@ -17,6 +17,7 @@
 - [臨] 睡眠：CC 工具程序與 Task Scheduler 啟動的程序 token 都無 SeShutdownPrivilege，`SetSuspendState` 回 True 但不睡（force 時 1314）；使用者機器電源計畫睡眠=永不、且 NVIDIA HD Audio「音訊串流使用中」持續擋閒置睡眠（07-31 起無 Kernel-Power 42/107）。「螢幕黑掉」= 關螢幕非睡眠。
 - [臨] 排程用 `Register-ScheduledTask` 才能給 -WakeToRun -StartWhenAvailable；pythonw 靜默跑。在使用者活躍桌面彈有頭視窗測試會被順手關（TargetClosedError），先講再彈。
 - [臨] 手動補跑截圖要用排程登記的那個 Python（`(Get-ScheduledTask Claude-Usage-WeeklySnapshot).Actions.Execute`，pythonw.exe 換 python.exe）；終端機 PATH 上的 `python` 可能指到別的 venv（實測曾是某第三方 agent 的 venv）而沒裝 playwright，工具會直接印出該換哪個 Python。
+- [臨] 用量頁 /settings/usage 會轉到 `/new#settings/usage` 設定彈窗；中文介面寫「已使用 68%」（字在前），偵測要兩種字序都認；「本週」列預設收合，Fable 上限藏在裡面要點開。頁面的 `/api/account` 能拿到瀏覽器實際登入的信箱。資訊較多的版本是 VS Code 面板 → [[自動截vs-code裡claude-code的用量面板-另開專屬vs-code帶偵錯埠用cdp接-skip-welcome-清electron-run-as-node-同步playwright不用timesleep等]]
 
 ## 行動
 

@@ -7,7 +7,7 @@
 |------|---------|
 | Python | 36 |
 | C#／.NET | 22 |
-| JavaScript／Node | 2 |
+| JavaScript／Node | 3 |
 | PowerShell | 6 |
 | Bash／Shell | 23 |
 
@@ -85,6 +85,7 @@
 |------|------|
 | `memory/OS-Windows/windows上node測試chdir進暫存夾後rmsync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn.md` | windows上node測試chdir進暫存夾後rmSync刪不掉當前目錄-空catch吞錯每跑一次留一個殘目錄-收尾先chdir離開再刪失敗印warn |
 | `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
+| `memory/驗證與實證/自動截vs-code裡claude-code的用量面板-另開專屬vs-code帶偵錯埠用cdp接-skip-welcome-清electron-run-as-node-同步playwright不用timesleep等.md` | 自動截VS Code裡Claude Code的用量面板-另開專屬VS Code帶偵錯埠用CDP接-skip-welcome-清ELECTRON_RUN_AS_NODE-同步Playwright不用time.sleep等 |
 
 ## PowerShell
 

@@ -14061,6 +14061,47 @@
         "行為原則"
       ],
       "scope": "global"
+    },
+    {
+      "name": "自動截vs-code裡claude-code的用量面板-另開專屬vs-code帶偵錯埠用cdp接-skip-welcome-清electron-run-as-node-同步playwright不用timesleep等",
+      "path": "memory/驗證與實證/自動截vs-code裡claude-code的用量面板-另開專屬vs-code帶偵錯埠用cdp接-skip-welcome-清electron-run-as-node-同步playwright不用timesleep等.md",
+      "triggers": [
+        "VS Code 自動化",
+        "Claude Code 用量面板",
+        "Account & Usage",
+        "/usage",
+        "connect_over_cdp",
+        "remote-debugging-port",
+        "user-data-dir",
+        "ELECTRON_RUN_AS_NODE",
+        "skip-welcome",
+        "webview frame",
+        "用量截圖",
+        "Electron CDP"
+      ],
+      "scope": "global",
+      "related": [
+        "自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入",
+        "electron-uia-automation"
+      ]
+    },
+    {
+      "name": "feedback-雞肋判準-有跟沒有一樣是雞肋-沒用還多花時間效能或讓ai歪樓是絕對雞肋-評估要看功能全開時使用者直接承受的token與時間",
+      "path": "memory/Failures/思考與決策/feedback-雞肋判準-有跟沒有一樣是雞肋-沒用還多花時間效能或讓ai歪樓是絕對雞肋-評估要看功能全開時使用者直接承受的token與時間.md",
+      "triggers": [
+        "雞肋",
+        "絕對雞肋",
+        "可以拔掉",
+        "有跟沒有一樣",
+        "不必要的消耗",
+        "簡單工作變慢",
+        "對所有人開啟",
+        "功能盤點"
+      ],
+      "scope": "global",
+      "related": [
+        "量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況"
+      ]
     }
   ]
 }
