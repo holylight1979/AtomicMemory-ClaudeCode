@@ -164,7 +164,6 @@
 | `userExtraction.tokenBudget` | 240 | 使用者決策萃取每 session 預算 |
 | `episodic.auto_generate` / `min_files` / `min_duration_seconds` | true / 1 / 120 | episodic 生成 |
 | `harvest.enabled` / `min_turns` / `min_accessed` / `min_turns_between` | true / 3 / 5 / 3 | 階段收割 Stop 閘（[§6.3](../TECH.md#63-自動萃取在跑-vs-已停產)） |
-| `harvest.background` / `background_model` / `background_max_cards` / `background_timeout_sec` | true / gemma4:e4b / 3 / 180 | 守門開時收割交背景免費模型（[跨層表](../TECH.md#守門開關會改到記憶系統的地方) #25） |
 | `self_iteration.forget.enabled` / `dry_run` | false / true | selective forgetting |
 | `provenance.enabled` / `quote_max_chars` / `anti_rot_days` / `backfill.enabled` | true / 200 / 25 / true | 卡片來源（[§4.1](../TECH.md#41-atom-卡片格式) Source／Quote） |
 | `atom_debug` | false | 檢索除錯 log |
@@ -177,9 +176,6 @@
   - per_turn 已無呼叫端，改 true 不會回滾（要回滾得 revert 程式）。
   - session_end_flush 仍由 [`session_end.py`](../hooks/handlers/session_end.py) 讀，改 true 會恢復 SessionEnd 全量萃取寫 [臨] atom。
 - **`harvest.enabled` / …**：活動門檻與冷卻；缺整段＝機制關。
-- **`harvest.background` / …**（[跨層表](../TECH.md#守門開關會改到記憶系統的地方) #25）：
-  - 守門關（出廠）時不看這個鍵：背景收割不跑，收割閘照擋，要 AI 交 `knowledge_harvest_report`。
-  - 守門開時 true 不擋，產待審候選卡（[`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py)）；模型不在只記 failed、不改用付費模型。false 照舊擋。
 - **`provenance.*`**（[§4.1](../TECH.md#41-atom-卡片格式) Source／Quote、[§8](../TECH.md#8-可觀測與自我維護) 來源自動填與回填 worker）：
   - `enabled` 是總開關；`quote_max_chars` 是 Quote 上限字數。
   - `anti_rot_days`：週健檢防腐天數，session 來源距今超過此天數仍無 Quote 就補。

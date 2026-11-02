@@ -5,7 +5,7 @@
    （WG_CODING_GUARD=0 蓋過 local）；舊名 WG_V6／舊鍵 v6.enabled 仍認、新名優先；MCP 端 lib/paths.js v6Enabled 同三態（沒裝 node 跳過）。
 2. 關閉時寫碼守門的閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 病形閘，
    Stop 對帳閘、拐彎判斷閘，PostToolUse 需求目標提示；紅測閘開或關同一份舊版擋訊息；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
-3. 關閉時寫碼守門關時也跑的處理照跑：子代理記憶注入、知識收割擋（不走背景收割）、收割驗過後 vcs-sync、語言守門。
+3. 關閉時寫碼守門關時也跑的處理照跑：子代理記憶注入、知識收割擋（打開時改提醒）、收割驗過後 vcs-sync、語言守門。
 怎麼跑：
   python -X utf8 -m pytest -q hooks/verify/verify_v6_switch.py
   python -X utf8 hooks/verify/verify_v6_switch.py          # 尾行 V6_SWITCH_CHECK PASS|FAIL
@@ -227,7 +227,7 @@ def stop_run(monkeypatch, capsys):
     def run(state):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": ""}, {"harvest": {"background": True}})
+            st.handle_stop({"session_id": _SID, "cwd": ""}, {"harvest": {"enabled": True}})
         return capsys.readouterr().out
 
     return run
@@ -325,17 +325,18 @@ def test_off_subagent_memory_injection_still_runs(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("on", [False, True])
-def test_off_harvest_gate_blocks_instead_of_background(stop_run, monkeypatch, on):
-    """收割擋是 v6 以前就有的：關閉時照擋；背景收割（wg_bg_harvest）是 v6 新增，只在打開時接手、不擋。"""
+def test_off_harvest_gate_blocks_on_reminds(stop_run, monkeypatch, on):
+    """收割擋是 v6 以前就有的：關閉時照擋、不留提醒帳；打開時 HARVEST_AT_PHASE_DONE 是提醒（跨層表 #21）→ 不擋、只留帳 event=remind。"""
     _set_v6(monkeypatch, on)
-    sent = []
+    logs = []
+    monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None))
     monkeypatch.setattr(st, "turn_judgment_note", lambda *a, **k: (None, False))
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 收割替身")
-    monkeypatch.setattr(st, "bg_harvest", lambda *a, **k: sent.append(1) or True)
     out = stop_run(_stop_state())
     assert ("[Guardian:KnowledgeHarvest]" in out) is (not on)
-    assert bool(sent) is on
+    assert any(g == "knowledge_harvest" and p.get("event") == "remind" and p.get("rule") == "HARVEST_AT_PHASE_DONE"
+               for g, p in logs) is on
 
 
 def test_off_vcs_sync_still_spawns_after_validated_harvest(ptu_run, monkeypatch):

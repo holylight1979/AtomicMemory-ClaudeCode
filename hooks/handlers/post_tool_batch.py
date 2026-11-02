@@ -263,15 +263,13 @@ def _cleanup_reminder(sid, git_cmds, cwd, say) -> None:
 
 
 def _closing_batch_reminders(state, sid, own, config, turn_seq, say) -> None:
-    """收尾那批：知識收割欠不欠（背景收割開著就不提）、收割對帳待補、收尾檢核把記憶寫入推到之後。"""
-    from wg_bg_harvest import background_on
+    """收尾那批：知識收割欠不欠、收割對帳待補、收尾檢核把記憶寫入推到之後。"""
     from wg_harvest import harvest_gate_reason, pending_gate_reason
     from wg_release_rules import in_turn, user_turn
     uturn = user_turn(state, turn_seq)
-    if not background_on(config):
-        hv = harvest_gate_reason(state, sid, "", config, own, turn_seq, gate_turn=uturn, claimed=True)
-        if hv:
-            say("HARVEST_AT_PHASE_DONE", "階段完工還沒交知識收割清單", FIX_HARVEST, uturn)
+    hv = harvest_gate_reason(state, sid, "", config, own, turn_seq, gate_turn=uturn, claimed=True)
+    if hv:
+        say("HARVEST_AT_PHASE_DONE", "階段完工還沒交知識收割清單", FIX_HARVEST, uturn)
     hp = pending_gate_reason(state, sid, turn_seq, "", gate_turn=uturn)
     if hp:
         items = (state.get("knowledge_harvest", {}).get(sid) or {}).get("pending", [])[:5]

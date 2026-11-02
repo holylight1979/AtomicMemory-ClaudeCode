@@ -26,7 +26,7 @@
 - **[收尾檢核欄位](#收尾檢核欄位)**：[AEC_EVIDENCE_PATH](#aec_evidence_path)・[AEC_FOLLOWUPS_EMPTY](#aec_followups_empty)
 - **[追蹤帳](#追蹤帳)**：[TRACKING_SAME_ITEM_NOT_REWRITTEN](#tracking_same_item_not_rewritten)
 - **[state 鎖](#state-鎖)**：[STATE_RMW_LOCKED／STATE_PENDING_MERGED](#state_rmw_lockedstate_pending_merged)
-- **[回合、完成宣告與用字](#回合完成宣告與用字)**：[USER_TURN_KEY_KEPT](#user_turn_key_kept)・[COMPLETION_CLAIM_PER_SENTENCE](#completion_claim_per_sentence)・[OPENING_NOTICE_NOT_TODO](#opening_notice_not_todo)・[GATE_TEXT_AVOIDS_EVASION_WORDS](#gate_text_avoids_evasion_words)・[SUBPROCESS_RUN_LOOKED_UP_AT_CALL](#subprocess_run_looked_up_at_call)・[CHAIN_HEADLESS_KEEPS_DATA_GATES](#chain_headless_keeps_data_gates)
+- **[回合、完成宣告與用字](#回合完成宣告與用字)**：[USER_TURN_KEY_KEPT](#user_turn_key_kept)・[COMPLETION_CLAIM_PER_SENTENCE](#completion_claim_per_sentence)・[GATE_TEXT_AVOIDS_EVASION_WORDS](#gate_text_avoids_evasion_words)・[SUBPROCESS_RUN_LOOKED_UP_AT_CALL](#subprocess_run_looked_up_at_call)・[CHAIN_HEADLESS_KEEPS_DATA_GATES](#chain_headless_keeps_data_gates)
 - **[讀檔證據](#讀檔證據)**：[SHELL_READ_COUNTS_LIKE_READ](#shell_read_counts_like_read)
 - **[寫檔判定與連鎖斷路器](#寫檔判定與連鎖斷路器)**：[SHELL_WRITE_COMMAND_NOT_A_READ](#shell_write_command_not_a_read)・[EPHEMERAL_WRITE_NOTED_ONCE](#ephemeral_write_noted_once)・[CHAIN_NO_EDIT_NO_EDGE](#chain_no_edit_no_edge)・[CHAIN_ABORT_SHOWS_REPLACED_BLOCK](#chain_abort_shows_replaced_block)
 - **[提示、回填與收尾組裝](#提示回填與收尾組裝)**：[QUOTE_FROM_USER_OPENED_TURN](#quote_from_user_opened_turn)・[CODING_TURN_FULL_ONLY_ON_TRIGGER](#coding_turn_full_only_on_trigger)・[POINTER_NO_NAME_ECHO](#pointer_no_name_echo)・[NO_RESEND_AFTER_RESUME](#no_resend_after_resume)・[CLOSING_CALL_ALL_THREE](#closing_call_all_three)
@@ -1211,11 +1211,6 @@
   - 「三件都做完了。中途被擋了兩次」算完成、不算中途
   - 「A 完成。仍在等 B 回報。」「A1 完成；整合尚未開始」照舊不算
 
-#### OPENING_NOTICE_NOT_TODO
-**判什麼**：開場系統提示的處置句（`session_start._harvest_staged_line`）
-- **不欠／放行**：寫清誰決定、要不要現在處理：「要不要現在處理由使用者決定：使用者這回合要的是別的事，只在回覆裡轉述這一行、不動這些檔；使用者說要處理，再由你逐張判斷…」
-- **照欠／照擋**：寫成待辦口吻（「…不要的刪掉」）時，使用者說「先告訴我、再等我說要做什麼」AI 仍照提示刪了草稿
-
 #### GATE_TEXT_AVOIDS_EVASION_WORDS
 **判什麼**：閘的擋訊息、提示與 MCP 回給 AI 的字句用字（[§7.2](../TECH.md#72-反退避anti-evasion)「閘與 MCP 字句不中詞表」列：py 端 `verify_evasion_guard.test_gate_texts_do_not_trip_evasion_detector`、js 端 [`verify_mcp_texts_avoid_evasion_words.py`](../tools/workflow-guardian-mcp/verify/verify_mcp_texts_avoid_evasion_words.py)）
 - **不欠／放行**：hooks／lib 的 Python 字串與 MCP 的 js 字串（各自的排除見 [§7.2](../TECH.md#72-反退避anti-evasion)）逐則跑 `detect_evasion` 判不出退避
@@ -1359,7 +1354,7 @@
 **程式原文**：主任務完工、context 還夠，收尾把帶受詞、可做的事推給下個 session／獨立議題／非我造成（wg_evasion.deferral_gate_reason）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。
 
 #### HARVEST_AT_PHASE_DONE
-**程式原文**：階段完工要交知識收割清單（wg_harvest.harvest_gate_reason；背景收割開著就交背景）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。
+**程式原文**：階段完工要交知識收割清單（wg_harvest.harvest_gate_reason）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。
 
 #### HARVEST_ITEM_NEEDS_RECEIPT
 **程式原文**：收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。

@@ -76,7 +76,6 @@ class Session:
         gates = self.gates
         monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: KH if gates["KnowledgeHarvest"] else None)
         monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: HP if gates["Harvest-Pending"] else None)
-        monkeypatch.setattr(st, "background_on", lambda cfg: False)
         monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: self.picks.append(1))
         monkeypatch.setattr(ptu, "check_cross_realm_write", lambda *a, **k: XR if gates["CrossRealmWriteBlock"] else None)
 

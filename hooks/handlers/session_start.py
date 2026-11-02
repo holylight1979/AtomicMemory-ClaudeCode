@@ -1076,14 +1076,6 @@ def carry_on_rebuild(existing: Dict[str, Any], state: Dict[str, Any]) -> None:
     floor_turn_seq(state)
 
 
-def _harvest_staged_line(n: int) -> str:
-    """開場一行：資料根有 n 張背景收割候選待審。規則 OPENING_NOTICE_NOT_TODO：處置句寫清誰決定、要不要現在處理——寫成待辦口吻
-    （「…不要的刪掉」）時，使用者說「先告訴我、再等我說要做什麼」，AI 仍照提示刪了草稿。"""
-    return (f"[Harvest] {n} 張背景收割候選待審（memory/_staging/harvest-candidates/，背景模型草擬的記憶草稿，核可前不注入）。"
-            "要不要現在處理由使用者決定：使用者這回合要的是別的事，只在回覆裡轉述這一行、不動這些檔；"
-            "使用者說要處理，再由你逐張判斷，值得留的用 atom_write 落卡、不要的刪掉。")
-
-
 def _first_session_hint_lines(root_res, cwd: str) -> list:
     """first_session_hint 掛 SessionStart：無部位表的專案給 scaffold 指令；表有「骨架」列就列每張卡的空段；
     表齊或不在任何專案 → 空。根層 cwd 以 ~/.claude 當根（它的表在 ~/.claude/.claude/overview-map.md）。fail-open。"""
@@ -1504,15 +1496,6 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             pending = _count_pending_review(project_mem_dir)
             if pending > 0:
                 lines.append(f"[Pending Review] {pending} 件待裁決（shared/_pending_review/）")
-        try:   # 背景收割（wg_bg_harvest）落在資料根的待審候選：有才提一行，讓它有人看（不看就是死路）；寫碼守門關不載
-            _staged = 0
-            if v6:
-                from wg_bg_harvest import staged_count
-                _staged = staged_count()
-            if _staged:
-                lines.append(_harvest_staged_line(_staged))
-        except Exception as e:  # noqa: BLE001
-            print(f"[Harvest] 數待審候選失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
         if v4_user and config.get("userExtraction", {}).get("enabled", False):
             try:

@@ -158,8 +158,7 @@ def test_veto_declarations_and_undeclared_ledger(logs):
 
 # ─── 2. 收割與收尾檢核的使用者豁免：dismiss 詞整批放行、留帳 ────────────────────
 
-_HCFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3,
-                     "background": False}}   # 測擋下與豁免這條路（背景收割關掉或送不出去時走它）
+_HCFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3}}
 
 
 def _hstate(**kw):

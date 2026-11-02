@@ -158,7 +158,6 @@
 | [`hooks/wg_ask_gate.py`](../hooks/wg_ask_gate.py) | 問使用者前每題要附推薦（AskUserQuestion／ExitPlanMode），帳寫 `Logs/guard-ask.jsonl` |
 | [`hooks/wg_reading_path.py`](../hooks/wg_reading_path.py) | 閱讀路徑與拐彎判斷（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
 | [`hooks/wg_closing_round.py`](../hooks/wg_closing_round.py) | 收尾只跑一輪（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)） |
-| [`hooks/wg_bg_harvest.py`](../hooks/wg_bg_harvest.py) | 守門開時收割交背景免費模型（[跨層表](../TECH.md#守門開關會改到記憶系統的地方) #25） |
 | [`hooks/wg_lazy_re.py`](../hooks/wg_lazy_re.py) | 模組層正規表示式與寫碼守門模組第一次用到才編譯／載入（`lazy_re`、`lazy_module`，[§11.2](../TECH.md#112-每句話每次工具呼叫的代價)） |
 | [`hooks/wg_chain.py`](../hooks/wg_chain.py) | 連鎖斷路器判定（純函式，[乙8](coding-guard.md#乙8-連鎖斷路器)） |
 | [`hooks/plan_bash_guard.py`](../hooks/plan_bash_guard.py) | Plan Mode 必彈窗的 Bash 寫法 deny＋改寫提示（[甲 §7.4](../TECH.md#74-改檔前的閘)） |
@@ -167,7 +166,6 @@
 - **hooks/wg_closing_round.py**：
   - PostToolBatch 起跑拐彎判斷量測。
   - 交收尾檢核那批附結果與最該修（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）。
-- **hooks/wg_bg_harvest.py**：Stop 丟背景、產待審候選卡。
 - **hooks/wg_lazy_re.py**：
   - `lazy_re`：每個 hook 事件少編上百條正規表示式。
   - `lazy_module`：取代模組層的 `import`，第一次取屬性才真的載入；寫碼守門的模組都經它載，守門關時一行都不載，守門開也只在那道閘真的要判時才載。

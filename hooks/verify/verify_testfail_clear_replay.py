@@ -111,7 +111,7 @@ def test_cleared_units_persist_across_post_tool_use_and_stop(quiet, monkeypatch,
         monkeypatch.setenv("WG_V6", "1" if on else "0")
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: _roundtrip(state))
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": ""}, {"harvest": {"background": True}})
+            st.handle_stop({"session_id": _SID, "cwd": ""}, {})
         out = capsys.readouterr().out
         assert "[Guardian:TestFailGate]" in out, out
         assert "verify_locate_hint" not in out and "1 項失敗" not in out, out

@@ -226,6 +226,5 @@ workflow/tracking/
 .oauth_refresh.lock*
 lib/cs_roslyn/obj/
 lib/cs_roslyn/bin/
-workflow/harvest-bg/
 workflow/judge-card-snap/
 workflow/vcs-ignore.json

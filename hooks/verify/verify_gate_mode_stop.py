@@ -396,14 +396,14 @@ def test_later_gates_preview_lists_only_block_gates(drive, monkeypatch):
 
 
 def test_closing_batch_reminds_harvest_and_turn_judgment(monkeypatch, capsys):
-    """S17／S10 的提醒點：交收尾檢核那批附知識收割欠項；背景量完的欠項在之後第一批附一次（再一批不重送）。"""
+    """S17／S10 的提醒點：交收尾檢核那批附知識收割欠項（設定有 harvest 段照提）；背景量完的欠項在之後第一批附一次（再一批不重送）。"""
     import wg_harvest
     monkeypatch.setattr(wg_harvest, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 要交收割")
     monkeypatch.setattr(wg_harvest, "pending_gate_reason", lambda *a, **k: None)
     state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [],
              "reading_path": {SID: {"owed": {"items": [TJ_ITEM], "turn": 5, "at": 1.0}}}}
     aec = [{"tool_name": "mcp__workflow-guardian__anti_evasion_report", "tool_input": {"a": "無"}}]
-    ctx = _batch(monkeypatch, capsys, state, aec, {})
+    ctx = _batch(monkeypatch, capsys, state, aec, {"harvest": {"enabled": True}})
     assert "[Guardian:提醒] HARVEST_AT_PHASE_DONE" in ctx and "[Guardian:提醒] TURN_JUDGMENT_REQUIRED" in ctx and "x.py::f" in ctx, ctx
     ctx2 = _batch(monkeypatch, capsys, state, [{"tool_name": "Read", "tool_input": {}}], {})
     assert "TURN_JUDGMENT_REQUIRED" not in ctx2 and "HARVEST_AT_PHASE_DONE" not in ctx2

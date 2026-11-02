@@ -1803,8 +1803,6 @@ def test_deny_cap_old_names_folded_into_gate_deny_cap():
 _008A_CASES = {
     "USER_TURN_KEY_KEPT": ("verify_user_turn_key.py", "test_rebuilt_state_three_peer_messages_pick_one_asks_once"),
     "COMPLETION_CLAIM_PER_SENTENCE": ("verify_evasion_guard.py", "test_completion_exclude_only_cancels_its_own_sentence"),
-    "OPENING_NOTICE_NOT_TODO": ("verify_opening_notice.py",
-                                "test_harvest_staged_line_says_who_decides_and_relay_only_when_user_wants_else"),
     "GATE_TEXT_AVOIDS_EVASION_WORDS": ("verify_evasion_guard.py", "test_gate_texts_do_not_trip_evasion_detector"),
     "SUBPROCESS_RUN_LOOKED_UP_AT_CALL": ("verify_subprocess_run_default.py", "test_no_parameter_defaults_to_subprocess_run"),
 }

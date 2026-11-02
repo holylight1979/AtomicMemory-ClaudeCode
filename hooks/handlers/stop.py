@@ -73,7 +73,6 @@ from wg_lazy_re import lazy_module
 # 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關、子代理收尾、或這次收尾走不到那道閘，就一行都不載
 chain_store = lazy_module("chain_store")   # 連鎖斷路器的帳、快照、還原（lib/；判定在 hooks/wg_chain.py）
 _rel = lazy_module("wg_release")           # 擋滿放行：放行題、待放行紀錄
-_bgh = lazy_module("wg_bg_harvest")        # 背景收割
 _rp = lazy_module("wg_reading_path")       # 閱讀路徑、拐彎判斷
 _cr = lazy_module("wg_closing_round")      # 收尾只問一次「最該修」
 
@@ -93,14 +92,6 @@ def reading_path_note(*a: Any, **k: Any) -> Any:
 
 def turn_judgment_note(*a: Any, **k: Any) -> Any:
     return _rp.turn_judgment_note(*a, **k)
-
-
-def background_on(*a: Any, **k: Any) -> Any:
-    return _bgh.background_on(*a, **k)
-
-
-def bg_harvest(*a: Any, **k: Any) -> Any:
-    return _bgh.on_stop(*a, **k)
 
 
 from wg_hook_timing import lap as _hook_lap, quiet as _hook_quiet
@@ -1801,7 +1792,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             later.append((("TurnJudgment",),
                           f"拐彎判斷：缺 {len(_tj_missing)} 條，收尾每條寫一行「{JUDGMENT_EXAMPLE.format(name='<名稱>')}」",
                           "TURN_JUDGMENT_REQUIRED"))
-        if "[Guardian:KnowledgeHarvest]" not in reason and not background_on(config) and harvest_gate_reason(
+        if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
                 state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq),
                 claimed=_done(last_text)):
             later.append((("KnowledgeHarvest",), "知識收割：值得留的先 atom_write，再交收割清單（anti_evasion_report 的 harvest_items "
@@ -2208,12 +2199,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn,
                                     claimed=_done(last_text), waived=_hv_waived)
     _log_waivers(state, session_id, turn_seq, _uturn, "harvest", _hv_waived)   # 使用者說先這樣／跳過 → 放行並留帳
-    if hv_reason and v6 and background_on(config):
-        # 規則 HARVEST_IN_BACKGROUND：收割交背景的本地免費模型產待審候選卡，不擋寫碼 AI 一回合；送不出去才照舊擋（不靜默略過）
-        state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
-        if bg_harvest(session_id, _tpath or "", cwd, turn_seq, config):
-            write_state(session_id, state)
-            hv_reason = None
     if hv_reason and _gate_mode("HARVEST_AT_PHASE_DONE", v6) == _REMIND:
         state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
         _remind_logged("knowledge_harvest", "KnowledgeHarvest", "HARVEST_AT_PHASE_DONE", hv_reason, session_id, turn_seq,

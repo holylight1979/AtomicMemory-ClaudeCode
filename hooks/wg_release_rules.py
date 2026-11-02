@@ -2412,8 +2412,6 @@ RULES.update({
                                      "待補、中途、進行中）就算，這幾個只取消它自己那一句；收尾閘往前找宣告完成的那則（wg_evasion.turn_completion_text）同一套；"
                                      "句界＝句號、驚嘆號、問號、換行，逗號、分號不切（「A2 已完成，仍在等 A1 回報」仍是中途）。"
                                      "收割待補閘的「中途狀態句不擋」（wg_harvest.in_progress_text）同源：另有一句宣告完成就不算中途。",
-    "OPENING_NOTICE_NOT_TODO": "開場的系統提示不寫成待辦口吻：處置句寫清誰決定、要不要現在處理；使用者這回合要的是別的事時只轉述、不動手"
-                               "（session_start._harvest_staged_line：背景收割候選待審那一行）。",
     "GATE_TEXT_AVOIDS_EVASION_WORDS": "閘的擋訊息與提示（hooks／lib 送得到 AI 眼前的字串）不用會中退避詞表（memory/_meta/forbidden-phrases.json）"
                                       "的字句：AI 在回覆裡照抄被擋的那則時，退避偵測不開引用豁免，照抄的字會被記成 AI 退避。"
                                       "改說法、不改偵測面；守門案例對每則字串跑 detect_evasion（verify_evasion_guard）。",
@@ -2537,7 +2535,7 @@ RULES.update({
                                   "之後哪個回合宣告完成就擋（改完程式跑紅、之後沒再跑綠，不管隔幾回合照擋）。同一條指令跑了不只一次測試的紅在記帳時就定案"
                                   "（RED_LAST_RESULT_IN_COMMAND），不等收尾。擋訊息抬頭「還有 N 支沒跑綠」只在真的有綠掉幾支時附「（M 支已綠）」。",
     "DEFERRAL_OF_DOABLE_WORK": "主任務完工、context 還夠，收尾把帶受詞、可做的事推給下個 session／獨立議題／非我造成（wg_evasion.deferral_gate_reason）。",
-    "HARVEST_AT_PHASE_DONE": "階段完工要交知識收割清單（wg_harvest.harvest_gate_reason；背景收割開著就交背景）。",
+    "HARVEST_AT_PHASE_DONE": "階段完工要交知識收割清單（wg_harvest.harvest_gate_reason）。",
     "HARVEST_ITEM_NEEDS_RECEIPT": "收割回報裡的項目要對得上寫卡收據（wg_harvest.pending_gate_reason）。",
     "CLOSING_CHECK_REQUIRED": "動到 core 檔或多檔、宣告完成，本回合要交收尾檢核 anti_evasion_report（handlers/stop.py ScanReport 段）。",
     "CLOSING_CHECK_MEMORY_NOT_DEFERRED": "收尾檢核 (d)／(h) 不得把寫 atom 推到之後（post_tool_use 判 d_pending，handlers/stop.py AEC-Pending 段）。",

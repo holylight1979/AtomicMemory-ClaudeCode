@@ -3367,8 +3367,8 @@ def test_042_3_harvest_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
     import wg_harvest as wh
     monkeypatch.setattr(st, "harvest_gate_reason", wh.harvest_gate_reason)
     outs = peer_flow("全部完成了。", capsys, config={"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5,
-                                                                "min_turns_between": 3, "background": False}})
-    assert ["[Guardian:KnowledgeHarvest]" in o for o in outs] == [True, False, True]   # 擋下這條路（背景關或送不出去時）
+                                                                "min_turns_between": 3}})
+    assert ["[Guardian:KnowledgeHarvest]" in o for o in outs] == [True, False, True]
 
 
 def test_042_3_harvest_pending_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
