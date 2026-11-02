@@ -1073,7 +1073,7 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
 
 def handle_post_tool_use_failure(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """PostToolUseFailure：工具失敗時 Claude Code 不送 PostToolUse、改送這個。Bash／PowerShell 指令非零結束時：
-    - 前段已經寫下去的檔照樣進 modified_files（閱讀路徑量尺、寫碼查核都讀它）；例：`cat > a.py <<EOF … && pytest`
+    - 前段已經寫下去的檔照樣進 modified_files（寫碼查核讀它）；例：`cat > a.py <<EOF … && pytest`
       測試紅了，a.py 已經改了。目標用成功路徑同一支 write_paths_from_tool 算；失敗的指令不一定寫到，只記這次開始後改過的現存檔，目標不明的不記。
     - 測試指令紅了記紅測（failing_tests）與驗證收據，跟成功路徑同一套函式；失敗事件沒有 tool_response，錯誤全文（"Exit code N\\n輸出…"）
       在 error 欄，當字串回應餵進去。error 裡讀不到結束碼（指令沒跑或沒跑完，例：被 hook 擋下）不算測試結果。

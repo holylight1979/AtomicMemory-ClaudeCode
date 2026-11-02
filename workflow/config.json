@@ -2,7 +2,7 @@
   "atom_debug": false,
   "enabled": true,
   "coding_guard": {
-    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算，只改文件、純問答不算），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
+    "_doc": "寫碼守門總開關（開發期代號 v6），預設關：關時只跑寫碼守門以外的處理（記憶注入、收割、vcs-sync、語言守門等）。本機要開設環境變數 WG_CODING_GUARD=1，或在 workflow/config.local.json（不進版控）寫 {\"coding_guard\": {\"enabled\": true}}；WG_CODING_GUARD=0 強制關。相容：舊鍵 v6（{\"v6\": {\"enabled\": true}}）與舊環境變數 WG_V6 仍認——coding_guard／WG_CODING_GUARD 優先、沒寫（enabled 不是 true）才看舊的（hooks/wg_core.v6_enabled、coding_guard_opt）。coding_turn_only（沒寫＝true）：寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、hook 計時帳）只在寫碼回合啟動（這個使用者回合已經用工具改過程式檔或有判不出目標的寫入；或前幾回合改過程式、收尾宣告完成；prompt 關鍵字意圖不算，只改文件、純問答不算），寫 false 退回每回合都啟動（hooks/wg_core.coding_turn）。",
     "enabled": false
   },
   "stop_gate_max_blocks": 2,
@@ -454,19 +454,6 @@
   "acceptance_regression_hint": {
     "_doc": "迴歸累積提示（handlers/stop.py::_acceptance_regression_hint）：本 session 驗收裁判有 fail/high（enforce 級）判定 → 收尾 block 訊息搭車建議 (a) 補測試案例 (b) 模式類落 atom。純 piggyback 不獨立打斷、每 session 一次、不建佇列。一鍵關=enabled:false。",
     "enabled": true
-  },
-  "reading_path": {
-    "_doc": "閱讀路徑與拐彎判斷（hooks/wg_reading_path.py）。remind_only_over_threshold（缺＝true）：背景量完收結果時沒有任何一條到門檻要問（含只剩「量不出來」「還沒 git add」這種一句原因）→ 整段不送模型、PostToolBatch 不附提醒行，只記 Logs/guard-reading_path.jsonl event=under_threshold 與 stderr；至少一條要問才送條目＋那一題。false 照舊：結果文字非空就送。",
-    "remind_only_over_threshold": true,
-    "turn_judgment": {
-      "_doc": "拐彎判斷：收尾背景算函式級側面數據（拐彎數、巢狀、條件塊、轉手鏈、繼承深度與每層加了什麼），達門檻的逐條問 AI「這一層存在的理由、有沒有真正作用、會不會讓人拐超過三個彎」，收尾要有「拐彎判斷｜…」五欄行（規則 TURN_JUDGMENT_REQUIRED）。門檻是「從第幾個彎起要人看」的事實門檻，不是判臭；max_items＝一次最多問幾條（hooks/wg_reading_path.py TURN_JUDGMENT_DEFAULTS）。",
-      "turns": 2,
-      "nesting": 3,
-      "bumpy": 2,
-      "handoff_chain": 2,
-      "inherit_depth": 3,
-      "max_items": 8
-    }
   },
   "guard": {
     "smell_gate": {

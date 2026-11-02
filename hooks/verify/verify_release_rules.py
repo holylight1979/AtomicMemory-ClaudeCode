@@ -519,8 +519,6 @@ def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
     assert wg_core.hook_python_exe() == str(pyw)                                               # 沒有 python.exe → 原樣
     monkeypatch.setattr(sys, "executable", str(tmp_path / "python3.exe"))
     assert wg_core.hook_python_exe() == str(tmp_path / "python3.exe")
-    import wg_reading_path as rph                                                              # 收尾附閱讀路徑影響也起 Python 子行程
-    assert getattr(rph, "hook_python_exe", None) is wg_core.hook_python_exe and not hasattr(rph, "_python_exe")
     own = [p.relative_to(HOOKS_DIR).as_posix() for p in sorted(HOOKS_DIR.rglob("*.py"))
            if "verify" not in p.parts and p.name != "wg_core.py"
            and 'with_name("python.exe")' in p.read_text(encoding="utf-8", errors="replace")]
@@ -1580,14 +1578,6 @@ def test_evasion_context_exempt_boundary():
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
 
 
-# ─── G11 拐彎判斷 ─────────────────────────────────────────────────────────────
-
-def test_g11_turn_judgment_required_needs_five_columns():
-    """TURN_JUDGMENT_REQUIRED：到門檻的每一條要有五欄齊的拐彎判斷行；完整案例在 verify_g11_turns.py，這裡只守規則名與五欄。"""
-    item = {"kind": "函式", "name": "y.py::b", "keys": ["y.py::b", "b"], "nums": "巢狀 4"}
-    assert rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層｜合理，因為短")).owed is False
-    v = rr.turn_judgment_verdict([item], rr.parse_turn_judgments("拐彎判斷｜y.py::b｜不會｜只有一層"))
-    assert v.rule == "TURN_JUDGMENT_REQUIRED" and v.owed and "怎麼改直" in "".join(v.evidence)
 # ─── G7 等值與熱路徑 ───
 
 def test_g7_equivalence_and_hot_path_rules():
@@ -1889,8 +1879,7 @@ def test_inject_lean_rules_registered_with_cases():
         assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
 
 
-@pytest.mark.parametrize("rule", ["READING_PATH_EARLY_START", "TURN_JUDGMENT_PRE_CLOSE", "PICK_ONE_PRE_CLOSE",
-                                  "PICK_ONE_WITH_TURN_JUDGMENT"])
+@pytest.mark.parametrize("rule", ["PICK_ONE_PRE_CLOSE"])
 def test_closing_round_rules_cased_in_closing_round(rule):
     """收尾只跑一輪的規則：端到端案例在 verify_closing_round.py（PostToolBatch→Stop）。"""
     assert rule in rr.RULES
@@ -1969,7 +1958,7 @@ def test_pre_gate_remind_rules_registered_with_mode():
     assert rr.RULE_CLASS["OVERVIEW_READONLY_PATHS"] == "不在範圍" and rr.gate_mode("OVERVIEW_READONLY_PATHS", True) == rr.BLOCK
     assert rr.remind_key("GATE_SELF_ERROR", "戰鬥") == "GATE_SELF_ERROR|戰鬥"
 # ─── 收尾改提醒：Stop 只留帳（STOP_REMIND_LEDGER_ONLY）；入口案例在 verify_gate_mode_stop.py ───
-@pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY", "TURN_JUDGMENT_REQUIRED",
+@pytest.mark.parametrize("rule", ("STOP_REMIND_LEDGER_ONLY",
                                   "REFACTOR_NEEDS_EQUIVALENCE", "LEFTOVER_NEEDS_CLEANUP",
                                   "RELOAD_ADVICE_ALREADY_LOADED", "AEC_EVIDENCE_PATH", "GATE_SELF_ERROR"))
 def test_stop_remind_rules_are_remind_when_v6_on(rule):

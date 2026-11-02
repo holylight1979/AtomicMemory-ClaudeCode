@@ -163,7 +163,6 @@ def drive(monkeypatch, capsys):
     monkeypatch.setattr(st, "_hud_alive", lambda *a, **k: (True, {}))
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: None)
     monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: None)
-    monkeypatch.setattr(st, "reading_path_note", lambda *a, **k: ("", False))
     monkeypatch.setattr(st, "_record_pick", lambda *a, **k: None)
     monkeypatch.setattr(st.aec_ledger, "collect_at_completion", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))

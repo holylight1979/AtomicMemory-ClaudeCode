@@ -85,7 +85,7 @@ def test_ephemeral_bash_target_filtered(drive, monkeypatch, tmp_path):
 
 # ─── 004：指令非零結束（Claude Code 不送 PostToolUse、改送 PostToolUseFailure）前段寫的檔照樣記 ────────────
 # 第二波題 A′ 實跑：`cat > pricing/api.py <<EOF … && python -m pytest`，pytest 紅讓整條 exit 1，改的產品檔沒進 modified_files，
-# 閱讀路徑回「這次只改了測試檔」、G11 沒量到產品碼
+# 收尾的寫碼查核看不到它
 
 HEREDOC = ("cat > pricing/api.py <<'EOF'\ndef quote(sku):\n    return 1\nEOF\n"
            "cat > pricing/never.py <<'EOF'\nx = 1\nEOF\n"
@@ -145,32 +145,27 @@ def failed(monkeypatch, tmp_path):
 
 
 def _case_globs():
-    """閱讀路徑量尺判測試檔用的同一份樣式（reconcile_cfg 的 verify_case_globs）。"""
+    """寫碼查核判測試檔用的同一份樣式（reconcile_cfg 的 verify_case_globs）。"""
     return vl.reconcile_cfg({}).get("verify_case_globs") or []
 
 
 def test_004_failed_bash_records_files_it_already_wrote(failed):
-    from wg_reading_path import code_files
-    from wg_verify_ledger import is_verify_case
-    proj, run = failed
+    _, run = failed
     state, wrote = run("Bash", HEREDOC)
     paths = [m["path"] for m in state.get("modified_files") or []]
     assert any(p.endswith("api.py") for p in paths), paths                      # 寫成功的產品檔有記
     assert not any(p.endswith("never.py") for p in paths), paths                # 沒寫出來的不記
     m = next(m for m in state["modified_files"] if m["path"].endswith("api.py"))
     assert m["tool"] == "Bash" and m["last_turn_seq"] == 7 and wrote == [_SID]
-    product = [f for f in code_files(state["modified_files"], [".py"]) if not is_verify_case(f, _case_globs(), str(proj))]
-    assert product and product[0].endswith("api.py")                            # 閱讀路徑量尺拿得到產品檔
 
 
 def test_004_failed_bash_test_only_stays_test_only_and_nothing_written_writes_no_state(failed):
-    from wg_reading_path import code_files
     from wg_verify_ledger import is_verify_case
     proj, run = failed
     (proj / "tests" / "test_cli.py").write_text("def test_x():\n    assert 1\n", encoding="utf-8")
     state, _ = run("Bash", "sed -i 's/1/2/' tests/test_cli.py && python -m pytest tests -q")
-    files = code_files(state["modified_files"], [".py"])
-    assert files and all(is_verify_case(f, _case_globs(), str(proj)) for f in files)   # 只改測試檔：照舊沒有產品入口
+    files = [m["path"] for m in state["modified_files"]]
+    assert files and all(is_verify_case(f, _case_globs(), str(proj)) for f in files)   # 只改測試檔：記下的都是測試檔
     state2, wrote = run("Bash", "ls missing.txt", error="Exit code 2\nls: missing.txt: No such file")   # 沒有寫入目標、不是測試
     assert len(state2["modified_files"]) == 1 and wrote == [_SID]               # 第二次沒寫 state
 

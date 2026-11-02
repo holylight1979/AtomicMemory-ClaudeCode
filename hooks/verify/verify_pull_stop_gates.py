@@ -9,7 +9,7 @@
   6 Reload 建議閘只在本 session 改過工具服務的檔才判
   7 退縮閘擋下的那一句不再記退避旗標（下一則使用者訊息不再追問）
   8 紅測閘寫碼守門開或關同一套：不看擋次預算、不開放行題，每次宣告完成都照擋（互動、無頭都一樣）
-  共用擋次（stop_gate_max_blocks）每個使用者回合歸零；閱讀路徑尾段在拐彎判斷擋下時不重複那一題
+  共用擋次（stop_gate_max_blocks）每個使用者回合歸零
   流程級：紅測擋 → 改碼、跑綠 → 再收尾，除「改完之後跑綠一次」外沒有別的收尾閘重欠
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_pull_stop_gates.py（或直接 python 跑，尾行印 PULL_STOP_GATES_CHECK PASS／FAIL）
 退回舊碼看紅：把 hooks/、tools/ 換成舊版再跑同一支（案例只走 handler 入口與 state 字面值，不依賴新函式簽名）。
@@ -33,7 +33,6 @@ from verify_stop_reconcile import (  # noqa: E402,F401
 import verify_g7_equivalence as g7  # noqa: E402
 from verify_g7_equivalence import drive  # noqa: E402,F401
 import wg_evasion  # noqa: E402
-import wg_reading_path as rp  # noqa: E402
 from handlers.pre_tool_use import check_git_commit_order  # noqa: E402
 
 _CLAIM = "閘修好了，完成。"
@@ -627,26 +626,6 @@ def test_v6_off_deferral_block_keeps_evasion_flag(driven, capsys, monkeypatch, v
     monkeypatch.setattr(st, "detect_evasion", wg_evasion.detect_evasion)
     out, state, _ = driven(_DEFER, capsys)
     assert "[Guardian:DeferralGate]" in out and state.get("evasion_flag")          # 照舊記旗標
-
-
-# ─── 閱讀路徑尾段不重複那一題 ─────────────────────────────────────────────────
-
-_ITEM = {"kind": "函式", "name": "y.py::b", "keys": ["y.py::b", "b"], "nums": "巢狀 4｜條件塊 2"}
-_RP_TEXT = "\n".join([f"{rp.TAG} 閱讀路徑量完：", "  函式數據 1 筆", *rp.PROMPT_LINES,
-                      "    " + rp.JUDGMENT_EXAMPLE.format(name="y.py::b")])
-
-
-def test_reading_path_question_once_when_turn_judgment_blocks(driven, capsys, monkeypatch):
-    monkeypatch.setattr(st, "coding_turn", lambda *a, **k: True)
-    monkeypatch.setattr(st, "reading_path_note", lambda *a, **k: (_RP_TEXT, False))
-    owed = {_SID: {"owed": {"turn": 5, "items": [dict(_ITEM)]}}}
-    out, _, _ = driven("全部完成了。", capsys, reading_path=owed)
-    reason = json.loads(out)["reason"]
-    assert "TURN_JUDGMENT_REQUIRED" in reason and reason.count(rp.JUDGMENT_QUESTION) == 1, reason[-600:]
-    assert "函式數據 1 筆" in reason                                               # 數據行照留
-    out, _, _ = driven(_CLAIM, capsys, reading_path=copy.deepcopy(owed))
-    reason = json.loads(out)["reason"]
-    assert "(a)" in reason and reason.count(rp.JUDGMENT_QUESTION) == 1            # 別的閘擋：尾段照附原文（唯一一處）
 
 
 # ─── 流程級：擋 → 照做 → 再收尾，只欠「改完之後跑綠一次」 ───────────────────────────────

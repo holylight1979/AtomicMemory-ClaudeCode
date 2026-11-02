@@ -381,24 +381,6 @@ def _abort_by_kh(s: Session):
     s.gates["KnowledgeHarvest"] = False
 
 
-def test_muted_turn_judgment_leaves_no_blocked_mark(hk):
-    """codex：拐彎判斷在中止中被改成只記錄時，閘自己記的「本回合擋過」要放回去；選繼續之後它照常擋一次（舊接法：記號留著 → 不再擋）。"""
-    s = hk()
-    _abort_by_kh(s)
-    state = wg_core.read_state(s.sid)
-    state.setdefault("reading_path", {})[s.sid] = {"owed": {"turn": 1, "items": [
-        {"kind": "入口", "name": "calc", "keys": ["calc"], "nums": "讀了 9 檔才到入口"}]}}
-    wg_core.write_state(s.sid, state)
-    muted = s.stop()
-    assert not _blocked(muted)
-    rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate" and r["gate"] == "TurnJudgment"]
-    assert rows and rows[-1]["record_only"]                                  # 前置：拐彎判斷真的走到要擋、被改成只記錄
-    assert "blocked_turn" not in wg_core.read_state(s.sid)["reading_path"][s.sid]
-    s.answer(wc.OPT_CONTINUE)
-    again = s.stop()
-    assert _blocked(again) and "TURN_JUDGMENT_REQUIRED" in again["reason"]
-
-
 def test_muted_gate_self_error_still_blocks_once_after_continue(hk, monkeypatch):
     """codex 同類：寫碼查核自己判定出錯（GATE_SELF_ERROR，同一個錯每回合擋一次）在中止中只記錄 → 記號放回；選繼續之後照擋那一次。"""
     s = hk()

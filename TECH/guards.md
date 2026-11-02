@@ -23,7 +23,6 @@
 - 關著時本檔的守門全都不跑；清單見 [乙1〈開關改了什麼〉](coding-guard.md#開關改了什麼)。
 - 開關也改到記憶系統 34 處行為（例：記憶系統的收尾閘守門關時擋、守門開時只提醒）→ [跨層表](../TECH.md#守門開關會改到記憶系統的地方)。
 - 開著時，每回合的守門只在寫碼回合啟動（[CODING_TURN_ONLY](release-rules.md#coding_turn_only)，`wg_core.coding_turn`）：
-  - 閱讀路徑
   - hook 計時的 run 帳
   - 記憶系統的退避偵測、退縮閘、收尾檢核（跨層表 #22）
   - `coding_guard.coding_turn_only=false` 退回每回合都跑。
@@ -101,9 +100,8 @@
 - **系統做什麼**：
   - 記下改了哪些檔（收尾的寫碼查核看這份帳）。
   - 讀到某張卡 `Depends` 指著的檔，附一行「改它前先讀卡」，同卡一 session 一次（[Depends 召回](#depends-召回)）。
-  - 改了程式檔那批跑完，在背景起閱讀路徑量測。
 - **擋不擋**：提醒。
-- **見**：[乙7](coding-guard.md#乙7-部位表與-depends-召回)、[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) ReadingPath。
+- **見**：[乙7](coding-guard.md#乙7-部位表與-depends-召回)。
 
 ### ⑤ 問使用者之前（AskUserQuestion）
 
@@ -129,7 +127,6 @@
 - **查核順序**：
   - 紅測沒修好不准說完成。
   - 寫碼查核：說修好要有改動之後的綠收據 (a)、改了程式要有測試案例 (d)。
-  - 函式拐彎過多要逐條寫判斷。
   - refactor／perf 要等值證法、答熱路徑。
   - 不准把可做的事推給下個 session。
   - 知識收割。
@@ -187,7 +184,6 @@
   - 守門開時這幾道都照 `RULE_MODE` 判成提醒、不吃預算；哪一條改回照擋才會吃。
   - 規則 [BLOCK_BUDGET_SHARED](release-rules.md#block_budget_shared)。
 - **寫碼查核**（ReconcileGate (a)～(d)）每個使用者回合一份 `reconcile_gate.max_blocks_per_turn`；紅測閘不看擋次預算。
-- **拐彎判斷**：寫碼守門開時缺那一行只提醒一次（每個使用者回合最多一次），收尾時只留紀錄、不擋、不吃預算；寫碼守門關時不跑。
 - **等值閘**：等值沒證齊、熱路徑答了缺東西，吃寫碼查核那份預算；熱路徑沒答，每個使用者回合擋一次（[Equivalence](#equivalence等值與熱路徑g7)）。
 - **擋滿只認使用者放行**（[乙4](coding-guard.md#乙4-擋滿之後怎麼放行)）；沒人能回答（headless／SDK、子代理、裁判）擋滿就放行並留帳。
 - **閘自己判定出錯**：同一個錯誤每個使用者回合擋一次，之後放行並留帳（[GATE_SELF_ERROR](release-rules.md#gate_self_error)）。
@@ -281,112 +277,6 @@
   - 拿掉 `block_letters` 時，寫碼守門開是提醒，只留帳。
   - 照擋時（`RULE_MODE` 把它列成照擋）屬記憶與報告類：不走放行詢問，擋滿後第 3 次放行並寫 guard-reconcile_overflow（健檢列 red）。
 
-### ReadingPath／TurnJudgment（閱讀路徑與拐彎判斷，G12＋G11）
-
-#### 起跑與交付時點
-
-- 背景 job：[`hooks/wg_reading_path.py --job`](../hooks/wg_reading_path.py)。
-- 改了程式檔那批跑完就起跑：
-  - PostToolBatch 看本回合改過的程式檔指紋，變了就起。
-  - 量測中又改先記 pending。
-  - 規則 [READING_PATH_EARLY_START](release-rules.md#reading_path_early_startturn_judgment_pre_close)，開關 `reading_path.early_start`，關了照舊在收尾起。
-- 量完的結果先存著，交收尾檢核那批附上（[TURN_JUDGMENT_PRE_CLOSE](release-rules.md#reading_path_early_startturn_judgment_pre_close)）。
-  - 還有一批在量就不附。
-  - 沒附到才由 Stop 送。
-
-#### Python 量什麼
-
-- 對本 session 改過的 Python 檔算入口拐彎數。
-- 用 [`lib/turn_metrics.py`](../lib/turn_metrics.py)（純 ast）算 diff 命中的函式與類別的側面數據：
-  - 巢狀深度
-  - 各自巢狀的條件區塊
-  - 認知複雜度加分點
-  - 函式長度
-  - 只轉手與連續轉手鏈
-  - 繼承鏈每層新增／覆寫與空層
-- **空層判準**（兩語言同一套 `turn_metrics.hollow_text`），算「這層沒加東西」的：
-  - 只呼叫上層同名方法〔super()／base〕且引數照傳。
-  - 補抽象宣告的空本體。
-  - C# 引數照傳的空建構子。
-  - 擋掉上層實作的空覆寫照列但不算空層。
-
-#### C# 怎麼量
-
-- `.cs` 不走整個專案的量尺與這張表，改走 [`lib/reading_path_cs.py`](../lib/reading_path_cs.py)。
-- **範圍**：
-  - 只量上次交工作以來變過的 .cs。
-  - 照檔案指紋比，不照回合號：同一個使用者回合被擋後再改也量得到（state `measured`）。
-  - 加一跳上下游。
-  - 下游＝繼承、欄位／參數／區域變數型別、new、靜態呼叫指到的型別所在的檔。
-    - 檔名對上的排前面，再 git grep 找全部型別的定義。
-  - 上游＝git grep 提到改到的型別名的檔。
-  - 上下游各最多 40 檔，截掉的註明。
-- **比較方式**：
-  - 範圍內的檔建 before（git cat-file 取 base 版）／after 兩張圖。
-  - 用量尺同一個 Graph 與 compare。
-  - 入口＝diff 命中的函式加範圍內直接呼叫它們的函式。
-- **解析器**：
-  - 本機有 .NET SDK 附的 Roslyn 就用 [`lib/cs_roslyn.py`](../lib/cs_roslyn.py)。
-    - 第一次用時把 [`lib/cs_roslyn/`](../lib/cs_roslyn/) 小程式編進 `cache/cs-roslyn/<雜湊>/`。
-    - Roslyn 只抓語法事實，分類規則照輕量解析同一批函式。
-  - 沒有或跑不動用輕量解析（[`tools/reading_path_lang.py`](../tools/reading_path_lang.py)）並在 stderr 註明。
-- 繼承鏈每層用 [`lib/turn_metrics_cs.py`](../lib/turn_metrics_cs.py)（查找池＝範圍，實作數標下限）。
-- 範圍外的呼叫照外部算（路徑是一跳範圍裡看得到的那一段，不是整個專案的最短路）。
-- C# 量不出不牽連同批 Python。
-- **版控**：
-  - git 根照上面的 before 比。
-  - svn 工作副本（版控偵測同 `wg_verify_ledger._vcs_hit`）對 BASE 比。
-    - 檔案清單與找鄰居不靠版控：有 ripgrep 用 rg、在專案根搜，沒裝就逐檔讀。
-    - before 只對 `svn status --xml` 列出本地改過的檔 `svn cat -r BASE`（路徑尾端加 `@`；ANSI 字碼頁編不出的路徑不交給 svn）。
-    - 查不到狀態的檔：改到的當新檔、鄰居當沒改過，並註明。
-    - 沒改過的鄰居 before＝工作樹，改動行用 difflib 算。
-  - svn 裡的 Python 不量（比較要 git 歷史，只報個數）。
-- Python 與 C# 以外的語言算不出數字：改到的檔每個算一條（`檔案 <路徑>`），請 AI 自己讀過後判讀起來要跳幾處、有沒有超過設計尺；指紋比整檔文字，沒再改就不再問。
-- 量不出（不可評級）只列不問。
-
-#### 門檻與提醒
-
-- **模式**：提醒。
-- **門檻**：`reading_path.turn_judgment`，預設拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層。
-  - 是「從第幾個彎起要人看」的事實門檻，不是判臭。
-  - 到門檻的每一條都問。
-- **C# 只在超線時問、才有字**：
-  - 變差或新增的路拐彎 >`cs_layers`（3）。
-  - 本次改到的函式只把呼叫往下傳（量尺的 passthrough；只呼叫上層同名方法的覆寫算在類別空層）。
-  - 改到的型別繼承鏈 2 層以上有空層或 >`cs_layers` 層。
-  - 同一入口只問最差一條，整段落在別條路裡的不另問。
-  - 材料只列那幾層，一條最多 300 字（`CS_MATERIAL_MAX`）。
-  - 沒超線 → 結果文字沒有 C# 的任何一行（不送模型）；量過的摘要記 `Logs/guard-reading_path.jsonl`（event=measured，lang=cs）、說明印 stderr。
-- **Python 也超線才有字**：
-  - 一個根沒有到門檻的條目，它的數據（尾行、可評級、最差一條、函式級數據表）不進結果文字。
-  - 全文印 stderr、guard log 記 event=measured（lang=py）。
-  - 量不出來的一句原因與沒量到的檔數照寫進結果。
-- **只在超線時才提醒**（`reading_path.remind_only_over_threshold`，缺＝開）：
-  - 收結果時扣掉已判過的，之後沒有任何一條要問 → 整段（含那些原因）不送模型、PostToolBatch 不附提醒行。
-  - 只記 guard log event=under_threshold 與 stderr。
-  - 至少一條要問才送條目＋那一題，PostToolBatch 的一行提醒最多列 3 條名字。
-  - 關了照舊：結果文字非空就送。
-
-#### 收尾那一行（TURN_JUDGMENT_REQUIRED）
-
-- 收尾要有一行「拐彎判斷｜<函式、類別或入口>｜<這一層存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」，五欄齊。
-  - 規則 [TURN_JUDGMENT_REQUIRED](release-rules.md#turn_judgment_required)（[乙9](coding-guard.md#乙9-規則全表)）；`turn_judgment_note` 核對。
-- **核對點**在 Stop 的 TurnJudgment 段：
-  - 寫碼查核（Reconcile）之後、等值閘（Equivalence）之前。
-  - ReadingPath 段只量不擋。
-- **只問改到的**：
-  - 答過的條目記名字＋內容指紋（函式比本體文字、類別比繼承結構、入口比實際路徑與數據）。
-  - 之後量到同名同指紋的不再問。
-  - 量完之前又改了碼，舊的那批只收答案、不提醒（規則 [TURN_JUDGMENT_REQUIRED](release-rules.md#turn_judgment_required)）。
-- **缺的處理**：
-  - 寫碼守門開：缺那一行只提醒一次（每個使用者回合最多一次，改碼也不重開），收尾時只留紀錄、不擋；寫碼守門關：不跑。
-  - 列缺的條目與填好名字的範例行。
-  - 一批最多問 `max_items`（8）條。
-  - Stop 擋下那段留著沒拆：目前 `RULE_MODE` 表上這條是提醒，走不到；表上改一格成擋就會用到：
-    - 擋下時尾段的閱讀路徑結果不再重複那一題。
-    - 前面的閘擋下時 `[Guardian:AlsoOwed]` 預告「拐彎判斷：缺 N 條」（只報條數；`turn_judgment_missing` 只讀，不吃那一次）；提醒類不列進預覽。
-- **齊**：`Logs/guard-reading_path.jsonl` 記 judged。
-
 ### Equivalence（等值與熱路徑，G7）
 
 - **條件**：
@@ -398,7 +288,7 @@
 - **開關**：`overview_hub.equivalence.enabled`（hub 設定，[`lib/hub_config.py`](../lib/hub_config.py)）。
 - **規則與位置**：
   - 規則 [REFACTOR_NEEDS_EQUIVALENCE](release-rules.md#refactor_needs_equivalence)／[PERF_HOT_PATH_NEEDS_MEASURE](release-rules.md#perf_hot_path_needs_measure)（[乙9](coding-guard.md#乙9-規則全表)）。
-  - 事實在 [`handlers/stop.py _equivalence_gate`](../hooks/handlers/stop.py)，排在拐彎判斷（TurnJudgment）之後、Deferral 之前。
+  - 事實在 [`handlers/stop.py _equivalence_gate`](../hooks/handlers/stop.py)，排在寫碼查核（ReconcileGate）之後、Deferral 之前。
 - **模式**：提醒。
 - **refactor 要有**：
   - 最後一次改程式檔之後要有三筆 `PRESERVE_CHECK PASS` 收據。
@@ -496,10 +386,9 @@
 
 #### 何時送
 
-- 先在交收尾檢核那批附上（[PICK_ONE_PRE_CLOSE](release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)，開關 `pick_one.pre_close`）。
+- 先在交收尾檢核那批附上（[PICK_ONE_PRE_CLOSE](release-rules.md#pick_one_pre_close)，開關 `pick_one.pre_close`）。
   - 附了就記問過，Stop 不再送、不再讓對話續跑一輪。
-- Stop 的拐彎判斷擋下時同一則一起問（[PICK_ONE_WITH_TURN_JUDGMENT](release-rules.md#pick_one_pre_closepick_one_with_turn_judgment)）。
-- 兩處都沒走到才排在所有閘之後（寫碼守門開時這裡只留帳，見下）。
+- 沒走到才排在所有閘之後（寫碼守門開時這裡只留帳，見下）。
 
 #### 動作
 

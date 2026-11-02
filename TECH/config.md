@@ -38,9 +38,6 @@
 | `atom_audit.enabled` | false | 卡片表態閘（[甲 §7.1](../TECH.md#71-收尾閘序守門關時)） |
 | `pick_one.enabled` / `pre_close` | true / true | 交付時順手點出最該修的一件（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) PickOne） |
 | `acceptance_regression_hint.enabled` | true | 驗收真命中後建議補測試（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) 迴歸提示） |
-| `reading_path.early_start` | true | 改程式檔那批跑完就起跑拐彎判斷量測（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) ReadingPath） |
-| `reading_path.remind_only_over_threshold` | true | 沒有任何一條到門檻就不問模型、不附提醒行 |
-| `reading_path.turn_judgment.turns` / `nesting` / `bumpy` / `handoff_chain` / `inherit_depth` / `max_items` / `cs_layers` | 2 / 3 / 2 / 2 / 3 / 8 / 3 | 拐彎判斷門檻與一次最多問幾條 |
 | `acceptance_spec.min_files_trigger` | 3 | 規格工件建議門檻 |
 | `deferral_gate.max_context_ratio` / `min_object_chars` | 0.75 / 6 | DeferralGate |
 | `lang_guard.english_ratio_threshold` / `min_lang_chars` | 0.5 / 40 | 英文漂移 |
@@ -55,11 +52,6 @@
   - 子代理與裁判子 session 的收尾也用這個擋次（各自計次）：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
   - 另有 `code_exts`（程式檔副檔名）、`verify_case_globs`（案例檔樣式）。
 - **`pick_one.enabled` / `pre_close`**：`pre_close` 在交收尾檢核那批先附。
-- **`reading_path.early_start`**：改了程式檔那批跑完就起跑拐彎判斷量測，交收尾檢核那批附結果。
-- **`reading_path.remind_only_over_threshold`**：
-  - 背景量完沒有任何一條到門檻要問 → 整段不送模型、不附提醒行，只留帳 under_threshold。
-  - 有才送條目＋那一題。
-- **`reading_path.turn_judgment.*`**：`cs_layers`＝C# 路上拐彎、繼承層數超過幾個才問。
 - **`docdrift.path_mappings` / `self_path_mappings`**：
   - 前者由專案自己填。
   - 後者是記憶系統自己的對應，只在改的檔落在 `~/.claude` 底下才套。

@@ -154,9 +154,9 @@ def test_stop_degraded_before_testfail_gate_releases_without_block(stop_driven, 
     out, laps, _ = stop_driven(capsys)
     assert "[Guardian:TestFailGate]" in out                                   # 前置：同一份 state 不降級會被紅測閘擋
     assert laps[:3] == ["讀 transcript", "殘檔帳本", "最該修記帳"]
-    out, laps, wrote = stop_driven(capsys, degrade_at="token 預警與閱讀路徑")
+    out, laps, wrote = stop_driven(capsys, degrade_at="token 預警")
     assert "TestFailGate" not in out and '"decision"' not in out             # 降級：後面的閘不跑、不擋
-    assert laps[-1] == "token 預警與閱讀路徑" and wrote and wrote[-1] == "sid"    # 停在降級那一點，state 寫回
+    assert laps[-1] == "token 預警" and wrote and wrote[-1] == "sid"    # 停在降級那一點，state 寫回
 
 
 # ─── PostToolUse：降級後提示類段落不跑，記帳與寫 state 照做 ─────────────────

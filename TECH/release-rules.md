@@ -8,7 +8,7 @@
 - **[退避例外與紅測失敗項](#退避例外與紅測失敗項)**：[NOT_DOING_DECLARED](#not_doing_declared)・[RED_ITEMS_ONLY_FROM_FAILURE_LINES](#red_items_only_from_failure_lines)
 - **[收尾儀式與寫碼查核案例](#收尾儀式與寫碼查核案例)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)・[CASE_COVERS_CHANGE](#case_covers_change)
 - **[已不存在、還原與等同的改檔](#已不存在還原與等同的改檔)**：[GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW](#gone_outside_vcsgone_in_git_nothing_new)・[MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE](#moved_new_code_seengone_unverifiablevcs_root_unreadable)・[EXCLUDED_REGION](#excluded_region)・[NET_UNCHANGED／SNAPSHOT_SETTLED](#net_unchangedsnapshot_settled)・[EXEMPTION_PEERS_CODE_ONLY](#exemption_peers_code_only)・[CONTENT_EQUALS_COMMITTED](#content_equals_committed)・[COMMENT_ONLY_CHANGE](#comment_only_change)
-- **[擋次預算與放行](#擋次預算與放行)**：[BLOCK_BUDGET_SHARED](#block_budget_shared)・[PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)・[GATE_SELF_ERROR](#gate_self_error)・[GATE_DENY_CAP](#gate_deny_cap)・[DENY_CAP_PER_REPLY](#deny_cap_per_reply)・[PICK_ONCE_PER_USER_TURN](#pick_once_per_user_turn)・[PICK_ONE_PRE_CLOSE／PICK_ONE_WITH_TURN_JUDGMENT](#pick_one_pre_closepick_one_with_turn_judgment)
+- **[擋次預算與放行](#擋次預算與放行)**：[BLOCK_BUDGET_SHARED](#block_budget_shared)・[PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)・[GATE_SELF_ERROR](#gate_self_error)・[GATE_DENY_CAP](#gate_deny_cap)・[DENY_CAP_PER_REPLY](#deny_cap_per_reply)・[PICK_ONCE_PER_USER_TURN](#pick_once_per_user_turn)・[PICK_ONE_PRE_CLOSE](#pick_one_pre_close)
 - **[Bash／PowerShell 指令怎麼讀（寫入目標、唯讀、讀檔證據）](#bashpowershell-指令怎麼讀寫入目標唯讀讀檔證據)**：[INLINE_PY_READONLY](#inline_py_readonly)・[UNKNOWN_WRITE_RECOVERED](#unknown_write_recovered)・[INLINE_FLAG_BEFORE_PROGRAM](#inline_flag_before_program)・[SHELL_LITERAL_VAR_EXPANDED](#shell_literal_var_expanded)・[GIT_READONLY_SUBCMD](#git_readonly_subcmd)・[DOT_GIT_PATH_NOT_GIT_CALL／SEGMENTS_SPLIT_LIKE_SHELL／SHELL_KEYWORD_PREFIX_STRIPPED](#dot_git_path_not_git_callsegments_split_like_shellshell_keyword_prefix_stripped)・[DELETE_FORMS_SAME_ACROSS_SHELLS](#delete_forms_same_across_shells)・[UNKNOWN_PART_KEEPS_KNOWN_TARGETS](#unknown_part_keeps_known_targets)・[DIR_TARGET_JUDGED_BY_CONTAINER](#dir_target_judged_by_container)・[GREP_CONTENT_IS_READ／BASH_COMMENT_LINES_STRIPPED](#grep_content_is_readbash_comment_lines_stripped)・[BASH_READONLY_COUNTS_AS_READ](#bash_readonly_counts_as_read)
 - **[同步、執行期資料與暫存目錄](#同步執行期資料與暫存目錄)**：[WORKTREE_NO_PUSH](#worktree_no_push)・[RUNTIME_DATA_NO_OVERVIEW](#runtime_data_no_overview)・[TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT](#temp_repo_commit_exempttemp_copy_not_project)・[SESSION_SCRATCH_NOT_CODE](#session_scratch_not_code)
 - **[紅測與重試](#紅測與重試)**：[RED_WHILE_REVERTED／RETRY_COUNTS_RERUN_CYCLES／GREEN_SAME_CASE_CLEARS](#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears)
@@ -19,7 +19,6 @@
 - **[收據證據](#收據證據)**：[RECEIPT_UNPARSED_GENERAL_ONLY](#receipt_unparsed_general_only)・[CARRIED_CLAIM_ANY_TURN_RECEIPT](#carried_claim_any_turn_receipt)・[LAUNCHER_NOT_CODE](#launcher_not_code)
 - **[收尾提醒與自清](#收尾提醒與自清)**：[RELOAD_ADVICE_ALREADY_LOADED／RELOAD_ADVICE_MCP_EDITS_ONLY](#reload_advice_already_loadedreload_advice_mcp_edits_only)・[LEFTOVER_NEEDS_CLEANUP](#leftover_needs_cleanup)
 - **[退避偵測](#退避偵測)**：[EVASION_CONTEXT_EXEMPT](#evasion_context_exempt)・[DEFERRAL_COVERS_EVASION_SENTENCE](#deferral_covers_evasion_sentence)
-- **[拐彎判斷](#拐彎判斷)**：[TURN_JUDGMENT_REQUIRED](#turn_judgment_required)・[READING_PATH_EARLY_START／TURN_JUDGMENT_PRE_CLOSE](#reading_path_early_startturn_judgment_pre_close)
 - **[重構等值與效能](#重構等值與效能)**：[REFACTOR_NEEDS_EQUIVALENCE](#refactor_needs_equivalence)・[PERF_HOT_PATH_NEEDS_MEASURE](#perf_hot_path_needs_measure)・[EQUIVALENCE_LOOP_EXPANDED](#equivalence_loop_expanded)・[EQUIVALENCE_NA_DECLARED_ALWAYS_LOGGED](#equivalence_na_declared_always_logged)・[NEGATIVE_CONTROL_DECLARED](#negative_control_declared)
 - **[Bash 讀檔判定](#bash-讀檔判定)**：[BASH_UNREACHED_READ_NOT_COUNTED](#bash_unreached_read_not_counted)
 - **[口令閘與驗證批次](#口令閘與驗證批次)**：[COMMIT_ORDER_DECISION_ALWAYS_LOGGED](#commit_order_decision_always_logged)・[VERIFY_FULL_RUN_NEEDS_USER_ORDER／VERIFY_SAME_BATCH_ALREADY_GREEN／VERIFY_BATCH_BLOCK_ONCE_PER_TURN](#verify_full_run_needs_user_orderverify_same_batch_already_greenverify_batch_block_once_per_turn)・[ORDER_UNTIL_PUSH](#order_until_push)・[SVN_TEST_BLOCK_OPT_IN](#svn_test_block_opt_in)
@@ -75,7 +74,7 @@
 **判什麼**：寫碼守門每回合的檢查要不要跑（`wg_core.coding_turn`）
 - **不欠／放行**：
   - 這個使用者回合已經改了程式檔（`wg_code_path.is_code_path`）、或有判不出目標的寫入 → 要跑。
-  - 要跑的檢查：退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳。
+  - 要跑的檢查：退避偵測、退縮閘、收尾檢核、hook 計時帳。
 - **照欠／照擋**：
   - 純問答、只改文件的回合不跑（記憶注入、收割照舊每回合）。
   - prompt 的關鍵字意圖不當開關。
@@ -395,15 +394,14 @@
   - 同一批改動問過，或 AI 自己先寫了那段，也不送。
   - state 沒有 `turn_prompts_seq`（使用者回合退回 turn_seq）時，續跑收尾不重問。
 
-#### PICK_ONE_PRE_CLOSE／PICK_ONE_WITH_TURN_JUDGMENT
+#### PICK_ONE_PRE_CLOSE
 **判什麼**：「點出最該修」在哪裡送
-- 補充：`wg_closing_round.pick_pre_close`、Stop 的 TurnJudgment 段。
+- 補充：`wg_closing_round.pick_pre_close`。
 - **不欠／放行**：
   - 下列兩種批次＝交付邊界（`post_tool_batch._test_green_batch`）：
     - 交收尾檢核（anti_evasion_report）那批。
     - 改過程式之後測試跑綠那批。
   - 該問就附在那批的回應後面，記問過（guard-pick_one via=pre_close）。
-  - Stop 的拐彎判斷擋下時，同一則一起問。
   - 開關 `pick_one.pre_close` 關 → 照舊由 Stop 排在所有閘之後送。
 - **照欠／照擋**：
   - 連鎖警報後只記錄時不送。
@@ -821,7 +819,7 @@
 #### BLOCK_LISTS_LATER_GATES
 **判什麼**：擋下時附哪些「後面還會擋」
 - **不欠／放行**：
-  - 任一道閘經 `_piggyback` 擋下時，照目前狀態依閘序預覽這些：拐彎判斷、知識收割、收尾自清、收尾檢核、同步還欠不欠。
+  - 任一道閘經 `_piggyback` 擋下時，照目前狀態依閘序預覽這些：知識收割、收尾自清、收尾檢核、同步還欠不欠。
   - 欠的附在 `[Guardian:AlsoOwed]` 一段（只報條數、不列檔名），讓模型一回合補齊。
   - 當下這道本身不重複列。
 - **照欠／照擋**：
@@ -970,37 +968,6 @@
 - **照欠／照擋**：
   - 不是同一句的旗標照留
   - 寫碼守門關照舊
-
-### 拐彎判斷
-
-#### TURN_JUDGMENT_REQUIRED
-**判什麼**：到門檻的側面數據每條要 AI 判並寫理由（G11；`wg_reading_path.turn_judgment_note` 收事實，判定 `turn_judgment_verdict`／`parse_turn_judgments`／`judgment_names`）
-- **不欠／放行**：
-  - 沒有條目到 `reading_path.turn_judgment` 門檻
-  - 每一條都有「拐彎判斷｜對象｜存在理由與作用｜理由｜怎麼改直／合理」五欄齊的行：
-    - 「不會」「這一層沒有作用」也要理由
-    - 對象欄只認整名或邊界結尾 `::`／`.`／`/`／`\`／`→`，不認子字串
-  - 答過的條目記名字＋內容指紋（state judged），同名同指紋的不再問
-  - 量完之前又改碼的舊條目只收答案、不提醒
-- **照欠／照擋**：缺任一條或缺欄 →
-  - 寫碼守門開：缺那一行只提醒一次（每個使用者回合最多一次，改碼也不重開），收尾時只留紀錄、不擋，也不列進前面閘擋下時的 [BLOCK_LISTS_LATER_GATES](#block_lists_later_gates) 預覽
-  - 寫碼守門關：不跑
-  - 核對點在寫碼查核之後
-  - 列缺的「<kind> <name>｜<nums>」與缺哪幾欄
-  - Markdown 引言與圍欄程式碼裡的行不算回答
-  - 一批最多問 `max_items` 條，其餘報個數不問
-- **其他語言**：Python 與 C# 以外的語言算不出數字，改到的檔每個算一條（kind `檔案`），請 AI 自己讀過後判；同一套五欄核對，指紋比整檔文字
-
-#### READING_PATH_EARLY_START／TURN_JUDGMENT_PRE_CLOSE
-**判什麼**：拐彎判斷的量測何時起跑、結果何時送（`wg_reading_path.early_start`／`take_early_note`、`wg_closing_round.turn_judgment_pre_close`）
-- **不欠／放行**：
-  - 每批工具跑完看本回合改過的程式檔指紋（只 stat），變了就照收尾那套交背景量
-  - 量完的結果先存著，交收尾檢核那批附上
-  - 取走後 Stop 不再送；Stop 收到新的一批只送新的
-  - 開關 `reading_path.early_start` 關 → 照舊在收尾起跑
-- **照欠／照擋**：
-  - 還有一批在量（量完前又改了碼）不附，留給 Stop
-  - 欠項照 [TURN_JUDGMENT_REQUIRED](#turn_judgment_required) 由 Stop 核對
 
 ### 重構等值與效能
 

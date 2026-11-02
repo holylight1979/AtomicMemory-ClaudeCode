@@ -406,7 +406,7 @@ def stop_run(world, monkeypatch, capsys):
                      ("detect_evasion", lambda *a, **k: None), ("write_state", lambda *a, **k: None),
                      ("_attribute_usefulness", lambda *a, **k: None), ("_detect_uncommitted_files", lambda mf: []),
                      ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {})),
-                     ("_should_deep_postmortem", lambda *a, **k: False), ("reading_path_note", lambda *a, **k: ("", False)),
+                     ("_should_deep_postmortem", lambda *a, **k: False),
                      ("append_guard_log", lambda guard, payload: logs.append((guard, payload)))):
         monkeypatch.setattr(st, name, fn)
     monkeypatch.setattr(wh, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))   # 問過的帳在 wh.pick_ask 記

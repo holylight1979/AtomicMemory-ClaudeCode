@@ -397,7 +397,7 @@ def test_stop_hook_feedback_is_not_a_turn_boundary():
     """Claude Code 把 Stop hook 的擋訊息寫成 user 紀錄「Stop hook feedback:…」：不是使用者打字，不是回合起點
     （第二意見閘與退避預告切點共用這個判定；C-1 被別的閘擋一次，已跑完的第二意見就被切掉）。"""
     from wg_evasion import is_turn_start
-    fb = "Stop hook feedback:\n[Guardian:ReadingPath] ✗ (t) TURN_JUDGMENT_REQUIRED：側面數據到門檻"
+    fb = "Stop hook feedback:\n[Guardian:ReconcileGate] ✗ (d) CASE_COVERS_CHANGE：改了程式沒有案例"
     rec = lambda content, meta: {"type": "user", "isMeta": meta, "message": {"role": "user", "content": content}}  # noqa: E731
     assert is_turn_start(rec(fb, True)) is False
     assert is_turn_start(rec([{"type": "text", "text": fb}], True)) is False

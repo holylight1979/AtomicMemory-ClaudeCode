@@ -130,7 +130,7 @@ RULES: Dict[str, str] = {
                                  "來源→文件加記下的時間（解決後又漂移算新的）。擋過的記在 state.sync_block_shown（項目 → 第一次擋的回合記號＝開場時間＋"
                                  "使用者回合序號，開場重建 state 回合序號從頭算也不撞；只留還欠的），重建時連同同步提醒次數一起照搬；「還會擋」預覽用同一個判定，收尾檢核 (g) 已交代只免同步提醒、不免這段。"
                                  "判法在 handlers/stop.py 的 _sync_block_keys／_sync_block_items。",
-    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（拐彎判斷、知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
+    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
                                "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
                                "判法在 handlers/stop.py 的 _later_gates。",
     "RUNTIME_DATA_NO_OVERVIEW": "路徑被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
@@ -171,7 +171,7 @@ RULES: Dict[str, str] = {
                                    "兩邊都用解析後的目標比。認不出測試子命令＝判不出目標（舊條目 cmd 剛好 200 字也算）：不拿片段當路徑、留帳"
                                    " guard-testfail_scope，只認原樣重跑或列得出名字的紅被跑到；擋訊息（handlers/stop._rerun_scope）對看不出是哪一支的紅"
                                    "列出解析出的每段照抄重跑，判不出或太長就給「原指令完整照跑或跑整套」。",
-    "CODING_TURN_ONLY": "寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、閱讀路徑、hook 計時帳）只在寫碼回合跑"
+    "CODING_TURN_ONLY": "寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、hook 計時帳）只在寫碼回合跑"
                         "（wg_core.coding_turn）：這個使用者回合已經改了程式檔或有判不出目標的寫入；"
                         "prompt 的關鍵字意圖不當開關。寫碼守門關時也跑的處理（記憶注入、收割）照舊每回合跑；coding_guard.coding_turn_only=false 退回每回合都跑。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
@@ -2200,86 +2200,6 @@ RULES.update({
                                         "換句話說的同一件程式不判，交 ①；"
                                         "PickOne 問句列出本 session 還開著的項目。",
 })
-# ─── G11 拐彎判斷（程式只算側面數據、只核對五欄齊；這一層有沒有作用、會不會讓人拐超過三個彎由 AI 判並寫理由。事實由 wg_reading_path 收，這裡判結構） ───
-RULES.update({
-    "TURN_JUDGMENT_REQUIRED": "收尾附的側面數據（入口拐彎數、函式巢狀深度、各自巢狀的條件區塊數、連續轉手鏈、繼承鏈層數與空層）到了"
-                              " reading_path.turn_judgment 的門檻（預設 拐彎 ≥2／巢狀 ≥3／條件塊 ≥2／轉手鏈 ≥2／繼承 ≥3 層或有空層；"
-                              "這是「從第幾個彎起要人看」的事實門檻，不是判臭）的每一條，收尾文字都要有一行"
-                              "「拐彎判斷｜<函式、類別或入口>｜<這一層／這個彎存在的理由與有沒有作用>｜<理由>｜<怎麼改直／合理，因為…>」"
-                              "五欄齊（「不會」「這一層沒有作用」都要理由）；缺 → 寫碼守門開：只提醒一次並列缺的那幾條與填好名字的範例行，"
-                              "收尾時只留紀錄、不擋；寫碼守門關：不跑；"
-                              "齊 → 放行、guard-reading_path.jsonl 記 judged。程式不評內容；量不出（不可評級）只列不問；"
-                              "Python 與 C# 以外的語言算不出數字，改到的檔每個算一條、請 AI 自己讀過後判（指紋比整檔文字）；"
-                              "一批最多問 max_items 條（預設 8，到門檻的優先、其餘報個數不問）；對象欄只認整名或邊界結尾，不認子字串；"
-                              "Markdown 引言與圍欄程式碼裡的行不算回答。答過的條目記名字＋內容指紋，同名同指紋不再問；"
-                              "量完前又改碼的舊條目只收答案、不提醒；每個使用者回合最多提醒一次。",
-})
-
-JUDGMENT_COLUMNS = ("對象（函式、類別或入口）", "這一層／這個彎存在的理由、有沒有真正的作用（不會／會：第 N 個彎在…／這一層沒有作用，因為…）",
-                    "理由", "怎麼改直／合理，因為…")
-JUDGMENT_EXAMPLE = "拐彎判斷｜{name}｜<不會／會：第 N 個彎在…／這一層沒有作用，因為…>｜<理由>｜<怎麼改直／合理，因為…>"
-# 行首（可帶清單記號）才算回答：Markdown 引言（> …）與圍欄程式碼裡引用上一版的行不算
-_JUDGMENT_RE = lazy_re(r"^\s*(?:[-*•]\s*|\d+[.)]\s*)?拐彎判斷\s*[｜|]\s*(.+)")
-_FENCE_RE = lazy_re(r"^\s*(```|~~~)")
-_COL_SPLIT_RE = lazy_re(r"\s*[｜|]\s*")
-_NAME_BOUNDARY = ("::", ".", "/", "\\", "→")
-
-
-def parse_turn_judgments(text: str) -> List[Dict[str, Any]]:
-    """收尾文字裡的拐彎判斷行 → [{target, verdict, reason, fix, missing: [缺的欄名], line}]。五欄用｜隔開；超過五段的尾段併回最後一欄。
-    只查每欄有沒有填（有文字、不是擋訊息範例的角括號佔位），不評內容。"""
-    out: List[Dict[str, Any]] = []
-    fenced = False
-    for raw in str(text or "").splitlines():
-        if _FENCE_RE.match(raw):
-            fenced = not fenced
-            continue
-        m = None if fenced else _JUDGMENT_RE.match(raw)
-        if not m:
-            continue
-        parts = [p.strip() for p in _COL_SPLIT_RE.split(m.group(1))]
-        if len(parts) > 4:
-            parts = parts[:3] + ["｜".join(parts[3:])]
-        parts += [""] * (4 - len(parts))
-        target, verdict, reason, fix = parts
-        filled = (reason_present(target), reason_present(verdict), reason_present(reason), reason_present(fix))
-        out.append({"target": target, "verdict": verdict, "reason": reason, "fix": fix,
-                    "missing": [col for col, ok in zip(JUDGMENT_COLUMNS, filled) if not ok], "line": raw.strip()[:240]})
-    return out
-
-
-def judgment_names(target: str, keys: Sequence[str]) -> bool:
-    """判斷行的對象欄指得到這一條數據：對象（去空白、不分大小寫）等於某個鍵，或以「<邊界>鍵」結尾（邊界＝::、.、/、\\、→，
-    例：hooks/y.py::b 對 y.py::b、Cls.m 對 m）。不做子字串比對：y.py::load_config 對不到 y.py::load。
-    鍵＝函式限定名、檔::名、入口與落點的寫法；同名不同檔的短名會同時對到（程式只核對結構，不猜是哪個）。"""
-    t = _nows(target).replace("`", "").replace("**", "")     # AI 常把對象名包在 Markdown 反引號或粗體裡，比對前剝掉
-    if len(t) < 2:
-        return False
-    for k in keys or ():
-        kn = _nows(k).replace("`", "").replace("**", "")
-        if len(kn) >= 2 and (t == kn or any(t.endswith(b + kn) for b in _NAME_BOUNDARY)):
-            return True
-    return False
-
-
-def turn_judgment_verdict(items: Sequence[Dict[str, Any]], judgments: Sequence[Dict[str, Any]]) -> Verdict:
-    """TURN_JUDGMENT_REQUIRED：items＝到門檻的數據 [{kind, name, keys, nums}]；judgments＝parse_turn_judgments 的結果。
-    owed＝有任一條沒有五欄齊的對應行。evidence：缺的每條「<kind> <name>｜<nums>」；對到但缺欄的行另列缺哪幾欄。"""
-    missing: List[str] = []
-    partial: List[str] = []
-    covered: List[str] = []
-    for it in items:
-        hits = [j for j in judgments if judgment_names(j["target"], it.get("keys") or [it["name"]])]
-        if any(not j["missing"] for j in hits):
-            covered.append(f"{it['kind']} {it['name']}")
-            continue
-        missing.append(f"{it['kind']} {it['name']}｜{it.get('nums', '')}")
-        partial += [f"「{j['line'][:120]}」缺「{'」「'.join(j['missing'])}」欄" for j in hits]
-    if not missing:
-        return Verdict("TURN_JUDGMENT_REQUIRED", False, f"到門檻的 {len(items)} 條都有五欄齊的拐彎判斷行", tuple(covered))
-    return Verdict("TURN_JUDGMENT_REQUIRED", True,
-                   f"側面數據到門檻的 {len(items)} 條裡 {len(missing)} 條沒有五欄齊的「拐彎判斷｜」行（程式只核對五欄，不評內容）",
-                   tuple(missing + partial))
 # ─── G7 等值與熱路徑 ───
 # 重構意圖收尾要有等值證法三類收據（或附理由的不適用宣告），熱路徑答「是」要有量測收據。事實（意圖、改檔、收據、收尾文字）
 # 由 handlers/stop.py 的 Equivalence Gate 收，這裡只判；判斷（適不適用、是不是熱路徑、量法）交 AI 宣告並附理由，程式只核對有沒有答、
@@ -2472,22 +2392,13 @@ RULES.update({
 })
 
 
-# ─── 收尾只跑一輪（事實與時點在 hooks/wg_closing_round.py、wg_reading_path.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
+# ─── 收尾只跑一輪（事實與時點在 hooks/wg_closing_round.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
 RULES.update({
-    "READING_PATH_EARLY_START": "拐彎判斷的背景量測改完程式就起跑，不等第一次收尾：每批工具跑完（PostToolBatch）看本回合改過的程式檔"
-                                "指紋（修改時間、大小，只 stat 不起 git），變了就照收尾那套交背景量（量測中又改了先記 pending、同一批不重量）；"
-                                "量完的結果先存著（wg_reading_path.early_start、EARLY_NOTE），由收尾前的附著點或 Stop 送一次，"
-                                "Stop 收到新的一批就只送新的。開關 reading_path.early_start（缺＝開）；關了照舊在收尾起跑。",
-    "TURN_JUDGMENT_PRE_CLOSE": "交收尾檢核（anti_evasion_report）或知識收割回報（knowledge_harvest_report）那批＝收尾前最後一個工具回應：先存著的拐彎判斷結果（到門檻的條目＋那一題）"
-                               "附在那批的回應後面（wg_closing_round.turn_judgment_pre_close），取走後 Stop 不再送；還有一批在量（量完前又改了碼）"
-                               "就不附，留給 Stop。欠項照舊由 Stop 的 TURN_JUDGMENT_REQUIRED 核對收尾文字（不放寬、不改擋次）。",
     "PICK_ONE_PRE_CLOSE": "交付邊界那批就附「順手看到最該修」：本 session 改過程式之後測試跑綠的那批（post_tool_batch.closing_reminders 判綠，與其他收尾提醒"
                           "同一條路；guard-pick_one via=test_green），或交收尾檢核／知識收割回報那批（via=pre_close）。該問的判法同 Stop"
                           "（上次問過或記過之後又改了程式、這個使用者回合還沒問過，連鎖警報後只記錄時不送），問句與記問過同一段（wg_harvest.pick_ask）；"
                           "Stop 的 pick_due 看到問過就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；沒跑測試也沒交收尾檢核就收尾、"
                           "或開關關 → 照舊由 Stop 判（寫碼守門下只留帳）。",
-    "PICK_ONE_WITH_TURN_JUDGMENT": "Stop 的拐彎判斷擋下時，「順手看到最該修」該問就接在同一則擋訊息後面一起問（記問過）：補一次就兩件都寫，"
-                                   "不再擋完又另讓對話續跑一輪。跟 PICK_ONE_PRE_CLOSE 同一個開關。",
 })
 
 # ─── 收尾一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、wg_closing_round.closing_call，這裡只登錄規則名與說明） ───
@@ -2595,13 +2506,11 @@ REMIND_LINE_CAP = 240
 # Stop 原本會擋、寫碼守門開時改成提醒的規則：說明文字補一句現況（判定與原文不動；送法見 GATE_MODE_TABLE／STOP_REMIND_LEDGER_ONLY）
 for _name in ("CASE_COVERS_CHANGE", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC",
               "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE", "AEC_EVIDENCE_PATH", "AEC_FOLLOWUPS_EMPTY",
-              "TURN_JUDGMENT_REQUIRED",
               "REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE", "LEFTOVER_NEEDS_CLEANUP", "RELOAD_ADVICE_ALREADY_LOADED",
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
               "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE"):
-    _off = "寫碼守門關不跑。" if _name == "TURN_JUDGMENT_REQUIRED" else "寫碼守門關照舊擋。"   # 拐彎判斷：守門關時 Stop 根本不核對
-    RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；" + _off
+    RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
 
 def mode_of(rule: str) -> str:
     """規則 GATE_MODE_TABLE：這條規則照擋還是提醒；表上沒登的當 block（沒分類前行為不變）。"""

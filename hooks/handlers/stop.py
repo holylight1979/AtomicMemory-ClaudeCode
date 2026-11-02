@@ -5,8 +5,6 @@ handlers/stop.py — Stop hook handler
 1. Test-Fail Gate（測試未綠 + 宣告完成 → 擋；寫碼守門開或關同一套，不看擋次預算）
 1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）；
     獨立預算 reconcile_gate.max_blocks_per_turn
-1c. TurnJudgment Gate（G11：背景量完到門檻的側面數據要有「拐彎判斷｜」五欄行；寫碼守門開：缺那一行只提醒一次，收尾時只留紀錄、不擋；
-    寫碼守門關：不跑）
 1e. Equivalence Gate（G7：重構／效能意圖、本回合改過程式檔、宣告完成 → 等值證法三類與熱路徑一問；自己的預算，擋滿問使用者）
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
 3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
@@ -41,7 +39,7 @@ from wg_core import (
     append_guard_log, WORKFLOW_DIR, _atom_debug_error, v6_enabled, coding_turn,
 )
 import wg_core as _core
-from wg_release_rules import JUDGMENT_EXAMPLE, in_turn, turn_start, user_turn as _user_turn
+from wg_release_rules import in_turn, turn_start, user_turn as _user_turn
 from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
@@ -73,7 +71,6 @@ from wg_lazy_re import lazy_module
 # 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關、子代理收尾、或這次收尾走不到那道閘，就一行都不載
 chain_store = lazy_module("chain_store")   # 連鎖斷路器的帳、快照、還原（lib/；判定在 hooks/wg_chain.py）
 _rel = lazy_module("wg_release")           # 擋滿放行：放行題、待放行紀錄
-_rp = lazy_module("wg_reading_path")       # 閱讀路徑、拐彎判斷
 _cr = lazy_module("wg_closing_round")      # 收尾只問一次「最該修」
 
 
@@ -86,12 +83,6 @@ def non_interactive_reason(*a: Any, **k: Any) -> Any:
     return _rel.non_interactive_reason(*a, **k)
 
 
-def reading_path_note(*a: Any, **k: Any) -> Any:
-    return _rp.reading_path_note(*a, **k)
-
-
-def turn_judgment_note(*a: Any, **k: Any) -> Any:
-    return _rp.turn_judgment_note(*a, **k)
 
 
 from wg_hook_timing import lap as _hook_lap, quiet as _hook_quiet
@@ -1667,15 +1658,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
-    # 閱讀路徑影響（G12）：改碼回合交給背景量、這次不等；量完的結果之後的收尾附一次在擋的訊息與 stderr。只量不擋、不計預算（wg_reading_path）
-    try:
-        _reading_path, _rp_changed = reading_path_note(state, session_id, config) if v6 and coding_turn(state, config) else ("", False)
-    except Exception as e:  # noqa: BLE001
-        _reading_path, _rp_changed = f"[Guardian:ReadingPath] 閱讀路徑量測出錯：hook 內部錯誤 {type(e).__name__}: {e}", False
-    if _reading_path:
-        print(_reading_path, file=sys.stderr)
-    if _reading_path or _rp_changed:
-        write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
 
@@ -1683,13 +1665,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _unsynced_memo: List[Any] = []
 
     def _piggyback(reason: str, gate: Optional[str] = None, items: Optional[List[str]] = None) -> str:
-        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳閘＝"reconcile"）就記這個閘最後一次擋的位置；
+        """附後面還會擋的閘／token 預警／驗收提示。gate 有給（對帳閘＝"reconcile"）就記這個閘最後一次擋的位置；
         那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。
-        閱讀路徑結果：這次擋的是拐彎判斷 → 尾段拿掉那一題（擋訊息自己已經問了，同一則只出現一次；目前 RULE_MODE 表上拐彎判斷是提醒，
-        這一支走不到，表上改一格成擋就會用到）；別的閘擋 → 附原文（拐彎判斷只提醒、或這回合擋過改由別的閘擋時，尾段是這一則唯一
-        看得到那一題的地方）。
         items＝這次列給使用者看的那幾件（沒給就照擋訊息取 release_items）：使用者之後放行只放這幾件。"""
-        rp_tail = _rp.without_judgment_prompt(_reading_path) if "TURN_JUDGMENT_REQUIRED" in reason else _reading_path
         if gate:
             _rel.mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)),
                             items if items is not None else _rel.release_items(reason))
@@ -1707,13 +1685,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _accept_hint:
             state["acceptance_hint_emitted"] = True
             reason = reason + _accept_hint
-        if rp_tail:
-            reason = f"{reason}\n{rp_tail}"
         if gate:
             write_state(session_id, state)
         return reason
 
-    if _timed_out("token 預警與閱讀路徑"):
+    if _timed_out("token 預警"):
         return
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
@@ -1725,7 +1701,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         m for m in mod_files_all
         if (m or {}).get("session_id", session_id) == session_id
     ]
-    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核、閱讀路徑只在寫碼回合跑（收割、收割待補照舊每回合）；
+    # 規則 CODING_TURN_ONLY：退避偵測、退縮閘、收尾檢核只在寫碼回合跑（收割、收割待補照舊每回合）；
     # 本 session 前幾回合改過程式、這則宣告完成也算（改碼已經發生過，收尾照查）
     _coding = v6 and (coding_turn(state, config) or (_done(last_text) and _wrote_code(own_mod_files, config)))
     if not _coding:
@@ -1781,17 +1757,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return _cleanup_memo[0]
 
     def _later_gates(reason: str, names: Optional[List[str]] = None) -> str:
-        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（拐彎判斷、知識收割、收尾自清、
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態依閘序預覽後面還會擋的閘（知識收割、收尾自清、
         收尾檢核、同步），讓模型一回合
         補齊，不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。
         names 有給就補上預覽裡的閘名（連鎖斷路器用：預覽裡的閘之後擋下，不算這道閘之後的動作造成的）。"""
         later: List[Tuple[Tuple[str, ...], str]] = []
-        _tj_missing = _rp.turn_judgment_missing(state, session_id, code_text, _user_turn(state, turn_seq)) \
-            if "TURN_JUDGMENT_REQUIRED" not in reason else []
-        if _tj_missing:
-            later.append((("TurnJudgment",),
-                          f"拐彎判斷：缺 {len(_tj_missing)} 條，收尾每條寫一行「{JUDGMENT_EXAMPLE.format(name='<名稱>')}」",
-                          "TURN_JUDGMENT_REQUIRED"))
         if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
                 state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq),
                 claimed=_done(last_text)):
@@ -2065,41 +2035,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
 
     if _timed_out("寫碼查核"):
-        return
-
-    # ── TurnJudgment Gate（G11）──────────────────────────────────
-    # 規則 TURN_JUDGMENT_REQUIRED（判定在 wg_release_rules 的 G11 段，核對與留帳在 wg_reading_path.turn_judgment_note）：背景量完附的
-    # 「到門檻的側面數據＋那一題」要有對應的「拐彎判斷｜」五欄行。拐彎判斷是收尾的輔助視角，排在寫碼查核（對帳）之後、與 G9／G7 同序。
-    # 寫碼守門開：缺那一行只提醒一次（每個使用者回合一次），收尾時只留紀錄（_remind_logged）、不擋；寫碼守門關：不跑。齊 → 留帳 judged。
-    # 下面 _chain_hold 與「if _turn_block:」擋下那段：目前 RULE_MODE 表上這條是提醒，走不到；表上改一格成擋就會用到（不吃 stop_gate_max_blocks）。
-    # 程式只核對五欄不評內容；判不了不擋，浮 stderr。
-    _tj_prev = ((state.get("reading_path") or {}).get(session_id) or {}).get("blocked_turn")
-    try:
-        _turn_block, _tj_changed = turn_judgment_note(state, session_id, code_text, _since, turn_seq) if v6 else (None, False)
-    except Exception as e:  # noqa: BLE001
-        _turn_block, _tj_changed = None, False
-        print(f"[Guardian:ReadingPath] 拐彎判斷核對出錯（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
-    if _turn_block and _gate_mode("TURN_JUDGMENT_REQUIRED", v6) == _REMIND:
-        _remind_logged("reading_path", "TurnJudgment", "TURN_JUDGMENT_REQUIRED", _turn_block, session_id, turn_seq)
-        _turn_block = None                      # 一回合一次的記號（blocked_turn）照記，state 由下面 _tj_changed 寫回
-    if _turn_block and _chain_hold("TurnJudgment", _turn_block):
-        _unmark((state.get("reading_path") or {}).get(session_id), "blocked_turn", _tj_prev)
-        _turn_block = None
-    if _turn_block:
-        reason = _piggyback(_turn_block)
-        # 規則 PICK_ONE_WITH_TURN_JUDGMENT：拐彎判斷擋下時「順手看到最該修」該問就同一則一起問（記問過），補一次就兩件都寫，
-        # 不再另讓對話續跑一輪（開關 pick_one.pre_close；關了照舊排在所有閘之後另送）
-        _tj_pick = (v6 and not _chain_ro[0] and _cr.pick_pre_close_on(config) and _pick_one_prompt(
-            state, session_id, own_mod_files, _pick_boundary, config, cwd, continuation=bool(input_data.get("stop_hook_active"))))
-        if _tj_pick:
-            reason = f"{reason}\n{_tj_pick}"
-        write_state(session_id, state)          # 記擋的回合（blocked_turn）、_piggyback 標的一次性旗標與最該修問過
-        output_block(reason)
-        return
-    if _tj_changed:
-        write_state(session_id, state)
-
-    if _timed_out("拐彎判斷"):
         return
 
     # ── Equivalence Gate（G7）──

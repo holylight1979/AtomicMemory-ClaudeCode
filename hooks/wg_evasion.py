@@ -843,7 +843,7 @@ _COMPLETION_NEG_RE = lazy_re(r"(?:還沒|還未|尚未|尚待|未|沒有?)[^，�
 def turn_completion_text(transcript_text: str) -> str:
     """本回合宣告完成的那一則文字；沒宣告回空字串。最後一則有完成詞或狀態詞（排除詞：還沒、進行中、等待…）→ 照它（claims_completion）；
     完全沒提 → 往前看：說過完成、之後沒有明說沒完成，就是最後說完成的那一則。別的閘擋下後的補件回覆常只補那道閘要的行、不再重說完成，
-    只看最後一則會被補件那則蓋掉（例：說「做完了」→ ReadingPath 擋 → 補件只寫拐彎判斷 → 後面的收尾閘一次都沒擋）。
+    只看最後一則會被補件那則蓋掉（例：說「做完了」→ 某道閘擋 → 補件只寫那道閘要的行 → 後面的收尾閘一次都沒擋）。
     往前看的每一則跟最後一則同一套判法：這則宣告完成（claims_completion，逐句看）就記它；沒宣告、又明說沒完成才清掉
     （規則 COMPLETION_CLAIM_PER_SENTENCE：「我還沒動git：完成的三件…。全部做完了」是宣告完成，開頭那句的否定不清掉它）。"""
     texts = turn_texts(transcript_text)
@@ -958,7 +958,7 @@ def get_current_turn_visible_text(
     transcript_path: Optional[Path], *, max_chars: int = 12000,
     text: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    """擷取「本 turn」使用者可見文字 + turn 診斷 probe（handlers/stop.py 收尾閘用：拐彎／截錄否決看可見文字，
+    """擷取「本 turn」使用者可見文字 + turn 診斷 probe（handlers/stop.py 收尾閘用：截錄否決看可見文字，
     說修好的閘看 probe 的 turn_tool_names）。
 
     與 get_current_turn_text 的差異：只收 assistant 的 type=="text" block——

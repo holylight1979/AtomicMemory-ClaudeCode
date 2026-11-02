@@ -1294,7 +1294,7 @@ _MERGE_MANUAL_INSTALL = "手動 python ~/.claude/tools/merge-atom-index.py --ins
 
 
 def _hook_python_exe() -> str:
-    """子行程直譯器（本體在 wg_core.hook_python_exe，與 wg_reading_path 共用）：hook 在 pythonw.exe 下跑就改用同目錄 python.exe。"""
+    """子行程直譯器（本體在 wg_core.hook_python_exe）：hook 在 pythonw.exe 下跑就改用同目錄 python.exe。"""
     from wg_core import hook_python_exe
     return hook_python_exe()
 

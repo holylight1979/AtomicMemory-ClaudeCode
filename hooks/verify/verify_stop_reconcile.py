@@ -3558,7 +3558,7 @@ def _turn_transcript(tmp_path, *assistant_texts):
     for k, t in enumerate(assistant_texts):
         if k:
             recs.append({"type": "user", "isMeta": True,
-                         "message": {"role": "user", "content": "Stop hook feedback:\n[Guardian:ReadingPath] 拐彎判斷要答"}})
+                         "message": {"role": "user", "content": "Stop hook feedback:\n[Guardian:ReconcileGate] 欠案例要補"}})
         recs.append({"type": "assistant", "message": {"content": [{"type": "text", "text": t}]}})
     tp = tmp_path / "turn.jsonl"
     tp.write_text("".join(_json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
@@ -3572,7 +3572,7 @@ def test_004_patch_reply_without_completion_still_counts_the_turn_claim(driven, 
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: claimed.append(k.get("claimed")))
     red = [{"cmd": "python -m pytest verify_a.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}]
     patch = _turn_transcript(tmp_path, "報表改好了，全部完成。",
-                             "拐彎判斷｜report.py::monthly｜不會｜只有一層｜合理，因為直線算完就回")
+                             "case_for｜report.py：verify_report.py")
     out, _, _ = driven(None, capsys, hook_input={"transcript_path": patch}, failing_tests=red, modified_files=[_mf(_CASE, 5)])
     assert "[Guardian:TestFailGate]" not in out and claimed and set(claimed) == {True}, (claimed, out[:300])
     undone = _turn_transcript(tmp_path, "報表改好了，全部完成。", "verify_a 還是紅的，這件還沒完成，我在查原因。")
@@ -3716,83 +3716,6 @@ def test_044_6_subagent_pass_spanning_user_turns_counts(sub_stop, capsys):
     s["verify_receipts"] = {key: []}                                                        # 配對：子代理沒有 PASS → 照擋
     out, _ = sub_stop(capsys, s, last="x.py 修好了，全部完成了。")
     assert _A_HIT in out
-
-
-# ─── g12w：收尾檢核附「這次對閱讀路徑的影響」（真 Stop 入口） ───────────────────────────────
-
-import wg_reading_path as rph  # noqa: E402
-
-_RP_BODY = "def {0}(n):\n    k = n + 1\n    k *= 2\n    return k\n"
-_RP_APP = {"app.py": "from x import a\nfrom y import b\n\n\ndef main():\n    n = a(1)\n    n += b(2)\n    return n\n\n\n"
-                     'if __name__ == "__main__":\n    main()\n',
-           "x.py": _RP_BODY.format("a"), "y.py": _RP_BODY.format("b"), "notes.md": "# n\n", "todo.md": "# t\n"}
-
-
-def _rp_repo(repo: Path, monkeypatch, jobs: Path, worker_run=subprocess.run) -> Path:
-    """真 git 夾具；背景量測換成同行程直接跑完（照寫結果檔），工作檔放受測目錄外（git 錄製重播只比對受測目錄）。"""
-    def spawn(path):
-        job = json.loads(Path(path).read_text(encoding="utf-8"))
-        rph.write_result(Path(job["out"]), rph.run_job(job, run=worker_run))
-
-    monkeypatch.setattr(rph, "JOB_DIR", jobs)
-    monkeypatch.setattr(rph, "_spawn_worker", spawn)
-    repo.mkdir(parents=True)
-    for rel, text in _RP_APP.items():
-        (repo / rel).write_text(text, encoding="utf-8", newline="\n")
-    _git(repo, "init", "-q")
-    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "add", ".")
-    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
-    return repo
-
-
-def test_g12w_code_turn_hands_off_then_the_next_stop_appends_reading_path(driven, capsys, tmp_path, tmp_path_factory,
-                                                                         monkeypatch):
-    """改碼回合：真 Stop 入口只把量測交給背景、這次擋的訊息不附；背景量完，下一次收尾在擋的訊息後附「改動對閱讀路徑的影響」：
-    比較尾行、可評級與否、變差／新增最差一條。附段落本身不擋、不吃 stop_blocked_count；量過的輸入記在 state["reading_path"][sid]。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"))
-    (repo / "y.py").write_text("from z import c\n\n\ndef b(n):\n    return c(n)\n", encoding="utf-8", newline="\n")
-    (repo / "z.py").write_text(_RP_BODY.format("c"), encoding="utf-8", newline="\n")
-    _git(repo, "add", "z.py")
-    mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "z.py"), 5)]
-    out, state, _ = driven("全部完成了。", capsys, modified_files=mods)
-    assert "ReadingPath" not in json.loads(out)["reason"] and state["reading_path"][_SID]["job"], "交給背景量的那次不附"
-    out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
-    reason = json.loads(out)["reason"]
-    assert "[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完" in reason, reason[-800:]
-    assert "READING_PATH DONE mode=compare" in reason and "可評級：" in reason and "[新增]" in reason and "z.py::c" in reason
-    assert state["stop_blocked_count"] == 0 and state["reading_path"][_SID]["key"] and "job" not in state["reading_path"][_SID]
-
-
-def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
-    """沒改程式碼的回合不附：這回合只改 .md（照樣被一般收尾擋），或程式檔是前幾回合改的。
-    前置：兩個 .md 真的改了、還沒 commit（已同步的檔照 SYNC_BLOCK_SKIPS_SYNCED 不擋，就驗不到「照樣被擋卻不附」）。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"))
-    for name in ("notes.md", "todo.md"):
-        (repo / name).write_text("# 改了\n", encoding="utf-8", newline="\n")
-    docs = [_mf(str(repo / "notes.md"), 5), _mf(str(repo / "todo.md"), 5)]
-    out, state, _ = driven("接著看下一段。", capsys, modified_files=docs)
-    assert "Workflow Guardian" in state["_err"] and "ReadingPath" not in out and "reading_path" not in state
-    out, st2, _ = driven("接著看下一段。", capsys, modified_files=docs + [_mf(str(repo / "y.py"), 3)])
-    assert "Workflow Guardian" in out + st2["_err"] and "ReadingPath" not in out
-
-
-def test_g12w_timeout_appends_the_reason_without_a_manual_command(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
-    """量尺在背景預算內量不完：下一次收尾只附原因、不附手動指令（模型會接單去跑），照樣不擋（擋的是原本的閘）。
-    逾時用假的 run 丟 TimeoutExpired，不真的等。"""
-    def tool_times_out(args, **kw):
-        if str(rph.TOOL) in args:
-            raise subprocess.TimeoutExpired(args, kw.get("timeout"))
-        return subprocess.run(args, **kw)
-
-    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"), worker_run=tool_times_out)
-    (repo / "y.py").write_text(_RP_BODY.format("b") + "\n", encoding="utf-8", newline="\n")
-    mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)]
-    _, state, _ = driven("全部完成了。", capsys, modified_files=mods)
-    out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
-    # 規則 remind_only_over_threshold：量不出來的原因不再送給模型（只留帳 under_threshold）；不擋、不給手動指令
-    reason = json.loads(out)["reason"] if out.strip() else ""
-    assert "[Guardian:ReadingPath]" not in reason and "手動" not in reason and "--before" not in reason
-    assert state["stop_blocked_count"] == 0
 
 
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的端到端案（真 git repo） ═══════════════════════════════

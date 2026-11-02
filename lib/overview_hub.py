@@ -40,8 +40,6 @@ _EMPTY_EXTRA: Dict[str, Any] = {
     "defects_doc": "", "measure": {}, "checkers": [], "sample_paths": "", "extra_q": "",
     "layer": "", "authority": "", "upstream": "", "downstream": "", "kind": KIND_CODE,
 }
-# 「層」欄裡的閱讀路徑層號（tools/reading-path.py 的宣告層次軸）；由程式依路徑推，R5 不要求根因層那行寫它
-LAYER_AXIS_RE = re.compile(r"第\s*(\d+)\s*層")
 _MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
 _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
 # bypass 模式下讀檔走 Bash：讀檔指令開頭；參數到本段結束（; | & ) 換行）為止，一段裡的每個路徑參數都算 Read
@@ -308,12 +306,6 @@ def unread_rows_note(map_path: Path) -> Optional[str]:
         return None
     return (f"部位表 {map_path} 有 {len(rows)} 列的路徑前綴沒用反引號包（或是沒有 / 的根目錄單檔），整列沒被讀到，"
             f"那幾個部位的病灶清單、導讀卡、類別都不生效：{rows[0][:80]}；前綴寫成 `notify/` 這樣才認得")
-
-
-def layer_number(row: Optional[Dict[str, Any]]) -> Optional[int]:
-    """「層」欄恰好一個「第 N 層」→ N（閱讀路徑層次軸的層號）；沒有（例：單層）或不只一個 → None（沒宣告）。"""
-    found = LAYER_AXIS_RE.findall((row or {}).get("layer") or "")
-    return int(found[0]) if len(found) == 1 else None
 
 
 # ─── 命中 ───────────────────────────────────────────────────────────

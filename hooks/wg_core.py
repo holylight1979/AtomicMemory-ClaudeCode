@@ -230,7 +230,7 @@ def coding_turn(state: Optional[Dict[str, Any]], config: Optional[Dict[str, Any]
     （Edit／Write／NotebookEdit 或 Bash／PowerShell 寫進程式檔：modified_files 有一筆，程式照 wg_code_path.is_code_path 判，
     .bat／.cmd 也算；只改文件不算），或判不出寫入目標的指令（unknown_writes，不知道寫了什麼，保守算）。
     使用者 prompt 的關鍵字分類（turn_intent）不當開關：只決定記憶選片，與讀到資料檔時要不要提早送宣告提示。
-    寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核、閱讀路徑）只在寫碼回合啟動；寫碼守門關時也跑的
+    寫碼守門的每回合守門（退避偵測、退縮閘、收尾檢核）只在寫碼回合啟動；寫碼守門關時也跑的
     處理（記憶注入、收割、vcs-sync、語言守門）照舊每回合跑。config coding_guard.coding_turn_only=false 退回每回合都啟動。"""
     st = state or {}
     if coding_guard_opt(config, "coding_turn_only", True) is False:
@@ -778,7 +778,7 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
 
 def hook_python_exe() -> str:
     """hook 要起 Python 子行程時用的直譯器：hook 本身在 pythonw.exe 下跑（無 console）時，spawn sys.executable 會沒有 stdout
-    → 改用同目錄的 python.exe；其他情況就是 sys.executable。pre_tool_use（合併驅動／svn 工具）與 wg_reading_path 共用這一支。"""
+    → 改用同目錄的 python.exe；其他情況就是 sys.executable。pre_tool_use（合併驅動／svn 工具）用這一支。"""
     exe = Path(sys.executable)
     if exe.name.lower() == "pythonw.exe":
         sib = exe.with_name("python.exe")

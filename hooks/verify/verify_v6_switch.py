@@ -4,7 +4,7 @@
 1. 開關三態：預設關、環境變數 WG_CODING_GUARD=1 開、workflow/config.local.json 寫 coding_guard.enabled=true 開
    （WG_CODING_GUARD=0 蓋過 local）；舊名 WG_V6／舊鍵 v6.enabled 仍認、新名優先；MCP 端 lib/paths.js v6Enabled 同三態（沒裝 node 跳過）。
 2. 關閉時寫碼守門的閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 病形閘，
-   Stop 對帳閘、拐彎判斷閘，PostToolUse 需求目標提示；紅測閘開或關同一份舊版擋訊息；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
+   Stop 對帳閘，PostToolUse 需求目標提示；紅測閘開或關同一份舊版擋訊息；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
 3. 關閉時寫碼守門關時也跑的處理照跑：子代理記憶注入、知識收割擋（打開時改提醒）、收割驗過後 vcs-sync、語言守門。
 怎麼跑：
   python -X utf8 -m pytest -q hooks/verify/verify_v6_switch.py
@@ -258,19 +258,6 @@ def test_stop_reconcile_gate_skipped_when_off(stop_run, monkeypatch, on):
 
 
 @pytest.mark.parametrize("on", [False, True])
-def test_stop_turn_judgment_gate_skipped_when_off(stop_run, monkeypatch, on):
-    """開：拐彎判斷閘跑了，但 TURN_JUDGMENT_REQUIRED 是提醒（GATE_MODE_TABLE）→ 不擋、只留帳 event=remind；關：閘不跑、沒帳。"""
-    _set_v6(monkeypatch, on)
-    logs = []
-    monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
-    monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None))
-    monkeypatch.setattr(st, "turn_judgment_note", lambda *a, **k: ("[Guardian:TurnJudgment] 必擋替身", False))
-    out = stop_run(_stop_state())
-    assert "TurnJudgment" not in out
-    assert any(g == "reading_path" and p.get("event") == "remind" and p.get("rule") == "TURN_JUDGMENT_REQUIRED" for g, p in logs) is on
-
-
-@pytest.mark.parametrize("on", [False, True])
 def test_stop_testfail_message_is_pre_v6_either_way(stop_run, monkeypatch, on):
     """紅測閘照擋（v6 以前就有），開或關訊息都是 9e476fd0 原文：沒有「不做｜」豁免出口。"""
     _set_v6(monkeypatch, on)
@@ -331,7 +318,6 @@ def test_off_harvest_gate_blocks_on_reminds(stop_run, monkeypatch, on):
     logs = []
     monkeypatch.setattr(st, "append_guard_log", lambda g, p: logs.append((g, p)))
     monkeypatch.setattr(st, "_verify_gates", lambda *a, **k: (None, None, None))
-    monkeypatch.setattr(st, "turn_judgment_note", lambda *a, **k: (None, False))
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 收割替身")
     out = stop_run(_stop_state())
     assert ("[Guardian:KnowledgeHarvest]" in out) is (not on)

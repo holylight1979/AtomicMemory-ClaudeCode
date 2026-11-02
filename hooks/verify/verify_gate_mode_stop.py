@@ -2,7 +2,7 @@
 
 做什麼：v6 開著時 Stop 只照擋三類（紅測閘、對帳 (a) 說修好要有 PASS、子代理同一套），其餘 v6 守門一律提醒：
   提醒掛在最後一次改程式檔那則工具結果（handlers/post_tool_batch），Stop 只留帳（guard log event=remind）、不擋、不續跑、
-  不開放行題；總開關關時行為一字不變。另守兩件順手改的：(d) 欠案例不比改動先後；拐彎判斷只重問改到的函式。
+  不開放行題；總開關關時行為一字不變。另守一件順手改的：(d) 欠案例不比改動先後。
 每一案拿改動前的 main（016b58b5）回放：改成提醒的那幾案紅（舊碼 Stop 照擋或續跑）、照擋的兩案與 v6 關的那案綠（回歸守門）。
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_gate_mode_stop.py
 """
@@ -19,7 +19,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_release_rules as rr  # noqa: E402
-import wg_reading_path as rph  # noqa: E402
 import wg_verify_ledger as vl  # noqa: E402
 from handlers import post_tool_batch as ptb  # noqa: E402
 from handlers import stop as st  # noqa: E402
@@ -28,7 +27,6 @@ SID = "sid-gatemode"
 CODE = r"c:\proj\hooks\x.py"
 DONE = "改好了，全部完成。"
 DEFER_DONE = "改好了，全部完成。剩下的 verify 清理留給下個 session 處理。"
-TJ_ITEM = {"kind": "函式", "name": "x.py::f", "nums": "拐彎 3", "fp": "abc", "keys": ["x.py::f"]}
 OFF = {"enabled": False}
 
 
@@ -51,7 +49,7 @@ def drive(monkeypatch, capsys):
                      ("write_state", lambda *a, **k: None), ("_attribute_usefulness", lambda *a, **k: None),
                      ("_detect_uncommitted_files", lambda mf: []), ("_git_unpushed_roots", lambda mf: []),
                      ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {})),
-                     ("_should_deep_postmortem", lambda *a, **k: False), ("reading_path_note", lambda *a, **k: ("", False)),
+                     ("_should_deep_postmortem", lambda *a, **k: False),
                      ("_record_pick", lambda *a, **k: None), ("_acceptance_regression_hint", lambda *a, **k: ""),
                      ("estimate_context_usage", lambda *a, **k: 0.3),
                      ("append_guard_log", lambda guard, payload: logs.append((guard, payload)))):
@@ -126,15 +124,6 @@ def test_self_error_follows_rule_mode(drive, monkeypatch):
     monkeypatch.setattr(st, "reconcile_gate_parts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom-a")))
     out, _, logs = drive(DONE, config={"reconcile_gate": {"enabled": True}}, modified_files=[_mf()])
     assert out.get("decision") == "block" and "GATE_SELF_ERROR" in out["reason"] and "boom-a" in out["reason"]
-
-
-def test_turn_judgment_reminded_not_blocked(drive):
-    """S10 拐彎判斷：背景量完的欠項、收尾沒寫五欄行 → 不擋；guard-reading_path 留 event=remind。"""
-    rp = {SID: {"owed": {"items": [TJ_ITEM], "turn": 5}}}
-    out, state, logs = drive(DONE, reading_path=rp, modified_files=[_mf()])
-    assert "decision" not in out, out
-    assert any(p["rule"] == "TURN_JUDGMENT_REQUIRED" for p in _reminds(logs, "reading_path"))
-    assert state["reading_path"][SID]["blocked_turn"] == 5, "一回合一次的記號照記"
 
 
 def test_equivalence_reminded_not_blocked(drive):
@@ -309,23 +298,6 @@ def test_case_debt_covered_not_by_time_order(monkeypatch, tmp_path):
     assert [Path(p).name for p in owed] == ["y.py"], "沒被任何案例提到的照欠"
 
 
-def test_turn_judgment_asks_only_changed_functions(tmp_path):
-    """第 12 列：背景量完的一批裡，已判過且內容指紋沒變的函式不再問，只問改到（指紋變了）或新到門檻的。"""
-    out = tmp_path / "r.result.json"
-    job = tmp_path / "r.job.json"
-    job.write_text("{}", encoding="utf-8")
-    res = {"text": "[Guardian:ReadingPath] 第 5 回合", "judgment": [
-        {**TJ_ITEM, "name": "x.py::same", "fp": "fp-same"},
-        {**TJ_ITEM, "name": "x.py::changed", "fp": "fp-new"},
-    ], "turn_judgment": {"turns": 2, "nesting": 3, "bumpy": 3, "handoff_chain": 3, "inherit_depth": 3, "max_items": 5}}
-    out.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
-    rec = {"job": {"path": str(job), "out": str(out), "at": 0, "budget": 60, "turn": 5},
-           "judged": [["x.py::same", "fp-same"], ["x.py::changed", "fp-old"]]}
-    text = rph._collect(rec)
-    assert [it["name"] for it in rec["owed"]["items"]] == ["x.py::changed"]
-    assert "已判過、內容沒變的 1 條不再問" in text
-
-
 # ─── 其餘改提醒的閘：Stop 只留帳（每個 S 項一案） ─────────────────────────────────
 
 def test_harvest_and_pending_reminded_not_blocked(drive, monkeypatch):
@@ -395,18 +367,17 @@ def test_later_gates_preview_lists_only_block_gates(drive, monkeypatch):
     assert "[Guardian:AlsoOwed]" not in out["reason"], out["reason"]
 
 
-def test_closing_batch_reminds_harvest_and_turn_judgment(monkeypatch, capsys):
-    """S17／S10 的提醒點：交收尾檢核那批附知識收割欠項（設定有 harvest 段照提）；背景量完的欠項在之後第一批附一次（再一批不重送）。"""
+def test_closing_batch_reminds_harvest(monkeypatch, capsys):
+    """S17 的提醒點：交收尾檢核那批附知識收割欠項（設定有 harvest 段照提；再一批不重送）。"""
     import wg_harvest
     monkeypatch.setattr(wg_harvest, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 要交收割")
     monkeypatch.setattr(wg_harvest, "pending_gate_reason", lambda *a, **k: None)
-    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": [],
-             "reading_path": {SID: {"owed": {"items": [TJ_ITEM], "turn": 5, "at": 1.0}}}}
+    state = {"turn_seq": 5, "turn_prompts_seq": 5, "modified_files": []}
     aec = [{"tool_name": "mcp__workflow-guardian__anti_evasion_report", "tool_input": {"a": "無"}}]
     ctx = _batch(monkeypatch, capsys, state, aec, {"harvest": {"enabled": True}})
-    assert "[Guardian:提醒] HARVEST_AT_PHASE_DONE" in ctx and "[Guardian:提醒] TURN_JUDGMENT_REQUIRED" in ctx and "x.py::f" in ctx, ctx
+    assert "[Guardian:提醒] HARVEST_AT_PHASE_DONE" in ctx, ctx
     ctx2 = _batch(monkeypatch, capsys, state, [{"tool_name": "Read", "tool_input": {}}], {})
-    assert "TURN_JUDGMENT_REQUIRED" not in ctx2 and "HARVEST_AT_PHASE_DONE" not in ctx2
+    assert "HARVEST_AT_PHASE_DONE" not in ctx2
 
 
 def test_code_edit_batch_reminds_deferral_sync_closing_once(monkeypatch, capsys):
