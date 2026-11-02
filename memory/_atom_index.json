@@ -14102,6 +14102,23 @@
       "related": [
         "量閘的效果前先查閘何時上下線-時間窗要切在政策變更點-否則會拿已拔掉的閘當現況"
       ]
+    },
+    {
+      "name": "量測前後要核受測模型與effort-settings的model與effortlevel會蓋過claude-effort環境變數-同一跑殼隔幾小時可能換了模型",
+      "path": "memory/驗證與實證/量測前後要核受測模型與effort-settings的model與effortlevel會蓋過claude-effort環境變數-同一跑殼隔幾小時可能換了模型.md",
+      "triggers": [
+        "CLAUDE_EFFORT",
+        "effortLevel",
+        "settings.json model",
+        "受測模型",
+        "量測對照",
+        "modelUsage",
+        "拔前拔後",
+        "xhigh",
+        "同一跑殼",
+        "token 少一半"
+      ],
+      "scope": "global"
     }
   ]
 }

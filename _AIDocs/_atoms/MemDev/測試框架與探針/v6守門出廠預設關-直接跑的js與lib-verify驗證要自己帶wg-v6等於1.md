@@ -13,6 +13,7 @@
 - [臨] 新寫的 js 驗證或 lib/verify 案例要測 v6 行為，就在檔頭自己設 WG_V6=1。
 - [臨] 跑真 hook 的探針子行程也一樣：它承襲環境，session 沒設 WG_V6 時 need_goal 整個不跑，每一步都 FAIL、看起來像全壞。拿基底比對時兩邊都帶 WG_V6=1 同條件比，帶了之後基底與新碼共同剩下的紅才是真的基底紅（實例：兩支 need_goal 探針不帶全 FAIL，帶了兩邊都剩同樣 7 步紅）。
 - [臨] hooks/verify/conftest.py 預設 WG_V6=1，tools/codex-companion/verify 沒有：同一行為兩邊的測試跑在不同 v6 狀態。改 v6 分支行為要兩邊都用 WG_V6=1／0 各跑一次。
+- [臨] 2026-11-02 起 workflow/config.json 的 coding_guard.enabled 出廠改 true（02cd9c58）。沒帶 WG_V6 的子行程預設看到的是「開」，除非這台的 workflow/config.local.json 寫了 coding_guard.enabled=false（同名鍵蓋過出廠值）。所以「v6 案例一片紅」現在要先查本機 config.local.json 有沒有關掉，再查環境變數；conftest 設 WG_V6=1 的規則不變。
 
 ## 行動
 
