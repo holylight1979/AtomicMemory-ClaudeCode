@@ -62,7 +62,6 @@
 | 11 | Codex 接續單自檢 | 看 `soft_gate.handoff_review`（設 false），不觸發 | 看 `handoff_review_v6`（沒寫＝關），不觸發 | `hooks/codex_companion.py:123-133` |
 | 12 | 回合鍵與版控口令能用多久 | 本回合 commit 過，口令就用掉；續跑回合使用者打的字照舊追加、口令沿用；state 從零重建時不補回合鍵 | 口令用到這批 push 完（ORDER_UNTIL_PUSH）；續跑回合裡使用者第一則字開新回合、原話清單重開；回合鍵錨定（USER_TURN_KEY_KEPT） | `hooks/handlers/ups_gates.py:160-182`；`pre_tool_use.py:1004`；`stop.py:1765-1769`；`post_tool_use.py:1619-1627` |
 | 14 | 決策萃取遇到否決詞（否、不要記…） | 直接丟掉這批萃取結果 | 先問 AI 是不是否決；AI 判是才 atom_retire 撤卡、留帳 | `hooks/handlers/ups_gates.py:238-249, 271-278` |
-| 15 | 使用者糾正訊號（命中糾正詞） | 不問 AI：使用者本人打的字命中糾正詞就直接記一次（子代理通知、跨 session 訊息、系統提示區塊不算；留帳 event=keyword）；累計 ≥ `friction.min_hits`（2）算深度檢討的費力＋真失敗 | 問 AI「是不是糾正」；Stop 收「糾正｜是／不是：<理由>」，判是才計一次，沒回不計；累計門檻同左 | `hooks/handlers/user_prompt_submit.py:256-265`；`stop.py:1665`（`_record_prompt_judgments`）；`hooks/wg_friction.py:236-314` |
 
 **C. 寫入（MCP 與寫入閘）**
 
@@ -82,7 +81,6 @@
 | 22 | 哪些回合跑退避偵測、退縮閘、收尾檢核、AEC-Pending | 每回合都跑 | 只在寫碼回合跑 | `stop.py:1858, 2240, 2346, 2489, 2541`；`wg_core.py:231-247` |
 | 23 | 退避的 context 豁免（EVASION_CONTEXT_EXEMPT）；退縮閘擋下的同一句不再標退避旗標 | 沒有 | 有 | `stop.py:2249-2259, 2386-2391` |
 | 24 | 收尾閘判「宣告完成」看哪幾則（退縮歸屬、收割、收尾檢核、深度檢討） | 只看最後一段 31 字以上的文字（更短的段落跳過、往前找） | 看整個回合：被別的閘擋下後補件的那則沒重說完成，照本回合宣告完成的那一則算 | `stop.py:1626-1633`（`wg_evasion.get_last_assistant_text`、`turn_completion_text`） |
-| 25 | 背景收割 | 不跑；收割閘照擋，要 AI 交 knowledge_harvest_report | 交本地免費模型產待審候選卡，不擋 | `stop.py:2413-2418`；`post_tool_batch.py:284` |
 | 26 | 共用擋次 `stop_gate_max_blocks` | 整個 session 累計 | 每個使用者回合重算 | `stop.py:1719-1722` |
 | 28 | 收尾檢核報告 anti_evasion_report | 收三類 goal／principles／ai_decided（必填）與 a、b、d、g、h、i；(j)(k) 在 MCP schema 照樣必填，但值不存；`report` 不收；`harvest_items` 不收（收割要另外交） | 三類與 a、b、d、g～k 全收；`report` 當卡片開頭一兩句；收割可以併在同一次交。MCP 退回的那次兩邊都不算交 | `tools/workflow-guardian-mcp/lib/anti-evasion.js:74-148`；`lib/mcp.js:324`；`post_tool_use.py:1568-1573` |
 | 29 | 追蹤帳本 `workflow/tracking/` 與開場列出未結項 | 只收退縮閘那一問的答案：回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」照寫進帳本。收尾報告 (k) 不存、PickOne 不跑、開場不列 | 另收 (k) 追蹤項與 PickOne「順手看到最該修」；開場列出未結項 | `stop.py:1273-1284, 2377`（`_record_tracking_lines`，不看開關）；`post_tool_use.py:1736-1744`；`stop.py:1783-1785`；`session_start.py:1274` |
@@ -94,7 +92,6 @@
 |---|---|---|---|---|
 | 31 | `workflow/` 執行紀錄清理（WORKFLOW_RETENTION） | 不清 | SessionStart 照表清 | `session_start.py:1200-1201` |
 | 32 | IDENTITY 完整性哨兵 | 不查（必載檔契約哨兵照查） | 查 | `session_start.py:1677-1683` |
-| 33 | 開場提示背景收割的待審候選 | 不提 | 有候選就提一行 | `session_start.py:1499-1505` |
 | 34 | 自寫驗證收據清理（`verify-ledger/_runs`） | SessionEnd 不清 | 留最新 200 份，刪 30 天以上的 | `session_end.py:105-110` |
 
 **F. 記憶卡與安全邊界**
@@ -1095,7 +1092,7 @@ domain → realm → cwd-scope → 落點裁決 → supersedes → Source/Quote/
 
 | 管線 | 狀態 | 什麼時候跑 | 產出到哪 |
 |------|------|-----------|----------|
-| 階段收割（KnowledgeHarvest） | **在跑** | Stop：宣告完成＋有實質活動＋過冷卻 | 各自 scope 的 atom；守門開時改由背景產待審候選卡（見下，[跨層表 #25](#守門開關會改到記憶系統的地方)） |
+| 階段收割（KnowledgeHarvest） | **在跑** | Stop：宣告完成＋有實質活動＋過冷卻 | 各自 scope 的 atom；守門開時收割閘改成提醒（[跨層表 #21](#守門開關會改到記憶系統的地方)） |
 | 記憶庫拉取（vcs-sync 拉段） | **在跑** | SessionStart；worker 每輪 | 工作樹更新；向量增量索引 |
 | 失敗關鍵字萃取 | **在跑** | UPS 偵測到失敗詞 | `Failures/<主題>/` |
 | SessionEnd 全量萃取 | **未啟動** | SessionEnd | 啟用時寫 [臨] atom |
@@ -1133,17 +1130,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 沒東西也要回報 `items=[]`。
 - 核對靠 atom 工具回的 receipt，不靠 `exists()`。
 - 收割回報的路由欄位（route／part／candidate_global）守門開時才驗（[跨層表 #20](#守門開關會改到記憶系統的地方)）。
-- 守門關（出廠）時沒交收割回報，Stop 的收割閘會擋（[§7.1](#71-收尾閘序守門關時)、[跨層表 #21、#25](#守門開關會改到記憶系統的地方)）。
-
-#### 背景收割（`harvest.background`）
-
-- 設定 `harvest.background` 開著，但只在守門開時跑；守門關（出廠）時收割閘照擋，要 AI 自己交 `knowledge_harvest_report`（[跨層表 #25](#守門開關會改到記憶系統的地方)）。
-- 觸發條件同階段收割（宣告完成＋有實質活動＋冷卻）。
-- 交本地免費模型產卡，不擋寫碼 AI 這一回合；一次最多 `background_max_cards` 張。
-- 產的是**待審卡**，不入索引、不注入，核可才 `atom_write`。
-- 落點：專案 `shared/_pending_review/`，或資料根 `memory/_staging/harvest-candidates/`。
-- 有候選時，下一次開場提一行（守門開時才提，[跨層表 #33](#守門開關會改到記憶系統的地方)）。
-- 寫碼 AI 自己交的收割回報照收、照核對。
+- 守門關（出廠）時沒交收割回報，Stop 的收割閘會擋；守門開時改成提醒（[§7.1](#71-收尾閘序守門關時)、[跨層表 #21](#守門開關會改到記憶系統的地方)）。
 
 #### 為什麼萃取走 detached worker
 
@@ -2245,7 +2232,7 @@ flowchart TD
   - 讀索引前 spawn vcs-sync worker 拉取：`_spawn_pull_sync`，`reason=pull`，detached 不等（[§6.3](#63-自動萃取在跑-vs-已停產)）。
   - 索引完整性哨兵與必載檔契約哨兵；IDENTITY 完整性只在守門開時查（→ [跨層表 #32](#守門開關會改到記憶系統的地方)）。
   - vector 啟動器。
-  - 守門開時另有：清 `workflow/` 執行紀錄、列未結追蹤項、提背景收割的待審候選、拍 git 快照（→ [跨層表 #29～#31、#33](#守門開關會改到記憶系統的地方)）。
+  - 守門開時另有：清 `workflow/` 執行紀錄、列未結追蹤項、拍 git 快照（→ [跨層表 #29～#31](#守門開關會改到記憶系統的地方)）。
   - advisory，含五類：
     - 健檢。
     - 回訪。
@@ -3401,7 +3388,7 @@ flowchart TD
   - 守門關（出廠）時：收割閘擋下，由**模型本人**盤點六來源，再 `atom_write`／`atom_retire` → MCP `knowledge_harvest_report(items)`（[§7.1](#71-收尾閘序守門關時)）。
   - 六來源：指正／機制坑／外查事實／取捨契約／舊 atom 補正或 Supersedes／無用 atom 退役。
   - PostToolUse 逐 item 核對 receipt（`validate_items`），不符落 `pending`，由 Harvest-Pending 閘擋。
-  - 守門開時：`harvest.background=true` 就交背景的內網免費模型產待審候選卡、不擋（[`hooks/wg_bg_harvest.py`](hooks/wg_bg_harvest.py)）；背景起不來才回到模型本人交（→ [跨層表 #25](#守門開關會改到記憶系統的地方)）。
+  - 守門開時：收割閘改成提醒（改程式檔那批的工具結果附一行、Stop 只留帳），交不交由模型本人決定；交了照收、照核對（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）。
 - **結果**：
   - atom 落各自 scope。
   - 帳本 `workflow/harvest-ledger/<sid>.jsonl`。
@@ -3531,24 +3518,12 @@ svn：svn_update_targets
   - 不靠 `exists()`／全域 resolver（驗不出 append 與專案層 atom）。
   - 靠 atom 工具回的 receipt（`op/path/index_ok/supersedes/old_path`）。
 - 行為特性：
-  - 守門關時擋；守門開時改提醒或交背景收割（→ [跨層表 #21、#25](#守門開關會改到記憶系統的地方)）。
+  - 守門關時擋；守門開時改提醒（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）。
   - 不增 `stop_blocked_count`。
   - 每個使用者回合最多擋一次。
   - 冷卻只認 validated。
   - 觸發沿用 `claims_completion` 詞表，「待補做」類中途訊息也會命中（已知特性）。
 - config `harvest.*`（[§12](#12-設定總表workflowconfigjson)）；守門 [`hooks/verify/verify_knowledge_harvest_gate.py`](hooks/verify/verify_knowledge_harvest_gate.py)。
-
-#### 背景收割 vs 停產的全量萃取（完整說明）
-
-- **只在守門開時跑**（→ [跨層表 #25](#守門開關會改到記憶系統的地方)）：設定 `harvest.background` 預設 true；守門關時這個鍵不起作用，收割閘照擋、要 AI 交 `knowledge_harvest_report`。
-- 只在階段收割同一組觸發條件成立時跑（宣告完成＋有實質活動＋冷卻），一次最多 `background_max_cards` 張。
-- 產的是**待審卡**不是卡，兩個落點：
-  - 專案 `shared/_pending_review/`：開場「[Pending Review] N 件待裁決」，`/conflict pending` 審。
-  - 資料根 `memory/_staging/harvest-candidates/`：開場一行「[Harvest] N 張背景收割候選待審」；這行只在守門開時提（→ [跨層表 #33](#守門開關會改到記憶系統的地方)）。
-- 開場提示寫明要不要現在處理由使用者決定；使用者這回合要別的事就只轉述（[OPENING_NOTICE_NOT_TODO](TECH/release-rules.md#opening_notice_not_todo)）。
-- 不入索引、不注入，核可才 `atom_write`。
-- 消費端一開場就看得到，不再是寫了沒人讀的草稿。
-- 寫碼 AI 自己的收割回報照收、照核對。
 
 #### 為什麼萃取走 detached worker（完整說明）
 
@@ -3810,7 +3785,7 @@ svn：svn_update_targets
   - 動作：每個使用者回合擋一次，要求真做完，或改 `action=skip` 附 reason 再重報。
   - 本則還是中途狀態句（還在等 agent 回報…）就不擋，等真收尾再擋（`wg_harvest.in_progress_text`）。
   - 「先這樣／跳過」同樣整批放行。
-- **守門開時不同的**：收割改交背景本地免費模型產待審候選卡、不擋（→ [跨層表 #25](#守門開關會改到記憶系統的地方)）；收割回報的路由欄位才驗（#20）；可以併進收尾報告一起交（#28）。
+- **守門開時不同的**：收割閘改成提醒、不擋（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）；收割回報的路由欄位才驗（#20）；可以併進收尾報告一起交（#28）。
 
 ##### 收尾檢核、AEC-Pending、HUD fallback
 
