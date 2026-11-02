@@ -4482,7 +4482,7 @@
         "FailureDetect 誤觸",
         "sub-agent 回報",
         "harness 生成 prompt",
-        "is_harness_generated_prompt",
+        "user_typed_text",
         "sanitize_harness_noise",
         "假糾正"
       ],
@@ -6785,7 +6785,6 @@
         "user_typed_text",
         "使用者原話",
         "權威判斷",
-        "is_harness_generated_prompt",
         "turn_prompts",
         "recent_user_prompts",
         "口令",
@@ -8730,7 +8729,7 @@
         "agent_modified_files",
         "子代理改碼",
         "transcripts_of",
-        "assistant_texts_since"
+        "assistant_texts"
       ],
       "scope": "global",
       "related": [
@@ -13986,6 +13985,46 @@
         "改契約"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-派工單叫子代理順手報範圍外問題卻沒停止條件-主session把它們原樣轉成新決策就是自己歪樓-延伸前先問這項針對什麼問題真正該問什麼",
+      "path": "memory/Failures/工作流/feedback-派工單叫子代理順手報範圍外問題卻沒停止條件-主session把它們原樣轉成新決策就是自己歪樓-延伸前先問這項針對什麼問題真正該問什麼.md",
+      "triggers": [
+        "派工單",
+        "範圍外問題",
+        "延展",
+        "延伸",
+        "歪樓",
+        "自我檢討",
+        "要你決定的",
+        "快且有效",
+        "停止條件",
+        "子代理回報",
+        "並行 agent"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-改碼中發現相鄰問題要順手修或白話提出一併修正的確認-不准另外處理之後再說不在範圍帶過"
+      ]
+    },
+    {
+      "name": "使用者說務必的流程不能做成靠ai讀description自己判斷的skill-真實設計題實測沒被叫-排除條款會被拿來當不叫的理由",
+      "path": "_AIDocs/_atoms/CC與原子記憶契約/使用者說務必的流程不能做成靠ai讀description自己判斷的skill-真實設計題實測沒被叫-排除條款會被拿來當不叫的理由.md",
+      "triggers": [
+        "skill 觸發",
+        "description 觸發",
+        "務必",
+        "自動叫 skill",
+        "skill 沒被叫",
+        "加派 codex",
+        "入場條件",
+        "排除條款",
+        "第二意見"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-派工單叫子代理順手報範圍外問題卻沒停止條件-主session把它們原樣轉成新決策就是自己歪樓-延伸前先問這項針對什麼問題真正該問什麼"
+      ]
     }
   ]
 }
