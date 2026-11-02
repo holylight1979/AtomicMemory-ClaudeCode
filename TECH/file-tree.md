@@ -394,7 +394,7 @@
 
 ## skills/
 
-<!-- skill-count -->29<!-- /skill-count --> 個 active skill。
+<!-- skill-count -->30<!-- /skill-count --> 個 active skill。
 
 | 檔案 | 負責什麼 |
 |------|----------|
@@ -403,6 +403,7 @@
 | [`skills/behavior-preservation/`](../skills/behavior-preservation/) | active skill |
 | [`skills/browse-sprites/`](../skills/browse-sprites/) | active skill |
 | [`skills/changelog-debug/`](../skills/changelog-debug/) | active skill |
+| [`skills/codex/`](../skills/codex/) | active skill：CC 判斷要不要叫 Codex 當第二意見或施工者；同步包範本在 `assets/`，入口 `scripts/codex-run.py`（經 [`tools/codex-call.py`](../tools/codex-call.py)） |
 | [`skills/codex-companion/`](../skills/codex-companion/) | active skill |
 | [`skills/conflict/`](../skills/conflict/) | active skill |
 | [`skills/consciousness-stream/`](../skills/consciousness-stream/) | active skill |

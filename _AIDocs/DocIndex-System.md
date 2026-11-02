@@ -125,7 +125,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（<!-- skill-count -->29<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
+## 5. Skills（<!-- skill-count -->30<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -133,6 +133,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 |------|------|------|------|
 | /atom-debug | skills/atom-debug/SKILL.md | Debug log 開關 | 無 |
 | /codex-companion | skills/codex-companion/SKILL.md | Codex Companion 開關（subprocess 模型，只 toggle config flag） | codex CLI |
+| /codex | skills/codex/SKILL.md | CC 自己判斷叫 Codex 當第二意見（唯讀審查）或施工者（專用工作樹）：`scripts/codex-run.py new` 組同步包並原文貼使用者的尺，`run` 擋未填、沙箱依模式固定、跑前跑後比對 git／svn 狀態、原始輸出存檔；只改文件時不用 | tools/codex-call.py、codex CLI |
 | /changelog-debug | skills/changelog-debug/SKILL.md | 手動滾動 _CHANGELOG.md（PostToolUse 已自動，僅 debug） | 無 |
 | /conflict | skills/conflict/SKILL.md | 記憶衝突偵測 | Vector Service + Ollama |
 | ~~/conflict-review~~ | skills/_archived/conflict-review/SKILL.md | 管理職裁決 Pending Queue（雙向認證）**P8a archived·dormant** | wg_roles + Vector Service |

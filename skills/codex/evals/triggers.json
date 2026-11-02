@@ -1,0 +1,26 @@
+{
+  "_comment": "codex skill 的觸發評估查詢：10 應觸發 + 10 不應觸發。",
+  "skill_name": "codex",
+  "queries": [
+    {"query": "加派 codex 審一下這個重構方案", "should_trigger": true, "note": "明確叫 codex 審查"},
+    {"query": "這個設計方向我想再找 codex 挑一次", "should_trigger": true, "note": "設計題要第二意見"},
+    {"query": "叫 codex 幫我找這段同步邏輯的邊界反例", "should_trigger": true, "note": "找邊界反例"},
+    {"query": "這個小工具交給 codex 在工作樹裡寫，你同時做別的", "should_trigger": true, "note": "施工模式並行"},
+    {"query": "問 codex 這個資料表拆法對不對", "should_trigger": true, "note": "設計問題問 codex"},
+    {"query": "讓 codex 以 agent 的方式施工", "should_trigger": true, "note": "施工模式"},
+    {"query": "這個 schema 改了就回不去，先找另一個模型交叉審一下", "should_trigger": true, "note": "不可逆、代價大，未點名 codex"},
+    {"query": "用 codex-call 跑一次審查", "should_trigger": true, "note": "點名入口"},
+    {"query": "給 codex 的同步包怎麼填", "should_trigger": true, "note": "同步包用法"},
+    {"query": "codex 第二意見", "should_trigger": true, "note": "最短措辭"},
+    {"query": "幫我把 README 的措辭改順一點", "should_trigger": false, "note": "只改文件措辭"},
+    {"query": "把這幾個註解改白話", "should_trigger": false, "note": "只改註解"},
+    {"query": "切換 codex companion 開關", "should_trigger": false, "note": "屬 /codex-companion"},
+    {"query": "原因已經查到了，你確認一下就修", "should_trigger": false, "note": "已有答案只差確認"},
+    {"query": "審一下目前 diff 有沒有 bug", "should_trigger": false, "note": "一般 code review，走 /code-review"},
+    {"query": "幫我寫一個 Python function 算費氏數列", "should_trigger": false, "note": "純 coding"},
+    {"query": "上GIT", "should_trigger": false, "note": "版控口令"},
+    {"query": "整理記憶分類", "should_trigger": false, "note": "屬 /memory"},
+    {"query": "這場用了多少 token", "should_trigger": false, "note": "屬 /token"},
+    {"query": "翻譯這段成英文", "should_trigger": false, "note": "翻譯"}
+  ]
+}

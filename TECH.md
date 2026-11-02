@@ -1478,6 +1478,7 @@ Bash／PowerShell 指令
 **Codex Companion**
 - 所有審查都在背景跑，Stop 不等；fail 且 severity ≥ `max_inject_severity` 才附完整說明。
 - 呼叫 Codex 一律經 [`tools/codex-call.py`](tools/codex-call.py)。
+- 主 session 自己判斷要另一個 context 挑結論、或把一塊活交出去並行施工時，叫 skill [`codex`](skills/codex/SKILL.md)：照範本填同步包、沙箱依模式固定、跑前跑後比對版控狀態；不經 hook。
 - 交接文件自檢：守門關時會觸發，守門開時預設不觸發（[跨層表 #11](#守門開關會改到記憶系統的地方)）。
 - 驗收裁判（另一個 AI 照驗收規格審產出）屬寫碼守門 → [乙5](TECH/coding-guard.md#乙5-驗收裁判)。
 
@@ -1671,7 +1672,7 @@ python tools/ollama_client.py --trace off
 | 模型 `gemma4:e4b` | 主萃取 LLM | 只剩 Claude 顯式寫入與失敗關鍵字偵測 |
 | `lancedb`（需 CPU AVX2） | 向量 DB [`memory/_vectordb/`](memory/_vectordb/) | [`service.py`](tools/memory-vector-service/service.py) 起不來；trigger／BM25 照常 |
 | `sentence-transformers` | 無 Ollama 時的本地嵌入 | 同 Ollama 列 |
-| Codex CLI 與其授權 | 計畫審查、交接自檢（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）；一律經 [`tools/codex-call.py`](tools/codex-call.py) 呼叫，它是本系統叫 Codex 的唯一入口 | heuristics-only，SessionStart 揭露一次 |
+| Codex CLI 與其授權 | 計畫審查、交接自檢（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）、主 session 叫的第二意見與施工（skill [`codex`](skills/codex/SKILL.md)，Codex 不在就明確失敗、不退備援）；一律經 [`tools/codex-call.py`](tools/codex-call.py) 呼叫，它是本系統叫 Codex 的唯一入口 | heuristics-only，SessionStart 揭露一次 |
 | Hook 直譯器路徑 | 每條 hook 指令開頭指名的直譯器（[§3.1](#31-settingsjson-十一個事件)） | 全部 hook 起不來，回到原生 |
 
 pip 套件一次裝：
@@ -1837,7 +1838,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | [`hooks/`](hooks/) | hook 本體：dispatcher、handlers、`wg_*` 模組、背景 worker |
 | [`lib/`](lib/) | 共用函式庫：atom 寫入讀取、部位表、收據、git 錄製重播 |
 | [`tools/`](tools/) | 命令列工具與子系統（向量服務、MCP server、Codex 呼叫入口 [`codex-call.py`](tools/codex-call.py)…） |
-| [`skills/`](skills/) | <!-- skill-count -->29<!-- /skill-count --> 個 active skill（另有 `_archived/`） |
+| [`skills/`](skills/) | <!-- skill-count -->30<!-- /skill-count --> 個 active skill（另有 `_archived/`） |
 | [`memory/`](memory/) | 全域記憶層（core realm）：atom、索引、詞庫 |
 | [`_AIDocs/`](_AIDocs/) | 長期知識庫：規格、變更紀錄、local realm atom |
 | [`workflow/`](workflow/) | 設定與 runtime state（多數 gitignored） |
@@ -4748,9 +4749,9 @@ svn：svn_update_targets
 - **缺了**：同 Ollama 列
 
 #### Codex CLI 與其授權
-- **用途**：計畫審查、交接自檢（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）
+- **用途**：計畫審查、交接自檢（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）、主 session 叫的第二意見與施工（skill [`codex`](skills/codex/SKILL.md)）
 - **呼叫入口**：一律經 [`tools/codex-call.py`](tools/codex-call.py)（把提示詞交給 `codex exec`，回答案或明確失敗；`--help` 看參數）
-- **替代**：自動退 headless `claude -p`（預設只有 advisory 權）；授權失敗抑制 24h
+- **替代**：自動退 headless `claude -p`（預設只有 advisory 權）；授權失敗抑制 24h。skill `codex` 不退，Codex 不在就明確失敗
 - **缺了**：heuristics-only；SessionStart 揭露一次 `[Codex Companion] 已停用：…`（每台機器一次）
 - **整個不要**：`codex_companion.enabled=false`
 
