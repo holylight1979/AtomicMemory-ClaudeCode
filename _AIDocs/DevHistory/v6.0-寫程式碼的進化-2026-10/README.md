@@ -43,6 +43,7 @@
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |
 | `staging封存-2026-10-27/` | 開發期 10-27 從 `memory/_staging/` 清出的接續單、計畫草案與量測腳本（有自己的 `_INDEX.md`） | `memory/_staging/` |
+| `staging封存-2026-11-02/` | 拔留改的施工計畫、三份施工圖、文件核對結果、TECH 重整的輸入（有自己的 `_INDEX.md`） | `memory/_staging/` |
 
 ## 路徑變更說明
 

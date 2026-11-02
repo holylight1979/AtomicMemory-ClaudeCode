@@ -13,6 +13,6 @@
 | [v4-archive/](v4-archive/README.md) | V4 設計文件（三層 scope、衝突偵測、V4.1 開發歷程）＋ V4.1 hook 模組退役前最後一版 19 檔證物 | 3 md + 19 py |
 | [v5-overhaul-2026-05/](v5-overhaul-2026-05/README.md) | V5 升版完整紀錄（起因、4-Wave、全面汰舊、GA 驗收）＋ 封存的 tests／tools／scripts | 2 md + 封存程式 |
 | [全面檢視-2026-09-21/](全面檢視-2026-09-21/plan-and-decisions.md) | 2026-09-21 對照 CC 生態的全面檢視：共同簡報、Claude／Codex 審查摘要與全文、遙測統計、拍板 | 15 md + 腳本與輸出 |
-| [v6.0-寫程式碼的進化-2026-10/](v6.0-寫程式碼的進化-2026-10/README.md) | v6.0（寫碼守門）開發期全紀錄：預計畫、三方討論、原話輯、工作紀錄、裁定帳、代價量測、checklist 與追蹤項封存、信箱全文；含 `staging封存-2026-10-27/`（開發期從 memory/_staging 清出的接續單與計畫） | 40+ md + 實測夾 |
+| [v6.0-寫程式碼的進化-2026-10/](v6.0-寫程式碼的進化-2026-10/README.md) | v6.0（寫碼守門）開發期全紀錄：預計畫、三方討論、原話輯、工作紀錄、裁定帳、代價量測、checklist 與追蹤項封存、信箱全文；含 `staging封存-2026-10-27/`（開發期從 memory/_staging 清出的接續單與計畫）、`staging封存-2026-11-02/`（拔留改施工計畫與施工圖、TECH 重整輸入） | 40+ md + 實測夾 |
 
 > 2026-05-27 已移到 `memory/_distant/2026_05_v5_overhaul/`（git 不追蹤）的舊子夾：`session-logs/`、`memory-cleanup-2026-04/`、`atomic-memory-evolution/`、`ab-test-gemma4/`、`atom-v4/`、`atom-v4-phases/`、`changelog-roll/`、`v41-handoffs/`、`v41-p4-simulation/`、`wg-docdrift/`。文件裡指到 `memory-cleanup-2026-04/` 的連結在本機才解得開。
