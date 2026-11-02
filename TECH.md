@@ -1620,7 +1620,7 @@ flowchart TD
     A --> U["UPS 偵測使用者回覆"]
 ```
 
-- Long DIE 狀態記在 `workflow/.backend_long_die.json`。
+- Long DIE 狀態記在 `workflow/.backend_long_die.json`（含恢復時刻 `until_at`）；過了恢復時刻＝已自動重試，標記自己清掉、不再問。
 - 靜態停用：`ollama_backends.<name>.enabled=false`。
 - 每個 backend 另可設 `think`（是否開思考模式）與 `llm_num_predict`（單次生成上限）。
 
@@ -4635,7 +4635,7 @@ svn：svn_update_targets
 
 [↑ 主文 §9.1](#91-ollama-dual-backend-三階段退避toolsollama_clientpy)
 
-- **Long DIE 互動**：Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。
+- **Long DIE 互動**：Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆；使用者沒回、恢復時刻（`until_at`）又已過，`check_long_die_status` 清掉標記不再問。
 - **狀態檔**：`workflow/.backend_long_die.json`。
 - **trace 輸出格式**：每次請求一行 `ok|fail|skip:<原因> backend= model= endpoint= 耗時 caller=`，寫進 `Logs/ollama-backend.log`。
 - **trace 旗標**：

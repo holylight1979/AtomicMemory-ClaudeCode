@@ -447,7 +447,7 @@ class OllamaClient:
                     state.long_die_until = _next_time_boundary()
                     until_str = datetime.fromtimestamp(state.long_die_until).strftime("%H:%M")
                     logger.warning("[%s] → long_die until %s", backend.name, until_str)
-                    self._write_long_die_marker(backend, until_str)
+                    self._write_long_die_marker(backend, until_str, state.long_die_until)
                 else:
                     # 10-minute window expired, reset short_die counters
                     state.short_die_count = 1
@@ -462,7 +462,7 @@ class OllamaClient:
                     state.long_die_until = _next_time_boundary()
                     until_str = datetime.fromtimestamp(state.long_die_until).strftime("%H:%M")
                     logger.warning("[%s] → long_die until %s", backend.name, until_str)
-                    self._write_long_die_marker(backend, until_str)
+                    self._write_long_die_marker(backend, until_str, state.long_die_until)
 
     def _get_state(self, backend: OllamaBackend) -> BackendState:
         if backend.name not in self._state:
@@ -636,14 +636,18 @@ class OllamaClient:
     LONG_DIE_MARKER = CLAUDE_DIR / "workflow" / ".backend_long_die.json"
 
     @staticmethod
-    def _write_long_die_marker(backend: 'OllamaBackend', until_str: str):
-        """Write marker when long_die triggers — hooks/sessions ask user to disable."""
+    def _write_long_die_marker(backend: 'OllamaBackend', until_str: str, until_ts: float):
+        """Write marker when long_die triggers — hooks/sessions ask user to disable.
+
+        until_at 記恢復時刻：過了就是已自動重試，check_long_die_status 自己清掉標記、不再問。
+        """
         try:
             OllamaClient.LONG_DIE_MARKER.parent.mkdir(parents=True, exist_ok=True)
             OllamaClient.LONG_DIE_MARKER.write_text(json.dumps({
                 "type": "long_die",
                 "backend": backend.name,
                 "until": until_str,
+                "until_at": datetime.fromtimestamp(until_ts).isoformat(timespec="seconds"),
                 "message": (
                     f"遠端 Ollama ({backend.name}) 連續失敗，已進入長期停用狀態"
                     f"（等到 {until_str} 才重試）。是否要永久停用此 backend？"
@@ -671,12 +675,21 @@ def check_long_die_status() -> Optional[Dict[str, str]]:
     After user decides, call disable_backend() or clear the marker.
     """
     marker = OllamaClient.LONG_DIE_MARKER
-    if marker.exists():
-        try:
-            return json.loads(marker.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return None
+    if not marker.exists():
+        return None
+    try:
+        info = json.loads(marker.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    try:
+        recovered = datetime.now() >= datetime.fromisoformat(info["until_at"])
+    except (KeyError, TypeError, ValueError):
+        recovered = False   # 沒記恢復時刻的舊標記：照舊問到使用者回覆為止
+    if recovered:
+        logger.info("[%s] long_die 已過 %s、已自動重試，清掉待問標記", info.get("backend"), info.get("until"))
+        OllamaClient._clear_long_die_marker()
+        return None
+    return info
 
 
 def disable_backend(backend_name: str) -> bool:
