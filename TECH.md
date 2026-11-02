@@ -428,7 +428,7 @@ sequenceDiagram
         G->>G: 紅測閘 → 退避偵測 → 退縮歸屬 → 收割 → 收割對帳 → 收尾檢核 → AEC-Pending → 同步閘 → 卡片表態 → 深度檢討（§7.1）
         G->>F: 效用歸因（useful / used_fail → access sidecar）
         G->>G: 底部同步擋（§7.1）
-        G->>G: codex_companion：回合證據、交接自檢（背景）；lang_guard：英文漂移（§7.6）
+        G->>G: codex_companion：回合證據（背景）；lang_guard：英文漂移（§7.6）
     end
 
     rect rgba(150,100,255,0.1)
@@ -882,7 +882,7 @@ SessionStart（session_start._org_advisory）
 | 開場 `[Guardian:Oscillation]` | 每次開場列全部 | 只列這個 session 還沒列過的 atom，全列過就不送 |
 | `[Guardian:CoordWarn]` 同檔預警 | 同一檔 10 分鐘內不重警 | 同一檔一個 session 只警一次 |
 | 暫時性檔名寫進 `_AIDocs` 的提醒 | 每次寫都提醒 | 同一檔一個 session 一次 |
-| Codex 接續單自檢 | 會觸發（`soft_gate.handoff_review`，預設開） | 不觸發（`soft_gate.handoff_review_v6`，預設關） |
+| Codex 接續單自檢 | 不觸發（`soft_gate.handoff_review` 設 false） | 不觸發（`soft_gate.handoff_review_v6`，預設關） |
 
 共通規則：
 - 命中判法、提示文字不動。
@@ -1457,7 +1457,7 @@ Bash／PowerShell 指令
 | 項目 | 做什麼 | 擋不擋 |
 |---|---|---|
 | lang_guard（[`hooks/lang_guard.py`](hooks/lang_guard.py)，Stop） | 終版訊息剝掉程式碼、路徑、URL 後，英文佔比 ≥0.5 → 回繁中提醒 | 不擋；續跑一回合 |
-| Codex Companion（[`hooks/codex_companion.py`](hooks/codex_companion.py)） | 背景審查：計畫審（ExitPlanMode 後）、回合證據、交接文件自檢 | 不擋；結果下一則附一行 |
+| Codex Companion（[`hooks/codex_companion.py`](hooks/codex_companion.py)） | 背景審查：計畫審（ExitPlanMode 後）、回合證據 | 不擋；結果下一則附一行 |
 | Wisdom Engine（[`hooks/wisdom_engine.py`](hooks/wisdom_engine.py)） | 情境分類與反思統計，不注入 | 不擋 |
 | Fix Escalation（[`skills/fix-escalation/`](skills/fix-escalation/)） | 同一個錯誤重複失敗 → 觸發 6 Agent 精確修正會議 | 不擋 |
 | DocDrift（[`hooks/wg_docdrift.py`](hooks/wg_docdrift.py)） | 改了程式檔卻沒同步改對應的 [`_AIDocs/`](_AIDocs/) 文件 → 記一筆待補，底部同步擋會帶出 | 記帳 |
@@ -1467,7 +1467,7 @@ Bash／PowerShell 指令
 - 所有審查都在背景跑，Stop 不等；fail 且 severity ≥ `max_inject_severity` 才附完整說明。
 - 呼叫 Codex 一律經 [`tools/codex-call.py`](tools/codex-call.py)。
 - 主 session 自己判斷要另一個 context 挑結論、或把一塊活交出去並行施工時，叫 skill [`codex`](skills/codex/SKILL.md)：照範本填同步包、沙箱依模式固定、跑前跑後比對版控狀態；不經 hook。
-- 交接文件自檢：守門關時會觸發，守門開時預設不觸發（[跨層表 #11](#守門開關會改到記憶系統的地方)）。
+- 交接文件自檢：守門開或關都不觸發（`soft_gate.handoff_review` 設 false、`handoff_review_v6` 沒寫＝關，[跨層表 #11](#守門開關會改到記憶系統的地方)）；交接靠 [`skills/handoff`](skills/handoff/SKILL.md) Step 3.5 自我複審，要第二意見叫 skill [`codex`](skills/codex/SKILL.md)。
 - 驗收裁判（另一個 AI 照驗收規格審產出）屬寫碼守門 → [乙5](TECH/coding-guard.md#乙5-驗收裁判)。
 
 細節 → [附錄 A7](#a7-基本守門細節)
@@ -1660,7 +1660,7 @@ python tools/ollama_client.py --trace off
 | 模型 `gemma4:e4b` | 主萃取 LLM | 只剩 Claude 顯式寫入與失敗關鍵字偵測 |
 | `lancedb`（需 CPU AVX2） | 向量 DB [`memory/_vectordb/`](memory/_vectordb/) | [`service.py`](tools/memory-vector-service/service.py) 起不來；trigger／BM25 照常 |
 | `sentence-transformers` | 無 Ollama 時的本地嵌入 | 同 Ollama 列 |
-| Codex CLI 與其授權 | 計畫審查、交接自檢（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）、主 session 叫的第二意見與施工（skill [`codex`](skills/codex/SKILL.md)，Codex 不在就明確失敗、不退備援）；一律經 [`tools/codex-call.py`](tools/codex-call.py) 呼叫，它是本系統叫 Codex 的唯一入口 | heuristics-only，SessionStart 揭露一次 |
+| Codex CLI 與其授權 | 計畫審查（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）、主 session 叫的第二意見與施工（skill [`codex`](skills/codex/SKILL.md)，Codex 不在就明確失敗、不退備援）；一律經 [`tools/codex-call.py`](tools/codex-call.py) 呼叫，它是本系統叫 Codex 的唯一入口 | heuristics-only，SessionStart 揭露一次 |
 | Hook 直譯器路徑 | 每條 hook 指令開頭指名的直譯器（[§3.1](#31-settingsjson-十一個事件)） | 全部 hook 起不來，回到原生 |
 
 pip 套件一次裝：
@@ -1963,7 +1963,7 @@ workflow/config.local.json      這台機器專屬，不進版控
 - `stop_gate_max_blocks`：收尾閘共用的擋次，預設 2。守門關（出廠）時整個 session 累計；守門開時每個使用者回合重算（[跨層表](#守門開關會改到記憶系統的地方) #26）。
 - `org_memory.enabled` / `roots`：公司層記憶，實際值寫在 `workflow/org-memory.local.json`，用 [`tools/org-memory.py --join`](tools/org-memory.py) 填。
 - `vector_search.enabled`：語意搜尋總開關，預設 true；關了仍保留 trigger 與 BM25。
-- `codex_companion.enabled`：AI 裁判（驗收審查、計畫審查、handoff 自檢），預設 true。
+- `codex_companion.enabled`：AI 裁判（驗收審查、計畫審查），預設 true；handoff 自檢另看 `soft_gate.handoff_review`，設 false。
 - `codex_companion.codex_extra_args`：只有某台機器要的 codex 旗標，寫進 `workflow/config.local.json`。
 - `response_capture.enabled`：全部自動萃取總開關。
 - `dashboard_port`：Dashboard 與 HUD 的埠，預設 3848。
@@ -4083,7 +4083,7 @@ svn：svn_update_targets
   - plan_review：ExitPlanMode 計畫審。
   - turn_audit：回合完成證據（`soft_gate.completion_evidence`）。
   - architecture_review：預設關（`soft_gate.architecture_review`）。
-  - handoff_review：交接文件自檢。守門關時看 `soft_gate.handoff_review`（預設開），會觸發；守門開時看 `soft_gate.handoff_review_v6`（預設關），不觸發（→ [跨層表 #11](#守門開關會改到記憶系統的地方)）。
+  - handoff_review：交接文件自檢。守門關時看 `soft_gate.handoff_review`（config 設 false），守門開時看 `soft_gate.handoff_review_v6`（沒寫＝關），兩種都不觸發（→ [跨層表 #11](#守門開關會改到記憶系統的地方)）。
   - acceptance_review：驗收裁判，屬寫碼守門 → [乙5](TECH/coding-guard.md#乙5-驗收裁判)。
 - **叫 Codex**：一律經 [`tools/codex-call.py`](tools/codex-call.py)（`--help` 列參數）；Codex 不在或授權失敗時的退路見 [附錄 A9.2](#a92-外部依賴用途替代缺了會怎樣) 的 Codex CLI 一項。
 - **案例**：[`hooks/verify/verify_codex_stop_async.py`](hooks/verify/verify_codex_stop_async.py)。
@@ -4723,7 +4723,7 @@ svn：svn_update_targets
 - **缺了**：同 Ollama 列
 
 #### Codex CLI 與其授權
-- **用途**：計畫審查、交接自檢（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）、主 session 叫的第二意見與施工（skill [`codex`](skills/codex/SKILL.md)）
+- **用途**：計畫審查（[§7.6](#76-回合結束與背景審查)）、驗收裁判（[乙5](TECH/coding-guard.md#乙5-驗收裁判)）、主 session 叫的第二意見與施工（skill [`codex`](skills/codex/SKILL.md)）
 - **呼叫入口**：一律經 [`tools/codex-call.py`](tools/codex-call.py)（把提示詞交給 `codex exec`，回答案或明確失敗；`--help` 看參數）
 - **替代**：自動退 headless `claude -p`（預設只有 advisory 權）；授權失敗抑制 24h。skill `codex` 不退，Codex 不在就明確失敗
 - **缺了**：heuristics-only；SessionStart 揭露一次 `[Codex Companion] 已停用：…`（每台機器一次）

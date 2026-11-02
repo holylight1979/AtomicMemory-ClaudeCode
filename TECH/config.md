@@ -46,7 +46,7 @@
 | `lang_guard.english_ratio_threshold` / `min_lang_chars` | 0.5 / 40 | 英文漂移 |
 | `version_guard.mode` | warn | 版本脈絡殘留 |
 | `docdrift.path_mappings` / `self_path_mappings` | 空 / hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移（[甲 §7.6](../TECH.md#76-回合結束與背景審查) DocDrift）的路徑對應 |
-| `codex_companion.soft_gate.handoff_review` / `handoff_review_v6` | true / false（後者只在程式預設） | Codex 接續單自檢（[§5.7](../TECH.md#57-其他注入來源同一-additionalcontext)） |
+| `codex_companion.soft_gate.handoff_review` / `handoff_review_v6` | false / false（後者只在程式預設） | Codex 接續單自檢（[§5.7](../TECH.md#57-其他注入來源同一-additionalcontext)） |
 
 - **`aec.scan_report_gate` / `atom_audit.enabled`**：這兩道的擋和提醒綁同一個開關；出廠 false，守門開或關都不擋、也不提醒。
 - **`reconcile_gate.block_letters` / `max_blocks_per_turn`**（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）：
@@ -63,7 +63,7 @@
 - **`docdrift.path_mappings` / `self_path_mappings`**：
   - 前者由專案自己填。
   - 後者是記憶系統自己的對應，只在改的檔落在 `~/.claude` 底下才套。
-- **`codex_companion.soft_gate.handoff_review` / `handoff_review_v6`**：寫碼守門關看前者，寫碼守門開看後者。
+- **`codex_companion.soft_gate.handoff_review` / `handoff_review_v6`**：寫碼守門關看前者，寫碼守門開看後者；兩個都關，寫交接檔不叫 Codex 審。交接靠 [`skills/handoff`](../skills/handoff/SKILL.md) Step 3.5 自我複審，要第二意見叫 skill [`codex`](../skills/codex/SKILL.md)。
 
 ### commit 與資料檔閘
 
@@ -307,7 +307,7 @@
 | `lang_guard.enabled` | 回應英文比例過高時的繁中提醒 |
 | `version_guard.enabled` | 檔內版本操作脈絡殘留的 warn（`mode` warn / off） |
 | `docdrift.enabled` | 改碼後提醒對應文件的漂移偵測 |
-| `codex_companion.enabled` | AI 裁判（驗收審查／計畫審查／handoff 自檢） |
+| `codex_companion.enabled` | AI 裁判（驗收審查／計畫審查；handoff 自檢另看 `soft_gate.handoff_review`，設 false） |
 | `codex_companion.fallback.enabled` | 無 codex 時不退 `claude -p`，直接 heuristics-only |
 
 - **`coding_guard.enabled`**：開法與舊名相容見 [乙1](coding-guard.md#乙1-開關與減量原則)。

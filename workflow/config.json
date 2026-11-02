@@ -282,9 +282,9 @@
     "soft_gate": {
       "completion_evidence": true,
       "architecture_review": false,
-      "handoff_review": true,
+      "handoff_review": false,
       "block_severity_threshold": "high",
-      "_doc": "completion_evidence=收尾自檢（heuristics）：silent_advisory=false 且 severity≥block_severity_threshold 時只落 completion_evidence assessment 檔、下一則附說明，不 block 收尾。"
+      "_doc": "completion_evidence=收尾自檢（heuristics）：silent_advisory=false 且 severity≥block_severity_threshold 時只落 completion_evidence assessment 檔、下一則附說明，不 block 收尾。handoff_review=寫 next-phase／handoff 交接檔時叫 Codex 審（寫碼守門關時看這個鍵；守門開時看 handoff_review_v6，沒寫＝關）；兩個都關，交接靠 skills/handoff Step 3.5 自我複審，要第二意見叫 skill codex。"
     },
     "fallback": {
       "_doc": "備援裁判（tools/codex-companion/judge_backend.py）：codex 不在（codex_binary 路徑與 PATH 都找不到）或授權未開通（未登入/401/429/額度）→ 改用 headless `claude -p --model <model>` 當裁判。獨立性降級（同廠同家族、盲點相關）故只發 advisory、不擋收尾（驗收裁判不論哪個後端都只記錄）。授權類失敗會落 workflow/companion-backend.json 抑制標記，reprobe_hours 內不重試 codex，codex 一旦成功即清除。claude_binary 留空＝自動找（PATH → VSCode 擴充 → ~/.local/share/claude/versions）。兩者皆不可用 → 退 heuristics-only 並於 SessionStart 揭露一次。全關＝enabled:false。",
