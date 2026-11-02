@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 35 |
+| Python | 36 |
 | C#／.NET | 22 |
 | JavaScript／Node | 2 |
 | PowerShell | 6 |
@@ -40,6 +40,7 @@
 | `memory/設計通則/擋訊息教的替代管道會被當成替代做法-寫明註解只放在不寫檔的指令上-宣告完照常用edit-write-同類說法全面grep並用掃原始碼的案例守住.md` | 擋訊息教的替代管道會被當成替代做法-寫明註解只放在不寫檔的指令上-宣告完照常用edit-write-同類說法全面grep並用掃原始碼的案例守住 |
 | `memory/驗證與實證/pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值.md` | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
 | `memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md` | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
+| `memory/驗證與實證/python-urllib逾時分兩型-裸timeouterror是請求已送出在等回應-連線階段逾時包成urlerror-判遠端服務是忙還是連不上.md` | Python-urllib逾時分兩型-裸TimeoutError是請求已送出在等回應-連線階段逾時包成URLError-判遠端服務是忙還是連不上 |
 | `memory/驗證與實證/verify檔直接python跑前先確認有-main-入口-沒有就只import後exit0是假綠.md` | verify檔直接python跑前先確認有__main__入口-沒有就只import後exit0是假綠 |
 | `memory/驗證與實證/全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑.md` | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 |
 | `memory/驗證與實證/接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑.md` | 接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑 |

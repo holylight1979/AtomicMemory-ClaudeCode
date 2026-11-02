@@ -10764,7 +10764,7 @@
         "WG_CLAUDE_DIR",
         "transcript 路徑不存在",
         "--settings 合併不取代",
-        "project,local",
+        "setting-sources project local",
         "--mcp-config",
         "--resume 兩回合",
         "projects slug",
@@ -13876,6 +13876,77 @@
         "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走",
         "第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由",
         "feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決"
+      ]
+    },
+    {
+      "name": "feedback-退避常是把目標相干的範圍一句帶過-力氣花在不相干或好交差的事-使用者寧可錯殺-收尾報告要白話分三類讓他一眼看出",
+      "path": "memory/Failures/行為契約/feedback-退避常是把目標相干的範圍一句帶過-力氣花在不相干或好交差的事-使用者寧可錯殺-收尾報告要白話分三類讓他一眼看出.md",
+      "triggers": [
+        "退避",
+        "寧可錯殺",
+        "一句話帶過",
+        "收尾檢核",
+        "收尾報告",
+        "HUD",
+        "技術臭",
+        "基礎分類",
+        "AI 自己做主",
+        "歪樓",
+        "飄移"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-改碼中發現相鄰問題要順手修或白話提出一併修正的確認-不准另外處理之後再說不在範圍帶過"
+      ]
+    },
+    {
+      "name": "agent工具的worktree隔離在工作目錄磁碟代號是小寫c時被拒-報core-worktree-redirect-等工作目錄回到大寫c再派並清掉殘留的鎖住工作樹",
+      "path": "memory/CC與原子記憶契約/agent工具的worktree隔離在工作目錄磁碟代號是小寫c時被拒-報core-worktree-redirect-等工作目錄回到大寫c再派並清掉殘留的鎖住工作樹.md",
+      "triggers": [
+        "isolation worktree",
+        "worktree 隔離",
+        "core.worktree redirect",
+        "Refusing to use",
+        "磁碟代號大小寫",
+        "子代理工作樹",
+        "agent worktree",
+        "locked worktree"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "python-urllib逾時分兩型-裸timeouterror是請求已送出在等回應-連線階段逾時包成urlerror-判遠端服務是忙還是連不上",
+      "path": "memory/驗證與實證/python-urllib逾時分兩型-裸timeouterror是請求已送出在等回應-連線階段逾時包成urlerror-判遠端服務是忙還是連不上.md",
+      "triggers": [
+        "TimeoutError",
+        "URLError",
+        "urllib 逾時",
+        "timed out",
+        "連不上",
+        "遠端服務逾時",
+        "WinError 10053",
+        "回報管理者"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "擋程式寫法的閘要防偏離主題與改不完-每回合同repo只擋一次-舊碼搬動改名合併與別人的碼會被算成新寫-擋訊息要教不是這次寫的就不修",
+      "path": "memory/設計通則/擋程式寫法的閘要防偏離主題與改不完-每回合同repo只擋一次-舊碼搬動改名合併與別人的碼會被算成新寫-擋訊息要教不是這次寫的就不修.md",
+      "triggers": [
+        "病形閘",
+        "SmellGate",
+        "擋次上限",
+        "改不完",
+        "測不完",
+        "偏離主題",
+        "無限迴圈",
+        "commit 前檢查",
+        "程式寫法閘",
+        "smell-ok"
+      ],
+      "scope": "global",
+      "related": [
+        "閘的擋次上限要照同一則回覆算一次-逐個工具呼叫計數會在ai看到擋訊息前就用完上限-擋次去重上限跟分批用同一套批次鍵"
       ]
     }
   ]

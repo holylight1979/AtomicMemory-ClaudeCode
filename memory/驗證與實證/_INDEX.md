@@ -18,6 +18,7 @@
 | hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-logs並重錄-先只退回改動檔證明是錄放帶問題 | hook多寫一筆guard-log會讓git錄放帶測試判受測目錄不同而跳過閘-錄放帶exclude-Logs並重錄-先只退回改動檔證明是錄放帶問題 |
 | pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
 | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
+| python-urllib逾時分兩型-裸timeouterror是請求已送出在等回應-連線階段逾時包成urlerror-判遠端服務是忙還是連不上 | Python-urllib逾時分兩型-裸TimeoutError是請求已送出在等回應-連線階段逾時包成URLError-判遠端服務是忙還是連不上 |
 | verify檔直接python跑前先確認有-main-入口-沒有就只import後exit0是假綠 | verify檔直接python跑前先確認有__main__入口-沒有就只import後exit0是假綠 |
 | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 |

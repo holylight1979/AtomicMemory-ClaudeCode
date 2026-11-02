@@ -6,6 +6,7 @@
 
 | Atom | 說明 |
 |------|------|
+| agent工具的worktree隔離在工作目錄磁碟代號是小寫c時被拒-報core-worktree-redirect-等工作目錄回到大寫c再派並清掉殘留的鎖住工作樹 | Agent工具的worktree隔離在工作目錄磁碟代號是小寫c時被拒-報core-worktree-redirect-等工作目錄回到大寫C再派並清掉殘留的鎖住工作樹 |
 | atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人 | atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人 |
 | atom-write-global必須省略project-cwd | atom-write-global必須省略project-cwd |
 | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
