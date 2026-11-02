@@ -254,15 +254,12 @@ def handle_user_prompt_submit(
     )
 
     # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費
-    correction_hits: List[str] = []
     try:
-        from wg_friction import correction_question, record_correction
-        correction_hits = record_correction(state, session_id, clean_prompt, config, v6)   # 守門關：命中直接計（v6 照位置傳：多支測試的替身是 lambda *a）
-        if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」（規則 CORRECTION_WORDS_ARE_HINTS）
-            lines.append(correction_question(correction_hits))
+        from wg_friction import record_correction
+        record_correction(state, session_id, clean_prompt, config)
     except Exception as e:
         _atom_debug_error("ups:friction", e)
-        print(f"[Guardian:Correction] 糾正詞待判或問句失敗（這次沒問）：{type(e).__name__}: {e}", file=sys.stderr)
+        print(f"[Guardian:Correction] 糾正詞計數失敗（這次沒計）：{type(e).__name__}: {e}", file=sys.stderr)
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
 

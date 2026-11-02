@@ -241,11 +241,6 @@ RULES: Dict[str, str] = {
                                     "有任何一個還是舊的 → 放行；AI 寫明「重載原因：…」（程式更新以外的理由）照它的判斷。依據是程序樹與服務自己"
                                     "記的版本，不是 session 名稱（Claude Code 沒寫進文件的命名行為）；「有沒有叫人重載」用字詞找，只當觸發點。",
     # G6 階段 5：其餘固定規則改交 AI 判（字詞表與門檻只篩候選，判斷由 AI 宣告附理由、程式只核對有沒有理由並留帳）
-    "CORRECTION_WORDS_ARE_HINTS": "糾正詞表（wg_friction）只是提示：使用者本人打的字命中時不直接計糾正，記成待判、UserPromptSubmit 問 AI"
-                                  "「他是在糾正你嗎」；AI 在那一回合寫一行「糾正｜是：<理由>」→ 計一次；「糾正｜不是：<理由>」→ 不計"
-                                  "（guard-friction event=judged 留理由）；到下一則使用者本人打的訊息還沒回 → 不計（詞表不替 AI 判）、"
-                                  "留帳 undeclared 給健檢抽查沒回的比例。"
-                                  "理由只查有沒有文字、不是佔位（reason_present），不評充不充分。",
     "EXTRACT_VETO_NEEDS_JUDGMENT": "決策萃取已寫成卡（confirmed_extractions）之後，使用者下一則含「否／不要記／別記／取消記憶」不再整批丟掉通知："
                                    "通知照送，另問 AI「這句是不是在否決剛記的那條」；是 → AI 用 atom_retire 撤那張卡並寫"
                                    "「否決記憶｜是：<理由>」；只是句子裡剛好有這個字（是否、否則）→「否決記憶｜不是：<理由>」；"
@@ -2029,8 +2024,8 @@ def not_doing_verdict(line: str, decls: Sequence[Dict[str, str]], prompts: Seque
 def yes_no_declaration(text: str, label: str) -> Optional[Dict[str, Any]]:
     """AI 回程式問句的宣告行「<label>｜是：<理由>」或「<label>｜不是：<理由>」→ 理由有填（reason_present）的最後一條：
     {"yes", "reason", "line"}；沒有回 None（理由空、純標點、範本佔位都不算）。只認行首（可帶空白、清單符號、粗體）：
-    句中引用的宣告字樣（「不要寫成『糾正｜是：…』」）是說明不是答覆；寫了好幾條以最後一條為準。
-    CORRECTION_WORDS_ARE_HINTS／EXTRACT_VETO_NEEDS_JUDGMENT 用。"""
+    句中引用的宣告字樣（「不要寫成『否決記憶｜是：…』」）是說明不是答覆；寫了好幾條以最後一條為準。
+    EXTRACT_VETO_NEEDS_JUDGMENT 用。"""
     rx = re.compile(rf"^[\s*\-•]*{re.escape(label)}\s*[｜|]\s*(不是|是)\s*[：:]\s*(.+)")
     found = None
     for raw in str(text or "").splitlines():
@@ -2038,15 +2033,6 @@ def yes_no_declaration(text: str, label: str) -> Optional[Dict[str, Any]]:
         if m and reason_present(m.group(2)):
             found = {"yes": m.group(1) == "是", "reason": m.group(2).strip()[:200], "line": raw.strip()[:240]}
     return found
-
-
-def correction_verdict(decl: Optional[Dict[str, Any]]) -> Verdict:
-    """CORRECTION_WORDS_ARE_HINTS：owed＝計一次糾正，只有 AI 判是才計；沒回不計（詞表不替 AI 判，沒回的比例靠留帳抽查）。"""
-    if decl is None:
-        return Verdict("CORRECTION_WORDS_ARE_HINTS", False, "命中糾正詞，AI 沒回糾正行：不計、記成沒回")
-    if decl["yes"]:
-        return Verdict("CORRECTION_WORDS_ARE_HINTS", True, f"AI 判是糾正：{decl['reason'][:120]}", (decl["line"],))
-    return Verdict("CORRECTION_WORDS_ARE_HINTS", False, f"AI 判不是糾正：{decl['reason'][:120]}", (decl["line"],))
 
 
 CONFLICT_VERDICTS = ("conflict", "not_conflict")

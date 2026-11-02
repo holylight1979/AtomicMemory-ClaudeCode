@@ -66,13 +66,11 @@ def test_negative_control_declared_verdict():
 
 # ─── G6 階段 5：其餘固定規則改交 AI 判（純函式；端到端案在 verify_g6_rules_to_llm.py） ─────────────
 
-def test_g6_correction_and_veto_declarations():
-    """CORRECTION_WORDS_ARE_HINTS／EXTRACT_VETO_NEEDS_JUDGMENT：宣告行只認行首、最後一條為準、佔位不算；沒回不計（owed＝計一次）。"""
+def test_g6_veto_declarations():
+    """EXTRACT_VETO_NEEDS_JUDGMENT：宣告行只認行首（可帶清單符號）、最後一條為準、佔位不算。"""
     assert "EXTRACT_VETO_NEEDS_JUDGMENT" in rr.RULES
-    assert rr.correction_verdict(None).owed is False                                     # 沒回：詞表不替 AI 判
-    yes = rr.yes_no_declaration("- 糾正｜是：他指出我改錯檔", "糾正")
-    assert rr.correction_verdict(yes).owed is True and rr.correction_verdict(yes).rule == "CORRECTION_WORDS_ARE_HINTS"
-    assert rr.yes_no_declaration("不要寫『糾正｜是：x』\n糾正｜不是：在問進度", "糾正")["yes"] is False
+    assert rr.yes_no_declaration("- 否決記憶｜是：他說這條不要記", "否決記憶")["yes"] is True
+    assert rr.yes_no_declaration("不要寫『否決記憶｜是：x』\n否決記憶｜不是：在問能不能改", "否決記憶")["yes"] is False
     assert rr.yes_no_declaration("否決記憶｜是：<理由>", "否決記憶") is None
 
 

@@ -5,7 +5,7 @@
 2. record_tool_result：per-session 檔 append、門檻以上才回 advisory、advisory 每 session 上限
 3. summarize / flush：per-tool 聚合、oversized 排序、聚合後刪暫存、GC 逾期孤兒
 4. detect_correction：糾正詞命中、「對不對？」提問不算、bug 詞不算、英文整詞、enabled=false
-5. record_correction：計數、明細 cap、guard log；寫碼守門關時命中直接計、通知與同伴訊息不計
+5. record_correction：命中就計、明細 cap、guard log；通知與同伴訊息不計；UserPromptSubmit 寫碼守門開關都一樣計、不送提問
 6. Stop DPM gate：只靠糾正 ≥ min_hits 也觸發；<min_hits／關閉／已深寫 → 不觸發；指令句帶糾正摘要
 
 對應：hooks/wg_friction.py、handlers/post_tool_use.py、handlers/user_prompt_submit.py、
@@ -189,7 +189,7 @@ def test_detect_correction_disabled_and_custom_keywords():
 
 
 def test_record_correction_counts_caps_and_logs(sandbox):
-    """命中先記待判（規則 CORRECTION_WORDS_ARE_HINTS）；AI 回「糾正｜是」才計，明細 cap 10。"""
+    """命中就計一次，明細 cap 10，每次留帳 event=keyword。"""
     _, logs = sandbox
     state = {"turn_seq": 5}
     assert wf.record_correction(state, "s1", "隨便聊聊", CFG) == []
@@ -197,34 +197,60 @@ def test_record_correction_counts_caps_and_logs(sandbox):
     for i in range(12):
         state["turn_seq"] = i
         assert wf.record_correction(state, "s1", f"不對 第{i}次", CFG)
-        assert wf.resolve_correction(state, "s1", f"糾正｜是：第{i}次是在說我改錯") is True
     assert state["user_correction_count"] == 12
     assert len(state["user_correction_hits"]) == 10
     assert state["user_correction_hits"][-1]["turn"] == 11
     events = [p["event"] for g, p in logs if g == "friction"]
-    assert events.count("candidate") == 12 and events.count("judged") == 12 and logs[-1][1]["count"] == 12
+    assert events == ["keyword"] * 12 and logs[-1][1]["count"] == 12
     assert wf.friction_triggered(state, CFG)
     assert "12 次" in wf.friction_summary(state) and "不對" in wf.friction_summary(state)
 
 
-def test_record_correction_guard_off_counts_on_hit(sandbox):
-    """寫碼守門關（v6=False，出廠）沒人問 AI：使用者本人打的字命中就計一次（9e476fd0 的行為）、不留待判；
-    子代理完成通知、別的 session 的訊息不是使用者打的字 → 不計；滿 min_hits（2）→ 深度檢討觸發。"""
+def test_record_correction_counts_only_user_typed(sandbox):
+    """使用者本人打的字命中就計一次；子代理完成通知、別的 session 的訊息不是使用者打的字 → 不計；滿 min_hits（2）→ 深度檢討觸發。"""
     _, logs = sandbox
     state = {"turn_seq": 1}
-    assert "不對" in wf.record_correction(state, "s1", "不對，我說的是另一個檔", CFG, False)
-    assert state["user_correction_count"] == 1 and "user_correction_pending" not in state
+    assert "不對" in wf.record_correction(state, "s1", "不對，我說的是另一個檔", CFG)
+    assert state["user_correction_count"] == 1
     assert state["user_correction_hits"][-1]["by"] == "keyword"
     assert not wf.friction_triggered(state, CFG)
     for not_typed in ("<task-notification>agent done：結果不對，重來</task-notification>",
                       '<cross-session-message from="peer">我說過不要動 config</cross-session-message>'):
-        assert wf.record_correction(state, "s1", not_typed, CFG, False) == []
+        assert wf.record_correction(state, "s1", not_typed, CFG) == []
     assert state["user_correction_count"] == 1
     state["turn_seq"] = 2
-    assert wf.record_correction(state, "s1", "重來，改回來原本的寫法", CFG, False)
-    assert state["user_correction_count"] == 2 and "user_correction_pending" not in state
+    assert wf.record_correction(state, "s1", "重來，改回來原本的寫法", CFG)
+    assert state["user_correction_count"] == 2
     assert wf.friction_triggered(state, CFG)
     assert [p["event"] for g, p in logs if g == "friction"] == ["keyword", "keyword"]
+
+
+@pytest.mark.parametrize("guard", ["0", "1"])
+def test_ups_counts_correction_same_with_guard_on_or_off(sandbox, monkeypatch, guard):
+    """真的走 handle_user_prompt_submit（碰檔案與模型的依賴換空殼）：寫碼守門開或關，連兩則含糾正詞的使用者訊息都直接計兩次、
+    深度檢討觸發，注入裡沒有問 AI「是不是糾正」的那一題（舊碼守門開時送題、不計數，這案會紅）。"""
+    from handlers import user_prompt_submit as ups
+    from handlers.ups_gates import track_turn_prompts
+    monkeypatch.setenv("WG_CODING_GUARD", guard)
+    state = {"session": {"id": "s1", "cwd": ""}, "phase": "working", "turn_seq": 0}
+    sent = []
+    monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
+    for name, fn in (("_ups_sentinel_check_and_arm", lambda *a: None), ("_ups_sentinel_clear", lambda sid: None),
+                     ("build_context", lambda *a: None), ("_maybe_spawn_failure_extraction", lambda *a: None),
+                     ("_update_topic_tracker", lambda *a: None),
+                     ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, s: None),
+                     ("output_json", sent.append), ("output_nothing", lambda: None)):
+        monkeypatch.setattr(ups, name, fn)
+    monkeypatch.setattr(ups, "run_pre_gates", lambda sid, s, cfg, clean, low, lines: track_turn_prompts(s, clean))
+    monkeypatch.setattr(ups, "collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {}))
+    monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: ([], {}))
+    monkeypatch.setattr(ups, "_truncate_context_by_activation", lambda lines, *a: lines)
+    cfg = dict(CFG, sync_keywords=[])
+    for prompt in ("不對，我說的是另一個檔", "重來，改回來原本的寫法"):
+        ups.handle_user_prompt_submit({"session_id": "s1", "prompt": prompt, "transcript_path": ""}, cfg)
+    assert state["user_correction_count"] == 2
+    assert "糾正｜" not in json.dumps(sent, ensure_ascii=False)
+    assert st._should_deep_postmortem(_clean_state(**state), CFG, claims_done=True) is True
 
 
 # ── 6. Stop DPM gate ─────────────────────────────────────────────────────────

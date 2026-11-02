@@ -4,7 +4,7 @@
 ## 規則索引
 
 - **[檔案與回合的基礎判定](#檔案與回合的基礎判定)**：[SAME_FILE](#same_file)・[TURN_SINCE_USER_PROMPT](#turn_since_user_prompt)・[CODING_TURN_ONLY](#coding_turn_only)・[GATE_MODE_TABLE／REMIND_ON_PRIOR_RESULT（RULE_MODE）](#gate_mode_tableremind_on_prior_resultrule_mode)
-- **[宣稱詞、糾正詞與其他「詞表只是提示」的判斷入口](#宣稱詞糾正詞與其他詞表只是提示的判斷入口)**：[CLAIM_MODIFIER_NOT_OWN](#claim_modifier_not_own)・[CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC](#claim_fixed_needs_passclaim_measured_needs_doneclaim_tried_needs_exec)・[CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH](#claim_words_are_hintsclaim_disclaim_needs_reasonclaim_receipt_ref_match)・[CLAIM_CONDITIONAL_NOT_CLAIM](#claim_conditional_not_claim)・[CORRECTION_WORDS_ARE_HINTS](#correction_words_are_hints)・[EXTRACT_VETO_NEEDS_JUDGMENT](#extract_veto_needs_judgment)・[收割與收尾檢核的 dismiss](#收割與收尾檢核的-dismiss)・[CONFLICT_DECLARED_BY_AI](#conflict_declared_by_ai)・[PROJECT_LITERAL_IS_HINT](#project_literal_is_hint)・[PROJECT_RULE_WORDS_ARE_HINTS](#project_rule_words_are_hints)
+- **[宣稱詞與其他「詞表只是提示」的判斷入口](#宣稱詞與其他詞表只是提示的判斷入口)**：[CLAIM_MODIFIER_NOT_OWN](#claim_modifier_not_own)・[CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC](#claim_fixed_needs_passclaim_measured_needs_doneclaim_tried_needs_exec)・[CLAIM_WORDS_ARE_HINTS／CLAIM_DISCLAIM_NEEDS_REASON／CLAIM_RECEIPT_REF_MATCH](#claim_words_are_hintsclaim_disclaim_needs_reasonclaim_receipt_ref_match)・[CLAIM_CONDITIONAL_NOT_CLAIM](#claim_conditional_not_claim)・[EXTRACT_VETO_NEEDS_JUDGMENT](#extract_veto_needs_judgment)・[收割與收尾檢核的 dismiss](#收割與收尾檢核的-dismiss)・[CONFLICT_DECLARED_BY_AI](#conflict_declared_by_ai)・[PROJECT_LITERAL_IS_HINT](#project_literal_is_hint)・[PROJECT_RULE_WORDS_ARE_HINTS](#project_rule_words_are_hints)
 - **[退避例外與紅測失敗項](#退避例外與紅測失敗項)**：[NOT_DOING_DECLARED](#not_doing_declared)・[RED_ITEMS_ONLY_FROM_FAILURE_LINES](#red_items_only_from_failure_lines)
 - **[收尾儀式與寫碼查核案例](#收尾儀式與寫碼查核案例)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)・[CASE_COVERS_CHANGE](#case_covers_change)
 - **[已不存在、還原與等同的改檔](#已不存在還原與等同的改檔)**：[GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW](#gone_outside_vcsgone_in_git_nothing_new)・[MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE](#moved_new_code_seengone_unverifiablevcs_root_unreadable)・[EXCLUDED_REGION](#excluded_region)・[NET_UNCHANGED／SNAPSHOT_SETTLED](#net_unchangedsnapshot_settled)・[EXEMPTION_PEERS_CODE_ONLY](#exemption_peers_code_only)・[CONTENT_EQUALS_COMMITTED](#content_equals_committed)・[COMMENT_ONLY_CHANGE](#comment_only_change)
@@ -96,7 +96,7 @@
   - 標「不在範圍」的安全邊界與表上沒登的規則名照擋。
   - 寫碼守門關一律 block。
 
-### 宣稱詞、糾正詞與其他「詞表只是提示」的判斷入口
+### 宣稱詞與其他「詞表只是提示」的判斷入口
 
 #### CLAIM_MODIFIER_NOT_OWN
 **判什麼**：宣稱詞是不是自己的
@@ -153,22 +153,13 @@
   - 子句後段有「了／過」＝已經發生，照算宣稱。
   - 只套修好／量了／試過三類；完成詞（`claims_completion`）是整段粗判、不套。
 
-#### CORRECTION_WORDS_ARE_HINTS
-**判什麼**：糾正詞表只是提示（G6 盤點第二節類 1）
-- **不欠／放行**：
-  - 命中先記待判（state `user_correction_pending`），UPS 問 `[Guardian:Correction]`。
-  - Stop 收本回合行首的「糾正｜不是：<理由>」→ 不計、留帳 guard-friction `judged`。
-  - 理由判法同 `reason_present`；好幾條以最後一條為準。
-- **照欠／照擋**：
-  - 「糾正｜是：<理由>」→ 計一次。
-  - 到下一則使用者本人打的訊息還沒回 → 不計（詞表不替 AI 判），記 `undeclared` 給健檢抽查。
-
 #### EXTRACT_VETO_NEEDS_JUDGMENT
 **判什麼**：「否／不要記」只是提示（盤點 P2 同類）
 - **不欠／放行**：
   - 決策萃取寫成卡後，使用者那則有這些字樣，不再整批丟掉通知。
   - 通知照送（附卡的路徑），UPS 問 `[Guardian:ExtractVeto]`。
   - AI 判不是 →「否決記憶｜不是：<理由>」留帳。
+  - Stop 只收本回合行首的宣告行；理由判法同 `reason_present`；好幾條以最後一條為準。
 - **照欠／照擋**：
   - AI 判是 → 自己 `atom_retire` 撤卡並寫「否決記憶｜是：<理由>」。
   - 沒回 → 記 `undeclared`、不自動撤。

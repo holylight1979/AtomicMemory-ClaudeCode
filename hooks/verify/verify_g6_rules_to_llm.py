@@ -1,11 +1,10 @@
-"""verify_g6_rules_to_llm.py — G6 階段 5：五處固定規則改交 AI 判（字詞表與門檻只篩候選，AI 宣告附理由、程式核對並留帳）。
+"""verify_g6_rules_to_llm.py — G6 階段 5：四處固定規則改交 AI 判（字詞表與門檻只篩候選，AI 宣告附理由、程式核對並留帳）。
 
-做什麼：每件一條有名規則（hooks/wg_release_rules.RULES）＋會紅的案例（舊碼照固定規則處置）＋反例（AI 判「不是」不計數、不自動處置）。
-1. CORRECTION_WORDS_ARE_HINTS（wg_friction、user_prompt_submit、stop._record_prompt_judgments）
-2. EXTRACT_VETO_NEEDS_JUDGMENT（wg_extraction、handlers/ups_gates）
-3. HARVEST_WAIVER_ITEMIZED（wg_harvest 收割閘與收割待補、wg_evasion 收尾檢核）
-4. CONFLICT_DECLARED_BY_AI（tools/memory-conflict-detector write-check 與拉取稽核）
-5. PROJECT_LITERAL_IS_HINT（lib/realm_gate global／org）
+做什麼：每件一條有名規則（hooks/wg_release_rules.RULES）＋會紅的案例（舊碼照固定規則處置）＋反例（AI 判「不是」不自動處置）。
+1. EXTRACT_VETO_NEEDS_JUDGMENT（wg_extraction、handlers/ups_gates、stop._record_prompt_judgments）
+2. HARVEST_WAIVER_ITEMIZED（wg_harvest 收割閘與收割待補、wg_evasion 收尾檢核）
+3. CONFLICT_DECLARED_BY_AI（tools/memory-conflict-detector write-check 與拉取稽核）
+4. PROJECT_LITERAL_IS_HINT（lib/realm_gate global／org）
 不碰 live：guard log 全收進 list、向量與本地模型 stub、registry monkeypatch、state 不落檔。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_g6_rules_to_llm.py
 """
@@ -26,7 +25,6 @@ sys.path.insert(0, str(CODE_ROOT))
 import wg_core  # noqa: E402
 import wg_evasion as wev  # noqa: E402
 import wg_extraction as wex  # noqa: E402
-import wg_friction as wf  # noqa: E402
 import wg_harvest as wh  # noqa: E402
 import wg_release_rules as rr  # noqa: E402
 from handlers import stop as st  # noqa: E402
@@ -50,7 +48,6 @@ def logs(monkeypatch):
     def _log(guard, payload):
         got.append((guard, dict(payload)))
     monkeypatch.setattr(wg_core, "append_guard_log", _log)
-    monkeypatch.setattr(wf, "append_guard_log", _log)
     monkeypatch.setattr(st, "append_guard_log", _log)
     return got
 
@@ -59,62 +56,14 @@ def _events(logs, guard):
     return [p for g, p in logs if g == guard]
 
 
-# ─── 1. CORRECTION_WORDS_ARE_HINTS ───────────────────────────────────────────
-
-def test_correction_hit_is_pending_not_counted(logs):
-    """會紅：舊碼命中「不對」就計數。現在記待判、不計，留帳 candidate。"""
-    state = {"turn_seq": 3}
-    assert wf.record_correction(state, SID, "這樣不對嗎？我是說另一個檔不對", {})
-    assert "user_correction_count" not in state
-    assert state["user_correction_pending"]["kw"] == ["不對"]
-    assert _events(logs, "friction")[-1]["event"] == "candidate"
-
-
-def test_correction_declared_not_is_not_counted(logs):
-    """反例：AI 判「不是」→ 不計數、帳上留 AI 的理由。"""
-    state = {"turn_seq": 3}
-    wf.record_correction(state, SID, "不對，順便看一下 log", {})
-    assert wf.resolve_correction(state, SID, "前文\n糾正｜不是：他在說 log 裡那行輸出不對，不是說我做錯") is False
-    assert "user_correction_pending" not in state and not state.get("user_correction_count")
-    last = _events(logs, "friction")[-1]
-    assert last["event"] == "judged" and last["correction"] is False and "log 裡那行" in last["reason"]
-    assert not wf.friction_triggered(state, {"friction": {"min_hits": 1}})
-
-
-def test_correction_declared_yes_counts(logs):
-    state = {"turn_seq": 3}
-    wf.record_correction(state, SID, "我說過不要動 config", {})
-    assert wf.resolve_correction(state, SID, "糾正｜是：他之前說過不要動 config，我動了") is True
-    assert state["user_correction_count"] == 1 and state["user_correction_hits"][-1]["by"] == "judged"
-
-
-def test_correction_placeholder_or_silence_is_not_counted(logs):
-    """理由只有佔位不算回；一直沒回 → 下一則使用者本人打的訊息結帳：沒人判過不計（詞表不替 AI 判），留帳 undeclared。
-    背景通知不算使用者開新回合，不結帳。"""
-    state = {"turn_seq": 3}
-    wf.record_correction(state, SID, "重來", {})
-    assert wf.resolve_correction(state, SID, "糾正｜不是：<理由>") is None
-    assert state.get("user_correction_pending")
-    wf.record_correction(state, SID, "<task-notification>agent done 不對</task-notification>", {})
-    assert state.get("user_correction_pending")
-    wf.record_correction(state, SID, "好，繼續下一步", {})
-    assert not state.get("user_correction_count") and "user_correction_pending" not in state
-    assert _events(logs, "friction")[-1]["event"] == "undeclared"
-
+# ─── 1. EXTRACT_VETO_NEEDS_JUDGMENT ──────────────────────────────────────────
 
 def test_quoted_declaration_in_prose_is_not_an_answer(logs):
     """codex 獨立審：句中引用的宣告字樣是說明不是答覆；只認行首，好幾條以最後一條為準。"""
-    state = {"turn_seq": 3}
-    assert wf.record_correction(state, SID, "log 那行不對，進度到哪了", {})          # 前置：真的記了待判
-    text ="說明：不要寫成『糾正｜是：使用者在糾正方向』那樣。\n- 糾正｜是：先記一下\n- 糾正｜不是：他只是在問進度"
-    assert wf.resolve_correction(state, SID, text) is False
-    assert not state.get("user_correction_count")
-    assert rr.yes_no_declaration("他說「糾正｜是：x」", "糾正") is None
-
-
-def test_correction_question_offers_both_declarations():
-    q = wf.correction_question(["不對"])
-    assert "糾正｜是：" in q and "糾正｜不是：" in q
+    state = {"extract_veto_pending": {"turn": 7, "hints": ["否"], "statements": ["s"]}}
+    text = "說明：不要寫成『否決記憶｜是：使用者在否決』那樣。\n- 否決記憶｜是：先記一下\n- 否決記憶｜不是：他只是在問能不能改"
+    assert wex.resolve_extract_veto(state, SID, text) is False
+    assert rr.yes_no_declaration("他說「否決記憶｜是：x」", "否決記憶") is None
 
 
 def _transcript(user: str, assistant: str) -> str:
@@ -125,19 +74,16 @@ def _transcript(user: str, assistant: str) -> str:
 
 
 def test_stop_collects_declaration_from_turn_text(logs, monkeypatch):
-    """Stop 在所有閘之前收本回合可見文字的宣告行：糾正與否決兩種待判一起結。"""
+    """Stop 在所有閘之前收本回合可見文字的否決宣告行，結掉待判。"""
     writes = []
     monkeypatch.setattr(st, "write_state", lambda sid, s: writes.append(sid))
-    state = {"turn_seq": 4, "user_correction_pending": {"turn": 4, "kw": ["不對"], "excerpt": "不對"},
-             "extract_veto_pending": {"turn": 4, "hints": ["否"], "statements": ["一律 UTF-8"]}}
-    text = _transcript("這樣不對嗎？是否要改", "看過了。\n糾正｜不是：他在問問題\n否決記憶｜不是：「是否」是在問我能不能改")
+    state = {"turn_seq": 4, "extract_veto_pending": {"turn": 4, "hints": ["否"], "statements": ["一律 UTF-8"]}}
+    text = _transcript("是否要改", "看過了。\n否決記憶｜不是：「是否」是在問我能不能改")
     st._record_prompt_judgments(state, SID, None, text)
-    assert "user_correction_pending" not in state and "extract_veto_pending" not in state
-    assert not state.get("user_correction_count") and writes == [SID]
+    assert "extract_veto_pending" not in state and writes == [SID]
     assert _events(logs, "extract_veto")[-1]["veto"] is False
 
 
-# ─── 2. EXTRACT_VETO_NEEDS_JUDGMENT ──────────────────────────────────────────
 
 def _pre_gates(monkeypatch, prompt, confirmed):
     monkeypatch.setattr(ug, "check_long_die_status", lambda: {"backend": "ollama"})
@@ -210,7 +156,7 @@ def test_veto_declarations_and_undeclared_ledger(logs):
     assert "extract_veto_pending" not in state and _events(logs, "extract_veto")[-1]["event"] == "undeclared"
 
 
-# ─── 3. 收割與收尾檢核的使用者豁免：dismiss 詞整批放行、留帳 ────────────────────
+# ─── 2. 收割與收尾檢核的使用者豁免：dismiss 詞整批放行、留帳 ────────────────────
 
 _HCFG = {"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5, "min_turns_between": 3,
                      "background": False}}   # 測擋下與豁免這條路（背景收割關掉或送不出去時走它）
@@ -297,7 +243,7 @@ def test_closing_check_dismiss_word_waives(logs):
     assert wev.detect_missing_aec_emission(DONE, mfs, ["繼續"], 2, False) is True
 
 
-# ─── 4. CONFLICT_DECLARED_BY_AI ──────────────────────────────────────────────
+# ─── 3. CONFLICT_DECLARED_BY_AI ──────────────────────────────────────────────
 
 def _hit(atom, sim):
     return {"atom_name": atom, "score": sim, "text": f"fact of {atom}", "file_path": f"/p/.claude/memory/shared/{atom}.md",
@@ -403,7 +349,7 @@ def test_conflict_rule_registered():
     assert "CONFLICT_DECLARED_BY_AI" in rr.RULES
 
 
-# ─── 5. PROJECT_LITERAL_IS_HINT ──────────────────────────────────────────────
+# ─── 4. PROJECT_LITERAL_IS_HINT ──────────────────────────────────────────────
 
 @pytest.fixture
 def no_registry(monkeypatch):
@@ -448,8 +394,8 @@ def test_global_gate_from_project_cwd(logs, no_registry, tmp_path):
 
 # ─── 規則表 ─────────────────────────────────────────────────────────
 
-def test_four_rules_registered_and_named():
-    names = ("CORRECTION_WORDS_ARE_HINTS", "EXTRACT_VETO_NEEDS_JUDGMENT", "CONFLICT_DECLARED_BY_AI", "PROJECT_LITERAL_IS_HINT")
+def test_rules_registered_and_named():
+    names = ("EXTRACT_VETO_NEEDS_JUDGMENT", "CONFLICT_DECLARED_BY_AI", "PROJECT_LITERAL_IS_HINT")
     assert all(n in rr.RULES for n in names)
 
 

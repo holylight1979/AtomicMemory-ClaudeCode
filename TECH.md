@@ -1326,7 +1326,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - **底部同步擋**：
   - 先剔除已 commit 並 push 的檔（[SYNC_BLOCK_SKIPS_SYNCED](TECH/release-rules.md#sync_block_skips_synced)）。
   - 只剩改檔數時只印 stderr；同一筆前面回合擋過就不再擋，有新的一筆才擋（[SYNC_BLOCK_NEW_ITEMS_ONLY](TECH/release-rules.md#sync_block_new_items_only)）。
-- **深度檢討**：重試只數「紅了、改了、再跑仍紅」的輪數；一律叫 `atom_write` 寫到資料根。守門關時糾正詞命中就直接計、不問 AI（[跨層表 #15](#守門開關會改到記憶系統的地方)）。
+- **深度檢討**：重試只數「紅了、改了、再跑仍紅」的輪數；一律叫 `atom_write` 寫到資料根。使用者糾正累計到門檻單獨也觸發（[A8 使用者糾正訊號](#使用者糾正訊號)）。
 
 #### 擋次預算
 
@@ -1341,7 +1341,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - 退避偵測、退縮閘、收尾檢核、AEC-Pending 只在寫碼回合跑（[跨層表 #22](#守門開關會改到記憶系統的地方)）。
 - 共用擋次每個使用者回合重算（[跨層表 #26](#守門開關會改到記憶系統的地方)）。
 - 判「宣告完成」看整個回合，不只最後一則（[跨層表 #24](#守門開關會改到記憶系統的地方)）。
-- 用 Bash／PowerShell 改的檔也進改檔帳，同步閘看得到（[跨層表 #5](#守門開關會改到記憶系統的地方)）；糾正會問 AI 並累計，餵給深度檢討（[跨層表 #15](#守門開關會改到記憶系統的地方)）。
+- 用 Bash／PowerShell 改的檔也進改檔帳，同步閘看得到（[跨層表 #5](#守門開關會改到記憶系統的地方)）。
 - 另加寫碼查核、拐彎判斷、等值、自清、Reload 建議、PickOne 等閘 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。紅測閘兩種模式同一套。
 
 細節 → [附錄 A7](#a7-基本守門細節)
@@ -1506,7 +1506,7 @@ Bash／PowerShell 指令
 
 機制依用途分五組，每組一張「機制｜做什麼｜訊號在哪」對照表；每個機制的完整運作在附錄 A8 的同名小標。
 
-有三個機制只在寫碼守門開時才有：hook 分段計時、GC、IDENTITY 完整性哨兵（→ [跨層表 #6、#31、#32](#守門開關會改到記憶系統的地方)）。表上標「守門開時才有」。使用者糾正訊號在守門關時命中就計、不問 AI（→ [跨層表 #15](#守門開關會改到記憶系統的地方)）。
+有三個機制只在寫碼守門開時才有：hook 分段計時、GC、IDENTITY 完整性哨兵（→ [跨層表 #6、#31、#32](#守門開關會改到記憶系統的地方)）。表上標「守門開時才有」。
 
 ### 常駐可見面與定期健檢
 
@@ -1527,7 +1527,7 @@ Bash／PowerShell 指令
 | 救援日誌 | 記錄「注入的記憶後來真的被用上」 | `Logs/rescue-log.jsonl` |
 | 失念偵測 | 找出庫裡有卡可防、卻沒被注入的失敗 | `Logs/recall-miss.jsonl` |
 | 注入回合日誌 | 每回合注入結果計數與 token | `Logs/injection-turns.jsonl` |
-| 使用者糾正訊號 | 偵測「你做錯方向」，守門開時問 AI 是不是糾正、判是才累計，守門關時命中就計，餵給收尾檢討（→ [跨層表 #15](#守門開關會改到記憶系統的地方)） | `Logs/guard-friction.jsonl` |
+| 使用者糾正訊號 | 偵測「你做錯方向」，使用者本人打的字命中就累計，餵給收尾檢討 | `Logs/guard-friction.jsonl` |
 
 ### hook 與工具的成本量測
 
@@ -1564,7 +1564,7 @@ Bash／PowerShell 指令
 - 週健檢：Task Scheduler `Claude-Memory-WeeklyHealth`，週一 09:00；報告輪替 12 份；缺檔、逾 10 天或 red>0 時 SessionStart 出 advisory。
 - 週用量截圖：Task Scheduler `Claude-Usage-WeeklySnapshot`，週二 03:30。
 - 工具結果體積：單筆 ≥ `oversized_chars`（20K）出 `[Guardian:ToolResultSize]`，每 session 最多 3 次。
-- 糾正訊號（守門開時問 AI 判是才計、守門關時命中就計，→ [跨層表 #15](#守門開關會改到記憶系統的地方)）：累計 ≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為「費力＋真失敗」同時成立。
+- 糾正訊號：累計 ≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為「費力＋真失敗」同時成立。
 - hook 計時（守門開時才有，→ [跨層表 #6](#守門開關會改到記憶系統的地方)）：累計過上限 80% 降級，到 95% 還沒結束記 overrun（[乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級)）。
 - log rotation：預設 10MB 保 3 份；guardian-crash.log 曾爆 114GB，所以必須輪替。
 
@@ -3857,7 +3857,7 @@ svn：svn_update_targets
 
 - **條件**：費力（effort）且真失敗（real_failure），本 session 還沒深寫過。
   - 費力的重試只數「紅了、改了、再跑仍紅」的輪數；刻意紅（退回舊碼反證）不算（[RETRY_COUNTS_RERUN_CYCLES／RED_WHILE_REVERTED](TECH/release-rules.md#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears)）。
-  - 使用者糾正累計 ≥ `friction.min_hits`（2）單獨就算兩者都成立（[A8 使用者糾正訊號](#使用者糾正訊號)）。守門關時命中就計、守門開時 AI 判是才計（→ [跨層表 #15](#守門開關會改到記憶系統的地方)）。
+  - 使用者糾正累計 ≥ `friction.min_hits`（2）單獨就算兩者都成立（[A8 使用者糾正訊號](#使用者糾正訊號)）。
 - **動作**：要 AI 結束前用 `atom_write` 補完整檢討卡；不分在不在 git 工作樹，一律寫到資料根。
 - **次數**：一次性（`deep_postmortem_done`＋旗標檔），獨立預算、不跟共用預算搶，前面的閘吃光預算也輪得到它。
 - 旗標檔 7 天後由 `workflow/` 執行紀錄清理刪掉；那份清理只在守門開時跑（→ [跨層表 #31](#守門開關會改到記憶系統的地方)）。
@@ -4318,14 +4318,11 @@ svn：svn_update_targets
   - 比對「你做錯方向」類詞：不對、我說過、重來、改回來…
   - 「對不對？」提問先剔除
   - bug／測試詞另屬失敗萃取
-- **判定流程**（守門開時；→ [跨層表 #15](#守門開關會改到記憶系統的地方)）：
-  - 詞表只是提示（規則 [CORRECTION_WORDS_ARE_HINTS](TECH/release-rules.md#correction_words_are_hints)）
-  - 命中先記待判，UPS 問 AI
-  - AI 回「糾正｜是：<理由>」才計（Stop 的 `_record_prompt_judgments` 收這一行）
-  - 「糾正｜不是：<理由>」不計；沒回也不計，記成沒回
+- **判定**（寫碼守門開關都一樣）：
+  - 使用者本人打的字命中就計一次（`record_correction`，留帳 event=keyword）
+  - 子代理通知、跨 session 訊息、系統提示區塊不算
   - `user_correction_count` 跨 turn 累計
-- **守門關（出廠）時**：不問 AI；使用者本人打的字命中就直接計一次（`_count_correction`，留帳 event=keyword）。子代理通知、跨 session 訊息、系統提示區塊不算。
-- **效果**（守門開關都有）：
+- **效果**：
   - ≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為 effort＋真失敗同時成立
   - 補上「測試全綠、已宣告完成、但人一路在糾正」這種原本三個訊號都抓不到的失敗
 - **訊號出口**：`Logs/guard-friction.jsonl`；DPM 指令句寫出糾正次數與關鍵字

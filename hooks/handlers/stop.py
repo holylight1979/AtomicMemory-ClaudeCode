@@ -1309,21 +1309,20 @@ def _log_waivers(state: Dict[str, Any], session_id: str, turn_seq: int, uturn: A
 
 
 def _record_prompt_judgments(state: Dict[str, Any], session_id: str, transcript: Any, transcript_text: str) -> None:
-    """UserPromptSubmit 問過的「這句是不是糾正」「是不是在否決剛記的決策」→ 收本回合可見文字裡的宣告行
-    （規則 CORRECTION_WORDS_ARE_HINTS／EXTRACT_VETO_NEEDS_JUDGMENT）。排在所有閘之前，後面的閘擋不擋都不漏收；
+    """UserPromptSubmit 問過的「是不是在否決剛記的決策」→ 收本回合可見文字裡的宣告行
+    （規則 EXTRACT_VETO_NEEDS_JUDGMENT）。排在所有閘之前，後面的閘擋不擋都不漏收；
     沒有待判零成本。收失敗只 stderr：待判留著，下一則使用者訊息照舊規則結帳。"""
-    if not (state.get("user_correction_pending") or state.get("extract_veto_pending")):
+    if not state.get("extract_veto_pending"):
         return
     try:
         from wg_extraction import resolve_extract_veto
-        from wg_friction import resolve_correction
         text, _ = get_current_turn_visible_text(transcript, text=transcript_text)
-        got = [resolve_correction(state, session_id, text), resolve_extract_veto(state, session_id, text)]
+        got = resolve_extract_veto(state, session_id, text)
     except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:Correction] 收糾正／否決宣告行失敗（待判留著，下一則使用者訊息照舊規則結）：{type(e).__name__}: {e}",
+        print(f"[Guardian:ExtractVeto] 收否決宣告行失敗（待判留著，下一則使用者訊息照舊規則結）：{type(e).__name__}: {e}",
               file=sys.stderr)
         return
-    if any(g is not None for g in got):
+    if got is not None:
         write_state(session_id, state)
 
 
@@ -1663,7 +1662,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
     if v6:
         _record_pick(state, session_id, code_text, cwd, config)   # 交付回覆裡的「順手看到最該修」→ 追蹤項（G13）
-        _record_prompt_judgments(state, session_id, transcript, transcript_text)   # UPS 問過的「是不是糾正／否決」收宣告行（G6）
+        _record_prompt_judgments(state, session_id, transcript, transcript_text)   # UPS 問過的「是不是否決」收宣告行（G6）
 
     if _timed_out("最該修記帳"):
         return
