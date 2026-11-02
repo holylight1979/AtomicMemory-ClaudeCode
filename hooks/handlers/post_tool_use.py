@@ -1642,8 +1642,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
                 _atom_debug_error("post_tool_use:verify_ledger", e)
 
-    elif tool_name.endswith("anti_evasion_report") and v6 and is_error_response(input_data.get("tool_response")):
-        # MCP 端拒收（沒給 report 又缺 e/f/g、harvest_items 形狀不對）的呼叫不是報告：不收、不落檔、不核收割
+    elif tool_name.endswith("anti_evasion_report") and is_error_response(input_data.get("tool_response")):
+        # MCP 端拒收（缺三類、g 沒填、harvest_items 形狀不對）的呼叫不是報告：不收、不落檔、不核收割；守門開關都一樣，
+        # 不然被退回的那次會被 Stop 當成已交、HUD 畫出缺類的卡
         print("[Guardian:AEC] anti_evasion_report 被 MCP 拒收，本次不收", file=sys.stderr)
 
     elif tool_name.endswith("anti_evasion_report"):

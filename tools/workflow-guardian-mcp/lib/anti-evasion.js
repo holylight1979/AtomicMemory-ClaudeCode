@@ -143,8 +143,7 @@ async function toolAntiEvasionReport(id, args) {
     return sendToolResult(id, "anti_evasion_report 拒收：\n" + errs.map((e) => "  ✗ " + e).join("\n"), true);
   }
   const hv = v6 && Array.isArray(args.harvest_items) ? "；" + require("./harvest").harvestChip(args.harvest_items) : "";
-  const rc = v6 && args.reconcile !== undefined ? "；目標對照已收到（對照結果隨後由 hook 送回）" : "";
-  return sendToolResult(id, aecChipText(args) + hv + rc);
+  return sendToolResult(id, aecChipText(args) + hv);
 }
 
 // ─── HUD 唯讀 API ─────────────────────────────────────────────────────────────

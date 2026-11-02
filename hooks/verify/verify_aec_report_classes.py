@@ -199,3 +199,23 @@ def test_hud_escapes_ai_text():
            "ai_decided": [{"kind": "<u>", "what": "<script>x</script>", "why": "y"}]}
     html, = _cards(bad)
     assert "<img" not in html and "<script>" not in html and "<u>" not in html and "&lt;u&gt;" in html
+
+
+@pytest.mark.parametrize("guard", ["0", "1"])
+def test_ptu_rejected_report_not_counted_either_mode(monkeypatch, tmp_path, guard):
+    """MCP 退回的那次（缺類、g 沒填）不是報告：守門開、關都不收進 state、不落檔，Stop 才不會當成已交。"""
+    import verify_aec_emission_gate as vae
+    monkeypatch.setenv("WG_CODING_GUARD", guard)
+    pt = vae.pt
+    state = {"turn_seq": 7}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    inp = {"session_id": "s-rej", "tool_name": "mcp__workflow-guardian__anti_evasion_report",
+           "tool_input": {"a": "無", "b": "無", "d": "無", "h": "可關閉", "i": "無"},
+           "tool_response": {"isError": True, "content": [{"type": "text", "text": "anti_evasion_report 拒收：缺 goal"}]}}
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use(inp, {"docdrift": {"enabled": False}, "aec": {}})
+    assert "anti_evasion_report" not in state
+    assert not (tmp_path / "aec-report").exists()
