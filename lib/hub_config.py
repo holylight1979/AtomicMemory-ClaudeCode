@@ -32,7 +32,7 @@ HUB_DEFAULTS: Dict[str, Any] = {
     "eol_policy": "per-file-head",
     "PYTHONIOENCODING": "utf-8",
     "readonly_paths": [],
-    # 壞味道報告：smells_report（相對專案根或絕對；json／jsonl／md 表）；病形閘與交付時「順手看到最該修」的材料讀它
+    # 壞味道報告：smells_report（相對專案根或絕對；json／jsonl／md 表）；病形閘讀它
     "smells_report": "",
     # 權威地圖（A3.5）：{"<檔名樣式（fnmatch，對檔名或相對專案根路徑）>": "<地圖路徑（相對專案根或絕對）>"}；
     # 讀到文件／計畫檔命中樣式且非空 → 一 session 注入一次該地圖

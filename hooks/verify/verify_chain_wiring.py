@@ -68,7 +68,6 @@ class Session:
         self.tp.touch()
         self.n = 0
         self.gates = {"KnowledgeHarvest": False, "Harvest-Pending": False, "CrossRealmWriteBlock": False}
-        self.picks = []
         self.cfg = copy.deepcopy(wg_core.load_config())
         self.cfg.setdefault("chain_breaker", {})["enabled"] = chain_on
         wg_core.write_state(sid, {"session": {"id": sid, "cwd": str(self.proj)}, "turn_seq": 1, "turn_prompts_seq": 1,
@@ -76,7 +75,6 @@ class Session:
         gates = self.gates
         monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: KH if gates["KnowledgeHarvest"] else None)
         monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: HP if gates["Harvest-Pending"] else None)
-        monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: self.picks.append(1))
         monkeypatch.setattr(ptu, "check_cross_realm_write", lambda *a, **k: XR if gates["CrossRealmWriteBlock"] else None)
 
     def inp(self, hook: str, **kw):
@@ -180,7 +178,7 @@ def _depth2(s: Session):
 
 def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
     """紅案例：閘A擋 → 改檔 → 閘B擋 → 改檔 → 閘A第二次 → 中止：收尾送三選項與經過表；之後改檔先停手、唯讀指令照放，
-    其餘收尾閘只記錄（同一道閘只記一筆）、不送「順手看到最該修」。"""
+    其餘收尾閘只記錄（同一道閘只記一筆）。"""
     s = hk()
     out, x, y = _depth2(s)
     assert _blocked(out) and out["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
@@ -193,11 +191,9 @@ def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
     assert y.read_text(encoding="utf-8") == "o = 1\n"
     assert s.pre("Bash", {"command": f"cat {x.as_posix()}"}) is None          # 讀照放
     s.gates["Harvest-Pending"] = True
-    picks = len(s.picks)
     for _ in range(2):
         again = s.stop()
         assert not _blocked(again) and "還沒收到使用者三選一" in again["systemMessage"]
-    assert len(s.picks) == picks
     muted = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate" and r["gate"] in ("KnowledgeHarvest", "Harvest-Pending")]
     assert [(r["gate"], r["record_only"]) for r in muted][-2:] == [("KnowledgeHarvest", True), ("Harvest-Pending", True)]
     assert len(muted) == 4                                                    # 擋、第二次（警報）、只記錄各一筆

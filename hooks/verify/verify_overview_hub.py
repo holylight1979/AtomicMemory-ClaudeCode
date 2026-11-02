@@ -449,13 +449,11 @@ def test_invalid_shapes_deny_on_write_instead_of_raising(proj, tmp_path, monkeyp
     assert deny and "commit_encoding" in deny and "編碼" in deny
 
 
-def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
-    """根層自己的表放 <CLAUDE_DIR>/.claude/overview-map.md，卡在 <CLAUDE_DIR>/memory（不是 .claude/memory）。"""
+def test_root_layer_table_is_root_layer(tmp_path, monkeypatch):
+    """根層自己的表放 <CLAUDE_DIR>/.claude/overview-map.md：設定層名是 root，查表照常命中。"""
     fake = tmp_path / "claude"
     (fake / ".claude").mkdir(parents=True)
     (fake / "hooks").mkdir()
-    (fake / "memory" / "CC").mkdir(parents=True)
-    (fake / "memory" / "CC" / "hooks導讀.md").write_text("# hooks 導讀\n病灶：pythonw 無 stdio", encoding="utf-8")
     (fake / ".claude" / "overview-map.md").write_text("| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n", encoding="utf-8")
     monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
@@ -463,12 +461,10 @@ def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
     monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
     assert wo._cfg({}, fake)["_layer"] == "root"
     root, row = wo._lookup(str(fake / "hooks" / "x.py"))
-    assert wo._cards_for(root, row, {}) == [fake / "memory" / "CC" / "hooks導讀.md"]
-    assert oh.resolve_card(fake, "hooks導讀") is None                   # 預設位置找不到
-    assert oh.resolve_card(fake, "hooks導讀", fake / "memory").name == "hooks導讀.md"
+    assert root == fake and row["part_short"]
 
 
-# ─── 卡片目錄單源 card_mem_dir：根層／根層 worktree／一般專案 ─────────────────────
+# ─── 根層 worktree 判定：根層／根層 worktree／一般專案 ─────────────────────────────
 
 ROOT_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
 
@@ -506,29 +502,19 @@ def _root_world(tmp_path, monkeypatch):
     return live, wt, proj
 
 
-def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
+def test_is_root_worktree_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     live, wt, proj = _root_world(tmp_path, monkeypatch)
-    assert oh.card_mem_dir(live, live) == live / "memory"
-    assert oh.card_mem_dir(Path(str(live).upper()), live) == Path(str(live).upper()) / "memory"   # 正規化後相同也算根層
-    assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree：卡是資料，讀 live 那批
-    assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：不是 live 的 worktree＝一般專案
+    assert oh.is_root_worktree(live, live) is False                                    # 根層自己不是它的 worktree
+    assert oh.is_root_worktree(Path(str(live).upper()), live) is False                 # 正規化後相同也算同一目錄
+    assert oh.is_root_worktree(wt, live) is True
+    assert oh.is_root_worktree(proj, live) is False                                    # 反例：不是 live 的 worktree＝一般專案
     nomap = tmp_path / "bare"
     nomap.mkdir()
-    assert oh.card_mem_dir(nomap, live) == nomap / ".claude" / "memory"                # 反例：沒有表＝一般專案
+    assert oh.is_root_worktree(nomap, live) is False                                   # 反例：沒有表＝一般專案
     nolive = tmp_path / "no-live-map"
     nolive.mkdir()
-    assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：wt 不是 nolive 的 worktree
-    assert oh.is_root_worktree(wt, live) is True and oh.is_root_worktree(wt, nolive) is False
-
-
-def test_cards_for_root_worktree_live_and_project_same_name_counterexample(tmp_path, monkeypatch):
-    live, wt, proj = _root_world(tmp_path, monkeypatch)
-    row = oh.parse_map(ROOT_MAP)[0]
+    assert oh.is_root_worktree(wt, nolive) is False                                    # 反例：wt 不是 nolive 的 worktree
     assert wo._cfg({}, wt)["_layer"] == "project_mapped"                              # 層名判定不變
-    assert wo._cards_for(wt, row, wo._cfg({}, wt)) == [live / "memory" / "CC" / "hooks導讀.md"]   # 同名卡內容不同，拿 live 那張
-    assert wo._cards_for(live, row, wo._cfg({}, live)) == [live / "memory" / "CC" / "hooks導讀.md"]
-    got = wo._cards_for(proj, row, wo._cfg({}, proj))                                  # 反例：兩處同名卡，只拿 .claude/memory
-    assert got == [proj / ".claude" / "memory" / "shared" / "hooks導讀.md"]
 
 
 # ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
@@ -667,46 +653,6 @@ def test_own_config_matches_when_dir_case_differs(tmp_path, monkeypatch):
     assert deny and "foo" in deny
 
 
-# ─── 導讀卡分片（defect_bullets 靠它取「已知病灶」段）───────────────────────
-
-FIXTURES = Path(__file__).resolve().parent / "fixtures" / "v6"
-FIVE_CARD = (
-    "# 戰鬥導讀\n\n- Scope: shared\n- Trigger: 戰鬥\n\n## 知識\n\n"
-    "- [臨] **做什麼與上下游**：單人戰鬥。\n  - 子點跟著上一段\n"
-    "- [臨] **部位與權威**：DamageSystem 為真相。\n"
-    "- [臨] **動手前必問**：幾份存法？\n"
-    "- [臨] **已知病灶**：①最後一擊無訊號 ②結算生命期。\n\n| 分支 | 卡 |\n|---|---|\n| a | b |\n"
-    "- [臨] **驗法**：F2 實跑。\n"
-    "- [臨] 2026-10-08 校正：一行雜訊。\n\n## 行動\n\n- 動戰鬥前先讀本卡\n"
-)
-
-
-def test_split_card_sections_twelve_real_card_label_variants():
-    data = json.loads((FIXTURES / "hub_card_labels.json").read_text(encoding="utf-8"))["cards"]
-    assert len(data) >= 12
-    for card, labels in data.items():
-        body = "# " + card + "\n\n## 知識\n\n" + "".join(f"- [臨] **{lab}**：內容 {i}\n" for i, lab in enumerate(labels))
-        parsed = oh.split_card_sections(body)
-        for i, (lab, want) in enumerate(labels.items()):
-            got = oh.slice_of_label(lab)
-            assert got == want, (card, lab, got)
-            where = parsed["slices"].get(want, "") if want else parsed["others"].get(lab, "")
-            assert f"內容 {i}" in where, (card, lab)
-
-
-def test_split_card_sections_full_card_shape_and_no_heading_counterexample():
-    p = oh.split_card_sections(FIVE_CARD)
-    assert p["head"].startswith("# 戰鬥導讀") and "- Trigger: 戰鬥" in p["head"]
-    assert set(p["slices"]) == {"what", "authority", "ask", "defects", "verify"}
-    assert "子點跟著上一段" in p["slices"]["what"] and "| a | b |" in p["slices"]["defects"]    # 子 bullet／表格跟上一段
-    assert any(k.startswith("2026-10-08 校正") for k in p["others"]) and "行動" in p["others"]
-    assert "## 知識" not in FIVE_CARD.replace(p["head"], "") or "知識" not in p["others"]       # 結構標題不算段
-    flat = oh.split_card_sections("# 只有標題\n\n一段散文，沒有任何 ## 或 bullet。")             # 無標題單 head 反例
-    assert flat["slices"] == {} and flat["others"] == {} and "一段散文" in flat["head"]
-    spine = oh.split_card_sections("# Spine\n\n## 知識\n\n- [臨] 閱讀序 ①②③\n- [臨] 一句話結論：走程式拆件\n")
-    assert spine["slices"] == {} and len(spine["others"]) == 2
-
-
 # ─── 無表專案的根（VCS 退路）─────────
 
 
@@ -830,7 +776,6 @@ def test_is_root_worktree_long_path_prefix_is_same_dir(tmp_path):
     (live / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
     prefixed = Path("\\\\?\\" + str(live))
     assert oh.is_root_worktree(prefixed, live) is False                    # 同一目錄加長路徑前綴不是 worktree
-    assert oh.card_mem_dir(prefixed, live) == live / "memory"
 
 
 def test_same_dir_norm_long_prefix_any_case():
@@ -884,10 +829,8 @@ def test_is_root_worktree_real_git_worktrees_inside_and_outside_live(tmp_path, g
     git("-C", str(live), "worktree", "add", "-q", "-b", "wt-in", str(inside))
     assert oh.is_root_worktree(outside, live) is True                                  # live 之外
     assert oh.is_root_worktree(inside, live) is True                                   # live 之下（原生 EnterWorktree 的位置）
-    assert oh.card_mem_dir(inside, live) == live / "memory"                            # 根層 worktree 讀 live 的卡
     (outside / ".claude" / "overview-map.md").write_bytes(b"| `x/` | other | none | none |\n")
     assert oh.is_root_worktree(outside, live) is True                                  # 改了部位表仍是根層 worktree（身分只看 git）
-    assert oh.card_mem_dir(outside, live) == live / "memory"                           # 卡照讀 live 那批
 
 
 def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
@@ -895,7 +838,6 @@ def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
     _git_live(git, live, ROOT_MAP.encode("utf-8"))
     plain = _copy_map(live, live / "fixture")
     assert oh.is_root_worktree(plain, live) is False                                   # 反例：相同表、沒有 .git
-    assert oh.card_mem_dir(plain, live) == plain / ".claude" / "memory"
     with_dir = _copy_map(live, live / "fixture-dotgit-dir")
     (with_dir / ".git").mkdir()
     assert oh.is_root_worktree(with_dir, live) is False                                # 反例：.git 是目錄
@@ -932,7 +874,6 @@ def test_is_root_worktree_rejects_forged_dot_git(tmp_path, git):
     thief = _copy_map(live, tmp_path / "thief")
     (thief / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
     assert oh.is_root_worktree(thief, live) is False                                   # 反例：借用別棵樹的管理目錄（反向指回 real）
-    assert oh.card_mem_dir(thief, live) == thief / ".claude" / "memory"
 
 
 def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
@@ -995,7 +936,6 @@ def test_unc_paths_skip_realpath_and_are_never_root_worktree(tmp_path, unc_realp
     (live / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
     for unc in (Path("\\\\server\\share\\wt"), Path("\\\\?\\UNC\\server\\share\\wt"), Path("\\\\?\\unc\\server\\share\\wt")):
         assert oh.is_root_worktree(unc, live) is False
-        assert oh.card_mem_dir(unc, live) == unc / ".claude" / "memory"
         assert oh.is_root_worktree(live, unc) is False                                  # claude_dir 是網路路徑也直接不是
     assert oh._same_dir_norm(Path("\\\\?\\UNC\\server\\share"), Path("\\\\server\\share")) is True
     assert oh._same_dir_norm(Path("\\\\server\\share\\a"), Path("\\\\server\\share\\b")) is False
@@ -1007,8 +947,6 @@ def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_
     _git_live(git, live, ROOT_MAP.encode("utf-8"))
     git("-C", str(live), "worktree", "add", "-q", "-b", "wt", str(wt))                # 真 worktree
     assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完三條
-    assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree 讀 live 的卡
-    assert oh.card_mem_dir(live, live) == live / "memory"
     assert unc_realpath_guard == []
 
 

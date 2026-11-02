@@ -115,7 +115,7 @@ Session Ready
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
 | wg_overview.py | — | OverviewHub 留下的共用工具：部位設定四層合併（`_cfg`）、部位查表、讀檔擷取（`read_targets`）、提醒帳（`remind_*`）、各部位讀檔帳（`record_reads`）；部位表解析在 `lib/overview_hub.py`（TECH 附錄 A7.6 部位表） |
 | wg_depends.py | — | Depends 讀檔召回：讀到某卡 `- Depends: path:` 指的檔 → 一行一卡指標（同卡一 session 一次）；`authority_map` 命中文件檔一次性注入地圖 |
-| wg_code_path.py | — | 寫碼類判準：`is_code_path`（單一路徑）；`wg_core.coding_turn`、收尾、資料檔閘、PickOne、`tools/project-smells.py` 共用 |
+| wg_code_path.py | — | 寫碼類判準：`is_code_path`（單一路徑）；`wg_core.coding_turn`、收尾、資料檔閘、`tools/project-smells.py` 共用 |
 | wg_ask_gate.py | — | 問使用者前的閘（寫碼守門開時）：AskUserQuestion 每題要附推薦、改法選擇先讀部位檔；帳 `Logs/guard-ask.jsonl` |
 | wg_verify_ledger.py | — | 驗證帳本：收 Bash／PowerShell 輸出哨兵進 `workflow/verify-ledger/<sid>.jsonl`；Stop 的 ReconcileGate（宣稱對收據）、MeasureGate（量尺 DONE）判定純函式（TECH/coding-guard.md 乙3） |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |

@@ -538,36 +538,6 @@ def test_shared_budget_resets_per_user_turn(driven, capsys, monkeypatch):
     assert "DeferralGate" in out and state["stop_blocked_count"] == 1              # 新的使用者回合：退縮閘照樣擋一次
 
 
-# ─── 「順手看到最該修」同一個使用者回合只問一次 ──────────────────────────────────────
-
-def test_pick_one_not_re_asked_in_continuation_of_same_user_turn():
-    """問過一次 → 這一問讓對話續跑（turn_seq 往前、使用者回合不變），續跑時又改了碼 → 不再問；使用者新打一則、又改了碼 → 照常問。
-    舊碼照 turn_seq 比，續跑回合被當成新的一批重問。"""
-    import wg_harvest as wh
-    s = {"turn_seq": 5, "turn_prompts_seq": 5}
-    mods = [{"path": "c:/p/x.py", "turn_seq": 5, "last_turn_seq": 5}]
-    assert wh.pick_due(s, _SID, mods, True)
-    wh.mark_pick_asked(s, _SID, 5)
-    s["turn_seq"] = 6
-    mods = [{"path": "c:/p/x.py", "turn_seq": 5, "last_turn_seq": 6}]
-    assert not wh.pick_due(s, _SID, mods, True)
-    s["turn_seq"] = s["turn_prompts_seq"] = 7
-    mods.append({"path": "c:/p/y.py", "turn_seq": 7, "last_turn_seq": 7})
-    assert wh.pick_due(s, _SID, mods, True)
-
-
-def test_pick_one_still_sent_when_stop_hook_active(driven, capsys, monkeypatch):
-    """規則 PICK_ONCE_PER_USER_TURN：這次收尾是 Stop hook 讓對話續跑出來的（stop_hook_active）不當條件，照樣問（同一個使用者回合只問一次
-    由 pick_due 管，案例在 verify_pick_one）；續跑旗標只交給 _pick_one_prompt 處理沒有使用者回合鍵的舊 state。
-    原本這案斷言續跑不送：第一次收尾先被紅測閘擋，整回合就一次都不問（004 改 code 題現況3）。"""
-    calls = []
-    monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: calls.append(k.get("continuation")) or "[Guardian:PickOne] 順手看到最該修？")
-    out, _, _ = driven("全部完成了。", capsys, hook_input={"stop_hook_active": True})
-    assert "PickOne" in out and calls == [True]
-    out, _, _ = driven("全部完成了。", capsys)
-    assert "PickOne" in out and calls == [True, False]
-
-
 # ─── 案例宣告接線：對帳帶 case_for＝wg_verify_ledger.declared_cases(...) ─────────────────────────────
 
 def test_declared_cases_wired_into_reconcile(driven, capsys, monkeypatch):

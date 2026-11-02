@@ -50,7 +50,7 @@ def drive(monkeypatch, capsys):
                      ("_detect_uncommitted_files", lambda mf: []), ("_git_unpushed_roots", lambda mf: []),
                      ("_maybe_spawn_user_extract_worker", lambda *a, **k: None), ("_hud_alive", lambda *a, **k: (True, {})),
                      ("_should_deep_postmortem", lambda *a, **k: False),
-                     ("_record_pick", lambda *a, **k: None), ("_acceptance_regression_hint", lambda *a, **k: ""),
+                     ("_acceptance_regression_hint", lambda *a, **k: ""),
                      ("estimate_context_usage", lambda *a, **k: 0.3),
                      ("append_guard_log", lambda guard, payload: logs.append((guard, payload)))):
         monkeypatch.setattr(st, name, fn)
@@ -67,7 +67,7 @@ def drive(monkeypatch, capsys):
                  "stop_blocked_count": 0, "turn_seq": 5, "turn_prompts_seq": 5, **extra}
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         cfg = {"reconcile_gate": OFF, "aec": {"scan_report_gate": False}, "atom_audit": OFF,
-               "sync_reminder": OFF, "deferral_gate": OFF, "pick_one": OFF,
+               "sync_reminder": OFF, "deferral_gate": OFF,
                "knowledge_harvest": OFF, **(config or {})}
         logs.clear()
         capsys.readouterr()
@@ -133,14 +133,6 @@ def test_equivalence_reminded_not_blocked(drive):
     rules = {p["rule"] for p in _reminds(logs, "equivalence")}
     assert rules == {"REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE"}, logs
     assert "budget" not in (state.get("equivalence_gate") or {}).get(SID, {}), "提醒不吃擋滿預算、不開放行題"
-
-
-def test_remind_path_zero_stop_continuation(drive, monkeypatch):
-    """S15 最該修：v6 開著 Stop 不續跑：該問的那一問只留帳（event=remind），不送 additionalContext；收尾前那批（PICK_ONE_PRE_CLOSE）照送。"""
-    monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: "[Guardian:PickOne] 順手看到最該修：…")
-    out, _, logs = drive(DONE, config={"pick_one": {"enabled": True}}, modified_files=[_mf()])
-    assert out == {}, out
-    assert any(p["rule"] == "PICK_ONE_PRE_CLOSE" for p in _reminds(logs, "pick_one"))
 
 
 def test_deferral_logged_not_blocked_v6(drive):
@@ -424,11 +416,9 @@ def test_case_for_line_is_a_case_declaration(monkeypatch, capsys):
     assert "CASE_COVERS_CHANGE" in ctx and "case_for｜" in ctx, ctx
 
 
-def test_red_test_run_is_not_delivery_boundary():
-    """這批的測試收據是紅的 → 不算交付邊界（「順手看到最該修」只認跑綠）；state 裡殘留的舊豁免帳不讀。跑綠才算。"""
-    red = {"seq": 1, "cmd": "python -m pytest -q tests", "exit_code": 1, "sentinels": []}
-    base = {"failing_tests": [{"session_id": SID, "summary": "FAILED tests/test_erp.py::test_contract", "pytest": True}]}
-    state = {**base, "verify_receipts": {SID: [red]}, "testfail_waivers": [{"item": "test_contract", "units": ["tests/test_erp.py::test_contract"]}]}
-    assert ptb._test_green_batch(state, SID) == (False, True)
-    state = {"failing_tests": [], "verify_receipts": {SID: [dict(red, exit_code=0)]}}
-    assert ptb._test_green_batch(state, SID) == (True, True)
+def test_closing_call_knows_both():
+    """規則 CLOSING_CALL_ALL_THREE：收尾檢核（一次交齊）與 knowledge_harvest_report 都是收尾那批；其他工具不是（handlers/post_tool_batch.closing_call）。"""
+    from handlers import post_tool_batch as ptb
+    assert ptb.closing_call("mcp__workflow-guardian__anti_evasion_report")
+    assert ptb.closing_call("mcp__workflow-guardian__knowledge_harvest_report")
+    assert not ptb.closing_call("Bash") and not ptb.closing_call("mcp__workflow-guardian__atom_write")

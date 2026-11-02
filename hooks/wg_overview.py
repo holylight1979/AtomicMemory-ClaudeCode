@@ -2,7 +2,7 @@
 
 做什麼：
 - 設定四層深合併（_cfg，規則在 lib/hub_config.py）：寫碼守門關時 enabled 一律 False（規則 OVERVIEW_HUB_UNDER_V6）。
-- 查表（_lookup／_lookup_quiet）：路徑 → (專案根, 部位表那一列)；量尺閘、PickOne、需求目標共用。
+- 查表（_lookup／_lookup_quiet）：路徑 → (專案根, 部位表那一列)；量尺閘、需求目標共用。
 - 讀了什麼（read_targets）與讀檔帳（record_reads）：PostToolUse 每次讀檔記進 state["overview_hub"]，
   提問前先讀過部位檔（規則 ASK_OVERVIEW_BEFORE_DECISION）照這筆判。
 - 寫入目標檢查（write_check）：命中這一層 readonly_paths 就擋（規則 OVERVIEW_READONLY_PATHS）；設定有錯照 GATE_SELF_ERROR。
@@ -35,9 +35,8 @@ from wg_lazy_re import lazy_module
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 from hub_config import HUB_REL, INTENT_KEYS, RETIRED_KEYS, merge_hub_cfg, same_dir  # noqa: E402
-import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
-    MAP_REL, card_mem_dir, find_map, match_row, parse_map, read_paths_from_tool, resolve_card, top_dir,
+    MAP_REL, find_map, match_row, parse_map, read_paths_from_tool, top_dir,
 )
 
 # 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關時改檔前的部位表查表只要知道有沒有部位表，不付這兩份
@@ -195,11 +194,11 @@ def _lookup(path: str, stop_at: Optional[Path] = None) -> Optional[Tuple[Path, D
 class MapReadError(RuntimeError):
     """部位表找到了（find_map 確認檔案存在）卻讀不到：跟「沒有表／沒命中」是兩回事。量尺閘靠 _lookup 決定改檔屬於哪個部位，
     讀不到表就不知道該部位有沒有尺，不能當成「沒有量尺」靜默跳過；stop._verify_gates 接到這個例外走判定錯誤路徑（一律擋＋stderr
-    ＋guard_log）。讀檔帳、PickOne 這些路（_lookup_quiet）照舊當沒命中，但在 stderr 說一聲。"""
+    ＋guard_log）。讀檔帳這些路（_lookup_quiet）照舊當沒命中，但在 stderr 說一聲。"""
 
 
 def _lookup_quiet(path: str, stop_at: Optional[Path] = None) -> Optional[Tuple[Path, Dict[str, Any]]]:
-    """_lookup 給讀檔帳與材料蒐集用的版本：表讀不到 → stderr 一行、回 None（這幾條路不是閘，不為此中斷 hook）。"""
+    """_lookup 給讀檔帳、提問閘與寫入檢查用的版本：表讀不到 → stderr 一行、回 None（這幾條路不是閘，不為此中斷 hook）。"""
     try:
         return _lookup(path, stop_at)
     except MapReadError as e:
@@ -276,104 +275,6 @@ def _is_readonly(path: str, root: Path, cfg: Dict[str, Any]) -> Optional[str]:
 def _intent_of(state: Dict[str, Any]) -> str:
     v = state.get("turn_intent")
     return v if isinstance(v, str) and v in INTENT_KEYS else "general"
-
-
-def _cards_for(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[Path]:
-    """表列的導讀卡檔（找得到的）。卡片目錄由 card_mem_dir 決定：根層與根層 worktree 在 `<根>/memory`，其他專案在 `<根>/.claude/memory`。"""
-    if row["status"] not in ("有", "部分", "索引"):
-        return []
-    mem_dir = card_mem_dir(root, CLAUDE_DIR)
-    return [cp for cp in (resolve_card(root, c, mem_dir) for c in row["cards"]) if cp]
-
-
-def defects_top_n(card_paths: List[Any], n: int) -> List[str]:
-    """導讀卡「已知病灶」片的前 n 條 bullet（跨多張卡依序取）；讀不到的卡略過（PickOne 材料用）。"""
-    out: List[str] = []
-    for cp in card_paths or []:
-        try:
-            body = Path(cp).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        out.extend(_oh.defect_bullets(body)[:n - len(out)])
-        if len(out) >= n:
-            break
-    return out
-
-
-_GENERATED_AT_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
-_SMELLS_STR_FIELDS = ("part", "category", "kind", "reason")
-
-
-def _smells_rows(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[float]]:
-    """smells 報告 → (列清單, 解析錯誤, generated_at 時間戳)。json（list 或 {rows|items|smells}，可帶 generated_at）／
-    jsonl（一行一筆）／md 表（| 路徑 | 分類 | 理由 | 部位? |）。讀不到、壞 JSON、JSONL 壞行、頂層格式不收 → 錯誤字串（照舊回能解析的列）。"""
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError as e:
-        return [], f"讀不到：{e}", None
-    rows: List[Any] = []
-    err: Optional[str] = None
-    gen_ts: Optional[float] = None
-    suffix = path.suffix.lower()
-    if suffix == ".jsonl":
-        bad = 0
-        for i, line in enumerate(text.splitlines(), 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except ValueError:
-                bad += 1
-                err = err or f"第 {i} 行不是 JSON"
-        if bad:
-            err = f"{bad} 行不是 JSON（{err}）"
-    elif suffix == ".md":
-        for line in text.splitlines():
-            if not line.strip().startswith("|") or set(line.replace("|", "").strip()) <= set("-: "):
-                continue
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            if len(cells) < 3 or cells[0] in ("路徑", "path", "檔案"):
-                continue
-            rows.append({"path": cells[0].strip("`"), "category": cells[1], "reason": cells[2],
-                         **({"part": cells[3]} if len(cells) > 3 else {})})
-    else:
-        try:
-            data = json.loads(text)
-        except ValueError as e:
-            return [], f"不是合法 JSON：{e}", None
-        if isinstance(data, list):
-            rows = data
-        elif isinstance(data, dict) and any(isinstance(data.get(k), list) for k in ("rows", "items", "smells")):
-            rows = next(data[k] for k in ("rows", "items", "smells") if isinstance(data.get(k), list))
-            raw_gen = data.get("generated_at")
-            m = _GENERATED_AT_RE.match(str(raw_gen or ""))
-            if m:
-                try:   # 0000-01-01、13 月、9999 年這類值 mktime 會拋；退回 mtime 並記一筆
-                    gen_ts = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)), 0, 0, 0, 0, 0, -1))
-                except (OverflowError, ValueError, OSError):
-                    gen_ts = None
-                    err = f"generated_at 無法換算：{raw_gen}"
-        else:
-            err = "頂層要是陣列或含 rows／items／smells 陣列的物件"
-    # 報告是外部輸入：path 必須是非空字串；part／category／kind／reason 有值就必須是字串，否則整列丟棄並計數
-    good: List[Dict[str, Any]] = []
-    bad_type = 0
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
-        if not isinstance(r.get("path"), str) or not r["path"].strip():
-            if r.get("path") not in (None, ""):
-                bad_type += 1
-            continue
-        if any(r.get(k) is not None and not isinstance(r.get(k), str) for k in _SMELLS_STR_FIELDS):
-            bad_type += 1
-            continue
-        good.append(r)
-    if bad_type:
-        msg = f"{bad_type} 列欄位型別不對（path／part／category／kind／reason 要字串）"
-        err = f"{err}；{msg}" if err else msg
-    return good, err, gen_ts
 
 
 def read_scope_keys(path: str, config: Dict[str, Any]) -> Tuple[Optional[Path], Optional[str], Optional[str]]:

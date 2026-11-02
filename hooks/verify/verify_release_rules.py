@@ -1691,7 +1691,7 @@ def test_006_claim_conditional_not_claim():
 
 
 def test_006_tracking_same_item_not_rewritten(tmp_path, monkeypatch):
-    """TRACKING_SAME_ITEM_NOT_REWRITTEN：同一句不重記；「同追蹤項」對到唯一一筆就換新說法。B5 重播與反例在 verify_pick_one.py 006 段。"""
+    """TRACKING_SAME_ITEM_NOT_REWRITTEN：同一句不重記；「同追蹤項」對到唯一一筆就換新說法。B5 重播與反例在 verify_tracking_readback.py 006 段。"""
     import wg_harvest as wh
     monkeypatch.setattr(wh, "WORKFLOW_DIR", tmp_path)
     wh.append_tracking("s006", wh.tracking_entries("sid", 1, "[報表] monthly 用 UTC 切月份"))
@@ -1726,7 +1726,6 @@ def test_launcher_not_code_source_shapes():
 _ELSEWHERE_CASES = {
     "GATE_DENY_CAP": [("verify_pull_tool_gates.py", "test_deny_cap_counts_each_item_per_user_turn")],
     "DENY_CAP_PER_REPLY": [("verify_pull_tool_gates.py", "test_deny_cap_per_reply_counts_one_reply_once")],
-    "PICK_ONCE_PER_USER_TURN": [("verify_pick_one.py", "test_stop_continuation_after_red_test_block_still_asks_once")],
     "SVN_TEST_BLOCK_OPT_IN": [("verify_pull_tool_gates.py", "test_svn_test_block_off_by_default"),
                               ("verify_pull_tool_gates.py", "test_svn_test_block_on_looks_only_at_commit_paths"),
                               ("verify_pull_tool_gates.py", "test_svn_test_block_user_sentence_this_turn_allows")],
@@ -1791,7 +1790,7 @@ def test_deny_cap_old_names_folded_into_gate_deny_cap():
 
 # ─── 閘小修 008 A：規則名登錄、對照的案例真的在、案例點到規則名 ───
 _008A_CASES = {
-    "USER_TURN_KEY_KEPT": ("verify_user_turn_key.py", "test_rebuilt_state_three_peer_messages_pick_one_asks_once"),
+    "USER_TURN_KEY_KEPT": ("verify_user_turn_key.py", "test_rebuilt_state_three_peer_messages_stay_in_one_user_turn"),
     "COMPLETION_CLAIM_PER_SENTENCE": ("verify_evasion_guard.py", "test_completion_exclude_only_cancels_its_own_sentence"),
     "GATE_TEXT_AVOIDS_EVASION_WORDS": ("verify_evasion_guard.py", "test_gate_texts_do_not_trip_evasion_detector"),
     "SUBPROCESS_RUN_LOOKED_UP_AT_CALL": ("verify_subprocess_run_default.py", "test_no_parameter_defaults_to_subprocess_run"),
@@ -1879,17 +1878,10 @@ def test_inject_lean_rules_registered_with_cases():
         assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
 
 
-@pytest.mark.parametrize("rule", ["PICK_ONE_PRE_CLOSE"])
-def test_closing_round_rules_cased_in_closing_round(rule):
-    """收尾只跑一輪的規則：端到端案例在 verify_closing_round.py（PostToolBatch→Stop）。"""
-    assert rule in rr.RULES
-    assert rule in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
-
-
-def test_closing_call_rule_cased_in_closing_round():
-    """收尾那批的認法（CLOSING_CALL_ALL_THREE）：案例在 verify_closing_round.py。"""
+def test_closing_call_rule_cased_in_gate_mode_stop():
+    """收尾那批的認法（CLOSING_CALL_ALL_THREE）：案例在 verify_gate_mode_stop.py。"""
     assert "CLOSING_CALL_ALL_THREE" in rr.RULES
-    assert "CLOSING_CALL_ALL_THREE" in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
+    assert "CLOSING_CALL_ALL_THREE" in (Path(__file__).parent / "verify_gate_mode_stop.py").read_text(encoding="utf-8")
 
 
 # ─── 擋或提醒（RULE_MODE）：每條規則有 mode、兩類照擋、其餘提醒、總開關關一律照舊 ───

@@ -8,7 +8,7 @@
 - **[退避例外與紅測失敗項](#退避例外與紅測失敗項)**：[NOT_DOING_DECLARED](#not_doing_declared)・[RED_ITEMS_ONLY_FROM_FAILURE_LINES](#red_items_only_from_failure_lines)
 - **[收尾儀式與寫碼查核案例](#收尾儀式與寫碼查核案例)**：[RECONCILE_BLOCK_LETTERS](#reconcile_block_letters)・[CLOSING_RITUAL_SWITCHES](#closing_ritual_switches)・[CASE_COVERS_CHANGE](#case_covers_change)
 - **[已不存在、還原與等同的改檔](#已不存在還原與等同的改檔)**：[GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW](#gone_outside_vcsgone_in_git_nothing_new)・[MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE](#moved_new_code_seengone_unverifiablevcs_root_unreadable)・[EXCLUDED_REGION](#excluded_region)・[NET_UNCHANGED／SNAPSHOT_SETTLED](#net_unchangedsnapshot_settled)・[EXEMPTION_PEERS_CODE_ONLY](#exemption_peers_code_only)・[CONTENT_EQUALS_COMMITTED](#content_equals_committed)・[COMMENT_ONLY_CHANGE](#comment_only_change)
-- **[擋次預算與放行](#擋次預算與放行)**：[BLOCK_BUDGET_SHARED](#block_budget_shared)・[PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)・[GATE_SELF_ERROR](#gate_self_error)・[GATE_DENY_CAP](#gate_deny_cap)・[DENY_CAP_PER_REPLY](#deny_cap_per_reply)・[PICK_ONCE_PER_USER_TURN](#pick_once_per_user_turn)・[PICK_ONE_PRE_CLOSE](#pick_one_pre_close)
+- **[擋次預算與放行](#擋次預算與放行)**：[BLOCK_BUDGET_SHARED](#block_budget_shared)・[PENDING_SAME_USER_TURN／RELEASE_COVERS_SHOWN_ITEMS／NONINTERACTIVE_RELEASE_AT_BUDGET](#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)・[GATE_SELF_ERROR](#gate_self_error)・[GATE_DENY_CAP](#gate_deny_cap)・[DENY_CAP_PER_REPLY](#deny_cap_per_reply)
 - **[Bash／PowerShell 指令怎麼讀（寫入目標、唯讀、讀檔證據）](#bashpowershell-指令怎麼讀寫入目標唯讀讀檔證據)**：[INLINE_PY_READONLY](#inline_py_readonly)・[UNKNOWN_WRITE_RECOVERED](#unknown_write_recovered)・[INLINE_FLAG_BEFORE_PROGRAM](#inline_flag_before_program)・[SHELL_LITERAL_VAR_EXPANDED](#shell_literal_var_expanded)・[GIT_READONLY_SUBCMD](#git_readonly_subcmd)・[DOT_GIT_PATH_NOT_GIT_CALL／SEGMENTS_SPLIT_LIKE_SHELL／SHELL_KEYWORD_PREFIX_STRIPPED](#dot_git_path_not_git_callsegments_split_like_shellshell_keyword_prefix_stripped)・[DELETE_FORMS_SAME_ACROSS_SHELLS](#delete_forms_same_across_shells)・[UNKNOWN_PART_KEEPS_KNOWN_TARGETS](#unknown_part_keeps_known_targets)・[DIR_TARGET_JUDGED_BY_CONTAINER](#dir_target_judged_by_container)・[GREP_CONTENT_IS_READ／BASH_COMMENT_LINES_STRIPPED](#grep_content_is_readbash_comment_lines_stripped)・[BASH_READONLY_COUNTS_AS_READ](#bash_readonly_counts_as_read)
 - **[同步、執行期資料與暫存目錄](#同步執行期資料與暫存目錄)**：[WORKTREE_NO_PUSH](#worktree_no_push)・[RUNTIME_DATA_NO_OVERVIEW](#runtime_data_no_overview)・[TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT](#temp_repo_commit_exempttemp_copy_not_project)・[SESSION_SCRATCH_NOT_CODE](#session_scratch_not_code)
 - **[紅測與重試](#紅測與重試)**：[RED_WHILE_REVERTED／RETRY_COUNTS_RERUN_CYCLES／GREEN_SAME_CASE_CLEARS](#red_while_revertedretry_counts_rerun_cyclesgreen_same_case_clears)
@@ -381,31 +381,6 @@
 - **照欠／照擋**：
   - 判不出是哪一則（子代理、transcript 讀不到、沒有 message.id）→ 照每個呼叫算，留帳 guard-deny_cap event=batch_unknown。
   - 驗證批次閘從 PreToolUse 帶這次呼叫的 hook 輸入（含 tool_use_id）。
-
-#### PICK_ONCE_PER_USER_TURN
-**判什麼**：交付時「點出最該修」什麼時候問（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) PickOne）
-- 補充：`wg_harvest.pick_due`。
-- **不欠／放行**：
-  - 一個使用者回合問一次（`asked_uturn`／`covered_uturn`）。
-  - 收尾是不是續跑出來的（`stop_hook_active`）不當條件：第一次收尾被別的閘擋下、修完續跑收尾照樣問。
-  - 交付邊界記整個使用者回合（`boundary_uturn`，被擋的那次收尾也算）。
-- **照欠／照擋**：
-  - 連鎖中止中不送。
-  - 同一批改動問過，或 AI 自己先寫了那段，也不送。
-  - state 沒有 `turn_prompts_seq`（使用者回合退回 turn_seq）時，續跑收尾不重問。
-
-#### PICK_ONE_PRE_CLOSE
-**判什麼**：「點出最該修」在哪裡送
-- 補充：`wg_closing_round.pick_pre_close`。
-- **不欠／放行**：
-  - 下列兩種批次＝交付邊界（`post_tool_batch._test_green_batch`）：
-    - 交收尾檢核（anti_evasion_report）那批。
-    - 改過程式之後測試跑綠那批。
-  - 該問就附在那批的回應後面，記問過（guard-pick_one via=pre_close）。
-  - 開關 `pick_one.pre_close` 關 → 照舊由 Stop 排在所有閘之後送。
-- **照欠／照擋**：
-  - 連鎖警報後只記錄時不送。
-  - 沒交收尾檢核的批次不送。
 
 ### Bash／PowerShell 指令怎麼讀（寫入目標、唯讀、讀檔證據）
 
@@ -1128,7 +1103,7 @@
 ### 追蹤帳
 
 #### TRACKING_SAME_ITEM_NOT_REWRITTEN
-**判什麼**：追蹤帳本同一件不重記（`wg_harvest.append_tracking`，k 欄、PickOne 共用）
+**判什麼**：追蹤帳本同一件不重記（`wg_harvest.append_tracking`；寫入端是退縮閘那一問的「追蹤｜…」行）
 - **不欠／放行**：
   - 行尾寫「｜同追蹤項：<那筆裡連續至少 8 字>」對到唯一一筆未結項 → 換成新說法（新列帶 supersedes＋結案列關舊的）
   - 沒宣告但部位相同、原文相同（不分 session）→ 不重記
@@ -1163,7 +1138,7 @@
   - 鍵還是不在（從零建）時：
     - 第一則進來的訊息就算是同伴訊息、背景通知也把鍵錨在這一則（不加 user_turn_count；寫碼守門關照舊不錨）
     - 之後照 [TURN_SINCE_USER_PROMPT](#turn_since_user_prompt) 前進
-- **照欠／照擋**：鍵不在時 user_turn 退回逐則前進的 turn_seq，每則同伴訊息都當成新使用者回合（實測：PickOne 每則重問、各閘每回合的擋次與預算重來）
+- **照欠／照擋**：鍵不在時 user_turn 退回逐則前進的 turn_seq，每則同伴訊息都當成新使用者回合（各閘每回合的擋次與預算重來）
 
 #### COMPLETION_CLAIM_PER_SENTENCE
 **判什麼**：宣告完成怎麼判（`wg_evasion.claims_completion`；收割待補閘 `wg_harvest.in_progress_text` 同源）
@@ -1298,7 +1273,7 @@
   - `at` 只在總開關開時記
 
 #### CLOSING_CALL_ALL_THREE
-**判什麼**：哪一批是收尾那批（`wg_closing_round.closing_call`；收尾前附著點共用）
+**判什麼**：哪一批是收尾那批（`handlers/post_tool_batch.closing_call`；收尾類提醒用）
 - **不欠／放行**：下列任一支就算
   - 收尾檢核
   - knowledge_harvest_report

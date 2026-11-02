@@ -1674,17 +1674,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             )
         if report.get("k_missing"):
             aec_reject_msgs.append("[Guardian:AEC-Followups] (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。")
-        # (k) 追蹤項 → workflow/tracking/<slug>.jsonl（k=「無」不寫；slug＝tracking_slug(cwd)：最近部位表根 → 專案根 → cwd，
-        # 根層是 c--users-<user>--claude；cwd 空寫 _no-cwd 並 stderr；讀回端 wg_overview／session_start 用同一支）
-        if v6:
-            try:
-                from wg_harvest import tracking_entries, append_tracking, tracking_slug
-                _k_entries = tracking_entries(session_id, turn_seq, vals.get("k_followups", ""))
-                if _k_entries:
-                    _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
-                    append_tracking(tracking_slug(_k_cwd), _k_entries)
-            except Exception as e:
-                _atom_debug_error("post_tool_use:aec_tracking", e)
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(i) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。

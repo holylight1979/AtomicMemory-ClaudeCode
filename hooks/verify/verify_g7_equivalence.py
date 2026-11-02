@@ -163,7 +163,6 @@ def drive(monkeypatch, capsys):
     monkeypatch.setattr(st, "_hud_alive", lambda *a, **k: (True, {}))
     monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: None)
     monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: None)
-    monkeypatch.setattr(st, "_record_pick", lambda *a, **k: None)
     monkeypatch.setattr(st.aec_ledger, "collect_at_completion", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(rr, "mode_of", lambda rule: rr.BLOCK)   # 規則 GATE_MODE_TABLE：送法只讀 wg_release_rules.RULE_MODE。這個檔的案例驗的是判定與擋訊息內容，把送法釘成 block 讓它們照驗；v6 預設的提醒送法（Stop 只留帳、提醒掛改檔那則工具結果）由 verify_gate_mode_stop.py 驗。

@@ -192,12 +192,6 @@ RULES: Dict[str, str] = {
                           "同一件缺件在同一則裡只算一次，那一則的其他呼叫照第一次的結果（擋就照擋）、不加次數；下一則回覆的呼叫才加。"
                           "哪一則＝這次呼叫之前最後一則 assistant 的 message.id（同 CHAIN_SAME_BATCH，lib/chain_store.batch_of）。"
                           "判不出是哪一則（子代理、transcript 讀不到、沒有 message.id）照每個呼叫算，留帳 guard-deny_cap event=batch_unknown。",
-    "PICK_ONCE_PER_USER_TURN": "交付時「點出最該修」一個使用者回合問一次（wg_harvest.pick_due 看 asked_uturn、covered_uturn）；這次收尾是不是"
-                               "收尾 hook 讓對話續跑出來的（stop_hook_active）不當條件：第一次收尾先被別的閘（例：紅測閘）擋下、修完續跑"
-                               "收尾，照樣問這一次。交付邊界（宣告完成、交了收尾檢核、commit）也看整個使用者回合：到過的那次收尾"
-                               "被後面的閘擋下也記（state pick_one[sid].boundary_uturn），之後沒被擋的那次收尾最後一則在答別的閘、"
-                               "沒再說完成也照樣問。state 沒有使用者回合鍵（turn_prompts_seq）時使用者回合會退回 turn_seq、續跑就前進，"
-                               "這時續跑收尾不重問已經問過的。連鎖中止中照舊不送。",
     "SVN_TEST_BLOCK_OPT_IN": "svn 提交測試路徑的閘預設關，專案設定（overview-hub.json 的 svn_test_block.enabled）開了才判；開了只看 "
                              "svn commit 的路徑參數（訊息裡寫 test 不算）；放行要有一行「測試上 svn 原句：「…」」，引的句子逐字在使用者本回合的"
                              "原話裡、而且那個子句沒被否定（「不要提交測試」引了也不算），留帳 user_quote。",
@@ -2192,13 +2186,12 @@ NEG_WORD_RE = lazy_re(r"不要|不可以|不能|不行|不用|不必|不准|不�
 
 # ─── 閘小修 006 追蹤帳本同一件 ───
 RULES.update({
-    "TRACKING_SAME_ITEM_NOT_REWRITTEN": "追蹤帳本唯一寫入口 wg_harvest.append_tracking：open 列寫進去前，對帳上（含同一批較早的列）部位相容"
-                                        "（相同或一邊沒寫）的未結項：① AI 在那行寫了「｜同追蹤項：<那筆裡連續至少 8 字>」（k 欄"
-                                        "行尾；PickOne 多一行「同追蹤項：」）而去標點空白後恰好是一筆的一段 → 換成新說法（新列帶 supersedes、"
+    "TRACKING_SAME_ITEM_NOT_REWRITTEN": "追蹤帳本唯一寫入口 wg_harvest.append_tracking（寫入端：退縮閘那一問的「追蹤｜…」行）：open 列寫進去前，"
+                                        "對帳上（含同一批較早的列）部位相容（相同或一邊沒寫）的未結項：① AI 在那行行尾寫了"
+                                        "「｜同追蹤項：<那筆裡連續至少 8 字>」而去標點空白後恰好是一筆的一段 → 換成新說法（新列帶 supersedes、"
                                         "同時寫結案列關掉舊的）；對不到或對到多筆 → 不合併、照記、stderr。② 沒宣告但跟某筆部位相同（嚴格相等）、原文相同"
-                                        "（不分 session）→ 不重記、stderr，PickOne 記 repeat；字面相近（只差括號註、開頭相同）程式不併，併錯會吞掉一件。"
-                                        "換句話說的同一件程式不判，交 ①；"
-                                        "PickOne 問句列出本 session 還開著的項目。",
+                                        "（不分 session）→ 不重記、stderr；字面相近（只差括號註、開頭相同）程式不併，併錯會吞掉一件。"
+                                        "換句話說的同一件程式不判，交 ①。",
 })
 # ─── G7 等值與熱路徑 ───
 # 重構意圖收尾要有等值證法三類收據（或附理由的不適用宣告），熱路徑答「是」要有量測收據。事實（意圖、改檔、收據、收尾文字）
@@ -2326,7 +2319,7 @@ RULES.update({
                           "（session_start._CARRY_ON_REBUILD：turn_seq、turn_prompts_seq、user_turn_count、turn_open、turn_typed）；"
                           "鍵還是不在（state 從零建）時，UserPromptSubmit 第一則進來的訊息就算是同伴訊息、背景通知也把鍵錨在這一則"
                           "（ups_gates.track_turn_prompts；不加 user_turn_count；寫碼守門關照舊不錨），之後照 TURN_SINCE_USER_PROMPT 前進。鍵不在時 user_turn "
-                          "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（PickOne 每則重問、各閘每回合的擋次與預算重來）。",
+                          "退回逐則前進的 turn_seq，每則同伴訊息都被當成新使用者回合（各閘每回合的擋次與預算重來）。",
     "COMPLETION_CLAIM_PER_SENTENCE": "宣告完成（wg_evasion.claims_completion）：最後 2000 字裡有「這則之後工作還在繼續」的話（仍在等、"
                                      "等待…回報、尚未開始）整則不算；否則逐句看，有一句有完成詞、而那一句本身沒有其餘排除詞（還沒／尚未…完成、"
                                      "待補、中途、進行中）就算，這幾個只取消它自己那一句；收尾閘往前找宣告完成的那則（wg_evasion.turn_completion_text）同一套；"
@@ -2392,18 +2385,9 @@ RULES.update({
 })
 
 
-# ─── 收尾只跑一輪（事實與時點在 hooks/wg_closing_round.py、handlers/stop.py，這裡只登錄規則名、說明與提示） ───
+# ─── 收尾一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、handlers/post_tool_batch.closing_call，這裡只登錄規則名與說明） ───
 RULES.update({
-    "PICK_ONE_PRE_CLOSE": "交付邊界那批就附「順手看到最該修」：本 session 改過程式之後測試跑綠的那批（post_tool_batch.closing_reminders 判綠，與其他收尾提醒"
-                          "同一條路；guard-pick_one via=test_green），或交收尾檢核／知識收割回報那批（via=pre_close）。該問的判法同 Stop"
-                          "（上次問過或記過之後又改了程式、這個使用者回合還沒問過，連鎖警報後只記錄時不送），問句與記問過同一段（wg_harvest.pick_ask）；"
-                          "Stop 的 pick_due 看到問過就不再送，對話不再為它續跑一輪。開關 pick_one.pre_close（缺＝開）；沒跑測試也沒交收尾檢核就收尾、"
-                          "或開關關 → 照舊由 Stop 判（寫碼守門下只留帳）。",
-})
-
-# ─── 收尾一次交齊（事實與時點在 handlers/post_tool_use.py 收尾檢核段、wg_closing_round.closing_call，這裡只登錄規則名與說明） ───
-RULES.update({
-    "CLOSING_CALL_ALL_THREE": "收尾那批（wg_closing_round.closing_call：收尾前附著點靠它）認兩支：收尾檢核（一次交齊時知識收割也在裡面）、"
+    "CLOSING_CALL_ALL_THREE": "收尾那批（handlers/post_tool_batch.closing_call：收尾類提醒靠它）認兩支：收尾檢核（一次交齊時知識收割也在裡面）、"
                               "knowledge_harvest_report；任一支所在的那批就是收尾前最後一個工具回應。",
 })
 
@@ -2509,7 +2493,7 @@ for _name in ("CASE_COVERS_CHANGE", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NE
               "REFACTOR_NEEDS_EQUIVALENCE", "PERF_HOT_PATH_NEEDS_MEASURE", "LEFTOVER_NEEDS_CLEANUP", "RELOAD_ADVICE_ALREADY_LOADED",
               "DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT", "CLOSING_CHECK_REQUIRED",
               "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED", "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE",
-              "ATOM_CONSUMPTION_AUDIT", "PICK_ONE_PRE_CLOSE"):
+              "ATOM_CONSUMPTION_AUDIT"):
     RULES[_name] += "｜寫碼守門開：提醒不擋，掛在改程式檔（或觸發事實成立）那則工具結果一行（handlers/post_tool_batch.closing_reminders），Stop 只留帳 event=remind、不續跑、不開放行題；寫碼守門關照舊擋。"
 
 def mode_of(rule: str) -> str:

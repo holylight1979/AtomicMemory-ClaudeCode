@@ -61,17 +61,13 @@ from wg_release_rules import (
 from wg_core import user_typed_prompts as _user_typed_prompts
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
-from wg_harvest import (
-    harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active,
-    record_pick, pick_due, pick_code_mods, pick_ask,
-)
+from wg_harvest import harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active
 from wg_release_rules import format_hit
 from wg_release_rules import gate_mode as _gate_mode, parse_hit_rules as _parse_hit_rules, REMIND as _REMIND, BLOCK as _BLOCK
 from wg_lazy_re import lazy_module
 # 寫碼守門的模組第一次用到才載（HOOK_IMPORT_ON_USE）：守門關、子代理收尾、或這次收尾走不到那道閘，就一行都不載
 chain_store = lazy_module("chain_store")   # 連鎖斷路器的帳、快照、還原（lib/；判定在 hooks/wg_chain.py）
 _rel = lazy_module("wg_release")           # 擋滿放行：放行題、待放行紀錄
-_cr = lazy_module("wg_closing_round")      # 收尾只問一次「最該修」
 
 
 # 測試會換掉的名字留在模組上（同 post_tool_use 的惰性入口）：呼叫時才轉給守門模組
@@ -1227,32 +1223,8 @@ def _mcp_load_facts(boot_dir: Optional[Path] = None, code_dir: Optional[Path] = 
     return records, disk
 
 
-# ─── 交付時順手點出最該修的一件（G4／G5／G13）：只提醒、不擋 ─────────────────────
-# 判斷交 AI、程式只管時點與記帳（wg_harvest）。缺 config pick_one 區段或 enabled 不是 true＝整個關。
-
-def _pick_on(config: Dict[str, Any]) -> bool:
-    return (config.get("pick_one") or {}).get("enabled") is True
-
-
-def _record_pick(state: Dict[str, Any], session_id: str, text: str, cwd: str, config: Dict[str, Any]) -> None:
-    """交付回覆裡的「順手看到最該修」段 → 本專案追蹤帳本（附建議怎麼解、該誰解）；帳上已有同一件不重記。排在所有閘之前，
-    後面的閘這次擋不擋都不漏記。記失敗只 stderr（不算答過，下次照問）。"""
-    if not _pick_on(config):
-        return
-    turn_seq = int(state.get("turn_seq", 0))
-    try:
-        res = record_pick(state, session_id, turn_seq, text, cwd)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:PickOne] 「順手看到最該修」記進追蹤帳本失敗（這次沒記）：{type(e).__name__}: {e}", file=sys.stderr)
-        return
-    if res is not None:
-        event, pick = res
-        write_state(session_id, state)
-        append_guard_log("pick_one", {"session_id": session_id, "turn_seq": turn_seq, "event": event, "text": pick["text"][:120]})
-
-
 def _record_tracking_lines(text: str, session_id: str, turn_seq: int, cwd: str) -> None:
-    """收尾那一問的答案：回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」各記一筆進追蹤帳本 workflow/tracking（同收尾檢核 (k)）。
+    """收尾那一問的答案：回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」各記一筆進追蹤帳本 workflow/tracking。
     記不下只浮 stderr。"""
     lines = [m.group(0) for m in re.finditer(r"^[\s*\-•]*追蹤\s*[｜|][^\n]+", str(text or ""), re.M)]
     if not lines:
@@ -1306,40 +1278,6 @@ def _record_prompt_judgments(state: Dict[str, Any], session_id: str, transcript:
         return
     if got is not None:
         write_state(session_id, state)
-
-
-def _pick_boundary_seen(state: Dict[str, Any], session_id: str, turn_seq: int, boundary_now: bool) -> bool:
-    """規則 PICK_ONCE_PER_USER_TURN 的交付邊界：這次收尾到了（宣告完成、交了收尾檢核、commit）就記下這個使用者回合
-    （state pick_one[sid].boundary_uturn）；沒到但同一個使用者回合先前到過（那次被別的閘擋下、之後的回覆在答別的閘）也算。"""
-    from wg_release_rules import user_turn
-    uturn = user_turn(state, int(turn_seq or 0))
-    if boundary_now:
-        state.setdefault("pick_one", {}).setdefault(session_id, {})["boundary_uturn"] = uturn
-        return True
-    return ((state.get("pick_one") or {}).get(session_id) or {}).get("boundary_uturn") == uturn
-
-
-def _pick_one_prompt(state: Dict[str, Any], session_id: str, own_mod_files: List[Dict[str, Any]], boundary: bool,
-                     config: Dict[str, Any], cwd: str = "", continuation: bool = False) -> Optional[str]:
-    """到了交付邊界、本 session 在上次問過或記過之後又改了程式 → 回要送的那一問（並記下問過）；不到時候回 None。
-    組問句＋記問過與收尾前附著點、測試綠那批同一段（wg_harvest.pick_ask）。判斷出錯只 stderr、不送。
-    問句附本 session 還沒結的追蹤項，點的是同一件就寫「同追蹤項：」（TRACKING_SAME_ITEM_NOT_REWRITTEN）。
-    continuation＝這次收尾是 Stop hook 讓對話續跑出來的：一般不當條件（PICK_ONCE_PER_USER_TURN 看使用者回合）；只有 state 沒有
-    使用者回合鍵（turn_prompts_seq）時，使用者回合會退回 turn_seq、續跑一回合就前進，這時續跑收尾不重問已經問過的。"""
-    if not _pick_on(config) or state.get("muted"):
-        return None
-    turn_key = state.get("turn_prompts_seq")
-    if (continuation and not (isinstance(turn_key, int) and not isinstance(turn_key, bool) and turn_key > 0)
-            and ((state.get("pick_one") or {}).get(session_id) or {}).get("asked_turn")):
-        return None
-    try:
-        code = pick_code_mods(own_mod_files, config)
-        if not pick_due(state, session_id, code, boundary):
-            return None
-        return pick_ask(state, session_id, code, config, cwd)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:PickOne] 交付時「最該修」那一問判斷出錯（這次不送）：{type(e).__name__}: {e}", file=sys.stderr)
-        return None
 
 
 _DEFERRAL_SENTENCE_RE = re.compile(r"「(.+?)」（退縮語：")
@@ -1643,10 +1581,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if _timed_out("殘檔帳本"):
         return
     if v6:
-        _record_pick(state, session_id, code_text, cwd, config)   # 交付回覆裡的「順手看到最該修」→ 追蹤項（G13）
         _record_prompt_judgments(state, session_id, transcript, transcript_text)   # UPS 問過的「是不是否決」收宣告行（G6）
 
-    if _timed_out("最該修記帳"):
+    if _timed_out("糾正宣告收帳"):
         return
 
     # ── token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
@@ -1721,11 +1658,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and in_turn(aec.get("turn_seq"), turn_seq, _since)
         and aec.get("session_id") == session_id
     )
-    # 「點出最該修」的交付邊界在各閘之前先記（規則 PICK_ONCE_PER_USER_TURN）：這次收尾被後面的閘擋下也算到過，
-    # 同一個使用者回合之後沒被擋的那次收尾照樣問；state 由擋下的出口或後面的路徑寫回
-    _pick_boundary = v6 and _pick_boundary_seen(
-        state, session_id, turn_seq,
-        _done(last_text) or claims_completion(code_text) or emitted_this_turn or committed_this_turn)
     # 上一份收尾檢核之後本 session 沒再 Edit/Write（每個改檔最後改到的回合都不晚於報告那回合）→ 沒有新東西可報，
     # ScanReport 視同已交，純問答回合不再逼重交整份（同回合的後續改動由 emitted_this_turn 覆蓋，這裡只看更早的回合）。
     # 改檔紀錄沒有回合號（legacy entry）就不知道是不是報告之後改的，不算已交（fail-safe）。
@@ -2242,7 +2174,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (i) 衍生暫存清單：**一行一路徑** `<路徑> — <備註>`（絕對或相對 cwd，可 glob）；只列「此刻尚存、留給使用者裁決」的，已刪的不列、純說明不列（預設完工即刪）；**必寫**，無則「無」\n"
                 "  (j) 證據持久路徑：本回合驗證收據的持久位置（通常是 `workflow/verify-ledger/<sid>.jsonl`，或驗證輸出檔）；"
                 "本 session 跑過哨兵驗證就**必填真存在的路徑**（Stop 對帳閘會查 exists），沒有收據才填「無」\n"
-                "  (k) 追蹤項：還沒做完、要追的事一行一項（會進 workflow/tracking 帳本）；沒有寫「無」，**不接受空字串**\n"
+                "  (k) 追蹤項：還沒做完、要追的事一行一項（存進收尾報告給 HUD 看）；沒有寫「無」，**不接受空字串**\n"
                 "三類加 a、b、d、g、h、i、j、k 都必填、未發生填「無」（沒有 (c)、(e)、(f)）；本回合已交收割報告的話 (d) 可只寫「見收割報告」。"
                 "不得用 prose「不在範圍 / 留給未來」籠統帶過。\n" + CLOSING_ONE_CALL
 
@@ -2479,26 +2411,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     write_state(session_id, state)
 
     if _timed_out("閉環歸因"):
-        return
-
-    # ── 交付時順手點出最該修的一件（G4／G5）：排在所有閘之後；Stop 的 additionalContext＝對話續跑一回合、不算擋 ──
-    # 規則 PICK_ONCE_PER_USER_TURN：同一個使用者回合問過就不再問（pick_due 看 asked_uturn）；這次收尾是不是續跑出來的
-    # （stop_hook_active）不當條件——第一次收尾先被別的閘擋下、修完續跑收尾，照樣問這一次
-    if v6 and _chain_ro[0]:
-        print("[Guardian:ChainBreaker] 連鎖中止中：這次收尾不送「順手看到最該修」", file=sys.stderr)
-    _pick = v6 and not _chain_ro[0] and _pick_one_prompt(
-        state, session_id, own_mod_files, _pick_boundary, config, cwd, continuation=bool(input_data.get("stop_hook_active")))
-    if _pick:
-        write_state(session_id, state)
-        if _gate_mode("PICK_ONE_PRE_CLOSE", v6) == _REMIND:
-            # Stop 不續跑（STOP_REMIND_LEDGER_ONLY）：該問的那一問在收尾那批已附過（PICK_ONE_PRE_CLOSE）；這裡只留帳
-            _remind_logged("pick_one", "PickOne", "PICK_ONE_PRE_CLOSE", _pick, session_id, turn_seq)
-        else:
-            output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _pick}})
-            output_json({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _ctx}})
-            return
-
-    if _timed_out("點出最該修"):
         return
 
     # ── Anti-loop guard ─────────────────────────────────────────

@@ -2,8 +2,8 @@
 
 做什麼：state 重建時回合編號與回合鍵照搬（session_start._CARRY_ON_REBUILD）；鍵還是不在（從零建）時，UserPromptSubmit 第一則進來的
 訊息就算是同伴訊息也把鍵錨在這一則（ups_gates.track_turn_prompts）。鍵不在時 user_turn 退回逐則前進的 turn_seq，只進同伴訊息的
-那段每則都被當成新使用者回合：實測長 session compact 重建 state 後，PickOne 每則同伴訊息都再問一次（turn 14／15／17／19／49…）。
-正例：重建後連三則同伴訊息，每則都改了程式、到交付邊界 → PickOne 只問一次；重建前的回合鍵、回合編號照舊；從零建的 state 第一則
+那段每則都被當成新使用者回合：實測長 session compact 重建 state 後，各閘「一個使用者回合一次」的問句每則同伴訊息都再問一次。
+正例：重建後連三則同伴訊息 → 都還是重建前那個使用者回合；重建前的回合鍵、回合編號照舊；從零建的 state 第一則
       同伴訊息就錨定，之後同伴訊息不前進、使用者打字照舊開新回合。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_user_turn_key.py
 """
@@ -13,8 +13,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 HOOKS_DIR = Path(__file__).resolve().parent.parent
 os.environ.setdefault("WG_CLAUDE_DIR", str(HOOKS_DIR.parent))
 sys.path.insert(0, str(HOOKS_DIR))
@@ -22,14 +20,12 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import wg_core  # noqa: E402
 from handlers import session_start as ss  # noqa: E402
-from handlers import stop as st  # noqa: E402
 from handlers.ups_gates import track_turn_prompts  # noqa: E402
 from wg_release_rules import user_turn  # noqa: E402
 
 _SID = "sid-turn-key"
 PEER = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="console" from-mode="bypass">\n'
         "交付收到，下一項照做。\n</cross-session-message>")
-_CFG = {"pick_one": {"enabled": True}}
 
 
 def _ups(monkeypatch, state, prompt):
@@ -59,34 +55,20 @@ def _rebuilt(existing):
 
 
 def _before_rebuild(cwd):
-    """重建前：使用者第 37 回合打字開工，之後同伴訊息讓 turn_seq 走到 40；PickOne 上次是第 30 個使用者回合問的
-    （帳本現在會照搬：第 37 回合還沒問過，重建後才該問一次）。"""
+    """重建前：使用者第 37 回合打字開工，之後同伴訊息讓 turn_seq 走到 40。"""
     return {"session": {"id": _SID, "cwd": str(cwd)}, "phase": "working", "turn_seq": 40, "turn_prompts_seq": 37,
-            "user_turn_count": 5, "turn_open": False, "turn_typed": False, "turn_prompts": [],
-            "pick_one": {_SID: {"asked_turn": 30, "asked_uturn": 30}}}
+            "user_turn_count": 5, "turn_open": False, "turn_typed": False, "turn_prompts": []}
 
 
-@pytest.fixture
-def code_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
-    f = tmp_path / "proj" / "src" / "pricing.py"
-    f.parent.mkdir(parents=True)
-    f.write_text("def price(x):\n    return x\n", encoding="utf-8")
-    return f
-
-
-def test_rebuilt_state_three_peer_messages_pick_one_asks_once(monkeypatch, code_file):
-    """規則 USER_TURN_KEY_KEPT：compact 重建 state 後連三則同伴訊息、每則都改了程式又交付 → 同一個使用者回合，PickOne 只問一次。
-    舊碼重建時回合鍵沒帶過去、turn_seq 歸零，user_turn 跟著每則同伴訊息前進，三則各問一次。"""
-    state = _rebuilt(_before_rebuild(code_file.parent.parent))
-    asked = []
+def test_rebuilt_state_three_peer_messages_stay_in_one_user_turn(monkeypatch, tmp_path):
+    """規則 USER_TURN_KEY_KEPT：compact 重建 state 後連三則同伴訊息 → 每則都還是重建前那個使用者回合（37），turn_seq 照舊往前。
+    舊碼重建時回合鍵沒帶過去、turn_seq 歸零，user_turn 跟著每則同伴訊息前進，三則各算一個新回合。"""
+    state = _rebuilt(_before_rebuild(tmp_path / "proj"))
+    seen = []
     for _ in range(3):
         _ups(monkeypatch, state, PEER)
-        mods = [{"path": str(code_file), "session_id": _SID, "turn_seq": state["turn_seq"], "last_turn_seq": state["turn_seq"]}]
-        if st._pick_one_prompt(state, _SID, mods, True, _CFG):
-            asked.append(state["turn_seq"])
-    assert len(asked) == 1, (asked, state.get("turn_prompts_seq"), state.get("turn_seq"))
-    assert user_turn(state, state["turn_seq"]) == 37
+        seen.append((state["turn_seq"], user_turn(state, state["turn_seq"])))
+    assert seen == [(41, 37), (42, 37), (43, 37)], (seen, state.get("turn_prompts_seq"))
 
 
 def test_rebuild_keeps_turn_key_and_numbering():
@@ -100,7 +82,7 @@ def test_rebuild_keeps_turn_key_and_numbering():
 
 def test_rebuild_floors_turn_seq_to_modified_files_turns():
     """重建前的 state 沒有 turn_seq（更舊版本沒搬），modified_files 的 last_turn_seq 到 11 → 重建後 turn_seq 墊到 11
-    （舊碼：0，各閘的問過／放行全記第 0 回合，PickOne 同一批改動連問）。有 turn_seq 且比改檔回合大 → 照舊不動。"""
+    （舊碼：0，各閘的問過／放行全記第 0 回合，同一批改動連問）。有 turn_seq 且比改檔回合大 → 照舊不動。"""
     mods = [{"path": "c:/proj/a.py", "last_turn_seq": 2}, {"path": "c:/proj/b.py", "last_turn_seq": 11, "turn_seq": 11},
             {"path": "c:/proj/c.py", "last_turn_seq": "junk"}]
     old = {"session": {"id": _SID, "cwd": "c:/proj"}, "phase": "working", "modified_files": mods}
@@ -123,7 +105,6 @@ def test_rebuild_carries_event_seq_and_gate_ledgers():
                "reconcile_gate_turn": {_SID: {"turn": 37, "count": 1}}, "cleanup_gate_turn": {_SID: 37}}
     new = _rebuilt({**old, **ledgers})
     assert {k: new.get(k) for k in ledgers} == ledgers
-    assert new["pick_one"] == old["pick_one"]
 
 
 def test_missing_key_anchored_at_first_peer_message_then_typing_opens_new_turn(monkeypatch):

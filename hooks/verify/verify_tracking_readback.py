@@ -1,10 +1,9 @@
-"""verify_tracking_readback.py：AEC (k) 追蹤項的帳本命名、結案、依部位讀回與 SessionStart 一次性提示。
+"""verify_tracking_readback.py：追蹤帳本（workflow/tracking，寫入端是退縮閘那一問的「追蹤｜…」行）的命名、結案、同一件合併與讀檔防呆。
 
-正例：子目錄 cwd 與部位表根同一本帳本；依部位讀回只列那個部位還 open 的項目（wg_harvest.tracking_items_for_part）；
-      `[部位] 結案：<開頭≥8 字>` 補 closes 後該項不再列；未標部位、標了部位的未結項各一段，只在全新 session 的 SessionStart
-      列一次（compact 不再列）。
-反例：已結案的不列；別部位的不列；未標部位的不進部位讀回；結案前綴不足 8 字或找不到對象 → stderr、不寫；
-      帳本壞行跳過並 stderr、讀回照常；cwd 空 → _no-cwd 並 stderr；疑似分裂的舊帳本只 stderr、不合併。
+正例：子目錄 cwd 與部位表根同一本帳本；`[部位] 結案：<開頭≥8 字>` 補 closes 後該項不再算未結；行尾「｜建議：…｜該誰解：…」另存兩欄；
+      「｜同追蹤項：<那筆裡至少 8 字>」恰好對到一筆就換成新說法（規則 TRACKING_SAME_ITEM_NOT_REWRITTEN）；同一句不重記。
+反例：結案前綴不足 8 字或找不到對象 → stderr、不寫；字面相近但沒宣告的照記兩筆；宣告對不到唯一一筆不合併；
+      帳本壞行跳過並 stderr、讀回照常；cwd 空 → _no-cwd 並 stderr；寫碼守門開時開場也不列帳上的未結項。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_tracking_readback.py
 """
 from __future__ import annotations
@@ -148,65 +147,46 @@ def test_close_line_resolves_and_hides_item(world, capsys):
     assert [r["text"] for r in wh.open_tracking_items(wh.read_tracking(slug))] == ["技能冷卻表讀錯欄位"]
 
 
-# ─── 依部位讀回 ────────────────────────────────────────────────────────────────
-
-def test_open_items_read_back_for_that_part_only(world):
-    proj, _ = world
-    slug = wh.tracking_slug(str(proj))
-    wh.append_tracking(slug, _k("[戰鬥] 傷害公式在暴擊時溢位要再查\n[戰鬥] 技能冷卻表讀錯欄位\n"
-                                "[介面] 按鈕文字被截斷\n未標部位的雜項追蹤一則", "2026-10-01T00:00:00"))
-    wh.append_tracking(slug, _k("[戰鬥] 結案：技能冷卻表讀錯欄位", "2026-10-02T00:00:00"))
-    texts = [e["text"] for e in wh.tracking_items_for_part(slug, ["戰鬥"])]
-    assert texts == ["傷害公式在暴擊時溢位要再查"]                                        # 已結案、別部位、未標部位都不算
-    assert [e["text"] for e in wh.tracking_items_for_part(slug, ["介面"])] == ["按鈕文字被截斷"]
-
-
 def test_bad_ledger_line_skipped_with_stderr_items_still_read(world, capsys):
     proj, wf = world
     slug = wh.tracking_slug(str(proj))
     wh.append_tracking(slug, _k("[戰鬥] 傷害公式在暴擊時溢位要再查", "2026-10-01T00:00:00"))
     with open(wf / "tracking" / f"{slug}.jsonl", "a", encoding="utf-8", newline="\n") as fh:
         fh.write("{not json\n[1, 2]\n")
-    assert [e["text"] for e in wh.tracking_items_for_part(slug, ["戰鬥"])] == ["傷害公式在暴擊時溢位要再查"]
+    assert [e["text"] for e in wh.open_tracking_items(wh.read_tracking(slug))] == ["傷害公式在暴擊時溢位要再查"]
     assert "追蹤帳本有 2 行壞掉已跳過" in capsys.readouterr().err
 
 
-# ─── SessionStart 一次性提示（真 hook 進程：startup 列、compact 不列）───────────────────
+# ─── SessionStart 不列追蹤帳本（真 hook 進程）───────────────────────────────────
 
 def _run_hook(home: Path, payload: dict) -> subprocess.CompletedProcess:
     env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "PYTHONPATH")}
-    env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"})
+    env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8", "WG_CODING_GUARD": "1"})
     return subprocess.run([sys.executable, "-X", "utf8", str(HOOKS_DIR / "workflow-guardian.py")], input=json.dumps(payload),
                           env=env, cwd=payload["cwd"], capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=120, creationflags=NO_WINDOW)
 
 
-def test_session_start_lists_unparted_items_once_and_flags_split_ledgers(world, tmp_path):
-    """開場：未標部位的最舊 3 筆一段、標了部位的另一段（導讀卡拿掉後部位項只在這裡看得到）；壓縮後不再列；疑似分裂帳本只 stderr。"""
+def test_session_start_does_not_list_open_items(world, tmp_path):
+    """寫碼守門開、帳上有未標部位、標了部位、附了建議的未結項，還有疑似分裂的舊帳本：開場一行都不列、stderr 也不提
+    （舊碼開場先列附了建議的、再列未標部位與標了部位的各一段，要 AI 第一則回覆轉述）。"""
     proj, _ = world
     home = tmp_path / "home"
     tdir = home / ".claude" / "workflow" / "tracking"
     tdir.mkdir(parents=True)
     slug = wh.tracking_slug(str(proj))
-    rows = _k("未標部位的雜項追蹤第一則\n未標部位的雜項追蹤第二則\n[戰鬥] 有部位的不在這裡列", "2026-10-01T00:00:00")
-    rows += _k("未標部位的雜項追蹤最新一則\n未標部位的雜項追蹤再新一則", "2026-10-09T00:00:00")
+    rows = _k("未標部位的雜項追蹤第一則\n[戰鬥] 有部位的一則\n舊月報照要求保留｜建議：改月報｜該誰解：使用者決定",
+              "2026-10-01T00:00:00")
     (tdir / f"{slug}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-    (tdir / f"{slug}-game-battle.jsonl").write_text("", encoding="utf-8")               # 舊算法子目錄 cwd 的帳本
-    base = {"session_id": "trk-a3", "cwd": str(proj), "transcript_path": str(tmp_path / "t.jsonl")}
-    r = _run_hook(home, {**base, "hook_event_name": "SessionStart", "source": "startup"})
+    (tdir / f"{slug}-game-battle.jsonl").write_text("", encoding="utf-8")
+    r = _run_hook(home, {"session_id": "trk-a3", "cwd": str(proj), "transcript_path": str(tmp_path / "t.jsonl"),
+                         "hook_event_name": "SessionStart", "source": "startup"})
     assert r.returncode == 0, r.stderr[-2000:]
     ctx = json.loads(r.stdout.strip().splitlines()[-1])["hookSpecificOutput"]["additionalContext"]
-    assert "本專案未結追蹤項 4 筆" in ctx and "未標部位的雜項追蹤第一則" in ctx and "未標部位的雜項追蹤最新一則" in ctx
-    assert "未標部位的雜項追蹤再新一則" not in ctx                                        # 只列最舊 3 筆
-    unparted = ctx[ctx.index("本專案未結追蹤項 4 筆"):]
-    unparted = unparted[:unparted.index("系統換成新說法")]
-    assert "有部位的不在這裡列" not in unparted                                           # 反例：有部位的不混進未標部位那段
-    assert "本專案標了部位的未結追蹤項 1 筆（戰鬥 1）" in ctx and "- [戰鬥] 有部位的不在這裡列" in ctx   # 標了部位的另列一段
-    assert f"{slug}-game-battle.jsonl" in r.stderr and "不自動合併" in r.stderr           # 疑似分裂只 stderr
-    assert f"{slug}-game-battle.jsonl" not in ctx
-    r2 = _run_hook(home, {**base, "hook_event_name": "SessionStart", "source": "compact"})
-    assert r2.returncode == 0, r2.stderr[-2000:]
-    assert "本專案未結追蹤項" not in r2.stdout                                             # 壓縮後不再列（一次性）
+    assert ctx.startswith("[Workflow Guardian] Active.")
+    for text in ("[Guardian:Tracking]", "未標部位的雜項追蹤第一則", "有部位的一則", "舊月報照要求保留"):
+        assert text not in ctx, text
+    assert "[Guardian:Tracking]" not in r.stderr
 
 
 # ─── 退件 015：一筆結案只消一筆、短項可結、中文路徑不撞本、worktree 帳本不看部位表、結構錯的列要報 ───────
@@ -298,18 +278,7 @@ def test_structurally_bad_rows_are_skipped_with_stderr(world, capsys):
     assert "追蹤帳本有 3 行壞掉已跳過" in capsys.readouterr().err                          # 反例：舊碼靜默收下
 
 
-# ─── 退件 017：短項結案提示、帳本列型別與逐行編碼 ─────────────────────────────────────────
-
-def test_close_hint_tells_short_items_to_use_full_text(world, monkeypatch):
-    proj, wf = world
-    block = wh.tracking_block([{"text": "補測試", "at": "2026-10-01T00:00:00", "part": "hooks"}], 2000)
-    assert "原文不足 8 字就寫全文" in block                                                 # 部位注入的標頭
-    from handlers import session_start as ss
-    monkeypatch.setattr(ss, "WORKFLOW_DIR", wf)
-    wh.append_tracking(wh.tracking_slug(str(proj)), _k("補文件", "2026-10-01T00:00:00"))
-    adv = ss._tracking_advisory(str(proj), {})
-    assert len(adv) == 1 and "補文件" in adv[0] and "原文不足 8 字就寫全文" in adv[0]        # SessionStart 未標部位的提示
-
+# ─── 退件 017：帳本列型別與逐行編碼 ─────────────────────────────────────────────────
 
 def test_ledger_rows_with_wrong_types_or_broken_bytes_report_line_numbers(world, capsys):
     proj, wf = world
@@ -329,3 +298,115 @@ def test_ledger_rows_with_wrong_types_or_broken_bytes_report_line_numbers(world,
     err = capsys.readouterr().err
     assert "追蹤帳本有 3 行壞掉已跳過" in err and "第 2, 3, 4 行" in err                      # 反例：舊碼三列都收下、不出聲
     assert "第 5 行編碼損壞" in err                                                          # 反例：舊碼 replace 解碼不出聲
+
+
+# ─── 行尾提議欄與同一件合併（規則 TRACKING_SAME_ITEM_NOT_REWRITTEN）──────────────────────────────
+_SID = "sid-track"
+
+
+def _opens(proj):
+    return wh.open_tracking_items(wh.read_tracking(wh.tracking_slug(str(proj))))
+
+
+def _append_k(proj, text, sid=_SID, at=None):
+    return wh.append_tracking(wh.tracking_slug(str(proj)), wh.tracking_entries(sid, 1, text, at=at))
+
+
+def test_k_line_proposal_and_owner_split_before_part():
+    rows = wh.tracking_entries("s", 1, "gitlab 鏡像 push 憑證失效｜建議：換 token 後重推｜該誰解：使用者\n"
+                                       "[hooks] 寫入失敗待查｜該誰解：根層｜建議：加重試\n"
+                                       "hooks｜舊格式部位行\n[hooks] 結案：寫入失敗待查", at="2026-10-20T00:00:00")
+    assert (rows[0]["part"], rows[0]["text"]) == ("", "gitlab 鏡像 push 憑證失效")   # 反例：舊碼把問題當成部位、本文剩「建議：…」
+    assert (rows[0]["proposal"], rows[0]["owner"]) == ("換 token 後重推", "使用者")
+    assert (rows[1]["part"], rows[1]["text"], rows[1]["proposal"], rows[1]["owner"]) == ("hooks", "寫入失敗待查", "加重試", "根層")
+    assert (rows[2]["part"], rows[2]["text"]) == ("hooks", "舊格式部位行") and "proposal" not in rows[2]   # 沒寫提議照舊
+    assert rows[3]["status"] == "closed" and "proposal" not in rows[3]
+
+
+# 第二波第五跑 B5（workflow/tracking/c--w4-qb2-sales.jsonl）同一件記成 3 筆的原文
+_B5_FOLLOWUP = "需求目標 T1.4（部分）：monthly 走 UTC 違反 README，改不改要使用者跟財務確認後拍板（已在收尾報告提出）"
+_B5_K = ("[銷售報表] monthly 用 UTC 切月份違反 README 台北時間規則（2026-09 報 520、應為 205；2026-10 報 420、應為 735），"
+         "需財務確認後修 month_of 與 test_monthly_cli_output 期望值")
+_B5_THIRD = "[銷售報表] `sales/periods.py` 的 `month_of` 用 UTC 判斷月份，monthly 報表整條路都靠它"
+
+
+def test_006_b5_paraphrases_need_ai_declaration(world):
+    """前置：B5 三筆措辭全不同，字面規則併不掉（程式不猜語意）——照原樣寫還是 3 筆未結。"""
+    proj, _ = world
+    for text in (_B5_FOLLOWUP, _B5_K, _B5_THIRD):
+        _append_k(proj, text)
+    assert len(_opens(proj)) == 3
+
+
+def test_006_b5_same_item_declared_keeps_one_open(world):
+    """行尾寫「同追蹤項：<那筆裡至少 8 字>」→ 換成新說法，帳上始終只留 1 筆未結（最新那句、帶部位）。"""
+    proj, _ = world
+    _append_k(proj, _B5_FOLLOWUP)
+    _append_k(proj, _B5_K + "｜同追蹤項：monthly 走 UTC 違反 README")
+    opens = _opens(proj)
+    assert len(opens) == 1 and opens[0]["text"].startswith("monthly 用 UTC 切月份") and opens[0]["part"] == "銷售報表"
+    _append_k(proj, _B5_THIRD + "｜同追蹤項：monthly 用 UTC 切月份違反 README")
+    opens = _opens(proj)
+    assert len(opens) == 1 and opens[0]["text"].startswith("`sales/periods.py`") and opens[0].get("supersedes")
+    closed = [r for r in wh.read_tracking(wh.tracking_slug(str(proj))) if r["status"] == "closed"]
+    assert len(closed) == 2 and all(r.get("superseded_by") for r in closed)
+
+
+def test_006_exact_repeat_is_not_rewritten(world, capsys):
+    """同一句第二次不重記、照回帳本路徑（不算寫入失敗）、stderr 說一聲。"""
+    proj, _ = world
+    assert _append_k(proj, _B5_FOLLOWUP) and _append_k(proj, _B5_FOLLOWUP)
+    assert len(_opens(proj)) == 1 and "帳上已有同一件未結項，不重記" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("first, second, sid2", [
+    ("匯出按鈕沒有反應", "[財務介面] 匯出按鈕沒有反應", "other-sid"),             # 舊的沒標部位：分不出是不是同一件
+    ("[登入] 登入流程發生錯誤（密碼過期）", "[登入] 登入流程發生錯誤（帳號鎖定）", _SID),   # 只差括號註：可能是兩件
+    ("[登入] 驗證碼逾時未處理上限", "[登入] 驗證碼逾時未處理下限", _SID),           # 開頭相同的不同問題
+], ids=["unpartitioned-old", "aside-differs", "prefix-same"])
+def test_006_similar_but_not_declared_is_kept(world, first, second, sid2):
+    """沒宣告時程式只併「部位相同、原文相同」；字面相近的照記兩筆（併錯會吞掉一件，比多記一筆更糟）。"""
+    proj, _ = world
+    _append_k(proj, first)
+    _append_k(proj, second, sid=sid2)
+    assert len(_opens(proj)) == 2
+
+
+@pytest.mark.parametrize("first, line", [
+    ("[銷售報表] 匯出 monthly 報表用 UTC 切月\n[銷售報表] 匯入 monthly 報表用 UTC 切月",
+     "[銷售報表] 新說法｜同追蹤項：monthly 報表用 UTC 切月"),                  # 對到兩筆：分不出是哪一筆
+    ("[戰鬥] 暴擊分支把共用字典當暫存", "[介面] 按鈕狀態｜同追蹤項：暴擊分支把共用字典"),   # 部位不同：不是同一件
+    ("[戰鬥] 暴擊分支把共用字典當暫存", "[戰鬥] 新說法｜同追蹤項：共用字典"),               # 去標點不足 8 字
+], ids=["ambiguous", "other-part", "too-short"])
+def test_006_same_as_not_merged_when_unclear(world, capsys, first, line):
+    """宣告對不到唯一一筆 → 不合併（不悄悄關掉別件）、照記新的、stderr 說原因。"""
+    proj, _ = world
+    _append_k(proj, first)
+    before = len(_opens(proj))
+    _append_k(proj, line)
+    assert len(_opens(proj)) == before + 1 and "沒有合併、照記新的" in capsys.readouterr().err
+
+
+def test_006_same_as_merges_when_part_is_refined(world):
+    """部位寫細（「合服」→「合服工具 DataHandler」）又明寫「同追蹤項」且唯一命中 → 換成新說法、只留 1 筆、部位用新的。
+    部位不相干（戰鬥／介面）仍不併，見 other-part 案。"""
+    proj, _ = world
+    _append_k(proj, "[合服] ClientDataHandlerEx.InitOp 對 Hero、Bag 四個模組用 get-or-new，來源沒有的角色被長出空模組")
+    _append_k(proj, "[合服工具 DataHandler] ClientDataHandlerEx.cs 的 InitOp 缺席模組補空模組｜同追蹤項：InitOp 對 Hero、Bag 四個模組")
+    opens = _opens(proj)
+    assert len(opens) == 1 and opens[0]["part"] == "合服工具 DataHandler" and opens[0].get("supersedes")
+
+
+def test_superseded_row_stays_closed_after_ledger_pruning(world):
+    """清理器（handlers/_shared._prune_tracking_pairs）把結案超過 90 天的「結案列＋開項」成對拿掉；被取代的那筆不會因此又變回未結。"""
+    from datetime import datetime
+    from handlers import _shared
+    proj, wf = world
+    _append_k(proj, "[pricing] catalog.py 的 PRICES 價格表寫死在程式裡（defects.md 剩下的唯一一項）", at="2026-01-01T00:00:00+08:00")
+    _append_k(proj, "[pricing] catalog.py 的 PRICES 價格表寫死在程式裡｜同追蹤項：PRICES 價格表寫死在程式裡",
+              at="2026-01-01T00:00:10+08:00")
+    res = {"deleted": [], "compacted": {}, "failed": []}
+    _shared._prune_tracking_pairs(wf / "tracking", 90, datetime(2026, 10, 21).timestamp(), False, res)
+    assert res["compacted"], "前置：清理器真的拿掉了那一對"
+    assert [r["text"] for r in wh.read_tracking(wh.tracking_slug(str(proj)))] == ["catalog.py 的 PRICES 價格表寫死在程式裡"]
+    assert [r["text"] for r in _opens(proj)] == ["catalog.py 的 PRICES 價格表寫死在程式裡"]

@@ -474,19 +474,14 @@ def test_scan_report_message_lists_j_and_k(driven, capsys):
     assert "(e) 未告知決策" not in out and "(f) 靜默狀態改變" not in out
 
 
-def test_ptu_k_followups_tracking_hook(monkeypatch, tmp_path):
-    """(k)≠「無」→ 呼叫 wg_harvest.append_tracking；k=「無」不呼叫。wg_harvest 的兩函式以 monkeypatch 提供。
-    本案的輸入沒有 cwd → slug＝tracking_slug("")＝"_no-cwd"（舊版寫 "root"，讀回端永遠對不上）。"""
+def test_ptu_k_followups_not_written_to_tracking_ledger(monkeypatch, tmp_path):
+    """寫碼守門開：(k) 不是「無」也不寫追蹤帳本（舊碼呼叫 wg_harvest.append_tracking 記一筆）；報告照存 k_followups 給 HUD。"""
     import wg_harvest
     calls = []
-    monkeypatch.setattr(wg_harvest, "tracking_entries",
-                        lambda sid, turn, k: [] if str(k).strip() in ("", "無") else [{"text": k, "turn_seq": turn}],
-                        raising=False)
-    monkeypatch.setattr(wg_harvest, "append_tracking", lambda slug, entries: calls.append((slug, entries)), raising=False)
-    _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="[hooks] 補 PowerShell 案"))
-    assert len(calls) == 1 and calls[0][0] == "_no-cwd" and calls[0][1][0]["text"] == "[hooks] 補 PowerShell 案"
-    _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="無"))
-    assert len(calls) == 1
+    monkeypatch.setenv("WG_CODING_GUARD", "1")
+    monkeypatch.setattr(wg_harvest, "append_tracking", lambda *a, **k: calls.append(a), raising=False)
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="[hooks] 補 PowerShell 案"))
+    assert calls == [] and state["anti_evasion_report"]["k_followups"] == "[hooks] 補 PowerShell 案"
 
 
 @pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not available")

@@ -1,5 +1,5 @@
 """verify_hook_timing.py：hook 分段計時與超時降級（wg_hook_timing）、Stop／PostToolUse 降級後只記不問、
-SessionStart／UserPromptSubmit 降級送出已備好的（追蹤提示在前）、PreToolUse 只打點不改判定、背景鬧鐘代送、
+SessionStart／UserPromptSubmit 降級送出已備好的、PreToolUse 只打點不改判定、背景鬧鐘代送、
 dispatcher 落帳、量尺 tools/hook-timing.py、開場與提問少讀檔（取代名單備忘、連結圖去重）。
 
 怎麼跑：set WG_CLAUDE_DIR=<worktree> && python -X utf8 -m pytest -q hooks/verify/verify_hook_timing.py
@@ -153,7 +153,7 @@ def stop_driven(monkeypatch):
 def test_stop_degraded_before_testfail_gate_releases_without_block(stop_driven, capsys):
     out, laps, _ = stop_driven(capsys)
     assert "[Guardian:TestFailGate]" in out                                   # 前置：同一份 state 不降級會被紅測閘擋
-    assert laps[:3] == ["讀 transcript", "殘檔帳本", "最該修記帳"]
+    assert laps[:3] == ["讀 transcript", "殘檔帳本", "糾正宣告收帳"]
     out, laps, wrote = stop_driven(capsys, degrade_at="token 預警")
     assert "TestFailGate" not in out and '"decision"' not in out             # 降級：後面的閘不跑、不擋
     assert laps[-1] == "token 預警" and wrote and wrote[-1] == "sid"    # 停在降級那一點，state 寫回
@@ -466,10 +466,10 @@ def test_pre_tool_use_laps_do_not_change_decision(monkeypatch, capsys, tmp_path)
     assert [json.loads(r[0])["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[0] for r in deny] ==         [json.loads(deny[0][0])["hookSpecificOutput"]["permissionDecisionReason"].splitlines()[0]] * 2
 
 
-# ─── SessionStart：真的起一支開場 hook，追蹤提示排在前段、降級也送得出 ───────────────────
+# ─── SessionStart：真的起一支開場 hook，不列追蹤帳本、降級也送得出 ───────────────────────
 
 def _session_start(tmp_path, timeout):
-    """臨時資料根＋專案＋一筆未結追蹤項，起一支開場 hook（settings.json 上限 timeout 秒）；回 (rc, additionalContext, 計時帳)。"""
+    """臨時資料根＋專案＋一筆未結追蹤項，寫碼守門開著起一支開場 hook（settings.json 上限 timeout 秒）；回 (rc, additionalContext, 計時帳)。"""
     from wg_harvest import tracking_slug
     root, proj, logs = tmp_path / "root", tmp_path / "proj", tmp_path / "logs"
     (root / "workflow" / "tracking").mkdir(parents=True)
@@ -482,7 +482,7 @@ def _session_start(tmp_path, timeout):
     (root / "workflow" / "tracking" / f"{tracking_slug(str(proj))}.jsonl").write_text(json.dumps(
         {"id": "t-open", "at": "2026-10-21T10:00:00+08:00", "text": "開場追蹤測試項", "status": "open"},
         ensure_ascii=False) + "\n", encoding="utf-8")
-    env = {**os.environ, "WG_CLAUDE_DIR": str(root), "WG_TEST_LOGS_DIR": str(logs)}
+    env = {**os.environ, "WG_CLAUDE_DIR": str(root), "WG_TEST_LOGS_DIR": str(logs), "WG_CODING_GUARD": "1"}
     env.pop("CLAUDE_COMPANION_JUDGE", None)
     inp = {"hook_event_name": "SessionStart", "session_id": "sid-ss-timing", "cwd": str(proj), "source": "startup"}
     p = subprocess.run([sys.executable, str(HOOKS_DIR / "workflow-guardian.py")], input=json.dumps(inp).encode("utf-8"),
@@ -494,23 +494,24 @@ def _session_start(tmp_path, timeout):
     return p.returncode, ctx, recs
 
 
-def test_session_start_tracking_comes_first_and_run_is_timed(tmp_path):
+def test_session_start_does_not_list_tracking_and_run_is_timed(tmp_path):
+    """寫碼守門開、帳上有一筆未結追蹤項：開場不列（舊碼緊接表頭列「本專案未結追蹤項 1 筆」）；計時帳照記。"""
     rc, ctx, recs = _session_start(tmp_path, 20)
     lines = ctx.splitlines()
     assert rc == 0 and lines[0] == "[Workflow Guardian] Active." and lines[1].startswith("Global:")
-    assert lines[2].startswith("[Guardian:Tracking] 本專案未結追蹤項 1 筆") and "開場追蹤測試項" in lines[3]   # 緊接表頭
+    assert "[Guardian:Tracking]" not in ctx and "開場追蹤測試項" not in ctx
     assert [(r["kind"], r["event"], r["limit_s"], r["limit_src"]) for r in recs] == [("run", "SessionStart", 20.0, "settings.json")]
     names = [s[0] for s in recs[0]["segments"]]
-    assert names[:5] == ["啟動", "載入 handler", "前置", "追蹤提示", "索引與職能"] and names[-1] == "其餘"
+    assert names[:4] == ["啟動", "載入 handler", "前置", "索引與職能"] and names[-1] == "其餘"
     assert names.index("候選池") < names.index("健檢") < names.index("git 快照")
 
 
-def test_session_start_over_limit_still_delivers_tracking_and_leaves_overrun(tmp_path):
-    """上限 0.05 秒（行程一起來就過）：鬧鐘立刻響留 overrun；不論是 80% 降級送出、還是鬧鐘代送，追蹤提示都在輸出裡，
+def test_session_start_over_limit_still_delivers_and_leaves_overrun(tmp_path):
+    """上限 0.05 秒（行程一起來就過）：鬧鐘立刻響留 overrun；不論是 80% 降級送出、還是鬧鐘代送，開頭那行都在輸出裡，
     且輸出帶一行 HookTiming 說明；行程照常結束（rc 0）。"""
     rc, ctx, recs = _session_start(tmp_path, 0.05)
-    assert rc == 0 and "[Guardian:Tracking] 本專案未結追蹤項 1 筆" in ctx and "開場追蹤測試項" in ctx
-    assert "[Guardian:HookTiming]" in ctx and "Global:" not in ctx.split("[Guardian:Tracking]")[1]
+    assert rc == 0 and ctx.startswith("[Workflow Guardian] Active.") and "[Guardian:Tracking]" not in ctx
+    assert "[Guardian:HookTiming]" in ctx
     kinds = [(r["kind"], r["event"]) for r in recs]
     assert ("overrun", "SessionStart") in kinds
     sent_by_alarm = any(r["kind"] == "overrun" and r["fallback"] for r in recs)

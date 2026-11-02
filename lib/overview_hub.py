@@ -1,8 +1,8 @@
-"""overview_hub — 部位表（`<專案根>/.claude/overview-map.md`）的查表、導讀卡位置、transcript 三管道與讀檔路徑解析（純函式）。
+"""overview_hub — 部位表（`<專案根>/.claude/overview-map.md`）的查表、根層 worktree 判定、transcript 三管道與讀檔路徑解析（純函式）。
 
 做什麼：專案在 `<專案根>/.claude/overview-map.md` 放一張「路徑前綴 → 部位 → 導讀卡」表（專案自己寫，根層只讀）。
-往上找最近的那張表（find_map），用最長前綴命中決定部位（match_row）；導讀卡在哪（card_mem_dir／resolve_card）、
-卡的「已知病灶」段（defect_bullets）；AI 寫的內容分三管道讀（LOCATE_CHANNELS／assistant_text_after，宣告行共用）；
+往上找最近的那張表（find_map），用最長前綴命中決定部位（match_row）；某棵樹是不是根層或別的 repo 的 git worktree（is_root_worktree／main_worktree_of）；
+AI 寫的內容分三管道讀（LOCATE_CHANNELS／assistant_text_after，宣告行共用）；
 工具呼叫讀了哪些檔（read_paths_from_tool）。
 
 表格式（兩個專案各自的寫法都吃）：markdown 表格，每列至少有一格含反引號路徑（前綴）、緊接的一格是部位名、
@@ -61,20 +61,6 @@ _PS_PATH_PARAMS = ("-path", "-literalpath", "-pspath", "-lp")
 _PS_VALUE_PARAMS = ("-encoding", "-totalcount", "-head", "-first", "-tail", "-last", "-readcount", "-delimiter",
                     "-pattern", "-filter", "-include", "-exclude", "-stream", "-header", "-context", "-culture",
                     "-erroraction", "-ea", "-errorvariable", "-ev", "-outvariable", "-ov")
-
-
-# 分片：導讀卡五片（what／authority／ask／defects／verify）；標籤同義詞依優先序 authority > ask > defects > verify > what 映射
-_SLICE_SYNONYMS = (
-    ("authority", ("權威", "真相", "正本", "存哪", "誰說了算", "資料源")),
-    ("ask", ("必問", "先問", "動手前", "第四問", "改前")),
-    ("defects", ("病灶", "踩坑", "前例", "病徵", "壞味道", "教訓")),
-    ("verify", ("驗法", "驗證", "量尺", "怎麼驗", "測試", "檢查器", "驗收")),
-    ("what", ("做什麼", "導讀入口", "本卡是", "導航入口", "邊界", "上下游", "上游", "下游", "讀路徑", "閱讀序",
-              "分支", "先分清", "概觀", "全貌", "結構", "入口")),
-)
-_STRUCTURAL_HEADINGS = ("知識", "印象", "知識（節錄）")      # atom 結構標題，不是卡片的段
-_HEADING_RE = re.compile(r"^(#{2,4})\s+(.+?)\s*$")
-_BULLET_RE = re.compile(r"^- (?:\[[臨觀固]\]\s*)?(?:\*\*(.+?)\*\*)?(.*)$")
 
 
 def _norm(p: str) -> str:
@@ -375,7 +361,7 @@ def path_kind(path: str, stop_at: Optional[Path] = None) -> Optional[str]:
     return part_kind(path, root, rows)
 
 
-# ─── 卡片 ───────────────────────────────────────────────────────────
+# ─── git worktree 判定 ──────────────────────────────────────────────
 
 def _strip_long(s: str) -> str:
     s = s.replace("\\", "/")
@@ -401,7 +387,7 @@ def _norm_dir(p: Path) -> str:
 
 
 def _same_dir_norm(a: Path, b: Path) -> bool:
-    """兩個路徑是不是同一目錄（_norm_dir 後相等）；只給 is_root_worktree／card_mem_dir 用，find_map 用上面的 _same_dir。"""
+    """兩個路徑是不是同一目錄（_norm_dir 後相等）；只給 is_root_worktree／main_worktree_of 用，find_map 用上面的 _same_dir。"""
     return _norm_dir(a) == _norm_dir(b)
 
 
@@ -443,7 +429,7 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
     2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下（與 CommitOrder 認記憶系統 worktree 同一判法）；
     3. 那個管理目錄真的登記了這棵樹：它的 `gitdir` 檔反向指回 `<root>/.git`，`commondir` 指到 `<claude_dir>/.git`
        （只寫一個 `.git` 檔指過去、管理目錄不存在或指向別處 → 不是）。
-    不看部位表：在 worktree 裡改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE、卡讀 live）。
+    不看部位表：在 worktree 裡改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE）。
     任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
     try:
         r, c = Path(root), Path(claude_dir)
@@ -482,91 +468,6 @@ def main_worktree_of(root: Path) -> Optional[Path]:
 def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
     """同 is_root_worktree（資料歸屬用的舊名，追蹤帳本等呼叫端仍用這個名字）。"""
     return is_root_worktree(root, claude_dir)
-
-
-def card_mem_dir(root: Path, claude_dir: Path) -> Path:
-    """某個根的導讀卡住在哪個 memory 目錄（hook 注入用這一份）：
-    root 就是 claude_dir，或 root 是根層 worktree → `claude_dir/memory`（卡片是資料，由 atom_write 寫進 live；
-    worktree 的 memory/ 只是開分支當時的副本）；其他 → `root/.claude/memory`。
-    root 是網路路徑 → 直接 `root/.claude/memory`，不呼叫 realpath。"""
-    r, c = Path(root), Path(claude_dir)
-    if _is_unc(r):
-        return r / ".claude" / "memory"
-    if _same_dir_norm(r, c) or is_root_worktree(r, c):
-        return c / "memory"
-    return r / ".claude" / "memory"
-
-
-def resolve_card(root: Path, card: Optional[str], mem_dir: Optional[Path] = None) -> Optional[Path]:
-    """卡名 → `<mem_dir>/**/<卡名>.md`，mem_dir 預設 `<root>/.claude/memory`（呼叫端用 card_mem_dir 算好再傳）；
-    某些專案卡名的底線會被索引正規化成連字號，兩種都試。"""
-    if not card:
-        return None
-    mem = mem_dir if mem_dir is not None else root / ".claude" / "memory"
-    try:
-        for name in (card, card.replace("_", "-")):
-            hits = sorted(mem.rglob(name + ".md"))
-            if hits:
-                return hits[0]
-    except OSError:
-        return None
-    return None
-
-
-# ─── 分片 ───────────────────────────────────────────────────────────
-
-def slice_of_label(label: str) -> Optional[str]:
-    """段標籤 → 片名；依 _SLICE_SYNONYMS 優先序，對不上回 None。"""
-    for name, words in _SLICE_SYNONYMS:
-        if any(w in label for w in words):
-            return name
-    return None
-
-
-def split_card_sections(body: str) -> Dict[str, Any]:
-    """卡片原文 → {"head": 首段（標題與 meta 列）, "slices": {片名: 原文}, "others": {標題: 原文}}。
-
-    段的邊界：##／### 標題，或 ## 知識 之下的每個頂層 bullet（`- [臨] **標籤**：…`，子 bullet／表格跟著上一段）。
-    標籤（標題文字、或 bullet 的粗體標籤）經同義詞映射到五片；對不上、或 bullet 沒粗體標籤的進 others（鍵＝標題或前 20 字）；
-    同片多段串接。
-    ## 知識／## 印象 是 atom 結構標題，不算段；## 行動 當一段進 others。沒有任何段 → slices 與 others 皆空、全文在 head。
-    """
-    head: List[str] = []
-    segs: List[Tuple[Optional[str], List[str]]] = []
-    in_knowledge = False
-    for line in body.splitlines():
-        hm = _HEADING_RE.match(line)
-        if hm:
-            title = hm.group(2)
-            if title in _STRUCTURAL_HEADINGS:
-                in_knowledge = True
-                continue
-            in_knowledge = False
-            segs.append((title, [line]))
-            continue
-        bm = _BULLET_RE.match(line) if in_knowledge else None
-        if bm:
-            segs.append((bm.group(1), [line]))        # 沒粗體標籤的 bullet 不映射片（label None → others）
-            continue
-        (segs[-1][1] if segs else head).append(line)
-    slices: Dict[str, str] = {}
-    others: Dict[str, str] = {}
-    for label, lines in segs:
-        text = "\n".join(lines).strip()
-        if not text:
-            continue
-        name = slice_of_label(label) if label else None
-        if name:
-            slices[name] = f"{slices[name]}\n{text}" if name in slices else text
-        else:
-            others[label or text.lstrip("- ").lstrip("[臨觀固] ")[:20]] = text
-    return {"head": "\n".join(head).strip(), "slices": slices, "others": others}
-
-
-def defect_bullets(body: str) -> List[str]:
-    """導讀卡「已知病灶」片裡的頂層 bullet（`- ` 開頭的行，原樣含 `- `）；沒有這片回 []。"""
-    sec = split_card_sections(body)["slices"].get("defects") or ""
-    return [s for s in (line.strip() for line in sec.splitlines()) if s.startswith("- ")]
 
 
 LOCATE_CHANNELS = ("text", "tool_input", "thinking")

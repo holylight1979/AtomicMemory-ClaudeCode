@@ -497,59 +497,6 @@ def _local_catalog_lines(cwd: str) -> List[str]:
         return []
 
 
-def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
-    """本專案追蹤帳本（AEC (k) 與交付時「順手看到最該修」寫的）：一個 session 只列一次（state["tracking_advisory_sent"]，
-    重建 state 時照搬）。先列附了建議、還沒解的項目（不分部位，最新 3 筆＋要 AI 第一則回覆告訴使用者）；再列沒標部位、
-    沒附建議的未結項筆數＋最舊 3 筆；最後列標了部位、沒附建議的未結項（各部位筆數＋最舊 3 筆＋帳本路徑）。
-    同專案疑似由舊算法（子目錄 cwd）分裂出的帳本只在 stderr 列，不自動合併。讀不到只 stderr，回 []。"""
-    if not cwd or state.get("tracking_advisory_sent"):
-        return []
-    state["tracking_advisory_sent"] = True
-    try:
-        from wg_harvest import open_tracking_items, proposal_lines, read_tracking, tracking_path, tracking_slug
-        slug = tracking_slug(cwd)
-        tdir = WORKFLOW_DIR / "tracking"
-        split = sorted(p.name for p in tdir.glob(f"{slug}-*.jsonl")) if tdir.is_dir() else []
-        if split:
-            print(f"[Guardian:Tracking] 疑似同專案分裂的追蹤帳本（舊版用子目錄 cwd 命名，不自動合併）：{', '.join(split)}；"
-                  f"本專案帳本＝{slug}.jsonl", file=sys.stderr)
-        open_items = open_tracking_items(read_tracking(slug))
-        proposals = proposal_lines(open_items)
-        unproposed = [e for e in open_items if not str(e.get("proposal") or "").strip()]
-        items = [e for e in unproposed if not str(e.get("part") or "").strip()]
-        parted = [e for e in unproposed if str(e.get("part") or "").strip()]
-        ledger = tracking_path(slug)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:Tracking] 讀追蹤項失敗：{type(e).__name__}: {e}", file=sys.stderr)
-        return []
-    out = ["\n".join(proposals)] if proposals else []
-    tail = [_parted_tracking_block(parted, ledger)] if parted else []
-    if not items:
-        return out + tail
-    oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
-    lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位）；最舊 3 筆："]
-    lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
-    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）；"
-                 "新記的追蹤項可在行尾加「｜建議：<怎麼解>｜該誰解：<誰>」；跟帳上某一筆是同一件就加「｜同追蹤項：<那筆裡連續至少 8 字>」，"
-                 "系統換成新說法、不另記一筆。")
-    return out + ["\n".join(lines)] + tail
-
-
-def _parted_tracking_block(items: List[Dict[str, Any]], ledger: Path) -> str:
-    """標了部位、沒附建議的未結追蹤項：各部位筆數＋最舊 3 筆＋帳本路徑＋帶部位的結案寫法。"""
-    counts: Dict[str, int] = {}
-    for e in items:
-        part = str(e.get("part") or "").strip()
-        counts[part] = counts.get(part, 0) + 1
-    oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
-    lines = [f"[Guardian:Tracking] 本專案標了部位的未結追蹤項 {len(items)} 筆（"
-             + "、".join(f"{part} {n}" for part, n in counts.items()) + "）；最舊 3 筆："]
-    lines += [f"- [{str(e.get('part') or '').strip()}] {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）"
-              for e in oldest]
-    lines.append(f"全部的帳在 {ledger}；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」。")
-    return "\n".join(lines)
-
-
 def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
@@ -1034,19 +981,19 @@ _CARRY_ON_REBUILD = (
     "stop_blocked_count", "topic_tracker", "session_context_injected",
     # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的讀檔帳／意圖／Depends 已提示的卡照搬，不重送
     "overview_hub", "turn_intent", "depends_hints",
-    # 一 session 一次的旗標也要照搬，否則重建後權威地圖、未結追蹤項提示會重送
-    "authority_map_injected", "tracking_advisory_sent",
+    # 一 session 一次的旗標也要照搬，否則重建後權威地圖會重送
+    "authority_map_injected",
     # 收尾同步提醒的額度與底部一般擋擋過的項目（一 session 一次／同一筆不重擋），不搬的話重建後同一個 session 又提醒一次
     "sync_reminder_count", "sync_block_shown",
     # 回合編號與使用者回合鍵（規則 USER_TURN_KEY_KEPT）：只搬鍵的話 turn_seq 歸零、鍵比 turn_seq 還大；不搬的話之後只進同伴訊息時
-    # user_turn 退回 turn_seq、每則同伴訊息都當成新使用者回合（PickOne 每則重問、各閘每回合的擋次重來）。照搬的 modified_files
+    # user_turn 退回 turn_seq、每則同伴訊息都當成新使用者回合（各閘每回合的擋次重來）。照搬的 modified_files
     # 也帶著舊的 turn_seq，編號接著走才對得上
     "turn_seq", "turn_prompts_seq", "user_turn_count", "turn_open", "turn_typed", "exec_turn_seq",
     # 事件序號：modified_files 的 last_seq 照搬了，event_seq 不搬就從頭算，壓縮後的收據 seq 全小於舊的 last_seq、等值證法閘整批略過
     "event_seq",
-    # 各閘的「問過／放行／擋過」帳本（鍵都是 session id，compact 不換 session）：不搬的話重建後 PickOne、對帳閘、清理閘、
+    # 各閘的「問過／放行／擋過」帳本（鍵都是 session id，compact 不換 session）：不搬的話重建後對帳閘、清理閘、
     # 收據全部重來，使用者剛選的「放行這一回合」當場失效
-    "pick_one", "user_released", "pending_release", "last_block", "verify_receipts",
+    "user_released", "pending_release", "last_block", "verify_receipts",
     "reconcile_gate_turn", "cleanup_gate_turn",
 )
 
@@ -1060,7 +1007,7 @@ def _mod_turn_of(m: Dict[str, Any]) -> int:
 
 def floor_turn_seq(state: Dict[str, Any]) -> None:
     """規則 USER_TURN_KEY_KEPT 的底線：回合編號不倒退。更舊版本寫的 state 沒有 turn_seq，照搬的 modified_files 卻帶著 2..11，
-    各閘的「問過／放行」會記在第 0 回合、pick_due 的「改檔回合 > 問過的回合」永遠成立（實測一場 PickOne 連問 12 次）。
+    各閘的「問過／放行」會記在第 0 回合，「改檔回合 > 問過的回合」這類判法永遠成立、同一批改動被一直重問。
     以 modified_files 最大的回合墊底；turn_prompts_seq 不動，下一則 UserPromptSubmit 會自己錨定。"""
     floor = max((_mod_turn_of(m) for m in state.get("modified_files") or [] if isinstance(m, dict)), default=0)
     if floor > int(state.get("turn_seq") or 0):
@@ -1153,13 +1100,13 @@ def _ss_output(lines: List[str]) -> str:
 
 
 def _fallback_output(lines: List[str]) -> str:
-    """背景鬧鐘代送（到上限 95% 還沒送出）：當下已備好的開場提示（追蹤提示在前段）＋一行說明；state 這次沒寫回。"""
+    """背景鬧鐘代送（到上限 95% 還沒送出）：當下已備好的開場提示＋一行說明；state 這次沒寫回。"""
     return _ss_output([*lines, "[Guardian:HookTiming] 開場 hook 快到上限被取消，先送出已備好的開場提示，其餘這次沒跑、"
                                "session 狀態這次沒寫回（下一則提問會重建）；各段耗時記在 Logs/guard-hook_timing.jsonl。"])
 
 
 def _degraded_exit(session_id: str, state: Dict[str, Any], lines: List[str]) -> None:
-    """開場超時降級（累計過上限 80%）：state 寫回、已備好的提示照送（追蹤提示在最前段），後面的選配提示與檢查
+    """開場超時降級（累計過上限 80%）：state 寫回、已備好的提示照送，後面的選配提示與檢查
     這次跳過（含開場 git 快照、清舊 state、向量服務旗標與啟動）。"""
     lines.append(_hook_timing.degrade_note())
     write_state(session_id, state)
@@ -1263,11 +1210,9 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if sibling and source == "startup":
             state["_skip_vector_init"] = True
 
-        # 追蹤提示最先算（只要 cwd 與 state）：開場超時降級、或背景鬧鐘代送時，最該到眼前的這段已經備好
-        tracking_lines = _tracking_advisory(cwd, state) if v6 else []
-        lines = ["[Workflow Guardian] Active.", *root_lines, *tracking_lines]
+        # 開場超時降級、或背景鬧鐘代送時，至少送出這幾行
+        lines = ["[Workflow Guardian] Active.", *root_lines]
         _hook_timing.set_fallback(lambda: _fallback_output(lines))
-        _hook_lap("追蹤提示")
 
         # ── 記憶層背景「拉」：在首次讀索引之前 detached 起 vcs-sync worker（秒回、不等）。
         # 趕不趕得上本次候選池隨緣——拉入的 atom 下一個 session 才一定進候選池，advisory 只報同步事實。
@@ -1352,7 +1297,6 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
             *[n for n in _index_rebuild_notes if n],
             *root_lines,
-            *tracking_lines,
         ]
         if _hook_lap("候選池"):
             _degraded_exit(session_id, state, lines)

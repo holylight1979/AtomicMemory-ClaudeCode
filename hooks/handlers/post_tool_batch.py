@@ -6,10 +6,9 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 
 職責：把 PostCompact stash 的 atom 復原內文「一次性」注入，閉合 mid-turn auto-compact 缺口
 （壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；PreToolUse 沒攔到的提問事後提醒
-（wg_ask_gate）併進同一段送出；收尾只跑一輪（wg_closing_round）：交收尾檢核那批附上收尾要問的（最該修）。
+（wg_ask_gate）併進同一段送出。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
-各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核；
-改過程式之後測試跑綠的那批＝交付邊界，「順手看到最該修」那一問也掛這裡（PICK_ONE_PRE_CLOSE，wg_closing_round.pick_on_test_green））；
+各一行（closing_reminders：欠案例、等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核）；
 建了工作樹那則 Bash 附自清、收尾那批附知識收割欠項與報告待寫。同一條規則同一個對象同一個 session
 只提醒一次（state remind_sent 清單，wg_overview.remind_mark）；Stop 對同一件只留帳、不擋、不續跑（handlers/stop._remind_logged）。
 **每批都會跑** → idle 路徑必須極輕（讀 flag → early exit）。設計：plans/deep-wobbling-bentley.md。
@@ -35,15 +34,23 @@ def _ask_module() -> Any:
         return None
 
 
-def _closing_round(state: Dict[str, Any], session_id: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> tuple:
-    """收尾只跑一輪（wg_closing_round）：交收尾檢核那批附上收尾要問的。
-    回 (段落, state 有沒有改)；載入失敗 → stderr 一行、這批不做（收尾照舊在 Stop 送）。"""
-    try:
-        import wg_closing_round
-        return wg_closing_round.on_batch(state, session_id, input_data, config)
-    except Exception as e:  # noqa: BLE001
-        print(f"[Guardian:ClosingRound] 收尾一輪的批次處理失敗（收尾照舊送）：{type(e).__name__}: {e}", file=sys.stderr)
-        return [], False
+CLOSING_TOOL_SUFFIX = "__anti_evasion_report"
+HARVEST_SUFFIX = "__knowledge_harvest_report"
+
+
+def _calls(tool_calls: Any) -> List[Tuple[str, Dict[str, Any]]]:
+    out = []
+    for c in tool_calls if isinstance(tool_calls, list) else []:
+        c = c if isinstance(c, dict) else {}
+        inp = c.get("tool_input", c.get("input"))
+        out.append((str(c.get("tool_name") or c.get("name") or ""), inp if isinstance(inp, dict) else {}))
+    return out
+
+
+def closing_call(name: str) -> bool:
+    """收尾那批的認法（規則 CLOSING_CALL_ALL_THREE）：收尾檢核（anti_evasion_report，harvest_items 欄帶著知識收割），
+    或分開交的知識收割回報（knowledge_harvest_report）。"""
+    return name.endswith(CLOSING_TOOL_SUFFIX) or name.endswith(HARVEST_SUFFIX)
 
 
 # ─── 收尾類守門的提醒：掛在改程式檔那則工具結果（規則 REMIND_ON_PRIOR_RESULT） ──────────────────────────
@@ -83,7 +90,6 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     這批是收尾那批（closing_call）→ 知識收割、收割對帳、報告待寫。
     每條規則每個對象每 session 一次（wg_overview.remind_mark：已送鍵存 state remind_sent 清單，與工具前守門的提醒帳同一份）。判定重用各閘的純函式，不另複製；
     一段判不出只少那一段、浮 stderr。沒有任何時點成立就不做事（idle 極輕）。"""
-    import wg_closing_round as cr
     own = [m for m in state.get("modified_files") or [] if isinstance(m, dict) and m.get("path")
            and m.get("session_id", sid) == sid]
     marks = state.setdefault("remind_mark", {})
@@ -93,8 +99,8 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     if top != mark:
         marks[sid] = top
         changed = True
-    calls = cr._calls(input_data.get("tool_calls"))
-    closing = any(cr.closing_call(n) for n, _inp in calls)
+    calls = _calls(input_data.get("tool_calls"))
+    closing = any(closing_call(n) for n, _inp in calls)
     git_cmds = [str(inp.get("command") or "") for n, inp in calls
                 if n in ("Bash", "PowerShell") and "git" in str(inp.get("command") or "")]
     try:
@@ -109,9 +115,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
     if new_move:
         seen_moves[sid] = len(moved)
         changed = True
-    green, green_changed = _test_green_batch(state, sid)
-    changed = changed or green_changed
-    if not (new_code or closing or git_cmds or new_move or green):
+    if not (new_code or closing or git_cmds or new_move):
         return [], changed
     from wg_overview import remind_mark   # 提醒帳本只有一份（state remind_sent 清單），與 remind_flush 同一支記法
     lines: List[str] = []
@@ -145,35 +149,7 @@ def closing_reminders(state: Dict[str, Any], sid: str, input_data: Dict[str, Any
         part("收尾自清", lambda: _cleanup_reminder(sid, git_cmds, cwd, say))
     if closing:
         part("知識收割", lambda: _closing_batch_reminders(state, sid, own, config, turn_seq, say))
-    if green:   # 改過程式之後測試跑綠＝交付邊界（PICK_ONE_PRE_CLOSE）：該問就附那一問（該不該問、記問過在 wg_closing_round）
-        part("最該修", lambda: _pick_on_green(cr, state, sid, config, input_data, lines))
     return lines, changed or bool(lines)
-
-
-def _pick_on_green(cr, state, sid, config, input_data, lines: List[str]) -> None:
-    text = cr.pick_on_test_green(state, sid, config, input_data)
-    if text:
-        lines.append(text)
-
-
-def _test_green_batch(state: Dict[str, Any], sid: str) -> Tuple[bool, bool]:
-    """這批有沒有跑綠的測試：post_tool_use 記的收據（state verify_receipts，事件序號 seq 比上次看到的大＝這批新落的），
-    是測試指令或帶 PASS 哨兵、且跑綠（wg_verify_batch.receipt_green：沒有 FAIL 哨兵、結束碼 0）。回 (綠, state 改了)；
-    看過的序號記 state remind_receipt_seq[sid]。"""
-    from wg_verify_ledger import receipts_of
-    seen = state.setdefault("remind_receipt_seq", {})
-    mark = int(seen.get(sid) or 0)
-    new = [r for r in receipts_of(state, sid) if int(r.get("seq") or 0) > mark]
-    if not new:
-        return False, False
-    seen[sid] = max(int(r.get("seq") or 0) for r in new)
-    from wg_evasion import is_test_command
-    from wg_verify_batch import receipt_green
-
-    def is_test(r: Dict[str, Any]) -> bool:
-        return is_test_command(str(r.get("cmd") or "")) or any(
-            str(s.get("verdict")) == "PASS" for s in r.get("sentinels") or [] if isinstance(s, dict))
-    return any(receipt_green(r) and is_test(r) for r in new), True
 
 
 def _code_check_reminders(state, own, config, say, tpath: str = "") -> None:
@@ -278,7 +254,6 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     coding = bool(state) and v6 and not sub and coding_turn(state, config)    # 規則 CODING_TURN_ONLY
     ask = _ask_module() if coding else None
     ask_due = bool(ask) and ask.has_ask_calls(input_data.get("tool_calls"))
-    close_parts, close_changed = _closing_round(state, session_id, input_data, config) if state and v6 and not sub else ([], False)
     remind_lines, remind_changed = ([], False)
     if state and v6 and not sub:
         try:
@@ -288,7 +263,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     # idle 極輕路徑：pending 皆無、這批也沒有提問立即退出（每批觸發，杜絕常態開銷）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_handoff_emit")
-        or ask_due or close_parts or close_changed or remind_lines or remind_changed
+        or ask_due or remind_lines or remind_changed
     ):
         output_nothing()
         return
@@ -331,8 +306,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             except Exception as e:  # noqa: BLE001
                 print(f"[Guardian:Ask] post_tool_batch 提問提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
 
-        parts.extend(close_parts)     # (4) 收尾一輪：收尾前附的最該修
-        parts.extend(remind_lines)    # (5) 收尾類守門的提醒（REMIND_ON_PRIOR_RESULT）：每規則每對象每 session 一行
+        parts.extend(remind_lines)    # (4) 收尾類守門的提醒（REMIND_ON_PRIOR_RESULT）：每規則每對象每 session 一行
         write_state(session_id, state)
     except Exception as e:
         print(f"[#4] post_tool_batch reinject error: {e}", file=sys.stderr)

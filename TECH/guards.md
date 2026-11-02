@@ -59,7 +59,7 @@
 - 下面各表每道閘前面標的「照擋」「提醒」就是這張表的現況；標「照擋（不在範圍）」的是安全邊界。
 - 下面各節寫的「擋滿 N 次、第 N+1 次放行」「Stop 回 additionalContext 讓對話續跑一回合」是照擋時的送法（寫碼守門關，或 `RULE_MODE` 把那條規則列成照擋）：
   - 寫碼守門開著時，判成提醒的規則在 Stop 只留帳，不續跑、不吃擋次（[STOP_REMIND_LEDGER_ONLY](release-rules.md#stop_remind_ledger_only)）。
-  - 例：PickOne、寫碼查核 (d)。程式裡照擋那條分支留著，`RULE_MODE` 改表就換送法。
+  - 例：寫碼查核 (d)。程式裡照擋那條分支留著，`RULE_MODE` 改表就換送法。
   - 不屬寫碼守門的 [lang_guard](#lang_guard) 不讀本表：照舊在 Stop 回 additionalContext、續跑一回合。
 
 ## A7.0 寫程式時一路會遇到什麼（總覽）
@@ -74,9 +74,6 @@
 ### ① 開場（SessionStart）
 
 - **系統做什麼**：
-  - 列「之前交付時點出、還沒解的問題」。
-    - 即未結追蹤項，附建議怎麼解。
-    - 要 AI 第一則回覆先轉述。
   - 列公司層與週健檢狀態。
 - **擋不擋**：提醒。
 - **見**：[TECH §3.1](../TECH.md#31-settingsjson-十一個事件)、[TECH §8](../TECH.md#8-可觀測與自我維護)。
@@ -141,9 +138,8 @@
 
 - **系統做什麼**：
   - 收尾檢核報告（`anti_evasion_report`：本 session 目標、大原則方向、AI 自己做主三類，加系統帳）送 HUD 給人看。
-  - 順手點出這次看到最該修的一件，記進追蹤帳本，下個 session 開場列出。
 - **擋不擋**：提醒。
-- **見**：[TECH §7.2](../TECH.md#72-反退避anti-evasion)、[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據) PickOne。
+- **見**：[TECH §7.2](../TECH.md#72-反退避anti-evasion)。
 
 ### ⑨ commit 與合併
 
@@ -170,9 +166,7 @@
 
 入口：[`hooks/handlers/stop.py handle_stop`](../hooks/handlers/stop.py)。
 
-- 一開頭（任何閘之前）：
-  - 把最後一句裡「順手看到最該修：…」段記進追蹤帳本（PickOne 列）。
-  - 問一次連鎖斷路器（[乙8](coding-guard.md#乙8-連鎖斷路器)）：中止中這一回合其餘閘只記錄不擋。
+- 一開頭（任何閘之前）問一次連鎖斷路器（[乙8](coding-guard.md#乙8-連鎖斷路器)）：中止中這一回合其餘閘只記錄不擋。
 - 之後依序查（前者優先），順序見 [乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)。
 - 記憶系統的收尾閘（退縮歸屬、收割、收尾檢核、同步、卡片表態、深度檢討）標題留在下面，細節已搬到 [TECH A7](../TECH.md#a7-基本守門細節)。
 
@@ -376,78 +370,16 @@
 ### Deep Post-Mortem
 → 已搬到 [TECH A7](../TECH.md#a7-基本守門細節)
 
-### PickOne（交付時順手點出最該修）
+### 追蹤帳本（退縮閘的「追蹤｜…」行）
 
-#### 條件
-
-- `pick_one.enabled` 開。
-- 到交付邊界：最後一句或 >30 字段落宣告完成、本回合交了收尾檢核、本回合 commit。
-- 本 session 在上次問過或記過之後又改了程式檔（寫碼類判準 `wg_code_path.is_code_path`）。
-
-#### 何時送
-
-- 先在交收尾檢核那批附上（[PICK_ONE_PRE_CLOSE](release-rules.md#pick_one_pre_close)，開關 `pick_one.pre_close`）。
-  - 附了就記問過，Stop 不再送、不再讓對話續跑一輪。
-- 沒走到才排在所有閘之後（寫碼守門開時這裡只留帳，見下）。
-
-#### 動作
-
-- **不擋**：寫碼守門開時是提醒，問句只在上面兩處附上，Stop 這裡只留帳（[STOP_REMIND_LEDGER_ONLY](release-rules.md#stop_remind_ledger_only)）。
-  - `RULE_MODE` 把 PICK_ONE_PRE_CLOSE 改成照擋時，才改在 Stop 回 `hookSpecificOutput.additionalContext`（對話續跑一回合，不是 block）。
-- 送一次的內容：「這次看到的鄰近問題裡哪一件最該修、為什麼、為什麼不是數字最高的那個、建議怎麼解、該誰解」。
-- **材料依部位分組**（數字都標參考、不排名）：
-  - 表上「下游」
-  - 導讀卡已知病灶前 2 條
-  - 壞味道報告前 2 名附分數與呼叫點
-  - 改到的檔行數
-  - 未結追蹤項筆數
-
-#### 呼叫點（`wg_harvest._callsites`）
-
-- 在專案根 `git grep -l` 找含那個檔模組名的檔。
-- Python 逐檔用 ast 看 import／from（看被匯入的名字不看別名，多行括號匯入照算）。
-- JS／TS 逐行比 import／require 路徑（註解行不算）。
-- 回「呼叫點 N（誰）」。
-  - 測試檔另計「另有測試 N 支」。
-  - 解析不了的另記「N 支解析不了沒算」。
-  - 檔裡有 `__main__` 補「本身可直接執行」。
-- 其他語言、檔名不是合法模組名、不在 git、逾時（整次材料共用 `CALLSITE_BUDGET_S` 2 秒）回「呼叫點 無法判（原因）」。
-- 以模組名比對，同名模組會一起算；動態載入、路徑字串、子行程呼叫不算。
-
-#### 只問一次
-
-- 同一批改動只問一次，同一個使用者回合也只問一次（`pick_one[sid].asked_uturn`／`covered_uturn`）。
-  - 照使用者回合比：照擋送法下這一問讓對話續跑一回合，續跑回合不算新的一批。
-- 這次收尾是不是 Stop hook 續跑出來的（輸入帶 `stop_hook_active`）不當條件（[PICK_ONCE_PER_USER_TURN](release-rules.md#pick_once_per_user_turn)）。
-  - 第一次收尾先被別的閘（例：紅測閘）擋下、修完續跑收尾，照樣問這一次。
-- 交付邊界也記整個使用者回合（`pick_one[sid].boundary_uturn`，各閘之前先記）。
-  - 宣告完成那次被擋、之後沒被擋的那次回覆在答別的閘沒再說完成，照樣問。
-- state 沒有 `turn_prompts_seq` 時，續跑收尾不重問已經問過的。
-- 回合鍵在 state 重建時照搬、不在時錨在第一則訊息（[USER_TURN_KEY_KEPT](release-rules.md#user_turn_key_kept)），只進同伴訊息的那段不會每則重問。
-- 連鎖中止中不送。
-
-#### 記進追蹤帳本
-
-- 每次 Stop 開頭（任何閘之前），把最後一句裡照格式寫的「順手看到最該修：…」段記進追蹤帳本。
-  - `source=pick`，另存 why／not_top／proposal／owner；同段不重記。
-- **同 session 同回合同部位又點出同一件但文字略異**：
-  - 判法 `same_pick_target`：去括號旁註與標點後相同、或一句是另一句開頭。
-  - 只看檔名識別字或字面相似度不算，同函式的不同問題不併。
-  - 換成第二次的說法：同一次追加兩列，先寫新 open 列（標 `supersedes`）、再寫結案列關掉第一筆（`superseded_by`）。
+- **寫入端**：退縮閘那一問的答案，回覆裡的「追蹤｜<哪一件>：<現在不做的原因>」各記一筆（`stop._record_tracking_lines`）；守門開或關都記。
+  - 帳本 `workflow/tracking/<slug>.jsonl`，一行一筆；行尾可帶「｜建議：…｜該誰解：…」另存兩欄；`[部位] 結案：<原文開頭至少 8 字>` 關掉一筆。
+  - 收尾檢核報告的 (k) 不寫進來；目前沒有程式把帳本讀回來（開場不列）。
+- **同一件不重記**（[TRACKING_SAME_ITEM_NOT_REWRITTEN](release-rules.md#tracking_same_item_not_rewritten)）：
+  - 唯一寫入口 `append_tracking`。
+  - 部位相同且原文相同 → 不重記（字面相近不併，併錯會吞掉一件）。
+  - 換句話說的同一件，由 AI 在行尾寫「｜同追蹤項：<那筆裡連續至少 8 字>」：對到唯一一筆就換成新說法（supersedes＋結案成對）；對不到或多筆照記並 stderr。
   - 帳本只追加不改寫，中途斷掉最多多一筆重複，清理器照結案成對處理。
-  - 寫不進去：stderr、事件 update_failed、第一筆照留。
-- 「無，因為…」不記但算答過（`covered_turn`）。
-- SessionStart 先列附了建議的未結項（不分部位，最新 3 筆，要 AI 第一則回覆告訴使用者）。
-
-#### 同一件不重記（TRACKING_SAME_ITEM_NOT_REWRITTEN）
-
-- 唯一寫入口 `append_tracking`；k 欄、PickOne 都過。
-- 部位相同且原文相同 → 不重記（字面相近不併，併錯會吞掉一件）。
-- 換句話說的同一件，由 AI 在行尾寫「｜同追蹤項：<那筆裡連續至少 8 字>」。
-  - PickOne 段多一行「同追蹤項：」，問句列出本 session 還開著的項目。
-  - 對到唯一一筆就換成新說法（supersedes＋結案成對）。
-  - 對不到或多筆照記並 stderr。
-- 判斷全交 AI，`wg_harvest` 只管時點與記帳。
 
 ### 迴歸提示
 
@@ -888,7 +820,7 @@
 #### `smells_report`
 - 預設：空
 - 這種專案才改：專案有自己的壞味道報告產生器 → 指過去
-- 誰讀：病形閘（報告列的檔整檔算舊病）、PickOne 材料（部位的報告前 2 名）
+- 誰讀：病形閘（報告列的檔整檔算舊病）
 
 #### `authority_map`
 - 預設：空
