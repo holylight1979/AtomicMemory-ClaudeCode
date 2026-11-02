@@ -5,7 +5,7 @@
 2. record_tool_result：per-session 檔 append、門檻以上才回 advisory、advisory 每 session 上限
 3. summarize / flush：per-tool 聚合、oversized 排序、聚合後刪暫存、GC 逾期孤兒
 4. detect_correction：糾正詞命中、「對不對？」提問不算、bug 詞不算、英文整詞、enabled=false
-5. record_correction：計數、明細 cap、guard log
+5. record_correction：計數、明細 cap、guard log；寫碼守門關時命中直接計、通知與同伴訊息不計
 6. Stop DPM gate：只靠糾正 ≥ min_hits 也觸發；<min_hits／關閉／已深寫 → 不觸發；指令句帶糾正摘要
 
 對應：hooks/wg_friction.py、handlers/post_tool_use.py、handlers/user_prompt_submit.py、
@@ -205,6 +205,26 @@ def test_record_correction_counts_caps_and_logs(sandbox):
     assert events.count("candidate") == 12 and events.count("judged") == 12 and logs[-1][1]["count"] == 12
     assert wf.friction_triggered(state, CFG)
     assert "12 次" in wf.friction_summary(state) and "不對" in wf.friction_summary(state)
+
+
+def test_record_correction_guard_off_counts_on_hit(sandbox):
+    """寫碼守門關（v6=False，出廠）沒人問 AI：使用者本人打的字命中就計一次（9e476fd0 的行為）、不留待判；
+    子代理完成通知、別的 session 的訊息不是使用者打的字 → 不計；滿 min_hits（2）→ 深度檢討觸發。"""
+    _, logs = sandbox
+    state = {"turn_seq": 1}
+    assert "不對" in wf.record_correction(state, "s1", "不對，我說的是另一個檔", CFG, False)
+    assert state["user_correction_count"] == 1 and "user_correction_pending" not in state
+    assert state["user_correction_hits"][-1]["by"] == "keyword"
+    assert not wf.friction_triggered(state, CFG)
+    for not_typed in ("<task-notification>agent done：結果不對，重來</task-notification>",
+                      '<cross-session-message from="peer">我說過不要動 config</cross-session-message>'):
+        assert wf.record_correction(state, "s1", not_typed, CFG, False) == []
+    assert state["user_correction_count"] == 1
+    state["turn_seq"] = 2
+    assert wf.record_correction(state, "s1", "重來，改回來原本的寫法", CFG, False)
+    assert state["user_correction_count"] == 2 and "user_correction_pending" not in state
+    assert wf.friction_triggered(state, CFG)
+    assert [p["event"] for g, p in logs if g == "friction"] == ["keyword", "keyword"]
 
 
 # ── 6. Stop DPM gate ─────────────────────────────────────────────────────────

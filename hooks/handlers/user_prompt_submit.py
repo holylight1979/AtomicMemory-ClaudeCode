@@ -257,7 +257,7 @@ def handle_user_prompt_submit(
     correction_hits: List[str] = []
     try:
         from wg_friction import correction_question, record_correction
-        correction_hits = record_correction(state, session_id, clean_prompt, config)
+        correction_hits = record_correction(state, session_id, clean_prompt, config, v6)   # 守門關：命中直接計（v6 照位置傳：多支測試的替身是 lambda *a）
         if correction_hits and v6:   # 詞表只是提示：問 AI「是不是糾正」（規則 CORRECTION_WORDS_ARE_HINTS）
             lines.append(correction_question(correction_hits))
     except Exception as e:

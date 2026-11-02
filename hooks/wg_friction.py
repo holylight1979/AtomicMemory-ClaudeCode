@@ -18,6 +18,7 @@
      Stop 收本回合的「糾正｜是／不是：<理由>」（resolve_correction）：是 → 計數 +1，不是 → 不計；
      到下一則使用者本人打的訊息還沒回 → 不計、記成沒回（settle_pending_correction；詞表不替 AI 判）。
      計數明細 cap 10，每一步都記 `Logs/guard-friction.jsonl`（event candidate／judged／undeclared）。
+     以上是寫碼守門開；守門關（出廠）不問 AI，使用者本人打的字命中就直接計一次（event keyword）。
    - 達 `min_hits` → Stop 的 Deep Post-Mortem 視為 effort 與真失敗同時成立。
 
 config：workflow/config.json `tool_result_waste` / `friction`。
@@ -233,7 +234,7 @@ CORRECTION_MARKER = "[Guardian:Correction]"
 
 
 def _count_correction(state: Dict[str, Any], session_id: str, pending: Dict[str, Any], event: str, reason: str = "") -> None:
-    """計一次糾正（AI 判是）：計數 +1、明細 cap 10、guard log。"""
+    """計一次糾正（AI 判是；寫碼守門關時命中就算）：計數 +1、明細 cap 10、guard log。"""
     state["user_correction_count"] = int(state.get("user_correction_count", 0) or 0) + 1
     hits = state.setdefault("user_correction_hits", [])
     hits.append({"turn": pending.get("turn"), "kw": pending.get("kw", []), "excerpt": pending.get("excerpt", ""),
@@ -259,10 +260,12 @@ def settle_pending_correction(state: Dict[str, Any], session_id: str) -> None:
 
 
 def record_correction(
-    state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any],
+    state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any], v6: bool = True,
 ) -> List[str]:
     """UserPromptSubmit：使用者本人打的訊息先結上一次沒回的待判（不計、留帳 undeclared）；這則命中 → 記成待判、留帳 candidate，
-    不計數（等 AI 回糾正行，見 resolve_correction）。回命中清單。"""
+    不計數（等 AI 回糾正行，見 resolve_correction）。回命中清單。
+    寫碼守門關（v6=False）：沒人問 AI，命中就直接計一次（9e476fd0 的行為，留帳 event=keyword）；
+    過濾照 detect_correction 只看使用者本人打的字。"""
     from wg_core import user_typed_text
     if user_typed_text(prompt or ""):        # 背景通知、同伴訊息不算使用者開新回合，不結帳
         settle_pending_correction(state, session_id)
@@ -271,7 +274,11 @@ def record_correction(
         return []
     turn = int(state.get("turn_seq", 0) or 0)
     excerpt = prompt.strip().replace("\n", " ")[:80]
-    state["user_correction_pending"] = {"turn": turn, "kw": matched[:3], "excerpt": excerpt, "at": _now_iso()}
+    hit = {"turn": turn, "kw": matched[:3], "excerpt": excerpt, "at": _now_iso()}
+    if not v6:
+        _count_correction(state, session_id, hit, "keyword")
+        return matched
+    state["user_correction_pending"] = hit
     append_guard_log("friction", {
         "session_id": session_id, "turn_seq": turn, "event": "candidate", "kw": matched[:3], "excerpt": prompt.strip()[:120],
     })
