@@ -8,7 +8,7 @@
   5 病形閘擋訊息教「# 不是繞閘｜」，照做一次就過（流程級）
   6 Reload 建議閘只在本 session 改過工具服務的檔才判
   7 退縮閘擋下的那一句不再記退避旗標（下一則使用者訊息不再追問）
-  8 紅測閘吃寫碼查核那份每回合預算：擋滿問使用者（互動）／放行留帳（無頭）
+  8 紅測閘寫碼守門開或關同一套：不看擋次預算、不開放行題，每次宣告完成都照擋（互動、無頭都一樣）
   共用擋次（stop_gate_max_blocks）每個使用者回合歸零；閱讀路徑尾段在拐彎判斷擋下時不重複那一題
   流程級：紅測擋 → 改碼、跑綠 → 再收尾，除「改完之後跑綠一次」外沒有別的收尾閘重欠
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_pull_stop_gates.py（或直接 python 跑，尾行印 PULL_STOP_GATES_CHECK PASS／FAIL）
@@ -32,7 +32,6 @@ from verify_stop_reconcile import (  # noqa: E402,F401
 )
 import verify_g7_equivalence as g7  # noqa: E402
 from verify_g7_equivalence import drive  # noqa: E402,F401
-import verify_gate_bypass as gb  # noqa: E402
 import wg_evasion  # noqa: E402
 import wg_reading_path as rp  # noqa: E402
 from handlers.pre_tool_use import check_git_commit_order  # noqa: E402
@@ -228,25 +227,119 @@ def test_4_push_result_written_after_scan_is_still_paired(tmp_path):
 
 # ─── 5 病形閘擋訊息 ────────────────────────────────────────────────────────
 
+def _load_tool(name, rel):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, VERIFY.parent.parent / rel)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+ps = _load_tool("project_smells", "tools/project-smells.py")
+_SMELL_SID = "sess-gate-bypass-0001"
+RETRY_PY = ("from notify import dispatch\n\nRETRY = {\n"
+            '    "once": lambda k, p: (lambda r: r or dispatch.dispatch(k, p))(dispatch.dispatch(k, p)),\n'
+            '    "twice": lambda k, p: (lambda r: r or dispatch.dispatch(k, p) or dispatch.dispatch(k, p))(dispatch.dispatch(k, p)),\n'
+            "}\n\n\ndef retry(policy, kind, payload):\n    try:\n        return RETRY[policy](kind, payload)\n"
+            "    except:\n        return False\n")
+
+
+def _git(repo: Path, *args: str):
+    import subprocess
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false", *args],
+                          cwd=str(repo), capture_output=True, text=True, encoding="utf-8", check=True)
+
+
+def _write(repo: Path, rel: str, text: str) -> None:
+    p = repo / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _qa_notify(tmp_path: Path, name: str = "qa-notify") -> Path:
+    """題 A 的形狀：init 之後別人留了帶病的 notify/retry.py 在暫存區；這次任務改了 channels／dispatch／測試（沒暫存）。"""
+    repo = tmp_path / name
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q")
+    base = {"notify/__init__.py": "", "notify/dispatch.py": "HANDLERS = {}\n\n\ndef dispatch(kind, payload):\n    return HANDLERS[kind](payload)\n",
+            "notify/channels.py": "def send_mail(p):\n    return True\n", "tests/test_dispatch.py": "def test_x():\n    assert True\n"}
+    for rel, text in base.items():
+        _write(repo, rel, text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    _write(repo, "notify/retry.py", RETRY_PY)
+    _git(repo, "add", "notify/retry.py")
+    _write(repo, "notify/channels.py", "def send_mail(p):\n    return True\n\n\ndef send_webhook(p):\n    return True\n")
+    _write(repo, "notify/dispatch.py", "HANDLERS = {}\n\n\ndef dispatch(kind, payload):\n    return HANDLERS[kind](payload) is not None\n")
+    _write(repo, "tests/test_dispatch.py", "def test_x():\n    assert True\n\n\ndef test_y():\n    assert 1\n")
+    return repo
+
+
+class _SmellEnv:
+    """走真實 PreToolUse 入口跑 commit：口令、隱私、合併驅動、svn 編碼換成放行，只看病形閘。"""
+    def __init__(self, tmp_path: Path, monkeypatch):
+        import wg_core
+        from handlers import pre_tool_use as ptu
+        self.ptu = ptu
+        self.state = {"session": {"id": _SMELL_SID}, "turn_seq": 1}
+        self.transcript = tmp_path / "transcript.jsonl"
+        self.transcript.write_text("", encoding="utf-8")
+        self.out = []
+        monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path / "Logs")
+        monkeypatch.setattr(wg_core, "write_state", lambda sid, st: None)
+        monkeypatch.setattr(ptu, "read_state_status", lambda sid: (self.state, "ok"))
+        for name in ("check_merge_driver", "check_git_commit_order", "check_git_privacy", "check_svn_encoding"):
+            monkeypatch.setattr(ptu, name, lambda *a, **k: None)
+        monkeypatch.setattr(ptu, "output_json", self.out.append)
+        monkeypatch.setattr(ptu, "output_nothing", lambda: self.out.append(None))
+
+    def run(self, repo: Path, command: str, tool: str = "Bash"):
+        """走一次 PreToolUse；回 deny 的理由（沒擋回 None）。"""
+        self.out.clear()
+        self.ptu.handle_pre_tool_use({"tool_name": tool, "tool_input": {"command": command}, "cwd": str(repo),
+                                      "session_id": _SMELL_SID, "transcript_path": str(self.transcript)}, {})
+        for o in self.out:
+            hso = (o or {}).get("hookSpecificOutput") or {}
+            if hso.get("permissionDecision") == "deny":
+                return hso.get("permissionDecisionReason")
+        return None
+
+
 def test_5_smell_message_teaches_not_bypass_declaration():
     hit = {"name": "例外被吞掉", "why": "except 後直接 pass", "fix": "至少記 log", "path": "src/u.py", "line": 3, "text": "except: pass"}
-    msg, _ = gb.ps.render_commit_report([{"new": [hit], "listed": [], "old": [], "allowed": [], "notes": []}], "<repo>")
+    msg, _ = ps.render_commit_report([{"new": [hit], "listed": [], "old": [], "allowed": [], "notes": []}], "<repo>")
     assert "# 不是繞閘｜" in msg and "git commit -- <你的檔>" in msg
 
 
 def test_5_following_smell_message_passes_once(tmp_path, monkeypatch, git_cassette):
     """流程級：別人留在暫存區的帶病檔擋下 commit → 照擋訊息教的「# 不是繞閘｜…」＋只提交自己的檔送一次 → 過。"""
-    monkeypatch.setitem(sys.modules, "project_smells", gb.ps)
-    monkeypatch.setattr(gb.ps, "_hub_inputs", lambda: ({}, None))
+    monkeypatch.setitem(sys.modules, "project_smells", ps)
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, None))
     git_cassette(exclude=("Logs",))
-    env = gb.Env(tmp_path, monkeypatch)
-    repo = gb._qa_notify(tmp_path)
+    env = _SmellEnv(tmp_path, monkeypatch)
+    repo = _qa_notify(tmp_path)
     deny = env.run(repo, 'git commit -m "x"')
     assert deny and "[Guardian:SmellGate]" in deny
     assert "# 不是繞閘｜" in deny                                                  # 擋訊息教的做法
     cmd = ("# 不是繞閘｜notify/retry.py 是別人留在暫存區的，不屬這次需求，病交原作者修\n"
            'git commit -m "x" -- notify/channels.py notify/dispatch.py tests/test_dispatch.py')
     assert env.run(repo, cmd) is None                                              # 照做一次就過
+
+
+def test_5_unstage_or_partial_commit_after_smell_deny_is_not_blocked(tmp_path, monkeypatch, git_cassette):
+    """病形閘擋下之後，沒寫任何宣告就把被點名的帶病檔移出暫存、或只提交自己的檔，都不擋：病形閘只看這次要提交的內容，
+    擋過之後的指令序列沒有另一道閘在看。"""
+    monkeypatch.setitem(sys.modules, "project_smells", ps)
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, None))
+    git_cassette(exclude=("Logs",))
+    env = _SmellEnv(tmp_path, monkeypatch)
+    repo = _qa_notify(tmp_path)
+    assert "[Guardian:SmellGate]" in (env.run(repo, 'git commit -m "x"') or "")
+    assert env.run(repo, "git restore --staged notify/retry.py") is None
+    assert env.run(repo, 'git commit -m "x" -- notify/channels.py notify/dispatch.py tests/test_dispatch.py') is None
+    assert env.run(repo, 'git commit --no-verify -m "x" -- notify/channels.py') is None
+    assert "smell_deny_last" not in env.state
 
 
 # ─── 6 Reload 建議閘 ───────────────────────────────────────────────────────
@@ -285,7 +378,7 @@ def test_7_other_sentence_keeps_evasion_flag(driven, capsys, monkeypatch):
     assert state.get("evasion_flag") and state["evasion_flag"]["phrase"] == "先跳過"   # 不是同一句：旗標照留
 
 
-# ─── 8 紅測閘的擋次上限 ─────────────────────────────────────────────────────
+# ─── 8 紅測閘不看擋次預算、不開放行題 ─────────────────────────────────────────
 
 def _three_red_stops(driven, capsys):
     out1, s1, _ = driven("全部完成了。", capsys, failing_tests=[dict(_RED)])
@@ -294,35 +387,21 @@ def _three_red_stops(driven, capsys):
     return (out1, out2, out3), s3, logs
 
 
-def test_8_testfail_third_stop_asks_user_interactive(driven, capsys):
-    """規則：BLOCK_BUDGET_SHARED。"""
+def test_8_testfail_blocks_every_stop_without_release_question_interactive(driven, capsys):
+    """規則：RED_TEST_BLOCKS_COMPLETION。紅測還在、每次宣告完成都擋，第三次也不改問【收尾放行確認】、擋訊息每次一樣。"""
     (o1, o2, o3), _, _ = _three_red_stops(driven, capsys)
-    assert "TestFailGate" in o1 and "TestFailGate" in o2 and rl.RELEASE_TAG not in o2
-    assert "已擋滿" in o3 and rl.RELEASE_TAG in o3 and "verify_x.py::test_a" in o3, o3[:400]
+    assert all("[Guardian:TestFailGate]" in o and "verify_x.py::test_a" in o for o in (o1, o2, o3)), o3[:400]
+    assert not any(rl.RELEASE_TAG in o or "已擋滿" in o for o in (o1, o2, o3)), o3[:400]
+    reasons = [json.loads(o)["reason"].split("\n[Guardian:AlsoOwed]")[0] for o in (o1, o2, o3)]
+    assert reasons[0] == reasons[1] == reasons[2]
 
 
-def test_8_testfail_third_stop_releases_and_logs_headless(driven, capsys, monkeypatch):
-    """規則：NONINTERACTIVE_RELEASE_AT_BUDGET。"""
+def test_8_testfail_blocks_every_stop_headless_too(driven, capsys, monkeypatch):
+    """規則：RED_TEST_BLOCKS_COMPLETION。沒人能回答放行詢問時一樣每次擋，不擋滿放行、不留 noninteractive_released。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     (o1, o2, o3), _, logs = _three_red_stops(driven, capsys)
-    assert "TestFailGate" in o1 and "TestFailGate" in o2
-    assert "TestFailGate" not in o3, o3[:300]
-    assert any(p.get("event") == "noninteractive_released" and p.get("kind") == "testfail" for g, p in logs), logs
-
-
-def test_8_released_red_tests_do_not_cover_a_new_failure(driven, capsys):
-    """規則：RELEASE_COVERS_SHOWN_ITEMS。放行的紅測鍵是指令＋全部失敗節點：放行 A、B、C、D 之後換成 A、B、C、E → 照擋（摘要都寫「A、B、C 等 4 支」也不混）。"""
-    def red(*names):
-        return {**_RED, "summary": "\n".join(f"FAILED hooks/verify/verify_x.py::{n} - x" for n in names)}
-    out, s1, _ = driven("全部完成了。", capsys, failing_tests=[red("a", "b", "c", "d")])
-    s1["last_block"][_SID]["testfail"]["offset"] = 0
-    out, s2, _ = driven("全部完成了。", capsys, failing_tests=[red("a", "b", "c", "d")],
-                        turn_prompts=list(s1["last_block"][_SID]["testfail"]["prompts"]) + ["放行"], **_carry(s1, *_BOOKS))
-    assert "TestFailGate" not in out                                               # 使用者打「放行」
-    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, failing_tests=[red("a", "b", "c", "d")], **_carry(s2, *_BOOKS))
-    assert "TestFailGate" not in out                                               # 下一回合同一批紅：不再擋
-    out, _, _ = driven("全部完成了。", capsys, turn_seq=6, failing_tests=[red("a", "b", "c", "e")], **_carry(s2, *_BOOKS))
-    assert "TestFailGate" in out                                                   # 換了一支紅：照擋
+    assert all("[Guardian:TestFailGate]" in o for o in (o1, o2, o3)), o3[:300]
+    assert not any(p.get("kind") == "testfail" for g, p in logs), logs
 
 
 # ─── 8b 紅測閘前後一致：判過不算的不再擋、同一條指令的紅以最後一次看得出範圍的結果為準、真紅照擋 ─────────────────
@@ -366,18 +445,14 @@ def _ptu_quiet(monkeypatch):
     monkeypatch.setattr(ptu, "append_guard_log", lambda *a, **k: None)
 
 
-def test_8b_1_red_judged_not_owed_at_one_stop_is_never_used_to_block_later(driven, capsys):
-    """規則：NEGATIVE_CONTROL_DECLARED（收尾入口）× RED_TEST_BLOCKS_COMPLETION。同一筆紅：第 5 回合收尾（沒宣告完成）回覆寫了
-    「負向對照｜<指令裡的字樣>：<理由>」→ 判不算、搬到 deliberate_reds 並留帳；第 6 回合宣告完成 → 不擋。反例：第 5 回合只說「反證結果如上」
-    沒寫宣告 → 紅照留（沒宣告完成不算判過），第 6 回合宣告完成照擋、擋訊息不寫「0 支已綠」。"""
+def test_8b_1_red_not_judged_until_completion_and_closing_declaration_does_not_move_it(driven, capsys):
+    """規則：RED_TEST_BLOCKS_COMPLETION。同一筆紅：第 5 回合收尾（沒宣告完成）不判、紅照留；收尾回覆寫「負向對照｜…」也不搬走那筆紅
+    （負向對照只在記紅那一刻、寫在那條指令的 `#` 註解或之前的回覆才算，NEGATIVE_CONTROL_DECLARED）。第 6 回合宣告完成照擋、擋訊息不寫「0 支已綠」。"""
     decl = "反證結果如上。\n負向對照｜verify_x.py：拿舊碼跑新測試，預期這支紅，證明新測試抓得到舊行為"
     out, s5, logs = driven(decl, capsys, turn_seq=5, failing_tests=[dict(_RED)])
     assert "TestFailGate" not in out
-    assert s5["failing_tests"] == [] and [d["rule"] for d in s5["deliberate_reds"]] == ["NEGATIVE_CONTROL_DECLARED"]
-    assert any(g == "testfail_scope" and p.get("event") == "negative_control_declared" and p.get("failing_turn") == 5 for g, p in logs), logs
-    out, _, _ = driven("全部完成了。", capsys, turn_seq=6,
-                       failing_tests=copy.deepcopy(s5["failing_tests"]), deliberate_reds=copy.deepcopy(s5["deliberate_reds"]))
-    assert "TestFailGate" not in out, out[:300]
+    assert len(s5["failing_tests"]) == 1 and "deliberate_reds" not in s5
+    assert not any(g == "testfail_scope" and p.get("event") == "negative_control_declared" for g, p in logs), logs
     out, s5b, _ = driven("反證結果如上。", capsys, turn_seq=5, failing_tests=[dict(_RED)])
     assert "TestFailGate" not in out and len(s5b["failing_tests"]) == 1 and "deliberate_reds" not in s5b   # 沒宣告完成：不判、不算判過
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, failing_tests=copy.deepcopy(s5b["failing_tests"]))

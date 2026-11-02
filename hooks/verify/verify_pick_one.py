@@ -448,13 +448,17 @@ def test_stop_pick_is_ledger_only_not_context_nor_block(stop_run):
     assert "PickOne" not in out2 and not _remind(ev2)
 
 
-def test_stop_continuation_after_red_test_block_still_asks_once(stop_run):
+_RED_DONE = "Damage.cs 的傷害公式改好了，相關的呼叫端也一起看過一遍，全部完成。"   # 紅測閘看最後一段超過 30 字的話
+
+
+def test_stop_continuation_after_red_test_block_still_asks_once(stop_run, monkeypatch):
     """規則 PICK_ONCE_PER_USER_TURN（004 改 code 題現況3 的根因）：第一次收尾先被紅測閘擋 → AI 修好 → 續跑出來的收尾
     （stop_hook_active）照樣送一次「點出最該修」；同一個使用者回合的下一次續跑收尾不再送。舊碼看到續跑就不送，整回合一次都沒問。"""
     proj, run = stop_run
     damage = proj / "Game" / "Battle" / "Damage.cs"
     red = [{"session_id": _SID, "cmd": "python -m pytest -q tests", "summary": "1 failed", "turn_seq": 5}]
-    out, state, _ = run("改好了，全部完成。", [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
+    monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: _RED_DONE)
+    out, state, _ = run(_RED_DONE, [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
     assert "TestFailGate" in out and "PickOne" not in out, run.err                       # 前置：第一次收尾被紅測閘擋
     out2, state2, ev2 = run("修好了，測試全綠，全部完成。", [_mod(damage, turn=6)], hook={"stop_hook_active": True},
                             turn_seq=6, turn_prompts_seq=5)
@@ -465,14 +469,16 @@ def test_stop_continuation_after_red_test_block_still_asks_once(stop_run):
     assert "PickOne" not in out3 and not _remind(ev3)                                     # 同一個使用者回合：不記第二次
 
 
-def test_boundary_seen_earlier_in_turn_still_asks_when_last_reply_answers_another_gate(stop_run):
+def test_boundary_seen_earlier_in_turn_still_asks_when_last_reply_answers_another_gate(stop_run, monkeypatch):
     """規則 PICK_ONCE_PER_USER_TURN 的交付邊界記整個使用者回合（無頭實跑看到的路）：宣告完成那次收尾被紅測閘擋 → 修好之後那幾次收尾
     又被別的閘擋，最後沒被擋的那次回覆在回答同步提醒、沒再說完成 → 照樣送一次。只看最後一則的話這一回合一次都不問。"""
     proj, run = stop_run
     damage = proj / "Game" / "Battle" / "Damage.cs"
     red = [{"session_id": _SID, "cmd": "python -m pytest -q tests", "summary": "1 failed", "turn_seq": 5}]
-    out, state, _ = run("改好了，全部完成。", [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
+    monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: _RED_DONE)
+    out, state, _ = run(_RED_DONE, [_mod(damage)], failing_tests=red, turn_prompts_seq=5)
     assert "TestFailGate" in out and state["pick_one"][_SID]["boundary_uturn"] == 5, run.err
+    monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: "")
     out2, state2, ev2 = run("沒有口令所以先不 commit，改了哪些檔都列在下面，等你決定要不要上 GIT。", [_mod(damage, turn=6)],
                             hook={"stop_hook_active": True}, turn_seq=7, turn_prompts_seq=5, pick_one=state["pick_one"])
     assert "PickOne" not in out2 and _remind(ev2), run.err                                # 到過邊界：記一次（只留帳）

@@ -3,8 +3,8 @@
 
 怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider hooks/verify/verify_testfail_clear_replay.py
 背景：一次 pytest 點名 13 支檔跑出 20 個 FAILED；之後跑 3 支檔綠（清掉 4 支、記進 cleared_units）、再單跑 1 支綠（0 支新清）。
-之後每次 Stop 的擋訊息仍寫「測試未綠（1 項失敗）」、把已經綠的 verify_locate_hint.py::… 列成失敗項（v6 關時走
-pre_v6_testfail_message：印摘要第一行，不看 cleared_units），AI 被帶去重跑同一支兩次、最後重跑整個 13 支範圍。
+之後每次 Stop 的擋訊息仍寫「測試未綠（1 項失敗）」、把已經綠的 verify_locate_hint.py::… 列成失敗項（擋訊息印摘要第一行、
+不看 cleared_units），AI 被帶去重跑同一支兩次、最後重跑整個 13 支範圍。擋訊息 handlers/stop.testfail_message 寫碼守門開或關同一份。
 規則：GREEN_CLEARS_ONLY_CASES_IT_RAN（綠點名整檔＝那檔的紅案全跑到，路徑分隔與大小寫不同也認得）、
 RED_ITEMS_ONLY_FROM_FAILURE_LINES（擋訊息只列還沒跑綠的那幾支、算支數不算筆數、附重跑哪幾支檔就夠）。
 """
@@ -86,14 +86,14 @@ def test_replay_13_files_red_then_3_green_then_1_green_label_lists_only_remainin
     _, red = _replay()
     assert set(red["cleared_units"]) == set(_RED_UNITS[:4])
     assert rr.red_units(red) == _RED_UNITS[4:]
-    for msg in (st.testfail_message([red]), st.pre_v6_testfail_message([red])):
+    for msg in (st.testfail_message([red]),):
         assert "verify_locate_hint" not in msg, msg
         assert "verify_card_injection_slim" not in msg and "verify_gate_mode_pre" not in msg, msg
         assert f"{_RED_UNITS[4]}、{_RED_UNITS[5]}、{_RED_UNITS[6]} 等 16 支" in msg, msg
 
 
 def test_cleared_units_persist_across_post_tool_use_and_stop(quiet, monkeypatch, capsys):
-    """v6 關（實帳當時的設定）：Stop 走 pre_v6 的紅測擋訊息，也要看 cleared_units；開也一樣。"""
+    """v6 關（實帳當時的設定）：Stop 的紅測擋訊息要看 cleared_units；開也一樣（同一份訊息）。"""
     state, _ = _replay()
     state.update({"phase": "done", "modified_files": [], "recent_user_prompts": [], "stop_blocked_count": 0})
     for name, val in {
@@ -144,7 +144,7 @@ def test_message_counts_remaining_units_not_entries(quiet):
              "test_scope": {"steps": ["python -m pytest tests -q"]}}
     msg2 = st.testfail_message([red, plain])
     assert "還有 17 支沒跑綠（4 支已綠）" in msg2 and "重跑這個範圍" in msg2 and "輸出沒列出" in msg2, msg2
-    solo = st.pre_v6_testfail_message([plain])
+    solo = st.testfail_message([plain])
     assert solo.count("還有 1 支沒跑綠，不得宣告完成") == 1 and "支已綠" not in solo, solo     # 一支都沒綠過：不附「（0 支已綠）」
 
 

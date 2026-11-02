@@ -2,10 +2,10 @@
 
 v6 總開關開時，提問閘、OverviewHub 閘自己壞（P2～P10d）都不再 deny：
 下一個工具結果（PostToolUse 的 additionalContext）附一行提醒，
-同一條規則同一個對象一個 session 只提醒一次，沒照做不擋、也不送第二次。照擋三類（動資料檔、改舊測試、病形閘、繞閘）不動；
+同一條規則同一個對象一個 session 只提醒一次，沒照做不擋、也不送第二次。照擋的病形閘不動；
 v6 關時每條路都跟改前一樣。都走真的 PreToolUse／PostToolUse 入口。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_gate_mode_pre.py
-共用 hub_world 的資料根隔離（env／hooked）與部位世界；照擋三類借 verify_pull_tool_gates 的假專案。不碰 live。
+共用 hub_world 的資料根隔離（env／hooked）與部位世界；照擋那案借 verify_pull_tool_gates 的假專案。不碰 live。
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from hub_world import (  # noqa: E402,F401
     SID, THREE2, _deny_text, _mapped_world, _ptu_run, _say, _tool_call, _two_part_world, env, hooked, pt, ptu, wg_core, wo,
 )
 from verify_pull_tool_gates import (  # noqa: E402,F401
-    DATA_EDIT, OT_HIT, SID as PULL_SID, TEST_EDIT, _pre as _pull_pre, world as pull_world,
+    SID as PULL_SID, _pre as _pull_pre, world as pull_world,
 )
 import wg_release_rules as _rr  # noqa: E402
 
@@ -132,22 +132,14 @@ def test_hub_self_error_not_denied(hooked, post, monkeypatch):
     assert _lines(ctx, "GATE_SELF_ERROR") and "模擬閘內部錯誤" in _lines(ctx, "GATE_SELF_ERROR")[0], ctx
 
 
-# ─── 照擋三類不動 ───────────────────────────────────────────────────────
+# ─── 照擋的病形閘不動 ───────────────────────────────────────────────────
 
-def test_block_data_file_has_rule_and_fix(pull_world):
-    """動資料檔閘只管寫過程式的 session（wg_data_file.coding_session）：state 先記一筆改過的程式檔，再改資料檔沒宣告 → 照擋。"""
-    st = wg_core.read_state(PULL_SID) or {}                                     # pull_world 的 state 用它自己的 session id
-    st["modified_files"] = [{"path": str(pull_world["proj"] / "calc.py"), "last_turn_seq": 1}]
-    wg_core.write_state(PULL_SID, st)
-    r = _pull_pre(pull_world, "Edit", {"file_path": str(pull_world["proj"] / "settings.json"), **DATA_EDIT})
-    assert "USER_DATA_FILE_NEEDS_DECLARATION" in r and "修法" in r and "動資料檔｜" in r, r
-    assert _rr.gate_mode("USER_DATA_FILE_NEEDS_DECLARATION", True) == _rr.BLOCK
-
-
-def test_block_old_test_has_rule_and_fix(pull_world):
-    r = _pull_pre(pull_world, "Edit", {"file_path": str(pull_world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT})
-    assert OT_HIT in r and "改舊測試｜" in r, r
-    assert _rr.gate_mode("OLD_TEST_CHANGE_NEEDS_DECLARATION", True) == _rr.BLOCK
+def test_block_table_has_only_smell_and_red_test_classes():
+    """照擋只剩兩類：病形閘、紅測（測試沒過卻說修好）；拔掉的宣告閘規則不在規則表、也不在照擋表。"""
+    assert set(_rr.RULE_CLASS.values()) == {"病形", "紅測", "不在範圍"}
+    for gone in ("USER_DATA_FILE_NEEDS_DECLARATION", "OLD_TEST_CHANGE_NEEDS_DECLARATION", "GATE_BYPASS_NEEDS_DECLARATION",
+                 "ATOM_BYPASS_HOWTO_REFUSED", "USER_WAIVER_NEEDS_CITATION", "BASE_RED_TRACKED_NOT_OWED"):
+        assert gone not in _rr.RULES and gone not in _rr.RULE_MODE, gone
 
 
 def test_block_smell_has_rule_and_fix(pull_world, monkeypatch):
@@ -156,21 +148,9 @@ def test_block_smell_has_rule_and_fix(pull_world, monkeypatch):
         monkeypatch.setattr(ptu, name, lambda *a, **k: None)
     text = "[Guardian:SmellGate] 修法：拆掉這次提交新寫進的巢狀\n✗ (s) COMMIT_SMELL_NEW_BLOCKS：a.py 巢狀 4 層"
     monkeypatch.setattr(ptu, "check_smell_gate", lambda *a, **k: (text, None))
-    monkeypatch.setattr(ptu.wg_gate_bypass, "note_smell_deny", lambda *a, **k: None)
     r = _pull_pre(pull_world, "Bash", {"command": 'git commit -m "x"'})
     assert r.startswith(text), r
     assert _rr.gate_mode("COMMIT_SMELL_NEW_BLOCKS", True) == _rr.BLOCK
-
-
-def test_block_gate_bypass(pull_world, monkeypatch):
-    for name in ("check_git_commit_order", "check_git_privacy", "check_merge_driver"):
-        monkeypatch.setattr(ptu, name, lambda *a, **k: None)
-    monkeypatch.setattr(ptu, "check_smell_gate", lambda *a, **k: (None, None))
-    text = "[Guardian:GateBypass] 修法：寫「不是繞閘｜理由」\n✗ (b) GATE_BYPASS_NEEDS_DECLARATION：retry.py 被排除"
-    monkeypatch.setattr(ptu.wg_gate_bypass, "check", lambda *a, **k: text)
-    r = _pull_pre(pull_world, "Bash", {"command": "git restore --staged notify/retry.py"})
-    assert r.startswith(text), r
-    assert _rr.gate_mode("GATE_BYPASS_NEEDS_DECLARATION", True) == _rr.BLOCK
 
 
 # ─── v6 關：一字不變 ────────────────────────────────────────────────────

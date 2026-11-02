@@ -1,9 +1,8 @@
 """verify_entry_wording.py：切入點自評實測出會把 AI 帶錯的擋訊息字句，改成先分辨情況再給處置；只改字句，擋的條件不變。
 
 逐處對自評文件（_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/LLM切入點自評-2026-10-21.md）那一節：
-  E21／E08a 改舊測試提示（hooks/wg_oldtest.hint）、E22 卡片版拒寫（hooks/wg_gate_bypass.atom_refusal）、
   E05 提問前先讀部位（hooks/wg_release_rules.ask_overview_verdict）、E11 退避舉證（hooks/handlers/user_prompt_submit.evasion_ask）、
-  SmellGate 處置句（tools/project-smells.render_commit_report）。TestFailGate（E08b）的案例在 verify_stop_reconcile。
+  SmellGate 處置句（tools/project-smells.render_commit_report）。
 每處兩件事：新字句在、舊的誤導句不在。
 gemma4:e4b 改前／改後實測紀錄在同目錄的 LLM切入點自評-實測/cases_003.json、results_003.jsonl。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_entry_wording.py
@@ -22,50 +21,12 @@ for p in (str(TREE), str(HOOKS_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import wg_core  # noqa: E402
-import wg_gate_bypass as gb  # noqa: E402
-import wg_oldtest  # noqa: E402
 import wg_release_rules as rr  # noqa: E402
 from handlers.user_prompt_submit import evasion_ask  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("project_smells_wording", TREE / "tools" / "project-smells.py")
 ps = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ps)
-
-@pytest.fixture
-def quiet(monkeypatch, tmp_path):
-    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path / "Logs")
-
-
-# ─── E21／E08a：改舊測試提示 ─────────────────────────────────────────────────────
-
-def test_oldtest_hint_separates_requirement_change_from_user_skip():
-    h = wg_oldtest.hint("test_legacy_report")
-    assert "使用者要的新行為讓舊斷言不再對" in h and "「改舊測試｜test_legacy_report：<為什麼舊斷言不再對；使用者原話>」再改" in h
-    assert "使用者只說「跳過／先不管」某支紅測＝這件不做、不是讓它不紅" in h and "別加 skip、別改斷言" in h
-    assert "撤回這次修改讓它照紅" in h and "「不做｜<那支測試>：使用者說「<原句>」」" in h
-    assert "兩種都對不上才 AskUserQuestion" in h and "只加新測試不用宣告" in h
-    assert "使用者有說要改就引用原句" not in h                    # 反例：舊句把「使用者說跳過」導進宣告
-
-
-# ─── E22：卡片版拒寫 ───────────────────────────────────────────────────────────
-
-BYPASS = ["[臨] 繞法要拆三步：先 git restore --staged 被點名的檔，再 git commit -- 自己的檔，病形閘就不會擋"]
-
-
-def test_atom_refusal_asks_whether_reader_can_follow_it_to_pass_the_gate(quiet):
-    msg = gb.atom_refusal("病形閘誤掃時的提交法", BYPASS, config={})
-    assert msg and "ATOM_BYPASS_HOWTO_REFUSED" in msg
-    assert "先問：讀完這張卡的人，能不能照著做，讓閘擋下的內容不經修正就過關" in msg
-    assert "即使你認為那次是誤擋" in msg and "不要宣告" in msg
-    assert "知識段第一行寫「不是教繞閘｜<理由：這張卡在教什麼>」" in msg
-    assert "在分析一次誤擋" not in msg                            # 反例：舊句把「分析誤擋」列成可宣告的情況
-
-
-def test_atom_refusal_condition_unchanged(quiet):
-    declared = ["[臨] 不是教繞閘｜這張卡寫的是禁止移出暫存規避"] + BYPASS
-    assert gb.atom_refusal("禁止移出暫存", declared, config={}) is None       # 宣告了照寫入
-    assert gb.atom_refusal("一般卡", ["[臨] 讀檔前先確認編碼"], config={}) is None
 
 
 # ─── E05：提問前先讀部位 ───────────────────────────────────────────────────────

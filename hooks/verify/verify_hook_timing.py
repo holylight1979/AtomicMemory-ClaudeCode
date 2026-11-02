@@ -130,7 +130,7 @@ def stop_driven(monkeypatch):
     monkeypatch.setattr(st, "_detect_uncommitted_files", lambda mf: [])
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
     monkeypatch.setattr(st, "estimate_context_usage", lambda *a, **k: 0.3)
-    monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: "改好了。")
+    monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: "全部完成，測試都過了。")   # 紅測閘看最後一則的宣告
 
     def drive(capsys, degrade_at=None):
         laps = []
@@ -456,7 +456,7 @@ def test_pre_tool_use_laps_do_not_change_decision(monkeypatch, capsys, tmp_path)
     f.write_text("x", encoding="utf-8")
     allow = _ptu_twice(monkeypatch, capsys, {"session_id": "sid-ptu-timing", "tool_name": "Read",
                                               "tool_input": {"file_path": str(f)}, "cwd": str(tmp_path)})
-    assert allow[0][2] == ["前置提示", "跨 session 衝突", "寫入閘", "舊測試閘"] and '"deny"' not in allow[0][0]   # 前置：放行、四點都走到
+    assert allow[0][2] == ["前置提示", "跨 session 衝突", "寫入閘"] and '"deny"' not in allow[0][0]   # 前置：放行、三點都走到
     assert allow[0] == allow[1]
     ask = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
                           "options": [{"label": "A", "description": "甲"}, {"label": "B", "description": "乙"}]}]}

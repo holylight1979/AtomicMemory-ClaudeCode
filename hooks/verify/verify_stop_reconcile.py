@@ -589,19 +589,16 @@ def test_failing_tests_isolated_between_sibling_sessions(driven, capsys):
     assert "TestFailGate" in out and "還有 1 支沒跑綠，不得宣告完成" in out and "支已綠" not in out
 
 
-def test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail(driven, capsys):
-    """003（切入點自評 E08）：TestFailGate 三條出路先問使用者有沒有叫跳過（程式只收引原話的不做行），
-    不再寫「標記為已知 regression」——那句會把 AI 帶去加 xfail／skip 讓紅消失。擋的條件不變：有紅測又宣告完成就擋。"""
+def test_003_testfail_message_is_pre_v6_text(driven, capsys):
+    """紅測閘擋訊息照 9e476fd0 原文（寫碼守門開或關同一份）：三條出路是修復、明確說明為何不修並標記為已知 regression、降級任務定義；
+    沒有「不做｜」豁免、負向對照、改舊測試宣告那幾條出口。擋的條件不變：有紅測又宣告完成就擋。"""
     red = {"cmd": "python -m pytest tests -q", "summary": "FAILED tests/test_report.py::test_legacy_report", "turn_seq": 5,
            "session_id": _SID, "pytest": True}
     out, _, _ = driven("全部完成了。", capsys, failing_tests=[red], modified_files=[_mf(_CASE, 5)])
     assert "[Guardian:TestFailGate] 測試未綠：還有 1 支沒跑綠，不得宣告完成。" in out
-    assert "先看使用者有沒有叫你跳過或先不管這支" in out and "「不做｜<紅的那支測試名>：使用者說「<原句片段>」」" in out
-    assert "不准加 skip／xfail、不准只為了變綠改斷言" in out and "收尾別說完成" in out
-    # 需求變了、舊斷言不再對是正常情況：指去改舊測試的宣告，不一律禁改斷言（codex 審：跟改舊測試提示矛盾）
-    assert "是使用者要的新行為讓舊斷言不再對，先寫「改舊測試｜<測試名>：<為什麼；使用者原話>」再改斷言" in out
-    assert "已知 regression" not in out and "降級任務定義" not in out                 # 反例：舊字句
-    # 改舊測試｜test_003_testfail_message_asks_user_skip_first_and_never_offers_xfail：派工單件 1 要擋訊息「只認 FAILED／ERROR 開頭的節點行，其他行不得當失敗項」
+    assert "選 (a) 修復 (b) 明確說明為何不修並標記為已知 regression (c) 降級任務定義。不得籠統帶過。" in out
+    assert "不做｜" not in out and "負向對照｜" not in out and "改舊測試｜" not in out
+    # 失敗項只認 FAILED／ERROR 開頭的節點行，其他行不當失敗項；只列最後 3 筆
     msg = st.testfail_message([{"cmd": f"c{i}", "summary": f"第一行\nFAILED t.py::case{i} - x"} for i in range(5)])
     assert "  - t.py::case2（指令：c2）" in msg and "  - t.py::case4（指令：c4）" in msg and "case1" not in msg   # 最後 3 筆
     assert "第一行" not in msg                                     # 失敗項是 FAILED 節點，不是摘要第一行
@@ -1710,7 +1707,7 @@ def _transcript(path, *texts):
 
 def test_017c_short_final_claim_after_long_text_is_judged(driven, capsys, monkeypatch, tmp_path):
     """長說明（>30 字、沒宣稱）之後只回「修好了，全部完成。」、沒跑 PASS → (a) 擋；補跑對得上的 PASS → 不擋。
-    有紅測時 TestFailGate 也看這一句。舊碼只收 >30 字的段落，拿前一段說明判，不擋。"""
+    紅測閘（寫碼守門開或關同一套）照舊只看最後一段超過 30 字的話：這裡是前一段說明、沒宣告完成，紅測不擋。"""
     assert len(_LONG_NOTE) > 30 and len("修好了，全部完成。") <= 30
     tp = _transcript(tmp_path / "t.jsonl", _LONG_NOTE, "修好了，全部完成。")
     monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
@@ -1721,7 +1718,7 @@ def test_017c_short_final_claim_after_long_text_is_judged(driven, capsys, monkey
     assert "ReconcileGate" not in out
     red = {"cmd": "python -m pytest x.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}
     out, _, _ = driven(None, capsys, failing_tests=[red], **kw)
-    assert "TestFailGate" in out
+    assert "TestFailGate" not in out
 
 
 def test_017c_hook_last_assistant_message_wins_over_transcript(driven, capsys, monkeypatch, tmp_path):
@@ -3541,23 +3538,17 @@ def test_p6_tried_claim_disclaimed_passes(driven, capsys):
     assert any(g == "reconcile" and p.get("event") == "claim_disclaimed" and p.get("letter") == "c" for g, p in logs)
 
 
-# ─── G6 階段 4（P7）：紅測清單的使用者豁免要對到具體哪一筆（規則 USER_WAIVER_NEEDS_CITATION） ─────────────────────
+# ─── 紅測閘不收不做行豁免：使用者說「先這樣／跳過」由 UserPromptSubmit 整份清掉紅測 ─────────────────────
 
-def test_p7_testfail_waives_only_the_cited_test_and_logs(driven, capsys):
+def test_not_doing_line_with_user_quote_does_not_waive_red_tests(driven, capsys):
+    """收尾寫「不做｜<那支>：使用者說「…」」不豁免紅測：兩支紅照擋，state 不記豁免帳、不留 testfail_waived。"""
     red = [{"cmd": "python -m pytest verify_a.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True},
            {"cmd": "python -m pytest verify_b.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}]
-    prompts = ["verify_a 先這樣，b 要修"]
-    out, _, _ = driven("全部完成了。", capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out and "還有 2 支沒跑綠" in out, "使用者只說了「先這樣」、AI 沒引用對到哪一支 → 兩支照擋"
     text = "全部完成了。\n不做｜verify_a.py：使用者說「verify_a 先這樣」"
-    out, _, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out and "還有 1 支沒跑綠" in out and "verify_b.py" in out
-    hit = [p for g, p in logs if g == "testfail_waived"]
-    assert hit and hit[0]["failing_cmd"].endswith("verify_a.py") and hit[0]["user_said"] == "verify_a 先這樣" and hit[0]["turn_seq"] == 5
-    both = text + "\n不做｜verify_b.py：使用者說「b 要修」"
-    out, _, _ = driven(both, capsys, failing_tests=red, recent_user_prompts=prompts, modified_files=[_mf(_CASE, 5)],
-                       anti_evasion_report=_aec(5, "無", "無"))
-    assert "TestFailGate" not in out
+    out, state, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=["verify_a 先這樣，b 要修"],
+                              modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out and "還有 2 支沒跑綠" in out
+    assert "testfail_waivers" not in state and not any(g in ("testfail_waived", "testfail_base_red") for g, _p in logs)
 
 
 def _turn_transcript(tmp_path, *assistant_texts):
@@ -3574,84 +3565,21 @@ def _turn_transcript(tmp_path, *assistant_texts):
     return str(tp)
 
 
-def test_004_patch_reply_without_completion_still_counts_the_turn_claim(driven, capsys, tmp_path):
-    """002 留的件：收尾說「全部完成」被別的閘擋下，補件那則只補缺的行、沒重說完成——收尾閘照本回合的宣告判（這裡用紅測閘看）；
-    最後一則明說還沒完成就不算。舊碼只看最後一則，補件那則放過紅測。"""
+def test_004_patch_reply_without_completion_still_counts_the_turn_claim(driven, capsys, tmp_path, monkeypatch):
+    """002 留的件：收尾說「全部完成」被別的閘擋下，補件那則只補缺的行、沒重說完成——收尾閘照本回合的宣告判（這裡用知識收割閘
+    收到的 claimed 看）；最後一則明說還沒完成就不算。紅測閘不看整回合（寫碼守門開或關同一套）：補件那則沒說完成，紅測不擋。"""
+    claimed = []
+    monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: claimed.append(k.get("claimed")))
     red = [{"cmd": "python -m pytest verify_a.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}]
     patch = _turn_transcript(tmp_path, "報表改好了，全部完成。",
                              "拐彎判斷｜report.py::monthly｜不會｜只有一層｜合理，因為直線算完就回")
     out, _, _ = driven(None, capsys, hook_input={"transcript_path": patch}, failing_tests=red, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out
+    assert "[Guardian:TestFailGate]" not in out and claimed and set(claimed) == {True}, (claimed, out[:300])
     undone = _turn_transcript(tmp_path, "報表改好了，全部完成。", "verify_a 還是紅的，這件還沒完成，我在查原因。")
+    claimed.clear()
     out, _, _ = driven(None, capsys, hook_input={"transcript_path": undone}, failing_tests=red, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" not in out
+    assert "[Guardian:TestFailGate]" not in out and claimed and set(claimed) == {False}, (claimed, out[:300])
 
-
-_ERP = "tests/test_erp_contract.py::test_checkout_fields_match_erp_contract"
-_ERP_SAID = "test_erp_contract 那支是 ERP 對接的舊合約測試，先不用管它、跳過。其他照做。"
-
-
-@pytest.mark.parametrize("item", ["test_checkout_fields_match_erp_contract", "test_erp_contract"])
-def test_c6_waiver_by_test_name_is_booked_and_survives_the_window(driven, capsys, item):
-    """第三跑 C6：紅測摘要是 pytest 節點，不做行照擋訊息範本寫函式名（或檔名不帶 .py）要對得到；豁免一成立就記帳（state
-    testfail_waivers、testfail_waived、deferral_declared 各一筆），使用者之後又說三則別的、原句擠出近 3 則窗口，同一支照帳放行。"""
-    red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 5, "session_id": _SID, "pytest": True}]
-    text = f"全部完成了。\n不做｜{item}：使用者說「先不用管它、跳過」"
-    out, state, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=[_ERP_SAID], modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" not in out
-    led = state.get("testfail_waivers") or []
-    assert len(led) == 1 and led[0]["item"] == item and led[0]["quote"] == "先不用管它、跳過" and led[0]["said"] == _ERP_SAID
-    assert any(g == "testfail_waived" and p.get("via") == "quote" for g, p in logs)
-    assert any(g == "deferral_declared" and p.get("rule") == "USER_WAIVER_NEEDS_CITATION" for g, p in logs)
-    later = ["好", "再跑一次測試", "README 也順手更新"]
-    out, state2, logs = driven(text, capsys, failing_tests=red, recent_user_prompts=later, testfail_waivers=led,
-                               modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" not in out, "原句不在近 3 則了，照樣放行（引用不再比對原話；帳也在）"
-    assert any(g == "testfail_waived" and p.get("via") in ("quote", "ledger") for g, p in logs)
-    assert len(state2["testfail_waivers"]) == 1, "同一支不重記"
-
-
-def test_c6_ledger_needs_the_line_and_covers_only_that_test(driven, capsys):
-    """帳只放帳上那一支，而且收尾仍要有對到它的不做行；別支紅測、或沒寫不做行，照擋。"""
-    led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "said": _ERP_SAID, "turn_seq": 5}]
-    erp = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 6, "session_id": _SID, "pytest": True}]
-    other = [{"cmd": "python -m pytest tests -q", "summary": "FAILED tests/test_cart.py::test_total", "turn_seq": 6,
-              "session_id": _SID, "pytest": True}]
-    out, _, _ = driven("全部完成了。", capsys, failing_tests=erp, recent_user_prompts=["好"], testfail_waivers=led,
-                       modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out, "沒寫不做行：帳不自動放"
-    out, _, _ = driven("全部完成了。\n不做｜test_total：太難了先不修", capsys, failing_tests=other,
-                       recent_user_prompts=["好"], testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out, "帳上沒有 test_total、只寫自己的理由：照擋"
-
-
-def test_004_waiver_ledger_books_the_test_and_yields_to_later_words(driven, capsys):
-    """記帳時記下豁免到的那一支（units）；使用者之後又提到這一支（「取消剛才的豁免…要修好」）→ 帳不算，
-    只寫自己理由的不做行照擋（寫「使用者說「…」」的不做行不再比對原話，照樣放行留帳）。"""
-    red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 5, "session_id": _SID, "pytest": True}]
-    text = "全部完成了。\n不做｜test_erp_contract：使用者說「先不用管它、跳過」"
-    out, state, _ = driven(text, capsys, failing_tests=red, recent_user_prompts=[_ERP_SAID], modified_files=[_mf(_CASE, 5)])
-    led = state.get("testfail_waivers") or []
-    assert "TestFailGate" not in out and led[0]["units"] == [_ERP] and led[0]["cmd"] == red[0]["cmd"], led
-    later = [_ERP_SAID, "取消剛才的豁免，test_erp_contract 要修好", "好", "繼續"]
-    out, _, _ = driven("全部完成了。\n不做｜test_erp_contract：太難了先不修", capsys, failing_tests=red,
-                       recent_user_prompts=later, testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out
-
-
-def test_004_voided_waiver_is_dropped_from_state_so_it_cannot_revive(driven, capsys):
-    """使用者記帳後又提到那一支：那次收尾（就算沒有紅測）就把帳從 state 拿掉並留帳 testfail_waiver_voided；之後那則原話擠出近 5 則，
-    只寫自己理由的不做行照擋，帳不會活回來。"""
-    led = [{"item": "test_erp_contract", "quote": "先不用管它、跳過", "said": _ERP_SAID, "units": [_ERP],
-            "cmd": "python -m pytest tests -q"}]
-    _, state, logs = driven("改好了。", capsys, failing_tests=[], recent_user_prompts=[_ERP_SAID, "test_erp_contract 還是要修好"],
-                            testfail_waivers=led, modified_files=[_mf(_CASE, 5)])
-    assert state.get("testfail_waivers") == [] and any(g == "testfail_waiver_voided" for g, _p in logs)
-    red = [{"cmd": "python -m pytest tests -q", "summary": f"FAILED {_ERP}", "turn_seq": 9, "session_id": _SID, "pytest": True}]
-    out, _, _ = driven("全部完成了。\n不做｜test_erp_contract：太難了先不修", capsys, failing_tests=red,
-                       recent_user_prompts=["好", "繼續", "再跑", "看一下", "嗯"], testfail_waivers=state["testfail_waivers"],
-                       modified_files=[_mf(_CASE, 5)])
-    assert "TestFailGate" in out
 
 
 @pytest.fixture()

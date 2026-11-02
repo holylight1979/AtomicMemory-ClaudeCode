@@ -1,15 +1,11 @@
-"""verify_pull_tool_gates.py：工具前的宣告閘不再「交了看不到就一直擋」——擋次上限、svn 測試路徑閘、
-commit 前核對出錯不擋。
+"""verify_pull_tool_gates.py：工具前的閘不再「交了看不到就一直擋」——擋次上限、svn 測試路徑閘。
 
 每條都是會紅案例（改前的碼跑會紅），除了 deny_cap 單元案都走 handlers/pre_tool_use.handle_pre_tool_use 真入口：
-- 擋次上限（wg_core.deny_cap）：動資料檔、改舊測試（當場擋與事後欠帳兩條路）、不是繞閘三道宣告閘，同一個使用者回合同一件
-  缺宣告擋第 1、2 次，第 3 次放行並留帳 cap_released；換回合重算；擋訊息只教「同一則先發不寫檔指令、開頭 `#` 註解」。
-  動資料檔閘只在寫過程式的 session 問（NON_CODING_TURN_NO_NUDGE）：它的案例先 _wrote_code 記一筆改過程式檔。
-- 繞閘閘：病形閘擋 A → 只交 B 又被擋 → 修好 B 再交 → 被排除的 A 仍要宣告（同一個 repo 的點名檔合併、不覆蓋）。
+- 擋次上限（wg_core.deny_cap）：同一個使用者回合同一件缺件擋第 1、2 次，第 3 次放行；同一則回覆平行送出的呼叫算一次；換回合重算。
+- 改資料檔、改舊測試不用先宣告：寫碼守門開著、這個 session 寫過程式，Edit 既有設定檔、刪既有測試的斷言、Bash 改測試檔之後的
+  下一個工具呼叫都不擋，也不留 guard-data_file／guard-old_test 帳。
 - svn 測試路徑閘：預設關；專案 overview-hub.json 開了之後只看 commit 的路徑參數（-m 訊息不看）、PowerShell 也查、
   使用者本回合原句出口；overview-hub.json 寫 svn_test_block 不是未知鍵。
-- 閘自己出錯（GATE_SELF_ERROR）：commit 前目標對照核對、動資料檔閘、改舊測試閘拋例外 → 不擋、留帳。
-- 耗重：動資料檔閘整次呼叫只讀一次 transcript；改舊測試閘不另讀 state。
 - config.local 合併：wg_core.load_config 走 lib/config_local.merge_local，跟它結果相同、不再自己合併。
 git 子程序走錄製重播（lib/git_cassette.py）；改了呼叫 git 的方式要 `pytest --git-record` 重錄。
 live 檔全 monkeypatch：WORKFLOW_DIR（state 落 tmp）、GUARD_LOG_DIR（留帳落 tmp）。
@@ -31,20 +27,15 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(REPO / "lib"))
 sys.path.insert(0, str(HOOKS_DIR / "verify"))
 
-import wg_chain  # noqa: E402
 import wg_core  # noqa: E402
-import wg_data_file as df  # noqa: E402
-import wg_oldtest as ot  # noqa: E402
 import wg_overview as wo  # noqa: E402
 from handlers import pre_tool_use as ptu  # noqa: E402
-import verify_gate_bypass as vgb  # noqa: E402  病形閘擋下的真實材料與環境（只取模組，不把它的案例收進來）
 
 SID = "sess-pull-tool-gates-0001"
 PROMPT = "幫 calc 加一個減法，設定檔裡的精度照舊"
 TEST_SRC = "def test_add():\n    assert 1 + 1 == 2\n"
 TEST_EDIT = {"old_string": "assert 1 + 1 == 2", "new_string": "assert 1 + 1 == 3"}
 DATA_EDIT = {"old_string": '"precision": 2', "new_string": '"precision": 3'}
-OT_HIT = "✗ (ot) OLD_TEST_CHANGE_NEEDS_DECLARATION"
 
 
 @pytest.fixture
@@ -100,15 +91,9 @@ def _events(w, guard):
     return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
 
 
-def _next_user_turn():
-    st = wg_core.read_state(SID)
-    st["turn_seq"] = int(st.get("turn_seq", 0)) + 1
-    wg_core.write_state(SID, st)
-
-
 def _wrote_code(w):
-    """這個 session 改過程式檔：動資料檔閘只在寫過程式的 session 問（wg_data_file.coding_session，規則 NON_CODING_TURN_NO_NUDGE）。
-    只給動資料檔案例用；共用 fixture 不放，免得其他閘的案例也變成寫碼回合（wg_core.coding_turn）。"""
+    """這個 session 改過程式檔（寫碼回合，wg_core.coding_turn）。只給改資料檔／改舊測試的案例用；共用 fixture 不放，
+    免得其他閘的案例也變成寫碼回合。"""
     st = wg_core.read_state(SID)
     st["modified_files"] = [{"path": str(w["proj"] / "app.py"), "last_turn_seq": 1}]
     wg_core.write_state(SID, st)
@@ -164,134 +149,21 @@ def test_deny_cap_per_reply_counts_one_reply_once(world):
     assert wg_core.deny_cap(two, "g", ["a", "b"], call=call("t10")) == (["b"], [])      # b 同一則照第一次擋；a 已放行過不重回
 
 
-def test_data_file_gate_parallel_edits_in_one_reply_count_once(world):
-    """規則 DENY_CAP_PER_REPLY（動資料檔）：同一則回覆平行送出 3 個改同一個資料檔的 Edit、都沒宣告 → 3 個都擋（舊碼第 3 個放行）；
-    下一則再擋一次（第 2 則），第三則才放行留帳 cap_released。"""
+# ─── 改資料檔、改舊測試不用先宣告 ─────────────────────────────────────────────────
+
+def test_data_file_and_old_test_edits_are_not_blocked(world):
+    """寫碼守門開（conftest 預設 WG_V6=1）、這個 session 寫過程式：Edit 使用者既有的設定檔、改既有測試的斷言、
+    Bash 改測試檔之後的下一個工具呼叫，都不擋，也不留改資料檔／改舊測試的帳。"""
     _wrote_code(world)
-    ti = {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}
-    tp = Path(world["tp"])
-    _reply(tp, "msg_1")
-    reasons = [_pre(world, "Edit", ti, f"tu_{i}") for i in range(3)]
-    assert all("[Guardian:DataFileAsk]" in r for r in reasons), reasons
-    _reply(tp, "msg_2", "tu_0", "tu_1", "tu_2")
-    assert "[Guardian:DataFileAsk]" in _pre(world, "Edit", ti, "tu_3")
-    _reply(tp, "msg_3", "tu_3")
-    assert "[Guardian:DataFileAsk]" not in _pre(world, "Edit", ti, "tu_4")
-    assert [e["event"] for e in _events(world, "data_file")] == ["denied"] * 4 + ["cap_released"]
-
-
-def test_data_file_gate_releases_after_two_denies_in_same_turn(world):
-    _wrote_code(world)
-    ti = {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}
-    reasons = [_pre(world, "Edit", ti) for _ in range(3)]
-    assert all("[Guardian:DataFileAsk]" in r for r in reasons[:2]), reasons
-    assert "[Guardian:DataFileAsk]" not in reasons[2]
-    assert [e["event"] for e in _events(world, "data_file")] == ["denied", "denied", "cap_released"]
-    first = reasons[0].splitlines()[0]
-    assert "`#` 註解" in first and "早一則" not in first   # 只教 # 註解一條路（DECL_HINT_KEEPS_EDIT_TOOLS）
-    _next_user_turn()
-    assert "[Guardian:DataFileAsk]" in _pre(world, "Edit", ti)            # 換回合重算
-
-
-def test_old_test_gate_releases_after_two_denies_in_same_turn(world):
-    ti = {"file_path": str(world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT}
-    reasons = [_pre(world, "Edit", ti) for _ in range(3)]
-    assert all(OT_HIT in r for r in reasons[:2]), reasons
-    assert OT_HIT not in reasons[2] and "[Guardian:OldTestDeclare]" not in reasons[2]
-    assert [e["event"] for e in _events(world, "old_test") if e["event"] in ("denied", "cap_released")] == \
-        ["denied", "denied", "cap_released"]
-    tag, hit, hint = reasons[0].split("\n", 2)
-    assert hint.startswith("宣告行放哪：同一則回覆裡先發一條不寫檔的") and "`#` 註解" in hint.split("。", 1)[0]
-    assert wg_chain.gate_name(tag, "PreToolUse") == "OldTestDeclare"   # 連鎖斷路器認得出閘名（CHAIN_GATE_NAME），標記自成一行
-    assert hit.startswith(OT_HIT)                                       # ✗ 條目照舊在行首（parse_hits 這類行首解析認得到）
-
-
-def test_old_test_late_debt_releases_after_two_denies(world):
-    """Bash 改了既有測試（寫之前看不到改後內容，事後記欠帳）：之後每個呼叫都擋到補宣告——同回合擋兩次後放行、欠帳拿掉。"""
+    assert _pre(world, "Edit", {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT}) == ""
+    assert _pre(world, "Edit", {"file_path": str(world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT}) == ""
     fp = world["proj"] / "tests" / "test_calc.py"
-    ti = {"command": f"sed -i 's/== 2/== 3/' {fp.as_posix()}"}
-    assert OT_HIT not in _pre(world, "Bash", ti)                         # 拍快照放行
-    fp.write_text(TEST_SRC.replace("== 2", "== 3"), encoding="utf-8")    # 指令真的改了
+    assert _pre(world, "Bash", {"command": f"sed -i 's/== 2/== 3/' {fp.as_posix()}"}, "toolu_sed") == ""
+    fp.write_text(TEST_SRC.replace("== 2", "== 3"), encoding="utf-8")
+    assert _pre(world, "Bash", {"command": "ls"}, "toolu_ls") == ""
+    assert not _events(world, "data_file") and not _events(world, "old_test")
     st = wg_core.read_state(SID)
-    assert ot.after_tool(st, {"tool_name": "Bash", "tool_input": ti, "session_id": SID, "transcript_path": world["tp"],
-                              "cwd": str(world["proj"])}, {})
-    wg_core.write_state(SID, st)
-    assert st.get("old_test_undeclared"), "前置：事後比對記了欠帳"
-    reasons = [_pre(world, "Bash", {"command": "ls"}, f"toolu_ls{i}") for i in range(3)]
-    assert all(OT_HIT in r for r in reasons[:2]), reasons
-    assert wg_chain.gate_name(reasons[0], "PreToolUse") == "OldTestDeclare"   # 事後欠帳那條擋路也帶標記
-    assert OT_HIT not in reasons[2]
-    assert not wg_core.read_state(SID).get("old_test_undeclared")
-    assert "cap_released" in [e["event"] for e in _events(world, "old_test")]
-
-
-@pytest.fixture
-def gb_env(git_cassette, monkeypatch, tmp_path):
-    monkeypatch.setitem(sys.modules, "project_smells", vgb.ps)
-    monkeypatch.setattr(vgb.ps, "_hub_inputs", lambda: ({}, None))
-    git_cassette(exclude=("Logs",))
-    return vgb.Env(tmp_path, monkeypatch)
-
-
-def test_gate_bypass_releases_after_two_denies_in_same_turn(gb_env, tmp_path):
-    repo = vgb._qa_notify(tmp_path)
-    vgb._blocked(gb_env, repo)
-    reasons = [gb_env.run(repo, "git restore --staged notify/retry.py") for _ in range(3)]
-    assert all("GATE_BYPASS_NEEDS_DECLARATION" in (r or "") for r in reasons[:2]), reasons
-    assert reasons[2] is None
-    assert [e["event"] for e in gb_env.events()] == ["suspect", "denied", "suspect", "denied", "suspect", "cap_released"]
-    assert reasons[0].splitlines()[1].startswith("宣告行要比這條指令早一則訊息送出")
-
-
-# ─── 繞閘閘：同一個 repo 的點名檔合併 ───────────────────────────────────────
-
-PICK_OLD = "def pick(xs):\n    return abs(xs)\n"
-PICK_SICK = "def pick(xs):\n    return (lambda f: (lambda x: f(x)))(abs)(xs)\n"
-PICK_FIXED = "def pick(xs):\n    return abs(xs) + 0\n"
-
-
-def test_excluded_named_file_still_needs_declaration_after_other_file_fixed(gb_env, tmp_path):
-    """病形閘擋 A（retry.py）→ 只交 B（pick.py）又被擋 → 修好 B 再交：A 被排除在提交外、病還在，仍要宣告。"""
-    repo = vgb._qa_notify(tmp_path)
-    vgb._write(repo, "notify/pick.py", PICK_OLD)
-    vgb._git(repo, "add", "notify/pick.py")
-    vgb._git(repo, "commit", "-q", "-m", "pick", "--", "notify/pick.py")
-    vgb._blocked(gb_env, repo)
-    vgb._write(repo, "notify/pick.py", PICK_SICK)
-    deny = gb_env.run(repo, 'git commit -m "y" -- notify/pick.py')
-    assert deny and "[Guardian:SmellGate]" in deny and "notify/pick.py" in deny, deny
-    assert set(gb_env.state["smell_deny_last"]["files"]) == {"notify/retry.py", "notify/pick.py"}
-    vgb._write(repo, "notify/pick.py", PICK_FIXED)
-    deny = gb_env.run(repo, 'git commit -m "y" -- notify/pick.py')
-    assert deny and "GATE_BYPASS_NEEDS_DECLARATION" in deny and "notify/retry.py" in deny, deny
-
-
-def _a_declared_then_b_blocked(gb_env, tmp_path):
-    """A（retry.py）被點名 → 寫宣告 → 只交 B（pick.py，也帶病）又被病形閘擋（宣告還沒被哪條指令用掉）。"""
-    repo = vgb._qa_notify(tmp_path)
-    vgb._write(repo, "notify/pick.py", PICK_OLD)
-    vgb._git(repo, "add", "notify/pick.py")
-    vgb._git(repo, "commit", "-q", "-m", "pick", "--", "notify/pick.py")
-    vgb._blocked(gb_env, repo)
-    gb_env.say("不是繞閘｜retry.py 是別人留在暫存區的改動，不屬本次需求；病交原作者修")
-    vgb._write(repo, "notify/pick.py", PICK_SICK)
-    assert "[Guardian:SmellGate]" in (gb_env.run(repo, 'git commit -m "y" -- notify/pick.py') or "")
-    return repo
-
-
-def test_declaration_after_a_named_still_counts_for_a(gb_env, tmp_path):
-    """宣告寫在 A 被點名之後：修好 B 再交（排除 A），這筆宣告照樣替 A 算數，不多擋一次。"""
-    repo = _a_declared_then_b_blocked(gb_env, tmp_path)
-    vgb._write(repo, "notify/pick.py", PICK_FIXED)
-    assert gb_env.run(repo, 'git commit -m "y" -- notify/pick.py') is None
-    assert [e["files"] for e in gb_env.events() if e["event"] == "declared"] == [{"notify/retry.py": ["匿名函式疊用"]}]
-
-
-def test_declaration_before_b_named_does_not_cover_b(gb_env, tmp_path):
-    """宣告寫在 B 被點名之前：B 病還在、也被排除在提交外 → 那筆宣告不替 B 放行，要在 B 被點名之後重新宣告。"""
-    repo = _a_declared_then_b_blocked(gb_env, tmp_path)
-    deny = gb_env.run(repo, 'git commit -m "y" -- notify/channels.py')
-    assert deny and "GATE_BYPASS_NEEDS_DECLARATION" in deny and "notify/pick.py" in deny, deny
+    assert not any(k in st for k in ("old_test_undeclared", "data_file_declared", "data_file_pending_new"))
 
 
 # ─── svn 測試路徑閘 ─────────────────────────────────────────────────────
@@ -350,52 +222,6 @@ def test_project_hub_cfg_accepts_svn_test_block(tmp_path):
     hub.write_text(json.dumps({"svn_test_block": {"enabled": "yes"}}), encoding="utf-8")
     assert any("svn_test_block.enabled" in e for e in hc.merge_hub_cfg({}, None, root)["_errors"])
     assert hc.HUB_DEFAULTS["svn_test_block"] == {"enabled": False}
-
-
-# ─── 閘自己出錯（GATE_SELF_ERROR）：不擋、留帳 ─────────────────────────────
-
-def _boom(*a, **k):
-    raise RuntimeError("模擬閘內部錯誤")
-
-
-def test_data_file_gate_self_error_does_not_block(world, monkeypatch):
-    _wrote_code(world)
-    monkeypatch.setattr(df, "_judge", _boom)
-    r = _pre(world, "Edit", {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT})
-    assert "[Guardian:DataFileAsk]" not in r, r
-    assert [(e["event"], e.get("rule"), "模擬閘內部錯誤" in e["error"]) for e in _events(world, "data_file")] == \
-        [("error", "GATE_SELF_ERROR", True)]
-
-
-def test_old_test_gate_self_error_does_not_block(world, monkeypatch):
-    monkeypatch.setattr(ot, "gate", _boom)
-    r = _pre(world, "Edit", {"file_path": str(world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT})
-    assert "[Guardian:OldTestDeclare]" not in r and OT_HIT not in r, r
-    assert [(e["event"], e.get("rule"), "模擬閘內部錯誤" in e["error"]) for e in _events(world, "old_test")] == \
-        [("error", "GATE_SELF_ERROR", True)]
-
-
-# ─── 耗重 ─────────────────────────────────────────────────────────────
-
-def test_data_file_gate_reads_transcript_once(world, monkeypatch):
-    _wrote_code(world)
-    calls = []
-    real = df._transcript_user_entries
-    monkeypatch.setattr(df, "_transcript_user_entries", lambda tp: calls.append(tp) or real(tp))
-    assert "[Guardian:DataFileAsk]" in _pre(world, "Edit", {"file_path": str(world["proj"] / "settings.json"), **DATA_EDIT})
-    assert len(calls) == 1
-
-
-def test_old_test_gate_reads_no_extra_state(world, monkeypatch):
-    callers = []
-    real = wg_core.read_state
-
-    def spy(sid):
-        callers.append(sys._getframe(1).f_globals.get("__name__"))
-        return real(sid)
-    monkeypatch.setattr(wg_core, "read_state", spy)
-    assert OT_HIT in _pre(world, "Edit", {"file_path": str(world["proj"] / "tests" / "test_calc.py"), **TEST_EDIT})
-    assert "wg_oldtest" not in callers, callers
 
 
 # ─── config.local 合併只有一份（lib/config_local.merge_local）─────────────────

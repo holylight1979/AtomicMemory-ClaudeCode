@@ -6,7 +6,7 @@ handlers/stop 擋訊息）。
 cmd 只存前 200 字，剛好截在 `pytest tests -q 2>&1` 的 `2`，舊碼把 `2` 當成要跑的目錄，什麼重跑都涵蓋不到。
 現在記的是解析後的目標（test_scope：每段測試子命令與換目錄），跟指令多長無關、不截斷；解析不出就判不出、不拿片段當路徑。
 驗：照擋訊息重跑、涵蓋那則的範圍而且綠 → 舊紅清掉；完整套件重跑、紅而且逐支列出 → 舊紅改記那幾支（ERP 那支列得出名字，
-「不做｜」才對得到）；反例：重跑沒涵蓋（只跑第一段）或還是紅 → 照留，沒涵蓋的留帳 testfail_scope；擋訊息對看不出是哪一支的紅
+擋訊息才指得出是哪一支）；反例：重跑沒涵蓋（只跑第一段）或還是紅 → 照留，沒涵蓋的留帳 testfail_scope；擋訊息對看不出是哪一支的紅
 列出解析出的每段測試子命令（照抄重跑），看得出的不加；長指令照樣清得掉；判不出目標給「原指令完整照跑或跑整套」並留帳。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_red_scope_full_command.py
        python -X utf8 hooks/verify/verify_red_scope_full_command.py   （直接跑，尾行 RED_SCOPE_CHECK PASS／FAIL）
@@ -84,7 +84,7 @@ def test_rerun_covering_scope_green_clears_red(logs):
 
 def test_full_suite_rerun_red_listed_replaces_unknown_red():
     """紅案例（RED_SCOPE_FROM_FULL_COMMAND × GREEN_CLEARS_ONLY_CASES_IT_RAN 的紅那一面）：完整套件重跑仍紅、
-    逐支列出（只有 ERP）→ 看不出是哪一支的舊紅改記成 ERP 那支；之後「不做｜」對得到它。改前舊紅照留，兩筆一起擋。"""
+    逐支列出（只有 ERP）→ 看不出是哪一支的舊紅改記成 ERP 那支；之後擋訊息列得出它。改前舊紅照留，兩筆一起擋。"""
     state = _gate0_red()
     _track(state, "python -m pytest tests -q 2>&1 | tail -3",
            f"=========================== short test summary info ===========================\nFAILED {ERP} - ...\n"

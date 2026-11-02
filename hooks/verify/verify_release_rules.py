@@ -42,16 +42,11 @@ def test_044_every_rule_has_a_case():
     ("VERIFY_FULL_RUN_NEEDS_USER_ORDER", "verify_verify_batch.py"),
     ("VERIFY_SAME_BATCH_ALREADY_GREEN", "verify_verify_batch.py"),
     ("VERIFY_BATCH_BLOCK_ONCE_PER_TURN", "verify_verify_batch.py"),
-    ("NEGATED_MENTION_IS_NOT_NAMING", "verify_data_file_ask.py"),
-    ("DATA_FILE_DECL_VOIDED_BY_LATER_MENTION", "verify_data_file_ask.py"),
-    ("OWN_COMMIT_CHANGES_STILL_COMPARED", "verify_old_test_declare.py"),
     ("BLOCK_BUDGET_SHARED", "verify_gate_trim.py"),
     ("STATE_RMW_LOCKED", "verify_state_parallel_rmw.py"),
-    ("DECL_HINT_KEEPS_EDIT_TOOLS", "verify_data_file_ask.py"),
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
     ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_inject_lean.py"),
-    ("NON_CODING_TURN_NO_NUDGE", "verify_data_file_ask.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
@@ -67,15 +62,6 @@ def test_negative_control_declared_verdict():
     for line in ("負向對照｜/tmp/other：舊碼", "負向對照｜qa2-old", "負向對照｜qa2-old：<理由>"):
         assert rr.negative_control_verdict(cmd, rr.parse_negative_controls(line)).owed, line
 
-
-@pytest.mark.parametrize("text, negated", [
-    ("shop.json 先不要動", True), ("不要動 shop.json", True), ("折扣碼不要放 shop.json，放新檔", True),
-    ("折扣碼不要寫死在程式裡，放進 shop.json", False), ("把 shop.json 的門檻改成 500", False),
-])
-def test_mention_negated(text, negated):
-    """NEGATED_MENTION_IS_NOT_NAMING 純函式：同一子句左邊有否定字或右邊緊接否定才算；否定在前一個子句不算。"""
-    i = text.index("shop.json")
-    assert rr.mention_negated(text, i, i + len("shop.json")) is negated
 
 # ─── G6 階段 5：其餘固定規則改交 AI 判（純函式；端到端案在 verify_g6_rules_to_llm.py） ─────────────
 
@@ -136,13 +122,13 @@ def test_closing_ritual_switches_scan_report_gate():
     (r"C:\x\src\a.py", "C:/x/./src/a.py"),
 ])
 def test_044_same_file_spellings(a, b):
-    """SAME_FILE：反斜線／正斜線、大小寫、`..`、`.` 都是同一個檔。"""
-    assert rr.same_file(a, b) and rr.canon_path(a) == rr.canon_path(b)
+    """SAME_FILE：反斜線／正斜線、大小寫、`..`、`.` 都是同一個檔（比 canon_path）。"""
+    assert rr.canon_path(a) == rr.canon_path(b)
 
 
 def test_044_same_file_different_files():
-    assert not rr.same_file(r"C:\x\src\a.py", r"C:\x\src\b.py")
-    assert not rr.same_file(r"C:\x\src\a.py", r"C:\x\a.py")
+    assert rr.canon_path(r"C:\x\src\a.py") != rr.canon_path(r"C:\x\src\b.py")
+    assert rr.canon_path(r"C:\x\src\a.py") != rr.canon_path(r"C:\x\a.py")
 
 
 # ─── TURN_SINCE_USER_PROMPT ─────────────────────────────────────────────
@@ -1584,74 +1570,13 @@ def test_p7_not_doing_verdict():
     v = rr.not_doing_verdict("這是既有的問題，本輪已修。", dis, [])
     assert not v.owed and "不是退避" in v.why
     assert rr.not_doing_verdict("這是既有的問題，本輪已修。", rr.parse_not_doing("不是退避｜既有的問題：..."), []).owed
-    _, w = rr.waived_failures([{"cmd": "pytest verify_a.py", "summary": ""}],
-                              rr.parse_not_doing("不是退避｜verify_a.py：使用者說「先這樣」"), ["先這樣"])
-    assert not w, "不是退避行不能豁免紅測"
-    kept, w = rr.waived_failures([{"cmd": "pytest verify_a.py", "summary": ""}],
-                                 rr.parse_not_doing("不做｜verify_a.py：使用者說「先這樣」"), ["繼續"])
-    assert "USER_WAIVER_NEEDS_CITATION" in rr.RULES and not kept and w   # 紅測豁免的原句不再比對使用者原話，寫了就放行留帳
-
-
-def test_p7_waived_failures_only_cited_and_matching():
-    failing = [{"cmd": "python -m pytest hooks/verify/verify_a.py", "summary": "1 failed", "turn_seq": 5},
-               {"cmd": "python -m pytest hooks/verify/verify_b.py", "summary": "1 failed", "turn_seq": 5}]
-    decls = rr.parse_not_doing("不做｜verify_a.py：使用者說「verify_a 先這樣」")
-    kept, waived = rr.waived_failures(failing, decls, ["verify_a 先這樣，b 要修"])
-    assert [f["cmd"] for f in kept] == [failing[1]["cmd"]] and waived[0][1]["item"] == "verify_a.py"
-    kept, waived = rr.waived_failures(failing, decls, ["b 要修"])
-    assert len(kept) == 1 and waived, "原句不再比對使用者原話：寫了「使用者說」就豁免那一支（留帳抽查）"
-    kept, _ = rr.waived_failures(failing, rr.parse_not_doing("不做｜verify_a.py：太難了，風險高"), ["verify_a 先這樣"])
-    assert len(kept) == 2, "AI 自己的理由不能豁免紅測，只有使用者引用能"
-    # codex BLOCK：事項要指得到那一筆（完整 token），通用字或檔名的一截不行
-    for item in ("py", "pytest", "verify", "old_verify_a.py", "verify_ab.py", "hooks"):
-        kept, _ = rr.waived_failures(failing, rr.parse_not_doing(f"不做｜{item}：使用者說「先這樣」"), ["先這樣"])
-        assert len(kept) == 2, item
-    kept, _ = rr.waived_failures(failing, rr.parse_not_doing("不做｜hooks/verify/verify_a.py：使用者說「先這樣」"), ["先這樣"])
-    assert len(kept) == 1, "完整路徑指得到"
-    node = [{"cmd": "python -m pytest hooks/verify/verify_a.py::test_x", "summary": "1 failed"}]
-    kept, _ = rr.waived_failures(node, rr.parse_not_doing("不做｜verify_a.py::test_x：使用者說「先這樣」"), ["先這樣"])
-    assert not kept, "測試節點指得到"
-
-
-def test_004_waiver_per_listed_test_ledger_same_test_and_later_mention():
-    """codex 004：摘要逐支列出失敗時每支各自要有豁免（同一筆裡 A 被點名、B 沒有 → 整筆照紅；收集錯誤也算一支）；帳只認記帳那時的
-    同一支（別檔同名函式不借帳）；使用者記帳後又提到這支 → 帳不算，以新的話為準（那則擠出近 3 則也一樣）。"""
-    decl = rr.parse_not_doing("不做｜test_total：使用者說「test_total 先跳過」")
-    two = [{"cmd": "pytest tests", "summary": "FAILED tests/a.py::test_total - x\nFAILED tests/a.py::test_other - y"}]
-    kept, w = rr.waived_failures(two, decl, ["test_total 先跳過"])
-    assert kept == two and not w, "test_other 沒人豁免"
-    both = rr.parse_not_doing("不做｜test_total：使用者說「test_total 先跳過」\n不做｜test_other：使用者說「test_other 也先跳過」")
-    kept, w = rr.waived_failures(two, both, ["test_total 先跳過，test_other 也先跳過"])
-    assert not kept and sorted(u for _, h in w for u in h["units"]) == ["tests/a.py::test_other", "tests/a.py::test_total"]
-    col = [{"cmd": "pytest tests", "summary": "FAILED tests/a.py::test_total - x\nERROR tests/c.py - ImportError"}]
-    kept, _ = rr.waived_failures(col, decl, ["test_total 先跳過"])
-    assert kept == col, "收集錯誤也是一支"
-    a = [{"cmd": "pytest tests", "summary": "FAILED tests/a.py::test_total - x"}]
-    _, w = rr.waived_failures(a, decl, ["test_total 先跳過"])
-    assert w[0][1]["units"] == ["tests/a.py::test_total"]
-    led = [{"item": "test_total", "quote": "test_total 先跳過", "said": "test_total 先跳過", "units": w[0][1]["units"],
-            "cmd": "pytest tests"}]
-    later = ["好", "再跑一次", "繼續"]
-    kept, w = rr.waived_failures(a, decl, later, led)
-    assert not kept and w[0][1]["via"] in ("quote", "ledger"), "同一支：不做行在就放行（引用或看帳）"
-    b = [{"cmd": "pytest tests", "summary": "FAILED tests/b.py::test_total - y"}]
-    kept, _ = rr.waived_failures(b, rr.parse_not_doing("不做｜test_total：太難了先不修"), later, led)
-    assert kept == b, "別檔同名函式不借帳"
-    reason_only = rr.parse_not_doing("不做｜test_total：太難了先不修")
-    kept, _ = rr.waived_failures(a, reason_only, ["取消剛才的豁免，test_total 必須修好", "好", "繼續"], led)
-    assert kept == a, "記帳後使用者又提到這支：帳不算；只有 AI 自己的理由也不豁免"
-    kept, _ = rr.waived_failures(a, reason_only, later, led, history=["之前的話", "test_total 先跳過", *later])
-    assert not kept, "記帳那則之後沒再提到：照帳"
 
 
 def test_p7_reason_and_quote_need_text_not_length():
-    """codex WARN／BLOCK：理由看有沒有文字內容不看字數（「風險高」算、「....」不算）；引用純標點不算、英文整詞比對。"""
+    """codex WARN／BLOCK：理由看有沒有文字內容不看字數（「風險高」算、「....」不算）；事項名英文整詞比對。"""
     assert rr.reason_present("風險高") and rr.reason_present("不需要") and not rr.reason_present("....") and not rr.reason_present("<理由>")
     assert not rr.reason_present("<理由：風險／為什麼超出>") and not rr.reason_present("  <為什麼>  ")
     assert not rr.reason_present("留到下個 session，<理由>"), "半抄範本、留著理由佔位不算"
-    assert not rr.quote_in_prompts("!!", ["請修好!!"]) and not rr.quote_in_prompts("ok", ["broken"])
-    assert rr.quote_in_prompts("ok", ["ok, skip it"]) and rr.quote_in_prompts("skip it", ["ok,  skip   it"])
-    assert rr.quote_in_prompts("先這樣", ["好，先 這樣吧"])
     assert rr.names_item("python -m pytest hooks/verify/verify_a.py", "verify_a.py")
     assert not rr.names_item("python -m pytest hooks/verify/verify_a.py", "python")
     assert rr.names_item("python -m pytest hooks/verify/verify_a.py -q", "pytest hooks/verify/verify_a.py"), "帶空白的逐字片段"
@@ -1661,73 +1586,6 @@ def test_evasion_context_exempt_boundary():
     """EVASION_CONTEXT_EXEMPT：完整案例在 verify_hud_stage2.py；這裡守邊界——剛好等於門檻不豁免（和 DeferralGate 一致）。"""
     assert rr.evasion_context_exempt_verdict(True, 0.75, 0.75, True, ["繼續"], True).owed
     assert not rr.evasion_context_exempt_verdict(True, 0.76, 0.75, True, ["繼續"], True).owed
-
-
-# ─── T2.16 動資料檔 ───
-
-def test_t216_user_data_file_needs_declaration():
-    """USER_DATA_FILE_NEEDS_DECLARATION：四件事實全成立又沒宣告才擋；宣告路徑檔名完整比對；原話點名要整個檔名。完整案例在 verify_data_file_ask.py。"""
-    t = "C:\\w1\\qb-report\\config\\settings.json"
-    facts = {"code": False, "ext": ".json", "ext_listed": True, "existed": True, "created": False, "named": None, "prompts": 1}
-    assert rr.data_file_verdict(t, "config/settings.json", facts, []).owed
-    assert not rr.data_file_verdict(t, "config/settings.json", {**facts, "created": True}, []).owed
-    decl = rr.parse_data_file_decls("動資料檔｜`config/settings.json`：修多逗號，幣別會變 TWD")
-    assert not rr.data_file_verdict(t, "config/settings.json", facts, decl).owed
-    for p in ("settings.json", "config/settings.json", "C:\\w1\\qb-report\\config\\settings.json", "./config/settings.json"):
-        assert rr.decl_names_file(p, t), p
-    for p in ("ettings.json", "other.json", "x/settings.json", ""):
-        assert not rr.decl_names_file(p, t), p
-    assert rr.parse_data_file_decls("動資料檔｜C:\\a\\b.json：理由")[0][:2] == ("C:\\a\\b.json", "理由")
-    assert rr.prompt_names_file(["把settings.json的逗號修掉"], t) and rr.prompt_names_file(["改 Config/Settings.JSON"], t)
-    assert not rr.prompt_names_file(["改 settings.json.bak", "看 mysettings.json", "設定檔"], t)
-    zh = "C:\\p\\設定.json"
-    assert not rr.prompt_names_file(["請修改「備份設定.json」", "請修改備份設定.json"], zh), "更長的中文檔名不算點名"
-    assert rr.prompt_names_file(["請修改「設定.json」", "改 設定.json 的值"], zh)
-    assert rr.reason_present("修正 <幣別> 標籤") and rr.reason_present("通貨を直す") and rr.reason_present("x")
-    assert not any(rr.reason_present(w) for w in ("", "。。", "  ", "<為什麼要動它、動了使用者會看到什麼>"))
-
-
-def test_reason_quoting_a_tag_is_still_a_reason_on_claim_and_not_doing_lines():
-    """CLAIM_DISCLAIM_NEEDS_REASON／NOT_DOING_DECLARED：理由裡引用 <中文> 標籤（XML、範本名）是有理由；整段是角括號佔位才不算。"""
-    disp = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 修好的是同伴改的 <幣別> 標籤，不是我")
-    assert not rr.claim_disposition_verdict("fixed", disp, lambda ref: None).owed
-    disp = rr.parse_claim_dispositions("宣稱｜修好：非本回合宣稱，因為 <理由>")
-    assert rr.claim_disposition_verdict("fixed", disp, lambda ref: None).owed
-    line = "不做｜改 <幣別> 欄位：要使用者拍板幣別預設值"
-    assert not rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
-    line = "不做｜幣別欄位：<理由：風險／為什麼超出>"
-    assert rr.not_doing_verdict(line, rr.parse_not_doing(line), []).owed
-# ─── T2.17 改舊測試 ───
-
-def test_old_test_change_needs_declaration_names_and_reason():
-    """OLD_TEST_CHANGE_NEEDS_DECLARATION：完整案例在 verify_old_test_declare.py；這裡守宣告行的名字與理由對法。"""
-    ch = [{"key": "TestR.test_a", "kind": "assert", "detail": "assertx==1"}, {"key": "test_b", "kind": "renamed", "detail": "", "new_key": "test_b2"}]
-    v = rr.old_test_change_verdict("tests/test_r.py", ch, [])
-    assert v.owed and v.rule == "OLD_TEST_CHANGE_NEEDS_DECLARATION" and "test_r.py：test_b（改名 → test_b2）" in v.evidence
-    ok = rr.parse_old_test_declarations("改舊測試｜tests/test_r.py:TestR.test_a、test_b: 使用者說欄位改了")
-    assert ok[0]["reason"] == "使用者說欄位改了" and not rr.old_test_change_verdict("tests/test_r.py", ch, ok).owed
-    assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a、test_b2：欄位改了")).owed, \
-        "改名只認舊名：新名不能替舊的那支宣告"
-    for other in ("改舊測試｜tests/test_x.py:test_a、test_b：別的檔", "改舊測試｜TestOther.test_a、test_b：別的類別"):
-        assert rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations(other)).owed, other
-    v = rr.old_test_change_verdict("tests/test_r.py", ch, rr.parse_old_test_declarations("改舊測試｜test_a：<理由>"))
-    assert v.owed and any("佔位" in e for e in v.evidence) and len(v.evidence) == 3
-# ─── T2.19 繞閘嫌疑 ───
-
-def test_t219_gate_bypass_verdicts():
-    """GATE_BYPASS_NEEDS_DECLARATION／ATOM_BYPASS_HOWTO_REFUSED：完整案例在 verify_gate_bypass.py；這裡守判式——
-    有序列事實沒理由（或只有佔位）擋、有理由放行、沒事實不擋；卡片兩訊號都有才拒。"""
-    facts = ["git restore 把 notify/retry.py 移出暫存區"]
-    assert rr.gate_bypass_verdict("notify/retry.py（匿名函式疊用）", facts).owed
-    assert rr.gate_bypass_verdict("x", facts, "<理由：這批檔是誰的>").owed
-    v = rr.gate_bypass_verdict("x", facts, "retry.py 是別人的改動")
-    assert v.rule == "GATE_BYPASS_NEEDS_DECLARATION" and not v.owed
-    assert not rr.gate_bypass_verdict("x", []).owed
-    assert rr.atom_bypass_verdict(["SmellGate"], ["拆三步"]).owed
-    v = rr.atom_bypass_verdict(["SmellGate"], [])
-    assert v.rule == "ATOM_BYPASS_HOWTO_REFUSED" and not v.owed and not rr.atom_bypass_verdict([], ["git stash"]).owed
-    assert not rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "這張卡寫的是禁止規避").owed     # 宣告了不是教繞閘
-    assert rr.atom_bypass_verdict(["SmellGate"], ["git reset"], "<理由：這張卡在教什麼>").owed      # 佔位照拒
 
 
 # ─── G11 拐彎判斷 ─────────────────────────────────────────────────────────────
@@ -1756,7 +1614,6 @@ def test_g7_equivalence_and_hot_path_rules():
 
 _C1_ERP = "tests/test_erp_contract.py::test_checkout_fields_match_erp_contract"
 _C1_NOT_DOING = "不做｜test_checkout_fields_match_erp_contract：使用者說「先不用管它、跳過」"
-_C1_SAID = "test_erp_contract 那支是 ERP 對接的舊合約測試，先不用管它、跳過。其他照做。"
 # 第四跑 C-1 第 7 回合那條混了 git 與 pytest 的指令：摘要（最後 20 行）第一行是 git status 的 Untracked files:
 _C1_MIXED_SUMMARY = ("Untracked files:\n  (use \"git add <file>...\" to include in what will be committed)\n"
                      "\t.gitattributes\n\tconfig/promos.json\n$ git diff --stat\n README.md | 2 +-\n"
@@ -1779,43 +1636,6 @@ def test_005_red_items_only_from_failure_lines_label_and_cmd():
     assert "沒列出" in rr.red_item_label(failed), "沒有節點行就明說沒列出，不拿 Exit code 行當失敗項"
     go = {"cmd": "go test ./...", "summary": "--- FAIL: TestTotal (0.00s)\nFAIL\nok  other 0.1s"}
     assert rr.red_item_label(go).startswith("--- FAIL: TestTotal")
-
-
-def test_005_unlisted_red_not_waived_by_comment_or_git_output():
-    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：摘要沒列節點時整筆當一支，比對文字只有指令實際跑的部分與失敗行——AI 寫在指令註解裡的
-    不做行、git status 列出的測試檔都不能讓不做行「對到」（舊碼拿指令全文＋整段摘要比，兩種都會誤放）。"""
-    decls = rr.parse_not_doing("不做｜test_erp_contract.py：使用者說「先不用管它、跳過」")
-    commented = {"cmd": "# 跳過 test_erp_contract.py 照紅\npython -m pytest tests -q 2>&1 | tail -1", "summary": "1 failed, 14 passed"}
-    kept, waived = rr.waived_failures([commented], decls, [_C1_SAID])
-    assert kept and not waived, "輸出沒列是哪一支，指令註解裡寫的檔名不算（要不截斷重跑）"
-    noisy = {"cmd": "python -m pytest -q", "summary": "Untracked files:\n\ttests/test_legacy.py\n1 failed"}
-    kept, waived = rr.waived_failures([noisy], rr.parse_not_doing("不做｜test_legacy.py：使用者說「先不用管它、跳過」"),
-                                      [_C1_SAID])
-    assert kept and not waived, "git status 列出的檔不是失敗項"
-    # 反例：指令實際點名那個案例檔、或失敗行帶名字 → 照對得到
-    named = {"cmd": "python -m pytest tests/test_erp_contract.py -q | tail -1", "summary": "1 failed"}
-    kept, waived = rr.waived_failures([named], rr.parse_not_doing("不做｜test_erp_contract.py：使用者說「先不用管它、跳過」"),
-                                      [_C1_SAID])
-    assert not kept and waived
-    go = {"cmd": "go test ./...", "summary": "--- FAIL: TestErpContract (0.00s)\nFAIL"}
-    kept, waived = rr.waived_failures([go], rr.parse_not_doing("不做｜TestErpContract：使用者說「先不用管它、跳過」"), [_C1_SAID])
-    assert not kept and waived
-
-
-def test_005_waiver_miss_notes_say_why_the_line_did_not_count():
-    """RED_ITEMS_ONLY_FROM_FAILURE_LINES：不做行對到了那支、卻只寫自己的理由（沒有使用者說）→ 擋訊息說出這件事；對不到的不說。"""
-    entry = {"cmd": _C1_MIXED_CMD, "summary": _C1_MIXED_SUMMARY}
-    later = ["收尾時順便跟我說一下", "交材料：把這一題的目標樹整理成一則回覆給我"]
-    own = _C1_NOT_DOING.split("：使用者說")[0] + "：太難了先不修"
-    kept, _ = rr.waived_failures([entry], rr.parse_not_doing(own), later)
-    notes = rr.waiver_miss_notes(kept, rr.parse_not_doing(own), later)
-    assert len(notes) == 1 and _C1_ERP.lower() in notes[0] and "只寫了自己的理由" in notes[0], notes
-    assert rr.waiver_miss_notes(kept, rr.parse_not_doing("不做｜test_total：使用者說「先不用管它、跳過」"), later) == []
-    # 帳上有這支、收尾沒寫不做行 → 給那一行照抄；帳上是別支 → 不說
-    led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "units": [_C1_ERP.lower()]}]
-    notes = rr.waiver_miss_notes(kept, [], later, led)
-    assert len(notes) == 1 and "帳上有" in notes[0] and f"「{_C1_NOT_DOING}」" in notes[0], notes
-    assert rr.waiver_miss_notes(kept, [], later, [{**led[0], "units": ["tests/test_cart.py::test_total"]}]) == []
 
 
 _C1_THREE = "cd /c/w4/qc2-orders && python -m pytest tests/test_pricing.py tests/test_checkout.py tests/test_cli.py -q"
@@ -1856,34 +1676,6 @@ def test_005_codex_green_dirs_and_narrowed_after_partial_clear():
     v, ran = rr.green_ran_cases_verdict(red_cmd, two, "python -m pytest tests/test_b.py::test_b -k test_b",
                                         cleared=["tests/test_a.py::test_a"])
     assert not v.owed and ran == ["tests/test_b.py::test_b"], v
-
-
-def test_005_codex_unlisted_units_ignore_trailing_comment_echo_and_split_per_failure():
-    """RED_ITEMS_ONLY_FROM_FAILURE_LINES（codex 005，基底同樣誤放）：沒列節點時，行尾註解、echo 這類別段的檔名不算；
-    go／unittest 一行一支的失敗各自要有豁免，只豁免一支整筆照紅；結算行（FAIL、FAIL\t<套件>）不是一支。"""
-    decl = rr.parse_not_doing("不做｜test_erp_contract.py：使用者說「先不用管它、跳過」")
-    for cmd in ("python -m pytest tests -q # test_erp_contract.py", "echo test_erp_contract.py && python -m pytest tests -q"):
-        kept, waived = rr.waived_failures([{"cmd": cmd, "summary": "1 failed, 14 passed"}], decl, [_C1_SAID])
-        assert kept and not waived, cmd
-    go = {"cmd": "go test ./...", "summary": "--- FAIL: TestErpContract (0.00s)\n    --- FAIL: TestErpContract/fields (0.00s)\n"
-                                              "--- FAIL: TestPayment (0.00s)\nFAIL\nFAIL\tgithub.com/x/pkg\t0.01s"}
-    assert rr.failure_units(go["summary"]) == ["TestErpContract", "TestPayment"]
-    kept, _ = rr.waived_failures([go], rr.parse_not_doing("不做｜TestErpContract：使用者說「先不用管它、跳過」"), [_C1_SAID])
-    assert kept, "付款那支沒豁免，整筆照紅"
-    both = "不做｜TestErpContract：使用者說「先不用管它、跳過」\n不做｜TestPayment：使用者說「先不用管它、跳過」"
-    kept, waived = rr.waived_failures([go], rr.parse_not_doing(both), [_C1_SAID])
-    assert not kept and sorted(u for _f, h in waived for u in h["units"]) == ["TestErpContract", "TestPayment"]
-    ut = "FAIL: test_contract (tests.test_erp.ErpCase)\n----\nFAILED (failures=1)"
-    assert rr.failure_units(ut) == ["test_contract"]
-
-
-def test_005_codex_miss_notes_skip_tests_already_waived_by_ledger():
-    """codex 005（本輪新開）：ERP 照帳豁免了、整筆還紅是因為付款那支——不再對 ERP 說「帳上也沒有」。"""
-    entry = {"cmd": "python -m pytest tests -q", "summary": f"FAILED {_C1_ERP} - x\nFAILED tests/test_pay.py::test_pay - y"}
-    decls = rr.parse_not_doing(_C1_NOT_DOING)
-    led = [{"item": "test_checkout_fields_match_erp_contract", "quote": "先不用管它、跳過", "units": [_C1_ERP.lower()]}]
-    kept, _ = rr.waived_failures([entry], decls, ["好"], led, ["好"])
-    assert kept and rr.waiver_miss_notes(kept, decls, ["好"], led) == []
 
 
 # ─── 閘小修 006 ─────────────────────────────────────────────────────────────────────────────
@@ -1950,30 +1742,22 @@ def test_launcher_not_code_source_shapes():
 # 案例函式在各自的 verify 檔（走真入口才驗得到）；這裡只核對規則有登記、對照的案例檔與函式真的在。
 
 _ELSEWHERE_CASES = {
-    "GATE_DENY_CAP": [("verify_pull_tool_gates.py", "test_deny_cap_counts_each_item_per_user_turn"),
-                      ("verify_pull_tool_gates.py", "test_data_file_gate_releases_after_two_denies_in_same_turn")],
-    "DENY_CAP_PER_REPLY": [("verify_pull_tool_gates.py", "test_deny_cap_per_reply_counts_one_reply_once"),
-                           ("verify_pull_tool_gates.py", "test_data_file_gate_parallel_edits_in_one_reply_count_once")],
+    "GATE_DENY_CAP": [("verify_pull_tool_gates.py", "test_deny_cap_counts_each_item_per_user_turn")],
+    "DENY_CAP_PER_REPLY": [("verify_pull_tool_gates.py", "test_deny_cap_per_reply_counts_one_reply_once")],
     "PICK_ONCE_PER_USER_TURN": [("verify_pick_one.py", "test_stop_continuation_after_red_test_block_still_asks_once")],
     "SVN_TEST_BLOCK_OPT_IN": [("verify_pull_tool_gates.py", "test_svn_test_block_off_by_default"),
                               ("verify_pull_tool_gates.py", "test_svn_test_block_on_looks_only_at_commit_paths"),
                               ("verify_pull_tool_gates.py", "test_svn_test_block_user_sentence_this_turn_allows")],
-    "GATE_BYPASS_NAMED_FILES_MERGED": [
-        ("verify_pull_tool_gates.py", "test_excluded_named_file_still_needs_declaration_after_other_file_fixed"),
-        ("verify_pull_tool_gates.py", "test_declaration_after_a_named_still_counts_for_a"),
-        ("verify_pull_tool_gates.py", "test_declaration_before_b_named_does_not_cover_b")],
     # 收尾閘那一批：案例在 verify_pull_stop_gates.py，每支 docstring 開頭寫「規則：<名>」
     "PENDING_SAME_USER_TURN": [("verify_pull_stop_gates.py", "test_1_pending_from_previous_user_turn_gives_fresh_budget")],
     "RELEASE_COVERS_SHOWN_ITEMS": [
         ("verify_pull_stop_gates.py", "test_1_released_item_not_asked_again_next_turn_until_cause_gone"),
         ("verify_pull_stop_gates.py", "test_release_binds_to_items_the_user_was_shown"),
-        ("verify_pull_stop_gates.py", "test_unformatted_new_reason_is_not_swallowed_by_released_item"),
-        ("verify_pull_stop_gates.py", "test_8_released_red_tests_do_not_cover_a_new_failure")],
+        ("verify_pull_stop_gates.py", "test_unformatted_new_reason_is_not_swallowed_by_released_item")],
     "NONINTERACTIVE_RELEASE_AT_BUDGET": [
         ("verify_pull_stop_gates.py", "test_3_headless_main_session_releases_on_third_and_never_says_cannot_release"),
         ("verify_pull_stop_gates.py", "test_3_subagent_block_message_does_not_say_cannot_release"),
-        ("verify_pull_stop_gates.py", "test_3_headless_equivalence_exhausted_releases_and_logs"),
-        ("verify_pull_stop_gates.py", "test_8_testfail_third_stop_releases_and_logs_headless")],
+        ("verify_pull_stop_gates.py", "test_3_headless_equivalence_exhausted_releases_and_logs")],
     "ORDER_UNTIL_PUSH": [("verify_pull_stop_gates.py", "test_4_order_survives_commit_and_notification_for_gate_forced_fix"),
                          ("verify_pull_stop_gates.py", "test_4_user_new_message_in_continuation_needs_new_order"),
                          ("verify_pull_stop_gates.py", "test_4_push_done_spends_order_even_within_same_turn"),
@@ -2023,41 +1807,8 @@ def test_deny_cap_old_names_folded_into_gate_deny_cap():
     assert "DECL_GATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"] and "LOCATE_DENY_CAP" in rr.RULES["GATE_DENY_CAP"]
 
 
-def test_decl_hints_do_not_steer_to_bash_writes():
-    """規則 DECL_HINT_KEEPS_EDIT_TOOLS：擋 Edit／Write 要先交宣告行的閘，擋訊息不准再用會被讀成「改用 Bash 寫檔」的說法
-    （補題第一版：AI 照「或寫成 Bash 指令開頭的 # 註解」全程用 python -c 改檔，改檔紀錄整個 session 是空的）。掃 hooks 全部
-    原始碼；繞閘宣告（擋的就是那條 Bash 指令，寫「這條」指令的註解）不在此列。"""
-    banned = ("或寫成 Bash／PowerShell 指令開頭的 `#` 註解", "或寫成下一個 Bash／PowerShell 指令開頭的", "下一個 Bash 開頭",
-              "下一個工具呼叫的參數（Bash 開頭的註解）")
-    hits = []
-    for p in sorted(HOOKS_DIR.rglob("*.py")):
-        if "verify" in p.relative_to(HOOKS_DIR).parts:
-            continue
-        src = p.read_text(encoding="utf-8")
-        hits += [f"{p.relative_to(HOOKS_DIR).as_posix()}：{b}" for b in banned if b in src]
-    assert not hits, hits
-    assert "照常用 Edit／Write" in rr.DECL_KEEP_EDIT and "不寫檔" in rr.DECL_VIA_COMMENT
-
-
-def test_decl_where_teaches_only_comment_channel():
-    """DECL_HINT_KEEPS_EDIT_TOOLS：每句教宣告放哪的字（動資料檔｜、改舊測試｜）只教一條路——
-    「同一則先發不寫檔指令的 `#` 註解」，並講原因（同一則裡接著呼叫工具的文字 hook 當下讀不到）；早一則的回覆文字、備援工具都不出現
-    （程式照認，只在規則表講）。009 實跑擋訊息同時教三條路，AI 挑了最貴的那條多 4 個模型回合。"""
-    import wg_oldtest as ot
-    assert rr.DECL_WHERE.startswith("同一則回覆裡先發一條不寫檔的") and "hook 當下讀不到" in rr.DECL_WHERE
-    texts = {"DECL_WHERE": rr.DECL_WHERE, "DECL_WHERE_SHORT": rr.DECL_WHERE_SHORT,
-             "data_file_hint": rr.data_file_hint("a.json"), "data_file_fix": rr.data_file_fix(["a.json"]),
-             "data_file_read_hint": rr.data_file_read_hint(["a.json"], True), "oldtest.hint": ot.hint("test_x")}
-    for name, t in texts.items():
-        assert "`#` 註解" in t, name
-        for other in ("早一則", "回覆文字", "locate 欄", "data_files", "need_goal(action=set", "備援"):
-            assert other not in t, (name, other)
-
-
 # ─── 閘小修 008 A：規則名登錄、對照的案例真的在、案例點到規則名 ───
 _008A_CASES = {
-    "OLD_TEST_COMPARED_ON_FAILED_COMMAND": ("verify_old_test_declare.py",
-                                            "test_failed_command_changing_old_test_still_compared_and_blocks_next_call"),
     "USER_TURN_KEY_KEPT": ("verify_user_turn_key.py", "test_rebuilt_state_three_peer_messages_pick_one_asks_once"),
     "COMPLETION_CLAIM_PER_SENTENCE": ("verify_evasion_guard.py", "test_completion_exclude_only_cancels_its_own_sentence"),
     "OPENING_NOTICE_NOT_TODO": ("verify_opening_notice.py",
@@ -2108,48 +1859,10 @@ def test_008_delete_and_dir_target_rules_registered():
     assert "wg_overview.write_target_root" in rr.RULES["DIR_TARGET_JUDGED_BY_CONTAINER"]
 
 
-def test_008_base_red_tracked_not_owed():
-    """BASE_RED_TRACKED_NOT_OWED：三件都對得上才放行；缺一照算紅並說缺哪件；沒有基底紅行對到的紅原樣留著、不附註。"""
-    d = rr.parse_base_red("收尾\n基底紅｜test_a：ABCDEF1234 也紅；追蹤 `docs/known red.md:12`\n基底紅｜test_b：沒寫雜湊")
-    assert d[0]["item"] == "test_a" and d[0]["base"] == "abcdef1234" and d[0]["tracking"] == "docs/known red.md"
-    assert d[1]["base"] == "" and d[1]["tracking"] == ""
-    assert rr.parse_base_red("基底紅｜test_a：abcdef1 也紅；追蹤｜x/t.md")[0]["tracking"] == "x/t.md"
-    unit_a, unit_b = "t.py::test_a", "t.py::test_b"
-    red = {"cmd": "pytest t.py", "summary": f"FAILED {unit_a} - x\nFAILED {unit_b} - y", "cwd": "C:/r"}
-    runs = [{"clean": True, "head": "abcdef1234" + "0" * 30, "units": [unit_a, unit_b]}]
-    track = {"k.md": {"exists": True, "doc": True, "own_edit": False, "text": "test_a test_b 基底就紅"}}
-    both = rr.parse_base_red("基底紅｜test_a：abcdef1234 也紅；追蹤 k.md\n基底紅｜test_b：abcdef1234 也紅；追蹤 k.md")
-    ok = {"runs": runs, "ancestry": {("abcdef1234", "C:/r"): True}, "own_shas": [], "base_times": {"abcdef1234": 100.0},
-          "started": 200.0, "tracking": track}
-    kept, based, notes = rr.base_red_failures([red], both, ok)
-    assert not kept and not notes and [r["unit"] for r in based[0][1]] == [unit_a, unit_b]
-    kept, based, notes = rr.base_red_failures([red], both[:1], ok)                      # 兩支只宣告一支 → 整筆照紅
-    assert kept and not based and any("沒有對到它的基底紅行" in n and unit_b in n for n in notes)
-    kept, _, notes = rr.base_red_failures([red], both, {**ok, "ancestry": {("abcdef1234", "C:/r"): False}})
-    assert kept and any("不是現在 HEAD 的祖先" in n for n in notes)
-    kept, _, notes = rr.base_red_failures([red], both, {**ok, "runs": [{**runs[0], "units": [unit_a]}]})   # 基底只紅 a、b 是這次才紅
-    assert kept and any(unit_b in n and "沒在基底" in n for n in notes)
-    kept, _, notes = rr.base_red_failures([red], both, {**ok, "tracking": {"k.md": {**track["k.md"], "doc": False}}})
-    assert kept and any("不是 .md" in n for n in notes)
-    unlisted = {"cmd": "pytest t.py", "summary": "1 failed", "cwd": "C:/r"}
-    kept, _, notes = rr.base_red_failures([unlisted], rr.parse_base_red("基底紅｜t.py：abcdef1234 也紅；追蹤 k.md"), ok)
-    assert kept and any("逐支列得出" in n for n in notes)
-    kept, based, notes = rr.base_red_failures([red], [], ok)
-    assert kept == [red] and not based and not notes
-    other = {"k.md": {**track["k.md"], "text": "known: test_a_other test_b_other"}}         # 只提到名字更長的別支 → 沒點名
-    kept, _, notes = rr.base_red_failures([red], both, {**ok, "tracking": other})
-    assert kept and any("沒點名 test_a" in n for n in notes)
-    for over, why in (({"base_times": {"abcdef1234": 300.0}}, "早於本 session 開始"), ({"base_times": {}}, "查不到時間"),
-                      ({"started": None}, "早於本 session 開始"), ({"own_shas": ["ABCDEF1234ffff"]}, "自己提交的")):
-        kept, _, notes = rr.base_red_failures([red], both, {**ok, **over})   # 本 session 開始後才有的 commit（自己的 merge）、自己的提交
-        assert kept and any(why in n for n in notes), (over, notes)
-    assert rr.listed_red_units(f"FAILED {unit_a} - x") == [unit_a] and rr.listed_red_units("1 failed") == []
-
-
 # ─── 閘的三件設計題：規則名登錄、對照的案例真的在、案例點到規則名 ───
 _GATE_DESIGN_CASES = {
     "CHAIN_HEADLESS_KEEPS_DATA_GATES": ("verify_chain_wiring.py",
-                                        "test_headless_after_alarm_data_file_blocked_code_file_record_only"),
+                                        "test_headless_after_alarm_data_gate_blocked_code_file_record_only"),
     "SHELL_READ_COUNTS_LIKE_READ": ("verify_overview_hub.py", "test_shell_read_counts_like_read"),
     "SHELL_WRITE_COMMAND_NOT_A_READ": ("verify_overview_hub.py", "test_shell_write_command_not_a_read"),
     "EPHEMERAL_WRITE_NOTED_ONCE": ("verify_ephemeral_path.py", "test_temp_project_write_not_noted_but_said_once_per_root"),
@@ -2186,20 +1899,6 @@ def test_inject_lean_rules_registered_with_cases():
         assert rule in rr.RULES and rule in text and f"def {fn}(" in text, rule
 
 
-# ─── 擋訊息瘦身、讀到資料檔就先提示：規則名登錄、對照的案例真的在、案例點到規則名 ───
-_SLIM_CASES = {
-    "DENY_TEXT_SLIM": ("verify_data_file_ask.py", "test_deny_text_slim_rule_fix_and_hit_only"),
-    "DATA_FILE_READ_HINT": ("verify_data_file_ask.py", "test_read_hint_on_first_read_of_data_file"),
-}
-
-
-@pytest.mark.parametrize("rule", sorted(_SLIM_CASES))
-def test_slim_rules_registered_with_cases(rule):
-    case_file, fn = _SLIM_CASES[rule]
-    text = (Path(__file__).parent / case_file).read_text(encoding="utf-8")
-    assert rule in rr.RULES and f"def {fn}(" in text and rule in text, (rule, case_file, fn)
-
-
 @pytest.mark.parametrize("rule", ["READING_PATH_EARLY_START", "TURN_JUDGMENT_PRE_CLOSE", "PICK_ONE_PRE_CLOSE",
                                   "PICK_ONE_WITH_TURN_JUDGMENT"])
 def test_closing_round_rules_cased_in_closing_round(rule):
@@ -2214,9 +1913,8 @@ def test_closing_call_rule_cased_in_closing_round():
     assert "CLOSING_CALL_ALL_THREE" in (Path(__file__).parent / "verify_closing_round.py").read_text(encoding="utf-8")
 
 
-# ─── 擋或提醒（RULE_MODE）：每條規則有 mode、三類照擋、其餘提醒、總開關關一律照舊 ───
-_BLOCK_RULES = ("COMMIT_SMELL_NEW_BLOCKS", "GATE_BYPASS_NEEDS_DECLARATION", "USER_DATA_FILE_NEEDS_DECLARATION",
-                "OLD_TEST_CHANGE_NEEDS_DECLARATION", "RED_TEST_BLOCKS_COMPLETION", "CLAIM_FIXED_NEEDS_PASS")
+# ─── 擋或提醒（RULE_MODE）：每條規則有 mode、兩類照擋、其餘提醒、總開關關一律照舊 ───
+_BLOCK_RULES = ("COMMIT_SMELL_NEW_BLOCKS", "RED_TEST_BLOCKS_COMPLETION", "CLAIM_FIXED_NEEDS_PASS")
 _REMIND_RULES = ("DEFERRAL_OF_DOABLE_WORK", "HARVEST_AT_PHASE_DONE", "HARVEST_ITEM_NEEDS_RECEIPT",
                  "CLOSING_CHECK_REQUIRED", "CLOSING_CHECK_MEMORY_NOT_DEFERRED", "SYNC_REMINDER_UNSYNCED",
                  "SYNC_BLOCK_PENDING_ITEMS", "DEEP_POSTMORTEM_ON_FAILURE", "ATOM_CONSUMPTION_AUDIT",
@@ -2232,8 +1930,8 @@ def test_rule_mode_covers_every_rule_with_block_or_remind():
 
 
 @pytest.mark.parametrize("rule", _BLOCK_RULES)
-def test_three_classes_block_when_v6_on(rule):
-    assert rule in rr.RULES and rr.RULE_CLASS[rule] in ("病形", "宣告", "紅測")
+def test_two_classes_block_when_v6_on(rule):
+    assert rule in rr.RULES and rr.RULE_CLASS[rule] in ("病形", "紅測")
     assert rr.gate_mode(rule, True) == rr.BLOCK
 
 

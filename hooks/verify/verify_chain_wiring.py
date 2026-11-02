@@ -1,9 +1,9 @@
 """verify_chain_wiring.py — 連鎖斷路器接到各 hook 之後的行為案例（收尾 handlers/stop.py、工具前 handlers/pre_tool_use.py、
 工具後 handlers/post_tool_use.py、SessionEnd 清快照）。
 
-做什麼：走真的 handler 入口模擬一個使用者回合——收尾閘擋（知識收割、收割對帳的判定換成可控的開關）、工具前閘擋（動資料檔閘的判定換成
-開關）、AI 改檔（工具前放行才寫、工具後記動作）——驗：同一道閘擋同一個對象第 2 次會中止（工具前閘報擋的部位與檔）、中止後其餘閘只記錄、工具先停手只准讀與問、
-收尾送三選項、headless 不問人不還原、選還原只還原連鎖段、選繼續歸零再問、選放行同時放行既有閘（紅測閘記成使用者放行）、
+做什麼：走真的 handler 入口模擬一個使用者回合——收尾閘擋（知識收割、收割對帳的判定換成可控的開關）、工具前閘擋（專案改根層核心那道閘 CrossRealmWriteBlock 的判定換成
+開關）、AI 改檔（工具前放行才寫、工具後記動作）——驗：同一道閘第 2 次會中止、中止後其餘閘只記錄、工具先停手只准讀與問、
+收尾送三選項、headless 不問人不還原、選還原只還原連鎖段、選繼續歸零再問、選放行同時放行既有閘（寫碼查核記成使用者放行）、
 子代理收尾第 2 次改送中止通知、失敗的重跑也記成動作、只改註解記 comment_only；
 反例：沒有連鎖（擋一次、修一次、過）時，每一步的輸出跟關掉斷路器一模一樣。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_chain_wiring.py
@@ -26,7 +26,6 @@ sys.path.insert(0, str(HOOKS_DIR))
 import wg_core  # noqa: E402
 import chain_store as cs  # noqa: E402
 import wg_chain as wc  # noqa: E402
-import wg_data_file  # noqa: E402
 import wg_release  # noqa: E402
 from handlers import post_tool_use as post  # noqa: E402
 from handlers import pre_tool_use as ptu  # noqa: E402
@@ -34,7 +33,7 @@ from handlers import stop as st  # noqa: E402
 
 KH = "[Guardian:KnowledgeHarvest] 宣告完成：先把值得留的 atom_write，再呼叫 knowledge_harvest_report"
 HP = "[Guardian:Harvest-Pending] 收割回報有 1 項對不上收據"
-DF = "[Guardian:DataFileAsk] 動到使用者的資料檔，先寫「動資料檔｜<路徑>：<為什麼>」"
+XR = "[Guardian:CrossRealmWriteBlock] 專案 session 不能寫核心層的檔"
 
 
 class Out(Exception):
@@ -68,7 +67,7 @@ class Session:
         self.tp = root / sid / "transcript.jsonl"
         self.tp.touch()
         self.n = 0
-        self.gates = {"KnowledgeHarvest": False, "Harvest-Pending": False, "DataFileAsk": False}
+        self.gates = {"KnowledgeHarvest": False, "Harvest-Pending": False, "CrossRealmWriteBlock": False}
         self.picks = []
         self.cfg = copy.deepcopy(wg_core.load_config())
         self.cfg.setdefault("chain_breaker", {})["enabled"] = chain_on
@@ -79,7 +78,7 @@ class Session:
         monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: HP if gates["Harvest-Pending"] else None)
         monkeypatch.setattr(st, "background_on", lambda cfg: False)
         monkeypatch.setattr(st, "_pick_one_prompt", lambda *a, **k: self.picks.append(1))
-        monkeypatch.setattr(wg_data_file, "gate", lambda *a, **k: DF if gates["DataFileAsk"] else None)
+        monkeypatch.setattr(ptu, "check_cross_realm_write", lambda *a, **k: XR if gates["CrossRealmWriteBlock"] else None)
 
     def inp(self, hook: str, **kw):
         self.n += 1
@@ -163,17 +162,17 @@ def hk(tmp_path, monkeypatch):
 
 
 def _depth2(s: Session):
-    """閘A（收尾：知識收割）擋 → 改檔 → 閘B（工具前：動資料檔）擋 → 改檔 → 閘A 第二次。回 (第三次的輸出, 兩個檔)。"""
+    """閘A（收尾：知識收割）擋 → 改檔 → 閘B（工具前：根層寫入閘）擋 → 改檔 → 閘A 第二次。回 (第三次的輸出, 兩個檔)。"""
     x, y = s.proj / "notes.txt", s.proj / "other.txt"
     x.write_text("n = 1\n", encoding="utf-8")
     s.gates["KnowledgeHarvest"] = True
     first = s.stop()
     assert _blocked(first) and KH in first["reason"]                  # 前置：閘A 真的照原樣擋
     assert not _denied(s.write(x, "n = 2\n"))
-    s.gates["DataFileAsk"] = True
+    s.gates["CrossRealmWriteBlock"] = True
     out = s.write(y, "o = 1\n")
-    assert _denied(out) and _deny_text(out).startswith("[Guardian:DataFileAsk]")   # 前置：閘B 照原樣擋（深度 1 還沒中止）
-    s.gates["DataFileAsk"] = False
+    assert _denied(out) and _deny_text(out).startswith("[Guardian:CrossRealmWriteBlock]")   # 前置：閘B 照原樣擋（深度 1 還沒中止）
+    s.gates["CrossRealmWriteBlock"] = False
     assert not _denied(s.write(y, "o = 1\n"))
     return s.stop(), x, y
 
@@ -188,8 +187,8 @@ def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
     assert _blocked(out) and out["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
     for opt in (wc.OPT_RESTORE, wc.OPT_CONTINUE, wc.OPT_RELEASE):
         assert f"「{opt}」" in out["reason"]
-    # 動資料檔閘報了它擋的 other.txt，A 之後 AI 只改了 notes.txt → A→B 不接（CHAIN_EDGE_FILES_DISJOINT），深度 1
-    assert "總共連鎖 2 次、深度 1" in out["reason"] and "DataFileAsk" in out["reason"] and "notes.txt" in out["reason"]
+    # 工具前閘不報擋的檔（沒有閘報 watched）→ A 之後 AI 改了 notes.txt，A→B 照時間先後接上
+    assert "總共連鎖 2 次、深度 2" in out["reason"] and "CrossRealmWriteBlock" in out["reason"] and "notes.txt" in out["reason"]
     halt = s.write(y, "o = 9\n")
     assert _denied(halt) and _deny_text(halt).startswith("[Guardian:ChainBreaker] 連鎖中止中")
     assert y.read_text(encoding="utf-8") == "o = 1\n"
@@ -210,47 +209,47 @@ def test_same_tool_gate_twice_aborts(hk):
     （不是原擋訊息），收尾擋一次送經過表。動了別的手之後原封不動重送算原樣重試（CHAIN_SAME_CALL_RETRY），見下一案。"""
     s = hk()
     f = s.proj / "data.txt"
-    s.gates["DataFileAsk"] = True
-    assert _deny_text(s.write(f, "a\n")).startswith("[Guardian:DataFileAsk]")
+    s.gates["CrossRealmWriteBlock"] = True
+    assert _deny_text(s.write(f, "a\n")).startswith("[Guardian:CrossRealmWriteBlock]")
     retry = s.write(f, "a\n")
-    assert _denied(retry) and _deny_text(retry).startswith("[Guardian:DataFileAsk]")       # 沒動作：交回閘自己
-    s.gates["DataFileAsk"] = False
+    assert _denied(retry) and _deny_text(retry).startswith("[Guardian:CrossRealmWriteBlock]")       # 沒動作：交回閘自己
+    s.gates["CrossRealmWriteBlock"] = False
     assert not _denied(s.write(s.proj / "other.txt", "o\n"))                                # AI 動了手
-    s.gates["DataFileAsk"] = True
+    s.gates["CrossRealmWriteBlock"] = True
     second = s.write(f, "b\n")                                                              # 改了內容再送
     assert _denied(second) and _deny_text(second).startswith("[Guardian:ChainBreaker] 連鎖中止")
-    assert "DataFileAsk（擋 " in _deny_text(second) and "/data.txt）這一段第 2 次觸發" in _deny_text(second)   # 同一個檔
+    assert "CrossRealmWriteBlock 這一段第 2 次觸發" in _deny_text(second)
     assert not f.exists()
     out = s.stop()
     assert _blocked(out) and "AskUserQuestion" in out["reason"]
 
 
 def test_verbatim_retry_after_other_action_keeps_gate_block_headless(hk, monkeypatch):
-    """紅案例（CHAIN_SAME_CALL_RETRY，004 非改 code 題現況1 重演、無頭入口）：動資料檔閘擋 Write → AI 做了別的動作 → 原封不動重送
+    """紅案例（CHAIN_SAME_CALL_RETRY，004 非改 code 題現況1 重演、無頭入口）：根層寫入閘擋 Write → AI 做了別的動作 → 原封不動重送
     → 照那道閘原本的擋（不警報、其餘閘不變成只記錄，這筆改動沒宣告就過不了）；改了內容再送 → 照舊算第 2 次警報，
-    動資料檔閘無頭照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）。舊碼重送那次就警報，無頭照 CHAIN_HEADLESS_NO_ASK 放行，檔就沒宣告改成了。"""
+    根層寫入閘無頭照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）。舊碼重送那次就警報，無頭照 CHAIN_HEADLESS_NO_ASK 放行，檔就沒宣告改成了。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk("sid-retry")
     f = s.proj / "README.md"
-    s.gates["DataFileAsk"] = True
-    assert _deny_text(s.write(f, "說明\n")).startswith("[Guardian:DataFileAsk]")
-    s.gates["DataFileAsk"] = False
+    s.gates["CrossRealmWriteBlock"] = True
+    assert _deny_text(s.write(f, "說明\n")).startswith("[Guardian:CrossRealmWriteBlock]")
+    s.gates["CrossRealmWriteBlock"] = False
     assert not _denied(s.write(s.proj / "release.md", "r\n"))                               # AI 做了別的動作
-    s.gates["DataFileAsk"] = True
+    s.gates["CrossRealmWriteBlock"] = True
     retry = s.write(f, "說明\n")
-    assert _denied(retry) and _deny_text(retry).startswith("[Guardian:DataFileAsk]") and not f.exists()
+    assert _denied(retry) and _deny_text(retry).startswith("[Guardian:CrossRealmWriteBlock]") and not f.exists()
     assert not {"alarm", "notice"} & {r.get("type") for r in cs.read_rows(s.sid)}
-    s.gates["DataFileAsk"] = False
+    s.gates["CrossRealmWriteBlock"] = False
     assert not _denied(s.write(s.proj / "release.md", "r2\n"))
-    s.gates["DataFileAsk"] = True
+    s.gates["CrossRealmWriteBlock"] = True
     second = s.write(f, "說明（改寫）\n")                                                     # 改了內容：第 2 次，警報響
-    assert _denied(second) and _deny_text(second).startswith("[Guardian:DataFileAsk]") and not f.exists()   # 資料閘無頭照擋
+    assert _denied(second) and _deny_text(second).startswith("[Guardian:CrossRealmWriteBlock]") and not f.exists()   # 資料閘無頭照擋
     assert "alarm" in {r.get("type") for r in cs.read_rows(s.sid)}
 
 
 def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
     """紅案例（C2）：headless 主 session 觸發 → 不叫 AI 問、不停手：其餘閘只記錄、改檔照常、帳上有 alarm；transcript 裡就算有答案
-    也不還原不繼續。動資料檔閘例外照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）：警報後、和讓警報響的那一次都照擋；收尾擋一次送表、之後不再擋。"""
+    也不還原不繼續。根層寫入閘例外照擋（CHAIN_HEADLESS_KEEPS_DATA_GATES）：警報後、和讓警報響的那一次都照擋；收尾擋一次送表、之後不再擋。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk()
     out, x, y = _depth2(s)
@@ -262,26 +261,26 @@ def test_headless_aborts_without_asking_or_restoring(hk, monkeypatch):
     assert not _blocked(after)
     assert x.read_text(encoding="utf-8") == "n = 2\n" and y.read_text(encoding="utf-8") == "o = 1\n"
     assert not _denied(s.write(x, "n = 3\n")) and x.read_text(encoding="utf-8") == "n = 3\n"      # 不停手
-    s.gates["DataFileAsk"] = True
-    assert _denied(s.write(y, "o = 2\n")) and y.read_text(encoding="utf-8") == "o = 1\n"         # 動資料檔閘照擋
+    s.gates["CrossRealmWriteBlock"] = True
+    assert _denied(s.write(y, "o = 2\n")) and y.read_text(encoding="utf-8") == "o = 1\n"         # 根層寫入閘照擋
     kinds = {r.get("type") for r in cs.read_rows(s.sid)}
     assert "alarm" in kinds and not {"answer", "restore", "reset", "halted"} & kinds
     t = hk("sid-headless-tool")
     f = t.proj / "d.txt"
-    t.gates["DataFileAsk"] = True
+    t.gates["CrossRealmWriteBlock"] = True
     assert _denied(t.write(f, "a\n"))
-    t.gates["DataFileAsk"] = False
+    t.gates["CrossRealmWriteBlock"] = False
     assert not _denied(t.write(t.proj / "e.txt", "e\n"))
-    t.gates["DataFileAsk"] = True
+    t.gates["CrossRealmWriteBlock"] = True
     assert _denied(t.write(f, "b\n")) and not f.exists()                       # 改了內容再送：響的那一次是資料閘，照擋
     first = t.stop()
     assert _blocked(first) and first["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止") and not _blocked(t.stop())
 
 
-def test_headless_after_alarm_data_file_blocked_code_file_record_only(hk, monkeypatch):
+def test_headless_after_alarm_data_gate_blocked_code_file_record_only(hk, monkeypatch):
     """紅案例（CHAIN_HEADLESS_KEEPS_DATA_GATES；004 非改 code 題現況1：無頭量測裡 ops/README.md 沒宣告就改成）：無頭、
-    OverviewHub 寫入檢查第 2 次擋讓警報響之後 → 改資料檔沒宣告：照動資料檔閘原擋訊息擋、檔沒寫成，再送一次也照擋；
-    同一情境改一般程式檔被寫入檢查擋 → 只記錄、照寫。收尾的經過表標出照擋的那幾筆。改前警報後動資料檔閘只記錄、檔沒宣告就改了。"""
+    OverviewHub 寫入檢查第 2 次擋讓警報響之後 → 改資料檔沒宣告：照根層寫入閘原擋訊息擋、檔沒寫成，再送一次也照擋；
+    同一情境改一般程式檔被寫入檢查擋 → 只記錄、照寫。收尾的經過表標出照擋的那幾筆。改前警報後根層寫入閘只記錄、檔沒宣告就改了。"""
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     s = hk("sid-keep")
     blocked = _hub_switch(s, monkeypatch)
@@ -293,15 +292,15 @@ def test_headless_after_alarm_data_file_blocked_code_file_record_only(hk, monkey
     assert not _denied(s.write(checkout, "c = 1\n")) and checkout.exists()                          # 同一道閘第 2 次：警報，無頭照放
     assert "alarm" in {r.get("type") for r in cs.read_rows(s.sid)}
     readme = s.proj / "ops" / "README.md"
-    s.gates["DataFileAsk"] = True
+    s.gates["CrossRealmWriteBlock"] = True
     for _ in range(2):
         out = s.write(readme, "部署說明\n")
-        assert _denied(out) and _deny_text(out).startswith("[Guardian:DataFileAsk]") and not readme.exists()
-    s.gates["DataFileAsk"] = False
+        assert _denied(out) and _deny_text(out).startswith("[Guardian:CrossRealmWriteBlock]") and not readme.exists()
+    s.gates["CrossRealmWriteBlock"] = False
     blocked.add(wc.canon_path(cli))
     assert not _denied(s.write(cli, "x = 1\n")) and cli.exists()                                    # 一般程式檔：只記錄
     rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
-    assert [r["gate"] for r in rows if r.get("kept")] == ["DataFileAsk", "DataFileAsk"]
+    assert [r["gate"] for r in rows if r.get("kept")] == ["CrossRealmWriteBlock", "CrossRealmWriteBlock"]
     assert rows[-1]["gate"] == "OverviewHub" and rows[-1]["record_only"] and not rows[-1].get("kept")
     first = s.stop()
     assert _blocked(first) and "會改使用者資料照擋" in first["reason"] and "照它的擋訊息補宣告" in first["reason"]
@@ -339,27 +338,39 @@ def test_continue_resets_and_asks_again(hk):
 
 
 def test_release_also_releases_existing_gate(hk, monkeypatch):
-    """選「放行這一回合」→ 這一回合其餘閘只記錄；同一個答案也算既有閘的放行（紅測閘記 user_release，題目帶【收尾放行確認】）。"""
+    """選「放行這一回合」→ 這一回合其餘閘只記錄；同一個答案也算既有閘的放行（寫碼查核記 user_release，題目帶【收尾放行確認】）。"""
     s = hk()
     logs = []
     real_log = st.append_guard_log
     monkeypatch.setattr(st, "append_guard_log", lambda name, rec: (logs.append((name, rec)), real_log(name, rec)))
-    state = wg_core.read_state(s.sid)
-    state["failing_tests"] = [{"session_id": s.sid, "cmd": "python -m pytest -q t.py", "summary": "FAILED t.py::test_x",
-                               "turn_seq": 1, "at": "2026-10-22T10:00:00"}]
-    wg_core.write_state(s.sid, state)
+    code = s.proj / "calc.py"
+    assert not _denied(s.write(code, "def add(a, b):\n    return a + b\n"))
     first = s.stop("修好了，全部完成。")
-    assert _blocked(first) and first["reason"].startswith("[Guardian:TestFailGate]")       # 前置：紅測閘照原樣擋
-    assert not _denied(s.write(s.proj / "fix.txt", "f\n"))
+    assert _blocked(first) and first["reason"].startswith("[Guardian:ReconcileGate]")     # 前置：寫碼查核照原樣擋
+    assert not _denied(s.write(code, "def add(a, b):\n    return b + a\n"))
     second = s.stop("修好了，全部完成。")
     assert _blocked(second) and second["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
     assert wg_release.RELEASE_TAG in wc.question(s.chain())
     s.answer(wg_release.OPT_RELEASE)
     third = s.stop("修好了，全部完成。")
     assert not _blocked(third) and "放行這一回合" in third["systemMessage"]
-    rel = wg_core.read_state(s.sid)["user_released"][s.sid][st.TF_GATE]
+    rel = wg_core.read_state(s.sid)["user_released"][s.sid]["reconcile"]
     assert rel["turn"] == 1
-    assert any(n == "reconcile" and r.get("event") == "user_release" and r.get("kind") == "testfail" for n, r in logs)
+    assert any(n == "reconcile" and r.get("event") == "user_release" for n, r in logs)
+
+
+def test_red_test_gate_blocks_even_while_chain_records_only(hk):
+    """紅測閘寫碼守門開或關同一套：不問連鎖斷路器，警報後其餘閘只記錄的時候，紅測還在、宣告完成照擋、照原擋訊息。"""
+    s = hk()
+    out, _x, _y = _depth2(s)
+    assert _blocked(out) and out["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
+    state = wg_core.read_state(s.sid)
+    state["failing_tests"] = [{"session_id": s.sid, "cmd": "python -m pytest -q t.py", "summary": "FAILED t.py::test_x",
+                               "turn_seq": 1, "at": "2026-10-22T10:00:00"}]
+    wg_core.write_state(s.sid, state)
+    red = s.stop("這一輪把 add 的實作、設定檔與測試都整理過了，相關檔案也看過一遍。全部完成了，測試都跑過。")   # 收尾看最後一段超過 30 字的話
+    assert _blocked(red) and red["reason"].startswith("[Guardian:TestFailGate]") and "不做｜" not in red["reason"]
+    assert not any(r.get("gate") == "TestFailGate" for r in cs.read_rows(s.sid) if r.get("type") == "gate")
 
 
 def _abort_by_kh(s: Session):
@@ -457,7 +468,7 @@ def test_failed_rerun_and_comment_only_are_recorded(hk):
 def test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block(hk):
     """接線（CHAIN_NO_EDIT_NO_EDGE、CHAIN_ABORT_SHOWS_REPLACED_BLOCK）：收尾閘（知識收割）擋 → AI 只重跑測試、沒改檔
     → 同一道閘再擋：照原擋訊息擋、不中止；AI 改了檔 → 第 3 次：改送中止通知，通知最後附上被換掉的那次擋的原文。
-    工具前閘（動資料檔）改了內容再撞第 2 次：停手訊息附上原擋訊息。改前重跑之後第 2 次就中止、通知裡看不到原擋訊息。"""
+    工具前閘（根層寫入閘）改了內容再撞第 2 次：停手訊息附上原擋訊息。改前重跑之後第 2 次就中止、通知裡看不到原擋訊息。"""
     s = hk()
     s.gates["KnowledgeHarvest"] = True
     assert _blocked(s.stop())
@@ -473,13 +484,13 @@ def test_rerun_only_no_alarm_then_edit_alarm_carries_replaced_block(hk):
     assert third["reason"].rstrip().endswith(KH) and "被中止訊息換掉的擋" in third["reason"]
     t = hk("sid-replaced-tool")
     f = t.proj / "data.txt"
-    t.gates["DataFileAsk"] = True
+    t.gates["CrossRealmWriteBlock"] = True
     assert _denied(t.write(f, "a\n"))
-    t.gates["DataFileAsk"] = False
+    t.gates["CrossRealmWriteBlock"] = False
     assert not _denied(t.write(t.proj / "other.txt", "o\n"))
-    t.gates["DataFileAsk"] = True
+    t.gates["CrossRealmWriteBlock"] = True
     halt = _deny_text(t.write(f, "b\n"))
-    assert halt.startswith("[Guardian:ChainBreaker] 連鎖中止") and halt.rstrip().endswith(DF)
+    assert halt.startswith("[Guardian:ChainBreaker] 連鎖中止") and halt.rstrip().endswith(XR)
 
 
 def test_session_end_drops_snapshots(hk):
@@ -532,9 +543,9 @@ def test_no_chain_outputs_identical_to_breaker_off(hk):
         s.gates["KnowledgeHarvest"] = False
         outs.append(s.write(f, "n = 2\n"))
         outs.append(s.stop())
-        s.gates["DataFileAsk"] = True
+        s.gates["CrossRealmWriteBlock"] = True
         outs.append(s.write(s.proj / "d.txt", "d\n"))
-        s.gates["DataFileAsk"] = False
+        s.gates["CrossRealmWriteBlock"] = False
         outs.append(s.write(s.proj / "d.txt", "d\n"))
         outs.append(s.stop())
         return outs
@@ -548,7 +559,7 @@ def test_no_chain_outputs_identical_to_breaker_off(hk):
     assert not cs.ledger_path(off.sid).exists()
 
 
-# ─── 同一道閘照擋的對象計數：工具前閘把擋的對象報給斷路器 ─────────────────────
+# ─── 工具前閘不報擋的對象 ───────────────────────────────────────────
 
 MAP = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
        "| `orders\\` | 訂單結帳 | `訂單導讀` | 有 |\n| `tests\\` | 測試 | `測試導讀` | 有 |\n")
@@ -571,40 +582,24 @@ def _hub_switch(s: Session, monkeypatch) -> set:
     return blocked
 
 
-def test_data_file_gate_reports_blocked_file(hk):
-    """接線：動資料檔閘擋 a.json → AI 改別的檔 → 擋 b.json → 照原擋訊息擋、不中止，帳上各帶擋的檔
-    （同一個檔再擋照算第 2 次見 test_same_tool_gate_twice_aborts）。"""
+def test_tool_gates_report_no_blocked_object(hk, monkeypatch):
+    """接線：工具前閘擋下時都不報擋的檔（watched 空），斷路器照閘名計數：擋 a.json → AI 改別的檔 → 擋 b.json → 同一道閘第 2 次。
+    版控口令一樣不報。"""
     s = hk()
     a, b = s.proj / "a.json", s.proj / "b.json"
-    s.gates["DataFileAsk"] = True
-    assert _deny_text(s.write(a, "{}\n")).startswith("[Guardian:DataFileAsk]")
-    s.gates["DataFileAsk"] = False
+    s.gates["CrossRealmWriteBlock"] = True
+    assert _deny_text(s.write(a, "{}\n")).startswith("[Guardian:CrossRealmWriteBlock]")
+    s.gates["CrossRealmWriteBlock"] = False
     assert not _denied(s.write(s.proj / "other.txt", "o\n"))
-    s.gates["DataFileAsk"] = True
-    assert _deny_text(s.write(b, "{}\n")).startswith("[Guardian:DataFileAsk]")
+    s.gates["CrossRealmWriteBlock"] = True
+    s.write(b, "{}\n")
     rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
-    assert [[wc.canon_path(p) for p in r["watched"]] for r in rows] == [[wc.canon_path(a)], [wc.canon_path(b)]]
-    assert [r["same"] for r in rows] == [1, 1] and not rows[-1]["record_only"]
-
-
-def test_old_test_gate_reports_owed_and_written_files(hk, monkeypatch):
-    """接線：改舊測試閘擋下時報的檔＝這次要寫的檔＋呼叫前還欠宣告的那幾支（上一個 Bash 動了既有測試沒宣告，這次任何工具都可能因它們被擋）。
-    說不出擋什麼的閘（版控口令）不報檔、照閘名。"""
-    import wg_oldtest
-    s = hk()
-    owed, x = s.proj / "tests" / "test_old.py", s.proj / "x.py"
-    state = wg_core.read_state(s.sid)
-    state[wg_oldtest.PENDING_KEY] = [{"file": str(owed), "key": "test_a", "kind": "assert", "tool": "Bash"}]
-    wg_core.write_state(s.sid, state)
-    monkeypatch.setattr(wg_oldtest, "gate", lambda *a, **k: "[Guardian:OldTestDeclare] 動到既有測試、沒先宣告：\n✗ (ot) …")
-    assert _deny_text(s.write(x, "x = 1\n")).startswith("[Guardian:OldTestDeclare]")
-    row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
-    assert row["gate"] == "OldTestDeclare" and "target" not in row
-    assert {wc.canon_path(p) for p in row["watched"]} == {wc.canon_path(owed), wc.canon_path(x)}
-    monkeypatch.setattr(wg_oldtest, "gate", lambda *a, **k: None)
+    assert [r["watched"] for r in rows] == [[], []] and [r["same"] for r in rows] == [1, 2]
+    s.gates["CrossRealmWriteBlock"] = False
+    t = hk("sid-commit-order")
     monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: "[Guardian:CommitOrder] 本回合沒有版控口令")
-    assert _deny_text(s.pre("Bash", {"command": "git commit -m x"})).startswith("[Guardian:CommitOrder]")
-    row = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"][-1]
+    assert _deny_text(t.pre("Bash", {"command": "git commit -m x"})).startswith("[Guardian:CommitOrder]")
+    row = [r for r in cs.read_rows(t.sid) if r.get("type") == "gate"][-1]
     assert row["gate"] == "CommitOrder" and row["watched"] == [] and "target" not in row
 
 

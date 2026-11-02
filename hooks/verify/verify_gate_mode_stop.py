@@ -88,12 +88,18 @@ def _reminds(logs, guard=None):
 
 # ─── 照擋的兩類：擋訊息要有規則名與做法 ─────────────────────────────────────────
 
-def test_block_testfail_has_rule_and_fix(drive):
-    """S2 紅測閘照擋：本 session 跑紅、宣告完成 → decision=block，訊息列失敗項與三條出路。"""
+def test_block_testfail_has_rule_and_fix(drive, monkeypatch):
+    """S2 紅測閘照擋：本 session 跑紅、宣告完成 → decision=block，訊息列失敗項與三條出路。寫碼守門開或關，擋訊息逐字相同
+    （舊版出路：修復／明確說明不修／降級任務定義；沒有「不做｜」豁免與負向對照那兩條）。"""
     red = [{"session_id": SID, "cmd": "python -m pytest -q hooks/verify/verify_x.py", "summary": "1 failed", "turn_seq": 5}]
-    out, _, _ = drive(DONE, failing_tests=red)
+    out, _, _ = drive(DONE, failing_tests=[dict(r) for r in red])
     assert out.get("decision") == "block", drive.err
     assert "[Guardian:TestFailGate]" in out["reason"] and "(a)" in out["reason"] and "(b)" in out["reason"]
+    assert "已知 regression" in out["reason"] and "不做｜" not in out["reason"] and "負向對照" not in out["reason"]
+    on_msg = out["reason"].split("\n[Guardian:AlsoOwed]")[0]
+    monkeypatch.setenv("WG_V6", "0")
+    off, _, _ = drive(DONE, failing_tests=[dict(r) for r in red])
+    assert off.get("decision") == "block" and off["reason"].split("\n[Guardian:AlsoOwed]")[0] == on_msg
 
 
 def test_block_claim_fixed_has_rule_and_fix(drive):
@@ -447,17 +453,11 @@ def test_case_for_line_is_a_case_declaration(monkeypatch, capsys):
     assert "CASE_COVERS_CHANGE" in ctx and "case_for｜" in ctx, ctx
 
 
-def test_waived_red_tests_count_as_delivery_boundary():
-    """011 重驗 C′：使用者叫跳過的那支永遠紅，「順手看到最該修」只認全綠永遠到不了。還紅的每一支都在豁免帳上 → 這批算到交付邊界；
-    有一支不在帳上、或帳是空的 → 不算。"""
+def test_red_test_run_is_not_delivery_boundary():
+    """這批的測試收據是紅的 → 不算交付邊界（「順手看到最該修」只認跑綠）；state 裡殘留的舊豁免帳不讀。跑綠才算。"""
     red = {"seq": 1, "cmd": "python -m pytest -q tests", "exit_code": 1, "sentinels": []}
     base = {"failing_tests": [{"session_id": SID, "summary": "FAILED tests/test_erp.py::test_contract", "pytest": True}]}
     state = {**base, "verify_receipts": {SID: [red]}, "testfail_waivers": [{"item": "test_contract", "units": ["tests/test_erp.py::test_contract"]}]}
-    assert ptb._test_green_batch(state, SID) == (True, True)
-    state = {**base, "verify_receipts": {SID: [red]}}
-    assert ptb._test_green_batch(state, SID) == (False, True)
-    two = {"session_id": SID, "summary": "FAILED tests/test_erp.py::test_contract\nFAILED tests/test_a.py::test_b", "pytest": True}
-    state = {"failing_tests": [two], "verify_receipts": {SID: [red]}, "testfail_waivers": [{"units": ["tests/test_erp.py::test_contract"]}]}
     assert ptb._test_green_batch(state, SID) == (False, True)
     state = {"failing_tests": [], "verify_receipts": {SID: [dict(red, exit_code=0)]}}
     assert ptb._test_green_batch(state, SID) == (True, True)

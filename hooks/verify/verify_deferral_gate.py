@@ -48,7 +48,7 @@ def test_detect_deferral_no_hit(text):
     assert detect_deferral(text, []) is None
 
 
-# ─── G6 階段 4（P7）：使用者延後要 AI 引用原句對到事項；AI 自己的不做行要附理由（NOT_DOING_DECLARED／USER_WAIVER_NEEDS_CITATION）──
+# ─── G6 階段 4（P7）：使用者延後要 AI 引用原句對到事項；AI 自己的不做行要附理由（NOT_DOING_DECLARED）──
 
 def test_p7_user_defer_line_no_citation_check():
     text = "完工。realm atom 瘦身留到下個 session 做。"
@@ -57,7 +57,7 @@ def test_p7_user_defer_line_no_citation_check():
     audit = []
     assert detect_deferral(cited, ["這顆 atom 下個 session 再做就好"], audit=audit) is None
     assert audit and audit[0]["rule"] == "NOT_DOING_DECLARED" and "realm atom 瘦身" in audit[0]["why"]
-    # 引用的句子不再比對使用者原話（USER_WAIVER_NEEDS_CITATION 已拿掉）：寫了那一行就不標，留帳抽查
+    # 引用的句子不比對使用者原話：寫了那一行就不標，留帳抽查
     assert detect_deferral(cited, ["為什麼你會判斷還需要新開 session？"]) is None
 
 

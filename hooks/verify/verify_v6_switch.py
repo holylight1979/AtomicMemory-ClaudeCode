@@ -3,8 +3,8 @@
 做什麼：
 1. 開關三態：預設關、環境變數 WG_CODING_GUARD=1 開、workflow/config.local.json 寫 coding_guard.enabled=true 開
    （WG_CODING_GUARD=0 蓋過 local）；舊名 WG_V6／舊鍵 v6.enabled 仍認、新名優先；MCP 端 lib/paths.js v6Enabled 同三態（沒裝 node 跳過）。
-2. 關閉時寫碼守門的閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 動資料檔宣告閘、
-   改舊測試閘，Stop 對帳閘、拐彎判斷閘，PostToolUse 需求目標提示；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
+2. 關閉時寫碼守門的閘不擋：把閘換成「必擋」替身，關閉時分派點不呼叫（不擋）、打開時照擋——PreToolUse 病形閘，
+   Stop 對帳閘、拐彎判斷閘，PostToolUse 需求目標提示；紅測閘開或關同一份舊版擋訊息；dispatcher 不分派 v6 才有的事件／工具／裁判子 session。
 3. 關閉時寫碼守門關時也跑的處理照跑：子代理記憶注入、知識收割擋（不走背景收割）、收割驗過後 vcs-sync、語言守門。
 怎麼跑：
   python -X utf8 -m pytest -q hooks/verify/verify_v6_switch.py
@@ -184,22 +184,29 @@ def pre_run(monkeypatch, tmp_path, capsys):
     return run
 
 
-@pytest.mark.parametrize("gate", ["data_file", "oldtest"])
 @pytest.mark.parametrize("on", [False, True])
-def test_pretool_v6_gates_skipped_when_off(pre_run, monkeypatch, gate, on):
+def test_pretool_v6_gate_skipped_when_off(monkeypatch, tmp_path, capsys, on):
+    """病形閘（寫碼守門的工具前閘）換成必擋替身：關閉時分派點不呼叫、不擋；打開時照擋。版控口令、隱私、合併驅動換成放行。"""
     _set_v6(monkeypatch, on)
+    monkeypatch.setattr(pre, "read_state_status", lambda sid: (None, "missing"))
+    monkeypatch.setattr(pre, "read_state", lambda sid: None)
+    for name in ("check_git_commit_order", "check_git_privacy", "check_merge_driver"):
+        monkeypatch.setattr(pre, name, lambda *a, **k: None)
     called = []
-
-    def deny(*a, **k):
-        called.append(gate)
-        return f"[V6-{gate}] 必擋替身"
-
-    monkeypatch.setattr(pre.wg_data_file if gate == "data_file" else pre.wg_oldtest, "gate", deny)
-    if gate == "oldtest":
-        monkeypatch.setattr(pre.wg_data_file, "gate", lambda *a, **k: None)
-    out = pre_run()
+    monkeypatch.setattr(pre, "check_smell_gate", lambda *a, **k: (called.append(1) or "[V6-smell] 必擋替身", None))
+    with pytest.raises(SystemExit):
+        pre.handle_pre_tool_use({"session_id": _SID, "cwd": str(tmp_path), "tool_name": "Bash",
+                                 "tool_input": {"command": 'git commit -m "x"'}}, {})
+    out = capsys.readouterr().out
     assert bool(called) is on
-    assert (f"[V6-{gate}]" in out and '"deny"' in out) is on
+    assert ("[V6-smell]" in out and '"deny"' in out) is on
+
+
+@pytest.mark.parametrize("on", [False, True])
+def test_pretool_data_file_and_old_test_edit_not_blocked(pre_run, monkeypatch, on):
+    """改資料檔不用先宣告：開或關，Edit 既有的 data.json 都不擋。"""
+    _set_v6(monkeypatch, on)
+    assert '"deny"' not in pre_run()
 
 
 @pytest.fixture
@@ -263,9 +270,10 @@ def test_stop_turn_judgment_gate_skipped_when_off(stop_run, monkeypatch, on):
     assert any(g == "reading_path" and p.get("event") == "remind" and p.get("rule") == "TURN_JUDGMENT_REQUIRED" for g, p in logs) is on
 
 
-def test_stop_off_testfail_message_is_pre_v6(stop_run, monkeypatch):
-    """關閉時紅測閘照擋（v6 以前就有），但訊息是 9e476fd0 原文：沒有關閉時不存在的「不做｜」豁免出口。"""
-    _set_v6(monkeypatch, False)
+@pytest.mark.parametrize("on", [False, True])
+def test_stop_testfail_message_is_pre_v6_either_way(stop_run, monkeypatch, on):
+    """紅測閘照擋（v6 以前就有），開或關訊息都是 9e476fd0 原文：沒有「不做｜」豁免出口。"""
+    _set_v6(monkeypatch, on)
     out = stop_run(_stop_state(failing_tests=[{"cmd": "pytest -q", "summary": "1 failed", "session_id": _SID}]))
     assert "[Guardian:TestFailGate]" in out and "已知 regression" in out and "不做｜" not in out
 
