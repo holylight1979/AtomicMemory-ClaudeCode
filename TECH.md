@@ -4263,10 +4263,10 @@ svn：svn_update_targets
 - **位置**：[`tools/usage-snapshot/usage_snapshot.py`](tools/usage-snapshot/usage_snapshot.py)（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30，喚醒電腦、錯過補跑）
 - **做什麼**：
   - 專屬 Chrome profile（`--login` 一次登入；headless 會被 Cloudflare 擋）開 claude.ai/settings/usage
-  - 等 `% used` 出現後截全頁
+  - 等用量文字出現（「68% used」或「已使用 68%」兩種字序都認），點開收合的「本週」列（Fable 等分模型每週上限在裡面）後截全頁
 - **截圖去向**：
   - 公司記憶庫（`org_memory` repo）`usage-snapshots/usage-YYYYMMDD-<帳號>.png`，隨即走 `wg_vcs_sync` commit／push
-  - 帳號＝這台 Claude Code 登入信箱 @ 前段；讀不到報錯不截
+  - 帳號＝截圖裡登入 claude.ai 的信箱 @ 前段（頁面 `/api/account`）；跟這台 Claude Code 帳號不同時照截圖命名並在 last-run `notes` 記警告，讀不到才退用 Claude Code 帳號
   - 沒接上公司記憶庫退本機 `workflow/usage-snapshots/`
   - 推不上去留在 clone
   - 以上兩種皆在 last-run 標 repo_error

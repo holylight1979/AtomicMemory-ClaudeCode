@@ -6,7 +6,8 @@
   且 Chrome 136+ 拒絕在預設 profile 上被自動化，所以不能直接借用）
   開有頭 Chrome 視窗（headless 會被 Cloudflare 人類驗證擋下）到 https://claude.ai/settings/usage，
   等用量條渲染完 → 截圖存到公司記憶庫（workflow/config.json org_memory 那個 repo）的 usage-snapshots/usage-YYYYMMDD-<帳號>.png，
-  隨即 commit／push（走記憶庫同一套背景上版控 wg_vcs_sync）。帳號＝這台 Claude Code 登入信箱 @ 前那段（.claude.json，跟 Claude Code 設定目錄），讀不到就報錯不截。
+  隨即 commit／push（走記憶庫同一套背景上版控 wg_vcs_sync）。帳號＝截圖裡登入 claude.ai 的那個信箱 @ 前那段（頁面 /api/account）；
+  跟這台 Claude Code 登入帳號（.claude.json，跟 Claude Code 設定目錄）不同時照截圖命名並記警告，讀不到才退用 Claude Code 帳號。
   這台沒接上公司記憶庫（先跑 tools/org-memory.py --join）或推不上去 → 截圖留本機／留在 clone 內，結果標 repo_error。
   頁面上的 % / Resets 文字追記到本機 workflow/usage-snapshots/usage-log.jsonl，usage-last-run.json 記最近一次結果（成功／失敗原因）。
   失敗（未登入、逾時、被擋）也會在本機留一張 usage-YYYYMMDD-<帳號>-FAILED.png 供診斷，不靜默。
@@ -53,21 +54,43 @@ LAST_RUN = OUT_DIR / "usage-last-run.json"
 LOG = OUT_DIR / "usage-log.jsonl"
 USAGE_URL = "https://claude.ai/settings/usage"
 TASK_NAME = "Claude-Usage-WeeklySnapshot"
-USAGE_TEXT = re.compile(r"\d+%\s*(used|已使用)", re.I)
+USAGE_TEXT = re.compile(r"\d+%\s*(used|已使用)|(used|已使用)\s*\d+%", re.I)  # 英文「68% used」、中文「已使用 68%」兩種字序
+WEEKLY_TOGGLE = re.compile(r"本週|this week|weekly", re.I)  # 用量彈窗「本週」收合鈕的文字
 
 
 def log(msg: str) -> None:
     print(f"[usage-snapshot] {msg}", flush=True)
 
 
+def account_of(email: str) -> str:
+    """信箱 @ 前那段，換掉檔名不能用的字；空信箱回空字串。"""
+    return re.sub(r"[^\w.-]", "_", email.split("@")[0])
+
+
 def detect_account() -> str:
-    """這台 Claude Code 登入信箱 @ 前那段（進檔名）；讀不到回空字串。"""
+    """這台 Claude Code 登入信箱 @ 前那段；讀不到回空字串。"""
     try:
         data = json.loads(claude_global_config().read_text(encoding="utf-8"))
         email = (data.get("oauthAccount") or {}).get("emailAddress") or ""
     except (OSError, json.JSONDecodeError, AttributeError):
         return ""
-    return re.sub(r"[^\w.-]", "_", email.split("@")[0])
+    return account_of(email)
+
+
+def resolve_account(page) -> tuple[str, str | None]:
+    """檔名用的帳號＝截圖裡登入 claude.ai 的那個（工具專屬 profile 可能跟這台 Claude Code 登入不同帳號），
+    讀不到退用這台 Claude Code 帳號。兩者不同或退用時附一句說明，記進結果不靜默。"""
+    cc = detect_account()
+    try:
+        data = page.evaluate("fetch('/api/account').then(r => r.ok ? r.json() : {})")
+        shown = account_of((data or {}).get("email_address") or "")
+    except Exception:
+        shown = ""
+    if not shown:
+        return cc, "讀不到截圖裡的 claude.ai 帳號（/api/account），檔名退用這台 Claude Code 帳號"
+    if cc and shown != cc:
+        return shown, f"截圖裡登入的是 {shown}，這台 Claude Code 是 {cc}：檔名照截圖；要截 {cc} 的用量請 --login 換帳號"
+    return shown, None
 
 
 def launch(headed: bool):
@@ -89,6 +112,18 @@ def launch(headed: bool):
         args=["--disable-blink-features=AutomationControlled"],
     )
     return p, ctx
+
+
+def expand_weekly(page) -> str | None:
+    """用量彈窗裡「本週」那列預設收合，Fable 等分模型的每週上限藏在裡面：收合就點開。
+    沒有這顆鈕（帳號沒有分模型上限）照原樣截；點不開回一句說明，不影響主截圖。"""
+    toggle = page.locator("[role=dialog] button[aria-expanded=false]").filter(has_text=WEEKLY_TOGGLE)
+    try:
+        if toggle.count():
+            toggle.first.click(timeout=5000)
+    except Exception as e:
+        return f"點不開「本週」（{type(e).__name__}），截圖可能少了分模型的每週上限"
+    return None
 
 
 def usage_visible(page) -> bool:
@@ -127,12 +162,6 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     result = {"at": now.isoformat(timespec="seconds"), "ok": False, "file": None, "error": None}
-    account = detect_account()
-    if not account:
-        result["error"] = "讀不到 Claude Code 登入帳號（~/.claude.json oauthAccount.emailAddress）：先在這台登入 Claude Code"
-        _finish(result)
-        return 1
-    stamp = now.strftime("%Y%m%d") + "-" + account
     if not PROFILE_DIR.exists():
         result["error"] = "profile 不存在：先跑 --login"
         _finish(result)
@@ -144,13 +173,21 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
         page.goto(USAGE_URL, wait_until="domcontentloaded", timeout=60000)
         try:
             page.locator("body").filter(has_text=USAGE_TEXT).wait_for(timeout=45000)
-            page.wait_for_timeout(2500)  # 用量條動畫跑完
         except Exception:
             url = page.url
             if "/login" in url or "/magic-link" in url:
                 result["error"] = f"未登入（導到 {url}）：重跑 --login"
             else:
                 result["error"] = f"45 秒內沒等到用量文字（url={url}, title={page.title()!r}）"
+        expand_note = expand_weekly(page) if result["error"] is None else None
+        page.wait_for_timeout(2500)  # 用量條動畫跑完
+        account, account_note = resolve_account(page)
+        notes = [n for n in (expand_note, account_note) if n]
+        if notes:
+            result["notes"] = notes
+        if not account and result["error"] is None:
+            result["error"] = "讀不到帳號（claude.ai /api/account 與 ~/.claude.json 都沒有），不知道檔名該標誰"
+        stamp = now.strftime("%Y%m%d") + "-" + (account or "unknown")
         if result["error"] is None:
             out = _pick_save_dir(result) / f"usage-{stamp}.png"
         else:
@@ -217,6 +254,8 @@ def _finish(result: dict) -> None:
             log(f"  {ln}")
     else:
         log(f"FAILED: {result['error']}" + (f" → {result['file']}" if result["file"] else ""))
+    for note in result.get("notes", []):
+        log(f"WARN: {note}")
 
 
 def do_register(at: str, day: str) -> int:
