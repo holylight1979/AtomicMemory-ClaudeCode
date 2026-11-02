@@ -1228,6 +1228,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     existing = read_state(session_id)
     _hook_lap("前置")
     _index_rebuild_notes: List[str] = []   # resume 分支不重建，仍要有值供收尾組訊息
+    vector_flag: Optional[str] = None      # 新 session 在健檢段就 ping 向量服務；resume 分支留 None，收尾再 ping
     root_rebuilt = False
     if existing and source in ("compact", "resume") and not _root_fingerprint_matches(existing, root_res):
         # 專案根指紋變了（cwd 換了、宣告檔改了、或舊 state 還沒有指紋）→ 走下方重建分支重算
@@ -1465,7 +1466,14 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 缺檔/逾期 = 排程器本身死了；red>0 = 上次健檢有待處理項。兩者都必須
         # 在 session 內浮出（fail-open 必告知）——「靜默死 27 天」的最後防線。
         lines.extend(_health_advisory(WORKFLOW_DIR / "health-last-run.json"))
-        lines.extend(_vector_index_advisory(config))
+        # 服務沒回應就不問索引狀態：Windows 連關著的埠要等滿逾時，多問一次就多等一秒。
+        try:
+            vector_flag = _refresh_vector_flag(config)
+        except Exception as e:
+            vector_flag = "error"
+            _atom_debug_error("SessionStart:vector_flag_refresh", e)
+        if vector_flag == "kept":
+            lines.extend(_vector_index_advisory(config))
         if _hook_lap("健檢"):
             _degraded_exit(session_id, state, lines)
 
@@ -1698,10 +1706,11 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         print(f"SessionStart cleanup error: {e}", file=sys.stderr)
 
     # 服務已暖則保留 flag（省冷啟動 no_flag 空窗），只有 health ping 失敗才拆（fail-closed）。
-    try:
-        _refresh_vector_flag(config)
-    except Exception as e:
-        _atom_debug_error("SessionStart:vector_flag_refresh", e)
+    if vector_flag is None:
+        try:
+            _refresh_vector_flag(config)
+        except Exception as e:
+            _atom_debug_error("SessionStart:vector_flag_refresh", e)
     _hook_lap("清舊 state 與向量旗標")
 
     _hook_timing.claim_output()

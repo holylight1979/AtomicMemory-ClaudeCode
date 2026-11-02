@@ -1685,7 +1685,7 @@ pip install -r tools/memory-vector-service/requirements.txt
 降級的可見訊號：
 
 - statusline：`WG:?` 紅字＝Guardian state 壞；`vec✗`＝向量服務未就緒。
-- `vec✓` 只代表服務活著；上次索引重建失敗（/status 的 `index_job.error`）由 SessionStart 的 `[Guardian:Vector]` 告知（[`hooks/handlers/session_start._vector_index_advisory`](hooks/handlers/session_start.py)）。
+- `vec✓` 只代表服務活著；上次索引重建失敗（/status 的 `index_job.error`）由 SessionStart 的 `[Guardian:Vector]` 告知（[`hooks/handlers/session_start._vector_index_advisory`](hooks/handlers/session_start.py)）；先 ping `/health`，服務沒回應就不查 `/status`（Windows 連關著的埠要等滿 1 秒逾時）。
 - SessionStart 的 `[Guardian:*]`／`[Codex Companion]`／`[MCP]` advisory。
 - `Logs/vector-service.log`。
 
