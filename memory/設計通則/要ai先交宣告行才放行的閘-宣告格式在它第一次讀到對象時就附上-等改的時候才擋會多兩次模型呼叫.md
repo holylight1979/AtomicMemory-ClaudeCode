@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 宣告行, 先宣告再放行, 宣告格式提示, 讀檔時提示, 擋下再補宣告, 少兩次呼叫, 資料檔宣告, 提示時機, 閘提前告知
 - Created-at: 2026-10-27
-- Related: datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit
+- Related: hook讀transcript找宣告行時同一則回覆先寫的文字當下可能讀不到-宣告寫進那條指令自己的註解行
 
 ## 知識
 

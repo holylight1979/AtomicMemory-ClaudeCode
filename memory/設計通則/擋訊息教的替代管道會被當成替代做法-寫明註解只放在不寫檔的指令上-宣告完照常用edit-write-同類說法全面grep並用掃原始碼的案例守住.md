@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 擋訊息措辭, 替代管道, Bash 註解宣告, 改用 Bash 寫檔, python -c 改檔, 改檔清單空, 擋 Edit Write, 擋訊息引導
 - Created-at: 2026-10-22
-- Related: datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit, bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔
+- Related: hook讀transcript找宣告行時同一則回覆先寫的文字當下可能讀不到-宣告寫進那條指令自己的註解行, bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔
 
 ## 知識
 

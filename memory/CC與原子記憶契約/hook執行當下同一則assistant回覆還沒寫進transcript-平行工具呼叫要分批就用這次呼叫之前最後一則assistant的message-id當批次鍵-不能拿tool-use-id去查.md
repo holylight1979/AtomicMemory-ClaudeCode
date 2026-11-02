@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: transcript 落盤, 同一則回覆, 平行工具呼叫, 批次鍵, message.id, tool_use_id 查不到, PreToolUse transcript, PostToolUse transcript, 串流完才寫入, 屬於哪一則回覆, 工具開始時間, 時間下界
 - Created-at: 2026-10-22
-- Related: 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾, datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit, 閘的擋次上限要照同一則回覆算一次-逐個工具呼叫計數會在ai看到擋訊息前就用完上限-擋次去重上限跟分批用同一套批次鍵
+- Related: 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾, hook讀transcript找宣告行時同一則回覆先寫的文字當下可能讀不到-宣告寫進那條指令自己的註解行, 閘的擋次上限要照同一則回覆算一次-逐個工具呼叫計數會在ai看到擋訊息前就用完上限-擋次去重上限跟分批用同一套批次鍵
 
 ## 知識
 

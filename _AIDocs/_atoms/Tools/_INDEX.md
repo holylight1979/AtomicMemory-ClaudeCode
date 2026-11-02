@@ -11,6 +11,7 @@
 | codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回 | codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回 |
 | codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑 | codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑 |
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
+| codex-歪樓三因與入場用法-只給diff沒綜觀-沒嚴重度門檻照單全收-叫它找洞沒停止條件-對策是同步包自讀repo加兩級嚴重度一輪封頂 | Codex 歪樓三因與入場用法-只給diff沒綜觀-沒嚴重度門檻照單全收-叫它找洞沒停止條件-對策是同步包自讀repo加兩級嚴重度一輪封頂 |
 | codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空 | codex裁判停用個別mcp用-c-mcp_servers名.enabled=false-mcp_servers空表是合併不是清空 |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
 | g9-評分規格兩家模型各自想分歧寫下來 | G9 評分規格：兩家模型各自想、分歧寫下來 |
