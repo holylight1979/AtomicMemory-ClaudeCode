@@ -7,7 +7,7 @@
 
 - **兩篇**：
   - **甲篇：記憶系統**（本檔 [§1](#1-設計理念)–[§15](#15-深度參考)）。記憶注入、寫入、收割、版控同步，加上一直在跑的[基本守門](#7-基本守門)。出廠開。
-  - **乙篇：寫碼守門**（[TECH/coding-guard.md](TECH/coding-guard.md)）。AI 寫程式時多加的檢查。出廠關。
+  - **乙篇：寫碼守門**（[TECH/coding-guard.md](TECH/coding-guard.md)）。AI 寫程式時多加的檢查。出廠開，只在寫碼回合跑；關法見[乙1](TECH/coding-guard.md#乙1-開關與減量原則)。
 - **只想知道 AI 寫程式時一路會被問什麼、擋什麼** → 直接讀[乙2](TECH/coding-guard.md#乙2-一路會遇到什麼)。
 - **主文**：每節第一句說這節解決什麼，接著是要點、流程圖、一句話的「為什麼」。第一次讀只讀主文就夠。
 - **細節只跳一次**：主文每節結尾的「細節 →」直接連到那一節的細節，不做「A 見 B、B 見 C」。細節放在：
@@ -25,7 +25,7 @@
 | 層 | 做什麼 | 開關 | 關掉會怎樣 |
 |---|---|---|---|
 | 記憶系統（含基本守門） | 記憶注入、寫入、收割、晉升、版控同步、向量檢索；口令、隱私、驗證批次、同步提醒、紅測閘、退避與收尾閘（[§7](#7-基本守門)） | `enabled`，出廠開 | 整個 Guardian 停，所有 hook 直接放行 |
-| 寫碼守門 | 寫程式時的檢查：宣告閘、寫碼查核、等值證法、病形閘、連鎖斷路器（[乙篇](TECH/coding-guard.md)） | `coding_guard.enabled`，出廠關；開了也只在寫碼回合跑 | 少這一層；另外記憶系統有 34 處行為跟著變，見[下表](#守門開關會改到記憶系統的地方) |
+| 寫碼守門 | 寫程式時的檢查：宣告閘、寫碼查核、等值證法、病形閘、連鎖斷路器（[乙篇](TECH/coding-guard.md)） | `coding_guard.enabled`，出廠開；只在寫碼回合跑 | 少這一層；另外記憶系統有 34 處行為跟著變，見[下表](#守門開關會改到記憶系統的地方) |
 
 - 怎麼開、舊名相容 → [乙1](TECH/coding-guard.md#乙1-開關與減量原則)。
 - 寫碼守門裡只認特定語言的工具（病形樣式只認 Python 與 C# Unity）只是給 AI 參考的側資料。沒有工具的語言，由 AI 自己讀程式判斷，不擋（[乙1](TECH/coding-guard.md#乙1-開關與減量原則)）。
@@ -42,7 +42,7 @@
 
 **A. hook 分派、改檔帳與計時**
 
-| # | 項目 | 守門關（出廠） | 守門開 | 程式位置 |
+| # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
 | 1 | 事件分派：PostToolUseFailure、SubagentStop | 不進 handler（hook 行程照起，讀完 config 就退出） | 進 handler | `hooks/dispatcher.py:64-66, 125-127` |
 | 2 | 工具分派：Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前 | 不進 handler（settings.json 照掛，行程照起） | 進 handler | `hooks/dispatcher.py:67-74` |
@@ -53,7 +53,7 @@
 
 **B. 每則提問與注入**
 
-| # | 項目 | 守門關（出廠） | 守門開 | 程式位置 |
+| # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
 | 7 | 寫碼回合的注入瘦身 | 不瘦身 | 寫碼回合：trigger 命中才給整段、一行指標不重印卡名、resume 後送過的不重送 | `hooks/handlers/ups_inject.py:112-122, 292` |
 | 8 | 一次性提示：[Parallel:Suggest]、[JIT:InternalPipeline]、開場 [Guardian:Oscillation] | [Parallel:Suggest] 照冷卻（隔 `cooldown_turns` 3 則）送，一個 session 最多 `max_per_session` 2 次；[JIT:InternalPipeline] 達門檻就每次送；Oscillation 每次開場列全部 | 三個都一個 session 一次（Oscillation 只列還沒列過的 atom） | `hooks/wg_parallel.py:163-168, 184-191`；`hooks/handlers/ups_context.py:182`；`hooks/wg_evasion.py:1455-1485`；`session_start.py:1618` |
@@ -65,7 +65,7 @@
 
 **C. 寫入（MCP 與寫入閘）**
 
-| # | 項目 | 守門關（出廠） | 守門開 | 程式位置 |
+| # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
 | 16 | 相似卡去重 | `dedupe_declaration` 強制 false：相似度 >0.95 skip，0.80–0.95 建議 append | 要 AI 宣告 same／supersedes／different 再重送 | `tools/memory-write-gate.py:314-315` |
 | 17 | 寫入時的衝突偵測 | 照門檻判：CONTRADICT → pending；EXTEND ≥0.85 → `_pending_review` 草稿 | AI 逐張宣告 conflict／not_conflict | `tools/memory-conflict-detector.py:839` |
@@ -75,7 +75,7 @@
 
 **D. 收尾（Stop）**
 
-| # | 項目 | 守門關（出廠） | 守門開 | 程式位置 |
+| # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
 | 21 | **9 道記憶系統收尾閘**：退縮歸屬 DEFERRAL_OF_DOABLE_WORK、知識收割 HARVEST_AT_PHASE_DONE、收割對帳 HARVEST_ITEM_NEEDS_RECEIPT、收尾檢核 CLOSING_CHECK_REQUIRED、記憶未寫 CLOSING_CHECK_MEMORY_NOT_DEFERRED、同步 SYNC_REMINDER_UNSYNCED、底部同步擋 SYNC_BLOCK_PENDING_ITEMS、深度檢討 DEEP_POSTMORTEM_ON_FAILURE、卡片表態 ATOM_CONSUMPTION_AUDIT | **擋**：續跑一回合，各吃各的擋次 | **只提醒**：Stop 只留帳（event=remind）；一行提醒掛在「這批改了程式檔」的工具結果上（收割類掛在交收尾報告那批），所以只改文件的回合連提醒都沒有 | `hooks/wg_release_rules.py:3234-3250`；`stop.py:927-933, 2378, 2419, 2445, 2498, 2543, 2646, 2701, 2725, 2844`；`post_tool_batch.py:82-161, 279-296` |
 | 22 | 哪些回合跑退避偵測、退縮閘、收尾檢核、AEC-Pending | 每回合都跑 | 只在寫碼回合跑 | `stop.py:1858, 2240, 2346, 2489, 2541`；`wg_core.py:231-247` |
@@ -87,7 +87,7 @@
 
 **E. 開場、結束與維護**
 
-| # | 項目 | 守門關（出廠） | 守門開 | 程式位置 |
+| # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
 | 31 | `workflow/` 執行紀錄清理（WORKFLOW_RETENTION） | 不清 | SessionStart 照表清 | `session_start.py:1200-1201` |
 | 32 | IDENTITY 完整性哨兵 | 不查（必載檔契約哨兵照查） | 查 | `session_start.py:1677-1683` |
@@ -95,7 +95,7 @@
 
 **F. 記憶卡與安全邊界**
 
-| # | 項目 | 守門關（出廠） | 守門開 | 程式位置 |
+| # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
 | 35 | Depends 召回（讀到卡片 Depends 指的檔，就提示先讀那張卡） | 沒有 | 有；同一張卡一個 session 一次 | `post_tool_use.py:1343-1350` |
 | 36 | `readonly_paths`（部位表的唯讀路徑） | OverviewHub 整個關：改檔前不擋，只在設定有錯時提醒一行 | 照擋 | `hooks/wg_overview.py:165-166`；`pre_tool_use.py:1840-1853, 2099` |
@@ -352,7 +352,7 @@ bash 類 hook：
 - 9 個 handler 檔接 11 個事件，有兩個合併對應：
   - PostToolUseFailure 走 [`post_tool_use.py`](hooks/handlers/post_tool_use.py)（[`handlers/post_tool_use.handle_post_tool_use_failure`](hooks/handlers/post_tool_use.py)）。
   - SubagentStop 走 [`stop.py`](hooks/handlers/stop.py)。
-- 守門關（出廠）時 dispatcher 不分派哪些事件與工具、計時起不起表 → [跨層表 #1、#2、#6](#守門開關會改到記憶系統的地方)。
+- 守門關時 dispatcher 不分派哪些事件與工具、計時起不起表 → [跨層表 #1、#2、#6](#守門開關會改到記憶系統的地方)。
 - 裁判子 session（環境變數 `CLAUDE_COMPANION_JUDGE=1`，驗收裁判用，見[乙5](TECH/coding-guard.md#乙5-驗收裁判)）走縮減版 `JUDGE_HANDLERS`：不注入記憶、不跑其他閘，細節見附錄 A3.1。
 
 #### session state 讀寫（規則 STATE_RMW_LOCKED）
@@ -435,7 +435,7 @@ sequenceDiagram
     end
 ```
 
-- 圖上的 Stop 是守門關（出廠）時的閘序。守門開時加哪些閘、哪幾道改成只提醒 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)、[跨層表 #21、#22](#守門開關會改到記憶系統的地方)。
+- 圖上的 Stop 是守門關時的閘序。守門開時加哪些閘、哪幾道改成只提醒 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)、[跨層表 #21、#22](#守門開關會改到記憶系統的地方)。
 
 ---
 
@@ -871,7 +871,7 @@ SessionStart（session_start._org_advisory）
 
 隨守門開關改變的（[跨層表 #8～#11](#守門開關會改到記憶系統的地方)）：
 
-| 提示 | 守門關（出廠） | 守門開 |
+| 提示 | 守門關 | 守門開（出廠） |
 |---|---|---|
 | `[Parallel:Suggest]` | 達門檻就送，一個 session 最多 `max_per_session` 2 次 | 一個 session 送一次 |
 | `[JIT:InternalPipeline]` | 達門檻就每次送 | 一個 session 送一次 |
@@ -1061,7 +1061,7 @@ domain → realm → cwd-scope → 落點裁決 → supersedes → Source/Quote/
 ```text
 向量相似度 ≥ dedup_score 0.8（pointer 卡 dedup_pointer_score 0.95）
   否 → 照常寫
-  是 ├─ 守門關（出廠）：dedupe_declaration 強制 false
+  是 ├─ 守門關：dedupe_declaration 強制 false
      │    ├─ >0.95 → skip，不寫
      │    └─ 其餘  → 這次不寫，回「相似，建議 append 到那張」
      └─ 守門開：回「要宣告」（action=skip ＋ need_declaration，列最多 3 張候選）
@@ -1129,7 +1129,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 沒東西也要回報 `items=[]`。
 - 核對靠 atom 工具回的 receipt，不靠 `exists()`。
 - 收割回報的路由欄位（route／part／candidate_global）守門開時才驗（[跨層表 #20](#守門開關會改到記憶系統的地方)）。
-- 守門關（出廠）時沒交收割回報，Stop 的收割閘會擋；守門開時改成提醒（[§7.1](#71-收尾閘序守門關時)、[跨層表 #21](#守門開關會改到記憶系統的地方)）。
+- 守門關時沒交收割回報，Stop 的收割閘會擋；守門開時改成提醒（[§7.1](#71-收尾閘序守門關時)、[跨層表 #21](#守門開關會改到記憶系統的地方)）。
 
 #### 為什麼萃取走 detached worker
 
@@ -1202,7 +1202,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 - **Evidence** 權重：實證 3 > 引述 2 > 推測 1 > 未標 0。
 - **衝突裁決**（[`tools/memory-conflict-detector.py`](tools/memory-conflict-detector.py)）：
   - 只在 create 寫 shared 時跑、排在去重之後。write-time 向量 ≥0.60 送本地 LLM 分類（dry_run 跳過偵測）。
-  - 守門關（出廠）時照門檻判：CONTRADICT → pending 報告、不寫 shared；EXTEND ≥0.85 → 改落 `_pending_review` 草稿（[跨層表 #17](#守門開關會改到記憶系統的地方)）。
+  - 守門關時照門檻判：CONTRADICT → pending 報告、不寫 shared；EXTEND ≥0.85 → 改落 `_pending_review` 草稿（[跨層表 #17](#守門開關會改到記憶系統的地方)）。
   - 守門開時，本地標籤與 0.85 門檻只篩候選，是不是衝突由 session 裡的 AI 逐張宣告（[跨層表 #17](#守門開關會改到記憶系統的地方)）：
     - atom_write 回「衝突待宣告（這次不寫檔）」→ AI 帶 `conflict=[{of, verdict: conflict|not_conflict, why}]` 重送。
     - 任一 conflict → pending 報告、不寫 shared；全部 not_conflict → 照寫。
@@ -1258,7 +1258,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 這節解決：AI 回完一則（Stop）的那一刻，記憶系統依什麼順序查、各擋什麼、擋幾次。入口是 [`hooks/handlers/stop.py handle_stop`](hooks/handlers/stop.py)。
 
-下面寫的是守門關（出廠）時的樣子；守門開時哪裡不同見本節最後與[跨層表](#守門開關會改到記憶系統的地方)。依序查，前面的擋下就不往下：
+下面寫的是守門關時的樣子；守門開時哪裡不同見本節最後與[跨層表](#守門開關會改到記憶系統的地方)。依序查，前面的擋下就不往下：
 
 ```text
 紅測閘
@@ -1343,7 +1343,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 命中的那一行對到有理由的「不做｜<哪一件>：<理由>」→ 這一處不標、記 `evasion_declared`。
   - 守門關時每回合都跑；守門開時只在寫碼回合跑，另有 context 豁免（[跨層表 #22、#23](#守門開關會改到記憶系統的地方)）。
 - **收尾報告**：MCP `anti_evasion_report`。核心是三類，分開寫、都必填：本 session 目標（`goal`，每件掛使用者原話）、大原則方向（`principles`）、AI 自己做主（`ai_decided`）；其餘是系統帳 a、b、d、g～k（沒有 c、e、f）。severity 只看 a、b，三類不影響。欄位細節見 [收尾報告欄位](#收尾報告欄位)。
-  - 守門開關都收三類與 a、b、d～i；守門關（出廠）時 (j)(k) 照樣要填但值不存、不收 `report`、收割要另外交 `knowledge_harvest_report`（[跨層表 #28](#守門開關會改到記憶系統的地方)）。
+  - 守門開關都收三類與 a、b、d～i；守門關時 (j)(k) 照樣要填但值不存、不收 `report`、收割要另外交 `knowledge_harvest_report`（[跨層表 #28](#守門開關會改到記憶系統的地方)）。
   - 守門開時 (j)(k)、`report`（卡片開頭一兩句）也收，收割可以併在同一次交（規則 CLOSING_REPORT_ONE_CALL，[跨層表 #28](#守門開關會改到記憶系統的地方)）。
   - 目前設定 `aec.scan_report_gate=false`：沒交報告不擋，交了照收（[§7.1](#71-收尾閘序守門關時)）。
 - **HUD**：`http://127.0.0.1:3848/aec/hud` 給人看三類分開的白話卡片與「這個 session 留下的東西」；三類份量攤開比，目標那類一句帶過、自己做主那類一大串會標黃（[收尾檢核 HUD](#收尾檢核-hud)）。
@@ -1886,7 +1886,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 
 **時間**
 
-守門關（出廠）時，主 hook `workflow-guardian.py` 跑一次的牆鐘中位數：
+守門關時，主 hook `workflow-guardian.py` 跑一次的牆鐘中位數：
 
 | 事件 | 中位數 |
 |---|---|
@@ -1913,7 +1913,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 
 ### 11.4 寫碼守門的代價
 
-寫碼守門出廠關。開了只在寫碼回合付代價，大頭是 AI 收到提醒後多想多寫的輸出，hook 程式本身佔得少。數字與量測紀錄 → [乙10 代價](TECH/coding-guard.md#乙10-代價)。
+寫碼守門出廠開，只在寫碼回合付代價，大頭是 AI 收到提醒後多想多寫的輸出，hook 程式本身佔得少。數字與量測紀錄 → [乙10 代價](TECH/coding-guard.md#乙10-代價)。
 
 ---
 
@@ -1945,8 +1945,8 @@ workflow/config.local.json      這台機器專屬，不進版控
 
 ### 最常需要動的鍵
 
-- `coding_guard.enabled`：寫碼守門總開關，出廠 false；開法見 [乙1](TECH/coding-guard.md#乙1-開關與減量原則)。打開後記憶系統也有幾處行為跟著變，見[跨層表](#守門開關會改到記憶系統的地方)。
-- `stop_gate_max_blocks`：收尾閘共用的擋次，預設 2。守門關（出廠）時整個 session 累計；守門開時每個使用者回合重算（[跨層表](#守門開關會改到記憶系統的地方) #26）。
+- `coding_guard.enabled`：寫碼守門總開關，出廠 true；關法見 [乙1](TECH/coding-guard.md#乙1-開關與減量原則)。打開後記憶系統也有幾處行為跟著變，見[跨層表](#守門開關會改到記憶系統的地方)。
+- `stop_gate_max_blocks`：收尾閘共用的擋次，預設 2。守門關時整個 session 累計；守門開時每個使用者回合重算（[跨層表](#守門開關會改到記憶系統的地方) #26）。
 - `org_memory.enabled` / `roots`：公司層記憶，實際值寫在 `workflow/org-memory.local.json`，用 [`tools/org-memory.py --join`](tools/org-memory.py) 填。
 - `vector_search.enabled`：語意搜尋總開關，預設 true；關了仍保留 trigger 與 BM25。
 - `codex_companion.enabled`：AI 裁判（驗收審查、計畫審查），預設 true；handoff 自檢另看 `soft_gate.handoff_review`，設 false。
@@ -2074,7 +2074,7 @@ flowchart TD
 
 這一節回答：本文件講到要點為止，要再深入讀哪幾份。
 
-- **寫碼守門（乙篇，出廠關）**：[`TECH/coding-guard.md`](TECH/coding-guard.md)；細節在 [`TECH/guards.md`](TECH/guards.md)，規則全表在 [`TECH/release-rules.md`](TECH/release-rules.md)。
+- **寫碼守門（乙篇，出廠開）**：[`TECH/coding-guard.md`](TECH/coding-guard.md)；細節在 [`TECH/guards.md`](TECH/guards.md)，規則全表在 [`TECH/release-rules.md`](TECH/release-rules.md)。
 
 1. [`_AIDocs/SPEC_ATOM_V5.md`](_AIDocs/SPEC_ATOM_V5.md) — atom 規格主檔（格式、路由、block-aware knowledge、py↔js parity）。
 2. [`_AIDocs/Architecture.md`](_AIDocs/Architecture.md) — 子系統索引（以本檔與實碼為準）。
@@ -2220,7 +2220,7 @@ flowchart TD
 
 - 下面寫的是記憶系統與基本守門的職責；跟著守門開關變的地方標跨層表編號。
 - 寫碼守門加上去的部分每處只留一行，細節連到乙篇 [`TECH/coding-guard.md`](TECH/coding-guard.md)。
-- 守門關（出廠）時哪些事件、哪些工具不分派 → [跨層表 #1、#2](#守門開關會改到記憶系統的地方)。
+- 守門關時哪些事件、哪些工具不分派 → [跨層表 #1、#2](#守門開關會改到記憶系統的地方)。
 
 #### SessionStart
 - **matcher**：—
@@ -2387,7 +2387,7 @@ flowchart TD
 
 - **真源**：本節各事件的真源是 [`settings.json`](settings.json) 的 `hooks` 區塊。
 - **dispatcher**：守門開時開頭起表、結尾落帳，快逾時降級；守門關時不起表（→ [跨層表 #6](#守門開關會改到記憶系統的地方)，細節 [乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級)）。
-- **守門關（出廠）時不分派的事件與工具**：PostToolUseFailure、SubagentStop；Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前。settings.json 照掛，hook 行程照起，讀完 config 就退出（[`hooks/dispatcher.py`](hooks/dispatcher.py) 的 `PRE_V6_EVENTS`、`PRE_V6_TOOLS`；→ [跨層表 #1、#2](#守門開關會改到記憶系統的地方)）。
+- **守門關時不分派的事件與工具**：PostToolUseFailure、SubagentStop；Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前。settings.json 照掛，hook 行程照起，讀完 config 就退出（[`hooks/dispatcher.py`](hooks/dispatcher.py) 的 `PRE_V6_EVENTS`、`PRE_V6_TOOLS`；→ [跨層表 #1、#2](#守門開關會改到記憶系統的地方)）。
 - **裁判子 session**（`CLAUDE_COMPANION_JUDGE=1`）：屬寫碼守門的驗收裁判，走縮減版 `JUDGE_HANDLERS` → [乙5](TECH/coding-guard.md#乙5-驗收裁判)；守門關時 dispatcher 讓它一律早退（同 [跨層表 #1](#守門開關會改到記憶系統的地方) 那一行判斷）。
 - **安裝**：由 [`tools/install.py`](tools/install.py) 把這段合併進使用者的 [`settings.json`](settings.json)（[§9.5](#95-安裝與升級toolsinstallpy)）。
 
@@ -3341,7 +3341,7 @@ flowchart TD
 
 #### 去重宣告的完整流程
 
-- **守門關（出廠）時沒有這套宣告**：`dedupe_declaration` 被強制成 false，相似度 >0.95 skip、0.80–0.95 建議 append（[`tools/memory-write-gate.py`](tools/memory-write-gate.py)；→ [跨層表 #16](#守門開關會改到記憶系統的地方)）。下面是守門開時的流程。
+- **守門關時沒有這套宣告**：`dedupe_declaration` 被強制成 false，相似度 >0.95 skip、0.80–0.95 建議 append（[`tools/memory-write-gate.py`](tools/memory-write-gate.py)；→ [跨層表 #16](#守門開關會改到記憶系統的地方)）。下面是守門開時的流程。
 - 相似度 ≥`dedup_score` 0.8（指標卡 `dedup_pointer_score` 0.95）→ 不直接判拒寫，回「要宣告」。
   - 結果為 `action=skip`＋`need_declaration`；用 skip 是讓還沒 Reload 的舊 MCP 照樣拒。
   - 列最多 3 張候選卡：卡名、分數、層、知識段前 2 行，附三種寫法。
@@ -3384,7 +3384,7 @@ flowchart TD
   - 距上次 validated 收割 ≥`min_turns_between`。
   - 判定函式 [`hooks/wg_harvest.harvest_gate_reason`](hooks/wg_harvest.py)。
 - **執行者**：
-  - 守門關（出廠）時：收割閘擋下，由**模型本人**盤點六來源，再 `atom_write`／`atom_retire` → MCP `knowledge_harvest_report(items)`（[§7.1](#71-收尾閘序守門關時)）。
+  - 守門關時：收割閘擋下，由**模型本人**盤點六來源，再 `atom_write`／`atom_retire` → MCP `knowledge_harvest_report(items)`（[§7.1](#71-收尾閘序守門關時)）。
   - 六來源：指正／機制坑／外查事實／取捨契約／舊 atom 補正或 Supersedes／無用 atom 退役。
   - PostToolUse 逐 item 核對 receipt（`validate_items`），不符落 `pending`，由 Harvest-Pending 閘擋。
   - 守門開時：收割閘改成提醒（改程式檔那批的工具結果附一行、Stop 只留帳），交不交由模型本人決定；交了照收、照核對（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）。
@@ -3656,7 +3656,7 @@ svn：svn_update_targets
   - 全部 not_conflict → 照寫。
   - 都留帳 `guard-conflict_declared`（規則 [CONFLICT_DECLARED_BY_AI](TECH/release-rules.md#conflict_declared_by_ai)）。
   - 判式載不起來時照 AI 的宣告處置、不核理由。
-- **守門關（出廠）時**：不要求宣告，照門檻判（[`tools/memory-conflict-detector.py`](tools/memory-conflict-detector.py)；→ [跨層表 #17](#守門開關會改到記憶系統的地方)）。
+- **守門關時**：不要求宣告，照門檻判（[`tools/memory-conflict-detector.py`](tools/memory-conflict-detector.py)；→ [跨層表 #17](#守門開關會改到記憶系統的地方)）。
   - CONTRADICT → pending 報告。
   - EXTEND≥0.85 → 整張改落 `_pending_review` 草稿（同名草稿已在就拒寫）。
 - **拉取稽核**：本地模型沒判出（ERROR）時，報告標 candidate、不標 contradict。
@@ -3738,7 +3738,7 @@ svn：svn_update_targets
 
 - 入口 [`hooks/handlers/stop.py handle_stop`](hooks/handlers/stop.py)；閘序、每道擋什麼、擋次預算見主文 §7.1，這裡補條件、訊息與次數的細節。
 - 下面寫的「宣告完成」：守門關時只看最後一則；守門開時看整個回合，被別的閘擋下後補件那則沒重說完成也算（→ [跨層表 #24](#守門開關會改到記憶系統的地方)）。
-- 守門關（出廠）時下面各道照擋：Stop 回 block，對話續跑一回合，AI 補完才收尾（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）。
+- 守門關時下面各道照擋：Stop 回 block，對話續跑一回合，AI 補完才收尾（→ [跨層表 #21](#守門開關會改到記憶系統的地方)）。
 - 守門開時這幾道改成只提醒，而且只在寫碼回合跑（→ [跨層表 #21、#22](#守門開關會改到記憶系統的地方)）：
   - Stop 只留帳（event=remind），不續跑、不吃擋次。
   - 一行提醒掛在「這批改了程式檔」的工具結果上，收割類掛在交收尾報告那批（[`hooks/handlers/post_tool_batch.py`](hooks/handlers/post_tool_batch.py)）。只改文件的回合連提醒都沒有。
@@ -3888,7 +3888,7 @@ svn：svn_update_targets
   - **「你說」核對**（[`hooks/handlers/aec_said_check.py`](hooks/handlers/aec_said_check.py)，守門開關都跑、只加記號不擋）：每個 `goal[].said` 拿主對話紀錄裡使用者本人打的字比（真人訊息＋中途插話 queued_command，剔系統區塊；子代理的本回合＝派它的那回合），結果存 `said_check`：本回合／第 N 回合前／派工（子代理檔第一則、同伴 session 訊息）／對不到／太短不判（正規化後少於 6 字）／判不了（讀不到紀錄，stderr 一行）。兩邊同一套正規化（全形半形、清單符號、引號、空白換行）；said 有省略號就切段，每段都要在同一則找得到。本回合使用者原話全文另存 `user_said_this_turn`。
 - **系統帳**：a、b、d、g、h、i、`j_evidence_path`、`k_followups` 必填；沒有 c、e、f（e／f 的內容歸 `ai_decided`；舊客戶端送來照存，HUD 照舊格式畫）。
 - **守門開或關收的不一樣**（→ [跨層表 #28](#守門開關會改到記憶系統的地方)）：
-  - 守門關（出廠）：(j)(k) 在 MCP schema 照樣必填，但值不存；不收 `report`；不收 `harvest_items`，收割要另外交 `knowledge_harvest_report`。
+  - 守門關：(j)(k) 在 MCP schema 照樣必填，但值不存；不收 `report`；不收 `harvest_items`，收割要另外交 `knowledge_harvest_report`。
   - 守門開：(j)(k) 也存；`report` 是卡片開頭一兩句（誰在做哪件事、給誰看、要不要動手）；`harvest_items` 帶收割清單就不必另叫 `knowledge_harvest_report`（規則 CLOSING_REPORT_ONE_CALL）。
 - **系統帳各欄**：
   - a 技術附錄：改了哪些地方（`- 檔:行 — 改了什麼`），決定 severity 的 notable。
