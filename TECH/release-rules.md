@@ -25,7 +25,7 @@
 - **[口令閘與驗證批次](#口令閘與驗證批次)**：[COMMIT_ORDER_DECISION_ALWAYS_LOGGED](#commit_order_decision_always_logged)・[VERIFY_FULL_RUN_NEEDS_USER_ORDER／VERIFY_SAME_BATCH_ALREADY_GREEN／VERIFY_BATCH_BLOCK_ONCE_PER_TURN](#verify_full_run_needs_user_orderverify_same_batch_already_greenverify_batch_block_once_per_turn)・[ORDER_UNTIL_PUSH](#order_until_push)・[SVN_TEST_BLOCK_OPT_IN](#svn_test_block_opt_in)
 - **[收尾檢核欄位](#收尾檢核欄位)**：[AEC_EVIDENCE_PATH](#aec_evidence_path)・[AEC_FOLLOWUPS_EMPTY](#aec_followups_empty)
 - **[追蹤帳](#追蹤帳)**：[TRACKING_SAME_ITEM_NOT_REWRITTEN](#tracking_same_item_not_rewritten)
-- **[連鎖斷路器與 state 鎖](#連鎖斷路器與-state-鎖)**：[CHAIN_SAME_GATE_PER_OBJECT](#chain_same_gate_per_object)・[STATE_RMW_LOCKED／STATE_PENDING_MERGED](#state_rmw_lockedstate_pending_merged)
+- **[state 鎖](#state-鎖)**：[STATE_RMW_LOCKED／STATE_PENDING_MERGED](#state_rmw_lockedstate_pending_merged)
 - **[回合、完成宣告與用字](#回合完成宣告與用字)**：[USER_TURN_KEY_KEPT](#user_turn_key_kept)・[COMPLETION_CLAIM_PER_SENTENCE](#completion_claim_per_sentence)・[OPENING_NOTICE_NOT_TODO](#opening_notice_not_todo)・[GATE_TEXT_AVOIDS_EVASION_WORDS](#gate_text_avoids_evasion_words)・[SUBPROCESS_RUN_LOOKED_UP_AT_CALL](#subprocess_run_looked_up_at_call)・[CHAIN_HEADLESS_KEEPS_DATA_GATES](#chain_headless_keeps_data_gates)
 - **[讀檔證據](#讀檔證據)**：[SHELL_READ_COUNTS_LIKE_READ](#shell_read_counts_like_read)
 - **[寫檔判定與連鎖斷路器](#寫檔判定與連鎖斷路器)**：[SHELL_WRITE_COMMAND_NOT_A_READ](#shell_write_command_not_a_read)・[EPHEMERAL_WRITE_NOTED_ONCE](#ephemeral_write_noted_once)・[CHAIN_NO_EDIT_NO_EDGE](#chain_no_edit_no_edge)・[CHAIN_ABORT_SHOWS_REPLACED_BLOCK](#chain_abort_shows_replaced_block)
@@ -374,7 +374,7 @@
 
 #### GATE_DENY_CAP
 **判什麼**：工具前閘的擋次上限
-- 補充：判法 `wg_core.deny_cap`，上限 `cap`（預設 `DECL_DENY_CAP` 2）；目前用它的是驗證批次閘（cap=1，[VERIFY_BATCH_BLOCK_ONCE_PER_TURN](#verify_full_run_needs_user_orderverify_same_batch_already_greenverify_batch_block_once_per_turn)）。
+- 補充：判法 `wg_core.deny_cap`，上限 `cap`（呼叫端明寫，沒有預設）；目前用它的是驗證批次閘（cap=1，[VERIFY_BATCH_BLOCK_ONCE_PER_TURN](#verify_full_run_needs_user_orderverify_same_batch_already_greenverify_batch_block_once_per_turn)）與病形閘（cap=1，[SMELL_GATE_ONCE_PER_TURN](#smell_gate_once_per_turn)）。
 - **不欠／放行**：
   - 同一個使用者回合、同一道閘、同一件缺件，擋滿 cap 則回覆，下一則放行並留帳。
   - 換使用者回合歸零。
@@ -1178,14 +1178,7 @@
   - 字面相近（只差括號註、開頭相同）程式不併，照記
   - 宣告對不到或對到多筆 → 照記並 stderr
 
-### 連鎖斷路器與 state 鎖
-
-#### CHAIN_SAME_GATE_PER_OBJECT
-**判什麼**：連鎖斷路器的「同一道閘第 2 次」怎麼數（判定在 [`hooks/wg_chain.py`](../hooks/wg_chain.py) 的 RULES，[乙8](coding-guard.md#乙8-連鎖斷路器)）
-- **不欠／放行**：同一道閘兩次都報了擋的對象（watched，擋的檔）而且沒有交集 → 各算各的第 1 次（各要各的證據）
-- **照欠／照擋**：
-  - 對象相同或檔有交集，照算第 2 次、照警報
-  - 有一邊說不出對象就照閘名算；目前沒有閘報對象，同一道閘一律只看閘名
+### state 鎖
 
 #### STATE_RMW_LOCKED／STATE_PENDING_MERGED
 **判什麼**：平行的 hook 同時讀改寫同一份 session state 會不會互相蓋掉（判定在 [`hooks/wg_core`](../hooks/wg_core.py) state 讀寫段，[§3.1](../TECH.md#31-settingsjson-十一個事件)）

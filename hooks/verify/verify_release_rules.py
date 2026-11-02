@@ -389,11 +389,6 @@ def test_045_comment_only_change_none_when_unparsable_or_not_python():
 
 # ─── B13 CONTENT_EQUALS_COMMITTED ──────────────────────────────────────────────
 
-def test_045_blob_sha_matches_git_formula():
-    assert rr.blob_sha(b"") == "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
-    assert rr.blob_sha(b"hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
-
-
 def test_045_content_equals_committed_merge_head_and_main_count_head_only_without_own_commit():
     refs = {"HEAD": "h1", "MERGE_HEAD": "m1", "main": "mm"}
     assert rr.committed_refs([], refs) == ["MERGE_HEAD", "main"]                            # HEAD 永遠不算（035 ⑤）
@@ -585,8 +580,6 @@ def test_045_temp_repo_commit_exempt_and_temp_copy_not_project():
     assert not rr.is_temp_path(r"C:\Users\me\.claude-wt\track-x\hooks\x.py", roots)
     assert rr.temp_commit_verdict(r"C:\Users\me\AppData\Local\Temp\claude\s\repo", roots).owed is False
     assert rr.temp_commit_verdict(r"C:\Users\me\.claude", roots).owed is True
-    assert rr.temp_copy_verdict("/tmp/x/tools/x.py", roots).owed is False
-    assert rr.temp_copy_verdict(r"C:\Users\me\.claude-wt\t\tools\x.py", roots).owed is True
 
 
 def test_003_session_scratch_not_code_only_two_shapes():

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import ast
 import fnmatch
-import hashlib
 import os
 import re
 import shlex
@@ -185,9 +184,10 @@ RULES: Dict[str, str] = {
     "GATE_SELF_ERROR": "閘自己判定時出錯（例外、設定讀不到），不讓 AI 一直付代價：收尾閘（有擋次預算）同一個使用者回合因這個錯"
                        "擋 1 次後放行；工具前閘（出錯時常讀不到 state、無從計次）直接放行。兩者都要 stderr 一行＋guard log 記一筆"
                        " event=error（閘名、錯誤種類與訊息）。判法在 gate_self_error_verdict。",
-    "GATE_DENY_CAP": "工具前閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 cap 則回覆（預設 wg_core.DECL_DENY_CAP；怎麼數則見 "
+    "GATE_DENY_CAP": "工具前閘的擋次上限：同一個使用者回合、同一道閘、同一件缺件，擋滿 cap 則回覆（呼叫端明寫；怎麼數則見 "
                      "DENY_CAP_PER_REPLY）後下一則放行並留帳，換使用者回合歸零（判法 wg_core.deny_cap）。目前用它的是驗證批次閘"
-                     "（cap=1，VERIFY_BATCH_BLOCK_ONCE_PER_TURN）。舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
+                     "（cap=1，VERIFY_BATCH_BLOCK_ONCE_PER_TURN）與病形閘（cap=1，SMELL_GATE_ONCE_PER_TURN）。"
+                     "舊稱 DECL_GATE_DENY_CAP、LOCATE_DENY_CAP 併入本條。",
     "DENY_CAP_PER_REPLY": "擋次上限照「則」數，不照工具呼叫數：同一則回覆裡平行送出的呼叫是送出前就決定好的，AI 還沒看到第一則擋訊息。"
                           "同一件缺件在同一則裡只算一次，那一則的其他呼叫照第一次的結果（擋就照擋）、不加次數；下一則回覆的呼叫才加。"
                           "哪一則＝這次呼叫之前最後一則 assistant 的 message.id（同 CHAIN_SAME_BATCH，lib/chain_store.batch_of）。"
@@ -541,12 +541,6 @@ def comment_only_verdict(name: str, baseline: str) -> Verdict:
 
 
 # ─── CONTENT_EQUALS_COMMITTED ──────────────────────────────────────────────
-
-def blob_sha(data: bytes) -> str:
-    """git blob 的 sha1（`blob <len>\\0<內容>`），不開 git 子行程就能和 ls-tree 的結果比。"""
-    data = bytes(data)
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-
 
 def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True,
                    head_after_own: bool = False) -> List[str]:
@@ -965,13 +959,6 @@ def temp_commit_verdict(run_dir: str, roots: Iterable[str]) -> Verdict:
     if is_temp_path(run_dir, roots):
         return Verdict("TEMP_REPO_COMMIT_EXEMPT", False, f"commit 落在暫存目錄的 repo（{str(run_dir)[:60]}），是拋棄式實驗", ("路徑在暫存根之下",))
     return Verdict("TEMP_REPO_COMMIT_EXEMPT", True, "commit 落在正式 repo，照要口令", (str(run_dir)[:60],))
-
-
-def temp_copy_verdict(path: str, roots: Iterable[str]) -> Verdict:
-    """TEMP_COPY_NOT_PROJECT：owed=False＝不當專案（不找表、不注入、不要求綜觀、不當收據）。"""
-    if is_temp_path(path, roots):
-        return Verdict("TEMP_COPY_NOT_PROJECT", False, f"{str(path)[:60]} 在暫存目錄下，是副本不是專案", ("路徑在暫存根之下",))
-    return Verdict("TEMP_COPY_NOT_PROJECT", True, "不在暫存目錄，照專案規則", (str(path)[:60],))
 
 
 RULES.update({
@@ -2101,9 +2088,6 @@ def conflict_declaration_verdict(candidates: Sequence[str], declared: Any) -> Tu
     return Verdict("CONFLICT_DECLARED_BY_AI", False, why, tuple(f"{d['of']}：{d['verdict']}：{d['why']}" for d in got)), got
 
 
-_PENDING_ATOM_RE = lazy_re(r"^\s*([^\s:：]+)[:：]")     # 卡名是不含空白的 slug，緊接冒號
-
-
 _FAILED_UNIT_RE = lazy_re(r"^(?:FAILED|ERROR)\s+(\S+)", re.MULTILINE)
 
 
@@ -2245,7 +2229,6 @@ RULES.update({
                               "量完前又改碼的舊條目只收答案、不提醒；每個使用者回合最多提醒一次。",
 })
 
-JUDGMENT_LABEL = "拐彎判斷"
 JUDGMENT_COLUMNS = ("對象（函式、類別或入口）", "這一層／這個彎存在的理由、有沒有真正的作用（不會／會：第 N 個彎在…／這一層沒有作用，因為…）",
                     "理由", "怎麼改直／合理，因為…")
 JUDGMENT_EXAMPLE = "拐彎判斷｜{name}｜<不會／會：第 N 個彎在…／這一層沒有作用，因為…>｜<理由>｜<怎麼改直／合理，因為…>"

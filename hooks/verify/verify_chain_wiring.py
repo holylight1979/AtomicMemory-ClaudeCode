@@ -187,7 +187,7 @@ def test_depth2_aborts_rest_record_only_and_tools_halt(hk):
     assert _blocked(out) and out["reason"].startswith("[Guardian:ChainBreaker] 連鎖中止")
     for opt in (wc.OPT_RESTORE, wc.OPT_CONTINUE, wc.OPT_RELEASE):
         assert f"「{opt}」" in out["reason"]
-    # 工具前閘不報擋的檔（沒有閘報 watched）→ A 之後 AI 改了 notes.txt，A→B 照時間先後接上
+    # 斷路器不看擋的是哪個檔 → A 之後 AI 改了 notes.txt，A→B 照時間先後接上
     assert "總共連鎖 2 次、深度 2" in out["reason"] and "CrossRealmWriteBlock" in out["reason"] and "notes.txt" in out["reason"]
     halt = s.write(y, "o = 9\n")
     assert _denied(halt) and _deny_text(halt).startswith("[Guardian:ChainBreaker] 連鎖中止中")
@@ -583,7 +583,7 @@ def _hub_switch(s: Session, monkeypatch) -> set:
 
 
 def test_tool_gates_report_no_blocked_object(hk, monkeypatch):
-    """接線：工具前閘擋下時都不報擋的檔（watched 空），斷路器照閘名計數：擋 a.json → AI 改別的檔 → 擋 b.json → 同一道閘第 2 次。
+    """接線：斷路器照閘名計數、帳上不記擋的檔：擋 a.json → AI 改別的檔 → 擋 b.json → 同一道閘第 2 次。
     版控口令一樣不報。"""
     s = hk()
     a, b = s.proj / "a.json", s.proj / "b.json"
@@ -594,13 +594,13 @@ def test_tool_gates_report_no_blocked_object(hk, monkeypatch):
     s.gates["CrossRealmWriteBlock"] = True
     s.write(b, "{}\n")
     rows = [r for r in cs.read_rows(s.sid) if r.get("type") == "gate"]
-    assert [r["watched"] for r in rows] == [[], []] and [r["same"] for r in rows] == [1, 2]
+    assert all("watched" not in r for r in rows) and [r["same"] for r in rows] == [1, 2]
     s.gates["CrossRealmWriteBlock"] = False
     t = hk("sid-commit-order")
     monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: "[Guardian:CommitOrder] 本回合沒有版控口令")
     assert _deny_text(t.pre("Bash", {"command": "git commit -m x"})).startswith("[Guardian:CommitOrder]")
     row = [r for r in cs.read_rows(t.sid) if r.get("type") == "gate"][-1]
-    assert row["gate"] == "CommitOrder" and row["watched"] == [] and "target" not in row
+    assert row["gate"] == "CommitOrder" and "watched" not in row and "target" not in row
 
 
 if __name__ == "__main__":

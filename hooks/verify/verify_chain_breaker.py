@@ -360,20 +360,19 @@ def test_headless_keeps_data_gates_after_alarm(box, monkeypatch):
     assert ch.count == 1 and "會改使用者資料照擋" in wc.report(ch, t.now)
     out = t.stop()
     assert out.block and "照它的擋訊息補宣告" in out.text and "AskUserQuestion" not in out.text
-    f = box / "proj" / "README.md"
     u = Turn(box, turn=2)
-    assert u.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(f)]) == cs.PASS
+    assert u.gate("CrossRealmWriteBlock", hook="PreToolUse") == cs.PASS
     u.act()
-    assert u.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(f)]) == cs.PASS   # 讓警報響的這一次也照擋
+    assert u.gate("CrossRealmWriteBlock", hook="PreToolUse") == cs.PASS   # 讓警報響的這一次也照擋
     assert u.chain().alarm and u.chain().steps[-1].row["kept"] and not u.chain().steps[-1].row["record_only"]
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
     v = Turn(box, turn=3)
-    v.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(f)])
+    v.gate("CrossRealmWriteBlock", hook="PreToolUse")
     v.act()
-    assert v.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(f)]).halt       # 能互動：改送停手
+    assert v.gate("CrossRealmWriteBlock", hook="PreToolUse").halt       # 能互動：改送停手
     v.answer(wc.OPT_RELEASE)
     assert cs.halt(SID, 3, "Write", v.inp("PreToolUse"), ON) is None
-    assert v.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(f)]) == cs.GateResult(True)
+    assert v.gate("CrossRealmWriteBlock", hook="PreToolUse") == cs.GateResult(True)
     assert not any(s.row.get("kept") for s in v.chain().steps)
 
 
@@ -561,36 +560,6 @@ def test_previewed_gate_does_not_link(box):
     u.gate("B")
     u.edit(x, "x = 4", "x = 5")
     assert u.gate("C").notice
-
-
-def test_files_disjoint_does_not_link(box):
-    """CHAIN_EDGE_FILES_DISJOINT：B 說它看 y.py、A 之後只改了 x.py → 不接；看 x.py 就接；中間的重跑沒改檔、不算進來，照不接
-    （CHAIN_NO_EDIT_NO_EDGE）；中間有改到檔卻說不出哪個檔的動作（寫卡）照接。"""
-    proj = box / "proj"
-    x, y = proj / "x.py", proj / "y.py"
-    x.write_text("x = 1\n", encoding="utf-8")
-    t = Turn(box)
-    t.gate("A")
-    t.edit(x, "x = 1", "x = 2")
-    t.gate("B", watched=[str(y)])
-    assert t.chain().steps[1].link.rule == "CHAIN_EDGE_FILES_DISJOINT"
-    u = Turn(box, turn=2)
-    u.gate("A")
-    u.edit(x, "x = 2", "x = 3")
-    u.gate("B", watched=[str(x).upper()])                    # SAME_FILE：大小寫不同也是同一個檔
-    assert u.chain().steps[1].link.linked
-    v = Turn(box, turn=3)
-    v.gate("A")
-    v.edit(x, "x = 3", "x = 4")
-    v.rerun("python -m pytest -q tests")
-    v.gate("B", watched=[str(y)])
-    assert v.chain().steps[1].link.rule == "CHAIN_EDGE_FILES_DISJOINT"
-    w = Turn(box, turn=4)
-    w.gate("A")
-    w.edit(x, "x = 4", "x = 5")
-    w.act()
-    w.gate("B", watched=[str(y)])
-    assert w.chain().steps[1].link.linked
 
 
 def test_count_is_triggers_minus_one_depth_is_run(box):
@@ -880,7 +849,7 @@ def test_late_hook_of_older_turn_keeps_newer_snapshots(box):
 # ─── 經過表 ────────────────────────────────────────────────────────────
 
 def test_report_table_shape(box):
-    """回報內容：每步一列——第幾步、哪道閘、擋的對象（說不出寫 —）、擋了什麼（一句）、AI 做了什麼改動（檔與行數）、這一步耗時；最後一句總次數與深度。"""
+    """回報內容：每步一列——第幾步、哪道閘、擋了什麼（一句）、AI 做了什麼改動（檔與行數）、這一步耗時；最後一句總次數與深度。"""
     t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
     x.write_text("x = 1\ny = 1\n", encoding="utf-8")
     t.gate("A")
@@ -888,16 +857,16 @@ def test_report_table_shape(box):
     t.gate("B")
     r = t.gate("C")
     lines = r.notice.splitlines()
-    assert "| 步 | 閘 | 擋的對象 | 擋了什麼 | AI 接著做了什麼改動 | 耗時 |" in lines
+    assert "| 步 | 閘 | 擋了什麼 | AI 接著做了什麼改動 | 耗時 |" in lines
     row1 = next(ln for ln in lines if ln.startswith("| 1 |"))
-    assert "| A | — |" in row1 and "A：缺東西" in row1 and "改 chain-breaker" not in row1
+    assert "| 1 | A | A：缺東西 |" in row1 and "改 chain-breaker" not in row1
     assert "proj/x.py（+3/−2 行）" in row1 and "| 11 秒 |" in row1      # 閘A 1005 → 閘B 1016
     row2 = next(ln for ln in lines if ln.startswith("| 2 |"))
     assert "（沒記到改動：改寫回覆）" in row2
-    assert "| 3 | C | — | C：缺東西（這一次讓警報響：改送中止） |" in r.notice    # 讓警報響的那一次不標「只記錄」
+    assert "| 3 | C | C：缺東西（這一次讓警報響：改送中止） |" in r.notice    # 讓警報響的那一次不標「只記錄」
     assert "總共連鎖 2 次、深度 2" in lines
     t.gate("D")                                                               # 警報之後的才標只記錄
-    assert "| 4 | D | — | D：缺東西（只記錄） |" in wc.report(t.chain(), t.now)
+    assert "| 4 | D | D：缺東西（只記錄） |" in wc.report(t.chain(), t.now)
 
 
 # ─── 002：comment_only ─────────────────────────────────────────────────
@@ -1147,13 +1116,13 @@ def test_verbatim_retry_after_other_action_is_not_second_trigger(box):
     edit = ("Edit", {"file_path": readme, "old_string": "舊說明", "new_string": "新說明"})
     t.reply("msg_0")
     t.reply("msg_1")
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit, watched=[readme]) == cs.PASS
+    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit) == cs.PASS
     t.reply("msg_2")
     t.report()
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit, watched=[readme]) == cs.PASS
+    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit) == cs.PASS
     ch = t.chain()
     assert ch.steps[1].link.rule == "CHAIN_SAME_CALL_RETRY" and ch.alarm is None
-    assert wc.same_count(ch.steps, {"gate": "CrossRealmWriteBlock", "watched": [readme], "call": ch.steps[1].row["call"]}) == 1
+    assert wc.same_count(ch.steps, {"gate": "CrossRealmWriteBlock", "call": ch.steps[1].row["call"]}) == 1
 
 
 def test_verbatim_retry_across_another_gate_does_not_link(box):
@@ -1164,13 +1133,13 @@ def test_verbatim_retry_across_another_gate_does_not_link(box):
     y = ("Edit", {"file_path": f, "old_string": "b = 1", "new_string": "b = 2"})
     t.reply("m0")
     t.reply("m1")
-    t.gate("A", hook="PreToolUse", call=x, watched=[f])
+    t.gate("A", hook="PreToolUse", call=x)
     t.reply("m2")
     t.report()
-    t.gate("B", hook="PreToolUse", call=y, watched=[f])
+    t.gate("B", hook="PreToolUse", call=y)
     t.reply("m3")
     t.report()
-    assert t.gate("A", hook="PreToolUse", call=x, watched=[f]) == cs.PASS
+    assert t.gate("A", hook="PreToolUse", call=x) == cs.PASS
     ch = t.chain()
     assert ch.steps[2].link.rule == "CHAIN_SAME_CALL_RETRY" and ch.steps[2].depth == 0 and ch.alarm is None
 
@@ -1182,24 +1151,24 @@ def test_changed_call_after_action_still_counts_second_trigger(box):
     edit = ("Edit", {"file_path": readme, "old_string": "舊說明", "new_string": "新說明"})
     t.reply("msg_0")
     t.reply("msg_1")
-    t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit, watched=[readme])
+    t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit)
     t.reply("msg_2")
     t.act()
-    t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit, watched=[readme])            # 原樣重試：不算
+    t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=edit)            # 原樣重試：不算
     t.reply("msg_3")
     t.act()
     changed = ("Edit", {**edit[1], "new_string": "新說明（改寫）"})
-    r = t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=changed, watched=[readme])
+    r = t.gate("CrossRealmWriteBlock", hook="PreToolUse", call=changed)
     assert r.record_only and r.halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
     u = Turn(box, turn=2)
     bash = ("Bash", {"command": "echo x > ops/README.md"})
     u.reply("m0")
     u.reply("m1")
-    u.gate("CrossRealmWriteBlock", hook="PreToolUse", call=bash, watched=[readme])
+    u.gate("CrossRealmWriteBlock", hook="PreToolUse", call=bash)
     u.reply("m2")
     u.act()
     declared = ("Bash", {"command": "# 補一行說明\necho x > ops/README.md"})   # 換了寫法再送（閘照擋）
-    assert u.gate("CrossRealmWriteBlock", hook="PreToolUse", call=declared, watched=[readme]).halt
+    assert u.gate("CrossRealmWriteBlock", hook="PreToolUse", call=declared).halt
 
 
 def test_same_reply_edits_are_not_reactions(box):
@@ -1216,19 +1185,19 @@ def test_same_reply_edits_are_not_reactions(box):
 
 
 def test_batch_links_to_deepest_step_of_previous_reply(box):
-    """CHAIN_SAME_BATCH／CHAIN_ALARM_DEPTH：A 擋（第一則）→ 第二則改檔後 B、C 同一批被擋（都跟 A 比；C 看的檔跟改的檔沒交集，不接）
+    """CHAIN_SAME_BATCH／CHAIN_ALARM_DEPTH：A 擋（第一則）→ 第二則改檔後 B、C 同一批被擋（都跟 A 比；C 在 A 擋的時候就列在預覽裡，不接）
     → 第三則改檔後 D 擋：接在第二則最深的 B 上，深度 2 警報（只跟前一步 C 比會算成深度 1；改前則在 C 就誤判深度 2）。深度警報打開。"""
     t, x = Turn(box, cfg=DEPTH), box / "proj" / "x.py"
     x.write_text("x = 1\n", encoding="utf-8")
     t.reply("m0")
     t.reply("m1")
-    t.gate("A", hook="PreToolUse")
+    t.gate("A", hook="PreToolUse", later=["C"])
     t.reply("m2")
     t.edit(x, "x = 1", "x = 2")
     t.gate("B", hook="PreToolUse")
-    assert t.gate("C", hook="PreToolUse", watched=[str(box / "proj" / "other.py")]) == cs.PASS
+    assert t.gate("C", hook="PreToolUse") == cs.PASS
     assert [(s.link.rule, s.depth) for s in t.chain().steps[1:]] == [("CHAIN_EDGE_TIME_ORDER", 1),
-                                                                      ("CHAIN_EDGE_FILES_DISJOINT", 0)]
+                                                                      ("CHAIN_EDGE_PREVIEWED", 0)]
     t.reply("m3")
     t.edit(x, "x = 2", "x = 3")
     r = t.gate("D", hook="PreToolUse")
@@ -1284,52 +1253,22 @@ def test_batch_key_from_transcript(box):
     assert cs._batch_fields({"transcript_path": str(tp)}) == {}
 
 
-# ─── 同一道閘照擋的對象計數 ───────────────────────────────────────────────
-
-def test_object_a_b_back_to_a_alarms_on_a(box):
-    """紅案例（CHAIN_SAME_GATE_PER_OBJECT × CHAIN_ALARM_SAME_GATE）：擋 a.json → 改檔 → 擋 b.json → 改檔 → 又擋 a.json
-    → a.json 第 2 次響（中間的動作接在別的對象後面也算）；警報句寫出擋的檔。"""
-    t, proj = Turn(box), box / "proj"
-    a, b = proj / "a.json", proj / "b.json"
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(a)]) == cs.PASS
-    t.write(proj / "x.py", "x = 1\n")
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(b)]) == cs.PASS
-    t.write(proj / "y.py", "y = 1\n")
-    r = t.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(a)])
-    assert r.halt and [s.row["same"] for s in t.chain().steps] == [1, 1, 2]
-    assert "CrossRealmWriteBlock（擋 " in r.halt and "a.json）這一段第 2 次觸發" in r.halt
-
+# ─── 同一道閘照閘名計數 ───────────────────────────────────────────────
 
 def test_gate_without_object_still_counts_by_name(box):
-    """紅案例：說不出對象的閘（版控口令、收尾閘這類）擋兩次、中間有動作 → 照舊響；同一道閘一次報了擋的檔、一次沒報（例如閘環境出錯），
-    比不了 → 照閘名算第 2 次。"""
+    """紅案例：同一道閘擋兩次、中間有動作 → 照閘名算第 2 次、響（版控口令、定位閘、收尾閘都一樣）。"""
     t = Turn(box)
     t.gate("CommitOrder", hook="PreToolUse")
     t.act()
     assert t.gate("CommitOrder", hook="PreToolUse").halt and _alarm_rules(t) == {"CHAIN_ALARM_SAME_GATE"}
     u = Turn(box, turn=2)
-    u.gate("OverviewHub", hook="PreToolUse", watched=[str(box / "proj" / "x.py")])
+    u.gate("OverviewHub", hook="PreToolUse")
     u.act()
     assert u.gate("OverviewHub", hook="PreToolUse").halt
     v = Turn(box, turn=4)
     v.gate("ReconcileGate")
     v.act()
     assert v.gate("ReconcileGate").notice                                    # 收尾閘照閘名
-
-
-def test_blocked_files_as_object(box):
-    """CHAIN_SAME_GATE_PER_OBJECT（擋的檔當對象）：擋 a.json → 改 → 擋 b.json → 不響；
-    再擋 c.json 加 B.JSON（大小寫不同也是同一個檔）→ 跟 b.json 那次有交集 → 響。"""
-    t, proj = Turn(box), box / "proj"
-    a, b = proj / "a.json", proj / "b.json"
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(a)]) == cs.PASS
-    t.write(a, "{}\n")
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(b)]) == cs.PASS
-    t.write(b, "{}\n")
-    assert t.gate("CrossRealmWriteBlock", hook="PreToolUse", watched=[str(proj / "c.json"), str(b).upper()]).halt
-    assert [s.row["same"] for s in t.chain().steps] == [1, 1, 2]
-    row1 = next(ln for ln in wc.report(t.chain(), t.now).splitlines() if ln.startswith("| 1 | CrossRealmWriteBlock | "))
-    assert "/proj/a.json | CrossRealmWriteBlock：缺東西 |" in row1
 
 
 def _run_temp(monkeypatch, path: Path) -> None:

@@ -1118,10 +1118,10 @@ def _negative_control(input_data: Dict[str, Any], command: str):
     """規則 NEGATIVE_CONTROL_DECLARED 的事實：宣告行從 transcript 三管道（主檔與子代理檔）加這次指令全文找。
     讀不到 transcript 只 stderr、照記紅（寧可多擋）。"""
     from overview_hub import LOCATE_CHANNELS
-    from wg_core import assistant_texts_since
+    from wg_core import assistant_texts
     tp = str(input_data.get("transcript_path") or "")
     try:
-        text = "\n".join([assistant_texts_since(tp, "", ch) for ch in LOCATE_CHANNELS] + [command])
+        text = "\n".join([assistant_texts(tp, "", ch) for ch in LOCATE_CHANNELS] + [command])
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:TestFail] 找負向對照宣告失敗，照記紅：{type(e).__name__}: {e}", file=sys.stderr)
         text = command

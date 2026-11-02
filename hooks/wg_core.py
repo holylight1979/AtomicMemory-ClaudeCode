@@ -349,11 +349,6 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
 # 只有一份：lib/harness_text.user_typed_text（頂部 import），這裡的 user_typed_text 就是它。
 
 
-def is_harness_generated_prompt(text: str) -> bool:
-    """整則 prompt 裡沒有使用者打的字（user_typed_text 為空；空訊息也算）。"""
-    return not user_typed_text(text)
-
-
 def user_typed_prompts(prompts: Optional[List[str]]) -> List[str]:
     """近期 prompt 清單逐則取 user_typed_text（清理後的文字），不是使用者的話的那幾則丟掉；豁免詞與口令只認這些。"""
     out: List[str] = []
@@ -612,7 +607,7 @@ def transcripts_of(transcript_path: str, agent_id: str) -> Tuple[str, List[str]]
     return str(p), [str(p)] + ([str(agent)] if agent is not None and agent.exists() else [])
 
 
-def assistant_texts_since(transcript_path: str, agent_id: str, channel: str) -> str:
+def assistant_texts(transcript_path: str, agent_id: str, channel: str) -> str:
     """要找 AI 宣告行的那幾份 transcript（transcripts_of：主檔＋子代理檔）從頭起的 assistant 內容，主檔在前。"""
     from overview_hub import assistant_text_after
     parts = [assistant_text_after(f, 0, channel) for f in transcripts_of(transcript_path, agent_id)[1]]
@@ -1929,14 +1924,14 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         _atom_debug_error(f"guard_log:{guard}", e)
 
 
-# ─── 工具前閘擋次上限（驗證批次閘用）───────────
-DECL_DENY_CAP = 2                     # 同一個使用者回合、同一道閘、同一件缺件最多擋幾則回覆；再來就放行、由呼叫端留帳
+# ─── 工具前閘擋次上限（驗證批次閘、病形閘用）───────────
 _DECL_DENY_KEY = "decl_deny_counts"   # state：{"turn": 使用者回合, "counts": {"<閘>|<缺件>": 已擋則數}, "batch": {同鍵: 上次算次的那則}}
 
 
 def deny_cap(state: Optional[Dict[str, Any]], gate: str, items: List[str],
-             cap: int = DECL_DENY_CAP, call: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[str]]:
+             cap: int, call: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[str]]:
     """閘這次缺的每一件（呼叫端給穩定的鍵，例：規則名）→ (照擋的, 這次起放行的)。
+    cap＝同一個使用者回合、同一道閘、同一件缺件最多擋幾則回覆，呼叫端明寫（驗證批次閘、病形閘都給 1）。
     同一個使用者回合（wg_release_rules.user_turn）裡同一件已經擋滿 cap 次就放行：越過上限那一次回在「放行」裡給呼叫端
     留帳，同回合之後再遇到既不擋也不重回；照擋的各記一次。換回合整份歸零。state 就地改、寫檔由呼叫端；
     state 是 None（沒有 session 可記）照擋、不計次。

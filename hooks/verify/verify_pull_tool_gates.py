@@ -1,7 +1,7 @@
 """verify_pull_tool_gates.py：工具前的閘不再「交了看不到就一直擋」——擋次上限、svn 測試路徑閘。
 
 每條都是會紅案例（改前的碼跑會紅），除了 deny_cap 單元案都走 handlers/pre_tool_use.handle_pre_tool_use 真入口：
-- 擋次上限（wg_core.deny_cap）：同一個使用者回合同一件缺件擋第 1、2 次，第 3 次放行；同一則回覆平行送出的呼叫算一次；換回合重算。
+- 擋次上限（wg_core.deny_cap，案例給 cap=2）：同一個使用者回合同一件缺件擋第 1、2 次，第 3 次放行；同一則回覆平行送出的呼叫算一次；換回合重算。
 - 改資料檔、改舊測試不用先宣告：寫碼守門開著、這個 session 寫過程式，Edit 既有設定檔、刪既有測試的斷言、Bash 改測試檔之後的
   下一個工具呼叫都不擋，也不留 guard-data_file／guard-old_test 帳。
 - svn 測試路徑閘：預設關；專案 overview-hub.json 開了之後只看 commit 的路徑參數（-m 訊息不看）、PowerShell 也查、
@@ -103,15 +103,15 @@ def _wrote_code(w):
 
 def test_deny_cap_counts_each_item_per_user_turn():
     st = {"turn_seq": 3}
-    assert [wg_core.deny_cap(st, "g", ["a"]) for _ in range(4)] == [(["a"], []), (["a"], []), ([], ["a"]), ([], [])]
-    assert wg_core.deny_cap(st, "g", ["b", "c"]) == (["b", "c"], [])
-    assert wg_core.deny_cap(st, "g", ["b", "c"]) == (["b", "c"], [])
-    assert wg_core.deny_cap(st, "g", ["b", "d"]) == (["d"], [])          # d 照擋整條還是被擋：b 這次不算放行
-    assert wg_core.deny_cap(st, "g", ["b"]) == ([], ["b"])
-    assert wg_core.deny_cap(st, "other", ["a"]) == (["a"], [])           # 別道閘另算
+    assert [wg_core.deny_cap(st, "g", ["a"], cap=2) for _ in range(4)] == [(["a"], []), (["a"], []), ([], ["a"]), ([], [])]
+    assert wg_core.deny_cap(st, "g", ["b", "c"], cap=2) == (["b", "c"], [])
+    assert wg_core.deny_cap(st, "g", ["b", "c"], cap=2) == (["b", "c"], [])
+    assert wg_core.deny_cap(st, "g", ["b", "d"], cap=2) == (["d"], [])          # d 照擋整條還是被擋：b 這次不算放行
+    assert wg_core.deny_cap(st, "g", ["b"], cap=2) == ([], ["b"])
+    assert wg_core.deny_cap(st, "other", ["a"], cap=2) == (["a"], [])           # 別道閘另算
     st["turn_prompts_seq"] = 4                                           # 使用者開了新回合：重算
-    assert wg_core.deny_cap(st, "g", ["a"]) == (["a"], [])
-    assert wg_core.deny_cap(None, "g", ["a"]) == (["a"], [])             # 沒有 state 可記：照擋
+    assert wg_core.deny_cap(st, "g", ["a"], cap=2) == (["a"], [])
+    assert wg_core.deny_cap(None, "g", ["a"], cap=2) == (["a"], [])             # 沒有 state 可記：照擋
 
 
 def _reply(tp, mid, *tids):
@@ -130,23 +130,23 @@ def test_deny_cap_per_reply_counts_one_reply_once(world):
     def call(tid, **kw):
         return {"tool_use_id": tid, "transcript_path": str(tp), "session_id": SID, **kw}
     st = {"turn_seq": 3}
-    assert [wg_core.deny_cap(st, "g", ["a"], call=call(t)) for t in ("t1", "t2", "t3", "t4")] == [(["a"], [])] * 4
+    assert [wg_core.deny_cap(st, "g", ["a"], cap=2, call=call(t)) for t in ("t1", "t2", "t3", "t4")] == [(["a"], [])] * 4
     _reply(tp, "m1", "t1", "t2", "t3", "t4")
-    assert wg_core.deny_cap(st, "g", ["a"], call=call("t5")) == (["a"], [])                # 第二則：第 2 次
+    assert wg_core.deny_cap(st, "g", ["a"], cap=2, call=call("t5")) == (["a"], [])                # 第二則：第 2 次
     _reply(tp, "m2", "t5")
-    assert wg_core.deny_cap(st, "g", ["a"], call=call("t6")) == ([], ["a"])                # 第三則：放行、回給呼叫端留帳
-    assert wg_core.deny_cap(st, "g", ["a"], call=call("t7")) == ([], [])                   # 同一則的下一個呼叫：不重回
+    assert wg_core.deny_cap(st, "g", ["a"], cap=2, call=call("t6")) == ([], ["a"])                # 第三則：放行、回給呼叫端留帳
+    assert wg_core.deny_cap(st, "g", ["a"], cap=2, call=call("t7")) == ([], [])                   # 同一則的下一個呼叫：不重回
     assert not _events(world, "deny_cap")
     sub = {"turn_seq": 3}
-    assert [wg_core.deny_cap(sub, "g", ["a"], call=call(f"s{i}", agent_id="ag1")) for i in range(3)] == \
+    assert [wg_core.deny_cap(sub, "g", ["a"], cap=2, call=call(f"s{i}", agent_id="ag1")) for i in range(3)] == \
         [(["a"], []), (["a"], []), ([], ["a"])]                                             # 子代理：照每個呼叫算
     assert {(e["event"], e["rule"]) for e in _events(world, "deny_cap")} == {("batch_unknown", "DENY_CAP_PER_REPLY")}
     # 一次缺兩件：a 剛到上限、b 照擋 → 整條擋、a 不算放行也不算「這一則算過」；同一則下一個呼叫只缺 a → a 放行（codex 一輪 BLOCK 1）
     two = {"turn_seq": 3, "decl_deny_counts": {"turn": 3, "counts": {"g|a": 2, "g|b": 0}, "batch": {}}}
     _reply(tp, "m3", "t6", "t7")
-    assert wg_core.deny_cap(two, "g", ["a", "b"], call=call("t8")) == (["b"], [])
-    assert wg_core.deny_cap(two, "g", ["a"], call=call("t9")) == ([], ["a"])
-    assert wg_core.deny_cap(two, "g", ["a", "b"], call=call("t10")) == (["b"], [])      # b 同一則照第一次擋；a 已放行過不重回
+    assert wg_core.deny_cap(two, "g", ["a", "b"], cap=2, call=call("t8")) == (["b"], [])
+    assert wg_core.deny_cap(two, "g", ["a"], cap=2, call=call("t9")) == ([], ["a"])
+    assert wg_core.deny_cap(two, "g", ["a", "b"], cap=2, call=call("t10")) == (["b"], [])      # b 同一則照第一次擋；a 已放行過不重回
 
 
 # ─── 改資料檔、改舊測試不用先宣告 ─────────────────────────────────────────────────
