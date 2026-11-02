@@ -2557,6 +2557,10 @@ RULES.update({
     "COMMIT_SMELL_NEW_BLOCKS": "commit／svn commit 那刻，這次提交新寫進的病形（巢狀過深、匿名區塊過長…，判法在 tools/project-smells.py check_commit）"
                                "→ 擋；拆不出要提交什麼（包在 bash -c、--git-dir、查不到的別名）判不了也擋。舊碼原本就有的只列出、不擋。"
                                "判法在 handlers/pre_tool_use.check_smell_gate。",
+    "SMELL_GATE_ONCE_PER_TURN": "病形閘每個使用者回合、每個 repo 最多擋 1 次（wg_core.deny_cap cap=1，鍵 smell@<repo 根>）：修了又長出新病、"
+                                "原樣重送、判不了一律擋都不會一直擋下去。第 2 次起放行、留帳 Logs/guard-smell_gate.jsonl event=released，"
+                                "擋訊息改當提醒送給 AI，要它把沒修就提交的病寫進收尾檢核「AI 自己做主」。沒有 state 記不住擋過 → 照擋。"
+                                "判法在 handlers/pre_tool_use._smell_once_per_turn。",
     "RED_TEST_BLOCKS_COMPLETION": "本 session 自己跑紅、還沒綠的測試在，收尾最後一則宣告完成 → 擋（紅測閘，handlers/stop.handle_stop 的 Test-Fail Gate 段）；"
                                   "寫碼守門開或關同一套：不讀本表、不看擋次預算、沒有放行詢問。使用者說「先這樣／跳過」時 UserPromptSubmit "
                                   "整份清掉紅測清單（handlers/ups_gates）。紅只在宣告完成的收尾才被拿出來判：沒宣告完成的回合不判，那筆紅照留，"
@@ -2597,7 +2601,7 @@ REMIND = "remind"
 
 # 照擋的規則名 → 屬哪一類（上表三類＋不在範圍）。共用的判事實規則（SAME_FILE、TURN_SINCE_USER_PROMPT…）不決定送法，標 remind 不影響照擋閘使用。
 RULE_CLASS: Dict[str, str] = {
-    **dict.fromkeys(("COMMIT_SMELL_NEW_BLOCKS",), "病形"),
+    **dict.fromkeys(("COMMIT_SMELL_NEW_BLOCKS", "SMELL_GATE_ONCE_PER_TURN"), "病形"),
     **dict.fromkeys(("RED_TEST_BLOCKS_COMPLETION", "RED_ITEMS_ONLY_FROM_FAILURE_LINES", "RED_SCOPE_FROM_FULL_COMMAND",
                      "GREEN_CLEARS_ONLY_CASES_IT_RAN", "GREEN_NARROWED_KEEPS_UNCOVERED_RED", "GREEN_SAME_CASE_CLEARS",
                      "NEGATIVE_CONTROL_DECLARED",

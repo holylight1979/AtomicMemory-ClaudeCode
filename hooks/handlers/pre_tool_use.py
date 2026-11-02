@@ -1252,6 +1252,27 @@ def check_smell_gate(
                 "確定是檢查本身壞了，照實告訴使用者（workflow/config.json 的 guard.smell_gate.enabled=false 可暫停本閘）。"), None
 
 
+def _smell_once_per_turn(input_data: Dict[str, Any], state: Optional[Dict[str, Any]], sid: str, cwd: str,
+                         deny: str, warn: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """病形閘同一個使用者回合、同一個 repo 只擋一次（規則 SMELL_GATE_ONCE_PER_TURN）→ (照擋的訊息, 提醒)。
+    修了又長出新病、原樣重送、判不了一律擋，都不會一直擋下去；第二次起放行、留帳，擋訊息改當提醒送，
+    要 AI 把沒修就提交的病寫進收尾檢核「AI 自己做主」。沒有 state 記不住擋過 → 照擋。"""
+    from wg_core import deny_cap, write_state
+    hit = find_vcs_root(Path(cwd)) if cwd else None
+    key = f"smell@{hit[1] if hit else cwd}"
+    denied, _released = deny_cap(state, "smell_gate", [key], cap=1, call=input_data)
+    if state is not None and sid:
+        write_state(sid, state)
+    entry = {"session_id": sid, "key": key, "rule": "SMELL_GATE_ONCE_PER_TURN"}
+    if denied:
+        append_guard_log("smell_gate", {"event": "denied", **entry})
+        return deny, warn
+    append_guard_log("smell_gate", {"event": "released", **entry, "reason": deny[:1500]})
+    note = ("[Guardian:SmellGate] 這個回合在這個 repo 已經擋過一次，這次放行並留帳。下面點名的病沒修就提交了："
+            "收尾檢核要把它寫進「AI 自己做主」那類，說明為什麼沒修。\n")
+    return None, note + deny + (f"\n{warn}" if warn else "")
+
+
 # ─── 索引三檔合併驅動閘（advisory-only，永不 deny）─────────────────────────
 # 多機共享記憶庫：兩機各加 atom 後 pull/rebase，索引三檔（MEMORY.md 計數表／_ATOM_INDEX.md／
 # _atom_index.json）同區塊各加一列必衝突。兩層自動化（workflow/config.json merge_driver）：
@@ -2033,8 +2054,10 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         _deny(input_data, config, deny_reason)
         return
 
-    # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）
+    # commit 前病形閘（新寫進的病 → deny；舊碼原本就有的只列出，跟其他提醒一起送）；同一回合同一個 repo 只擋一次
     deny_reason, smell_warn = check_smell_gate(tool_name, tool_input, _cwd, config) if v6 else (None, None)
+    if deny_reason:
+        deny_reason, smell_warn = _smell_once_per_turn(input_data, _co_state, _co_sid, _cwd, deny_reason, smell_warn)
     if deny_reason:
         _deny(input_data, config, deny_reason)
         return

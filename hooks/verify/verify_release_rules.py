@@ -42,6 +42,7 @@ def test_044_every_rule_has_a_case():
     ("VERIFY_FULL_RUN_NEEDS_USER_ORDER", "verify_verify_batch.py"),
     ("VERIFY_SAME_BATCH_ALREADY_GREEN", "verify_verify_batch.py"),
     ("VERIFY_BATCH_BLOCK_ONCE_PER_TURN", "verify_verify_batch.py"),
+    ("SMELL_GATE_ONCE_PER_TURN", "verify_gate_mode_pre.py"),
     ("BLOCK_BUDGET_SHARED", "verify_gate_trim.py"),
     ("STATE_RMW_LOCKED", "verify_state_parallel_rmw.py"),
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),

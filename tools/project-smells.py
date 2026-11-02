@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""project-smells.py：commit 前病形檢查（PreToolUse commit 段與繞閘判定呼叫，見下方「commit 前病形檢查」段）。
+"""project-smells.py：commit 前病形檢查（PreToolUse commit 段呼叫，見下方「commit 前病形檢查」段）。
 
 怎麼跑：
   python tools/project-smells.py --commit-check --cwd <repo 或 svn 工作副本>
@@ -135,7 +135,8 @@ SHAPES: Dict[str, Tuple[str, str, str]] = {   # 規則 → (病名, 為什麼是
     "lambda-assign": ("lambda 指派給變數", "把 lambda 存進變數就失去它唯一的好處（嵌在運算式裡），還讓錯誤追蹤看不到函式名（PEP 8）",
                       "改寫成 def"),
     "deep-nesting": ("控制結構巢狀太深", "if／for／while／try 一層套一層，讀的人要同時記住每一層的條件",
-                     "先踢掉例外情況提早 return／continue，或把內層抽成有名字的函式"),
+                     "先踢掉例外情況提早 return／continue；條件複雜就替判斷式取名字；if 鏈長就查表。不為壓層數抽只呼叫一次的小函式；"
+                     "舊函式本來就深的，只要不比舊版更深就不擋"),
     "nested-ternary": ("巢狀三元", "三元運算裡再套三元，一行裡要同時解好幾個條件分支", "改成 if／elif 或查表"),
     "unity-empty-message": ("空的 Unity 訊息方法", "空的 Update() 等方法 Unity 每幀照樣呼叫，白耗效能", "刪掉這個空方法"),
     "unity-hot-lookup": ("每幀方法裡做昂貴查找", "在 Update 這類每幀都跑的方法裡做 Find／AddComponent／反射，每幀都付一次查找或配置的成本",
@@ -1106,11 +1107,11 @@ def render_commit_report(results: List[Dict[str, Any]], repo_hint: str = "<repo>
     if notes:
         lines += [f"注意：{n}" for n in notes]
     if new:
-        lines.append("處置先分清被點名的檔是不是你這次改的：是你改的 → 把 ✗ 那幾行改掉再 commit；判斷過確實該這樣寫"
+        lines.append("處置先分清被點名的段落是不是你這次任務寫的：是 → 把 ✗ 那幾行改掉再 commit；判斷過確實該這樣寫"
                      "（例如外部 API 只收這種寫法）→ 在那一行加註解 `smell-ok: <為什麼>`，理由會留在 diff 裡給使用者看。"
-                     "不是你改的（session 開始前就在暫存區、別人留的）→ 不修、不動它的暫存，只提交你自己的檔，"
-                     "而且在這條 commit 指令開頭加一行 `# 不是繞閘｜<檔是誰的、病要誰修>`（下一行接 `git commit -- <你的檔>`），"
-                     "照這樣送一次就過。手動重查："
+                     "不是你這次寫的 → 不修，修它就偏離了使用者這次要的事：別人留在暫存區的檔，不動它的暫存，只提交你自己的檔"
+                     "（`git commit -- <你的檔>`）；舊碼原樣搬動或改名、合併進來的別人分支，原樣再送一次。"
+                     "同一回合同一個 repo 只擋這一次，再送就放行並留帳。手動重查："
                      f"python ~/.claude/tools/project-smells.py --commit-check --cwd {repo_hint}")
         return "\n".join(lines), None
     return None, "\n".join(lines)

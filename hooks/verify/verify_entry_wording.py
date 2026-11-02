@@ -74,9 +74,10 @@ def test_smellgate_disposal_asks_whose_file_first():
     msg, hint = ps.render_commit_report([{"new": [HIT], "listed": [], "old": [], "allowed": [], "notes": []}], "<repo>")
     assert hint is None and msg.startswith("[Guardian:SmellGate]")                       # 照樣擋
     last = msg.splitlines()[-1]
-    assert last.startswith("處置先分清被點名的檔是不是你這次改的：是你改的 → 把 ✗ 那幾行改掉再 commit")
-    assert "`smell-ok: <為什麼>`" in last and "不是你改的（session 開始前就在暫存區、別人留的）→ 不修、不動它的暫存，只提交你自己的檔" in last
-    assert "`# 不是繞閘｜<檔是誰的、病要誰修>`" in last and last.endswith("--commit-check --cwd <repo>")
+    assert last.startswith("處置先分清被點名的段落是不是你這次任務寫的：是 → 把 ✗ 那幾行改掉再 commit")
+    assert "`smell-ok: <為什麼>`" in last and "不是你這次寫的 → 不修，修它就偏離了使用者這次要的事" in last
+    assert "只提交你自己的檔" in last and "舊碼原樣搬動或改名、合併進來的別人分支，原樣再送一次" in last
+    assert "繞閘" not in last and last.endswith("--commit-check --cwd <repo>")   # 繞閘宣告已拔，沒有閘讀那行
     assert "處置：把 ✗" not in msg                                 # 反例：舊句不分是不是你的檔，帶 AI 去代刀
     ok, only = ps.render_commit_report([{"new": [], "listed": [HIT], "old": [], "allowed": [], "notes": []}], "<repo>")
     assert ok is None and "處置" not in only                        # 沒有新寫進的病：不擋、不印處置

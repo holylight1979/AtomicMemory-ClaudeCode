@@ -306,14 +306,16 @@ class _SmellEnv:
         return None
 
 
-def test_5_smell_message_teaches_not_bypass_declaration():
+def test_5_smell_message_teaches_commit_own_files_only():
     hit = {"name": "例外被吞掉", "why": "except 後直接 pass", "fix": "至少記 log", "path": "src/u.py", "line": 3, "text": "except: pass"}
     msg, _ = ps.render_commit_report([{"new": [hit], "listed": [], "old": [], "allowed": [], "notes": []}], "<repo>")
-    assert "# 不是繞閘｜" in msg and "git commit -- <你的檔>" in msg
+    assert "不是你這次寫的 → 不修" in msg and "git commit -- <你的檔>" in msg
+    assert "繞閘" not in msg                                                       # 繞閘宣告已拔，沒有閘讀那行
 
 
 def test_5_following_smell_message_passes_once(tmp_path, monkeypatch, git_cassette):
-    """流程級：別人留在暫存區的帶病檔擋下 commit → 照擋訊息教的「# 不是繞閘｜…」＋只提交自己的檔送一次 → 過。"""
+    """流程級：別人留在暫存區的帶病檔擋下 commit → 照擋訊息教的只提交自己的檔 → 過；而且是病形檢查本身判乾淨，
+    不是靠「同一回合只擋一次」放行。"""
     monkeypatch.setitem(sys.modules, "project_smells", ps)
     monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, None))
     git_cassette(exclude=("Logs",))
@@ -321,9 +323,9 @@ def test_5_following_smell_message_passes_once(tmp_path, monkeypatch, git_casset
     repo = _qa_notify(tmp_path)
     deny = env.run(repo, 'git commit -m "x"')
     assert deny and "[Guardian:SmellGate]" in deny
-    assert "# 不是繞閘｜" in deny                                                  # 擋訊息教的做法
-    cmd = ("# 不是繞閘｜notify/retry.py 是別人留在暫存區的，不屬這次需求，病交原作者修\n"
-           'git commit -m "x" -- notify/channels.py notify/dispatch.py tests/test_dispatch.py')
+    assert "只提交你自己的檔" in deny                                              # 擋訊息教的做法
+    cmd = 'git commit -m "x" -- notify/channels.py notify/dispatch.py tests/test_dispatch.py'
+    assert env.ptu.check_smell_gate("Bash", {"command": cmd}, str(repo), {})[0] is None   # 只提交自己的檔：本身就乾淨
     assert env.run(repo, cmd) is None                                              # 照做一次就過
 
 

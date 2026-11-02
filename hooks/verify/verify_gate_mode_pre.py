@@ -153,6 +153,33 @@ def test_block_smell_has_rule_and_fix(pull_world, monkeypatch):
     assert _rr.gate_mode("COMMIT_SMELL_NEW_BLOCKS", True) == _rr.BLOCK
 
 
+def test_smell_gate_blocks_once_per_turn_then_releases_with_note(pull_world, monkeypatch):
+    """SMELL_GATE_ONCE_PER_TURN：同一回合同一個 repo 只擋第一次；修了又長新病或原樣重送，第二次放行、留帳、擋訊息改當提醒送；
+    換使用者回合重新算。反例：沒有 state（記不住擋過）照擋。"""
+    for name in ("check_git_commit_order", "check_git_privacy", "check_merge_driver"):
+        monkeypatch.setattr(ptu, name, lambda *a, **k: None)
+    text = "[Guardian:SmellGate] 這次要提交的程式新寫進了舊碼的病（1 處），commit 已擋下。\n  ✗ 控制結構巢狀太深"
+    monkeypatch.setattr(ptu, "check_smell_gate", lambda *a, **k: (text, None))
+    cmd = {"command": 'git commit -m "x"'}
+    assert _pull_pre(pull_world, "Bash", cmd, tool_use_id="t1").startswith(text)
+    assert _pull_pre(pull_world, "Bash", cmd, tool_use_id="t2") == ""                       # 原樣重送：放行
+    warn = (pull_world["outputs"][-1] or {}).get("systemMessage", "")
+    assert "已經擋過一次，這次放行並留帳" in warn and "AI 自己做主" in warn and text in warn
+    events = [e["event"] for e in _events_of(pull_world, "smell_gate")]
+    assert events == ["denied", "released"], events
+    st = wg_core.read_state(PULL_SID)
+    st["turn_seq"] = 2
+    wg_core.write_state(PULL_SID, st)
+    assert _pull_pre(pull_world, "Bash", cmd, tool_use_id="t3").startswith(text)          # 換回合：重新擋
+    monkeypatch.setattr(ptu, "read_state_status", lambda sid: (None, "missing"))
+    assert _pull_pre(pull_world, "Bash", cmd, tool_use_id="t4").startswith(text)          # 沒 state：照擋
+
+
+def _events_of(w, guard):
+    p = w["logs"] / f"guard-{guard}.jsonl"
+    return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
+
+
 # ─── v6 關：一字不變 ────────────────────────────────────────────────────
 
 def test_v6_off_pre_gates_unchanged(hooked, post, monkeypatch):
