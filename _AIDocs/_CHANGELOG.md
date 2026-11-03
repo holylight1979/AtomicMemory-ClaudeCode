@@ -7,7 +7,8 @@
 ## 2026-11-03 usage-watch：帳號級用量異常偵測、排程、Discord 通知與 /usage-watch skill
 - **緣由**：要看「整個帳號」每小時／每日／每週用量有沒有異常升高並留紀錄供日後圖表；本機 transcript 只涵蓋單台機器（同帳號多機或網頁共用時嚴重低報），且只留兩三週。
 - **做法**：新 `tools/usage-watch.py`：帳號段用 Claude Code 的 OAuth token 打 `api/oauth/usage`（免瀏覽器；token 過期不自刷新只報錯），判 ①突增（固定 4%/h，滿 10 筆改歷史中位×3；比較點至少隔 45 分鐘，因 API ％只到整數）②最近 24h 速度預估重置前用完 ③50／75／90％ ④5h 窗、日用量（預算 20％或歷史中位×2）、上週同期與週結算；本機段加權 token 每小時／每日／每週並列專案。`--register [watch]` 建每小時監控排程（`--account-only --notify`），`--register report --at HH:MM [--on weekdays|mon,wed,fri]` 建定時摘要排程（`--report`，可只在工作日或指定星期；不需要可不建），`--unregister [watch|report]`；`--report` 也可手動發；通知＝Windows toast＋Discord webhook（`workflow/usage-watch/settings.json`，不進版控），依 key 冷卻；`--status`、`--test-notify`、`--chart`（chart.html：每週走勢＋重置／異常標記、每日用量、本機各專案每日 token，附數據表）。SessionStart 新增 `_usage_watch_advisory`（逾 72h 沒跑／查詢或通知失敗）。新 skill `/usage-watch`。紀錄落 `workflow/usage-watch/`（gitignore）。
-- **驗證**：`hooks/verify/verify_usage_watch.py` 39 案 `USAGE_WATCH_CHECK PASS`；實跑帳號＋本機、Discord／toast 實發、排程註冊並手動觸發 LastTaskResult 0；skill audit 0 fail／0 warning。
+- **驗證**：`hooks/verify/verify_usage_watch.py` 39 案（合併時補 1 案：手動跑過不算排程，逾期不提醒） `USAGE_WATCH_CHECK PASS`；實跑帳號＋本機、Discord／toast 實發、排程註冊並手動觸發 LastTaskResult 0；skill audit 0 fail／0 warning。
+- **合併時的取捨**（審查紀錄 `DevHistory/檢視與審查/同伴MR審查-2026-11-03.md`）：last-run 多記 `scheduled`（只有帶 --notify 的排程跑法為 true），SessionStart 的「逾 72h 沒跑」只看排程跑法——不然手動查過一次、沒註冊排程的人，三天後每場 session 都多一行叫他去註冊。
 ## 2026-11-03 週用量截圖排程跟著帳號的週重置時間走
 - **緣由**：排程寫死週二 03:30 只對重置在週二凌晨的帳號成立；別的帳號（實例：週一 21:00 重置）會在重置後才截，只拍到 0%。
 - **做法**（`tools/usage-snapshot/usage_snapshot.py`）：截網頁時攔用量頁自己打的 `/usage` API，週額度多條取用量最高那條，把排程每週觸發對齊到重置前 10 分鐘（`Set-ScheduledTask` 只換 trigger）；結果記 last-run 的 weekly_used／weekly_reset／schedule。VS Code 面板那條沒有重置時間來源，排程不動並寫明。

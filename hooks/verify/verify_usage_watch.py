@@ -170,8 +170,14 @@ def test_advisory_healthy_silent(tmp_path):
 
 
 def test_advisory_stale_names_task(tmp_path):
-    out = _usage_watch_advisory(_last_run(tmp_path, USAGE_WATCH_STALE_HOURS + 1))
+    out = _usage_watch_advisory(_last_run(tmp_path, USAGE_WATCH_STALE_HOURS + 1, scheduled=True))
     assert out and "Claude-Usage-Watch-" in out[0] and "--register" in out[0]
+
+
+def test_advisory_stale_manual_run_silent(tmp_path):
+    """手動查過一次、沒註冊排程 → 逾期不提醒（否則每場 session 都多一行叫人去註冊）。"""
+    assert _usage_watch_advisory(_last_run(tmp_path, USAGE_WATCH_STALE_HOURS + 1)) == []
+    assert _usage_watch_advisory(_last_run(tmp_path, USAGE_WATCH_STALE_HOURS + 1, scheduled=False)) == []
 
 
 def test_advisory_failed_query(tmp_path):

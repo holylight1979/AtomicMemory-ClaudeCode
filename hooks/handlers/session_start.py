@@ -459,6 +459,7 @@ def _usage_watch_advisory(last_run_path) -> list:
     """用量異常監控死人開關 → advisory 行（無異常回 []）。
 
     排程沒被叫起或被刪時腳本不會寫 last-run，只能從逾 USAGE_WATCH_STALE_HOURS 沒更新反推；
+    只有排程跑法（scheduled=True，帶 --notify）才算：手動查過一次就不管的人，不該從此每場都被提醒去註冊排程。
     上次查詢失敗、通知跳不出來也浮出（否則異常發生了也沒人知道）。缺檔＝這台沒用這支工具，不提示。
     """
     try:
@@ -466,7 +467,7 @@ def _usage_watch_advisory(last_run_path) -> list:
             return []
         d = json.loads(last_run_path.read_text(encoding="utf-8"))
         at = datetime.fromisoformat(d.get("at", "")).replace(tzinfo=None)
-        if datetime.now() - at > timedelta(hours=USAGE_WATCH_STALE_HOURS):
+        if d.get("scheduled") and datetime.now() - at > timedelta(hours=USAGE_WATCH_STALE_HOURS):
             task = f"Claude-Usage-Watch-{getpass.getuser()}"
             return [
                 f"[Guardian:UsageWatch] ⚠ 用量異常監控已 {(datetime.now() - at).days} 天沒跑（上次 "

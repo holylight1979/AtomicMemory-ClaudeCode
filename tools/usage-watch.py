@@ -19,7 +19,7 @@
     account.jsonl  每次查詢一行：at, weekly, weekly_reset, five_hour, five_hour_reset, limits{各額度 utilization}
     alerts.jsonl   每次判定出的異常：at, key, msg, notified
     hourly.json    本機每小時×專案：{小時: {專案: [加權, 原始]}}（同格取大，transcript 被清掉也留得住）
-    last-run.json  最近一次執行結果（SessionStart 據此提醒排程沒跑、查詢或通知失敗）
+    last-run.json  最近一次執行結果（SessionStart 據此提醒排程沒跑〔只看帶 --notify 的排程跑法〕、查詢或通知失敗）
     settings.json  {"discord_webhook": "..."}（網址等同發文權限，只放本機）
   【通知】--notify 時新異常跳 Windows 通知，settings.json 有 webhook 就同時發 Discord；
     同一種異常在各自冷卻時間內不重發（突增 3h、預估 6h、日／週 24h、里程碑每週一次）。--test-notify 發一則測試。
@@ -833,6 +833,7 @@ def main() -> int:
     LAST_RUN.write_text(json.dumps({
         "at": stamp, "ok": acc["ok"], "error": acc.get("error"), "alerts": [x["msg"] for x in alerts],
         "notified": [x["msg"] for x in new] if notified else [], "notify_errors": notify_errors,
+        "scheduled": a.notify,  # 排程的 watch 跑法帶 --notify；手動查一次不算排程，SessionStart 不會因它逾期而提醒
     }, ensure_ascii=False), encoding="utf-8", newline="\n")
 
     if a.json:
