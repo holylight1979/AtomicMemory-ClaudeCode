@@ -13,7 +13,7 @@ pattern: tool-wrapper
 ## 什麼時候用
 
 - 問帳號用量、額度剩多少、照這速度這週夠不夠。
-- 要把目前用量發到 Discord、測通知通不通、看排程有沒有在跑、重建排程。
+- 要把目前用量發到 Discord、看圖表、測通知通不通、看排程有沒有在跑、重建排程。
 - 追「是哪個專案在燒」：加本機段（只算這台電腦的 transcript）。
 - 不用在：單一 session 用了多少 token（/token）、API 價目、帳單金額。
 
@@ -24,6 +24,7 @@ pattern: tool-wrapper
 | 看帳號用量（約 1 秒） | `python ~/.claude/tools/usage-watch.py --account-only` |
 | 帳號＋本機各專案（約 10 秒） | `python ~/.claude/tools/usage-watch.py` |
 | 發摘要到 Discord | `python ~/.claude/tools/usage-watch.py --account-only --report` |
+| 看圖表（每週走勢、每日用量、各專案 token） | `python ~/.claude/tools/usage-watch.py --chart`（產生 `workflow/usage-watch/chart.html` 並打開；加 `--account-only` 跳過掃本機 transcript） |
 | 測通知（Windows＋Discord） | `python ~/.claude/tools/usage-watch.py --test-notify` |
 | 各排程與最近一次結果 | `python ~/.claude/tools/usage-watch.py --status` |
 | 建／重建每小時監控（異常才通知） | `python ~/.claude/tools/usage-watch.py --register` |

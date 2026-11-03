@@ -6,6 +6,7 @@
   - deltas 跨重置、fresh_alerts 冷卻、merge_ledger 同格取大
   - 通知管道（toast／Discord／webhook 設定）、--report 訊息、schedule（watch 每小時／report 每天或 --on 指定星期 --at／壞時間與壞星期擋下／只移除指定種類）
   - main() 參數表能建出來（參數撞名會讓整支工具連排程一起起不來）
+  - chart_data 數列（只標已通知異常、跨重置日用量、前 5 專案＋其他）、write_chart 擋 </script> 截斷
   - session_start._usage_watch_advisory：缺檔／健康／逾期／查詢失敗／通知失敗／壞 JSON
 
 直接跑：python hooks/verify/verify_usage_watch.py → USAGE_WATCH_CHECK PASS|FAIL
@@ -244,6 +245,51 @@ def test_register_report_daily_at(monkeypatch):
     assert uw.schedule("report", True, "08:30") == 0
     assert "Claude-Usage-Report-" in scripts[0] and "--account-only --report" in scripts[0]
     assert "-Daily -At 08:30" in scripts[0]
+
+
+# ─── 圖表 ─────────────────────────────────────────────
+
+def test_chart_data_series(tmp_path, monkeypatch):
+    monkeypatch.setattr(uw, "ACCOUNT_LOG", tmp_path / "account.jsonl")
+    monkeypatch.setattr(uw, "ALERT_LOG", tmp_path / "alerts.jsonl")
+    monkeypatch.setattr(uw, "LEDGER", tmp_path / "hourly.json")
+    prev_reset = NOW - timedelta(hours=10)
+    samples = [rec(30, 80, reset=prev_reset), rec(2, 10), rec(1, 14), rec(0, 20)]
+    (tmp_path / "account.jsonl").write_text("".join(json.dumps(s) + "\n" for s in samples), encoding="utf-8")
+    (tmp_path / "alerts.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [
+        {"at": rec(0.5, 0)["at"], "key": "rate", "msg": "漲太快", "notified": True},
+        {"at": rec(0.5, 0)["at"], "key": "pace", "msg": "沒發出去", "notified": False},
+    ]), encoding="utf-8")
+    h = NOW.replace(minute=0)
+    ledger = {h.isoformat(): {f"C--p{i}": [i * 1e6, 0] for i in range(1, 8)}}
+    (tmp_path / "hourly.json").write_text(json.dumps(ledger), encoding="utf-8")
+
+    d = uw.chart_data(NOW, 20.0)
+    assert [y for _, y in d["weekly"]] == [80, 10, 14, 20]
+    assert len(d["resets"]) == 2
+    assert [(y, m) for _, y, m in d["alerts"]] == [(14, "漲太快")]  # 只標已通知的，y 取當時之前最後一筆
+    assert d["daily"][-1] == [f"{NOW:%m-%d}", 20.0]  # 跨重置那筆算新週期已用 10，再 +4 +6
+    names = [s["name"] for s in d["projects"]["series"]]
+    assert names == ["p7", "p6", "p5", "p4", "p3", "其他"]  # 前 5 名＋其他，拿掉 C-- 前綴
+    assert d["projects"]["series"][-1]["data"][-1] == 3.0  # p1＋p2
+
+
+def test_chart_project_label_truncates_long_slug(tmp_path, monkeypatch):
+    monkeypatch.setattr(uw, "ACCOUNT_LOG", tmp_path / "a.jsonl")
+    monkeypatch.setattr(uw, "ALERT_LOG", tmp_path / "b.jsonl")
+    monkeypatch.setattr(uw, "LEDGER", tmp_path / "hourly.json")
+    slug = "C--Users-x-AppData-Local-Claude-scratch-workspaces-f1e3a390-3122-4394-a5d4-7e479eb489e2"
+    (tmp_path / "hourly.json").write_text(json.dumps({NOW.replace(minute=0).isoformat(): {slug: [1e6, 0]}}),
+                                          encoding="utf-8")
+    name = uw.chart_data(NOW, 20.0)["projects"]["series"][0]["name"]
+    assert len(name) <= 28 and name.startswith("Users-x-AppDa") and name.endswith("7e479eb489e2")
+
+
+def test_write_chart_escapes_script_close(tmp_path, monkeypatch):
+    monkeypatch.setattr(uw, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(uw, "CHART", tmp_path / "chart.html")
+    html = uw.write_chart({"x": "</script><b>"}).read_text(encoding="utf-8")
+    assert "__DATA__" not in html and "<\\/script><b>" in html and html.count("</script>") == 2
 
 
 def test_cli_parses_schedule_args(monkeypatch):

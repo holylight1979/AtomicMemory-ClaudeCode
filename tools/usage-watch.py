@@ -24,11 +24,14 @@
   【通知】--notify 時新異常跳 Windows 通知，settings.json 有 webhook 就同時發 Discord；
     同一種異常在各自冷卻時間內不重發（突增 3h、預估 6h、日／週 24h、里程碑每週一次）。--test-notify 發一則測試。
   【摘要】--report 把帳號段現況（含當下異常）發到 Discord，不論有沒有異常；手動跑，或用 report 排程每天固定時間發。
+  【圖表】--chart 從上面的紀錄產生 chart.html（每週額度走勢＋重置／異常標記、每日用量、本機各專案每日 token，
+    各附數據表），用瀏覽器打開；不打 API，本機帳本會先掃一次 transcript 更新（--account-only 則跳過）。
 
 怎麼跑：
   python ~/.claude/tools/usage-watch.py                 帳號＋本機
   python ~/.claude/tools/usage-watch.py --account-only  只查帳號（約 1 秒）
   python ~/.claude/tools/usage-watch.py --account-only --report   查帳號並發摘要到 Discord
+  python ~/.claude/tools/usage-watch.py --chart         產生並打開圖表（workflow/usage-watch/chart.html）
   python ~/.claude/tools/usage-watch.py --status        各排程的上次／下次執行與最近一次結果
   python ~/.claude/tools/usage-watch.py --register [watch]           註冊每小時監控（--account-only --notify）
   python ~/.claude/tools/usage-watch.py --register report --at HH:MM [--on weekdays|mon,wed,fri]
@@ -68,6 +71,7 @@ ALERT_LOG = OUT_DIR / "alerts.jsonl"
 LAST_RUN = OUT_DIR / "last-run.json"
 LEDGER = OUT_DIR / "hourly.json"
 SETTINGS = OUT_DIR / "settings.json"
+CHART = OUT_DIR / "chart.html"
 USAGE_API = "https://api.anthropic.com/api/oauth/usage"
 TASKS = {  # 排程種類 → (排程名, 執行參數)；排程名帶 Windows 帳號，每帳號一份
     "watch": (f"Claude-Usage-Watch-{getpass.getuser()}", "--account-only --notify"),
@@ -491,6 +495,196 @@ def report_text(now: datetime, acc_lines: list[str], alerts: list[dict]) -> str:
     return f"📊 **Claude 用量**（{now:%m-%d %H:%M}）\n```\n{body}\n```{tail}"
 
 
+# ---------- 圖表 ----------
+
+def chart_data(now: datetime, daily_budget: float) -> dict:
+    """把 account／alerts／hourly 紀錄整理成圖表要的數列（時間一律毫秒，給 JS 直接用）。"""
+    samples = read_jsonl(ACCOUNT_LOG)
+
+    def ms(dt: datetime) -> int:
+        return int(dt.timestamp() * 1000)
+
+    marks = []
+    for r in read_jsonl(ALERT_LOG):
+        prior = [s for s in samples if at(s) <= at(r)]
+        if r.get("notified") and prior:
+            marks.append([ms(at(r)), prior[-1]["weekly"], r["msg"]])
+
+    by_day = defaultdict(float)
+    for t, d in deltas(samples):
+        by_day[t.astimezone().date()] += d
+    first = min(by_day, default=now.date())
+    days = [first + timedelta(days=i) for i in range((now.date() - first).days + 1)][-28:]
+
+    ledger = json.loads(LEDGER.read_text(encoding="utf-8")) if LEDGER.exists() else {}
+    per_day = defaultdict(Counter)
+    for k, projs in ledger.items():
+        for p, (w, _) in projs.items():
+            per_day[datetime.fromisoformat(k).date()][p] += w
+    pdays = [now.date() - timedelta(days=i) for i in range(13, -1, -1)]
+    totals = sum((per_day[d] for d in pdays), Counter())
+    top = [p for p, _ in totals.most_common(5)]
+    def label(slug: str) -> str:
+        """專案資料夾 slug 去掉磁碟代號；太長（桌面 app 暫存工作區帶 UUID）截成頭…尾，免得撐破圖例。"""
+        name = re.sub(r"^[A-Za-z]--", "", slug)
+        return name if len(name) <= 28 else f"{name[:14]}…{name[-12:]}"
+
+    series = [{"name": label(p), "data": [round(per_day[d][p] / 1e6, 2) for d in pdays]} for p in top]
+    other = [round((sum(per_day[d].values()) - sum(per_day[d][p] for p in top)) / 1e6, 2) for d in pdays]
+    if any(other):
+        series.append({"name": "其他", "data": other})
+
+    return {
+        "generated": f"{now:%Y-%m-%d %H:%M}",
+        "weekly": [[ms(at(s)), s["weekly"]] for s in samples],
+        "resets": sorted({ms(period_key(s)) for s in samples}),
+        "alerts": marks,
+        "daily": [[f"{d:%m-%d}", round(by_day.get(d, 0), 1)] for d in days],
+        "budget": daily_budget,
+        "projects": {"days": [f"{d:%m-%d}" for d in pdays], "series": series},
+    }
+
+
+def write_chart(data: dict) -> Path:
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")  # 資料裡的 </script> 不能截斷頁面
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    CHART.write_text(CHART_HTML.replace("__DATA__", payload), encoding="utf-8", newline="\n")
+    return CHART
+
+
+# 顏色取自 dataviz 預設色票（分類 6 槽＋critical），淺／深色各一組；淺色有 3 色對比 <3:1，所以每張圖附數據表。
+CHART_HTML = r"""<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude 用量</title>
+<style>
+:root{color-scheme:light;--surface:#fcfcfb;--text:#0b0b0b;--muted:#52514e;--grid:#e6e5e1;
+  --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--critical:#d03b3b}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--surface:#1a1a19;--text:#f0efec;--muted:#c3c2b7;--grid:#383835;
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--critical:#d03b3b}}
+body{margin:0;background:var(--surface);color:var(--text);font:14px/1.5 system-ui,"Microsoft JhengHei",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:0}
+.note{color:var(--muted);font-size:13px;margin:2px 0 8px}
+section{margin:28px 0}.box{position:relative;height:320px}
+details{margin-top:6px;color:var(--muted);font-size:12px}
+table{border-collapse:collapse;margin-top:4px}th,td{padding:2px 10px;border-bottom:1px solid var(--grid);text-align:right}
+th:first-child,td:first-child{text-align:left}
+</style></head><body><main>
+<h1>Claude 用量</h1><p class="note" id="gen"></p>
+<section><h2>每週額度走勢（帳號，所有機器合計）</h2>
+<p class="note">直虛線＝週重置；橫虛線＝100% 上限；▲＝已發通知的異常（滑過看內容）</p>
+<div class="box"><canvas id="weekly"></canvas></div>
+<details><summary>數據表（最近 48 筆）</summary><table id="t-weekly"></table></details></section>
+<section><h2>每日用量（帳號，每週額度的 %）</h2><p class="note" id="daily-note"></p>
+<div class="box"><canvas id="daily"></canvas></div>
+<details><summary>數據表</summary><table id="t-daily"></table></details></section>
+<section><h2>本機各專案每日 token（加權，百萬）</h2>
+<p class="note">只算這台電腦的 Claude Code；最近 14 天，前 5 名以外併成「其他」</p>
+<div class="box"><canvas id="projects"></canvas></div>
+<details><summary>數據表</summary><table id="t-projects"></table></details></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>
+const D = __DATA__;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = {text: css('--text'), muted: css('--muted'), grid: css('--grid'), surface: css('--surface'),
+           crit: css('--critical'), s: [1, 2, 3, 4, 5, 6].map(i => css('--s' + i))};
+const pad = n => String(n).padStart(2, '0');
+const fmt = ms => { const d = new Date(ms); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+Chart.defaults.color = C.muted;
+Chart.defaults.borderColor = C.grid;
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+Chart.defaults.maintainAspectRatio = false;
+
+// 參考線：opts.x＝直線 [毫秒, 標籤]，opts.y＝橫線 [值, 標籤]
+const refLines = {id: 'refLines', afterDatasetsDraw(chart, _a, opts) {
+  const {ctx, chartArea: a, scales: {x, y}} = chart;
+  ctx.save(); ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.strokeStyle = C.muted; ctx.fillStyle = C.muted;
+  for (const [v, label] of opts.x || []) {
+    const px = x.getPixelForValue(v); if (px < a.left || px > a.right) continue;
+    ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+    const w = ctx.measureText(label).width;  // 太靠右就把字放到線的左邊，免得被切掉
+    ctx.fillText(label, px + 4 + w > a.right ? px - 4 - w : px + 4, a.top + 12);
+  }
+  for (const [v, label] of opts.y || []) {
+    const py = y.getPixelForValue(v); if (py < a.top || py > a.bottom) continue;
+    ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke(); ctx.fillText(label, a.left + 4, py - 4);
+  }
+  ctx.restore();
+}};
+const table = (id, head, rows) => {
+  document.getElementById(id).innerHTML = '<tr>' + head.map(h => `<th>${h}</th>`).join('') + '</tr>' +
+    rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('');
+};
+document.getElementById('gen').textContent = `產生時間 ${D.generated}`;
+
+// 每週額度走勢
+// X 軸從第一個週期的開始（第一次重置往前 7 天）畫到最近的重置，看得出這週走到哪
+const lastT = D.weekly.length ? D.weekly[D.weekly.length - 1][0] : Date.now();
+const xMax = Math.max(lastT, ...D.resets.filter(t => t - lastT < 8 * 864e5));
+const xMin = D.weekly.length ? Math.min(D.weekly[0][0], ...D.resets.slice(0, 1).map(t => t - 7 * 864e5)) : undefined;
+new Chart(document.getElementById('weekly'), {
+  type: 'line',
+  data: {datasets: [
+    {label: '每週額度', data: D.weekly.map(([x, y]) => ({x, y})), borderColor: C.s[0], backgroundColor: C.s[0],
+     borderWidth: 2, pointRadius: D.weekly.length <= 60 ? 3 : 0, pointHitRadius: 8, tension: 0},
+    {type: 'scatter', label: '已發通知的異常', data: D.alerts.map(([x, y, m]) => ({x, y, m})), pointStyle: 'triangle',
+     pointRadius: 6, backgroundColor: C.crit, borderColor: C.surface, borderWidth: 2, hidden: !D.alerts.length},
+  ]},
+  options: {
+    interaction: {mode: 'nearest', axis: 'x', intersect: false},
+    scales: {
+      x: {type: 'linear', min: xMin, max: xMax,
+          ticks: {callback: v => fmt(v).slice(0, 5), maxTicksLimit: 10}, grid: {display: false}},
+      y: {min: 0, max: 100, ticks: {callback: v => v + '%'}},
+    },
+    plugins: {
+      legend: {display: D.alerts.length > 0, labels: {usePointStyle: true}},
+      tooltip: {callbacks: {title: it => fmt(it[0].parsed.x),
+                            label: c => c.raw.m ? `⚠ ${c.raw.m}` : `每週 ${c.parsed.y}%`}},
+      refLines: {x: D.resets.map(t => [t, '重置']), y: [[100, '上限 100%']]},
+    },
+  },
+  plugins: [refLines],
+});
+table('t-weekly', ['時間', '每週 %'], D.weekly.slice(-48).reverse().map(([t, y]) => [fmt(t), y]));
+
+// 每日用量
+document.getElementById('daily-note').textContent =
+  `橫虛線＝每日預算 ${D.budget}%（約 5 個工作天用完一週）；某天沒有紀錄時為 0`;
+new Chart(document.getElementById('daily'), {
+  type: 'bar',
+  data: {labels: D.daily.map(d => d[0]),
+         datasets: [{label: '當日用量', data: D.daily.map(d => d[1]), backgroundColor: C.s[0],
+                     borderRadius: {topLeft: 4, topRight: 4}, borderSkipped: 'bottom', maxBarThickness: 28}]},
+  options: {
+    scales: {x: {grid: {display: false}}, y: {beginAtZero: true, suggestedMax: D.budget * 1.5, ticks: {callback: v => v + '%'}}},
+    plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => `當日 ${c.parsed.y}%`}},
+              refLines: {y: [[D.budget, `預算 ${D.budget}%`]]}},
+  },
+  plugins: [refLines],
+});
+table('t-daily', ['日期', '當日 %'], D.daily.slice().reverse());
+
+// 本機各專案每日 token
+const P = D.projects;
+new Chart(document.getElementById('projects'), {
+  type: 'bar',
+  data: {labels: P.days, datasets: P.series.map((s, i) => ({
+    label: s.name, data: s.data, backgroundColor: C.s[i], borderColor: C.surface, borderWidth: 1, maxBarThickness: 28}))},
+  options: {
+    interaction: {mode: 'index', intersect: false},
+    scales: {x: {stacked: true, grid: {display: false}}, y: {stacked: true, ticks: {callback: v => v + 'M'}}},
+    plugins: {legend: {position: 'bottom'},
+              tooltip: {callbacks: {label: c => `${c.dataset.label}：${c.parsed.y}M`,
+                                    footer: it => `合計 ${it.reduce((a, c) => a + c.parsed.y, 0).toFixed(2)}M`}}},
+  },
+});
+table('t-projects', ['日期', ...P.series.map(s => s.name)], P.days.map((d, i) => [d, ...P.series.map(s => s.data[i])]).reverse());
+</script></body></html>
+"""
+
+
 def _powershell(script: str) -> subprocess.CompletedProcess:
     return subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
                           creationflags=subprocess.CREATE_NO_WINDOW)
@@ -570,6 +764,7 @@ def main() -> int:
     ap.add_argument("--notify", action="store_true", help="有新異常就跳 Windows 通知＋發 Discord（有設定時）")
     ap.add_argument("--test-notify", action="store_true", help="各通知管道發一則測試訊息後結束")
     ap.add_argument("--report", action="store_true", help="把帳號用量摘要發到 Discord（不論有無異常）")
+    ap.add_argument("--chart", action="store_true", help="從紀錄產生並打開 chart.html（不打 API）")
     ap.add_argument("--status", action="store_true", help="看排程與最近一次執行結果")
     ap.add_argument("--register", nargs="?", const="watch", choices=list(TASKS),
                     help="註冊排程：watch＝每小時監控＋異常通知（預設）、report＝每天 --at 發摘要")
@@ -590,6 +785,18 @@ def main() -> int:
         return schedule(a.register or a.unregister, bool(a.register), a.at, a.on)
     if a.status:
         return status()
+    if a.chart:
+        now = datetime.now().astimezone()
+        if not a.account_only:
+            local_check(a, now)  # 只為了把本機帳本更新到最新，輸出不用
+        path = write_chart(chart_data(now, a.daily_budget))
+        print(f"圖表已產生：{path}")
+        if hasattr(os, "startfile"):
+            try:
+                os.startfile(path)
+            except OSError as e:
+                print(f"[warn] 打不開瀏覽器，請手動開上面的檔案：{e}", file=sys.stderr)
+        return 0
     if a.test_notify:
         sent, errors = notify("Claude 用量監控（測試）", "測試訊息：之後有用量異常會這樣通知")
         discord_state = errors.get("discord") or ("OK" if SETTINGS.exists() else "未設定")

@@ -1909,7 +1909,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | 想知道 | 用什麼 | 說明 |
 |---|---|---|
 | 一場 session 實際處理了多少 token | `/token`（[`skills/token/`](skills/token/)） | 分未快取輸入、讀快取、建快取、輸出與合計，含子代理，不換算美金。預設量目前 session；給幾個 session id 前綴可以一起列表比較，例如守門開、關各一場 |
-| 整個帳號這週用了多少、會不會提早用完 | `/usage-watch`（[`skills/usage-watch/`](skills/usage-watch/)） | 問 Anthropic 帳號額度（所有機器／網頁合計，只有％），列漲速、預估、日用量與上週同期；`--report` 發到 Discord，`--status` 看排程。 |
+| 整個帳號這週用了多少、會不會提早用完 | `/usage-watch`（[`skills/usage-watch/`](skills/usage-watch/)） | 問 Anthropic 帳號額度（所有機器／網頁合計，只有％），列漲速、預估、日用量與上週同期；`--report` 發到 Discord，`--chart` 產生圖表，`--status` 看排程。 |
 | 每個 hook 事件花多久 | [`python tools/hook-timing.py`](tools/hook-timing.py) | 讀 `Logs/guard-hook_timing.jsonl`，印每個事件跑幾次、降級幾次、各段中位數。這份帳只在守門開時寫；守門關時印「沒有計時帳」 |
 | 每句話注入了多少記憶 | `Logs/injection-turns.jsonl` | 每句話一行：每種送法各幾張卡（`ok`、`fallback`、`skip`、`dropped`…）、用了多少 tok、上限多少。守門開關都寫；[`tools/memory-effect-report.py`](tools/memory-effect-report.py) 讀它出報表 |
 
