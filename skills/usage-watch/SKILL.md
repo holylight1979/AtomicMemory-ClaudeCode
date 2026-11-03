@@ -27,8 +27,8 @@ pattern: tool-wrapper
 | 測通知（Windows＋Discord） | `python ~/.claude/tools/usage-watch.py --test-notify` |
 | 各排程與最近一次結果 | `python ~/.claude/tools/usage-watch.py --status` |
 | 建／重建每小時監控（異常才通知） | `python ~/.claude/tools/usage-watch.py --register` |
-| 建／改每日固定時間發摘要 | `python ~/.claude/tools/usage-watch.py --register report --at HH:MM` |
-| 移除排程 | `python ~/.claude/tools/usage-watch.py --unregister [watch|report]`（不指定＝watch） |
+| 建／改定時發摘要（每天、工作日或指定星期） | `python ~/.claude/tools/usage-watch.py --register report --at HH:MM [--on weekdays\|mon,wed,fri]`（不加 `--on`＝每天） |
+| 移除排程 | `python ~/.claude/tools/usage-watch.py --unregister [watch\|report]`（不指定＝watch） |
 
 - 門檻參數（`--rate-alert`、`--daily-budget`、`--five-hour-alert`、`--week-factor`）與完整說明看 `--help`。
 - 一般執行尾行 `USAGE_WATCH DONE account_ok= alerts= new= notified=`；`account_ok=0` 代表帳號查詢失敗，原因印在 `✖` 那行。

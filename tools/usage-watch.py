@@ -31,7 +31,8 @@
   python ~/.claude/tools/usage-watch.py --account-only --report   查帳號並發摘要到 Discord
   python ~/.claude/tools/usage-watch.py --status        各排程的上次／下次執行與最近一次結果
   python ~/.claude/tools/usage-watch.py --register [watch]           註冊每小時監控（--account-only --notify）
-  python ~/.claude/tools/usage-watch.py --register report --at HH:MM 註冊每日摘要（--account-only --report，預設 09:00）
+  python ~/.claude/tools/usage-watch.py --register report --at HH:MM [--on weekdays|mon,wed,fri]
+                                                        註冊定時摘要（--account-only --report；預設每天 09:00）
   python ~/.claude/tools/usage-watch.py --unregister [watch|report]  移除對應排程（預設 watch）
   完整參數：--help
 """
@@ -71,6 +72,10 @@ USAGE_API = "https://api.anthropic.com/api/oauth/usage"
 TASKS = {  # 排程種類 → (排程名, 執行參數)；排程名帶 Windows 帳號，每帳號一份
     "watch": (f"Claude-Usage-Watch-{getpass.getuser()}", "--account-only --notify"),
     "report": (f"Claude-Usage-Report-{getpass.getuser()}", "--account-only --report"),
+}
+WEEKDAYS = {  # --days 縮寫 → (Task Scheduler 星期名, 中文)
+    "mon": ("Monday", "一"), "tue": ("Tuesday", "二"), "wed": ("Wednesday", "三"), "thu": ("Thursday", "四"),
+    "fri": ("Friday", "五"), "sat": ("Saturday", "六"), "sun": ("Sunday", "日"),
 }
 MILESTONES = (50, 75, 90)
 
@@ -491,8 +496,19 @@ def _powershell(script: str) -> subprocess.CompletedProcess:
                           creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def schedule(kind: str, register: bool, at: str) -> int:
-    """註冊或移除 TASKS[kind]；watch＝每小時（下個整點過 5 分起），report＝每天 at。"""
+def report_trigger(at: str, days: str) -> tuple[str, str] | None:
+    """report 排程的 (PowerShell 觸發條件, 白話說明)；days（--on）＝daily／weekdays／mon,wed,fri，不認得回 None。"""
+    if days == "daily":
+        return f"New-ScheduledTaskTrigger -Daily -At {at}", f"每天 {at}"
+    keys = ["mon", "tue", "wed", "thu", "fri"] if days == "weekdays" else [k.strip() for k in days.lower().split(",")]
+    if any(k not in WEEKDAYS for k in keys):
+        return None
+    return (f"New-ScheduledTaskTrigger -Weekly -DaysOfWeek {','.join(WEEKDAYS[k][0] for k in keys)} -At {at}",
+            f"每週{'、'.join(WEEKDAYS[k][1] for k in keys)} {at}")
+
+
+def schedule(kind: str, register: bool, at: str, days: str = "daily") -> int:
+    """註冊或移除 TASKS[kind]；watch＝每小時（下個整點過 5 分起），report＝days 那幾天的 at。"""
     name, args = TASKS[kind]
     if not register:
         r = _powershell(f"Unregister-ScheduledTask -TaskName '{name}' -Confirm:$false -ErrorAction Stop")
@@ -507,8 +523,11 @@ def schedule(kind: str, register: bool, at: str) -> int:
     if kind == "watch":
         trigger, when = ("New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes(5) "
                          "-RepetitionInterval (New-TimeSpan -Hours 1)"), "每小時一次"
+    elif spec := report_trigger(at, days):
+        trigger, when = spec
     else:
-        trigger, when = f"New-ScheduledTaskTrigger -Daily -At {at}", f"每天 {at}"
+        print(f"--on 要是 daily、weekdays 或 mon,tue,wed,thu,fri,sat,sun 的組合，收到 {days!r}", file=sys.stderr)
+        return 1
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     r = _powershell(f"""
 $a = New-ScheduledTaskAction -Execute '{pythonw}' -Argument '"{Path(__file__).resolve()}" {args}'
@@ -555,7 +574,9 @@ def main() -> int:
     ap.add_argument("--register", nargs="?", const="watch", choices=list(TASKS),
                     help="註冊排程：watch＝每小時監控＋異常通知（預設）、report＝每天 --at 發摘要")
     ap.add_argument("--unregister", nargs="?", const="watch", choices=list(TASKS), help="移除排程（預設 watch）")
-    ap.add_argument("--at", default="09:00", help="report 排程每天幾點（HH:MM，預設 09:00）")
+    ap.add_argument("--at", default="09:00", help="report 排程幾點發（HH:MM，預設 09:00）")
+    ap.add_argument("--on", default="daily",
+                    help="report 排程哪幾天：daily（預設，每天）、weekdays（週一到五）、或 mon,wed,fri 這種組合")
     ap.add_argument("--rate-alert", type=float, default=4.0, help="① 突增門檻下限 %%/h（預設 4）")
     ap.add_argument("--five-hour-alert", type=float, default=80.0, help="④ 5 小時窗門檻 %%（預設 80）")
     ap.add_argument("--daily-budget", type=float, default=20.0, help="日用量門檻下限 %%（預設 20，約 5 個工作天用完一週）")
@@ -566,7 +587,7 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="輸出 JSON")
     a = ap.parse_args()
     if a.register or a.unregister:
-        return schedule(a.register or a.unregister, bool(a.register), a.at)
+        return schedule(a.register or a.unregister, bool(a.register), a.at, a.on)
     if a.status:
         return status()
     if a.test_notify:

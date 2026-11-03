@@ -4,7 +4,8 @@
   - analyze_account：① 突增（固定門檻／跨週期不算／歷史自適應）② 預估用完（最近 24h／退回本週平均／不報）
     ③ 里程碑只報最高階 ④ 5 小時窗、日用量（預算／歷史基線拉高門檻）、週（上週同期＋結算）
   - deltas 跨重置、fresh_alerts 冷卻、merge_ledger 同格取大
-  - 通知管道（toast／Discord／webhook 設定）、--report 訊息、schedule（watch 每小時／report 每天 --at／壞時間擋下／只移除指定種類）
+  - 通知管道（toast／Discord／webhook 設定）、--report 訊息、schedule（watch 每小時／report 每天或 --on 指定星期 --at／壞時間與壞星期擋下／只移除指定種類）
+  - main() 參數表能建出來（參數撞名會讓整支工具連排程一起起不來）
   - session_start._usage_watch_advisory：缺檔／健康／逾期／查詢失敗／通知失敗／壞 JSON
 
 直接跑：python hooks/verify/verify_usage_watch.py → USAGE_WATCH_CHECK PASS|FAIL
@@ -243,6 +244,34 @@ def test_register_report_daily_at(monkeypatch):
     assert uw.schedule("report", True, "08:30") == 0
     assert "Claude-Usage-Report-" in scripts[0] and "--account-only --report" in scripts[0]
     assert "-Daily -At 08:30" in scripts[0]
+
+
+def test_cli_parses_schedule_args(monkeypatch):
+    """跑真的 main()：參數表撞名會在這裡炸；--register report --on weekdays 要傳到 schedule。"""
+    calls = []
+    monkeypatch.setattr(uw, "schedule", lambda *a: calls.append(a) or 0)
+    monkeypatch.setattr(sys, "argv", ["usage-watch.py", "--register", "report", "--at", "08:30", "--on", "weekdays"])
+    assert uw.main() == 0
+    assert calls == [("report", True, "08:30", "weekdays")]
+
+
+def test_register_report_weekdays(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("report", True, "09:00", "weekdays") == 0
+    assert "-Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At 09:00" in scripts[0]
+
+
+def test_register_report_custom_days(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("report", True, "18:30", "Mon, fri") == 0
+    assert "-Weekly -DaysOfWeek Monday,Friday -At 18:30" in scripts[0]
+
+
+def test_register_report_rejects_bad_days(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("report", True, "09:00", "workdays") == 1
+    assert uw.schedule("report", True, "09:00", "mon,funday") == 1
+    assert scripts == []
 
 
 def test_register_report_rejects_bad_time(monkeypatch):
