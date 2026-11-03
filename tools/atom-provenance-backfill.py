@@ -47,6 +47,10 @@ for _p in (str(CODE_DIR), str(CODE_DIR / "hooks")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from lib.atom_spec import (  # noqa: E402
+    DISTANT_DIR_NAME, EPISODIC_DIR_NAME, META_DIR_NAME, REFERENCE_DIR_NAME, STAGING_DIR_NAME,
+    TEMPLATES_DIR_NAME, VECTORDB_DIR_NAME, WISDOM_DIR_NAME,
+)
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 from lib.provenance import (  # noqa: E402
@@ -62,8 +66,9 @@ MARKER_PATH = CLAUDE_DIR / "workflow" / "provenance-backfill-last.json"
 SOURCE = "tool:provenance-backfill"
 EXPIRED = "（原對話已逾保留期）"
 _SKIP_NAME_RE = re.compile(r"_INDEX|^MEMORY\.md$|_ATOM_INDEX|_local_catalog", re.I)
-_SKIP_DIR_PARTS = {"_meta", "_distant", "_vectordb", "_staging", "episodic", "wisdom", "_reference",
-                   "templates"}   # templates/ 是範本，長得像 atom，不跳會被寫進假 Source
+_SKIP_DIR_PARTS = {META_DIR_NAME, DISTANT_DIR_NAME, VECTORDB_DIR_NAME, STAGING_DIR_NAME, EPISODIC_DIR_NAME,
+                   WISDOM_DIR_NAME, REFERENCE_DIR_NAME,
+                   TEMPLATES_DIR_NAME}   # templates/ 是範本，長得像 atom，不跳會被寫進假 Source
 _PATH_RE = re.compile(r"Path:\s*(\S.*?\.md)\s*$", re.M)
 _RECEIPT_PATH_RE = re.compile(r'"path"\s*:\s*"((?:[^"\\]|\\.)*)"')
 # [ \t]* 不跨行：空的 `- Quote:`／`- Source:` 行不能把下一行（`- Confidence:` 這類）當成已有的值

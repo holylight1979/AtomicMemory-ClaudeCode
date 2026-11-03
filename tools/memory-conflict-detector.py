@@ -39,7 +39,7 @@ from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"   # 向量服務埠 vector_search.service_port（和寫入閘讀同一個鍵）
-from lib.atom_spec import evidence_rank, parse_evidence  # noqa: E402  證據等級（了義裁決）
+from lib.atom_spec import ATOM_INDEX, MEMORY_INDEX, evidence_rank, parse_evidence  # noqa: E402  證據等級（了義裁決）
 
 # conflict detection
 WRITE_CHECK_THRESHOLD = 0.85       # SPEC §7.3
@@ -925,7 +925,7 @@ def _collect_changed_atoms(proj_root: Path, since_ts: str) -> List[Dict[str, Any
         rest = line[len(rel) + 1:]
         if rest.startswith("_") or rest.startswith("SPEC_"):
             continue
-        if rest in ("MEMORY.md", "_ATOM_INDEX.md"):
+        if rest in (MEMORY_INDEX, ATOM_INDEX):
             continue
         if line not in seen:
             seen[line] = current_commit

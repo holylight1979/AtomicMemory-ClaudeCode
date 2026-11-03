@@ -36,9 +36,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 CODE_DIR = Path(__file__).resolve().parent.parent
-INDEX_FILES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))   # 程式碼根：lib.* 從本樹載
+from lib.atom_spec import INDEX_FILES, VECTORDB_DIR_NAME  # noqa: E402
+
 ATTR_MARK = "# AtomicMemory eol/merge rules"
-SKIP_DIR_PARTS = {"_vectordb", "__pycache__", "node_modules", ".git", ".svn"}
+SKIP_DIR_PARTS = {VECTORDB_DIR_NAME, "__pycache__", "node_modules", ".git", ".svn"}
 _NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
 

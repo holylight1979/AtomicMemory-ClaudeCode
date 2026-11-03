@@ -23,6 +23,7 @@ from pathlib import Path
 CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：掃本樹的 hooks／tools／lib 原始碼
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
+from lib.atom_spec import STAGING_DIR_NAME, VECTORDB_DIR_NAME  # noqa: E402
 from lib.project_root import claude_config_dir  # noqa: E402
 
 HARNESS_DIR = claude_config_dir()                # Claude Code 自己的設定目錄：plugins/ 在這
@@ -38,7 +39,7 @@ WHITELIST = {
 WHITELIST_DIR_PREFIXES = ("tests/", "_archive/", "projects/_archive/")
 SCAN_EXTS = (".py", ".js")
 SKIP_DIRS = {".git", "node_modules", "_archive", "__pycache__",
-             "_vectordb", "_staging"}
+             VECTORDB_DIR_NAME, STAGING_DIR_NAME}
 
 # 偵測寫檔指令（保守：含 memory/ 或 \.claude/memory/ 的同行/前後幾行才算疑似）
 WRITE_PATTERNS = [

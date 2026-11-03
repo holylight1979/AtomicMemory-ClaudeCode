@@ -24,29 +24,55 @@ except ImportError:  # 頂層模組載入（含單獨按檔案載入、lib/ 不�
     from project_root import claude_data_dir
 
 
+# ─── 共用名字（多處引用的檔名／資料夾名只寫在這裡） ─────────────────────────
+# 別處要用就 import 這裡的常數；各工具的跳過名單用這些常數組，內容依用途各自不同。
+# lib/verify/verify_name_lists_single_source.py 擋「本檔之外用字串再寫一份同組名字清單」。
+
+# 索引檔
+MEMORY_INDEX = "MEMORY.md"              # 記憶庫總索引，每個 session 載入
+ATOM_INDEX = "_ATOM_INDEX.md"           # atom 觸發詞表（給人看）
+ATOM_INDEX_JSON = "_atom_index.json"    # atom 機器索引，hook 依它注入
+LAYER_INDEX = "_INDEX.md"               # 範疇各層的 atom 列表
+LOCAL_CATALOG = "_local_catalog.md"     # 本地範疇（realm=local）的根索引
+INDEX_FILES = (MEMORY_INDEX, ATOM_INDEX, ATOM_INDEX_JSON)      # 合併驅動 atomindex 管的三檔
+ALL_INDEX_FILES = INDEX_FILES + (LAYER_INDEX, LOCAL_CATALOG)    # 拉取、解衝突時可自動語意合併的全部索引檔
+
+# 記憶樹裡的資料夾
+META_DIR_NAME = "_meta"                       # 系統設定與稽核紀錄（taxonomy、audit log），非 atom
+REFERENCE_DIR_NAME = "_reference"             # 參考資料，非 atom
+STAGING_DIR_NAME = "_staging"                 # 清單、進行中的正本，非 atom
+VECTORDB_DIR_NAME = "_vectordb"               # 根層向量庫（本機快取）
+VECTOR_DB_DIR_NAME = "vector-db"              # 專案層向量庫（本機快取）
+DISTANT_DIR_NAME = "_distant"                 # 久未用而移出的卡，不入索引不注入
+PENDING_REVIEW_DIR_NAME = "_pending_review"   # shared 敏感卡待裁決
+REJECTED_DIR_NAME = "_rejected"               # memory-undo 撤銷、被退回的卡
+DRAFTS_DIR_NAME = "_drafts"                   # auto-capture 草稿隔離區（extract-worker）
+ARCHIVED_DIR_NAME = "_archived"               # 封存的舊卡（例 personal/_archived/）
+EPISODIC_DIR_NAME = "episodic"                # 自動產生的 session 摘要，用 ## 摘要 章節，非 atom 格式
+TEMPLATES_DIR_NAME = "templates"              # 範本，長得像 atom 但不是
+SHARED_DIR_NAME = "shared"                    # 專案記憶 shared scope 子樹
+PERSONAL_DIR_NAME = "personal"                # personal scope 子樹（含 role.md 宣告檔）
+ROLES_DIR_NAME = "roles"                      # role scope 子樹
+WISDOM_DIR_NAME = "wisdom"                    # Wisdom Engine 設計文件（DESIGN.md），非 atom
+
+# 衍生物：可從 atom 檔重建、不進版控（lib/vcs_ignore 自動設 ignore）
+DERIVED_FILES = (ATOM_INDEX_JSON, ATOM_INDEX)
+DERIVED_DIRS = (STAGING_DIR_NAME, EPISODIC_DIR_NAME, VECTOR_DB_DIR_NAME)
+
+# 專案記憶按 scope 分層時的三個子樹；任一存在就是分層佈局
+SCOPE_DIR_NAMES = (SHARED_DIR_NAME, ROLES_DIR_NAME, PERSONAL_DIR_NAME)
+
 # ─── Constants（單一規則來源） ───────────────────────────────────────────────
 
-# 子目錄跳過清單（rglob 掃描時用）
-# - feedback/: 行為 atom，必掃
-# - personal/: V4 user role 宣告檔（role.md），非 atom
-# - wisdom/: Wisdom Engine 設計文件（DESIGN.md），非 atom（用設計文件章節）
-# - episodic/: auto-generated session 摘要，使用 ## 摘要 章節，與 atom 格式不同
-# - _pending_review/: shared 敏感原子待裁決區，非活躍 atom
-# - _rejected/: memory-undo 撤銷歸檔區，非活躍 atom
-# - _drafts/: auto-capture 草稿隔離區（extract-worker），不入索引不注入
-# - _archived/: 封存區（例 personal/_archived/），封存的舊卡不再當活躍 atom
+# 子目錄跳過清單（rglob 掃描時用）；feedback/ 是行為 atom，必掃
 SKIP_DIRS = frozenset({
-    "_meta", "_reference", "_staging", "_vectordb", "_distant",
-    "episodic", "templates", "personal", "wisdom", "_pending_review",
-    "_rejected", "_drafts", "_archived",
+    META_DIR_NAME, REFERENCE_DIR_NAME, STAGING_DIR_NAME, VECTORDB_DIR_NAME, DISTANT_DIR_NAME,
+    EPISODIC_DIR_NAME, TEMPLATES_DIR_NAME, PERSONAL_DIR_NAME, WISDOM_DIR_NAME, PENDING_REVIEW_DIR_NAME,
+    REJECTED_DIR_NAME, DRAFTS_DIR_NAME, ARCHIVED_DIR_NAME,
 })
 
 # 系統檔前綴（檔名等級跳過）
 SKIP_PREFIXES = ("SPEC_", "_")
-
-# 索引檔名稱
-MEMORY_INDEX = "MEMORY.md"
-ATOM_INDEX = "_ATOM_INDEX.md"
 
 # Last-used / Confirmations / ReadHits 居 <atom>.access.json，
 # 故 atom .md 不再 require 這些欄位（OPTIONAL_METADATA 仍接受 legacy 欄位過渡）。
