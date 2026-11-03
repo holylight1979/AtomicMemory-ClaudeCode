@@ -5,10 +5,10 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 36 |
+| Python | 37 |
 | C#／.NET | 22 |
 | JavaScript／Node | 3 |
-| PowerShell | 6 |
+| PowerShell | 7 |
 | Bash／Shell | 23 |
 
 ## Python
@@ -30,6 +30,7 @@
 | `memory/OS-Windows/windows上python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完.md` | Windows上Python的附加寫入不是原子的-多行程同時append會互蓋切斷多位元組字元-要在旁檔鎖下一次寫完 |
 | `memory/OS-Windows/windows上用python轉印git輸出每行會帶r-接shell迴圈前要tr-d或python端用stdout-buffer寫位元組.md` | windows上用python轉印git輸出每行會帶r-接shell迴圈前要tr-d或python端用stdout-buffer寫位元組 |
 | `memory/OS-Windows/windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清.md` | Windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 |
+| `memory/OS-Windows/windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑.md` | windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑 |
 | `memory/OS-Windows/windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫.md` | windows的git把worktree的.git檔設成隱藏-python直接覆寫會PermissionError-要先unlink再寫 |
 | `memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照.md` | 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照 |
 | `memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據.md` | 版控走Python啟動器時PreToolUse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據 |
@@ -92,6 +93,7 @@
 | PowerShell | 說明 |
 |------|------|
 | `memory/OS-Windows/winget-升不動-powershell-msi-與-msix-通道分裂.md` | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
+| `memory/OS-Windows/腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000.md` | 腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000 |
 | `memory/文字與格式/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md` | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
 | `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
 | `memory/版控/SVN/pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess.md` | pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含@位元組觸發peg解析-改用python-subprocess |

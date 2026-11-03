@@ -14149,6 +14149,113 @@
         "各版本的發布說明"
       ],
       "scope": "global"
+    },
+    {
+      "name": "查claude帳號用量不必開瀏覽器-拿claude-code登入token打api-oauth-usage-回整數百分比與重置時間-token過期只報不自刷-用量頁的usage-api週額度多條取最高",
+      "path": "memory/CC與原子記憶契約/查claude帳號用量不必開瀏覽器-拿claude-code登入token打api-oauth-usage-回整數百分比與重置時間-token過期只報不自刷-用量頁的usage-api週額度多條取最高.md",
+      "triggers": [
+        "帳號用量",
+        "額度",
+        "usage API",
+        "oauth/usage",
+        ".credentials.json",
+        "claudeAiOauth",
+        "seven_day",
+        "five_hour",
+        "resets_at",
+        "utilization",
+        "用量頁",
+        "limits",
+        "weekly",
+        "重置時間",
+        "usage-watch",
+        "usage-snapshot"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:~/.claude/tools/usage-watch.py",
+        "path:~/.claude/tools/usage-snapshot/usage_snapshot.py"
+      ]
+    },
+    {
+      "name": "windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑",
+      "path": "memory/OS-Windows/windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑.md",
+      "triggers": [
+        "Task Scheduler",
+        "排程",
+        "ScheduledTask",
+        "New-ScheduledTaskTrigger",
+        "Set-ScheduledTask",
+        "RepetitionInterval",
+        "每小時",
+        "MultipleInstances",
+        "StartBoundary",
+        "DaysOfWeek",
+        "pythonw 排程",
+        "Register-ScheduledTask"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000",
+      "path": "memory/OS-Windows/腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000.md",
+      "triggers": [
+        "Windows 通知",
+        "toast",
+        "ToastNotification",
+        "桌面通知",
+        "Discord",
+        "webhook",
+        "通知管道",
+        "跳通知",
+        "WinRT",
+        "AppId",
+        "notify"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "從transcript算本機token用量-assistant列以message-id加requestid去重-加權近計費input加5m快取1點25倍1h快取2倍讀0點1倍輸出5倍-專案名取projects下第一層-rglob含子代理",
+      "path": "memory/CC與原子記憶契約/從transcript算本機token用量-assistant列以message-id加requestid去重-加權近計費input加5m快取1點25倍1h快取2倍讀0點1倍輸出5倍-專案名取projects下第一層-rglob含子代理.md",
+      "triggers": [
+        "token 用量",
+        "transcript usage",
+        "加權 token",
+        "cache_creation",
+        "ephemeral_1h_input_tokens",
+        "cache_read_input_tokens",
+        "requestId",
+        "message.id 去重",
+        "哪個專案在燒",
+        "本機用量",
+        "projects jsonl"
+      ],
+      "scope": "global",
+      "related": [
+        "盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間"
+      ]
+    },
+    {
+      "name": "排程死人開關的逾期提醒要分排程跑與手動跑-手動查一次也寫同一個last-run會讓沒註冊的人從此每場被提醒-last-run記scheduled只對排程跑法提醒",
+      "path": "memory/設計通則/排程死人開關的逾期提醒要分排程跑與手動跑-手動查一次也寫同一個last-run會讓沒註冊的人從此每場被提醒-last-run記scheduled只對排程跑法提醒.md",
+      "triggers": [
+        "死人開關",
+        "dead man switch",
+        "逾期提醒",
+        "last-run",
+        "排程沒跑",
+        "SessionStart 提醒",
+        "advisory",
+        "每場都提醒",
+        "手動跑",
+        "stale",
+        "token 稅",
+        "雞肋"
+      ],
+      "scope": "global",
+      "related": [
+        "feedback-審同伴mr的收錄判準-對協作真有幫助才收-雞肋浪費token不收-專案層慣例不進核心-部分取用要寫清楚取捨"
+      ]
     }
   ]
 }

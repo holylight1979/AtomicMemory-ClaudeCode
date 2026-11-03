@@ -25,9 +25,11 @@
 | windows主控台看git-log與commit回顯的中文亂碼不代表commit存錯-用git-cat-file-commit-head讀原始位元組核對 | windows主控台看git-log與commit回顯的中文亂碼不代表commit存錯-用git-cat-file-commit-HEAD讀原始位元組核對 |
 | windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 | Windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 |
 | windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對permissionerror稍等重試 | Windows剛被別的行程搬動或寫入的檔會短暫拒絕存取-資料夾內有開著的檔就搬不動-多行程搶檔要對PermissionError稍等重試 |
+| windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑 | windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑 |
 | windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath | Windows暫存區路徑是8.3短檔名-abspath不展開-路徑比對要用realpath |
 | windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫 | windows的git把worktree的.git檔設成隱藏-python直接覆寫會PermissionError-要先unlink再寫 |
 | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring |
 | windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath | Windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath |
 | winget-升不動-powershell-msi-與-msix-通道分裂 | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
 | 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它 | 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它 |
+| 腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000 | 腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000 |
