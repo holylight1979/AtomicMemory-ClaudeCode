@@ -17,12 +17,15 @@
   面板／頁面文字追記到本機 workflow/usage-snapshots/usage-log.jsonl（source 標 vscode 或 web），
   usage-last-run.json 記最近一次結果（成功／失敗原因）。
   失敗也會在本機留診斷圖：VS Code 那條 usage-YYYYMMDD-vscode-FAILED.png、網頁那條 usage-YYYYMMDD-<帳號>-FAILED.png，不靜默。
+  排程跟著帳號的週重置走（每個帳號重置時刻不同，例：週一 21:00、週二 03:40）：截網頁時順手讀用量頁自己打的 /usage API，
+  週額度有多條（全部模型一條、單一模型各一條）取用量最高那條，把排程的每週觸發對齊到它重置前 LEAD_MIN 分鐘；
+  結果寫在 last-run 的 weekly_used／weekly_reset／schedule。VS Code 面板那條沒有重置時間來源，排程不動（schedule 註明）。
 
 怎麼跑：
   python tools/usage-snapshot/usage_snapshot.py --login     網頁退路首次：開有頭視窗，手動登入 claude.ai，登入成功自動關閉
   python tools/usage-snapshot/usage_snapshot.py             截一張（會彈 VS Code 視窗約 20 秒；失敗再彈 Chrome 約 30 秒）
   python tools/usage-snapshot/usage_snapshot.py --headless  網頁退路不彈視窗（實測會被 Cloudflare 擋，留作再試）
-  python tools/usage-snapshot/usage_snapshot.py --register  註冊排程：每週二 03:30（喚醒電腦、錯過補跑）
+  python tools/usage-snapshot/usage_snapshot.py --register  註冊排程：每週二 03:30 起跳，之後截網頁時自動對齊重置時間（喚醒電腦、錯過補跑）
   完整參數：--help
 """
 from __future__ import annotations
@@ -35,7 +38,7 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # pythonw（Task Scheduler 靜默跑）下 sys.stdout/stderr 為 None → 導到 devnull。
@@ -64,6 +67,8 @@ USAGE_URL = "https://claude.ai/settings/usage"
 TASK_NAME = "Claude-Usage-WeeklySnapshot"
 USAGE_TEXT = re.compile(r"\d+%\s*(used|已使用)|(used|已使用)\s*\d+%", re.I)  # 英文「68% used」、中文「已使用 68%」兩種字序
 WEEKLY_TOGGLE = re.compile(r"本週|this week|weekly", re.I)  # 用量彈窗「本週」收合鈕的文字
+LEAD_MIN = 10  # 週重置前幾分鐘截
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 # VS Code 用量面板：另開一個專屬 VS Code（跟日常那個分開，才能帶偵錯埠讓 Playwright 接上）
 CODE_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Microsoft VS Code" / "Code.exe"
@@ -195,6 +200,10 @@ def do_snapshot(headed: bool) -> int:
     if not result["ok"]:
         result["notes"].append("改截 claude.ai 用量頁")
         capture_web(result, now, headed)
+    if result["ok"]:
+        reset = result.get("weekly_reset")
+        result["schedule"] = (align_schedule(datetime.fromisoformat(reset)) if reset
+                              else "這次沒讀到週重置時間（只有截網頁時讀得到），排程沒動")
     if result["ok"] and not result.get("repo_error"):
         _push_to_repo(result)
     _finish(result)
@@ -306,6 +315,8 @@ def capture_web(result: dict, now: datetime, headed: bool) -> None:  # headed=Fa
 
     p, ctx = launch(headed)
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    usage_api: dict = {}
+    page.on("response", lambda resp: _grab_usage_api(resp, usage_api))
     try:
         page.goto(USAGE_URL, wait_until="domcontentloaded", timeout=60000)
         try:
@@ -336,6 +347,12 @@ def capture_web(result: dict, now: datetime, headed: bool) -> None:  # headed=Fa
             lines = [ln.strip() for ln in body.splitlines()
                      if "%" in ln or "Resets" in ln or "重設" in ln]
             result["lines"] = lines
+            top = _top_weekly_limit(usage_api)
+            if top:
+                name = ((top.get("scope") or {}).get("model") or {}).get("display_name") or "全部模型"
+                result["weekly_percent"] = top["percent"]
+                result["weekly_used"] = f"{top['percent']}%（{name}）"
+                result["weekly_reset"] = _reset_time(top).isoformat(timespec="minutes")
     except Exception as e:  # 瀏覽器層失敗（啟動、導航）
         result["error"] = f"{type(e).__name__}: {e}"
     finally:
@@ -343,6 +360,56 @@ def capture_web(result: dict, now: datetime, headed: bool) -> None:  # headed=Fa
             ctx.close()
         finally:
             p.stop()
+
+
+def _grab_usage_api(resp, into: dict) -> None:
+    """用量頁自己會打 /api/organizations/<org>/usage，回應裡有各額度的 resets_at。"""
+    if not resp.url.split("?")[0].endswith("/usage"):
+        return
+    try:
+        into.update(resp.json())
+    except Exception:
+        pass  # 沒抓到 → _top_weekly_limit 回 None，result["schedule"] 會標示
+
+
+def _top_weekly_limit(usage_api: dict) -> dict | None:
+    """週額度有多條（全部模型一條、單一模型各一條）；用量最高的那條當本週用量與重置時間的依據。"""
+    weekly = [lim for lim in usage_api.get("limits") or []
+              if lim.get("group") == "weekly" and lim.get("resets_at") and lim.get("percent") is not None]
+    return max(weekly, key=lambda lim: lim["percent"]) if weekly else None
+
+
+def _reset_time(limit: dict) -> datetime:
+    """額度的下次重置時間（本機時區、取整到分；API 值在整點前後抖幾百毫秒）。"""
+    dt = datetime.fromisoformat(limit["resets_at"]).astimezone() + timedelta(seconds=30)
+    return dt.replace(second=0, microsecond=0)
+
+
+def _powershell(script: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def align_schedule(reset: datetime) -> str:
+    """把排程的每週觸發對齊到「週重置前 LEAD_MIN 分鐘」，回一句結果；排程沒註冊就不動。"""
+    target = reset - timedelta(minutes=LEAD_MIN)
+    day, at = DAYS[target.weekday()], target.strftime("%H:%M")
+    r = _powershell(f"""
+$task = Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue
+if (-not $task) {{ 'none'; exit }}
+$cur = $task.Triggers[0]
+$want = New-ScheduledTaskTrigger -Weekly -DaysOfWeek {day} -At {at}
+if ($cur.DaysOfWeek -eq $want.DaysOfWeek -and ([datetime]$cur.StartBoundary).ToString('HH:mm') -eq '{at}') {{ 'same'; exit }}
+Set-ScheduledTask -TaskName '{TASK_NAME}' -Trigger $want -ErrorAction Stop | Out-Null
+'moved'
+""")
+    state = r.stdout.strip()
+    if r.returncode != 0 or state not in ("none", "same", "moved"):
+        return f"排程對齊失敗：{r.stderr.strip() or state}"
+    if state == "none":
+        return "排程沒註冊，沒對齊（--register 註冊）"
+    verb = "維持" if state == "same" else "改為"
+    return f"排程{verb}每週 {day} {at}（週重置 {reset:%m-%d %H:%M} 前 {LEAD_MIN} 分鐘）"
 
 
 def _pick_save_dir(result: dict) -> Path:
@@ -384,6 +451,9 @@ def _finish(result: dict) -> None:
             log(f"WARN: {result['repo_error']}")
         for ln in result.get("lines", []):
             log(f"  {ln}")
+        if result.get("weekly_used"):
+            log(f"本週用量（多條取高）：{result['weekly_used']}")
+        log(result["schedule"])
     else:
         log(f"FAILED: {result['error']}" + (f" → {result['file']}" if result["file"] else ""))
     for note in result.get("notes", []):
@@ -400,8 +470,7 @@ $s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -ExecutionTimeL
 Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Settings $s -Force | Out-Null
 (Get-ScheduledTaskInfo -TaskName '{TASK_NAME}').NextRunTime
 """
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    r = _powershell(ps)
     if r.returncode != 0:
         log(f"註冊失敗：{r.stderr.strip()}")
         return 1
@@ -415,7 +484,7 @@ def main() -> int:
     ap.add_argument("--login-timeout", type=int, default=60, metavar="MIN", help="--login 最多等幾分鐘（預設 60）")
     ap.add_argument("--headless", action="store_true", help="不彈視窗（實測會被 Cloudflare 擋）")
     ap.add_argument("--register", action="store_true", help="註冊 Windows 排程")
-    ap.add_argument("--at", default="03:30", help="--register 的時間 HH:MM（預設 03:30）")
+    ap.add_argument("--at", default="03:30", help="--register 的時間 HH:MM（預設 03:30；之後截網頁時會依實際重置時間自動對齊）")
     ap.add_argument("--day", default="Tuesday", help="--register 的星期（預設 Tuesday）")
     a = ap.parse_args()
     if a.register:
