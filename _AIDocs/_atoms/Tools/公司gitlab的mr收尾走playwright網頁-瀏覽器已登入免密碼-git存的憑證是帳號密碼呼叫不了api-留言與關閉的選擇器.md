@@ -13,6 +13,8 @@
 - [臨] 公司 GitLab（gitlab.uj.com.tw）：git credential helper 存的是帳號密碼（9 字、不是 glpat- token），拿來當 PRIVATE-TOKEN 呼叫 API 一律 401；匿名 GET（列 MR、看單一 MR 狀態）可以，寫入（留言、關閉）不行。Playwright MCP 開的瀏覽器用的是持久 profile，已經登入 holylight，直接 navigate 就能操作，不必碰密碼、不必畫面操控。
 - [臨] MR 頁面選擇器（GitLab 中文介面實測）：留言框 `[data-testid="comment-field"]`（browser_type 填入），送出 `[data-testid="comment-button"] button[type="submit"]`（同 testid 下還有一顆評論類型下拉，不加 type 會撞兩個）；關閉 MR 的按鈕 testid `close-reopen-button`（頁面文字「關閉合併請求」）。留言有沒有貼成功看 /dashboard/activity 的「commented on」清單。
 - [臨] 本機 merge 進 main 再 push，GitLab 會自動把那些 MR 標成 merged（merge_commit_sha 也會填），不必在網頁按合併。browser_snapshot 的 filename 只能落在 repo 根或 .playwright-mcp/（其他路徑被拒），落在 repo 根的要記得刪。
+- [臨] 寫入類 API 也不必要 token：在 Playwright 已登入的 GitLab 頁面用 browser_evaluate 跑 fetch('/api/v4/...', {credentials:'same-origin', headers:{'X-CSRF-Token': meta[name=csrf-token] 的值}})，就是用使用者的登入狀態呼叫（實測建 8 個 Release 全 201）。內容太大不想塞進工具參數時，本機起一個只綁 127.0.0.1、帶 Access-Control-Allow-Origin（該 GitLab 網域）的小 HTTP 服務，頁面 fetch 本機檔再轉送。公司 GitLab 新版個人存取令牌預設是 fine-grained，使用者找不到傳統 api 勾選，所以優先走這條。
+- [臨] Releases API 的 released_at 可標歷史日期；設成未來時間（即使只晚幾小時）會被標成「即將發布」，最新一版要用現在時間。
 
 ## 行動
 

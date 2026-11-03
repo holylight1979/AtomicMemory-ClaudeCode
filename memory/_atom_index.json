@@ -14119,6 +14119,22 @@
         "token 少一半"
       ],
       "scope": "global"
+    },
+    {
+      "name": "補發歷史版本的github-release要先用git-committer-date把標籤打成當年日期再建release-release排序吃建立當下的標籤日期-事後改標籤不會更新",
+      "path": "memory/版控/補發歷史版本的github-release要先用git-committer-date把標籤打成當年日期再建release-release排序吃建立當下的標籤日期-事後改標籤不會更新.md",
+      "triggers": [
+        "GitHub Release",
+        "gh release create",
+        "release notes",
+        "歷史版本",
+        "補標籤",
+        "GIT_COMMITTER_DATE",
+        "release 排序",
+        "tagger date",
+        "Latest"
+      ],
+      "scope": "global"
     }
   ]
 }

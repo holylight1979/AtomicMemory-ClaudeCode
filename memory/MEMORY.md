@@ -4,7 +4,7 @@
 
 | 範疇 | atom 數 | 深入 |
 |------|---------|------|
-| 版控 | 42 | `memory/版控/_INDEX.md` |
+| 版控 | 43 | `memory/版控/_INDEX.md` |
 | 工作流 | 39 | `memory/工作流/_INDEX.md` |
 | 思考與決策 | 27 | `memory/思考與決策/_INDEX.md` |
 | 驗證與實證 | 90 | `memory/驗證與實證/_INDEX.md` |
