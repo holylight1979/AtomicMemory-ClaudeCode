@@ -126,7 +126,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（<!-- skill-count -->30<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
+## 5. Skills（<!-- skill-count -->31<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -163,6 +163,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /meeting | skills/meeting/SKILL.md | 會議錄音 → 逐字稿 → 決議／待辦／未決三段摘要 → 決議寫進專案記憶（shared）；機制見 TECH §6.6 | tools/meeting-transcribe.py、ffmpeg、Ollama 音訊模型 |
 | /mailbox | skills/mailbox/SKILL.md | **外部貢獻（PR #4）**：共用信箱——用網路共用資料夾讓人與 AI 互相寄信收信（讀＝領取、解鎖、刪信、總覽、收件人名單）；不依賴記憶系統，`scripts/mail.py --help` 為準；設定分層：專案根 `.claude/skills/mailbox/config.json` 優先 | 網路共用資料夾（config.json 的 `mailbox_root`） |
 | /token | skills/token/SKILL.md | 量一場或多場 session 實際處理的 token（未快取／讀快取／建快取／輸出／合計，含子代理，不換美金）；`scripts/token_usage.py --help` 為準，算法在 `lib/transcript_tokens.py` | 無 |
+| /usage-watch | skills/usage-watch/SKILL.md | 帳號用量（所有機器合計的每週％／5h 窗、漲速、預估用完、日／週）與異常、發摘要到 Discord、測通知、看／建排程；包住 tools/usage-watch.py，`--help` 為準 | tools/usage-watch.py、Task Scheduler、Discord webhook |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
 > 已休眠（單人環境·非刪）：`/init-roles` / `/conflict-review`（多人團隊層）→ 見 `skills/_archived/README.md`
@@ -239,6 +240,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - refix-churn.py — git／svn 同檔反覆 fix 排名（`lib/refix_churn.py`；主尺 fix 數、副尺 14 天配對），排除記憶與收割提交；`--svn-xml` 吃離線 log｜`REFIX_CHURN DONE vcs= commits= fix= files_refixed=`
 - project-smells.py — commit 前病形檢查（PreToolUse 的 SmellGate 載入；TECH/coding-guard.md 乙6）
 - usage-snapshot/usage_snapshot.py — 週用量截圖（Task Scheduler `Claude-Usage-WeeklySnapshot` 週二 03:30 起跳；截網頁時從 /usage API 讀週重置時間，週額度多條取用量最高那條，排程對齊到重置前 10 分鐘，last-run 記 weekly_used／weekly_reset／schedule）：先開專屬 VS Code（獨立設定資料夾＋偵錯埠）在 Claude Code 分頁打 `/usage`、切 Week、截 Account & Usage 面板（帳號＝面板 Email）；連試 3 次失敗才退網頁：專屬 Chrome profile（`--login` 一次登入）開 claude.ai/settings/usage → 截圖存公司記憶庫 `usage-snapshots/usage-YYYYMMDD-<帳號>.png` 並自動 commit／push（帳號＝截圖裡登入 claude.ai 的信箱 @ 前段，跟這台 Claude Code 帳號不同時記警告；沒接上公司記憶庫退本機 `workflow/usage-snapshots/`）+ 本機 `usage-log.jsonl`（% / Resets 文字）+ `usage-last-run.json`；失敗留 `*-FAILED.png`
+- usage-watch.py — 用量異常偵測與紀錄（Task Scheduler：`--register [watch]` 建 `Claude-Usage-Watch-<Windows 帳號>` 每小時 `--account-only --notify`；`--register report --at HH:MM [--on weekdays|mon,wed,fri]` 建 `Claude-Usage-Report-<Windows 帳號>` 定時 `--report`（不加 --on＝每天）；`--unregister [watch|report]`；`--chart` 從紀錄產生 `chart.html`（Chart.js CDN，每週走勢／每日用量／本機各專案，附數據表））：帳號級走 Claude Code 登入 token 打 `api/oauth/usage`（每週％／5h 窗％），判 ①突增 ②最近 24h 速度預估重置前用完 ③50／75／90％里程碑 ④5h 窗、日用量、上週同期；本機 transcript 加權 token 每小時／每日／每週並列專案。紀錄 `workflow/usage-watch/`（account／alerts jsonl、hourly.json 每小時×專案、last-run.json → SessionStart `_usage_watch_advisory` 逾 72h 沒跑或失敗浮出）；通知＝Windows toast＋Discord webhook（`settings.json`，本機不進版控），依 key 冷卻，`--test-notify` 試發｜`USAGE_WATCH DONE account_ok= alerts= new= notified=`；驗 `hooks/verify/verify_usage_watch.py`
 - memory-effect-report.py — 注入效果報表：access.json（曝光+α/β）+ rescue-log + recall-miss.jsonl → 四節（top 有用 / token 稅 / 死重候選 / D 失念聚合）+ 30 天週趨勢；`/memory health` 與週健檢共用
 - memory-vector-service/starter.py — Vector 啟動器自癒（SessionStart / UPS re-kick 共用）：stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、120s 等待窗 + spawn lock
 - native-memory-bridge.py — 核心 atom 索引 → CC 原生 memory 指標鏡像（harness 清單格式，掃描不誤納；`--create` 首次建目錄）

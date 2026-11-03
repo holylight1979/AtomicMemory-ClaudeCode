@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 30,
+  "count": 31,
   "skills": [
     {
       "name": "atom-debug",
@@ -147,6 +147,11 @@
       "name": "upgrade",
       "dir": "upgrade",
       "description": "原子記憶環境升級：檢查並執行 V4/V5 schema migration"
+    },
+    {
+      "name": "usage-watch",
+      "dir": "usage-watch",
+      "description": "查 Claude 帳號目前用量（所有機器／網頁合計的每週％、5 小時窗、漲速、預估用完、日用量）與異常，把用量摘要發到 Discord，測試用量通知，查看或註冊用量監控排程。使用者說「Claude 用量多少」「額度還剩多少」「這週會不會爆」「發用量到 Discord」「用量監控有沒有在跑」「測一下用量通知」「/usage-watch」時用。量單一 session 的 token 用 /token，不是這個。"
     },
     {
       "name": "vector",

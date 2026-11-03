@@ -1,0 +1,91 @@
+{
+  "_comment": "觸發評估查詢：should_trigger=true 是帳號額度／用量監控／Discord 用量摘要的各種說法；false 是共用用量、token、Discord 字眼但要的是單場 token、價目、帳單、別的 Discord 功能",
+  "skill_name": "usage-watch",
+  "queries": [
+    {
+      "query": "Claude 用量現在多少？",
+      "should_trigger": true,
+      "note": "直接問帳號用量"
+    },
+    {
+      "query": "這週額度還剩多少",
+      "should_trigger": true,
+      "note": "額度剩餘"
+    },
+    {
+      "query": "照這個速度這週會不會爆",
+      "should_trigger": true,
+      "note": "預估用完"
+    },
+    {
+      "query": "把目前用量發到 Discord",
+      "should_trigger": true,
+      "note": "發摘要"
+    },
+    {
+      "query": "用量監控的排程有沒有在跑",
+      "should_trigger": true,
+      "note": "排程狀態"
+    },
+    {
+      "query": "測一下用量通知 Discord 收不收得到",
+      "should_trigger": true,
+      "note": "測通知"
+    },
+    {
+      "query": "每日用量摘要改成早上八點發",
+      "should_trigger": true,
+      "note": "重建排程改時間"
+    },
+    {
+      "query": "最近哪個專案燒最多額度",
+      "should_trigger": true,
+      "note": "本機段追查"
+    },
+    {
+      "query": "把這週的 Claude 用量畫成圖表給我看",
+      "should_trigger": true,
+      "note": "圖表"
+    },
+    {
+      "query": "/usage-watch",
+      "should_trigger": true,
+      "note": "直接叫指令"
+    },
+    {
+      "query": "這場 session 用了多少 token",
+      "should_trigger": false,
+      "note": "單場 token，用 /token"
+    },
+    {
+      "query": "Opus 每百萬 token 多少錢",
+      "should_trigger": false,
+      "note": "API 價目"
+    },
+    {
+      "query": "這個月 Anthropic 帳單花了多少美金",
+      "should_trigger": false,
+      "note": "帳單金額"
+    },
+    {
+      "query": "幫我在 Discord 建一個新頻道",
+      "should_trigger": false,
+      "note": "Discord 管理，與用量無關"
+    },
+    {
+      "query": "CatClaw 的 Discord bridge 沒回訊息",
+      "should_trigger": false,
+      "note": "CatClaw 除錯"
+    },
+    {
+      "query": "電腦的 CPU 和記憶體用量很高怎麼辦",
+      "should_trigger": false,
+      "note": "系統資源用量"
+    },
+    {
+      "query": "context window 快滿了要不要開新 session",
+      "should_trigger": false,
+      "note": "context 用量"
+    }
+  ]
+}

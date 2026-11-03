@@ -11,6 +11,7 @@ handlers/session_start.py — SessionStart hook handler
 - Vector service fire-and-forget bg subprocess
 """
 
+import getpass
 import json
 import os
 import subprocess
@@ -448,6 +449,39 @@ def _health_advisory(last_run_path) -> list:
         return [
             "[Guardian:HealthCheck] ⚠ health-last-run.json 不可解析——健檢狀態"
             "未知，手動跑 python tools/health-weekly.py。"
+        ]
+
+
+USAGE_WATCH_STALE_HOURS = 72  # 每小時排程；留週末關機的寬限
+
+
+def _usage_watch_advisory(last_run_path) -> list:
+    """用量異常監控死人開關 → advisory 行（無異常回 []）。
+
+    排程沒被叫起或被刪時腳本不會寫 last-run，只能從逾 USAGE_WATCH_STALE_HOURS 沒更新反推；
+    上次查詢失敗、通知跳不出來也浮出（否則異常發生了也沒人知道）。缺檔＝這台沒用這支工具，不提示。
+    """
+    try:
+        if not last_run_path.exists():
+            return []
+        d = json.loads(last_run_path.read_text(encoding="utf-8"))
+        at = datetime.fromisoformat(d.get("at", "")).replace(tzinfo=None)
+        if datetime.now() - at > timedelta(hours=USAGE_WATCH_STALE_HOURS):
+            task = f"Claude-Usage-Watch-{getpass.getuser()}"
+            return [
+                f"[Guardian:UsageWatch] ⚠ 用量異常監控已 {(datetime.now() - at).days} 天沒跑（上次 "
+                f"{at:%Y-%m-%d %H:%M}）——查 Task Scheduler {task}（沒有就 python tools/usage-watch.py --register）。"
+            ]
+        problems = ([d.get("error")] if not d.get("ok") else []) + [
+            f"{ch} 通知失敗：{err}" for ch, err in (d.get("notify_errors") or {}).items()]
+        if problems:
+            return [f"[Guardian:UsageWatch] ⚠ 上次用量監控（{at:%m-%d %H:%M}）有問題：{'；'.join(problems)}"]
+        return []
+    except Exception as e:
+        _atom_debug_error("session_start:usage_watch_advisory", e)
+        return [
+            "[Guardian:UsageWatch] ⚠ workflow/usage-watch/last-run.json 不可解析——"
+            "監控狀態未知，手動跑 python tools/usage-watch.py --account-only。"
         ]
 
 
@@ -1402,6 +1436,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 缺檔/逾期 = 排程器本身死了；red>0 = 上次健檢有待處理項。兩者都必須
         # 在 session 內浮出（fail-open 必告知）——「靜默死 27 天」的最後防線。
         lines.extend(_health_advisory(WORKFLOW_DIR / "health-last-run.json"))
+        lines.extend(_usage_watch_advisory(WORKFLOW_DIR / "usage-watch" / "last-run.json"))
         # 服務沒回應就不問索引狀態：Windows 連關著的埠要等滿逾時，多問一次就多等一秒。
         try:
             vector_flag = _refresh_vector_flag(config)

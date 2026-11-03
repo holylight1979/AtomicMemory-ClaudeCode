@@ -377,7 +377,7 @@
 
 ## skills/
 
-<!-- skill-count -->30<!-- /skill-count --> 個 active skill。
+<!-- skill-count -->31<!-- /skill-count --> 個 active skill。
 
 | 檔案 | 負責什麼 |
 |------|----------|

@@ -1522,6 +1522,7 @@ Bash／PowerShell 指令
 | 工具結果體積 | 量每筆工具結果字元數，過大時建議改法 | `Logs/guard-tool-result-size.jsonl` |
 | hook 分段計時 | 守門開時才有（→ [跨層表 #6](#守門開關會改到記憶系統的地方)）：記每個 hook 事件各段耗時，快逾時時降級；細節 → [乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級) | `Logs/guard-hook_timing.jsonl` |
 | `/token` skill | 量一場或多場 session 實際處理的 token：未快取、讀快取、建快取、輸出，含子代理；不換算美金 | stdout 表格，尾行 `TOKENS DONE sessions=<n>` |
+| `/usage-watch` skill | 帳號額度（所有機器合計，只有％）每小時記錄、判異常，Discord＋Windows 通知；`--report` 發摘要（手動，或 `--register report --at HH:MM [--on weekdays]` 定時） | `workflow/usage-watch/`（account／alerts jsonl、last-run.json），尾行 `USAGE_WATCH DONE ...` |
 | guard JSONL | 每道閘或護欄觸發就記一筆 | `Logs/guard-<名>.jsonl` |
 | 量尺工具（唯讀） | 讀上述帳本印數字 | stdout，尾行 `<NAME> DONE k=v` |
 | atom-debug | 檢索過程、盲點、錯誤 | `Logs/atom-debug-*.log` |
@@ -1812,7 +1813,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | [`hooks/`](hooks/) | hook 本體：dispatcher、handlers、`wg_*` 模組、背景 worker |
 | [`lib/`](lib/) | 共用函式庫：atom 寫入讀取、部位表、收據、git 錄製重播 |
 | [`tools/`](tools/) | 命令列工具與子系統（向量服務、MCP server、Codex 呼叫入口 [`codex-call.py`](tools/codex-call.py)…） |
-| [`skills/`](skills/) | <!-- skill-count -->30<!-- /skill-count --> 個 active skill（另有 `_archived/`） |
+| [`skills/`](skills/) | <!-- skill-count -->31<!-- /skill-count --> 個 active skill（另有 `_archived/`） |
 | [`memory/`](memory/) | 全域記憶層（core realm）：atom、索引、詞庫 |
 | [`_AIDocs/`](_AIDocs/) | 長期知識庫：規格、變更紀錄、local realm atom |
 | [`workflow/`](workflow/) | 設定與 runtime state（多數 gitignored） |
@@ -1908,6 +1909,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | 想知道 | 用什麼 | 說明 |
 |---|---|---|
 | 一場 session 實際處理了多少 token | `/token`（[`skills/token/`](skills/token/)） | 分未快取輸入、讀快取、建快取、輸出與合計，含子代理，不換算美金。預設量目前 session；給幾個 session id 前綴可以一起列表比較，例如守門開、關各一場 |
+| 整個帳號這週用了多少、會不會提早用完 | `/usage-watch`（[`skills/usage-watch/`](skills/usage-watch/)） | 問 Anthropic 帳號額度（所有機器／網頁合計，只有％），列漲速、預估、日用量與上週同期；`--report` 發到 Discord，`--chart` 產生圖表，`--status` 看排程。 |
 | 每個 hook 事件花多久 | [`python tools/hook-timing.py`](tools/hook-timing.py) | 讀 `Logs/guard-hook_timing.jsonl`，印每個事件跑幾次、降級幾次、各段中位數。這份帳只在守門開時寫；守門關時印「沒有計時帳」 |
 | 每句話注入了多少記憶 | `Logs/injection-turns.jsonl` | 每句話一行：每種送法各幾張卡（`ok`、`fallback`、`skip`、`dropped`…）、用了多少 tok、上限多少。守門開關都寫；[`tools/memory-effect-report.py`](tools/memory-effect-report.py) 讀它出報表 |
 
