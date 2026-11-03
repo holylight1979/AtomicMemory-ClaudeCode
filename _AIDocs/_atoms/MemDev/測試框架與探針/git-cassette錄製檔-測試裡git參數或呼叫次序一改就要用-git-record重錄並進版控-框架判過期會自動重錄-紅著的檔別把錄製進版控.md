@@ -17,6 +17,7 @@
 - [臨] verify_stop_reconcile 的錄音在每筆 git 呼叫前會比對受測目錄內容；改了測試夾具檔名後，只刪不合的那幾份錄音、用預設 auto 模式重跑（缺檔才錄），不要整支 --git-record（會把上百份錄音全換掉，diff 很髒）。
 - [臨] 兩條分支各自重錄同一份錄音、合併時衝突：刪掉衝突的那幾份，用合併後的程式重錄，不取任一邊。
 - [臨] 程式雜湊或 git 版本跟錄製檔記的對不上也算過期，跑一輪 verify 就自動重錄，一輪可改寫約 150 個錄製檔（hooks/verify/cassettes、tools/verify/cassettes）。這些不是自己的改動：提交前用 git checkout -- <cassettes 路徑> 還原（被守門擋就不還原），只 git add 自己的檔。
+- [臨] 過期判定還看 git 版本（錄製檔的 versions 欄）與「被 git 叫起來的程式」的雜湊：同事機器 git 2.49、本機 2.50.1，拉下他的 MR 跑一次就 122 個錄製檔全部重錄，diff 只有時間戳與 hash。所以錄製檔本來就是每台機器各錄各的；審同伴 MR 時他帶的重錄檔照收，本機跑完重錄出來的不進版控（`git checkout -- hooks/verify/cassettes tools/verify/cassettes` 丟掉）。改到會被 merge driver 或 hook 叫起的模組（例 merge-atom-index 多 import 一個 lib）也會讓整組重錄，不是壞掉。
 
 ## 行動
 
