@@ -41,7 +41,7 @@ pattern: tool-wrapper
 - **① 突增**：與 45 分鐘～3 小時前那筆比的每小時漲幅；間隔太短整數％會被放大，所以不拿更近的比。
 - **② 預估**：最近 24 小時速度（不足 12 小時退回本週平均）推到重置時會用到多少；早於重置用完就是異常。
 - **日／週**：靠排程每小時累積的紀錄；剛建排程時「上週同期」「近幾週結算」會是空的。
-- **查詢失敗「token 已過期」**：開一次 Claude Code 就會刷新；工具刻意不自己刷新（會弄壞 Claude Code 登入）。
+- **查詢失敗「token 已過期」**：工具遇到過期會先跑 `claude auth status` 讓 Claude Code 自己刷新再查（桌面版 Code 分頁不會刷新 `.credentials.json`）；仍失敗才報錯，請使用者在終端機跑 `claude auth status` 或 `/login`。工具不自己打 OAuth 刷新（會輪替 refresh token、弄壞登入）。
 - **紀錄位置**：`~/.claude/workflow/usage-watch/`（account／alerts jsonl、hourly.json、last-run.json、settings.json 放 Discord webhook，不進版控）。
 
 ## 反模式

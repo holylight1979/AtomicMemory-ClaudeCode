@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-03 usage-watch：token 過期改為自動刷新
+- 桌面版 Code 分頁不會刷新 `~/.claude/.credentials.json`（8 小時過期），監控每次過期就略過帳號查詢；改成過期時先跑 `claude auth status`（實測會讓 Claude Code 自己刷新並寫回檔）再查，仍失敗才報錯。驗證：模擬過期 → 刷新後查到用量 `USAGE_REFRESH_CHECK PASS`；`verify_usage_watch.py` 39 案綠。
+
+---
 ## 2026-11-03 usage-watch：帳號級用量異常偵測、排程、Discord 通知與 /usage-watch skill
 - **緣由**：要看「整個帳號」每小時／每日／每週用量有沒有異常升高並留紀錄供日後圖表；本機 transcript 只涵蓋單台機器（同帳號多機或網頁共用時嚴重低報），且只留兩三週。
 - **做法**：新 `tools/usage-watch.py`：帳號段用 Claude Code 的 OAuth token 打 `api/oauth/usage`（免瀏覽器；token 過期不自刷新只報錯），判 ①突增（固定 4%/h，滿 10 筆改歷史中位×3；比較點至少隔 45 分鐘，因 API ％只到整數）②最近 24h 速度預估重置前用完 ③50／75／90％ ④5h 窗、日用量（預算 20％或歷史中位×2）、上週同期與週結算；本機段加權 token 每小時／每日／每週並列專案。`--register [watch]` 建每小時監控排程（`--account-only --notify`），`--register report --at HH:MM [--on weekdays|mon,wed,fri]` 建定時摘要排程（`--report`，可只在工作日或指定星期；不需要可不建），`--unregister [watch|report]`；`--report` 也可手動發；通知＝Windows toast＋Discord webhook（`workflow/usage-watch/settings.json`，不進版控），依 key 冷卻；`--status`、`--test-notify`、`--chart`（chart.html：每週走勢＋重置／異常標記、每日用量、本機各專案每日 token，附數據表）。SessionStart 新增 `_usage_watch_advisory`（逾 72h 沒跑／查詢或通知失敗）。新 skill `/usage-watch`。紀錄落 `workflow/usage-watch/`（gitignore）。

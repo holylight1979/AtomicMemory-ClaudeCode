@@ -4,7 +4,8 @@
 做什麼：
   【帳號】用 Claude Code 自己的登入 token（~/.claude/.credentials.json）打 api.anthropic.com/api/oauth/usage，
     拿整個帳號的每週％、5 小時窗％與重置時間（只有百分比、沒有 token 數；非公開端點，格式變了會明確報錯）。
-    token 過期不自己刷新（會輪替 refresh token、弄壞 Claude Code 登入），只報「開一次 Claude Code 即可」。
+    token 8 小時過期（桌面版 Code 分頁不會刷新這個檔）→ 跑一次 `claude auth status` 讓 Claude Code 自己刷新再查；
+    不自己打 OAuth 刷新（會輪替 refresh token、弄壞 Claude Code 登入）。
     異常定義：
       ① 突增：與最近一筆同週期、間隔 45 分～3h 的紀錄比，每小時漲 ≥ max(--rate-alert, 歷史漲速中位數×3)
       ② 會提早用完：用最近 24h 速度（不足 12h 退回本週平均）推算用完時間早於重置
@@ -123,10 +124,29 @@ def alert(key: str, msg: str, window_h: float) -> dict:
 
 # ---------- 帳號 ----------
 
+def read_cred() -> dict:
+    return json.loads((CLAUDE_DIR / ".credentials.json").read_text(encoding="utf-8"))["claudeAiOauth"]
+
+
+def refresh_token() -> str | None:
+    """token 8 小時過期，桌面版 Code 分頁不會刷新這個檔；`claude auth status` 會順手刷新。失敗回錯誤字串。"""
+    exe = Path.home() / ".local" / "bin" / "claude.exe"
+    try:
+        r = subprocess.run([str(exe) if exe.exists() else "claude", "auth", "status"], capture_output=True,
+                           text=True, encoding="utf-8", timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return str(e)[:300]
+    return None if r.returncode == 0 else (r.stderr.strip()[:300] or f"exit {r.returncode}")
+
+
 def fetch_account(now: datetime) -> dict:
-    cred = json.loads((CLAUDE_DIR / ".credentials.json").read_text(encoding="utf-8"))["claudeAiOauth"]
+    cred = read_cred()
     if cred.get("expiresAt", 0) / 1000 < now.timestamp():
-        raise RuntimeError("Claude Code 登入 token 已過期（開一次 Claude Code 會自動刷新），本次略過帳號查詢")
+        err = refresh_token()
+        cred = read_cred()
+        if cred.get("expiresAt", 0) / 1000 < now.timestamp():
+            raise RuntimeError(f"Claude Code 登入 token 已過期，自動刷新（claude auth status）也沒成功"
+                               f"{'：' + err if err else ''}；終端機跑一次 claude auth status 或 /login")
     req = urllib.request.Request(USAGE_API, headers={
         "Authorization": "Bearer " + cred["accessToken"],
         "anthropic-beta": "oauth-2025-04-20",
