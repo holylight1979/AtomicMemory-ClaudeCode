@@ -51,16 +51,21 @@ from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filt
     iter_atom_files_multi,
     scope_from_index_path,
 )
-from lib.atom_spec import is_atom_file  # noqa: E402
+from lib.atom_spec import (  # noqa: E402
+    ARCHIVED_DIR_NAME, ATOM_INDEX, DISTANT_DIR_NAME, DRAFTS_DIR_NAME, EPISODIC_DIR_NAME, MEMORY_INDEX,
+    PENDING_REVIEW_DIR_NAME, REFERENCE_DIR_NAME, REJECTED_DIR_NAME, STAGING_DIR_NAME, TEMPLATES_DIR_NAME,
+    WISDOM_DIR_NAME, is_atom_file,
+)
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 
 from lib.project_root import claude_data_dir  # noqa: E402
 
 MEMORY_DIR = claude_data_dir() / "memory"   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 
-EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",
-                      "templates", "wisdom", "_drafts", "episodic", "_distant", "_rejected"}
-EXCLUDED_FILE_NAMES = {"MEMORY.md", "_ATOM_INDEX.md"}
+EXCLUDED_DIR_PARTS = {REFERENCE_DIR_NAME, ARCHIVED_DIR_NAME, PENDING_REVIEW_DIR_NAME, STAGING_DIR_NAME,
+                      TEMPLATES_DIR_NAME, WISDOM_DIR_NAME, DRAFTS_DIR_NAME, EPISODIC_DIR_NAME, DISTANT_DIR_NAME,
+                      REJECTED_DIR_NAME}
+EXCLUDED_FILE_NAMES = {MEMORY_INDEX, ATOM_INDEX}
 
 TRIGGER_LINE_RE = re.compile(r"^- Trigger:\s*(.+)$", re.MULTILINE)
 SCOPE_LINE_RE = re.compile(r"^- Scope:\s*(.+)$", re.MULTILINE)

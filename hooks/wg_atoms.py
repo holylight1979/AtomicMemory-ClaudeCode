@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from atom_spec import SCOPE_DIR_NAMES  # lib/（wg_core 已放進 sys.path）
 from wg_core import (
     CLAUDE_DIR, CODE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
@@ -613,7 +614,7 @@ def build_candidate_pool(
         _atom_debug_error("candidate_pool:v4_entries", e)
 
     v4_layout_active = bool(project_mem_dir) and any(
-        (project_mem_dir / d).is_dir() for d in ("shared", "roles", "personal")
+        (project_mem_dir / d).is_dir() for d in SCOPE_DIR_NAMES
     )
     if v4_layout_active:
         project_merged = list(v4_entries)

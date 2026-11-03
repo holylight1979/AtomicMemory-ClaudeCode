@@ -38,6 +38,7 @@ from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
     build_candidate_pool,
 )
+from atom_spec import ALL_INDEX_FILES, INDEX_FILES, SCOPE_DIR_NAMES   # lib/：共用名字
 from project_root import claude_config_dir   # lib/（wg_core 已放進 sys.path）：Claude Code 設定目錄，啟動檔在這裡
 from wg_evasion import (
     _load_oscillation_warnings, _check_periodic_review_due,
@@ -764,7 +765,7 @@ def _index_conflict_advisory(cwd: str) -> list:
             timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
             return lines
-        index_names = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json", "_INDEX.md", "_local_catalog.md"}
+        index_names = set(ALL_INDEX_FILES)
         names = sorted({
             entry.split("\t", 1)[1].rsplit("/", 1)[-1]
             for entry in (r.stdout or "").split("\0") if "\t" in entry
@@ -779,7 +780,7 @@ def _index_conflict_advisory(cwd: str) -> list:
         return lines
 
 
-_SVN_INDEX_NAMES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
+_SVN_INDEX_NAMES = INDEX_FILES
 
 
 def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
@@ -1292,7 +1293,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         project_atoms_merged = pool["project"]
 
         v4_layout_active = bool(project_mem_dir) and any(
-            (project_mem_dir / d).is_dir() for d in ("shared", "roles", "personal")
+            (project_mem_dir / d).is_dir() for d in SCOPE_DIR_NAMES
         )
 
         state["atom_index"] = {

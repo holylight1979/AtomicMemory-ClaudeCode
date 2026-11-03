@@ -38,8 +38,7 @@ CONFIG_PATH = WORKFLOW_DIR / "config.json"
 CONFIG_LOCAL_PATH = WORKFLOW_DIR / "config.local.json"   # 這台機器專屬覆寫（不進版控），同名鍵蓋過 config.json
 # V5+ Realm 維度：SessionEnd 自動搬移的待提示 marker（永不靜默；session_start 讀+清）
 REALM_AUTOMOVE_MARKER = WORKFLOW_DIR / "realm_automove_pending.json"
-MEMORY_INDEX = "MEMORY.md"
-ATOM_INDEX = "_ATOM_INDEX.md"
+from atom_spec import ATOM_INDEX, MEMORY_INDEX, SCOPE_DIR_NAMES  # noqa: E402  共用名字唯一一份
 REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 
 # atom 物理位置 / 白名單規則來源（單一來源 lib.atom_locations）
@@ -51,6 +50,12 @@ try:
     )
 except ImportError:
     atom_writable_dir_segments = None
+    # 備援白名單（atom_locations 載不進來時用；與 atom_locations._BASE_WRITABLE_DIR_SEGMENTS 保持一致）。
+    # 不含 'Failures'：Failures atom 由 _is_failures_atom_path 主動 gate，非白名單豁免。
+    _FALLBACK_WRITABLE_DIR_SEGMENTS = frozenset({
+        "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
+        "_vectordb", "_rejected", "templates", "episodic", "wisdom", "personal",
+    })
     failures_atom_stems = None
     is_local_realm_path = None
     is_cross_project_local = None
@@ -576,7 +581,7 @@ def get_project_memory_dir(cwd: str) -> Optional[Path]:
         if new_mem.is_dir():
             if (new_mem / MEMORY_INDEX).exists():
                 return new_mem
-            if any((new_mem / d).is_dir() for d in ("shared", "roles", "personal")):
+            if any((new_mem / d).is_dir() for d in SCOPE_DIR_NAMES):
                 return new_mem
     slug = cwd_to_project_slug(cwd)
     old_mem = CLAUDE_DIR / "projects" / slug / "memory"
@@ -2036,7 +2041,7 @@ _DOUBLE_CLAUDE_RE = lazy_re(
 )
 
 _WHITELIST_BASENAMES = frozenset({
-    "MEMORY.md", "_ATOM_INDEX.md", "_CHANGELOG.md", "_CHANGELOG_ARCHIVE.md",
+    MEMORY_INDEX, ATOM_INDEX, "_CHANGELOG.md", "_CHANGELOG_ARCHIVE.md",
     "_roles.md", "atom_io_audit.jsonl",
     "_promotion_audit.jsonl", "project-registry.json", "session_score.json",
     "DESIGN.md", "role.md",
@@ -2044,12 +2049,7 @@ _WHITELIST_BASENAMES = frozenset({
 if atom_writable_dir_segments is not None:
     _WHITELIST_DIR_SEGMENTS = atom_writable_dir_segments()
 else:
-    # Fallback（lib import 失敗的極端情況；與 atom_locations 保持一致）。
-    # 不含 'Failures'：Failures atom 由 _is_failures_atom_path 主動 gate，非白名單豁免。
-    _WHITELIST_DIR_SEGMENTS = frozenset({
-        "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
-        "_vectordb", "_rejected", "templates", "episodic", "wisdom", "personal",
-    })
+    _WHITELIST_DIR_SEGMENTS = _FALLBACK_WRITABLE_DIR_SEGMENTS
 
 
 def _path_under_memory_dir(fp: Path) -> bool:

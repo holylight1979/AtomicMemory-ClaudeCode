@@ -63,6 +63,7 @@ from wg_core import (
     CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, _now_iso, _atom_debug_error,
     append_guard_log, find_project_root, find_vcs_root, load_config, org_memory_root,
 )
+from atom_spec import ALL_INDEX_FILES  # lib/（wg_core 已放進 sys.path）
 
 SYNC_DIR = WORKFLOW_DIR / "vcs-sync"
 LOG_PATH = CLAUDE_DIR / "Logs" / "vcs-sync.log"
@@ -82,7 +83,7 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 # 索引檔（merge driver atomindex 管的那幾個）：拉取時唯一允許自動解衝突的檔名
-INDEX_FILE_NAMES = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json", "_INDEX.md", "_local_catalog.md"}
+INDEX_FILE_NAMES = set(ALL_INDEX_FILES)
 
 _NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 

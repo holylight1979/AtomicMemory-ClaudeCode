@@ -473,7 +473,7 @@ def _resolve_target_impl(
             }
         return {**common, **target}
 
-    if scope not in ("shared", "role", "personal"):
+    if scope not in VALID_SCOPES:   # global 已在上面處理完
         return {"error": f"Unknown scope: {scope}"}
 
     if scope == "role" and not role:

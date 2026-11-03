@@ -25,12 +25,22 @@ from typing import Any, Dict, Iterable, List, Optional
 # 與 project taxonomy 共用單一計分來源（INV-LOGIC-SINGLE-PY-SOURCE）。決策語意
 # （無命中=留 core / sorted-domain tiebreak / 段字元集 guard）仍由本檔的 RealmStrategy 詮釋。
 # dual-safe import：容 `lib.atom_locations`（相對）與 wg_core sys.path.insert 後頂層
-# `atom_locations`（絕對）兩種載入路徑；atom_classify 為 leaf（不 import 本模組）→ 無 cycle。
+# `atom_locations`（絕對）兩種載入路徑；atom_classify、atom_spec 都不在頂層 import 本模組→ 無 cycle。
 try:
     from .atom_classify import score_by_lexicon
+    from .atom_spec import (
+        ARCHIVED_DIR_NAME, DISTANT_DIR_NAME, DRAFTS_DIR_NAME, EPISODIC_DIR_NAME, META_DIR_NAME,
+        PENDING_REVIEW_DIR_NAME, PERSONAL_DIR_NAME, REFERENCE_DIR_NAME, REJECTED_DIR_NAME, ROLES_DIR_NAME,
+        SHARED_DIR_NAME, STAGING_DIR_NAME, TEMPLATES_DIR_NAME, VECTORDB_DIR_NAME, WISDOM_DIR_NAME,
+    )
     from .project_root import claude_data_dir
 except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
     from atom_classify import score_by_lexicon
+    from atom_spec import (
+        ARCHIVED_DIR_NAME, DISTANT_DIR_NAME, DRAFTS_DIR_NAME, EPISODIC_DIR_NAME, META_DIR_NAME,
+        PENDING_REVIEW_DIR_NAME, PERSONAL_DIR_NAME, REFERENCE_DIR_NAME, REJECTED_DIR_NAME, ROLES_DIR_NAME,
+        SHARED_DIR_NAME, STAGING_DIR_NAME, TEMPLATES_DIR_NAME, VECTORDB_DIR_NAME, WISDOM_DIR_NAME,
+    )
     from project_root import claude_data_dir
 
 
@@ -151,8 +161,8 @@ def core_protected_source() -> str:
 # 專案層 scope 與生命週期）。部分目錄在某些 memory tree 下尚未實體存在，但**不得剪除**——
 # 它們在 atom_write 走到對應 scope/路由時才被建立。剪掉會弄壞 V4 專案層寫入與待審。
 _BASE_WRITABLE_DIR_SEGMENTS = frozenset({
-    "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
-    "_vectordb", "_rejected", "templates", "episodic", "wisdom", "personal",
+    META_DIR_NAME, STAGING_DIR_NAME, ARCHIVED_DIR_NAME, DISTANT_DIR_NAME, REFERENCE_DIR_NAME, PENDING_REVIEW_DIR_NAME,
+    VECTORDB_DIR_NAME, REJECTED_DIR_NAME, TEMPLATES_DIR_NAME, EPISODIC_DIR_NAME, WISDOM_DIR_NAME, PERSONAL_DIR_NAME,
 })
 
 
@@ -466,9 +476,9 @@ def project_subdir_target(base: Path, subdir: str) -> tuple:
 # 非 atom 子族（episodic/templates/wisdom…）。這些不是 curated atom，不該成為
 # append/replace 的目標。SYNC: server.js findAtomFileRecursive 的 SKIP 集合。
 _LOCATE_SKIP_DIRS = frozenset({
-    "_meta", "_reference", "_staging", "_vectordb", "_distant",
-    "episodic", "templates", "personal", "roles", "wisdom", "_pending_review",
-    "_drafts", "_rejected",   # _rejected：被退回的卡，append／replace 不得找到它
+    META_DIR_NAME, REFERENCE_DIR_NAME, STAGING_DIR_NAME, VECTORDB_DIR_NAME, DISTANT_DIR_NAME,
+    EPISODIC_DIR_NAME, TEMPLATES_DIR_NAME, PERSONAL_DIR_NAME, ROLES_DIR_NAME, WISDOM_DIR_NAME, PENDING_REVIEW_DIR_NAME,
+    DRAFTS_DIR_NAME, REJECTED_DIR_NAME,   # 被退回的卡，append／replace 不得找到它
 })
 
 
@@ -825,7 +835,7 @@ def _category_reserved_segments() -> frozenset:
         from .atom_spec import SKIP_DIRS
     except ImportError:  # 頂層模組載入
         from atom_spec import SKIP_DIRS
-    extra = {"shared", "roles", "projects", "unity", "memory", "failures"}
+    extra = {SHARED_DIR_NAME, ROLES_DIR_NAME, "projects", "unity", "memory", "failures"}
     return frozenset(s.lower() for s in (set(SKIP_DIRS) | _LOCATE_SKIP_DIRS | _BASE_WRITABLE_DIR_SEGMENTS | extra))
 
 

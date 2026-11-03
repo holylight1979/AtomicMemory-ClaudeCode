@@ -27,8 +27,11 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-DERIVED_FILES = ("_atom_index.json", "_ATOM_INDEX.md")
-DERIVED_DIRS = ("_staging", "episodic", "vector-db")
+try:
+    from .atom_spec import DERIVED_DIRS, DERIVED_FILES
+except ImportError:  # 頂層模組載入（hooks 把 lib/ 放上 sys.path）
+    from atom_spec import DERIVED_DIRS, DERIVED_FILES
+
 DERIVED_ENTRIES = DERIVED_FILES + DERIVED_DIRS
 
 REBUILD_HINT = 'python ~/.claude/tools/sync-atom-index.py --rebuild --memory-dir "{mem}"'

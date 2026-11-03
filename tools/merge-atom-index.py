@@ -61,9 +61,9 @@ from typing import Any, Dict, List, Optional, Tuple
 SCRIPT = Path(__file__).resolve()
 if str(SCRIPT.parent.parent) not in sys.path:
     sys.path.insert(0, str(SCRIPT.parent.parent))   # 程式碼根：lib.* 從本樹載
+from lib.atom_spec import INDEX_FILES, LAYER_INDEX, LOCAL_CATALOG  # noqa: E402
 from lib.project_root import claude_data_dir  # noqa: E402  設定是資料：讀資料根的 workflow/config.json
 DRIVER_NAME = "atomindex"
-INDEX_FILES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 ATTR_MARK = "# AtomicMemory index merge driver"
 ATTR_LINES = [f"**/.claude/memory/{n} merge={DRIVER_NAME} text eol=lf" for n in INDEX_FILES]
 PLACEHOLDER = "@@ATOM-CATALOG-TABLE-PLACEHOLDER@@"  # 純文字：含 NUL 會被 git merge-file 當 binary 拒合
@@ -346,7 +346,7 @@ def merge_memory_md(base_t: str, ours_t: str, theirs_t: str) -> Tuple[str, int, 
 # 做法同 MEMORY.md：表格以表頭為鍵換成佔位符，骨架（標題／註解）走 git merge-file；一側才有的表（第一個子層
 # 出現時多出的「## 子層」段）跟著骨架單側插入。骨架真衝突 → 整檔逐行、留標記。
 
-TABLE_DOC_FILES = ("_INDEX.md", "_local_catalog.md")
+TABLE_DOC_FILES = (LAYER_INDEX, LOCAL_CATALOG)
 RESOLVE_FILES = INDEX_FILES + TABLE_DOC_FILES
 TABLE_PH = "@@ATOM-TABLE:{}@@"
 TABLE_PH_RE = re.compile(r"@@ATOM-TABLE:(.*?)@@")
