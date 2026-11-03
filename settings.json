@@ -253,7 +253,7 @@
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "light",
+  "idleCompaction": false,
   "switchModelsOnFlag": false,
-  "agentPushNotifEnabled": true,
-  "idleCompaction": false
+  "agentPushNotifEnabled": true
 }
