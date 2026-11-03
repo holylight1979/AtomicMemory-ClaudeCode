@@ -4,6 +4,7 @@
   - analyze_account：① 突增（固定門檻／跨週期不算／歷史自適應）② 預估用完（最近 24h／退回本週平均／不報）
     ③ 里程碑只報最高階 ④ 5 小時窗、日用量（預算／歷史基線拉高門檻）、週（上週同期＋結算）
   - deltas 跨重置、fresh_alerts 冷卻、merge_ledger 同格取大
+  - 通知管道（toast／Discord／webhook 設定）、--report 訊息、schedule（watch 每小時／report 每天 --at／壞時間擋下／只移除指定種類）
   - session_start._usage_watch_advisory：缺檔／健康／逾期／查詢失敗／通知失敗／壞 JSON
 
 直接跑：python hooks/verify/verify_usage_watch.py → USAGE_WATCH_CHECK PASS|FAIL
@@ -13,6 +14,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -218,6 +220,43 @@ def test_load_webhook_bad_json(monkeypatch, tmp_path):
     (tmp_path / "settings.json").write_text("{", encoding="utf-8")
     url, err = uw.load_webhook()
     assert url is None and "不可解析" in err
+
+
+# ─── 排程 ─────────────────────────────────────────────
+
+def _fake_powershell(monkeypatch):
+    scripts = []
+    monkeypatch.setattr(uw, "_powershell", lambda s: scripts.append(s) or
+                        subprocess.CompletedProcess(args=[], returncode=0, stdout="next", stderr=""))
+    return scripts
+
+
+def test_register_watch_is_hourly_notify(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("watch", True, "09:00") == 0
+    assert "Claude-Usage-Watch-" in scripts[0] and "--account-only --notify" in scripts[0]
+    assert "-RepetitionInterval (New-TimeSpan -Hours 1)" in scripts[0]
+
+
+def test_register_report_daily_at(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("report", True, "08:30") == 0
+    assert "Claude-Usage-Report-" in scripts[0] and "--account-only --report" in scripts[0]
+    assert "-Daily -At 08:30" in scripts[0]
+
+
+def test_register_report_rejects_bad_time(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("report", True, "25:00") == 1
+    assert uw.schedule("report", True, "9:00; Remove-Item x") == 1
+    assert scripts == []
+
+
+def test_unregister_only_named_kind(monkeypatch):
+    scripts = _fake_powershell(monkeypatch)
+    assert uw.schedule("report", False, "09:00") == 0
+    assert "Unregister-ScheduledTask" in scripts[0] and "Claude-Usage-Report-" in scripts[0]
+    assert "Claude-Usage-Watch-" not in scripts[0]
 
 
 def test_report_text_has_account_block_and_alerts():

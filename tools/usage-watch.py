@@ -23,14 +23,16 @@
     settings.json  {"discord_webhook": "..."}（網址等同發文權限，只放本機）
   【通知】--notify 時新異常跳 Windows 通知，settings.json 有 webhook 就同時發 Discord；
     同一種異常在各自冷卻時間內不重發（突增 3h、預估 6h、日／週 24h、里程碑每週一次）。--test-notify 發一則測試。
-  【摘要】--report 把帳號段現況（含當下異常）發到 Discord，不論有沒有異常（想看時手動跑）。
+  【摘要】--report 把帳號段現況（含當下異常）發到 Discord，不論有沒有異常；手動跑，或用 report 排程每天固定時間發。
 
 怎麼跑：
   python ~/.claude/tools/usage-watch.py                 帳號＋本機
   python ~/.claude/tools/usage-watch.py --account-only  只查帳號（約 1 秒）
   python ~/.claude/tools/usage-watch.py --account-only --report   查帳號並發摘要到 Discord
-  python ~/.claude/tools/usage-watch.py --status        排程的上次／下次執行與最近一次結果
-  python ~/.claude/tools/usage-watch.py --register      註冊每小時排程（--account-only --notify）；--unregister 移除
+  python ~/.claude/tools/usage-watch.py --status        各排程的上次／下次執行與最近一次結果
+  python ~/.claude/tools/usage-watch.py --register [watch]           註冊每小時監控（--account-only --notify）
+  python ~/.claude/tools/usage-watch.py --register report --at HH:MM 註冊每日摘要（--account-only --report，預設 09:00）
+  python ~/.claude/tools/usage-watch.py --unregister [watch|report]  移除對應排程（預設 watch）
   完整參數：--help
 """
 from __future__ import annotations
@@ -39,6 +41,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -65,7 +68,10 @@ LAST_RUN = OUT_DIR / "last-run.json"
 LEDGER = OUT_DIR / "hourly.json"
 SETTINGS = OUT_DIR / "settings.json"
 USAGE_API = "https://api.anthropic.com/api/oauth/usage"
-TASK_NAME = f"Claude-Usage-Watch-{getpass.getuser()}"
+TASKS = {  # 排程種類 → (排程名, 執行參數)；排程名帶 Windows 帳號，每帳號一份
+    "watch": (f"Claude-Usage-Watch-{getpass.getuser()}", "--account-only --notify"),
+    "report": (f"Claude-Usage-Report-{getpass.getuser()}", "--account-only --report"),
+}
 MILESTONES = (50, 75, 90)
 
 TOAST_PS = r"""
@@ -485,34 +491,50 @@ def _powershell(script: str) -> subprocess.CompletedProcess:
                           creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def schedule(register: bool) -> int:
-    if register:
-        pythonw = Path(sys.executable).with_name("pythonw.exe")
-        r = _powershell(f"""
-$a = New-ScheduledTaskAction -Execute '{pythonw}' -Argument '"{Path(__file__).resolve()}" --account-only --notify'
-$start = (Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes(5)
-$t = New-ScheduledTaskTrigger -Once -At $start -RepetitionInterval (New-TimeSpan -Hours 1)
-$s = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Settings $s -Force | Out-Null
-(Get-ScheduledTaskInfo -TaskName '{TASK_NAME}').NextRunTime
-""")
-    else:
-        r = _powershell(f"Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction Stop")
-    if r.returncode != 0:
-        print(f"{'註冊' if register else '移除'}排程失敗：{r.stderr.strip()}", file=sys.stderr)
+def schedule(kind: str, register: bool, at: str) -> int:
+    """註冊或移除 TASKS[kind]；watch＝每小時（下個整點過 5 分起），report＝每天 at。"""
+    name, args = TASKS[kind]
+    if not register:
+        r = _powershell(f"Unregister-ScheduledTask -TaskName '{name}' -Confirm:$false -ErrorAction Stop")
+        if r.returncode != 0:
+            print(f"移除 {name} 失敗：{r.stderr.strip()}", file=sys.stderr)
+            return 1
+        print(f"已移除 {name}")
+        return 0
+    if kind == "report" and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", at):
+        print(f"--at 要是 HH:MM（00:00～23:59），收到 {at!r}", file=sys.stderr)
         return 1
-    print(f"已註冊 {TASK_NAME}：每小時一次，下次執行 {r.stdout.strip()}" if register else f"已移除 {TASK_NAME}")
+    if kind == "watch":
+        trigger, when = ("New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes(5) "
+                         "-RepetitionInterval (New-TimeSpan -Hours 1)"), "每小時一次"
+    else:
+        trigger, when = f"New-ScheduledTaskTrigger -Daily -At {at}", f"每天 {at}"
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    r = _powershell(f"""
+$a = New-ScheduledTaskAction -Execute '{pythonw}' -Argument '"{Path(__file__).resolve()}" {args}'
+$t = {trigger}
+$s = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName '{name}' -Action $a -Trigger $t -Settings $s -Force | Out-Null
+(Get-ScheduledTaskInfo -TaskName '{name}').NextRunTime
+""")
+    if r.returncode != 0:
+        print(f"註冊 {name} 失敗：{r.stderr.strip()}", file=sys.stderr)
+        return 1
+    print(f"已註冊 {name}：{when}，下次執行 {r.stdout.strip()}")
     return 0
 
 
 def status() -> int:
-    """排程的上次／下次執行與結果，加上 last-run.json 摘要。"""
-    # 267011 = SCHED_S_TASK_HAS_NOT_RUN（註冊後還沒跑過，LastRunTime 會是 1999 年）
-    r = _powershell(f"$i = Get-ScheduledTaskInfo -TaskName '{TASK_NAME}' -ErrorAction Stop; "
-                    "$last = if ($i.LastTaskResult -eq 267011) { '尚未執行' } else "
-                    "{ '{0:MM-dd HH:mm}（結果 {1}）' -f $i.LastRunTime, $i.LastTaskResult }; "
-                    "'上次 ' + $last + '／下次 {0:MM-dd HH:mm}' -f $i.NextRunTime")
-    print(f"{TASK_NAME}：{r.stdout.strip() if r.returncode == 0 else '未註冊（跑 --register）'}")
+    """各排程的上次／下次執行與結果，加上 last-run.json 摘要；watch 沒註冊才算失敗（report 是選用）。"""
+    watch_missing = False
+    for kind, (name, _) in TASKS.items():
+        # 267011 = SCHED_S_TASK_HAS_NOT_RUN（註冊後還沒跑過，LastRunTime 會是 1999 年）
+        r = _powershell(f"$i = Get-ScheduledTaskInfo -TaskName '{name}' -ErrorAction Stop; "
+                        "$last = if ($i.LastTaskResult -eq 267011) { '尚未執行' } else "
+                        "{ '{0:MM-dd HH:mm}（結果 {1}）' -f $i.LastRunTime, $i.LastTaskResult }; "
+                        "'上次 ' + $last + '／下次 {0:MM-dd HH:mm}' -f $i.NextRunTime")
+        print(f"{name}：{r.stdout.strip() if r.returncode == 0 else f'未註冊（--register {kind}）'}")
+        watch_missing |= kind == "watch" and r.returncode != 0
     if LAST_RUN.exists():
         d = json.loads(LAST_RUN.read_text(encoding="utf-8"))
         problems = ([d.get("error")] if not d.get("ok") else []) + list((d.get("notify_errors") or {}).values())
@@ -520,7 +542,7 @@ def status() -> int:
               f"當下異常 {len(d.get('alerts') or [])} 項")
     else:
         print("還沒有執行紀錄")
-    return int(r.returncode != 0)
+    return int(watch_missing)
 
 
 def main() -> int:
@@ -530,8 +552,10 @@ def main() -> int:
     ap.add_argument("--test-notify", action="store_true", help="各通知管道發一則測試訊息後結束")
     ap.add_argument("--report", action="store_true", help="把帳號用量摘要發到 Discord（不論有無異常）")
     ap.add_argument("--status", action="store_true", help="看排程與最近一次執行結果")
-    ap.add_argument("--register", action="store_true", help=f"註冊每小時排程 {TASK_NAME}")
-    ap.add_argument("--unregister", action="store_true", help="移除排程")
+    ap.add_argument("--register", nargs="?", const="watch", choices=list(TASKS),
+                    help="註冊排程：watch＝每小時監控＋異常通知（預設）、report＝每天 --at 發摘要")
+    ap.add_argument("--unregister", nargs="?", const="watch", choices=list(TASKS), help="移除排程（預設 watch）")
+    ap.add_argument("--at", default="09:00", help="report 排程每天幾點（HH:MM，預設 09:00）")
     ap.add_argument("--rate-alert", type=float, default=4.0, help="① 突增門檻下限 %%/h（預設 4）")
     ap.add_argument("--five-hour-alert", type=float, default=80.0, help="④ 5 小時窗門檻 %%（預設 80）")
     ap.add_argument("--daily-budget", type=float, default=20.0, help="日用量門檻下限 %%（預設 20，約 5 個工作天用完一週）")
@@ -542,7 +566,7 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="輸出 JSON")
     a = ap.parse_args()
     if a.register or a.unregister:
-        return schedule(a.register)
+        return schedule(a.register or a.unregister, bool(a.register), a.at)
     if a.status:
         return status()
     if a.test_notify:

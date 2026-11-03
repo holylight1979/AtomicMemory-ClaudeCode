@@ -1522,7 +1522,7 @@ Bash／PowerShell 指令
 | 工具結果體積 | 量每筆工具結果字元數，過大時建議改法 | `Logs/guard-tool-result-size.jsonl` |
 | hook 分段計時 | 守門開時才有（→ [跨層表 #6](#守門開關會改到記憶系統的地方)）：記每個 hook 事件各段耗時，快逾時時降級；細節 → [乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級) | `Logs/guard-hook_timing.jsonl` |
 | `/token` skill | 量一場或多場 session 實際處理的 token：未快取、讀快取、建快取、輸出，含子代理；不換算美金 | stdout 表格，尾行 `TOKENS DONE sessions=<n>` |
-| `/usage-watch` skill | 帳號額度（所有機器合計，只有％）每小時記錄、判異常，Discord＋Windows 通知，`--report` 手動發摘要 | `workflow/usage-watch/`（account／alerts jsonl、last-run.json），尾行 `USAGE_WATCH DONE ...` |
+| `/usage-watch` skill | 帳號額度（所有機器合計，只有％）每小時記錄、判異常，Discord＋Windows 通知；`--report` 發摘要（手動或 `--register report --at HH:MM` 每日） | `workflow/usage-watch/`（account／alerts jsonl、last-run.json），尾行 `USAGE_WATCH DONE ...` |
 | guard JSONL | 每道閘或護欄觸發就記一筆 | `Logs/guard-<名>.jsonl` |
 | 量尺工具（唯讀） | 讀上述帳本印數字 | stdout，尾行 `<NAME> DONE k=v` |
 | atom-debug | 檢索過程、盲點、錯誤 | `Logs/atom-debug-*.log` |

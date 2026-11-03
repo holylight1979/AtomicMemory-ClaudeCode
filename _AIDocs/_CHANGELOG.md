@@ -6,8 +6,8 @@
 ---
 ## 2026-11-03 usage-watch：帳號級用量異常偵測、排程、Discord 通知與 /usage-watch skill
 - **緣由**：要看「整個帳號」每小時／每日／每週用量有沒有異常升高並留紀錄供日後圖表；本機 transcript 只涵蓋單台機器（同帳號多機或網頁共用時嚴重低報），且只留兩三週。
-- **做法**：新 `tools/usage-watch.py`：帳號段用 Claude Code 的 OAuth token 打 `api/oauth/usage`（免瀏覽器；token 過期不自刷新只報錯），判 ①突增（固定 4%/h，滿 10 筆改歷史中位×3；比較點至少隔 45 分鐘，因 API ％只到整數）②最近 24h 速度預估重置前用完 ③50／75／90％ ④5h 窗、日用量（預算 20％或歷史中位×2）、上週同期與週結算；本機段加權 token 每小時／每日／每週並列專案。`--register` 建每小時監控排程（`--account-only --notify`），`--report` 手動把摘要發到 Discord；通知＝Windows toast＋Discord webhook（`workflow/usage-watch/settings.json`，不進版控），依 key 冷卻；`--status`、`--test-notify`。SessionStart 新增 `_usage_watch_advisory`（逾 72h 沒跑／查詢或通知失敗）。新 skill `/usage-watch`。紀錄落 `workflow/usage-watch/`（gitignore）。
-- **驗證**：`hooks/verify/verify_usage_watch.py` 28 案 `USAGE_WATCH_CHECK PASS`；實跑帳號＋本機、Discord／toast 實發、排程註冊並手動觸發 LastTaskResult 0；skill audit 0 fail／0 warning。
+- **做法**：新 `tools/usage-watch.py`：帳號段用 Claude Code 的 OAuth token 打 `api/oauth/usage`（免瀏覽器；token 過期不自刷新只報錯），判 ①突增（固定 4%/h，滿 10 筆改歷史中位×3；比較點至少隔 45 分鐘，因 API ％只到整數）②最近 24h 速度預估重置前用完 ③50／75／90％ ④5h 窗、日用量（預算 20％或歷史中位×2）、上週同期與週結算；本機段加權 token 每小時／每日／每週並列專案。`--register [watch]` 建每小時監控排程（`--account-only --notify`），`--register report --at HH:MM` 建每日摘要排程（`--report`，不需要可不建），`--unregister [watch|report]`；`--report` 也可手動發；通知＝Windows toast＋Discord webhook（`workflow/usage-watch/settings.json`，不進版控），依 key 冷卻；`--status`、`--test-notify`。SessionStart 新增 `_usage_watch_advisory`（逾 72h 沒跑／查詢或通知失敗）。新 skill `/usage-watch`。紀錄落 `workflow/usage-watch/`（gitignore）。
+- **驗證**：`hooks/verify/verify_usage_watch.py` 32 案 `USAGE_WATCH_CHECK PASS`；實跑帳號＋本機、Discord／toast 實發、排程註冊並手動觸發 LastTaskResult 0；skill audit 0 fail／0 warning。
 ## 2026-11-02 寫碼守門拔五刀、出廠改開
 - **緣由**：使用者定雞肋判準（「有與沒有幾乎一樣甚至更差」是雞肋；「沒用還多耗時間效能、或帶歪」是絕對雞肋），要在守門對所有人開啟前，把開了才有、會送字給 AI 卻沒讓結果變好的拔掉，然後開開關上版。
 - **做法**（五條子代理分支合併，守門關時 hook 輸出逐字不變）：
