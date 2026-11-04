@@ -95,6 +95,16 @@ function appendScopeForLayer(layer, scope) {
   return scope;
 }
 
+function trimmedNonEmpty(s) {
+  return s.trim();
+}
+
+// 「甲, 乙、丙」這種字串拆成 ["甲","乙","丙"]；本來就是陣列原樣回
+function splitListString(value) {
+  if (typeof value !== "string") return value;
+  return value.split(/,|、|\n/).map(trimmedNonEmpty).filter(Boolean);
+}
+
 async function toolAtomWrite(id, args) {
   // dedupe 宣告 same 由 create 轉成 append 重進本函式時，每則回覆（含閘拒寫）開頭先講改併入哪張卡
   const routeNote = typeof args._dedupe_route === "string" ? `${args._dedupe_route}\n` : "";
@@ -139,6 +149,14 @@ async function toolAtomWrite(id, args) {
   // Validate core required fields (scope now optional, defaults to shared)
   if (!title || !confidence || !triggers || !knowledge || !mode) {
     return reply("Missing required parameters (title, confidence, triggers, knowledge, mode)", true);
+  }
+  // triggers／knowledge／actions 傳成逗號字串時先拆成陣列：不拆會在落檔後才於 triggers.join 炸掉，
+  // 留下 Trigger 欄被逐字拆開的半成品卡（實踩）
+  triggers = splitListString(triggers);
+  if (typeof knowledge === "string") knowledge = [knowledge];
+  if (typeof actions === "string") actions = [actions];
+  if (!Array.isArray(triggers) || !triggers.length) {
+    return reply("triggers must be a non-empty array of strings (or a comma-separated string)", true);
   }
 
   // trigger 長度寫入當下即驗（create/replace 會回寫索引 triggers；append 不動）。

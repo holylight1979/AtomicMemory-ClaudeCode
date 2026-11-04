@@ -118,6 +118,13 @@ function check(cond, label, detail) {
   check(!k.includes("同時寫進該部位病灶文件"),
     "anti_evasion_report k_followups 說明不宣稱寫病灶文件（Python 端沒有寫病灶文件的程式）", k);
 
+  // 4. triggers 傳成逗號字串：拆成陣列落檔，Trigger 欄不得被逐字拆開（舊版在落檔後才於 triggers.join 炸、留半成品卡）
+  const D = "header-card-d";
+  const c4 = await write({ title: D, mode: "create", triggers: "甲詞, 乙詞、丙 詞" });
+  check(!c4.isError, "create 用字串 triggers 成功", c4.text);
+  const t4 = read(D);
+  check(/^- Trigger: 甲詞, 乙詞, 丙 詞$/m.test(t4), "字串 triggers 拆成三個詞寫進 Trigger 欄", t4);
+
   vector.close();
   try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {}
   console.log(failures.length ? "ATOM_WRITE_HEADER_LINES_CHECK FAIL" : "ATOM_WRITE_HEADER_LINES_CHECK PASS");
