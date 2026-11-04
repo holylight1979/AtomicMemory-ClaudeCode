@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-04 Claude Code 官方文件全收割 228 頁＋索引＋現況對帳＋進化分析
+- **緣由**：官網出現大量新功能與新名詞（agent teams、workflows、mods、routines、channels、cross-session messaging…），`ClaudeCodeInternals/` 14 章是 2026-04 源碼研究、已過時；要有一份以官方現行文件為準的本地參考，並據此檢視原子記憶系統哪些前提失效、哪些自製可拆。
+- **做法**：新 `tools/cc_docs_harvest.py`（`fetch`：sitemap → 全部 zh-TW 頁 `.md` 原文＋changelog／claude-tag 英文，依 llms.txt 分類落 `_AIDocs/ClaudeCodeInternals/Docs/<八夾>/`，產 `_manifest.json`；`index`：合併各夾 `_keywords*.json` → `_INDEX.md`／`_KEYWORDS.md`（2,348 詞反查＋記憶系統接點）／`_GLOSSARY.md`（453 詞）／`_keywords_all.json`）。9 個 sonnet 子代理寫各夾 `_SUMMARY.md` 導讀卡＋ `08-whats-new/TIMELINE-新功能與新名詞.md`（97 新名詞、165 版）；1 個 opus 寫 `_現況對帳-原子記憶系統用到的CC機制.md`（11／33 hook 事件在用、25 項自製疑似原生已有）；3 個 opus 寫 `_analysis/01～03`（46 案）；Fable 總整 `_analysis/00-總整與建議優先序.md`。兩層 `_INDEX.md` 加入口。
+- **驗證**：228 頁 HTTP 200、無 HTML 誤抓；`index` 子命令重跑與首次輸出同體；三份分析內部相對連結全部指得到檔；關鍵發現附逐字稿統計（子代理注入歸因 30 筆全 `no_output`、hook 輸出被換預覽 36 次、壓縮後 SessionStart(compact) 17／18 有跑、裁判黑名單漏 `atom_write` 等工具）。提案尚未動工，程式與設定未改。
 ## 2026-11-04 個人隱私敏感資訊放 personal/<user>/secret/，其他個人卡開放進版控
 - **緣由**：個人卡全部鎖單機等於廢了跨機這層，真正敏感的只有少數；而這個 repo 在 GitHub 是公開的，要有明確的規則和把關，日後任何人都不會把敏感資訊寫到公開處。
 - **做法**：`atom_write(secret=true)` 落 `memory/personal/<user>/secret/`（不進版控、不送向量、卡名不進橋接檔、觸發詞照常注入）；`.gitignore` 改放行名單，其他人的個人卡預設仍不進。規則進必載的 `rules/core.md` 並登記硬契約。把關集中在 `lib/sensitive_gate.py`：字眼命中要宣告（`secret=true` 或 `not_sensitive=<理由>`）；真實 token／私鑰在寫檔、背景上版控、週健檢各擋一次；背景萃取命中就不寫；自動回填的使用者原話（Quote）命中也不填，曾因此把內網路徑帶進公開卡。內網共用路徑與內網 IP 也算敏感字眼。`atom-heal` 不把別的卡接到 secret 卡；pull 來的新個人卡開場自動補登記。

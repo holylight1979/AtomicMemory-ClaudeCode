@@ -1,0 +1,1140 @@
+[
+ {
+  "slug": "plugins/overview",
+  "title_zh": "Plugins 概述",
+  "one_liner": "Plugin 是把 skills/agents/hooks/MCP 打包成一個單位安裝的目錄；說明何時該用它。",
+  "when": "第一次接觸 plugin、想判斷要不要用 plugin 而不是單獨 skill 時。",
+  "keywords": [
+   "plugin",
+   "外掛",
+   "marketplace",
+   "市集",
+   "skills",
+   "agents",
+   "hooks",
+   "MCP",
+   "enabledPlugins",
+   "/plugin",
+   "安裝範圍",
+   "scope",
+   "context cost",
+   "manifest"
+  ],
+  "terms": [
+   {
+    "term": "plugin",
+    "zh": "一包可安裝的擴充元件目錄"
+   },
+   {
+    "term": "marketplace",
+    "zh": "列出 plugin 與取得位置的目錄檔(marketplace.json)，不是商店"
+   },
+   {
+    "term": "manifest",
+    "zh": "plugin.json，替 plugin 命名並放中繼資料"
+   },
+   {
+    "term": "mod",
+    "zh": "帶有 hook 模組(JS 事件處理)的 plugin"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 可封裝 skills/agents/hooks/MCP/設定；啟用後名稱與描述每回合佔 context，hooks 與 MCP 隨每個工作階段啟動。"
+  ],
+  "section": "Plugins",
+  "subsection": "Plugins"
+ },
+ {
+  "slug": "plugins/anthropic-marketplaces",
+  "title_zh": "Anthropic 的市集",
+  "one_liner": "列出 Anthropic 官方與社群 marketplace 的名稱、儲存庫與取得方式。",
+  "when": "想知道官方 plugin 來源、`@claude-community` 怎麼加、舊 `claude-code-plugins` 怎麼遷移時。",
+  "keywords": [
+   "anthropic marketplace",
+   "claude-plugins-official",
+   "claude-community",
+   "claude-plugins-community",
+   "官方市集",
+   "社群市集",
+   "ralph-loop",
+   "knowledge-work-plugins",
+   "Discover",
+   "plugin marketplace add"
+  ],
+  "terms": [
+   {
+    "term": "official marketplace",
+    "zh": "Anthropic 維護並預設自動註冊的 plugin 目錄"
+   },
+   {
+    "term": "community marketplace",
+    "zh": "第三方作者提交的目錄 claude-community"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Plugins",
+  "subsection": "Use plugins"
+ },
+ {
+  "slug": "plugins/code-intelligence",
+  "title_zh": "Code intelligence plugins",
+  "one_liner": "安裝語言伺服器(LSP) plugin，讓 Claude 編輯後看到型別錯誤並按符號導覽。",
+  "when": "想讓 Claude 看診斷訊息、遇到 LSP 外掛建議對話框、或需自行接 LSP 時。",
+  "keywords": [
+   "LSP",
+   "language server",
+   "code intelligence",
+   "csharp-lsp",
+   "pyright-lsp",
+   "typescript-lsp",
+   "診斷",
+   "diagnostics",
+   ".lsp.json",
+   "lspRecommendationDisabled",
+   "goto definition",
+   "Executable not found"
+  ],
+  "terms": [
+   {
+    "term": "LSP",
+    "zh": "Language Server Protocol，語言伺服器協定，提供診斷與跳定義"
+   },
+   {
+    "term": "code intelligence plugin",
+    "zh": "把 LSP 接進 Claude Code 的 plugin"
+   }
+  ],
+  "memory_hooks": [
+   "LSP 診斷在編輯後以 `Found N new diagnostic issues` 回饋；plugin 可包含 `.lsp.json` 元件。"
+  ],
+  "section": "Plugins",
+  "subsection": "Use plugins"
+ },
+ {
+  "slug": "plugins/install",
+  "title_zh": "安裝和管理外掛程式",
+  "one_liner": "安裝、啟用、停用、更新、卸載 plugin 與管理 marketplace 的完整操作。",
+  "when": "要安裝/移除/更新 plugin、選 scope、設自動更新、或看 claude.ai 同步 plugin 時。",
+  "keywords": [
+   "install plugin",
+   "安裝外掛",
+   "/plugin install",
+   "claude plugin install",
+   "scope",
+   "enabledPlugins",
+   "auto-update",
+   "自動更新",
+   "synced",
+   "uninstall",
+   "prune",
+   "marketplace add",
+   "settings.json"
+  ],
+  "terms": [
+   {
+    "term": "scope",
+    "zh": "安裝範圍：誰能啟用這個 plugin"
+   },
+   {
+    "term": "synced plugin",
+    "zh": "由 claude.ai 帳戶同步下來的 plugin，ID 結尾 @synced"
+   },
+   {
+    "term": "defaultEnabled",
+    "zh": "manifest 欄位，false 表示裝了也預設關閉"
+   }
+  ],
+  "memory_hooks": [
+   "enabledPlugins 依 user/project/local 設定檔分層；plugin 啟用變更要 /reload-plugins 才進現有 session。"
+  ],
+  "section": "Plugins",
+  "subsection": "Use plugins"
+ },
+ {
+  "slug": "plugins/security",
+  "title_zh": "Plugin 安全性和信任",
+  "one_liner": "說明 plugin 能在你機器上做什麼、如何安裝前檢查與移除。",
+  "when": "評估是否信任某 plugin/marketplace，或要查看官方名稱與遙測可見度時。",
+  "keywords": [
+   "plugin security",
+   "信任",
+   "trust",
+   "sandbox",
+   "沙箱",
+   "hooks 權限",
+   "bin PATH",
+   "official marketplace names",
+   "pluginTrustMessage",
+   "untrusted source",
+   "sha256",
+   "OpenTelemetry plugin"
+  ],
+  "terms": [
+   {
+    "term": "trust tier",
+    "zh": "marketplace 分官方/社群/第三方三層"
+   },
+   {
+    "term": "sha256 pin",
+    "zh": "archive 來源用摘要固定，下載不符即拒絕"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 的 hooks/MCP/monitors 不受權限規則與沙箱約束；hooks 以使用者權限跑；skills/agents 內容會進 context 當指令。"
+  ],
+  "section": "Plugins",
+  "subsection": "Use plugins"
+ },
+ {
+  "slug": "plugin-evals",
+  "title_zh": "使用 evals 測試 plugins",
+  "one_liner": "用 `claude plugin eval` 為 plugin 寫測試案例、評分、對照無 plugin 基準並可在 CI 擋關。",
+  "when": "要量化 plugin 是否可靠改變 Claude 行為、防迴歸、或把分數接進 CI 時。",
+  "keywords": [
+   "plugin eval",
+   "evals",
+   "claude plugin eval",
+   "grader",
+   "baseline",
+   "W/OUT",
+   "tool_used",
+   "llm grader",
+   "threshold",
+   "CI",
+   "mock MCP",
+   "trust-plugin",
+   "max-cost-usd",
+   "prompt.md",
+   "case.yaml"
+  ],
+  "terms": [
+   {
+    "term": "eval suite",
+    "zh": "一組針對 plugin 的測試案例"
+   },
+   {
+    "term": "grader",
+    "zh": "對 Claude 產出評分的規則(regex、tool_used、llm 等)"
+   },
+   {
+    "term": "baseline arm",
+    "zh": "不載 plugin 的對照組，用來算 plugin 增益Δ"
+   },
+   {
+    "term": "mock",
+    "zh": "假 MCP 伺服器回應，讓測試不連真服務"
+   }
+  ],
+  "memory_hooks": [
+   "eval 在隔離的 `claude -p` 子 session 跑，不載使用者設定/CLAUDE.md/記憶；grader 可檢查工具呼叫與檔案；可用於驗證 skill 是否被觸發。"
+  ],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/cli-hints",
+  "title_zh": "從您的 CLI 推薦您的外掛程式",
+  "one_liner": "CLI/SDK 作者在 stderr 輸出 claude-code-hint 標籤，提示使用者裝官方市集 plugin。",
+  "when": "維護自家 CLI 並想在 Claude Code 內推薦對應 plugin 時。",
+  "keywords": [
+   "claude-code-hint",
+   "CLI hint",
+   "CLAUDECODE",
+   "CLAUDE_CODE_CHILD_SESSION",
+   "stderr",
+   "plugin 推薦",
+   "外掛程式推薦",
+   "官方市集",
+   "SDK"
+  ],
+  "terms": [
+   {
+    "term": "claude-code-hint",
+    "zh": "CLI 輸出的標籤，讓 Claude Code 推薦安裝 plugin"
+   }
+  ],
+  "memory_hooks": [
+   "Bash/PowerShell 工具與 hook 命令的環境變數有 `CLAUDECODE=1`；hook 命令輸出中的 hint 標籤會被剝除。"
+  ],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/components",
+  "title_zh": "新增元件至外掛程式",
+  "one_liner": "逐一說明 plugin 可含的每種元件：skills、agents、hooks、MCP、LSP、monitors、主題等。",
+  "when": "要在 plugin 裡加某一類元件、查預設位置與命名規則、或用 userConfig/路徑變數時。",
+  "keywords": [
+   "plugin components",
+   "skills",
+   "agents",
+   "hooks",
+   "MCP",
+   "LSP",
+   "monitors",
+   "output-styles",
+   "themes",
+   "bin",
+   "userConfig",
+   "CLAUDE_PLUGIN_ROOT",
+   "CLAUDE_PLUGIN_DATA",
+   "channels"
+  ],
+  "terms": [
+   {
+    "term": "userConfig",
+    "zh": "manifest 宣告、安裝時向使用者收集的設定值"
+   },
+   {
+    "term": "monitor",
+    "zh": "隨 session 常駐的背景命令，輸出以通知進 Claude"
+   },
+   {
+    "term": "channel",
+    "zh": "讓外部聊天系統推訊息進 session 的 MCP 伺服器綁定"
+   },
+   {
+    "term": "CLAUDE_PLUGIN_DATA",
+    "zh": "更新後仍保留的 plugin 持久資料目錄"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 內 hooks 可用 hooks.json 封裝，事件與設定檔 hooks 相同；hook 命令可取 CLAUDE_PLUGIN_ROOT/DATA 路徑；MCP 工具名帶 plugin 前綴供 matcher 比對；sensitive userConfig 存安全儲存而非 settings.json。"
+  ],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/create",
+  "title_zh": "建立 Claude Code 外掛程式",
+  "one_liner": "從空目錄做出第一個 plugin、不用 marketplace 就能測試，並轉換既有 .claude/ 設定。",
+  "when": "要寫新 plugin、用 --plugin-dir 載入測試、或把獨立 skills/hooks 搬進 plugin 時。",
+  "keywords": [
+   "create plugin",
+   "建立外掛",
+   "--plugin-dir",
+   "--plugin-url",
+   "claude plugin init",
+   "plugin.json",
+   "validate",
+   "@skills-dir",
+   "convert .claude",
+   "SKILL.md",
+   "hooks.json",
+   ".mcp.json"
+  ],
+  "terms": [
+   {
+    "term": "--plugin-dir",
+    "zh": "單一 session 從目錄載入 plugin 的旗標"
+   },
+   {
+    "term": "skills-dir plugin",
+    "zh": "放在 ~/.claude/skills/ 且帶 plugin.json 的 plugin，ID 為 @skills-dir"
+   },
+   {
+    "term": "plugin root",
+    "zh": "plugin 自己的目錄，非 ~/.claude"
+   }
+  ],
+  "memory_hooks": [
+   "既有 .claude/ 的 skills/agents/hooks/.mcp.json 可原樣搬入 plugin 根目錄；plugin 根的 CLAUDE.md 不載入，須寫成 skill。"
+  ],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/dependencies",
+  "title_zh": "外掛程式相依性",
+  "one_liner": "宣告 plugin 依賴與 semver 版本範圍，說明安裝、解析與修剪行為。",
+  "when": "要做 plugin 組合包、鎖依賴版本、或遇到 conflicting version requirements 時。",
+  "keywords": [
+   "plugin dependencies",
+   "相依性",
+   "dependencies",
+   "semver",
+   "version range",
+   "claude plugin tag",
+   "prune",
+   "conflicting version",
+   "bundle",
+   "allowCrossMarketplaceDependenciesOn",
+   "git tag"
+  ],
+  "terms": [
+   {
+    "term": "dependency",
+    "zh": "此 plugin 運作所需、須同時啟用的其他 plugin"
+   },
+   {
+    "term": "bundle plugin",
+    "zh": "只含依賴清單、用來一次裝一組 plugin 的 plugin"
+   },
+   {
+    "term": "release tag",
+    "zh": "格式 name--vX.Y.Z 的 git 標籤，供版本範圍解析"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 依賴宣告在 manifest，安裝/啟用時自動連帶安裝同 scope，停用時被需要者會拒絕；/reload-plugins 會補裝缺的依賴。"
+  ],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/measure",
+  "title_zh": "測量外掛程式成本和使用情況",
+  "one_liner": "量測 plugin 的 token 成本與使用情況，並選對組織層遙測事件。",
+  "when": "想知道 plugin 佔多少 context、是否還有人用，或要查 OTel/Analytics 事件時。",
+  "keywords": [
+   "plugin cost",
+   "token 成本",
+   "always-on",
+   "claude plugin details",
+   "Not used recently",
+   "/skill-doctor",
+   "/usage",
+   "OpenTelemetry",
+   "plugin_loaded",
+   "skill_activated",
+   "Analytics API",
+   "OTEL_LOG_TOOL_DETAILS"
+  ],
+  "terms": [
+   {
+    "term": "Always-on cost",
+    "zh": "plugin 每個 session 固定增加的 token 數"
+   },
+   {
+    "term": "Context cost",
+    "zh": "官方市集 plugin 安裝前顯示的 token 估計"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 的名稱與描述屬 always-on context 成本；有 OTel 事件可統計 plugin 載入/skill 啟動；hooks 不吃模型 context。"
+  ],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/publish",
+  "title_zh": "發佈和分發外掛程式",
+  "one_liner": "三種發佈路線：直接給資料夾、自建 marketplace、提交 Anthropic 目錄，附發行前檢查表。",
+  "when": "準備把 plugin 發給別人、決定名稱/版本策略、或要重新命名/移除已發佈 plugin 時。",
+  "keywords": [
+   "publish plugin",
+   "發佈外掛",
+   "distribute",
+   "submit directory",
+   "validate --strict",
+   "version",
+   "renames",
+   "plugin tag",
+   "marketplace",
+   "Anthropic directory",
+   "pre-release checklist"
+  ],
+  "terms": [
+   {
+    "term": "directory",
+    "zh": "claude.ai 上供 claude.ai/Cowork 使用者瀏覽的 plugin 目錄"
+   },
+   {
+    "term": "renames map",
+    "zh": "marketplace.json 內舊名→新名的遷移對應"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Plugins",
+  "subsection": "Create plugins"
+ },
+ {
+  "slug": "plugins/create-marketplace",
+  "title_zh": "建立 marketplace",
+  "one_liner": "用 marketplace.json 建立自己的 plugin 市集，並在本機測試後再託管。",
+  "when": "要為團隊/組織建一個 plugin 目錄、寫 marketplace.json、本機驗證時。",
+  "keywords": [
+   "create marketplace",
+   "marketplace.json",
+   "owner",
+   "plugins array",
+   "source",
+   "relative path",
+   "validate",
+   "marketplace add",
+   "本機測試",
+   "團隊市集"
+  ],
+  "terms": [
+   {
+    "term": "marketplace root",
+    "zh": "含 .claude-plugin/ 的目錄，相對來源由此解析"
+   },
+   {
+    "term": "plugin entry",
+    "zh": "marketplace.json 中描述單一 plugin 與來源的物件"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Plugins",
+  "subsection": "Run a marketplace"
+ },
+ {
+  "slug": "plugins/host-marketplace",
+  "title_zh": "託管和維護市集",
+  "one_liner": "託管與維護 marketplace：選主機、私有存取、更新發佈、重命名與移除。",
+  "when": "要把 marketplace 放上 GitHub/URL/共享目錄、設私有存取、發新版、做發佈頻道時。",
+  "keywords": [
+   "host marketplace",
+   "託管市集",
+   "private marketplace",
+   "autoUpdate",
+   "renames",
+   "forceRemoveDeletedPlugins",
+   "release channel",
+   "headersHelper",
+   "GitHub",
+   "symlink",
+   "Git LFS",
+   "shared directory"
+  ],
+  "terms": [
+   {
+    "term": "release channel",
+    "zh": "用兩個 marketplace 指向不同 ref 實現的穩定/搶先版"
+   },
+   {
+    "term": "headersHelper",
+    "zh": "印出短期憑證標頭的命令，用於受保護下載"
+   },
+   {
+    "term": "command source",
+    "zh": "由執行命令產生 plugin 目錄的來源"
+   }
+  ],
+  "memory_hooks": [
+   "marketplace 可由 `.claude/settings.json` 的 extraKnownMarketplaces 登錄給整個 repo；自動更新與憑證處理在背景以使用者機器 git 執行。"
+  ],
+  "section": "Plugins",
+  "subsection": "Run a marketplace"
+ },
+ {
+  "slug": "plugins/relevance",
+  "title_zh": "為您的組織推薦 plugins",
+  "one_liner": "在 marketplace 項目加 relevance 訊號，讓 Claude Code 在工作符合時建議安裝 plugin。",
+  "when": "要讓組織 plugin 在適當情境被主動推薦，或管理員要啟用建議時。",
+  "keywords": [
+   "relevance",
+   "plugin 推薦",
+   "signals",
+   "cwd",
+   "filesRead",
+   "manifestDeps",
+   "pluginSuggestionMarketplaces",
+   "spinner tip",
+   "Discover",
+   "suggest plugin",
+   "marketplace.json"
+  ],
+  "terms": [
+   {
+    "term": "relevance",
+    "zh": "marketplace 項目上的相關性規則，決定何時推薦該 plugin"
+   },
+   {
+    "term": "signal",
+    "zh": "相關性比對條件，如工作目錄、讀過的檔案、執行過的命令"
+   }
+  ],
+  "memory_hooks": [
+   "relevance 訊號會看 Claude 讀寫的檔案路徑、自動載入的 CLAUDE.md 與執行的 shell 命令名稱（本機比對）。"
+  ],
+  "section": "Plugins",
+  "subsection": "Run a marketplace"
+ },
+ {
+  "slug": "plugins/mods/admin",
+  "title_zh": "為您的組織管理 mods",
+  "one_liner": "管理員用受管設定管控 mods：禁用使用者 mod、僅允許自家 mod、審查能力、以 mod 強制政策。",
+  "when": "要決定組織是否放行 mod、如何檢查 mod 能做什麼、或寫政策 mod 時。",
+  "keywords": [
+   "manage mods",
+   "mod admin",
+   "allowManagedModsOnly",
+   "sec-default",
+   "pluginConfigs",
+   "prependPlugins",
+   "appendPlugins",
+   "plugin.register",
+   "refuse",
+   "disableAllHooks",
+   "受管設定",
+   "審查 mod",
+   "policy mod"
+  ],
+  "terms": [
+   {
+    "term": "allowManagedModsOnly",
+    "zh": "只允許組織自家 mod 的防護選項"
+   },
+   {
+    "term": "policy mod",
+    "zh": "用 plugin.register 事件檢查並拒絕其他 mod 的組織 mod"
+   }
+  ],
+  "memory_hooks": [
+   "受管 PreToolUse hook 在 mod 鏈之前執行；mod 可由組織設定控制與審計；plugin.register 事件可程式化審查他人 mod 的呼叫清單。"
+  ],
+  "section": "Plugins",
+  "subsection": "Manage plugins for your organization"
+ },
+ {
+  "slug": "plugins/org",
+  "title_zh": "為您的組織管理 Claude Code 外掛程式",
+  "one_liner": "用受管設定控管組織內 plugin：預裝、強制啟用、白/黑名單、更新政策與稽核。",
+  "when": "管理員要為整隊預裝 plugin、限制來源、種子容器/CI、或查控制矩陣時。",
+  "keywords": [
+   "managed settings",
+   "受管設定",
+   "strictKnownMarketplaces",
+   "blockedMarketplaces",
+   "enabledPlugins",
+   "extraKnownMarketplaces",
+   "disableSideloadFlags",
+   "allowManagedHooksOnly",
+   "strictPluginOnlyCustomization",
+   "CLAUDE_CODE_PLUGIN_SEED_DIR",
+   "MDM",
+   "syncClaudeAiPlugins",
+   "組織管控"
+  ],
+  "terms": [
+   {
+    "term": "managed settings",
+    "zh": "管理員下發、使用者無法覆蓋的設定"
+   },
+   {
+    "term": "seed directory",
+    "zh": "預先放好 marketplace 與 plugin 的唯讀目錄"
+   },
+   {
+    "term": "control matrix",
+    "zh": "列出各政策金鑰能做與不能做之事的表"
+   }
+  ],
+  "memory_hooks": [
+   "受管設定可強制 enabledPlugins、限制 hooks 只來自受管/強制 plugin；各 surface(終端/-p/雲端)套用時機不同；種子目錄供離線環境。"
+  ],
+  "section": "Plugins",
+  "subsection": "Manage plugins for your organization"
+ },
+ {
+  "slug": "plugins/mods/api",
+  "title_zh": "使用 mods API",
+  "one_liner": "mods API 用法：加命令/工具、呼叫模型、背景計時、跨 session 訊息、檔案/程序/網路。",
+  "when": "要在 mod 內加 /command、定時工作、傳訊給其他 session 或讀寫檔案時。",
+  "keywords": [
+   "mods API",
+   "$.command",
+   "$.tool",
+   "$.model.complete",
+   "$.clock",
+   "$.session.send",
+   "$.fs",
+   "$.process",
+   "$.http.fetch",
+   "$.mcp",
+   "$.store",
+   "session.receive",
+   "背景工作"
+  ],
+  "terms": [
+   {
+    "term": "$.store",
+    "zh": "機器上所有 session 共用的 JSON 鍵值儲存"
+   },
+   {
+    "term": "session.send",
+    "zh": "把訊息送到另一個 session/subagent 的 API"
+   }
+  ],
+  "memory_hooks": [
+   "$.store 為跨 session 共用的鍵值儲存(上限 4 MiB)；$.session.send/receive 可做 session 間訊息；$.settings.read、$.fs 可讀寫本機檔案。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/create",
+  "title_zh": "建立 mod",
+  "one_liner": "請 Claude 寫 mod，或自己寫、驗證、改版、測試與分享一個 mod。",
+  "when": "要做第一個 mod、用熱重載迭代、或查 TypeScript 型別定義時。",
+  "keywords": [
+   "create mod",
+   "寫 mod",
+   "plugin-authoring",
+   "hot reload",
+   "熱重載",
+   "register.js",
+   "validate hooks calls",
+   "index.d.ts",
+   "tsconfig",
+   "first-mod"
+  ],
+  "terms": [
+   {
+    "term": "hot reload",
+    "zh": "儲存或回合結束時重新載入 mod，不必重開 session"
+   },
+   {
+    "term": "plugin-authoring",
+    "zh": "教 Claude 寫 mod 的內建 skill"
+   }
+  ],
+  "memory_hooks": [
+   "mod 的 hook 檔案用 `$.xxx.yyy` 完整寫法才能被靜態分析；內建 skill 可由 Claude 代寫。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/events",
+  "title_zh": "使用 mod 回應事件",
+  "one_liner": "從 mod 處理 Claude Code 事件：觀察、重寫、回答；包含工具、提示、回合與其他 mod 的順序。",
+  "when": "要攔截/批准工具呼叫、改寫提示、追蹤回合，或處理 hook 失敗與順序時。",
+  "keywords": [
+   "mod events",
+   "tool.call",
+   "tool.check",
+   "prompt.submit",
+   "prompt.context",
+   "turn.step",
+   "settings.read",
+   "next(e)",
+   "deny",
+   "fail closed",
+   ".catch",
+   "hook order",
+   "PreToolUse",
+   "middleware"
+  ],
+  "terms": [
+   {
+    "term": "middleware chain",
+    "zh": "hook 以 next 串成的處理鏈，最後到達 Claude Code 自身行為"
+   },
+   {
+    "term": "fail closed",
+    "zh": "hook 失敗時預設拒絕而非放行"
+   }
+  ],
+  "memory_hooks": [
+   "mod 事件鏈與設定檔 `PreToolUse` hook 有固定交錯順序（受管 hook 最先）；`prompt.submit`/`prompt.context`/`prompt.compose` 可注入或改寫送入模型的文字；失敗可 fail-closed。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/gallery",
+  "title_zh": "Mod 介面圖庫",
+  "one_liner": "展示 mod 能畫的介面元素與範例程式碼：文字、按鈕、欄位、Markdown、程式碼、差異、圖片。",
+  "when": "想挑選要用哪種元素、複製範例碼，或看各元素在終端的樣子時。",
+  "keywords": [
+   "mod gallery",
+   "介面圖庫",
+   "Text",
+   "Markdown",
+   "Code",
+   "diff",
+   "Box",
+   "Button",
+   "Input",
+   "Select",
+   "Raster",
+   "Svg",
+   "Image",
+   "Client"
+  ],
+  "terms": [
+   {
+    "term": "Raster",
+    "zh": "以彩色儲存格網格繪圖的元素"
+   },
+   {
+    "term": "Client",
+    "zh": "在 mod 內嵌自訂 UI 模組的元素"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/interface",
+  "title_zh": "使用 mod 在介面中繪製",
+  "one_liner": "從 mod 在 Claude Code 介面繪製窗格、提示上方橫帶、按鈕、輸入欄與保存狀態。",
+  "when": "要做側邊窗格/橫帶、處理按鍵、重繪時機，或跨 /clear 保存狀態時。",
+  "keywords": [
+   "mod interface",
+   "pane",
+   "窗格",
+   "band",
+   "AbovePrompt",
+   "ui.render",
+   "$.ui.open",
+   "Button",
+   "Input",
+   "$.state",
+   "$.store",
+   "invalidate",
+   "render site",
+   "key"
+  ],
+  "terms": [
+   {
+    "term": "render site",
+    "zh": "介面上 mod 可介入繪製的位置"
+   },
+   {
+    "term": "pane",
+    "zh": "文字記錄旁或提示上方的 mod 側邊/內嵌面板"
+   },
+   {
+    "term": "band",
+    "zh": "提示上方所有 mod 共享的橫條"
+   }
+  ],
+  "memory_hooks": [
+   "mod 可用 `$.state`(session 存活)、`$.store`(跨 session 持久)保存資料；介面僅為顯示層，不影響記憶注入。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/overview",
+  "title_zh": "Mods 概覽",
+  "one_liner": "Mod 是在 Claude Code 內執行 JS 事件處理的 plugin，可繪製介面、加命令、改工具呼叫。",
+  "when": "想了解 mod 能做什麼、如何安裝/信任/關閉，以及與設定 hook 的差別時。",
+  "keywords": [
+   "mod",
+   "mods",
+   "hook module",
+   "register",
+   "mods API",
+   "hooks.json modules",
+   "ui.render",
+   "tool.call",
+   "--safe-mode",
+   "disableAllHooks",
+   "sample mods",
+   "token-weather",
+   "blast-radius"
+  ],
+  "terms": [
+   {
+    "term": "mod",
+    "zh": "帶 hook 模組、能在 Claude Code 內改介面與行為的 plugin"
+   },
+   {
+    "term": "hook module",
+    "zh": "匯出 register(on) 的 JS/TS 檔，註冊事件處理函式"
+   },
+   {
+    "term": "mods API",
+    "zh": "hook 收到的 `$`，提供 ui/command/tool/model/fs/process 等方法"
+   }
+  ],
+  "memory_hooks": [
+   "mod hook 與設定檔 hooks 並行；mod 可在 prompt.submit、session.start、tool.call 等事件介入（含 prompt.context 注入），並可 $.session.send 傳訊給其他 session。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/reference",
+  "title_zh": "Mods 參考資料",
+  "one_liner": "Mods 完整參考：檔案、hook 函式簽章、全部事件、mods API 方法、渲染位置、元素、限制、設定。",
+  "when": "查某個事件名、API 方法、數字限制或相關設定鍵時。",
+  "keywords": [
+   "mods reference",
+   "事件列表",
+   "session.start",
+   "session.compact",
+   "prompt.compose",
+   "tool.check",
+   "agent.spawn",
+   "session.measure",
+   "限制",
+   "prependPlugins",
+   "appendPlugins",
+   "allowManagedModsOnly",
+   "pluginConfigs",
+   "sec-default"
+  ],
+  "terms": [
+   {
+    "term": "sec-default@builtin",
+    "zh": "內建於 Claude Code、先於使用者 mod 載入的防護 mod"
+   },
+   {
+    "term": "tier",
+    "zh": "mod 的來源層級(core/builtin/append/user)"
+   }
+  ],
+  "memory_hooks": [
+   "事件含 session.start/end/compact、prompt.submit/compose/context、tool.call/check、agent.spawn、session.receive/send、session.measure；可對應記憶注入與收尾時機。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/test",
+  "title_zh": "測試 mod",
+  "one_liner": "為 mod 寫自動化測試：觸發事件、stub Claude Code 回答、模擬按鈕，無需 session 或網路。",
+  "when": "要為 mod 寫 `.test.ts`、跑 `claude plugin test` 或測計時器/繪圖時。",
+  "keywords": [
+   "test mod",
+   "claude plugin test",
+   "claude-code/testing",
+   "stub",
+   "expect",
+   "timeoutMs",
+   ".test.ts",
+   "CI",
+   "$.session.start",
+   "測試計時器"
+  ],
+  "terms": [
+   {
+    "term": "stub",
+    "zh": "測試中代替 Claude Code 回答事件的假處理函式"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/mods/troubleshoot",
+  "title_zh": "排除 mod 的故障",
+  "one_liner": "診斷 mod 沒作用：依症狀/訊息找原因、拒絕訊息對照、讀偵錯日誌。",
+  "when": "mod 安裝了卻沒反應、看到 `hooks module not loaded`、`hook skipped` 等訊息時。",
+  "keywords": [
+   "troubleshoot mod",
+   "hooks module not loaded",
+   "hook skipped",
+   "claude --debug",
+   "validate",
+   "disableAllHooks",
+   "--bare",
+   "deny rule",
+   "rollout switch",
+   "toast",
+   "needs a key",
+   "熱重載"
+  ],
+  "terms": [
+   {
+    "term": "rollout switch",
+    "zh": "Anthropic 遠端開關，可關閉已安裝 mod"
+   },
+   {
+    "term": "hooks worker",
+    "zh": "執行 mod hook 的獨立工作行程"
+   }
+  ],
+  "memory_hooks": [
+   "mod 載入受 disableAllHooks、allowManagedHooksOnly、--bare 等設定與旗標影響；警告訊息與日誌寫入偵錯日誌或文字記錄。"
+  ],
+  "section": "Plugins",
+  "subsection": "Mods"
+ },
+ {
+  "slug": "plugins/cli-reference",
+  "title_zh": "Plugin 命令參考",
+  "one_liner": "claude plugin 殼層命令、/plugin 與 /reload-plugins 的完整參考，以及單 session 載入旗標。",
+  "when": "要查某個子命令旗標、結束碼、JSON 輸出、或 /plugin 子命令對照時。",
+  "keywords": [
+   "claude plugin",
+   "plugin commands",
+   "/plugin",
+   "/reload-plugins",
+   "plugin install",
+   "plugin validate",
+   "plugin eval",
+   "plugin tag",
+   "plugin prune",
+   "plugin details",
+   "--plugin-dir",
+   "--scope",
+   "--json",
+   "exit code"
+  ],
+  "terms": [
+   {
+    "term": "@inline",
+    "zh": "用 --plugin-dir/--plugin-url 載入的 session 專用 plugin 的來源標記"
+   },
+   {
+    "term": "/reload-plugins",
+    "zh": "不重啟就套用待處理 plugin 變更的命令"
+   }
+  ],
+  "memory_hooks": [
+   "/reload-plugins 會重新載入 hooks、MCP 伺服器、skills、agents 並印計數；重載若改變 MCP/LSP 工具會使提示快取失效並先警告；非互動 session 只在輸入時執行。"
+  ],
+  "section": "Plugins",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "plugins/manifest-reference",
+  "title_zh": "Plugin manifest 參考",
+  "one_liner": "plugin.json 完整欄位參考：型別、預設、路徑形式、userConfig 與環境變數、標準佈局。",
+  "when": "查 plugin.json 某欄位、元件路徑規則、userConfig 結構或各元件預設位置時。",
+  "keywords": [
+   "plugin.json",
+   "manifest",
+   "manifest reference",
+   "name",
+   "version",
+   "defaultEnabled",
+   "dependencies",
+   "userConfig",
+   "hooks",
+   "mcpServers",
+   "lspServers",
+   "CLAUDE_PLUGIN_ROOT",
+   "strict",
+   "standard layout"
+  ],
+  "terms": [
+   {
+    "term": "strict",
+    "zh": "marketplace 項目是否可再給已有 plugin.json 的 plugin 附加元件"
+   },
+   {
+    "term": "directory listing fields",
+    "zh": "icon、documentationUrl 等僅供目錄用的欄位"
+   }
+  ],
+  "memory_hooks": [
+   "manifest 的 hooks/mcpServers 與預設檔合併載入；settings 欄位僅 agent、subagentStatusLine 生效；userConfig 敏感值存安全儲存。"
+  ],
+  "section": "Plugins",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "plugins/marketplace-reference",
+  "title_zh": "Marketplace 參考",
+  "one_liner": "marketplace.json 完整參考：頂層欄位、plugin 項目、plugin 來源類型與 marketplace 來源。",
+  "when": "查 marketplace.json 欄位、各種 source 類型、保留名稱或驗證訊息時。",
+  "keywords": [
+   "marketplace.json",
+   "marketplace reference",
+   "plugin source",
+   "github",
+   "git-subdir",
+   "npm",
+   "archive",
+   "command source",
+   "sha",
+   "ref",
+   "strict",
+   "reserved names",
+   "renames",
+   "extraKnownMarketplaces"
+  ],
+  "terms": [
+   {
+    "term": "command source",
+    "zh": "由 Claude Code 在使用者機器執行命令產生 plugin 目錄的來源"
+   },
+   {
+    "term": "git-subdir",
+    "zh": "以 sparse checkout 取 git repo 子目錄的來源"
+   },
+   {
+    "term": "pluginRoot",
+    "zh": "裸名 plugin 來源解析的基底目錄"
+   }
+  ],
+  "memory_hooks": [
+   "marketplace 來源物件同時用於 extraKnownMarketplaces、strictKnownMarketplaces、blockedMarketplaces 設定鍵。"
+  ],
+  "section": "Plugins",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "plugins/loading",
+  "title_zh": "Plugin 載入參考",
+  "one_liner": "追蹤 plugin 從哪載入、哪個設定檔決定、檔案放哪、版本與更新規則、名稱衝突。",
+  "when": "plugin 行為與預期不符、更新沒生效、要找磁碟路徑或釐清優先序時。",
+  "keywords": [
+   "plugin loading",
+   "載入順序",
+   "enabledPlugins",
+   "installed_plugins.json",
+   "known_marketplaces.json",
+   "cache",
+   "CLAUDE_CODE_PLUGIN_CACHE_DIR",
+   "version",
+   "auto-update",
+   "name conflict",
+   "@synced",
+   "@inline",
+   "node_modules",
+   "優先序"
+  ],
+  "terms": [
+   {
+    "term": "installed_plugins.json",
+    "zh": "記錄已安裝 plugin 的 scope、路徑與版本的檔案"
+   },
+   {
+    "term": "known_marketplaces.json",
+    "zh": "記錄已提取 marketplace 的檔案"
+   },
+   {
+    "term": "in-place plugin",
+    "zh": "不複製進快取、直接從原位置載入的 plugin"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 於 session 啟動從 installed_plugins.json 與 cache 載入（不需網路）；設定／磁碟變更不影響執行中 session，需 /reload-plugins；hooks 路徑在更新後仍指舊版直到重載；同名 plugin 的 hooks 只有一個被註冊。"
+  ],
+  "section": "Plugins",
+  "subsection": "Troubleshooting"
+ },
+ {
+  "slug": "plugins/troubleshooting",
+  "title_zh": "排除外掛程式故障",
+  "one_liner": "依錯誤訊息查 plugin／marketplace 問題的原因與修法，按 /plugin、新增、安裝、載入、建立、託管、組織封鎖分段。",
+  "when": "看到具體錯誤訊息（找不到市集、安裝失敗、hooks 不觸發、被政策擋）要對照修復時。",
+  "keywords": [
+   "plugin troubleshooting",
+   "排除故障",
+   "error message",
+   "Marketplace not found",
+   "install failed",
+   "hooks don't fire",
+   "Invalid MCP server config",
+   "not cached",
+   "reload-plugins",
+   "blocked by enterprise policy",
+   "userConfig 對話框",
+   "validate errors",
+   "SSH authentication failed"
+  ],
+  "terms": [
+   {
+    "term": "not cached",
+    "zh": "已啟用 plugin 在磁碟快取找不到時的錯誤狀態"
+   }
+  ],
+  "memory_hooks": [
+   "hooks/MCP/LSP 載入失敗訊息與檢查步驟；installed_plugins.json 讀不出時會自動重建並留 .set-aside 備份。"
+  ],
+  "section": "Plugins",
+  "subsection": "Troubleshooting"
+ }
+]

@@ -1,0 +1,968 @@
+[
+ {
+  "slug": "sub-agents",
+  "title_zh": "建立自訂 subagents",
+  "one_liner": "定義並使用自訂 subagent：獨立 context、專屬工具與權限的委派工作者。",
+  "when": "想把搜尋／審查等側任務移出主對話，或要寫 .claude/agents/*.md 時。",
+  "keywords": [
+   "subagent",
+   "子代理",
+   "Explore",
+   "Plan",
+   "/agents",
+   "--agents",
+   "frontmatter",
+   "tools",
+   "disallowedTools",
+   "permissionMode",
+   "maxTurns",
+   "isolation worktree",
+   "fork",
+   "/subtask",
+   "SubagentStart"
+  ],
+  "terms": [
+   {
+    "term": "subagent",
+    "zh": "在主工作階段內、自有 context 執行並回報摘要的委派工作者"
+   },
+   {
+    "term": "fork（/subtask）",
+    "zh": "繼承目前整段對話的子代理，放棄輸入隔離換取上下文"
+   },
+   {
+    "term": "memory 欄位（user/project/local）",
+    "zh": "給子代理的持久目錄，跨對話累積知識"
+   },
+   {
+    "term": "omitClaudeMd",
+    "zh": "啟動時不載入 CLAUDE.md 的子代理選項"
+   }
+  ],
+  "memory_hooks": [
+   "子代理不載入主對話 auto-memory，但載入 CLAUDE.md（omitClaudeMd 可關）",
+   "SubagentStart/SubagentStop hook 事件",
+   "frontmatter memory: user|project|local 子代理持久目錄",
+   "frontmatter hooks 需信任資料夾才執行",
+   "skills 欄位預載完整 skill 內容進子代理 context"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "agents",
+  "title_zh": "平行執行代理",
+  "one_liner": "比較五種平行執行方式：子代理、agent view、agent teams、動態工作流程、專案。",
+  "when": "不確定該用哪種平行／委派機制，或想找查看執行中工作的指令時。",
+  "keywords": [
+   "平行代理",
+   "parallel agents",
+   "claude agents",
+   "/tasks",
+   "/workflows",
+   "/batch",
+   "agent view",
+   "agent teams",
+   "workflows",
+   "subagents",
+   "worktrees",
+   "比較",
+   "token 倍增"
+  ],
+  "terms": [
+   {
+    "term": "/batch",
+    "zh": "把大變更拆成 5～30 個 worktree 隔離子代理的內建 skill"
+   },
+   {
+    "term": "分叉子代理",
+    "zh": "繼承完整對話的子代理，用 /subtask 啟動"
+   }
+  ],
+  "memory_hooks": [
+   "選擇矩陣：協調者／溝通／檔案衝突三軸",
+   "agent teams 不隔離 worktree，subagent 與自跑 session 可各用 worktree"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "agent-teams",
+  "title_zh": "協調 Claude Code 工作階段團隊",
+  "one_liner": "實驗功能：一個 lead 協調多個隊友 Claude session，共用任務清單與信箱。",
+  "when": "需要多個長時間 session 互相討論、認領任務（研究、審查、跨層開發）時。",
+  "keywords": [
+   "agent teams",
+   "代理團隊",
+   "teammate",
+   "隊友",
+   "lead",
+   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+   "teammateMode",
+   "--teammate-mode",
+   "TeammateIdle",
+   "TaskCreated",
+   "TaskCompleted",
+   "共享任務清單",
+   "信箱",
+   "inbox",
+   "tmux"
+  ],
+  "terms": [
+   {
+    "term": "agent team",
+    "zh": "由 lead 與多個隊友 session 組成、共享任務清單的團隊（實驗）"
+   },
+   {
+    "term": "lead／teammate",
+    "zh": "主管 session／被生成的獨立 Claude Code 實例"
+   },
+   {
+    "term": "信箱（inbox）",
+    "zh": "每個 agent 一個 JSON 檔，寫入成功才算訊息送出"
+   },
+   {
+    "term": "team-lead",
+    "zh": "config.json 內 lead 的 agent 類型"
+   }
+  ],
+  "memory_hooks": [
+   "多 session 協作：任務清單檔 ~/.claude/tasks/{team}/ 與信箱 inboxes/*.json",
+   "三個品質閘 hook 事件（TeammateIdle/TaskCreated/TaskCompleted）",
+   "隊友載入專案 CLAUDE.md、settings、hooks",
+   "in-process 隊友不被 /resume 恢復"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "agent-view",
+  "title_zh": "使用 Agent view 管理多個代理",
+  "one_liner": "claude agents：一個畫面分派、監看、回覆多個背景 Claude session。",
+  "when": "想同時交辦多個獨立任務、只在需要你時介入，或要從 shell 管背景 session。",
+  "keywords": [
+   "agent view",
+   "claude agents",
+   "--bg",
+   "/bg",
+   "background session",
+   "背景工作階段",
+   "claude attach",
+   "claude logs",
+   "claude stop",
+   "claude respawn",
+   "claude daemon",
+   "supervisor",
+   "--json",
+   "worktree.bgIsolation",
+   "~/.claude/jobs"
+  ],
+  "terms": [
+   {
+    "term": "agent view",
+    "zh": "claude agents 開啟的背景 session 總覽畫面（研究預覽）"
+   },
+   {
+    "term": "背景工作階段",
+    "zh": "由 supervisor 託管、關閉終端機仍繼續跑的 session"
+   },
+   {
+    "term": "supervisor",
+    "zh": "託管背景 session 的獨立背景服務"
+   },
+   {
+    "term": "CLAUDE_JOB_DIR",
+    "zh": "背景 session 自己可寫報告檔的目錄環境變數"
+   }
+  ],
+  "memory_hooks": [
+   "多 session 協作：claude agents --json 為官方狀態讀取介面",
+   "背景 session 的 worktree 隔離與 WorktreeCreate hook",
+   "session 狀態存 ~/.claude/jobs/<id>/，非穩定介面",
+   "CLAUDE_JOB_DIR 供 session 自寫檔"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "workflows",
+  "title_zh": "使用動態工作流程大規模協調子代理",
+  "one_liner": "動態工作流程：Claude 寫 JavaScript 腳本，由腳本大規模協調許多子代理並交叉驗證。",
+  "when": "任務大到一個對話協調不了（全庫審計、500 檔遷移、交叉檢查研究）時。",
+  "keywords": [
+   "workflow",
+   "動態工作流程",
+   "/workflows",
+   "/deep-research",
+   "ultracode",
+   "/effort ultracode",
+   "Workflow tool",
+   "fan-out",
+   "扇出",
+   "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS",
+   "CLAUDE_CODE_DISABLE_WORKFLOWS",
+   "Large workflow",
+   ".claude/workflows",
+   "args"
+  ],
+  "terms": [
+   {
+    "term": "dynamic workflow",
+    "zh": "由腳本而非 Claude 逐輪決定下一步的多代理協調"
+   },
+   {
+    "term": "ultracode",
+    "zh": "啟用自動工作流程協調的 effort 設定／提示關鍵字"
+   },
+   {
+    "term": "/deep-research",
+    "zh": "內建工作流程：多角度搜尋並投票驗證後出引用報告"
+   },
+   {
+    "term": "args",
+    "zh": "保存的工作流程接收呼叫輸入的全域變數"
+   }
+  ],
+  "memory_hooks": [
+   "PreToolUse hook 可對 Workflow 呼叫回 allow",
+   "工作流程存 .claude/workflows/ 可版控共享、plugin 可分發",
+   "中間結果在腳本變數，不佔 context",
+   "並行 agent 上限與成本警告（25 agent／150 萬 token）"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "cross-session-messaging",
+  "title_zh": "訊息傳送至您的其他 Claude Code 工作階段",
+  "one_liner": "Claude 能列出並傳訊給你其他 Claude Code session（本機、他機、雲端）。",
+  "when": "多個 session 同時工作需互通發現／狀態，或想控制／關閉入站訊息時。",
+  "keywords": [
+   "cross-session messaging",
+   "跨工作階段訊息",
+   "SendMessage",
+   "ListAgents",
+   "/list-agents",
+   "/peers",
+   "crossSessionInbound",
+   "isolatePeerMachines",
+   "notify_when_idle",
+   "CLAUDE_CODE_MESSAGING_SOCKET",
+   "CLAUDE_CODE_MESSAGING_TOKEN",
+   "dialogExpiry",
+   "收件匣",
+   "Remote Control",
+   "@mention"
+  ],
+  "terms": [
+   {
+    "term": "cross-session messaging",
+    "zh": "Claude 之間以文字訊息互傳的功能，不傳對話歷史"
+   },
+   {
+    "term": "收件匣 socket",
+    "zh": "每個 session 綁定、供其他 session 投遞訊息的通訊端"
+   },
+   {
+    "term": "notify_when_idle",
+    "zh": "訂閱目標 session 下次閒置時通知的 SendMessage 輸入"
+   },
+   {
+    "term": "hold",
+    "zh": "入站訊息擱置待使用者核准"
+   }
+  ],
+  "memory_hooks": [
+   "多 session 協作：SendMessage／ListAgents 與 /list-agents",
+   "hooks 與 Bash 取得 CLAUDE_CODE_MESSAGING_SOCKET／TOKEN 可程式化發佈訊息",
+   "crossSessionInbound 與 permissions.deny 的入出站控制",
+   "入站訊息不視為使用者同意、不執行其中命令"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "worktrees",
+  "title_zh": "使用 worktrees 執行平行會話",
+  "one_liner": "用 git worktree 為每個平行 session 提供獨立檔案與分支，避免互撞。",
+  "when": "要同時跑多個 session 改同一 repo，或設定子代理／背景 session 的 worktree 隔離。",
+  "keywords": [
+   "worktree",
+   "--worktree",
+   "-w",
+   ".claude/worktrees",
+   "EnterWorktree",
+   "ExitWorktree",
+   ".worktreeinclude",
+   "WorktreeCreate",
+   "WorktreeRemove",
+   "isolation worktree",
+   "平行 session",
+   "git worktree",
+   "sparsePaths",
+   "非 git 版本控制"
+  ],
+  "terms": [
+   {
+    "term": "git worktree",
+    "zh": "同 repo 另一個獨立工作目錄＋分支"
+   },
+   {
+    "term": "worktree 隔離",
+    "zh": "阻止隔離 session 寫入主檢出的工具檢查"
+   },
+   {
+    "term": ".worktreeinclude",
+    "zh": "指定要複製進新 worktree 的 gitignored 檔案清單"
+   }
+  ],
+  "memory_hooks": [
+   "hook 的 CLAUDE_PROJECT_DIR 不隨 worktree 變、cwd 變",
+   "權限核准與 plugin 與主檢出共享",
+   "WorktreeCreate／WorktreeRemove hook 事件",
+   "worktree 缺 skills/agents/commands 時回讀主檢出"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Agents and parallel work"
+ },
+ {
+  "slug": "artifacts",
+  "title_zh": "將工作階段輸出分享為成品",
+  "one_liner": "把 session 產出發佈成 claude.ai 上的互動網頁（artifact），可私人、組織內或公開分享。",
+  "when": "輸出用圖表／差異導覽／儀表板比純文字更好讀，或要傳連結給同事時。",
+  "keywords": [
+   "artifact",
+   "成品",
+   "/artifacts",
+   "claude.ai",
+   "enableArtifact",
+   "CLAUDE_CODE_DISABLE_ARTIFACT",
+   "分享",
+   "評論",
+   "Artifact tool",
+   "互動頁面",
+   "儀表板",
+   "MCP connectors",
+   "16 MiB",
+   "CSP"
+  ],
+  "terms": [
+   {
+    "term": "artifact（成品）",
+    "zh": "從 session 發佈的自包含互動網頁"
+   },
+   {
+    "term": "連接器呼叫",
+    "zh": "頁面透過 MCP 連接器在檢視者開啟時取資料"
+   },
+   {
+    "term": "enableArtifact",
+    "zh": "關閉／開啟 artifact 功能的設定鍵"
+   }
+  ],
+  "memory_hooks": [
+   "不同 session 可用 URL 或 /artifacts 附加同一個 artifact 更新",
+   "Artifact 權限規則（allow/deny）與 plan mode 前詢問",
+   "排程回合發佈時會詢問"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Artifacts"
+ },
+ {
+  "slug": "goal",
+  "title_zh": "讓 Claude 朝著目標持續工作",
+  "one_liner": "/goal 設完成條件，Claude 每回合後由小模型檢查，沒達成就自動續跑。",
+  "when": "有可驗證終點的長任務（遷移到測試全綠、清空佇列），想免逐步提示時。",
+  "keywords": [
+   "/goal",
+   "goal",
+   "目標",
+   "完成條件",
+   "Stop hook",
+   "評估器",
+   "evaluator",
+   "CLAUDE_CODE_GOAL_CHECKIN_MINUTES",
+   "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+   "goal clear",
+   "check-in",
+   "自動續跑",
+   "/loop",
+   "auto mode"
+  ],
+  "terms": [
+   {
+    "term": "/goal",
+    "zh": "設定完成條件並自動續跑直到達成的命令"
+   },
+   {
+    "term": "評估器（evaluator）",
+    "zh": "每回合後判定條件是否滿足的小型快速模型"
+   },
+   {
+    "term": "簽到（check-in）",
+    "zh": "背景工作拖過 30 分鐘時要 Claude 檢查任務狀態的機制"
+   }
+  ],
+  "memory_hooks": [
+   "/goal 為 prompt-based Stop hook 的 session 包裝",
+   "disableAllHooks=true 會讓 /goal 不可用",
+   "goal 在 --resume／--continue 時還原",
+   "評估只看對話內呈現的內容"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Automation"
+ },
+ {
+  "slug": "channels",
+  "title_zh": "使用 channels 將事件推送到執行中的工作階段",
+  "one_liner": "Channel 是把外部事件（聊天、CI、webhook）推進執行中 session 的 MCP 伺服器。",
+  "when": "想讓 Claude 在你離開終端時回應 Telegram／Discord／iMessage 訊息或 webhook。",
+  "keywords": [
+   "channels",
+   "頻道",
+   "--channels",
+   "Telegram",
+   "Discord",
+   "iMessage",
+   "fakechat",
+   "webhook",
+   "channelsEnabled",
+   "allowedChannelPlugins",
+   "--dangerously-load-development-channels",
+   "permission relay",
+   "配對",
+   "push events",
+   "研究預覽"
+  ],
+  "terms": [
+   {
+    "term": "channel",
+    "zh": "可雙向的 MCP 伺服器，把外部事件推到執行中的 session"
+   },
+   {
+    "term": "配對（pairing）",
+    "zh": "用機器人回覆的代碼把你的帳號 ID 加入允許清單"
+   },
+   {
+    "term": "permission relay",
+    "zh": "channel 把權限提示轉發到聊天上批准的能力"
+   }
+  ],
+  "memory_hooks": [
+   "外部事件經 --channels 推入 session，以 <channel source> 標籤呈現",
+   "寄件者允許清單 + 受管設定 channelsEnabled 兩層閘",
+   "與 /loop 輪詢及 Remote Control 的定位差異"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Automation"
+ },
+ {
+  "slug": "scheduled-tasks",
+  "title_zh": "按排程執行提示",
+  "one_liner": "用 /loop 與 cron 工具在開啟的 session 內排程重複或一次性提示。",
+  "when": "要輪詢部署／PR／建置，或設一次性提醒，而 session 保持開著時。",
+  "keywords": [
+   "/loop",
+   "scheduled tasks",
+   "排程",
+   "cron",
+   "CronCreate",
+   "CronList",
+   "CronDelete",
+   "loop.md",
+   "ScheduleWakeup",
+   "提醒",
+   "reminder",
+   "輪詢",
+   "jitter",
+   "7 天過期",
+   "routines"
+  ],
+  "terms": [
+   {
+    "term": "/loop",
+    "zh": "隨附 skill，重複執行提示的命令"
+   },
+   {
+    "term": "session 範圍排程",
+    "zh": "任務綁在 session，不是系統級排程"
+   },
+   {
+    "term": "loop.md",
+    "zh": "取代內建維護提示的自訂預設迴圈提示檔"
+   },
+   {
+    "term": "ScheduleWakeup",
+    "zh": "動態節奏迴圈用來預約下次喚醒／停止的工具"
+   }
+  ],
+  "memory_hooks": [
+   "session 範圍排程隨 --resume 還原、7 天過期",
+   "排程回合被視為非人類輸入（影響 artifacts／ultracode 行為）",
+   "loop.md 專案／使用者分層"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Automation"
+ },
+ {
+  "slug": "headless",
+  "title_zh": "以程式方式執行 Claude Code",
+  "one_liner": "用 claude -p（Agent SDK CLI）非互動執行 Claude Code，適合腳本與 CI。",
+  "when": "要把 Claude 放進腳本／CI、取得 JSON 輸出，或決定要不要加 --bare。",
+  "keywords": [
+   "claude -p",
+   "headless",
+   "非互動",
+   "--print",
+   "--bare",
+   "Agent SDK",
+   "--output-format",
+   "stream-json",
+   "--allowedTools",
+   "--permission-mode",
+   "--permission-prompts",
+   "--append-system-prompt",
+   "--continue",
+   "--resume",
+   "--max-budget-usd"
+  ],
+  "terms": [
+   {
+    "term": "--bare",
+    "zh": "最小啟動模式：不載入 hook／skill／MCP／記憶／CLAUDE.md"
+   },
+   {
+    "term": "--permission-prompts none",
+    "zh": "無人值守時把會彈提示的動作一律拒絕"
+   },
+   {
+    "term": "stream-json",
+    "zh": "邊跑邊輸出每則訊息的格式"
+   }
+  ],
+  "memory_hooks": [
+   "claude -p 預設載入 hooks／自動記憶／CLAUDE.md；--bare 全不載",
+   "--bare 無系統提醒，需旗標手動帶入設定",
+   "SessionEnd hook 於 SIGTERM 仍執行",
+   "session_id 可由 JSON 輸出擷取供 --resume"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Automation"
+ },
+ {
+  "slug": "hooks-guide",
+  "title_zh": "使用 hooks 自動化工作流程",
+  "one_liner": "hooks 入門與實例：在生命週期事件自動執行命令、HTTP、MCP 工具或模型檢查。",
+  "when": "要自動格式化、擋危險命令、壓縮後重注入 context、改權限流程，或除錯 hook 沒觸發時。",
+  "keywords": [
+   "hooks",
+   "hook",
+   "SessionStart",
+   "UserPromptSubmit",
+   "PreToolUse",
+   "PostToolUse",
+   "Stop",
+   "PreCompact",
+   "PostCompact",
+   "SessionEnd",
+   "additionalContext",
+   "hookSpecificOutput",
+   "matcher",
+   "exit code 2",
+   "/hooks"
+  ],
+  "terms": [
+   {
+    "term": "hook",
+    "zh": "在生命週期節點確定性執行的使用者定義處理"
+   },
+   {
+    "term": "matcher",
+    "zh": "以 | 或 , 分隔工具名稱過濾 hook 觸發"
+   },
+   {
+    "term": "stop_hook_active",
+    "zh": "Stop hook 輸入欄位，用來避免無限阻擋"
+   },
+   {
+    "term": "agent hook",
+    "zh": "啟動多輪子代理驗證的 hook（實驗）"
+   }
+  ],
+  "memory_hooks": [
+   "SessionStart／UserPromptSubmit 可回 additionalContext 注入記憶",
+   "additionalContext 須在 hookSpecificOutput 內否則被忽略",
+   "多 hook 的 additionalContext 全部合併",
+   "Stop hook 阻擋上限 8 次與 stop_hook_active",
+   "SessionEnd 僅 1.5 秒預算",
+   "hook 的 allow 不能繞過 deny 規則",
+   "compact matcher 於壓縮後重注入"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Automation"
+ },
+ {
+  "slug": "deep-links",
+  "title_zh": "從連結啟動工作階段",
+  "one_liner": "claude-cli:// 連結：點一下在指定目錄開終端機 Claude session 並預填提示。",
+  "when": "想在 runbook、警報、README 中嵌入「一鍵開 Claude」連結時。",
+  "keywords": [
+   "deep link",
+   "深層連結",
+   "claude-cli://",
+   "claude-cli://open",
+   "q=",
+   "cwd",
+   "repo",
+   "disableDeepLinkRegistration",
+   "runbook",
+   "預填提示",
+   "URL handler",
+   "vscode://"
+  ],
+  "terms": [
+   {
+    "term": "deep link",
+    "zh": "自訂 URL scheme，點擊後在本機啟動 Claude Code"
+   },
+   {
+    "term": "disableDeepLinkRegistration",
+    "zh": "阻止註冊 URL 處理程式的設定"
+   }
+  ],
+  "memory_hooks": [
+   "外部連結預填的提示不自動送出且有警告列",
+   "註冊處理程式寫入使用者層級位置"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Automation"
+ },
+ {
+  "slug": "large-codebases",
+  "title_zh": "在 monorepo 或大型程式碼庫中設定 Claude Code",
+  "one_liner": "在 monorepo／大型程式碼庫縮小 Claude 範圍：分層 CLAUDE.md、排除、worktree、skills。",
+  "when": "repo 很大、Claude 讀太多或載入太多不相關指示時。",
+  "keywords": [
+   "monorepo",
+   "大型程式碼庫",
+   "large codebase",
+   "CLAUDE.md 分層",
+   "claudeMdExcludes",
+   ".claude/rules",
+   "paths",
+   "permissions.deny",
+   "Read deny",
+   "worktree.sparsePaths",
+   "sparse checkout",
+   "code intelligence",
+   "skills 按套件",
+   "SessionStart",
+   "啟動目錄"
+  ],
+  "terms": [
+   {
+    "term": "claudeMdExcludes",
+    "zh": "排除特定 CLAUDE.md／規則檔的 glob 設定"
+   },
+   {
+    "term": "worktree.sparsePaths",
+    "zh": "建立 worktree 時只簽出列出目錄的設定"
+   },
+   {
+    "term": "路徑範圍規則",
+    "zh": "rules 檔的 paths: glob，處理符合檔案時才載入"
+   }
+  ],
+  "memory_hooks": [
+   "啟動目錄決定載入哪些 CLAUDE.md",
+   "claudeMdExcludes 與 rules paths: 為按需載入手段",
+   "SessionStart hook 可讀 cwd 推薦 plugin",
+   "約定從 always-loaded CLAUDE.md 移到 skill／plugin／MCP"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Guides"
+ },
+ {
+  "slug": "mcp",
+  "title_zh": "透過 MCP 將 Claude Code 連接到工具",
+  "one_liner": "MCP 完整參考：安裝各類伺服器、範圍、OAuth、輸出限制、工具搜尋與受管設定。",
+  "when": "接外部工具／資料源、調 MCP 逾時與 token 限制、處理認證或組織管控時。",
+  "keywords": [
+   "MCP",
+   "claude mcp add",
+   "claude mcp serve",
+   ".mcp.json",
+   "~/.claude.json",
+   "stdio",
+   "SSE",
+   "HTTP",
+   "WebSocket",
+   "OAuth",
+   "/mcp",
+   "MAX_MCP_OUTPUT_TOKENS",
+   "MCP_TIMEOUT",
+   "MCP_TOOL_TIMEOUT",
+   "ENABLE_TOOL_SEARCH"
+  ],
+  "terms": [
+   {
+    "term": "MCP",
+    "zh": "Model Context Protocol，連接外部工具的開放標準"
+   },
+   {
+    "term": "工具搜尋（tool search）",
+    "zh": "工具定義延後到需要才載入以省 context"
+   },
+   {
+    "term": "徵詢（elicitation）",
+    "zh": "伺服器中途向使用者要結構化輸入"
+   },
+   {
+    "term": "MCP 任務",
+    "zh": "伺服器端長時間工作，用 MCP tasks 擴充追蹤"
+   }
+  ],
+  "memory_hooks": [
+   "MCP 範圍分層（local/project/user/plugin/claude.ai）與設定分層同構",
+   "工具搜尋延遲載入，降低 context 佔用",
+   "Elicitation／ElicitationResult hook 事件",
+   "MCP 伺服器可經 channels 推事件、hook 可 type: mcp_tool",
+   "輸出超過上限時改存檔並回傳路徑"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "MCP"
+ },
+ {
+  "slug": "mcp-quickstart",
+  "title_zh": "連接到 MCP 伺服器",
+  "one_liner": "第一次連 MCP 伺服器的逐步教學：新增、驗證、找到設定檔。",
+  "when": "第一次用 claude mcp add，或 /mcp 顯示沒伺服器、連線失敗時。",
+  "keywords": [
+   "MCP quickstart",
+   "claude mcp add",
+   "claude mcp list",
+   "claude mcp get",
+   "/mcp",
+   ".mcp.json",
+   "--scope",
+   "local scope",
+   "連接 MCP",
+   "No MCP servers configured",
+   "Failed to connect",
+   "CLAUDE_CONFIG_DIR"
+  ],
+  "terms": [
+   {
+    "term": "local 範圍",
+    "zh": "預設；僅你、僅此專案，存 ~/.claude.json"
+   },
+   {
+    "term": "project 範圍",
+    "zh": ".mcp.json，隨版控共享"
+   }
+  ],
+  "memory_hooks": [
+   "MCP 設定檔位置：~/.claude.json 與 .mcp.json",
+   "CLAUDE_CONFIG_DIR 會移動 ~/.claude.json"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "MCP"
+ },
+ {
+  "slug": "skills",
+  "title_zh": "使用 skills 擴展 Claude",
+  "one_liner": "建立與管理 skill（SKILL.md）：載入位置、frontmatter、調用控制、進階模式。",
+  "when": "要寫／改／除錯 skill，或搞不懂 skill 為何沒觸發或描述被截斷時。",
+  "keywords": [
+   "skill",
+   "SKILL.md",
+   "skills",
+   "frontmatter",
+   "disable-model-invocation",
+   "user-invocable",
+   "allowed-tools",
+   "context fork",
+   "paths",
+   "when_to_use",
+   "/doctor",
+   "/skill-doctor",
+   "skillListingBudgetFraction",
+   "bundled skills",
+   "/batch"
+  ],
+  "terms": [
+   {
+    "term": "SKILL.md",
+    "zh": "skill 的指示檔，含 YAML frontmatter"
+   },
+   {
+    "term": "context: fork",
+    "zh": "讓 skill 在隔離子代理中執行"
+   },
+   {
+    "term": "paths（skill）",
+    "zh": "限制只在處理符合 glob 的檔案時自動載入"
+   },
+   {
+    "term": "skillOverrides",
+    "zh": "從設定覆寫 skill 可見性的鍵"
+   }
+  ],
+  "memory_hooks": [
+   "skill 描述常駐、全文按需（漸進揭露）",
+   "skill frontmatter hooks 於調用後註冊",
+   "規則必須每次成立 → 官方建議用 hook 而非 skill",
+   "skill 描述預算 1,536 字元／skillListingBudgetFraction",
+   "context: fork 在子代理執行 skill"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Skills"
+ },
+ {
+  "slug": "debug-your-config",
+  "title_zh": "偵錯您的設定",
+  "one_liner": "診斷 CLAUDE.md、settings、hooks、MCP、skills 為何沒生效的指令與流程。",
+  "when": "設定看似沒套用、hook 不觸發、MCP 沒載入時。",
+  "keywords": [
+   "debug",
+   "偵錯設定",
+   "/context",
+   "/memory",
+   "/hooks",
+   "/mcp",
+   "/permissions",
+   "/doctor",
+   "/debug",
+   "/status",
+   "claude doctor",
+   "--safe-mode",
+   "--debug",
+   "設定沒生效",
+   "hook 不觸發"
+  ],
+  "terms": [
+   {
+    "term": "--safe-mode",
+    "zh": "停用所有自訂項目但保留認證／模型／內建工具的啟動模式"
+   },
+   {
+    "term": "/context",
+    "zh": "顯示 context 視窗佔用明細的命令"
+   }
+  ],
+  "memory_hooks": [
+   "/context、/memory、/hooks 驗證載入內容",
+   "--safe-mode 乾淨環境隔離自訂 hook／記憶",
+   "設定來源與受管設定可由 /status 查"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Troubleshooting"
+ },
+ {
+  "slug": "troubleshooting",
+  "title_zh": "故障排除",
+  "one_liner": "Claude Code 執行後的效能、穩定性與搜尋問題，並提供各類症狀的導引表。",
+  "when": "CPU／記憶體高、卡住、auto-compact thrashing、@file 搜不到檔案時。",
+  "keywords": [
+   "troubleshooting",
+   "故障排除",
+   "高 CPU",
+   "記憶體",
+   "autocompact thrashing",
+   "/compact",
+   "/clear",
+   "ripgrep",
+   "搜尋問題",
+   "WSL",
+   "卡住",
+   "/doctor",
+   "效能",
+   "@file"
+  ],
+  "terms": [
+   {
+    "term": "autocompact thrashing",
+    "zh": "自動壓縮成功卻立刻被檔案／工具輸出再填滿的循環"
+   }
+  ],
+  "memory_hooks": [
+   "啟動載入內容過大會讓壓縮後立刻重新填滿（thrashing）",
+   "大檔讀取可交給 subagent 隔離 context"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Troubleshooting"
+ },
+ {
+  "slug": "troubleshoot-install",
+  "title_zh": "排除安裝和登入問題",
+  "one_liner": "安裝與登入故障排除：command not found、PATH、權限、網路、TLS、OAuth。",
+  "when": "安裝失敗、claude 指令找不到、更新失敗或登入迴圈時。",
+  "keywords": [
+   "安裝",
+   "install",
+   "登入",
+   "login",
+   "command not found",
+   "PATH",
+   "EACCES",
+   "TLS",
+   "SSL",
+   "OAuth",
+   "403",
+   "claude doctor",
+   "/logout",
+   "Windows",
+   "WSL"
+  ],
+  "terms": [
+   {
+    "term": "claude doctor",
+    "zh": "shell 內執行的安裝與設定唯讀診斷命令"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Build with Claude Code",
+  "subsection": "Troubleshooting"
+ },
+ {
+  "slug": "errors",
+  "title_zh": "錯誤參考",
+  "one_liner": "執行時錯誤訊息對照表：每種錯誤的意思與復原方式，並含自動重試規則。",
+  "when": "看到 API Error、用量上限、登入、連線、Prompt too long 等訊息要查原因時。",
+  "keywords": [
+   "errors",
+   "錯誤參考",
+   "API Error",
+   "529 Overloaded",
+   "429",
+   "session limit",
+   "用量上限",
+   "Prompt is too long",
+   "Not logged in",
+   "Invalid API key",
+   "Unable to connect",
+   "Instruction file not loaded",
+   "Hook needs quotes",
+   "自動重試",
+   "CLAUDE_CODE_CHILD_SESSION"
+  ],
+  "terms": [
+   {
+    "term": "自動重試",
+    "zh": "Claude Code 對暫時性 API 失敗的指數退避重試（最多 10 次）"
+   },
+   {
+    "term": "Instruction file not loaded",
+    "zh": "記憶檔因 Read 拒絕規則等原因未載入的通知"
+   }
+  ],
+  "memory_hooks": [
+   "Instruction file not loaded：記憶／rules 檔未載入的原因分類",
+   "Hook needs quotes around a path with a space",
+   "CLAUDE_CODE_CHILD_SESSION／SKIP_PROMPT_HISTORY 關閉文字記錄儲存",
+   "Agent descriptions 15.0k-token 上限警告"
+  ],
+  "section": "Build with Claude Code",
+  "subsection": "Troubleshooting"
+ }
+]

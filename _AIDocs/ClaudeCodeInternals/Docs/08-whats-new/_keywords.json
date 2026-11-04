@@ -1,0 +1,895 @@
+[
+ {
+  "slug": "whats-new",
+  "title_zh": "最新動態",
+  "one_liner": "每週新功能摘要總目錄（w13–w37）。",
+  "when": "從週次定位某功能出現時間。",
+  "keywords": [
+   "whats new",
+   "最新動態",
+   "每週摘要",
+   "weekly digest",
+   "changelog",
+   "新功能",
+   "release",
+   "w13",
+   "w37"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w13",
+  "title_zh": "第 13 週 · 2026 年 3 月 23–27 日",
+  "one_liner": "自動模式、Computer use、PR 自動修復、文字稿搜尋、PowerShell 工具與條件式 hooks 登場。",
+  "when": "想知道 auto mode、hook `if` 欄位、managed-settings.d 何時出現。",
+  "keywords": [
+   "auto mode",
+   "自動模式",
+   "computer use",
+   "PR auto-fix",
+   "transcript search",
+   "PowerShell tool",
+   "hook if",
+   "條件式 hooks",
+   "managed-settings.d",
+   "CwdChanged",
+   "FileChanged",
+   "userConfig",
+   "initialPrompt",
+   "v2.1.83",
+   "v2.1.85"
+  ],
+  "terms": [
+   {
+    "term": "auto mode",
+    "zh": "把權限提示交給分類器自動放行安全操作、擋掉可疑操作"
+   },
+   {
+    "term": "hook `if` field",
+    "zh": "hook 條件欄位，只在符合權限規則語法時才啟動"
+   },
+   {
+    "term": "managed-settings.d/",
+    "zh": "管理設定的分片目錄，讓多團隊各自放政策片段"
+   }
+  ],
+  "memory_hooks": [
+   "hook `if` 可縮小記憶 hook 觸發範圍；新增 CwdChanged/FileChanged 事件；managed-settings.d 可分層佈署政策。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w14",
+  "title_zh": "第 14 週 · 3 月 30 日 – 4 月 3 日，2026 年",
+  "one_liner": "CLI 版 Computer use、/powerup 課程、無閃爍渲染、MCP 結果大小覆蓋、plugin bin/ 進 PATH。",
+  "when": "查 NO_FLICKER、PermissionDenied hook、defer 決策、plugin 可執行檔何時有。",
+  "keywords": [
+   "computer use CLI",
+   "/powerup",
+   "NO_FLICKER",
+   "maxResultSizeChars",
+   "plugin bin",
+   "PATH",
+   "PermissionDenied",
+   "defer",
+   "deferred_tool_use",
+   "disableSkillShellExecution",
+   "hook 輸出存檔",
+   "showThinkingSummaries",
+   "v2.1.89",
+   "v2.1.91"
+  ],
+  "terms": [
+   {
+    "term": "PermissionDenied hook",
+    "zh": "auto mode 分類器拒絕時觸發，可回 retry 讓 Claude 換法"
+   },
+   {
+    "term": "defer",
+    "zh": "PreToolUse 決策值，-p 會話在工具呼叫處暫停待外部決定後 --resume"
+   },
+   {
+    "term": "`/powerup`",
+    "zh": "終端內的互動式 Claude Code 功能教學"
+   }
+  ],
+  "memory_hooks": [
+   "PermissionDenied 與 defer 是新 hook 決策面；hook 輸出過大改存檔+預覽，影響以 hook 注入長內容的做法；plugin bin/ 可打包工具。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w15",
+  "title_zh": "第 15 週 · 2026 年 4 月 6–10 日",
+  "one_liner": "Ultraplan 雲端規劃、Monitor 工具與自我調整 /loop、/team-onboarding、/autofix-pr。",
+  "when": "查 Monitor 工具、/loop 自動間隔、/team-onboarding 或 sessionTitle hook 來源。",
+  "keywords": [
+   "ultraplan",
+   "Monitor tool",
+   "/loop",
+   "autofix-pr",
+   "team-onboarding",
+   "focus view",
+   "statusline refreshInterval",
+   "sessionTitle",
+   "UserPromptSubmit",
+   "Perforce",
+   "effort high",
+   "v2.1.98",
+   "v2.1.101"
+  ],
+  "terms": [
+   {
+    "term": "Monitor tool",
+    "zh": "開背景監看並把事件當訊息串流進對話的內建工具"
+   },
+   {
+    "term": "Ultraplan",
+    "zh": "雲端起草計畫的規劃模式（已移除）"
+   },
+   {
+    "term": "`/team-onboarding`",
+    "zh": "把你的 Claude Code 用法打包成新人指南"
+   }
+  ],
+  "memory_hooks": [
+   "Monitor 工具是事件驅動的非輪詢機制；UserPromptSubmit hook 輸出可含 sessionTitle。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w16",
+  "title_zh": "第 16 週 · 2026 年 4 月 13–17 日",
+  "one_liner": "Opus 4.7 與 xhigh 努力等級、Routines、/usage 細目、手機推播、原生二進位檔。",
+  "when": "查 xhigh、routines、/ultrareview 首次出現、PreCompact 可阻擋、monitors manifest。",
+  "keywords": [
+   "Opus 4.7",
+   "xhigh",
+   "effort",
+   "routines",
+   "/usage",
+   "push notification",
+   "native binary",
+   "ultrareview",
+   "PreCompact",
+   "monitors",
+   "recap",
+   "/tui",
+   "/focus",
+   "1h prompt cache",
+   "v2.1.113"
+  ],
+  "terms": [
+   {
+    "term": "xhigh",
+    "zh": "新努力等級，介於 high 與 max"
+   },
+   {
+    "term": "Routines",
+    "zh": "在雲端依排程或事件觸發的範本化 agent"
+   },
+   {
+    "term": "`/recap`",
+    "zh": "返回 session 時給一行離開期間摘要"
+   }
+  ],
+  "memory_hooks": [
+   "PreCompact hook 可阻擋壓縮（exit 2 或 decision:block）；plugin 可用 monitors 鍵自動啟背景監看；1 小時 prompt cache 可選用。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w17",
+  "title_zh": "第 17 週 · 2026 年 4 月 20–24 日",
+  "one_liner": "/ultrareview 公開預覽、session 摘要、自訂主題、hooks 可直接呼叫 MCP 工具、Web 版改版。",
+  "when": "查 hook `type: mcp_tool`、/cost 併入 /usage、fork subagent 環境變數。",
+  "keywords": [
+   "ultrareview",
+   "session recap",
+   "custom themes",
+   "mcp_tool hook",
+   "/usage",
+   "/cost",
+   "/stats",
+   "fork subagent",
+   "CLAUDE_CODE_FORK_SUBAGENT",
+   "bfs",
+   "ugrep",
+   "claude plugin tag",
+   "vim visual",
+   "v2.1.118"
+  ],
+  "terms": [
+   {
+    "term": "hook `type: mcp_tool`",
+    "zh": "hook 直接呼叫已連線 MCP 工具，免開子程序"
+   },
+   {
+    "term": "fork subagent",
+    "zh": "繼承完整對話的分叉子代理"
+   }
+  ],
+  "memory_hooks": [
+   "hooks 可直接叫 MCP 工具（記憶 MCP 可被 hook 直呼）；/config 變更落到 settings.json 並遵循分層優先序。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w18",
+  "title_zh": "第 18 週 · 4 月 27 日 – 5 月 1 日，2026 年",
+  "one_liner": "Windows 免 Git Bash、貼 OAuth 碼登入、claude project purge、PR URL 找回 session。",
+  "when": "查 alwaysLoad、updatedToolOutput、plugin prune、dangerously-skip-permissions 範圍。",
+  "keywords": [
+   "Windows PowerShell",
+   "Git Bash",
+   "auth login",
+   "OAuth code paste",
+   "project purge",
+   "resume PR URL",
+   "alwaysLoad",
+   "tool search",
+   "plugin prune",
+   "updatedToolOutput",
+   "ultrareview CLI",
+   "skip permissions",
+   "v2.1.126"
+  ],
+  "terms": [
+   {
+    "term": "`alwaysLoad`",
+    "zh": "MCP 伺服器設定，讓其全部工具不被 tool search 延遲載入"
+   },
+   {
+    "term": "`updatedToolOutput`",
+    "zh": "PostToolUse hook 可替換任何工具的輸出"
+   }
+  ],
+  "memory_hooks": [
+   "PostToolUse 可改寫任何工具輸出；alwaysLoad 影響 MCP 工具載入策略；project purge 清除專案狀態。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w19",
+  "title_zh": "第 19 週 · 2026 年 5 月 4–8 日",
+  "one_liner": "plugin 可從 .zip／URL 載入、Ctrl+R 搜全專案歷史、worktree.baseRef、auto mode hard_deny。",
+  "when": "查 --plugin-url、worktree.baseRef、hard_deny、hook 取得 effort 的方式。",
+  "keywords": [
+   "plugin zip",
+   "--plugin-url",
+   "Ctrl+R",
+   "worktree.baseRef",
+   "hard_deny",
+   "autoMode",
+   "CLAUDE_EFFORT",
+   "CLAUDE_CODE_SESSION_ID",
+   "OTEL_",
+   "parentSettingsBehavior",
+   "channels console",
+   "v2.1.129",
+   "v2.1.136"
+  ],
+  "terms": [
+   {
+    "term": "hard_deny",
+    "zh": "auto mode 中無論允許例外都一律封鎖的規則"
+   },
+   {
+    "term": "`worktree.baseRef`",
+    "zh": "新 worktree 的分支基準設定"
+   }
+  ],
+  "memory_hooks": [
+   "Bash 環境與 hooks 的 session_id 對齊（CLAUDE_CODE_SESSION_ID）；hooks 可讀 effort 等級。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w20",
+  "title_zh": "第 20 週 · 2026 年 5 月 11–15 日",
+  "one_liner": "agent view（claude agents）、/goal、Opus 4.7 上的快速模式。",
+  "when": "查 /goal、agent view、hook args/continueOnBlock/terminalSequence 何時加入。",
+  "keywords": [
+   "agent view",
+   "claude agents",
+   "/goal",
+   "fast mode",
+   "Opus 4.7",
+   "hook args",
+   "exec form",
+   "continueOnBlock",
+   "terminalSequence",
+   "Summarize up to here",
+   "CLAUDE_PROJECT_DIR",
+   "plugin details",
+   "v2.1.139"
+  ],
+  "terms": [
+   {
+    "term": "agent view",
+    "zh": "列出所有 Claude Code session 狀態的儀表板"
+   },
+   {
+    "term": "`/goal`",
+    "zh": "設定終止條件、Claude 持續回合直到成立"
+   },
+   {
+    "term": "hook exec form `args`",
+    "zh": "不經 shell 直接 spawn 命令的 hook 寫法"
+   }
+  ],
+  "memory_hooks": [
+   "hook exec form 免引號問題；continueOnBlock 把 hook 拒絕理由回饋給 Claude；terminalSequence 讓 hook 發通知；MCP stdio 與 hooks 共用 CLAUDE_PROJECT_DIR。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w21",
+  "title_zh": "第 21 週 · 2026 年 5 月 18–22 日",
+  "one_liner": "Pro 方案可用 auto mode（Sonnet 4.6）、/usage 分類歸因、/code-review。",
+  "when": "查 /code-review 起源、usage credits 更名、worktree.bgIsolation。",
+  "keywords": [
+   "auto mode Pro",
+   "Sonnet 4.6",
+   "/usage breakdown",
+   "usage credits",
+   "/usage-credits",
+   "code-review",
+   "simplify",
+   "claude agents --json",
+   "PowerShell default",
+   "bgIsolation",
+   "allowAllClaudeAiMcps",
+   "v2.1.143",
+   "v2.1.149"
+  ],
+  "terms": [
+   {
+    "term": "usage credits",
+    "zh": "舊稱 extra usage 的額外用量額度"
+   },
+   {
+    "term": "`/code-review`",
+    "zh": "在選定 effort 下報告正確性問題的審查指令"
+   }
+  ],
+  "memory_hooks": [
+   "/usage 可看 skills、MCP 的耗用歸因；背景 session 可被 /resume。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w22",
+  "title_zh": "第 22 週 · 5 月 25–29 日，2026 年",
+  "one_liner": "Opus 4.8、動態 workflows、security-guidance plugin、Opus 4.8 快速模式降價。",
+  "when": "查 dynamic workflows、MessageDisplay hook、/reload-skills、plugin defaultEnabled。",
+  "keywords": [
+   "Opus 4.8",
+   "dynamic workflows",
+   "/workflows",
+   "security-guidance",
+   "fast mode",
+   "MessageDisplay",
+   "reloadSkills",
+   "/reload-skills",
+   "disallowed-tools",
+   "defaultEnabled",
+   "fallback-model",
+   "plugin init",
+   "v2.1.154",
+   "ultracode"
+  ],
+  "terms": [
+   {
+    "term": "dynamic workflows",
+    "zh": "Claude 為任務寫的協調腳本，背景驅動大量子代理"
+   },
+   {
+    "term": "`MessageDisplay` hook",
+    "zh": "轉換或隱藏助手訊息顯示文字的 hook 事件"
+   },
+   {
+    "term": "`/reload-skills`",
+    "zh": "不重啟重新掃描 skill 目錄"
+   }
+  ],
+  "memory_hooks": [
+   "SessionStart hook 可回 reloadSkills 使剛安裝的 skill 同 session 生效；MessageDisplay 為新 hook 事件；disallowed-tools 讓 skill 啟用時收窄工具。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w23",
+  "title_zh": "第 23 週 · 2026 年 6 月 1–5 日",
+  "one_liner": "第三方雲端也有 auto mode、acceptEdits 更安全、/plugin list、受管版本範圍。",
+  "when": "查 requiredMinimumVersion、Stop hook additionalContext、ultracode 關鍵字改名。",
+  "keywords": [
+   "auto mode Bedrock",
+   "acceptEdits",
+   "/plugin list",
+   "requiredMinimumVersion",
+   "requiredMaximumVersion",
+   "ultracode",
+   "Stop hook",
+   "SubagentStop",
+   "additionalContext",
+   "claude mcp secrets",
+   "v2.1.158",
+   "v2.1.163"
+  ],
+  "terms": [
+   {
+    "term": "`ultracode`",
+    "zh": "動態 workflows 的提示觸發關鍵字（原為 workflow）"
+   },
+   {
+    "term": "requiredMinimumVersion",
+    "zh": "管理員設定，版本不在範圍內的 client 啟動即退出"
+   }
+  ],
+  "memory_hooks": [
+   "Stop/SubagentStop hook 可回 additionalContext 讓回合不結束——可作收尾提醒注入點。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w24",
+  "title_zh": "第 24 週 · 2026 年 6 月 8–12 日",
+  "one_liner": "/cd 移動 session、子代理可再生子代理、--safe-mode 疑難排解。",
+  "when": "查 safe-mode、fallbackModel 設定、nested subagent 深度、/cd。",
+  "keywords": [
+   "/cd",
+   "safe mode",
+   "--safe-mode",
+   "nested subagents",
+   "subagent depth",
+   "fallbackModel",
+   "disableBundledSkills",
+   "deny glob",
+   "SendMessage authority",
+   "enforceAvailableModels",
+   "v2.1.169",
+   "v2.1.172"
+  ],
+  "terms": [
+   {
+    "term": "safe mode",
+    "zh": "停用一切自訂項目的乾淨啟動模式"
+   },
+   {
+    "term": "`/cd`",
+    "zh": "把進行中的 session 移到新工作目錄"
+   }
+  ],
+  "memory_hooks": [
+   "safe mode 會關閉 hooks 與 CLAUDE.md（排查記憶 hook 故障的隔離手段）；/cd 以附加訊息載入新 CLAUDE.md。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w25",
+  "title_zh": "第 25 週 · 2026 年 6 月 15–19 日",
+  "one_liner": "Artifacts 即時頁面、權限規則可比對工具參數、/config key=value。",
+  "when": "查 Tool(param:value) 語法、Artifacts 起源、agent teams 隱含團隊。",
+  "keywords": [
+   "Artifacts",
+   "Tool(param:value)",
+   "permission rules parameter",
+   "/config key=value",
+   "agent teams",
+   "TeamCreate",
+   "nested skills",
+   "attribution.sessionUrl",
+   "sandbox.allowAppleEvents",
+   "v2.1.178",
+   "v2.1.181"
+  ],
+  "terms": [
+   {
+    "term": "Artifacts",
+    "zh": "Claude Code 發佈的即時可分享頁面"
+   },
+   {
+    "term": "`Tool(param:value)`",
+    "zh": "權限規則依工具輸入參數比對的語法"
+   }
+  ],
+  "memory_hooks": [
+   "permission 規則可依參數比對；巢狀 .claude/skills 於處理該目錄檔案時載入。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w26",
+  "title_zh": "第 26 週 · 2026 年 6 月 22–26 日",
+  "one_liner": "claude mcp login、! 指令輸出會得到回應、/rewind 可回到 /clear 前。",
+  "when": "查 sandbox.credentials、autoMode.classifyAllShell、background subagent 權限提示。",
+  "keywords": [
+   "claude mcp login",
+   "bash mode respond",
+   "respondToBashCommands",
+   "/rewind",
+   "/clear",
+   "sandbox.credentials",
+   "classifyAllShell",
+   "assistant_response OTel",
+   "background subagent permission",
+   "v2.1.186",
+   "v2.1.193"
+  ],
+  "terms": [
+   {
+    "term": "`sandbox.credentials`",
+    "zh": "阻止沙箱化命令讀憑證檔與祕密環境變數"
+   },
+   {
+    "term": "`classifyAllShell`",
+    "zh": "讓所有 shell 命令都過 auto mode 分類器"
+   }
+  ],
+  "memory_hooks": [
+   "OTel 新增 assistant_response 事件（會帶回應文字，隱私需留意）；/rewind 可回 /clear 前。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w27",
+  "title_zh": "第 27 週 · 6 月 29 日 – 7 月 3 日，2026 年",
+  "one_liner": "Sonnet 5 成預設、Chrome 整合正式推出、子代理預設背景、/radio。",
+  "when": "查 subagents 預設背景起點、Manual 權限模式名稱、Artifacts GA、hook matcher 精確比對。",
+  "keywords": [
+   "Sonnet 5",
+   "Claude in Chrome GA",
+   "background subagents",
+   "Desktop Linux",
+   "/radio",
+   "Manual mode",
+   "permission mode",
+   "org default model",
+   "stacked skills",
+   "hook matcher exact",
+   "stream watchdog",
+   "v2.1.198"
+  ],
+  "terms": [
+   {
+    "term": "Manual 權限模式",
+    "zh": "原 default 權限模式的新名稱"
+   },
+   {
+    "term": "background subagent",
+    "zh": "子代理預設背景執行、不阻塞主對話"
+   }
+  ],
+  "memory_hooks": [
+   "hook matcher 含連字號識別符改精確比對（`code-reviewer` 不再子字串比對），可能影響既有 matcher；子代理背景化改變 SubagentStop 時機。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w28",
+  "title_zh": "第 28 週 · 2026 年 7 月 6–10 日",
+  "one_liner": "Desktop 內建瀏覽器、/doctor 完整檢查並可修復、auto mode 保護 transcript。",
+  "when": "查 /doctor 新行為、/checkup、auto mode 防篡改 transcript。",
+  "keywords": [
+   "Desktop in-app browser",
+   "/doctor",
+   "/checkup",
+   "CLAUDE.md dedupe",
+   "unused skills",
+   "transcript tamper",
+   "rm -rf",
+   "/cd suggestions",
+   "EnterWorktree confirm",
+   "v2.1.205"
+  ],
+  "terms": [
+   {
+    "term": "`/doctor`",
+    "zh": "完整設定檢查，可診斷並修復，別名 /checkup"
+   }
+  ],
+  "memory_hooks": [
+   "/doctor 會提議精簡簽入的 CLAUDE.md 與找未用 skills/MCP；auto mode 保護 transcript 檔。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w29",
+  "title_zh": "第 29 週 · 2026 年 7 月 13–17 日",
+  "one_liner": "Artifacts 可呼叫 MCP 連接器取即時資料、螢幕閱讀器模式。",
+  "when": "查 /fork 新語義、/subtask、MCP 工具自動背景化、session 上限。",
+  "keywords": [
+   "artifact MCP connector",
+   "screen reader mode",
+   "/fork",
+   "/subtask",
+   "MCP auto background",
+   "CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS",
+   "auto-mode reset",
+   "CLAUDE_CODE_PROCESS_WRAPPER",
+   "subagent cap",
+   "WebSearch cap",
+   "v2.1.212"
+  ],
+  "terms": [
+   {
+    "term": "`/subtask`",
+    "zh": "session 內的分叉子代理（原 /fork 的舊義）"
+   },
+   {
+    "term": "process wrapper",
+    "zh": "強制所有衍生程序通過企業啟動器的設定"
+   }
+  ],
+  "memory_hooks": [
+   "「一律允許」規則存 repo 根使 worktree 共用核准；MCP 長呼叫自動背景化；子代理生成有 session 上限。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w30",
+  "title_zh": "第 30 週 · 7 月 20–24 日，2026 年",
+  "one_liner": "Opus 5 成預設 Opus、Desktop iOS Simulator 窗格、Claude Security plugin。",
+  "when": "查 /code-review 背景化、DirectoryAdded hook、子代理並行上限。",
+  "keywords": [
+   "Opus 5",
+   "iOS Simulator",
+   "Claude Security",
+   "claude-security",
+   "code-review background",
+   "DirectoryAdded",
+   "context fork",
+   "max concurrent subagents",
+   "max-budget-usd",
+   "emoji shortcode",
+   "v2.1.219"
+  ],
+  "terms": [
+   {
+    "term": "`DirectoryAdded` hook",
+    "zh": "`/add-dir` 註冊新工作目錄後觸發的 hook"
+   },
+   {
+    "term": "`context: fork`",
+    "zh": "skill frontmatter：在分叉子代理中執行"
+   }
+  ],
+  "memory_hooks": [
+   "DirectoryAdded 為新 hook 事件；context: fork skill 預設背景，並行子代理上限 20。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w32",
+  "title_zh": "第 32 週 · 2026 年 8 月 3–7 日",
+  "one_liner": "session 之間可互傳訊息、自託管環境、auto mode 成預設權限模式。",
+  "when": "查 SendMessage／ListAgents、self-hosted runner、crossSessionInbound、auto mode 預設日期。",
+  "keywords": [
+   "cross-session messaging",
+   "SendMessage",
+   "ListAgents",
+   "/list-agents",
+   "self-hosted runner",
+   "self-hosted environments",
+   "auto mode default",
+   "crossSessionInbound",
+   "sandbox mask",
+   "archive marketplace",
+   "ultraplan removed",
+   "v2.1.224"
+  ],
+  "terms": [
+   {
+    "term": "cross-session messaging",
+    "zh": "同機或跨機 Claude session 互傳訊息的機制"
+   },
+   {
+    "term": "self-hosted environment",
+    "zh": "在自家機器／容器上跑 Claude Code 雲端 session 的執行器"
+   },
+   {
+    "term": "`crossSessionInbound`",
+    "zh": "設定是否接受他 session 訊息（accept/hold/refuse）"
+   }
+  ],
+  "memory_hooks": [
+   "SendMessage/ListAgents 提供多 session 協作的官方通道；crossSessionInbound 控制接收；轉送訊息不帶使用者授權（防注入）。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w33",
+  "title_zh": "第 33 週 · 2026 年 8 月 10–14 日",
+  "one_liner": "Desktop 用量重置後自動續跑、fork 模式預設開、GitLab MR 與 marketplace。",
+  "when": "查 fork subagent 預設、@ 提及他 session、TodoWrite 移除、GitLab 支援。",
+  "keywords": [
+   "auto resume usage limit",
+   "fork mode",
+   "CLAUDE_CODE_FORK_SUBAGENT",
+   "GitLab merge request",
+   "@ mention session",
+   "unique session names",
+   "TodoWrite removed",
+   "ENABLE_TODO_TOOLS",
+   "marketplace command source",
+   "TOOL_MEMORY_LIMIT",
+   "v2.1.232"
+  ],
+  "terms": [
+   {
+    "term": "fork mode",
+    "zh": "子代理繼承整份對話與快取的分叉模式"
+   },
+   {
+    "term": "`@session`",
+    "zh": "在提示用 @ 提及另一個 Claude session 名稱並用 SendMessage 傳訊"
+   }
+  ],
+  "memory_hooks": [
+   "任務追蹤工具（TodoWrite 等）在新模型移除；fork 子代理共享 prompt cache，利於注入內容重用。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w34",
+  "title_zh": "第 34 週 · 2026 年 8 月 17–21 日",
+  "one_liner": "/design 畫板、簡潔輸出風格、手機可在你的機器開 session、Remote Control 不再預覽。",
+  "when": "查 concise output style、spellcheck 設定、keybindingFlavor、notify_when_idle。",
+  "keywords": [
+   "/design",
+   "concise output style",
+   "output style",
+   "remote control GA",
+   "phone start session",
+   "spellcheck",
+   "ANTHROPIC_DEFAULT_MODEL",
+   "notify_when_idle",
+   "keybindingFlavor",
+   "auto continue usage limit",
+   "v2.1.237"
+  ],
+  "terms": [
+   {
+    "term": "`/design`",
+    "zh": "從簡短描述產出可編輯 UI 畫板的技能"
+   },
+   {
+    "term": "`notify_when_idle`",
+    "zh": "SendMessage 參數：請對方 session 閒置時回報一次"
+   }
+  ],
+  "memory_hooks": [
+   "notify_when_idle 提供 session 間輕量同步訊號；ANTHROPIC_DEFAULT_MODEL 可設新 session 起始模型。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w35",
+  "title_zh": "第 35 週 · 2026 年 8 月 24–28 日",
+  "one_liner": "Desktop 可恢復終端 session、Claude 草擬回饋、--restricted 受限模式。",
+  "when": "查 --restricted、SendFeedback 工具、modelPicker／promptCacheTtl 設定、/cd 後設定生效。",
+  "keywords": [
+   "--restricted",
+   "CLAUDE_CODE_RESTRICTED",
+   "SendFeedback",
+   "/feedback",
+   "modelPicker",
+   "promptCacheTtl",
+   "subagentPromptCacheTtl",
+   "modelPricing",
+   "/usage loops",
+   "Console login",
+   "auto mode tab",
+   "/cd settings",
+   "v2.1.248"
+  ],
+  "terms": [
+   {
+    "term": "restricted mode",
+    "zh": "啟動時不含任何可執行命令的工具與使用者／專案設定"
+   },
+   {
+    "term": "`SendFeedback`",
+    "zh": "Claude 自行草擬回饋報告的工具"
+   }
+  ],
+  "memory_hooks": [
+   "/cd 後專案 hooks／.mcp.json／skills／subagents 即時生效；promptCacheTtl 可延長快取；--restricted 不載入使用者與專案設定。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w36",
+  "title_zh": "第 36 週 · 8 月 31 日 – 9 月 4 日，2026 年",
+  "one_liner": "Fable 5.1、Desktop 背景 Computer use、/diff 即時面板、/skill-doctor。",
+  "when": "查 PreModelSwitch／PostModelSwitch hook、/skill-doctor、/cost 快取行、bypassPermissions 專案設定失效。",
+  "keywords": [
+   "Fable 5.1",
+   "computer use background",
+   "/diff panel",
+   "/skill-doctor",
+   "PreModelSwitch",
+   "PostModelSwitch",
+   "/cost prompt cache",
+   "managedMcpServers",
+   "bashOutputMaxChars",
+   "taskOutputMaxChars",
+   "bypassPermissions project",
+   "v2.1.261"
+  ],
+  "terms": [
+   {
+    "term": "`PreModelSwitch` hook",
+    "zh": "模型切換前觸發，可阻擋"
+   },
+   {
+    "term": "`/skill-doctor`",
+    "zh": "列出各 skill 的上下文成本與使用率"
+   }
+  ],
+  "memory_hooks": [
+   "新增模型切換前後 hook；/skill-doctor 量化 skill 描述的 context 成本（類似 atom 注入成本檢視）；output 上限可放寬到 128K 字元。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ },
+ {
+  "slug": "whats-new/2026-w37",
+  "title_zh": "第 37 週 · 2026 年 9 月 7–11 日",
+  "one_liner": "claude plugin eval 測試外掛、Desktop 窗格可彈出、maxEffortLevel。",
+  "when": "查 plugin eval、maxEffortLevel、WebFetch 逾時、--plugin-dir 資料夾載入多個。",
+  "keywords": [
+   "plugin eval",
+   "claude plugin eval",
+   "maxEffortLevel",
+   "WebFetch deadline",
+   "plugin-dir folder",
+   "plugin --json",
+   "auto mode reason",
+   "Desktop pop out pane",
+   "VS Code agent map",
+   "v2.1.269"
+  ],
+  "terms": [
+   {
+    "term": "plugin eval",
+    "zh": "對 plugin 跑測試案例、評分並與無 plugin 基準比較"
+   },
+   {
+    "term": "`maxEffortLevel`",
+    "zh": "限制努力等級上限的設定"
+   }
+  ],
+  "memory_hooks": [
+   "plugin eval 可量測 plugin（含 hooks）貢獻；plugin 命令加 --json 便於自動化。"
+  ],
+  "section": "What's New",
+  "subsection": "What's New"
+ }
+]

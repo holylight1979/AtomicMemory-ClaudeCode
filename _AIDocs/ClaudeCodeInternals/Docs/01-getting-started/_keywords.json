@@ -1,0 +1,484 @@
+[
+ {
+  "slug": "overview",
+  "title_zh": "概述",
+  "one_liner": "Claude Code 是能讀程式碼、改檔、跑指令的代理式編碼工具，各平台都能用。",
+  "when": "第一次認識 Claude Code、要選安裝方式或平台時。",
+  "keywords": [
+   "overview",
+   "概述",
+   "install",
+   "安裝",
+   "curl install.sh",
+   "Homebrew",
+   "WinGet",
+   "native install",
+   "平台",
+   "terminal",
+   "IDE",
+   "desktop",
+   "web",
+   "Slack",
+   "Chrome"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Getting started",
+  "subsection": "Getting started"
+ },
+ {
+  "slug": "quickstart",
+  "title_zh": "快速入門",
+  "one_liner": "七步帶你在終端機安裝、登入、問問題、改程式、用 git。",
+  "when": "剛裝好要跑第一個 session，或查基本指令表時。",
+  "keywords": [
+   "quickstart",
+   "快速入門",
+   "claude -p",
+   "claude -c",
+   "claude -r",
+   "/clear",
+   "/help",
+   "/exit",
+   "Shift+Tab",
+   "登入",
+   "login",
+   "first session",
+   "基本命令"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Getting started",
+  "subsection": "Getting started"
+ },
+ {
+  "slug": "how-claude-code-works",
+  "title_zh": "Claude Code 如何運作",
+  "one_liner": "說明代理迴圈、內建工具、context 視窗、session、檢查點與權限的整體架構。",
+  "when": "想理解 Claude Code 內部運作、context 何時滿、session 怎麼存時。",
+  "keywords": [
+   "agentic loop",
+   "代理迴圈",
+   "tools",
+   "內建工具",
+   "context window",
+   "上下文",
+   "compact",
+   "自動壓縮",
+   "session",
+   "JSONL",
+   "checkpoint",
+   "檢查點",
+   "permission mode",
+   "權限模式",
+   "system-reminder",
+   "fork-session",
+   "/branch",
+   "/context",
+   "worktree"
+  ],
+  "terms": [
+   {
+    "term": "agentic loop",
+    "zh": "代理迴圈：Claude 反覆「看→做→驗」直到任務完成"
+   },
+   {
+    "term": "agent harness",
+    "zh": "代理工具層：包在模型外、提供工具並管理 context 的那一層"
+   },
+   {
+    "term": "checkpoint",
+    "zh": "檢查點：編輯前的檔案快照，可回溯但不含 Bash 改的檔"
+   }
+  ],
+  "memory_hooks": [
+   "context 管理：CLAUDE.md 與自動記憶每個 session 開頭載入、compact 後從磁碟重注入；system-reminder 是 Claude Code 自己夾帶指令的機制；session 逐字稿路徑 `~/.claude/projects/` 可供外部工具讀"
+  ],
+  "section": "Getting started",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "features-overview",
+  "title_zh": "擴展 Claude Code",
+  "one_liner": "比較 CLAUDE.md、skills、subagent、hooks、MCP、plugins 等擴充功能何時用哪個、context 成本多少。",
+  "when": "決定某需求該做成 CLAUDE.md、rule、skill、hook 還是 MCP 時。",
+  "keywords": [
+   "extensions",
+   "擴充",
+   "CLAUDE.md",
+   "skills",
+   "subagent",
+   "hooks",
+   "MCP",
+   "plugins",
+   "marketplace",
+   "output style",
+   "dynamic workflow",
+   "cross-session messaging",
+   "code intelligence",
+   "context cost",
+   "disable-model-invocation",
+   "context: fork",
+   "分層",
+   "precedence"
+  ],
+  "terms": [
+   {
+    "term": "plugin",
+    "zh": "外掛：把 skill、hook、subagent、MCP 打包成可安裝單元"
+   },
+   {
+    "term": "dynamic workflow",
+    "zh": "動態工作流程：Claude 寫腳本在背景跑多個 subagent 回傳單一結果"
+   },
+   {
+    "term": "cross-session messaging",
+    "zh": "跨工作階段傳訊：一個 session 的 Claude 傳訊息給另一個 session"
+   },
+   {
+    "term": "output style",
+    "zh": "輸出風格：設定回應角色、語氣、格式的常駐指令，一次只有一個生效"
+   }
+  ],
+  "memory_hooks": [
+   "設定分層與 context 載入時機的權威對照表：CLAUDE.md 全載、skill 描述常駐、MCP 只載名稱、hooks 零成本；hooks 全部合併觸發（不覆寫），可與其他來源的 hook 並存；hook 輸出會進 context"
+  ],
+  "section": "Getting started",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "claude-directory",
+  "title_zh": "探索 .claude 目錄",
+  "one_liner": "列出專案 `.claude/` 與 `~/.claude` 每個檔案的用途、載入時機、保留與清理規則。",
+  "when": "想知道某設定該放哪個檔、`~/.claude` 下有哪些資料、何時被清掉時。",
+  "keywords": [
+   ".claude directory",
+   ".claude 目錄",
+   "~/.claude",
+   "CLAUDE.md",
+   "settings.json",
+   "settings.local.json",
+   ".mcp.json",
+   "rules",
+   "skills",
+   "agents",
+   "workflows",
+   "agent-memory",
+   "cleanupPeriodDays",
+   "CLAUDE_CONFIG_DIR",
+   "transcript",
+   "history.jsonl",
+   "scratchpad",
+   "frontmatter",
+   ".worktreeinclude",
+   "managed-settings"
+  ],
+  "terms": [
+   {
+    "term": "scratchpad",
+    "zh": "暫存簿：每個 session 的臨時檔目錄，位於系統暫存區"
+   },
+   {
+    "term": "managed-settings.json",
+    "zh": "企業強制設定，使用者設定與 `--settings` 都不能蓋過（少數例外）"
+   }
+  ],
+  "memory_hooks": [
+   "設定分層與檔案位置：專案 vs `~/.claude`、commit 與否；自動記憶目錄 `projects/<project>/memory/` 免於保留掃描；`rules/` 僅 `paths` frontmatter；逐字稿明文含已載入的指令檔；保留掃描只處理文件列出的路徑"
+  ],
+  "section": "Getting started",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "context-window",
+  "title_zh": "探索上下文視窗",
+  "one_liner": "互動時間軸展示 context 從啟動到 compact 的填充過程與各機制的載入/壓縮後去留。",
+  "when": "要知道什麼在啟動載入、compact 後什麼會留、如何控制 context 時。",
+  "keywords": [
+   "context window",
+   "上下文視窗",
+   "compact",
+   "/compact",
+   "/autocompact",
+   "/rewind",
+   "/clear",
+   "/context",
+   "SessionStart compact",
+   "重新注入",
+   "path-scoped rules",
+   "paths frontmatter",
+   "skill 5000 token",
+   "1M context",
+   "自動壓縮",
+   "idle compaction"
+  ],
+  "terms": [
+   {
+    "term": "compaction",
+    "zh": "壓縮：把舊對話換成結構化摘要以騰出空間"
+   },
+   {
+    "term": "Referenced file",
+    "zh": "壓縮後以路徑引用、不含內容的大檔顯示"
+   }
+  ],
+  "memory_hooks": [
+   "SessionStart hook 可用 matcher `compact` 在壓縮後重注入內容（記憶注入可借用）；CLAUDE.md/自動記憶/無 paths 規則 compact 後從磁碟重注入，hook 先前注入的 context 則被摘要而非保留；PostToolUse hook 輸出進 context；`/context all` 可驗證載入清單"
+  ],
+  "section": "Getting started",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "prompt-caching",
+  "title_zh": "Claude Code 如何使用 prompt caching",
+  "one_liner": "Claude Code 如何用 prompt caching：請求分層、哪些動作會讓快取失效、TTL 與檢查方式。",
+  "when": "回應突然變慢/變貴、要決定切模型/改 CLAUDE.md/裝 MCP 時機，或調 TTL 時。",
+  "keywords": [
+   "prompt caching",
+   "提示快取",
+   "cache TTL",
+   "cache_read_input_tokens",
+   "cache_creation_input_tokens",
+   "promptCacheTtl",
+   "subagentPromptCacheTtl",
+   "FORCE_PROMPT_CACHING_5M",
+   "ENABLE_PROMPT_CACHING_1H",
+   "invalidate cache",
+   "model switch",
+   "fast mode",
+   "/usage",
+   "PreModelSwitch",
+   "前綴",
+   "prefix",
+   "statusline"
+  ],
+  "terms": [
+   {
+    "term": "prompt prefix",
+    "zh": "前綴：每次請求開頭與快取比對的那段內容"
+   },
+   {
+    "term": "cache TTL",
+    "zh": "快取存活時間，5 分鐘或 1 小時"
+   },
+   {
+    "term": "opusplan",
+    "zh": "plan mode 用 Opus、執行用 Sonnet 的模型設定，每次切換都是一次模型切換"
+   }
+  ],
+  "memory_hooks": [
+   "關鍵：session 中途改 CLAUDE.md／自動記憶不會即時生效，重注入時機只有 session 開始與 `/clear`、`/compact`；系統層（工具定義）變動比對話層貴，MCP 工具增減會影響快取；系統提示內嵌自動記憶路徑"
+  ],
+  "section": "Getting started",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "memory",
+  "title_zh": "Claude 如何記住您的專案",
+  "one_liner": "說明 CLAUDE.md、AGENTS.md、`.claude/rules/` 與自動記憶的載入層級、路徑、大小預算與疑難排解。",
+  "when": "要設計指令檔層級、調整規則範圍、查自動記憶位置/限額、或除錯「為何沒遵守」時。",
+  "keywords": [
+   "memory",
+   "記憶",
+   "CLAUDE.md",
+   "CLAUDE.local.md",
+   "AGENTS.md",
+   "auto memory",
+   "自動記憶",
+   "MEMORY.md",
+   "autoMemoryEnabled",
+   "autoMemoryDirectory",
+   "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+   ".claude/rules",
+   "path-scoped rules",
+   "paths",
+   "@import",
+   "claudeMdExcludes",
+   "claudeMd",
+   "/memory",
+   "/init",
+   "/doctor prompt-audit",
+   "InstructionsLoaded",
+   "200 lines",
+   "25KB",
+   "managed CLAUDE.md",
+   "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
+   "/config Project instructions"
+  ],
+  "terms": [
+   {
+    "term": "auto memory",
+    "zh": "自動記憶：Claude 自己寫、跨 session 累積的筆記"
+   },
+   {
+    "term": "CLAUDE.local.md",
+    "zh": "個人專案偏好檔，與 CLAUDE.md 同載入，需自行 gitignore"
+   },
+   {
+    "term": "AGENTS.md",
+    "zh": "其他編碼 agent 通用的指令檔，無 CLAUDE.md 時預設改讀它（v2.1.277+）"
+   },
+   {
+    "term": "path-scoped rule",
+    "zh": "路徑範圍規則：frontmatter 有 `paths` 的 rule，碰到符合檔案才載入"
+   },
+   {
+    "term": "claudeMdExcludes",
+    "zh": "設定鍵：以 glob 排除特定 CLAUDE.md/規則檔"
+   }
+  ],
+  "memory_hooks": [
+   "直接對應記憶系統：(1) 原生 auto memory 目錄 `~/.claude/projects/<project>/memory/` + `MEMORY.md` 200 行／25KB 上限，與自製 atom 系統並存時路徑與預算要分開；(2) CLAUDE.md 是 user message 非 system prompt、compact 後從磁碟重注入；(3) `InstructionsLoaded` hook 可觀測載入；(4) `~/.claude/rules/` 無 paths 者啟動即載；(5) `autoMemoryDirectory` 可指向自訂目錄；(6) 寫 MEMORY.md 後 Claude Code 會量測並提醒/回錯；(7) `@import` 可把外部檔案併入 CLAUDE.md（本機已用 @IDENTITY.md 等）"
+  ],
+  "section": "Getting started",
+  "subsection": "Use Claude Code"
+ },
+ {
+  "slug": "sessions",
+  "title_zh": "管理 sessions",
+  "one_liner": "管理 session：恢復、命名、分支、選擇器、匯出與逐字稿儲存位置。",
+  "when": "要接續/分支舊對話、找逐字稿檔、或給腳本讀 session 資料時。",
+  "keywords": [
+   "sessions",
+   "工作階段",
+   "--continue",
+   "--resume",
+   "--from-pr",
+   "/resume",
+   "/branch",
+   "--fork-session",
+   "/rename",
+   "-n",
+   "session picker",
+   "transcript",
+   "逐字稿",
+   "jsonl",
+   "/export",
+   "claude purge",
+   "CLAUDE_CODE_PROJECT_DIR_NAME",
+   "cleanupPeriodDays",
+   "background session",
+   "agent view",
+   "claude attach",
+   "/clear"
+  ],
+  "terms": [
+   {
+    "term": "session",
+    "zh": "工作階段：綁定專案目錄、存成 JSONL 的已儲存對話"
+   },
+   {
+    "term": "background session",
+    "zh": "背景工作階段：脫離終端機持續執行，可 `claude attach`"
+   },
+   {
+    "term": "fork",
+    "zh": "分叉：複製歷史成新 session ID 而不動原本"
+   }
+  ],
+  "memory_hooks": [
+   "hook 輸入含 `transcript_path`，SessionEnd hook 可讀完整逐字稿（對話萃取可借用）；session 以 cwd 為鍵；多 session 同時 resume 同一 ID 會交錯寫同檔（協作衝突點）；自動記憶與逐字稿共用 `<project>` 目錄命名規則"
+  ],
+  "section": "Getting started",
+  "subsection": "Use Claude Code"
+ },
+ {
+  "slug": "common-workflows",
+  "title_zh": "常見工作流程",
+  "one_liner": "日常開發食譜：探索程式碼、除錯、重構、測試、PR、文件、圖片、排程、worktree、plan mode。",
+  "when": "要找某類任務的現成提示寫法與對應指令時。",
+  "keywords": [
+   "common workflows",
+   "常見工作流程",
+   "prompt recipes",
+   "debug",
+   "refactor",
+   "tests",
+   "pull request",
+   "worktree",
+   "--worktree",
+   "plan mode",
+   "subagent",
+   "claude -p",
+   "pipe",
+   "/loop",
+   "scheduled tasks",
+   "@ file reference",
+   "images",
+   "/powerup"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Getting started",
+  "subsection": "Use Claude Code"
+ },
+ {
+  "slug": "best-practices",
+  "title_zh": "Claude Code 最佳實踐",
+  "one_liner": "最佳實踐：告訴 Claude 看不到的資訊、給可執行檢查、用 hook 強制規則、控成本、無人值守執行。",
+  "when": "調整 CLAUDE.md/hook/成本/無人值守設定，或判斷哪些舊習慣可以停做時。",
+  "keywords": [
+   "best practices",
+   "最佳實踐",
+   "deterministic",
+   "確定性",
+   "Stop hook",
+   "PostToolUse",
+   "PreToolUse",
+   "/goal",
+   "/code-review",
+   "/verify",
+   "--bare",
+   "--max-turns",
+   "--max-budget-usd",
+   "dontAsk",
+   "worktree",
+   "-w",
+   "/batch",
+   ".worktreeinclude",
+   "/usage",
+   "/loop",
+   "CLAUDE.md 簡短",
+   "prompt cache TTL"
+  ],
+  "terms": [
+   {
+    "term": "Stop hook",
+    "zh": "Claude 想結束回合時觸發的 hook，exit 2 可逼它繼續"
+   },
+   {
+    "term": "/goal",
+    "zh": "設定完成條件，由另一模型每回合檢查"
+   },
+   {
+    "term": "--bare",
+    "zh": "`claude -p` 旗標：略過 hook/skill/外掛/MCP/CLAUDE.md，確保可重現"
+   }
+  ],
+  "memory_hooks": [
+   "最直接的「規則強制」依據：「一再強調仍漏掉 → 改成 hook」；Stop hook（exit 2＋stderr）可作為收尾閘；`--bare` 會略過 hook 與 CLAUDE.md（headless 腳本不會載入記憶注入）；hook 類型含 http 與 MCP tool；Stop hook 連續封鎖八次後放行（與自製 guardian 擋次數設計相關）"
+  ],
+  "section": "Getting started",
+  "subsection": "Use Claude Code"
+ },
+ {
+  "slug": "prompt-library",
+  "title_zh": "提示詞庫",
+  "one_liner": "可複製貼上的提示詞庫（依任務/角色），附成效模式說明。",
+  "when": "不知道怎麼下提示、想找現成範本時。",
+  "keywords": [
+   "prompt library",
+   "提示詞庫",
+   "prompt patterns",
+   "@ file",
+   "/verify",
+   "output styles",
+   "templates",
+   "範本"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Getting started",
+  "subsection": "Use Claude Code"
+ }
+]

@@ -1,0 +1,998 @@
+[
+ {
+  "slug": "agent-sdk/overview",
+  "title_zh": "Agent SDK 概述",
+  "one_liner": "Agent SDK 是把 Claude Code 引擎當成 Python/TS 函式庫嵌入自己的程式。",
+  "when": "想判斷該用 SDK、CLI、Client SDK 還是 Managed Agents 時。",
+  "keywords": [
+   "Agent SDK",
+   "claude-agent-sdk",
+   "@anthropic-ai/claude-agent-sdk",
+   "Managed Agents",
+   "Client SDK",
+   "嵌入",
+   "library",
+   "品牌指南",
+   "claude -p"
+  ],
+  "terms": [
+   {
+    "term": "Agent SDK",
+    "zh": "把 Claude Code 當函式庫嵌進自己程式的套件"
+   },
+   {
+    "term": "Managed Agents",
+    "zh": "Anthropic 雲端託管代理迴圈的服務"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 與 CLI 共用同一引擎，`~/.claude`（CLAUDE.md、skills、hooks、settings）在 SDK 內預設也會生效，現有注入機制可被沿用"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Agent SDK"
+ },
+ {
+  "slug": "agent-sdk/quickstart",
+  "title_zh": "快速開始",
+  "one_liner": "用 Python/TS 十來行建出會讀程式、找 bug 並自動修的代理。",
+  "when": "第一次安裝 SDK、跑出第一個代理時。",
+  "keywords": [
+   "快速開始",
+   "quickstart",
+   "安裝",
+   "ANTHROPIC_API_KEY",
+   "query",
+   "allowedTools",
+   "permissionMode",
+   "第一個代理",
+   "Node 18.14",
+   "Python 3.10"
+  ],
+  "terms": [
+   {
+    "term": "query()",
+    "zh": "SDK 的主入口，回傳訊息串流"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Agent SDK",
+  "subsection": "Agent SDK"
+ },
+ {
+  "slug": "agent-sdk/migration-guide",
+  "title_zh": "遷移至 Claude Agent SDK",
+  "one_liner": "Claude Code SDK 改名 Claude Agent SDK 的套件、匯入與破壞性變更對照。",
+  "when": "舊專案要從 claude-code-sdk 升級，或查 v0.1.0 行為變更時。",
+  "keywords": [
+   "遷移",
+   "migration",
+   "ClaudeCodeOptions",
+   "ClaudeAgentOptions",
+   "v0.1.0",
+   "破壞性變更",
+   "claude-code-sdk",
+   "settingSources",
+   "system prompt 預設",
+   "改名"
+  ],
+  "terms": [
+   {
+    "term": "preset: claude_code",
+    "zh": "沿用 Claude Code CLI 那份完整 system prompt 的選項"
+   }
+  ],
+  "memory_hooks": [
+   "system prompt 預設已非 Claude Code 版；CLAUDE.md/規則注入仍靠 settingSources，與 system prompt 設定互不相干"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Agent SDK"
+ },
+ {
+  "slug": "agent-sdk/troubleshooting",
+  "title_zh": "排除 Agent SDK 的故障",
+  "one_liner": "SDK 啟動失敗、CLI 程序退出與結構化輸出為空的錯誤對照表。",
+  "when": "遇到 CLINotFoundError、ProcessError 或 structured_output 為 None 時。",
+  "keywords": [
+   "疑難排解",
+   "troubleshooting",
+   "CLINotFoundError",
+   "CLIConnectionError",
+   "ProcessError",
+   "cli_path",
+   "batch script",
+   "structured_output None",
+   "exit code"
+  ],
+  "terms": [
+   {
+    "term": "CLIConnectionError",
+    "zh": "SDK 連不上或啟動不了 CLI 子程序的錯誤"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Agent SDK",
+  "subsection": "Agent SDK"
+ },
+ {
+  "slug": "agent-sdk/agent-loop",
+  "title_zh": "代理程式迴圈如何運作",
+  "one_liner": "說明代理迴圈：回合、五種訊息、工具執行、上下文累積與自動壓縮。",
+  "when": "想理解一個 query 內部怎麼跑、何時停、context 怎麼長大時。",
+  "keywords": [
+   "代理迴圈",
+   "agent loop",
+   "turn",
+   "maxTurns",
+   "maxBudgetUsd",
+   "ResultMessage",
+   "SystemMessage",
+   "compact_boundary",
+   "自動壓縮",
+   "effort",
+   "error_max_turns",
+   "並行工具"
+  ],
+  "terms": [
+   {
+    "term": "turn（回合）",
+    "zh": "Claude 一次輸出加工具執行的往返"
+   },
+   {
+    "term": "compact_boundary",
+    "zh": "自動壓縮發生時串流中的系統訊息"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 支援 `PreCompact`/`PostCompact` hook 與 compact_boundary 訊息，可在壓縮前後介入；CLAUDE.md 穩定內容走 prompt cache"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "agent-sdk/claude-code-features",
+  "title_zh": "在 SDK 中使用 Claude Code 功能",
+  "one_liner": "SDK 如何載入 CLAUDE.md、rules、skills、hooks 等檔案系統功能，及 settingSources 控制。",
+  "when": "要決定 SDK 代理吃不吃使用者/專案設定，或選哪種擴充機制時。",
+  "keywords": [
+   "settingSources",
+   "setting_sources",
+   "CLAUDE.md",
+   "rules",
+   "skills",
+   "hooks",
+   "CLAUDE.local.md",
+   "autoMemoryEnabled",
+   "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+   "檔案系統設定",
+   "設定分層",
+   "自動記憶"
+  ],
+  "terms": [
+   {
+    "term": "settingSources",
+    "zh": "指定 SDK 要載入哪幾層檔案系統設定的選項"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 預設載入 `~/.claude/CLAUDE.md`、rules、skills、settings 與其 hooks，現有記憶注入 hook 在 SDK 內也會觸發；`settingSources:[]` 可整個隔離；自動記憶路徑不受控須另用 env 關閉"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "agent-sdk/sessions",
+  "title_zh": "使用 sessions",
+  "one_liner": "Session 是 SDK 自動寫磁碟的對話歷史，可 continue、resume、fork。",
+  "when": "要在多個 query 間延續上下文、分支探索或跨主機恢復時。",
+  "keywords": [
+   "sessions",
+   "session",
+   "resume",
+   "continue",
+   "fork",
+   "forkSession",
+   "session_id",
+   "ClaudeSDKClient",
+   "listSessions",
+   "getSessionMessages",
+   "跨主機恢復",
+   "jsonl"
+  ],
+  "terms": [
+   {
+    "term": "fork",
+    "zh": "複製既有 session 歷史成新 session，原本不變"
+   }
+  ],
+  "memory_hooks": [
+   "session 逐字稿存 `~/.claude/projects/` 的 jsonl，SDK 有 list/get/rename/tag API 可程式化讀取"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "agent-sdk/session-storage",
+  "title_zh": "將工作階段持久化到外部儲存",
+  "one_liner": "用 SessionStore 介面把 session 逐字稿鏡像到自己的物件儲存/資料庫。",
+  "when": "容器或多主機部署需要 session 可跨機恢復、或要客製存放位置時。",
+  "keywords": [
+   "SessionStore",
+   "session_store",
+   "外部儲存",
+   "append",
+   "load",
+   "InMemorySessionStore",
+   "mirror_error",
+   "sessionStoreFlush",
+   "持久化",
+   "物件儲存",
+   "資料庫",
+   "逐字稿鏡像"
+  ],
+  "terms": [
+   {
+    "term": "SessionStore",
+    "zh": "SDK 定義的 session 逐字稿外部儲存介面"
+   },
+   {
+    "term": "mirror_error",
+    "zh": "鏡像寫入失敗時串流中的系統訊息"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 專屬：可把 transcript 寫到自訂後端（含 DB），CLI 固定寫 `~/.claude/projects`；`CLAUDE_CONFIG_DIR` 亦可改位置"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Core concepts"
+ },
+ {
+  "slug": "agent-sdk/configuration",
+  "title_zh": "設定您的代理",
+  "one_liner": "彙整 options 物件、設定檔、模型、env、cwd、預算等組態入口。",
+  "when": "要查某功能對應哪個選項，或調整模型/環境/上限時。",
+  "keywords": [
+   "configuration",
+   "設定",
+   "options",
+   "settings",
+   "env",
+   "cwd",
+   "fallbackModel",
+   "model",
+   "maxTurns",
+   "maxBudgetUsd",
+   "settingSources",
+   "Options",
+   "ClaudeAgentOptions"
+  ],
+  "terms": [
+   {
+    "term": "fallbackModel",
+    "zh": "主模型不可用時自動切換的備援模型"
+   }
+  ],
+  "memory_hooks": [
+   "`settings`/`env`/`settingSources` 可在程式端覆寫分層；`CLAUDE_CONFIG_DIR` 重定位設定根目錄"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Build agents"
+ },
+ {
+  "slug": "agent-sdk/examples",
+  "title_zh": "範例",
+  "one_liner": "指向官方範例專案與 Cookbook 配方的導覽頁。",
+  "when": "想找可直接複製的完整 SDK 範例時。",
+  "keywords": [
+   "範例",
+   "examples",
+   "demos",
+   "cookbook",
+   "claude-agent-sdk-demos",
+   "hello-world",
+   "配方"
+  ],
+  "terms": [
+   {
+    "term": "Cookbook",
+    "zh": "Anthropic 的配方筆記本集合"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Agent SDK",
+  "subsection": "Build agents"
+ },
+ {
+  "slug": "agent-sdk/custom-tools",
+  "title_zh": "為 Claude 提供自訂工具",
+  "one_liner": "用同程序 MCP 伺服器在 SDK 內定義 Claude 可呼叫的自訂工具。",
+  "when": "想讓代理呼叫自己的函式（DB、API、領域邏輯）時。",
+  "keywords": [
+   "custom tools",
+   "自訂工具",
+   "tool()",
+   "createSdkMcpServer",
+   "create_sdk_mcp_server",
+   "@tool",
+   "in-process MCP",
+   "permission_policy",
+   "always_ask",
+   "structuredContent",
+   "mcpServers"
+  ],
+  "terms": [
+   {
+    "term": "in-process MCP server",
+    "zh": "與應用同程序執行、不需獨立子程序的 MCP 伺服器"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 專屬：可在程式內直接註冊 MCP 工具（無需獨立 server 程序）；工具名遵循 mcp__ 前綴，與現有 MCP 權限命名一致"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Extend with tools"
+ },
+ {
+  "slug": "agent-sdk/mcp",
+  "title_zh": "使用 MCP 連接外部工具",
+  "one_liner": "在 SDK 設定 MCP 伺服器：傳輸類型、授權、工具搜尋、逾時與錯誤處理。",
+  "when": "要把外部服務接進代理，或排查 MCP 連線失敗、輸出過大時。",
+  "keywords": [
+   "MCP",
+   "mcpServers",
+   ".mcp.json",
+   "stdio",
+   "SSE",
+   "HTTP",
+   "allowedTools",
+   "mcp__",
+   "strictMcpConfig",
+   "MCP_TIMEOUT",
+   "MCP_TOOL_TIMEOUT",
+   "25000 token",
+   "OAuth",
+   "連線時序"
+  ],
+  "terms": [
+   {
+    "term": "MCP 工具搜尋",
+    "zh": "隱藏 MCP 工具定義、每回合只載入需要者以省 context"
+   }
+  ],
+  "memory_hooks": [
+   "MCP 工具命名 `mcp__<server>__<tool>` 可被 PreToolUse matcher 與 allowedTools 比對；`.mcp.json` 於 project 來源自動載入"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Extend with tools"
+ },
+ {
+  "slug": "agent-sdk/subagents",
+  "title_zh": "SDK 中的子代理",
+  "one_liner": "在 SDK 以 agents 參數定義子代理，隔離上下文、並行與限制工具。",
+  "when": "要把子任務委派給獨立上下文的代理、或調整子代理權限/預算時。",
+  "keywords": [
+   "子代理",
+   "subagent",
+   "agents",
+   "AgentDefinition",
+   "Agent tool",
+   "fork",
+   "SubagentStart",
+   "SubagentStop",
+   "maxTurns",
+   "memory",
+   "並行",
+   "context isolation",
+   "initialPrompt"
+  ],
+  "terms": [
+   {
+    "term": "fork subagent",
+    "zh": "複製目前對話內容再開始的子代理"
+   },
+   {
+    "term": "AgentDefinition",
+    "zh": "SDK 內定義子代理的設定物件"
+   }
+  ],
+  "memory_hooks": [
+   "`AgentDefinition.memory`（user/project/local）可指定子代理記憶來源；子代理只靠 prompt 字串傳遞上下文，hook 輸入帶 `agent_id`/`agent_type` 可區分來源；SubagentStart/Stop 為 hook 事件"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Extend with tools"
+ },
+ {
+  "slug": "agent-sdk/tool-search",
+  "title_zh": "使用工具搜尋擴展到許多工具",
+  "one_liner": "工具搜尋讓代理在數百到上萬工具中按需發現、載入，不撐爆 context。",
+  "when": "掛了大量 MCP/自訂工具、context 被工具定義吃掉時。",
+  "keywords": [
+   "tool search",
+   "工具搜尋",
+   "ENABLE_TOOL_SEARCH",
+   "auto:5",
+   "延遲載入",
+   "deferred tools",
+   "10000 tools",
+   "MCP 工具",
+   "context 成本"
+  ],
+  "terms": [
+   {
+    "term": "tool search",
+    "zh": "以搜尋方式延後載入工具定義的機制"
+   }
+  ],
+  "memory_hooks": [
+   "工具定義延後載入可降低常駐 context；與 MCP 工具搜尋同機制"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Extend with tools"
+ },
+ {
+  "slug": "agent-sdk/modifying-system-prompts",
+  "title_zh": "修改系統提示詞",
+  "one_liner": "SDK 修改 system prompt 的四法：CLAUDE.md、輸出樣式、preset append、完全自訂。",
+  "when": "要改代理人格/指令，或最佳化跨使用者 prompt cache 時。",
+  "keywords": [
+   "system prompt",
+   "systemPrompt",
+   "append",
+   "claude_code preset",
+   "excludeDynamicSections",
+   "SYSTEM_PROMPT_DYNAMIC_BOUNDARY",
+   "snapshot",
+   "output styles",
+   "system-reminder",
+   "CLAUDE.md",
+   "prompt cache",
+   "includeGitInstructions",
+   "additionalContext"
+  ],
+  "terms": [
+   {
+    "term": "system-reminder",
+    "zh": "Claude Code 插在對話中的上下文提示訊息（非 system prompt）"
+   },
+   {
+    "term": "output style（輸出樣式）",
+    "zh": "存成 markdown 的角色/語氣/格式指令組"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 專屬：可程式化 append/取代 system prompt、`snapshot` 與 dynamic boundary；hook 回傳的 `additionalContext` 走 system-reminder 路徑，與 CLAUDE.md 同層注入；自動記憶位置會寫進 preset 影響 cache"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Customize behavior"
+ },
+ {
+  "slug": "agent-sdk/plugins",
+  "title_zh": "SDK 中的 Plugins",
+  "one_liner": "在 SDK 以本機路徑載入 plugins（skills、agents、hooks、MCP 伺服器）。",
+  "when": "要在 SDK 代理中重用打包好的擴充，或排查 plugin 未載入時。",
+  "keywords": [
+   "plugins",
+   "plugin",
+   "SdkPluginConfig",
+   "reloadPlugins",
+   "addPlugins",
+   "plugin.json",
+   ".claude-plugin",
+   "plugin_errors",
+   "命名空間",
+   "本機路徑"
+  ],
+  "terms": [
+   {
+    "term": "plugin",
+    "zh": "可打包 skills/agents/hooks/MCP 的擴充單位"
+   }
+  ],
+  "memory_hooks": [
+   "plugin 內可帶 hooks 與 MCP，與 settingSources 載入的 hooks 並行；SDK 僅支援本機路徑載入"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Customize behavior"
+ },
+ {
+  "slug": "agent-sdk/skills",
+  "title_zh": "使用 Skills 擴展 Agent",
+  "one_liner": "在 SDK 控制 skills 的探索與叫用，並介紹 SDK 會話中的斜線命令。",
+  "when": "要限制 Claude 能用哪些 skill，或用程式派送 `/command` 時。",
+  "keywords": [
+   "skills",
+   "SKILL.md",
+   "skills 選項",
+   "slash commands",
+   "斜線命令",
+   "/compact",
+   "/clear",
+   "slash_commands",
+   "Skill tool",
+   "allowlist",
+   "按需載入"
+  ],
+  "terms": [
+   {
+    "term": "slash_commands",
+    "zh": "init 訊息中列出會話可用命令的欄位"
+   }
+  ],
+  "memory_hooks": [
+   "skills 從 `~/.claude/skills` 與專案載入，僅描述常駐、全文按需載入；SDK 可用 `skills` 白名單縮限，可程式化送 `/compact`、`/clear` 管理 context"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Customize behavior"
+ },
+ {
+  "slug": "agent-sdk/streaming-output",
+  "title_zh": "即時串流回應",
+  "one_liner": "開啟 partial messages 即時串流文字與工具呼叫的增量事件。",
+  "when": "要做即時打字效果或顯示工具進度 UI 時。",
+  "keywords": [
+   "串流輸出",
+   "streaming output",
+   "includePartialMessages",
+   "include_partial_messages",
+   "StreamEvent",
+   "partial messages",
+   "input_json_delta",
+   "content_block_delta",
+   "即時回應"
+  ],
+  "terms": [
+   {
+    "term": "StreamEvent",
+    "zh": "啟用部分訊息時封裝原始 API 串流事件的訊息"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Agent SDK",
+  "subsection": "Input and output"
+ },
+ {
+  "slug": "agent-sdk/streaming-vs-single-mode",
+  "title_zh": "串流輸入",
+  "one_liner": "比較串流輸入（持久互動 session）與單一訊息輸入兩種模式。",
+  "when": "決定 query 的 prompt 該傳字串還是 AsyncIterable 時。",
+  "keywords": [
+   "streaming input",
+   "串流輸入",
+   "single message",
+   "單一訊息",
+   "AsyncIterable",
+   "SDKUserMessage",
+   "中斷",
+   "interrupt",
+   "影像上傳",
+   "訊息佇列"
+  ],
+  "terms": [
+   {
+    "term": "streaming input",
+    "zh": "以非同步生成器持續餵入使用者訊息的輸入模式"
+   }
+  ],
+  "memory_hooks": [
+   "串流輸入模式才能在 session 中途切換模型/權限模式、接收中斷"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Input and output"
+ },
+ {
+  "slug": "agent-sdk/structured-outputs",
+  "title_zh": "從代理獲取結構化輸出",
+  "one_liner": "用 JSON Schema/Zod/Pydantic 要求代理最終輸出經驗證的 JSON。",
+  "when": "要讓代理結果能直接進程式邏輯、資料庫或 UI 時。",
+  "keywords": [
+   "structured outputs",
+   "結構化輸出",
+   "outputFormat",
+   "output_format",
+   "JSON Schema",
+   "Zod",
+   "Pydantic",
+   "structured_output",
+   "StructuredOutput",
+   "error_max_structured_output_retries"
+  ],
+  "terms": [
+   {
+    "term": "StructuredOutput 工具",
+    "zh": "Claude Code 自動加入、用來回傳結構化結果的內部工具"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 端會驗證 JSON Schema，可作為輸出格式驗證手段"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Input and output"
+ },
+ {
+  "slug": "agent-sdk/user-input",
+  "title_zh": "處理批准和使用者輸入",
+  "one_liner": "用 canUseTool 回呼與 AskUserQuestion 把核准請求與澄清問題交給使用者。",
+  "when": "要在自己的 UI 處理工具核准或 Claude 的提問時。",
+  "keywords": [
+   "canUseTool",
+   "can_use_tool",
+   "AskUserQuestion",
+   "核准",
+   "approval",
+   "PermissionResultAllow",
+   "updatedInput",
+   "使用者輸入",
+   "澄清問題",
+   "permission callback"
+  ],
+  "terms": [
+   {
+    "term": "canUseTool",
+    "zh": "SDK 專屬的工具核准回呼函式"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 專屬：核准決策可由程式回呼完成（可改寫輸入），CLI 只有互動彈窗與 hook"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Input and output"
+ },
+ {
+  "slug": "agent-sdk/cost-tracking",
+  "title_zh": "追蹤成本和使用量",
+  "one_liner": "說明 usage、total_cost_usd、modelUsage 與 prompt cache 的成本追蹤規則。",
+  "when": "要統計花費、拆模型成本或處理平行工具導致重複計數時。",
+  "keywords": [
+   "cost tracking",
+   "成本",
+   "total_cost_usd",
+   "usage",
+   "modelUsage",
+   "token",
+   "prompt caching",
+   "cache_read_input_tokens",
+   "TTL",
+   "追蹤花費",
+   "子代理成本"
+  ],
+  "terms": [
+   {
+    "term": "modelUsage",
+    "zh": "結果訊息中按模型拆分的 token 與成本"
+   },
+   {
+    "term": "cache_read_input_tokens",
+    "zh": "從 prompt cache 讀入的 token 數"
+   }
+  ],
+  "memory_hooks": [
+   "`total_cost_usd` 與 token 可從 ResultMessage 取得，可作為 session 成本記帳來源"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Control and observability"
+ },
+ {
+  "slug": "agent-sdk/file-checkpointing",
+  "title_zh": "使用 checkpointing 回溯檔案變更",
+  "one_liner": "啟用檔案 checkpoint，把 Write/Edit/NotebookEdit 改過的檔案回溯到某訊息時狀態。",
+  "when": "代理改壞檔案想一鍵還原，或要做多個還原點時。",
+  "keywords": [
+   "file checkpointing",
+   "檔案回溯",
+   "rewindFiles",
+   "rewind_files",
+   "enableFileCheckpointing",
+   "checkpoint UUID",
+   "--rewind-files",
+   "還原",
+   "undo"
+  ],
+  "terms": [
+   {
+    "term": "checkpoint",
+    "zh": "在檔案被修改前保留的備份還原點"
+   }
+  ],
+  "memory_hooks": [
+   "檔案回溯與 git 工作樹無關，只看 Write/Edit 工具"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Control and observability"
+ },
+ {
+  "slug": "agent-sdk/hooks",
+  "title_zh": "使用 hooks 攔截和控制代理行為",
+  "one_liner": "SDK 程式化 hook callback：在 Python/TS 函式中攔截、改寫或阻止代理行為。",
+  "when": "要用程式碼做權限決策、改寫工具輸入、注入上下文或審計時。",
+  "keywords": [
+   "hooks",
+   "hook",
+   "PreToolUse",
+   "PostToolUse",
+   "UserPromptSubmit",
+   "SessionStart",
+   "SubagentStop",
+   "PreCompact",
+   "permissionDecision",
+   "updatedInput",
+   "additionalContext",
+   "onFailure",
+   "HookMatcher",
+   "hook callback",
+   "matcher",
+   "systemMessage"
+  ],
+  "terms": [
+   {
+    "term": "hook callback",
+    "zh": "註冊在選項裡的程式化函式，非 shell 命令"
+   },
+   {
+    "term": "onFailure",
+    "zh": "callback 失敗時選擇放行或阻擋的設定"
+   }
+  ],
+  "memory_hooks": [
+   "SDK 專屬：in-process callback 可直接回傳 `additionalContext`/`updatedInput`/`updatedToolOutput`；Python 無 SessionStart/SessionEnd callback 只能走 settings.json 的 shell hook；`PermissionRequest`、`PreCompact` 可介入；`UserPromptSubmit` 在子代理觸發須防遞迴"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Control and observability"
+ },
+ {
+  "slug": "agent-sdk/observability",
+  "title_zh": "使用 OpenTelemetry 進行可觀測性",
+  "one_liner": "用 OpenTelemetry 匯出 SDK 代理的 traces、metrics、log events。",
+  "when": "上線代理要監控 token/成本、工具耗時與追蹤鏈路時。",
+  "keywords": [
+   "observability",
+   "可觀測性",
+   "OpenTelemetry",
+   "OTEL",
+   "telemetry",
+   "CLAUDE_CODE_ENABLE_TELEMETRY",
+   "traces",
+   "metrics",
+   "TRACEPARENT",
+   "OTLP",
+   "span",
+   "OTEL_LOG_USER_PROMPTS"
+  ],
+  "terms": [
+   {
+    "term": "OTLP",
+    "zh": "OpenTelemetry 傳輸協定"
+   },
+   {
+    "term": "span",
+    "zh": "追蹤中的單一步驟紀錄"
+   }
+  ],
+  "memory_hooks": [
+   "遙測是 CLI 內建，SDK 以 env 傳入；提示與工具內容預設不匯出，需顯式開關（隱私邊界）"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Control and observability"
+ },
+ {
+  "slug": "agent-sdk/permissions",
+  "title_zh": "設定權限",
+  "one_liner": "SDK 權限評估六步流程、allow/deny 規則與六種權限模式。",
+  "when": "要設計代理能自動做什麼、何時需核准，或除錯為何 canUseTool 沒被呼叫時。",
+  "keywords": [
+   "permissions",
+   "權限",
+   "permissionMode",
+   "acceptEdits",
+   "bypassPermissions",
+   "dontAsk",
+   "plan mode",
+   "auto mode",
+   "allowedTools",
+   "disallowedTools",
+   "canUseTool",
+   "評估順序",
+   "CLAUDE_SDK_CAN_USE_TOOL_SHADOWED"
+  ],
+  "terms": [
+   {
+    "term": "canUseTool shadowed",
+    "zh": "回呼因更早步驟已核准而永遠不會被呼叫的狀況"
+   }
+  ],
+  "memory_hooks": [
+   "PreToolUse 回 allow 不能跳過 deny/ask 規則；hook 在所有規則之前先執行，可作為寫入閘或審計入口"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Control and observability"
+ },
+ {
+  "slug": "agent-sdk/todo-tracking",
+  "title_zh": "追蹤待辦事項",
+  "one_liner": "在 SDK 監看 TaskCreate/TaskUpdate/TodoWrite 的待辦清單進度。",
+  "when": "要把 Claude 的進度條或待辦列表顯示在自己應用時。",
+  "keywords": [
+   "todo",
+   "待辦",
+   "TodoWrite",
+   "TaskCreate",
+   "TaskUpdate",
+   "TaskList",
+   "CLAUDE_CODE_ENABLE_TASKS",
+   "進度追蹤",
+   "任務清單"
+  ],
+  "terms": [
+   {
+    "term": "TaskCreate/TaskUpdate",
+    "zh": "新版任務追蹤工具，取代 TodoWrite"
+   }
+  ],
+  "memory_hooks": [
+   "`TaskCreated`/`TaskCompleted` hook 可強制命名約定或要求測試通過；待辦提醒屬 system-reminder"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Control and observability"
+ },
+ {
+  "slug": "agent-sdk/hosting",
+  "title_zh": "代理 SDK 的託管",
+  "one_liner": "說明 SDK 子程序模型，及容器部署時的 session 持久化、資源與多租戶隔離。",
+  "when": "要把代理部署成服務、規劃容器與狀態儲存時。",
+  "keywords": [
+   "hosting",
+   "託管",
+   "部署",
+   "container",
+   "容器",
+   "子程序",
+   "CLAUDE_CONFIG_DIR",
+   "多租戶",
+   "multi-tenant",
+   "SessionStore",
+   "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+   "scaling",
+   "生產環境"
+  ],
+  "terms": [
+   {
+    "term": "subprocess model",
+    "zh": "SDK 以子程序方式驅動 CLI 的架構"
+   }
+  ],
+  "memory_hooks": [
+   "`CLAUDE_CONFIG_DIR` 可移動整個設定/記憶根；自動記憶無視 settingSources 須用 env 關；記憶檔與工作成品需自備跨主機儲存"
+  ],
+  "section": "Agent SDK",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "agent-sdk/secure-deployment",
+  "title_zh": "安全部署 AI 代理",
+  "one_liner": "AI 代理安全部署指南：威脅模型、隔離技術、認證代理與檔案系統配置。",
+  "when": "要把 Claude Code/SDK 放進高安全環境、避免提示注入外洩憑證時。",
+  "keywords": [
+   "secure deployment",
+   "安全部署",
+   "提示注入",
+   "prompt injection",
+   "sandbox",
+   "gVisor",
+   "容器隔離",
+   "credential proxy",
+   "最小權限",
+   "深度防禦",
+   "ANTHROPIC_BASE_URL",
+   "HTTPS_PROXY"
+  ],
+  "terms": [
+   {
+    "term": "sandbox-runtime",
+    "zh": "Anthropic 的 OS 級檔案系統/網路限制工具"
+   },
+   {
+    "term": "gVisor",
+    "zh": "在使用者空間攔截系統呼叫的容器隔離層"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Agent SDK",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "agent-sdk/python",
+  "title_zh": "Agent SDK 參考 - Python",
+  "one_liner": "Python Agent SDK 完整 API 參考：函式、ClaudeSDKClient、型別、hooks、錯誤與沙箱。",
+  "when": "查 Python 側 query()、ClaudeAgentOptions 欄位或 hook 型別時。",
+  "keywords": [
+   "Python SDK",
+   "python",
+   "ClaudeSDKClient",
+   "ClaudeAgentOptions",
+   "query",
+   "HookMatcher",
+   "SystemPromptPreset",
+   "SystemPromptFile",
+   "create_sdk_mcp_server",
+   "list_sessions",
+   "API 參考",
+   "reference"
+  ],
+  "terms": [
+   {
+    "term": "ClaudeSDKClient",
+    "zh": "Python 持續對話用的客戶端類別"
+   },
+   {
+    "term": "SystemPromptFile",
+    "zh": "從檔案載入 system prompt 的設定型別"
+   }
+  ],
+  "memory_hooks": [
+   "Python 的 hook callback 缺 SessionStart/SessionEnd；`SystemPromptFile` 對應 CLI `--system-prompt-file`"
+  ],
+  "section": "Agent SDK",
+  "subsection": "SDK references"
+ },
+ {
+  "slug": "agent-sdk/typescript",
+  "title_zh": "Agent SDK 參考 - TypeScript",
+  "one_liner": "TypeScript Agent SDK 完整 API 參考：query()、Options、Query 控制方法、訊息與 hook 型別。",
+  "when": "查 TS 選項、Query 方法、hook 事件型別或工具輸入輸出 schema 時。",
+  "keywords": [
+   "TypeScript SDK",
+   "typescript",
+   "Options",
+   "Query",
+   "startup",
+   "prewarm",
+   "resolveSettings",
+   "HookEvent",
+   "SDKMessage",
+   "getContextUsage",
+   "spawnClaudeCodeProcess",
+   "sessionStore",
+   "API 參考",
+   "reference"
+  ],
+  "terms": [
+   {
+    "term": "startup()/prewarm()",
+    "zh": "預先啟動 CLI 子程序以縮短首回應延遲"
+   },
+   {
+    "term": "spawnClaudeCodeProcess",
+    "zh": "自訂如何在 VM/容器產生 CLI 程序的回呼"
+   }
+  ],
+  "memory_hooks": [
+   "TS 最完整：`InstructionsLoaded`、`FileChanged`、`CwdChanged`、`ConfigChange` 等 hook 事件、`resolveSettings()` 預覽設定合併、`getContextUsage()` 查 context 使用、`updateSettings()` 執行中改設定"
+  ],
+  "section": "Agent SDK",
+  "subsection": "SDK references"
+ },
+ {
+  "slug": "agent-sdk/typescript-v2-preview",
+  "title_zh": "TypeScript SDK V2 會話 API（已移除）",
+  "one_liner": "已移除的 V2 session API（createSession/send/stream）歷史參考。",
+  "when": "舊程式碼用到 unstable_v2_* 要遷移時。",
+  "keywords": [
+   "V2",
+   "unstable_v2_createSession",
+   "unstable_v2_resumeSession",
+   "unstable_v2_prompt",
+   "SDKSession",
+   "已移除",
+   "0.3.142",
+   "遷移",
+   "send stream"
+  ],
+  "terms": [
+   {
+    "term": "V2 session API",
+    "zh": "已移除的實驗性 send/stream 會話介面"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Agent SDK",
+  "subsection": "SDK references"
+ }
+]

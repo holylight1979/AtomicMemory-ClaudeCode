@@ -1,0 +1,634 @@
+[
+ {
+  "slug": "channels-reference",
+  "title_zh": "Channels 參考",
+  "one_liner": "把 webhook、警報、聊天訊息推進工作階段的 MCP channel 合約。",
+  "when": "自製 channel 外掛或做遠端權限批准時。",
+  "keywords": [
+   "channels",
+   "channel",
+   "claude/channel",
+   "notifications/claude/channel",
+   "permission relay",
+   "sender gating",
+   "MCP server",
+   "webhook",
+   "Telegram",
+   "Discord",
+   "--channels",
+   "research preview",
+   "instructions",
+   "two-way channel"
+  ],
+  "terms": [
+   {
+    "term": "channel",
+    "zh": "把外部事件推進工作階段的 MCP 伺服器"
+   },
+   {
+    "term": "permission relay",
+    "zh": "把批准提示轉發到遠端聊天"
+   },
+   {
+    "term": "sender gating",
+    "zh": "只接受白名單寄件者"
+   }
+  ],
+  "memory_hooks": [
+   "channel 事件以 <channel> 標籤進上下文，為 hook 以外的外部內容入口",
+   "instructions 欄位於連線時進 Claude 上下文"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "checkpointing",
+  "title_zh": "Checkpointing",
+  "one_liner": "每個提示詞自動存檔案快照，/rewind 可回復程式碼、對話或摘要。",
+  "when": "撤銷 Claude 編輯、回到先前對話點、用摘要釋放上下文。",
+  "keywords": [
+   "checkpoint",
+   "checkpointing",
+   "/rewind",
+   "/checkpoint",
+   "Esc Esc",
+   "rewind",
+   "Summarize from here",
+   "Restore code",
+   "100 checkpoints",
+   "CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING",
+   "undo edits"
+  ],
+  "terms": [
+   {
+    "term": "checkpoint",
+    "zh": "每回合開始前的檔案還原點"
+   }
+  ],
+  "memory_hooks": [
+   "Summarize from here 是另一條壓縮路徑",
+   "Bash 與 subagent 的改動不被追蹤"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "cli-reference",
+  "title_zh": "CLI 參考",
+  "one_liner": "claude 指令、子指令與全部命令列旗標對照。",
+  "when": "寫啟動腳本、claude -p 自動化、背景工作階段管理或查旗標時。",
+  "keywords": [
+   "CLI",
+   "claude -p",
+   "--print",
+   "--bare",
+   "--safe-mode",
+   "--settings",
+   "--setting-sources",
+   "--permission-mode",
+   "--allowedTools",
+   "--tools",
+   "--output-format",
+   "--include-hook-events",
+   "--system-prompt",
+   "--append-system-prompt",
+   "--worktree"
+  ],
+  "terms": [
+   {
+    "term": "print mode",
+    "zh": "-p 單次執行後退出"
+   },
+   {
+    "term": "agent 檢視",
+    "zh": "claude agents 監控多個背景工作階段"
+   },
+   {
+    "term": "supervisor",
+    "zh": "管理背景工作階段的常駐程序"
+   },
+   {
+    "term": "ultrareview",
+    "zh": "雲端多 agent 程式碼審查"
+   }
+  ],
+  "memory_hooks": [
+   "--bare/--safe-mode 不載入 hooks 與自動記憶",
+   "--include-hook-events 在串流輸出含 hook 生命週期",
+   "--init/--maintenance 觸發 Setup hook",
+   "--settings/--setting-sources 影響設定與 hook 來源"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "commands",
+  "title_zh": "Commands",
+  "one_liner": "工作階段內所有 / 指令與內附 skill 的清單。",
+  "when": "查某斜線指令是否存在、用途、別名。",
+  "keywords": [
+   "slash commands",
+   "/clear",
+   "/compact",
+   "/context",
+   "/resume",
+   "/rewind",
+   "/config",
+   "/model",
+   "/permissions",
+   "/hooks",
+   "/memory",
+   "/agents",
+   "/skills",
+   "/plugin",
+   "/init"
+  ],
+  "terms": [
+   {
+    "term": "bundled skill",
+    "zh": "隨附的提示詞型劇本指令"
+   },
+   {
+    "term": "背景 agent",
+    "zh": "/background 或 /fork 脫離終端機持續跑的工作階段"
+   }
+  ],
+  "memory_hooks": [
+   "/hooks 檢視 hook 設定",
+   "/memory 管 CLAUDE.md 與自動記憶",
+   "/compact 觸發 PreCompact/PostCompact；/clear、/resume 影響 SessionEnd/SessionStart",
+   "/reload-skills 工作階段內重掃 skill"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "env-vars",
+  "title_zh": "環境變數",
+  "one_liner": "控制 Claude Code 行為的 400 多個環境變數對照。",
+  "when": "用環境變數開關功能、調逾時、設代理或停用機制。",
+  "keywords": [
+   "environment variables",
+   "env",
+   "CLAUDE_CONFIG_DIR",
+   "CLAUDE_ENV_FILE",
+   "CLAUDE_CODE_SIMPLE",
+   "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+   "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+   "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+   "DISABLE_COMPACT",
+   "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS",
+   "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP",
+   "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+   "MCP_TIMEOUT",
+   "MAX_MCP_OUTPUT_TOKENS",
+   "ANTHROPIC_MODEL"
+  ],
+  "terms": [
+   {
+    "term": "env 區塊",
+    "zh": "settings.json 內替工作階段設環境變數的欄位"
+   },
+   {
+    "term": "SUBPROCESS_ENV_SCRUB",
+    "zh": "啟動子程序時剝除憑證類變數"
+   }
+  ],
+  "memory_hooks": [
+   "DISABLE_AUTO_MEMORY/DISABLE_CLAUDE_MDS/SIMPLE 影響原生記憶載入",
+   "CLAUDE_CONFIG_DIR 改變 ~/.claude 位置",
+   "CLAUDE_ENV_FILE 為 SessionStart hook 傳環境給 Bash 的通道",
+   "SUBPROCESS_ENV_SCRUB 影響 hook 子程序可見變數"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "glossary",
+  "title_zh": "詞彙表",
+  "one_liner": "Claude Code 專有名詞官方定義與已改名舊詞對照。",
+  "when": "遇到不熟的術語時。",
+  "keywords": [
+   "glossary",
+   "詞彙表",
+   "compaction",
+   "agentic loop",
+   "harness",
+   "system reminder",
+   "permission mode",
+   "settings hierarchy",
+   "headless renamed",
+   "non-interactive",
+   "managed settings",
+   "auto memory",
+   "bare mode",
+   "teleport",
+   "dispatch"
+  ],
+  "terms": [
+   {
+    "term": "AGENTS.md",
+    "zh": "給 AI 編碼代理的專案指示檔"
+   },
+   {
+    "term": "Agent teams",
+    "zh": "多個獨立工作階段協作"
+   },
+   {
+    "term": "Agentic coding",
+    "zh": "AI 自主讀檔跑命令改程式"
+   },
+   {
+    "term": "Agentic harness",
+    "zh": "把模型變編碼代理的工具＋上下文＋執行環境"
+   },
+   {
+    "term": "Agentic loop",
+    "zh": "蒐集上下文→行動→驗證循環"
+   },
+   {
+    "term": "Artifact",
+    "zh": "發佈到 claude.ai 的私人互動網頁"
+   },
+   {
+    "term": "Auto memory",
+    "zh": "Claude 自己寫的筆記，存 ~/.claude/projects/"
+   },
+   {
+    "term": "Auto mode",
+    "zh": "分類器模型代審動作的權限模式"
+   },
+   {
+    "term": "Bare mode",
+    "zh": "--bare 最簡啟動"
+   },
+   {
+    "term": "Bundled skills",
+    "zh": "隨附提示型劇本"
+   },
+   {
+    "term": "Channel",
+    "zh": "推事件進工作階段的 MCP 伺服器"
+   },
+   {
+    "term": "Checkpoint",
+    "zh": "每提示詞前的還原點"
+   },
+   {
+    "term": ".claude 目錄",
+    "zh": "設定、hooks、skills、rules 所在資料夾"
+   },
+   {
+    "term": "CLAUDE.md",
+    "zh": "寫給 Claude 的持久指示"
+   },
+   {
+    "term": "Cloud session",
+    "zh": "跑在雲端的工作階段"
+   },
+   {
+    "term": "Command",
+    "zh": "輸入 /name 叫用的可重用指示"
+   },
+   {
+    "term": "Compaction",
+    "zh": "上下文將滿時自動摘要"
+   },
+   {
+    "term": "Connector",
+    "zh": "加在 claude.ai 帳戶的 MCP 伺服器"
+   },
+   {
+    "term": "Context window",
+    "zh": "工作階段的工作記憶"
+   },
+   {
+    "term": "Dispatch",
+    "zh": "手機派任務到 Desktop 工作階段"
+   },
+   {
+    "term": "Effort level",
+    "zh": "自適應推理深淺設定"
+   },
+   {
+    "term": "Extended thinking",
+    "zh": "回應前可見的逐步推理"
+   },
+   {
+    "term": "Frontmatter",
+    "zh": "Markdown 頂端 YAML 區"
+   },
+   {
+    "term": "Hook",
+    "zh": "生命週期特定點自動執行的處理程式"
+   },
+   {
+    "term": "Managed settings",
+    "zh": "IT 強制套用的組織設定"
+   },
+   {
+    "term": "MCP (Model Context Protocol)",
+    "zh": "連接外部資料／服務的開放標準"
+   },
+   {
+    "term": "MCP server",
+    "zh": "提供工具／提示／資源的程式"
+   },
+   {
+    "term": "MCP Tool Search",
+    "zh": "延遲載入 MCP 工具定義以省 context"
+   },
+   {
+    "term": "Non-interactive mode",
+    "zh": "-p 單次執行（舊稱 headless）"
+   },
+   {
+    "term": "Output style",
+    "zh": "改變回應語氣格式的設定"
+   },
+   {
+    "term": "Permission mode",
+    "zh": "基線批准行為"
+   },
+   {
+    "term": "Permission rule",
+    "zh": "依工具與參數允許／詢問／拒絕，deny→ask→allow"
+   },
+   {
+    "term": "Plan mode",
+    "zh": "只研究提議不改檔"
+   },
+   {
+    "term": "Plugin",
+    "zh": "skills+hooks+subagents+MCP 套件"
+   },
+   {
+    "term": "Project trust",
+    "zh": "載入專案設定前的信任對話框"
+   },
+   {
+    "term": "Prompt injection",
+    "zh": "藏在內容中的敵對指令"
+   },
+   {
+    "term": "Remote Control",
+    "zh": "遠端遙控本機工作階段"
+   },
+   {
+    "term": "Rules",
+    "zh": ".claude/rules/ 模組化指示"
+   },
+   {
+    "term": "沙箱機制 (Sandbox)",
+    "zh": "Bash 的 OS 層級隔離"
+   },
+   {
+    "term": "工作階段 (Session)",
+    "zh": "綁目前目錄的獨立對話"
+   },
+   {
+    "term": "設定層級",
+    "zh": "設定來源優先順序"
+   },
+   {
+    "term": "Skill",
+    "zh": "SKILL.md 指令／知識／流程"
+   },
+   {
+    "term": "Subagent",
+    "zh": "獨立上下文的專門助理"
+   },
+   {
+    "term": "使用介面 (Surface)",
+    "zh": "CLI／VS Code／Desktop／claude.ai 等入口"
+   },
+   {
+    "term": "系統提示詞",
+    "zh": "每次請求前置的指令"
+   },
+   {
+    "term": "系統提醒 (system reminder)",
+    "zh": "harness 塞入對話的上下文訊息"
+   },
+   {
+    "term": "Teleport",
+    "zh": "把雲端工作階段拉回本機"
+   },
+   {
+    "term": "Tool",
+    "zh": "Claude 可採取的動作"
+   },
+   {
+    "term": "Transcript",
+    "zh": "工作階段儲存紀錄檔"
+   },
+   {
+    "term": "Turn",
+    "zh": "從你送訊息到 Claude 回應完的一輪"
+   },
+   {
+    "term": "Verification loop",
+    "zh": "用可執行檢查確認完成"
+   },
+   {
+    "term": "Worktree isolation",
+    "zh": "在獨立 git worktree 執行"
+   }
+  ],
+  "memory_hooks": [
+   "system reminder 即 hook additionalContext 的包裝形式",
+   "Auto memory/CLAUDE.md/Rules/Transcript 定義與位置可區分原生與原子記憶"
+  ],
+  "section": "Reference",
+  "subsection": "Glossary"
+ },
+ {
+  "slug": "hooks",
+  "title_zh": "Hooks 參考",
+  "one_liner": "所有 hook 事件、設定、stdin JSON、退出碼與 JSON 輸出決定欄位的完整參考。",
+  "when": "寫或除錯任何 hook（注入、寫入閘、收尾守門）前。",
+  "keywords": [
+   "hooks",
+   "hook 事件",
+   "SessionStart",
+   "SessionEnd",
+   "UserPromptSubmit",
+   "PreToolUse",
+   "PostToolUse",
+   "Stop",
+   "PreCompact",
+   "PostCompact",
+   "additionalContext",
+   "updatedInput",
+   "permissionDecision",
+   "decision block",
+   "exit code 2"
+  ],
+  "terms": [
+   {
+    "term": "hook event / matcher group / handler",
+    "zh": "時間點／篩選條件／實際執行者三層結構"
+   },
+   {
+    "term": "additionalContext",
+    "zh": "hook 往 Claude 上下文塞的文字（上限 10,000 字元）"
+   },
+   {
+    "term": "updatedInput",
+    "zh": "工具執行前改寫其參數"
+   },
+   {
+    "term": "defer",
+    "zh": "PreToolUse 決定：暫停工具呼叫交外部回答"
+   },
+   {
+    "term": "asyncRewake",
+    "zh": "背景 hook 以 exit 2 喚醒 Claude"
+   },
+   {
+    "term": "terminalSequence",
+    "zh": "hook 請 Claude Code 代發的終端機通知碼"
+   },
+   {
+    "term": "stop_hook_active",
+    "zh": "這回合已因 stop hook 繼續過"
+   },
+   {
+    "term": "scratchpad_dir",
+    "zh": "工作階段暫存目錄路徑"
+   }
+  ],
+  "memory_hooks": [
+   "SessionStart/UserPromptSubmit/PostToolUse/PostToolBatch/SubagentStart/PostModelSwitch 可回 additionalContext 注入記憶（10,000 字元上限）",
+   "Stop/SubagentStop/PreToolUse/UserPromptSubmit 可 decision block；Stop 連擋上限 8 次（CLAUDE_CODE_STOP_HOOK_BLOCK_CAP）",
+   "PreCompact/PostCompact/SessionEnd(1.5 秒預算)/InstructionsLoaded/ConfigChange 為壓縮與收尾掛點",
+   "mcp_tool 類型 hook 可直接呼叫 MCP 工具",
+   "SessionStart 可回 watchPaths/sessionTitle/reloadSkills 並寫 CLAUDE_ENV_FILE"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "interactive-mode",
+  "title_zh": "互動模式",
+  "one_liner": "互動工作階段的快捷鍵、輸入前綴、Vim 模式與雜項功能。",
+  "when": "查快捷鍵、排隊訊息、! shell 模式、/btw、工作清單等操作。",
+  "keywords": [
+   "interactive mode",
+   "快捷鍵",
+   "keyboard shortcuts",
+   "Ctrl+O",
+   "Ctrl+B",
+   "Ctrl+R",
+   "Esc Esc",
+   "Shift+Tab",
+   "vim mode",
+   "queued messages",
+   "! shell mode",
+   "@ 檔案提及",
+   "/btw",
+   "task list",
+   "session recap"
+  ],
+  "terms": [
+   {
+    "term": "transcript viewer",
+    "zh": "Ctrl+O 開啟的詳細工具輸出檢視"
+   },
+   {
+    "term": "queued message",
+    "zh": "回應中先排隊稍後送的訊息"
+   },
+   {
+    "term": "shell mode",
+    "zh": "以 ! 開頭直接執行命令"
+   }
+  ],
+  "memory_hooks": [
+   "Ctrl+O 可顯示被抑制的 async hook 完成通知",
+   "排隊訊息的送達時機決定 UserPromptSubmit 觸發點"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ },
+ {
+  "slug": "legal-and-compliance",
+  "title_zh": "法律和合規",
+  "one_liner": "使用條款、商業協議、醫療合規（BAA）、使用政策與安全回報。",
+  "when": "要把 Claude Code 嵌入自家產品或問合規時。",
+  "keywords": [
+   "legal",
+   "compliance",
+   "BAA",
+   "commercial terms",
+   "consumer terms",
+   "acceptable use",
+   "security reporting",
+   "trademark",
+   "license",
+   "HIPAA"
+  ],
+  "terms": [
+   {
+    "term": "BAA",
+    "zh": "醫療資料用的業務夥伴協議"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Resources",
+  "subsection": "Resources"
+ },
+ {
+  "slug": "tools-reference",
+  "title_zh": "工具參考",
+  "one_liner": "Claude 內建工具清單、權限需求與主要工具的行為與數字上限。",
+  "when": "寫 matcher/權限規則要工具名；查 Bash 逾時、輸出上限、Read 大檔行為。",
+  "keywords": [
+   "tools",
+   "Bash",
+   "Read",
+   "Edit",
+   "Write",
+   "Glob",
+   "Grep",
+   "Agent",
+   "Skill",
+   "WebFetch",
+   "WebSearch",
+   "Monitor",
+   "PowerShell",
+   "TaskCreate",
+   "TodoWrite"
+  ],
+  "terms": [
+   {
+    "term": "Monitor",
+    "zh": "背景跑命令並把每行輸出餵回 Claude"
+   },
+   {
+    "term": "ToolSearch",
+    "zh": "延遲載入 MCP 工具定義的搜尋工具"
+   },
+   {
+    "term": "ScheduleWakeup",
+    "zh": "自調節 /loop 的下次喚醒"
+   },
+   {
+    "term": "SubagentHandback",
+    "zh": "子代理交付最終報告的工具"
+   },
+   {
+    "term": "ReportFindings",
+    "zh": "以結構化清單回報審查發現"
+   }
+  ],
+  "memory_hooks": [
+   "hook matcher 與 if 使用此頁工具名",
+   "MCP 工具名格式 mcp__<server>__<tool>",
+   "Bash 輸出內聯約 30,000 字元、失敗 10,000 字元",
+   "Skill/Agent 工具是 skills 與子代理呼叫入口"
+  ],
+  "section": "Reference",
+  "subsection": "Reference"
+ }
+]

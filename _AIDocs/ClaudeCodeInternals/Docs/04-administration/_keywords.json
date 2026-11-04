@@ -1,0 +1,1056 @@
+[
+ {
+  "slug": "setup",
+  "title_zh": "進階設定",
+  "one_liner": "系統需求、各平台安裝、更新通道、版本固定與卸載。",
+  "when": "安裝失敗、要鎖版本或通道、要停自動更新時。",
+  "keywords": [
+   "install",
+   "安裝",
+   "autoUpdatesChannel",
+   "minimumVersion",
+   "requiredMinimumVersion",
+   "DISABLE_AUTOUPDATER",
+   "DISABLE_UPDATES",
+   "claude doctor",
+   "stable",
+   "latest",
+   "Homebrew",
+   "WinGet",
+   "npm",
+   "解除安裝",
+   "系統需求"
+  ],
+  "terms": [
+   {
+    "term": "release channel",
+    "zh": "更新通道，latest 即時、stable 延遲約一週並跳過重大迴歸版"
+   }
+  ],
+  "memory_hooks": [
+   "`env` 鍵可放 `DISABLE_AUTOUPDATER`；`minimumVersion` 放受管層會壓過使用者/專案層（見設定分層）。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "admin-setup",
+  "title_zh": "為您的組織設定 Claude Code",
+  "one_liner": "管理員部署決策地圖：選 API 提供者、設定如何到裝置、要強制什麼、看用量、查資料處理。",
+  "when": "第一次替組織規劃 Claude Code 部署，想找哪個控制對應哪個設定鍵時。",
+  "keywords": [
+   "admin",
+   "管理員",
+   "部署",
+   "managed settings",
+   "受管設定",
+   "enforce",
+   "policy",
+   "allowedProviders",
+   "availableModels",
+   "strictPluginOnlyCustomization",
+   "allowManagedHooksOnly",
+   "HKLM",
+   "plist",
+   "WSL",
+   "wslInheritsWindowsSettings"
+  ],
+  "terms": [
+   {
+    "term": "managed policy CLAUDE.md",
+    "zh": "組織層 CLAUDE.md，只是指引、不被程式強制"
+   },
+   {
+    "term": "customization lockdown",
+    "zh": "`strictPluginOnlyCustomization`：skills/agents/hooks/MCP 只能來自外掛或受管設定"
+   }
+  ],
+  "memory_hooks": [
+   "表列出能把 hooks、MCP、skills 鎖成「只准受管來源」的鍵（`allowManagedHooksOnly`、`strictPluginOnlyCustomization`），會改變本機 hooks/skills 是否載入。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "authentication",
+  "title_zh": "驗證",
+  "one_liner": "登入方式、團隊認證、憑證儲存與優先順序、限制登入組織。",
+  "when": "要設定 SSO/Console/雲端登入、除錯誰的憑證生效、鎖定登入組織時。",
+  "keywords": [
+   "login",
+   "登入",
+   "/login",
+   "/logout",
+   "apiKeyHelper",
+   "ANTHROPIC_API_KEY",
+   "ANTHROPIC_AUTH_TOKEN",
+   "CLAUDE_CODE_OAUTH_TOKEN",
+   "setup-token",
+   "forceLoginMethod",
+   "forceLoginOrgUUID",
+   "allowedProviders",
+   ".credentials.json",
+   "Keychain",
+   "SSO"
+  ],
+  "terms": [
+   {
+    "term": "apiKeyHelper",
+    "zh": "回傳 API 金鑰的 shell 腳本設定，用於輪替/保管庫憑證"
+   },
+   {
+    "term": "Workload Identity Federation",
+    "zh": "用外部身分換短期憑證的免金鑰認證"
+   }
+  ],
+  "memory_hooks": [
+   "認證來源優先序與 `CLAUDE_CONFIG_DIR` 決定憑證檔位置；與本地 settings 的 `env` 區塊互動。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "auto-mode-config",
+  "title_zh": "設定自動模式",
+  "one_liner": "設定自動模式分類器：受信任基礎設施、覆蓋規則、檢視拒絕。",
+  "when": "自動模式老是擋你信任的 repo/網域，或要調整分類器規則時。",
+  "keywords": [
+   "auto mode",
+   "自動模式",
+   "classifier",
+   "autoMode",
+   "environment",
+   "soft_deny",
+   "hard_deny",
+   "classifyAllShell",
+   "/auto-mode-setup",
+   "claude auto-mode defaults",
+   "permissions.ask",
+   "trusted infrastructure"
+  ],
+  "terms": [
+   {
+    "term": "auto mode classifier",
+    "zh": "替你審查工具呼叫並擋掉不安全操作的另一個模型"
+   },
+   {
+    "term": "hard_deny / soft_deny",
+    "zh": "硬阻擋（不可覆蓋）與軟阻擋（使用者意圖或 allow 可放行）"
+   }
+  ],
+  "memory_hooks": [
+   "分類器讀與 Claude 相同的 CLAUDE.md；專案層不讀 autoMode 是刻意防止 repo 注入規則。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "managed-settings",
+  "title_zh": "部署受管設定",
+  "one_liner": "部署受管設定：四種傳遞機制、來源優先序、可鎖鍵、驗證方式。",
+  "when": "要在機隊強制政策，或查「為什麼某設定沒生效」時，這是核心頁。",
+  "keywords": [
+   "managed-settings.json",
+   "managed-settings.d",
+   "MDM",
+   "Jamf",
+   "Intune",
+   "GPO",
+   "plist",
+   "HKLM",
+   "HKCU",
+   "managedSourcesBehavior",
+   "first-wins",
+   "merge",
+   "parentSettingsBehavior",
+   "policyHelper",
+   "allowManagedPermissionRulesOnly"
+  ],
+  "terms": [
+   {
+    "term": "first-wins / merge",
+    "zh": "多個受管來源並存時的處理：只取最高一個，或全部合併"
+   },
+   {
+    "term": "policy key",
+    "zh": "除 `wslInheritsWindowsSettings`、`managedSourcesBehavior` 外的任何設定鍵，才算該來源有提供政策"
+   },
+   {
+    "term": "parent settings",
+    "zh": "嵌入主機（Desktop/IDE/SDK 用 `managedSettings`）傳進來的設定；有管理員來源時預設被忽略"
+   },
+   {
+    "term": "policyHelper",
+    "zh": "啟動時執行並輸出 `managedSettings` 物件的可執行檔，輸出取代其他受管來源"
+   }
+  ],
+  "memory_hooks": [
+   "設定分層：受管層 > 命令列/本機/專案/使用者；受管層內有自己的來源序。本機 `~/.claude/settings.json` 的 hooks/permissions/env 在 `allowManaged*Only` 下會被忽略；`ConfigChange` hook 可記錄 managed-settings.json 的本機編輯。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "server-managed-settings",
+  "title_zh": "設定伺服器管理的設定",
+  "one_liner": "透過 claude.ai 管理主控台集中下發設定（Teams/Enterprise），免 MDM。",
+  "when": "沒有 MDM、想從網頁後台統一管理，或要查擷取/快取/核准行為時。",
+  "keywords": [
+   "server-managed",
+   "伺服器管理設定",
+   "remote-settings.json",
+   "forceRemoteSettingsRefresh",
+   "fail-closed",
+   "安全核准對話框",
+   "claude doctor",
+   "Remote settings",
+   "Teams",
+   "Enterprise",
+   "companyAnnouncements",
+   "稽核記錄",
+   "cache",
+   "每小時輪詢"
+  ],
+  "terms": [
+   {
+    "term": "server-managed settings",
+    "zh": "Anthropic 伺服器（或閘道）下發的受管設定，啟動拉取並每小時刷新"
+   },
+   {
+    "term": "security approval dialog",
+    "zh": "下發含 hook/shell 命令等高風險設定時要求使用者明確同意的對話框"
+   }
+  ],
+  "memory_hooks": [
+   "下發的 hooks 需使用者核准才執行；`ConfigChange` hook 可記錄設定到達；快取檔 `~/.claude/remote-settings.json` 位於同一 `.claude` 目錄。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "managed-mcp",
+  "title_zh": "控制組織的 MCP 伺服器存取",
+  "one_liner": "控制組織可用的 MCP 伺服器：固定集、提供集、允許/拒絕清單。",
+  "when": "要限制或預先配置員工能連的 MCP 伺服器時。",
+  "keywords": [
+   "MCP",
+   "managed-mcp.json",
+   "managedMcpServers",
+   "allowedMcpServers",
+   "deniedMcpServers",
+   "allowManagedMcpServersOnly",
+   "serverUrl",
+   "serverCommand",
+   "serverName",
+   "--mcp-config",
+   "--strict-mcp-config",
+   "strictPluginOnlyCustomization",
+   "claude.ai connectors",
+   "Claude in Chrome"
+  ],
+  "terms": [
+   {
+    "term": "exclusive control",
+    "zh": "部署 `managed-mcp.json` 後，只有受管集合能用，使用者無法新增"
+   }
+  ],
+  "memory_hooks": [
+   "MCP 伺服器來源有多範圍（使用者/專案/本機/外掛/claude.ai）；`.mcp.json` 專案伺服器受允許/拒絕清單過濾。"
+  ],
+  "section": "Administration",
+  "subsection": "Setup and access"
+ },
+ {
+  "slug": "third-party-integrations",
+  "title_zh": "企業部署概述",
+  "one_liner": "企業部署總覽：Teams/Enterprise、Console、Bedrock、Vertex、Foundry 比較與最佳實踐。",
+  "when": "在直連 Anthropic 與各雲端之間做選擇、設計代理/閘道架構時。",
+  "keywords": [
+   "enterprise",
+   "部署比較",
+   "Bedrock",
+   "Vertex",
+   "Foundry",
+   "Teams",
+   "Console",
+   "proxy",
+   "gateway",
+   "CMEK",
+   "pin model",
+   "企業部署"
+  ],
+  "terms": [],
+  "memory_hooks": [
+   "組織層 CLAUDE.md 與 `.mcp.json` 簽入是官方建議的組織知識分發方式。"
+  ],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "amazon-bedrock",
+  "title_zh": "Amazon Bedrock 上的 Claude Code",
+  "one_liner": "在 Amazon Bedrock 上設定 Claude Code：登入、AWS 憑證、模型釘選、IAM、Mantle。",
+  "when": "公司走 Bedrock、要處理 SSO/區域/模型 ID/IAM 時。",
+  "keywords": [
+   "Bedrock",
+   "CLAUDE_CODE_USE_BEDROCK",
+   "AWS_REGION",
+   "awsAuthRefresh",
+   "awsCredentialExport",
+   "inference profile",
+   "Mantle",
+   "CLAUDE_CODE_USE_MANTLE",
+   "IAM",
+   "Guardrails",
+   "ANTHROPIC_DEFAULT_OPUS_MODEL",
+   "ANTHROPIC_BEDROCK_BASE_URL",
+   "SSO"
+  ],
+  "terms": [
+   {
+    "term": "Mantle",
+    "zh": "Bedrock 上以原生 Anthropic API 形狀提供 Claude 的端點"
+   },
+   {
+    "term": "inference profile",
+    "zh": "Bedrock 的跨區域/應用程式推論設定檔，決定實際呼叫的模型 ID"
+   }
+  ],
+  "memory_hooks": [
+   "受管 `env` 內的模型釘選不觸發更新提示（v2.1.314 前有 bug）；與設定分層的 `env` 區塊相關。"
+  ],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "google-vertex-ai",
+  "title_zh": "Google Cloud 的 Agent Platform 上的 Claude Code",
+  "one_liner": "在 Google Cloud Agent Platform（原 Vertex AI）上設定 Claude Code。",
+  "when": "公司走 GCP、要設定區域、專案 ID、模型存取與 IAM 時。",
+  "keywords": [
+   "Vertex",
+   "Agent Platform",
+   "CLAUDE_CODE_USE_VERTEX",
+   "CLOUD_ML_REGION",
+   "ANTHROPIC_VERTEX_PROJECT_ID",
+   "ANTHROPIC_VERTEX_BASE_URL",
+   "Model Garden",
+   "GCP",
+   "roles/aiplatform.user"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "microsoft-foundry",
+  "title_zh": "Microsoft Foundry 上的 Claude Code",
+  "one_liner": "在 Microsoft Foundry 上設定 Claude Code：資源、認證、RBAC。",
+  "when": "公司走 Azure/Foundry 時。",
+  "keywords": [
+   "Foundry",
+   "Azure",
+   "CLAUDE_CODE_USE_FOUNDRY",
+   "ANTHROPIC_FOUNDRY_RESOURCE",
+   "ANTHROPIC_FOUNDRY_API_KEY",
+   "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+   "Entra ID",
+   "RBAC"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "claude-platform-on-aws",
+  "title_zh": "AWS 上的 Claude Platform 上的 Claude Code",
+  "one_liner": "經 AWS 認證/計費使用 Anthropic 營運的 Claude API（Claude Platform on AWS）。",
+  "when": "用 AWS Marketplace 購買、但要走 Anthropic API 功能集時。",
+  "keywords": [
+   "Claude Platform on AWS",
+   "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+   "ANTHROPIC_AWS_WORKSPACE_ID",
+   "SigV4",
+   "AWS Marketplace",
+   "ENABLE_PROMPT_CACHING_1H",
+   "aws-external-anthropic"
+  ],
+  "terms": [
+   {
+    "term": "workspace ID",
+    "zh": "Claude Platform on AWS 的工作區識別，每次請求必帶"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "corporate-launcher",
+  "title_zh": "在公司啟動程式後面執行 Claude Code",
+  "one_liner": "用 `CLAUDE_CODE_PROCESS_WRAPPER` 讓 Claude Code 自行啟動的所有程序都經公司啟動器。",
+  "when": "公司規定所有程序必須經沙箱/網路控制/憑證注入啟動器時。",
+  "keywords": [
+   "CLAUDE_CODE_PROCESS_WRAPPER",
+   "processWrapper",
+   "launcher",
+   "啟動器",
+   "exec",
+   "agent view",
+   "背景服務",
+   "CLAUDE_CODE_SHELL_PREFIX",
+   "sandbox"
+  ],
+  "terms": [
+   {
+    "term": "process wrapper / launcher",
+    "zh": "包住 Claude Code 自己衍生程序的公司啟動腳本"
+   }
+  ],
+  "memory_hooks": [
+   "背景服務/子程序會被包裝；hooks 與 MCP 子程序是否經此包裝以 `CLAUDE_CODE_SHELL_PREFIX` 區分。"
+  ],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "devcontainer",
+  "title_zh": "開發容器",
+  "one_liner": "在 dev container 內跑 Claude Code：安裝 Feature、保留認證、套組織政策、出口防火牆。",
+  "when": "要給團隊一致隔離環境，或想在容器裡無人值守跑時。",
+  "keywords": [
+   "devcontainer",
+   "dev container",
+   "Dockerfile",
+   "init-firewall.sh",
+   "CLAUDE_CONFIG_DIR",
+   "containerEnv",
+   "dangerously-skip-permissions",
+   "/etc/claude-code",
+   "Codespaces",
+   "容器"
+  ],
+  "terms": [
+   {
+    "term": "dev container",
+    "zh": "用 devcontainer.json 定義、可在本機或 Codespaces 重現的容器開發環境"
+   }
+  ],
+  "memory_hooks": [
+   "`CLAUDE_CONFIG_DIR` 決定 `.claude` 位置，容器內可獨立於主機記憶/設定。"
+  ],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "feature-availability",
+  "title_zh": "功能可用性",
+  "one_liner": "各功能在訂閱方案與各雲端提供者的可用性比較。",
+  "when": "查「這功能在 Bedrock/Console/Team 上有沒有」時。",
+  "keywords": [
+   "feature availability",
+   "功能可用性",
+   "方案",
+   "Pro",
+   "Max",
+   "Ultra",
+   "Team",
+   "Enterprise",
+   "SCIM",
+   "Compliance API",
+   "Bedrock",
+   "provider",
+   "Remote Control",
+   "Code Review"
+  ],
+  "terms": [],
+  "memory_hooks": [
+   "subagent、hooks、skills、MCP 在所有提供者皆可用；可確認跨環境行為一致。"
+  ],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "network-config",
+  "title_zh": "企業網路設定",
+  "one_liner": "企業網路：代理、CA、mTLS、串流監視狗、必須放行的網址。",
+  "when": "公司有 proxy/TLS 檢查、要設防火牆允許清單或串流逾時時。",
+  "keywords": [
+   "proxy",
+   "HTTPS_PROXY",
+   "NO_PROXY",
+   "mTLS",
+   "CA",
+   "NODE_EXTRA_CA_CERTS",
+   "CLAUDE_CODE_CERT_STORE",
+   "firewall",
+   "allowlist",
+   "api.anthropic.com",
+   "watchdog",
+   "API_TIMEOUT_MS",
+   "CLAUDE_STREAM_IDLE_TIMEOUT_MS",
+   "防火牆"
+  ],
+  "terms": [
+   {
+    "term": "byte watchdog",
+    "zh": "網路層沒位元組到達（含 SSE ping）就中止串流的計時器"
+   }
+  ],
+  "memory_hooks": [
+   "網路變數可放 settings `env`；背景 agent 不繼承 shell 環境。"
+  ],
+  "section": "Administration",
+  "subsection": "Deployment"
+ },
+ {
+  "slug": "gateways",
+  "title_zh": "透過閘道執行 Claude Code",
+  "one_liner": "閘道概觀：架構、選 Claude apps gateway 或自有 LLM 閘道、與訂閱互動。",
+  "when": "評估是否要在 Claude Code 與模型提供者之間加閘道時。",
+  "keywords": [
+   "gateway",
+   "閘道",
+   "Claude apps gateway",
+   "ANTHROPIC_BASE_URL",
+   "ANTHROPIC_AUTH_TOKEN",
+   "LLM gateway",
+   "SSO",
+   "subscription"
+  ],
+  "terms": [
+   {
+    "term": "gateway",
+    "zh": "組織自管、位於 Claude Code 與模型提供者之間的代理"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "llm-gateway",
+  "title_zh": "其他 LLM 閘道",
+  "one_liner": "使用既有 LLM 閘道的入口：能提供什麼、推出順序、三個子頁導覽。",
+  "when": "組織已有 LiteLLM 類閘道，想知道從哪頁讀起時。",
+  "keywords": [
+   "LLM gateway",
+   "LiteLLM",
+   "閘道",
+   "audit log",
+   "credentials",
+   "rollout",
+   "provider switching"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "llm-gateway-connect",
+  "title_zh": "將 Claude Code 連接到 LLM 閘道",
+  "one_liner": "開發者把 Claude Code 連到既有 LLM 閘道：檢查、設定、各介面、疑難。",
+  "when": "你是開發者，需要自己設定或驗證閘道連線時。",
+  "keywords": [
+   "ANTHROPIC_BASE_URL",
+   "ANTHROPIC_AUTH_TOKEN",
+   "apiKeyHelper",
+   "ANTHROPIC_CUSTOM_HEADERS",
+   "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+   "/status",
+   "LLM gateway",
+   "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+   "連接閘道"
+  ],
+  "terms": [],
+  "memory_hooks": [
+   "`apiKeyHelper` 與 `env` 設定位置影響閘道憑證來源。"
+  ],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "llm-gateway-protocol",
+  "title_zh": "Claude Code 閘道相容性指南",
+  "one_liner": "閘道相容性規格：端點、標頭、功能傳遞、模型發現。",
+  "when": "要寫或調整閘道，使其不破壞 Claude Code 新功能時。",
+  "keywords": [
+   "protocol",
+   "anthropic-beta",
+   "anthropic-version",
+   "x-claude-code-session-id",
+   "x-claude-code-agent-id",
+   "count_tokens",
+   "model discovery",
+   "gateway hint",
+   "CLAUDE_CODE_GATEWAY_HINT_HEADERS",
+   "streaming",
+   "相容性"
+  ],
+  "terms": [
+   {
+    "term": "gateway hint headers",
+    "zh": "Claude Code 附的路由/排程提示標頭，供閘道分類請求"
+   }
+  ],
+  "memory_hooks": [
+   "請求標頭帶 session/agent id，可讓外部系統聚合同一 session 的呼叫。"
+  ],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "llm-gateway-rollout",
+  "title_zh": "為您的組織推出 LLM 閘道",
+  "one_liner": "管理員推出 LLM 閘道：需求、發憑證、測試、分發設定、維護。",
+  "when": "要把閘道分發給全公司開發者時。",
+  "keywords": [
+   "rollout",
+   "推出",
+   "gateway",
+   "ANTHROPIC_BASE_URL",
+   "apiKeyHelper",
+   "managed settings",
+   "HIPAA",
+   "400",
+   "404",
+   "401",
+   "429",
+   "版本升級"
+  ],
+  "terms": [],
+  "memory_hooks": [
+   "受管設定 `env` 強制 `ANTHROPIC_BASE_URL` 是設定分層的實例。"
+  ],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "claude-apps-gateway",
+  "title_zh": "Amazon Bedrock、Claude Platform on AWS、Google Cloud 和 Microsoft Foundry 的 Claude 應用程式閘道",
+  "one_liner": "Claude apps gateway：內建於 `claude` 二進位的自託管閘道，提供 IdP 登入、群組模型存取、受管設定下發、OTLP 遙測。",
+  "when": "公司需資料駐留/自有雲端路由，並要 SSO 與依群組管理設定時；本頁含「設定分層」重點。",
+  "keywords": [
+   "Claude apps gateway",
+   "gateway.yaml",
+   "claude gateway",
+   "OIDC",
+   "IdP",
+   "forceLoginGatewayUrl",
+   "forceLoginMethod gateway",
+   "parentSettingsBehavior",
+   "allowManagedPermissionRulesOnly",
+   "allowManaged*Only",
+   "allowedProviders",
+   "TLS fingerprint",
+   "Claude Desktop",
+   "bootstrapUrl",
+   "受管設定"
+  ],
+  "terms": [
+   {
+    "term": "Claude apps gateway",
+    "zh": "Anthropic 提供、內建於 claude 二進位的自託管閘道"
+   },
+   {
+    "term": "IdP group policy",
+    "zh": "依 OIDC token 的 groups 宣告套用不同受管設定與模型允許清單"
+   }
+  ],
+  "memory_hooks": [
+   "受管設定經閘道下發 hook/env 需使用者核准一次（每閘道一筆）；閘道原則套用於所有 `claude -p` 與 SDK 衍生工作階段。"
+  ],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "claude-apps-gateway-config",
+  "title_zh": "Claude 應用程式閘道設定",
+  "one_liner": "gateway.yaml 完整設定參考：listen/oidc/session/store/upstreams 與 managed、telemetry 等。",
+  "when": "要寫或除錯 gateway.yaml，尤其是 `managed` 政策合併規則時。",
+  "keywords": [
+   "gateway.yaml",
+   "managed policies",
+   "match groups",
+   "email_domain",
+   "policy_mode",
+   "layered",
+   "availableModels",
+   "enforceAvailableModels",
+   "code",
+   "cli",
+   "desktop",
+   "telemetry",
+   "OTLP",
+   "upstreams",
+   "jwt_secret"
+  ],
+  "terms": [
+   {
+    "term": "layered policy_mode",
+    "zh": "多群組政策疊加套用，而非只取第一個符合者"
+   },
+   {
+    "term": "match: {} 基礎層",
+    "zh": "對所有已驗證使用者生效的預設政策，其他政策從它繼承"
+   }
+  ],
+  "memory_hooks": [
+   "`hooks` 事件陣列在 managed 政策中取聯集，組織稽核 hook 不會被群組政策取代。"
+  ],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "claude-apps-gateway-deploy",
+  "title_zh": "Claude 應用程式閘道部署和運營",
+  "one_liner": "部署與營運閘道：IdP 註冊、容器、Kubernetes/Cloud Run、日誌、升級、安全。",
+  "when": "實際上線閘道、處理大規模登入或疑難時。",
+  "keywords": [
+   "deploy",
+   "Kubernetes",
+   "Cloud Run",
+   "OIDC",
+   "Okta",
+   "Entra",
+   "Keycloak",
+   "rate_limits",
+   "trusted_proxies",
+   "JWT rotation",
+   "readyz",
+   "Postgres",
+   "container",
+   "推出"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "claude-apps-gateway-on-aws",
+  "title_zh": "在 AWS 上部署 Claude apps gateway",
+  "one_liner": "AWS 上部署閘道實例：ECS Fargate/EKS、RDS、Secrets Manager、Terraform。",
+  "when": "要照範例在 AWS 蓋閘道並做成本歸屬時。",
+  "keywords": [
+   "AWS",
+   "ECS",
+   "Fargate",
+   "EKS",
+   "RDS",
+   "Terraform",
+   "IRSA",
+   "Secrets Manager",
+   "assume_role",
+   "cost attribution",
+   "application inference profile"
+  ],
+  "terms": [
+   {
+    "term": "IRSA",
+    "zh": "EKS 上讓 Pod 取得 IAM 角色的機制"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "claude-apps-gateway-on-gcp",
+  "title_zh": "在 Google Cloud 上部署 Claude 應用程式閘道",
+  "one_liner": "Google Cloud 上部署閘道：Cloud Run/GKE、Cloud SQL、Secret Manager、Terraform。",
+  "when": "要照範例在 GCP 蓋閘道時。",
+  "keywords": [
+   "GCP",
+   "Cloud Run",
+   "GKE",
+   "Cloud SQL",
+   "Secret Manager",
+   "Workload Identity",
+   "Terraform",
+   "aiplatform.user"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "claude-apps-gateway-spend-limits",
+  "title_zh": "Claude 應用程式閘道支出限制",
+  "one_liner": "閘道的每開發者日/週/月支出上限與 Admin API。",
+  "when": "要用閘道限制個別開發者花費時。",
+  "keywords": [
+   "spend limit",
+   "支出限制",
+   "admin API",
+   "billing_error",
+   "429",
+   "spend_limits",
+   "gateway",
+   "budget"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Gateways"
+ },
+ {
+  "slug": "costs",
+  "title_zh": "有效管理成本",
+  "one_liner": "追蹤與降低 token 成本：`/usage`、組織層支出管理、節省策略。",
+  "when": "想知道花多少、怎麼限額、怎麼省 token 時。",
+  "keywords": [
+   "cost",
+   "成本",
+   "/usage",
+   "token",
+   "modelPricing",
+   "prompt cache",
+   "/compact",
+   "/clear",
+   "spend limit",
+   "extra usage",
+   "workspace",
+   "MCP overhead",
+   "hook",
+   "skill",
+   "agent team"
+  ],
+  "terms": [
+   {
+    "term": "prompt cache miss",
+    "zh": "快取已過期或失效，整段前綴需重新處理並重寫入快取"
+   }
+  ],
+  "memory_hooks": [
+   "含 hook/skill 預處理與 CLAUDE.md 瘦身的省 token 建議；快取失效與 `/compact` 的成本說明可對照 context 管理。"
+  ],
+  "section": "Administration",
+  "subsection": "Usage and costs"
+ },
+ {
+  "slug": "analytics",
+  "title_zh": "使用分析追蹤團隊使用情況",
+  "one_liner": "分析儀表板：採用、貢獻指標（PR 歸因）、排行榜與 API。",
+  "when": "要衡量團隊採用與 ROI 時。",
+  "keywords": [
+   "analytics",
+   "儀表板",
+   "contribution metrics",
+   "PR attribution",
+   "claude-code-assisted",
+   "leaderboard",
+   "Enterprise Analytics API",
+   "adoption",
+   "ROI"
+  ],
+  "terms": [
+   {
+    "term": "contribution metrics",
+    "zh": "把合併 PR 的程式行對應到 Claude Code 工作階段的歸因指標"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Usage and costs"
+ },
+ {
+  "slug": "monitoring-usage",
+  "title_zh": "監控",
+  "one_liner": "OpenTelemetry 監控：啟用、受管鎖定 OTLP、指標、事件、追蹤與安全稽核。",
+  "when": "要把 Claude Code 用量/事件/追蹤匯到自家可觀測性堆疊或 SIEM 時。",
+  "keywords": [
+   "OpenTelemetry",
+   "OTel",
+   "OTLP",
+   "CLAUDE_CODE_ENABLE_TELEMETRY",
+   "OTEL_METRICS_EXPORTER",
+   "OTEL_LOGS_EXPORTER",
+   "claude_code.token.usage",
+   "claude_code.cost.usage",
+   "tool_result",
+   "hook_execution",
+   "managed_settings_resolved",
+   "OTEL_LOG_USER_PROMPTS",
+   "OTEL_LOG_RAW_API_BODIES",
+   "otelHeadersHelper",
+   "SIEM"
+  ],
+  "terms": [
+   {
+    "term": "OTLP",
+    "zh": "OpenTelemetry Protocol，遙測傳輸協定（Claude Code 支援 grpc/http）"
+   },
+   {
+    "term": "prompt.id",
+    "zh": "UUID，連結同一提示觸發的所有事件"
+   }
+  ],
+  "memory_hooks": [
+   "事件含 `hook_registered`/`hook_execution_*`、`skill_activated`、`compaction`、`mcp_server_connection`，可觀測 hooks/skills/MCP/context 壓縮行為；與 hooks 注入記憶互補。"
+  ],
+  "section": "Administration",
+  "subsection": "Usage and costs"
+ },
+ {
+  "slug": "security",
+  "title_zh": "安全性",
+  "one_liner": "安全性：權限架構、內建保護、提示注入防護、MCP/IDE/雲端安全與最佳實踐。",
+  "when": "做安全審查或決定權限/沙箱策略時。",
+  "keywords": [
+   "security",
+   "安全",
+   "prompt injection",
+   "permissions",
+   "sandbox",
+   "/sandbox",
+   "trust dialog",
+   "WebFetch",
+   "credentials",
+   "WebDAV",
+   "cloud sessions",
+   "MCP security",
+   "SOC 2"
+  ],
+  "terms": [],
+  "memory_hooks": [
+   "專案 `.mcp.json` 伺服器有獨立核准；hook/MCP 執行前的信任流程與 `-p` 模式差異。"
+  ],
+  "section": "Administration",
+  "subsection": "Security and data"
+ },
+ {
+  "slug": "data-usage",
+  "title_zh": "資料使用",
+  "one_liner": "資料政策：訓練、保留、遙測服務、各 API 提供者預設行為。",
+  "when": "要回答法遵/隱私問題、決定要關哪些遙測時。",
+  "keywords": [
+   "data usage",
+   "資料使用",
+   "retention",
+   "保留",
+   "training",
+   "DISABLE_TELEMETRY",
+   "DISABLE_ERROR_REPORTING",
+   "DISABLE_FEEDBACK_COMMAND",
+   "cleanupPeriodDays",
+   "skipWebFetchPreflight",
+   "/feedback",
+   "privacy",
+   "遙測"
+  ],
+  "terms": [
+   {
+    "term": "telemetry services",
+    "zh": "Anthropic 自己的營運遙測（指標、錯誤報告），不同於客戶端 OTel 匯出"
+   }
+  ],
+  "memory_hooks": [
+   "本機逐字稿在 `~/.claude/projects/`、`cleanupPeriodDays` 影響保留；與記憶系統讀取歷史相關。"
+  ],
+  "section": "Administration",
+  "subsection": "Security and data"
+ },
+ {
+  "slug": "zero-data-retention",
+  "title_zh": "零資料保留",
+  "one_liner": "Claude for Enterprise 的 ZDR：範圍、不涵蓋項目、被停用的功能。",
+  "when": "評估是否需要 ZDR 或查 ZDR 下哪些功能不能用時。",
+  "keywords": [
+   "ZDR",
+   "zero data retention",
+   "零資料保留",
+   "Enterprise",
+   "disabled features",
+   "Fable",
+   "Remote Control",
+   "Artifacts",
+   "retention"
+  ],
+  "terms": [
+   {
+    "term": "ZDR",
+    "zh": "Zero Data Retention，提示與回應處理完即不保留"
+   }
+  ],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Security and data"
+ },
+ {
+  "slug": "hipaa-setup",
+  "title_zh": "為 HIPAA-ready 組織設定 Claude Code（本機模式）",
+  "one_liner": "為 HIPAA-ready 組織準備開發者電腦（Claude Code 本機模式）。",
+  "when": "有 BAA/PHI、要套 HIPAA 組織設定時。",
+  "keywords": [
+   "HIPAA",
+   "BAA",
+   "PHI",
+   "forceLoginOrgUUID",
+   "allowedProviders",
+   "cleanupPeriodDays",
+   "claude purge",
+   "claude project purge",
+   "settings-hipaa.json",
+   "Cowork",
+   "本機模式",
+   "保留"
+  ],
+  "terms": [
+   {
+    "term": "HIPAA configuration",
+    "zh": "Enterprise 方案的組織設定，用於處理 PHI 並簽有 BAA"
+   }
+  ],
+  "memory_hooks": [
+   "`claude purge` 會刪逐字稿、自動記憶、tasks、debug、file-history、history.jsonl；本機逐字稿保留由 `cleanupPeriodDays` 控制。"
+  ],
+  "section": "Administration",
+  "subsection": "Security and data"
+ },
+ {
+  "slug": "champion-kit",
+  "title_zh": "Champion kit",
+  "one_liner": "內部推廣者手冊：分享什麼、怎麼答疑、30 天行動計畫。",
+  "when": "你想在團隊內推動 Claude Code 採用時。",
+  "keywords": [
+   "champion",
+   "adoption",
+   "推廣",
+   "30-day playbook",
+   "FAQ",
+   "Slack channel",
+   "採用"
+  ],
+  "terms": [],
+  "memory_hooks": [],
+  "section": "Administration",
+  "subsection": "Adoption"
+ },
+ {
+  "slug": "communications-kit",
+  "title_zh": "通訊工具包",
+  "one_liner": "推出公告、滴灌式提示與常見問答範本。",
+  "when": "管理員要對工程團隊發佈 Claude Code 時。",
+  "keywords": [
+   "communications",
+   "announcement",
+   "drip campaign",
+   "FAQ",
+   "rollout",
+   "公告",
+   "滴灌",
+   "推出通訊"
+  ],
+  "terms": [],
+  "memory_hooks": [
+   "專案記憶（CLAUDE.md）為滴灌主題之一。"
+  ],
+  "section": "Administration",
+  "subsection": "Adoption"
+ }
+]

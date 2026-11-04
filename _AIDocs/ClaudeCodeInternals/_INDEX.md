@@ -2,12 +2,27 @@
 
 > 來源：https://claude-code-harness-blog.vercel.app/（14 章完整收錄）
 > 用途：開發 hooks、skills、tools、MCP 伺服器時的架構參考
-> 最近更新：2026-05-27（V5 GA 簽收同步；本資料夾為 CC 主程式架構參考，與我們 V5 升版無直接耦合）
+> 最近更新：2026-11-04（新增 `Docs/` 官方文件全收割 228 頁＋索引＋現況對帳＋進化分析；收割工具 `tools/cc_docs_harvest.py`）
+> 前次：2026-05-27（V5 GA 簽收同步；本資料夾為 CC 主程式架構參考，與我們 V5 升版無直接耦合）
 >
 > ⚠️ **來源與時效說明**（user 補註，2026-05-28）：本資料夾為 2026 年 4 月初**從錯放出來的 CC sources（claude-code 主程式源碼）產生的研究紀錄**。Claude Code 自此後仍在快速演進，且 CC 內部結構未公開穩定 API。**本資料夾僅有「部分參考價值」**：
 > - 適合：理解 CC harness 大方向（query loop、tool system、hook lifecycle、permission funnel 等概念架構）
 > - 不適合：當作精確規格直接套用（行數、欄位名、private API、feature flag 等具體實作很可能已過時）
 > - 開發 hook/skill/MCP 時：以 CC 官方文件 + 實測 hook event 行為為主，本資料夾為輔助理解。
+
+## 官方文件收割（2026-11-04 起，現行規格以此為準）
+
+> `Docs/` 是 code.claude.com/docs/zh-TW **全部 228 頁官方 markdown 原文**（含 changelog／claude-tag 英文版），依官方分類八夾落檔，另附 LLM 導讀卡與索引。上面 14 章是 2026-04 源碼研究紀錄，只當概念參考；**查功能、鍵名、事件名、數字限制一律先查 `Docs/`**。
+
+| 入口 | 用途 |
+|------|------|
+| [Docs/_INDEX.md](Docs/_INDEX.md) | 高速閱讀索引：八夾總覽＋各頁一句話／何時讀／關鍵字 |
+| [Docs/_KEYWORDS.md](Docs/_KEYWORDS.md) | 關鍵字反查（2,348 詞 → 頁）＋各頁「記憶系統接點」彙整 |
+| [Docs/_GLOSSARY.md](Docs/_GLOSSARY.md) | 453 個新名詞／術語白話表 |
+| [Docs/08-whats-new/TIMELINE-新功能與新名詞.md](Docs/08-whats-new/TIMELINE-新功能與新名詞.md) | 新名詞首次出現版本、165 版時間線、已移除／改名 |
+| [Docs/_現況對帳-原子記憶系統用到的CC機制.md](Docs/_現況對帳-原子記憶系統用到的CC機制.md) | 原子記憶系統現用的 hook 事件／設定／擴充／多 session 對帳表＋自製但原生可能已有的 25 項候選 |
+| [Docs/_analysis/](Docs/_analysis/) | 依官方新能力分析原子記憶系統可進化點（三面向＋總整） |
+| `python ~/.claude/tools/cc_docs_harvest.py fetch` / `index` | 重抓原文與 manifest／重建索引三檔 |
 
 ---
 
