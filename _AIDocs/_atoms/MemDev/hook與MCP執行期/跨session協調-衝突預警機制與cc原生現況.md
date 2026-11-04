@@ -11,7 +11,7 @@
 
 ## 知識
 
-- [臨] CC 原生已有跨 session 溝通：同機的 session 用 ListAgents／`claude agents --json` 找到彼此、SendMessage 直接送達，閒置的收件端會自動開新回合處理；收件端權限模式不同時預設扣住待核准，`crossSessionInbound: "accept"` 改成直接收（本系統已設）。要傳話就用它，不自建收件匣。
+- [觀] CC 原生已有跨 session 溝通：同機的 session 用 ListAgents／`claude agents --json` 找到彼此、SendMessage 直接送達，閒置的收件端會自動開新回合處理；收件端權限模式不同時預設扣住待核准，`crossSessionInbound: "accept"` 改成直接收（本系統已設）。要傳話就用它，不自建收件匣。
 - [觀] **PreToolUse hook 輸出語意**（官方文檔+headless probe 2.1.220 實測）：hookSpecificOutput 支援裸 additionalContext（模型可見）但送達時點=隨工具結果進下一輪（after-write，**非寫前**；寫前生效僅 deny/ask）；頂層 systemMessage=使用者可見；`permissionDecision:"allow"` 會自動核准繞過權限系統——advisory 絕不可帶
 - [觀] 本環境已建**衝突預警**（hooks/wg_coordination.py，多大師計畫 7 席共議定案）：純檔案方案（不依賴 3848 daemon）——PreToolUse 掃其他活 session state 的 modified_files（entry 級 session_id 歸屬）warn 同檔互寫；Bash git add -A/reset --hard 且同 cwd 有他人未收改動 → 警告；PostToolUse 60s late-collision 補償。log 落 Logs/session-coordination/<sid>.jsonl；config coordination.enabled 一鍵關
 - [觀] 定案原則：協調資料**絕不寫入 state-*.json**（Python/Node 三條 state GC 互不相認、刪檔不拿鎖，協調資料會跟著 state 被清；Node 端改 state 走 `python -m lib.state_rmw`、與 hook 同一把 state 鎖）。自建收件匣（Stage 2）不做：原生跨 session SendMessage 已涵蓋；Phase 3 認領制 **defer**——重啟條件=observation log 顯示 P1 警告後仍互踩頻發或 first-write 衝突常態化

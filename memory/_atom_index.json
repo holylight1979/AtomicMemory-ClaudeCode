@@ -12483,7 +12483,9 @@
         "claude stop",
         "ListAgents bg waiting",
         "收尾放行題沒人答",
-        "工作樹 Permission denied"
+        "工作樹 Permission denied",
+        "CLAUDE_JOB_DIR",
+        "背景 session 收尾閘"
       ],
       "scope": "global"
     },
