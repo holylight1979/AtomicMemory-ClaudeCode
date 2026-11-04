@@ -25,6 +25,7 @@
 | claude-p無頭跑會被hook判成無法互動-g9第二意見整條不觸發-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion | claude-p無頭跑會被hook判成無法互動-G9第二意見整條不觸發-預設CLAUDE_CODE_ENTRYPOINT=claude-vscode可保留但-p沒有AskUserQuestion |
 | claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設claude-code-entrypointclaude-vscode可保留但-p沒有askuserquestion | claude-p無頭跑會被hook判成無法互動-問人類流程驗不到-預設CLAUDE_CODE_ENTRYPOINT=claude-vscode可保留但-p沒有AskUserQuestion |
 | claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total-cost-usd是session累計 | claude-p的json回傳遇背景通知只剩通知那一小段-result與被拒清單要從transcript補整回合-total_cost_usd是session累計 |
+| claude命令列可吃多值的旗標會把後面的開工句當成旗標值吃掉-要寫成等號逗號形式如-toolsab | claude命令列可吃多值的旗標會把後面的開工句當成旗標值吃掉-要寫成等號逗號形式如--tools=A,B |
 | claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收 | claude背景session實測-用vscode擴充那支claude.exe起-bg-agents總覽Enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收 |
 | commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令 | CommitOrder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令 |
 | datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit | DataFileAsk宣告行寫在回覆文字裡同一則訊息的工具呼叫在PreToolUse讀不到-先跑一個Bash開頭註解行再發Edit |
@@ -32,6 +33,7 @@
 | edit工具new-string尾端空白會被裁掉-切點停在空白上會黏字-切點要停在非空白字元並看diff | Edit工具new_string尾端空白會被裁掉-切點停在空白上會黏字-切點要停在非空白字元並看diff |
 | escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造 | escalation-hook 在 edit-count-proxy 上 false-fire 的辨識（無真實失敗迴圈時不盲從不編造） |
 | hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason | hook-systemMessage-只給使用者看-模型讀不到-要回饋模型用additionalContext或deny-reason |
+| hook單筆輸出超過一萬字元會被換成檔案路徑加前2000字預覽-模型不會被要求去讀-本系統以9000字元自截並留溢出全文檔 | hook單筆輸出超過一萬字元會被換成檔案路徑加前2000字預覽-模型不會被要求去讀-本系統以9000字元自截並留溢出全文檔 |
 | hook執行當下同一則assistant回覆還沒寫進transcript-平行工具呼叫要分批就用這次呼叫之前最後一則assistant的message-id當批次鍵-不能拿tool-use-id去查 | hook執行當下同一則assistant回覆還沒寫進transcript-平行工具呼叫要分批就用這次呼叫之前最後一則assistant的message-id當批次鍵-不能拿tool-use-id去查 |
 | hook讀transcript找宣告行時同一則回覆先寫的文字當下可能讀不到-宣告寫進那條指令自己的註解行 | hook讀transcript找宣告行時同一則回覆先寫的文字當下可能讀不到-宣告寫進那條指令自己的註解行 |
 | hook超過settings的timeout會被cc整支取消只在transcript留hook-cancelled-收尾所有守門靜默失效-加段就要量耗時並在超時前降級留帳 | hook超過settings的timeout會被CC整支取消只在transcript留hook_cancelled-收尾所有守門靜默失效-加段就要量耗時並在超時前降級留帳 |
@@ -54,6 +56,7 @@
 | 外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔 | 外部程式改claude-json要拿claude-code同一把鎖-建claude-json-lock目錄-鎖內重讀只合併要改的鍵-暫存檔再replace-換行照原檔 |
 | 失敗的工具呼叫cc只送posttoolusefailure-靠posttooluse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記 | 失敗的工具呼叫CC只送PostToolUseFailure-靠PostToolUse記改檔與紅測的機制看不到exit1的heredoc寫檔-修改清單與紅測清單會漏記 |
 | 子代理呼叫hook帶的是主session的session-id-要知道它是哪一回合派出的-用子代理檔第一筆promptid對主檔同promptid的user紀錄 | 子代理呼叫hook帶的是主session的session_id-要知道它是哪一回合派出的-用子代理檔第一筆promptId對主檔同promptId的user紀錄 |
+| 子代理預設背景跑時agent工具結果只有async-launched沒有內容-子代理產出改從subagentstop的last-assistant-message回填 | 子代理預設背景跑時agent工具結果只有async-launched沒有內容-子代理產出改從subagentstop的last-assistant-message回填 |
 | 專案層tool事件閘要用原生hooks-根層只轉送sessionstart給project-hooks | 專案層tool事件閘要用原生hooks-根層只轉送SessionStart給project_hooks |
 | 從transcript回找使用者原話要停在開回合的紀錄-越過同伴訊息與背景通知會走到開工句 | 從transcript回找使用者原話要停在開回合的紀錄-越過同伴訊息與背景通知會走到開工句 |
 | 從transcript算本機token用量-assistant列以message-id加requestid去重-加權近計費input加5m快取1點25倍1h快取2倍讀0點1倍輸出5倍-專案名取projects下第一層-rglob含子代理 | 從transcript算本機token用量-assistant列以message-id加requestid去重-加權近計費input加5m快取1點25倍1h快取2倍讀0點1倍輸出5倍-專案名取projects下第一層-rglob含子代理 |
@@ -72,3 +75,4 @@
 | 部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過 | 部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過 |
 | 部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的 | 部位表路徑前綴要用反引號包-沒包整列被解析器略過-表看起來有程式讀到是空的 |
 | 重載只為讓常駐程序吃到啟動時才讀的東西-hook改動每事件新程序不用重載-改mcp啟動參數或環境變數才是重載原因 | 重載只為讓常駐程序吃到啟動時才讀的東西-hook改動每事件新程序不用重載-改mcp啟動參數或環境變數才是重載原因 |
+| 閒置session收到跨session訊息會自動開新回合處理-不必靠工具呼叫或背景sleep叫醒-背景session收信做完是結束不是閒置 | 閒置session收到跨session訊息會自動開新回合處理-不必靠工具呼叫或背景sleep叫醒-背景session收信做完是結束不是閒置 |

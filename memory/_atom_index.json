@@ -610,7 +610,8 @@
         "WebFetch",
         "capability",
         "PostCompact",
-        "PostToolBatch"
+        "PostToolBatch",
+        "官方文件"
       ],
       "scope": "global",
       "related": [
@@ -14055,6 +14056,79 @@
       "related": [
         "放寬 gitignore前先搬走不該公開的檔-背景同步隨時會把新放行的檔commit並push-搬檔結果要看完整輸出不先grep",
         "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉"
+      ]
+    },
+    {
+      "name": "claude命令列可吃多值的旗標會把後面的開工句當成旗標值吃掉-要寫成等號逗號形式如-toolsab",
+      "path": "memory/CC與原子記憶契約/claude命令列可吃多值的旗標會把後面的開工句當成旗標值吃掉-要寫成等號逗號形式如-toolsab.md",
+      "triggers": [
+        "--tools",
+        "多值旗標",
+        "開工句被吃掉",
+        "開工句沒送到",
+        "claude 命令列參數",
+        "--mcp-config",
+        "空格分隔旗標"
+      ],
+      "scope": "global",
+      "related": [
+        "claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收"
+      ]
+    },
+    {
+      "name": "閒置session收到跨session訊息會自動開新回合處理-不必靠工具呼叫或背景sleep叫醒-背景session收信做完是結束不是閒置",
+      "path": "memory/CC與原子記憶契約/閒置session收到跨session訊息會自動開新回合處理-不必靠工具呼叫或背景sleep叫醒-背景session收信做完是結束不是閒置.md",
+      "triggers": [
+        "跨 session 訊息何時送進來",
+        "等同伴回覆",
+        "閒置收信",
+        "自動開回合",
+        "notify_when_idle",
+        "背景 session 結束",
+        "被叫回來",
+        "SendMessage 等回信"
+      ],
+      "scope": "global",
+      "related": [
+        "跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送",
+        "feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆"
+      ]
+    },
+    {
+      "name": "hook單筆輸出超過一萬字元會被換成檔案路徑加前2000字預覽-模型不會被要求去讀-本系統以9000字元自截並留溢出全文檔",
+      "path": "memory/CC與原子記憶契約/hook單筆輸出超過一萬字元會被換成檔案路徑加前2000字預覽-模型不會被要求去讀-本系統以9000字元自截並留溢出全文檔.md",
+      "triggers": [
+        "hook 輸出上限",
+        "additionalContext 上限",
+        "一萬字元",
+        "10000 字元",
+        "hook-overflow",
+        "cap_hook_output",
+        "HOOK_TEXT_CAP",
+        "Guardian:Truncated",
+        "注入被截斷"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:~/.claude/hooks/wg_core.py"
+      ]
+    },
+    {
+      "name": "子代理預設背景跑時agent工具結果只有async-launched沒有內容-子代理產出改從subagentstop的last-assistant-message回填",
+      "path": "memory/CC與原子記憶契約/子代理預設背景跑時agent工具結果只有async-launched沒有內容-子代理產出改從subagentstop的last-assistant-message回填.md",
+      "triggers": [
+        "async_launched",
+        "背景子代理",
+        "子代理結果歸因",
+        "SubagentStop",
+        "last_assistant_message",
+        "PostToolUse Agent",
+        "子代理效用帳",
+        "子代理沒有輸出"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:~/.claude/hooks/handlers/stop.py"
       ]
     }
   ]
