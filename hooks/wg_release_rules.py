@@ -209,7 +209,7 @@ RULES: Dict[str, str] = {
     "AEC_EVIDENCE_PATH": "(e) 收尾檢核 (j) 證據路徑缺或不存在，但本 session 有驗證收據。",
     "AEC_FOLLOWUPS_EMPTY": "(e) 收尾檢核 (k) 追蹤項是空字串（「無」才放）。",
     "RECONCILE_BLOCK_LETTERS": "寫碼查核只擋 reconcile_gate.block_letters 列出的條目字母（沒設＝全擋）；沒列的條目照判、改印 stderr "
-                               "只提示不擋。live 設定只列 a（測試沒過不准說修好）與 d（改了程式要有測試），使用者拍板。",
+                               "只提示不擋。live 設定只列 a（測試沒過不准說修好），使用者拍板。",
     "CLOSING_RITUAL_SWITCHES": "收尾儀式各有開關，關掉就不擋收尾：aec.scan_report_gate=false → 沒交收尾檢核不擋；atom_audit.enabled=false → "
                                "卡片表態不擋。兩個開關沒設＝照擋。",
     "RELOAD_ADVICE_ALREADY_LOADED": "收尾文字叫使用者 Reload Window（重新載入視窗）→ 查這個 session 的工具服務程序（每個 session 的 claude"

@@ -55,15 +55,20 @@ def test_cfg_defaults_and_override():
 
 
 def test_library_wide_pairs_are_few():
-    """全庫精確重疊 ≥3 的 atom 對必須極少（門檻保守性守衛；超過 20 對＝trigger 詞庫漂移，該回頭看）。"""
+    """全庫精確重疊 ≥3 的 atom 對必須極少（門檻保守性守衛；超過 20 對＝trigger 詞庫漂移，該回頭看）。
+    只數進得了候選池的卡：被 Supersedes 取代的舊卡線上先踢出池（ups_search.collect_matched_atoms），去冗閘碰不到它；
+    新卡沿用舊卡 trigger 取代舊卡是正常做法，算進來數字只反映換卡次數。"""
     import itertools
     import json
-    idx = HOOKS.parent / "memory" / "_atom_index.json"
+    import wg_atoms
+    root = HOOKS.parent
+    idx = root / "memory" / "_atom_index.json"
     if not idx.exists():
         return
     atoms = json.loads(idx.read_text(encoding="utf-8")).get("atoms", [])
+    superseded = wg_atoms.collect_superseded_names([((a["name"], a["path"], a.get("triggers") or []), root) for a in atoms])
     n = 0
-    for a, b in itertools.combinations(atoms, 2):
+    for a, b in itertools.combinations([a for a in atoms if a["name"] not in superseded], 2):
         if len(ups_inject._norm_triggers(a.get("triggers")) & ups_inject._norm_triggers(b.get("triggers"))) >= 3:
             n += 1
     assert n <= 20, f"same-topic pairs at >=3 shared triggers: {n}"

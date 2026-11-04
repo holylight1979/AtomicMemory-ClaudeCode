@@ -31,8 +31,7 @@ _spec.loader.exec_module(WG)
 CFG = {"enabled": True, "dedup_score": 0.80, "knowledge_budget_bytes": 3072}
 # 品質過線的新內容（tech_terms＋concrete_value＋actionable），讓「往下判」的結果是 add 而不是品質 skip
 CONTENT = "[臨] hook 的 PreToolUse 在 Edit payload 生成後才觸發 → 寫前提醒要放 PostToolUse，路徑 ~/.claude/hooks/x.py"
-REAL_CARD = (ROOT / "_AIDocs" / "_atoms" / "MemDev"
-             / "mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效.md")
+REAL_CARD_FILE = "mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效.md"
 
 
 class _Resp(io.BytesIO):
@@ -290,10 +289,11 @@ def _live_vector_up() -> bool:
 
 @pytest.mark.skipif(not _live_vector_up(), reason="live 向量服務沒起（port 3849）")
 def test_real_card_renamed_needs_declaration_then_writes(monkeypatch, audits):
-    text = REAL_CARD.read_text(encoding="utf-8")
+    real_card = next((ROOT / "_AIDocs" / "_atoms").rglob(REAL_CARD_FILE))   # 卡會被分類工具搬進子夾，只認檔名
+    text = real_card.read_text(encoding="utf-8")
     body = text.split("## 知識", 1)[1].split("## 行動", 1)[0]
     knowledge = "\n".join(ln[2:] for ln in body.splitlines() if ln.startswith("- "))
-    slug = REAL_CARD.stem
+    slug = real_card.stem
     layers = ["global", "extra:local-atoms"]
     cfg = {**CFG, "dedup_score": 0.80}
     title = "MCP node 端改碼後要 Reload Window 才載入新碼"   # 改名：同一份知識換新標題

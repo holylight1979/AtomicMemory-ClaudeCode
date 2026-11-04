@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from atom_spec import SCOPE_DIR_NAMES  # lib/（wg_core 已放進 sys.path）
 from wg_core import (
     CLAUDE_DIR, CODE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
@@ -35,6 +34,7 @@ from wg_core import (
     _atom_debug_log, _atom_debug_error,
     sanitize_harness_noise,
 )
+from atom_spec import SCOPE_DIR_NAMES  # lib/（wg_core 已放進 sys.path，要排在它後面）
 
 # prefer _atom_index.json (machine source of truth)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料

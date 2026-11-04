@@ -105,6 +105,37 @@ def test_json_delete_vs_modify_keeps_modified(tmp_path):
     assert rc == 0 and [a["name"] for a in json.loads(out)["atoms"]] == ["a", "b"]
 
 
+MOVED_A = ("a", "memory/shared/Server/sub/a.md", ("port", "架構"))
+
+
+@pytest.mark.parametrize("mover", ["ours", "theirs"])
+def test_json_move_vs_modify_old_row_keeps_one_row_at_new_path(tmp_path, mover):
+    """一側把卡搬進子夾、另一側改了舊列：只留新路徑一列、改動併進來（舊碼：新舊兩列，舊列指向不存在的檔）。"""
+    moved, edited = _index(MOVED_A, B), _index(A, B)
+    edited["atoms"][0]["triggers"].append("另一側新增")
+    ours, theirs = (moved, edited) if mover == "ours" else (edited, moved)
+    rc, out = _run(tmp_path, _json_text(_index(A, B)), _json_text(ours), _json_text(theirs), "_atom_index.json")
+    rows = {a["name"]: a for a in json.loads(out)["atoms"]}
+    assert rc == 0 and len(json.loads(out)["atoms"]) == 2
+    assert rows["a"]["path"] == MOVED_A[1] and rows["a"]["triggers"] == ["port", "架構", "另一側新增"]
+
+
+def test_json_same_name_at_other_path_without_delete_is_not_a_move(tmp_path):
+    """同名不同路徑可以合法共存：一側新增 personal 同名卡（沒刪舊列）、另一側改舊列 → 兩列都留。"""
+    personal = ("a", "memory/personal/u/a.md", ("私人",))
+    edited = _index(A)
+    edited["atoms"][0]["triggers"].append("另一側新增")
+    rc, out = _run(tmp_path, _json_text(_index(A)), _json_text(_index(A, personal)), _json_text(edited), "_atom_index.json")
+    assert rc == 0 and sorted(a["path"] for a in json.loads(out)["atoms"]) == sorted([A[1], personal[1]])
+
+
+def test_atom_index_md_move_vs_modify_old_row_keeps_one_row_at_new_path(tmp_path):
+    edited = ("a", A[1], ("port", "架構", "另一側新增"))
+    rc, out = _run(tmp_path, _md_table(A, B), _md_table(MOVED_A, B), _md_table(edited, B), "_ATOM_INDEX.md")
+    assert rc == 0 and A[1] + " |" not in out
+    assert f"| a | {MOVED_A[1]} | port, 架構, 另一側新增 | shared |" in out
+
+
 def test_json_both_modify_same_atom_union_triggers(tmp_path):
     base, ours, theirs = _index(A), _index(A), _index(A)
     ours["atoms"][0]["triggers"] = ["port", "ours新"]  # 刪 架構、加 ours新

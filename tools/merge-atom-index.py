@@ -9,7 +9,8 @@ repo 全部 LF（.gitattributes eol=lf + lib 寫檔一律 LF）之後這型不�
 解法：
   1. 語意三方合併——索引是「一列一 atom」的集合，不是文章：
      - _atom_index.json：以 path 為 key 逐條合併。單側改取單側；兩側都改逐欄位合、triggers 取聯集；
-       一側刪一側改 → 留改的那側（不丟資料，懸空條目交 sync-atom-index --fix-scope-from-path 清）
+       一側刪一側改 → 留改的那側（不丟資料，懸空條目交 sync-atom-index --fix-scope-from-path 清）；
+       一側搬檔（刪舊 path、加同名新 path）另一側改舊列 → 只留新 path 一列，舊列的改動併進來（collapse_moved）
      - _ATOM_INDEX.md：表列同上（key=Path 欄），表頭取 ours
      - MEMORY.md：「| 範疇 | atom 數 | 深入 |」表的計數 = ours + theirs − base（各自新增互不知情，差量可加）；
        表以外的人寫文字仍走 git merge-file 逐行三方，真衝突照留 <<<<<<< 標記並 exit 1
@@ -154,9 +155,32 @@ def merge_trigger_lists(b: Any, o: List[str], t: List[str]) -> List[str]:
     return [x for x in merged if not (x in seen or seen.add(x))]
 
 
+def _moved_pairs(base: Dict, side: Dict, other: Dict, name_of) -> List[Tuple[Any, Any]]:
+    """這一側刪了舊列、加了同名新列＝搬檔，回 [(舊 key, 新 key)]。同名不同路徑可以合法共存（shared 與 personal 各一張），
+    所以要看到「同一側一刪一加」才算搬。"""
+    old_by_name = {name_of(v): k for k, v in base.items() if k not in side and name_of(v)}
+    return [(old_by_name[name_of(v)], k) for k, v in side.items()
+            if k not in base and k not in other and name_of(v) in old_by_name]
+
+
+def collapse_moved(merged: List[Tuple[Any, Any]], base: Dict, ours: Dict, theirs: Dict, name_of,
+                   merge_both) -> Tuple[List[Tuple[Any, Any]], int]:
+    """key 是 path，卡搬位置在合併眼裡是「刪舊列＋加新列」。另一側剛好改了舊列時，「一側刪一側改留改的」會讓舊列留下，
+    同一張卡變兩列、舊列還指向不存在的檔。這裡收成新路徑一列，舊列的改動併進來。回 (結果, 收了幾列)。"""
+    rows = dict(merged)
+    collapsed = 0
+    for old, new in _moved_pairs(base, ours, theirs, name_of) + _moved_pairs(base, theirs, ours, name_of):
+        if old not in rows:   # 另一側沒改舊列，舊列已照常刪掉
+            continue
+        rows[new] = merge_both(base[old], rows[new], rows.pop(old))
+        collapsed += 1
+    return list(rows.items()), collapsed
+
+
 def _fmt_stats(before: int, after: int, st: Dict[str, int]) -> str:
+    moved = f", 搬檔收成一列 {st['moved']}" if st.get("moved") else ""
     return (f"{before}→{after} 條（ours +{st['ours_add']}, theirs +{st['theirs_add']}, "
-            f"刪 {st['deleted']}, 兩側同改 {st['both']}）")
+            f"刪 {st['deleted']}, 兩側同改 {st['both']}{moved}）")
 
 
 def textual_merge(base: str, ours: str, theirs: str, style: str = "") -> Tuple[str, int]:
@@ -192,6 +216,10 @@ def _by_path(d: Dict[str, Any]) -> Dict[str, Dict]:
     return out
 
 
+def _entry_name(a: Any) -> Any:
+    return a.get("name") if isinstance(a, dict) else None
+
+
 def merge_entry(b: Any, o: Dict, t: Dict) -> Dict:
     """同一 atom 兩側都改：逐欄位三方，triggers 取聯集。"""
     b = b if isinstance(b, dict) else {}
@@ -211,6 +239,7 @@ def merge_entry(b: Any, o: Dict, t: Dict) -> Dict:
 def merge_json(base_t: str, ours_t: str, theirs_t: str) -> Tuple[str, str]:
     b, o, t = _load_index(base_t), _load_index(ours_t), _load_index(theirs_t)
     merged, st = merge_keyed(_by_path(b), _by_path(o), _by_path(t), merge_entry)
+    merged, st["moved"] = collapse_moved(merged, _by_path(b), _by_path(o), _by_path(t), _entry_name, merge_entry)
     out: Dict[str, Any] = {}
     keys = list(o) + [k for k in t if k not in o]
     if "atoms" not in keys:
@@ -266,6 +295,7 @@ def merge_atom_index_md(base_t: str, ours_t: str, theirs_t: str) -> Tuple[str, s
     oh, orw = _parse_atom_table(ours_t)
     th, trw = _parse_atom_table(theirs_t)
     merged, st = merge_keyed(br, orw, trw, merge_cells_row)
+    merged, st["moved"] = collapse_moved(merged, br, orw, trw, lambda cells: cells[0], merge_cells_row)
     head = merge_scalar(bh, oh, th)
     lines = list(head) + [_join_cells(cells) for _, cells in merged] + [""]
     return "\n".join(lines), _fmt_stats(len(br), len(merged), st)

@@ -138,7 +138,7 @@ def _warn_retired(retired: List[str], org: Optional[Path], root: Optional[Path])
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
         tmp = marker.with_name(f"{marker.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(seen, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps(seen, ensure_ascii=False), encoding="utf-8", newline="\n")
         os.replace(tmp, marker)
     except OSError as e:
         _atom_debug_error("overview_hub:retired_marker", e)

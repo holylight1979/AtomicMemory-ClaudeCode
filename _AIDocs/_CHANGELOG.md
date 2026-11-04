@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-04 同事回報 M0027：6 支紅測與索引合併留兩列
+- **緣由**：同事在別台整併 upstream 跑全量，6 案紅、索引出現同一張卡新舊兩列。本機重現 5 案（第 6 案只在非作者機器紅）。
+- **做法**：`wg_overview`／`wg_read_fast`／`codex-run` 補 `newline=`；`wg_atoms` 的 `atom_spec` import 排到 `wg_core` 之後（先載 wg_atoms 就炸）；`merge-atom-index` 加 `collapse_moved`（一側搬檔、另一側改舊列 → 收成新路徑一列）。測試：真卡只認檔名不認資料夾、followups 的 host 驗雜湊格式不比本機、同步提醒案例跟上 (d) 閘已拔、全庫重疊對只數進得了候選池的卡（被 Supersedes 取代的舊卡線上先踢出，實際 6 對不是 24 對）。
+- **驗證**：點名 6 案與 7 個相關測試檔全綠；負向對照：關掉補帳第 5 案紅、關掉 `collapse_moved` 新案例 3 紅、假裝別台電腦第 4 案綠。全量未跑。
 ## 2026-11-03 索引檔名、記憶資料夾名集中到 atom_spec（!11 輕量版）
 - **緣由**：出過事的都是「同一組資料夾名在多處各寫一份、其中一份漏項」（`_archived`／`_rejected`／`templates` 三例）；單獨字面沒有出事紀錄。照 !11 審查定的邊界重做，取代原本 129 檔的版本。
 - **做法**：`lib/atom_spec.py` 加扁平字串常數（索引檔 5 個＋`INDEX_FILES`／`ALL_INDEX_FILES`、記憶資料夾名 16 個、衍生物 `DERIVED_FILES`／`DERIVED_DIRS`、scope 分層三子樹 `SCOPE_DIR_NAMES`），每個一句說明；hooks／lib／tools 共 25 份清單改由常數組成，各份內容維持原樣（atom_io 的 scope 值檢查改用既有 `VALID_SCOPES`，global 已先處理完，行為等值）。不做拼路徑方法、JSON、JS 側、單獨字面守衛。

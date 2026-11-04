@@ -140,8 +140,8 @@ def cmd_run(a) -> int:
     res = codex_call.run_codex(prompt, config=cfg, cwd=str(cwd), model=str(cfg.get("model") or ""),
                                timeout_s=a.timeout, sandbox=sandbox)
     secs = round(time.monotonic() - started)
-    (out_dir / "codex-output.md").write_text(res.text, encoding="utf-8")
-    (out_dir / "codex-stderr.txt").write_text(res.stderr, encoding="utf-8")
+    (out_dir / "codex-output.md").write_text(res.text, encoding="utf-8", newline="\n")
+    (out_dir / "codex-stderr.txt").write_text(res.stderr, encoding="utf-8", newline="\n")
     after = snapshot(guards, out_dir, "after")
 
     changed = [str(g) for g in guards if before[g] != after[g]]

@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -149,8 +150,8 @@ def test_followup_shown_only_on_registered_machine(fc, host, shown):
 def test_registry_dev_measurements_are_machine_local_without_machine_name():
     raw = (ROOT / "workflow" / "followups.json").read_text(encoding="utf-8")
     hosts = {f["id"]: f.get("host") for f in json.loads(raw)["followups"]}
-    me = _host_id(platform.node())
-    assert hosts["closing-gates-trim-2026-10-20"] == me and hosts["injection-budget-2026-08-28"] == me
+    for followup_id in ("closing-gates-trim-2026-10-20", "injection-budget-2026-08-28"):
+        assert re.fullmatch(r"[0-9a-f]{12}", hosts[followup_id] or ""), hosts[followup_id]   # 登記的是雜湊代號；是哪一台不綁，每台都跑得過
     assert platform.node().lower() not in raw.lower()   # 登記表找不到電腦名原文（舊版直接寫原名）
 
 

@@ -172,7 +172,7 @@ def drain(session_id: str) -> List[Dict[str, Any]]:
         except FileNotFoundError:
             pass
         except OSError:
-            open(src, "w", encoding="utf-8").close()
+            open(src, "w", encoding="utf-8", newline="\n").close()
     except FileNotFoundError:
         return []
     except OSError as e:
