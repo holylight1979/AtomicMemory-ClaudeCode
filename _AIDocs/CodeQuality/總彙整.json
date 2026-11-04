@@ -1,0 +1,2257 @@
+[
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-1",
+  "signal": "從入口追到第一行實質計算，要「跳到定義」≥4 次",
+  "severity": "中",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-27 讀路徑過長",
+   "F:跳層驗證"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "07:Long Read Path",
+   "09:A-27",
+   "09:B-03",
+   "GN:12.1",
+   "CL:30.2",
+   "RD:1.2"
+  ]
+ },
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-2",
+  "signal": "一個構想的資料形狀鏈 A→B→C→D 箭頭 >3，或需同時暫存 ≥3 個前提",
+  "severity": "中",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-26 單一構想拐三個彎",
+   "F:複雜起源"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "README§5-5",
+   "09:B-04（LLM 推理同樣適用）"
+  ],
+  "weight": 4,
+  "refs": [
+   "07:Long Read Path",
+   "09:A-26",
+   "09:B-04",
+   "GN:12.2",
+   "GN:12.7",
+   "RD:1.3"
+  ]
+ },
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-3",
+  "signal": "巢狀 ≤2 免談、=3 審查、≥4 重構（只管本次改動的段落）",
+  "severity": "中",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-28 巢狀過深"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "07:Arrow Code",
+   "09:A-28",
+   "09:B-05",
+   "GN:12.9",
+   "CL:33.11",
+   "RD:2.1",
+   "RD:2.2"
+  ]
+ },
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-4",
+  "signal": "方法體只有一行原樣轉呼叫；連續 ≥2 層；一個類別大半方法皆是（約一半是刻意分層）",
+  "severity": "中",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-29 純轉接（N-4 刻意分層例外）"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "01:Middle Man",
+   "07:Pass-Through Method",
+   "09:A-29",
+   "GN:12.3",
+   "GN:13.2.1",
+   "RD:4.2"
+  ]
+ },
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-5",
+  "signal": "Get/Check/Is 方法會改狀態；同一概念 ≥2 個名字，或拼錯隨複製貼上傳播",
+  "severity": "中",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-31 方法名藏副作用",
+   "09:A-34 命名不一致"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Convention Drift",
+   "GN:18.14"
+  ],
+  "weight": 4,
+  "refs": [
+   "07:Hidden Side Effects",
+   "01:Inconsistent Names",
+   "09:A-31",
+   "09:A-34",
+   "GN:12.12",
+   "GN:12.16",
+   "SV:23.3",
+   "RD:1.4",
+   "RD:1.5"
+  ]
+ },
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-6",
+  "signal": "流程靠事件名字串、反射、屬性串起，Find Usages 為 0 卻實際會被呼叫",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-39 字串型反射橋接"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.11（刪掉看似沒用、實為反射使用的碼）"
+  ],
+  "weight": 5,
+  "refs": [
+   "09:A-39",
+   "GN:12.5",
+   "GN:9.1.11",
+   "CL:31.6",
+   "CL:13.2.7",
+   "RD:8.3"
+  ]
+ },
+ {
+  "topic": "T01 空層與拐彎（讀路徑）",
+  "id": "T01-7",
+  "signal": "註解含版本/日期/「原本」「改為」，或逐行翻譯下一行，或已與程式不符",
+  "severity": "低",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-33 註解污染",
+   "F:註解",
+   "F:live檔"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Narrative Comments",
+   "GN:18.5",
+   "GN:18.10"
+  ],
+  "weight": 3,
+  "refs": [
+   "06:Journal Comments",
+   "08:Narrative Comments",
+   "09:A-33",
+   "09:B-19",
+   "GN:18.5",
+   "GN:18.10",
+   "GN:9.1.10",
+   "RD:1.8"
+  ]
+ },
+ {
+  "topic": "T02 繼承與抽象每層都要有作用",
+  "id": "T02-1",
+  "signal": "繼承 ≥3 層且至少 1 層：新增成員=0、override=0、獨立呼叫端=0（刪層測試）",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-24 六層泛型繼承"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "02:Deep Hierarchy",
+   "02:Unnecessary Hierarchy",
+   "03:F07",
+   "09:A-24",
+   "GN:13.1.1",
+   "CL:32.2",
+   "SV:26.1",
+   "RD:4.4"
+  ]
+ },
+ {
+  "topic": "T02 繼承與抽象每層都要有作用",
+  "id": "T02-2",
+  "signal": "≥3 個子類別只在 override 回傳常數或欄位初值；基底大半是欄位；Template Method 鏈全 virtual",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 1,
+  "refs": [
+   "01:Refused Bequest",
+   "02:Broken Hierarchy",
+   "07:Yo-yo Problem",
+   "GN:13.1.2",
+   "GN:13.1.3",
+   "GN:13.1.4",
+   "CL:32.1",
+   "CL:32.11",
+   "SV:26.9",
+   "RD:4.5"
+  ]
+ },
+ {
+  "topic": "T02 繼承與抽象每層都要有作用",
+  "id": "T02-3",
+  "signal": "interface 只有 1 個實作且無替換計畫；FactoryFactory；Component 只被 1 實體用；DI 建構子 >5 參數",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Speculative Abstraction & Unused Parameters",
+   "GN:18.1"
+  ],
+  "weight": 2,
+  "refs": [
+   "02:Unnecessary Abstraction",
+   "02:Speculative Architecture",
+   "08:Speculative Abstraction & Unused Parameters",
+   "GN:13.2.2",
+   "GN:13.2.3",
+   "GN:13.2.4",
+   "GN:13.2.5",
+   "GN:13.2.9",
+   "CL:32.10",
+   "RD:4.3",
+   "RD:5.5"
+  ]
+ },
+ {
+  "topic": "T02 繼承與抽象每層都要有作用",
+  "id": "T02-4",
+  "signal": "XxxManager.Instance 呼叫點數百處；*Manager >1000 行或被 ≥20 類別引用；Manager 的 Manager",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-23 Manager 蛛網耦合"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "02:Singleton Abuse",
+   "04:G4",
+   "09:A-23",
+   "GN:11.1.1",
+   "GN:11.1.2",
+   "GN:11.1.6",
+   "CL:30.3",
+   "SV:25.2.1"
+  ]
+ },
+ {
+  "topic": "T02 繼承與抽象每層都要有作用",
+  "id": "T02-5",
+  "signal": "一句話講責任含「和」；partial 各片共寫同一欄位（數量只當線索，責任軸才是判準）",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-18 巨型類別",
+   "09:A-30 partial 切分軸混雜"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "01:Large Class",
+   "03:F01",
+   "09:A-18",
+   "09:A-30",
+   "09:B-01",
+   "GN:11.1.1",
+   "CL:29.1",
+   "SV:25.1.1",
+   "RD:4.7",
+   "RD:1.10"
+  ]
+ },
+ {
+  "topic": "T02 繼承與抽象每層都要有作用",
+  "id": "T02-6",
+  "signal": "兩個類別差異只在資料來源；handler ≥90% 同一結構（解包→呼叫→判錯誤碼）",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-19 近複製平行類別",
+   "09:A-20 樣板地獄"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Copy-Paste Instead of Refactor",
+   "GN:9.1.2"
+  ],
+  "weight": 4,
+  "refs": [
+   "01:Duplicated Code",
+   "04:B7",
+   "04:B8",
+   "08:Copy-Paste Instead of Refactor",
+   "09:A-19",
+   "09:A-20",
+   "GN:9.1.2"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-1",
+  "signal": "玩法方法簽章出現生成型別 ≥5 處；核心資料型別帶 [ProtoMember]/[JsonProperty]；DTO=DB 列=領域物件",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 1,
+  "refs": [
+   "06:Magic Beans",
+   "GN:14.1",
+   "GN:14.3",
+   "GN:3.1.1",
+   "GN:3.1.7",
+   "RD:3.1",
+   "RD:3.2"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-2",
+  "signal": "加欄位後 grep 型別名，仍有手寫逐欄重建處沒補；單元測試綠、真線路欄位全空",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-09 手寫逐欄映射漏接新欄位"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.13",
+   "GN:9.1.17"
+  ],
+  "weight": 5,
+  "refs": [
+   "09:A-09",
+   "GN:14.2",
+   "GN:9.1.13",
+   "GN:9.1.17",
+   "GN:14.10"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-3",
+  "signal": "值域 ≤8 卻用 int/byte；0 兼「無/預設/第一項」；characterId/guildId 全是 uint 可互傳",
+  "severity": "中",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-22 原始型別執念"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "01:Primitive Obsession",
+   "09:A-22",
+   "GN:3.2.1",
+   "GN:3.2.7",
+   "GN:3.2.8",
+   "GN:3.2.9",
+   "GN:14.6",
+   "CL:34.7",
+   "RD:3.4",
+   "RD:3.9"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-4",
+  "signal": "同字面值（如 60）有 ≥2 種語意；duration/delay 不帶 Sec/Ms；同一公式 ≥2 處各自實作",
+  "severity": "中",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-35 魔術數字"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:18.12",
+   "GN:9.1.12"
+  ],
+  "weight": 4,
+  "refs": [
+   "01:Magic Number",
+   "06:Scattered Magic Literals",
+   "09:A-35",
+   "GN:16.1",
+   "GN:16.2",
+   "GN:16.9",
+   "GN:18.12",
+   "GN:9.1.12",
+   "GN:3.3.1",
+   "CL:34.9",
+   "SV:27.4",
+   "RD:1.6",
+   "RD:8.10"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-5",
+  "signal": "同一數值同時存在於程式、表、遠端設定/SO；靠人或檔頭警告註解同步",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-08 同源定義人工同步",
+   "09:A-46 跨工程無一致性驗證"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Multiple Sources of Truth"
+  ],
+  "weight": 5,
+  "refs": [
+   "06:Config Sprawl",
+   "08:Multiple Sources of Truth",
+   "09:A-08",
+   "09:A-46",
+   "GN:3.4.6",
+   "GN:16.3",
+   "GN:16.10",
+   "GN:14.10",
+   "CL:34.12",
+   "RD:3.8"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-6",
+  "signal": "版控中生成檔有手動提交；生成物遠多於手寫；手改補丁與生成雙軌",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:A-08（生成 210 檔＋手改 212 檔雙軌）"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-08",
+   "GN:14.9",
+   "GN:3.1.2",
+   "GN:8.4.4",
+   "CL:14.2.8",
+   "RD:3.3"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-7",
+  "signal": "新增一筆道具/技能要改 .cs；程式裡有 `if (skill==7) dmg=120`",
+  "severity": "中",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.20"
+  ],
+  "weight": 2,
+  "refs": [
+   "GN:9.1.20",
+   "RD:5.8",
+   "RD:8.4",
+   "SV:33.2.1"
+  ]
+ },
+ {
+  "topic": "T03 資料攤成表、不綁格式",
+  "id": "T03-8",
+  "signal": "重複 key 靜默覆蓋；機率和≠100%；外鍵不存在；以列順序或 magic index 取值；驗證只在編輯器內",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:3.6.1",
+   "GN:3.6.2",
+   "GN:3.6.3",
+   "GN:3.6.4",
+   "GN:3.3.11",
+   "CL:17.3.3",
+   "CL:34.8",
+   "RD:8.5"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-1",
+  "signal": "private 容器的增刪改點 ≥3 檔或 ≥6 處，沒有單一 Begin/End 出入口",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-01 狀態所有權散落",
+   "F:綜觀"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "07:Scattered State Writes",
+   "09:A-01",
+   "09:B-08",
+   "04:C1",
+   "05:Duplicated State",
+   "GN:11.3.3",
+   "RD:3.10"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-2",
+  "signal": "hp 與 isDead 並存；清單外另存「目前選取」副本；可推導的值另存且有 setter",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-02 同一事實存兩份"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Multiple Sources of Truth"
+  ],
+  "weight": 5,
+  "refs": [
+   "04:C1",
+   "05:Redundant or Contradictory State",
+   "08:Multiple Sources of Truth",
+   "09:A-02",
+   "GN:1.2.4",
+   "GN:1.2.5",
+   "GN:11.5.4",
+   "GN:4.1.4",
+   "CL:35.6",
+   "RD:3.8"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-3",
+  "signal": "回傳內部 List/Dictionary 本體；設計表快取字典被當私有狀態改",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-03 共用可變參考",
+   "09:A-04 內部集合外漏"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "03:D08",
+   "09:A-03",
+   "09:A-04",
+   "GN:1.4.6",
+   "GN:14.11",
+   "GN:3.1.5",
+   "SV:28.6",
+   "RD:3.10"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-4",
+  "signal": "static 字典登出/換角不清；同組容器的 Clear() 在 ≥2 處逐個列",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-05 static 跨生命週期殘留",
+   "09:A-06 手列全清清單"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "03:F04",
+   "09:A-05",
+   "09:A-06",
+   "GN:1.5.1",
+   "CL:12.2.6",
+   "CL:36.11",
+   "SV:27.3"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-5",
+  "signal": "≥4 個互斥 bool；`state =` 賦值在 ≥3 個方法；強制切換略過 OnExit/OnEnter",
+  "severity": "中",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 1,
+  "refs": [
+   "GN:1.3.1",
+   "GN:1.3.3",
+   "GN:1.3.4",
+   "GN:11.3.2",
+   "GN:11.3.3",
+   "GN:11.3.4",
+   "CL:33.5",
+   "RD:3.5",
+   "RD:8.8"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-6",
+  "signal": "精確但偶發的來源與粗略但高頻的來源，都無條件寫同一欄位",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-07 粗細兩來源互相覆寫"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-07",
+   "09:B-16"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-7",
+  "signal": "一個操作寫入 ≥3 個系統的狀態且無集中失敗處理；先扣款、後發貨失敗不回滾",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "GN:1.2.1",
+   "GN:1.2.2",
+   "GN:1.2.3",
+   "GN:1.2.9",
+   "GN:11.5.1",
+   "GN:11.5.2",
+   "GN:11.5.3",
+   "SV:21.1.2",
+   "SV:6.3.3"
+  ]
+ },
+ {
+  "topic": "T04 狀態單一出入口",
+  "id": "T04-8",
+  "signal": "Remove/Cancel/End/Clear 類 API 不帶原因；原因用字串，錯字讓同一原因分裂成兩個 key",
+  "severity": "中",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-12 狀態消失不出聲"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "09:A-12",
+   "09:B-18",
+   "RD:6.9"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-1",
+  "signal": "Load 呼叫鏈內出現 OnChanged、發事件、發獎勵；setter 有副作用；還原直接設 enum 沒走 OnEnter",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:4.2.1",
+   "GN:4.2.2",
+   "GN:15.6",
+   "GN:1.3.8"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-2",
+  "signal": "「無存檔」與「存檔損毀」走同一路徑；載入補預設值遮掩損毀；讀檔失敗後立刻存回",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "F:靜默失敗",
+   "09:A-10 靜默失敗"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Swallowed Errors & Silent Fallback"
+  ],
+  "weight": 6,
+  "refs": [
+   "05:Silent Fallback",
+   "08:Swallowed Errors & Silent Fallback",
+   "GN:4.2.8",
+   "GN:4.2.9",
+   "GN:4.4.10",
+   "CL:17.2.3"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-3",
+  "signal": "直接覆寫原檔；沒 flush/fsync 就視為成功；無校驗碼；無滾動備份",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "GN:4.4.1",
+   "GN:4.4.4",
+   "GN:4.4.5",
+   "GN:4.4.6",
+   "CL:17.2.1",
+   "CL:17.2.2",
+   "SV:41.1",
+   "SV:41.3"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-4",
+  "signal": "存檔無版本欄位；遷移只支援上一版、不冪等、讀「現行表」、覆寫原檔無備份",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "GN:4.3.1",
+   "GN:4.3.2",
+   "GN:4.3.3",
+   "GN:4.3.4",
+   "GN:4.3.5",
+   "GN:15.4",
+   "CL:17.2.4",
+   "SV:46.2",
+   "SV:46.5"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-5",
+  "signal": "存檔類別帶序列化屬性又有 ≥3 個玩法方法；存衍生值/暫態/物件參照而非 ID；存表中數值而非表 ID",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:4.1.1",
+   "GN:4.1.2",
+   "GN:4.1.3",
+   "GN:4.1.5",
+   "GN:15.1",
+   "GN:15.2",
+   "GN:15.9"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-6",
+  "signal": "只改一欄卻整個 blob/整包封包寫回或推送",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-25 只改一欄卻整包推送"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "04:F2",
+   "09:A-25",
+   "GN:4.1.10"
+  ]
+ },
+ {
+  "topic": "T05 存檔、載入與遷移（載入不是變動）",
+  "id": "T05-7",
+  "signal": "以檔案修改時間判新舊；衝突直接以新蓋舊；舊版存檔覆寫新存檔",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:4.5.1",
+   "GN:4.5.2",
+   "GN:4.3.8",
+   "CL:17.2.11"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-1",
+  "signal": "對 UnityEngine.Object 用 `?.` `??` `??=` `is null` `ReferenceEquals`（繞過偽 null）",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.16（為壓警告加 `?.`）"
+  ],
+  "weight": 3,
+  "refs": [
+   "03:H09",
+   "CL:1.3.1",
+   "CL:1.3.2",
+   "CL:1.3.3",
+   "CL:1.3.4",
+   "CL:1.3.6",
+   "GN:9.1.16"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-2",
+  "signal": "Awake/OnEnable 讀別的物件；Start 依賴別人的 Start；Script Execution Order 條目 ≥5",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [
+   "09:A-16 隱性初始化時序耦合"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-16",
+   "CL:1.1.1",
+   "CL:1.1.2",
+   "CL:1.1.6",
+   "CL:1.4.1",
+   "CL:33.12",
+   "GN:11.2.2",
+   "RD:6.10"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-3",
+  "signal": "`+=` 數量大於 `-=`；匿名 lambda 訂閱；static event 訂閱",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [
+   "09:A-15 事件訂閱不退訂"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "03:B05",
+   "05:Event Subscription Leak",
+   "09:A-15",
+   "CL:12.1.1",
+   "CL:12.1.2",
+   "CL:12.1.4",
+   "CL:31.3",
+   "SV:4.1.1",
+   "GN:11.4.4",
+   "RD:6.8"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-4",
+  "signal": "Destroy 同幀仍可被找到；OnDestroy 內存取他物或新建物件；集合持有已銷毀元素",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "CL:1.2.1",
+   "CL:1.2.2",
+   "CL:1.2.4",
+   "CL:1.2.5",
+   "CL:1.3.4",
+   "CL:1.3.5"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-5",
+  "signal": "SetActive(false) 停協程且不續跑；只 enabled=false 不停；`while(true)` 協程無取消",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "03:H08",
+   "CL:1.2.6",
+   "CL:1.2.7",
+   "CL:2.2.1",
+   "CL:2.2.3",
+   "CL:33.1",
+   "CL:33.2"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-6",
+  "signal": "單例重複生成或 getter 自動建立；DontDestroyOnLoad 物件持舊場景參照；舊場景的訂閱/handle/協程未清",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [
+   "09:A-05 static 跨生命週期殘留"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-05",
+   "CL:12.2.1",
+   "CL:12.2.3",
+   "CL:12.2.4",
+   "CL:12.3.1",
+   "CL:12.3.2",
+   "CL:12.3.3",
+   "CL:30.6",
+   "CL:36.12"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-7",
+  "signal": "Load 數 ≫ Release 數；Handle 未釋放；`.material` 實例未銷毀；RenderTexture 未 Release",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:背景數據（Sonar 2025：資源洩漏為常見嚴重錯誤）"
+  ],
+  "weight": 3,
+  "refs": [
+   "03:B01",
+   "05:Resource Not Released",
+   "CL:7.3.1",
+   "CL:7.3.2",
+   "CL:36.1",
+   "CL:36.9",
+   "CL:36.10",
+   "SV:10.1",
+   "RD:6.8"
+  ]
+ },
+ {
+  "topic": "T06 Unity 物件的 null 與生命週期",
+  "id": "T06-8",
+  "signal": "`#if UNITY_EDITOR` 內放遊戲邏輯；OnValidate/Reset 補欄位；Domain Reload 關閉；只在 Editor 測過",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [
+   "09:A-47 條件編譯裡混遊戲邏輯"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-47",
+   "CL:16.2",
+   "CL:16.6",
+   "CL:16.8",
+   "CL:1.1.9",
+   "CL:38.1",
+   "CL:38.2",
+   "GN:17.4"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-1",
+  "signal": "每幀/每 tick/每封包出現 new、LINQ、字串串接、閉包、boxing、params、未條件編譯的 Debug.Log",
+  "severity": "中",
+  "granularity": "語言",
+  "local_evidence": [
+   "09:A-43 熱路徑多餘工作（Debug.Log 未條件編譯 2,182 處）"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.19",
+   "08:Leftover Debug & Dead Code"
+  ],
+  "weight": 4,
+  "refs": [
+   "03:D03",
+   "03:E04",
+   "03:E05",
+   "03:H05",
+   "04:E7",
+   "05:Excessive Logging",
+   "09:A-43",
+   "GN:9.1.19",
+   "CL:4.2.1",
+   "CL:23.2",
+   "CL:39.11",
+   "SV:31.1.1",
+   "SV:31.1.2",
+   "RD:2.8"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-2",
+  "signal": "Update 內 GetComponent/Find/FindObjectOfType/Camera.main/`tag ==`/字串 Animator 參數",
+  "severity": "中",
+  "granularity": "引擎",
+  "local_evidence": [
+   "09:A-43（LateUpdate 每幀 GetComponent 經 Profiler 實證）"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "03:H01",
+   "03:H02",
+   "03:H03",
+   "03:H10",
+   "09:A-43",
+   "CL:4.3.1",
+   "CL:4.3.2",
+   "CL:39.1",
+   "CL:29.14"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-3",
+  "signal": "Update 內 `if (state != last)`；把 N 條常駐 Update 收成 1 條 Tick 仍是輪詢",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-17 常駐每幀回呼"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "03:H04",
+   "09:A-17",
+   "09:B-17",
+   "GN:11.2.5",
+   "CL:29.3",
+   "RD:8.1",
+   "RD:8.2"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-4",
+  "signal": "每次呼叫都走 GetMethod 反射鏈無快取；不變的值（ID/名字）每幀多次跨界查詢",
+  "severity": "中",
+  "granularity": "引擎",
+  "local_evidence": [
+   "09:A-40 熱路徑反射零快取",
+   "09:A-41 跨界過度交互"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "03:E07",
+   "09:A-40",
+   "09:A-41",
+   "CL:13.3.1",
+   "SV:15.3"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-5",
+  "signal": "背景執行緒碰 transform/GameObject/Time.time；收包回呼直接改 UI；主執行緒做網路收送與解析",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "04:G1",
+   "04:G2",
+   "CL:3.1.1",
+   "CL:3.1.3",
+   "CL:25.1.1",
+   "CL:25.1.2",
+   "CL:35.2"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-6",
+  "signal": "tick/收包/Update 內 `.Result` `.Wait()`，或同步等 DB/HTTP",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "03:A03",
+   "03:A04",
+   "04:E5",
+   "04:E6",
+   "04:E2",
+   "05:Interdependent Tasks in a Bounded Pool",
+   "SV:3.1.1",
+   "SV:1.4.1"
+  ]
+ },
+ {
+  "topic": "T07 執行緒歸屬與每幀配置",
+  "id": "T07-7",
+  "signal": "多執行緒共寫 Dictionary/List；鎖內做 I/O；鎖順序不一致；`lock(this)`（語言層，以 05/03 為準）",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "05:Unsynchronized Shared Mutable State",
+   "05:Inconsistent Lock Ordering",
+   "03:G01",
+   "03:G03",
+   "04:E1",
+   "04:E3",
+   "04:E4",
+   "SV:1.1.1",
+   "SV:1.2.1",
+   "SV:1.2.3"
+  ]
+ },
+ {
+  "topic": "T08 熱更邊界",
+  "id": "T08-1",
+  "signal": "暴露給熱更的 API >100；一次流程呼叫堆疊跨界 >2 次；不變的值每幀多次跨界查詢",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-41 跨界過度交互"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "02:Deficient Encapsulation",
+   "09:A-41",
+   "CL:37.2",
+   "CL:37.3",
+   "CL:14.1.3",
+   "RD:8.7"
+  ]
+ },
+ {
+  "topic": "T08 熱更邊界",
+  "id": "T08-2",
+  "signal": "`Invoke(string,string,…)`/`Type.GetType(\"…\")` 找熱更型別；BeginInvoke＋Push* 順序須與 IL 簽名完全一致",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-39 字串型反射橋接",
+   "09:A-42 手動推棧呼叫"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-39",
+   "09:A-42",
+   "CL:14.4.1",
+   "CL:14.4.2",
+   "CL:37.5",
+   "CL:33.4"
+  ]
+ },
+ {
+  "topic": "T08 熱更邊界",
+  "id": "T08-3",
+  "signal": "適配器/委派轉換註冊散落且被手改；Main 與 IL 兩側共用腳本靠手動同步",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:A-08 同源定義人工同步"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-08",
+   "CL:14.2.7",
+   "CL:14.2.8",
+   "CL:37.4"
+  ]
+ },
+ {
+  "topic": "T08 熱更邊界",
+  "id": "T08-4",
+  "signal": "MakeGenericType/值型別泛型實例未預先登記；link.xml 缺漏；只有 Release(IL2CPP) 失敗",
+  "severity": "嚴重",
+  "granularity": "引擎",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "CL:13.1.1",
+   "CL:13.1.3",
+   "CL:13.2.1",
+   "CL:13.2.3",
+   "CL:13.2.9",
+   "CL:37.9"
+  ]
+ },
+ {
+  "topic": "T08 熱更邊界",
+  "id": "T08-5",
+  "signal": "熱更下載未驗 hash/簽章；失敗無回退；無最低主程式版本檢查",
+  "severity": "致命",
+  "granularity": "流程",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "CL:14.6.1",
+   "CL:14.6.2",
+   "CL:14.6.3",
+   "CL:37.8",
+   "CL:37.12",
+   "CL:28.13"
+  ]
+ },
+ {
+  "topic": "T08 熱更邊界",
+  "id": "T08-6",
+  "signal": "主工程 Awake 已用到熱更才有的邏輯；Editor 直接引用熱更組件而真機走載入流程",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-47 條件編譯裡混遊戲邏輯",
+   "09:A-16 隱性初始化時序耦合"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-47",
+   "09:A-16",
+   "CL:37.10",
+   "CL:37.11",
+   "CL:14.6.7",
+   "CL:14.3.2"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-1",
+  "signal": "伺服器直接採用客戶端回報的結果；抽獎/保底/價格在客戶端算；封包長度、範圍、負數量不檢查",
+  "severity": "致命",
+  "granularity": "架構",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "04:A1",
+   "04:A2",
+   "04:A3",
+   "04:A5",
+   "GN:2.1.1",
+   "GN:2.1.2",
+   "GN:2.1.6",
+   "GN:6.2.9",
+   "CL:25.2.9",
+   "SV:33.2.2",
+   "SV:33.1.2",
+   "SV:5.2.2"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-2",
+  "signal": "「檢查條件」與「改狀態」分成兩步，併發請求可同時通過檢查（刷物溫床）",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "04:E9",
+   "05:Check-Then-Act",
+   "SV:21.2.1",
+   "SV:21.2.2",
+   "GN:5.4.5"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-3",
+  "signal": "有副作用的請求（扣款/發獎/寄信）重送會再執行一次；重連後重送未回應的請求",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "04:D4",
+   "GN:2.5.7",
+   "GN:6.3.9",
+   "SV:50.4",
+   "SV:41.8"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-4",
+  "signal": "水龍頭多於水槽；負數量或零交易；批次只檢單次上限；限購用客戶端時間重置",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "GN:5.4.1",
+   "GN:5.4.2",
+   "GN:5.4.4",
+   "GN:5.4.6",
+   "GN:5.4.7",
+   "GN:5.4.9"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-5",
+  "signal": "欄位語意改了編號沒換；刪欄位後編號給新欄位；enum 數值直接上線；版本只在握手檢查一次",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-46 跨工程無一致性驗證"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "04:B4",
+   "04:B5",
+   "04:B6",
+   "09:A-46",
+   "GN:2.9.1",
+   "GN:2.9.2",
+   "GN:2.9.4",
+   "GN:2.9.6",
+   "GN:3.2.3",
+   "CL:25.2.2",
+   "CL:34.10",
+   "SV:56.1",
+   "SV:46.4"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-6",
+  "signal": "server 有 handler 而 client 從沒發送（反之亦然）；常數在 Server＋Main＋IL 三方手動同步",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [
+   "09:A-38 協定兩端沒對上",
+   "09:A-46 跨工程無一致性驗證"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.17"
+  ],
+  "weight": 5,
+  "refs": [
+   "04:B9",
+   "09:A-38",
+   "09:A-46",
+   "GN:2.9.9",
+   "GN:9.1.17",
+   "CL:25.2.1"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-7",
+  "signal": "訊息無序號/ack；假設到達順序；序號回繞；「最新狀態」覆寫不帶序號",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "04:C5",
+   "04:C6",
+   "GN:2.6.1",
+   "GN:2.6.2",
+   "GN:2.6.3",
+   "GN:2.6.8",
+   "CL:25.2.4",
+   "SV:50.5",
+   "SV:50.6"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-8",
+  "signal": "模擬用浮點跨平台、Dictionary 迭代順序、系統亂數/時間；無定期狀態雜湊比對",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:9.1.15"
+  ],
+  "weight": 3,
+  "refs": [
+   "GN:2.7.1",
+   "GN:2.7.4",
+   "GN:2.7.5",
+   "GN:2.7.10",
+   "GN:9.1.15",
+   "GN:10.1.9",
+   "CL:11.2.1",
+   "CL:11.2.3"
+  ]
+ },
+ {
+  "topic": "T09 網路權威、原子性與決定性",
+  "id": "T09-9",
+  "signal": "斷線只靠關閉事件；重連雪崩；session 綁連線物件；重連後只送增量",
+  "severity": "嚴重",
+  "granularity": "架構",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "04:D3",
+   "04:D5",
+   "04:D6",
+   "04:D7",
+   "GN:2.5.1",
+   "GN:2.5.2",
+   "GN:2.5.3",
+   "CL:25.1.4",
+   "CL:25.1.6",
+   "CL:25.1.7",
+   "SV:5.1.4"
+  ]
+ },
+ {
+  "topic": "T10 數值與捨入",
+  "id": "T10-1",
+  "signal": "金額/機率用 float/double；浮點用 `==` 比較；float 的整數超過 16,777,216",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "06:Rounding Errors",
+   "GN:5.2.1",
+   "GN:5.2.2",
+   "GN:5.2.4",
+   "GN:6.2.1",
+   "GN:6.2.2",
+   "CL:11.1.1",
+   "CL:11.1.5",
+   "SV:9.3"
+  ]
+ },
+ {
+  "topic": "T10 數值與捨入",
+  "id": "T10-2",
+  "signal": "金幣/經驗用 int 累積；先乘後除溢位；未啟 checked；負數整數除法向零截斷；除以零",
+  "severity": "致命",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "GN:5.1.1",
+   "GN:5.1.2",
+   "GN:5.1.3",
+   "GN:5.1.4",
+   "GN:5.1.7",
+   "GN:5.3.4",
+   "SV:9.1",
+   "SV:9.2",
+   "SV:9.7",
+   "SV:21.3.2"
+  ]
+ },
+ {
+  "topic": "T10 數值與捨入",
+  "id": "T10-3",
+  "signal": "Math.Round 預設銀行家捨入；分攤後總和≠原總額；逐筆捨入累積尾差",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:5.3.1",
+   "GN:5.3.2",
+   "GN:5.3.3",
+   "GN:5.3.5",
+   "GN:5.3.6",
+   "GN:5.3.7"
+  ]
+ },
+ {
+  "topic": "T10 數值與捨入",
+  "id": "T10-4",
+  "signal": "每次 `new Random()` 以時間為種子；全域單一 RNG；System.Random 多執行緒共用；安全場景用一般亂數",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:6.1.1",
+   "GN:6.1.2",
+   "GN:6.1.4",
+   "GN:6.1.5",
+   "GN:6.1.10",
+   "CL:11.3.2",
+   "CL:11.3.3",
+   "SV:17.9"
+  ]
+ },
+ {
+  "topic": "T10 數值與捨入",
+  "id": "T10-5",
+  "signal": "權重未歸一化；權重 0 仍被選中；公示機率與實作不符；reroll 改變分佈；取模偏差",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:6.2.3",
+   "GN:6.2.4",
+   "GN:6.2.7",
+   "GN:6.2.8",
+   "GN:6.1.7",
+   "GN:3.6.4"
+  ]
+ },
+ {
+  "topic": "T10 數值與捨入",
+  "id": "T10-6",
+  "signal": "保底計數器不持久或存在客戶端；差一；重置在發放之前；十連抽中途失敗",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "GN:6.3.1",
+   "GN:6.3.2",
+   "GN:6.3.6",
+   "GN:6.3.7",
+   "CL:11.3.5"
+  ]
+ },
+ {
+  "topic": "T11 時間與時區",
+  "id": "T11-1",
+  "signal": "冷卻/到期/每日重置/離線收益取客戶端時間；DateTime.Now/Time.time 呼叫點 ≥10 沒有單一出口",
+  "severity": "致命",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "04:C7",
+   "GN:2.1.3",
+   "GN:7.1.1",
+   "GN:7.1.2",
+   "GN:7.1.10",
+   "GN:5.4.7",
+   "GN:16.8",
+   "CL:10.3.1",
+   "CL:10.3.5",
+   "CL:25.2.6"
+  ]
+ },
+ {
+  "topic": "T11 時間與時區",
+  "id": "T11-2",
+  "signal": "DateTime.Now 與 UtcNow 混用；Kind 不同直接比較；存本地時間字串",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "SV:12.1",
+   "SV:12.4",
+   "SV:12.5",
+   "GN:7.2.4",
+   "GN:7.2.9",
+   "GN:4.6.1",
+   "GN:4.6.2"
+  ]
+ },
+ {
+  "topic": "T11 時間與時區",
+  "id": "T11-3",
+  "signal": "「每日重置」定義不一致；以客戶端時區解讀活動時間；玩家換時區；跨日操作歸屬不明",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:7.2.1",
+   "GN:7.2.2",
+   "GN:7.2.3",
+   "GN:7.2.6",
+   "GN:7.1.6",
+   "SV:48.10"
+  ]
+ },
+ {
+  "topic": "T11 時間與時區",
+  "id": "T11-4",
+  "signal": "以 +24 小時當「明天同一時刻」；春季跳過一小時、秋季重複一小時；每日固定時刻排程",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:7.3.1",
+   "GN:7.3.2",
+   "GN:7.3.3",
+   "GN:7.3.4",
+   "SV:12.2",
+   "CL:10.3.3"
+  ]
+ },
+ {
+  "topic": "T11 時間與時區",
+  "id": "T11-5",
+  "signal": "單調時鐘與牆鐘混用；float 秒累計；32 位 Unix time；毫秒計數器回繞；到期後歸零而非減間隔",
+  "severity": "中",
+  "granularity": "語言",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 1,
+  "refs": [
+   "GN:7.1.3",
+   "GN:7.1.7",
+   "GN:7.4.1",
+   "GN:7.4.4",
+   "GN:7.4.6",
+   "GN:4.6.4",
+   "GN:4.6.5",
+   "SV:12.3",
+   "SV:12.6",
+   "CL:11.1.2"
+  ]
+ },
+ {
+  "topic": "T11 時間與時區",
+  "id": "T11-6",
+  "signal": "變動 dt 直接積分；固定步長累積器無上限；WaitForSeconds 受 timeScale 影響；暫停時連線逾時",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:1.1.3",
+   "GN:1.1.4",
+   "GN:1.1.9",
+   "CL:10.1.1",
+   "CL:10.1.3",
+   "CL:2.2.4",
+   "CL:2.3.9",
+   "CL:9.3.1"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-1",
+  "signal": "`catch {}`；catch 後只 log 或 return default；Pokemon catch 包住整個方法",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [
+   "09:A-10 靜默失敗／空 catch",
+   "F:靜默失敗"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Swallowed Errors & Silent Fallback",
+   "GN:18.3",
+   "GN:9.1.6"
+  ],
+  "weight": 5,
+  "refs": [
+   "03:C02",
+   "05:Swallowed Exception",
+   "08:Swallowed Errors & Silent Fallback",
+   "09:A-10",
+   "09:B-11",
+   "GN:18.3",
+   "GN:9.1.6",
+   "SV:29.1",
+   "SV:29.2",
+   "RD:6.3"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-2",
+  "signal": "`?? default`、缺表列回傳 0、預設值繼續跑，旁邊沒有 log/計數/UI 訊號",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-10 靜默失敗",
+   "F:靜默失敗"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Swallowed Errors & Silent Fallback"
+  ],
+  "weight": 5,
+  "refs": [
+   "05:Silent Fallback",
+   "04:H1",
+   "09:B-11",
+   "RD:6.5",
+   "GN:4.2.8"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-3",
+  "signal": "非事件處理器的 `async void`；`_ = XxxAsync()`；Task 例外無人觀察",
+  "severity": "嚴重",
+  "granularity": "語言",
+  "local_evidence": [
+   "09:A-14 async void（用戶端 35 項 P0）"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "03:A01",
+   "03:A02",
+   "03:A07",
+   "09:A-14",
+   "CL:2.3.4",
+   "CL:2.3.5",
+   "CL:33.6",
+   "CL:33.7",
+   "SV:3.1.3",
+   "SV:3.2.1"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-4",
+  "signal": "把正常中間狀態判成失敗且全靜默；每幀入口外層 try-catch 被整段註解",
+  "severity": "嚴重",
+  "granularity": "邏輯",
+  "local_evidence": [
+   "09:A-11 正常中間狀態當失敗",
+   "09:A-13 安全機制被註解掉"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:A-11",
+   "09:A-13",
+   "09:B-11"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-5",
+  "signal": "對可證明非 null 的值加檢查；整個方法包 try-catch；為壓警告加 `!` `?.` 強轉",
+  "severity": "低",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Defensive Overdose",
+   "GN:18.2",
+   "GN:18.16",
+   "GN:9.1.16"
+  ],
+  "weight": 1,
+  "refs": [
+   "08:Defensive Overdose",
+   "GN:18.2",
+   "GN:18.16",
+   "GN:9.1.16",
+   "SV:29.7",
+   "RD:6.1"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-6",
+  "signal": "邏輯層仍收 byte[]/JObject/Dictionary<string,object>；用 try/catch 做平常分支；`throw ex`",
+  "severity": "中",
+  "granularity": "邏輯",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 1,
+  "refs": [
+   "03:C05",
+   "03:C03",
+   "GN:12.14",
+   "SV:29.3",
+   "SV:29.6",
+   "RD:6.2",
+   "RD:6.4",
+   "RD:8.5",
+   "RD:8.6"
+  ]
+ },
+ {
+  "topic": "T12 靜默失敗與邊界 fail-fast",
+  "id": "T12-7",
+  "signal": "訊息為「發生錯誤」不含 ID/參數；一個錯誤每層都 catch→log→throw；無 Correlation ID/metrics",
+  "severity": "低",
+  "granularity": "流程",
+  "local_evidence": [],
+  "llm_prone": true,
+  "llm_ref": [
+   "GN:18.11"
+  ],
+  "weight": 1,
+  "refs": [
+   "05:Insufficient Logging",
+   "05:No Metrics",
+   "04:H2",
+   "04:H3",
+   "GN:18.11",
+   "SV:29.5",
+   "SV:54.1",
+   "RD:6.6",
+   "RD:6.7"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-1",
+  "signal": "新增函式前沒搜專案既有 helper；相似區塊大量複製貼上",
+  "severity": "中",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:A-19 近複製平行類別",
+   "F:綜觀"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Reinvented Helper",
+   "08:Copy-Paste Instead of Refactor",
+   "GN:18.9",
+   "GN:9.1.2"
+  ],
+  "weight": 4,
+  "refs": [
+   "08:Reinvented Helper",
+   "08:Copy-Paste Instead of Refactor",
+   "09:A-19",
+   "GN:9.1.2",
+   "GN:18.9",
+   "GN:18.7"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-2",
+  "signal": "引用不存在或版本不符的 API/套件；猜欄位名、單位、呼叫慣例",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "F:未實證",
+   "F:現況≠應然"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Hallucinated API / Package",
+   "08:Stale API",
+   "GN:9.1.3",
+   "GN:9.1.5"
+  ],
+  "weight": 5,
+  "refs": [
+   "08:Hallucinated API / Package",
+   "08:Stale API",
+   "GN:9.1.3",
+   "GN:9.1.5"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-3",
+  "signal": "在報錯行加判斷或 try-catch；說不出壞值從哪來；同一檔 14 天內 ≥2 筆 fix",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:A-48 修了又修的熱點檔",
+   "F:綜觀"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Symptom Patch",
+   "08:Fix-the-Fix / Incomplete Fix",
+   "GN:9.1.8"
+  ],
+  "weight": 5,
+  "refs": [
+   "08:Symptom Patch",
+   "08:Fix-the-Fix / Incomplete Fix",
+   "08:Whack-a-Mole Regression",
+   "09:A-48",
+   "09:B-24",
+   "GN:9.1.8"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-4",
+  "signal": "改/刪/skip 測試；把期望值寫進產品碼；期望值抄程式當下的輸出",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:B-21 等值證法（預期須來自舊源碼）"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Test Tampering",
+   "08:Test Special-Casing / Hardcoded Expected Values",
+   "08:Bug-Enshrining Tests",
+   "GN:9.1.7"
+  ],
+  "weight": 5,
+  "refs": [
+   "08:Test Tampering",
+   "08:Test Special-Casing / Hardcoded Expected Values",
+   "08:Bug-Enshrining Tests",
+   "09:B-21",
+   "GN:9.1.7",
+   "GN:10.1.4",
+   "GN:19.3"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-5",
+  "signal": "參數/設定只有一種呼叫值；私有方法只被呼叫 1 次、≤3 行、名稱複述程式碼",
+  "severity": "低",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-24 過度泛型／被迫寫空殼"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Speculative Abstraction & Unused Parameters",
+   "08:One-off Helper Proliferation",
+   "GN:18.1",
+   "GN:18.8"
+  ],
+  "weight": 3,
+  "refs": [
+   "08:Speculative Abstraction & Unused Parameters",
+   "08:One-off Helper Proliferation",
+   "09:A-24",
+   "09:B-06",
+   "09:B-12",
+   "GN:18.1",
+   "GN:18.8",
+   "RD:2.7",
+   "RD:5.1"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-6",
+  "signal": "print/console.log、註解掉的舊碼、`_old`/`_v2` 並存、無人呼叫的相容 shim",
+  "severity": "低",
+  "granularity": "可讀",
+  "local_evidence": [
+   "09:A-36 死碼與註解碼累積（約 1,271 處）"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Leftover Debug & Dead Code",
+   "GN:18.6",
+   "GN:18.15"
+  ],
+  "weight": 3,
+  "refs": [
+   "01:Dead Code",
+   "08:Leftover Debug & Dead Code",
+   "09:A-36",
+   "GN:18.6",
+   "GN:18.13",
+   "GN:18.15",
+   "RD:5.7"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-7",
+  "signal": "同類操作 ≥3 種寫法；新檔照抄舊檔已知的壞味道；domain 層直接碰資料庫",
+  "severity": "中",
+  "granularity": "架構",
+  "local_evidence": [
+   "F:綜觀",
+   "09:A-34 命名不一致"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Convention Drift",
+   "08:Architecture Bypass",
+   "GN:9.1.4",
+   "GN:18.7",
+   "GN:18.14"
+  ],
+  "weight": 4,
+  "refs": [
+   "08:Convention Drift",
+   "08:Architecture Bypass",
+   "09:A-34",
+   "GN:9.1.4",
+   "GN:18.7",
+   "GN:18.14"
+  ]
+ },
+ {
+  "topic": "T13 LLM 產碼慣病",
+  "id": "T13-8",
+  "signal": "等價改寫改了邊界值/順序/例外型別；一個 diff 混重構、改名、重排與功能修改",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:B-22 掃碼重構 SOP（純重構與行為修正分 commit）"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Big-Batch Change",
+   "GN:9.1.1",
+   "GN:9.1.9"
+  ],
+  "weight": 5,
+  "refs": [
+   "08:Big-Batch Change",
+   "08:Shotgun Fix",
+   "GN:9.1.1",
+   "GN:9.1.9",
+   "GN:19.1",
+   "GN:19.6",
+   "GN:19.7"
+  ]
+ },
+ {
+  "topic": "T14 驗證與等值證明",
+  "id": "T14-1",
+  "signal": "預期值由新程式產生，或找不到舊產物對新產物的比對；order/side_effect/boundary 三類沒各證",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:B-21 等值證法",
+   "09:A-08（軍團招募 44/44 等值）"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:Bug-Enshrining Tests",
+   "GN:9.1.1",
+   "GN:10.1.3",
+   "GN:10.1.4"
+  ],
+  "weight": 5,
+  "refs": [
+   "09:B-21",
+   "09:B-22",
+   "08:Bug-Enshrining Tests",
+   "GN:10.1.3",
+   "GN:10.1.4",
+   "GN:19.2",
+   "GN:19.3",
+   "RD:7.2",
+   "RD:7.3",
+   "RD:7.4"
+  ]
+ },
+ {
+  "topic": "T14 驗證與等值證明",
+  "id": "T14-2",
+  "signal": "案例全取自 bug 修復提交；沒有任何「沒 bug 但人讀要跳超過 3 層」的案例",
+  "severity": "中",
+  "granularity": "流程",
+  "local_evidence": [
+   "F:跳層驗證",
+   "09:B-10"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 3,
+  "refs": [
+   "06:Readability-Blind Testing",
+   "09:B-10",
+   "GN:10.1.2",
+   "GN:19.4",
+   "RD:7.7"
+  ]
+ },
+ {
+  "topic": "T14 驗證與等值證明",
+  "id": "T14-3",
+  "signal": "結論沒有「我跑了什麼」；討論共識當實證；證據與預期不符時只加更多修補",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "F:未實證",
+   "F:共識非實證"
+  ],
+  "llm_prone": true,
+  "llm_ref": [
+   "08:§四-4（說得出壞值從哪來）"
+  ],
+  "weight": 5,
+  "refs": [
+   "09:B-24",
+   "RD:7.5",
+   "RD:7.8"
+  ]
+ },
+ {
+  "topic": "T14 驗證與等值證明",
+  "id": "T14-4",
+  "signal": "0 個測試專案；驗證靠人點擊或推給使用者；整組太慢沒人跑",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:A-45 沒有自動化測試",
+   "F:自動化實跑"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "06:No Test Suite",
+   "06:Manual Intervention",
+   "06:Slow Tests",
+   "09:A-45",
+   "GN:10.1.1",
+   "GN:10.1.14",
+   "GN:10.1.15",
+   "CL:40.1",
+   "SV:35.1",
+   "RD:7.1"
+  ]
+ },
+ {
+  "topic": "T14 驗證與等值證明",
+  "id": "T14-5",
+  "signal": "測試清單找不到：網路劣化、數小時浸泡、真實舊存檔載入、數值平衡批次模擬、IL2CPP Release 真機冒煙",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 2,
+  "refs": [
+   "GN:10.1.5",
+   "GN:10.1.6",
+   "GN:10.1.7",
+   "GN:10.1.8",
+   "GN:10.1.10",
+   "GN:19.10",
+   "GN:10.1.13",
+   "CL:40.5",
+   "CL:16.10"
+  ]
+ },
+ {
+  "topic": "T14 驗證與等值證明",
+  "id": "T14-6",
+  "signal": "資源釋放類改動未實機點過（Closed 事件裡 Dispose → ObjectDisposed）；純重構與行為修正未分開",
+  "severity": "嚴重",
+  "granularity": "流程",
+  "local_evidence": [
+   "09:B-23 修味道也會造成回歸"
+  ],
+  "llm_prone": false,
+  "llm_ref": [],
+  "weight": 4,
+  "refs": [
+   "09:B-23",
+   "09:B-22",
+   "GN:19.1",
+   "GN:19.5"
+  ]
+ }
+]
