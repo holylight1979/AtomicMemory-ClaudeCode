@@ -11,8 +11,10 @@
 | 使用者的話算不算提交授權-要是叫你現在提交-提到commit或同意改動不算-有等我看完就是延後 | 使用者的話算不算提交授權-要是叫你現在提交-提到commit或同意改動不算-有等我看完就是延後 |
 | 判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-head怎麼動看logs-head新增段不看reflog-1-cassette錄製重播筆數要一致 | 判git一條指令期間自己產出了什麼-停在衝突時用merge-tree從commit重算不讀暫存區-HEAD怎麼動看logs-HEAD新增段不看reflog-1-cassette錄製重播筆數要一致 |
 | 判斷檔案在某日之後真的改過要看版控最後變更不看mtime-update與checkout會把mtime設成當下-本機未提交才看mtime-commit不動mtime不能當跨次快取鍵 | 判斷檔案在某日之後真的改過要看版控最後變更不看mtime-update與checkout會把mtime設成當下-本機未提交才看mtime-commit不動mtime不能當跨次快取鍵 |
+| 放寬gitignore前先搬走不該公開的檔-背景同步隨時會把新放行的檔commit並push-搬檔結果要看完整輸出不先grep | 放寬gitignore前先搬走不該公開的檔-背景同步隨時會把新放行的檔commit並push-搬檔結果要看完整輸出不先grep |
 | 病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修 | 病形閘擋到別人留在暫存區的檔-不修不提交不動它的暫存-只提自己的檔並宣告是誰的-自己這次改的檔帶病才修 |
 | 補發歷史版本的github-release要先用git-committer-date把標籤打成當年日期再建release-release排序吃建立當下的標籤日期-事後改標籤不會更新 | 補發歷史版本的GitHub-Release要先用GIT_COMMITTER_DATE把標籤打成當年日期再建Release-Release排序吃建立當下的標籤日期-事後改標籤不會更新 |
+| 記憶系統repo在github是公開的-進版控等於對外公開-內網位址與個人敏感資訊不寫進會上版控的檔 | 記憶系統repo在github是公開的-進版控等於對外公開-內網位址與個人敏感資訊不寫進會上版控的檔 |
 
 ## 子層
 

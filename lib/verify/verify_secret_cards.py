@@ -62,6 +62,28 @@ def test_everyday_words_are_not_flagged(text):
     assert check_write({"knowledge": [text]}) is None and not secret_value_found(text)
 
 
+@pytest.mark.parametrize("text,flagged", [
+    (r"信箱在 \\server01\TSLG\MailBox 底下", True),
+    ("信箱在 //server01/TSLG/MailBox 底下", True),
+    ("主機是 192.168.199.130 這台", True),
+    (r"named pipe 是 \\.\pipe\foo", False),
+    ("參考 https://github.com/a/b/issues/1", False),
+    (r"放在 C:\Users\someone\x.md", False),
+    ("版本 1.10.2.3 的行為", False),
+])
+def test_internal_address_needs_declaration_but_ordinary_paths_do_not(text, flagged):
+    assert bool(sensitive_words(text)) is flagged, text
+
+
+def test_auto_filled_quote_skips_sensitive_user_words():
+    """自動回填的使用者原話會進卡片、進版控，繞過寫入閘：命中就不填，一般原話照填。"""
+    from lib.provenance import usable_quote
+    assert usable_quote(r"同事回報，信箱在 \\server01\TSLG\MailBox 底下") == ""
+    assert usable_quote("公司帳號密碼存在哪裡") == ""
+    assert usable_quote(f"token 是 {FAKE_TOKEN} 這個") == ""
+    assert usable_quote("這個做法我覺得不錯，照這樣做") == "這個做法我覺得不錯，照這樣做"
+
+
 def test_declared_reason_passes_but_blank_reason_does_not():
     fields = {"knowledge": ["通用做法：憑證要存獨立檔"]}
     assert check_write(fields, "只是通用做法，沒有個人資訊") is None
@@ -122,6 +144,18 @@ def test_existing_card_can_be_moved_into_secret_with_tool(mem):
     row = next(a for a in load_atom_index_json(mem)["atoms"] if a["name"] == "oops-card")
     assert row["path"] == "memory/personal/u/secret/oops-card.md" and row["scope"] == "personal:u"
     assert "oops-card" not in (mem / "_atom_index.json").read_text(encoding="utf-8")
+
+
+def test_secret_card_is_exempt_from_project_name_gate_but_plain_personal_is_not(mem, monkeypatch):
+    """secret 不共享，內容提到專案名不要緊；一般個人卡會進版控，照舊過範疇閘。"""
+    import lib.atom_io as aio
+    import lib.realm_gate as rg
+    monkeypatch.setattr(rg, "check_global_write", lambda *a, **k: "擋：提到專案名")
+    monkeypatch.setattr(aio, "GLOBAL_MEMORY_DIR", mem)
+    kw = dict(scope="personal", user="u", confidence="[臨]", triggers=["機密詞"], knowledge=["- [臨] x"], source="mcp",
+              cross_project=True, skip_gate=True, dry_run=True)
+    assert aio.write_atom(title="plain-pref", **kw).error == "擋：提到專案名"
+    assert aio.write_atom(title="key-card", secret=True, **kw).error != "擋：提到專案名"
 
 
 def test_secret_row_goes_to_local_index_and_scope_is_owner_only(mem):

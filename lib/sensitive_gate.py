@@ -6,7 +6,8 @@
   - 字眼（SENSITIVE_WORD_RE）：是不是個人敏感交給寫卡的 AI 判，一般技術知識也會提到，
     所以命中只要求宣告（secret=true 或 not_sensitive=<理由>），不直接擋死。
 誰在用：atom_io（寫檔前）、atom_io_cli 的 sensitive_check（MCP atom_write）、wg_vcs_sync（commit 前）、
-  extract-worker（背景萃取沒人能判，命中就不寫）、health-weekly（週掃）、atom-heal、indexer、native-memory-bridge。
+  extract-worker（背景萃取沒人能判，命中就不寫）、provenance（自動回填的使用者原話，命中就不填）、
+  health-weekly（週掃）、atom-heal、indexer、native-memory-bridge。
 只依賴 stdlib：hooks 以頂層模組載入、tools 以 lib.sensitive_gate 載入都要能跑。
 """
 from __future__ import annotations
@@ -26,7 +27,10 @@ SECRET_VALUE_RE = re.compile(
 )
 SENSITIVE_WORD_RE = re.compile(
     r"密碼|passwords?\b|passwd|私鑰|金鑰|憑證|credentials?\b|api[_ -]?key|access[_ -]?token|private[_ -]?token"
-    r"|身分證|手機號碼|信用卡|銀行帳號|住家地址|薪資",
+    r"|身分證|手機號碼|信用卡|銀行帳號|住家地址|薪資"
+    r"|\\\\[A-Za-z0-9][\w.-]*\\[^\s\\]+"          # 內網共用資料夾 \\host\share；\\.\pipe 不算
+    r"|(?<![:\w/])//[A-Za-z0-9][\w.-]*/[\w$.-]+"  # 同一條路徑的正斜線寫法；https://host/path 不算
+    r"|\b(?:192\.168|10\.\d{1,3})\.\d{1,3}\.\d{1,3}\b",   # 內網 IP
     re.IGNORECASE,
 )
 _SECRET_PATH_RE = re.compile(rf"(^|/)personal/[^/]+/{SECRET_DIR_NAME}/")
@@ -76,5 +80,5 @@ def check_write(fields: Dict[str, Any], not_sensitive: Any = None) -> Optional[s
     if not words or _has_reason(not_sensitive):
         return None
     return (f"內容提到「{'、'.join(words[:5])}」，可能是個人驗證或隱私資訊，這次不寫檔。判斷後重送："
-            "是個人敏感資訊（帳密、金鑰、個資、不想公開的內容）→ 帶 secret=true，落 personal/<user>/secret/"
+            "是個人敏感資訊（帳密、金鑰、個資、內網位址、不想公開的內容）→ 帶 secret=true，落 personal/<user>/secret/"
             "（不進版控、不送向量，觸發詞照常注入）；只是一般技術知識 → 帶 not_sensitive=\"<一句理由>\" 照原路徑寫。")

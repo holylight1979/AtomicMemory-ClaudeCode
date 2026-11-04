@@ -1422,8 +1422,8 @@ def write_atom(
                                cross_project=cross_project, secret=secret, create_dirs=not dry_run)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
-    # 本人跨專案 personal 也住根層（~/.claude/memory/personal/），同受 realm gate
-    if scope == "personal" and not force_global and _is_under(resolved["dir"], GLOBAL_MEMORY_DIR):
+    # 本人跨專案 personal 也住根層（~/.claude/memory/personal/），同受 realm gate；secret 不共享，提到專案名不要緊
+    if scope == "personal" and not secret and not force_global and _is_under(resolved["dir"], GLOBAL_MEMORY_DIR):
         from .realm_gate import check_global_write
         gate_err = check_global_write(project_cwd, title=title, triggers=triggers,
                                       knowledge=knowledge, actions=actions, domain=domain)
