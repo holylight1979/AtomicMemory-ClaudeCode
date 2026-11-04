@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 37 |
+| Python | 38 |
 | C#／.NET | 22 |
 | JavaScript／Node | 4 |
 | PowerShell | 7 |
@@ -32,6 +32,7 @@
 | `memory/OS-Windows/windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清.md` | Windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 |
 | `memory/OS-Windows/windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑.md` | windows排程每小時用once加repetitioninterval-改時間set-scheduledtask只換trigger先比dayofweek與startboundary再寫-multipleinstances-ignorenew防疊跑 |
 | `memory/OS-Windows/windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫.md` | windows的git把worktree的.git檔設成隱藏-python直接覆寫會PermissionError-要先unlink再寫 |
+| `memory/工作流/多工人並行改同一套hooks的派工守則-檔案所有權表-共用出口主持端先做-settings單一擁有者-工人只回報片段-腳本式verify不進pytest清單.md` | 多工人並行改同一套hooks的派工守則-檔案所有權表-共用出口主持端先做-settings單一擁有者-工人只回報片段-腳本式verify不進pytest清單 |
 | `memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照.md` | 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照 |
 | `memory/工作流/版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據.md` | 版控走Python啟動器時PreToolUse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據 |
 | `memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md` | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |

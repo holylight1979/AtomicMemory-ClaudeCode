@@ -16,6 +16,7 @@
 | claude-bg起的背景session交完回合閒置約一小時會自己結束-背景執行的長任務會叫醒它-要等別人回覆先commit並送出交付 | claude-bg起的背景session交完回合閒置約一小時會自己結束-背景執行的長任務會叫醒它-要等別人回覆先commit並送出交付 |
 | claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents | claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents |
 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 |
+| claude-code官方文件可直接抓markdown-sitemap列全頁-llms-txt給分類-用tools-cc-docs-harvest收割到本地再查 | claude-code官方文件可直接抓markdown-sitemap列全頁-llms-txt給分類-用tools-cc-docs-harvest收割到本地再查 |
 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 |
 | claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置 | claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置 |
 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 |
@@ -49,6 +50,7 @@
 | 並行子代理共用主session的scratchpad-同名暫存檔會互蓋-派工時給每個agent自己的子資料夾 | 並行子代理共用主session的scratchpad-同名暫存檔會互蓋-派工時給每個agent自己的子資料夾 |
 | 使用者原話算不算長期決策-對這次產出的糾正或指示不算-萃取不准比原話寬 | 使用者原話算不算長期決策-對這次產出的糾正或指示不算-萃取不准比原話寬 |
 | 使用者貼上的內容在transcript包成pasted-content區塊-拿原話當他說的之前先剔掉-閉合id要逐字比-data-id不算id | 使用者貼上的內容在transcript包成pasted_content區塊-拿原話當他說的之前先剔掉-閉合id要逐字比-data-id不算id |
+| 原生auto-memory已關的理由-原生沒有檢索靠claude自己想起讀檔-150場從未走過-系統提示詞教用write寫記憶與atom-write矛盾-關掉省500tok | 原生auto-memory已關的理由-原生沒有檢索靠claude自己想起讀檔-150場從未走過-系統提示詞教用write寫記憶與atom-write矛盾-關掉省500tok |
 | 原話不在任何一則的誤判先查那則原話當下有沒有掛在樹上-樹結束後收的原話要等重開才掛-不要先猜正規化 | 原話不在任何一則的誤判先查那則原話當下有沒有掛在樹上-樹結束後收的原話要等重開才掛-不要先猜正規化 |
 | 去重宣告看主張不看主題-新內容說舊卡哪句錯就是取代-補同一條判準的實例才是同一條 | 去重宣告看主張不看主題-新內容說舊卡哪句錯就是取代-補同一條判準的實例才是同一條 |
 | 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾 | 同一回合先寫文字再呼叫工具時那段文字可能不進transcript-要讓hook或下一session看到的話必須以純文字回合結尾 |

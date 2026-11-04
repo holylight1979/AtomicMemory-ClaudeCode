@@ -14130,6 +14130,60 @@
       "depends": [
         "path:~/.claude/hooks/handlers/stop.py"
       ]
+    },
+    {
+      "name": "claude-code官方文件可直接抓markdown-sitemap列全頁-llms-txt給分類-用tools-cc-docs-harvest收割到本地再查",
+      "path": "memory/CC與原子記憶契約/claude-code官方文件可直接抓markdown-sitemap列全頁-llms-txt給分類-用tools-cc-docs-harvest收割到本地再查.md",
+      "triggers": [
+        "Claude Code 官方文件",
+        "code.claude.com",
+        "查官方文件",
+        "hooks 事件名",
+        "settings 鍵名",
+        "新名詞",
+        "官方規格",
+        "cc_docs_harvest",
+        "llms.txt",
+        "sitemap",
+        "文件收割",
+        "CC 能力查證"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "多工人並行改同一套hooks的派工守則-檔案所有權表-共用出口主持端先做-settings單一擁有者-工人只回報片段-腳本式verify不進pytest清單",
+      "path": "memory/工作流/多工人並行改同一套hooks的派工守則-檔案所有權表-共用出口主持端先做-settings單一擁有者-工人只回報片段-腳本式verify不進pytest清單.md",
+      "triggers": [
+        "多工人",
+        "並行施工",
+        "派工守則",
+        "檔案所有權",
+        "共用守則檔",
+        "BRIEF",
+        "settings.json 誰改",
+        "工人回報格式",
+        "二十個 agent",
+        "一天完工",
+        "並行改 hooks"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "原生auto-memory已關的理由-原生沒有檢索靠claude自己想起讀檔-150場從未走過-系統提示詞教用write寫記憶與atom-write矛盾-關掉省500tok",
+      "path": "memory/CC與原子記憶契約/原生auto-memory已關的理由-原生沒有檢索靠claude自己想起讀檔-150場從未走過-系統提示詞教用write寫記憶與atom-write矛盾-關掉省500tok.md",
+      "triggers": [
+        "auto memory",
+        "autoMemoryEnabled",
+        "原生記憶",
+        "自動記憶",
+        "MEMORY.md 原生",
+        "projects memory 目錄",
+        "橋接檔",
+        "native-memory-bridge",
+        "要不要開 auto memory",
+        "併行原生記憶"
+      ],
+      "scope": "global"
     }
   ]
 }
