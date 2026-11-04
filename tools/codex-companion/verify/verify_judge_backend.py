@@ -163,9 +163,10 @@ def test_run_claude_judge_command_and_env(monkeypatch, tmp_path):
     assert cmd[0] == "/bin/claude" and "-p" in cmd
     assert cmd[cmd.index("--model") + 1] == "sonnet"
     # 裁判不得改動受審對象
-    disallowed = cmd[cmd.index("--disallowed-tools") + 1]
-    for tool in ("Bash", "Write", "Edit"):
-        assert tool in disallowed
+    assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob"
+    assert "--strict-mcp-config" in cmd
+    assert cmd[cmd.index("--disallowedTools") + 1] == "mcp__*"
+    assert captured["env"].get("ENABLE_CLAUDEAI_MCP_SERVERS") == "false"
     # 子 session 標記必須存在（hooks 端據此早退，防遞迴）
     assert captured["env"].get(jb.JUDGE_ENV) == "1"
     # 材料走 stdin，不塞 argv

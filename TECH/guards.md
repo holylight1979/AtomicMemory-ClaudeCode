@@ -256,7 +256,7 @@
   - pending 只在同一個使用者回合有效，使用者打字開新回合就失效、預算重給（[PENDING_SAME_USER_TURN](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
   - 使用者要在最後一次擋之後選放行，或打字「放行」，才放這一回合，並記 user_release（健檢列 red）。
   - 之後的回合只沿用擋訊息列過的那幾件（[RELEASE_COVERS_SHOWN_ITEMS](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)，[乙4](coding-guard.md#乙4-擋滿之後怎麼放行)）。
-  - 子代理、裁判、headless／SDK 沒有人能回答：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
+  - 子代理、裁判、headless／SDK、背景 session（CLAUDE_JOB_DIR）沒有人能回答：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
 - **(e) 的送法**：目前不在 `block_letters`，照判、只印 stderr。
   - 拿掉 `block_letters` 時，寫碼守門開是提醒，只留帳。
   - 照擋時（`RULE_MODE` 把它列成照擋）屬記憶與報告類：不走放行詢問，擋滿後第 3 次放行並寫 guard-reconcile_overflow（健檢列 red）。
@@ -676,9 +676,6 @@
 → 已搬到 [TECH A7](../TECH.md#a7-基本守門細節)
 
 ### Auto-Handoff
-→ 已搬到 [TECH A7](../TECH.md#a7-基本守門細節)
-
-### webfetch-guard
 → 已搬到 [TECH A7](../TECH.md#a7-基本守門細節)
 
 ## A7.6 寫碼守門：部位導讀卡（OverviewHub）

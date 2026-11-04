@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """ensure-mcp.py — SessionStart hook: ensure MCP servers installed & configured.
 
-Fast path (hook, <3s): check files exist → merge config to ~/.claude.json.
+Fast path (hook, <3s): check files exist → 缺或版本舊的 server 呼叫官方 `claude mcp add-json` 註冊（不手改 ~/.claude.json）。
 Slow path (--install, detached): npm i -g missing packages + TTL version check.
 
 Flow:
   1. Node.js 存在？ 否 → 寫 flag 檔供 Claude 提醒使用者，結束
   2. 讀 mcp-servers.template.json，逐一確認 JS entry point 是否在磁碟上
-  3. 存在的 → 合併到 ~/.claude.json（缺整塊才補 or template version 較新才覆寫）
+  3. 存在的 → 缺整塊才補 or template version 較新才覆寫，一律呼叫 claude CLI（覆寫先 remove 再 add）；
+     CLI 找不到或失敗 → stderr 一行＋旗標檔，不退回手改 JSON
   4. 不存在的 → spawn detached installer（npm i -g），下次 session 才寫入 config
   5. TTL 7 天到期 → detached 執行 npm outdated + update
+
+規則：MCP_ENTRY_HIDDEN_LAUNCHER（hooks/wg_release_rules.py）。
 """
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -30,6 +34,9 @@ CLAUDE_JSON = claude_global_config()   # Claude Code 自己的 .claude.json：CL
 TEMPLATE = CODE_DIR / "mcp-servers.template.json"
 VERSION_CACHE = CLAUDE_DIR / "workflow" / "mcp-version-cache.json"
 FLAG_NEEDS_NODE = CLAUDE_DIR / "workflow" / "mcp-needs-node.flag"
+FLAG_CLI_FAILED = CLAUDE_DIR / "workflow" / "mcp-cli-failed.flag"
+TEMPLATE_VERSION_FILE = CLAUDE_DIR / "workflow" / "mcp-template-version.json"   # 已套用的樣板版本（不放進 Claude Code 自己的 .claude.json）
+CLI_TIMEOUT = 20
 TTL_SECONDS = 7 * 86400  # 7 days
 
 # Windows: 避免 npm.cmd 在 detached 父進程下另開 cmd 視窗
@@ -99,6 +106,51 @@ def _save_json(path, data):
     Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
 
 
+def _stored_version(claude):
+    """已套用的樣板版本：優先讀自己的小檔；沒有檔時沿用舊版寫在 .claude.json 的鍵（只讀，避免升級後整批重註冊）。"""
+    v = _load_json(TEMPLATE_VERSION_FILE).get("version")
+    return v if isinstance(v, int) else claude.get("_mcpTemplateVersion", 0)
+
+
+def _find_claude():
+    """claude CLI 絕對路徑或 None：PATH → 原生安裝位置 ~/.local/bin。"""
+    found = shutil.which("claude")
+    if found:
+        return found
+    p = Path.home() / ".local" / "bin" / ("claude.exe" if sys.platform == "win32" else "claude")
+    return str(p) if p.exists() else None
+
+
+def _apply_via_cli(to_apply):
+    """逐一呼叫 `claude mcp [remove +] add-json <name> <json> --scope user`；全成功回 True。
+    失敗（CLI 不在／非 0／逾時）→ stderr 一行＋旗標檔，不退回手改 JSON（避免與 Claude Code 同時寫檔）。"""
+    cli = _find_claude()
+    fail = None if cli else "找不到 claude CLI（PATH 與 ~/.local/bin 皆無）"
+    for name, entry, overwrite in to_apply:
+        if fail:
+            break
+        steps = ([["mcp", "remove", name, "--scope", "user"]] if overwrite else []) + [
+            ["mcp", "add-json", name, json.dumps(entry, ensure_ascii=False), "--scope", "user"]]
+        for step in steps:
+            try:
+                r = subprocess.run([cli] + step, capture_output=True, text=True, timeout=CLI_TIMEOUT,
+                                   creationflags=_NPM_FLAGS)
+            except Exception as e:
+                fail = f"{name}: {type(e).__name__}: {e}"
+                break
+            if r.returncode != 0:
+                fail = f"{name}: `{' '.join(step[:2])}` rc={r.returncode} {(r.stderr or r.stdout).strip()[:200]}"
+                break
+    if fail:
+        msg = f"MCP 註冊失敗：{fail}。手動：claude mcp add-json <name> '<json>' --scope user"
+        sys.stderr.write(f"[ensure_mcp:cli] {msg}\n")
+        FLAG_CLI_FAILED.parent.mkdir(parents=True, exist_ok=True)
+        FLAG_CLI_FAILED.write_text(msg + "\n", encoding="utf-8", newline="\n")
+        return False
+    FLAG_CLI_FAILED.unlink(missing_ok=True)
+    return True
+
+
 def _resolve_entry(server_def, npm_prefix):
     """Resolve JS entry point. Returns (absolute_path_str, exists_bool)."""
     if "entry_absolute" in server_def:
@@ -110,13 +162,31 @@ def _resolve_entry(server_def, npm_prefix):
     return None, False
 
 
+GUI_PYTHONW = Path.home() / "AppData" / "Local" / "Python" / "bin" / "pythonw.exe"   # 與 settings.json hook 同一支 GUI pythonw（路徑無版本號）
+RUN_HIDDEN = CODE_DIR / "hooks" / "run-hidden.py"   # 隱窗外殼：claude.exe 直接起 node 會閃黑窗
+
+
+def _hidden_launcher():
+    """Windows 的隱窗外殼 [pythonw, run-hidden.py]；非 Windows 不需要回 None。
+    Windows 缺任一檔 → stderr 一行、回 None（退回直接起 node，會閃黑窗）。"""
+    if sys.platform != "win32":
+        return None
+    if GUI_PYTHONW.exists() and RUN_HIDDEN.exists():
+        return [str(GUI_PYTHONW), str(RUN_HIDDEN)]
+    sys.stderr.write(f"[ensure_mcp:hidden] 缺 {GUI_PYTHONW} 或 {RUN_HIDDEN}，MCP 改直接起 node（啟動會閃黑窗）\n")
+    return None
+
+
 def _build_server_entry(server_def, node_path, entry_path):
-    """Build a mcpServers JSON entry."""
+    """組一筆 mcpServers：Windows 是 `pythonw run-hidden.py node <js>`（與 live 註冊同形），其他平台 `node <js>`。"""
     entry = {}
     if server_def.get("type"):
         entry["type"] = server_def["type"]
-    entry["command"] = node_path
-    entry["args"] = [entry_path]
+    launcher = _hidden_launcher()
+    if launcher:
+        entry["command"], entry["args"] = launcher[0], launcher[1:] + [node_path, entry_path]
+    else:
+        entry["command"], entry["args"] = node_path, [entry_path]
     if "env" in server_def:
         entry["env"] = server_def["env"]
     return entry
@@ -146,7 +216,7 @@ def fast_path():
 
     npm_prefix = _npm_global_prefix()
 
-    # Load ~/.claude.json (must already exist — we don't create it)
+    # 讀 ~/.claude.json 只為看目前註冊了什麼（必須已存在，我們不建立）；寫入一律走 claude CLI
     if not CLAUDE_JSON.exists():
         return
     claude = _load_json(CLAUDE_JSON)
@@ -154,10 +224,10 @@ def fast_path():
         return
 
     current_servers = claude.get("mcpServers", {})
-    stored_ver = claude.get("_mcpTemplateVersion", 0)
+    stored_ver = _stored_version(claude)
     tmpl_ver = template.get("_version", 0)
 
-    changed = False
+    to_apply = []   # (name, entry, overwrite)
     missing_packages = []
 
     for name, sdef in template.get("servers", {}).items():
@@ -173,19 +243,14 @@ def fast_path():
         server_entry = _build_server_entry(sdef, node, entry_path)
 
         if name not in current_servers:
-            # 缺整塊 → 補上
-            current_servers[name] = server_entry
-            changed = True
+            to_apply.append((name, server_entry, False))   # 缺整塊 → 補上
         elif tmpl_ver > stored_ver:
-            # Template 版本較新 → 覆寫
-            current_servers[name] = server_entry
-            changed = True
+            to_apply.append((name, server_entry, True))    # Template 版本較新 → 覆寫
         # else: 已存在且 template 沒更新 → 不動（尊重使用者自訂）
 
-    if changed:
-        claude["mcpServers"] = current_servers
-        claude["_mcpTemplateVersion"] = tmpl_ver
-        _save_json(CLAUDE_JSON, claude)
+    if to_apply and _apply_via_cli(to_apply):
+        TEMPLATE_VERSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TEMPLATE_VERSION_FILE.write_text(json.dumps({"version": tmpl_ver}), encoding="utf-8", newline="\n")
 
     # 3. Spawn background installer for missing packages
     if missing_packages:

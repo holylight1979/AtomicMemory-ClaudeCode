@@ -1,10 +1,11 @@
 """verify_audit_skill.py — audit-skill.py 契約：官方格式錯誤才 fail，本機建議只 warning.
 
 守住規則：
-- frontmatter 用 YAML 解析：多行 description（`>` 折行）、list 型 triggers 都吃得到。
-- 缺 description → fail；缺 triggers / pattern / name → warning，不 fail。
+- frontmatter 用 YAML 解析：多行 description（`>` 折行）、list 型欄位都吃得到。
+- 缺 description → fail；缺 when_to_use 觸發詞 / metadata.pattern / name → warning，不 fail。
 - 500 行是官方 Tip → warning（skill-md-over-500），不 fail。
 - `userInvocable` 非官方拼法 → warning；`user-invocable` 正常。
+- 全部 skills/*/SKILL.md 的 frontmatter 只含官方欄位（含 metadata），自訂資料放 metadata。
 - 每筆 fails/warnings 帶 src ∈ {official, local}。
 """
 
@@ -33,11 +34,11 @@ def _ids(entries):
 
 def test_multiline_description_parsed():
     fm, _, err = AS.parse_frontmatter(
-        "---\nname: demo\ndescription: >\n  第一行很長的描述文字\n  第二行接著描述\ntriggers:\n  - a\n  - b\n  - c\n---\nbody\n"
+        "---\nname: demo\ndescription: >\n  第一行很長的描述文字\n  第二行接著描述\nwhen_to_use:\n  - a\n  - b\n  - c\n---\nbody\n"
     )
     assert err is None
     assert "第一行" in fm["description"] and "第二行" in fm["description"]
-    assert fm["triggers"] == "a, b, c"
+    assert fm["when_to_use"] == "a, b, c"
 
 
 def test_missing_description_is_fail_missing_triggers_is_warning(tmp_path):
@@ -89,3 +90,34 @@ def test_repo_skills_have_no_fails():
         if res["fail_count"]:
             bad[d.name] = [f["id"] for f in res["fails"]]
     assert not bad, bad
+
+
+def test_when_to_use_and_metadata_pattern_are_read(tmp_path):
+    d = _mk(tmp_path, "name: demo\ndescription: 這是一段超過三十個字的描述，用來確認觸發詞與模式讀取位置的情境。\n"
+                      "when_to_use: 觸發詞：甲乙, 丙丁, 戊己\nmetadata:\n  pattern: pipeline")
+    ids = _ids(AS.audit(d, "project")["warnings"])
+    assert not ({"triggers-missing", "triggers-few", "pattern-missing", "pattern-invalid",
+                 "frontmatter-unknown-fields"} & ids), ids
+
+
+def test_top_level_triggers_pattern_now_flagged(tmp_path):
+    d = _mk(tmp_path, "name: demo\ndescription: 這是一段超過三十個字的描述，用來確認舊的頂層自訂鍵會被標出來。\ntriggers: a, b, c\npattern: pipeline")
+    ids = _ids(AS.audit(d, "project")["warnings"])
+    assert {"frontmatter-unknown-fields", "triggers-missing", "pattern-missing"} <= ids
+
+
+def test_repo_skills_frontmatter_only_official_keys():
+    bad = {}
+    for md in SKILL_DIR.parent.glob("*/SKILL.md"):
+        fm, _, err = AS.parse_frontmatter(md.read_text(encoding="utf-8"))
+        extra = sorted(set(fm) - AS.OFFICIAL_FIELDS)
+        if err or extra:
+            bad[md.parent.name] = err or extra
+    assert not bad, bad
+
+
+if __name__ == "__main__":
+    import subprocess, sys
+    rc = subprocess.call([sys.executable, "-I", "-m", "pytest", "-q", __file__])
+    print("AUDIT_SKILL_CHECK PASS" if rc == 0 else "AUDIT_SKILL_CHECK FAIL")
+    sys.exit(1 if rc else 0)

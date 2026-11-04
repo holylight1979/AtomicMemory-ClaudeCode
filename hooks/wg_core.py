@@ -1834,7 +1834,7 @@ def _ensure_state(
 
 
 def output_json(data: Dict[str, Any]) -> None:
-    print(json.dumps(data, ensure_ascii=False))
+    print(json.dumps(cap_hook_output(data), ensure_ascii=False))
     sys.exit(0)
 
 
@@ -1927,6 +1927,47 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         _atom_debug_error(f"guard_log:{guard}", e)
+
+
+# ─── Hook 輸出字元上限（官方：additionalContext／systemMessage／stdout 單一字串超過 10,000 字元會被換成
+#     「檔案路徑＋前 2,000 字預覽」且不要求模型去讀；沒有設定能提高）─────────────────────────────
+HOOK_TEXT_CAP = 9000   # 留 1,000 字餘裕給官方包裝
+
+
+def cap_hook_text(text: str, where: str) -> str:
+    """超過 HOOK_TEXT_CAP 就自己截：保留前段、尾行指到溢出全文檔，並寫 guard log（規則 HOOK_TEXT_CAP_SELF_TRUNCATE）。"""
+    if not isinstance(text, str) or len(text) <= HOOK_TEXT_CAP:
+        return text
+    overflow_dir = WORKFLOW_DIR / "hook-overflow"
+    try:
+        overflow_dir.mkdir(parents=True, exist_ok=True)
+        fname = overflow_dir / f"{where}-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}.txt"
+        fname.write_text(text, encoding="utf-8", newline="\n")
+        pointer = str(fname)
+    except Exception as e:  # fail-open：寫不出檔就只截
+        _atom_debug_error("hook_text_cap:write", e)
+        pointer = "（溢出檔寫入失敗）"
+    tail = f"\n[Guardian:Truncated] 此段原 {len(text)} 字元，超過 hook 單筆上限，已截；全文：{pointer}"
+    keep = text[: HOOK_TEXT_CAP - len(tail)]
+    cut = keep.rfind("\n")
+    if cut > HOOK_TEXT_CAP // 2:
+        keep = keep[:cut]
+    append_guard_log("hook-text-cap", {"where": where, "chars": len(text), "kept": len(keep), "file": pointer})
+    return keep + tail
+
+
+def cap_hook_output(data: Dict[str, Any], where: str = "") -> Dict[str, Any]:
+    """對 hook JSON 輸出裡會送給模型／使用者的字串套 cap_hook_text；回傳同一個 dict。"""
+    hso = data.get("hookSpecificOutput")
+    if isinstance(hso, dict):
+        w = where or str(hso.get("hookEventName") or "hook")
+        for k in ("additionalContext",):
+            if k in hso:
+                hso[k] = cap_hook_text(hso[k], w)
+    for k in ("systemMessage", "reason"):
+        if k in data:
+            data[k] = cap_hook_text(data[k], (where or "hook") + "-" + k)
+    return data
 
 
 # ─── 工具前閘擋次上限（驗證批次閘、病形閘用）───────────

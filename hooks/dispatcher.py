@@ -47,8 +47,11 @@ HANDLERS = {
     "PostCompact": ("handlers.post_compact", "handle_post_compact"),        # 選配 #4
     "PostToolBatch": ("handlers.post_tool_batch", "handle_post_tool_batch"),  # 選配 #4
     "Stop": ("handlers.stop", "handle_stop"),
-    "SubagentStop": ("handlers.stop", "handle_subagent_stop"),   # 子代理收尾只跑寫碼查核閘（對帳／量尺），擋滿放行留帳
+    "SubagentStart": ("handlers.subagent_start", "handle_subagent_start"),   # 補不經 Agent 工具的子代理記憶注入（skill fork、Workflow）
+    "SubagentStop": ("handlers.stop", "handle_subagent_stop"),   # 子代理收尾：回填注入紀錄的結果（效用帳）；寫碼守門開再跑寫碼查核閘
     "SessionEnd": ("handlers.session_end", "handle_session_end"),
+    "InstructionsLoaded": ("handlers.instructions_loaded", "handle_instructions_loaded"),   # 只記帳：規則／索引載入對帳
+    "StopFailure": ("handlers.stop_failure", "handle_stop_failure"),   # 回合因 API 錯誤結束：留帳並標 aborted
 }
 
 # 備援裁判子 session（judge_backend.run_claude_judge 起的 headless claude，env CLAUDE_COMPANION_JUDGE=1）：
@@ -61,10 +64,11 @@ JUDGE_HANDLERS = {
     "Stop": ("handlers.stop", "handle_judge_stop"),
 }
 
-# 寫碼守門總開關關閉（wg_core.v6_enabled）時：只分派寫碼守門關時也跑的（9e476fd0 就有的）事件與工具；
+# 寫碼守門總開關關閉（wg_core.v6_enabled）時：只分派寫碼守門關時也跑的（9e476fd0 就有的）事件與工具，
+# 加上 SubagentStop（規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP：子代理注入的效用帳兩種模式都要記；handler 在守門關時記完就走，不跑寫碼查核）；
 # 裁判子 session、hook 分段計時也是寫碼守門開著才有，關閉時照舊一律早退／不計時。
 PRE_V6_EVENTS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-                 "PreCompact", "PostCompact", "PostToolBatch", "Stop", "SessionEnd"}
+                 "PreCompact", "PostCompact", "PostToolBatch", "Stop", "SubagentStart", "SubagentStop", "SessionEnd"}
 PRE_V6_TOOLS = {   # 9e476fd0 settings.json 的 matcher；寫碼守門加掛的工具（Read、PowerShell 後記、AskUserQuestion…）關閉時不進 handler
     "PreToolUse": {"Write", "Edit", "NotebookEdit", "Bash", "PowerShell", "Agent", "Task"},
     "PostToolUse": {"Edit", "Write", "MultiEdit", "NotebookEdit", "ExitPlanMode", "Bash", "Agent", "Task",

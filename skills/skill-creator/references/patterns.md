@@ -206,7 +206,7 @@ exit 0 → 進 Step 9；exit ≠ 0 → 看 stderr 列出的違規行，回頭補
 
 ## 進階模式組合表
 
-實戰 skill 多為多模式組合。**選主模式（frontmatter 標 pattern）+ 套副模式（SKILL.md 流程內體現）**：
+實戰 skill 多為多模式組合。**選主模式（frontmatter 的 metadata.pattern 標）+ 套副模式（SKILL.md 流程內體現）**：
 
 | 組合 | 適用場景 | 主+副 | 範例 |
 |------|---------|-------|------|
@@ -218,7 +218,7 @@ exit 0 → 進 Step 9；exit ≠ 0 → 看 stderr 列出的違規行，回頭補
 | **多 Tool Wrapper 並存** | 多 API / 工具整合 | 每 wrapper 獨立 skill | DevOps 工具集 |
 
 **選擇規則**：
-- 主模式 = 整個 skill 最核心的職責（決定 frontmatter `pattern` 欄位值）
+- 主模式 = 整個 skill 最核心的職責（決定 frontmatter `metadata.pattern` 值）
 - 副模式 = 流程中某 step 體現，**禁止**把多模式骨架混進 SKILL.md（會違反 Lean）
 - 副模式邏輯通常封進 scripts/（如 Reviewer 套在 Pipeline 末端 → 寫成 `check-final.py`）
 

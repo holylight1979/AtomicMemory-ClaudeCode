@@ -7,6 +7,8 @@
   - Bash 收尾指令 pattern（引號/註解/echo 誤報面 + cwd scope + 無 peer 靜默）
   - fail-open（壞 state JSON 不炸）+ observation log NDJSON per-session 檔
   - handler 層 warn/deny 互斥（stdout 恆單一 JSON、deny 優先、warn 不帶 permissionDecision）
+  - 警告附對方 session 名稱（COORD_WARN_PEER_NAME）：對到名字附名字與 SendMessage 提示、對不到文字照舊、
+    `claude agents --json` 叫不到退回短 id＋stderr＋log、只在發警告時才叫（掃描本身不叫）
 
 對應：hooks/wg_coordination.py、handlers/pre_tool_use.py、workflow config coordination.*
 """
@@ -17,6 +19,8 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
@@ -53,6 +57,12 @@ def _mk_state(dir_: Path, sid: str, path_entries, phase="working", cwd="C:/w",
 def _patch_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(wc, "WORKFLOW_DIR", tmp_path)
     monkeypatch.setattr(wc, "COORD_LOG_DIR", tmp_path / "coordlog")
+
+
+@pytest.fixture(autouse=True)
+def _no_agents_call(monkeypatch):
+    """預設當成「已查過、一個名字都沒有」：既有案例不真的叫 claude agents --json，警告文字維持短 id 版。"""
+    monkeypatch.setattr(wc, "_peer_names_cache", {})
 
 
 # ─── 衝突偵測 ───────────────────────────────────────────────────────────────
@@ -332,3 +342,76 @@ def test_handler_null_coordination_deny_still_works(tmp_path, monkeypatch):
     )
     assert len(out) == 1
     assert out[0]["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+# ─── 警告附對方 session 名稱（COORD_WARN_PEER_NAME）────────────────────────
+
+
+class _FakeRun:
+    """假的 subprocess.run：記次數；rows 給 `claude agents --json` 的回覆，exc 給要丟的例外。"""
+
+    def __init__(self, rows=None, exc=None):
+        self.rows, self.exc, self.calls = rows or [], exc, []
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        if self.exc:
+            raise self.exc
+
+        class R:
+            stdout = json.dumps(self.rows)
+        return R()
+
+
+def _live_lookup(monkeypatch, fake):
+    monkeypatch.setattr(wc, "_peer_names_cache", None)
+    monkeypatch.setenv("CLAUDE_CODE_EXECPATH", "C:/fake/claude.exe")
+    monkeypatch.setattr(wc.subprocess, "run", fake)
+
+
+def test_peer_name_in_conflict_warning(tmp_path, monkeypatch):
+    """對到名字：同檔預警附名字與 SendMessage 提示；agents --json 只在發警告時叫、同行程只叫一次。"""
+    _patch_dirs(tmp_path, monkeypatch)
+    fake = _FakeRun(rows=[{"sessionId": "peer-name-0001", "name": "claude-ba", "cwd": "C:/w"}])
+    _live_lookup(monkeypatch, fake)
+    t = str(tmp_path / "named.py")
+    _mk_state(tmp_path, "peer-name-0001", [(t, _iso(-5))])
+    hit = wc.check_cross_session_conflict(SELF, t, CFG)
+    assert hit and not fake.calls, "掃描本身不該叫 claude agents --json"
+    warn = wc.format_conflict_warning(hit)
+    assert "`claude-ba`" in warn and "SendMessage" in warn and "peer-nam" in warn
+    assert "`claude-ba`" in wc.format_late_collision(hit)
+    assert len(fake.calls) == 1 and fake.calls[0][1:] == ["agents", "--json"]
+
+
+def test_peer_name_missing_keeps_old_text(tmp_path, monkeypatch):
+    """對不到名字（對方已關）：文字跟原本一樣只有短 id，不提 SendMessage。"""
+    _patch_dirs(tmp_path, monkeypatch)
+    _live_lookup(monkeypatch, _FakeRun(rows=[{"sessionId": "someone-else", "name": "claude-zz"}]))
+    t = str(tmp_path / "anon.py")
+    _mk_state(tmp_path, "peer-anon-0002", [(t, _iso(-5))])
+    warn = wc.format_conflict_warning(wc.check_cross_session_conflict(SELF, t, CFG))
+    assert "另一個活躍 session（peer-ano）也改過此檔" in warn and "SendMessage" not in warn
+
+
+def test_peer_name_lookup_failure_fail_open(tmp_path, monkeypatch, capsys):
+    """叫不到（逾時）：警告退回短 id，stderr 一行、log 記 fail_open agents_json。"""
+    _patch_dirs(tmp_path, monkeypatch)
+    _live_lookup(monkeypatch, _FakeRun(exc=wc.subprocess.TimeoutExpired("claude", 1.5)))
+    t = str(tmp_path / "slow.py")
+    _mk_state(tmp_path, "peer-slow-0003", [(t, _iso(-5))])
+    warn = wc.format_conflict_warning(wc.check_cross_session_conflict(SELF, t, CFG))
+    assert "（peer-slo）" in warn and "SendMessage" not in warn
+    assert "查不到對方 session 名稱" in capsys.readouterr().err
+    rows = [json.loads(l) for l in
+            (tmp_path / "coordlog" / f"{SELF}.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert any(r["ev"] == "fail_open" and r["degraded_reason"].startswith("agents_json:") for r in rows)
+
+
+def test_peer_name_in_bash_finalize_warning(tmp_path, monkeypatch):
+    """git 收尾預警：名單附名字、提示可先 SendMessage 問對方。"""
+    _patch_dirs(tmp_path, monkeypatch)
+    _live_lookup(monkeypatch, _FakeRun(rows=[{"sessionId": "peer-bash-0004", "name": "claude-c3"}]))
+    _mk_state(tmp_path, "peer-bash-0004", [(str(tmp_path / "c.py"), _iso(-5))], cwd="C:/w")
+    warn = wc.check_bash_git_finalize(SELF, "git add -A", "C:/w", CFG)
+    assert warn and "`claude-c3`，peer-bas（1 檔）" in warn and "SendMessage" in warn

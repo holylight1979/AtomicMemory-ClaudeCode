@@ -2,8 +2,9 @@
 name: codex
 description: 叫 Codex 當第二意見（唯讀審查）或施工者（在專用工作樹裡改檔），先填同步包讓它的綜觀跟 CC 同步。CC 自己判斷叫不叫：結論錯了代價大（設計方向、影響多處、不可逆）、設計討論已有自己的答案要另一個 context 來挑、要找邊界反例、有邊界清楚且驗收寫得出來的活可以並行交出去；使用者說「加派 codex」「問 codex」「叫 codex 審」「交給 codex 做」時也用。只改文件、註解、措辭時不用；已查到答案只差使用者確認時不用。切換舊的 Codex Companion 監督開關是 /codex-companion，不是這個。
 user-invocable: true
-triggers: 加派 codex, 問 codex, codex 第二意見, codex 審查, 叫 codex 審, 交給 codex 做, codex 施工, codex agent, 同步包, codex-call
-pattern: pipeline
+when_to_use: 觸發詞：加派 codex, 問 codex, codex 第二意見, codex 審查, 叫 codex 審, 交給 codex 做, codex 施工, codex agent, 同步包, codex-call
+metadata:
+  pattern: pipeline
 ---
 
 # Skill：codex（Pipeline）

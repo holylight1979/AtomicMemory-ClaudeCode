@@ -1,7 +1,7 @@
 """verify_console_skill.py：/console skill 的結構守門（來源指得回去、三種用法在、給人讀的說明含四處修正）。
 
 正例：SKILL.md ≤150 行且三種用法都在；每個 [[卡名]] 在 memory/ 或 _AIDocs/_atoms/ 找得到檔；
-SKILL.md 連到的 references 檔都存在；guide-for-humans 有兩個例外、Reload 改名、模型依工作分、寫交接備忘。
+SKILL.md 連到的 references 檔都存在；guide-for-humans 有兩個例外、名字固定（Reload 不變、總控台由人 /rename）、模型依工作分、寫交接備忘。
 反例：卡片改名或退役後 SKILL.md 還指舊名 → 紅（提醒同步改 skill）。
 怎麼跑：python -X utf8 -m pytest -q skills/console/verify/verify_console_skill.py
 """
@@ -37,6 +37,6 @@ def test_linked_references_exist():
 def test_guide_for_humans_has_four_fixes():
     guide = (SKILL_DIR / "references" / "guide-for-humans.md").read_text(encoding="utf-8")
     assert "放行這一回合" in guide and "Reload Window" in guide   # 兩個叫人去工作分頁的例外
-    assert "名字全部重編" in guide                                  # Reload 改名
+    assert "名字也不變" in guide and "/rename" in guide              # 名字固定：工作軌 --name、總控台由人 /rename
     assert "調度用 Opus" in guide and "Fable" in guide             # 模型依工作分
     assert "寫交接備忘" in guide                                    # 口令

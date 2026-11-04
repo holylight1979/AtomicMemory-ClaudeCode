@@ -16,6 +16,7 @@
 - [臨] 四連踩補的運作邏輯：Bash tool 在交給 bash 前有一層轉送先解一次反斜線，`<<'EOF'` 擋不住那一層，所以「多加一層逃脫」永遠被同一層再吃掉——同一修法失敗兩次就該改走不含反斜線的路（chr(92)、Edit），且改 .py 後立刻 ast.parse，不等測試收集階段。
 - [臨] 第四踩：用 heredoc 重現「`\\?\` 前綴被 deny」，送進去的是少一層的 `\?\`，重現是假的、修後驗證也看起來沒修；測試資料含反斜線一律 `B=chr(92)` 組字串，下結論前先 `print(repr(輸入))`。
 - [臨] PowerShell 裡 `python -X utf8 -c "…"` 內嵌含雙引號或 \n 的程式碼一樣被吃跳脫，報 unterminated string literal（連踩 3 次）；同樣改 Write 成 .py 再跑。
+- [臨] 再踩（多工人並行施工一天五次：主持端 wg_core、cc_docs_harvest、verify 案例各一，工人 ensure-mcp、post_compact 各一）：heredoc 內 Python 字串 "\n" 落檔變真換行，hooks live 檔有幾秒語法錯誤。根因沒變，新教訓是**派工守則要寫死**：含反斜線或跳脫序列的改檔一律用 Edit／Write 工具或先寫成 .py 檔再跑，不准 `python - <<'EOF'`；改完 live hook 立刻 py_compile。
 
 ## 行動
 

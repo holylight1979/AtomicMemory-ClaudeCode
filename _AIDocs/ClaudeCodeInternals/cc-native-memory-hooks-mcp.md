@@ -70,7 +70,7 @@
 | `MessageDisplay` | 10 秒 |
 | `prompt` 型 hook | 30 秒 |
 | `agent` 型 hook | 60 秒 |
-| `SessionEnd` | **全部 hook 共 1.5 秒** |
+| `SessionEnd` | 預設共 1.5 秒；個別 hook 設 `timeout` 可到 60 秒（本系統設 30 秒已生效） |
 
 - [固] 每個 hook 可在設定內用 `timeout`（秒）自訂，但不能超過事件級上限。
 
@@ -114,10 +114,10 @@
 
 只列事實，不列建議：
 
-- [實測] **橋接檔**：`projects/c--Users-holylight--claude/memory/atom-index-bridge.md` 由 `tools/native-memory-bridge.py` 從 `memory/_atom_index.json` 鏡像產生（frontmatter `type: reference`），內容＝每個核心 atom 的「名稱 → Read 路徑 + trigger」指標，不含知識本體。`tools/sync-memory-index.py --write` 尾端（第 741 行附近）自動呼叫重產；失敗只 stderr 告警不阻斷。契約測試在 `hooks/verify/verify_native_bridge.py`。
-- [實測] 原生 `MEMORY.md`（`projects/<slug>/memory/MEMORY.md`）只放一行指向橋接檔，遵守第 1 節的 200 行／25KB 預算；真正的 atom 索引在 `memory/MEMORY.md`（經 `~/.claude/CLAUDE.md` 的 `@memory/MEMORY.md` import 載入，走第 2 節路徑而非 auto-memory 路徑）。
+- [現況] 原生 auto memory 已用 `autoMemoryEnabled: false` 關閉（2026-11-04）；先前的鏡像檔 `atom-index-bridge.md` 與 `tools/native-memory-bridge.py` 已退役，理由與數據見 `Docs/_analysis/00-總整與建議優先序.md` 第 9 列。
+- [現況] `projects/<slug>/memory/` 不再使用；`wg_core` MemoryPathBlock 仍擋寫入當保險。
 - [實測] **UPS 30 秒上限**是注入管線（`hooks/workflow-guardian.py`）的硬約束；本機 `settings.json` 實際設 `timeout: 8`（guardian）＋ `3`（codex_companion），遠低於官方上限，換取 prompt 回應延遲。注入走第 3.2 節的 `hookSpecificOutput.additionalContext`。
-- [實測] **SessionEnd 全部 hook 共 1.5 秒**是萃取（extraction）改走 detached worker 的根因：`hooks/extract-worker.py` 由 guardian 以獨立子程序 spawn（`run-hidden.py` 負責 Popen），存活超過 hook timeout，本機 LLM 萃取約 60 秒可跑完。`settings.json` 內 SessionEnd 的 `timeout: 30` 對官方 1.5 秒硬牆無效——只能靠 detached。
+- SessionEnd 預設共 1.5 秒，個別 hook 設 `timeout` 可到 60 秒；萃取（extraction）走 detached worker 是因為本機 LLM 約 60 秒才跑完：`hooks/extract-worker.py` 由 guardian 以獨立子程序 spawn（`run-hidden.py` 負責 Popen），存活超過 hook timeout，本機 LLM 萃取約 60 秒可跑完。`settings.json` 內 SessionEnd 的 `timeout: 30` 已生效，但仍短於萃取耗時，所以靠 detached。
 - [固] 第 5 節的 cache 行為說明為何 per-turn 注入預算要控在 token 而非字元（見 atom [[注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產]]）：每輪注入段全額計費、不命中 cache。
 
 ## 來源
@@ -128,4 +128,4 @@
 - https://code.claude.com/docs/en/context-window.md（compaction、1M、prompt cache）
 - https://code.claude.com/docs/en/mcp.md（scope、.mcp.json、輸出上限）
 - https://github.com/anthropics/claude-code/releases（2.1.238 / 2.1.246 / 2.1.248）
-- 本機實測：`settings.json`、`tools/sync-memory-index.py`、`tools/native-memory-bridge.py`、`hooks/extract-worker.py`、`hooks/run-hidden.py`（查證日 2026-08-28）
+- 本機實測：`settings.json`、`tools/sync-memory-index.py`、`hooks/extract-worker.py`、`hooks/run-hidden.py`（查證日 2026-08-28）

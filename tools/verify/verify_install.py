@@ -724,3 +724,15 @@ def test_upgrade_hints_v6_off_unless_local_enables(fake_target, monkeypatch, cap
     install.v6_hint()
     assert capsys.readouterr().out == ""
     assert "v6_hint" in install.cmd_upgrade.__code__.co_names     # 升級結尾真的有叫
+
+
+def test_merge_settings_fills_system_contract_keys():
+    """使用者檔缺的系統契約鍵（auto memory 關、跨 session 收訊、逐字稿保留、worktree 分出點）補系統值；有就尊重使用者。"""
+    system = {"hooks": {}, "autoMemoryEnabled": False, "crossSessionInbound": "accept",
+              "cleanupPeriodDays": 14, "worktree": {"baseRef": "head"}, "claudeMdExcludes": ["C:/x/AGENTS.md"]}
+    merged, _ = install.merge_settings({"cleanupPeriodDays": 30, "model": "opus"}, system, frozenset())
+    assert merged["autoMemoryEnabled"] is False and merged["crossSessionInbound"] == "accept"
+    assert merged["worktree"] == {"baseRef": "head"}
+    assert merged["cleanupPeriodDays"] == 30, "使用者自己設的值不被蓋"
+    assert "claudeMdExcludes" not in merged, "含本機路徑的鍵不帶"
+    assert merged["model"] == "opus"

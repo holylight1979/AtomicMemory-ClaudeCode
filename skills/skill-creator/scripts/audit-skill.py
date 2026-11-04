@@ -12,7 +12,7 @@
   fails    — 真格式問題：SKILL.md 不存在、frontmatter 解析失敗、缺 description
              （官方所有欄位皆非必填、description 為 recommended 且是自動觸發唯一依據，
              本機把它列硬性；name 官方預設目錄名，缺了只警告）。
-  warnings — 官方 Tip（500 行）與本機建議（triggers / pattern / evals / 分層 / 腳本衛生 /
+  warnings — 官方 Tip（500 行）與本機建議（when_to_use 觸發詞 / metadata.pattern / evals / 分層 / 腳本衛生 /
              非官方拼法如 userInvocable）。不影響 exit code，除非 --strict。
 """
 import argparse
@@ -44,8 +44,6 @@ OFFICIAL_FIELDS = {
     "model", "effort", "context", "agent", "background", "hooks", "paths", "shell",
     "metadata", "license", "compatibility",
 }
-# 本機自訂欄位（skill-creator 用：觸發關鍵字 / 設計模式），harness 不讀
-LOCAL_FIELDS = {"triggers", "pattern"}
 # 非官方拼法 → 官方拼法（harness 不認舊拼法；user-invocable 預設 true 所以行為未壞，但應對齊）
 LEGACY_SPELLINGS = {
     "userInvocable": "user-invocable",
@@ -114,7 +112,8 @@ def parse_frontmatter(text: str) -> tuple:
         return {}, end_line, None
     if not isinstance(data, dict):
         return {}, end_line, "frontmatter 不是 key: value 映射"
-    return {str(k): _scalar(v) for k, v in data.items()}, end_line, None
+    return {str(k): (v if k == "metadata" and isinstance(v, dict) else _scalar(v))
+            for k, v in data.items()}, end_line, None
 
 
 def check_skill_md(skill_dir: Path, scope: str) -> tuple:
@@ -161,11 +160,11 @@ def check_skill_md(skill_dir: Path, scope: str) -> tuple:
                 f"frontmatter 用 `{legacy}`，官方拼法是 `{official}`（harness 不讀舊拼法，等同未設定）",
                 src="official",
             ))
-    unknown = sorted(k for k in fm if k not in OFFICIAL_FIELDS | LOCAL_FIELDS | set(LEGACY_SPELLINGS))
+    unknown = sorted(k for k in fm if k not in OFFICIAL_FIELDS | set(LEGACY_SPELLINGS))
     if unknown:
         warns.append(_warn(
             "frontmatter-unknown-fields",
-            f"frontmatter 含非官方、非本機欄位 {unknown}（harness 忽略；自訂資料建議放 `metadata:`）",
+            f"frontmatter 含非官方欄位 {unknown}（harness 忽略；自訂資料建議放 `metadata:`）",
             src="official",
         ))
 
@@ -197,21 +196,26 @@ def check_skill_md(skill_dir: Path, scope: str) -> tuple:
     if desc and len(desc) < DESC_MIN_CHARS:
         warns.append(_warn("description-short", f"description 僅 {len(desc)} 字 < {DESC_MIN_CHARS}（可能 undertrigger）"))
 
-    # --- Warning（本機建議）：triggers ---
-    triggers_raw = fm.get("triggers", "")
-    triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()] if triggers_raw else []
+    # --- Warning（本機建議）：觸發詞（原生 when_to_use，格式「觸發詞：a, b, c」）---
+    triggers_raw = re.sub(r"^[^：:,]*[：:]\s*", "", fm.get("when_to_use", ""))
+    triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()]
     if fm and not triggers:
         warns.append(_warn(
             "triggers-missing",
-            "frontmatter 無 `triggers`（本機自訂欄位，harness 不讀；skill-creator 用它列觸發措辭變體，建議補 ≥ 3 個）",
+            "frontmatter 無 `when_to_use`（原生欄位，附加在 skill 列表的 description 後；建議寫「觸發詞：a, b, c」補 ≥ 3 個措辭變體）",
         ))
     elif 0 < len(triggers) < TRIGGERS_MIN:
-        warns.append(_warn("triggers-few", f"triggers 僅 {len(triggers)} 個 < {TRIGGERS_MIN}（覆蓋面不足）"))
+        warns.append(_warn("triggers-few", f"when_to_use 觸發詞僅 {len(triggers)} 個 < {TRIGGERS_MIN}（覆蓋面不足）"))
 
-    # --- Warning（本機建議）：pattern ---
-    pattern = fm.get("pattern", "").strip()
+    # --- Warning（本機建議）：metadata.pattern ---
+    meta = fm.get("metadata")
+    if isinstance(meta, dict):
+        pattern = str(meta.get("pattern", "")).strip()
+    else:  # 無 pyyaml 的逐行解析把巢狀併成一行字串
+        pm = re.search(r"pattern:\s*(\S+)", str(meta or ""))
+        pattern = pm.group(1) if pm else ""
     if fm and not pattern:
-        warns.append(_warn("pattern-missing", f"frontmatter 無 `pattern`（本機自訂欄位；建議標 5 模式之一：{VALID_PATTERNS}）"))
+        warns.append(_warn("pattern-missing", f"frontmatter 無 `metadata.pattern`（本機慣例；建議標 5 模式之一：{VALID_PATTERNS}）"))
     elif pattern and pattern not in VALID_PATTERNS:
         warns.append(_warn("pattern-invalid", f"pattern={pattern!r} 不在白名單，建議用標準模式：{VALID_PATTERNS}"))
 

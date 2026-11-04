@@ -47,7 +47,7 @@ Skill 在 Claude Code 內部的載入時機：
 
 | 層 | 內容 | 何時載入 | 目標大小 |
 |---|------|---------|---------|
-| 1. Metadata | YAML frontmatter（官方 name / description；本機自訂 triggers / pattern，harness 不讀） | **常駐**：router 決策階段就讀 | ≤ 100 字 |
+| 1. Metadata | YAML frontmatter（官方 name / description / when_to_use；本機慣例 metadata.pattern，harness 不讀） | **常駐**：router 決策階段就讀 | ≤ 100 字 |
 | 2. SKILL.md body | 觸發後完整載入 prompt | **觸發時** | ≤ 200 行（官方 Tip 上限 500） |
 | 3. Bundled resources | scripts / references / assets | **按需**：Skill 內指引或 Agent 自行 Read | 無限制 |
 
@@ -89,7 +89,7 @@ Skill 在 Claude Code 內部的載入時機：
 - 反例：「處理檔案的工具」 → 不知道何時用
 - 正例：「**任何**要寫新 skill、改既有 skill、評估 skill 品質的場合都該觸發」（明確 when，且 pushy）
 
-**triggers 欄位**：補充 description 覆蓋面，列出 5–10 個關鍵字 / 短語變體，含中英文混用情境。
+**when_to_use 欄位**（格式「觸發詞：a, b, c」，原生欄位，附加在 skill 列表的 description 後，兩者合計 1,536 字元上限）：補充 description 覆蓋面，列出 5–10 個關鍵字 / 短語變體，含中英文混用情境。
 
 ---
 

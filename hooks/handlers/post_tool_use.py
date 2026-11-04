@@ -102,6 +102,8 @@ def _record_subagent_injection(state: Dict[str, Any], input_data: Dict[str, Any]
 
     無狀態回推：注入清單來自 tool_response.prompt（注入後完整 prompt）的 blob marker；
     無 marker（本次未注入）→ 不記錄、回 False。
+    前景子代理的結果在 tool_response.content；背景子代理只回 status=async_launched、沒有 content，摘要留空，
+    子代理收尾時由 SubagentStop 依 agent_id 回填（規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP，handlers/stop._fill_subagent_result）。
     """
     tr = input_data.get("tool_response", {})
     if not isinstance(tr, dict):
@@ -1348,9 +1350,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     dirty = _note_tool_result(state, session_id, tool_name, tool_input, input_data, config) or dirty
 
     # ─── sub-agent 注入歸因記錄 ───────────────────────────────
-    # PostToolUse 對 Agent/Task 自足：tool_response 含 agentId / content / prompt
-    # （注入後的完整 prompt）。從 blob marker 回推注入清單 + 擷取輸出摘要，
-    # keyed by agentId 寫入 state，供注入→使用→結果歸因。
+    # tool_response 含 agentId / prompt（注入後的完整 prompt），前景子代理另有 content；從 blob marker 回推注入清單
+    # + 擷取輸出摘要，keyed by agentId 寫入 state，供注入→使用→結果歸因。背景子代理（async_launched）的結果
+    # 由 SubagentStop 回填（規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP）。
     if tool_name in ("Agent", "Task"):
         try:
             if _record_subagent_injection(state, input_data):

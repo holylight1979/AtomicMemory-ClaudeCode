@@ -20,9 +20,10 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         return
 
     state["pre_compact_snapshot"] = _now_iso()
-    # #4：快照壓縮前已注入 atom 名單，供 PostCompact 復原內文（免受 SessionStart(compact)
-    # 清空 injected_atoms 的順序影響）。見 handlers/post_compact.py。
+    # 快照壓縮前已注入的卡名：SessionStart(compact) 讀它把內文送回去（它跑在 PostCompact 之前、會清空 injected_atoms），
+    # 沒送成才由 PostCompact 暫存、PostToolBatch 補位。上一輪壓縮的「已送」記號在這裡清，記號只代表這一輪。
     state["pre_compact_injected_atoms"] = list(dict.fromkeys(state.get("injected_atoms", []) or []))
+    state.pop("compact_reinjected_at", None)
 
     if not state.get("episodic_checkpoint_done"):
         ep_cfg = config.get("episodic", {})

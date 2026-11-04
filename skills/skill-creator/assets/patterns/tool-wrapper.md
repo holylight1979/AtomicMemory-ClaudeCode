@@ -2,8 +2,9 @@
 name: <skill-name>
 description: <30+ 字。例：「任何要用 X API / X CLI 操作 Y 的場合都該觸發，避免 agent 自己拼接指令出錯」>
 user-invocable: true
-triggers: <關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
-pattern: tool-wrapper
+when_to_use: 觸發詞：<關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
+metadata:
+  pattern: tool-wrapper
 ---
 
 # Skill：<skill-name>（Tool Wrapper）

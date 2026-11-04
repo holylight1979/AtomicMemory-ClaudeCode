@@ -70,7 +70,7 @@
 | 同上 | `codex_companion.py` | — | V5 P5b subprocess 模型（無 daemon） |
 | 同上 | `extract-worker.py` / `quick-extract.py` / `user-extract-worker.py` | — | 萃取 worker（detached） |
 | 同上 | `ensure-mcp.py` | — | SessionStart 自檢 MCP 套件 + npm |
-| 同上 | `post-git-pull.sh` / `user-init.sh` / `webfetch-guard.sh` | — | 工具 shim |
+| 同上 | `post-git-pull.sh` / `user-init.sh` | — | 工具 shim |
 
 ### lib/（V5 GA + Session α/β 抽象層）
 

@@ -76,7 +76,7 @@ def create_skill(name: str, pattern: str, description: str, triggers: list[str],
     content = re.sub(r"description:\s*<30\+[^>\n]+>", f"description: {description}", content, count=1)
     # 替換 triggers
     triggers_str = ", ".join(triggers)
-    content = re.sub(r"triggers:\s*<[^>\n]+>(,\s*<[^>\n]+>)*", f"triggers: {triggers_str}", content, count=1)
+    content = re.sub(r"when_to_use:\s*觸發詞：<[^>\n]+>(,\s*<[^>\n]+>)*", f"when_to_use: 觸發詞：{triggers_str}", content, count=1)
     # scope project 加註明
     if scope == "project":
         marker = f"# Skill：{name}"

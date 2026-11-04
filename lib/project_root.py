@@ -443,9 +443,12 @@ def _resolve(start: Path) -> Resolution:
                     f"請用 MCP atom_move 併回 {out.path}")
 
     h = hashlib.sha1()
-    h.update(f"{start}|{out.path}|{out.claimed_by}|".encode("utf-8", "replace"))
+    # 指紋只看生效根、認領方式與宣告檔：cwd 原字串（大小寫、子目錄）變了不算換根，
+    # 否則壓縮／resume 時 session 會誤判「專案根變更」重建 state、丟掉快照
+    root_key = os.path.normcase(str(out.path)) if out.path is not None else ""   # Windows 不分大小寫
+    h.update(f"{root_key}|{out.claimed_by}|".encode("utf-8", "replace"))
     for path, mtime in out.decl_files:
-        h.update(f"{path}:{mtime};".encode("utf-8", "replace"))
+        h.update(f"{os.path.normcase(str(path))}:{mtime};".encode("utf-8", "replace"))
     out.fingerprint = h.hexdigest()[:16]
     return out
 

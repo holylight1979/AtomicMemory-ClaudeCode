@@ -2,7 +2,7 @@
 name: <skill-name>
 description: <30+ 字描述何時觸發 + 做什麼。必須 pushy 寫法，含 when。例：「任何要 X、Y、Z 的場合都該觸發」>
 user-invocable: true
-triggers: <關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
+when_to_use: 觸發詞：<關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
 ---
 
 # Skill：<skill-name>

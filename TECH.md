@@ -44,7 +44,7 @@
 
 | # | 項目 | 守門關 | 守門開（出廠） | 程式位置 |
 |---|---|---|---|---|
-| 1 | 事件分派：PostToolUseFailure、SubagentStop | 不進 handler（hook 行程照起，讀完 config 就退出） | 進 handler | `hooks/dispatcher.py:64-66, 125-127` |
+| 1 | 事件分派：PostToolUseFailure、SubagentStop | PostToolUseFailure 不進 handler（hook 行程照起，讀完 config 就退出）；SubagentStop 進 handler，只把子代理最後回覆填回它的注入紀錄（效用帳，[SUBAGENT_RESULT_FROM_SUBAGENT_STOP](TECH/release-rules.md#subagent_result_from_subagent_stop)），不跑寫碼查核 | 進 handler；SubagentStop 記完效用帳再跑寫碼查核 | `hooks/dispatcher.py:64-68, 127`；`stop.handle_subagent_stop` |
 | 2 | 工具分派：Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前 | 不進 handler（settings.json 照掛，行程照起） | 進 handler | `hooks/dispatcher.py:67-74` |
 | 3 | Read 補帳：讀檔帳、工具結果體積、救援命中、Depends | read-log 照寫，下一個事件整批丟掉 | 下一個非 Read 事件補帳 | `hooks/dispatcher.py:112-116`；`hooks/handlers/post_tool_use.py:1356-1372` |
 | 4 | 失敗指令（結束碼不是 0）的改檔與紅測 | 不記。已實測（隔離資料根，9e476fd0 與現行各跑一次）：只靠結束碼非 0 才看得出的測試紅，紅測閘兩版都看不到，10/8 本來就沒有 | 跟成功路徑一樣記 | `hooks/dispatcher.py:64-66`；`post_tool_use.handle_post_tool_use_failure` |
@@ -128,7 +128,7 @@
   - [4.4 四層 scope](#44-四層-scope)
   - [4.5 索引：JSON 單一真相](#45-索引json-單一真相)
   - [4.6 專案層](#46-專案層)
-  - [4.7 原生記憶橋接](#47-原生記憶橋接)
+  - [4.7 原生 auto memory（已關）](#47-原生-auto-memory已關)
 - [5. 檢索與注入（每 prompt）](#5-檢索與注入每-prompt)
   - [5.1 管線逐段](#51-管線逐段)
   - [5.2 深度解說：每個設計的意義](#52-深度解說每個設計的意義)
@@ -188,7 +188,7 @@
   - [A4.4 四層 scope](#a44-四層-scope)
   - [A4.5 索引：JSON 單一真相](#a45-索引json-單一真相)
   - [A4.6 專案層](#a46-專案層)
-  - [A4.7 原生記憶橋接](#a47-原生記憶橋接)
+  - [A4.7 原生 auto memory（已關）](#a47-原生-auto-memory已關)
   - [A5.1 管線逐段](#a51-管線逐段)
   - [A5.2 深度解說：每個設計的意義](#a52-深度解說每個設計的意義)
   - [A5.3 關鍵常數總表](#a53-關鍵常數總表)
@@ -240,7 +240,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 |---|------|---------|
 | 1 | **精確度 > Token 節省** | 寧多注入確保正確；預算閘裁切時「回填」而非整塊丟 |
 | 2 | **漸進式信任** | `[臨]`→`[觀]`→`[固]`，靠效用統計晉升，不靠人工拍腦袋 |
-| 3 | **最小侵入** | 全走 Claude Code hooks（11 個事件）+ MCP tool，主程式零修改 |
+| 3 | **最小侵入** | 全走 Claude Code hooks（14 個事件）+ MCP tool，主程式零修改 |
 | 4 | **雙 LLM 分工** | Claude 做決策；本地 Ollama 做萃取、分類、embedding 與文字評分裁判（[§7.7](#77-文字規格評分toolstext-scorepy)） |
 | 5 | **可審計** | JSONL audit trail 全程記錄；知識只歸檔不刪 |
 | 6 | **對齊原生** | 採 skills / MCP / hooks / auto-memory 原生機制，自製只做原生做不到的部分 |
@@ -270,11 +270,11 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | 真源 | MEMORY.md + 自由 md | atom 卡片 + 機器索引 | 有索引、有欄位才能程式化檢索與晉升 |
 | 跨專案 | 無，綁 project slug | 全專案注入通用知識 | 通用踩坑不必每專案重學 |
 | 載入方式 | 啟動載 MEMORY.md 前段 | 每個 prompt 主動挑選注入 | 主動注入對治「有存無用」 |
-| 檢索 | 無 | trigger → BM25 → vector → RRF × 活化 | 模型不必自己想起要讀哪個檔 |
+| 檢索 | 無，靠 Claude 自己想起要讀主題檔 | trigger → BM25 → vector → RRF × 活化 | 模型不必自己想起要讀哪個檔 |
 | 品質分級 | 無 | [臨]/[觀]/[固] + Wilson 晉升 | 未驗證猜測不與已驗證事實平起平坐 |
 | 回饋迴路 | 無 | access sidecar、rescue-log 等 | 知道哪顆記憶真的被用到 |
-| 接點 | — | 核心 atom 索引鏡像進原生目錄 | 原生找得到 atom，且不違反 200 行硬牆 |
-| Hook 硬牆 | UPS 預設 30s；SessionEnd 共 1.5s | UPS 實設 8s；LLM 萃取走 detached worker | 60s 上限貼著本地 LLM 耗時，detached 不受預算左右 |
+| 接點 | 原生 auto memory 已關（`autoMemoryEnabled: false`） | CLAUDE.md `@memory/MEMORY.md` 常駐索引＋每回合注入 | 原生那段「用 Write 寫記憶」提示不再進系統提示詞；寫入單一入口 atom_write |
+| Hook 硬牆 | UPS 預設 30s；SessionEnd 預設共 1.5s，個別 hook 設 timeout 可到 60s | UPS 實設 8s；LLM 萃取走 detached worker | 60s 上限貼著本地 LLM 耗時，detached 不受預算左右 |
 
 - 原生規格查證版：[`_AIDocs/ClaudeCodeInternals/cc-native-memory-hooks-mcp.md`](_AIDocs/ClaudeCodeInternals/cc-native-memory-hooks-mcp.md)。
 - 縮寫：UPS＝UserPromptSubmit；atom 指一張記憶卡片（一個 .md 檔）。
@@ -309,7 +309,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 
 ### 3.1 settings.json 十一個事件
 
-settings.json 掛了 11 個 hook 事件。每個事件觸發時，由 guardian（主 hook 程式 `workflow-guardian.py`）等腳本接手。
+settings.json 掛了 14 個 hook 事件。每個事件觸發時，由 guardian（主 hook 程式 `workflow-guardian.py`）等腳本接手。
 
 | 事件 | 什麼時候觸發 | 主要做什麼 |
 |------|------|------|
@@ -320,7 +320,10 @@ settings.json 掛了 11 個 hook 事件。每個事件觸發時，由 guardian�
 | PostToolUseFailure | Bash／PowerShell 失敗後 | 守門開時才分派：失敗指令的改檔與紅測照樣入帳，只記帳不擋（[跨層表 #1、#4](#守門開關會改到記憶系統的地方)） |
 | PreCompact／PostCompact／PostToolBatch | 壓縮前後、一批工具結束 | 存 handoff stub、壓縮後重注入 atom、批次提醒 |
 | Stop | Claude 回完一則 | 依序跑紅測、退縮歸屬、收割、同步等收尾閘（[§7.1](#71-收尾閘序守門關時)） |
-| SubagentStop | 子代理收尾 | 守門開時才分派，只跑寫碼查核（[跨層表 #1](#守門開關會改到記憶系統的地方)） |
+| SubagentStart | 子代理起跑 | 不經 Agent 工具的子代理（skill `context: fork`、Workflow）補記憶注入（[SUBAGENT_START_NON_AGENT_INJECT](TECH/release-rules.md#subagent_start_non_agent_inject)） |
+| SubagentStop | 子代理收尾 | 子代理最後回覆填回注入紀錄（效用帳，守門開或關都記）；守門開時再跑寫碼查核（[跨層表 #1](#守門開關會改到記憶系統的地方)） |
+| InstructionsLoaded | CLAUDE.md、rules、@include 載入 | 只記帳 `Logs/instructions-loaded.jsonl`，供週健檢對帳（[INSTRUCTIONS_LOADED_LEDGER](TECH/release-rules.md#instructions_loaded_ledger)）；settings.json 直接掛 handler 檔、不經 dispatcher |
+| StopFailure | 回合因 API 錯誤結束（官方不跑 Stop） | 只留帳 `Logs/guard-stop_failure.jsonl`；有待結算的注入歸因標 aborted，不算用過也不算沒用（[STOP_FAILURE_ABORTED](TECH/release-rules.md#stop_failure_aborted)）；settings.json 直接掛 handler 檔、不經 dispatcher |
 | SessionEnd | 關 session | spawn 萃取 worker、episodic 生成、decay、log GC |
 
 各事件的 matcher、hook 與 timeout、完整職責 → [附錄 A3.1](#a31-settingsjson-十一個事件各事件細節)。
@@ -328,7 +331,7 @@ settings.json 掛了 11 個 hook 事件。每個事件觸發時，由 guardian�
 #### hook 指令型式
 
 - Python hook：`"$LOCALAPPDATA/Python/bin/pythonw.exe" -c "import runpy...run_path(~/.claude/hooks/xxx.py)"`。
-- bash 類 hook（[`user-init.sh`](hooks/user-init.sh)、[`webfetch-guard.sh`](hooks/webfetch-guard.sh)）：`pythonw.exe "$HOME/.claude/hooks/run-bash-hidden.py" xxx.sh`。
+- bash 類 hook（[`user-init.sh`](hooks/user-init.sh)）：`pythonw.exe "$HOME/.claude/hooks/run-bash-hidden.py" xxx.sh`。
 - statusLine：`python.exe` 直接跑 [`tools/statusline.py`](tools/statusline.py)。
 - Claude Code 在 Windows 用 Git Bash 跑 hook 與 statusLine 指令。
   - `$VAR`／`~` 會展開，`%VAR%` 不展開（實測）。
@@ -341,7 +344,10 @@ settings.json 掛了 11 個 hook 事件。每個事件觸發時，由 guardian�
 settings.json 的 hooks 區塊（真源）
   → workflow-guardian.py（1 行 shim）
   → hooks/dispatcher.py（讀 config，決定分派哪些事件與工具）
-  → hooks/handlers/{event}.py（9 個檔接 11 個事件）
+  → hooks/handlers/{event}.py（10 個檔接 12 個事件）
+
+InstructionsLoaded／StopFailure：
+  settings.json → hooks/handlers/instructions_loaded.py／stop_failure.py（直接跑，不經 dispatcher）
 
 bash 類 hook：
   settings.json → hooks/run-bash-hidden.py → xxx.sh
@@ -349,9 +355,10 @@ bash 類 hook：
 安裝時：tools/install.py 把 hooks 區塊合併進使用者的 settings.json（§9.5）
 ```
 
-- 9 個 handler 檔接 11 個事件，有兩個合併對應：
+- 12 個 handler 檔接 14 個事件，有兩個合併對應：
   - PostToolUseFailure 走 [`post_tool_use.py`](hooks/handlers/post_tool_use.py)（[`handlers/post_tool_use.handle_post_tool_use_failure`](hooks/handlers/post_tool_use.py)）。
   - SubagentStop 走 [`stop.py`](hooks/handlers/stop.py)。
+- InstructionsLoaded、StopFailure 由 settings.json 直接跑 handler 檔（[`instructions_loaded.py`](hooks/handlers/instructions_loaded.py)、[`stop_failure.py`](hooks/handlers/stop_failure.py)），只記帳、不輸出，省掉 dispatcher 的載入；dispatcher 也登了這兩個事件。
 - 守門關時 dispatcher 不分派哪些事件與工具、計時起不起表 → [跨層表 #1、#2、#6](#守門開關會改到記憶系統的地方)。
 - 裁判子 session（環境變數 `CLAUDE_COMPANION_JUDGE=1`，驗收裁判用，見[乙5](TECH/coding-guard.md#乙5-驗收裁判)）走縮減版 `JUDGE_HANDLERS`：不注入記憶、不跑其他閘，細節見附錄 A3.1。
 
@@ -429,7 +436,7 @@ sequenceDiagram
 
     rect rgba(150,100,255,0.1)
         note over G,F: SessionEnd（handlers/session_end.py）
-        G->>F: spawn extract-worker / user-extract-worker（detached，存活超過 1.5s 硬牆）
+        G->>F: spawn extract-worker / user-extract-worker（detached，不受 hook 逾時左右）
         G->>O: episodic 摘要（worker 內）
         G->>F: decay 每日護欄、recall-miss、episodic TTL purge、log GC
     end
@@ -639,7 +646,7 @@ SessionStart（session_start._org_advisory）
 - 三個根（[`lib/project_root.py`](lib/project_root.py)）：資料根、程式碼根、Claude Code 設定目錄；工具讀資料一律問資料根，不寫死 `~/.claude`。
 - 寫入 funnel：[`lib/atom_io.py write_atom`](lib/atom_io.py) → upsert index → [`tools/sync-memory-index.py --write`](tools/sync-memory-index.py) 重生各層 `_INDEX.md`、[`MEMORY.md`](memory/MEMORY.md)、[`_local_catalog.md`](memory/_local_catalog.md)、[`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md) → 尾端自動重產原生橋接檔並同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分，語言是跨範疇視圖 [`memory/_by_language/_INDEX.md`](memory/_by_language/_INDEX.md)，一張卡可屬多個語言。
-- 現況計數：共 <!-- atom-total -->728<!-- /atom-total --> 張＝core <!-- atom-core -->405<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->87<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->234<!-- /atom-local -->（數字由標記自動同步，勿手改）。
+- 現況計數：共 <!-- atom-total -->731<!-- /atom-total --> 張＝core <!-- atom-core -->408<!-- /atom-core --> ＋ feedback <!-- atom-feedback -->87<!-- /atom-feedback --> ＋ 失敗模式 <!-- atom-failmode -->2<!-- /atom-failmode --> ＋ local <!-- atom-local -->234<!-- /atom-local -->（數字由標記自動同步，勿手改）。
 
 #### 多機合併的三層防線
 
@@ -716,13 +723,14 @@ SessionStart（session_start._org_advisory）
 
 細節 → [附錄 A4.6](#a46-專案層)
 
-### 4.7 原生記憶橋接
+### 4.7 原生 auto memory（已關）
 
-- [`tools/native-memory-bridge.py`](tools/native-memory-bridge.py) 把核心 atom 索引鏡像成 `projects/<slug>/memory/atom-index-bridge.md`（CC 原生 auto-memory 目錄）。
-- 每行「名稱 → Read 路徑 + trigger」，**只有指標無知識本體**。
-- 原生 [`MEMORY.md`](memory/MEMORY.md) 只放一行指向它。
+- `settings.json` 設 `autoMemoryEnabled: false`：Claude Code 不載 `projects/<slug>/memory/MEMORY.md`、不塞「用 Write 寫記憶」那段系統提示詞（約 500 tok／場）、不認那個目錄。
+- 理由：原生沒有檢索，靠 Claude 自己想起要讀主題檔；實測 150 場從未讀過鏡像檔。索引與注入全走 CLAUDE.md `@memory/MEMORY.md`＋ UserPromptSubmit。
+- `wg_core` 的 MemoryPathBlock 仍擋寫入 `projects/*/memory/`，回「改用 atom_write」當保險。
+- 反向：atom 的 `- Source:` 指回原生 transcript（`session:<sid8>#<uuid8>`），`atom_source` 撈出原句與前後文（[§5.8](#58-讀取端-memory_search-與-atom_source給其他-ai-與人)）。
 
-細節 → [附錄 A4.7](#a47-原生記憶橋接)
+細節 → [附錄 A4.7](#a47-原生-auto-memory已關)
 
 ---
 
@@ -737,6 +745,11 @@ SessionStart（session_start._org_advisory）
 - [`hooks/wg_core.py`](hooks/wg_core.py)：預算常數
 
 ### 5.1 管線逐段
+
+進管線之前先決定這則拿什麼字去找（[`ups_search.retrieval_query`](hooks/handlers/ups_search.py)）：
+- 只用使用者本人打的字（`user_typed_text`：背景通知、其他 session 的訊息、系統區塊不算）；注入總額照原文與查詢取大。
+- 整則都是背景任務通知或其他 session 的訊息（`harness_text.non_human_kind`）→ 不檢索、不注入，前置閘與收尾記帳照跑，`Logs/guard-ups_inject.jsonl` 記 `skip_inject`（規則 NON_HUMAN_PROMPT_NO_INJECT）。
+- `/continue` 回合：UserPromptSubmit 在 skill 展開前跑、只看得到指令那一行 → 查詢後面接交接單前 30 行（參數點名的 .md 優先，否則 staging 最新的 `next-phase*.md`），記 `continue_query`；找不到記 `continue_query_missing`（規則 CONTINUE_QUERY_FROM_HANDOFF）。
 
 整條管線 15 段，由「找」（1–8）、「分級與裁量」（9–14）、「輸出」（15）組成：
 
@@ -781,7 +794,7 @@ SessionStart（session_start._org_advisory）
 
 ### 5.2 深度解說：每個設計的意義
 
-- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->728<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
+- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->731<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
 - **為什麼 BM25 改成每輪跑**：BM25 提供獨立排序證據，R@1 再 +1.2pp；剔除請求框架 bigram 後負例誤注入 31.8% → 4.5%。
 - **為什麼 RRF 而不是序列 fallback**：三路都出排名再融合，後段路才有機會補前段漏的；Recall@1 34 → 53.6%、MRR 0.584 → 0.709。
 - **為什麼活化增益歸零**：activation 乘進 RRF 會壓過相關性；gain 0.25 → 0 讓 R@1 45.1% → 81.1%、MRR 0.639 → 0.870。
@@ -942,6 +955,7 @@ SessionStart（session_start._org_advisory）
 - `~/.gemini` 兩者共用，有 `antigravity/` 子目錄算 Antigravity；已註冊不動，既有設定不改。
 - 偵測不到客戶端就印出 TOML／JSON 片段供其他支援 MCP 的客戶端（Cursor…）手貼；`--dry-run` 只說會做什麼。
 - 裝完重開 AI 工具，用講的：「查公司記憶：〈問題〉」（`memory_search`）、「把這條記到公司層：〈內容〉」（`atom_write scope=org`）。
+- initialize 對非 Claude Code 客戶端回 server instructions（何時查、怎麼寫、卡片與索引在哪，≤1,500 字元）；`memory_search` 標 `_meta` `anthropic/alwaysLoad` 開場即載入（規則 [MCP_INSTRUCTIONS_NON_CC_ONLY](TECH/release-rules.md#mcp_instructions_non_cc_only)，[`lib/mcp.js`](tools/workflow-guardian-mcp/lib/mcp.js) `initializeResult`）。
 
 限制與注意：
 - 沒有 hooks 就沒有「每句話自動帶入記憶」，要主動說「查記憶」。
@@ -1001,7 +1015,7 @@ domain → realm → cwd-scope → 落點裁決 → supersedes → Source/Quote/
 | 規則型樣式閘（py） | 規則類與 `feedback-*` 知識行含日期戳 → 拒 | atom 收知識，不收某個當下 |
 | 敘事日期閘 | 知識行與行動行含敘事型日期 → 拒 | 寫入當下就擋，不靠 lint 事後抓 |
 | 敏感 pending | `Audience: architecture/decision` 寫 shared → 進待審 | 架構決策需人裁決 |
-| 索引同步 | 不擋；upsert → sync → 向量增量 → 橋接檔 | 單一真相 |
+| 索引同步 | 不擋；upsert → sync → 向量增量 | 單一真相 |
 | receipt | 不擋；成功時結果最後一行回收據 | 用收據對帳，不用 `exists()` |
 
 - 上表是 create 的順序。append／replace 前的寫入閘（分型、去處提示、hub 五段＋Depends）只在守門開時跑；守門關時預算與清單形狀仍由 py 端硬拒（[跨層表 #19](#守門開關會改到記憶系統的地方)）。
@@ -1133,7 +1147,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 #### 為什麼萃取走 detached worker
 
-- CC 官方 SessionEnd 全部 hook 預設共 1.5 秒預算，per-hook timeout 最多拉到 60 秒。
+- CC 官方 SessionEnd 預設共 1.5 秒預算；個別 hook 設 timeout 可到 60 秒，本系統設 30 秒已生效。萃取仍走 detached worker（本機 LLM 約 60 秒才跑完）。
 - 本地 LLM 萃取要 ~60 秒，貼著上限。
 - 脫離的子程序存活超過 hook 生命週期，hook 本身秒回。
 
@@ -1297,6 +1311,11 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
   - 沒有放行詢問，也不看擋次預算。
   - 使用者本人送出「先這樣／跳過」的那一則，就清掉全部紅測（同伴訊息、背景通知裡的不算）。
   - PostToolUseFailure 不分派：只靠結束碼不是 0 才看得出的測試紅記不到（已實測，[跨層表 #4](#守門開關會改到記憶系統的地方)）。
+- **等背景工作延後**（[STOP_DEFERS_WHILE_BACKGROUND_RUNNING](TECH/release-rules.md#stop_defers_while_background_running)；守門開或關同一套）：
+  - Stop 輸入的 `background_tasks`／`session_crons` 有項目，表示這回合在等背景子代理、Monitor 或排程叫醒，不是做完了。
+  - 紅測閘照跑（守門開時連寫碼查核也照跑）；後面的閘與效用歸因延到背景工作回報那次收尾。
+  - 同一個背景項目連續延 5 次（`stop.BG_DEFER_MAX`）就不再延、照擋；這次清單裡沒有的項目計數歸零。欄位不在就照舊不延。
+  - 每次延後（event=skip）與到上限（event=cap）都寫 `Logs/guard-stop_background.jsonl` 一筆，stderr 一行。
 - **退縮歸屬**：
   - 擋回一問：「剩下沒做的，哪些改得快又有效？」快又有效的現在做掉。
   - 其餘每件寫一行「追蹤｜<哪一件>：<現在不做的原因>」，記進追蹤帳本。
@@ -1418,7 +1437,6 @@ Bash／PowerShell 指令
 | plan_bash_guard（[`hooks/plan_bash_guard.py`](hooks/plan_bash_guard.py)） | plan 模式下會觸發 CC 安全檢查的 Bash 指令（碰 `.claude`、寫入類） | 擋，改教 Read／Grep |
 | 跨 session 同檔預警（[`hooks/wg_coordination.py`](hooks/wg_coordination.py)） | 另一個 session 30 分鐘內改過同一檔；`git add -A`／`reset --hard`／`clean -f` 時同 cwd 有別人沒收的改動 | 提醒 |
 | version_guard（[`hooks/version_guard.py`](hooks/version_guard.py)） | live 檔裡埋版本、日期、階段敘事（改完後查） | 提醒 |
-| webfetch-guard（[`hooks/webfetch-guard.sh`](hooks/webfetch-guard.sh)） | WebFetch 的前置護欄 | 護欄 |
 
 **根層保護**（前三道合起來）
 - 目的：外部專案 session 不能改記憶系統的核心；記憶卡一律走 `atom_write`，索引、去重與格式才不會漏。
@@ -1451,6 +1469,7 @@ Bash／PowerShell 指令
 
 **Codex Companion**
 - 所有審查都在背景跑，Stop 不等；fail 且 severity ≥ `max_inject_severity` 才附完整說明。
+- Stop 那條指令尾端帶 `rewake` 參數，並設 `async`＋`asyncRewake`（timeout 300）：起完 detached 審查後留在原地等結果檔（上限 `rewake_wait_sec`，預設 270 秒）；有可行動的發現（門檻同上）就 stderr 寫結論＋exit 2，Claude 立刻被叫醒，沒問題 exit 0、結果檔留給下一則附一行。審查超過上限或 hook 被砍時，detached 審查照樣落檔，下一則帶回（stderr 留 `codex:rewake_wait_timeout`）。沒帶 `rewake` 參數就是不等的舊行為。
 - 呼叫 Codex 一律經 [`tools/codex-call.py`](tools/codex-call.py)。
 - 主 session 自己判斷要另一個 context 挑結論、或把一塊活交出去並行施工時，叫 skill [`codex`](skills/codex/SKILL.md)：照範本填同步包、沙箱依模式固定、跑前跑後比對版控狀態；不經 hook。
 - 交接文件自檢：守門開或關都不觸發（`soft_gate.handoff_review` 設 false、`handoff_review_v6` 沒寫＝關，[跨層表 #11](#守門開關會改到記憶系統的地方)）；交接靠 [`skills/handoff`](skills/handoff/SKILL.md) Step 3.5 自我複審，要第二意見叫 skill [`codex`](skills/codex/SKILL.md)。
@@ -1555,7 +1574,9 @@ Bash／PowerShell 指令
 - hook 計時（守門開時才有，→ [跨層表 #6](#守門開關會改到記憶系統的地方)）：累計過上限 80% 降級，到 95% 還沒結束記 overrun（[乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級)）。
 - log rotation：預設 10MB 保 3 份；guardian-crash.log 曾爆 114GB，所以必須輪替。
 
-**為什麼不採 OTEL**：官方 export 沒有 per-hook 延遲、api_request 無法把注入 token 稅歸因到個別來源，且需常駐 collector——兩個想量的指標都測不到，不實作。
+**hook 全程耗時**：官方偵錯日誌每支 hook 記全程耗時（含 Python 啟動），用 [`python tools/hook-timing-debuglog.py`](tools/hook-timing-debuglog.py) 量。
+
+**為什麼不採 OTEL**：注入 token 稅無法歸因到個別來源，且需常駐 collector，不實作。
 
 細節 → [附錄 A8](#a8-可觀測與自我維護)
 
@@ -1674,8 +1695,9 @@ pip install -r tools/memory-vector-service/requirements.txt
 ```text
 找 node
   → 讀 mcp-servers.template.json
-  → JS 入口存在的 server 合併進 ~/.claude.json 的 mcpServers
-       （缺整塊才補；已存在且 template _version 沒升則不動）
+  → JS 入口存在的 server 用官方 CLI 註冊：claude mcp add-json <name> '<json>' --scope user
+       （缺整塊才補；template _version 升了才覆寫＝先 remove 再 add；否則不動，也不呼叫 CLI）
+       已套用版本存 workflow/mcp-template-version.json；CLI 找不到或失敗 → stderr 一行＋workflow/mcp-cli-failed.flag，不手改 JSON
   → npm 套件不在磁碟的 server：背景 npm i -g（下次 session 才寫入 config）
   → 每 7 天背景 npm outdated／update
 ```
@@ -1687,6 +1709,7 @@ pip install -r tools/memory-vector-service/requirements.txt
 | `playwright` | npm `@playwright/mcp` | `<npm 全域>/node_modules/@playwright/mcp/cli.js` |
 
 - 它**不會建立** `~/.claude.json`（Claude Code 首次啟動自己建），檔案不存在就直接結束。
+- Windows 組出的 entry 是 `<GUI pythonw> hooks/run-hidden.py <node> <js>`（與 live 同形，隱窗外殼免得起 node 閃黑窗）；缺檔 stderr 一行退回直接 node（規則 [MCP_ENTRY_HIDDEN_LAUNCHER](TECH/release-rules.md#mcp_entry_hidden_launcher)）。
 - MCP server 變更（含新增 tool）要 VS Code **Reload Window** 或重啟 `claude` 才生效。
 - MCP 再 spawn Python 時，[`lib/paths.js resolvePythonExe()`](tools/workflow-guardian-mcp/lib/paths.js) 依序找 `WG_PYTHON` → 常見安裝路徑 → 裸 `python`。
 - 症狀 `atom_write` 回 `cli parse fail: Unexpected end of JSON input` → 在 `~/.claude.json` 的 `mcpServers.workflow-guardian.env` 加 `WG_PYTHON`（[§9.6](#96-疑難排解與手動抽查)）。
@@ -1818,7 +1841,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 | [`_AIDocs/`](_AIDocs/) | 長期知識庫：規格、變更紀錄、local realm atom |
 | [`workflow/`](workflow/) | 設定與 runtime state（多數 gitignored） |
 | `Logs/` | 各種執行紀錄 |
-| `projects/<slug>/memory/` | CC 原生 auto-memory 橋接（不是記憶層） |
+| `projects/<slug>/memory/` | CC 原生 auto-memory 目錄；本系統已用 `autoMemoryEnabled: false` 關閉，不使用、不寫入（MemoryPathBlock 留作保險） |
 | `{project_root}/.claude/` | 專案自治層：專案記憶、部位表、驗收規格 |
 
 完整目錄樹與每支檔案的職責 → [TECH/file-tree.md](TECH/file-tree.md)
@@ -1901,7 +1924,7 @@ echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HO
 - **守門專屬的 hook 行程照起**：settings.json 的掛法不看守門開關，下面這些時刻守門關時 hook 行程照樣啟動，每次多起一支 Python 行程（[跨層表](#守門開關會改到記憶系統的地方) #1～#3）：
   - Read 之後：照樣追加一行讀檔紀錄，下一個事件再整批丟掉；中位數約 140 ms。
   - PowerShell 之後；AskUserQuestion、ExitPlanMode、MCP 改卡之前：讀完設定就退出，不進 handler。
-  - PostToolUseFailure、SubagentStop 兩個事件：同上。
+  - PostToolUseFailure：同上；SubagentStop 照樣進 handler，只記子代理效用帳。
 - **守門的模組守門關時不載**：寫碼守門的模組都經 [`hooks/wg_lazy_re.lazy_module`](hooks/wg_lazy_re.py) 載入。守門關時一行都不載；守門開也只在那道閘真的要判時才載。
 
 ### 11.3 怎麼自己量
@@ -2063,6 +2086,7 @@ flowchart TD
 
 ### 14.1 版本表
 
+- 最近一版：**v6.1**（2026-11-04）對 Claude Code 適應性補正：修補官方行為改變造成的前提失效、拆掉原生已有的自製換原生、注入更準 → release note [`_AIDocs/DevHistory/v6.1-對CC適應性補正-2026-11/README.md`](_AIDocs/DevHistory/v6.1-對CC適應性補正-2026-11/README.md)（每項改的檔與規則：同夾 `技術對照.md`）。
 - 版本表見 [`_AIDocs/DevHistory/設定與遷移/version-migrations.md`](_AIDocs/DevHistory/設定與遷移/version-migrations.md)「版本表」節。
 - 編年細節：[`_AIDocs/_CHANGELOG.md`](_AIDocs/_CHANGELOG.md)；V5 升版全紀錄 [`_AIDocs/DevHistory/v5-overhaul-2026-05/`](_AIDocs/DevHistory/v5-overhaul-2026-05/)。
 
@@ -2136,14 +2160,14 @@ flowchart TD
 #### 接點
 - **原生**：—
 - **原子記憶系統**：
-  - [`tools/native-memory-bridge.py`](tools/native-memory-bridge.py) 把核心 atom 索引鏡像成 `projects/<slug>/memory/atom-index-bridge.md`（只有指標）。
+  - 原生 auto memory 已關（`autoMemoryEnabled: false`）；索引走 CLAUDE.md 常駐，寫入走 atom_write。
   - 反向：atom 的 `- Source:` 指回原生 transcript（`session:<sid8>#<uuid8>`），`atom_source` 撈出原句與前後文（[§5.8](#58-讀取端-memory_search-與-atom_source給其他-ai-與腳本)）。
-- **意義**：原生路徑找得到 atom、atom 也指得回原對話，且不違反 200 行硬牆。
+- **意義**：寫入與檢索只有一條路；atom 仍指得回原對話。
 
 #### Hook 硬牆
 - **原生**：
   - UserPromptSubmit 預設 30s。
-  - SessionEnd 全部 hook 預設共 1.5s。
+  - SessionEnd 預設共 1.5s；個別 hook 設 timeout 可到 60s，本系統設 30s 已生效。
   - settings 設較長 per-hook timeout 可把預算提高到最多 60s——官方規格，本機未實跑。
 - **原子記憶系統**：
   - UPS 實設 8s。
@@ -2233,6 +2257,7 @@ flowchart TD
   - 讀索引前 spawn vcs-sync worker 拉取：`_spawn_pull_sync`，`reason=pull`，detached 不等（[§6.3](#63-自動萃取在跑-vs-已停產)）。
   - 索引完整性哨兵與必載檔契約哨兵；IDENTITY 完整性只在守門開時查（→ [跨層表 #32](#守門開關會改到記憶系統的地方)）。
   - vector 啟動器。
+  - 重開舊 session（resume／fork）快取提示（規則 `RESUME_CACHE_REWRITE_NOTE`，[`_resume_cache_note`](hooks/handlers/session_start.py)）：官方輸入 `prompt_cache_likely_expired` 為真、`context_tokens` ≥ 10 萬時，送一行「閒置多久、這次重開要重寫約 N 萬 token 快取、要省就開新 session」，`systemMessage` 給使用者、additionalContext 給 Claude；欄位沒給（舊版、逐字稿還沒有回應）就不送。
   - 守門開時另有：清 `workflow/` 執行紀錄、拍 git 快照（→ [跨層表 #30～#31](#守門開關會改到記憶系統的地方)）。
   - advisory，含五類：
     - 健檢。
@@ -2249,11 +2274,7 @@ flowchart TD
   - 各種 guard 提醒。
 
 #### PreToolUse
-有三組 matcher。
-
-##### matcher `WebFetch`
-- **掛的 hook**：[`webfetch-guard.sh`](hooks/webfetch-guard.sh)（20 秒）。
-- **職責**：抓網頁前置護欄（[§7.4](#74-改檔前的閘)）。
+有兩組 matcher。
 
 ##### matcher `Bash`
 - **掛的 hook**：[`plan_bash_guard.py`](hooks/plan_bash_guard.py)（5 秒）。
@@ -2346,7 +2367,7 @@ flowchart TD
 - **掛的 hook**：guardian（5 秒）。
 - **職責**：
   - **PreCompact**：壓縮前存 handoff stub、生成 episodic。
-  - **PostCompact**：壓縮後 stash。
+  - **PostCompact**：壓縮後 stash；輸入的 `compact_summary` 寫進這一輪自動交接單的「壓縮前脈絡」段（→ [Auto-Handoff](#auto-handoff)）。
   - **PostToolBatch**：
     - 一次性重注入 atom。
     - 同伴訊息與 handoff 提示。
@@ -2363,10 +2384,27 @@ flowchart TD
   - **英文漂移**：在 lang_guard（[§7.6](#76-回合結束與背景審查)）。
   - **寫碼守門的部分**（屬乙篇）：先問連鎖斷路器；紅測改跑新版；另加寫碼查核、等值與熱路徑、Reload 建議；驗收裁判在 codex_companion 那支 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。守門開時基本守門那幾道改成提醒、只在寫碼回合跑（→ [跨層表 #21、#22](#守門開關會改到記憶系統的地方)）。
 
+#### SubagentStart
+- **matcher**：—
+- **掛的 hook**：guardian（5 秒）。
+- **職責**：不經 Agent 工具的子代理（skill `context: fork`、Workflow）補記憶：父逐字稿最近一則派工動作是 Agent／Task（PreToolUse 已挑過）就不送；是 Skill／Workflow 就拿它的輸入挑卡，additionalContext 送，登記一筆 `subagent_injections` 等 SubagentStop 回填（[SUBAGENT_START_NON_AGENT_INJECT](TECH/release-rules.md#subagent_start_non_agent_inject)，[`handlers/subagent_start.py`](hooks/handlers/subagent_start.py)）。
+
 #### SubagentStop
 - **matcher**：—
 - **掛的 hook**：guardian（20 秒）。
-- **職責**：守門關時不分派（→ [跨層表 #1](#守門開關會改到記憶系統的地方)）；守門開時子代理收尾只跑寫碼查核 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。
+- **職責**：
+  - 效用帳（守門開或關都記，[SUBAGENT_RESULT_FROM_SUBAGENT_STOP](TECH/release-rules.md#subagent_result_from_subagent_stop)）：依 `agent_id` 找 `subagent_injections` 那筆，`last_assistant_message` 截 400 字填進 `output_summary`、`status` 改 completed。背景子代理派出時 PostToolUse 只拿到 `async_launched`，結果靠這裡補；Stop 結算時還沒收到的標 `waiting`，收到才結。對不到 `agent_id` 就略過。
+  - 守門關時記完就走（→ [跨層表 #1](#守門開關會改到記憶系統的地方)）；守門開時再跑寫碼查核 → [乙3](TECH/coding-guard.md#乙3-收尾閘序守門開時與收據)。
+
+#### InstructionsLoaded
+- **matcher**：—
+- **掛的 hook**：[`handlers/instructions_loaded.py`](hooks/handlers/instructions_loaded.py)（5 秒，直接跑、不經 dispatcher）。
+- **職責**：只記帳、不輸出：哪個檔、為什麼載（`load_reason`）、哪個 session 追加一行到 `Logs/instructions-loaded.jsonl`；週健檢拿它對帳「以為有載」（[INSTRUCTIONS_LOADED_LEDGER](TECH/release-rules.md#instructions_loaded_ledger)）。
+
+#### StopFailure
+- **matcher**：—
+- **掛的 hook**：[`handlers/stop_failure.py`](hooks/handlers/stop_failure.py)（10 秒，直接跑、不經 dispatcher）。
+- **職責**：回合因 API 錯誤結束時官方不跑 Stop，這裡只留帳、不輸出：`Logs/guard-stop_failure.jsonl` 記錯誤類型與細節；本回合有待結算的注入歸因 → state 標 `turn_aborted_seq`，下一次 Stop 不拿這回合算用過或沒用（[STOP_FAILURE_ABORTED](TECH/release-rules.md#stop_failure_aborted)）。
 
 #### SessionEnd
 - **matcher**：—
@@ -2389,7 +2427,7 @@ flowchart TD
 
 - **真源**：本節各事件的真源是 [`settings.json`](settings.json) 的 `hooks` 區塊。
 - **dispatcher**：守門開時開頭起表、結尾落帳，快逾時降級；守門關時不起表（→ [跨層表 #6](#守門開關會改到記憶系統的地方)，細節 [乙11](TECH/coding-guard.md#乙11-hook-計時與快逾時降級)）。
-- **守門關時不分派的事件與工具**：PostToolUseFailure、SubagentStop；Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前。settings.json 照掛，hook 行程照起，讀完 config 就退出（[`hooks/dispatcher.py`](hooks/dispatcher.py) 的 `PRE_V6_EVENTS`、`PRE_V6_TOOLS`；→ [跨層表 #1、#2](#守門開關會改到記憶系統的地方)）。
+- **守門關時不分派的事件與工具**：PostToolUseFailure；Read 之後、PowerShell 之後、AskUserQuestion／ExitPlanMode 之前、MCP 改卡之前。settings.json 照掛，hook 行程照起，讀完 config 就退出（[`hooks/dispatcher.py`](hooks/dispatcher.py) 的 `PRE_V6_EVENTS`、`PRE_V6_TOOLS`；→ [跨層表 #1、#2](#守門開關會改到記憶系統的地方)）。SubagentStop 守門關時照樣分派，只記效用帳、不跑寫碼查核。
 - **裁判子 session**（`CLAUDE_COMPANION_JUDGE=1`）：屬寫碼守門的驗收裁判，走縮減版 `JUDGE_HANDLERS` → [乙5](TECH/coding-guard.md#乙5-驗收裁判)；守門關時 dispatcher 讓它一律早退（同 [跨層表 #1](#守門開關會改到記憶系統的地方) 那一行判斷）。
 - **安裝**：由 [`tools/install.py`](tools/install.py) 把這段合併進使用者的 [`settings.json`](settings.json)（[§9.5](#95-安裝與升級toolsinstallpy)）。
 
@@ -2819,13 +2857,12 @@ flowchart TD
 - 「已整理」判定＝上述標記，或專案已有 `shared/_taxonomy.json`。
 - 只想先修程式能判的部分（索引 scope、懸空條目），可從 `~/.claude` 一次掃全部登記專案：[`python tools/sync-atom-index.py --all-projects --fix-scope-from-path`](tools/sync-atom-index.py)。
 
-### A4.7 原生記憶橋接
+### A4.7 原生 auto memory（已關）
 
-[↑ 主文 §4.7](#47-原生記憶橋接)
+[↑ 主文 §4.7](#47-原生-auto-memory已關)
 
-- [`tools/native-memory-bridge.py`](tools/native-memory-bridge.py) 鏡像核心 atom 索引成 `projects/<slug>/memory/atom-index-bridge.md`。
-- slug 規則對拍 harness：每個非英數字元各轉一個 `-`、整串轉小寫，與 `wg_core.cwd_to_project_slug` 同一規則。
-- 橋接目錄不得被 atom 掃描誤納（[`verify_native_bridge.py`](hooks/verify/verify_native_bridge.py) 守門）。
+- 關閉前曾用 `native-memory-bridge.py` 把核心索引鏡像進原生目錄當入口；150 場實測 Claude 從未經那條路讀卡，原生「# Memory」提示詞又教模型用 Write 繞過 atom_write，故改為關閉並退役鏡像（決策脈絡見 `_AIDocs/ClaudeCodeInternals/Docs/_analysis/`）。
+- 驗法：新 session 的 `api-request-shape.system` 不含「# Memory」段與 `projects\…\memory` 路徑；`/memory` 顯示 Auto-memory off。
 
 ### A5.1 管線逐段
 
@@ -3132,6 +3169,7 @@ flowchart TD
 #### subagent 記憶（`[WG:SubagentMemory]`）
 - PreToolUse `Agent|Task` 時把相關 atom 緊湊版塞進子 agent prompt。
 - 只用全域索引；BM25 只在 trigger 命中 ≤2 時補；ACT-R 排序；預算 700 tok。
+- 不經 Agent 工具的子代理（skill `context: fork`、Workflow）由 SubagentStart 依父逐字稿最近派工 tool_use 挑卡、additionalContext 送（[`handlers/subagent_start`](hooks/handlers/subagent_start.py)，規則 [SUBAGENT_START_NON_AGENT_INJECT](TECH/release-rules.md#subagent_start_non_agent_inject)）。
 
 #### 一次性提示的 state 欄位與案例
 - 紀錄放 state：
@@ -3296,7 +3334,7 @@ flowchart TD
 
 #### 閘：索引同步
 
-- **流程**：upsert JSON → sync-memory-index → 向量增量 → 橋接檔重產。
+- **流程**：upsert JSON → sync-memory-index → 向量增量。
 - **為什麼**：單一真相。
 
 #### 閘：receipt
@@ -3528,7 +3566,7 @@ svn：svn_update_targets
 
 #### 為什麼萃取走 detached worker（完整說明）
 
-- CC 官方 SessionEnd 全部 hook 預設共 1.5 秒預算。
+- CC 官方 SessionEnd 預設共 1.5 秒預算；個別 hook 設 timeout 可到 60 秒，本系統設 30 秒已生效。
 - settings 的 per-hook timeout 最多只能拉到 60 秒。
 - 本地 LLM 萃取要 ~60 秒，貼著上限。
 - `wg_extraction._spawn_extract_worker` 以脫離的子程序起 worker，存活超過 hook 生命週期，hook 本身秒回。
@@ -4019,6 +4057,7 @@ svn：svn_update_targets
   - 同一檔多久重警一次：守門關時 10 分鐘內不重警（`warn_suppress_min`）；守門開時一個 session 只警一次（`coordination.v6_once`）（→ [跨層表 #9](#守門開關會改到記憶系統的地方)）。
 - **Bash 預警**：`git add -A`／`reset --hard`／`clean -f` 同 cwd 預警；引號解包、dry-run 排除。
 - **PostToolUse**：60 秒 late-collision。
+- **附對方 session 名稱**（規則 `COORD_WARN_PEER_NAME`）：真要發警告時才跑一次 `claude agents --json`（執行檔取 `CLAUDE_CODE_EXECPATH`，沒有才找 PATH；逾時 1.5 秒；同一個 hook 行程只跑一次），用 `sessionId` 對出名字寫進警告，並提示可用 SendMessage 傳給對方協調；對不到（對方已關）只附短 id，叫不到另寫 stderr 與留帳 `fail_open agents_json`。
 - **性質與限制**：純檔案、不依賴 daemon；first-write race 無法消除（advisory，不是鎖）。
 - **留帳**：`Logs/session-coordination/<sid>.jsonl`。
 - **檢討線**：4 週零命中 → 提降級。
@@ -4027,11 +4066,6 @@ svn：svn_update_targets
 
 - **位置**：[`hooks/version_guard.py`](hooks/version_guard.py)；由 guardian PostToolUse 同程序呼叫 `run()`，`__main__` 仍可獨跑。
 - **做什麼**：live 檔埋版本／日期／階段敘事 → 只警告。
-
-##### webfetch-guard
-
-- **位置**：[`hooks/webfetch-guard.sh`](hooks/webfetch-guard.sh)（PreToolUse WebFetch）。
-- **做什麼**：WebFetch 前置護欄。
 
 #### 回合結束與背景審查細節
 
@@ -4091,6 +4125,7 @@ svn：svn_update_targets
 - **位置**：[`hooks/wg_handoff.py`](hooks/wg_handoff.py)；設定 `auto_handoff.*`。
 - **時機**：PreCompact 存 stub；Stop 的 token 預警（`token_warn_ratio` 0.85，`token_warn_payload`）；SessionEnd 兜底。
 - **輸出**：`_staging/next-phase-auto.md`。
+- **壓縮摘要**（規則 `COMPACT_SUMMARY_TO_HANDOFF`，[`post_compact.fill_handoff_summary`](hooks/handlers/post_compact.py)）：PostCompact 把官方輸入的 `compact_summary` 寫進 stub 的「## 0.【壓縮前脈絡】」段，插在【前置脈絡】前、`<!-- compact-summary:begin/end -->` 記號之間；重跑只換記號內、記號外原樣，標來源屬推論。只寫這一輪 PreCompact 剛寫的 stub（`handoff_stub_at` 不早於 `pre_compact_snapshot`）：這輪沒寫 stub（沒改檔、有新鮮手寫交接單）就不寫，手寫交接單不碰。
 
 #### 文字規格評分細節
 
@@ -4224,6 +4259,7 @@ svn：svn_update_targets
   - 進版控的卡或索引提到 secret 卡名、或含密碼／token 真實值（列紅；報告只寫檔案路徑，不寫卡名）
   - Depends 覆蓋率（`depends_coverage_min`）
   - 來源防腐
+  - 官方健檢摘要（報告「官方健檢」節）：無頭跑 `claude -p "/skill-doctor"`（skill 數、context 成本前五、從沒叫過的條數）與 `"/context"`（固定成本），兩支並行約 15–25 秒、不呼叫模型；claude CLI 找 PATH 再找 `~/.local/bin`，找不到或跑失敗列黃燈。`/doctor prompt-audit` 會呼叫模型審查，無頭超過 170 秒未完成，只留「要手動跑」提示行
 - **訊號出口**：
   - `workflow/health-reports/`（輪替 12）+ `health-last-run.json`
   - SessionStart 死人開關：缺檔／逾 10 天／red>0 → advisory
@@ -4537,11 +4573,15 @@ svn：svn_update_targets
   - 另有 episodic TTL 24d
 - **訊號出口**：刪不掉的檔列進回傳 `failed`，並寫 atom-debug 一行
 
+#### hook 全程耗時（官方偵錯日誌）
+- 官方偵錯日誌每支命令 hook 結束留一行 `Hooks: … finished with status 0 (N ms)`，含行程啟動
+- 唯讀量尺 [`tools/hook-timing-debuglog.py`](tools/hook-timing-debuglog.py)：按事件×handler 列次數、p50、p95、最大，並與 `hook-timing.py` 對照出 Python 啟動前的那段
+- 日誌格式不是正式契約：認不出的行計數印 stderr
+
 #### 不採 OTEL（理由）
-- 官方 export 無 per-hook 延遲
 - api_request 無法把注入 token 稅歸因到個別來源
 - 需常駐 collector
-- 兩個想量的指標（per-hook 延遲、注入 token 稅歸因）都測不到，不實作
+- 注入 token 稅歸因測不到，不實作
 
 ---
 
@@ -4730,11 +4770,12 @@ svn：svn_update_targets
 - **設了 `CLAUDE_CONFIG_DIR` 時**：
   - 它和 Claude Code 一樣改用該目錄底下的 `.claude.json`
   - 清理工具與繞閘掃描找的 shell-snapshots、debug、plugins 也跟這個目錄（[`lib/project_root.py`](lib/project_root.py) 的 `claude_config_dir`、`claude_global_config`）
-- **手動合併**（要立刻可用、不等下個 session）：
-  - entry 形式：`{"type":"stdio","command":"<node 絕對路徑>","args":["<入口絕對路徑>"]}`
+- **手動註冊**（要立刻可用、不等下個 session）：同形狀的 JSON 交給 `claude mcp add-json <name> '<json>' --scope user`；
+  - 驗證：`python hooks/verify/verify_ensure_mcp.py`（假 CLI 斷言呼叫參數、live 對拍、外殼判定）
+  - entry 形式：Windows `{"type":"stdio","command":"<GUI pythonw 絕對路徑>","args":["<~/.claude/hooks/run-hidden.py>","<node 絕對路徑>","<入口絕對路徑>"]}`；其他平台 `{"type":"stdio","command":"<node 絕對路徑>","args":["<入口絕對路徑>"]}`
   - **全域安裝 + 絕對路徑**，不要 `cmd /c npx`
   - npm 全域位置：Windows `%APPDATA%\npm\node_modules\{pkg}`；Unix `$(npm root -g)/{pkg}`
-  - 已有同名 server 不覆蓋
+  - 已有同名 server 不覆蓋（template `_version` 升了才先 remove 再 add，見 [§9.3](#93-mcp-註冊hooksensure-mcppy)）
 - **生效時機**：MCP server 變更（含新增 tool）要 VS Code **Reload Window** 或重啟 `claude`。
 - **MCP 再 spawn Python**：
   - [`lib/paths.js resolvePythonExe()`](tools/workflow-guardian-mcp/lib/paths.js) 依序找 `WG_PYTHON` 環境變數 → 常見安裝路徑 → 裸 `python`（並在 stderr 留 WARN）
@@ -4956,8 +4997,9 @@ svn：svn_update_targets
 
 #### worktree 慣例
 
-- 調度先 `git worktree add <路徑> -b <分支> main`。
-- 路徑慣例 `~/.claude-wt/<軌名>`（或 `.claude/worktrees/<名>`）。
+- worktree 由 Claude Code 原生建：用法四跑 `claude --bg --name <軌名> --worktree <軌名>`，落在 `<主檢出>/.claude/worktrees/<軌名>`、分支 `worktree-<軌名>`，從本機 HEAD 分出（使用者設定 `worktree.baseRef: "head"`）；人貼開的分頁第一步 `EnterWorktree`（name＝軌名）。
+- 記憶系統 repo 自己開軌時 worktree 在 live 樹內 `~/.claude/.claude/worktrees/`，`.claude/*` 已 gitignore，系統掃描工具不進去（[MultiSessionCollaboration §6](_AIDocs/MultiSessionCollaboration.md)）。
+- session 名字＝軌名，就是 SendMessage 的地址；兩個總控台分頁由人 `/rename`。
 - 在 worktree 裡同步閘不要求 push（規則 [WORKTREE_NO_PUSH](TECH/release-rules.md#worktree_no_push)）。
 - 記憶系統 repo 的 worktree 裡 commit 不等口令（[§12](#12-設定總表workflowconfigjson) `guard.commit_order`）。
 - 深度檢討不分在不在 worktree，一律叫 atom_write 寫到資料根。
@@ -4973,15 +5015,15 @@ svn：svn_update_targets
 
 1. 前置檢查，全部要過：
    - 開工句檔在。
-   - worktree 已登記在主 repo。
+   - `--repo` 是 git 主檢出（`.git` 是目錄）。
    - kill switch `workflow/console-spawn.STOP` 不存在。
    - 由它起且還活著的 session 未達 [`skills/console/spawn.json`](skills/console/spawn.json) 的 `max_parallel`。
-2. 必要時補 worktree 的信任紀錄。
-3. `claude --bg "<開工句>"` 起 session。
+2. 在主檢出跑 `claude --bg --name <軌名> --worktree <軌名> --permission-mode <模式> … "<開工句>"` 起 session；worktree、分支、信任、隔離都交給 Claude Code。
    - `--settings <檔>` 有給就轉絕對路徑透傳；檔不存在 FAIL 不起。
-4. 輪詢 transcript，等「<軌名> 收到開工」並核對實際模型。
-5. 逾時（[`spawn.json`](skills/console/spawn.json) 的 `timeout_sec`，90 秒）：FAIL 並印出開工句退回人貼，session 不殺。
-6. 模型對不上或 API 錯誤也 FAIL，但不退人貼。
+   - 主檢出沒有 `claude --bg` 認得的信任紀錄 → FAIL 退人貼，並指示在該目錄開終端機跑一次 `claude` 接受信任。
+3. 輪詢 transcript，等「<軌名> 收到開工」並核對實際模型。
+4. 逾時（[`spawn.json`](skills/console/spawn.json) 的 `timeout_sec`，90 秒）：FAIL 並印出開工句退回人貼，session 不殺。
+5. 模型對不上或 API 錯誤也 FAIL，但不退人貼。
 
 尾行 `CONSOLE_SPAWN_CHECK PASS|FAIL`。
 

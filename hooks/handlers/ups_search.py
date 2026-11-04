@@ -17,12 +17,12 @@ handlers/ups_search.py — UserPromptSubmit search pipeline 段
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     MEMORY_DIR, MEMORY_INDEX, WORKFLOW_DIR,
     discover_all_project_memory_dirs, _is_under_claude_dir,
-    _atom_debug_log, cwd_to_project_slug,
+    _atom_debug_log, _atom_debug_error, append_guard_log, cwd_to_project_slug, resolve_staging_dir,
 )
 import math
 
@@ -56,6 +56,68 @@ def _is_history_query(prompt: str) -> bool:
     if _HISTORY_NEG_RE.search(prompt):
         return False
     return _HISTORY_QUERY_RE.search(prompt) is not None
+
+
+# ─── 這則拿什麼文字去檢索 ─────────────────────────────────────────────────────
+# UserPromptSubmit 在 skill 展開前跑，/continue 回合收到的只有使用者打的那一行；真正的任務寫在交接單裡。
+# 規則 CONTINUE_QUERY_FROM_HANDOFF：/continue 回合把交接單前段接在使用者打的字後面當查詢。
+CONTINUE_COMMAND_RE = re.compile(r"^/continue(?=\s|$)", re.IGNORECASE)
+HANDOFF_QUERY_MAX_LINES = 30
+HANDOFF_QUERY_MAX_CHARS = 1500
+_MD_PATH_RE = re.compile(r"[^\s`'\"「」『』（）()<>]+\.md(?![\w.])", re.IGNORECASE)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+INJECT_GUARD_LOG = "ups_inject"     # Logs/guard-ups_inject.jsonl：這則不注入、/continue 查詢接了哪份交接單
+
+
+def continue_handoff_path(typed: str, cwd: str) -> Optional[Path]:
+    """/continue 要接的交接單：參數裡點名、存在的 .md 優先（相對路徑先照 cwd、再照 ~/.claude 解）；沒點名就取
+    staging 區（專案層 _staging，再加根層 memory/_staging）最新的 next-phase*.md（/continue skill 掃的同一組檔）。找不到 → None。"""
+    bases = [Path(cwd)] if cwd else []
+    bases.append(MEMORY_DIR.parent)
+    for m in _MD_PATH_RE.finditer(typed):
+        raw = Path(m.group(0)).expanduser()
+        for cand in [raw] if raw.is_absolute() else [b / raw for b in bases]:
+            if cand.is_file():
+                return cand
+    dirs = [MEMORY_DIR / "_staging"]
+    if cwd:
+        try:
+            dirs.insert(0, resolve_staging_dir(cwd))
+        except Exception as e:  # noqa: BLE001 — 專案層找不到就只看根層
+            _atom_debug_error("ups:continue_staging", e)
+    cands: List[Path] = []
+    for d in dirs:
+        if d.is_dir():
+            cands.extend(p for p in d.glob("next-phase*.md") if p.is_file())
+    return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+
+
+def handoff_head(path: Path) -> str:
+    """交接單前段：去掉 HTML 註解（待補的 TODO 格）與空行，取前 HANDOFF_QUERY_MAX_LINES 行、最多 HANDOFF_QUERY_MAX_CHARS 字。"""
+    text = _HTML_COMMENT_RE.sub(" ", path.read_text(encoding="utf-8-sig", errors="replace"))
+    kept = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return "\n".join(kept[:HANDOFF_QUERY_MAX_LINES])[:HANDOFF_QUERY_MAX_CHARS]
+
+
+def retrieval_query(session_id: str, typed: str, clean_prompt: str, cwd: str) -> str:
+    """這則拿來檢索、算注入預算的文字：使用者本人打的字（背景通知、同伴訊息等區塊不算）；沒有（例：殘留標籤字樣整則不認）
+    退回入口清理後的原文。/continue 回合後面接交接單前段，留帳 event=continue_query；找不到或讀不了交接單 → 只用打的字，
+    留帳 event=continue_query_missing。"""
+    base = typed or clean_prompt
+    if not CONTINUE_COMMAND_RE.match(typed):
+        return base
+    path = continue_handoff_path(typed, cwd)
+    head = ""
+    if path:
+        try:
+            head = handoff_head(path)
+        except OSError as e:
+            _atom_debug_error("ups:continue_handoff_read", e)
+    append_guard_log(INJECT_GUARD_LOG, {
+        "session_id": session_id, "event": "continue_query" if head else "continue_query_missing",
+        "path": str(path or ""), "chars": len(head),
+    })
+    return f"{base}\n{head}" if head else base
 
 # 跨專案 alias 快取：每 prompt 都是新進程，免每次重讀最多 20 個專案的 MEMORY.md
 # alias 行。以該檔 mtime_ns 為鍵；變動即重讀。fail-open：快取壞掉就照舊逐檔讀。

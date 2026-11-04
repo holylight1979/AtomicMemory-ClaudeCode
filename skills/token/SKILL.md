@@ -2,8 +2,9 @@
 name: token
 description: 量一場或多場 Claude Code session 實際處理了多少 token（輸入分未快取、讀快取、建快取，加輸出與合計，含子代理），不換算美金。使用者說「/token」「這場用了多少 token」「消耗多少 token」「token 用量」「比較兩場 token」時用；預設量目前 session，也可給 session id 前綴或 transcript 路徑一起列表比較。
 user-invocable: true
-triggers: /token, token 用量, 消耗 token, 這場用了多少 token, 量 token, 比較兩場 token, session 花了多少 token
-pattern: tool-wrapper
+when_to_use: 觸發詞：/token, token 用量, 消耗 token, 這場用了多少 token, 量 token, 比較兩場 token, session 花了多少 token
+metadata:
+  pattern: tool-wrapper
 ---
 
 # Skill：token（Tool Wrapper）

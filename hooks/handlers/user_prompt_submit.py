@@ -11,6 +11,9 @@ handlers/user_prompt_submit.py — UserPromptSubmit hook handler（orchestrator�
 - ups_inject.assemble_injection — injection assemble 段（hot/cold / budget /
   related spread / 效用晉升提示）
 
+檢索與注入只看使用者打的字（ups_search.retrieval_query；/continue 接交接單前段）；整則是背景通知或其他 session
+的訊息就不檢索、不注入（harness_text.non_human_kind），前置閘與收尾記帳照跑。
+
 本檔保留收尾職責：blind-spot reporter、fix escalation、evasion 舉證、
 handoff 提醒、failure-triggered extraction、topic tracking、sync reminders、
 turn_injected 歸因記錄、atom-debug summary、budget 截斷輸出。
@@ -24,11 +27,11 @@ from typing import Any, Dict, List
 
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
-    output_json, output_nothing,
+    output_json, output_nothing, cap_hook_output, append_guard_log,
     _atom_debug_log, _atom_debug_error, WORKFLOW_DIR, v6_enabled, coding_turn,
     DEFAULTS as CORE_DEFAULTS,  # config 缺鍵時的預設只認 wg_core 那一份
 )
-from harness_text import IDE_TAG_NAMES, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
+from harness_text import IDE_TAG_NAMES, non_human_kind, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
     classify_intent,
     compute_token_budget,
@@ -38,14 +41,14 @@ from wg_atoms import (
 from wg_extraction import _maybe_spawn_failure_extraction
 from handlers.ups_gates import run_pre_gates
 from handlers.ups_context import build_context
-from handlers.ups_search import collect_matched_atoms
+from handlers.ups_search import INJECT_GUARD_LOG, collect_matched_atoms, retrieval_query
 from handlers.ups_inject import assemble_injection, reconcile_injection_after_trim
 import wg_hook_timing as _hook_timing
 from wg_hook_timing import degraded as _hook_degraded, lap as _hook_lap
 
 
 def _ups_output(lines: List[str]) -> str:
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "\n".join(lines)}},
+    return json.dumps(cap_hook_output({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "\n".join(lines)}}),
                       ensure_ascii=False)
 
 
@@ -178,14 +181,31 @@ def handle_user_prompt_submit(
     )
     _hook_lap("前置閘")
 
+    # 規則 NON_HUMAN_PROMPT_NO_INJECT：整則是背景任務通知或其他 session 的訊息（剔掉這些區塊後沒有使用者打的字）→
+    # 脈絡段、記憶檢索、注入組裝這次不跑（前置閘、退避舉證、修復升級、收尾記帳照做），留帳 event=skip_inject。
+    # 夾著使用者打的字就照常注入，查詢只用使用者打的字（retrieval_query）。
+    typed = user_typed_text(prompt)
+    skip_reason = non_human_kind(prompt)
+    if skip_reason:
+        append_guard_log(INJECT_GUARD_LOG, {
+            "session_id": session_id, "event": "skip_inject", "reason": skip_reason,
+            "turn_seq": int(state.get("turn_seq", 0)) + 1, "chars": len(prompt),
+        })
+        query = ""
+    else:
+        query = retrieval_query(session_id, typed, clean_prompt,
+                                str((state.get("session") or {}).get("cwd") or input_data.get("cwd") or ""))
+    query_lower = query.lower()
+
     # ─── Context build 段：session context / wisdom / parallel / AIDocs / JIT
     # budget_total 是整包 additionalContext 的上限；build_context 回傳的是扣掉它自己塞進
     # lines 的保留量後的餘額（只供它內部的 JIT 判斷）。最終裁切量的是整包 lines，所以要用
     # 總額——以前拿餘額當上限，episodic/JIT 等於被扣兩次。
-    budget_total = compute_token_budget(prompt)
-    if not _hook_degraded():
+    # 原文與查詢文字取大：一般回合查詢是原文的一部分、額度照原文；/continue 的查詢接了交接單、比原文長。
+    budget_total = max(compute_token_budget(prompt), compute_token_budget(query))
+    if not (_hook_degraded() or skip_reason):
         build_context(
-            session_id, state, config, prompt, clean_prompt, prompt_lower,
+            session_id, state, config, query, clean_prompt, query_lower,
             budget_total, lines,
         )
         _hook_lap("脈絡")
@@ -193,7 +213,6 @@ def handle_user_prompt_submit(
     # 意圖前移（A0.1）：注入前就知道這回合要做什麼；十鍵見 wg_atoms.INTENT_PATTERNS。
     # 意圖是「使用者要做什麼」的權威判斷，只吃使用者本人打的字（user_typed_text：剔掉同伴訊息、背景通知等 harness 區塊）；
     # 整則沒有使用者的字 → 沿用上一則判的意圖（同伴信、通知正文裡的「重構」不改意圖；G7 等值閘據此擋）
-    typed = user_typed_text(prompt)
     turn_intent = classify_intent(typed) if typed else (state.get("turn_intent") or "general")
     state["turn_intent"] = turn_intent
     if not (v6 and coding_turn(state, config)):    # 規則 CODING_TURN_ONLY：不是寫碼回合寫碼守門不送（記憶注入照舊）
@@ -202,26 +221,26 @@ def handle_user_prompt_submit(
 
     # ─── Search pipeline 段：候選收集（trigger/BM25/vector）+ supersedes + ACT-R 排序
     # ─── Injection assemble 段：hot/cold + budget + related spread + 效用晉升提示
-    # 已降級：這則不檢索、不注入（intent 同 collect_matched_atoms 的取法：本則已判的 turn_intent）
+    # 已降級或非使用者訊息：這則不檢索、不注入（intent 同 collect_matched_atoms 的取法：本則已判的 turn_intent）
     already_injected = state.get("injected_atoms", [])
     matched_with_dir: list = []
     newly_injected: List[str] = []
     atom_source_dirs: Dict[str, Path] = {}
     intent = turn_intent
-    if not _hook_degraded():
+    if not (_hook_degraded() or skip_reason):
         (
             matched_with_dir, atom_source, all_atoms,
             sem_atoms, section_hints, alias_injected_projects, intent,
             caches,
         ) = collect_matched_atoms(
-            session_id, state, config, prompt, prompt_lower, lines
+            session_id, state, config, query, query_lower, lines
         )
         if not _hook_lap("檢索"):
             newly_injected, atom_source_dirs = assemble_injection(
                 session_id, state, config,
                 matched_with_dir, all_atoms, already_injected,
                 atom_source, section_hints, lines,
-                caches=caches, prompt=clean_prompt,
+                caches=caches, prompt=query,
             )
             _hook_lap("注入組裝")
 
@@ -240,8 +259,8 @@ def handle_user_prompt_submit(
         lines.insert(0, evasion_ask(ev))
         state["evasion_flag"] = None
 
-    # Handoff Protocol
-    if intent == "handoff":
+    # Handoff Protocol（通知、同伴訊息沿用上一則的意圖，不再重提）
+    if intent == "handoff" and not skip_reason:
         lines.append(
             "[Guardian:Handoff] 偵測到 handoff 意圖。"
             "接手的 session 裡的 Claude 不會看到本次對話脈絡。"

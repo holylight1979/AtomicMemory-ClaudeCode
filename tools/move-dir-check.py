@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Iterator, List, Optional
 
-SKIP_DIRS = {".git", ".svn", "node_modules", "__pycache__", ".venv", "venv", ".pytest_cache", "bin", "obj", ".mypy_cache"}
+SKIP_DIRS = {".git", ".svn", "node_modules", "__pycache__", ".venv", "venv", ".pytest_cache", "bin", "obj", ".mypy_cache", ".claude"}
 MAX_BYTES = 2_000_000
 SHOWN = 50
 

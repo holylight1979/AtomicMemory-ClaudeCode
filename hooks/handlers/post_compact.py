@@ -1,17 +1,20 @@
 """
-handlers/post_compact.py — PostCompact hook handler（選配 #4：壓縮後 atom 內文復原 / stash 端）
+handlers/post_compact.py — PostCompact hook handler（壓縮後把卡片內文送回去：組卡函式＋補位暫存）
 
-PostCompact 於壓縮完成後觸發（CC 2.1.159+；payload: trigger∈{manual,auto} + compact_summary）。
-反編譯實證：PostCompact **不支援** hookSpecificOutput.additionalContext（無法注入），故本 handler
-只負責 **stash**——把壓縮前已注入的 atom 緊湊內文寫進 state + 設 pending_reinjection flag。
-實際「一次性重注入」由下一個 PostToolBatch 完成（見 post_tool_batch.py）。
+壓縮的事件順序：PreCompact（快照壓縮前已注入的卡名 pre_compact_injected_atoms）→ SessionStart(source=compact)
+→ PostCompact（輸入帶 trigger∈{manual,auto} 與 compact_summary）。
+主路：SessionStart(compact) 用本檔的 recovery_blob 組緊湊內文、以 additionalContext 直接送出，並記
+compact_reinjected_at（規則 COMPACT_REINJECT_AT_SESSION_START）。
+補位：PostCompact 沒有輸出可以送進對話（官方 hooks.md 決策控制表：PostCompact「無決定控制，用於副作用」，
+不收 additionalContext），所以本 handler 只在沒有 compact_reinjected_at 時把內文暫存進 state、設 pending_reinjection，
+由下一個 PostToolBatch 一次性送出（見 post_tool_batch.py）。
 
-失憶真實缺口僅 = mid-turn auto-compact 丟失的**完整 atom 內文**；atom 索引(MEMORY.md) 經
-CLAUDE.md @import 常駐系統提示 + InstructionsLoaded(compact) 重載，壓縮不丟，故不重注入索引。
+只補卡片內文：atom 索引（MEMORY.md）經 CLAUDE.md @import 常駐系統提示、壓縮後重載，不重送。
+名單來源＝PreCompact 快照，沒有快照才退回 injected_atoms；內文經 wg_atoms.load_atoms_within_budget
+（印象式精簡＋預算，config atoms.post_compact_budget，預設 800 tok）。
 
-名單來源 = PreCompact 快照（pre_compact_injected_atoms，免受 SessionStart(compact) 清空順序影響），
-fallback 現存 injected_atoms。複用 wg_atoms.load_atoms_within_budget（內走印象式 strip + budget + 緊湊）。
-設計：plans/deep-wobbling-bentley.md（Option B）。
+壓縮摘要填交接單（規則 COMPACT_SUMMARY_TO_HANDOFF）：輸入的 compact_summary 寫進這一輪 PreCompact 剛寫的自動交接單
+（next-phase-auto.md）的「壓縮前脈絡」段，見 fill_handoff_summary。
 """
 
 import sys
@@ -22,6 +25,9 @@ from wg_core import _ensure_state, write_state, output_nothing, _now_iso, MEMORY
 from wg_atoms import load_atoms_within_budget
 
 _DEFAULT_BUDGET = 800   # 印象式重注入 token 預算（緊湊；config: atoms.post_compact_budget）
+_SUMMARY_BEGIN = "<!-- compact-summary:begin -->"   # 交接單裡壓縮摘要那段的頭尾記號：只換記號之間，其他內容不動
+_SUMMARY_END = "<!-- compact-summary:end -->"
+_SUMMARY_ANCHOR = "## 1.【前置脈絡】"   # 摘要段插在這個標題前；找不到就接在檔尾
 
 AtomEntry = Tuple[str, str, List[str]]
 
@@ -50,8 +56,9 @@ def _resolve_injected_entries(
     return gm, pm, unresolved
 
 
-def _atom_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) -> Tuple[str, List[str], List[str]]:
-    """壓縮前已注入 atom 的緊湊內文 blob。回 (blob, injected, unresolved)；名單空或載不到 → ("", [], [])。"""
+def recovery_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str = "") -> Tuple[str, List[str], List[str]]:
+    """壓縮前已注入卡的緊湊內文（SessionStart(compact) 主路與本檔補位共用）。卡路徑照 state 的 atom_index 解析。
+    回 (內文, 送出的卡名, 索引查不到的卡名)；名單空或載不到 → ("", [], 查不到的)。"""
     raw = state.get("pre_compact_injected_atoms") or state.get("injected_atoms") or []
     names = list(dict.fromkeys(raw))  # 去重保序
     if not names:
@@ -74,11 +81,49 @@ def _atom_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) -> T
             injected += pi
     if not injected:
         return "", [], unresolved
+    when = f"壓縮（{trigger}）後" if trigger else "壓縮後"
     header = (
-        f"[Atom Recovery] 壓縮（{trigger or '?'}）後復原 {len(injected)} 條長期記憶緊湊內文"
+        f"[Atom Recovery] {when}復原 {len(injected)} 條長期記憶緊湊內文"
         f"（壓縮前已載入；atom 索引仍常駐系統提示，故僅補內文）："
     )
     return header + "\n\n" + "\n\n".join(lines), injected, unresolved
+
+
+def fill_handoff_summary(state: Dict[str, Any], summary: str, trigger: str = "") -> str:
+    """規則 COMPACT_SUMMARY_TO_HANDOFF：壓縮摘要寫進這一輪 PreCompact 剛寫的自動交接單（handoff_stub_at 不早於
+    pre_compact_snapshot）。只寫記號之間那段：已有就換新、沒有就插在「前置脈絡」標題前，檔裡其他內容原樣。
+    這一輪沒寫自動交接單（沒改檔、或有新鮮的手寫交接單）就不寫：手寫的可能是別的 session 的，自動交接單的修改時間
+    一動也會把開場「先讀最新交接檔」的指標搶過來。回寫入的檔路徑，沒寫回空字串。"""
+    summary = (summary or "").strip()
+    stub = state.get("handoff_stub_path") or ""
+    stub_at = state.get("handoff_stub_at") or ""
+    snap = state.get("pre_compact_snapshot") or ""
+    if not summary or not stub or not snap or stub_at < snap:
+        return ""
+    path = Path(stub)
+    if not path.is_file():
+        return ""
+    how = f"（{trigger}）" if trigger else ""
+    block = (
+        f"{_SUMMARY_BEGIN}\n"
+        "## 0.【壓縮前脈絡】（壓縮摘要原文）\n"
+        f"> 來源：PostCompact 的 compact_summary{how}，{_now_iso()}。壓縮時模型寫的對話摘要，屬推論；"
+        "動工前對照檔案與 git 核實。\n\n"
+        f"{summary}\n"
+        f"{_SUMMARY_END}\n"
+    )
+    text = path.read_text(encoding="utf-8")
+    b, e = text.find(_SUMMARY_BEGIN), text.find(_SUMMARY_END)
+    if b >= 0 and e > b:
+        tail = text[e + len(_SUMMARY_END):]
+        text = text[:b] + block + (tail[1:] if tail.startswith("\n") else tail)
+    elif _SUMMARY_ANCHOR in text:
+        i = text.index(_SUMMARY_ANCHOR)
+        text = text[:i] + block + "\n" + text[i:]
+    else:
+        text = text.rstrip("\n") + "\n\n" + block
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return str(path)
 
 
 def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -89,8 +134,21 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     try:
+        written = fill_handoff_summary(state, input_data.get("compact_summary", ""), input_data.get("trigger", ""))
+        if written:
+            print(f"[auto-handoff] 壓縮摘要已寫進交接單：{written}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"[auto-handoff] 壓縮摘要沒寫進交接單（交接單照舊只有客觀區塊）：{type(e).__name__}: {e}", file=sys.stderr)
+
+    try:
+        if state.get("compact_reinjected_at"):   # 規則 COMPACT_REINJECT_AT_SESSION_START：SessionStart(compact) 已送過這次壓縮的卡
+            state["post_compact_at"] = _now_iso()   # 壓縮時間點照記（ups_inject.delivered_forms 用它判「壓縮後送過」）
+            write_state(session_id, state)
+            output_nothing()
+            return
+
         trigger = input_data.get("trigger", "")
-        atom_blob, injected, unresolved = _atom_blob(state, config, trigger)
+        atom_blob, injected, unresolved = recovery_blob(state, config, trigger)
         if not atom_blob:
             output_nothing()
             return
@@ -105,5 +163,5 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     except Exception as e:
         print(f"[#4] post_compact stash error: {e}", file=sys.stderr)
 
-    # PostCompact 不支援 additionalContext → 不輸出；注入交給下一個 PostToolBatch
+    # PostCompact 的輸出送不進對話 → 不輸出；暫存的內文交給下一個 PostToolBatch
     output_nothing()

@@ -2,8 +2,9 @@
 name: org
 description: 公司層共用記憶（org）一站式入口：接上公司記憶 repo、查看接入與身份職能狀態、把知識寫到公司層、把 skills／MCP／專案工具登記成工具卡。使用者說「接上公司記憶」「記到公司層」「登記工具」「我現在是什麼職能」時用。
 user-invocable: true
-triggers: 接上公司記憶, 公司記憶, 公司層, 記到公司層, 登記工具, 工具卡, 我的職能, org, 中台記憶
-pattern: tool-wrapper
+when_to_use: 觸發詞：接上公司記憶, 公司記憶, 公司層, 記到公司層, 登記工具, 工具卡, 我的職能, org, 中台記憶
+metadata:
+  pattern: tool-wrapper
 ---
 
 # /org — 公司層共用記憶

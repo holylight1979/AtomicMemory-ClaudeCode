@@ -17,13 +17,13 @@
 - dispatcher 另有兩種縮減路由：
   - 寫碼守門關閉（`coding_guard.enabled=false`）時，`PostToolUseFailure`、`SubagentStop` 不分派，工具也照 `PRE_V6_TOOLS` 收窄。
   - 裁判子 session（環境變數 `CLAUDE_COMPANION_JUDGE=1`）走 `JUDGE_HANDLERS`，只留寫碼查核。
-- **沒用到的 handler 型別與欄位**：`http`、`mcp_tool`、`prompt`、`agent` 型 hook；`async`、`asyncRewake`、`if` 欄位；SessionStart 與 PreCompact 的 matcher（例如 `compact`、`auto`）。
+- **沒用到的 handler 型別與欄位**：`http`、`mcp_tool`、`prompt`、`agent` 型 hook；`if` 欄位。`async`／`asyncRewake` 由 Codex 審查 hook 使用。
 - 背景工作一律由 hook 自己 spawn detached 子程序（[`hooks/run-hidden.py`](../../../hooks/run-hidden.py)、[`hooks/extract-worker.py`](../../../hooks/extract-worker.py)、[`hooks/vcs-sync-worker.py`](../../../hooks/vcs-sync-worker.py)、codex audit），沒用 `async`。
 - 全部 hook 都不用 exit code 2（grep `exit(2)` 為 0）；擋或注入一律走 stdout JSON。
 
 ### 1.2 官方 33 個事件逐列
 
-官方事件名取自 [`06-reference/hooks.md`](06-reference/hooks.md) 的事件總表。用到 11 個，沒用到 22 個。
+官方事件名取自 [`06-reference/hooks.md`](06-reference/hooks.md) 的事件總表。用到 14 個，沒用到 19 個。
 
 | 事件 | 狀態 | handler 檔 | 做什麼（一句） | 回傳欄位 | timeout（秒）／matcher |
 |---|---|---|---|---|---|
@@ -34,10 +34,9 @@
 | `Setup` | 未用 | — | — | — | — |
 | `UserPromptSubmit` | 用 | [`hooks/handlers/user_prompt_submit.py`](../../../hooks/handlers/user_prompt_submit.py)，接著跑 `ups_gates`、`ups_context`、`ups_search`、`ups_inject` | **記憶注入主路徑**（trigger＋BM25＋vector→RRF→預算裁切），外加 guard 提醒、episodic、_AIDocs 指標 | `additionalContext` | 8／無 |
 | 〃 | 用 | [`hooks/codex_companion.py`](../../../hooks/codex_companion.py) | 把背景 Codex 審查結果（`companion-assessment-*.json`）帶進來 | `additionalContext` | 3／無 |
-| `UserPromptExpansion` | 未用 | — | — | — | — |
+| `UserPromptExpansion` | 評估後未用：輸入只有指令那一行，改在 UPS 接交接單 | —（目前沒掛 hook） | `/continue` 的檢索查詢改由 UserPromptSubmit 接交接單前 30 行（[`ups_search.retrieval_query`](../../../hooks/handlers/ups_search.py)，規則 CONTINUE_QUERY_FROM_HANDOFF） | — | — |
 | `MessageDisplay` | 未用 | — | — | — | — |
-| `PreToolUse` | 用 | [`hooks/webfetch-guard.sh`](../../../hooks/webfetch-guard.sh) | 先用 curl 探 URL，15 秒內沒回應就擋下 WebFetch | `permissionDecision: deny`＋`reason`（**文件差**：官方欄位名是 `permissionDecisionReason`） | 20／`WebFetch` |
-| 〃 | 用 | [`hooks/plan_bash_guard.py`](../../../hooks/plan_bash_guard.py) | 只在 `permission_mode=="plan"` 時動作，擋掉一定會彈權限窗的 Bash 寫法 | `permissionDecision: deny`＋`permissionDecisionReason` | 5／`Bash` |
+| `PreToolUse` | 用 | [`hooks/plan_bash_guard.py`](../../../hooks/plan_bash_guard.py) | 只在 `permission_mode=="plan"` 時動作，擋掉一定會彈權限窗的 Bash 寫法 | `permissionDecision: deny`＋`permissionDecisionReason` | 5／`Bash` |
 | 〃 | 用 | [`hooks/handlers/pre_tool_use.py`](../../../hooks/handlers/pre_tool_use.py) | 寫入守門（含 `MemoryPathBlock`）、跨 session 同檔預警、索引合併閘、git 隱私閘、commit 口令閘、提問閘；**子代理記憶注入** | `deny`＋`permissionDecisionReason`；`updatedInput`（改寫 Agent 的 prompt）；預警時同時送 `additionalContext` 與 `systemMessage`；從不回 `allow` | 5／`Write\|Edit\|MultiEdit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task\|AskUserQuestion\|ExitPlanMode\|mcp__workflow-guardian__atom_{write,edit_meta,retire,move}` |
 | `PermissionRequest` | 未用 | —（`defaultMode: bypassPermissions`） | — | — | — |
 | `PermissionDenied` | 未用 | — | — | — | — |
@@ -46,16 +45,16 @@
 | `PostToolUseFailure` | 用（守門開才分派） | `post_tool_use.handle_post_tool_use_failure` | 失敗指令造成的改檔與紅測照樣記帳，不擋 | 無 | 5／`Bash\|PowerShell` |
 | `PostToolBatch` | 用 | [`hooks/handlers/post_tool_batch.py`](../../../hooks/handlers/post_tool_batch.py) | 壓縮後一次性重注入 atom 內文；提示補完 handoff stub；送收尾類提醒；提問閘的事後提醒 | `additionalContext` | 5／無 |
 | `Notification` | 未用 | — | — | — | — |
-| `SubagentStart` | 未用 | —（子代理記憶改走 PreToolUse 的 `updatedInput`） | — | — | — |
-| `SubagentStop` | 用（守門開才分派） | `stop.handle_subagent_stop`（[`hooks/handlers/stop.py`](../../../hooks/handlers/stop.py)） | 子代理寫碼查核；擋滿預算就放行並留帳 | `decision: block`＋`reason` | 20／無 |
+| `SubagentStart` | 已用 | `hooks/handlers/subagent_start.py` | 補位注入子代理記憶（`additionalContext`） | `additionalContext` | — |
+| `SubagentStop` | 用 | `stop.handle_subagent_stop`（[`hooks/handlers/stop.py`](../../../hooks/handlers/stop.py)） | 子代理寫碼查核（守門開才跑）；擋滿預算就放行並留帳；回填子代理效用帳（守門關也進） | `decision: block`＋`reason` | 20／無 |
 | `TaskCreated` | 未用 | — | — | — | — |
 | `TaskCompleted` | 未用 | — | — | — | — |
 | `Stop` | 用 | [`hooks/handlers/stop.py`](../../../hooks/handlers/stop.py) | 收尾閘序：紅測→對帳→退避→收割→收尾檢核→同步…；token 用量 ≥0.85 時把預警附在擋訊息上 | `decision: block`＋`reason`；`systemMessage` | 20／無 |
 | 〃 | 用 | [`hooks/codex_companion.py`](../../../hooks/codex_companion.py) | 軟閘只寫說明檔、不擋；驗收裁判在背景 spawn、不等結果 | 無 | 20／無 |
 | 〃 | 用 | [`hooks/lang_guard.py`](../../../hooks/lang_guard.py) | 英文佔比超過門檻就讓模型續跑一回合、改用繁中重答；看 `stop_hook_active` 防無限續跑 | `additionalContext` | 5／無 |
-| `StopFailure` | 未用 | — | — | — | — |
+| `StopFailure` | 已用 | [`hooks/handlers/stop_failure.py`](../../../hooks/handlers/stop_failure.py) | 記 `Logs/guard-stop_failure.jsonl`；待結算的注入歸因標 aborted | 無 | — |
 | `TeammateIdle` | 未用 | — | — | — | — |
-| `InstructionsLoaded` | 未用 | —（系統依賴壓縮後 `load_reason=compact` 重載 CLAUDE.md，但沒掛 hook） | — | — | — |
+| `InstructionsLoaded` | 已用 | [`hooks/handlers/instructions_loaded.py`](../../../hooks/handlers/instructions_loaded.py) | 只記帳 `Logs/instructions-loaded.jsonl`（含壓縮後 `load_reason=compact` 重載） | 無 | — |
 | `ConfigChange` | 未用 | — | — | — | — |
 | `CwdChanged` | 未用 | — | — | — | — |
 | `DirectoryAdded` | 未用 | — | — | — | — |
@@ -75,13 +74,13 @@
 
 | 主題 | 系統文件寫法 | 官方現行頁寫法 |
 |---|---|---|
-| SessionEnd 時間 | [TECH §6.3](../../../TECH.md)、[`../cc-native-memory-hooks-mcp.md`](../cc-native-memory-hooks-mcp.md) §8：全部 hook 共 1.5 秒硬牆，`timeout: 30` 無效，所以萃取改走 detached | [`hooks.md`](06-reference/hooks.md) 通用欄位 `timeout` 列：共用 1.5 秒，但個別 hook 設了更長的 `timeout` 時，預算會跟著拉高，最多 60 秒 |
+| SessionEnd 時間（已修正：文件改為個別 `timeout` 可拉到最多 60 秒） | [TECH §6.3](../../../TECH.md)、[`../cc-native-memory-hooks-mcp.md`](../cc-native-memory-hooks-mcp.md) §8：全部 hook 共 1.5 秒硬牆，`timeout: 30` 無效，所以萃取改走 detached | [`hooks.md`](06-reference/hooks.md) 通用欄位 `timeout` 列：共用 1.5 秒，但個別 hook 設了更長的 `timeout` 時，預算會跟著拉高，最多 60 秒 |
 | 事件數 | 上次對照列 30 個事件（標題寫 28 種） | 33 個，多了 `Setup`、`PreModelSwitch`、`PostModelSwitch` |
 | UPS 上限 | 官方 30 秒，本機設 8 秒 | 相同（command 型預設降到 30 秒） |
 | additionalContext 長度 | 預算用 token 算（每回合 1200、總額最多 3000） | 單一值超過 10,000 字元就改寫成檔案，只送路徑與前 2,000 字元預覽 |
 | 注入文字的語氣 | 注入大量 `[Guardian:…] 禁止…` 這種命令句 | 官方建議寫成事實陳述，命令式的帶外文字可能觸發 prompt injection 防禦 |
 | Stop 續跑 | 自己管擋次（`stop_gate_max_blocks` 2、`reconcile_gate.max_blocks_per_turn`） | 原生有 `stop_hook_active`＋連續 8 次續跑上限；另有 `additionalContext` 這條「非錯誤回饋」路，跟 `decision: block` 分開 |
-| PreToolUse 舊欄位 | `webfetch-guard.sh` 在 `hookSpecificOutput` 裡用 `reason` | 頂層 `decision`／`reason` 已棄用，應改用 `permissionDecisionReason` |
+| PreToolUse 舊欄位（已修正：`webfetch-guard.sh` 已移除） | `webfetch-guard.sh` 曾在 `hookSpecificOutput` 裡用 `reason` | 頂層 `decision`／`reason` 已棄用，應改用 `permissionDecisionReason` |
 
 ---
 
@@ -93,7 +92,7 @@
 |---|---|---|
 | `permissions.allow` | 約 40 條（`Bash(python *)`、`Edit(*)`、`Read(//**)`、部分 MCP tool…） | — |
 | `permissions.defaultMode` | `bypassPermissions` | 搭配 `skipDangerousModePermissionPrompt: true` |
-| `hooks` | 11 個事件（§1） | 會由 [`tools/install.py`](../../../tools/install.py) 的 `merge_settings` 合併進使用者既有的 settings |
+| `hooks` | 14 個事件（§1） | 會由 [`tools/install.py`](../../../tools/install.py) 的 `merge_settings` 合併進使用者既有的 settings |
 | `statusLine` | command 型，跑 [`tools/statusline.py`](../../../tools/statusline.py)，`refreshInterval: 10` | 用 `python.exe`，不是 pythonw |
 | `language` | `繁體中文` | 同時另有 `lang_guard` Stop hook |
 | `effortLevel`／`modelSettings.<model>.effortLevel` | high；opus-5-5 用 xhigh；fable-5-1 用 medium | — |
@@ -101,8 +100,13 @@
 | `tui`／`theme` | `fullscreen`／`light` | — |
 | `idleCompaction` | `false` | — |
 | `switchModelsOnFlag`／`agentPushNotifEnabled` | false／true | — |
+| `autoMemoryEnabled` | `false` | 關掉原生 auto memory |
+| `crossSessionInbound` | `accept` | 接受跨 session 訊息 |
+| `cleanupPeriodDays` | `14` | 逐字稿保留天數 |
+| `worktree.baseRef` | `head` | 原生 worktree 從目前 HEAD 起 |
+| `claudeMdExcludes` | `["C:/Users/holylight/AGENTS.md"]` | 不載入家目錄 AGENTS.md |
 
-**沒用到的鍵**（官方 settings 文件裡有）：`env`、`enabledPlugins`、`extraKnownMarketplaces`、`autoMemoryEnabled`、`autoMemoryDirectory`、`claudeMdExcludes`、`outputStyle`、`cleanupPeriodDays`、`attribution`、`worktree.*`、`teammateMode`、`disableAllHooks`、`allowManagedHooksOnly`。
+**沒用到的鍵**（官方 settings 文件裡有）：`env`、`enabledPlugins`、`extraKnownMarketplaces`、`autoMemoryDirectory`、`outputStyle`、`attribution`、`teammateMode`、`disableAllHooks`、`allowManagedHooksOnly`。
 
 ### 2.2 分層現況
 
@@ -124,8 +128,8 @@
 | 每場固定代價 | — | 約 4,970 tok；碰到程式檔再加約 3,560 tok（[TECH §11.1](../../../TECH.md)） |
 | `CLAUDE.local.md` | 無 | 個人化改由 `user-init.sh` 從 `USER-<帳號>.md` 複製出 `USER.md` |
 | `AGENTS.md` | 間接 | 家目錄 `C:/Users/holylight/AGENTS.md`（給 Codex 用）在 cwd 位於家目錄底下時，會被當成上層專案指令載入（本 session 的 context 可見）；這個檔不在 repo 裡 |
-| auto memory `~/.claude/projects/<slug>/memory/` | 用（只放橋接） | 原生 `MEMORY.md` 只有 1 行，指向 `atom-index-bridge.md`；橋接檔由 [`tools/native-memory-bridge.py`](../../../tools/native-memory-bridge.py) 從 `_atom_index.json` 鏡像產生，內容只有指標 |
-| auto memory 寫入 | 被擋 | 模型用 Write／Edit 寫 `projects/*/memory/` 時，PreToolUse 的 `MemoryPathBlock`（[`hooks/wg_core.py`](../../../hooks/wg_core.py)）會擋下，導去 `atom_write`；沒有用 `autoMemoryEnabled` 關掉原生功能 |
+| auto memory `~/.claude/projects/<slug>/memory/` | 用（只放橋接） | 原生 `MEMORY.md` 只有 1 行，指向 `atom-index-bridge.md`；橋接檔內容只有指標 |
+| auto memory 寫入 | 關閉＋被擋 | 模型用 Write／Edit 寫 `projects/*/memory/` 時，PreToolUse 的 `MemoryPathBlock`（[`hooks/wg_core.py`](../../../hooks/wg_core.py)）會擋下，導去 `atom_write`；另以 `autoMemoryEnabled: false` 關掉原生功能 |
 | 專案層記憶（非原生） | 用 | `{專案}/.claude/memory/`（shared／personal）、公司層 org repo；三層 scope 見 [TECH §4.4](../../../TECH.md) |
 
 ---
@@ -211,7 +215,7 @@ workflow-guardian 的 9 個 tool（[Architecture §MCP](../../Architecture.md)�
 | 安裝的第三方 plugin | 有紀錄 | `plugins/installed_plugins.json`：`superpowers@claude-plugins-official` 7.0.0，user scope；`settings.json` 沒有 `enabledPlugins`，啟用狀態未確認；`plugins/` 不進版控 |
 | output styles | 無 | 沒有 `output-styles/`，也沒有 `outputStyle` 鍵 |
 | statusLine | 用 | [`tools/statusline.py`](../../../tools/statusline.py)：讀 state、`vector_ready.flag`、AEC 報告，加上 CC 送進來的 `context_window`、`prompt_cache` |
-| headless `claude -p` | 用 | 驗收裁判 [`tools/codex-companion/judge_backend.py`](../../../tools/codex-companion/judge_backend.py)；auto-continue watcher [`tools/auto-continue/auto_continue.py`](../../../tools/auto-continue/auto_continue.py)（實驗性）；console-spawn `--method print` |
+| headless `claude -p` | 用 | 驗收裁判 [`tools/codex-companion/judge_backend.py`](../../../tools/codex-companion/judge_backend.py)；console-spawn `--method print` |
 | 排程 | 用 Windows 工作排程器（非 CC） | 週健檢 [`tools/health-weekly.py`](../../../tools/health-weekly.py)（schtasks）；[`tools/usage-watch.py`](../../../tools/usage-watch.py)（Register-ScheduledTask）。理由見 [Architecture §常駐可觀測層](../../Architecture.md)：CronCreate／Routines 是雲端，碰不到本機 |
 | mods（plugin-authoring 面板） | 無 | 可視化走自架 `:3848` 網頁與 `world.html` |
 
@@ -224,9 +228,11 @@ workflow-guardian 的 9 個 tool（[Architecture §MCP](../../Architecture.md)�
 | 原生機制 | 怎麼用 | 位置 |
 |---|---|---|
 | `SendMessage`／`ListAgents`（跨 session 訊息） | 總控台與工作軌互報到、交付信（全文經 SendMessage 傳）、轉送更新 | [`skills/console/SKILL.md`](../../../skills/console/SKILL.md)、[`references/kickoff.md`](../../../skills/console/references/kickoff.md)、[MultiSession §5](../../MultiSessionCollaboration.md) |
-| `claude --bg "<開工句>" --permission-mode --model --settings` | 自動開背景工作軌 | [`skills/console/scripts/console-spawn.py`](../../../skills/console/scripts/console-spawn.py) |
+| `claude --bg --name <名> "<開工句>" --permission-mode --model --settings` | 自動開背景工作軌 | [`skills/console/scripts/console-spawn.py`](../../../skills/console/scripts/console-spawn.py) |
 | `claude agents --json`／`attach`／`stop` | 輪詢報到、看是否卡在問人、收掉 session | 同上 |
-| `EnterWorktree(<已存在路徑>)` | 工作軌切進 worktree；交付因隔離只能改走 SendMessage | [MultiSession §6](../../MultiSessionCollaboration.md) |
+| `--worktree`／`worktree.baseRef: head` | 原生 worktree（落在 `.claude/worktrees/`）；工作軌隔離，交付走 SendMessage |
+| `/goal <完成條件>` | 長任務自動續跑 |
+| `EnterWorktree(<已存在路徑>)` | 工作軌切進既有 worktree；交付因隔離只能改走 SendMessage | [MultiSession §6](../../MultiSessionCollaboration.md) |
 | Agent 工具（含 `subagent_type: fork`） | 子代理；PreToolUse 在 prompt 前面注入記憶（fork 只補父對話沒有的） | [`hooks/handlers/pre_tool_use.py`](../../../hooks/handlers/pre_tool_use.py) |
 | Monitor（背景監看） | 檔案信箱喚醒（約 2 秒級） | atom `並行llm即時通訊-inbox機制`（[`memory/工作流/協作與並行/`](../../../memory/工作流/協作與並行/)） |
 | Bash `run_in_background` 短 sleep 當鬧鐘 | 等 SendMessage 回覆時叫醒自己 | [MultiSession §5](../../MultiSessionCollaboration.md) |
@@ -237,7 +243,7 @@ workflow-guardian 的 9 個 tool（[Architecture §MCP](../../Architecture.md)�
 |---|---|---|
 | `/console` 雙總控台＋工作軌 | 對人與調度兩種角色、派工、對帳、合併、推送 | [`skills/console/`](../../../skills/console/)、[TECH §13.4](../../../TECH.md) |
 | 派工信箱 `workflow/inbox/` | 派工單 `to-track-*`、交付信 `from-track-*`、裁定帳；本機、不進版控 | `workflow/inbox/` |
-| 手動建 worktree | `git worktree add <路徑> -b <分支> main`，路徑在 `~/.claude-wt/<名>`；console-spawn 替它補 `~/.claude.json` 信任（拿 CC 同一把鎖） | [`skills/console/references/dispatch.md`](../../../skills/console/references/dispatch.md) |
+| 原生 worktree | console-spawn 以 `--worktree`＋`--name` 開工作軌，不再手動 `git worktree add`；console-spawn 補 `~/.claude.json` 信任 | [`skills/console/references/dispatch.md`](../../../skills/console/references/dispatch.md) |
 | 根層↔專案信箱協議 | 專案 `.claude/inbox/` 的 `root-link/` 雙槽、`tri-link/` 三槽 | [MultiSession §5](../../MultiSessionCollaboration.md) |
 | 跨模型檔案信箱 | `~/.grok/.ai-inbox/`（`to-grok`／`to-claude`／`to-opus`／`to-fable`），一信一檔，靠 Monitor 喚醒 | atom `並行llm即時通訊-inbox機制` |
 | `mailbox` skill | 網路共用資料夾信箱，跨人（企劃／程式）、不依賴 CC | [`skills/mailbox/`](../../../skills/mailbox/) |
@@ -259,15 +265,15 @@ workflow-guardian 的 9 個 tool（[Architecture §MCP](../../Architecture.md)�
 | PreToolUse（Agent／Task） | `[WG:SubagentMemory]` 緊湊 atom | 700 tok（`_SUBAGENT_INJECT_BUDGET`） | `updatedInput.prompt` 前置 | [`pre_tool_use.py`](../../../hooks/handlers/pre_tool_use.py) |
 | PostToolUse | `[Guardian:Depends]`：讀到某卡的壞滅緣檔時給一行卡指標；碰到 authority_map 時給地圖 | 一行一卡 | `additionalContext` | [`hooks/wg_depends.py`](../../../hooks/wg_depends.py) |
 | PreCompact | 快照 `pre_compact_injected_atoms`；生成 episodic；寫 handoff stub（`next-phase-auto.md`） | — | 無 | [`pre_compact.py`](../../../hooks/handlers/pre_compact.py) |
-| PostCompact | stash atom 緊湊內文，設 `pending_reinjection` | 800 tok（`atoms.post_compact_budget`） | 無 | [`post_compact.py`](../../../hooks/handlers/post_compact.py) |
+| PostCompact | stash atom 緊湊內文（PostToolBatch 補位用），設 `pending_reinjection` | 800 tok（`atoms.post_compact_budget`） | 無 | [`post_compact.py`](../../../hooks/handlers/post_compact.py) |
 | PostToolBatch | 壓縮後第一批工具結束時一次性重注入，加上 stub 補完提示 | 同上 | `additionalContext` | [`post_tool_batch.py`](../../../hooks/handlers/post_tool_batch.py) |
 | Stop | 讀 transcript 的 `message.usage` 算用量比（分母 `context_window_tokens`，預設 1M），≥0.85 就附 token 預警 | 一次性 | 附在擋訊息上 | [`stop.py`](../../../hooks/handlers/stop.py)、[`hooks/wg_handoff.py`](../../../hooks/wg_handoff.py) |
 | SessionEnd | 直接結束且沒交接時補寫 stub（Auto-Handoff 第 4 層） | — | 無 | [`session_end.py`](../../../hooks/handlers/session_end.py) |
 
 補充：
-- **壓縮怎麼接**：`idleCompaction: false`。壓縮順序實測是 PreCompact → SessionStart(compact) → PostCompact，但 SessionStart(compact) 不保證觸發，所以內文復原改走 PostCompact stash → PostToolBatch 注入（[`../cc-hook-system.md`](../cc-hook-system.md)）。atom 索引靠 CLAUDE.md `@import` 在壓縮後由原生重載，系統不重送。
+- **壓縮怎麼接**：`idleCompaction: false`。壓縮順序實測是 PreCompact → SessionStart(compact) → PostCompact，主路是 SessionStart(compact) 直送 PreCompact 快照內文，PostToolBatch 補位（[`../cc-hook-system.md`](../cc-hook-system.md)）。atom 索引靠 CLAUDE.md `@import` 在壓縮後由原生重載，系統不重送。
 - **auto memory 橋接**：auto memory 的原生目錄只放指標檔，模型寫進去會被擋；atom 的真源與檢索都在原子記憶系統（§2.3）。
-- **subagent**：記憶靠改寫 prompt 字串，沒用 SubagentStart（雖然 [`../cc-hook-system.md`](../cc-hook-system.md) 已記下 SubagentStart 支援 `additionalContext`）。
+- **subagent**：記憶主路是 PreToolUse 改寫 prompt 字串，SubagentStart 的 `additionalContext` 補位（[`../cc-hook-system.md`](../cc-hook-system.md)）。
 - **resume 重播**：官方說 UPS、PostToolUse 這類中途事件注入的文字，resume 時直接重播、不重跑 hook；SessionStart 會以 `source=resume` 再跑（atom `sessionstart在resume與compact每次都再跑…` 已記錄）。
 - **可觀測**：每回合的注入記在 `Logs/injection-turns.jsonl`；hook 分段計時用 [`hooks/wg_hook_timing.py`](../../../hooks/wg_hook_timing.py)，UPS 用到 80% 時間就降級，95% 由背景鬧鐘代送（守門開時）。
 
@@ -277,30 +283,30 @@ workflow-guardian 的 9 個 tool（[Architecture §MCP](../../Architecture.md)�
 
 > 只列「看起來像」，不判斷該不該換。對照欄是後續 agent 該讀的官方頁。
 
-| # | 自製功能（位置） | 看起來像的原生機制 | 對照官方頁 |
-|---|---|---|---|
-| 1 | 子代理記憶注入：PreToolUse `updatedInput` 改寫 Agent prompt（[`pre_tool_use.py`](../../../hooks/handlers/pre_tool_use.py)） | `SubagentStart` hook 的 `additionalContext`（壓縮後會再注入） | [`06-reference/hooks.md`](06-reference/hooks.md) SubagentStart、[`02-build/sub-agents.md`](02-build/sub-agents.md) |
-| 2 | 壓縮後復原：PostCompact stash → PostToolBatch 注入（[`post_compact.py`](../../../hooks/handlers/post_compact.py)、[`post_tool_batch.py`](../../../hooks/handlers/post_tool_batch.py)） | SessionStart matcher `compact` 的 `additionalContext`；InstructionsLoaded(`compact`) | [`hooks.md`](06-reference/hooks.md) SessionStart／PostCompact、[`01-getting-started/context-window.md`](01-getting-started/context-window.md) |
-| 3 | hook 自己 spawn detached worker（`run-hidden.py`、`extract-worker.py`、`vcs-sync-worker.py`、codex audit） | hook 的 `async: true`、`asyncRewake` | [`hooks.md`](06-reference/hooks.md)「在背景執行 hooks」 |
-| 4 | 「SessionEnd 1.5 秒硬牆」的前提（[TECH §6.3](../../../TECH.md)） | 個別 hook 設 `timeout` 時預算可拉到最多 60 秒 | [`hooks.md`](06-reference/hooks.md) 通用欄位 |
-| 5 | Stop 擋次預算與續跑控制（`stop_gate_max_blocks`、`reconcile_gate.max_blocks_per_turn`） | `stop_hook_active`＋連續 8 次上限；Stop 的 `additionalContext` 非錯誤回饋 | [`hooks.md`](06-reference/hooks.md) Stop 決策控制 |
-| 6 | 驗收裁判／Codex 第二意見（[`codex_companion.py`](../../../hooks/codex_companion.py)、`judge_backend.py` 起 headless `claude -p`） | `type: "agent"`／`"prompt"` hook；advisor 模型 | [`hooks.md`](06-reference/hooks.md)「基於代理的 hooks」、[`05-configuration/advisor.md`](05-configuration/advisor.md) |
-| 7 | `lang_guard` 防英文漂移（[`hooks/lang_guard.py`](../../../hooks/lang_guard.py)） | settings `language`（已設）、output styles | [`05-configuration/settings-reference.md`](05-configuration/settings-reference.md)、[`05-configuration/output-styles.md`](05-configuration/output-styles.md) |
-| 8 | `/console` 雙總控台＋派工信箱＋console-spawn（[`skills/console/`](../../../skills/console/)） | agent teams（共享任務、隊員互傳訊息、`TeammateIdle`／`TaskCreated` hook）、agent view、dynamic workflows | [`02-build/agent-teams.md`](02-build/agent-teams.md)、[`02-build/agent-view.md`](02-build/agent-view.md)、[`02-build/workflows.md`](02-build/workflows.md)、[`02-build/agents.md`](02-build/agents.md) |
-| 9 | 手動 `git worktree add` 到 `~/.claude-wt/`＋替 worktree 補 `~/.claude.json` 信任 | `--worktree` 旗標、`worktree.*` 設定（`location`、`bgIsolation`、`symlinkDirectories`…）、`.worktreeinclude`、`WorktreeCreate` hook | [`02-build/worktrees.md`](02-build/worktrees.md) |
-| 10 | 檔案信箱（`~/.grok/.ai-inbox/to-opus` 等、`root-link`／`tri-link`、`mailbox` skill） | 跨 session 訊息（含其他機器、雲端 session）、channels（MCP 推訊息進 session） | [`02-build/cross-session-messaging.md`](02-build/cross-session-messaging.md)、[`02-build/channels.md`](02-build/channels.md) |
-| 11 | 跨 session 同檔預警（[`wg_coordination.py`](../../../hooks/wg_coordination.py)） | worktree 隔離、agent view 的總覽 | [`02-build/worktrees.md`](02-build/worktrees.md)、[`02-build/agent-view.md`](02-build/agent-view.md) |
-| 12 | handoff／continue／`next-phase-auto.md`＋auto-continue watcher（headless `/continue`） | `--continue`／`--resume`、`/goal` 完成條件、`/loop` 與排程、checkpointing 摘要 | [`02-build/goal.md`](02-build/goal.md)、[`02-build/scheduled-tasks.md`](02-build/scheduled-tasks.md)、[`06-reference/checkpointing.md`](06-reference/checkpointing.md) |
-| 13 | 收尾閘的「宣告完成」檢核、need-goal | `/goal`（模型判定完成條件） | [`02-build/goal.md`](02-build/goal.md) |
-| 14 | episodic atom（SessionEnd／PreCompact 產生的 session 摘要，TTL 24 天）、`journal` skill | 原生 auto memory、transcript、checkpointing summarize | [`01-getting-started/memory.md`](01-getting-started/memory.md)、[`06-reference/checkpointing.md`](06-reference/checkpointing.md) |
-| 15 | 擋掉原生 auto memory 寫入（`MemoryPathBlock`）＋橋接檔 | `autoMemoryEnabled`、`autoMemoryDirectory`（可指到別處） | [`01-getting-started/memory.md`](01-getting-started/memory.md)「自動記憶」 |
-| 16 | `ensure-mcp.py` 每次 SessionStart 改寫 `~/.claude.json` 的 `mcpServers` | `claude mcp add --scope user`、project `.mcp.json`、plugin 內附 MCP | [`02-build/mcp.md`](02-build/mcp.md)、[`03-plugins/plugins__components.md`](03-plugins/plugins__components.md) |
-| 17 | 散佈方式：git clone `~/.claude`＋`install.py` 合併 hooks；公司層 org repo；`user-init.sh` 依帳號產 USER.md | plugin 打包（hooks、skills、MCP 一包）＋marketplace、組織 plugin、managed settings、`CLAUDE.local.md`／家目錄 import | [`03-plugins/plugins__overview.md`](03-plugins/plugins__overview.md)、[`03-plugins/plugins__org.md`](03-plugins/plugins__org.md)、[`04-administration/`](04-administration/)、[`01-getting-started/memory.md`](01-getting-started/memory.md) |
-| 18 | skill 自訂 frontmatter `triggers`／`pattern`，加 `_skill_index.json` 計數 | 原生 `description`／`when_to_use`、skill `paths:`、plugin relevance | [`02-build/skills.md`](02-build/skills.md)、[`03-plugins/plugins__relevance.md`](03-plugins/plugins__relevance.md) |
-| 19 | `memory` skill 的 health、規則檔一致性檢查、[`tools/config-consistency.py`](../../../tools/config-consistency.py) | `/doctor prompt-audit`（審查 CLAUDE.md、rules、skills 的過時與衝突） | [`01-getting-started/memory.md`](01-getting-started/memory.md)「審計您的指令檔案」 |
-| 20 | hook 計時帳、guard JSONL、Dashboard／AEC HUD `:3848` | `/hooks` 選單、debug log、OTEL 監控、mods 側欄面板 | [`hooks.md`](06-reference/hooks.md)「偵錯 hooks」、[`03-plugins/plugins__mods__overview.md`](03-plugins/plugins__mods__overview.md)、[`04-administration/`](04-administration/) |
-| 21 | Windows 工作排程器跑週健檢、用量監控 | Desktop scheduled tasks（本機）、`/loop`、Routines | [`01-getting-started/desktop-scheduled-tasks.md`](01-getting-started/desktop-scheduled-tasks.md)、[`02-build/scheduled-tasks.md`](02-build/scheduled-tasks.md) |
-| 22 | 背景軌不准發 AskUserQuestion（派工單規矩）、提問閘 `wg_ask_gate` | PreToolUse `defer`（把工具呼叫延到稍後）、`-p` 無人回應時的拒絕行為 | [`hooks.md`](06-reference/hooks.md)「將工具呼叫延遲到稍後」、[`02-build/headless.md`](02-build/headless.md) |
-| 23 | `plan_bash_guard` 繞開 plan mode 的權限彈窗 | 權限規則、auto mode、sandbox | [`05-configuration/permissions.md`](05-configuration/permissions.md)、[`05-configuration/permission-modes.md`](05-configuration/permission-modes.md) |
-| 24 | `webfetch-guard.sh` 用 curl 先探 URL，防止卡住 | WebFetch 本身的逾時與錯誤處理（未查） | [`06-reference/tools-reference.md`](06-reference/tools-reference.md) |
-| 25 | 自寫 MCP server 只開 tools | MCP server `instructions`、resources、prompts、elicitation（`Elicitation` hook） | [`02-build/mcp.md`](02-build/mcp.md) |
+| # | 自製功能（位置） | 看起來像的原生機制 | 對照官方頁 | 處置 |
+|---|---|---|---|---|
+| 1 | 子代理記憶注入：PreToolUse `updatedInput` 改寫 Agent prompt（[`pre_tool_use.py`](../../../hooks/handlers/pre_tool_use.py)） | `SubagentStart` hook 的 `additionalContext`（壓縮後會再注入） | [`06-reference/hooks.md`](06-reference/hooks.md) SubagentStart、[`02-build/sub-agents.md`](02-build/sub-agents.md) | 做（SubagentStop 回填） |
+| 2 | 壓縮後復原：PostCompact stash → PostToolBatch 注入（[`post_compact.py`](../../../hooks/handlers/post_compact.py)、[`post_tool_batch.py`](../../../hooks/handlers/post_tool_batch.py)） | SessionStart matcher `compact` 的 `additionalContext`；InstructionsLoaded(`compact`) | [`hooks.md`](06-reference/hooks.md) SessionStart／PostCompact、[`01-getting-started/context-window.md`](01-getting-started/context-window.md) | 做（SessionStart(compact)） |
+| 3 | hook 自己 spawn detached worker（`run-hidden.py`、`extract-worker.py`、`vcs-sync-worker.py`、codex audit） | hook 的 `async: true`、`asyncRewake` | [`hooks.md`](06-reference/hooks.md)「在背景執行 hooks」 | async／asyncRewake（Codex 審查已用） |
+| 4 | 「SessionEnd 1.5 秒硬牆」的前提（[TECH §6.3](../../../TECH.md)） | 個別 hook 設 `timeout` 時預算可拉到最多 60 秒 | [`hooks.md`](06-reference/hooks.md) 通用欄位 | 文件更正 |
+| 5 | Stop 擋次預算與續跑控制（`stop_gate_max_blocks`、`reconcile_gate.max_blocks_per_turn`） | `stop_hook_active`＋連續 8 次上限；Stop 的 `additionalContext` 非錯誤回饋 | [`hooks.md`](06-reference/hooks.md) Stop 決策控制 | 自管預算保留；提醒不走 additionalContext（原生續跑代價同擋） |
+| 6 | 驗收裁判／Codex 第二意見（[`codex_companion.py`](../../../hooks/codex_companion.py)、`judge_backend.py` 起 headless `claude -p`） | `type: "agent"`／`"prompt"` hook；advisor 模型 | [`hooks.md`](06-reference/hooks.md)「基於代理的 hooks」、[`05-configuration/advisor.md`](05-configuration/advisor.md) | 不採（同步擋流程） |
+| 7 | `lang_guard` 防英文漂移（[`hooks/lang_guard.py`](../../../hooks/lang_guard.py)） | settings `language`（已設）、output styles | [`05-configuration/settings-reference.md`](05-configuration/settings-reference.md)、[`05-configuration/output-styles.md`](05-configuration/output-styles.md) | 不動 |
+| 8 | `/console` 雙總控台＋派工信箱＋console-spawn（[`skills/console/`](../../../skills/console/)） | agent teams（共享任務、隊員互傳訊息、`TeammateIdle`／`TaskCreated` hook）、agent view、dynamic workflows | [`02-build/agent-teams.md`](02-build/agent-teams.md)、[`02-build/agent-view.md`](02-build/agent-view.md)、[`02-build/workflows.md`](02-build/workflows.md)、[`02-build/agents.md`](02-build/agents.md) | agent teams 不採 |
+| 9 | 手動 `git worktree add` 到 `~/.claude-wt/`＋替 worktree 補 `~/.claude.json` 信任 | `--worktree` 旗標、`worktree.*` 設定（`location`、`bgIsolation`、`symlinkDirectories`…）、`.worktreeinclude`、`WorktreeCreate` hook | [`02-build/worktrees.md`](02-build/worktrees.md) | 做（`--worktree`） |
+| 10 | 檔案信箱（`~/.grok/.ai-inbox/to-opus` 等、`root-link`／`tri-link`、`mailbox` skill） | 跨 session 訊息（含其他機器、雲端 session）、channels（MCP 推訊息進 session） | [`02-build/cross-session-messaging.md`](02-build/cross-session-messaging.md)、[`02-build/channels.md`](02-build/channels.md) | 做（SendMessage；mailbox 保留） |
+| 11 | 跨 session 同檔預警（[`wg_coordination.py`](../../../hooks/wg_coordination.py)） | worktree 隔離、agent view 的總覽 | [`02-build/worktrees.md`](02-build/worktrees.md)、[`02-build/agent-view.md`](02-build/agent-view.md) | 保留預警，附對方名 |
+| 12 | handoff／continue／`next-phase-auto.md`＋auto-continue watcher（headless `/continue`） | `--continue`／`--resume`、`/goal` 完成條件、`/loop` 與排程、checkpointing 摘要 | [`02-build/goal.md`](02-build/goal.md)、[`02-build/scheduled-tasks.md`](02-build/scheduled-tasks.md)、[`06-reference/checkpointing.md`](06-reference/checkpointing.md) | 做（`/goal`） |
+| 13 | 收尾閘的「宣告完成」檢核、need-goal | `/goal`（模型判定完成條件） | [`02-build/goal.md`](02-build/goal.md) | need-goal 已退役 |
+| 14 | episodic atom（SessionEnd／PreCompact 產生的 session 摘要，TTL 24 天）、`journal` skill | 原生 auto memory、transcript、checkpointing summarize | [`01-getting-started/memory.md`](01-getting-started/memory.md)、[`06-reference/checkpointing.md`](06-reference/checkpointing.md) | 不動 |
+| 15 | 擋掉原生 auto memory 寫入（`MemoryPathBlock`）＋橋接檔 | `autoMemoryEnabled`、`autoMemoryDirectory`（可指到別處） | [`01-getting-started/memory.md`](01-getting-started/memory.md)「自動記憶」 | 做（`autoMemoryEnabled: false`） |
+| 16 | `ensure-mcp.py` 每次 SessionStart 改寫 `~/.claude.json` 的 `mcpServers` | `claude mcp add --scope user`、project `.mcp.json`、plugin 內附 MCP | [`02-build/mcp.md`](02-build/mcp.md)、[`03-plugins/plugins__components.md`](03-plugins/plugins__components.md) | 做（`claude mcp add-json`；自我修復保留） |
+| 17 | 散佈方式：git clone `~/.claude`＋`install.py` 合併 hooks；公司層 org repo；`user-init.sh` 依帳號產 USER.md | plugin 打包（hooks、skills、MCP 一包）＋marketplace、組織 plugin、managed settings、`CLAUDE.local.md`／家目錄 import | [`03-plugins/plugins__overview.md`](03-plugins/plugins__overview.md)、[`03-plugins/plugins__org.md`](03-plugins/plugins__org.md)、[`04-administration/`](04-administration/)、[`01-getting-started/memory.md`](01-getting-started/memory.md) | 不打包 plugin |
+| 18 | skill 自訂 frontmatter `triggers`／`pattern`，加 `_skill_index.json` 計數 | 原生 `description`／`when_to_use`、skill `paths:`、plugin relevance | [`02-build/skills.md`](02-build/skills.md)、[`03-plugins/plugins__relevance.md`](03-plugins/plugins__relevance.md) | 做（`when_to_use`） |
+| 19 | `memory` skill 的 health、規則檔一致性檢查、[`tools/config-consistency.py`](../../../tools/config-consistency.py) | `/doctor prompt-audit`（審查 CLAUDE.md、rules、skills 的過時與衝突） | [`01-getting-started/memory.md`](01-getting-started/memory.md)「審計您的指令檔案」 | 做（官方三件健檢接週健檢） |
+| 20 | hook 計時帳、guard JSONL、Dashboard／AEC HUD `:3848` | `/hooks` 選單、debug log、OTEL 監控、mods 側欄面板 | [`hooks.md`](06-reference/hooks.md)「偵錯 hooks」、[`03-plugins/plugins__mods__overview.md`](03-plugins/plugins__mods__overview.md)、[`04-administration/`](04-administration/) | 做（debug log 量尺） |
+| 21 | Windows 工作排程器跑週健檢、用量監控 | Desktop scheduled tasks（本機）、`/loop`、Routines | [`01-getting-started/desktop-scheduled-tasks.md`](01-getting-started/desktop-scheduled-tasks.md)、[`02-build/scheduled-tasks.md`](02-build/scheduled-tasks.md) | 不搬 |
+| 22 | 背景軌不准發 AskUserQuestion（派工單規矩）、提問閘 `wg_ask_gate` | PreToolUse `defer`（把工具呼叫延到稍後）、`-p` 無人回應時的拒絕行為 | [`hooks.md`](06-reference/hooks.md)「將工具呼叫延遲到稍後」、[`02-build/headless.md`](02-build/headless.md) | 做（CLAUDE_JOB_DIR） |
+| 23 | `plan_bash_guard` 繞開 plan mode 的權限彈窗 | 權限規則、auto mode、sandbox | [`05-configuration/permissions.md`](05-configuration/permissions.md)、[`05-configuration/permission-modes.md`](05-configuration/permission-modes.md) | 不動 |
+| 24 | `webfetch-guard.sh` 用 curl 先探 URL，防止卡住 | WebFetch 本身的逾時與錯誤處理（未查） | [`06-reference/tools-reference.md`](06-reference/tools-reference.md) | 做（webfetch-guard 拆） |
+| 25 | 自寫 MCP server 只開 tools | MCP server `instructions`、resources、prompts、elicitation（`Elicitation` hook） | [`02-build/mcp.md`](02-build/mcp.md) | 做：initialize 對非 Claude Code 客戶端送 instructions，memory_search 標開場載入 |

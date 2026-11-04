@@ -48,6 +48,8 @@ def test_044_every_rule_has_a_case():
     ("UNKNOWN_WRITE_RECOVERED", "verify_unknown_write_recover.py"),
     ("PROJECT_RULE_WORDS_ARE_HINTS", "verify_user_extract_routing.py"),
     ("NON_CODING_TURN_NO_NUDGE", "verify_inject_lean.py"),
+    ("SUBAGENT_RESULT_FROM_SUBAGENT_STOP", "verify_stop_subagent_bg_remind.py"),
+    ("STOP_DEFERS_WHILE_BACKGROUND_RUNNING", "verify_stop_subagent_bg_remind.py"),
 ])
 def test_rules_with_end_to_end_cases_elsewhere(rule, case_file):
     """這幾條要走真入口（PreToolUse／PostToolUse／Stop）才驗得到，案例在各自的 verify 檔：核對規則有登記、案例檔真的點到規則名。"""
@@ -1771,3 +1773,68 @@ def test_overview_hub_under_v6_rule_registered():
     assert "OVERVIEW_HUB_UNDER_V6" in rr.RULES and rr.gate_mode("OVERVIEW_HUB_UNDER_V6", True) == rr.REMIND
 
 
+# ─── 背景 session 算沒人能回答（NONINTERACTIVE_RELEASE_AT_BUDGET 的第④訊號 CLAUDE_JOB_DIR） ───
+
+def test_background_session_job_dir_is_non_interactive():
+    """規則：NONINTERACTIVE_RELEASE_AT_BUDGET。CLAUDE_JOB_DIR 有設 → 非互動理由；沒設 → 原行為（互動 None）。"""
+    import wg_release as rl
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_JOB_DIR": "x"}) == "背景 session（CLAUDE_JOB_DIR）"
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDE_JOB_DIR": "x"}).startswith("背景")
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_CODE_ENTRYPOINT": "cli"}) is None
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_JOB_DIR": ""}) is None
+
+
+# ─── 子代理記憶補位：SubagentStart 補不經 Agent 工具的子代理（案例在 verify_subagent_start.py） ───
+
+def test_subagent_start_non_agent_inject_registered():
+    """規則 SUBAGENT_START_NON_AGENT_INJECT：有登記、指向 handlers/subagent_start、送法是說明型（提醒，不是擋點）、案例檔點到規則名。"""
+    rule = "SUBAGENT_START_NON_AGENT_INJECT"
+    assert "handlers/subagent_start" in rr.RULES[rule] and rr.gate_mode(rule, True) == rr.REMIND
+    assert rule in (Path(__file__).parent / "verify_subagent_start.py").read_text(encoding="utf-8")
+
+
+# ─── 檢索查詢、規則載入與中斷記帳、壓縮與重開與跨 session、MCP 開場與註冊外殼：規則有登記、點到判法所在、案例檔在 ───
+# 規則名 → (案例檔（相對 repo 根）, 案例檔裡要有的字（案例函式或它斷言的帳名）, 規則文字要點到的判法位置)
+_REPO_ROOT = HOOKS_DIR.parent
+_LEDGER_AND_ENTRY_CASES = {
+    "NON_HUMAN_PROMPT_NO_INJECT": ("hooks/verify/verify_ups_non_human_inject.py",
+                                   "def test_pure_task_notification_skips_injection_and_logs(", "harness_text.non_human_kind"),
+    "CONTINUE_QUERY_FROM_HANDOFF": ("hooks/verify/verify_ups_non_human_inject.py",
+                                    "def test_continue_query_uses_newest_handoff(", "ups_search.continue_handoff_path"),
+    "INSTRUCTIONS_LOADED_LEDGER": ("hooks/verify/verify_instructions_loaded_stop_failure.py",
+                                   "instructions-loaded.jsonl", "handlers/instructions_loaded"),
+    "STOP_FAILURE_ABORTED": ("hooks/verify/verify_instructions_loaded_stop_failure.py",
+                             "turn_aborted_seq", "handlers/stop_failure"),
+    "COMPACT_SUMMARY_TO_HANDOFF": ("hooks/verify/verify_auto_handoff.py",
+                                   "def test_compact_summary_filled_into_stub(", "post_compact.fill_handoff_summary"),
+    "RESUME_CACHE_REWRITE_NOTE": ("hooks/verify/verify_resume_cache_note.py",
+                                  "def test_session_start_resume_shows_note_to_user_and_claude(", "session_start._resume_cache_note"),
+    "COORD_WARN_PEER_NAME": ("hooks/verify/verify_session_coordination.py",
+                             "def test_peer_name_in_conflict_warning(", "wg_coordination._peer_label"),
+    "MCP_INSTRUCTIONS_NON_CC_ONLY": ("tools/workflow-guardian-mcp/verify/verify_initialize_instructions.js",
+                                     "anthropic/alwaysLoad", "mcp.js initializeResult"),
+    "MCP_ENTRY_HIDDEN_LAUNCHER": ("hooks/verify/verify_ensure_mcp.py",
+                                  "[ensure_mcp:hidden]", "ensure-mcp.py _hidden_launcher"),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_LEDGER_AND_ENTRY_CASES))
+def test_ledger_and_entry_rules_registered_with_cases(rule):
+    """說明型規則（送法提醒，不是擋點）：規則文字點到判法所在、案例檔裡有對應案例；pytest 案例檔還要點到規則名。"""
+    case_file, marker, where = _LEDGER_AND_ENTRY_CASES[rule]
+    assert rule in rr.RULES and where in rr.RULES[rule] and rr.gate_mode(rule, True) == rr.REMIND, rule
+    assert "——" not in rr.RULES[rule], rule
+    text = (_REPO_ROOT / case_file).read_text(encoding="utf-8")
+    assert marker in text, (rule, case_file, marker)
+    if marker.startswith("def test_"):
+        assert rule in text, (rule, case_file)
+
+
+@pytest.mark.parametrize("rule,case_file", [
+    ("HOOK_TEXT_CAP_SELF_TRUNCATE", "verify_hook_text_cap.py"),
+    ("COMPACT_REINJECT_AT_SESSION_START", "verify_post_compact_reinjection_phase4.py"),
+])
+def test_output_cap_and_compact_reinject_rules_registered(rule, case_file):
+    """字元上限自截與壓縮後直送：規則已登記、提醒類、案例檔存在。"""
+    assert rule in rr.RULES and rr.RULE_MODE.get(rule) == rr.REMIND
+    assert (Path(__file__).parent / case_file).exists()

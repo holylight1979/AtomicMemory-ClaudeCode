@@ -89,6 +89,9 @@ Session Ready
 | handlers/post_tool_use.py | — | file tracking + 增量索引 + read tracking + test-fail + changelog auto-roll + AEC one-writer（emit 收訖 + (b) 欄 cross-check：hook 證據 vs 自評「無」→ 升 real-evasion）+ 收割 one-writer（`atom_write`／`atom_retire` receipt 入帳 `state.atom_ops[sid]`；`knowledge_harvest_report` items ↔ receipt 核對 → `state.knowledge_harvest[sid]` + `workflow/harvest-ledger/<sid>.jsonl`；validated → spawn vcs-sync） |
 | handlers/stop.py | — | TestFailGate + Evasion（觸發落 `Logs/guard-evasion.jsonl` + `evasion_events` 證據暫存）+ DeferralGate + KnowledgeHarvest／Harvest-Pending（階段收割）+ ScanReport + AEC-Pending + sync 閘門（root 有 vcs-sync 活鎖跳過）+ AtomAudit + DPM + outcome 三值計數；閘序 TECH §7.1（基本守門）、TECH/coding-guard.md 乙3（寫碼守門） |
 | handlers/session_end.py | — | Episodic + 萃取 + 衝突偵測 + Wisdom 反思 + selective forgetting（`apply_selective_forget` 隔離 `_distant/`，預設 dry-run，Memory Governance D）+ outcome unknown 比率遙測（`workflow/outcome_stats.jsonl` → 連續偏高 marker → SessionStart advisory）+ 失念偵測（`wg_recall_miss` → `Logs/recall-miss.jsonl`）+ 收尾 `spawn_vcs_sync(reason=promotion|session_end)` 一次（舊 `_auto_commit_promotions` 已移除） |
+| handlers/instructions_loaded.py | — | InstructionsLoaded 只記帳 `Logs/instructions-loaded.jsonl`（直接掛 handler 檔） |
+| handlers/stop_failure.py | — | StopFailure 記 `Logs/guard-stop_failure.jsonl`，待結算注入歸因標 aborted |
+| handlers/subagent_start.py | — | SubagentStart 補位注入 |
 | handlers/pre_compact.py | — | state snapshot + injected_atoms 快照 |
 | handlers/post_compact.py | — | 壓縮後 stash 壓縮前 atom 緊湊內文 + pending flag（不注入；選配 #4） |
 | handlers/post_tool_batch.py | — | idle early-exit；見 flag 一次性 additionalContext 重注入 + 清 flag（選配 #4） |
@@ -124,7 +127,6 @@ Session Ready
 | wisdom_engine.py | — | 2 硬規則 + 3 反思指標 + Bayesian arch sensitivity |
 | ensure-mcp.py | — | MCP server 可用性確認 |
 | user-init.sh | — | 多人 USER.md 初始化 |
-| webfetch-guard.sh | — | WebFetch 安全護欄 |
 
 ## 5. Skills（<!-- skill-count -->31<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
 
@@ -243,7 +245,11 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - usage-watch.py — 用量異常偵測與紀錄（Task Scheduler：`--register [watch]` 建 `Claude-Usage-Watch-<Windows 帳號>` 每小時 `--account-only --notify`；`--register report --at HH:MM [--on weekdays|mon,wed,fri]` 建 `Claude-Usage-Report-<Windows 帳號>` 定時 `--report`（不加 --on＝每天）；`--unregister [watch|report]`；`--chart` 從紀錄產生 `chart.html`（Chart.js CDN，每週走勢／每日用量／本機各專案，附數據表））：帳號級走 Claude Code 登入 token 打 `api/oauth/usage`（每週％／5h 窗％），判 ①突增 ②最近 24h 速度預估重置前用完 ③50／75／90％里程碑 ④5h 窗、日用量、上週同期；本機 transcript 加權 token 每小時／每日／每週並列專案。紀錄 `workflow/usage-watch/`（account／alerts jsonl、hourly.json 每小時×專案、last-run.json → SessionStart `_usage_watch_advisory` 逾 72h 沒跑或失敗浮出）；通知＝Windows toast＋Discord webhook（`settings.json`，本機不進版控），依 key 冷卻，`--test-notify` 試發｜`USAGE_WATCH DONE account_ok= alerts= new= notified=`；驗 `hooks/verify/verify_usage_watch.py`
 - memory-effect-report.py — 注入效果報表：access.json（曝光+α/β）+ rescue-log + recall-miss.jsonl → 四節（top 有用 / token 稅 / 死重候選 / D 失念聚合）+ 30 天週趨勢；`/memory health` 與週健檢共用
 - memory-vector-service/starter.py — Vector 啟動器自癒（SessionStart / UPS re-kick 共用）：stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、120s 等待窗 + spawn lock
-- native-memory-bridge.py — 核心 atom 索引 → CC 原生 memory 指標鏡像（harness 清單格式，掃描不誤納；`--create` 首次建目錄）
+- cc_docs_harvest.py — Claude Code 官方文件收割器：`fetch` 抓全部頁落 `_AIDocs/ClaudeCodeInternals/Docs/<夾>/<slug>.md`＋manifest，`index` 合併各夾關鍵字成索引三檔
+- hook-timing-debuglog.py — 讀官方偵錯日誌量每支 hook 命令全程耗時（事件×handler 聚合 p50／p95／最大，含行程啟動；唯讀）
+- compact-reinject-report.py — 壓縮後卡片內文是 SessionStart(compact) 主路還是 PostToolBatch 補位送回去的量尺（唯讀）｜`COMPACT_REINJECT DONE`
+- injection-miss-report.py — 量 hook 沒注入卡片時 Claude 有沒有自己補搜 memory_search、搜了什麼（唯讀）
+- search-terms-to-triggers.py — 把 Claude 主動搜過的詞列成卡片觸發詞候選，寫 `memory/_staging/trigger-candidates.md`（只出清單不改卡）
 
 ### 遷移 / 維護
 - install.py — 安裝器（單檔、純標準函式庫）：`--check` 安裝前自檢、`--apply` 原地接上版控＋備份＋覆蓋檔（`settings.json`／`workflow/config.json`）合併與 skip-worktree、`--upgrade` 升級並重新合併覆蓋檔、`--verify` 安裝後驗證；機制 TECH §9.5、操作步驟 `Install-forAI.md`；守門 `tools/verify/verify_install.py`
@@ -284,7 +290,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
 - **_by_language/_INDEX.md**（`memory/`，`_` 前綴非 atom，自動生成）— 依程式語言（Python、C#／.NET、JavaScript／Node、PowerShell、Bash／Shell）篩選的跨範疇視圖，只列卡片路徑不搬檔、一張可屬多個語言；詞庫 `memory/_meta/taxonomy.json` 的 `languages` 段；MEMORY.md 末尾有一行指標
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->728<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->731<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

@@ -182,3 +182,49 @@ def test_v6_off_unchanged_path(world, monkeypatch, capsys):
     code, out, _ = _stop(capsys)
     assert code == 0 and out == ""
     assert calls == [] and world["spawned"] == []
+
+
+# ─── 7. asyncRewake 模式：有可行動發現 → exit 2＋stderr；沒有 → exit 0 ────────
+
+
+def _rewake_stop(monkeypatch, capsys, assessment):
+    """rewake 模式跑一次 Stop；假的背景審一起手就把結果檔落好。"""
+    monkeypatch.setattr(sys, "argv", ["-c", "rewake"])
+    monkeypatch.setattr(cc, "_SPAWNED_FILES", [])
+
+    def _fake_spawn(td):
+        companion_state.write_assessment(SID, td["turn_index"], td["assessment_type"], assessment)
+        cc._SPAWNED_FILES.append(cc.WORKFLOW_DIR / (
+            f"companion-assessment-{SID}-t{td['turn_index']}-{td['assessment_type']}.json"))
+
+    monkeypatch.setattr(cc, "_spawn_audit_subprocess", _fake_spawn)
+    with pytest.raises(SystemExit) as ex:
+        cc.handle_stop(dict(CLAIM), CFG)
+    cap = capsys.readouterr()
+    return int(ex.value.code or 0), cap.err, cap.out
+
+
+def test_rewake_actionable_exits_2_with_stderr(world, monkeypatch, capsys):
+    code, err, out = _rewake_stop(monkeypatch, capsys, {
+        "verdict": "fail", "status": "needs_followup", "severity": "high", "delivery": "inject",
+        "summary": "驗收未過", "evidence": "diff 無 A", "corrective_prompt": "補做 A",
+    })
+    assert code == 2 and out == ""                       # 官方規格：exit 2＋stderr（stdout 留空）
+    assert "驗收未過" in err and "diff 無 A" in err and "補做 A" in err
+    assert "驗收裁判" not in _prompt(capsys)               # 已喚醒送過，下一則不重複（自檢那條另計）
+
+
+def test_rewake_pass_exits_0_and_leaves_note_for_next_prompt(world, monkeypatch, capsys):
+    code, err, out = _rewake_stop(monkeypatch, capsys, {
+        "verdict": "pass", "status": "ok", "severity": "low", "delivery": "ignore",
+        "summary": "逐條有證據", "corrective_prompt": "",
+    })
+    assert code == 0 and err == "" and out == ""
+    assert "驗收裁判" in _prompt(capsys)                   # 沒問題只留帳，下一則一行
+
+
+def test_rewake_off_without_arg(world, monkeypatch, capsys):
+    """settings 沒帶 rewake 參數 = 舊行為：不等、exit 0。"""
+    monkeypatch.setattr(sys, "argv", ["-c"])
+    code, out, elapsed = _stop(capsys)
+    assert code == 0 and out == "" and elapsed < 2.0

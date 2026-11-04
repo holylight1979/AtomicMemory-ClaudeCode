@@ -113,11 +113,11 @@ def _organize(sm, llms, raw):
         lm = lastmod.get((lang, slug), '')
         header = (f'<!-- harvested: {today} | source: {url} | lastmod: {lm} | section: {info["section"]} / {info["subsection"]} -->\n'
                   f'> 來源：{url}（官方 {lang}，lastmod {lm}）｜分類：{info["section"]} › {info["subsection"]}｜EN 摘要：{info["desc_en"]}\n\n')
-        open(os.path.join(D, rel), 'w', encoding='utf-8').write(header + txt)
+        open(os.path.join(D, rel), 'w', encoding='utf-8', newline='\n').write(header + txt)
         manifest.append(dict(slug=slug, path=rel, lang=lang, title_zh=title_zh, title_en=info['title_en'], desc_en=info['desc_en'],
                              section=info['section'], subsection=info['subsection'], lastmod=lm,
                              bytes=len(txt.encode('utf-8')), url=url))
-    json.dump(manifest, open(os.path.join(D, '_manifest.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    json.dump(manifest, open(os.path.join(D, '_manifest.json'), 'w', encoding='utf-8', newline='\n'), ensure_ascii=False, indent=1)
     print(len(manifest), 'pages written;', sum(m['bytes'] for m in manifest) // 1024, 'KB')
 
 
@@ -142,7 +142,7 @@ def cmd_index():
                      path=m['path'] if m else f"{folder}/{r['slug'].replace('/', '__')}.md",
                      lastmod=m['lastmod'] if m else '', url=m['url'] if m else '')
             rows.append(r)
-    json.dump(rows, open(f'{D}/_keywords_all.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    json.dump(rows, open(f'{D}/_keywords_all.json', 'w', encoding='utf-8', newline='\n'), ensure_ascii=False, indent=1)
     slug2path = {r['slug']: r['path'] for r in rows}
     byf = defaultdict(list)
     for r in rows:
@@ -179,7 +179,7 @@ def cmd_index():
         for r in sorted(byf[fo], key=lambda r: (r.get('subsection') or '', r['slug'])):
             out.append(f"| [{r['title_zh']}]({r['path']}) `{r['slug']}` | {_esc(r['one_liner'])} | {_esc(r.get('when'))} | {_esc('、'.join(r['keywords'][:8]))} |")
         out.append('')
-    open(f'{D}/_INDEX.md', 'w', encoding='utf-8').write('\n'.join(out).rstrip() + '\n')
+    open(f'{D}/_INDEX.md', 'w', encoding='utf-8', newline='\n').write('\n'.join(out).rstrip() + '\n')
 
     kw = ['# Claude Code 官方文件 — 關鍵字反查與記憶系統接點彙整\n',
           '> 由 `_keywords_all.json` 產生；總覽與各頁一句話在 [_INDEX.md](_INDEX.md)。\n',
@@ -194,7 +194,7 @@ def cmd_index():
     for k in sorted(inv, key=_key):
         pages = sorted(inv[k])
         kw.append(f'- **{_esc(k)}** → ' + '、'.join(f'[{s}]({slug2path[s]})' for s in pages[:12]) + (f' …(+{len(pages) - 12})' if len(pages) > 12 else ''))
-    open(f'{D}/_KEYWORDS.md', 'w', encoding='utf-8').write('\n'.join(kw) + '\n')
+    open(f'{D}/_KEYWORDS.md', 'w', encoding='utf-8', newline='\n').write('\n'.join(kw) + '\n')
 
     g = ['# Claude Code 新名詞／術語白話表（_GLOSSARY）\n',
          f'> 來源：各夾導讀卡「新名詞」欄彙整（{len(terms)} 詞），白話是 LLM 依官方原文改寫；官方詞彙表在 [glossary.md](06-reference/glossary.md)；首次出現版本見 [TIMELINE](08-whats-new/TIMELINE-新功能與新名詞.md) 第一節。\n',
@@ -203,7 +203,7 @@ def cmd_index():
         zh = max((z for z, _ in terms[k]), key=len)
         pages = sorted({s for _, s in terms[k]})
         g.append(f'| `{_esc(k)}` | {_esc(zh)} | ' + '、'.join(f'[{s}]({slug2path[s]})' for s in pages[:6]) + ' |')
-    open(f'{D}/_GLOSSARY.md', 'w', encoding='utf-8').write('\n'.join(g) + '\n')
+    open(f'{D}/_GLOSSARY.md', 'w', encoding='utf-8', newline='\n').write('\n'.join(g) + '\n')
     print(f'pages {len(rows)} keywords {len(inv)} terms {len(terms)} → _INDEX.md / _KEYWORDS.md / _GLOSSARY.md / _keywords_all.json')
 
 

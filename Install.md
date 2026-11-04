@@ -33,6 +33,7 @@
 * 你原有的 `settings.json`（權限等設定）、個人檔案都會保留；被更新的檔案先備份到 `~/.claude/backups/`，AI 會告訴你備份位置。
 * 原本的 `~/.claude/CLAUDE.md` 會換成本系統的版本；裡面有想保留的內容，請貼進 `USER-{你的帳號}.md`（見下方「啟動檔維護」）。
 * 裝完 AI 會請你**重開 Claude Code**，再做下一節的驗證。
+* 之後有時要在終端機直接打 `claude`（例如多軌並行 `/console 開工` 前，在 repo 主目錄跑一次接受信任）。打不到時，Claude Code 原生安裝的 `claude` 在 `~/.local/bin/`（Windows：`C:\Users\<你的帳號>\.local\bin\claude.exe`）：用完整路徑跑，或把這個資料夾加進 PATH。
 
 ---
 
@@ -53,6 +54,8 @@
 ```
 請執行 python ~/.claude/tools/install.py --upgrade，把結果告訴我；成功的話提醒我重開 Claude Code。
 ```
+
+安裝時合併過你原有設定的機器（`git -C ~/.claude ls-files -v settings.json` 開頭是 `S`），升級只會換掉 `settings.json` 的 hooks 段，你自己的其他設定都保留。所以系統在 `settings.json` 最外層新加的設定（例如關掉自帶的 auto memory）不會自動帶過來，要照那一版 release note 的「要你動手的」自己加一次。各版 release note 在 `_AIDocs/DevHistory/` 裡依版本分資料夾。
 
 ---
 

@@ -50,7 +50,7 @@
 
 ## 換手步驟
 
-1. 總控台：寫備忘 → 更新接續單「現任」行與待辦 → SendMessage 待命 session「接手<角色>總控台：<接續單路徑>」。
-2. 接任者：用 Read 讀 `~/.claude/skills/continue/SKILL.md`、照它對接續單做（continue 與 console 都只能人打，模型叫不了）→ ListAgents → 通知另一個總控台與各軌新名字。
+1. 總控台：寫備忘 → 更新接續單待辦 → SendMessage 待命 session「接手<角色>總控台：<接續單路徑>」。
+2. 接任者：用 Read 讀 `~/.claude/skills/continue/SKILL.md`、照它對接續單做（continue 與 console 都只能人打，模型叫不了）→ 舊分頁關掉後請人在新分頁打 `/rename <角色>總控台`（名字不能跟活著的 session 撞）→ SendMessage 另一個總控台「<角色>總控台已換手」。工作軌不用通知，名字沒變。
 3. 舊的收到接任回報後停手；人關掉舊分頁。
-4. 要 Reload Window 時：兩個總控台都先寫好備忘、接續單寫好，Reload 後由對人先點名（見 SKILL.md 用法一 Step 4）。
+4. 要 Reload Window 時：兩個總控台都先寫好備忘、接續單寫好，Reload 後照 SKILL.md 用法一 Step 4 核一次名字。

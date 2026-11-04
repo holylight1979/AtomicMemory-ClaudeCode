@@ -40,6 +40,14 @@ from wg_hook_timing import lap as _hook_lap
 _SUBAGENT_INJECT_BUDGET = 700
 
 
+def pick_subagent_memory(task_text: str, already_injected: List[str]) -> Tuple[str, List[str]]:
+    """子代理要帶的記憶卡：依任務文字挑卡，預算 _SUBAGENT_INJECT_BUDGET，回 (blob, 卡名)；沒挑到回 ("", [])。
+    PreToolUse(Agent/Task) 把 blob 塞在 prompt 前面，SubagentStart（handlers/subagent_start）走 additionalContext，挑法同一支。"""
+    from wg_atoms import build_injection_blob   # 惰性 import：wg_atoms 全額 import 成本高，只在派子代理時付
+    blob, injected = build_injection_blob(task_text, budget=_SUBAGENT_INJECT_BUDGET, already_injected=already_injected)
+    return (blob, injected) if blob and injected else ("", [])
+
+
 _CONFIDENCE_FRONTMATTER_RE = re.compile(r"^- Confidence:\s*(\[[臨觀固]\])", re.MULTILINE)
 _SOLID_INLINE_RE = re.compile(r"^- \[固\]", re.MULTILINE)
 _OBSERVED_INLINE_RE = re.compile(r"^- \[觀\]", re.MULTILINE)
@@ -1890,13 +1898,11 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # ─── Sub-agent 記憶注入 ────────────────────────────────────
     # sub-agent（Agent/Task）開全新 context、不觸發 UserPromptSubmit，吃不到 atom。
-    # 唯一 parent→child 通道是工具 prompt 字串 → 經 PreToolUse updatedInput prepend
-    # 緊湊記憶 blob。fail-open：任何錯誤都不擋 spawn。
+    # Agent／Task 派的在這裡依任務 prompt 挑卡、經 updatedInput 塞在 prompt 前面；不經 Agent 工具的子代理
+    # （skill 的 context: fork、Workflow）由 SubagentStart 補（handlers/subagent_start，規則 SUBAGENT_START_NON_AGENT_INJECT）。
+    # fail-open：任何錯誤都不擋 spawn。
     if tool_name in ("Agent", "Task"):
         try:
-            # 惰性 import：wg_atoms 全額 import 成本高，只在 Agent/Task spawn 才付
-            from wg_atoms import build_injection_blob
-
             orig_prompt = tool_input.get("prompt", "") or ""
             # fork 子代理（CC 2.1.232 起）繼承父對話與 prompt cache：父對話已注入的 atom 它看得到，
             # 只補父 context 沒有的。一般子代理開全新 context、不繼承 → already_injected 不能套。
@@ -1906,11 +1912,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 sid = input_data.get("session_id", "") or ""
                 state = read_state(sid) if sid else None
                 already = list((state or {}).get("injected_atoms") or [])
-            blob, injected = build_injection_blob(
-                orig_prompt, budget=_SUBAGENT_INJECT_BUDGET, already_injected=already,
-            )
-            if not (blob and injected):
-                blob = ""
+            blob, injected = pick_subagent_memory(orig_prompt, already)
             if blob:
                 new_input = dict(tool_input)
                 new_input["prompt"] = "\n\n".join(p for p in (blob, orig_prompt) if p)

@@ -47,7 +47,7 @@
 - **`reconcile_gate.block_letters` / `max_blocks_per_turn`**（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）：
   - 只有列出的條目字母擋收尾，其餘照判、只印 stderr（規則 [RECONCILE_BLOCK_LETTERS](../TECH/release-rules.md#reconcile_block_letters)）。
   - `max_blocks_per_turn`＝紅測與寫碼查核每個使用者回合共用的擋次，不分哪一條規則（[BLOCK_BUDGET_SHARED](../TECH/release-rules.md#block_budget_shared)）。
-  - 子代理與裁判子 session 的收尾也用這個擋次（各自計次）：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
+  - 子代理、裁判子 session、背景 session（CLAUDE_JOB_DIR）的收尾也用這個擋次（各自計次）：擋滿就放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](../TECH/release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
   - 另有 `code_exts`（程式檔副檔名）、`verify_case_globs`（案例檔樣式：驗證批次閘數測試檔支數時用，`wg_verify_batch`）。
 - **`docdrift.path_mappings` / `self_path_mappings`**：
   - 前者由專案自己填。

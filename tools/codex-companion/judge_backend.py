@@ -251,7 +251,8 @@ def run_claude_judge(
     """跑 headless `claude -p` 當備援裁判，回 (stdout, stderr)。
 
     材料走 stdin（22k 級 prompt 不塞 argv，避開 Windows 命令列長度上限）；
-    工具面只留唯讀（Bash/Write/Edit 等一律禁用），裁判不得改動受審的東西。
+    工具面用白名單 `--tools Read,Grep,Glob` 只留唯讀；`--strict-mcp-config` 不載任何 MCP，
+    env `ENABLE_CLAUDEAI_MCP_SERVERS=false` 擋 claude.ai 連接器，裁判不得改動受審的東西。
     """
     fb = fallback_cfg(config)
     model = str(fb.get("model") or "sonnet")
@@ -268,9 +269,12 @@ def run_claude_judge(
         "--model", model,
         "--output-format", "text",
         "--permission-mode", "bypassPermissions",
-        "--disallowed-tools", "Bash,Write,Edit,NotebookEdit,Task,WebFetch,WebSearch",
+        "--tools", "Read,Grep,Glob",
+        "--strict-mcp-config",
+        "--disallowedTools", "mcp__*",
     ]
-    env = {**os.environ, JUDGE_ENV: "1", "NO_COLOR": "1"}
+    env = {**os.environ, JUDGE_ENV: "1", "NO_COLOR": "1",
+           "ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
 
     try:
         _log(f"fallback judge: claude -p --model {model} (timeout={eff_timeout}s)")

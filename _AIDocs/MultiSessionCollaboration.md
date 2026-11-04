@@ -1,7 +1,7 @@
 # 多 session 協作：主持端派工給多個工作 session 的通則（AI 讀）
 
 > 讀者：任何「一個主持 session 派工給多個工作 session（或子代理）」的 CC session——主持端與工作端都適用。知識來源是 v6 開發期總控台時期累積的記憶卡，這裡只留離開那套儀式仍成立的通則；v6 專用的派工單格式、裁定帳、對帳五項、無頭驗收等開發期儀式不在此，見 `DevHistory/v6.0-寫程式碼的進化-2026-10/`。
-> 機制真源：跨 session 訊息＝CC 原生 `SendMessage`／`ListAgents`；背景 session＝`claude --bg`／`agents`／`attach`／`stop`；worktree＝`EnterWorktree`／`ExitWorktree`。本檔只講契約與做法，CC 版本行為以實測為準。
+> 機制真源：跨 session 訊息＝CC 原生 `SendMessage`／`ListAgents`；背景 session＝`claude --bg`／`agents`／`attach`／`stop`；worktree＝`claude --worktree`／`EnterWorktree`／`ExitWorktree`。本檔只講契約與做法，CC 版本行為以實測為準。
 > 每節末「出自」列的是卡名（`[[slug]]`），`[[…]]` 是活卡；標「退役卡」的維持退役、只取其中一句通用知識，原卡在 `_AIDocs/_atoms/MemDev/v6總控台/_distant/2026_10/`。
 
 ## 1. 這份文件是什麼、不是什麼
@@ -15,7 +15,7 @@
 
 ## 2. 角色與邊界
 
-- 主持端三件事：**派工**（每個工作 session 隨時有編號待辦，閒置就是派工失職）、**問進度**（定節奏：完成寄報告、未完每 30 分鐘一行、沒事寄待命；主持端每 60 分鐘對帳）、**分工寫文件**（各寫各段到各自的檔，主持端彙整後給各段作者核一次；分開寫就不會打架）。
+- 主持端三件事：**派工**（每個工作 session 隨時有編號待辦，閒置就是派工失職）、**問進度**（定節奏：完成寄報告、未完每 30 分鐘一行、沒事寄待命；主持端每 60 分鐘對帳，可在自己的 session 開 `/loop 60m 對帳`，不靠記得）、**分工寫文件**（各寫各段到各自的檔，主持端彙整後給各段作者核一次；分開寫就不會打架）。
 - 寫「無待答項」之前先問：是真的沒事，還是我沒派？連寫幾封「無待答項」就是沒派工的訊號。
 - 根層與專案層分工：根層負責「產生與更新」的流程（骨架、路由、健檢、回路）、吸收與轉化；專案層只提供領域事實與思路（角色哪裡不對、會覆蓋哪些變量、根層不知道就會做錯的設定）。
 - 多專案差異靠變量吸收，不在 hook 裡寫專案分支：每個變量要有預設可用、覆蓋有理由、歧義報錯；吸收不了的（跨 repo 版本、公司作用域、執行環境）定契約而不是丟給使用者配置。
@@ -52,25 +52,31 @@
 
 ## 5. 跨 session 通訊的實際機制
 
-- SendMessage 的訊息只在收件端**下一次呼叫工具時**才進對話；光結束回合等，沒有工具呼叫就永遠等不到。要等人答完再醒：先在背景跑一個短 sleep 當鬧鐘再結束回合，鬧鐘到的通知會把 session 叫回來。
-- 收件端在計畫模式（或雙方權限模式不同）時，訊息會被扣住等使用者在那個分頁核准，沒人按就逾時作廢、對方看不到；重送只會再被扣。會進計畫模式的工作軌，要說的事一次寫進開工句。收到 held 通知就告訴使用者那個分頁有訊息待核准，不重送。
+- 閒置的 session 收到 SendMessage 會**自動開新回合**（不必等它呼叫工具）；忙碌中的在工具呼叫之間收到。所以等回信可以直接結束回合；要等某個 session 做完，用 SendMessage 帶 `notify_when_idle: true` 訂閱（只有主對話能訂、只限本機、12 小時沒來自動作廢；不帶 message 是純訂閱、對方不花 token；兩邊都要 v2.1.236 以上）。不輪詢 `ListAgents`、不在背景跑 sleep 當鬧鐘。
+- 上一條的實測（兩個背景 session、同為 bypass、使用者設定 `crossSessionInbound: "accept"`，關掉 hook 與 MCP 只開傳訊工具）：閒置的 a 收到 b 的信，0.04 秒內進對話、2 秒內回信，中間 a 沒有任何工具呼叫；b 回合剛結束時到的回信也直接開新回合；b 訂的閒置通知在 a 做完後 2 秒內送到。背景 session 收信做完後是「結束」不是「閒置」，通知內容寫的是 exited，一樣只來一次。VS Code 分頁沒實測；總控台分頁等太久沒醒，人戳一句就會收到排隊的信。
+- 使用者設定 `crossSessionInbound: "accept"` 讓計畫模式、權限模式不同的 session 也直接收信。沒設時是官方預設規則：「略過權限」與「會問權限」兩類互傳會被扣住等人核准，VS Code 分頁顯示不了核准框，5 分鐘（`dialogExpiry`）後作廢。專案層設 `hold`／`refuse` 仍會蓋過；收到 held／refused 通知就告訴使用者那個分頁有訊息待核准，不重送。
 - 要轉告別的 session 就自己 SendMessage，不列成使用者的下一動。訊息第一句自足（人只看得到第一行），附「不是你就忽略」與「不需回覆」。
-- ListAgents 的同伴名（claude-xx）跟 session id 沒有對應：讀目標 session transcript 第一筆 timestamp，跟 ListAgents 的「started N 小時前」比，只有一個對得上就是它。
+- 名字就是地址：工作軌用 `claude --bg --name <軌名>` 起，總控台分頁由人在該分頁打 `/rename`（模型代打不了）；沒設名字的才是自動的 claude-xx（目錄名加兩碼，重開就換）。名字在同機活著的 session 間要唯一，撞名時 Claude 會在地址加短 id。要對 session id：`claude agents --json` 每列同時給 `sessionId`、`name`、`cwd`。
+- 跨 session 同檔預警附對方 session 名稱（真要發警告才查 `claude agents --json`），可直接 SendMessage 給那個名字協調；查不到名字才只附短 id（規則 COORD_WARN_PEER_NAME，[`hooks/wg_coordination.py`](../hooks/wg_coordination.py)）。
 - 開工句交出後內容有更新：先 ListAgents 看下一個 session 是否已開工；在就直接 SendMessage 轉更新並問它做到哪、是不是舊版開工句；不在才給新版開工句。不叫使用者換開工句貼。
-- 信箱協議（根層與專案 session 對齊同一題）：落在專案 `.claude/inbox/`，雙槽 `root-link/`（`to-root/` 專案寫、`to-project/` 根層寫）、三槽 `tri-link/`（每槽一個出向 `from-<slug>/`，`re: <槽>/<seq>`）。落專案目錄的理由：根層寫專案目錄不受保護閘影響，反向會被擋。首封「我是誰＋綱要正本路徑＋一句摘要＋幾題」，對方一封一題回、附已驗證路徑或數字；約 20 封就該收斂到「各自向使用者要拍板」。Monitor 要排除自己的出向目錄。
-- 背景 session：用 VS Code 擴充內建那支 `claude.exe`（`resources/native-binary/`）起 `claude --bg "<開工句>" --permission-mode <模式>`，以 cwd 為工作樹；模型要在起時用 `--model` 設好，事後改不了；worktree 沒信任紀錄會拒起。它是完整 session：ListAgents 看得到、SendMessage 雙向通、hook 全套照跑。
+- Claude 對 Claude 一律用 SendMessage（根層與專案 session 對齊同一題、雙 Claude 監工與主力都算），對方用固定名字定址；不再開 root-link／tri-link 槽或 `~/.grok/.ai-inbox/to-opus`、`to-fable` 這類檔案信箱——發現對方、送達、叫醒、回覆地址原生都有，也沒有「誰能寫進誰的目錄」的保護閘問題。對齊的寫法不變：首封「我是誰＋綱要正本路徑＋一句摘要＋幾題」，對方一封一題回、附已驗證路徑或數字；約 20 封就收斂到「各自向使用者要拍板」。
+- 檔案只留三種用途，理由：①**案卷**——要留一份人翻得到、換機器帶得走的往返紀錄（SendMessage 只存在 transcript，保留期 `cleanupPeriodDays` 到了就清）：由收件方把全文存成檔，例專案 `.claude/inbox/<題>/NNN-<題>.md`；②**跨人、跨帳號**——同事之間用 `mailbox` skill（原生傳訊只到同一個 OS 使用者、同一帳號自己的 session）；③**對象不是 Claude Code**——Grok 的 `~/.grok/.ai-inbox/to-grok`、`to-claude` 照舊（Monitor 要排除自己的出向目錄）。
+- 背景 session：用 VS Code 擴充內建那支 `claude.exe`（`resources/native-binary/`），在專案主檢出跑 `claude --bg --name <軌名> --worktree <軌名> --permission-mode <模式> --model <id> "<開工句>"`（旗標在前、開工句最後）。worktree `.claude/worktrees/<軌名>`、分支 `worktree-<軌名>`、隔離、上鎖都由 Claude Code 建，從哪分出看 `worktree.baseRef`（使用者層設 `"head"`：從本機 HEAD 分，帶著還沒推的 commit；預設會從 origin 分）。模型要在起時設好，事後改不了。它是完整 session：ListAgents 看得到、SendMessage 雙向通、hook 全套照跑。
+- `claude --bg` 的信任只查啟動目錄，而且認 `~/.claude.json` 裡的正斜線形鍵：實測只有反斜線形鍵是 true、正斜線形是 false 時會被拒（`Workspace not trusted`）。解法是在那個目錄開終端機跑一次 `claude` 接受信任，不手改 `~/.claude.json`。可吃多個值的旗標（例 `--tools`）要寫成 `--tools=A,B`，否則後面的開工句也被吃成值、session 起來是空的。
+- 背景 session 在自己的 worktree 改了程式，官方預設收尾會自己 commit、推分支、必要時開草稿 PR（絕不推 main）；開工句寫「commit 在分支上、不推、不開 PR」它就照辦。只改文件、要直接改 live 的軌，用 `--settings '{"worktree":{"bgIsolation":"none"}}'` 起，否則第一次改檔前會自己搬進 worktree。
 - 人要答它：終端機 `claude agents` 進總覽、選列按 Enter 就是 attach，選項直接選；attach 畫面連按兩次 Esc 是 Rewind 不是離開，要離開直接關視窗；收掉用 `claude stop <id>`。`claude agents --json` 的 status 是 waiting／waitingFor="input needed" 就表示它在問人。
-- 背景軌卡在 AskUserQuestion 時：讀它 transcript（projects 下該 worktree slug 夾的 `<sid>.jsonl`）最後一則 assistant 看卡哪題；分支 HEAD 比上次交付前進了就自己對帳合併再 stop，要人答才 attach。停掉後 worktree 目錄會有幾十秒 Permission denied，稍後再刪。
-- 出自：[[跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器]]、[[跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送]]、[[feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆]]、[[feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句]]、[[根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox]]、[[claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收]]、[[claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉]]
+- 背景軌卡在 AskUserQuestion 時：讀它 transcript（projects 下該 worktree slug 夾的 `<sid>.jsonl`）最後一則 assistant 看卡哪題；分支 HEAD 比上次交付前進了就自己對帳合併再 stop，要人答才 attach。收軌用 `claude rm <短 id>`（乾淨的 worktree 一起移除，有未提交改動會保留並說原因）；Windows 上停掉後 worktree 目錄會有幾十秒 Permission denied，稍後再刪。
+- 出自：本機實測（閒置收件與 `notify_when_idle`、信任鍵形、`--tools` 吃參數）、官方 `ClaudeCodeInternals/Docs/02-build/` 的 cross-session-messaging、agent-view、worktrees；`跨session訊息只在收件端下一次呼叫工具時才送進來-…-可先背景跑短sleep當計時器`（已被實測推翻，只留為什麼改）、[[跨session訊息在收件端進計畫模式時會被扣住等使用者核准-逾時就作廢不送達-補充事項要寫進開工句或等對方離開計畫模式再送]]、[[feedback-要轉告別的session就自己sendmessage-名稱對不上session-id就用開始時間比對對話紀錄第一筆]]、[[feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句]]、[[根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox]]、[[claude背景session實測-用vscode擴充那支claudeexe起-bg-agents總覽enter就是attach-人能直接選答-hook全套照跑-esc兩下是rewind-關視窗不影響-用stop收]]、[[claude-bg起的工作軌收尾會卡在askuserquestion沒人答-總控台看transcript最後一則是提問就直接對帳合併再claude-stop-worktree目錄要等程序退出才刪得掉]]
 
 ## 6. worktree 與共用工作樹
 
-- 工作 session 的分頁 cwd 若在 live 而不在 worktree，hook 推出的收據根會是 live，量尺對不上；開工第一步用 `EnterWorktree(<已存在的絕對路徑>)` 切進去，不叫人用 VS Code 另開資料夾。
+- 背景軌用 `--worktree <軌名>` 起，一開始就在 worktree 裡、原生隔離已生效。人貼開的分頁 cwd 在 live，hook 推出的收據根會是 live、量尺對不上：第一步用 `EnterWorktree`（name＝軌名，會建或進 `.claude/worktrees/<軌名>`）切進去，不叫人用 VS Code 另開資料夾。
+- `~/.claude` 這個 repo 自己開軌時，原生 worktree 落在 live 樹裡的 `~/.claude/.claude/worktrees/<軌名>/`。`.claude/*` 已在 .gitignore，git status 看不到；系統自己的掃描工具都只掃固定子樹（memory、_AIDocs、hooks／tools／lib）或跳過點開頭的目錄，pytest 預設也不進點開頭目錄，掃不到這份分身；唯一會走進去的是通用的 `tools/move-dir-check.py`（它只跳過 .git 這類目錄，被指到 `~/.claude` 根時才會）。
 - 切進 worktree 後被隔離：寫不到 worktree 外（含 live 信箱）、跑不了 `git -C <live>`；交付一律用 SendMessage 回全文，主持端收到後存進信箱。「live 未動」的唯讀替代證據：`git hash-object <live 檔>` 與 `git rev-parse main:<檔>` 逐一相同。
 - 隔離下 Bash 的坑：同一條指令混 live 路徑與 git add／commit 會整條被擋，拆兩條；用 shell 變數組路徑會被判「寫入目標不明」，路徑寫字面絕對路徑或改用 Write；heredoc python 被擋就把腳本寫進 scratchpad 再跑。
 - 工作 session context 將滿時：叫它停手、不 commit（未提交改動留在 worktree 給接手者），只回 20 行內接手備忘（每件已完成且測過／已改未測／未開始、未提交檔改到哪、選擇與理由、讀碼看不出的坑）；主持端據此寫自足派工單給新 session 在同一 worktree 接著做。
 - 小改不開軌：純測試、純文件、單檔小修、clean-up 直接在 main 改、跑目標 verify、推；只有多檔或跨部位改動才開軌。文件軌進 worktree 的代價（整樹 checkout、啟動器、CHANGELOG 衝突）全是為程式設的。
-- 合進 main 同一回合 `git worktree remove`＋`git branch -d`，補驗過即推不積累；留著的 worktree、分支、未推 commit 都是「做完沒」的雜訊。
+- 合進 main 同一回合收軌（`claude rm <短 id>`，或 `git worktree remove`＋`git branch -d worktree-<軌名>`），補驗過即推不積累；留著的 worktree、分支、未推 commit 都是「做完沒」的雜訊。
 - worktree 裡寫不到 gitignore 的人讀文件（例 `memory/_staging/`）：派工單叫它在 worktree 同路徑自己 mkdir 寫新版、讀現況用 live 絕對路徑唯讀；主持端收件後複製進 live；要進版控的部分照常在分支 commit 由主持端合併。
 - 共用工作樹讓路：自己有未提交、未驗完的改動，同伴要 ff 進 main 且碰同檔 → 先確認沒有 MERGE_HEAD，`git diff --binary -- <檔> > x.patch`、`git apply --check -R` 確認反套得回去、`git apply -R` 還原、回「你先」並背景輪詢 HEAD；對方 ff 後 `git apply --3way x.patch` 套回，再立刻 `git restore --staged -- <檔>`（3way 套回會留在暫存區，別的 session 下次 commit 會帶走）。不用 stash（stash 是整個 repo 共用的，別的 session 可能 pop 走）。
 - 退回看紅的腳本：`git checkout main -- <檔…>` 清單裡只放基底真有的檔（新增檔留著或用 `git ls-tree main -- <檔>` 先過濾），一個 pathspec 比不到就整條失敗、一個檔都沒退回；checkout 後查退出碼，「退回後紅數 0」當腳本壞掉不當通過。
@@ -99,11 +105,12 @@
 - 交出開工句、計畫、清單前自審三問：對得上最新的計畫與接續單嗎？每條指示在這件事上真的需要嗎（不是沿用範本）？剛改的東西影響哪些已給出去的內容——有就當場重發修正版。
 - 被問到一處毛病：順查同一份東西還有沒有同類問題，一次改完，不等人連問兩次。
 - 一退件，接續單「接下來」的進階條件就改寫成以修正件為準，舊句明寫作廢。
+- 長任務要自己一直做下去、不用人每步催：用 Claude Code 原生 `/goal <完成條件>`。它是 session 範圍的 Stop hook：每回合後由小模型依對話判條件達成沒，沒達成就自動開下一回合；有背景工作時延後評估；`--resume` 會還原進行中的 goal；`claude -p "/goal …"` 也跑得完整迴圈。條件寫成 Claude 自己的輸出證明得了的（例「`python -X utf8 -m pytest -q <檔>` 全綠且 `git status` 乾淨」），加「或 20 回合後停」限次；`/goal` 要人打，模型不會自己設；context 滿了靠自動壓縮續命。要換 session 或換機器才寫交接單走 `/continue`。不另寫外部 watcher 一棒接一棒起 `claude -p "/continue"`：原生已有同樣的迴圈，而且 `-p` 將來預設 `--bare`、不載 skill，watcher 會靜默失效。
 - 出自：[[feedback-原設計者看checklist與原話輯不看接續單-給人看的現況對照與待決要放checklist-接續單只給ai]]、[[總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件]]、[[裁定改了之後要回頭改派工單上的舊句-接手的總控台讀到舊說法會重開已做完的工作]]、[[feedback-交給使用者的開工句與計畫交出前要自審-對得上最新計畫嗎-每條指示這裡真的需要嗎-剛改的東西影響哪些已給出的內容]]
 
 ## 9. 對人回報
 
-- 指稱 session 一律用分頁標題看得到的軌名＋分支；`claude-xx` 是 session 間通訊的地址，人看不見。開工句第一句放軌名，分頁標題才看得出來。
+- 指稱 session 一律用軌名＋分支：工作軌的通訊名字就是軌名（`--name`），人在 `claude agents` 清單與分頁標題看到的是同一個；沒設名字的 session 才是人看不見的 claude-xx。開工句第一句放軌名，人貼開的分頁標題才看得出來。
 - 要人決定的事當場白話列內容、附建議；只寫「待你裁 N 條」或把內容推到檔裡，人視為推卸責任。
 - 每條回報用「他會體驗到的事」說：一句現象＋一句現在到哪＋一句差什麼；把代號（G、E、軌名、commit）全拿掉後還讀得通才算，代號只留在裁定帳與文件。最後一定有「一句話版」。細節見活卡 [[feedback-收尾報告使用者視角四要素-白話綜觀非片段細節]]（`memory/行為契約/`）。
 - 成本數字的形狀：token 寫「原本大概多少、後來多少」與倍率，不用美金；耗時條列「項目 × 對照哪條目標 × 多耗幾秒」，從帳本算不用估。

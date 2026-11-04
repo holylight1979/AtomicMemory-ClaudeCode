@@ -230,8 +230,7 @@ print("PROBE_JSON " + json.dumps([str(x) for x in getattr(mod, sys.argv[2])()], 
 """
 
 
-@pytest.mark.parametrize("tool,func", [("atom-date-lint.py", "indexed_atoms"), ("memory-effect-report.py", "_load_atoms"),
-                                       ("native-memory-bridge.py", "_core_atoms")])
+@pytest.mark.parametrize("tool,func", [("atom-date-lint.py", "indexed_atoms"), ("memory-effect-report.py", "_load_atoms")])
 def test_tools_reading_json_directly_still_see_personal_cards(mem, tool, func):
     _with_two_rows(mem)
     _write_card(mem)

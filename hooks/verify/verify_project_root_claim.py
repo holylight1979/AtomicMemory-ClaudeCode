@@ -360,6 +360,18 @@ def test_fingerprint_changes_with_declaration_and_matches_state(tree):
     assert R(cwd).fingerprint != fp1
 
 
+def test_fingerprint_ignores_cwd_case_and_subdir(tree):
+    """同一個生效根，cwd 大小寫或子目錄不同，指紋不變：壓縮／resume 時不得誤判換根重建 state。"""
+    scripts = tree / "GameA" / "Server" / "scripts"
+    fp = R(scripts).fingerprint
+    pr.clear_cache()
+    assert R(scripts / "lua" / "quest").fingerprint == fp      # 同一認領範圍內的子目錄
+    pr.clear_cache()
+    swapped = str(scripts)
+    swapped = swapped[0].swapcase() + swapped[1:] if swapped[0].isalpha() else swapped.upper()
+    assert R(swapped).fingerprint == fp
+
+
 def test_cache_invalidates_on_declaration_mtime(tree):
     cwd = tree / "GameA" / "Client"
     assert R(cwd).claimed_by == "nearest"

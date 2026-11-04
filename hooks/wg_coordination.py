@@ -10,24 +10,36 @@ wg_coordination.py — 跨 session 協調（衝突預警）。
 每行程一次 stderr）。observation log 落 Logs/session-coordination/<sid>.jsonl
 （per-session 分檔迴避跨行程共檔 append/rotate 競寫；log 記完整 session id，
 警告文字才用短 id）。config: coordination.*（enabled 一鍵關）。
+
+警告附對方 session 名稱（規則 COORD_WARN_PEER_NAME）：真要發警告時才跑一次 `claude agents --json`
+（官方 agent-view「列為 JSON」，給每個活 session 的 sessionId／name），對到名字就寫進警告、
+叫 Claude 可用 SendMessage 找對方協調；對不到（對方已關）就只附短 id，叫不到另寫 stderr 與 log 一行。
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import WORKFLOW_DIR, _now_iso, rotate_log_if_oversized, v6_enabled
 
 COORD_LOG_DIR = WORKFLOW_DIR.parent / "Logs" / "session-coordination"
 
 _STATE_SIZE_LIMIT = 512 * 1024
+_AGENTS_TIMEOUT_S = 1.5   # `claude agents --json` 本機實測約 0.6 秒；PreToolUse 整支上限 5 秒
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 # 每行程一次的 stderr 去重（hook 行程短命，作用域=單次 hook 呼叫）
 _stderr_emitted: set = set()
+# 活 session 的 sessionId → 名字；一個 hook 行程只查一次（None＝還沒查）
+_peer_names_cache: Optional[Dict[str, str]] = None
 
 
 def _stderr_once(key: str, msg: str) -> None:
@@ -35,10 +47,43 @@ def _stderr_once(key: str, msg: str) -> None:
         return
     _stderr_emitted.add(key)
     try:
-        import sys
         sys.stderr.write(msg + "\n")
     except OSError:
         pass
+
+
+def _peer_names(session_id: str) -> Dict[str, str]:
+    """規則 COORD_WARN_PEER_NAME：活 session 的 sessionId → 名字（SendMessage 用的那個）。
+    執行檔用 Claude Code 給子行程的 CLAUDE_CODE_EXECPATH，沒有才找 PATH 上的 claude。
+    叫不到、逾時、不是 JSON → 空 dict，寫 stderr 與 log 一行（警告退回短 id）。"""
+    global _peer_names_cache
+    if _peer_names_cache is not None:
+        return _peer_names_cache
+    _peer_names_cache = {}
+    exe = os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
+    try:
+        if not exe:
+            raise FileNotFoundError("找不到 claude 執行檔（CLAUDE_CODE_EXECPATH 與 PATH 都沒有）")
+        r = subprocess.run([exe, "agents", "--json"], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", stdin=subprocess.DEVNULL, timeout=_AGENTS_TIMEOUT_S,
+                           creationflags=_NO_WINDOW)
+        rows = json.loads(r.stdout or "[]")
+        for a in rows if isinstance(rows, list) else []:
+            if isinstance(a, dict) and a.get("sessionId") and a.get("name"):
+                _peer_names_cache[str(a["sessionId"])] = str(a["name"])
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        coord_log(session_id, "fail_open", degraded_reason=f"agents_json:{type(e).__name__}:{e}")
+        _stderr_once("agents", f"[Guardian:Coord] 查不到對方 session 名稱（claude agents --json 失敗），警告只附短 id：{e}")
+    return _peer_names_cache
+
+
+def _peer_label(session_id: str, peer_sid: str) -> Tuple[str, str]:
+    """(警告裡怎麼稱呼對方, 協調提示)。對到名字 → ("`名字`，短 id", "可用 SendMessage 傳給 `名字` 協調；")；
+    對不到 → (短 id, "")，文字跟沒有名字時一樣。"""
+    name = _peer_names(session_id).get(peer_sid, "")
+    if not name:
+        return peer_sid[:8], ""
+    return f"`{name}`，{peer_sid[:8]}", f"可用 SendMessage 傳給 `{name}` 協調；"
 
 
 def _norm_path(p: str) -> str:
@@ -209,6 +254,7 @@ def check_cross_session_conflict(
                 ):
                     continue
                 hit = {
+                    "sid": session_id,
                     "peer_sid": entry_sid,
                     "peer_sid8": entry_sid[:8],
                     "path": file_path,
@@ -243,19 +289,21 @@ def check_cross_session_conflict(
 
 
 def format_conflict_warning(hit: Dict[str, Any]) -> str:
+    who, hint = _peer_label(hit.get("sid", ""), hit["peer_sid"])
     return (
-        f"⚠️ [Guardian:CoordWarn] 另一個活躍 session（{hit['peer_sid8']}）也改過此檔："
+        f"⚠️ [Guardian:CoordWarn] 另一個活躍 session（{who}）也改過此檔："
         f"{hit['path']}（最近 {hit['peer_at']}，共 {hit['peer_count']} 次）。"
-        "共用工作樹下後寫覆蓋前寫、無自動合併——請先確認不互踩（必要時與使用者確認分工），"
+        f"共用工作樹下後寫覆蓋前寫、無自動合併——請先確認不互踩（{hint}必要時與使用者確認分工），"
         "收尾 staging 只揀自己的檔、勿 git add -A。"
     )
 
 
 def format_late_collision(hit: Dict[str, Any]) -> str:
+    who, hint = _peer_label(hit.get("sid", ""), hit["peer_sid"])
     return (
-        f"⚠️ [Guardian:CoordWarn] 寫後偵測：session {hit['peer_sid8']} 於 60 秒內"
+        f"⚠️ [Guardian:CoordWarn] 寫後偵測：session {who} 於 60 秒內"
         f"也寫過 {hit['path']}（{hit['peer_at']}）。兩邊幾乎同時首寫、寫前互看不見，"
-        "請檢查是否覆蓋了對方的內容。"
+        f"請檢查是否覆蓋了對方的內容{('（' + hint.rstrip('；') + '）') if hint else ''}。"
     )
 
 
@@ -325,14 +373,17 @@ def check_bash_git_finalize(
                 if isinstance(m, dict) and (m.get("session_id") or owner) != session_id
             )
             if n > 0 and owner and owner != session_id:
-                peers.append(f"{owner[:8]}（{n} 檔）")
+                peers.append((owner, n))
         if not peers:
             return None
-        coord_log(session_id, "bash_finalize_warn", peers=peers, cwd=cwd)
+        coord_log(session_id, "bash_finalize_warn", peers=[f"{o[:8]}（{n} 檔）" for o, n in peers], cwd=cwd)
+        named = [(*_peer_label(session_id, o), n) for o, n in peers]   # (稱呼, 協調提示, 檔數)
+        listed = "、".join(f"{who}（{n} 檔）" for who, _hint, n in named)
+        ask = "可用 SendMessage 先問對方、" if any(hint for _who, hint, _n in named) else ""
         return (
             f"⚠️ [Guardian:CoordWarn] 偵測到全域型 git 收尾指令，且同一工作樹有其他活躍 "
-            f"session 留有改動紀錄：{'、'.join(peers)}（對方可能已提交、也可能還沒——"
-            "state 不追 VCS 狀態，先 git status 查證）。"
+            f"session 留有改動紀錄：{listed}（對方可能已提交、也可能還沒——"
+            f"state 不追 VCS 狀態，{ask}先 git status 查證）。"
             "git add -A / reset --hard 會掃走或沖掉他人未提交的修改——"
             "請改用選擇性 staging（git add <自己的檔>），reset/clean 前先與使用者確認。"
         )

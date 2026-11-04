@@ -79,7 +79,7 @@
 
 ### hooks/handlers/
 
-9 個 handler 檔接 11 個事件：`PostToolUseFailure` 走 `post_tool_use`、`SubagentStop` 走 `stop`。
+12 個 handler 檔接 14 個事件：`PostToolUseFailure` 走 `post_tool_use`、`SubagentStop` 走 `stop`；`InstructionsLoaded`、`StopFailure` 由 settings.json 直接跑 handler 檔、不經 dispatcher。
 
 | 檔案 | 負責什麼 |
 |------|----------|
@@ -92,6 +92,9 @@
 | [`hooks/handlers/pre_compact.py`](../hooks/handlers/pre_compact.py) | PreCompact 事件 handler |
 | [`hooks/handlers/post_compact.py`](../hooks/handlers/post_compact.py) | PostCompact 事件 handler |
 | [`hooks/handlers/post_tool_batch.py`](../hooks/handlers/post_tool_batch.py) | PostToolBatch 事件 handler |
+| [`hooks/handlers/subagent_start.py`](../hooks/handlers/subagent_start.py) | SubagentStart 事件 handler：不經 Agent 工具的子代理（skill fork、Workflow）補記憶注入 |
+| [`hooks/handlers/instructions_loaded.py`](../hooks/handlers/instructions_loaded.py) | InstructionsLoaded 事件 handler：規則與索引載入只記帳（`Logs/instructions-loaded.jsonl`） |
+| [`hooks/handlers/stop_failure.py`](../hooks/handlers/stop_failure.py) | StopFailure 事件 handler：API 錯誤結束的回合留帳、待結算注入歸因標 aborted |
 | [`hooks/handlers/ups_gates.py`](../hooks/handlers/ups_gates.py) | UPS（UserPromptSubmit）四段之一：閘 |
 | [`hooks/handlers/ups_context.py`](../hooks/handlers/ups_context.py) | UPS 四段之一：脈絡 |
 | [`hooks/handlers/ups_search.py`](../hooks/handlers/ups_search.py) | UPS 四段之一：搜尋 |
@@ -183,7 +186,6 @@
 | [`hooks/ensure-mcp.py`](../hooks/ensure-mcp.py) | 確保 MCP 就緒 |
 | [`hooks/user-init.sh`](../hooks/user-init.sh) | shell hook |
 | [`hooks/post-git-pull.sh`](../hooks/post-git-pull.sh) | shell hook |
-| [`hooks/webfetch-guard.sh`](../hooks/webfetch-guard.sh) | shell hook |
 
 - **hooks/vcs-sync-worker.py**：
   - git：pathspec add＋commit → 拉 → push 守門。
@@ -275,7 +277,6 @@
 | [`tools/sync-atom-index.py`](../tools/sync-atom-index.py) | 同步 atom 索引 |
 | [`tools/sync-memory-index.py`](../tools/sync-memory-index.py) | 同步記憶索引 |
 | [`tools/sync_doc_counts.py`](../tools/sync_doc_counts.py) | 同步文件計數 |
-| [`tools/native-memory-bridge.py`](../tools/native-memory-bridge.py) | 原生記憶橋接 |
 | [`tools/merge-atom-index.py`](../tools/merge-atom-index.py) | 合併 atom 索引 |
 | [`tools/atom-io-audit.py`](../tools/atom-io-audit.py) | 稽核帳壞行檢查（`--check`）與修復（`--repair`） |
 
@@ -351,7 +352,6 @@
 | [`tools/memory-vector-service/`](../tools/memory-vector-service/) | 向量服務 |
 | [`tools/codex-companion/`](../tools/codex-companion/) | Codex 評估夥伴 |
 | [`tools/workflow-guardian-mcp/`](../tools/workflow-guardian-mcp/) | MCP server（Node.js） |
-| [`tools/auto-continue/`](../tools/auto-continue/) | 自動續接 |
 | [`tools/gdoc-harvester/`](../tools/gdoc-harvester/) | Google 文件收割 |
 | [`tools/unity-desktop/`](../tools/unity-desktop/) | Unity 桌面工具 |
 | [`tools/usage-snapshot/`](../tools/usage-snapshot/) | 用量快照 |
@@ -507,7 +507,7 @@ runtime state（多數 gitignored）。
 | 檔案 | 負責什麼 |
 |------|----------|
 | `Logs/` | 各種執行紀錄 |
-| `projects/<slug>/memory/` | CC 原生 auto-memory；`atom-index-bridge.md` 橋接（不是記憶層） |
+| `projects/<slug>/memory/` | CC 原生 auto-memory 目錄（已用 `autoMemoryEnabled: false` 關閉，不使用） |
 | `{project_root}/.claude/` | 專案自治層 |
 | `{project_root}/.claude/memory/` | 專案記憶 |
 | `{project_root}/.claude/project-tree.json` | 根層列 subs／子層指 root |
@@ -525,7 +525,7 @@ runtime state（多數 gitignored）。
 收尾不跑全量：該跑哪些由 AI 判斷，說修好要有改完之後的收據（[乙3](coding-guard.md#乙3-收尾閘序守門開時與收據)）。
 
 - 全量入口 [`python run_verify.py`](../run_verify.py) 已從流程拔掉，只留手動排查（全量改增量待補）。
-- 掃描範圍：[`hooks/`](../hooks/)、[`lib/`](../lib/)、[`tools/`](../tools/)、`codex-companion`、`auto-continue` 及 skills 各 [`verify/`](../verify/)。
+- 掃描範圍：[`hooks/`](../hooks/)、[`lib/`](../lib/)、[`tools/`](../tools/)、`codex-companion` 及 skills 各 [`verify/`](../verify/)。
 - `--help` 只印用法不跑。
 - 結尾印哨兵 `VERIFY_CHECK DONE cases=<n> failed=0`；有紅印 FAIL 且 exit 1。
 - 自寫收據記紅掉的測試名 `failed_cases`。

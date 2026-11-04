@@ -2,8 +2,9 @@
 name: text-score
 description: 文字評分（G15）手動叫：照文字規格逐條問免費小模型裁判，對使用者這次要的需求評一則回覆或一份文件好不好讀。使用者說「評一下這則」「幫我評分」「這段好不好讀」「評分上一則回覆」「text-score」時用。
 user-invocable: true
-triggers: 評分這則, 評一下這則, 幫我評分, 評分上一則, 這段好不好讀, 文字評分, text-score
-pattern: tool-wrapper
+when_to_use: 觸發詞：評分這則, 評一下這則, 幫我評分, 評分上一則, 這段好不好讀, 文字評分, text-score
+metadata:
+  pattern: tool-wrapper
 ---
 
 # /text-score — 叫一次文字評分

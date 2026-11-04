@@ -69,7 +69,8 @@ def non_interactive_reason(input_data: Dict[str, Any], transcript_path: Optional
     ① 環境變數 CLAUDE_COMPANION_JUDGE（裁判子 session；dispatcher 現已整組早退，這裡是第二道）；
     ② hook 輸入是 SubagentStop、或帶 agent_id（官方：子代理內才有）；
     ③ entrypoint 是 sdk-*（`claude -p`／SDK 呼叫）：環境變數 CLAUDE_CODE_ENTRYPOINT 優先（CC 設給子行程，hook 繼承），
-       沒有再看 transcript 最後一筆紀錄的 entrypoint 欄。互動入口是 cli／claude-vscode 等，不算。"""
+       沒有再看 transcript 最後一筆紀錄的 entrypoint 欄。互動入口是 cli／claude-vscode 等，不算；
+    ④ 環境變數 CLAUDE_JOB_DIR（官方：每個背景 session 都設，指向 ~/.claude/jobs/<id>）：背景工作軌，沒人守著答。"""
     env = os.environ if env is None else env
     if env.get("CLAUDE_COMPANION_JUDGE"):
         return "裁判子 session（CLAUDE_COMPANION_JUDGE=1）"
@@ -78,6 +79,8 @@ def non_interactive_reason(input_data: Dict[str, Any], transcript_path: Optional
     ep = str(env.get("CLAUDE_CODE_ENTRYPOINT") or _transcript_entrypoint(transcript_path) or "")
     if ep.startswith("sdk"):
         return f"headless／SDK（entrypoint={ep}）"
+    if env.get("CLAUDE_JOB_DIR"):
+        return "背景 session（CLAUDE_JOB_DIR）"
     return None
 
 

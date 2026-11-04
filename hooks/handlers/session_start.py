@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import (
     CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
     MEMORY_INDEX,
-    _now_iso, _atom_debug_error, v6_enabled,
+    _now_iso, _atom_debug_error, v6_enabled, cap_hook_output,
     get_project_memory_dir, find_project_root,
     register_project,
     read_state, write_state, new_state, _find_active_sibling_state,
@@ -1052,6 +1052,11 @@ _CARRY_ON_REBUILD = (
     # 收據全部重來，使用者剛選的「放行這一回合」當場失效
     "user_released", "pending_release", "last_block", "verify_receipts",
     "reconcile_gate_turn",
+    # 壓縮前已注入的卡名快照：SessionStart(compact) 沒送成（中途降級）時，PostCompact 要靠它暫存內文給 PostToolBatch 補位
+    "pre_compact_injected_atoms",
+    # PreCompact 剛寫的自動交接單與它的時間：SessionStart(compact) 跑在 PostCompact 之前，不搬的話重建後 PostCompact 填不了
+    # 壓縮摘要（COMPACT_SUMMARY_TO_HANDOFF）、PostToolBatch 也不送補全提示
+    "pending_handoff_emit", "handoff_stub_path", "handoff_stub_at", "pre_compact_snapshot",
 )
 
 
@@ -1105,27 +1110,14 @@ def _first_session_hint_lines(root_res, cwd: str) -> list:
 
 
 def _next_phase_pointer(cwd: str, source: str) -> list:
-    """壓縮／恢復後的接續指標：找最新的 `_staging/next-phase-*.md`（專案層優先，其次根層），
-    一行叫模型先 Read 它並覆述現狀＋下一步。壓縮會丟掉對話裡的計畫脈絡；這個檔是單一權威狀態，
-    不靠模型記得「該去讀」。找不到就不吵。fail-open。"""
+    """壓縮／恢復後的接續指標：找最新的交接單（與 /continue 查詢同一組檔：ups_search.continue_handoff_path，專案層與根層
+    staging 的 next-phase*.md 取最新），一行叫模型先 Read 它並覆述現狀＋下一步。壓縮會丟掉對話裡的計畫脈絡；這個檔是
+    單一權威狀態，不靠模型記得「該去讀」。找不到就不吵。fail-open。"""
     try:
-        from wg_core import resolve_staging_dir
-        cands = []
-        dirs = []
-        try:
-            dirs.append(resolve_staging_dir(cwd))
-        except Exception:
-            pass
-        dirs.append(MEMORY_DIR / "_staging")
-        seen = set()
-        for d in dirs:
-            if not d or str(d) in seen or not Path(d).is_dir():
-                continue
-            seen.add(str(d))
-            cands += [p for p in Path(d).glob("next-phase-*.md") if p.is_file()]
-        if not cands:
+        from handlers.ups_search import continue_handoff_path
+        newest = continue_handoff_path("", cwd)
+        if not newest:
             return []
-        newest = max(cands, key=lambda p: p.stat().st_mtime)
         why = "context 剛壓縮" if source == "compact" else "session 恢復"
         return [
             f"[Guardian:Resume] {why}：對話裡的計畫脈絡可能已失真 → 先 `Read {newest.as_posix()}`"
@@ -1151,9 +1143,54 @@ def _take_git_snapshot(state: Dict[str, Any], cwd: str) -> None:
         state["git_snapshot"] = snap
 
 
-def _ss_output(lines: List[str]) -> str:
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}},
-                      ensure_ascii=False)
+def _compact_recovery(existing: Optional[Dict[str, Any]], config: Dict[str, Any]) -> Tuple[str, List[str], List[str]]:
+    """壓縮前已注入卡的緊湊內文（規則 COMPACT_REINJECT_AT_SESSION_START）。從壓縮前那份 state 組：名單是 PreCompact 快照
+    pre_compact_injected_atoms（SessionStart(compact) 跑在 PostCompact 之前），卡路徑照它的 atom_index——壓縮時 cwd 跟開場
+    不同而走重建分支也一樣送得出。組法與預算同 post_compact.recovery_blob。回 (內文, 送出的卡名, 索引查不到的卡名)；
+    組不出 → 空，內文交給 PostCompact 暫存、PostToolBatch 補位；出錯另寫 stderr 一行。"""
+    if not existing:
+        return "", [], []
+    try:
+        from handlers.post_compact import recovery_blob
+        return recovery_blob(existing, config)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Atom Recovery] SessionStart(compact) 組不出卡片內文，改由 PostToolBatch 補位：{type(e).__name__}: {e}",
+              file=sys.stderr)
+        return "", [], []
+
+
+_RESUME_CACHE_NOTE_MIN_TOKENS = 100_000   # 規則 RESUME_CACHE_REWRITE_NOTE：快取多半失效、重送量到這裡才提
+
+
+def _resume_cache_note(input_data: Dict[str, Any], source: str) -> str:
+    """規則 RESUME_CACHE_REWRITE_NOTE：重開舊 session 要重寫多少快取，一行給使用者（systemMessage）與 Claude（additionalContext）。
+    資料是官方 SessionStart(resume／fork) 輸入：context_tokens＝第一個請求要重送的 token 數，prompt_cache_likely_expired＝
+    快取多半已失效（閒置超過存留期、或之後壓縮過），seconds_since_last_response＝閒置秒數。快取還在、量不到門檻都不提；
+    欄位沒給（舊版 Claude Code、逐字稿還沒有回應）＝估不出，不送。"""
+    if source not in ("resume", "fork") or input_data.get("prompt_cache_likely_expired") is not True:
+        return ""
+    try:
+        tokens = int(input_data.get("context_tokens") or 0)
+        idle_s = int(input_data.get("seconds_since_last_response") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if tokens < _RESUME_CACHE_NOTE_MIN_TOKENS:
+        return ""
+    if idle_s >= 3600:
+        idle = f"距上次回應約 {idle_s / 3600:.1f} 小時，"
+    elif idle_s >= 60:
+        idle = f"距上次回應約 {idle_s // 60} 分鐘，"
+    else:
+        idle = ""
+    return (f"[Guardian:ResumeCache] {idle}快取多半已失效：這次重開的第一個請求要重寫約 {round(tokens / 10000)} 萬 token 快取；"
+            "要省就改開新 session 接續。")
+
+
+def _ss_output(lines: List[str], system_message: str = "") -> str:
+    out: Dict[str, Any] = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}}
+    if system_message:   # 給使用者看的那一行（目前只有 RESUME_CACHE_REWRITE_NOTE）
+        out["systemMessage"] = system_message
+    return json.dumps(cap_hook_output(out), ensure_ascii=False)
 
 
 def _fallback_output(lines: List[str]) -> str:
@@ -1213,15 +1250,18 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 }
             write_state(session_id, redirect_state)
             lines = [f"[Workflow Guardian] Session merged ({source}).", *root_lines]
-            print(json.dumps({
+            print(json.dumps(cap_hook_output({
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
                     "additionalContext": "\n".join(lines),
                 }
-            }, ensure_ascii=False))
+            }), ensure_ascii=False))
             sys.exit(0)
 
     existing = read_state(session_id)
+    # 壓縮後送回的卡片內文：在兩條路（沿用舊 state／專案根變了重建）分岔前從舊 state 組好，匯合後才送
+    compact_blob, compact_sent, compact_unresolved = (
+        _compact_recovery(existing, config) if source == "compact" else ("", [], []))
     _hook_lap("前置")
     _index_rebuild_notes: List[str] = []   # resume 分支不重建，仍要有值供收尾組訊息
     vector_flag: Optional[str] = None      # 新 session 在健檢段就 ping 向量服務；resume 分支留 None，收尾再 ping
@@ -1251,13 +1291,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if kq_count > 0:
             items = [q["content"][:40] for q in state["knowledge_queue"][:3]]
             lines.append(f"Pending knowledge: {'; '.join(items)}")
-        # 注：full `/compact` 會觸發 SessionStart(source=compact)
-        # （序：PreCompact → SessionStart(compact) → PostCompact），故本分支非死碼、保留。
-        # 但此處僅「列出壓縮前 atom 名稱」（資訊性 ~30 tok）；完整內文的壓縮後復原由
-        # PostCompact(snapshot stash)→PostToolBatch(一次性注入) 負責（選配 #4），兩者互補不重複。
-        # 且 SessionStart(compact) 不保證觸發（no-op / auto-compact 僅 PreCompact+PostCompact），
-        # 故內文復原不可依賴本分支。詳見 _AIDocs/ClaudeCodeInternals/cc-hook-system.md。
-        if prev_atoms:
+        # 壓縮後送得出卡片內文的話卡名已在內文裡；resume 或組不出內文才只列卡名
+        if prev_atoms and not compact_blob:
             atom_names = ", ".join(prev_atoms)
             lines.append(f"[Atom Recovery] 壓縮前已載入: {atom_names}")
     else:
@@ -1524,6 +1559,17 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:
                 _atom_debug_error("project_hook:session_start", e)
 
+    if compact_blob:
+        # 規則 COMPACT_REINJECT_AT_SESSION_START：送出的卡算回已注入（使用偵測、效用歸因接得上），記號讓 PostCompact 不暫存、
+        # PostToolBatch 不重送。重建分支中途降級退出就到不了這裡、沒有記號，照舊由 PostToolBatch 補位
+        lines.append(compact_blob)
+        state["compact_reinjected_at"] = _now_iso()
+        state["injected_atoms"] = list(dict.fromkeys((state.get("injected_atoms") or []) + compact_sent))
+        if compact_unresolved:   # 索引查不到的卡留痕，不靜默少送
+            state["pending_reinjection_unresolved"] = compact_unresolved
+    resume_note = _resume_cache_note(input_data, source)   # 規則 RESUME_CACHE_REWRITE_NOTE：降級提早送出時也在 additionalContext 裡
+    if resume_note:
+        lines.append(resume_note)
     _hook_timing.set_fallback(lambda: _fallback_output(lines))   # compact／resume 那支也有代送（startup 前面已登記）
     if _hook_lap("開場主段"):
         _degraded_exit(session_id, state, lines)
@@ -1699,7 +1745,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     _hook_lap("清舊 state 與向量旗標")
 
     _hook_timing.claim_output()
-    print(_ss_output(lines))
+    print(_ss_output(lines, resume_note))
 
     # ── Vector service：fire-and-forget 啟動器（自癒/觀測邏輯在 starter.py）──
     # 已降級就不起：輸出送出後行程還得在上限內結束（Claude Code 取消時不保證採用已印的輸出）

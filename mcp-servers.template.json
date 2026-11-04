@@ -1,16 +1,19 @@
 {
   "_version": 1,
-  "_description": "原子記憶系統標準 MCP servers。ensure-mcp.py 讀取此檔自動合併到 ~/.claude.json",
+  "_description": "原子記憶系統標準 MCP servers。ensure-mcp.py 讀取此檔、用 claude mcp add-json 註冊（Windows 包隱窗外殼 pythonw run-hidden.py）；_version 升了才覆寫已註冊的",
   "servers": {
     "MCPControl": {
       "npm_package": "computer-use-mcp",
       "entry_relative": "computer-use-mcp/dist/main.js",
+      "type": "stdio",
+      "env": {},
       "description": "螢幕截圖 + 滑鼠鍵盤操控桌面應用"
     },
     "playwright": {
       "npm_package": "@playwright/mcp",
       "entry_relative": "@playwright/mcp/cli.js",
       "type": "stdio",
+      "env": {},
       "description": "瀏覽器自動化（導航/點擊/填表/截圖）"
     },
     "workflow-guardian": {

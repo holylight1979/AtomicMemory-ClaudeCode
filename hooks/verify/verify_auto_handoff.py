@@ -14,6 +14,9 @@
    量測回 0.0 + overhead 補償；token_warn_payload 門檻/一次性/disabled/純函式無副作用。
 8. **Phase 3 Layer 4（SessionEnd 兜底）**：session 直接結束有工作且無手寫 handoff 時寫客觀
    stub（不設 pending_handoff_emit）；sessionend_fallback=false 不寫；尊重手寫；無工作不寫。
+9. **壓縮摘要填交接單（COMPACT_SUMMARY_TO_HANDOFF）**：PostCompact 的 compact_summary 寫進這一輪自動 stub
+   的「壓縮前脈絡」段（插在【前置脈絡】前、記號之間）；重跑換新不重複、記號外內容原樣；上一輪留下的 stub、
+   沒有摘要都不寫。
 
 受控 tmp staging + monkeypatch state I/O + resolve_staging_dir + _git，不依賴磁碟/真實 git。
 """
@@ -32,6 +35,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(CLAUDE / "lib"))
 
 import handlers.pre_compact as prc  # noqa: E402
+import handlers.post_compact as poc  # noqa: E402
 import handlers.post_tool_batch as ptb  # noqa: E402
 import handlers.session_end as se  # noqa: E402
 import wg_handoff as wh  # noqa: E402
@@ -69,7 +73,7 @@ def _setup(tmp_path, monkeypatch, state):
     def fake_write(sid, st):
         holder["state"] = st
 
-    for mod in (prc, ptb):
+    for mod in (prc, ptb, poc):
         monkeypatch.setattr(mod, "_ensure_state", fake_ensure, raising=False)
         monkeypatch.setattr(mod, "write_state", fake_write, raising=False)
     monkeypatch.setattr(prc, "resolve_staging_dir", lambda cwd: staging)
@@ -170,6 +174,19 @@ def test_layer3_handoff_only_no_reinjection(tmp_path, monkeypatch, capsys):
     ctx = json.loads(capsys.readouterr().out.strip())["hookSpecificOutput"]["additionalContext"]
     assert "Auto-Handoff" in ctx
     assert "[Atom:" not in ctx, "無 reinjection 時不應有 atom 復原內文"
+
+
+def test_layer3_short_hint_when_stub_has_compact_summary(tmp_path, monkeypatch, capsys):
+    """交接單已含壓縮摘要（COMPACT_SUMMARY_TO_HANDOFF）→ 補全提示送短版，不再要求補三區塊。"""
+    stub = tmp_path / "next-phase-auto.md"
+    stub.write_text("# 交接\n<!-- compact-summary:begin -->\n摘要\n<!-- compact-summary:end -->\n", encoding="utf-8")
+    st = _state()
+    st["pending_handoff_emit"] = True
+    st["handoff_stub_path"] = str(stub)
+    _setup(tmp_path, monkeypatch, st)
+    _run(ptb.handle_post_tool_batch, {"session_id": "test-sid", "tool_calls": [{"name": "Read"}]})
+    ctx = json.loads(capsys.readouterr().out.strip())["hookSpecificOutput"]["additionalContext"]
+    assert "壓縮摘要已填入" in ctx and "三區塊" not in ctx
 
 
 # ─── 不變式 5：should_write_stub ─────────────────────────────────────────────
@@ -452,3 +469,59 @@ def test_sessionend_no_work_no_stub(tmp_path, monkeypatch):
     holder, staging = _setup_session_end(tmp_path, monkeypatch, _state(mod=[]))
     _run(se.handle_session_end, {"session_id": "test-sid"}, {})
     assert not (staging / STUB_NAME).exists(), "無 modified_files 不應寫 stub"
+
+
+# ─── 不變式 9：壓縮摘要填交接單（COMPACT_SUMMARY_TO_HANDOFF）──────────────────
+
+
+def _compact_round(tmp_path, monkeypatch):
+    """跑一輪 PreCompact（寫 stub），回 (holder, stub 路徑)。"""
+    holder, staging = _setup(tmp_path, monkeypatch, _state())
+    _run(prc.handle_pre_compact, {"session_id": "test-sid", "cwd": "/proj"})
+    return holder, staging / STUB_NAME
+
+
+def test_compact_summary_filled_into_stub(tmp_path, monkeypatch):
+    holder, stub = _compact_round(tmp_path, monkeypatch)
+    before = stub.read_text(encoding="utf-8")
+    _run(poc.handle_post_compact, {"session_id": "test-sid", "trigger": "auto",
+                                   "compact_summary": "SUMMARY-A：做到第三步"})
+    text = stub.read_text(encoding="utf-8")
+    assert "## 0.【壓縮前脈絡】" in text and "SUMMARY-A：做到第三步" in text and "（auto）" in text
+    assert text.index("SUMMARY-A") < text.index("## 1.【前置脈絡】"), "摘要段要在前置脈絡前"
+    assert text.splitlines()[0] == before.splitlines()[0], "第一行（/continue 選單摘要）不能動"
+    for b in SIX_BLOCKS:
+        assert b in text
+
+
+def test_compact_summary_idempotent_keeps_other_content(tmp_path, monkeypatch):
+    """重跑只換記號之間那段；模型補好的內容（記號外）原樣。"""
+    holder, stub = _compact_round(tmp_path, monkeypatch)
+    _run(poc.handle_post_compact, {"session_id": "test-sid", "compact_summary": "SUMMARY-A"})
+    filled = stub.read_text(encoding="utf-8").replace(
+        "<!-- TODO(模型補全)：步驟清單 + 指明工具選擇，避免下個 Claude 重新評估 -->", "模型補的做法 XYZ")
+    stub.write_text(filled, encoding="utf-8")
+    _run(poc.handle_post_compact, {"session_id": "test-sid", "compact_summary": "SUMMARY-B"})
+    text = stub.read_text(encoding="utf-8")
+    assert "SUMMARY-B" in text and "SUMMARY-A" not in text
+    assert text.count("<!-- compact-summary:begin -->") == 1 and text.count("## 0.【壓縮前脈絡】") == 1
+    assert "模型補的做法 XYZ" in text
+    assert text == filled.replace("SUMMARY-A", "SUMMARY-B").replace(
+        _summary_ts(filled), _summary_ts(text)), "記號外的內容要一字不差"
+
+
+def _summary_ts(text):
+    """摘要段來源行的時間戳（每次寫入不同，比對時換掉）。"""
+    line = next(l for l in text.splitlines() if l.startswith("> 來源：PostCompact"))
+    return line.split("，")[1].split("。")[0]
+
+
+def test_compact_summary_skips_stale_stub_and_empty_summary(tmp_path, monkeypatch):
+    """上一輪留下的 stub（這輪 PreCompact 沒寫）不寫；沒有摘要也不寫。"""
+    holder, stub = _compact_round(tmp_path, monkeypatch)
+    before = stub.read_text(encoding="utf-8")
+    _run(poc.handle_post_compact, {"session_id": "test-sid", "compact_summary": ""})
+    assert stub.read_text(encoding="utf-8") == before
+    holder["state"]["pre_compact_snapshot"] = "9999-01-01T00:00:00+08:00"   # 這輪 PreCompact 晚於 stub
+    _run(poc.handle_post_compact, {"session_id": "test-sid", "compact_summary": "SUMMARY-X"})
+    assert stub.read_text(encoding="utf-8") == before

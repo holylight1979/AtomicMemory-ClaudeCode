@@ -9,7 +9,8 @@ Events handled:
   PostToolUse     → state.append_event + checkpoint detect → spawn audit
   Stop            → state ops + heuristic soft gate（只落說明檔，不 block）
                     + 驗收裁判背景審（spawn，不等）+ score gate → spawn audit
-                    收尾一律立即放行；審查結果落 assessment 檔，下一則 UserPromptSubmit 附上
+                    收尾一律放行；審查結果落 assessment 檔，下一則 UserPromptSubmit 附上；
+                    指令帶 `rewake` 參數（async＋asyncRewake）時再等結果，可行動發現 exit 2 立刻叫醒 Claude
   SessionEnd      → flush metrics to reflection_metrics.json
 
 Fast path: config disabled / codex CLI missing → exit(0) immediately.
@@ -198,6 +199,9 @@ def _spawn_audit_subprocess(turn_data: Dict[str, Any]) -> None:
             kwargs["start_new_session"] = True
 
         proc = subprocess.Popen([sys.executable, str(AUDIT_SCRIPT)], **kwargs)
+        _SPAWNED_FILES.append(WORKFLOW_DIR / (
+            f"companion-assessment-{turn_data['session_id']}-t{int(turn_data['turn_index'])}"
+            f"-{turn_data['assessment_type']}.json"))
         try:
             proc.stdin.write(
                 json.dumps(turn_data, ensure_ascii=False).encode("utf-8")
@@ -804,7 +808,77 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
     _output_nothing()
 
 
+# ─── Stop 的 asyncRewake 模式 ─────────────────────────────────────────────────
+# settings.json 的 Stop 指令尾端帶 `rewake` 參數 = 該條 hook 設了 async＋asyncRewake。
+# 此模式下 Stop 起完背景審後留在原地等結果檔（CC 不擋它，timeout 照算）；
+# 有可行動的發現 → stderr 寫結論＋exit 2，CC 立刻喚醒 Claude。
+# 沒發現 → exit 0，結果檔照舊留給下一則 UserPromptSubmit 記一行。
+# 等不到（超過 rewake_wait_sec、或 hook 被 timeout 砍）→ detached 審查仍會落檔，下一則照常帶回。
+_SPAWNED_FILES: list = []        # 本次 Stop 起的審查，預期會落的結果檔
+_REWAKE_WAIT_SEC = 270           # 審查上限約 assessment_timeout 120s＋重試；settings timeout 設 300
+_SEV_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _rewake_message(session_id: str, config: Dict[str, Any]) -> str:
+    """讀已落的結果檔，挑可行動的（門檻同 UserPromptSubmit 的完整說明）組成喚醒訊息，並標 injected。"""
+    threshold = _SEV_RANK.get(str(config.get("max_inject_severity", "high")).lower(), 2)
+    blocks: list[str] = []
+    for path in _SPAWNED_FILES:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("injected"):
+            continue
+        a = data.get("assessment") or {}
+        corrective = a.get("corrective_prompt", "") or a.get("recommended_action", "")
+        if (str(a.get("delivery", "inject")).lower() == "ignore"
+                or str(a.get("status", "")).lower() != "needs_followup"
+                or _SEV_RANK.get(str(a.get("severity", "low")).lower(), 0) < threshold
+                or not corrective):
+            continue
+        lines = [f"[Codex Companion: {data.get('type', 'review')} t{data.get('turn_index', 0)}] "
+                 f"status={a.get('status')} severity={a.get('severity')}"]
+        for label, key in (("摘要", "summary"), ("事證", "evidence")):
+            if a.get(key):
+                lines.append(f"{label}：{a[key]}")
+        lines.append(f"建議：{corrective}")
+        blocks.append("\n".join(lines))
+        _mark_injected(path, data)
+    return "\n\n".join(blocks)[:1800]
+
+
+def _rewake_wait(session_id: str, config: Dict[str, Any]) -> None:
+    """等本次 Stop 起的審查全落檔（或逾時），有可行動發現就 exit 2 喚醒 Claude。"""
+    import time
+    pending = list(_SPAWNED_FILES)
+    deadline = time.monotonic() + int(config.get("rewake_wait_sec", _REWAKE_WAIT_SEC))
+    while pending and time.monotonic() < deadline:
+        pending = [p for p in pending if not p.exists()]
+        if pending:
+            time.sleep(2)
+    if pending:   # 可觀測性：沒等到要留訊號；detached 審查之後仍會落檔
+        _log_err("codex:rewake_wait_timeout",
+                 TimeoutError(f"{len(pending)} audit(s) not done in time; next prompt will carry them"))
+    msg = _rewake_message(session_id, config)
+    if msg:
+        sys.stderr.write(msg + "\n")
+        sys.exit(2)
+    sys.exit(0)
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
+    """Stop 入口：做完 _stop_work（起背景審）；rewake 模式再等結果。"""
+    try:
+        _stop_work(input_data, config)
+    except SystemExit:
+        pass
+    if "rewake" in sys.argv[1:] and _SPAWNED_FILES:
+        _rewake_wait(input_data.get("session_id", ""), config)
+    sys.exit(0)
+
+
+def _stop_work(input_data: Dict[str, Any], config: Dict[str, Any]):
     """Run heuristic soft gate（只落說明）+ 驗收裁判背景審 + score-gated turn audit (subprocess).
 
     收尾一律立即放行：本函式不呼叫裁判、不回 decision=block。

@@ -1,4 +1,9 @@
 {
+  "crossSessionInbound": "accept",
+  "cleanupPeriodDays": 14,
+  "worktree": {"baseRef": "head"},
+  "claudeMdExcludes": ["C:/Users/holylight/AGENTS.md"],
+  "autoMemoryEnabled": false,
   "permissions": {
     "allow": [
       "Bash(python *)",
@@ -87,16 +92,6 @@
       }
     ],
     "PreToolUse": [
-      {
-        "matcher": "WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" \"$HOME/.claude/hooks/run-bash-hidden.py\" webfetch-guard.sh",
-            "timeout": 20
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -195,12 +190,25 @@
           },
           {
             "type": "command",
-            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
-            "timeout": 20
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\" rewake",
+            "async": true,
+            "asyncRewake": true,
+            "timeout": 300
           },
           {
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/lang_guard.py'),run_name='__main__')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -213,6 +221,28 @@
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 20
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/handlers/instructions_loaded.py'),run_name='__main__')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/handlers/stop_failure.py'),run_name='__main__')\"",
+            "timeout": 10
           }
         ]
       }
@@ -255,5 +285,6 @@
   "theme": "light",
   "idleCompaction": false,
   "switchModelsOnFlag": false,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "model": "fable"
 }

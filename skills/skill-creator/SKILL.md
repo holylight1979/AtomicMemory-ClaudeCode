@@ -2,8 +2,9 @@
 name: skill-creator
 description: 建立、改造、稽核 Claude Code skill 的標準作業。確保每個 skill 遵循 Anthropic Progressive Disclosure 三層架構與 5 大設計模式，避免 agent 腦補亂寫。**任何要寫新 skill、改既有 skill、或評估 skill 品質的場合都該觸發。**
 user-invocable: true
-triggers: 寫 skill, 建立 skill, 新增 skill, 改造 skill, audit skill, 檢查 skill, 評估 skill, skill 設計, skill 結構, skill 重構, skill 優化
-pattern: pipeline
+when_to_use: 觸發詞：寫 skill, 建立 skill, 新增 skill, 改造 skill, audit skill, 檢查 skill, 評估 skill, skill 設計, skill 結構, skill 重構, skill 優化
+metadata:
+  pattern: pipeline
 ---
 
 # Skill：skill-creator
@@ -103,10 +104,10 @@ python scripts/audit-skill.py <path> --scope <global|project>
 - ❌ inline 整段大模板 / SOP（應抽 references/ 或 assets/）
 - ❌ scripts/*.py 缺 UTF-8 stdout 強制處理（Windows 中文必亂）
 - ❌ 全域 skill 內出現絕對路徑（Windows `[盤符]:\...` / Unix home 路徑）→ 應改 `<project>` / `~/` 佔位符
-- ❌ frontmatter 缺 `description`（官方自動觸發唯一依據，audit 判 fail）；`triggers` / `pattern` 是本機自訂欄位，缺了是 warning 不是錯
+- ❌ frontmatter 缺 `description`（官方自動觸發唯一依據，audit 判 fail）；觸發詞寫在官方 `when_to_use`、模式寫在 `metadata.pattern`，缺了是 warning 不是錯
 - ❌ 非官方拼法 `userInvocable`（官方 `user-invocable`；harness 不讀舊拼法）
-- ❌ description < 30 字 或 triggers < 3 個（undertrigger 風險）
-- ❌ pattern 欄位不在 5 模式白名單（tool-wrapper / generator / reviewer / inversion / pipeline）
+- ❌ description < 30 字 或 when_to_use 觸發詞 < 3 個（undertrigger 風險）
+- ❌ metadata.pattern 不在 5 模式白名單（tool-wrapper / generator / reviewer / inversion / pipeline）
 - ❌ 四項核心資訊沒齊就呼叫 new-skill.py（會繼承腦補風險）
 - ❌ references/ 檔 ≥ 300 行卻沒有 TOC
 
@@ -144,8 +145,8 @@ python scripts/audit-skill.py <path> --scope <global|project>
 | SKILL.md 行數 | official / local | > 500 行 → 警告（官方 Tip）；200~500 → 警告（本機目標） |
 | 絕對路徑 | local | 全域 skill 含 Windows 盤符路徑或 Unix home 路徑 → 警告，建議佔位符 |
 | description 字數 | local | < 30 字 → 警告（可能 undertrigger） |
-| **triggers 欄位** | local | 缺 / < 3 個 → 警告（本機自訂，harness 不讀；供 skill-creator 列措辭變體） |
-| **pattern 欄位** | local | 缺 / 不在 5 模式白名單 → 警告（從起點就標模式，audit 與 new-skill 都能用） |
+| **when_to_use 觸發詞** | local | 缺 / < 3 個 → 警告（官方欄位，模型挑 skill 時會看） |
+| **metadata.pattern** | local | 缺 / 不在 5 模式白名單 → 警告（從起點就標模式，audit 與 new-skill 都能用） |
 | **目錄結構** | SKILL.md > 200 行但無 scripts/references/assets 任一 → 警告（該抽分層） |
 | **evals/triggers.json**（global） | 缺檔 / 查詢 < 10 / 仍含佔位符 → 警告（無法驗證觸發精準度） |
 | 疑似重複規則 | 列出短語重複次數 ≥ 3 的段落請人審（regex 抓不準語意） |

@@ -153,7 +153,7 @@ def test_mcp_mirror_same_three_states(tmp_path, env, local, want):
 # ─── 2. 關閉時 v6 閘不擋（打開時照擋：證明替身真的會擋） ──────────────
 
 @pytest.mark.parametrize("event, tool, skip", [
-    ("SubagentStop", "", True), ("PostToolUseFailure", "Bash", True),
+    ("SubagentStop", "", False), ("PostToolUseFailure", "Bash", True),
     ("PreToolUse", "AskUserQuestion", True), ("PreToolUse", "mcp__workflow-guardian__second_opinion_start", True),
     ("PostToolUse", "Read", True), ("PostToolUse", "mcp__workflow-guardian__need_goal", True),
     ("PreToolUse", "Edit", False), ("PostToolUse", "Bash", False), ("Stop", "", False), ("UserPromptSubmit", "", False),
@@ -167,7 +167,8 @@ def test_dispatcher_only_routes_pre_v6_events_and_tools(event, tool, skip):
     ({}, {"hook_event_name": "SubagentStop", "session_id": _SID}),
 ])
 def test_dispatcher_off_exits_before_handler(tmp_path, extra_env, inp):
-    """裁判子 session、SubagentStop：關閉時一進門就退，不輸出、不留計時帳（hook_timing 是 v6 才有）。"""
+    """裁判子 session：關閉時一進門就退；SubagentStop：關閉時進 handler 只記效用帳（SUBAGENT_RESULT_FROM_SUBAGENT_STOP，
+    這裡沒有 state 就什麼都不記）。兩者都不輸出、不留計時帳（hook_timing 是 v6 才有）。"""
     env = {k: v for k, v in os.environ.items() if k not in ("WG_V6", "CLAUDE_COMPANION_JUDGE")}
     env.update({"WG_CLAUDE_DIR": str(tmp_path), "WG_TEST_LOGS_DIR": str(tmp_path / "Logs"), "WG_V6": "0", **extra_env})
     r = subprocess.run([sys.executable, str(HOOKS_DIR / "workflow-guardian.py")], input=json.dumps(inp).encode(),

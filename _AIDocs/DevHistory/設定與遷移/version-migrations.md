@@ -24,6 +24,7 @@
 | 5.1 後續 | 2026-07-31~08-06 | 協作與驗收 | 跨 session 衝突預警（純檔案）；PAN 預告閘門（終局 warn）；驗收裁判四段閉環 + 裁判後端鏈 |
 | 5.1 後續 | 2026-08-25~31 | 分類階層化 + 注入根治 + 落點單源 | 核心 atom 進 `memory/<範疇>/`、MEMORY.md 目錄化、寫入閘 domain 必填；AEC 殘檔帳本；DeferralGate；per-turn 硬頂 500→1200、裁切回填、分級依 token、同題去冗；write-gate 去重限層；realm 閘；橋接檔重產；回訪機制；跨專案索引快取；專案層判定單源；atom 落點單一裁決（js 鏡像全拔）；退避偵測引號內不觸發 |
 | V6.0 | 2026-10-12 | 寫程式碼的進化 | 部位導讀卡注入＋寫入閘（三項證據、定位三行、意圖分片、Bash／PowerShell 寫入目標解析）；驗證帳本＋Stop 對帳閘／量尺閘；寫入閘分型與路由（hub 卡、org）；Depends 讀檔召回；候選填空（觸發詞、第二次 Edit、全專案）；壓縮後每部位綜觀重注；第二意見與候選池 MCP（12 tool）；從零掃表、refix 熱點、scorecard；hook state 並行寫入安全；執行計畫與題組見 `DevHistory/v6.0-寫程式碼的進化-2026-10/` |
+| V6.1 | 2026-11-04 | 對 Claude Code 適應性補正 | 相容修正（子代理效用帳改從 SubagentStop 回填、hook 輸出 9,000 字元自截、壓縮後 SessionStart(compact) 直送卡片、專案根指紋不吃 cwd 寫法、裁判白名單、收尾等背景延後）；修剪（auto memory 關、工作軌 `--name`／`--worktree`、Claude 間改 SendMessage、auto-continue 換 `/goal`、ensure-mcp 走 `claude mcp add-json`、skill `when_to_use`）；進化（非真人訊息不注入、`/continue` 接交接單、SubagentStart 補位、Codex asyncRewake、InstructionsLoaded／StopFailure 記帳、MCP instructions、官方健檢與四支量尺）；release note 見 `DevHistory/v6.1-對CC適應性補正-2026-11/` |
 
 ## 4.x → 5.1：升級後確認清單
 

@@ -18,9 +18,8 @@
 ## 開新軌
 
 1. 軌名望文生義（`track-login-fix`）。小幅改動不開軌，直接在 main 改、驗、推。
-2. 建 worktree 與分支：`git worktree add <worktree 路徑> -b <分支> main`。
-3. 寫派工單到 `to-track-<軌>/000-prompt.md`。
-4. `/console 開工句 <軌名> <派工單路徑>`，交對人轉給人貼。
+2. 寫派工單到 `to-track-<軌>/000-prompt.md`。
+3. `/console 開工 <軌名> <派工單路徑>`：worktree `.claude/worktrees/<軌名>` 與分支 `worktree-<軌名>` 由 Claude Code 建；開不成才 `/console 開工句`，交對人轉給人貼。
 
 ## 派工單範本
 
@@ -29,7 +28,7 @@
 to: <軌名>
 seq: <NNN>
 type: 派工（<一句話這件要做成什麼>）
-from: 調度總控台 <調度名>
+from: 調度總控台
 原始目標：<使用者原話或原設計者定的目標，一句；判準以原文為準>
 ---
 ## 做什麼

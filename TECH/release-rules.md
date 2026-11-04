@@ -29,7 +29,7 @@
 - **[讀檔證據](#讀檔證據)**：[SHELL_READ_COUNTS_LIKE_READ](#shell_read_counts_like_read)
 - **[寫檔判定與連鎖斷路器](#寫檔判定與連鎖斷路器)**：[SHELL_WRITE_COMMAND_NOT_A_READ](#shell_write_command_not_a_read)・[EPHEMERAL_WRITE_NOTED_ONCE](#ephemeral_write_noted_once)・[CHAIN_NO_EDIT_NO_EDGE](#chain_no_edit_no_edge)・[CHAIN_ABORT_SHOWS_REPLACED_BLOCK](#chain_abort_shows_replaced_block)
 - **[提示、回填與收尾組裝](#提示回填與收尾組裝)**：[QUOTE_FROM_USER_OPENED_TURN](#quote_from_user_opened_turn)・[CODING_TURN_FULL_ONLY_ON_TRIGGER](#coding_turn_full_only_on_trigger)・[POINTER_NO_NAME_ECHO](#pointer_no_name_echo)・[NO_RESEND_AFTER_RESUME](#no_resend_after_resume)・[CLOSING_CALL_ALL_THREE](#closing_call_all_three)
-- **[各閘的閘級規則（照程式 RULES 原文）](#各閘的閘級規則照程式-rules-原文)**：[COMMIT_SMELL_NEW_BLOCKS](#commit_smell_new_blocks)・[SMELL_GATE_ONCE_PER_TURN](#smell_gate_once_per_turn)・[RED_TEST_BLOCKS_COMPLETION](#red_test_blocks_completion)・[DEFERRAL_OF_DOABLE_WORK](#deferral_of_doable_work)・[HARVEST_AT_PHASE_DONE](#harvest_at_phase_done)・[HARVEST_ITEM_NEEDS_RECEIPT](#harvest_item_needs_receipt)・[CLOSING_CHECK_REQUIRED](#closing_check_required)・[CLOSING_CHECK_MEMORY_NOT_DEFERRED](#closing_check_memory_not_deferred)・[SYNC_REMINDER_UNSYNCED](#sync_reminder_unsynced)・[SYNC_BLOCK_PENDING_ITEMS](#sync_block_pending_items)・[DEEP_POSTMORTEM_ON_FAILURE](#deep_postmortem_on_failure)・[ATOM_CONSUMPTION_AUDIT](#atom_consumption_audit)・[EVASION_FLAG_NEXT_PROMPT](#evasion_flag_next_prompt)・[OVERVIEW_READONLY_PATHS](#overview_readonly_paths)・[OVERVIEW_HUB_UNDER_V6](#overview_hub_under_v6)・[REMIND_PENDING_IN_STATE](#remind_pending_in_state)・[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)・[NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)
+- **[各閘的閘級規則（照程式 RULES 原文）](#各閘的閘級規則照程式-rules-原文)**：[COMMIT_SMELL_NEW_BLOCKS](#commit_smell_new_blocks)・[SMELL_GATE_ONCE_PER_TURN](#smell_gate_once_per_turn)・[RED_TEST_BLOCKS_COMPLETION](#red_test_blocks_completion)・[DEFERRAL_OF_DOABLE_WORK](#deferral_of_doable_work)・[HARVEST_AT_PHASE_DONE](#harvest_at_phase_done)・[HARVEST_ITEM_NEEDS_RECEIPT](#harvest_item_needs_receipt)・[CLOSING_CHECK_REQUIRED](#closing_check_required)・[CLOSING_CHECK_MEMORY_NOT_DEFERRED](#closing_check_memory_not_deferred)・[SYNC_REMINDER_UNSYNCED](#sync_reminder_unsynced)・[SYNC_BLOCK_PENDING_ITEMS](#sync_block_pending_items)・[DEEP_POSTMORTEM_ON_FAILURE](#deep_postmortem_on_failure)・[ATOM_CONSUMPTION_AUDIT](#atom_consumption_audit)・[EVASION_FLAG_NEXT_PROMPT](#evasion_flag_next_prompt)・[OVERVIEW_READONLY_PATHS](#overview_readonly_paths)・[OVERVIEW_HUB_UNDER_V6](#overview_hub_under_v6)・[REMIND_PENDING_IN_STATE](#remind_pending_in_state)・[STOP_REMIND_LEDGER_ONLY](#stop_remind_ledger_only)・[SUBAGENT_RESULT_FROM_SUBAGENT_STOP](#subagent_result_from_subagent_stop)・[STOP_DEFERS_WHILE_BACKGROUND_RUNNING](#stop_defers_while_background_running)・[NON_CODING_TURN_NO_NUDGE](#non_coding_turn_no_nudge)・[SUBAGENT_START_NON_AGENT_INJECT](#subagent_start_non_agent_inject)・[NON_HUMAN_PROMPT_NO_INJECT](#non_human_prompt_no_inject)・[CONTINUE_QUERY_FROM_HANDOFF](#continue_query_from_handoff)・[INSTRUCTIONS_LOADED_LEDGER](#instructions_loaded_ledger)・[STOP_FAILURE_ABORTED](#stop_failure_aborted)・[COMPACT_SUMMARY_TO_HANDOFF](#compact_summary_to_handoff)・[RESUME_CACHE_REWRITE_NOTE](#resume_cache_rewrite_note)・[COORD_WARN_PEER_NAME](#coord_warn_peer_name)・[MCP_INSTRUCTIONS_NON_CC_ONLY](#mcp_instructions_non_cc_only)・[MCP_ENTRY_HIDDEN_LAUNCHER](#mcp_entry_hidden_launcher)・[HOOK_TEXT_CAP_SELF_TRUNCATE](#hook_text_cap_self_truncate)・[COMPACT_REINJECT_AT_SESSION_START](#compact_reinject_at_session_start)
 
 ## 怎麼讀這份表
 
@@ -306,7 +306,7 @@
   - 待放行只在記下它的那個使用者回合有效；使用者打字開新回合就失效、預算重給。
   - 使用者放行同一回合整個放。
   - 之後的回合只沿用擋訊息列過的那幾件，原因還在也不再問。
-  - 沒人能回答（headless／SDK、子代理、裁判）→ 擋滿就放行並留帳。
+  - 沒人能回答（headless／SDK、背景 session〔環境變數 `CLAUDE_JOB_DIR`〕、子代理、裁判）→ 擋滿就放行並留帳。
 - **照欠／照擋**：
   - 續跑回合（背景通知、同伴訊息開的）不算換回合，照原宣稱重查。
   - 放行之後又改了檔，整份不沿用。
@@ -1254,5 +1254,49 @@
 #### STOP_REMIND_LEDGER_ONLY
 **程式原文**：Stop 遇到提醒類規則（gate_mode 回 remind）：判定照跑、一回合一次的記號照記，但只留帳（guard log event=remind）＋stderr 一行，不 output_block、不送 additionalContext 續跑、不開【收尾放行確認】、不記 pending_release、不吃擋滿預算、不算進連鎖斷路器的觸發；寫碼查核一批條目混了照擋與提醒的，只有照擋條目進擋訊息（handlers/stop._remind_logged；子代理與裁判收尾同一套）。
 
+#### SUBAGENT_RESULT_FROM_SUBAGENT_STOP
+**程式原文**：子代理注入的效用帳：背景子代理派出時 PostToolUse(Agent) 只拿到 async_launched、沒有內容；SubagentStop 依 agent_id 找 subagent_injections 最後一筆還沒結算的紀錄，output_summary 填 last_assistant_message（截 400 字）、status 改 completed、記收到結果的回合 result_turn_seq（handlers/stop._fill_subagent_result）。Stop 效用歸因收到結果才結：還沒收尾的標 waiting、不結、不標 no_output；收到結果的看收到的回合落在本回合才結算，同一 turn 已結算過也照結這幾筆（主回合注入不重算）。寫碼守門關也記（dispatcher 照樣分派 SubagentStop，記完就走、不跑寫碼查核）。對不到 agent_id（內部子代理、沒注入卡）就略過。
+
+#### STOP_DEFERS_WHILE_BACKGROUND_RUNNING
+**程式原文**：Stop 輸入的 background_tasks／session_crons 有項目＝回合在等背景工作叫醒、不是做完：紅測閘與寫碼查核照跑（看的是說了完成），其餘收尾閘（退避偵測、退縮歸屬、收割、收尾檢核、同步、深度檢討、效用歸因、底部同步擋）延到背景工作回報那次收尾。每個背景項目（task:<id>／cron:<id>）記連續延後次數（state bg_defer_counts），這次清單沒有的歸零；這次的項目全都已延滿 5 次（handlers/stop.BG_DEFER_MAX）就不再延、照擋，掛著不會結束的 Monitor、/loop 不會讓收尾閘永遠不跑。延後與到上限各寫 Logs/guard-stop_background.jsonl 一筆（event=skip／cap）＋stderr 一行。欄位不在（任務登錄讀不到）照舊不延。寫碼守門開或關同一套（handlers/stop._bg_defer）。
+
 #### NON_CODING_TURN_NO_NUDGE
 **程式原文**：守門「純問答與只改文件的回合不跑」的例外收斂：寫碼回合一律照 wg_core.coding_turn（本使用者回合改過程式檔或有判不出目標的寫入；prompt 關鍵字意圖不算）。記憶注入瘦身（[CODING_TURN_FULL_ONLY_ON_TRIGGER](#coding_turn_full_only_on_trigger)）看 coding_turn，不看關鍵字意圖。
+
+#### SUBAGENT_START_NON_AGENT_INJECT
+**程式原文**：不經 Agent 工具的子代理（skill 的 context: fork、Workflow）在 SubagentStart 補記憶：agent_id 已在 subagent_injections，或父逐字稿最近一則 assistant 動作是 Agent／Task（PreToolUse 已挑過）就不送；是 Skill／Workflow 就拿它的輸入當任務文字，用 pre_tool_use.pick_subagent_memory 挑卡（預算同子代理注入），挑到用 additionalContext 送，並登記一筆 subagent_injections（status async_launched，等 SubagentStop 回填）；拿不到任務文字就不送。每次判定寫 Logs/guard-subagent_start.jsonl 一筆（handlers/subagent_start）。
+
+#### NON_HUMAN_PROMPT_NO_INJECT
+**程式原文**：UserPromptSubmit 整則是背景任務通知或其他 session 的訊息（harness_text.non_human_kind）→ 不檢索、不注入；前置閘與收尾記帳照跑，Logs/guard-ups_inject.jsonl 記 event=skip_inject（handlers/user_prompt_submit）。通知夾著使用者打的字照常注入，查詢只用使用者本人打的字（harness_text.user_typed_text），注入預算照原文與查詢取大（handlers/ups_search.retrieval_query）。
+
+#### CONTINUE_QUERY_FROM_HANDOFF
+**程式原文**：/continue 回合 UserPromptSubmit 在 skill 展開前跑、只看得到指令那一行：檢索查詢＝使用者打的字＋交接單前 30 行（參數點名的 .md 優先，否則 staging 最新的 `next-phase*.md`；handlers/ups_search.continue_handoff_path），Logs/guard-ups_inject.jsonl 記 event=continue_query；找不到或讀不了交接單就只用打的字查，記 continue_query_missing（handlers/ups_search.retrieval_query）。
+
+#### INSTRUCTIONS_LOADED_LEDGER
+**程式原文**：InstructionsLoaded（CLAUDE.md、rules、@include 載入）只記帳、不輸出：哪個檔、為什麼載、哪個 session 追加一行到 Logs/instructions-loaded.jsonl，供週健檢對帳「以為有載」（handlers/instructions_loaded；週健檢 tools/health-weekly._instructions_loaded_block）。
+
+#### STOP_FAILURE_ABORTED
+**程式原文**：StopFailure（回合因 API 錯誤結束，官方不跑 Stop）只留帳、不輸出：Logs/guard-stop_failure.jsonl 記錯誤類型、細節、回合序號、有沒有待結算的注入歸因、有沒有標 aborted；有待結算的 → state 標 turn_aborted_seq＝本回合、usefulness_attributed_seq 設成本回合，這回合的注入歸因標 aborted，不算用過也不算沒用（handlers/stop_failure）。標不上 stderr 一行。
+
+#### COMPACT_SUMMARY_TO_HANDOFF
+**程式原文**：PostCompact 輸入的 compact_summary 寫進這一輪 PreCompact 剛寫的自動交接單（handoff_stub_at 不早於 pre_compact_snapshot）的「壓縮前脈絡」段：只換 `<!-- compact-summary:begin／end -->` 記號之間，沒有就插在「前置脈絡」標題前，其他內容原樣；這一輪沒寫自動交接單（沒改檔、或有新鮮的手寫交接單）或摘要是空的就不寫，手寫交接單不碰（handlers/post_compact.fill_handoff_summary）。
+
+#### RESUME_CACHE_REWRITE_NOTE
+**程式原文**：重開舊 session（SessionStart source=resume／fork）時，官方輸入說快取多半已失效（prompt_cache_likely_expired）且第一個請求要重送 ≥10 萬 token（context_tokens）→ 送一行給使用者（systemMessage）與 Claude（additionalContext），附閒置時間與重寫量；快取還在、量不到門檻、欄位沒給（舊版 Claude Code）都不送（handlers/session_start._resume_cache_note）。
+
+#### COORD_WARN_PEER_NAME
+**程式原文**：跨 session 衝突預警真要發時才跑一次 claude agents --json，對到對方 sessionId 就附名字、短 id 與 SendMessage 協調提示（wg_coordination._peer_label）；對不到（對方已關）或查不到（CLI 失敗、逾時）退回只附短 id，查不到另寫 stderr 與 log 一行（wg_coordination._peer_names）。
+
+#### MCP_INSTRUCTIONS_NON_CC_ONLY
+**程式原文**：workflow-guardian MCP 的 initialize 只在 clientInfo.name 不是 claude-code 時回 server instructions（查／寫記憶的指路，≤1,500 字元）；判不出（沒帶 clientInfo）就帶。tools/list 只有 memory_search 標 _meta anthropic/alwaysLoad、開場就載入，其餘照常延遲（tools/workflow-guardian-mcp/lib/mcp.js initializeResult）。
+
+#### MCP_ENTRY_HIDDEN_LAUNCHER
+**程式原文**：ensure-mcp 在 Windows 組的 MCP 註冊是 `<GUI pythonw> hooks/run-hidden.py <node> <js>`（隱窗外殼，與 live 註冊同形），其他平台 `node <js>`；GUI pythonw 或 run-hidden.py 缺檔 → stderr 一行（[ensure_mcp:hidden]）、退回直接起 node（hooks/ensure-mcp.py _hidden_launcher／_build_server_entry）。
+
+#### HOOK_TEXT_CAP_SELF_TRUNCATE
+**程式原文**：hook 送給模型或使用者的單一字串（additionalContext／systemMessage／reason）超過 9,000 字元就自己截：保留前段、尾行指到 `workflow/hook-overflow/` 的全文檔並寫 guard-hook-text-cap；官方 10,000 字元上限會把整段換成路徑加 2KB 預覽且模型不會去讀（wg_core.cap_hook_text／cap_hook_output，接在 output_json 與 UPS、SessionStart 出口）。
+**送法**：提醒（只留帳）。**案例**：`hooks/verify/verify_hook_text_cap.py`。
+
+#### COMPACT_REINJECT_AT_SESSION_START
+**程式原文**：壓縮後由 SessionStart(compact) 讀 PreCompact 快照直接送回壓縮前已注入卡的緊湊內文並記 compact_reinjected_at；有記號時 PostCompact 不暫存、PostToolBatch 不重送，沒送成才由 PostToolBatch 補位（handlers/session_start._compact_recovery）。
+**送法**：提醒（只留帳）。**案例**：`hooks/verify/verify_post_compact_reinjection_phase4.py`。

@@ -2,8 +2,9 @@
 name: usage-watch
 description: "查 Claude 帳號目前用量（所有機器／網頁合計的每週％、5 小時窗、漲速、預估用完、日用量）與異常，把用量摘要發到 Discord，測試用量通知，查看或註冊用量監控排程。使用者說「Claude 用量多少」「額度還剩多少」「這週會不會爆」「發用量到 Discord」「用量監控有沒有在跑」「測一下用量通知」「/usage-watch」時用。量單一 session 的 token 用 /token，不是這個。"
 user-invocable: true
-triggers: Claude 用量, 額度還剩多少, 每週額度, 這週會不會爆, 用量摘要發 Discord, 用量監控狀態, 用量通知測試, 用量排程, usage-watch
-pattern: tool-wrapper
+when_to_use: 觸發詞：Claude 用量, 額度還剩多少, 每週額度, 這週會不會爆, 用量摘要發 Discord, 用量監控狀態, 用量通知測試, 用量排程, usage-watch
+metadata:
+  pattern: tool-wrapper
 ---
 
 # Skill：usage-watch（Tool Wrapper）

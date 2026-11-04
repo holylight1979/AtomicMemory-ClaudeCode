@@ -20,6 +20,10 @@ guard-reconcile.jsonl user_release，放行的那幾件之後的回合原因還�
 照擋的只有對帳 (a) 說修好要有 PASS（子代理同一套）；紅測閘不問、一律擋；其餘判成提醒的閘判定照跑、一回合一次的記號照記，但只留帳（_remind_logged：
 guard log event=remind＋stderr 一行），不擋、不續跑、不開放行題、不吃擋滿預算；提醒本身掛在改程式檔那則工具結果（handlers/post_tool_batch）。
 總開關關時 gate_mode 一律回 block，行為同 9e476fd0。
+等背景工作（規則 STOP_DEFERS_WHILE_BACKGROUND_RUNNING，_bg_defer）：Stop 輸入的 background_tasks／session_crons 有項目 → 紅測閘與寫碼查核照跑，
+其餘的閘與效用歸因延到背景工作回報那次收尾；同一個背景項目連延 BG_DEFER_MAX 次之後照擋。每次延後與到上限都寫 guard-stop_background.jsonl。
+子代理注入的效用帳（規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP）：SubagentStop 依 agent_id 把最後回覆填回 subagent_injections 那筆，
+Stop 結算看收到結果的回合；背景子代理還沒收尾的標 waiting、不結。寫碼守門關也記（dispatcher 照樣分派 SubagentStop）。
 連鎖斷路器（寫碼守門；判定 hooks/wg_chain.py、帳與還原 lib/chain_store.py）：各閘之前問 chain_store.on_stop 一次；每道閘要擋或記欠之前
 問 _chain_hold——警報後只記錄（跳過那道閘的擋與記欠、往下走），讓警報響的那一次改送中止通知。沒有警報時各閘照原樣擋。
 """
@@ -573,6 +577,11 @@ def _bump_outcome_stats(state: Dict[str, Any], outcome: Optional[bool]) -> None:
     stats[key] = int(stats.get(key, 0)) + 1
 
 
+def _sub_waiting(rec: Dict[str, Any]) -> bool:
+    """背景子代理派出後還沒收尾（SubagentStop 還沒回填，status 仍是 async_launched）。"""
+    return str(rec.get("status", "") or "").lower() == "async_launched"
+
+
 def _attribute_usefulness(
     state: Dict[str, Any], config: Dict[str, Any], session_id: str,
     transcript, last_text: str, transcript_text: Optional[str] = None,
@@ -580,7 +589,8 @@ def _attribute_usefulness(
     """per-turn 注入→使用→結果歸因：對 turn_injected + 本 turn sub-agent 注入中
     「被判 used 且 outcome 決定性」者 → record_usefulness(α/β，走 funnel)。
 
-    once-per-turn：以 turn_seq 守門（blocked turn 多次 Stop 不重複計）。fail-open。
+    once-per-turn：以 turn_seq 守門（blocked turn 多次 Stop 不重複計）；同一 turn 後來才收到結果的子代理紀錄
+    （規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP）照結算，主回合注入與 outcome 計數不重算。fail-open。
     transcript_text 給定時（caller 以 read_transcript_tail 共用尾段）turn 文字
     從該字串解析、不再開檔；None 則自行讀（相容直接呼叫的測試）。
     """
@@ -589,8 +599,10 @@ def _attribute_usefulness(
         if not uconf.get("enabled", True):
             return
         turn_seq = int(state.get("turn_seq", 0))
-        if turn_seq and state.get("usefulness_attributed_seq") == turn_seq:
-            return  # 本 turn 已歸因
+        turn_done = bool(turn_seq) and state.get("usefulness_attributed_seq") == turn_seq
+        if turn_done and not any(isinstance(r, dict) and not r.get("attributed") and not _sub_waiting(r)
+                                 for r in state.get("subagent_injections") or []):
+            return  # 本 turn 已歸因，也沒有新收到結果的子代理紀錄
 
         from lib.atom_access import record_usefulness
         from wg_atoms import (
@@ -611,7 +623,8 @@ def _attribute_usefulness(
             if (transcript or transcript_text) else ""
         )
         outcome = _detect_turn_outcome(state, last_text, session_id)
-        _bump_outcome_stats(state, outcome)
+        if not turn_done:
+            _bump_outcome_stats(state, outcome)
 
         turn_seq_now = int(state.get("turn_seq", 0))
         rescue_map: Dict[str, List[str]] = {}
@@ -661,22 +674,27 @@ def _attribute_usefulness(
             slot = pending.setdefault(name, {"path": path_str, "outcomes": set()})
             slot["outcomes"].add(bool(decided))
 
-        # 1) UPS per-turn 注入（turn_injected）— 比對本 turn assistant 活動文字
-        for entry in (state.get("turn_injected") or []):
+        # 1) UPS per-turn 注入（turn_injected）— 比對本 turn assistant 活動文字；本 turn 已結算過就不重算
+        for entry in ([] if turn_done else state.get("turn_injected") or []):
             name = entry.get("name", "")
             path_str = entry.get("path", "")
             if not name or not path_str:
                 continue
             _consider(name, path_str, _read(path_str), turn_text, outcome)
 
-        # 2) 本回合 sub-agent 注入（state["subagent_injections"]）
-        #    只結算本回合的紀錄（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）；
-        #    更早回合殘留的紀錄標過期不套當輪 outcome。use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
+        # 2) sub-agent 注入（state["subagent_injections"]），規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP：收到結果才結。
+        #    背景子代理還沒收尾（status 仍是 async_launched）→ 標 waiting、不結，不管是哪個回合派出的；
+        #    收到結果的看收到的回合（result_turn_seq，沒有才看派出的 turn_seq）落在本回合才結算（規則 TURN_SINCE_USER_PROMPT：
+        #    使用者打字開的回合起，同伴訊息、背景通知不另開回合），更早回合收到卻沒結算的標過期不套當輪 outcome。
+        #    use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
         since = _user_turn(state, turn_seq)
         for rec in (state.get("subagent_injections") or []):
-            if rec.get("attributed"):
+            if not isinstance(rec, dict) or rec.get("attributed"):
                 continue
-            rec_turn = rec.get("turn_seq")
+            if _sub_waiting(rec):
+                rec["waiting"] = True
+                continue
+            rec_turn = rec.get("result_turn_seq", rec.get("turn_seq"))
             if rec_turn is not None and turn_seq and not in_turn(rec_turn, turn_seq, since):
                 if int(rec_turn) < since:
                     rec["attributed"] = True
@@ -910,6 +928,47 @@ def _remind_logged(log_name: str, gate: str, rule: str, text: str, session_id: s
     print(f"[Guardian:{gate}] 規則 {rule} 是提醒不是擋（GATE_MODE_TABLE）：收尾只留帳｜{head[:120]}", file=sys.stderr)
 
 
+BG_DEFER_MAX = 5          # 同一個背景項目連續延後幾次之後照擋（STOP_DEFERS_WHILE_BACKGROUND_RUNNING）
+BG_LOG = "stop_background"
+
+
+def _bg_items(input_data: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Stop 輸入裡還在跑的背景工作與排程喚醒 → [(鍵, 一行說明)]；鍵＝task:<id>／cron:<id>。欄位不在或空＝沒有。"""
+    out: List[Tuple[str, str]] = []
+    for t in input_data.get("background_tasks") or []:
+        if isinstance(t, dict):
+            out.append((f"task:{t.get('id')}", f"{t.get('type', '')}:{t.get('status', '')}:{str(t.get('description') or '')[:60]}"))
+    for c in input_data.get("session_crons") or []:
+        if isinstance(c, dict):
+            out.append((f"cron:{c.get('id')}", f"cron:{c.get('schedule', '')}:{'recurring' if c.get('recurring') else 'once'}"))
+    return out
+
+
+def _bg_defer(state: Dict[str, Any], input_data: Dict[str, Any], session_id: str, turn_seq: int) -> bool:
+    """規則 STOP_DEFERS_WHILE_BACKGROUND_RUNNING：回合是在等背景工作叫醒（background_tasks／session_crons 有項目），不是做完了 → True＝
+    這次收尾到寫碼查核為止，其餘的閘延到背景工作回報那次。每個背景項目記連續延後次數（state bg_defer_counts；這次清單裡沒有的＝結束了，
+    歸零）；這次的項目全都已延滿 BG_DEFER_MAX 次 → 不再延、照擋（掛著不會結束的 Monitor、/loop 不能讓收尾閘永遠不跑）。
+    延後（event=skip）與到上限（event=cap）都寫 guard log 一筆＋stderr 一行。"""
+    items = _bg_items(input_data)
+    prev = state.get("bg_defer_counts") if isinstance(state.get("bg_defer_counts"), dict) else {}
+    if not items:
+        if prev:
+            state.pop("bg_defer_counts", None)
+        return False
+    counts = {k: int(prev.get(k, 0) or 0) for k, _ in items}
+    defer = any(n < BG_DEFER_MAX for n in counts.values())
+    if defer:
+        counts = {k: n + 1 for k, n in counts.items()}
+    state["bg_defer_counts"] = counts
+    event = "skip" if defer else "cap"
+    append_guard_log(BG_LOG, {"event": event, "rule": "STOP_DEFERS_WHILE_BACKGROUND_RUNNING", "session_id": session_id,
+                              "turn_seq": turn_seq, "items": [d for _, d in items][:5], "counts": counts, "max": BG_DEFER_MAX})
+    print(f"[Guardian:StopBackground] 規則 STOP_DEFERS_WHILE_BACKGROUND_RUNNING：{len(items)} 個背景項目還在跑，"
+          + ("寫碼查核之後的收尾閘延到背景工作回報那次收尾（已留帳）" if defer
+             else f"每個都已連續延後 {BG_DEFER_MAX} 次，這次照常跑收尾閘（已留帳）"), file=sys.stderr)
+    return defer
+
+
 CLOSING_ONE_CALL = ("收尾一次交齊：知識收割放 anti_evasion_report 的 harvest_items，跟收尾檢核同一次交，"
                     "不必另呼叫 knowledge_harvest_report；已分開交過的不用重交。")
 # 寫碼守門開時「後面還會擋」預覽與改檔那則提醒用的做法
@@ -1106,11 +1165,34 @@ def _code_gate_no_ask(input_data: Dict[str, Any], config: Dict[str, Any], state:
     output_block(f"{_rel.non_interactive_message(gate, None, summary, why)}\n原擋訊息：\n{reason}")
 
 
+SUBAGENT_RESULT_CAP = 400   # 子代理結果摘要字元上限（與 post_tool_use._SUBAGENT_SUMMARY_CAP 同長）
+
+
+def _fill_subagent_result(state: Dict[str, Any], agent_id: str, text: Any) -> bool:
+    """規則 SUBAGENT_RESULT_FROM_SUBAGENT_STOP：子代理收尾，依 agent_id 找 subagent_injections 最後一筆還沒結算的紀錄，
+    output_summary 填最後回覆（截 SUBAGENT_RESULT_CAP 字）、status 改 completed、result_turn_seq 記收到結果的回合、拿掉 waiting。
+    對不到（內部子代理、這個子代理沒注入卡、早就結算過）回 False。"""
+    for rec in reversed(state.get("subagent_injections") or []):
+        if isinstance(rec, dict) and rec.get("agent_id") == agent_id and not rec.get("attributed"):
+            rec["output_summary"] = str(text or "").strip().replace("\r", " ")[:SUBAGENT_RESULT_CAP]
+            rec["status"] = "completed"
+            rec["result_turn_seq"] = int(state.get("turn_seq", 0) or 0)
+            rec.pop("waiting", None)
+            return True
+    return False
+
+
 def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """SubagentStop：看子代理自己改的檔（agent_modified_files[agent_id]）與自己的收據（agent_receipt_key），寫碼查核照預算擋。"""
+    """SubagentStop：先把子代理的最後回覆填回它的注入紀錄（效用帳，寫碼守門關也記）；寫碼守門開才往下看子代理自己改的檔
+    （agent_modified_files[agent_id]）與自己的收據（agent_receipt_key），寫碼查核照預算擋。"""
     session_id = input_data.get("session_id", "") or ""
     agent_id = str(input_data.get("agent_id") or "")
     state = read_state(session_id) if session_id and agent_id else None
+    if state and _fill_subagent_result(state, agent_id, input_data.get("last_assistant_message")):
+        write_state(session_id, state)
+    if not v6_enabled(config):
+        output_nothing()
+        return
     own = list(((state or {}).get("agent_modified_files") or {}).get(agent_id) or [])
     unknown = list(((state or {}).get("agent_unknown_writes") or {}).get(agent_id) or [])
     _code_gate_no_ask(input_data, config, state, agent_receipt_key(session_id, agent_id), own,
@@ -1899,6 +1981,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 return
         elif _pend_cleared or _kept:
             write_state(session_id, state)
+
+    # ── 等背景工作（規則 STOP_DEFERS_WHILE_BACKGROUND_RUNNING）─────────────
+    # 紅測閘與寫碼查核看的是「說了完成」，上面照跑；回合只是在等背景子代理／Monitor／排程叫醒時，退避偵測、退縮歸屬、收割、收尾檢核、
+    # 同步、深度檢討、效用歸因、底部同步擋都延到背景工作回報那次收尾（同一個背景項目連延 BG_DEFER_MAX 次之後照擋）
+    if _bg_defer(state, input_data, session_id, turn_seq):
+        write_state(session_id, state)
+        output_nothing()
+        return
 
     _ev_now: Optional[Dict[str, Any]] = None      # 這次收尾新記的退避旗標（退縮閘擋下同一句時拿掉，見下）
     if not state.get("evasion_flag") and (_coding or not v6):

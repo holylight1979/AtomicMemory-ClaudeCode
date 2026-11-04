@@ -28,10 +28,15 @@ _RESIDUE_TAG_RE = re.compile(r"<\s*\\?/?\s*(?:" + HARNESS_TAG_NAMES + r")(?=[\s/
 # 沒有標籤包住的系統通知標記行：這行起到訊息尾都是 harness 的說明與通知（不分大小寫，行首可空白）。
 #   [SYSTEM NOTIFICATION - NOT USER INPUT]：只認自成一行的完整標記；
 #   [Cross-session idle notice]／[Cross-session delivery notice]：同伴 session 的閒置、送達通知，標記後面同一行接說明。
+#   This came from another Claude session…：同伴訊息區塊後面 harness 加的說明段（transcript 實錄），到訊息尾都是它。
 #   新的 harness 純文字通知照這裡加名字，不在呼叫端另判。
 _SYSTEM_NOTIFICATION_RE = re.compile(
-    r"^[ \t]*(?:\[SYSTEM NOTIFICATION - NOT USER INPUT\][ \t]*\r?$|\[Cross-session (?:idle|delivery) notice\])",
+    r"^[ \t]*(?:\[SYSTEM NOTIFICATION - NOT USER INPUT\][ \t]*\r?$|\[Cross-session (?:idle|delivery) notice\]"
+    r"|This came from another Claude session\b)",
     re.IGNORECASE | re.MULTILINE)
+_PEER_NOTICE_RE = re.compile(r"^[ \t]*\[Cross-session (?:idle|delivery) notice\]", re.IGNORECASE | re.MULTILINE)
+# 同伴訊息區塊前面 harness 加的開頭行（transcript 實錄，自成一行）：整行剔掉
+_PEER_PREFIX_LINE_RE = re.compile(r"^[ \t]*Another Claude session sent a message:[ \t]*\r?$", re.IGNORECASE | re.MULTILINE)
 # hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] / [WG:*] 等 additionalContext 前綴，
 # 允許行首空白、不分大小寫）：在空白折疊前逐行整行剔除，清理後的文字不會再被當成殘渣行。
 HOOK_RESIDUE_LINE_RE = re.compile(
@@ -115,7 +120,7 @@ def strip_harness_blocks(text: str, repl: str = " ", only: Optional[str] = None)
 
 
 def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
-    """使用者本人打的字：剔掉 harness 區塊、系統通知標記行之後的內容、hook 殘渣行，空白折一格
+    """使用者本人打的字：剔掉 harness 區塊、系統通知標記行之後的內容、同伴訊息開頭行、hook 殘渣行，空白折一格
     （keep_lines=True 時保留換行、只折行內空白，給要逐句看的萃取與 Quote 用）。
     清理後若還殘留任何 harness 標籤字樣（含 `<\\/名稱>`）→ 整則不認，回空字串：代表有區塊被提早結束而漏出內容，
     使用者自己打了標籤字樣也一併不認（要他單獨重打）。空字串＝這則不是使用者的話。
@@ -124,13 +129,27 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
         return ""
     text = strip_harness_blocks(prompt)
     m = _SYSTEM_NOTIFICATION_RE.search(text)
-    text = HOOK_RESIDUE_LINE_RE.sub(" ", text[:m.start()] if m else text)
+    text = HOOK_RESIDUE_LINE_RE.sub(" ", _PEER_PREFIX_LINE_RE.sub(" ", text[:m.start()] if m else text))
     if _RESIDUE_TAG_RE.search(text):
         return ""
     if not keep_lines:
         return re.sub(r"\s+", " ", text).strip()
     lines = (re.sub(r"[ \t]+", " ", ln).strip() for ln in text.splitlines())
     return "\n".join(ln for ln in lines if ln)
+
+
+def non_human_kind(prompt: str) -> Optional[str]:
+    """整則沒有使用者本人打的字（user_typed_text 是空字串）時，這則是誰送來的：
+    "task-notification"（背景任務、子代理完成通知）、"peer"（其他 Claude session 的訊息，含閒置／送達通知）。
+    有使用者打的字、或看不出來源（例：殘留標籤字樣整則不認、只有 IDE 區塊）→ None。"""
+    if not prompt or user_typed_text(prompt):
+        return None
+    names = {m.group(2).lower() for m in _TAG_RE.finditer(prompt) if not m.group(1)}
+    if "task-notification" in names:
+        return "task-notification"
+    if _PEER_TAG in names or _PEER_NOTICE_RE.search(prompt):
+        return "peer"
+    return None
 
 
 # ─── 貼上的內容 ─────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ Claude Code 的「長期記憶」擴充套件：AI 記得你們一起做過的�
 
 三層都分「大家的」與「我的」：針對專案的規則進共享區並記下提出者；只關於你的偏好只有你看得到。你是誰、做什麼職務，直接取自 Windows 登入帳號與 AD 群組，不用填設定。
 
-Claude Code 原生的自動記憶照舊運作，本系統不取代它、不互相干擾。
+Claude Code 自帶的自動記憶（auto memory）在本系統裡是關掉的：記憶統一存成卡片，`/memory` 會顯示 Auto-memory off，不影響使用。
 
 ---
 
@@ -50,6 +50,7 @@ Claude Code 原生的自動記憶照舊運作，本系統不取代它、不互�
 | 「整理這場會議 `<音檔>`」 | 錄音 → 逐字稿 → 決議／待辦／未決摘要，決議寫進專案記憶；辨識在內網跑，音檔不出門 |
 | 「上GIT」「上SVN」 | 把這次改到的檔 commit → push 一氣做完 |
 | 「執P」 | 分階段執行：完成 → 驗證 → 上版控 → 給下一階段的 prompt |
+| `/console` | 多軌並行：你只跟總控台說話，它在背景開工作 session（名字就是軌名，各自一份工作目錄）。某個 repo 第一次用 `/console 開工` 前，先在那個 repo 的主目錄開終端機跑一次 `claude`、接受信任提示，不然開不成，會退回一段開工句請你自己貼 |
 | `/handoff`、`/continue` | 產出跨 session 交接 prompt／接續上個 session |
 | `/memory health` | 記憶庫健檢報告 |
 | `/conflict pending` | 檢視、核准或退回待審的卡片 |
@@ -93,7 +94,7 @@ Codex、Gemini CLI、Antigravity 等支援 MCP 的 AI 工具，貼一段 prompt 
 
 ## 深入
 
-技術細節（運作流程、各依賴缺了會怎樣、疑難排解）→ [TECH.md](TECH.md)。目前版本見 `version.json`。
+技術細節（運作流程、各依賴缺了會怎樣、疑難排解）→ [TECH.md](TECH.md)。目前版本：v6.1（2026-11-04，對 Claude Code 適應性補正），這版改了什麼、要動手做什麼 → [release note](_AIDocs/DevHistory/v6.1-對CC適應性補正-2026-11/README.md)；版本號以 `version.json` 為準。
 
 ## License
 

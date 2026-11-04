@@ -4,8 +4,8 @@ handlers/post_tool_batch.py — PostToolBatch hook handler（選配 #4：壓縮�
 PostToolBatch：一批（含並行）工具呼叫全解析後觸發一次，於下個 model request 前（CC 2.1.159+；
 payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalContext）。
 
-職責：把 PostCompact stash 的 atom 復原內文「一次性」注入，閉合 mid-turn auto-compact 缺口
-（壓縮後不一定有 UserPromptSubmit 可重 trigger，但隨後的工具批次會觸發本 hook）；PreToolUse 沒攔到的提問事後提醒
+職責：壓縮後卡片內文的補位——SessionStart(compact) 沒送成時，把 PostCompact 暫存的內文「一次性」送出
+（SessionStart 送過就只清旗標）；PreToolUse 沒攔到的提問事後提醒
 （wg_ask_gate）併進同一段送出。
 收尾類守門的提醒（規則 REMIND_ON_PRIOR_RESULT；判定與送法照 wg_release_rules 檔尾的 RULE_MODE）：這一批改了程式檔，就算出目前欠的
 各一行（closing_reminders：等值意圖、搬目錄、改了 MCP 檔、退縮歸屬、收尾檢核、同步、深度檢討、取用稽核）；
@@ -16,6 +16,7 @@ payload: tool_calls[]；反編譯實證支援 hookSpecificOutput.additionalConte
 
 import re
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from wg_core import _ensure_state, write_state, output_json, output_nothing, v6_enabled, coding_turn
@@ -215,6 +216,18 @@ def _closing_batch_reminders(state, sid, own, config, turn_seq, say) -> None:
         say("CLOSING_CHECK_MEMORY_NOT_DEFERRED", f"收尾檢核把 {len(pending)} 項記憶寫入推到之後", FIX_AEC_PENDING, aec.get("turn_seq"))
 
 
+def _stub_has_compact_summary(stub_path: str) -> bool:
+    """交接單裡已有 PostCompact 寫的壓縮摘要段（記號同 post_compact._SUMMARY_BEGIN）；讀不到當沒有、stderr 一行。"""
+    if not stub_path:
+        return False
+    from handlers.post_compact import _SUMMARY_BEGIN
+    try:
+        return _SUMMARY_BEGIN in Path(stub_path).read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"[auto-handoff] 讀不到交接單，補全提示照完整版送：{e}", file=sys.stderr)
+        return False
+
+
 def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -242,7 +255,8 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     try:
         ah = config.get("auto_handoff", {}) or {}
 
-        # (1) 壓縮後 atom 內文復原（既有 #4 機制，一次性）
+        # (1) 壓縮後卡片內文補位（一次性）：主路是 SessionStart(compact) 直接送；它送過（compact_reinjected_at，
+        #     規則 COMPACT_REINJECT_AT_SESSION_START）就只清旗標不重送，沒送成才由這裡送 PostCompact 暫存的內文
         if state.get("pending_reinjection"):
             blob = state.get("pending_reinjection_blob", "") or ""
             atoms = state.get("pending_reinjection_atoms", []) or []
@@ -254,19 +268,25 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
             if atoms:
                 merged = list(dict.fromkeys((state.get("injected_atoms", []) or []) + atoms))
                 state["injected_atoms"] = merged
-            if blob:
+            if blob and not state.get("compact_reinjected_at"):
                 parts.append(blob)
 
         # (2) Auto-Handoff 補全提示（Layer 3，與 (1) 合流同一 additionalContext）
         if state.get("pending_handoff_emit"):
             if ah.get("enabled", True) and ah.get("postbatch_emit", True):
                 stub_path = state.get("handoff_stub_path", "") or "(staging)"
-                parts.append(
-                    f"[Auto-Handoff] 剛發生壓縮。已自動備妥 handoff stub 於 `{stub_path}`"
-                    f"（客觀區塊已填）。請**補全其中 `TODO(模型補全)` 三區塊**"
-                    f"（why / 做法 / 決策依據）使其達六區塊自足，"
-                    f"確保接手的 session 用 `/continue` 無損接續。"
-                )
+                if _stub_has_compact_summary(state.get("handoff_stub_path", "")):   # PostCompact 已把壓縮摘要填進去（COMPACT_SUMMARY_TO_HANDOFF）
+                    parts.append(
+                        f"[Auto-Handoff] 剛發生壓縮。handoff stub `{stub_path}` 的壓縮摘要已填入，"
+                        f"只需確認下一步並補 `TODO(模型補全)`，確保接手的 session 用 `/continue` 無損接續。"
+                    )
+                else:
+                    parts.append(
+                        f"[Auto-Handoff] 剛發生壓縮。已自動備妥 handoff stub 於 `{stub_path}`"
+                        f"（客觀區塊已填）。請**補全其中 `TODO(模型補全)` 三區塊**"
+                        f"（why / 做法 / 決策依據）使其達六區塊自足，"
+                        f"確保接手的 session 用 `/continue` 無損接續。"
+                    )
             state["pending_handoff_emit"] = False  # 一次性，即使 config 關亦清旗標
 
         # (3) 提問的事後提醒與審計（PreToolUse 沒處理到的提問）：判不了只寫 stderr，不擋其他段

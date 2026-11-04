@@ -234,7 +234,7 @@ Stop 的紅測閘與寫碼查核拿收據對帳
 - **放行只認兩種**，都要在最後一次擋之後。
 - **待放行只在同一個使用者回合有效**（[PENDING_SAME_USER_TURN](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
 - **放行的是列過的那幾件**（[RELEASE_COVERS_SHOWN_ITEMS](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
-- **沒人能回答**的情境照預算擋，擋滿放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
+- **沒人能回答**的情境（headless／SDK、子代理、裁判、背景 session〔CLAUDE_JOB_DIR〕）照預算擋，擋滿放行並留帳（[NONINTERACTIVE_RELEASE_AT_BUDGET](release-rules.md#pending_same_user_turnrelease_covers_shown_itemsnoninteractive_release_at_budget)）。
 - 問使用者附推薦（[乙6](#乙6-其他寫碼守門)）認得放行題：真有待放行紀錄時，放行題整題不查。
 
 細節 → [guards.md A7.3](guards.md#a73-擋滿之後怎麼放行hookswg_releasepy)

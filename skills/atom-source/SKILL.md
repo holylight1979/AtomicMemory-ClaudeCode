@@ -2,8 +2,9 @@
 name: atom-source
 description: 卡片來源回看：讀 atom 的 Source／Quote，原對話還在就撈出原句與前後文，不在就只報落檔時留的原句或「已逾保留期」。使用者說「這張卡片哪來的」「誰說的」「你哪裡看到的」「這條記憶的來源」時用。
 user-invocable: true
-triggers: 這張卡片哪來的, 誰說的, 你哪裡看到的, 這條記憶的來源, 卡片來源, 記憶來源, 原句, 出處, 哪場對話, atom-source, provenance
-pattern: tool-wrapper
+when_to_use: 觸發詞：這張卡片哪來的, 誰說的, 你哪裡看到的, 這條記憶的來源, 卡片來源, 記憶來源, 原句, 出處, 哪場對話, atom-source, provenance
+metadata:
+  pattern: tool-wrapper
 ---
 
 # /atom-source — 這張卡片哪來的

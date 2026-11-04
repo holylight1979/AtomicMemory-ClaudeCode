@@ -2,8 +2,9 @@
 name: behavior-preservation
 description: 行為保持重構的等值證法：預期值來自舊源碼或舊產物、實際值來自新產物，兩邊來源必不同；order／side_effect／boundary 三類變異各要證。被要求「改寫法但結果完全相同」「重構後行為不變」「等值證明」時觸發。
 user-invocable: true
-triggers: 行為保持, 等值證明, 重構後結果一樣, 結果完全相同, 行為不變, behavior preservation, preserve-check, switch 改查表, 特徵測試
-pattern: reviewer
+when_to_use: 觸發詞：行為保持, 等值證明, 重構後結果一樣, 結果完全相同, 行為不變, behavior preservation, preserve-check, switch 改查表, 特徵測試
+metadata:
+  pattern: reviewer
 ---
 
 # Skill：behavior-preservation（Reviewer）

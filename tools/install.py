@@ -157,8 +157,12 @@ def hook_commands(settings: dict) -> List[str]:
     return out
 
 
+# 本系統要求的 Claude Code 頂層設定：使用者檔沒有這個鍵才補系統值，有就尊重使用者（claudeMdExcludes 含本機路徑，不帶）
+SYSTEM_CONTRACT_KEYS = ("autoMemoryEnabled", "crossSessionInbound", "cleanupPeriodDays", "worktree")
+
+
 def merge_settings(user: Optional[dict], system: dict, tracked: frozenset) -> Tuple[dict, List[str]]:
-    """hooks 取系統整段＋使用者自己的條目；statusLine 使用者自己的優先；其餘頂層鍵只用使用者的。
+    """hooks 取系統整段＋使用者自己的條目；statusLine 使用者自己的優先；SYSTEM_CONTRACT_KEYS 缺的補系統值；其餘頂層鍵只用使用者的。
     tracked＝repo 追蹤的 hooks/、tools/ 檔案清單。回（合併結果, 被丟掉且系統版沒有接手的使用者指令）。"""
     user = user or {}
     hooks = json.loads(json.dumps(system.get("hooks") or {}))
@@ -175,6 +179,9 @@ def merge_settings(user: Optional[dict], system: dict, tracked: frozenset) -> Tu
             if own:
                 hooks.setdefault(event, []).append({**group, "hooks": own})
     merged = {k: v for k, v in user.items() if k not in ("hooks", "statusLine")}
+    for key in SYSTEM_CONTRACT_KEYS:
+        if key in system and key not in merged:
+            merged[key] = json.loads(json.dumps(system[key]))
     merged["hooks"] = hooks
     status = user.get("statusLine")
     if status and replaced_by_system(status, tracked):

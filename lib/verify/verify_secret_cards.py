@@ -228,14 +228,6 @@ def test_secret_card_is_not_sent_to_vector_index(mem):
     assert "plain-pref" in got and "key-card" not in got
 
 
-def test_secret_card_name_stays_out_of_native_bridge(mem):
-    upsert_atom(mem, "pub", "memory/x/pub.md", ["公開"], "global")
-    upsert_atom(mem, "plain-pref", "memory/personal/u/plain-pref.md", ["偏好"], "personal:u")
-    upsert_atom(mem, "key-card", "memory/personal/u/secret/key-card.md", ["機密詞"], "personal:u")
-    got = _probe(mem, "native-memory-bridge.py", "[a['name'] for a in mod._core_atoms()]")
-    assert "plain-pref" in got and "key-card" not in got
-
-
 def test_rule_is_in_always_loaded_file_and_guarded():
     """規則要在每個人每場都載入的必載檔，且登記成硬契約，修剪時不會無聲消失。"""
     core = (ROOT / "rules" / "core.md").read_text(encoding="utf-8")

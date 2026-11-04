@@ -10,6 +10,8 @@
   4. skill-index.py --check                 → skill 計數 drift（紅）
   5. vector 服務 GET :3849/health           → 離線屬 INFO（服務隨 session 啟動）；
      LanceDB 目錄缺失才是紅
+  6'. 官方健檢摘要：claude -p "/skill-doctor"、"/context"（skill 數與成本前五、固定成本）；
+     /doctor prompt-audit 太慢只留手動提示；CLI 不在或失敗 → 黃燈
   6. 管線鮮度（死因偵測核心）：近 FRESH_DAYS 天內有 session（state-*.json mtime）
      但 _promotion_audit.jsonl / episodic/ 無新增 → 紅（管線靜默停擺）；
      無 session → INFO（停擺屬預期）
@@ -479,6 +481,121 @@ def _user_release_block(days: int) -> list[str]:
     return [f"閘擋滿後由使用者放行（近 {days} 天；{detail}；Logs/guard-<閘>.jsonl event=user_release）；閘連續擋滿仍未解"]
 
 
+def _instructions_loaded_block(days: int = 7) -> list[str]:
+    """Logs/instructions-loaded.jsonl（InstructionsLoaded hook 的帳）近 N 天 → 一行：各載入原因次數、壓縮後有沒有重載 CLAUDE.md 與 MEMORY.md。
+    沒有帳（hook 還沒掛或這週沒開 session）回空；壓縮過的 session 有缺重載另給一行。"""
+    p = CLAUDE_DIR / "Logs" / "instructions-loaded.jsonl"
+    if not p.exists():
+        return []
+    cut = datetime.now().astimezone() - timedelta(days=days)
+    reasons: dict[str, int] = {}
+    compacted: dict[str, set[str]] = {}   # session → 壓縮後重載過的檔名
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            rec = json.loads(line)
+            at = datetime.fromisoformat(str(rec.get("at", "")))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+        if at.tzinfo is None:
+            at = at.astimezone()
+        if at < cut:
+            continue
+        why = str(rec.get("load_reason", "?"))
+        reasons[why] = reasons.get(why, 0) + 1
+        if why == "compact":
+            compacted.setdefault(str(rec.get("session_id", "")), set()).add(Path(str(rec.get("file_path", ""))).name)
+    if not reasons:
+        return []
+    out = [f"規則／索引載入（近 {days} 天；Logs/instructions-loaded.jsonl）：" + "、".join(f"{k} {v}" for k, v in sorted(reasons.items()))]
+    if compacted:
+        n = len(compacted)
+        out.append(f"壓縮後重載：{n} 場有壓縮，其中重載 CLAUDE.md {sum('CLAUDE.md' in f for f in compacted.values())} 場、"
+                   f"@memory/MEMORY.md {sum('MEMORY.md' in f for f in compacted.values())} 場")
+    return out
+
+
+def _find_claude() -> str | None:
+    """claude CLI 路徑：PATH → 原生安裝位置 ~/.local/bin（排程器的 PATH 常沒有它）。"""
+    import shutil
+    found = shutil.which("claude")
+    if found:
+        return found
+    p = Path.home() / ".local" / "bin" / ("claude.exe" if sys.platform == "win32" else "claude")
+    return str(p) if p.exists() else None
+
+
+def _claude_p(cli: str, prompt: str, timeout: int = 60) -> str:
+    """無頭跑一個斜線命令回 result 文字；失敗丟例外（呼叫端轉成黃燈）。"""
+    r = subprocess.run(
+        [cli, "-p", prompt, "--model", "haiku", "--output-format", "json"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        stdin=subprocess.DEVNULL, cwd=str(CODE_DIR),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    d = json.loads(r.stdout)
+    if d.get("is_error"):
+        raise RuntimeError(str(d.get("result"))[:100])
+    return d.get("result") or ""
+
+
+def _skill_doctor_summary(text: str) -> list[str]:
+    """/skill-doctor 表格 → skill 數、context 成本前五、從沒叫過的提示行。"""
+    import re
+    rows = []
+    for m in re.finditer(r"^  (\S+)\s{2,}(.+?)\s{2,}(~\d+|<\s*\d+|-)\s{2,}", text, re.M):
+        cost = int(re.sub(r"\D", "", m.group(3)) or 0) if m.group(3) != "-" else 0
+        rows.append((m.group(1), cost))
+    if not rows:
+        return ["/skill-doctor 輸出解析不到 skill 表（格式變了？）"]
+    top = sorted(rows, key=lambda x: -x[1])[:5]
+    out = [f"skill {len(rows)} 個；context 成本前五：" + "、".join(f"{n}(~{c})" for n, c in top)]
+    out += [m.group(0).strip()[:120] for m in re.finditer(r"^\d+ skills?.*never invoked.*$", text, re.M)]
+    return out
+
+
+def _context_summary(text: str) -> list[str]:
+    """/context 類別表 → 固定成本（不含 deferred／Messages／Free／Autocompact）。"""
+    import re
+    fixed = ("System prompt", "System tools", "MCP tools", "MCP server instructions", "Memory files", "Skills")
+    cells = dict(re.findall(r"^\| ([^|]+?) \| ([^|]+?) \|", text, re.M))
+    parts = [f"{k} {cells[k]}" for k in fixed if k in cells]
+    total = re.search(r"\*\*Tokens:\*\* (\S+)", text)
+    if not parts:
+        return ["/context 輸出解析不到類別表（格式變了？）"]
+    return ["/context 固定成本：" + "、".join(parts) + (f"；開場合計 {total.group(1)}" if total else "")]
+
+
+def _official_block(cli: str | None, run=_claude_p) -> tuple[list[str], list[str]]:
+    """官方健檢摘要 → (official 行, 黃燈)。/skill-doctor 與 /context 無頭可跑（不呼叫模型、各約 20 秒，並行跑）；
+    /doctor prompt-audit 會呼叫模型審查，無頭實測 170 秒未完成，只留手動提示。CLI 不在或失敗 → 黃燈。"""
+    manual = ("要手動跑 /doctor prompt-audit（審 CLAUDE.md／rules／skills 有沒有過時或矛盾）："
+              "會呼叫模型審查，無頭實測超過 170 秒，不放進週健檢；結果寫 memory/_staging/prompt-audit-<日期>.md，由人挑著改")
+    if not cli:
+        return [manual], ["官方健檢沒跑：找不到 claude CLI（PATH 與 ~/.local/bin 都沒有）"]
+    from concurrent.futures import ThreadPoolExecutor
+    jobs = (("/skill-doctor", _skill_doctor_summary), ("/context", _context_summary))
+    lines: list[str] = []
+    yellow: list[str] = []
+
+    def one(job):
+        cmd, summarize = job
+        try:
+            return summarize(run(cli, cmd))
+        except Exception as e:
+            yellow.append(f"官方健檢 {cmd} 沒跑成：{type(e).__name__}: {str(e)[:80]}")
+            return [f"{cmd} 沒跑成（見需留意）"]
+
+    with ThreadPoolExecutor(len(jobs)) as ex:
+        for part in ex.map(one, jobs):
+            lines.extend(part)
+    lines.append(manual)
+    return lines, yellow
+
+
 def collect() -> dict:
     now = datetime.now()
     red: list[str] = []      # 需處理
@@ -519,6 +636,7 @@ def collect() -> dict:
     # 2d. 對帳閘預算用完放行（舊 overflow 紀錄）＋擋滿後使用者放行
     red.extend(_reconcile_overflow_block(FRESH_DAYS))
     red.extend(_user_release_block(FRESH_DAYS))
+    info.extend(_instructions_loaded_block())
     # 2d'. config 內建 PYTEST／PYTEST_MEASURE regex 停在舊版（只更新 hooks、沒對 config 的機器）
     yellow.extend(_pytest_regex_block(_load_config()))
 
@@ -640,8 +758,12 @@ def collect() -> dict:
     except Exception as e:
         yellow.append(f"來源防腐例外：{type(e).__name__}: {e}")
 
+    # 8. 官方健檢摘要（放最後：claude -p 會起一場 session，不能干擾上面的管線鮮度判斷）
+    official, off_yellow = _official_block(_find_claude())
+    yellow.extend(off_yellow)
+
     return {"at": now.isoformat(timespec="seconds"), "red": red,
-            "yellow": yellow, "info": info, "selftests": selftests,
+            "yellow": yellow, "info": info, "official": official, "selftests": selftests,
             "last_session": last_session.isoformat(timespec="seconds") if last_session else None}
 
 
@@ -657,6 +779,10 @@ def write_report(result: dict) -> Path:
         lines.extend(f"- {mark} {x}" for x in items)
         if not items:
             lines.append("- ✓ 無")
+        lines.append("")
+    if result.get("official"):
+        lines.append(f"## 官方健檢（{len(result['official'])}）")
+        lines.extend(f"- {x}" for x in result["official"])
         lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     # 輪替：保留最近 KEEP_REPORTS 份

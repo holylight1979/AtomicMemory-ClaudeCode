@@ -7,7 +7,7 @@
     所以命中只要求宣告（secret=true 或 not_sensitive=<理由>），不直接擋死。
 誰在用：atom_io（寫檔前）、atom_io_cli 的 sensitive_check（MCP atom_write）、wg_vcs_sync（commit 前）、
   extract-worker（背景萃取沒人能判，命中就不寫）、provenance（自動回填的使用者原話，命中就不填）、
-  health-weekly（週掃）、atom-heal、indexer、native-memory-bridge。
+  health-weekly（週掃）、atom-heal、indexer。
 只依賴 stdlib：hooks 以頂層模組載入、tools 以 lib.sensitive_gate 載入都要能跑。
 """
 from __future__ import annotations

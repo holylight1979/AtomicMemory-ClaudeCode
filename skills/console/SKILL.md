@@ -2,13 +2,14 @@
 name: console
 description: 多 session 協作總控台：一個入口四種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工 <軌名> <派工單路徑>」總控台自己開工作 session 送開工句、「/console 開工句 <軌名>」只產生第一句給人貼。只能手動打 /console 叫起（模型不會自己載入）。
 disable-model-invocation: true
-triggers: 總控台, 對人總控台, 調度總控台, 雙總控台, 開工句, 派工, 工作軌, 多開 session, 並行開工, 收割後關, console
-pattern: pipeline
+when_to_use: 觸發詞：總控台, 對人總控台, 調度總控台, 雙總控台, 開工句, 派工, 工作軌, 多開 session, 並行開工, 收割後關, console
+metadata:
+  pattern: pipeline
 ---
 
 # /console — 雙總控台＋工作軌
 
-> 人只跟一個分頁（對人總控台）說話；調度總控台指揮各工作軌（每軌一個分頁、一棵 worktree、一條分支）。
+> 人只跟一個分頁（對人總控台）說話；調度總控台指揮各工作軌（每軌一個背景 session、一棵 worktree、一條分支，名字＝軌名）。
 > 給人讀的一頁說明：[references/guide-for-humans.md](references/guide-for-humans.md)。全軌現況：`python ~/.claude/skills/console/scripts/console-status.py`。
 > 下文〔 〕是來源，代號對照在最後一節；「為什麼」去讀那張卡。
 
@@ -21,7 +22,7 @@ pattern: pipeline
 | `/console 開工 <軌名> <派工單路徑>` | 調度總控台 | 自己開工作 session 並送開工句，全程不用人貼（開不成才退回用法三） |
 | `/console 開工句 <軌名> [派工單路徑]` | 任一總控台 | 只產生工作軌第一句，給人貼進新分頁（用法四的退路） |
 
-上表指令只有人打得出來（本 skill 模型叫不了）；要別的 session 接總控台，開工句寫「先用 Read 讀 ~/.claude/skills/console/SKILL.md，照「用法X」做」（kickoff §1、§2）。名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`，第一段「現任」行寫兩個總控台現在的名字。
+上表指令只有人打得出來（本 skill 模型叫不了）；要別的 session 接總控台，開工句寫「先用 Read 讀 ~/.claude/skills/console/SKILL.md，照「用法X」做」（kickoff §1、§2）。名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`。
 
 ## 開始前：開幾個總控台、用什麼模型
 
@@ -30,19 +31,19 @@ pattern: pipeline
 
 ## 共通硬規則（總控台與工作軌都守）
 
-1. 送信前先 `ListAgents`，不寫死 claude-xx；名字 Reload 後會全變。〔C〕
+1. 名字就是地址：工作軌由用法四以 `--name <軌名>` 起，名字＝軌名；兩個總控台分頁開好後，請人在該分頁打一次 `/rename 對人總控台`／`/rename 調度總控台`（模型代打不了）。信與單一律寫這些名字，不寫 claude-xx。〔N〕
 2. 跟人說話用分頁標題看得到的軌名，不用 claude-xx。〔B〕
 3. 每封信（回報、交付、派工）結尾寫「我在等：<誰／什麼>」，互等一眼看出來。〔接續單〕
 4. 派工訊息正文第一行固定「派工 NNN：to-track-<軌>/<檔>.md」；交付信內文引用派工單路徑不算開工。〔#13〕
-5. 等同伴回信不能空手結束回合：收件端只在下一次呼叫工具時才收得到。〔S〕
+5. 等回信可以直接結束回合：閒置的 session 收到信會自動開新回合。要等某軌做完就 SendMessage 帶 `notify_when_idle: true` 訂閱（只有主對話能訂、只限本機），不輪詢 ListAgents、不跑背景 sleep 當鬧鐘。〔N〕
 6. context 80% 起不再接新件；85% 寫交接備忘換手（[handoff-memo.md](references/handoff-memo.md)），不等自動壓縮。〔A、H〕
 7. 閘誤擋：先報總控台，不反覆問人；修法是有名規則＋會紅案例，不放寬、不加例外清單。〔Y、Z1〕
 
 ## 用法一：對人總控台
 
 ### Step 1 報到
-- **動作**：ToolSearch `select:SendMessage,ListAgents` → ListAgents 第一行是自己名字 → 讀接續單 → 「現任」行改成自己 → SendMessage 調度「對人總控台：<名字>」。
-- **完成判定**：調度回「調度總控台：<名字>」（一個總控台兼兩職時略過）。
+- **動作**：ToolSearch `select:SendMessage,ListAgents` → ListAgents 第一行是自己名字，不是「對人總控台」就請人在本分頁打 `/rename 對人總控台` → 讀接續單 → SendMessage 調度總控台「對人總控台上線」。
+- **完成判定**：調度總控台回「調度總控台上線」（一個總控台兼兩職時略過）。
 
 ### Step 2 只做三件事
 - **回人**：人的問題最高優先，同一回合先答再做別的；要人動手的事獨立成一則、放最前面。
@@ -56,8 +57,8 @@ pattern: pipeline
 
 ### Step 4 Reload Window 前後
 - 時機：等所有在跑回合的分頁停下（閒置或在等人答）再 Reload，排在新軌開工之前。〔C〕
-- 前：兩個總控台寫好交接備忘，接續單「現任」行與待辦更新。
-- 後：對人先 ListAgents 點名，對陌生名字只送「你是哪一軌？只回身份」→ 新名寫回接續單 → 轉給調度 → 調度改派工單裡的收件名。〔C、接續單〕
+- 前：兩個總控台寫好交接備忘，接續單待辦更新。
+- 後：背景工作軌不受 Reload 影響、名字不變；總控台 ListAgents 看一次自己的名字，`/rename` 過的名字不見了就請人在該分頁再打一次。〔C、N〕
 
 ### Step 5 可關與多開
 - 四項全過才跟人說「<軌名> 可關」：收割跑完、worktree 乾淨、無未結交付、scratchpad 要留的已複製到持久路徑。〔G〕
@@ -67,11 +68,11 @@ pattern: pipeline
 ## 用法二：調度總控台
 
 ### Step 1 報到與核實
-- **動作**：同對人 Step 1，改送「調度總控台：<名字>」；對名單上每個工作軌送「調度總控台改為 <名字>」；跑 `console-status.py`。
+- **動作**：同對人 Step 1（名字 `調度總控台`），改送「調度總控台上線」；跑 `console-status.py`。
 - **完成判定**：尾行 `CONSOLE_STATUS DONE …` 跟接續單對得上。
 
 ### Step 2 派工
-- **動作**：寫派工單到 `to-track-<軌>/`（[dispatch.md](references/dispatch.md)）；新軌先建 worktree 與分支，再用用法三產生開工句；舊軌直接 SendMessage「派工 NNN：…」。
+- **動作**：寫派工單到 `to-track-<軌>/`（[dispatch.md](references/dispatch.md)）；新軌用用法四開（worktree 與分支由 Claude Code 建），開不成才用用法三；舊軌直接 SendMessage「派工 NNN：…」。
 - 派工素材不以 `.py`／`.sh` 放進信箱，存成 `.py.txt`。〔T〕
 - **完成判定**：工作軌回「<軌名> 收到開工」。
 
@@ -89,24 +90,24 @@ pattern: pipeline
 
 ### Step 5 推送與收尾
 - 推前看 `git log origin/main..main`：待推段有不是自己合的 commit，只推自己的或先問。〔X〕
-- 推完同回合刪樹刪分支：`git worktree remove <路徑>` → `git branch -d <分支>`。〔G〕
+- 推完同回合收軌：`claude stop <短 id>` → `claude rm <短 id>`（乾淨的 worktree 一起移除；有未提交改動或還沒合進 main 的 commit 會保留並說原因）→ 分支還在就 `git branch -d worktree-<軌名>`；人貼開的軌用 `git worktree remove .claude/worktrees/<軌名>`。〔G、N〕
 - **完成判定**：`console-status.py` 顯示 `unpushed=0`、worktree 清單沒有該軌。
 
 ## 用法三：開工句 <軌名>（人貼；用法四失敗時的退路）
 
-- **動作**：ListAgents 找調度名字 → 照 [kickoff.md](references/kickoff.md) §3 填軌名、worktree、分支、派工單路徑、調度名 → 包成 code block 給人：開新分頁、貼上、點送出鈕；第一句以軌名開頭，分頁標題才認得出。〔B〕
+- **動作**：照 [kickoff.md](references/kickoff.md) §3 填軌名、派工單路徑 → 包成 code block 給人：開新分頁、貼上、點送出鈕；第一句以軌名開頭，分頁標題才認得出。〔B〕
 - **完成判定**：該軌 SendMessage 調度「<軌名> 收到開工」。
 
 ## 用法四：開工 <軌名> <派工單路徑>（總控台自己開 session，原話 G16）
 
-- **動作**：建 worktree 與分支（用法二 Step 2）→ 照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/skills/console/scripts/console-spawn.py --track <軌名> --worktree <路徑> --branch <分支> --prompt-file <那個檔> --permission-mode <自己的模式> --model <派工單寫的模型 id>`（模式明帶，不假設繼承；模型給完整 id）→ 尾行 PASS 就把它印的 ListAgents 名字寫回接續單「軌對應」行。
+- **動作**：照 kickoff §3 填好開工句、存成 `workflow/inbox/_console/kickoff-<軌名>.txt` → 跑 `python ~/.claude/skills/console/scripts/console-spawn.py --track <軌名> --repo <主檢出絕對路徑> --prompt-file <那個檔> --permission-mode <自己的模式> --model <派工單寫的模型 id>`（模式明帶，不假設繼承；模型給完整 id）。腳本跑 `claude --bg --name <軌名> --worktree <軌名>`：名字＝軌名，worktree `.claude/worktrees/<軌名>`、分支 `worktree-<軌名>` 由 Claude Code 從本機 HEAD 分出（使用者設定 `worktree.baseRef: "head"`）。主檢出要在終端機跑過一次 `claude` 接受信任，沒有時腳本 FAIL 會點名。
 - 腳本自己等「<軌名> 收到開工」（讀該 session 的 transcript）；逾時（預設 90 秒）或任一前置不過 → 尾行 FAIL、stdout 已印開工句 code block → 原樣轉給人貼（用法三），訊息要讓人一眼知道停在哪一步；不重試超過 1 次。模型不符、API 錯誤兩種 FAIL 不退人貼，照 kickoff §6 第 4 步處理。
 - 只有要動人的畫面（剪貼簿貼進空分頁）才問一次「現在可以動你的畫面嗎」；方法由實測決定，不問人選。〔原話〕
-- **完成判定**：腳本尾行 `CONSOLE_SPAWN_CHECK PASS` 且接續單有該軌名字；人要看那個 session：`claude attach <短 id>`（腳本有印）。
+- **完成判定**：腳本尾行 `CONSOLE_SPAWN_CHECK PASS`；人要看那個 session：`claude attach <短 id>`（腳本有印）。
 
 ## 工作軌守則（開工句已帶）
 
-- 第一步 EnterWorktree；之後只用 worktree 絕對路徑，不碰 live；交付用 SendMessage 送全文（[delivery.md](references/delivery.md)）並附 live 未動證明。〔R〕
+- 用法四起的軌已在自己的 worktree；人貼開的分頁第一步 `EnterWorktree`（name＝<軌名>）。之後只用 worktree 絕對路徑，不碰 live；交付用 SendMessage 送全文（[delivery.md](references/delivery.md)）並附 live 未動證明。〔R〕
 - 含 git 字樣的 Bash 指令會被 worktree 守門拒絕：寫成 worktree 根目錄的 Python 啟動器再跑，檔名不能含 git。只跑 git 的一次性啟動器（沒進版控）建、改、刪都不算改程式，不讓之前的收據作廢、不必為它重跑 verify（LAUNCHER_NOT_CODE）；裡面多寫了別的事就照算程式。〔Q〕
 - 接單先核實路徑與跑法；pytest 收 0 案不是綠。〔W〕
 - 只跑目標 verify，不跑全量；commit 在分支上、不推。〔P、X〕
@@ -116,7 +117,7 @@ pattern: pipeline
 - ❌ 開工句、派工單、交接備忘寫死 claude-xx
 - ❌ 總控台自己改碼或開子代理寫碼；對人直接派工給工作軌
 - ❌ 每件都快照、每次合完都補驗、跑全量（#37 已減量；全量已拔掉，全量改增量待補）
-- ❌ 信結尾沒寫「我在等」；空手結束回合等回信
+- ❌ 信結尾沒寫「我在等」；等回信時輪詢 ListAgents 或跑 sleep 當鬧鐘
 - ❌ 一有事就叫人去工作分頁（只有兩種情況）
 - ❌ 開工句第一句不是軌名
 
@@ -134,10 +135,10 @@ pattern: pipeline
 - I [[寫碼查核擋滿後要等人時立刻發askuserquestion停住-靠結束回合等會每回合再被擋一次次數累加-派工單寫走到要問那步停下要先確認人在或直接發題掛著]]
 - J [[mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效]]
 - K [[收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算]]
+- N 官方文件 `_AIDocs/ClaudeCodeInternals/Docs/02-build/` 的 agent-view（`--bg --name`）、worktrees（`--worktree`、`baseRef`）、cross-session-messaging（閒置收件自動開回合、`notify_when_idle`）；本機實測見 [MultiSessionCollaboration §5](../../_AIDocs/MultiSessionCollaboration.md)
 - P [[並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次]]
 - Q [[worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑]]
 - R [[工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上]]
-- S [[跨session訊息只在收件端下一次呼叫工具時才送進來-光結束回合等不到同伴回覆-要等人答完再醒可先背景跑短sleep當計時器]]
 - T [[總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行]]
 - U [[背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內]]
 - W [[接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑]]
@@ -146,5 +147,4 @@ pattern: pipeline
 - Z1 [[feedback-閘誤判的修法不是加例外清單-把欠帳本回合放行改碼的判定抽成獨立模組-每情境一條有名字的規則加會紅案例-擋訊息印規則名與證據-不准整輪不擋或放寬]]
 - Z2 [[feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整]]
 - Z3 [`feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了`](../../_AIDocs/_atoms/MemDev/v6總控台/_distant/2026_10/feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了.md)（封存區）
-- Z4 [[全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑]]
 - Z5 [`關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名`](../../_AIDocs/_atoms/MemDev/v6總控台/_distant/2026_10/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md)（封存區）

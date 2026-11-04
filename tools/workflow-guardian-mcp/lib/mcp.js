@@ -1,4 +1,5 @@
 // mcp.js — MCP stdio JSON-RPC transport。buffer 私有於本檔（stdin loop + handleMessage 同檔）。
+// 規則 MCP_INSTRUCTIONS_NON_CC_ONLY：initialize 只對非 Claude Code 客戶端帶 instructions；memory_search 標 alwaysLoad（hooks/wg_release_rules.py）
 // handleToolCall lazy-require atom-tools 以化解 mcp<->atom-tools 循環相依。
 const { VERSIONS } = require("./paths");
 const { crashLog } = require("./log");
@@ -50,6 +51,33 @@ function sendError(id, code, message) {
   process.stdout.write(msg + "\n");
 }
 
+// ─── Server instructions（給沒有 hook 的客戶端）────────────────────────────────
+// 開場就會被客戶端讀到的指路（工具被延遲載入時也照樣送到）。Claude Code 有 hook 每回合注入與 rules/core.md，不重送。
+const CLAUDE_CODE_CLIENT = "claude-code";   // Claude Code 在 initialize 帶的 clientInfo.name（claude.exe 內 MCP client 的 name）
+const CLIENT_INSTRUCTIONS = [
+  "原子記憶（atom memory）：本 server 管團隊的知識卡片——過去的決策、踩過的坑、公司工具、專案慣例。" +
+  "你的客戶端沒有每句話自動帶入記憶的 hook，要自己查、自己寫。",
+  "查：回答牽涉過去決策、踩坑、公司工具、專案慣例，或使用者說「查記憶」「公司記憶裡有沒有…」時，先呼叫 memory_search" +
+  "（query＝問題原句；cwd＝目前專案根，決定看得到哪個專案的卡）。想知道某張卡哪來的 → atom_source。",
+  "寫：使用者說「記下來」「記到公司層」，或得出值得留下的結論時，只用 atom_write（它會驗格式、去重、更新索引），不直接編輯卡片 .md。" +
+  "scope：跨專案通用＝global；這個專案的規則＝shared（帶 project_cwd）；只關於這個人＝personal；全公司＝org。" +
+  "global／shared 新卡（mode=create）必給 domain。密碼、token、個資帶 secret=true，值本身不寫進卡。",
+  "卡片在哪：全域 ~/.claude/memory/<範疇>/；專案層 <專案>/.claude/memory/；公司層在接上的公司記憶 repo。" +
+  "索引：~/.claude/memory/MEMORY.md（範疇總表）、各範疇資料夾的 _INDEX.md、機器索引 ~/.claude/memory/_atom_index.json。" +
+  "卡片是 Markdown，可以直接讀；寫入一律走 atom_write。",
+].join("\n");
+
+function initializeResult(params) {
+  // clientInfo.name 是 Claude Code 才省略 instructions；判不出（沒帶 clientInfo）就送。
+  const result = {
+    protocolVersion: "2025-11-25",
+    capabilities: { tools: { listChanged: false } },
+    serverInfo: { name: "workflow-guardian", version: VERSIONS.guardian },
+  };
+  if (params?.clientInfo?.name !== CLAUDE_CODE_CLIENT) result.instructions = CLIENT_INSTRUCTIONS;
+  return result;
+}
+
 // ─── MCP Message Handler ────────────────────────────────────────────────────
 
 function handleMessage(msg) {
@@ -57,11 +85,7 @@ function handleMessage(msg) {
 
   switch (method) {
     case "initialize":
-      sendResponse(id, {
-        protocolVersion: "2025-11-25",
-        capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "workflow-guardian", version: VERSIONS.guardian },
-      });
+      sendResponse(id, initializeResult(params));
       break;
 
     case "notifications/initialized":
@@ -491,6 +515,8 @@ const TOOL_DEFINITIONS = [
       "results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status, provenance}] 與 warnings（同名跨層遮蔽、向量路關閉等）；" +
       "provenance＝該 atom 的 `- Source:` 行原值（空字串表示無）。" +
       "format=table（預設，人讀）| json（給程式／其他 AI）。不寫 state、不留 receipt。",
+    // Claude Code 工具搜尋：只有這支開場就載入完整 schema（查記憶最常用、schema 小）；其餘 8 支照常延遲。
+    _meta: { "anthropic/alwaysLoad": true },
     inputSchema: {
       type: "object",
       properties: {
