@@ -482,7 +482,7 @@ def _resolve_target_impl(
         return {"error": "scope=personal requires 'user' parameter"}
 
     if scope == "personal":
-        # 本人跨專案 personal：~/.claude/memory/personal/<user>/。索引在全域 _atom_index.json，
+        # 本人跨專案 personal：~/.claude/memory/personal/<user>/。登記在不進版控的 personal/_personal_index.json，
         # path 前綴 memory/personal/<user>/ → 讀取端（filter_visible）只給本人。
         # 觸發：明給 cross_project，或 cwd 不在任何專案／在核心根（~/.claude 子樹、程式碼樹、根層 worktree）。
         _root = _find_project_root(project_cwd) if project_cwd else None

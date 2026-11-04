@@ -14,6 +14,7 @@
 | ours／theirs | git 術語：ours＝`:2`＝目前 HEAD；theirs＝`:3`。rebase 時方向反直覺，見「stage 方向矩陣」 |
 | resolve（備案） | `merge-atom-index.py --resolve`：git 已停在衝突後，把同一套語意驅動套在三檔的 stage 上，寫回工作樹並 `git add` |
 | 語意三方 | 不是逐行比對，而是把索引當集合：JSON 以 `path` 為 key 逐條合、triggers 聯集、一側刪一側改留改的；一側搬檔（同一側刪舊 path、加同名新 path）另一側改舊列 → 收成新 path 一列、改動併進來；`_ATOM_INDEX.md` 表列同鍵、同規則；`MEMORY.md` 範疇計數 = ours + theirs − base；表外手寫文字仍走 `git merge-file` 逐行三方 |
+| 私人卡登記 | 根層 `memory/personal/` 的卡與登記都不跨機：登記在 `memory/personal/_personal_index.json`（gitignore），不進三檔、不參與合併。這台剛升級或 pull 掉共用索引的舊列 → SessionStart 跑 `sync-atom-index --split-personal` 收斂（缺的從卡片檔頭補） |
 | SVN 衝突來源檔 | `svn update` 停在文字衝突時留下的 `X.mine`（更新前自己的工作版＝ours）、`X.r舊`（base）、`X.r新`（theirs）；三個絕對路徑由 `svn info --xml` 的 `<conflict type="text">` 給出（`prev-wc-file`／`prev-base-file`／`cur-base-file`），不猜檔名；`svn resolve --accept working` 後自動刪除 |
 | memory dir 候選 | SVN 分支只掃這些目錄、不掃整個工作副本（大 WC 的 `svn status` 要 3～6 秒）：cwd 往上到 WC 根每層的 `.claude/memory`、WC 根的根層佈局 `memory/`（須有 `_atom_index.json`）、登記專案中位於 WC 根之下者（`wg_core.memory_dir_candidates`） |
 

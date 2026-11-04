@@ -579,12 +579,21 @@ function realmFromRelPath(rel) {
   return normalizeRelPath(rel).startsWith("_AIDocs/_atoms/") ? "local" : "core";
 }
 
-// 讀 memory/_atom_index.json 的 atoms 陣列；檔缺或 JSON 壞回 null（呼叫端決定回退）
+// 本機私人卡的登記（memory/personal/_personal_index.json，不進版控）；沒有或壞掉回空陣列
+function readPersonalIndexEntries() {
+  try {
+    const raw = fs.readFileSync(path.join(MEMORY_DIR, "personal", "_personal_index.json"), "utf-8");
+    const idx = JSON.parse(raw);
+    return Array.isArray(idx && idx.atoms) ? idx.atoms : [];
+  } catch { return []; }
+}
+
+// 讀 memory/_atom_index.json 的 atoms 陣列並疊上私人卡登記；共用索引檔缺或 JSON 壞回 null（呼叫端決定回退）
 function readAtomIndexEntries() {
   try {
     const raw = fs.readFileSync(path.join(MEMORY_DIR, "_atom_index.json"), "utf-8");
     const idx = JSON.parse(raw);
-    return Array.isArray(idx && idx.atoms) ? idx.atoms : null;
+    return Array.isArray(idx && idx.atoms) ? idx.atoms.concat(readPersonalIndexEntries()) : null;
   } catch { return null; }
 }
 

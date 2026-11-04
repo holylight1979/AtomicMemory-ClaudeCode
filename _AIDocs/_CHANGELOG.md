@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-04 私人卡登記搬出共用索引
+- **緣由**：根層 `memory/personal/` 的卡不進版控，但 19 筆登記（卡名、觸發詞）在進版控的 `_atom_index.json` 與 `_ATOM_INDEX.md`，隨 repo 推到遠端；別台還會把它們當懸空列。
+- **做法**：`lib/atom_index_json` 根層 `save` 把私人列分流到 gitignore 的 `memory/personal/_personal_index.json`、`load` 疊回，鏡像不列；專案層不分流。`sync-atom-index --split-personal` 收斂舊資料，SessionStart 偵測到就跑。直接讀 JSON 的遺忘流程、日期檢查、效果報告、原生記憶橋接、來源回看、Node 儀表板改成疊上私人列。6 張公開卡的 `Related` 拿掉私人卡名，連結改寫在私人卡那邊（反向連結在記憶體算，本機連結圖不變）。
+- **驗證**：新 `lib/verify/verify_personal_index.py`；搬移前後 744 筆逐字相同（725 共用＋19 私人）、連結圖 453 節點相同。已進 git 歷史的卡名不會消失。
 ## 2026-11-04 同事回報 M0027：6 支紅測與索引合併留兩列
 - **緣由**：同事在別台整併 upstream 跑全量，6 案紅、索引出現同一張卡新舊兩列。本機重現 5 案（第 6 案只在非作者機器紅）。
 - **做法**：`wg_overview`／`wg_read_fast`／`codex-run` 補 `newline=`；`wg_atoms` 的 `atom_spec` import 排到 `wg_core` 之後（先載 wg_atoms 就炸）；`merge-atom-index` 加 `collapse_moved`（一側搬檔、另一側改舊列 → 收成新路徑一列）。測試：真卡只認檔名不認資料夾、followups 的 host 驗雜湊格式不比本機、同步提醒案例跟上 (d) 閘已拔、全庫重疊對只數進得了候選池的卡（被 Supersedes 取代的舊卡線上先踢出，實際 6 對不是 24 對）。

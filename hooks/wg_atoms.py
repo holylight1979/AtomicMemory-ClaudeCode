@@ -39,10 +39,11 @@ from atom_spec import SCOPE_DIR_NAMES  # lib/（wg_core 已放進 sys.path，要
 # prefer _atom_index.json (machine source of truth)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 try:
-    from atom_index_json import (load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON,
+    from atom_index_json import (load_atom_index_json, load_personal_rows, to_atom_entries, ATOM_INDEX_JSON,
                                  delete_atom as index_delete_atom)
 except ImportError:
     load_atom_index_json = None
+    load_personal_rows = None
     to_atom_entries = None
     index_delete_atom = None
     ATOM_INDEX_JSON = "_atom_index.json"
@@ -2776,14 +2777,15 @@ def _forget_load_index_strict(mem_dir: Path) -> Tuple[Optional[List[Dict[str, An
         return None, f"index unreadable: {type(e).__name__}: {e}"
     if not isinstance(data, dict) or not isinstance(data.get("atoms"), list):
         return None, "index unreadable: malformed structure (expected {atoms: [...]})"
-    for i, a in enumerate(data["atoms"]):
+    atoms = data["atoms"] + (load_personal_rows(mem_dir) if load_personal_rows else [])   # 私人卡的條目也要刪得到
+    for i, a in enumerate(atoms):
         if not isinstance(a, dict):
             return None, f"index unreadable: entry #{i} malformed (expected dict, got {type(a).__name__})"
         for key in ("name", "path"):
             v = a.get(key)
             if not isinstance(v, str) or not v:
                 return None, f"index unreadable: entry #{i} malformed ({key} must be non-empty str)"
-    return data["atoms"], None
+    return atoms, None
 
 
 def _forget_drop_index_entries(mem_dir: Path, entries: List[Dict[str, Any]],

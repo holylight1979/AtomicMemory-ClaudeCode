@@ -29,6 +29,7 @@ from pathlib import Path
 CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
 sys.path.insert(0, str(CODE_DIR / "lib"))
 sys.path.insert(0, str(CODE_DIR))
+from lib.atom_index_json import load_personal_rows  # noqa: E402
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 
@@ -67,7 +68,7 @@ TOP_N_DEFAULT = 10
 def _load_atoms() -> list[dict]:
     try:
         data = json.loads(ATOM_INDEX.read_text(encoding="utf-8"))
-        return data.get("atoms", [])
+        return data.get("atoms", []) + load_personal_rows(ATOM_INDEX.parent)
     except Exception:
         return []
 

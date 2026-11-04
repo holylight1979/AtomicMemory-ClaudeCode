@@ -17,6 +17,8 @@ V5 改讀 `_atom_index.json`，append 走 `lib.atom_index_json.upsert_atom`。
   --sync-depends         frontmatter 有 `- Depends:` 行的 atom，把條目寫進索引 depends（frontmatter 為真相；
                          沒有該行的存量不碰、--check 也不對它們報漂移）
   --check                同 default，僅報 exit code（PreCommit 用，輸出最小化）
+  --split-personal       私人卡登記搬出共用索引：磁碟上有、索引缺的私人卡先從 frontmatter 補，再整份重寫一次讓 save 分流
+                         （SessionStart 看到 personal_split_pending 會自動跑）
 
 範圍判定（哪些檔算 atom）：
   - 路徑在 memory/ 下且為 .md
@@ -37,6 +39,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import find_aka_line, find_entry_line, find_related_line, split_related  # noqa: E402
 from lib.atom_index_json import (  # noqa: E402
+    PERSONAL_ROW_PREFIX,
     SCHEMA_VERSION,
     apply_upsert,
     atom_index_md_stale,
@@ -515,6 +518,8 @@ def main() -> int:
                         help="write frontmatter Depends into _atom_index.json depends (frontmatter is truth; atoms without a Depends line untouched)")
     parser.add_argument("--rebuild", action="store_true",
                         help="整份索引從磁碟重生（衍生檔，可隨時重建；不動任何 .md）")
+    parser.add_argument("--split-personal", action="store_true",
+                        help="move personal card rows out of the shared index into memory/personal/_personal_index.json")
     parser.add_argument("--check", action="store_true",
                         help="quiet drift check (exit 1 if drift, for PreCommit)")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
@@ -565,6 +570,13 @@ def _run_one(memory_dir: Path, args, *, quiet: bool = False,
     if getattr(args, "rebuild", False):   # 程式化呼叫端（測試/工具）自組 Namespace，不一定帶這旗標
         stat = rebuild_index(memory_dir, claude_root, atoms_by_path)
         actions_taken.append(f"index rebuilt from disk: {stat}")
+        index_rows = load_index_rows(memory_dir)
+
+    if getattr(args, "split_personal", False):
+        personal = {rel: atom for rel, atom in atoms_by_path.items() if rel.startswith(PERSONAL_ROW_PREFIX)}
+        added = add_to_index_from_frontmatter(personal, index_rows, memory_dir)
+        save_index_with_mirror(memory_dir, load_atom_index_json(memory_dir, strict=True))
+        actions_taken.append(f"personal rows split out of shared index, re-added from disk: {added}")
         index_rows = load_index_rows(memory_dir)
 
     if args.add_from_frontmatter:

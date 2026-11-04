@@ -191,6 +191,27 @@ def _index_stale_reason(memory_dir: Path, json_path: Path) -> str:
     return ""
 
 
+def _split_personal_if_pending(memory_dir: Path) -> str:
+    """根層私人卡登記還沒搬出共用索引，或 pull 之後這台的私人卡沒了登記 → 跑一次分流，回要顯示的一行。
+    結果看分流後的狀態，不看 exit code：工具遇到別的索引漂移也會回 1。"""
+    try:
+        from atom_index_json import personal_split_pending
+        if not personal_split_pending(memory_dir):
+            return ""
+        import subprocess as _sp
+        r = _sp.run([sys.executable, str(CODE_DIR / "tools" / "sync-atom-index.py"),
+                     "--memory-dir", str(memory_dir), "--split-personal"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                    creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
+        if personal_split_pending(memory_dir):
+            return (f"[Guardian:Index] ⚠ 私人卡登記沒搬成：{(r.stderr or '').strip()[:200]}"
+                    f"——可能隨 repo 外流或注入不到 → 手動 python ~/.claude/tools/sync-atom-index.py --split-personal")
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:split_personal", e)
+        return f"[Guardian:Index] ⚠ 私人卡登記分流失敗（{e}）→ 手動 python ~/.claude/tools/sync-atom-index.py --split-personal"
+    return "[Guardian:Index] 私人卡登記已搬到本機私人索引（memory/personal/，不進版控）。"
+
+
 def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
     """索引檔不在（沒入版控／被清掉／新 clone）、或專案記憶卡比索引新 → 就地從磁碟重建。
 
@@ -210,7 +231,7 @@ def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
     stale = ""
     if json_path.exists() and md_path.exists():
         if _under_claude_dir(memory_dir):
-            return ""
+            return _split_personal_if_pending(memory_dir)
         stale = _index_stale_reason(memory_dir, json_path)
         if not stale:
             return ""

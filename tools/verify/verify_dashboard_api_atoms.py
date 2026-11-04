@@ -118,8 +118,12 @@ def live_server():
 
 def _index_paths_existing() -> set[str]:
     data = json.loads(ATOM_INDEX.read_text(encoding="utf-8"))
+    rows = data.get("atoms", [])
+    personal = ATOM_INDEX.parent / "personal" / "_personal_index.json"   # 本機私人卡的登記，API 疊在共用索引後面
+    if personal.exists():
+        rows = rows + json.loads(personal.read_text(encoding="utf-8")).get("atoms", [])
     out = set()
-    for e in data.get("atoms", []):
+    for e in rows:
         rel = str(e.get("path", "")).replace("\\", "/")
         if rel and (CLAUDE_DIR / rel).exists():
             out.add(rel)

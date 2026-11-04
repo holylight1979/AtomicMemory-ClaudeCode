@@ -25,6 +25,7 @@ CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根（本檔所在�
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 from lib.narrative_date import fix_line, fix_lines  # noqa: E402,F401  判式單一來源；fix_line 給 verify 直接測
+from lib.atom_index_json import load_personal_rows  # noqa: E402
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 INDEX = CLAUDE_DIR / "memory" / "_atom_index.json"
@@ -63,7 +64,7 @@ def process(path: Path) -> tuple[list[tuple[str, str | None]], str | None]:
 def indexed_atoms() -> list[Path]:
     data = json.loads(INDEX.read_text(encoding="utf-8"))
     paths = []
-    for a in data.get("atoms", []):
+    for a in data.get("atoms", []) + load_personal_rows(INDEX.parent):
         p = Path(a["path"])
         if not p.is_absolute():
             p = CLAUDE_DIR / p

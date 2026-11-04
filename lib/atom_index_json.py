@@ -29,6 +29,10 @@ realm 自動搬移照它擋（lib/atom_locations.ENTRY_BOUND_STAYS_CORE）。
 但唯一機器源是 JSON；hooks/MCP/lib 統一走本模組。
 
 讀取容錯：JSON 不存在或損毀 → 回 {"atoms": []}（caller 自行 fallback _ATOM_INDEX.md）。
+
+私人卡登記：根層 memory/personal/<user>/ 的卡不進版控，登記也不放共用索引，否則卡名與觸發詞會隨 repo 外流。
+登記存在同樣不進版控的 memory/personal/_personal_index.json：load 疊回、save 分流，鏡像 _ATOM_INDEX.md 也不列，
+呼叫端看到的仍是一份完整索引。專案層的 personal 跟著專案 repo 走，不分流。
 """
 
 from __future__ import annotations
@@ -44,6 +48,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 ATOM_INDEX_JSON = "_atom_index.json"
 ATOM_INDEX_MD = "_ATOM_INDEX.md"
+PERSONAL_DIR = "personal"
+PERSONAL_INDEX_JSON = "_personal_index.json"   # 不能叫 _atom_index.json：find_index_dir 往上找索引根時會停在 personal/
+PERSONAL_ROW_PREFIX = "memory/personal/"       # 根層索引裡私人卡的 path 前綴
 SCHEMA_VERSION = "1.0"
 TRIGGER_MAX_LEN = 30  # validate_index 與 write funnel 共用（寫入當下即驗，不留到後續操作才爆）
 BUSY_RETRIES = 5      # 索引被別的行程開著時最多試幾次
@@ -108,36 +115,107 @@ def _empty_index() -> Dict[str, Any]:
     return {"version": SCHEMA_VERSION, "atoms": []}
 
 
-def load_atom_index_json(mem_dir: Path, *, strict: bool = False) -> Dict[str, Any]:
-    """Load _atom_index.json; missing／JSON 壞／形狀不對 → empty.
-
-    檔在卻讀不到（重試完仍被別的行程鎖著、權限）：預設回空索引（讀取端 fallback）；strict=True 改丟 OSError——
-    要整份寫回的呼叫端拿空索引去寫，等於把一份好好的索引抹掉。內容壞掉（合併衝突標記、手改壞）兩種模式都回空索引：
-    那份本來就讀不回條目，--add-from-frontmatter／--rebuild 從磁碟重生是文件寫明的復原路徑（MultiMachineMemorySync.md）。"""
-    p = mem_dir / ATOM_INDEX_JSON
+def _read_index_file(p: Path, strict: bool) -> Optional[Dict[str, Any]]:
+    """讀一份索引檔；缺檔、內容壞、形狀不對 → None。檔在卻讀不到：strict=True 丟 OSError，否則也回 None。"""
     if not p.exists():
-        return _empty_index()
+        return None
     try:
         text = retry_busy(lambda: p.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as e:
         if strict and isinstance(e, OSError):
             raise OSError(f"{p} 讀不到（{e}）；不拿空索引覆寫，等佔用它的行程放開後重跑") from e
-        return _empty_index()
+        return None
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        return _empty_index()
+        return None
     if not isinstance(data, dict) or not isinstance(data.get("atoms"), list):
-        return _empty_index()
+        return None
     return data
 
 
+def load_personal_rows(mem_dir: Path, *, strict: bool = False) -> List[Any]:
+    """本機私人索引的條目；沒有這份檔（專案層、沒有私人卡的機器）或內容壞了 → []。"""
+    data = _read_index_file(mem_dir / PERSONAL_DIR / PERSONAL_INDEX_JSON, strict)
+    return data["atoms"] if data else []
+
+
+def load_atom_index_json(mem_dir: Path, *, strict: bool = False) -> Dict[str, Any]:
+    """Load _atom_index.json 並疊上本機私人索引; missing／JSON 壞／形狀不對 → empty.
+
+    檔在卻讀不到（重試完仍被別的行程鎖著、權限）：預設回空索引（讀取端 fallback）；strict=True 改丟 OSError——
+    要整份寫回的呼叫端拿空索引去寫，等於把一份好好的索引抹掉。內容壞掉（合併衝突標記、手改壞）兩種模式都回空索引：
+    那份本來就讀不回條目，--add-from-frontmatter／--rebuild 從磁碟重生是文件寫明的復原路徑（MultiMachineMemorySync.md）。
+    共用索引壞掉時不疊私人列：呼叫端靠「條目為空」退回 _ATOM_INDEX.md。"""
+    data = _read_index_file(mem_dir / ATOM_INDEX_JSON, strict)
+    if data is None:
+        return _empty_index()
+    personal = load_personal_rows(mem_dir, strict=strict)
+    if personal:
+        # 舊版機器可能把舊列推回共用索引：同路徑以本機這份為準，不重複
+        paths = {a.get("path") for a in personal if isinstance(a, dict)}
+        data["atoms"] = [a for a in data["atoms"] if not (isinstance(a, dict) and a.get("path") in paths)] + personal
+    return data
+
+
+def _is_root_layer(mem_dir: Path) -> bool:
+    """mem_dir 是不是使用者資料根的 memory/：只有這層的 personal 不進版控。"""
+    try:
+        from .project_root import claude_data_dir
+    except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+        from project_root import claude_data_dir
+    try:
+        return Path(mem_dir).resolve() == (claude_data_dir() / "memory").resolve()
+    except OSError:
+        return False
+
+
+def _is_personal_row(a: Any) -> bool:
+    return isinstance(a, dict) and _norm_index_path(a.get("path")).startswith(PERSONAL_ROW_PREFIX)
+
+
+def _split_personal(mem_dir: Path, data: Dict[str, Any]) -> tuple:
+    """根層 → (進共用索引的 data, 私人列)；其他層不分流 → (原 data, None)。"""
+    if not _is_root_layer(mem_dir):
+        return data, None
+    personal = [a for a in data["atoms"] if _is_personal_row(a)]
+    return {**data, "atoms": [a for a in data["atoms"] if not _is_personal_row(a)]}, personal
+
+
+def _save_personal_rows(mem_dir: Path, rows: List[Any]) -> None:
+    """沒有私人卡也沒有這份檔 → 不建；刪到一筆不剩要寫空表，不然刪掉的列會被疊回來。"""
+    p = mem_dir / PERSONAL_DIR / PERSONAL_INDEX_JSON
+    if not rows and not p.exists():
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    _write_text_lf(p, json.dumps({"version": SCHEMA_VERSION, "atoms": rows}, ensure_ascii=False, indent=2))
+
+
+def personal_split_pending(mem_dir: Path) -> bool:
+    """根層私人卡登記要重新分流：共用索引裡還有私人列（這台剛升級、或舊版機器推回來），
+    或私人卡在磁碟上、本機私人索引卻沒有條目（pull 掉了共用索引的舊列、私人索引被清掉）。
+    開場每次判一次，只比對索引文字、列一層資料夾，不解析共用索引。"""
+    if not _is_root_layer(mem_dir):
+        return False
+    try:
+        text = retry_busy(lambda: (mem_dir / ATOM_INDEX_JSON).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return False
+    if f'"path": "{PERSONAL_ROW_PREFIX}' in text:
+        return True
+    return not load_personal_rows(mem_dir) and any((mem_dir / PERSONAL_DIR).glob("*/*.md"))
+
+
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
+    """私人列先落檔：後面共用索引換檔失敗時舊列還在，不會有一筆兩邊都找不到。"""
+    shared, personal = _split_personal(mem_dir, data)
+    if personal is not None:
+        _save_personal_rows(mem_dir, personal)
     p = mem_dir / ATOM_INDEX_JSON
     born = not p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
     _write_text_lf(
-        p, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+        p, json.dumps(shared, ensure_ascii=False, indent=2, sort_keys=False)
     )
     if born:
         _on_index_born(mem_dir)
@@ -340,7 +418,7 @@ def save_index_with_mirror(mem_dir: Path, data: Dict[str, Any]) -> None:
     順序 JSON 先、md 後：中途失敗時磁碟上要嘛全舊、要嘛「JSON 新、鏡像舊」，鏡像不會跑在真相前面；
     鏡像每次都由整份 data 重生，下一次任何索引寫入（或 sync-atom-index --add-from-frontmatter 重跑）就補回。
     不回頭重讀 JSON 產生鏡像：重讀撞上別的行程搶檔會讀成空索引，生出一份空鏡像。"""
-    md_text = render_atom_index_md(data)
+    md_text = render_atom_index_md(_split_personal(mem_dir, data)[0])
     save_atom_index_json(mem_dir, data)
     try:
         _write_text_lf(mem_dir / ATOM_INDEX_MD, md_text)
@@ -357,12 +435,13 @@ def atom_index_md_stale(mem_dir: Path, data: Dict[str, Any]) -> bool:
         cur = retry_busy(lambda: md.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError):
         return True
-    return cur.replace("\r\n", "\n") != render_atom_index_md(data)
+    return cur.replace("\r\n", "\n") != render_atom_index_md(_split_personal(mem_dir, data)[0])
 
 
 def regenerate_atom_index_md(mem_dir: Path) -> None:
     """Regenerate _ATOM_INDEX.md from JSON (human-readable mirror, deprecated)."""
-    _write_text_lf(mem_dir / ATOM_INDEX_MD, render_atom_index_md(load_atom_index_json(mem_dir)))
+    shared = _split_personal(mem_dir, load_atom_index_json(mem_dir))[0]
+    _write_text_lf(mem_dir / ATOM_INDEX_MD, render_atom_index_md(shared))
 
 
 def render_atom_index_md(data: Dict[str, Any]) -> str:
@@ -444,7 +523,7 @@ def migrate_md_to_json(mem_dir: Path, *, overwrite: bool = False) -> Dict[str, A
         return load_atom_index_json(mem_dir)
     md_path = mem_dir / ATOM_INDEX_MD
     atoms = parse_legacy_atom_index_md(md_path)
-    data = {"version": SCHEMA_VERSION, "atoms": atoms}
+    data = {"version": SCHEMA_VERSION, "atoms": atoms + load_personal_rows(mem_dir)}   # 鏡像不列私人卡，照舊帶著
     save_atom_index_json(mem_dir, data)
     return data
 

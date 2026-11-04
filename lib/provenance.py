@@ -24,6 +24,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
+from .atom_index_json import load_personal_rows
 from .atom_spec import parse_frontmatter, slugify
 from .harness_text import is_kickoff_prompt, strip_pasted, user_typed_text
 from .project_root import claude_data_dir
@@ -307,7 +308,7 @@ def _locate_by_index(atom: str, memory_dir: Path) -> Optional[Path]:
         return None
     rows = data.get("atoms") if isinstance(data, dict) else data
     want = slugify(atom)
-    for row in rows or []:
+    for row in (rows or []) + load_personal_rows(memory_dir):
         if not isinstance(row, dict):
             continue
         name = str(row.get("name") or "")

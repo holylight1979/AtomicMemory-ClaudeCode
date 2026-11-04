@@ -7,7 +7,7 @@
 - Confidence: [臨]
 - Trigger: 加派 codex, codex 入場, codex 審查, codex 施工, codex agent, codex 歪樓, 帶歪, 第二意見, 同步包, codex-call
 - Created-at: 2026-11-02
-- Related: feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走, 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由, feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決
+- Related: feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走, 第二意見分歧裁決-codex的block要親自重現成立才採-重現不了才不採-我方測試全綠不是駁回理由
 
 ## 知識
 
