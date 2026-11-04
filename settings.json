@@ -2,7 +2,7 @@
   "crossSessionInbound": "accept",
   "cleanupPeriodDays": 14,
   "worktree": {"baseRef": "head"},
-  "claudeMdExcludes": ["C:/Users/holylight/AGENTS.md"],
+  "claudeMdExcludes": ["**/holylight/AGENTS.md"],
   "autoMemoryEnabled": false,
   "permissions": {
     "allow": [
