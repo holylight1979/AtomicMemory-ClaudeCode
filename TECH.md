@@ -2861,7 +2861,7 @@ flowchart TD
 
 [↑ 主文 §4.7](#47-原生-auto-memory已關)
 
-- 關閉前曾用 `native-memory-bridge.py` 把核心索引鏡像進原生目錄當入口；150 場實測 Claude 從未經那條路讀卡，原生「# Memory」提示詞又教模型用 Write 繞過 atom_write，故改為關閉並退役鏡像（決策脈絡見 `_AIDocs/ClaudeCodeInternals/Docs/_analysis/`）。
+- 關閉前曾用 `native-memory-bridge.py` 把核心索引鏡像進原生目錄當入口；150 場實測 Claude 從未經那條路讀卡，原生「# Memory」提示詞又教模型用 Write 繞過 atom_write，故改為關閉並退役鏡像（決策脈絡見 `_AIDocs/DevHistory/v6.1-對CC適應性補正-2026-11/analysis/`）。
 - 驗法：新 session 的 `api-request-shape.system` 不含「# Memory」段與 `projects\…\memory` 路徑；`/memory` 顯示 Auto-memory off。
 
 ### A5.1 管線逐段

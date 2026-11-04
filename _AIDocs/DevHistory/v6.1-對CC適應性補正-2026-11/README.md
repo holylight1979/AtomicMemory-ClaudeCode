@@ -2,6 +2,7 @@
 
 > 發布：2026-11-04｜上一版：v6.0 寫程式碼的進化（2026-10-12，[`../v6.0-寫程式碼的進化-2026-10/`](../v6.0-寫程式碼的進化-2026-10/README.md)）
 > 本文寫給人看。每項改了哪些檔、規則名、驗證檔在 [`技術對照.md`](技術對照.md)（寫給 AI 讀）；運作細節以 [`TECH.md`](../../../TECH.md) 與實碼為準。
+> 一列一項的總表（目標、實作、效果、驗證狀態、子代理額外挖到的事、沒做的與原因）在 [`升級全紀錄.md`](升級全紀錄.md)；動工前的分析與總整在 [`analysis/`](analysis/)。
 
 ## 一句話
 
@@ -37,7 +38,7 @@ Claude Code（下稱 CC）這半年改了幾個本系統當作前提的行為，
 2. **修剪**：官方已經有了，拆掉自己做的。
 3. **進化**：用官方新能力補我們的缺口。
 
-計畫全文見 [`00-總整與建議優先序.md`](../../ClaudeCodeInternals/Docs/_analysis/00-總整與建議優先序.md)；每項的處置見[現況對帳表 §6](../../ClaudeCodeInternals/Docs/_現況對帳-原子記憶系統用到的CC機制.md)。
+計畫全文見 [`00-總整與建議優先序.md`](analysis/00-總整與建議優先序.md)；每項的處置見[現況對帳表 §6](../../ClaudeCodeInternals/Docs/_現況對帳-原子記憶系統用到的CC機制.md)。
 
 ## 第一批：相容修正（記憶在漏，沒有訊號）
 
@@ -114,14 +115,10 @@ Claude Code（下稱 CC）這半年改了幾個本系統當作前提的行為，
 1. **每個要用 `/console 開工` 的 repo，在主檢出開終端機跑一次 `claude`，接受信任提示。** `~/.claude` 已經做過。
 2. **重開 Claude Code。** auto memory 關閉、MCP 給其他 AI 工具的說明、`memory_search` 開場載入、MCP 顯示的版本號 6.1.0，都要新的 session 或 MCP 重連後才生效。
 3. **終端機打 `claude` 找不到時**：CC 原生安裝的 `claude` 在 `~/.local/bin/`（Windows 是 `C:\Users\<帳號>\.local\bin\claude.exe`）。可以用完整路徑跑，或把那個資料夾加進 PATH。週健檢會自己去那裡找；開軌腳本用的是 VS Code 擴充內附的那支，不受影響。
-4. **用安裝器接管過的電腦，升級後要自己補五個設定。** 怎麼分辨：`git -C ~/.claude ls-files -v settings.json` 開頭是 `S`，就是安裝時把你原有設定合併進來的那種。這種電腦跑 `python ~/.claude/tools/install.py --upgrade` 時，只會換掉 `settings.json` 的 hooks 段，其他頂層設定一律保留你原本的，所以這一版新加的五個頂層設定不會自動帶過去：auto memory 不會關，跨 session 傳訊照舊會被扣，worktree 會從遠端分出去。開頭是 `H` 的（開發機，`settings.json` 直接跟版控走）pull 就會拿到，不用補。要補的話，在那台的 `~/.claude/settings.json` 最外層加上下面這段（`claudeMdExcludes` 的路徑換成那台的帳號）：
+4. **用安裝器接管過的電腦，升級後要自己補一個設定。** 怎麼分辨：`git -C ~/.claude ls-files -v settings.json` 開頭是 `S`，就是安裝時把你原有設定合併進來的那種。這種電腦跑 `python ~/.claude/tools/install.py --upgrade` 時，這一版新加的頂層設定裡有四個會自動補上：`autoMemoryEnabled`（auto memory 關）、`crossSessionInbound`（跨 session 傳訊直接收）、`cleanupPeriodDays`（對話紀錄保留 14 天）、`worktree`（從本機最新 commit 分出）。你原本沒設的才補，自己設過的照你的。第五個 `claudeMdExcludes` 裡有本機帳號路徑，不會帶過去。開頭是 `H` 的（開發機，`settings.json` 直接跟版控走）pull 就會拿到，不用補。要補的話，在那台的 `~/.claude/settings.json` 最外層加上這一行（路徑換成那台的帳號）：
 
 ```json
-"crossSessionInbound": "accept",
-"cleanupPeriodDays": 14,
-"worktree": {"baseRef": "head"},
 "claudeMdExcludes": ["C:/Users/<帳號>/AGENTS.md"],
-"autoMemoryEnabled": false
 ```
 
 ## 沒做的與原因
@@ -137,7 +134,7 @@ Claude Code（下稱 CC）這半年改了幾個本系統當作前提的行為，
 | `/doctor prompt-audit` 排進週健檢自動跑 | 它要叫模型審查，無頭跑超過 170 秒還沒完；只在報告列一行請你手動跑 |
 | 依效用帳把沒用的卡降級 | 要等子代理效用帳修好後累積一段數據，才有依據 |
 | `/rewind` 倒退對話後系統狀態跟著退；官方預告 `claude -p` 將預設 `--bare`（不讀登入與 hook），要先加版本偵測 | 這版沒做，留在計畫表的「要先跑探針」段 |
-| 升級時自動把系統新加的頂層設定帶到其他電腦 | 這版沒改安裝器；先用上面「要你動手的」第 4 條手動補 |
+| 升級時把 `claudeMdExcludes` 帶到其他電腦 | 值裡有本機帳號路徑，帶過去是錯的；其他四個新設定安裝器會補（你沒設的才補），這一個用上面「要你動手的」第 4 條手補 |
 
 ## 驗證狀況
 

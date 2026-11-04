@@ -114,7 +114,7 @@
 
 只列事實，不列建議：
 
-- [現況] 原生 auto memory 已用 `autoMemoryEnabled: false` 關閉（2026-11-04）；先前的鏡像檔 `atom-index-bridge.md` 與 `tools/native-memory-bridge.py` 已退役，理由與數據見 `Docs/_analysis/00-總整與建議優先序.md` 第 9 列。
+- [現況] 原生 auto memory 已用 `autoMemoryEnabled: false` 關閉（2026-11-04）；先前的鏡像檔 `atom-index-bridge.md` 與 `tools/native-memory-bridge.py` 已退役，理由與數據見 `_AIDocs/DevHistory/v6.1-對CC適應性補正-2026-11/analysis/00-總整與建議優先序.md` 第 9 列。
 - [現況] `projects/<slug>/memory/` 不再使用；`wg_core` MemoryPathBlock 仍擋寫入當保險。
 - [實測] **UPS 30 秒上限**是注入管線（`hooks/workflow-guardian.py`）的硬約束；本機 `settings.json` 實際設 `timeout: 8`（guardian）＋ `3`（codex_companion），遠低於官方上限，換取 prompt 回應延遲。注入走第 3.2 節的 `hookSpecificOutput.additionalContext`。
 - SessionEnd 預設共 1.5 秒，個別 hook 設 `timeout` 可到 60 秒；萃取（extraction）走 detached worker 是因為本機 LLM 約 60 秒才跑完：`hooks/extract-worker.py` 由 guardian 以獨立子程序 spawn（`run-hidden.py` 負責 Popen），存活超過 hook timeout，本機 LLM 萃取約 60 秒可跑完。`settings.json` 內 SessionEnd 的 `timeout: 30` 已生效，但仍短於萃取耗時，所以靠 detached。

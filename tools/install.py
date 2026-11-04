@@ -460,7 +460,7 @@ def merge_overlays(backup: Path) -> None:
     write_json(TARGET / "settings.json", merged)
     print_dropped(dropped)
     if user_settings is None:
-        print("  settings.json：原本沒有 → 只放入系統的 hooks 與 statusLine，不帶入任何授權清單、模型或權限模式。")
+        print("  settings.json：原本沒有 → 只放入系統的 hooks、statusLine 與四個系統契約鍵（auto memory 關、跨 session 收訊、逐字稿保留、worktree 分出點），不帶入任何授權清單、模型或權限模式。")
         print("    想要同款授權清單見：git -C ~/.claude show HEAD:settings.json")
     else:
         print("  settings.json：系統 hooks＋你原有的其餘設定與你自己的 hook。")

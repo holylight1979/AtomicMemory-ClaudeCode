@@ -55,7 +55,7 @@
 請執行 python ~/.claude/tools/install.py --upgrade，把結果告訴我；成功的話提醒我重開 Claude Code。
 ```
 
-安裝時合併過你原有設定的機器（`git -C ~/.claude ls-files -v settings.json` 開頭是 `S`），升級只會換掉 `settings.json` 的 hooks 段，你自己的其他設定都保留。所以系統在 `settings.json` 最外層新加的設定（例如關掉自帶的 auto memory）不會自動帶過來，要照那一版 release note 的「要你動手的」自己加一次。各版 release note 在 `_AIDocs/DevHistory/` 裡依版本分資料夾。
+安裝時合併過你原有設定的機器（`git -C ~/.claude ls-files -v settings.json` 開頭是 `S`），升級會換掉 `settings.json` 的 hooks 段；最外層有幾個系統要求的設定（目前是關掉自帶的 auto memory、跨 session 傳訊直接收、對話紀錄保留天數、worktree 從哪分出），你原本沒設的會補上、設過的照你的；你自己的其他設定都保留。不在這份清單裡的新設定不會自動帶過來，要照那一版 release note 的「要你動手的」自己加一次。各版 release note 在 `_AIDocs/DevHistory/` 裡依版本分資料夾。
 
 ---
 

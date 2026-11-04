@@ -21,7 +21,7 @@
 | [Docs/_GLOSSARY.md](Docs/_GLOSSARY.md) | 453 個新名詞／術語白話表 |
 | [Docs/08-whats-new/TIMELINE-新功能與新名詞.md](Docs/08-whats-new/TIMELINE-新功能與新名詞.md) | 新名詞首次出現版本、165 版時間線、已移除／改名 |
 | [Docs/_現況對帳-原子記憶系統用到的CC機制.md](Docs/_現況對帳-原子記憶系統用到的CC機制.md) | 原子記憶系統現用的 hook 事件／設定／擴充／多 session 對帳表＋自製但原生可能已有的 25 項候選 |
-| [Docs/_analysis/](Docs/_analysis/) | 依官方新能力分析原子記憶系統可進化點（三面向＋總整） |
+| [../DevHistory/v6.1-對CC適應性補正-2026-11/analysis/](../DevHistory/v6.1-對CC適應性補正-2026-11/analysis/) | 依官方新能力分析原子記憶系統可進化點（三面向＋總整）；v6.1 照它做完，歸在 DevHistory |
 | `python ~/.claude/tools/cc_docs_harvest.py fetch` / `index` | 重抓原文與 manifest／重建索引三檔 |
 
 ---
