@@ -27,6 +27,7 @@ from lib.atom_index_json import (  # noqa: E402
     delete_atom, find_index_dir, load_atom_index_json, load_personal_rows, personal_split_pending,
     regenerate_atom_index_md, upsert_atom,
 )
+from lib.sensitive_gate import is_secret_path  # noqa: E402
 
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 PUBLIC_PATH = "memory/x/pub.md"
@@ -155,6 +156,23 @@ def test_split_pending_cases(mem, shared_has_row, card_on_disk, personal_file, w
     assert personal_split_pending(mem) is want
 
 
+def test_split_pending_for_card_pulled_after_rows_exist(mem):
+    """pull 來的新卡（含 secret/ 底下的）沒有登記要補；role.md、沒有 Trigger 的檔補不出來，不算。"""
+    _with_two_rows(mem)
+    assert personal_split_pending(mem) is False
+    owner = mem / "personal" / "u"
+    owner.mkdir(parents=True, exist_ok=True)
+    (owner / "role.md").write_text("- Trigger: x\n", encoding="utf-8")
+    (owner / "no-trigger.md").write_text("# 沒有觸發詞\n", encoding="utf-8")
+    assert personal_split_pending(mem) is False
+    (owner / "pulled-card.md").write_text(CARD_TEXT, encoding="utf-8")
+    assert personal_split_pending(mem) is True
+    (owner / "pulled-card.md").unlink()
+    (owner / "secret").mkdir()
+    (owner / "secret" / "pulled-key.md").write_text(CARD_TEXT, encoding="utf-8")
+    assert personal_split_pending(mem) is True
+
+
 def _run_split_tool(mem_dir: Path) -> subprocess.CompletedProcess:
     env = {**os.environ, "WG_CLAUDE_DIR": str(mem_dir.parent), "PYTHONIOENCODING": "utf-8"}
     return subprocess.run([sys.executable, "-X", "utf8", str(ROOT / "tools" / "sync-atom-index.py"),
@@ -188,7 +206,7 @@ def test_session_start_splits_once_then_stays_quiet(mem, monkeypatch):
     _write_card(mem)
     _write_old_shared_index(mem, PUBLIC_PATH, SECRET_PATH)
     regenerate_atom_index_md(mem)
-    assert "已搬到本機私人索引" in ss._rebuild_index_if_missing(mem)
+    assert "已更新到本機索引" in ss._rebuild_index_if_missing(mem)
     assert SECRET not in _shared_text(mem)
     assert ss._rebuild_index_if_missing(mem) == ""
 
@@ -249,11 +267,50 @@ def test_dashboard_lists_personal_cards(mem):
     assert line and SECRET in line, r.stdout[-500:] + r.stderr[-1500:]
 
 
+HEAL_PROBE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("probe_atom_heal", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["probe_atom_heal"] = mod
+spec.loader.exec_module(mod)
+seen = {}
+def record_candidates(name, content, bad_ref, candidates, backend):
+    seen[name] = candidates
+    return {"action": "needs_human", "target": None, "reason": ""}
+mod._propose = record_candidates
+atoms = mod.ahc.find_atoms(mod.ahc.MEMORY_ROOT)
+for name in sys.argv[2:]:
+    mod.heal_L2(name, {"broken_refs": [{"missing_ref": "gone"}]}, atoms, {}, False, "none")
+print("PROBE_JSON " + json.dumps(seen, ensure_ascii=False))
+"""
+
+
+def test_atom_heal_never_offers_secret_card_to_other_cards(mem):
+    """修一般卡的斷連結不提議接到 secret 卡（卡名會隨 repo 外流），一般個人卡照常能接；修 secret 卡時什麼都能接。"""
+    _write_card(mem)
+    key = mem / "personal" / "u" / "secret" / "key-card.md"
+    key.parent.mkdir(parents=True)
+    key.write_text(CARD_TEXT.replace(SECRET, "key-card"), encoding="utf-8")
+    public = mem / "x" / "pub.md"
+    public.parent.mkdir()
+    public.write_text(CARD_TEXT.replace(SECRET, "pub").replace("personal:u", "global"), encoding="utf-8")
+    env = {**os.environ, "WG_CLAUDE_DIR": str(mem.parent), "PYTHONIOENCODING": "utf-8"}
+    r = subprocess.run([sys.executable, "-X", "utf8", "-c", HEAL_PROBE, str(ROOT / "tools" / "atom-heal.py"), "pub", "key-card"],
+                       env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+                       creationflags=NO_WINDOW)
+    line = next((ln for ln in r.stdout.splitlines() if ln.startswith("PROBE_JSON ")), "")
+    assert line, r.stdout + r.stderr[-1500:]
+    seen = json.loads(line[len("PROBE_JSON "):])
+    assert "pub" in seen["pub"] and SECRET in seen["pub"] and "key-card" not in seen["pub"]
+    assert {"pub", SECRET, "key-card"} <= set(seen["key-card"])
+
+
 def test_repo_shared_index_has_no_personal_rows():
-    """本 repo 進版控的索引與鏡像不得有私人列（卡名、觸發詞會隨 repo 外流）。
-    公開卡的 Related 也不能寫私人卡名：連結要寫在私人卡那邊，反向連結在記憶體算，本機效果一樣。"""
+    """本 repo 進版控的索引與鏡像不得有個人卡的列；也不得提到 secret 卡名：
+    連結要寫在 secret 卡那邊，反向連結在記憶體算，本機效果一樣。"""
     shared = (ROOT / "memory" / "_atom_index.json").read_text(encoding="utf-8")
     mirror = (ROOT / "memory" / "_ATOM_INDEX.md").read_text(encoding="utf-8")
     assert '"path": "memory/personal/' not in shared and "| memory/personal/" not in mirror
-    named = [a["name"] for a in load_personal_rows(ROOT / "memory") if a["name"] in shared or a["name"] in mirror]
+    rows = [a for a in load_personal_rows(ROOT / "memory") if is_secret_path(a["path"])]
+    named = [a["name"] for a in rows if a["name"] in shared or a["name"] in mirror]
     assert not named, named

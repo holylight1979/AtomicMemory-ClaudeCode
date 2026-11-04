@@ -285,6 +285,18 @@ def test_git_nothing_to_commit(repo):
     assert _git(repo, "rev-parse", "HEAD").stdout == before
 
 
+def test_git_real_token_value_is_never_committed(repo):
+    """自動上版控的最後一關：含真實 token 的檔不進 commit（log 講明），同輪其他檔照上。"""
+    (repo / "memory" / "leaky.md").write_text("# 卡\n\n- " + "glpat-" + "a" * 20 + "\n", encoding="utf-8")
+    (repo / "memory" / "clean.md").write_text("# 卡\n\n- 一般內容\n", encoding="utf-8")
+    logs = []
+    res = vs.sync_targets_inline([_target(repo)], CFG_NOPUSH, log=logs.append)
+    assert res[0]["status"] == "ok" and res[0]["committed"] == 1
+    committed = _git(repo, "show", "--name-only", "--format=", "HEAD").stdout
+    assert "clean.md" in committed and "leaky.md" not in committed
+    assert any("leaky.md" in m and "真實值" in m for m in logs), logs
+
+
 def test_git_extra_doc_only_marker_change_committed_other_edits_held(repo):
     """EXTRA_DOC_MARKER_ONLY：單檔 pathspec 的文件（TECH.md）只代上計數標記的變動；別處也改了 → 不進 commit、留在工作樹、
     log 印規則名，同輪的記憶檔照常 commit。"""

@@ -180,6 +180,7 @@ def core_target_gate(to_dir: Path, dst_index: Path, *, dry_run: bool) -> tuple:
     - `memory/Failures[/<主題>]`：失敗家族 Lv1，名稱經 validate_category_path 放行。
     - `memory/<Lv1>[/<Lv2>]`：經 core_write_target（taxonomy Lv1 閉合清單、別名／大小寫 snap
       回正名、Lv2 對既有兄弟 snap）；snap 後的資料夾可能與輸入不同，以回傳值為準。
+    - `memory/personal/<user>[/secret]`：個人層沒有範疇清單，直接放行（寫錯地方的卡要搬得進 secret/）。
     - `memory/` 根（無範疇段）：寫入閘（taxonomy.gate_enabled）開 → 拒；關 → 放行（遷移期）。
     專案層 index（非全域）不在本閘範圍，原樣回傳。
     """
@@ -190,6 +191,10 @@ def core_target_gate(to_dir: Path, dst_index: Path, *, dry_run: bool) -> tuple:
     except ValueError:
         return to_dir, None
     segs = [s for s in rel.as_posix().split("/") if s and s != "."]
+    if segs[:1] == ["personal"] and len(segs) >= 2:
+        if not dry_run:
+            Path(to_dir).mkdir(parents=True, exist_ok=True)
+        return to_dir, None
     if not segs:
         if gate_enabled():
             try:

@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-04 個人隱私敏感資訊放 personal/<user>/secret/，其他個人卡開放進版控
+- **緣由**：個人卡全部鎖單機等於廢了跨機這層，真正敏感的只有少數；而這個 repo 在 GitHub 是公開的，要有明確的規則和把關，日後任何人都不會把敏感資訊寫到公開處。
+- **做法**：`atom_write(secret=true)` 落 `memory/personal/<user>/secret/`（不進版控、不送向量、卡名不進橋接檔、觸發詞照常注入）；`.gitignore` 改放行名單，其他人的個人卡預設仍不進。規則進必載的 `rules/core.md` 並登記硬契約。把關集中在 `lib/sensitive_gate.py`：字眼命中要宣告（`secret=true` 或 `not_sensitive=<理由>`）；真實 token／私鑰在寫檔、背景上版控、週健檢各擋一次；背景萃取命中就不寫。`atom-heal` 不把別的卡接到 secret 卡；pull 來的新個人卡開場自動補登記。
+- **驗證**：新 `lib/verify/verify_secret_cards.py`、`tools/workflow-guardian-mcp/verify/verify_atom_write_secret.js`；3 張卡搬進 secret/，16 張推送前讀過全文。字眼表抓不到的隱私內容仍靠 AI 判斷。
 ## 2026-11-04 私人卡登記搬出共用索引
 - **緣由**：根層 `memory/personal/` 的卡不進版控，但 19 筆登記（卡名、觸發詞）在進版控的 `_atom_index.json` 與 `_ATOM_INDEX.md`，隨 repo 推到遠端；別台還會把它們當懸空列。
 - **做法**：`lib/atom_index_json` 根層 `save` 把私人列分流到 gitignore 的 `memory/personal/_personal_index.json`、`load` 疊回，鏡像不列；專案層不分流。`sync-atom-index --split-personal` 收斂舊資料，SessionStart 偵測到就跑。直接讀 JSON 的遺忘流程、日期檢查、效果報告、原生記憶橋接、來源回看、Node 儀表板改成疊上私人列。6 張公開卡的 `Related` 拿掉私人卡名，連結改寫在私人卡那邊（反向連結在記憶體算，本機連結圖不變）。

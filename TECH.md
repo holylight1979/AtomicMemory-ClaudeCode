@@ -4221,6 +4221,7 @@ svn：svn_update_targets
   - 工具自測：`tool_selftests` 列的指令每週跑一次，例：[`tools/config-consistency.py`](tools/config-consistency.py) 量設定鍵在各執行端是否一致
   - 寫碼查核擋滿與使用者放行（列紅）
   - 換行殘留
+  - 進版控的卡或索引提到 secret 卡名、或含密碼／token 真實值（列紅；報告只寫檔案路徑，不寫卡名）
   - Depends 覆蓋率（`depends_coverage_min`）
   - 來源防腐
 - **訊號出口**：

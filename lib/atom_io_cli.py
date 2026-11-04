@@ -5,7 +5,7 @@
 
 Schema:
   stdin:  {"action": "write_atom"|"write_index"|"write_index_full"|"write_raw"
-                    |"build"|"append"|"locate"|"check_supersedes"|"retire"|"realm_check"|"scrub", ...kwargs}
+                    |"build"|"append"|"locate"|"check_supersedes"|"retire"|"realm_check"|"sensitive_check"|"scrub", ...kwargs}
   預算：create（create_atom／build）走 _budget_check、append 走 _append_budget_check＋atom_io.append_atom_file；
   replace 走 build 的 _budget_check。直接呼叫 lib.atom_io.write_atom(mode="replace") 沒有預算檢查（既有差異，
   CLI／js 路徑都已預檢）。
@@ -13,6 +13,8 @@ Schema:
   有敘事型日期就拒（KNOWLEDGE_LINE_NO_NARRATIVE_DATE，判式 lib/narrative_date，與 write_atom 同一份）。
   realm_check：{scope?, project_cwd, title, triggers, knowledge, actions, domain, scope_reason?} → scope=org 走 check_org_write，
   shared 直接放行，其餘走 check_global_write。scrub：{text} → extra.text（去專案名／路徑／「此專案」）。
+  sensitive_check：{title, triggers, knowledge, actions, provenance, quote, not_sensitive?} → 個人隱私敏感資訊閘（lib/sensitive_gate）；
+  字眼命中且帶了 not_sensitive 理由 → 放行並留稽核 op=sensitive_declared。
   stdout: WriteResult.to_dict()  (single-line JSON)
   exit code: 0=ok, 1=error
 
@@ -108,6 +110,17 @@ def _depends_of(content: str):
     import re as _re
     m = _re.search(r"^- Depends:[ \t]*(.*)$", content or "", _re.MULTILINE)   # 不跨行：空 Depends 行不吃下一行
     return [x.strip() for x in _re.split(r"[,，]", m.group(1)) if x.strip()] if m else []
+
+
+def _sensitive_check(payload: dict) -> WriteResult:
+    from .atom_io import _audit_log
+    from .sensitive_gate import check_write, sensitive_words, write_fields_text
+    err = check_write(payload, payload.get("not_sensitive"))
+    words = sensitive_words(write_fields_text(payload))
+    if err is None and words:
+        _audit_log({"op": "sensitive_declared", "source": "mcp", "title": str(payload.get("title") or ""),
+                    "words": words[:5], "why": str(payload.get("not_sensitive") or "")[:200]})
+    return WriteResult(ok=err is None, error=err)
 
 
 def _realm_check(payload: dict):
@@ -428,6 +441,8 @@ def main() -> int:
             # 與 scope=org（改寫成 shared 之前）的所有 mode 先問這裡；不受 skip_gate 影響。
             gate_err = _realm_check(payload)
             result = WriteResult(ok=gate_err is None, error=gate_err)
+        elif action == "sensitive_check":
+            result = _sensitive_check(payload)
         elif action == "scrub":
             # 去專案細節：{text} → {extra:{text}}；candidate_global／org 改寫前用
             from .realm_gate import scrub_project_details

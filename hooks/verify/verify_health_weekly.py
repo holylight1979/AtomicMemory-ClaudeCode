@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -124,6 +125,48 @@ def test_recall_miss_counts_window_filter(hw, tmp_path, monkeypatch):
     # 黃燈門檻：hot-atom 達 RECALL_MISS_MIN、cold-atom 未達
     assert counts["hot-atom"] >= hw.RECALL_MISS_MIN
     assert counts["cold-atom"] < hw.RECALL_MISS_MIN
+
+
+def _leak_root(hw, tmp_path, monkeypatch, public_text, *, rows=True, git_repo=True):
+    """tmp 資料根：一張公開卡＋一張 secret 卡與一張一般個人卡的本機登記；personal/*/secret/ 不進版控。"""
+    monkeypatch.setattr(hw, "CLAUDE_DIR", tmp_path)
+    monkeypatch.setattr(hw, "MEMORY", tmp_path / "memory")
+    public = tmp_path / "memory" / "x" / "pub.md"
+    public.parent.mkdir(parents=True)
+    public.write_text(public_text, encoding="utf-8")
+    if rows:
+        card = tmp_path / "memory" / "personal" / "u" / "secret" / "key-card.md"
+        card.parent.mkdir(parents=True)
+        card.write_text("# key-card\n", encoding="utf-8")
+        index = {"atoms": [{"name": "key-card", "path": "memory/personal/u/secret/key-card.md"},
+                           {"name": "plain-pref", "path": "memory/personal/u/plain-pref.md"}]}
+        (tmp_path / "memory" / "personal" / "_personal_index.json").write_text(json.dumps(index), encoding="utf-8")
+    if git_repo:
+        (tmp_path / ".gitignore").write_text("memory/personal/*/secret/\nmemory/personal/_personal_index.json\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+
+
+def test_secret_leak_lists_file_naming_secret_card_without_the_name(hw, tmp_path, monkeypatch):
+    """未追蹤的新卡也要抓；secret 卡自己不算；回傳只有路徑，報告不會寫出卡名。"""
+    _leak_root(hw, tmp_path, monkeypatch, "# pub\n\n- Related: key-card\n")
+    assert hw._secret_leaks() == ["memory/x/pub.md"]
+
+
+def test_secret_leak_ignores_plain_personal_card_name(hw, tmp_path, monkeypatch):
+    """一般個人卡（工作偏好）本來就能進版控，被公開卡提到不算外流。"""
+    _leak_root(hw, tmp_path, monkeypatch, "# pub\n\n- Related: plain-pref\n")
+    assert hw._secret_leaks() == []
+
+
+def test_secret_leak_catches_real_token_value(hw, tmp_path, monkeypatch):
+    _leak_root(hw, tmp_path, monkeypatch, "# pub\n\n- [臨] " + "glpat-" + "a" * 20 + "\n", rows=False)
+    assert hw._secret_leaks() == ["memory/x/pub.md"]
+
+
+def test_secret_leak_says_so_when_git_unavailable(hw, tmp_path, monkeypatch):
+    """查不了要分得出來，不能當成沒外流。"""
+    _leak_root(hw, tmp_path, monkeypatch, "# pub\n", git_repo=False)
+    assert hw._secret_leaks() is None
 
 
 def test_recall_miss_counts_missing_log_zero(hw, tmp_path, monkeypatch):

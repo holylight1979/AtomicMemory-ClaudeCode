@@ -95,7 +95,12 @@ workflow/followups.local.json
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json
-memory/personal/
+# 個人卡預設不進版控；本人選擇進版控就加一行 !memory/personal/<帳號>/。
+# secret/ 放個人隱私敏感資訊，一律不進（規則見 rules/core.md）；_distant/ 是退役卡。
+memory/personal/*
+!memory/personal/holylight/
+memory/personal/*/secret/
+memory/personal/*/_distant/
 memory/wisdom/reflection_metrics.json
 memory/wisdom/causal_graph.json
 memory/_meta/atom_io_audit.jsonl

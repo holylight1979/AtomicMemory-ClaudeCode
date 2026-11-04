@@ -27,6 +27,7 @@ CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所�
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 from lib.atom_index_json import load_personal_rows  # noqa: E402
+from lib.sensitive_gate import is_secret_path  # noqa: E402
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 ATOM_INDEX = CLAUDE_DIR / "memory" / "_atom_index.json"
@@ -49,7 +50,7 @@ def _core_atoms() -> list[dict]:
     data = json.loads(ATOM_INDEX.read_text(encoding="utf-8"))
     return [
         a for a in data.get("atoms", []) + load_personal_rows(ATOM_INDEX.parent)
-        if str(a.get("path", "")).replace("\\", "/").startswith("memory/")
+        if str(a.get("path", "")).replace("\\", "/").startswith("memory/") and not is_secret_path(a.get("path", ""))
     ]
 
 

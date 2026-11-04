@@ -46,6 +46,7 @@ if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_io import build_atom_content, narrative_date_error, write_raw  # noqa: E402
 from lib.atom_spec import slugify  # noqa: E402
+from lib.sensitive_gate import sensitive_words  # noqa: E402
 
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 
@@ -881,6 +882,9 @@ def _failure_writeback(ctx: dict, items: list) -> None:
         content = item.get("content", "").strip()
         tags = item.get("domain_tags", [])
         if not content or len(content) < 10:
+            continue
+        if sensitive_words(content):   # 失敗紀錄會進版控，背景工作沒人能判是不是個人敏感資訊
+            _atom_debug_log("failure_writeback", "略過一筆：內容提到驗證或隱私字眼，背景不代判", config)
             continue
         topic = _failure_topic(content, tags, ftype, config)
         target = _failure_target(failures_dir, ftype, topic)

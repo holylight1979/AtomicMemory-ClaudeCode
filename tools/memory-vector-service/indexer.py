@@ -35,6 +35,7 @@ from lib.atom_locations import (  # noqa: E402
 # 遙測欄位（last_used / read_hits / confirmations）住 <atom>.access.json sidecar，
 # 統一經 lib.atom_access 讀取（.md frontmatter 不再攜帶這些欄位）
 from lib.atom_access import read_access  # noqa: E402
+from lib.sensitive_gate import SECRET_DIR_NAME  # noqa: E402
 
 COLLECTION_NAME = "atom_memory"
 
@@ -192,6 +193,8 @@ def discover_atoms(
                 continue
             if layer_name == "global" and rel_parts[:1] == ("personal",):
                 continue  # 全域 personal 子夾走 personal:global:<user> 層，不進 global
+            if layer_name.startswith("personal:") and rel_parts[0] == SECRET_DIR_NAME:
+                continue  # 個人隱私敏感資訊不送去算向量（embedding 可能在別台主機）
             if md_file.name in SKIP_FILENAMES:
                 continue
             if any(md_file.name.startswith(p) for p in SKIP_PREFIXES):

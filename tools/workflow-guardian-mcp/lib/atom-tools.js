@@ -105,8 +105,11 @@ async function toolAtomWrite(id, args) {
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
     supersedes, provenance, depends, quote, kind_hint, dedupe, entry, conflict, scope_reason,
+    secret, not_sensitive,
   } = args;
   dry_run = !!dry_run;
+  // 個人隱私敏感資訊：不管原本寫哪個 scope，都落本人的 personal/<user>/secret/（根層，不進版控）
+  if (secret) { scope = "personal"; cross_project = true; }
   if (dedupe !== undefined && (dedupe === null || typeof dedupe !== "object" || Array.isArray(dedupe))) {
     return reply('dedupe must be an object {"verdict": "same"|"supersedes"|"different", "of": "<候選卡名>", "why": "<一句理由>"}', true);
   }
@@ -191,6 +194,13 @@ async function toolAtomWrite(id, args) {
     if (!rg.ok) return reply(`atom_write: ${rg.error}`, true);
   }
 
+  // 個人隱私敏感資訊閘：所有 scope、所有 mode 都跑，skip_gate 不放行（判定單源 py lib/sensitive_gate.py）。
+  // secret 的卡本來就不進版控，不用判。
+  if (!secret) {
+    const sg = await spawnAtomCli("sensitive_check", { title, triggers, knowledge, actions, provenance, quote, not_sensitive });
+    if (!sg.ok) return reply(`atom_write: ${sg.error}`, true);
+  }
+
   // 落點／定位／路由一律問 py 一次（lib/atom_io.locate_atom 單一裁決者）：cwd-scope 防護、
   // 範疇閘（缺 domain 拒寫並列 Lv1）、feedback-* 失敗家族、local realm 自動分類、subdir
   // 沙盒、敏感 audience → _pending_review、分隔符變體撞名、既有檔定位（含子夾）。
@@ -198,7 +208,7 @@ async function toolAtomWrite(id, args) {
   const lr0 = await spawnAtomCli("locate", {
     title, scope, project_cwd, role, user, audience, realm, domain, triggers,
     subdir, mode, allow_new_category: !!allow_new_category, enforce_cwd_scope: true,
-    cross_project: !!cross_project,
+    cross_project: !!cross_project, secret: !!secret,
     ...(Array.isArray(entry) && { entry: entry.map((e) => e.trim()) }),   // 自動 realm 看 Entry（ENTRY_BOUND_STAYS_CORE）
   });
   if (!lr0.ok) return reply(`atom_write: ${lr0.error}`, true);

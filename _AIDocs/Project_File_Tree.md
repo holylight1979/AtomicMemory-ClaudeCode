@@ -6,7 +6,7 @@
 |------|------|---------|
 | `CLAUDE.md` / `IDENTITY.md` / `USER.md` / `rules/core.md` / `rules/coding-style.md` | always-loaded 入口（rules/*.md 全數自動載入；coding-style＝寫碼傾向） | 手寫 |
 | `settings.json` / `.mcp.json` | Hook 鏈 + 權限 + MCP server | 手寫 |
-| `memory/` | 原子記憶資料層：`_atom_index.json`（索引單一來源）+ `MEMORY.md`（Lv1 範疇目錄，生成器維護）+ core atom 住 `<範疇>/[<Lv2>/]`（Lv1 閉合清單 `_meta/taxonomy.json`）+ feedback-*/失敗 atom 住 `Failures/<主題>/` + `_vectordb/` + `wisdom/` + `episodic/` + `_staging/` + `personal/{user}/`（不進版控；登記在 `personal/_personal_index.json`，不在共用索引）。local 範疇 atom 物理居 `_AIDocs/_atoms/`（索引仍在此單一來源） | hook auto + atom_write |
+| `memory/` | 原子記憶資料層：`_atom_index.json`（索引單一來源）+ `MEMORY.md`（Lv1 範疇目錄，生成器維護）+ core atom 住 `<範疇>/[<Lv2>/]`（Lv1 閉合清單 `_meta/taxonomy.json`）+ feedback-*/失敗 atom 住 `Failures/<主題>/` + `_vectordb/` + `wisdom/` + `episodic/` + `_staging/` + `personal/{user}/`（放行名單上的進版控；`secret/` 放個人隱私敏感資訊，一律不進；登記在 `personal/_personal_index.json`，不在共用索引）。local 範疇 atom 物理居 `_AIDocs/_atoms/`（索引仍在此單一來源） | hook auto + atom_write |
 | `lib/` | atom 規則/IO 單一源（`atom_spec` / `atom_locations` / `atom_io` / `atom_access` + 讀取端 `memory_search` + `verify/`） | 手寫 |
 | `hooks/` | Hook 腳本（`workflow-guardian.py` + `wg_*.py` + `wisdom_engine.py` + `handlers/` + lib） | 手寫 |
 | `skills/` | V5 全域 skills（2026-05-27 取代 `commands/`） | 手寫 |

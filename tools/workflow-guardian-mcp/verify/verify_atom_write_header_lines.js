@@ -2,7 +2,7 @@
 //   驗：舊卡的 `- Source:`／`- Quote:`／`- Depends:` 是空欄位行時，沒給這幾欄的 replace 不得把下一行（`## 知識`、別的欄位）
 //   讀成值再寫回（舊讀法 `\s*(.+)` 跨行）；append 帶 provenance／quote → 檔頭 Source／Quote 換成呼叫者給的值，
 //   沒給 → 不動，"" → 刪行（三態同 replace）。工具說明跟實作一致：provenance 說明寫到 append；
-//   anti_evasion_report 的 k_followups 說明不宣稱寫病灶文件（Python 端只寫追蹤帳本，有部位的隨導讀卡注入）。
+//   anti_evasion_report 的 k_followups 說明不宣稱寫病灶文件（Python 端沒有寫病灶文件的程式）。
 // 隔離：WG_CLAUDE_DIR 指 os.tmpdir() 下的暫存資料根（require 任何 lib 之前設）；process.chdir 到該根；寫入後的向量重索引
 //   照 config 的 service_port 打到本檔起的假服務（不碰 live 3849）；目錄重產換成空函式；sendToolResult 改成收進記憶體。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/verify_atom_write_header_lines.js（尾行 ATOM_WRITE_HEADER_LINES_CHECK PASS|FAIL）
@@ -115,8 +115,8 @@ function check(cond, label, detail) {
   const prov = tool("atom_write").inputSchema.properties.provenance.description;
   check(/append/.test(prov), "atom_write provenance 說明寫到 append 也會寫進 Source", prov);
   const k = tool("anti_evasion_report").inputSchema.properties.k_followups.description;
-  check(!k.includes("同時寫進該部位病灶文件") && k.includes("不寫病灶文件") && k.includes("workflow/tracking/"),
-    "anti_evasion_report k_followups 說明只講追蹤帳本（Python 端沒有寫病灶文件的程式）", k);
+  check(!k.includes("同時寫進該部位病灶文件"),
+    "anti_evasion_report k_followups 說明不宣稱寫病灶文件（Python 端沒有寫病灶文件的程式）", k);
 
   vector.close();
   try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {}

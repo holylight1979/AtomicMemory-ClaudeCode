@@ -30,9 +30,9 @@ realm 自動搬移照它擋（lib/atom_locations.ENTRY_BOUND_STAYS_CORE）。
 
 讀取容錯：JSON 不存在或損毀 → 回 {"atoms": []}（caller 自行 fallback _ATOM_INDEX.md）。
 
-私人卡登記：根層 memory/personal/<user>/ 的卡不進版控，登記也不放共用索引，否則卡名與觸發詞會隨 repo 外流。
-登記存在同樣不進版控的 memory/personal/_personal_index.json：load 疊回、save 分流，鏡像 _ATOM_INDEX.md 也不列，
-呼叫端看到的仍是一份完整索引。專案層的 personal 跟著專案 repo 走，不分流。
+個人卡登記：根層 memory/personal/<user>/ 的卡照 .gitignore 放行名單進版控，secret/ 一律不進；不管進不進，登記都不放共用索引，
+否則 secret 卡名與別人沒上傳的卡名會隨 repo 外流、別台留懸空列。登記存在不進版控的 memory/personal/_personal_index.json，
+各機自己從卡片補：load 疊回、save 分流，鏡像 _ATOM_INDEX.md 也不列，呼叫端看到的仍是一份完整索引。專案層的 personal 跟著專案 repo 走，不分流。
 """
 
 from __future__ import annotations
@@ -191,10 +191,24 @@ def _save_personal_rows(mem_dir: Path, rows: List[Any]) -> None:
     _write_text_lf(p, json.dumps({"version": SCHEMA_VERSION, "atoms": rows}, ensure_ascii=False, indent=2))
 
 
+def _is_indexable_personal_card(card: Path, personal: Path) -> bool:
+    """會有登記的卡才算欠登記：role.md、auto/ 候選、沒有 Trigger 的檔補不出來，算了會每次開場白跑一趟。"""
+    try:
+        from .atom_spec import is_personal_atom_rel_parts
+    except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+        from atom_spec import is_personal_atom_rel_parts
+    if card.name.startswith("_") or not is_personal_atom_rel_parts((PERSONAL_DIR,) + card.relative_to(personal).parts):
+        return False
+    try:
+        return "- Trigger:" in card.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+
 def personal_split_pending(mem_dir: Path) -> bool:
-    """根層私人卡登記要重新分流：共用索引裡還有私人列（這台剛升級、或舊版機器推回來），
-    或私人卡在磁碟上、本機私人索引卻沒有條目（pull 掉了共用索引的舊列、私人索引被清掉）。
-    開場每次判一次，只比對索引文字、列一層資料夾，不解析共用索引。"""
+    """根層個人卡登記要重新分流：共用索引裡還有私人列（這台剛升級、或舊版機器推回來），
+    或個人卡在磁碟上、本機索引卻沒有它（pull 來的新卡、私人索引被清掉）。
+    開場每次判一次，只比對索引文字、列兩層資料夾，不解析共用索引。"""
     if not _is_root_layer(mem_dir):
         return False
     try:
@@ -203,7 +217,10 @@ def personal_split_pending(mem_dir: Path) -> bool:
         return False
     if f'"path": "{PERSONAL_ROW_PREFIX}' in text:
         return True
-    return not load_personal_rows(mem_dir) and any((mem_dir / PERSONAL_DIR).glob("*/*.md"))
+    names = {a.get("name") for a in load_personal_rows(mem_dir) if isinstance(a, dict)}
+    personal = mem_dir / PERSONAL_DIR
+    cards = [*personal.glob("*/*.md"), *personal.glob("*/secret/*.md")]
+    return any(p.stem not in names and _is_indexable_personal_card(p, personal) for p in cards)
 
 
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:

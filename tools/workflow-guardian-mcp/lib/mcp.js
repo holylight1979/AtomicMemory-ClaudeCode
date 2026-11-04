@@ -114,6 +114,14 @@ const TOOL_DEFINITIONS = [
           type: "boolean",
           description: "scope=personal only. true = the user's CROSS-PROJECT personal preference, stored at ~/.claude/memory/personal/<user>/ and visible to that user in every project (default false = personal-in-project at {proj}/.claude/memory/personal/<user>/, visible only in that project). Calls made from ~/.claude itself land cross-project automatically.",
         },
+        secret: {
+          type: "boolean",
+          description: "個人隱私敏感資訊（密碼、token、私鑰、憑證、個資、不想公開的驗證或隱私內容）一定要帶。true＝落 ~/.claude/memory/personal/<user>/secret/：不進版控、不送向量、只給本人、觸發詞照常注入；scope 自動改 personal，其他欄位照填。值本身別寫進卡，只寫放在哪。",
+        },
+        not_sensitive: {
+          type: "string",
+          description: "寫入閘回「可能是個人驗證或隱私資訊」時才帶著重送：一句理由說明這只是一般技術知識、不是個人敏感資訊（空白、純標點會被退回；會留稽核）。真的是敏感資訊改帶 secret=true。內容含密碼或 token 的真實值時這欄不放行。",
+        },
         audience: {
           type: "array", items: { type: "string" },
           description: "Audience tags (multi-role). On scope=shared, presence of 'architecture' or 'decision' auto-routes atom to _pending_review/ with Pending-review-by: management.",

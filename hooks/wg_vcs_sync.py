@@ -64,6 +64,7 @@ from wg_core import (
     append_guard_log, find_project_root, find_vcs_root, load_config, org_memory_root,
 )
 from atom_spec import ALL_INDEX_FILES  # lib/（wg_core 已放進 sys.path）
+from sensitive_gate import secret_value_found  # lib/
 
 SYNC_DIR = WORKFLOW_DIR / "vcs-sync"
 LOG_PATH = CLAUDE_DIR / "Logs" / "vcs-sync.log"
@@ -1340,6 +1341,16 @@ def _after_pull(t: SyncTarget, vs: Dict[str, Any], env: Dict[str, str], log: Log
     _index_check(t, float(vs.get("timeout_s", 60)), env, log)
 
 
+def _has_secret_value(path: Path) -> bool:
+    """自動上版控的最後一關：背景寫的卡、手動改的檔都會經過這裡。刪除的檔、非文字檔不算。"""
+    if path.suffix not in (".md", ".json"):
+        return False
+    try:
+        return secret_value_found(path.read_text(encoding="utf-8", errors="ignore"))
+    except OSError:
+        return False
+
+
 def _git_sync_body(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: Logger,
                    branch: str, timeout: float, env: Dict[str, str], config: Dict[str, Any],
                    reasons: Sequence[str] = ()) -> Dict[str, Any]:
@@ -1351,6 +1362,10 @@ def _git_sync_body(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: 
     for path in held:
         log(f"[git] {root}: {path} 除了計數標記還有別的改動，不代上（EXTRA_DOC_MARKER_ONLY，留給上GIT）")
     entries = [(xy, path) for xy, path in entries if path not in held]
+    leaked = [path for _, path in entries if _has_secret_value(root / path)]
+    for path in leaked:
+        log(f"[git] {root}: {path} 含密碼或 token 的真實值，不上版控（搬進 personal/<user>/secret/ 或拿掉值）")
+    entries = [(xy, path) for xy, path in entries if path not in leaked]
     files = [path for _, path in entries]
     specs = [f":(literal){f}" for f in files]
     # 只 add 工作樹仍與 index 不同的項（Y 欄非空白）；已 staged 的直接進 commit pathspec

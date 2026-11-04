@@ -47,6 +47,8 @@ for _name in ("stdout", "stderr"):
 CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）：tools、hooks、子行程 cwd
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
+from lib.atom_index_json import load_personal_rows  # noqa: E402
+from lib.sensitive_gate import is_secret_path, secret_value_found  # noqa: E402
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow、memory、Logs
 TOOLS = CODE_DIR / "tools"
@@ -124,6 +126,32 @@ def _provenance_anti_rot(now: datetime, days: int) -> tuple[int, int, str]:
     rep = mod.backfill(apply=True, only=cands)
     fixed = sum(1 for r in rep["results"] if r.get("written"))
     return fixed, len(cands), ""
+
+
+def _secret_leaks() -> list[str] | None:
+    """會進版控的記憶卡與索引裡，提到 secret 卡名或含密碼／token 真實值的檔（相對路徑）；None＝查不了。
+    只回路徑：報告與開場提示都不寫出卡名。還沒提交的新卡也算，提交了就留在歷史裡。"""
+    names = [a["name"] for a in load_personal_rows(MEMORY)
+             if isinstance(a, dict) and a.get("name") and is_secret_path(a.get("path", ""))]
+    try:
+        r = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "memory", "_AIDocs/_atoms"],
+                           capture_output=True, timeout=60, cwd=str(CLAUDE_DIR),
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    hits = []
+    for rel in r.stdout.decode("utf-8", errors="replace").split("\0"):
+        if not rel.endswith((".md", ".json")):
+            continue
+        try:
+            text = (CLAUDE_DIR / rel).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if secret_value_found(text) or any(name in text for name in names):
+            hits.append(rel)
+    return hits
 
 
 def _run_check(args: list[str], timeout: int = 120) -> tuple[bool, str]:
@@ -502,6 +530,12 @@ def collect() -> dict:
         ok, msg = _run_check(args)
         if not ok:
             red.append(f"{name} drift：{msg}")
+    leaks = _secret_leaks()
+    if leaks is None:
+        yellow.append("個人敏感資訊外流檢查沒跑成（git ls-files 失敗）")
+    elif leaks:
+        red.append(f"進版控的卡或索引提到 secret 卡名、或含密碼／token 真實值 {len(leaks)} 個檔，會隨 repo 外流：{'、'.join(leaks[:5])}"
+                   "（搬進 personal/<user>/secret/，或改寫內容；連結寫在 secret 卡那邊）")
     # 換行殘留（repo 全部 LF；有 CRLF/mixed 就黃燈，修法：python tools/normalize-eol.py --root --include-dirty）
     ok, msg = _run_check([str(TOOLS / "normalize-eol.py"), "--root", "--check"])
     if not ok:

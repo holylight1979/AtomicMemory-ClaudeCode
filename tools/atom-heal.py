@@ -39,6 +39,7 @@ from lib.project_root import claude_data_dir           # noqa: E402
 MEMORY = claude_data_dir() / "memory"                  # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）
 from lib.atom_io import edit_metadata                  # noqa: E402
 from lib.atom_spec import validate_atom_content        # noqa: E402
+from lib.sensitive_gate import is_secret_path          # noqa: E402
 from lib.atom_locations import LEGACY_FAILURES_DIR     # noqa: E402  舊址 _AIDocs/Failures/（遷移期讀端相容）
 
 # atom-health-check.py 檔名含連字號、無法直接 import → importlib 載入，重用其偵測/解析函式
@@ -139,7 +140,8 @@ def heal_L2(name, report, atoms, aliases, apply, backend):
     path = atom_file(name)
     content = path.read_text(encoding="utf-8") if path else ""
     fmt_err = validate_atom_content(content) if content else "atom 檔不存在"
-    candidates = sorted(atoms.keys())
+    # 別的卡不接到 secret 卡：寫進 Related 的卡名會隨 repo 外流；secret 卡自己要接什麼都行
+    candidates = sorted(n for n, p in atoms.items() if is_secret_path(path) or not is_secret_path(p))
     related = related_of(path) if path else []
     new_related = list(related)
     proposals, needs_human = [], False

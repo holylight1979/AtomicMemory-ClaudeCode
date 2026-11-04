@@ -192,7 +192,7 @@ def _index_stale_reason(memory_dir: Path, json_path: Path) -> str:
 
 
 def _split_personal_if_pending(memory_dir: Path) -> str:
-    """根層私人卡登記還沒搬出共用索引，或 pull 之後這台的私人卡沒了登記 → 跑一次分流，回要顯示的一行。
+    """根層個人卡登記還沒搬出共用索引，或 pull 來的個人卡還沒登記 → 跑一次分流，回要顯示的一行。
     結果看分流後的狀態，不看 exit code：工具遇到別的索引漂移也會回 1。"""
     try:
         from atom_index_json import personal_split_pending
@@ -209,7 +209,7 @@ def _split_personal_if_pending(memory_dir: Path) -> str:
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("session_start:split_personal", e)
         return f"[Guardian:Index] ⚠ 私人卡登記分流失敗（{e}）→ 手動 python ~/.claude/tools/sync-atom-index.py --split-personal"
-    return "[Guardian:Index] 私人卡登記已搬到本機私人索引（memory/personal/，不進版控）。"
+    return "[Guardian:Index] 個人卡登記已更新到本機索引（memory/personal/_personal_index.json，不進版控）。"
 
 
 def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:

@@ -434,6 +434,7 @@
 - **memory/<Lv1>/**：核心 atom，範疇如版控／工作流／…／CC與原子記憶契約；可再分 `<Lv2>/`。
 - **memory/Failures/**：另有 `_reference/` 參考文件。
 - **memory/ 其他資料夾**：`episodic/`、`wisdom/`、`_staging/`、`_drafts/`、`_distant/`、`_reference/`、`personal/`、[`templates/`](../templates/)。
+- **memory/personal/**：`<帳號>/` 的卡照 [`.gitignore`](../.gitignore) 放行名單進版控，`<帳號>/secret/` 一律不進（`atom_write(secret=true)`，判定在 [`lib/sensitive_gate.py`](../lib/sensitive_gate.py)）；`_personal_index.json` 是本機登記。
 - **memory/_meta/**：
   - [`taxonomy.json`](../memory/_meta/taxonomy.json)
   - [`forbidden-phrases.json`](../memory/_meta/forbidden-phrases.json)
