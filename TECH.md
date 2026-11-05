@@ -4488,6 +4488,7 @@ svn：svn_update_targets
 - **檢查名**：
   - `injection-budget`（注入預算）
   - `closing-gates`（收尾被擋次數／回合、擋下後重跑測試／回合，讀根層專案的對話紀錄）
+  - `feedback-loop`（明確票數與投票人數、`[臨]→[觀]` 自動晉升筆數、回合結果 unknown 比率；樣本以 `workflow/outcome_stats.jsonl` 的場數計）
 - **登記項欄位**：
   - `on_fail`：一句改寫未過時的處理指引
   - `owner`（帳號）／`host`（電腦代號＝電腦名小寫後 sha256 前 12 碼）：選填，有填只對那個人／那台機器跑和顯示

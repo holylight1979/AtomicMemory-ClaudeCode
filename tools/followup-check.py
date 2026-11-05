@@ -284,7 +284,60 @@ def check_closing_gates(item: dict) -> dict:
     return out
 
 
-CHECKS = {"injection-budget": check_injection_budget, "closing-gates": check_closing_gates}
+# ─── 檢查：feedback-loop ────────────────────────────────────────────────────
+# 明確票（memory/_votes/*.jsonl）有沒有人投、自動晉升有沒有變多、回合結果 unknown 有沒有降。
+# 基線（2026-10-22～11-05，改前兩週）：票 0 張、auto_observe 23 筆、unknown 0.632（50 場）。
+
+VOTES_GLOB = str(CLAUDE_DIR / "memory" / "_votes" / "*.jsonl")
+PROMOTION_AUDIT = CLAUDE_DIR / "memory" / "_promotion_audit.jsonl"
+OUTCOME_STATS = CLAUDE_DIR / "workflow" / "outcome_stats.jsonl"
+
+
+def _jsonl_since(path: Path, since: date, ts_key: str) -> list[dict]:
+    if not path.exists():
+        return []
+    out: list[dict] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            rec = json.loads(line)
+            if datetime.fromisoformat(str(rec[ts_key])[:19]).date() >= since:
+                out.append(rec)
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out
+
+
+def check_feedback_loop(item: dict) -> dict:
+    c = item.get("criteria", {})
+    since = _d(item["since"])
+    sessions = _jsonl_since(OUTCOME_STATS, since, "at")
+    n = len(sessions)
+    min_sessions = int(c.get("min_sessions", 15))
+    rows: list[dict] = []
+    if n < min_sessions:
+        return {"status": "INSUFFICIENT", "turns": n, "min_turns": min_sessions, "rows": rows, "unit": "場"}
+
+    votes = [v for p in glob.glob(VOTES_GLOB) for v in _jsonl_since(Path(p), since, "at")]
+    voters = {str(v.get("by", "")) for v in votes}
+    promos = [r for r in _jsonl_since(PROMOTION_AUDIT, since, "ts") if r.get("action") == "auto_observe"]
+    unknown = sum(int(r.get("unknown", 0)) for r in sessions)
+    total = sum(int(r.get("total", 0)) for r in sessions)
+    ratio = (unknown / total) if total else 1.0
+
+    def row(name, value, op, thr, fmt="{:.0f}"):
+        ok = (value >= thr) if op == ">=" else (value <= thr)
+        rows.append({"name": name, "value": fmt.format(value), "threshold": f"{op} {fmt.format(thr)}", "ok": ok})
+
+    row("明確票數", float(len(votes)), ">=", float(c.get("votes_min", 10)))
+    row("投票人數", float(len(voters)), ">=", float(c.get("voters_min", 1)))
+    row("[臨]→[觀] 自動晉升筆數", float(len(promos)), ">=", float(c.get("promotions_min", 30)))
+    row("回合結果 unknown 比率", ratio, "<=", float(c.get("unknown_ratio_max", 0.55)), fmt="{:.3f}")
+    status = "PASS" if all(r["ok"] for r in rows) else "FAIL"
+    return {"status": status, "turns": n, "min_turns": min_sessions, "rows": rows}
+
+
+CHECKS = {"injection-budget": check_injection_budget, "closing-gates": check_closing_gates,
+          "feedback-loop": check_feedback_loop}
 
 
 # ─── 輸出 ──────────────────────────────────────────────────────────────────
@@ -296,7 +349,8 @@ def render(item: dict, res: dict, brief: bool = False, first_show: bool = False)
     head = f"[Guardian:Followup] ⏰ 回訪到期：{item.get('title', item['id'])}（登記 {item.get('since')} → 到期 {item.get('due')}）"
     L.append(head)
     if res["status"] == "INSUFFICIENT":
-        L.append(f"  樣本不足：since 起僅 {res['turns']} 個回合（需 ≥{res['min_turns']}）——多用幾次 CC 後會自動再檢，無需動作。")
+        unit = res.get("unit", "回合")
+        L.append(f"  樣本不足：since 起僅 {res['turns']} {unit}（需 ≥{res['min_turns']}）——多用幾次 CC 後會自動再檢，無需動作。")
         return "\n".join(L)
     if (first_show or not brief) and item.get("handoff"):
         L.append("  ── 交接（假設接手者對本題零記憶）──")

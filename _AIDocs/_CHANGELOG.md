@@ -9,7 +9,7 @@
 
 ---
 ## 2026-11-05 記憶卡明確票：atom_feedback 投 helpful／misleading，票進版控跨機累計；使用者糾正當失敗
-- 起因：多模型比較評估指出晉升迴路缺訊號（1,202 張卡 274 張有樣本、outcome unknown 六到八成、sidecar 不進版控）。新 MCP `atom_feedback` → `lib/atom_feedback.py`：票追加 `<memory_root>/_votes/<user>.jsonl`（一人一檔、隨 vcs-sync 同步）並立刻計入本機 α/β；SessionEnd 掃描前 `fold_votes` 把別人／別機的票折入（冪等）。`stop.py` 的回合結果多一個 fail 訊號：本回合使用者打字糾正（`usefulness.friction_as_fail`）。驗證：`ATOM_FEEDBACK_CHECK`、`FRICTION_OUTCOME_CHECK`、`ATOM_FEEDBACK_TOOL_CHECK`、`TOOLS_LIST_GUARD_OFF_CHECK` 四支綠，Node→Python 端到端 `E2E_FEEDBACK_CHECK PASS`，既有晉升／歸因 383 案綠。
+- 起因：多模型比較評估指出晉升迴路缺訊號（1,202 張卡 274 張有樣本、outcome unknown 六到八成、sidecar 不進版控）。新 MCP `atom_feedback` → `lib/atom_feedback.py`：票追加 `<memory_root>/_votes/<user>.jsonl`（一人一檔、隨 vcs-sync 同步）並立刻計入本機 α/β；SessionEnd 掃描前 `fold_votes` 把別人／別機的票折入（冪等）。`stop.py` 的回合結果多一個 fail 訊號：本回合使用者打字糾正（`usefulness.friction_as_fail`）。驗證：`ATOM_FEEDBACK_CHECK`、`FRICTION_OUTCOME_CHECK`、`ATOM_FEEDBACK_TOOL_CHECK`、`TOOLS_LIST_GUARD_OFF_CHECK` 四支綠，Node→Python 端到端 `E2E_FEEDBACK_CHECK PASS`，既有晉升／歸因 383 案綠。 回訪已登記 `feedback-loop-2026-11-05`（到期 11-19：票數 ≥10、自動晉升 ≥30、unknown ≤0.55；`tools/followup-check.py` 新檢查 `feedback-loop`）。
 
 ---
 ## 2026-11-05 settings.json 去個人化：不含帳號名的排除規則，模型與 effort 回原廠預設

@@ -95,6 +95,46 @@
     "結案": "不論 PASS 或 FAIL，在這個 session 的第一則回覆先用白話向使用者報告：被擋次數／回合、擋下後重跑測試／回合、跟基線比少了多少、還在擋的是哪幾道。PASS 已自動結案；FAIL 照上面處理，處理完 python tools/followup-check.py --done closing-gates-trim-2026-10-20。結案後同一個 session 收拾：刪掉 memory/_staging/收尾少空轉-量測腳本/ 整個資料夾；推進文件 memory/_staging/next-phase-收尾少空轉.md 第七節還沒解的事（定位閘死鎖、未拍板的手續）先轉成追蹤項（收尾檢核 k 欄一行一項），重量結果補一條到 _AIDocs/_CHANGELOG.md，然後刪掉推進文件；收完向使用者一句話說刪了哪些。這筆登記本身留著當紀錄（done 的項目不會再跑）。"
    },
    "done": false
+  },
+  {
+   "id": "feedback-loop-2026-11-05",
+   "host": "699b538de7f1",
+   "title": "明確回饋票上線兩週：晉升迴路有沒有真的動起來",
+   "since": "2026-11-05",
+   "due": "2026-11-19",
+   "check": "feedback-loop",
+   "criteria": {
+    "min_sessions": 15,
+    "votes_min": 10,
+    "voters_min": 1,
+    "promotions_min": 30,
+    "unknown_ratio_max": 0.55
+   },
+   "context": "2026-11-05 commit ffb755b4／33b2a9d2：新 MCP atom_feedback 投 helpful／misleading 票（memory/_votes/<user>.jsonl，進版控跨機累計）、SessionEnd fold_votes 折入 sidecar、使用者糾正當回合失敗（usefulness.friction_as_fail）。起因是多模型比較評估：1,202 張卡只有 274 張有效用樣本、約九成停在 [臨]、outcome unknown 六到八成。",
+   "on_fail": "先分清是『沒人投票』還是『投了沒進晉升』：票數低 → 看 rules/core.md 的投票提示有沒有被讀到、atom_feedback 在工具清單裡沒（重啟 CC）；票夠但晉升沒增 → 跑 python -m lib.atom_feedback fold 看 applied／missing，再查 memory/_promotion_audit.jsonl；unknown 沒降 → 糾正詞表（wg_friction._DEFAULT_CORRECTION_KEYWORDS）是否命中得到、Logs/guard-friction.jsonl 有沒有筆數",
+   "handoff": {
+    "這是什麼": "~/.claude 原子記憶系統的記憶卡晉升迴路（[臨]→[觀]→[固] 靠效用 Wilson 下界）。2026-11-05 使用者拍板先做『明確的有用／誤導回饋票，多人命中計入晉升』，並要求兩週後回看三個數字。",
+    "改了什麼（commit）": [
+     "ffb755b4：lib/atom_feedback.py（record_vote／fold_votes／CLI）、MCP atom_feedback（tools/workflow-guardian-mcp/lib/mcp.js、atom-tools.js）、stop.py _detect_turn_outcome 多一個 fail 訊號 correction_in_turn、wg_atoms._self_iterate_atoms 掃描前 fold_votes",
+     "33b2a9d2：票據不記電腦名稱（含人名、檔案進公開版控）"
+    ],
+    "修前基線": "2026-10-22～11-05：明確票 0 張；memory/_promotion_audit.jsonl action=auto_observe 23 筆；workflow/outcome_stats.jsonl 50 場 unknown 861／1362＝0.632。",
+    "怎麼判": [
+     "明確票數 ≥10（memory/_votes/*.jsonl，at ≥ since）",
+     "投票人數 ≥1（單人環境只要本人有投；多人環境自然會 >1）",
+     "[臨]→[觀] 自動晉升 ≥30 筆（比基線 23 多三成）",
+     "回合結果 unknown 比率 ≤0.55（基線 0.632）",
+     "outcome_stats 場數 <15 → INSUFFICIENT，繼續用 CC 累積"
+    ],
+    "不過怎麼辦（逐指標）": [
+     "票數低：AI 沒投＝提示沒進眼裡。看 rules/core.md 記憶段那句還在不在、tools/list 有沒有 atom_feedback；必要時在收尾閘的知識盤點裡加一句『用到的卡要不要投票』（這是新規則，先問使用者）",
+     "票夠晉升少：python -m lib.atom_feedback fold 看 missing（path_rel 對不到卡＝卡被搬過）；再看 sidecar 的 n 有沒有 ≥3",
+     "unknown 沒降：Logs/guard-friction.jsonl 近兩週筆數為 0 ＝ 糾正詞沒命中，請使用者給幾句他實際的糾正原話補詞表",
+     "三項都過但使用者覺得沒感覺：回頭量 [臨] 佔比（grep -rhoE '^- Confidence: \\[(臨|觀|固)\\]' memory --include=*.md | sort | uniq -c），這才是最終目標"
+    ],
+    "結果寫哪": "一句話回報使用者；數字與結論補進 _AIDocs/_CHANGELOG.md 當日條目；要改東西先開分支、先寫會紅的案例。"
+   },
+   "done": false
   }
  ]
 }
