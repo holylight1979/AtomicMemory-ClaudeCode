@@ -678,6 +678,7 @@ SessionStart（session_start._org_advisory）
 ### 4.6 專案層
 
 - 專案記憶放 `{project}/.claude/memory/`：`shared/<Lv1>/`、`failures/<主題>/`、`personal/<user>/`、`roles/<role>/`、`episodic/`、`_staging/`。
+- **首次建立**：[`tools/init-project-memory.py --cwd <專案根>`](tools/init-project-memory.py)（冪等：已存在的檔一律不碰；建 MEMORY.md 空 catalog 區塊、分區目錄、`.gitignore`、給沒裝根層的隊友看的 README、空索引，並登記專案）。開在有版控但根下沒有 `.claude/memory` 的專案時，SessionStart 印一行 `[Guardian:ProjectMemory]`（每 session 一次；repo 子目錄、暫存目錄、家目錄、`~/.claude` 不印）。隊友之後 pull 專案即接上：索引是衍生檔，缺了由 SessionStart 就地重建。
 - 專案 [`MEMORY.md`](memory/MEMORY.md) 只 upsert `<!-- atom-catalog -->` 區塊，區塊外逐 byte 不動。
 - 專案層判定**單一來源** `wg_core.discover_all_project_memory_dirs`（`memory/project-registry.json` 優先）；不自掃 `projects/*/memory`，那是 CC 原生 auto-memory 目錄。
 - 專案自訂 Lv1：`shared/_taxonomy.json`（唯一擴充入口）。

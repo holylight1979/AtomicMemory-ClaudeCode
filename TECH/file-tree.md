@@ -277,6 +277,7 @@
 | [`tools/memory-session-score.py`](../tools/memory-session-score.py) | session 評分 |
 | [`tools/sync-atom-index.py`](../tools/sync-atom-index.py) | 同步 atom 索引 |
 | [`tools/sync-memory-index.py`](../tools/sync-memory-index.py) | 同步記憶索引 |
+| [`tools/init-project-memory.py`](../tools/init-project-memory.py) | 專案記憶層一鍵初始化（冪等；[§4.6](../TECH.md#46-專案層)） |
 | [`tools/sync_doc_counts.py`](../tools/sync_doc_counts.py) | 同步文件計數 |
 | [`tools/merge-atom-index.py`](../tools/merge-atom-index.py) | 合併 atom 索引 |
 | [`tools/atom-io-audit.py`](../tools/atom-io-audit.py) | 稽核帳壞行檢查（`--check`）與修復（`--repair`） |

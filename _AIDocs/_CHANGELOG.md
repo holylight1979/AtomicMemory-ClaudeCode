@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-05 專案記憶層一鍵初始化：init-project-memory.py ＋開場提示
+- 「初始化原子記憶庫」從 AI 自由發揮改成確定性 CLI `tools/init-project-memory.py --cwd <根>`（冪等，不覆寫既有檔；建 MEMORY.md 空 catalog、分區目錄、.gitignore、隊友 README、空索引、登記專案）。SessionStart 在「有版控、根下沒有 .claude/memory」的專案印一行 `[Guardian:ProjectMemory]`，每 session 一次。驗證：`INIT_PROJECT_MEMORY_CHECK`、`PROJECT_MEMORY_NUDGE_CHECK`。
+
+---
 ## 2026-11-05 記憶卡明確票：atom_feedback 投 helpful／misleading，票進版控跨機累計；使用者糾正當失敗
 - 起因：多模型比較評估指出晉升迴路缺訊號（1,202 張卡 274 張有樣本、outcome unknown 六到八成、sidecar 不進版控）。新 MCP `atom_feedback` → `lib/atom_feedback.py`：票追加 `<memory_root>/_votes/<user>.jsonl`（一人一檔、隨 vcs-sync 同步）並立刻計入本機 α/β；SessionEnd 掃描前 `fold_votes` 把別人／別機的票折入（冪等）。`stop.py` 的回合結果多一個 fail 訊號：本回合使用者打字糾正（`usefulness.friction_as_fail`）。驗證：`ATOM_FEEDBACK_CHECK`、`FRICTION_OUTCOME_CHECK`、`ATOM_FEEDBACK_TOOL_CHECK`、`TOOLS_LIST_GUARD_OFF_CHECK` 四支綠，Node→Python 端到端 `E2E_FEEDBACK_CHECK PASS`，既有晉升／歸因 383 案綠。
 

@@ -70,7 +70,7 @@
 專案層 `{專案}/.claude/memory/` 跟著專案自己的 GIT / SVN 走，隊友 pull 專案就接上，**不需要再安裝任何東西**。
 
 - **STEP A**：在專案根目錄開啟 VS Code（或在專案目錄啟動 Claude Code CLI）。
-- **STEP B**（首次）：告訴 AI「初始化原子記憶庫，並且立即將知識分類、分層存儲」——AI 會建立 `{專案}/.claude/memory/MEMORY.md` 與分類結構，系統從此認得這個專案。
+- **STEP B**（首次）：告訴 AI「初始化原子記憶庫」——AI 跑 `python ~/.claude/tools/init-project-memory.py --cwd <專案根>`，建好 `{專案}/.claude/memory/`（MEMORY.md、分區目錄、.gitignore、給隊友看的 README），系統從此認得這個專案；重跑不會動到既有檔。開在還沒有記憶層的專案時，開場會有一行 `[Guardian:ProjectMemory]` 提醒。
 - **STEP C**：把 `{專案}/.claude/memory/` 上傳 GIT / SVN 讓團隊共享。這一次之後不用再手動——新卡片由背景同步自動上傳，程式碼仍等你說「上GIT」（分界見 [README.md](README.md)）。
 
 專案根底下有多個可單獨開啟的子專案（Client／Server／tools…）時，AI 開在子專案會問你一次「記憶歸哪個根」，選定後重開 session 生效；第一個使用者想先讓 AI 預載某部分知識：`/read-project <目錄> <方向>`。

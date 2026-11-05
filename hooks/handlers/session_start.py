@@ -31,7 +31,7 @@ from wg_core import (
     _is_under_claude_dir,
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
-    find_vcs_root, find_svn_root, memory_dir_candidates,
+    find_vcs_root, find_svn_root, memory_dir_candidates, is_transient_project_root,
     resolve_project_root, org_memory_root, load_config, load_org_local,
 )
 from wg_atoms import (
@@ -997,6 +997,24 @@ def _personal_sync_advisory(project_mem_dir, user: str) -> list:
 _ROOT_ASK_CMD = "python ~/.claude/tools/project-tree.py"
 
 
+def _project_memory_nudge(cwd: str, project_root, project_mem_dir) -> List[str]:
+    """有版控的專案根、根下還沒有 .claude/memory → 一行提示怎麼一鍵初始化。其餘情況（沒版控、repo 子目錄、家目錄、暫存根）零輸出。"""
+    if project_root is None:
+        return []
+    root = Path(project_root)
+    if root in (CLAUDE_DIR, Path.home()) or is_transient_project_root(root):
+        return []
+    if project_mem_dir is not None and Path(project_mem_dir).is_dir():
+        return []
+    vcs = find_vcs_root(root)
+    if vcs is None or Path(vcs[1]) != root:
+        return []
+    return [
+        "[Guardian:ProjectMemory] 這個專案還沒有記憶層 → 說「初始化原子記憶庫」，"
+        f'我會跑 python ~/.claude/tools/init-project-memory.py --cwd "{root}"（建 .claude/memory，隊友 pull 即接上）'
+    ]
+
+
 def _project_root_notice(res, cwd: str) -> List[str]:
     """專案根宣告行（📍 認領／info、⚠️ 警告、❓ 引導）。沒宣告也沒候選 → 空清單，外部專案零 token。"""
     if res is None:
@@ -1317,6 +1335,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         project_root = find_project_root(cwd)
 
         register_project(cwd)
+        try:
+            if not state.get("project_memory_nudged"):
+                nudge = _project_memory_nudge(cwd, project_root, project_mem_dir)
+                state["project_memory_nudged"] = True
+                lines.extend(nudge)
+        except Exception as e:
+            _atom_debug_error("project_memory_nudge", e)
 
         v4_user = ""
         v4_roles: List[str] = []

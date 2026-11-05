@@ -23,6 +23,7 @@
 - 寫規則檔、決策卡：現在的做法寫「目前用 X」，不寫「一律」；退版、否決要寫是方向錯，還是時機或資源不夠——只寫結論，下一個 AI 會讀成禁令。
 
 ## 記憶
+- 使用者說「初始化原子記憶庫」或開場出現 `[Guardian:ProjectMemory]` → 跑 `python ~/.claude/tools/init-project-memory.py --cwd <專案根>`，不自己手建目錄。
 - 寫入一律走 atom_write MCP（自動驗證去重索引），禁直接 Edit atom .md；已記錄事實直接引用；不寫臨時嘗試/未確認猜測。**新 atom 一律 [臨] 起跳**（系統拒收新建 [固]/[觀]），晉升靠使用或 append。注入的卡明顯救了你一次或把你帶錯 → `atom_feedback(atom_name, verdict=helpful|misleading)` 投一票（沒真的用到的卡不投）。
 - **Realm**：跨專案通用 → `memory/<範疇>/`（失敗家族 `memory/Failures/<主題>/`）；只在 ~/.claude 內有用 → `realm=local`（`_AIDocs/_atoms/`）。判定三問見 [[realm-範疇分區機制-v5]]。
 - **Scope**（問「遷就專案還是遷就人？」）：專案的規則／決策 → `shared`；只關於這個人 → `personal`；本人跨專案偏好 → `personal, cross_project=true`；全公司所有專案都該知道 → `org`。
