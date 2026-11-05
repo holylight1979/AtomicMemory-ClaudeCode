@@ -4269,6 +4269,7 @@ svn：svn_update_targets
   - 寫碼查核擋滿與使用者放行（列紅）
   - 換行殘留
   - 進版控的卡或索引提到 secret 卡名、或含密碼／token 真實值（列紅；報告只寫檔案路徑，不寫卡名）
+  - secret 卡放錯或混雜（列黃，只給張數）：整張沒命中隱私字眼、或知識段只有部分行命中；清單本機看 `python -m lib.sensitive_gate scan`。寫入端同一把尺：`atom_write(secret=true)` 這兩種都擋，整張確實都該藏才帶 `secret_reason`
   - Depends 覆蓋率（`depends_coverage_min`）
   - 來源防腐
   - 官方健檢摘要（報告「官方健檢」節）：無頭跑 `claude -p "/skill-doctor"`（skill 數、context 成本前五、從沒叫過的條數）與 `"/context"`（固定成本），兩支並行約 15–25 秒、不呼叫模型；claude CLI 找 PATH 再找 `~/.local/bin`，找不到或跑失敗列黃燈。`/doctor prompt-audit` 會呼叫模型審查，無頭超過 170 秒未完成，只留「要手動跑」提示行

@@ -114,7 +114,13 @@ def _depends_of(content: str):
 
 def _sensitive_check(payload: dict) -> WriteResult:
     from .atom_io import _audit_log
-    from .sensitive_gate import check_write, sensitive_words, write_fields_text
+    from .sensitive_gate import check_secret_write, check_write, sensitive_words, write_fields_text
+    if payload.get("secret"):
+        err = check_secret_write(payload, payload.get("secret_reason"))
+        if err is None and payload.get("secret_reason"):
+            _audit_log({"op": "secret_declared", "source": "mcp", "title": str(payload.get("title") or ""),
+                        "why": str(payload.get("secret_reason"))[:200]})
+        return WriteResult(ok=err is None, error=err)
     err = check_write(payload, payload.get("not_sensitive"))
     words = sensitive_words(write_fields_text(payload))
     if err is None and words:

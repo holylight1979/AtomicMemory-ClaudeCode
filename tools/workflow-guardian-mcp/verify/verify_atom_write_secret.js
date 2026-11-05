@@ -63,11 +63,13 @@ const sharedIndex = () => read(path.join(ROOT, "memory", "_atom_index.json"));
   const personalIndex = read(path.join(ROOT, "memory", "personal", "_personal_index.json"));
   check(personalIndex.includes("memory/personal/tester/secret/key-card.md"), "登記在本機索引", personalIndex);
 
-  r = await write({ title: "key-card-2", ...pub, user: "tester", secret: true });
+  r = await write({ title: "key-card-2", ...pub, user: "tester", secret: true, knowledge: ["- [臨] 另一把金鑰在 ~/.ssh/work2"] });
   check(!r.isError && fs.existsSync(secretPath("key-card-2")), "scope 寫 global＋secret=true 也落 secret/", r.text);
 
-  r = await write({ title: "key-card", mode: "append", scope: "personal", user: "tester", secret: true, knowledge: ["- [臨] 補一條"] });
+  r = await write({ title: "key-card", mode: "append", scope: "personal", user: "tester", secret: true, knowledge: ["- [臨] 補一條：私鑰的 passphrase 存在密碼管理器"] });
   check(!r.isError && read(secretPath("key-card")).includes("補一條"), "append 找得到既有 secret 卡", r.text);
+  r = await write({ title: "key-card", mode: "append", scope: "personal", user: "tester", secret: true, knowledge: ["- [臨] 補一條工作習慣"] });
+  check(r.isError && /secret_reason/.test(r.text) && !read(secretPath("key-card")).includes("工作習慣"), "往 secret 卡 append 非隱私內容也擋", r.text);
 
   r = await write({ title: "leak-word", ...pub, knowledge: ["- [臨] 公司 git 存的是帳號密碼"] });
   check(r.isError && /secret=true/.test(r.text) && /not_sensitive/.test(r.text) && !fs.existsSync(localPath("leak-word")),
@@ -85,6 +87,13 @@ const sharedIndex = () => read(path.join(ROOT, "memory", "_atom_index.json"));
 
   r = await write({ title: "key-value", scope: "personal", user: "tester", secret: true, knowledge: [`- [臨] 值是 ${FAKE_TOKEN}`] });
   check(!r.isError && fs.existsSync(secretPath("key-value")), "真實 token：secret=true 才寫得進去", r.text);
+
+  r = await write({ title: "no-private-words", scope: "personal", user: "tester", secret: true, knowledge: ["- [臨] 裁定只看耦不耦合目標"] });
+  check(r.isError && /secret_reason/.test(r.text) && !fs.existsSync(secretPath("no-private-words")), "secret=true 但沒隱私字眼：擋下並要 secret_reason", r.text);
+  r = await write({ title: "no-private-words", scope: "personal", user: "tester", secret: true, secret_reason: "整張是對同事的私人評價", knowledge: ["- [臨] 裁定只看耦不耦合目標"] });
+  check(!r.isError && fs.existsSync(secretPath("no-private-words")), "帶 secret_reason 整張收", r.text);
+  r = await write({ title: "mixed-card", scope: "personal", user: "tester", secret: true, knowledge: ["- [臨] 規則：先驗證再繞路", "- [臨] 金鑰放 ~/.ssh/work"] });
+  check(r.isError && /拆/.test(r.text) && !fs.existsSync(secretPath("mixed-card")), "secret 卡隱私與非隱私混雜：擋下要拆", r.text);
 
   r = await write({ title: "plain-pref", scope: "personal", user: "tester", cross_project: true, knowledge: ["- [臨] 偏好條列式回報"] });
   check(!r.isError && fs.existsSync(path.join(ROOT, "memory", "personal", "tester", "plain-pref.md")), "一般個人卡照舊，不受影響", r.text);

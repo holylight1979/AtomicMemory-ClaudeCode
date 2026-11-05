@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-05 secret 卡反向把關：沒隱私不收、混雜要拆
+- 起因：11-04 搬遷時 AI 保守把兩張工作判準卡放進 secret（不跨機、編輯工具找不到）。`lib/sensitive_gate.check_secret_write`：`secret=true` 的卡整張沒命中隱私字眼不收、知識段只有部分行命中要拆成兩張，帶 `secret_reason=<理由>` 可整張收（留稽核）；MCP `atom_write` 的 secret 路徑改成也過閘；週健檢對既有 secret 卡同一把尺列黃（只給張數），清單 `python -m lib.sensitive_gate scan`。驗證：`verify_secret_cards.py`、`ATOM_WRITE_SECRET_CHECK`。
+
+---
 ## 2026-11-05 專案記憶層一鍵初始化：init-project-memory.py ＋開場提示
 - 「初始化原子記憶庫」從 AI 自由發揮改成確定性 CLI `tools/init-project-memory.py --cwd <根>`（冪等，不覆寫既有檔；建 MEMORY.md 空 catalog、分區目錄、.gitignore、隊友 README、空索引、登記專案）。SessionStart 在「有版控、根下沒有 .claude/memory」的專案印一行 `[Guardian:ProjectMemory]`，每 session 一次。驗證：`INIT_PROJECT_MEMORY_CHECK`、`PROJECT_MEMORY_NUDGE_CHECK`。
 

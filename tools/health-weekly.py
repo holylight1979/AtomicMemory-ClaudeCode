@@ -156,6 +156,27 @@ def _secret_leaks() -> list[str] | None:
     return hits
 
 
+def _secret_misfiled() -> tuple[int, int]:
+    """secret 卡逐張體檢：(整張沒命中隱私字眼的張數, 知識段只有部分行命中的張數)。只回數字，不寫卡名。"""
+    from lib.sensitive_gate import secret_lines_report
+    none = mixed = 0
+    for a in load_personal_rows(MEMORY):
+        if not (isinstance(a, dict) and is_secret_path(a.get("path", ""))):
+            continue
+        try:
+            text = (CLAUDE_DIR / str(a["path"])).read_text(encoding="utf-8", errors="ignore")
+        except (OSError, KeyError):
+            continue
+        body = text.split("## 知識", 1)[1].split("## 行動", 1)[0] if "## 知識" in text else ""
+        lines = [ln[2:] if ln.startswith("- ") else ln for ln in body.splitlines() if ln.strip()]
+        rep = secret_lines_report({"title": a.get("name", ""), "triggers": a.get("triggers"), "knowledge": lines})
+        if not rep["hit"] and not rep["other_hit"]:
+            none += 1
+        elif rep["hit"] and rep["miss"]:
+            mixed += 1
+    return none, mixed
+
+
 def _run_check(args: list[str], timeout: int = 120) -> tuple[bool, str]:
     """跑 --check 型工具；回 (通過, 摘要輸出)。"""
     try:
@@ -654,6 +675,10 @@ def collect() -> dict:
     elif leaks:
         red.append(f"進版控的卡或索引提到 secret 卡名、或含密碼／token 真實值 {len(leaks)} 個檔，會隨 repo 外流：{'、'.join(leaks[:5])}"
                    "（搬進 personal/<user>/secret/，或改寫內容；連結寫在 secret 卡那邊）")
+    none_hit, mixed = _secret_misfiled()
+    if none_hit or mixed:
+        yellow.append(f"secret 卡放錯或混雜：{none_hit} 張整張沒有隱私字眼、{mixed} 張只有部分行是隱私"
+                      "（沒隱私的用 atom_move 搬回 personal/<user>/；混雜的拆成兩張；清單：python -m lib.sensitive_gate scan）")
     # 換行殘留（repo 全部 LF；有 CRLF/mixed 就黃燈，修法：python tools/normalize-eol.py --root --include-dirty）
     ok, msg = _run_check([str(TOOLS / "normalize-eol.py"), "--root", "--check"])
     if not ok:

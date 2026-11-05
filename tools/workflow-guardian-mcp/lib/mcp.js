@@ -142,6 +142,10 @@ const TOOL_DEFINITIONS = [
           type: "boolean",
           description: "個人隱私敏感資訊（密碼、token、私鑰、憑證、個資、不想公開的驗證或隱私內容）一定要帶。true＝落 ~/.claude/memory/personal/<user>/secret/：不進版控、不送向量、只給本人、觸發詞照常注入；scope 自動改 personal，其他欄位照填。值本身別寫進卡，只寫放在哪。",
         },
+        secret_reason: {
+          type: "string",
+          description: "secret=true 被擋時才帶著重送：寫入閘回「沒命中隱私字眼」或「只有部分行是隱私要拆開」，而你判斷整張確實都不該公開 → 一句理由說哪一句、什麼資訊（會留稽核）。隱私與非隱私混在一張時優先拆成兩張，不要用這欄硬收。",
+        },
         not_sensitive: {
           type: "string",
           description: "寫入閘回「可能是個人驗證或隱私資訊」時才帶著重送：一句理由說明這只是一般技術知識、不是個人敏感資訊（空白、純標點會被退回；會留稽核）。真的是敏感資訊改帶 secret=true。內容含密碼或 token 的真實值時這欄不放行。",

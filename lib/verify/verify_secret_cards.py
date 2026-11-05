@@ -25,7 +25,7 @@ for _p in (ROOT, ROOT / "lib", ROOT / "hooks"):
 
 from lib.atom_index_json import load_atom_index_json, upsert_atom  # noqa: E402
 from lib.atom_locations import scope_from_index_path  # noqa: E402
-from lib.sensitive_gate import check_write, is_secret_path, secret_value_found, sensitive_words  # noqa: E402
+from lib.sensitive_gate import check_secret_write, check_write, is_secret_path, secret_value_found, sensitive_words  # noqa: E402
 
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 FAKE_TOKEN = "glpat-" + "a" * 20   # 拼起來才不會被掃描工具當真的
@@ -93,6 +93,27 @@ def test_declared_reason_passes_but_blank_reason_does_not():
 def test_real_value_cannot_be_declared_away_and_message_does_not_echo_it():
     err = check_write({"knowledge": [f"金鑰是 {FAKE_TOKEN}"]}, "我覺得沒關係")
     assert err and "真實值" in err and FAKE_TOKEN not in err
+
+
+def test_secret_card_without_any_private_words_is_refused_unless_reasoned():
+    fields = {"title": "裁定只看兩把尺", "knowledge": ["耦合目標嗎", "增加耗重嗎"]}
+    err = check_secret_write(fields)
+    assert err and "secret_reason" in err and "沒有命中" in err
+    assert check_secret_write(fields, "整張是我對公司內部流程的私人看法") is None
+    assert check_secret_write(fields, " 。 ") is not None
+
+
+def test_secret_card_mixing_private_and_plain_lines_must_split():
+    fields = {"knowledge": ["規則 A：不要縮小範圍", "活鑰在 ~/.ssh/UJGitLab 這把金鑰", "規則 C：要 prompt 就先給"]}
+    err = check_secret_write(fields)
+    assert err and "第 2 行" in err and "第 1、3 行" in err and "拆" in err
+    assert check_secret_write(fields, "三行都在講同一組內網帳號的用法") is None
+
+
+def test_secret_card_fully_private_or_titled_private_passes():
+    assert check_secret_write({"knowledge": [f"值是 {FAKE_TOKEN}"]}) is None
+    assert check_secret_write({"knowledge": ["密碼放 1Password", "私鑰在 ~/.ssh"]}) is None
+    assert check_secret_write({"title": "gitlab 金鑰真相", "knowledge": ["UJGitLab 是活的、id_rsa 是死的"]}) is None
 
 
 def test_gate_reads_title_and_triggers_too():

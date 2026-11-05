@@ -115,7 +115,7 @@ async function toolAtomWrite(id, args) {
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
     supersedes, provenance, depends, quote, kind_hint, dedupe, entry, conflict, scope_reason,
-    secret, not_sensitive,
+    secret, not_sensitive, secret_reason,
   } = args;
   dry_run = !!dry_run;
   // 個人隱私敏感資訊：不管原本寫哪個 scope，都落本人的 personal/<user>/secret/（根層，不進版控）
@@ -213,9 +213,11 @@ async function toolAtomWrite(id, args) {
   }
 
   // 個人隱私敏感資訊閘：所有 scope、所有 mode 都跑，skip_gate 不放行（判定單源 py lib/sensitive_gate.py）。
-  // secret 的卡本來就不進版控，不用判。
-  if (!secret) {
-    const sg = await spawnAtomCli("sensitive_check", { title, triggers, knowledge, actions, provenance, quote, not_sensitive });
+  // 一般卡：命中字眼要宣告；secret 卡：整張沒隱私不收、只有部分行是隱私要拆（secret_reason 可整張收）。
+  {
+    const sg = await spawnAtomCli("sensitive_check", {
+      title, triggers, knowledge, actions, provenance, quote, not_sensitive, secret: !!secret, secret_reason,
+    });
     if (!sg.ok) return reply(`atom_write: ${sg.error}`, true);
   }
 

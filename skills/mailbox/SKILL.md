@@ -19,7 +19,7 @@ metadata:
 
 | 設定 | 位置 | 誰共用 |
 |------|------|--------|
-| 信箱路徑 | 設定層的 `config.json` → `mailbox_root` | 全員（進版控）。路徑搬家只改這裡 |
+| 信箱路徑 | 設定層的 `config.json` → `mailbox_root` | 全員（進版控）。路徑搬家只改這裡。根層 repo 是公開的，內網路徑不填進 `~/.claude` 這份，在根層開的 session 改用環境變數 `MAILBOX_ROOT` 帶路徑 |
 | 動作紀錄保留天數 | 設定層的 `config.json` → `log_keep_days`（沒填＝30）；使用者說「紀錄保留改成 N 天」→ `config --log-keep-days N` | 全員（進版控）。改完要進版控別人才生效 |
 | 自己的帳號 | 設定層的 `.local/mailbox.json` | 只有這台電腦（不進版控） |
 | 名單（簡稱 → 帳號） | 信箱根目錄的 `_roster.json` | 全員：一個人記下，大家都查得到 |
