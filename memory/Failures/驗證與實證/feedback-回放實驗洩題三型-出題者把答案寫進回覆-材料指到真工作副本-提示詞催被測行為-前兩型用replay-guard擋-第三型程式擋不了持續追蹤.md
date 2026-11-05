@@ -4,7 +4,7 @@
 - Author: holylight
 - Quote: 發現問題，要想辦法從根源解決；無法解決也要記下來LLM有這種問題、日後要持續追蹤解法啊。
 - Confidence: [臨]
-- Trigger: 洩題, 回放實驗, 對照組, 封存答案, replay-guard, 實驗設計, 汙染, 工作副本, 合成案例, 提示詞偏誤, Codex 記憶
+- Trigger: 洩題, 回放實驗, 封存答案, replay-guard, 合成案例, 提示詞偏誤, Codex 記憶
 - Created-at: 2026-10-07
 - Depends: path:~/.claude/tools/replay-guard.py
 - Related: feedback-討論共識不是實證-全貌文件每句標證據等級-實測讀碼推論共識四級-沒測的只能叫假說加驗法, 多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地

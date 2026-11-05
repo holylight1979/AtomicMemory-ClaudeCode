@@ -7,7 +7,7 @@
 - Confidence: [臨]
 - Trigger: codex exec stderr, 提示詞回聲, replay-guard post, command_lines, 無指令行但整份紀錄命中, _AIDocs/_atoms 命中, git diff 命中, strip_prompt_echo
 - Created-at: 2026-10-21
-- Depends: path:~/.claude/tools/second-opinion/run.py, path:~/.claude/tools/replay-guard.py
+- Depends: path:~/.claude/skills/codex/scripts/codex-run.py, path:~/.claude/tools/replay-guard.py
 
 ## 知識
 
@@ -15,6 +15,7 @@
 - [臨] 正解是交 guard 之前先把提示詞回聲（提示詞全文精確子字串）與 codex 的回答全文從紀錄剝掉，寫成 codex 自己的輸出檔再交 guard 與退路掃；守的是動作（exec 痕跡、出界路徑）不是敘述。不要反過來把材料遮掉禁字樣（帳本是給它看的證據）。驗證法：用帶禁區字樣、沒指令行的材料真打一次看結果。
 - [臨] codex exec 0.154 的 stderr 三段都不是 codex 的動作：檔頭固定印一行沙箱模式（探針 `sandbox: read-only`、Companion 裁判 `sandbox: danger-full-access`）；user 段逐字回聲整份提示詞；codex 段最後印回答全文（也是 stdout）。裸字 sandbox 不是失敗訊號；失敗分類只認 CreateProcessWithLogon／1385 或同行 sandbox＋error|denied|failed。
 - [臨] replay-guard post 的 command_lines 把含 -Command、exec_command 或行首「$ 」的行當指令行，回聲裡的材料行（帳本的 pwsh -Command "git diff …"、diff 上下文）也被挑進去：帶禁區字樣 → 誤判 FAIL；不帶 → 靠它判 PASS 跳過退路。解法是交給 guard 的改成剝完回聲與回答的 codex 自己輸出檔，guard 本身一字不動（實證：同一份紀錄原始交 guard 是 FAIL、剝完的判通過）。
+- [臨] 原本接 Codex 的 tools/second-opinion/run.py 已退役；現在呼叫 Codex 走 skills/codex/scripts/codex-run.py，它把 Codex 的 stderr 另存 codex-stderr.txt，判 Codex 動作只看那份與 codex-output.md。
 
 ## 行動
 

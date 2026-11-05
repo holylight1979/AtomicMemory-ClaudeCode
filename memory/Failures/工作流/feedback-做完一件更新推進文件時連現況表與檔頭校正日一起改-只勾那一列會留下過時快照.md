@@ -5,7 +5,7 @@
 - Source: session 31aa0da5（2026-10-16）收尾後使用者追問
 - Quote: 「checklist文件你有更新嗎??」
 - Confidence: [臨]
-- Trigger: checklist, 核心推進文件, 接續單, 現況表, 更新文件, 收尾更新, 過時快照, 你有更新嗎
+- Trigger: 核心推進文件, 接續單, 現況表, 過時快照, 你有更新嗎
 - Created-at: 2026-10-16
 
 ## 知識

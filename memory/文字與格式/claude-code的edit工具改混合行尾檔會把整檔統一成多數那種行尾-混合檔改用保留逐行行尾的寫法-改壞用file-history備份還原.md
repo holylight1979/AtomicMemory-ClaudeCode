@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: 2026-10-15 改一份混合行尾的變更記錄檔時實測
 - Confidence: [臨]
-- Trigger: 混合行尾, CRLF, LF, Edit 工具, 行尾漂移, 整檔 diff, svn diff 全檔, file-history
+- Trigger: 混合行尾, 行尾漂移, svn diff 全檔, file-history
 - Created-at: 2026-10-15
 - Quote: 「再給我一次確定版的 修改前後token差異表」
 

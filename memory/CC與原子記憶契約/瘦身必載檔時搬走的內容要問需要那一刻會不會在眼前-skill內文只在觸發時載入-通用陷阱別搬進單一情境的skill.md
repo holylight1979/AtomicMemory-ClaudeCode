@@ -5,7 +5,7 @@
 - Source: 2026-10-15 瘦身專案必載檔後，使用者問「有沒有導致失能或失智」，逐項重審查出 7 處
 - Quote: 先檢查一下改了CLAUDE.md以後，有沒有導致失能或失智的問題?
 - Confidence: [臨]
-- Trigger: CLAUDE.md 瘦身, 必載, 常駐, 失能, 失智, 搜進 skill, skill 描述精簡, MEMORY.md 瘦身, token 節省, 觸發詞
+- Trigger: CLAUDE.md 瘦身, 搜進 skill, skill 描述精簡, MEMORY.md 瘦身
 - Created-at: 2026-10-15
 
 ## 知識

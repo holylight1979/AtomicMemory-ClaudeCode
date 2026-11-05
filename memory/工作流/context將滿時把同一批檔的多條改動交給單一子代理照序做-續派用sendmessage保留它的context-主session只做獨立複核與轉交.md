@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: session:c4685bc9 2026-10-13
 - Confidence: [臨]
-- Trigger: context 快滿, context 80%, 派子代理實作, general-purpose, 續派子代理, SendMessage 子代理, 子代理 commit, 獨立複核, 換手
+- Trigger: context 快滿, context 80%, 續派子代理, SendMessage 子代理, 獨立複核
 - Created-at: 2026-10-13
 
 ## 知識

@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: commit:c107cf94 2026-10-13（原出處已隨工作信箱清理）
 - Confidence: [臨]
-- Trigger: TaskStop, 背景任務, run_in_background, 停掉背景, 孤兒行程, 子行程還在跑, Stop-Process, Win32_Process, 取消驗證, 快照複跑
+- Trigger: TaskStop, 停掉背景, 孤兒行程, 子行程還在跑, Stop-Process, Win32_Process
 - Created-at: 2026-10-12
 
 ## 知識

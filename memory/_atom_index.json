@@ -4573,17 +4573,13 @@
       "path": "memory/Failures/行為契約/feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼.md",
       "triggers": [
         "為什麼會寫成這樣",
-        "根因猜測",
         "報告太技術",
         "人腦難吸收",
         "使用感受",
         "調了什麼",
-        "審查報告",
-        "問題清單",
         "白話重點",
         "拍板文件",
-        "報告目的",
-        "LLM 寫錯"
+        "報告目的"
       ],
       "scope": "global",
       "related": [
@@ -4655,7 +4651,6 @@
         "CS0579",
         "Duplicate Attribute",
         "AssemblyInfo.cs",
-        "obj/Debug",
         "C# Dev Kit",
         "csdevkit",
         "design-time build",
@@ -4663,10 +4658,7 @@
         "Directory.Build.props",
         "BaseIntermediateOutputPath",
         "obj~",
-        "Unity 編譯失敗",
-        "Assets 內 csproj",
-        "Unity 忽略資料夾",
-        "~ 結尾"
+        "Assets 內 csproj"
       ],
       "scope": "global"
     },
@@ -4801,15 +4793,11 @@
       "name": "cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑",
       "path": "memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md",
       "triggers": [
-        "hook 指令",
         "settings.json 路徑",
         "機器專屬路徑",
         "LOCALAPPDATA",
-        "$HOME",
         "pythonw 路徑",
         "statusLine",
-        "hook shell",
-        "Git Bash",
         "可攜路徑",
         "fix-hook-python"
       ],
@@ -5177,13 +5165,8 @@
       "name": "feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除",
       "path": "memory/Failures/文字與格式/feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除.md",
       "triggers": [
-        "README",
-        "Install.md",
         "人讀文件",
         "使用者文件",
-        "說明文件",
-        "文件更新",
-        "協作體驗",
         "贅述",
         "過度技術",
         "版控段落",
@@ -5705,12 +5688,8 @@
       "triggers": [
         "洩題",
         "回放實驗",
-        "對照組",
         "封存答案",
         "replay-guard",
-        "實驗設計",
-        "汙染",
-        "工作副本",
         "合成案例",
         "提示詞偏誤",
         "Codex 記憶"
@@ -5794,13 +5773,11 @@
       "name": "codex-exec在非git目錄要加skip-git-repo-check-否則不報錯只在stderr一行且輸出空檔",
       "path": "_AIDocs/_atoms/工作流/codex-exec在非git目錄要加skip-git-repo-check-否則不報錯只在stderr一行且輸出空檔.md",
       "triggers": [
-        "codex exec",
         "codex 輸出空",
         "Not inside a trusted directory",
         "skip-git-repo-check",
         "codex -C",
-        "svn 專案跑 codex",
-        "codex 唯讀審稿"
+        "svn 專案跑 codex"
       ],
       "scope": "global"
     },
@@ -5892,12 +5869,9 @@
       "name": "守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格",
       "path": "_AIDocs/_atoms/MemDev/檢索排序與注入量測/守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格.md",
       "triggers": [
-        "驗收",
         "結果題組",
-        "過程數字",
         "scorecard",
         "表面合格",
-        "反例",
         "守門機制驗收",
         "OverviewHub 驗收",
         "ledger 驗收",
@@ -6298,15 +6272,11 @@
       "path": "memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md",
       "triggers": [
         "TaskStop",
-        "背景任務",
-        "run_in_background",
         "停掉背景",
         "孤兒行程",
         "子行程還在跑",
         "Stop-Process",
-        "Win32_Process",
-        "取消驗證",
-        "快照複跑"
+        "Win32_Process"
       ],
       "scope": "global"
     },
@@ -6456,13 +6426,9 @@
       "triggers": [
         "context 快滿",
         "context 80%",
-        "派子代理實作",
-        "general-purpose",
         "續派子代理",
         "SendMessage 子代理",
-        "子代理 commit",
-        "獨立複核",
-        "換手"
+        "獨立複核"
       ],
       "scope": "global"
     },
@@ -7882,15 +7848,9 @@
       "path": "memory/CC與原子記憶契約/瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill.md",
       "triggers": [
         "CLAUDE.md 瘦身",
-        "必載",
-        "常駐",
-        "失能",
-        "失智",
         "搜進 skill",
         "skill 描述精簡",
-        "MEMORY.md 瘦身",
-        "token 節省",
-        "觸發詞"
+        "MEMORY.md 瘦身"
       ],
       "scope": "global"
     },
@@ -7899,11 +7859,7 @@
       "path": "memory/文字與格式/claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原.md",
       "triggers": [
         "混合行尾",
-        "CRLF",
-        "LF",
-        "Edit 工具",
         "行尾漂移",
-        "整檔 diff",
         "svn diff 全檔",
         "file-history"
       ],
@@ -8063,12 +8019,9 @@
       "name": "feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照",
       "path": "memory/Failures/工作流/feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照.md",
       "triggers": [
-        "checklist",
         "核心推進文件",
         "接續單",
         "現況表",
-        "更新文件",
-        "收尾更新",
         "過時快照",
         "你有更新嗎"
       ],
@@ -8614,7 +8567,7 @@
       ],
       "scope": "global",
       "depends": [
-        "path:~/.claude/tools/second-opinion/run.py",
+        "path:~/.claude/skills/codex/scripts/codex-run.py",
         "path:~/.claude/tools/replay-guard.py"
       ]
     },
@@ -9507,12 +9460,7 @@
       "triggers": [
         "G7",
         "G7 評分",
-        "壞味道",
-        "過度物件化",
-        "繼承",
-        "重構",
-        "等值",
-        "效能"
+        "過度物件化"
       ],
       "scope": "global"
     },

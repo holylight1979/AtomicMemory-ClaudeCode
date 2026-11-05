@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: session ac67589e 2026-10-08（T11 Codex 兩趟第一次全空）
 - Confidence: [臨]
-- Trigger: codex exec, codex 輸出空, Not inside a trusted directory, skip-git-repo-check, codex -C, svn 專案跑 codex, codex 唯讀審稿
+- Trigger: codex 輸出空, Not inside a trusted directory, skip-git-repo-check, codex -C, svn 專案跑 codex
 - Created-at: 2026-10-07
 - Quote: 「/continue <專案路徑>\.claude\memory\_staging\next-phase-tri-link-某專案.md 記得掛 monitor」
 
