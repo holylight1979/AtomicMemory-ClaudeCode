@@ -531,11 +531,15 @@ def _own_failing_tests(state: Dict[str, Any], session_id: str) -> List[Dict[str,
     return [f for f in (state.get("failing_tests") or []) if isinstance(f, dict) and f.get("session_id") == session_id]
 
 
-def _detect_turn_outcome(state: Dict[str, Any], last_text: str, session_id: Optional[str] = None) -> Optional[bool]:
+def _detect_turn_outcome(
+    state: Dict[str, Any], last_text: str, session_id: Optional[str] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Optional[bool]:
     """3 值 success 偵測（複用既有訊號）。回 True(+1)/False(0)/None(unknown=no-op)。
 
       - 0（fail）：**本 turn** failing_tests 非空 / 本 turn evasion_flag /
-        wisdom_retry_count≥2（error / 糾正 / retry / evasion 任一）。
+        wisdom_retry_count≥2（error / 糾正 / retry / evasion 任一）；
+        本回合使用者糾正（usefulness.friction_as_fail，預設開）→ fail。
       - +1（success）：宣告完成（claims_completion）且無上述 fail 訊號（硬正向）。
       - None（unknown）：既無完成宣告也無 fail 訊號 → 不動 (α,β)，防雜訊污染。
 
@@ -558,7 +562,11 @@ def _detect_turn_outcome(state: Dict[str, Any], last_text: str, session_id: Opti
     retry_total = int(state.get("wisdom_retry_count", 0) or 0)
     base = state.get("wisdom_retry_turn_base")
     retry = retry_total - int(base) if base is not None else retry_total
-    if failing or evasion or retry >= 2:
+    corrected = False
+    if ((config or {}).get("usefulness", {}) or {}).get("friction_as_fail", True):
+        from wg_friction import correction_in_turn
+        corrected = correction_in_turn(state, turn_seq, since, config)
+    if failing or evasion or retry >= 2 or corrected:
         return False
     if last_text and claims_completion(last_text):
         return True
@@ -622,7 +630,7 @@ def _attribute_usefulness(
             get_current_turn_text(transcript, text=transcript_text)
             if (transcript or transcript_text) else ""
         )
-        outcome = _detect_turn_outcome(state, last_text, session_id)
+        outcome = _detect_turn_outcome(state, last_text, session_id, config)
         if not turn_done:
             _bump_outcome_stats(state, outcome)
 

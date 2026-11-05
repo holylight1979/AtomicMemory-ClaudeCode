@@ -253,6 +253,23 @@ def friction_triggered(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
     return int(state.get("user_correction_count", 0) or 0) >= int(cfg.get("min_hits", 2))
 
 
+def correction_in_turn(state: Dict[str, Any], turn_seq: int, since: Optional[int], config: Optional[Dict[str, Any]] = None) -> bool:
+    """本回合（since <= hit.turn <= turn_seq；since 為 None 只比 == turn_seq）使用者有糾正 → True。
+    friction.enabled=false 回 False。回合邊界由呼叫端傳入，避免 import stop 的 helper。"""
+    cfg = (config or {}).get("friction", {}) or {}
+    if not cfg.get("enabled", True):
+        return False
+    for h in state.get("user_correction_hits") or []:
+        hit_turn = (h or {}).get("turn")
+        if not isinstance(hit_turn, int):
+            continue
+        if since is None and hit_turn == turn_seq:
+            return True
+        if since is not None and since <= hit_turn <= turn_seq:
+            return True
+    return False
+
+
 def friction_summary(state: Dict[str, Any]) -> str:
     """給 Deep Post-Mortem 指令用的一句話：糾正幾次、命中哪些詞。"""
     count = int(state.get("user_correction_count", 0) or 0)

@@ -294,6 +294,26 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "atom_feedback",
+    description:
+      "Vote that an injected atom was helpful or misleading for the task you just did. " +
+      "Votes are appended to `memory/_votes/<user>.jsonl` (version-controlled, so teammates' votes accumulate) " +
+      "and immediately update this machine's usefulness α/β that drives [臨]→[觀]→[固] promotion. " +
+      "Call it when a card clearly saved you from a mistake, or clearly sent you the wrong way; " +
+      "do not vote on cards you did not actually use.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        atom_name: { type: "string", description: "Atom filename without .md extension" },
+        verdict: { type: "string", enum: ["helpful", "misleading"], description: "helpful = the card saved you from a mistake; misleading = it sent you the wrong way" },
+        scope: { type: "string", enum: ["global", "project"], description: "Scope to search in (default global)" },
+        project_cwd: { type: "string", description: "Project root (required for project scope)" },
+        note: { type: "string", description: "Why you voted this way (max 200 chars)" },
+      },
+      required: ["atom_name", "verdict"],
+    },
+  },
+  {
     name: "atom_move",
     description:
       "V5 SoT-correct atom move/reconcile. Updates the single central _atom_index.json (via upsert/delete) and moves the .access.json sidecar with the .md; the _ATOM_INDEX.md mirror is auto-regenerated — it does NOT hand-edit per-folder indexes. " +
@@ -548,7 +568,7 @@ const TOOL_DEFINITIONS = [
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
 
 function handleToolCall(id, toolName, args) {
-  const { toolAtomWrite, toolAtomPromote, toolAtomMove, toolAtomEditMeta, toolAtomRetire, toolMemorySearch, toolAtomSource } = require("./atom-tools");
+  const { toolAtomWrite, toolAtomPromote, toolAtomFeedback, toolAtomMove, toolAtomEditMeta, toolAtomRetire, toolMemorySearch, toolAtomSource } = require("./atom-tools");
   switch (toolName) {
     case "memory_search":
       return toolMemorySearch(id, args).catch(e => sendToolResult(id, `memory_search error: ${e.message}`, true));
@@ -565,6 +585,8 @@ function handleToolCall(id, toolName, args) {
     case "atom_promote":
       // toolAtomPromote 為 async，需 .catch 包 throw（與 atom_write/atom_move 一致）
       return toolAtomPromote(id, args).catch(e => sendToolResult(id, `atom_promote error: ${e.message}`, true));
+    case "atom_feedback":
+      return toolAtomFeedback(id, args).catch(e => sendToolResult(id, `atom_feedback error: ${e.message}`, true));
     case "atom_move":
       return toolAtomMove(id, args).catch(e => sendToolResult(id, `atom_move error: ${e.message}`, true));
     case "atom_edit_meta":

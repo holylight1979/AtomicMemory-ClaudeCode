@@ -3160,6 +3160,14 @@ def _self_iterate_atoms(
                "demote_candidates": [], "scanned": 0}
     today = datetime.now()
 
+    # 明確「有用/誤導」票：先把別機／別人的票套進本機 sidecar，再進掃描（fail-open）
+    try:
+        from lib.atom_feedback import fold_votes
+        _cwd = ((state or {}).get("session") or {}).get("cwd") or None
+        results["votes_folded"] = fold_votes(cwd=Path(_cwd) if _cwd else None)
+    except Exception as e:  # noqa: BLE001 — 輔助步驟不得中斷 SessionEnd
+        print(f"[atom_feedback] fold failed: {e}", file=sys.stderr)
+
     # V5+: 全域 atom 搜尋（memory + _AIDocs/Failures/）統一委派 lib.atom_locations。
     # 判定走 is_atom_file（同 MEMORY.md/_*/SPEC_* skip）+ failures stems 過濾參考文件。
     if iter_atom_files_multi is not None:

@@ -16,7 +16,8 @@ function callOverStdio(env, requests) {
     let out = "";
     const got = {};
     const timer = setTimeout(() => { srv.kill(); reject(new Error("逾時")); }, 30000);
-    const allAnswered = () => requests.every((_, i) => got[i + 2]);
+    function answered(_, i) { return Boolean(got[i + 2]); }
+    function allAnswered() { return requests.every(answered); }
     function collectLine(line) {
       try {
         const msg = JSON.parse(line);

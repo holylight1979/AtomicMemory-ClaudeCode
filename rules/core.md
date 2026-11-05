@@ -23,7 +23,7 @@
 - 寫規則檔、決策卡：現在的做法寫「目前用 X」，不寫「一律」；退版、否決要寫是方向錯，還是時機或資源不夠——只寫結論，下一個 AI 會讀成禁令。
 
 ## 記憶
-- 寫入一律走 atom_write MCP（自動驗證去重索引），禁直接 Edit atom .md；已記錄事實直接引用；不寫臨時嘗試/未確認猜測。**新 atom 一律 [臨] 起跳**（系統拒收新建 [固]/[觀]），晉升靠使用或 append。
+- 寫入一律走 atom_write MCP（自動驗證去重索引），禁直接 Edit atom .md；已記錄事實直接引用；不寫臨時嘗試/未確認猜測。**新 atom 一律 [臨] 起跳**（系統拒收新建 [固]/[觀]），晉升靠使用或 append。注入的卡明顯救了你一次或把你帶錯 → `atom_feedback(atom_name, verdict=helpful|misleading)` 投一票（沒真的用到的卡不投）。
 - **Realm**：跨專案通用 → `memory/<範疇>/`（失敗家族 `memory/Failures/<主題>/`）；只在 ~/.claude 內有用 → `realm=local`（`_AIDocs/_atoms/`）。判定三問見 [[realm-範疇分區機制-v5]]。
 - **Scope**（問「遷就專案還是遷就人？」）：專案的規則／決策 → `shared`；只關於這個人 → `personal`；本人跨專案偏好 → `personal, cross_project=true`；全公司所有專案都該知道 → `org`。
 - **個人隱私敏感資訊放 secret**（密碼、token、私鑰、憑證、個資、內網位址、任何不想公開的驗證或隱私內容）：`atom_write` 帶 `secret=true`，落 `memory/personal/<user>/secret/`——不進版控、不送向量、只給本人、觸發詞照常注入。其他個人卡（工作偏好）照常進版控，不必躲。值本身別寫進卡，只寫放在哪。寫入閘碰到相關字眼會要你判斷：只是一般技術知識就帶 `not_sensitive=<理由>`；判不準當敏感（放 secret 之後搬出來很容易，公開了收不回）。已經寫錯地方的卡用 `atom_move` 搬進去。

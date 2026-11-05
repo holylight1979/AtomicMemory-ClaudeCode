@@ -108,6 +108,8 @@ memory/wisdom/causal_graph.json
 memory/_meta/atom_io_audit.jsonl
 memory/_meta/atom_io_audit.jsonl.*
 memory/_promotion_audit.jsonl
+memory/_meta/feedback-votes-applied.json
+**/memory/_meta/feedback-votes-applied.json
 policy-limits.json
 
 # ─── Codex Companion runtime state ────────────────────────

@@ -67,6 +67,7 @@ ACCESS_VALID_SOURCES = frozenset({
     "hook:episodic",             # episodic atom 建立時 init_access
     "hook:episodic-confirm",     # cross-session confirmation
     "user:confirm",              # 使用者明說「對、記下來」：記一筆 confirmation（event 帶 by=user），晉升門檻不變
+    "user:feedback",             # lib/atom_feedback.py 明確「有用/誤導」票套進 α/β
     "hook:usefulness",           # stop.py 注入→使用→結果 α/β 更新
     "hook:atom-decay",           # SessionEnd _self_iterate_atoms 慢衰減
     "hook:user-extract",

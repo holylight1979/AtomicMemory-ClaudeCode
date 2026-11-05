@@ -723,6 +723,62 @@ function spawnIndexDelete(memDir, atomName) {
   });
 }
 
+/** spawn `python -m lib.atom_feedback vote ...`；stdout 一行 JSON；失敗帶 stderr 回報。 */
+function spawnAtomFeedback(argv) {
+  return new Promise((resolve) => {
+    let cp;
+    try {
+      cp = require("child_process").spawn(
+        PYTHON_EXE, ["-m", "lib.atom_feedback", "vote", ...argv],
+        { cwd: CODE_DIR, windowsHide: true,   // -m 從 cwd 載 lib：程式碼根
+          env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      );
+    } catch (e) {
+      return resolve({ ok: false, error: `spawn failed: ${e.message}` });
+    }
+    let out = "", err = "", timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; try { cp.kill(); } catch {} }, 30000);
+    cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
+    cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
+    cp.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) return resolve({ ok: false, error: "atom_feedback timeout (30s), killed" });
+      try {
+        const res = JSON.parse(out.trim().split("\n").pop() || "null");
+        if (res && code === 0) return resolve(res);
+        resolve({ ok: false, error: (res && res.error) || err.trim().slice(0, 300) || `exit ${code}` });
+      } catch (e) {
+        resolve({ ok: false, error: `cli parse fail: ${e.message} exit=${code} stderr=${err.slice(0, 300)}` });
+      }
+    });
+    cp.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: `spawn error: ${e.message}` });
+    });
+  });
+}
+
+async function toolAtomFeedback(id, args) {
+  const { atom_name, verdict, scope = "global", project_cwd, role, user } = args;
+  const note = typeof args.note === "string" ? args.note.slice(0, 200) : "";
+  if (verdict !== "helpful" && verdict !== "misleading") {
+    return sendToolResult(id, `atom_feedback: verdict must be "helpful" or "misleading" (got ${JSON.stringify(verdict)})`, true);
+  }
+  const located = await locateByName(atom_name, scope, project_cwd, { role, user });
+  if (located.error) return sendToolResult(id, `atom_feedback: ${located.error}`, true);
+  if (!located.path) {
+    return sendToolResult(id, `Atom not found: ${atom_name}.md in ${scope} scope`, true);
+  }
+  const argv = [located.path, "--verdict", verdict, "--source", "mcp"];
+  if (note) argv.push("--note", note);
+  const r = await spawnAtomFeedback(argv);
+  if (!r.ok) return sendToolResult(id, `atom_feedback: ${r.error}`, true);
+  let text = `atom_feedback: ${atom_name} ← ${verdict}\n` +
+    `α=${r.useful_hits} β=${r.used_fail} n=${r.n} wilson_lb=${r.lower_bound} eligible=${r.promote_eligible}`;
+  if (r.promote_eligible === true) text += `\n→ 可用 atom_promote 升級`;
+  return sendToolResult(id, text);
+}
+
 async function toolAtomPromote(id, args) {
   const { atom_name, scope, project_cwd, execute, role, user, merge_to_preferences } = args;
 
@@ -1268,4 +1324,4 @@ function extractKnowledgeLines(content) {
     .filter(Boolean);
 }
 
-module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove, toolAtomRetire, toolMemorySearch, toolAtomSource };
+module.exports = { toolAtomWrite, toolAtomPromote, toolAtomFeedback, toolAtomEditMeta, toolAtomMove, toolAtomRetire, toolMemorySearch, toolAtomSource };

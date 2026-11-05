@@ -1,5 +1,5 @@
-// verify_tools_list_guard_off.js：寫碼守門開或關，工具清單都是同一份 9 個記憶工具。
-// 案例：真起 server.js 兩次（WG_V6=1 守門開；WG_CODING_GUARD=0 守門關）打 tools/list，兩次都回這 9 個、順序相同。
+// verify_tools_list_guard_off.js：寫碼守門開或關，工具清單都是同一份 10 個記憶工具。
+// 案例：真起 server.js 兩次（WG_V6=1 守門開；WG_CODING_GUARD=0 守門關）打 tools/list，兩次都回這 10 個、順序相同。
 // 跑：node tools/workflow-guardian-mcp/verify/verify_tools_list_guard_off.js（尾行 TOOLS_LIST_GUARD_OFF_CHECK PASS／FAIL）
 const os = require("os");
 const fs = require("fs");
@@ -8,7 +8,7 @@ const { spawn } = require("child_process");
 
 let ok = true;
 const fail = (m) => { ok = false; console.error("FAIL: " + m); };
-const MEMORY_TOOLS = ["atom_write", "atom_promote", "atom_move", "atom_edit_meta", "anti_evasion_report",
+const MEMORY_TOOLS = ["atom_write", "atom_promote", "atom_feedback", "atom_move", "atom_edit_meta", "anti_evasion_report",
   "knowledge_harvest_report", "atom_retire", "memory_search", "atom_source"];
 
 function listOverStdio(env) {
@@ -40,8 +40,8 @@ function listOverStdio(env) {
     const on = await listOverStdio({ ...base, WG_V6: "1", WG_CODING_GUARD: "" });
     const off = await listOverStdio({ ...base, WG_V6: "", WG_CODING_GUARD: "0" });
     const want = JSON.stringify(MEMORY_TOOLS);
-    if (JSON.stringify(on) !== want) fail(`守門開著的清單不是那 9 個：${on.join(",")}`);
-    if (JSON.stringify(off) !== want) fail(`守門關著的清單不是那 9 個：${off.join(",")}`);
+    if (JSON.stringify(on) !== want) fail(`守門開著的清單不是那 10 個：${on.join(",")}`);
+    if (JSON.stringify(off) !== want) fail(`守門關著的清單不是那 10 個：${off.join(",")}`);
     fs.rmSync(root, { recursive: true, force: true });
   } catch (e) {
     fail(`例外：${e && e.stack || e}`);

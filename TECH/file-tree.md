@@ -217,6 +217,7 @@
 | [`lib/atom_taxonomy.py`](../lib/atom_taxonomy.py) | Lv1 閉合清單＋`classify_category` |
 | [`lib/atom_index_json.py`](../lib/atom_index_json.py) | JSON SoT API |
 | [`lib/atom_access.py`](../lib/atom_access.py) | access sidecar＋Wilson |
+| [`lib/atom_feedback.py`](../lib/atom_feedback.py) | 明確「有用／誤導」票：追加 `_votes/<user>.jsonl`（進版控）＋折入本機 sidecar；MCP `atom_feedback` 與 SessionEnd `fold_votes` 共用 |
 | [`lib/realm_gate.py`](../lib/realm_gate.py) | 專案專屬內容不得落 global |
 | [`lib/provenance.py`](../lib/provenance.py) | 來源回看（三態） |
 | [`lib/ollama_extract_core.py`](../lib/ollama_extract_core.py) | 共享萃取核心＋`SessionBudgetTracker` |

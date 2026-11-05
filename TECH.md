@@ -1180,7 +1180,8 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 
 | 動作 | 條件 | 常數 |
 |------|------|------|
-| 效用歸因 | Stop 時記「有幫助／誤導」 | `usefulness.attribution_policy` |
+| 效用歸因 | Stop 時記「有幫助／誤導」；本回合使用者打字糾正 → 當失敗 | `usefulness.attribution_policy`、`usefulness.friction_as_fail` true |
+| 明確票 | MCP `atom_feedback(atom_name, verdict=helpful／misleading)`：票追加到 `memory/_votes/<user>.jsonl`（進版控、隨 vcs-sync 跨機），同時立刻計入本機 α/β；SessionEnd 掃描前把別台機器、別人的票折入本機 sidecar（`lib/atom_feedback.fold_votes`，已套清單在本機 `_meta/feedback-votes-applied.json`） | source `user:feedback` |
 | 自動晉升 [臨]→[觀] | Wilson 下界 ≥0.6 且 n ≥3 | `wilson_z` 1.28、`promote_lb` 0.6、`min_n` 3 |
 | 手動晉升 [觀]→[固] | 同一條下界、證據 n ≥10 | `fix_min_n` 10（MCP `atom_promote`） |
 | 降級候選 | Wilson 下界 ≤0.35 且 n ≥5 | `demote_lb` 0.35、`demote_min_n` 5 |
@@ -1193,6 +1194,7 @@ fetch 後固定 H／U，incoming 逐 commit 分類（純記憶／含程式碼）
 #### 要點
 
 - **效用歸因**：只記進**實際送出**的 atom sidecar；判用政策 v2，標註集 57 筆，P 0.35→0.67、R 1.00→0.84。
+- **為什麼要明確票**：自動歸因的 outcome 有六到八成是 unknown（`workflow/outcome_stats.jsonl`），1,202 張卡只有 274 張有任何樣本、九成停在 [臨]；sidecar 又不進版控，別台機器的證據到不了。明確票是決定性訊號、每人一檔不會合併衝突、每句話零成本（只有投票那一下約 80 tok）。
 - **晉升審計**：SessionEnd 晉升 sweep 後 spawn vcs-sync worker（`reason=promotion`）背景 commit＋push。
 - **取代**：被取代者不再注入、檔案保留。
 - **退役**：護欄全在異動前（[固] 拒、核心保護名拒、被引用拒）；可還原 `memory-audit --restore`。
@@ -3594,7 +3596,16 @@ svn：svn_update_targets
   - 結果衝突 → unknown，不動 α/β。
   - 子代理紀錄只結算本 turn。
 - **量測**：標註集 57 筆：P 0.35→0.67、R 1.00→0.84。
+- **糾正當失敗**：`_detect_turn_outcome` 多一個 fail 訊號——本回合（TURN_SINCE_USER_PROMPT）使用者本人打字命中糾正詞（`wg_friction.correction_in_turn`）；只把 unknown／success 壓成 fail，不會把 unknown 變 success。開關 `usefulness.friction_as_fail`（預設 true）。
 - **實作**：[`hooks/handlers/stop.py _attribute_usefulness`](hooks/handlers/stop.py)、`wg_atoms.detect_atom_use_v2`、`wg_rescue.rescue_hits_for_turn`；[`tools/memory-eval/eval_usage_v2.py`](tools/memory-eval/eval_usage_v2.py)。
+
+#### 明確票（atom_feedback）
+
+- **入口**：MCP `atom_feedback`（[`tools/workflow-guardian-mcp/lib/atom-tools.js toolAtomFeedback`](tools/workflow-guardian-mcp/lib/atom-tools.js)）→ `python -m lib.atom_feedback vote <path> --verdict helpful|misleading --source mcp`。
+- **票據檔**：`<memory_root>/_votes/<user>.jsonl`，一人一檔、只追加（多機多人不會撞同一行）；全域卡在 `~/.claude/memory/_votes/`，專案卡在該專案 `.claude/memory/_votes/`；欄位 id／at／by／machine／atom／path_rel／verdict／note／source。隨 vcs-sync 的 `memory` pathspec 自動 commit、push、pull。
+- **折入**：`fold_votes()` 在 SessionEnd `_self_iterate_atoms` 掃描前跑：沒套過的票依 `path_rel` 找卡、呼叫 `record_usefulness(source="user:feedback")`；已套的 id 存本機 `_meta/feedback-votes-applied.json`（不進版控），重跑冪等；找不到的卡計 `missing`、壞行計 `bad_lines`，都不中斷。
+- **計分**：一票就是一筆 α 或 β，和自動歸因同一條 Wilson 軌；三張 helpful 即過 [臨]→[觀] 門檻。多人票天然累計：每個人的檔都會被每台機器折入。
+- **CLI**：`python -m lib.atom_feedback fold [--root <memory dir>]` 手動折入；測試 [`hooks/verify/verify_atom_feedback.py`](hooks/verify/verify_atom_feedback.py)。
 
 #### 自動晉升 [臨]→[觀]
 
@@ -4591,8 +4602,8 @@ svn：svn_update_targets
 
 #### MCP server
 - **入口**：[`tools/workflow-guardian-mcp/server.js`](tools/workflow-guardian-mcp/server.js)（stdio；Node 18+，零 npm deps）
-- **9 個 tool**（清單固定，不看守門開關）：
-  - 寫入類：`atom_write`／`atom_promote`／`atom_move`／`atom_edit_meta`／`atom_retire`
+- **10 個 tool**（清單固定，不看守門開關）：
+  - 寫入類：`atom_write`／`atom_promote`／`atom_feedback`／`atom_move`／`atom_edit_meta`／`atom_retire`
   - 收尾回報類：`anti_evasion_report`／`knowledge_harvest_report`
     - 這兩者只驗參數回 chip，state 由 Python PostToolUse 寫
   - 檢索類：`memory_search`／`atom_source`
