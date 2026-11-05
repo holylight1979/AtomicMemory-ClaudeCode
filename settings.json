@@ -2,7 +2,7 @@
   "crossSessionInbound": "accept",
   "cleanupPeriodDays": 14,
   "worktree": {"baseRef": "head"},
-  "claudeMdExcludes": ["**/holylight/AGENTS.md"],
+  "claudeMdExcludes": ["**/Users/*/AGENTS.md"],
   "autoMemoryEnabled": false,
   "permissions": {
     "allow": [
@@ -271,20 +271,10 @@
     "refreshInterval": 10
   },
   "language": "繁體中文",
-  "effortLevel": "high",
-  "modelSettings": {
-    "claude-opus-5-5": {
-      "effortLevel": "xhigh"
-    },
-    "claude-fable-5-1": {
-      "effortLevel": "medium"
-    }
-  },
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "light",
   "idleCompaction": false,
   "switchModelsOnFlag": false,
-  "agentPushNotifEnabled": true,
-  "model": "fable"
+  "agentPushNotifEnabled": true
 }

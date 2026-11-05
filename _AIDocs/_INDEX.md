@@ -36,6 +36,7 @@
 | 13 | Vision/_INDEX.md | 發想與前瞻設計（尚未開工、「說不定某天做成成品」的平台設計與現有應用比對）；首個主題：JARVIS 式企業 AI 開發協作平台（README + 9 子檔，記憶服務化/編排核心/模型路由/工具註冊/攝取/多模態/作業紀錄/安全治理/演進路線）。read-on-demand、非 atom、零注入成本 | 發想, 願景, vision, 前瞻設計, jarvis, 企業平台, 編排, 多模型路由, 工具註冊, 演進路線圖 |
 | 15 | MultiMachineMemorySync.md | 多機記憶同步（AI 讀）：索引三檔三層防線（全 repo LF → 合併驅動 hook 自動裝 → `--resolve` 備案自動觸發）、config、CLI 契約（exit code／JSON 欄位）、stage 方向矩陣、支援的 shell 語法、Windows 約束、失敗模式 SOP、手動最後手段、不在保證範圍、設計取捨、驗證方法 | 多機, 多人, 合併, merge driver, atomindex, --resolve, 索引三檔, 索引衝突, LF, CRLF, gitattributes, rebase 衝突, stage, ours theirs, IndexConflict, MergeDriver |
 | 17 | CodeQuality/README.md | C# 遊戲開發壞味道與優良設計語料（伺服器、Unity 客戶端、遊戲通用、可讀性四份）＋總彙整（14 主題→99 子題→嚴重性→關注權重，機器版 JSON）；與 Research/code-smells 513 條對接不重寫 | code smell, 壞味道, 危險彙整, 可讀性, 關注權重, Unity, 熱更, protobuf, 總彙整 |
+| 17b | CC暫存路徑清單.md | Claude Code 會產生暫存的已知路徑、哪些可刪、清理順序 | 清暫存, 暫存路徑, wg-iso, pytest-of, scratchpad, workflow inbox |
 | 16 | MultiSessionCollaboration.md | 多 session 協作（AI 讀）：一個主持 session 派工給多個工作 session 的通則十節——角色與邊界、派工單寫法、調度節奏、跨 session 通訊機制（SendMessage 送達時機／計畫模式扣留／背景 session 起停）、worktree 與共用工作樹、合併與驗收、交接文件、對人回報、裁定者自我校準；每節附出處卡名。v6 專用儀式不在此，見 DevHistory v6.0 夾 | 多 session, 派工, 主持端, 工作 session, 子代理, SendMessage, ListAgents, claude --bg, attach, worktree, EnterWorktree, 共用工作樹, 合併, 接續單, 開工句, 回報, 裁定, 兩把尺 |
 
 ---

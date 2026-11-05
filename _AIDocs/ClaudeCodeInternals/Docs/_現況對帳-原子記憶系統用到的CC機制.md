@@ -95,8 +95,8 @@
 | `hooks` | 14 個事件（§1） | 會由 [`tools/install.py`](../../../tools/install.py) 的 `merge_settings` 合併進使用者既有的 settings |
 | `statusLine` | command 型，跑 [`tools/statusline.py`](../../../tools/statusline.py)，`refreshInterval: 10` | 用 `python.exe`，不是 pythonw |
 | `language` | `繁體中文` | 同時另有 `lang_guard` Stop hook |
-| `effortLevel`／`modelSettings.<model>.effortLevel` | high；opus-5-5 用 xhigh；fable-5-1 用 medium | — |
-| `model` | `fable` | — |
+| `effortLevel`／`modelSettings.<model>.effortLevel` | 未設定，走原廠預設 | — |
+| `model` | 未設定，走原廠預設 | — |
 | `tui`／`theme` | `fullscreen`／`light` | — |
 | `idleCompaction` | `false` | — |
 | `switchModelsOnFlag`／`agentPushNotifEnabled` | false／true | — |
@@ -104,7 +104,7 @@
 | `crossSessionInbound` | `accept` | 接受跨 session 訊息 |
 | `cleanupPeriodDays` | `14` | 逐字稿保留天數 |
 | `worktree.baseRef` | `head` | 原生 worktree 從目前 HEAD 起 |
-| `claudeMdExcludes` | `["C:/Users/holylight/AGENTS.md"]` | 不載入家目錄 AGENTS.md |
+| `claudeMdExcludes` | `["**/Users/*/AGENTS.md"]` | 不載入家目錄 AGENTS.md |
 
 **沒用到的鍵**（官方 settings 文件裡有）：`env`、`enabledPlugins`、`extraKnownMarketplaces`、`autoMemoryDirectory`、`outputStyle`、`attribution`、`teammateMode`、`disableAllHooks`、`allowManagedHooksOnly`。
 

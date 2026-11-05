@@ -140,6 +140,7 @@ _AIDocs/Failures/*.access.json
 
 # ─── Staging area (temp files, session prompts) ──────────
 memory/_staging/
+_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/v6-命中目標研究-材料/
 
 # ─── Auto-capture drafts (隔離區，未確認 [臨]，不入版控/索引/注入) ─────────
 memory/_drafts/

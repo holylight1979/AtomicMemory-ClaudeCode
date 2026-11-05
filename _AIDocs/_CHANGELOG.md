@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-05 settings.json 去個人化：不含帳號名的排除規則，模型與 effort 回原廠預設
+- `claudeMdExcludes` 改 `**/Users/*/AGENTS.md`，移除 `model`、`effortLevel`、`modelSettings`；公司專案材料退出版控；暫存清單更正派工信箱不是暫存。
+
+---
 ## 2026-11-03 usage-watch：token 過期改為自動刷新
 - 桌面版 Code 分頁不會刷新 `~/.claude/.credentials.json`（8 小時過期），監控每次過期就略過帳號查詢；改成過期時先跑 `claude auth status`（實測會讓 Claude Code 自己刷新並寫回檔）再查，仍失敗才報錯。驗證：模擬過期 → 刷新後查到用量 `USAGE_REFRESH_CHECK PASS`；`verify_usage_watch.py` 39 案綠。
 
