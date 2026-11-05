@@ -14203,6 +14203,48 @@
       "depends": [
         "path:~/.claude/_AIDocs/CC暫存路徑清單.md"
       ]
+    },
+    {
+      "name": "feedback-清理暫存先確認資料夾用途與是否還有別處副本-不進版控的本機資料刪了救不回-不整夾清空",
+      "path": "memory/Failures/工作流/feedback-清理暫存先確認資料夾用途與是否還有別處副本-不進版控的本機資料刪了救不回-不整夾清空.md",
+      "triggers": [
+        "清理",
+        "清暫存",
+        "rm -rf",
+        "workflow/inbox",
+        "gitignored",
+        "誤刪",
+        "刪資料夾",
+        "scratchpad"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-撤回版控改動要從現行檔做最小修改-不要整檔退回上一版-先分清共用值與個人值",
+      "path": "memory/Failures/版控/feedback-撤回版控改動要從現行檔做最小修改-不要整檔退回上一版-先分清共用值與個人值.md",
+      "triggers": [
+        "退版",
+        "撤回",
+        "settings.json",
+        "個人偏好",
+        "還原上一版",
+        "claudeMdExcludes",
+        "共用設定"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "行為測試的對照組要先證明能出現差異-對照也答沒有就不算驗過-claude-md-excludes用同設定換目錄當對照",
+      "path": "memory/驗證與實證/行為測試的對照組要先證明能出現差異-對照也答沒有就不算驗過-claude-md-excludes用同設定換目錄當對照.md",
+      "triggers": [
+        "對照組",
+        "claudeMdExcludes",
+        "AGENTS.md",
+        "無頭測試",
+        "setting-sources",
+        "排除規則驗證"
+      ],
+      "scope": "global"
     }
   ]
 }

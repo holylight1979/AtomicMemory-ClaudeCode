@@ -13,6 +13,7 @@
 
 - [臨] ~/.claude 這個 repo 的 GitHub 遠端是公開的（gh repo view --json visibility 查得到），而且背景同步會自動 commit＋push 記憶卡：進版控等於對外公開，歷史收不回。
 - [臨] 卡片內容不只來自寫卡的人：寫卡後自動回填的 Quote 是使用者原話，實例是使用者貼的內網共用資料夾路徑就這樣進了公開卡。防流出要連這類自動填的欄位一起看。
+- [臨] 從不進版控的 memory/_staging 搬資料到 _AIDocs/DevHistory，等於把它變成會公開：搬之前先讀資料夾 README 並掃內容，含公司專案或對話紀錄的整包加 .gitignore，只留本機。上GIT 只 add 自己確認過內容的檔，不 add 整個資料夾。
 
 ## 行動
 

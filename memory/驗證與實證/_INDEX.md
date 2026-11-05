@@ -75,6 +75,7 @@
 | 自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入 | 自動化開claude-ai用量頁-headless-Edge撞Cloudflare人類驗證-日常Chrome-profile被鎖不可借用-改專屬Chrome-profile一次登入 |
 | 自動截vs-code裡claude-code的用量面板-另開專屬vs-code帶偵錯埠用cdp接-skip-welcome-清electron-run-as-node-同步playwright不用timesleep等 | 自動截VS Code裡Claude Code的用量面板-另開專屬VS Code帶偵錯埠用CDP接-skip-welcome-清ELECTRON_RUN_AS_NODE-同步Playwright不用time.sleep等 |
 | 行為保持重構的高速等值證法-舊原始碼解析出預期表-新dll反射實跑全枚舉值比對-副作用守衛文字相等 | 行為保持重構的高速等值證法-舊原始碼解析出預期表-新dll反射實跑全枚舉值比對-副作用守衛文字相等 |
+| 行為測試的對照組要先證明能出現差異-對照也答沒有就不算驗過-claude-md-excludes用同設定換目錄當對照 | 行為測試的對照組要先證明能出現差異-對照也答沒有就不算驗過-claude-md-excludes用同設定換目錄當對照 |
 | 被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套 | 被宣稱或退避詞表命中先看主詞-轉述別人與更早回合已驗過的就回非本回合宣稱或不是退避-自己本回合的絕不套 |
 | 被擋說修好沒證據時-自己做的就重跑拿新收據-非本回合宣稱只給轉述與描述用 | 被擋說修好沒證據時-自己做的就重跑拿新收據-非本回合宣稱只給轉述與描述用 |
 | 裁判-precision-高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據 | 裁判 precision 高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據 |
