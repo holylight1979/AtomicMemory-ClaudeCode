@@ -18,7 +18,9 @@
 | claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents | claude-cli沒有ps子指令-未知子指令會被當成提問另開一次性session耗token-查背景session用transcript檔名或listagents |
 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 |
 | claude-code官方文件可直接抓markdown-sitemap列全頁-llms-txt給分類-用tools-cc-docs-harvest收割到本地再查 | claude-code官方文件可直接抓markdown-sitemap列全頁-llms-txt給分類-用tools-cc-docs-harvest收割到本地再查 |
+| claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行 | claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行 |
 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 |
+| claude-code的model指令會整檔重寫settings-json並換成它的鍵序-內容沒變只有鍵序時照它的順序提交一次假diff才會消失 | claude-code的model指令會整檔重寫settings-json並換成它的鍵序-內容沒變只有鍵序時照它的順序提交一次假diff才會消失 |
 | claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置 | claude-code的resume接續後前面回合hook注入的內容仍在context-只有壓縮才丟-判送過沒要跟壓縮時間比不能因resume重置 |
 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 | claude-code的rules檔可用paths前置欄位只在碰到符合的檔時才載入-讀改或cat單檔才觸發-沒寫paths就每場常駐 |
 | claude-code的stop擋訊息在transcript是兩份-使用者訊息與hook-blocking-error-量重讀或重播時算同一次問要共用起點 | Claude Code的Stop擋訊息在transcript是兩份-使用者訊息與hook_blocking_error-量重讀或重播時算同一次問要共用起點 |

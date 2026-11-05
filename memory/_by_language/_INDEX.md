@@ -5,11 +5,11 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 39 |
+| Python | 40 |
 | C#／.NET | 22 |
 | JavaScript／Node | 4 |
 | PowerShell | 7 |
-| Bash／Shell | 23 |
+| Bash／Shell | 24 |
 
 ## Python
 
@@ -18,6 +18,7 @@
 | `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
 | `memory/CC與原子記憶契約/cc暫存路徑集中清單-清理時查這張卡.md` | CC暫存路徑集中清單-清理時查這張卡 |
+| `memory/CC與原子記憶契約/claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行.md` | claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行 |
 | `memory/CC與原子記憶契約/claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事.md` | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |
 | `memory/CC與原子記憶契約/要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判.md` | 要靠transcript宣告判的閘擋MCP工具-MCP行程沒有session與transcript-掛settings的PreToolUse-matcher由python-hook判 |
 | `memory/Failures/工作流/feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾.md` | feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾 |
@@ -110,6 +111,7 @@
 | `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
 | `memory/CC與原子記憶契約/claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開.md` | claude-code內建安全檢查會擋rm-rf加變數路徑-變數空時等於刪根目錄-權限規則放行不了-改字面絕對路徑或用冒號問號展開 |
+| `memory/CC與原子記憶契約/claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行.md` | claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行 |
 | `memory/CC與原子記憶契約/claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等.md` | claude-code的mcp工具呼叫上限約27小時但互動模式滿120秒自動轉背景-要等長工作的mcp工具每次等待短於120秒分段等 |
 | `memory/CC與原子記憶契約/datafileask宣告行寫在回覆文字裡同一則訊息的工具呼叫在pretooluse讀不到-先跑一個bash開頭註解行再發edit.md` | DataFileAsk宣告行寫在回覆文字裡同一則訊息的工具呼叫在PreToolUse讀不到-先跑一個Bash開頭註解行再發Edit |
 | `memory/CC與原子記憶契約/plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法.md` | plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法 |

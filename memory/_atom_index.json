@@ -14209,6 +14209,62 @@
         "強烈推薦"
       ],
       "scope": "global"
+    },
+    {
+      "name": "claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行",
+      "path": "memory/CC與原子記憶契約/claude-code的bash工具裡用heredoc餵python時反斜線n會被還原成真換行-寫多行補丁腳本改用write工具落檔再執行.md",
+      "triggers": [
+        "heredoc",
+        "<<'PY'",
+        "unterminated string literal",
+        "反斜線 n",
+        "補丁腳本",
+        "python - <<",
+        "多行腳本餐 bash"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-code的model指令會整檔重寫settings-json並換成它的鍵序-內容沒變只有鍵序時照它的順序提交一次假diff才會消失",
+      "path": "memory/CC與原子記憶契約/claude-code的model指令會整檔重寫settings-json並換成它的鍵序-內容沒變只有鍵序時照它的順序提交一次假diff才會消失.md",
+      "triggers": [
+        "/model",
+        "settings.json 被改",
+        "鍵序",
+        "settings.json diff",
+        "model 欄位",
+        "假 diff"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex-run的guard-changed在別的session同時提交時會誤報-先比對前後清單是不是別人提交掉的再判codex有沒有動檔",
+      "path": "_AIDocs/_atoms/MemDev/codex-run的guard-changed在別的session同時提交時會誤報-先比對前後清單是不是別人提交掉的再判codex有沒有動檔.md",
+      "triggers": [
+        "guard_changed",
+        "codex-run",
+        "guard-before",
+        "guard-after",
+        "codex 動了檔",
+        "版控狀態跑前跑後不同"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:~/.claude/skills/codex/scripts/codex-run.py"
+      ]
+    },
+    {
+      "name": "施工子代理交回的py檔常被整檔改成crlf-合併前用git-diff看到crlf警告就先轉回lf再提交",
+      "path": "memory/工作流/協作與並行/施工子代理交回的py檔常被整檔改成crlf-合併前用git-diff看到crlf警告就先轉回lf再提交.md",
+      "triggers": [
+        "CRLF will be replaced",
+        "子代理改檔",
+        "換行符",
+        "施工代理",
+        "合併子代理的改動",
+        "行尾"
+      ],
+      "scope": "global"
     }
   ]
 }
