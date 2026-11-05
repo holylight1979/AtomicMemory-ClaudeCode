@@ -44,7 +44,8 @@ def test_vote_updates_sidecar_and_file(tmp_path):
     lines = (tmp_path / "_votes" / "u1.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     v = json.loads(lines[0])
-    for k in ("id", "at", "by", "machine", "atom", "path_rel", "verdict", "note", "source"):
+    for k in ("id", "at", "by", "atom", "path_rel", "verdict", "note", "source"):
+        assert "machine" not in v  # 電腦名稱常含人名，票據檔會進版控
         assert k in v
     assert v["path_rel"] == "sub/a.md" and v["atom"] == "a"
 

@@ -3602,7 +3602,7 @@ svn：svn_update_targets
 #### 明確票（atom_feedback）
 
 - **入口**：MCP `atom_feedback`（[`tools/workflow-guardian-mcp/lib/atom-tools.js toolAtomFeedback`](tools/workflow-guardian-mcp/lib/atom-tools.js)）→ `python -m lib.atom_feedback vote <path> --verdict helpful|misleading --source mcp`。
-- **票據檔**：`<memory_root>/_votes/<user>.jsonl`，一人一檔、只追加（多機多人不會撞同一行）；全域卡在 `~/.claude/memory/_votes/`，專案卡在該專案 `.claude/memory/_votes/`；欄位 id／at／by／machine／atom／path_rel／verdict／note／source。隨 vcs-sync 的 `memory` pathspec 自動 commit、push、pull。
+- **票據檔**：`<memory_root>/_votes/<user>.jsonl`，一人一檔、只追加（多機多人不會撞同一行）；全域卡在 `~/.claude/memory/_votes/`，專案卡在該專案 `.claude/memory/_votes/`；欄位 id／at／by／atom／path_rel／verdict／note／source（不記電腦名稱：常含人名，票據檔會進公開版控）。隨 vcs-sync 的 `memory` pathspec 自動 commit、push、pull。
 - **折入**：`fold_votes()` 在 SessionEnd `_self_iterate_atoms` 掃描前跑：沒套過的票依 `path_rel` 找卡、呼叫 `record_usefulness(source="user:feedback")`；已套的 id 存本機 `_meta/feedback-votes-applied.json`（不進版控），重跑冪等；找不到的卡計 `missing`、壞行計 `bad_lines`，都不中斷。
 - **計分**：一票就是一筆 α 或 β，和自動歸因同一條 Wilson 軌；三張 helpful 即過 [臨]→[觀] 門檻。多人票天然累計：每個人的檔都會被每台機器折入。
 - **CLI**：`python -m lib.atom_feedback fold [--root <memory dir>]` 手動折入；測試 [`hooks/verify/verify_atom_feedback.py`](hooks/verify/verify_atom_feedback.py)。

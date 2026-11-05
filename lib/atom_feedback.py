@@ -18,7 +18,6 @@ import getpass
 import json
 import os
 import secrets
-import socket
 import sys
 import time
 from datetime import datetime, timezone
@@ -110,7 +109,6 @@ def record_vote(
         "id": vote_id,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "by": user,
-        "machine": socket.gethostname(),
         "atom": atom_path.stem,
         "path_rel": path_rel,
         "verdict": verdict,
