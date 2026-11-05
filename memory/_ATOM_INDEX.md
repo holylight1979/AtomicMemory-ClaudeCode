@@ -743,3 +743,4 @@
 | feedback-清理暫存先確認資料夾用途與是否還有別處副本-不進版控的本機資料刪了救不回-不整夾清空 | memory/Failures/工作流/feedback-清理暫存先確認資料夾用途與是否還有別處副本-不進版控的本機資料刪了救不回-不整夾清空.md | 清理, 清暫存, rm -rf, workflow/inbox, gitignored, 誤刪, 刪資料夾, scratchpad | global |  |
 | feedback-撤回版控改動要從現行檔做最小修改-不要整檔退回上一版-先分清共用值與個人值 | memory/Failures/版控/feedback-撤回版控改動要從現行檔做最小修改-不要整檔退回上一版-先分清共用值與個人值.md | 退版, 撤回, settings.json, 個人偏好, 還原上一版, claudeMdExcludes, 共用設定 | global |  |
 | 行為測試的對照組要先證明能出現差異-對照也答沒有就不算驗過-claude-md-excludes用同設定換目錄當對照 | memory/驗證與實證/行為測試的對照組要先證明能出現差異-對照也答沒有就不算驗過-claude-md-excludes用同設定換目錄當對照.md | 對照組, claudeMdExcludes, AGENTS.md, 無頭測試, setting-sources, 排除規則驗證 | global |  |
+| feedback-推薦功能前先查專案層與公司層做過沒-競品的題目不是使用者的病-回合制團隊不需要互相驗證 | memory/Failures/思考與決策/feedback-推薦功能前先查專案層與公司層做過沒-競品的題目不是使用者的病-回合制團隊不需要互相驗證.md | 推薦功能, 補強建議, 競品比較, 團隊驗證, 並行寫入, 內耗, 回合制, 權威先行, 強烈推薦 | global |  |
