@@ -15,6 +15,7 @@
 - [臨] token 過期（expiresAt 早於現在）只報「開一次 Claude Code 就會刷新」，腳本不要自己拿 refresh token 去換：會輪替 refresh token，把 Claude Code 自己的登入弄壞。
 - [臨] ％只到整數，兩筆間隔太短時差 1％ 會被放大成假突增（23 分鐘 → 2.6%/h 誤差），算漲速要取間隔 ≥45 分鐘的兩筆；`resets_at` 每次回的秒數會飄幾百毫秒，拿它當週期鍵要先取整到分或整點。
 - [臨] 走網頁那條（claude.ai/settings/usage）時，頁面自己會打 `/api/organizations/<org>/usage`，用 Playwright `page.on("response")` 攔 URL 以 `/usage` 結尾的回應就拿得到 JSON：`limits[]` 每條有 `group`（weekly／five_hour）、`percent`、`resets_at`、`scope.model.display_name`；週額度有多條（全部模型一條、單一模型各一條），要看「這週會不會爆」取 percent 最高那條。
+- [臨] 憑證檔的 token 8 小時過期，使用者只開桌面版 Claude Code 時不會被刷新，排程腳本會每小時都略過查詢。正解不是自己打 OAuth 刷新，是跑一次 `claude auth status`（路徑 `~/.local/bin/claude.exe`，沒有就走 PATH）讓 Claude Code 自己刷新並寫回檔，再重讀憑證；仍過期才報錯。不經 LLM，約 1 秒。
 
 ## 行動
 
