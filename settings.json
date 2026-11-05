@@ -1,9 +1,5 @@
 {
-  "crossSessionInbound": "accept",
   "cleanupPeriodDays": 14,
-  "worktree": {"baseRef": "head"},
-  "claudeMdExcludes": ["**/Users/*/AGENTS.md"],
-  "autoMemoryEnabled": false,
   "permissions": {
     "allow": [
       "Bash(python *)",
@@ -191,9 +187,9 @@
           {
             "type": "command",
             "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\" rewake",
+            "timeout": 300,
             "async": true,
-            "asyncRewake": true,
-            "timeout": 300
+            "asyncRewake": true
           },
           {
             "type": "command",
@@ -264,6 +260,9 @@
       }
     ]
   },
+  "worktree": {
+    "baseRef": "head"
+  },
   "statusLine": {
     "type": "command",
     "command": "\"$LOCALAPPDATA/Python/bin/python.exe\" \"$HOME/.claude/tools/statusline.py\"",
@@ -272,9 +271,14 @@
   },
   "language": "繁體中文",
   "tui": "fullscreen",
+  "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
+  "claudeMdExcludes": [
+    "**/Users/*/AGENTS.md"
+  ],
   "theme": "light",
   "idleCompaction": false,
   "switchModelsOnFlag": false,
+  "crossSessionInbound": "accept",
   "agentPushNotifEnabled": true
 }
