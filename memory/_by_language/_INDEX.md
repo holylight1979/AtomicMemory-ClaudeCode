@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 38 |
+| Python | 39 |
 | C#／.NET | 22 |
 | JavaScript／Node | 4 |
 | PowerShell | 7 |
@@ -17,6 +17,7 @@
 |------|------|
 | `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
+| `memory/CC與原子記憶契約/cc暫存路徑集中清單-清理時查這張卡.md` | CC暫存路徑集中清單-清理時查這張卡 |
 | `memory/CC與原子記憶契約/claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事.md` | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |
 | `memory/CC與原子記憶契約/要靠transcript宣告判的閘擋mcp工具-mcp行程沒有session與transcript-掛settings的pretooluse-matcher由python-hook判.md` | 要靠transcript宣告判的閘擋MCP工具-MCP行程沒有session與transcript-掛settings的PreToolUse-matcher由python-hook判 |
 | `memory/Failures/工作流/feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾.md` | feedback-使用者說驗證要等他確認時-整組單元測試也算要問的長驗證-不自己切成實作一部分-會拖時間的都先列給他勾 |

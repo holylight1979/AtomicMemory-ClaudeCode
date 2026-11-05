@@ -14184,6 +14184,25 @@
         "併行原生記憶"
       ],
       "scope": "global"
+    },
+    {
+      "name": "cc暫存路徑集中清單-清理時查這張卡",
+      "path": "memory/CC與原子記憶契約/cc暫存路徑集中清單-清理時查這張卡.md",
+      "triggers": [
+        "清暫存",
+        "清理暫存",
+        "temp cleanup",
+        "wg-iso",
+        "pytest-of",
+        "scratchpad",
+        "workflow inbox",
+        "暫存路徑",
+        "CC暫存"
+      ],
+      "scope": "global",
+      "depends": [
+        "path:~/.claude/_AIDocs/CC暫存路徑清單.md"
+      ]
     }
   ]
 }
