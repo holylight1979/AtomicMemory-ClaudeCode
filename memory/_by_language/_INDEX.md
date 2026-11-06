@@ -9,7 +9,7 @@
 | C#／.NET | 22 |
 | JavaScript／Node | 4 |
 | PowerShell | 7 |
-| Bash／Shell | 24 |
+| Bash／Shell | 25 |
 
 ## Python
 
@@ -122,6 +122,7 @@
 | `memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md` | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
 | `memory/OS-Windows/windows上用python轉印git輸出每行會帶r-接shell迴圈前要tr-d或python端用stdout-buffer寫位元組.md` | windows上用python轉印git輸出每行會帶r-接shell迴圈前要tr-d或python端用stdout-buffer寫位元組 |
 | `memory/OS-Windows/子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它.md` | 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它 |
+| `memory/工作流/超過十分鐘的本機批次要用start-process脫離session跑-bash背景上限10分鐘會被砍-進度寫log用monitor看-重啟monitor用tail從頭否則漏事件.md` | 超過十分鐘的本機批次要用start-process脫離session跑-bash背景上限10分鐘會被砍-進度寫log用monitor看-重啟monitor用tail從頭否則漏事件 |
 | `memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md` | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
 | `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
 | `memory/版控/Git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md` | git 已push commit 勿改寫 — 雙 push-url + GitLab main force 保護致遠端分叉 |

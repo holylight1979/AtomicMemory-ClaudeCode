@@ -17,6 +17,7 @@
 | 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama | 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama |
 | 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照 | 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells-commit-check與need-goal完整對照 |
 | 版控走python啟動器時pretooluse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據 | 版控走Python啟動器時PreToolUse的commit前閘都不觸發-commit前手動跑project-smells的commit-check-重建或刪啟動器會作廢先前收據 |
+| 超過十分鐘的本機批次要用start-process脫離session跑-bash背景上限10分鐘會被砍-進度寫log用monitor看-重啟monitor用tail從頭否則漏事件 | 超過十分鐘的本機批次要用start-process脫離session跑-bash背景上限10分鐘會被砍-進度寫log用monitor看-重啟monitor用tail從頭否則漏事件 |
 | 部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛depends讓健檢驗過期-配路徑前綴對照表供動手前整張注入 | 部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛Depends讓健檢驗過期-配路徑前綴對照表供動手前整張注入 |
 | 部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛depends讓健檢驗過期-配路徑前綴對照表動手前查表先讀 | 部位導讀卡五段格式-做什麼與上下游-權威在哪-動手前必問-已知病灶指踩坑卡-驗證日期與驗法-掛Depends讓健檢驗過期-配路徑前綴對照表動手前查表先讀 |
 

@@ -14265,6 +14265,25 @@
         "行尾"
       ],
       "scope": "global"
+    },
+    {
+      "name": "超過十分鐘的本機批次要用start-process脫離session跑-bash背景上限10分鐘會被砍-進度寫log用monitor看-重啟monitor用tail從頭否則漏事件",
+      "path": "memory/工作流/超過十分鐘的本機批次要用start-process脫離session跑-bash背景上限10分鐘會被砍-進度寫log用monitor看-重啟monitor用tail從頭否則漏事件.md",
+      "triggers": [
+        "run_in_background",
+        "背景執行",
+        "10 分鐘",
+        "timeout 600000",
+        "長耗時",
+        "批次迴圈",
+        "Start-Process",
+        "脱離 session",
+        "Monitor",
+        "tail -f",
+        "進度 log",
+        "漏事件"
+      ],
+      "scope": "global"
     }
   ]
 }
