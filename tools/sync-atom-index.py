@@ -403,7 +403,8 @@ def rebuild_index(memory_dir: Path, claude_root: Path,
     - **不改 scope**：既有條目沿用原值，只有新條目由 path 推導。scope 回正是
       `--fix-scope-from-path` 的職責，兩件事混在一起會讓副本上的一次重建把全庫標錯層。
 
-    last_used 不在 .md 裡，從舊索引沿用。回傳各段筆數。
+    last_used 不在 .md 裡，從舊索引沿用。depends 語意同 --sync-depends：卡片有 Depends 行照卡片寫（空行＝清空）；
+    沒有行＝卡片沒表態，舊索引的值留著（AtomFile.depends 的 None 是「沒講」，不是「清空」）。回傳各段筆數。
     """
     layer = "global" if memory_dir.resolve() == MEMORY_DIR.resolve() else "shared"
     prev_index = load_atom_index_json(memory_dir)
@@ -435,6 +436,9 @@ def rebuild_index(memory_dir: Path, claude_root: Path,
             "triggers": dedup_triggers(af.triggers),
             "scope": old_entry.get("scope") or scope_from_index_path(rel_path, layer),
         }
+        depends = af.depends if af.depends is not None else old_entry.get("depends")
+        if depends:
+            entry["depends"] = list(depends)
         if af.related:
             entry["related"] = list(dict.fromkeys(af.related))
         if af.aka:
