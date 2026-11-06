@@ -32,4 +32,5 @@
 | windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath | Windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath |
 | winget-升不動-powershell-msi-與-msix-通道分裂 | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
 | 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它 | 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它 |
+| 測試種的設定會帶真外呼-自動開窗會在使用者桌面開空edge-msedge的app參數會交棒給主瀏覽器-查行程清單證明不了沒開窗 | 測試種的設定會帶真外呼-自動開窗會在使用者桌面開空Edge-msedge的app參數會交棒給主瀏覽器-查行程清單證明不了沒開窗 |
 | 腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000 | 腳本跳windows通知走powershell-winrt-toastnotificationmanager-appid用powershell自己的-文字走環境變數不拼字串-discord用webhook-post-content上限2000 |

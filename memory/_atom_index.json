@@ -14284,6 +14284,65 @@
         "漏事件"
       ],
       "scope": "global"
+    },
+    {
+      "name": "多格並行改同一批檔不必開git分支-每格一份純檔案副本加git-merge-file三方合併-語言表逐鍵合併-併前還原測試改寫的錄製檔",
+      "path": "memory/工作流/多格並行改同一批檔不必開git分支-每格一份純檔案副本加git-merge-file三方合併-語言表逐鍵合併-併前還原測試改寫的錄製檔.md",
+      "triggers": [
+        "多格並行",
+        "並行子代理",
+        "三方合併",
+        "git merge-file",
+        "檔案重疊",
+        "純檔案副本",
+        "併行改同一批檔",
+        "口令閘"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "驗工具的help前先看有沒有argparse-沒有的工具help等於真跑-會動到現役資料-也要帶隔離資料根",
+      "path": "memory/驗證與實證/驗工具的help前先看有沒有argparse-沒有的工具help等於真跑-會動到現役資料-也要帶隔離資料根.md",
+      "triggers": [
+        "--help",
+        "argparse",
+        "help 真跑",
+        "批次驗工具",
+        "隔離資料根",
+        "WG_CLAUDE_DIR",
+        "health-weekly"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "測試種的設定會帶真外呼-自動開窗會在使用者桌面開空edge-msedge的app參數會交棒給主瀏覽器-查行程清單證明不了沒開窗",
+      "path": "memory/OS-Windows/測試種的設定會帶真外呼-自動開窗會在使用者桌面開空edge-msedge的app參數會交棒給主瀏覽器-查行程清單證明不了沒開窗.md",
+      "triggers": [
+        "msedge",
+        "--app",
+        "空白 Edge",
+        "空 edge 網頁",
+        "自動開窗",
+        "測試開瀏覽器",
+        "Popen 外呼",
+        "audit hook"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "全域層設bm25時向量幾乎沒被叫到-設vector又會關掉bm25-量向量價值要用換句話題不能用帶卡片原詞的題",
+      "path": "_AIDocs/_atoms/MemDev/全域層設bm25時向量幾乎沒被叫到-設vector又會關掉bm25-量向量價值要用換句話題不能用帶卡片原詞的題.md",
+      "triggers": [
+        "global_layer",
+        "向量沒被叫到",
+        "向量價值",
+        "換句話問",
+        "hit@3",
+        "全域層向量",
+        "bm25_gate",
+        "注入送達率"
+      ],
+      "scope": "global"
     }
   ]
 }
