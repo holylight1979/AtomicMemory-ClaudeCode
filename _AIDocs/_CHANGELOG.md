@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-06 重建索引不再洗掉 depends：有行照卡片、沒行留舊值
+- `tools/sync-atom-index.py` 的 `rebuild_index` 組新條目時漏帶 depends，開 session 的過期重建會把索引裡的 depends 全部清掉、背景同步再上傳，版控上的 depends 忽有忽無。語意對齊 `--sync-depends`：卡片有 Depends 行照卡片寫（空行＝清空），沒有行留舊索引的值。驗證：`tools/verify/verify_sync_atom_index_depends.py` 新增 5 案（修前 4 案紅）。
+
+---
 ## 2026-11-05 secret 卡反向把關：沒隱私不收、混雜要拆
 - 起因：11-04 搬遷時 AI 保守把兩張工作判準卡放進 secret（不跨機、編輯工具找不到）。`lib/sensitive_gate.check_secret_write`：`secret=true` 的卡整張沒命中隱私字眼不收、知識段只有部分行命中要拆成兩張，帶 `secret_reason=<理由>` 可整張收（留稽核）；MCP `atom_write` 的 secret 路徑改成也過閘；週健檢對既有 secret 卡同一把尺列黃（只給張數），清單 `python -m lib.sensitive_gate scan`。驗證：`verify_secret_cards.py`、`ATOM_WRITE_SECRET_CHECK`。
 
