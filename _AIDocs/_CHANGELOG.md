@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-06 MCP smoke 的工具名單補 atom_feedback，總數改對名單長度
+- `tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js` 名單漏列 11-05 新增的 `atom_feedback`、又寫死「剛好 9 個」，server 實際 10 個 → smoke 誤紅。改成名單加 `atom_feedback`、總數比對 `EXPECTED_TOOLS.length`，以後加工具只改名單。驗證：`MCP_SMOKE_CHECK PASS`（31 項）。
+
+---
 ## 2026-11-06 重建索引不再洗掉 depends：有行照卡片、沒行留舊值
 - `tools/sync-atom-index.py` 的 `rebuild_index` 組新條目時漏帶 depends，開 session 的過期重建會把索引裡的 depends 全部清掉、背景同步再上傳，版控上的 depends 忽有忽無。語意對齊 `--sync-depends`：卡片有 Depends 行照卡片寫（空行＝清空），沒有行留舊索引的值。驗證：`tools/verify/verify_sync_atom_index_depends.py` 新增 5 案（修前 4 案紅）。
 

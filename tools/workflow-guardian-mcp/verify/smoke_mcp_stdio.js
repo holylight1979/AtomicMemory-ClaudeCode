@@ -26,7 +26,7 @@ for (const f of ["taxonomy.json", "realm-lexicon.json"]) {
 const SERVER = path.join(__dirname, "..", "server.js");
 const PORT = process.env.WG_SMOKE_PORT || "38499";
 const EXPECTED_TOOLS = [
-  "atom_write", "atom_promote", "atom_move", "atom_edit_meta",
+  "atom_write", "atom_promote", "atom_feedback", "atom_move", "atom_edit_meta",
   "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search", "atom_source",
 ];
 
@@ -81,7 +81,7 @@ function check(cond, label, detail) {
   // 1. tools/list
   const list = await rpc("tools/list", {});
   const names = (list.result.tools || []).map((t) => t.name);
-  check(names.length === 9, `tools/list has 9 tools (got ${names.length})`, names.join(","));
+  check(names.length === EXPECTED_TOOLS.length, `tools/list has ${EXPECTED_TOOLS.length} tools (got ${names.length})`, names.join(","));
   for (const n of EXPECTED_TOOLS) check(names.includes(n), `tools/list includes ${n}`);
   const aw = (list.result.tools || []).find((t) => t.name === "atom_write");
   check(aw && aw.inputSchema.properties.supersedes && aw.inputSchema.properties.supersedes.type === "array",
