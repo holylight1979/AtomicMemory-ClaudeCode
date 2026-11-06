@@ -1799,6 +1799,8 @@ _REPO_ROOT = HOOKS_DIR.parent
 _LEDGER_AND_ENTRY_CASES = {
     "NON_HUMAN_PROMPT_NO_INJECT": ("hooks/verify/verify_ups_non_human_inject.py",
                                    "def test_pure_task_notification_skips_injection_and_logs(", "harness_text.non_human_kind"),
+    "PEER_MESSAGE_INJECT_FROM_BODY": ("hooks/verify/verify_ups_non_human_inject.py",
+                                      "def test_peer_message_injects_from_body_and_logs(", "harness_text.peer_message_text"),
     "CONTINUE_QUERY_FROM_HANDOFF": ("hooks/verify/verify_ups_non_human_inject.py",
                                     "def test_continue_query_uses_newest_handoff(", "ups_search.continue_handoff_path"),
     "INSTRUCTIONS_LOADED_LEDGER": ("hooks/verify/verify_instructions_loaded_stop_failure.py",

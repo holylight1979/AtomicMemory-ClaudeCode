@@ -2337,16 +2337,18 @@ RULE_MODE.setdefault("SUBAGENT_START_NON_AGENT_INJECT", REMIND)   # 登在 RULE_
 
 # ─── 這則拿什麼字檢索：非人類訊息不注入、/continue 接交接單（判法在 handlers/ups_search.py、handlers/user_prompt_submit.py，這裡只登錄） ───
 RULES.update({
-    "NON_HUMAN_PROMPT_NO_INJECT": "UserPromptSubmit 整則是背景任務通知或其他 session 的訊息（harness_text.non_human_kind）→ 不檢索、不注入；"
+    "NON_HUMAN_PROMPT_NO_INJECT": "UserPromptSubmit 整則是背景任務通知、或沒有正文的其他 session 閒置／送達通知（harness_text.non_human_kind）→ 不檢索、不注入；"
                                   "前置閘與收尾記帳照跑，Logs/guard-ups_inject.jsonl 記 event=skip_inject（handlers/user_prompt_submit）。"
                                   "通知夾著使用者打的字照常注入，查詢只用使用者本人打的字（harness_text.user_typed_text），"
                                   "注入預算照原文與查詢取大（handlers/ups_search.retrieval_query）。",
+    "PEER_MESSAGE_INJECT_FROM_BODY": "UserPromptSubmit 整則是其他 session 的訊息 → 用訊息正文檢索注入（harness_text.peer_message_text），Logs/guard-ups_inject.jsonl 記 event=peer_query；同 session 已送過的卡不重送，注入預算只照正文算；正文只當查詢，使用者原話、意圖、口令都不吃它（handlers/user_prompt_submit）。",
     "CONTINUE_QUERY_FROM_HANDOFF": "/continue 回合 UserPromptSubmit 在 skill 展開前跑、只看得到指令那一行：檢索查詢＝使用者打的字＋交接單前 30 行"
                                    "（參數點名的 .md 優先，否則 staging 最新的 next-phase*.md；handlers/ups_search.continue_handoff_path），"
                                    "Logs/guard-ups_inject.jsonl 記 event=continue_query；找不到或讀不了交接單就只用打的字查，記 continue_query_missing"
                                    "（handlers/ups_search.retrieval_query）。",
 })
 RULE_MODE.setdefault("NON_HUMAN_PROMPT_NO_INJECT", REMIND)    # 登在 RULE_MODE 建表之後：說明型規則，不是擋點
+RULE_MODE.setdefault("PEER_MESSAGE_INJECT_FROM_BODY", REMIND)
 RULE_MODE.setdefault("CONTINUE_QUERY_FROM_HANDOFF", REMIND)
 
 

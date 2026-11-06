@@ -8,6 +8,10 @@
 - `tools/sync-atom-index.py` 的 `rebuild_index` 組新條目時漏帶 depends，開 session 的過期重建會把索引裡的 depends 全部清掉、背景同步再上傳，版控上的 depends 忽有忽無。語意對齊 `--sync-depends`：卡片有 Depends 行照卡片寫（空行＝清空），沒有行留舊索引的值。驗證：`tools/verify/verify_sync_atom_index_depends.py` 新增 5 案（修前 4 案紅）。
 
 ---
+## 2026-11-06 其他 session 的訊息改用正文檢索注入：只靠訊息工作的 session 也拿得到卡
+- 起因：規則 `NON_HUMAN_PROMPT_NO_INJECT` 把同伴訊息和背景通知一起擋掉，派工出去的 session 一張卡都拿不到、也沒有告警。背景通知不注入的方向沒錯、照舊；同伴訊息是這個 session 的工作來源，當初一起擋是範圍太大。新規則 `PEER_MESSAGE_INJECT_FROM_BODY`：查詢只用訊息正文（`harness_text.peer_message_text`），記 `peer_query`，正文不算使用者原話。沒有正文的閒置／送達通知照舊跳過。代價：端到端重放 11 則真實訊息，修前 0 張、修後每則平均 4 張約 1,450 字元（每回合注入上限不變），之後 `injection-miss-report.py` 的非真人回合佔比會回升，這是預期內的。驗證：`hooks/verify/verify_ups_non_human_inject.py` 19 案。
+
+---
 ## 2026-11-05 secret 卡反向把關：沒隱私不收、混雜要拆
 - 起因：11-04 搬遷時 AI 保守把兩張工作判準卡放進 secret（不跨機、編輯工具找不到）。`lib/sensitive_gate.check_secret_write`：`secret=true` 的卡整張沒命中隱私字眼不收、知識段只有部分行命中要拆成兩張，帶 `secret_reason=<理由>` 可整張收（留稽核）；MCP `atom_write` 的 secret 路徑改成也過閘；週健檢對既有 secret 卡同一把尺列黃（只給張數），清單 `python -m lib.sensitive_gate scan`。驗證：`verify_secret_cards.py`、`ATOM_WRITE_SECRET_CHECK`。
 
