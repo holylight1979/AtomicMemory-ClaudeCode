@@ -749,7 +749,8 @@ SessionStart（session_start._org_advisory）
 
 進管線之前先決定這則拿什麼字去找（[`ups_search.retrieval_query`](hooks/handlers/ups_search.py)）：
 - 只用使用者本人打的字（`user_typed_text`：背景通知、其他 session 的訊息、系統區塊不算）；注入總額照原文與查詢取大。
-- 整則都是背景任務通知或其他 session 的訊息（`harness_text.non_human_kind`）→ 不檢索、不注入，前置閘與收尾記帳照跑，`Logs/guard-ups_inject.jsonl` 記 `skip_inject`（規則 NON_HUMAN_PROMPT_NO_INJECT）。
+- 整則都是背景任務通知、或沒有正文的其他 session 閒置／送達通知（`harness_text.non_human_kind`）→ 不檢索、不注入，前置閘與收尾記帳照跑，`Logs/guard-ups_inject.jsonl` 記 `skip_inject`（規則 NON_HUMAN_PROMPT_NO_INJECT）。
+- 整則都是其他 session 的訊息 → 用訊息正文檢索（`harness_text.peer_message_text`），記 `peer_query`，注入總額只照正文算；正文只當查詢，不算使用者原話（規則 PEER_MESSAGE_INJECT_FROM_BODY）。只靠訊息工作的 session 沒有別的注入入口，所以同伴訊息和背景通知分開處理。
 - `/continue` 回合：UserPromptSubmit 在 skill 展開前跑、只看得到指令那一行 → 查詢後面接交接單前 30 行（參數點名的 .md 優先，否則 staging 最新的 `next-phase*.md`），記 `continue_query`；找不到記 `continue_query_missing`（規則 CONTINUE_QUERY_FROM_HANDOFF）。
 
 整條管線 15 段，由「找」（1–8）、「分級與裁量」（9–14）、「輸出」（15）組成：

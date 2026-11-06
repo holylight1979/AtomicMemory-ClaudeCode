@@ -152,6 +152,25 @@ def non_human_kind(prompt: str) -> Optional[str]:
     return None
 
 
+def peer_message_text(prompt: str) -> str:
+    """其他 session 訊息的正文（只拿來當記憶檢索的查詢，不是使用者的話）：每個 cross-session-message 區塊裡的字，
+    正文裡的 harness 區塊與 hook 殘渣行剔掉、空白折一格。閒置／送達通知沒有區塊，回空字串。"""
+    bodies: List[str] = []
+    pos = 0
+    for m in _TAG_RE.finditer(prompt or ""):
+        if m.start() < pos or m.group(1) or m.group(2).lower() != _PEER_TAG:
+            continue
+        end, self_closing = _tag_end(prompt, m.end())
+        if self_closing:
+            pos = end
+            continue
+        close = _PEER_CLOSE_RE.search(prompt, end)                # 同封裝規則：只有原樣的閉合標籤才結束區塊
+        bodies.append(prompt[end:close.start()] if close else prompt[end:])
+        pos = close.end() if close else len(prompt)
+    text = HOOK_RESIDUE_LINE_RE.sub(" ", strip_harness_blocks(" ".join(bodies)))
+    return re.sub(r"\s+", " ", text).strip()
+
+
 # ─── 貼上的內容 ─────────────────────────────────────────────────────────────────
 # Claude Code 把使用者貼上的文字包成 `<pasted_content id="…">…</pasted_content id="…">`（實查 transcript：閉合標籤也帶同一個 id）。
 # 貼上的是使用者從別處拿來的材料（別的 session 寫的開工句與任務說明、日誌、文件），不是他本人打的字。

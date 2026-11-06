@@ -1,9 +1,11 @@
 """verify_ups_non_human_inject.py：UserPromptSubmit 注入精準度兩條規則的案例。
 
 做什麼：
-1. NON_HUMAN_PROMPT_NO_INJECT：整則是背景任務通知、或其他 session 的訊息（裸的 <cross-session-message>、transcript 實錄那種
-   前後帶 harness 說明的包裝、閒置通知）→ 不跑脈絡段與記憶檢索、注入 0 張，Logs/guard-ups_inject.jsonl 記 event=skip_inject；
-   前置閘、退避舉證、回合記帳照跑。通知＋使用者打的字 → 照常注入，查詢只用使用者打的字（通知正文的觸發詞不算）。
+1. NON_HUMAN_PROMPT_NO_INJECT：整則是背景任務通知、或沒有正文的同伴閒置通知 → 不跑脈絡段與記憶檢索、注入 0 張，
+   Logs/guard-ups_inject.jsonl 記 event=skip_inject；前置閘、退避舉證、回合記帳照跑。通知＋使用者打的字 → 照常注入，
+   查詢只用使用者打的字（通知正文的觸發詞不算）。
+   PEER_MESSAGE_INJECT_FROM_BODY：整則是其他 session 的訊息（裸的 <cross-session-message>、transcript 實錄那種前後帶 harness
+   說明的包裝）→ 用正文檢索注入、記 event=peer_query、不重送；正文不算使用者原話。
 2. CONTINUE_QUERY_FROM_HANDOFF：/continue 回合的查詢接上交接單前段——參數點名的 .md 優先，否則 staging 區最新的
    next-phase*.md；注入的卡來自交接單內容的觸發詞；已送過的卡不重送；找不到交接單記 event=continue_query_missing。
 真的走 handle_user_prompt_submit 與 ups_search.collect_matched_atoms（暫存卡池，trigger 路）；注入組裝換成替身：每張命中的卡
@@ -32,7 +34,7 @@ import wg_friction  # noqa: E402
 from handlers import ups_search  # noqa: E402
 from handlers import user_prompt_submit as ups  # noqa: E402
 from handlers.ups_gates import track_turn_prompts  # noqa: E402
-from harness_text import non_human_kind, user_typed_text  # noqa: E402
+from harness_text import non_human_kind, peer_message_text, user_typed_text  # noqa: E402
 
 _SID = "sid-non-human"
 # 卡名 → 觸發詞（每個詞只出現在一種訊息裡，命中哪張就知道查詢吃了哪段字）
@@ -148,12 +150,71 @@ def test_pure_task_notification_skips_injection_and_logs(world):
     assert world["state"]["turn_seq"] == 1 and world["state"]["turn_injected"] == []
 
 
-@pytest.mark.parametrize("prompt", [PEER_BARE, PEER_WRAPPED, PEER_IDLE], ids=["bare", "wrapped", "idle-notice"])
-def test_pure_peer_message_skips_injection_and_logs(world, prompt):
-    """NON_HUMAN_PROMPT_NO_INJECT：其他 session 的訊息（裸區塊、transcript 那種前後帶說明的包裝、閒置通知）→ 注入 0 張、留帳 peer。"""
-    cards, _ = _run(world, prompt)
+def test_peer_notice_without_body_skips_injection_and_logs(world):
+    """NON_HUMAN_PROMPT_NO_INJECT：閒置通知沒有正文可查 → 注入 0 張、留帳 peer。"""
+    cards, _ = _run(world, PEER_IDLE)
     assert cards == [] and world["calls"]["collect"] == []
     assert [(r["event"], r["reason"]) for r in world["logs"]()] == [("skip_inject", "peer")]
+
+
+@pytest.mark.parametrize("prompt", [PEER_BARE, PEER_WRAPPED], ids=["bare", "wrapped"])
+def test_peer_message_injects_from_body_and_logs(world, prompt):
+    """PEER_MESSAGE_INJECT_FROM_BODY：只收訊息、沒人打字的 session 也拿得到卡；查詢只有正文，harness 包裝與寄件人屬性不進查詢。"""
+    cards, _ = _run(world, prompt)
+    assert cards == ["card-peer"]
+    assert world["calls"]["collect"] == ["同伴正文觸發詞，請接手"]
+    logs = world["logs"]()
+    assert [r["event"] for r in logs] == ["peer_query"] and logs[0]["chars"] == len("同伴正文觸發詞，請接手")
+    assert world["calls"]["build_context"] == ["同伴正文觸發詞，請接手"]
+
+
+def test_peer_message_does_not_resend_delivered_card(world):
+    """PEER_MESSAGE_INJECT_FROM_BODY：同 session 已送過的卡，下一則訊息再提到也不重送。"""
+    world["state"]["injected_atoms"] = ["card-peer"]
+    cards, _ = _run(world, PEER_WRAPPED)
+    assert cards == []
+    assert [r["event"] for r in world["logs"]()] == ["peer_query"]
+
+
+def test_peer_message_short_ack_runs_retrieval_but_finds_nothing(world):
+    """短回覆不另設門檻：照常檢索，沒命中就是 0 張（和使用者打「OK」同一條路）。"""
+    cards, _ = _run(world, '<cross-session-message from="uds:x">\nOK，繼續\n</cross-session-message>')
+    assert cards == [] and world["calls"]["collect"] == ["OK，繼續"]
+
+
+def test_peer_body_is_not_user_words(world):
+    """PEER_MESSAGE_INJECT_FROM_BODY：正文只當查詢——不改回合意圖（「重構」不算）、handoff 提醒不因訊息觸發或重提。"""
+    world["state"]["turn_intent"] = "general"
+    peer = '<cross-session-message from="uds:x">\n請重構 同伴正文觸發詞，幫我寫 handoff\n</cross-session-message>'
+    cards, text = _run(world, peer)
+    assert cards == ["card-peer"]
+    assert world["state"]["turn_intent"] == "general" and "[Guardian:Handoff]" not in text
+    _, text = _run(world, "幫我寫 handoff 給下次")
+    assert "[Guardian:Handoff]" in text
+    world["state"]["injected_atoms"] = []
+    _, text = _run(world, peer)
+    assert "[Guardian:Handoff]" not in text
+
+
+def test_peer_budget_follows_body_not_wrapper(world):
+    """PEER_MESSAGE_INJECT_FROM_BODY：harness 包裝不墊高額度：短正文拿最低一級，和使用者打同樣的字一樣。"""
+    short = PEER_WRAPPED.replace("同伴正文觸發詞，請接手", "同伴正文觸發詞")
+    assert _run(world, short)[0] == ["card-peer"]                           # 有注入才走最終裁切、量得到預算
+    assert world["calls"]["budget"][-1] == wg_core.compute_token_budget("同伴正文觸發詞") == 1000
+    assert wg_core.compute_token_budget(short) > 1000                       # 對照：照整則算會多一級
+
+
+def test_peer_message_text_extraction():
+    """正文抽取：包裝不算；正文裡的 harness 區塊、hook 殘渣行不算；屬性裡的 > 不誤切；多則接起來；沒有區塊回空。"""
+    assert peer_message_text(PEER_WRAPPED) == "同伴正文觸發詞，請接手"
+    assert peer_message_text(PEER_IDLE) == peer_message_text(NOTIFY) == peer_message_text("") == ""
+    assert peer_message_text('<cross-session-message from-name="a>b">\n甲\n</cross-session-message>') == "甲"
+    nested = '<cross-session-message from="x">甲<system-reminder>不算</system-reminder>乙\n[Atom:殘渣]\n丙</cross-session-message>'
+    assert peer_message_text(nested) == "甲 乙 丙"
+    escaped = '<cross-session-message from="x">甲<\\/cross-session-message>乙</cross-session-message>'
+    assert "甲" in peer_message_text(escaped) and "乙" in peer_message_text(escaped)   # 轉義的閉合不結束區塊
+    assert peer_message_text('<cross-session-message from="x">甲</cross-session-message>\n<cross-session-message from="y">乙</cross-session-message>') == "甲 乙"
+    assert peer_message_text('<cross-session-message from="x">沒閉合的正文') == "沒閉合的正文"
 
 
 def test_notification_plus_user_text_injects_from_user_text_only(world):

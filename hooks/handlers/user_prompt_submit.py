@@ -11,8 +11,8 @@ handlers/user_prompt_submit.py — UserPromptSubmit hook handler（orchestrator�
 - ups_inject.assemble_injection — injection assemble 段（hot/cold / budget /
   related spread / 效用晉升提示）
 
-檢索與注入只看使用者打的字（ups_search.retrieval_query；/continue 接交接單前段）；整則是背景通知或其他 session
-的訊息就不檢索、不注入（harness_text.non_human_kind），前置閘與收尾記帳照跑。
+檢索與注入只看使用者打的字（ups_search.retrieval_query；/continue 接交接單前段）；整則是背景通知就不檢索、不注入
+（harness_text.non_human_kind），前置閘與收尾記帳照跑；整則是其他 session 的訊息就用訊息正文檢索（harness_text.peer_message_text）。
 
 本檔保留收尾職責：blind-spot reporter、fix escalation、evasion 舉證、
 handoff 提醒、failure-triggered extraction、topic tracking、sync reminders、
@@ -31,7 +31,7 @@ from wg_core import (
     _atom_debug_log, _atom_debug_error, WORKFLOW_DIR, v6_enabled, coding_turn,
     DEFAULTS as CORE_DEFAULTS,  # config 缺鍵時的預設只認 wg_core 那一份
 )
-from harness_text import IDE_TAG_NAMES, non_human_kind, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
+from harness_text import IDE_TAG_NAMES, non_human_kind, peer_message_text, strip_harness_blocks, user_typed_text  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
     classify_intent,
     compute_token_budget,
@@ -181,12 +181,22 @@ def handle_user_prompt_submit(
     )
     _hook_lap("前置閘")
 
-    # 規則 NON_HUMAN_PROMPT_NO_INJECT：整則是背景任務通知或其他 session 的訊息（剔掉這些區塊後沒有使用者打的字）→
+    # 規則 NON_HUMAN_PROMPT_NO_INJECT：整則是背景任務通知、或沒有正文的同伴閒置／送達通知（剔掉這些區塊後沒有使用者打的字）→
     # 脈絡段、記憶檢索、注入組裝這次不跑（前置閘、退避舉證、修復升級、收尾記帳照做），留帳 event=skip_inject。
     # 夾著使用者打的字就照常注入，查詢只用使用者打的字（retrieval_query）。
+    # 規則 PEER_MESSAGE_INJECT_FROM_BODY：其他 session 的訊息是這個 session 的工作來源 → 用訊息正文檢索，留帳 event=peer_query；
+    # 正文只當查詢：使用者原話（typed）、意圖、口令都不吃它。
     typed = user_typed_text(prompt)
-    skip_reason = non_human_kind(prompt)
-    if skip_reason:
+    non_human = non_human_kind(prompt)
+    peer_text = peer_message_text(prompt) if non_human == "peer" else ""
+    skip_reason = "" if peer_text else non_human
+    if peer_text:
+        append_guard_log(INJECT_GUARD_LOG, {
+            "session_id": session_id, "event": "peer_query",
+            "turn_seq": int(state.get("turn_seq", 0)) + 1, "chars": len(peer_text),
+        })
+        query = peer_text
+    elif skip_reason:
         append_guard_log(INJECT_GUARD_LOG, {
             "session_id": session_id, "event": "skip_inject", "reason": skip_reason,
             "turn_seq": int(state.get("turn_seq", 0)) + 1, "chars": len(prompt),
@@ -202,7 +212,8 @@ def handle_user_prompt_submit(
     # lines 的保留量後的餘額（只供它內部的 JIT 判斷）。最終裁切量的是整包 lines，所以要用
     # 總額——以前拿餘額當上限，episodic/JIT 等於被扣兩次。
     # 原文與查詢文字取大：一般回合查詢是原文的一部分、額度照原文；/continue 的查詢接了交接單、比原文長。
-    budget_total = max(compute_token_budget(prompt), compute_token_budget(query))
+    # 同伴訊息只照正文算：harness 的包裝不是內容，不該把額度墊高一級。
+    budget_total = compute_token_budget(query) if peer_text else max(compute_token_budget(prompt), compute_token_budget(query))
     if not (_hook_degraded() or skip_reason):
         build_context(
             session_id, state, config, query, clean_prompt, query_lower,
@@ -260,7 +271,7 @@ def handle_user_prompt_submit(
         state["evasion_flag"] = None
 
     # Handoff Protocol（通知、同伴訊息沿用上一則的意圖，不再重提）
-    if intent == "handoff" and not skip_reason:
+    if intent == "handoff" and not non_human:
         lines.append(
             "[Guardian:Handoff] 偵測到 handoff 意圖。"
             "接手的 session 裡的 Claude 不會看到本次對話脈絡。"
