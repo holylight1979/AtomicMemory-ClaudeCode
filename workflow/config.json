@@ -81,7 +81,7 @@
     "search_timeout_ms": 3500,
     "auto_start_service": true,
     "auto_index_on_change": true,
-    "global_layer": "bm25",
+    "global_layer": "vector",
     "bm25_min_score": 7.0,
     "bm25_top_k": 3,
     "fusion": "rrf",

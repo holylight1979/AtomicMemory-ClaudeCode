@@ -328,7 +328,7 @@ V5 引入 in-memory BM25 替代全域層，**保留 vector 給專案層**（atom
   2. BM25 全域層（≤2 trigger 命中時觸發；min_score=7.0；top_k=3）
   3. Vector（trigger/BM25 全空 → 全層 fallback；命中 >0 且存在專案層 atom 且 trigger 命中 <3 → 專案層 enrichment，結果只取專案層）
   4. **RRF 三路融合**（§14）：trigger/BM25/vector 三路 rank 融合 × activation 調節
-- **workflow/config.json** — `vector_search.global_layer: "bm25"` + `bm25_min_score: 7.0`（memory-eval 回歸集調參：3.5 時負例誤注入 21.4% → 7.0 歸零、R@3 僅 -1.5pt）+ `bm25_top_k: 3` + `fusion: "rrf"`
+- **workflow/config.json** — `vector_search.global_layer: "vector"`（全域層走向量，這次沒結果退回 BM25）+ `bm25_min_score: 7.0`（memory-eval 回歸集調參：3.5 時負例誤注入 21.4% → 7.0 歸零、R@3 僅 -1.5pt）+ `bm25_top_k: 3` + `fusion: "rrf"`
 
 ### 6.2 Vector Service 角色（保留）
 

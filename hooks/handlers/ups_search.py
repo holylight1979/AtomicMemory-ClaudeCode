@@ -324,29 +324,33 @@ def collect_matched_atoms(
     kw_matched_names = {e[0][0] for e in matched_with_dir}
     trigger_hit_count = len(matched_with_dir)  # 純 trigger 命中數（BM25 合併前快照）
 
-    # BM25 over global layer (replaces vector round-trip for global atoms).
-    # Only run if no/few trigger hits (≤2). Project layer still uses vector below.
+    # 全域層的 BM25 路：global_layer=bm25 時在這裡先跑；其他值（出廠 vector）等向量問過、這次沒結果才跑。
     vs_cfg = config.get("vector_search", {})
     bm25_route: List[str] = []  # RRF bm25 路（bm25_match 已依分數排序、min_score 已過濾）
     # BM25 只在 trigger 命中 ≤N 顆時補位（預設 2）。config vector_search.bm25_gate_max_trigger_hits
     # 可調：設很大＝每輪都跑（≈10ms），讓 BM25 當獨立排序證據進 RRF 而非只補位——
     # 對齊評估器分開量它的收益後再決定預設值。
     bm25_gate = int(vs_cfg.get("bm25_gate_max_trigger_hits", 2))
-    if vs_cfg.get("global_layer", "bm25") == "bm25" and len(matched_with_dir) <= bm25_gate:
+    def bm25_over_global_layer() -> List[str]:
+        """對全域層跑 BM25，命中併進候選，回 RRF 用的排序。"""
         global_atoms = [e for e in all_atoms if e[1] == MEMORY_DIR.parent]
-        if global_atoms:
-            global_entries = [e[0] for e in global_atoms]
-            bm25_hits = bm25_match(
-                prompt, global_entries,
-                min_score=vs_cfg.get("bm25_min_score", BM25_MIN_SCORE_DEFAULT),
-                top_k=vs_cfg.get("bm25_top_k", 3),
+        if not global_atoms:
+            return []
+        bm25_hits = bm25_match(
+            prompt, [e[0] for e in global_atoms],
+            min_score=vs_cfg.get("bm25_min_score", BM25_MIN_SCORE_DEFAULT),
+            top_k=vs_cfg.get("bm25_top_k", 3),
+        )
+        for entry in bm25_hits:
+            _merge_hit(
+                entry[0], global_atoms, "bm25",
+                matched_with_dir, atom_source, kw_matched_names, already_injected,
             )
-            bm25_route = [entry[0] for entry in bm25_hits]
-            for entry in bm25_hits:
-                _merge_hit(
-                    entry[0], global_atoms, "bm25",
-                    matched_with_dir, atom_source, kw_matched_names, already_injected,
-                )
+        return [entry[0] for entry in bm25_hits]
+
+    global_layer_uses_bm25 = vs_cfg.get("global_layer", "bm25") == "bm25"
+    if global_layer_uses_bm25 and len(matched_with_dir) <= bm25_gate:
+        bm25_route = bm25_over_global_layer()
 
     # 向量路可見性：layers 白名單＝候選池同一套（global + 本專案 shared + 本人 role/personal）。
     # 管理職不豁免——管理職多的是待審清單，不是別人的 personal（SPEC §8.2）。
@@ -361,11 +365,10 @@ def collect_matched_atoms(
         include_local=bool(_sess_cwd) and _is_under_claude_dir(_sess_cwd),
         extra_layers=_org_layers,
     )
-    # Vector 兩用途：hits=0 → 全層 fallback；hits>0 → 專案層 enrichment
-    #（trigger/BM25 只擅長全域層關鍵詞，專案層語意近似仍值得補充；
-    #  結果仍受 assemble 端 TURN_BUDGET_LIMIT 硬頂與服務端 min_score 約束）。
-    # enrichment 前置條件：trigger 已命中 ≥3（keyword 訊號充足）就不再為專案層
-    # 每 prompt 打 vector round-trip（省 200-500ms；召回缺口由 trigger 命中兜底）。
+    # 向量什麼時候問：global_layer 不是 bm25（出廠 vector）→ 每句都問，涵蓋全域層與專案層。
+    # global_layer=bm25 → 兩種情況才問：trigger＋BM25 全空（全層 fallback）；
+    # 有專案層卡且 trigger 命中 <3（只補專案層；trigger/BM25 只擅長全域層關鍵詞）。
+    # 結果仍受 assemble 端 TURN_BUDGET_LIMIT 硬頂與服務端 min_score 約束。
     project_atoms = [e for e in all_atoms if e[1] != MEMORY_DIR.parent]
     full_fallback = (
         len(matched_with_dir) == 0 or vs_cfg.get("global_layer") != "bm25"
@@ -378,6 +381,9 @@ def collect_matched_atoms(
         )
     else:
         sem_atoms = []
+    # 全域層走向量但這次沒結果（服務沒起來、逾時、沒命中）：退回 BM25，不讓全域層只剩 trigger
+    if not global_layer_uses_bm25 and not sem_atoms and len(matched_with_dir) <= bm25_gate:
+        bm25_route = bm25_over_global_layer()
     if not full_fallback and sem_atoms:
         # enrichment 模式：只取專案層命中，全域層交給 trigger/BM25
         project_names = {e[0][0] for e in project_atoms}

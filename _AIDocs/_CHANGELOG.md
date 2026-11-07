@@ -4,6 +4,10 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-11-07 全域層打開向量：每句都問向量，向量沒結果退回 BM25
+- `vector_search.global_layer` 出廠改 `vector`；`ups_search` 加 BM25 退路，向量服務沒起來、逾時或沒命中時全域層不會只剩 trigger。換句話題路標送達 51.8% → 71.4%，字面題不退步；相關文件同步。
+
+---
 ## 2026-11-06 MCP smoke 的工具名單補 atom_feedback，總數改對名單長度
 - `tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js` 名單漏列 11-05 新增的 `atom_feedback`、又寫死「剛好 9 個」，server 實際 10 個 → smoke 誤紅。改成名單加 `atom_feedback`、總數比對 `EXPECTED_TOOLS.length`，以後加工具只改名單。驗證：`MCP_SMOKE_CHECK PASS`（31 項）。
 

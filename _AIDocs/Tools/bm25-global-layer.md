@@ -1,28 +1,19 @@
-# BM25 Global Layer — 全域 Atom 檢索（V5 P5a）
+# BM25 Global Layer — 全域 Atom 檢索
 
-> V5 Wave 3 P5a 引入：全域 atom 檢索（~17 atoms 規模）從 Vector Service @ 3849 改為 in-memory BM25。
-> 專案層仍走 Vector（可能上百 atoms 規模），不在本檔範圍。
+> 出廠 `vector_search.global_layer: "vector"`：每句先問向量，向量這次沒結果（服務沒起來、逾時、沒命中）才跑 BM25。
+> `global_layer: "bm25"` 時才是 BM25 先跑、向量只補專案層。
 
 ---
 
-## 為什麼是 BM25
+## 為什麼留著 BM25
 
-V4 全域檢索走 Vector Service 流程：
+BM25 in-memory（純 Python 字典 + counter）<10ms、零 daemon；向量服務掛了，全域層靠它撐住，不會只剩 trigger。
 
-```
-prompt → wg_atoms._semantic_search → urllib.request → 127.0.0.1:3849/search/ranked
-       → LanceDB lookup → Ollama re-rank → top-k atoms
-```
-
-每查一次 200–500ms。全域只有 17 atoms，傷不起這延遲，也養不起 LanceDB + Ollama 兩個 daemon 的維運成本。BM25 in-memory（純 Python 字典 + counter）<10ms，零 daemon。
-
-V5 拆三層：
-
-| 層 | 規模 | 機制 | 延遲 |
-|---|------|------|------|
-| Trigger | 17 atoms | exact match in `_atom_index.json` triggers | <1ms |
-| **BM25**（全域） | 17 atoms | in-memory bag-of-words, k1=1.2, b=0.75 | <10ms |
-| Vector（專案層 / episodic / cross-session） | 數十–上百 atoms / chunks | LanceDB + Ollama | 200–500ms |
+| 層 | 機制 | 延遲 |
+|---|------|------|
+| Trigger | exact match in `_atom_index.json` triggers | <1ms |
+| **BM25**（全域） | in-memory bag-of-words, k1=1.2, b=0.75 | <10ms |
+| Vector（全域層與專案層） | LanceDB + Ollama | 單次中位數約 0.6 秒 |
 
 ---
 
@@ -51,27 +42,26 @@ def bm25_match(prompt: str, atom_entries) -> list[tuple[name, score]]:
 
 ```
 1. trigger match in _atom_index.json
-2. if trigger hits <= 2:
-      bm25_results = bm25_match(prompt, atom_entries)
-      filter score >= bm25_min_score (default 1.0)
-      take top bm25_top_k (default 3)
-3. if (trigger + bm25) hits == 0 AND vector_search.global_layer != "bm25":
+2. global_layer=vector（出廠）：
       vector_results = _semantic_search(prompt, ...)
-4. merge → ACT-R rank → budget cap → inject
+      這次沒結果 → bm25_results = bm25_match(prompt, global_atoms)，分數 >= bm25_min_score，取前 bm25_top_k
+   global_layer=bm25：
+      bm25_results 先跑；trigger + bm25 全空，或有專案層卡且 trigger 命中 < 3，才問向量
+3. merge → RRF → budget cap → inject
 ```
 
 ### Config
 
 ```json
 "vector_search": {
-  "global_layer": "bm25",
-  "bm25_min_score": 1.0,
+  "global_layer": "vector",
+  "bm25_min_score": 7.0,
   "bm25_top_k": 3,
   ...
 }
 ```
 
-切回 vector：`global_layer: "vector"`（保留 escape hatch，未實測退化）。
+全域層只走 BM25：`global_layer: "bm25"`。
 
 ---
 
@@ -117,7 +107,7 @@ Vector Service @ 3849 **不退役**，仍是專案層/episodic/cross-session 的
 
 | 場景 | 用 BM25 | 用 Vector |
 |------|---------|-----------|
-| 全域 atom trigger match | ✓ | （fallback） |
+| 全域 atom | 向量這次沒結果才跑 | ✓ |
 | 專案層 atom（>30 個）| | ✓ |
 | Episodic past sessions | | ✓ |
 | Cross-session dedup / 衝突偵測 | | ✓ |

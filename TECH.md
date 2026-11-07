@@ -758,7 +758,7 @@ SessionStart（session_start._org_advisory）
 ```text
 候選池（global + org + 當前專案，依 scope 可見性收窄）
   → 跨專案 alias（只帶他專案 MEMORY.md 目錄）
-  → 三路並行：trigger ／ BM25 ／ vector（vector 只在條件成立時打）
+  → 三路：trigger ／ vector（出廠每句都打）／ BM25（向量這次沒結果才跑；`global_layer: bm25` 時改成每輪都跑）
   → supersedes（剔除被取代的舊 atom）
   → RRF（把三路排名合成一個排名的公式）
   → 活化調節（activation）
@@ -776,8 +776,8 @@ SessionStart（session_start._org_advisory）
 | 1 | 索引組裝 | 取 SessionStart 建好的候選池，依 scope 可見性收窄 | 六條檢索路共用此池 |
 | 2 | 跨專案 alias | prompt 命中他專案別名 → 只帶該專案 MEMORY.md 目錄 | 上限 20 專案 |
 | 3 | trigger | 逐 atom 比 Trigger 欄 | ~10ms |
-| 4 | BM25 | 每輪都跑，當獨立排序證據進 RRF | `bm25_min_score` 7.0、top 3 |
-| 5 | vector | 兩種情況才打 :3849，且帶 `layers` 白名單 | top_k 5、min_score 0.65、timeout 3500ms |
+| 4 | BM25 | 出廠：向量這次沒結果才跑；`global_layer: bm25` 時每輪都跑，當獨立排序證據進 RRF | `bm25_min_score` 7.0、top 3 |
+| 5 | vector | 出廠每句都打 :3849（`global_layer: bm25` 時才限兩種情況），且帶 `layers` 白名單 | top_k 5、min_score 0.65、timeout 3500ms |
 | 6 | supersedes | 候選池先剔除被 `Supersedes` 指到的舊 atom | 明確要看舊做法才放行 |
 | 7 | RRF 融合 | 三路各自排名 → `Σ 1/(60+rank)` | `RRF_K_DEFAULT` 60 |
 | 8 | 活化調節 | `final = rrf × exp(gain × activation_rank)`，再減分心懲罰 | gain 0（[為什麼](#為什麼活化增益歸零)） |
@@ -796,8 +796,8 @@ SessionStart（session_start._org_advisory）
 
 ### 5.2 深度解說：每個設計的意義
 
-- **為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->748<!-- /atom-total --> 顆，trigger + BM25 就夠，省下每次 200–500ms 的 embedding round-trip 與常駐服務依賴。
-- **為什麼 BM25 改成每輪跑**：BM25 提供獨立排序證據，R@1 再 +1.2pp；剔除請求框架 bigram 後負例誤注入 31.8% → 4.5%。
+- **為什麼全域層也走向量**：全域索引共 <!-- atom-total -->748<!-- /atom-total --> 顆，換句話問時卡片原詞對不上，trigger 和 BM25 找不到。56 題換句話題路標送達 51.8% → 71.4%、字面題不退步；代價是每句多一次 embedding 查詢（單次中位數約 0.6 秒）。向量這次沒結果就退回 BM25。
+- **`global_layer: bm25` 時為什麼 BM25 每輪跑**：BM25 提供獨立排序證據，R@1 再 +1.2pp；剔除請求框架 bigram 後負例誤注入 31.8% → 4.5%。
 - **為什麼 RRF 而不是序列 fallback**：三路都出排名再融合，後段路才有機會補前段漏的；Recall@1 34 → 53.6%、MRR 0.584 → 0.709。
 - **為什麼活化增益歸零**：activation 乘進 RRF 會壓過相關性；gain 0.25 → 0 讓 R@1 45.1% → 81.1%、MRR 0.639 → 0.870。
 - **為什麼 activation 負值不等於負相關**：`ln(Σ t^-d)` 是對數，負值只代表久沒用；無 access 紀錄的新 atom 回中性 0.0。
@@ -831,8 +831,8 @@ SessionStart（session_start._org_advisory）
 | 路 | 訊號 | 精度／召回 | 成本與觸發條件 |
 |----|------|------|---------|
 | trigger | 人寫關鍵字 | 精度高；召回低（措辭不同就漏） | ~10ms；恆跑 |
-| BM25 | 詞頻統計（卡名＋trigger） | 精度中；召回中 | 中位 ~8ms；每輪跑，只算全域索引 |
-| vector | 語意 embedding | 精度中（min_score 0.65 過濾）；召回高 | 200–500ms + 服務依賴；全空 fallback 或專案層補充 |
+| BM25 | 詞頻統計（卡名＋trigger） | 精度中；召回中 | 中位 ~8ms；出廠向量沒結果才跑（`global_layer: bm25` 時每輪跑），只算全域索引 |
+| vector | 語意 embedding | 精度中（min_score 0.65 過濾）；召回高 | 單次中位數約 0.6 秒 + 服務依賴；出廠每句都打（`global_layer: bm25` 時才限全空 fallback 或專案層補充） |
 
 ### 5.5 降級策略
 
@@ -1666,7 +1666,7 @@ python tools/ollama_client.py --trace off
 | Python 3.10+ | 全部 hook、[`lib/`](lib/)、[`tools/`](tools/)、statusline；唯一硬依賴 | 記憶系統整個不啟動，原生功能不受影響 |
 | Node.js ≥ 18 | MCP server、Dashboard、HUD | 不註冊 MCP；網頁介面不可用；hooks 照常 |
 | Git | Stop 同步閘、未 push advisory、vcs-sync | 同步閘跳過，其餘閘門不受影響 |
-| Ollama（本地 daemon） | 向量嵌入與所有 LLM 萃取 | 向量服務起不來；專案層檢索只剩 trigger／BM25 |
+| Ollama（本地 daemon） | 向量嵌入與所有 LLM 萃取 | 向量服務起不來；全域層退回 trigger＋BM25，專案層只剩 trigger |
 | 模型 `qwen3-embedding` | 向量嵌入 | 向量層跳過 |
 | 模型 `qwen3:1.7b` | 本地快篩 LLM | 該類萃取跳過 |
 | 模型 `gemma4:e4b` | 主萃取 LLM | 只剩 Claude 顯式寫入與失敗關鍵字偵測 |
@@ -2044,7 +2044,7 @@ AI 的行為契約與「這個人是誰」分成兩個檔，多人共用同一�
 
 - 每專案 `{project}/.claude/memory/` 是獨立 atom 空間，放架構決策、踩坑、convention。
 - 全域層只放跨專案共通。
-- 檢索：專案層走 vector（atom 可上百），全域層走 BM25。
+- 檢索：全域層與專案層都走 vector；向量這次沒結果，全域層退回 BM25。
 - 專案 `hooks/project_hooks.py` 為 delegate。
 - 專案自訂 Lv1 只經 `shared/_taxonomy.json`。
 
@@ -2890,8 +2890,8 @@ flowchart TD
 - 耗時 ~10ms。
 
 #### 第 4 段：BM25
-- **每輪都跑**：`bm25_gate_max_trigger_hits` 999；設 2 回到「只在 trigger ≤2 命中時補位」。
-- 當獨立排序證據進 RRF。
+- **`global_layer: vector`（出廠）**：向量這次有結果就不跑；沒結果才跑，補全域層。
+- **`global_layer: bm25`**：每輪都跑（`bm25_gate_max_trigger_hits` 999；設 2 回到「只在 trigger ≤2 命中時補位」），當獨立排序證據進 RRF。
 - 只算全域索引（core＋local）；公司層與專案層不跑 BM25，靠 trigger 與 vector。
 - 每顆的文件內容是卡名＋Trigger 清單，不是知識全文。
 - 參數：`bm25_min_score` 7.0、top 3；k1=1.2、b=0.75。
@@ -2899,7 +2899,8 @@ flowchart TD
 - **剔除請求框架 bigram**（幫我／我想／請你／一下…，`_BM25_CJK_STOP`）。
 
 #### 第 5 段：vector
-- **兩種情況才打 :3849**：
+- **`global_layer: vector`（出廠）每句都打 :3849**，結果涵蓋全域層與專案層；這次沒結果（服務沒起來、逾時、沒命中）就退回第 4 段的 BM25。
+- **`global_layer: bm25` 時只有兩種情況才打**：
   - (a) trigger+BM25 全空 → 全域 fallback。
   - (b) 有專案層 atom 且 trigger 命中 <3 → 只補專案層。
 - 一律帶 `layers` 白名單：候選池同一套可見性；org 另以 `extra_layers` 帶 `shared:<org slug>`。
@@ -2970,14 +2971,16 @@ flowchart TD
 
 [↑ 主文 §5.2](#52-深度解說每個設計的意義)
 
-#### 為什麼全域層用 BM25 不用向量
-- 全域索引共 682 顆（含 local realm），向量檢索是殺雞用牛刀。
-- 每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴。
-- 換來的語意召回在這個規模下，用 trigger + BM25 就夠。
-- BM25 純 Python stdlib、~80 行手刻、無外部依賴；向量服務掛了全域檢索照常。
-- 專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+#### 為什麼全域層也走向量
+- trigger 與 BM25 靠字面命中；使用者換句話問，卡片原詞對不上就找不到。
+- 56 題換句話題（題目不含卡片原詞）實測：路標送達 51.8% → 71.4%、全文送達 7.1% → 16.1%。
+- 字面題不退步：全文送達 74.6% → 76.6%；負例全文誤注入 3 題 → 1 題；平均注入 token 少約 150。
+- 代價是每句多一次 embedding 查詢（單次中位數約 0.6 秒，逾時 3500ms）與常駐服務依賴。
+- 向量這次沒結果（服務沒起來、逾時、沒命中）就退回 BM25，全域層不會只剩 trigger。
+- 向量有結果時這一句不跑 BM25，所以 BM25 不再是每句都有的獨立排序證據。
+- 要回到全域層只走 BM25：`vector_search.global_layer: "bm25"`。
 
-#### 為什麼 BM25 改成每輪跑
+#### `global_layer: bm25` 時為什麼 BM25 每輪跑
 - 以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。
 - 對齊評估器（[§5.6](#56-回歸評估集)）在同一凍結時鐘下量：
   - R@1 再 +1.2pp、MRR +0.005。

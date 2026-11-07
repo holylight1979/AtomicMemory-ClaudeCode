@@ -2586,6 +2586,12 @@ def _semantic_search(
         )
         return entries
     except Exception as e:
+        # 連不上＝服務掛了：拿掉就緒旗標，下一句走 _ensure_vector_ready 自癒（重踢＋最多等 0.3 秒），不再每句白等連線失敗
+        if isinstance(getattr(e, "reason", None), ConnectionRefusedError):
+            try:
+                (WORKFLOW_DIR / "vector_ready.flag").unlink(missing_ok=True)
+            except OSError as flag_err:
+                _atom_debug_error("注入:_semantic_search:flag", flag_err)
         _atom_debug_error("注入:_semantic_search", e)
         _log_vector_obs(
             session_id, "_semantic_search", "error", 0, True,

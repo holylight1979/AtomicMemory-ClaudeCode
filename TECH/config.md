@@ -125,7 +125,7 @@
 | `taxonomy.gate_enabled` | true | create 缺 domain 拒寫 |
 | `taxonomy.llm_fallback.enabled` / `realm.llm_fallback.enabled` | false / false | 分類只跑決定性詞庫 |
 | `vector_search.enabled` / `service_port` | true / 3849 | 向量服務 |
-| `vector_search.global_layer` / `fusion` | bm25 / rrf | 全域層演算法／融合策略（legacy 回退） |
+| `vector_search.global_layer` / `fusion` | vector / rrf | 全域層演算法／融合策略 |
 | `vector_search.bm25_min_score` / `bm25_top_k` | 7.0 / 3 | BM25 入場 |
 | `vector_search.search_top_k` / `search_min_score` / `search_timeout_ms` | 5 / 0.65 / 3500 | vector 入場 |
 | `vector_search.fallback_backend` / `fallback_model` | sentence-transformers / BAAI/bge-m3 | 無 Ollama 時的 embedder |
@@ -308,7 +308,7 @@
 | 鍵 | 關了少什麼 |
 |----|-----------|
 | `vector_search.enabled` | 語意搜尋（保留 trigger + BM25） |
-| `vector_search.global_layer` | 值 `"bm25"`（預設）或 `"vector"`；全域層改走向量 |
+| `vector_search.global_layer` | 值 `"vector"`（預設，全域層走向量；這次沒結果就退回 BM25）或 `"bm25"`（全域層只走 BM25，向量只補專案層） |
 | `vector_search.auto_start_service` | SessionStart 不再自動起向量服務 |
 | `injection.redundancy_gate.enabled` | 同題去冗 |
 | `injection.related_gate.enabled` | related atom 擴散注入 |
